@@ -16,7 +16,7 @@ assert_exit() {
   local expected="$2"
   local msg="$3"
 
-  echo "$msg" | "$CHECKER" - >/dev/null 2>&1
+  printf '%s\n' "$msg" | "$CHECKER" - >/dev/null 2>&1
   local actual=$?
 
   if [ "$actual" -eq "$expected" ]; then

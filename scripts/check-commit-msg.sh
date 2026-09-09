@@ -31,8 +31,11 @@ fi
 # 去掉注释行（git 会忽略 # 开头的行）
 MSG="$(printf '%s\n' "$MSG" | sed '/^#/d')"
 
-# 去掉首尾的空白行（保留正文中间的空行，用于后续「标题/正文空行」校验）
-MSG="$(printf '%s\n' "$MSG" | sed -e '1{/^[[:space:]]*$/d;}' -e '${/^[[:space:]]*$/d;}')"
+# 去掉开头的空白行（这样第一行一定是 header）。
+# 注意：不能用 sed '1{/re/d;}' 花括号地址块语法，GNU sed 会误删所有匹配行。
+# 用经典 idiom '/[^[:space:]]/,$!d'：删除第一个非空行之前的所有行。
+# 结尾的空白行无需处理，不影响后续 header/正文 校验。
+MSG="$(printf '%s\n' "$MSG" | sed '/[^[:space:]]/,$!d')"
 
 if [ -z "$MSG" ]; then
   echo "错误：commit message 为空" >&2
