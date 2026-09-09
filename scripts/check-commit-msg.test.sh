@@ -24,7 +24,7 @@ assert_exit() {
     PASS=$((PASS + 1))
   else
     echo "  ✗ $desc  (期望退出码 $expected，实际 $actual)"
-    echo "    输入: $(printf '%s' "$msg" | head -1)"
+    echo "    输入字节: $(printf '%s' "$msg" | od -c | head -2)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -40,8 +40,11 @@ assert_exit "chore: 杂项" 0 "chore(deps): 升级 egui 到 0.31"
 assert_exit "revert: 回滚" 0 "revert: 回滚上一次提交"
 assert_exit "破坏性变更 !" 0 "feat!: 破坏性 API 变更"
 assert_exit "scope 带数字和点" 0 "fix(ci.yml): 修复流水线配置"
-assert_exit "正文与标题间有空行" 0 "feat: 标题"$'\n\n'"这里是正文内容"
-assert_exit "多行正文" 0 "feat: 标题"$'\n\n'"正文第一行"$'\n'"正文第二行"
+# 多行用例：用 printf 命令构造换行符，避免 $'...' 引号在不同 bash 版本下的差异
+MSG_BODY_BLANK="$(printf 'feat: 标题\n\n这里是正文内容')"
+assert_exit "正文与标题间有空行" 0 "$MSG_BODY_BLANK"
+MSG_MULTILINE="$(printf 'feat: 标题\n\n正文第一行\n正文第二行')"
+assert_exit "多行正文" 0 "$MSG_MULTILINE"
 
 echo ""
 echo "-- 非法用例（应拒绝，退出码非 0）--"
@@ -64,7 +67,8 @@ assert_exit "header 恰好 72 字符" 0 "$local_72"
 local_73="feat: $(printf 'a%.0s' {1..67})"
 assert_exit "header 超过 72 字符" 1 "$local_73"
 # 标题与正文之间无空行（应拒绝）
-assert_exit "标题后无空行直接跟正文" 1 "feat: 标题"$'\n'"直接正文无空行"
+MSG_NO_BLANK="$(printf 'feat: 标题\n直接正文无空行')"
+assert_exit "标题后无空行直接跟正文" 1 "$MSG_NO_BLANK"
 # subject 过短（< 3 字符，应拒绝）
 assert_exit "subject 过短(1字符)" 1 "feat: a"
 assert_exit "subject 过短(2字符)" 1 "fix: ab"
