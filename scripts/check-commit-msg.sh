@@ -58,6 +58,16 @@ if ! printf '%s' "$HEADER" | grep -Eq "^(${ALLOWED_TYPES})(\([a-zA-Z0-9._-]+\))?
   exit 1
 fi
 
+# ---- 校验 subject 最小长度 ----
+# 提取 subject 部分（去掉 "type(scope)!: " 前缀）
+SUBJECT="$(printf '%s' "$HEADER" | sed -E 's/^[a-z]+(\([a-zA-Z0-9._-]+\))?!?: //')"
+SUBJECT_LEN="${#SUBJECT}"
+if [ "$SUBJECT_LEN" -lt "$MIN_SUBJECT_LEN" ]; then
+  echo "错误：commit 标题的主题过短（${SUBJECT_LEN} 字符，至少 ${MIN_SUBJECT_LEN}）" >&2
+  echo "  你提交的是: ${HEADER}" >&2
+  exit 1
+fi
+
 # ---- 校验 subject 长度 ----
 HEADER_LEN="${#HEADER}"
 if [ "$HEADER_LEN" -gt "$MAX_SUBJECT_LEN" ]; then

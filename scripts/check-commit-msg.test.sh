@@ -65,6 +65,11 @@ local_73="feat: $(printf 'a%.0s' {1..67})"
 assert_exit "header 超过 72 字符" 1 "$local_73"
 # 标题与正文之间无空行（应拒绝）
 assert_exit "标题后无空行直接跟正文" 1 "feat: 标题"$'\n'"直接正文无空行"
+# subject 过短（< 3 字符，应拒绝）
+assert_exit "subject 过短(1字符)" 1 "feat: a"
+assert_exit "subject 过短(2字符)" 1 "fix: ab"
+# subject 恰好 3 字符（应通过）
+assert_exit "subject 恰好 3 字符" 0 "feat: abc"
 
 echo ""
 echo "== 测试结果 =="

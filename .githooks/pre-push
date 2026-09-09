@@ -18,7 +18,15 @@ if command -v just >/dev/null 2>&1; then
   echo "  ✓ 质量门禁通过，允许推送"
 elif command -v cargo >/dev/null 2>&1; then
   echo "  警告: just 未安装，退回 cargo 直接检查"
-  if ! cargo fmt --check && cargo clippy -- -D warnings && cargo test; then
+  if ! cargo fmt --all -- --check; then
+    echo "✗ 质量门禁未通过，已阻止推送" >&2
+    exit 1
+  fi
+  if ! cargo clippy --all-targets -- -D warnings; then
+    echo "✗ 质量门禁未通过，已阻止推送" >&2
+    exit 1
+  fi
+  if ! cargo test; then
     echo "✗ 质量门禁未通过，已阻止推送" >&2
     exit 1
   fi

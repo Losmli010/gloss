@@ -8,7 +8,7 @@ cd "$ROOT_DIR"
 
 # 1. 给 hook 脚本加执行权限
 chmod +x .githooks/pre-commit .githooks/commit-msg .githooks/pre-push
-chmod +x scripts/check-commit-msg.sh
+chmod +x scripts/check-commit-msg.sh scripts/check-commit-msg.test.sh
 
 # 2. 设置 hooksPath 指向 .githooks
 git config core.hooksPath .githooks

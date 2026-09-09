@@ -19,6 +19,7 @@ jobs:
 
   commitlint:
     name: Commit message check
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
