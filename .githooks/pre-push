@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# pre-push hook：推送前跑完整质量门禁（fmt + clippy + test）
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+echo "→ pre-push: 运行质量门禁（fmt + clippy + test）..."
+export PATH="$HOME/.cargo/bin:$PATH"
+
+if command -v just >/dev/null 2>&1; then
+  if ! just check; then
+    echo "" >&2
+    echo "✗ 质量门禁未通过，已阻止推送" >&2
+    echo "  请修复后重试，或用 'git push --no-verify' 强制跳过（不推荐）" >&2
+    exit 1
+  fi
+  echo "  ✓ 质量门禁通过，允许推送"
+elif command -v cargo >/dev/null 2>&1; then
+  echo "  警告: just 未安装，退回 cargo 直接检查"
+  if ! cargo fmt --all -- --check; then
+    echo "✗ 质量门禁未通过，已阻止推送" >&2
+    exit 1
+  fi
+  if ! cargo clippy --all-targets -- -D warnings; then
+    echo "✗ 质量门禁未通过，已阻止推送" >&2
+    exit 1
+  fi
+  if ! cargo test; then
+    echo "✗ 质量门禁未通过，已阻止推送" >&2
+    exit 1
+  fi
+else
+  echo "  警告: 未检测到 cargo/just，跳过质量门禁"
+fi

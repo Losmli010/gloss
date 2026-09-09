@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# commit-msg hook：校验 commit message 符合 Conventional Commits
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+
+# 调用共享校验脚本（$1 是 git 传入的 commit message 临时文件路径）
+"$ROOT_DIR/scripts/check-commit-msg.sh" "$1"

@@ -83,6 +83,10 @@ clean:
 
 # ---- 辅助 ----
 
+# 安装本地 git hooks（clone 后运行一次）
+install-hooks:
+    ./scripts/install-hooks.sh
+
 # 列出所有依赖树
 deps:
     cargo tree
