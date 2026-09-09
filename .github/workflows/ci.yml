@@ -44,15 +44,19 @@ jobs:
 
       - name: Validate commit messages
         run: |
-          # 校验本次 push/PR 引入的所有 commit message
-          # 对 PR：比较 base 与 head；对 push：比较 push 前一个 commit
+          # 校验本次 PR 引入的所有 commit message（跳过 merge commit）
+          # PR 场景：比较 base 与 head 分支的实际提交
+          # push 场景：比较 push 前后
           if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           else
             BASE="${{ github.event.before }}"
+            HEAD_SHA="${{ github.event.after }}"
           fi
-          git fetch origin "$BASE" --depth=1 2>/dev/null || true
-          git log --format="%H" "$BASE..HEAD" | while read sha; do
+          git fetch origin "$BASE" "$HEAD_SHA" --depth=100 2>/dev/null || true
+          # --no-merges 跳过 merge commit，避免 GitHub 自动生成的 "Merge ... into ..." 被误判
+          git log --no-merges --format="%H" "$BASE..$HEAD_SHA" | while read sha; do
             msg="$(git log -1 --format=%B "$sha")"
             echo "检查 commit $sha"
             echo "$msg" | ./scripts/check-commit-msg.sh -
