@@ -29,7 +29,10 @@ else
 fi
 
 # 去掉注释行（git 会忽略 # 开头的行）
-MSG="$(printf '%s\n' "$MSG" | sed '/^#/d' | sed '/^[[:space:]]*$/d')"
+MSG="$(printf '%s\n' "$MSG" | sed '/^#/d')"
+
+# 去掉首尾的空白行（保留正文中间的空行，用于后续「标题/正文空行」校验）
+MSG="$(printf '%s\n' "$MSG" | sed -e '1{/^[[:space:]]*$/d;}' -e '${/^[[:space:]]*$/d;}')"
 
 if [ -z "$MSG" ]; then
   echo "错误：commit message 为空" >&2

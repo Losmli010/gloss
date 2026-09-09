@@ -91,6 +91,10 @@ install-hooks:
 check-commit msg:
     @echo "{{ msg }}" | ./scripts/check-commit-msg.sh -
 
+# 运行 commit 校验脚本的单元测试
+test-commit-msg:
+    bash tests/test-check-commit-msg.sh
+
 # 列出所有依赖树
 deps:
     cargo tree
