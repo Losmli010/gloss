@@ -16,7 +16,8 @@ assert_exit() {
   local expected="$2"
   local msg="$3"
 
-  printf '%s\n' "$msg" | "$CHECKER" - >/dev/null 2>&1
+  local checker_err
+  checker_err="$(printf '%s\n' "$msg" | "$CHECKER" - 2>&1 >/dev/null)"
   local actual=$?
 
   if [ "$actual" -eq "$expected" ]; then
@@ -25,6 +26,7 @@ assert_exit() {
   else
     echo "  ✗ $desc  (期望退出码 $expected，实际 $actual)"
     echo "    输入字节: $(printf '%s' "$msg" | od -c | head -2)"
+    echo "    checker 输出: $(printf '%s' "$checker_err" | head -2)"
     FAIL=$((FAIL + 1))
   fi
 }
