@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: dmg
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: dmg
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: AppImage
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Install Linux system deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev
+
+      - name: Build release
+        env:
+          GLOSS_VERSION: ${{ github.ref_name }}
+        run: just build-release
+
+      - name: Package (macOS)
+        if: matrix.os == 'macos-latest'
+        env:
+          GLOSS_VERSION: ${{ github.ref_name }}
+        run: |
+          cargo install cargo-bundle
+          cargo bundle --release
+
+      - name: Package (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          GLOSS_VERSION: ${{ github.ref_name }}
+        run: |
+          echo "Linux 打包占位：后续用 appimagetool 或 cargo-deb"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gloss-${{ matrix.target }}
+          path: |
+            target/release/gloss
+            target/release/bundle/**/*
+          if-no-files-found: ignore
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**
+          generate_release_notes: true
