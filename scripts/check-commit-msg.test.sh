@@ -71,11 +71,12 @@ assert_exit "header 超过 72 字符" 1 "$local_73"
 # 标题与正文之间无空行（应拒绝）
 MSG_NO_BLANK="$(printf 'feat: 标题\n直接正文无空行')"
 assert_exit "标题后无空行直接跟正文" 1 "$MSG_NO_BLANK"
-# subject 过短（< 3 字符，应拒绝）
-assert_exit "subject 过短(1字符)" 1 "feat: a"
-assert_exit "subject 过短(2字符)" 1 "fix: ab"
-# subject 恰好 3 字符（应通过）
-assert_exit "subject 恰好 3 字符" 0 "feat: abc"
+# subject 非空即可（中文 2 字也应通过）
+assert_exit "subject 单字符" 0 "feat: a"
+assert_exit "subject 两字符" 0 "fix: ab"
+assert_exit "subject 中文两字" 0 "feat: 标题"
+# subject 为空（冒号后无内容，应拒绝）
+assert_exit "subject 为空" 1 "feat: "
 
 echo ""
 echo "== 测试结果 =="
