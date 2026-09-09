@@ -59,21 +59,19 @@ build:
 build-release:
     cargo build --release
 
-# ---- 发布打包（平台相关）----
+# ---- 发布打包（平台相关，需 cargo-bundle）----
 
-# 生成 macOS 发布包（.app + .dmg）
+# 生成 macOS 发布包（.app + .dmg，当前架构）
 package-macos: build-release
-    @echo "生成 macOS 产物…"
-    # 后续用 cargo-bundle / tauri-bundler 或 xcode 打包，这里先占位
-    @echo "目标：target/release/{{ name }}.app → {{ name }}-{{ version }}-macos.dmg"
+    cargo bundle --release --format osx
 
-# 生成 Linux 发布包（.AppImage / .deb）
+# 生成 Linux 发布包（.deb）
 package-linux: build-release
-    @echo "生成 Linux 产物…"
+    cargo bundle --release --format deb
 
-# 生成 Windows 发布包（.exe，需交叉编译）
+# 生成 Windows 发布包（.msi，需在 Windows 或交叉编译环境）
 package-windows:
-    @echo "生成 Windows 产物（需 cargo cross 或 windows runner）…"
+    cargo bundle --release --format msi
 
 # ---- 清理 ----
 
