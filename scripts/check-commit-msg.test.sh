@@ -3,9 +3,9 @@
 # 覆盖：合法 type、scope、非法 type、空 message、超长 header、正文空行等边界情况。
 set -uo pipefail
 
-# 定位脚本路径
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CHECKER="$SCRIPT_DIR/scripts/check-commit-msg.sh"
+# 定位脚本路径（与源文件同目录）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CHECKER="$SCRIPT_DIR/check-commit-msg.sh"
 
 PASS=0
 FAIL=0
