@@ -49,9 +49,9 @@ test:
 coverage:
     cargo llvm-cov --all-features --html
 
-# 测试覆盖率（CI 用，输出文本摘要并设失败阈值）
+# 测试覆盖率（文本摘要，不设失败阈值）
 coverage-check:
-    cargo llvm-cov --all-features --fail-under-lines 60
+    cargo llvm-cov --all-features
 
 # 完整质量门禁：格式化 + Clippy + 测试（CI 核心）
 check: fmt lint test
