@@ -7,6 +7,17 @@ license = "MIT"
 
 [dependencies]
 
+# cargo-bundle 打包配置（GUI 应用分发包）
+# 用法：cargo bundle --release --format osx   产 macOS .app/.dmg
+#       cargo bundle --release --format deb   产 Linux .deb
+[package.metadata.bundle]
+name = "Gloss"
+identifier = "io.github.losmli010.gloss"
+icon = []
+category = "Utility"
+short_description = "划词翻译工具"
+long_description = "鼠标选中文字，即弹出 LLM 翻译结果。纯 Rust + egui + WebGPU 实现。"
+
 [profile.release]
 opt-level = 3
 lto = true
