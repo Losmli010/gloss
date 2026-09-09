@@ -11,10 +11,8 @@ set -euo pipefail
 # ---- 配置区 ----
 # 允许的 type 前缀
 ALLOWED_TYPES="feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert"
-# subject 最大长度（type + scope + subject 合计）
+# header 最大长度（type + scope + subject 合计，按字节计）
 MAX_SUBJECT_LEN=72
-# 最小 subject 长度（不含 type）
-MIN_SUBJECT_LEN=3
 
 # ---- 读取 commit message ----
 if [ "$#" -lt 1 ]; then
@@ -60,20 +58,19 @@ if ! printf '%s' "$HEADER" | grep -Eq "^(${ALLOWED_TYPES})(\([a-zA-Z0-9._-]+\))?
   exit 1
 fi
 
-# ---- 校验 subject 最小长度 ----
+# ---- 校验 subject 非空 ----
 # 提取 subject 部分（去掉 "type(scope)!: " 前缀）
 SUBJECT="$(printf '%s' "$HEADER" | sed -E 's/^[a-z]+(\([a-zA-Z0-9._-]+\))?!?: //')"
-SUBJECT_LEN="${#SUBJECT}"
-if [ "$SUBJECT_LEN" -lt "$MIN_SUBJECT_LEN" ]; then
-  echo "错误：commit 标题的主题过短（${SUBJECT_LEN} 字符，至少 ${MIN_SUBJECT_LEN}）" >&2
+if [ -z "$SUBJECT" ]; then
+  echo "错误：commit 标题缺少主题（冒号后应有内容）" >&2
   echo "  你提交的是: ${HEADER}" >&2
   exit 1
 fi
 
-# ---- 校验 subject 长度 ----
-HEADER_LEN="${#HEADER}"
+# ---- 校验 subject 长度（用字节数，跨 bash 版本一致）----
+HEADER_LEN="$(printf '%s' "$HEADER" | wc -c | tr -d ' ')"
 if [ "$HEADER_LEN" -gt "$MAX_SUBJECT_LEN" ]; then
-  echo "错误：commit 标题过长（${HEADER_LEN} 字符，上限 ${MAX_SUBJECT_LEN}）" >&2
+  echo "错误：commit 标题过长（${HEADER_LEN} 字节，上限 ${MAX_SUBJECT_LEN}）" >&2
   echo "  建议精简，把细节放到正文" >&2
   echo "  你提交的是: ${HEADER}" >&2
   exit 1
