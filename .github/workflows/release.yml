@@ -83,6 +83,19 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Generate CHANGELOG
+        run: git cliff -o CHANGELOG.md
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -93,4 +106,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**
-          generate_release_notes: true
+          body_path: CHANGELOG.md
+          generate_release_notes: false

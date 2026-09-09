@@ -20,11 +20,19 @@
 
 - [x] 技术方案选型（纯 Rust + WebGPU + egui）
 - [x] UI 设计与品牌命名
+- [x] CI/CD 基建（justfile + GitHub Actions + Dependabot + git-cliff）
 - [ ] 项目脚手架（winit + wgpu + egui 最小渲染闭环）
 - [ ] 划词取词（跨应用选区读取）
 - [ ] LLM 流式翻译
 - [ ] 翻译浮层（置顶透明窗口）
 - [ ] 配置与缓存
+
+## 工程规范
+
+- **提交信息**：遵循 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/)，由本地 git hooks + CI 双重校验。
+- **质量门禁**：`just check`（fmt + clippy + test），CI 在 PR 上强制通过。
+- **依赖更新**：Dependabot 每周自动检查 cargo 与 GitHub Actions 依赖。
+- **变更日志**：由 git-cliff 从提交历史自动生成（`just changelog`）。
 
 ## License
 
