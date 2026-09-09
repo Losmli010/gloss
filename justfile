@@ -103,10 +103,6 @@ deps:
 audit:
     cargo audit
 
-# 许可证合规 + 重复依赖检查（需 cargo-deny）
-deny:
-    cargo deny check licenses bans
-
 # ---- 变更日志 ----
 
 # 生成/更新 CHANGELOG.md（基于 conventional commits，需 git-cliff）
