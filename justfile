@@ -45,6 +45,14 @@ lint-fix:
 test:
     cargo test --all-features
 
+# 测试覆盖率报告（需 cargo-llvm-cov，会生成 HTML 报告）
+coverage:
+    cargo llvm-cov --all-features --html
+
+# 测试覆盖率（CI 用，输出文本摘要并设失败阈值）
+coverage-check:
+    cargo llvm-cov --all-features --fail-under-lines 60
+
 # 完整质量门禁：格式化 + Clippy + 测试（CI 核心）
 check: fmt lint test
     @echo "✓ 质量门禁全部通过"
@@ -88,6 +96,16 @@ install-hooks:
 # 列出所有依赖树
 deps:
     cargo tree
+
+# ---- 安全与合规 ----
+
+# 安全审计（已知漏洞）
+audit:
+    cargo audit
+
+# 许可证合规 + 重复依赖检查（需 cargo-deny）
+deny:
+    cargo deny check licenses bans
 
 # ---- 变更日志 ----
 

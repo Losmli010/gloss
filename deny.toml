@@ -1,0 +1,47 @@
+# cargo-deny 配置
+# 检查依赖许可证合规、安全公告、重复依赖等。
+# 用法：cargo deny check   或   cargo deny check licenses advisories
+# 详见：https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+# 安全公告：报告已知漏洞
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "warn"
+notice = "warn"
+# 忽略某些暂时无法修复的漏洞（按需添加）
+ignore = []
+
+[licenses]
+# 许可证合规：MIT 项目，只允许宽松许可证
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-DFS-2016",
+    "MPL-2.0",
+]
+# 明确拒绝的传染性/强 copyleft 许可证
+deny = [
+    "GPL-2.0",
+    "GPL-3.0",
+    "AGPL-3.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
+]
+# 许可证文件的例外（某些 crate 许可证名不规范）
+exceptions = []
+
+[bans]
+# 重复依赖：同一 crate 的多个版本
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+
+[sources]
+# 允许的依赖源（避免供应链风险）
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
