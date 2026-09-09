@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# pre-commit hook：提交前检查
+# 当前只做「格式检查」，避免破坏性操作（真正格式化用 just fmt-fix）
+set -euo pipefail
+
+# 定位项目根目录（hook 可能从任何子目录触发）
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+echo "→ pre-commit: 检查 Rust 代码格式..."
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# 只对暂存区涉及 .rs 文件的提交做格式检查
+STAGED_RS="$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$' || true)"
+if [ -z "$STAGED_RS" ]; then
+  echo "  无 .rs 文件变更，跳过格式检查"
+  exit 0
+fi
+
+if command -v cargo >/dev/null 2>&1; then
+  if ! cargo fmt --check; then
+    echo "" >&2
+    echo "✗ 格式检查未通过。请运行 'just fmt-fix' 后重新提交" >&2
+    exit 1
+  fi
+  echo "  ✓ 格式检查通过"
+else
+  echo "  警告: cargo 未安装，跳过格式检查"
+fi

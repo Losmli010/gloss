@@ -32,3 +32,28 @@ jobs:
 
       - name: Run quality gate (just check)
         run: just check
+
+  commitlint:
+    name: Commit message check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages
+        run: |
+          # 校验本次 push/PR 引入的所有 commit message
+          # 对 PR：比较 base 与 head；对 push：比较 push 前一个 commit
+          if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          git fetch origin "$BASE" --depth=1 2>/dev/null || true
+          git log --format="%H" "$BASE..HEAD" | while read sha; do
+            msg="$(git log -1 --format=%B "$sha")"
+            echo "检查 commit $sha"
+            echo "$msg" | ./scripts/check-commit-msg.sh -
+          done
