@@ -90,3 +90,13 @@ install-hooks:
 # 列出所有依赖树
 deps:
     cargo tree
+
+# ---- 变更日志 ----
+
+# 生成/更新 CHANGELOG.md（基于 conventional commits，需 git-cliff）
+changelog:
+    git cliff -o CHANGELOG.md
+
+# 预览下次发版将生成的 CHANGELOG（不写文件）
+changelog-preview:
+    git cliff --unreleased
