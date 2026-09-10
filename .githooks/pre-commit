@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# pre-commit hook：提交前唯一门禁 —— Rust 质量门禁（fmt + clippy + test）。
+# pre-commit hook：提交前的静态检查 —— 格式化 + Clippy。
 #
-# commit message 规范不在这里校验：git 跑 pre-commit 时还没把消息写进
+# 不跑 test：测试由 CI 的三平台矩阵负责，本地提交不必等编译测试。
+# 需要本地全量验证时手动跑 `just check`（fmt + clippy + test）。
+#
+# commit message 规范也不在这里校验：git 跑 pre-commit 时还没把消息写进
 # COMMIT_EDITMSG（编辑器 / -m / -F 都一样），在这里读到的只会是上一条提交的
 # 消息，既可能误拦也可能放过。消息规范由 CI 的 commitlint job 覆盖
 # （PR / push 会校验本次引入的全部 message）。
@@ -14,22 +17,22 @@ cd "$ROOT_DIR"
 export PATH="$HOME/.cargo/bin:$PATH"
 
 if ! command -v just >/dev/null 2>&1; then
-  echo "✗ 未找到 just，无法运行提交门禁" >&2
+  echo "✗ 未找到 just，无法运行提交前检查" >&2
   echo "  安装：brew install just" >&2
   exit 1
 fi
 
-# 只在有 .rs 变更时跑：改文档、改 CI 配置不必等 clippy + test
+# 只在有 .rs 变更时跑：改文档、改 CI 配置不必等 clippy
 STAGED_RS="$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$' || true)"
 if [ -z "$STAGED_RS" ]; then
-  echo "→ pre-commit: 无 .rs 文件变更，跳过质量门禁"
+  echo "→ pre-commit: 无 .rs 文件变更，跳过静态检查"
   exit 0
 fi
 
-echo "→ pre-commit: 运行质量门禁（just check = fmt + clippy + test）..."
-if ! just check; then
+echo "→ pre-commit: 运行静态检查（just precommit = fmt + clippy）..."
+if ! just precommit; then
   echo "" >&2
-  echo "✗ 质量门禁未通过，已阻止提交" >&2
+  echo "✗ 静态检查未通过，已阻止提交" >&2
   echo "  格式问题用 'just fmt-fix' 自动修复；修好再提交，别用 --no-verify 绕过" >&2
   exit 1
 fi
