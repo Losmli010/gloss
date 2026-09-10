@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 校验 commit message 是否符合 Conventional Commits 规范。
-# 本地 .githooks/commit-msg 与 CI workflow 共用此脚本，保证校验逻辑一致。
+# CI 的 commitlint workflow 与本地手动校验（`just lint-commit <file>`）共用此脚本，保证校验逻辑一致。
+# 注意：本地钩子不做消息校验——git 跑 pre-commit 时消息还没落盘，读到的会是上一条提交的消息。
 #
 # 用法：
 #   scripts/check-commit-msg.sh <commit-message-file-or-text>

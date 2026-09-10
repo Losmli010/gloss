@@ -13,6 +13,9 @@ default:
 name := "gloss"
 version := env_var_or_default("GLOSS_VERSION", "0.1.0")
 
+# 行覆盖率下限：低于该值即失败（本地 just coverage 与 CI 的 coverage job 共用）
+coverage_min := "70"
+
 # ---- 本地开发 ----
 
 # 运行开发版（debug）
@@ -22,6 +25,23 @@ run:
 # 监听文件变化自动重编译运行（需 cargo-watch）
 watch:
     cargo watch -x run
+
+# 日志目录（~/.gloss/logs，与代码里的 log_dir() 保持一致）
+logs-dir:
+    @echo "${HOME:-${USERPROFILE:-}}/.gloss/logs"
+
+# 跟随最新日志文件（Ctrl-C 退出）
+logs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="${HOME:-${USERPROFILE:-}}/.gloss/logs"
+    newest=$(ls -t "$dir"/gloss.log.* 2>/dev/null | head -n 1 || true)
+    if [ -z "${newest:-}" ]; then
+        echo "no log file under $dir yet (run the app first)" >&2
+        exit 1
+    fi
+    echo "tailing $newest"
+    tail -n +1 -f "$newest"
 
 # ---- 代码质量门禁（CI 也用这些）----
 
@@ -35,33 +55,45 @@ fmt-fix:
 
 # Clippy 严格检查（警告即失败）
 lint:
-    cargo clippy --all-targets --all-features -- -D warnings
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # 自动修复部分 Clippy 建议
 lint-fix:
-    cargo clippy --all-targets --all-features --fix --allow-dirty
+    cargo clippy --workspace --all-targets --all-features --fix --allow-dirty
 
 # 运行单元测试
 test:
-    cargo test --all-features
+    cargo test --workspace --all-features
 
-# 测试覆盖率报告（需 cargo-llvm-cov，会生成 HTML 报告）
+# 测试覆盖率：终端摘要 + HTML 报告（→ target/llvm-cov/html；CI 也跑这条）
+# 最后一步带阈值，行覆盖率低于 coverage_min 时整个配方失败
 coverage:
-    cargo llvm-cov --all-features --html
+    cargo llvm-cov clean --workspace
+    cargo llvm-cov --no-report --workspace --all-features
+    cargo llvm-cov report --workspace --html
+    cargo llvm-cov report --workspace --fail-under-lines {{coverage_min}}
 
-# 测试覆盖率（文本摘要，不设失败阈值）
+# 测试覆盖率：只打终端摘要并按同一阈值判定（不生成 HTML）
 coverage-check:
-    cargo llvm-cov --all-features
+    cargo llvm-cov --workspace --all-features --fail-under-lines {{coverage_min}}
 
-# 完整质量门禁：格式化 + Clippy + 测试（CI 核心）
+# 完整质量门禁：格式化 + Clippy + 测试（pre-commit 与 CI 核心）
 check: fmt lint test
     @echo "✓ 质量门禁全部通过"
+
+# 校验 commit message 是否符合 Conventional Commits（与 CI 共用同一脚本，手动排查用）
+lint-commit file:
+    ./scripts/check-commit-msg.sh "{{file}}"
 
 # ---- 构建 ----
 
 # Debug 构建
 build:
     cargo build --workspace
+
+# 指定 target 构建（CI 构建矩阵用）
+build-target target:
+    cargo build --workspace --target {{target}}
 
 # Release 构建（优化）
 build-release:
@@ -102,6 +134,10 @@ deps:
 # 安全审计（已知漏洞）
 audit:
     cargo audit
+
+# 依赖合规检查：漏洞 / 许可证 / 重复依赖 / 来源（配置见 deny.toml）
+deny:
+    cargo deny check
 
 # ---- 变更日志 ----
 
