@@ -8,13 +8,24 @@ description = "Gloss 表现层与应用层：状态机 + 渲染胶水"
 [dependencies]
 # 渲染栈整批版本（egui 三件套必须同小版本；wgpu 版本由 egui-wgpu 决定，不要单独升级）：
 # winit 0.30.13 / wgpu 30.0.1 / egui + egui-wgpu + egui-winit 0.36.2 / pollster 1.0.1
-egui = "0.36.2"
-egui-wgpu = "0.36.2"
+#
+# 全部 default-features = false + 显式列出所需特性：默认集往往带有目标平台用不到的
+# 后端（vulkan / gles / webgpu / wasm 等），既增加依赖与编译时间，也可能拖进有问题的包
+# （参见 winit 的 wayland-csd-adwaita → ttf-parser，RUSTSEC-2026-0192）。新增依赖沿用此写法。
+# Gloss 目标平台：macOS（Metal）、Windows（DX12）；Linux 仅用于 CI。
+egui = { version = "0.36.2", default-features = false, features = [
+    "default_fonts",
+] }
+# 不用默认特性：默认里的 "wgpu/default" 会打开 wgpu 全部后端（见下方 wgpu 声明），
+# 另含 wasm 专用的 fragile-send-sync-non-atomic-wasm 与 wgpu/webgl。
+# 保留 macos-window-resize-jitter-fix：macOS 是首要目标平台，且它是真实的窗口缩放抖动修复。
+egui-wgpu = { version = "0.36.2", default-features = false, features = [
+    "macos-window-resize-jitter-fix",
+] }
 # 不用默认特性：egui-winit 的 default 里含 "winit/default"，而 winit 默认集包含
 # wayland-csd-adwaita → sctk-adwaita → ab_glyph → ttf-parser（已停止维护，
 # RUSTSEC-2026-0192，无可用修复版本）。下面把我们要的特性显式列全，只少 CSD 一项。
-# CSD 只影响 Linux 下 Wayland 的客户端窗口装饰，而 Gloss 的目标平台是 macOS / Windows
-# （Linux 仅用于 CI），不引入。
+# CSD 只影响 Linux 下 Wayland 的客户端窗口装饰，目标平台不涉及。
 egui-winit = { version = "0.36.2", default-features = false, features = [
     "clipboard",
     "links",
@@ -24,10 +35,18 @@ egui-winit = { version = "0.36.2", default-features = false, features = [
 gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
 pollster = "1.0.1"
-wgpu = "30.0.1"
+# 不用默认特性：默认集含 gles / vulkan / webgpu 三个用不到的后端与 parking_lot。
+# 只留目标平台实际使用的 Metal（macOS）与 DX12（Windows），配合 egui-wgpu 已声明的 std + wgsl。
+# Linux 因而不带任何后端——该平台只跑 CI 的 fmt / clippy / test，不创建窗口。
+wgpu = { version = "30.0.1", default-features = false, features = [
+    "std",
+    "wgsl",
+    "metal",
+    "dx12",
+] }
 # 不用默认特性：默认集里的 wayland-csd-adwaita 会把已停止维护的 ttf-parser 拖进
 # 依赖树（同上）。egui-winit 是以 default-features = false 依赖 winit 的，
-# 特性开关由这里决定，故把 Linux 需要的后端显式列全。
+# 特性开关由这里决定，故把 Linux 需要的后端显式列出。
 winit = { version = "0.30.13", default-features = false, features = [
     "rwh_06",
     "x11",

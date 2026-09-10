@@ -19,6 +19,7 @@ Gloss —— 划词翻译桌面工具：选中文字即弹出 LLM 结果。纯 R
 5. **日志统一出口**：只用 `gloss_core::log` 的宏（`info!` / `warn!` / `error!` 等）；库 crate 不初始化 subscriber，不用 `println!`。日志同时落盘到 `~/.gloss/logs/`（按天滚动，留 7 份），目录由入口算好传给 `log::init`。
 6. **日志一律英文**：日志消息、字段值、span 名只用英文——日志是面向终端的诊断文本，不做本地化；中文只出现在注释、文档与用户可见文案里。
 7. **版本单点维护**：`version` / `edition` 写在根 `Cargo.toml` 的 `[workspace.package]`，子 crate 以 `*.workspace = true` 继承，不要硬写。
+8. **依赖只开需要的特性**：新增依赖一律写 `default-features = false` 并显式列出所需特性。默认集常带目标平台用不到的图形后端（vulkan / gles / webgpu）、wasm 专用项，或整条用不上的子树——既拖慢编译，也可能带进有问题的包（winit 默认集就经 sctk-adwaita 拖进过已停止维护的 `ttf-parser`）。Gloss 目标平台是 macOS（Metal）与 Windows（DX12），Linux 只跑 CI，见 `crates/gloss-app/Cargo.toml` 的写法。
 
 ## 目录结构
 
