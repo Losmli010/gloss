@@ -1,7 +1,7 @@
 [package]
 name = "gloss-app"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "划词翻译工具 - 纯 Rust + egui + WebGPU"
 license = "MIT"
 

@@ -2,7 +2,7 @@
 name = "gloss-core"
 description = "Gloss 领域层 + 端口：纯逻辑，零平台/UI 依赖"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 
 [dependencies]
