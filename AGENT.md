@@ -21,8 +21,6 @@ Gloss —— 划词翻译桌面工具：选中文字即弹出 LLM 结果。纯 R
 
 ## 目录结构
 
-> 目标结构（见 `docs/06`）。拆分任务（M1-T1）完成前仓库仍是单 crate，实际进度以 README「开发状态」为准。
-
 ```
 gloss/
 ├── Cargo.toml           # workspace 根 + 根包 gloss（bin gloss，唯一入口 src/main.rs）
@@ -47,23 +45,17 @@ just install-hooks     # clone 后执行一次，安装本地 git hooks
 just run               # 运行开发版
 just check             # 质量门禁：fmt + clippy(-D warnings) + test（提交前必跑）
 just fmt-fix           # 自动格式化
-just lint              # cargo clippy --all-targets --all-features -- -D warnings
-just test              # cargo test --all-features
+just lint              # Clippy 严格检查（警告即失败）
+just test              # 运行单元测试
 just audit             # cargo audit 依赖漏洞审计
 just changelog         # 基于 conventional commits 生成 CHANGELOG
 just --list            # 查看全部 recipe
 ```
 
-等价的直接命令：`cargo build`、`cargo fmt --all -- --check`、`cargo clippy --all-targets --all-features -- -D warnings`、`cargo test --all-features`。
-
 ## 工作流
 
 - **分支**：一任务一分支，命名 `feat/<主题>`，合入用 squash。
 - **提交信息**：Conventional Commits；**标题 ≤ 72 字节**（本地 commitlint 会拒绝超长标题），正文说明「为什么」。
-- **门禁**：pre-commit 跑 `cargo fmt` 检查，pre-push 跑 fmt + clippy + test。**不要用 `--no-verify` 绕过**。
+- **门禁**：pre-commit 跑格式检查，pre-push 跑 fmt + clippy + test。**不要用 `--no-verify` 绕过**。
 - **推送与 PR**：不要自行推送或开 PR，等用户明确要求。
 - **测试**：新增逻辑优先补单测；`gloss-core` 是纯逻辑层，应能被完整单测覆盖。
-
-## 设计文档
-
-`docs/` 是**本地目录，已加入 `.gitignore`，不随仓库分发**。其中：架构设计（`06`）、架构↔代码对照图（`07`）、线程与通信模型（`08`）、开发计划（`09`）。改动涉及模块边界、线程模型或通信协议时，先读这些文档，并在改动后同步更新受影响的部分。
