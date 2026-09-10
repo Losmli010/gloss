@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 校验 commit message 是否符合 Conventional Commits 规范。
-# 本地 .githooks/commit-msg 与 CI workflow 共用此脚本，保证校验逻辑一致。
+# 本地 .githooks/pre-commit（经 `just lint-commit`）与 CI workflow 共用此脚本，保证校验逻辑一致。
 #
 # 用法：
 #   scripts/check-commit-msg.sh <commit-message-file-or-text>
