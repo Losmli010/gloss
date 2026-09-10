@@ -60,7 +60,7 @@ coverage-check:
 check: fmt lint test
     @echo "✓ 质量门禁全部通过"
 
-# 校验 commit message 是否符合 Conventional Commits（pre-commit 调用，参数为消息文件路径）
+# 校验 commit message 是否符合 Conventional Commits（与 CI 共用同一脚本，手动排查用）
 lint-commit file:
     ./scripts/check-commit-msg.sh "{{file}}"
 

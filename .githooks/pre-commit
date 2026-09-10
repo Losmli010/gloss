@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# pre-commit hook：提交前唯一门禁（原 commit-msg 与 pre-push 的检查已合并至此）
-#   1) commit message 规范（Conventional Commits）
-#   2) Rust 质量门禁：fmt + clippy + test
-# cargo 命令统一经 just 调用，保证与 CI 用的是同一套命令。
+# pre-commit hook：提交前唯一门禁 —— Rust 质量门禁（fmt + clippy + test）。
+#
+# commit message 规范不在这里校验：git 跑 pre-commit 时还没把消息写进
+# COMMIT_EDITMSG（编辑器 / -m / -F 都一样），在这里读到的只会是上一条提交的
+# 消息，既可能误拦也可能放过。消息规范由 CI 的 commitlint job 覆盖
+# （PR / push 会校验本次引入的全部 message）。
 set -euo pipefail
 
 # 定位项目根目录（hook 可能从任何子目录触发）
@@ -17,30 +19,14 @@ if ! command -v just >/dev/null 2>&1; then
   exit 1
 fi
 
-GIT_DIR="$(git rev-parse --git-dir)"
-
-# ---- 1. commit message 规范 ----
-# merge commit 的消息由 git 自动生成，不算作者手写内容，跳过校验
-# 依赖 git 在 pre-commit 之前写好 COMMIT_EDITMSG：实测 git 2.24 可行、2.15 用
-# `-m` / `-F -` 提交时该文件仍是上一条消息；这类老版本留下的空档由 CI 的
-# commitlint job 兜底（PR / push 都会校验本次引入的所有 message）。
-if [ -f "$GIT_DIR/MERGE_HEAD" ]; then
-  echo "→ pre-commit: merge commit，跳过 commit message 校验"
-elif [ -f "$GIT_DIR/COMMIT_EDITMSG" ]; then
-  echo "→ pre-commit: 校验 commit message..."
-  just lint-commit "$GIT_DIR/COMMIT_EDITMSG" || exit 1
-else
-  echo "  警告: 未找到 commit message 文件，跳过校验"
-fi
-
-# ---- 2. Rust 质量门禁（只在有 .rs 变更时需要）----
+# 只在有 .rs 变更时跑：改文档、改 CI 配置不必等 clippy + test
 STAGED_RS="$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$' || true)"
 if [ -z "$STAGED_RS" ]; then
-  echo "  无 .rs 文件变更，跳过 Rust 门禁"
+  echo "→ pre-commit: 无 .rs 文件变更，跳过质量门禁"
   exit 0
 fi
 
-echo "→ pre-commit: 运行 Rust 门禁（just check = fmt + clippy + test）..."
+echo "→ pre-commit: 运行质量门禁（just check = fmt + clippy + test）..."
 if ! just check; then
   echo "" >&2
   echo "✗ 质量门禁未通过，已阻止提交" >&2

@@ -15,4 +15,4 @@ git config core.hooksPath .githooks
 
 echo "✓ git hooks 已启用"
 echo "  hooksPath: $(git config core.hooksPath)"
-echo "  生效的钩子: pre-commit（commit message 规范 + 质量门禁 fmt/clippy/test）"
+echo "  生效的钩子: pre-commit（质量门禁 fmt + clippy + test，经 just check）"
