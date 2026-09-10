@@ -17,11 +17,11 @@ version := env_var_or_default("GLOSS_VERSION", "0.1.0")
 
 # 运行开发版（debug）
 run:
-    cargo run
+    cargo run -p gloss-app
 
 # 监听文件变化自动重编译运行（需 cargo-watch）
 watch:
-    cargo watch -x run
+    cargo watch -x "run -p gloss-app"
 
 # ---- 代码质量门禁（CI 也用这些）----
 
@@ -71,15 +71,15 @@ build-release:
 
 # 生成 macOS 发布包（.app + .dmg，当前架构）
 package-macos: build-release
-    cargo bundle --release --format osx
+    cd crates/gloss-app && cargo bundle --release --format osx
 
 # 生成 Linux 发布包（.deb）
 package-linux: build-release
-    cargo bundle --release --format deb
+    cd crates/gloss-app && cargo bundle --release --format deb
 
 # 生成 Windows 发布包（.msi，需在 Windows 或交叉编译环境）
 package-windows:
-    cargo bundle --release --format msi
+    cd crates/gloss-app && cargo bundle --release --format msi
 
 # ---- 清理 ----
 

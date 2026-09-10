@@ -64,7 +64,7 @@ jobs:
 
       - name: Bundle (macOS)
         if: matrix.os == 'macos-latest'
-        run: cargo bundle --release --target ${{ matrix.target }} --format osx
+        run: cd crates/gloss-app && cargo bundle --release --target ${{ matrix.target }} --format osx
 
       - name: Ad-hoc sign (macOS)
         if: matrix.os == 'macos-latest'
@@ -78,7 +78,7 @@ jobs:
 
       - name: Bundle (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: cargo bundle --release --target ${{ matrix.target }} --format deb
+        run: cd crates/gloss-app && cargo bundle --release --target ${{ matrix.target }} --format deb
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
