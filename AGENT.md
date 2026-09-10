@@ -57,6 +57,6 @@ just --list            # 查看全部 recipe
 
 - **分支**：一任务一分支，命名 `feat/<主题>`，合入用 squash。
 - **提交信息**：Conventional Commits；**标题 ≤ 72 字节**（本地 commitlint 会拒绝超长标题），正文说明「为什么」。
-- **门禁**：pre-commit 跑格式检查，pre-push 跑 fmt + clippy + test。**不要用 `--no-verify` 绕过**。
+- **门禁**：pre-commit 跑格式检查，pre-push 跑 fmt + clippy + test（命令一律带 `--workspace`——根目录存在根包时，不加则只作用于根包、漏掉成员 crate）。**不要用 `--no-verify` 绕过**。
 - **推送与 PR**：不要自行推送或开 PR，等用户明确要求。
 - **测试**：新增逻辑优先补单测；`gloss-core` 是纯逻辑层，应能被完整单测覆盖。

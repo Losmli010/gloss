@@ -35,23 +35,23 @@ fmt-fix:
 
 # Clippy 严格检查（警告即失败）
 lint:
-    cargo clippy --all-targets --all-features -- -D warnings
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # 自动修复部分 Clippy 建议
 lint-fix:
-    cargo clippy --all-targets --all-features --fix --allow-dirty
+    cargo clippy --workspace --all-targets --all-features --fix --allow-dirty
 
 # 运行单元测试
 test:
-    cargo test --all-features
+    cargo test --workspace --all-features
 
 # 测试覆盖率报告（需 cargo-llvm-cov，会生成 HTML 报告）
 coverage:
-    cargo llvm-cov --all-features --html
+    cargo llvm-cov --workspace --all-features --html
 
 # 测试覆盖率（文本摘要，不设失败阈值）
 coverage-check:
-    cargo llvm-cov --all-features
+    cargo llvm-cov --workspace --all-features
 
 # 完整质量门禁：格式化 + Clippy + 测试（CI 核心）
 check: fmt lint test
