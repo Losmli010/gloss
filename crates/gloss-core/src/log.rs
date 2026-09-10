@@ -12,11 +12,20 @@
 //!
 //! `#[instrument]` 是过程宏，无法跨 crate 转发（下游会报 `E0433`）；
 //! 下游请改用 [`info_span!`] 等 span 宏配合 [`Instrument`]。
+//!
+//! 输出两路：终端（stderr，TTY 才带色）+ 文件（[`init`] 收到目录时启用，
+//! 按天滚动、只留最近 7 份）——用户报障时让他们把日志目录交出来即可。
 
+use std::fs;
 use std::io::{self, IsTerminal};
-use std::sync::Once;
+use std::path::{Path, PathBuf};
+use std::sync::{Once, OnceLock};
 
-use tracing_subscriber::EnvFilter;
+use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, fmt};
 
 pub use tracing::level_filters::LevelFilter;
 pub use tracing::{
@@ -34,24 +43,62 @@ pub mod thread {
 /// 基准级别：`RUST_LOG` 未设置或为空时生效。
 const DEFAULT_FILTER: &str = "info";
 
+/// 日志文件名前缀，实际文件为 `gloss.log.<日期>`。
+const FILE_PREFIX: &str = "gloss.log";
+
+/// 按天保留的日志文件个数（约一周）。
+const MAX_LOG_FILES: usize = 7;
+
 static INIT: Once = Once::new();
+static FILE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+/// 非阻塞写盘的 guard：必须活到进程结束，否则队列里未落盘的日志会被丢掉。
+static FILE_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
 /// 初始化全局日志：`info` 打底，`RUST_LOG` 在其之上追加或覆盖。
 ///
 /// 例如 `RUST_LOG=gloss_platform=debug` 让该模块更详细、其余保持 `info`；
 /// `RUST_LOG=off` / `warn` 等全局指令仍可整体压制。
 ///
+/// `dir` 给出日志目录时终端与文件双写（按天滚动，只留最近 7 份）；目录建不出来
+/// 则退回 stderr 单路——日志不可用不应该拖垮启动。返回实际启用的目录，供入口
+/// 打印出来方便定位。
+///
 /// 全进程只调用一次（入口 `src/main.rs` 启动第 1 步）；重复调用为空操作，
 /// 库 crate 永不调用。
-pub fn init() {
+pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
     INIT.call_once(|| {
         let filter = build_filter(std::env::var("RUST_LOG").ok().as_deref());
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
+        let console = fmt::layer()
             .with_ansi(io::stderr().is_terminal())
-            .with_writer(io::stderr)
-            .init();
+            .with_writer(io::stderr);
+        let subscriber = tracing_subscriber::registry().with(filter).with(console);
+        let file = dir.and_then(open_file_writer);
+        let active = file.as_ref().map(|(_, _, dir)| dir.clone());
+        match file {
+            Some((writer, guard, _)) => {
+                let _ = FILE_GUARD.set(guard);
+                subscriber
+                    .with(fmt::layer().with_ansi(false).with_writer(writer))
+                    .init();
+            }
+            None => subscriber.init(),
+        }
+        let _ = FILE_DIR.set(active);
     });
+    FILE_DIR.get().cloned().flatten()
+}
+
+/// 按天滚动的文件写入器；目录不可用时返回 `None`，让日志退回 stderr 单路。
+fn open_file_writer(dir: &Path) -> Option<(NonBlocking, WorkerGuard, PathBuf)> {
+    fs::create_dir_all(dir).ok()?;
+    let appender = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .filename_prefix(FILE_PREFIX)
+        .max_log_files(MAX_LOG_FILES)
+        .build(dir)
+        .ok()?;
+    let (writer, guard) = tracing_appender::non_blocking(appender);
+    Some((writer, guard, dir.to_path_buf()))
 }
 
 /// 基准级别打底 + `raw` 追加：全局指令后写者胜，故 `off` / `warn` 仍能压制打底级别，
@@ -62,12 +109,76 @@ fn build_filter(raw: Option<&str>) -> EnvFilter {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_filter, init};
+    use std::fs;
+    use std::io::Write as _;
+    use std::path::PathBuf;
+
+    use super::{FILE_PREFIX, build_filter, init, open_file_writer};
+
+    /// 每个用例独占一个临时目录，避免并行跑测试时互相踩。
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("gloss-log-{name}"));
+        let _ = fs::remove_dir_all(&dir);
+        dir
+    }
 
     #[test]
     fn init_is_idempotent() {
-        init();
-        init();
+        init(None);
+        init(None);
+    }
+
+    #[test]
+    fn file_writer_creates_missing_directory() {
+        let dir = temp_dir("mkdir");
+        assert!(!dir.exists());
+
+        let (_, guard, active) = open_file_writer(&dir).expect("writer should be created");
+
+        assert!(dir.is_dir());
+        assert_eq!(active, dir);
+        drop(guard);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_writer_persists_lines_into_daily_file() {
+        let dir = temp_dir("write");
+        let (mut writer, guard, _) = open_file_writer(&dir).expect("writer should be created");
+
+        writeln!(writer, "probe line").expect("write should not fail");
+        drop(writer);
+        drop(guard); // 关掉后台线程，把队列里剩下的日志刷盘
+
+        let (name, content) = fs::read_dir(&dir)
+            .expect("log dir should be readable")
+            .filter_map(Result::ok)
+            .find_map(|entry| {
+                let text = fs::read_to_string(entry.path()).ok()?;
+                Some((entry.file_name().to_string_lossy().into_owned(), text))
+            })
+            .expect("a log file should exist");
+        assert!(
+            name.starts_with(FILE_PREFIX),
+            "unexpected file name: {name}"
+        );
+        assert!(
+            content.contains("probe line"),
+            "unexpected content: {content}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_writer_degrades_when_directory_is_unusable() {
+        // 路径上蹲着一个常规文件，建目录必然失败
+        let path = temp_dir("blocked");
+        fs::write(&path, b"not a directory").expect("probe file should be writable");
+
+        assert!(open_file_writer(&path).is_none());
+
+        let _ = fs::remove_file(&path);
     }
 
     #[test]

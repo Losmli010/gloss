@@ -1,8 +1,10 @@
 //! Gloss 唯一入口：按七步顺序组装依赖并启动，不含业务逻辑。
 
+use std::env;
 use std::error::Error;
+use std::path::PathBuf;
 
-use gloss_core::log::{info, thread};
+use gloss_core::log::{self, info, thread};
 
 type StartupResult = Result<(), Box<dyn Error>>;
 
@@ -21,8 +23,19 @@ fn run() -> StartupResult {
 }
 
 fn init_logging() {
-    gloss_core::log::init();
-    info!(thread = thread::UI, "gloss starting");
+    let dir = log_dir();
+    let active = log::init(dir.as_deref());
+    let file = active.as_deref().map_or_else(
+        || "<stderr only>".to_owned(),
+        |dir| dir.display().to_string(),
+    );
+    info!(thread = thread::UI, log_dir = %file, "gloss starting");
+}
+
+/// 日志目录：三平台统一 `~/.gloss/logs`（Windows 下 `HOME` 通常缺失，退回 `USERPROFILE`）。
+fn log_dir() -> Option<PathBuf> {
+    let home = env::var_os("HOME").or_else(|| env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join(".gloss").join("logs"))
 }
 
 fn load_config() -> StartupResult {

@@ -26,6 +26,23 @@ run:
 watch:
     cargo watch -x run
 
+# 日志目录（~/.gloss/logs，与代码里的 log_dir() 保持一致）
+logs-dir:
+    @echo "${HOME:-${USERPROFILE:-}}/.gloss/logs"
+
+# 跟随最新日志文件（Ctrl-C 退出）
+logs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="${HOME:-${USERPROFILE:-}}/.gloss/logs"
+    newest=$(ls -t "$dir"/gloss.log.* 2>/dev/null | head -n 1 || true)
+    if [ -z "${newest:-}" ]; then
+        echo "no log file under $dir yet (run the app first)" >&2
+        exit 1
+    fi
+    echo "tailing $newest"
+    tail -n +1 -f "$newest"
+
 # ---- 代码质量门禁（CI 也用这些）----
 
 # 格式化检查
