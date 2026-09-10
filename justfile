@@ -15,13 +15,13 @@ version := env_var_or_default("GLOSS_VERSION", "0.1.0")
 
 # ---- 本地开发 ----
 
-# 运行开发版（debug）——可执行 crate 是 gloss-app
+# 运行开发版（debug）
 run:
-    cargo run -p gloss-app
+    cargo run
 
 # 监听文件变化自动重编译运行（需 cargo-watch）
 watch:
-    cargo watch -x "run -p gloss-app"
+    cargo watch -x run
 
 # ---- 代码质量门禁（CI 也用这些）----
 
@@ -68,20 +68,18 @@ build-release:
     cargo build --release
 
 # ---- 发布打包（平台相关，需 cargo-bundle）----
-# workspace 下 cargo-bundle 需在可执行 crate（gloss-app）目录执行；
-# 产物仍输出到 workspace 根 target/ 目录。
 
 # 生成 macOS 发布包（.app + .dmg，当前架构）
 package-macos: build-release
-    cd crates/gloss-app && cargo bundle --release --format osx
+    cargo bundle --release --format osx
 
 # 生成 Linux 发布包（.deb）
 package-linux: build-release
-    cd crates/gloss-app && cargo bundle --release --format deb
+    cargo bundle --release --format deb
 
 # 生成 Windows 发布包（.msi，需在 Windows 或交叉编译环境）
 package-windows:
-    cd crates/gloss-app && cargo bundle --release --format msi
+    cargo bundle --release --format msi
 
 # ---- 清理 ----
 

@@ -1,24 +1,32 @@
-# Gloss workspace 根（虚拟清单，不含 [package]）
-# 架构见 docs/06-系统架构设计.md：3-crate 结构，依赖方向严格单向——
-#   gloss-app → gloss-core + gloss-platform（组装点唯一）
-#   gloss-platform → gloss-core（实现其端口）
-#   gloss-core → 不依赖任何本仓库 crate（零平台/UI 依赖，可完整单测）
-[workspace]
-resolver = "2"
-members = [
-    "crates/gloss-core",
-    "crates/gloss-platform",
-    "crates/gloss-app",
-]
-
-# 共享包元数据：各 crate 用 xxx.workspace = true 继承，版本号单点维护
-# （release.yml 的版本号一致性校验读取本文件的 version 字段）
-[workspace.package]
+[package]
+name = "gloss-app"
 version = "0.1.0"
 edition = "2021"
+description = "划词翻译工具 - 纯 Rust + egui + WebGPU"
 license = "MIT"
 
-# profile 只在 workspace 根生效
+[[bin]]
+name = "gloss"
+path = "src/main.rs"
+
+[workspace]
+members = ["crates/gloss-core", "crates/gloss-platform"]
+
+[dependencies]
+gloss-core = { path = "crates/gloss-core" }
+gloss-platform = { path = "crates/gloss-platform" }
+
+# cargo-bundle 打包配置（GUI 应用分发包）
+# 用法：cargo bundle --release --format osx   产 macOS .app/.dmg
+#       cargo bundle --release --format deb   产 Linux .deb
+[package.metadata.bundle]
+name = "Gloss"
+identifier = "io.github.losmli010.gloss"
+icon = []
+category = "Utility"
+short_description = "划词翻译工具"
+long_description = "鼠标选中文字，即弹出 LLM 翻译结果。纯 Rust + egui + WebGPU 实现。"
+
 [profile.release]
 opt-level = 3
 lto = true
