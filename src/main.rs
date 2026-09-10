@@ -22,7 +22,7 @@ fn run() -> StartupResult {
 
 fn init_logging() {
     gloss_core::log::init();
-    info!(thread = thread::UI, "gloss 启动");
+    info!(thread = thread::UI, "gloss starting");
 }
 
 fn load_config() -> StartupResult {
