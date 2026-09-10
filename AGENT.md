@@ -48,7 +48,7 @@ just check             # 质量门禁：fmt + clippy(-D warnings) + test（提�
 just fmt-fix           # 自动格式化
 just lint              # Clippy 严格检查（警告即失败）
 just test              # 运行单元测试
-just coverage          # 测试覆盖率（终端摘要 + HTML → target/llvm-cov/html；需 cargo-llvm-cov）
+just coverage          # 测试覆盖率：终端摘要 + HTML（→ target/llvm-cov/html）；行覆盖率 < 70% 即失败
 just audit             # cargo audit 依赖漏洞审计
 just deny              # cargo deny 依赖合规（许可证 / 重复依赖 / 来源，配置见 deny.toml）
 just changelog         # 基于 conventional commits 生成 CHANGELOG
@@ -60,6 +60,6 @@ just --list            # 查看全部 recipe
 - **分支**：一任务一分支，命名 `feat/<主题>`，合入用 squash。
 - **提交信息**：Conventional Commits；**标题 ≤ 72 字节**（本地 commitlint 会拒绝超长标题），正文说明「为什么」。
 - **门禁**：本地只有一个钩子 `pre-commit`，跑 `just check`（fmt + clippy + test；命令一律带 `--workspace`——根目录存在根包时，不加则只作用于根包、漏掉成员 crate）。**不要用 `--no-verify` 绕过**。commit message 规范不在本地校验（git 跑 pre-commit 时消息还没落盘，读到的会是上一条），由 CI 的 commitlint job 兜底。
-- **CI**（ci.yml）：`quality`（fmt + clippy）最快，`test`（Linux/macOS/Windows 三平台矩阵）、`coverage`、`security`（cargo audit + deny）三个 job 都 `needs: quality`；另有每日定时安全检查（security-audit.yml）。
+- **CI**（ci.yml）：`quality`（fmt + clippy）最快，`test`（Linux/macOS/Windows 三平台矩阵）、`coverage`（行覆盖率 ≥ 70%，报告进 job summary 与 artifact）、`security`（cargo audit + deny）三个 job 都 `needs: quality`；另有每日定时安全检查（security-audit.yml）。
 - **推送与 PR**：不要自行推送或开 PR，等用户明确要求。
-- **测试**：新增逻辑优先补单测；`gloss-core` 是纯逻辑层，应能被完整单测覆盖。
+- **测试**：新增逻辑优先补单测；**行覆盖率下限 70%**（justfile 的 `coverage_min`，本地 `just coverage` 与 CI 同一判定），低于即失败；不要用 `--ignore-filename-regex` 排除代码或写空测试来凑数。`gloss-core` 是纯逻辑层，应能被完整单测覆盖。

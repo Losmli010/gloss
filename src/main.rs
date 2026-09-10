@@ -54,3 +54,13 @@ fn run_event_loop() -> StartupResult {
     // TODO(M1-T3): winit 事件循环，不返回
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::run;
+
+    #[test]
+    fn startup_skeleton_returns_ok() {
+        assert!(run().is_ok());
+    }
+}

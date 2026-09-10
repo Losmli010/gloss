@@ -13,6 +13,9 @@ default:
 name := "gloss"
 version := env_var_or_default("GLOSS_VERSION", "0.1.0")
 
+# 行覆盖率下限：低于该值即失败（本地 just coverage 与 CI 的 coverage job 共用）
+coverage_min := "70"
+
 # ---- 本地开发 ----
 
 # 运行开发版（debug）
@@ -46,15 +49,16 @@ test:
     cargo test --workspace --all-features
 
 # 测试覆盖率：终端摘要 + HTML 报告（→ target/llvm-cov/html；CI 也跑这条）
+# 最后一步带阈值，行覆盖率低于 coverage_min 时整个配方失败
 coverage:
     cargo llvm-cov clean --workspace
     cargo llvm-cov --no-report --workspace --all-features
     cargo llvm-cov report --workspace --html
-    cargo llvm-cov report --workspace
+    cargo llvm-cov report --workspace --fail-under-lines {{coverage_min}}
 
-# 测试覆盖率：只打终端摘要，不生成 HTML
+# 测试覆盖率：只打终端摘要并按同一阈值判定（不生成 HTML）
 coverage-check:
-    cargo llvm-cov --workspace --all-features
+    cargo llvm-cov --workspace --all-features --fail-under-lines {{coverage_min}}
 
 # 完整质量门禁：格式化 + Clippy + 测试（pre-commit 与 CI 核心）
 check: fmt lint test

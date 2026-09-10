@@ -93,7 +93,8 @@ jobs:
 
       - name: Run coverage
         # 与本地共用 just coverage，避免 CI 与本地两套命令漂移。
-        # 只统计不设阈值：业务代码稳定后再考虑 --fail-under-lines 作为门禁。
+        # 行覆盖率阈值（70%，见 justfile 的 coverage_min）在配方最后一步判定，
+        # 不达标时本步骤直接失败。
         # 关掉 cargo 的着色，避免 ANSI 转义进 job summary。
         shell: bash
         env:
@@ -117,6 +118,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload HTML report
+        # 阈值没过时也要拿到报告，否则无从判断是哪个文件把覆盖率拉了下来。
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-html
