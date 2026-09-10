@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   coverage:
     name: Coverage (LLVM)
@@ -24,10 +27,43 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
       - name: Cache Cargo dependencies
         uses: swatinem/rust-cache@v2
 
       - name: Run coverage
-        # 仅生成覆盖率报告，不设失败阈值（业务代码未落地前阈值无意义）。
-        # 后续业务稳定后，可加 --fail-under-lines 80 作为门禁。
-        run: cargo llvm-cov --workspace --all-features --html
+        # 与本地共用 just coverage，避免 CI 与本地两套命令漂移。
+        # 只统计不设阈值：业务代码稳定后再考虑 --fail-under-lines 作为门禁。
+        # 关掉 cargo 的着色，避免 ANSI 转义进 job summary。
+        shell: bash
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          set -o pipefail
+          just coverage | tee "$RUNNER_TEMP/coverage-summary.txt"
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo '## Coverage (LLVM)'
+            echo '```'
+            if [ -f "$RUNNER_TEMP/coverage-summary.txt" ]; then
+              cat "$RUNNER_TEMP/coverage-summary.txt"
+            else
+              echo 'coverage run produced no summary (see step log)'
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: target/llvm-cov/html
+          retention-days: 14
+          if-no-files-found: error

@@ -45,11 +45,14 @@ lint-fix:
 test:
     cargo test --workspace --all-features
 
-# 测试覆盖率报告（需 cargo-llvm-cov，会生成 HTML 报告）
+# 测试覆盖率：终端摘要 + HTML 报告（→ target/llvm-cov/html；CI 也跑这条）
 coverage:
-    cargo llvm-cov --workspace --all-features --html
+    cargo llvm-cov clean --workspace
+    cargo llvm-cov --no-report --workspace --all-features
+    cargo llvm-cov report --workspace --html
+    cargo llvm-cov report --workspace
 
-# 测试覆盖率（文本摘要，不设失败阈值）
+# 测试覆盖率：只打终端摘要，不生成 HTML
 coverage-check:
     cargo llvm-cov --workspace --all-features
 

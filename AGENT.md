@@ -48,6 +48,7 @@ just check             # 质量门禁：fmt + clippy(-D warnings) + test（提�
 just fmt-fix           # 自动格式化
 just lint              # Clippy 严格检查（警告即失败）
 just test              # 运行单元测试
+just coverage          # 测试覆盖率（终端摘要 + HTML → target/llvm-cov/html；需 cargo-llvm-cov）
 just audit             # cargo audit 依赖漏洞审计
 just changelog         # 基于 conventional commits 生成 CHANGELOG
 just --list            # 查看全部 recipe

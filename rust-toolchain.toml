@@ -1,3 +1,5 @@
 [toolchain]
 channel = "1.96.1"
 profile = "default"
+# llvm-tools-preview 供 cargo-llvm-cov 使用（缺它会停在 rustup 的安装提示上）
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
