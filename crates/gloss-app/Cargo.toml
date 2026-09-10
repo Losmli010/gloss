@@ -6,5 +6,13 @@ license.workspace = true
 description = "Gloss 表现层与应用层：状态机 + 渲染胶水"
 
 [dependencies]
+# 渲染栈整批版本（egui 三件套必须同小版本；wgpu 版本由 egui-wgpu 决定，不要单独升级）：
+# winit 0.30.13 / wgpu 30.0.1 / egui + egui-wgpu + egui-winit 0.36.2 / pollster 1.0.1
+egui = "0.36.2"
+egui-wgpu = "0.36.2"
+egui-winit = "0.36.2"
 gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
+pollster = "1.0.1"
+wgpu = "30.0.1"
+winit = "0.30.13"
