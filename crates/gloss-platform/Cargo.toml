@@ -1,0 +1,9 @@
+[package]
+name = "gloss-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gloss 适配器层：实现 gloss-core 端口 + 平台事件源"
+
+[dependencies]
+gloss-core = { path = "../gloss-core" }

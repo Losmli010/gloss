@@ -30,4 +30,4 @@ jobs:
       - name: Run coverage
         # 仅生成覆盖率报告，不设失败阈值（业务代码未落地前阈值无意义）。
         # 后续业务稳定后，可加 --fail-under-lines 80 作为门禁。
-        run: cargo llvm-cov --all-features --html
+        run: cargo llvm-cov --workspace --all-features --html
