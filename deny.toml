@@ -1,0 +1,38 @@
+# 依赖安全与合规检查（本地 `just deny`、CI 的 security job、每日定时任务共用）
+# 文档：https://embarkstudios.github.io/cargo-deny/checks/index.html
+
+[advisories]
+# RustSec 漏洞库；出现未豁免的漏洞即失败。
+# 确需豁免时把 advisory id 登记到这里，并写清豁免理由与跟踪项。
+ignore = []
+
+[licenses]
+# MIT 项目的商用底线：只接受宽松许可证，copyleft（GPL/AGPL/LGPL）一律不放行。
+# 新增依赖若被这里拦下，先确认它是否真的必要，再决定是否扩白名单。
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CC0-1.0",
+]
+confidence-threshold = 0.9
+# 白名单是按「将来可能引入的依赖」预留的，当下用不到的条目不算问题，别刷警告。
+unused-allowed-license = "allow"
+
+[bans]
+# 同一 crate 出现多版本只警告：GUI/GPU 生态（egui、wgpu）几乎必然出现，硬拦会寸步难行。
+multiple-versions = "warn"
+# wildcard 检查只能放行：cargo-deny 把「workspace 内部的 path 依赖」也算成 wildcard
+# （path 依赖不带 version，等价于 "*"），而本项目版本单点维护在 [workspace.package]，
+# 不给 path 依赖补硬编码 version。外部依赖仍由 licenses + sources 兜底。
+wildcards = "allow"
+
+[sources]
+# 只信任 crates.io，杜绝来路不明的 registry / git 源。
+unknown-registry = "deny"
+unknown-git = "deny"

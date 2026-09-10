@@ -2,17 +2,14 @@ name: Security Audit
 
 on:
   schedule:
-    # 每周一 08:00（UTC）跑一次，主动发现新漏洞
-    - cron: "0 8 * * 1"
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    # 每日 02:00 UTC（北京时间 10:00）跑一次，主动发现新披露的漏洞。
+    # PR / push 时的安全门禁在 ci.yml 的 security job（依赖 quality）。
+    - cron: "0 2 * * *"
   workflow_dispatch:
 
 jobs:
-  audit:
-    name: Cargo audit
+  security:
+    name: Daily security (audit + deny)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,8 +23,21 @@ jobs:
         with:
           tool: cargo-audit
 
-      - name: Generate Cargo.lock
-        run: cargo generate-lockfile
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
 
-      - name: Run security audit
-        run: cargo audit
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Run cargo audit
+        run: just audit
+
+      - name: Run cargo deny
+        run: just deny

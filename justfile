@@ -56,15 +56,23 @@ coverage:
 coverage-check:
     cargo llvm-cov --workspace --all-features
 
-# 完整质量门禁：格式化 + Clippy + 测试（CI 核心）
+# 完整质量门禁：格式化 + Clippy + 测试（pre-commit 与 CI 核心）
 check: fmt lint test
     @echo "✓ 质量门禁全部通过"
+
+# 校验 commit message 是否符合 Conventional Commits（pre-commit 调用，参数为消息文件路径）
+lint-commit file:
+    ./scripts/check-commit-msg.sh "{{file}}"
 
 # ---- 构建 ----
 
 # Debug 构建
 build:
     cargo build --workspace
+
+# 指定 target 构建（CI 构建矩阵用）
+build-target target:
+    cargo build --workspace --target {{target}}
 
 # Release 构建（优化）
 build-release:
@@ -105,6 +113,10 @@ deps:
 # 安全审计（已知漏洞）
 audit:
     cargo audit
+
+# 依赖合规检查：漏洞 / 许可证 / 重复依赖 / 来源（配置见 deny.toml）
+deny:
+    cargo deny check
 
 # ---- 变更日志 ----
 

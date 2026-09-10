@@ -10,8 +10,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # 快速静态门禁：格式 + Clippy。跑得最快，其余 job 都依赖它，避免白跑 runner。
   quality:
-    name: Quality gate (Linux)
+    name: Quality (fmt + clippy)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,9 +31,137 @@ jobs:
         with:
           tool: just
 
-      - name: Run quality gate (just check)
-        run: just check
+      - name: Check formatting
+        run: just fmt
 
+      - name: Run clippy
+        run: just lint
+
+  # 测试在三平台跑：平台差异（路径、行尾、时钟、剪贴板兜底）只有多 OS 才暴露。
+  test:
+    name: Test (${{ matrix.os }})
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.1
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Run tests
+        run: just test
+
+  # 覆盖率：Linux 单平台统计，摘要写 job summary，HTML 存档。
+  coverage:
+    name: Coverage (LLVM)
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Run coverage
+        # 与本地共用 just coverage，避免 CI 与本地两套命令漂移。
+        # 只统计不设阈值：业务代码稳定后再考虑 --fail-under-lines 作为门禁。
+        # 关掉 cargo 的着色，避免 ANSI 转义进 job summary。
+        shell: bash
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          set -o pipefail
+          just coverage | tee "$RUNNER_TEMP/coverage-summary.txt"
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo '## Coverage (LLVM)'
+            echo '```'
+            if [ -f "$RUNNER_TEMP/coverage-summary.txt" ]; then
+              cat "$RUNNER_TEMP/coverage-summary.txt"
+            else
+              echo 'coverage run produced no summary (see step log)'
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: target/llvm-cov/html
+          retention-days: 14
+          if-no-files-found: error
+
+  # 依赖安全与合规：已知漏洞（audit）+ 许可证 / 重复依赖 / 来源（deny，配置见 deny.toml）。
+  # 每日定时还会再跑一次（security-audit.yml），主动发现新披露的漏洞。
+  security:
+    name: Security (audit + deny)
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.1
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Run cargo audit
+        run: just audit
+
+      - name: Run cargo deny
+        run: just deny
+
+  # 发布目标平台构建冒烟：编译通过即算过，不跑测试。
   build:
     name: Build (${{ matrix.target }})
     strategy:
@@ -56,5 +185,10 @@ jobs:
       - name: Cache Cargo dependencies
         uses: swatinem/rust-cache@v2
 
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
       - name: Build
-        run: cargo build --workspace --target ${{ matrix.target }}
+        run: just build-target ${{ matrix.target }}
