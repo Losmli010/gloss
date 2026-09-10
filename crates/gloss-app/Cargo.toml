@@ -1,0 +1,23 @@
+[package]
+name = "gloss-app"
+description = "划词翻译工具 - 纯 Rust + egui + WebGPU（表现层 + 应用层，可执行文件）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gloss-core = { path = "../gloss-core" }
+gloss-platform = { path = "../gloss-platform" }
+
+# cargo-bundle 打包配置（GUI 应用分发包）
+# workspace 下 cargo-bundle 需在本 crate 目录执行：
+#   cd crates/gloss-app && cargo bundle --release --format osx   产 macOS .app/.dmg
+#   cd crates/gloss-app && cargo bundle --release --format deb   产 Linux .deb
+# （产物统一输出到 workspace 根 target/ 目录）
+[package.metadata.bundle]
+name = "Gloss"
+identifier = "io.github.losmli010.gloss"
+icon = []
+category = "Utility"
+short_description = "划词翻译工具"
+long_description = "鼠标选中文字，即弹出 LLM 翻译结果。纯 Rust + egui + WebGPU 实现。"

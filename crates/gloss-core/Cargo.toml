@@ -1,0 +1,10 @@
+[package]
+name = "gloss-core"
+description = "Gloss 领域层 + 端口（Ports）：纯逻辑，零平台/UI 依赖"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# 约束：本 crate 只允许纯逻辑第三方库（serde / moka / arcswap 等），
+# 禁止任何平台 API / GUI / 网络实现依赖——可替换性靠这条红线保证。

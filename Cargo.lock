@@ -3,5 +3,20 @@
 version = 4
 
 [[package]]
-name = "gloss"
+name = "gloss-app"
 version = "0.1.0"
+dependencies = [
+ "gloss-core",
+ "gloss-platform",
+]
+
+[[package]]
+name = "gloss-core"
+version = "0.1.0"
+
+[[package]]
+name = "gloss-platform"
+version = "0.1.0"
+dependencies = [
+ "gloss-core",
+]
