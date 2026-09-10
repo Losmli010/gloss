@@ -1,24 +1,28 @@
 [package]
 name = "gloss-app"
-version = "0.1.0"
-edition = "2024"
 description = "划词翻译工具 - 纯 Rust + egui + WebGPU"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "gloss"
 path = "src/main.rs"
 
 [workspace]
+resolver = "2"
 members = ["crates/gloss-core", "crates/gloss-platform"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
 
 [dependencies]
 gloss-core = { path = "crates/gloss-core" }
 gloss-platform = { path = "crates/gloss-platform" }
 
-# cargo-bundle 打包配置（GUI 应用分发包）
-# 用法：cargo bundle --release --format osx   产 macOS .app/.dmg
-#       cargo bundle --release --format deb   产 Linux .deb
+# 用法：cargo bundle --release --format osx（.app/.dmg）/ deb（.deb）
 [package.metadata.bundle]
 name = "Gloss"
 identifier = "io.github.losmli010.gloss"

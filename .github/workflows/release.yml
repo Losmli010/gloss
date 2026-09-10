@@ -34,7 +34,7 @@ jobs:
         run: |
           # 校验 tag 版本与 Cargo.toml version 一致，防止发版版本号错位
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          CARGO_VERSION="$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')"
+          CARGO_VERSION="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)"/\1/')"
           echo "tag version:  $TAG_VERSION"
           echo "cargo version: $CARGO_VERSION"
           if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then

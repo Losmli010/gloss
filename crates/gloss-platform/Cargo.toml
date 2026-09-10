@@ -1,9 +1,9 @@
 [package]
 name = "gloss-platform"
 description = "Gloss 适配器层：实现 core 端口 + 平台事件源"
-version = "0.1.0"
-edition = "2024"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
 gloss-core = { path = "../gloss-core" }
