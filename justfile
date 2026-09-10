@@ -61,7 +61,7 @@ check: fmt lint test
 
 # Debug 构建
 build:
-    cargo build
+    cargo build --workspace
 
 # Release 构建（优化）
 build-release:

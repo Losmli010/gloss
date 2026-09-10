@@ -22,11 +22,11 @@ elif command -v cargo >/dev/null 2>&1; then
     echo "✗ 质量门禁未通过，已阻止推送" >&2
     exit 1
   fi
-  if ! cargo clippy --all-targets -- -D warnings; then
+  if ! cargo clippy --workspace --all-targets -- -D warnings; then
     echo "✗ 质量门禁未通过，已阻止推送" >&2
     exit 1
   fi
-  if ! cargo test; then
+  if ! cargo test --workspace; then
     echo "✗ 质量门禁未通过，已阻止推送" >&2
     exit 1
   fi

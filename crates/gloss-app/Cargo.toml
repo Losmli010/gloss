@@ -1,0 +1,10 @@
+[package]
+name = "gloss-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gloss 表现层与应用层：状态机 + 渲染胶水"
+
+[dependencies]
+gloss-core = { path = "../gloss-core" }
+gloss-platform = { path = "../gloss-platform" }

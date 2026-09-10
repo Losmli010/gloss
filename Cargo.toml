@@ -1,11 +1,19 @@
 [package]
 name = "gloss"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "划词翻译工具 - 纯 Rust + egui + WebGPU"
-license = "MIT"
+
+# 唯一入口：组装依赖、分发通道 Sender、启动线程与事件循环
+[[bin]]
+name = "gloss"
+path = "src/main.rs"
 
 [dependencies]
+gloss-core = { path = "crates/gloss-core" }
+gloss-platform = { path = "crates/gloss-platform" }
+gloss-app = { path = "crates/gloss-app" }
 
 # cargo-bundle 打包配置（GUI 应用分发包）
 # 用法：cargo bundle --release --format osx   产 macOS .app/.dmg
@@ -17,6 +25,16 @@ icon = []
 category = "Utility"
 short_description = "划词翻译工具"
 long_description = "鼠标选中文字，即弹出 LLM 翻译结果。纯 Rust + egui + WebGPU 实现。"
+
+[workspace]
+members = ["crates/gloss-core", "crates/gloss-platform", "crates/gloss-app"]
+resolver = "3"
+
+# 版本与 edition 单点维护，各 crate 继承
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
 
 [profile.release]
 opt-level = 3

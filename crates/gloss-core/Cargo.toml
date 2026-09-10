@@ -1,0 +1,8 @@
+[package]
+name = "gloss-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gloss 领域层与端口（纯逻辑，零平台/UI 依赖）"
+
+[dependencies]
