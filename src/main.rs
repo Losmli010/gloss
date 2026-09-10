@@ -2,6 +2,8 @@
 
 use std::error::Error;
 
+use gloss_core::log::{info, thread};
+
 type StartupResult = Result<(), Box<dyn Error>>;
 
 fn main() -> StartupResult {
@@ -9,7 +11,7 @@ fn main() -> StartupResult {
 }
 
 fn run() -> StartupResult {
-    init_logging()?;
+    init_logging();
     load_config()?;
     create_channels()?;
     start_platform_event_thread()?;
@@ -18,9 +20,9 @@ fn run() -> StartupResult {
     run_event_loop()
 }
 
-fn init_logging() -> StartupResult {
-    // TODO(M1-T7): gloss_core::log::init()，全进程唯一一次
-    Ok(())
+fn init_logging() {
+    gloss_core::log::init();
+    info!(thread = thread::UI, "gloss 启动");
 }
 
 fn load_config() -> StartupResult {
