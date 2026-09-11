@@ -76,6 +76,8 @@ impl GlossApp {
         let surface = GpuSurface::new(&context, Arc::clone(&window))?;
 
         let egui_ctx = egui::Context::default();
+        // 内置字体不含 CJK 字形，画第一帧前把系统中文字体接进后备链
+        ui::fonts::install(&egui_ctx);
         let egui = egui_winit::State::new(
             egui_ctx.clone(),
             ViewportId::ROOT,

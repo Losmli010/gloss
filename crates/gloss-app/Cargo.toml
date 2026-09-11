@@ -53,3 +53,8 @@ winit = { version = "0.30.13", default-features = false, features = [
     "wayland",
     "wayland-dlopen",
 ] }
+
+# 系统字体发现（M1-T5）：仅 macOS / Windows；Linux 只跑 CI，不需要。
+# 不用默认特性：默认集含 fs 相关探索能力，查系统字体只用 source + 加载，按需最小化。
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+font-kit = { version = "0.14", default-features = false, features = ["source"] }
