@@ -64,27 +64,36 @@ const CJK_FAMILIES: &[&str] = &["Microsoft YaHei", "微软雅黑", "SimHei", "Si
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod imp {
+    use std::sync::Arc;
+
     use super::{CJK_FAMILIES, FONT_NAME};
     use egui::FontData;
+    use font_kit::family_name::FamilyName;
+    use font_kit::properties::{Properties, Style, Weight};
     use font_kit::source::SystemSource;
     use gloss_core::log::{debug, info, thread, warn};
 
     /// 依候选顺序查系统 CJK 字体，命中第一个就返回。
     ///
-    /// font-kit 的 CoreText/DirectWrite 后端在 `load()` 时会把 .ttc 集合拆成
-    /// 单个字体面，`copy_font_data()` 给出的就是拆好的数据，因此 egui 侧的
-    /// face index 恒为 0。
+    /// 匹配走 CSS Fonts L3 的 `select_best_match` 并固定常规体（Regular）：
+    /// 字体族里的第一个 face 权重不确定，可能拿到 Thin/Light。font-kit 的
+    /// CoreText/DirectWrite 后端在 `load()` 时会把 .ttc 集合拆成单个字体面，
+    /// `copy_font_data()` 给出的就是拆好的数据，因此 egui 侧的 face index 恒为 0。
     pub(super) fn find_cjk() -> Option<FontData> {
         let source = SystemSource::new();
+        let mut properties = Properties::new();
+        properties.weight(Weight::NORMAL).style(Style::Normal);
         for family in CJK_FAMILIES {
-            let family_handle = match source.select_family_by_name(family) {
-                Ok(handle) if !handle.is_empty() => handle,
-                _ => {
-                    debug!(thread = thread::UI, family, "CJK font family not found");
+            let handle = match source
+                .select_best_match(&[FamilyName::Title((*family).to_owned())], &properties)
+            {
+                Ok(handle) => handle,
+                Err(err) => {
+                    debug!(thread = thread::UI, family, error = %err, "CJK font candidate not matched");
                     continue;
                 }
             };
-            let font = match family_handle.fonts()[0].clone().load() {
+            let font = match handle.load() {
                 Ok(font) => font,
                 Err(err) => {
                     warn!(
@@ -98,17 +107,17 @@ mod imp {
             };
             match font.copy_font_data() {
                 Some(bytes) => {
+                    // 引用唯一时移出 Vec 免掉整包复制（CJK 字体几十 MB）；
+                    // font-kit 内部还有引用时才退回复制
+                    let len = bytes.len();
+                    let vec = Arc::try_unwrap(bytes).unwrap_or_else(|arc| (*arc).clone());
                     info!(
                         thread = thread::UI,
                         family,
-                        bytes = bytes.len(),
+                        bytes = len,
                         "located system CJK font"
                     );
-                    return Some(FontData {
-                        font: bytes.to_vec().into(),
-                        index: 0,
-                        tweak: Default::default(),
-                    });
+                    return Some(FontData::from_owned(vec));
                 }
                 None => warn!(
                     thread = thread::UI,

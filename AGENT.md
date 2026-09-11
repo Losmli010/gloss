@@ -47,6 +47,7 @@ just install-hooks     # clone 后执行一次，安装本地 git hooks
 just run               # 运行开发版
 just logs              # 跟随最新日志文件（~/.gloss/logs）
 just logs-dir          # 打印日志目录
+cargo run -- --overlay-selftest  # M1 验收入口：100 轮浮层显隐自检（首帧延迟/句柄泄漏），需图形环境
 just precommit         # 提交前静态检查：fmt + clippy（pre-commit 钩子跑的就是它）
 just check             # 全量门禁：fmt + clippy + test（测试由 CI 兜底，本地按需）
 just fmt-fix           # 自动格式化

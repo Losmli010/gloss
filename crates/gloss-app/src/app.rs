@@ -122,7 +122,7 @@ impl SelfTest {
     }
 
     /// 隐藏当前轮：返回是否已跑满计划轮数。
-    fn finish_round(&mut self, max_rounds: usize) -> bool {
+    fn is_complete(&self, max_rounds: usize) -> bool {
         self.round >= max_rounds
     }
 
@@ -241,7 +241,7 @@ impl GlossApp {
         let Some(st) = &mut self.self_test else {
             return;
         };
-        if !st.finish_round(SELFTEST_ROUNDS) {
+        if !st.is_complete(SELFTEST_ROUNDS) {
             self.begin_selftest_round(event_loop);
             return;
         }
@@ -280,12 +280,19 @@ impl GlossApp {
     }
 }
 
-/// 浮层居中于主显示器（逻辑坐标）。
+/// 浮层居中于显示器（逻辑坐标）：优先窗口当前所在的显示器，其次主显示器。
+///
+/// winit 0.30 没有全局光标位置读取接口，「跟随鼠标所在屏幕」需等 M2 的
+/// 平台端口提供光标坐标后由调用方指定目标显示器。
 fn centered_position(
     event_loop: &ActiveEventLoop,
     windows: &WindowManager,
 ) -> LogicalPosition<f64> {
-    let Some(monitor) = event_loop.primary_monitor() else {
+    let monitor = windows
+        .overlay_handle()
+        .current_monitor()
+        .or_else(|| event_loop.primary_monitor());
+    let Some(monitor) = monitor else {
         return LogicalPosition::new(0.0, 0.0);
     };
     let scale = monitor.scale_factor();
@@ -447,11 +454,11 @@ mod tests {
                 Some(Duration::from_millis(3))
             );
             assert_eq!(st.first_paint(t + Duration::from_millis(4)), None);
-            assert!(!st.finish_round(SELFTEST_ROUNDS) || round == SELFTEST_ROUNDS);
+            assert!(!st.is_complete(SELFTEST_ROUNDS) || round == SELFTEST_ROUNDS);
             t += Duration::from_millis(83);
         }
 
-        assert!(st.finish_round(SELFTEST_ROUNDS));
+        assert!(st.is_complete(SELFTEST_ROUNDS));
         let (first, max) = st.summary().expect("latencies recorded");
         assert_eq!(first, Duration::from_millis(3));
         assert_eq!(max, Duration::from_millis(3));
@@ -463,8 +470,8 @@ mod tests {
         let mut st = SelfTest::new();
         for _ in 0..SELFTEST_ROUNDS - 1 {
             st.start_round(Instant::now());
-            st.finish_round(SELFTEST_ROUNDS);
+            st.is_complete(SELFTEST_ROUNDS);
         }
-        assert!(!st.finish_round(SELFTEST_ROUNDS));
+        assert!(!st.is_complete(SELFTEST_ROUNDS));
     }
 }
