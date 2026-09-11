@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use winit::dpi::LogicalSize;
+use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::error::OsError;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId, WindowLevel};
@@ -31,6 +31,8 @@ impl WindowManager {
             // 透明：卡片圆角之外要让桌面透出来，因此 surface 也得选带 alpha 的合成模式
             .with_transparent(true);
         let overlay = event_loop.create_window(attributes)?;
+        // macOS 上窗口创建即可见，预创建的浮层必须立刻压下去（06 §6.2）
+        overlay.set_visible(false);
         Ok(Self {
             overlay: Arc::new(overlay),
         })
@@ -39,6 +41,33 @@ impl WindowManager {
     /// 浮层窗口本体（事件处理用）。
     pub fn overlay(&self) -> &Window {
         &self.overlay
+    }
+
+    /// 浮层逻辑尺寸（M1 固定，内容自适应等 M3 结果卡接入再做）。
+    pub fn logical_size(&self) -> LogicalSize<f64> {
+        LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+    }
+
+    /// reposition + show：唯一显示入口（06 §6.2，预创建复用只显隐）。
+    pub fn show_at(&self, position: LogicalPosition<f64>) {
+        self.overlay.set_outer_position(position);
+        self.overlay.set_visible(true);
+    }
+
+    /// 隐藏但不销毁：窗口与 surface 原样保留，下次显示零重建成本。
+    pub fn hide(&self) {
+        self.overlay.set_visible(false);
+    }
+
+    /// 浮层当前是否可见（winit 返回 `Option<bool>`，窗口已消失时按不可见算）。
+    pub fn is_visible(&self) -> bool {
+        self.overlay.is_visible().unwrap_or(false)
+    }
+
+    /// 浮层句柄的引用计数：唯一窗口只显隐不重建，计数应恒定不变，
+    /// 显隐自检用它验证无窗口泄漏。
+    pub fn handle_refcount(&self) -> usize {
+        Arc::strong_count(&self.overlay)
     }
 
     /// 浮层窗口的共享句柄（surface 要持有窗口到 'static）。

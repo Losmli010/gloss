@@ -70,8 +70,10 @@ fn assemble_adapters() -> StartupResult {
 }
 
 fn run_event_loop() -> StartupResult {
+    // 显隐自检：--overlay-selftest 反复显隐 100 次后退出（09 M1-T6 验收入口）
+    let self_test = env::args().any(|arg| arg == "--overlay-selftest");
     // 唤醒句柄交给组装点，再由它分发给平台事件线程与 tokio（08 §7.3）
-    gloss_app::app::run(|_waker| {})
+    gloss_app::app::run(self_test, |_waker| {})
 }
 
 #[cfg(test)]

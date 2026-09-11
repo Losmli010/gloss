@@ -151,12 +151,23 @@ impl GpuSurface {
     /// 画一帧：应用 egui 的纹理增量 → 提交顶点与索引 → 渲染 → 呈现。
     pub fn render(
         &mut self,
-        textures: egui::TexturesDelta,
+        mut textures: egui::TexturesDelta,
         paint_jobs: &[egui::ClippedPrimitive],
         pixels_per_point: f32,
     ) -> RenderStatus {
         if self.needs_configure {
             self.configure();
+        }
+
+        let device = self.context.device();
+        let queue = self.context.queue();
+
+        // 纹理上传不依赖当帧能否取到：字体/图标增量若被跳过，下一帧就会
+        // 引用不存在的纹理；epaint 另有 Drop 断言，增量必须显式消费掉
+        for (id, deltas) in &textures.set {
+            for delta in deltas {
+                self.renderer.update_texture(device, queue, *id, delta);
+            }
         }
 
         // 窗口被遮挡或取帧超时时跳过本帧：隐藏的浮层正属于前者，
@@ -169,19 +180,20 @@ impl GpuSurface {
             }
             wgpu::CurrentSurfaceTexture::Outdated => {
                 self.configure();
+                self.discard_textures(textures);
                 return RenderStatus::Outdated;
             }
             wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => {
+                self.discard_textures(textures);
                 return RenderStatus::Skipped;
             }
             other => {
                 error!(thread = thread::UI, status = ?other, "surface is unusable, skipping frame");
+                self.discard_textures(textures);
                 return RenderStatus::Skipped;
             }
         };
 
-        let device = self.context.device();
-        let queue = self.context.queue();
         let screen = ScreenDescriptor {
             size_in_pixels: [self.config.width, self.config.height],
             pixels_per_point,
@@ -191,11 +203,6 @@ impl GpuSurface {
             label: Some("gloss frame"),
         });
 
-        for (id, deltas) in &textures.set {
-            for delta in deltas {
-                self.renderer.update_texture(device, queue, *id, delta);
-            }
-        }
         let user_buffers =
             self.renderer
                 .update_buffers(device, queue, &mut encoder, paint_jobs, &screen);
@@ -232,6 +239,7 @@ impl GpuSurface {
         for id in &textures.free {
             self.renderer.free_texture(id);
         }
+        textures.clear();
         queue.present(frame);
 
         if self.needs_configure {
@@ -239,6 +247,15 @@ impl GpuSurface {
             self.configure();
         }
         RenderStatus::Presented
+    }
+
+    /// 跳帧路径的增量收尾：set 已上传，free 的纹理没有在途命令，可直接释放。
+    fn discard_textures(&mut self, mut textures: egui::TexturesDelta) {
+        for id in &textures.free {
+            self.renderer.free_texture(id);
+        }
+        // set 已应用，这里清空以满足 epaint 的 Drop 断言
+        textures.clear();
     }
 
     fn configure(&mut self) {
