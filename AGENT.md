@@ -19,6 +19,7 @@ Gloss —— 划词翻译桌面工具：选中文字即弹出 LLM 结果。纯 R
 5. **日志统一出口**：只用 `gloss_core::log` 的宏（`info!` / `warn!` / `error!` 等）；库 crate 不初始化 subscriber，不用 `println!`。日志同时落盘到 `~/.gloss/logs/`（按天滚动，留 7 份），目录由入口算好传给 `log::init`。
 6. **日志一律英文**：日志消息、字段值、span 名只用英文——日志是面向终端的诊断文本，不做本地化；中文只出现在注释、文档与用户可见文案里。
 7. **版本单点维护**：`version` / `edition` 写在根 `Cargo.toml` 的 `[workspace.package]`，子 crate 以 `*.workspace = true` 继承，不要硬写。
+8. **依赖只开需要的特性**：新增依赖一律写 `default-features = false` 并显式列出所需特性。默认集常带目标平台用不到的图形后端（vulkan / gles / webgpu）、wasm 专用项，或整条用不上的子树——既拖慢编译，也可能带进有问题的包（winit 默认集就经 sctk-adwaita 拖进过已停止维护的 `ttf-parser`）。Gloss 目标平台是 macOS（Metal）与 Windows（DX12），Linux 只跑 CI，见 `crates/gloss-app/Cargo.toml` 的写法。
 
 ## 目录结构
 
@@ -46,7 +47,9 @@ just install-hooks     # clone 后执行一次，安装本地 git hooks
 just run               # 运行开发版
 just logs              # 跟随最新日志文件（~/.gloss/logs）
 just logs-dir          # 打印日志目录
-just check             # 质量门禁：fmt + clippy(-D warnings) + test（提交前必跑）
+cargo run -- --overlay-selftest  # M1 验收入口：100 轮浮层显隐自检（首帧延迟/句柄泄漏），需图形环境
+just precommit         # 提交前静态检查：fmt + clippy（pre-commit 钩子跑的就是它）
+just check             # 全量门禁：fmt + clippy + test（测试由 CI 兜底，本地按需）
 just fmt-fix           # 自动格式化
 just lint              # Clippy 严格检查（警告即失败）
 just test              # 运行单元测试
@@ -61,7 +64,7 @@ just --list            # 查看全部 recipe
 
 - **分支**：一任务一分支，命名 `feat/<主题>`，合入用 squash。
 - **提交信息**：Conventional Commits；**标题 ≤ 72 字节**（本地 commitlint 会拒绝超长标题），正文说明「为什么」。
-- **门禁**：本地只有一个钩子 `pre-commit`，跑 `just check`（fmt + clippy + test；命令一律带 `--workspace`——根目录存在根包时，不加则只作用于根包、漏掉成员 crate）。**不要用 `--no-verify` 绕过**。commit message 规范不在本地校验（git 跑 pre-commit 时消息还没落盘，读到的会是上一条），由 CI 的 commitlint job 兜底。
+- **门禁**：本地 `pre-commit` 只跑 `just precommit`（fmt + clippy；命令一律带 `--workspace`——根目录存在根包时，不加则只作用于根包、漏掉成员 crate），**测试交给 CI**，本地提交不必等编译测试。`just check`（fmt + clippy + test）保留给需要本地全量验证的场合。**不要用 `--no-verify` 绕过**。commit message 规范不在本地校验（git 跑 pre-commit 时消息还没落盘，读到的会是上一条），由 CI 的 commitlint job 兜底。
 - **CI**（ci.yml）：`quality`（fmt + clippy）最快，`test`（Linux/macOS/Windows 三平台矩阵）、`coverage`（行覆盖率 ≥ 70%，报告进 job summary 与 artifact）、`security`（cargo audit + deny）三个 job 都 `needs: quality`；另有每日定时安全检查（security-audit.yml）。
 - **推送与 PR**：不要自行推送或开 PR，等用户明确要求。
 - **测试**：新增逻辑优先补单测；**行覆盖率下限 70%**（justfile 的 `coverage_min`，本地 `just coverage` 与 CI 同一判定），低于即失败；不要用 `--ignore-filename-regex` 排除代码或写空测试来凑数。`gloss-core` 是纯逻辑层，应能被完整单测覆盖。

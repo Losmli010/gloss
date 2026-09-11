@@ -13,13 +13,19 @@ fn main() -> StartupResult {
 }
 
 fn run() -> StartupResult {
+    startup()?;
+    run_event_loop()
+}
+
+/// 进入事件循环之前的六步启动：任何一步失败都在主循环之前退出，
+/// 不允许带病进入（06 §3.3）。
+fn startup() -> StartupResult {
     init_logging();
     load_config()?;
     create_channels()?;
     start_platform_event_thread()?;
     start_tokio_runtime()?;
-    assemble_adapters()?;
-    run_event_loop()
+    assemble_adapters()
 }
 
 fn init_logging() {
@@ -64,16 +70,19 @@ fn assemble_adapters() -> StartupResult {
 }
 
 fn run_event_loop() -> StartupResult {
-    // TODO(M1-T3): winit 事件循环，不返回
-    Ok(())
+    // 显隐自检：--overlay-selftest 反复显隐 100 次后退出（09 M1-T6 验收入口）
+    let self_test = env::args().any(|arg| arg == "--overlay-selftest");
+    // 唤醒句柄交给组装点，再由它分发给平台事件线程与 tokio（08 §7.3）
+    gloss_app::app::run(self_test, |_waker| {})
 }
 
 #[cfg(test)]
 mod tests {
-    use super::run;
+    use super::startup;
 
+    /// 事件循环一旦进入就不返回，所以冒烟测试只覆盖它之前的启动步骤。
     #[test]
     fn startup_skeleton_returns_ok() {
-        assert!(run().is_ok());
+        assert!(startup().is_ok());
     }
 }
