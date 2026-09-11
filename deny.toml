@@ -24,6 +24,10 @@ allow = [
     "BSL-1.0",
     "OFL-1.1",
     "Ubuntu-font-1.0",
+    # MPL-2.0 为文件级弱 copyleft：仅要求修改 MPL 文件本身时开源该文件，
+    # 不会传染宿主项目，商用安全。引入者（均来自 font-kit）：
+    # dwrote（Windows DirectWrite 后端）、option-ext（dirs → dirs-sys 链）
+    "MPL-2.0",
 ]
 confidence-threshold = 0.9
 # 白名单是按「将来可能引入的依赖」预留的，当下用不到的条目不算问题，别刷警告。
