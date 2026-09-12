@@ -40,11 +40,15 @@ edition = "2024"
 license = "MIT"
 
 # 生产路径必须传播错误：unwrap/expect 仅在注释文档化不变量（panic 不可能）
-# 时允许；测试代码不受限（clippy.toml 的 allow-*-in-tests）。各 crate 以
-# [lints] workspace = true 继承。
+# 时允许；panic!/unreachable!/todo!/unimplemented! 一律禁止。测试代码不受限
+# （clippy.toml 的 allow-*-in-tests）。各 crate 以 [lints] workspace = true 继承。
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
 
 [profile.release]
 opt-level = 3
