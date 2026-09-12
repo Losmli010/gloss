@@ -13,7 +13,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
-use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+use global_hotkey::{
+    GlobalHotKeyEvent, GlobalHotKeyEventReceiver, GlobalHotKeyManager, HotKeyState,
+};
 
 use gloss_core::log::{info, thread, warn};
 use gloss_core::task::{HotkeyBinding, InputSource, TaskKind};
@@ -76,14 +78,26 @@ impl HotkeyRegistrar {
             }
         };
         let mut table = HashMap::new();
+        let mut seen_triggers = std::collections::HashSet::new();
         for binding in bindings {
-            let hotkey = match parse_trigger(&binding.trigger) {
-                Ok(hotkey) => hotkey,
+            // 同一触发键注册两次时后者覆盖前者、前者无痕丢失，明确拒绝。
+            if !seen_triggers.insert(binding.trigger.clone()) {
+                warn!(thread = thread::EVENT, trigger = %binding.trigger, "hotkey binding skipped: duplicate trigger");
+                continue;
+            }
+            let (hotkey, modifiers) = match parse_trigger(&binding.trigger) {
+                Ok(parsed) => parsed,
                 Err(err) => {
                     warn!(thread = thread::EVENT, trigger = %binding.trigger, error = err, "hotkey binding skipped: unparseable trigger");
                     continue;
                 }
             };
+            // 无修饰键的裸键会作为全局热键在系统级吞掉普通输入（如字母 a），
+            // 一律拒绝——热键必须带修饰键。
+            if modifiers.is_empty() {
+                warn!(thread = thread::EVENT, trigger = %binding.trigger, "hotkey binding skipped: bare key would capture plain typing system-wide");
+                continue;
+            }
             if let Some(manager) = &manager
                 && let Err(err) = manager.register(hotkey)
             {
@@ -123,21 +137,34 @@ impl HotkeyPump {
     /// 返回本次抽干中「按下」的绑定；抬起（Released）事件丢弃，避免一次
     /// 按键产生两次触发。
     pub fn poll(&self) -> Vec<HotkeyBinding> {
-        let receiver = GlobalHotKeyEvent::receiver();
-        let mut pressed = Vec::new();
-        while let Ok(event) = receiver.try_recv()
-            && event.state == HotKeyState::Pressed
-            && let Some(binding) = self.table.get(&event.id)
+        drain_pressed(GlobalHotKeyEvent::receiver(), &self.table)
+    }
+}
+
+/// 抽干队列，只保留「按下」且在表中的事件。Released 与未知 id 丢弃后必须
+/// 继续抽干——按下/抬起成对出现，若遇非 Pressed 就停会把同批后续按下
+/// 推迟到下一个 drain 周期。
+fn drain_pressed(
+    receiver: &GlobalHotKeyEventReceiver,
+    table: &HashMap<u32, HotkeyBinding>,
+) -> Vec<HotkeyBinding> {
+    let mut pressed = Vec::new();
+    // Err（Empty 即抽干完毕）退出循环；每个取到的事件独立过滤，
+    // Released / 未知 id 只是被跳过，不会中断本轮抽干。
+    while let Ok(event) = receiver.try_recv() {
+        if event.state == HotKeyState::Pressed
+            && let Some(binding) = table.get(&event.id)
         {
             pressed.push(binding.clone());
         }
-        pressed
     }
+    pressed
 }
 
 /// 把触发键字符串解析成 global-hotkey 的 `HotKey`，如 `"Cmd+Shift+1"`。
 /// 修饰键大小写不敏感；无法识别的段返回 Err（注册侧告警跳过）。
-fn parse_trigger(trigger: &str) -> Result<HotKey, String> {
+/// 同时返回修饰键集合，供注册侧拒绝无修饰键的裸键（HotKey 本身不暴露）。
+fn parse_trigger(trigger: &str) -> Result<(HotKey, Modifiers), String> {
     let mut modifiers = Modifiers::empty();
     let mut key: Option<Code> = None;
     for token in trigger.split('+') {
@@ -157,7 +184,7 @@ fn parse_trigger(trigger: &str) -> Result<HotKey, String> {
         }
     }
     let key = key.ok_or_else(|| format!("no key in `{trigger}`"))?;
-    Ok(HotKey::new(Some(modifiers), key))
+    Ok((HotKey::new(Some(modifiers), key), modifiers))
 }
 
 /// 解析单个键名：数字/字母/功能键/少量命名键。global-hotkey 的 `Code`
@@ -194,11 +221,21 @@ fn parse_code(name: &str) -> Option<Code> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossbeam_channel::unbounded;
+
+    fn binding(trigger: &str) -> HotkeyBinding {
+        HotkeyBinding {
+            trigger: trigger.to_owned(),
+            kind: TaskKind::TranslateWord,
+            source: InputSource::Selection,
+        }
+    }
 
     #[test]
     fn parses_modifier_combinations() {
-        let hotkey = parse_trigger("Cmd+Shift+1").unwrap();
+        let (hotkey, modifiers) = parse_trigger("Cmd+Shift+1").unwrap();
         assert!(hotkey.id() != 0);
+        assert!(modifiers.contains(Modifiers::SUPER) && modifiers.contains(Modifiers::SHIFT));
         assert!(
             parse_trigger("ctrl+alt+p").is_ok(),
             "case-insensitive modifiers"
@@ -246,5 +283,75 @@ mod tests {
     fn registrar_construction_never_panics() {
         let registrar = HotkeyRegistrar::with_defaults();
         assert!(registrar.pump().poll().is_empty(), "no real keypress in CI");
+    }
+
+    /// 无修饰键的裸键会系统级吞掉普通输入，注册侧必须拒绝；
+    /// 同一触发键重复注册会无痕覆盖前者，也必须拒绝。
+    #[test]
+    fn bare_keys_and_duplicates_are_rejected_before_registration() {
+        let registrar = HotkeyRegistrar::new([
+            binding("a"), // 裸键
+            binding("Cmd+Shift+F12"),
+            binding("Cmd+Shift+F12"), // 重复
+            binding("shift"),         // 仅修饰键、无键位
+        ]);
+        let kept: Vec<&HotkeyBinding> = registrar
+            .table
+            .values()
+            .filter(|b| b.trigger == "Cmd+Shift+F12")
+            .collect();
+        assert_eq!(kept.len(), 1, "duplicates collapse to at most one entry");
+        assert!(
+            registrar
+                .table
+                .values()
+                .all(|b| b.trigger != "a" && b.trigger != "shift"),
+            "bare keys must not reach the table: {:?}",
+            registrar
+                .table
+                .values()
+                .map(|b| &b.trigger)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// 抽干过滤不断流：Released 与未知 id 丢弃后，同批后续的 Pressed 仍会被
+    /// 收集（按下/抬起成对出现，这是此前 let-chain 版本的隐藏缺陷）。
+    #[test]
+    fn drain_pressed_skips_released_and_unknown_ids_without_stopping() {
+        let (tx, rx) = unbounded::<GlobalHotKeyEvent>();
+        let mut table = HashMap::new();
+        let kept = binding("Cmd+Shift+D");
+        let (hotkey, _) = parse_trigger("Cmd+Shift+D").unwrap();
+        table.insert(hotkey.id(), kept.clone());
+
+        let other_id = hotkey.id().wrapping_add(1);
+        tx.send(GlobalHotKeyEvent {
+            id: hotkey.id(),
+            state: HotKeyState::Pressed,
+        })
+        .unwrap();
+        tx.send(GlobalHotKeyEvent {
+            id: hotkey.id(),
+            state: HotKeyState::Released,
+        })
+        .unwrap();
+        tx.send(GlobalHotKeyEvent {
+            id: other_id,
+            state: HotKeyState::Pressed,
+        })
+        .unwrap();
+        tx.send(GlobalHotKeyEvent {
+            id: hotkey.id(),
+            state: HotKeyState::Pressed,
+        })
+        .unwrap();
+
+        let drained = drain_pressed(&rx, &table);
+        assert_eq!(
+            drained,
+            vec![kept.clone(), kept],
+            "exactly the two valid presses"
+        );
     }
 }

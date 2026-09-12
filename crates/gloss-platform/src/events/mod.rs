@@ -1,8 +1,10 @@
 //! 平台事件线程：全局热键、鼠标监听等系统事件源的唯一宿主（08 §7.2）。
 //!
-//! 事件线程先跑起 RunLoop 再注册事件源；取材命令（通道②）与系统事件在同一线程
-//! 顺序消费，天然串行无锁。消息类型由组装点注入——platform 不依赖 gloss-app 的
-//! 通道类型，测试用本地桩类型即可驱动整条循环。
+//! 事件线程必须是 RunLoop 线程而非裸 `std::thread`：线程宿主为 CFRunLoop，
+//! 事件源（定时器与后续 CGEventTap source）都挂同一 run loop。取材命令
+//! （通道②）与系统事件在同一线程顺序消费，天然串行无锁。消息类型由组装点
+//! 注入——platform 不依赖 gloss-app 的通道类型，测试用本地桩类型即可驱动
+//! 整条循环。
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::thread::JoinHandle;
@@ -68,8 +70,12 @@ pub struct EventThread {
 impl EventThread {
     /// 等待事件线程退出。退出由调用方触发：drop 通道②的 Sender 即可。
     pub fn join(mut self) {
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
+        if let Some(join) = self.join.take()
+            && join.join().is_err()
+        {
+            // 防护齐备时线程 panic 近乎不可能，但一旦发生必须留痕，
+            // 否则事件线程死了应用无任何信号。
+            error!(thread = thread::EVENT, "platform event thread died");
         }
     }
 }
@@ -146,6 +152,19 @@ where
     let _ = guarded("acquire command handler", || on_command(command, sink));
 }
 
+/// 热键转发的公共出口：两条驱动路径（RunLoop 定时器 / select）共用，
+/// 注入的映射闭包与命令处理器同等对待——panic 不允许带倒事件线程。
+fn forward_hotkeys<E, P, G>(sink: &EventSink<E, P>, pump: &HotkeyPump, to_platform: &mut G)
+where
+    G: FnMut(&HotkeyBinding) -> P,
+{
+    for binding in pump.poll() {
+        let _ = guarded("hotkey forward", || {
+            sink.send_platform(to_platform(&binding))
+        });
+    }
+}
+
 /// 非 macOS 的驱动：select 阻塞等待，无事件时零空转。
 #[cfg(not(target_os = "macos"))]
 fn select_loop<C, E, P, F, G>(
@@ -173,9 +192,7 @@ fn select_loop<C, E, P, F, G>(
             },
             recv(hotkey_rx) -> _ => {
                 if let Some((pump, to_platform)) = &mut hotkeys {
-                    for binding in pump.poll() {
-                        sink.send_platform(to_platform(&binding));
-                    }
+                    forward_hotkeys(&sink, pump, to_platform);
                 }
             }
         }
@@ -200,7 +217,7 @@ fn run_loop<C, E, P, F, G>(
     use core_foundation_sys::date::CFAbsoluteTimeGetCurrent;
     use core_foundation_sys::runloop::{
         CFRunLoopAddTimer, CFRunLoopGetCurrent, CFRunLoopRun, CFRunLoopStop, CFRunLoopTimerContext,
-        CFRunLoopTimerCreate, CFRunLoopTimerRef, kCFRunLoopCommonModes,
+        CFRunLoopTimerCreate, CFRunLoopTimerInvalidate, CFRunLoopTimerRef, kCFRunLoopCommonModes,
     };
 
     struct LoopState<C, E, P, F, G> {
@@ -229,32 +246,27 @@ fn run_loop<C, E, P, F, G>(
             }
         }
         if let Some((pump, to_platform)) = &mut state.hotkeys {
-            for binding in pump.poll() {
-                let sink = &state.sink;
-                let _ = guarded("hotkey forward", || {
-                    sink.send_platform(to_platform(&binding))
-                });
-            }
+            forward_hotkeys(&state.sink, pump, to_platform);
         }
     }
 
-    unsafe {
-        let mut state = Box::new(LoopState {
-            commands,
-            sink,
-            on_command,
-            hotkeys,
-            run_loop: CFRunLoopGetCurrent(),
-        });
-        let mut context = CFRunLoopTimerContext {
-            version: 0,
-            info: state.as_mut() as *mut LoopState<C, E, P, F, G> as *mut c_void,
-            retain: None,
-            release: None,
-            copyDescription: None,
-        };
-        let interval = TICK.as_secs_f64();
-        let timer = CFRunLoopTimerCreate(
+    let mut state = Box::new(LoopState {
+        commands,
+        sink,
+        on_command,
+        hotkeys,
+        run_loop: unsafe { CFRunLoopGetCurrent() },
+    });
+    let mut context = CFRunLoopTimerContext {
+        version: 0,
+        info: state.as_mut() as *mut LoopState<C, E, P, F, G> as *mut c_void,
+        retain: None,
+        release: None,
+        copyDescription: None,
+    };
+    let interval = TICK.as_secs_f64();
+    let timer = unsafe {
+        CFRunLoopTimerCreate(
             kCFAllocatorDefault,
             CFAbsoluteTimeGetCurrent() + interval,
             interval,
@@ -262,20 +274,26 @@ fn run_loop<C, E, P, F, G>(
             0,
             fire::<C, E, P, F, G>,
             &mut context,
+        )
+    };
+    if timer.is_null() {
+        warn!(
+            thread = thread::EVENT,
+            "failed to create run loop timer, event thread exits"
         );
-        if timer.is_null() {
-            warn!(
-                thread = thread::EVENT,
-                "failed to create run loop timer, event thread exits"
-            );
-            return;
-        }
+        return;
+    }
+    unsafe {
         CFRunLoopAddTimer(state.run_loop, timer, kCFRunLoopCommonModes);
         CFRunLoopRun();
-        // RunLoop 已停止且不在回调中：先释放定时器，再收回状态盒。
-        CFRelease(timer as *const c_void);
-        drop(state);
     }
+    // RunLoop 已停止且不在回调中：先 invalidate 再释放定时器（CF timer 的
+    // 规范清理步骤），最后收回状态盒。
+    unsafe {
+        CFRunLoopTimerInvalidate(timer);
+        CFRelease(timer as *const c_void);
+    }
+    drop(state);
 }
 
 #[cfg(test)]

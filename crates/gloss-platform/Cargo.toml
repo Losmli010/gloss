@@ -13,7 +13,9 @@ crossbeam-channel = { version = "0.5", default-features = false, features = ["st
 global-hotkey = { version = "0.6", default-features = false }
 gloss-core = { path = "../gloss-core" }
 
-# 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）。-sys crate 没有
-# 可裁剪的依赖子树，唯一职责是绑定目标平台的 C API，保持默认特性。
+# 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）。唯一特性
+# link 是绑定 CF 符号所必需的，显式声明以维持统一写法。
 [target.'cfg(target_os = "macos")'.dependencies]
-core-foundation-sys = "0.8"
+core-foundation-sys = { version = "0.8", default-features = false, features = [
+    "link",
+] }
