@@ -3,20 +3,30 @@
 /// 任务的语言参数；UI 固定常用 5 语种，「自动检测」由 `Option<Lang>` 留空表达。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Lang {
+    /// 简体中文。
     Zh,
+    /// 英语。
     En,
+    /// 日语。
     Ja,
+    /// 韩语。
     Ko,
+    /// 法语。
     Fr,
+    /// 以上之外的语言，携带语言代码或名称原文。
     Other(String),
 }
 
 /// 屏幕逻辑坐标矩形。多显示器下原点可为负，坐标按手势/系统返回值原样传递。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScreenRect {
+    /// 左上角横坐标（逻辑像素）。
     pub x: i32,
+    /// 左上角纵坐标（逻辑像素）。
     pub y: i32,
+    /// 宽（逻辑像素）。
     pub width: u32,
+    /// 高（逻辑像素）。
     pub height: u32,
 }
 

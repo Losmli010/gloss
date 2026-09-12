@@ -67,18 +67,22 @@ impl GpuContext {
         })
     }
 
+    /// wgpu 实例，全进程共享。
     pub const fn instance(&self) -> &wgpu::Instance {
         &self.instance
     }
 
+    /// 适配器，全进程共享。
     pub const fn adapter(&self) -> &wgpu::Adapter {
         &self.adapter
     }
 
+    /// 逻辑设备，全进程共享。
     pub const fn device(&self) -> &wgpu::Device {
         &self.device
     }
 
+    /// 命令队列，全进程共享。
     pub const fn queue(&self) -> &wgpu::Queue {
         &self.queue
     }
@@ -110,6 +114,7 @@ pub struct GpuSurface {
 }
 
 impl GpuSurface {
+    /// 为窗口创建 surface 并按当前尺寸完成首次配置。
     pub fn new(context: &Arc<GpuContext>, window: Arc<Window>) -> Result<Self, GpuError> {
         let surface = context.instance().create_surface(window.clone())?;
         let size = window.inner_size();

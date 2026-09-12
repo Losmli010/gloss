@@ -16,16 +16,19 @@ use tokio_util::sync::CancellationToken;
 pub enum PlatformEvent {
     /// 热键触发；绑定 = 任务类型 + 输入源。
     HotkeyTriggered {
+        /// 触发的热键绑定。
         binding: HotkeyBinding,
     },
     /// 划词手势（文本任务）。
     SelectionGesture,
     /// 框选手势（图像任务）。
     RegionGesture {
+        /// 框选区域的屏幕坐标。
         rect: ScreenRect,
     },
     /// 托盘/热键请求打开设置。
     OpenSettingsRequested,
+    /// 托盘/热键请求退出应用。
     QuitRequested,
 }
 
@@ -35,13 +38,20 @@ pub enum PlatformEvent {
 /// 不能与通道③合并发去 tokio；与系统事件同线程顺序消费，天然串行无锁。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AcquireCommand {
+    /// 读前台应用选区文本。
     AcquireText {
+        /// 请求代数，由 App 统一赋值（见模块文档）。
         generation: u64,
+        /// 本次文本任务的任务类型。
         kind: TaskKind,
     },
+    /// 截取屏幕区域为图像。
     CaptureRegion {
+        /// 请求代数，由 App 统一赋值（见模块文档）。
         generation: u64,
+        /// 框选区域的屏幕坐标。
         rect: ScreenRect,
+        /// 本次图像任务的任务类型。
         kind: TaskKind,
     },
 }
@@ -52,8 +62,11 @@ pub enum AcquireCommand {
 /// 永不阻塞、也不需要定容量策略——命令是轻量枚举，产量受用户手势限制。
 #[derive(Debug, Clone)]
 pub enum Command {
+    /// 执行一条完整任务。
     RunTask {
+        /// 请求代数，由 App 统一赋值（见模块文档）。
         generation: u64,
+        /// 任务全量数据（类型 + 输入 + 选项）。
         task: Task,
         /// 取消令牌：App 为每次任务创建并 clone 下发；取消 = 调 `cancel()`。
         cancel: CancellationToken,
@@ -68,31 +81,44 @@ pub enum Command {
 pub enum Event {
     /// 取材产物，触发→取材→推理链路的枢纽。
     InputReady {
+        /// 请求代数，与触发它的命令同值。
         generation: u64,
+        /// 取材产物。
         input: TaskInput,
     },
     /// 流式增量（markdown 正文片段）。
     TaskChunk {
+        /// 请求代数，与触发它的任务同值。
         generation: u64,
+        /// markdown 正文增量片段。
         delta: String,
     },
+    /// 任务完成。
     TaskDone {
+        /// 请求代数，与触发它的任务同值。
         generation: u64,
+        /// 任务产物。
         outcome: TaskOutcome,
     },
+    /// 任务失败。
     TaskFailed {
+        /// 请求代数，与触发它的任务同值。
         generation: u64,
+        /// 失败原因，状态机据此分支重试策略。
         error: GlossError,
     },
 }
 
 /// crossbeam 无界通道对：①②④ 共用这一选型（MPMC + 主线程 `try_recv` 非阻塞）。
 pub struct CrossbeamPair<T> {
+    /// 发送端，可克隆（MPMC）。
     pub tx: Sender<T>,
+    /// 接收端，主线程用 `try_recv` 非阻塞消费。
     pub rx: Receiver<T>,
 }
 
 impl<T> CrossbeamPair<T> {
+    /// 创建一对无界通道。
     pub fn new() -> Self {
         let (tx, rx) = unbounded();
         Self { tx, rx }
@@ -107,11 +133,14 @@ impl<T> Default for CrossbeamPair<T> {
 
 /// 通道③的 tokio half：Receiver 移交 tokio 消费任务，Sender 留在主线程。
 pub struct CommandChannel {
+    /// 发送端，留在主线程。
     pub tx: UnboundedSender<Command>,
+    /// 接收端，移交 tokio 消费任务。
     pub rx: UnboundedReceiver<Command>,
 }
 
 impl CommandChannel {
+    /// 创建一对 tokio 无界 mpsc 通道。
     pub fn new() -> Self {
         let (tx, rx) = unbounded_channel();
         Self { tx, rx }
@@ -128,13 +157,18 @@ impl Default for CommandChannel {
 /// 事件源；② 的 Sender 留在 App；③ 的 Receiver 移交 tokio；④ 的 Sender
 /// 克隆给事件线程与 tokio 各一。
 pub struct Channels {
+    /// 通道①：平台事件源 → 主线程。
     pub platform_events: CrossbeamPair<PlatformEvent>,
+    /// 通道②：主线程 → 平台事件线程（取材命令）。
     pub acquire_commands: CrossbeamPair<AcquireCommand>,
+    /// 通道③：主线程 → tokio（推理任务）。
     pub commands: CommandChannel,
+    /// 通道④：事件线程 / tokio → 主线程（取材与推理回传）。
     pub events: CrossbeamPair<Event>,
 }
 
 impl Channels {
+    /// 创建四条通道。
     pub fn new() -> Self {
         Self {
             platform_events: CrossbeamPair::new(),

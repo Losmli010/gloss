@@ -15,6 +15,9 @@ gloss-core = { path = "crates/gloss-core" }
 gloss-platform = { path = "crates/gloss-platform" }
 gloss-app = { path = "crates/gloss-app" }
 
+[lints]
+workspace = true
+
 # cargo-bundle 打包配置（GUI 应用分发包）
 # 用法：cargo bundle --release --format osx   产 macOS .app/.dmg
 #       cargo bundle --release --format deb   产 Linux .deb
@@ -35,6 +38,30 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+
+# 生产路径必须传播错误：unwrap/expect 仅在注释文档化不变量（panic 不可能）
+# 时允许；panic!/unreachable!/todo!/unimplemented! 一律禁止。测试代码不受限
+# （clippy.toml 的 allow-*-in-tests）。各 crate 以 [lints] workspace = true 继承。
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+# unsafe 块必须带 `// SAFETY:` 注释说明不变量；允许有 unsafe，但不允许无据的 unsafe。
+undocumented_unsafe_blocks = "deny"
+# 长驻进程禁止 mem::forget 式泄漏（泄漏 Vec/Box 不触发 Drop，内存只增不减）。
+mem_forget = "deny"
+# 日志唯一出口是 gloss_core::log，绕过它 print 到 stdout/stderr 既丢结构化字段，
+# 也可能把敏感信息（API key 等）直接打出去；见 AGENT.md「不可协商的约束」第 5 条。
+print_stdout = "deny"
+print_stderr = "deny"
+
+# 公共 API 必须有文档注释（AGENT.md 评审原则：文档化）；文档里的示例由
+# cargo test --doc（just test 一部分）验证可编译可运行。
+[workspace.lints.rust]
+missing_docs = "deny"
 
 [profile.release]
 opt-level = 3

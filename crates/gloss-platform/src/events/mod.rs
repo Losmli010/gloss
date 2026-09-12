@@ -8,21 +8,38 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::thread::JoinHandle;
-#[cfg(target_os = "macos")]
 use std::time::Duration;
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, TryRecvError};
 
 use gloss_core::log::{debug, error, info, thread, warn};
-use gloss_core::task::HotkeyBinding;
 
 pub mod hotkey;
+pub mod mouse;
 
-use hotkey::HotkeyPump;
+/// 所有事件源（热键泵、鼠标手势等）每轮 tick 抽干一次，产出 ① 的载荷。
+/// 组装点用闭包把 platform 本地类型映射为真实的平台事件，映射闭包与命令
+/// 处理器同等对待——panic 不允许带倒事件线程。
+pub trait EventSource<P>: Send {
+    /// 抽干一轮，返回本轮产出的平台事件载荷。
+    fn poll(&mut self) -> Vec<P>;
+}
 
-/// macOS RunLoop 的 drain 周期。run loop 无法阻塞等待 crossbeam 通道，
-/// 只能定时抽干；热键到浮层的端到端延迟上界即此值，33ms 低于可感知阈值。
-#[cfg(target_os = "macos")]
+impl<P, F> EventSource<P> for F
+where
+    F: FnMut() -> Vec<P> + Send,
+{
+    fn poll(&mut self) -> Vec<P> {
+        self()
+    }
+}
+
+/// 事件线程挂载的事件源集合。
+pub type EventSources<P> = Vec<Box<dyn EventSource<P> + Send>>;
+
+/// 源事件的 drain 周期，全平台一致：run loop 无法阻塞等待 crossbeam 通道，
+/// 非 macOS 的 `recv_timeout` 也复用同一节奏。热键/手势到浮层的端到端延迟
+/// 上界即此值，33ms 低于可感知阈值。
 const TICK: Duration = Duration::from_millis(33);
 
 /// 事件线程的产物出口：④ 回传事件与 ① 平台事件，由组装点接上真实通道。
@@ -32,6 +49,7 @@ pub struct EventSink<E, P> {
 }
 
 impl<E, P> EventSink<E, P> {
+    /// 创建出口：`events` 为 ④ 回传事件通道的发送端，`platform` 为 ① 平台事件通道的发送端。
     pub fn new(events: Sender<E>, platform: Sender<P>) -> Self {
         Self { events, platform }
     }
@@ -83,26 +101,33 @@ impl EventThread {
 /// 启动平台事件线程。
 ///
 /// `on_command` 在事件线程上顺序消费通道②（取材接线前可先挂测试桩）；
-/// `hotkeys` 给出热键泵与「绑定 → ①平台事件」的映射后，热键按下经同一
-/// sink 送出。退出协议：调用方 drop 通道② Sender，线程抽干剩余命令后
-/// 自行结束，`join` 返回即线程已终止。
-pub fn spawn<C, E, P, F, G>(
+/// `sources` 是挂载到本线程的事件源（热键、鼠标手势……），每个 tick 抽干
+/// 一轮。退出协议：调用方 drop 通道② Sender，线程抽干剩余命令后自行结束，
+/// `join` 返回即线程已终止。
+pub fn spawn<C, E, P, F>(
     commands: Receiver<C>,
     sink: EventSink<E, P>,
     on_command: F,
-    hotkeys: Option<(HotkeyPump, G)>,
+    sources: EventSources<P>,
 ) -> EventThread
 where
     C: Send + 'static,
     E: Send + 'static,
     P: Send + 'static,
     F: FnMut(C, &EventSink<E, P>) + Send + 'static,
-    G: FnMut(&HotkeyBinding) -> P + Send + 'static,
 {
     info!(thread = thread::EVENT, "spawning platform event thread");
     let spawned = std::thread::Builder::new()
         .name("gloss-event".into())
-        .spawn(move || run(commands, sink, on_command, hotkeys));
+        .spawn(move || {
+            match sources {
+                #[cfg(target_os = "macos")]
+                sources => run_loop(commands, sink, on_command, sources),
+                #[cfg(not(target_os = "macos"))]
+                sources => tick_loop(commands, sink, on_command, sources),
+            }
+            info!(thread = thread::EVENT, "platform event thread stopped");
+        });
     match spawned {
         Ok(join) => EventThread { join: Some(join) },
         // 线程缺失时应用仍能启动，但热键/取材全部失效——必须留痕。
@@ -111,24 +136,6 @@ where
             EventThread { join: None }
         }
     }
-}
-
-fn run<C, E, P, F, G>(
-    commands: Receiver<C>,
-    sink: EventSink<E, P>,
-    on_command: F,
-    hotkeys: Option<(HotkeyPump, G)>,
-) where
-    F: FnMut(C, &EventSink<E, P>),
-    G: FnMut(&HotkeyBinding) -> P,
-{
-    match hotkeys {
-        #[cfg(target_os = "macos")]
-        hotkeys => run_loop(commands, sink, on_command, hotkeys),
-        #[cfg(not(target_os = "macos"))]
-        hotkeys => select_loop(commands, sink, on_command, hotkeys),
-    }
-    info!(thread = thread::EVENT, "platform event thread stopped");
 }
 
 /// 应用代码注入的回调不允许把 panic 带进事件线程；捕获后循环继续服务。
@@ -145,71 +152,81 @@ fn guarded<R>(what: &str, f: impl FnOnce() -> R) -> Option<R> {
     }
 }
 
-fn dispatch_command<C, E, P, F>(sink: &EventSink<E, P>, on_command: &mut F, command: C)
+enum TickOutcome {
+    Continue,
+    Exit,
+}
+
+/// 一轮消费：先抽干通道②（出现 Disconnected 即退出信号），再抽干全部
+/// 事件源。两条驱动路径（macOS RunLoop 定时器 / 其余平台 recv_timeout）
+/// 共用，保证「与系统事件同线程顺序处理」的语义只有一份实现。
+fn tick<C, E, P, F>(
+    commands: &Receiver<C>,
+    sink: &EventSink<E, P>,
+    on_command: &mut F,
+    sources: &mut [Box<dyn EventSource<P> + Send>],
+) -> TickOutcome
 where
     F: FnMut(C, &EventSink<E, P>),
 {
-    let _ = guarded("acquire command handler", || on_command(command, sink));
-}
-
-/// 热键转发的公共出口：两条驱动路径（RunLoop 定时器 / select）共用，
-/// 注入的映射闭包与命令处理器同等对待——panic 不允许带倒事件线程。
-fn forward_hotkeys<E, P, G>(sink: &EventSink<E, P>, pump: &HotkeyPump, to_platform: &mut G)
-where
-    G: FnMut(&HotkeyBinding) -> P,
-{
-    for binding in pump.poll() {
-        let _ = guarded("hotkey forward", || {
-            sink.send_platform(to_platform(&binding))
-        });
+    loop {
+        match commands.try_recv() {
+            Ok(command) => {
+                let _ = guarded("acquire command handler", || on_command(command, sink));
+            }
+            Err(TryRecvError::Empty) => break,
+            // 通道② Sender 全部 drop：事件线程使命结束。
+            Err(TryRecvError::Disconnected) => return TickOutcome::Exit,
+        }
     }
+    for source in sources {
+        let Some(events) = guarded("event source poll", || source.poll()) else {
+            continue;
+        };
+        for event in events {
+            sink.send_platform(event);
+        }
+    }
+    TickOutcome::Continue
 }
 
-/// 非 macOS 的驱动：select 阻塞等待，无事件时零空转。
+/// 非 macOS 的驱动：命令到达即刻唤醒，源事件按 TICK 节奏抽干。
 #[cfg(not(target_os = "macos"))]
-fn select_loop<C, E, P, F, G>(
+fn tick_loop<C, E, P, F>(
     commands: Receiver<C>,
     sink: EventSink<E, P>,
     mut on_command: F,
-    mut hotkeys: Option<(HotkeyPump, G)>,
+    mut sources: EventSources<P>,
 ) where
     F: FnMut(C, &EventSink<E, P>),
-    G: FnMut(&HotkeyBinding) -> P,
 {
-    use crossbeam_channel::{never, select};
+    use crossbeam_channel::RecvTimeoutError;
 
-    // select 的接收端个数固定：未启用热键时挂一个永不就绪的占位端。
-    let hotkey_rx: Receiver<global_hotkey::GlobalHotKeyEvent> = match &hotkeys {
-        Some(_) => global_hotkey::GlobalHotKeyEvent::receiver().clone(),
-        None => never(),
-    };
     loop {
-        select! {
-            recv(commands) -> msg => match msg {
-                Ok(command) => dispatch_command(&sink, &mut on_command, command),
-                // 通道② Sender 全部 drop：事件线程使命结束。
-                Err(_) => break,
-            },
-            recv(hotkey_rx) -> _ => {
-                if let Some((pump, to_platform)) = &mut hotkeys {
-                    forward_hotkeys(&sink, pump, to_platform);
-                }
+        match commands.recv_timeout(TICK) {
+            Ok(command) => {
+                let _ = guarded("acquire command handler", || on_command(command, &sink));
             }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+        if let TickOutcome::Exit = tick(&commands, &sink, &mut on_command, &mut sources) {
+            break;
         }
     }
 }
 
 /// macOS 的驱动：RunLoop 不能阻塞在 crossbeam 上（08 §7.2），挂一个周期
-/// 定时器 drain 通道②与热键队列；后续 CGEventTap 等事件源也挂同一 run loop。
+/// 定时器执行与 [`tick`] 相同的一轮消费；后续 CGEventTap 等事件源也挂同一
+/// run loop。
 #[cfg(target_os = "macos")]
-fn run_loop<C, E, P, F, G>(
+fn run_loop<C, E, P, F>(
     commands: Receiver<C>,
     sink: EventSink<E, P>,
     on_command: F,
-    hotkeys: Option<(HotkeyPump, G)>,
+    sources: EventSources<P>,
 ) where
     F: FnMut(C, &EventSink<E, P>),
-    G: FnMut(&HotkeyBinding) -> P,
 {
     use std::ffi::c_void;
 
@@ -220,33 +237,32 @@ fn run_loop<C, E, P, F, G>(
         CFRunLoopTimerCreate, CFRunLoopTimerInvalidate, CFRunLoopTimerRef, kCFRunLoopCommonModes,
     };
 
-    struct LoopState<C, E, P, F, G> {
+    struct LoopState<C, E, P, F> {
         commands: Receiver<C>,
         sink: EventSink<E, P>,
         on_command: F,
-        hotkeys: Option<(HotkeyPump, G)>,
+        sources: EventSources<P>,
         run_loop: core_foundation_sys::runloop::CFRunLoopRef,
     }
 
-    extern "C" fn fire<C, E, P, F, G>(_timer: CFRunLoopTimerRef, info: *mut c_void)
+    extern "C" fn fire<C, E, P, F>(_timer: CFRunLoopTimerRef, info: *mut c_void)
     where
         F: FnMut(C, &EventSink<E, P>),
-        G: FnMut(&HotkeyBinding) -> P,
     {
-        let state = unsafe { &mut *(info as *mut LoopState<C, E, P, F, G>) };
-        loop {
-            match state.commands.try_recv() {
-                Ok(command) => dispatch_command(&state.sink, &mut state.on_command, command),
-                Err(crossbeam_channel::TryRecvError::Empty) => break,
-                // 通道② Sender 全部 drop：停掉 RunLoop，CFRunLoopRun 返回后线程结束。
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    unsafe { CFRunLoopStop(state.run_loop) };
-                    break;
-                }
-            }
-        }
-        if let Some((pump, to_platform)) = &mut state.hotkeys {
-            forward_hotkeys(&state.sink, pump, to_platform);
+        // SAFETY: `info` 是创建定时器时经 `CFRunLoopTimerContext.info` 存入的
+        // `Box<LoopState>` 指针，由 CF 原样传回；该 Box 在 CFRunLoopRun 返回后才
+        // 释放，而 CFRunLoop 回调只在宿主线程串行触发，指针有效且无并发别名。
+        let state = unsafe { &mut *(info as *mut LoopState<C, E, P, F>) };
+        if let TickOutcome::Exit = tick(
+            &state.commands,
+            &state.sink,
+            &mut state.on_command,
+            &mut state.sources,
+        ) {
+            // 通道② Sender 全部 drop：停掉 RunLoop，CFRunLoopRun 返回后线程结束。
+            // SAFETY: `run_loop` 是本线程自己的 run loop（`CFRunLoopGetCurrent`
+            // 返回 +0 引用且从不 release，始终有效）；`CFRunLoopStop` 无额外前置条件。
+            unsafe { CFRunLoopStop(state.run_loop) };
         }
     }
 
@@ -254,17 +270,21 @@ fn run_loop<C, E, P, F, G>(
         commands,
         sink,
         on_command,
-        hotkeys,
+        sources,
+        // SAFETY: 纯查询型 FFI，无前置条件；当前线程必有 run loop，不会返回 NULL。
         run_loop: unsafe { CFRunLoopGetCurrent() },
     });
     let mut context = CFRunLoopTimerContext {
         version: 0,
-        info: state.as_mut() as *mut LoopState<C, E, P, F, G> as *mut c_void,
+        info: state.as_mut() as *mut LoopState<C, E, P, F> as *mut c_void,
         retain: None,
         release: None,
         copyDescription: None,
     };
     let interval = TICK.as_secs_f64();
+    // SAFETY: 各参数均合法——allocator 为默认分配器，`fire` 匹配 C 回调签名，
+    // `context` 指向本栈上的有效 `CFRunLoopTimerContext`，其 `info` 指向的
+    // `Box<LoopState>` 在定时器 invalidate + release 之前保持存活。
     let timer = unsafe {
         CFRunLoopTimerCreate(
             kCFAllocatorDefault,
@@ -272,7 +292,7 @@ fn run_loop<C, E, P, F, G>(
             interval,
             0,
             0,
-            fire::<C, E, P, F, G>,
+            fire::<C, E, P, F>,
             &mut context,
         )
     };
@@ -283,12 +303,17 @@ fn run_loop<C, E, P, F, G>(
         );
         return;
     }
+    // SAFETY: `timer` 已判非 NULL，`run_loop` 是本线程的有效 run loop，modes 为
+    // 合法常量；`CFRunLoopRun` 返回前定时器持续触发回调，其 `info` 指向的 state
+    // 存活到函数末尾，不会悬垂。
     unsafe {
         CFRunLoopAddTimer(state.run_loop, timer, kCFRunLoopCommonModes);
         CFRunLoopRun();
     }
     // RunLoop 已停止且不在回调中：先 invalidate 再释放定时器（CF timer 的
     // 规范清理步骤），最后收回状态盒。
+    // SAFETY: `timer` 持有 `CFRunLoopTimerCreate` 返回的 +1 引用；此刻已退出
+    // RunLoop 且不在回调内，先 invalidate 再 release 符合 CF 定时器的清理顺序。
     unsafe {
         CFRunLoopTimerInvalidate(timer);
         CFRelease(timer as *const c_void);
@@ -308,14 +333,14 @@ mod tests {
     struct TestEvent(u64);
 
     type Sink = EventSink<TestEvent, ()>;
-    type NoHotkeys = Option<(HotkeyPump, fn(&HotkeyBinding) -> ())>;
+    type NoSources = EventSources<()>;
 
     fn echo(command: TestCommand, sink: &Sink) {
         sink.send_event(TestEvent(command.0));
     }
 
-    fn no_hotkeys() -> NoHotkeys {
-        None
+    fn no_sources() -> NoSources {
+        Vec::new()
     }
 
     /// 通道②按顺序消费、产物按顺序到达；drop Sender 后线程自行退出。
@@ -326,7 +351,7 @@ mod tests {
         let (plat_tx, plat_rx) = unbounded::<()>();
         drop(plat_rx);
 
-        let thread = spawn(cmd_rx, EventSink::new(ev_tx, plat_tx), echo, no_hotkeys());
+        let thread = spawn(cmd_rx, EventSink::new(ev_tx, plat_tx), echo, no_sources());
         for i in 0..16 {
             cmd_tx.send(TestCommand(i)).unwrap();
         }
@@ -342,8 +367,7 @@ mod tests {
         assert!(ev_rx.try_recv().is_err(), "no events after exit");
     }
 
-    /// 初始抽干之后线程仍持续轮询：晚到的命令也能被消费（macOS 走 RunLoop
-    /// 定时器路径，其余平台走 select，同一协议两种驱动）。
+    /// 初始抽干之后线程仍持续轮询：晚到的命令也能被消费。
     #[test]
     fn late_commands_are_still_consumed() {
         let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
@@ -351,17 +375,46 @@ mod tests {
         let (plat_tx, plat_rx) = unbounded::<()>();
         drop(plat_rx);
 
-        let thread = spawn(cmd_rx, EventSink::new(ev_tx, plat_tx), echo, no_hotkeys());
+        let thread = spawn(cmd_rx, EventSink::new(ev_tx, plat_tx), echo, no_sources());
         cmd_tx.send(TestCommand(1)).unwrap();
         assert_eq!(ev_rx.recv().unwrap().0, 1);
 
         // 等过首个消费窗口再发第二条：macOS 需跨一个定时器周期（33ms），
-        // select 阻塞路径随时就绪。
+        // recv_timeout 路径的命令到达即刻唤醒，但源事件同样按 tick 抽干。
         std::thread::sleep(Duration::from_millis(60));
         cmd_tx.send(TestCommand(2)).unwrap();
         assert_eq!(ev_rx.recv().unwrap().0, 2);
 
         drop(cmd_tx);
+        thread.join();
+    }
+
+    /// 事件源每轮 tick 被抽干，产出经 sink 送出（热键/手势走的同一条路）。
+    #[test]
+    fn sources_are_polled_and_forwarded() {
+        let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
+        let (ev_tx, ev_rx) = unbounded::<TestEvent>();
+        let (plat_tx, plat_rx) = unbounded::<()>();
+        let (src_tx, src_rx) = unbounded::<()>();
+
+        let source: Box<dyn EventSource<()>> = Box::new(move || src_rx.try_iter().collect());
+        let thread = spawn(
+            cmd_rx,
+            EventSink::new(ev_tx, plat_tx.clone()),
+            echo,
+            vec![source],
+        );
+        src_tx.send(()).unwrap();
+        src_tx.send(()).unwrap();
+        assert_eq!(plat_rx.recv().unwrap(), ());
+        assert_eq!(plat_rx.recv().unwrap(), ());
+
+        // 命令通道不受源影响，照常消费。
+        cmd_tx.send(TestCommand(7)).unwrap();
+        assert_eq!(ev_rx.recv().unwrap().0, 7);
+
+        drop(cmd_tx);
+        drop(plat_tx);
         thread.join();
     }
 
@@ -382,12 +435,47 @@ mod tests {
                 }
                 sink.send_event(TestEvent(command.0));
             },
-            no_hotkeys(),
+            no_sources(),
         );
         cmd_tx.send(TestCommand(0)).unwrap();
         cmd_tx.send(TestCommand(1)).unwrap();
         assert_eq!(ev_rx.recv().unwrap().0, 1, "thread must survive the panic");
         drop(cmd_tx);
+        thread.join();
+    }
+
+    /// 事件源 poll panic 同样被拦截：线程存活，后续轮次照常抽干。
+    #[test]
+    fn panicking_source_does_not_kill_thread() {
+        let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
+        let (ev_tx, _ev_rx) = unbounded::<TestEvent>();
+        let (plat_tx, plat_rx) = unbounded::<()>();
+        let (ok_tx, ok_rx) = unbounded::<()>();
+        let mut poisoned = true;
+
+        let bad: Box<dyn EventSource<()>> = Box::new(move || {
+            if poisoned {
+                poisoned = false;
+                panic!("poison");
+            }
+            ok_rx.try_iter().collect()
+        });
+        let thread = spawn(
+            cmd_rx,
+            EventSink::new(ev_tx, plat_tx.clone()),
+            echo,
+            vec![bad],
+        );
+        std::thread::sleep(Duration::from_millis(60));
+        ok_tx.send(()).unwrap();
+        assert_eq!(
+            plat_rx.recv().unwrap(),
+            (),
+            "source must recover after panic"
+        );
+
+        drop(cmd_tx);
+        drop(plat_tx);
         thread.join();
     }
 
