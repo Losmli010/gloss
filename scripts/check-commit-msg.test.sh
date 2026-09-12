@@ -24,9 +24,11 @@ assert_exit() {
     echo "  ✓ $desc"
     PASS=$((PASS + 1))
   else
-    echo "  ✗ $desc  (期望退出码 $expected，实际 $actual)"
-    echo "    输入字节: $(printf '%s' "$msg" | od -c | head -2)"
-    echo "    checker 输出: $(printf '%s' "$checker_err" | head -2)"
+    # 变量一律加花括号：$var 后紧跟全角标点时，部分 bash 会把标点并进变量名，
+    # set -u 下失败分支自己就报 unbound variable，反而盖掉真正的失败信息。
+    echo "  ✗ $desc  (期望退出码 ${expected}，实际 ${actual})"
+    echo "    输入字节: $(printf '%s' "${msg}" | od -c | head -2)"
+    echo "    checker 输出: $(printf '%s' "${checker_err}" | head -2)"
     FAIL=$((FAIL + 1))
   fi
 }

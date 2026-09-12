@@ -37,6 +37,10 @@ jobs:
       - name: Run clippy
         run: just lint
 
+      # 扫描脚本自身的单元测试（纯 bash、秒级）：规则回归先于规则生效。
+      - name: Run secrets checker unit tests
+        run: bash scripts/check-secrets.test.sh
+
       # 与本地 precommit 共用同一脚本：硬编码密钥一旦进历史就得吊销轮换，挡在提交前。
       - name: Scan for hardcoded secrets
         run: just secrets
