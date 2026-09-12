@@ -1,0 +1,4 @@
+# unwrap_used / expect_used 在测试代码（#[test] 与 #[cfg(test)]）中放行：
+# 测试断言天然依赖「失败即 panic」，错误传播反而是噪音。
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
