@@ -57,6 +57,17 @@ impl HotkeyRegistrar {
 
     /// 注册一组绑定。解析失败的键与管理器不可用时的行为见模块注释。
     pub fn new(bindings: impl IntoIterator<Item = HotkeyBinding>) -> Self {
+        // Linux 只作 CI 平台：global-hotkey 的 X11 后端在无显示环境创建会
+        // 直接段错误，不支持的平台明确跳过，而不是冒崩溃风险。
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let manager: Option<GlobalHotKeyManager> = {
+            warn!(
+                thread = thread::EVENT,
+                "global hotkeys unsupported on this platform, disabled"
+            );
+            None
+        };
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         let manager = match GlobalHotKeyManager::new() {
             Ok(manager) => Some(manager),
             Err(err) => {
@@ -219,8 +230,8 @@ mod tests {
     }
 
     /// 管理器不可用/注册失败的路径必须安静降级：不 panic、poll 恒为空。
-    /// Linux CI 没有 X server，GlobalHotKeyManager 必然创建失败，正好覆盖
-    /// 整体降级分支；此时表里应保留全部解析成功的默认绑定。
+    /// Linux 上热键明确不支持（见 `new`），manager 恒为 None，正好覆盖整体
+    /// 降级分支；此时表里应保留全部解析成功的默认绑定。
     #[cfg(target_os = "linux")]
     #[test]
     fn degraded_registrar_keeps_parsed_table_and_stays_quiet() {
