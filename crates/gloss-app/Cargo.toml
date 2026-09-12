@@ -6,6 +6,9 @@ license.workspace = true
 description = "Gloss 表现层与应用层：状态机 + 渲染胶水"
 
 [dependencies]
+# 通道①②④用 crossbeam（MPMC，主线程 try_recv 非阻塞）。std 特性即默认集全部内容，
+# 显式写出以维持「关默认集、按需开特性」的统一写法。
+crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 # 渲染栈整批版本（egui 三件套必须同小版本；wgpu 版本由 egui-wgpu 决定，不要单独升级）：
 # winit 0.30.13 / wgpu 30.0.1 / egui + egui-wgpu + egui-winit 0.36.2 / pollster 1.0.1
 #
@@ -35,6 +38,12 @@ egui-winit = { version = "0.36.2", default-features = false, features = [
 gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
 pollster = "1.0.1"
+# 通道③用 tokio mpsc。不用默认特性：默认集会拉起整个 rt 子树，这里只要 mpsc 数据结构；
+# 运行时在根包组装时创建。
+tokio = { version = "1", default-features = false, features = ["sync"] }
+# RunTask 携带的 CancellationToken。sync 模块不在特性门后，关默认集即可用，
+# 避免 codec / io 等无关子特性。
+tokio-util = { version = "0.7", default-features = false }
 # 不用默认特性：默认集含 gles / vulkan / webgpu 三个用不到的后端与 parking_lot。
 # 只留目标平台实际使用的 Metal（macOS）与 DX12（Windows），配合 egui-wgpu 已声明的 std + wgsl。
 # Linux 因而不带任何后端——该平台只跑 CI 的 fmt / clippy / test，不创建窗口。

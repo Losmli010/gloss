@@ -6,4 +6,16 @@ license.workspace = true
 description = "Gloss 适配器层：实现 gloss-core 端口 + 平台事件源"
 
 [dependencies]
+# 事件线程消费通道②、转发①④，与 gloss-app::channel 的选型一致用 crossbeam。
+# std 是默认集的全部内容，显式写出以维持「关默认集、按需开特性」的统一写法。
+crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
+# 全局热键事件源。不用默认特性：默认集只多出可选的 serde 支持，注册/监听用不到。
+global-hotkey = { version = "0.6", default-features = false }
 gloss-core = { path = "../gloss-core" }
+
+# 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）。唯一特性
+# link 是绑定 CF 符号所必需的，显式声明以维持统一写法。
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation-sys = { version = "0.8", default-features = false, features = [
+    "link",
+] }
