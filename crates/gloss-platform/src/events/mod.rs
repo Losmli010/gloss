@@ -6,6 +6,7 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::thread::JoinHandle;
+#[cfg(target_os = "macos")]
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender};
@@ -19,6 +20,7 @@ use hotkey::HotkeyPump;
 
 /// macOS RunLoop 的 drain 周期。run loop 无法阻塞等待 crossbeam 通道，
 /// 只能定时抽干；热键到浮层的端到端延迟上界即此值，33ms 低于可感知阈值。
+#[cfg(target_os = "macos")]
 const TICK: Duration = Duration::from_millis(33);
 
 /// 事件线程的产物出口：④ 回传事件与 ① 平台事件，由组装点接上真实通道。
@@ -279,6 +281,8 @@ fn run_loop<C, E, P, F, G>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
     use crossbeam_channel::unbounded;
 
     /// platform 不依赖 gloss-app：本地桩类型足以驱动整条循环。
@@ -333,7 +337,9 @@ mod tests {
         cmd_tx.send(TestCommand(1)).unwrap();
         assert_eq!(ev_rx.recv().unwrap().0, 1);
 
-        std::thread::sleep(TICK + Duration::from_millis(20));
+        // 等过首个消费窗口再发第二条：macOS 需跨一个定时器周期（33ms），
+        // select 阻塞路径随时就绪。
+        std::thread::sleep(Duration::from_millis(60));
         cmd_tx.send(TestCommand(2)).unwrap();
         assert_eq!(ev_rx.recv().unwrap().0, 2);
 
