@@ -13,6 +13,14 @@ crossbeam-channel = { version = "0.5", default-features = false, features = ["st
 global-hotkey = { version = "0.6", default-features = false }
 gloss-core = { path = "../gloss-core" }
 
+# 全局鼠标监听（划词手势）。仅目标平台启用：Linux 只跑 CI，rdev 的 x11
+# 后端是构建期链接（build script 要 pkg-config + X11 headers），不能带进
+# CI 依赖树——手势状态机本身无平台依赖，照常在 Linux 上单测（先例见
+# gloss-app 的 font-kit）。macOS 上需要辅助功能权限，未授权时监听失败
+# 走降级（见 events/mouse.rs）。
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+rdev = { version = "0.5", default-features = false }
+
 # 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）。唯一特性
 # link 是绑定 CF 符号所必需的，显式声明以维持统一写法。
 [target.'cfg(target_os = "macos")'.dependencies]
