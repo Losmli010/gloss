@@ -34,6 +34,7 @@ pub enum InputSource {
 pub enum InputHint {
     /// 代码语言，如 "rust"。
     CodeLanguage(String),
+    /// 已知源语言，避免模型误判（目标语言由 `TaskOptions` 决定）。
     SourceLang(Lang),
 }
 
@@ -42,18 +43,23 @@ pub enum InputHint {
 pub struct HotkeyBinding {
     /// 如 "Cmd+Shift+1"。
     pub trigger: String,
+    /// 热键触发的任务类型。
     pub kind: TaskKind,
+    /// 该热键使用的输入源。
     pub source: InputSource,
 }
 
 /// 输入模态：取材产物的统一枚举形态，消息间 move 所有权。
 #[derive(Debug, Clone, PartialEq)]
 pub enum TaskInput {
+    /// 文本输入。
     Text {
+        /// 待处理的文本原文。
         text: String,
         /// 模态提示（如代码语言），用于 prompt 填充。
         hint: Option<InputHint>,
     },
+    /// 图像输入。
     Image {
         /// PNG 字节。
         png: Arc<[u8]>,
@@ -64,6 +70,7 @@ pub enum TaskInput {
     Audio {
         /// 音频字节（编码格式落地时定）。
         bytes: Arc<[u8]>,
+        /// 时长提示（秒），供 prompt 与 UI 参考。
         duration_hint: Option<f32>,
     },
 }
@@ -82,32 +89,47 @@ pub struct TaskOptions {
 /// 一条待执行任务 = 类型 + 输入 + 选项。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Task {
+    /// 任务类型。
     pub kind: TaskKind,
+    /// 输入数据。
     pub input: TaskInput,
+    /// 任务选项（留空的字段按配置默认值填充）。
     pub options: TaskOptions,
 }
 
 /// 任务产物：正文统一 markdown，另带 kind 专属结构化字段供 UI 精排。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaskOutcome {
+    /// 产物对应的任务类型。
     pub kind: TaskKind,
     /// markdown 正文（流式 chunk 拼接）。
     pub body: String,
+    /// kind 专属结构化字段，见 [`OutcomeStructured`]。
     pub structured: OutcomeStructured,
 }
 
+/// 结构化结果：按 `TaskKind` 给出 UI 精排所需的字段，与 markdown 正文并行下发。
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutcomeStructured {
     /// 单词卡（词典式）。
     WordCard {
+        /// 词条原文。
         word: String,
+        /// 音标（模型给出时才有）。
         phonetic: Option<String>,
+        /// 释义列表。
         senses: Vec<Sense>,
     },
     /// 句子翻译/代码解释/图片解释。
-    Plain { title: Option<String> },
+    Plain {
+        /// 标题（如代码解释的一句话摘要），可缺省。
+        title: Option<String>,
+    },
     /// OCR：另存纯文本便于一键复制。
-    Extracted { text: String },
+    Extracted {
+        /// 提取出的纯文本。
+        text: String,
+    },
 }
 
 /// 词条释义（词典式卡）。
@@ -115,7 +137,9 @@ pub enum OutcomeStructured {
 pub struct Sense {
     /// 词性，如 "n."。
     pub pos: Option<String>,
+    /// 释义内容。
     pub meaning: String,
+    /// 例句列表。
     pub examples: Vec<String>,
 }
 

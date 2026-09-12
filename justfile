@@ -63,6 +63,10 @@ lint:
 lint-fix:
     cargo clippy --workspace --all-targets --all-features --fix --allow-dirty
 
+# 硬编码密钥扫描（脚本同时被 CI quality job 复用；规则与放行标记见脚本头注释）
+secrets:
+    ./scripts/check-secrets.sh
+
 # 运行单元测试
 test:
     cargo test --workspace --all-features
@@ -79,13 +83,13 @@ coverage:
 coverage-check:
     cargo llvm-cov --workspace --all-features --fail-under-lines {{coverage_min}}
 
-# 完整质量门禁：格式化 + Clippy + 测试（CI 核心；本地要全量验证时手动跑）
-check: fmt lint test
+# 完整质量门禁：格式化 + Clippy + 测试 + 密钥扫描（CI 核心；本地要全量验证时手动跑）
+check: fmt lint test secrets
     @echo "✓ 质量门禁全部通过"
 
-# 提交前门禁：格式化 + Clippy（pre-commit 用）
+# 提交前门禁：格式化 + Clippy + 密钥扫描（pre-commit 用）
 # 不含 test：测试由 CI 的三平台矩阵跑，本地提交不必等编译测试
-precommit: fmt lint
+precommit: fmt lint secrets
     @echo "✓ 提交前检查通过（测试交给 CI）"
 
 # 校验 commit message 是否符合 Conventional Commits（与 CI 共用同一脚本，手动排查用）

@@ -3,3 +3,5 @@
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
+# print_stdout / print_stderr 在测试代码中放行：调试输出与失败现场打印只发生在测试里。
+allow-print-in-tests = true
