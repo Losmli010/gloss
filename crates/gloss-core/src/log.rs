@@ -39,6 +39,8 @@ pub mod thread {
     pub const UI: &str = "ui";
     /// 平台事件线程：热键、鼠标手势与取材。
     pub const EVENT: &str = "event";
+    /// 鼠标 tap 监听线程：rdev 全局事件流的独立宿主。
+    pub const MOUSE_TAP: &str = "mouse_tap";
     /// tokio 后台：网络请求与缓存。
     pub const TOKIO: &str = "tokio";
 }

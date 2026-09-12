@@ -21,8 +21,9 @@ pub enum MouseGesture {
     Selection,
 }
 
-/// 判定为「拖拽选择」所需的最小位移（屏幕逻辑点）。普通点击的抖动远小于此。
-const DRAG_THRESHOLD_PX: f64 = 12.0;
+/// 判定为「拖拽选择」所需的最小位移，单位是 rdev 坐标（macOS 逻辑点 /
+/// Windows 物理像素，不必按 DPI 折算）——两者都远高于普通点击的抖动。
+const DRAG_THRESHOLD: f64 = 12.0;
 
 /// tap 回调转发给手势状态机的最小事件集：仅左键按下/释放，坐标取事件
 /// 时刻的最新位置。
@@ -62,7 +63,7 @@ impl GestureDetector {
                 self.pressed_at = None;
                 let dx = event.pos.0 - start.0;
                 let dy = event.pos.1 - start.1;
-                (dx * dx + dy * dy > DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX)
+                (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD)
                     .then_some(MouseGesture::Selection)
             }
             // 无按下记录的释放（如监听启动前就按下的拖拽），静默忽略。
@@ -86,6 +87,7 @@ impl MouseSource {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod tap {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::thread::JoinHandle;
 
     use crossbeam_channel::{Receiver, Sender, bounded};
@@ -115,13 +117,18 @@ mod tap {
             .spawn(move || {
                 let mut last_pos: Option<(f64, f64)> = None;
                 match listen(move |event: Event| {
-                    forward_rdev_event(&event, &mut last_pos, &tx);
+                    // panic 穿过 rdev 的 C 回调会直接 abort 进程：与事件线程
+                    // 的 guarded 同一纪律，兜底后监听继续。last_pos 若在
+                    // panic 中被破坏，后续事件会重新播种坐标。
+                    let _ = catch_unwind(AssertUnwindSafe(|| {
+                        forward_rdev_event(&event, &mut last_pos, &tx);
+                    }));
                 }) {
                     // listen 正常返回只发生在系统层面停止投递时（如 tap 失效），
                     // 留 info 便于诊断线程为何提前结束。
-                    Ok(()) => info!(thread = thread::EVENT, "mouse listener stopped"),
+                    Ok(()) => info!(thread = thread::MOUSE_TAP, "mouse listener stopped"),
                     Err(err) => warn!(
-                        thread = thread::EVENT,
+                        thread = thread::MOUSE_TAP,
                         error = ?err,
                         "mouse listener failed, selection gesture disabled"
                     ),
@@ -131,7 +138,7 @@ mod tap {
             Ok(_join) => Some(rx),
             Err(err) => {
                 warn!(
-                    thread = thread::EVENT,
+                    thread = thread::MOUSE_TAP,
                     error = %err,
                     "failed to spawn mouse tap thread, selection gesture disabled"
                 );
@@ -165,7 +172,7 @@ mod tap {
         // 丢一次触发机会。
         if tx.try_send(RawButtonEvent { pressed, pos }).is_err() {
             debug!(
-                thread = thread::EVENT,
+                thread = thread::MOUSE_TAP,
                 "mouse raw queue full, event dropped"
             );
         }
