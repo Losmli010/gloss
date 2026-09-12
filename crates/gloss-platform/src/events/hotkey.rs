@@ -1,9 +1,12 @@
 //! 全局热键事件源：注册 → global-hotkey 全局事件队列 → 事件线程转发。
 //!
-//! 线程约束：global-hotkey 的 macOS 后端要求 manager 在主线程创建（winit 的
-//! NSApp 事件循环所在线程）；注册后的按键事件走它自己的全局 crossbeam 队列，
-//! 任意线程可消费——平台事件线程经 [`HotkeyPump`] 抽干转发，主线程约束不影响
-//! 其余事件源。
+//! 线程约束：manager 必须创建在泵系统消息的主线程——macOS 后端要求主线程跑
+//! NSApp 事件循环（winit 所在线程），Windows 后端的隐藏窗口与 `WM_HOTKEY`
+//! 投递、连同 `Drop` 的 `DestroyWindow` 都亲和创建线程。注册后的按键事件走
+//! global-hotkey 自己的全局 crossbeam 队列，任意线程可消费——平台事件线程经
+//! [`HotkeyPump`] 抽干转发，主线程约束不影响其余事件源。因此组装点必须把
+//! registrar 放在主线程创建、只把 pump 下发事件线程；在事件线程里创建
+//! registrar 会让 Windows 热键静默全灭（无错误无日志）。
 //!
 //! 热键是可降级功能：单个注册失败（被其他应用占用等）只告警跳过，管理器
 //! 整体创建失败降级为空表，都不允许阻断启动或 panic。
