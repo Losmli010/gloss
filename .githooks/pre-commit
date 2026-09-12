@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pre-commit hook：提交前的静态检查 —— 格式化 + Clippy。
+# pre-commit hook：提交前的静态检查 —— 格式化 + Clippy + 硬编码密钥扫描。
 #
 # 不跑 test：测试由 CI 的三平台矩阵负责，本地提交不必等编译测试。
 # 需要本地全量验证时手动跑 `just check`（fmt + clippy + test）。
@@ -22,14 +22,28 @@ if ! command -v just >/dev/null 2>&1; then
   exit 1
 fi
 
-# 只在有 .rs 变更时跑：改文档、改 CI 配置不必等 clippy
-STAGED_RS="$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$' || true)"
-if [ -z "$STAGED_RS" ]; then
-  echo "→ pre-commit: 无 .rs 文件变更，跳过静态检查"
+# fmt/clippy 只关心 Rust，有 .rs 变更时才跑（全量经 just precommit）；密钥扫描
+# 语言无关，任何提交都跑——否则往文档/脚本里塞一个真 key 就能静默绕过本地
+# 这道闸（CI 的 quality job 另有兜底，但密钥越晚发现吊销成本越高）。
+STAGED="$(git diff --cached --name-only --diff-filter=ACM)"
+if [ -z "$STAGED" ]; then
+  echo "→ pre-commit: 无变更，跳过检查"
   exit 0
 fi
 
-echo "→ pre-commit: 运行静态检查（just precommit = fmt + clippy）..."
+STAGED_RS="$(printf '%s\n' "$STAGED" | grep '\.rs$' || true)"
+if [ -z "$STAGED_RS" ]; then
+  echo "→ pre-commit: 无 .rs 变更，跳过 fmt/clippy，仅跑密钥扫描..."
+  if ! just secrets; then
+    echo "" >&2
+    echo "✗ 检出疑似硬编码密钥，已阻止提交" >&2
+    echo "  误报用行尾 secrets:allow 放行（规则见 scripts/check-secrets.sh）" >&2
+    exit 1
+  fi
+  exit 0
+fi
+
+echo "→ pre-commit: 运行静态检查（just precommit = fmt + clippy + secrets）..."
 if ! just precommit; then
   echo "" >&2
   echo "✗ 静态检查未通过，已阻止提交" >&2
