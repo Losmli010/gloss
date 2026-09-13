@@ -20,7 +20,14 @@
 use gloss_core::model::GlossError;
 
 /// AXError.h 中「辅助功能 API 未对当前进程启用」的返回码（kAXErrorAPIDisabled）。
-const AX_ERROR_API_DISABLED: i32 = -25212;
+/// 注意相邻码：-25212 是 kAXErrorNoValue（属性存在但无值，即「无选区」
+/// 的常见返回），二者错一位语义就反转，见 tests 的相邻码对账测试。
+const AX_ERROR_API_DISABLED: i32 = -25211;
+
+/// 取值缓冲区的分配上界（字节）：长度来自远端进程报告，无校验的分配
+/// 失败会直接 abort 进程而非返回错误，超限按取不到选区处理。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const MAX_SELECTION_BYTES: usize = 8 * 1024 * 1024;
 
 /// 把「是否已授权 + AX 取值结果」映射为统一错误语义（纯逻辑，全平台单测）：
 /// 未授权一律 [`GlossError::AccessibilityDenied`]（权限检查先于取值，AX
@@ -54,7 +61,7 @@ mod imp {
     use gloss_core::log::{debug, thread};
     use gloss_core::model::GlossError;
 
-    use super::interpret;
+    use super::{MAX_SELECTION_BYTES, interpret};
 
     /// AXError.h 的 kAXErrorFailure：无具体语义的失败兜底。
     const AX_ERROR_FAILURE: i32 = -25200;
@@ -231,6 +238,11 @@ mod imp {
         let Ok(max) = usize::try_from(max) else {
             return None;
         };
+        // 分配前先设上界：超限（远端报告的异常长度或极端选区）按取不到
+        // 选区处理，无界分配失败会 abort 进程而非返回错误。
+        if max > MAX_SELECTION_BYTES {
+            return None;
+        }
         let mut buf = vec![0u8; max];
         let mut used: CFIndex = 0;
         // SAFETY: `s` 是有效 CFString；缓冲区容量恰为上界 `max`，GetBytes 不
@@ -272,7 +284,8 @@ mod live_tests {
     /// 手动验收入口：在任意文本编辑器中选中文字后运行
     /// `cargo test -p gloss-platform -- --ignored --nocapture`，断言能读出
     /// 选中文本。CI 无图形会话与授权，不参与常规测试；未授权时本测试
-    /// 应失败于权限错误而非 panic。
+    /// 应以 `AccessibilityDenied` 失败（有权限语义的错误返回），而非 FFI
+    /// 或信号级崩溃。
     #[test]
     #[ignore = "requires a live GUI session, an active selection and accessibility permission"]
     fn reads_live_selection_when_authorized() {
@@ -298,6 +311,10 @@ mod tests {
         // 未授权时无论取值结果如何都判权限缺失：权限语义优先于一切。
         assert_eq!(
             interpret(false, text("selected")),
+            Err(GlossError::AccessibilityDenied)
+        );
+        assert_eq!(
+            interpret(false, Err(-25200)),
             Err(GlossError::AccessibilityDenied)
         );
     }
@@ -331,9 +348,27 @@ mod tests {
         );
     }
 
+    /// 相邻码对账（AXError.h）：APIDisabled(-25211) 与 NoValue(-25212) 只差
+    /// 一位，前者是权限语义、后者是「属性存在但无值」——即已授权且无选区
+    /// 时的常见返回，归不可用而非权限缺失。
+    #[test]
+    fn adjacent_error_codes_are_told_apart() {
+        assert_eq!(AX_ERROR_API_DISABLED, -25211);
+        assert_eq!(
+            interpret(true, Err(-25211)),
+            Err(GlossError::AccessibilityDenied)
+        );
+        assert_eq!(
+            interpret(true, Err(-25212)),
+            Err(GlossError::SelectionUnavailable),
+            "kAXErrorNoValue (no selection) must not read as permission denied"
+        );
+    }
+
     #[test]
     fn other_ax_errors_map_to_unavailable() {
-        // kAXErrorAttributeUnsupported / kAXErrorNoValue / kAXErrorFailure。
+        // kAXErrorActionUnsupported / kAXErrorParameterizedAttributeUnsupported
+        // / kAXErrorFailure。
         for code in [-25206, -25213, -25200] {
             assert_eq!(
                 interpret(true, Err(code)),
