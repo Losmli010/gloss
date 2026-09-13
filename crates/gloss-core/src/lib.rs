@@ -2,4 +2,5 @@
 
 pub mod log;
 pub mod model;
+pub mod ports;
 pub mod task;
