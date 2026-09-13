@@ -1010,6 +1010,7 @@ dependencies = [
 name = "gloss-platform"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "core-foundation-sys 0.8.7",
  "crossbeam-channel",
  "global-hotkey",
