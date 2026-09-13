@@ -295,52 +295,59 @@ mod tests {
         }
     }
 
-    /// 模态约束表（06 §5.1）：合法组合全部放行。
+    /// 模态约束表（06 §5.1）全矩阵：5 kind × 3 输入逐格断言。期望值按
+    /// （kind, 模态）格子计算而非按 kind，文本 kind 的合法格在 Text 列、
+    /// 图像 kind 的合法格在 Image 列。新增 TaskKind 变体时会在此处编译
+    /// 失败（数组缺项），逼出有意识的分类决策而不是静默落进 `_` 通配。
     #[test]
-    fn legal_modality_combinations_pass() {
-        for kind in [
+    fn modality_matrix_is_enforced_cell_by_cell() {
+        let all_kinds = [
             TaskKind::TranslateWord,
             TaskKind::TranslateSentence,
             TaskKind::ExplainCode,
-        ] {
-            assert_eq!(text_task(kind).validate(), Ok(()));
-        }
-        for kind in [TaskKind::ImageOcr, TaskKind::ImageExplain] {
-            assert_eq!(image_task(kind).validate(), Ok(()));
-        }
-    }
-
-    /// 验收标准：非法组合（如 ImageOcr + Text 输入）被校验拒绝。
-    #[test]
-    fn illegal_modality_combinations_are_rejected() {
-        for kind in [TaskKind::ImageOcr, TaskKind::ImageExplain] {
-            assert_eq!(
-                text_task(kind).validate(),
-                Err(GlossError::UnsupportedModality),
-                "{kind:?} must reject text input"
+            TaskKind::ImageOcr,
+            TaskKind::ImageExplain,
+        ];
+        let text_legal = |kind| {
+            matches!(
+                kind,
+                TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode
+            )
+        };
+        let image_legal = |kind| matches!(kind, TaskKind::ImageOcr | TaskKind::ImageExplain);
+        for kind in all_kinds {
+            let (text_expect, image_expect) = (
+                text_legal(kind)
+                    .then_some(())
+                    .ok_or(GlossError::UnsupportedModality),
+                image_legal(kind)
+                    .then_some(())
+                    .ok_or(GlossError::UnsupportedModality),
             );
-        }
-        for kind in [TaskKind::TranslateWord, TaskKind::ExplainCode] {
+            assert_eq!(text_task(kind).validate(), text_expect, "text × {kind:?}");
             assert_eq!(
                 image_task(kind).validate(),
-                Err(GlossError::UnsupportedModality),
-                "{kind:?} must reject image input"
+                image_expect,
+                "image × {kind:?}"
             );
         }
-    }
 
-    /// 语音输入是预留模态：在语音任务落地前对任何 kind 都非法。
-    #[test]
-    fn audio_input_is_reserved_and_rejected() {
-        let task = Task {
-            kind: TaskKind::TranslateSentence,
+        // Audio 是预留模态：在语音任务落地前对任何 kind 都非法。
+        let audio_task = |kind| Task {
+            kind,
             input: TaskInput::Audio {
                 bytes: Arc::from(&b"au"[..]),
                 duration_hint: None,
             },
             options: TaskOptions::default(),
         };
-        assert_eq!(task.validate(), Err(GlossError::UnsupportedModality));
+        for kind in all_kinds {
+            assert_eq!(
+                audio_task(kind).validate(),
+                Err(GlossError::UnsupportedModality),
+                "audio × {kind:?} must be reserved"
+            );
+        }
     }
 
     /// 验收标准：serde 序列化可用——整条 Task 往返无损。
@@ -360,5 +367,26 @@ mod tests {
         let json = serde_json::to_string(&task).expect("task should serialize");
         let back: Task = serde_json::from_str(&json).expect("task should deserialize");
         assert_eq!(back, task);
+    }
+
+    /// Image 变体经 serde 往返：锁住 `Arc<[u8]>` 依赖的 serde `rc` 特性
+    /// 与「按内部值序列化、字节内容不变」的语义。
+    #[test]
+    fn image_input_round_trips_through_serde() {
+        let png: Arc<[u8]> = vec![0x89, b'P', b'N', b'G'].into();
+        let input = TaskInput::Image {
+            png: Arc::clone(&png),
+            region: ScreenRect {
+                x: -8,
+                y: 4,
+                width: 1920,
+                height: 1080,
+            },
+        };
+        let json = serde_json::to_string(&input).expect("image input should serialize");
+        let back: TaskInput = serde_json::from_str(&json).expect("image input should deserialize");
+        assert_eq!(back, input, "bytes and rect must survive the roundtrip");
+        // rc 语义：反序列化得到的是新分配的 Arc，与原值不共享。
+        assert!(!matches!(&back, TaskInput::Image { png: moved, .. } if Arc::ptr_eq(&png, moved)));
     }
 }

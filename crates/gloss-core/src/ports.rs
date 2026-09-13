@@ -6,7 +6,7 @@
 //!
 //! async 方案定案：**不用 async-trait / trait-variant**——[`AiEngine::execute`]
 //! 以普通方法返回 [`BoxFuture`]，签名本身对象安全（`dyn AiEngine` 可用），
-//! 零宏、零额外依赖；[`TaskStream`] 只依赖 `futures-core` 的 `Stream`。
+//! 零宏；除 `futures-core`（[`TaskStream`] 的 `Stream`）外零额外依赖。
 //! 若未来出现需要原生 `async fn` 的端口（无对象安全诉求时），再评估
 //! AFIT，不回头改此决策。
 
@@ -52,9 +52,10 @@ pub trait RegionCapture: Send {
 /// AI 引擎（端口）：统一入口，不按输入模态拆分——文本/图文仅由消息
 /// payload 与模型 id（`Task.options` + 配置）决定。
 ///
-/// 实现方保证：`execute` 返回的 future 与流都是 `Send`，消费端在 tokio
-/// 上轮询；取消不进本端口，由调用方以 `CancellationToken` 在 await 侧
-/// 竞速（08 §4.2 的单一取消机制）。
+/// 实现方保证：`execute` 返回的 future 与流都是 `'static` 且 `Send`——
+/// **不得借用 `task` 或 `self`**，任务数据需克隆（图像字节走 `Arc` 克隆
+/// 为 O(1)）或移入 future；消费端在 tokio 上轮询。取消不进本端口，由
+/// 调用方以 `CancellationToken` 在 await 侧竞速（08 §4.2 的单一取消机制）。
 pub trait AiEngine: Send + Sync {
     /// 执行任务，返回流式产物流。
     fn execute(&self, task: &Task) -> BoxFuture<'static, Result<TaskStream, GlossError>>;
@@ -66,6 +67,9 @@ pub trait AiEngine: Send + Sync {
 /// 落 keychain；配置文档的模型化读写随 M4-T1 的 `Config` 一并定案。
 /// 全部方法取 `&self`（实现方以内部同步保证并发安全），适配器才能以
 /// `Arc<dyn ConfigStore>` 注入。
+///
+/// 密钥红线（AGENT.md）：入参与返回值都是凭据，实现方禁止将其写进
+/// 日志、错误消息或 `EngineResponse` 这类携带诊断文本的变体。
 pub trait ConfigStore: Send + Sync {
     /// 读取密钥；`None` 表示未设置。
     fn secret(&self, key: &str) -> Result<Option<String>, GlossError>;
@@ -76,7 +80,9 @@ pub trait ConfigStore: Send + Sync {
 /// 缓存（端口）：core 内置 moka 内存实现（M3-T5）。
 ///
 /// key = hash(kind, input, options, model)——同一文本在不同任务下不共享
-/// 缓存（06 §5.2 ADR）；调用方保证 key 由统一哈希函数派生。
+/// 缓存（06 §5.2 ADR）；调用方保证 key 由统一哈希函数派生，且派生函数
+/// 须抗碰撞：碰撞不是缓存 miss，而是把别的任务的产物交给用户（桌面规模
+/// 下 64 位摘要概率可忽略，属接受的取舍）。
 pub trait Cache: Send + Sync {
     /// 取缓存产物。
     fn get(&self, key: u64) -> Option<TaskOutcome>;
@@ -84,7 +90,9 @@ pub trait Cache: Send + Sync {
     fn set(&self, key: u64, value: TaskOutcome);
 }
 
-/// 供单测的桩实现（crate 内测试使用，M3-T7 的流式 mock 引擎在此扩展）。
+/// 供单测的桩实现（crate 内测试使用）。跨 crate 复用时（M3-T7 的延迟/
+/// 失败注入 mock 引擎按计划落在 gloss-platform::engine::mock）需要以
+/// test-util 特性门控导出或由 platform 自带，届时二选一。
 #[cfg(test)]
 pub(crate) mod mocks {
     use std::collections::HashMap;
@@ -278,6 +286,20 @@ mod tests {
     #[tokio::test]
     async fn delta_stream_ends_without_chunks() {
         let mut stream = delta_stream(Vec::new());
+        assert!(stream.next().await.is_none());
+    }
+
+    /// 失败增量能穿透 TaskStream：Err chunk 按序到达，流随后正常结束。
+    #[tokio::test]
+    async fn delta_stream_carries_failure_chunks() {
+        let mut stream = delta_stream(vec![
+            Ok("a".into()),
+            Err(GlossError::EngineNetwork),
+            Ok("b".into()),
+        ]);
+        assert_eq!(stream.next().await, Some(Ok("a".into())));
+        assert_eq!(stream.next().await, Some(Err(GlossError::EngineNetwork)));
+        assert_eq!(stream.next().await, Some(Ok("b".into())));
         assert!(stream.next().await.is_none());
     }
 }
