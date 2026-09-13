@@ -86,6 +86,10 @@ fn run_event_loop() -> StartupResult {
         acquire_commands: acquire_tx.clone(),
         events: events_rx,
     };
+    // 退出协议不变量：通道②的 Sender 只允许 App 经 endpoints 持有。原始
+    // 句柄若存活到 join（Rust 的 drop 发生在作用域结束而非最后使用点），
+    // 事件线程永远看不到 Disconnected，run_app 返回后会卡死在 join。
+    drop(acquire_tx);
 
     // 热键 registrar 必须创建在主线程（Windows 后端的 WM_HOTKEY 投递与
     // Drop 清理亲和创建线程，见 hotkey.rs 模块注释），并存活至进程退出。
@@ -106,7 +110,8 @@ fn run_event_loop() -> StartupResult {
         ));
     });
 
-    // App 已随事件循环结束 drop：通道②的 Sender 归还后事件线程自行退出。
+    // App 已随事件循环结束 drop：通道②仅剩的 Sender（endpoints 内）归还
+    // 后事件线程看到 Disconnected 自行退出。
     if let Some(event_thread) = event_thread {
         event_thread.join();
     }
@@ -162,10 +167,11 @@ fn event_sources(registrar: &HotkeyRegistrar) -> EventSources<PlatformEvent> {
 }
 
 /// 通道②消费处理器：取材命令 → 组合读取 → ④ 回传，运行在事件线程上
-/// 顺序执行。
+/// 顺序执行。读取器提升进闭包复用（当前无状态，为将来缓存留位）。
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn acquire_command_handler() -> impl FnMut(AcquireCommand, &EventSink<Event, PlatformEvent>) + Send
 {
+    let mut reader = CompositeReader::new();
     move |command, sink| {
         let AcquireCommand::AcquireText { generation, kind } = command else {
             debug!(
@@ -180,7 +186,6 @@ fn acquire_command_handler() -> impl FnMut(AcquireCommand, &EventSink<Event, Pla
             kind = ?kind,
             "acquiring text"
         );
-        let mut reader = CompositeReader::new();
         match reader.read() {
             Ok(text) => {
                 sink.send_event(Event::InputReady {
@@ -188,18 +193,25 @@ fn acquire_command_handler() -> impl FnMut(AcquireCommand, &EventSink<Event, Pla
                     input: TaskInput::Text { text, hint: None },
                 });
             }
-            Err(GlossError::AccessibilityDenied) => {
-                warn!(
-                    thread = thread::EVENT,
-                    "accessibility permission missing, text acquisition denied"
-                );
-            }
+            // 失败也回传（TaskFailed），主线程与用户不至无感；日志分级：
+            // 权限缺失值得引导授权（warn），其余是日常路径（debug）。
             Err(err) => {
-                debug!(
-                    thread = thread::EVENT,
-                    error = %err,
-                    "text acquisition failed"
-                );
+                sink.send_event(Event::TaskFailed {
+                    generation,
+                    error: err.clone(),
+                });
+                if err == GlossError::AccessibilityDenied {
+                    warn!(
+                        thread = thread::EVENT,
+                        "accessibility permission missing, text acquisition denied"
+                    );
+                } else {
+                    debug!(
+                        thread = thread::EVENT,
+                        error = %err,
+                        "text acquisition failed"
+                    );
+                }
             }
         }
     }

@@ -13,6 +13,8 @@ const CORNER_RADIUS: u8 = 8;
 const PADDING: i8 = 14;
 /// 头部身份圆点：品牌珊瑚橙（UI 规范 §〇）
 const BRAND_DOT: Color32 = Color32::from_rgb(0xD8, 0x5A, 0x30);
+/// 原文展示的字符上限，超出截断加省略号（浮层窗口固定，长文只会被裁掉）。
+const MAX_SOURCE_CHARS: usize = 2000;
 
 /// 画一帧浮层。根 `Ui` 覆盖整个窗口，卡片铺满它，圆角之外由透明窗口露出桌面。
 ///
@@ -59,9 +61,17 @@ fn header(ui: &mut egui::Ui, weak: Color32, tag: &str) {
     });
 }
 
-/// 正文：取材产物原文，主色展示。
+/// 正文：取材产物原文，主色展示。浮层窗口尺寸固定，超长原文截断展示
+///（取材产物本身仍全量流转，截断只发生在展示层）。
 fn body_source(ui: &mut egui::Ui, strong: Color32, text: &str) {
-    ui.label(RichText::new(text).size(15.0).strong().color(strong));
+    let display = if text.chars().count() <= MAX_SOURCE_CHARS {
+        std::borrow::Cow::Borrowed(text)
+    } else {
+        let mut truncated: String = text.chars().take(MAX_SOURCE_CHARS).collect();
+        truncated.push('…');
+        std::borrow::Cow::Owned(truncated)
+    };
+    ui.label(RichText::new(display).size(15.0).strong().color(strong));
 }
 
 /// 正文（自检卡）：次要色的原文 + 主色的译文，字号与行距按 UI 规范 §3.2

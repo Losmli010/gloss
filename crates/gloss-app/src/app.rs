@@ -234,19 +234,18 @@ impl GlossApp {
         self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
     }
 
-    /// 消费通道①：平台事件 → 取材命令（每条触发占用一个新代数）。
-    /// 触发→命令的日志链路同时承担热键端到端的验收验证（CI 无法合成
-    /// 真实按键，只能真机按日志走查）。
+    /// 消费通道①：平台事件 → 取材命令。只有真实下发的命令才占用新代数
+    /// （未接线事件不作废在途回传）；触发→命令的日志链路同时承担热键端到
+    /// 端的验收验证（CI 无法合成真实按键，只能真机按日志走查）。
     fn drain_platform_events(&mut self) {
-        let Some(endpoints) = &self.endpoints else {
-            return;
-        };
-        while let Ok(event) = endpoints.platform_events.try_recv() {
-            // 直接字段访问推进代数：endpoints 的借用与方法调用（&mut self）
-            // 互斥，字段级不相交借用才是允许的。
-            self.generation += 1;
-            let generation = self.generation;
-            let Some(command) = acquire_command_for(&event, generation) else {
+        // 先收集再处理：endpoints 的借用与 &mut self 互斥，收进 Vec 后即
+        // 归还，后续可用正常的方法调用。
+        let events: Vec<PlatformEvent> = self
+            .endpoints
+            .as_ref()
+            .map_or(Vec::new(), |e| e.platform_events.try_iter().collect());
+        for event in events {
+            let Some(command) = acquire_command_for(&event, self.generation + 1) else {
                 debug!(
                     thread = thread::UI,
                     event = ?event,
@@ -254,70 +253,97 @@ impl GlossApp {
                 );
                 continue;
             };
+            self.generation += 1;
             info!(
                 thread = thread::UI,
-                generation = generation,
+                generation = self.generation,
                 "platform event dispatched as acquire command"
             );
-            if endpoints.acquire_commands.send(command).is_err() {
-                warn!(
-                    thread = thread::UI,
-                    "acquire channel closed, command dropped"
-                );
-            }
+            self.send_acquire(command);
+        }
+    }
+
+    /// 通道②发送；接收端已消失（事件线程死亡/退出）时只留痕。
+    fn send_acquire(&mut self, command: AcquireCommand) {
+        let Some(endpoints) = &self.endpoints else {
+            return;
+        };
+        if endpoints.acquire_commands.send(command).is_err() {
+            warn!(
+                thread = thread::UI,
+                "acquire channel closed, command dropped"
+            );
         }
     }
 
     /// 消费通道④：取材产物按代数采纳——连续快速触发时旧代数的产物被
     /// 丢弃，浮层只显示最后一次请求的结果。
     fn drain_events(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(endpoints) = &self.endpoints else {
-            return;
-        };
-        while let Ok(event) = endpoints.events.try_recv() {
-            let Event::InputReady { generation, input } = event else {
-                // 流式增量 / 完成 / 失败由推理链路接线后消费。
-                debug!(thread = thread::UI, "event not wired yet, ignored");
-                continue;
-            };
-            if generation != self.generation {
-                debug!(
-                    thread = thread::UI,
-                    generation = generation,
-                    current = self.generation,
-                    "stale input ready dropped"
-                );
-                continue;
+        let events: Vec<Event> = self
+            .endpoints
+            .as_ref()
+            .map_or(Vec::new(), |e| e.events.try_iter().collect());
+        for event in events {
+            match event {
+                Event::InputReady { generation, input } => {
+                    self.accept_input(event_loop, generation, input);
+                }
+                // 流式增量 / 完成 / 失败的完整分支由推理链路接线后消费；
+                // 取材失败已随 TaskFailed 回传，这里留诊断痕迹。
+                Event::TaskFailed { generation, error } => {
+                    debug!(
+                        thread = thread::UI,
+                        generation = generation,
+                        error = %error,
+                        "acquisition failed"
+                    );
+                }
+                Event::TaskChunk { .. } | Event::TaskDone { .. } => {
+                    debug!(thread = thread::UI, "event not wired yet, ignored");
+                }
             }
-            let TaskInput::Text { text, .. } = input else {
-                debug!(
-                    thread = thread::UI,
-                    generation = generation,
-                    "non-text input ignored"
-                );
-                continue;
-            };
-            info!(
+        }
+    }
+
+    /// 采纳一代数的取材产物并显示浮层。
+    fn accept_input(&mut self, event_loop: &ActiveEventLoop, generation: u64, input: TaskInput) {
+        if generation != self.generation {
+            debug!(
                 thread = thread::UI,
                 generation = generation,
-                chars = text.chars().count(),
-                "input ready, showing overlay"
+                current = self.generation,
+                "stale input ready dropped"
             );
-            // 以下全部走直接字段访问（endpoints 借用仍持有）。
-            let position = self
-                .windows
-                .as_ref()
-                .map(|windows| centered_position(event_loop, windows));
-            let Some(position) = position else {
-                return;
-            };
-            self.overlay_text = Some(text);
-            if let Some(windows) = &self.windows {
-                windows.show_at(position);
-                self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
-            }
-            self.request_redraw();
+            return;
         }
+        let TaskInput::Text { text, .. } = input else {
+            debug!(
+                thread = thread::UI,
+                generation = generation,
+                "non-text input ignored"
+            );
+            return;
+        };
+        info!(
+            thread = thread::UI,
+            generation = generation,
+            chars = text.chars().count(),
+            "input ready, showing overlay"
+        );
+        let Some(windows) = &self.windows else {
+            // 窗口未建好（正常时序下不可达：resumed 先于 user_event），文本
+            // 无处展示只能丢弃，留痕打破时序假设的那天能查到。
+            warn!(
+                thread = thread::UI,
+                generation = generation,
+                "no window yet, input dropped"
+            );
+            return;
+        };
+        let position = centered_position(event_loop, windows);
+        self.overlay_text = Some(text);
+        self.show_overlay(position);
+        self.request_redraw();
     }
 
     /// 自检的一轮：居中显示，停留 SELFTEST_VISIBLE 后由自动隐藏路径收回。
