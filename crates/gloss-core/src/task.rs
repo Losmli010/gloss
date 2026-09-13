@@ -2,10 +2,12 @@
 
 use std::sync::Arc;
 
-use crate::model::{Lang, ScreenRect};
+use serde::{Deserialize, Serialize};
+
+use crate::model::{GlossError, Lang, ScreenRect};
 
 /// 任务类型：新增场景 = 加变体 + Prompt 模板 + 结构化结果变体 + UI 模板，管道不动。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskKind {
     /// 单词（词典式卡：音标/词性/释义/例句）。
     TranslateWord,
@@ -20,7 +22,7 @@ pub enum TaskKind {
 }
 
 /// 输入源规格：触发时确定「去哪取」，不携带数据。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputSource {
     /// 前台应用选区（文本）。
     Selection,
@@ -30,7 +32,7 @@ pub enum InputSource {
 }
 
 /// 模态提示：为 prompt 填充提供上下文。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputHint {
     /// 代码语言，如 "rust"。
     CodeLanguage(String),
@@ -39,7 +41,7 @@ pub enum InputHint {
 }
 
 /// 热键绑定：一个热键 → 一个任务类型 + 一个输入源。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HotkeyBinding {
     /// 如 "Cmd+Shift+1"。
     pub trigger: String,
@@ -50,7 +52,7 @@ pub struct HotkeyBinding {
 }
 
 /// 输入模态：取材产物的统一枚举形态，消息间 move 所有权。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TaskInput {
     /// 文本输入。
     Text {
@@ -76,7 +78,7 @@ pub enum TaskInput {
 }
 
 /// 任务选项；留空的字段按配置默认值填充。
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TaskOptions {
     /// 目标语言，None = 自动检测（默认中文）。
     pub target_lang: Option<Lang>,
@@ -87,7 +89,7 @@ pub struct TaskOptions {
 }
 
 /// 一条待执行任务 = 类型 + 输入 + 选项。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Task {
     /// 任务类型。
     pub kind: TaskKind,
@@ -97,8 +99,35 @@ pub struct Task {
     pub options: TaskOptions,
 }
 
+impl Task {
+    /// 模态约束表（06 §5.1）校验：管道在执行前调用，非法组合直接落
+    /// `TaskFailed`，不进 prompt 与引擎。
+    pub fn validate(&self) -> Result<(), GlossError> {
+        validate_modality(self.kind, &self.input)
+    }
+}
+
+/// 模态约束表（06 §5.1）：任务类型与输入模态的合法组合。唯一被拒的
+/// 错误是 [`GlossError::UnsupportedModality`]。
+pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError> {
+    let legal = match (kind, input) {
+        (
+            TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode,
+            TaskInput::Text { .. },
+        )
+        | (TaskKind::ImageOcr | TaskKind::ImageExplain, TaskInput::Image { .. }) => true,
+        // 语音任务未落地：任何 kind + Audio 都是非法组合。
+        _ => false,
+    };
+    if legal {
+        Ok(())
+    } else {
+        Err(GlossError::UnsupportedModality)
+    }
+}
+
 /// 任务产物：正文统一 markdown，另带 kind 专属结构化字段供 UI 精排。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskOutcome {
     /// 产物对应的任务类型。
     pub kind: TaskKind,
@@ -109,7 +138,7 @@ pub struct TaskOutcome {
 }
 
 /// 结构化结果：按 `TaskKind` 给出 UI 精排所需的字段，与 markdown 正文并行下发。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OutcomeStructured {
     /// 单词卡（词典式）。
     WordCard {
@@ -133,7 +162,7 @@ pub enum OutcomeStructured {
 }
 
 /// 词条释义（词典式卡）。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Sense {
     /// 词性，如 "n."。
     pub pos: Option<String>,
@@ -237,5 +266,127 @@ mod tests {
         assert!(
             matches!(card.structured, OutcomeStructured::WordCard { ref word, .. } if word == "gloss")
         );
+    }
+
+    fn text_task(kind: TaskKind) -> Task {
+        Task {
+            kind,
+            input: TaskInput::Text {
+                text: "hello".into(),
+                hint: None,
+            },
+            options: TaskOptions::default(),
+        }
+    }
+
+    fn image_task(kind: TaskKind) -> Task {
+        Task {
+            kind,
+            input: TaskInput::Image {
+                png: Arc::from(&b"png"[..]),
+                region: ScreenRect {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                },
+            },
+            options: TaskOptions::default(),
+        }
+    }
+
+    /// 模态约束表（06 §5.1）全矩阵：5 kind × 3 输入逐格断言。期望值按
+    /// （kind, 模态）格子计算而非按 kind，文本 kind 的合法格在 Text 列、
+    /// 图像 kind 的合法格在 Image 列。新增 TaskKind 变体时会在此处编译
+    /// 失败（数组缺项），逼出有意识的分类决策而不是静默落进 `_` 通配。
+    #[test]
+    fn modality_matrix_is_enforced_cell_by_cell() {
+        let all_kinds = [
+            TaskKind::TranslateWord,
+            TaskKind::TranslateSentence,
+            TaskKind::ExplainCode,
+            TaskKind::ImageOcr,
+            TaskKind::ImageExplain,
+        ];
+        let text_legal = |kind| {
+            matches!(
+                kind,
+                TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode
+            )
+        };
+        let image_legal = |kind| matches!(kind, TaskKind::ImageOcr | TaskKind::ImageExplain);
+        for kind in all_kinds {
+            let (text_expect, image_expect) = (
+                text_legal(kind)
+                    .then_some(())
+                    .ok_or(GlossError::UnsupportedModality),
+                image_legal(kind)
+                    .then_some(())
+                    .ok_or(GlossError::UnsupportedModality),
+            );
+            assert_eq!(text_task(kind).validate(), text_expect, "text × {kind:?}");
+            assert_eq!(
+                image_task(kind).validate(),
+                image_expect,
+                "image × {kind:?}"
+            );
+        }
+
+        // Audio 是预留模态：在语音任务落地前对任何 kind 都非法。
+        let audio_task = |kind| Task {
+            kind,
+            input: TaskInput::Audio {
+                bytes: Arc::from(&b"au"[..]),
+                duration_hint: None,
+            },
+            options: TaskOptions::default(),
+        };
+        for kind in all_kinds {
+            assert_eq!(
+                audio_task(kind).validate(),
+                Err(GlossError::UnsupportedModality),
+                "audio × {kind:?} must be reserved"
+            );
+        }
+    }
+
+    /// 验收标准：serde 序列化可用——整条 Task 往返无损。
+    #[test]
+    fn task_round_trips_through_serde() {
+        let task = Task {
+            kind: TaskKind::ExplainCode,
+            input: TaskInput::Text {
+                text: "fn main() {}".into(),
+                hint: Some(InputHint::CodeLanguage("rust".into())),
+            },
+            options: TaskOptions {
+                target_lang: Some(Lang::Ja),
+                ..Default::default()
+            },
+        };
+        let json = serde_json::to_string(&task).expect("task should serialize");
+        let back: Task = serde_json::from_str(&json).expect("task should deserialize");
+        assert_eq!(back, task);
+    }
+
+    /// Image 变体经 serde 往返：锁住 `Arc<[u8]>` 依赖的 serde `rc` 特性
+    /// 与「按内部值序列化、字节内容不变」的语义。
+    #[test]
+    fn image_input_round_trips_through_serde() {
+        let png: Arc<[u8]> = vec![0x89, b'P', b'N', b'G'].into();
+        let input = TaskInput::Image {
+            png: Arc::clone(&png),
+            region: ScreenRect {
+                x: -8,
+                y: 4,
+                width: 1920,
+                height: 1080,
+            },
+        };
+        let json = serde_json::to_string(&input).expect("image input should serialize");
+        let back: TaskInput = serde_json::from_str(&json).expect("image input should deserialize");
+        assert_eq!(back, input, "bytes and rect must survive the roundtrip");
+        // rc 语义：反序列化得到的是新分配的 Arc，与原值不共享。
+        assert!(!matches!(&back, TaskInput::Image { png: moved, .. } if Arc::ptr_eq(&png, moved)));
     }
 }

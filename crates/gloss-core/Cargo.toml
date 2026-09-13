@@ -6,9 +6,20 @@ license.workspace = true
 description = "Gloss 领域层与端口（纯逻辑，零平台/UI 依赖）"
 
 [dependencies]
+# TaskStream 的 Stream trait（no-std 最小集）；StreamExt 等工具留给使用方自选。
+futures-core = { version = "0.3", default-features = false }
+# 任务模型的序列化（配置落盘 / 缓存 key / 未来跨进程）；rc 供 TaskInput 的
+# Arc<[u8]> 图像字节按内部值序列化（反序列化会新分配，所有权语义不变）。
+serde = { version = "1", default-features = false, features = ["std", "derive", "rc"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[dev-dependencies]
+# 端口单测：流式消费用 StreamExt，异步测试跑 #[tokio::test]，serde 往返用 serde_json。
+futures = { version = "0.3", default-features = false, features = ["std"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
 
 [lints]
 workspace = true

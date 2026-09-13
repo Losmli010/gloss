@@ -1,7 +1,9 @@
 //! 通用类型：语言、屏幕坐标与全链路统一错误。
 
+use serde::{Deserialize, Serialize};
+
 /// 任务的语言参数；UI 固定常用 5 语种，「自动检测」由 `Option<Lang>` 留空表达。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Lang {
     /// 简体中文。
     Zh,
@@ -18,7 +20,7 @@ pub enum Lang {
 }
 
 /// 屏幕逻辑坐标矩形。多显示器下原点可为负，坐标按手势/系统返回值原样传递。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScreenRect {
     /// 左上角横坐标（逻辑像素）。
     pub x: i32,
