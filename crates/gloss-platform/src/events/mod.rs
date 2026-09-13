@@ -7,6 +7,7 @@
 //! 整条循环。
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -43,21 +44,39 @@ pub type EventSources<P> = Vec<Box<dyn EventSource<P> + Send>>;
 const TICK: Duration = Duration::from_millis(33);
 
 /// 事件线程的产物出口：④ 回传事件与 ① 平台事件，由组装点接上真实通道。
+///
+/// `wake` 是主线程唤醒回调：主线程可能睡在事件循环里（无消息不醒），发送
+/// 成功后必须叫醒它来消费，否则消息会滞留到下一个无关事件才被看到。回调
+/// 由组装点提供（platform 不关心唤醒机制），发送失败（接收端已消失）时
+/// 不唤醒。
 pub struct EventSink<E, P> {
     events: Sender<E>,
     platform: Sender<P>,
+    wake: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl<E, P> EventSink<E, P> {
-    /// 创建出口：`events` 为 ④ 回传事件通道的发送端，`platform` 为 ① 平台事件通道的发送端。
-    pub fn new(events: Sender<E>, platform: Sender<P>) -> Self {
-        Self { events, platform }
+    /// 创建出口：`events` 为 ④ 回传事件通道的发送端，`platform` 为 ① 平台
+    /// 事件通道的发送端，`wake` 为发送成功后的主线程唤醒回调。
+    pub fn new(
+        events: Sender<E>,
+        platform: Sender<P>,
+        wake: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            events,
+            platform,
+            wake: Arc::new(wake),
+        }
     }
 
     /// 发送 ④ 回传事件；返回 `false` 表示主线程已退出，消息被丢弃。
     pub fn send_event(&self, event: E) -> bool {
         match self.events.send(event) {
-            Ok(()) => true,
+            Ok(()) => {
+                self.notify();
+                true
+            }
             Err(_) => {
                 debug!(thread = thread::EVENT, "event receiver gone, event dropped");
                 false
@@ -68,7 +87,10 @@ impl<E, P> EventSink<E, P> {
     /// 发送 ① 平台事件；返回 `false` 表示主线程已退出，消息被丢弃。
     pub fn send_platform(&self, event: P) -> bool {
         match self.platform.send(event) {
-            Ok(()) => true,
+            Ok(()) => {
+                self.notify();
+                true
+            }
             Err(_) => {
                 debug!(
                     thread = thread::EVENT,
@@ -77,6 +99,10 @@ impl<E, P> EventSink<E, P> {
                 false
             }
         }
+    }
+
+    fn notify(&self) {
+        (self.wake)();
     }
 }
 
@@ -351,7 +377,12 @@ mod tests {
         let (plat_tx, plat_rx) = unbounded::<()>();
         drop(plat_rx);
 
-        let thread = spawn(cmd_rx, EventSink::new(ev_tx, plat_tx), echo, no_sources());
+        let thread = spawn(
+            cmd_rx,
+            EventSink::new(ev_tx, plat_tx, || {}),
+            echo,
+            no_sources(),
+        );
         for i in 0..16 {
             cmd_tx.send(TestCommand(i)).unwrap();
         }
@@ -375,7 +406,12 @@ mod tests {
         let (plat_tx, plat_rx) = unbounded::<()>();
         drop(plat_rx);
 
-        let thread = spawn(cmd_rx, EventSink::new(ev_tx, plat_tx), echo, no_sources());
+        let thread = spawn(
+            cmd_rx,
+            EventSink::new(ev_tx, plat_tx, || {}),
+            echo,
+            no_sources(),
+        );
         cmd_tx.send(TestCommand(1)).unwrap();
         assert_eq!(ev_rx.recv().unwrap().0, 1);
 
@@ -400,7 +436,7 @@ mod tests {
         let source: Box<dyn EventSource<()>> = Box::new(move || src_rx.try_iter().collect());
         let thread = spawn(
             cmd_rx,
-            EventSink::new(ev_tx, plat_tx.clone()),
+            EventSink::new(ev_tx, plat_tx.clone(), || {}),
             echo,
             vec![source],
         );
@@ -428,7 +464,7 @@ mod tests {
 
         let thread = spawn(
             cmd_rx,
-            EventSink::new(ev_tx, plat_tx),
+            EventSink::new(ev_tx, plat_tx, || {}),
             |command: TestCommand, sink: &Sink| {
                 if command.0 == 0 {
                     panic!("poison");
@@ -462,7 +498,7 @@ mod tests {
         });
         let thread = spawn(
             cmd_rx,
-            EventSink::new(ev_tx, plat_tx.clone()),
+            EventSink::new(ev_tx, plat_tx.clone(), || {}),
             echo,
             vec![bad],
         );
@@ -486,8 +522,30 @@ mod tests {
         let (plat_tx, plat_rx) = unbounded::<()>();
         drop(ev_rx);
         drop(plat_rx);
-        let sink = EventSink::new(ev_tx, plat_tx);
+        let sink = EventSink::new(ev_tx, plat_tx, || {});
         assert!(!sink.send_event(TestEvent(1)));
         assert!(!sink.send_platform(()));
+    }
+
+    /// 主线程可能睡在事件循环里：发送成功必须唤醒，接收端消失则不必。
+    #[test]
+    fn successful_send_wakes_main_thread() {
+        let (ev_tx, ev_rx) = unbounded::<TestEvent>();
+        let (plat_tx, plat_rx) = unbounded::<()>();
+        let (wake_tx, wake_rx) = unbounded::<()>();
+        let sink = EventSink::new(ev_tx, plat_tx, move || {
+            wake_tx.send(()).unwrap();
+        });
+        assert!(sink.send_event(TestEvent(1)));
+        assert_eq!(
+            wake_rx.recv().unwrap(),
+            (),
+            "send must wake the main thread"
+        );
+
+        drop(ev_rx);
+        drop(plat_rx);
+        assert!(!sink.send_event(TestEvent(2)));
+        assert!(wake_rx.try_recv().is_err(), "failed send must not wake");
     }
 }

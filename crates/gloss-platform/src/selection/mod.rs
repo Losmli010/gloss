@@ -6,3 +6,4 @@
 
 pub mod accessibility;
 pub mod clipboard;
+pub mod composite;
