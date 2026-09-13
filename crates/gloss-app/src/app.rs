@@ -5,13 +5,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use egui::ViewportId;
-use gloss_core::log::{error, info, thread, warn};
+use gloss_core::log::{debug, error, info, thread, warn};
+use gloss_core::task::{InputSource, TaskInput, TaskKind};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalPosition;
 use winit::event::{StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
+use crate::channel::{AcquireCommand, AppEndpoints, Event, PlatformEvent};
 use crate::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
 use crate::ui;
 use crate::windows::WindowManager;
@@ -51,14 +53,22 @@ impl Waker {
 /// `self_test` 为真时启动后跑浮层显隐自检（`--overlay-selftest`）：
 /// 反复显隐 100 次后统计延迟并退出，用于验收预创建复用。
 ///
+/// `endpoints` 是 App 侧通道端点（① 收平台事件、② 发取材命令、④ 收回传
+/// 事件），由组装点拆出移交。
+///
 /// `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
-pub fn run(self_test: bool, on_waker: impl FnOnce(Waker)) -> Result<(), Box<dyn Error>> {
+pub fn run(
+    self_test: bool,
+    endpoints: AppEndpoints,
+    on_waker: impl FnOnce(Waker),
+) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     let waker = Waker(event_loop.create_proxy());
     on_waker(waker);
     let mut app = GlossApp {
         self_test: self_test.then(SelfTest::new),
+        endpoints: Some(endpoints),
         ..GlossApp::default()
     };
     event_loop.run_app(&mut app)?;
@@ -83,6 +93,12 @@ struct GlossApp {
     auto_hide: Option<Instant>,
     /// 显隐自检；`None` 表示正常模式
     self_test: Option<SelfTest>,
+    /// 组装点移交的通道端点（① 收、② 发、④ 收）。
+    endpoints: Option<AppEndpoints>,
+    /// 请求代数：平台事件触发时递增，回传按匹配丢弃陈旧结果。
+    generation: u64,
+    /// 当前浮层展示的原文；`None` 时浮层显示渲染自检卡。
+    overlay_text: Option<String>,
 }
 
 /// 显隐自检的纯逻辑部分：轮次推进与首帧延迟统计，不碰窗口，可单测。
@@ -173,7 +189,10 @@ impl GlossApp {
         };
 
         let input = frame.egui.take_egui_input(&frame.window);
-        let output = frame.egui_ctx.run_ui(input, ui::popup::draw);
+        let overlay_text = self.overlay_text.as_deref();
+        let output = frame
+            .egui_ctx
+            .run_ui(input, |ui| ui::popup::draw(ui, overlay_text));
         frame
             .egui
             .handle_platform_output(&frame.window, output.platform_output);
@@ -206,13 +225,125 @@ impl GlossApp {
         }
     }
 
-    /// 统一显示入口：显示并启动自动隐藏计时（M2 事件源接上后触发端调这里）。
+    /// 统一显示入口：显示并启动自动隐藏计时。
     fn show_overlay(&mut self, position: LogicalPosition<f64>) {
         let Some(windows) = &self.windows else {
             return;
         };
         windows.show_at(position);
         self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
+    }
+
+    /// 消费通道①：平台事件 → 取材命令。只有真实下发的命令才占用新代数
+    /// （未接线事件不作废在途回传）；触发→命令的日志链路同时承担热键端到
+    /// 端的验收验证（CI 无法合成真实按键，只能真机按日志走查）。
+    fn drain_platform_events(&mut self) {
+        // 先收集再处理：endpoints 的借用与 &mut self 互斥，收进 Vec 后即
+        // 归还，后续可用正常的方法调用。
+        let events: Vec<PlatformEvent> = self
+            .endpoints
+            .as_ref()
+            .map_or(Vec::new(), |e| e.platform_events.try_iter().collect());
+        for event in events {
+            let Some(command) = acquire_command_for(&event, self.generation + 1) else {
+                debug!(
+                    thread = thread::UI,
+                    event = ?event,
+                    "platform event not wired yet, ignored"
+                );
+                continue;
+            };
+            self.generation += 1;
+            info!(
+                thread = thread::UI,
+                generation = self.generation,
+                "platform event dispatched as acquire command"
+            );
+            self.send_acquire(command);
+        }
+    }
+
+    /// 通道②发送；接收端已消失（事件线程死亡/退出）时只留痕。
+    fn send_acquire(&mut self, command: AcquireCommand) {
+        let Some(endpoints) = &self.endpoints else {
+            return;
+        };
+        if endpoints.acquire_commands.send(command).is_err() {
+            warn!(
+                thread = thread::UI,
+                "acquire channel closed, command dropped"
+            );
+        }
+    }
+
+    /// 消费通道④：取材产物按代数采纳——连续快速触发时旧代数的产物被
+    /// 丢弃，浮层只显示最后一次请求的结果。
+    fn drain_events(&mut self, event_loop: &ActiveEventLoop) {
+        let events: Vec<Event> = self
+            .endpoints
+            .as_ref()
+            .map_or(Vec::new(), |e| e.events.try_iter().collect());
+        for event in events {
+            match event {
+                Event::InputReady { generation, input } => {
+                    self.accept_input(event_loop, generation, input);
+                }
+                // 流式增量 / 完成 / 失败的完整分支由推理链路接线后消费；
+                // 取材失败已随 TaskFailed 回传，这里留诊断痕迹。
+                Event::TaskFailed { generation, error } => {
+                    debug!(
+                        thread = thread::UI,
+                        generation = generation,
+                        error = %error,
+                        "acquisition failed"
+                    );
+                }
+                Event::TaskChunk { .. } | Event::TaskDone { .. } => {
+                    debug!(thread = thread::UI, "event not wired yet, ignored");
+                }
+            }
+        }
+    }
+
+    /// 采纳一代数的取材产物并显示浮层。
+    fn accept_input(&mut self, event_loop: &ActiveEventLoop, generation: u64, input: TaskInput) {
+        if generation != self.generation {
+            debug!(
+                thread = thread::UI,
+                generation = generation,
+                current = self.generation,
+                "stale input ready dropped"
+            );
+            return;
+        }
+        let TaskInput::Text { text, .. } = input else {
+            debug!(
+                thread = thread::UI,
+                generation = generation,
+                "non-text input ignored"
+            );
+            return;
+        };
+        info!(
+            thread = thread::UI,
+            generation = generation,
+            chars = text.chars().count(),
+            "input ready, showing overlay"
+        );
+        let Some(windows) = &self.windows else {
+            // 窗口未建好（正常时序下不可达：resumed 先于 user_event），文本
+            // 无处展示只能丢弃，留痕打破时序假设的那天能查到。
+            warn!(
+                thread = thread::UI,
+                generation = generation,
+                "no window yet, input dropped"
+            );
+            return;
+        };
+        let position = centered_position(event_loop, windows);
+        self.overlay_text = Some(text);
+        self.show_overlay(position);
+        self.request_redraw();
     }
 
     /// 自检的一轮：居中显示，停留 SELFTEST_VISIBLE 后由自动隐藏路径收回。
@@ -317,6 +448,28 @@ fn repaint_at(delay: Duration, now: Instant) -> Option<Instant> {
     (delay != Duration::MAX).then(|| now + delay)
 }
 
+/// 平台事件 → 取材命令的映射（纯逻辑，可单测）：每次触发占用一个新代数；
+/// 未接线的平台事件（框选、设置、退出）返回 None，由调用方留诊断日志。
+fn acquire_command_for(event: &PlatformEvent, generation: u64) -> Option<AcquireCommand> {
+    match event {
+        PlatformEvent::HotkeyTriggered { binding } => match binding.source {
+            InputSource::Selection => Some(AcquireCommand::AcquireText {
+                generation,
+                kind: binding.kind,
+            }),
+            // 图像取材待框选路径接入后消费。
+            InputSource::Region => None,
+        },
+        PlatformEvent::SelectionGesture => Some(AcquireCommand::AcquireText {
+            generation,
+            kind: TaskKind::TranslateWord,
+        }),
+        PlatformEvent::RegionGesture { .. }
+        | PlatformEvent::OpenSettingsRequested
+        | PlatformEvent::QuitRequested => None,
+    }
+}
+
 impl ApplicationHandler<UserEvent> for GlossApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // resumed 可能连续投递，渲染栈只起一次
@@ -337,7 +490,9 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         }
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: UserEvent) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, _event: UserEvent) {
+        self.drain_platform_events();
+        self.drain_events(event_loop);
         self.request_redraw();
     }
 
@@ -413,6 +568,8 @@ impl ApplicationHandler<UserEvent> for GlossApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gloss_core::model::ScreenRect;
+    use gloss_core::task::HotkeyBinding;
 
     #[test]
     fn repaint_delay_max_means_no_wakeup() {
@@ -473,5 +630,64 @@ mod tests {
             st.is_complete(SELFTEST_ROUNDS);
         }
         assert!(!st.is_complete(SELFTEST_ROUNDS));
+    }
+
+    #[test]
+    fn selection_gesture_maps_to_translate_word_command() {
+        assert_eq!(
+            acquire_command_for(&PlatformEvent::SelectionGesture, 1),
+            Some(AcquireCommand::AcquireText {
+                generation: 1,
+                kind: TaskKind::TranslateWord
+            })
+        );
+    }
+
+    #[test]
+    fn hotkey_binding_carries_its_kind_and_requires_selection_source() {
+        let binding = HotkeyBinding {
+            trigger: "Cmd+Shift+F".into(),
+            kind: TaskKind::TranslateSentence,
+            source: InputSource::Selection,
+        };
+        assert_eq!(
+            acquire_command_for(&PlatformEvent::HotkeyTriggered { binding }, 7),
+            Some(AcquireCommand::AcquireText {
+                generation: 7,
+                kind: TaskKind::TranslateSentence
+            })
+        );
+
+        let region = HotkeyBinding {
+            trigger: "Cmd+Shift+R".into(),
+            kind: TaskKind::ImageOcr,
+            source: InputSource::Region,
+        };
+        assert!(
+            acquire_command_for(&PlatformEvent::HotkeyTriggered { binding: region }, 8).is_none(),
+            "region source has no acquisition path yet"
+        );
+    }
+
+    #[test]
+    fn unwired_platform_events_are_ignored() {
+        let events = [
+            PlatformEvent::OpenSettingsRequested,
+            PlatformEvent::QuitRequested,
+            PlatformEvent::RegionGesture {
+                rect: ScreenRect {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                },
+            },
+        ];
+        for event in &events {
+            assert!(
+                acquire_command_for(event, 1).is_none(),
+                "{event:?} must not acquire"
+            );
+        }
     }
 }

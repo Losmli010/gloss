@@ -9,16 +9,21 @@ description = "Gloss 适配器层：实现 gloss-core 端口 + 平台事件源"
 # 事件线程消费通道②、转发①④，与 gloss-app::channel 的选型一致用 crossbeam。
 # std 是默认集的全部内容，显式写出以维持「关默认集、按需开特性」的统一写法。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
-# 全局热键事件源。不用默认特性：默认集只多出可选的 serde 支持，注册/监听用不到。
+# 全局鼠标监听（划词手势）。不用默认特性：默认集只多出可选的 serde 支持，注册/监听用不到。
 global-hotkey = { version = "0.6", default-features = false }
 gloss-core = { path = "../gloss-core" }
 
-# 全局鼠标监听（划词手势）。仅目标平台启用：Linux 只跑 CI，rdev 的 x11
-# 后端是构建期链接（build script 要 pkg-config + X11 headers），不能带进
-# CI 依赖树——手势状态机本身无平台依赖，照常在 Linux 上单测（先例见
-# gloss-app 的 font-kit）。macOS 上需要辅助功能权限，未授权时监听失败
-# 走降级（见 events/mouse.rs）。
+# 剪贴板兜底读取（模拟复制）与内容保存/恢复。默认集含 image-data（拖进
+# 整条 image 依赖树）与 Linux 的 wayland-data-control，文本能力不需要；
+# Linux 的 x11 后端是纯 Rust（x11rb）不阻塞 CI，但兜底本身依赖按键注入，
+# 仍只对目标平台启用（与 rdev 同门控）。
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+arboard = { version = "3", default-features = false }
+# 全局鼠标监听（划词手势）与兜底的按键注入。仅目标平台启用：Linux 只跑
+# CI，rdev 的 x11 后端是构建期链接（build script 要 pkg-config + X11
+# headers），不能带进 CI 依赖树——手势状态机本身无平台依赖，照常在
+# Linux 上单测（先例见 gloss-app 的 font-kit）。macOS 上需要辅助功能
+# 权限，未授权时监听失败走降级（见 events/mouse.rs）。
 rdev = { version = "0.5", default-features = false }
 
 # 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）。唯一特性
