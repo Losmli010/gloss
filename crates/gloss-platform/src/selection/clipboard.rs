@@ -3,14 +3,17 @@
 //! AX 读不到选区时的兜底通道：保存剪贴板原内容 → 注入复制快捷键（macOS
 //! Cmd+C / Windows Ctrl+C）→ 轮询确认目标应用写入 → 读回文本 → 恢复原
 //! 内容。注入会把快捷键投给用户的前台应用（可能误拷非文本对象），因此
-//! 只有能完整保全原内容时才注入：空剪贴板（恢复 = 清空）或纯文本（恢复
-//! = 写回）才继续；文件/图像等 arboard 无法保全的内容直接放弃兜底。
+//! 只有能完整保全原内容时才注入：空剪贴板（恢复 = 清空）或只含纯文本
+//! flavor（恢复 = 写回）才继续；富文本（text+HTML/RTF 混合，set_text
+//! 会降级）与文件/图像等无法保全的内容直接放弃兜底。
 //!
 //! 恢复时机（08 §7.1）：目标应用写入粘贴板是异步的，恢复过早会被应用的
 //! 写入覆盖掉原文——以「写入确认（macOS kPasteboardModified / Windows
-//! 序列号变化）或 2s 超时」为界，之后才恢复；无论读取成败都必须恢复，
-//! 恢复失败留痕但不吞掉主结果。整条流程必须运行在平台事件线程（调用方
-//! 保证亲和性），恢复操作同线程执行。
+//! 序列号变化）或 2s 超时」为界，确认后也持续读到 deadline（避开
+//! clear→setData 的半写入间隙），之后才恢复；读取成功且窗口期内剪贴板
+//! 未被再次改动才恢复，读取失败按原内容恢复（best-effort），恢复失败
+//! 留痕但不吞掉主结果。整条流程必须运行在平台事件线程（调用方保证亲和
+//! 性），恢复操作同线程执行。
 //!
 //! 平台门控与纯逻辑切分同 accessibility.rs / events/mouse.rs：注入与确认
 //! 信号是平台专属（仅 macOS/Windows 提供），「轮询等待写入完成」的时序
@@ -63,7 +66,7 @@ mod imp {
     use gloss_core::log::{debug, error, thread};
     use gloss_core::model::GlossError;
 
-    use super::{WRITE_CONFIRM_TIMEOUT, wait_for_write};
+    use super::{WRITE_CONFIRM_TIMEOUT, WRITE_POLL_INTERVAL, wait_for_write};
 
     /// 复制快捷键的修饰键：macOS 为 Cmd（rdev 映射 Meta），Windows 为 Ctrl。
     #[cfg(target_os = "macos")]
@@ -93,8 +96,9 @@ mod imp {
         fn PasteboardCreate(name: CFStringRef, out: *mut PasteboardRef) -> i32;
         /// 与全局粘贴板同步，返回标志集（含 kPasteboardModified）。
         fn PasteboardSynchronize(pasteboard: PasteboardRef) -> u32;
-        /// 返回粘贴板条目数，失败返回非零状态码。
-        fn PasteboardGetItemCount(pasteboard: PasteboardRef, out_count: *mut u32) -> i32;
+        /// 返回粘贴板条目数，失败返回非零状态码。出参是 ItemCount
+        /// （MacTypes.h 的 unsigned long，Darwin LP64 下 8 字节）。
+        fn PasteboardGetItemCount(pasteboard: PasteboardRef, out_count: *mut usize) -> i32;
     }
 
     // ---- Windows：user32（同上）----
@@ -261,6 +265,9 @@ mod imp {
         /// 兜底读取前台应用的选中文本（模拟复制路径）。
         ///
         /// 调用方保证：在平台事件线程上调用（08 §4.4 亲和性，恢复同线程）。
+        /// 阻塞语义：确认目标应用写入最长轮询 [`WRITE_CONFIRM_TIMEOUT`]，
+        /// 期间事件线程被占用、其余命令与事件排队（事件源侧缓冲），调用方
+        /// 需自行处理在途重复触发。
         pub fn read(&mut self) -> Result<String, GlossError> {
             let mut clipboard = match Clipboard::new() {
                 Ok(clipboard) => clipboard,
@@ -276,14 +283,25 @@ mod imp {
             // Err 直接上抛：未注入过，剪贴板未被触碰，无需恢复。
             let saved = save_original(&mut clipboard)?;
             let outcome = self.attempt(&mut clipboard);
-            // 08 §7.1：无论读取成败都必须恢复原内容；恢复失败留痕但不吞掉
-            // 主结果（此时用户剪贴板停留在选中文本上，属可诊断的系统异常）。
-            if let Err(err) = restore(&mut clipboard, saved) {
-                error!(
-                    thread = thread::EVENT,
-                    error = %err,
-                    "failed to restore clipboard"
-                );
+            match &outcome {
+                Ok(acquired) => {
+                    // 恢复前的廉价校验：窗口期内用户可能自己复制了新内容，
+                    // 当前内容仍是我们刚读到的选中文本才恢复——无条件恢复
+                    // 会把用户的新拷贝清掉。
+                    let current_is_ours =
+                        matches!(clipboard.get_text(), Ok(current) if &current == acquired);
+                    if current_is_ours {
+                        restore_and_log(&mut clipboard, saved);
+                    } else {
+                        debug!(
+                            thread = thread::EVENT,
+                            "clipboard changed after read, restore skipped"
+                        );
+                    }
+                }
+                // 读取失败路径无从区分「应用的写入」与「用户的新拷贝」，
+                // 按原内容恢复（best-effort，窗口期极短）。
+                Err(_) => restore_and_log(&mut clipboard, saved),
             }
             outcome
         }
@@ -308,32 +326,52 @@ mod imp {
                 );
                 return Err(GlossError::SelectionUnavailable);
             }
-            match clipboard.get_text() {
-                Ok(text) if !text.is_empty() => Ok(text),
-                // 应用确认写入了但内容非文本（如复制了文件），读取失败。
-                Ok(_) => {
+            // 写入确认后读取：应用写粘贴板是 clear → setData 序列，轮询可能
+            // 落在「已清空、未写入」的间隙——读到空/读失败不等于失败，继续
+            // 轮询到 deadline 再收口，避免恢复原文后被应用的迟到写入覆盖。
+            loop {
+                if let Ok(text) = clipboard.get_text()
+                    && !text.is_empty()
+                {
+                    return Ok(text);
+                }
+                if Instant::now() >= deadline {
                     debug!(
                         thread = thread::EVENT,
-                        "copy confirmed but clipboard holds no text"
+                        "copy confirmed but no text readable within timeout"
                     );
-                    Err(GlossError::SelectionUnavailable)
+                    return Err(GlossError::SelectionUnavailable);
                 }
-                Err(err) => {
-                    debug!(
-                        thread = thread::EVENT,
-                        error = %err,
-                        "clipboard read after copy failed"
-                    );
-                    Err(GlossError::SelectionUnavailable)
-                }
+                std::thread::sleep(WRITE_POLL_INTERVAL);
             }
+        }
+    }
+
+    /// 恢复原剪贴板内容；失败留痕但不影响调用方的主结果。
+    fn restore_and_log(clipboard: &mut Clipboard, saved: SavedContent) {
+        if let Err(err) = restore(clipboard, saved) {
+            error!(
+                thread = thread::EVENT,
+                error = %err,
+                "failed to restore clipboard"
+            );
         }
     }
 
     /// 保存原内容并判定是否允许注入：能保全才注入。
     fn save_original(clipboard: &mut Clipboard) -> Result<SavedContent, GlossError> {
         match clipboard.get_text() {
-            Ok(text) => Ok(SavedContent::Text(text)),
+            Ok(text) if clipboard_is_text_only() => Ok(SavedContent::Text(text)),
+            Ok(_) => {
+                // 有纯文本 flavor 但还携带 HTML/RTF 等其它 flavor（浏览器、
+                // Office 复制的典型形态）：set_text 恢复会把富文本降级成
+                // 纯文本，违反「完整保全」不变量，放弃兜底。
+                debug!(
+                    thread = thread::EVENT,
+                    "clipboard holds rich text content, fallback declined"
+                );
+                Err(GlossError::SelectionUnavailable)
+            }
             Err(arboard::Error::ContentNotAvailable) => {
                 if is_clipboard_empty() {
                     Ok(SavedContent::Empty)
@@ -358,6 +396,48 @@ mod imp {
         }
     }
 
+    /// 剪贴板是否只含纯文本 flavor（无 HTML/RTF 等富文本伴随格式）：
+    /// 判不了（系统查询失败）一律按富文本处理，宁可放弃兜底也不冒
+    /// 无法恢复的风险。
+    #[cfg(target_os = "macos")]
+    fn clipboard_is_text_only() -> bool {
+        /// kPasteboardIsTextOnly：全部条目都只含 string flavor（Pasteboard.h）。
+        const K_PASTEBOARD_IS_TEXT_ONLY: u32 = 1 << 3;
+        let Some(pb) = open_pasteboard() else {
+            return false;
+        };
+        // SAFETY: `raw` 是有效 +1 引用，存活至本结构销毁。
+        let flags = unsafe { PasteboardSynchronize(pb.raw) };
+        flags & K_PASTEBOARD_IS_TEXT_ONLY != 0
+    }
+
+    // 注册剪贴板格式查询（user32 的 Registered Clipboard Formats）。
+    #[cfg(target_os = "windows")]
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        // 返回已注册格式的 id，未注册过则注册并返回新 id；失败返回 0。
+        fn RegisterClipboardFormatW(lpszFormat: *const u16) -> u32;
+    }
+
+    #[cfg(target_os = "windows")]
+    fn clipboard_is_text_only() -> bool {
+        // SAFETY: 无前置条件的系统查询。
+        let has = |format: u32| unsafe { IsClipboardFormatAvailable(format) != 0 };
+        let wide = |s: &str| {
+            s.encode_utf16()
+                .chain(std::iter::once(0))
+                .collect::<Vec<_>>()
+        };
+        // SAFETY: 入参是 NUL 结尾的 UTF-16 缓冲区。
+        let html_id = unsafe { RegisterClipboardFormatW(wide("HTML Format").as_ptr()) };
+        // SAFETY: 同上。
+        let rtf_id = unsafe { RegisterClipboardFormatW(wide("Rich Text Format").as_ptr()) };
+        if html_id == 0 || rtf_id == 0 {
+            return false;
+        }
+        !has(html_id) && !has(rtf_id)
+    }
+
     /// 剪贴板是否为空：判不了（系统查询失败）一律按非空处理，宁可放弃
     /// 兜底也不冒无法恢复的风险。
     #[cfg(target_os = "macos")]
@@ -365,7 +445,7 @@ mod imp {
         let Some(pb) = open_pasteboard() else {
             return false;
         };
-        let mut count: u32 = 0;
+        let mut count: usize = 0;
         // SAFETY: `raw` 是有效 +1 引用，出参指向栈上变量。
         let status = unsafe { PasteboardGetItemCount(pb.raw, &mut count) };
         status == 0 && count == 0
@@ -378,20 +458,25 @@ mod imp {
     }
 
     /// 注入复制快捷键：修饰键按下 → C 按下/释放 → 修饰键释放。任何一步
-    /// 失败即放弃（未授权时系统会静默忽略注入事件，最终表现为超时）。
+    /// 失败即放弃；若修饰键已按下而后续步骤失败，补发配对释放，避免前台
+    /// 应用停留在孤立的按下态（菜单栏高亮、快捷键半生效）。
     fn inject_copy_key() -> Result<(), GlossError> {
-        for event in [
+        let sequence = [
             EventType::KeyPress(COPY_MODIFIER),
             EventType::KeyPress(Key::KeyC),
             EventType::KeyRelease(Key::KeyC),
             EventType::KeyRelease(COPY_MODIFIER),
-        ] {
-            if let Err(err) = rdev::simulate(&event) {
+        ];
+        for (index, event) in sequence.iter().enumerate() {
+            if let Err(err) = rdev::simulate(event) {
                 debug!(
                     thread = thread::EVENT,
                     error = ?err,
                     "copy key injection failed"
                 );
+                if index > 0 {
+                    let _ = rdev::simulate(&EventType::KeyRelease(COPY_MODIFIER));
+                }
                 return Err(GlossError::SelectionUnavailable);
             }
         }
