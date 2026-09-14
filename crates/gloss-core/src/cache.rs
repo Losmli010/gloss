@@ -34,6 +34,11 @@ pub fn cache_key(task: &Task, model: &str) -> u64 {
 
 /// [`Cache`] 端口的 moka 内存实现：线程安全，`get`/`set` 可从任意线程
 /// 调用（tokio 侧与事件线程共用同一实例）。
+///
+/// 取舍说明：moka 的 sync cache 没有专职维护线程，逐出/过期由调用线程
+/// 内联执行（写入阈值或周期触发），写通道满时 `insert` 会短暂等待——
+/// async 场景理论上会阻塞 tokio worker 一瞬。桌面单用户 + 256 条的规模
+/// 下实际影响可忽略，MVP 接受；若将来规模上去再换 future 异步面。
 #[derive(Debug)]
 pub struct MokaCache {
     inner: moka::sync::Cache<u64, TaskOutcome>,

@@ -38,6 +38,14 @@ impl AiTaskService {
     /// 擎）→ 未命中走引擎流式，每个增量经 `on_chunk` 转发 → 拼接正文并
     /// 解析结构化字段 → 回填缓存。
     ///
+    /// 调用方契约：
+    /// - 返回 `Err` 时**已转发的增量不撤回**——以返回值为准丢弃半截产物
+    ///   （状态机据此让 TaskChunk 之后接 TaskFailed 的渲染路径可收敛）；
+    /// - `on_chunk` 收到的是**含结构化 JSON 块的原始流**（剥离只发生在
+    ///   完成时的 `body`），流式渲染若要隐藏围栏块由 UI 调用方过滤
+    ///   （M3-T9 接手）；
+    /// - 引擎失败的任务不写缓存，下次触发重新执行。
+    ///
     /// `model` 参与缓存 key：同任务换模型不命中旧产物。
     pub async fn execute(
         &self,
@@ -81,6 +89,10 @@ impl AiTaskService {
 /// ` ```gloss … ``` ` 围栏解析为 [`OutcomeStructured`]，其余作为 markdown
 /// 正文。围栏缺失或解析失败按 kind 回退（OCR 回退为全文提取，其余回退
 /// 为无标题 Plain）。
+///
+/// 剥离边界：定位**最后一个**围栏标记，其后（含闭合围栏与契约外尾随
+/// 文字）一律不进正文——正常输出契约下模型不会有尾随内容；回退路径
+/// 则无损保留全文（不做有损剥离）。
 fn parse_structured(kind: TaskKind, body: &str) -> (String, OutcomeStructured) {
     let fallback = || -> (String, OutcomeStructured) {
         let owned = body.to_owned();
@@ -132,26 +144,29 @@ fn text_field(value: &serde_json::Value, key: &str) -> Option<String> {
     value.get(key).and_then(|v| v.as_str()).map(str::to_owned)
 }
 
-/// 解析释义数组；字段缺失（模型没按契约给）返回 None 走回退。
+/// 解析释义数组（best-effort）：meaning 缺失/非字符串的坏条目跳过、
+/// 好条目保留；senses 字段整体缺失（模型没按契约给）返回 None 走回退。
 fn parse_senses(value: Option<&serde_json::Value>) -> Option<Vec<crate::task::Sense>> {
     let entries = value?.as_array()?;
-    let mut senses = Vec::with_capacity(entries.len());
-    for entry in entries {
-        senses.push(crate::task::Sense {
-            pos: text_field(entry, "pos"),
-            meaning: text_field(entry, "meaning")?,
-            examples: entry
-                .get("examples")
-                .and_then(|v| v.as_array())
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|v| v.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default(),
-        });
-    }
+    let senses = entries
+        .iter()
+        .filter_map(|entry| {
+            Some(crate::task::Sense {
+                pos: text_field(entry, "pos"),
+                meaning: text_field(entry, "meaning")?,
+                examples: entry
+                    .get("examples")
+                    .and_then(|v| v.as_array())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|v| v.as_str().map(str::to_owned))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
+        })
+        .collect();
     Some(senses)
 }
 
@@ -281,6 +296,70 @@ mod tests {
             }
             other => panic!("expected word card, got {other:?}"),
         }
+    }
+
+    /// 模板承诺「音标或 null」：JSON null 与缺失同样得到 None。
+    #[tokio::test]
+    async fn phonetic_null_maps_to_none() {
+        let script = vec![
+            Ok("正文\n".into()),
+            Ok("\n```gloss\n{\"word\":\"gloss\",\"phonetic\":null,\"senses\":[]}\n```".into()),
+        ];
+        let (_, service) = make_service(&MockEngine::new().with_chunks(script));
+        let outcome = service
+            .execute(&text_task(TaskKind::TranslateWord, "gloss"), "m", |_| {})
+            .await
+            .expect("run");
+        match outcome.structured {
+            OutcomeStructured::WordCard {
+                phonetic, senses, ..
+            } => {
+                assert_eq!(phonetic, None, "JSON null must read as None");
+                assert!(senses.is_empty());
+            }
+            other => panic!("expected word card, got {other:?}"),
+        }
+    }
+
+    /// best-effort 的粒度是单条释义：坏条目跳过，好条目保留——一条坏数
+    /// 据不再丢掉整张词卡（senses 字段整体缺失才回退）。
+    #[test]
+    fn bad_sense_entries_are_skipped_not_fatal() {
+        let json = r#"{"word":"gloss","senses":[
+            {"pos":"n.","meaning":"光泽","examples":[]},
+            {"pos":"v.","meaning":null,"examples":[]},
+            {"meaning":"注释"}
+        ]}"#;
+        let (body, structured) = super::parse_structured(
+            TaskKind::TranslateWord,
+            &format!("正文\n```gloss\n{json}\n```"),
+        );
+        assert_eq!(body, "正文");
+        match structured {
+            OutcomeStructured::WordCard { senses, .. } => {
+                assert_eq!(senses.len(), 2, "two good entries survive");
+                assert_eq!(senses[1].meaning, "注释");
+                assert_eq!(senses[1].pos, None);
+            }
+            other => panic!("expected word card, got {other:?}"),
+        }
+    }
+
+    /// 合法围栏之后契约外的尾随文字：随围栏块一并剥离（剥离起点是最后
+    /// 一个围栏标记）——测试钉住这一边界语义。
+    #[test]
+    fn trailing_text_after_fence_is_dropped() {
+        let (body, structured) = super::parse_structured(
+            TaskKind::ExplainCode,
+            "正文\n```gloss\n{\"title\":\"摘要\"}\n```\n以上内容仅供参考",
+        );
+        assert_eq!(body, "正文", "trailing prose must not leak into the body");
+        assert_eq!(
+            structured,
+            OutcomeStructured::Plain {
+                title: Some("摘要".into())
+            }
+        );
     }
 
     /// 模型没按契约给围栏：正文原样保留、回退为无标题 Plain——装饰信息

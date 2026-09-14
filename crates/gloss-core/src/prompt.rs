@@ -162,8 +162,10 @@ fn structured_contract(kind: TaskKind) -> String {
         TaskKind::ImageExplain => r#"{"title":"一句话摘要或 null"}"#,
     };
     format!(
-        "正文结束后，另起一行输出 {STRUCTURED_FENCE} 围栏的 JSON 块，\
-         字段固定为：{schema}。除正文与该 JSON 块外不要输出任何内容。"
+        "正文结束后，另起一行输出 {STRUCTURED_FENCE} 围栏的 JSON 块（\
+         {STRUCTURED_FENCE} 单独一行开始，闭合 ``` 单独一行结束），\
+         字段固定为：{schema}。除正文与该 JSON 块外不要输出任何内容，\
+         也不要把整个回复包进代码块。"
     )
 }
 
