@@ -14,9 +14,9 @@ name := "gloss"
 version := env_var_or_default("GLOSS_VERSION", "0.1.0")
 
 # 行覆盖率下限：低于该值即失败（本地 just coverage 与 CI 的 coverage job 共用）
-# 临时值：T3-T5 的 GPU/窗口胶水代码（app.rs / gpu.rs / windows.rs）在 CI 无头环境
-# 不可测试，压低了总量（当前约 39%）。待可测逻辑补齐或胶水层改用排除策略后调回 70。
-coverage_min := "35"
+# M3 分层测试（状态机抽出 + pipeline/popup 集成与 harness 测试）落地后，
+# 总量实测 81%，35 的临时值还账调回 70。
+coverage_min := "70"
 
 # ---- 本地开发 ----
 

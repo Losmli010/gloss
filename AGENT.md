@@ -106,4 +106,10 @@ just --list            # 查看全部 recipe
 - **门禁**：本地 `pre-commit` 跑 `just precommit`（fmt + clippy + secrets；命令一律带 `--workspace`——根目录存在根包时，不加则只作用于根包、漏掉成员 crate）；无 `.rs` 变更的提交只跑其中的密钥扫描。**测试交给 CI**，本地提交不必等编译测试。`just check`（fmt + clippy + test + secrets）保留给需要本地全量验证的场合。**不要用 `--no-verify` 绕过**。commit message 规范不在本地校验（git 跑 pre-commit 时消息还没落盘，读到的会是上一条），由 CI 的 commitlint job 兜底。
 - **CI**（ci.yml）：`quality`（fmt + clippy + secrets）最快，`test`（Linux/macOS/Windows 三平台矩阵）、`coverage`（行覆盖率 ≥ justfile 的 `coverage_min`，报告进 job summary 与 artifact）、`security`（cargo audit + deny）三个 job 都 `needs: quality`；另有每日定时安全检查（security-audit.yml）。
 - **推送与 PR**：不要自行推送或开 PR，等用户明确要求。
-- **测试**：新增逻辑优先补单测；**行覆盖率下限**单点维护在 justfile 的 `coverage_min`（本地 `just coverage` 与 CI 同一判定；当前为过渡值及调回计划见其注释），低于即失败；不要用 `--ignore-filename-regex` 排除代码或写空测试来凑数。`gloss-core` 是纯逻辑层，应能被完整单测覆盖。
+- **测试**：新增逻辑优先补单测；**行覆盖率下限**单点维护在 justfile 的 `coverage_min`（本地 `just coverage` 与 CI 同一判定），低于即失败；不要用 `--ignore-filename-regex` 排除代码或写空测试来凑数。`gloss-core` 是纯逻辑层，应能被完整单测覆盖。
+- **端到端测试分层**（GUI 验收的自动化边界）：
+  - **L1** 库级集成（`crates/gloss-app/tests/pipeline.rs`）：公共 API 驱动 状态机+通道③④+tokio 桥+mock 引擎 全时序，`cargo test` 全平台跑；
+  - **L2** UI harness（`crates/gloss-app/src/ui/popup.rs` 模块内 kittest 测试）：AccessKit 树断言 + 点击复制按钮 + wgpu 快照（快照仅 macos 门控）；
+  - **L3** 真实二进制冒烟（`tests/overlay_selftest.rs`）：spawn `gloss --overlay-selftest` 断言退出码，仅 macos（需要窗口服务+GPU）；
+  - **L4** OS 注入 opt-in（gloss-platform 模块内 `#[ignore]` live 测试）：授权真机 `cargo test -- --ignored`，不进 CI；热键路径同层。
+  - 测试文件按被测功能域命名（tokio/cargo 惯例），不加 `_test`/`_e2e` 后缀；E2E 代码不得进入生产路径（tests/、cfg(test) 或 #[ignore]）。
