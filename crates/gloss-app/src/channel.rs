@@ -185,13 +185,16 @@ impl Default for Channels {
     }
 }
 
-/// App 侧持有的通道端点：① 收平台事件、② 发取材命令、④ 收回传事件。
-/// 组装点创建 [`Channels`] 后拆出移交；其余端点归事件线程与 tokio。
+/// App 侧持有的通道端点：① 收平台事件、② 发取材命令、③ 发推理任务、
+/// ④ 收回传事件。组装点创建 [`Channels`] 后拆出移交；其余端点归事件
+/// 线程与 tokio。
 pub struct AppEndpoints {
     /// 通道①接收端：主线程在事件循环里消费平台事件。
     pub platform_events: Receiver<PlatformEvent>,
     /// 通道②发送端：主线程向事件线程下发取材命令。
     pub acquire_commands: Sender<AcquireCommand>,
+    /// 通道③发送端：主线程把组装好的任务随取消令牌下发 tokio。
+    pub commands: UnboundedSender<Command>,
     /// 通道④接收端：主线程在事件循环里消费取材与推理回传。
     pub events: Receiver<Event>,
 }
