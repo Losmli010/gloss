@@ -21,8 +21,11 @@ use crate::task::{Task, TaskOutcome};
 /// 装箱 future：让 trait 方法携带异步结果的同时保持对象安全（`dyn` 可用）。
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// 任务产物流：流式增量（与通道④ `Event::TaskChunk` 同载荷），以 `Err`
-/// 结束表示执行失败。
+/// 任务产物流：流式增量（与通道④ `Event::TaskChunk` 同载荷）。
+///
+/// `Err` 是普通增量的一种，**不保证终结流**：实现方可在 Err 后继续产出，
+/// 消费方以**首个 `Err` 为终结**并丢弃半截产物（编排层的实现语义，
+/// 见 engine 模块）。
 pub type TaskStream = Pin<Box<dyn Stream<Item = Result<String, GlossError>> + Send>>;
 
 /// 文本取材（端口）：读前台应用的选中文本。
