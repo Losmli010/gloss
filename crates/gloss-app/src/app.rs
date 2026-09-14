@@ -130,9 +130,21 @@ struct GlossApp {
     pending_kind: Option<TaskKind>,
     /// 在途推理的取消令牌：新触发时取消旧任务（唯一取消机制，08 §4.2）。
     current_cancel: Option<CancellationToken>,
-    /// 当前浮层展示的文本（原文 / 流式累积 / 产物 / 失败信息）；`None`
-    /// 时浮层显示渲染自检卡。
-    overlay_text: Option<String>,
+    /// 当前浮层的内容视图；`None` 时浮层显示渲染自检卡。
+    overlay_view: Option<OverlayView>,
+}
+
+/// 浮层内容视图：状态机的可视化投影，由 `ui::popup` 按 TaskKind 分发
+/// 渲染（M3-T9）。
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum OverlayView {
+    /// 取材/推理中：原文 + 已到达的流式正文（含结构化块的原始流，渲染
+    /// 层按 [`gloss_core::prompt::STRUCTURED_FENCE`] 过滤）。
+    Streaming { source: String, body: String },
+    /// 产物卡：按 `TaskKind` 精排或展示 markdown 正文。
+    Outcome(TaskOutcome),
+    /// 失败信息（再次触发即重试）。
+    Failed { message: String },
 }
 
 /// 显隐自检的纯逻辑部分：轮次推进与首帧延迟统计，不碰窗口，可单测。
@@ -223,10 +235,10 @@ impl GlossApp {
         };
 
         let input = frame.egui.take_egui_input(&frame.window);
-        let overlay_text = self.overlay_text.as_deref();
+        let overlay_view = self.overlay_view.as_ref();
         let output = frame
             .egui_ctx
-            .run_ui(input, |ui| ui::popup::draw(ui, overlay_text));
+            .run_ui(input, |ui| ui::popup::draw(ui, overlay_view));
         frame
             .egui
             .handle_platform_output(&frame.window, output.platform_output);
@@ -417,7 +429,9 @@ impl GlossApp {
             );
             self.current_cancel = None;
             self.state = AppState::Error;
-            self.overlay_text = Some("任务失败：推理通道不可用".into());
+            self.overlay_view = Some(OverlayView::Failed {
+                message: "任务失败：推理通道不可用".into(),
+            });
             return true;
         }
         info!(
@@ -426,13 +440,16 @@ impl GlossApp {
             chars = text.chars().count(),
             "input ready, task dispatched to tokio"
         );
-        self.overlay_text = Some(text);
+        self.overlay_view = Some(OverlayView::Streaming {
+            source: text,
+            body: String::new(),
+        });
         self.state = AppState::Translating;
         true
     }
 
-    /// 采纳流式增量：追加到浮层文本（原始流，围栏过滤归 M3-T9 的结果卡
-    /// 渲染）。返回是否有新内容需要重绘。
+    /// 采纳流式增量：追加到流式视图的原始正文（围栏过滤在渲染层）。
+    /// 返回是否有新内容需要重绘。
     fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             debug!(
@@ -444,9 +461,8 @@ impl GlossApp {
             );
             return false;
         }
-        match &mut self.overlay_text {
-            Some(text) => text.push_str(&delta),
-            None => self.overlay_text = Some(delta),
+        if let Some(OverlayView::Streaming { body, .. }) = &mut self.overlay_view {
+            body.push_str(&delta);
         }
         true
     }
@@ -469,7 +485,7 @@ impl GlossApp {
             kind = ?outcome.kind,
             "task done, showing outcome"
         );
-        self.overlay_text = Some(outcome.body);
+        self.overlay_view = Some(OverlayView::Outcome(outcome));
         self.state = AppState::Show;
         true
     }
@@ -494,7 +510,9 @@ impl GlossApp {
         );
         self.current_cancel = None;
         self.state = AppState::Error;
-        self.overlay_text = Some(format!("任务失败：{error}（再次触发可重试）"));
+        self.overlay_view = Some(OverlayView::Failed {
+            message: format!("任务失败：{error}（再次触发可重试）"),
+        });
         true
     }
 
@@ -508,7 +526,7 @@ impl GlossApp {
         ) {
             self.state = AppState::Idle;
         }
-        self.overlay_text = None;
+        self.overlay_view = None;
     }
 
     /// 自检的一轮：居中显示，停留 SELFTEST_VISIBLE 后由自动隐藏路径收回。
@@ -912,6 +930,27 @@ mod tests {
         }
     }
 
+    fn streaming_body(app: &GlossApp) -> &str {
+        match &app.overlay_view {
+            Some(OverlayView::Streaming { body, .. }) => body,
+            other => panic!("expected streaming view, got {other:?}"),
+        }
+    }
+
+    fn outcome_body(app: &GlossApp) -> &str {
+        match &app.overlay_view {
+            Some(OverlayView::Outcome(outcome)) => &outcome.body,
+            other => panic!("expected outcome view, got {other:?}"),
+        }
+    }
+
+    fn failed_message(app: &GlossApp) -> &str {
+        match &app.overlay_view {
+            Some(OverlayView::Failed { message }) => message,
+            other => panic!("expected failed view, got {other:?}"),
+        }
+    }
+
     fn plain_outcome(body: &str) -> TaskOutcome {
         TaskOutcome {
             kind: TaskKind::TranslateWord,
@@ -950,7 +989,10 @@ mod tests {
 
         // A 的流式增量到达并展示。
         assert!(app.accept_chunk(1, "部分A".into()));
-        assert!(app.overlay_text.as_deref().unwrap().contains("部分A"));
+        assert!(
+            streaming_body(&app).contains("部分A"),
+            "chunks must stream into the overlay"
+        );
 
         // 触发 B：A 的令牌立即取消，代数推进，状态回 Fetching。
         trigger_selection(&mut app, &pe_tx);
@@ -961,7 +1003,7 @@ mod tests {
         // A 的迟到 chunk 被陈旧过滤：既不进入 B 的展示，也不改变状态。
         assert!(!app.accept_chunk(1, "迟到A".into()));
         assert!(
-            !app.overlay_text.as_deref().unwrap().contains("迟到A"),
+            !streaming_body(&app).contains("迟到A"),
             "late chunk of A must not bleed into the overlay"
         );
 
@@ -974,7 +1016,7 @@ mod tests {
         assert!(!app.accept_done(1, plain_outcome("迟到结果A")));
         assert!(app.accept_done(2, plain_outcome("结果B")));
         assert_eq!(app.state, AppState::Show);
-        assert_eq!(app.overlay_text.as_deref(), Some("结果B"));
+        assert_eq!(outcome_body(&app), "结果B");
     }
 
     /// 取材失败的回传（gen 不匹配）被丢弃；匹配的失败落 Error 态并可重试。
@@ -991,7 +1033,7 @@ mod tests {
         assert!(app.accept_failed(1, &gloss_core::model::GlossError::EngineNetwork));
         assert_eq!(app.state, AppState::Error);
         assert!(app.current_cancel.is_none());
-        assert!(app.overlay_text.as_deref().unwrap().contains("任务失败"));
+        assert!(failed_message(&app).contains("任务失败"));
 
         // Error 态再次触发即重试。
         trigger_selection(&mut app, &pe_tx);
