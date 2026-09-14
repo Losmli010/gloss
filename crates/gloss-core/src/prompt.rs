@@ -18,8 +18,9 @@ use crate::task::{InputHint, Task, TaskInput, TaskKind, TaskOptions, validate_mo
 /// 目标语言缺省值（`TaskOptions::target_lang` 文档：缺省中文）。
 const DEFAULT_TARGET: &str = "中文";
 
-/// 结构化 JSON 块的围栏标记：正文之后模型按此契约追加结构化字段。
-const STRUCTURED_FENCE: &str = "```gloss";
+/// 结构化 JSON 块的围栏标记：正文之后模型按此契约追加结构化字段；
+/// 编排侧（engine）按同一标记解析，两边共用单一事实源。
+pub(crate) const STRUCTURED_FENCE: &str = "```gloss";
 
 /// OpenAI 兼容消息角色。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
