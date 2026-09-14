@@ -6,9 +6,7 @@ use std::time::{Duration, Instant};
 
 use egui::ViewportId;
 use gloss_core::log::{debug, error, info, thread, warn};
-use gloss_core::model::GlossError;
-use gloss_core::task::{InputSource, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome};
-use tokio_util::sync::CancellationToken;
+use gloss_core::task::TaskInput;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalPosition;
 use winit::event::{StartCause, WindowEvent};
@@ -17,6 +15,7 @@ use winit::window::{Window, WindowId};
 
 use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent};
 use crate::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
+use crate::machine::{RunRequest, TaskStateMachine};
 use crate::ui;
 use crate::windows::WindowManager;
 
@@ -85,30 +84,6 @@ struct Frame {
     surface: GpuSurface,
 }
 
-/// 应用状态机（06 §6.1）：触发 → 取材 → 推理 → 展示/失败。
-///
-/// 转移概要：任何可见态收到新触发（`begin_trigger`）都取消在途任务并回
-/// `Fetching`；`Fetching` 采纳 `InputReady` 后携取消令牌下发通道③进
-/// `Translating`；`Translating` 收 `TaskChunk` 追加展示、收 `TaskDone`
-/// 定格 `Show`、收 `TaskFailed` 落 `Error`；失焦/超时隐藏回 `Idle`。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum AppState {
-    /// 浮层隐藏，无在途任务。
-    #[default]
-    Idle,
-    /// 取材中：通道②命令已下发，等待 `InputReady`。
-    Fetching,
-    /// 推理中：`RunTask` 已下发 tokio，chunk 流式到达。
-    Translating,
-    /// 展示产物。
-    Show,
-    /// 失败态：显示失败信息，等待下一次触发重试。
-    Error,
-    /// 框选交互（占位，随 M5 框选遮罩落地；过渡期内无转移路径）。
-    #[allow(dead_code)]
-    RegionSelecting,
-}
-
 #[derive(Default)]
 struct GlossApp {
     windows: Option<WindowManager>,
@@ -121,30 +96,9 @@ struct GlossApp {
     self_test: Option<SelfTest>,
     /// 组装点移交的通道端点（① 收、② 发、③ 发、④ 收）。
     endpoints: Option<AppEndpoints>,
-    /// 请求代数：**唯一赋值点**是 `begin_trigger`——只有真实下发的触发
-    /// 才递增；回传事件按 `generation` 匹配，不匹配即陈旧丢弃。
-    generation: u64,
-    /// 应用状态机当前态。
-    state: AppState,
-    /// 触发时确定的任务类型，待 `InputReady` 到达后组装 `Task`。
-    pending_kind: Option<TaskKind>,
-    /// 在途推理的取消令牌：新触发时取消旧任务（唯一取消机制，08 §4.2）。
-    current_cancel: Option<CancellationToken>,
-    /// 当前浮层的内容视图；`None` 时浮层显示渲染自检卡。
-    overlay_view: Option<OverlayView>,
-}
-
-/// 浮层内容视图：状态机的可视化投影，由 `ui::popup` 按 TaskKind 分发
-/// 渲染（M3-T9）。
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum OverlayView {
-    /// 取材/推理中：原文 + 已到达的流式正文（含结构化块的原始流，渲染
-    /// 层按 [`gloss_core::prompt::STRUCTURED_FENCE`] 过滤）。
-    Streaming { source: String, body: String },
-    /// 产物卡：按 `TaskKind` 精排或展示 markdown 正文。
-    Outcome(TaskOutcome),
-    /// 失败信息（再次触发即重试）。
-    Failed { message: String },
+    /// 任务状态机（functional core，见 machine.rs）：纯状态转移，壳只做
+    /// 通道发送、浮层窗口操作与日志。
+    machine: TaskStateMachine,
 }
 
 /// 显隐自检的纯逻辑部分：轮次推进与首帧延迟统计，不碰窗口，可单测。
@@ -235,7 +189,7 @@ impl GlossApp {
         };
 
         let input = frame.egui.take_egui_input(&frame.window);
-        let overlay_view = self.overlay_view.as_ref();
+        let overlay_view = self.machine.overlay_view();
         let output = frame
             .egui_ctx
             .run_ui(input, |ui| ui::popup::draw(ui, overlay_view));
@@ -291,38 +245,23 @@ impl GlossApp {
             .as_ref()
             .map_or(Vec::new(), |e| e.platform_events.try_iter().collect());
         for event in events {
-            if let Some(command) = self.begin_trigger(&event) {
+            let superseded = self.machine.current_cancel().is_some();
+            if let Some(command) = self.machine.trigger(&event) {
+                info!(
+                    thread = thread::UI,
+                    generation = self.machine.generation(),
+                    cancelled_inflight = superseded,
+                    "platform event dispatched as acquire command"
+                );
                 self.send_acquire(command);
+            } else {
+                debug!(
+                    thread = thread::UI,
+                    event = ?event,
+                    "platform event not wired yet, ignored"
+                );
             }
         }
-    }
-
-    /// 触发的状态机入口：取消在途任务 → 推进代数（唯一赋值点）→ 组装取
-    /// 材命令。未接线的平台事件返回 None 且不产生任何状态副作用。
-    fn begin_trigger(&mut self, event: &PlatformEvent) -> Option<AcquireCommand> {
-        let command = acquire_command_for(event, self.generation + 1)?;
-        // 最新触发取代在途任务：旧推理立即取消（其迟到产物经代数过滤
-        // 丢弃），令牌清空等待新任务。
-        if let Some(cancel) = self.current_cancel.take() {
-            cancel.cancel();
-            info!(
-                thread = thread::UI,
-                superseded = self.generation,
-                "in-flight task cancelled by newer trigger"
-            );
-        }
-        self.generation += 1;
-        info!(
-            thread = thread::UI,
-            generation = self.generation,
-            from = ?self.state,
-            "platform event dispatched as acquire command"
-        );
-        if let AcquireCommand::AcquireText { kind, .. } = &command {
-            self.pending_kind = Some(*kind);
-        }
-        self.state = AppState::Fetching;
-        Some(command)
     }
 
     /// 通道②发送；接收端已消失（事件线程死亡/退出）时只留痕。
@@ -339,7 +278,8 @@ impl GlossApp {
     }
 
     /// 消费通道④：取材产物按代数采纳——连续快速触发时旧代数的产物被
-    /// 丢弃，浮层只显示最后一次请求的结果。
+    /// 丢弃，浮层只显示最后一次请求的结果。状态决策在 machine，壳只做
+    /// 通道发送、浮层展示与日志。
     fn drain_events(&mut self, event_loop: &ActiveEventLoop) {
         let events: Vec<Event> = self
             .endpoints
@@ -372,161 +312,112 @@ impl GlossApp {
         self.request_redraw();
     }
 
-    /// 采纳取材产物：组装 `Task` 携新令牌下发通道③，进入 `Translating`。
+    /// 采纳取材产物：组装 Task 携令牌下发通道③，进入 Translating。
     /// 返回是否进入了需要展示浮层的新任务。
     fn accept_input(&mut self, generation: u64, input: TaskInput) -> bool {
-        if generation != self.generation || self.state != AppState::Fetching {
-            debug!(
-                thread = thread::UI,
-                generation = generation,
-                current = self.generation,
-                state = ?self.state,
-                "stale or unexpected input ready dropped"
-            );
-            return false;
+        match self.machine.accept_input(generation, input) {
+            Some(request) => {
+                info!(
+                    thread = thread::UI,
+                    generation = request.generation,
+                    "input ready, task dispatched to tokio"
+                );
+                self.send_run(request);
+                true
+            }
+            None => {
+                debug!(
+                    thread = thread::UI,
+                    generation = generation,
+                    current = self.machine.generation(),
+                    state = ?self.machine.state(),
+                    "stale or unexpected input ready dropped"
+                );
+                false
+            }
         }
-        let Some(kind) = self.pending_kind.take() else {
-            warn!(
-                thread = thread::UI,
-                generation = generation,
-                "input ready without pending kind, dropped"
-            );
-            return false;
-        };
-        let TaskInput::Text { text, hint } = input else {
-            debug!(
-                thread = thread::UI,
-                generation = generation,
-                "non-text input ignored"
-            );
-            return false;
-        };
-        let cancel = CancellationToken::new();
-        self.current_cancel = Some(cancel.clone());
-        let task = Task {
-            kind,
-            input: TaskInput::Text {
-                text: text.clone(),
-                hint,
-            },
-            options: TaskOptions::default(),
-        };
-        let sent = self.endpoints.as_ref().is_some_and(|endpoints| {
-            endpoints
-                .commands
-                .send(Command::RunTask {
-                    generation,
-                    task,
-                    cancel,
-                })
-                .is_ok()
-        });
-        if !sent {
-            warn!(
-                thread = thread::UI,
-                generation = generation,
-                "command channel closed, task dropped"
-            );
-            self.current_cancel = None;
-            self.state = AppState::Error;
-            self.overlay_view = Some(OverlayView::Failed {
-                message: "任务失败：推理通道不可用".into(),
-            });
-            return true;
-        }
-        info!(
-            thread = thread::UI,
-            generation = generation,
-            chars = text.chars().count(),
-            "input ready, task dispatched to tokio"
-        );
-        self.overlay_view = Some(OverlayView::Streaming {
-            source: text,
-            body: String::new(),
-        });
-        self.state = AppState::Translating;
-        true
     }
 
-    /// 采纳流式增量：追加到流式视图的原始正文（围栏过滤在渲染层）。
-    /// 返回是否有新内容需要重绘。
+    /// 通道③发送；接收端不可用（tokio 桥死亡）时状态机降级落 Error。
+    fn send_run(&mut self, request: RunRequest) {
+        let Some(endpoints) = &self.endpoints else {
+            self.machine.fail_transport(request.generation);
+            return;
+        };
+        if endpoints
+            .commands
+            .send(Command::RunTask {
+                generation: request.generation,
+                task: request.task,
+                cancel: request.cancel,
+            })
+            .is_err()
+        {
+            warn!(
+                thread = thread::UI,
+                generation = request.generation,
+                "command channel closed, task dropped"
+            );
+            self.machine.fail_transport(request.generation);
+        }
+    }
+
+    /// 采纳流式增量。返回是否有新内容需要重绘。
     fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
-        if generation != self.generation || self.state != AppState::Translating {
+        let accepted = self.machine.accept_chunk(generation, delta);
+        if !accepted {
             debug!(
                 thread = thread::UI,
                 generation = generation,
-                current = self.generation,
-                state = ?self.state,
+                current = self.machine.generation(),
+                state = ?self.machine.state(),
                 "stale chunk dropped"
             );
-            return false;
         }
-        if let Some(OverlayView::Streaming { body, .. }) = &mut self.overlay_view {
-            body.push_str(&delta);
-        }
-        true
+        accepted
     }
 
     /// 采纳任务产物：定格正文并进入 `Show`。返回是否需要重绘。
-    fn accept_done(&mut self, generation: u64, outcome: TaskOutcome) -> bool {
-        if generation != self.generation || self.state != AppState::Translating {
+    fn accept_done(&mut self, generation: u64, outcome: gloss_core::task::TaskOutcome) -> bool {
+        let accepted = self.machine.accept_done(generation, outcome);
+        if accepted {
+            info!(
+                thread = thread::UI,
+                generation = generation,
+                "task done, showing outcome"
+            );
+        } else {
             debug!(
                 thread = thread::UI,
                 generation = generation,
-                current = self.generation,
-                state = ?self.state,
+                current = self.machine.generation(),
+                state = ?self.machine.state(),
                 "stale task done dropped"
             );
-            return false;
         }
-        info!(
-            thread = thread::UI,
-            generation = generation,
-            kind = ?outcome.kind,
-            "task done, showing outcome"
-        );
-        self.overlay_view = Some(OverlayView::Outcome(outcome));
-        self.state = AppState::Show;
-        true
+        accepted
     }
 
     /// 采纳任务失败：落 `Error` 态并展示失败信息（下一次触发即重试）。
     /// 返回是否需要展示浮层。
-    fn accept_failed(&mut self, generation: u64, error: &GlossError) -> bool {
-        if generation != self.generation {
+    fn accept_failed(&mut self, generation: u64, error: &gloss_core::model::GlossError) -> bool {
+        let accepted = self.machine.accept_failed(generation, error);
+        if accepted {
+            warn!(
+                thread = thread::UI,
+                generation = generation,
+                error = %error,
+                "task failed"
+            );
+        } else {
             debug!(
                 thread = thread::UI,
                 generation = generation,
-                current = self.generation,
+                current = self.machine.generation(),
                 "stale task failed dropped"
             );
-            return false;
         }
-        warn!(
-            thread = thread::UI,
-            generation = generation,
-            error = %error,
-            "task failed"
-        );
-        self.current_cancel = None;
-        self.state = AppState::Error;
-        self.overlay_view = Some(OverlayView::Failed {
-            message: format!("任务失败：{error}（再次触发可重试）"),
-        });
-        true
-    }
-
-    /// 浮层收起后的状态回落：展示/失败信息不再有意义，清空回到 `Idle`。
-    /// 在途任务（若恰在 Translating 时被手动收起）不取消——产物到达时
-    /// 浮层虽不在展示，状态机仍按代数走完转移。
-    fn hide_overlay_state(&mut self) {
-        if matches!(
-            self.state,
-            AppState::Show | AppState::Error | AppState::Translating
-        ) {
-            self.state = AppState::Idle;
-        }
-        self.overlay_view = None;
+        accepted
     }
 
     /// 自检的一轮：居中显示，停留 SELFTEST_VISIBLE 后由自动隐藏路径收回。
@@ -551,7 +442,7 @@ impl GlossApp {
         if let Some(windows) = &self.windows {
             windows.hide();
         }
-        self.hide_overlay_state();
+        self.machine.hide_overlay();
         let Some(st) = &mut self.self_test else {
             return;
         };
@@ -631,28 +522,6 @@ fn repaint_at(delay: Duration, now: Instant) -> Option<Instant> {
     (delay != Duration::MAX).then(|| now + delay)
 }
 
-/// 平台事件 → 取材命令的映射（纯逻辑，可单测）：每次触发占用一个新代数；
-/// 未接线的平台事件（框选、设置、退出）返回 None，由调用方留诊断日志。
-fn acquire_command_for(event: &PlatformEvent, generation: u64) -> Option<AcquireCommand> {
-    match event {
-        PlatformEvent::HotkeyTriggered { binding } => match binding.source {
-            InputSource::Selection => Some(AcquireCommand::AcquireText {
-                generation,
-                kind: binding.kind,
-            }),
-            // 图像取材待框选路径接入后消费。
-            InputSource::Region => None,
-        },
-        PlatformEvent::SelectionGesture => Some(AcquireCommand::AcquireText {
-            generation,
-            kind: TaskKind::TranslateWord,
-        }),
-        PlatformEvent::RegionGesture { .. }
-        | PlatformEvent::OpenSettingsRequested
-        | PlatformEvent::QuitRequested => None,
-    }
-}
-
 impl ApplicationHandler<UserEvent> for GlossApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // resumed 可能连续投递，渲染栈只起一次
@@ -714,7 +583,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
                 {
                     windows.hide();
                     self.auto_hide = None;
-                    self.hide_overlay_state();
+                    self.machine.hide_overlay();
                 }
             }
             WindowEvent::Resized(size) => {
@@ -752,8 +621,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gloss_core::model::ScreenRect;
-    use gloss_core::task::HotkeyBinding;
+    use crate::machine::{AppState, OverlayView};
 
     #[test]
     fn repaint_delay_max_means_no_wakeup() {
@@ -816,65 +684,6 @@ mod tests {
         assert!(!st.is_complete(SELFTEST_ROUNDS));
     }
 
-    #[test]
-    fn selection_gesture_maps_to_translate_word_command() {
-        assert_eq!(
-            acquire_command_for(&PlatformEvent::SelectionGesture, 1),
-            Some(AcquireCommand::AcquireText {
-                generation: 1,
-                kind: TaskKind::TranslateWord
-            })
-        );
-    }
-
-    #[test]
-    fn hotkey_binding_carries_its_kind_and_requires_selection_source() {
-        let binding = HotkeyBinding {
-            trigger: "Cmd+Shift+F".into(),
-            kind: TaskKind::TranslateSentence,
-            source: InputSource::Selection,
-        };
-        assert_eq!(
-            acquire_command_for(&PlatformEvent::HotkeyTriggered { binding }, 7),
-            Some(AcquireCommand::AcquireText {
-                generation: 7,
-                kind: TaskKind::TranslateSentence
-            })
-        );
-
-        let region = HotkeyBinding {
-            trigger: "Cmd+Shift+R".into(),
-            kind: TaskKind::ImageOcr,
-            source: InputSource::Region,
-        };
-        assert!(
-            acquire_command_for(&PlatformEvent::HotkeyTriggered { binding: region }, 8).is_none(),
-            "region source has no acquisition path yet"
-        );
-    }
-
-    #[test]
-    fn unwired_platform_events_are_ignored() {
-        let events = [
-            PlatformEvent::OpenSettingsRequested,
-            PlatformEvent::QuitRequested,
-            PlatformEvent::RegionGesture {
-                rect: ScreenRect {
-                    x: 0,
-                    y: 0,
-                    width: 1,
-                    height: 1,
-                },
-            },
-        ];
-        for event in &events {
-            assert!(
-                acquire_command_for(event, 1).is_none(),
-                "{event:?} must not acquire"
-            );
-        }
-    }
-
     /// 构造接入真实通道的 App，返回各通道端点供测试驱动。
     fn driven_app() -> (
         GlossApp,
@@ -930,32 +739,25 @@ mod tests {
         }
     }
 
+    fn plain_outcome(body: &str) -> gloss_core::task::TaskOutcome {
+        gloss_core::task::TaskOutcome {
+            kind: gloss_core::task::TaskKind::TranslateWord,
+            body: body.into(),
+            structured: gloss_core::task::OutcomeStructured::Plain { title: None },
+        }
+    }
+
     fn streaming_body(app: &GlossApp) -> &str {
-        match &app.overlay_view {
+        match app.machine.overlay_view() {
             Some(OverlayView::Streaming { body, .. }) => body,
             other => panic!("expected streaming view, got {other:?}"),
         }
     }
 
     fn outcome_body(app: &GlossApp) -> &str {
-        match &app.overlay_view {
+        match app.machine.overlay_view() {
             Some(OverlayView::Outcome(outcome)) => &outcome.body,
             other => panic!("expected outcome view, got {other:?}"),
-        }
-    }
-
-    fn failed_message(app: &GlossApp) -> &str {
-        match &app.overlay_view {
-            Some(OverlayView::Failed { message }) => message,
-            other => panic!("expected failed view, got {other:?}"),
-        }
-    }
-
-    fn plain_outcome(body: &str) -> TaskOutcome {
-        TaskOutcome {
-            kind: TaskKind::TranslateWord,
-            body: body.into(),
-            structured: gloss_core::task::OutcomeStructured::Plain { title: None },
         }
     }
 
@@ -967,8 +769,8 @@ mod tests {
 
         // 触发 A：进入 Fetching，gen=1，取材命令下发。
         trigger_selection(&mut app, &pe_tx);
-        assert_eq!(app.state, AppState::Fetching);
-        assert_eq!(app.generation, 1);
+        assert_eq!(app.machine.state(), AppState::Fetching);
+        assert_eq!(app.machine.generation(), 1);
         assert!(matches!(
             ac_rx.try_recv().unwrap(),
             AcquireCommand::AcquireText { generation: 1, .. }
@@ -976,7 +778,7 @@ mod tests {
 
         // A 的取材产物到达：组装 Task 携令牌下发③，进入 Translating。
         assert!(app.accept_input(1, text_input("A")));
-        assert_eq!(app.state, AppState::Translating);
+        assert_eq!(app.machine.state(), AppState::Translating);
         let Command::RunTask {
             generation: 1,
             cancel: token_a,
@@ -989,15 +791,12 @@ mod tests {
 
         // A 的流式增量到达并展示。
         assert!(app.accept_chunk(1, "部分A".into()));
-        assert!(
-            streaming_body(&app).contains("部分A"),
-            "chunks must stream into the overlay"
-        );
+        assert!(streaming_body(&app).contains("部分A"));
 
         // 触发 B：A 的令牌立即取消，代数推进，状态回 Fetching。
         trigger_selection(&mut app, &pe_tx);
-        assert_eq!(app.generation, 2);
-        assert_eq!(app.state, AppState::Fetching);
+        assert_eq!(app.machine.generation(), 2);
+        assert_eq!(app.machine.state(), AppState::Fetching);
         assert!(token_a.is_cancelled(), "new trigger must cancel task A");
 
         // A 的迟到 chunk 被陈旧过滤：既不进入 B 的展示，也不改变状态。
@@ -1015,11 +814,11 @@ mod tests {
         ));
         assert!(!app.accept_done(1, plain_outcome("迟到结果A")));
         assert!(app.accept_done(2, plain_outcome("结果B")));
-        assert_eq!(app.state, AppState::Show);
+        assert_eq!(app.machine.state(), AppState::Show);
         assert_eq!(outcome_body(&app), "结果B");
     }
 
-    /// 取材失败的回传（gen 不匹配）被丢弃；匹配的失败落 Error 态并可重试。
+    /// 匹配的失败落 Error 态并可重试；Error 态再次触发即重试。
     #[test]
     fn failed_task_lands_in_error_and_retry_works() {
         let (mut app, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
@@ -1028,16 +827,15 @@ mod tests {
 
         // 陈旧失败（旧代数）丢弃，不影响 Translating。
         assert!(!app.accept_failed(0, &gloss_core::model::GlossError::EngineNetwork));
-        assert_eq!(app.state, AppState::Translating);
+        assert_eq!(app.machine.state(), AppState::Translating);
 
         assert!(app.accept_failed(1, &gloss_core::model::GlossError::EngineNetwork));
-        assert_eq!(app.state, AppState::Error);
-        assert!(app.current_cancel.is_none());
-        assert!(failed_message(&app).contains("任务失败"));
+        assert_eq!(app.machine.state(), AppState::Error);
+        assert!(app.machine.current_cancel().is_none());
 
         // Error 态再次触发即重试。
         trigger_selection(&mut app, &pe_tx);
-        assert_eq!(app.state, AppState::Fetching);
+        assert_eq!(app.machine.state(), AppState::Fetching);
     }
 
     /// 陈旧的 InputReady 不进入 Translating，也不下发③。
@@ -1047,7 +845,7 @@ mod tests {
         trigger_selection(&mut app, &pe_tx);
         assert!(!app.accept_input(42, text_input("来自未来")));
         assert_eq!(
-            app.state,
+            app.machine.state(),
             AppState::Fetching,
             "stale input must not move state"
         );

@@ -9,7 +9,7 @@ use egui::{Color32, CornerRadius, Frame, Margin, RichText, ScrollArea, Stroke, v
 use gloss_core::prompt::STRUCTURED_FENCE;
 use gloss_core::task::{OutcomeStructured, TaskKind};
 
-use crate::app::OverlayView;
+use crate::machine::OverlayView;
 
 /// 浮层宽度（UI 规范 §2）
 pub const WIDTH: f32 = 380.0;
