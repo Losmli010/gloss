@@ -15,17 +15,12 @@ use winit::window::{Window, WindowId};
 
 use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent};
 use crate::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
-use crate::machine::{RunRequest, TaskStateMachine};
+use crate::machine::{OverlayView, RunRequest, TaskStateMachine};
 use crate::ui;
 use crate::windows::WindowManager;
 
 /// 浮层显示后的自动隐藏时长（06 §6.1：超时回 Idle；失焦路径走 Focused 事件）
 const AUTO_HIDE_AFTER: Duration = Duration::from_secs(10);
-/// 显隐自检：每轮浮层停留时长与轮数（09 M1-T6 验收：反复显隐 100 次）
-const SELFTEST_VISIBLE: Duration = Duration::from_millis(80);
-const SELFTEST_ROUNDS: usize = 100;
-/// 首次显示预算（09 M1-T6 验收：< 100ms，预创建生效）
-const SHOW_BUDGET: Duration = Duration::from_millis(100);
 
 /// 投递给主线程的自定义事件。
 #[derive(Clone, Copy, Debug)]
@@ -51,24 +46,16 @@ impl Waker {
 
 /// 启动事件循环，直到退出才返回。
 ///
-/// `self_test` 为真时启动后跑浮层显隐自检（`--overlay-selftest`）：
-/// 反复显隐 100 次后统计延迟并退出，用于验收预创建复用。
-///
-/// `endpoints` 是 App 侧通道端点（① 收平台事件、② 发取材命令、④ 收回传
-/// 事件），由组装点拆出移交。
+/// `endpoints` 是 App 侧通道端点（① 收平台事件、② 发取材命令、③ 发推理
+/// 任务、④ 收回传事件），由组装点拆出移交。
 ///
 /// `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
-pub fn run(
-    self_test: bool,
-    endpoints: AppEndpoints,
-    on_waker: impl FnOnce(Waker),
-) -> Result<(), Box<dyn Error>> {
+pub fn run(endpoints: AppEndpoints, on_waker: impl FnOnce(Waker)) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     let waker = Waker(event_loop.create_proxy());
     on_waker(waker);
     let mut app = GlossApp {
-        self_test: self_test.then(SelfTest::new),
         endpoints: Some(endpoints),
         ..GlossApp::default()
     };
@@ -77,11 +64,65 @@ pub fn run(
 }
 
 /// 一帧渲染所需的全部状态；窗口建好之前为 `None`。
-struct Frame {
-    window: Arc<Window>,
+pub(crate) struct Frame {
+    pub(crate) window: Arc<Window>,
     egui_ctx: egui::Context,
     egui: egui_winit::State,
     surface: GpuSurface,
+}
+
+/// 建窗口栈与首帧渲染所需的全部状态（生产 App 与自检 handler 共用）。
+pub(crate) fn build_window_stack(
+    event_loop: &ActiveEventLoop,
+) -> Result<(WindowManager, Frame), Box<dyn Error>> {
+    let windows = WindowManager::new(event_loop)?;
+    let window = windows.overlay_handle();
+
+    let context = Arc::new(GpuContext::new()?);
+    let surface = GpuSurface::new(&context, Arc::clone(&window))?;
+
+    let egui_ctx = egui::Context::default();
+    // 内置字体不含 CJK 字形，画第一帧前把系统中文字体接进后备链
+    ui::fonts::install(&egui_ctx);
+    let egui = egui_winit::State::new(
+        egui_ctx.clone(),
+        ViewportId::ROOT,
+        &*window,
+        Some(window.scale_factor() as f32),
+        window.theme(),
+        Some(MAX_TEXTURE_DIMENSION as usize),
+    );
+
+    Ok((
+        windows,
+        Frame {
+            window,
+            egui_ctx,
+            egui,
+            surface,
+        },
+    ))
+}
+
+/// 渲染一帧：egui 出绘制数据 → wgpu 呈现，返回 egui 要求的下一帧时刻。
+pub(crate) fn render_frame(frame: &mut Frame, view: Option<&OverlayView>) -> Option<Instant> {
+    let input = frame.egui.take_egui_input(&frame.window);
+    let output = frame.egui_ctx.run_ui(input, |ui| ui::popup::draw(ui, view));
+    frame
+        .egui
+        .handle_platform_output(&frame.window, output.platform_output);
+
+    let paint_jobs = frame
+        .egui_ctx
+        .tessellate(output.shapes, output.pixels_per_point);
+    let repaint_at = output
+        .viewport_output
+        .get(&ViewportId::ROOT)
+        .and_then(|viewport| repaint_at(viewport.repaint_delay, Instant::now()));
+    frame
+        .surface
+        .render(output.textures_delta, &paint_jobs, output.pixels_per_point);
+    repaint_at
 }
 
 #[derive(Default)]
@@ -92,8 +133,6 @@ struct GlossApp {
     next_repaint: Option<Instant>,
     /// 浮层自动隐藏时刻；仅浮层可见时为 `Some`
     auto_hide: Option<Instant>,
-    /// 显隐自检；`None` 表示正常模式
-    self_test: Option<SelfTest>,
     /// 组装点移交的通道端点（① 收、② 发、③ 发、④ 收）。
     endpoints: Option<AppEndpoints>,
     /// 任务状态机（functional core，见 machine.rs）：纯状态转移，壳只做
@@ -101,82 +140,11 @@ struct GlossApp {
     machine: TaskStateMachine,
 }
 
-/// 显隐自检的纯逻辑部分：轮次推进与首帧延迟统计，不碰窗口，可单测。
-///
-/// 每轮 = show_at → 首帧上屏（记延迟）→ 到点隐藏；跑满即输出统计退出。
-struct SelfTest {
-    /// 当前轮次（1-based）
-    round: usize,
-    /// 本轮 show_at 时刻；首帧记录后清空，保证每轮只计一次
-    shown_at: Option<Instant>,
-    latencies: Vec<Duration>,
-}
-
-impl SelfTest {
-    fn new() -> Self {
-        Self {
-            round: 0,
-            shown_at: None,
-            latencies: Vec::new(),
-        }
-    }
-
-    /// 进入新一轮，返回轮次。
-    fn start_round(&mut self, now: Instant) -> usize {
-        self.round += 1;
-        self.shown_at = Some(now);
-        self.round
-    }
-
-    /// 首帧上屏：记录本轮 show→paint 延迟；非首帧重绘返回 `None`。
-    fn first_paint(&mut self, now: Instant) -> Option<Duration> {
-        let latency = self.shown_at.take().map(|shown_at| now - shown_at);
-        if let Some(latency) = latency {
-            self.latencies.push(latency);
-        }
-        latency
-    }
-
-    /// 隐藏当前轮：返回是否已跑满计划轮数。
-    fn is_complete(&self, max_rounds: usize) -> bool {
-        self.round >= max_rounds
-    }
-
-    /// （首次显示延迟，全程最慢延迟）。
-    fn summary(&self) -> Option<(Duration, Duration)> {
-        let first = *self.latencies.first()?;
-        let max = self.latencies.iter().max().copied()?;
-        Some((first, max))
-    }
-}
-
 impl GlossApp {
-    /// 建窗口 → 建 GPU 上下文 → 建 surface → 建 egui 桥接，一次做完。
+    /// 建窗口栈 → 建帧状态，一次做完。
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
-        let windows = WindowManager::new(event_loop)?;
-        let window = windows.overlay_handle();
-
-        let context = Arc::new(GpuContext::new()?);
-        let surface = GpuSurface::new(&context, Arc::clone(&window))?;
-
-        let egui_ctx = egui::Context::default();
-        // 内置字体不含 CJK 字形，画第一帧前把系统中文字体接进后备链
-        ui::fonts::install(&egui_ctx);
-        let egui = egui_winit::State::new(
-            egui_ctx.clone(),
-            ViewportId::ROOT,
-            &*window,
-            Some(window.scale_factor() as f32),
-            window.theme(),
-            Some(MAX_TEXTURE_DIMENSION as usize),
-        );
-
-        self.frame = Some(Frame {
-            window,
-            egui_ctx,
-            egui,
-            surface,
-        });
+        let (windows, frame) = build_window_stack(event_loop)?;
+        self.frame = Some(frame);
         self.windows = Some(windows);
         self.draw();
         Ok(())
@@ -187,42 +155,8 @@ impl GlossApp {
         let Some(frame) = self.frame.as_mut() else {
             return;
         };
-
-        let input = frame.egui.take_egui_input(&frame.window);
         let overlay_view = self.machine.overlay_view();
-        let output = frame
-            .egui_ctx
-            .run_ui(input, |ui| ui::popup::draw(ui, overlay_view));
-        frame
-            .egui
-            .handle_platform_output(&frame.window, output.platform_output);
-
-        let paint_jobs = frame
-            .egui_ctx
-            .tessellate(output.shapes, output.pixels_per_point);
-        let repaint_at = output
-            .viewport_output
-            .get(&ViewportId::ROOT)
-            .and_then(|viewport| repaint_at(viewport.repaint_delay, Instant::now()));
-        frame
-            .surface
-            .render(output.textures_delta, &paint_jobs, output.pixels_per_point);
-
-        self.next_repaint = repaint_at;
-
-        // 自检每轮只把 show→首帧 计一次（first_paint 内部已去重）
-        if let Some(latency) = self
-            .self_test
-            .as_mut()
-            .and_then(|st| st.first_paint(Instant::now()))
-            && latency > SHOW_BUDGET
-        {
-            warn!(
-                thread = thread::UI,
-                latency_ms = latency.as_millis() as u64,
-                "overlay show exceeded budget"
-            );
-        }
+        self.next_repaint = render_frame(frame, overlay_view);
     }
 
     /// 统一显示入口：显示并启动自动隐藏计时。
@@ -420,62 +354,13 @@ impl GlossApp {
         accepted
     }
 
-    /// 自检的一轮：居中显示，停留 SELFTEST_VISIBLE 后由自动隐藏路径收回。
-    fn begin_selftest_round(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(windows) = &self.windows else {
-            return;
-        };
-        let position = centered_position(event_loop, windows);
-        self.show_overlay(position);
-        let now = Instant::now();
-        // 自检要的是快闪，覆盖掉普通模式的 10s 计时
-        self.auto_hide = Some(now + SELFTEST_VISIBLE);
-        if let Some(st) = &mut self.self_test {
-            st.start_round(now);
-        }
-        self.request_redraw();
-    }
-
-    /// 自动隐藏到点：收起浮层；自检模式则推进轮次或收尾退出。
-    fn on_auto_hide(&mut self, event_loop: &ActiveEventLoop) {
+    /// 自动隐藏到点：收起浮层并回落 Idle。
+    fn on_auto_hide(&mut self, _event_loop: &ActiveEventLoop) {
         self.auto_hide = None;
         if let Some(windows) = &self.windows {
             windows.hide();
         }
         self.machine.hide_overlay();
-        let Some(st) = &mut self.self_test else {
-            return;
-        };
-        if !st.is_complete(SELFTEST_ROUNDS) {
-            self.begin_selftest_round(event_loop);
-            return;
-        }
-
-        let handles = self
-            .windows
-            .as_ref()
-            .map_or(0, WindowManager::handle_refcount);
-        match st.summary() {
-            Some((first, max)) => {
-                info!(
-                    thread = thread::UI,
-                    rounds = SELFTEST_ROUNDS,
-                    first_show_ms = first.as_millis() as u64,
-                    max_show_ms = max.as_millis() as u64,
-                    window_handles = handles,
-                    "overlay self-test passed"
-                );
-                if first > SHOW_BUDGET {
-                    warn!(
-                        thread = thread::UI,
-                        first_show_ms = first.as_millis() as u64,
-                        "first show exceeded budget"
-                    );
-                }
-            }
-            None => error!(thread = thread::UI, "overlay self-test recorded no frames"),
-        }
-        event_loop.exit();
     }
 
     fn request_redraw(&self) {
@@ -489,7 +374,7 @@ impl GlossApp {
 ///
 /// winit 0.30 没有全局光标位置读取接口，「跟随鼠标所在屏幕」需等 M2 的
 /// 平台端口提供光标坐标后由调用方指定目标显示器。
-fn centered_position(
+pub(crate) fn centered_position(
     event_loop: &ActiveEventLoop,
     windows: &WindowManager,
 ) -> LogicalPosition<f64> {
@@ -536,10 +421,8 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         }
         // 浮层预创建即隐藏（Idle 态）；先在隐藏状态画一帧预热——egui 图集构建、
         // Metal 管线编译与纹理上传都发生在首帧，不预热的话首次显示会超 100ms
-        // 预算（09 M1-T6）；自检模式随后从第一轮开始
-        if self.self_test.is_some() {
-            self.begin_selftest_round(event_loop);
-        }
+        // 预算（09 M1-T6）
+        self.draw();
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, _event: UserEvent) {
@@ -577,10 +460,8 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Focused(false) => {
-                // 失焦回 Idle：只隐藏不销毁；自检轮次不受真实焦点影响
-                if self.self_test.is_none()
-                    && let Some(windows) = &self.windows
-                {
+                // 失焦回 Idle：只隐藏不销毁
+                if let Some(windows) = &self.windows {
                     windows.hide();
                     self.auto_hide = None;
                     self.machine.hide_overlay();
@@ -647,41 +528,6 @@ mod tests {
         assert_eq!(sooner(Some(a), None), Some(a));
         assert_eq!(sooner(None, Some(a)), Some(a));
         assert_eq!(sooner(None, None), None);
-    }
-
-    /// 验收（09 M1-T6）：显隐 100 次后收尾，每轮恰好记一次首帧延迟。
-    #[test]
-    fn selftest_completes_after_hundred_rounds() {
-        let mut st = SelfTest::new();
-        let mut t = Instant::now();
-
-        for round in 1..=SELFTEST_ROUNDS {
-            assert_eq!(st.start_round(t), round);
-            // 首帧延迟 3ms；随后的重绘（shown_at 已清空）不再计入
-            assert_eq!(
-                st.first_paint(t + Duration::from_millis(3)),
-                Some(Duration::from_millis(3))
-            );
-            assert_eq!(st.first_paint(t + Duration::from_millis(4)), None);
-            assert!(!st.is_complete(SELFTEST_ROUNDS) || round == SELFTEST_ROUNDS);
-            t += Duration::from_millis(83);
-        }
-
-        assert!(st.is_complete(SELFTEST_ROUNDS));
-        let (first, max) = st.summary().expect("latencies recorded");
-        assert_eq!(first, Duration::from_millis(3));
-        assert_eq!(max, Duration::from_millis(3));
-        assert_eq!(st.latencies.len(), SELFTEST_ROUNDS);
-    }
-
-    #[test]
-    fn selftest_before_completion_keeps_going() {
-        let mut st = SelfTest::new();
-        for _ in 0..SELFTEST_ROUNDS - 1 {
-            st.start_round(Instant::now());
-            st.is_complete(SELFTEST_ROUNDS);
-        }
-        assert!(!st.is_complete(SELFTEST_ROUNDS));
     }
 
     /// 构造接入真实通道的 App，返回各通道端点供测试驱动。
