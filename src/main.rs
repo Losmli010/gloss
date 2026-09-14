@@ -36,11 +36,6 @@ fn main() -> StartupResult {
 fn run() -> StartupResult {
     init_logging();
     load_config()?;
-    // 显隐自检：--overlay-selftest 反复显隐 100 次后退出（09 M1-T6 验收入口；
-    // 分层测试的 L3 被测对象，退出码供 CI 冒烟断言）
-    if env::args().any(|arg| arg == "--overlay-selftest") {
-        return gloss_app::overlay_selftest::run();
-    }
     run_event_loop()
 }
 

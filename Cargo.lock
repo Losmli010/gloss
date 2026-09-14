@@ -1170,6 +1170,7 @@ dependencies = [
  "gloss-app",
  "gloss-core",
  "gloss-platform",
+ "winit",
 ]
 
 [[package]]

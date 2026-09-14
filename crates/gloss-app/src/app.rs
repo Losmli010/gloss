@@ -64,7 +64,7 @@ pub fn run(endpoints: AppEndpoints, on_waker: impl FnOnce(Waker)) -> Result<(), 
 }
 
 /// 一帧渲染所需的全部状态；窗口建好之前为 `None`。
-pub(crate) struct Frame {
+pub struct Frame {
     pub(crate) window: Arc<Window>,
     egui_ctx: egui::Context,
     egui: egui_winit::State,
@@ -72,7 +72,7 @@ pub(crate) struct Frame {
 }
 
 /// 建窗口栈与首帧渲染所需的全部状态（生产 App 与自检 handler 共用）。
-pub(crate) fn build_window_stack(
+pub fn build_window_stack(
     event_loop: &ActiveEventLoop,
 ) -> Result<(WindowManager, Frame), Box<dyn Error>> {
     let windows = WindowManager::new(event_loop)?;
@@ -105,7 +105,7 @@ pub(crate) fn build_window_stack(
 }
 
 /// 渲染一帧：egui 出绘制数据 → wgpu 呈现，返回 egui 要求的下一帧时刻。
-pub(crate) fn render_frame(frame: &mut Frame, view: Option<&OverlayView>) -> Option<Instant> {
+pub fn render_frame(frame: &mut Frame, view: Option<&OverlayView>) -> Option<Instant> {
     let input = frame.egui.take_egui_input(&frame.window);
     let output = frame.egui_ctx.run_ui(input, |ui| ui::popup::draw(ui, view));
     frame
@@ -374,7 +374,7 @@ impl GlossApp {
 ///
 /// winit 0.30 没有全局光标位置读取接口，「跟随鼠标所在屏幕」需等 M2 的
 /// 平台端口提供光标坐标后由调用方指定目标显示器。
-pub(crate) fn centered_position(
+pub fn centered_position(
     event_loop: &ActiveEventLoop,
     windows: &WindowManager,
 ) -> LogicalPosition<f64> {

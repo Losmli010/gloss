@@ -62,6 +62,15 @@ print_stderr = "deny"
 
 # 公共 API 必须有文档注释（AGENT.md 评审原则：文档化）；文档里的示例由
 # cargo test --doc（just test 一部分）验证可编译可运行。
+# L3 显隐自检：自带 main() 的端到端测试目标（仅 macOS 有窗口服务与 GPU；
+# 直接驱动 winit 窗口栈，不经测试收集器——winit 需要主线程）。
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
+
+[[test]]
+name = "overlay_selftest"
+harness = false
+
 [workspace.lints.rust]
 missing_docs = "deny"
 

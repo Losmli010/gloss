@@ -4,7 +4,6 @@ pub mod app;
 pub mod channel;
 pub mod gpu;
 pub mod machine;
-pub mod overlay_selftest;
 pub mod pipeline;
 pub mod ui;
 pub mod windows;
