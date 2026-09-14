@@ -246,3 +246,123 @@ fn selfcheck_body(ui: &mut egui::Ui) {
             .color(weak),
     );
 }
+
+#[cfg(test)]
+mod kittest_tests {
+    //! L2 浮层 harness 测试：真实 `draw` 喂 `OverlayView` 序列，经
+    //! AccessKit 树断言内容、模拟点击复制按钮；快照对比仅 macos 门控
+    //! （跨平台渲染差异，见仓库根 kittest.toml）。
+
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    use super::*;
+    use crate::machine::OverlayView;
+    use gloss_core::task::{Sense, TaskOutcome};
+
+    fn word_card_view() -> OverlayView {
+        OverlayView::Outcome(TaskOutcome {
+            kind: TaskKind::TranslateWord,
+            body: "markdown 正文".into(),
+            structured: OutcomeStructured::WordCard {
+                word: "gloss".into(),
+                phonetic: Some("/ɡlɒs/".into()),
+                senses: vec![Sense {
+                    pos: Some("n.".into()),
+                    meaning: "光泽；注释".into(),
+                    examples: vec!["a gloss of silk".into()],
+                }],
+            },
+        })
+    }
+
+    fn streaming_view() -> OverlayView {
+        OverlayView::Streaming {
+            source: "选中的原文".into(),
+            body: "已流式到达的正文\n```gloss\n{\"title\":\"摘要\"}\n```".into(),
+        }
+    }
+
+    fn failed_view() -> OverlayView {
+        OverlayView::Failed {
+            message: "任务失败：engine rate limited（再次触发可重试）".into(),
+        }
+    }
+
+    fn harness_for(view: OverlayView) -> Harness<'static> {
+        Harness::new_ui(move |ui| draw(ui, Some(&view)))
+    }
+
+    /// 词卡精排内容全部可达：词条、释义、例句与复制按钮都能在
+    /// AccessKit 树中按文本定位。
+    #[test]
+    fn word_card_exposes_entries_to_accesskit() {
+        let mut harness = harness_for(word_card_view());
+        harness.run();
+        harness.get_by_label("gloss");
+        harness.get_by_label("光泽；注释");
+        harness.get_by_label("· a gloss of silk");
+        harness.get_by_label("复制");
+    }
+
+    /// 一键复制按钮可定位可点击（剪贴板内容的端到端回读属真机 L4；
+    /// egui 的 copy_text 通路由 egui 自测覆盖）。
+    #[test]
+    fn copy_button_is_clickable() {
+        let mut harness = harness_for(word_card_view());
+        harness.run();
+        harness.get_by_label("复制").click();
+        harness.run();
+    }
+
+    /// 流式视图过滤结构化块：正文可见，\`\`\`gloss\` 围栏不出现在
+    /// AccessKit 树里（围栏可能跨 chunk 切分，过滤在累积文本上进行）。
+    #[test]
+    fn streaming_view_hides_structured_block() {
+        let mut harness = harness_for(streaming_view());
+        harness.run();
+        harness.get_by_label_contains("已流式到达的正文");
+        harness.get_by_label_contains("选中的原文");
+        let fence_visible = harness
+            .query_all_by_label_contains("```gloss")
+            .next()
+            .is_some();
+        assert!(
+            !fence_visible,
+            "structured fence must be filtered out of the streaming view"
+        );
+    }
+
+    /// 失败卡展示失败信息与重试提示。
+    #[test]
+    fn failed_view_shows_retry_hint() {
+        let mut harness = harness_for(failed_view());
+        harness.run();
+        harness.get_by_label_contains("任务失败");
+        harness.get_by_label_contains("再次触发可重试");
+    }
+
+    /// 快照对比（仅 macos：跨平台渲染差异，阈值见 kittest.toml）。
+    /// 多个 harness 的快照结果须合并为单个 SnapshotResults 处理。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn snapshots_match_baseline() {
+        let mut results = egui_kittest::SnapshotResults::new();
+
+        let mut harness = harness_for(word_card_view());
+        harness.run();
+        harness.snapshot("popup_word_card");
+        results.extend_harness(&mut harness);
+
+        let mut harness = harness_for(streaming_view());
+        harness.run();
+        harness.snapshot("popup_streaming");
+        results.extend_harness(&mut harness);
+
+        let mut harness = harness_for(failed_view());
+        harness.run();
+        harness.snapshot("popup_failed");
+        results.extend_harness(&mut harness);
+
+        results.unwrap();
+    }
+}

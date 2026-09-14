@@ -24,3 +24,7 @@ target
 docs/
 .DS_Store
 .zcode/
+
+# egui_kittest 快照对比的临时产物
+**/tests/snapshots/**/*.diff.png
+**/tests/snapshots/**/*.new.png
