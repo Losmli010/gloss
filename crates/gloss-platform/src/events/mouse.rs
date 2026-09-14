@@ -371,3 +371,49 @@ mod tests {
         assert_eq!(detector.poll(&rx), 0, "drained queue stays empty");
     }
 }
+
+/// L4 opt-in 真机注入测试（OS 事件边界，分层测试说明见 AGENT.md）：
+/// 只在授权真机以 `cargo test -- --ignored` 运行，不进 CI。
+#[cfg(all(any(target_os = "macos", target_os = "windows"), test))]
+mod injected_gesture_live_tests {
+    use std::time::{Duration, Instant};
+
+    use rdev::{Button, EventType};
+
+    use super::tap::MouseSource;
+    use crate::events::EventSource;
+
+    /// 验收：辅助功能授权下，注入的拖拽序列（按下→移动→释放）经真实
+    /// 系统 tap 被监听并判定为划词手势；监听器未降级。
+    #[test]
+    #[ignore = "injects real global mouse events; requires accessibility permission"]
+    fn injected_drag_yields_selection_gesture() {
+        let (source, degraded) = MouseSource::spawn();
+        let mut source = source.expect("tap must start under accessibility grant");
+
+        // 拖拽：按下 (100,100)，分五段移动到 (400,300)，释放。
+        rdev::simulate(&EventType::ButtonPress(Button::Left)).expect("button press injection");
+        for step in 1..=5 {
+            rdev::simulate(&EventType::MouseMove {
+                x: 100.0 + 60.0 * f64::from(step),
+                y: 100.0 + 40.0 * f64::from(step),
+            })
+            .expect("move injection");
+        }
+        rdev::simulate(&EventType::ButtonRelease(Button::Left)).expect("button release injection");
+
+        // tap 回调异步进入通道：轮询直到手势出现或超时。
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if !source.poll().is_empty() {
+                assert!(
+                    !degraded.load(std::sync::atomic::Ordering::Relaxed),
+                    "listener must not be degraded under a valid grant"
+                );
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(30));
+        }
+        panic!("selection gesture not observed within 2s");
+    }
+}
