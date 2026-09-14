@@ -6,20 +6,29 @@ license.workspace = true
 description = "Gloss 领域层与端口（纯逻辑，零平台/UI 依赖）"
 
 [dependencies]
+# Cache 端口的内存 LRU+TTL 实现（sync API 即所需，future 异步面不用）。
+moka = { version = "0.12", default-features = false, features = ["sync"] }
 # TaskStream 的 Stream trait（no-std 最小集）；StreamExt 等工具留给使用方自选。
 futures-core = { version = "0.3", default-features = false }
+# cache_key 的规范化序列化（同文本不同 kind 必须得到不同 key）。
+serde_json = { version = "1", default-features = false, features = ["std"] }
 # 任务模型的序列化（配置落盘 / 缓存 key / 未来跨进程）；rc 供 TaskInput 的
 # Arc<[u8]> 图像字节按内部值序列化（反序列化会新分配，所有权语义不变）。
 serde = { version = "1", default-features = false, features = ["std", "derive", "rc"] }
+# mock 引擎的流间延迟（M3-T7），仅 test-util 特性按需启用。
+tokio = { version = "1", default-features = false, features = ["time"], optional = true }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
+[features]
+# 测试辅助：mock 引擎等单测基建，随下游 dev-dependencies 按需开启。
+test-util = ["dep:tokio"]
+
 [dev-dependencies]
-# 端口单测：流式消费用 StreamExt，异步测试跑 #[tokio::test]，serde 往返用 serde_json。
+# 端口单测：流式消费用 StreamExt，异步测试跑 #[tokio::test]。
 futures = { version = "0.3", default-features = false, features = ["std"] }
-serde_json = { version = "1", default-features = false, features = ["std"] }
-tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
 
 [lints]
 workspace = true
