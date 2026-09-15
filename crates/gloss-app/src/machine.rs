@@ -10,6 +10,7 @@
 
 use tokio_util::sync::CancellationToken;
 
+use gloss_core::config::Config;
 use gloss_core::model::GlossError;
 use gloss_core::task::{InputSource, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
@@ -72,13 +73,24 @@ pub struct RunRequest {
     pub cancel: CancellationToken,
 }
 
+/// 触发时定下的任务：一次配置快照解析出类型与选项，`InputReady` 到达后
+/// 直接组装——单次任务的配置从触发那一刻起就固定了（06 §6.3「单次任务内
+/// 配置一致」），取材途中换配置不会让同一个任务用上两个版本的参数。
+#[derive(Debug, Clone, PartialEq)]
+struct PendingTask {
+    /// 触发时确定的任务类型。
+    kind: TaskKind,
+    /// 由同一次快照解析出的任务选项。
+    options: TaskOptions,
+}
+
 /// 任务状态机：纯状态 + 决策，无 IO，可全时序驱动。
 #[derive(Debug, Default)]
 pub struct TaskStateMachine {
     generation: u64,
     state: AppState,
-    /// 触发时确定的任务类型，待 `InputReady` 到达后组装 `Task`。
-    pending_kind: Option<TaskKind>,
+    /// 触发时确定的任务类型与选项，待 `InputReady` 到达后组装 `Task`。
+    pending: Option<PendingTask>,
     /// 在途推理的取消令牌：新触发时取消旧任务（唯一取消机制，08 §4.2）。
     current_cancel: Option<CancellationToken>,
     /// 当前浮层的内容视图；`None` 时浮层显示渲染自检卡。
@@ -112,34 +124,42 @@ impl TaskStateMachine {
     }
 
     /// 触发的状态机入口：取消在途任务 → 推进代数（唯一赋值点）→ 组装取
-    /// 材命令。未接线的平台事件返回 None 且不产生任何状态副作用。
-    pub fn trigger(&mut self, event: &PlatformEvent) -> Option<AcquireCommand> {
-        let command = acquire_command_for(event, self.generation + 1)?;
+    /// 材命令。`config` 是壳在任务开始时取的配置快照：划词手势的任务类型与
+    /// 后续选项都按它解析，此后本任务不再读配置。未接线的平台事件返回 None
+    /// 且不产生任何状态副作用。
+    pub fn trigger(&mut self, event: &PlatformEvent, config: &Config) -> Option<AcquireCommand> {
+        let command = acquire_command_for(event, self.generation + 1, config)?;
         // 最新触发取代在途任务：旧推理立即取消（其迟到产物经代数过滤
         // 丢弃），令牌清空等待新任务。
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
         self.generation += 1;
-        if let AcquireCommand::AcquireText { kind, .. } = &command {
-            self.pending_kind = Some(*kind);
-        }
+        let kind = match &command {
+            AcquireCommand::AcquireText { kind, .. }
+            | AcquireCommand::CaptureRegion { kind, .. } => *kind,
+        };
+        self.pending = Some(PendingTask {
+            kind,
+            options: task_options(kind, config),
+        });
         self.state = AppState::Fetching;
         Some(command)
     }
 
     /// 采纳取材产物：组装 `Task` 并返回下发请求（壳经通道③发送），进入
-    /// `Translating`。返回 `Some` 表示进入了需要展示浮层的新任务。
+    /// `Translating`。选项取触发时那份快照（不经参数再传配置）。返回
+    /// `Some` 表示进入了需要展示浮层的新任务。
     pub fn accept_input(&mut self, generation: u64, input: TaskInput) -> Option<RunRequest> {
         if generation != self.generation || self.state != AppState::Fetching {
             return None;
         }
-        // 先校验模态再消费 pending_kind：模态错配不吃掉 kind，同代数
+        // 先校验模态再消费 pending：模态错配不吃掉待组装任务，同代数
         // 的后续合法 InputReady 仍可被采纳。
         let TaskInput::Text { text, hint } = input else {
             return None;
         };
-        let kind = self.pending_kind.take()?;
+        let PendingTask { kind, options } = self.pending.take()?;
         let cancel = CancellationToken::new();
         self.current_cancel = Some(cancel.clone());
         let task = Task {
@@ -148,7 +168,7 @@ impl TaskStateMachine {
                 text: text.clone(),
                 hint,
             },
-            options: TaskOptions::default(),
+            options,
         };
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
@@ -240,8 +260,13 @@ impl TaskStateMachine {
 }
 
 /// 平台事件 → 取材命令的映射：每次真实触发占用一个新代数；未接线的
-/// 平台事件（框选、设置、退出）返回 None。
-fn acquire_command_for(event: &PlatformEvent, generation: u64) -> Option<AcquireCommand> {
+/// 平台事件（框选、设置、退出）返回 None。划词手势的任务类型来自配置
+/// （`Config::default_text_kind`，出厂 TranslateWord）。
+fn acquire_command_for(
+    event: &PlatformEvent,
+    generation: u64,
+    config: &Config,
+) -> Option<AcquireCommand> {
     match event {
         PlatformEvent::HotkeyTriggered { binding } => match binding.source {
             InputSource::Selection => Some(AcquireCommand::AcquireText {
@@ -253,7 +278,7 @@ fn acquire_command_for(event: &PlatformEvent, generation: u64) -> Option<Acquire
         },
         PlatformEvent::SelectionGesture => Some(AcquireCommand::AcquireText {
             generation,
-            kind: TaskKind::TranslateWord,
+            kind: config.default_text_kind,
         }),
         PlatformEvent::RegionGesture { .. }
         | PlatformEvent::OpenSettingsRequested
@@ -261,11 +286,23 @@ fn acquire_command_for(event: &PlatformEvent, generation: u64) -> Option<Acquire
     }
 }
 
+/// 按配置快照解析任务选项：目标语言取配置默认；模型按 kind 从
+/// `model_by_kind` 解析后随任务下发——引擎只见到任务自身携带的模型，
+/// 执行途中不再回读配置（未配置该 kind 时留空，由引擎用自身缺省兜底）。
+fn task_options(kind: TaskKind, config: &Config) -> TaskOptions {
+    TaskOptions {
+        target_lang: Some(config.target_lang.clone()),
+        model_override: config.model_for_kind(kind).map(str::to_owned),
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use gloss_core::model::ScreenRect;
+    use gloss_core::config::ModelBinding;
+    use gloss_core::model::{Lang, ScreenRect};
     use gloss_core::task::{InputHint, OutcomeStructured};
 
     use super::*;
@@ -290,7 +327,7 @@ mod tests {
     fn trigger_mapping_covers_wired_events_only() {
         let mut machine = TaskStateMachine::new();
         let command = machine
-            .trigger(&PlatformEvent::SelectionGesture)
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
             .expect("selection gesture must acquire");
         assert!(matches!(
             command,
@@ -307,9 +344,12 @@ mod tests {
         };
         assert!(
             machine
-                .trigger(&PlatformEvent::HotkeyTriggered {
-                    binding: region_binding
-                })
+                .trigger(
+                    &PlatformEvent::HotkeyTriggered {
+                        binding: region_binding
+                    },
+                    &Config::default()
+                )
                 .is_none(),
             "region source has no acquisition path yet"
         );
@@ -320,12 +360,98 @@ mod tests {
         );
     }
 
+    /// 配置生效（M4-T3）：划词手势的任务类型来自快照的
+    /// `default_text_kind`，而不是写死的 TranslateWord。
+    #[test]
+    fn selection_gesture_kind_comes_from_config_snapshot() {
+        let mut machine = TaskStateMachine::new();
+        let config = Config {
+            default_text_kind: TaskKind::ExplainCode,
+            ..Default::default()
+        };
+
+        let command = machine
+            .trigger(&PlatformEvent::SelectionGesture, &config)
+            .expect("selection gesture must acquire");
+        assert!(matches!(
+            command,
+            AcquireCommand::AcquireText {
+                generation: 1,
+                kind: TaskKind::ExplainCode
+            }
+        ));
+    }
+
+    /// 配置生效（M4-T3）：任务选项取自触发时那份快照——目标语言是配置值，
+    /// 模型按 kind 从 `model_by_kind` 解析后随任务下发。
+    #[test]
+    fn task_options_come_from_the_snapshot_taken_at_trigger() {
+        let mut machine = TaskStateMachine::new();
+        let config = Config {
+            target_lang: Lang::Ja,
+            model_by_kind: vec![ModelBinding {
+                kind: TaskKind::TranslateWord,
+                model: "deepseek-chat".into(),
+            }],
+            ..Default::default()
+        };
+
+        machine
+            .trigger(&PlatformEvent::SelectionGesture, &config)
+            .expect("trigger");
+        let request = machine
+            .accept_input(1, text_input("hello"))
+            .expect("input should be accepted");
+        assert_eq!(request.task.options.target_lang, Some(Lang::Ja));
+        assert_eq!(
+            request.task.options.model_override.as_deref(),
+            Some("deepseek-chat"),
+            "configured model must ride along with the task"
+        );
+    }
+
+    /// 快照在触发时定下：取材途中换配置（这里模拟为换一份 config 再喂
+    /// InputReady）不影响已触发的任务——选项在 `trigger` 那一刻就固定了。
+    #[test]
+    fn options_freeze_at_trigger_time() {
+        let mut machine = TaskStateMachine::new();
+        let before = Config {
+            target_lang: Lang::Ja,
+            ..Default::default()
+        };
+        let after = Config {
+            target_lang: Lang::Ko,
+            ..Default::default()
+        };
+
+        machine
+            .trigger(&PlatformEvent::SelectionGesture, &before)
+            .expect("trigger");
+        // 触发后配置变了，但本任务的选项不跟着变。
+        let request = machine
+            .accept_input(1, text_input("hello"))
+            .expect("input should be accepted");
+        assert_eq!(
+            request.task.options.target_lang,
+            Some(Lang::Ja),
+            "in-flight task must keep the snapshot taken at trigger"
+        );
+        // 下一次触发才用上新配置。
+        machine
+            .trigger(&PlatformEvent::SelectionGesture, &after)
+            .expect("second trigger");
+        let request = machine
+            .accept_input(2, text_input("world"))
+            .expect("input should be accepted");
+        assert_eq!(request.task.options.target_lang, Some(Lang::Ko));
+    }
+
     /// 采纳输入返回下发请求；图像输入与非 Fetching 态被拒。
     #[test]
     fn accept_input_yields_run_request_and_guards_state() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture)
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
             .expect("trigger");
 
         let request = machine
@@ -345,7 +471,7 @@ mod tests {
     fn image_input_for_text_kind_is_rejected() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture)
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
             .expect("trigger");
         assert!(
             machine
@@ -371,7 +497,7 @@ mod tests {
     fn hide_abandons_inflight_and_drops_late_events() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture)
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
             .expect("trigger");
         let request = machine
             .accept_input(1, text_input("hello"))
@@ -400,7 +526,7 @@ mod tests {
     fn failed_guard_matches_fetching_and_translating_only() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture)
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
             .expect("trigger");
         // Fetching 态：取材失败可采纳。
         assert!(machine.accept_failed(1, &GlossError::SelectionUnavailable));
@@ -419,7 +545,7 @@ mod tests {
     fn modality_mismatch_preserves_pending_kind() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture)
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
             .expect("trigger");
         assert!(
             machine
@@ -448,7 +574,7 @@ mod tests {
     fn transport_failure_lands_in_error() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture)
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
             .expect("trigger");
         let request = machine.accept_input(1, text_input("x")).expect("accepted");
         machine.fail_transport(request.generation);

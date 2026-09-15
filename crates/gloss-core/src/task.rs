@@ -84,7 +84,9 @@ pub struct TaskOptions {
     pub target_lang: Option<Lang>,
     /// 回答深度档位。
     pub detail_level: Option<u8>,
-    /// 临时覆盖该任务使用的模型。
+    /// 本任务使用的模型：App 在触发时按 `Config::model_by_kind` 解析填入
+    /// （配置未配该 kind 时留空，由引擎用自身缺省兜底）；一次任务只认这一份
+    /// 快照值，执行途中不再回读配置。
     pub model_override: Option<String>,
 }
 

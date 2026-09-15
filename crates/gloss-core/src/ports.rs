@@ -2,7 +2,8 @@
 //!
 //! core 只声明契约；实现侧在 gloss-platform（`CompositeReader` /
 //! `ScreenCapturer` / `LlmClient` / `FileConfigStore` / moka `Cache`），
-//! 核心编排只见到这些 trait，单测用 [`mocks`]。
+//! 核心编排只见到这些 trait，测试用 `ports::mocks` 里的桩（`test-util`
+//! 特性门控，下游 crate 也经它复用）。
 //!
 //! async 方案定案：**不用 async-trait / trait-variant**——[`AiEngine::execute`]
 //! 以普通方法返回 [`BoxFuture`]，签名本身对象安全（`dyn AiEngine` 可用），
@@ -102,14 +103,18 @@ pub trait Cache: Send + Sync {
     fn set(&self, key: u64, value: TaskOutcome);
 }
 
-/// 供单测的桩实现（crate 内测试使用）。跨 crate 复用时（M3-T7 的延迟/
-/// 失败注入 mock 引擎按计划落在 gloss-platform::engine::mock）需要以
-/// test-util 特性门控导出或由 platform 自带，届时二选一。
-#[cfg(test)]
-pub(crate) mod mocks {
+/// 端口桩实现（测试辅助）：crate 内单测直接用，下游 crate 开 `test-util`
+/// 特性后可用（gloss-app 的 dev-dependencies 已开，L1 集成测试与 App 单测
+/// 靠它拿到配置存储桩）。
+///
+/// 桩只承担两件事：**预置返回值**与**可注入的失败**——注入点要能造出想测
+/// 的那种时序，观测点要能证明它发生过（AGENTS.md「测试」）。需要新能力时
+/// 扩展本模块，别在测试里手搓 fake。
+#[cfg(any(test, feature = "test-util"))]
+pub mod mocks {
     use std::collections::HashMap;
     use std::pin::Pin;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
     use std::task::{Context, Poll};
 
     use futures_core::Stream;
@@ -121,8 +126,17 @@ pub(crate) mod mocks {
         SelectionReader, Task, TaskOutcome, TaskStream,
     };
 
-    /// 固定返回预置结果的选区读取桩。
-    pub(crate) struct FixedSelectionReader(pub Result<String, GlossError>);
+    /// 锁中毒恢复：测试基建不值得 panic，拿回守卫继续用（数据由测试自身
+    /// 单线程写入，中毒不可能源于本模块逻辑）。
+    fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        mutex.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// 返回预置结果（成功文本或失败）的选区读取桩。
+    pub struct FixedSelectionReader(
+        /// 每次 `read` 原样返回的结果。
+        pub Result<String, GlossError>,
+    );
 
     impl SelectionReader for FixedSelectionReader {
         fn read(&mut self) -> Result<String, GlossError> {
@@ -130,8 +144,11 @@ pub(crate) mod mocks {
         }
     }
 
-    /// 固定返回预置 PNG 的截图桩。
-    pub(crate) struct FixedRegionCapture(pub Result<Arc<[u8]>, GlossError>);
+    /// 返回预置 PNG 字节的截图桩。
+    pub struct FixedRegionCapture(
+        /// 每次 `capture` 原样返回的结果。
+        pub Result<Arc<[u8]>, GlossError>,
+    );
 
     impl RegionCapture for FixedRegionCapture {
         fn capture(&mut self, _rect: ScreenRect) -> Result<Arc<[u8]>, GlossError> {
@@ -139,62 +156,81 @@ pub(crate) mod mocks {
         }
     }
 
-    /// 内存版配置存储桩：密钥键值对 + 单份配置文档。
+    /// 内存版配置存储桩：密钥键值对 + 单份配置文档，可按需注入失败。
     #[derive(Default)]
-    pub(crate) struct MemoryConfigStore {
+    pub struct MemoryConfigStore {
         secrets: Mutex<HashMap<String, String>>,
         config: Mutex<Option<Config>>,
+        /// `Some` 时 `load` 直接返回它（模拟损坏的配置文件）。
+        load_failure: Mutex<Option<GlossError>>,
+        /// `Some` 时 `save` 直接返回它（模拟落盘失败）。
+        save_failure: Mutex<Option<GlossError>>,
+    }
+
+    impl MemoryConfigStore {
+        /// 让后续 `load` 一律失败（配置文件损坏路径）。
+        pub fn with_load_failure(self, error: GlossError) -> Self {
+            *lock_or_recover(&self.load_failure) = Some(error);
+            self
+        }
+
+        /// 让后续 `save` 一律失败（落盘失败路径）。
+        pub fn with_save_failure(self, error: GlossError) -> Self {
+            *lock_or_recover(&self.save_failure) = Some(error);
+            self
+        }
     }
 
     impl ConfigStore for MemoryConfigStore {
         fn load(&self) -> Result<Config, GlossError> {
-            Ok(self
-                .config
-                .lock()
-                .expect("poisoned")
-                .clone()
-                .unwrap_or_default())
+            if let Some(err) = lock_or_recover(&self.load_failure).clone() {
+                return Err(err);
+            }
+            Ok(lock_or_recover(&self.config).clone().unwrap_or_default())
         }
 
         fn save(&self, config: &Config) -> Result<(), GlossError> {
-            *self.config.lock().expect("poisoned") = Some(config.clone());
+            if let Some(err) = lock_or_recover(&self.save_failure).clone() {
+                return Err(err);
+            }
+            *lock_or_recover(&self.config) = Some(config.clone());
             Ok(())
         }
 
         fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
-            Ok(self.secrets.lock().expect("poisoned").get(key).cloned())
+            Ok(lock_or_recover(&self.secrets).get(key).cloned())
         }
 
         fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError> {
-            self.secrets
-                .lock()
-                .expect("poisoned")
-                .insert(key.to_owned(), value.to_owned());
+            lock_or_recover(&self.secrets).insert(key.to_owned(), value.to_owned());
             Ok(())
         }
 
         fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
-            self.secrets.lock().expect("poisoned").remove(key);
+            lock_or_recover(&self.secrets).remove(key);
             Ok(())
         }
     }
 
     /// 内存键值缓存桩。
     #[derive(Default)]
-    pub(crate) struct MemoryCache(Mutex<HashMap<u64, TaskOutcome>>);
+    pub struct MemoryCache(
+        /// key → 产物。
+        Mutex<HashMap<u64, TaskOutcome>>,
+    );
 
     impl Cache for MemoryCache {
         fn get(&self, key: u64) -> Option<TaskOutcome> {
-            self.0.lock().expect("poisoned").get(&key).cloned()
+            lock_or_recover(&self.0).get(&key).cloned()
         }
 
         fn set(&self, key: u64, value: TaskOutcome) {
-            self.0.lock().expect("poisoned").insert(key, value);
+            lock_or_recover(&self.0).insert(key, value);
         }
     }
 
     /// 把预置增量序列变成流（futures-core 无构造子，测试自备最小适配）。
-    pub(crate) fn delta_stream(chunks: Vec<Result<String, GlossError>>) -> TaskStream {
+    pub fn delta_stream(chunks: Vec<Result<String, GlossError>>) -> TaskStream {
         struct Chunks(std::vec::IntoIter<Result<String, GlossError>>);
 
         impl Stream for Chunks {
@@ -211,8 +247,11 @@ pub(crate) mod mocks {
         Box::pin(Chunks(chunks.into_iter()))
     }
 
-    /// 返回预置增量流的引擎桩。
-    pub(crate) struct ScriptedEngine(pub Vec<Result<String, GlossError>>);
+    /// 返回预置增量流的引擎桩（不注入延迟/失败时比 `MockEngine` 轻）。
+    pub struct ScriptedEngine(
+        /// 产出的增量序列（可含 `Err` 模拟流中失败）。
+        pub Vec<Result<String, GlossError>>,
+    );
 
     impl AiEngine for ScriptedEngine {
         fn execute(&self, _task: &Task) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
