@@ -38,9 +38,14 @@ egui-winit = { version = "0.36.2", default-features = false, features = [
 gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
 pollster = "1.0.1"
-# 通道③用 tokio mpsc。不用默认特性：默认集会拉起整个 rt 子树，这里只要 mpsc 数据结构；
-# 运行时在根包组装时创建。
-tokio = { version = "1", default-features = false, features = ["sync"] }
+# 通道③用 tokio mpsc；pipeline 的消费运行时与 select! 宏。不用默认特性：
+# 默认集会拉起整个子树（io/_net 等用不到），按需最小化。
+tokio = { version = "1", default-features = false, features = [
+    "sync",
+    "rt",
+    "rt-multi-thread",
+    "macros",
+] }
 # RunTask 携带的 CancellationToken。sync 模块不在特性门后，关默认集即可用，
 # 避免 codec / io 等无关子特性。
 tokio-util = { version = "0.7", default-features = false }
@@ -67,6 +72,26 @@ winit = { version = "0.30.13", default-features = false, features = [
 # 不用默认特性：默认集含 fs 相关探索能力，查系统字体只用 source + 加载，按需最小化。
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 font-kit = { version = "0.14", default-features = false, features = ["source"] }
+
+# 快照对比（wgpu 渲染 + 基线图 diff）仅在 macos 门控启用。
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+egui_kittest = { version = "0.36", default-features = false, features = [
+    "snapshot",
+    "wgpu",
+] }
+
+[dev-dependencies]
+# 管道测试用 mock 引擎（延迟/失败注入）；测试还需要异步运行时宏与时间。
+gloss-core = { path = "../gloss-core", features = ["test-util"] }
+tokio = { version = "1", default-features = false, features = [
+    "macros",
+    "rt",
+    "time",
+] }
+# L2 浮层 harness 测试：AccessKit 树查询/点击（默认软件渲染器全平台）。
+# 基础依赖不带 wgpu/snapshot 特性——它们经下方 macos 门控段追加，避免
+# Linux/Windows 的测试构建编入 vulkan/gles 后端（与主依赖的后端政策一致）。
+egui_kittest = { version = "0.36", default-features = false }
 
 [lints]
 workspace = true

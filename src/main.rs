@@ -3,9 +3,14 @@
 use std::env;
 use std::error::Error;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use gloss_app::channel::{AcquireCommand, AppEndpoints, Channels, Event, PlatformEvent};
-use gloss_core::log::{self, debug, info, thread};
+use gloss_core::cache::MokaCache;
+use gloss_core::engine::AiTaskService;
+use gloss_core::engine::mock::MockEngine;
+use gloss_core::log::{self, debug, error, info, thread};
+use gloss_core::ports::AiEngine;
 use gloss_platform::events::hotkey::HotkeyRegistrar;
 use gloss_platform::events::{EventSink, EventSources};
 
@@ -55,19 +60,17 @@ fn load_config() -> StartupResult {
     Ok(())
 }
 
-/// 组装事件循环：拆分四通道端点、主线程创建热键 registrar、启动应用，
-/// 并在拿到唤醒句柄后启动平台事件线程。
+/// 组装事件循环：拆分四通道端点、主线程创建热键 registrar、装配推理
+/// 服务与消费运行时、启动应用，并在拿到唤醒句柄后启动平台事件线程。
 ///
-/// 端点分发：App 持有 ① 收 / ② 发 / ④ 收；事件线程持有 ① 发 / ② 收 /
-/// ④ 发（组装进 sink）；通道③的 tokio 侧待推理链路接线。
+/// 端点分发：App 持有 ① 收 / ② 发 / ③ 发 / ④ 收；事件线程持有 ① 发 /
+/// ② 收 / ④ 发（组装进 sink）；tokio 消费循环持有 ③ 收 / ④ 发。
 fn run_event_loop() -> StartupResult {
-    // 显隐自检：--overlay-selftest 反复显隐 100 次后退出（09 M1-T6 验收入口）
-    let self_test = env::args().any(|arg| arg == "--overlay-selftest");
     let gloss_app::channel::Channels {
         platform_events,
         acquire_commands,
+        commands,
         events,
-        ..
     } = create_channels();
     let gloss_app::channel::CrossbeamPair {
         tx: platform_tx,
@@ -81,9 +84,14 @@ fn run_event_loop() -> StartupResult {
         tx: events_tx,
         rx: events_rx,
     } = events;
+    let gloss_app::channel::CommandChannel {
+        tx: commands_tx,
+        rx: commands_rx,
+    } = commands;
     let endpoints = AppEndpoints {
         platform_events: platform_rx,
         acquire_commands: acquire_tx.clone(),
+        commands: commands_tx,
         events: events_rx,
     };
     // 退出协议不变量：通道②的 Sender 只允许 App 经 endpoints 持有。原始
@@ -95,9 +103,33 @@ fn run_event_loop() -> StartupResult {
     // Drop 清理亲和创建线程，见 hotkey.rs 模块注释），并存活至进程退出。
     let registrar = HotkeyRegistrar::with_defaults();
 
+    let mut command_runtime = None;
     let mut event_thread = None;
-    let result = gloss_app::app::run(self_test, endpoints, |waker| {
-        // 事件线程在拿到唤醒句柄后再启动：sink 发送产物时要靠它唤醒
+    let result = gloss_app::app::run(endpoints, |waker| {
+        // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
+        // 睡在事件循环里的主线程。运行时存活至 run_event_loop 结束——
+        // App drop 关闭通道③后，消费循环自行退出。
+        let service = Arc::new(AiTaskService::new(
+            Arc::new(MockEngine::new()) as Arc<dyn AiEngine>,
+            Arc::new(MokaCache::new()),
+        ));
+        let runtime_waker = waker.clone();
+        match gloss_app::pipeline::start_command_runtime(
+            service,
+            commands_rx,
+            events_tx.clone(),
+            move || {
+                runtime_waker.wake();
+            },
+        ) {
+            Ok(runtime) => command_runtime = Some(runtime),
+            Err(err) => error!(
+                thread = thread::UI,
+                error = %err,
+                "failed to start command runtime, inference disabled"
+            ),
+        }
+        // 事件线程同样在拿到唤醒句柄后再启动：sink 发送产物时要靠它唤醒
         // 睡在事件循环里的主线程。
         let sink = EventSink::new(events_tx, platform_tx, move || {
             waker.wake();
@@ -111,10 +143,12 @@ fn run_event_loop() -> StartupResult {
     });
 
     // App 已随事件循环结束 drop：通道②仅剩的 Sender（endpoints 内）归还
-    // 后事件线程看到 Disconnected 自行退出。
+    // 后事件线程看到 Disconnected 自行退出；通道③关闭后消费循环退出，
+    // CommandRuntime drop 在超时内收尾 tokio。
     if let Some(event_thread) = event_thread {
         event_thread.join();
     }
+    drop(command_runtime);
     result
 }
 

@@ -60,16 +60,17 @@ assert_exit "type 后缺空格" 1 "feat:没有空格"
 assert_exit "空 message" 1 ""
 assert_exit "纯空白" 1 "   "
 assert_exit "scope 含空格" 1 "fix(bad scope): 非法 scope"
+assert_exit "scope 含逗号" 1 "fix(bad,scope): scope 不允许逗号"
 assert_exit "scope 为空括号" 1 "fix(): 空 scope"
 
 echo ""
 echo "-- 边界用例 --"
-# 恰好 72 字符的 header（应通过）
-local_72="feat: $(printf 'a%.0s' {1..66})"
-assert_exit "header 恰好 72 字符" 0 "$local_72"
-# 73 字符（应拒绝）
-local_73="feat: $(printf 'a%.0s' {1..67})"
-assert_exit "header 超过 72 字符" 1 "$local_73"
+# 恰好 81 字节的 header（应通过）
+local_81="feat: $(printf 'a%.0s' {1..75})"
+assert_exit "header 恰好 81 字节" 0 "$local_81"
+# 82 字节（应拒绝）
+local_82="feat: $(printf 'a%.0s' {1..76})"
+assert_exit "header 超过 81 字节" 1 "$local_82"
 # 标题与正文之间无空行（应拒绝）
 MSG_NO_BLANK="$(printf 'feat: 标题\n直接正文无空行')"
 assert_exit "标题后无空行直接跟正文" 1 "$MSG_NO_BLANK"

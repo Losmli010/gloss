@@ -571,8 +571,9 @@ mod live_tests {
     /// `cargo test -p gloss-platform -- --ignored --nocapture`，断言模拟
     /// 复制兜底能读出选中文本。CI 无图形会话与授权，不参与常规测试。
     #[test]
-    #[ignore = "requires a live GUI session, an active selection and accessibility permission"]
+    #[ignore = "需授权真机：先把运行测试的终端 App 加入 系统设置→隐私与                安全性→辅助功能（未授权时由 live_test_support 快速失败）"]
     fn reads_live_selection_via_simulated_copy() {
+        crate::live_test_support::require_accessibility("clipboard_simulated_copy");
         let mut reader = ClipboardFallbackReader::new();
         let text = reader
             .read()

@@ -38,6 +38,8 @@ pub struct MockEngine {
 struct Inner {
     /// execute 的整体失败：Some 时 execute 直接返回 Err，不产流。
     execute_failure: std::sync::Mutex<Option<GlossError>>,
+    /// 一次性失败队列：每次 execute 消费一个，耗尽后照常产流。
+    once_failures: std::sync::Mutex<std::collections::VecDeque<GlossError>>,
     /// 产出的增量序列（可含 Err 模拟流中失败）。
     chunks: std::sync::Mutex<Vec<Result<String, GlossError>>>,
     /// 相邻 chunk 之间的延迟，模拟真实流式节奏。
@@ -52,6 +54,7 @@ impl MockEngine {
         Self {
             inner: Arc::new(Inner {
                 execute_failure: std::sync::Mutex::new(None),
+                once_failures: std::sync::Mutex::new(Default::default()),
                 chunks: std::sync::Mutex::new(Vec::new()),
                 chunk_delay: std::sync::Mutex::new(Duration::ZERO),
                 calls: AtomicUsize::new(0),
@@ -78,6 +81,13 @@ impl MockEngine {
         self
     }
 
+    /// 注入一次性 execute 失败：仅下一次 execute 返回 Err，之后照常产流
+    /// （「失败落 Error 态可重试」的验收驱动）。
+    pub fn with_execute_failure_once(self, error: GlossError) -> Self {
+        lock_or_recover(&self.inner.once_failures).push_back(error);
+        self
+    }
+
     /// 引擎被调用的次数（「缓存命中不调引擎」断言用）。
     pub fn call_count(&self) -> usize {
         self.inner.calls.load(Ordering::Relaxed)
@@ -93,6 +103,10 @@ impl Default for MockEngine {
 impl AiEngine for MockEngine {
     fn execute(&self, _task: &Task) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
         self.inner.calls.fetch_add(1, Ordering::Relaxed);
+        let once = lock_or_recover(&self.inner.once_failures).pop_front();
+        if let Some(error) = once {
+            return Box::pin(async move { Err(error) });
+        }
         let failure = lock_or_recover(&self.inner.execute_failure).clone();
         if let Some(error) = failure {
             return Box::pin(async move { Err(error) });
