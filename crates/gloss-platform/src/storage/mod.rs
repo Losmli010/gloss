@@ -1,5 +1,6 @@
-//! ConfigStore 适配器：配置文档落 TOML 文件（M4-T1）；密钥走系统
-//! keychain，适配器随 M4-T2 接入后与这里组合成完整 `ConfigStore`。
+//! ConfigStore 适配器：配置文档落 TOML 文件；密钥走系统 keychain，由
+//! 独立适配器实现并与这里组合成完整 `ConfigStore`（组合前本模块的密钥
+//! 方法返回错误，见 [`FileConfigStore`]）。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,12 +15,12 @@ const CONFIG_FILE: &str = "config.toml";
 
 /// [`ConfigStore`] 的文件实现：TOML 文档 + 原子写。
 ///
-/// 路径定位：系统标准配置目录下的 `gloss/gloss.toml`（macOS
+/// 路径定位：系统标准配置目录下的 `gloss/config.toml`（macOS
 /// `~/Library/Application Support/gloss`，Windows `%APPDATA%\gloss`，
 /// Linux `$XDG_CONFIG_HOME/gloss`，由 directories crate 决定）。
 ///
-/// 密钥方法在本里程碑返回 [`GlossError::Config`]（keychain 适配器
-/// M4-T2 接入后由组合实现接管），调用方按错误降级，不 panic。
+/// 密钥方法返回 [`GlossError::Config`]（keychain 适配器接入前无实现，
+/// 与文档方法组合才是完整端口），调用方按错误降级，不 panic。
 #[derive(Debug)]
 pub struct FileConfigStore {
     path: PathBuf,
@@ -47,6 +48,8 @@ impl FileConfigStore {
     }
 
     /// 原子写：先写同目录临时文件再 rename，断电/崩溃不会留下半份配置。
+    /// tmp 名带进程号：并发 save 时各写各的临时文件，rename 不会搬走别
+    /// 人的内容；不 fsync——配置可由缺文件路径重建，断电最多回上一版。
     fn write_atomic(&self, config: &Config) -> Result<(), GlossError> {
         let text = toml::to_string_pretty(config)
             .map_err(|e| GlossError::Config(format!("serialize config: {e}")))?;
@@ -55,16 +58,19 @@ impl FileConfigStore {
         })?;
         fs::create_dir_all(parent)
             .map_err(|e| GlossError::Config(format!("create {}: {e}", parent.display())))?;
-        let tmp = parent.join(format!("{CONFIG_FILE}.tmp"));
+        let tmp = parent.join(format!("{CONFIG_FILE}.{}.tmp", std::process::id()));
         fs::write(&tmp, text)
             .map_err(|e| GlossError::Config(format!("write {}: {e}", tmp.display())))?;
-        fs::rename(&tmp, &self.path).map_err(|e| {
-            GlossError::Config(format!(
-                "rename {} -> {}: {e}",
+        if let Err(err) = fs::rename(&tmp, &self.path) {
+            // 清理是尽力而为：残留的 tmp 只占一个文件名，下次写入会截断
+            // 覆盖，不值得为它放大错误。
+            let _ = fs::remove_file(&tmp);
+            return Err(GlossError::Config(format!(
+                "rename {} -> {}: {err}",
                 tmp.display(),
                 self.path.display()
-            ))
-        })?;
+            )));
+        }
         Ok(())
     }
 }
@@ -100,13 +106,13 @@ impl ConfigStore for FileConfigStore {
 
     fn secret(&self, _key: &str) -> Result<Option<String>, GlossError> {
         Err(GlossError::Config(
-            "secrets live in the system keychain; adapter lands in M4-T2".into(),
+            "secrets live in the system keychain; adapter not wired yet".into(),
         ))
     }
 
     fn set_secret(&self, _key: &str, _value: &str) -> Result<(), GlossError> {
         Err(GlossError::Config(
-            "secrets live in the system keychain; adapter lands in M4-T2".into(),
+            "secrets live in the system keychain; adapter not wired yet".into(),
         ))
     }
 }
@@ -192,7 +198,8 @@ mod tests {
         assert!(matches!(err, GlossError::Config(_)), "got: {err:?}");
     }
 
-    /// 密钥方法在本里程碑明确拒绝：错误可区分，等待 M4-T2 keychain。
+    /// 密钥方法明确拒绝（返回可区分的 Config 错误）：keychain 适配器
+    /// 接入前调用方应降级而不是重试。
     #[test]
     fn secret_methods_defer_to_keychain_milestone() {
         let dir = tempfile::tempdir().expect("tempdir should create");

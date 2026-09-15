@@ -1,4 +1,4 @@
-//! 配置模型：`Config` 结构、出厂默认与查找助手（06 §6.3，M4-T1）。
+//! 配置模型：`Config` 结构、出厂默认与查找助手（06 §6.3）。
 //!
 //! 与 06 §6.3 草案的偏差（字段一一对应，仅类型收窄）：
 //! - `provider_keys` / `model_by_kind` 由元组数组改为命名字段结构——
@@ -6,18 +6,19 @@
 //! - `target_lang` 由 `String` 收窄为 [`Lang`]——与 `TaskOptions::target_lang`
 //!   同型，避免运行时二次解析。
 //!
+//! 反序列化不带 `deny_unknown_fields`：未知键被静默忽略，换取配置文件的
+//! 向前兼容；手改配置时注意键名拼写。
+//!
 //! 密钥红线（06 ADR）：配置里只存 keychain 条目标识，密钥本体永不进
-//! `Config`——快照（M4-T3 起为 `ArcSwap<Config>`）可被任意线程读取，
-//! 不能携带凭据。
+//! `Config`——运行时整份快照可被任意线程读取，不能携带凭据。
 
 use serde::{Deserialize, Serialize};
 
 use crate::model::Lang;
 use crate::task::{HotkeyBinding, InputSource, TaskKind};
 
-/// 出厂默认热键表：与 `gloss-platform::events::hotkey` 的写死默认一致，
-/// M4-T7 热键配置化后以这里为唯一来源。有意避开 macOS 截图
-/// （Cmd+Shift+3/4/5）等系统级组合。
+/// 出厂默认热键表：与 `gloss-platform::events::hotkey` 的写死默认一致。
+/// 有意避开 macOS 截图（Cmd+Shift+3/4/5）等系统级组合。
 fn default_hotkey_bindings() -> Vec<HotkeyBinding> {
     fn selection(trigger: &str, kind: TaskKind) -> HotkeyBinding {
         HotkeyBinding {
@@ -65,8 +66,8 @@ pub struct ModelBinding {
     pub model: String,
 }
 
-/// 应用配置：持久化为 TOML（`FileConfigStore`），M4-T3 起以
-/// `ArcSwap<Config>` 快照在运行时共享。反序列化带 `#[serde(default)]`：
+/// 应用配置：持久化为 TOML（`FileConfigStore`），运行时以整份快照在
+/// 各线程间共享（共享形态不携带密钥，见模块文档红线）。反序列化带 `#[serde(default)]`：
 /// 手改配置缺字段时按出厂默认补齐，不允许半份配置带病运行。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -116,7 +117,7 @@ impl Config {
             .map(|binding| binding.model.as_str())
     }
 
-    /// 查某 provider 的 keychain 条目标识（同 kind 多条时后条覆盖前条）。
+    /// 查某 provider 的 keychain 条目标识（同 provider 多条时后条覆盖前条）。
     pub fn keychain_id_for(&self, provider: &str) -> Option<&str> {
         self.provider_keys
             .iter()
@@ -165,7 +166,8 @@ mod tests {
         );
     }
 
-    /// 完整自定义配置经 serde 往返无损（含 `Lang::Other` 携载数据的变体）。
+    /// 完整自定义配置经 serde 往返无损（含 `Lang::Other` 携载数据的
+    /// 变体）；TOML 形态的往返由 platform 侧 storage 测试覆盖。
     #[test]
     fn config_round_trips_through_serde() {
         let config = Config {
