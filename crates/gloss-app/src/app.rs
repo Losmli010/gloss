@@ -198,7 +198,8 @@ impl GlossApp {
         }
     }
 
-    /// 通道②发送；接收端已消失（事件线程死亡/退出）时只留痕。
+    /// 通道②发送；接收端消失（事件线程死亡/退出）时落 Error 态兜底，
+    /// 避免滞留 Fetching。
     fn send_acquire(&mut self, command: AcquireCommand) {
         let Some(endpoints) = &self.endpoints else {
             return;
@@ -206,8 +207,10 @@ impl GlossApp {
         if endpoints.acquire_commands.send(command).is_err() {
             warn!(
                 thread = thread::UI,
+                generation = self.machine.generation(),
                 "acquire channel closed, command dropped"
             );
+            self.machine.fail_acquire(self.machine.generation());
         }
     }
 
@@ -232,7 +235,13 @@ impl GlossApp {
                     generation,
                     outcome,
                 } => {
-                    self.accept_done(generation, outcome);
+                    if self.accept_done(generation, outcome) {
+                        // 结果卡可见时长从完成时刻重新起算：慢任务不至于
+                        // 刚出结果就被早先锚定的隐藏计时收起。
+                        if self.windows.is_some() {
+                            self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
+                        }
+                    }
                 }
                 Event::TaskFailed { generation, error } => {
                     show_needed |= self.accept_failed(generation, &error);
@@ -305,7 +314,7 @@ impl GlossApp {
                 generation = generation,
                 current = self.machine.generation(),
                 state = ?self.machine.state(),
-                "stale chunk dropped"
+                "superseded or hidden chunk dropped"
             );
         }
         accepted
@@ -326,7 +335,7 @@ impl GlossApp {
                 generation = generation,
                 current = self.machine.generation(),
                 state = ?self.machine.state(),
-                "stale task done dropped"
+                "superseded or hidden task done dropped"
             );
         }
         accepted

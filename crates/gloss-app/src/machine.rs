@@ -134,10 +134,12 @@ impl TaskStateMachine {
         if generation != self.generation || self.state != AppState::Fetching {
             return None;
         }
-        let kind = self.pending_kind.take()?;
+        // 先校验模态再消费 pending_kind：模态错配不吃掉 kind，同代数
+        // 的后续合法 InputReady 仍可被采纳。
         let TaskInput::Text { text, hint } = input else {
             return None;
         };
+        let kind = self.pending_kind.take()?;
         let cancel = CancellationToken::new();
         self.current_cancel = Some(cancel.clone());
         let task = Task {
@@ -185,7 +187,11 @@ impl TaskStateMachine {
     /// 采纳任务失败：落 `Error` 态并展示失败信息（下一次触发即重试）。
     /// 返回是否需要展示浮层。
     pub fn accept_failed(&mut self, generation: u64, error: &GlossError) -> bool {
-        if generation != self.generation {
+        // Fetching 态收取材失败、Translating 态收推理失败；其余（含已
+        // 隐藏）不采纳——失败卡不得把已收起的浮层弹回。
+        if generation != self.generation
+            || !matches!(self.state, AppState::Fetching | AppState::Translating)
+        {
             return false;
         }
         self.current_cancel = None;
@@ -196,17 +202,28 @@ impl TaskStateMachine {
         true
     }
 
-    /// 浮层收起后的状态回落：展示/失败信息不再有意义，清空回到 `Idle`。
-    /// 在途任务（若恰在 Translating 时被手动收起）不取消——产物到达时
-    /// 浮层虽不在展示，状态机仍按代数走完转移。
+    /// 浮层收起（失焦/自动隐藏）即放弃在途任务：取消令牌（唯一取消机
+    /// 制）、清空视图并回 `Idle`。放弃后的迟到产物经代数或状态守卫丢弃
+    /// ——为一个不可见的浮层继续推理与渲染纯属空转；重新划词即重新开
+    /// 始，取材自当前选区（旧产物本就可能已过期）。
     pub fn hide_overlay(&mut self) {
-        if matches!(
-            self.state,
-            AppState::Show | AppState::Error | AppState::Translating
-        ) {
-            self.state = AppState::Idle;
+        if let Some(cancel) = self.current_cancel.take() {
+            cancel.cancel();
         }
+        self.state = AppState::Idle;
         self.overlay_view = None;
+    }
+
+    /// 取材通道不可用（②发送失败）时的降级：直接落 `Error` 态，避免
+    /// 滞留 Fetching 等一个永远不会到达的 `InputReady`。
+    pub fn fail_acquire(&mut self, generation: u64) {
+        if generation != self.generation {
+            return;
+        }
+        self.state = AppState::Error;
+        self.overlay_view = Some(OverlayView::Failed {
+            message: "任务失败：取材通道不可用".into(),
+        });
     }
 
     /// 推理通道不可用（③发送失败）时的降级：直接落 `Error` 态。
@@ -249,9 +266,17 @@ mod tests {
     use std::sync::Arc;
 
     use gloss_core::model::ScreenRect;
-    use gloss_core::task::InputHint;
+    use gloss_core::task::{InputHint, OutcomeStructured};
 
     use super::*;
+
+    fn plain_outcome(body: &str) -> TaskOutcome {
+        TaskOutcome {
+            kind: TaskKind::TranslateWord,
+            body: body.into(),
+            structured: OutcomeStructured::Plain { title: None },
+        }
+    }
 
     fn text_input(text: &str) -> TaskInput {
         TaskInput::Text {
@@ -337,6 +362,84 @@ mod tests {
                     }
                 )
                 .is_none()
+        );
+    }
+
+    /// 隐藏即放弃：Translating 态隐藏取消在途任务、清空视图回 Idle；
+    /// 迟到的同代数 TaskDone/TaskFailed 一律被状态守卫丢弃。
+    #[test]
+    fn hide_abandons_inflight_and_drops_late_events() {
+        let mut machine = TaskStateMachine::new();
+        machine
+            .trigger(&PlatformEvent::SelectionGesture)
+            .expect("trigger");
+        let request = machine
+            .accept_input(1, text_input("hello"))
+            .expect("accepted");
+        let token = request.cancel;
+
+        machine.hide_overlay();
+        assert_eq!(machine.state(), AppState::Idle);
+        assert!(machine.overlay_view().is_none());
+        assert!(token.is_cancelled(), "hide must cancel the in-flight task");
+        assert!(machine.current_cancel().is_none());
+
+        assert!(
+            !machine.accept_done(1, plain_outcome("迟到产物")),
+            "hidden task's late outcome must be dropped"
+        );
+        assert!(
+            !machine.accept_failed(1, &GlossError::EngineNetwork),
+            "hidden task's late failure must be dropped"
+        );
+        assert_eq!(machine.state(), AppState::Idle);
+    }
+
+    /// 失败守卫收紧后：Fetching 态收取材失败、Error 态迟到失败被拒。
+    #[test]
+    fn failed_guard_matches_fetching_and_translating_only() {
+        let mut machine = TaskStateMachine::new();
+        machine
+            .trigger(&PlatformEvent::SelectionGesture)
+            .expect("trigger");
+        // Fetching 态：取材失败可采纳。
+        assert!(machine.accept_failed(1, &GlossError::SelectionUnavailable));
+        assert_eq!(machine.state(), AppState::Error);
+
+        // Error 态隐藏后：同代数迟到失败被状态守卫拒绝。
+        machine.hide_overlay();
+        assert!(
+            !machine.accept_failed(1, &GlossError::EngineNetwork),
+            "hidden error card must not be resurrected"
+        );
+    }
+
+    /// 模态错配不吃掉 pending_kind：同代数的合法 InputReady 仍可采纳。
+    #[test]
+    fn modality_mismatch_preserves_pending_kind() {
+        let mut machine = TaskStateMachine::new();
+        machine
+            .trigger(&PlatformEvent::SelectionGesture)
+            .expect("trigger");
+        assert!(
+            machine
+                .accept_input(
+                    1,
+                    TaskInput::Image {
+                        png: Arc::from(&b"png"[..]),
+                        region: ScreenRect {
+                            x: 0,
+                            y: 0,
+                            width: 1,
+                            height: 1
+                        }
+                    }
+                )
+                .is_none()
+        );
+        assert!(
+            machine.accept_input(1, text_input("第二次")).is_some(),
+            "pending kind must survive a modality mismatch"
         );
     }
 
