@@ -12,6 +12,15 @@ crossbeam-channel = { version = "0.5", default-features = false, features = ["st
 # 全局鼠标监听（划词手势）。不用默认特性：默认集只多出可选的 serde 支持，注册/监听用不到。
 global-hotkey = { version = "0.8", default-features = false }
 gloss-core = { path = "../gloss-core" }
+# FileConfigStore 的配置目录定位（06 §8：日志目录例外，不走 directories）。
+# 无特性可关，写法与全局「关默认集」策略保持一致。
+directories = { version = "5", default-features = false }
+# 配置文档的 TOML 序列化（parse 读 + display 写；serde 桥接为必选依赖，
+# 0.8 后期版本不再暴露 serde 特性）。
+toml = { version = "0.8", default-features = false, features = [
+    "parse",
+    "display",
+] }
 
 # 剪贴板兜底读取（模拟复制）与内容保存/恢复。默认集含 image-data（拖进
 # 整条 image 依赖树）与 Linux 的 wayland-data-control，文本能力不需要；
@@ -32,6 +41,10 @@ rdev = { version = "0.5", default-features = false }
 core-foundation-sys = { version = "0.8", default-features = false, features = [
     "link",
 ] }
+
+[dev-dependencies]
+# storage 单测的临时目录。
+tempfile = { version = "3", default-features = false }
 
 [lints]
 workspace = true

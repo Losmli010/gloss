@@ -2,6 +2,7 @@
 
 pub mod events;
 pub mod selection;
+pub mod storage;
 
 /// L4 opt-in 真机测试的授权前置检查（macOS/Windows 的测试编译均可用）。
 ///

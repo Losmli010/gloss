@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use futures_core::Stream;
 
+use crate::config::Config;
 use crate::model::{GlossError, ScreenRect};
 use crate::task::{Task, TaskOutcome};
 
@@ -66,14 +67,19 @@ pub trait AiEngine: Send + Sync {
 
 /// 配置存储（端口）：应用配置与密钥的读写边界。
 ///
-/// 密钥不进配置快照（06 ADR）：这里以条目标识读写，用时直查，实现侧
-/// 落 keychain；配置文档的模型化读写随 M4-T1 的 `Config` 一并定案。
+/// 配置文档走 [`ConfigStore::load`] / [`ConfigStore::save`]，实现侧落
+/// TOML 文件（`FileConfigStore`）；密钥不进配置快照（06 ADR），这里以
+/// 条目标识读写，用时直查，实现侧落 keychain（`KeychainSecret`）。
 /// 全部方法取 `&self`（实现方以内部同步保证并发安全），适配器才能以
 /// `Arc<dyn ConfigStore>` 注入。
 ///
 /// 密钥红线（AGENT.md）：入参与返回值都是凭据，实现方禁止将其写进
 /// 日志、错误消息或 `EngineResponse` 这类携带诊断文本的变体。
 pub trait ConfigStore: Send + Sync {
+    /// 读取整份配置；实现方保证缺文件时返回出厂默认（并尽力落盘）。
+    fn load(&self) -> Result<Config, GlossError>;
+    /// 原子写入整份配置（设置页保存路径）。
+    fn save(&self, config: &Config) -> Result<(), GlossError>;
     /// 读取密钥；`None` 表示未设置。
     fn secret(&self, key: &str) -> Result<Option<String>, GlossError>;
     /// 写入（或覆盖）密钥。
@@ -105,6 +111,8 @@ pub(crate) mod mocks {
 
     use futures_core::Stream;
 
+    use crate::config::Config;
+
     use super::{
         AiEngine, BoxFuture, Cache, ConfigStore, GlossError, RegionCapture, ScreenRect,
         SelectionReader, Task, TaskOutcome, TaskStream,
@@ -128,17 +136,34 @@ pub(crate) mod mocks {
         }
     }
 
-    /// 内存键值密钥桩。
+    /// 内存版配置存储桩：密钥键值对 + 单份配置文档。
     #[derive(Default)]
-    pub(crate) struct MemorySecrets(Mutex<HashMap<String, String>>);
+    pub(crate) struct MemoryConfigStore {
+        secrets: Mutex<HashMap<String, String>>,
+        config: Mutex<Option<Config>>,
+    }
 
-    impl ConfigStore for MemorySecrets {
+    impl ConfigStore for MemoryConfigStore {
+        fn load(&self) -> Result<Config, GlossError> {
+            Ok(self
+                .config
+                .lock()
+                .expect("poisoned")
+                .clone()
+                .unwrap_or_default())
+        }
+
+        fn save(&self, config: &Config) -> Result<(), GlossError> {
+            *self.config.lock().expect("poisoned") = Some(config.clone());
+            Ok(())
+        }
+
         fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
-            Ok(self.0.lock().expect("poisoned").get(key).cloned())
+            Ok(self.secrets.lock().expect("poisoned").get(key).cloned())
         }
 
         fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError> {
-            self.0
+            self.secrets
                 .lock()
                 .expect("poisoned")
                 .insert(key.to_owned(), value.to_owned());
@@ -196,7 +221,7 @@ mod tests {
     use futures::StreamExt;
 
     use super::mocks::{
-        FixedRegionCapture, FixedSelectionReader, MemoryCache, MemorySecrets, ScriptedEngine,
+        FixedRegionCapture, FixedSelectionReader, MemoryCache, MemoryConfigStore, ScriptedEngine,
         delta_stream,
     };
     use super::*;
@@ -251,12 +276,26 @@ mod tests {
     /// ConfigStore 契约：未设置返回 None，写入后可读回。
     #[test]
     fn config_store_mock_round_trips_secrets() {
-        let store = MemorySecrets::default();
+        let store = MemoryConfigStore::default();
         assert_eq!(store.secret("api_key"), Ok(None));
         store
             .set_secret("api_key", "sk-test")
             .expect("set should succeed");
         assert_eq!(store.secret("api_key"), Ok(Some("sk-test".into())));
+    }
+
+    /// ConfigStore 契约：未保存过返回出厂默认，保存后原样读回。
+    #[test]
+    fn config_store_mock_round_trips_document() {
+        let store = MemoryConfigStore::default();
+        assert_eq!(store.load(), Ok(Config::default()));
+
+        let config = Config {
+            auto_show: false,
+            ..Default::default()
+        };
+        store.save(&config).expect("save should succeed");
+        assert_eq!(store.load(), Ok(config));
     }
 
     /// Cache 契约：miss → set → hit，且不同 key 互不可见。
