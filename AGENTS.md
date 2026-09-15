@@ -47,8 +47,6 @@ just changelog         # 基于 conventional commits 生成 CHANGELOG
 just --list            # 查看全部 recipe
 ```
 
-测试与覆盖率命令见「测试」一节；上表没列的 recipe（build / package / clean 等）用 `just --list` 看。
-
 ## 不可协商的约束
 
 以下 11 条一律不可协商——按优先级降序排列（定义见下节）只为在取舍冲突时指明先保哪条，级别低不等于可以放松。
