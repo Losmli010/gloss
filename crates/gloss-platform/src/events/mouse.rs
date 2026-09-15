@@ -386,8 +386,9 @@ mod injected_gesture_live_tests {
     /// 验收：辅助功能授权下，注入的拖拽序列（按下→移动→释放）经真实
     /// 系统 tap 被监听并判定为划词手势；监听器未降级。
     #[test]
-    #[ignore = "injects real global mouse events; requires accessibility permission"]
+    #[ignore = "注入真实全局鼠标事件：先把运行测试的终端 App 加入 系统设                置→隐私与安全性→辅助功能（未授权时由 live_test_support 快速失败）"]
     fn injected_drag_yields_selection_gesture() {
+        crate::live_test_support::require_accessibility("mouse_drag_gesture");
         let (source, degraded) = MouseSource::spawn();
         let mut source = source.expect("tap must start under accessibility grant");
 

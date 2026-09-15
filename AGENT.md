@@ -111,5 +111,5 @@ just --list            # 查看全部 recipe
   - **L1** 库级集成（`crates/gloss-app/tests/pipeline.rs`）：公共 API 驱动 状态机+通道③④+tokio 桥+mock 引擎 全时序，`cargo test` 全平台跑；
   - **L2** UI harness（`crates/gloss-app/src/ui/popup.rs` 模块内 kittest 测试）：AccessKit 树断言 + 点击复制按钮 + wgpu 快照（快照仅 macos 门控）；
   - **L3** 显隐自检（根包 `tests/overlay_selftest.rs`，harness=false 自带 main）：经公共 API 驱动与生产相同的窗口栈跑 100 轮显隐，断言退出码，仅 macos（需要窗口服务+GPU）；
-  - **L4** OS 注入 opt-in（gloss-platform 模块内 `#[ignore]` live 测试）：授权真机 `cargo test -- --ignored`，不进 CI；热键路径同层。
+  - **L4** OS 注入 opt-in（gloss-platform 模块内 `#[ignore]` live 测试）：授权真机 `cargo test -p gloss-platform -- --ignored`，不进 CI；热键路径同层。**授权步骤**：系统设置 → 隐私与安全性 → 辅助功能 → 打开运行测试的终端 App（未授权时 live_test_support 会毫秒级快速失败并给出指引）。
   - 测试文件按被测功能域命名（tokio/cargo 惯例），不加 `_test`/`_e2e` 后缀；E2E 代码不得进入生产路径（tests/、cfg(test) 或 #[ignore]）。

@@ -287,8 +287,9 @@ mod live_tests {
     /// 应以 `AccessibilityDenied` 失败（有权限语义的错误返回），而非 FFI
     /// 或信号级崩溃。
     #[test]
-    #[ignore = "requires a live GUI session, an active selection and accessibility permission"]
+    #[ignore = "需授权真机：先把运行测试的终端 App 加入 系统设置→隐私与                安全性→辅助功能（未授权时由 live_test_support 快速失败）"]
     fn reads_live_selection_when_authorized() {
+        crate::live_test_support::require_accessibility("ax_read_selection");
         let mut reader = AccessibilityReader::new();
         let text = reader
             .read()
