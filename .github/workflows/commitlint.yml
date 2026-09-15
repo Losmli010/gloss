@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# 最小权限：只读代码与提交历史即可完成 commit message 校验。
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test commit-msg checker
