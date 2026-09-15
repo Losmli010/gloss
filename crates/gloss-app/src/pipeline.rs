@@ -205,7 +205,10 @@ mod tests {
             .expect("shutdown");
     }
 
-    /// 验收标准：取消立即生效——流式进行中取消，不再有任何回传事件。
+    /// 验收标准：取消立即生效——流式进行中取消，不再有后续回传事件。
+    /// 以首 chunk 到达为同步点而非 sleep 猜时机：取消紧随首 chunk 触发，
+    /// 与下一个 chunk（150ms 后）竞速确定胜出；CI 调度抖动只会推迟取消，
+    /// 不会制造假失败。
     #[tokio::test]
     async fn cancel_takes_effect_mid_stream() {
         let engine = MockEngine::new()
@@ -214,13 +217,19 @@ mod tests {
         let (commands, events, runtime) = start(&engine);
 
         let cancel = run(&commands, 1, text_task("slow"));
-        // 首个 chunk 尚未吐出即取消：select 立即走取消分支。
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(
+            matches!(
+                events.recv().unwrap(),
+                Event::TaskChunk { generation: 1, ref delta } if delta == "一"
+            ),
+            "first chunk must arrive before cancellation"
+        );
         cancel.cancel();
 
+        // 窗口大于 chunk 间延迟：若取消失效，二 chunk 必落入窗口使断言失败。
         assert!(
             events.recv_timeout(Duration::from_millis(400)).is_err(),
-            "cancelled task must not deliver any event"
+            "cancelled task must not deliver any further event"
         );
         drop(commands);
         tokio::task::spawn_blocking(move || drop(runtime))
