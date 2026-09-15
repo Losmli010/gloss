@@ -34,31 +34,33 @@ Gloss —— 划词翻译桌面工具：选中文字即弹出 LLM 结果。纯 R
 - **MEDIUM**：代码质量、性能隐患、非惯用 Rust
 - **LOW**：风格问题、文档改进、小型重构
 
+下面两个清单按优先级降序排列，每条的定级理由就是上面四个定义；新增条目按同一规则插到对应位置，不要按加入时间追加在末尾。
+
 ### 门禁对照（机械强制）
 
-| 原则条目 | 门禁 |
-| --- | --- |
-| panic 家族禁入生产路径 | clippy `unwrap_used` / `expect_used` / `panic` / `unreachable` / `todo` / `unimplemented` = deny（测试经 clippy.toml 放行） |
-| 公共 API 有文档注释 | rustc `missing_docs` = deny；文档示例由 `just test` 里的 doc test 验证 |
-| unsafe 最小化且有据 | clippy `undocumented_unsafe_blocks` = deny；edition 2024 下 `unsafe_op_in_unsafe_fn` 默认报警，被 `-D warnings` 兜底 |
-| 内存泄漏 | clippy `mem_forget` = deny（长驻进程禁 `mem::forget` 式泄漏） |
-| 无硬编码密钥/凭据 | `just secrets`：`scripts/check-secrets.sh` 扫全部 git 跟踪文件，命中即失败；合法字面量用行尾 `secrets:allow` 放行并注明缘由 |
-| 密钥不进日志/stdout | clippy `print_stdout` / `print_stderr` = deny，堵住绕过日志出口的打印 |
-| 依赖供应链（用成熟库、无已知漏洞、来源可信） | `just audit`（RustSec 已知漏洞）+ `just deny`（许可证 / 来源 / 重复依赖，配置见 deny.toml） |
-| 惯用 Rust / 类型安全 / 明显冗余 clone | clippy 全量集合（correctness + style + complexity + perf）`-D warnings`，如 `clone_on_copy` |
-| 借用与生命周期健全性 | rustc 类型系统在编译期拒绝（`just lint` / `just check` 即覆盖） |
-| 格式一致 | `just fmt`（rustfmt） |
-| 关键路径有测试 | `just coverage` 行覆盖率下限判定（`coverage_min`） |
-| 本文件描述的仓库事实不漂移 | `just agents-doc`：校验下文提到的每个 `just` 配方、仓库路径与测试目标真实存在（规则见 `scripts/check-agents-doc.sh`） |
+| 优先级 | 原则条目 | 门禁 |
+| --- | --- | --- |
+| CRITICAL | unsafe 最小化且有据 | clippy `undocumented_unsafe_blocks` = deny；edition 2024 下 `unsafe_op_in_unsafe_fn` 默认报警，被 `-D warnings` 兜底 |
+| CRITICAL | 内存泄漏 | clippy `mem_forget` = deny（长驻进程禁 `mem::forget` 式泄漏） |
+| CRITICAL | 借用与生命周期健全性 | rustc 类型系统在编译期拒绝（`just lint` / `just check` 即覆盖） |
+| CRITICAL | 无硬编码密钥/凭据 | `just secrets`：`scripts/check-secrets.sh` 扫全部 git 跟踪文件，命中即失败；合法字面量用行尾 `secrets:allow` 放行并注明缘由 |
+| CRITICAL | 密钥不进日志/stdout | clippy `print_stdout` / `print_stderr` = deny，堵住绕过日志出口的打印 |
+| CRITICAL | 依赖供应链（用成熟库、无已知漏洞、来源可信） | `just audit`（RustSec 已知漏洞）+ `just deny`（许可证 / 来源 / 重复依赖，配置见 deny.toml） |
+| HIGH | panic 家族禁入生产路径 | clippy `unwrap_used` / `expect_used` / `panic` / `unreachable` / `todo` / `unimplemented` = deny（测试经 clippy.toml 放行） |
+| MEDIUM | 惯用 Rust / 类型安全 / 明显冗余 clone | clippy 全量集合（correctness + style + complexity + perf）`-D warnings`，如 `clone_on_copy` |
+| MEDIUM | 关键路径有测试 | `just coverage` 行覆盖率下限判定（`coverage_min`） |
+| LOW | 公共 API 有文档注释 | rustc `missing_docs` = deny；文档示例由 `just test` 里的 doc test 验证 |
+| LOW | 格式一致 | `just fmt`（rustfmt） |
+| LOW | 本文件描述的仓库事实不漂移 | `just agents-doc`：校验下文提到的每个 `just` 配方、仓库路径与测试目标真实存在（规则见 `scripts/check-agents-doc.sh`） |
 
 ### 人工评审关注点（无可靠机械门禁，勿硬造）
 
-- **输入校验**：外部输入（选区文本、屏幕截图、配置文件、LLM 响应）进核心逻辑前是否验证边界与格式。
-- **错误处理设计**：错误变体能否支撑状态机分支与重试（见 `GlossError`）；`?` 传播是否恰当，有没有被 `let _ =` 吞掉的错误。
-- **密钥的运行时处理**：API key 只从配置存储读入内存，不写日志、不进错误消息。
-- **crypto 与随机数**：一律用成熟库，不手搓算法、不用弱随机源做安全用途。
-- **clone 的语义成本**：跨 `Arc`、大缓冲区（如图像字节）的冗余克隆——clippy 抓不到，靠 review。
-- **unsafe 的设计面**：SAFETY 注释管单块不变量；整段 unsafe 设计是否可避免（如换用安全封装）仍靠评审。
+- **[CRITICAL] 密钥的运行时处理**：API key 只从配置存储读入内存，不写日志、不进错误消息。
+- **[CRITICAL] crypto 与随机数**：一律用成熟库，不手搓算法、不用弱随机源做安全用途。
+- **[CRITICAL] unsafe 的设计面**：SAFETY 注释管单块不变量；整段 unsafe 设计是否可避免（如换用安全封装）仍靠评审。
+- **[HIGH] 输入校验**：外部输入（选区文本、屏幕截图、配置文件、LLM 响应）进核心逻辑前是否验证边界与格式。
+- **[HIGH] 错误处理设计**：错误变体能否支撑状态机分支与重试（见 `GlossError`）；`?` 传播是否恰当，有没有被 `let _ =` 吞掉的错误。
+- **[MEDIUM] clone 的语义成本**：跨 `Arc`、大缓冲区（如图像字节）的冗余克隆——clippy 抓不到，靠 review。
 
 ## 目录结构
 
