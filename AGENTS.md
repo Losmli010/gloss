@@ -115,32 +115,43 @@ just --list            # 查看全部 recipe
 
 ## 测试
 
-测试按粒度分五类。源码注释里的 **L1–L4** 是同一套分层的标签（`Cargo.toml`、`kittest.toml` 与各测试模块头注释都在用），调整分层时本节与那些注释要一起改。**E2E 代码不得进入生产路径**——只放 `tests/`、`cfg(test)` 或 `#[ignore]`；测试文件按被测功能域命名，不加 `_test` / `_e2e` 后缀。
+两条原则，其余都是推论：
+
+1. **断言可观察契约，不碰内部状态。** 测试红时要说明「行为变了」，而不是「实现重构了」——所以测试从公共 API 与通道两端驱动，不伸手去摸结构体字段或私有函数。
+2. **同步点用事件，不用时间。** 任何 `sleep` 都是在赌机器负载，本仓库已经因此挂过一次 CI（见文末教训）。
+
+选层先问一句：**这条断言需要什么条件才成立？** 纯逻辑留在单元测试；需要 egui 渲染就归 L2；需要窗口服务与 GPU 归 L3；需要真实辅助功能授权归 L4。不要为了少写一个测试替身把测试塞进更贵的层，也不要把需要真机的测试硬塞进 CI。源码注释里的 **L1–L4** 就是这套分层（`Cargo.toml`、`kittest.toml` 与各测试模块都在用），调层要一起改。
 
 ### 单元测试
 
-逻辑写在源文件内的 `#[cfg(test)] mod tests`，`just test`（`cargo test --workspace --all-features`）全平台跑。`gloss-core` 是纯逻辑层，应能被完整单测覆盖；新增逻辑优先补单测。
+逻辑写在源文件内的 `#[cfg(test)] mod tests`，只断言公开契约。`gloss-core` 是纯逻辑层，应能被完整单测覆盖，新增逻辑优先在这一层补测试。
 
-行覆盖率下限单点维护在 justfile 的 `coverage_min`：`just coverage`（本地）与 CI 的 coverage job 共用同一判定，低于即失败。不要用 `--ignore-filename-regex` 排除代码，或写空测试来凑数。
+端口与编排的替身用 `test-util` 特性提供的实现，别在测试里手搓 fake：`MockEngine` 可注入产出内容、chunk 间延迟、一次性或持续失败，并可读 `call_count` 观测调用次数——**注入点要能造出想测的那种时序，观测点要能证明它发生过**，只回固定值的 fake 测不出取消、重试、去重这些真正会坏的路径。
+
+行覆盖率下限单点维护在 justfile 的 `coverage_min`，`just coverage`（本地）与 CI 的 coverage job 共用同一判定。**下限是下限，不是目标**：不要用 `--ignore-filename-regex` 排除代码，也不要写「调一次、不断言」的空测试凑数——那只是把红线画到别处。
 
 ### 集成测试
 
-- **L1 库级集成**（`crates/gloss-app/tests/pipeline.rs`）：公共 API 驱动 状态机 + 通道③④ + tokio 桥 + mock 引擎 的全时序，随 `just test` 全平台跑。
-- **L4 真机 opt-in**（不进 CI）：`gloss-platform` 内的 live 测试覆盖真实 OS 边界——选区读取、鼠标·热键注入、keychain 往返，一律 `#[ignore]` 标记，需授权后手动跑：
+- **L1 库级集成**（`crates/gloss-app/tests/pipeline.rs`）：从公共 API 与通道两端驱动 状态机 + 通道③④ + tokio 桥 + mock 引擎 的全时序，随 `just test` 全平台跑。断言的是时序与状态转换（哪些事件该按什么顺序到达、哪些不该到达），不是内部字段的值。
+- **L4 真机 opt-in**（不进 CI）：`gloss-platform` 内的 live 测试覆盖真实 OS 边界——选区读取、鼠标·热键注入、keychain 往返。形态是 `#[cfg(test)] mod live_tests` + `#[ignore = "..."]`，忽略理由里写清授权步骤；测试第一行调 `live_test_support::require_accessibility()` 做前置检查，未授权时以**带修复指引**的消息立刻失败，而不是让测试以「注入被忽略 / tap 未建立」这类间接症状超时——前置条件不满足就要当场说清怎么修。
 
   ```bash
   cargo test -p gloss-platform -- --ignored
   ```
 
-  授权步骤：系统设置 → 隐私与安全性 → 辅助功能 → 打开运行测试的终端 App（未授权时 `live_test_support` 会毫秒级快速失败并给出指引）。
+  授权步骤：系统设置 → 隐私与安全性 → 辅助功能 → 打开运行测试的终端 App。
 
 ### 快照测试
 
-- **L2 UI harness**（`crates/gloss-app/src/ui/popup.rs` 模块内的 kittest 测试）：AccessKit 树断言 + 点击复制按钮 + wgpu 渲染快照。基线图在 `crates/gloss-app/tests/snapshots/`，阈值与输出路径在仓库根 `kittest.toml`。树断言与交互断言全平台跑，快照对比仅在 macOS 生效（跨平台渲染差异）。
+- **L2 UI harness**（`crates/gloss-app/src/ui/popup.rs` 模块内的 kittest 测试）：AccessKit 树断言 + 点击复制按钮 + wgpu 渲染快照。树断言与交互断言全平台跑；快照对比 `#[cfg(target_os = "macos")]`（跨平台渲染差异），多个 harness 的快照结果要合并进同一个 `SnapshotResults`。
+
+基线图提交在 `crates/gloss-app/tests/snapshots/`，所以**基线变化会出现在 PR diff 里**——更新基线时要说清为什么变了，别默默覆盖（阈值与输出路径在仓库根 `kittest.toml`，分平台节名是 `[mac]`，写错整轮测试编译不过）。更新失败基线用 `UPDATE_SNAPSHOTS=1 cargo test`（`=force` 连阈值内的差异也重写）：更新当轮即转绿并打印 `Updated snapshot: …`，跑完 `git diff` 看一眼基线图到底改了什么。对比产生的 `.diff.png` / `.new.png` / `.old.png` 已 gitignore，别提交。
+
+快照锁的是**布局回归**，不是正确性：断言文案与状态该用 AccessKit 树断言，别指望从像素里读出语义。
 
 ### 基准测试
 
-当前没有基准目标，也没有引入基准框架。需要量化性能时新增 criterion 目标，**不要**把计时断言塞进 `#[test]`——CI 的负载波动会让它变成 flaky 门禁。
+当前没有基准目标，也没有引入基准框架。要量化性能时新增 criterion 目标（放 benches 目录），**不要**把计时断言塞进 `#[test]`——CI 的负载波动会让它变成 flaky 门禁。基准数字要连同运行环境一起记录，CI 上只跑不判定趋势。
 
 ### 性能测试
 
@@ -149,3 +160,15 @@ just --list            # 查看全部 recipe
   ```bash
   just selftest
   ```
+
+### 跨层纪律
+
+- **平台门控**：只在某平台成立的测试必须 `#[cfg(target_os = ...)]` 门控、并在其他平台直通成功——CI 的 test 矩阵三平台都跑，一条没门控的 macOS-only 测试会让另外两个平台整体挂掉，且报错点离病因很远。
+- **测试替身放端口边界**：真实时钟、网络、磁盘、剪贴板、keychain 都不进常规测试，需要时用端口替身或注入延迟。
+- **clippy 在测试代码里的三种情形**（别照搬网上的豁免写法）：
+  - `clippy.toml` 已对 `#[test]` / `#[cfg(test)]` 自动放行 unwrap / expect / panic / print——测试正文里直接断言失败即可；
+  - `tests/` 下的集成测试**辅助函数**不在自动放行范围，要显式 `#[allow(clippy::expect_used, clippy::panic)]` 并注明「测试辅助：失败即 panic 是断言语义」（见 `crates/gloss-app/tests/pipeline.rs`）；
+  - `harness = false` 的目标**完全不豁免**（既无 `#[test]` 也非 `cfg(test)`，已实测 `expect` 会被 `expect_used` 拦下）：代码要写成无 panic，输出走 `gloss_core::log`，失败靠返回非 0 退出码表达。
+- **命名与放置**：测试文件按被测功能域命名，不加 `_test` / `_e2e` 后缀。**E2E 代码不得进入生产路径**——只放 `tests/`、`cfg(test)` 或 `#[ignore]`。
+
+**一次真实教训。** `cancel_takes_effect_mid_stream` 原先 sleep 30ms 后取消，而 mock 引擎首 chunk 延迟 150ms——macOS CI 负载下 sleep 越过 150ms，首 chunk 先入队，断言必挂（那次 PR 通过纯属侥幸）。现在改为**等首 chunk 到达再取消**，再用大于 chunk 间延迟的窗口断言「无后续事件」。要证明「取消生效」，同步点就必须是被取消对象的可观察进展，而不是墙钟——这条适用于任何跟时间的竞速。
