@@ -10,10 +10,11 @@ cd "$ROOT_DIR"
 chmod +x .githooks/pre-commit
 chmod +x scripts/check-commit-msg.sh scripts/check-commit-msg.test.sh
 chmod +x scripts/check-secrets.sh scripts/check-secrets.test.sh
+chmod +x scripts/check-agents-doc.sh scripts/check-agents-doc.test.sh
 
 # 2. 设置 hooksPath 指向 .githooks
 git config core.hooksPath .githooks
 
 echo "✓ git hooks 已启用"
 echo "  hooksPath: $(git config core.hooksPath)"
-echo "  生效的钩子: pre-commit（fmt + clippy + 密钥扫描，经 just precommit）"
+echo "  生效的钩子: pre-commit（文档引用校验 + fmt + clippy + 密钥扫描，经 just precommit）"

@@ -49,6 +49,14 @@ jobs:
       - name: Scan for hardcoded secrets
         run: just secrets
 
+      # AGENTS.md 是唯一会被逐次加载进上下文的文档（客户端认的候选文件名只有它），
+      # 描述的配方/路径一旦过期，代理就照着错的信息干活——所以文档引用也进门禁。
+      - name: Run agents doc checker unit tests
+        run: bash scripts/check-agents-doc.test.sh
+
+      - name: Check AGENTS.md references
+        run: just agents-doc
+
   # 测试在三平台跑：平台差异（路径、行尾、时钟、剪贴板兜底）只有多 OS 才暴露。
   test:
     name: Test (${{ matrix.os }})

@@ -1,4 +1,4 @@
-# AGENT.md
+# AGENTS.md
 
 本文件面向 AI 编码代理。人类贡献者请先读 [README.md](./README.md)。
 
@@ -49,6 +49,7 @@ Gloss —— 划词翻译桌面工具：选中文字即弹出 LLM 结果。纯 R
 | 借用与生命周期健全性 | rustc 类型系统在编译期拒绝（`just lint` / `just check` 即覆盖） |
 | 格式一致 | `just fmt`（rustfmt） |
 | 关键路径有测试 | `just coverage` 行覆盖率下限判定（`coverage_min`） |
+| 本文件描述的仓库事实不漂移 | `just agents-doc`：校验下文提到的每个 `just` 配方、仓库路径与测试目标真实存在（规则见 `scripts/check-agents-doc.sh`） |
 
 ### 人工评审关注点（无可靠机械门禁，勿硬造）
 
@@ -85,31 +86,53 @@ just install-hooks     # clone 后执行一次，安装本地 git hooks
 just run               # 运行开发版
 just logs              # 跟随最新日志文件（~/.gloss/logs）
 just logs-dir          # 打印日志目录
-cargo run -- --overlay-selftest  # M1 验收入口：100 轮浮层显隐自检（首帧延迟/句柄泄漏），需图形环境
-just precommit         # 提交前静态检查：fmt + clippy + 密钥扫描（pre-commit 钩子跑的就是它）
-just check             # 全量门禁：fmt + clippy + test + 密钥扫描（precommit 不含测试，需要本地跑测试时用这条）
+just precommit         # 提交前静态检查：fmt + clippy + 密钥扫描 + 文档引用校验（pre-commit 钩子跑的就是它）
+just check             # 全量门禁：fmt + clippy + test + 密钥扫描 + 文档引用校验（precommit 不含测试，需要本地跑测试时用这条）
 just fmt-fix           # 自动格式化
 just lint              # Clippy 严格检查（警告即失败）
 just secrets           # 硬编码密钥扫描（命中即失败；放行规则见 scripts/check-secrets.sh）
-just test              # 运行单元测试
-just coverage          # 测试覆盖率：终端摘要 + HTML（→ target/llvm-cov/html）；低于 coverage_min 即失败（阈值见 justfile）
+just agents-doc        # 校验本文件提到的仓库事实（配方 / 路径 / 测试目标）未漂移
 just audit             # cargo audit 依赖漏洞审计
 just deny              # cargo deny 依赖合规（许可证 / 重复依赖 / 来源，配置见 deny.toml）
 just changelog         # 基于 conventional commits 生成 CHANGELOG
 just --list            # 查看全部 recipe
 ```
 
-## 工作流
+测试与覆盖率相关命令见下一节。
 
-- **分支**：一任务一分支，命名 `feat/<主题>`，合入用 squash。
-- **提交信息**：Conventional Commits；**标题 ≤ 81 字节**（本地 commitlint 会拒绝超长标题；72 对中日韩混排标题过紧，+9 字节 ≈ 多 3 个汉字），正文说明「为什么」。
-- **门禁**：本地 `pre-commit` 跑 `just precommit`（fmt + clippy + secrets；命令一律带 `--workspace`——根目录存在根包时，不加则只作用于根包、漏掉成员 crate）；无 `.rs` 变更的提交只跑其中的密钥扫描。**测试交给 CI**，本地提交不必等编译测试。`just check`（fmt + clippy + test + secrets）保留给需要本地全量验证的场合。**不要用 `--no-verify` 绕过**。commit message 规范不在本地校验（git 跑 pre-commit 时消息还没落盘，读到的会是上一条），由 CI 的 commitlint job 兜底。
-- **CI**（ci.yml）：`quality`（fmt + clippy + secrets）最快，`test`（Linux/macOS/Windows 三平台矩阵）、`coverage`（行覆盖率 ≥ justfile 的 `coverage_min`，报告进 job summary 与 artifact）、`security`（cargo audit + deny）三个 job 都 `needs: quality`；另有每日定时安全检查（security-audit.yml）。
-- **推送与 PR**：不要自行推送或开 PR，等用户明确要求。
-- **测试**：新增逻辑优先补单测；**行覆盖率下限**单点维护在 justfile 的 `coverage_min`（本地 `just coverage` 与 CI 同一判定），低于即失败；不要用 `--ignore-filename-regex` 排除代码或写空测试来凑数。`gloss-core` 是纯逻辑层，应能被完整单测覆盖。
-- **端到端测试分层**（GUI 验收的自动化边界）：
-  - **L1** 库级集成（`crates/gloss-app/tests/pipeline.rs`）：公共 API 驱动 状态机+通道③④+tokio 桥+mock 引擎 全时序，`cargo test` 全平台跑；
-  - **L2** UI harness（`crates/gloss-app/src/ui/popup.rs` 模块内 kittest 测试）：AccessKit 树断言 + 点击复制按钮 + wgpu 快照（快照仅 macos 门控）；
-  - **L3** 显隐自检（根包 `tests/overlay_selftest.rs`，harness=false 自带 main）：经公共 API 驱动与生产相同的窗口栈跑 100 轮显隐，断言退出码，仅 macos（需要窗口服务+GPU）；
-  - **L4** OS 注入 opt-in（gloss-platform 模块内 `#[ignore]` live 测试）：授权真机 `cargo test -p gloss-platform -- --ignored`，不进 CI；热键路径同层。**授权步骤**：系统设置 → 隐私与安全性 → 辅助功能 → 打开运行测试的终端 App（未授权时 live_test_support 会毫秒级快速失败并给出指引）。
-  - 测试文件按被测功能域命名（tokio/cargo 惯例），不加 `_test`/`_e2e` 后缀；E2E 代码不得进入生产路径（tests/、cfg(test) 或 #[ignore]）。
+## 测试
+
+测试按粒度分五类。源码注释里的 **L1–L4** 是同一套分层的标签（`Cargo.toml`、`kittest.toml` 与各测试模块头注释都在用），调整分层时本节与那些注释要一起改。**E2E 代码不得进入生产路径**——只放 `tests/`、`cfg(test)` 或 `#[ignore]`；测试文件按被测功能域命名，不加 `_test` / `_e2e` 后缀。
+
+### 单元测试
+
+逻辑写在源文件内的 `#[cfg(test)] mod tests`，`just test`（`cargo test --workspace --all-features`）全平台跑。`gloss-core` 是纯逻辑层，应能被完整单测覆盖；新增逻辑优先补单测。
+
+行覆盖率下限单点维护在 justfile 的 `coverage_min`：`just coverage`（本地）与 CI 的 coverage job 共用同一判定，低于即失败。不要用 `--ignore-filename-regex` 排除代码，或写空测试来凑数。
+
+### 集成测试
+
+- **L1 库级集成**（`crates/gloss-app/tests/pipeline.rs`）：公共 API 驱动 状态机 + 通道③④ + tokio 桥 + mock 引擎 的全时序，`cargo test` 全平台跑。
+- **L4 真机 opt-in**（不进 CI）：`gloss-platform` 内的 live 测试覆盖真实 OS 边界——选区读取、鼠标·热键注入、keychain 往返，一律 `#[ignore]` 标记，需授权后手动跑：
+
+  ```bash
+  cargo test -p gloss-platform -- --ignored
+  ```
+
+  授权步骤：系统设置 → 隐私与安全性 → 辅助功能 → 打开运行测试的终端 App（未授权时 `live_test_support` 会毫秒级快速失败并给出指引）。
+
+### 快照测试
+
+- **L2 UI harness**（`crates/gloss-app/src/ui/popup.rs` 模块内的 kittest 测试）：AccessKit 树断言 + 点击复制按钮 + wgpu 渲染快照。基线图在 `crates/gloss-app/tests/snapshots/`，阈值与输出路径在仓库根 `kittest.toml`。树断言与交互断言全平台跑，快照对比仅在 macOS 生效（跨平台渲染差异）。
+
+### 基准测试
+
+当前没有基准目标，也没有引入基准框架。需要量化性能时新增 criterion 目标，**不要**把计时断言塞进 `#[test]`——CI 的负载波动会让它变成 flaky 门禁。
+
+### 性能测试
+
+- **L3 显隐自检**（根包 `tests/overlay_selftest.rs`，`harness = false` 自带 `main()`）：经公共 API 驱动与生产相同的窗口栈跑 100 轮浮层显隐，跑满 100 轮且首帧在预算内才返回 0，无帧或首帧超预算则非 0 退出。仅 macOS（需窗口服务 + GPU），其余平台直通成功：
+
+  ```bash
+  just selftest
+  ```
