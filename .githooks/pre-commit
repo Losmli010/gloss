@@ -22,10 +22,11 @@ if ! command -v just >/dev/null 2>&1; then
   exit 1
 fi
 
-# fmt/clippy 只关心 Rust，有 .rs 变更时才跑（全量经 just precommit）；密钥扫描与
-# AGENTS.md 引用校验语言无关，任何提交都跑——否则往文档/脚本里塞一个真 key 就能
-# 静默绕过本地这道闸（CI 的 quality job 另有兜底，但密钥越晚发现吊销成本越高），
-# 而文档失效引用恰恰最可能出现在「只改文档」的提交里，更不能跳过。
+# fmt/clippy 只关心 Rust，有 .rs 变更时才跑（全量经 just precommit）；密钥扫描、
+# AGENTS.md 引用校验与约束检查语言无关，任何提交都跑——否则往文档/脚本里塞一个真
+# key 就能静默绕过本地这道闸（CI 的 quality job 另有兜底，但密钥越晚发现吊销成本越
+# 高）；文档失效引用最可能出现在「只改文档」的提交里；约束检查盯着 manifest 与
+# 源码，所以「只改 Cargo.toml」这种没有 .rs 变更的提交同样不能跳过。
 STAGED="$(git diff --cached --name-only --diff-filter=ACM)"
 if [ -z "$STAGED" ]; then
   echo "→ pre-commit: 无变更，跳过检查"
@@ -34,7 +35,7 @@ fi
 
 STAGED_RS="$(printf '%s\n' "$STAGED" | grep '\.rs$' || true)"
 if [ -z "$STAGED_RS" ]; then
-  echo "→ pre-commit: 无 .rs 变更，跳过 fmt/clippy，仅跑密钥扫描与文档引用校验..."
+  echo "→ pre-commit: 无 .rs 变更，跳过 fmt/clippy，跑密钥扫描 / 文档引用 / 约束检查..."
   if ! just secrets; then
     echo "" >&2
     echo "✗ 检出疑似硬编码密钥，已阻止提交" >&2
@@ -43,13 +44,18 @@ if [ -z "$STAGED_RS" ]; then
   fi
   if ! just agents-doc; then
     echo "" >&2
-    echo "✗ AGENTS.md 描述了不存在的配方/路径，已阻止提交（见上）" >&2
+    echo "✗ AGENTS.md 描述了不存在的配方/路径/约束名，已阻止提交（见上）" >&2
+    exit 1
+  fi
+  if ! just constraints; then
+    echo "" >&2
+    echo "✗ 违反「不可协商的约束」，已阻止提交（见上）" >&2
     exit 1
   fi
   exit 0
 fi
 
-echo "→ pre-commit: 运行静态检查（just precommit = 文档引用校验 + fmt + clippy + secrets）..."
+echo "→ pre-commit: 运行静态检查（just precommit = 约束检查 + 文档引用校验 + fmt + clippy + secrets）..."
 if ! just precommit; then
   echo "" >&2
   echo "✗ 静态检查未通过，已阻止提交" >&2

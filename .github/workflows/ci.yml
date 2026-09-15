@@ -57,6 +57,14 @@ jobs:
       - name: Check AGENTS.md references
         run: just agents-doc
 
+      # 「不可协商的约束」里可机械判定的部分（依赖方向 / 日志统一出口 / 日志英文 /
+      # 版本单点 / 依赖特性）。先跑脚本自身单测：规则回归先于规则生效。
+      - name: Run constraint checker unit tests
+        run: bash scripts/check-constraints.test.sh
+
+      - name: Check non-negotiable constraints
+        run: just constraints
+
   # 测试在三平台跑：平台差异（路径、行尾、时钟、剪贴板兜底）只有多 OS 才暴露。
   test:
     name: Test (${{ matrix.os }})

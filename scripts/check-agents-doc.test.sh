@@ -19,11 +19,12 @@ CASE_NO=0
 # 含 justfile 变量（coverage_min）、前缀冲突的配方名（logs / logs-dir）。
 new_fixture() {
   local dir="$1"
-  mkdir -p "$dir/crates/demo/tests" "$dir/tests" "$dir/docs"
+  mkdir -p "$dir/crates/demo/tests" "$dir/crates/demo/src" "$dir/tests" "$dir/docs"
   : >"$dir/Cargo.toml"
   : >"$dir/kittest.toml"
   : >"$dir/tests/overlay_selftest.rs"
   : >"$dir/crates/demo/tests/pipeline.rs"
+  : >"$dir/crates/demo/src/lib.rs"
   printf '%s\n' '# 说明文档' >"$dir/docs/note.md"
   cat >"$dir/justfile" <<'EOF'
 coverage_min := "70"
@@ -43,15 +44,20 @@ EOF
 }
 
 # 断言助手：$1=描述  $2=期望退出码(0=通过,非0=拒绝)  $3=AGENTS.md 正文
+# 可选 $4：写给 crates/demo/src/lib.rs 的内容（用于约束名引用的用例）
 assert_doc() {
   local desc="$1"
   local expected="$2"
   local body="$3"
+  local ref_body="${4-}"
 
   CASE_NO=$((CASE_NO + 1))
   local dir="$WORK/case${CASE_NO}"
   new_fixture "$dir"
   printf '%s\n' "$body" >"$dir/AGENTS.md"
+  if [ -n "$ref_body" ]; then
+    printf '%s\n' "$ref_body" >"$dir/crates/demo/src/lib.rs"
+  fi
 
   local checker_out
   checker_out="$("$CHECKER" "$dir/AGENTS.md" 2>&1)"
@@ -88,7 +94,7 @@ echo "-- 非法用例（应拒绝，退出码非 0）--"
 assert_doc "配方不存在" 1 "跑 \`just deploy\` 发布"
 assert_doc "纯文本里的配方不存在" 1 "先执行 just build-release 再打包"
 assert_doc "justfile 变量被当成配方" 1 "阈值见 \`just coverage_min\`"
-assert_doc "路径不存在" 1 "实现见 \`crates/demo/src/lib.rs\`"
+assert_doc "路径不存在" 1 "实现见 \`crates/demo/src/store.rs\`"
 assert_doc "裸文件名不存在" 1 "配置见 \`nonexistent.toml\`"
 assert_doc "测试目标不存在" 1 "跑 \`cargo test --test smoke\`"
 assert_doc "路径存在但写错了目录层级" 1 "见 \`crates/demo/tests/overlay_selftest.rs\`"
@@ -96,6 +102,19 @@ assert_doc "代码块里的配方也不放过" 1 "命令清单：
 
     just run
     just deploy"
+
+echo ""
+echo "-- 约束名指名引用（仓库各处的 约束「名字」）--"
+CONSTRAINT_DOC="## 不可协商的约束
+
+1. **[CRITICAL] 日志统一出口**：只用 \`just run\` 一处出口。"
+assert_doc "指名引用命中真实约束名" 0 "$CONSTRAINT_DOC" '//! 见 AGENTS.md 约束「日志统一出口」。'
+assert_doc "指名引用写了不存在的约束名" 1 "$CONSTRAINT_DOC" '//! 见 AGENTS.md 约束「日志英文」。'
+# 约束改名后忘了改引用：这正是条号引用断掉的那类问题
+assert_doc "约束改名后引用未同步" 1 "## 不可协商的约束
+
+1. **[LOW] 日志出口**：只用 \`just run\`。" '//! 见 AGENTS.md 约束「日志统一出口」。'
+assert_doc "没有指名引用时不误报" 0 "$CONSTRAINT_DOC"
 
 echo ""
 echo "== 测试结果 =="

@@ -22,7 +22,7 @@ Gloss —— 划词翻译桌面工具：选中文字即弹出 LLM 结果。纯 R
 6. **[HIGH] 生产路径传播错误**：错误一律用 `Result`/`Option` 传播或降级，不靠 panic 收场（宏清单与门禁见「门禁对照」）。确需绕过时必须在旁边注释文档化不变量（为什么 panic 不可能），并配 `#[allow(clippy::unwrap_used)]` 之类的显式豁免。
 7. **[MEDIUM] 组装点唯一**：只有根包入口 `src/main.rs` 把适配器注入端口、分发通道 Sender；其他模块不得持有组装逻辑。
 8. **[MEDIUM] 版本单点维护**：`version` / `edition` 写在根 `Cargo.toml` 的 `[workspace.package]`，子 crate 以 `*.workspace = true` 继承，不要硬写。
-9. **[LOW] 注释从简**：只写解释「为什么」的必要注释。不写任务编号、规划性说明、冒烟标记等临时内容。
+9. **[LOW] 注释从简**：只写解释「为什么」的必要注释。任务编号可以用来交代某段代码为何处于当前临时状态（如 `M5-T4 前为占位`），但它只是出处，不能代替「为什么」本身；计划式内容（`// TODO: 稍后补 X` 这类没有对应实现的许诺）与冒烟标记不写。
 10. **[LOW] 日志一律英文**：日志消息、字段值、span 名只用英文——日志是面向终端的诊断文本，不做本地化；中文只出现在注释、文档与用户可见文案里。
 11. **[LOW] 公共 API 有文档注释**：公共 API 必须有文档注释，文档里的示例代码由 doc test 验证可编译可运行。
 
@@ -49,12 +49,20 @@ Gloss —— 划词翻译桌面工具：选中文字即弹出 LLM 结果。纯 R
 | CRITICAL | 无硬编码密钥/凭据 | `just secrets`：`scripts/check-secrets.sh` 扫全部 git 跟踪文件，命中即失败；合法字面量用行尾 `secrets:allow` 放行并注明缘由 |
 | CRITICAL | 密钥不进日志/stdout | clippy `print_stdout` / `print_stderr` = deny，堵住绕过日志出口的打印 |
 | CRITICAL | 依赖供应链（用成熟库、无已知漏洞、来源可信） | `just audit`（RustSec 已知漏洞）+ `just deny`（许可证 / 来源 / 重复依赖，配置见 deny.toml） |
+| CRITICAL | 纯 Rust 技术栈（不嵌入别的语言运行时 / 浏览器引擎） | `just deny`：deny.toml 的 `[bans] deny` 列名禁 JS 引擎、Python 解释器与 WebView 栈，命中即失败 |
+| CRITICAL | 日志统一出口 | `just constraints`：只有 gloss-core 可以直接依赖 tracing 三件套，其余 crate 只经 `gloss_core::log` |
+| CRITICAL | 依赖只开需要的特性 | `just constraints`：每条第三方依赖声明必须带 `default-features = false` |
 | HIGH | panic 家族禁入生产路径 | clippy `unwrap_used` / `expect_used` / `panic` / `unreachable` / `todo` / `unimplemented` = deny（测试经 clippy.toml 放行） |
+| HIGH | 依赖方向 | `just constraints`：各 crate 的直接依赖必须落在允许的边上（新 crate 要在脚本里登记），gloss-core 不得出现平台 / 渲染栈 |
 | MEDIUM | 惯用 Rust / 类型安全 / 明显冗余 clone | clippy 全量集合（correctness + style + complexity + perf）`-D warnings`，如 `clone_on_copy` |
 | MEDIUM | 关键路径有测试 | `just coverage` 行覆盖率下限判定（`coverage_min`） |
+| MEDIUM | 版本单点维护 | `just constraints`：子 crate 的 `version` / `edition` 必须 `*.workspace = true`，字面量只允许在根 `[workspace.package]` |
 | LOW | 公共 API 有文档注释 | rustc `missing_docs` = deny；文档示例由 `just test` 里的 doc test 验证 |
 | LOW | 格式一致 | `just fmt`（rustfmt） |
-| LOW | 本文件描述的仓库事实不漂移 | `just agents-doc`：校验下文提到的每个 `just` 配方、仓库路径与测试目标真实存在（规则见 `scripts/check-agents-doc.sh`） |
+| LOW | 日志一律英文 | `just constraints`：日志宏实参不得含非 ASCII 字节（日志面向终端诊断，不做本地化） |
+| LOW | 本文件描述的仓库事实不漂移 | `just agents-doc`：校验本文件提到的每个 `just` 配方、仓库路径与测试目标真实存在，并核对仓库各处 `约束「名字」` 的指名引用 |
+
+约束条目里的「组装点唯一」与「注释从简」**不在上表**：它们的判断没有可靠的机械门禁（见 `scripts/check-constraints.sh` 头注释里逐条说明的取舍），靠人工评审，别为它们硬造检查。
 
 ### 人工评审关注点（无可靠机械门禁，勿硬造）
 
@@ -96,7 +104,8 @@ just check             # 全量门禁：fmt + clippy + test + 密钥扫描 + 文
 just fmt-fix           # 自动格式化
 just lint              # Clippy 严格检查（警告即失败）
 just secrets           # 硬编码密钥扫描（命中即失败；放行规则见 scripts/check-secrets.sh）
-just agents-doc        # 校验本文件提到的仓库事实（配方 / 路径 / 测试目标）未漂移
+just agents-doc        # 校验本文件提到的仓库事实（配方 / 路径 / 测试目标 / 约束名引用）未漂移
+just constraints       # 校验「不可协商的约束」里可机械判定的那几条（依赖方向 / 日志出口 / 版本单点 …）
 just audit             # cargo audit 依赖漏洞审计
 just deny              # cargo deny 依赖合规（许可证 / 重复依赖 / 来源，配置见 deny.toml）
 just changelog         # 基于 conventional commits 生成 CHANGELOG

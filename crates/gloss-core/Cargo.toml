@@ -17,9 +17,23 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 serde = { version = "1", default-features = false, features = ["std", "derive", "rc"] }
 # mock 引擎的流间延迟（M3-T7），仅 test-util 特性按需启用。
 tokio = { version = "1", default-features = false, features = ["time"], optional = true }
-tracing = "0.1.44"
-tracing-appender = "0.2.5"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# 日志三件套（统一出口的实现）。默认集先关再显式列全：
+# - tracing 留 std（关掉会退化成 no-op），不留 attributes——项目不用 #[instrument]
+#   （过程宏无法跨 crate 转发，见 log.rs 模块文档），顺带省掉 tracing-attributes 一支；
+# - tracing-appender 无特性可关，照写以保持「关默认集」写法统一；
+# - tracing-subscriber 列全 fmt::layer 所需的 ansi/fmt/std/smallvec，env-filter 供
+#   RUST_LOG 过滤，tracing-log 必须留：GUI 栈（egui / wgpu / naga / font-kit）都经
+#   log 门面记录，去掉它这些三方诊断就不再进终端与日志文件。
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-appender = { version = "0.2.5", default-features = false }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = [
+    "ansi",
+    "env-filter",
+    "fmt",
+    "smallvec",
+    "std",
+    "tracing-log",
+] }
 
 [features]
 # 测试辅助：mock 引擎等单测基建，随下游 dev-dependencies 按需开启。

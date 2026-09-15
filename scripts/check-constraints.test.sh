@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+# check-constraints.sh 的单元测试（纯 bash 轻量断言，零依赖）
+#
+# 两条纪律：
+#   1. 每条约束都要有「违规必须被拒」的用例——只证明合法夹具能过，等于没测；
+#   2. 负面用例断言命中的是**对应的那条检查**（不是碰巧因为别的原因失败），
+#      正面用例断言该项**真的检查到了东西**（不是空扫描就通过）。
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CHECKER="$SCRIPT_DIR/check-constraints.sh"
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+PASS=0
+FAIL=0
+CASE_NO=0
+FIX=""
+
+# ---- 夹具助手 ----
+
+# 把多行文本插到指定 section 头之后。
+# 经文件传值而非 awk -v：awk 的 -v 不接受含换行的字符串（多行依赖声明会踩到）。
+insert_after_section() {
+  local file="$1" section="$2" text="$3"
+  printf '%s\n' "$text" >"$WORK/repl.txt"
+  awk -v sec="$section" '
+    NR == FNR { repl = repl $0 "\n"; next }
+    { print }
+    $0 == sec { printf "%s", repl }
+  ' "$WORK/repl.txt" "$file" >"$file.tmp" && mv "$file.tmp" "$file"
+}
+
+# 可移植的整行替换（BSD/GNU 的 sed -i 语义不一致，统一走临时文件）
+replace_line() {
+  local file="$1" from="$2" to="$3"
+  awk -v f="$from" -v t="$to" '{ if ($0 == f) print t; else print }' "$file" >"$file.tmp" &&
+    mv "$file.tmp" "$file"
+}
+
+write_manifest() {
+  local path="$1" name="$2" deps="${3-}"
+  cat >"$path" <<EOF
+[package]
+name = "$name"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
+EOF
+  if [ -n "$deps" ]; then
+    insert_after_section "$path" "[dependencies]" "$deps"
+  fi
+}
+
+# 建一个全部通过的基线工作区（3 条第三方依赖声明，其中 tracing 在 gloss-core）
+new_fixture() {
+  local dir="$1" agents_body="${2-}"
+  mkdir -p "$dir/crates/gloss-core/src" "$dir/crates/gloss-platform" "$dir/crates/gloss-app"
+
+  cat >"$dir/Cargo.toml" <<'EOF'
+[package]
+name = "gloss"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+
+[workspace]
+members = ["crates/gloss-core", "crates/gloss-platform", "crates/gloss-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+EOF
+  insert_after_section "$dir/Cargo.toml" "[dependencies]" 'gloss-core = { path = "crates/gloss-core" }'
+
+  write_manifest "$dir/crates/gloss-core/Cargo.toml" "gloss-core" \
+    'serde = { version = "1", default-features = false }
+tracing = { version = "0.1", default-features = false }'
+  write_manifest "$dir/crates/gloss-platform/Cargo.toml" "gloss-platform" \
+    'gloss-core = { path = "../gloss-core" }
+toml = { version = "0.8", default-features = false }'
+  write_manifest "$dir/crates/gloss-app/Cargo.toml" "gloss-app" \
+    'gloss-core = { path = "../gloss-core" }
+gloss-platform = { path = "../gloss-platform" }'
+
+  printf 'info!("ready");\n' >"$dir/crates/gloss-core/src/log.rs"
+
+  if [ -n "$agents_body" ]; then
+    printf '%s\n' "$agents_body" >"$dir/AGENTS.md"
+  else
+    printf 'gloss、gloss-core、gloss-platform、gloss-app 的依赖方向见下。\n' >"$dir/AGENTS.md"
+  fi
+}
+
+# 断言助手：$1=描述  $2=期望退出码  $3=夹具变更函数  $4=输出里必须出现（或必须不出现）的片段
+# 第 4 项以 "!" 开头表示「不得出现」。
+assert_case() {
+  local desc="$1" expected="$2" mutate="${3-}" needle="${4-}"
+
+  CASE_NO=$((CASE_NO + 1))
+  FIX="$WORK/case${CASE_NO}"
+  new_fixture "$FIX"
+  if [ -n "$mutate" ]; then "$mutate"; fi
+
+  local out
+  out="$(bash "$CHECKER" "$FIX" 2>&1)"
+  local actual=$?
+  local reason=""
+
+  if [ "$actual" -ne "$expected" ]; then
+    reason="期望退出码 ${expected}，实际 ${actual}"
+  elif [ -n "$needle" ]; then
+    case "$needle" in
+      !*)
+        if printf '%s' "$out" | grep -qF "${needle#!}"; then
+          reason="输出不应包含「${needle#!}」"
+        fi
+        ;;
+      *)
+        if ! printf '%s' "$out" | grep -qF "$needle"; then
+          reason="输出缺少「${needle}」"
+        fi
+        ;;
+    esac
+  fi
+
+  if [ -z "$reason" ]; then
+    echo "  ✓ $desc"
+    PASS=$((PASS + 1))
+  else
+    # 变量一律加花括号：$var 后紧跟全角标点时，部分 bash 会把标点并进变量名，
+    # set -u 下失败分支自己就报 unbound variable，反而盖掉真正的失败信息。
+    echo "  ✗ $desc  (${reason})"
+    echo "    输出: $(printf '%s' "${out}" | tail -n 3)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# ---- 变更函数：每条约束各造一个违规 ----
+
+mut_core_depends_on_platform() {
+  insert_after_section "$FIX/crates/gloss-core/Cargo.toml" "[dependencies]" \
+    'gloss-platform = { path = "../gloss-platform" }'
+}
+mut_core_depends_on_winit() {
+  insert_after_section "$FIX/crates/gloss-core/Cargo.toml" "[dependencies]" \
+    'winit = { version = "0.30", default-features = false }'
+}
+mut_core_depends_on_wgpu_core() {
+  insert_after_section "$FIX/crates/gloss-core/Cargo.toml" "[dependencies]" \
+    'wgpu-core = { version = "30", default-features = false }'
+}
+mut_platform_depends_on_app() {
+  insert_after_section "$FIX/crates/gloss-platform/Cargo.toml" "[dependencies]" \
+    'gloss-app = { path = "../gloss-app" }'
+}
+mut_app_depends_on_unregistered_crate() {
+  mkdir -p "$FIX/crates/gloss-util"
+  write_manifest "$FIX/crates/gloss-util/Cargo.toml" "gloss-util" ""
+  insert_after_section "$FIX/crates/gloss-app/Cargo.toml" "[dependencies]" \
+    'gloss-util = { path = "../gloss-util" }'
+}
+mut_crate_missing_from_agents_md() {
+  printf 'gloss 与 gloss-core 的依赖方向见下。\n' >"$FIX/AGENTS.md"
+}
+mut_app_depends_on_tracing() {
+  insert_after_section "$FIX/crates/gloss-app/Cargo.toml" "[dependencies]" \
+    'tracing = { version = "0.1", default-features = false }'
+}
+mut_platform_depends_on_tracing_subscriber() {
+  insert_after_section "$FIX/crates/gloss-platform/Cargo.toml" "[dependencies]" \
+    'tracing-subscriber = { version = "0.3", default-features = false }'
+}
+mut_log_message_in_chinese() {
+  printf 'info!("找不到配置文件");\n' >"$FIX/crates/gloss-core/src/log.rs"
+}
+mut_log_message_multiline_chinese() {
+  printf 'info!(\n    gen = 1,\n    "读取失败"\n);\n' >"$FIX/crates/gloss-core/src/log.rs"
+}
+mut_crate_version_literal() {
+  replace_line "$FIX/crates/gloss-app/Cargo.toml" "version.workspace = true" 'version = "0.1.0"'
+}
+mut_edition_literal() {
+  replace_line "$FIX/crates/gloss-platform/Cargo.toml" "edition.workspace = true" 'edition = "2024"'
+}
+mut_root_missing_workspace_package() {
+  replace_line "$FIX/Cargo.toml" 'version = "0.1.0"' "# 版本字面量被挪走了"
+}
+mut_dep_without_default_features() {
+  insert_after_section "$FIX/crates/gloss-app/Cargo.toml" "[dependencies]" \
+    'pollster = "1.0.1"'
+}
+mut_dep_default_features_on_next_line() {
+  # default-features 写在跨行内联表的后半段：只看首行会误报
+  insert_after_section "$FIX/crates/gloss-app/Cargo.toml" "[dependencies]" \
+    'tokio = { version = "1", features = [
+    "sync",
+], default-features = false }'
+}
+
+echo "== 测试 check-constraints.sh =="
+echo ""
+echo "-- 合法用例（应通过，退出码 0）--"
+# 同时断言「真的扫到了依赖声明」，否则夹具没填进去也会绿
+assert_case "基线工作区全绿" 0 "" "检查 3 条第三方依赖声明"
+assert_case "跨行内联表里写了 default-features（不应误报）" 0 mut_dep_default_features_on_next_line "检查 4 条第三方依赖声明"
+assert_case "日志实参为英文（含中文注释）" 0 "" "0 处违规"
+assert_case "core 依赖 tracing 合法（唯一日志出口）" 0 "" "约束检查通过"
+
+echo ""
+echo "-- 约束「依赖方向」（应拒绝，退出码非 0）--"
+assert_case "core 依赖 platform（边表外）" 1 mut_core_depends_on_platform "不得依赖 gloss-platform"
+assert_case "core 依赖 winit（红线）" 1 mut_core_depends_on_winit "红线禁入"
+assert_case "core 依赖 wgpu-core（红线，靠前缀匹配）" 1 mut_core_depends_on_wgpu_core "红线禁入"
+assert_case "platform 反向依赖 app" 1 mut_platform_depends_on_app "不得依赖 gloss-app"
+assert_case "依赖未登记的 crate" 1 mut_app_depends_on_unregistered_crate "不得依赖 gloss-util"
+assert_case "crate 名未写进 AGENTS.md" 1 mut_crate_missing_from_agents_md "未出现在"
+
+echo ""
+echo "-- 约束「日志统一出口」（应拒绝，退出码非 0）--"
+assert_case "gloss-app 直接依赖 tracing" 1 mut_app_depends_on_tracing "只经 gloss_core::log"
+assert_case "gloss-platform 直接依赖 tracing-subscriber" 1 mut_platform_depends_on_tracing_subscriber "只经 gloss_core::log"
+
+echo ""
+echo "-- 约束「日志一律英文」（应拒绝，退出码非 0）--"
+assert_case "日志实参含中文" 1 mut_log_message_in_chinese "日志实参含非 ASCII"
+assert_case "日志实参跨行且含中文" 1 mut_log_message_multiline_chinese "日志实参含非 ASCII"
+
+echo ""
+echo "-- 约束「版本单点维护」（应拒绝，退出码非 0）--"
+assert_case "crate 硬写 version 字面量" 1 mut_crate_version_literal "缺少 version.workspace"
+assert_case "crate 硬写 edition 字面量" 1 mut_edition_literal "缺少 edition.workspace"
+assert_case "根 [workspace.package] 丢了版本字面量" 1 mut_root_missing_workspace_package "没有 version 字面量"
+
+echo ""
+echo "-- 约束「依赖只开需要的特性」（应拒绝，退出码非 0）--"
+assert_case "第三方依赖未关默认特性" 1 mut_dep_without_default_features "pollster 未写 default-features = false"
+
+echo ""
+echo "== 测试结果 =="
+echo "  通过: $PASS"
+echo "  失败: $FAIL"
+
+if [ "$FAIL" -gt 0 ]; then
+  echo ""
+  echo "✗ 有 $FAIL 个测试失败"
+  exit 1
+fi
+
+echo "✓ 全部 $PASS 个测试通过"
+exit 0
