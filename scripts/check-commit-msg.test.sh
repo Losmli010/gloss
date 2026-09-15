@@ -60,6 +60,7 @@ assert_exit "type 后缺空格" 1 "feat:没有空格"
 assert_exit "空 message" 1 ""
 assert_exit "纯空白" 1 "   "
 assert_exit "scope 含空格" 1 "fix(bad scope): 非法 scope"
+assert_exit "scope 含逗号" 1 "fix(bad,scope): scope 不允许逗号"
 assert_exit "scope 为空括号" 1 "fix(): 空 scope"
 
 echo ""
