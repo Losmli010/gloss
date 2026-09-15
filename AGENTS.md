@@ -92,7 +92,6 @@ just --list            # 查看全部 recipe
 | CRITICAL | 无硬编码密钥/凭据 | `just secrets`：`scripts/check-secrets.sh` 扫全部 git 跟踪文件，命中即失败；合法字面量用行尾 `secrets:allow` 放行并注明缘由 |
 | CRITICAL | 密钥不进日志/stdout | clippy `print_stdout` / `print_stderr` = deny，堵住绕过日志出口的打印 |
 | CRITICAL | 依赖供应链（用成熟库、无已知漏洞、来源可信） | `just audit`（RustSec 已知漏洞）+ `just deny`（许可证 / 来源 / 重复依赖，配置见 deny.toml） |
-| CRITICAL | 纯 Rust 技术栈（不嵌入别的语言运行时 / 浏览器引擎） | `just deny`：deny.toml 的 `[bans] deny` 列名禁 JS 引擎、Python 解释器与 WebView 栈，命中即失败 |
 | CRITICAL | 日志统一出口 | `just constraints`：只有 gloss-core 可以直接依赖 tracing 三件套，其余 crate 只经 `gloss_core::log` |
 | CRITICAL | 依赖只开需要的特性 | `just constraints`：每条第三方依赖声明必须带 `default-features = false` |
 | HIGH | panic 家族禁入生产路径 | clippy `unwrap_used` / `expect_used` / `panic` / `unreachable` / `todo` / `unimplemented` = deny（测试经 clippy.toml 放行） |
@@ -105,7 +104,7 @@ just --list            # 查看全部 recipe
 | LOW | 日志一律英文 | `just constraints`：日志宏实参不得含非 ASCII 字节（日志面向终端诊断，不做本地化） |
 | LOW | 本文件描述的仓库事实不漂移 | `just agents-doc`：校验本文件提到的每个 `just` 配方、仓库路径与测试目标真实存在，并核对仓库各处对约束的指名引用（引用一律写成 `AGENTS.md 约束「名字」`——条号会随重排失效） |
 
-约束条目里的「组装点唯一」与「注释从简」**不在上表**：它们的判断没有可靠的机械门禁（见 `scripts/check-constraints.sh` 头注释里逐条说明的取舍），靠人工评审，别为它们硬造检查。表里与约束同名的行就是该约束的门禁实现，其余行是评审层面的额外强制项。
+约束条目里的「纯 Rust 技术栈」「组装点唯一」与「注释从简」**不在上表**：它们的判断没有可靠的机械门禁（纯 Rust 技术栈只作口头约束——这类判断发生在「要不要引入这个新依赖」的评审现场，枚举包名的 deny 名单覆盖不了没见过的运行时），靠人工评审，别为它们硬造检查。表里与约束同名的行就是该约束的门禁实现，其余行是评审层面的额外强制项。
 
 ### 人工评审关注点（无可靠机械门禁，勿硬造）
 

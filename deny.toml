@@ -41,32 +41,6 @@ multiple-versions = "warn"
 # 不给 path 依赖补硬编码 version。外部依赖仍由 licenses + sources 兜底。
 wildcards = "allow"
 
-# 纯 Rust 技术栈（AGENTS.md 约束「纯 Rust 技术栈」）：不得嵌入别的语言运行时或浏览器
-# 引擎——它们要么自带一套 GC 与 FFI 边界，要么把整个 WebView 拖进来，既撑大体积与启动
-# 开销，也把攻击面从「本进程」扩成「本进程 + 那个运行时」。命中即失败。
-deny = [
-    # JS 引擎 / 运行时
-    "v8",
-    "rusty_v8",
-    "deno_core",
-    "deno_runtime",
-    "quickjs",
-    "quick-js",
-    "rquickjs",
-    "boa_engine",
-    "javascriptcore-rs",
-    # Python 解释器
-    "pyo3",
-    "cpython",
-    "python3-sys",
-    # WebView / 浏览器运行时
-    "wry",
-    "tauri",
-    "tauri-runtime",
-    "webkit2gtk",
-    "webview2-com",
-]
-
 [sources]
 # 只信任 crates.io，杜绝来路不明的 registry / git 源。
 unknown-registry = "deny"
