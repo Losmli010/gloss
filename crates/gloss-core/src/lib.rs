@@ -1,6 +1,7 @@
 //! Gloss 领域层与端口：纯逻辑，零平台/UI 依赖。
 
 pub mod cache;
+pub mod config;
 pub mod engine;
 pub mod log;
 pub mod model;
