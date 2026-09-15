@@ -8,7 +8,7 @@
 //!
 //! 参数缺省：`options.target_lang` 缺省按中文；`InputHint` 缺省不注入
 //! 提示行。模板内容面向模型（用户可见产物），用中文书写不受日志英文
-//! 约束（AGENT.md 约束 6）。
+//! 约束（AGENTS.md 约束「日志一律英文」）。
 
 use serde::Serialize;
 

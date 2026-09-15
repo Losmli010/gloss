@@ -49,6 +49,22 @@ jobs:
       - name: Scan for hardcoded secrets
         run: just secrets
 
+      # AGENTS.md 是唯一会被逐次加载进上下文的文档（客户端认的候选文件名只有它），
+      # 描述的配方/路径一旦过期，代理就照着错的信息干活——所以文档引用也进门禁。
+      - name: Run agents doc checker unit tests
+        run: bash scripts/check-agents-doc.test.sh
+
+      - name: Check AGENTS.md references
+        run: just agents-doc
+
+      # 「不可协商的约束」里可机械判定的部分（依赖方向 / 日志统一出口 / 日志英文 /
+      # 版本单点 / 依赖特性）。先跑脚本自身单测：规则回归先于规则生效。
+      - name: Run constraint checker unit tests
+        run: bash scripts/check-constraints.test.sh
+
+      - name: Check non-negotiable constraints
+        run: just constraints
+
   # 测试在三平台跑：平台差异（路径、行尾、时钟、剪贴板兜底）只有多 OS 才暴露。
   test:
     name: Test (${{ matrix.os }})

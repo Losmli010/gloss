@@ -37,7 +37,9 @@ egui-winit = { version = "0.36.2", default-features = false, features = [
 ] }
 gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
-pollster = "1.0.1"
+# 同步等待 GPU 初始化。macro 特性（block_on!/join!）用不到；无默认特性可关，
+# 照写以保持「关默认集」写法统一。
+pollster = { version = "1.0.1", default-features = false }
 # 通道③用 tokio mpsc；pipeline 的消费运行时与 select! 宏。不用默认特性：
 # 默认集会拉起整个子树（io/_net 等用不到），按需最小化。
 tokio = { version = "1", default-features = false, features = [

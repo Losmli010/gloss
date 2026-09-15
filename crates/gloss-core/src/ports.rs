@@ -74,7 +74,7 @@ pub trait AiEngine: Send + Sync {
 /// 全部方法取 `&self`（实现方以内部同步保证并发安全），适配器才能以
 /// `Arc<dyn ConfigStore>` 注入。
 ///
-/// 密钥红线（AGENT.md）：入参与返回值都是凭据，实现方禁止将其写进
+/// 密钥红线（AGENTS.md）：入参与返回值都是凭据，实现方禁止将其写进
 /// 日志、错误消息或 `EngineResponse` 这类携带诊断文本的变体。
 pub trait ConfigStore: Send + Sync {
     /// 读取整份配置；实现方保证缺文件时返回出厂默认（并尽力落盘）。

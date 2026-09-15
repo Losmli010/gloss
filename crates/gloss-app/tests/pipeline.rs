@@ -1,5 +1,5 @@
 //! L1 库级集成测试：状态机（machine）+ 通道③④ + tokio 消费桥 +
-//! MockEngine + moka 缓存的全链路时序（M3 分层测试，见 AGENT.md）。
+//! MockEngine + moka 缓存的全链路时序（M3 分层测试，见 AGENTS.md）。
 //!
 //! 边界：真实事件线程（通道②消费、RunLoop、CompositeReader）属于 OS
 //! 边界，归 L4 opt-in 层——这里取材产物以 `machine.accept_input` 直接

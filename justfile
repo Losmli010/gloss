@@ -67,9 +67,26 @@ lint-fix:
 secrets:
     ./scripts/check-secrets.sh
 
+# AGENTS.md 引用一致性：文档里提到的每个 just 配方 / 仓库路径 / 测试目标必须真实
+# 存在（脚本同时被 CI quality job 复用）。指令文件是唯一会被逐次加载的文档，
+# 它描述的世界一旦过期，代理就照着错的信息干活。
+agents-doc:
+    ./scripts/check-agents-doc.sh
+
+# 「不可协商的约束」里可机械判定的部分：依赖方向 / 日志统一出口 / 日志英文 /
+# 版本单点 / 依赖特性（按 manifest 与源码解析，纯 bash，不碰 cargo，秒级）。
+# 逐条覆盖与不覆盖的理由见脚本头注释。
+constraints:
+    ./scripts/check-constraints.sh
+
 # 运行单元测试
 test:
     cargo test --workspace --all-features
+
+# L3 显隐自检：100 轮浮层显隐 + 首帧延迟预算（仅 macOS 有窗口服务与 GPU，其余
+# 平台直通成功）。harness=false 的自检不是普通单测，不随 test 配方一起跑。
+selftest:
+    cargo test -p gloss --test overlay_selftest
 
 # 测试覆盖率：终端摘要 + HTML 报告（→ target/llvm-cov/html；CI 也跑这条）
 # 最后一步带阈值，行覆盖率低于 coverage_min 时整个配方失败
@@ -83,13 +100,13 @@ coverage:
 coverage-check:
     cargo llvm-cov --workspace --all-features --fail-under-lines {{coverage_min}}
 
-# 完整质量门禁：格式化 + Clippy + 测试 + 密钥扫描（CI 核心；本地要全量验证时手动跑）
-check: fmt lint test secrets
+# 完整质量门禁：约束检查 + 格式化 + Clippy + 测试 + 密钥扫描 + 文档引用校验（CI 核心；本地要全量验证时手动跑）
+check: constraints agents-doc fmt lint test secrets
     @echo "✓ 质量门禁全部通过"
 
-# 提交前门禁：格式化 + Clippy + 密钥扫描（pre-commit 用）
+# 提交前门禁：约束检查 + 文档引用校验 + 格式化 + Clippy + 密钥扫描（pre-commit 用）
 # 不含 test：测试由 CI 的三平台矩阵跑，本地提交不必等编译测试
-precommit: fmt lint secrets
+precommit: constraints agents-doc fmt lint secrets
     @echo "✓ 提交前检查通过（测试交给 CI）"
 
 # 校验 commit message 是否符合 Conventional Commits（与 CI 共用同一脚本，手动排查用）

@@ -372,7 +372,7 @@ mod tests {
     }
 }
 
-/// L4 opt-in 真机注入测试（OS 事件边界，分层测试说明见 AGENT.md）：
+/// L4 opt-in 真机注入测试（OS 事件边界，分层测试说明见 AGENTS.md）：
 /// 只在授权真机以 `cargo test -- --ignored` 运行，不进 CI。
 #[cfg(all(any(target_os = "macos", target_os = "windows"), test))]
 mod injected_gesture_live_tests {

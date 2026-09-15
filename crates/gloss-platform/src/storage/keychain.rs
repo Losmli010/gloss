@@ -3,7 +3,7 @@
 //! macOS 走 Security framework 的通用密码（keychain）；Windows 的 DPAPI
 //! 方案按计划留 stub——调用返回 [`GlossError::Config`]，落地时替换平台
 //! 分支的实现即可，端口与调用方不动。密钥永不落明文、不进日志或错误
-//! 消息（AGENT.md 密钥红线）。
+//! 消息（AGENTS.md 密钥红线）。
 
 use gloss_core::model::GlossError;
 

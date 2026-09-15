@@ -56,12 +56,12 @@ undocumented_unsafe_blocks = "deny"
 # 长驻进程禁止 mem::forget 式泄漏（泄漏 Vec/Box 不触发 Drop，内存只增不减）。
 mem_forget = "deny"
 # 日志唯一出口是 gloss_core::log，绕过它 print 到 stdout/stderr 既丢结构化字段，
-# 也可能把敏感信息（API key 等）直接打出去；见 AGENT.md「不可协商的约束」第 5 条。
+# 也可能把敏感信息（API key 等）直接打出去；见 AGENTS.md 约束「日志统一出口」。
 print_stdout = "deny"
 print_stderr = "deny"
 
-# 公共 API 必须有文档注释（AGENT.md 评审原则：文档化）；文档里的示例由
-# cargo test --doc（just test 一部分）验证可编译可运行。
+# 公共 API 必须有文档注释（AGENTS.md 约束「公共 API 有文档注释」）；文档里的示例
+# 由 cargo test --doc（just test 一部分）验证可编译可运行。
 # L3 显隐自检：自带 main() 的端到端测试目标（仅 macOS 有窗口服务与 GPU；
 # 直接驱动 winit 窗口栈，不经测试收集器——winit 需要主线程）。
 [target.'cfg(target_os = "macos")'.dev-dependencies]
