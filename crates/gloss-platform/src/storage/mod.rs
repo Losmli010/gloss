@@ -1,6 +1,8 @@
-//! ConfigStore 适配器：配置文档落 TOML 文件；密钥走系统 keychain，由
-//! 独立适配器实现并与这里组合成完整 `ConfigStore`（组合前本模块的密钥
-//! 方法返回错误，见 [`FileConfigStore`]）。
+//! ConfigStore 适配器：文档半边（[`FileConfigStore`]，TOML 落盘）与
+//! 密钥半边（[`keychain::KeychainSecret`]，系统安全存储）各司其职，由
+//! [`CompositeConfigStore`] 组合成完整端口——组装点注入的就是组合体。
+
+pub mod keychain;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,14 +15,14 @@ use gloss_core::ports::ConfigStore;
 /// 配置目录下的文件名。
 const CONFIG_FILE: &str = "config.toml";
 
-/// [`ConfigStore`] 的文件实现：TOML 文档 + 原子写。
+/// 配置文档半边：TOML 文件 + 原子写，不接触密钥。
 ///
 /// 路径定位：系统标准配置目录下的 `gloss/config.toml`（macOS
 /// `~/Library/Application Support/gloss`，Windows `%APPDATA%\gloss`，
 /// Linux `$XDG_CONFIG_HOME/gloss`，由 directories crate 决定）。
 ///
-/// 密钥方法返回 [`GlossError::Config`]（keychain 适配器接入前无实现，
-/// 与文档方法组合才是完整端口），调用方按错误降级，不 panic。
+/// 不实现 [`ConfigStore`]：端口要求文档与密钥一起应答，单独把文档半边
+/// 当端口用会让密钥方法凭空失败——组合体才是注入单元。
 #[derive(Debug)]
 pub struct FileConfigStore {
     path: PathBuf,
@@ -73,10 +75,11 @@ impl FileConfigStore {
         }
         Ok(())
     }
-}
 
-impl ConfigStore for FileConfigStore {
-    fn load(&self) -> Result<Config, GlossError> {
+    /// 读取整份配置；缺文件是首次运行的正常路径——落一份出厂默认（用
+    /// 户拿到可直接手改的文件）并返回默认值，首次落盘失败降级为仅内存
+    /// 默认、不阻断启动（06 §3.3）。
+    pub fn load(&self) -> Result<Config, GlossError> {
         match fs::read_to_string(&self.path) {
             Ok(text) => toml::from_str(&text)
                 .map_err(|e| GlossError::Config(format!("parse {}: {e}", self.path.display()))),
@@ -100,20 +103,54 @@ impl ConfigStore for FileConfigStore {
         }
     }
 
-    fn save(&self, config: &Config) -> Result<(), GlossError> {
+    /// 原子写入整份配置（设置页保存路径）。
+    pub fn save(&self, config: &Config) -> Result<(), GlossError> {
         self.write_atomic(config)
     }
+}
 
-    fn secret(&self, _key: &str) -> Result<Option<String>, GlossError> {
-        Err(GlossError::Config(
-            "secrets live in the system keychain; adapter not wired yet".into(),
-        ))
+/// [`ConfigStore`] 的组合实现：文档方法委托 [`FileConfigStore`]，密钥
+/// 方法委托 [`keychain::KeychainSecret`]。核心编排与组装点只见端口，
+/// 不感知两半边的存在（06 §5.2）。
+#[derive(Debug)]
+pub struct CompositeConfigStore {
+    document: FileConfigStore,
+    secrets: keychain::KeychainSecret,
+}
+
+impl CompositeConfigStore {
+    /// 用系统标准位置构造（配置文件在标准目录，密钥在出厂服务名下）。
+    pub fn new() -> Result<Self, GlossError> {
+        Ok(Self {
+            document: FileConfigStore::new()?,
+            secrets: keychain::KeychainSecret::new(),
+        })
     }
 
-    fn set_secret(&self, _key: &str, _value: &str) -> Result<(), GlossError> {
-        Err(GlossError::Config(
-            "secrets live in the system keychain; adapter not wired yet".into(),
-        ))
+    /// 在指定配置目录下构造（测试与自定义位置用）。
+    pub fn in_dir(dir: PathBuf) -> Self {
+        Self {
+            document: FileConfigStore::in_dir(dir),
+            secrets: keychain::KeychainSecret::new(),
+        }
+    }
+}
+
+impl ConfigStore for CompositeConfigStore {
+    fn load(&self) -> Result<Config, GlossError> {
+        self.document.load()
+    }
+
+    fn save(&self, config: &Config) -> Result<(), GlossError> {
+        self.document.save(config)
+    }
+
+    fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
+        self.secrets.get(key)
+    }
+
+    fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError> {
+        self.secrets.set(key, value)
     }
 }
 
@@ -198,19 +235,32 @@ mod tests {
         assert!(matches!(err, GlossError::Config(_)), "got: {err:?}");
     }
 
-    /// 密钥方法明确拒绝（返回可区分的 Config 错误）：keychain 适配器
-    /// 接入前调用方应降级而不是重试。
+    /// 组合体把文档方法完整委托给 FileConfigStore：save → load 往返
+    /// 逐字段一致（密钥半边在这条路径上零参与，全平台可跑）。
     #[test]
-    fn secret_methods_defer_to_keychain_milestone() {
+    fn composite_delegates_document_methods() {
         let dir = tempfile::tempdir().expect("tempdir should create");
-        let store = FileConfigStore::in_dir(dir.path().to_path_buf());
+        let store = CompositeConfigStore::in_dir(dir.path().to_path_buf());
+        let config = sample_config();
+
+        store.save(&config).expect("save should succeed");
+        assert_eq!(store.load().expect("load should succeed"), config);
+    }
+
+    /// stub 平台（Linux CI）上组合体的密钥方法明确失败：错误可区分，
+    /// 调用方按错误降级而不是把「存储不可用」当「未设置」。
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn composite_secret_methods_report_unsupported_platform() {
+        let dir = tempfile::tempdir().expect("tempdir should create");
+        let store = CompositeConfigStore::in_dir(dir.path().to_path_buf());
 
         assert!(matches!(
-            store.secret("gloss/deepseek"),
+            ConfigStore::secret(&store, "gloss/deepseek"),
             Err(GlossError::Config(_))
         ));
         assert!(matches!(
-            store.set_secret("gloss/deepseek", "sk-x"),
+            ConfigStore::set_secret(&store, "gloss/deepseek", "sk-x"),
             Err(GlossError::Config(_))
         ));
     }
