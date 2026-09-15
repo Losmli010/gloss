@@ -2,8 +2,9 @@
 //!
 //! 词卡精排（音标/词性/释义/例句），其余任务展示 markdown 正文（M3 以
 //! 可选中富文本呈现，语法级 markdown 渲染在需要时引入 egui_commonmark）；
-//! OCR 另提供纯文本一键复制。流式视图按 [`STRUCTURED_FENCE`] 过滤未完成
-//! 的结构化块——原始流里的 JSON 围栏不该闪现在用户面前。
+//! OCR 另提供纯文本一键复制。流式视图按 [`STRUCTURED_FENCE`] 过滤已
+//! 完整出现的结构化块（在累积文本上按最后围栏标记截断）；跨 chunk 切
+//! 分出的残缺围栏前缀可能短暂显示，随下一 chunk 自愈。
 
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, ScrollArea, Stroke, vec2};
 use gloss_core::prompt::STRUCTURED_FENCE;
@@ -299,6 +300,7 @@ mod kittest_tests {
         let mut harness = harness_for(word_card_view());
         harness.run();
         harness.get_by_label("gloss");
+        harness.get_by_label("/ɡlɒs/");
         harness.get_by_label("光泽；注释");
         harness.get_by_label("· a gloss of silk");
         harness.get_by_label("复制");
