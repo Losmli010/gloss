@@ -10,7 +10,7 @@ description = "Gloss 适配器层：实现 gloss-core 端口 + 平台事件源"
 # std 是默认集的全部内容，显式写出以维持「关默认集、按需开特性」的统一写法。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 # 全局鼠标监听（划词手势）。不用默认特性：默认集只多出可选的 serde 支持，注册/监听用不到。
-global-hotkey = { version = "0.6", default-features = false }
+global-hotkey = { version = "0.8", default-features = false }
 gloss-core = { path = "../gloss-core" }
 
 # 剪贴板兜底读取（模拟复制）与内容保存/恢复。默认集含 image-data（拖进
