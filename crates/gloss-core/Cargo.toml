@@ -6,6 +6,9 @@ license.workspace = true
 description = "Gloss 领域层与端口（纯逻辑，零平台/UI 依赖）"
 
 [dependencies]
+# 配置热更新的无锁快照（M4-T3）：ArcSwap<Config> 原子替换，读路径零锁。
+# 无默认特性可关，照写以保持「关默认集」写法统一（06 §6.3）。
+arc-swap = { version = "1", default-features = false }
 # Cache 端口的内存 LRU+TTL 实现（sync API 即所需，future 异步面不用）。
 moka = { version = "0.12", default-features = false, features = ["sync"] }
 # TaskStream 的 Stream trait（no-std 最小集）；StreamExt 等工具留给使用方自选。

@@ -7,12 +7,14 @@ use std::sync::Arc;
 
 use gloss_app::channel::{AcquireCommand, AppEndpoints, Channels, Event, PlatformEvent};
 use gloss_core::cache::MokaCache;
+use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::engine::mock::MockEngine;
 use gloss_core::log::{self, debug, error, info, thread};
-use gloss_core::ports::AiEngine;
+use gloss_core::ports::{AiEngine, ConfigStore};
 use gloss_platform::events::hotkey::HotkeyRegistrar;
 use gloss_platform::events::{EventSink, EventSources};
+use gloss_platform::storage::CompositeConfigStore;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use gloss_core::log::warn;
@@ -35,8 +37,8 @@ fn main() -> StartupResult {
 
 fn run() -> StartupResult {
     init_logging();
-    load_config()?;
-    run_event_loop()
+    let config = load_config()?;
+    run_event_loop(config)
 }
 
 fn init_logging() {
@@ -55,9 +57,15 @@ fn log_dir() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".gloss").join("logs"))
 }
 
-fn load_config() -> StartupResult {
-    // TODO(M4-T1): ConfigStore::load → ArcSwap<Config> 首份快照
-    Ok(())
+/// 装配配置句柄（启动骨架第 2 步，06 §3.3）：配置文件走标准配置目录的
+/// `config.toml`，密钥走系统安全存储（M4-T2）。
+///
+/// 唯一必须成功的失败是「拿不到配置目录」——那时无处读写配置，属启动硬
+/// 错误；文档本身损坏由 `ConfigHandle::load_or_default` 降级为出厂默认
+/// 并记日志，应用照常起得来（用户还能进设置页改回来）。
+fn load_config() -> Result<Arc<ConfigHandle>, Box<dyn Error>> {
+    let store: Arc<dyn ConfigStore> = Arc::new(CompositeConfigStore::new()?);
+    Ok(Arc::new(ConfigHandle::load_or_default(store)))
 }
 
 /// 组装事件循环：拆分四通道端点、主线程创建热键 registrar、装配推理
@@ -65,7 +73,7 @@ fn load_config() -> StartupResult {
 ///
 /// 端点分发：App 持有 ① 收 / ② 发 / ③ 发 / ④ 收；事件线程持有 ① 发 /
 /// ② 收 / ④ 发（组装进 sink）；tokio 消费循环持有 ③ 收 / ④ 发。
-fn run_event_loop() -> StartupResult {
+fn run_event_loop(config: Arc<ConfigHandle>) -> StartupResult {
     let gloss_app::channel::Channels {
         platform_events,
         acquire_commands,
@@ -105,7 +113,7 @@ fn run_event_loop() -> StartupResult {
 
     let mut command_runtime = None;
     let mut event_thread = None;
-    let result = gloss_app::app::run(endpoints, |waker| {
+    let result = gloss_app::app::run(endpoints, config, |waker| {
         // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
         // 睡在事件循环里的主线程。运行时存活至 run_event_loop 结束——
         // App drop 关闭通道③后，消费循环自行退出。
