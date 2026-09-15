@@ -8,20 +8,23 @@ Gloss —— 划词翻译桌面工具：选中文字即弹出 LLM 结果。纯 R
 
 ## 不可协商的约束
 
-1. **纯 Rust 技术栈**：新增依赖前确认它是 Rust 生态的纯逻辑库，不引入 Node / Python / WebView 运行时。
-2. **依赖方向**（Ports & Adapters，可机械验证）：
+以下 11 条一律不可协商——按优先级降序排列（定义见下节）只为在取舍冲突时指明先保哪条，级别低不等于可以放松。
+
+1. **[CRITICAL] 纯 Rust 技术栈**：新增依赖前确认它是 Rust 生态的纯逻辑库，不引入 Node / Python / WebView 运行时。
+2. **[CRITICAL] 日志统一出口**：只用 `gloss_core::log` 的宏（`info!` / `warn!` / `error!` 等），不用 `println!`；库 crate 不初始化 subscriber。日志目录由入口算好传给 `log::init`，其余实现见 `crates/gloss-core/src/log.rs`。
+3. **[CRITICAL] 依赖只开需要的特性**：新增依赖一律写 `default-features = false` 并显式列出所需特性；无特性可关的也照写，保持写法统一。默认集常带目标平台用不到的图形后端（vulkan / gles / webgpu）、wasm 专用项，或整条用不上的子树——既拖慢编译，也可能带进有问题的包（winit 默认集就经 sctk-adwaita 拖进过已停止维护的 `ttf-parser`）。Gloss 目标平台是 macOS（Metal）与 Windows（DX12），Linux 只跑 CI，见 `crates/gloss-app/Cargo.toml` 的写法。
+4. **[CRITICAL] unsafe 有据**：每个 unsafe 块前必须带 `// SAFETY:` 注释写明不变量。
+5. **[HIGH] 依赖方向**（Ports & Adapters）：
    - `gloss`（根包，bin）→ `gloss-app` + `gloss-core` + `gloss-platform`
    - `gloss-app` → `gloss-core` + `gloss-platform`
    - `gloss-platform` → `gloss-core`（实现其端口）
    - `gloss-core` → **不依赖任何本仓库 crate**，只依赖纯逻辑第三方库。红线：不得出现 winit / wgpu / 平台 API。
-3. **组装点唯一**：只有根包入口 `src/main.rs` 把适配器注入端口、分发通道 Sender；其他模块不得持有组装逻辑。
-4. **注释从简**：只写解释「为什么」的必要注释。不写任务编号、规划性说明、冒烟标记等临时内容。
-5. **日志统一出口**：只用 `gloss_core::log` 的宏（`info!` / `warn!` / `error!` 等）；库 crate 不初始化 subscriber，不用 `println!`（机械强制，见「门禁对照」）。日志同时落盘到 `~/.gloss/logs/`（按天滚动，留 7 份），目录由入口算好传给 `log::init`。
-6. **日志一律英文**：日志消息、字段值、span 名只用英文——日志是面向终端的诊断文本，不做本地化；中文只出现在注释、文档与用户可见文案里。
-7. **版本单点维护**：`version` / `edition` 写在根 `Cargo.toml` 的 `[workspace.package]`，子 crate 以 `*.workspace = true` 继承，不要硬写。
-8. **依赖只开需要的特性**：新增依赖一律写 `default-features = false` 并显式列出所需特性。默认集常带目标平台用不到的图形后端（vulkan / gles / webgpu）、wasm 专用项，或整条用不上的子树——既拖慢编译，也可能带进有问题的包（winit 默认集就经 sctk-adwaita 拖进过已停止维护的 `ttf-parser`）。Gloss 目标平台是 macOS（Metal）与 Windows（DX12），Linux 只跑 CI，见 `crates/gloss-app/Cargo.toml` 的写法。
-9. **生产路径传播错误**：`unwrap()` / `expect()` / `panic!()` 禁止出现在生产代码，`unreachable!` / `todo!` / `unimplemented!` 同禁（clippy 机械强制，见「门禁对照」；测试代码不受限）。错误一律用 `Result`/`Option` 传播或降级；确需绕过时必须在旁边注释文档化不变量（为什么 panic 不可能），并配 `#[allow(clippy::unwrap_used)]` 之类的显式豁免。
-10. **unsafe 有据、API 有文档**：每个 unsafe 块前必须带 `// SAFETY:` 注释写明不变量；公共 API 必须有文档注释，文档里的示例代码由 doc test 验证可编译可运行（均机械强制，见「门禁对照」）。
+6. **[HIGH] 生产路径传播错误**：错误一律用 `Result`/`Option` 传播或降级，不靠 panic 收场（宏清单与门禁见「门禁对照」）。确需绕过时必须在旁边注释文档化不变量（为什么 panic 不可能），并配 `#[allow(clippy::unwrap_used)]` 之类的显式豁免。
+7. **[MEDIUM] 组装点唯一**：只有根包入口 `src/main.rs` 把适配器注入端口、分发通道 Sender；其他模块不得持有组装逻辑。
+8. **[MEDIUM] 版本单点维护**：`version` / `edition` 写在根 `Cargo.toml` 的 `[workspace.package]`，子 crate 以 `*.workspace = true` 继承，不要硬写。
+9. **[LOW] 注释从简**：只写解释「为什么」的必要注释。不写任务编号、规划性说明、冒烟标记等临时内容。
+10. **[LOW] 日志一律英文**：日志消息、字段值、span 名只用英文——日志是面向终端的诊断文本，不做本地化；中文只出现在注释、文档与用户可见文案里。
+11. **[LOW] 公共 API 有文档注释**：公共 API 必须有文档注释，文档里的示例代码由 doc test 验证可编译可运行。
 
 ## 代码评审原则与门禁对照
 
