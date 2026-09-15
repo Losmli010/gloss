@@ -9,6 +9,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# 最小权限：CI 只需读代码；artifact 上传在 v4 下同样只要 read token。
+permissions:
+  contents: read
+
 jobs:
   # 快速静态门禁：格式 + Clippy + 密钥扫描。跑得最快，其余 job 都依赖它，避免白跑 runner。
   quality:

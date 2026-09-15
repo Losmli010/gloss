@@ -5,8 +5,9 @@ on:
     tags:
       - "v*"
 
+# 最小权限：顶层只读；仅 release job 创建 GitHub Release 需要写（见其 job 级 permissions）。
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -92,6 +93,9 @@ jobs:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
+    # 唯一需要写权限的 job：发布产物到 GitHub Release。
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
