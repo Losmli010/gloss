@@ -67,9 +67,10 @@ pub trait AiEngine: Send + Sync {
 
 /// 配置存储（端口）：应用配置与密钥的读写边界。
 ///
-/// 配置文档走 [`ConfigStore::load`] / [`ConfigStore::save`]，实现侧落
-/// TOML 文件（`FileConfigStore`）；密钥不进配置快照（06 ADR），这里以
-/// 条目标识读写，用时直查，实现侧落 keychain（`KeychainSecret`）。
+/// 实现侧由两半边组合（`CompositeConfigStore`）：配置文档走
+/// [`ConfigStore::load`] / [`ConfigStore::save`] 落 TOML 文件
+/// （`FileConfigStore`），密钥走条目标识落系统安全存储
+/// （`KeychainSecret`）——密钥不进配置快照（06 ADR），用时直查。
 /// 全部方法取 `&self`（实现方以内部同步保证并发安全），适配器才能以
 /// `Arc<dyn ConfigStore>` 注入。
 ///
@@ -84,6 +85,8 @@ pub trait ConfigStore: Send + Sync {
     fn secret(&self, key: &str) -> Result<Option<String>, GlossError>;
     /// 写入（或覆盖）密钥。
     fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError>;
+    /// 删除密钥；条目不存在视为成功（幂等，设置页「清除密钥」路径用）。
+    fn delete_secret(&self, key: &str) -> Result<(), GlossError>;
 }
 
 /// 缓存（端口）：core 内置 moka 内存实现（M3-T5）。
@@ -167,6 +170,11 @@ pub(crate) mod mocks {
                 .lock()
                 .expect("poisoned")
                 .insert(key.to_owned(), value.to_owned());
+            Ok(())
+        }
+
+        fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
+            self.secrets.lock().expect("poisoned").remove(key);
             Ok(())
         }
     }
