@@ -109,16 +109,44 @@ impl FileConfigStore {
     }
 }
 
-/// [`ConfigStore`] 的组合实现：文档方法委托 [`FileConfigStore`]，密钥
-/// 方法委托 [`keychain::KeychainSecret`]。核心编排与组装点只见端口，
-/// 不感知两半边的存在（06 §5.2）。
-#[derive(Debug)]
-pub struct CompositeConfigStore {
-    document: FileConfigStore,
-    secrets: keychain::KeychainSecret,
+/// 密钥半边契约：组合体对密钥存储的最小要求。公开仅为泛型签名可见
+/// （组合体是公开类型），组装仍走本模块的构造子；外部实现不被支持——
+/// 密钥语义（服务名、条目定位）由本 crate 掌控。macOS 出厂实现是
+/// [`keychain::KeychainSecret`]，测试用内存桩（转发路径全平台可测，
+/// 不碰真机 keychain）。
+pub trait SecretsHalf: Send + Sync {
+    /// 读密钥；`None` 表示未设置（语义同 [`ConfigStore::secret`]）。
+    fn get(&self, key: &str) -> Result<Option<String>, GlossError>;
+    /// 写入（或覆盖）密钥。
+    fn set(&self, key: &str, value: &str) -> Result<(), GlossError>;
+    /// 删除密钥；条目不存在视为成功（幂等）。
+    fn delete(&self, key: &str) -> Result<(), GlossError>;
 }
 
-impl CompositeConfigStore {
+impl SecretsHalf for keychain::KeychainSecret {
+    fn get(&self, key: &str) -> Result<Option<String>, GlossError> {
+        Self::get(self, key)
+    }
+
+    fn set(&self, key: &str, value: &str) -> Result<(), GlossError> {
+        Self::set(self, key, value)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), GlossError> {
+        Self::delete(self, key)
+    }
+}
+
+/// [`ConfigStore`] 的组合实现：文档方法委托 [`FileConfigStore`]，密钥
+/// 方法委托密钥半边（泛型参数，出厂即 [`keychain::KeychainSecret`]）。
+/// 核心编排与组装点只见端口，不感知两半边的存在（06 §5.2）。
+#[derive(Debug)]
+pub struct CompositeConfigStore<S = keychain::KeychainSecret> {
+    document: FileConfigStore,
+    secrets: S,
+}
+
+impl CompositeConfigStore<keychain::KeychainSecret> {
     /// 用系统标准位置构造（配置文件在标准目录，密钥在出厂服务名下）。
     pub fn new() -> Result<Self, GlossError> {
         Ok(Self {
@@ -136,7 +164,14 @@ impl CompositeConfigStore {
     }
 }
 
-impl ConfigStore for CompositeConfigStore {
+impl<S: SecretsHalf> CompositeConfigStore<S> {
+    /// 用指定密钥半边构造（测试注入隔离服务名或内存桩用）。
+    pub fn with_secrets(document: FileConfigStore, secrets: S) -> Self {
+        Self { document, secrets }
+    }
+}
+
+impl<S: SecretsHalf> ConfigStore for CompositeConfigStore<S> {
     fn load(&self) -> Result<Config, GlossError> {
         self.document.load()
     }
@@ -152,10 +187,16 @@ impl ConfigStore for CompositeConfigStore {
     fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError> {
         self.secrets.set(key, value)
     }
+
+    fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
+        self.secrets.delete(key)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
     use std::time::Duration;
 
     use gloss_core::config::{ModelBinding, ProviderKey, Theme};
@@ -263,6 +304,54 @@ mod tests {
             ConfigStore::set_secret(&store, "gloss/deepseek", "sk-x"),
             Err(GlossError::Config(_))
         ));
+    }
+
+    /// 密钥转发路径用内存桩全平台验证（不碰真机 keychain）：端口三方法
+    /// 都完整到达密钥半边，删除后读回是 `None`。
+    #[test]
+    fn composite_forwards_secret_methods_to_half() {
+        #[derive(Default)]
+        struct MemorySecrets(Mutex<HashMap<String, String>>);
+
+        impl SecretsHalf for MemorySecrets {
+            fn get(&self, key: &str) -> Result<Option<String>, GlossError> {
+                Ok(self.0.lock().expect("poisoned").get(key).cloned())
+            }
+
+            fn set(&self, key: &str, value: &str) -> Result<(), GlossError> {
+                self.0
+                    .lock()
+                    .expect("poisoned")
+                    .insert(key.to_owned(), value.to_owned());
+                Ok(())
+            }
+
+            fn delete(&self, key: &str) -> Result<(), GlossError> {
+                self.0.lock().expect("poisoned").remove(key);
+                Ok(())
+            }
+        }
+
+        let dir = tempfile::tempdir().expect("tempdir should create");
+        let store = CompositeConfigStore::with_secrets(
+            FileConfigStore::in_dir(dir.path().to_path_buf()),
+            MemorySecrets::default(),
+        );
+
+        assert_eq!(
+            ConfigStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
+            None
+        );
+        ConfigStore::set_secret(&store, "gloss/deepseek", "sk-test").expect("set should succeed");
+        assert_eq!(
+            ConfigStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
+            Some("sk-test".into())
+        );
+        ConfigStore::delete_secret(&store, "gloss/deepseek").expect("delete should succeed");
+        assert_eq!(
+            ConfigStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
+            None
+        );
     }
 
     /// save 写出的 TOML 不含密钥本体字段：provider_keys 只有条目标识。

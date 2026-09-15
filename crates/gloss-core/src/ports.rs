@@ -85,6 +85,8 @@ pub trait ConfigStore: Send + Sync {
     fn secret(&self, key: &str) -> Result<Option<String>, GlossError>;
     /// 写入（或覆盖）密钥。
     fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError>;
+    /// 删除密钥；条目不存在视为成功（幂等，设置页「清除密钥」路径用）。
+    fn delete_secret(&self, key: &str) -> Result<(), GlossError>;
 }
 
 /// 缓存（端口）：core 内置 moka 内存实现（M3-T5）。
@@ -168,6 +170,11 @@ pub(crate) mod mocks {
                 .lock()
                 .expect("poisoned")
                 .insert(key.to_owned(), value.to_owned());
+            Ok(())
+        }
+
+        fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
+            self.secrets.lock().expect("poisoned").remove(key);
             Ok(())
         }
     }

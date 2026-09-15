@@ -11,7 +11,8 @@ use gloss_core::model::GlossError;
 const SERVICE: &str = "io.github.losmli010.gloss";
 
 /// errSecItemNotFound：keychain 条目不存在。security-framework crate 未
-/// 导出该常量，本地定义以免为此多引一个依赖（security-framework-sys）。
+/// 导出该常量，本地定义——不值得为单个常量把 security-framework-sys 升
+/// 成直接依赖。
 const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
 
 /// 密钥存储：以 `account`（即配置里的 `keychain_id`）定位条目，服务名
