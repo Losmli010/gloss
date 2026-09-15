@@ -12,8 +12,10 @@ set -euo pipefail
 # ---- 配置区 ----
 # 允许的 type 前缀
 ALLOWED_TYPES="feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert"
-# header 最大长度（type + scope + subject 合计，按字节计）
-MAX_SUBJECT_LEN=72
+# header 最大长度（type + scope + subject 合计，按字节计）。
+# 81 = 72 + 9：为中日韩标题多留 3 个汉字的余量（混合中英文标题在 72 下
+# 屡屡触线），对纯 ASCII 标题几乎无感。
+MAX_SUBJECT_LEN=81
 
 # ---- 读取 commit message ----
 if [ "$#" -lt 1 ]; then

@@ -102,7 +102,7 @@ just --list            # 查看全部 recipe
 ## 工作流
 
 - **分支**：一任务一分支，命名 `feat/<主题>`，合入用 squash。
-- **提交信息**：Conventional Commits；**标题 ≤ 72 字节**（本地 commitlint 会拒绝超长标题），正文说明「为什么」。
+- **提交信息**：Conventional Commits；**标题 ≤ 81 字节**（本地 commitlint 会拒绝超长标题；72 对中日韩混排标题过紧，+9 字节 ≈ 多 3 个汉字），正文说明「为什么」。
 - **门禁**：本地 `pre-commit` 跑 `just precommit`（fmt + clippy + secrets；命令一律带 `--workspace`——根目录存在根包时，不加则只作用于根包、漏掉成员 crate）；无 `.rs` 变更的提交只跑其中的密钥扫描。**测试交给 CI**，本地提交不必等编译测试。`just check`（fmt + clippy + test + secrets）保留给需要本地全量验证的场合。**不要用 `--no-verify` 绕过**。commit message 规范不在本地校验（git 跑 pre-commit 时消息还没落盘，读到的会是上一条），由 CI 的 commitlint job 兜底。
 - **CI**（ci.yml）：`quality`（fmt + clippy + secrets）最快，`test`（Linux/macOS/Windows 三平台矩阵）、`coverage`（行覆盖率 ≥ justfile 的 `coverage_min`，报告进 job summary 与 artifact）、`security`（cargo audit + deny）三个 job 都 `needs: quality`；另有每日定时安全检查（security-audit.yml）。
 - **推送与 PR**：不要自行推送或开 PR，等用户明确要求。
