@@ -125,9 +125,10 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// 落点（改动本节时同步更新）：`target_lang` / `model_by_kind` /
 /// `default_text_kind` 已在 M4-T3 接线（触发时解析进任务）；`base_url` /
 /// `provider_keys` 已在 M4-T4 接线（引擎每请求解析端点、按条目直查 keychain）；
-/// `enabled_kinds` 已在 M4-T6 接线（触发时过滤）；`auto_show` / `theme` /
-/// `hotkey_bindings` 已在 M4-T6 可编辑（`auto_show`/`theme` 的消费与热键
-/// 重注册归 M4-T7）；`cache_ttl_secs` 归缓存构造接线。
+/// `enabled_kinds` 已在 M4-T6 接线（触发时过滤）；`hotkey_bindings` /
+/// `theme` / `auto_show` 已在 M4-T7 接线（保存后重注册热键；主题施加到两个
+/// egui 上下文；auto_show 决定浮层何时自动露面）——这三项都**不**在触发时
+/// 冻结，见 06 §6.3；`cache_ttl_secs` 归缓存构造接线。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {

@@ -19,7 +19,7 @@ use futures_core::Stream;
 use crate::config::Config;
 use crate::model::{GlossError, ScreenRect};
 use crate::prompt::ChatMessage;
-use crate::task::{TaskKind, TaskOutcome};
+use crate::task::{HotkeyBinding, TaskKind, TaskOutcome};
 
 /// 装箱 future：让 trait 方法携带异步结果的同时保持对象安全（`dyn` 可用）。
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -129,6 +129,24 @@ pub trait Cache: Send + Sync {
     fn set(&self, key: u64, value: TaskOutcome);
 }
 
+/// 热键重绑定（端口，M4-T7）：把配置里的绑定表交给平台侧注册。
+///
+/// 与其余端口不同，本端口**有意不加 `Send + Sync`**——热键的注册与注销
+/// 必须在创建管理器的线程上执行：macOS 后端要求主线程跑 NSApp 事件循环，
+/// Windows 后端的隐藏窗口、`WM_HOTKEY` 投递连同 `Drop` 的 `DestroyWindow`
+/// 都亲和创建线程，其 `HWND` 本身就是 `!Send`。实现只允许在主线程使用；
+/// 调用方（设置页保存路径）本来就跑在主线程的事件循环里，因此这里是同步
+/// 调用而非通道命令——加 `Send` 反而会把一个用不上的跨线程承诺强加给实现。
+///
+/// 降级契约：绑定解析失败、被其他应用占用、管理器不可用等一律告警跳过，
+/// **不返回错误**——热键是可降级功能，某个键被占用不该让一次配置保存整体
+/// 失败（保存的落盘与快照替换照常完成）。
+pub trait HotkeyBinder {
+    /// 用给定绑定表**替换**当前注册（不是追加），返回实际生效的条数供
+    /// 调用方记日志；条数少于入参说明有绑定被降级跳过。
+    fn rebind(&self, bindings: &[HotkeyBinding]) -> usize;
+}
+
 /// 端口桩实现（测试辅助）：crate 内单测直接用，下游 crate 开 `test-util`
 /// 特性后可用（gloss-app 的 dev-dependencies 已开，L1 集成测试与 App 单测
 /// 靠它拿到配置存储桩）。
@@ -148,10 +166,11 @@ pub mod mocks {
     use futures_core::Stream;
 
     use crate::config::Config;
+    use crate::task::HotkeyBinding;
 
     use super::{
-        AiEngine, BoxFuture, Cache, ConfigStore, EngineRequest, GlossError, RegionCapture,
-        ScreenRect, SelectionReader, TaskOutcome, TaskStream,
+        AiEngine, BoxFuture, Cache, ConfigStore, EngineRequest, GlossError, HotkeyBinder,
+        RegionCapture, ScreenRect, SelectionReader, TaskOutcome, TaskStream,
     };
 
     /// 锁中毒恢复：测试基建不值得 panic，拿回守卫继续用（数据由测试自身
@@ -257,6 +276,38 @@ pub mod mocks {
         }
     }
 
+    /// 记录每次重绑定的热键桩。
+    ///
+    /// 与真实实现不同，它不接触任何平台资源。观测点是「调用发生过」与
+    /// 「收到的是哪份绑定表」，注入点是调用次数（首次装配不调、保存成功
+    /// 才调），够覆盖 M4-T7 的接线契约；真实的降级行为（键被别的应用占用
+    /// 而跳过、管理器不可用）由 gloss-platform 的 registrar 单测覆盖。
+    #[derive(Default)]
+    pub struct RecordingHotkeyBinder {
+        calls: Mutex<Vec<Vec<HotkeyBinding>>>,
+    }
+
+    impl RecordingHotkeyBinder {
+        /// 收到过的重绑定次数。
+        pub fn call_count(&self) -> usize {
+            lock_or_recover(&self.calls).len()
+        }
+
+        /// 最近一次收到的绑定表；从未被调用过时返回 `None`。
+        pub fn last(&self) -> Option<Vec<HotkeyBinding>> {
+            lock_or_recover(&self.calls).last().cloned()
+        }
+    }
+
+    impl HotkeyBinder for RecordingHotkeyBinder {
+        fn rebind(&self, bindings: &[HotkeyBinding]) -> usize {
+            lock_or_recover(&self.calls).push(bindings.to_vec());
+            // 桩不做平台注册，全部绑定视为生效——「几条被占用」是平台侧的
+            // 事实，桩不替它编一个结果。
+            bindings.len()
+        }
+    }
+
     /// 把预置增量序列变成流（futures-core 无构造子，测试自备最小适配）。
     pub fn delta_stream(chunks: Vec<Result<String, GlossError>>) -> TaskStream {
         struct Chunks(std::vec::IntoIter<Result<String, GlossError>>);
@@ -299,12 +350,12 @@ mod tests {
     use futures::StreamExt;
 
     use super::mocks::{
-        FixedRegionCapture, FixedSelectionReader, MemoryCache, MemoryConfigStore, ScriptedEngine,
-        delta_stream,
+        FixedRegionCapture, FixedSelectionReader, MemoryCache, MemoryConfigStore,
+        RecordingHotkeyBinder, ScriptedEngine, delta_stream,
     };
     use super::*;
     use crate::model::ScreenRect as Rect;
-    use crate::task::TaskKind;
+    use crate::task::{HotkeyBinding, InputSource, TaskKind};
 
     /// 引擎请求样例：桩不读它，只为满足端口签名。
     fn sample_request() -> EngineRequest {
@@ -385,6 +436,36 @@ mod tests {
         cache.set(1, outcome("cached"));
         assert_eq!(cache.get(1).map(|o| o.body), Some("cached".into()));
         assert!(cache.get(2).is_none(), "unrelated key must not see entry");
+    }
+
+    /// HotkeyBinder 契约：桩按序记下每次收到的绑定表，并如实回报生效条数。
+    /// 「从未调用」也要可区分——否则「保存没触发重注册」会被误判为通过。
+    #[test]
+    fn hotkey_binder_mock_records_every_call() {
+        let binder = RecordingHotkeyBinder::default();
+        assert_eq!(binder.call_count(), 0);
+        assert!(binder.last().is_none(), "no call means nothing to report");
+
+        let first = vec![HotkeyBinding {
+            trigger: "Cmd+Shift+D".into(),
+            kind: TaskKind::TranslateWord,
+            source: InputSource::Selection,
+        }];
+        assert_eq!(binder.rebind(&first), 1, "applied count mirrors the input");
+
+        let second = vec![HotkeyBinding {
+            trigger: "Cmd+Shift+E".into(),
+            kind: TaskKind::ExplainCode,
+            source: InputSource::Selection,
+        }];
+        binder.rebind(&second);
+        assert_eq!(binder.call_count(), 2);
+        assert_eq!(
+            binder.last(),
+            Some(second),
+            "the last call must win, not the first"
+        );
+        assert_eq!(binder.rebind(&[]), 0, "an empty table applies nothing");
     }
 
     /// AiEngine 契约：桩按脚本吐出流式增量，流可完整消费。

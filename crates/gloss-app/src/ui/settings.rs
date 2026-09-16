@@ -6,9 +6,10 @@
 //! API key 只存在于输入框字符串里，永不进 `Config` 草稿（配置红线：快照
 //! 不携带凭据）。
 //!
-//! 尚未被运行时消费的字段（`auto_show` / `theme` / `cache_ttl_secs`）照常
-//! 可编辑保存——配置先行，消费接线归 M4-T7 与缓存构造；热键绑定同样先落
-//! 配置，重注册归 M4-T7。
+//! 消费状态（M4-T7）：`hotkey_bindings` 保存后由壳立即重注册，`theme` /
+//! `auto_show` 也已在壳侧消费；只剩 `cache_ttl_secs` 尚未接上运行时（归
+//! 缓存构造接线），照常可编辑保存——配置先行，不至于为了一个字段把设置页
+//! 留一半空白。
 
 use egui::{Color32, RichText, ScrollArea};
 use gloss_core::config::{ALL_KINDS, Config, Theme};
@@ -358,7 +359,7 @@ fn lang_combo(ui: &mut egui::Ui, current: &mut Lang) {
         });
 }
 
-/// 主题标签与下拉（消费接线在 M4-T7，先可编辑保存）。
+/// 主题标签与下拉（消费在壳侧，见 `app::apply_theme`）。
 fn theme_combo(ui: &mut egui::Ui, current: &mut Theme) {
     egui::ComboBox::from_id_salt("theme")
         .selected_text(match current {
