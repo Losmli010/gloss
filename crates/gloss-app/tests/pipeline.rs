@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gloss_app::channel::{AcquireCommand, Channels, Command, Event, PlatformEvent};
-use gloss_app::machine::{AppState, OverlayView, TaskStateMachine};
+use gloss_app::machine::{AppState, ErrorAction, OverlayView, TaskStateMachine};
 use gloss_app::pipeline::start_command_runtime;
 use gloss_core::cache::MokaCache;
 use gloss_core::config::{Config, ModelBinding};
@@ -245,6 +245,42 @@ fn failure_lands_in_error_and_retry_succeeds() {
     }
     assert_eq!(pipe.machine.state(), AppState::Show);
     assert_eq!(outcome_body(&pipe.machine), "第二次的产物");
+}
+
+/// 验收标准（M4-T5）：可重试失败给出 Retry 出口；错误卡上的重试原样
+/// 重发同一个任务（同代数、不重新取材）并照常完成。
+#[test]
+fn error_card_retry_redispatches_the_same_task() {
+    let engine = MockEngine::new()
+        .with_execute_failure_once(GlossError::EngineNetwork)
+        .with_chunks(vec![Ok("重试后的产物".into())]);
+    let mut pipe = pipeline(&engine);
+
+    let _ = pipe.trigger_and_feed("第一次");
+    let Event::TaskFailed { generation, error } = pipe.events_rx.recv().unwrap() else {
+        panic!("task failed expected");
+    };
+    assert!(pipe.machine.accept_failed(generation, &error));
+    match pipe.machine.overlay_view() {
+        Some(OverlayView::Failed {
+            action: Some(ErrorAction::Retry),
+            ..
+        }) => {}
+        other => panic!("retryable failure expected, got {other:?}"),
+    }
+
+    let request = pipe.machine.retry().expect("retry must be available");
+    assert_eq!(request.generation, generation, "retry keeps the generation");
+    pipe.commands_tx
+        .send(Command::RunTask {
+            generation: request.generation,
+            task: request.task,
+            cancel: request.cancel,
+        })
+        .expect("command channel open");
+    wait_done(&mut pipe);
+    assert_eq!(pipe.machine.state(), AppState::Show);
+    assert_eq!(outcome_body(&pipe.machine), "重试后的产物");
 }
 
 #[allow(clippy::panic)] // 测试辅助：失败即 panic 是断言语义

@@ -3,16 +3,20 @@
 //!
 //! 每条 `RunTask` 的取消令牌经 `select!` 与 execute 竞速——取消在流式
 //! 读取的多个 await 点上即时生效，被取消的任务静默丢弃（App 已推进代
-//! 数，任何迟到产物都会被判 stale）。运行时由 [`start_command_runtime`]
-//! 创建并托管，进程退出时随通道③关闭自然收尾。
+//! 数，任何迟到产物都会被判 stale）。任务 future 包在 `catch_unwind`
+//! 里（06 §7「后台 panic 被 tokio 捕获转为 TaskFailed」）：引擎或编排
+//! 层炸掉时用户拿到失败卡而不是永悬的「推理中」，消费循环继续存活。
+//! 运行时由 [`start_command_runtime`] 创建并托管，进程退出时随通道③
+//! 关闭自然收尾。
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use crossbeam_channel::Sender;
+use futures::FutureExt;
 use gloss_core::config::DEFAULT_TEXT_MODEL;
 use gloss_core::engine::AiTaskService;
-use gloss_core::log::{debug, thread};
+use gloss_core::log::{debug, thread, warn};
 use gloss_core::model::GlossError;
 use gloss_core::task::Task;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -81,6 +85,9 @@ async fn consume_loop(
         // 取消与 execute 竞速：取消即时生效，覆盖 execute 内部的全部
         // await 点（渲染、缓存、流式读取）。被取消的任务不发任何回传——
         // App 取消时已 gen+1，迟到产物本就该被丢弃。
+        //
+        // execute 包在 catch_unwind 里：后台 panic 转 TaskFailed（错误
+        // 卡给用户「服务异常」而不是永悬的推理中），循环自身继续消费。
         tokio::select! {
             _ = cancel.cancelled() => {
                 debug!(
@@ -89,11 +96,31 @@ async fn consume_loop(
                     "task cancelled, result dropped"
                 );
             }
-            outcome = service.execute(&task, model, |delta| {
+            outcome = std::panic::AssertUnwindSafe(service.execute(&task, model, |delta| {
                 send_event(&events, &wake, Event::TaskChunk { generation, delta });
-            }) => match outcome {
-                Ok(outcome) => send_event(&events, &wake, Event::TaskDone { generation, outcome }),
-                Err(error) => send_event(&events, &wake, Event::TaskFailed { generation, error }),
+            }))
+            .catch_unwind() => match outcome {
+                Ok(Ok(outcome)) => send_event(&events, &wake, Event::TaskDone { generation, outcome }),
+                Ok(Err(error)) => send_event(&events, &wake, Event::TaskFailed { generation, error }),
+                Err(payload) => {
+                    let detail = panic_detail(&payload);
+                    warn!(
+                        thread = thread::TOKIO,
+                        generation = generation,
+                        detail = %detail,
+                        "background task panicked"
+                    );
+                    send_event(
+                        &events,
+                        &wake,
+                        Event::TaskFailed {
+                            generation,
+                            error: GlossError::EngineResponse(format!(
+                                "engine task panicked: {detail}"
+                            )),
+                        },
+                    );
+                }
             },
         }
     }
@@ -101,6 +128,17 @@ async fn consume_loop(
         thread = thread::TOKIO,
         "command channel closed, consumer exits"
     );
+}
+
+/// 从 panic payload 提取诊断文本（只认 `&str` / `String` 载体，其余没有
+/// 稳定形状）；上限与 SSE 诊断一致——这段文本会进 UI 与日志。
+fn panic_detail(payload: &Box<dyn std::any::Any + Send>) -> String {
+    let detail = payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "non-string panic payload".into());
+    detail.chars().take(200).collect()
 }
 
 /// 模型 id：任务自带（App 在触发时按 `Config::resolved_model` 解析）。
@@ -280,7 +318,7 @@ mod tests {
     }
 
     /// 图像任务没有可用模型时明确失败：不进引擎（不拿文本模型去接），
-    /// 错误经通道④回状态机，由 M4-T5 映射成「去设置页配模型」。
+    /// 错误经通道④回状态机，失败卡映射成「去设置页配模型」。
     #[tokio::test]
     async fn image_task_without_a_model_fails_before_the_engine() {
         let engine = MockEngine::new();
@@ -307,6 +345,44 @@ mod tests {
             "missing model must be reported as a config failure"
         );
         assert_eq!(engine.call_count(), 0, "engine must not be called");
+        drop(commands);
+        tokio::task::spawn_blocking(move || drop(runtime))
+            .await
+            .expect("shutdown");
+    }
+
+    /// 验收标准（M4-T5）：后台 panic 被 tokio 捕获转 TaskFailed（用户看
+    /// 到失败卡而不是永悬的推理中），且消费循环存活——后续任务照常执行。
+    #[tokio::test]
+    async fn background_panic_becomes_task_failed_and_the_loop_survives() {
+        let engine = MockEngine::new().with_execute_panic();
+        let (commands, events, runtime) = start(&engine);
+
+        run(&commands, 1, text_task("boom"));
+        assert!(
+            matches!(
+                events.recv().unwrap(),
+                Event::TaskFailed {
+                    generation: 1,
+                    error: GlossError::EngineResponse(_)
+                }
+            ),
+            "panic must surface as an engine response failure"
+        );
+
+        // 循环还活着：换回正常脚本，第二个任务照常完成（先 chunk 后 done）。
+        engine.clone().with_chunks(vec![Ok("劫后余生".into())]);
+        run(&commands, 2, text_task("again"));
+        loop {
+            match events.recv().unwrap() {
+                Event::TaskChunk {
+                    generation: 2,
+                    delta,
+                } => assert_eq!(delta, "劫后余生"),
+                Event::TaskDone { generation: 2, .. } => break,
+                other => panic!("unexpected event: {other:?}"),
+            }
+        }
         drop(commands);
         tokio::task::spawn_blocking(move || drop(runtime))
             .await
