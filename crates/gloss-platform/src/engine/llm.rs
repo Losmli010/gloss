@@ -77,7 +77,11 @@ impl AiEngine for LlmClient {
                 return Err(GlossError::EngineResponse("empty request".into()));
             }
             let snapshot = config.snapshot();
-            let (url, key) = resolve_target(&snapshot, store.as_ref())?;
+            // 端点与密钥分两条解析路径：端点只由配置决定，密钥只经 keychain，
+            // 两者不共用返回值——否则污染分析会把 URL 也算成「可能含密钥的
+            // 数据」，而真正该守的是「密钥只走 HTTPS 端点」这一条。
+            let url = resolve_endpoint(&snapshot)?;
+            let key = resolve_api_key(&snapshot, store.as_ref())?;
             let body = serde_json::json!({
                 "model": model,
                 "messages": messages,
@@ -109,37 +113,37 @@ impl AiEngine for LlmClient {
     }
 }
 
-/// 解析本请求的端点与密钥：端点在快照里，密钥每请求直查 keychain。
-fn resolve_target(
-    config: &Config,
-    store: &dyn ConfigStore,
-) -> Result<(String, String), GlossError> {
+/// 请求端点：由配置快照解析 `{base_url}/chat/completions`。
+fn resolve_endpoint(config: &Config) -> Result<String, GlossError> {
     let base_url = config.base_url.trim();
     if base_url.is_empty() {
         return Err(GlossError::Config("no provider endpoint configured".into()));
     }
-    let parsed_base = reqwest::Url::parse(base_url)
-        .map_err(|_| GlossError::Config("invalid provider endpoint configured".into()))?;
-    if parsed_base.scheme() != "https" {
+    let endpoint = reqwest::Url::parse(base_url)
+        .map_err(|err| GlossError::Config(format!("invalid provider endpoint: {err}")))?;
+    // 只接受 HTTPS：密钥经这个端点送出去，明文一律拒绝（本机网关请在前面
+    // 终止 TLS）。
+    if endpoint.scheme() != "https" {
         return Err(GlossError::Config(
             "provider endpoint must use https".into(),
         ));
     }
+    Ok(format!(
+        "{}/{CHAT_COMPLETIONS_PATH}",
+        endpoint.as_str().trim_end_matches('/')
+    ))
+}
 
+/// API 密钥：按 provider 条目的 keychain 标识**每请求直查**（不缓存，只进
+/// 请求头）。未配置时返回 [`GlossError::EngineAuth`]，由 UI 引导去设置页。
+fn resolve_api_key(config: &Config, store: &dyn ConfigStore) -> Result<String, GlossError> {
     let provider = config
         .active_provider()
         .ok_or_else(|| GlossError::Config("no provider configured".into()))?;
-    let key = store
+    store
         .secret(&provider.keychain_id)?
         .filter(|key| !key.trim().is_empty())
-        .ok_or(GlossError::EngineAuth)?;
-    Ok((
-        format!(
-            "{}/{CHAT_COMPLETIONS_PATH}",
-            parsed_base.as_str().trim_end_matches('/')
-        ),
-        key,
-    ))
+        .ok_or(GlossError::EngineAuth)
 }
 
 /// 传输层错误 → [`GlossError`]：连不上/超时/连接中断都可重试。
@@ -285,40 +289,83 @@ mod tests {
         )
     }
 
-    /// 端点与密钥的解析：出厂配置 + keychain 里的密钥得到完整 URL。
+    /// 端点解析：出厂配置得到 OpenAI 兼容的补全路径。
     #[test]
-    fn resolves_endpoint_and_key_from_config_and_keychain() {
-        let (handle, store) = fixture(Some("sk-test"));
-        let (url, key) = resolve_target(&handle.snapshot(), store.as_ref()).expect("resolve");
+    fn resolves_endpoint_from_config() {
+        let config = Config::default();
         assert_eq!(
-            url,
+            resolve_endpoint(&config).expect("resolve"),
             format!("{}/chat/completions", gloss_core::config::DEFAULT_BASE_URL)
         );
-        assert_eq!(key, "sk-test");
     }
 
     /// 端点尾斜杠不产生双斜杠（手改配置很常见）。
     #[test]
     fn endpoint_trimming_avoids_double_slash() {
-        let store = Arc::new(MemoryConfigStore::default());
-        store
-            .set_secret("gloss/deepseek", "sk-test")
-            .expect("stub store accepts secret");
         let config = Config {
             base_url: "https://example.test/v1/".into(),
             ..Default::default()
         };
-        let (url, _) = resolve_target(&config, store.as_ref()).expect("resolve should work");
-        assert_eq!(url, "https://example.test/v1/chat/completions");
+        assert_eq!(
+            resolve_endpoint(&config).expect("resolve"),
+            "https://example.test/v1/chat/completions"
+        );
+    }
+
+    /// 明文端点一律拒绝（含本机网关）：密钥经这个端点送出去，明文的密钥
+    /// 不出门；需要本地模型时在网关前终止 TLS。
+    #[test]
+    fn cleartext_endpoints_are_rejected() {
+        for base_url in [
+            "http://api.example.test/v1",
+            "http://localhost:11434/v1",
+            "http://127.0.0.1:8080/v1",
+        ] {
+            let config = Config {
+                base_url: base_url.into(),
+                ..Default::default()
+            };
+            assert!(
+                matches!(resolve_endpoint(&config), Err(GlossError::Config(_))),
+                "cleartext endpoint must be rejected: {base_url}"
+            );
+        }
+    }
+
+    /// 空串、非 http(s) 的 scheme 与解析不了的地址同样报配置错误（不猜一个
+    /// 端点替用户发出去）。
+    #[test]
+    fn unusable_endpoints_report_config_error() {
+        for base_url in ["", "   ", "file:///tmp/v1", "api.example.test/v1"] {
+            let config = Config {
+                base_url: base_url.into(),
+                ..Default::default()
+            };
+            assert!(
+                matches!(resolve_endpoint(&config), Err(GlossError::Config(_))),
+                "endpoint {base_url:?} must be rejected"
+            );
+        }
+    }
+
+    /// 密钥解析：出厂配置 + keychain 里的密钥可正常取出。
+    #[test]
+    fn resolves_key_from_keychain() {
+        let (handle, store) = fixture(Some("test-key-value"));
+        assert_eq!(
+            resolve_api_key(&handle.snapshot(), store.as_ref()).expect("resolve"),
+            "test-key-value"
+        );
     }
 
     /// 未配置密钥 → `EngineAuth`（UI 据此引导去设置页），而不是拿空 key 去请求。
     #[test]
     fn missing_key_reports_auth_error() {
         let (handle, store) = fixture(None);
-        let err = resolve_target(&handle.snapshot(), store.as_ref())
-            .expect_err("missing secret must fail");
-        assert_eq!(err, GlossError::EngineAuth);
+        assert_eq!(
+            resolve_api_key(&handle.snapshot(), store.as_ref()).expect_err("missing secret"),
+            GlossError::EngineAuth
+        );
     }
 
     /// 空白密钥（误存了一个空串）按未配置处理。
@@ -326,24 +373,9 @@ mod tests {
     fn blank_key_counts_as_missing() {
         let (handle, store) = fixture(Some("   "));
         assert_eq!(
-            resolve_target(&handle.snapshot(), store.as_ref()).expect_err("blank secret"),
+            resolve_api_key(&handle.snapshot(), store.as_ref()).expect_err("blank secret"),
             GlossError::EngineAuth
         );
-    }
-
-    /// 端点空串 → 配置错误（不猜一个端点替用户发出去）。
-    #[test]
-    fn missing_endpoint_reports_config_error() {
-        let store = Arc::new(MemoryConfigStore::default());
-        store
-            .set_secret("gloss/deepseek", "sk-test")
-            .expect("stub store accepts secret");
-        let config = Config {
-            base_url: String::new(),
-            ..Default::default()
-        };
-        let err = resolve_target(&config, store.as_ref()).expect_err("empty base_url");
-        assert!(matches!(err, GlossError::Config(_)), "got {err:?}");
     }
 
     /// 未配置 provider 条目 → 配置错误。
@@ -354,8 +386,10 @@ mod tests {
             provider_keys: Vec::new(),
             ..Default::default()
         };
-        let err = resolve_target(&config, store.as_ref()).expect_err("no provider");
-        assert!(matches!(err, GlossError::Config(_)), "got {err:?}");
+        assert!(matches!(
+            resolve_api_key(&config, store.as_ref()),
+            Err(GlossError::Config(_))
+        ));
     }
 
     /// 适配器状态机（不碰网络）：同一段响应按任意字节边界分块喂入，产出的
