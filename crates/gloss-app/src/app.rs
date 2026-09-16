@@ -49,8 +49,9 @@ impl Waker {
 ///
 /// `endpoints` 是 App 侧通道端点（① 收平台事件、② 发取材命令、③ 发推理
 /// 任务、④ 收回传事件），由组装点拆出移交；`config` 是运行时配置句柄
-/// （M4-T3），窗口每处理一次平台事件就取一份快照交给状态机——配置热更新
-/// 因此无需重启，也不必给 App 传配置存储。
+/// （M4-T3），在每一批平台事件的起手处取一份快照交给状态机（见
+/// [`GlossApp::drain_platform_events`]）——配置热更新因此无需重启，也不必
+/// 给 App 传配置存储。
 ///
 /// `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
@@ -141,7 +142,7 @@ struct GlossApp {
     /// 任务状态机（functional core，见 machine.rs）：纯状态转移，壳只做
     /// 通道发送、浮层窗口操作与日志。
     machine: TaskStateMachine,
-    /// 运行时配置句柄（M4-T3）：每次处理平台事件时取一份快照交给状态机，
+    /// 运行时配置句柄（M4-T3）：每批平台事件取一份快照交给状态机，
     /// 配置保存后无需重启即对下一次触发生效。
     config: Arc<ConfigHandle>,
 }
@@ -754,7 +755,7 @@ mod tests {
     fn saved_config_applies_to_the_next_trigger() {
         let (mut app, config, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
-        // 出厂默认：目标语言中文、未配模型（引擎用自身缺省兜底）。
+        // 出厂默认：目标语言中文、未配模型（由编排侧兜底模型填入）。
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
@@ -782,5 +783,39 @@ mod tests {
             task.options.model_override.as_deref(),
             Some("deepseek-chat")
         );
+    }
+
+    /// 快照在派发途中冻结：触发之后、取材产物到达之前保存了新配置，**在途
+    /// 任务仍用触发时那份**（选项在 `trigger` 时解析，`accept_input` 不再
+    /// 取配置），新配置只对下一次触发生效。
+    ///
+    /// 这是 App 层的护栏：`machine` 的单测证明不了它（`accept_input` 签名里
+    /// 没有 config），而 M4-T6/T7 改 App 时最可能踩的就是「派发时重新取快照」。
+    #[test]
+    fn saved_config_does_not_leak_into_the_inflight_task() {
+        let (mut app, config, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+
+        // 触发（拿到 v1 快照）→ 保存 v2 → 才喂取材产物。
+        trigger_selection(&mut app, &pe_tx);
+        config
+            .save(Config {
+                target_lang: Lang::Ja,
+                ..Default::default()
+            })
+            .expect("save should succeed");
+        assert!(app.accept_input(1, text_input("A")));
+
+        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        assert_eq!(
+            task.options.target_lang,
+            Some(Lang::Zh),
+            "in-flight task must keep the snapshot taken at trigger"
+        );
+
+        // 新配置对下一次触发生效。
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(2, text_input("B")));
+        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        assert_eq!(task.options.target_lang, Some(Lang::Ja));
     }
 }

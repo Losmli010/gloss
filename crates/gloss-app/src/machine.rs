@@ -67,7 +67,8 @@ pub enum OverlayView {
 pub struct RunRequest {
     /// 请求代数，与触发同值。
     pub generation: u64,
-    /// 组装好的任务（kind 来自触发时记录，选项缺省，M4 配置接入后填充）。
+    /// 组装好的任务：`kind` 与 `options` 都取自触发时那份配置快照（见
+    /// `PendingTask`），执行途中不再回读配置。
     pub task: Task,
     /// 随任务下发的取消令牌（App 侧同时留存，新触发时取消）。
     pub cancel: CancellationToken,
@@ -135,6 +136,13 @@ impl TaskStateMachine {
             cancel.cancel();
         }
         self.generation += 1;
+        // kind 从命令里取（两个变体都携带），选项按同一个 kind 从**同一份**
+        // 快照解析——这里是「单次任务内配置一致」的实现点。
+        //
+        // `CaptureRegion` 是 M5-T3 的预留：今天 `trigger` 不会返回它
+        // （`acquire_command_for` 对 Region 返回 None）。接线时必须同时让
+        // `accept_input` 接纳 `TaskInput::Image`，否则任务会卡在 `Fetching`
+        // 且不弹浮层（`accept_input` 只收文本）。
         let kind = match &command {
             AcquireCommand::AcquireText { kind, .. }
             | AcquireCommand::CaptureRegion { kind, .. } => *kind,
@@ -260,8 +268,10 @@ impl TaskStateMachine {
 }
 
 /// 平台事件 → 取材命令的映射：每次真实触发占用一个新代数；未接线的
-/// 平台事件（框选、设置、退出）返回 None。划词手势的任务类型来自配置
-/// （`Config::default_text_kind`，出厂 TranslateWord）。
+/// 平台事件（框选、设置、退出）返回 None。划词手势的任务类型来自配置的
+/// `default_text_kind`，并按取材源收口成文本类——配置写成图像 kind 时不
+/// 送进引擎挨模态校验（见 `Config::selection_task_kind`）；热键绑定携带的
+/// kind 是逐条显式意图，不做收口（M4-T7 配置化时校验）。
 fn acquire_command_for(
     event: &PlatformEvent,
     generation: u64,
@@ -278,7 +288,7 @@ fn acquire_command_for(
         },
         PlatformEvent::SelectionGesture => Some(AcquireCommand::AcquireText {
             generation,
-            kind: config.default_text_kind,
+            kind: config.selection_task_kind(),
         }),
         PlatformEvent::RegionGesture { .. }
         | PlatformEvent::OpenSettingsRequested
@@ -288,7 +298,7 @@ fn acquire_command_for(
 
 /// 按配置快照解析任务选项：目标语言取配置默认；模型按 kind 从
 /// `model_by_kind` 解析后随任务下发——引擎只见到任务自身携带的模型，
-/// 执行途中不再回读配置（未配置该 kind 时留空，由引擎用自身缺省兜底）。
+/// 执行途中不再回读配置（未配置该 kind 时留空，由编排侧兜底模型填入）。
 fn task_options(kind: TaskKind, config: &Config) -> TaskOptions {
     TaskOptions {
         target_lang: Some(config.target_lang.clone()),
@@ -360,13 +370,62 @@ mod tests {
         );
     }
 
-    /// 配置生效（M4-T3）：划词手势的任务类型来自快照的
-    /// `default_text_kind`，而不是写死的 TranslateWord。
+    /// 配置生效（M4-T3）：划词手势的任务类型取自快照的 `default_text_kind`，
+    /// **且**模型按同一个 kind 解析——两条断言并排，锁住「命令的 kind」与
+    /// 「选项里的模型」出自同一份快照、同一个 kind（只测其中一边的话，把
+    /// `task_options` 硬编码成 TranslateWord 也能全绿）。
     #[test]
-    fn selection_gesture_kind_comes_from_config_snapshot() {
+    fn selection_kind_and_options_pair_with_one_snapshot() {
         let mut machine = TaskStateMachine::new();
         let config = Config {
             default_text_kind: TaskKind::ExplainCode,
+            target_lang: Lang::Ja,
+            model_by_kind: vec![
+                ModelBinding {
+                    kind: TaskKind::TranslateWord,
+                    model: "word-model".into(),
+                },
+                ModelBinding {
+                    kind: TaskKind::ExplainCode,
+                    model: "code-model".into(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let command = machine
+            .trigger(&PlatformEvent::SelectionGesture, &config)
+            .expect("selection gesture must acquire");
+        assert!(
+            matches!(
+                command,
+                AcquireCommand::AcquireText {
+                    generation: 1,
+                    kind: TaskKind::ExplainCode
+                }
+            ),
+            "gesture kind must come from the snapshot"
+        );
+
+        let request = machine
+            .accept_input(1, text_input("fn main() {}"))
+            .expect("input should be accepted");
+        assert_eq!(request.task.kind, TaskKind::ExplainCode);
+        assert_eq!(request.task.options.target_lang, Some(Lang::Ja));
+        assert_eq!(
+            request.task.options.model_override.as_deref(),
+            Some("code-model"),
+            "model must be resolved for the same kind, not the factory default"
+        );
+    }
+
+    /// 取材源收口：配置把 `default_text_kind` 误配成图像 kind 时，划词路径
+    /// 回退文本 kind，而不是把必被模态校验拒的任务送进引擎。
+    #[test]
+    fn image_default_kind_falls_back_to_a_text_kind() {
+        let mut machine = TaskStateMachine::new();
+        let config = Config {
+            default_text_kind: TaskKind::ImageOcr,
             ..Default::default()
         };
 
@@ -376,38 +435,10 @@ mod tests {
         assert!(matches!(
             command,
             AcquireCommand::AcquireText {
-                generation: 1,
-                kind: TaskKind::ExplainCode
+                kind: TaskKind::TranslateWord,
+                ..
             }
         ));
-    }
-
-    /// 配置生效（M4-T3）：任务选项取自触发时那份快照——目标语言是配置值，
-    /// 模型按 kind 从 `model_by_kind` 解析后随任务下发。
-    #[test]
-    fn task_options_come_from_the_snapshot_taken_at_trigger() {
-        let mut machine = TaskStateMachine::new();
-        let config = Config {
-            target_lang: Lang::Ja,
-            model_by_kind: vec![ModelBinding {
-                kind: TaskKind::TranslateWord,
-                model: "deepseek-chat".into(),
-            }],
-            ..Default::default()
-        };
-
-        machine
-            .trigger(&PlatformEvent::SelectionGesture, &config)
-            .expect("trigger");
-        let request = machine
-            .accept_input(1, text_input("hello"))
-            .expect("input should be accepted");
-        assert_eq!(request.task.options.target_lang, Some(Lang::Ja));
-        assert_eq!(
-            request.task.options.model_override.as_deref(),
-            Some("deepseek-chat"),
-            "configured model must ride along with the task"
-        );
     }
 
     /// 快照在触发时定下：取材途中换配置（这里模拟为换一份 config 再喂
@@ -540,9 +571,9 @@ mod tests {
         );
     }
 
-    /// 模态错配不吃掉 pending_kind：同代数的合法 InputReady 仍可采纳。
+    /// 模态错配不吃掉 pending：同代数的合法 InputReady 仍可采纳。
     #[test]
-    fn modality_mismatch_preserves_pending_kind() {
+    fn modality_mismatch_preserves_pending_task() {
         let mut machine = TaskStateMachine::new();
         machine
             .trigger(&PlatformEvent::SelectionGesture, &Config::default())

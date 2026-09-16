@@ -5,7 +5,9 @@
 pub mod keychain;
 
 use std::fs;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use gloss_core::config::Config;
 use gloss_core::log::{info, warn};
@@ -14,6 +16,27 @@ use gloss_core::ports::ConfigStore;
 
 /// 配置目录下的文件名。
 const CONFIG_FILE: &str = "config.toml";
+
+/// 临时文件序号：只用进程号不够——同进程多线程并发写会用同一个 tmp 名互相
+/// 截断，加上单调序号后每次写入各用各的名字。
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// 取下一个临时文件序号。
+fn tmp_sequence() -> u64 {
+    TMP_SEQ.fetch_add(1, Ordering::Relaxed)
+}
+
+/// 解析错误的行号（1 基）。只取位置、不回传解析器文本（端口红线，见
+/// [`FileConfigStore::load`]）：span 缺失（部分数据错误）返回 `None`；span
+/// 落在字符中间时向前收敛——宁可报一个偏早的行号，也不让读配置的路径 panic。
+fn error_line(text: &str, span: Option<Range<usize>>) -> Option<usize> {
+    let span = span?;
+    let mut end = span.start.min(text.len());
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    Some(text[..end].matches('\n').count() + 1)
+}
 
 /// 配置文档半边：TOML 文件 + 原子写，不接触密钥。
 ///
@@ -50,8 +73,9 @@ impl FileConfigStore {
     }
 
     /// 原子写：先写同目录临时文件再 rename，断电/崩溃不会留下半份配置。
-    /// tmp 名带进程号：并发 save 时各写各的临时文件，rename 不会搬走别
-    /// 人的内容；不 fsync——配置可由缺文件路径重建，断电最多回上一版。
+    /// tmp 名带进程号 + 序号：并发 save（含同进程多线程）各写各的临时文件，
+    /// 不会互相截断、rename 也不会搬走别人的内容；不 fsync——配置可由缺文件
+    /// 路径重建，断电最多回上一版。
     fn write_atomic(&self, config: &Config) -> Result<(), GlossError> {
         let text = toml::to_string_pretty(config)
             .map_err(|e| GlossError::Config(format!("serialize config: {e}")))?;
@@ -60,7 +84,11 @@ impl FileConfigStore {
         })?;
         fs::create_dir_all(parent)
             .map_err(|e| GlossError::Config(format!("create {}: {e}", parent.display())))?;
-        let tmp = parent.join(format!("{CONFIG_FILE}.{}.tmp", std::process::id()));
+        let tmp = parent.join(format!(
+            "{CONFIG_FILE}.{}.{}.tmp",
+            std::process::id(),
+            tmp_sequence()
+        ));
         fs::write(&tmp, text)
             .map_err(|e| GlossError::Config(format!("write {}: {e}", tmp.display())))?;
         if let Err(err) = fs::rename(&tmp, &self.path) {
@@ -76,13 +104,57 @@ impl FileConfigStore {
         Ok(())
     }
 
+    /// 把读不出来的配置挪到一边（`config.toml.<秒级时间戳>.<序号>.bak`），
+    /// 返回备份路径。名字唯一，不覆盖既有备份，也不删原内容——用户手改的
+    /// 配置里可能有他真正想保留的部分，而下次保存会把 `config.toml` 整份
+    /// 覆盖掉。
+    fn quarantine(&self) -> Result<PathBuf, std::io::Error> {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since_epoch| since_epoch.as_secs());
+        let backup = self
+            .path
+            .with_extension(format!("toml.{stamp}.{}.bak", tmp_sequence()));
+        fs::rename(&self.path, &backup)?;
+        Ok(backup)
+    }
+
     /// 读取整份配置；缺文件是首次运行的正常路径——落一份出厂默认（用
     /// 户拿到可直接手改的文件）并返回默认值，首次落盘失败降级为仅内存
     /// 默认、不阻断启动（06 §3.3）。
+    ///
+    /// 解析失败是硬错误：坏文件先被隔离备份，错误里只给路径与行号，不转述
+    /// 解析器文本（它常引用出错行/取值，而用户可能把密钥贴错字段——端口
+    /// 红线）。
     pub fn load(&self) -> Result<Config, GlossError> {
         match fs::read_to_string(&self.path) {
-            Ok(text) => toml::from_str(&text)
-                .map_err(|e| GlossError::Config(format!("parse {}: {e}", self.path.display()))),
+            Ok(text) => match toml::from_str(&text) {
+                Ok(config) => Ok(config),
+                Err(err) => {
+                    let location = match error_line(&text, err.span()) {
+                        Some(line) => format!("line {line}"),
+                        None => "line unknown".to_owned(),
+                    };
+                    // 隔离失败只记 warn：读不出来才是主要错误，不该被它顶掉。
+                    match self.quarantine() {
+                        Ok(backup) => Err(GlossError::Config(format!(
+                            "config file {} is not valid toml ({location}); original kept at {}",
+                            self.path.display(),
+                            backup.display()
+                        ))),
+                        Err(io) => {
+                            warn!(
+                                "could not move aside unreadable config {}: {io}",
+                                self.path.display()
+                            );
+                            Err(GlossError::Config(format!(
+                                "config file {} is not valid toml ({location})",
+                                self.path.display()
+                            )))
+                        }
+                    }
+                }
+            },
             // 缺文件是首次运行的正常路径：落一份出厂默认，用户可直接改文件。
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 let config = Config::default();
@@ -265,17 +337,6 @@ mod tests {
         assert!(store.path().is_file());
     }
 
-    /// 损坏的配置文件是硬错误（read 端区别于缺文件的降级路径）。
-    #[test]
-    fn load_rejects_corrupt_file() {
-        let dir = tempfile::tempdir().expect("tempdir should create");
-        let store = FileConfigStore::in_dir(dir.path().to_path_buf());
-        std::fs::write(store.path(), "not [ valid toml").expect("write should succeed");
-
-        let err = store.load().expect_err("corrupt file must fail");
-        assert!(matches!(err, GlossError::Config(_)), "got: {err:?}");
-    }
-
     /// 组合体把文档方法完整委托给 FileConfigStore：save → load 往返
     /// 逐字段一致（密钥半边在这条路径上零参与，全平台可跑）。
     #[test]
@@ -387,6 +448,104 @@ mod tests {
                 .any(|c| c.as_os_str() == std::ffi::OsStr::new("gloss")),
             "expected a gloss-scoped directory, got {path:?}"
         );
+    }
+
+    /// 损坏的配置文件是硬错误（read 端区别于缺文件的降级路径），并且要留下
+    /// 证据：原文件被挪到 `.bak`（字节原样），而不是等着被下次保存覆盖掉。
+    /// 错误文本只给路径与行号，不转述解析器内容——用户可能把密钥贴错字段，
+    /// 而这条错误会进日志（端口红线）。
+    #[test]
+    fn load_rejects_corrupt_file_and_quarantines_it() {
+        let dir = tempfile::tempdir().expect("tempdir should create");
+        let store = FileConfigStore::in_dir(dir.path().to_path_buf());
+        // 合法 TOML、非法取值：解析器文本会引用出错取值（这里就是「密钥」）。
+        let broken = "target_lang = \"sk-secret-123\"\n";
+        std::fs::write(store.path(), broken).expect("write should succeed");
+
+        let err = store.load().expect_err("corrupt file must fail");
+        assert!(matches!(err, GlossError::Config(_)), "got: {err:?}");
+        assert!(
+            !err.to_string().contains("sk-secret-123"),
+            "error text must not quote the config content: {err}"
+        );
+        assert!(
+            !store.path().is_file(),
+            "broken document must be moved aside"
+        );
+
+        let backups = backups_in(dir.path());
+        assert_eq!(backups.len(), 1, "exactly one backup expected: {backups:?}");
+        assert_eq!(
+            std::fs::read_to_string(&backups[0]).expect("backup read should succeed"),
+            broken,
+            "backup must keep the original bytes"
+        );
+    }
+
+    /// 隔离之后能自愈：下一次 load 走缺文件路径，落一份可用的出厂默认。
+    #[test]
+    fn load_recovers_after_quarantine() {
+        let dir = tempfile::tempdir().expect("tempdir should create");
+        let store = FileConfigStore::in_dir(dir.path().to_path_buf());
+        std::fs::write(store.path(), "not [ valid toml").expect("write should succeed");
+        store.load().expect_err("corrupt file must fail");
+
+        let config = store.load().expect("second load should recover");
+        assert_eq!(config, Config::default());
+        assert!(store.path().is_file(), "fresh default must be persisted");
+    }
+
+    /// 同进程并发写不互踩：并发 save 全部成功，落盘文件仍是完整可解析的一份
+    /// 配置（tmp 名带序号后各写各的，rename 不会搬走别人的临时文件）。
+    #[test]
+    fn concurrent_saves_keep_the_document_parseable() {
+        let dir = tempfile::tempdir().expect("tempdir should create");
+        let store = std::sync::Arc::new(FileConfigStore::in_dir(dir.path().to_path_buf()));
+
+        let writers: Vec<_> = [Theme::Light, Theme::Dark, Theme::System, Theme::Light]
+            .into_iter()
+            .map(|theme| {
+                let store = std::sync::Arc::clone(&store);
+                std::thread::spawn(move || {
+                    let config = Config {
+                        theme,
+                        ..Default::default()
+                    };
+                    for _ in 0..20 {
+                        store.save(&config).expect("concurrent save should succeed");
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().expect("writer thread should not panic");
+        }
+
+        let reread = store.load().expect("document must stay parseable");
+        assert!(
+            matches!(reread.theme, Theme::Light | Theme::Dark | Theme::System),
+            "document must hold one complete version, got {reread:?}"
+        );
+    }
+
+    /// 目录里的隔离备份（`config.toml.<秒级时间戳>.<序号>.bak`），按名排序。
+    fn backups_in(dir: &Path) -> Vec<PathBuf> {
+        let mut found: Vec<_> = std::fs::read_dir(dir)
+            .expect("read_dir should succeed")
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.to_string_lossy().ends_with(".bak"))
+            .collect();
+        found.sort();
+        found
+    }
+
+    /// 行号定位：解析错误落在哪一行就报哪一行，span 缺失时返回 None。
+    #[test]
+    fn error_line_reports_the_offending_line() {
+        let text = "theme = \"Light\"\ntarget_lang = 7\n";
+        let offset = text.find('7').expect("fixture must contain the value");
+        assert_eq!(error_line(text, Some(offset..offset + 1)), Some(2));
+        assert_eq!(error_line(text, None), None);
     }
 
     /// 样例配置的 TTL 字段与 cache 出厂语义的对照（120 秒 < 出厂 1 小时，

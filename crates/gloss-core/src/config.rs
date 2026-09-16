@@ -69,6 +69,11 @@ pub struct ModelBinding {
 /// 应用配置：持久化为 TOML（`FileConfigStore`），运行时以整份快照在
 /// 各线程间共享（共享形态不携带密钥，见模块文档红线）。反序列化带 `#[serde(default)]`：
 /// 手改配置缺字段时按出厂默认补齐，不允许半份配置带病运行。
+///
+/// 落点（改动本节时同步更新）：`target_lang` / `model_by_kind` /
+/// `default_text_kind` 已在 M4-T3 接线（触发时解析进任务）；`provider_keys`
+/// 归 M4-T4；`cache_ttl_secs` 归缓存构造接线；`auto_show` / `theme` /
+/// `hotkey_bindings` 归 M4-T6 / M4-T7。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -107,6 +112,21 @@ impl Default for Config {
 }
 
 impl Config {
+    /// 划词手势（文本取材）实际使用的任务类型：`default_text_kind` 若被手改
+    /// 成图像 kind，回退出厂默认 `TranslateWord`。
+    ///
+    /// 划词路径只取得到文本，图像 kind 到引擎必被模态校验拒（`TaskFailed`），
+    /// 用户看到的会是与病因无关的提示——配置格式合法不代表组合可用，这里
+    /// 按取材源收口。图像取材是 M5-T3 的框选路径，届时由它消费
+    /// `hotkey_bindings` 里的 `InputSource::Region` 绑定，不受本方法影响。
+    pub fn selection_task_kind(&self) -> TaskKind {
+        if self.default_text_kind.accepts_text() {
+            self.default_text_kind
+        } else {
+            TaskKind::TranslateWord
+        }
+    }
+
     /// 查某任务类型的默认模型 id。同 kind 多条时**后条覆盖前条**（设置页
     /// 保存按追加语义更新）；未配置返回 `None`，兜底策略由调用方决定。
     pub fn model_for_kind(&self, kind: TaskKind) -> Option<&str> {
@@ -129,6 +149,8 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     /// 出厂默认值契约：与 06 §6.3 及热键写死默认对齐的抽查。
@@ -210,6 +232,37 @@ mod tests {
         assert_eq!(config.target_lang, Lang::Zh, "missing field must default");
         assert_eq!(config.cache_ttl_secs, 60 * 60);
         assert_eq!(config.hotkey_bindings.len(), 3);
+    }
+
+    /// 划词路径的 kind 收口：配置里写成图像 kind（手改误配）时回退
+    /// TranslateWord——划词只取得到文本，图像 kind 必被模态校验拒。
+    #[test]
+    fn selection_kind_falls_back_for_image_kinds() {
+        let misconfigured = Config {
+            default_text_kind: TaskKind::ImageOcr,
+            ..Default::default()
+        };
+        assert_eq!(
+            misconfigured.selection_task_kind(),
+            TaskKind::TranslateWord,
+            "image kind cannot be served by the selection gesture"
+        );
+
+        let text_config = Config {
+            default_text_kind: TaskKind::ExplainCode,
+            ..Default::default()
+        };
+        assert_eq!(text_config.selection_task_kind(), TaskKind::ExplainCode);
+    }
+
+    /// 出厂 TTL 与缓存实现同源：一条断言把两处钉在一起（此前只有注释声称
+    /// 一致，改一边不会有人红）。
+    #[test]
+    fn default_cache_ttl_matches_cache_implementation() {
+        assert_eq!(
+            Duration::from_secs(Config::default().cache_ttl_secs),
+            crate::cache::DEFAULT_TTL
+        );
     }
 
     /// 查找助手：后条覆盖前条；未配置返回 None。

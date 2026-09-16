@@ -57,6 +57,10 @@ pub trait RegionCapture: Send {
 /// AI 引擎（端口）：统一入口，不按输入模态拆分——文本/图文仅由消息
 /// payload 与模型 id（`Task.options` + 配置）决定。
 ///
+/// 模型从 `Task::options` 读取（App 在触发时按配置解析后随任务下发），
+/// **实现方不得回读配置**：否则「缓存 key 用的模型」与「实际请求的模型」
+/// 可能来自两份快照（`AiTaskService::execute` 用 `task.options` 算 key）。
+///
 /// 实现方保证：`execute` 返回的 future 与流都是 `'static` 且 `Send`——
 /// **不得借用 `task` 或 `self`**，任务数据需克隆（图像字节走 `Arc` 克隆
 /// 为 O(1)）或移入 future；消费端在 tokio 上轮询。取消不进本端口，由
@@ -76,7 +80,9 @@ pub trait AiEngine: Send + Sync {
 /// `Arc<dyn ConfigStore>` 注入。
 ///
 /// 密钥红线（AGENTS.md）：入参与返回值都是凭据，实现方禁止将其写进
-/// 日志、错误消息或 `EngineResponse` 这类携带诊断文本的变体。
+/// 日志、错误消息或 `EngineResponse` 这类携带诊断文本的变体。读取配置
+/// 失败时同理：错误文本不得转述配置文件内容（解析错误常引用出错行或
+/// 取值，而用户可能把密钥贴错字段），只给位置与类别。
 pub trait ConfigStore: Send + Sync {
     /// 读取整份配置；实现方保证缺文件时返回出厂默认（并尽力落盘）。
     fn load(&self) -> Result<Config, GlossError>;
@@ -108,8 +114,10 @@ pub trait Cache: Send + Sync {
 /// 靠它拿到配置存储桩）。
 ///
 /// 桩只承担两件事：**预置返回值**与**可注入的失败**——注入点要能造出想测
-/// 的那种时序，观测点要能证明它发生过（AGENTS.md「测试」）。需要新能力时
-/// 扩展本模块，别在测试里手搓 fake。
+/// 的那种时序，观测点要能证明它发生过（见 AGENTS.md「测试」一节）。需要新
+/// 能力时扩展本模块，别在测试里手搓 fake。本模块在 `--all-features` 下按
+/// 生产代码 lint（禁 unwrap/expect/panic），新增桩沿用 `lock_or_recover`
+/// 式的降级写法。
 #[cfg(any(test, feature = "test-util"))]
 pub mod mocks {
     use std::collections::HashMap;

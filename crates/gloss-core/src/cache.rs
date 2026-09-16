@@ -12,7 +12,9 @@ use crate::ports::Cache;
 use crate::task::{Task, TaskOutcome};
 
 /// 缓存条目存活时长：任务产物在会话内重复触发收益明显，超过后过期腾位置。
-const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
+/// `pub(crate)` 供 `config` 的出厂默认用例对齐——`Config::cache_ttl_secs`
+/// 的注释声称与此一致，两侧都写字面量时改一边不会有人红。
+pub(crate) const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
 
 /// 容量上限（条目数）：词条卡/翻译卡体积小，256 条足够覆盖高频场景，
 /// 超出由 moka 按 LRU（TinyLFU）逐出。

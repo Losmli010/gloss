@@ -19,7 +19,7 @@ use gloss_core::config::{Config, ModelBinding};
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::engine::mock::MockEngine;
-use gloss_core::model::GlossError;
+use gloss_core::model::{GlossError, Lang};
 use gloss_core::ports::AiEngine;
 use gloss_core::ports::mocks::MemoryConfigStore;
 use gloss_core::task::{TaskInput, TaskKind};
@@ -256,10 +256,17 @@ fn outcome_body(machine: &TaskStateMachine) -> &str {
 }
 
 /// 收事件直到本任务完成（缓存命中时没有 chunk，只有 TaskDone）。
+///
+/// 5 秒只是故障兜底：正常路径的同步点是 `TaskDone` 本身而不是时间；任务被
+/// 静默丢弃时应当当场失败并说明在等什么，而不是挂到 CI 作业超时。
 #[allow(clippy::expect_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
 fn wait_done(pipe: &mut Pipeline) {
     loop {
-        match pipe.events_rx.recv().expect("event expected") {
+        let event = pipe
+            .events_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("task must finish within 5s (waiting for chunk or done)");
+        match event {
             Event::TaskChunk { generation, delta } => {
                 assert!(pipe.machine.accept_chunk(generation, delta));
             }
@@ -275,13 +282,17 @@ fn wait_done(pipe: &mut Pipeline) {
     }
 }
 
-/// 验收标准（M4-T3）：运行时保存的配置贯穿到缓存 key——同一段文本，换
-/// 模型后不再命中旧产物，重新请求引擎；不换则命中缓存不再请求。
+/// 验收标准（M4-T3）：运行时保存的配置贯穿到缓存 key——同一段文本，改模型
+/// 或改目标语言后都不再命中旧产物，重新请求引擎；不改则命中缓存不再请求。
 ///
-/// 这一层能证伪的正是「配置只改在 UI、没进管道」：模型经快照解析进任务
+/// 这一层能证伪的正是「配置只改在 UI、没进管道」：配置值经快照解析进任务
 /// 选项（machine），再由桥送进 `AiTaskService` 参与 key（pipeline）。
+///
+/// 目标语言在管线里的可观察效果就是缓存未命中（`TaskOptions` 整体进 key）；
+/// prompt 文本目前不外露（`AiTaskService::execute` 渲染完即丢），所以这里
+/// 不从 prompt 断言。
 #[test]
-fn model_change_invalidates_cache_for_the_next_task() {
+fn config_change_invalidates_cache_for_the_next_task() {
     let engine = MockEngine::new().with_chunks(vec![Ok("结果".into())]);
     let mut pipe = pipeline(&engine);
 
@@ -298,7 +309,7 @@ fn model_change_invalidates_cache_for_the_next_task() {
         "unchanged config must hit the cache"
     );
 
-    // 设置页保存新模型（划词手势的 kind 即 TranslateWord）。
+    // 保存新模型（划词手势的 kind 即 TranslateWord）。
     pipe.config
         .save(Config {
             model_by_kind: vec![ModelBinding {
@@ -315,6 +326,26 @@ fn model_change_invalidates_cache_for_the_next_task() {
         engine.call_count(),
         2,
         "model switch must miss the old cache entry"
+    );
+
+    // 再改目标语言（模型同上）：同样按新配置重新请求。
+    pipe.config
+        .save(Config {
+            target_lang: Lang::Ja,
+            model_by_kind: vec![ModelBinding {
+                kind: TaskKind::TranslateWord,
+                model: "deepseek-chat".into(),
+            }],
+            ..Default::default()
+        })
+        .expect("save should succeed");
+
+    pipe.trigger_and_feed("同一段文本");
+    wait_done(&mut pipe);
+    assert_eq!(
+        engine.call_count(),
+        3,
+        "target language switch must miss the old cache entry"
     );
     assert_eq!(outcome_body(&pipe.machine), "结果");
 }
