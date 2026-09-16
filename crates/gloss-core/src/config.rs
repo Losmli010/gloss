@@ -17,6 +17,14 @@ use serde::{Deserialize, Serialize};
 use crate::model::Lang;
 use crate::task::{HotkeyBinding, InputSource, TaskKind};
 
+/// 出厂默认文本模型 id：既是 `model_by_kind` 的出厂值，也是 `model_by_kind`
+/// 缺项时的兜底——两处共用同一处字面量（各写一份时改一边不会有人红）。
+pub const DEFAULT_TEXT_MODEL: &str = "deepseek-chat";
+
+/// 出厂默认 OpenAI 兼容端点：DeepSeek（06 §八 的参考实现）。客户端按
+/// `{base_url}/chat/completions` 拼接，设置页可改。
+pub const DEFAULT_BASE_URL: &str = "https://api.deepseek.com/v1";
+
 /// 出厂默认热键表：与 `gloss-platform::events::hotkey` 的写死默认一致。
 /// 有意避开 macOS 截图（Cmd+Shift+3/4/5）等系统级组合。
 fn default_hotkey_bindings() -> Vec<HotkeyBinding> {
@@ -56,6 +64,14 @@ pub struct ProviderKey {
     pub keychain_id: String,
 }
 
+/// 出厂默认 provider 条目：密钥本体永远只在 keychain，这里只给条目标识。
+fn default_provider_keys() -> Vec<ProviderKey> {
+    vec![ProviderKey {
+        provider: "deepseek".into(),
+        keychain_id: "gloss/deepseek".into(),
+    }]
+}
+
 /// 任务类型 → 默认模型 id 的绑定：统一 LLM 客户端下，模态能力差异是
 /// 配置问题（06 §5.1）——文本任务配文本模型、图像任务配视觉模型。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +80,22 @@ pub struct ModelBinding {
     pub kind: TaskKind,
     /// 该任务默认使用的模型 id。
     pub model: String,
+}
+
+/// 出厂默认模型表：文本类任务先给出可用默认（用户装完只差一把钥匙），
+/// 图像类留空——视觉模型随 M5-T4 接入，未配置时由引擎报能力不匹配。
+fn default_model_bindings() -> Vec<ModelBinding> {
+    [
+        TaskKind::TranslateWord,
+        TaskKind::TranslateSentence,
+        TaskKind::ExplainCode,
+    ]
+    .into_iter()
+    .map(|kind| ModelBinding {
+        kind,
+        model: DEFAULT_TEXT_MODEL.to_owned(),
+    })
+    .collect()
 }
 
 /// 应用配置：持久化为 TOML（`FileConfigStore`），运行时以整份快照在
@@ -77,6 +109,10 @@ pub struct ModelBinding {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// OpenAI 兼容端点的基地址，客户端按 `{base_url}/chat/completions`
+    /// 拼接（尾斜杠会被去掉）。MVP 单端点，多 provider 路由出现时再把它
+    /// 移进 provider 条目；空串视为未配置（引擎明确报错，不猜端点）。
+    pub base_url: String,
     /// 各 provider 的 keychain 条目标识；密钥本体只在 keychain。
     pub provider_keys: Vec<ProviderKey>,
     /// 每个任务类型的默认模型 id。
@@ -98,8 +134,9 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            provider_keys: Vec::new(),
-            model_by_kind: Vec::new(),
+            base_url: DEFAULT_BASE_URL.to_owned(),
+            provider_keys: default_provider_keys(),
+            model_by_kind: default_model_bindings(),
             target_lang: Lang::Zh,
             hotkey_bindings: default_hotkey_bindings(),
             default_text_kind: TaskKind::TranslateWord,
@@ -137,6 +174,20 @@ impl Config {
             .map(|binding| binding.model.as_str())
     }
 
+    /// 本任务实际使用的模型 id：`model_by_kind` 配了就用它，否则文本类任务
+    /// 退回出厂默认 [`DEFAULT_TEXT_MODEL`]；图像类未配置时返回 `None`——
+    /// 视觉模型随 M5-T4 接入，不猜一个文本模型去接图像任务。
+    pub fn resolved_model(&self, kind: TaskKind) -> Option<&str> {
+        self.model_for_kind(kind)
+            .or_else(|| kind.accepts_text().then_some(DEFAULT_TEXT_MODEL))
+    }
+
+    /// 本任务使用的 provider 条目：MVP 单端点，取最后一条（与
+    /// `keychain_id_for` 的「后条覆盖前条」一致）；未配置返回 `None`。
+    pub fn active_provider(&self) -> Option<&ProviderKey> {
+        self.provider_keys.last()
+    }
+
     /// 查某 provider 的 keychain 条目标识（同 provider 多条时后条覆盖前条）。
     pub fn keychain_id_for(&self, provider: &str) -> Option<&str> {
         self.provider_keys
@@ -162,8 +213,27 @@ mod tests {
         assert!(config.auto_show);
         assert_eq!(config.cache_ttl_secs, 60 * 60);
         assert_eq!(config.theme, Theme::System);
-        assert!(config.provider_keys.is_empty());
-        assert!(config.model_by_kind.is_empty());
+        assert_eq!(config.base_url, DEFAULT_BASE_URL);
+
+        // 文本任务装完即可用（只差 keychain 里那把钥匙）；图像任务留空，
+        // 免得拿文本模型去接图像任务。
+        assert_eq!(
+            config.resolved_model(TaskKind::TranslateWord),
+            Some(DEFAULT_TEXT_MODEL)
+        );
+        assert_eq!(
+            config.resolved_model(TaskKind::TranslateSentence),
+            Some(DEFAULT_TEXT_MODEL)
+        );
+        assert_eq!(
+            config.resolved_model(TaskKind::ExplainCode),
+            Some(DEFAULT_TEXT_MODEL)
+        );
+        assert_eq!(config.resolved_model(TaskKind::ImageOcr), None);
+
+        let provider = config.active_provider().expect("factory provider");
+        assert_eq!(provider.provider, "deepseek");
+        assert_eq!(provider.keychain_id, "gloss/deepseek");
 
         let triggers: Vec<_> = config
             .hotkey_bindings
@@ -193,6 +263,7 @@ mod tests {
     #[test]
     fn config_round_trips_through_serde() {
         let config = Config {
+            base_url: "https://example.test/v1".into(),
             provider_keys: vec![ProviderKey {
                 provider: "deepseek".into(),
                 keychain_id: "gloss/deepseek".into(),

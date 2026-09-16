@@ -280,6 +280,7 @@ mod tests {
     /// 带齐全量字段差异的样例配置，用于锁定往返一致性。
     fn sample_config() -> Config {
         Config {
+            base_url: "https://example.test/v1".into(),
             provider_keys: vec![ProviderKey {
                 provider: "deepseek".into(),
                 keychain_id: "gloss/deepseek".into(),

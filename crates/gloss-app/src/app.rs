@@ -535,7 +535,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
 mod tests {
     use super::*;
     use crate::machine::{AppState, OverlayView};
-    use gloss_core::config::{Config, ModelBinding};
+    use gloss_core::config::{Config, DEFAULT_TEXT_MODEL, ModelBinding};
     use gloss_core::model::Lang;
     use gloss_core::ports::mocks::MemoryConfigStore;
     use gloss_core::task::TaskKind;
@@ -755,12 +755,15 @@ mod tests {
     fn saved_config_applies_to_the_next_trigger() {
         let (mut app, config, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
-        // 出厂默认：目标语言中文、未配模型（由编排侧兜底模型填入）。
+        // 出厂默认：目标语言中文 + 出厂文本模型（用户只差 keychain 里那把钥匙）。
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
         assert_eq!(task.options.target_lang, Some(Lang::Zh));
-        assert_eq!(task.options.model_override, None);
+        assert_eq!(
+            task.options.model_override.as_deref(),
+            Some(DEFAULT_TEXT_MODEL)
+        );
 
         // 设置页保存（ConfigHandle：写文件 + 原子替换快照）。
         config
@@ -768,7 +771,7 @@ mod tests {
                 target_lang: Lang::Ja,
                 model_by_kind: vec![ModelBinding {
                     kind: TaskKind::TranslateWord,
-                    model: "deepseek-chat".into(),
+                    model: "deepseek-reasoner".into(),
                 }],
                 ..Default::default()
             })
@@ -781,7 +784,7 @@ mod tests {
         assert_eq!(task.options.target_lang, Some(Lang::Ja));
         assert_eq!(
             task.options.model_override.as_deref(),
-            Some("deepseek-chat")
+            Some("deepseek-reasoner")
         );
     }
 

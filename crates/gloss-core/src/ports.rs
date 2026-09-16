@@ -18,7 +18,8 @@ use futures_core::Stream;
 
 use crate::config::Config;
 use crate::model::{GlossError, ScreenRect};
-use crate::task::{Task, TaskOutcome};
+use crate::prompt::ChatMessage;
+use crate::task::{TaskKind, TaskOutcome};
 
 /// 装箱 future：让 trait 方法携带异步结果的同时保持对象安全（`dyn` 可用）。
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -54,20 +55,37 @@ pub trait RegionCapture: Send {
     fn capture(&mut self, rect: ScreenRect) -> Result<Arc<[u8]>, GlossError>;
 }
 
-/// AI 引擎（端口）：统一入口，不按输入模态拆分——文本/图文仅由消息
-/// payload 与模型 id（`Task.options` + 配置）决定。
+/// 引擎请求（[`AiEngine`] 的入参）：**已渲染**的对话消息 + **已解析**的
+/// 模型 id。
 ///
-/// 模型从 `Task::options` 读取（App 在触发时按配置解析后随任务下发），
-/// **实现方不得回读配置**：否则「缓存 key 用的模型」与「实际请求的模型」
-/// 可能来自两份快照（`AiTaskService::execute` 用 `task.options` 算 key）。
+/// 渲染是 core 编排的职责（`AiTaskService` 调 `PromptRegistry`，含模态校验），
+/// 引擎只负责把请求送出去、把响应流回来——不做渲染，也不回读配置。模型随
+/// 请求携带而非由引擎查表：否则「缓存 key 用的模型」与「实际请求的模型」可以
+/// 来自两份配置快照（模型参与缓存 key，见 `AiTaskService::execute`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EngineRequest {
+    /// 任务类型：引擎侧只用于诊断与能力判断，不参与渲染。
+    pub kind: TaskKind,
+    /// 渲染好的消息（多模态 content 数组随 M5-T4 扩展）。
+    pub messages: Vec<ChatMessage>,
+    /// 本任务使用的模型 id（App 在触发时按配置解析）。
+    pub model: String,
+}
+
+/// AI 引擎（端口）：统一入口，不按输入模态拆分——文本/图文仅由消息
+/// payload 与模型 id（[`EngineRequest`]）决定。
 ///
 /// 实现方保证：`execute` 返回的 future 与流都是 `'static` 且 `Send`——
-/// **不得借用 `task` 或 `self`**，任务数据需克隆（图像字节走 `Arc` 克隆
-/// 为 O(1)）或移入 future；消费端在 tokio 上轮询。取消不进本端口，由
-/// 调用方以 `CancellationToken` 在 await 侧竞速（08 §4.2 的单一取消机制）。
+/// **不得借用 `request` 或 `self`**，请求数据需克隆或移入 future；消费端
+/// 在 tokio 上轮询。取消不进本端口，由调用方以 `CancellationToken` 在
+/// await 侧竞速（08 §4.2 的单一取消机制）——实现方只需保证 future 被丢弃
+/// 时连接随之关闭（异步客户端的默认行为）。
 pub trait AiEngine: Send + Sync {
-    /// 执行任务，返回流式产物流。
-    fn execute(&self, task: &Task) -> BoxFuture<'static, Result<TaskStream, GlossError>>;
+    /// 执行请求，返回流式产物流。
+    fn execute(
+        &self,
+        request: &EngineRequest,
+    ) -> BoxFuture<'static, Result<TaskStream, GlossError>>;
 }
 
 /// 配置存储（端口）：应用配置与密钥的读写边界。
@@ -130,8 +148,8 @@ pub mod mocks {
     use crate::config::Config;
 
     use super::{
-        AiEngine, BoxFuture, Cache, ConfigStore, GlossError, RegionCapture, ScreenRect,
-        SelectionReader, Task, TaskOutcome, TaskStream,
+        AiEngine, BoxFuture, Cache, ConfigStore, EngineRequest, GlossError, RegionCapture,
+        ScreenRect, SelectionReader, TaskOutcome, TaskStream,
     };
 
     /// 锁中毒恢复：测试基建不值得 panic，拿回守卫继续用（数据由测试自身
@@ -262,7 +280,10 @@ pub mod mocks {
     );
 
     impl AiEngine for ScriptedEngine {
-        fn execute(&self, _task: &Task) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
+        fn execute(
+            &self,
+            _request: &EngineRequest,
+        ) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
             let chunks = self.0.clone();
             Box::pin(async move { Ok(delta_stream(chunks)) })
         }
@@ -281,16 +302,17 @@ mod tests {
     };
     use super::*;
     use crate::model::ScreenRect as Rect;
-    use crate::task::{TaskInput, TaskKind, TaskOptions};
+    use crate::task::TaskKind;
 
-    fn sample_task() -> Task {
-        Task {
+    /// 引擎请求样例：桩不读它，只为满足端口签名。
+    fn sample_request() -> EngineRequest {
+        EngineRequest {
             kind: TaskKind::TranslateWord,
-            input: TaskInput::Text {
-                text: "gloss".into(),
-                hint: None,
-            },
-            options: TaskOptions::default(),
+            messages: vec![ChatMessage {
+                role: crate::prompt::Role::User,
+                content: "gloss".into(),
+            }],
+            model: "mock-model".into(),
         }
     }
 
@@ -368,7 +390,7 @@ mod tests {
     async fn ai_engine_mock_streams_scripted_deltas() {
         let engine = ScriptedEngine(vec![Ok("光".into()), Ok("泽".into())]);
         let mut stream = engine
-            .execute(&sample_task())
+            .execute(&sample_request())
             .await
             .expect("execute should succeed");
 

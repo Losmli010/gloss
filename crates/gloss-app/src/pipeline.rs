@@ -10,17 +10,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crossbeam_channel::Sender;
+use gloss_core::config::DEFAULT_TEXT_MODEL;
 use gloss_core::engine::AiTaskService;
 use gloss_core::log::{debug, thread};
 use gloss_core::task::Task;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::channel::{Command, Event};
-
-/// 任务未带模型时的兜底 id：配置没配 `model_by_kind` 时用（App 侧按
-/// `Config::model_for_kind` 解析，配了就随任务下发）；M4-T4 接 LlmClient
-/// 后由它换成真实默认模型。模型参与缓存 key——同任务换模型不命中旧产物。
-const MOCK_MODEL: &str = "gloss-mock";
 
 /// 关停运行时的等待上限：正常退出路径里通道③已关闭、消费循环已在收尾，
 /// 只兜底极端悬挂。
@@ -97,9 +93,14 @@ async fn consume_loop(
     );
 }
 
-/// 模型 id：任务自带（App 在触发时按配置解析）优先，缺省走 MOCK_MODEL 兜底。
+/// 模型 id：任务自带（App 在触发时按配置解析，含出厂默认）优先；留空时退回
+/// 同一处出厂默认常量——留空只出现在未经 App 解析的任务上（测试直接构造的
+/// 那种）。模型参与缓存 key：同任务换模型不命中旧产物。
 fn model_for(task: &Task) -> &str {
-    task.options.model_override.as_deref().unwrap_or(MOCK_MODEL)
+    task.options
+        .model_override
+        .as_deref()
+        .unwrap_or(DEFAULT_TEXT_MODEL)
 }
 
 /// 回传事件 + 唤醒主线程；接收端消失（应用退出）时静默丢弃。

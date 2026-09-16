@@ -16,8 +16,7 @@ use futures_core::Stream;
 use tokio::time::sleep;
 
 use crate::model::GlossError;
-use crate::ports::{AiEngine, BoxFuture, TaskStream};
-use crate::task::Task;
+use crate::ports::{AiEngine, BoxFuture, EngineRequest, TaskStream};
 
 /// 锁中毒恢复：测试基建不值得 panic，拿回守卫继续用（数据由测试自身
 /// 单线程写入，中毒不可能源于本模块逻辑）。
@@ -101,7 +100,10 @@ impl Default for MockEngine {
 }
 
 impl AiEngine for MockEngine {
-    fn execute(&self, _task: &Task) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
+    fn execute(
+        &self,
+        _request: &EngineRequest,
+    ) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
         self.inner.calls.fetch_add(1, Ordering::Relaxed);
         let once = lock_or_recover(&self.inner.once_failures).pop_front();
         if let Some(error) = once {
@@ -174,16 +176,18 @@ mod tests {
     use super::MockEngine;
     use crate::model::GlossError;
     use crate::ports::AiEngine;
-    use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
+    use crate::ports::EngineRequest;
+    use crate::prompt::ChatMessage;
+    use crate::task::TaskKind;
 
-    fn sample_task() -> Task {
-        Task {
+    fn sample_request() -> EngineRequest {
+        EngineRequest {
             kind: TaskKind::TranslateWord,
-            input: TaskInput::Text {
-                text: "gloss".into(),
-                hint: None,
-            },
-            options: TaskOptions::default(),
+            messages: vec![ChatMessage {
+                role: crate::prompt::Role::User,
+                content: "gloss".into(),
+            }],
+            model: "mock-model".into(),
         }
     }
 
@@ -194,7 +198,7 @@ mod tests {
         let engine = MockEngine::new()
             .with_chunk_delay(Duration::from_millis(30))
             .with_chunks(vec![Ok("光".into()), Ok("泽".into()), Ok("注释".into())]);
-        let mut stream = engine.execute(&sample_task()).await.expect("stream");
+        let mut stream = engine.execute(&sample_request()).await.expect("stream");
 
         let start = Instant::now();
         let mut seen = Vec::new();
@@ -219,7 +223,7 @@ mod tests {
             GlossError::EngineResponse("bad json".into()),
         ] {
             let engine = MockEngine::new().with_execute_failure(error.clone());
-            match engine.execute(&sample_task()).await {
+            match engine.execute(&sample_request()).await {
                 Err(actual) => assert_eq!(actual, error, "failure must surface verbatim"),
                 Ok(_) => panic!("expected {error:?}, got a stream"),
             }
@@ -230,7 +234,7 @@ mod tests {
             Err(GlossError::EngineNetwork),
             Ok("流继续".into()),
         ]);
-        let mut stream = mid_stream.execute(&sample_task()).await.expect("stream");
+        let mut stream = mid_stream.execute(&sample_request()).await.expect("stream");
         assert_eq!(stream.next().await, Some(Ok("部分".into())));
         assert_eq!(
             stream.next().await,
@@ -248,7 +252,7 @@ mod tests {
     async fn call_count_tracks_execute_invocations() {
         let engine = MockEngine::new().with_chunks(vec![Ok("x".into())]);
         assert_eq!(engine.call_count(), 0);
-        let mut stream = engine.execute(&sample_task()).await.expect("stream");
+        let mut stream = engine.execute(&sample_request()).await.expect("stream");
         while let Some(chunk) = stream.next().await {
             chunk.expect("chunk ok");
         }
@@ -256,7 +260,7 @@ mod tests {
 
         // 克隆共享同一计数。
         let cloned = engine.clone();
-        let _ = cloned.execute(&sample_task()).await.expect("stream");
+        let _ = cloned.execute(&sample_request()).await.expect("stream");
         assert_eq!(engine.call_count(), 2);
     }
 
@@ -264,7 +268,7 @@ mod tests {
     #[tokio::test]
     async fn empty_script_yields_empty_stream() {
         let engine = MockEngine::new();
-        let mut stream = engine.execute(&sample_task()).await.expect("stream");
+        let mut stream = engine.execute(&sample_request()).await.expect("stream");
         assert!(stream.next().await.is_none());
     }
 }

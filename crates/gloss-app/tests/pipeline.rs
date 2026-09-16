@@ -309,12 +309,12 @@ fn config_change_invalidates_cache_for_the_next_task() {
         "unchanged config must hit the cache"
     );
 
-    // 保存新模型（划词手势的 kind 即 TranslateWord）。
+    // 保存新模型（划词手势的 kind 即 TranslateWord；与出厂默认不同的 id）。
     pipe.config
         .save(Config {
             model_by_kind: vec![ModelBinding {
                 kind: TaskKind::TranslateWord,
-                model: "deepseek-chat".into(),
+                model: "deepseek-reasoner".into(),
             }],
             ..Default::default()
         })
@@ -334,7 +334,7 @@ fn config_change_invalidates_cache_for_the_next_task() {
             target_lang: Lang::Ja,
             model_by_kind: vec![ModelBinding {
                 kind: TaskKind::TranslateWord,
-                model: "deepseek-chat".into(),
+                model: "deepseek-reasoner".into(),
             }],
             ..Default::default()
         })
