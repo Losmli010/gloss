@@ -73,7 +73,9 @@ pub struct EngineRequest {
 }
 
 /// AI 引擎（端口）：统一入口，不按输入模态拆分——文本/图文仅由消息
-/// payload 与模型 id（[`EngineRequest`]）决定。
+/// payload 与模型 id（[`EngineRequest`]）决定。渲染归 core 编排（引擎不做
+/// 渲染）；**模型不回读配置**（随请求携带）。引擎自己读快照的只有端点与
+/// provider 条目——这两者不进缓存 key，每请求取一次换来改端点无需重启。
 ///
 /// 实现方保证：`execute` 返回的 future 与流都是 `'static` 且 `Send`——
 /// **不得借用 `request` 或 `self`**，请求数据需克隆或移入 future；消费端

@@ -191,6 +191,27 @@ if [ -f "$AGENTS_MD" ]; then
 fi
 ok "依赖方向（${edges} 条本仓库依赖边 + 各 crate 的 crate 名登记）"
 
+# ---- 约束「依赖方向」附加红线：测试桩不得进生产构建 ----
+# core 的 `test-util` 特性会打开 MockEngine 与 ports::mocks；生产装配只需要
+# 真实引擎（M4-T4 起），桩只该由下游 crate 的 dev-dependencies 开启。这条以前
+# 靠一次性人工 `cargo tree` 核对，现在钉成门禁：谁把它加回 [dependencies]（含
+# target 门控的非 dev 段），这里当场失败。
+stub_deps=0
+while IFS='|' read -r owner manifest sec key start text; do
+  [ -n "$owner" ] || continue
+  [ "$key" = "gloss-core" ] || continue
+  case "$sec" in
+    *dev-dependencies*) continue ;;
+  esac
+  case "$text" in
+    *test-util*)
+      fail "约束「依赖方向」：${owner} 的非 dev 依赖启用了 gloss-core/test-util（$(rel "$manifest"):${start}）——测试桩会进生产构建，只允许写在 dev-dependencies 里"
+      ;;
+    *) stub_deps=$((stub_deps + 1)) ;;
+  esac
+done <<<"$DEP_DUMP"
+ok "测试桩不进生产构建（核对 ${stub_deps} 条非 dev 的本仓库依赖）"
+
 # ---- 约束「日志统一出口」 ----
 log_owners=""
 while IFS='|' read -r owner manifest sec key start text; do

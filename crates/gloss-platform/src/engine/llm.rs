@@ -33,6 +33,35 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// 聊天补全路径（OpenAI 兼容）。
 const CHAT_COMPLETIONS_PATH: &str = "chat/completions";
 
+/// 错误响应体的读取上限：只要 `error.message`，多余字节没有价值，而错误
+/// 网关的劫持页可能极大（截断后 JSON 解析失败会退化成「只报状态码」，
+/// 与既有非 JSON 路径一致）。
+const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+
+/// 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。
+///
+/// 抽成纯函数是为了让它可断言：`model` / `messages` / `stream` 三个键是
+/// 发往付费端点的硬契约，写错了只有真机跑才会发现。
+fn chat_request_body(request: &EngineRequest) -> serde_json::Value {
+    serde_json::json!({
+        "model": request.model,
+        "messages": request.messages,
+        "stream": true,
+    })
+}
+
+/// 读响应体但不超过 `limit` 字节（丢失的只是诊断文本，不是业务数据）。
+async fn read_bounded_body(response: &mut reqwest::Response, limit: usize) -> String {
+    let mut body = Vec::new();
+    while let Ok(Some(chunk)) = response.chunk().await {
+        body.extend_from_slice(&chunk);
+        if body.len() >= limit {
+            break;
+        }
+    }
+    String::from_utf8_lossy(&body).into_owned()
+}
+
 /// OpenAI 兼容流式引擎。
 pub struct LlmClient {
     /// 复用连接池的 HTTP 客户端（建连超时在这里定）。
@@ -48,6 +77,12 @@ impl LlmClient {
     pub fn new(config: Arc<ConfigHandle>, store: Arc<dyn ConfigStore>) -> Result<Self, GlossError> {
         let client = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
+            // 带一个明确的 UA：部分前置 CDN 对空 UA 返回 403，而 403 在这里
+            // 会被映射成 EngineAuth，用户会被引去重填密钥——方向完全错了。
+            .user_agent(concat!("gloss/", env!("CARGO_PKG_VERSION")))
+            // 不跟随重定向：OpenAI 兼容端点不需要，且避免 Authorization 在
+            // 「同 host:port 的 https→http 降级」这类窄条件下被转发出去。
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|err| GlossError::EngineResponse(format!("build http client: {err}")))?;
         Ok(Self {
@@ -76,19 +111,24 @@ impl AiEngine for LlmClient {
                 // 不该把一个空 body 发给付费端点。
                 return Err(GlossError::EngineResponse("empty request".into()));
             }
+            // 空白模型同样是配置问题：发了也是必然 400 的请求，还会把病因
+            // 藏进服务端的错误文案里（手改 model_by_kind 或 M4-T6 存了空串）。
+            if model.trim().is_empty() {
+                return Err(GlossError::Config("empty model id".into()));
+            }
             let snapshot = config.snapshot();
             // 端点与密钥分两条解析路径：端点只由配置决定，密钥只经 keychain，
             // 两者不共用返回值——否则污染分析会把 URL 也算成「可能含密钥的
             // 数据」，而真正该守的是「密钥只走 HTTPS 端点」这一条。
             let url = resolve_endpoint(&snapshot)?;
             let key = resolve_api_key(&snapshot, store.as_ref())?;
-            let body = serde_json::json!({
-                "model": model,
-                "messages": messages,
-                "stream": true,
+            let body = chat_request_body(&EngineRequest {
+                kind,
+                messages,
+                model: model.trim().to_owned(),
             });
 
-            let response = client
+            let mut response = client
                 .post(&url)
                 .bearer_auth(key)
                 .json(&body)
@@ -99,8 +139,9 @@ impl AiEngine for LlmClient {
             let status = response.status();
             if !status.is_success() {
                 // 服务端诊断文本（可能是 JSON 错误对象）：只取 message 字段，
-                // 不转述整个响应体；密钥在请求头里，不会出现在这里。
-                let detail = response.text().await.unwrap_or_default();
+                // 不转述整个响应体；密钥在请求头里，不会出现在这里。读取带上限
+                // ——错误网关/WAF 可能回几百 MB 的劫持页，不能整份吃进内存。
+                let detail = read_bounded_body(&mut response, MAX_ERROR_BODY_BYTES).await;
                 return Err(map_failure(status, &detail));
             }
             debug!(
@@ -119,7 +160,7 @@ fn resolve_endpoint(config: &Config) -> Result<String, GlossError> {
     if base_url.is_empty() {
         return Err(GlossError::Config("no provider endpoint configured".into()));
     }
-    let endpoint = reqwest::Url::parse(base_url)
+    let mut endpoint = reqwest::Url::parse(base_url)
         .map_err(|err| GlossError::Config(format!("invalid provider endpoint: {err}")))?;
     // 只接受 HTTPS：密钥经这个端点送出去，明文一律拒绝（本机网关请在前面
     // 终止 TLS）。
@@ -128,27 +169,50 @@ fn resolve_endpoint(config: &Config) -> Result<String, GlossError> {
             "provider endpoint must use https".into(),
         ));
     }
-    Ok(format!(
+    // 这三类成分都会静默改变请求的实际去向，手改配置时给明确错误比猜好：
+    // userinfo 会被 reqwest 抽成 Basic Authorization，与 bearer_auth 叠加成
+    // 两条 Authorization（用户贴进 base_url 的凭据会赢过 keychain 里的密钥）；
+    // query/fragment 会让路径后缀落进错误的位置。
+    if !endpoint.username().is_empty() || endpoint.password().is_some() {
+        return Err(GlossError::Config(
+            "provider endpoint must not embed credentials".into(),
+        ));
+    }
+    if endpoint.query().is_some() || endpoint.fragment().is_some() {
+        return Err(GlossError::Config(
+            "provider endpoint must not carry query or fragment".into(),
+        ));
+    }
+    // 用 Url 设路径而不是字符串拼接：手改配置的尾斜杠写没写都得到同一结果。
+    let path = format!(
         "{}/{CHAT_COMPLETIONS_PATH}",
-        endpoint.as_str().trim_end_matches('/')
-    ))
+        endpoint.path().trim_end_matches('/')
+    );
+    endpoint.set_path(&path);
+    Ok(endpoint.to_string())
 }
 
 /// API 密钥：按 provider 条目的 keychain 标识**每请求直查**（不缓存，只进
 /// 请求头）。未配置时返回 [`GlossError::EngineAuth`]，由 UI 引导去设置页。
 fn resolve_api_key(config: &Config, store: &dyn ConfigStore) -> Result<String, GlossError> {
-    let provider = config
-        .active_provider()
-        .ok_or_else(|| GlossError::Config("no provider configured".into()))?;
+    let provider = config.resolved_provider();
+    // trim 后再返回：从终端/文件复制粘贴进来的尾随换行会让 Authorization
+    // 头非法（reqwest 报 builder 错 → 被当成网络问题的永久失败），尾随空格
+    // 则变成服务端 401。
     store
         .secret(&provider.keychain_id)?
-        .filter(|key| !key.trim().is_empty())
+        .map(|key| key.trim().to_owned())
+        .filter(|key| !key.is_empty())
         .ok_or(GlossError::EngineAuth)
 }
 
 /// 传输层错误 → [`GlossError`]：连不上/超时/连接中断都可重试。
 fn map_transport_error(err: reqwest::Error) -> GlossError {
-    if err.is_decode() {
+    // builder 错是本地构造失败（非法 header 等）——重试永远不会成功，报成
+    // EngineNetwork（可重试）会把用户引到错误的方向。
+    if err.is_builder() {
+        GlossError::EngineResponse(format!("request rejected: {err}"))
+    } else if err.is_decode() {
         GlossError::EngineResponse(format!("decode response: {err}"))
     } else {
         GlossError::EngineNetwork
@@ -198,6 +262,10 @@ struct SseStream {
     inner: Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
     decoder: SseDecoder,
     ready: VecDeque<Result<String, GlossError>>,
+    /// 是否产出过增量：零增量的「成功」是坏响应（网关忽略 `stream:true` 返回
+    /// 非流式 JSON、劫持页返回 200 HTML、模型只回 refusal 等），不能当成功
+    /// 产物写进缓存——用户会看到空白卡片，重复触发还命同一份空白。
+    produced: bool,
     finished: bool,
 }
 
@@ -209,6 +277,7 @@ impl SseStream {
             inner: Box::pin(inner),
             decoder: SseDecoder::new(),
             ready: VecDeque::new(),
+            produced: false,
             finished: false,
         }
     }
@@ -217,14 +286,29 @@ impl SseStream {
     fn absorb(&mut self, items: Vec<SseItem>) {
         for item in items {
             match item {
-                SseItem::Delta(delta) => self.ready.push_back(Ok(delta)),
-                SseItem::Done => self.finished = true,
+                SseItem::Delta(delta) => {
+                    self.produced = true;
+                    self.ready.push_back(Ok(delta));
+                }
+                SseItem::Done => {
+                    self.finish_without_error();
+                }
                 SseItem::Failed(error) => {
                     self.ready.push_back(Err(error));
                     self.finished = true;
                 }
             }
         }
+    }
+
+    /// 正常收尾（`[DONE]` 或连接关闭）：一条增量都没产出过就是坏响应。
+    /// `ready` 先于 `finished` 被排空，所以这条 Err 一定排在已入队的增量之后。
+    fn finish_without_error(&mut self) {
+        if !self.produced {
+            self.ready
+                .push_back(Err(GlossError::EngineResponse("empty completion".into())));
+        }
+        self.finished = true;
     }
 }
 
@@ -247,14 +331,17 @@ impl Stream for SseStream {
                     this.absorb(items);
                 }
                 Poll::Ready(Some(Err(err))) => {
+                    // 连接断了：把错误排在已收下的增量之后（端口契约是「首个
+                    // Err 终结流」，之前到达的增量仍应交付）。
+                    this.ready.push_back(Err(map_transport_error(err)));
                     this.finished = true;
-                    // 本轮解码器里可能还有已收下的增量，但连接已断：按端口
-                    // 契约以第一个 Err 终结，未产出的增量随流一起丢弃。
-                    return Poll::Ready(Some(Err(map_transport_error(err))));
                 }
                 Poll::Ready(None) => {
-                    this.finished = true;
-                    this.decoder.finish();
+                    // 连接关闭即流结束：服务端没给 [DONE] 也按正常收尾，
+                    // 顺便收下尾巴里那条完整但没换行终止的增量。
+                    let tail = this.decoder.finish();
+                    this.absorb(tail);
+                    this.finish_without_error();
                 }
             }
         }
@@ -264,11 +351,12 @@ impl Stream for SseStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gloss_core::config::ModelBinding;
     use gloss_core::ports::mocks::MemoryConfigStore;
+    use gloss_core::prompt::{ChatMessage, Role};
     use gloss_core::task::TaskKind;
 
-    /// 配置快照 + 内存存储（内存桩来自 core 的 test-util，测试总线一致）。
+    /// 出厂配置快照 + 内存存储（内存桩来自 core 的 test-util，测试总线一致）。
+    /// 只管这两件事：密钥相关的用例都走出厂配置（端点 / provider 条目即出厂值）。
     fn fixture(secret: Option<&str>) -> (Arc<ConfigHandle>, Arc<MemoryConfigStore>) {
         let store = Arc::new(MemoryConfigStore::default());
         if let Some(secret) = secret {
@@ -276,15 +364,8 @@ mod tests {
                 .set_secret("gloss/deepseek", secret)
                 .expect("stub store accepts secret");
         }
-        let config = Config {
-            model_by_kind: vec![ModelBinding {
-                kind: TaskKind::TranslateWord,
-                model: "deepseek-chat".into(),
-            }],
-            ..Default::default()
-        };
         (
-            Arc::new(ConfigHandle::with_config(store.clone(), config)),
+            Arc::new(ConfigHandle::with_config(store.clone(), Config::default())),
             store,
         )
     }
@@ -328,6 +409,29 @@ mod tests {
             assert!(
                 matches!(resolve_endpoint(&config), Err(GlossError::Config(_))),
                 "cleartext endpoint must be rejected: {base_url}"
+            );
+        }
+    }
+
+    /// 端点里带 userinfo / query / fragment 一律拒绝：userinfo 会被 reqwest
+    /// 抽成 Basic Authorization（与 bearer_auth 叠成两条 Authorization，用户
+    /// 贴进 base_url 的凭据会赢过 keychain 里的密钥），query/fragment 会让
+    /// `chat/completions` 落进错误的位置。
+    #[test]
+    fn endpoints_with_credentials_query_or_fragment_are_rejected() {
+        for base_url in [
+            "https://user:pass@api.example.test/v1",
+            "https://user@api.example.test/v1",
+            "https://api.example.test/v1?key=x",
+            "https://api.example.test/v1#frag",
+        ] {
+            let config = Config {
+                base_url: base_url.into(),
+                ..Default::default()
+            };
+            assert!(
+                matches!(resolve_endpoint(&config), Err(GlossError::Config(_))),
+                "endpoint must be rejected: {base_url}"
             );
         }
     }
@@ -378,18 +482,25 @@ mod tests {
         );
     }
 
-    /// 未配置 provider 条目 → 配置错误。
+    /// 升级路径：`provider_keys` 是显式空数组（M4-T3 时代落盘的老配置就长
+    /// 这样）时，按出厂条目 `gloss/deepseek` 找密钥——否则每个任务都报
+    /// 「no provider configured」，而设置页（M4-T6）之前没有改它的入口。
     #[test]
-    fn missing_provider_reports_config_error() {
+    fn empty_provider_list_falls_back_to_the_factory_entry() {
         let store = Arc::new(MemoryConfigStore::default());
+        store
+            .set_secret("gloss/deepseek", "legacy-key")
+            .expect("stub store accepts secret");
         let config = Config {
             provider_keys: Vec::new(),
             ..Default::default()
         };
-        assert!(matches!(
-            resolve_api_key(&config, store.as_ref()),
-            Err(GlossError::Config(_))
-        ));
+        assert!(config.active_provider().is_none(), "纯查表仍应为空");
+        assert_eq!(
+            resolve_api_key(&config, store.as_ref()).expect("factory fallback"),
+            "legacy-key"
+        );
+        assert_eq!(config.resolved_provider().keychain_id, "gloss/deepseek");
     }
 
     /// 适配器状态机（不碰网络）：同一段响应按任意字节边界分块喂入，产出的
@@ -423,6 +534,91 @@ mod tests {
             }
             assert_eq!(text, "光泽", "chunk_size = {chunk_size}");
         }
+    }
+
+    /// 适配器的错误与终止契约：解码器报错即终结流，但已到达的增量先交付。
+    #[tokio::test]
+    async fn adapter_delivers_deltas_then_terminates_on_protocol_error() {
+        let payload = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"半\"}}]}\n\n",
+            "data: not json\n",
+        );
+        let mut adapted = SseStream::new(VecStream(
+            vec![Ok(bytes::Bytes::from_static(payload.as_bytes()))].into_iter(),
+        ));
+
+        let mut items = Vec::new();
+        while let Some(item) = std::future::poll_fn(|cx| Pin::new(&mut adapted).poll_next(cx)).await
+        {
+            items.push(item);
+        }
+        assert_eq!(items.len(), 2, "delta then one error: {items:?}");
+        assert_eq!(items[0], Ok("半".into()));
+        assert!(
+            matches!(items[1], Err(GlossError::EngineResponse(_))),
+            "protocol error must terminate the stream as a failure"
+        );
+    }
+
+    /// 兼容端点常见收尾：不给 `[DONE]` 直接关流——带增量的流按正常结束处理。
+    #[tokio::test]
+    async fn adapter_ends_cleanly_without_the_done_marker() {
+        let payload = "data: {\"choices\":[{\"delta\":{\"content\":\"尾\"}}]}\n";
+        let mut adapted = SseStream::new(VecStream(
+            vec![Ok(bytes::Bytes::from_static(payload.as_bytes()))].into_iter(),
+        ));
+
+        let mut text = String::new();
+        while let Some(item) = std::future::poll_fn(|cx| Pin::new(&mut adapted).poll_next(cx)).await
+        {
+            text.push_str(&item.expect("delta expected"));
+        }
+        assert_eq!(text, "尾");
+    }
+
+    /// 零增量的「成功」是坏响应（网关忽略 stream、劫持页、模型只回 refusal），
+    /// 必须报错——否则空产物会被写进缓存，用户对着空白卡片反复触发。
+    #[tokio::test]
+    async fn adapter_reports_empty_completion_as_failure() {
+        for payload in ["data: [DONE]\n\n", "<html>nope</html>\n"] {
+            let mut adapted = SseStream::new(VecStream(
+                vec![Ok(bytes::Bytes::from_static(payload.as_bytes()))].into_iter(),
+            ));
+            let item = std::future::poll_fn(|cx| Pin::new(&mut adapted).poll_next(cx))
+                .await
+                .expect("one item expected");
+            assert!(
+                matches!(item, Err(GlossError::EngineResponse(_))),
+                "payload {payload:?} must fail: {item:?}"
+            );
+            assert!(
+                std::future::poll_fn(|cx| Pin::new(&mut adapted).poll_next(cx))
+                    .await
+                    .is_none(),
+                "stream must end after the failure"
+            );
+        }
+    }
+
+    /// 请求体是全链路唯一的硬契约（发往付费端点的形状），单测钉住它。
+    #[test]
+    fn request_body_has_the_openai_envelope() {
+        let request = EngineRequest {
+            kind: TaskKind::TranslateWord,
+            messages: vec![ChatMessage {
+                role: Role::System,
+                content: "把用户给的词翻成中文".into(),
+            }],
+            model: "deepseek-chat".into(),
+        };
+        assert_eq!(
+            chat_request_body(&request),
+            serde_json::json!({
+                "model": "deepseek-chat",
+                "messages": [{"role": "system", "content": "把用户给的词翻成中文"}],
+                "stream": true,
+            })
+        );
     }
 
     /// 测试用的字节流：预置块逐块吐完（不模拟 pending，适配器的 pending

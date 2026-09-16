@@ -13,6 +13,7 @@ use crossbeam_channel::Sender;
 use gloss_core::config::DEFAULT_TEXT_MODEL;
 use gloss_core::engine::AiTaskService;
 use gloss_core::log::{debug, thread};
+use gloss_core::model::GlossError;
 use gloss_core::task::Task;
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -67,7 +68,16 @@ async fn consume_loop(
             task,
             cancel,
         } = command;
-        let model = model_for(&task);
+        let model = match model_for(&task) {
+            Ok(model) => model,
+            Err(error) => {
+                // 没有可用模型（图像任务未配视觉模型）：明确失败，不拿文本模型
+                // 去接图像任务——用户看到的是「去设置页配模型」，而不是服务端
+                // 400 的转述。
+                send_event(&events, &wake, Event::TaskFailed { generation, error });
+                continue;
+            }
+        };
         // 取消与 execute 竞速：取消即时生效，覆盖 execute 内部的全部
         // await 点（渲染、缓存、流式读取）。被取消的任务不发任何回传——
         // App 取消时已 gen+1，迟到产物本就该被丢弃。
@@ -93,14 +103,23 @@ async fn consume_loop(
     );
 }
 
-/// 模型 id：任务自带（App 在触发时按配置解析，含出厂默认）优先；留空时退回
-/// 同一处出厂默认常量——留空只出现在未经 App 解析的任务上（测试直接构造的
-/// 那种）。模型参与缓存 key：同任务换模型不命中旧产物。
-fn model_for(task: &Task) -> &str {
+/// 模型 id：任务自带（App 在触发时按 `Config::resolved_model` 解析）。
+///
+/// 留空表示该 kind 没有可用模型——图像类未配视觉模型时就是这种情形（M5-T4
+/// 接线后由它配视觉模型）。这里**明确失败**而不是退回文本模型：拿 `deepseek-chat`
+/// 去接图像任务，用户看到的是服务端 400，与「去设置页配模型」的引导完全相反
+/// （与 `Config::resolved_model` 的取舍一致）。文本 kind 的兜底只服务直接构造
+/// 任务的测试，App 路径下恒有值。
+///
+/// 模型参与缓存 key：同任务换模型不命中旧产物。
+fn model_for(task: &Task) -> Result<&str, GlossError> {
     task.options
         .model_override
         .as_deref()
-        .unwrap_or(DEFAULT_TEXT_MODEL)
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .or_else(|| task.kind.accepts_text().then_some(DEFAULT_TEXT_MODEL))
+        .ok_or_else(|| GlossError::Config("no model configured for this task kind".into()))
 }
 
 /// 回传事件 + 唤醒主线程；接收端消失（应用退出）时静默丢弃。
@@ -254,6 +273,40 @@ mod tests {
                 error: GlossError::EngineRateLimited
             }
         ));
+        drop(commands);
+        tokio::task::spawn_blocking(move || drop(runtime))
+            .await
+            .expect("shutdown");
+    }
+
+    /// 图像任务没有可用模型时明确失败：不进引擎（不拿文本模型去接），
+    /// 错误经通道④回状态机，由 M4-T5 映射成「去设置页配模型」。
+    #[tokio::test]
+    async fn image_task_without_a_model_fails_before_the_engine() {
+        let engine = MockEngine::new();
+        let (commands, events, runtime) = start(&engine);
+
+        let task = Task {
+            kind: TaskKind::ImageOcr,
+            input: TaskInput::Text {
+                text: "irrelevant".into(),
+                hint: None,
+            },
+            options: TaskOptions::default(),
+        };
+        run(&commands, 1, task);
+
+        assert!(
+            matches!(
+                events.recv().unwrap(),
+                Event::TaskFailed {
+                    generation: 1,
+                    error: GlossError::Config(_)
+                }
+            ),
+            "missing model must be reported as a config failure"
+        );
+        assert_eq!(engine.call_count(), 0, "engine must not be called");
         drop(commands);
         tokio::task::spawn_blocking(move || drop(runtime))
             .await

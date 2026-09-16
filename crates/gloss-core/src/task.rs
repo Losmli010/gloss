@@ -84,10 +84,10 @@ pub struct TaskOptions {
     pub target_lang: Option<Lang>,
     /// 回答深度档位。
     pub detail_level: Option<u8>,
-    /// 本任务使用的模型：App 在触发时按 `Config::model_by_kind` 解析填入；
-    /// 配置未配该 kind 时留空，由编排侧用兜底模型填入
-    /// （`gloss-app::pipeline` 当前的 `MOCK_MODEL`，M4-T4 接真实引擎后即
-    /// 引擎自身的缺省）。一次任务只认这一份快照值，执行途中不再回读配置。
+    /// 本任务使用的模型：App 在触发时按 `Config::resolved_model(kind)` 解析
+    /// 填入（文本类恒有值：`model_by_kind` 命中或退出厂默认；图像类未配视觉
+    /// 模型时为 `None`，由 `gloss-app::pipeline` 明确失败，不拿文本模型去接）。
+    /// 一次任务只认这一份快照值，执行途中不再回读配置。
     pub model_override: Option<String>,
 }
 

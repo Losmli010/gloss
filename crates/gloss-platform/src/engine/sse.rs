@@ -17,6 +17,10 @@ use gloss_core::model::GlossError;
 /// 诊断文本上限：错误消息会进 UI 与日志，服务端给的长文本没有价值。
 const MAX_DIAGNOSTIC_CHARS: usize = 200;
 
+/// 单行上限：OpenAI 兼容载荷恒为单行 JSON，超限即协议异常。没有这条，一个
+/// 只发字节不发 `\n` 的服务端（或坏网关）就能让 `pending` 无界增长。
+const MAX_LINE_BYTES: usize = 1 << 20;
+
 /// 一轮解码的产出。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SseItem {
@@ -65,16 +69,34 @@ impl SseDecoder {
                 }
             }
         }
+        // 攒下的尾巴超限就是协议异常：终结流，别继续为它占内存。
+        if !self.done && self.pending.len() > MAX_LINE_BYTES {
+            self.pending.clear();
+            self.done = true;
+            items.push(SseItem::Failed(GlossError::EngineResponse(
+                "sse line exceeds limit".into(),
+            )));
+        }
         items
     }
 
-    /// 连接关闭时收尾。
+    /// 连接关闭时收尾，返回尾巴里还能交出去的增量。
     ///
-    /// 服务端没给 `[DONE]` 就关流是兼容端点上的常见收尾方式（不算错误），
-    /// 残缺的半行只可能是截断，留着也没法解析，直接丢弃。
-    pub fn finish(&mut self) {
+    /// 服务端没给 `[DONE]` 就关流是兼容端点上的常见收尾方式（不算错误）。尾巴
+    /// 里可能是「完整但没被换行终止的最后一行」——端点 flush 完最后一块数据行
+    /// 直接关连接时就是这种形态，丢了就是一个真实增量；解析不出来的一律忽略
+    /// （截断不该升级成任务失败）。
+    pub fn finish(&mut self) -> Vec<SseItem> {
+        let mut items = Vec::new();
+        if !self.done && !self.pending.is_empty() {
+            let tail = std::mem::take(&mut self.pending);
+            if let Some(item @ SseItem::Delta(_)) = self.decode_line(&tail) {
+                items.push(item);
+            }
+        }
         self.pending.clear();
         self.done = true;
+        items
     }
 
     /// 解一行：返回 None 表示这行不产出任何东西（分隔空行、心跳、其它字段、
@@ -126,21 +148,33 @@ fn decode_chunk(payload: &str) -> Option<SseItem> {
 /// 服务端错误对象 → [`GlossError`]：能识别的按语义分类，其余按协议错误透出
 /// 服务端给的诊断文本（只取 `error.message`，不转述整个响应体）。
 fn map_api_error(error: &ApiError) -> GlossError {
-    let code = error
-        .code
+    // `code` 与 `type` 分别匹配：OpenAI 用 type、DeepSeek 等用 code，兼容实现
+    // 可能只填其中一个，或 code 是通用值而细分类在 type 里。
+    let codes: Vec<&str> = [error.code.as_deref(), error.kind.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|code| !code.is_empty())
+        .collect();
+    const AUTH: [&str; 3] = [
+        "invalid_api_key",
+        "authentication_error",
+        "permission_denied",
+    ];
+    const RATE_LIMITED: [&str; 2] = ["rate_limit_exceeded", "rate_limit_error"];
+    if codes.iter().any(|code| AUTH.contains(code)) {
+        return GlossError::EngineAuth;
+    }
+    if codes.iter().any(|code| RATE_LIMITED.contains(code)) {
+        return GlossError::EngineRateLimited;
+    }
+    let message = error
+        .message
         .as_deref()
-        .or(error.kind.as_deref())
-        .unwrap_or_default();
-    match code {
-        "invalid_api_key" | "authentication_error" | "permission_denied" => GlossError::EngineAuth,
-        "rate_limit_exceeded" | "rate_limit_error" => GlossError::EngineRateLimited,
-        _ => {
-            let message = error
-                .message
-                .as_deref()
-                .map_or_else(|| "unspecified".to_owned(), truncate);
-            GlossError::EngineResponse(format!("{code}: {message}"))
-        }
+        .map_or_else(|| "unspecified".to_owned(), truncate);
+    // 服务端只给 message 时别造出 「: message」这种带前导冒号的文案。
+    match codes.first() {
+        Some(code) => GlossError::EngineResponse(format!("{code}: {message}")),
+        None => GlossError::EngineResponse(message),
     }
 }
 
@@ -347,7 +381,7 @@ mod tests {
         );
     }
 
-    /// 收尾清掉残缺半行，不产出任何东西（截断不是错误，只是没法解析）。
+    /// 收尾：残缺半行丢掉（截断不是错误，只是没法解析），此后的字节不再解析。
     #[test]
     fn finish_drops_a_truncated_tail() {
         let mut decoder = SseDecoder::new();
@@ -355,7 +389,61 @@ mod tests {
             decoder.push(b"data: {\"choices\":[{\"delta\":{\"cont"),
             Vec::new()
         );
-        decoder.finish();
+        assert_eq!(decoder.finish(), Vec::new());
         assert_eq!(decoder.push(b"ent\":\"x\"}}]}\n"), Vec::new());
+    }
+
+    /// 收尾：完整但没被换行终止的最后一行是真实增量（端点 flush 完就关连接的
+    /// 常见形态），必须交出去——丢了用户看到的就是缺字的译文。
+    #[test]
+    fn finish_keeps_a_complete_unterminated_line() {
+        let mut decoder = SseDecoder::new();
+        assert_eq!(
+            decoder.push("data: {\"choices\":[{\"delta\":{\"content\":\"尾\"}}]}".as_bytes()),
+            Vec::new()
+        );
+        assert_eq!(decoder.finish(), vec![SseItem::Delta("尾".into())]);
+    }
+
+    /// 没有行长上限时，一个只发字节不发换行的服务端就能把缓冲区撑爆——
+    /// 超限即协议异常并终结流。
+    #[test]
+    fn rejects_a_line_beyond_the_limit() {
+        let mut decoder = SseDecoder::new();
+        let flood = vec![b'a'; MAX_LINE_BYTES + 1];
+        assert_eq!(
+            decoder.push(&flood),
+            vec![SseItem::Failed(GlossError::EngineResponse(
+                "sse line exceeds limit".into()
+            ))]
+        );
+        // 已终结：后续字节不再解析，缓冲也不再增长。
+        assert_eq!(decoder.push(b"data: [DONE]\n"), Vec::new());
+    }
+
+    /// 服务端只给 message（既无 code 也无 type）时，文案不该带前导冒号。
+    #[test]
+    fn error_without_code_reports_the_message_only() {
+        assert_eq!(
+            decode_chunk(r#"{"error":{"message":"boom"}}"#),
+            Some(SseItem::Failed(GlossError::EngineResponse("boom".into())))
+        );
+    }
+
+    /// code 是通用值而细分类在 type 里时，也要按细分类识别（反之亦然）。
+    #[test]
+    fn error_classification_checks_code_and_type() {
+        assert_eq!(
+            decode_chunk(
+                r#"{"error":{"message":"slow down","code":"server_error","type":"rate_limit_exceeded"}}"#
+            ),
+            Some(SseItem::Failed(GlossError::EngineRateLimited))
+        );
+        assert_eq!(
+            decode_chunk(
+                r#"{"error":{"message":"bad key","code":"invalid_api_key","type":"invalid_request_error"}}"#
+            ),
+            Some(SseItem::Failed(GlossError::EngineAuth))
+        );
     }
 }

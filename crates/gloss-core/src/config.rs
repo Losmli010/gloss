@@ -12,6 +12,8 @@
 //! 密钥红线（06 ADR）：配置里只存 keychain 条目标识，密钥本体永不进
 //! `Config`——运行时整份快照可被任意线程读取，不能携带凭据。
 
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 
 use crate::model::Lang;
@@ -64,12 +66,20 @@ pub struct ProviderKey {
     pub keychain_id: String,
 }
 
-/// 出厂默认 provider 条目：密钥本体永远只在 keychain，这里只给条目标识。
-fn default_provider_keys() -> Vec<ProviderKey> {
-    vec![ProviderKey {
+/// 出厂 provider 条目：密钥本体永远只在 keychain，这里只给条目标识。
+fn factory_provider() -> ProviderKey {
+    ProviderKey {
         provider: "deepseek".into(),
         keychain_id: "gloss/deepseek".into(),
-    }]
+    }
+}
+
+/// 出厂 provider 条目的静态承载：`resolved_provider` 要返回引用，兜底时给它。
+static FACTORY_PROVIDER: OnceLock<ProviderKey> = OnceLock::new();
+
+/// 出厂默认 provider 表（目前只有一条）。
+fn default_provider_keys() -> Vec<ProviderKey> {
+    vec![factory_provider()]
 }
 
 /// 任务类型 → 默认模型 id 的绑定：统一 LLM 客户端下，模态能力差异是
@@ -103,9 +113,10 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// 手改配置缺字段时按出厂默认补齐，不允许半份配置带病运行。
 ///
 /// 落点（改动本节时同步更新）：`target_lang` / `model_by_kind` /
-/// `default_text_kind` 已在 M4-T3 接线（触发时解析进任务）；`provider_keys`
-/// 归 M4-T4；`cache_ttl_secs` 归缓存构造接线；`auto_show` / `theme` /
-/// `hotkey_bindings` 归 M4-T6 / M4-T7。
+/// `default_text_kind` 已在 M4-T3 接线（触发时解析进任务）；`base_url` /
+/// `provider_keys` 已在 M4-T4 接线（引擎每请求解析端点、按条目直查 keychain）；
+/// `cache_ttl_secs` 归缓存构造接线；`auto_show` / `theme` / `hotkey_bindings`
+/// 归 M4-T6 / M4-T7。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -183,9 +194,22 @@ impl Config {
     }
 
     /// 本任务使用的 provider 条目：MVP 单端点，取最后一条（与
-    /// `keychain_id_for` 的「后条覆盖前条」一致）；未配置返回 `None`。
+    /// `keychain_id_for` 的「后条覆盖前条」一致）；`provider_keys` 为空时返回
+    /// `None`（纯查表，与 `model_for_kind` 对称）。
     pub fn active_provider(&self) -> Option<&ProviderKey> {
         self.provider_keys.last()
+    }
+
+    /// 引擎实际使用的 provider 条目：空 `provider_keys` 时回退出厂条目（只带
+    /// keychain 条目标识，不带密钥），因此**恒有值**——真正的失败面是「条目指
+    /// 向的密钥没设」（`EngineAuth`，UI 引导去设置页）。
+    ///
+    /// 兜底不只是「方便」：M4-T3 时代的出厂值是空数组，而 `#[serde(default)]`
+    /// 只补缺失字段——那批机器上落盘的 `provider_keys = []` 会一直留着，设置页
+    /// （M4-T6）之前又没有改它的 UI；`resolved_model` 对同一类问题已有对称兜底。
+    pub fn resolved_provider(&self) -> &ProviderKey {
+        self.active_provider()
+            .unwrap_or_else(|| FACTORY_PROVIDER.get_or_init(factory_provider))
     }
 
     /// 查某 provider 的 keychain 条目标识（同 provider 多条时后条覆盖前条）。
@@ -303,6 +327,40 @@ mod tests {
         assert_eq!(config.target_lang, Lang::Zh, "missing field must default");
         assert_eq!(config.cache_ttl_secs, 60 * 60);
         assert_eq!(config.hotkey_bindings.len(), 3);
+        // 端点与 provider 条目也是缺字段时的出厂值（M4-T4 新增）。
+        assert_eq!(config.base_url, DEFAULT_BASE_URL);
+        assert_eq!(config.resolved_provider().provider, "deepseek");
+        assert_eq!(
+            config.resolved_model(TaskKind::TranslateWord),
+            Some(DEFAULT_TEXT_MODEL)
+        );
+    }
+
+    /// 两条语义要分清：**缺失**字段走出厂默认（老版本没写过的键），**显式空
+    /// 数组**保持为空（M4-T3 时代落盘的 `provider_keys = []` 就是这样）——后者
+    /// 由 `resolved_provider` / `resolved_model` 兜底，老用户不会卡在配置错误上。
+    #[test]
+    fn missing_fields_default_while_explicit_empty_stays_empty() {
+        let cleared: Config = serde_json::from_str(r#"{"provider_keys": [], "model_by_kind": []}"#)
+            .expect("explicit empty config should parse");
+        assert!(
+            cleared.active_provider().is_none(),
+            "explicit empty must stay empty for pure lookups"
+        );
+        assert_eq!(
+            cleared.resolved_provider().keychain_id,
+            "gloss/deepseek",
+            "resolved lookup must fall back to the factory entry"
+        );
+        assert_eq!(
+            cleared.resolved_model(TaskKind::TranslateWord),
+            Some(DEFAULT_TEXT_MODEL)
+        );
+        assert_eq!(
+            cleared.resolved_model(TaskKind::ImageOcr),
+            None,
+            "image kinds must not borrow the text model"
+        );
     }
 
     /// 划词路径的 kind 收口：配置里写成图像 kind（手改误配）时回退
