@@ -29,3 +29,6 @@ docs/
 **/tests/snapshots/**/*.diff.png
 **/tests/snapshots/**/*.new.png
 **/tests/snapshots/**/*.old.png
+
+# WorkBuddy 会话工具目录（本地状态，不进仓库）
+.workbuddy/
