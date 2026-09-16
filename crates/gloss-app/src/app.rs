@@ -203,6 +203,11 @@ impl GlossApp {
                         "error card retry, task re-dispatched to tokio"
                     );
                     self.send_run(request);
+                    // 重锚隐藏计时：重试的成功路径不该被失败卡出现时刻
+                    // 锚定的旧计时掐断（与 accept_done 的重锚同一理由）。
+                    if self.windows.is_some() {
+                        self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
+                    }
                 }
                 None => {
                     debug!(
@@ -411,7 +416,8 @@ impl GlossApp {
         accepted
     }
 
-    /// 采纳任务失败：落 `Error` 态并展示失败信息（下一次触发即重试）。
+    /// 采纳任务失败：落 `Error` 态并展示失败卡（文案与动作出口由
+    /// machine 按错误类别给出，见 `machine::error_action`）。
     /// 返回是否需要展示浮层。
     fn accept_failed(&mut self, generation: u64, error: &gloss_core::model::GlossError) -> bool {
         let accepted = self.machine.accept_failed(generation, error);

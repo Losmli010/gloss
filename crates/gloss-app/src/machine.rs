@@ -246,9 +246,15 @@ impl TaskStateMachine {
         }
         self.current_cancel = None;
         // 只有「原样重发有意义」的失败才留任务副本；其余类别（含通道级
-        // 故障的 fail_* 降级路径）一律清掉，retry() 自然无从发起。
-        let action = error_action(error);
-        if action != Some(ErrorAction::Retry) {
+        // 故障的 fail_* 降级路径）一律清掉，retry() 自然无从发起。副本
+        // 缺失时（未来取材路径若回传可重试错误）不给 Retry 出口——别摆
+        // 一颗点了没反应的死按钮。
+        let mut action = error_action(error);
+        if action == Some(ErrorAction::Retry) {
+            if self.active_task.is_none() {
+                action = None;
+            }
+        } else {
             self.active_task = None;
         }
         self.state = AppState::Error;
@@ -791,6 +797,24 @@ mod tests {
             .expect("trigger");
         machine.accept_input(3, text_input("x")).expect("accepted");
         assert!(machine.accept_failed(3, &GlossError::UnsupportedModality));
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Failed {
+                action: Some(ErrorAction::OpenSettings),
+                ..
+            })
+        ));
+
+        // 配置类（如图像 kind 未配模型，pipeline 的 model_for 报出）同样
+        // 引导去设置页。
+        machine
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .expect("trigger");
+        machine.accept_input(4, text_input("x")).expect("accepted");
+        assert!(machine.accept_failed(
+            4,
+            &GlossError::Config("no model configured for this task kind".into())
+        ));
         assert!(matches!(
             machine.overlay_view(),
             Some(OverlayView::Failed {
