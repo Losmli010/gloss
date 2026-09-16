@@ -39,6 +39,9 @@ struct Inner {
     execute_failure: std::sync::Mutex<Option<GlossError>>,
     /// 一次性失败队列：每次 execute 消费一个，耗尽后照常产流。
     once_failures: std::sync::Mutex<std::collections::VecDeque<GlossError>>,
+    /// 一次性 panic 队列：每次 execute 消费一个（驱动「后台 panic 被
+    /// tokio 捕获」的验收）。
+    execute_panics: std::sync::Mutex<std::collections::VecDeque<()>>,
     /// 产出的增量序列（可含 Err 模拟流中失败）。
     chunks: std::sync::Mutex<Vec<Result<String, GlossError>>>,
     /// 相邻 chunk 之间的延迟，模拟真实流式节奏。
@@ -54,6 +57,7 @@ impl MockEngine {
             inner: Arc::new(Inner {
                 execute_failure: std::sync::Mutex::new(None),
                 once_failures: std::sync::Mutex::new(Default::default()),
+                execute_panics: std::sync::Mutex::new(Default::default()),
                 chunks: std::sync::Mutex::new(Vec::new()),
                 chunk_delay: std::sync::Mutex::new(Duration::ZERO),
                 calls: AtomicUsize::new(0),
@@ -87,6 +91,16 @@ impl MockEngine {
         self
     }
 
+    /// 注入一次 execute panic：下一次 execute 的任务 future 在首次 poll
+    /// 时炸掉，之后照常产流（panic 是这里的注入语义，tokio 桥的
+    /// catch_unwind 是被测行为；一次性语义让「循环存活」可与正常任务
+    /// 同引擎验证）。
+    #[allow(clippy::panic)] // 测试桩：panic 即注入语义，见方法文档
+    pub fn with_execute_panic(self) -> Self {
+        lock_or_recover(&self.inner.execute_panics).push_back(());
+        self
+    }
+
     /// 引擎被调用的次数（「缓存命中不调引擎」断言用）。
     pub fn call_count(&self) -> usize {
         self.inner.calls.load(Ordering::Relaxed)
@@ -112,6 +126,13 @@ impl AiEngine for MockEngine {
         let failure = lock_or_recover(&self.inner.execute_failure).clone();
         if let Some(error) = failure {
             return Box::pin(async move { Err(error) });
+        }
+        if lock_or_recover(&self.inner.execute_panics)
+            .pop_front()
+            .is_some()
+        {
+            #[allow(clippy::panic)] // 测试桩：panic 即注入语义
+            return Box::pin(async move { panic!("mock engine exploded") });
         }
         let chunks = lock_or_recover(&self.inner.chunks).clone();
         let delay = *lock_or_recover(&self.inner.chunk_delay);

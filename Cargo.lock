@@ -1267,6 +1267,7 @@ dependencies = [
  "egui-winit",
  "egui_kittest",
  "font-kit",
+ "futures",
  "gloss-core",
  "gloss-platform",
  "pollster",
