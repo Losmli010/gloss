@@ -23,7 +23,7 @@ gloss/
 ## 架构速览
 
 - **取材链路**：平台事件线程读取选区或截图，产物经 `Event::InputReady` 回到主线程；由主线程组装 `Task` 下发 tokio 推理，因此过期任务的取材产物不会触发推理。
-- **四线程**：主线程（winit 事件循环 + UI）/ 平台事件线程（NSRunLoop：热键与取材，有线程亲和性要求）/ 鼠标监听线程（`gloss-mouse-tap`：rdev 全局监听是阻塞式的，且 panic 穿过它的 C 回调会 abort 进程，故单独一条线程收口）/ tokio 后台（网络与缓存）。
+- **四线程**：主线程（winit 事件循环 + UI）/ 平台事件线程（NSRunLoop：热键与取材，有线程亲和性要求）/ 鼠标监听线程（`gloss-mouse-tap`：全局事件 tap 的回调是阻塞式的，且 panic 穿过它的 C 回调会 abort 进程，故单独一条线程收口；**macOS 用自建 CGEventTap 只订阅左键按下/释放**——订阅面必须窄，因为把按键翻成字符要调要求主线程的 TSM/HIToolbox，回调跑在监听线程上会以 SIGILL 打死整个进程）/ tokio 后台（网络与缓存）。
 - **四通道**：① `PlatformEvent`（事件线程 → 主）② `AcquireCommand`（主 → 事件线程）③ `Command`（主 → tokio，mpsc）④ `Event`（流式回传 → 主）。请求代数 `gen` 一律由 App 赋值，用于丢弃陈旧响应；取消统一走 `CancellationToken`。
 - **任务化 AI 层**：`TaskKind`（单词/句子翻译、代码解释、图片 OCR、图片解释）+ `TaskInput`（文本 / 图像，语音为预留模态）→ 统一的 `AiEngine`，不按模态拆分客户端。
 
@@ -178,3 +178,5 @@ just --list            # 查看全部 recipe
 - **命名与放置**：测试文件按被测功能域命名，不加 `_test` / `_e2e` 后缀。**E2E 代码不得进入生产路径**——只放 `tests/`、`cfg(test)` 或 `#[ignore]`。
 
 **一次真实教训。** `cancel_takes_effect_mid_stream` 原先 sleep 30ms 后取消，而 mock 引擎首 chunk 延迟 150ms——macOS CI 负载下 sleep 越过 150ms，首 chunk 先入队，断言必挂（那次 PR 通过纯属侥幸）。现在改为**等首 chunk 到达再取消**，再用大于 chunk 间延迟的窗口断言「无后续事件」。要证明「取消生效」，同步点就必须是被取消对象的可观察进展，而不是墙钟——这条适用于任何跟时间的竞速。
+
+**另一次真实教训（M4-T8）。** 鼠标监听用 rdev 的 `listen`，它的 tap 订阅 `kCGEventMaskForAllEvents`，键盘事件也进回调；回调里把按键翻成字符要调 TSM/HIToolbox（要求主线程），而回调跑在 `gloss-mouse-tap` 线程上 → libdispatch 断言失败，**SIGILL 打死整个进程**。所以「跑起来的 Gloss 只要按任意键就消失」，而单测、clippy、三平台 CI 全绿——它们都碰不到这条路径。现在 macOS 改用自建只订阅左键的 CGEventTap，并把订阅面写成唯一事实来源（`SUBSCRIBED_EVENT_TYPES`，掩码与回调过滤都由它推出）。**两条推论**：① 平台边界上的**订阅面**（我向系统要多少）与在系统里调什么 API，属人工评审关注点，别指望门禁；② 「能跑起来并活过交互」本身是一条验收项，L4 opt-in 真机走查不可省。
