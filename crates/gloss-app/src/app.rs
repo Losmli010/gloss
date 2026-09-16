@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use egui::ViewportId;
+use gloss_core::config_handle::ConfigHandle;
 use gloss_core::log::{debug, error, info, thread, warn};
 use gloss_core::task::TaskInput;
 use winit::application::ApplicationHandler;
@@ -47,18 +48,22 @@ impl Waker {
 /// 启动事件循环，直到退出才返回。
 ///
 /// `endpoints` 是 App 侧通道端点（① 收平台事件、② 发取材命令、③ 发推理
-/// 任务、④ 收回传事件），由组装点拆出移交。
+/// 任务、④ 收回传事件），由组装点拆出移交；`config` 是运行时配置句柄
+/// （M4-T3），在每一批平台事件的起手处取一份快照交给状态机（见
+/// [`GlossApp::drain_platform_events`]）——配置热更新因此无需重启，也不必
+/// 给 App 传配置存储。
 ///
 /// `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
-pub fn run(endpoints: AppEndpoints, on_waker: impl FnOnce(Waker)) -> Result<(), Box<dyn Error>> {
+pub fn run(
+    endpoints: AppEndpoints,
+    config: Arc<ConfigHandle>,
+    on_waker: impl FnOnce(Waker),
+) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     let waker = Waker(event_loop.create_proxy());
     on_waker(waker);
-    let mut app = GlossApp {
-        endpoints: Some(endpoints),
-        ..GlossApp::default()
-    };
+    let mut app = GlossApp::new(endpoints, config);
     event_loop.run_app(&mut app)?;
     Ok(())
 }
@@ -125,7 +130,6 @@ pub fn render_frame(frame: &mut Frame, view: Option<&OverlayView>) -> Option<Ins
     repaint_at
 }
 
-#[derive(Default)]
 struct GlossApp {
     windows: Option<WindowManager>,
     frame: Option<Frame>,
@@ -138,9 +142,25 @@ struct GlossApp {
     /// 任务状态机（functional core，见 machine.rs）：纯状态转移，壳只做
     /// 通道发送、浮层窗口操作与日志。
     machine: TaskStateMachine,
+    /// 运行时配置句柄（M4-T3）：每批平台事件取一份快照交给状态机，
+    /// 配置保存后无需重启即对下一次触发生效。
+    config: Arc<ConfigHandle>,
 }
 
 impl GlossApp {
+    /// 组装点移交的通道端点与配置句柄；窗口与帧状态在 `resumed` 时建立。
+    fn new(endpoints: AppEndpoints, config: Arc<ConfigHandle>) -> Self {
+        Self {
+            windows: None,
+            frame: None,
+            next_repaint: None,
+            auto_hide: None,
+            endpoints: Some(endpoints),
+            machine: TaskStateMachine::new(),
+            config,
+        }
+    }
+
     /// 建窗口栈 → 建帧状态，一次做完。
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
         let (windows, frame) = build_window_stack(event_loop)?;
@@ -172,6 +192,9 @@ impl GlossApp {
     /// （未接线事件不作废在途回传）；触发→命令的日志链路同时承担热键端到
     /// 端的验收验证（CI 无法合成真实按键，只能真机按日志走查）。
     fn drain_platform_events(&mut self) {
+        // 配置快照在本批事件的起手处取一次（零锁读）：本批触发的任务都用
+        // 同一份配置解析类型与选项——任务一旦触发，其配置就固定了。
+        let config = self.config.snapshot();
         // 先收集再处理：endpoints 的借用与 &mut self 互斥，收进 Vec 后即
         // 归还，后续可用正常的方法调用。
         let events: Vec<PlatformEvent> = self
@@ -180,7 +203,7 @@ impl GlossApp {
             .map_or(Vec::new(), |e| e.platform_events.try_iter().collect());
         for event in events {
             let superseded = self.machine.current_cancel().is_some();
-            if let Some(command) = self.machine.trigger(&event) {
+            if let Some(command) = self.machine.trigger(&event, &config) {
                 info!(
                     thread = thread::UI,
                     generation = self.machine.generation(),
@@ -512,6 +535,10 @@ impl ApplicationHandler<UserEvent> for GlossApp {
 mod tests {
     use super::*;
     use crate::machine::{AppState, OverlayView};
+    use gloss_core::config::{Config, ModelBinding};
+    use gloss_core::model::Lang;
+    use gloss_core::ports::mocks::MemoryConfigStore;
+    use gloss_core::task::TaskKind;
 
     #[test]
     fn repaint_delay_max_means_no_wakeup() {
@@ -539,14 +566,21 @@ mod tests {
         assert_eq!(sooner(None, None), None);
     }
 
-    /// 构造接入真实通道的 App，返回各通道端点供测试驱动。
-    fn driven_app() -> (
+    /// `driven_app` 交出的驱动端点：App 本体 + 配置句柄 + 四条通道的端点。
+    type DrivenApp = (
         GlossApp,
+        Arc<ConfigHandle>,
         crossbeam_channel::Sender<PlatformEvent>,
         crossbeam_channel::Receiver<AcquireCommand>,
         tokio::sync::mpsc::UnboundedReceiver<Command>,
         crossbeam_channel::Sender<Event>,
-    ) {
+    );
+
+    /// 构造接入真实通道与配置句柄的 App，返回各通道端点与句柄供测试驱动。
+    ///
+    /// 配置走 core 的内存桩（`test-util` 特性），测试可以 `handle.save(...)`
+    /// 模拟设置页保存，观察下一次触发是否用上新配置。
+    fn driven_app() -> DrivenApp {
         let crate::channel::Channels {
             platform_events,
             acquire_commands,
@@ -569,16 +603,20 @@ mod tests {
             tx: cmd_tx,
             rx: cmd_rx,
         } = commands;
-        let app = GlossApp {
-            endpoints: Some(AppEndpoints {
+        let config = Arc::new(ConfigHandle::with_config(
+            Arc::new(MemoryConfigStore::default()),
+            Config::default(),
+        ));
+        let app = GlossApp::new(
+            AppEndpoints {
                 platform_events: pe_rx,
                 acquire_commands: ac_tx,
                 commands: cmd_tx,
                 events: ev_rx,
-            }),
-            ..GlossApp::default()
-        };
-        (app, pe_tx, ac_rx, cmd_rx, ev_tx)
+            },
+            Arc::clone(&config),
+        );
+        (app, config, pe_tx, ac_rx, cmd_rx, ev_tx)
     }
 
     /// 驱动一次触发（划词手势）走完通道①消费。
@@ -620,7 +658,7 @@ mod tests {
     /// 新触发取消 A 的令牌、推进代数，A 的一切回传被陈旧过滤。
     #[test]
     fn late_events_of_superseded_trigger_do_not_bleed() {
-        let (mut app, pe_tx, ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let (mut app, _config, pe_tx, ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
         // 触发 A：进入 Fetching，gen=1，取材命令下发。
         trigger_selection(&mut app, &pe_tx);
@@ -676,7 +714,7 @@ mod tests {
     /// 匹配的失败落 Error 态并可重试；Error 态再次触发即重试。
     #[test]
     fn failed_task_lands_in_error_and_retry_works() {
-        let (mut app, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let (mut app, _config, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
 
@@ -696,7 +734,7 @@ mod tests {
     /// 陈旧的 InputReady 不进入 Translating，也不下发③。
     #[test]
     fn stale_input_ready_is_dropped_entirely() {
-        let (mut app, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let (mut app, _config, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(!app.accept_input(42, text_input("来自未来")));
         assert_eq!(
@@ -708,5 +746,76 @@ mod tests {
             cmd_rx.try_recv().is_err(),
             "stale input must not reach tokio"
         );
+    }
+
+    /// 验收标准（M4-T3）：运行时保存配置后，**下一次触发即生效**——目标
+    /// 语言与模型随任务下发到通道③，无需重启。取材产物由测试直接注入，
+    /// 走的仍是生产路径的 `drain_platform_events` → `accept_input`。
+    #[test]
+    fn saved_config_applies_to_the_next_trigger() {
+        let (mut app, config, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+
+        // 出厂默认：目标语言中文、未配模型（由编排侧兜底模型填入）。
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(1, text_input("A")));
+        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        assert_eq!(task.options.target_lang, Some(Lang::Zh));
+        assert_eq!(task.options.model_override, None);
+
+        // 设置页保存（ConfigHandle：写文件 + 原子替换快照）。
+        config
+            .save(Config {
+                target_lang: Lang::Ja,
+                model_by_kind: vec![ModelBinding {
+                    kind: TaskKind::TranslateWord,
+                    model: "deepseek-chat".into(),
+                }],
+                ..Default::default()
+            })
+            .expect("save should succeed");
+
+        // 下一次触发：新配置立即生效。
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(2, text_input("B")));
+        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        assert_eq!(task.options.target_lang, Some(Lang::Ja));
+        assert_eq!(
+            task.options.model_override.as_deref(),
+            Some("deepseek-chat")
+        );
+    }
+
+    /// 快照在派发途中冻结：触发之后、取材产物到达之前保存了新配置，**在途
+    /// 任务仍用触发时那份**（选项在 `trigger` 时解析，`accept_input` 不再
+    /// 取配置），新配置只对下一次触发生效。
+    ///
+    /// 这是 App 层的护栏：`machine` 的单测证明不了它（`accept_input` 签名里
+    /// 没有 config），而 M4-T6/T7 改 App 时最可能踩的就是「派发时重新取快照」。
+    #[test]
+    fn saved_config_does_not_leak_into_the_inflight_task() {
+        let (mut app, config, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+
+        // 触发（拿到 v1 快照）→ 保存 v2 → 才喂取材产物。
+        trigger_selection(&mut app, &pe_tx);
+        config
+            .save(Config {
+                target_lang: Lang::Ja,
+                ..Default::default()
+            })
+            .expect("save should succeed");
+        assert!(app.accept_input(1, text_input("A")));
+
+        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        assert_eq!(
+            task.options.target_lang,
+            Some(Lang::Zh),
+            "in-flight task must keep the snapshot taken at trigger"
+        );
+
+        // 新配置对下一次触发生效。
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(2, text_input("B")));
+        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        assert_eq!(task.options.target_lang, Some(Lang::Ja));
     }
 }

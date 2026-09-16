@@ -17,8 +17,9 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::channel::{Command, Event};
 
-/// M3 阶段的模型 id：mock 引擎不读它，但它是缓存 key 的组成部分。
-/// M4-T4 接 LlmClient 后改由配置的 model_by_kind 提供。
+/// 任务未带模型时的兜底 id：配置没配 `model_by_kind` 时用（App 侧按
+/// `Config::model_for_kind` 解析，配了就随任务下发）；M4-T4 接 LlmClient
+/// 后由它换成真实默认模型。模型参与缓存 key——同任务换模型不命中旧产物。
 const MOCK_MODEL: &str = "gloss-mock";
 
 /// 关停运行时的等待上限：正常退出路径里通道③已关闭、消费循环已在收尾，
@@ -96,7 +97,7 @@ async fn consume_loop(
     );
 }
 
-/// 模型 id：选项覆盖优先，缺省走 M3 的 mock 模型。
+/// 模型 id：任务自带（App 在触发时按配置解析）优先，缺省走 MOCK_MODEL 兜底。
 fn model_for(task: &Task) -> &str {
     task.options.model_override.as_deref().unwrap_or(MOCK_MODEL)
 }

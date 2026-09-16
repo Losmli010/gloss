@@ -84,7 +84,10 @@ pub struct TaskOptions {
     pub target_lang: Option<Lang>,
     /// 回答深度档位。
     pub detail_level: Option<u8>,
-    /// 临时覆盖该任务使用的模型。
+    /// 本任务使用的模型：App 在触发时按 `Config::model_by_kind` 解析填入；
+    /// 配置未配该 kind 时留空，由编排侧用兜底模型填入
+    /// （`gloss-app::pipeline` 当前的 `MOCK_MODEL`，M4-T4 接真实引擎后即
+    /// 引擎自身的缺省）。一次任务只认这一份快照值，执行途中不再回读配置。
     pub model_override: Option<String>,
 }
 
@@ -104,6 +107,22 @@ impl Task {
     /// `TaskFailed`，不进 prompt 与引擎。
     pub fn validate(&self) -> Result<(), GlossError> {
         validate_modality(self.kind, &self.input)
+    }
+}
+
+impl TaskKind {
+    /// 该任务类型是否由**文本取材**驱动（划词路径可用的任务类型集合）。
+    /// 判据直接取自 [`validate_modality`] 的模态矩阵，不另立一份名单——
+    /// 矩阵改了这里自动跟随。
+    pub fn accepts_text(self) -> bool {
+        validate_modality(
+            self,
+            &TaskInput::Text {
+                text: String::new(),
+                hint: None,
+            },
+        )
+        .is_ok()
     }
 }
 
@@ -236,6 +255,16 @@ mod tests {
             }
             other => panic!("unexpected variant: {other:?}"),
         }
+    }
+
+    /// 文本取材判据取自模态矩阵：文本 kind 接受文本输入，图像 kind 拒绝。
+    #[test]
+    fn accepts_text_follows_the_modality_matrix() {
+        assert!(TaskKind::TranslateWord.accepts_text());
+        assert!(TaskKind::TranslateSentence.accepts_text());
+        assert!(TaskKind::ExplainCode.accepts_text());
+        assert!(!TaskKind::ImageOcr.accepts_text());
+        assert!(!TaskKind::ImageExplain.accepts_text());
     }
 
     #[test]
