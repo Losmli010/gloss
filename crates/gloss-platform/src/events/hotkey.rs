@@ -90,11 +90,17 @@ impl HotkeyRegistrar {
 }
 
 /// 重绑定（端口实现，M4-T7）：**只在主线程调用**（见模块注释的线程亲和
-/// 约束）。返回实际生效的条数——少于入参说明有绑定被降级跳过。
+/// 约束）。返回**真正注册成功**的条数——少于入参说明有绑定被跳过或降级，
+/// 管理器不可用时恒为 0（表照填，见 [`register_all`] 的注释）。
 ///
 /// 先注销再注册，而不是反过来：旧键留着的话，它仍在系统级被吞掉，而它的
 /// id 已不在新表里——按下去什么都不发生，比「热键失效」更难查。注销失败
 /// 只记 debug：此时新表照常接管，功能表现为「旧键可能多响一次」。
+///
+/// 顺序**不能**优化成「先注册新键、再注销不再需要的旧键」——那在**换键**
+/// （A 改 B、B 改 A）时必然失败：旧键还占着位，被系统拒绝的是两个新键，
+/// 结果一次都换不过去。代价是这段窗口里若某个保留键恰好被别人抢注，它会
+/// 失效到下次重绑定（下次保存或重启），只留一行 warn，不做回滚。
 impl HotkeyBinder for HotkeyRegistrar {
     fn rebind(&self, bindings: &[HotkeyBinding]) -> usize {
         let stale = {
@@ -117,7 +123,11 @@ impl HotkeyBinder for HotkeyRegistrar {
         }
 
         let (table, registered) = register_all(self.manager.as_ref(), bindings.iter().cloned());
-        let applied = table.len();
+        // 生效条数取「真正交给平台并注册成功」的那些，而不是表里的条目数：
+        // 管理器不可用时表照样填满（供诊断），但一个键都没生效——日志里
+        // `declared > applied` 是「热键为什么没反应」的第一手线索。取表长会
+        // 让降级平台看起来一切正常。
+        let applied = registered.len();
         *self.table.write().unwrap_or_else(PoisonError::into_inner) = table;
         *self
             .registered
@@ -133,10 +143,11 @@ impl HotkeyBinder for HotkeyRegistrar {
     }
 }
 
-/// 解析并注册一组绑定，产出（id → 绑定表，已注册键表）。
+/// 解析并注册一组绑定，产出（id → 绑定表，**真正注册成功的键**）。
+/// 第二项就是端口方法回报给调用方的生效条数。
 ///
 /// 管理器不可用时仍保留解析成功的条目进表：事件不会到达，但表内容可诊断
-/// （配置了什么、各绑定 id 是什么），也便于测试。
+/// （配置了什么、各绑定 id 是什么），也便于测试；此时第二项必为空。
 fn register_all(
     manager: Option<&GlobalHotKeyManager>,
     bindings: impl IntoIterator<Item = HotkeyBinding>,
@@ -144,6 +155,11 @@ fn register_all(
     let mut table = HashMap::new();
     let mut registered = Vec::new();
     let mut seen_triggers = HashSet::new();
+    // 表以 id 为键，而**不同写法可能是同一个物理键**（`Cmd`/`Super`/`Win`
+    // 都映射成 SUPER，`Cmd+Shift+1` 与 `Super+Shift+1` 解析出同一个 id）。
+    // 管理器在场时第二次 register 本就会失败，这里显式拦下，让「先到者胜」
+    // 在两条路径上一致——否则管理器缺位时后一条会把前一条无痕顶掉。
+    let mut seen_ids = HashSet::new();
     for binding in bindings {
         // 同一触发键注册两次时后者覆盖前者、前者无痕丢失，明确拒绝。
         if !seen_triggers.insert(binding.trigger.clone()) {
@@ -161,6 +177,10 @@ fn register_all(
         // 一律拒绝——热键必须带修饰键。
         if modifiers.is_empty() {
             warn!(thread = thread::UI, trigger = %binding.trigger, "hotkey binding skipped: bare key would capture plain typing system-wide");
+            continue;
+        }
+        if !seen_ids.insert(hotkey.id()) {
+            warn!(thread = thread::UI, trigger = %binding.trigger, "hotkey binding skipped: same physical key as an earlier binding");
             continue;
         }
         if let Some(manager) = manager
@@ -348,6 +368,11 @@ mod tests {
             "no manager means nothing was handed to the platform"
         );
         assert!(registrar.pump().poll().is_empty(), "no real keypress in CI");
+        assert_eq!(
+            registrar.rebind(&factory),
+            0,
+            "表照填但一个键都没生效：生效条数取的是真注册成功的那些，否则日志会让降级平台看起来正常"
+        );
     }
 
     /// macOS/Windows runner 语义不确定（可能成功注册），只验证不 panic。
@@ -360,6 +385,11 @@ mod tests {
 
     /// 无修饰键的裸键会系统级吞掉普通输入，注册侧必须拒绝；
     /// 同一触发键重复注册会无痕覆盖前者，也必须拒绝。
+    ///
+    /// 这里走公共构造路径（真管理器在场时也被调用），只断言「被拒的那些
+    /// 没进表」——**不能**断言表里恰好剩哪几条：macOS/Windows 上注册还会被
+    /// 别的应用占用而失败，而失败的条目同样不进表。精确的过滤矩阵在
+    /// [`rejects_invalid_and_duplicate_triggers`] 的纯路径上断言。
     #[test]
     fn bare_keys_and_duplicates_are_rejected_before_registration() {
         let registrar = HotkeyRegistrar::new([
@@ -383,10 +413,15 @@ mod tests {
         );
     }
 
-    /// 纯解析/过滤路径（不经平台管理器）：重复键、裸键与无法识别的触发键
-    /// 一并剔除；管理器缺失时表照建，但不留注销记录。
+    /// 过滤矩阵的**纯路径**断言（不经平台管理器）：裸键、仅修饰键、无法识别
+    /// 的键位、重复触发键一并剔除，只有合法且互不重复的条目进表；管理器
+    /// 缺失时表照建，但不留注销记录（没有可注销的东西）。
+    ///
+    /// 为什么要单独测这个私有函数：公共路径上「注册失败」与「被过滤」都
+    /// 表现为「条目不在表里」，两者的精确结果取决于运行平台，只有这里能
+    /// 把过滤规则钉死。
     #[test]
-    fn register_all_filters_without_a_manager() {
+    fn rejects_invalid_and_duplicate_triggers() {
         let (table, registered) = register_all(
             None,
             [
@@ -398,27 +433,45 @@ mod tests {
                 binding("Cmd+Shift+F"),
             ],
         );
+        let mut triggers: Vec<&str> = table.values().map(|b| b.trigger.as_str()).collect();
+        triggers.sort_unstable();
         assert_eq!(
-            table.len(),
-            2,
-            "only the two distinct valid triggers survive"
+            triggers,
+            ["Cmd+Shift+D", "Cmd+Shift+F"],
+            "只有两条互不重复的合法绑定能进表"
         );
         assert!(
             registered.is_empty(),
             "without a manager there is nothing to unregister"
         );
-        assert!(
-            table.values().all(|b| b.trigger.starts_with("Cmd+Shift+")),
-            "no rejected trigger may reach the table"
+    }
+
+    /// 不同写法可能是**同一个物理键**：`Cmd` / `Super` / `Win` 都映射 SUPER，
+    /// 于是 `Cmd+Shift+1` 与 `Super+Shift+1` 解析出同一个 id。表以 id 为键，
+    /// 不拦的话后一条会把前一条无痕顶掉——管理器在场时第二次 register 本就
+    /// 会失败，故显式拦下，让「先到者胜」在两条路径上一致。
+    #[test]
+    fn distinct_spelling_of_one_physical_key_loses_to_the_first() {
+        let first = parse_trigger("Cmd+Shift+1").expect("Cmd+Shift+1 parses");
+        let second = parse_trigger("Super+Shift+1").expect("Super+Shift+1 parses");
+        assert_eq!(first.0.id(), second.0.id(), "前提：两者是同一个物理键");
+
+        let (table, _registered) =
+            register_all(None, [binding("Cmd+Shift+1"), binding("Super+Shift+1")]);
+        assert_eq!(table.len(), 1, "同一个物理键只能占一个表位");
+        assert_eq!(
+            table.values().next().map(|b| b.trigger.as_str()),
+            Some("Cmd+Shift+1"),
+            "先到者胜，不是被后一条顶掉"
         );
     }
 
     /// 重绑定的核心契约：pump 读到的是 `rebind` 换上的那份表，而不是启动时
     /// 建的那份——事件线程因此不必重启就能按新绑定解析按键。
     ///
-    /// 「已注册键全部属于新表」在 macOS/Windows 上可能因 F9 恰好被别的应用
-    /// 占用而成空断言，故再用 `Arc::ptr_eq` 钉住共享关系本身；Linux（CI）
-    /// 上管理器恒为 None、条目必进表，另有条数断言兜底。
+    /// 生效条数的精确语义只在 Linux 上断言（管理器恒为 None → 必为 0，而表
+    /// 照填）：macOS/Windows 上那个键可能恰好被别的应用占用，精确值取决于
+    /// 运行环境。`Arc::ptr_eq` 钉住的共享关系与平台无关。
     #[test]
     fn pump_observes_the_rebound_table() {
         let registrar = HotkeyRegistrar::new([binding("Cmd+Shift+F12")]);
@@ -440,15 +493,13 @@ mod tests {
             seen.iter().all(|trigger| trigger == "Cmd+Alt+Ctrl+F9"),
             "pump must read the rebound table, got {seen:?}"
         );
-        assert!(
-            applied <= 1,
-            "applied count can never exceed the declared bindings"
-        );
         #[cfg(target_os = "linux")]
         {
             assert_eq!(seen.len(), 1, "degraded platform still fills the table");
-            assert_eq!(applied, 1, "applied count must match the new table");
+            assert_eq!(applied, 0, "表填了不等于生效：管理器缺位时没有任何键是活的");
         }
+        #[cfg(not(target_os = "linux"))]
+        assert!(applied <= 1, "至多「入参那一条」能生效，实际回报 {applied}");
     }
 
     /// 重绑定是**替换**不是追加：连续改小绑定表，表跟着缩小到空。
@@ -462,7 +513,11 @@ mod tests {
         ]);
         assert_eq!(registrar.table.read().unwrap().len(), 3);
 
-        assert_eq!(registrar.rebind(&[binding("Cmd+Shift+D")]), 1);
+        assert_eq!(
+            registrar.rebind(&[binding("Cmd+Shift+D")]),
+            0,
+            "Linux 上管理器恒为 None：表换过去了，但没有任何键真正生效"
+        );
         assert_eq!(registrar.table.read().unwrap().len(), 1);
 
         assert_eq!(registrar.rebind(&[]), 0);

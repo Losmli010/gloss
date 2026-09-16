@@ -389,16 +389,19 @@ impl GlossApp {
         if self.applied_theme == Some(preference) {
             return;
         }
-        if let Some(frame) = &self.frame {
-            frame.egui_ctx.set_theme(preference);
-        }
-        if let Some(frame) = &self.settings_frame {
-            frame.egui_ctx.set_theme(preference);
-        }
+        // 帧尚未建立（窗口未起）时这里是空集：只记状态，不 panic。
+        let written = apply_theme_to(
+            [self.frame.as_ref(), self.settings_frame.as_ref()]
+                .into_iter()
+                .flatten()
+                .map(|frame| &frame.egui_ctx),
+            preference,
+        );
         self.applied_theme = Some(preference);
         debug!(
             thread = thread::UI,
             theme = ?preference,
+            contexts = written,
             "theme preference applied"
         );
     }
@@ -490,16 +493,18 @@ impl GlossApp {
     /// 通道发送、浮层展示与日志。
     ///
     /// 浮层「什么时候自动露面」由 `auto_show` 决定（M4-T7），策略本身抽在
-    /// [`auto_show_for`] 这个纯函数里。它是壳侧的展示开关，不随任务下发、
-    /// 也不参与缓存 key，因此不像任务选项那样在触发时冻结——按到达时的
-    /// 快照读即可。
+    /// [`auto_show_for`] / [`auto_show_after`] 这两个纯函数里。它是壳侧的
+    /// 展示开关，不随任务下发、也不参与缓存 key，因此不像任务选项那样在
+    /// 触发时冻结——按到达时的快照读即可。
     fn drain_events(&mut self, event_loop: &ActiveEventLoop) {
         let events: Vec<Event> = self
             .endpoints
             .as_ref()
             .map_or(Vec::new(), |e| e.events.try_iter().collect());
         let auto_show = self.config.snapshot().auto_show;
-        let mut show_needed = false;
+        // 先按批推进状态机、收集每条的采纳结果，再一次性决定这一批要不要
+        // 露面：逐条 `|=` 等价于按批取或，抽出来是为了这条语义可测。
+        let mut batch = Vec::with_capacity(events.len());
         for event in events {
             // 策略只关心「哪一类回传」，事件本身在下一行被消费掉。
             let kind = event_kind(&event);
@@ -520,9 +525,11 @@ impl GlossApp {
                 }
                 Event::TaskFailed { generation, error } => self.accept_failed(generation, &error),
             };
-            show_needed |= auto_show_for(kind, auto_show, accepted);
+            batch.push((kind, accepted));
         }
-        if show_needed && let Some(windows) = &self.windows {
+        if auto_show_after(batch, auto_show)
+            && let Some(windows) = &self.windows
+        {
             let position = centered_position(event_loop, windows);
             self.show_overlay(position);
         }
@@ -700,6 +707,23 @@ fn theme_preference(theme: Theme) -> egui::ThemePreference {
     }
 }
 
+/// 把偏好写到每个已建立的 egui 上下文，返回写到的上下文个数。
+///
+/// 浮层与设置各持一个**独立**的 `egui::Context`（options 不共享），所以必须
+/// 逐个写——只写其中一个，用户会看到「改主题只影响半个界面」。抽成自由函数
+/// 是为了让这件事能被真实上下文观测：App 的帧要 GPU，L2 单测拿不到。
+fn apply_theme_to<'a>(
+    contexts: impl IntoIterator<Item = &'a egui::Context>,
+    preference: egui::ThemePreference,
+) -> usize {
+    let mut written = 0;
+    for ctx in contexts {
+        ctx.set_theme(preference);
+        written += 1;
+    }
+    written
+}
+
 /// 回传事件的类别。`Event` 的每个变体都携带代数与载荷，而 `auto_show` 策略
 /// 只关心是哪一类回传，故先抽成无数据的标签。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -739,6 +763,16 @@ fn auto_show_for(kind: EventKind, auto_show: bool, accepted: bool) -> bool {
         // 失败总要露面：自动弹出的开关不该把错误一起吞掉。
         EventKind::TaskFailed => accepted,
     }
+}
+
+/// 一批回传之后浮层要不要自动露面：**任一**事件判为要显示就显示。
+///
+/// 逐事件判定再取或——同一批里既有陈旧产物又有失败/完成时不会互相抵消，
+/// 一条被采纳的失败足以把浮层带出来（通道④一次可能抽到多条）。
+fn auto_show_after(batch: impl IntoIterator<Item = (EventKind, bool)>, auto_show: bool) -> bool {
+    batch
+        .into_iter()
+        .any(|(kind, accepted)| auto_show_for(kind, auto_show, accepted))
 }
 
 impl ApplicationHandler<UserEvent> for GlossApp {
@@ -1393,6 +1427,41 @@ mod tests {
         assert_eq!(triggers, ["Cmd+Alt+T", "Cmd+Alt+C"]);
     }
 
+    /// 上一条只证明「第一次保存会重注册」，而契约是**每次都**重注册。只断言
+    /// 调用过一次，会放过「重注册被某个一次性条件挡住」这类回归（例如后来
+    /// 有人给它加个 `if !self.rebound` 之类的短路）。
+    #[test]
+    fn every_save_rebinds_hotkeys_not_just_the_first() {
+        let binder = Arc::new(RecordingHotkeyBinder::default());
+        let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app_using(
+            Arc::new(MemoryConfigStore::default()),
+            Arc::clone(&binder) as Arc<dyn HotkeyBinder>,
+        );
+
+        for trigger in ["Cmd+Alt+T", "Cmd+Alt+R"] {
+            // 保存会关掉设置会话，第二次得重新开一个（等同用户再点一次设置）。
+            app.settings = Some(ui::settings::open(&config.snapshot()));
+            let mut draft = (*config.snapshot()).clone();
+            draft.hotkey_bindings = vec![HotkeyBinding {
+                trigger: trigger.into(),
+                kind: TaskKind::TranslateSentence,
+                source: InputSource::Selection,
+            }];
+            app.save_settings(draft, KeyUpdate::Keep);
+        }
+
+        assert_eq!(binder.call_count(), 2, "两次保存 = 两次重注册");
+        let rebound = binder.last().expect("a successful save must rebind");
+        assert_eq!(
+            rebound
+                .iter()
+                .map(|b| b.trigger.as_str())
+                .collect::<Vec<_>>(),
+            ["Cmd+Alt+R"],
+            "第二次生效的必须是第二次保存的那份，不是第一次的"
+        );
+    }
+
     /// 落盘失败不得重注册：磁盘是唯一真相，运行时快照没换，按键也就不该换
     /// ——否则会出现「按下去是 A、配置文件里是 B」的分叉。
     #[test]
@@ -1452,6 +1521,32 @@ mod tests {
         assert!(!auto_show_for(TaskChunk, false, true));
     }
 
+    /// 通道④一次可能抽到**多条**回传，所以决策是按批取或：同一批里混着陈旧
+    /// 产物与失败/完成时，不得互相抵消。这是上一条（逐事件策略表）盖不到的
+    /// 交互——批级语义只在这里断言。
+    #[test]
+    fn auto_show_survives_a_mixed_batch() {
+        use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
+
+        assert!(
+            auto_show_after([(TaskChunk, true), (TaskDone, true)], false),
+            "关掉开关时，同一批里的完成那一条仍要把浮层带出来"
+        );
+        assert!(
+            auto_show_after([(TaskDone, false), (TaskFailed, true)], false),
+            "陈旧的成功不得抵消一条被采纳的失败"
+        );
+        assert!(
+            auto_show_after([(TaskFailed, true), (InputReady, true)], true),
+            "失败与取材同批到达照常露面"
+        );
+        assert!(
+            !auto_show_after([(TaskDone, false), (InputReady, false)], true),
+            "整批都没被采纳（陈旧）→ 不显示：迟到的产物不得把浮层弹回来"
+        );
+        assert!(!auto_show_after([], true), "空批不显示");
+    }
+
     /// 主题映射（04 §六）：三档一一对应，出厂值跟随系统。
     #[test]
     fn theme_preference_covers_every_variant() {
@@ -1468,10 +1563,51 @@ mod tests {
         );
     }
 
-    /// `apply_theme` 在无窗口环境（帧未建立）也只记状态、不 panic，且快照
-    /// 换主题后能跟上——「只在变化时写」的那层缓存不会把新偏好挡掉。
+    /// 主题施加的真契约：两个 egui 上下文**各自独立**，必须各写一次——
+    /// 只写一个会看到「改主题只影响半个界面」。这里用真实的 `egui::Context`
+    /// 观测偏好（App 的帧要 GPU，L2 单测拿不到），三档都走一遍。
     #[test]
-    fn apply_theme_follows_the_snapshot() {
+    fn apply_theme_writes_every_context() {
+        let overlay = egui::Context::default();
+        let settings = egui::Context::default();
+
+        for preference in [
+            egui::ThemePreference::Light,
+            egui::ThemePreference::Dark,
+            egui::ThemePreference::System,
+        ] {
+            assert_eq!(
+                apply_theme_to([&overlay, &settings], preference),
+                2,
+                "两个已建立的上下文都要写到"
+            );
+            for ctx in [&overlay, &settings] {
+                assert_eq!(
+                    ctx.options(|opt| opt.theme_preference),
+                    preference,
+                    "{preference:?} 必须落到每个上下文上"
+                );
+            }
+        }
+
+        assert_eq!(
+            apply_theme_to(
+                std::iter::empty::<&egui::Context>(),
+                egui::ThemePreference::Dark
+            ),
+            0,
+            "窗口尚未建立时没有上下文可写，也不能 panic"
+        );
+    }
+
+    /// `apply_theme` 身上「只在变化时写」的那一层：偏好没变就不重复写
+    /// （egui 每帧都按偏好解析明暗，逐帧重写没有意义），变了必须跟上。
+    ///
+    /// 断言看的是缓存字段本身——egui 不暴露「`set_theme` 被调用过几次」，
+    /// 写入省略没有别的观测点；「两个上下文都写到」由
+    /// [`apply_theme_writes_every_context`] 用真实上下文证明。
+    #[test]
+    fn apply_theme_elides_writes_until_the_preference_changes() {
         let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         assert!(app.applied_theme.is_none(), "first frame applies the theme");
 
