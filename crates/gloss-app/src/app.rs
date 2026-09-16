@@ -19,7 +19,8 @@ use winit::window::{Window, WindowId};
 use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent};
 use crate::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
 use crate::machine::{OverlayView, RunRequest, TaskStateMachine};
-use crate::ui::{self, settings::SettingsAction, settings::SettingsState};
+use crate::ui::settings::{KeyUpdate, SettingsAction, SettingsState};
+use crate::ui::{self};
 use crate::windows::WindowManager;
 
 /// 浮层显示后的自动隐藏时长（06 §6.1：超时回 Idle；失焦路径走 Focused 事件）
@@ -160,9 +161,11 @@ pub fn render_frame(frame: &mut Frame, view: Option<&OverlayView>) -> Option<Ins
 struct GlossApp {
     windows: Option<WindowManager>,
     frame: Option<Frame>,
-    /// egui 要求的下一帧时间点；`None` 表示等到有事件再画（两个窗口共用
-    /// 一个唤醒时刻，重绘请求各自下发）。
-    next_repaint: Option<Instant>,
+    /// 浮层 egui 要求的下一帧时间点；`None` 表示等到有事件再画。
+    overlay_repaint: Option<Instant>,
+    /// 设置窗口 egui 要求的下一帧时间点。两个窗口各有各的截止时刻：
+    /// 共用一份的话，一个窗口画一帧就会把另一个窗口的动画截止时刻冲掉。
+    settings_repaint: Option<Instant>,
     /// 浮层自动隐藏时刻；仅浮层可见时为 `Some`
     auto_hide: Option<Instant>,
     /// 组装点移交的通道端点（① 收、② 发、③ 发、④ 收）。
@@ -193,7 +196,8 @@ impl GlossApp {
         Self {
             windows: None,
             frame: None,
-            next_repaint: None,
+            overlay_repaint: None,
+            settings_repaint: None,
             auto_hide: None,
             endpoints: Some(endpoints),
             machine: TaskStateMachine::new(),
@@ -220,7 +224,7 @@ impl GlossApp {
             return;
         };
         let overlay_view = self.machine.overlay_view();
-        self.next_repaint = render_frame(frame, overlay_view);
+        self.overlay_repaint = render_frame(frame, overlay_view);
     }
 
     /// 画一帧设置窗口：草稿编辑 + 动作上交（保存/清除密钥/取消）。
@@ -229,16 +233,13 @@ impl GlossApp {
             return;
         };
         let (repaint, action) = render_frame_with(frame, |ui| ui::settings::draw(ui, state));
-        if repaint.is_some() {
-            self.next_repaint = repaint;
-        }
+        self.settings_repaint = repaint;
         let Some(action) = action else {
             return;
         };
         match action {
             SettingsAction::Idle => {}
-            SettingsAction::Save { config, api_key } => self.save_settings(config, api_key),
-            SettingsAction::ClearKey => self.clear_api_key(),
+            SettingsAction::Save { config, key } => self.save_settings(config, key),
             SettingsAction::Close => self.close_settings(),
         }
     }
@@ -261,29 +262,38 @@ impl GlossApp {
         info!(thread = thread::UI, "settings window opened");
     }
 
-    /// 保存设置：密钥先行（失败不落盘半截配置），配置走热更新路径（先落
-    /// 盘再换快照）；成功即关闭窗口——「下一次任务即生效」由快照语义保证。
-    fn save_settings(&mut self, config: Config, api_key: Option<String>) {
-        if let Some(key) = api_key {
-            let keychain_id = config.resolved_provider().keychain_id.clone();
-            if let Err(err) = self.store.set_secret(&keychain_id, &key) {
-                warn!(
-                    thread = thread::UI,
-                    error = %err,
-                    "failed to store the api key"
-                );
-                self.report_settings(format!("密钥保存失败：{err}"));
-                return;
-            }
+    /// 保存设置：密钥按 [`KeyUpdate`] 处理（失败即中止，不留下「密钥换了
+    /// 配置没换」的半截状态），配置走热更新路径（先落盘再换快照）；成功即
+    /// 关闭窗口——「下一次任务即生效」由快照语义保证。
+    fn save_settings(&mut self, config: Config, key_update: KeyUpdate) {
+        let keychain_id = config.resolved_provider().keychain_id.clone();
+        let key_result = match &key_update {
+            KeyUpdate::Keep => Ok(()),
+            KeyUpdate::Replace(key) => self.store.set_secret(&keychain_id, key),
+            KeyUpdate::Clear => self.store.delete_secret(&keychain_id),
+        };
+        if let Err(err) = key_result {
+            warn!(thread = thread::UI, error = %err, "failed to update the api key");
+            self.report_settings(format!("密钥更新失败（配置未保存）：{err}"));
+            return;
+        }
+        if key_update != KeyUpdate::Keep {
             info!(
                 thread = thread::UI,
                 provider = %config.resolved_provider().provider,
+                cleared = key_update == KeyUpdate::Clear,
                 "api key updated from settings"
             );
         }
         if let Err(err) = self.config.save(config) {
+            // 密钥已经生效，配置没有：如实说清哪一半落下了。
             warn!(thread = thread::UI, error = %err, "failed to save settings");
-            self.report_settings(format!("保存失败：{err}"));
+            let prefix = if key_update == KeyUpdate::Keep {
+                "保存失败"
+            } else {
+                "密钥已更新，但配置保存失败"
+            };
+            self.report_settings(format!("{prefix}：{err}"));
             return;
         }
         info!(
@@ -291,26 +301,6 @@ impl GlossApp {
             "settings saved, effective on the next trigger"
         );
         self.close_settings();
-    }
-
-    /// 清除当前 provider 的 keychain 密钥（立即生效，不等保存）。
-    fn clear_api_key(&mut self) {
-        let keychain_id = self
-            .config
-            .snapshot()
-            .resolved_provider()
-            .keychain_id
-            .clone();
-        if let Err(err) = self.store.delete_secret(&keychain_id) {
-            warn!(thread = thread::UI, error = %err, "failed to delete the api key");
-            self.report_settings(format!("密钥清除失败：{err}"));
-            return;
-        }
-        info!(
-            thread = thread::UI,
-            keychain_id = %keychain_id,
-            "api key cleared from settings"
-        );
     }
 
     /// 设置窗口的用户提示（保存失败等）；窗口已关则无处可报，只留日志。
@@ -323,6 +313,8 @@ impl GlossApp {
     /// 关闭设置窗口：隐藏不销毁，丢弃编辑会话（未保存的草稿一并作废）。
     fn close_settings(&mut self) {
         self.settings = None;
+        // 窗口收起了就别再为它的动画唤醒事件循环。
+        self.settings_repaint = None;
         if let Some(windows) = &self.windows {
             windows.hide_settings();
         }
@@ -371,7 +363,7 @@ impl GlossApp {
                 debug!(
                     thread = thread::UI,
                     event = ?event,
-                    "platform event not wired yet, ignored"
+                    "platform event ignored: not wired yet, or its task kind is disabled"
                 );
             }
         }
@@ -704,15 +696,23 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         if self.auto_hide.is_some_and(|deadline| deadline <= now) {
             self.on_auto_hide(event_loop);
         }
-        if self.next_repaint.is_some_and(|deadline| deadline <= now) {
+        if self.overlay_repaint.is_some_and(|deadline| deadline <= now) {
             self.request_redraw();
+        }
+        if self
+            .settings_repaint
+            .is_some_and(|deadline| deadline <= now)
+            && let Some(windows) = &self.windows
+        {
+            windows.request_redraw_settings();
         }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // 没有待处理的唤醒时刻就彻底睡下，等窗口事件或唤醒句柄把自己叫醒
         event_loop.set_control_flow(
-            sooner(self.next_repaint, self.auto_hide)
+            sooner(self.overlay_repaint, self.settings_repaint)
+                .and_then(|repaint| sooner(Some(repaint), self.auto_hide))
                 .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
         );
     }
@@ -1054,7 +1054,7 @@ mod tests {
         );
         // trim 是 UI 层（build_save）的契约，已在 settings 模块单测；
         // 壳收到的是裁剪后的密钥。
-        app.save_settings(draft, Some("sk-live-key".to_owned()));
+        app.save_settings(draft, KeyUpdate::Replace("sk-live-key".to_owned()));
 
         assert_eq!(
             store
@@ -1077,6 +1077,27 @@ mod tests {
         );
     }
 
+    /// 清除密钥路径：保存时删除 keychain 条目（删除与配置落盘同一次保存
+    /// 里发生，取消不会留下已删除的密钥）。
+    #[test]
+    fn clearing_the_key_deletes_the_secret_on_save() {
+        let (mut app, config, store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        store
+            .set_secret("gloss/deepseek", "sk-existing")
+            .expect("stub store accepts secret");
+        pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
+        app.drain_platform_events();
+
+        let draft = (*config.snapshot()).clone();
+        app.save_settings(draft, KeyUpdate::Clear);
+        assert_eq!(
+            store.secret("gloss/deepseek").expect("store read"),
+            None,
+            "clear must remove the keychain entry"
+        );
+        assert!(app.settings.is_none(), "save closes the session");
+    }
+
     /// 落盘失败：内存保持旧版本（磁盘唯一真相），会话保持打开并带上
     /// 提示——用户可以改完再存。
     #[test]
@@ -1089,7 +1110,7 @@ mod tests {
 
         let mut draft = (*config.snapshot()).clone();
         draft.target_lang = Lang::Ja;
-        app.save_settings(draft, None);
+        app.save_settings(draft, KeyUpdate::Keep);
 
         let state = app.settings.as_ref().expect("session must stay open");
         assert!(

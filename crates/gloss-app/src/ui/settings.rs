@@ -23,8 +23,24 @@ pub struct SettingsState {
     draft: Config,
     /// API key 输入框；只在保存时交给壳写 keychain，永不进 `draft`。
     api_key: String,
+    /// 是否已标记「清除密钥」（保存时才真正删除；重新输入即撤销）。
+    clear_key: bool,
     /// 壳回写的提示（保存失败等）；用户可见文案。
     notice: Option<String>,
+}
+
+/// 密钥的保存语义。
+///
+/// 删除不可逆，所以「清除密钥」不立即生效：它先标记，再随保存一起上交
+/// ——否则点「取消」也留着一条删掉的密钥，与撤销语义矛盾。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyUpdate {
+    /// 密钥保持不变。
+    Keep,
+    /// 用这个密钥覆盖（已 trim，非空）。
+    Replace(String),
+    /// 删除当前 provider 的密钥。
+    Clear,
 }
 
 /// 设置窗口上交的动作：浮层只渲染，落盘/密钥/关窗都在壳。
@@ -32,15 +48,13 @@ pub struct SettingsState {
 pub enum SettingsAction {
     /// 普通编辑帧，无需壳动作。
     Idle,
-    /// 保存整份配置；`api_key` 非空表示同时更新 keychain 里的密钥。
+    /// 保存整份配置并应用密钥变更。
     Save {
         /// 保存的整份配置。
         config: Config,
-        /// 新密钥（已 trim）；`None` 表示密钥保持不变。
-        api_key: Option<String>,
+        /// 密钥变更（保持 / 覆盖 / 清除）。
+        key: KeyUpdate,
     },
-    /// 立即清除当前 provider 的密钥（不等保存）。
-    ClearKey,
     /// 关闭窗口并丢弃草稿。
     Close,
 }
@@ -51,6 +65,7 @@ pub fn open(config: &Config) -> SettingsState {
     SettingsState {
         draft: config.clone(),
         api_key: String::new(),
+        clear_key: false,
         notice: None,
     }
 }
@@ -100,7 +115,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut SettingsState) -> SettingsAction {
         // 开始排列。
         ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                connection_section(ui, state, &mut action);
+                connection_section(ui, state);
                 ui.add_space(10.0);
                 task_section(ui, state);
                 ui.add_space(10.0);
@@ -113,19 +128,24 @@ pub fn draw(ui: &mut egui::Ui, state: &mut SettingsState) -> SettingsAction {
     action
 }
 
-/// 「保存」的上交物：整份草稿 + 非空的新密钥（trim 后为空视为不修改）。
+/// 「保存」的上交物：整份草稿 + 密钥变更（清除标记优先，其次输入框内容，
+/// 都为空则保持原密钥）。
 fn build_save(state: &SettingsState) -> SettingsAction {
     let mut draft = state.draft.clone();
     draft.base_url = draft.base_url.trim().to_owned();
     let api_key = state.api_key.trim();
-    SettingsAction::Save {
-        config: draft,
-        api_key: (!api_key.is_empty()).then(|| api_key.to_owned()),
-    }
+    let key = if state.clear_key {
+        KeyUpdate::Clear
+    } else if api_key.is_empty() {
+        KeyUpdate::Keep
+    } else {
+        KeyUpdate::Replace(api_key.to_owned())
+    };
+    SettingsAction::Save { config: draft, key }
 }
 
 /// 连接区：端点 + API key（写 keychain，不进配置）。
-fn connection_section(ui: &mut egui::Ui, state: &mut SettingsState, action: &mut SettingsAction) {
+fn connection_section(ui: &mut egui::Ui, state: &mut SettingsState) {
     ui.strong("连接");
     egui::Grid::new("connection_grid")
         .num_columns(2)
@@ -141,14 +161,30 @@ fn connection_section(ui: &mut egui::Ui, state: &mut SettingsState, action: &mut
 
             ui.label("API Key");
             ui.horizontal(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut state.api_key)
-                        .password(true)
-                        .hint_text("留空则不修改")
-                        .desired_width(160.0),
-                );
-                if ui.button("清除密钥").clicked() {
-                    *action = SettingsAction::ClearKey;
+                let typed = ui
+                    .add(
+                        egui::TextEdit::singleline(&mut state.api_key)
+                            .password(true)
+                            .hint_text(if state.clear_key {
+                                "保存后清除"
+                            } else {
+                                "留空则不修改"
+                            })
+                            .desired_width(160.0),
+                    )
+                    .changed();
+                if typed {
+                    // 重新输入即撤销「清除」意图。
+                    state.clear_key = false;
+                }
+                let label = if state.clear_key {
+                    "撤销清除"
+                } else {
+                    "清除密钥"
+                };
+                if ui.button(label).clicked() {
+                    state.clear_key = !state.clear_key;
+                    state.api_key.clear();
                 }
             });
             ui.end_row();
@@ -370,11 +406,11 @@ mod tests {
         state.api_key = "   ".into();
 
         let action = build_save(&state);
-        let SettingsAction::Save { config, api_key } = action else {
+        let SettingsAction::Save { config, key } = action else {
             panic!("save expected, got {action:?}");
         };
         assert_eq!(config.base_url, "https://api.example.test/v1/");
-        assert_eq!(api_key, None, "blank key must not be pushed to the shell");
+        assert_eq!(key, KeyUpdate::Keep, "blank key means unchanged");
     }
 
     /// 非空密钥随保存上交，且草稿里没有密钥（配置红线：快照不带凭据）。
@@ -386,16 +422,54 @@ mod tests {
             .draft
             .set_model_for_kind(TaskKind::TranslateWord, "m2");
 
-        let SettingsAction::Save { config, api_key } = build_save(&state) else {
+        let SettingsAction::Save { config, key } = build_save(&state) else {
             panic!("save expected");
         };
-        assert_eq!(api_key.as_deref(), Some("sk-test"));
+        assert_eq!(key, KeyUpdate::Replace("sk-test".into()));
         assert_eq!(config.model_for_kind(TaskKind::TranslateWord), Some("m2"));
         // 密钥只经动作的独立字段出会话，草稿（含其调试表示）里不该有它。
         assert!(
             !format!("{config:?}").contains("sk-test"),
             "the key must never travel inside the config"
         );
+    }
+
+    /// 清除密钥是「标记 + 保存时生效」：单点标记不上交删除动作，保存才上交；
+    /// 重新输入密钥即撤销标记（删除不可逆，不能随取消一起留着）。
+    #[test]
+    fn clear_key_is_deferred_to_save_and_revocable() {
+        let mut state = open(&Config::default());
+        assert!(matches!(
+            build_save(&state),
+            SettingsAction::Save {
+                key: KeyUpdate::Keep,
+                ..
+            }
+        ));
+
+        state.clear_key = true;
+        assert!(matches!(
+            build_save(&state),
+            SettingsAction::Save {
+                key: KeyUpdate::Clear,
+                ..
+            }
+        ));
+
+        // 清除标记优先于输入框内容（清空输入框不该让「清除」变成「保持」）。
+        state.api_key = "sk-typo".into();
+        assert!(
+            state.clear_key,
+            "typing into the draft directly must not silently revoke the mark"
+        );
+        state.clear_key = false;
+        assert!(matches!(
+            build_save(&state),
+            SettingsAction::Save {
+                key: KeyUpdate::Replace(_),
+                ..
+            }
+        ));
     }
 
     /// 打开会话：草稿取自当前快照，与调用方后续的配置变更解耦。
@@ -460,9 +534,9 @@ mod tests {
         harness.get_by_label("保存").click();
         harness.run();
         match &*action.borrow() {
-            SettingsAction::Save { config, api_key } => {
+            SettingsAction::Save { config, key } => {
                 assert_eq!(*config, Config::default(), "unmodified draft saves as-is");
-                assert_eq!(*api_key, None);
+                assert_eq!(*key, KeyUpdate::Keep);
             }
             other => panic!("save action expected, got {other:?}"),
         }
@@ -486,7 +560,8 @@ mod tests {
         }
     }
 
-    /// 取消按钮上交 Close；密钥清除按钮上交 ClearKey。
+    /// 取消按钮上交 Close（不产生任何密钥动作）；「清除密钥」按钮只把标记
+    /// 翻成待清除态（按钮改为「撤销清除」），不立即上交删除。
     #[test]
     fn cancel_and_clear_key_actions_are_submitted() {
         let (mut harness, action) = harness_for(open(&Config::default()));
@@ -495,11 +570,23 @@ mod tests {
         harness.run();
         assert_eq!(*action.borrow(), SettingsAction::Close);
 
-        let (mut harness, action) = harness_for(open(&Config::default()));
+        let (mut harness, _action) = harness_for(open(&Config::default()));
         harness.run();
         harness.get_by_label("清除密钥").click();
         harness.run();
-        assert_eq!(*action.borrow(), SettingsAction::ClearKey);
+        harness.get_by_label("撤销清除");
+        harness.get_by_label("保存").click();
+        harness.run();
+        assert!(
+            matches!(
+                &*_action.borrow(),
+                SettingsAction::Save {
+                    key: KeyUpdate::Clear,
+                    ..
+                }
+            ),
+            "the clear mark must surface on save, not on click"
+        );
     }
 
     /// 热键绑定行可达：输入源标签（只读文本）随每一行进 AccessKit 树，
