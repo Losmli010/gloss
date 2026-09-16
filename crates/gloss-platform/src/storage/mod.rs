@@ -280,6 +280,7 @@ mod tests {
     /// 带齐全量字段差异的样例配置，用于锁定往返一致性。
     fn sample_config() -> Config {
         Config {
+            base_url: "https://example.test/v1".into(),
             provider_keys: vec![ProviderKey {
                 provider: "deepseek".into(),
                 keychain_id: "gloss/deepseek".into(),
@@ -479,6 +480,26 @@ mod tests {
             std::fs::read_to_string(&backups[0]).expect("backup read should succeed"),
             broken,
             "backup must keep the original bytes"
+        );
+    }
+
+    /// 老版本（M4-T3 时代）落盘的配置：显式空数组、没有 base_url。读进来必须
+    /// 拿到出厂端点与出厂 provider 条目——否则升级上来的用户每个任务都报
+    /// 「no provider configured」，而设置页（M4-T6）之前没有改它的入口。
+    #[test]
+    fn legacy_document_gets_factory_endpoint_and_provider() {
+        let dir = tempfile::tempdir().expect("tempdir should create");
+        let store = FileConfigStore::in_dir(dir.path().to_path_buf());
+        std::fs::write(store.path(), "provider_keys = []\nmodel_by_kind = []\n")
+            .expect("write should succeed");
+
+        let config = store.load().expect("legacy document must load");
+        assert_eq!(config.base_url, gloss_core::config::DEFAULT_BASE_URL);
+        assert!(config.active_provider().is_none());
+        assert_eq!(config.resolved_provider().keychain_id, "gloss/deepseek");
+        assert_eq!(
+            config.resolved_model(gloss_core::task::TaskKind::TranslateWord),
+            Some(gloss_core::config::DEFAULT_TEXT_MODEL)
         );
     }
 

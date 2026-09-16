@@ -11,9 +11,9 @@ name = "gloss"
 path = "src/main.rs"
 
 [dependencies]
-# M3 阶段推理走 mock 引擎（09 计划：M3 用 mock 打通全管道），需要 core
-# 的 test-util 特性；M4-T4 接 LlmClient 后改回默认并移除 mock 装配。
-gloss-core = { path = "crates/gloss-core", features = ["test-util"] }
+# 生产不再需要 test-util（M4-T4 接了真实引擎，mock 装配已移除）：测试桩
+# 只出现在各 crate 的 dev-dependencies 构建里，不进发布二进制。
+gloss-core = { path = "crates/gloss-core" }
 gloss-platform = { path = "crates/gloss-platform" }
 gloss-app = { path = "crates/gloss-app" }
 

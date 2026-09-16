@@ -144,6 +144,18 @@ assert_case() {
 
 # ---- 变更函数：每条约束各造一个违规 ----
 
+mut_non_dev_dep_enables_test_util() {
+  replace_line "$FIX/Cargo.toml" \
+    'gloss-core = { path = "crates/gloss-core" }' \
+    'gloss-core = { path = "crates/gloss-core", features = ["test-util"] }'
+}
+
+mut_dev_dep_enables_test_util() {
+  # dev-dependencies 里开 test-util 是合法用法：测试要拿桩，生产不需要。
+  printf '\n[dev-dependencies]\ngloss-core = { path = "../gloss-core", features = ["test-util"] }\n' \
+    >>"$FIX/crates/gloss-app/Cargo.toml"
+}
+
 mut_core_depends_on_platform() {
   insert_after_section "$FIX/crates/gloss-core/Cargo.toml" "[dependencies]" \
     'gloss-platform = { path = "../gloss-platform" }'
@@ -221,6 +233,8 @@ assert_case "core 依赖 wgpu-core（红线，靠前缀匹配）" 1 mut_core_dep
 assert_case "platform 反向依赖 app" 1 mut_platform_depends_on_app "不得依赖 gloss-app"
 assert_case "依赖未登记的 crate" 1 mut_app_depends_on_unregistered_crate "不得依赖 gloss-util"
 assert_case "crate 名未写进 AGENTS.md" 1 mut_crate_missing_from_agents_md "未出现在"
+assert_case "非 dev 依赖启用 gloss-core/test-util" 1 mut_non_dev_dep_enables_test_util "测试桩不进生产构建"
+assert_case "dev-dependencies 启用 gloss-core/test-util（合法）" 0 mut_dev_dep_enables_test_util "测试桩不进生产构建"
 
 echo ""
 echo "-- 约束「日志统一出口」（应拒绝，退出码非 0）--"

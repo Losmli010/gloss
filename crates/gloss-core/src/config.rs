@@ -12,10 +12,20 @@
 //! 密钥红线（06 ADR）：配置里只存 keychain 条目标识，密钥本体永不进
 //! `Config`——运行时整份快照可被任意线程读取，不能携带凭据。
 
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 
 use crate::model::Lang;
 use crate::task::{HotkeyBinding, InputSource, TaskKind};
+
+/// 出厂默认文本模型 id：既是 `model_by_kind` 的出厂值，也是 `model_by_kind`
+/// 缺项时的兜底——两处共用同一处字面量（各写一份时改一边不会有人红）。
+pub const DEFAULT_TEXT_MODEL: &str = "deepseek-chat";
+
+/// 出厂默认 OpenAI 兼容端点：DeepSeek（06 §八 的参考实现）。客户端按
+/// `{base_url}/chat/completions` 拼接，设置页可改。
+pub const DEFAULT_BASE_URL: &str = "https://api.deepseek.com/v1";
 
 /// 出厂默认热键表：与 `gloss-platform::events::hotkey` 的写死默认一致。
 /// 有意避开 macOS 截图（Cmd+Shift+3/4/5）等系统级组合。
@@ -56,6 +66,22 @@ pub struct ProviderKey {
     pub keychain_id: String,
 }
 
+/// 出厂 provider 条目：密钥本体永远只在 keychain，这里只给条目标识。
+fn factory_provider() -> ProviderKey {
+    ProviderKey {
+        provider: "deepseek".into(),
+        keychain_id: "gloss/deepseek".into(),
+    }
+}
+
+/// 出厂 provider 条目的静态承载：`resolved_provider` 要返回引用，兜底时给它。
+static FACTORY_PROVIDER: OnceLock<ProviderKey> = OnceLock::new();
+
+/// 出厂默认 provider 表（目前只有一条）。
+fn default_provider_keys() -> Vec<ProviderKey> {
+    vec![factory_provider()]
+}
+
 /// 任务类型 → 默认模型 id 的绑定：统一 LLM 客户端下，模态能力差异是
 /// 配置问题（06 §5.1）——文本任务配文本模型、图像任务配视觉模型。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,17 +92,38 @@ pub struct ModelBinding {
     pub model: String,
 }
 
+/// 出厂默认模型表：文本类任务先给出可用默认（用户装完只差一把钥匙），
+/// 图像类留空——视觉模型随 M5-T4 接入，未配置时由引擎报能力不匹配。
+fn default_model_bindings() -> Vec<ModelBinding> {
+    [
+        TaskKind::TranslateWord,
+        TaskKind::TranslateSentence,
+        TaskKind::ExplainCode,
+    ]
+    .into_iter()
+    .map(|kind| ModelBinding {
+        kind,
+        model: DEFAULT_TEXT_MODEL.to_owned(),
+    })
+    .collect()
+}
+
 /// 应用配置：持久化为 TOML（`FileConfigStore`），运行时以整份快照在
 /// 各线程间共享（共享形态不携带密钥，见模块文档红线）。反序列化带 `#[serde(default)]`：
 /// 手改配置缺字段时按出厂默认补齐，不允许半份配置带病运行。
 ///
 /// 落点（改动本节时同步更新）：`target_lang` / `model_by_kind` /
-/// `default_text_kind` 已在 M4-T3 接线（触发时解析进任务）；`provider_keys`
-/// 归 M4-T4；`cache_ttl_secs` 归缓存构造接线；`auto_show` / `theme` /
-/// `hotkey_bindings` 归 M4-T6 / M4-T7。
+/// `default_text_kind` 已在 M4-T3 接线（触发时解析进任务）；`base_url` /
+/// `provider_keys` 已在 M4-T4 接线（引擎每请求解析端点、按条目直查 keychain）；
+/// `cache_ttl_secs` 归缓存构造接线；`auto_show` / `theme` / `hotkey_bindings`
+/// 归 M4-T6 / M4-T7。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// OpenAI 兼容端点的基地址，客户端按 `{base_url}/chat/completions`
+    /// 拼接（尾斜杠会被去掉）。MVP 单端点，多 provider 路由出现时再把它
+    /// 移进 provider 条目；空串视为未配置（引擎明确报错，不猜端点）。
+    pub base_url: String,
     /// 各 provider 的 keychain 条目标识；密钥本体只在 keychain。
     pub provider_keys: Vec<ProviderKey>,
     /// 每个任务类型的默认模型 id。
@@ -98,8 +145,9 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            provider_keys: Vec::new(),
-            model_by_kind: Vec::new(),
+            base_url: DEFAULT_BASE_URL.to_owned(),
+            provider_keys: default_provider_keys(),
+            model_by_kind: default_model_bindings(),
             target_lang: Lang::Zh,
             hotkey_bindings: default_hotkey_bindings(),
             default_text_kind: TaskKind::TranslateWord,
@@ -137,6 +185,33 @@ impl Config {
             .map(|binding| binding.model.as_str())
     }
 
+    /// 本任务实际使用的模型 id：`model_by_kind` 配了就用它，否则文本类任务
+    /// 退回出厂默认 [`DEFAULT_TEXT_MODEL`]；图像类未配置时返回 `None`——
+    /// 视觉模型随 M5-T4 接入，不猜一个文本模型去接图像任务。
+    pub fn resolved_model(&self, kind: TaskKind) -> Option<&str> {
+        self.model_for_kind(kind)
+            .or_else(|| kind.accepts_text().then_some(DEFAULT_TEXT_MODEL))
+    }
+
+    /// 本任务使用的 provider 条目：MVP 单端点，取最后一条（与
+    /// `keychain_id_for` 的「后条覆盖前条」一致）；`provider_keys` 为空时返回
+    /// `None`（纯查表，与 `model_for_kind` 对称）。
+    pub fn active_provider(&self) -> Option<&ProviderKey> {
+        self.provider_keys.last()
+    }
+
+    /// 引擎实际使用的 provider 条目：空 `provider_keys` 时回退出厂条目（只带
+    /// keychain 条目标识，不带密钥），因此**恒有值**——真正的失败面是「条目指
+    /// 向的密钥没设」（`EngineAuth`，UI 引导去设置页）。
+    ///
+    /// 兜底不只是「方便」：M4-T3 时代的出厂值是空数组，而 `#[serde(default)]`
+    /// 只补缺失字段——那批机器上落盘的 `provider_keys = []` 会一直留着，设置页
+    /// （M4-T6）之前又没有改它的 UI；`resolved_model` 对同一类问题已有对称兜底。
+    pub fn resolved_provider(&self) -> &ProviderKey {
+        self.active_provider()
+            .unwrap_or_else(|| FACTORY_PROVIDER.get_or_init(factory_provider))
+    }
+
     /// 查某 provider 的 keychain 条目标识（同 provider 多条时后条覆盖前条）。
     pub fn keychain_id_for(&self, provider: &str) -> Option<&str> {
         self.provider_keys
@@ -162,8 +237,27 @@ mod tests {
         assert!(config.auto_show);
         assert_eq!(config.cache_ttl_secs, 60 * 60);
         assert_eq!(config.theme, Theme::System);
-        assert!(config.provider_keys.is_empty());
-        assert!(config.model_by_kind.is_empty());
+        assert_eq!(config.base_url, DEFAULT_BASE_URL);
+
+        // 文本任务装完即可用（只差 keychain 里那把钥匙）；图像任务留空，
+        // 免得拿文本模型去接图像任务。
+        assert_eq!(
+            config.resolved_model(TaskKind::TranslateWord),
+            Some(DEFAULT_TEXT_MODEL)
+        );
+        assert_eq!(
+            config.resolved_model(TaskKind::TranslateSentence),
+            Some(DEFAULT_TEXT_MODEL)
+        );
+        assert_eq!(
+            config.resolved_model(TaskKind::ExplainCode),
+            Some(DEFAULT_TEXT_MODEL)
+        );
+        assert_eq!(config.resolved_model(TaskKind::ImageOcr), None);
+
+        let provider = config.active_provider().expect("factory provider");
+        assert_eq!(provider.provider, "deepseek");
+        assert_eq!(provider.keychain_id, "gloss/deepseek");
 
         let triggers: Vec<_> = config
             .hotkey_bindings
@@ -193,6 +287,7 @@ mod tests {
     #[test]
     fn config_round_trips_through_serde() {
         let config = Config {
+            base_url: "https://example.test/v1".into(),
             provider_keys: vec![ProviderKey {
                 provider: "deepseek".into(),
                 keychain_id: "gloss/deepseek".into(),
@@ -232,6 +327,40 @@ mod tests {
         assert_eq!(config.target_lang, Lang::Zh, "missing field must default");
         assert_eq!(config.cache_ttl_secs, 60 * 60);
         assert_eq!(config.hotkey_bindings.len(), 3);
+        // 端点与 provider 条目也是缺字段时的出厂值（M4-T4 新增）。
+        assert_eq!(config.base_url, DEFAULT_BASE_URL);
+        assert_eq!(config.resolved_provider().provider, "deepseek");
+        assert_eq!(
+            config.resolved_model(TaskKind::TranslateWord),
+            Some(DEFAULT_TEXT_MODEL)
+        );
+    }
+
+    /// 两条语义要分清：**缺失**字段走出厂默认（老版本没写过的键），**显式空
+    /// 数组**保持为空（M4-T3 时代落盘的 `provider_keys = []` 就是这样）——后者
+    /// 由 `resolved_provider` / `resolved_model` 兜底，老用户不会卡在配置错误上。
+    #[test]
+    fn missing_fields_default_while_explicit_empty_stays_empty() {
+        let cleared: Config = serde_json::from_str(r#"{"provider_keys": [], "model_by_kind": []}"#)
+            .expect("explicit empty config should parse");
+        assert!(
+            cleared.active_provider().is_none(),
+            "explicit empty must stay empty for pure lookups"
+        );
+        assert_eq!(
+            cleared.resolved_provider().keychain_id,
+            "gloss/deepseek",
+            "resolved lookup must fall back to the factory entry"
+        );
+        assert_eq!(
+            cleared.resolved_model(TaskKind::TranslateWord),
+            Some(DEFAULT_TEXT_MODEL)
+        );
+        assert_eq!(
+            cleared.resolved_model(TaskKind::ImageOcr),
+            None,
+            "image kinds must not borrow the text model"
+        );
     }
 
     /// 划词路径的 kind 收口：配置里写成图像 kind（手改误配）时回退

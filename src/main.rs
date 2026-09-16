@@ -9,9 +9,9 @@ use gloss_app::channel::{AcquireCommand, AppEndpoints, Channels, Event, Platform
 use gloss_core::cache::MokaCache;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
-use gloss_core::engine::mock::MockEngine;
 use gloss_core::log::{self, debug, error, info, thread};
 use gloss_core::ports::{AiEngine, ConfigStore};
+use gloss_platform::engine::llm::LlmClient;
 use gloss_platform::events::hotkey::HotkeyRegistrar;
 use gloss_platform::events::{EventSink, EventSources};
 use gloss_platform::storage::CompositeConfigStore;
@@ -37,8 +37,9 @@ fn main() -> StartupResult {
 
 fn run() -> StartupResult {
     init_logging();
-    let config = load_config()?;
-    run_event_loop(config)
+    let (config, store) = load_config()?;
+    let service = build_service(&config, &store)?;
+    run_event_loop(config, service)
 }
 
 fn init_logging() {
@@ -57,15 +58,38 @@ fn log_dir() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".gloss").join("logs"))
 }
 
+/// 启动期装配产物：配置句柄（给 App 与引擎）与配置存储（给引擎直查密钥）。
+type ConfigWiring = (Arc<ConfigHandle>, Arc<dyn ConfigStore>);
+
 /// 装配配置句柄（启动骨架第 2 步，06 §3.3）：配置文件走标准配置目录的
 /// `config.toml`，密钥走系统安全存储（M4-T2）。
 ///
 /// 唯一必须成功的失败是「拿不到配置目录」——那时无处读写配置，属启动硬
 /// 错误；文档本身损坏由 `ConfigHandle::load_or_default` 降级为出厂默认
 /// 并记日志，应用照常起得来（用户还能进设置页改回来）。
-fn load_config() -> Result<Arc<ConfigHandle>, Box<dyn Error>> {
+///
+/// 返回句柄与存储两份：句柄给 App（任务选项）与引擎（端点），存储给引擎
+/// 直查密钥——存储不下沉进句柄，因为密钥不经快照（06 §6.3）。
+fn load_config() -> Result<ConfigWiring, Box<dyn Error>> {
     let store: Arc<dyn ConfigStore> = Arc::new(CompositeConfigStore::new()?);
-    Ok(Arc::new(ConfigHandle::load_or_default(store)))
+    let handle = Arc::new(ConfigHandle::load_or_default(Arc::clone(&store)));
+    Ok((handle, store))
+}
+
+/// 装配推理服务（启动骨架第 6 步）：真实引擎 + moka 缓存。
+///
+/// 引擎构造失败（HTTP/TLS 栈起不来）是启动硬错误——不装配服务就进事件
+/// 循环的话，通道③没有消费者，用户触发的任务会静默石沉大海（06 §3.3
+/// 「报错退出」而非带病运行）。
+fn build_service(
+    config: &Arc<ConfigHandle>,
+    store: &Arc<dyn ConfigStore>,
+) -> Result<Arc<AiTaskService>, Box<dyn Error>> {
+    let engine = LlmClient::new(Arc::clone(config), Arc::clone(store))?;
+    Ok(Arc::new(AiTaskService::new(
+        Arc::new(engine) as Arc<dyn AiEngine>,
+        Arc::new(MokaCache::new()),
+    )))
 }
 
 /// 组装事件循环：拆分四通道端点、主线程创建热键 registrar、装配推理
@@ -73,7 +97,7 @@ fn load_config() -> Result<Arc<ConfigHandle>, Box<dyn Error>> {
 ///
 /// 端点分发：App 持有 ① 收 / ② 发 / ③ 发 / ④ 收；事件线程持有 ① 发 /
 /// ② 收 / ④ 发（组装进 sink）；tokio 消费循环持有 ③ 收 / ④ 发。
-fn run_event_loop(config: Arc<ConfigHandle>) -> StartupResult {
+fn run_event_loop(config: Arc<ConfigHandle>, service: Arc<AiTaskService>) -> StartupResult {
     let gloss_app::channel::Channels {
         platform_events,
         acquire_commands,
@@ -117,10 +141,6 @@ fn run_event_loop(config: Arc<ConfigHandle>) -> StartupResult {
         // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
         // 睡在事件循环里的主线程。运行时存活至 run_event_loop 结束——
         // App drop 关闭通道③后，消费循环自行退出。
-        let service = Arc::new(AiTaskService::new(
-            Arc::new(MockEngine::new()) as Arc<dyn AiEngine>,
-            Arc::new(MokaCache::new()),
-        ));
         let runtime_waker = waker.clone();
         match gloss_app::pipeline::start_command_runtime(
             service,

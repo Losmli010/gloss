@@ -297,12 +297,12 @@ fn acquire_command_for(
 }
 
 /// 按配置快照解析任务选项：目标语言取配置默认；模型按 kind 从
-/// `model_by_kind` 解析后随任务下发——引擎只见到任务自身携带的模型，
-/// 执行途中不再回读配置（未配置该 kind 时留空，由编排侧兜底模型填入）。
+/// `model_by_kind` 解析（缺项时 core 的出厂默认兜底）后随任务下发——引擎
+/// 只见到任务自身携带的模型，执行途中不再回读配置。
 fn task_options(kind: TaskKind, config: &Config) -> TaskOptions {
     TaskOptions {
         target_lang: Some(config.target_lang.clone()),
-        model_override: config.model_for_kind(kind).map(str::to_owned),
+        model_override: config.resolved_model(kind).map(str::to_owned),
         ..Default::default()
     }
 }

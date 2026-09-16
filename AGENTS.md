@@ -145,6 +145,8 @@ just --list            # 查看全部 recipe
 
   授权步骤：系统设置 → 隐私与安全性 → 辅助功能 → 打开运行测试的终端 App。
 
+- **L4 环境变量型 opt-in**（同样不进 CI）：需要外部凭据的真机测试走这一形态——目前只有 LLM 端点（`gloss-platform::engine::llm` 的 live 测试）。它不碰 OS 授权，因此不调 `require_accessibility()`，而是自己在前置检查里读 `GLOSS_LIVE_API_KEY` / `GLOSS_LIVE_BASE_URL` / `GLOSS_LIVE_MODEL`，缺项时用**可直接照抄的命令**当场失败（缺哪个变量、怎么跑都写在消息里），密钥不打印。注意 `cargo test -- --ignored` 会把两种形态一起跑起来，撞上缺环境变量的报错时按消息补齐即可，不必以为哪里坏了。
+
 ### 快照测试
 
 - **L2 UI harness**（`crates/gloss-app/src/ui/popup.rs` 模块内的 kittest 测试）：AccessKit 树断言 + 点击复制按钮 + wgpu 渲染快照。树断言与交互断言全平台跑；快照对比 `#[cfg(target_os = "macos")]`（跨平台渲染差异），多个 harness 的快照结果要合并进同一个 `SnapshotResults`。

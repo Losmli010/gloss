@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::cache::cache_key;
 use crate::model::GlossError;
-use crate::ports::{AiEngine, Cache};
+use crate::ports::{AiEngine, Cache, EngineRequest};
 use crate::prompt::{PromptRegistry, STRUCTURED_FENCE};
 use crate::task::{OutcomeStructured, Task, TaskKind, TaskOutcome};
 
@@ -53,16 +53,21 @@ impl AiTaskService {
         model: &str,
         mut on_chunk: impl FnMut(String),
     ) -> Result<TaskOutcome, GlossError> {
-        // prompt 渲染先行：模态不合法在进缓存/引擎之前拒绝；messages
-        // 本身由 M4 的 LlmClient 组装请求时使用，这里先钉住校验与接线点。
-        let _messages = self.prompts.render(task)?;
+        // prompt 渲染先行：模态不合法在进缓存/引擎之前拒绝；渲染好的
+        // messages 与已解析的模型一起交给引擎（引擎不做渲染、不读配置）。
+        let messages = self.prompts.render(task)?;
 
         let key = cache_key(task, model);
         if let Some(hit) = self.cache.get(key) {
             return Ok(hit);
         }
 
-        let mut stream = self.engine.execute(task).await?;
+        let request = EngineRequest {
+            kind: task.kind,
+            messages,
+            model: model.to_owned(),
+        };
+        let mut stream = self.engine.execute(&request).await?;
         let mut body = String::new();
         while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
             match item {
