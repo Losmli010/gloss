@@ -118,6 +118,14 @@ fn resolve_target(
     if base_url.is_empty() {
         return Err(GlossError::Config("no provider endpoint configured".into()));
     }
+    let parsed_base = reqwest::Url::parse(base_url)
+        .map_err(|_| GlossError::Config("invalid provider endpoint configured".into()))?;
+    if parsed_base.scheme() != "https" {
+        return Err(GlossError::Config(
+            "provider endpoint must use https".into(),
+        ));
+    }
+
     let provider = config
         .active_provider()
         .ok_or_else(|| GlossError::Config("no provider configured".into()))?;
@@ -126,7 +134,10 @@ fn resolve_target(
         .filter(|key| !key.trim().is_empty())
         .ok_or(GlossError::EngineAuth)?;
     Ok((
-        format!("{}/{CHAT_COMPLETIONS_PATH}", base_url.trim_end_matches('/')),
+        format!(
+            "{}/{CHAT_COMPLETIONS_PATH}",
+            parsed_base.as_str().trim_end_matches('/')
+        ),
         key,
     ))
 }
