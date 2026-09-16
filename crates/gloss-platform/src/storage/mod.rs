@@ -296,6 +296,7 @@ mod tests {
                 source: InputSource::Region,
             }],
             default_text_kind: TaskKind::ExplainCode,
+            enabled_kinds: vec![TaskKind::ImageOcr, TaskKind::ImageExplain],
             auto_show: false,
             cache_ttl_secs: 120,
             theme: Theme::Dark,

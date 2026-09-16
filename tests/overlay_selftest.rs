@@ -126,7 +126,7 @@ mod macos_selftest {
                 return;
             }
             match build_window_stack(event_loop) {
-                Ok((windows, frame)) => {
+                Ok((windows, frame, _settings_frame)) => {
                     self.windows = Some(windows);
                     self.frame = Some(frame);
                     // 预创建即隐藏（Idle 态）；先在隐藏状态画一帧预热——
@@ -153,7 +153,11 @@ mod macos_selftest {
             window_id: WindowId,
             event: WindowEvent,
         ) {
-            if !self.windows.as_ref().is_some_and(|w| w.matches(window_id)) {
+            if !self
+                .windows
+                .as_ref()
+                .is_some_and(|w| w.matches_overlay(window_id))
+            {
                 return;
             }
             if let WindowEvent::RedrawRequested = event {

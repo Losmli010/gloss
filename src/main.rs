@@ -39,7 +39,7 @@ fn run() -> StartupResult {
     init_logging();
     let (config, store) = load_config()?;
     let service = build_service(&config, &store)?;
-    run_event_loop(config, service)
+    run_event_loop(config, store, service)
 }
 
 fn init_logging() {
@@ -96,8 +96,14 @@ fn build_service(
 /// 服务与消费运行时、启动应用，并在拿到唤醒句柄后启动平台事件线程。
 ///
 /// 端点分发：App 持有 ① 收 / ② 发 / ③ 发 / ④ 收；事件线程持有 ① 发 /
-/// ② 收 / ④ 发（组装进 sink）；tokio 消费循环持有 ③ 收 / ④ 发。
-fn run_event_loop(config: Arc<ConfigHandle>, service: Arc<AiTaskService>) -> StartupResult {
+/// ② 收 / ④ 发（组装进 sink）；tokio 消费循环持有 ③ 收 / ④ 发。配置侧：
+/// 句柄给 App（任务选项）与引擎（端点），存储另路给 App（设置页写
+/// keychain）与引擎（每请求直查密钥）。
+fn run_event_loop(
+    config: Arc<ConfigHandle>,
+    store: Arc<dyn ConfigStore>,
+    service: Arc<AiTaskService>,
+) -> StartupResult {
     let gloss_app::channel::Channels {
         platform_events,
         acquire_commands,
@@ -137,7 +143,7 @@ fn run_event_loop(config: Arc<ConfigHandle>, service: Arc<AiTaskService>) -> Sta
 
     let mut command_runtime = None;
     let mut event_thread = None;
-    let result = gloss_app::app::run(endpoints, config, |waker| {
+    let result = gloss_app::app::run(endpoints, config, store, |waker| {
         // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
         // 睡在事件循环里的主线程。运行时存活至 run_event_loop 结束——
         // App drop 关闭通道③后，消费循环自行退出。
