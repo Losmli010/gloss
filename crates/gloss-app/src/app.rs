@@ -18,7 +18,7 @@ use winit::window::{Window, WindowId};
 
 use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent};
 use crate::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
-use crate::machine::{OverlayView, RunRequest, TaskStateMachine};
+use crate::machine::{ErrorAction, OverlayView, RunRequest, TaskStateMachine};
 use crate::ui::settings::{KeyUpdate, SettingsAction, SettingsState};
 use crate::ui::{self};
 use crate::windows::WindowManager;
@@ -152,10 +152,15 @@ pub fn render_frame_with<R>(
     (repaint_at, result)
 }
 
-/// 渲染一帧浮层（[`render_frame_with`] 的浮层特化，供自检 handler 用）。
-pub fn render_frame(frame: &mut Frame, view: Option<&OverlayView>) -> Option<Instant> {
-    let (repaint_at, _) = render_frame_with(frame, |ui| ui::popup::draw(ui, view));
-    repaint_at
+/// 渲染一帧浮层（[`render_frame_with`] 的浮层特化，供 App 与自检 handler
+/// 用）：返回（egui 要求的下一帧时刻，本帧被点击的失败卡动作按钮）。
+pub fn render_frame(
+    frame: &mut Frame,
+    view: Option<&OverlayView>,
+) -> (Option<Instant>, Option<ErrorAction>) {
+    let (repaint_at, clicked) = render_frame_with(frame, |ui| ui::popup::draw(ui, view));
+    // 内层 Option 是「闭包有没有跑」的外壳，动作本身才是浮层的返回值。
+    (repaint_at, clicked.flatten())
 }
 
 struct GlossApp {
@@ -218,16 +223,52 @@ impl GlossApp {
         Ok(())
     }
 
-    /// 画一帧：egui 出绘制数据 → wgpu 呈现，并把 egui 要求的下一帧记下来。
+    /// 画一帧：egui 出绘制数据 → wgpu 呈现，并把 egui 要求的下一帧记下
+    /// 来；失败卡上的动作按钮（重试/打开设置）就地执行。
     fn draw(&mut self) {
         let Some(frame) = self.frame.as_mut() else {
             return;
         };
         let overlay_view = self.machine.overlay_view();
-        self.overlay_repaint = render_frame(frame, overlay_view);
+        let (repaint, action) = render_frame(frame, overlay_view);
+        self.overlay_repaint = repaint;
+        // 失败卡的动作出口（06 §7）：重试原样重发，鉴权/配置类打开设置。
+        if let Some(action) = action {
+            self.handle_error_action(action);
+        }
     }
 
-    /// 画一帧设置窗口：草稿编辑 + 动作上交（保存/清除密钥/取消）。
+    /// 执行失败卡的动作出口（06 §7 错误映射的壳侧半边）。
+    fn handle_error_action(&mut self, action: ErrorAction) {
+        match action {
+            ErrorAction::Retry => match self.machine.retry() {
+                Some(request) => {
+                    info!(
+                        thread = thread::UI,
+                        generation = request.generation,
+                        "error card retry, task re-dispatched to tokio"
+                    );
+                    self.send_run(request);
+                    // 重锚隐藏计时：重试的成功路径不该被失败卡出现时刻
+                    // 锚定的旧计时掐断（与 accept_done 的重锚同一理由）。
+                    if self.windows.is_some() {
+                        self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
+                    }
+                }
+                None => {
+                    debug!(
+                        thread = thread::UI,
+                        state = ?self.machine.state(),
+                        "stale retry click dropped"
+                    );
+                }
+            },
+            // 失败卡的「打开设置」与托盘/热键走同一个入口。
+            ErrorAction::OpenSettings => self.open_settings(),
+        }
+    }
+
+    /// 画一帧设置窗口：草稿编辑 + 动作上交（保存/密钥变更/取消）。
     fn draw_settings(&mut self) {
         let (Some(frame), Some(state)) = (&mut self.settings_frame, &mut self.settings) else {
             return;
@@ -512,7 +553,8 @@ impl GlossApp {
         accepted
     }
 
-    /// 采纳任务失败：落 `Error` 态并展示失败信息（下一次触发即重试）。
+    /// 采纳任务失败：落 `Error` 态并展示失败卡（文案与动作出口由
+    /// machine 按错误类别给出，见 `machine::error_action`）。
     /// 返回是否需要展示浮层。
     fn accept_failed(&mut self, generation: u64, error: &gloss_core::model::GlossError) -> bool {
         let accepted = self.machine.accept_failed(generation, error);
@@ -924,6 +966,74 @@ mod tests {
         // Error 态再次触发即重试。
         trigger_selection(&mut app, &pe_tx);
         assert_eq!(app.machine.state(), AppState::Fetching);
+    }
+
+    /// 失败卡的重试按钮（06 §7）：可重试失败给出 Retry 出口，壳把它原样
+    /// 重发到通道③——同代数、同任务、新令牌。
+    #[test]
+    fn retry_action_redispatches_the_failed_task() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(1, text_input("A")));
+        let Command::RunTask { cancel, .. } = cmd_rx.try_recv().unwrap();
+        assert!(app.accept_failed(1, &gloss_core::model::GlossError::EngineNetwork));
+        assert!(matches!(
+            app.machine.overlay_view(),
+            Some(OverlayView::Failed {
+                action: Some(ErrorAction::Retry),
+                ..
+            })
+        ));
+
+        app.handle_error_action(ErrorAction::Retry);
+        assert_eq!(app.machine.state(), AppState::Translating);
+        let Command::RunTask {
+            generation,
+            task,
+            cancel: retried,
+        } = cmd_rx.try_recv().unwrap();
+        assert_eq!(generation, 1, "retry keeps the failed task's generation");
+        assert!(matches!(
+            task.input,
+            TaskInput::Text { ref text, .. } if text == "A"
+        ));
+        assert!(!retried.is_cancelled());
+        assert!(
+            !cancel.is_cancelled(),
+            "a failed task's token is dropped, not cancelled"
+        );
+
+        // 重试后的产物照常采纳。
+        assert!(app.accept_done(1, plain_outcome("重试成功")));
+        assert_eq!(app.machine.state(), AppState::Show);
+    }
+
+    /// 设置页出口（鉴权/配置类失败）：点「打开设置」不产生通道③流量，
+    /// 状态停在 Error，编辑会话就位（窗口可见性属 L3 真机，见显隐自检）。
+    #[test]
+    fn open_settings_action_keeps_the_error_card() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(1, text_input("A")));
+        // 排空首发的 RunTask，之后通道③应为空——「打开设置」不得产生
+        // 重发流量。
+        let Command::RunTask { .. } = cmd_rx.try_recv().unwrap();
+        assert!(app.accept_failed(1, &gloss_core::model::GlossError::EngineAuth));
+        assert!(matches!(
+            app.machine.overlay_view(),
+            Some(OverlayView::Failed {
+                action: Some(ErrorAction::OpenSettings),
+                ..
+            })
+        ));
+
+        app.handle_error_action(ErrorAction::OpenSettings);
+        assert_eq!(app.machine.state(), AppState::Error);
+        assert!(cmd_rx.try_recv().is_err(), "no re-dispatch for settings");
+        assert!(
+            app.settings.is_some(),
+            "the open-settings action must start the edit session (M4-T6)"
+        );
     }
 
     /// 陈旧的 InputReady 不进入 Translating，也不下发③。

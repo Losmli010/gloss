@@ -9,6 +9,10 @@ description = "Gloss 表现层与应用层：状态机 + 渲染胶水"
 # 通道①②④用 crossbeam（MPMC，主线程 try_recv 非阻塞）。std 特性即默认集全部内容，
 # 显式写出以维持「关默认集、按需开特性」的统一写法。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
+# FutureExt::catch_unwind 包住 tokio 消费循环里的任务 future（06 §7「后台
+# panic 被 tokio 捕获转为 TaskFailed」）。std 是 catch_unwind 所需；core 已
+# 依赖 futures，不引入新子树。
+futures = { version = "0.3", default-features = false, features = ["std"] }
 # 渲染栈整批版本（egui 三件套必须同小版本；wgpu 版本由 egui-wgpu 决定，不要单独升级）：
 # winit 0.30.13 / wgpu 30.0.1 / egui + egui-wgpu + egui-winit 0.36.2 / pollster 1.0.1
 #

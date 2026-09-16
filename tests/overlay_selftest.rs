@@ -111,8 +111,9 @@ mod macos_selftest {
             let Some(frame) = &mut self.frame else {
                 return;
             };
-            // 自检期间恒渲染自检卡（视图 None）
-            self.next_repaint = render_frame(frame, None);
+            // 自检期间恒渲染自检卡（视图 None；无失败卡，动作位忽略）
+            let (repaint, _) = render_frame(frame, None);
+            self.next_repaint = repaint;
             if let Some(shown) = self.shown_at.take() {
                 self.latencies.push(Instant::now() - shown);
             }

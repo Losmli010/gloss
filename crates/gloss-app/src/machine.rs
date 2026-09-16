@@ -16,6 +16,16 @@ use gloss_core::task::{InputSource, Task, TaskInput, TaskKind, TaskOptions, Task
 
 use crate::channel::{AcquireCommand, PlatformEvent};
 
+/// 失败卡的动作按钮（06 §7 错误映射表）：状态机按错误变体给出该显式
+/// 给用户的出口，渲染层照画、壳执行。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorAction {
+    /// 可重试类（网络/限流）：原样重发失败的那个任务。
+    Retry,
+    /// 配置/鉴权类：打开设置页（密钥、模型绑定都在那里修）。
+    OpenSettings,
+}
+
 /// 应用状态机（06 §6.1）：触发 → 取材 → 推理 → 展示/失败。
 ///
 /// 转移概要：任何可见态收到新触发（[`TaskStateMachine::trigger`]）都取
@@ -34,7 +44,7 @@ pub enum AppState {
     Translating,
     /// 展示产物。
     Show,
-    /// 失败态：显示失败信息，等待下一次触发重试。
+    /// 失败态：显示失败信息与动作出口（重试按钮或设置页引导）。
     Error,
     /// 框选交互（占位，随 M5 框选遮罩落地；过渡期内无转移路径）。
     #[allow(dead_code)]
@@ -55,10 +65,13 @@ pub enum OverlayView {
     },
     /// 产物卡：按 `TaskKind` 精排或展示 markdown 正文。
     Outcome(TaskOutcome),
-    /// 失败信息（再次触发即重试）。
+    /// 失败信息与动作出口：`action` 指出浮层该给用户的按钮（06 §7 错误
+    /// 映射），`None` 表示无可操作出口（重新划词即可）。
     Failed {
         /// 面向用户的失败说明。
         message: String,
+        /// 失败卡的动作按钮；随错误类别而定。
+        action: Option<ErrorAction>,
     },
 }
 
@@ -94,6 +107,9 @@ pub struct TaskStateMachine {
     pending: Option<PendingTask>,
     /// 在途推理的取消令牌：新触发时取消旧任务（唯一取消机制，08 §4.2）。
     current_cancel: Option<CancellationToken>,
+    /// 当前任务的副本：推理期间随行，可重试失败后留在 Error 态供
+    /// [`TaskStateMachine::retry`] 原样重发；完成、隐藏与不可重试失败即清。
+    active_task: Option<Task>,
     /// 当前浮层的内容视图；`None` 时浮层显示渲染自检卡。
     overlay_view: Option<OverlayView>,
 }
@@ -136,6 +152,9 @@ impl TaskStateMachine {
             cancel.cancel();
         }
         self.generation += 1;
+        // 新触发取代一切旧任务：连可重试的失败任务副本一并作废（重发它
+        // 没有意义，用户已经表达了新的意图）。
+        self.active_task = None;
         // kind 从命令里取（两个变体都携带），选项按同一个 kind 从**同一份**
         // 快照解析——这里是「单次任务内配置一致」的实现点。
         //
@@ -178,6 +197,7 @@ impl TaskStateMachine {
             },
             options,
         };
+        self.active_task = Some(task.clone());
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
             body: String::new(),
@@ -207,12 +227,14 @@ impl TaskStateMachine {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
         }
+        self.active_task = None;
         self.overlay_view = Some(OverlayView::Outcome(outcome));
         self.state = AppState::Show;
         true
     }
 
-    /// 采纳任务失败：落 `Error` 态并展示失败信息（下一次触发即重试）。
+    /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（06 §7 错误
+    /// 映射：可重试类带重试按钮并保留任务副本，配置/鉴权类引导去设置页）。
     /// 返回是否需要展示浮层。
     pub fn accept_failed(&mut self, generation: u64, error: &GlossError) -> bool {
         // Fetching 态收取材失败、Translating 态收推理失败；其余（含已
@@ -223,11 +245,46 @@ impl TaskStateMachine {
             return false;
         }
         self.current_cancel = None;
+        // 只有「原样重发有意义」的失败才留任务副本；其余类别（含通道级
+        // 故障的 fail_* 降级路径）一律清掉，retry() 自然无从发起。副本
+        // 缺失时（未来取材路径若回传可重试错误）不给 Retry 出口——别摆
+        // 一颗点了没反应的死按钮。
+        let mut action = error_action(error);
+        if action == Some(ErrorAction::Retry) {
+            if self.active_task.is_none() {
+                action = None;
+            }
+        } else {
+            self.active_task = None;
+        }
         self.state = AppState::Error;
         self.overlay_view = Some(OverlayView::Failed {
-            message: format!("任务失败：{error}（再次触发可重试）"),
+            message: error_message(error),
+            action,
         });
         true
+    }
+
+    /// 重试失败卡上的任务（Error 态）：原样重发失败的那个任务（同代数
+    /// ——旧任务的流已随首个错误终结，不会有两路同代回传），浮层回到
+    /// 流式视图。非 Error 态或无可重试任务时返回 `None`。
+    pub fn retry(&mut self) -> Option<RunRequest> {
+        if self.state != AppState::Error {
+            return None;
+        }
+        let task = self.active_task.clone()?;
+        let cancel = CancellationToken::new();
+        self.current_cancel = Some(cancel.clone());
+        self.overlay_view = Some(OverlayView::Streaming {
+            source: source_text(&task),
+            body: String::new(),
+        });
+        self.state = AppState::Translating;
+        Some(RunRequest {
+            generation: self.generation,
+            task,
+            cancel,
+        })
     }
 
     /// 浮层收起（失焦/自动隐藏）即放弃在途任务：取消令牌（唯一取消机
@@ -238,6 +295,7 @@ impl TaskStateMachine {
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
+        self.active_task = None;
         self.state = AppState::Idle;
         self.overlay_view = None;
     }
@@ -251,19 +309,68 @@ impl TaskStateMachine {
         self.state = AppState::Error;
         self.overlay_view = Some(OverlayView::Failed {
             message: "任务失败：取材通道不可用".into(),
+            action: None,
         });
     }
 
-    /// 推理通道不可用（③发送失败）时的降级：直接落 `Error` 态。
+    /// 推理通道不可用（③发送失败）时的降级：直接落 `Error` 态。通道
+    /// 已死时重发只会再死一次，失败卡不带重试按钮。
     pub fn fail_transport(&mut self, generation: u64) {
         if generation != self.generation {
             return;
         }
         self.current_cancel = None;
+        self.active_task = None;
         self.state = AppState::Error;
         self.overlay_view = Some(OverlayView::Failed {
             message: "任务失败：推理通道不可用".into(),
+            action: None,
         });
+    }
+}
+
+/// 失败卡的展示文案（按错误变体，06 §7 的用户可见措辞）。
+fn error_message(error: &GlossError) -> String {
+    match error {
+        GlossError::SelectionUnavailable => "未能读取选中文本，请重新选中后触发".into(),
+        GlossError::AccessibilityDenied => {
+            "辅助功能权限未授权：系统设置 → 隐私与安全性 → 辅助功能".into()
+        }
+        GlossError::ScreenCaptureDenied => {
+            "屏幕录制权限未授权：系统设置 → 隐私与安全性 → 屏幕录制".into()
+        }
+        GlossError::RegionTooLarge => "框选区域超出屏幕，请重新框选".into(),
+        GlossError::UnsupportedModality => {
+            "当前模型不支持该任务，请在设置中为它配置匹配能力的模型".into()
+        }
+        GlossError::EngineNetwork => "网络错误，请检查网络后重试".into(),
+        GlossError::EngineAuth => "API Key 无效或未配置，请到设置中检查".into(),
+        GlossError::EngineRateLimited => "触发限流，请稍后重试".into(),
+        GlossError::EngineResponse(detail) => format!("服务返回异常：{detail}"),
+        GlossError::Config(detail) => format!("配置有误：{detail}"),
+    }
+}
+
+/// 错误 → 失败卡动作（06 §7 映射表）：网络/限流可原样重试；鉴权、模态
+/// 与配置错误都要进设置页才能修（模型绑定、密钥的修改入口在 M4-T6 落
+/// 地）；其余类别没有按钮意义上的出口——权限类引导已写在文案里，协议
+/// 异常重发同一个请求只会再错一次。
+fn error_action(error: &GlossError) -> Option<ErrorAction> {
+    match error {
+        GlossError::EngineNetwork | GlossError::EngineRateLimited => Some(ErrorAction::Retry),
+        GlossError::EngineAuth | GlossError::UnsupportedModality | GlossError::Config(_) => {
+            Some(ErrorAction::OpenSettings)
+        }
+        _ => None,
+    }
+}
+
+/// 任务原文（流式视图与重试用）：当前只有文本任务进入推理（M5 接入图
+/// 像取材时随它扩展），其余模态留空。
+fn source_text(task: &Task) -> String {
+    match &task.input {
+        TaskInput::Text { text, .. } => text.clone(),
+        TaskInput::Image { .. } | TaskInput::Audio { .. } => String::new(),
     }
 }
 
@@ -662,7 +769,8 @@ mod tests {
         );
     }
 
-    /// 通道不可用降级：fail_transport 直接落 Error 并展示失败视图。
+    /// 通道不可用降级：fail_transport 直接落 Error 并展示失败视图（无
+    /// 动作按钮——通道已死时重发只会再死一次）。
     #[test]
     fn transport_failure_lands_in_error() {
         let mut machine = TaskStateMachine::new();
@@ -675,7 +783,147 @@ mod tests {
         assert!(machine.current_cancel().is_none());
         assert!(matches!(
             machine.overlay_view(),
-            Some(OverlayView::Failed { .. })
+            Some(OverlayView::Failed { action: None, .. })
         ));
+        assert!(machine.retry().is_none());
+    }
+
+    /// 可重试失败（06 §7）：失败卡带重试出口，retry() 原样重发同一个
+    /// 任务（同代数、同输入、新令牌），浮层回到流式视图。
+    #[test]
+    fn retryable_failure_keeps_task_and_retry_redispatches_it() {
+        let mut machine = TaskStateMachine::new();
+        machine
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .expect("trigger");
+        let original = machine
+            .accept_input(1, text_input("hello"))
+            .expect("accepted");
+        assert!(machine.accept_failed(1, &GlossError::EngineNetwork));
+
+        match machine.overlay_view() {
+            Some(OverlayView::Failed {
+                message,
+                action: Some(ErrorAction::Retry),
+            }) => assert!(message.contains("网络"), "message must name the class"),
+            other => panic!("retryable failure expected, got {other:?}"),
+        }
+
+        let retried = machine.retry().expect("retry must be available");
+        assert_eq!(retried.generation, original.generation, "same generation");
+        assert_eq!(retried.task, original.task, "same task is re-dispatched");
+        assert!(retried.cancel != original.cancel, "fresh cancel token");
+        assert_eq!(machine.state(), AppState::Translating);
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Streaming { source, .. }) if source == "hello"
+        ));
+    }
+
+    /// 限流与网络同类可重试；配置/鉴权/模态类引导去设置页且不可按钮重试。
+    #[test]
+    fn error_actions_follow_the_mapping_table() {
+        let mut machine = TaskStateMachine::new();
+        machine
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .expect("trigger");
+        machine.accept_input(1, text_input("x")).expect("accepted");
+
+        assert!(
+            machine.accept_failed(1, &GlossError::EngineRateLimited),
+            "rate limited is retryable"
+        );
+        assert!(machine.retry().is_some());
+
+        // 限流失败把任务副本留在 Error 态；这里直接再次 accept_failed 不
+        // 合法（已是 Error 态），所以重新走一遍触发→输入→失败。
+        machine
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .expect("trigger");
+        machine.accept_input(2, text_input("x")).expect("accepted");
+        assert!(machine.accept_failed(2, &GlossError::EngineAuth));
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Failed {
+                action: Some(ErrorAction::OpenSettings),
+                ..
+            })
+        ));
+        assert!(
+            machine.retry().is_none(),
+            "auth failure must not offer a retry button"
+        );
+
+        machine
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .expect("trigger");
+        machine.accept_input(3, text_input("x")).expect("accepted");
+        assert!(machine.accept_failed(3, &GlossError::UnsupportedModality));
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Failed {
+                action: Some(ErrorAction::OpenSettings),
+                ..
+            })
+        ));
+
+        // 配置类（如图像 kind 未配模型，pipeline 的 model_for 报出）同样
+        // 引导去设置页。
+        machine
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .expect("trigger");
+        machine.accept_input(4, text_input("x")).expect("accepted");
+        assert!(machine.accept_failed(
+            4,
+            &GlossError::Config("no model configured for this task kind".into())
+        ));
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Failed {
+                action: Some(ErrorAction::OpenSettings),
+                ..
+            })
+        ));
+    }
+
+    /// 新触发与隐藏都作废重试：任务副本清空，retry() 返回 None。
+    #[test]
+    fn new_trigger_and_hide_supersede_the_retry_task() {
+        let mut machine = TaskStateMachine::new();
+        machine
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .expect("trigger");
+        machine.accept_input(1, text_input("x")).expect("accepted");
+        assert!(machine.accept_failed(1, &GlossError::EngineNetwork));
+
+        // 新触发取代失败卡：可重试副本作废。
+        machine
+            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .expect("trigger");
+        assert!(machine.retry().is_none(), "new trigger supersedes retry");
+
+        // 失败 → 隐藏：重试随浮层一起放弃。
+        machine.accept_input(2, text_input("y")).expect("accepted");
+        assert!(machine.accept_failed(2, &GlossError::EngineNetwork));
+        machine.hide_overlay();
+        assert_eq!(machine.state(), AppState::Idle);
+        assert!(machine.retry().is_none(), "hide drops the retry task");
+    }
+
+    /// 展示文案按类别给出可执行的指引（权限类写清去哪里授权）。
+    #[test]
+    fn error_messages_name_the_fix() {
+        assert_eq!(
+            error_message(&GlossError::AccessibilityDenied),
+            "辅助功能权限未授权：系统设置 → 隐私与安全性 → 辅助功能"
+        );
+        assert_eq!(
+            error_message(&GlossError::EngineAuth),
+            "API Key 无效或未配置，请到设置中检查"
+        );
+        assert!(
+            error_message(&GlossError::EngineResponse("bad json".into())).contains("bad json"),
+            "protocol errors keep the diagnostic text"
+        );
     }
 }
