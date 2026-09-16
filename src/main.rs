@@ -10,7 +10,7 @@ use gloss_core::cache::MokaCache;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::log::{self, debug, error, info, thread};
-use gloss_core::ports::{AiEngine, ConfigStore};
+use gloss_core::ports::{AiEngine, ConfigStore, HotkeyBinder};
 use gloss_platform::engine::llm::LlmClient;
 use gloss_platform::events::hotkey::HotkeyRegistrar;
 use gloss_platform::events::{EventSink, EventSources};
@@ -92,13 +92,15 @@ fn build_service(
     )))
 }
 
-/// 组装事件循环：拆分四通道端点、主线程创建热键 registrar、装配推理
+/// 组装事件循环：拆分四通道端点、主线程按配置建热键 registrar、装配推理
 /// 服务与消费运行时、启动应用，并在拿到唤醒句柄后启动平台事件线程。
 ///
 /// 端点分发：App 持有 ① 收 / ② 发 / ③ 发 / ④ 收；事件线程持有 ① 发 /
 /// ② 收 / ④ 发（组装进 sink）；tokio 消费循环持有 ③ 收 / ④ 发。配置侧：
 /// 句柄给 App（任务选项）与引擎（端点），存储另路给 App（设置页写
-/// keychain）与引擎（每请求直查密钥）。
+/// keychain）与引擎（每请求直查密钥）。热键侧：同一个 registrar 分两路
+/// ——pump 给事件线程抽干按键队列，`HotkeyBinder` 端口给 App 在设置页
+/// 保存后重注册（注册的线程亲和约束见 hotkey.rs 模块注释）。
 fn run_event_loop(
     config: Arc<ConfigHandle>,
     store: Arc<dyn ConfigStore>,
@@ -139,11 +141,19 @@ fn run_event_loop(
 
     // 热键 registrar 必须创建在主线程（Windows 后端的 WM_HOTKEY 投递与
     // Drop 清理亲和创建线程，见 hotkey.rs 模块注释），并存活至进程退出。
-    let registrar = HotkeyRegistrar::with_defaults();
+    // 绑定取自启动时那份配置快照（M4-T7）：出厂默认与设置页改的是同一份
+    // 表，本文件不再有第二份写死的默认。
+    let registrar = Arc::new(HotkeyRegistrar::new(
+        config.snapshot().hotkey_bindings.iter().cloned(),
+    ));
+    // 设置页保存后 App 要按新配置重注册，而重绑定同样只能在主线程做——
+    // 把同一个 registrar 以端口形态再给 App 一份句柄（是同一个管理器，
+    // 不是第二个；第二个会与它抢热键）。
+    let hotkeys = Arc::clone(&registrar) as Arc<dyn HotkeyBinder>;
 
     let mut command_runtime = None;
     let mut event_thread = None;
-    let result = gloss_app::app::run(endpoints, config, store, |waker| {
+    let result = gloss_app::app::run(endpoints, config, store, hotkeys, |waker| {
         // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
         // 睡在事件循环里的主线程。运行时存活至 run_event_loop 结束——
         // App drop 关闭通道③后，消费循环自行退出。

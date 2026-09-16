@@ -5,10 +5,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use egui::ViewportId;
-use gloss_core::config::Config;
+use gloss_core::config::{Config, Theme};
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::log::{debug, error, info, thread, warn};
-use gloss_core::ports::ConfigStore;
+use gloss_core::ports::{ConfigStore, HotkeyBinder};
 use gloss_core::task::TaskInput;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalPosition;
@@ -59,16 +59,21 @@ impl Waker {
 ///
 /// `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
+///
+/// `hotkeys` 是热键重绑定端口（M4-T7）：适配器在组装点创建（主线程亲和），
+/// 设置页保存后由 App 直接调用。`auto_show` 与 `theme` 两个配置项也在本
+/// 任务接线（前者决定浮层何时自动露面，后者施加到两个 egui 上下文）。
 pub fn run(
     endpoints: AppEndpoints,
     config: Arc<ConfigHandle>,
     store: Arc<dyn ConfigStore>,
+    hotkeys: Arc<dyn HotkeyBinder>,
     on_waker: impl FnOnce(Waker),
 ) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     let waker = Waker(event_loop.create_proxy());
     on_waker(waker);
-    let mut app = GlossApp::new(endpoints, config, store);
+    let mut app = GlossApp::new(endpoints, config, store, hotkeys);
     event_loop.run_app(&mut app)?;
     Ok(())
 }
@@ -189,14 +194,22 @@ struct GlossApp {
     /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
     /// 之丢弃）。
     settings: Option<SettingsState>,
+    /// 热键重绑定端口（M4-T7）。注册有主线程亲和（平台后端约束），而保存
+    /// 配置恰好发生在主线程的这一帧里，所以是同步调用而不是下发通道。
+    hotkeys: Arc<dyn HotkeyBinder>,
+    /// 已施加到两个 egui 上下文的主题偏好；`None` 表示还没施加过。缓存
+    /// 它只为免掉逐帧写入——egui 每帧都按该偏好解析明暗，重复写没有意义。
+    applied_theme: Option<egui::ThemePreference>,
 }
 
 impl GlossApp {
-    /// 组装点移交的通道端点、配置句柄与存储；窗口与帧状态在 `resumed` 时建立。
+    /// 组装点移交的通道端点、配置句柄、配置存储与热键端口；窗口与帧状态
+    /// 在 `resumed` 时建立。
     fn new(
         endpoints: AppEndpoints,
         config: Arc<ConfigHandle>,
         store: Arc<dyn ConfigStore>,
+        hotkeys: Arc<dyn HotkeyBinder>,
     ) -> Self {
         Self {
             windows: None,
@@ -210,6 +223,8 @@ impl GlossApp {
             store,
             settings_frame: None,
             settings: None,
+            hotkeys,
+            applied_theme: None,
         }
     }
 
@@ -226,6 +241,7 @@ impl GlossApp {
     /// 画一帧：egui 出绘制数据 → wgpu 呈现，并把 egui 要求的下一帧记下
     /// 来；失败卡上的动作按钮（重试/打开设置）就地执行。
     fn draw(&mut self) {
+        self.apply_theme();
         let Some(frame) = self.frame.as_mut() else {
             return;
         };
@@ -270,6 +286,7 @@ impl GlossApp {
 
     /// 画一帧设置窗口：草稿编辑 + 动作上交（保存/密钥变更/取消）。
     fn draw_settings(&mut self) {
+        self.apply_theme();
         let (Some(frame), Some(state)) = (&mut self.settings_frame, &mut self.settings) else {
             return;
         };
@@ -341,7 +358,52 @@ impl GlossApp {
             thread = thread::UI,
             "settings saved, effective on the next trigger"
         );
+        // 热键不受「下一次触发才生效」约束：注册是平台侧的即时动作，保存
+        // 成功即按新表重注册（M4-T7）。
+        self.rebind_hotkeys();
         self.close_settings();
+    }
+
+    /// 按当前快照重注册热键（M4-T7）。
+    ///
+    /// 绑定读自刚换上的快照——于是生效的那一份必然是落盘成功的那一版，
+    /// 不会出现「磁盘是 A、按键却是 B」的分叉。个别绑定被占用由平台侧告警
+    /// 跳过（见 `HotkeyBinder` 的降级契约），不让这次保存整体失败。
+    fn rebind_hotkeys(&self) {
+        let bindings = self.config.snapshot().hotkey_bindings.clone();
+        let applied = self.hotkeys.rebind(&bindings);
+        info!(
+            thread = thread::UI,
+            declared = bindings.len(),
+            applied,
+            "hotkey bindings re-registered after save"
+        );
+    }
+
+    /// 把配置里的主题偏好施加到两个 egui 上下文（M4-T7）。
+    ///
+    /// 只在偏好变化时写入：egui 每帧都按该偏好解析明暗，逐帧重复写没有意义。
+    /// 两个窗口各有独立上下文，必须各写一次——否则改主题只影响其中一半。
+    fn apply_theme(&mut self) {
+        let preference = theme_preference(self.config.snapshot().theme);
+        if self.applied_theme == Some(preference) {
+            return;
+        }
+        // 帧尚未建立（窗口未起）时这里是空集：只记状态，不 panic。
+        let written = apply_theme_to(
+            [self.frame.as_ref(), self.settings_frame.as_ref()]
+                .into_iter()
+                .flatten()
+                .map(|frame| &frame.egui_ctx),
+            preference,
+        );
+        self.applied_theme = Some(preference);
+        debug!(
+            thread = thread::UI,
+            theme = ?preference,
+            contexts = written,
+            "theme preference applied"
+        );
     }
 
     /// 设置窗口的用户提示（保存失败等）；窗口已关则无处可报，只留日志。
@@ -429,38 +491,45 @@ impl GlossApp {
     /// 消费通道④：取材产物按代数采纳——连续快速触发时旧代数的产物被
     /// 丢弃，浮层只显示最后一次请求的结果。状态决策在 machine，壳只做
     /// 通道发送、浮层展示与日志。
+    ///
+    /// 浮层「什么时候自动露面」由 `auto_show` 决定（M4-T7），策略本身抽在
+    /// [`auto_show_for`] / [`auto_show_after`] 这两个纯函数里。它是壳侧的
+    /// 展示开关，不随任务下发、也不参与缓存 key，因此不像任务选项那样在
+    /// 触发时冻结——按到达时的快照读即可。
     fn drain_events(&mut self, event_loop: &ActiveEventLoop) {
         let events: Vec<Event> = self
             .endpoints
             .as_ref()
             .map_or(Vec::new(), |e| e.events.try_iter().collect());
-        let mut show_needed = false;
+        let auto_show = self.config.snapshot().auto_show;
+        // 先按批推进状态机、收集每条的采纳结果，再一次性决定这一批要不要
+        // 露面：逐条 `|=` 等价于按批取或，抽出来是为了这条语义可测。
+        let mut batch = Vec::with_capacity(events.len());
         for event in events {
-            match event {
-                Event::InputReady { generation, input } => {
-                    show_needed |= self.accept_input(generation, input);
-                }
-                Event::TaskChunk { generation, delta } => {
-                    self.accept_chunk(generation, delta);
-                }
+            // 策略只关心「哪一类回传」，事件本身在下一行被消费掉。
+            let kind = event_kind(&event);
+            let accepted = match event {
+                Event::InputReady { generation, input } => self.accept_input(generation, input),
+                Event::TaskChunk { generation, delta } => self.accept_chunk(generation, delta),
                 Event::TaskDone {
                     generation,
                     outcome,
                 } => {
-                    if self.accept_done(generation, outcome) {
-                        // 结果卡可见时长从完成时刻重新起算：慢任务不至于
-                        // 刚出结果就被早先锚定的隐藏计时收起。
-                        if self.windows.is_some() {
-                            self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
-                        }
+                    let accepted = self.accept_done(generation, outcome);
+                    // 结果卡可见时长从完成时刻重新起算：慢任务不至于刚出
+                    // 结果就被早先锚定的隐藏计时收起。
+                    if accepted && self.windows.is_some() {
+                        self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
                     }
+                    accepted
                 }
-                Event::TaskFailed { generation, error } => {
-                    show_needed |= self.accept_failed(generation, &error);
-                }
-            }
+                Event::TaskFailed { generation, error } => self.accept_failed(generation, &error),
+            };
+            batch.push((kind, accepted));
         }
-        if show_needed && let Some(windows) = &self.windows {
+        if auto_show_after(batch, auto_show)
+            && let Some(windows) = &self.windows
+        {
             let position = centered_position(event_loop, windows);
             self.show_overlay(position);
         }
@@ -629,6 +698,83 @@ fn repaint_at(delay: Duration, now: Instant) -> Option<Instant> {
     (delay != Duration::MAX).then(|| now + delay)
 }
 
+/// 配置主题 → egui 主题偏好（04 §六：出厂跟随系统，设置页可固定明/暗）。
+fn theme_preference(theme: Theme) -> egui::ThemePreference {
+    match theme {
+        Theme::System => egui::ThemePreference::System,
+        Theme::Light => egui::ThemePreference::Light,
+        Theme::Dark => egui::ThemePreference::Dark,
+    }
+}
+
+/// 把偏好写到每个已建立的 egui 上下文，返回写到的上下文个数。
+///
+/// 浮层与设置各持一个**独立**的 `egui::Context`（options 不共享），所以必须
+/// 逐个写——只写其中一个，用户会看到「改主题只影响半个界面」。抽成自由函数
+/// 是为了让这件事能被真实上下文观测：App 的帧要 GPU，L2 单测拿不到。
+fn apply_theme_to<'a>(
+    contexts: impl IntoIterator<Item = &'a egui::Context>,
+    preference: egui::ThemePreference,
+) -> usize {
+    let mut written = 0;
+    for ctx in contexts {
+        ctx.set_theme(preference);
+        written += 1;
+    }
+    written
+}
+
+/// 回传事件的类别。`Event` 的每个变体都携带代数与载荷，而 `auto_show` 策略
+/// 只关心是哪一类回传，故先抽成无数据的标签。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventKind {
+    InputReady,
+    TaskChunk,
+    TaskDone,
+    TaskFailed,
+}
+
+/// 取回传事件的类别标签。
+fn event_kind(event: &Event) -> EventKind {
+    match event {
+        Event::InputReady { .. } => EventKind::InputReady,
+        Event::TaskChunk { .. } => EventKind::TaskChunk,
+        Event::TaskDone { .. } => EventKind::TaskDone,
+        Event::TaskFailed { .. } => EventKind::TaskFailed,
+    }
+}
+
+/// 这批回传之后浮层要不要自动露面（M4-T7 的 `auto_show` 策略）。
+///
+/// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示，已收起的浮层
+/// 也不会被迟到的产物弹回来。
+///
+/// 抽成纯函数是为了可测——真正的展示要 `ActiveEventLoop` 与已建好的窗口，
+/// App 单测拿不到这两样。
+fn auto_show_for(kind: EventKind, auto_show: bool, accepted: bool) -> bool {
+    match kind {
+        // 出厂默认：取材成功即弹，看到浮层就知道「划到了、正在查」。
+        EventKind::InputReady => accepted && auto_show,
+        // 开关开着时浮层早在取材那一刻就弹出来了，这里不必再弹；开着关掉
+        // 时，完成是这个任务第一次该露面的时刻。
+        EventKind::TaskDone => accepted && !auto_show,
+        // 流式增量只在已可见的浮层上追加，从不负责弹出。
+        EventKind::TaskChunk => false,
+        // 失败总要露面：自动弹出的开关不该把错误一起吞掉。
+        EventKind::TaskFailed => accepted,
+    }
+}
+
+/// 一批回传之后浮层要不要自动露面：**任一**事件判为要显示就显示。
+///
+/// 逐事件判定再取或——同一批里既有陈旧产物又有失败/完成时不会互相抵消，
+/// 一条被采纳的失败足以把浮层带出来（通道④一次可能抽到多条）。
+fn auto_show_after(batch: impl IntoIterator<Item = (EventKind, bool)>, auto_show: bool) -> bool {
+    batch
+        .into_iter()
+        .any(|(kind, accepted)| auto_show_for(kind, auto_show, accepted))
+}
+
 impl ApplicationHandler<UserEvent> for GlossApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // resumed 可能连续投递，渲染栈只起一次
@@ -766,8 +912,8 @@ mod tests {
     use crate::machine::{AppState, OverlayView};
     use gloss_core::config::{Config, DEFAULT_TEXT_MODEL, ModelBinding};
     use gloss_core::model::{GlossError, Lang};
-    use gloss_core::ports::mocks::MemoryConfigStore;
-    use gloss_core::task::TaskKind;
+    use gloss_core::ports::mocks::{MemoryConfigStore, RecordingHotkeyBinder};
+    use gloss_core::task::{HotkeyBinding, InputSource, TaskKind};
 
     #[test]
     fn repaint_delay_max_means_no_wakeup() {
@@ -817,6 +963,12 @@ mod tests {
 
     /// [`driven_app`] 的注入版：设置页失败路径测试用它换上必失败的存储。
     fn driven_app_with(store: Arc<dyn ConfigStore>) -> DrivenApp {
+        driven_app_using(store, Arc::new(RecordingHotkeyBinder::default()))
+    }
+
+    /// 同时注入热键桩的版本：M4-T7 的重注册接线测试用它观察调用。
+    /// 桩由调用方持有（`Arc` 共享），其余测试不关心热键时用 [`driven_app`]。
+    fn driven_app_using(store: Arc<dyn ConfigStore>, hotkeys: Arc<dyn HotkeyBinder>) -> DrivenApp {
         let crate::channel::Channels {
             platform_events,
             acquire_commands,
@@ -852,6 +1004,7 @@ mod tests {
             },
             Arc::clone(&config),
             Arc::clone(&store) as Arc<dyn ConfigStore>,
+            hotkeys,
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
     }
@@ -1231,6 +1384,247 @@ mod tests {
             config.snapshot().target_lang,
             Lang::Zh,
             "failed save must not advance the runtime snapshot"
+        );
+    }
+
+    /// 验收标准（M4-T7）：设置页改热键后**立即重注册**，且重注册拿到的是
+    /// 刚落盘的那份快照。热键不受「下一次触发才生效」约束——注册是平台侧
+    /// 的即时动作，等下一次划词再换就太晚了。
+    #[test]
+    fn saving_settings_rebinds_hotkeys_from_the_new_snapshot() {
+        let binder = Arc::new(RecordingHotkeyBinder::default());
+        let (mut app, config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app_using(
+            Arc::new(MemoryConfigStore::default()),
+            Arc::clone(&binder) as Arc<dyn HotkeyBinder>,
+        );
+        assert_eq!(
+            binder.call_count(),
+            0,
+            "the startup registration belongs to the assembly point, not the App"
+        );
+
+        pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
+        app.drain_platform_events();
+
+        let mut draft = (*config.snapshot()).clone();
+        draft.hotkey_bindings = vec![
+            HotkeyBinding {
+                trigger: "Cmd+Alt+T".into(),
+                kind: TaskKind::TranslateSentence,
+                source: InputSource::Selection,
+            },
+            HotkeyBinding {
+                trigger: "Cmd+Alt+C".into(),
+                kind: TaskKind::ExplainCode,
+                source: InputSource::Selection,
+            },
+        ];
+        app.save_settings(draft, KeyUpdate::Keep);
+
+        assert_eq!(binder.call_count(), 1, "one save means one rebind");
+        let rebound = binder.last().expect("a successful save must rebind");
+        let triggers: Vec<&str> = rebound.iter().map(|b| b.trigger.as_str()).collect();
+        assert_eq!(triggers, ["Cmd+Alt+T", "Cmd+Alt+C"]);
+    }
+
+    /// 上一条只证明「第一次保存会重注册」，而契约是**每次都**重注册。只断言
+    /// 调用过一次，会放过「重注册被某个一次性条件挡住」这类回归（例如后来
+    /// 有人给它加个 `if !self.rebound` 之类的短路）。
+    #[test]
+    fn every_save_rebinds_hotkeys_not_just_the_first() {
+        let binder = Arc::new(RecordingHotkeyBinder::default());
+        let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app_using(
+            Arc::new(MemoryConfigStore::default()),
+            Arc::clone(&binder) as Arc<dyn HotkeyBinder>,
+        );
+
+        for trigger in ["Cmd+Alt+T", "Cmd+Alt+R"] {
+            // 保存会关掉设置会话，第二次得重新开一个（等同用户再点一次设置）。
+            app.settings = Some(ui::settings::open(&config.snapshot()));
+            let mut draft = (*config.snapshot()).clone();
+            draft.hotkey_bindings = vec![HotkeyBinding {
+                trigger: trigger.into(),
+                kind: TaskKind::TranslateSentence,
+                source: InputSource::Selection,
+            }];
+            app.save_settings(draft, KeyUpdate::Keep);
+        }
+
+        assert_eq!(binder.call_count(), 2, "两次保存 = 两次重注册");
+        let rebound = binder.last().expect("a successful save must rebind");
+        assert_eq!(
+            rebound
+                .iter()
+                .map(|b| b.trigger.as_str())
+                .collect::<Vec<_>>(),
+            ["Cmd+Alt+R"],
+            "第二次生效的必须是第二次保存的那份，不是第一次的"
+        );
+    }
+
+    /// 落盘失败不得重注册：磁盘是唯一真相，运行时快照没换，按键也就不该换
+    /// ——否则会出现「按下去是 A、配置文件里是 B」的分叉。
+    #[test]
+    fn failed_save_does_not_rebind_hotkeys() {
+        let binder = Arc::new(RecordingHotkeyBinder::default());
+        let failing = MemoryConfigStore::default()
+            .with_save_failure(GlossError::Config("disk on fire".into()));
+        let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app_using(
+            Arc::new(failing),
+            Arc::clone(&binder) as Arc<dyn HotkeyBinder>,
+        );
+        app.settings = Some(ui::settings::open(&config.snapshot()));
+
+        let mut draft = (*config.snapshot()).clone();
+        draft.hotkey_bindings = vec![HotkeyBinding {
+            trigger: "Cmd+Alt+T".into(),
+            kind: TaskKind::TranslateSentence,
+            source: InputSource::Selection,
+        }];
+        app.save_settings(draft, KeyUpdate::Keep);
+
+        assert_eq!(
+            binder.call_count(),
+            0,
+            "a failed save keeps the old bindings live"
+        );
+    }
+
+    /// 验收标准（M4-T7）：`auto_show` 的策略——开着时取材即弹、完成不重复
+    /// 弹；关掉时取材与流式阶段都不弹，完成或失败才弹；未被采纳的事件
+    /// （陈旧/代数不匹配）一律不触发显示。
+    #[test]
+    fn auto_show_policy_decides_when_the_overlay_pops() {
+        use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
+
+        assert!(auto_show_for(InputReady, true, true));
+        assert!(
+            !auto_show_for(TaskDone, true, true),
+            "the overlay is already up since input ready"
+        );
+
+        assert!(!auto_show_for(InputReady, false, true), "取材阶段不打扰");
+        assert!(auto_show_for(TaskDone, false, true), "完成才露面");
+        assert!(
+            auto_show_for(TaskFailed, false, true),
+            "关掉开关也不该把错误吞掉"
+        );
+        assert!(auto_show_for(TaskFailed, true, true));
+
+        for kind in [InputReady, TaskChunk, TaskDone, TaskFailed] {
+            assert!(
+                !auto_show_for(kind, true, false) && !auto_show_for(kind, false, false),
+                "未被采纳的 {kind:?} 不得触发显示"
+            );
+        }
+        assert!(!auto_show_for(TaskChunk, true, true));
+        assert!(!auto_show_for(TaskChunk, false, true));
+    }
+
+    /// 通道④一次可能抽到**多条**回传，所以决策是按批取或：同一批里混着陈旧
+    /// 产物与失败/完成时，不得互相抵消。这是上一条（逐事件策略表）盖不到的
+    /// 交互——批级语义只在这里断言。
+    #[test]
+    fn auto_show_survives_a_mixed_batch() {
+        use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
+
+        assert!(
+            auto_show_after([(TaskChunk, true), (TaskDone, true)], false),
+            "关掉开关时，同一批里的完成那一条仍要把浮层带出来"
+        );
+        assert!(
+            auto_show_after([(TaskDone, false), (TaskFailed, true)], false),
+            "陈旧的成功不得抵消一条被采纳的失败"
+        );
+        assert!(
+            auto_show_after([(TaskFailed, true), (InputReady, true)], true),
+            "失败与取材同批到达照常露面"
+        );
+        assert!(
+            !auto_show_after([(TaskDone, false), (InputReady, false)], true),
+            "整批都没被采纳（陈旧）→ 不显示：迟到的产物不得把浮层弹回来"
+        );
+        assert!(!auto_show_after([], true), "空批不显示");
+    }
+
+    /// 主题映射（04 §六）：三档一一对应，出厂值跟随系统。
+    #[test]
+    fn theme_preference_covers_every_variant() {
+        assert_eq!(
+            theme_preference(Theme::System),
+            egui::ThemePreference::System
+        );
+        assert_eq!(theme_preference(Theme::Light), egui::ThemePreference::Light);
+        assert_eq!(theme_preference(Theme::Dark), egui::ThemePreference::Dark);
+        assert_eq!(
+            theme_preference(Config::default().theme),
+            egui::ThemePreference::System,
+            "factory default must follow the system"
+        );
+    }
+
+    /// 主题施加的真契约：两个 egui 上下文**各自独立**，必须各写一次——
+    /// 只写一个会看到「改主题只影响半个界面」。这里用真实的 `egui::Context`
+    /// 观测偏好（App 的帧要 GPU，L2 单测拿不到），三档都走一遍。
+    #[test]
+    fn apply_theme_writes_every_context() {
+        let overlay = egui::Context::default();
+        let settings = egui::Context::default();
+
+        for preference in [
+            egui::ThemePreference::Light,
+            egui::ThemePreference::Dark,
+            egui::ThemePreference::System,
+        ] {
+            assert_eq!(
+                apply_theme_to([&overlay, &settings], preference),
+                2,
+                "两个已建立的上下文都要写到"
+            );
+            for ctx in [&overlay, &settings] {
+                assert_eq!(
+                    ctx.options(|opt| opt.theme_preference),
+                    preference,
+                    "{preference:?} 必须落到每个上下文上"
+                );
+            }
+        }
+
+        assert_eq!(
+            apply_theme_to(
+                std::iter::empty::<&egui::Context>(),
+                egui::ThemePreference::Dark
+            ),
+            0,
+            "窗口尚未建立时没有上下文可写，也不能 panic"
+        );
+    }
+
+    /// `apply_theme` 身上「只在变化时写」的那一层：偏好没变就不重复写
+    /// （egui 每帧都按偏好解析明暗，逐帧重写没有意义），变了必须跟上。
+    ///
+    /// 断言看的是缓存字段本身——egui 不暴露「`set_theme` 被调用过几次」，
+    /// 写入省略没有别的观测点；「两个上下文都写到」由
+    /// [`apply_theme_writes_every_context`] 用真实上下文证明。
+    #[test]
+    fn apply_theme_elides_writes_until_the_preference_changes() {
+        let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        assert!(app.applied_theme.is_none(), "first frame applies the theme");
+
+        app.apply_theme();
+        assert_eq!(app.applied_theme, Some(egui::ThemePreference::System));
+
+        config
+            .save(Config {
+                theme: Theme::Dark,
+                ..Default::default()
+            })
+            .expect("save should succeed");
+        app.apply_theme();
+        assert_eq!(
+            app.applied_theme,
+            Some(egui::ThemePreference::Dark),
+            "the cached preference must not block the new one"
         );
     }
 }

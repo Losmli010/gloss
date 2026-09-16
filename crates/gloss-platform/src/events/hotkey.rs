@@ -8,66 +8,54 @@
 //! registrar 放在主线程创建、只把 pump 下发事件线程；在事件线程里创建
 //! registrar 会让 Windows 热键静默全灭（无错误无日志）。
 //!
+//! 绑定来自配置（M4-T7）：registrar 启动时按 `Config::hotkey_bindings` 建表，
+//! 设置页保存后经 [`HotkeyBinder`] 端口重绑定。**重绑定同样必须在主线程
+//! 调用**（注销与注册是同一类亲和调用），这也是该端口不加 `Send + Sync` 的
+//! 原因。表本身与事件线程的 pump 共享（`Arc<RwLock<..>>`）：换表后 pump 立刻
+//! 按新映射解析按键，不需要重启事件线程。
+//!
 //! 热键是可降级功能：单个注册失败（被其他应用占用等）只告警跳过，管理器
 //! 整体创建失败降级为空表，都不允许阻断启动或 panic。
+//!
+//! 本模块的日志一律 `thread = UI`：创建、注册、重绑定全部发生在主线程
+//! （`log::thread` 的 `EVENT` 专指平台事件线程，见其文档）。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyEventReceiver, GlobalHotKeyManager, HotKeyState,
 };
 
-use gloss_core::log::{info, thread, warn};
-use gloss_core::task::{HotkeyBinding, InputSource, TaskKind};
+use gloss_core::log::{debug, info, thread, warn};
+use gloss_core::ports::HotkeyBinder;
+use gloss_core::task::HotkeyBinding;
 
-/// 配置化之前的默认热键表：触发键字符串、任务类型、输入源。
-/// 有意避开 macOS 截图（Cmd+Shift+3/4/5）等系统级组合。
-const DEFAULT_BINDINGS: &[(&str, TaskKind, InputSource)] = &[
-    (
-        "Cmd+Shift+D",
-        TaskKind::TranslateWord,
-        InputSource::Selection,
-    ),
-    (
-        "Cmd+Shift+F",
-        TaskKind::TranslateSentence,
-        InputSource::Selection,
-    ),
-    ("Cmd+Shift+E", TaskKind::ExplainCode, InputSource::Selection),
-];
-
-/// 已注册热键的管理端。macOS 上必须在主线程创建（见模块注释）。
+/// 已注册热键的管理端。macOS/Windows 上必须在主线程创建与重绑定
+/// （见模块注释）。
 pub struct HotkeyRegistrar {
-    // 持有 manager 保活；None 表示创建失败、热键功能整体降级。
-    _manager: Option<GlobalHotKeyManager>,
-    table: Arc<HashMap<u32, HotkeyBinding>>,
+    /// 持有 manager 保活；`None` 表示创建失败、热键功能整体降级。
+    manager: Option<GlobalHotKeyManager>,
+    /// 当前已注册的键。重绑定时先按它们注销：表里的 id 是 `HotKey::id()`
+    /// 的派生值，不足以还原出可注销的 `HotKey`，所以这份原始值要留。
+    registered: Mutex<Vec<HotKey>>,
+    /// 生效中的 id → 绑定表，与事件线程的 [`HotkeyPump`] 共享。
+    /// 写侧只有主线程的启动与重绑定（低频），读侧是事件线程每 tick 一次。
+    table: Arc<RwLock<HashMap<u32, HotkeyBinding>>>,
 }
 
 impl HotkeyRegistrar {
-    /// 用内置默认热键表注册。
-    pub fn with_defaults() -> Self {
-        Self::new(
-            DEFAULT_BINDINGS
-                .iter()
-                .map(|(trigger, kind, source)| HotkeyBinding {
-                    trigger: (*trigger).to_owned(),
-                    kind: *kind,
-                    source: *source,
-                }),
-        )
-    }
-
-    /// 注册一组绑定。解析失败的键与管理器不可用时的行为见模块注释。
+    /// 按给定绑定表注册。绑定来自配置（M4-T7 起不再有写死的默认表：
+    /// 出厂默认在 `gloss_core::config`，与设置页可编辑的是同一份）。
     pub fn new(bindings: impl IntoIterator<Item = HotkeyBinding>) -> Self {
         // Linux 只作 CI 平台：global-hotkey 的 X11 后端在无显示环境创建会
         // 直接段错误，不支持的平台明确跳过，而不是冒崩溃风险。
         #[cfg(all(unix, not(target_os = "macos")))]
         let manager: Option<GlobalHotKeyManager> = {
             warn!(
-                thread = thread::EVENT,
+                thread = thread::UI,
                 "global hotkeys unsupported on this platform, disabled"
             );
             None
@@ -76,49 +64,20 @@ impl HotkeyRegistrar {
         let manager = match GlobalHotKeyManager::new() {
             Ok(manager) => Some(manager),
             Err(err) => {
-                warn!(thread = thread::EVENT, error = %err, "hotkey manager unavailable, hotkeys disabled");
+                warn!(thread = thread::UI, error = %err, "hotkey manager unavailable, hotkeys disabled");
                 None
             }
         };
-        let mut table = HashMap::new();
-        let mut seen_triggers = std::collections::HashSet::new();
-        for binding in bindings {
-            // 同一触发键注册两次时后者覆盖前者、前者无痕丢失，明确拒绝。
-            if !seen_triggers.insert(binding.trigger.clone()) {
-                warn!(thread = thread::EVENT, trigger = %binding.trigger, "hotkey binding skipped: duplicate trigger");
-                continue;
-            }
-            let (hotkey, modifiers) = match parse_trigger(&binding.trigger) {
-                Ok(parsed) => parsed,
-                Err(err) => {
-                    warn!(thread = thread::EVENT, trigger = %binding.trigger, error = err, "hotkey binding skipped: unparseable trigger");
-                    continue;
-                }
-            };
-            // 无修饰键的裸键会作为全局热键在系统级吞掉普通输入（如字母 a），
-            // 一律拒绝——热键必须带修饰键。
-            if modifiers.is_empty() {
-                warn!(thread = thread::EVENT, trigger = %binding.trigger, "hotkey binding skipped: bare key would capture plain typing system-wide");
-                continue;
-            }
-            if let Some(manager) = &manager
-                && let Err(err) = manager.register(hotkey)
-            {
-                warn!(thread = thread::EVENT, trigger = %binding.trigger, error = %err, "hotkey registration failed, binding skipped");
-                continue;
-            }
-            // 管理器不可用时仍保留解析成功的条目：事件不会到达，但表内容
-            // 可诊断（配置了什么、各绑定 id 是什么），也便于测试。
-            table.insert(hotkey.id(), binding);
-        }
+        let (table, registered) = register_all(manager.as_ref(), bindings);
         info!(
-            thread = thread::EVENT,
+            thread = thread::UI,
             count = table.len(),
             "global hotkeys registered"
         );
         Self {
-            _manager: manager,
-            table: Arc::new(table),
+            manager,
+            registered: Mutex::new(registered),
+            table: Arc::new(RwLock::new(table)),
         }
     }
 
@@ -130,17 +89,128 @@ impl HotkeyRegistrar {
     }
 }
 
+/// 重绑定（端口实现，M4-T7）：**只在主线程调用**（见模块注释的线程亲和
+/// 约束）。返回**真正注册成功**的条数——少于入参说明有绑定被跳过或降级，
+/// 管理器不可用时恒为 0（表照填，见 [`register_all`] 的注释）。
+///
+/// 先注销再注册，而不是反过来：旧键留着的话，它仍在系统级被吞掉，而它的
+/// id 已不在新表里——按下去什么都不发生，比「热键失效」更难查。注销失败
+/// 只记 debug：此时新表照常接管，功能表现为「旧键可能多响一次」。
+///
+/// 顺序**不能**优化成「先注册新键、再注销不再需要的旧键」——那在**换键**
+/// （A 改 B、B 改 A）时必然失败：旧键还占着位，被系统拒绝的是两个新键，
+/// 结果一次都换不过去。代价是这段窗口里若某个保留键恰好被别人抢注，它会
+/// 失效到下次重绑定（下次保存或重启），只留一行 warn，不做回滚。
+impl HotkeyBinder for HotkeyRegistrar {
+    fn rebind(&self, bindings: &[HotkeyBinding]) -> usize {
+        let stale = {
+            let mut registered = self
+                .registered
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            std::mem::take(&mut *registered)
+        };
+        if let Some(manager) = &self.manager {
+            for hotkey in stale {
+                if let Err(err) = manager.unregister(hotkey) {
+                    debug!(
+                        thread = thread::UI,
+                        error = %err,
+                        "hotkey unregister failed, binding may stay live"
+                    );
+                }
+            }
+        }
+
+        let (table, registered) = register_all(self.manager.as_ref(), bindings.iter().cloned());
+        // 生效条数取「真正交给平台并注册成功」的那些，而不是表里的条目数：
+        // 管理器不可用时表照样填满（供诊断），但一个键都没生效——日志里
+        // `declared > applied` 是「热键为什么没反应」的第一手线索。取表长会
+        // 让降级平台看起来一切正常。
+        let applied = registered.len();
+        *self.table.write().unwrap_or_else(PoisonError::into_inner) = table;
+        *self
+            .registered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = registered;
+        info!(
+            thread = thread::UI,
+            declared = bindings.len(),
+            applied,
+            "hotkey bindings re-registered"
+        );
+        applied
+    }
+}
+
+/// 解析并注册一组绑定，产出（id → 绑定表，**真正注册成功的键**）。
+/// 第二项就是端口方法回报给调用方的生效条数。
+///
+/// 管理器不可用时仍保留解析成功的条目进表：事件不会到达，但表内容可诊断
+/// （配置了什么、各绑定 id 是什么），也便于测试；此时第二项必为空。
+fn register_all(
+    manager: Option<&GlobalHotKeyManager>,
+    bindings: impl IntoIterator<Item = HotkeyBinding>,
+) -> (HashMap<u32, HotkeyBinding>, Vec<HotKey>) {
+    let mut table = HashMap::new();
+    let mut registered = Vec::new();
+    let mut seen_triggers = HashSet::new();
+    // 表以 id 为键，而**不同写法可能是同一个物理键**（`Cmd`/`Super`/`Win`
+    // 都映射成 SUPER，`Cmd+Shift+1` 与 `Super+Shift+1` 解析出同一个 id）。
+    // 管理器在场时第二次 register 本就会失败，这里显式拦下，让「先到者胜」
+    // 在两条路径上一致——否则管理器缺位时后一条会把前一条无痕顶掉。
+    let mut seen_ids = HashSet::new();
+    for binding in bindings {
+        // 同一触发键注册两次时后者覆盖前者、前者无痕丢失，明确拒绝。
+        if !seen_triggers.insert(binding.trigger.clone()) {
+            warn!(thread = thread::UI, trigger = %binding.trigger, "hotkey binding skipped: duplicate trigger");
+            continue;
+        }
+        let (hotkey, modifiers) = match parse_trigger(&binding.trigger) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                warn!(thread = thread::UI, trigger = %binding.trigger, error = err, "hotkey binding skipped: unparseable trigger");
+                continue;
+            }
+        };
+        // 无修饰键的裸键会作为全局热键在系统级吞掉普通输入（如字母 a），
+        // 一律拒绝——热键必须带修饰键。
+        if modifiers.is_empty() {
+            warn!(thread = thread::UI, trigger = %binding.trigger, "hotkey binding skipped: bare key would capture plain typing system-wide");
+            continue;
+        }
+        if !seen_ids.insert(hotkey.id()) {
+            warn!(thread = thread::UI, trigger = %binding.trigger, "hotkey binding skipped: same physical key as an earlier binding");
+            continue;
+        }
+        if let Some(manager) = manager
+            && let Err(err) = manager.register(hotkey)
+        {
+            warn!(thread = thread::UI, trigger = %binding.trigger, error = %err, "hotkey registration failed, binding skipped");
+            continue;
+        }
+        // 注册失败（上面已 continue）不留注销记录；管理器缺失时无事可注销。
+        if manager.is_some() {
+            registered.push(hotkey);
+        }
+        table.insert(hotkey.id(), binding);
+    }
+    (table, registered)
+}
+
 /// 事件线程侧的热键消费端：抽干 global-hotkey 的全局事件队列。
 #[derive(Clone)]
 pub struct HotkeyPump {
-    table: Arc<HashMap<u32, HotkeyBinding>>,
+    table: Arc<RwLock<HashMap<u32, HotkeyBinding>>>,
 }
 
 impl HotkeyPump {
     /// 返回本次抽干中「按下」的绑定；抬起（Released）事件丢弃，避免一次
-    /// 按键产生两次触发。
+    /// 按键产生两次触发。读锁只在这一小段持有——写侧是主线程保存路径上
+    /// 的低频重绑定，不会让事件线程等在主线程后面。
     pub fn poll(&self) -> Vec<HotkeyBinding> {
-        drain_pressed(GlobalHotKeyEvent::receiver(), &self.table)
+        let table = self.table.read().unwrap_or_else(PoisonError::into_inner);
+        drain_pressed(GlobalHotKeyEvent::receiver(), &table)
     }
 }
 
@@ -223,8 +293,11 @@ fn parse_code(name: &str) -> Option<Code> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crossbeam_channel::unbounded;
+    use gloss_core::config::Config;
+    use gloss_core::task::{InputSource, TaskKind};
+
+    use super::*;
 
     fn binding(trigger: &str) -> HotkeyBinding {
         HotkeyBinding {
@@ -262,34 +335,61 @@ mod tests {
         assert!(parse_code("Foo").is_none());
     }
 
+    /// 出厂默认绑定必须都能被本模块解析、且都带修饰键——两处一旦分叉，
+    /// 用户装完按默认热键什么都不会发生（且只在日志里留一行 warn）。
+    /// M4-T7 起默认表只剩 core 一份，本测试就是那条「单点」的护栏。
     #[test]
-    fn default_bindings_are_all_parseable() {
-        for (trigger, _, _) in DEFAULT_BINDINGS {
-            assert!(parse_trigger(trigger).is_ok(), "`{trigger}` must parse");
+    fn factory_bindings_are_all_registerable() {
+        let bindings = Config::default().hotkey_bindings;
+        assert!(!bindings.is_empty(), "factory defaults must ship bindings");
+        for binding in &bindings {
+            let (_, modifiers) = parse_trigger(&binding.trigger)
+                .unwrap_or_else(|err| panic!("`{}` must parse: {err}", binding.trigger));
+            assert!(
+                !modifiers.is_empty(),
+                "`{}` must carry a modifier or it would eat plain typing",
+                binding.trigger
+            );
         }
     }
 
     /// 管理器不可用/注册失败的路径必须安静降级：不 panic、poll 恒为空。
     /// Linux 上热键明确不支持（见 `new`），manager 恒为 None，正好覆盖整体
-    /// 降级分支；此时表里应保留全部解析成功的默认绑定。
+    /// 降级分支；此时表里应保留全部解析成功的出厂绑定，且没有键被记为
+    /// 「已注册」（没有管理器就没有可注销的东西）。
     #[cfg(target_os = "linux")]
     #[test]
     fn degraded_registrar_keeps_parsed_table_and_stays_quiet() {
-        let registrar = HotkeyRegistrar::with_defaults();
-        assert_eq!(registrar.table.len(), DEFAULT_BINDINGS.len());
+        let factory = Config::default().hotkey_bindings;
+        let registrar = HotkeyRegistrar::new(factory.clone());
+        assert_eq!(registrar.table.read().unwrap().len(), factory.len());
+        assert!(
+            registrar.registered.lock().unwrap().is_empty(),
+            "no manager means nothing was handed to the platform"
+        );
         assert!(registrar.pump().poll().is_empty(), "no real keypress in CI");
+        assert_eq!(
+            registrar.rebind(&factory),
+            0,
+            "表照填但一个键都没生效：生效条数取的是真注册成功的那些，否则日志会让降级平台看起来正常"
+        );
     }
 
     /// macOS/Windows runner 语义不确定（可能成功注册），只验证不 panic。
     #[cfg(not(target_os = "linux"))]
     #[test]
     fn registrar_construction_never_panics() {
-        let registrar = HotkeyRegistrar::with_defaults();
+        let registrar = HotkeyRegistrar::new(Config::default().hotkey_bindings);
         assert!(registrar.pump().poll().is_empty(), "no real keypress in CI");
     }
 
     /// 无修饰键的裸键会系统级吞掉普通输入，注册侧必须拒绝；
     /// 同一触发键重复注册会无痕覆盖前者，也必须拒绝。
+    ///
+    /// 这里走公共构造路径（真管理器在场时也被调用），只断言「被拒的那些
+    /// 没进表」——**不能**断言表里恰好剩哪几条：macOS/Windows 上注册还会被
+    /// 别的应用占用而失败，而失败的条目同样不进表。精确的过滤矩阵在
+    /// [`rejects_invalid_and_duplicate_triggers`] 的纯路径上断言。
     #[test]
     fn bare_keys_and_duplicates_are_rejected_before_registration() {
         let registrar = HotkeyRegistrar::new([
@@ -298,23 +398,146 @@ mod tests {
             binding("Cmd+Shift+F12"), // 重复
             binding("shift"),         // 仅修饰键、无键位
         ]);
-        let kept: Vec<&HotkeyBinding> = registrar
-            .table
+        let table = registrar.table.read().unwrap();
+        let kept: Vec<&HotkeyBinding> = table
             .values()
             .filter(|b| b.trigger == "Cmd+Shift+F12")
             .collect();
         assert_eq!(kept.len(), 1, "duplicates collapse to at most one entry");
         assert!(
-            registrar
-                .table
+            table
                 .values()
                 .all(|b| b.trigger != "a" && b.trigger != "shift"),
             "bare keys must not reach the table: {:?}",
-            registrar
-                .table
-                .values()
-                .map(|b| &b.trigger)
-                .collect::<Vec<_>>()
+            table.values().map(|b| &b.trigger).collect::<Vec<_>>()
+        );
+    }
+
+    /// 过滤矩阵的**纯路径**断言（不经平台管理器）：裸键、仅修饰键、无法识别
+    /// 的键位、重复触发键一并剔除，只有合法且互不重复的条目进表；管理器
+    /// 缺失时表照建，但不留注销记录（没有可注销的东西）。
+    ///
+    /// 为什么要单独测这个私有函数：公共路径上「注册失败」与「被过滤」都
+    /// 表现为「条目不在表里」，两者的精确结果取决于运行平台，只有这里能
+    /// 把过滤规则钉死。
+    #[test]
+    fn rejects_invalid_and_duplicate_triggers() {
+        let (table, registered) = register_all(
+            None,
+            [
+                binding("a"),       // 裸键
+                binding("shift"),   // 仅修饰键
+                binding("Cmd+Foo"), // 无法识别的键位
+                binding("Cmd+Shift+D"),
+                binding("Cmd+Shift+D"), // 重复
+                binding("Cmd+Shift+F"),
+            ],
+        );
+        let mut triggers: Vec<&str> = table.values().map(|b| b.trigger.as_str()).collect();
+        triggers.sort_unstable();
+        assert_eq!(
+            triggers,
+            ["Cmd+Shift+D", "Cmd+Shift+F"],
+            "只有两条互不重复的合法绑定能进表"
+        );
+        assert!(
+            registered.is_empty(),
+            "without a manager there is nothing to unregister"
+        );
+    }
+
+    /// 不同写法可能是**同一个物理键**：`Cmd` / `Super` / `Win` 都映射 SUPER，
+    /// 于是 `Cmd+Shift+1` 与 `Super+Shift+1` 解析出同一个 id。表以 id 为键，
+    /// 不拦的话后一条会把前一条无痕顶掉——管理器在场时第二次 register 本就
+    /// 会失败，故显式拦下，让「先到者胜」在两条路径上一致。
+    #[test]
+    fn distinct_spelling_of_one_physical_key_loses_to_the_first() {
+        let first = parse_trigger("Cmd+Shift+1").expect("Cmd+Shift+1 parses");
+        let second = parse_trigger("Super+Shift+1").expect("Super+Shift+1 parses");
+        assert_eq!(first.0.id(), second.0.id(), "前提：两者是同一个物理键");
+
+        let (table, _registered) =
+            register_all(None, [binding("Cmd+Shift+1"), binding("Super+Shift+1")]);
+        assert_eq!(table.len(), 1, "同一个物理键只能占一个表位");
+        assert_eq!(
+            table.values().next().map(|b| b.trigger.as_str()),
+            Some("Cmd+Shift+1"),
+            "先到者胜，不是被后一条顶掉"
+        );
+    }
+
+    /// 重绑定的核心契约：pump 读到的是 `rebind` 换上的那份表，而不是启动时
+    /// 建的那份——事件线程因此不必重启就能按新绑定解析按键。
+    ///
+    /// 生效条数的精确语义只在 Linux 上断言（管理器恒为 None → 必为 0，而表
+    /// 照填）：macOS/Windows 上那个键可能恰好被别的应用占用，精确值取决于
+    /// 运行环境。`Arc::ptr_eq` 钉住的共享关系与平台无关。
+    #[test]
+    fn pump_observes_the_rebound_table() {
+        let registrar = HotkeyRegistrar::new([binding("Cmd+Shift+F12")]);
+        let pump = registrar.pump();
+        assert!(
+            Arc::ptr_eq(&pump.table, &registrar.table),
+            "the pump must read the registrar's table, not a copy of it"
+        );
+
+        let applied = registrar.rebind(&[binding("Cmd+Alt+Ctrl+F9")]);
+        let seen: Vec<String> = pump
+            .table
+            .read()
+            .unwrap()
+            .values()
+            .map(|b| b.trigger.clone())
+            .collect();
+        assert!(
+            seen.iter().all(|trigger| trigger == "Cmd+Alt+Ctrl+F9"),
+            "pump must read the rebound table, got {seen:?}"
+        );
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(seen.len(), 1, "degraded platform still fills the table");
+            assert_eq!(applied, 0, "表填了不等于生效：管理器缺位时没有任何键是活的");
+        }
+        #[cfg(not(target_os = "linux"))]
+        assert!(applied <= 1, "至多「入参那一条」能生效，实际回报 {applied}");
+    }
+
+    /// 重绑定是**替换**不是追加：连续改小绑定表，表跟着缩小到空。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rebind_replaces_instead_of_appending() {
+        let registrar = HotkeyRegistrar::new([
+            binding("Cmd+Shift+D"),
+            binding("Cmd+Shift+F"),
+            binding("Cmd+Shift+E"),
+        ]);
+        assert_eq!(registrar.table.read().unwrap().len(), 3);
+
+        assert_eq!(
+            registrar.rebind(&[binding("Cmd+Shift+D")]),
+            0,
+            "Linux 上管理器恒为 None：表换过去了，但没有任何键真正生效"
+        );
+        assert_eq!(registrar.table.read().unwrap().len(), 1);
+
+        assert_eq!(registrar.rebind(&[]), 0);
+        assert!(
+            registrar.table.read().unwrap().is_empty(),
+            "an empty table must clear every binding"
+        );
+    }
+
+    /// 端口对象安全：组装点以 `Arc<dyn HotkeyBinder>` 注入 App，适配器必须
+    /// 能经 trait 对象调用，并如实回报生效条数。两条断言都选与平台无关的
+    /// 输入（空表、裸键），在三种目标平台上结果一致。
+    #[test]
+    fn binder_port_is_object_safe_and_reports_applied_count() {
+        let binder: Arc<dyn HotkeyBinder> = Arc::new(HotkeyRegistrar::new(Vec::new()));
+        assert_eq!(binder.rebind(&[]), 0, "an empty table applies nothing");
+        assert_eq!(
+            binder.rebind(&[binding("a")]),
+            0,
+            "bare keys are rejected, so nothing is applied"
         );
     }
 
