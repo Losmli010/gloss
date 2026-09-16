@@ -5,8 +5,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use egui::ViewportId;
+use gloss_core::config::Config;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::log::{debug, error, info, thread, warn};
+use gloss_core::ports::ConfigStore;
 use gloss_core::task::TaskInput;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalPosition;
@@ -17,7 +19,8 @@ use winit::window::{Window, WindowId};
 use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent};
 use crate::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
 use crate::machine::{ErrorAction, OverlayView, RunRequest, TaskStateMachine};
-use crate::ui;
+use crate::ui::settings::{KeyUpdate, SettingsAction, SettingsState};
+use crate::ui::{self};
 use crate::windows::WindowManager;
 
 /// 浮层显示后的自动隐藏时长（06 §6.1：超时回 Idle；失焦路径走 Focused 事件）
@@ -51,19 +54,21 @@ impl Waker {
 /// 任务、④ 收回传事件），由组装点拆出移交；`config` 是运行时配置句柄
 /// （M4-T3），在每一批平台事件的起手处取一份快照交给状态机（见
 /// [`GlossApp::drain_platform_events`]）——配置热更新因此无需重启，也不必
-/// 给 App 传配置存储。
+/// 给 App 传配置存储；`store` 是配置存储的文档+密钥组合体，设置页（M4-T6）
+/// 经它写 keychain（密钥不经快照，也不进句柄）。
 ///
 /// `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
 pub fn run(
     endpoints: AppEndpoints,
     config: Arc<ConfigHandle>,
+    store: Arc<dyn ConfigStore>,
     on_waker: impl FnOnce(Waker),
 ) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     let waker = Waker(event_loop.create_proxy());
     on_waker(waker);
-    let mut app = GlossApp::new(endpoints, config);
+    let mut app = GlossApp::new(endpoints, config, store);
     event_loop.run_app(&mut app)?;
     Ok(())
 }
@@ -76,15 +81,24 @@ pub struct Frame {
     surface: GpuSurface,
 }
 
-/// 建窗口栈与首帧渲染所需的全部状态（生产 App 与自检 handler 共用）。
+/// 建窗口栈与两个窗口的首帧渲染状态（生产 App 与自检 handler 共用）：
+/// 浮层帧在前、设置窗口帧在后。两个窗口共享同一份 `GpuContext`（设备与
+/// 队列各一份），egui 上下文各自独立（互不共享 UI 状态）。
 pub fn build_window_stack(
     event_loop: &ActiveEventLoop,
-) -> Result<(WindowManager, Frame), Box<dyn Error>> {
+) -> Result<(WindowManager, Frame, Frame), Box<dyn Error>> {
     let windows = WindowManager::new(event_loop)?;
-    let window = windows.overlay_handle();
 
     let context = Arc::new(GpuContext::new()?);
-    let surface = GpuSurface::new(&context, Arc::clone(&window))?;
+    let frame = build_frame(windows.overlay_handle(), &context)?;
+    let settings_frame = build_frame(windows.settings_handle(), &context)?;
+
+    Ok((windows, frame, settings_frame))
+}
+
+/// 建单个窗口的 egui 渲染状态 + surface（浮层与设置窗口同构）。
+fn build_frame(window: Arc<Window>, context: &Arc<GpuContext>) -> Result<Frame, Box<dyn Error>> {
+    let surface = GpuSurface::new(context, Arc::clone(&window))?;
 
     let egui_ctx = egui::Context::default();
     // 内置字体不含 CJK 字形，画第一帧前把系统中文字体接进后备链
@@ -97,29 +111,29 @@ pub fn build_window_stack(
         window.theme(),
         Some(MAX_TEXTURE_DIMENSION as usize),
     );
-
-    Ok((
-        windows,
-        Frame {
-            window,
-            egui_ctx,
-            egui,
-            surface,
-        },
-    ))
+    Ok(Frame {
+        window,
+        egui_ctx,
+        egui,
+        surface,
+    })
 }
 
 /// 渲染一帧：egui 出绘制数据 → wgpu 呈现，返回（egui 要求的下一帧时刻，
-/// 本帧被点击的失败卡动作按钮）。
-pub fn render_frame(
+/// 绘制闭包的返回值）。浮层与设置窗口共用这套管线，只有绘制闭包不同。
+pub fn render_frame_with<R>(
     frame: &mut Frame,
-    view: Option<&OverlayView>,
-) -> (Option<Instant>, Option<ErrorAction>) {
+    draw: impl FnOnce(&mut egui::Ui) -> R,
+) -> (Option<Instant>, Option<R>) {
     let input = frame.egui.take_egui_input(&frame.window);
-    // run_ui 的闭包没有返回值：浮层把点击动作写进这个局部变量带出来。
-    let mut clicked = None;
+    // run_ui 的闭包是 FnMut 而绘制闭包是 FnOnce：装进 Option 交出所有权，
+    // 绘制结果经这个槽带出来（闭包恰好执行一次）。
+    let mut draw = Some(draw);
+    let mut result = None;
     let output = frame.egui_ctx.run_ui(input, |ui| {
-        clicked = ui::popup::draw(ui, view);
+        if let Some(draw) = draw.take() {
+            result = Some(draw(ui));
+        }
     });
     frame
         .egui
@@ -135,14 +149,28 @@ pub fn render_frame(
     frame
         .surface
         .render(output.textures_delta, &paint_jobs, output.pixels_per_point);
-    (repaint_at, clicked)
+    (repaint_at, result)
+}
+
+/// 渲染一帧浮层（[`render_frame_with`] 的浮层特化，供 App 与自检 handler
+/// 用）：返回（egui 要求的下一帧时刻，本帧被点击的失败卡动作按钮）。
+pub fn render_frame(
+    frame: &mut Frame,
+    view: Option<&OverlayView>,
+) -> (Option<Instant>, Option<ErrorAction>) {
+    let (repaint_at, clicked) = render_frame_with(frame, |ui| ui::popup::draw(ui, view));
+    // 内层 Option 是「闭包有没有跑」的外壳，动作本身才是浮层的返回值。
+    (repaint_at, clicked.flatten())
 }
 
 struct GlossApp {
     windows: Option<WindowManager>,
     frame: Option<Frame>,
-    /// egui 要求的下一帧时间点；`None` 表示等到有事件再画
-    next_repaint: Option<Instant>,
+    /// 浮层 egui 要求的下一帧时间点；`None` 表示等到有事件再画。
+    overlay_repaint: Option<Instant>,
+    /// 设置窗口 egui 要求的下一帧时间点。两个窗口各有各的截止时刻：
+    /// 共用一份的话，一个窗口画一帧就会把另一个窗口的动画截止时刻冲掉。
+    settings_repaint: Option<Instant>,
     /// 浮层自动隐藏时刻；仅浮层可见时为 `Some`
     auto_hide: Option<Instant>,
     /// 组装点移交的通道端点（① 收、② 发、③ 发、④ 收）。
@@ -153,26 +181,43 @@ struct GlossApp {
     /// 运行时配置句柄（M4-T3）：每批平台事件取一份快照交给状态机，
     /// 配置保存后无需重启即对下一次触发生效。
     config: Arc<ConfigHandle>,
+    /// 配置存储（M4-T6）：设置页写 keychain 用——文档半边走句柄，密钥
+    /// 半边不进快照也不进句柄，经这里直查。
+    store: Arc<dyn ConfigStore>,
+    /// 设置窗口的渲染帧；随窗口栈在 `resumed` 时建好，隐藏期保留。
+    settings_frame: Option<Frame>,
+    /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
+    /// 之丢弃）。
+    settings: Option<SettingsState>,
 }
 
 impl GlossApp {
-    /// 组装点移交的通道端点与配置句柄；窗口与帧状态在 `resumed` 时建立。
-    fn new(endpoints: AppEndpoints, config: Arc<ConfigHandle>) -> Self {
+    /// 组装点移交的通道端点、配置句柄与存储；窗口与帧状态在 `resumed` 时建立。
+    fn new(
+        endpoints: AppEndpoints,
+        config: Arc<ConfigHandle>,
+        store: Arc<dyn ConfigStore>,
+    ) -> Self {
         Self {
             windows: None,
             frame: None,
-            next_repaint: None,
+            overlay_repaint: None,
+            settings_repaint: None,
             auto_hide: None,
             endpoints: Some(endpoints),
             machine: TaskStateMachine::new(),
             config,
+            store,
+            settings_frame: None,
+            settings: None,
         }
     }
 
-    /// 建窗口栈 → 建帧状态，一次做完。
+    /// 建窗口栈 → 建两个窗口的帧状态，一次做完。
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
-        let (windows, frame) = build_window_stack(event_loop)?;
+        let (windows, frame, settings_frame) = build_window_stack(event_loop)?;
         self.frame = Some(frame);
+        self.settings_frame = Some(settings_frame);
         self.windows = Some(windows);
         self.draw();
         Ok(())
@@ -186,7 +231,8 @@ impl GlossApp {
         };
         let overlay_view = self.machine.overlay_view();
         let (repaint, action) = render_frame(frame, overlay_view);
-        self.next_repaint = repaint;
+        self.overlay_repaint = repaint;
+        // 失败卡的动作出口（06 §7）：重试原样重发，鉴权/配置类打开设置。
         if let Some(action) = action {
             self.handle_error_action(action);
         }
@@ -217,18 +263,102 @@ impl GlossApp {
                     );
                 }
             },
+            // 失败卡的「打开设置」与托盘/热键走同一个入口。
             ErrorAction::OpenSettings => self.open_settings(),
         }
     }
 
-    /// 打开设置窗口的统一入口（失败卡「打开设置」与托盘/热键的
-    /// `OpenSettingsRequested` 走同一条路）。窗口本体随 M4-T6 落地，
-    /// 在那之前只留诊断痕迹。
+    /// 画一帧设置窗口：草稿编辑 + 动作上交（保存/密钥变更/取消）。
+    fn draw_settings(&mut self) {
+        let (Some(frame), Some(state)) = (&mut self.settings_frame, &mut self.settings) else {
+            return;
+        };
+        let (repaint, action) = render_frame_with(frame, |ui| ui::settings::draw(ui, state));
+        self.settings_repaint = repaint;
+        let Some(action) = action else {
+            return;
+        };
+        match action {
+            SettingsAction::Idle => {}
+            SettingsAction::Save { config, key } => self.save_settings(config, key),
+            SettingsAction::Close => self.close_settings(),
+        }
+    }
+
+    /// 打开设置窗口的统一入口（托盘/热键的 `OpenSettingsRequested` 与浮层
+    /// 失败卡的「打开设置」走同一条路）。窗口已可见时只聚焦；否则以当前
+    /// 快照开一个新编辑会话——未保存的草稿随旧会话一并作废。
     fn open_settings(&mut self) {
-        debug!(
+        if self.settings.is_some() {
+            if let Some(windows) = &self.windows {
+                windows.show_settings();
+            }
+            return;
+        }
+        self.settings = Some(ui::settings::open(&self.config.snapshot()));
+        if let Some(windows) = &self.windows {
+            windows.show_settings();
+            windows.request_redraw_settings();
+        }
+        info!(thread = thread::UI, "settings window opened");
+    }
+
+    /// 保存设置：密钥按 [`KeyUpdate`] 处理（失败即中止，不留下「密钥换了
+    /// 配置没换」的半截状态），配置走热更新路径（先落盘再换快照）；成功即
+    /// 关闭窗口——「下一次任务即生效」由快照语义保证。
+    fn save_settings(&mut self, config: Config, key_update: KeyUpdate) {
+        let keychain_id = config.resolved_provider().keychain_id.clone();
+        let key_result = match &key_update {
+            KeyUpdate::Keep => Ok(()),
+            KeyUpdate::Replace(key) => self.store.set_secret(&keychain_id, key),
+            KeyUpdate::Clear => self.store.delete_secret(&keychain_id),
+        };
+        if let Err(err) = key_result {
+            warn!(thread = thread::UI, error = %err, "failed to update the api key");
+            self.report_settings(format!("密钥更新失败（配置未保存）：{err}"));
+            return;
+        }
+        if key_update != KeyUpdate::Keep {
+            info!(
+                thread = thread::UI,
+                provider = %config.resolved_provider().provider,
+                cleared = key_update == KeyUpdate::Clear,
+                "api key updated from settings"
+            );
+        }
+        if let Err(err) = self.config.save(config) {
+            // 密钥已经生效，配置没有：如实说清哪一半落下了。
+            warn!(thread = thread::UI, error = %err, "failed to save settings");
+            let prefix = if key_update == KeyUpdate::Keep {
+                "保存失败"
+            } else {
+                "密钥已更新，但配置保存失败"
+            };
+            self.report_settings(format!("{prefix}：{err}"));
+            return;
+        }
+        info!(
             thread = thread::UI,
-            "settings open requested, window lands with M4-T6"
+            "settings saved, effective on the next trigger"
         );
+        self.close_settings();
+    }
+
+    /// 设置窗口的用户提示（保存失败等）；窗口已关则无处可报，只留日志。
+    fn report_settings(&mut self, message: String) {
+        if let Some(state) = &mut self.settings {
+            state.report(message);
+        }
+    }
+
+    /// 关闭设置窗口：隐藏不销毁，丢弃编辑会话（未保存的草稿一并作废）。
+    fn close_settings(&mut self) {
+        self.settings = None;
+        // 窗口收起了就别再为它的动画唤醒事件循环。
+        self.settings_repaint = None;
+        if let Some(windows) = &self.windows {
+            windows.hide_settings();
+        }
     }
 
     /// 统一显示入口：显示并启动自动隐藏计时。
@@ -254,6 +384,13 @@ impl GlossApp {
             .as_ref()
             .map_or(Vec::new(), |e| e.platform_events.try_iter().collect());
         for event in events {
+            // 设置入口（M4-T6）：托盘/热键与浮层失败卡共用同一条路；不占
+            // 用代数（与未接线事件一样不进状态机）。
+            if matches!(event, PlatformEvent::OpenSettingsRequested) {
+                info!(thread = thread::UI, "settings open requested");
+                self.open_settings();
+                continue;
+            }
             let superseded = self.machine.current_cancel().is_some();
             if let Some(command) = self.machine.trigger(&event, &config) {
                 info!(
@@ -267,7 +404,7 @@ impl GlossApp {
                 debug!(
                     thread = thread::UI,
                     event = ?event,
-                    "platform event not wired yet, ignored"
+                    "platform event ignored: not wired yet, or its task kind is disabled"
                 );
             }
         }
@@ -522,30 +659,56 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        if !self.windows.as_ref().is_some_and(|w| w.matches(window_id)) {
+        let Some(windows) = &self.windows else {
+            return;
+        };
+        let is_overlay = windows.matches_overlay(window_id);
+        let is_settings = !is_overlay && windows.matches_settings(window_id);
+        if !is_overlay && !is_settings {
             return;
         }
 
         if matches!(event, WindowEvent::RedrawRequested) {
-            self.draw();
+            if is_settings {
+                self.draw_settings();
+            } else {
+                self.draw();
+            }
             return;
         }
 
-        // 其余事件先喂给 egui，它决定是否消化掉以及要不要重绘
+        // 其余事件先喂给对应窗口的 egui，它决定是否消化掉以及要不要重绘
         let repaint = {
-            let Some(frame) = self.frame.as_mut() else {
+            let frame = if is_settings {
+                self.settings_frame.as_mut()
+            } else {
+                self.frame.as_mut()
+            };
+            let Some(frame) = frame else {
                 return;
             };
             frame.egui.on_window_event(&frame.window, &event).repaint
         };
         if repaint {
-            self.request_redraw();
+            if is_settings {
+                windows.request_redraw_settings();
+            } else {
+                windows.request_redraw();
+            }
         }
 
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Focused(false) => {
-                // 失焦回 Idle：只隐藏不销毁
+            WindowEvent::CloseRequested => {
+                if is_settings {
+                    // 设置窗口的关闭是「取消编辑」：隐藏丢弃草稿，进程照常
+                    self.close_settings();
+                } else {
+                    event_loop.exit();
+                }
+            }
+            WindowEvent::Focused(false) if is_overlay => {
+                // 浮层失焦回 Idle：只隐藏不销毁。设置窗口失焦保持打开
+                // （草稿还在编辑中，收起即丢对人太狠）。
                 if let Some(windows) = &self.windows {
                     windows.hide();
                     self.auto_hide = None;
@@ -553,7 +716,12 @@ impl ApplicationHandler<UserEvent> for GlossApp {
                 }
             }
             WindowEvent::Resized(size) => {
-                if let Some(frame) = self.frame.as_mut() {
+                let frame = if is_settings {
+                    self.settings_frame.as_mut()
+                } else {
+                    self.frame.as_mut()
+                };
+                if let Some(frame) = frame {
                     frame.surface.resize(size);
                 }
             }
@@ -570,15 +738,23 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         if self.auto_hide.is_some_and(|deadline| deadline <= now) {
             self.on_auto_hide(event_loop);
         }
-        if self.next_repaint.is_some_and(|deadline| deadline <= now) {
+        if self.overlay_repaint.is_some_and(|deadline| deadline <= now) {
             self.request_redraw();
+        }
+        if self
+            .settings_repaint
+            .is_some_and(|deadline| deadline <= now)
+            && let Some(windows) = &self.windows
+        {
+            windows.request_redraw_settings();
         }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // 没有待处理的唤醒时刻就彻底睡下，等窗口事件或唤醒句柄把自己叫醒
         event_loop.set_control_flow(
-            sooner(self.next_repaint, self.auto_hide)
+            sooner(self.overlay_repaint, self.settings_repaint)
+                .and_then(|repaint| sooner(Some(repaint), self.auto_hide))
                 .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
         );
     }
@@ -589,7 +765,7 @@ mod tests {
     use super::*;
     use crate::machine::{AppState, OverlayView};
     use gloss_core::config::{Config, DEFAULT_TEXT_MODEL, ModelBinding};
-    use gloss_core::model::Lang;
+    use gloss_core::model::{GlossError, Lang};
     use gloss_core::ports::mocks::MemoryConfigStore;
     use gloss_core::task::TaskKind;
 
@@ -619,10 +795,12 @@ mod tests {
         assert_eq!(sooner(None, None), None);
     }
 
-    /// `driven_app` 交出的驱动端点：App 本体 + 配置句柄 + 四条通道的端点。
+    /// `driven_app` 交出的驱动端点：App 本体 + 配置句柄 + 配置存储 + 四条
+    /// 通道的端点。
     type DrivenApp = (
         GlossApp,
         Arc<ConfigHandle>,
+        Arc<dyn ConfigStore>,
         crossbeam_channel::Sender<PlatformEvent>,
         crossbeam_channel::Receiver<AcquireCommand>,
         tokio::sync::mpsc::UnboundedReceiver<Command>,
@@ -634,6 +812,11 @@ mod tests {
     /// 配置走 core 的内存桩（`test-util` 特性），测试可以 `handle.save(...)`
     /// 模拟设置页保存，观察下一次触发是否用上新配置。
     fn driven_app() -> DrivenApp {
+        driven_app_with(Arc::new(MemoryConfigStore::default()))
+    }
+
+    /// [`driven_app`] 的注入版：设置页失败路径测试用它换上必失败的存储。
+    fn driven_app_with(store: Arc<dyn ConfigStore>) -> DrivenApp {
         let crate::channel::Channels {
             platform_events,
             acquire_commands,
@@ -657,7 +840,7 @@ mod tests {
             rx: cmd_rx,
         } = commands;
         let config = Arc::new(ConfigHandle::with_config(
-            Arc::new(MemoryConfigStore::default()),
+            Arc::clone(&store),
             Config::default(),
         ));
         let app = GlossApp::new(
@@ -668,8 +851,9 @@ mod tests {
                 events: ev_rx,
             },
             Arc::clone(&config),
+            Arc::clone(&store) as Arc<dyn ConfigStore>,
         );
-        (app, config, pe_tx, ac_rx, cmd_rx, ev_tx)
+        (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
     }
 
     /// 驱动一次触发（划词手势）走完通道①消费。
@@ -711,7 +895,7 @@ mod tests {
     /// 新触发取消 A 的令牌、推进代数，A 的一切回传被陈旧过滤。
     #[test]
     fn late_events_of_superseded_trigger_do_not_bleed() {
-        let (mut app, _config, pe_tx, ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let (mut app, _config, _store, pe_tx, ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
         // 触发 A：进入 Fetching，gen=1，取材命令下发。
         trigger_selection(&mut app, &pe_tx);
@@ -767,7 +951,7 @@ mod tests {
     /// 匹配的失败落 Error 态并可重试；Error 态再次触发即重试。
     #[test]
     fn failed_task_lands_in_error_and_retry_works() {
-        let (mut app, _config, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
 
@@ -788,7 +972,7 @@ mod tests {
     /// 重发到通道③——同代数、同任务、新令牌。
     #[test]
     fn retry_action_redispatches_the_failed_task() {
-        let (mut app, _config, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         let Command::RunTask { cancel, .. } = cmd_rx.try_recv().unwrap();
@@ -825,10 +1009,10 @@ mod tests {
     }
 
     /// 设置页出口（鉴权/配置类失败）：点「打开设置」不产生通道③流量，
-    /// 状态停在 Error——窗口本体随 M4-T6 接入 open_settings()。
+    /// 状态停在 Error，编辑会话就位（窗口可见性属 L3 真机，见显隐自检）。
     #[test]
     fn open_settings_action_keeps_the_error_card() {
-        let (mut app, _config, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         // 排空首发的 RunTask，之后通道③应为空——「打开设置」不得产生
@@ -846,12 +1030,16 @@ mod tests {
         app.handle_error_action(ErrorAction::OpenSettings);
         assert_eq!(app.machine.state(), AppState::Error);
         assert!(cmd_rx.try_recv().is_err(), "no re-dispatch for settings");
+        assert!(
+            app.settings.is_some(),
+            "the open-settings action must start the edit session (M4-T6)"
+        );
     }
 
     /// 陈旧的 InputReady 不进入 Translating，也不下发③。
     #[test]
     fn stale_input_ready_is_dropped_entirely() {
-        let (mut app, _config, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(!app.accept_input(42, text_input("来自未来")));
         assert_eq!(
@@ -870,7 +1058,7 @@ mod tests {
     /// 走的仍是生产路径的 `drain_platform_events` → `accept_input`。
     #[test]
     fn saved_config_applies_to_the_next_trigger() {
-        let (mut app, config, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let (mut app, config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
         // 出厂默认：目标语言中文 + 出厂文本模型（用户只差 keychain 里那把钥匙）。
         trigger_selection(&mut app, &pe_tx);
@@ -913,7 +1101,7 @@ mod tests {
     /// 没有 config），而 M4-T6/T7 改 App 时最可能踩的就是「派发时重新取快照」。
     #[test]
     fn saved_config_does_not_leak_into_the_inflight_task() {
-        let (mut app, config, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let (mut app, config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
         // 触发（拿到 v1 快照）→ 保存 v2 → 才喂取材产物。
         trigger_selection(&mut app, &pe_tx);
@@ -937,5 +1125,112 @@ mod tests {
         assert!(app.accept_input(2, text_input("B")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
         assert_eq!(task.options.target_lang, Some(Lang::Ja));
+    }
+
+    /// 验收标准（M4-T6）：设置入口走 `PlatformEvent::OpenSettingsRequested`
+    /// ——打开编辑会话（草稿=当前快照），不占用请求代数。
+    #[test]
+    fn open_settings_request_starts_an_edit_session() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
+        app.drain_platform_events();
+
+        let state = app.settings.as_ref().expect("settings session expected");
+        assert_eq!(
+            state.draft(),
+            &*app.config.snapshot(),
+            "draft must start from the current snapshot"
+        );
+        assert_eq!(
+            app.machine.generation(),
+            0,
+            "settings must not consume a gen"
+        );
+    }
+
+    /// 验收标准（M4-T6）：设置页保存 = 密钥进 keychain（按 provider 条目）
+    /// + 配置走热更新路径；成功后关闭会话。密钥永不落进配置快照。
+    #[test]
+    fn settings_save_writes_keychain_and_swaps_config() {
+        let (mut app, config, store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
+        app.drain_platform_events();
+
+        let mut draft = (*app.config.snapshot()).clone();
+        draft.target_lang = Lang::Ja;
+        draft.set_model_for_kind(
+            gloss_core::task::TaskKind::TranslateWord,
+            "deepseek-reasoner",
+        );
+        // trim 是 UI 层（build_save）的契约，已在 settings 模块单测；
+        // 壳收到的是裁剪后的密钥。
+        app.save_settings(draft, KeyUpdate::Replace("sk-live-key".to_owned()));
+
+        assert_eq!(
+            store
+                .secret("gloss/deepseek")
+                .expect("store read")
+                .as_deref(),
+            Some("sk-live-key"),
+            "trimmed key must land in the keychain under the provider entry"
+        );
+        assert_eq!(config.snapshot().target_lang, Lang::Ja, "snapshot advanced");
+        assert!(app.settings.is_none(), "successful save closes the session");
+
+        // 保存的配置对下一次触发生效（模型随任务下发）。
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(1, text_input("A")));
+        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        assert_eq!(
+            task.options.model_override.as_deref(),
+            Some("deepseek-reasoner")
+        );
+    }
+
+    /// 清除密钥路径：保存时删除 keychain 条目（删除与配置落盘同一次保存
+    /// 里发生，取消不会留下已删除的密钥）。
+    #[test]
+    fn clearing_the_key_deletes_the_secret_on_save() {
+        let (mut app, config, store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        store
+            .set_secret("gloss/deepseek", "sk-existing")
+            .expect("stub store accepts secret");
+        pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
+        app.drain_platform_events();
+
+        let draft = (*config.snapshot()).clone();
+        app.save_settings(draft, KeyUpdate::Clear);
+        assert_eq!(
+            store.secret("gloss/deepseek").expect("store read"),
+            None,
+            "clear must remove the keychain entry"
+        );
+        assert!(app.settings.is_none(), "save closes the session");
+    }
+
+    /// 落盘失败：内存保持旧版本（磁盘唯一真相），会话保持打开并带上
+    /// 提示——用户可以改完再存。
+    #[test]
+    fn failed_save_keeps_the_session_open_with_a_notice() {
+        let failing = MemoryConfigStore::default()
+            .with_save_failure(GlossError::Config("disk on fire".into()));
+        let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) =
+            driven_app_with(Arc::new(failing));
+        app.settings = Some(ui::settings::open(&config.snapshot()));
+
+        let mut draft = (*config.snapshot()).clone();
+        draft.target_lang = Lang::Ja;
+        app.save_settings(draft, KeyUpdate::Keep);
+
+        let state = app.settings.as_ref().expect("session must stay open");
+        assert!(
+            state.notice().is_some_and(|n| n.contains("disk on fire")),
+            "the save error must be reported into the session"
+        );
+        assert_eq!(
+            config.snapshot().target_lang,
+            Lang::Zh,
+            "failed save must not advance the runtime snapshot"
+        );
     }
 }

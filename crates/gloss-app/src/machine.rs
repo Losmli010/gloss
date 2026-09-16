@@ -375,28 +375,38 @@ fn source_text(task: &Task) -> String {
 }
 
 /// 平台事件 → 取材命令的映射：每次真实触发占用一个新代数；未接线的
-/// 平台事件（框选、设置、退出）返回 None。划词手势的任务类型来自配置的
-/// `default_text_kind`，并按取材源收口成文本类——配置写成图像 kind 时不
-/// 送进引擎挨模态校验（见 `Config::selection_task_kind`）；热键绑定携带的
-/// kind 是逐条显式意图，不做收口（M4-T7 配置化时校验）。
+/// 平台事件（框选、设置、退出）与被任务开关停用的 kind 返回 None。划词
+/// 手势的任务类型来自配置的 `default_text_kind`，并按取材源收口成文本类
+/// ——配置写成图像 kind 时不送进引擎挨模态校验（见
+/// `Config::selection_task_kind`）；热键绑定携带的 kind 是逐条显式意图，
+/// 不做收口（只看开关）。
 fn acquire_command_for(
     event: &PlatformEvent,
     generation: u64,
     config: &Config,
 ) -> Option<AcquireCommand> {
     match event {
-        PlatformEvent::HotkeyTriggered { binding } => match binding.source {
-            InputSource::Selection => Some(AcquireCommand::AcquireText {
-                generation,
-                kind: binding.kind,
-            }),
-            // 图像取材待框选路径接入后消费。
-            InputSource::Region => None,
-        },
-        PlatformEvent::SelectionGesture => Some(AcquireCommand::AcquireText {
-            generation,
-            kind: config.selection_task_kind(),
-        }),
+        PlatformEvent::HotkeyTriggered { binding } => {
+            // 任务开关（M4-T6）：停用的 kind 对一切触发路径无响应，且不
+            // 占用代数——与未接线事件同一出口。
+            if !config.is_kind_enabled(binding.kind) {
+                return None;
+            }
+            match binding.source {
+                InputSource::Selection => Some(AcquireCommand::AcquireText {
+                    generation,
+                    kind: binding.kind,
+                }),
+                // 图像取材待框选路径接入后消费。
+                InputSource::Region => None,
+            }
+        }
+        PlatformEvent::SelectionGesture => {
+            let kind = config.selection_task_kind();
+            config
+                .is_kind_enabled(kind)
+                .then_some(AcquireCommand::AcquireText { generation, kind })
+        }
         PlatformEvent::RegionGesture { .. }
         | PlatformEvent::OpenSettingsRequested
         | PlatformEvent::QuitRequested => None,
@@ -546,6 +556,58 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// 任务开关（M4-T6）：停用的 kind 对划词与热键两条触发路径都无响应，
+    /// 且不占用代数（与未接线事件同一出口）；重新启用后照常触发。
+    #[test]
+    fn disabled_kinds_are_not_acquired_and_consume_no_generation() {
+        let mut machine = TaskStateMachine::new();
+        let config = Config {
+            enabled_kinds: vec![
+                gloss_core::config::ALL_KINDS[0],
+                gloss_core::config::ALL_KINDS[1],
+            ],
+            ..Default::default()
+        };
+
+        // 划词默认 kind（TranslateWord）仍在开关表内：照常触发。
+        assert!(
+            machine
+                .trigger(&PlatformEvent::SelectionGesture, &config)
+                .is_some()
+        );
+        assert_eq!(machine.generation(), 1);
+
+        // ExplainCode（ALL_KINDS[2]）被停用：热键与划词默认两条路都不出命令。
+        let binding = gloss_core::task::HotkeyBinding {
+            trigger: "Cmd+Shift+E".into(),
+            kind: gloss_core::config::ALL_KINDS[2],
+            source: gloss_core::task::InputSource::Selection,
+        };
+        assert!(
+            machine
+                .trigger(&PlatformEvent::HotkeyTriggered { binding }, &config)
+                .is_none(),
+            "disabled kind must not acquire via hotkey"
+        );
+        assert_eq!(
+            machine.generation(),
+            1,
+            "disabled trigger must not consume a generation"
+        );
+
+        let disabled_default = Config {
+            default_text_kind: gloss_core::config::ALL_KINDS[2],
+            enabled_kinds: Vec::new(),
+            ..Default::default()
+        };
+        assert!(
+            machine
+                .trigger(&PlatformEvent::SelectionGesture, &disabled_default)
+                .is_none(),
+            "disabled selection kind must not acquire"
+        );
     }
 
     /// 快照在触发时定下：取材途中换配置（这里模拟为换一份 config 再喂

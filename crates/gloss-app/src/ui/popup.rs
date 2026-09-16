@@ -8,7 +8,7 @@
 
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, ScrollArea, Stroke, vec2};
 use gloss_core::prompt::STRUCTURED_FENCE;
-use gloss_core::task::{OutcomeStructured, TaskKind};
+use gloss_core::task::OutcomeStructured;
 
 use crate::machine::{ErrorAction, OverlayView};
 
@@ -57,7 +57,11 @@ pub(crate) fn draw(ui: &mut egui::Ui, view: Option<&OverlayView>) -> Option<Erro
                     streamed_body(ui, body);
                 }
                 Some(OverlayView::Outcome(outcome)) => {
-                    header(ui, kind_tag(outcome.kind), Some(copy_text(outcome)));
+                    header(
+                        ui,
+                        crate::ui::kind_label(outcome.kind),
+                        Some(copy_text(outcome)),
+                    );
                     ui.add_space(12.0);
                     ScrollArea::vertical()
                         .auto_shrink(false)
@@ -95,17 +99,6 @@ fn action_label(action: ErrorAction) -> &'static str {
     match action {
         ErrorAction::Retry => "重试",
         ErrorAction::OpenSettings => "打开设置",
-    }
-}
-
-/// 任务类型 → 头部标签。
-fn kind_tag(kind: TaskKind) -> &'static str {
-    match kind {
-        TaskKind::TranslateWord => "词卡",
-        TaskKind::TranslateSentence => "翻译",
-        TaskKind::ExplainCode => "代码解释",
-        TaskKind::ImageOcr => "提取结果",
-        TaskKind::ImageExplain => "图片解释",
     }
 }
 
@@ -285,7 +278,7 @@ mod kittest_tests {
 
     use super::*;
     use crate::machine::OverlayView;
-    use gloss_core::task::{Sense, TaskOutcome};
+    use gloss_core::task::{Sense, TaskKind, TaskOutcome};
 
     fn word_card_view() -> OverlayView {
         OverlayView::Outcome(TaskOutcome {

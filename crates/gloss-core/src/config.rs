@@ -19,6 +19,16 @@ use serde::{Deserialize, Serialize};
 use crate::model::Lang;
 use crate::task::{HotkeyBinding, InputSource, TaskKind};
 
+/// 全部任务类型：`enabled_kinds` 的出厂值与设置页的任务开关列表共用，
+/// 两处来自同一常量，新增 kind 时不会漏掉一边。
+pub const ALL_KINDS: [TaskKind; 5] = [
+    TaskKind::TranslateWord,
+    TaskKind::TranslateSentence,
+    TaskKind::ExplainCode,
+    TaskKind::ImageOcr,
+    TaskKind::ImageExplain,
+];
+
 /// 出厂默认文本模型 id：既是 `model_by_kind` 的出厂值，也是 `model_by_kind`
 /// 缺项时的兜底——两处共用同一处字面量（各写一份时改一边不会有人红）。
 pub const DEFAULT_TEXT_MODEL: &str = "deepseek-chat";
@@ -115,8 +125,9 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// 落点（改动本节时同步更新）：`target_lang` / `model_by_kind` /
 /// `default_text_kind` 已在 M4-T3 接线（触发时解析进任务）；`base_url` /
 /// `provider_keys` 已在 M4-T4 接线（引擎每请求解析端点、按条目直查 keychain）；
-/// `cache_ttl_secs` 归缓存构造接线；`auto_show` / `theme` / `hotkey_bindings`
-/// 归 M4-T6 / M4-T7。
+/// `enabled_kinds` 已在 M4-T6 接线（触发时过滤）；`auto_show` / `theme` /
+/// `hotkey_bindings` 已在 M4-T6 可编辑（`auto_show`/`theme` 的消费与热键
+/// 重注册归 M4-T7）；`cache_ttl_secs` 归缓存构造接线。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -134,6 +145,9 @@ pub struct Config {
     pub hotkey_bindings: Vec<HotkeyBinding>,
     /// 划词手势的默认任务类型。
     pub default_text_kind: TaskKind,
+    /// 启用的任务类型：被停用的 kind 对一切触发路径无响应（设置页任务
+    /// 开关）。缺字段（老配置）按全启用补齐。
+    pub enabled_kinds: Vec<TaskKind>,
     /// 取材成功后是否自动弹出浮层。
     pub auto_show: bool,
     /// 缓存条目存活时长（秒）。
@@ -151,6 +165,7 @@ impl Default for Config {
             target_lang: Lang::Zh,
             hotkey_bindings: default_hotkey_bindings(),
             default_text_kind: TaskKind::TranslateWord,
+            enabled_kinds: ALL_KINDS.to_vec(),
             auto_show: true,
             // 与 gloss-core::cache 的出厂 TTL（1 小时）一致。
             cache_ttl_secs: 60 * 60,
@@ -160,6 +175,38 @@ impl Default for Config {
 }
 
 impl Config {
+    /// 某任务类型是否启用：停用的 kind 对一切触发路径无响应（设置页任务
+    /// 开关）。空表视为「全部停用」——显式清空是用户的明确意图，不猜。
+    pub fn is_kind_enabled(&self, kind: TaskKind) -> bool {
+        self.enabled_kinds.contains(&kind)
+    }
+
+    /// 设置某任务类型的开关（设置页任务开关的落点）：启用为追加、停用为
+    /// 移除，保证表内不出现重复条目。
+    pub fn set_kind_enabled(&mut self, kind: TaskKind, enabled: bool) {
+        if enabled {
+            if !self.enabled_kinds.contains(&kind) {
+                self.enabled_kinds.push(kind);
+            }
+        } else {
+            self.enabled_kinds.retain(|&candidate| candidate != kind);
+        }
+    }
+
+    /// 设置某任务类型的默认模型 id（设置页模型表的落点）：替换该 kind 的
+    /// 全部既有条目（查找助手按「后条覆盖前条」语义，整表重建前不留旧条
+    /// 目）；空串/纯空白视为未配置，移除条目。
+    pub fn set_model_for_kind(&mut self, kind: TaskKind, model: &str) {
+        self.model_by_kind.retain(|binding| binding.kind != kind);
+        let trimmed = model.trim();
+        if !trimmed.is_empty() {
+            self.model_by_kind.push(ModelBinding {
+                kind,
+                model: trimmed.to_owned(),
+            });
+        }
+    }
+
     /// 划词手势（文本取材）实际使用的任务类型：`default_text_kind` 若被手改
     /// 成图像 kind，回退出厂默认 `TranslateWord`。
     ///
@@ -309,6 +356,7 @@ mod tests {
                 source: InputSource::Region,
             }],
             default_text_kind: TaskKind::ExplainCode,
+            enabled_kinds: vec![TaskKind::TranslateWord, TaskKind::ExplainCode],
             auto_show: false,
             cache_ttl_secs: 120,
             theme: Theme::Dark,
@@ -333,6 +381,20 @@ mod tests {
         assert_eq!(
             config.resolved_model(TaskKind::TranslateWord),
             Some(DEFAULT_TEXT_MODEL)
+        );
+        // 任务开关缺字段按全启用补齐（M4-T6；老配置没有这个键）。
+        assert!(ALL_KINDS.iter().all(|&kind| config.is_kind_enabled(kind)));
+    }
+
+    /// 任务开关语义：显式空表 = 全部停用（与 `provider_keys` 的「显式空
+    /// 保持为空」同一条 serde 规则的两面）。
+    #[test]
+    fn explicit_empty_enabled_kinds_disables_everything() {
+        let config: Config =
+            serde_json::from_str(r#"{"enabled_kinds": []}"#).expect("explicit empty should parse");
+        assert!(
+            ALL_KINDS.iter().all(|&kind| !config.is_kind_enabled(kind)),
+            "explicit empty table must disable every kind"
         );
     }
 
@@ -391,6 +453,53 @@ mod tests {
         assert_eq!(
             Duration::from_secs(Config::default().cache_ttl_secs),
             crate::cache::DEFAULT_TTL
+        );
+    }
+
+    /// 任务开关与模型表的编辑助手（设置页落点）：启用不重复追加、停用可
+    /// 幂等移除；模型条目按 kind 整体重建，空白视为未配置。
+    #[test]
+    fn edit_helpers_keep_tables_canonical() {
+        let mut config = Config::default();
+        assert!(config.is_kind_enabled(TaskKind::TranslateWord));
+
+        config.set_kind_enabled(TaskKind::TranslateWord, true);
+        assert_eq!(
+            config
+                .enabled_kinds
+                .iter()
+                .filter(|&&k| k == TaskKind::TranslateWord)
+                .count(),
+            1,
+            "enabling an enabled kind must not duplicate the entry"
+        );
+
+        config.set_kind_enabled(TaskKind::TranslateWord, false);
+        assert!(!config.is_kind_enabled(TaskKind::TranslateWord));
+        config.set_kind_enabled(TaskKind::TranslateWord, false);
+        assert_eq!(
+            config
+                .enabled_kinds
+                .iter()
+                .filter(|&&k| k == TaskKind::TranslateWord)
+                .count(),
+            0,
+            "disabling twice stays empty"
+        );
+
+        config.set_model_for_kind(TaskKind::ImageOcr, "  vision-x  ");
+        assert_eq!(config.model_for_kind(TaskKind::ImageOcr), Some("vision-x"));
+        config.set_model_for_kind(TaskKind::ImageOcr, "vision-y");
+        assert_eq!(
+            config.model_for_kind(TaskKind::ImageOcr),
+            Some("vision-y"),
+            "re-setting must replace, not append"
+        );
+        config.set_model_for_kind(TaskKind::ImageOcr, "   ");
+        assert_eq!(
+            config.model_for_kind(TaskKind::ImageOcr),
+            None,
+            "blank model id means unconfigured"
         );
     }
 
