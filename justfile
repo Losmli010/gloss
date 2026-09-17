@@ -1,5 +1,10 @@
 # Gloss 项目命令入口
 # 本地开发与 CI/CD 共用同一套命令，保证行为一致。
+# 配方按 dev / ci / release / hooks 四桶组织，与 scripts/ 及 .github/workflows/ 同构：
+#   dev     本地开发与构建
+#   ci      需要编译的质量门禁（CI 的 ci.yml 用）
+#   release 发布链（CI 的 release.yml 用）
+#   hooks   pre-commit 同款的纯文本检查，秒级（CI 的 hooks.yml 用）
 # 用法：just <recipe>   查看全部：just --list
 
 # ---- 全局默认值 ----
@@ -9,16 +14,12 @@ set shell := ["bash", "-uc"]
 default:
     @just --list
 
-# 项目名称 / 版本（供打包用）
-name := "gloss"
-version := env_var_or_default("GLOSS_VERSION", "0.1.0")
-
 # 行覆盖率下限：低于该值即失败（本地 just coverage 与 CI 的 coverage job 共用）
 # M3 分层测试（状态机抽出 + pipeline/popup 集成与 harness 测试）落地后，
 # 总量实测 81%，35 的临时值还账调回 70。
 coverage_min := "70"
 
-# ---- 本地开发 ----
+# ---- dev：本地开发与构建 ----
 
 # 运行开发版（debug）
 run:
@@ -45,7 +46,31 @@ logs:
     echo "tailing $newest"
     tail -n +1 -f "$newest"
 
-# ---- 代码质量门禁（CI 也用这些）----
+# Debug 构建
+build:
+    cargo build --workspace
+
+# 指定 target 构建（CI 构建矩阵用）
+build-target target:
+    cargo build --workspace --target {{target}}
+
+# Release 构建（优化）
+build-release:
+    cargo build --release
+
+# 清理构建产物
+clean:
+    cargo clean
+
+# 列出所有依赖树
+deps:
+    cargo tree
+
+# clone 后一键环境初始化：工具链校验 + 可选工具清点 + git hooks（幂等）
+setup:
+    ./scripts/dev/setup-dev.sh
+
+# ---- ci：需要编译的质量门禁（本地与 CI 共用同一配方）----
 
 # 格式化检查
 fmt:
@@ -55,6 +80,20 @@ fmt:
 fmt-fix:
     cargo fmt --all
 
+# TOML 格式检查（tombi --check 只校验不落盘；自动修复用 fmt-toml-fix）。
+# CI 的 tombi 钉 1.5.5，本地版本以接近为佳。
+fmt-toml:
+    tombi format --check $(git ls-files '*.toml')
+
+# TOML 自动格式化（落盘）
+fmt-toml-fix:
+    tombi format $(git ls-files '*.toml')
+
+# TOML 语法与 schema lint（不带 --error-on-warnings：根 Cargo.toml 现有 6 条
+# 「表格乱序」风格 warning 待整理，error 级仍会失败）
+lint-toml:
+    tombi lint $(git ls-files '*.toml')
+
 # Clippy 严格检查（警告即失败）
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -62,22 +101,6 @@ lint:
 # 自动修复部分 Clippy 建议
 lint-fix:
     cargo clippy --workspace --all-targets --all-features --fix --allow-dirty
-
-# 硬编码密钥扫描（脚本同时被 CI quality job 复用；规则与放行标记见脚本头注释）
-secrets:
-    ./scripts/check-secrets.sh
-
-# AGENTS.md 引用一致性：文档里提到的每个 just 配方 / 仓库路径 / 测试目标必须真实
-# 存在（脚本同时被 CI quality job 复用）。指令文件是唯一会被逐次加载的文档，
-# 它描述的世界一旦过期，代理就照着错的信息干活。
-agents-doc:
-    ./scripts/check-agents-doc.sh
-
-# 「不可协商的约束」里可机械判定的部分：依赖方向 / 日志统一出口 / 日志英文 /
-# 版本单点 / 依赖特性（按 manifest 与源码解析，纯 bash，不碰 cargo，秒级）。
-# 逐条覆盖与不覆盖的理由见脚本头注释。
-constraints:
-    ./scripts/check-constraints.sh
 
 # 运行单元测试
 test:
@@ -100,57 +123,6 @@ coverage:
 coverage-check:
     cargo llvm-cov --workspace --all-features --fail-under-lines {{coverage_min}}
 
-# 完整质量门禁：约束检查 + 格式化 + Clippy + 测试 + 密钥扫描 + 文档引用校验（CI 核心；本地要全量验证时手动跑）
-check: constraints agents-doc fmt lint test secrets
-    @echo "✓ 质量门禁全部通过"
-
-# 提交前门禁：约束检查 + 文档引用校验 + 格式化 + Clippy + 密钥扫描（pre-commit 用）
-# 不含 test：测试由 CI 跑，本地提交不必等编译测试
-precommit: constraints agents-doc fmt lint secrets
-    @echo "✓ 提交前检查通过（测试交给 CI）"
-
-# 校验 commit message 是否符合 Conventional Commits（与 CI 共用同一脚本，手动排查用）
-lint-commit file:
-    ./scripts/check-commit-msg.sh "{{file}}"
-
-# ---- 构建 ----
-
-# Debug 构建
-build:
-    cargo build --workspace
-
-# 指定 target 构建（CI 构建矩阵用）
-build-target target:
-    cargo build --workspace --target {{target}}
-
-# Release 构建（优化）
-build-release:
-    cargo build --release
-
-# ---- 发布打包（需 cargo-bundle）----
-
-# 生成发布包（.app + .dmg，当前架构）
-package-macos: build-release
-    cargo bundle --release --format osx
-
-# ---- 清理 ----
-
-# 清理构建产物
-clean:
-    cargo clean
-
-# ---- 辅助 ----
-
-# 安装本地 git hooks（clone 后运行一次）
-install-hooks:
-    ./scripts/install-hooks.sh
-
-# 列出所有依赖树
-deps:
-    cargo tree
-
-# ---- 安全与合规 ----
-
 # 安全审计（已知漏洞）
 audit:
     cargo audit
@@ -159,7 +131,47 @@ audit:
 deny:
     cargo deny check
 
-# ---- 变更日志 ----
+# Miri 未定义行为检测（需 nightly 与 miri 组件）。只覆盖 gloss-core 纯逻辑层：
+# Miri 解释执行 MIR、无法执行 FFI，平台层（macOS 框架）与渲染层（wgpu/egui）跑不了。
+# 两处实测裁剪（2026-09-17）：
+# - --skip cache:: / engine::：moka 背后的 crossbeam-epoch 指针技巧在 Miri 的
+#   Stacked Borrows 下报 UB（tree-borrows 更糟），凡经 MokaCache 的测试整体排除；
+# - -Zmiri-disable-isolation：放行 config 落盘类测试的文件/环境访问，内存 UB 检测不变。
+# CI 的 sanitizers.yml 跑同一条配方（nightly；上游只对最新 nightly 测试，挂了先升 nightly）
+miri:
+    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine::
+
+# 完整质量门禁：约束检查 + 格式化 + Clippy + 测试 + 密钥扫描 + 文档引用校验（CI 核心；本地要全量验证时手动跑）
+check: constraints agents-doc fmt fmt-toml lint lint-toml test secrets
+    @echo "✓ 质量门禁全部通过"
+
+# 提交前门禁：约束检查 + 文档引用校验 + 格式化 + Clippy + 密钥扫描（pre-commit 用）
+# 不含 test：测试由 CI 跑，本地提交不必等编译测试
+precommit: constraints agents-doc fmt fmt-toml lint lint-toml secrets
+    @echo "✓ 提交前检查通过（测试交给 CI）"
+
+# ---- release：发布链（CI 的 release.yml 用同一批脚本）----
+
+# ad-hoc 签名免费可跑，用户首次打开需右键 → 打开；上 Developer ID 后把
+# codesign - 换成正式身份并接 notarytool（当前 ad-hoc，正式签名待 Developer ID）。
+# 流程：release 构建 → cargo bundle 出 .app → ad-hoc 签名 → 压 .dmg
+package-macos: build-release
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo bundle --release --format osx
+    app="target/release/bundle/osx/Gloss.app"
+    codesign --force --deep --sign - "$app"
+    codesign --verify --deep --strict "$app"
+    ./scripts/release/bundle-dmg.sh "$app"
+    echo "产物：$app 与 ${app%.app}.dmg"
+
+# 发布冒烟：启动打包出的 .app，验证能启动、活得住、日志无 panic（判定细则见脚本头）
+smoke-app app:
+    ./scripts/release/smoke-app.sh {{app}}
+
+# 发版前校验 tag 与版本单点一致（release workflow 构建产物前跑同一条脚本）
+release-check tag:
+    ./scripts/release/check-release-tag.sh {{tag}}
 
 # 生成/更新 CHANGELOG.md（基于 conventional commits，需 git-cliff）
 changelog:
@@ -168,3 +180,29 @@ changelog:
 # 预览下次发版将生成的 CHANGELOG（不写文件）
 changelog-preview:
     git cliff --unreleased
+
+# ---- hooks：pre-commit 同款检查（纯 bash 秒级，CI 的 hooks.yml 也跑）----
+
+# 硬编码密钥扫描（脚本同时被 CI 的 hook-checks job 复用；规则与放行标记见脚本头注释）
+secrets:
+    ./scripts/hooks/check-secrets.sh
+
+# AGENTS.md 引用一致性：文档里提到的每个 just 配方 / 仓库路径 / 测试目标必须真实
+# 存在（脚本同时被 CI 的 hook-checks job 复用）。指令文件是唯一会被逐次加载的文档，
+# 它描述的世界一旦过期，代理就照着错的信息干活。
+agents-doc:
+    ./scripts/hooks/check-agents-doc.sh
+
+# 「不可协商的约束」里可机械判定的部分：依赖方向 / 日志统一出口 / 日志英文 /
+# 版本单点 / 依赖特性（按 manifest 与源码解析，纯 bash，不碰 cargo，秒级）。
+# 逐条覆盖与不覆盖的理由见脚本头注释。
+constraints:
+    ./scripts/hooks/check-constraints.sh
+
+# 校验 commit message 是否符合 Conventional Commits（与 CI 共用同一脚本，手动排查用）
+lint-commit file:
+    ./scripts/hooks/check-commit-msg.sh "{{file}}"
+
+# 安装本地 git hooks（clone 后运行一次）
+install-hooks:
+    ./scripts/hooks/install-hooks.sh

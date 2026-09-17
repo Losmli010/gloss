@@ -12,7 +12,9 @@
 # 变量名，误报率太高；真实 token 泄漏由 provider 前缀模式兜底。
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+# 脚本在 scripts/hooks/ 下：上两级必须是仓库根，否则下方 git ls-files 的扫描
+# 范围会静默缩小到子树，密钥扫描形同虚设——挪位时必查这一行。
+cd "$(dirname "$0")/../.."
 
 # ---- 配置区 ----
 # provider 专属格式，大小写敏感（这些前缀本身就是大小写敏感的）

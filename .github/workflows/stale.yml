@@ -1,0 +1,40 @@
+name: Stale
+
+on:
+  schedule:
+    # 每天 01:30 UTC 跑一次（避开 security-audit 的 02:00）
+    - cron: "30 1 * * *"
+  workflow_dispatch:
+
+# 最小权限：顶层只读；仅 stale job 需要给 issue/PR 打标与评论（见其 job 级 permissions）。
+permissions:
+  contents: read
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@v9
+        with:
+          # 30 天无动静先标记，再等 7 天无回应才关闭；回应（评论）即续期
+          days-before-stale: 30
+          days-before-close: 7
+          operations-per-run: 60
+          stale-issue-message: |
+            这个 issue 30 天没有动静了。若问题仍在，请回个话补充现状（或贴最新日志），
+            我们会重新跟进；再 7 天无回应将自动关闭——关了也欢迎随时重开。
+          stale-pr-message: |
+            这个 PR 30 天没有动静了。若还要继续，请 rebase 到最新 main 并推一下；
+            再 7 天无回应将自动关闭，需要时随时重开。
+          close-issue-message: "因长期无回应自动关闭；问题仍在的话欢迎重开并补充现状。"
+          close-pr-message: "因长期无回应自动关闭；需要继续的话随时重开。"
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: pinned,roadmap,keep
+          exempt-pr-labels: pinned,keep
+          # 草稿 PR 与有 milestone 的项不算无人认领
+          exempt-pr-assignees: true
+          exempt-issue-assignees: true

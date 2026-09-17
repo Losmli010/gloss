@@ -10,24 +10,24 @@ ignore = []
 # MIT 项目的商用底线：只接受宽松许可证，copyleft（GPL/AGPL/LGPL）一律不放行。
 # 新增依赖若被这里拦下，先确认它是否真的必要，再决定是否扩白名单。
 allow = [
-    "MIT",
-    "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "ISC",
-    "Zlib",
-    "Unicode-3.0",
-    # 渲染栈引入（均为宽松许可，无 copyleft 义务）：
-    # BSL-1.0 —— clipboard-win / error-code（arboard 的 Windows 剪贴板路径）
-    # OFL-1.1 + Ubuntu-font-1.0 —— epaint_default_fonts（egui 内置字体数据）
-    "BSL-1.0",
-    "OFL-1.1",
-    "Ubuntu-font-1.0",
-    # MPL-2.0 为文件级弱 copyleft：仅要求修改 MPL 文件本身时开源该文件，
-    # 不会传染宿主项目，商用安全。引入者（均来自 font-kit）：
-    # dwrote（Windows DirectWrite 后端）、option-ext（dirs → dirs-sys 链）
-    "MPL-2.0",
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  # 渲染栈引入（均为宽松许可，无 copyleft 义务）：
+  # BSL-1.0 —— clipboard-win / error-code（arboard 的 Windows 剪贴板路径）
+  # OFL-1.1 + Ubuntu-font-1.0 —— epaint_default_fonts（egui 内置字体数据）
+  "BSL-1.0",
+  "OFL-1.1",
+  "Ubuntu-font-1.0",
+  # MPL-2.0 为文件级弱 copyleft：仅要求修改 MPL 文件本身时开源该文件，
+  # 不会传染宿主项目，商用安全。引入者（均来自 font-kit）：
+  # dwrote（Windows DirectWrite 后端）、option-ext（dirs → dirs-sys 链）
+  "MPL-2.0",
 ]
 confidence-threshold = 0.9
 # 白名单是按「将来可能引入的依赖」预留的，当下用不到的条目不算问题，别刷警告。

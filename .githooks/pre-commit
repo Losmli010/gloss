@@ -39,7 +39,7 @@ if [ -z "$STAGED_RS" ]; then
   if ! just secrets; then
     echo "" >&2
     echo "✗ 检出疑似硬编码密钥，已阻止提交" >&2
-    echo "  误报用行尾 secrets:allow 放行（规则见 scripts/check-secrets.sh）" >&2
+    echo "  误报用行尾 secrets:allow 放行（规则见 scripts/hooks/check-secrets.sh）" >&2
     exit 1
   fi
   if ! just agents-doc; then

@@ -24,7 +24,7 @@
 # 反引号包裹的仓库相对路径，代码块里的树形图与行尾注释混排没法可靠切词。
 # 占位符（含 `*`、`<`、`>`）、仓库外路径（含 `~`）、注释语法与 URL（含 `//`）不校验。
 #
-# 用法：scripts/check-agents-doc.sh [AGENTS.md 路径]   # 缺省为仓库根 AGENTS.md
+# 用法：scripts/hooks/check-agents-doc.sh [AGENTS.md 路径]   # 缺省为仓库根 AGENTS.md
 set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,7 +33,7 @@ if [ "$#" -ge 1 ]; then
   ROOT="$(cd "$(dirname "$1")" && pwd)"
   DOC="$ROOT/$(basename "$1")"
 else
-  ROOT="$(cd "$SELF_DIR/.." && pwd)"
+  ROOT="$(cd "$SELF_DIR/../.." && pwd)"
   DOC="$ROOT/AGENTS.md"
 fi
 

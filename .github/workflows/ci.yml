@@ -14,10 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  # 快速静态门禁：格式 + 密钥扫描 + 文档引用 + 约束。全部是纯文本检查、
-  # 不编译代码，放在 ubuntu runner 上跑得最快且最省。
-  quality:
-    name: Quality (fmt + secrets + docs + constraints)
+  fmt:
+    name: Format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -38,30 +36,6 @@ jobs:
 
       - name: Check formatting
         run: just fmt
-
-      # 扫描脚本自身的单元测试（纯 bash、秒级）：规则回归先于规则生效。
-      - name: Run secrets checker unit tests
-        run: bash scripts/check-secrets.test.sh
-
-      # 与本地 precommit 共用同一脚本：硬编码密钥一旦进历史就得吊销轮换，挡在提交前。
-      - name: Scan for hardcoded secrets
-        run: just secrets
-
-      # AGENTS.md 是唯一会被逐次加载进上下文的文档（客户端认的候选文件名只有它），
-      # 描述的配方/路径一旦过期，代理就照着错的信息干活——所以文档引用也进门禁。
-      - name: Run agents doc checker unit tests
-        run: bash scripts/check-agents-doc.test.sh
-
-      - name: Check AGENTS.md references
-        run: just agents-doc
-
-      # 「不可协商的约束」里可机械判定的部分（依赖方向 / 日志统一出口 / 日志英文 /
-      # 版本单点 / 依赖特性）。先跑脚本自身单测：规则回归先于规则生效。
-      - name: Run constraint checker unit tests
-        run: bash scripts/check-constraints.test.sh
-
-      - name: Check non-negotiable constraints
-        run: just constraints
 
   # Clippy 需要编译整个 workspace：目标产物链接平台框架（ApplicationServices /
   # CoreGraphics 等），只能在 macOS 上构建，故单独占一个 macOS job。
@@ -91,7 +65,7 @@ jobs:
   # 测试在 macOS 跑：窗口服务、GPU 与辅助功能行为只有目标平台能覆盖。
   test:
     name: Test
-    needs: [quality, lint]
+    needs: [fmt, lint]
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -114,7 +88,7 @@ jobs:
   # 覆盖率：macOS 单平台统计（全部代码在该平台编译），摘要写 job summary，HTML 存档。
   coverage:
     name: Coverage (LLVM)
-    needs: [quality, lint]
+    needs: [fmt, lint]
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -178,7 +152,7 @@ jobs:
   # 每日定时还会再跑一次（security-audit.yml），主动发现新披露的漏洞。
   security:
     name: Security (audit + deny)
-    needs: quality
+    needs: fmt
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
