@@ -9,10 +9,6 @@ set shell := ["bash", "-uc"]
 default:
     @just --list
 
-# 项目名称 / 版本（供打包用）
-name := "gloss"
-version := env_var_or_default("GLOSS_VERSION", "0.1.0")
-
 # 行覆盖率下限：低于该值即失败（本地 just coverage 与 CI 的 coverage job 共用）
 # M3 分层测试（状态机抽出 + pipeline/popup 集成与 harness 测试）落地后，
 # 总量实测 81%，35 的临时值还账调回 70。
@@ -127,11 +123,32 @@ build-target target:
 build-release:
     cargo build --release
 
-# ---- 发布打包（需 cargo-bundle）----
+# ---- 发布打包（当前架构，macOS）----
 
-# 生成发布包（.app + .dmg，当前架构）
+# ad-hoc 签名免费可跑，用户首次打开需右键 → 打开；上 Developer ID 后把
+# codesign - 换成正式身份并接 notarytool（见 docs/05 决策点 2）。
+# 流程：release 构建 → cargo bundle 出 .app → ad-hoc 签名 → 压 .dmg
 package-macos: build-release
+    #!/usr/bin/env bash
+    set -euo pipefail
     cargo bundle --release --format osx
+    app="target/release/bundle/osx/Gloss.app"
+    codesign --force --deep --sign - "$app"
+    codesign --verify --deep --strict "$app"
+    ./scripts/bundle-dmg.sh "$app"
+    echo "产物：$app 与 ${app%.app}.dmg"
+
+# 发布冒烟：启动打包出的 .app，验证能启动、活得住、日志无 panic（判定细则见脚本头）
+smoke-app app:
+    ./scripts/smoke-app.sh {{app}}
+
+# 发版前校验 tag 与版本单点一致（release workflow 构建产物前跑同一条脚本）
+release-check tag:
+    ./scripts/check-release-tag.sh {{tag}}
+
+# clone 后一键环境初始化：工具链校验 + 可选工具清点 + git hooks（幂等）
+setup:
+    ./scripts/setup-dev.sh
 
 # ---- 清理 ----
 

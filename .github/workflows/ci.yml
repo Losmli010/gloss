@@ -63,6 +63,11 @@ jobs:
       - name: Check non-negotiable constraints
         run: just constraints
 
+      # 发版 tag 与版本单点一致性的校验规则（release workflow 构建前跑同一条脚本）：
+      # 规则回归先于规则生效，与上面三个 checker 同一待遇。
+      - name: Run release tag checker unit tests
+        run: bash scripts/check-release-tag.test.sh
+
   # Clippy 需要编译整个 workspace：目标产物链接平台框架（ApplicationServices /
   # CoreGraphics 等），只能在 macOS 上构建，故单独占一个 macOS job。
   lint:
