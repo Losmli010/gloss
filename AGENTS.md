@@ -122,7 +122,7 @@ just --list            # 查看全部 recipe
 两条原则，其余都是推论：
 
 1. **断言可观察契约，不碰内部状态。** 测试红时要说明「行为变了」，而不是「实现重构了」——所以测试从公共 API 与通道两端驱动，不伸手去摸结构体字段或私有函数。
-2. **同步点用事件，不用时间。** 任何 `sleep` 都是在赌机器负载，本仓库已经因此挂过一次 CI（见文末教训）。
+2. **同步点用事件，不用时间。** 任何 `sleep` 都是在赌机器负载。
 
 选层先问一句：**这条断言需要什么条件才成立？** 纯逻辑留在单元测试；需要 egui 渲染就归 L2；需要窗口服务与 GPU 归 L3；需要真实辅助功能授权归 L4。不要为了少写一个测试替身把测试塞进更贵的层，也不要把需要真机的测试硬塞进 CI。源码注释里的 **L1–L4** 就是这套分层（`Cargo.toml`、`kittest.toml` 与各测试模块都在用），调层要一起改。
 
@@ -175,7 +175,3 @@ just --list            # 查看全部 recipe
   - `tests/` 下的集成测试**辅助函数**不在自动放行范围，要显式 `#[allow(clippy::expect_used, clippy::panic)]` 并注明「测试辅助：失败即 panic 是断言语义」（见 `crates/gloss-app/tests/pipeline.rs`）；
   - `harness = false` 的目标**完全不豁免**（既无 `#[test]` 也非 `cfg(test)`，已实测 `expect` 会被 `expect_used` 拦下）：代码要写成无 panic，输出走 `gloss_core::log`，失败靠返回非 0 退出码表达。
 - **命名与放置**：测试文件按被测功能域命名，不加 `_test` / `_e2e` 后缀。**E2E 代码不得进入生产路径**——只放 `tests/`、`cfg(test)` 或 `#[ignore]`。
-
-**一次真实教训。** `cancel_takes_effect_mid_stream` 原先 sleep 30ms 后取消，而 mock 引擎首 chunk 延迟 150ms——macOS CI 负载下 sleep 越过 150ms，首 chunk 先入队，断言必挂（那次 PR 通过纯属侥幸）。现在改为**等首 chunk 到达再取消**，再用大于 chunk 间延迟的窗口断言「无后续事件」。要证明「取消生效」，同步点就必须是被取消对象的可观察进展，而不是墙钟——这条适用于任何跟时间的竞速。
-
-**另一次真实教训（M4-T8）。** 鼠标监听用 rdev 的 `listen`，它的 tap 订阅 `kCGEventMaskForAllEvents`，键盘事件也进回调；回调里把按键翻成字符要调 TSM/HIToolbox（要求主线程），而回调跑在 `gloss-mouse-tap` 线程上 → libdispatch 断言失败，**SIGILL 打死整个进程**。所以「跑起来的 Gloss 只要按任意键就消失」，而单测、clippy、三平台 CI 全绿——它们都碰不到这条路径。现在 macOS 改用自建只订阅左键的 CGEventTap，并把订阅面写成唯一事实来源（`SUBSCRIBED_EVENT_TYPES`，掩码与回调过滤都由它推出）。**两条推论**：① 平台边界上的**订阅面**（我向系统要多少）与在系统里调什么 API，属人工评审关注点，别指望门禁；② 「能跑起来并活过交互」本身是一条验收项，L4 opt-in 真机走查不可省。
