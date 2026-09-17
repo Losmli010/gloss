@@ -67,6 +67,7 @@ jobs:
             | jq -r 'select(.reason == "compiler-artifact" and .executable != null and .profile.test == true) | .executable' \
             | head -n 1)
           echo "test binary: $TEST_BIN"
-          # memcheck 非法读写立即失败；泄漏先只报告不判死——Rust 测试的
-          # still-reachable 常为有意持有，跑出基线后再决定是否收紧
-          valgrind --leak-check=full --show-leak-kinds=definite --error-exitcode=1 "$TEST_BIN"
+          # memcheck 非法读写立即失败；泄漏只判 definite（真不可达），possible
+          # 多为后台线程持有的误报——且 valgrind 3.22 的 errors-for-leak-kinds
+          # 默认把 possible 也算错误，不显式收紧会误伤（首次 CI 实跑踩中）
+          valgrind --leak-check=full --show-leak-kinds=definite --errors-for-leak-kinds=definite --error-exitcode=1 "$TEST_BIN"
