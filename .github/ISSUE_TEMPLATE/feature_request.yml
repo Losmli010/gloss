@@ -1,0 +1,23 @@
+name: 功能建议
+description: 想要新能力或改进现有行为时用它
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: 提交前请先搜索现有 issue；里程碑规划见 `docs/09-开发计划.md`，先看是不是已在计划内。
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景
+      description: 你在做什么、卡在哪——场景比「我想要 X 功能」更能说明问题。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的解法
+      description: 有参考实现（别的工具怎么做的）一并贴上。
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
