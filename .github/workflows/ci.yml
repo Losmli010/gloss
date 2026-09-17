@@ -14,9 +14,6 @@ permissions:
   contents: read
 
 jobs:
-  # 格式化：需要 Rust 工具链但不需要完整编译，快进快出。
-  # secrets / 文档引用 / 约束这些「pre-commit 同款」纯文本检查已迁到 hooks.yml
-  # （与本地 pre-commit 同构）；clippy / test / coverage 需要完整编译，见后续 job。
   fmt:
     name: Format
     runs-on: ubuntu-latest
