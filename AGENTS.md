@@ -45,6 +45,7 @@ just agents-doc        # 校验本文件提到的仓库事实（配方 / 路径 
 just constraints       # 校验「不可协商的约束」里可机械判定的那几条（依赖方向 / 日志出口 / 版本单点 …）
 just audit             # cargo audit 依赖漏洞审计
 just deny              # cargo deny 依赖合规（许可证 / 重复依赖 / 来源，配置见 deny.toml）
+just miri              # Miri 未定义行为检测（nightly；只覆盖 gloss-core 纯逻辑层，CI 的 sanitizers.yml 同款）
 just changelog         # 基于 conventional commits 生成 CHANGELOG
 just --list            # 查看全部 recipe
 ```

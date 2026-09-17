@@ -131,6 +131,16 @@ audit:
 deny:
     cargo deny check
 
+# Miri 未定义行为检测（需 nightly 与 miri 组件）。只覆盖 gloss-core 纯逻辑层：
+# Miri 解释执行 MIR、无法执行 FFI，平台层（macOS 框架）与渲染层（wgpu/egui）跑不了。
+# 两处实测裁剪（2026-09-17）：
+# - --skip cache:: / engine::：moka 背后的 crossbeam-epoch 指针技巧在 Miri 的
+#   Stacked Borrows 下报 UB（tree-borrows 更糟），凡经 MokaCache 的测试整体排除；
+# - -Zmiri-disable-isolation：放行 config 落盘类测试的文件/环境访问，内存 UB 检测不变。
+# CI 的 sanitizers.yml 跑同一条配方（nightly；上游只对最新 nightly 测试，挂了先升 nightly）
+miri:
+    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine::
+
 # 完整质量门禁：约束检查 + 格式化 + Clippy + 测试 + 密钥扫描 + 文档引用校验（CI 核心；本地要全量验证时手动跑）
 check: constraints agents-doc fmt fmt-toml lint lint-toml test secrets
     @echo "✓ 质量门禁全部通过"
