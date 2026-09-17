@@ -8,7 +8,8 @@
 
 - **语言**：纯 Rust
 - **GUI**：egui（即时模式）
-- **渲染**：wgpu / WebGPU（Metal / Vulkan / DX12）
+- **渲染**：wgpu / WebGPU（Metal）
+- **平台**：macOS
 - **翻译引擎**：大语言模型（LLM，推荐 DeepSeek，接口兼容 OpenAI）
 - **异步**：tokio + reqwest
 

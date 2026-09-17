@@ -14,9 +14,10 @@ permissions:
   contents: read
 
 jobs:
-  # 快速静态门禁：格式 + Clippy + 密钥扫描。跑得最快，其余 job 都依赖它，避免白跑 runner。
+  # 快速静态门禁：格式 + 密钥扫描 + 文档引用 + 约束。全部是纯文本检查、
+  # 不编译代码，放在 ubuntu runner 上跑得最快且最省。
   quality:
-    name: Quality (fmt + clippy + secrets)
+    name: Quality (fmt + secrets + docs + constraints)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,7 +26,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.96.1
         with:
-          components: rustfmt, clippy
+          components: rustfmt
 
       - name: Cache Cargo dependencies
         uses: swatinem/rust-cache@v2
@@ -37,9 +38,6 @@ jobs:
 
       - name: Check formatting
         run: just fmt
-
-      - name: Run clippy
-        run: just lint
 
       # 扫描脚本自身的单元测试（纯 bash、秒级）：规则回归先于规则生效。
       - name: Run secrets checker unit tests
@@ -65,15 +63,36 @@ jobs:
       - name: Check non-negotiable constraints
         run: just constraints
 
-  # 测试在三平台跑：平台差异（路径、行尾、时钟、剪贴板兜底）只有多 OS 才暴露。
+  # Clippy 需要编译整个 workspace：目标产物链接平台框架（ApplicationServices /
+  # CoreGraphics 等），只能在 macOS 上构建，故单独占一个 macOS job。
+  lint:
+    name: Lint (clippy)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          components: clippy
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Run clippy
+        run: just lint
+
+  # 测试在 macOS 跑：窗口服务、GPU 与辅助功能行为只有目标平台能覆盖。
   test:
-    name: Test (${{ matrix.os }})
-    needs: quality
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    name: Test
+    needs: [quality, lint]
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -92,11 +111,11 @@ jobs:
       - name: Run tests
         run: just test
 
-  # 覆盖率：Linux 单平台统计，摘要写 job summary，HTML 存档。
+  # 覆盖率：macOS 单平台统计（全部代码在该平台编译），摘要写 job summary，HTML 存档。
   coverage:
     name: Coverage (LLVM)
-    needs: quality
-    runs-on: ubuntu-latest
+    needs: [quality, lint]
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -201,8 +220,6 @@ jobs:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout

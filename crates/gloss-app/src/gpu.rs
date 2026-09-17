@@ -37,8 +37,8 @@ impl GpuContext {
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
-        // 不指定 compatible_surface：设备先于窗口建立。目标平台（Metal / DX12）
-        // 上可呈现的适配器与这里选到的是同一个。
+        // 不指定 compatible_surface：设备先于窗口建立。可呈现的适配器与
+        // 这里选到的是同一个。
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
             compatible_surface: None,

@@ -40,9 +40,8 @@ fn error_line(text: &str, span: Option<Range<usize>>) -> Option<usize> {
 
 /// 配置文档半边：TOML 文件 + 原子写，不接触密钥。
 ///
-/// 路径定位：系统标准配置目录下的 `gloss/config.toml`（macOS
-/// `~/Library/Application Support/gloss`，Windows `%APPDATA%\gloss`，
-/// Linux `$XDG_CONFIG_HOME/gloss`，由 directories crate 决定）。
+/// 路径定位：系统标准配置目录下的 `gloss/config.toml`
+/// （`~/Library/Application Support/gloss`，由 directories crate 决定）。
 ///
 /// 不实现 [`ConfigStore`]：端口要求文档与密钥一起应答，单独把文档半边
 /// 当端口用会让密钥方法凭空失败——组合体才是注入单元。
@@ -183,8 +182,8 @@ impl FileConfigStore {
 
 /// 密钥半边契约：组合体对密钥存储的最小要求。公开仅为泛型签名可见
 /// （组合体是公开类型），组装仍走本模块的构造子；外部实现不被支持——
-/// 密钥语义（服务名、条目定位）由本 crate 掌控。macOS 出厂实现是
-/// [`keychain::KeychainSecret`]，测试用内存桩（转发路径全平台可测，
+/// 密钥语义（服务名、条目定位）由本 crate 掌控。出厂实现是
+/// [`keychain::KeychainSecret`]，测试用内存桩（转发路径可测，
 /// 不碰真机 keychain）。
 pub trait SecretsHalf: Send + Sync {
     /// 读密钥；`None` 表示未设置（语义同 [`ConfigStore::secret`]）。
@@ -340,7 +339,7 @@ mod tests {
     }
 
     /// 组合体把文档方法完整委托给 FileConfigStore：save → load 往返
-    /// 逐字段一致（密钥半边在这条路径上零参与，全平台可跑）。
+    /// 逐字段一致（密钥半边在这条路径上零参与）。
     #[test]
     fn composite_delegates_document_methods() {
         let dir = tempfile::tempdir().expect("tempdir should create");
@@ -351,25 +350,7 @@ mod tests {
         assert_eq!(store.load().expect("load should succeed"), config);
     }
 
-    /// stub 平台（Linux CI）上组合体的密钥方法明确失败：错误可区分，
-    /// 调用方按错误降级而不是把「存储不可用」当「未设置」。
-    #[test]
-    #[cfg(not(target_os = "macos"))]
-    fn composite_secret_methods_report_unsupported_platform() {
-        let dir = tempfile::tempdir().expect("tempdir should create");
-        let store = CompositeConfigStore::in_dir(dir.path().to_path_buf());
-
-        assert!(matches!(
-            ConfigStore::secret(&store, "gloss/deepseek"),
-            Err(GlossError::Config(_))
-        ));
-        assert!(matches!(
-            ConfigStore::set_secret(&store, "gloss/deepseek", "sk-x"),
-            Err(GlossError::Config(_))
-        ));
-    }
-
-    /// 密钥转发路径用内存桩全平台验证（不碰真机 keychain）：端口三方法
+    /// 密钥转发路径用内存桩验证（不碰真机 keychain）：端口三方法
     /// 都完整到达密钥半边，删除后读回是 `None`。
     #[test]
     fn composite_forwards_secret_methods_to_half() {

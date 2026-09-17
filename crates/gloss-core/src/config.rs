@@ -38,7 +38,7 @@ pub const DEFAULT_TEXT_MODEL: &str = "deepseek-chat";
 pub const DEFAULT_BASE_URL: &str = "https://api.deepseek.com/v1";
 
 /// 出厂默认热键表：与 `gloss-platform::events::hotkey` 的写死默认一致。
-/// 有意避开 macOS 截图（Cmd+Shift+3/4/5）等系统级组合。
+/// 有意避开系统截图（Cmd+Shift+3/4/5）等系统级组合。
 fn default_hotkey_bindings() -> Vec<HotkeyBinding> {
     fn selection(trigger: &str, kind: TaskKind) -> HotkeyBinding {
         HotkeyBinding {

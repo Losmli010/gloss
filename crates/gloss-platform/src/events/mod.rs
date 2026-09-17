@@ -1,7 +1,8 @@
 //! 平台事件线程：全局热键、鼠标监听等系统事件源的唯一宿主（08 §7.2）。
 //!
 //! 事件线程必须是 RunLoop 线程而非裸 `std::thread`：线程宿主为 CFRunLoop，
-//! 事件源（定时器与后续 CGEventTap source）都挂同一 run loop。取材命令
+//! 以周期定时器抽干各事件源；鼠标 tap 这类自带 run loop 的源在自己的监听
+//! 线程上运行、产物经通道汇入（见 events/mouse.rs）。取材命令
 //! （通道②）与系统事件在同一线程顺序消费，天然串行无锁。消息类型由组装点
 //! 注入——platform 不依赖 gloss-app 的通道类型，测试用本地桩类型即可驱动
 //! 整条循环。
@@ -38,9 +39,8 @@ where
 /// 事件线程挂载的事件源集合。
 pub type EventSources<P> = Vec<Box<dyn EventSource<P> + Send>>;
 
-/// 源事件的 drain 周期，全平台一致：run loop 无法阻塞等待 crossbeam 通道，
-/// 非 macOS 的 `recv_timeout` 也复用同一节奏。热键/手势到浮层的端到端延迟
-/// 上界即此值，33ms 低于可感知阈值。
+/// 源事件的 drain 周期：run loop 无法阻塞等待 crossbeam 通道，以定时器
+/// 节奏抽干。热键/手势到浮层的端到端延迟上界即此值，33ms 低于可感知阈值。
 const TICK: Duration = Duration::from_millis(33);
 
 /// 事件线程的产物出口：④ 回传事件与 ① 平台事件，由组装点接上真实通道。
@@ -146,12 +146,7 @@ where
     let spawned = std::thread::Builder::new()
         .name("gloss-event".into())
         .spawn(move || {
-            match sources {
-                #[cfg(target_os = "macos")]
-                sources => run_loop(commands, sink, on_command, sources),
-                #[cfg(not(target_os = "macos"))]
-                sources => tick_loop(commands, sink, on_command, sources),
-            }
+            run_loop(commands, sink, on_command, sources);
             info!(thread = thread::EVENT, "platform event thread stopped");
         });
     match spawned {
@@ -184,8 +179,8 @@ enum TickOutcome {
 }
 
 /// 一轮消费：先抽干通道②（出现 Disconnected 即退出信号），再抽干全部
-/// 事件源。两条驱动路径（macOS RunLoop 定时器 / 其余平台 recv_timeout）
-/// 共用，保证「与系统事件同线程顺序处理」的语义只有一份实现。
+/// 事件源。由 RunLoop 定时器驱动，保证「与系统事件同线程顺序处理」的
+/// 语义只有一份实现。
 fn tick<C, E, P, F>(
     commands: &Receiver<C>,
     sink: &EventSink<E, P>,
@@ -216,36 +211,9 @@ where
     TickOutcome::Continue
 }
 
-/// 非 macOS 的驱动：命令到达即刻唤醒，源事件按 TICK 节奏抽干。
-#[cfg(not(target_os = "macos"))]
-fn tick_loop<C, E, P, F>(
-    commands: Receiver<C>,
-    sink: EventSink<E, P>,
-    mut on_command: F,
-    mut sources: EventSources<P>,
-) where
-    F: FnMut(C, &EventSink<E, P>),
-{
-    use crossbeam_channel::RecvTimeoutError;
-
-    loop {
-        match commands.recv_timeout(TICK) {
-            Ok(command) => {
-                let _ = guarded("acquire command handler", || on_command(command, &sink));
-            }
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => break,
-        }
-        if let TickOutcome::Exit = tick(&commands, &sink, &mut on_command, &mut sources) {
-            break;
-        }
-    }
-}
-
-/// macOS 的驱动：RunLoop 不能阻塞在 crossbeam 上（08 §7.2），挂一个周期
-/// 定时器执行与 [`tick`] 相同的一轮消费；后续 CGEventTap 等事件源也挂同一
-/// run loop。
-#[cfg(target_os = "macos")]
+/// 事件线程的驱动：RunLoop 不能阻塞在 crossbeam 上（08 §7.2），挂一个周期
+/// 定时器执行与 [`tick`] 相同的一轮消费；鼠标 tap 等自带 run loop 的源在
+/// 各自线程上运行，产物经通道汇入由这里抽干（见 events/mouse.rs）。
 fn run_loop<C, E, P, F>(
     commands: Receiver<C>,
     sink: EventSink<E, P>,
@@ -415,8 +383,7 @@ mod tests {
         cmd_tx.send(TestCommand(1)).unwrap();
         assert_eq!(ev_rx.recv().unwrap().0, 1);
 
-        // 等过首个消费窗口再发第二条：macOS 需跨一个定时器周期（33ms），
-        // recv_timeout 路径的命令到达即刻唤醒，但源事件同样按 tick 抽干。
+        // 等过首个消费窗口再发第二条：命令要跨一个定时器周期（33ms）才被抽干。
         std::thread::sleep(Duration::from_millis(60));
         cmd_tx.send(TestCommand(2)).unwrap();
         assert_eq!(ev_rx.recv().unwrap().0, 2);

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pre-commit hook：提交前的静态检查 —— 格式化 + Clippy + 硬编码密钥扫描。
 #
-# 不跑 test：测试由 CI 的三平台矩阵负责，本地提交不必等编译测试。
+# 不跑 test：测试由 CI 负责，本地提交不必等编译测试。
 # 需要本地全量验证时手动跑 `just check`（fmt + clippy + test）。
 #
 # commit message 规范也不在这里校验：git 跑 pre-commit 时还没把消息写进

@@ -6,14 +6,26 @@ license.workspace = true
 description = "Gloss 适配器层：实现 gloss-core 端口 + 平台事件源"
 
 [dependencies]
+# 剪贴板兜底读取（模拟复制）的原文保存/恢复。不用默认特性：默认集含
+# image-data（拖进整条 image 依赖树）与各平台的后端变体，文本能力不需要
+# ——注意 egui-winit 的 clipboard 特性仍会经 image-data 把 image 子树拉进
+# 构建图，此处关闭只约束本 crate 的直接声明。
+arboard = { version = "3", default-features = false }
 # 事件线程消费通道②、转发①④，与 gloss-app::channel 的选型一致用 crossbeam。
 # std 是默认集的全部内容，显式写出以维持「关默认集、按需开特性」的统一写法。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
-# 全局鼠标监听（划词手势）。不用默认特性：默认集只多出可选的 serde 支持，注册/监听用不到。
+# 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）与选区、剪贴板
+# 兜底的 CF 类型绑定。唯一特性 link 是绑定 CF 符号所必需的，显式声明以维持
+# 统一写法。
+core-foundation-sys = { version = "0.8", default-features = false, features = [
+    "link",
+] }
+# 全局鼠标监听（划词手势）。不用默认特性：默认集只多出可选的 serde 支持，
+# 注册/监听用不到。
 global-hotkey = { version = "0.8", default-features = false }
 gloss-core = { path = "../gloss-core" }
 # OpenAI 兼容端点的流式调用（06 §八 选型）。最小特性集：默认集会带 http2
-# （多一条 h2 子树，SSE 用 HTTP/1.1 足够）、charset、native-tls 与 macOS 系统
+# （多一条 h2 子树，SSE 用 HTTP/1.1 足够）、charset、native-tls 与系统
 # 代理读取；TLS 走 rustls + 系统根证书（自带 ring provider，不引 aws-lc-rs
 # 的 cmake/NASM 构建链），根证书用系统存储而非 webpki-roots（后者是
 # CDLA-Permissive-2.0，不在 deny.toml 白名单内）。
@@ -22,9 +34,16 @@ reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls-native-roots",
     "stream",
 ] }
+# 兜底复制的按键注入与真机测试的事件注入（rdev::simulate）。不用默认特
+# 性：默认集只多出可选的 serde 支持，注入用不到。手势监听不走 rdev，缘由
+# 见 events/mouse.rs 模块注释。
+rdev = { version = "0.5", default-features = false }
 # SSE 增量解析（`choices[0].delta.content`）与错误对象解析。core 已带同一版本，
 # 这里作为直接依赖列出；core 用到的特性是 std。
 serde_json = { version = "1", default-features = false, features = ["std"] }
+# KeychainSecret 的 Security framework 绑定（通用密码读写）。无版本门控
+# 特性需求。
+security-framework = { version = "3", default-features = false }
 # 流式响应的分块字节（reqwest 的 bytes_stream 逐块交出 Bytes）。
 bytes = { version = "1", default-features = false }
 # 把响应适配成 core 的 TaskStream（Stream trait 的最小集合）。
@@ -43,29 +62,6 @@ toml = { version = "0.8", default-features = false, features = [
     "parse",
     "display",
 ] }
-
-# 剪贴板兜底读取（模拟复制）与内容保存/恢复。默认集含 image-data（拖进
-# 整条 image 依赖树）与 Linux 的 wayland-data-control，文本能力不需要；
-# Linux 的 x11 后端是纯 Rust（x11rb）不阻塞 CI，但兜底本身依赖按键注入，
-# 仍只对目标平台启用（与 rdev 同门控）。
-[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-arboard = { version = "3", default-features = false }
-# 全局鼠标监听（划词手势）与兜底的按键注入。仅目标平台启用：Linux 只跑
-# CI，rdev 的 x11 后端是构建期链接（build script 要 pkg-config + X11
-# headers），不能带进 CI 依赖树——手势状态机本身无平台依赖，照常在
-# Linux 上单测（先例见 gloss-app 的 font-kit）。macOS 上需要辅助功能
-# 权限，未授权时监听失败走降级（见 events/mouse.rs）。
-rdev = { version = "0.5", default-features = false }
-
-# 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）。唯一特性
-# link 是绑定 CF 符号所必需的，显式声明以维持统一写法。
-# KeychainSecret 的 macOS Security framework 绑定（通用密码读写）。无
-# 版本门控特性需求；Windows 的 DPAPI 方案按计划留 stub，落地时再加依赖。
-[target.'cfg(target_os = "macos")'.dependencies]
-core-foundation-sys = { version = "0.8", default-features = false, features = [
-    "link",
-] }
-security-framework = { version = "3", default-features = false }
 
 [dev-dependencies]
 # storage 单测的临时目录。

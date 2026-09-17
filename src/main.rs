@@ -9,25 +9,16 @@ use gloss_app::channel::{AcquireCommand, AppEndpoints, Channels, Event, Platform
 use gloss_core::cache::MokaCache;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
-use gloss_core::log::{self, debug, error, info, thread};
+use gloss_core::log::{self, debug, error, info, thread, warn};
+use gloss_core::model::GlossError;
 use gloss_core::ports::{AiEngine, ConfigStore, HotkeyBinder};
+use gloss_core::task::TaskInput;
 use gloss_platform::engine::llm::LlmClient;
 use gloss_platform::events::hotkey::HotkeyRegistrar;
-use gloss_platform::events::{EventSink, EventSources};
-use gloss_platform::storage::CompositeConfigStore;
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-use gloss_core::log::warn;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-use gloss_core::model::GlossError;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-use gloss_core::task::TaskInput;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-use gloss_platform::events::EventSource;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 use gloss_platform::events::mouse::MouseSource;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+use gloss_platform::events::{EventSink, EventSource, EventSources};
 use gloss_platform::selection::composite::CompositeReader;
+use gloss_platform::storage::CompositeConfigStore;
 
 type StartupResult = Result<(), Box<dyn Error>>;
 
@@ -52,9 +43,9 @@ fn init_logging() {
     info!(thread = thread::UI, log_dir = %file, "gloss starting");
 }
 
-/// 日志目录：三平台统一 `~/.gloss/logs`（Windows 下 `HOME` 通常缺失，退回 `USERPROFILE`）。
+/// 日志目录：`~/.gloss/logs`（与 justfile 的 logs 配方保持一致）。
 fn log_dir() -> Option<PathBuf> {
-    let home = env::var_os("HOME").or_else(|| env::var_os("USERPROFILE"))?;
+    let home = env::var_os("HOME")?;
     Some(PathBuf::from(home).join(".gloss").join("logs"))
 }
 
@@ -139,8 +130,8 @@ fn run_event_loop(
     // 事件线程永远看不到 Disconnected，run_app 返回后会卡死在 join。
     drop(acquire_tx);
 
-    // 热键 registrar 必须创建在主线程（Windows 后端的 WM_HOTKEY 投递与
-    // Drop 清理亲和创建线程，见 hotkey.rs 模块注释），并存活至进程退出。
+    // 热键 registrar 必须创建在主线程（后端的事件注册与 Drop 清理亲和
+    // 创建线程，见 hotkey.rs 模块注释），并存活至进程退出。
     // 绑定取自启动时那份配置快照（M4-T7）：出厂默认与设置页改的是同一份
     // 表，本文件不再有第二份写死的默认。
     let registrar = Arc::new(HotkeyRegistrar::new(
@@ -201,8 +192,7 @@ fn create_channels() -> Channels {
     Channels::new()
 }
 
-/// 事件源集合：热键泵常驻（Linux 上 registrar 自身已降级，源无害），
-/// 划词手势与监听降级提示仅目标平台挂载。
+/// 事件源集合：热键泵、划词手势与监听降级提示。
 fn event_sources(registrar: &HotkeyRegistrar) -> EventSources<PlatformEvent> {
     let mut sources: EventSources<PlatformEvent> = Vec::new();
 
@@ -215,38 +205,34 @@ fn event_sources(registrar: &HotkeyRegistrar) -> EventSources<PlatformEvent> {
             .collect()
     }));
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    {
-        let (mouse_source, degraded) = MouseSource::spawn();
-        if let Some(mut source) = mouse_source {
-            sources.push(Box::new(move || {
-                source
-                    .poll()
-                    .into_iter()
-                    .map(|_| PlatformEvent::SelectionGesture)
-                    .collect()
-            }));
-        }
-        // 监听降级的一次性提示：标志由 tap 线程异步置位（如 macOS 未授权
-        // 辅助功能），事件线程轮询到即告警一次。
-        let mut hinted = false;
+    let (mouse_source, degraded) = MouseSource::spawn();
+    if let Some(mut source) = mouse_source {
         sources.push(Box::new(move || {
-            if !hinted && degraded.load(std::sync::atomic::Ordering::Relaxed) {
-                hinted = true;
-                warn!(
-                    thread = thread::EVENT,
-                    "mouse listener degraded, selection gesture disabled"
-                );
-            }
-            Vec::new()
+            source
+                .poll()
+                .into_iter()
+                .map(|_| PlatformEvent::SelectionGesture)
+                .collect()
         }));
     }
+    // 监听降级的一次性提示：标志由 tap 线程异步置位（如未授权辅助功能），
+    // 事件线程轮询到即告警一次。
+    let mut hinted = false;
+    sources.push(Box::new(move || {
+        if !hinted && degraded.load(std::sync::atomic::Ordering::Relaxed) {
+            hinted = true;
+            warn!(
+                thread = thread::EVENT,
+                "mouse listener degraded, selection gesture disabled"
+            );
+        }
+        Vec::new()
+    }));
     sources
 }
 
 /// 通道②消费处理器：取材命令 → 组合读取 → ④ 回传，运行在事件线程上
 /// 顺序执行。读取器提升进闭包复用（当前无状态，为将来缓存留位）。
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn acquire_command_handler() -> impl FnMut(AcquireCommand, &EventSink<Event, PlatformEvent>) + Send
 {
     let mut reader = CompositeReader::new();
@@ -292,22 +278,6 @@ fn acquire_command_handler() -> impl FnMut(AcquireCommand, &EventSink<Event, Pla
                 }
             }
         }
-    }
-}
-
-/// Linux 只跑 CI：无取材实现，命令只留诊断痕迹。
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn acquire_command_handler() -> impl FnMut(AcquireCommand, &EventSink<Event, PlatformEvent>) + Send
-{
-    move |command, _sink| {
-        let AcquireCommand::AcquireText { kind, .. } = command else {
-            return;
-        };
-        debug!(
-            thread = thread::EVENT,
-            kind = ?kind,
-            "selection reader unavailable on this platform, command dropped"
-        );
     }
 }
 

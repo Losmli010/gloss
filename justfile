@@ -30,13 +30,13 @@ watch:
 
 # 日志目录（~/.gloss/logs，与代码里的 log_dir() 保持一致）
 logs-dir:
-    @echo "${HOME:-${USERPROFILE:-}}/.gloss/logs"
+    @echo "${HOME}/.gloss/logs"
 
 # 跟随最新日志文件（Ctrl-C 退出）
 logs:
     #!/usr/bin/env bash
     set -euo pipefail
-    dir="${HOME:-${USERPROFILE:-}}/.gloss/logs"
+    dir="${HOME}/.gloss/logs"
     newest=$(ls -t "$dir"/gloss.log.* 2>/dev/null | head -n 1 || true)
     if [ -z "${newest:-}" ]; then
         echo "no log file under $dir yet (run the app first)" >&2
@@ -83,8 +83,8 @@ constraints:
 test:
     cargo test --workspace --all-features
 
-# L3 显隐自检：100 轮浮层显隐 + 首帧延迟预算（仅 macOS 有窗口服务与 GPU，其余
-# 平台直通成功）。harness=false 的自检不是普通单测，不随 test 配方一起跑。
+# L3 显隐自检：100 轮浮层显隐 + 首帧延迟预算（需要窗口服务与 GPU）。
+# harness=false 的独立测试目标会随 just test（cargo test）一起执行，此配方供单独运行。
 selftest:
     cargo test -p gloss --test overlay_selftest
 
@@ -105,7 +105,7 @@ check: constraints agents-doc fmt lint test secrets
     @echo "✓ 质量门禁全部通过"
 
 # 提交前门禁：约束检查 + 文档引用校验 + 格式化 + Clippy + 密钥扫描（pre-commit 用）
-# 不含 test：测试由 CI 的三平台矩阵跑，本地提交不必等编译测试
+# 不含 test：测试由 CI 跑，本地提交不必等编译测试
 precommit: constraints agents-doc fmt lint secrets
     @echo "✓ 提交前检查通过（测试交给 CI）"
 
@@ -127,19 +127,11 @@ build-target target:
 build-release:
     cargo build --release
 
-# ---- 发布打包（平台相关，需 cargo-bundle）----
+# ---- 发布打包（需 cargo-bundle）----
 
-# 生成 macOS 发布包（.app + .dmg，当前架构）
+# 生成发布包（.app + .dmg，当前架构）
 package-macos: build-release
     cargo bundle --release --format osx
-
-# 生成 Linux 发布包（.deb）
-package-linux: build-release
-    cargo bundle --release --format deb
-
-# 生成 Windows 发布包（.msi，需在 Windows 或交叉编译环境）
-package-windows:
-    cargo bundle --release --format msi
 
 # ---- 清理 ----
 
