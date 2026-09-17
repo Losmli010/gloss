@@ -66,6 +66,9 @@ command -v cargo-audit >/dev/null 2>&1 \
   || warn_missing "cargo-audit（漏洞审计）" "cargo install cargo-audit --locked"
 command -v cargo-deny >/dev/null 2>&1 \
   || warn_missing "cargo-deny（依赖合规）" "cargo install cargo-deny --locked"
+# just precommit 依赖 fmt-toml / lint-toml，缺了它提交钩子会挂
+command -v tombi >/dev/null 2>&1 \
+  || warn_missing "tombi（TOML 格式与 lint，precommit 依赖）" "npm i -g tombi@1.5.5（或 brew install tombi）"
 
 echo "== 4/4 git hooks =="
 just install-hooks

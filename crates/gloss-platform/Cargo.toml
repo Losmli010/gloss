@@ -2,8 +2,8 @@
 name = "gloss-platform"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 description = "Gloss 适配器层：实现 gloss-core 端口 + 平台事件源"
+license.workspace = true
 
 [dependencies]
 # 剪贴板兜底读取（模拟复制）的原文保存/恢复。不用默认特性：默认集含
@@ -11,68 +11,88 @@ description = "Gloss 适配器层：实现 gloss-core 端口 + 平台事件源"
 # ——注意 egui-winit 的 clipboard 特性仍会经 image-data 把 image 子树拉进
 # 构建图，此处关闭只约束本 crate 的直接声明。
 arboard = { version = "3", default-features = false }
-# 事件线程消费通道②、转发①④，与 gloss-app::channel 的选型一致用 crossbeam。
-# std 是默认集的全部内容，显式写出以维持「关默认集、按需开特性」的统一写法。
-crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
+# 流式响应的分块字节（reqwest 的 bytes_stream 逐块交出 Bytes）。
+bytes = { version = "1", default-features = false }
 # 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）与选区、剪贴板
 # 兜底的 CF 类型绑定。唯一特性 link 是绑定 CF 符号所必需的，显式声明以维持
 # 统一写法。
-core-foundation-sys = { version = "0.8", default-features = false, features = [
+core-foundation-sys = {
+  version = "0.8",
+  default-features = false,
+  features = [
     "link",
-] }
+  ]
+}
+# 事件线程消费通道②、转发①④，与 gloss-app::channel 的选型一致用 crossbeam。
+# std 是默认集的全部内容，显式写出以维持「关默认集、按需开特性」的统一写法。
+crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
+# FileConfigStore 的配置目录定位（06 §8：日志目录例外，不走 directories）。
+# 无特性可关，写法与全局「关默认集」策略保持一致。
+directories = { version = "5", default-features = false }
+# 把响应适配成 core 的 TaskStream（Stream trait 的最小集合）。
+futures-core = { version = "0.3", default-features = false }
 # 全局鼠标监听（划词手势）。不用默认特性：默认集只多出可选的 serde 支持，
 # 注册/监听用不到。
 global-hotkey = { version = "0.8", default-features = false }
 gloss-core = { path = "../gloss-core" }
+# 兜底复制的按键注入与真机测试的事件注入（rdev::simulate）。不用默认特
+# 性：默认集只多出可选的 serde 支持，注入用不到。手势监听不走 rdev，缘由
+# 见 events/mouse.rs 模块注释。
+rdev = { version = "0.5", default-features = false }
 # OpenAI 兼容端点的流式调用（06 §八 选型）。最小特性集：默认集会带 http2
 # （多一条 h2 子树，SSE 用 HTTP/1.1 足够）、charset、native-tls 与系统
 # 代理读取；TLS 走 rustls + 系统根证书（自带 ring provider，不引 aws-lc-rs
 # 的 cmake/NASM 构建链），根证书用系统存储而非 webpki-roots（后者是
 # CDLA-Permissive-2.0，不在 deny.toml 白名单内）。
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = {
+  version = "0.12",
+  default-features = false,
+  features = [
     "json",
     "rustls-tls-native-roots",
     "stream",
-] }
-# 兜底复制的按键注入与真机测试的事件注入（rdev::simulate）。不用默认特
-# 性：默认集只多出可选的 serde 支持，注入用不到。手势监听不走 rdev，缘由
-# 见 events/mouse.rs 模块注释。
-rdev = { version = "0.5", default-features = false }
-# SSE 增量解析（`choices[0].delta.content`）与错误对象解析。core 已带同一版本，
-# 这里作为直接依赖列出；core 用到的特性是 std。
-serde_json = { version = "1", default-features = false, features = ["std"] }
+  ]
+}
 # KeychainSecret 的 Security framework 绑定（通用密码读写）。无版本门控
 # 特性需求。
 security-framework = { version = "3", default-features = false }
-# 流式响应的分块字节（reqwest 的 bytes_stream 逐块交出 Bytes）。
-bytes = { version = "1", default-features = false }
-# 把响应适配成 core 的 TaskStream（Stream trait 的最小集合）。
-futures-core = { version = "0.3", default-features = false }
 # 流式载荷的反序列化（derive）。与 core 同写法：关默认集 + 显式列全。
-serde = { version = "1", default-features = false, features = [
+serde = {
+  version = "1",
+  default-features = false,
+  features = [
     "derive",
     "std",
-] }
-# FileConfigStore 的配置目录定位（06 §8：日志目录例外，不走 directories）。
-# 无特性可关，写法与全局「关默认集」策略保持一致。
-directories = { version = "5", default-features = false }
+  ]
+}
+# SSE 增量解析（`choices[0].delta.content`）与错误对象解析。core 已带同一版本，
+# 这里作为直接依赖列出；core 用到的特性是 std。
+serde_json = { version = "1", default-features = false, features = ["std"] }
 # 配置文档的 TOML 序列化（parse 读 + display 写；serde 桥接为必选依赖，
 # 0.8 后期版本不再暴露 serde 特性）。
-toml = { version = "0.8", default-features = false, features = [
-    "parse",
+toml = {
+  version = "0.8",
+  default-features = false,
+  features = [
     "display",
-] }
+    "parse",
+  ]
+}
 
 [dev-dependencies]
-# storage 单测的临时目录。
-tempfile = { version = "3", default-features = false }
 # LlmClient 单测的内存配置/密钥桩（core 的 test-util 面），避免手搓 fake。
 gloss-core = { path = "../gloss-core", features = ["test-util"] }
+# storage 单测的临时目录。
+tempfile = { version = "3", default-features = false }
 # L4 opt-in 真机测试要跑异步引擎（手动 poll 流的 future）。
-tokio = { version = "1", default-features = false, features = [
+tokio = {
+  version = "1",
+  default-features = false,
+  features = [
     "macros",
     "rt",
-] }
+  ]
+}
 
 [lints]
 workspace = true

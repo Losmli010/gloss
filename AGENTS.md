@@ -35,9 +35,10 @@ just setup             # clone 后环境初始化：工具链校验 + 可选工�
 just run               # 运行开发版
 just logs              # 跟随最新日志文件（~/.gloss/logs）
 just logs-dir          # 打印日志目录
-just precommit         # 提交前静态检查：约束 + 文档引用 + fmt + clippy + 密钥扫描（pre-commit 钩子跑的就是它）
+just precommit         # 提交前静态检查：约束 + 文档引用 + fmt + TOML 格式/lint + clippy + 密钥扫描（pre-commit 钩子跑的就是它）
 just check             # 全量门禁：precommit 的全部 + test（本地要跑测试时用这条）
 just fmt-fix           # 自动格式化
+just fmt-toml          # TOML 格式检查（tombi --check，不落盘；自动修复用 just fmt-toml-fix，语法/schema lint 用 just lint-toml）
 just lint              # Clippy 严格检查（警告即失败）
 just secrets           # 硬编码密钥扫描（命中即失败；放行规则见 scripts/hooks/check-secrets.sh）
 just agents-doc        # 校验本文件提到的仓库事实（配方 / 路径 / 测试目标 / 约束名引用）未漂移

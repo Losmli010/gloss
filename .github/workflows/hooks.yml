@@ -68,6 +68,28 @@ jobs:
       - name: Check non-negotiable constraints
         run: just constraints
 
+  # TOML 格式与 lint（tombi）：纯文本秒级；版本钉死保证判定一致
+  toml:
+    name: TOML check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Install tombi
+        run: npm install -g tombi@1.5.5
+
+      - name: Check TOML formatting
+        run: just fmt-toml
+
+      - name: Lint TOML files
+        run: just lint-toml
+
   commit-msg:
     name: Commit message check
     runs-on: ubuntu-latest

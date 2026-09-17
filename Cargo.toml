@@ -2,23 +2,8 @@
 name = "gloss"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 description = "划词翻译工具 - 纯 Rust + egui + WebGPU"
-
-# 唯一入口：组装依赖、分发通道 Sender、启动线程与事件循环
-[[bin]]
-name = "gloss"
-path = "src/main.rs"
-
-[dependencies]
-# 生产不再需要 test-util（M4-T4 接了真实引擎，mock 装配已移除）：测试桩
-# 只出现在各 crate 的 dev-dependencies 构建里，不进发布二进制。
-gloss-core = { path = "crates/gloss-core" }
-gloss-platform = { path = "crates/gloss-platform" }
-gloss-app = { path = "crates/gloss-app" }
-
-[lints]
-workspace = true
+license.workspace = true
 
 # cargo-bundle 打包配置（GUI 应用分发包）
 # 用法：just package-macos（bundle 出 .app，ad-hoc 签名后由 scripts/release/bundle-dmg.sh 压 .dmg）
@@ -31,8 +16,8 @@ short_description = "划词翻译工具"
 long_description = "鼠标选中文字，即弹出 LLM 翻译结果。纯 Rust + egui + WebGPU 实现。"
 
 [workspace]
-members = ["crates/gloss-core", "crates/gloss-platform", "crates/gloss-app"]
 resolver = "3"
+members = ["crates/gloss-app", "crates/gloss-core", "crates/gloss-platform"]
 
 # 版本与 edition 单点维护，各 crate 继承
 [workspace.package]
@@ -44,20 +29,39 @@ license = "MIT"
 # 时允许；panic!/unreachable!/todo!/unimplemented! 一律禁止。测试代码不受限
 # （clippy.toml 的 allow-*-in-tests）。各 crate 以 [lints] workspace = true 继承。
 [workspace.lints.clippy]
-unwrap_used = "deny"
 expect_used = "deny"
-panic = "deny"
-unreachable = "deny"
-todo = "deny"
-unimplemented = "deny"
-# unsafe 块必须带 `// SAFETY:` 注释说明不变量；允许有 unsafe，但不允许无据的 unsafe。
-undocumented_unsafe_blocks = "deny"
 # 长驻进程禁止 mem::forget 式泄漏（泄漏 Vec/Box 不触发 Drop，内存只增不减）。
 mem_forget = "deny"
+panic = "deny"
+print_stderr = "deny"
 # 日志唯一出口是 gloss_core::log，绕过它 print 到 stdout/stderr 既丢结构化字段，
 # 也可能把敏感信息（API key 等）直接打出去；见 AGENTS.md 约束「日志统一出口」。
 print_stdout = "deny"
-print_stderr = "deny"
+todo = "deny"
+# unsafe 块必须带 `// SAFETY:` 注释说明不变量；允许有 unsafe，但不允许无据的 unsafe。
+undocumented_unsafe_blocks = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+unwrap_used = "deny"
+
+[workspace.lints.rust]
+missing_docs = "deny"
+
+# 唯一入口：组装依赖、分发通道 Sender、启动线程与事件循环
+[[bin]]
+name = "gloss"
+path = "src/main.rs"
+
+[[test]]
+harness = false
+name = "overlay_selftest"
+
+[dependencies]
+gloss-app = { path = "crates/gloss-app" }
+# 生产不再需要 test-util（M4-T4 接了真实引擎，mock 装配已移除）：测试桩
+# 只出现在各 crate 的 dev-dependencies 构建里，不进发布二进制。
+gloss-core = { path = "crates/gloss-core" }
+gloss-platform = { path = "crates/gloss-platform" }
 
 # 公共 API 必须有文档注释（AGENTS.md 约束「公共 API 有文档注释」）；文档里的示例
 # 由 cargo test --doc（just test 一部分）验证可编译可运行。
@@ -66,15 +70,11 @@ print_stderr = "deny"
 # 的端到端测试目标不经测试收集器——winit 事件循环需要主线程。
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
 
-[[test]]
-name = "overlay_selftest"
-harness = false
-
-[workspace.lints.rust]
-missing_docs = "deny"
+[lints]
+workspace = true
 
 [profile.release]
 opt-level = 3
+strip = true
 lto = true
 codegen-units = 1
-strip = true

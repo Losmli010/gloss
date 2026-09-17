@@ -80,6 +80,20 @@ fmt:
 fmt-fix:
     cargo fmt --all
 
+# TOML 格式检查（tombi --check 只校验不落盘；自动修复用 fmt-toml-fix）。
+# CI 的 tombi 钉 1.5.5，本地版本以接近为佳。
+fmt-toml:
+    tombi format --check $(git ls-files '*.toml')
+
+# TOML 自动格式化（落盘）
+fmt-toml-fix:
+    tombi format $(git ls-files '*.toml')
+
+# TOML 语法与 schema lint（不带 --error-on-warnings：根 Cargo.toml 现有 6 条
+# 「表格乱序」风格 warning 待整理，error 级仍会失败）
+lint-toml:
+    tombi lint $(git ls-files '*.toml')
+
 # Clippy 严格检查（警告即失败）
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -118,12 +132,12 @@ deny:
     cargo deny check
 
 # 完整质量门禁：约束检查 + 格式化 + Clippy + 测试 + 密钥扫描 + 文档引用校验（CI 核心；本地要全量验证时手动跑）
-check: constraints agents-doc fmt lint test secrets
+check: constraints agents-doc fmt fmt-toml lint lint-toml test secrets
     @echo "✓ 质量门禁全部通过"
 
 # 提交前门禁：约束检查 + 文档引用校验 + 格式化 + Clippy + 密钥扫描（pre-commit 用）
 # 不含 test：测试由 CI 跑，本地提交不必等编译测试
-precommit: constraints agents-doc fmt lint secrets
+precommit: constraints agents-doc fmt fmt-toml lint lint-toml secrets
     @echo "✓ 提交前检查通过（测试交给 CI）"
 
 # ---- release：发布链（CI 的 release.yml 用同一批脚本）----
