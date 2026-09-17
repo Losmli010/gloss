@@ -1,36 +1,32 @@
 //! 剪贴板兜底读取（模拟复制）：`ClipboardFallbackReader`。
 //!
-//! AX 读不到选区时的兜底通道：保存剪贴板原内容 → 注入复制快捷键（macOS
-//! Cmd+C / Windows Ctrl+C）→ 轮询确认目标应用写入 → 读回文本 → 恢复原
-//! 内容。注入会把快捷键投给用户的前台应用（可能误拷非文本对象），因此
-//! 只有能完整保全原内容时才注入：空剪贴板（恢复 = 清空）或只含纯文本
-//! flavor（恢复 = 写回）才继续；富文本（text+HTML/RTF 混合，set_text
-//! 会降级）与文件/图像等无法保全的内容直接放弃兜底。
+//! AX 读不到选区时的兜底通道：保存剪贴板原内容 → 注入复制快捷键
+//! （Cmd+C）→ 轮询确认目标应用写入 → 读回文本 → 恢复原内容。注入会把
+//! 快捷键投给用户的前台应用（可能误拷非文本对象），因此只有能完整保全
+//! 原内容时才注入：空剪贴板（恢复 = 清空）或只含纯文本 flavor（恢复 =
+//! 写回）才继续；富文本（text+HTML/RTF 混合，set_text 会降级）与文件/
+//! 图像等无法保全的内容直接放弃兜底。
 //!
 //! 恢复时机（08 §7.1）：目标应用写入粘贴板是异步的，恢复过早会被应用的
-//! 写入覆盖掉原文——以「写入确认（macOS kPasteboardModified / Windows
-//! 序列号变化）或 2s 超时」为界，确认后也持续读到 deadline（避开
-//! clear→setData 的半写入间隙），之后才恢复；读取成功且窗口期内剪贴板
-//! 未被再次改动才恢复，读取失败按原内容恢复（best-effort），恢复失败
-//! 留痕但不吞掉主结果。整条流程必须运行在平台事件线程（调用方保证亲和
-//! 性），恢复操作同线程执行。
+//! 写入覆盖掉原文——以「写入确认（kPasteboardModified）或 2s 超时」为
+//! 界，确认后也持续读到 deadline（避开 clear→setData 的半写入间隙），
+//! 之后才恢复；读取成功且窗口期内剪贴板未被再次改动才恢复，读取失败按
+//! 原内容恢复（best-effort），恢复失败留痕但不吞掉主结果。整条流程必须
+//! 运行在平台事件线程（调用方保证亲和性），恢复操作同线程执行。
 //!
-//! 平台门控与纯逻辑切分同 accessibility.rs / events/mouse.rs：注入与确认
-//! 信号是平台专属（仅 macOS/Windows 提供），「轮询等待写入完成」的时序
-//! 逻辑是纯函数，全平台单测。
+//! 「轮询等待写入完成」的时序逻辑是纯函数（见 `wait_for_write`），单测
+//! 覆盖；注入与确认信号依赖系统 API，归 `imp` 模块。
 
 use std::time::{Duration, Instant};
 
 /// 写入确认的轮询上限（08 §7.1）：超过即认为目标应用未响应复制。
-#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 const WRITE_CONFIRM_TIMEOUT: Duration = Duration::from_secs(2);
 /// 写入确认的轮询节奏：远低于可感知延迟，高于常见调度抖动。
 const WRITE_POLL_INTERVAL: Duration = Duration::from_millis(30);
 
-/// 轮询等待剪贴板变化（纯逻辑，全平台单测）：probe 返回当前代数（None
+/// 轮询等待剪贴板变化（纯逻辑，单测覆盖）：probe 返回当前代数（None
 /// 表示本轮读取失败，继续等），与 baseline 不同即认为目标应用已完成写
 /// 入；到 deadline 仍未变化返回 `false`，调用方据此走超时恢复路径。
-#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 fn wait_for_write(
     baseline: u64,
     mut probe: impl FnMut() -> Option<u64>,
@@ -47,49 +43,37 @@ fn wait_for_write(
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod imp {
+    use std::ffi::{CStr, c_void};
     use std::time::Instant;
 
     use arboard::Clipboard;
-    use rdev::{EventType, Key};
-
-    #[cfg(target_os = "macos")]
     use core_foundation_sys::base::{CFRelease, CFTypeRef, kCFAllocatorDefault};
-    #[cfg(target_os = "macos")]
     use core_foundation_sys::string::{
         CFStringCreateWithCString, CFStringRef, kCFStringEncodingUTF8,
     };
-    #[cfg(target_os = "macos")]
-    use std::ffi::{CStr, c_void};
+    use rdev::{EventType, Key};
 
     use gloss_core::log::{debug, error, thread};
     use gloss_core::model::GlossError;
 
     use super::{WRITE_CONFIRM_TIMEOUT, WRITE_POLL_INTERVAL, wait_for_write};
 
-    /// 复制快捷键的修饰键：macOS 为 Cmd（rdev 映射 Meta），Windows 为 Ctrl。
-    #[cfg(target_os = "macos")]
+    /// 复制快捷键的修饰键：Cmd（rdev 映射 Meta）。
     const COPY_MODIFIER: Key = Key::MetaLeft;
-    #[cfg(target_os = "windows")]
-    const COPY_MODIFIER: Key = Key::ControlLeft;
 
-    // ---- macOS：Pasteboard C API（写入确认信号与内容可保全性判定）----
+    // ---- Pasteboard C API（写入确认信号与内容可保全性判定）----
 
     /// 系统剪贴板的注册名（kPasteboardClipboard 的字符串值）。
-    #[cfg(target_os = "macos")]
     const PASTEBOARD_NAME: &CStr = c"com.apple.pasteboard.clipboard";
 
     /// kPasteboardModified：自上次经本地引用访问以来全局粘贴板已被修改；
     /// 标志在 Synchronize 调用时被消费，探针侧需闩锁。
-    #[cfg(target_os = "macos")]
     const K_PASTEBOARD_MODIFIED: u32 = 1 << 0;
 
-    /// macOS 粘贴板句柄：CF 不透明类型，Create 返回 +1 引用。
-    #[cfg(target_os = "macos")]
+    /// 粘贴板句柄：CF 不透明类型，Create 返回 +1 引用。
     type PasteboardRef = *mut c_void;
 
-    #[cfg(target_os = "macos")]
     #[link(name = "ApplicationServices", kind = "framework")]
     unsafe extern "C" {
         /// 创建指向指定名称全局粘贴板的本地引用（+1），失败返回非零状态码。
@@ -101,28 +85,9 @@ mod imp {
         fn PasteboardGetItemCount(pasteboard: PasteboardRef, out_count: *mut usize) -> i32;
     }
 
-    // ---- Windows：user32（同上）----
-
-    /// CF_UNICODETEXT 格式 id。
-    #[cfg(target_os = "windows")]
-    const CF_UNICODETEXT: u32 = 13;
-
-    #[cfg(target_os = "windows")]
-    #[link(name = "user32")]
-    unsafe extern "system" {
-        /// 系统级剪贴板序号，每次内容变更递增。
-        fn GetClipboardSequenceNumber() -> u32;
-        /// 剪贴板是否存在指定格式（BOOL，非零为真）。
-        fn IsClipboardFormatAvailable(format: u32) -> i32;
-        /// 剪贴板当前格式总数，空剪贴板为 0。
-        fn CountClipboardFormats() -> i32;
-    }
-
     /// CF 对象守卫：出作用域即 CFRelease，杜绝错误路径上的手工释放遗漏。
-    #[cfg(target_os = "macos")]
     struct CfGuard(CFTypeRef);
 
-    #[cfg(target_os = "macos")]
     impl Drop for CfGuard {
         fn drop(&mut self) {
             if !self.0.is_null() {
@@ -139,7 +104,6 @@ mod imp {
     /// # Safety
     ///
     /// 分配失败返回 NULL；非 NULL 引用必须恰好释放一次。
-    #[cfg(target_os = "macos")]
     unsafe fn create_cf_string(name: &CStr) -> Option<CFStringRef> {
         // SAFETY: `name` 是 NUL 结尾的有效 C 字符串，编码为受支持的 UTF-8；
         // 分配失败返回 NULL，由调用方判别。
@@ -151,13 +115,11 @@ mod imp {
 
     /// 打开的系统粘贴板：引用与名称字符串一并用守卫释放（Create 对名称的
     /// 所有权约定未文档化，保守保活到引用销毁）。
-    #[cfg(target_os = "macos")]
     struct OpenPasteboard {
         raw: PasteboardRef,
         _name: CfGuard,
     }
 
-    #[cfg(target_os = "macos")]
     impl Drop for OpenPasteboard {
         fn drop(&mut self) {
             // SAFETY: `raw` 是 PasteboardCreate 返回的 +1 引用（非空已在
@@ -167,7 +129,6 @@ mod imp {
     }
 
     /// 打开系统剪贴板的本地引用。
-    #[cfg(target_os = "macos")]
     fn open_pasteboard() -> Option<OpenPasteboard> {
         // SAFETY: 入参是 NUL 结尾的字面量，满足 create_cf_string 的契约；
         // 返回的 +1 引用交由守卫恰好释放一次。
@@ -187,18 +148,11 @@ mod imp {
     }
 
     /// 写入确认信号源：注入前建立基线，之后轮询代数变化。
-    #[cfg(target_os = "macos")]
     struct ChangeMonitor {
         pb: OpenPasteboard,
         latched: bool,
     }
 
-    #[cfg(target_os = "windows")]
-    struct ChangeMonitor {
-        baseline_seq: u32,
-    }
-
-    #[cfg(target_os = "macos")]
     impl ChangeMonitor {
         /// 建立基线：同步一次消费既有 modified 标志。
         fn new() -> Option<Self> {
@@ -208,7 +162,7 @@ mod imp {
             Some(Self { pb, latched: false })
         }
 
-        /// macOS 侧以闩锁后的 0/1 表达代数，基线恒为 0。
+        /// 以闩锁后的 0/1 表达代数，基线恒为 0。
         fn baseline(&self) -> u64 {
             0
         }
@@ -222,27 +176,6 @@ mod imp {
                 self.latched = true;
             }
             u64::from(self.latched)
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    impl ChangeMonitor {
-        /// 建立基线：记录注入前的系统序号。
-        fn new() -> Option<Self> {
-            Some(Self {
-                // SAFETY: 无前置条件的系统查询。
-                baseline_seq: unsafe { GetClipboardSequenceNumber() },
-            })
-        }
-
-        fn baseline(&self) -> u64 {
-            u64::from(self.baseline_seq)
-        }
-
-        /// 返回当前系统序号（无状态计数器，无需闩锁）。
-        fn generation(&mut self) -> u64 {
-            // SAFETY: 无前置条件的系统查询。
-            u64::from(unsafe { GetClipboardSequenceNumber() })
         }
     }
 
@@ -399,7 +332,6 @@ mod imp {
     /// 剪贴板是否只含纯文本 flavor（无 HTML/RTF 等富文本伴随格式）：
     /// 判不了（系统查询失败）一律按富文本处理，宁可放弃兜底也不冒
     /// 无法恢复的风险。
-    #[cfg(target_os = "macos")]
     fn clipboard_is_text_only() -> bool {
         /// kPasteboardIsTextOnly：全部条目都只含 string flavor（Pasteboard.h）。
         const K_PASTEBOARD_IS_TEXT_ONLY: u32 = 1 << 3;
@@ -411,36 +343,8 @@ mod imp {
         flags & K_PASTEBOARD_IS_TEXT_ONLY != 0
     }
 
-    // 注册剪贴板格式查询（user32 的 Registered Clipboard Formats）。
-    #[cfg(target_os = "windows")]
-    #[link(name = "user32")]
-    unsafe extern "system" {
-        // 返回已注册格式的 id，未注册过则注册并返回新 id；失败返回 0。
-        fn RegisterClipboardFormatW(lpszFormat: *const u16) -> u32;
-    }
-
-    #[cfg(target_os = "windows")]
-    fn clipboard_is_text_only() -> bool {
-        // SAFETY: 无前置条件的系统查询。
-        let has = |format: u32| unsafe { IsClipboardFormatAvailable(format) != 0 };
-        let wide = |s: &str| {
-            s.encode_utf16()
-                .chain(std::iter::once(0))
-                .collect::<Vec<_>>()
-        };
-        // SAFETY: 入参是 NUL 结尾的 UTF-16 缓冲区。
-        let html_id = unsafe { RegisterClipboardFormatW(wide("HTML Format").as_ptr()) };
-        // SAFETY: 同上。
-        let rtf_id = unsafe { RegisterClipboardFormatW(wide("Rich Text Format").as_ptr()) };
-        if html_id == 0 || rtf_id == 0 {
-            return false;
-        }
-        !has(html_id) && !has(rtf_id)
-    }
-
     /// 剪贴板是否为空：判不了（系统查询失败）一律按非空处理，宁可放弃
     /// 兜底也不冒无法恢复的风险。
-    #[cfg(target_os = "macos")]
     fn is_clipboard_empty() -> bool {
         let Some(pb) = open_pasteboard() else {
             return false;
@@ -449,12 +353,6 @@ mod imp {
         // SAFETY: `raw` 是有效 +1 引用，出参指向栈上变量。
         let status = unsafe { PasteboardGetItemCount(pb.raw, &mut count) };
         status == 0 && count == 0
-    }
-
-    #[cfg(target_os = "windows")]
-    fn is_clipboard_empty() -> bool {
-        // SAFETY: 无前置条件的系统查询；无文本且格式总数为 0 才视为空。
-        unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT) == 0 && CountClipboardFormats() == 0 }
     }
 
     /// 注入复制快捷键：修饰键按下 → C 按下/释放 → 修饰键释放。任何一步
@@ -492,7 +390,6 @@ mod imp {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub use imp::ClipboardFallbackReader;
 
 #[cfg(test)]
@@ -543,7 +440,7 @@ mod tests {
     }
 }
 
-#[cfg(all(target_os = "macos", test))]
+#[cfg(test)]
 mod live_tests {
     use arboard::Clipboard;
 

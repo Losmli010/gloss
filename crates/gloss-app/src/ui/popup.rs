@@ -428,9 +428,8 @@ mod kittest_tests {
         assert_eq!(*clicked.borrow(), None, "no click without a button");
     }
 
-    /// 快照对比（仅 macos：跨平台渲染差异，阈值见 kittest.toml）。
+    /// 快照对比（wgpu 渲染 + 基线图 diff，阈值见 kittest.toml）。
     /// 多个 harness 的快照结果须合并为单个 SnapshotResults 处理。
-    #[cfg(target_os = "macos")]
     #[test]
     fn snapshots_match_baseline() {
         let mut results = egui_kittest::SnapshotResults::new();

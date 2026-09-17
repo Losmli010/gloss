@@ -23,8 +23,8 @@ pub struct WindowManager {
 }
 
 impl WindowManager {
-    /// 创建浮层与设置窗口。必须在 `resumed` 里调用——部分平台（macOS/Android）
-    /// 只有进入 resumed 才允许创建窗口与 surface。
+    /// 创建浮层与设置窗口。必须在 `resumed` 里调用——只有进入 resumed
+    /// 才允许创建窗口与 surface。
     pub fn new(event_loop: &ActiveEventLoop) -> Result<Self, OsError> {
         let overlay = event_loop.create_window(
             Window::default_attributes()
@@ -37,7 +37,7 @@ impl WindowManager {
                 // 透明：卡片圆角之外要让桌面透出来，因此 surface 也得选带 alpha 的合成模式
                 .with_transparent(true),
         )?;
-        // macOS 上窗口创建即可见，预创建的浮层必须立刻压下去（06 §6.2）
+        // 窗口创建即可见，预创建的浮层必须立刻压下去（06 §6.2）
         overlay.set_visible(false);
 
         let settings = event_loop.create_window(

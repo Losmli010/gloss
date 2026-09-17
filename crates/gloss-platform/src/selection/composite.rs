@@ -2,14 +2,13 @@
 //!
 //! 降级边界：AX 报权限缺失时不兜底——兜底依赖按键注入，未授权时注入会被
 //! 系统静默忽略，白等超时只会拖慢失败路径；此时把权限语义原样上抛，由
-//! 上层做权限引导。Windows 暂无 AX/UIA 实现，兜底即主通道。
+//! 上层做权限引导。
 
 use gloss_core::model::GlossError;
 
-/// 组合判定（纯逻辑，全平台单测）：AX 成功直接采纳；权限缺失原样上抛且
+/// 组合判定（纯逻辑，单测覆盖）：AX 成功直接采纳；权限缺失原样上抛且
 /// 不评估兜底（见模块注释）；其余读不到的情形才落到兜底结果。`fallback`
 /// 是惰性求值——兜底路径含按键注入，未走到就不该有副作用。
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn combine(
     ax: Result<String, GlossError>,
     fallback: impl FnOnce() -> Result<String, GlossError>,
@@ -21,21 +20,16 @@ fn combine(
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod imp {
     use gloss_core::model::GlossError;
 
-    #[cfg(target_os = "macos")]
     use super::combine;
-    #[cfg(target_os = "macos")]
     use crate::selection::accessibility::AccessibilityReader;
     use crate::selection::clipboard::ClipboardFallbackReader;
 
-    /// 选区读取的组合实现：macOS 上 AX 优先、读不到时降级剪贴板兜底；
-    /// Windows 上兜底即主通道。
+    /// 选区读取的组合实现：AX 优先，读不到时降级剪贴板兜底。
     #[derive(Debug, Default)]
     pub struct CompositeReader {
-        #[cfg(target_os = "macos")]
         ax: AccessibilityReader,
         clipboard: ClipboardFallbackReader,
     }
@@ -50,18 +44,12 @@ mod imp {
         ///
         /// 调用方保证：在平台事件线程上调用（08 §4.4 亲和性）。
         pub fn read(&mut self) -> Result<String, GlossError> {
-            #[cfg(target_os = "macos")]
-            {
-                let ax = self.ax.read();
-                combine(ax, || self.clipboard.read())
-            }
-            #[cfg(not(target_os = "macos"))]
-            self.clipboard.read()
+            let ax = self.ax.read();
+            combine(ax, || self.clipboard.read())
         }
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub use imp::CompositeReader;
 
 #[cfg(test)]

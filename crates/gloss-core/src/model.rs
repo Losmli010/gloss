@@ -37,9 +37,9 @@ pub struct ScreenRect {
 pub enum GlossError {
     /// 选区读不到（权限缺失或空选区）。
     SelectionUnavailable,
-    /// macOS 辅助功能权限缺失。
+    /// 辅助功能权限缺失。
     AccessibilityDenied,
-    /// macOS 屏幕录制权限缺失 / Windows 抓屏失败。
+    /// 屏幕录制权限缺失。
     ScreenCaptureDenied,
     /// 框选区域超出屏幕或阈值。
     RegionTooLarge,

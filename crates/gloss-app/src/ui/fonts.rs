@@ -54,15 +54,9 @@ fn append_fallback(definitions: &mut FontDefinitions, data: FontData) {
     }
 }
 
-/// macOS：苹方随系统自带，历代候选按可用性排序。
-#[cfg(target_os = "macos")]
+/// 苹方随系统自带，历代候选按可用性排序。
 const CJK_FAMILIES: &[&str] = &["PingFang SC", "Hiragino Sans GB", "STHeiti"];
 
-/// Windows：微软雅黑 Vista 起全 SKU 内置，黑体/宋体兜底。
-#[cfg(target_os = "windows")]
-const CJK_FAMILIES: &[&str] = &["Microsoft YaHei", "微软雅黑", "SimHei", "SimSun"];
-
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod imp {
     use std::sync::Arc;
 
@@ -77,7 +71,7 @@ mod imp {
     ///
     /// 匹配走 CSS Fonts L3 的 `select_best_match` 并固定常规体（Regular）：
     /// 字体族里的第一个 face 权重不确定，可能拿到 Thin/Light。font-kit 的
-    /// CoreText/DirectWrite 后端在 `load()` 时会把 .ttc 集合拆成单个字体面，
+    /// CoreText 后端在 `load()` 时会把 .ttc 集合拆成单个字体面，
     /// `copy_font_data()` 给出的就是拆好的数据，因此 egui 侧的 face index 恒为 0。
     pub(super) fn find_cjk() -> Option<FontData> {
         let source = SystemSource::new();
@@ -134,16 +128,6 @@ mod imp {
     }
 }
 
-/// Linux 仅用于 CI：不编译 font-kit，恒返回「未找到」。
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-mod imp {
-    use egui::FontData;
-
-    pub(super) fn find_cjk() -> Option<FontData> {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,19 +155,9 @@ mod tests {
         assert!(definitions.font_data.contains_key(FONT_NAME));
     }
 
-    /// 真实系统上必须能找到 CJK 字体（CI 的 macos/windows runner 自带系统字体）。
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    /// 真实系统上必须能找到 CJK 字体（系统自带中文字体）。
     #[test]
     fn system_cjk_font_is_discoverable() {
         assert!(imp::find_cjk().is_some());
-    }
-
-    /// 非 macOS/Windows 平台（CI 的 Linux runner）找不到是预期行为。
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    #[test]
-    fn no_cjk_font_on_ci_linux_means_no_install() {
-        let mut definitions = FontDefinitions::default();
-        assert!(!apply(&mut definitions));
-        assert!(!definitions.font_data.contains_key(FONT_NAME));
     }
 }

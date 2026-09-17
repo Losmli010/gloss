@@ -6,7 +6,7 @@
 //! 注入，等价于事件线程回传的产物。
 //!
 //! 驱动方式：全部经公共 API（`TaskStateMachine` / `Channels` /
-//! `start_command_runtime`），`cargo test` 全平台可跑。
+//! `start_command_runtime`），`cargo test` 直接跑。
 
 use std::sync::Arc;
 use std::time::Duration;

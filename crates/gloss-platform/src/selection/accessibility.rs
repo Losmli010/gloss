@@ -1,4 +1,4 @@
-//! macOS AX 读选区：`AccessibilityReader`。
+//! AX 读选区：`AccessibilityReader`。
 //!
 //! 经 Accessibility API（HIServices）向系统问询「systemwide 焦点元素 →
 //! 选中文本」，是向目标应用发起的同步跨进程调用，按 08 §4.4 的线程模型
@@ -11,11 +11,6 @@
 //! 策略取最简一条路径：只读 `kAXSelectedTextAttribute`。部分应用（如个别
 //! Electron/Chromium 场景）只暴露 parameterized 选区属性，暂不兜底——
 //! 由 CompositeReader 的剪贴板兜底通道覆盖。
-//!
-//! 平台门控：AX 是 macOS 专属 API，公共类型仅在 macOS 提供（Windows 的
-//! UIA 实现落在同目录时再补齐公共面）；「授权状态 + AX 结果 → 统一错误」
-//! 的映射决策是纯逻辑，照常全平台单测（Linux CI 只跑单测，先例见
-//! `events/mouse.rs` 的手势状态机）。
 
 use gloss_core::model::GlossError;
 
@@ -26,14 +21,12 @@ const AX_ERROR_API_DISABLED: i32 = -25211;
 
 /// 取值缓冲区的分配上界（字节）：长度来自远端进程报告，无校验的分配
 /// 失败会直接 abort 进程而非返回错误，超限按取不到选区处理。
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const MAX_SELECTION_BYTES: usize = 8 * 1024 * 1024;
 
-/// 把「是否已授权 + AX 取值结果」映射为统一错误语义（纯逻辑，全平台单测）：
+/// 把「是否已授权 + AX 取值结果」映射为统一错误语义（纯逻辑，单测覆盖）：
 /// 未授权一律 [`GlossError::AccessibilityDenied`]（权限检查先于取值，AX
 /// 返回同一码时以更明确的权限语义收口）；其余取不到选区的情形——空选区、
 /// 应用不支持属性、系统调用失败——归 [`GlossError::SelectionUnavailable`]。
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn interpret(trusted: bool, outcome: Result<Option<String>, i32>) -> Result<String, GlossError> {
     if !trusted {
         return Err(GlossError::AccessibilityDenied);
@@ -46,7 +39,6 @@ fn interpret(trusted: bool, outcome: Result<Option<String>, i32>) -> Result<Stri
     }
 }
 
-#[cfg(target_os = "macos")]
 mod imp {
     use std::ffi::{CStr, c_void};
 
@@ -120,7 +112,7 @@ mod imp {
         }
     }
 
-    /// macOS AX 读选区实现：无状态，可按需构造。
+    /// AX 读选区实现：无状态，可按需构造。
     #[derive(Debug, Default, Clone, Copy)]
     pub struct AccessibilityReader;
 
@@ -273,10 +265,8 @@ mod imp {
     }
 }
 
-#[cfg(target_os = "macos")]
 pub use imp::AccessibilityReader;
 
-#[cfg(target_os = "macos")]
 #[cfg(test)]
 mod live_tests {
     use super::imp::AccessibilityReader;

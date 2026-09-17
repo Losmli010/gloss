@@ -1,12 +1,11 @@
 //! 全局热键事件源：注册 → global-hotkey 全局事件队列 → 事件线程转发。
 //!
-//! 线程约束：manager 必须创建在泵系统消息的主线程——macOS 后端要求主线程跑
-//! NSApp 事件循环（winit 所在线程），Windows 后端的隐藏窗口与 `WM_HOTKEY`
-//! 投递、连同 `Drop` 的 `DestroyWindow` 都亲和创建线程。注册后的按键事件走
-//! global-hotkey 自己的全局 crossbeam 队列，任意线程可消费——平台事件线程经
-//! [`HotkeyPump`] 抽干转发，主线程约束不影响其余事件源。因此组装点必须把
-//! registrar 放在主线程创建、只把 pump 下发事件线程；在事件线程里创建
-//! registrar 会让 Windows 热键静默全灭（无错误无日志）。
+//! 线程约束：manager 必须创建在泵系统消息的主线程——后端要求主线程跑
+//! NSApp 事件循环（winit 所在线程），`Drop` 清理同样亲和创建线程。注册后
+//! 的按键事件走 global-hotkey 自己的全局 crossbeam 队列，任意线程可消费
+//! ——平台事件线程经 [`HotkeyPump`] 抽干转发，主线程约束不影响其余事件
+//! 源。因此组装点必须把 registrar 放在主线程创建、只把 pump 下发事件线
+//! 程；在事件线程里创建 registrar 会让热键静默全灭（无错误无日志）。
 //!
 //! 绑定来自配置（M4-T7）：registrar 启动时按 `Config::hotkey_bindings` 建表，
 //! 设置页保存后经 [`HotkeyBinder`] 端口重绑定。**重绑定同样必须在主线程
@@ -33,8 +32,7 @@ use gloss_core::log::{debug, info, thread, warn};
 use gloss_core::ports::HotkeyBinder;
 use gloss_core::task::HotkeyBinding;
 
-/// 已注册热键的管理端。macOS/Windows 上必须在主线程创建与重绑定
-/// （见模块注释）。
+/// 已注册热键的管理端。必须在主线程创建与重绑定（见模块注释）。
 pub struct HotkeyRegistrar {
     /// 持有 manager 保活；`None` 表示创建失败、热键功能整体降级。
     manager: Option<GlobalHotKeyManager>,
@@ -50,17 +48,6 @@ impl HotkeyRegistrar {
     /// 按给定绑定表注册。绑定来自配置（M4-T7 起不再有写死的默认表：
     /// 出厂默认在 `gloss_core::config`，与设置页可编辑的是同一份）。
     pub fn new(bindings: impl IntoIterator<Item = HotkeyBinding>) -> Self {
-        // Linux 只作 CI 平台：global-hotkey 的 X11 后端在无显示环境创建会
-        // 直接段错误，不支持的平台明确跳过，而不是冒崩溃风险。
-        #[cfg(all(unix, not(target_os = "macos")))]
-        let manager: Option<GlobalHotKeyManager> = {
-            warn!(
-                thread = thread::UI,
-                "global hotkeys unsupported on this platform, disabled"
-            );
-            None
-        };
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
         let manager = match GlobalHotKeyManager::new() {
             Ok(manager) => Some(manager),
             Err(err) => {
@@ -68,6 +55,24 @@ impl HotkeyRegistrar {
                 None
             }
         };
+        Self::build(manager, bindings)
+    }
+
+    /// 测试注入点：以指定的管理器状态建 registrar（`None` 即「管理器不可
+    /// 用」的降级形态），让降级语义的精确断言能在测试里复现。
+    #[cfg(test)]
+    fn with_manager(
+        manager: Option<GlobalHotKeyManager>,
+        bindings: impl IntoIterator<Item = HotkeyBinding>,
+    ) -> Self {
+        Self::build(manager, bindings)
+    }
+
+    /// 从管理器与绑定表装配 registrar，`new` 与测试注入点共用的实体。
+    fn build(
+        manager: Option<GlobalHotKeyManager>,
+        bindings: impl IntoIterator<Item = HotkeyBinding>,
+    ) -> Self {
         let (table, registered) = register_all(manager.as_ref(), bindings);
         info!(
             thread = thread::UI,
@@ -243,8 +248,8 @@ fn parse_trigger(trigger: &str) -> Result<(HotKey, Modifiers), String> {
     for token in trigger.split('+') {
         let token = token.trim();
         match token.to_ascii_lowercase().as_str() {
-            // SUPER 在 macOS 即 Command、Windows 即 Win 键，是 global-hotkey
-            // 的跨平台「系统键」概念，故 Cmd 与 Win 同映射。
+            // SUPER 即 Command 键，是 global-hotkey 的「系统键」概念；
+            // Cmd / Super / Win / Meta 等写法同映射。
             "cmd" | "command" | "super" | "win" | "meta" => modifiers |= Modifiers::SUPER,
             "ctrl" | "control" => modifiers |= Modifiers::CONTROL,
             "shift" => modifiers |= Modifiers::SHIFT,
@@ -354,41 +359,46 @@ mod tests {
     }
 
     /// 管理器不可用/注册失败的路径必须安静降级：不 panic、poll 恒为空。
-    /// Linux 上热键明确不支持（见 `new`），manager 恒为 None，正好覆盖整体
-    /// 降级分支；此时表里应保留全部解析成功的出厂绑定，且没有键被记为
-    /// 「已注册」（没有管理器就没有可注销的东西）。
-    #[cfg(target_os = "linux")]
+    /// 以 `None` 管理器注入（见 `with_manager`）复现整体降级分支：此时表里
+    /// 应保留全部解析成功的出厂绑定，且没有键被记为「已注册」（没有管理
+    /// 器就没有可注销的东西）。
     #[test]
     fn degraded_registrar_keeps_parsed_table_and_stays_quiet() {
         let factory = Config::default().hotkey_bindings;
-        let registrar = HotkeyRegistrar::new(factory.clone());
+        let registrar = HotkeyRegistrar::with_manager(None, factory.clone());
         assert_eq!(registrar.table.read().unwrap().len(), factory.len());
         assert!(
             registrar.registered.lock().unwrap().is_empty(),
             "no manager means nothing was handed to the platform"
         );
-        assert!(registrar.pump().poll().is_empty(), "no real keypress in CI");
+        assert!(
+            registrar.pump().poll().is_empty(),
+            "no real keypress in test"
+        );
         assert_eq!(
             registrar.rebind(&factory),
             0,
-            "表照填但一个键都没生效：生效条数取的是真注册成功的那些，否则日志会让降级平台看起来正常"
+            "表照填但一个键都没生效：生效条数取的是真注册成功的那些，否则日志会让降级状态看起来正常"
         );
     }
 
-    /// macOS/Windows runner 语义不确定（可能成功注册），只验证不 panic。
-    #[cfg(not(target_os = "linux"))]
+    /// 真管理器路径只验证不 panic、poll 恒为空（能否注册成功取决于运行
+    /// 环境里键位的占用情况）。
     #[test]
     fn registrar_construction_never_panics() {
         let registrar = HotkeyRegistrar::new(Config::default().hotkey_bindings);
-        assert!(registrar.pump().poll().is_empty(), "no real keypress in CI");
+        assert!(
+            registrar.pump().poll().is_empty(),
+            "no real keypress in test"
+        );
     }
 
     /// 无修饰键的裸键会系统级吞掉普通输入，注册侧必须拒绝；
     /// 同一触发键重复注册会无痕覆盖前者，也必须拒绝。
     ///
     /// 这里走公共构造路径（真管理器在场时也被调用），只断言「被拒的那些
-    /// 没进表」——**不能**断言表里恰好剩哪几条：macOS/Windows 上注册还会被
-    /// 别的应用占用而失败，而失败的条目同样不进表。精确的过滤矩阵在
+    /// 没进表」——**不能**断言表里恰好剩哪几条：注册还会被别的应用占用而
+    /// 失败，而失败的条目同样不进表。精确的过滤矩阵在
     /// [`rejects_invalid_and_duplicate_triggers`] 的纯路径上断言。
     #[test]
     fn bare_keys_and_duplicates_are_rejected_before_registration() {
@@ -469,9 +479,9 @@ mod tests {
     /// 重绑定的核心契约：pump 读到的是 `rebind` 换上的那份表，而不是启动时
     /// 建的那份——事件线程因此不必重启就能按新绑定解析按键。
     ///
-    /// 生效条数的精确语义只在 Linux 上断言（管理器恒为 None → 必为 0，而表
-    /// 照填）：macOS/Windows 上那个键可能恰好被别的应用占用，精确值取决于
-    /// 运行环境。`Arc::ptr_eq` 钉住的共享关系与平台无关。
+    /// 生效条数不断言精确值：真管理器下那个键可能恰好被别的应用占用；
+    /// 管理器缺位时必为 0 的精确语义在降级路径测试里断言。`Arc::ptr_eq`
+    /// 钉住的共享关系与运行环境无关。
     #[test]
     fn pump_observes_the_rebound_table() {
         let registrar = HotkeyRegistrar::new([binding("Cmd+Shift+F12")]);
@@ -493,30 +503,26 @@ mod tests {
             seen.iter().all(|trigger| trigger == "Cmd+Alt+Ctrl+F9"),
             "pump must read the rebound table, got {seen:?}"
         );
-        #[cfg(target_os = "linux")]
-        {
-            assert_eq!(seen.len(), 1, "degraded platform still fills the table");
-            assert_eq!(applied, 0, "表填了不等于生效：管理器缺位时没有任何键是活的");
-        }
-        #[cfg(not(target_os = "linux"))]
         assert!(applied <= 1, "至多「入参那一条」能生效，实际回报 {applied}");
     }
 
     /// 重绑定是**替换**不是追加：连续改小绑定表，表跟着缩小到空。
-    #[cfg(target_os = "linux")]
     #[test]
     fn rebind_replaces_instead_of_appending() {
-        let registrar = HotkeyRegistrar::new([
-            binding("Cmd+Shift+D"),
-            binding("Cmd+Shift+F"),
-            binding("Cmd+Shift+E"),
-        ]);
+        let registrar = HotkeyRegistrar::with_manager(
+            None,
+            [
+                binding("Cmd+Shift+D"),
+                binding("Cmd+Shift+F"),
+                binding("Cmd+Shift+E"),
+            ],
+        );
         assert_eq!(registrar.table.read().unwrap().len(), 3);
 
         assert_eq!(
             registrar.rebind(&[binding("Cmd+Shift+D")]),
             0,
-            "Linux 上管理器恒为 None：表换过去了，但没有任何键真正生效"
+            "管理器缺位：表换过去了，但没有任何键真正生效"
         );
         assert_eq!(registrar.table.read().unwrap().len(), 1);
 
@@ -528,8 +534,8 @@ mod tests {
     }
 
     /// 端口对象安全：组装点以 `Arc<dyn HotkeyBinder>` 注入 App，适配器必须
-    /// 能经 trait 对象调用，并如实回报生效条数。两条断言都选与平台无关的
-    /// 输入（空表、裸键），在三种目标平台上结果一致。
+    /// 能经 trait 对象调用，并如实回报生效条数。两条断言都选与运行环境
+    /// 无关的输入（空表、裸键），结果恒定。
     #[test]
     fn binder_port_is_object_safe_and_reports_applied_count() {
         let binder: Arc<dyn HotkeyBinder> = Arc::new(HotkeyRegistrar::new(Vec::new()));

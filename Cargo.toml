@@ -21,8 +21,7 @@ gloss-app = { path = "crates/gloss-app" }
 workspace = true
 
 # cargo-bundle 打包配置（GUI 应用分发包）
-# 用法：cargo bundle --release --format osx   产 macOS .app/.dmg
-#       cargo bundle --release --format deb   产 Linux .deb
+# 用法：cargo bundle --release --format osx   产 .app/.dmg
 [package.metadata.bundle]
 name = "Gloss"
 identifier = "io.github.losmli010.gloss"
@@ -62,9 +61,9 @@ print_stderr = "deny"
 
 # 公共 API 必须有文档注释（AGENTS.md 约束「公共 API 有文档注释」）；文档里的示例
 # 由 cargo test --doc（just test 一部分）验证可编译可运行。
-# L3 显隐自检：自带 main() 的端到端测试目标（仅 macOS 有窗口服务与 GPU；
-# 直接驱动 winit 窗口栈，不经测试收集器——winit 需要主线程）。
-[target.'cfg(target_os = "macos")'.dev-dependencies]
+[dev-dependencies]
+# L3 显隐自检（[[test]] overlay_selftest）直接驱动 winit 窗口栈：自带 main()
+# 的端到端测试目标不经测试收集器——winit 事件循环需要主线程。
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
 
 [[test]]

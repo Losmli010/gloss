@@ -604,9 +604,8 @@ mod tests {
         );
     }
 
-    /// 快照对比（仅 macos）。与浮层 harness 的基线相互独立，但同属一个
-    /// SnapshotResults 约定：结果合并处理。
-    #[cfg(target_os = "macos")]
+    /// 快照对比（wgpu 渲染 + 基线图 diff）。与浮层 harness 的基线相互独立，
+    /// 但同属一个 SnapshotResults 约定：结果合并处理。
     #[test]
     fn snapshots_match_baseline() {
         let mut results = egui_kittest::SnapshotResults::new();

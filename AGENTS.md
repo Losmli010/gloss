@@ -4,7 +4,7 @@
 
 ## 项目
 
-Gloss —— 划词翻译桌面工具：选中文字即弹出 LLM 结果。纯 Rust + WebGPU + egui，单进程桌面应用（macOS 优先，Windows 其次），**不使用任何 WebView / 浏览器运行时**。
+Gloss —— 划词翻译桌面工具：选中文字即弹出 LLM 结果。纯 Rust + WebGPU + egui，单进程桌面应用，**不使用任何 WebView / 浏览器运行时**。
 
 ## 目录结构
 
@@ -23,7 +23,7 @@ gloss/
 ## 架构速览
 
 - **取材链路**：平台事件线程读取选区或截图，产物经 `Event::InputReady` 回到主线程；由主线程组装 `Task` 下发 tokio 推理，因此过期任务的取材产物不会触发推理。
-- **四线程**：主线程（winit 事件循环 + UI）/ 平台事件线程（NSRunLoop：热键与取材，有线程亲和性要求）/ 鼠标监听线程（`gloss-mouse-tap`：rdev 全局监听是阻塞式的，且 panic 穿过它的 C 回调会 abort 进程，故单独一条线程收口）/ tokio 后台（网络与缓存）。
+- **四线程**：主线程（winit 事件循环 + UI）/ 平台事件线程（NSRunLoop：热键与取材，有线程亲和性要求）/ 鼠标监听线程（`gloss-mouse-tap`：全局事件 tap 的回调是阻塞式的，且 panic 穿过它的 C 回调会 abort 进程，故单独一条线程收口；**macOS 用自建 CGEventTap 只订阅左键按下/释放**——订阅面必须窄，因为把按键翻成字符要调要求主线程的 TSM/HIToolbox，回调跑在监听线程上会以 SIGILL 打死整个进程）/ tokio 后台（网络与缓存）。
 - **四通道**：① `PlatformEvent`（事件线程 → 主）② `AcquireCommand`（主 → 事件线程）③ `Command`（主 → tokio，mpsc）④ `Event`（流式回传 → 主）。请求代数 `gen` 一律由 App 赋值，用于丢弃陈旧响应；取消统一走 `CancellationToken`。
 - **任务化 AI 层**：`TaskKind`（单词/句子翻译、代码解释、图片 OCR、图片解释）+ `TaskInput`（文本 / 图像，语音为预留模态）→ 统一的 `AiEngine`，不按模态拆分客户端。
 
@@ -53,7 +53,7 @@ just --list            # 查看全部 recipe
 
 1. **[CRITICAL] 纯 Rust 技术栈**：新增依赖前确认它是 Rust 生态的纯逻辑库，不引入 Node / Python / WebView 运行时。
 2. **[CRITICAL] 日志统一出口**：只用 `gloss_core::log` 的宏（`info!` / `warn!` / `error!` 等），不用 `println!`；库 crate 不初始化 subscriber。日志目录由入口算好传给 `log::init`，其余实现见 `crates/gloss-core/src/log.rs`。
-3. **[CRITICAL] 依赖只开需要的特性**：新增依赖一律写 `default-features = false` 并显式列出所需特性；无特性可关的也照写，保持写法统一。默认集常带目标平台用不到的图形后端（vulkan / gles / webgpu）、wasm 专用项，或整条用不上的子树——既拖慢编译，也可能带进有问题的包（winit 默认集就经 sctk-adwaita 拖进过已停止维护的 `ttf-parser`）。Gloss 目标平台是 macOS（Metal）与 Windows（DX12），Linux 只跑 CI，见 `crates/gloss-app/Cargo.toml` 的写法。
+3. **[CRITICAL] 依赖只开需要的特性**：新增依赖一律写 `default-features = false` 并显式列出所需特性；无特性可关的也照写，保持写法统一。默认集常带用不到的图形后端（vulkan / gles / webgpu）、wasm 专用项，或整条用不上的子树——既拖慢编译，也可能带进有问题的包（winit 默认集就经 sctk-adwaita 拖进过已停止维护的 `ttf-parser`）。Gloss 渲染后端是 Metal，见 `crates/gloss-app/Cargo.toml` 的写法。
 4. **[CRITICAL] unsafe 有据**：每个 unsafe 块前必须带 `// SAFETY:` 注释写明不变量。
 5. **[HIGH] 依赖方向**（Ports & Adapters）：
    - `gloss`（根包，bin）→ `gloss-app` + `gloss-core` + `gloss-platform`
@@ -136,7 +136,7 @@ just --list            # 查看全部 recipe
 
 ### 集成测试
 
-- **L1 库级集成**（`crates/gloss-app/tests/pipeline.rs`）：从公共 API 与通道两端驱动 状态机 + 通道③④ + tokio 桥 + mock 引擎 的全时序，随 `just test` 全平台跑。断言的是时序与状态转换（哪些事件该按什么顺序到达、哪些不该到达），不是内部字段的值。
+- **L1 库级集成**（`crates/gloss-app/tests/pipeline.rs`）：从公共 API 与通道两端驱动 状态机 + 通道③④ + tokio 桥 + mock 引擎 的全时序，随 `just test` 跑。断言的是时序与状态转换（哪些事件该按什么顺序到达、哪些不该到达），不是内部字段的值。
 - **L4 真机 opt-in**（不进 CI）：`gloss-platform` 内的 live 测试覆盖真实 OS 边界——选区读取、鼠标·热键注入、keychain 往返。形态是 `#[cfg(test)] mod live_tests` + `#[ignore = "..."]`，忽略理由里写清授权步骤；测试第一行调 `live_test_support::require_accessibility()` 做前置检查，未授权时以**带修复指引**的消息立刻失败，而不是让测试以「注入被忽略 / tap 未建立」这类间接症状超时——前置条件不满足就要当场说清怎么修。
 
   ```bash
@@ -149,7 +149,7 @@ just --list            # 查看全部 recipe
 
 ### 快照测试
 
-- **L2 UI harness**（`crates/gloss-app/src/ui/popup.rs` 模块内的 kittest 测试）：AccessKit 树断言 + 点击复制按钮 + wgpu 渲染快照。树断言与交互断言全平台跑；快照对比 `#[cfg(target_os = "macos")]`（跨平台渲染差异），多个 harness 的快照结果要合并进同一个 `SnapshotResults`。
+- **L2 UI harness**（`crates/gloss-app/src/ui/popup.rs` 模块内的 kittest 测试）：AccessKit 树断言 + 点击复制按钮 + wgpu 渲染快照。多个 harness 的快照结果要合并进同一个 `SnapshotResults`。
 
 基线图提交在 `crates/gloss-app/tests/snapshots/`，所以**基线变化会出现在 PR diff 里**——更新基线时要说清为什么变了，别默默覆盖（阈值与输出路径在仓库根 `kittest.toml`，分平台节名是 `[mac]`，写错整轮测试编译不过）。更新失败基线用 `UPDATE_SNAPSHOTS=1 cargo test`（`=force` 连阈值内的差异也重写）：更新当轮即转绿并打印 `Updated snapshot: …`，跑完 `git diff` 看一眼基线图到底改了什么。对比产生的 `.diff.png` / `.new.png` / `.old.png` 已 gitignore，别提交。
 
@@ -161,7 +161,7 @@ just --list            # 查看全部 recipe
 
 ### 性能测试
 
-- **L3 显隐自检**（根包 `tests/overlay_selftest.rs`，`harness = false` 自带 `main()`）：经公共 API 驱动与生产相同的窗口栈跑 100 轮浮层显隐，跑满 100 轮且首帧在预算内才返回 0，无帧或首帧超预算则非 0 退出。仅 macOS（需窗口服务 + GPU），其余平台直通成功：
+- **L3 显隐自检**（根包 `tests/overlay_selftest.rs`，`harness = false` 自带 `main()`）：经公共 API 驱动与生产相同的窗口栈跑 100 轮浮层显隐，跑满 100 轮且首帧在预算内才返回 0，无帧或首帧超预算则非 0 退出。需要窗口服务与 GPU：
 
   ```bash
   just selftest
@@ -169,7 +169,6 @@ just --list            # 查看全部 recipe
 
 ### 跨层纪律
 
-- **平台门控**：只在某平台成立的测试必须 `#[cfg(target_os = ...)]` 门控、并在其他平台直通成功——CI 的 test 矩阵三平台都跑，一条没门控的 macOS-only 测试会让另外两个平台整体挂掉，且报错点离病因很远。
 - **测试替身放端口边界**：真实时钟、网络、磁盘、剪贴板、keychain 都不进常规测试，需要时用端口替身或注入延迟。
 - **clippy 在测试代码里的三种情形**（别照搬网上的豁免写法）：
   - `clippy.toml` 已对 `#[test]` / `#[cfg(test)]` 自动放行 unwrap / expect / panic / print——测试正文里直接断言失败即可；
@@ -178,3 +177,5 @@ just --list            # 查看全部 recipe
 - **命名与放置**：测试文件按被测功能域命名，不加 `_test` / `_e2e` 后缀。**E2E 代码不得进入生产路径**——只放 `tests/`、`cfg(test)` 或 `#[ignore]`。
 
 **一次真实教训。** `cancel_takes_effect_mid_stream` 原先 sleep 30ms 后取消，而 mock 引擎首 chunk 延迟 150ms——macOS CI 负载下 sleep 越过 150ms，首 chunk 先入队，断言必挂（那次 PR 通过纯属侥幸）。现在改为**等首 chunk 到达再取消**，再用大于 chunk 间延迟的窗口断言「无后续事件」。要证明「取消生效」，同步点就必须是被取消对象的可观察进展，而不是墙钟——这条适用于任何跟时间的竞速。
+
+**另一次真实教训（M4-T8）。** 鼠标监听用 rdev 的 `listen`，它的 tap 订阅 `kCGEventMaskForAllEvents`，键盘事件也进回调；回调里把按键翻成字符要调 TSM/HIToolbox（要求主线程），而回调跑在 `gloss-mouse-tap` 线程上 → libdispatch 断言失败，**SIGILL 打死整个进程**。所以「跑起来的 Gloss 只要按任意键就消失」，而单测、clippy、三平台 CI 全绿——它们都碰不到这条路径。现在 macOS 改用自建只订阅左键的 CGEventTap，并把订阅面写成唯一事实来源（`SUBSCRIBED_EVENT_TYPES`，掩码与回调过滤都由它推出）。**两条推论**：① 平台边界上的**订阅面**（我向系统要多少）与在系统里调什么 API，属人工评审关注点，别指望门禁；② 「能跑起来并活过交互」本身是一条验收项，L4 opt-in 真机走查不可省。
