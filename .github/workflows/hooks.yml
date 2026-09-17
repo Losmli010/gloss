@@ -1,0 +1,85 @@
+name: Hooks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 最小权限：只读代码与提交历史即可完成全部检查。
+permissions:
+  contents: read
+
+# 与本地 pre-commit 钩子同构的纯文本检查（.githooks/pre-commit 经 just precommit
+# 跑同一批配方；fmt / clippy 需要编译，在 ci.yml）。钩子只在本地拦，这里兜住
+# 绕过钩子的提交（--no-verify / 网页端合并）。
+jobs:
+  # checker 规则回归先于规则生效：五个门禁脚本的单测（纯 bash、秒级、无需 Rust）
+  checkers:
+    name: Checker unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run hook checker unit tests
+        run: |
+          bash scripts/hooks/check-commit-msg.test.sh
+          bash scripts/hooks/check-secrets.test.sh
+          bash scripts/hooks/check-agents-doc.test.sh
+          bash scripts/hooks/check-constraints.test.sh
+
+      - name: Run release tag checker unit tests
+        run: bash scripts/release/check-release-tag.test.sh
+
+  # pre-commit 同款三件套：密钥扫描 / 文档引用 / 不可协商约束（纯 bash，不编译）
+  hook-checks:
+    name: Hook checks (secrets + docs + constraints)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Scan for hardcoded secrets
+        run: just secrets
+
+      - name: Check AGENTS.md references
+        run: just agents-doc
+
+      - name: Check non-negotiable constraints
+        run: just constraints
+
+  commit-msg:
+    name: Commit message check
+    needs: checkers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages
+        run: |
+          # 校验本次 PR 引入的所有 commit message（跳过 merge commit）
+          # PR 场景：比较 base 与 head 分支的实际提交
+          # push 场景：比较 push 前后
+          if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD_SHA="${{ github.event.after }}"
+          fi
+          git fetch origin "$BASE" "$HEAD_SHA" --depth=100 2>/dev/null || true
+          # --no-merges 跳过 merge commit，避免 GitHub 自动生成的 "Merge ... into ..." 被误判
+          git log --no-merges --format="%H" "$BASE..$HEAD_SHA" | while read sha; do
+            msg="$(git log -1 --format=%B "$sha")"
+            echo "检查 commit $sha"
+            echo "$msg" | ./scripts/hooks/check-commit-msg.sh -
+          done

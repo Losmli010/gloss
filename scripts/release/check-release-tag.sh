@@ -5,7 +5,7 @@
 # 跑同一条脚本——本地与 CI 共用同一判定，不给两套实现漂移的机会。
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
 if [ "$#" -ne 1 ]; then
   echo "用法: $0 <tag>（例：v0.1.0）" >&2

@@ -21,7 +21,7 @@ gloss-app = { path = "crates/gloss-app" }
 workspace = true
 
 # cargo-bundle 打包配置（GUI 应用分发包）
-# 用法：just package-macos（bundle 出 .app，ad-hoc 签名后由 scripts/bundle-dmg.sh 压 .dmg）
+# 用法：just package-macos（bundle 出 .app，ad-hoc 签名后由 scripts/release/bundle-dmg.sh 压 .dmg）
 [package.metadata.bundle]
 name = "Gloss"
 identifier = "io.github.losmli010.gloss"

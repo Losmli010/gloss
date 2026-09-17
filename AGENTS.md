@@ -39,7 +39,7 @@ just precommit         # 提交前静态检查：约束 + 文档引用 + fmt + c
 just check             # 全量门禁：precommit 的全部 + test（本地要跑测试时用这条）
 just fmt-fix           # 自动格式化
 just lint              # Clippy 严格检查（警告即失败）
-just secrets           # 硬编码密钥扫描（命中即失败；放行规则见 scripts/check-secrets.sh）
+just secrets           # 硬编码密钥扫描（命中即失败；放行规则见 scripts/hooks/check-secrets.sh）
 just agents-doc        # 校验本文件提到的仓库事实（配方 / 路径 / 测试目标 / 约束名引用）未漂移
 just constraints       # 校验「不可协商的约束」里可机械判定的那几条（依赖方向 / 日志出口 / 版本单点 …）
 just audit             # cargo audit 依赖漏洞审计
@@ -92,7 +92,7 @@ just --list            # 查看全部 recipe
 | CRITICAL | unsafe 有据 | clippy `undocumented_unsafe_blocks` = deny；edition 2024 下 `unsafe_op_in_unsafe_fn` 默认报警，被 `-D warnings` 兜底 |
 | CRITICAL | 内存泄漏 | clippy `mem_forget` = deny（长驻进程禁 `mem::forget` 式泄漏） |
 | CRITICAL | 借用与生命周期健全性 | rustc 类型系统在编译期拒绝（`just lint` / `just check` 即覆盖） |
-| CRITICAL | 无硬编码密钥/凭据 | `just secrets`：`scripts/check-secrets.sh` 扫全部 git 跟踪文件，命中即失败；合法字面量用行尾 `secrets:allow` 放行并注明缘由 |
+| CRITICAL | 无硬编码密钥/凭据 | `just secrets`：`scripts/hooks/check-secrets.sh` 扫全部 git 跟踪文件，命中即失败；合法字面量用行尾 `secrets:allow` 放行并注明缘由 |
 | CRITICAL | 密钥不进日志/stdout | clippy `print_stdout` / `print_stderr` = deny，堵住绕过日志出口的打印 |
 | CRITICAL | 依赖供应链（用成熟库、无已知漏洞、来源可信） | `just audit`（RustSec 已知漏洞）+ `just deny`（许可证 / 来源 / 重复依赖，配置见 deny.toml） |
 | CRITICAL | 日志统一出口 | `just constraints`：只有 gloss-core 可以直接依赖 tracing 三件套，其余 crate 只经 `gloss_core::log` |

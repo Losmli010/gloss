@@ -4,7 +4,7 @@
 # 注意：本地钩子不做消息校验——git 跑 pre-commit 时消息还没落盘，读到的会是上一条提交的消息。
 #
 # 用法：
-#   scripts/check-commit-msg.sh <commit-message-file-or-text>
+#   scripts/hooks/check-commit-msg.sh <commit-message-file-or-text>
 #   - 传文件路径：读取文件内容作为 commit message（本地 hook 场景）
 #   - 传 "-" ：从 stdin 读取（CI 场景）
 set -euo pipefail

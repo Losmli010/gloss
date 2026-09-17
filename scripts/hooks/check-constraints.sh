@@ -23,11 +23,11 @@
 #   生产路径传播错误 / unsafe 有据 / 公共 API 有文档注释 —— 均已由 clippy 与 rustc
 #                      的 deny 级 lint 承担，见 AGENTS.md 的「门禁对照」表。
 #
-# 用法：scripts/check-constraints.sh [仓库根]   # 缺省为本脚本的上一级目录
+# 用法：scripts/hooks/check-constraints.sh [仓库根]   # 缺省为本脚本的上一级目录
 set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="${1:-$(cd "$SELF_DIR/.." && pwd)}"
+ROOT="${1:-$(cd "$SELF_DIR/../.." && pwd)}"
 AGENTS_MD="$ROOT/AGENTS.md"
 
 FAILED=0

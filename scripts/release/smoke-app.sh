@@ -6,7 +6,7 @@
 #   3. 日志出现启动标记，且没有任何 panic。
 # 辅助功能未授权只会让划词手势降级（设计如此），不算冒烟失败——冒烟只管
 # 「这个产物能不能跑」。因此本脚本可在本机与 macOS CI runner 上直接运行。
-# 用法：./scripts/smoke-app.sh <path/to/Gloss.app>
+# 用法：./scripts/release/smoke-app.sh <path/to/Gloss.app>
 set -uo pipefail
 
 START_TIMEOUT="${SMOKE_START_TIMEOUT:-30}"   # 等进程起来并写出启动日志的预算（秒）

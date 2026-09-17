@@ -24,9 +24,9 @@ FAIL=0
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 git init -q "$TMP"
-mkdir -p "$TMP/scripts"
-cp "$CHECKER" "$TMP/scripts/"
-chmod +x "$TMP/scripts/check-secrets.sh"
+mkdir -p "$TMP/scripts/hooks"
+cp "$CHECKER" "$TMP/scripts/hooks/"
+chmod +x "$TMP/scripts/hooks/check-secrets.sh"
 
 # 运行时拼接夹具尾串：源码里只出现前缀与尾串变量，规避自家扫描
 TAIL12="$(printf '0%.0s' {1..12})"
@@ -52,7 +52,7 @@ assert_scan() {
   git -C "$TMP" add "$rel" >/dev/null 2>&1
 
   local out actual
-  out="$(bash "$TMP/scripts/check-secrets.sh" 2>&1 >/dev/null)"
+  out="$(bash "$TMP/scripts/hooks/check-secrets.sh" 2>&1 >/dev/null)"
   actual=$?
 
   if [ "$actual" -eq "$expected" ]; then

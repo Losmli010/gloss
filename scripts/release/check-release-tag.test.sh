@@ -18,8 +18,8 @@ FAIL=0
 # Cargo.toml 内容用例定制。
 new_fixture() {
   local dir="$1" manifest="$2"
-  mkdir -p "$dir/scripts"
-  cp "$CHECKER" "$dir/scripts/"
+  mkdir -p "$dir/scripts/release"
+  cp "$CHECKER" "$dir/scripts/release/"
   printf '%s\n' "$manifest" >"$dir/Cargo.toml"
 }
 
@@ -31,7 +31,7 @@ expect() {
   local fixture out rc
   fixture="$TMP/case-$PASS-$FAIL"
   new_fixture "$fixture" "$manifest"
-  out="$(cd "$fixture" && bash scripts/check-release-tag.sh "$tag" 2>&1)"
+  out="$(cd "$fixture" && bash scripts/release/check-release-tag.sh "$tag" 2>&1)"
   rc=$?
   if [ "$rc" -ne "$expected" ]; then
     FAIL=$((FAIL + 1))

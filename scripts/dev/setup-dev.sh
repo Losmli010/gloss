@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # 一键环境初始化：校验 Rust 工具链与配套工具、安装 git hooks。clone 后跑一次：
-#   ./scripts/setup-dev.sh   （或 just setup）
+#   ./scripts/dev/setup-dev.sh   （或 just setup）
 # 原则：硬失败只留给「没有 Rust 什么都干不了」这一件事；其余缺失只提示安装
 # 命令，不替用户做全局安装。全部幂等，重复跑无副作用。
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 # CI 与 release workflow 钉住的工具链版本（dtolnay/rust-toolchain@<该版本>），
