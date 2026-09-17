@@ -41,7 +41,6 @@
 - **质量门禁**：`just check`（fmt + clippy + test + 约束 + 密钥扫描），CI 在 PR 上强制通过。
 - **依赖更新**：Dependabot 每周自动检查 cargo 与 GitHub Actions 依赖。
 - **变更日志**：由 git-cliff 从提交历史自动生成（`just changelog`）。
-- **参与开发**：环境初始化、分支与提交流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## License
 
