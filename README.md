@@ -27,6 +27,7 @@
 
 - [x] 技术方案选型（纯 Rust + WebGPU + egui）
 - [x] UI 设计与品牌命名
+- [x] 应用图标（方案 A「划·译」：打包 .icns + 开发期 Dock 图标，见 `assets/icons/`）
 - [x] CI/CD 基建（justfile + GitHub Actions + Dependabot + git-cliff）
 - [x] M1 渲染闭环（winit + wgpu + egui 最小浮层窗口）
 - [x] M2 划词取材（选区读取 + 鼠标手势 + 热键）

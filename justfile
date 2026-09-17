@@ -70,6 +70,11 @@ deps:
 setup:
     ./scripts/dev/setup-dev.sh
 
+# 重建应用图标产物（assets/icons/Gloss.icns 与 Dock 图标 PNG）；
+# 换 Logo 方案或调色后跑一次，改动矢量源后务必重跑
+icons:
+    ./scripts/dev/build-app-icon.sh
+
 # ---- ci：需要编译的质量门禁（本地与 CI 共用同一配方）----
 
 # 格式化检查

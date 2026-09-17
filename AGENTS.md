@@ -32,6 +32,7 @@ gloss/
 ```bash
 just install-hooks     # clone 后执行一次，安装本地 git hooks
 just setup             # clone 后环境初始化：工具链校验 + 可选工具清点 + git hooks（幂等）
+just icons             # 重建应用图标产物（assets/icons：.icns 与 Dock 图标 PNG）
 just run               # 运行开发版
 just logs              # 跟随最新日志文件（~/.gloss/logs）
 just logs-dir          # 打印日志目录
