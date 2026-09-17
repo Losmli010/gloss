@@ -29,15 +29,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Run release tag checker unit tests
+        run: bash scripts/release/check-release-tag.test.sh
+
       - name: Verify version consistency
         id: version
         run: |
           # 与本地 just release-check 共用同一脚本（版本单点在根 Cargo.toml [workspace.package]）
           ./scripts/release/check-release-tag.sh "${GITHUB_REF_NAME}"
           echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Run release tag checker unit tests
-        run: bash scripts/release/check-release-tag.test.sh
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.96.1
