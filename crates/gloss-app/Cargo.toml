@@ -65,7 +65,7 @@ winit = { version = "0.30.13", default-features = false, features = [
     "rwh_06",
 ] }
 # 系统字体发现（M1-T5）：查系统 CJK 字体接进 egui 后备链。
-# 不用默认特性：默认集含 fs 相关探索能力，查系统字体只用 source + 加载，按需最小化。
+# font-kit 0.14 的默认集即 source，照写 default-features = false 以维持统一写法。
 font-kit = { version = "0.14", default-features = false, features = ["source"] }
 
 [dev-dependencies]
@@ -77,6 +77,8 @@ tokio = { version = "1", default-features = false, features = [
     "time",
 ] }
 # L2 浮层 harness 测试：AccessKit 树查询/点击 + wgpu 渲染快照（snapshot）。
+# 上游 wgpu 特性硬编码启用 wgpu 的 dx12/vulkan/gles（特性只加不减），测试
+# 构建因此含全部后端，无法从本仓库收窄。
 egui_kittest = { version = "0.36", default-features = false, features = [
     "snapshot",
     "wgpu",

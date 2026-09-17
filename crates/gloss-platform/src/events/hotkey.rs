@@ -1,11 +1,12 @@
 //! 全局热键事件源：注册 → global-hotkey 全局事件队列 → 事件线程转发。
 //!
-//! 线程约束：manager 必须创建在泵系统消息的主线程——后端要求主线程跑
-//! NSApp 事件循环（winit 所在线程），`Drop` 清理同样亲和创建线程。注册后
-//! 的按键事件走 global-hotkey 自己的全局 crossbeam 队列，任意线程可消费
-//! ——平台事件线程经 [`HotkeyPump`] 抽干转发，主线程约束不影响其余事件
-//! 源。因此组装点必须把 registrar 放在主线程创建、只把 pump 下发事件线
-//! 程；在事件线程里创建 registrar 会让热键静默全灭（无错误无日志）。
+//! 线程约束：manager 必须创建在泵系统消息的主线程——后端的 Carbon 事件
+//! 注册要求主线程跑 NSApp 事件循环（winit 所在线程），`Drop` 清理同样亲
+//! 和创建线程。注册后的按键事件走 global-hotkey 自己的全局 crossbeam 队
+//! 列，任意线程可消费——平台事件线程经 [`HotkeyPump`] 抽干转发，主线程约
+//! 束不影响其余事件源。因此组装点必须把 registrar 放在主线程创建、只把
+//! pump 下发事件线程；脱离主线程创建会让事件分发落不到在跑的事件循环上，
+//! 表现为热键不可用。
 //!
 //! 绑定来自配置（M4-T7）：registrar 启动时按 `Config::hotkey_bindings` 建表，
 //! 设置页保存后经 [`HotkeyBinder`] 端口重绑定。**重绑定同样必须在主线程
@@ -499,6 +500,11 @@ mod tests {
             .values()
             .map(|b| b.trigger.clone())
             .collect();
+        assert_eq!(
+            seen.len(),
+            1,
+            "the rebound table holds exactly the new binding"
+        );
         assert!(
             seen.iter().all(|trigger| trigger == "Cmd+Alt+Ctrl+F9"),
             "pump must read the rebound table, got {seen:?}"

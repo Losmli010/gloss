@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   # 快速静态门禁：格式 + 密钥扫描 + 文档引用 + 约束。全部是纯文本检查、
-  # 不编译代码，放在 Linux runner 上跑得最快且最省。
+  # 不编译代码，放在 ubuntu runner 上跑得最快且最省。
   quality:
     name: Quality (fmt + secrets + docs + constraints)
     runs-on: ubuntu-latest

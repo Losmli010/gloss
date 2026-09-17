@@ -84,7 +84,7 @@ test:
     cargo test --workspace --all-features
 
 # L3 显隐自检：100 轮浮层显隐 + 首帧延迟预算（需要窗口服务与 GPU）。
-# harness=false 的自检不是普通单测，不随 test 配方一起跑。
+# harness=false 的独立测试目标会随 just test（cargo test）一起执行，此配方供单独运行。
 selftest:
     cargo test -p gloss --test overlay_selftest
 

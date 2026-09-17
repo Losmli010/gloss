@@ -1,7 +1,8 @@
 //! 平台事件线程：全局热键、鼠标监听等系统事件源的唯一宿主（08 §7.2）。
 //!
 //! 事件线程必须是 RunLoop 线程而非裸 `std::thread`：线程宿主为 CFRunLoop，
-//! 事件源（定时器与后续 CGEventTap source）都挂同一 run loop。取材命令
+//! 以周期定时器抽干各事件源；鼠标 tap 这类自带 run loop 的源在自己的监听
+//! 线程上运行、产物经通道汇入（见 events/mouse.rs）。取材命令
 //! （通道②）与系统事件在同一线程顺序消费，天然串行无锁。消息类型由组装点
 //! 注入——platform 不依赖 gloss-app 的通道类型，测试用本地桩类型即可驱动
 //! 整条循环。
@@ -211,8 +212,8 @@ where
 }
 
 /// 事件线程的驱动：RunLoop 不能阻塞在 crossbeam 上（08 §7.2），挂一个周期
-/// 定时器执行与 [`tick`] 相同的一轮消费；后续 CGEventTap 等事件源也挂同一
-/// run loop。
+/// 定时器执行与 [`tick`] 相同的一轮消费；鼠标 tap 等自带 run loop 的源在
+/// 各自线程上运行，产物经通道汇入由这里抽干（见 events/mouse.rs）。
 fn run_loop<C, E, P, F>(
     commands: Receiver<C>,
     sink: EventSink<E, P>,

@@ -268,8 +268,8 @@ fn selfcheck_body(ui: &mut egui::Ui) {
 #[cfg(test)]
 mod kittest_tests {
     //! L2 浮层 harness 测试：真实 `draw` 喂 `OverlayView` 序列，经
-    //! AccessKit 树断言内容、模拟点击复制按钮；快照对比仅 macos 门控
-    //! （跨平台渲染差异，见仓库根 kittest.toml）。
+    //! AccessKit 树断言内容、模拟点击复制按钮；快照对比阈值见仓库根
+    //! kittest.toml。
 
     use std::cell::RefCell;
     use std::rc::Rc;

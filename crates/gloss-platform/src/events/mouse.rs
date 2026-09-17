@@ -229,6 +229,13 @@ mod tap {
         }
     }
 
+    /// 测试缝隙：把生产侧订阅掩码暴露给回归测试（tests 直接断言它的返回
+    /// 值），避免测试自算掩码与生产实现分叉。
+    #[cfg(test)]
+    pub(super) fn subscribed_mask() -> u64 {
+        imp::subscribed_mask()
+    }
+
     /// 自建只订阅左键的 CGEventTap。
     ///
     /// 不用 rdev 的 `listen`：它的 tap 订阅 `kCGEventMaskForAllEvents`，键盘事件
@@ -292,7 +299,7 @@ mod tap {
 
         /// 订阅掩码：由共享的 [`SUBSCRIBED_EVENT_TYPES`] 推出——掩码不另写一份，
         /// 否则键盘事件会从两处口径的缝隙里回来（代价见模块注释）。
-        fn subscribed_mask() -> u64 {
+        pub(super) fn subscribed_mask() -> u64 {
             SUBSCRIBED_EVENT_TYPES
                 .iter()
                 .fold(0, |mask, (raw, _)| mask | (1_u64 << raw))
@@ -496,11 +503,9 @@ mod tests {
         ] {
             assert_eq!(classify(raw), None, "type {raw} must never be handled");
         }
-        // 掩码按生产侧的同一定义算出（见 imp 的 `subscribed_mask`）：键盘位
-        // 必须一位不置，除左键两位外没有别的位。
-        let mask = SUBSCRIBED_EVENT_TYPES
-            .iter()
-            .fold(0_u64, |mask, (raw, _)| mask | (1 << raw));
+        // 掩码断言直接对准生产侧的订阅掩码（经 [`tap::subscribed_mask`] 测试
+        // 缝隙，唯一出处）：键盘位必须一位不置，除左键两位外没有别的位。
+        let mask = tap::subscribed_mask();
         assert_eq!(
             mask,
             (1 << CG_EVENT_LEFT_MOUSE_DOWN) | (1 << CG_EVENT_LEFT_MOUSE_UP)
@@ -532,8 +537,9 @@ mod injected_gesture_live_tests {
     /// 验收：辅助功能授权下，注入的拖拽序列（按下→移动→释放）经真实
     /// 系统 tap 被监听并判定为划词手势；监听器未降级。
     ///
-    /// 判定的位移来自注入的按下与释放事件各自的坐标：`simulate(MouseMove)`
-    /// 会把光标移过去，因此按下点与释放点之间确有位移（真实拖拽同理）。
+    /// 判定的位移来自注入的按下与释放事件各自的坐标：先把光标移到已知起
+    /// 点再按下，保证按下点 (100,100) 与释放点 (400,300) 之间确有位移
+    /// （真实拖拽同理）。
     #[test]
     #[ignore = "注入真实全局鼠标事件：先把运行测试的终端 App 加入 系统设置→隐私与安全性→辅助功能（未授权时由 live_test_support 快速失败）"]
     fn injected_drag_yields_selection_gesture() {
@@ -541,7 +547,9 @@ mod injected_gesture_live_tests {
         let (source, degraded) = MouseSource::spawn();
         let mut source = source.expect("tap must start under accessibility grant");
 
-        // 拖拽：按下 (100,100)，分五段移动到 (400,300)，释放。
+        // 拖拽：先移到 (100,100) 再按下（按下事件自带当时坐标），分五段
+        // 移动到 (400,300)，释放。
+        rdev::simulate(&EventType::MouseMove { x: 100.0, y: 100.0 }).expect("move injection");
         rdev::simulate(&EventType::ButtonPress(Button::Left)).expect("button press injection");
         for step in 1..=5 {
             rdev::simulate(&EventType::MouseMove {

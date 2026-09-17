@@ -18,10 +18,8 @@ jobs:
         include:
           - target: x86_64-apple-darwin
             os: macos-latest
-            format: osx
           - target: aarch64-apple-darwin
             os: macos-latest
-            format: osx
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -57,8 +55,7 @@ jobs:
       - name: Bundle
         run: cargo bundle --release --target ${{ matrix.target }} --format osx
 
-      - name: Ad-hoc sign (macOS)
-        if: matrix.os == 'macos-latest'
+      - name: Ad-hoc sign
         run: |
           # 用 ad-hoc 签名替代正式的 Developer ID 签名（免费，无需证书）。
           # 用户首次打开需右键 → 打开，绕过 Gatekeeper。

@@ -130,7 +130,7 @@ fn run_event_loop(
     // 事件线程永远看不到 Disconnected，run_app 返回后会卡死在 join。
     drop(acquire_tx);
 
-    // 热键 registrar 必须创建在主线程（后端的消息泵投递与 Drop 清理亲和
+    // 热键 registrar 必须创建在主线程（后端的事件注册与 Drop 清理亲和
     // 创建线程，见 hotkey.rs 模块注释），并存活至进程退出。
     // 绑定取自启动时那份配置快照（M4-T7）：出厂默认与设置页改的是同一份
     // 表，本文件不再有第二份写死的默认。

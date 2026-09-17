@@ -7,7 +7,9 @@ description = "Gloss 适配器层：实现 gloss-core 端口 + 平台事件源"
 
 [dependencies]
 # 剪贴板兜底读取（模拟复制）的原文保存/恢复。不用默认特性：默认集含
-# image-data（拖进整条 image 依赖树）与各平台的后端变体，文本能力不需要。
+# image-data（拖进整条 image 依赖树）与各平台的后端变体，文本能力不需要
+# ——注意 egui-winit 的 clipboard 特性仍会经 image-data 把 image 子树拉进
+# 构建图，此处关闭只约束本 crate 的直接声明。
 arboard = { version = "3", default-features = false }
 # 事件线程消费通道②、转发①④，与 gloss-app::channel 的选型一致用 crossbeam。
 # std 是默认集的全部内容，显式写出以维持「关默认集、按需开特性」的统一写法。

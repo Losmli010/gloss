@@ -388,8 +388,8 @@ fn source_label(source: &InputSource) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    //! 草稿逻辑单测 + L2 kittest 渲染与交互（AccessKit 树断言）；快照仅
-    //! macos 门控，基线与其他 harness 合并进同一个 SnapshotResults。
+    //! 草稿逻辑单测 + L2 kittest 渲染与交互（AccessKit 树断言）；快照
+    //! 基线与其他 harness 合并进同一个 SnapshotResults。
 
     use std::cell::RefCell;
     use std::rc::Rc;
