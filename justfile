@@ -126,7 +126,7 @@ build-release:
 # ---- 发布打包（当前架构，macOS）----
 
 # ad-hoc 签名免费可跑，用户首次打开需右键 → 打开；上 Developer ID 后把
-# codesign - 换成正式身份并接 notarytool（见 docs/05 决策点 2）。
+# codesign - 换成正式身份并接 notarytool（当前 ad-hoc，正式签名待 Developer ID）。
 # 流程：release 构建 → cargo bundle 出 .app → ad-hoc 签名 → 压 .dmg
 package-macos: build-release
     #!/usr/bin/env bash

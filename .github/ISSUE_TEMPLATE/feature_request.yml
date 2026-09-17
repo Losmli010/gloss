@@ -4,7 +4,7 @@ labels: [enhancement]
 body:
   - type: markdown
     attributes:
-      value: 提交前请先搜索现有 issue；里程碑规划见 `docs/09-开发计划.md`，先看是不是已在计划内。
+      value: 提交前请先搜索现有 issue，避免重复；开发计划内的方向会标注对应里程碑。
   - type: textarea
     id: scenario
     attributes:
