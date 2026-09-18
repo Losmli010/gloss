@@ -22,14 +22,11 @@ gloss/
 
 ## 架构速览
 
-- **取材链路**：平台事件线程读取选区或截图，产物经 `Event::InputReady` 回到主线程；由主线程组装 `Task` 下发 tokio 推理，因此过期任务的取材产物不会触发推理。
-- **四线程**：主线程（winit 事件循环 + UI）/ 平台事件线程（NSRunLoop：热键与取材，有线程亲和性要求）/ 鼠标监听线程（`gloss-mouse-tap`：全局事件 tap 的回调是阻塞式的，且 panic 穿过它的 C 回调会 abort 进程，故单独一条线程收口；**macOS 用自建 CGEventTap 只订阅左键按下/释放**——订阅面必须窄，因为把按键翻成字符要调要求主线程的 TSM/HIToolbox，回调跑在监听线程上会以 SIGILL 打死整个进程）/ tokio 后台（网络与缓存）。
-- **四通道**：① `PlatformEvent`（事件线程 → 主）② `AcquireCommand`（主 → 事件线程）③ `Command`（主 → tokio，mpsc）④ `Event`（流式回传 → 主）。请求代数 `gen` 一律由 App 赋值，用于丢弃陈旧响应；取消统一走 `CancellationToken`。
-- **任务化 AI 层**：`TaskKind`（单词/句子翻译、代码解释、图片 OCR、图片解释）+ `TaskInput`（文本 / 图像，语音为预留模态）→ 统一的 `AiEngine`，不按模态拆分客户端。
+- **四线程**：主线程（winit 事件循环 + UI）、平台事件线程（NSRunLoop：热键与取材，有线程亲和性要求）、鼠标监听线程（`gloss-mouse-tap`：全局事件 tap 在此收口）、tokio 后台（网络与缓存）。鼠标 tap 的回调是阻塞式的，panic 穿过其 C 回调会 abort 进程；**CGEventTap 只订阅左键按下/释放**——把按键翻成字符要调主线程专属的 TSM/HIToolbox，回调跑在监听线程上会以 SIGILL 打死进程，订阅面必须窄。
+- **四通道**：① `PlatformEvent`（事件线程 → 主）② `AcquireCommand`（主 → 事件线程）③ `Command`（主 → tokio）④ `Event`（流式回传 → 主）。代数 `gen` 由 App 赋值以丢弃陈旧响应；取消统一走 `CancellationToken`。
+- **任务化 AI 层**：`TaskKind` + `TaskInput` → 统一的 `AiEngine`，不按模态拆分客户端。
 
 ## 常用命令
-
-完整清单用 `just --list` 查看（含 watch / coverage / selftest / audit / deny / miri / changelog 等不常用配方）；下面是高频配方，描述与 justfile 一致：
 
 ```bash
 just install-hooks     # 安装本地 git hooks（clone 后运行一次）
