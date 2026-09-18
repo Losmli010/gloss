@@ -35,9 +35,8 @@ pub enum UserEvent {
 
 /// 唤醒主线程的句柄：事件线程与 tokio 各持一份 clone。
 ///
-/// 用 `EventLoopProxy` 而不是让主线程 `try_recv` 轮询（08 §7.3）：轮询只能在
-/// winit 因别的事件醒来时顺带取消息，空闲时最坏延迟一帧，且要求主线程周期性
-/// 空转；代理唤醒由发送方立即触发，无消息时主线程可以一直睡。
+/// 推送式唤醒而非主线程轮询（08 §7.3）：发送方立即触发，无消息时主线程
+/// 可以一直睡。
 #[derive(Clone, Debug)]
 pub struct Waker(EventLoopProxy<UserEvent>);
 
@@ -51,18 +50,18 @@ impl Waker {
 /// 启动事件循环，直到退出才返回。
 ///
 /// `endpoints` 是 App 侧通道端点（① 收平台事件、② 发取材命令、③ 发推理
-/// 任务、④ 收回传事件），由组装点拆出移交；`config` 是运行时配置句柄
-/// （M4-T3），在每一批平台事件的起手处取一份快照交给状态机（见
-/// [`GlossApp::drain_platform_events`]）——配置热更新因此无需重启，也不必
-/// 给 App 传配置存储；`store` 是配置存储的文档+密钥组合体，设置页（M4-T6）
-/// 经它写 keychain（密钥不经快照，也不进句柄）。
+/// 任务、④ 收回传事件），由组装点拆出移交；`config` 是运行时配置句柄，
+/// 在每一批平台事件的起手处取一份快照交给状态机（见
+/// [`GlossApp::drain_platform_events`]），配置热更新因此无需重启；`store`
+/// 是配置存储的文档+密钥组合体，设置页经它写 keychain（密钥不经快照，
+/// 也不进句柄）。
 ///
 /// `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
 ///
-/// `hotkeys` 是热键重绑定端口（M4-T7）：适配器在组装点创建（主线程亲和），
-/// 设置页保存后由 App 直接调用。`auto_show` 与 `theme` 两个配置项也在本
-/// 任务接线（前者决定浮层何时自动露面，后者施加到两个 egui 上下文）。
+/// `hotkeys` 是热键重绑定端口：适配器在组装点创建（注册有主线程亲和），
+/// 设置页保存后由 App 直接调用。`auto_show` 决定浮层何时自动露面，
+/// `theme` 施加到两个 egui 上下文（见 [`GlossApp::apply_theme`]）。
 pub fn run(
     endpoints: AppEndpoints,
     config: Arc<ConfigHandle>,
@@ -646,11 +645,10 @@ impl GlossApp {
     }
 
     /// 自动隐藏到点：收起浮层并回落 Idle。推理中（Translating）不被自动
-    /// 隐藏掐断——隐藏即放弃（T8），推理超过时限会让浮层在转圈时凭空消
-    /// 失、任务静默作废；因此只顺延到下一周期，等 TaskDone/TaskFailed 重
-    /// 锚计时（accept_done / 重试路径）后再正常收起。用状态而非取消令牌
-    /// 判「在途」：令牌在 done 后仍残留（Show 态），状态是精确信号。Esc/
-    /// 点击外部等显式隐藏不走此路径，仍立即放弃。
+    /// 隐藏掐断——隐藏即放弃（T8），转圈时凭空消失会让任务静默作废，故只
+    /// 顺延计时，等 TaskDone/TaskFailed 重锚后再正常收起。用状态而非取消
+    /// 令牌判「在途」：令牌在 done 后仍残留，状态是精确信号。Esc/点击外部
+    /// 等显式隐藏不走此路径，仍立即放弃。
     fn on_auto_hide(&mut self, _event_loop: &ActiveEventLoop) {
         if self.machine.state() == AppState::Translating {
             self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
@@ -672,8 +670,8 @@ impl GlossApp {
 
 /// 浮层居中于显示器（逻辑坐标）：优先窗口当前所在的显示器，其次主显示器。
 ///
-/// winit 0.30 没有全局光标位置读取接口，「跟随鼠标所在屏幕」需等 M2 的
-/// 平台端口提供光标坐标后由调用方指定目标显示器。
+/// winit 没有全局光标位置读取接口，「跟随鼠标所在屏幕」要等平台端口提供
+/// 光标坐标后由调用方指定目标显示器。
 pub fn centered_position(
     event_loop: &ActiveEventLoop,
     windows: &WindowManager,
