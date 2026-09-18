@@ -577,6 +577,7 @@ mod tests {
 #[cfg(test)]
 mod live_tests {
     use std::ffi::{CStr, c_void};
+    use std::sync::Mutex;
 
     use arboard::Clipboard;
     use core_foundation_sys::base::{CFIndex, CFRelease, CFTypeRef, kCFAllocatorDefault};
@@ -587,6 +588,13 @@ mod live_tests {
 
     use super::imp::ClipboardFallbackReader;
 
+    /// 两个 live 剪贴板测试共用「系统剪贴板」这一全局资源，libtest 默认
+    /// 并行执行：一边的 Pasteboard 写入与另一边的 arboard 读写在真机上撞
+    /// 并发时，NSPasteboard 会抛 NSException 穿过 Rust 帧，把整个测试
+    /// 二进制 abort 掉（CI 实测）。互斥串行是唯一正确做法；锁中毒时照常
+    /// 继续另一条测试，不让前一条的失败放大。
+    static CLIPBOARD_LIVE_LOCK: Mutex<()> = Mutex::new(());
+
     /// 自动化验收（08 §7.1）：预置剪贴板内容 → 兜底读取（成败皆可，验收
     /// 点是恢复）→ 断言原内容完整恢复。
     ///
@@ -594,6 +602,9 @@ mod live_tests {
     /// 被系统忽略，走 2s 超时路径；本机运行会短暂打断当前焦点应用。
     #[test]
     fn fallback_read_restores_original_clipboard() {
+        let _clipboard = CLIPBOARD_LIVE_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut clipboard = Clipboard::new().expect("clipboard should be available");
         let preset = format!("gloss-restore-{}", std::process::id());
         clipboard.set_text(preset.clone()).expect("preset text");
@@ -611,6 +622,9 @@ mod live_tests {
     /// 后两种 flavor 的字节原样保留。
     #[test]
     fn fallback_read_preserves_multiflavor_clipboard() {
+        let _clipboard = CLIPBOARD_LIVE_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let preset_text = "gloss-multiflavor-preset";
         let custom_flavor: &CStr = c"org.gloss.test.multiflavor";
         let payload = b"\x00\x01\xfe\xff preset payload";
