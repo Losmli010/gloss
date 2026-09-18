@@ -1,10 +1,9 @@
 //! 剪贴板兜底读取（模拟复制）：`ClipboardFallbackReader`。
 //!
 //! AX 读不到选区时的兜底通道：快照剪贴板全部条目与 flavor 原始字节 →
-//! 注入 Cmd+C → 确认目标应用写入 → 读回 → 原样恢复。只有能完整快照原
-//! 内容才注入，拿不全即整体放弃（宁可失败也不冒无法恢复的风险）；恢复
-//! 以写入确认为界，过早恢复会被应用的迟到写入覆盖。纯时序逻辑在
-//! [`wait_for_write`]（单测覆盖），系统 API 交互归 `imp` 模块。
+//! 注入 Cmd+C → 轮询确认目标应用写入 → 读回 → 按快照恢复。快照拿不全
+//! 即整体放弃、不注入；未确认时重注入一轮再等一个完整超时窗口。纯时序
+//! 逻辑在 [`wait_for_write`]（单测覆盖），系统 API 交互归 `imp` 模块。
 
 use std::time::{Duration, Instant};
 
@@ -122,8 +121,7 @@ mod imp {
         }
     }
 
-    /// 按名构造 CFString：属性/名称常量在现行系统已不导出数据符号（见
-    /// accessibility.rs），改用稳定字符串值。返回 +1 引用，交给守卫释放。
+    /// 按名构造 CFString：返回 +1 引用，交给守卫释放。
     ///
     /// # Safety
     ///
@@ -137,8 +135,7 @@ mod imp {
         (!s.is_null()).then_some(s)
     }
 
-    /// 打开的系统粘贴板：引用与名称字符串一并用守卫释放（Create 对名称的
-    /// 所有权约定未文档化，保守保活到引用销毁）。
+    /// 打开的系统粘贴板：引用与名称字符串一并用守卫释放。
     struct OpenPasteboard {
         raw: PasteboardRef,
         _name: CfGuard,
@@ -219,8 +216,7 @@ mod imp {
     struct SavedContent(Vec<SavedItem>);
 
     /// 待执行的恢复：`read()` 的一切退出路径（正常返回、`?` 上抛、panic
-    /// 展开）都经 Drop 收口，未显式跳过即按快照恢复原剪贴板——注入之后
-    /// 无论怎么退出，都不能把选区滞留在用户剪贴板里。
+    /// 展开）都经 Drop 收口，未显式跳过即按快照恢复原剪贴板。
     struct PendingRestore {
         saved: SavedContent,
         skip: bool,
@@ -262,7 +258,7 @@ mod imp {
                     return Err(GlossError::SelectionUnavailable);
                 }
             };
-            // 快照失败直接上抛：尚未注入，剪贴板未被触碰，无需恢复。
+            // 快照失败直接上抛：尚未注入，剪贴板未被触碰。
             let Some(saved) = snapshot_pasteboard() else {
                 debug!(
                     thread = thread::EVENT,
@@ -275,8 +271,8 @@ mod imp {
             let mut pending = PendingRestore { saved, skip: false };
             let outcome = self.attempt(&mut clipboard);
             if let Ok(acquired) = &outcome {
-                // 窗口期用户可能自行复制过：现值仍是我们刚读到的文本才恢复，
-                // 无条件恢复会清掉用户的新拷贝。
+                // 窗口期内剪贴板可能已被再次改动：现值仍是我们刚读到的
+                // 文本才恢复。
                 let current_is_ours =
                     matches!(clipboard.get_text(), Ok(current) if &current == acquired);
                 if !current_is_ours {
@@ -305,8 +301,6 @@ mod imp {
             let mut deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
             let mut confirmed = wait_for_write(baseline, || Some(monitor.generation()), deadline);
             if !confirmed {
-                // 首发注入偶发不被系统送达（注入调用本身返回成功）；此刻
-                // 选区未动，重注入一次没有副作用。
                 debug!(
                     thread = thread::EVENT,
                     "copy write not confirmed, retrying injection once"
@@ -322,8 +316,7 @@ mod imp {
                 );
                 return Err(GlossError::SelectionUnavailable);
             }
-            // 应用写粘贴板是 clear → setData 序列，轮询可能落在半写入间隙：
-            // 读到空不等于失败，继续轮询到 deadline 再收口。
+            // 读到空/读失败不等于失败，继续轮询到 deadline 再收口。
             loop {
                 if let Ok(text) = clipboard.get_text()
                     && !text.is_empty()
@@ -453,9 +446,8 @@ mod imp {
     }
 
     /// 把快照原样写回：先为全部 flavor 预建 CFData（任一失败即整体放弃，
-    /// 此时粘贴板尚未被触碰），全部就绪后才 Clear + 逐条 Put——杜绝「已
-    /// 清空、半恢复」把用户原内容永久丢掉。失败留 debug 痕并返回 `false`
-    /// （恢复是 best-effort，不决定主结果）。
+    /// 此时粘贴板尚未被触碰），全部就绪后才 Clear + 逐条 Put。失败留
+    /// debug 痕并返回 `false`（恢复是 best-effort，不决定主结果）。
     fn restore_pasteboard(saved: &SavedContent) -> bool {
         let Some(pb) = open_pasteboard() else {
             debug!(thread = thread::EVENT, "pasteboard unavailable for restore");
@@ -520,8 +512,7 @@ mod imp {
     }
 
     /// 注入复制快捷键：修饰键按下 → C 按下/释放 → 修饰键释放。任何一步
-    /// 失败即放弃；若修饰键已按下而后续步骤失败，补发配对释放，避免前台
-    /// 应用停留在孤立的按下态（菜单栏高亮、快捷键半生效）。
+    /// 失败即放弃；若修饰键已按下而后续步骤失败，补发配对释放。
     fn inject_copy_key() -> Result<(), GlossError> {
         let sequence = [
             EventType::KeyPress(COPY_MODIFIER),
@@ -611,8 +602,8 @@ mod live_tests {
     use super::imp::ClipboardFallbackReader;
 
     /// 本模块所有触碰系统剪贴板的测试（含 `--include-ignored` 下的手动
-    /// 测试）首行都取这把锁：并发读写会以 NSException abort 整个测试
-    /// 二进制（CI 实测）。锁中毒照常继续，不让前一条失败放大。
+    /// 测试）首行都取这把锁，互斥串行；锁中毒照常继续，不让前一条失败
+    /// 放大。
     static CLIPBOARD_LIVE_LOCK: Mutex<()> = Mutex::new(());
 
     /// 自动化验收（08 §7.1）：预置剪贴板内容 → 兜底读取（成败皆可，验收
@@ -621,8 +612,7 @@ mod live_tests {
     /// 注意：本测试会覆写本机系统剪贴板，并向前台应用注入一次 Cmd+C（CI
     /// 无授权时注入被忽略、走 2s 超时路径）。
     ///
-    /// 形态：需要真实粘贴板但不需要辅助功能授权——无授权时注入被忽略、
-    /// 验收点是恢复而非读取成功，故不设 `#[ignore]` 与
+    /// 形态：需要真实粘贴板但不需要辅助功能授权，不设 `#[ignore]` 与
     /// `require_accessibility`，随 `just test` 在 CI 常跑。
     #[test]
     fn fallback_read_restores_original_clipboard() {
