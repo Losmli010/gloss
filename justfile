@@ -15,8 +15,6 @@ default:
     @just --list
 
 # 行覆盖率下限：低于该值即失败（本地 just coverage 与 CI 的 coverage job 共用）
-# M3 分层测试（状态机抽出 + pipeline/popup 集成与 harness 测试）落地后，
-# 总量实测 81%，35 的临时值还账调回 70。
 coverage_min := "70"
 
 # ---- dev：本地开发与构建 ----
@@ -85,8 +83,7 @@ fmt:
 fmt-fix:
     cargo fmt --all
 
-# TOML 格式检查（tombi --check 只校验不落盘；自动修复用 fmt-toml-fix）。
-# CI 的 tombi 钉 1.5.5，本地版本以接近为佳。
+# TOML 格式检查（tombi --check 只校验不落盘；自动修复用 fmt-toml-fix）
 fmt-toml:
     tombi format --check $(git ls-files '*.toml')
 
@@ -94,8 +91,7 @@ fmt-toml:
 fmt-toml-fix:
     tombi format $(git ls-files '*.toml')
 
-# TOML 语法与 schema lint（不带 --error-on-warnings：根 Cargo.toml 现有 6 条
-# 「表格乱序」风格 warning 待整理，error 级仍会失败）
+# TOML 语法与 schema lint（不带 --error-on-warnings，error 级仍会失败）
 lint-toml:
     tombi lint $(git ls-files '*.toml')
 
@@ -136,13 +132,7 @@ audit:
 deny:
     cargo deny check
 
-# Miri 未定义行为检测（需 nightly 与 miri 组件）。只覆盖 gloss-core 纯逻辑层：
-# Miri 解释执行 MIR、无法执行 FFI，平台层（macOS 框架）与渲染层（wgpu/egui）跑不了。
-# 两处实测裁剪（2026-09-17）：
-# - --skip cache:: / engine::：moka 背后的 crossbeam-epoch 指针技巧在 Miri 的
-#   Stacked Borrows 下报 UB（tree-borrows 更糟），凡经 MokaCache 的测试整体排除；
-# - -Zmiri-disable-isolation：放行 config 落盘类测试的文件/环境访问，内存 UB 检测不变。
-# CI 的 sanitizers.yml 跑同一条配方（nightly；上游只对最新 nightly 测试，挂了先升 nightly）
+# Miri 未定义行为检测（需 nightly 与 miri 组件）。只覆盖 gloss-core 纯逻辑层
 miri:
     MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine::
 
@@ -151,14 +141,11 @@ check: constraints agents-doc fmt fmt-toml lint lint-toml test secrets
     @echo "✓ 质量门禁全部通过"
 
 # 提交前门禁：约束检查 + 文档引用校验 + 格式化 + Clippy + 密钥扫描（pre-commit 用）
-# 不含 test：测试由 CI 跑，本地提交不必等编译测试
 precommit: constraints agents-doc fmt fmt-toml lint lint-toml secrets
     @echo "✓ 提交前检查通过（测试交给 CI）"
 
 # ---- release：发布链（CI 的 release.yml 用同一批脚本）----
 
-# ad-hoc 签名免费可跑，用户首次打开需右键 → 打开；上 Developer ID 后把
-# codesign - 换成正式身份并接 notarytool（当前 ad-hoc，正式签名待 Developer ID）。
 # 流程：release 构建 → cargo bundle 出 .app → ad-hoc 签名 → 压 .dmg
 package-macos: build-release
     #!/usr/bin/env bash
@@ -193,8 +180,7 @@ secrets:
     ./scripts/hooks/check-secrets.sh
 
 # AGENTS.md 引用一致性：文档里提到的每个 just 配方 / 仓库路径 / 测试目标必须真实
-# 存在（脚本同时被 CI 的 hook-checks job 复用）。指令文件是唯一会被逐次加载的文档，
-# 它描述的世界一旦过期，代理就照着错的信息干活。
+# 存在（脚本同时被 CI 的 hook-checks job 复用）
 agents-doc:
     ./scripts/hooks/check-agents-doc.sh
 

@@ -10,7 +10,7 @@ license.workspace = true
 [package.metadata.bundle]
 name = "Gloss"
 identifier = "io.github.losmli010.gloss"
-# 应用图标（方案 A「划·译」）。产物进仓库，重建用 just icons
+# 应用图标。产物进仓库，重建用 just icons
 # （矢量源与生成脚本见 assets/icons/README.md 与 scripts/dev/build-app-icon.sh）。
 icon = ["assets/icons/Gloss.icns"]
 category = "Utility"
@@ -32,12 +32,11 @@ license = "MIT"
 # （clippy.toml 的 allow-*-in-tests）。各 crate 以 [lints] workspace = true 继承。
 [workspace.lints.clippy]
 expect_used = "deny"
-# 长驻进程禁止 mem::forget 式泄漏（泄漏 Vec/Box 不触发 Drop，内存只增不减）。
+# 长驻进程禁止 mem::forget 式泄漏。
 mem_forget = "deny"
 panic = "deny"
 print_stderr = "deny"
-# 日志唯一出口是 gloss_core::log，绕过它 print 到 stdout/stderr 既丢结构化字段，
-# 也可能把敏感信息（API key 等）直接打出去；见 AGENTS.md 约束「日志统一出口」。
+# 日志唯一出口是 gloss_core::log；见 AGENTS.md 约束「日志统一出口」。
 print_stdout = "deny"
 todo = "deny"
 # unsafe 块必须带 `// SAFETY:` 注释说明不变量；允许有 unsafe，但不允许无据的 unsafe。
@@ -60,16 +59,14 @@ name = "overlay_selftest"
 
 [dependencies]
 gloss-app = { path = "crates/gloss-app" }
-# 生产不再需要 test-util（M4-T4 接了真实引擎，mock 装配已移除）：测试桩
-# 只出现在各 crate 的 dev-dependencies 构建里，不进发布二进制。
+# 测试桩只出现在各 crate 的 dev-dependencies 构建里，不进发布二进制。
 gloss-core = { path = "crates/gloss-core" }
 gloss-platform = { path = "crates/gloss-platform" }
 
 # 公共 API 必须有文档注释（AGENTS.md 约束「公共 API 有文档注释」）；文档里的示例
 # 由 cargo test --doc（just test 一部分）验证可编译可运行。
 [dev-dependencies]
-# L3 显隐自检（[[test]] overlay_selftest）直接驱动 winit 窗口栈：自带 main()
-# 的端到端测试目标不经测试收集器——winit 事件循环需要主线程。
+# L3 显隐自检（overlay_selftest）直接驱动 winit 窗口栈。
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
 
 [lints]
