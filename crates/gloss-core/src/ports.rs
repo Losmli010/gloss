@@ -152,6 +152,20 @@ pub trait HotkeyBinder {
     fn rebind(&self, bindings: &[HotkeyBinding]) -> usize;
 }
 
+/// 应用图标（端口）：把品牌图标交给平台外壳（Dock / 应用切换器）。
+///
+/// 与 [`HotkeyBinder`] 同为**降级端口**：安装失败（调用线程不对、系统拒绝、
+/// 字节解不出图）只让图标退回系统默认，不影响启动，因此**不返回错误**——
+/// 只回报是否设置成功，供调用方记一行日志定位。
+///
+/// 调用方保证：在**主线程**上调用，且晚于 winit 的 `EventLoop` 构建——
+/// macOS 的 `NSApplication` 单例在 `EventLoop::new` 之前访问不受支持
+/// （winit 的 macOS 平台文档明确要求 `sharedApplication` 放在其后）。
+pub trait AppIcon {
+    /// 用 PNG 字节安装应用图标；返回是否设置成功。
+    fn install(&self, png: &[u8]) -> bool;
+}
+
 /// 端口桩实现（测试辅助）：crate 内单测直接用，下游 crate 开 `test-util`
 /// 特性后可用（gloss-app 的 dev-dependencies 已开，L1 集成测试与 App 单测
 /// 靠它拿到配置存储桩）。

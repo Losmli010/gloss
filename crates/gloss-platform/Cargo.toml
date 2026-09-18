@@ -35,6 +35,37 @@ futures-core = { version = "0.3", default-features = false }
 # 注册/监听用不到。
 global-hotkey = { version = "0.8", default-features = false }
 gloss-core = { path = "../gloss-core" }
+# Dock 图标：非 bundle 运行（just run）时经 `NSApplication.setApplicationIconImage`
+# 装上品牌图标；bundle 运行走 .icns（见 assets/icons/），此调用以同设计 PNG 覆盖、
+# 视觉无差。三个绑定 0.6.4/0.3.2 系列本就在依赖树里（eframe/arboard/global-hotkey/
+# webbrowser 带进，objc2 与 objc2-foundation 另有 wgpu-hal；winit 自身钉在 0.5.x
+# 旧系列，双版本并存是既有事实），提为直接依赖不新增子树，版本对齐已有条目以免
+# 重复编译；特性只开用到的类。
+objc2 = {
+  version = "0.6.4",
+  default-features = false,
+  features = [
+    "std",
+  ]
+}
+# NSResponder 必须同开：NSApplication 的 objc2 定义整体被该特性门控
+# （sharedApplication 也在其门控的 impl 块里），缺了编译不过。
+objc2-app-kit = {
+  version = "0.3.2",
+  default-features = false,
+  features = [
+    "NSApplication",
+    "NSImage",
+    "NSResponder",
+  ]
+}
+objc2-foundation = {
+  version = "0.3.2",
+  default-features = false,
+  features = [
+    "NSData",
+  ]
+}
 # 兜底复制的按键注入与真机测试的事件注入（rdev::simulate）。不用默认特
 # 性：默认集只多出可选的 serde 支持，注入用不到。手势监听不走 rdev，缘由
 # 见 events/mouse.rs 模块注释。

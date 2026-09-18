@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Gloss 应用图标 — 划·译（macOS 规范画布）</title>
+  <desc>gloss-logo.svg 的 macOS 版：图形画布收敛为 824×824 居中、圆角 185.4，四周留 100px 透明边距（Big Sur 之后的应用图标规范，满幅方形在 Dock 里会显得比其它图标大一圈）。渲染命令见 scripts/dev/build-app-icon.sh（just icons）。</desc>
+  <defs>
+    <linearGradient id="gtile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4699E4"/>
+      <stop offset="1" stop-color="#2F7FD0"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185.4" fill="url(#gtile)"/>
+  <!-- 内容沿用设计稿的 1024 坐标系，整体等比缩到 824 画布（0.8046875 = 824/1024） -->
+  <g transform="translate(100 100) scale(0.8046875)">
+    <rect x="272" y="336" width="300" height="58" rx="29" fill="#FFFFFF" fill-opacity="0.55"/>
+    <rect x="272" y="440" width="480" height="74" rx="37" fill="#FFFFFF"/>
+    <path d="M 276 640 Q 512 688 748 618" fill="none" stroke="#EE7443" stroke-width="50" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -11,8 +11,9 @@ use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::log::{self, debug, error, info, thread, warn};
 use gloss_core::model::GlossError;
-use gloss_core::ports::{AiEngine, ConfigStore, HotkeyBinder};
+use gloss_core::ports::{AiEngine, AppIcon, ConfigStore, HotkeyBinder};
 use gloss_core::task::TaskInput;
+use gloss_platform::appearance::MacAppIcon;
 use gloss_platform::engine::llm::LlmClient;
 use gloss_platform::events::hotkey::HotkeyRegistrar;
 use gloss_platform::events::mouse::MouseSource;
@@ -21,6 +22,11 @@ use gloss_platform::selection::composite::CompositeReader;
 use gloss_platform::storage::CompositeConfigStore;
 
 type StartupResult = Result<(), Box<dyn Error>>;
+
+/// 开发期 Dock 图标：与打包用的 `assets/icons/Gloss.icns` 同一份设计的 PNG
+/// 版本（生成方式见 scripts/dev/build-app-icon.sh）。内嵌进二进制而非运行时
+/// 读盘——非 bundle 运行时没有资源目录可信（约 15 KB，值这个体积）。
+static DOCK_ICON_PNG: &[u8] = include_bytes!("../assets/icons/gloss-dock-icon.png");
 
 fn main() -> StartupResult {
     run()
@@ -41,6 +47,18 @@ fn init_logging() {
         |dir| dir.display().to_string(),
     );
     info!(thread = thread::UI, log_dir = %file, "gloss starting");
+}
+
+/// 装开发期 Dock 图标（非 bundle 运行时才有实际效果）。失败只降级记日志：
+/// 图标是外观，不该拦住启动——端口契约见 `gloss_core::ports::AppIcon`。
+fn install_app_icon() {
+    let icon: Box<dyn AppIcon> = Box::new(MacAppIcon::new());
+    if !icon.install(DOCK_ICON_PNG) {
+        warn!(
+            thread = thread::UI,
+            "dock icon not applied, keeping the system default"
+        );
+    }
 }
 
 /// 日志目录：`~/.gloss/logs`（与 justfile 的 logs 配方保持一致）。
@@ -145,6 +163,10 @@ fn run_event_loop(
     let mut command_runtime = None;
     let mut event_thread = None;
     let result = gloss_app::app::run(endpoints, config, store, hotkeys, |waker| {
+        // Dock 图标在这里装：macOS 的 NSApplication 单例只允许在 EventLoop
+        // 建好之后访问，而本回调是主线程上第一个满足该时机的点（app::run
+        // 建完 EventLoop 就回调它，早于任何窗口创建）。
+        install_app_icon();
         // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
         // 睡在事件循环里的主线程。运行时存活至 run_event_loop 结束——
         // App drop 关闭通道③后，消费循环自行退出。

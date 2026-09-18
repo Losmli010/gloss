@@ -10,7 +10,9 @@ license.workspace = true
 [package.metadata.bundle]
 name = "Gloss"
 identifier = "io.github.losmli010.gloss"
-icon = []
+# 应用图标（方案 A「划·译」）。产物进仓库，重建用 just icons
+# （矢量源与生成脚本见 assets/icons/README.md 与 scripts/dev/build-app-icon.sh）。
+icon = ["assets/icons/Gloss.icns"]
 category = "Utility"
 short_description = "划词翻译工具"
 long_description = "鼠标选中文字，即弹出 LLM 翻译结果。纯 Rust + egui + WebGPU 实现。"
