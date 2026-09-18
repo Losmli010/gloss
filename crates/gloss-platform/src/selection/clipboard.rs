@@ -1,23 +1,10 @@
 //! 剪贴板兜底读取（模拟复制）：`ClipboardFallbackReader`。
 //!
-//! AX 读不到选区时的兜底通道：快照剪贴板全部条目与 flavor 的原始数据 →
-//! 注入复制快捷键（Cmd+C）→ 轮询确认目标应用写入 → 读回文本 → 原样恢复。
-//! 注入会把快捷键投给用户的前台应用（可能误拷非文本对象），因此只有能
-//! 完整快照原内容时才注入。快照在 Pasteboard 层逐条目逐 flavor 保存原始
-//! 字节，恢复时经同一 API 原样写回——浏览器/编辑器复制的 text+HTML/RTF
-//! 富文本与多条目结构都能保全；任何一个 flavor 的数据拿不到（如 Finder
-//! 的 promised 延迟写入）即整体放弃兜底，宁可失败也不冒无法恢复的风险。
-//!
-//! 恢复时机（08 §7.1）：目标应用写入粘贴板是异步的，恢复过早会被应用的
-//! 写入覆盖掉原文——以「写入确认（kPasteboardModified）或超时」为界，
-//! 首发注入偶发不被系统送达，未确认时重注入一轮再等一个完整超时窗口；
-//! 确认后也持续读到 deadline（避开 clear→setData 的半写入间隙），之后才
-//! 恢复；读取成功且窗口期内剪贴板未被再次改动才恢复，读取失败按原内容
-//! 恢复（best-effort），恢复失败留痕但不吞掉主结果。整条流程必须运行在
-//! 平台事件线程（调用方保证亲和性），恢复操作同线程执行。
-//!
-//! 「轮询等待写入完成」的时序逻辑是纯函数（见 `wait_for_write`），单测
-//! 覆盖；注入与确认信号依赖系统 API，归 `imp` 模块。
+//! AX 读不到选区时的兜底通道：快照剪贴板全部条目与 flavor 原始字节 →
+//! 注入 Cmd+C → 确认目标应用写入 → 读回 → 原样恢复。只有能完整快照原
+//! 内容才注入，拿不全即整体放弃（宁可失败也不冒无法恢复的风险）；恢复
+//! 以写入确认为界，过早恢复会被应用的迟到写入覆盖。纯时序逻辑在
+//! [`wait_for_write`]（单测覆盖），系统 API 交互归 `imp` 模块。
 
 use std::time::{Duration, Instant};
 
@@ -283,16 +270,13 @@ mod imp {
                 );
                 return Err(GlossError::SelectionUnavailable);
             };
-            // 恢复统一交给守卫收口：显式跳过（见下）置 skip，其余一切退出
-            // 路径——读取失败、读取成功且内容仍是我们刚读到的选中文本、乃至
-            // panic 展开——都在 drop 时按原内容恢复，杜绝「注入之后中途退出
-            // 把选区滞留在用户剪贴板」。
+            // 恢复统一交给守卫收口（见 `PendingRestore`）：除显式跳过外，
+            // 一切退出路径都在 drop 时按原内容恢复。
             let mut pending = PendingRestore { saved, skip: false };
             let outcome = self.attempt(&mut clipboard);
             if let Ok(acquired) = &outcome {
-                // 恢复前的廉价校验：窗口期内用户可能自己复制了新内容，当前
-                // 内容仍是我们刚读到的选中文本才恢复——无条件恢复会把用户
-                // 的新拷贝清掉。
+                // 窗口期用户可能自行复制过：现值仍是我们刚读到的文本才恢复，
+                // 无条件恢复会清掉用户的新拷贝。
                 let current_is_ours =
                     matches!(clipboard.get_text(), Ok(current) if &current == acquired);
                 if !current_is_ours {
@@ -321,10 +305,8 @@ mod imp {
             let mut deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
             let mut confirmed = wait_for_write(baseline, || Some(monitor.generation()), deadline);
             if !confirmed {
-                // 首发注入偶发不被确认（实测：进程启动后的第一发常被系统
-                // 吞掉，前台应用繁忙时也会漏收；注入调用本身返回成功）。
-                // 此刻选区仍原样在目标应用里，重注入一次没有副作用，换取
-                // 划词兜底的可靠性。
+                // 首发注入偶发不被系统送达（注入调用本身返回成功）；此刻
+                // 选区未动，重注入一次没有副作用。
                 debug!(
                     thread = thread::EVENT,
                     "copy write not confirmed, retrying injection once"
@@ -340,9 +322,8 @@ mod imp {
                 );
                 return Err(GlossError::SelectionUnavailable);
             }
-            // 写入确认后读取：应用写粘贴板是 clear → setData 序列，轮询可能
-            // 落在「已清空、未写入」的间隙——读到空/读失败不等于失败，继续
-            // 轮询到 deadline 再收口，避免恢复原文后被应用的迟到写入覆盖。
+            // 应用写粘贴板是 clear → setData 序列，轮询可能落在半写入间隙：
+            // 读到空不等于失败，继续轮询到 deadline 再收口。
             loop {
                 if let Ok(text) = clipboard.get_text()
                     && !text.is_empty()
@@ -471,11 +452,10 @@ mod imp {
         Some(SavedContent(items))
     }
 
-    /// 把快照原样写回，两阶段压缩失败窗口：先为全部 flavor 预建 CFData
-    /// （任何一个建不出来即整体放弃，此时粘贴板尚未被触碰），全部就绪后才
-    /// Clear + 逐条 Put——避免「已清空、半恢复」把用户原剪贴板内容永久
-    /// 丢掉。失败路径留 debug 痕并返回 `false`（恢复是 best-effort，不决定
-    /// 主结果）。
+    /// 把快照原样写回：先为全部 flavor 预建 CFData（任一失败即整体放弃，
+    /// 此时粘贴板尚未被触碰），全部就绪后才 Clear + 逐条 Put——杜绝「已
+    /// 清空、半恢复」把用户原内容永久丢掉。失败留 debug 痕并返回 `false`
+    /// （恢复是 best-effort，不决定主结果）。
     fn restore_pasteboard(saved: &SavedContent) -> bool {
         let Some(pb) = open_pasteboard() else {
             debug!(thread = thread::EVENT, "pasteboard unavailable for restore");
@@ -630,25 +610,20 @@ mod live_tests {
 
     use super::imp::ClipboardFallbackReader;
 
-    /// 本模块所有触碰「系统剪贴板」这一全局资源的测试（含 ignored 的手动
-    /// 测试——`--include-ignored` 下会与其余测试并行）都在首行取这把锁：
-    /// libtest 默认并行，一边的 Pasteboard 写入与另一边的 arboard 读写撞
-    /// 并发时，NSPasteboard 会抛 NSException 穿过 Rust 帧，把整个测试
-    /// 二进制 abort 掉（CI 实测）。互斥串行是唯一正确做法；锁中毒时照常
-    /// 继续后续测试，不让前一条的失败放大。
+    /// 本模块所有触碰系统剪贴板的测试（含 `--include-ignored` 下的手动
+    /// 测试）首行都取这把锁：并发读写会以 NSException abort 整个测试
+    /// 二进制（CI 实测）。锁中毒照常继续，不让前一条失败放大。
     static CLIPBOARD_LIVE_LOCK: Mutex<()> = Mutex::new(());
 
     /// 自动化验收（08 §7.1）：预置剪贴板内容 → 兜底读取（成败皆可，验收
     /// 点是恢复）→ 断言原内容完整恢复。
     ///
-    /// 注意：本测试会覆写本机系统剪贴板，并向前台应用注入一次 Cmd+C。CI
-    /// 无辅助功能授权时注入被系统忽略，走 2s 超时路径；本机运行会短暂打
-    /// 断当前焦点应用。
+    /// 注意：本测试会覆写本机系统剪贴板，并向前台应用注入一次 Cmd+C（CI
+    /// 无授权时注入被忽略、走 2s 超时路径）。
     ///
-    /// 形态说明：本测试需要真实系统粘贴板但不需要辅助功能授权——无授权
-    /// 时注入被忽略、走超时降级路径，验收点是恢复而非读取成功，因此不设
-    /// `#[ignore]` 与 `require_accessibility`，随 `just test` 在 CI 常跑
-    ///（区别于 AGENTS.md 登记 L4 两种 opt-in 形态的第三形态）。
+    /// 形态：需要真实粘贴板但不需要辅助功能授权——无授权时注入被忽略、
+    /// 验收点是恢复而非读取成功，故不设 `#[ignore]` 与
+    /// `require_accessibility`，随 `just test` 在 CI 常跑。
     #[test]
     fn fallback_read_restores_original_clipboard() {
         let _clipboard = CLIPBOARD_LIVE_LOCK
@@ -671,14 +646,11 @@ mod live_tests {
         );
     }
 
-    /// 多 flavor 恢复保真：浏览器/编辑器复制的典型形态是 text+HTML 多
-    /// flavor 内容——预置「纯文本 + 自定义 flavor」双 flavor 条目，跑一次
-    /// 兜底读取（成败皆可），断言恢复后两种 flavor 字节原样保留。
+    /// 多 flavor 恢复保真：预置「纯文本 + 自定义 flavor」双 flavor 条目，
+    /// 跑一次兜底读取（成败皆可），断言恢复后两种 flavor 字节原样保留。
     ///
-    /// 证伪力边界：本测试锁的是「恢复保真」；对「兜底曾因富文本直接放
-    /// 弃」这一原始回归没有区分力（旧实现直接拒绝兜底、不动剪贴板，本测
-    /// 试照样绿）——「富板下兜底必须真的执行」的断言在下方 `#[ignore]`
-    /// 的 `reads_live_selection_from_rich_clipboard_via_simulated_copy`。
+    /// 证伪力边界：只锁「恢复保真」；「富板下兜底必须真的执行」的断言在
+    /// [`reads_live_selection_from_rich_clipboard_via_simulated_copy`]。
     ///
     /// 注意：本测试会覆写本机系统剪贴板，并向前台应用注入一次 Cmd+C（CI
     /// 无授权时走 2s 超时降级路径）。形态说明同
@@ -700,9 +672,9 @@ mod live_tests {
         let _ = reader.read();
 
         let mut clipboard = Clipboard::new().expect("clipboard should be available");
-        // 文本断言不用 assert_eq：同姊妹测试，恢复被跳过时现值可能是用户
-        // 的真实拷贝，失败输出只报长度。自定义 flavor 只可能是 None 或我
-        // 们自己预置的字节，assert_eq 无泄密面。
+        // 文本断言不用 assert_eq（同姊妹测试：恢复被跳过时现值可能是用户
+        // 的真实拷贝，只比对并报长度）；自定义 flavor 只可能是 None 或预
+        // 置字节，assert_eq 无泄密面。
         let text = clipboard
             .get_text()
             .expect("text flavor should be readable");
@@ -1035,12 +1007,10 @@ mod live_tests {
         assert!(!text.is_empty());
     }
 
-    /// 手动验收入口（区别性回归）：富剪贴板下兜底必须真的执行而不是放弃。
-    /// 预置 text+自定义 flavor 双 flavor 内容后，`read()` 必须读出选中文
-    /// 本——旧实现（保全不了富文本即拒绝兜底）在 expect 处当场失败，这
-    /// 是唯一能从公共 API 区分新旧实现的断言点，配合
-    /// `fallback_read_restores_multiflavor_clipboard` 的恢复保真断言构成
-    /// 完整验收。CI 无授权不参与常规测试。
+    /// 手动验收入口（区别性回归）：富剪贴板下兜底必须真的执行而不是放弃
+    /// ——预置 text+自定义 flavor 后 `read()` 必须读出选中文本，配合
+    /// [`fallback_read_restores_multiflavor_clipboard`] 的恢复保真断言
+    /// 构成完整验收。CI 无授权不参与常规测试。
     #[test]
     #[ignore = "需授权真机：先把运行测试的终端 App 加入 系统设置→隐私与                安全性→辅助功能，并在前台应用里选中文字"]
     fn reads_live_selection_from_rich_clipboard_via_simulated_copy() {
