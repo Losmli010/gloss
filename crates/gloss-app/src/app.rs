@@ -34,9 +34,6 @@ pub enum UserEvent {
 }
 
 /// 唤醒主线程的句柄：事件线程与 tokio 各持一份 clone。
-///
-/// 推送式唤醒而非主线程轮询（08 §7.3）：发送方立即触发，无消息时主线程
-/// 可以一直睡。
 #[derive(Clone, Debug)]
 pub struct Waker(EventLoopProxy<UserEvent>);
 
@@ -172,8 +169,8 @@ struct GlossApp {
     frame: Option<Frame>,
     /// 浮层 egui 要求的下一帧时间点；`None` 表示等到有事件再画。
     overlay_repaint: Option<Instant>,
-    /// 设置窗口 egui 要求的下一帧时间点。两个窗口各有各的截止时刻：
-    /// 共用一份的话，一个窗口画一帧就会把另一个窗口的动画截止时刻冲掉。
+    /// 设置窗口 egui 要求的下一帧时间点，与浮层的 [`Self::overlay_repaint`]
+    /// 各自独立。
     settings_repaint: Option<Instant>,
     /// 浮层自动隐藏时刻；仅浮层可见时为 `Some`
     auto_hide: Option<Instant>,
@@ -193,11 +190,9 @@ struct GlossApp {
     /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
     /// 之丢弃）。
     settings: Option<SettingsState>,
-    /// 热键重绑定端口（M4-T7）。注册有主线程亲和（平台后端约束），而保存
-    /// 配置恰好发生在主线程的这一帧里，所以是同步调用而不是下发通道。
+    /// 热键重绑定端口（M4-T7）：设置页保存后在主线程同步调用，不走通道。
     hotkeys: Arc<dyn HotkeyBinder>,
-    /// 已施加到两个 egui 上下文的主题偏好；`None` 表示还没施加过。缓存
-    /// 它只为免掉逐帧写入——egui 每帧都按该偏好解析明暗，重复写没有意义。
+    /// 已施加到两个 egui 上下文的主题偏好；`None` 表示还没施加过。
     applied_theme: Option<egui::ThemePreference>,
 }
 
@@ -264,8 +259,7 @@ impl GlossApp {
                         "error card retry, task re-dispatched to tokio"
                     );
                     self.send_run(request);
-                    // 重锚隐藏计时：重试的成功路径不该被失败卡出现时刻
-                    // 锚定的旧计时掐断（与 accept_done 的重锚同一理由）。
+                    // 重锚隐藏计时（与 accept_done 的重锚同一理由）。
                     if self.windows.is_some() {
                         self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
                     }
@@ -363,11 +357,8 @@ impl GlossApp {
         self.close_settings();
     }
 
-    /// 按当前快照重注册热键（M4-T7）。
-    ///
-    /// 绑定读自刚换上的快照——于是生效的那一份必然是落盘成功的那一版，
-    /// 不会出现「磁盘是 A、按键却是 B」的分叉。个别绑定被占用由平台侧告警
-    /// 跳过（见 `HotkeyBinder` 的降级契约），不让这次保存整体失败。
+    /// 按当前快照重注册热键（M4-T7）：绑定读自刚换上的快照。个别绑定被
+    /// 占用时按 [`HotkeyBinder`] 的降级契约告警跳过，保存不整体失败。
     fn rebind_hotkeys(&self) {
         let bindings = self.config.snapshot().hotkey_bindings.clone();
         let applied = self.hotkeys.rebind(&bindings);
@@ -379,10 +370,8 @@ impl GlossApp {
         );
     }
 
-    /// 把配置里的主题偏好施加到两个 egui 上下文（M4-T7）。
-    ///
-    /// 只在偏好变化时写入：egui 每帧都按该偏好解析明暗，逐帧重复写没有意义。
-    /// 两个窗口各有独立上下文，必须各写一次——否则改主题只影响其中一半。
+    /// 把配置里的主题偏好施加到两个 egui 上下文（M4-T7）：偏好变化时才写，
+    /// 两个上下文各写一次。
     fn apply_theme(&mut self) {
         let preference = theme_preference(self.config.snapshot().theme);
         if self.applied_theme == Some(preference) {
@@ -415,7 +404,6 @@ impl GlossApp {
     /// 关闭设置窗口：隐藏不销毁，丢弃编辑会话（未保存的草稿一并作废）。
     fn close_settings(&mut self) {
         self.settings = None;
-        // 窗口收起了就别再为它的动画唤醒事件循环。
         self.settings_repaint = None;
         if let Some(windows) = &self.windows {
             windows.hide_settings();
@@ -515,8 +503,7 @@ impl GlossApp {
                     outcome,
                 } => {
                     let accepted = self.accept_done(generation, outcome);
-                    // 结果卡可见时长从完成时刻重新起算：慢任务不至于刚出
-                    // 结果就被早先锚定的隐藏计时收起。
+                    // 结果卡可见时长从完成时刻重新起算。
                     if accepted && self.windows.is_some() {
                         self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
                     }
@@ -644,11 +631,9 @@ impl GlossApp {
         accepted
     }
 
-    /// 自动隐藏到点：收起浮层并回落 Idle。推理中（Translating）不被自动
-    /// 隐藏掐断——隐藏即放弃（T8），转圈时凭空消失会让任务静默作废，故只
-    /// 顺延计时，等 TaskDone/TaskFailed 重锚后再正常收起。用状态而非取消
-    /// 令牌判「在途」：令牌在 done 后仍残留，状态是精确信号。Esc/点击外部
-    /// 等显式隐藏不走此路径，仍立即放弃。
+    /// 自动隐藏到点：收起浮层并回落 Idle；推理中（Translating）不收起，
+    /// 只把计时顺延一个周期，等 TaskDone/TaskFailed 落地后正常收起。Esc/
+    /// 点击外部等显式隐藏不走此路径，仍立即收起。
     fn on_auto_hide(&mut self, _event_loop: &ActiveEventLoop) {
         if self.machine.state() == AppState::Translating {
             self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
@@ -669,9 +654,6 @@ impl GlossApp {
 }
 
 /// 浮层居中于显示器（逻辑坐标）：优先窗口当前所在的显示器，其次主显示器。
-///
-/// winit 没有全局光标位置读取接口，「跟随鼠标所在屏幕」要等平台端口提供
-/// 光标坐标后由调用方指定目标显示器。
 pub fn centered_position(
     event_loop: &ActiveEventLoop,
     windows: &WindowManager,
@@ -731,8 +713,7 @@ fn apply_theme_to<'a>(
     written
 }
 
-/// 回传事件的类别。`Event` 的每个变体都携带代数与载荷，而 `auto_show` 策略
-/// 只关心是哪一类回传，故先抽成无数据的标签。
+/// 回传事件的类别标签（`auto_show` 策略只关心类别，不关心代数与载荷）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EventKind {
     InputReady,
@@ -751,31 +732,19 @@ fn event_kind(event: &Event) -> EventKind {
     }
 }
 
-/// 这批回传之后浮层要不要自动露面（M4-T7 的 `auto_show` 策略）。
+/// 单个回传事件后浮层要不要自动露面（M4-T7 的 `auto_show` 策略）。
 ///
-/// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示，已收起的浮层
-/// 也不会被迟到的产物弹回来。
-///
-/// 抽成纯函数是为了可测——真正的展示要 `ActiveEventLoop` 与已建好的窗口，
-/// App 单测拿不到这两样。
+/// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
 fn auto_show_for(kind: EventKind, auto_show: bool, accepted: bool) -> bool {
     match kind {
-        // 出厂默认：取材成功即弹，看到浮层就知道「划到了、正在查」。
         EventKind::InputReady => accepted && auto_show,
-        // 开关开着时浮层早在取材那一刻就弹出来了，这里不必再弹；开着关掉
-        // 时，完成是这个任务第一次该露面的时刻。
         EventKind::TaskDone => accepted && !auto_show,
-        // 流式增量只在已可见的浮层上追加，从不负责弹出。
         EventKind::TaskChunk => false,
-        // 失败总要露面：自动弹出的开关不该把错误一起吞掉。
         EventKind::TaskFailed => accepted,
     }
 }
 
 /// 一批回传之后浮层要不要自动露面：**任一**事件判为要显示就显示。
-///
-/// 逐事件判定再取或——同一批里既有陈旧产物又有失败/完成时不会互相抵消，
-/// 一条被采纳的失败足以把浮层带出来（通道④一次可能抽到多条）。
 fn auto_show_after(batch: impl IntoIterator<Item = (EventKind, bool)>, auto_show: bool) -> bool {
     batch
         .into_iter()
@@ -860,8 +829,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
                 }
             }
             WindowEvent::Focused(false) if is_overlay => {
-                // 浮层失焦回 Idle：只隐藏不销毁。设置窗口失焦保持打开
-                // （草稿还在编辑中，收起即丢对人太狠）。
+                // 浮层失焦回 Idle：只隐藏不销毁；设置窗口失焦保持打开
                 if let Some(windows) = &self.windows {
                     windows.hide();
                     self.auto_hide = None;
