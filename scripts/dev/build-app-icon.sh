@@ -30,16 +30,26 @@ mkdir -p "$work/Gloss.iconset"
 # 1024 主图：icns 全部档位与 Dock 图标都由它降采样而来
 sips -s format png "$svg" --out "$work/icon-1024.png" >/dev/null
 
-# iconset 的十个档位（基础的 1x 与 @2x 各五档，iconutil 认这套文件名）
+# 光栅化尺寸取决于 SVG 声明的 width/height 属性：丢了它 sips 会按内嵌尺寸出小图，
+# 下面的档位会把小图上采样成模糊图标静默进仓库，这里当场拦下
+width="$(sips -g pixelWidth "$work/icon-1024.png" | awk 'END { print $NF }')"
+height="$(sips -g pixelHeight "$work/icon-1024.png" | awk 'END { print $NF }')"
+if [ "$width" != 1024 ] || [ "$height" != 1024 ]; then
+  echo "错误：矢量源光栅化后为 ${width}×${height}，期望 1024×1024——gloss-app-icon.svg 的 width/height 属性不能省" >&2
+  exit 1
+fi
+
+# iconset 的十个档位（基础的 1x 与 @2x 各五档，iconutil 认这套文件名）；
+# 256 与 512 档在表里各出现两次（128@2x = 256、256@2x = 512），生成一次后复制
 sips -z 16 16 "$work/icon-1024.png" --out "$work/Gloss.iconset/icon_16x16.png" >/dev/null
 sips -z 32 32 "$work/icon-1024.png" --out "$work/Gloss.iconset/icon_16x16@2x.png" >/dev/null
 sips -z 32 32 "$work/icon-1024.png" --out "$work/Gloss.iconset/icon_32x32.png" >/dev/null
 sips -z 64 64 "$work/icon-1024.png" --out "$work/Gloss.iconset/icon_32x32@2x.png" >/dev/null
 sips -z 128 128 "$work/icon-1024.png" --out "$work/Gloss.iconset/icon_128x128.png" >/dev/null
 sips -z 256 256 "$work/icon-1024.png" --out "$work/Gloss.iconset/icon_128x128@2x.png" >/dev/null
-sips -z 256 256 "$work/icon-1024.png" --out "$work/Gloss.iconset/icon_256x256.png" >/dev/null
+cp "$work/Gloss.iconset/icon_128x128@2x.png" "$work/Gloss.iconset/icon_256x256.png"
 sips -z 512 512 "$work/icon-1024.png" --out "$work/Gloss.iconset/icon_256x256@2x.png" >/dev/null
-sips -z 512 512 "$work/icon-1024.png" --out "$work/Gloss.iconset/icon_512x512.png" >/dev/null
+cp "$work/Gloss.iconset/icon_256x256@2x.png" "$work/Gloss.iconset/icon_512x512.png"
 sips -z 1024 1024 "$work/icon-1024.png" --out "$work/Gloss.iconset/icon_512x512@2x.png" >/dev/null
 
 iconutil -c icns "$work/Gloss.iconset" -o "$icons/Gloss.icns"

@@ -12,8 +12,9 @@
 | `Gloss.icns` | 打包产物。cargo-bundle 的 `icon` 配置指向它（根 `Cargo.toml`） |
 | `gloss-dock-icon.png` | 开发期 Dock 图标。非 bundle 运行时由入口 `include_bytes!` 内嵌，经 `NSApplication` 装到 Dock |
 
-**矢量源只有 `gloss-app-icon.svg` 一份**：`.icns` 与 Dock PNG 都由它生成。改图形改它，
-不要直接改产物。
+**生成链的唯一输入是 `gloss-app-icon.svg`**：`.icns` 与 Dock PNG 都由它生成，改图形
+改它，不要直接改产物。`gloss-logo.svg` 是设计稿主标，内容与 app-icon 版靠**手工同步**
+（本目录不做程序化派生）——改设计时两份都要改，改其中一份不会传导到另一份。
 
 ## 重建
 
