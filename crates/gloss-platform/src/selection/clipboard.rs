@@ -545,7 +545,6 @@ mod tests {
 
     use super::wait_for_write;
 
-    /// 代数变化即确认：前两轮与基线相同，第三轮变化。
     #[test]
     fn change_is_detected_when_generation_bumps() {
         let mut calls = 0;
@@ -562,7 +561,6 @@ mod tests {
         assert_eq!(calls, 3);
     }
 
-    /// 超时路径不卡死：到 deadline 返回 false，总耗时不超过轮询上限。
     #[test]
     fn timeout_returns_false_without_hanging() {
         let start = Instant::now();
@@ -574,7 +572,6 @@ mod tests {
         );
     }
 
-    /// probe 持续不可用（None）同样只等到 deadline。
     #[test]
     fn unavailable_probe_keeps_polling_until_deadline() {
         let start = Instant::now();
@@ -601,19 +598,8 @@ mod live_tests {
 
     use super::imp::ClipboardFallbackReader;
 
-    /// 本模块所有触碰系统剪贴板的测试（含 `--include-ignored` 下的手动
-    /// 测试）首行都取这把锁，互斥串行；锁中毒照常继续，不让前一条失败
-    /// 放大。
     static CLIPBOARD_LIVE_LOCK: Mutex<()> = Mutex::new(());
 
-    /// 自动化验收（08 §7.1）：预置剪贴板内容 → 兜底读取（成败皆可，验收
-    /// 点是恢复）→ 断言原内容完整恢复。
-    ///
-    /// 注意：本测试会覆写本机系统剪贴板，并向前台应用注入一次 Cmd+C（CI
-    /// 无授权时注入被忽略、走 2s 超时路径）。
-    ///
-    /// 形态：需要真实粘贴板但不需要辅助功能授权，不设 `#[ignore]` 与
-    /// `require_accessibility`，随 `just test` 在 CI 常跑。
     #[test]
     fn fallback_read_restores_original_clipboard() {
         let _clipboard = CLIPBOARD_LIVE_LOCK
@@ -627,8 +613,6 @@ mod live_tests {
         let _ = reader.read();
 
         let restored = clipboard.get_text().expect("clipboard should be readable");
-        // 不用 assert_eq：恢复被跳过时现值可能是用户窗口期里的真实拷贝，
-        // 失败输出不能把它打印出来，只比对并报长度。
         assert!(
             restored == preset,
             "original clipboard content must survive (got {} bytes)",
@@ -636,15 +620,6 @@ mod live_tests {
         );
     }
 
-    /// 多 flavor 恢复保真：预置「纯文本 + 自定义 flavor」双 flavor 条目，
-    /// 跑一次兜底读取（成败皆可），断言恢复后两种 flavor 字节原样保留。
-    ///
-    /// 证伪力边界：只锁「恢复保真」；「富板下兜底必须真的执行」的断言在
-    /// [`reads_live_selection_from_rich_clipboard_via_simulated_copy`]。
-    ///
-    /// 注意：本测试会覆写本机系统剪贴板，并向前台应用注入一次 Cmd+C（CI
-    /// 无授权时走 2s 超时降级路径）。形态说明同
-    /// [`fallback_read_restores_original_clipboard`]。
     #[test]
     fn fallback_read_restores_multiflavor_clipboard() {
         let _clipboard = CLIPBOARD_LIVE_LOCK
@@ -662,9 +637,6 @@ mod live_tests {
         let _ = reader.read();
 
         let mut clipboard = Clipboard::new().expect("clipboard should be available");
-        // 文本断言不用 assert_eq（同姊妹测试：恢复被跳过时现值可能是用户
-        // 的真实拷贝，只比对并报长度）；自定义 flavor 只可能是 None 或预
-        // 置字节，assert_eq 无泄密面。
         let text = clipboard
             .get_text()
             .expect("text flavor should be readable");
@@ -680,9 +652,6 @@ mod live_tests {
         );
     }
 
-    /// 空剪贴板回归：快照为空 Vec 时恢复是「Clear 后零写入」——兜底读取
-    /// （成败皆可）后剪贴板应保持为空，不得残留注入产物或半写入状态。
-    /// 形态说明同 [`fallback_read_restores_original_clipboard`]。
     #[test]
     fn fallback_read_restores_empty_clipboard() {
         let _clipboard = CLIPBOARD_LIVE_LOCK
@@ -703,10 +672,6 @@ mod live_tests {
         );
     }
 
-    /// 多条目恢复归并：恢复按原条目标识符归并 flavor——预置两个条目（各
-    /// 带文本与自定义 flavor），兜底读取（成败皆可）后断言四个 flavor 各
-    /// 自回到原条目，不串条目。形态说明同
-    /// [`fallback_read_restores_original_clipboard`]。
     #[test]
     fn fallback_read_restores_multi_item_clipboard() {
         let _clipboard = CLIPBOARD_LIVE_LOCK
@@ -747,22 +712,14 @@ mod live_tests {
         );
     }
 
-    // ---- 测试专用的 Pasteboard 预置与读回（生产路径不依赖，独立声明链接）----
-
-    /// 粘贴板句柄：CF 不透明类型，Create 返回 +1 引用。
     type PasteboardRef = *mut c_void;
-    /// 粘贴板条目标识符：客户端自定义的不透明指针。
     type PasteboardItemID = *mut c_void;
 
     #[link(name = "ApplicationServices", kind = "framework")]
     unsafe extern "C" {
-        /// 创建指向指定名称全局粘贴板的本地引用（+1），失败返回非零状态码。
         fn PasteboardCreate(name: CFStringRef, out: *mut PasteboardRef) -> i32;
-        /// 与全局粘贴板同步，失败返回非零状态码。
         fn PasteboardSynchronize(pasteboard: PasteboardRef) -> u32;
-        /// 清空粘贴板全部条目，失败返回非零状态码。
         fn PasteboardClear(pasteboard: PasteboardRef) -> i32;
-        /// 向条目写入 flavor 数据；不接管 `data` 引用。
         fn PasteboardPutItemFlavor(
             pasteboard: PasteboardRef,
             item: PasteboardItemID,
@@ -770,13 +727,11 @@ mod live_tests {
             data: CFDataRef,
             flags: u32,
         ) -> i32;
-        /// 取条目标识符（index 从 1 起），失败返回非零状态码。
         fn PasteboardGetItemIdentifier(
             pasteboard: PasteboardRef,
             index: CFIndex,
             out: *mut PasteboardItemID,
         ) -> i32;
-        /// 拷贝条目指定 flavor 的原始数据（+1 引用），失败返回非零状态码。
         fn PasteboardCopyItemFlavorData(
             pasteboard: PasteboardRef,
             item: PasteboardItemID,
@@ -785,11 +740,6 @@ mod live_tests {
         ) -> i32;
     }
 
-    /// 按 UTF-8 C 字符串构造 CFString，失败返回 NULL。
-    ///
-    /// # Safety
-    ///
-    /// 分配失败返回 NULL；非 NULL 引用必须恰好释放一次。
     unsafe fn cf_string(name: &CStr) -> CFStringRef {
         // SAFETY: `name` 是 NUL 结尾的有效 C 字符串，编码受支持。
         unsafe {
@@ -797,21 +747,11 @@ mod live_tests {
         }
     }
 
-    /// 为字节缓冲建 CFData（+1 引用）。
-    ///
-    /// # Safety
-    ///
-    /// `bytes` 必须在本次调用内存活且可读 `len` 字节；返回非 NULL 时引用
-    /// 必须恰好释放一次。
     unsafe fn cf_data(bytes: &[u8]) -> CFDataRef {
         // SAFETY: `bytes` 在本次调用内存活且非悬空，长度即缓冲长度。
         unsafe { CFDataCreate(kCFAllocatorDefault, bytes.as_ptr(), bytes.len() as CFIndex) }
     }
 
-    /// 依次把若干「纯文本 + 自定义 flavor」条目写进系统剪贴板，每个元组
-    /// 一个条目（arboard 只能写纯文本，造不出浏览器/编辑器复制的典型多
-    /// 条目形态）。任一步失败即返回 false（此时板可能已被清空，调用方测
-    /// 试的预置断言会当场红）。
     fn preset_items(items: &[(&str, &CStr, &[u8])]) -> bool {
         let clipboard_name = c"com.apple.pasteboard.clipboard";
         // SAFETY: 入参是 NUL 结尾的字面量；非 NULL 引用在函数尾部释放。
@@ -836,8 +776,6 @@ mod live_tests {
             return false;
         }
         for (index, (text, flavor, data)) in items.iter().enumerate() {
-            // 条目标识符 1 起即可：客户端自定义，同 id 的 flavor 归并进同
-            // 一条目（Pasteboard.h 语义，见 imp::restore_pasteboard）。
             let item_id = (index + 1) as PasteboardItemID;
             if !put_text_and_flavor_for_test(pb, item_id, text, flavor, data) {
                 return false;
@@ -846,8 +784,6 @@ mod live_tests {
         true
     }
 
-    /// 向粘贴板写入一个「文本 + 自定义 flavor」条目；创建的全部引用在本
-    /// 函数内释放（Put 不接管引用）。
     fn put_text_and_flavor_for_test(
         pb: PasteboardRef,
         item_id: PasteboardItemID,
@@ -863,8 +799,6 @@ mod live_tests {
         let text_data = unsafe { cf_data(text.as_bytes()) };
         // SAFETY: `data` 字节在本次调用内存活，非 NULL 引用由后续判别。
         let flavor_data = unsafe { cf_data(data) };
-        // 守卫先于判空建立：任一引用为 NULL 提前返回时，已建的非 NULL 引用
-        // 仍由守卫释放（守卫自身容忍 NULL）。
         // SAFETY: 四个引用的 +1 归属移交守卫，函数尾统一释放。
         let _refs = (
             ReleaseOnDrop(text_ref as CFTypeRef),
@@ -889,7 +823,6 @@ mod live_tests {
         status == 0
     }
 
-    /// 清空系统剪贴板（空板预置用）。
     fn clear_pasteboard_for_test() -> bool {
         let clipboard_name = c"com.apple.pasteboard.clipboard";
         // SAFETY: 入参是 NUL 结尾的字面量；非 NULL 引用在函数尾部释放。
@@ -912,8 +845,6 @@ mod live_tests {
         status == 0
     }
 
-    /// 读回系统剪贴板第 `item_index` 个条目（1 起）上指定 flavor 的原始
-    /// 数据；任何一步失败返回 None（flavor 不存在也归 None）。
     fn read_flavor_data(item_index: CFIndex, flavor: &CStr) -> Option<Vec<u8>> {
         let clipboard_name = c"com.apple.pasteboard.clipboard";
         // SAFETY: 入参是 NUL 结尾的字面量；非 NULL 引用在函数尾部释放。
@@ -966,7 +897,6 @@ mod live_tests {
         Some(bytes.to_vec())
     }
 
-    /// 测试辅助守卫：出作用域即 CFRelease。
     struct ReleaseOnDrop(CFTypeRef);
 
     impl Drop for ReleaseOnDrop {
@@ -979,9 +909,6 @@ mod live_tests {
         }
     }
 
-    /// 手动验收入口：在任意文本编辑器选中文字后运行
-    /// `cargo test -p gloss-platform -- --ignored --nocapture`，断言模拟
-    /// 复制兜底能读出选中文本。CI 无图形会话与授权，不参与常规测试。
     #[test]
     #[ignore = "需授权真机：先把运行测试的终端 App 加入 系统设置→隐私与                安全性→辅助功能（未授权时由 live_test_support 快速失败）"]
     fn reads_live_selection_via_simulated_copy() {
@@ -997,10 +924,6 @@ mod live_tests {
         assert!(!text.is_empty());
     }
 
-    /// 手动验收入口（区别性回归）：富剪贴板下兜底必须真的执行而不是放弃
-    /// ——预置 text+自定义 flavor 后 `read()` 必须读出选中文本，配合
-    /// [`fallback_read_restores_multiflavor_clipboard`] 的恢复保真断言
-    /// 构成完整验收。CI 无授权不参与常规测试。
     #[test]
     #[ignore = "需授权真机：先把运行测试的终端 App 加入 系统设置→隐私与                安全性→辅助功能，并在前台应用里选中文字"]
     fn reads_live_selection_from_rich_clipboard_via_simulated_copy() {
@@ -1026,7 +949,6 @@ mod live_tests {
         let restored = clipboard
             .get_text()
             .expect("text flavor should be readable");
-        // 不用 assert_eq：失败输出不得打印（可能的）用户真实剪贴板内容。
         assert!(
             restored == preset_text,
             "text flavor must be restored verbatim (got {} bytes)",
