@@ -916,8 +916,6 @@ mod tests {
         assert_eq!(sooner(None, None), None);
     }
 
-    /// `driven_app` 交出的驱动端点：App 本体 + 配置句柄 + 配置存储 + 四条
-    /// 通道的端点。
     type DrivenApp = (
         GlossApp,
         Arc<ConfigHandle>,
@@ -928,21 +926,14 @@ mod tests {
         crossbeam_channel::Sender<Event>,
     );
 
-    /// 构造接入真实通道与配置句柄的 App，返回各通道端点与句柄供测试驱动。
-    ///
-    /// 配置走 core 的内存桩（`test-util` 特性），测试可以 `handle.save(...)`
-    /// 模拟设置页保存，观察下一次触发是否用上新配置。
     fn driven_app() -> DrivenApp {
         driven_app_with(Arc::new(MemoryConfigStore::default()))
     }
 
-    /// [`driven_app`] 的注入版：设置页失败路径测试用它换上必失败的存储。
     fn driven_app_with(store: Arc<dyn ConfigStore>) -> DrivenApp {
         driven_app_using(store, Arc::new(RecordingHotkeyBinder::default()))
     }
 
-    /// 同时注入热键桩的版本：M4-T7 的重注册接线测试用它观察调用。
-    /// 桩由调用方持有（`Arc` 共享），其余测试不关心热键时用 [`driven_app`]。
     fn driven_app_using(store: Arc<dyn ConfigStore>, hotkeys: Arc<dyn HotkeyBinder>) -> DrivenApp {
         let crate::channel::Channels {
             platform_events,
@@ -984,7 +975,6 @@ mod tests {
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
     }
 
-    /// 驱动一次触发（划词手势）走完通道①消费。
     fn trigger_selection(app: &mut GlossApp, pe_tx: &crossbeam_channel::Sender<PlatformEvent>) {
         pe_tx.send(PlatformEvent::SelectionGesture).unwrap();
         app.drain_platform_events();
@@ -1019,13 +1009,10 @@ mod tests {
         }
     }
 
-    /// 验收标准：连续触发 A→B 时，A 的迟到 chunk / TaskDone 不串台——
-    /// 新触发取消 A 的令牌、推进代数，A 的一切回传被陈旧过滤。
     #[test]
     fn late_events_of_superseded_trigger_do_not_bleed() {
         let (mut app, _config, _store, pe_tx, ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
-        // 触发 A：进入 Fetching，gen=1，取材命令下发。
         trigger_selection(&mut app, &pe_tx);
         assert_eq!(app.machine.state(), AppState::Fetching);
         assert_eq!(app.machine.generation(), 1);
@@ -1034,7 +1021,6 @@ mod tests {
             AcquireCommand::AcquireText { generation: 1, .. }
         ));
 
-        // A 的取材产物到达：组装 Task 携令牌下发③，进入 Translating。
         assert!(app.accept_input(1, text_input("A")));
         assert_eq!(app.machine.state(), AppState::Translating);
         let Command::RunTask {
@@ -1047,24 +1033,20 @@ mod tests {
         };
         assert!(!token_a.is_cancelled());
 
-        // A 的流式增量到达并展示。
         assert!(app.accept_chunk(1, "部分A".into()));
         assert!(streaming_body(&app).contains("部分A"));
 
-        // 触发 B：A 的令牌立即取消，代数推进，状态回 Fetching。
         trigger_selection(&mut app, &pe_tx);
         assert_eq!(app.machine.generation(), 2);
         assert_eq!(app.machine.state(), AppState::Fetching);
         assert!(token_a.is_cancelled(), "new trigger must cancel task A");
 
-        // A 的迟到 chunk 被陈旧过滤：既不进入 B 的展示，也不改变状态。
         assert!(!app.accept_chunk(1, "迟到A".into()));
         assert!(
             !streaming_body(&app).contains("迟到A"),
             "late chunk of A must not bleed into the overlay"
         );
 
-        // B 的产物链路照常。
         assert!(app.accept_input(2, text_input("B")));
         assert!(matches!(
             cmd_rx.try_recv().unwrap(),
@@ -1076,14 +1058,12 @@ mod tests {
         assert_eq!(outcome_body(&app), "结果B");
     }
 
-    /// 匹配的失败落 Error 态并可重试；Error 态再次触发即重试。
     #[test]
     fn failed_task_lands_in_error_and_retry_works() {
         let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
 
-        // 陈旧失败（旧代数）丢弃，不影响 Translating。
         assert!(!app.accept_failed(0, &gloss_core::model::GlossError::EngineNetwork));
         assert_eq!(app.machine.state(), AppState::Translating);
 
@@ -1091,13 +1071,10 @@ mod tests {
         assert_eq!(app.machine.state(), AppState::Error);
         assert!(app.machine.current_cancel().is_none());
 
-        // Error 态再次触发即重试。
         trigger_selection(&mut app, &pe_tx);
         assert_eq!(app.machine.state(), AppState::Fetching);
     }
 
-    /// 失败卡的重试按钮（06 §7）：可重试失败给出 Retry 出口，壳把它原样
-    /// 重发到通道③——同代数、同任务、新令牌。
     #[test]
     fn retry_action_redispatches_the_failed_task() {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
@@ -1131,20 +1108,15 @@ mod tests {
             "a failed task's token is dropped, not cancelled"
         );
 
-        // 重试后的产物照常采纳。
         assert!(app.accept_done(1, plain_outcome("重试成功")));
         assert_eq!(app.machine.state(), AppState::Show);
     }
 
-    /// 设置页出口（鉴权/配置类失败）：点「打开设置」不产生通道③流量，
-    /// 状态停在 Error，编辑会话就位（窗口可见性属 L3 真机，见显隐自检）。
     #[test]
     fn open_settings_action_keeps_the_error_card() {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        // 排空首发的 RunTask，之后通道③应为空——「打开设置」不得产生
-        // 重发流量。
         let Command::RunTask { .. } = cmd_rx.try_recv().unwrap();
         assert!(app.accept_failed(1, &gloss_core::model::GlossError::EngineAuth));
         assert!(matches!(
@@ -1164,7 +1136,6 @@ mod tests {
         );
     }
 
-    /// 陈旧的 InputReady 不进入 Translating，也不下发③。
     #[test]
     fn stale_input_ready_is_dropped_entirely() {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
@@ -1181,14 +1152,10 @@ mod tests {
         );
     }
 
-    /// 验收标准（M4-T3）：运行时保存配置后，**下一次触发即生效**——目标
-    /// 语言与模型随任务下发到通道③，无需重启。取材产物由测试直接注入，
-    /// 走的仍是生产路径的 `drain_platform_events` → `accept_input`。
     #[test]
     fn saved_config_applies_to_the_next_trigger() {
         let (mut app, config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
-        // 出厂默认：目标语言中文 + 出厂文本模型（用户只差 keychain 里那把钥匙）。
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
@@ -1198,7 +1165,6 @@ mod tests {
             Some(DEFAULT_TEXT_MODEL)
         );
 
-        // 设置页保存（ConfigHandle：写文件 + 原子替换快照）。
         config
             .save(Config {
                 target_lang: Lang::Ja,
@@ -1210,7 +1176,6 @@ mod tests {
             })
             .expect("save should succeed");
 
-        // 下一次触发：新配置立即生效。
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
@@ -1221,17 +1186,10 @@ mod tests {
         );
     }
 
-    /// 快照在派发途中冻结：触发之后、取材产物到达之前保存了新配置，**在途
-    /// 任务仍用触发时那份**（选项在 `trigger` 时解析，`accept_input` 不再
-    /// 取配置），新配置只对下一次触发生效。
-    ///
-    /// 这是 App 层的护栏：`machine` 的单测证明不了它（`accept_input` 签名里
-    /// 没有 config），而 M4-T6/T7 改 App 时最可能踩的就是「派发时重新取快照」。
     #[test]
     fn saved_config_does_not_leak_into_the_inflight_task() {
         let (mut app, config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
-        // 触发（拿到 v1 快照）→ 保存 v2 → 才喂取材产物。
         trigger_selection(&mut app, &pe_tx);
         config
             .save(Config {
@@ -1248,15 +1206,12 @@ mod tests {
             "in-flight task must keep the snapshot taken at trigger"
         );
 
-        // 新配置对下一次触发生效。
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
         assert_eq!(task.options.target_lang, Some(Lang::Ja));
     }
 
-    /// 验收标准（M4-T6）：设置入口走 `PlatformEvent::OpenSettingsRequested`
-    /// ——打开编辑会话（草稿=当前快照），不占用请求代数。
     #[test]
     fn open_settings_request_starts_an_edit_session() {
         let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
@@ -1276,8 +1231,6 @@ mod tests {
         );
     }
 
-    /// 验收标准（M4-T6）：设置页保存 = 密钥进 keychain（按 provider 条目）
-    /// + 配置走热更新路径；成功后关闭会话。密钥永不落进配置快照。
     #[test]
     fn settings_save_writes_keychain_and_swaps_config() {
         let (mut app, config, store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
@@ -1290,8 +1243,6 @@ mod tests {
             gloss_core::task::TaskKind::TranslateWord,
             "deepseek-reasoner",
         );
-        // trim 是 UI 层（build_save）的契约，已在 settings 模块单测；
-        // 壳收到的是裁剪后的密钥。
         app.save_settings(draft, KeyUpdate::Replace("sk-live-key".to_owned()));
 
         assert_eq!(
@@ -1305,7 +1256,6 @@ mod tests {
         assert_eq!(config.snapshot().target_lang, Lang::Ja, "snapshot advanced");
         assert!(app.settings.is_none(), "successful save closes the session");
 
-        // 保存的配置对下一次触发生效（模型随任务下发）。
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
@@ -1315,8 +1265,6 @@ mod tests {
         );
     }
 
-    /// 清除密钥路径：保存时删除 keychain 条目（删除与配置落盘同一次保存
-    /// 里发生，取消不会留下已删除的密钥）。
     #[test]
     fn clearing_the_key_deletes_the_secret_on_save() {
         let (mut app, config, store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
@@ -1336,8 +1284,6 @@ mod tests {
         assert!(app.settings.is_none(), "save closes the session");
     }
 
-    /// 落盘失败：内存保持旧版本（磁盘唯一真相），会话保持打开并带上
-    /// 提示——用户可以改完再存。
     #[test]
     fn failed_save_keeps_the_session_open_with_a_notice() {
         let failing = MemoryConfigStore::default()
@@ -1362,9 +1308,6 @@ mod tests {
         );
     }
 
-    /// 验收标准（M4-T7）：设置页改热键后**立即重注册**，且重注册拿到的是
-    /// 刚落盘的那份快照。热键不受「下一次触发才生效」约束——注册是平台侧
-    /// 的即时动作，等下一次划词再换就太晚了。
     #[test]
     fn saving_settings_rebinds_hotkeys_from_the_new_snapshot() {
         let binder = Arc::new(RecordingHotkeyBinder::default());
@@ -1402,9 +1345,6 @@ mod tests {
         assert_eq!(triggers, ["Cmd+Alt+T", "Cmd+Alt+C"]);
     }
 
-    /// 上一条只证明「第一次保存会重注册」，而契约是**每次都**重注册。只断言
-    /// 调用过一次，会放过「重注册被某个一次性条件挡住」这类回归（例如后来
-    /// 有人给它加个 `if !self.rebound` 之类的短路）。
     #[test]
     fn every_save_rebinds_hotkeys_not_just_the_first() {
         let binder = Arc::new(RecordingHotkeyBinder::default());
@@ -1414,7 +1354,6 @@ mod tests {
         );
 
         for trigger in ["Cmd+Alt+T", "Cmd+Alt+R"] {
-            // 保存会关掉设置会话，第二次得重新开一个（等同用户再点一次设置）。
             app.settings = Some(ui::settings::open(&config.snapshot()));
             let mut draft = (*config.snapshot()).clone();
             draft.hotkey_bindings = vec![HotkeyBinding {
@@ -1437,8 +1376,6 @@ mod tests {
         );
     }
 
-    /// 落盘失败不得重注册：磁盘是唯一真相，运行时快照没换，按键也就不该换
-    /// ——否则会出现「按下去是 A、配置文件里是 B」的分叉。
     #[test]
     fn failed_save_does_not_rebind_hotkeys() {
         let binder = Arc::new(RecordingHotkeyBinder::default());
@@ -1465,9 +1402,6 @@ mod tests {
         );
     }
 
-    /// 验收标准（M4-T7）：`auto_show` 的策略——开着时取材即弹、完成不重复
-    /// 弹；关掉时取材与流式阶段都不弹，完成或失败才弹；未被采纳的事件
-    /// （陈旧/代数不匹配）一律不触发显示。
     #[test]
     fn auto_show_policy_decides_when_the_overlay_pops() {
         use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
@@ -1496,9 +1430,6 @@ mod tests {
         assert!(!auto_show_for(TaskChunk, false, true));
     }
 
-    /// 通道④一次可能抽到**多条**回传，所以决策是按批取或：同一批里混着陈旧
-    /// 产物与失败/完成时，不得互相抵消。这是上一条（逐事件策略表）盖不到的
-    /// 交互——批级语义只在这里断言。
     #[test]
     fn auto_show_survives_a_mixed_batch() {
         use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
@@ -1522,7 +1453,6 @@ mod tests {
         assert!(!auto_show_after([], true), "空批不显示");
     }
 
-    /// 主题映射（04 §六）：三档一一对应，出厂值跟随系统。
     #[test]
     fn theme_preference_covers_every_variant() {
         assert_eq!(
@@ -1538,9 +1468,6 @@ mod tests {
         );
     }
 
-    /// 主题施加的真契约：两个 egui 上下文**各自独立**，必须各写一次——
-    /// 只写一个会看到「改主题只影响半个界面」。这里用真实的 `egui::Context`
-    /// 观测偏好（App 的帧要 GPU，L2 单测拿不到），三档都走一遍。
     #[test]
     fn apply_theme_writes_every_context() {
         let overlay = egui::Context::default();
@@ -1575,12 +1502,6 @@ mod tests {
         );
     }
 
-    /// `apply_theme` 身上「只在变化时写」的那一层：偏好没变就不重复写
-    /// （egui 每帧都按偏好解析明暗，逐帧重写没有意义），变了必须跟上。
-    ///
-    /// 断言看的是缓存字段本身——egui 不暴露「`set_theme` 被调用过几次」，
-    /// 写入省略没有别的观测点；「两个上下文都写到」由
-    /// [`apply_theme_writes_every_context`] 用真实上下文证明。
     #[test]
     fn apply_theme_elides_writes_until_the_preference_changes() {
         let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
