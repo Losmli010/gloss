@@ -29,26 +29,23 @@ gloss/
 
 ## 常用命令
 
+完整清单用 `just --list` 查看（含 watch / coverage / selftest / audit / deny / miri / changelog 等不常用配方）；下面是高频配方，描述与 justfile 一致：
+
 ```bash
-just install-hooks     # clone 后执行一次，安装本地 git hooks
-just setup             # clone 后环境初始化：工具链校验 + 可选工具清点 + git hooks（幂等）
-just icons             # 重建应用图标产物（assets/icons：.icns 与 Dock 图标 PNG）
-just run               # 运行开发版
-just logs              # 跟随最新日志文件（~/.gloss/logs）
-just logs-dir          # 打印日志目录
-just precommit         # 提交前静态检查：约束 + 文档引用 + fmt + TOML 格式/lint + clippy + 密钥扫描（pre-commit 钩子跑的就是它）
-just check             # 全量门禁：precommit 的全部 + test（本地要跑测试时用这条）
+just install-hooks     # 安装本地 git hooks（clone 后运行一次）
+just setup             # clone 后一键环境初始化：工具链校验 + 可选工具清点 + git hooks（幂等）
+just run               # 运行开发版（debug）
+just logs              # 跟随最新日志文件（Ctrl-C 退出）
+just precommit         # 提交前门禁：约束 + 文档引用 + fmt + TOML + clippy + 密钥扫描
+just check             # 完整质量门禁：precommit 的全部 + test
+just test              # 运行全部测试
 just fmt-fix           # 自动格式化
-just fmt-toml          # TOML 格式检查（tombi --check，不落盘；自动修复用 just fmt-toml-fix，语法/schema lint 用 just lint-toml）
 just lint              # Clippy 严格检查（警告即失败）
-just secrets           # 硬编码密钥扫描（命中即失败；放行规则见 scripts/hooks/check-secrets.sh）
-just agents-doc        # 校验本文件提到的仓库事实（配方 / 路径 / 测试目标 / 约束名引用）未漂移
-just constraints       # 校验「不可协商的约束」里可机械判定的那几条（依赖方向 / 日志出口 / 版本单点 …）
-just audit             # cargo audit 依赖漏洞审计
-just deny              # cargo deny 依赖合规（许可证 / 重复依赖 / 来源，配置见 deny.toml）
-just miri              # Miri 未定义行为检测（nightly；只覆盖 gloss-core 纯逻辑层，CI 的 sanitizers.yml 同款）
-just changelog         # 基于 conventional commits 生成 CHANGELOG
-just --list            # 查看全部 recipe
+just secrets           # 硬编码密钥扫描（命中即失败）
+just agents-doc        # 校验 AGENTS.md 引用的配方/路径/测试目标/约束名真实存在
+just constraints       # 「不可协商的约束」的机械门禁（依赖方向 / 日志 / 版本单点 / 依赖特性）
+just icons             # 重建应用图标产物（.icns 与 Dock 图标 PNG）
+just --list            # 查看全部配方
 ```
 
 ## 不可协商的约束
