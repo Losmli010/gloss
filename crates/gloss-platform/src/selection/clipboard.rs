@@ -9,11 +9,12 @@
 //! 的 promised 延迟写入）即整体放弃兜底，宁可失败也不冒无法恢复的风险。
 //!
 //! 恢复时机（08 §7.1）：目标应用写入粘贴板是异步的，恢复过早会被应用的
-//! 写入覆盖掉原文——以「写入确认（kPasteboardModified）或 2s 超时」为
-//! 界，确认后也持续读到 deadline（避开 clear→setData 的半写入间隙），
-//! 之后才恢复；读取成功且窗口期内剪贴板未被再次改动才恢复，读取失败按
-//! 原内容恢复（best-effort），恢复失败留痕但不吞掉主结果。整条流程必须
-//! 运行在平台事件线程（调用方保证亲和性），恢复操作同线程执行。
+//! 写入覆盖掉原文——以「写入确认（kPasteboardModified）或超时」为界，
+//! 首发注入偶发不被系统送达，未确认时重注入一轮再等一个完整超时窗口；
+//! 确认后也持续读到 deadline（避开 clear→setData 的半写入间隙），之后才
+//! 恢复；读取成功且窗口期内剪贴板未被再次改动才恢复，读取失败按原内容
+//! 恢复（best-effort），恢复失败留痕但不吞掉主结果。整条流程必须运行在
+//! 平台事件线程（调用方保证亲和性），恢复操作同线程执行。
 //!
 //! 「轮询等待写入完成」的时序逻辑是纯函数（见 `wait_for_write`），单测
 //! 覆盖；注入与确认信号依赖系统 API，归 `imp` 模块。
@@ -259,9 +260,9 @@ mod imp {
         /// 兜底读取前台应用的选中文本（模拟复制路径）。
         ///
         /// 调用方保证：在平台事件线程上调用（08 §4.4 亲和性，恢复同线程）。
-        /// 阻塞语义：确认目标应用写入最长轮询 [`WRITE_CONFIRM_TIMEOUT`]，
-        /// 期间事件线程被占用、其余命令与事件排队（事件源侧缓冲），调用方
-        /// 需自行处理在途重复触发。
+        /// 阻塞语义：确认目标应用写入最长轮询两轮 [`WRITE_CONFIRM_TIMEOUT`]
+        /// （首发未确认时重注入一轮），期间事件线程被占用、其余命令与事件
+        /// 排队（事件源侧缓冲），调用方需自行处理在途重复触发。
         pub fn read(&mut self) -> Result<String, GlossError> {
             let mut clipboard = match Clipboard::new() {
                 Ok(clipboard) => clipboard,
@@ -316,9 +317,22 @@ mod imp {
                 return Err(GlossError::SelectionUnavailable);
             };
             inject_copy_key()?;
-            let deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
             let baseline = monitor.baseline();
-            let confirmed = wait_for_write(baseline, || Some(monitor.generation()), deadline);
+            let mut deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
+            let mut confirmed = wait_for_write(baseline, || Some(monitor.generation()), deadline);
+            if !confirmed {
+                // 首发注入偶发不被确认（实测：进程启动后的第一发常被系统
+                // 吞掉，前台应用繁忙时也会漏收；注入调用本身返回成功）。
+                // 此刻选区仍原样在目标应用里，重注入一次没有副作用，换取
+                // 划词兜底的可靠性。
+                debug!(
+                    thread = thread::EVENT,
+                    "copy write not confirmed, retrying injection once"
+                );
+                inject_copy_key()?;
+                deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
+                confirmed = wait_for_write(baseline, || Some(monitor.generation()), deadline);
+            }
             if !confirmed {
                 debug!(
                     thread = thread::EVENT,
