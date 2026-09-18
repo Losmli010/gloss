@@ -57,22 +57,15 @@ jobs:
 
       - name: Ad-hoc sign
         run: |
-          # 用 ad-hoc 签名替代正式的 Developer ID 签名（免费，无需证书）。
-          # 用户首次打开需右键 → 打开，绕过 Gatekeeper。
-          # 后续上 Developer ID 时，替换为 codesign --sign "Developer ID Application: ..." + notarytool。
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP" && echo "✓ ad-hoc 签名完成"
 
       - name: Smoke test
-        # 冒烟只能跑与 runner 同架构的产物：macos-latest 是 arm64，x86_64 产物
-        # 没有 Rosetta 就跑不起来，留给本机与 Intel runner 走查。
         if: matrix.target == 'aarch64-apple-darwin'
         run: ./scripts/release/smoke-app.sh "$APP"
 
       - name: Package artifacts
         run: |
-          # .app 必须经 ditto 打包（保留签名与资源叉），上传目录散文件会让
-          # Release 页变成一堆 Contents/... 碎片；.dmg 由系统 hdiutil 压制。
           # 产物名带版本与 target 三元组，Release 页上一眼可辨。
           STEM="gloss-${{ steps.version.outputs.version }}-${{ matrix.target }}"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$STEM.zip"
