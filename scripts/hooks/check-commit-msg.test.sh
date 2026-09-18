@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
-# check-commit-msg.sh 的单元测试（纯 bash 轻量断言，零依赖）
-# 覆盖：合法 type、scope、非法 type、空 message、超长 header、正文空行等边界情况。
 set -uo pipefail
 
-# 定位脚本路径（与源文件同目录）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHECKER="$SCRIPT_DIR/check-commit-msg.sh"
 
 PASS=0
 FAIL=0
 
-# 断言助手：$1=描述  $2=期望退出码(0=通过,非0=拒绝)  $3=输入的 commit message
 assert_exit() {
   local desc="$1"
   local expected="$2"
@@ -24,8 +20,6 @@ assert_exit() {
     echo "  ✓ $desc"
     PASS=$((PASS + 1))
   else
-    # 变量一律加花括号：$var 后紧跟全角标点时，部分 bash 会把标点并进变量名，
-    # set -u 下失败分支自己就报 unbound variable，反而盖掉真正的失败信息。
     echo "  ✗ $desc  (期望退出码 ${expected}，实际 ${actual})"
     echo "    输入字节: $(printf '%s' "${msg}" | od -c | head -2)"
     echo "    checker 输出: $(printf '%s' "${checker_err}" | head -2)"
@@ -44,7 +38,6 @@ assert_exit "chore: 杂项" 0 "chore(deps): 升级 egui 到 0.31"
 assert_exit "revert: 回滚" 0 "revert: 回滚上一次提交"
 assert_exit "破坏性变更 !" 0 "feat!: 破坏性 API 变更"
 assert_exit "scope 带数字和点" 0 "fix(ci.yml): 修复流水线配置"
-# 多行用例：用 printf 命令构造换行符，避免 $'...' 引号在不同 bash 版本下的差异
 MSG_BODY_BLANK="$(printf 'feat: 标题\n\n这里是正文内容')"
 assert_exit "正文与标题间有空行" 0 "$MSG_BODY_BLANK"
 MSG_MULTILINE="$(printf 'feat: 标题\n\n正文第一行\n正文第二行')"
@@ -65,20 +58,15 @@ assert_exit "scope 为空括号" 1 "fix(): 空 scope"
 
 echo ""
 echo "-- 边界用例 --"
-# 恰好 81 字节的 header（应通过）
 local_81="feat: $(printf 'a%.0s' {1..75})"
 assert_exit "header 恰好 81 字节" 0 "$local_81"
-# 82 字节（应拒绝）
 local_82="feat: $(printf 'a%.0s' {1..76})"
 assert_exit "header 超过 81 字节" 1 "$local_82"
-# 标题与正文之间无空行（应拒绝）
 MSG_NO_BLANK="$(printf 'feat: 标题\n直接正文无空行')"
 assert_exit "标题后无空行直接跟正文" 1 "$MSG_NO_BLANK"
-# subject 非空即可（中文 2 字也应通过）
 assert_exit "subject 单字符" 0 "feat: a"
 assert_exit "subject 两字符" 0 "fix: ab"
 assert_exit "subject 中文两字" 0 "feat: 标题"
-# subject 为空（冒号后无内容，应拒绝）
 assert_exit "subject 为空" 1 "feat: "
 
 echo ""

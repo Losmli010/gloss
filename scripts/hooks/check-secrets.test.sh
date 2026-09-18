@@ -1,26 +1,12 @@
 #!/usr/bin/env bash
-# check-secrets.sh 的单元测试（纯 bash 轻量断言，零依赖）
-# 覆盖：各 provider 密钥格式、私钥块、通用凭据赋值、secrets:allow 放行（含行级粒度）、
-# 已知误报形态（task- 前缀、裸 token 关键字、短值）。
-#
-# 被测脚本扫描「git 跟踪文件」，因此用例在临时 git 仓库中进行：把被测脚本
-# 拷进仓库（它按自身位置定位仓库根），逐用例植入跟踪文件后运行。
-#
-# 注意：本测试文件自己也在 just secrets 的扫描范围内——夹具密钥一律运行时
-# 拼接（前缀 + 变长尾串），不得写出「前缀 + 20 字符以上尾串」的完整字面量，
-# 关键字赋值用例的值也用 %s 留短，否则本文件会被自家门禁拦下。
-# 另外：报错文案里变量一律用 ${var} 花括号——$var 后紧跟全角标点时，
-# 部分 bash 版本会把标点并进变量名，set -u 下直接报 unbound variable。
 set -uo pipefail
 
-# 定位脚本路径（与源文件同目录）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHECKER="$SCRIPT_DIR/check-secrets.sh"
 
 PASS=0
 FAIL=0
 
-# ---- 临时仓库：被测脚本的运行环境 ----
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 git init -q "$TMP"
@@ -28,7 +14,6 @@ mkdir -p "$TMP/scripts/hooks"
 cp "$CHECKER" "$TMP/scripts/hooks/"
 chmod +x "$TMP/scripts/hooks/check-secrets.sh"
 
-# 运行时拼接夹具尾串：源码里只出现前缀与尾串变量，规避自家扫描
 TAIL12="$(printf '0%.0s' {1..12})"
 TAIL16="$(printf '0%.0s' {1..16})"
 TAIL20="$(printf '0%.0s' {1..20})"
@@ -39,8 +24,6 @@ AWS_TAIL16="$(printf 'A%.0s' {1..16})"
 
 MARKER="secrets:allow"
 
-# 断言助手：$1=描述  $2=期望退出码(0=放行,非0=拦截)  $3=夹具相对路径  $4=文件内容
-# 每个用例独占一个文件：植入 → 跑扫描器 → 出索引删文件，互不残留。
 assert_scan() {
   local desc="$1"
   local expected="$2"

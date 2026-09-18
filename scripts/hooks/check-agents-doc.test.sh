@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# check-agents-doc.sh 的单元测试（纯 bash 轻量断言，零依赖）
-# 覆盖：存在的引用、失效的配方、justfile 变量误判为配方、配方名前缀冲突、
-# 缺失路径、缺失裸文件名、缺失测试目标、占位符与仓库外路径的跳过规则。
 set -uo pipefail
 
-# 定位脚本路径（与源文件同目录）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHECKER="$SCRIPT_DIR/check-agents-doc.sh"
 
@@ -15,8 +11,6 @@ PASS=0
 FAIL=0
 CASE_NO=0
 
-# 建一个最小可信的仓库夹具：justfile + AGENTS.md 可能引用的文件。
-# 含 justfile 变量（coverage_min）、前缀冲突的配方名（logs / logs-dir）。
 new_fixture() {
   local dir="$1"
   mkdir -p "$dir/crates/demo/tests" "$dir/crates/demo/src" "$dir/tests" "$dir/docs"
@@ -43,8 +37,6 @@ test: run
 EOF
 }
 
-# 断言助手：$1=描述  $2=期望退出码(0=通过,非0=拒绝)  $3=AGENTS.md 正文
-# 可选 $4：写给 crates/demo/src/lib.rs 的内容（用于约束名引用的用例）
 assert_doc() {
   local desc="$1"
   local expected="$2"
@@ -67,8 +59,6 @@ assert_doc() {
     echo "  ✓ $desc"
     PASS=$((PASS + 1))
   else
-    # 变量一律加花括号：$var 后紧跟全角标点时，部分 bash 会把标点并进变量名，
-    # set -u 下失败分支自己就报 unbound variable，反而盖掉真正的失败信息。
     echo "  ✗ $desc  (期望退出码 ${expected}，实际 ${actual})"
     echo "    checker 输出: $(printf '%s' "${checker_out}" | head -3)"
     FAIL=$((FAIL + 1))
@@ -110,7 +100,6 @@ CONSTRAINT_DOC="## 不可协商的约束
 1. **[CRITICAL] 日志统一出口**：只用 \`just run\` 一处出口。"
 assert_doc "指名引用命中真实约束名" 0 "$CONSTRAINT_DOC" '//! 见 AGENTS.md 约束「日志统一出口」。'
 assert_doc "指名引用写了不存在的约束名" 1 "$CONSTRAINT_DOC" '//! 见 AGENTS.md 约束「日志英文」。'
-# 约束改名后忘了改引用：这正是条号引用断掉的那类问题
 assert_doc "约束改名后引用未同步" 1 "## 不可协商的约束
 
 1. **[LOW] 日志出口**：只用 \`just run\`。" '//! 见 AGENTS.md 约束「日志统一出口」。'

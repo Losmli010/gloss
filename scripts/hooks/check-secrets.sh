@@ -3,17 +3,11 @@
 # 本地 `just secrets`（pre-commit 的一部分）与 CI 的 quality job 共用此脚本，
 # 保证本地与 CI 判定一致。
 #
-# 规则取向：只收高信号格式（provider 密钥前缀、私钥块、带引号的凭据赋值），
-# 宁可漏报也不误报——漏报由 review 与轮换密钥兜底，误报会让门禁被习惯性绕过。
+# 规则取向：只收高信号格式（provider 密钥前缀、私钥块、带引号的凭据赋值）。
 # 确属合法字面量（文档示例、测试夹具）时，在该行尾加 `secrets:allow` 放行，
 # 并在旁边注明缘由。
-#
-# 注意：裸 `token` 关键字不进通用规则——热键解析（events/hotkey.rs）拿它当
-# 变量名，误报率太高；真实 token 泄漏由 provider 前缀模式兜底。
 set -euo pipefail
 
-# 脚本在 scripts/hooks/ 下：上两级必须是仓库根，否则下方 git ls-files 的扫描
-# 范围会静默缩小到子树，密钥扫描形同虚设——挪位时必查这一行。
 cd "$(dirname "$0")/../.."
 
 # ---- 配置区 ----
@@ -40,7 +34,7 @@ CASE_SENSITIVE_PATTERNS=(
 # 通用凭据赋值，大小写不敏感：
 # 1) 带引号的值（TOML/JSON/YAML 配置的常见形态），12 字符起；
 # 2) 不带引号的值（shell 导出形态），20 字符起压误报。
-# 不含裸 token：见文件头说明。
+# 不含裸 token 关键字。
 CASE_INSENSITIVE_PATTERNS=(
   '(api[_-]?key|secret|password|passwd|credential|access[_-]?key)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']{12,}["'"'"']'
   '(api[_-]?key|secret|password|passwd|credential|access[_-]?key)["'"'"']?[[:space:]]*[:=][[:space:]]*[A-Za-z0-9+/_-]{20,}'
