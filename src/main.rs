@@ -70,7 +70,7 @@ fn log_dir() -> Option<PathBuf> {
 /// 启动期装配产物：配置句柄（给 App 与引擎）与配置存储（给引擎直查密钥）。
 type ConfigWiring = (Arc<ConfigHandle>, Arc<dyn ConfigStore>);
 
-/// 装配配置句柄（启动骨架第 2 步，06 §3.3）：配置文件走标准配置目录的
+/// 装配配置句柄（启动骨架第 2 步）：配置文件走标准配置目录的
 /// `config.toml`，密钥走系统安全存储（M4-T2）。
 ///
 /// 唯一必须成功的失败是「拿不到配置目录」——那时无处读写配置，属启动硬
@@ -78,7 +78,7 @@ type ConfigWiring = (Arc<ConfigHandle>, Arc<dyn ConfigStore>);
 /// 并记日志，应用照常起得来（用户还能进设置页改回来）。
 ///
 /// 返回句柄与存储两份：句柄给 App（任务选项）与引擎（端点），存储给引擎
-/// 直查密钥——存储不下沉进句柄，因为密钥不经快照（06 §6.3）。
+/// 直查密钥——存储不下沉进句柄，因为密钥不经快照。
 fn load_config() -> Result<ConfigWiring, Box<dyn Error>> {
     let store: Arc<dyn ConfigStore> = Arc::new(CompositeConfigStore::new()?);
     let handle = Arc::new(ConfigHandle::load_or_default(Arc::clone(&store)));
@@ -88,7 +88,7 @@ fn load_config() -> Result<ConfigWiring, Box<dyn Error>> {
 /// 装配推理服务（启动骨架第 6 步）：真实引擎 + moka 缓存。
 ///
 /// 引擎构造失败（HTTP/TLS 栈起不来）是启动硬错误——不装配服务就进事件
-/// 循环的话，通道③没有消费者，用户触发的任务会静默石沉大海（06 §3.3
+/// 循环的话，通道③没有消费者，用户触发的任务会静默石沉大海（
 /// 「报错退出」而非带病运行）。
 fn build_service(
     config: &Arc<ConfigHandle>,
@@ -210,7 +210,7 @@ fn run_event_loop(
 }
 
 fn create_channels() -> Channels {
-    // 通道创建与端点分发都在组装点完成（08 §4.3）。
+    // 通道创建与端点分发都在组装点完成。
     Channels::new()
 }
 

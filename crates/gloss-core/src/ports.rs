@@ -1,4 +1,4 @@
-//! 端口定义：全部跨层 trait 的唯一定义点（06 §5.2，Ports & Adapters）。
+//! 端口定义：全部跨层 trait 的唯一定义点（Ports & Adapters）。
 //!
 //! core 只声明契约；实现侧在 gloss-platform（`CompositeReader` /
 //! `ScreenCapturer` / `LlmClient` / `FileConfigStore` / moka `Cache`），
@@ -34,9 +34,9 @@ pub type TaskStream = Pin<Box<dyn Stream<Item = Result<String, GlossError>> + Se
 /// 文本取材（端口）：读前台应用的选中文本。
 ///
 /// 实现方保证：模拟复制兜底必须保存并恢复剪贴板。
-/// 调用方保证：在平台事件线程上调用（线程亲和性，08 §4.4）。
+/// 调用方保证：在平台事件线程上调用（线程亲和性）。
 ///
-/// 与 06 §5.2 草案（`Option<String>`）的偏差：落地时错误需要区分权限
+/// 与草案（`Option<String>`）的偏差：落地时错误需要区分权限
 /// 缺失（引导授权）与普通取不到（静默降级），故收窄为 `Result`——
 /// 文档以本定义为准。
 pub trait SelectionReader: Send {
@@ -80,7 +80,7 @@ pub struct EngineRequest {
 /// 实现方保证：`execute` 返回的 future 与流都是 `'static` 且 `Send`——
 /// **不得借用 `request` 或 `self`**，请求数据需克隆或移入 future；消费端
 /// 在 tokio 上轮询。取消不进本端口，由调用方以 `CancellationToken` 在
-/// await 侧竞速（08 §4.2 的单一取消机制）——实现方只需保证 future 被丢弃
+/// await 侧竞速（单一取消机制）——实现方只需保证 future 被丢弃
 /// 时连接随之关闭（异步客户端的默认行为）。
 pub trait AiEngine: Send + Sync {
     /// 执行请求，返回流式产物流。
@@ -119,7 +119,7 @@ pub trait ConfigStore: Send + Sync {
 /// 缓存（端口）：core 内置 moka 内存实现（M3-T5）。
 ///
 /// key = hash(kind, input, options, model)——同一文本在不同任务下不共享
-/// 缓存（06 §5.2 ADR）；调用方保证 key 由统一哈希函数派生，且派生函数
+/// 缓存；调用方保证 key 由统一哈希函数派生，且派生函数
 /// 须抗碰撞：碰撞不是缓存 miss，而是把别的任务的产物交给用户（桌面规模
 /// 下 64 位摘要概率可忽略，属接受的取舍）。
 pub trait Cache: Send + Sync {

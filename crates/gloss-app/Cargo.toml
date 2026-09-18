@@ -35,7 +35,7 @@ egui-winit = {
 }
 # 系统字体发现：查系统 CJK 字体接进 egui 后备链。
 font-kit = { version = "0.14", default-features = false, features = ["source"] }
-# FutureExt::catch_unwind 包住 tokio 消费循环里的任务 future（06 §7「后台
+# FutureExt::catch_unwind 包住 tokio 消费循环里的任务 future（后台
 # panic 被 tokio 捕获转为 TaskFailed」）。
 futures = { version = "0.3", default-features = false, features = ["std"] }
 gloss-core = { path = "../gloss-core" }

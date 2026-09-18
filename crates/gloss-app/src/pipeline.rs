@@ -1,10 +1,10 @@
-//! 通道③ → [`AiTaskService`] → 通道④ 的 tokio 消费桥（08 §4：推理在
+//! 通道③ → [`AiTaskService`] → 通道④ 的 tokio 消费桥（推理在
 //! tokio 后台，主线程不 await）。
 //!
 //! 每条 `RunTask` 的取消令牌经 `select!` 与 execute 竞速——取消在流式
 //! 读取的多个 await 点上即时生效，被取消的任务静默丢弃（App 已推进代
 //! 数，任何迟到产物都会被判 stale）。任务 future 包在 `catch_unwind`
-//! 里（06 §7「后台 panic 被 tokio 捕获转为 TaskFailed」）：引擎或编排
+//! 里（后台 panic 被 tokio 捕获转为 TaskFailed）：引擎或编排
 //! 层炸掉时用户拿到失败卡而不是永悬的「推理中」，消费循环继续存活。
 //! 运行时由 [`start_command_runtime`] 创建并托管，进程退出时随通道③
 //! 关闭自然收尾。

@@ -103,7 +103,7 @@ pub struct Task {
 }
 
 impl Task {
-    /// 模态约束表（06 §5.1）校验：管道在执行前调用，非法组合直接落
+    /// 模态约束表校验：管道在执行前调用，非法组合直接落
     /// `TaskFailed`，不进 prompt 与引擎。
     pub fn validate(&self) -> Result<(), GlossError> {
         validate_modality(self.kind, &self.input)
@@ -126,7 +126,7 @@ impl TaskKind {
     }
 }
 
-/// 模态约束表（06 §5.1）：任务类型与输入模态的合法组合。唯一被拒的
+/// 模态约束表：任务类型与输入模态的合法组合。唯一被拒的
 /// 错误是 [`GlossError::UnsupportedModality`]。
 pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError> {
     let legal = match (kind, input) {
@@ -324,7 +324,7 @@ mod tests {
         }
     }
 
-    /// 模态约束表（06 §5.1）全矩阵：5 kind × 3 输入逐格断言。期望值按
+    /// 模态约束表全矩阵：5 kind × 3 输入逐格断言。期望值按
     /// （kind, 模态）格子计算而非按 kind，文本 kind 的合法格在 Text 列、
     /// 图像 kind 的合法格在 Image 列。新增 TaskKind 变体时会在此处编译
     /// 失败（数组缺项），逼出有意识的分类决策而不是静默落进 `_` 通配。

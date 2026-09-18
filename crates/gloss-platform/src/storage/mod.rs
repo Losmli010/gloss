@@ -120,7 +120,7 @@ impl FileConfigStore {
 
     /// 读取整份配置；缺文件是首次运行的正常路径——落一份出厂默认（用
     /// 户拿到可直接手改的文件）并返回默认值，首次落盘失败降级为仅内存
-    /// 默认、不阻断启动（06 §3.3）。
+    /// 默认、不阻断启动。
     ///
     /// 解析失败是硬错误：坏文件先被隔离备份，错误里只给路径与行号，不转述
     /// 解析器文本（它常引用出错行/取值，而用户可能把密钥贴错字段——端口
@@ -159,7 +159,7 @@ impl FileConfigStore {
                 let config = Config::default();
                 match self.write_atomic(&config) {
                     Ok(()) => info!("created default config at {}", self.path.display()),
-                    // 首次落盘失败不阻断启动：降级为仅内存默认（06 §3.3）。
+                    // 首次落盘失败不阻断启动：降级为仅内存默认。
                     Err(err) => warn!(
                         "could not persist default config to {}: {err}",
                         self.path.display()
@@ -210,7 +210,7 @@ impl SecretsHalf for keychain::KeychainSecret {
 
 /// [`ConfigStore`] 的组合实现：文档方法委托 [`FileConfigStore`]，密钥
 /// 方法委托密钥半边（泛型参数，出厂即 [`keychain::KeychainSecret`]）。
-/// 核心编排与组装点只见端口，不感知两半边的存在（06 §5.2）。
+/// 核心编排与组装点只见端口，不感知两半边的存在。
 #[derive(Debug)]
 pub struct CompositeConfigStore<S = keychain::KeychainSecret> {
     document: FileConfigStore,

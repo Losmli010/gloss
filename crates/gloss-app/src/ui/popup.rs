@@ -12,13 +12,13 @@ use gloss_core::task::OutcomeStructured;
 
 use crate::machine::{ErrorAction, OverlayView};
 
-/// 浮层宽度（UI 规范 §2）
+/// 浮层宽度
 pub const WIDTH: f32 = 380.0;
-/// 卡片圆角（UI 规范 §2）
+/// 卡片圆角
 const CORNER_RADIUS: u8 = 8;
-/// 内容区内边距（UI 规范 §2）
+/// 内容区内边距
 const PADDING: i8 = 14;
-/// 头部身份圆点：品牌珊瑚橙（UI 规范 §〇）
+/// 头部身份圆点：品牌珊瑚橙
 const BRAND_DOT: Color32 = Color32::from_rgb(0xD8, 0x5A, 0x30);
 /// 流式正文/产物的展示字符上限（超出截断，浮层窗口固定）。
 const MAX_BODY_CHARS: usize = 4000;
@@ -171,7 +171,7 @@ fn outcome_body(ui: &mut egui::Ui, outcome: &gloss_core::task::TaskOutcome) {
     }
 }
 
-/// 词卡精排：词条 + 音标，按词性分组的释义与例句（UI 规范 §3.3 的最小
+/// 词卡精排：词条 + 音标，按词性分组的释义与例句（最小
 /// 落地；精排细节随 M4 真实数据调优）。
 fn word_card(
     ui: &mut egui::Ui,

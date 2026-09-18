@@ -1,6 +1,6 @@
-//! 配置模型：`Config` 结构、出厂默认与查找助手（06 §6.3）。
+//! 配置模型：`Config` 结构、出厂默认与查找助手。
 //!
-//! 与 06 §6.3 草案的偏差（字段一一对应，仅类型收窄）：
+//! 与设计草案的偏差（字段一一对应，仅类型收窄）：
 //! - `provider_keys` / `model_by_kind` 由元组数组改为命名字段结构——
 //!   配置文件面向用户手改，TOML 的 `[[provider_keys]]` 段落比二元数组可读；
 //! - `target_lang` 由 `String` 收窄为 [`Lang`]——与 `TaskOptions::target_lang`
@@ -33,7 +33,7 @@ pub const ALL_KINDS: [TaskKind; 5] = [
 /// 缺项时的兜底——两处共用同一处字面量（各写一份时改一边不会有人红）。
 pub const DEFAULT_TEXT_MODEL: &str = "deepseek-chat";
 
-/// 出厂默认 OpenAI 兼容端点：DeepSeek（06 §八 的参考实现）。客户端按
+/// 出厂默认 OpenAI 兼容端点：DeepSeek。客户端按
 /// `{base_url}/chat/completions` 拼接，设置页可改。
 pub const DEFAULT_BASE_URL: &str = "https://api.deepseek.com/v1";
 
@@ -93,7 +93,7 @@ fn default_provider_keys() -> Vec<ProviderKey> {
 }
 
 /// 任务类型 → 默认模型 id 的绑定：统一 LLM 客户端下，模态能力差异是
-/// 配置问题（06 §5.1）——文本任务配文本模型、图像任务配视觉模型。
+/// 配置问题——文本任务配文本模型、图像任务配视觉模型。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelBinding {
     /// 任务类型。
@@ -128,7 +128,7 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// `enabled_kinds` 已在 M4-T6 接线（触发时过滤）；`hotkey_bindings` /
 /// `theme` / `auto_show` 已在 M4-T7 接线（保存后重注册热键；主题施加到两个
 /// egui 上下文；auto_show 决定浮层何时自动露面）——这三项都**不**在触发时
-/// 冻结，见 06 §6.3；`cache_ttl_secs` 归缓存构造接线。
+/// 冻结；`cache_ttl_secs` 归缓存构造接线。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -276,7 +276,7 @@ mod tests {
 
     use super::*;
 
-    /// 出厂默认值契约：与 06 §6.3 及热键写死默认对齐的抽查。
+    /// 出厂默认值契约：与热键写死默认对齐的抽查。
     #[test]
     fn factory_defaults_match_spec() {
         let config = Config::default();

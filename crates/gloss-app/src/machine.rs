@@ -16,7 +16,7 @@ use gloss_core::task::{InputSource, Task, TaskInput, TaskKind, TaskOptions, Task
 
 use crate::channel::{AcquireCommand, PlatformEvent};
 
-/// 失败卡的动作按钮（06 §7 错误映射表）：状态机按错误变体给出该显式
+/// 失败卡的动作按钮（错误映射表）：状态机按错误变体给出该显式
 /// 给用户的出口，渲染层照画、壳执行。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorAction {
@@ -26,7 +26,7 @@ pub enum ErrorAction {
     OpenSettings,
 }
 
-/// 应用状态机（06 §6.1）：触发 → 取材 → 推理 → 展示/失败。
+/// 应用状态机：触发 → 取材 → 推理 → 展示/失败。
 ///
 /// 转移概要：任何可见态收到新触发（[`TaskStateMachine::trigger`]）都取
 /// 消在途任务并回 `Fetching`；`Fetching` 采纳 `InputReady` 后携取消令牌
@@ -65,7 +65,7 @@ pub enum OverlayView {
     },
     /// 产物卡：按 `TaskKind` 精排或展示 markdown 正文。
     Outcome(TaskOutcome),
-    /// 失败信息与动作出口：`action` 指出浮层该给用户的按钮（06 §7 错误
+    /// 失败信息与动作出口：`action` 指出浮层该给用户的按钮（错误
     /// 映射），`None` 表示无可操作出口（重新划词即可）。
     Failed {
         /// 面向用户的失败说明。
@@ -88,7 +88,7 @@ pub struct RunRequest {
 }
 
 /// 触发时定下的任务：一次配置快照解析出类型与选项，`InputReady` 到达后
-/// 直接组装——单次任务的配置从触发那一刻起就固定了（06 §6.3「单次任务内
+/// 直接组装——单次任务的配置从触发那一刻起就固定了（「单次任务内
 /// 配置一致」），取材途中换配置不会让同一个任务用上两个版本的参数。
 #[derive(Debug, Clone, PartialEq)]
 struct PendingTask {
@@ -105,7 +105,7 @@ pub struct TaskStateMachine {
     state: AppState,
     /// 触发时确定的任务类型与选项，待 `InputReady` 到达后组装 `Task`。
     pending: Option<PendingTask>,
-    /// 在途推理的取消令牌：新触发时取消旧任务（唯一取消机制，08 §4.2）。
+    /// 在途推理的取消令牌：新触发时取消旧任务（唯一取消机制）。
     current_cancel: Option<CancellationToken>,
     /// 当前任务的副本：推理期间随行，可重试失败后留在 Error 态供
     /// [`TaskStateMachine::retry`] 原样重发；完成、隐藏与不可重试失败即清。
@@ -233,7 +233,7 @@ impl TaskStateMachine {
         true
     }
 
-    /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（06 §7 错误
+    /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（错误
     /// 映射：可重试类带重试按钮并保留任务副本，配置/鉴权类引导去设置页）。
     /// 返回是否需要展示浮层。
     pub fn accept_failed(&mut self, generation: u64, error: &GlossError) -> bool {
@@ -329,7 +329,7 @@ impl TaskStateMachine {
     }
 }
 
-/// 失败卡的展示文案（按错误变体，06 §7 的用户可见措辞）。
+/// 失败卡的展示文案（按错误变体的用户可见措辞）。
 fn error_message(error: &GlossError) -> String {
     match error {
         GlossError::SelectionUnavailable => "未能读取选中文本，请重新选中后触发".into(),
@@ -351,7 +351,7 @@ fn error_message(error: &GlossError) -> String {
     }
 }
 
-/// 错误 → 失败卡动作（06 §7 映射表）：网络/限流可原样重试；鉴权、模态
+/// 错误 → 失败卡动作（映射表）：网络/限流可原样重试；鉴权、模态
 /// 与配置错误都要进设置页才能修（模型绑定、密钥的修改入口在 M4-T6 落
 /// 地）；其余类别没有按钮意义上的出口——权限类引导已写在文案里，协议
 /// 异常重发同一个请求只会再错一次。
@@ -788,7 +788,7 @@ mod tests {
         assert!(machine.retry().is_none());
     }
 
-    /// 可重试失败（06 §7）：失败卡带重试出口，retry() 原样重发同一个
+    /// 可重试失败：失败卡带重试出口，retry() 原样重发同一个
     /// 任务（同代数、同输入、新令牌），浮层回到流式视图。
     #[test]
     fn retryable_failure_keeps_task_and_retry_redispatches_it() {

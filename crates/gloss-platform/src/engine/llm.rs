@@ -219,7 +219,7 @@ fn map_transport_error(err: reqwest::Error) -> GlossError {
     }
 }
 
-/// HTTP 状态 → [`GlossError`]（06 §7 的错误分类表）。
+/// HTTP 状态 → [`GlossError`]（错误分类表）。
 fn map_failure(status: StatusCode, body: &str) -> GlossError {
     match status.as_u16() {
         401 | 403 => GlossError::EngineAuth,
@@ -633,7 +633,7 @@ mod tests {
         }
     }
 
-    /// 状态码映射（06 §7）：鉴权 / 限流 / 服务端错误分类，其余带服务端诊断。
+    /// 状态码映射：鉴权 / 限流 / 服务端错误分类，其余带服务端诊断。
     #[test]
     fn maps_http_status_to_error_variants() {
         assert_eq!(

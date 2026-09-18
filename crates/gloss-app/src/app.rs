@@ -23,7 +23,7 @@ use crate::ui::settings::{KeyUpdate, SettingsAction, SettingsState};
 use crate::ui::{self};
 use crate::windows::WindowManager;
 
-/// 浮层显示后的自动隐藏时长（06 §6.1：超时回 Idle；失焦路径走 Focused 事件）
+/// 浮层显示后的自动隐藏时长（超时回 Idle；失焦路径走 Focused 事件）
 const AUTO_HIDE_AFTER: Duration = Duration::from_secs(10);
 
 /// 投递给主线程的自定义事件。
@@ -242,13 +242,13 @@ impl GlossApp {
         let overlay_view = self.machine.overlay_view();
         let (repaint, action) = render_frame(frame, overlay_view);
         self.overlay_repaint = repaint;
-        // 失败卡的动作出口（06 §7）：重试原样重发，鉴权/配置类打开设置。
+        // 失败卡的动作出口：重试原样重发，鉴权/配置类打开设置。
         if let Some(action) = action {
             self.handle_error_action(action);
         }
     }
 
-    /// 执行失败卡的动作出口（06 §7 错误映射的壳侧半边）。
+    /// 执行失败卡的动作出口（错误映射的壳侧半边）。
     fn handle_error_action(&mut self, action: ErrorAction) {
         match action {
             ErrorAction::Retry => match self.machine.retry() {
@@ -687,7 +687,7 @@ fn repaint_at(delay: Duration, now: Instant) -> Option<Instant> {
     (delay != Duration::MAX).then(|| now + delay)
 }
 
-/// 配置主题 → egui 主题偏好（04 §六：出厂跟随系统，设置页可固定明/暗）。
+/// 配置主题 → egui 主题偏好（出厂跟随系统，设置页可固定明/暗）。
 fn theme_preference(theme: Theme) -> egui::ThemePreference {
     match theme {
         Theme::System => egui::ThemePreference::System,
@@ -764,8 +764,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
             return;
         }
         // 浮层预创建即隐藏（Idle 态）；先在隐藏状态画一帧预热——egui 图集构建、
-        // Metal 管线编译与纹理上传都发生在首帧，不预热的话首次显示会超 100ms
-        // 预算（09 M1-T6）
+        // Metal 管线编译与纹理上传都发生在首帧，不预热的话首次显示会超预算
         self.draw();
     }
 

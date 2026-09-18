@@ -57,7 +57,7 @@ objc2-foundation = {
 # 兜底复制的按键注入与真机测试的事件注入（rdev::simulate）；默认集只多出
 # 可选的 serde 支持，注入用不到。手势监听不走 rdev（见 events/mouse.rs 模块注释）。
 rdev = { version = "0.5", default-features = false }
-# OpenAI 兼容端点的流式调用（06 §八 选型）。最小特性集：SSE 用 HTTP/1.1 足够，
+# OpenAI 兼容端点的流式调用。最小特性集：SSE 用 HTTP/1.1 足够，
 # TLS 走 rustls + 系统根证书。
 reqwest = {
   version = "0.12",

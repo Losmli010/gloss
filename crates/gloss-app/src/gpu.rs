@@ -30,7 +30,7 @@ pub struct GpuContext {
 }
 
 impl GpuContext {
-    /// 同步等待 adapter 与 device 请求（pollster 就是为这一步引入的，06 §八）。
+    /// 同步等待 adapter 与 device 请求（pollster 就是为这一步引入的）。
     pub fn new() -> Result<Self, GpuError> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,

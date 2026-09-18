@@ -1,4 +1,4 @@
-//! 运行时配置共享与保存（M4-T3）：`ArcSwap<Config>` 快照替换（06 §6.3）。
+//! 运行时配置共享与保存（M4-T3）：`ArcSwap<Config>` 快照替换。
 //!
 //! 落在 core 而不是 app：gloss-app 与 gloss-platform 都要读同一份快照（应用
 //! 侧在触发时解析任务选项；platform 侧的引擎每请求读端点与 keychain 条目
@@ -62,7 +62,7 @@ impl ConfigHandle {
     }
 
     /// 装配期构造（宽容版）：加载失败记 error 日志后退回出厂默认，不阻断
-    /// 启动。06 §3.3 的「退出或降级」在这里选降级——配置文件是用户手改的，
+    /// 启动。「退出或降级」在这里选降级——配置文件是用户手改的，
     /// 因一份改坏的 TOML 拒绝启动会让用户连设置界面都进不去；存储里的坏文件
     /// 保持原样，用户可自行修复（或由设置页保存覆盖）。
     pub fn load_or_default(store: Arc<dyn ConfigStore>) -> Self {

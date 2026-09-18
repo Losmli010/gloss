@@ -42,7 +42,7 @@ mod imp {
 
         /// 读取前台应用的选中文本。
         ///
-        /// 调用方保证：在平台事件线程上调用（08 §4.4 亲和性）。
+        /// 调用方保证：在平台事件线程上调用。
         pub fn read(&mut self) -> Result<String, GlossError> {
             let ax = self.ax.read();
             combine(ax, || self.clipboard.read())

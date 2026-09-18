@@ -1,4 +1,4 @@
-//! Prompt 模板注册表：kind + input → OpenAI 兼容 messages（06 §5.2）。
+//! Prompt 模板注册表：kind + input → OpenAI 兼容 messages。
 //!
 //! 文本任务 3 个模板（词卡/句译/代码解释）统一输出契约：markdown 正文 +
 //! 末尾 ```gloss 围栏 JSON 块（按 kind 携带 [`crate::task::OutcomeStructured`]
@@ -72,7 +72,7 @@ impl PromptRegistry {
         Self
     }
 
-    /// 渲染任务的完整 messages：先过模态约束表（06 §5.1），非法组合
+    /// 渲染任务的完整 messages：先过模态约束表，非法组合
     /// 返回 [`GlossError::UnsupportedModality`]。
     pub fn render(&self, task: &Task) -> Result<Vec<ChatMessage>, GlossError> {
         validate_modality(task.kind, &task.input)?;

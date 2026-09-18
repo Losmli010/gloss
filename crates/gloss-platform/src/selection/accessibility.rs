@@ -1,7 +1,7 @@
 //! AX 读选区：`AccessibilityReader`。
 //!
 //! 经 Accessibility API（HIServices）向系统问询「systemwide 焦点元素 →
-//! 选中文本」，是向目标应用发起的同步跨进程调用，按 08 §4.4 的线程模型
+//! 选中文本」，是向目标应用发起的同步跨进程调用，按线程模型约束
 //! 必须运行在平台事件线程（调用方保证亲和性）。权限缺失返回
 //! [`GlossError::AccessibilityDenied`]；无选区、应用不支持选区属性或系统
 //! 调用失败返回 [`GlossError::SelectionUnavailable`]——一律经 `Result`
@@ -124,7 +124,7 @@ mod imp {
 
         /// 读取前台应用的选中文本。
         ///
-        /// 调用方保证：在平台事件线程上调用（08 §4.4 亲和性）。
+        /// 调用方保证：在平台事件线程上调用。
         pub fn read(&mut self) -> Result<String, GlossError> {
             // SAFETY: 纯查询型 FFI，无前置条件。未授权时不发起跨进程取值，
             // 直接按权限语义收口。

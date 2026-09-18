@@ -1,4 +1,4 @@
-//! 平台事件线程：全局热键、鼠标监听等系统事件源的唯一宿主（08 §7.2）。
+//! 平台事件线程：全局热键、鼠标监听等系统事件源的唯一宿主。
 //!
 //! 事件线程必须是 RunLoop 线程而非裸 `std::thread`：线程宿主为 CFRunLoop，
 //! 以周期定时器抽干各事件源；鼠标 tap 这类自带 run loop 的源在自己的监听
@@ -211,7 +211,7 @@ where
     TickOutcome::Continue
 }
 
-/// 事件线程的驱动：RunLoop 不能阻塞在 crossbeam 上（08 §7.2），挂一个周期
+/// 事件线程的驱动：RunLoop 不能阻塞在 crossbeam 上，挂一个周期
 /// 定时器执行与 [`tick`] 相同的一轮消费；鼠标 tap 等自带 run loop 的源在
 /// 各自线程上运行，产物经通道汇入由这里抽干（见 events/mouse.rs）。
 fn run_loop<C, E, P, F>(

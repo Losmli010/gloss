@@ -1,7 +1,7 @@
-//! Cache 端口的内存实现：moka LRU + TTL（M3-T5，06 §5.2）。
+//! Cache 端口的内存实现：moka LRU + TTL（M3-T5）。
 //!
 //! key 由 [`cache_key`] 统一派生（kind, input, options, model 的规范化序
-//! 列化摘要）——同一文本在不同任务类型/模型下不共享缓存（06 §5.2 ADR）。
+//! 列化摘要）——同一文本在不同任务类型/模型下不共享缓存。
 //! 进程内缓存即可满足 M3-MVP，摘要用 std `DefaultHasher`（SipHash）：
 //! 只要求进程内稳定，不要求跨版本持久稳定。
 
@@ -113,7 +113,7 @@ mod tests {
         }
     }
 
-    /// 验收标准（06 §5.2 ADR）：同一文本不同 kind 不共享缓存。
+    /// 验收标准：同一文本不同 kind 不共享缓存。
     #[test]
     fn same_text_different_kinds_do_not_share_cache() {
         let word = cache_key(&text_task(TaskKind::TranslateWord, "gloss"), "m1");

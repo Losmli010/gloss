@@ -1,4 +1,4 @@
-//! 线程间消息与通道（架构文档 §4.3）：四条通道 + 一个取消信号。
+//! 线程间消息与通道：四条通道 + 一个取消信号。
 //!
 //! 请求代数（字段名 `generation`，文档记作 gen——`gen` 是 Rust 2024 保留字）只在
 //! App 一处赋值：`PlatformEvent` 不含它，其后所有消息携带同一个值，主线程对
@@ -252,7 +252,7 @@ mod tests {
         }
     }
 
-    /// PlatformEvent 不含请求代数：generation 由 App 在消费时赋值（架构文档 §4.2）。
+    /// PlatformEvent 不含请求代数：generation 由 App 在消费时赋值。
     #[test]
     fn acquire_commands_carry_app_assigned_gen() {
         let ch = CrossbeamPair::<AcquireCommand>::new();
