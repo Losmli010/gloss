@@ -18,7 +18,7 @@ use winit::window::{Window, WindowId};
 
 use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent};
 use crate::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
-use crate::machine::{ErrorAction, OverlayView, RunRequest, TaskStateMachine};
+use crate::machine::{AppState, ErrorAction, OverlayView, RunRequest, TaskStateMachine};
 use crate::ui::settings::{KeyUpdate, SettingsAction, SettingsState};
 use crate::ui::{self};
 use crate::windows::WindowManager;
@@ -645,8 +645,17 @@ impl GlossApp {
         accepted
     }
 
-    /// 自动隐藏到点：收起浮层并回落 Idle。
+    /// 自动隐藏到点：收起浮层并回落 Idle。推理中（Translating）不被自动
+    /// 隐藏掐断——隐藏即放弃（T8），推理超过时限会让浮层在转圈时凭空消
+    /// 失、任务静默作废；因此只顺延到下一周期，等 TaskDone/TaskFailed 重
+    /// 锚计时（accept_done / 重试路径）后再正常收起。用状态而非取消令牌
+    /// 判「在途」：令牌在 done 后仍残留（Show 态），状态是精确信号。Esc/
+    /// 点击外部等显式隐藏不走此路径，仍立即放弃。
     fn on_auto_hide(&mut self, _event_loop: &ActiveEventLoop) {
+        if self.machine.state() == AppState::Translating {
+            self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
+            return;
+        }
         self.auto_hide = None;
         if let Some(windows) = &self.windows {
             windows.hide();

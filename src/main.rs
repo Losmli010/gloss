@@ -274,6 +274,15 @@ fn acquire_command_handler() -> impl FnMut(AcquireCommand, &EventSink<Event, Pla
         );
         match reader.read() {
             Ok(text) => {
+                // 只记形态不记原文：选区是用户敏感内容，不落进日志文件。
+                debug!(
+                    thread = thread::EVENT,
+                    generation = generation,
+                    kind = ?kind,
+                    bytes = text.len(),
+                    chars = text.chars().count(),
+                    "text input acquired"
+                );
                 sink.send_event(Event::InputReady {
                     generation,
                     input: TaskInput::Text { text, hint: None },
