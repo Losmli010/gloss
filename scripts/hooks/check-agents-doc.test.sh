@@ -94,16 +94,25 @@ assert_doc "代码块里的配方也不放过" 1 "命令清单：
     just deploy"
 
 echo ""
-echo "-- 约束名指名引用（仓库各处的 约束「名字」）--"
-CONSTRAINT_DOC="## 不可协商的约束
+echo "-- 质量条目名指名引用（仓库各处的 质量条目「名字」）--"
+RULE_DOC="## 质量条目与门禁对照
 
-1. **[CRITICAL] 日志统一出口**：只用 \`just run\` 一处出口。"
-assert_doc "指名引用命中真实约束名" 0 "$CONSTRAINT_DOC" '//! 见 AGENTS.md 约束「日志统一出口」。'
-assert_doc "指名引用写了不存在的约束名" 1 "$CONSTRAINT_DOC" '//! 见 AGENTS.md 约束「日志英文」。'
-assert_doc "约束改名后引用未同步" 1 "## 不可协商的约束
+### 质量条目总表
 
-1. **[LOW] 日志出口**：只用 \`just run\`。" '//! 见 AGENTS.md 约束「日志统一出口」。'
-assert_doc "没有指名引用时不误报" 0 "$CONSTRAINT_DOC"
+| 维度 | 级别 | 条目 | 强制方式 |
+| --- | --- | --- | --- |
+| 可维护性 | CRITICAL | **日志统一出口**：只用 \`just run\` 一处出口 | \`just run\` |"
+RULE_DOC_RENAMED="## 质量条目与门禁对照
+
+### 质量条目总表
+
+| 维度 | 级别 | 条目 | 强制方式 |
+| --- | --- | --- | --- |
+| 可维护性 | LOW | **日志出口**：只用 \`just run\`。 | \`just run\` |"
+assert_doc "指名引用命中真实条目名" 0 "$RULE_DOC" '//! 见 AGENTS.md 质量条目「日志统一出口」。'
+assert_doc "指名引用写了不存在的条目名" 1 "$RULE_DOC" '//! 见 AGENTS.md 质量条目「日志英文」。'
+assert_doc "条目改名后引用未同步" 1 "$RULE_DOC_RENAMED" '//! 见 AGENTS.md 质量条目「日志统一出口」。'
+assert_doc "没有指名引用时不误报" 0 "$RULE_DOC"
 
 echo ""
 echo "== 测试结果 =="

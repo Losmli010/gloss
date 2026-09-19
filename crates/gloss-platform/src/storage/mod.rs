@@ -93,6 +93,7 @@ impl FileConfigStore {
         if let Err(err) = fs::rename(&tmp, &self.path) {
             // 清理是尽力而为：残留的 tmp 只占一个文件名，下次写入会截断
             // 覆盖，不值得为它放大错误。
+            #[allow(clippy::let_underscore_must_use)]
             let _ = fs::remove_file(&tmp);
             return Err(GlossError::Config(format!(
                 "rename {} -> {}: {err}",

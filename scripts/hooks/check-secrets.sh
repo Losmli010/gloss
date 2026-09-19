@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 硬编码密钥扫描门禁：扫描全部 git 跟踪文件，命中任一模式即失败。
-# 本地 `just secrets`（pre-commit 的一部分）与 CI 的 quality job 共用此脚本，
+# 本地 `just secrets`（pre-commit 的一部分）与 CI 的 Secrets check job 共用此脚本，
 # 保证本地与 CI 判定一致。
 #
 # 规则取向：只收高信号格式（provider 密钥前缀、私钥块、带引号的凭据赋值）。

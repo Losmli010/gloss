@@ -32,11 +32,13 @@ license = "MIT"
 # （clippy.toml 的 allow-*-in-tests）。各 crate 以 [lints] workspace = true 继承。
 [workspace.lints.clippy]
 expect_used = "deny"
+# must_use 返回值不得静默丢给 let _；确需丢弃的必须在 allow 旁注明缘由。
+let_underscore_must_use = "deny"
 # 长驻进程禁止 mem::forget 式泄漏。
 mem_forget = "deny"
 panic = "deny"
 print_stderr = "deny"
-# 日志唯一出口是 gloss_core::log；见 AGENTS.md 约束「日志统一出口」。
+# 日志唯一出口是 gloss_core::log；见 AGENTS.md 质量条目「日志统一出口」。
 print_stdout = "deny"
 todo = "deny"
 # unsafe 块必须带 `// SAFETY:` 注释说明不变量；允许有 unsafe，但不允许无据的 unsafe。
@@ -63,7 +65,7 @@ gloss-app = { path = "crates/gloss-app" }
 gloss-core = { path = "crates/gloss-core" }
 gloss-platform = { path = "crates/gloss-platform" }
 
-# 公共 API 必须有文档注释（AGENTS.md 约束「公共 API 有文档注释」）；文档里的示例
+# 公共 API 必须有文档注释，由 missing_docs = deny 强制；文档里的示例
 # 由 cargo test --doc（just test 一部分）验证可编译可运行。
 [dev-dependencies]
 # L3 显隐自检（overlay_selftest）直接驱动 winit 窗口栈。

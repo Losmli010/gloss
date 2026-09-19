@@ -238,6 +238,51 @@ echo "-- 约束「依赖只开需要的特性」（应拒绝，退出码非 0）
 assert_case "第三方依赖未关默认特性" 1 mut_dep_without_default_features "pollster 未写 default-features = false"
 
 echo ""
+echo "-- 残留任务标记扫描（git 夹具；上方非 git 夹具用例覆盖自动跳过路径）--"
+MARK="$WORK/markcase"
+new_fixture "$MARK"
+git -C "$MARK" init -q
+mkdir -p "$MARK/scripts/hooks"
+cp "$CHECKER" "$MARK/scripts/hooks/"
+
+assert_mark() {
+  local desc="$1" expected="$2" rel="$3" content="$4" needle="${5-}"
+  mkdir -p "$MARK/$(dirname "$rel")"
+  printf '%s\n' "$content" >"$MARK/$rel"
+  git -C "$MARK" add -A >/dev/null 2>&1
+  local out actual reason=""
+  out="$(bash "$MARK/scripts/hooks/check-constraints.sh" "$MARK" 2>&1)"
+  actual=$?
+  if [ "$actual" -ne "$expected" ]; then
+    reason="期望退出码 ${expected}，实际 ${actual}"
+  elif [ -n "$needle" ] && ! printf '%s' "$out" | grep -qF "$needle"; then
+    reason="输出缺少「${needle}」"
+  elif [ -z "$needle" ] && printf '%s' "$out" | grep -qF "残留任务标记："; then
+    reason="不应出现残留标记命中"
+  fi
+  if [ -z "$reason" ]; then
+    echo "  ✓ $desc"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ $desc  (${reason})"
+    echo "    输出: $(printf '%s' "${out}" | tail -n 3)"
+    FAIL=$((FAIL + 1))
+  fi
+  git -C "$MARK" rm -rq --cached "$rel" 2>/dev/null || true
+  rm -f "$MARK/$rel"
+}
+
+assert_mark "干净 git 仓库通过" 0 "src/clean.rs" 'let x = compute(input);'
+assert_mark "源文件含 TODO 命中" 1 "src/has_todo.rs" '// TODO: 待办' "残留任务标记："
+assert_mark "FIXME 命中" 1 "src/has_fixme.rs" 'fixme_marker(); // FIXME' "残留任务标记："
+assert_mark "AGENTS.md 含大写 TODO 豁免（规则本体）" 0 "AGENTS.md" \
+  'gloss、gloss-core、gloss-platform、gloss-app 的依赖方向见下。代码不留 TODO 残留标记。'
+assert_mark "小写 todo 与词边界（TODOs / MY_TODO）不误报" 0 "src/boundary.rs" \
+  'let todo = "TODOS"; let _x = MY_TODO;'
+# checker 自身豁免：脚本副本（内含 TODO|FIXME|HACK|TBD 字面量）已被 git add -A 跟踪，
+# 「干净 git 仓库通过」用例退出 0 即证明其未被自命中。
+
+echo ""
 echo "== 测试结果 =="
 echo "  通过: $PASS"
 echo "  失败: $FAIL"

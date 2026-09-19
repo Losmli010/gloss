@@ -20,8 +20,9 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Local docs (not pushed)
-docs/
+# 本地决策记录不进仓库；docs/tests/ 的 BDD 测试行为清单例外，随仓库跟踪
+docs/*
+!docs/tests/
 .DS_Store
 .zcode/
 
