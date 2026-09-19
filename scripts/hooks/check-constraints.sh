@@ -7,6 +7,7 @@
 # 覆盖：
 #   依赖方向            —— 各 crate 只能依赖允许的边；gloss-core 不得出现平台/渲染栈
 #                          （红线：winit / wgpu / 平台 API）。
+#   桩副本一致          —— 各 crate tests/stubs/ 的同名桩逐字一致，防跨 crate 漂移。
 #   日志统一出口        —— 除 gloss-core 外不得直接依赖 tracing 三件套。
 #   日志一律英文        —— 日志宏实参里不得出现非 ASCII 字节。
 #   版本单点维护        —— 子 crate 的 version / edition 必须 *.workspace = true，
@@ -179,22 +180,47 @@ if [ -f "$AGENTS_MD" ]; then
 fi
 ok "依赖方向（${edges} 条本仓库依赖边 + 各 crate 的 crate 名登记）"
 
-# ---- 约束「依赖方向」附加红线：测试桩不得进生产构建 ----
-stub_deps=0
-while IFS='|' read -r owner manifest sec key start text; do
-  [ -n "$owner" ] || continue
-  [ "$key" = "gloss-core" ] || continue
-  case "$sec" in
-    *dev-dependencies*) continue ;;
-  esac
-  case "$text" in
-    *test-util*)
-      fail "约束「依赖方向」：${owner} 的非 dev 依赖启用了 gloss-core/test-util（$(rel "$manifest"):${start}）——测试桩会进生产构建，只允许写在 dev-dependencies 里"
-      ;;
-    *) stub_deps=$((stub_deps + 1)) ;;
-  esac
-done <<<"$DEP_DUMP"
-ok "测试桩不进生产构建（核对 ${stub_deps} 条非 dev 的本仓库依赖）"
+# ---- 测试桩副本一致性（AGENTS.md「测试」节：跨 crate 复用的同名桩逐字一致）----
+# 桩按 crate 自持（tests/stubs/），一份漂移会让两个 crate 的测试在语义不同的
+# 假实现上各自通过。engine.rs 全文比对；端口桩按节比对——节以「列 0 的 ///」
+# 切分（桩的条目文档都在列 0，结构体字段文档有缩进，不会误切）。
+stub_section() { # <文件> <节首文档前缀>
+  awk -v pat="^/// $2" '
+    found { if ($0 ~ /^\/\/\//) exit; lines[++n] = $0; next }
+    $0 ~ pat { found = 1; lines[++n] = $0; next }
+    END {
+      m = n
+      while (m > 1 && lines[m] ~ /^[[:space:]]*$/) m--
+      for (i = 1; i <= m; i++) print lines[i]
+    }
+  ' "$1"
+}
+
+CORE_STUBS="$ROOT/crates/gloss-core/tests/stubs"
+if [ -f "$CORE_STUBS/engine.rs" ]; then
+  drifts=0
+  assert_same() { # <说明> <文件或节A> <文件或节B>
+    if ! cmp -s "$2" "$3"; then
+      fail "桩副本漂移：$1 —— 同名桩必须逐字一致，改注入语义时跨 crate 同步"
+      drifts=$((drifts + 1))
+    fi
+  }
+  assert_same "engine.rs（core ↔ app）" \
+    "$CORE_STUBS/engine.rs" "$ROOT/crates/gloss-app/tests/stubs/engine.rs"
+  for sec in "内存版配置存储桩" "记录每次重绑定的热键桩"; do
+    assert_same "${sec}（core ↔ app）" \
+      <(stub_section "$CORE_STUBS/ports.rs" "$sec") \
+      <(stub_section "$ROOT/crates/gloss-app/tests/stubs/ports.rs" "$sec")
+  done
+  assert_same "内存版配置存储桩（core ↔ platform）" \
+    <(stub_section "$CORE_STUBS/ports.rs" "内存版配置存储桩") \
+    <(stub_section "$ROOT/crates/gloss-platform/tests/stubs/ports.rs" "内存版配置存储桩")
+  if [ "$drifts" -eq 0 ]; then
+    ok "桩副本逐字一致（engine.rs 全文 + 共享端口桩逐节比对）"
+  fi
+else
+  ok "桩副本逐字一致（无 tests/stubs/，跳过）"
+fi
 
 # ---- 约束「日志统一出口」 ----
 log_owners=""

@@ -61,7 +61,7 @@ name = "overlay_selftest"
 
 [dependencies]
 gloss-app = { path = "crates/gloss-app" }
-# 测试桩只出现在各 crate 的 dev-dependencies 构建里，不进发布二进制。
+# 测试桩只在 tests/stubs/，经 cfg(test) 编译进测试目标，不进发布二进制。
 gloss-core = { path = "crates/gloss-core" }
 gloss-platform = { path = "crates/gloss-platform" }
 

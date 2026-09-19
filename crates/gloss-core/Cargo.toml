@@ -18,8 +18,6 @@ moka = { version = "0.12", default-features = false, features = ["sync"] }
 serde = { version = "1", default-features = false, features = ["derive", "rc", "std"] }
 # cache_key 的规范化序列化（同文本不同 kind 必须得到不同 key）。
 serde_json = { version = "1", default-features = false, features = ["std"] }
-# mock 引擎的流间延迟，仅 test-util 特性按需启用。
-tokio = { version = "1", default-features = false, features = ["time"], optional = true }
 # 日志三件套（统一出口的实现）。默认集先关再显式列全：tracing 留 std，
 # subscriber 列全 fmt::layer 所需特性，env-filter 供 RUST_LOG 过滤。
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
@@ -41,10 +39,6 @@ tracing-subscriber = {
 # 端口单测：流式消费用 StreamExt，异步测试跑 #[tokio::test]。
 futures = { version = "0.3", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
-
-[features]
-# 测试辅助：mock 引擎等单测基建，随下游 dev-dependencies 按需开启。
-test-util = ["dep:tokio"]
 
 [lints]
 workspace = true

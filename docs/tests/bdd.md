@@ -12,7 +12,7 @@
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 12 | `just test` |
-| 单元测试 | 224 | `just test` |
+| 单元测试 | 223 | `just test` |
 
 ## 人工测试
 
@@ -146,7 +146,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 ## 单元测试
 
-### crates/gloss-core/src/ports.rs
+### crates/gloss-core/tests/stubs_behavior.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -156,9 +156,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | config_store_mock_round_trips_document | 配置文档桩往返 | 给定默认存储，当 save 一份 auto_show=false 的文档，则 load 原样读回 | 2026-09-19 |
 | cache_mock_stores_and_isolates_keys | 缓存桩存取与 key 隔离 | 给定 miss→set→hit 序列，当按不同 key 查询，则命中且无关 key 互不可见 | 2026-09-19 |
 | hotkey_binder_mock_records_every_call | 热键绑定桩如实记录 | 给定多次 rebind（含空表），当读桩的 call_count 与 last，则按调用序记录、生效条数如实、最后一次覆盖、空表计 0 | 2026-09-19 |
-| ai_engine_mock_streams_scripted_deltas | 脚本引擎的流输出 | 给定脚本「光」「泽」，当消费 ScriptedEngine 的流，则拼接为「光泽」 | 2026-09-19 |
-| delta_stream_ends_without_chunks | 空脚本立即结束 | 给定空脚本，当消费 delta 流，则立即结束 | 2026-09-19 |
-| delta_stream_carries_failure_chunks | 流中错误按序穿透 | 给定含 Err 的脚本，当消费流，则 Ok/Err/Ok 按序穿透后正常结束 | 2026-09-19 |
+| chunk_delay_paces_the_stream | chunk 延迟为流定速 | 给定 30ms chunk 间延迟的三段脚本，当消费流，则内容按序且总耗时下界为两段延迟 | 2026-09-19 |
+| failures_are_injectable | 失败位置可注入 | 给定注入的各类 GlossError 与流中 Err，当 execute，则失败在注入位置原样发生、流继续按脚本 | 2026-09-19 |
+| execute_failure_once_fails_exactly_once | 一次性失败只生效一次 | 给定注入一次性失败与恢复脚本的引擎，当连续两次 execute，则首次返回注入错误、第二次照常产流 | 2026-09-19 |
+| execute_panic_fires_on_first_poll | panic 注入在首次 poll 触发 | 给定注入一次 panic 的引擎，当在 tokio 任务里驱动 execute，则任务以 panic 收场 | 2026-09-19 |
+| call_count_tracks_execute_invocations | 调用计数如实增长 | 给定多次 execute（含克隆体），当读 call_count，则共享计数如实增长 | 2026-09-19 |
+| empty_script_yields_empty_stream | 空脚本产出空流 | 给定空脚本，当 execute 并消费，则立即结束 | 2026-09-19 |
 
 ### crates/gloss-core/src/cache.rs
 
@@ -262,15 +265,6 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | engine_failures_propagate | 引擎失败原样上抛 | 给定 execute 整体失败与流中 Err，当执行，则错误原样上抛且失败前的增量已转发 | 2026-09-19 |
 | modality_mismatch_is_rejected_before_engine | 模态错配在引擎前拒绝 | 给定模态错配任务，当 execute，则 UnsupportedModality 且引擎 0 调用 | 2026-09-19 |
 | image_tasks_stay_unsupported | 图像任务保持不支持 | 给定真实图像输入的图像任务，当走编排，则仍报 UnsupportedModality 且引擎 0 调用 | 2026-09-19 |
-
-### crates/gloss-core/src/engine/mock.rs
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| chunk_delay_paces_the_stream | chunk 延迟为流定速 | 给定 30ms chunk 间延迟的三段脚本，当消费流，则内容按序且总耗时下界为两段延迟 | 2026-09-19 |
-| failures_are_injectable | 失败位置可注入 | 给定注入的各类 GlossError 与流中 Err，当 execute，则失败在注入位置原样发生、流继续按脚本 | 2026-09-19 |
-| call_count_tracks_execute_invocations | 调用计数如实增长 | 给定多次 execute（含克隆体），当读 call_count，则共享计数如实增长 | 2026-09-19 |
-| empty_script_yields_empty_stream | 空脚本产出空流 | 给定空脚本，当 execute 并消费，则立即结束 | 2026-09-19 |
 
 ### crates/gloss-app/src/channel.rs
 

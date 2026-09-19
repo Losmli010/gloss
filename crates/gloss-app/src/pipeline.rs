@@ -172,10 +172,10 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use crate::stubs::engine::MockEngine;
     use crossbeam_channel::Receiver;
     use gloss_core::cache::MokaCache;
     use gloss_core::engine::AiTaskService;
-    use gloss_core::engine::mock::MockEngine;
     use gloss_core::model::GlossError;
     use gloss_core::task::{Task, TaskInput, TaskKind, TaskOptions};
     use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};

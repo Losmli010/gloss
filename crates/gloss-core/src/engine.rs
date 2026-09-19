@@ -14,10 +14,7 @@ use crate::ports::{AiEngine, Cache, EngineRequest};
 use crate::prompt::{PromptRegistry, STRUCTURED_FENCE};
 use crate::task::{OutcomeStructured, Task, TaskKind, TaskOutcome};
 
-#[cfg(any(test, feature = "test-util"))]
-pub mod mock;
-
-/// 全链路编排：只依赖端口与模板，单测用 [`mock::MockEngine`] 驱动。
+/// 全链路编排：只依赖端口与模板，单测用 `tests/stubs` 的 `MockEngine` 驱动。
 pub struct AiTaskService {
     engine: Arc<dyn AiEngine>,
     cache: Arc<dyn Cache>,
@@ -181,8 +178,8 @@ mod tests {
 
     use super::{AiEngine, AiTaskService, OutcomeStructured};
     use crate::cache::MokaCache;
-    use crate::engine::mock::MockEngine;
     use crate::model::{GlossError, Lang, ScreenRect};
+    use crate::stubs::engine::MockEngine;
     use crate::task::{InputHint, Task, TaskInput, TaskKind, TaskOptions};
 
     fn make_service(engine: &MockEngine) -> (Arc<MockEngine>, AiTaskService) {
