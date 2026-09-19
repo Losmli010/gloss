@@ -12,7 +12,7 @@
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 12 | `just test` |
-| 单元测试 | 224 | `just test` |
+| 单元测试 | 223 | `just test` |
 
 ## 人工测试
 

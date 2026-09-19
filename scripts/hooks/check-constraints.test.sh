@@ -80,6 +80,19 @@ gloss-platform = { path = "../gloss-platform" }'
 
   printf 'info!("ready");\n' >"$dir/crates/gloss-core/src/log.rs"
 
+  # tests/stubs/ 桩副本夹具：让「桩副本一致」检查有可比对象
+  mkdir -p "$dir/crates/gloss-core/tests/stubs" \
+    "$dir/crates/gloss-app/tests/stubs" "$dir/crates/gloss-platform/tests/stubs"
+  printf 'engine stub\n' >"$dir/crates/gloss-core/tests/stubs/engine.rs"
+  cp "$dir/crates/gloss-core/tests/stubs/engine.rs" \
+    "$dir/crates/gloss-app/tests/stubs/engine.rs"
+  for c in gloss-core gloss-app; do
+    printf '/// 内存版配置存储桩\npub struct MemoryConfigStore;\n/// 记录每次重绑定的热键桩\npub struct RecordingHotkeyBinder;\n' \
+      >"$dir/crates/$c/tests/stubs/ports.rs"
+  done
+  printf '/// 内存版配置存储桩\npub struct MemoryConfigStore;\n' \
+    >"$dir/crates/gloss-platform/tests/stubs/ports.rs"
+
   if [ -n "$agents_body" ]; then
     printf '%s\n' "$agents_body" >"$dir/AGENTS.md"
   else
@@ -128,15 +141,14 @@ assert_case() {
 }
 
 
-mut_non_dev_dep_enables_test_util() {
-  replace_line "$FIX/Cargo.toml" \
-    'gloss-core = { path = "crates/gloss-core" }' \
-    'gloss-core = { path = "crates/gloss-core", features = ["test-util"] }'
+mut_app_engine_stub_drift() {
+  printf '\n// drift\n' >>"$FIX/crates/gloss-app/tests/stubs/engine.rs"
 }
 
-mut_dev_dep_enables_test_util() {
-  printf '\n[dev-dependencies]\ngloss-core = { path = "../gloss-core", features = ["test-util"] }\n' \
-    >>"$FIX/crates/gloss-app/Cargo.toml"
+mut_app_ports_stub_drift() {
+  replace_line "$FIX/crates/gloss-app/tests/stubs/ports.rs" \
+    'pub struct MemoryConfigStore;' \
+    'pub struct MemoryConfigStore drift;'
 }
 
 mut_core_depends_on_platform() {
@@ -214,8 +226,8 @@ assert_case "core 依赖 wgpu-core（红线，靠前缀匹配）" 1 mut_core_dep
 assert_case "platform 反向依赖 app" 1 mut_platform_depends_on_app "不得依赖 gloss-app"
 assert_case "依赖未登记的 crate" 1 mut_app_depends_on_unregistered_crate "不得依赖 gloss-util"
 assert_case "crate 名未写进 AGENTS.md" 1 mut_crate_missing_from_agents_md "未出现在"
-assert_case "非 dev 依赖启用 gloss-core/test-util" 1 mut_non_dev_dep_enables_test_util "测试桩不进生产构建"
-assert_case "dev-dependencies 启用 gloss-core/test-util（合法）" 0 mut_dev_dep_enables_test_util "测试桩不进生产构建"
+assert_case "app 的 engine.rs 桩副本漂移" 1 mut_app_engine_stub_drift "桩副本漂移"
+assert_case "app 的端口桩节漂移" 1 mut_app_ports_stub_drift "桩副本漂移"
 
 echo ""
 echo "-- 约束「日志统一出口」（应拒绝，退出码非 0）--"

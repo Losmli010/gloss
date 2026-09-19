@@ -70,7 +70,8 @@ impl ConfigStore for MemoryConfigStore {
 ///
 /// 与真实实现不同，它不接触任何平台资源。观测点是「调用发生过」与
 /// 「收到的是哪份绑定表」，注入点是调用次数（首次装配不调、保存成功
-/// 才调），够覆盖接线契约。
+/// 才调），够覆盖接线契约；真实的降级行为（键被别的应用占用
+/// 而跳过、管理器不可用）由 gloss-platform 的 registrar 单测覆盖。
 #[derive(Default)]
 pub struct RecordingHotkeyBinder {
     calls: Mutex<Vec<Vec<HotkeyBinding>>>,
