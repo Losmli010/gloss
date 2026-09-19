@@ -1,9 +1,9 @@
 //! Gloss 适配器层：实现 gloss-core 端口，隔离平台差异。
 
-// 测试桩的唯一源在 tests/mock/，这里把同一份源并入库内单测编译。
+// 测试桩的唯一源在 tests/stubs/，这里把同一份源并入库内单测编译。
 #[cfg(test)]
-#[path = "../tests/mock/mod.rs"]
-pub(crate) mod mock;
+#[path = "../tests/stubs/mod.rs"]
+pub(crate) mod stubs;
 
 pub mod appearance;
 pub mod engine;

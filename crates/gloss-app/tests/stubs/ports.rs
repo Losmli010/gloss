@@ -1,26 +1,14 @@
-//! gloss-platform 测试桩库：本 crate 测试所需的端口替身副本。
-//!
-//! 桩按 crate 自持、跨 crate 刻意不共享（一份桩的行为变化不得静默改写
-//! 另一个 crate 测试套件的语义），本文件与 gloss-core `tests/mock/` 的
-//! 同名桩保持逐字一致；改注入语义时两边同步。当前仅 `src/` 内联单测
-//! 使用（`lib.rs` 以 `#[cfg(test)] #[path]` 包含为 `crate::mock`）。
-//! 本模块按生产代码对待（lint 与注释规则同 `src/`，见 AGENTS.md）。
-
-// 桩是按需取用的能力全集：每个编译目标只用到其中一部分，未用能力不算死代码。
-#![allow(dead_code)]
+//! 端口桩：本 crate 测试用到的配置存储与热键重绑定预置替身。
 
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Mutex;
 
 use gloss_core::config::Config;
 use gloss_core::model::GlossError;
-use gloss_core::ports::ConfigStore;
+use gloss_core::ports::{ConfigStore, HotkeyBinder};
+use gloss_core::task::HotkeyBinding;
 
-/// 锁中毒恢复：测试基建不值得 panic，拿回守卫继续用（数据由测试自身
-/// 单线程写入，中毒不可能源于本模块逻辑）。
-fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
+use super::lock_or_recover;
 
 /// 内存版配置存储桩：密钥键值对 + 单份配置文档，可按需注入失败。
 #[derive(Default)]
@@ -75,5 +63,36 @@ impl ConfigStore for MemoryConfigStore {
     fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
         lock_or_recover(&self.secrets).remove(key);
         Ok(())
+    }
+}
+
+/// 记录每次重绑定的热键桩。
+///
+/// 与真实实现不同，它不接触任何平台资源。观测点是「调用发生过」与
+/// 「收到的是哪份绑定表」，注入点是调用次数（首次装配不调、保存成功
+/// 才调），够覆盖接线契约。
+#[derive(Default)]
+pub struct RecordingHotkeyBinder {
+    calls: Mutex<Vec<Vec<HotkeyBinding>>>,
+}
+
+impl RecordingHotkeyBinder {
+    /// 收到过的重绑定次数。
+    pub fn call_count(&self) -> usize {
+        lock_or_recover(&self.calls).len()
+    }
+
+    /// 最近一次收到的绑定表；从未被调用过时返回 `None`。
+    pub fn last(&self) -> Option<Vec<HotkeyBinding>> {
+        lock_or_recover(&self.calls).last().cloned()
+    }
+}
+
+impl HotkeyBinder for RecordingHotkeyBinder {
+    fn rebind(&self, bindings: &[HotkeyBinding]) -> usize {
+        lock_or_recover(&self.calls).push(bindings.to_vec());
+        // 桩不做平台注册，全部绑定视为生效——即模拟一个一切正常的平台。
+        // 「几条被占用、几级被降级」是平台侧的事实，桩不替它编结果。
+        bindings.len()
     }
 }

@@ -172,7 +172,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use crate::mock::MockEngine;
+    use crate::stubs::engine::MockEngine;
     use crossbeam_channel::Receiver;
     use gloss_core::cache::MokaCache;
     use gloss_core::engine::AiTaskService;

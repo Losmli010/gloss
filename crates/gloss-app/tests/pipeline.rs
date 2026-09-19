@@ -22,8 +22,9 @@ use gloss_core::model::{GlossError, Lang};
 use gloss_core::ports::AiEngine;
 use gloss_core::task::{TaskInput, TaskKind};
 
-mod mock;
-use mock::{MemoryConfigStore, MockEngine};
+mod stubs;
+use stubs::engine::MockEngine;
+use stubs::ports::MemoryConfigStore;
 
 #[allow(clippy::expect_used, clippy::panic)]
 fn pipeline(engine: &MockEngine) -> Pipeline {

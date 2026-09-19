@@ -1,37 +1,19 @@
-//! gloss-app 测试桩库：本 crate 测试所需的端口替身副本。
-//!
-//! 桩按 crate 自持、跨 crate 刻意不共享（一份桩的行为变化不得静默改写
-//! 另一个 crate 测试套件的语义），本文件与 gloss-core `tests/mock/` 的
-//! 同名桩保持逐字一致；改注入语义时两边同步。文件供两类编译上下文共享
-//! 同一份源：集成测试目标（`tests/*.rs` 经 `mod mock;` 引入）与 `src/`
-//! 内联单测（`lib.rs` 以 `#[cfg(test)] #[path]` 包含为 `crate::mock`）。
-//! 本模块按生产代码对待（lint 与注释规则同 `src/`，见 AGENTS.md）。
+//! 脚本引擎桩：按预置序列产流，支持整体失败、chunk 间延迟、panic 注入
+//! 与调用计数。
 
-// 桩是按需取用的能力全集：每个编译目标只用到其中一部分，未用能力不算死代码。
-#![allow(dead_code)]
-
-use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::Stream;
 use tokio::time::sleep;
 
-use gloss_core::config::Config;
 use gloss_core::model::GlossError;
-use gloss_core::ports::{
-    AiEngine, BoxFuture, ConfigStore, EngineRequest, HotkeyBinder, TaskStream,
-};
-use gloss_core::task::HotkeyBinding;
+use gloss_core::ports::{AiEngine, BoxFuture, EngineRequest, TaskStream};
 
-/// 锁中毒恢复：测试基建不值得 panic，拿回守卫继续用（数据由测试自身
-/// 单线程写入，中毒不可能源于本模块逻辑）。
-fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
+use super::lock_or_recover;
 
 /// 脚本引擎：按预置序列产流，支持整体失败、chunk 间延迟与调用计数。
 ///
@@ -194,92 +176,5 @@ impl Stream for ChunkStream {
             }
             None => Poll::Ready(None),
         }
-    }
-}
-
-/// 内存版配置存储桩：密钥键值对 + 单份配置文档，可按需注入失败。
-#[derive(Default)]
-pub struct MemoryConfigStore {
-    secrets: Mutex<HashMap<String, String>>,
-    config: Mutex<Option<Config>>,
-    /// `Some` 时 `load` 直接返回它（模拟损坏的配置文件）。
-    load_failure: Mutex<Option<GlossError>>,
-    /// `Some` 时 `save` 直接返回它（模拟落盘失败）。
-    save_failure: Mutex<Option<GlossError>>,
-}
-
-impl MemoryConfigStore {
-    /// 让后续 `load` 一律失败（配置文件损坏路径）。
-    pub fn with_load_failure(self, error: GlossError) -> Self {
-        *lock_or_recover(&self.load_failure) = Some(error);
-        self
-    }
-
-    /// 让后续 `save` 一律失败（落盘失败路径）。
-    pub fn with_save_failure(self, error: GlossError) -> Self {
-        *lock_or_recover(&self.save_failure) = Some(error);
-        self
-    }
-}
-
-impl ConfigStore for MemoryConfigStore {
-    fn load(&self) -> Result<Config, GlossError> {
-        if let Some(err) = lock_or_recover(&self.load_failure).clone() {
-            return Err(err);
-        }
-        Ok(lock_or_recover(&self.config).clone().unwrap_or_default())
-    }
-
-    fn save(&self, config: &Config) -> Result<(), GlossError> {
-        if let Some(err) = lock_or_recover(&self.save_failure).clone() {
-            return Err(err);
-        }
-        *lock_or_recover(&self.config) = Some(config.clone());
-        Ok(())
-    }
-
-    fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
-        Ok(lock_or_recover(&self.secrets).get(key).cloned())
-    }
-
-    fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError> {
-        lock_or_recover(&self.secrets).insert(key.to_owned(), value.to_owned());
-        Ok(())
-    }
-
-    fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
-        lock_or_recover(&self.secrets).remove(key);
-        Ok(())
-    }
-}
-
-/// 记录每次重绑定的热键桩。
-///
-/// 与真实实现不同，它不接触任何平台资源。观测点是「调用发生过」与
-/// 「收到的是哪份绑定表」，注入点是调用次数（首次装配不调、保存成功
-/// 才调），够覆盖接线契约。
-#[derive(Default)]
-pub struct RecordingHotkeyBinder {
-    calls: Mutex<Vec<Vec<HotkeyBinding>>>,
-}
-
-impl RecordingHotkeyBinder {
-    /// 收到过的重绑定次数。
-    pub fn call_count(&self) -> usize {
-        lock_or_recover(&self.calls).len()
-    }
-
-    /// 最近一次收到的绑定表；从未被调用过时返回 `None`。
-    pub fn last(&self) -> Option<Vec<HotkeyBinding>> {
-        lock_or_recover(&self.calls).last().cloned()
-    }
-}
-
-impl HotkeyBinder for RecordingHotkeyBinder {
-    fn rebind(&self, bindings: &[HotkeyBinding]) -> usize {
-        lock_or_recover(&self.calls).push(bindings.to_vec());
-        // 桩不做平台注册，全部绑定视为生效——即模拟一个一切正常的平台。
-        // 「几条被占用、几级被降级」是平台侧的事实，桩不替它编结果。
-        bindings.len()
     }
 }

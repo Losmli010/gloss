@@ -2,7 +2,7 @@
 //!
 //! core 只声明契约；实现侧在 gloss-platform（`CompositeReader` /
 //! `ScreenCapturer` / `LlmClient` / `FileConfigStore` / moka `Cache`），
-//! 核心编排只见到这些 trait，测试用各 crate `tests/mock/` 下的桩。
+//! 核心编排只见到这些 trait，测试用各 crate tests/stubs/ 下的桩。
 //!
 use std::pin::Pin;
 use std::sync::Arc;

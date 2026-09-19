@@ -1,9 +1,9 @@
 //! Gloss 表现层与应用层：状态机、窗口管理与渲染胶水。
 
-// 测试桩的唯一源在 tests/mock/，这里把同一份源并入库内单测编译。
+// 测试桩的唯一源在 tests/stubs/，这里把同一份源并入库内单测编译。
 #[cfg(test)]
-#[path = "../tests/mock/mod.rs"]
-pub(crate) mod mock;
+#[path = "../tests/stubs/mod.rs"]
+pub(crate) mod stubs;
 
 pub mod app;
 pub mod channel;

@@ -7,7 +7,10 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 
-use mock::{MemoryCache, MemoryConfigStore, MockEngine, RecordingHotkeyBinder};
+use stubs::engine::MockEngine;
+use stubs::ports::{
+    FixedRegionCapture, FixedSelectionReader, MemoryCache, MemoryConfigStore, RecordingHotkeyBinder,
+};
 
 use gloss_core::config::Config;
 use gloss_core::model::GlossError;
@@ -17,7 +20,7 @@ use gloss_core::ports::{
 use gloss_core::prompt::{ChatMessage, Role};
 use gloss_core::task::{HotkeyBinding, InputSource, OutcomeStructured, TaskKind, TaskOutcome};
 
-mod mock;
+mod stubs;
 
 fn sample_request() -> EngineRequest {
     EngineRequest {
@@ -147,17 +150,17 @@ async fn empty_script_yields_empty_stream() {
 
 #[test]
 fn selection_reader_mock_returns_presets() {
-    let mut ok = mock::FixedSelectionReader(Ok("selected".into()));
+    let mut ok = FixedSelectionReader(Ok("selected".into()));
     assert_eq!(ok.read(), Ok("selected".into()));
 
-    let mut denied = mock::FixedSelectionReader(Err(GlossError::AccessibilityDenied));
+    let mut denied = FixedSelectionReader(Err(GlossError::AccessibilityDenied));
     assert_eq!(denied.read(), Err(GlossError::AccessibilityDenied));
 }
 
 #[test]
 fn region_capture_mock_returns_png() {
     let png: Arc<[u8]> = vec![1, 2, 3].into();
-    let mut capture = mock::FixedRegionCapture(Ok(Arc::clone(&png)));
+    let mut capture = FixedRegionCapture(Ok(Arc::clone(&png)));
     let got = capture
         .capture(gloss_core::model::ScreenRect {
             x: 0,

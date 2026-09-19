@@ -346,7 +346,7 @@ impl Stream for SseStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock::MemoryConfigStore;
+    use crate::stubs::ports::MemoryConfigStore;
     use gloss_core::prompt::{ChatMessage, Role};
     use gloss_core::task::TaskKind;
 
@@ -636,7 +636,7 @@ mod tests {
 #[cfg(test)]
 mod live_tests {
     use super::*;
-    use crate::mock::MemoryConfigStore;
+    use crate::stubs::ports::MemoryConfigStore;
     use gloss_core::config::ModelBinding;
     use gloss_core::prompt::{ChatMessage, Role};
     use gloss_core::task::TaskKind;
