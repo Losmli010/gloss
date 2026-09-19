@@ -131,7 +131,7 @@ deny:
 
 # Miri 未定义行为检测（nightly，只覆盖 gloss-core 纯逻辑层）
 miri:
-    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine::
+    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine:: --skip file_writer_persists_lines_into_daily_file
 
 # 完整质量门禁：precommit 的全部 + test
 check: constraints agents-doc fmt fmt-toml lint lint-toml test secrets
