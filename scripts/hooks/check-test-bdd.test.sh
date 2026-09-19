@@ -116,10 +116,15 @@ mut_drop_bdd_file() {
   rm -f "$TMP/docs/tests/bdd.md"
 }
 mut_rename_in_code_only() {
-  sed -i '' 's/fn registered_plain()/fn registered_plain_renamed()/' "$TMP/src/lib.rs"
+  # BSD/GNU sed 的 -i 语法不兼容，沿用 awk 改写（与 check-constraints.test.sh 同模式）
+  awk '{ if ($0 == "fn registered_plain() {}") print "fn registered_plain_renamed() {}"; else print }' \
+    "$TMP/src/lib.rs" >"$TMP/src/lib.rs.tmp" && mv "$TMP/src/lib.rs.tmp" "$TMP/src/lib.rs"
 }
 mut_file_heading_only_change() {
-  sed -i '' 's|### crates/demo.rs|### crates/renamed.rs|' "$TMP/docs/tests/bdd.md"
+  # 同上：awk 改写保证 BSD/GNU 兼容
+  awk '{ if ($0 == "### crates/demo.rs") print "### crates/renamed.rs"; else print }' \
+    "$TMP/docs/tests/bdd.md" >"$TMP/docs/tests/bdd.md.tmp" &&
+    mv "$TMP/docs/tests/bdd.md.tmp" "$TMP/docs/tests/bdd.md"
 }
 
 echo "== 测试 check-test-bdd.sh =="
