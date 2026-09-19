@@ -49,7 +49,7 @@ jobs:
       - name: Check AGENTS.md references
         run: just agents-doc
 
-  # 不可协商约束里可机械判定的部分
+  # 不可协商约束里可自动判定的部分
   constraints:
     name: Constraints check
     runs-on: ubuntu-latest
@@ -67,6 +67,25 @@ jobs:
 
       - name: Check non-negotiable constraints
         run: just constraints
+
+  # BDD 测试行为清单与测试源码双向一致
+  test-bdd:
+    name: Test BDD check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Run checker unit tests
+        run: bash scripts/hooks/check-test-bdd.test.sh
+
+      - name: Check BDD inventory against test code
+        run: just test-bdd
 
   # TOML 格式与 lint（tombi）：纯文本秒级；版本钉死保证判定一致
   toml:

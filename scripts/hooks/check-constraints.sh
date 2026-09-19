@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 「不可协商的约束」机械门禁：把 AGENTS.md 里已被工具判定得了的约束逐条落成检查。
+# 「不可协商的约束」自动化门禁：把 AGENTS.md 里已被工具判定得了的约束逐条落成检查。
 # 本地 `just constraints`（pre-commit 的一部分）与 CI 的 quality job 共用此脚本，
 # 保证本地与 CI 判定一致。
 #
@@ -11,6 +11,7 @@
 #   版本单点维护        —— 子 crate 的 version / edition 必须 *.workspace = true，
 #                          字面量只允许出现在根 [workspace.package]。
 #   依赖只开需要的特性  —— 每个第三方依赖声明必须带 default-features = false。
+#   残留任务标记        —— TODO / FIXME / HACK / TBD 大写词全字匹配，命中即失败。
 #
 # 用法：scripts/hooks/check-constraints.sh [仓库根]   # 缺省为本脚本的上一级目录
 set -euo pipefail
@@ -263,6 +264,22 @@ while IFS='|' read -r owner manifest sec key start text; do
   esac
 done <<<"$DEP_DUMP"
 ok "依赖只开需要的特性（检查 ${deps_checked} 条第三方依赖声明）"
+
+# ---- 残留任务标记扫描（AGENTS.md 质量条目「代码不留残留标记」） ----
+# 大写词全字匹配 TODO / FIXME / HACK / TBD，扫全部 git 跟踪文件；
+# -I 跳过二进制。AGENTS.md（规则本体）与本脚本及其自测（夹具含字面量）豁免，
+# 避免自命中。非 git 仓库（门禁自测夹具）无跟踪面可扫，整段跳过。
+if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  while IFS= read -r -d '' f; do
+    case "$f" in
+      AGENTS.md | scripts/hooks/check-constraints.sh | scripts/hooks/check-constraints.test.sh) continue ;;
+    esac
+    hits="$(grep -nEw -I -- 'TODO|FIXME|HACK|TBD' "$ROOT/$f" 2>/dev/null || true)"
+    [ -n "$hits" ] || continue
+    fail "残留任务标记：$f —— $(printf '%s' "$hits" | head -n 1 | cut -c1-60)"
+  done < <(git -C "$ROOT" ls-files -z)
+  ok "无残留任务标记（git 跟踪文件全字扫描）"
+fi
 
 if [ "$FAILED" -ne 0 ]; then
   echo "" >&2

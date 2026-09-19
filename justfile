@@ -134,11 +134,11 @@ miri:
     MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine:: --skip file_writer_persists_lines_into_daily_file
 
 # 完整质量门禁：precommit 的全部 + test
-check: constraints agents-doc fmt fmt-toml lint lint-toml test secrets
+check: constraints agents-doc test-bdd fmt fmt-toml lint lint-toml test secrets
     @echo "✓ 质量门禁全部通过"
 
-# 提交前门禁：约束 + 文档引用 + fmt + TOML + clippy + 密钥扫描
-precommit: constraints agents-doc fmt fmt-toml lint lint-toml secrets
+# 提交前门禁：约束 + 文档引用 + BDD 清单 + fmt + TOML + clippy + 密钥扫描
+precommit: constraints agents-doc test-bdd fmt fmt-toml lint lint-toml secrets
     @echo "✓ 提交前检查通过（测试交给 CI）"
 
 # ---- release：发布链（CI 的 release.yml 用同一批脚本）----
@@ -180,7 +180,11 @@ secrets:
 agents-doc:
     ./scripts/hooks/check-agents-doc.sh
 
-# 「不可协商的约束」的机械门禁（依赖方向 / 日志 / 版本单点 / 依赖特性）
+# bdd.md 测试行为清单与测试源码双向核对（缺登记 / 失同步即失败）
+test-bdd:
+    ./scripts/hooks/check-test-bdd.sh
+
+# 「不可协商的约束」的自动化门禁（依赖方向 / 日志 / 版本单点 / 依赖特性）
 constraints:
     ./scripts/hooks/check-constraints.sh
 

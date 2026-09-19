@@ -180,6 +180,9 @@ mod tap {
                 // tap 实现里，是模块与实现之间的分工——实现侧只需保证自己不
                 // panic（它的活只是常量查表加读一次坐标）。
                 let sink = move |event: ButtonEvent| {
+                    // panic 屏障：闭包的结果（含 panic 信号）有意整体丢弃，
+                    // 监听循环只关心是否继续。
+                    #[allow(clippy::let_underscore_must_use)]
                     let _ = catch_unwind(AssertUnwindSafe(|| {
                         // 通道满时丢弃：手势判定不需要完整事件流，反压 tap 回调
                         // 的代价远大于丢一次触发机会。
