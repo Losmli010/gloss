@@ -1,4 +1,4 @@
-//! L3 显隐自检（M1-T6 验收，harness = false 的端到端测试目标）。
+//! L3 显隐自检（harness = false 的端到端测试目标）。
 //!
 //! 自带 `main()`、运行在进程主线程——满足 winit 事件循环的主线程约束。
 //! 经 gloss-app 公共 API 驱动与生产完全相同的窗口栈：预创建窗口反复显
@@ -18,11 +18,8 @@ use winit::event::{StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::WindowId;
 
-/// 每轮浮层停留时长
 const SELFTEST_VISIBLE: Duration = Duration::from_millis(80);
-/// 验收轮数（09 M1-T6：反复显隐 100 次）
 const SELFTEST_ROUNDS: usize = 100;
-/// 首次显示预算（09 M1-T6 验收：< 100ms，预创建生效）
 const SHOW_BUDGET: Duration = Duration::from_millis(100);
 
 fn main() -> ExitCode {
@@ -71,26 +68,20 @@ fn main() -> ExitCode {
 struct OverlaySelfTest {
     windows: Option<WindowManager>,
     frame: Option<Frame>,
-    /// egui 要求的下一帧时间点；`None` 表示等到有事件再画
     next_repaint: Option<Instant>,
-    /// 本轮隐藏时刻
     auto_hide: Option<Instant>,
-    /// 当前轮次（1-based）
     round: usize,
-    /// 本轮 show_at 时刻；首帧记录后清空，保证每轮只计一次
     shown_at: Option<Instant>,
     latencies: Vec<Duration>,
 }
 
 impl OverlaySelfTest {
-    /// 汇总统计（无帧返回 None）。
     fn summary(&self) -> Option<(Duration, Duration)> {
         let first = *self.latencies.first()?;
         let max = self.latencies.iter().max().copied()?;
         Some((first, max))
     }
 
-    /// 自检的一轮：居中显示，停留 SELFTEST_VISIBLE 后由隐藏路径收回。
     fn begin_round(&mut self, event_loop: &ActiveEventLoop) {
         self.round += 1;
         let now = Instant::now();
@@ -107,7 +98,6 @@ impl OverlaySelfTest {
         let Some(frame) = &mut self.frame else {
             return;
         };
-        // 自检期间恒渲染自检卡（视图 None；无失败卡，动作位忽略）
         let (repaint, _) = render_frame(frame, None);
         self.next_repaint = repaint;
         if let Some(shown) = self.shown_at.take() {
@@ -118,7 +108,6 @@ impl OverlaySelfTest {
 
 impl ApplicationHandler for OverlaySelfTest {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        // resumed 可能连续投递，窗口栈只起一次
         if self.windows.is_some() {
             return;
         }
@@ -126,13 +115,9 @@ impl ApplicationHandler for OverlaySelfTest {
             Ok((windows, frame, _settings_frame)) => {
                 self.windows = Some(windows);
                 self.frame = Some(frame);
-                // 预创建即隐藏（Idle 态）；先在隐藏状态画一帧预热——
-                // egui 图集构建、Metal 管线编译与纹理上传都发生在首帧，
-                // 不预热的话首次显示会超预算
                 self.draw();
                 self.begin_round(event_loop);
             }
-            // 没有窗口与渲染栈就没有可做的事，带病进循环只会静默空转
             Err(err) => {
                 error!(
                     thread = gloss_core::log::thread::UI,
