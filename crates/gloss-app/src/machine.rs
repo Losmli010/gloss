@@ -2,7 +2,7 @@
 //!
 //! 触发 → 取材 → 推理 → 展示/失败的完整转移在此收敛；通道发送、浮层
 //! 窗口操作、日志由壳（app 的 winit handler 与组装点）执行——本模块只
-//! 决策、不副作用，因此可被集成测试以公共 API 全时序驱动（M3 分层测试
+//! 决策、不副作用，因此可被集成测试以公共 API 全时序驱动（分层测试
 //! 的 L1 层，见 tests/pipeline.rs）。
 //!
 //! 代数（generation）的**唯一赋值点**是 [`TaskStateMachine::trigger`]：
@@ -46,7 +46,7 @@ pub enum AppState {
     Show,
     /// 失败态：显示失败信息与动作出口（重试按钮或设置页引导）。
     Error,
-    /// 框选交互（占位，随 M5 框选遮罩落地；过渡期内无转移路径）。
+    /// 框选交互（占位，随框选遮罩落地；过渡期内无转移路径）。
     #[allow(dead_code)]
     RegionSelecting,
 }
@@ -365,7 +365,7 @@ fn error_action(error: &GlossError) -> Option<ErrorAction> {
     }
 }
 
-/// 任务原文（流式视图与重试用）：当前只有文本任务进入推理（M5 接入图
+/// 任务原文（流式视图与重试用）：当前只有文本任务进入推理（图像取材接入
 /// 像取材时随它扩展），其余模态留空。
 fn source_text(task: &Task) -> String {
     match &task.input {

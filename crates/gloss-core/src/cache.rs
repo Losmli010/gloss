@@ -20,7 +20,7 @@ pub(crate) const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
 /// 超出由 moka 按 LRU（TinyLFU）逐出。
 const MAX_ENTRIES: u64 = 256;
 
-/// 派生缓存 key：模型 id 参与哈希——同任务换模型（M4 配置）不得命中旧
+/// 派生缓存 key：模型 id 参与哈希——同任务换模型（配置切换）不得命中旧
 /// 产物。序列化失败（非有限浮点等）退回 `Debug` 文本哈希，保证 key 恒
 /// 可得且不同任务间碰撞概率不因回退路径上升。
 pub fn cache_key(task: &Task, model: &str) -> u64 {

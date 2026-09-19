@@ -1,7 +1,7 @@
 //! mock AiEngine：按脚本吐预置流式 chunk 的假引擎。
 //!
 //! 供 core 单测（cfg(test)）与下游 crate 的 dev-dependencies
-//! （开 `test-util` 特性）使用，验收 M3 出口标准与 T6/T8 的全链路测试：
+//! （开 `test-util` 特性）使用，验收任务编排与缓存的全链路测试：
 //! - 可调延迟模拟真实流式（chunk 间 `tokio::time::sleep`）；
 //! - 可注入失败：execute 整体失败，或流中任意位置插 `Err`；
 //! - 调用计数供「缓存命中不调引擎」类断言。

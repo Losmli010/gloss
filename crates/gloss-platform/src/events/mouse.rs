@@ -221,8 +221,6 @@ mod tap {
         }
     }
 
-    /// 测试缝隙：把生产侧订阅掩码暴露给回归测试（tests 直接断言它的返回
-    /// 值），避免测试自算掩码与生产实现分叉。
     #[cfg(test)]
     pub(super) fn subscribed_mask() -> u64 {
         imp::subscribed_mask()
@@ -230,12 +228,6 @@ mod tap {
 
     /// 自建只订阅左键的 CGEventTap。
     ///
-    /// 不用 rdev 的 `listen`：它的 tap 订阅 `kCGEventMaskForAllEvents`，键盘事件
-    /// 也进回调，而它把按键翻成字符要调 `TISCopyCurrentKeyboardInputSource`
-    /// （TSM/HIToolbox，要求主线程）——回调跑在 `gloss-mouse-tap` 线程上，
-    /// libdispatch 的 `dispatch_assert_queue` 断言失败后以 SIGILL 打死进程
-    /// （`EXC_BAD_INSTRUCTION`，崩溃线程 `gloss-mouse-tap`）。rdev 在本仓库
-    /// 仍用于按键注入（剪贴板兜底）。
     mod imp {
         use std::ffi::c_void;
 

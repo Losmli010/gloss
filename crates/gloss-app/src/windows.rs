@@ -10,7 +10,7 @@ use winit::window::{Window, WindowId, WindowLevel};
 
 /// 浮层默认宽度（默认 380px，长文本自适应上限 480px）
 const OVERLAY_WIDTH: f64 = 380.0;
-/// 浮层默认高度：M1 只有渲染自检面板，按内容给一个紧凑初值
+/// 浮层默认高度：自检期只有渲染面板，按内容给一个紧凑初值
 const OVERLAY_HEIGHT: f64 = 200.0;
 /// 设置窗口尺寸：全部配置区块一屏放下的紧凑初值（可拖拽调整）。
 const SETTINGS_WIDTH: f64 = 460.0;
@@ -60,7 +60,7 @@ impl WindowManager {
         &self.overlay
     }
 
-    /// 浮层逻辑尺寸（M1 固定，内容自适应等 M3 结果卡接入再做）。
+    /// 浮层逻辑尺寸（固定尺寸；内容自适应随结果卡演进再引入）。
     pub fn logical_size(&self) -> LogicalSize<f64> {
         LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT)
     }

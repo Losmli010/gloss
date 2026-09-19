@@ -59,8 +59,6 @@ impl HotkeyRegistrar {
         Self::build(manager, bindings)
     }
 
-    /// 测试注入点：以指定的管理器状态建 registrar（`None` 即「管理器不可
-    /// 用」的降级形态），让降级语义的精确断言能在测试里复现。
     #[cfg(test)]
     fn with_manager(
         manager: Option<GlobalHotKeyManager>,
@@ -99,14 +97,6 @@ impl HotkeyRegistrar {
 /// 约束）。返回**真正注册成功**的条数——少于入参说明有绑定被跳过或降级，
 /// 管理器不可用时恒为 0（表照填，见 [`register_all`] 的注释）。
 ///
-/// 先注销再注册，而不是反过来：旧键留着的话，它仍在系统级被吞掉，而它的
-/// id 已不在新表里——按下去什么都不发生，比「热键失效」更难查。注销失败
-/// 只记 debug：此时新表照常接管，功能表现为「旧键可能多响一次」。
-///
-/// 顺序**不能**优化成「先注册新键、再注销不再需要的旧键」——那在**换键**
-/// （A 改 B、B 改 A）时必然失败：旧键还占着位，被系统拒绝的是两个新键，
-/// 结果一次都换不过去。代价是这段窗口里若某个保留键恰好被别人抢注，它会
-/// 失效到下次重绑定（下次保存或重启），只留一行 warn，不做回滚。
 impl HotkeyBinder for HotkeyRegistrar {
     fn rebind(&self, bindings: &[HotkeyBinding]) -> usize {
         let stale = {

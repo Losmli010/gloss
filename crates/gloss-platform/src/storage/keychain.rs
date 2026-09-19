@@ -166,12 +166,6 @@ mod tests {
     }
 }
 
-/// 密钥读写往返真机验证：写 → 读一致 → 覆盖 → 删除后 None。直接操作
-/// 测试服务名下的 keychain 条目，结束清理，不产生明文落盘。
-///
-/// opt-in（`cargo test -p gloss-platform -- --ignored`）：keychain 写入
-/// 在部分受控环境（沙箱、CI runner）会被系统拒绝或需要授权，不宜作为
-/// 无条件门禁；只读行为由上方非忽略测试覆盖。
 #[cfg(test)]
 mod live_tests {
     use super::*;

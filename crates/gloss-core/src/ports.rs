@@ -5,12 +5,6 @@
 //! 核心编排只见到这些 trait，测试用 `ports::mocks` 里的桩（`test-util`
 //! 特性门控，下游 crate 也经它复用）。
 //!
-//! async 方案定案：**不用 async-trait / trait-variant**——[`AiEngine::execute`]
-//! 以普通方法返回 [`BoxFuture`]，签名本身对象安全（`dyn AiEngine` 可用），
-//! 零宏；除 `futures-core`（[`TaskStream`] 的 `Stream`）外零额外依赖。
-//! 若未来出现需要原生 `async fn` 的端口（无对象安全诉求时），再评估
-//! AFIT，不回头改此决策。
-
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -36,9 +30,6 @@ pub type TaskStream = Pin<Box<dyn Stream<Item = Result<String, GlossError>> + Se
 /// 实现方保证：模拟复制兜底必须保存并恢复剪贴板。
 /// 调用方保证：在平台事件线程上调用（线程亲和性）。
 ///
-/// 与草案（`Option<String>`）的偏差：落地时错误需要区分权限
-/// 缺失（引导授权）与普通取不到（静默降级），故收窄为 `Result`——
-/// 文档以本定义为准。
 pub trait SelectionReader: Send {
     /// 读取前台应用当前选中文本；权限缺失返回
     /// [`GlossError::AccessibilityDenied`]，取不到返回
@@ -93,7 +84,7 @@ pub trait AiEngine: Send + Sync {
 /// 实现侧由两半边组合（`CompositeConfigStore`）：配置文档走
 /// [`ConfigStore::load`] / [`ConfigStore::save`] 落 TOML 文件
 /// （`FileConfigStore`），密钥走条目标识落系统安全存储
-/// （`KeychainSecret`）——密钥不进配置快照（06 ADR），用时直查。
+/// （`KeychainSecret`）——密钥不进配置快照，用时直查。
 /// 全部方法取 `&self`（实现方以内部同步保证并发安全），适配器才能以
 /// `Arc<dyn ConfigStore>` 注入。
 ///

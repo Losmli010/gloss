@@ -1,6 +1,6 @@
 //! 浮层内容：按 [`TaskKind`] 分发的结果卡与流式/失败视图。
 //!
-//! 词卡精排（音标/词性/释义/例句），其余任务展示 markdown 正文（M3 以
+//! 词卡精排（音标/词性/释义/例句），其余任务展示 markdown 正文（以
 //! 可选中富文本呈现，语法级 markdown 渲染在需要时引入 egui_commonmark）；
 //! OCR 另提供纯文本一键复制。流式视图按 [`STRUCTURED_FENCE`] 过滤已
 //! 完整出现的结构化块（在累积文本上按最后围栏标记截断）；跨 chunk 切
@@ -172,7 +172,7 @@ fn outcome_body(ui: &mut egui::Ui, outcome: &gloss_core::task::TaskOutcome) {
 }
 
 /// 词卡精排：词条 + 音标，按词性分组的释义与例句（最小
-/// 落地；精排细节随 M4 真实数据调优）。
+/// 落地；精排细节随真实数据调优）。
 fn word_card(
     ui: &mut egui::Ui,
     word: &str,
