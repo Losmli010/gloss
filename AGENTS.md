@@ -129,10 +129,10 @@ just --list            # 全部配方与说明
 - **主要职责**：以预算判定真实渲染栈的性能与生命周期稳定性。
 - **测试原则**：以明确预算为通过条件，不是计时参考；关注最差情况而非平均；在稳定环境运行，不把负载波动当回归；通过性判定与基准量化分离，计时断言不进普通测试。
 
-### 基准测试
+### 基准测试（量化，不入层）
 
 - **主要职责**：量化 gloss-core 纯逻辑热点的绝对成本与回归对照——criterion 目标唯一（根包 `benches/core.rs`，`just bench` 运行），四组：cache_key（Image 输入的 PNG 字节序列化是已知大头）、parse_structured、prompt_render、moka_cache。
-- **测试原则**：基准是量化工具，不是门禁——CI 只跑不判趋势；计时断言不进 `#[test]`；数字连同运行环境一起记录；bench 目标受 clippy 全量 lints 且无 test 豁免（同 harness = false 纪律）。
+- **测试原则**：基准是量化工具，不是门禁——不进 CI，`just bench` 本地按需跑；计时断言不进 `#[test]`；数字连同运行环境一起记录，趋势对照只认同机同环境的历史数据；bench 目标受 clippy 全量 lints 且无 test 豁免（同 harness = false 纪律）。
 
 ### 人工测试（L4）
 

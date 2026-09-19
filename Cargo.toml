@@ -74,7 +74,7 @@ gloss-platform = { path = "crates/gloss-platform" }
 # 公共 API 必须有文档注释，由 missing_docs = deny 强制；文档里的示例
 # 由 cargo test --doc（just test 一部分）验证可编译可运行。
 [dev-dependencies]
-# 基准框架（benches/core）；默认集带 rayon / plotters 用不上，只保留 cargo bench 接口特性。
+# 基准框架（benches/core）；特性只保留 cargo_bench_support。
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 # L3 显隐自检（overlay_selftest）直接驱动 winit 窗口栈。
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
