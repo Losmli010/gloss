@@ -341,9 +341,6 @@ mod tests {
         assert!(parse_code("Foo").is_none());
     }
 
-    /// 出厂默认绑定必须都能被本模块解析、且都带修饰键——两处一旦分叉，
-    /// 用户装完按默认热键什么都不会发生（且只在日志里留一行 warn）。
-    /// M4-T7 起默认表只剩 core 一份，本测试就是那条「单点」的护栏。
     #[test]
     fn factory_bindings_are_all_registerable() {
         let bindings = Config::default().hotkey_bindings;
@@ -359,10 +356,6 @@ mod tests {
         }
     }
 
-    /// 管理器不可用/注册失败的路径必须安静降级：不 panic、poll 恒为空。
-    /// 以 `None` 管理器注入（见 `with_manager`）复现整体降级分支：此时表里
-    /// 应保留全部解析成功的出厂绑定，且没有键被记为「已注册」（没有管理
-    /// 器就没有可注销的东西）。
     #[test]
     fn degraded_registrar_keeps_parsed_table_and_stays_quiet() {
         let factory = Config::default().hotkey_bindings;
@@ -383,8 +376,6 @@ mod tests {
         );
     }
 
-    /// 真管理器路径只验证不 panic、poll 恒为空（能否注册成功取决于运行
-    /// 环境里键位的占用情况）。
     #[test]
     fn registrar_construction_never_panics() {
         let registrar = HotkeyRegistrar::new(Config::default().hotkey_bindings);
@@ -394,13 +385,6 @@ mod tests {
         );
     }
 
-    /// 无修饰键的裸键会系统级吞掉普通输入，注册侧必须拒绝；
-    /// 同一触发键重复注册会无痕覆盖前者，也必须拒绝。
-    ///
-    /// 这里走公共构造路径（真管理器在场时也被调用），只断言「被拒的那些
-    /// 没进表」——**不能**断言表里恰好剩哪几条：注册还会被别的应用占用而
-    /// 失败，而失败的条目同样不进表。精确的过滤矩阵在
-    /// [`rejects_invalid_and_duplicate_triggers`] 的纯路径上断言。
     #[test]
     fn bare_keys_and_duplicates_are_rejected_before_registration() {
         let registrar = HotkeyRegistrar::new([
@@ -424,13 +408,6 @@ mod tests {
         );
     }
 
-    /// 过滤矩阵的**纯路径**断言（不经平台管理器）：裸键、仅修饰键、无法识别
-    /// 的键位、重复触发键一并剔除，只有合法且互不重复的条目进表；管理器
-    /// 缺失时表照建，但不留注销记录（没有可注销的东西）。
-    ///
-    /// 为什么要单独测这个私有函数：公共路径上「注册失败」与「被过滤」都
-    /// 表现为「条目不在表里」，两者的精确结果取决于运行平台，只有这里能
-    /// 把过滤规则钉死。
     #[test]
     fn rejects_invalid_and_duplicate_triggers() {
         let (table, registered) = register_all(
@@ -457,10 +434,6 @@ mod tests {
         );
     }
 
-    /// 不同写法可能是**同一个物理键**：`Cmd` / `Super` / `Win` 都映射 SUPER，
-    /// 于是 `Cmd+Shift+1` 与 `Super+Shift+1` 解析出同一个 id。表以 id 为键，
-    /// 不拦的话后一条会把前一条无痕顶掉——管理器在场时第二次 register 本就
-    /// 会失败，故显式拦下，让「先到者胜」在两条路径上一致。
     #[test]
     fn distinct_spelling_of_one_physical_key_loses_to_the_first() {
         let first = parse_trigger("Cmd+Shift+1").expect("Cmd+Shift+1 parses");
@@ -477,12 +450,6 @@ mod tests {
         );
     }
 
-    /// 重绑定的核心契约：pump 读到的是 `rebind` 换上的那份表，而不是启动时
-    /// 建的那份——事件线程因此不必重启就能按新绑定解析按键。
-    ///
-    /// 生效条数不断言精确值：真管理器下那个键可能恰好被别的应用占用；
-    /// 管理器缺位时必为 0 的精确语义在降级路径测试里断言。`Arc::ptr_eq`
-    /// 钉住的共享关系与运行环境无关。
     #[test]
     fn pump_observes_the_rebound_table() {
         let registrar = HotkeyRegistrar::new([binding("Cmd+Shift+F12")]);
@@ -512,7 +479,6 @@ mod tests {
         assert!(applied <= 1, "至多「入参那一条」能生效，实际回报 {applied}");
     }
 
-    /// 重绑定是**替换**不是追加：连续改小绑定表，表跟着缩小到空。
     #[test]
     fn rebind_replaces_instead_of_appending() {
         let registrar = HotkeyRegistrar::with_manager(
@@ -539,9 +505,6 @@ mod tests {
         );
     }
 
-    /// 端口对象安全：组装点以 `Arc<dyn HotkeyBinder>` 注入 App，适配器必须
-    /// 能经 trait 对象调用，并如实回报生效条数。两条断言都选与运行环境
-    /// 无关的输入（空表、裸键），结果恒定。
     #[test]
     fn binder_port_is_object_safe_and_reports_applied_count() {
         let binder: Arc<dyn HotkeyBinder> = Arc::new(HotkeyRegistrar::new(Vec::new()));
@@ -553,8 +516,6 @@ mod tests {
         );
     }
 
-    /// 抽干过滤不断流：Released 与未知 id 丢弃后，同批后续的 Pressed 仍会被
-    /// 收集（按下/抬起成对出现，这是此前 let-chain 版本的隐藏缺陷）。
     #[test]
     fn drain_pressed_skips_released_and_unknown_ids_without_stopping() {
         let (tx, rx) = unbounded::<GlobalHotKeyEvent>();

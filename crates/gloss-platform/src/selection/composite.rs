@@ -66,7 +66,6 @@ mod tests {
         Ok(text.to_owned())
     }
 
-    /// AX 成功：直接采纳，兜底不求值（兜底路径含按键注入，不能有副作用）。
     #[test]
     fn fallback_is_lazy_on_ax_success() {
         let mut clipboard_called = false;
@@ -78,7 +77,6 @@ mod tests {
         assert!(!clipboard_called, "ax success must not touch the clipboard");
     }
 
-    /// 权限缺失：原样上抛且不兜底（未授权时注入必被忽略，白等超时）。
     #[test]
     fn permission_denied_skips_fallback() {
         let mut clipboard_called = false;
@@ -93,7 +91,6 @@ mod tests {
         );
     }
 
-    /// AX 读不到：落到兜底结果；兜底也失败时以兜底的错误收口。
     #[test]
     fn unavailable_ax_falls_back_to_clipboard() {
         let ax = || Err::<String, GlossError>(GlossError::SelectionUnavailable);

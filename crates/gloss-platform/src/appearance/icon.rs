@@ -58,11 +58,6 @@ impl AppIcon for MacAppIcon {
 mod tests {
     use super::*;
 
-    /// 契约：非主线程调用不 panic、如实回报失败（降级由调用方处理）。
-    /// libtest（本仓库锁定的 1.96.1）在 macOS 上无条件为每个测试 spawn 子线程，
-    /// 但为不让契约依赖这条跑法细节，这里显式再开子线程断言。坏数据能否解出
-    /// 图的分支要主线程 + NSApplication 才能走到，自动化覆盖不了，由 `just run`
-    /// 人工走查（Dock 里能看到图标）。
     #[test]
     fn install_degrades_to_false_off_the_main_thread() {
         let applied = std::thread::spawn(|| MacAppIcon::new().install(b"not a png"))

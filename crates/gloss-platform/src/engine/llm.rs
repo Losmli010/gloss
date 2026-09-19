@@ -8,7 +8,7 @@
 //! 条目标识**每请求直查**（不缓存，除请求头外不进任何地方——错误消息与日志里
 //! 只有状态码与服务端诊断文本；红线与措辞见 `ports::ConfigStore` 的文档）。
 //!
-//! 超时：只设建连超时。流式响应不设总超时——长回答是正常情形，总超时会误杀；
+//! 超时：只设建连超时，流式响应不设总超时；
 //! 取消由调用方的 `CancellationToken` 竞速完成（future 被丢弃即断链）。
 
 use std::collections::VecDeque;
@@ -40,8 +40,6 @@ const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 
 /// 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。
 ///
-/// 抽成纯函数是为了让它可断言：`model` / `messages` / `stream` 三个键是
-/// 发往付费端点的硬契约，写错了只有真机跑才会发现。
 fn chat_request_body(request: &EngineRequest) -> serde_json::Value {
     serde_json::json!({
         "model": request.model,
@@ -80,8 +78,7 @@ impl LlmClient {
             // 带一个明确的 UA：部分前置 CDN 对空 UA 返回 403，而 403 在这里
             // 会被映射成 EngineAuth，用户会被引去重填密钥——方向完全错了。
             .user_agent(concat!("gloss/", env!("CARGO_PKG_VERSION")))
-            // 不跟随重定向：OpenAI 兼容端点不需要，且避免 Authorization 在
-            // 「同 host:port 的 https→http 降级」这类窄条件下被转发出去。
+            // 不跟随重定向。
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|err| GlossError::EngineResponse(format!("build http client: {err}")))?;
@@ -117,9 +114,7 @@ impl AiEngine for LlmClient {
                 return Err(GlossError::Config("empty model id".into()));
             }
             let snapshot = config.snapshot();
-            // 端点与密钥分两条解析路径：端点只由配置决定，密钥只经 keychain，
-            // 两者不共用返回值——否则污染分析会把 URL 也算成「可能含密钥的
-            // 数据」，而真正该守的是「密钥只走 HTTPS 端点」这一条。
+            // 端点与密钥分两条解析路径，不共用返回值。
             let url = resolve_endpoint(&snapshot)?;
             let key = resolve_api_key(&snapshot, store.as_ref())?;
             let body = chat_request_body(&EngineRequest {
@@ -355,8 +350,6 @@ mod tests {
     use gloss_core::prompt::{ChatMessage, Role};
     use gloss_core::task::TaskKind;
 
-    /// 出厂配置快照 + 内存存储（内存桩来自 core 的 test-util，测试总线一致）。
-    /// 只管这两件事：密钥相关的用例都走出厂配置（端点 / provider 条目即出厂值）。
     fn fixture(secret: Option<&str>) -> (Arc<ConfigHandle>, Arc<MemoryConfigStore>) {
         let store = Arc::new(MemoryConfigStore::default());
         if let Some(secret) = secret {
@@ -370,7 +363,6 @@ mod tests {
         )
     }
 
-    /// 端点解析：出厂配置得到 OpenAI 兼容的补全路径。
     #[test]
     fn resolves_endpoint_from_config() {
         let config = Config::default();
@@ -380,7 +372,6 @@ mod tests {
         );
     }
 
-    /// 端点尾斜杠不产生双斜杠（手改配置很常见）。
     #[test]
     fn endpoint_trimming_avoids_double_slash() {
         let config = Config {
@@ -393,8 +384,6 @@ mod tests {
         );
     }
 
-    /// 明文端点一律拒绝（含本机网关）：密钥经这个端点送出去，明文的密钥
-    /// 不出门；需要本地模型时在网关前终止 TLS。
     #[test]
     fn cleartext_endpoints_are_rejected() {
         for base_url in [
@@ -413,10 +402,6 @@ mod tests {
         }
     }
 
-    /// 端点里带 userinfo / query / fragment 一律拒绝：userinfo 会被 reqwest
-    /// 抽成 Basic Authorization（与 bearer_auth 叠成两条 Authorization，用户
-    /// 贴进 base_url 的凭据会赢过 keychain 里的密钥），query/fragment 会让
-    /// `chat/completions` 落进错误的位置。
     #[test]
     fn endpoints_with_credentials_query_or_fragment_are_rejected() {
         for base_url in [
@@ -436,8 +421,6 @@ mod tests {
         }
     }
 
-    /// 空串、非 http(s) 的 scheme 与解析不了的地址同样报配置错误（不猜一个
-    /// 端点替用户发出去）。
     #[test]
     fn unusable_endpoints_report_config_error() {
         for base_url in ["", "   ", "file:///tmp/v1", "api.example.test/v1"] {
@@ -452,7 +435,6 @@ mod tests {
         }
     }
 
-    /// 密钥解析：出厂配置 + keychain 里的密钥可正常取出。
     #[test]
     fn resolves_key_from_keychain() {
         let (handle, store) = fixture(Some("test-key-value"));
@@ -462,7 +444,6 @@ mod tests {
         );
     }
 
-    /// 未配置密钥 → `EngineAuth`（UI 据此引导去设置页），而不是拿空 key 去请求。
     #[test]
     fn missing_key_reports_auth_error() {
         let (handle, store) = fixture(None);
@@ -472,7 +453,6 @@ mod tests {
         );
     }
 
-    /// 空白密钥（误存了一个空串）按未配置处理。
     #[test]
     fn blank_key_counts_as_missing() {
         let (handle, store) = fixture(Some("   "));
@@ -482,9 +462,6 @@ mod tests {
         );
     }
 
-    /// 升级路径：`provider_keys` 是显式空数组（M4-T3 时代落盘的老配置就长
-    /// 这样）时，按出厂条目 `gloss/deepseek` 找密钥——否则每个任务都报
-    /// 「no provider configured」，而设置页（M4-T6）之前没有改它的入口。
     #[test]
     fn empty_provider_list_falls_back_to_the_factory_entry() {
         let store = Arc::new(MemoryConfigStore::default());
@@ -503,11 +480,6 @@ mod tests {
         assert_eq!(config.resolved_provider().keychain_id, "gloss/deepseek");
     }
 
-    /// 适配器状态机（不碰网络）：同一段响应按任意字节边界分块喂入，产出的
-    /// 增量顺序与内容都不变；`[DONE]` 之后流即结束，剩余字节不再解析。
-    ///
-    /// 传输层报错那条分支（内部流吐 `Err`）无法在单测里构造——`reqwest::Error`
-    /// 没有公开构造子，只能在真实网络故障时走到，由 L4（或线上）覆盖。
     #[tokio::test]
     async fn adapter_streams_deltas_across_chunk_boundaries() {
         let payload = concat!(
@@ -536,7 +508,6 @@ mod tests {
         }
     }
 
-    /// 适配器的错误与终止契约：解码器报错即终结流，但已到达的增量先交付。
     #[tokio::test]
     async fn adapter_delivers_deltas_then_terminates_on_protocol_error() {
         let payload = concat!(
@@ -560,7 +531,6 @@ mod tests {
         );
     }
 
-    /// 兼容端点常见收尾：不给 `[DONE]` 直接关流——带增量的流按正常结束处理。
     #[tokio::test]
     async fn adapter_ends_cleanly_without_the_done_marker() {
         let payload = "data: {\"choices\":[{\"delta\":{\"content\":\"尾\"}}]}\n";
@@ -576,8 +546,6 @@ mod tests {
         assert_eq!(text, "尾");
     }
 
-    /// 零增量的「成功」是坏响应（网关忽略 stream、劫持页、模型只回 refusal），
-    /// 必须报错——否则空产物会被写进缓存，用户对着空白卡片反复触发。
     #[tokio::test]
     async fn adapter_reports_empty_completion_as_failure() {
         for payload in ["data: [DONE]\n\n", "<html>nope</html>\n"] {
@@ -600,7 +568,6 @@ mod tests {
         }
     }
 
-    /// 请求体是全链路唯一的硬契约（发往付费端点的形状），单测钉住它。
     #[test]
     fn request_body_has_the_openai_envelope() {
         let request = EngineRequest {
@@ -621,8 +588,6 @@ mod tests {
         );
     }
 
-    /// 测试用的字节流：预置块逐块吐完（不模拟 pending，适配器的 pending
-    /// 分支由真实网络覆盖）。
     struct VecStream(std::vec::IntoIter<Result<bytes::Bytes, reqwest::Error>>);
 
     impl Stream for VecStream {
@@ -633,7 +598,6 @@ mod tests {
         }
     }
 
-    /// 状态码映射：鉴权 / 限流 / 服务端错误分类，其余带服务端诊断。
     #[test]
     fn maps_http_status_to_error_variants() {
         assert_eq!(
@@ -654,7 +618,6 @@ mod tests {
             "server-side failure is retryable"
         );
 
-        // 其它 4xx：带上服务端说法，诊断才有用。
         let err = map_failure(
             StatusCode::BAD_REQUEST,
             r#"{"error":{"message":"model `x` does not exist","type":"invalid_request_error"}}"#,
@@ -663,7 +626,6 @@ mod tests {
             err,
             GlossError::EngineResponse("HTTP 400 Bad Request: model `x` does not exist".into())
         );
-        // 非 JSON / 空响应体：只报状态码。
         assert_eq!(
             map_failure(StatusCode::BAD_REQUEST, "<html>nope</html>"),
             GlossError::EngineResponse("HTTP 400 Bad Request".into())
@@ -671,17 +633,6 @@ mod tests {
     }
 }
 
-/// L4 opt-in 真机测试（不进 CI）：打真实 OpenAI 兼容端点，验收「实测流式返回」。
-///
-/// ```bash
-/// GLOSS_LIVE_API_KEY=sk-... \
-/// GLOSS_LIVE_BASE_URL=https://api.deepseek.com/v1 \
-/// GLOSS_LIVE_MODEL=deepseek-chat \
-///   cargo test -p gloss-platform -- --ignored live_llm
-/// ```
-///
-/// 前置检查：三个环境变量缺一就以带修复指引的消息当场失败，而不是让请求以
-/// 401 / 超时这类间接症状暴露。密钥只进请求头——测试正文与失败消息都不打印它。
 #[cfg(test)]
 mod live_tests {
     use super::*;
@@ -690,7 +641,6 @@ mod live_tests {
     use gloss_core::prompt::{ChatMessage, Role};
     use gloss_core::task::TaskKind;
 
-    /// 读真机测试所需环境变量；缺项立刻失败并给出可直接照抄的命令。
     fn require_live_env() -> (String, String, String) {
         let read = |name: &str| {
             std::env::var(name)
@@ -756,7 +706,6 @@ mod live_tests {
                 Ok(delta) => text.push_str(&delta),
                 Err(error) => panic!("stream failed: {error}"),
             }
-            // 验收「流式返回」不需要读完整篇：有若干增量即可收手。
             if text.chars().count() > 80 {
                 break;
             }

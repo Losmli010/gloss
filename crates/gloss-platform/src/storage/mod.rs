@@ -276,7 +276,6 @@ mod tests {
 
     use super::*;
 
-    /// 带齐全量字段差异的样例配置，用于锁定往返一致性。
     fn sample_config() -> Config {
         Config {
             base_url: "https://example.test/v1".into(),
@@ -302,7 +301,6 @@ mod tests {
         }
     }
 
-    /// 验收标准：save → load 往返逐字段一致。
     #[test]
     fn save_then_load_round_trips_every_field() {
         let dir = tempfile::tempdir().expect("tempdir should create");
@@ -313,8 +311,6 @@ mod tests {
         assert_eq!(store.load().expect("load should succeed"), config);
     }
 
-    /// 验收标准：缺文件时生成出厂默认——返回值与落盘文件内容都应是
-    /// 完整默认配置（用户拿到的是可直接手改的文件）。
     #[test]
     fn load_generates_default_when_file_missing() {
         let dir = tempfile::tempdir().expect("tempdir should create");
@@ -328,7 +324,6 @@ mod tests {
         assert_eq!(reread, Config::default(), "persisted file must re-parse");
     }
 
-    /// load 缺文件时建的目录含父级：配置目录本身不存在也能落盘。
     #[test]
     fn load_creates_missing_directories() {
         let dir = tempfile::tempdir().expect("tempdir should create");
@@ -338,8 +333,6 @@ mod tests {
         assert!(store.path().is_file());
     }
 
-    /// 组合体把文档方法完整委托给 FileConfigStore：save → load 往返
-    /// 逐字段一致（密钥半边在这条路径上零参与）。
     #[test]
     fn composite_delegates_document_methods() {
         let dir = tempfile::tempdir().expect("tempdir should create");
@@ -350,8 +343,6 @@ mod tests {
         assert_eq!(store.load().expect("load should succeed"), config);
     }
 
-    /// 密钥转发路径用内存桩验证（不碰真机 keychain）：端口三方法
-    /// 都完整到达密钥半边，删除后读回是 `None`。
     #[test]
     fn composite_forwards_secret_methods_to_half() {
         #[derive(Default)]
@@ -398,7 +389,6 @@ mod tests {
         );
     }
 
-    /// save 写出的 TOML 不含密钥本体字段：provider_keys 只有条目标识。
     #[test]
     fn persisted_document_stores_no_secret_material() {
         let dir = tempfile::tempdir().expect("tempdir should create");
@@ -413,8 +403,6 @@ mod tests {
         );
     }
 
-    /// Default 构造在拿到真实 Home 目录时定位到 gloss/config.toml
-    /// （沙箱与 CI 都有 HOME，路径尾段断言与平台无关）。
     #[test]
     fn default_store_targets_standard_config_dir() {
         if directories::BaseDirs::new().is_none() {
@@ -433,15 +421,10 @@ mod tests {
         );
     }
 
-    /// 损坏的配置文件是硬错误（read 端区别于缺文件的降级路径），并且要留下
-    /// 证据：原文件被挪到 `.bak`（字节原样），而不是等着被下次保存覆盖掉。
-    /// 错误文本只给路径与行号，不转述解析器内容——用户可能把密钥贴错字段，
-    /// 而这条错误会进日志（端口红线）。
     #[test]
     fn load_rejects_corrupt_file_and_quarantines_it() {
         let dir = tempfile::tempdir().expect("tempdir should create");
         let store = FileConfigStore::in_dir(dir.path().to_path_buf());
-        // 合法 TOML、非法取值：解析器文本会引用出错取值（这里就是「密钥」）。
         let broken = "target_lang = \"sk-secret-123\"\n";
         std::fs::write(store.path(), broken).expect("write should succeed");
 
@@ -465,9 +448,6 @@ mod tests {
         );
     }
 
-    /// 老版本（M4-T3 时代）落盘的配置：显式空数组、没有 base_url。读进来必须
-    /// 拿到出厂端点与出厂 provider 条目——否则升级上来的用户每个任务都报
-    /// 「no provider configured」，而设置页（M4-T6）之前没有改它的入口。
     #[test]
     fn legacy_document_gets_factory_endpoint_and_provider() {
         let dir = tempfile::tempdir().expect("tempdir should create");
@@ -485,7 +465,6 @@ mod tests {
         );
     }
 
-    /// 隔离之后能自愈：下一次 load 走缺文件路径，落一份可用的出厂默认。
     #[test]
     fn load_recovers_after_quarantine() {
         let dir = tempfile::tempdir().expect("tempdir should create");
@@ -498,8 +477,6 @@ mod tests {
         assert!(store.path().is_file(), "fresh default must be persisted");
     }
 
-    /// 同进程并发写不互踩：并发 save 全部成功，落盘文件仍是完整可解析的一份
-    /// 配置（tmp 名带序号后各写各的，rename 不会搬走别人的临时文件）。
     #[test]
     fn concurrent_saves_keep_the_document_parseable() {
         let dir = tempfile::tempdir().expect("tempdir should create");
@@ -531,7 +508,6 @@ mod tests {
         );
     }
 
-    /// 目录里的隔离备份（`config.toml.<秒级时间戳>.<序号>.bak`），按名排序。
     fn backups_in(dir: &Path) -> Vec<PathBuf> {
         let mut found: Vec<_> = std::fs::read_dir(dir)
             .expect("read_dir should succeed")
@@ -542,7 +518,6 @@ mod tests {
         found
     }
 
-    /// 行号定位：解析错误落在哪一行就报哪一行，span 缺失时返回 None。
     #[test]
     fn error_line_reports_the_offending_line() {
         let text = "theme = \"Light\"\ntarget_lang = 7\n";
@@ -551,8 +526,6 @@ mod tests {
         assert_eq!(error_line(text, None), None);
     }
 
-    /// 样例配置的 TTL 字段与 cache 出厂语义的对照（120 秒 < 出厂 1 小时，
-    /// 若未来改动 Config 字段语义，此处提醒同步 cache.rs）。
     #[test]
     fn default_cache_ttl_matches_core_cache_semantics() {
         let default = Config::default();
