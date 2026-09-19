@@ -57,6 +57,12 @@ path = "src/main.rs"
 harness = false
 name = "overlay_selftest"
 
+# gloss-core 热点基准（criterion，四组：cache_key / parse_structured / prompt_render / moka_cache）
+# 运行：just bench（cargo bench --bench core）
+[[bench]]
+harness = false
+name = "core"
+
 [dependencies]
 gloss-app = { path = "crates/gloss-app" }
 # 测试桩只出现在各 crate 的 dev-dependencies 构建里，不进发布二进制。
@@ -66,6 +72,8 @@ gloss-platform = { path = "crates/gloss-platform" }
 # 公共 API 必须有文档注释（AGENTS.md 约束「公共 API 有文档注释」）；文档里的示例
 # 由 cargo test --doc（just test 一部分）验证可编译可运行。
 [dev-dependencies]
+# 基准框架（benches/core）；默认集带 rayon / plotters 用不上，只保留 cargo bench 接口特性。
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 # L3 显隐自检（overlay_selftest）直接驱动 winit 窗口栈。
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
 

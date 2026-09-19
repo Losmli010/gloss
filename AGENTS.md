@@ -36,6 +36,7 @@ just logs              # 跟随最新日志文件（Ctrl-C 退出）
 just precommit         # 提交前门禁：约束 + 文档引用 + fmt + TOML + clippy + 密钥扫描
 just check             # 完整质量门禁：precommit 的全部 + test
 just test              # 运行全部测试
+just bench             # 跑 gloss-core 热点基准（criterion，benches/core.rs）
 just fmt-fix           # 自动格式化
 just lint              # Clippy 严格检查（警告即失败）
 just secrets           # 硬编码密钥扫描（命中即失败）
@@ -156,7 +157,7 @@ just --list            # 查看全部配方
 
 ### 基准测试
 
-当前没有基准目标，也没有引入基准框架。要量化性能时新增 criterion 目标（放 benches 目录），**不要**把计时断言塞进 `#[test]`——CI 的负载波动会让它变成 flaky 门禁。基准数字要连同运行环境一起记录，CI 上只跑不判定趋势。
+criterion 基准目标唯一：根包 `benches/core.rs`（`just bench` = `cargo bench --bench core`），四组覆盖 gloss-core 纯逻辑热点：cache_key（Image 输入的 PNG 字节序列化是已知大头）、parse_structured、prompt_render、moka_cache；目标受 clippy 全量 lints 且无 test 豁免（同 harness = false 纪律）。**不要**把计时断言塞进 `#[test]`——CI 的负载波动会让它变成 flaky 门禁。基准数字要连同运行环境一起记录，CI 上只跑不判定趋势。
 
 ### 性能测试
 
