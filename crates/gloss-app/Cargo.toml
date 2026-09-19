@@ -6,15 +6,10 @@ description = "Gloss 表现层与应用层：状态机 + 渲染胶水"
 license.workspace = true
 
 [dependencies]
-# 通道①②④用 crossbeam（MPMC，主线程 try_recv 非阻塞）。std 特性即默认集全部内容，
-# 显式写出以维持「关默认集、按需开特性」的统一写法。
+# 通道①②④用 crossbeam（MPMC，主线程 try_recv 非阻塞）。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
-# 渲染栈整批版本（egui 三件套必须同小版本；wgpu 版本由 egui-wgpu 决定，不要单独升级）：
-# winit 0.30.13 / wgpu 30.0.1 / egui + egui-wgpu + egui-winit 0.36.2 / pollster 1.0.1
-#
-# 全部 default-features = false + 显式列出所需特性：默认集往往带有用不到的
-# 后端（vulkan / gles / webgpu / wasm 等），既增加依赖与编译时间，也可能拖进有问题的包
-# （参见 winit 的 wayland-csd-adwaita → ttf-parser，RUSTSEC-2026-0192）。新增依赖沿用此写法。
+# 渲染栈整批版本：winit 0.30.13 / wgpu 30.0.1 / egui + egui-wgpu + egui-winit
+# 0.36.2 / pollster 1.0.1；全部 default-features = false + 显式列出所需特性。
 egui = {
   version = "0.36.2",
   default-features = false,
@@ -22,8 +17,6 @@ egui = {
     "default_fonts",
   ]
 }
-# 不用默认特性：默认里的 "wgpu/default" 会打开 wgpu 全部后端（见下方 wgpu 声明），
-# 另含 wasm 专用的 fragile-send-sync-non-atomic-wasm 与 wgpu/webgl。
 # 保留 macos-window-resize-jitter-fix：真实的窗口缩放抖动修复。
 egui-wgpu = {
   version = "0.36.2",
@@ -32,9 +25,6 @@ egui-wgpu = {
     "macos-window-resize-jitter-fix",
   ]
 }
-# 不用默认特性：egui-winit 的 default 里含 "winit/default"，而 winit 默认集包含
-# wayland-csd-adwaita → sctk-adwaita → ab_glyph → ttf-parser（已停止维护，
-# RUSTSEC-2026-0192，无可用修复版本）。下面把我们要的特性显式列全。
 egui-winit = {
   version = "0.36.2",
   default-features = false,
@@ -43,20 +33,16 @@ egui-winit = {
     "links",
   ]
 }
-# 系统字体发现（M1-T5）：查系统 CJK 字体接进 egui 后备链。
-# font-kit 0.14 的默认集即 source，照写 default-features = false 以维持统一写法。
+# 系统字体发现：查系统 CJK 字体接进 egui 后备链。
 font-kit = { version = "0.14", default-features = false, features = ["source"] }
-# FutureExt::catch_unwind 包住 tokio 消费循环里的任务 future（06 §7「后台
-# panic 被 tokio 捕获转为 TaskFailed」）。std 是 catch_unwind 所需；core 已
-# 依赖 futures，不引入新子树。
+# FutureExt::catch_unwind 包住 tokio 消费循环里的任务 future（后台
+# panic 被 tokio 捕获转为 TaskFailed」）。
 futures = { version = "0.3", default-features = false, features = ["std"] }
 gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
-# 同步等待 GPU 初始化。macro 特性（block_on!/join!）用不到；无默认特性可关，
-# 照写以保持「关默认集」写法统一。
+# 同步等待 GPU 初始化。
 pollster = { version = "1.0.1", default-features = false }
-# 通道③用 tokio mpsc；pipeline 的消费运行时与 select! 宏。不用默认特性：
-# 默认集会拉起整个子树（io/_net 等用不到），按需最小化。
+# 通道③用 tokio mpsc；pipeline 的消费运行时与 select! 宏。
 tokio = {
   version = "1",
   default-features = false,
@@ -67,11 +53,9 @@ tokio = {
     "sync",
   ]
 }
-# RunTask 携带的 CancellationToken。sync 模块不在特性门后，关默认集即可用，
-# 避免 codec / io 等无关子特性。
+# RunTask 携带的 CancellationToken。
 tokio-util = { version = "0.7", default-features = false }
-# 不用默认特性：默认集含 gles / vulkan / webgpu 三个用不到的后端与 parking_lot。
-# 只留实际使用的 Metal，配合 egui-wgpu 已声明的 std + wgsl。
+# 只留实际使用的 Metal 后端，配合 egui-wgpu 已声明的 std + wgsl。
 wgpu = {
   version = "30.0.1",
   default-features = false,
@@ -81,9 +65,8 @@ wgpu = {
     "wgsl",
   ]
 }
-# 不用默认特性：默认集里的 wayland-csd-adwaita 会把已停止维护的 ttf-parser 拖进
-# 依赖树（同上）。egui-winit 是以 default-features = false 依赖 winit 的，
-# 特性开关由这里决定，故显式列出所需特性；rwh_06 是 egui-wgpu 拿原生窗口句柄所需。
+# egui-winit 以 default-features = false 依赖 winit，特性开关由这里决定；
+# rwh_06 是 egui-wgpu 拿原生窗口句柄所需。
 winit = {
   version = "0.30.13",
   default-features = false,
@@ -94,8 +77,6 @@ winit = {
 
 [dev-dependencies]
 # L2 浮层 harness 测试：AccessKit 树查询/点击 + wgpu 渲染快照（snapshot）。
-# 上游 wgpu 特性硬编码启用 wgpu 的 dx12/vulkan/gles（特性只加不减），测试
-# 构建因此含全部后端，无法从本仓库收窄。
 egui_kittest = {
   version = "0.36",
   default-features = false,

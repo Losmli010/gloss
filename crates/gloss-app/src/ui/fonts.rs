@@ -1,4 +1,4 @@
-//! 系统字体发现与注入：给 egui 补上 CJK 后备字形（M1-T5）。
+//! 系统字体发现与注入：给 egui 补上 CJK 后备字形。
 //!
 //! egui 内置字体只覆盖拉丁与常见符号，中文会渲染成豆腐块；这里用 font-kit 从
 //! 系统里定位一个 CJK 字体，以「最低优先级后备」追加进 egui 的字体族——拉丁
@@ -133,7 +133,6 @@ mod tests {
     use super::*;
     use egui::FontTweak;
 
-    /// 后备字体必须排在内置字体之后（拉丁度量不受影响），且两个字体族都接上。
     #[test]
     fn cjk_fallback_appends_after_builtin_fonts() {
         let mut definitions = FontDefinitions::default();
@@ -155,7 +154,6 @@ mod tests {
         assert!(definitions.font_data.contains_key(FONT_NAME));
     }
 
-    /// 真实系统上必须能找到 CJK 字体（系统自带中文字体）。
     #[test]
     fn system_cjk_font_is_discoverable() {
         assert!(imp::find_cjk().is_some());

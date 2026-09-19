@@ -1,10 +1,10 @@
-//! Prompt 模板注册表：kind + input → OpenAI 兼容 messages（06 §5.2）。
+//! Prompt 模板注册表：kind + input → OpenAI 兼容 messages。
 //!
 //! 文本任务 3 个模板（词卡/句译/代码解释）统一输出契约：markdown 正文 +
 //! 末尾 ```gloss 围栏 JSON 块（按 kind 携带 [`crate::task::OutcomeStructured`]
-//! 的结构化字段），供任务编排（M3-T6）解析——正文给人读，JSON 给 UI 精排。
-//! 图像模板随 M5-T4 视觉接入落地，此前图像/音频输入一律
-//! [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
+//! 的结构化字段），供任务编排解析——正文给人读，JSON 给 UI 精排。
+//! 图像/音频输入一律 [`GlossError::UnsupportedModality`]，
+//! 不发出注定无效的请求。
 //!
 //! 参数缺省：`options.target_lang` 缺省按中文；`InputHint` 缺省不注入
 //! 提示行。模板内容面向模型（用户可见产物），用中文书写不受日志英文
@@ -40,7 +40,7 @@ pub enum Role {
 pub struct ChatMessage {
     /// 消息角色。
     pub role: Role,
-    /// 消息正文（多模态 content 数组随 M5-T4 引入）。
+    /// 消息正文（多模态 content 数组随图像任务引入）。
     pub content: String,
 }
 
@@ -62,7 +62,7 @@ impl ChatMessage {
 
 /// Prompt 模板注册表：内置文本任务模板，无状态可按需构造。
 ///
-/// M4-T7 配置化（自定义模板/热键绑定）落地时在此扩展注册机制。
+/// 配置化（自定义模板/热键绑定）落地时在此扩展注册机制。
 #[derive(Debug, Default, Clone, Copy)]
 pub struct PromptRegistry;
 
@@ -72,12 +72,12 @@ impl PromptRegistry {
         Self
     }
 
-    /// 渲染任务的完整 messages：先过模态约束表（06 §5.1），非法组合
+    /// 渲染任务的完整 messages：先过模态约束表，非法组合
     /// 返回 [`GlossError::UnsupportedModality`]。
     pub fn render(&self, task: &Task) -> Result<Vec<ChatMessage>, GlossError> {
         validate_modality(task.kind, &task.input)?;
         let TaskInput::Text { text, hint } = &task.input else {
-            // 图像模板随 M5-T4 落地；音频是预留模态，模态校验已拦，
+            // 图像模板随图像任务落地；音频是预留模态，模态校验已拦，
             // 这里对图像输入显式收口。
             return Err(GlossError::UnsupportedModality);
         };
@@ -170,8 +170,7 @@ fn structured_contract(kind: TaskKind) -> String {
     )
 }
 
-/// 用户消息：输入原文 + 提示行（hint 放在系统指令与原文两处是为了让
-/// 模型在长文本场景下也不会丢失上下文；无 hint 时只有原文）。
+/// 用户消息：输入原文 + 提示行（无 hint 时只有原文）。
 fn user_content(text: &str, hint: Option<&InputHint>) -> String {
     let hint_line = hint_lines(hint);
     if hint_line.is_empty() {
@@ -196,8 +195,6 @@ mod tests {
         }
     }
 
-    /// 每个文本 kind 渲染出 [System, User] 两段结构，且系统指令含各自
-    /// 的关键内容与输出契约标记。
     #[test]
     fn text_kinds_render_system_and_user_with_kind_content() {
         let registry = PromptRegistry::new();
@@ -225,7 +222,6 @@ mod tests {
         }
     }
 
-    /// 词卡模板声明结构化字段；句译/代码解释声明 Plain 字段。
     #[test]
     fn structured_contract_matches_outcome_schema() {
         let registry = PromptRegistry::new();
@@ -242,7 +238,6 @@ mod tests {
         assert!(plain[0].content.contains("\"title\""));
     }
 
-    /// 参数缺省：target_lang 缺省按中文渲染。
     #[test]
     fn missing_target_lang_defaults_to_chinese() {
         let registry = PromptRegistry::new();
@@ -256,7 +251,6 @@ mod tests {
         );
     }
 
-    /// options.target_lang 显式指定时按指定语言渲染。
     #[test]
     fn explicit_target_lang_is_rendered() {
         let registry = PromptRegistry::new();
@@ -266,8 +260,6 @@ mod tests {
         assert!(messages[0].content.contains("日语"));
     }
 
-    /// InputHint 注入：代码语言进入系统指令与用户消息；缺省时两处都不
-    /// 出现提示行。
     #[test]
     fn hint_is_injected_and_defaults_to_nothing() {
         let registry = PromptRegistry::new();
@@ -289,7 +281,6 @@ mod tests {
         assert_eq!(plain[1].content, "fn main() {}");
     }
 
-    /// 源语言提示同样注入。
     #[test]
     fn source_lang_hint_is_injected() {
         let registry = PromptRegistry::new();
@@ -303,8 +294,6 @@ mod tests {
         assert!(messages[0].content.contains("源语言：法语"));
     }
 
-    /// 图像模板 M5-T4 前为占位：图像输入渲染为 UnsupportedModality，
-    /// 不产出注定无效的请求。
     #[test]
     fn image_kinds_are_placeholders_until_m5() {
         let registry = PromptRegistry::new();
@@ -324,11 +313,10 @@ mod tests {
         assert_eq!(
             registry.render(&task),
             Err(GlossError::UnsupportedModality),
-            "image template lands with M5-T4"
+            "image template lands with vision task"
         );
     }
 
-    /// 模态约束表先行：非法组合在渲染前被拒（复用 task::validate_modality）。
     #[test]
     fn modality_mismatch_is_rejected_before_rendering() {
         let registry = PromptRegistry::new();
@@ -336,7 +324,6 @@ mod tests {
         assert_eq!(registry.render(&task), Err(GlossError::UnsupportedModality));
     }
 
-    /// 序列化为 OpenAI 兼容 wire 形态：{"role":"system","content":...}。
     #[test]
     fn messages_serialize_to_openai_shape() {
         let message = ChatMessage::system("你是翻译助手");

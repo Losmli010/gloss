@@ -1,4 +1,4 @@
-//! 设置窗口内容（M4-T6，06 §6.3）：全部配置项的编辑与保存入口。
+//! 设置窗口内容：全部配置项的编辑与保存入口。
 //!
 //! 边界：本模块只做「草稿编辑 + 动作上交」——编辑发生在 [`SettingsState`]
 //! 的草稿上，保存/清除密钥/关闭以 [`SettingsAction`] 交还壳执行（落盘走
@@ -6,7 +6,7 @@
 //! API key 只存在于输入框字符串里，永不进 `Config` 草稿（配置红线：快照
 //! 不携带凭据）。
 //!
-//! 消费状态（M4-T7）：`hotkey_bindings` 保存后由壳立即重注册，`theme` /
+//! 消费状态：`hotkey_bindings` 保存后由壳立即重注册，`theme` /
 //! `auto_show` 也已在壳侧消费；只剩 `cache_ttl_secs` 尚未接上运行时（归
 //! 缓存构造接线），照常可编辑保存——配置先行，不至于为了一个字段把设置页
 //! 留一半空白。
@@ -20,7 +20,7 @@ use super::kind_label;
 
 /// 设置窗口的一个编辑会话：打开时以当前快照建草稿，保存/关闭由壳销毁。
 pub struct SettingsState {
-    /// 编辑中的整份配置；「保存」时整体上交（06 §6.3 的整份快照语义）。
+    /// 编辑中的整份配置；「保存」时整体上交（整份快照语义）。
     draft: Config,
     /// API key 输入框；只在保存时交给壳写 keychain，永不进 `draft`。
     api_key: String,
@@ -388,8 +388,6 @@ fn source_label(source: &InputSource) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    //! 草稿逻辑单测 + L2 kittest 渲染与交互（AccessKit 树断言）；快照
-    //! 基线与其他 harness 合并进同一个 SnapshotResults。
 
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -399,7 +397,6 @@ mod tests {
 
     use super::*;
 
-    /// 「保存」的上交物：trim 端点、空白密钥按「不修改」上交。
     #[test]
     fn save_trims_endpoint_and_treats_blank_key_as_unchanged() {
         let mut state = open(&Config::default());
@@ -414,7 +411,6 @@ mod tests {
         assert_eq!(key, KeyUpdate::Keep, "blank key means unchanged");
     }
 
-    /// 非空密钥随保存上交，且草稿里没有密钥（配置红线：快照不带凭据）。
     #[test]
     fn save_carries_the_key_outside_the_config() {
         let mut state = open(&Config::default());
@@ -428,15 +424,12 @@ mod tests {
         };
         assert_eq!(key, KeyUpdate::Replace("sk-test".into()));
         assert_eq!(config.model_for_kind(TaskKind::TranslateWord), Some("m2"));
-        // 密钥只经动作的独立字段出会话，草稿（含其调试表示）里不该有它。
         assert!(
             !format!("{config:?}").contains("sk-test"),
             "the key must never travel inside the config"
         );
     }
 
-    /// 清除密钥是「标记 + 保存时生效」：单点标记不上交删除动作，保存才上交；
-    /// 重新输入密钥即撤销标记（删除不可逆，不能随取消一起留着）。
     #[test]
     fn clear_key_is_deferred_to_save_and_revocable() {
         let mut state = open(&Config::default());
@@ -457,7 +450,6 @@ mod tests {
             }
         ));
 
-        // 清除标记优先于输入框内容（清空输入框不该让「清除」变成「保持」）。
         state.api_key = "sk-typo".into();
         assert!(
             state.clear_key,
@@ -473,7 +465,6 @@ mod tests {
         ));
     }
 
-    /// 打开会话：草稿取自当前快照，与调用方后续的配置变更解耦。
     #[test]
     fn open_copies_the_snapshot_into_the_draft() {
         let mut config = Config {
@@ -493,28 +484,21 @@ mod tests {
         assert_eq!(state.notice.as_deref(), Some("保存失败"));
     }
 
-    /// 驱动一帧设置窗口；返回（harness，动作收集器）。
     fn harness_for(
         mut state: SettingsState,
     ) -> (egui_kittest::Harness<'static>, Rc<RefCell<SettingsAction>>) {
         let action = Rc::new(RefCell::new(SettingsAction::Idle));
         let sink = Rc::clone(&action);
         let mut harness = egui_kittest::Harness::new_ui(move |ui| {
-            // 只累积非 Idle 动作：一次 run 可能驱动多帧，点击帧之后的帧
-            // 回 Idle，不能把已上交的动作冲掉。
             let frame_action = draw(ui, &mut state);
             if frame_action != SettingsAction::Idle {
                 *sink.borrow_mut() = frame_action;
             }
         });
-        // 画布拉到内容全高：ScrollArea 只物化可见区，默认小画布下折叠的
-        // 控件不进 AccessKit 树，查询会空手而归。
         harness.set_size(egui::vec2(460.0, 1200.0));
         (harness, action)
     }
 
-    /// 全部配置项可达（AccessKit 树）：连接/任务/热键/通用四个区块的关键
-    /// 控件都能按文本定位，保存按钮可点击并上交出厂快照。
     #[test]
     fn all_sections_render_and_save_submits_the_draft() {
         let (mut harness, action) = harness_for(open(&Config::default()));
@@ -543,7 +527,6 @@ mod tests {
         }
     }
 
-    /// 任务开关可点：取消「词卡」后保存，上交的配置里该 kind 已停用。
     #[test]
     fn task_toggle_flips_enabled_kinds() {
         let (mut harness, action) = harness_for(open(&Config::default()));
@@ -561,8 +544,6 @@ mod tests {
         }
     }
 
-    /// 取消按钮上交 Close（不产生任何密钥动作）；「清除密钥」按钮只把标记
-    /// 翻成待清除态（按钮改为「撤销清除」），不立即上交删除。
     #[test]
     fn cancel_and_clear_key_actions_are_submitted() {
         let (mut harness, action) = harness_for(open(&Config::default()));
@@ -590,9 +571,6 @@ mod tests {
         );
     }
 
-    /// 热键绑定行可达：输入源标签（只读文本）随每一行进 AccessKit 树，
-    /// 与出厂三条绑定一一对应；触发键是 TextEdit 的值而非标签，语义由
-    /// 草稿逻辑单测覆盖。
     #[test]
     fn hotkey_rows_expose_trigger_and_kind() {
         let (mut harness, _action) = harness_for(open(&Config::default()));
@@ -604,8 +582,6 @@ mod tests {
         );
     }
 
-    /// 快照对比（wgpu 渲染 + 基线图 diff）。与浮层 harness 的基线相互独立，
-    /// 但同属一个 SnapshotResults 约定：结果合并处理。
     #[test]
     fn snapshots_match_baseline() {
         let mut results = egui_kittest::SnapshotResults::new();
@@ -616,7 +592,6 @@ mod tests {
         results.unwrap();
     }
 
-    /// 输入源标签穷举（新增变体时 match 非穷举会编译失败，这里钉住文案）。
     #[test]
     fn source_labels_cover_all_variants() {
         assert_eq!(source_label(&InputSource::Selection), "划词");

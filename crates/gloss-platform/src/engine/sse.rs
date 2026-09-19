@@ -1,9 +1,7 @@
 //! SSE 增量解码（OpenAI 兼容 chat completions 的 `stream: true` 响应）。
 //!
 //! 纯逻辑、不碰网络：喂字节、吐增量。因此单测可以把同一段响应按任意字节边界
-//! 切开，钉住「跨块不丢不重、多字节字符不被切坏」这类只有分块才会暴露的问题
-//! ——UTF-8 之所以不会被切坏，是因为只解码以 `\n` 结尾的完整行，而 0x0A 不会
-//! 出现在 UTF-8 多字节序列内部，行内字节必然是完整的。
+//! 切开，钉住「跨块不丢不重、多字节字符不被切坏」这类只有分块才会暴露的问题。
 //!
 //! 只实现用得到的 SSE 子集，不做通用实现：
 //! - `data: {json}` 一行一个事件；`data: [DONE]` 表示流结束；
@@ -226,7 +224,6 @@ struct ApiError {
 mod tests {
     use super::*;
 
-    /// 一段真实的 OpenAI 兼容流：首块只有 role，中间两块有增量，最后 `[DONE]`。
     fn sample_stream() -> &'static str {
         concat!(
             "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"},\"index\":0}]}\n\n",
@@ -236,7 +233,6 @@ mod tests {
         )
     }
 
-    /// 一次喂完整段：只产出两段增量加一个结束标记（role 块与空行不产出）。
     #[test]
     fn decodes_a_complete_stream() {
         let mut decoder = SseDecoder::new();
@@ -251,8 +247,6 @@ mod tests {
         );
     }
 
-    /// 按 1..n 字节的每种切法喂同一段响应，产出的增量必须完全一致——
-    /// 这是「网络分块边界任意」的回归护栏（含把多字节字符切成两半的情形）。
     #[test]
     fn decodes_identically_for_every_chunk_split() {
         let payload = sample_stream().as_bytes();
@@ -271,7 +265,6 @@ mod tests {
         }
     }
 
-    /// 逐字节喂入：多字节字符被切在最中间也不能产出坏字符。
     #[test]
     fn byte_by_byte_input_keeps_multibyte_characters_intact() {
         let mut decoder = SseDecoder::new();
@@ -289,7 +282,6 @@ mod tests {
         assert_eq!(text, "光泽");
     }
 
-    /// CRLF 行尾、心跳注释行与其它 SSE 字段都不产出增量。
     #[test]
     fn ignores_crlf_heartbeats_and_other_fields() {
         let stream = concat!(
@@ -307,8 +299,6 @@ mod tests {
         );
     }
 
-    /// 流中错误按错误码分类：限流 → 可退避重试；鉴权类 → 引导设置页；
-    /// 识别不出的按协议错误带上服务端诊断文本。
     #[test]
     fn maps_server_errors_by_code() {
         let rate_limited = decode_chunk(
@@ -333,7 +323,6 @@ mod tests {
         );
     }
 
-    /// 解析不出的载荷是协议错误，且诊断文本有长度上限。
     #[test]
     fn unparsable_payload_reports_bounded_diagnostic() {
         let Some(SseItem::Failed(error)) = decode_chunk("not json") else {
@@ -360,7 +349,6 @@ mod tests {
         );
     }
 
-    /// 空载荷的 `data:` 行按心跳忽略（不报协议错误、不产出增量）。
     #[test]
     fn ignores_a_data_line_without_payload() {
         let mut decoder = SseDecoder::new();
@@ -370,7 +358,6 @@ mod tests {
         );
     }
 
-    /// 见到 `[DONE]` 之后的字节一律忽略（连接上可能还有填充）。
     #[test]
     fn ignores_bytes_after_done() {
         let mut decoder = SseDecoder::new();
@@ -381,7 +368,6 @@ mod tests {
         );
     }
 
-    /// 收尾：残缺半行丢掉（截断不是错误，只是没法解析），此后的字节不再解析。
     #[test]
     fn finish_drops_a_truncated_tail() {
         let mut decoder = SseDecoder::new();
@@ -393,8 +379,6 @@ mod tests {
         assert_eq!(decoder.push(b"ent\":\"x\"}}]}\n"), Vec::new());
     }
 
-    /// 收尾：完整但没被换行终止的最后一行是真实增量（端点 flush 完就关连接的
-    /// 常见形态），必须交出去——丢了用户看到的就是缺字的译文。
     #[test]
     fn finish_keeps_a_complete_unterminated_line() {
         let mut decoder = SseDecoder::new();
@@ -405,8 +389,6 @@ mod tests {
         assert_eq!(decoder.finish(), vec![SseItem::Delta("尾".into())]);
     }
 
-    /// 没有行长上限时，一个只发字节不发换行的服务端就能把缓冲区撑爆——
-    /// 超限即协议异常并终结流。
     #[test]
     fn rejects_a_line_beyond_the_limit() {
         let mut decoder = SseDecoder::new();
@@ -417,11 +399,9 @@ mod tests {
                 "sse line exceeds limit".into()
             ))]
         );
-        // 已终结：后续字节不再解析，缓冲也不再增长。
         assert_eq!(decoder.push(b"data: [DONE]\n"), Vec::new());
     }
 
-    /// 服务端只给 message（既无 code 也无 type）时，文案不该带前导冒号。
     #[test]
     fn error_without_code_reports_the_message_only() {
         assert_eq!(
@@ -430,7 +410,6 @@ mod tests {
         );
     }
 
-    /// code 是通用值而细分类在 type 里时，也要按细分类识别（反之亦然）。
     #[test]
     fn error_classification_checks_code_and_type() {
         assert_eq!(

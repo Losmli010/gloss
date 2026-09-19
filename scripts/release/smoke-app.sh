@@ -4,8 +4,7 @@
 #   1. 进程在预算时间内起来（窗口出现、事件循环在转）；
 #   2. 再观察一段窗口后仍存活（排除启动即崩的慢炸弹）；
 #   3. 日志出现启动标记，且没有任何 panic。
-# 辅助功能未授权只会让划词手势降级（设计如此），不算冒烟失败——冒烟只管
-# 「这个产物能不能跑」。因此本脚本可在本机与 macOS CI runner 上直接运行。
+# 辅助功能未授权只会让划词手势降级，不算冒烟失败——冒烟只管「能不能跑」。
 # 用法：./scripts/release/smoke-app.sh <path/to/Gloss.app>
 set -uo pipefail
 
@@ -25,9 +24,8 @@ if [ ! -x "$BIN" ]; then
   exit 1
 fi
 
-# 日志隔离：应用把日志写到 $HOME/.gloss/logs，这里换一个一次性 HOME，
-# 冒烟只认本次启动写出的日志，不碰开发机的真实日志目录。
-# 直接拉二进制而不是 open：LaunchServices 不透传 HOME，隔离需要继承环境。
+# 日志隔离：换一个一次性 HOME，冒烟只认本次启动写出的日志，
+# 不碰开发机的真实日志目录。
 SMOKE_HOME="$(mktemp -d)"
 trap 'rm -rf "$SMOKE_HOME"; [ -n "${PID:-}" ] && kill "$PID" 2>/dev/null || true' EXIT
 LAUNCH_LOG="$SMOKE_HOME/launch-stdout.log"

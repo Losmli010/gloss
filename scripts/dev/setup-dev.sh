@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 # 一键环境初始化：校验 Rust 工具链与配套工具、安装 git hooks。clone 后跑一次：
 #   ./scripts/dev/setup-dev.sh   （或 just setup）
-# 原则：硬失败只留给「没有 Rust 什么都干不了」这一件事；其余缺失只提示安装
-# 命令，不替用户做全局安装。全部幂等，重复跑无副作用。
+# 全部幂等，重复跑无副作用。
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-# CI 与 release workflow 钉住的工具链版本（dtolnay/rust-toolchain@<该版本>），
-# 与 CI 漂移会造成「本地过、CI 挂」。
 EXPECTED_TOOLCHAIN="1.96.1"
 
 MISSING_OPTIONAL=0
@@ -27,16 +24,12 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 rustc_version="$(rustc --version | awk '{print $2}')"
-# 变量名后紧跟全角字符时必须加花括号：bash 3.2 会把全角字符首字节吞进变量名
-# （报 unbound variable），这是本机 bash 3.2 实测踩过的坑。
 if [ "$rustc_version" = "$EXPECTED_TOOLCHAIN" ]; then
   echo "  ✓ rustc ${rustc_version}（与 CI 一致）"
 else
   echo "  ⚠ rustc ${rustc_version} ≠ CI 钉住的 ${EXPECTED_TOOLCHAIN}，建议对齐：" >&2
   echo "      rustup install $EXPECTED_TOOLCHAIN && rustup override set $EXPECTED_TOOLCHAIN" >&2
 fi
-# 组件存在性用命令探测而非 rustup component list：仓库用目录级 pin 时，
-# 不带 --toolchain 的 rustup 查的是默认工具链，会误报缺组件。
 if cargo fmt --version >/dev/null 2>&1; then
   echo "  ✓ 组件 rustfmt 已装"
 else
@@ -57,7 +50,6 @@ else
 fi
 
 echo "== 3/4 质量 / 发布配套（可选，按需安装）=="
-# 各工具只做存在性检查：具体版本交给 Dependabot 与 CI 兜底
 command -v cargo-bundle >/dev/null 2>&1 \
   || warn_missing "cargo-bundle（发布打包）" "cargo install cargo-bundle --locked"
 command -v cargo-llvm-cov >/dev/null 2>&1 \

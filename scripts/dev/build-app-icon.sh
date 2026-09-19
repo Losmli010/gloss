@@ -3,8 +3,7 @@
 #   assets/icons/Gloss.icns           打包用 —— cargo-bundle 的 icon 配置指向它
 #   assets/icons/gloss-dock-icon.png  开发期 Dock 图标 —— 非 bundle 运行时由
 #                                     gloss-platform 内嵌（include_bytes!）交给 NSApplication
-# 只用系统自带的 sips（SVG→PNG、缩放）与 iconutil（iconset→.icns），零新增工具链：
-# sips 自 macOS 13 起经 ImageIO 支持 SVG 输入，输出保留 alpha。
+# 只用系统自带的 sips（SVG→PNG、缩放）与 iconutil（iconset→.icns）。
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -30,8 +29,6 @@ mkdir -p "$work/Gloss.iconset"
 # 1024 主图：icns 全部档位与 Dock 图标都由它降采样而来
 sips -s format png "$svg" --out "$work/icon-1024.png" >/dev/null
 
-# 光栅化尺寸取决于 SVG 声明的 width/height 属性：丢了它 sips 会按内嵌尺寸出小图，
-# 下面的档位会把小图上采样成模糊图标静默进仓库，这里当场拦下
 width="$(sips -g pixelWidth "$work/icon-1024.png" | awk 'END { print $NF }')"
 height="$(sips -g pixelHeight "$work/icon-1024.png" | awk 'END { print $NF }')"
 if [ "$width" != 1024 ] || [ "$height" != 1024 ]; then
@@ -55,6 +52,6 @@ sips -z 1024 1024 "$work/icon-1024.png" --out "$work/Gloss.iconset/icon_512x512@
 iconutil -c icns "$work/Gloss.iconset" -o "$icons/Gloss.icns"
 echo "✓ ${icons}/Gloss.icns"
 
-# Dock 图标：Retina Dock 上限 128pt@2x = 256px，再大只是增大二进制体积
+# Dock 图标：Retina 上限 128pt@2x = 256px。
 sips -z 256 256 "$work/icon-1024.png" --out "$icons/gloss-dock-icon.png" >/dev/null
 echo "✓ ${icons}/gloss-dock-icon.png"

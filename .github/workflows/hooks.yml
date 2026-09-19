@@ -115,7 +115,6 @@ jobs:
             HEAD_SHA="${{ github.event.after }}"
           fi
           git fetch origin "$BASE" "$HEAD_SHA" --depth=100 2>/dev/null || true
-          # --no-merges 跳过 merge commit，避免 GitHub 自动生成的 "Merge ... into ..." 被误判
           git log --no-merges --format="%H" "$BASE..$HEAD_SHA" | while read sha; do
             msg="$(git log -1 --format=%B "$sha")"
             echo "检查 commit $sha"

@@ -1,7 +1,7 @@
-//! Cache 端口的内存实现：moka LRU + TTL（M3-T5，06 §5.2）。
+//! Cache 端口的内存实现：moka LRU + TTL。
 //!
 //! key 由 [`cache_key`] 统一派生（kind, input, options, model 的规范化序
-//! 列化摘要）——同一文本在不同任务类型/模型下不共享缓存（06 §5.2 ADR）。
+//! 列化摘要）——同一文本在不同任务类型/模型下不共享缓存。
 //! 进程内缓存即可满足 M3-MVP，摘要用 std `DefaultHasher`（SipHash）：
 //! 只要求进程内稳定，不要求跨版本持久稳定。
 
@@ -20,7 +20,7 @@ pub(crate) const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
 /// 超出由 moka 按 LRU（TinyLFU）逐出。
 const MAX_ENTRIES: u64 = 256;
 
-/// 派生缓存 key：模型 id 参与哈希——同任务换模型（M4 配置）不得命中旧
+/// 派生缓存 key：模型 id 参与哈希——同任务换模型（配置切换）不得命中旧
 /// 产物。序列化失败（非有限浮点等）退回 `Debug` 文本哈希，保证 key 恒
 /// 可得且不同任务间碰撞概率不因回退路径上升。
 pub fn cache_key(task: &Task, model: &str) -> u64 {
@@ -37,10 +37,6 @@ pub fn cache_key(task: &Task, model: &str) -> u64 {
 /// [`Cache`] 端口的 moka 内存实现：线程安全，`get`/`set` 可从任意线程
 /// 调用（tokio 侧与事件线程共用同一实例）。
 ///
-/// 取舍说明：moka 的 sync cache 没有专职维护线程，逐出/过期由调用线程
-/// 内联执行（写入阈值或周期触发），写通道满时 `insert` 会短暂等待——
-/// async 场景理论上会阻塞 tokio worker 一瞬。桌面单用户 + 256 条的规模
-/// 下实际影响可忽略，MVP 接受；若将来规模上去再换 future 异步面。
 #[derive(Debug)]
 pub struct MokaCache {
     inner: moka::sync::Cache<u64, TaskOutcome>,
@@ -113,7 +109,6 @@ mod tests {
         }
     }
 
-    /// 验收标准（06 §5.2 ADR）：同一文本不同 kind 不共享缓存。
     #[test]
     fn same_text_different_kinds_do_not_share_cache() {
         let word = cache_key(&text_task(TaskKind::TranslateWord, "gloss"), "m1");
@@ -129,7 +124,6 @@ mod tests {
         assert_eq!(cache.get(word).map(|o| o.body), Some("词卡产物".into()));
     }
 
-    /// 模型 id 参与派生：换模型不命中旧产物（M4 配置切换的前提）。
     #[test]
     fn model_id_participates_in_key() {
         let a = cache_key(&text_task(TaskKind::TranslateWord, "gloss"), "m1");
@@ -137,7 +131,6 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    /// 输入差异必须反映在 key 上（hint、options 同理走完整序列化）。
     #[test]
     fn input_and_options_participate_in_key() {
         let mut hinted = text_task(TaskKind::ExplainCode, "fn main() {}");
@@ -158,8 +151,6 @@ mod tests {
         );
     }
 
-    /// 验收标准：TTL 过期生效（moka 的过期判定是惰性的，用
-    /// run_pending_tasks 强制同步）。
     #[test]
     fn ttl_expiry_takes_effect() {
         let cache = MokaCache::with_ttl(Duration::from_millis(60));
@@ -172,7 +163,6 @@ mod tests {
         assert!(cache.get(key).is_none(), "expired entry must be gone");
     }
 
-    /// 序列化失败回退路径：含 NaN 的 Audio 输入也能得到稳定 key。
     #[test]
     fn cache_key_falls_back_when_serialization_fails() {
         let audio = |hint: Option<f32>| Task {

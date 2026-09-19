@@ -23,7 +23,7 @@ use crate::ui::settings::{KeyUpdate, SettingsAction, SettingsState};
 use crate::ui::{self};
 use crate::windows::WindowManager;
 
-/// 浮层显示后的自动隐藏时长（06 §6.1：超时回 Idle；失焦路径走 Focused 事件）
+/// 浮层显示后的自动隐藏时长（超时回 Idle；失焦路径走 Focused 事件）
 const AUTO_HIDE_AFTER: Duration = Duration::from_secs(10);
 
 /// 投递给主线程的自定义事件。
@@ -34,10 +34,6 @@ pub enum UserEvent {
 }
 
 /// 唤醒主线程的句柄：事件线程与 tokio 各持一份 clone。
-///
-/// 用 `EventLoopProxy` 而不是让主线程 `try_recv` 轮询（08 §7.3）：轮询只能在
-/// winit 因别的事件醒来时顺带取消息，空闲时最坏延迟一帧，且要求主线程周期性
-/// 空转；代理唤醒由发送方立即触发，无消息时主线程可以一直睡。
 #[derive(Clone, Debug)]
 pub struct Waker(EventLoopProxy<UserEvent>);
 
@@ -51,18 +47,18 @@ impl Waker {
 /// 启动事件循环，直到退出才返回。
 ///
 /// `endpoints` 是 App 侧通道端点（① 收平台事件、② 发取材命令、③ 发推理
-/// 任务、④ 收回传事件），由组装点拆出移交；`config` 是运行时配置句柄
-/// （M4-T3），在每一批平台事件的起手处取一份快照交给状态机（见
-/// [`GlossApp::drain_platform_events`]）——配置热更新因此无需重启，也不必
-/// 给 App 传配置存储；`store` 是配置存储的文档+密钥组合体，设置页（M4-T6）
-/// 经它写 keychain（密钥不经快照，也不进句柄）。
+/// 任务、④ 收回传事件），由组装点拆出移交；`config` 是运行时配置句柄，
+/// 在每一批平台事件的起手处取一份快照交给状态机（见
+/// [`GlossApp::drain_platform_events`]），配置热更新因此无需重启；`store`
+/// 是配置存储的文档+密钥组合体，设置页经它写 keychain（密钥不经快照，
+/// 也不进句柄）。
 ///
 /// `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
 ///
-/// `hotkeys` 是热键重绑定端口（M4-T7）：适配器在组装点创建（主线程亲和），
-/// 设置页保存后由 App 直接调用。`auto_show` 与 `theme` 两个配置项也在本
-/// 任务接线（前者决定浮层何时自动露面，后者施加到两个 egui 上下文）。
+/// `hotkeys` 是热键重绑定端口：适配器在组装点创建（注册有主线程亲和），
+/// 设置页保存后由 App 直接调用。`auto_show` 决定浮层何时自动露面，
+/// `theme` 施加到两个 egui 上下文（见 [`GlossApp::apply_theme`]）。
 pub fn run(
     endpoints: AppEndpoints,
     config: Arc<ConfigHandle>,
@@ -173,8 +169,8 @@ struct GlossApp {
     frame: Option<Frame>,
     /// 浮层 egui 要求的下一帧时间点；`None` 表示等到有事件再画。
     overlay_repaint: Option<Instant>,
-    /// 设置窗口 egui 要求的下一帧时间点。两个窗口各有各的截止时刻：
-    /// 共用一份的话，一个窗口画一帧就会把另一个窗口的动画截止时刻冲掉。
+    /// 设置窗口 egui 要求的下一帧时间点，与浮层的 [`Self::overlay_repaint`]
+    /// 各自独立。
     settings_repaint: Option<Instant>,
     /// 浮层自动隐藏时刻；仅浮层可见时为 `Some`
     auto_hide: Option<Instant>,
@@ -183,10 +179,10 @@ struct GlossApp {
     /// 任务状态机（functional core，见 machine.rs）：纯状态转移，壳只做
     /// 通道发送、浮层窗口操作与日志。
     machine: TaskStateMachine,
-    /// 运行时配置句柄（M4-T3）：每批平台事件取一份快照交给状态机，
+    /// 运行时配置句柄：每批平台事件取一份快照交给状态机，
     /// 配置保存后无需重启即对下一次触发生效。
     config: Arc<ConfigHandle>,
-    /// 配置存储（M4-T6）：设置页写 keychain 用——文档半边走句柄，密钥
+    /// 配置存储：设置页写 keychain 用——文档半边走句柄，密钥
     /// 半边不进快照也不进句柄，经这里直查。
     store: Arc<dyn ConfigStore>,
     /// 设置窗口的渲染帧；随窗口栈在 `resumed` 时建好，隐藏期保留。
@@ -194,11 +190,9 @@ struct GlossApp {
     /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
     /// 之丢弃）。
     settings: Option<SettingsState>,
-    /// 热键重绑定端口（M4-T7）。注册有主线程亲和（平台后端约束），而保存
-    /// 配置恰好发生在主线程的这一帧里，所以是同步调用而不是下发通道。
+    /// 热键重绑定端口：设置页保存后在主线程同步调用，不走通道。
     hotkeys: Arc<dyn HotkeyBinder>,
-    /// 已施加到两个 egui 上下文的主题偏好；`None` 表示还没施加过。缓存
-    /// 它只为免掉逐帧写入——egui 每帧都按该偏好解析明暗，重复写没有意义。
+    /// 已施加到两个 egui 上下文的主题偏好；`None` 表示还没施加过。
     applied_theme: Option<egui::ThemePreference>,
 }
 
@@ -248,13 +242,13 @@ impl GlossApp {
         let overlay_view = self.machine.overlay_view();
         let (repaint, action) = render_frame(frame, overlay_view);
         self.overlay_repaint = repaint;
-        // 失败卡的动作出口（06 §7）：重试原样重发，鉴权/配置类打开设置。
+        // 失败卡的动作出口：重试原样重发，鉴权/配置类打开设置。
         if let Some(action) = action {
             self.handle_error_action(action);
         }
     }
 
-    /// 执行失败卡的动作出口（06 §7 错误映射的壳侧半边）。
+    /// 执行失败卡的动作出口（错误映射的壳侧半边）。
     fn handle_error_action(&mut self, action: ErrorAction) {
         match action {
             ErrorAction::Retry => match self.machine.retry() {
@@ -265,8 +259,7 @@ impl GlossApp {
                         "error card retry, task re-dispatched to tokio"
                     );
                     self.send_run(request);
-                    // 重锚隐藏计时：重试的成功路径不该被失败卡出现时刻
-                    // 锚定的旧计时掐断（与 accept_done 的重锚同一理由）。
+                    // 重锚隐藏计时（与 accept_done 的重锚同一理由）。
                     if self.windows.is_some() {
                         self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
                     }
@@ -359,16 +352,13 @@ impl GlossApp {
             "settings saved, effective on the next trigger"
         );
         // 热键不受「下一次触发才生效」约束：注册是平台侧的即时动作，保存
-        // 成功即按新表重注册（M4-T7）。
+        // 成功即按新表重注册。
         self.rebind_hotkeys();
         self.close_settings();
     }
 
-    /// 按当前快照重注册热键（M4-T7）。
-    ///
-    /// 绑定读自刚换上的快照——于是生效的那一份必然是落盘成功的那一版，
-    /// 不会出现「磁盘是 A、按键却是 B」的分叉。个别绑定被占用由平台侧告警
-    /// 跳过（见 `HotkeyBinder` 的降级契约），不让这次保存整体失败。
+    /// 按当前快照重注册热键：绑定读自刚换上的快照。个别绑定被
+    /// 占用时按 [`HotkeyBinder`] 的降级契约告警跳过，保存不整体失败。
     fn rebind_hotkeys(&self) {
         let bindings = self.config.snapshot().hotkey_bindings.clone();
         let applied = self.hotkeys.rebind(&bindings);
@@ -380,10 +370,8 @@ impl GlossApp {
         );
     }
 
-    /// 把配置里的主题偏好施加到两个 egui 上下文（M4-T7）。
-    ///
-    /// 只在偏好变化时写入：egui 每帧都按该偏好解析明暗，逐帧重复写没有意义。
-    /// 两个窗口各有独立上下文，必须各写一次——否则改主题只影响其中一半。
+    /// 把配置里的主题偏好施加到两个 egui 上下文：偏好变化时才写，
+    /// 两个上下文各写一次。
     fn apply_theme(&mut self) {
         let preference = theme_preference(self.config.snapshot().theme);
         if self.applied_theme == Some(preference) {
@@ -416,7 +404,6 @@ impl GlossApp {
     /// 关闭设置窗口：隐藏不销毁，丢弃编辑会话（未保存的草稿一并作废）。
     fn close_settings(&mut self) {
         self.settings = None;
-        // 窗口收起了就别再为它的动画唤醒事件循环。
         self.settings_repaint = None;
         if let Some(windows) = &self.windows {
             windows.hide_settings();
@@ -446,7 +433,7 @@ impl GlossApp {
             .as_ref()
             .map_or(Vec::new(), |e| e.platform_events.try_iter().collect());
         for event in events {
-            // 设置入口（M4-T6）：托盘/热键与浮层失败卡共用同一条路；不占
+            // 设置入口：托盘/热键与浮层失败卡共用同一条路；不占
             // 用代数（与未接线事件一样不进状态机）。
             if matches!(event, PlatformEvent::OpenSettingsRequested) {
                 info!(thread = thread::UI, "settings open requested");
@@ -492,7 +479,7 @@ impl GlossApp {
     /// 丢弃，浮层只显示最后一次请求的结果。状态决策在 machine，壳只做
     /// 通道发送、浮层展示与日志。
     ///
-    /// 浮层「什么时候自动露面」由 `auto_show` 决定（M4-T7），策略本身抽在
+    /// 浮层「什么时候自动露面」由 `auto_show` 决定，策略本身抽在
     /// [`auto_show_for`] / [`auto_show_after`] 这两个纯函数里。它是壳侧的
     /// 展示开关，不随任务下发、也不参与缓存 key，因此不像任务选项那样在
     /// 触发时冻结——按到达时的快照读即可。
@@ -516,8 +503,7 @@ impl GlossApp {
                     outcome,
                 } => {
                     let accepted = self.accept_done(generation, outcome);
-                    // 结果卡可见时长从完成时刻重新起算：慢任务不至于刚出
-                    // 结果就被早先锚定的隐藏计时收起。
+                    // 结果卡可见时长从完成时刻重新起算。
                     if accepted && self.windows.is_some() {
                         self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
                     }
@@ -645,12 +631,9 @@ impl GlossApp {
         accepted
     }
 
-    /// 自动隐藏到点：收起浮层并回落 Idle。推理中（Translating）不被自动
-    /// 隐藏掐断——隐藏即放弃（T8），推理超过时限会让浮层在转圈时凭空消
-    /// 失、任务静默作废；因此只顺延到下一周期，等 TaskDone/TaskFailed 重
-    /// 锚计时（accept_done / 重试路径）后再正常收起。用状态而非取消令牌
-    /// 判「在途」：令牌在 done 后仍残留（Show 态），状态是精确信号。Esc/
-    /// 点击外部等显式隐藏不走此路径，仍立即放弃。
+    /// 自动隐藏到点：收起浮层并回落 Idle；推理中（Translating）不收起，
+    /// 只把计时顺延一个周期，等 TaskDone/TaskFailed 落地后正常收起。Esc/
+    /// 点击外部等显式隐藏不走此路径，仍立即收起。
     fn on_auto_hide(&mut self, _event_loop: &ActiveEventLoop) {
         if self.machine.state() == AppState::Translating {
             self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
@@ -671,9 +654,6 @@ impl GlossApp {
 }
 
 /// 浮层居中于显示器（逻辑坐标）：优先窗口当前所在的显示器，其次主显示器。
-///
-/// winit 0.30 没有全局光标位置读取接口，「跟随鼠标所在屏幕」需等 M2 的
-/// 平台端口提供光标坐标后由调用方指定目标显示器。
 pub fn centered_position(
     event_loop: &ActiveEventLoop,
     windows: &WindowManager,
@@ -707,7 +687,7 @@ fn repaint_at(delay: Duration, now: Instant) -> Option<Instant> {
     (delay != Duration::MAX).then(|| now + delay)
 }
 
-/// 配置主题 → egui 主题偏好（04 §六：出厂跟随系统，设置页可固定明/暗）。
+/// 配置主题 → egui 主题偏好（出厂跟随系统，设置页可固定明/暗）。
 fn theme_preference(theme: Theme) -> egui::ThemePreference {
     match theme {
         Theme::System => egui::ThemePreference::System,
@@ -719,8 +699,7 @@ fn theme_preference(theme: Theme) -> egui::ThemePreference {
 /// 把偏好写到每个已建立的 egui 上下文，返回写到的上下文个数。
 ///
 /// 浮层与设置各持一个**独立**的 `egui::Context`（options 不共享），所以必须
-/// 逐个写——只写其中一个，用户会看到「改主题只影响半个界面」。抽成自由函数
-/// 是为了让这件事能被真实上下文观测：App 的帧要 GPU，L2 单测拿不到。
+/// 逐个写——只写其中一个，用户会看到「改主题只影响半个界面」。抽成自由函数。
 fn apply_theme_to<'a>(
     contexts: impl IntoIterator<Item = &'a egui::Context>,
     preference: egui::ThemePreference,
@@ -733,8 +712,7 @@ fn apply_theme_to<'a>(
     written
 }
 
-/// 回传事件的类别。`Event` 的每个变体都携带代数与载荷，而 `auto_show` 策略
-/// 只关心是哪一类回传，故先抽成无数据的标签。
+/// 回传事件的类别标签（`auto_show` 策略只关心类别，不关心代数与载荷）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EventKind {
     InputReady,
@@ -753,31 +731,19 @@ fn event_kind(event: &Event) -> EventKind {
     }
 }
 
-/// 这批回传之后浮层要不要自动露面（M4-T7 的 `auto_show` 策略）。
+/// 单个回传事件后浮层要不要自动露面（`auto_show` 策略）。
 ///
-/// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示，已收起的浮层
-/// 也不会被迟到的产物弹回来。
-///
-/// 抽成纯函数是为了可测——真正的展示要 `ActiveEventLoop` 与已建好的窗口，
-/// App 单测拿不到这两样。
+/// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
 fn auto_show_for(kind: EventKind, auto_show: bool, accepted: bool) -> bool {
     match kind {
-        // 出厂默认：取材成功即弹，看到浮层就知道「划到了、正在查」。
         EventKind::InputReady => accepted && auto_show,
-        // 开关开着时浮层早在取材那一刻就弹出来了，这里不必再弹；开着关掉
-        // 时，完成是这个任务第一次该露面的时刻。
         EventKind::TaskDone => accepted && !auto_show,
-        // 流式增量只在已可见的浮层上追加，从不负责弹出。
         EventKind::TaskChunk => false,
-        // 失败总要露面：自动弹出的开关不该把错误一起吞掉。
         EventKind::TaskFailed => accepted,
     }
 }
 
 /// 一批回传之后浮层要不要自动露面：**任一**事件判为要显示就显示。
-///
-/// 逐事件判定再取或——同一批里既有陈旧产物又有失败/完成时不会互相抵消，
-/// 一条被采纳的失败足以把浮层带出来（通道④一次可能抽到多条）。
 fn auto_show_after(batch: impl IntoIterator<Item = (EventKind, bool)>, auto_show: bool) -> bool {
     batch
         .into_iter()
@@ -797,8 +763,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
             return;
         }
         // 浮层预创建即隐藏（Idle 态）；先在隐藏状态画一帧预热——egui 图集构建、
-        // Metal 管线编译与纹理上传都发生在首帧，不预热的话首次显示会超 100ms
-        // 预算（09 M1-T6）
+        // Metal 管线编译与纹理上传都发生在首帧，不预热的话首次显示会超预算
         self.draw();
     }
 
@@ -862,8 +827,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
                 }
             }
             WindowEvent::Focused(false) if is_overlay => {
-                // 浮层失焦回 Idle：只隐藏不销毁。设置窗口失焦保持打开
-                // （草稿还在编辑中，收起即丢对人太狠）。
+                // 浮层失焦回 Idle：只隐藏不销毁；设置窗口失焦保持打开
                 if let Some(windows) = &self.windows {
                     windows.hide();
                     self.auto_hide = None;
@@ -950,8 +914,6 @@ mod tests {
         assert_eq!(sooner(None, None), None);
     }
 
-    /// `driven_app` 交出的驱动端点：App 本体 + 配置句柄 + 配置存储 + 四条
-    /// 通道的端点。
     type DrivenApp = (
         GlossApp,
         Arc<ConfigHandle>,
@@ -962,21 +924,14 @@ mod tests {
         crossbeam_channel::Sender<Event>,
     );
 
-    /// 构造接入真实通道与配置句柄的 App，返回各通道端点与句柄供测试驱动。
-    ///
-    /// 配置走 core 的内存桩（`test-util` 特性），测试可以 `handle.save(...)`
-    /// 模拟设置页保存，观察下一次触发是否用上新配置。
     fn driven_app() -> DrivenApp {
         driven_app_with(Arc::new(MemoryConfigStore::default()))
     }
 
-    /// [`driven_app`] 的注入版：设置页失败路径测试用它换上必失败的存储。
     fn driven_app_with(store: Arc<dyn ConfigStore>) -> DrivenApp {
         driven_app_using(store, Arc::new(RecordingHotkeyBinder::default()))
     }
 
-    /// 同时注入热键桩的版本：M4-T7 的重注册接线测试用它观察调用。
-    /// 桩由调用方持有（`Arc` 共享），其余测试不关心热键时用 [`driven_app`]。
     fn driven_app_using(store: Arc<dyn ConfigStore>, hotkeys: Arc<dyn HotkeyBinder>) -> DrivenApp {
         let crate::channel::Channels {
             platform_events,
@@ -1018,7 +973,6 @@ mod tests {
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
     }
 
-    /// 驱动一次触发（划词手势）走完通道①消费。
     fn trigger_selection(app: &mut GlossApp, pe_tx: &crossbeam_channel::Sender<PlatformEvent>) {
         pe_tx.send(PlatformEvent::SelectionGesture).unwrap();
         app.drain_platform_events();
@@ -1053,13 +1007,10 @@ mod tests {
         }
     }
 
-    /// 验收标准：连续触发 A→B 时，A 的迟到 chunk / TaskDone 不串台——
-    /// 新触发取消 A 的令牌、推进代数，A 的一切回传被陈旧过滤。
     #[test]
     fn late_events_of_superseded_trigger_do_not_bleed() {
         let (mut app, _config, _store, pe_tx, ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
-        // 触发 A：进入 Fetching，gen=1，取材命令下发。
         trigger_selection(&mut app, &pe_tx);
         assert_eq!(app.machine.state(), AppState::Fetching);
         assert_eq!(app.machine.generation(), 1);
@@ -1068,7 +1019,6 @@ mod tests {
             AcquireCommand::AcquireText { generation: 1, .. }
         ));
 
-        // A 的取材产物到达：组装 Task 携令牌下发③，进入 Translating。
         assert!(app.accept_input(1, text_input("A")));
         assert_eq!(app.machine.state(), AppState::Translating);
         let Command::RunTask {
@@ -1081,24 +1031,20 @@ mod tests {
         };
         assert!(!token_a.is_cancelled());
 
-        // A 的流式增量到达并展示。
         assert!(app.accept_chunk(1, "部分A".into()));
         assert!(streaming_body(&app).contains("部分A"));
 
-        // 触发 B：A 的令牌立即取消，代数推进，状态回 Fetching。
         trigger_selection(&mut app, &pe_tx);
         assert_eq!(app.machine.generation(), 2);
         assert_eq!(app.machine.state(), AppState::Fetching);
         assert!(token_a.is_cancelled(), "new trigger must cancel task A");
 
-        // A 的迟到 chunk 被陈旧过滤：既不进入 B 的展示，也不改变状态。
         assert!(!app.accept_chunk(1, "迟到A".into()));
         assert!(
             !streaming_body(&app).contains("迟到A"),
             "late chunk of A must not bleed into the overlay"
         );
 
-        // B 的产物链路照常。
         assert!(app.accept_input(2, text_input("B")));
         assert!(matches!(
             cmd_rx.try_recv().unwrap(),
@@ -1110,14 +1056,12 @@ mod tests {
         assert_eq!(outcome_body(&app), "结果B");
     }
 
-    /// 匹配的失败落 Error 态并可重试；Error 态再次触发即重试。
     #[test]
     fn failed_task_lands_in_error_and_retry_works() {
         let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
 
-        // 陈旧失败（旧代数）丢弃，不影响 Translating。
         assert!(!app.accept_failed(0, &gloss_core::model::GlossError::EngineNetwork));
         assert_eq!(app.machine.state(), AppState::Translating);
 
@@ -1125,13 +1069,10 @@ mod tests {
         assert_eq!(app.machine.state(), AppState::Error);
         assert!(app.machine.current_cancel().is_none());
 
-        // Error 态再次触发即重试。
         trigger_selection(&mut app, &pe_tx);
         assert_eq!(app.machine.state(), AppState::Fetching);
     }
 
-    /// 失败卡的重试按钮（06 §7）：可重试失败给出 Retry 出口，壳把它原样
-    /// 重发到通道③——同代数、同任务、新令牌。
     #[test]
     fn retry_action_redispatches_the_failed_task() {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
@@ -1165,20 +1106,15 @@ mod tests {
             "a failed task's token is dropped, not cancelled"
         );
 
-        // 重试后的产物照常采纳。
         assert!(app.accept_done(1, plain_outcome("重试成功")));
         assert_eq!(app.machine.state(), AppState::Show);
     }
 
-    /// 设置页出口（鉴权/配置类失败）：点「打开设置」不产生通道③流量，
-    /// 状态停在 Error，编辑会话就位（窗口可见性属 L3 真机，见显隐自检）。
     #[test]
     fn open_settings_action_keeps_the_error_card() {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        // 排空首发的 RunTask，之后通道③应为空——「打开设置」不得产生
-        // 重发流量。
         let Command::RunTask { .. } = cmd_rx.try_recv().unwrap();
         assert!(app.accept_failed(1, &gloss_core::model::GlossError::EngineAuth));
         assert!(matches!(
@@ -1194,11 +1130,10 @@ mod tests {
         assert!(cmd_rx.try_recv().is_err(), "no re-dispatch for settings");
         assert!(
             app.settings.is_some(),
-            "the open-settings action must start the edit session (M4-T6)"
+            "the open-settings action must start the edit session"
         );
     }
 
-    /// 陈旧的 InputReady 不进入 Translating，也不下发③。
     #[test]
     fn stale_input_ready_is_dropped_entirely() {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
@@ -1215,14 +1150,10 @@ mod tests {
         );
     }
 
-    /// 验收标准（M4-T3）：运行时保存配置后，**下一次触发即生效**——目标
-    /// 语言与模型随任务下发到通道③，无需重启。取材产物由测试直接注入，
-    /// 走的仍是生产路径的 `drain_platform_events` → `accept_input`。
     #[test]
     fn saved_config_applies_to_the_next_trigger() {
         let (mut app, config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
-        // 出厂默认：目标语言中文 + 出厂文本模型（用户只差 keychain 里那把钥匙）。
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
@@ -1232,7 +1163,6 @@ mod tests {
             Some(DEFAULT_TEXT_MODEL)
         );
 
-        // 设置页保存（ConfigHandle：写文件 + 原子替换快照）。
         config
             .save(Config {
                 target_lang: Lang::Ja,
@@ -1244,7 +1174,6 @@ mod tests {
             })
             .expect("save should succeed");
 
-        // 下一次触发：新配置立即生效。
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
@@ -1255,17 +1184,10 @@ mod tests {
         );
     }
 
-    /// 快照在派发途中冻结：触发之后、取材产物到达之前保存了新配置，**在途
-    /// 任务仍用触发时那份**（选项在 `trigger` 时解析，`accept_input` 不再
-    /// 取配置），新配置只对下一次触发生效。
-    ///
-    /// 这是 App 层的护栏：`machine` 的单测证明不了它（`accept_input` 签名里
-    /// 没有 config），而 M4-T6/T7 改 App 时最可能踩的就是「派发时重新取快照」。
     #[test]
     fn saved_config_does_not_leak_into_the_inflight_task() {
         let (mut app, config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
-        // 触发（拿到 v1 快照）→ 保存 v2 → 才喂取材产物。
         trigger_selection(&mut app, &pe_tx);
         config
             .save(Config {
@@ -1282,15 +1204,12 @@ mod tests {
             "in-flight task must keep the snapshot taken at trigger"
         );
 
-        // 新配置对下一次触发生效。
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
         assert_eq!(task.options.target_lang, Some(Lang::Ja));
     }
 
-    /// 验收标准（M4-T6）：设置入口走 `PlatformEvent::OpenSettingsRequested`
-    /// ——打开编辑会话（草稿=当前快照），不占用请求代数。
     #[test]
     fn open_settings_request_starts_an_edit_session() {
         let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
@@ -1310,8 +1229,6 @@ mod tests {
         );
     }
 
-    /// 验收标准（M4-T6）：设置页保存 = 密钥进 keychain（按 provider 条目）
-    /// + 配置走热更新路径；成功后关闭会话。密钥永不落进配置快照。
     #[test]
     fn settings_save_writes_keychain_and_swaps_config() {
         let (mut app, config, store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
@@ -1324,8 +1241,6 @@ mod tests {
             gloss_core::task::TaskKind::TranslateWord,
             "deepseek-reasoner",
         );
-        // trim 是 UI 层（build_save）的契约，已在 settings 模块单测；
-        // 壳收到的是裁剪后的密钥。
         app.save_settings(draft, KeyUpdate::Replace("sk-live-key".to_owned()));
 
         assert_eq!(
@@ -1339,7 +1254,6 @@ mod tests {
         assert_eq!(config.snapshot().target_lang, Lang::Ja, "snapshot advanced");
         assert!(app.settings.is_none(), "successful save closes the session");
 
-        // 保存的配置对下一次触发生效（模型随任务下发）。
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
@@ -1349,8 +1263,6 @@ mod tests {
         );
     }
 
-    /// 清除密钥路径：保存时删除 keychain 条目（删除与配置落盘同一次保存
-    /// 里发生，取消不会留下已删除的密钥）。
     #[test]
     fn clearing_the_key_deletes_the_secret_on_save() {
         let (mut app, config, store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
@@ -1370,8 +1282,6 @@ mod tests {
         assert!(app.settings.is_none(), "save closes the session");
     }
 
-    /// 落盘失败：内存保持旧版本（磁盘唯一真相），会话保持打开并带上
-    /// 提示——用户可以改完再存。
     #[test]
     fn failed_save_keeps_the_session_open_with_a_notice() {
         let failing = MemoryConfigStore::default()
@@ -1396,9 +1306,6 @@ mod tests {
         );
     }
 
-    /// 验收标准（M4-T7）：设置页改热键后**立即重注册**，且重注册拿到的是
-    /// 刚落盘的那份快照。热键不受「下一次触发才生效」约束——注册是平台侧
-    /// 的即时动作，等下一次划词再换就太晚了。
     #[test]
     fn saving_settings_rebinds_hotkeys_from_the_new_snapshot() {
         let binder = Arc::new(RecordingHotkeyBinder::default());
@@ -1436,9 +1343,6 @@ mod tests {
         assert_eq!(triggers, ["Cmd+Alt+T", "Cmd+Alt+C"]);
     }
 
-    /// 上一条只证明「第一次保存会重注册」，而契约是**每次都**重注册。只断言
-    /// 调用过一次，会放过「重注册被某个一次性条件挡住」这类回归（例如后来
-    /// 有人给它加个 `if !self.rebound` 之类的短路）。
     #[test]
     fn every_save_rebinds_hotkeys_not_just_the_first() {
         let binder = Arc::new(RecordingHotkeyBinder::default());
@@ -1448,7 +1352,6 @@ mod tests {
         );
 
         for trigger in ["Cmd+Alt+T", "Cmd+Alt+R"] {
-            // 保存会关掉设置会话，第二次得重新开一个（等同用户再点一次设置）。
             app.settings = Some(ui::settings::open(&config.snapshot()));
             let mut draft = (*config.snapshot()).clone();
             draft.hotkey_bindings = vec![HotkeyBinding {
@@ -1471,8 +1374,6 @@ mod tests {
         );
     }
 
-    /// 落盘失败不得重注册：磁盘是唯一真相，运行时快照没换，按键也就不该换
-    /// ——否则会出现「按下去是 A、配置文件里是 B」的分叉。
     #[test]
     fn failed_save_does_not_rebind_hotkeys() {
         let binder = Arc::new(RecordingHotkeyBinder::default());
@@ -1499,9 +1400,6 @@ mod tests {
         );
     }
 
-    /// 验收标准（M4-T7）：`auto_show` 的策略——开着时取材即弹、完成不重复
-    /// 弹；关掉时取材与流式阶段都不弹，完成或失败才弹；未被采纳的事件
-    /// （陈旧/代数不匹配）一律不触发显示。
     #[test]
     fn auto_show_policy_decides_when_the_overlay_pops() {
         use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
@@ -1530,9 +1428,6 @@ mod tests {
         assert!(!auto_show_for(TaskChunk, false, true));
     }
 
-    /// 通道④一次可能抽到**多条**回传，所以决策是按批取或：同一批里混着陈旧
-    /// 产物与失败/完成时，不得互相抵消。这是上一条（逐事件策略表）盖不到的
-    /// 交互——批级语义只在这里断言。
     #[test]
     fn auto_show_survives_a_mixed_batch() {
         use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
@@ -1556,7 +1451,6 @@ mod tests {
         assert!(!auto_show_after([], true), "空批不显示");
     }
 
-    /// 主题映射（04 §六）：三档一一对应，出厂值跟随系统。
     #[test]
     fn theme_preference_covers_every_variant() {
         assert_eq!(
@@ -1572,9 +1466,6 @@ mod tests {
         );
     }
 
-    /// 主题施加的真契约：两个 egui 上下文**各自独立**，必须各写一次——
-    /// 只写一个会看到「改主题只影响半个界面」。这里用真实的 `egui::Context`
-    /// 观测偏好（App 的帧要 GPU，L2 单测拿不到），三档都走一遍。
     #[test]
     fn apply_theme_writes_every_context() {
         let overlay = egui::Context::default();
@@ -1609,12 +1500,6 @@ mod tests {
         );
     }
 
-    /// `apply_theme` 身上「只在变化时写」的那一层：偏好没变就不重复写
-    /// （egui 每帧都按偏好解析明暗，逐帧重写没有意义），变了必须跟上。
-    ///
-    /// 断言看的是缓存字段本身——egui 不暴露「`set_theme` 被调用过几次」，
-    /// 写入省略没有别的观测点；「两个上下文都写到」由
-    /// [`apply_theme_writes_every_context`] 用真实上下文证明。
     #[test]
     fn apply_theme_elides_writes_until_the_preference_changes() {
         let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();

@@ -3,11 +3,6 @@
 # 本地 `just agents-doc`（pre-commit 的一部分）与 CI 的 quality job 共用此脚本，
 # 保证本地与 CI 判定一致。
 #
-# 为什么需要它：这份文档原本叫 AGENT.md（单数），而客户端解析指令文件时只认
-# AGENTS.md，于是它在从未被加载的状态下漂移出了已删除的命令（`cargo run
-# -- --overlay-selftest` 随自检迁入 tests/ 后失效，无人发现）。"命令能打印出来
-# 就别在文档里复述"这条原则靠人记不住，交给脚本。
-#
 # 校验对象以 AGENTS.md 为准，五类引用：
 #   1. 全文任何 `just <recipe>` 提到的配方必须在 justfile 中定义；
 #   2. 行内反引号里的仓库路径（含 `/`）必须存在（文件或目录）；
@@ -16,12 +11,10 @@
 #   4. 全文任何 `cargo test --test <name>` 提到的测试目标必须存在对应的
 #      tests/<name>.rs（根包或任一 crate）；
 #   5. 仓库各处（*.rs / *.toml / *.sh / *.yml / justfile / *.md）对约束名的指名
-#      引用 `约束「名字」` 必须真的在文档的「不可协商的约束」段里——条号会随重排
-#      失效，所以引用一律指名，并有这条盯着。
+#      引用 `约束「名字」` 必须真的在文档的「不可协商的约束」段里。
 #
-# 扫描范围：`just <recipe>` 与 `cargo test --test` 逐行扫描，代码块内同样算数
-# ——命令清单本来就写在代码块里，漏掉它等于放过了最该校验的部分。路径只认行内
-# 反引号包裹的仓库相对路径，代码块里的树形图与行尾注释混排没法可靠切词。
+# 扫描范围：`just <recipe>` 与 `cargo test --test` 逐行扫描，代码块内同样算数。
+# 路径只认行内反引号包裹的仓库相对路径。
 # 占位符（含 `*`、`<`、`>`）、仓库外路径（含 `~`）、注释语法与 URL（含 `//`）不校验。
 #
 # 用法：scripts/hooks/check-agents-doc.sh [AGENTS.md 路径]   # 缺省为仓库根 AGENTS.md
@@ -59,13 +52,9 @@ while IFS= read -r line; do
   LINE_NO=$((LINE_NO + 1))
 
   # ---- 1. just 配方 ----
-  # 不用 \b：BSD grep 对词边界转义的兼容性不稳，改用「行首或非词字符 + just 」
-  # 并排除 justfile 这类无空格的词。
   while IFS= read -r recipe; do
     [ -n "$recipe" ] || continue
     CHECKED=$((CHECKED + 1))
-    # 配方行形如 `name:` 或 `name arg:`；结尾要求空白或行尾，避免 `logs` 命中
-    # `logs-dir:`；`[^:=]+` 则挡掉 `coverage_min := "70"` 这类变量赋值。
     if [ ! -f "$JUSTFILE" ] ||
       ! grep -qE "^${recipe}([[:space:]][^:=]+)?:([[:space:]]|\$)" "$JUSTFILE"; then
       fail "${DOC_NAME}:${LINE_NO}  「just ${recipe}」在 justfile 中找不到同名配方"
@@ -107,13 +96,10 @@ while IFS= read -r line; do
 done < "$DOC"
 
 # ---- 5. 仓库各处对约束名的指名引用必须存在 ----
-# 约定：引用约束写成 `AGENTS.md 约束「名字」`，不写条号——条号会随重排失效
-# （上一轮重排就断掉了两处源码注释里的「第 N 条」）。改了名字忘了改引用，这里当场失败。
+# 约定：引用约束写成 `AGENTS.md 约束「名字」`，不写条号。
 #
 # 扫描范围：*.rs / *.toml / *.yml / justfile / *.sh 里「同一行同时出现 AGENTS.md 与
-# 约束「」」的引用。不含 *.md——文档里 「」 另有用途（设计文档里的「约束」是另一套
-# 语境），扫进来只会误报。本脚本自身与其单测按构造就含这个模式（正则字面量与夹具
-# 数据），故跳过，见下方 case。
+# 约束「」」的引用。本脚本自身与其单测按构造就含这个模式，故跳过，见下方 case。
 CONSTRAINT_NAMES="$(
   awk '/^## / { insec = ($0 == "## 不可协商的约束") } insec { print }' "$DOC" |
     grep -oE '\*\*\[[A-Z]+\] [^*]+\*\*' | sed -E 's/^\*\*\[[A-Z]+\] //; s/\*\*$//' || true

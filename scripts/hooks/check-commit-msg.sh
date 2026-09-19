@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # 校验 commit message 是否符合 Conventional Commits 规范。
 # CI 的 commitlint workflow 与本地手动校验（`just lint-commit <file>`）共用此脚本，保证校验逻辑一致。
-# 注意：本地钩子不做消息校验——git 跑 pre-commit 时消息还没落盘，读到的会是上一条提交的消息。
 #
 # 用法：
 #   scripts/hooks/check-commit-msg.sh <commit-message-file-or-text>
@@ -13,8 +12,6 @@ set -euo pipefail
 # 允许的 type 前缀
 ALLOWED_TYPES="feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert"
 # header 最大长度（type + scope + subject 合计，按字节计）。
-# 81 = 72 + 9：为中日韩标题多留 3 个汉字的余量（混合中英文标题在 72 下
-# 屡屡触线），对纯 ASCII 标题几乎无感。
 MAX_SUBJECT_LEN=81
 
 # ---- 读取 commit message ----
@@ -33,8 +30,6 @@ fi
 MSG="$(printf '%s\n' "$MSG" | sed '/^#/d')"
 
 # 去掉开头的空白行（这样第一行一定是 header）。
-# 用 awk 的 NF 判断空行，跨平台（GNU/BSD/mawk）行为一致，
-# 避免 sed 的 [[:space:]] 字符类在不同 locale/sed 实现下的差异。
 MSG="$(printf '%s\n' "$MSG" | awk 'NF { found=1 } found { print }')"
 
 if [ -z "$MSG" ]; then

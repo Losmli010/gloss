@@ -4,7 +4,6 @@ output_path = "tests/snapshots"
 threshold = 0.6
 max_failed_pixels = 0
 
-# 当前与全局值一致，占位备平台间阈值分化。
 [mac]
 threshold = 0.6
 max_failed_pixels = 0

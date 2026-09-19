@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# check-constraints.sh 的单元测试（纯 bash 轻量断言，零依赖）
-#
-# 两条纪律：
-#   1. 每条约束都要有「违规必须被拒」的用例——只证明合法夹具能过，等于没测；
-#   2. 负面用例断言命中的是**对应的那条检查**（不是碰巧因为别的原因失败），
-#      正面用例断言该项**真的检查到了东西**（不是空扫描就通过）。
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,10 +12,7 @@ FAIL=0
 CASE_NO=0
 FIX=""
 
-# ---- 夹具助手 ----
 
-# 把多行文本插到指定 section 头之后。
-# 经文件传值而非 awk -v：awk 的 -v 不接受含换行的字符串（多行依赖声明会踩到）。
 insert_after_section() {
   local file="$1" section="$2" text="$3"
   printf '%s\n' "$text" >"$WORK/repl.txt"
@@ -32,7 +23,6 @@ insert_after_section() {
   ' "$WORK/repl.txt" "$file" >"$file.tmp" && mv "$file.tmp" "$file"
 }
 
-# 可移植的整行替换（BSD/GNU 的 sed -i 语义不一致，统一走临时文件）
 replace_line() {
   local file="$1" from="$2" to="$3"
   awk -v f="$from" -v t="$to" '{ if ($0 == f) print t; else print }' "$file" >"$file.tmp" &&
@@ -57,7 +47,6 @@ EOF
   fi
 }
 
-# 建一个全部通过的基线工作区（3 条第三方依赖声明，其中 tracing 在 gloss-core）
 new_fixture() {
   local dir="$1" agents_body="${2-}"
   mkdir -p "$dir/crates/gloss-core/src" "$dir/crates/gloss-platform" "$dir/crates/gloss-app"
@@ -98,8 +87,6 @@ gloss-platform = { path = "../gloss-platform" }'
   fi
 }
 
-# 断言助手：$1=描述  $2=期望退出码  $3=夹具变更函数  $4=输出里必须出现（或必须不出现）的片段
-# 第 4 项以 "!" 开头表示「不得出现」。
 assert_case() {
   local desc="$1" expected="$2" mutate="${3-}" needle="${4-}"
 
@@ -134,15 +121,12 @@ assert_case() {
     echo "  ✓ $desc"
     PASS=$((PASS + 1))
   else
-    # 变量一律加花括号：$var 后紧跟全角标点时，部分 bash 会把标点并进变量名，
-    # set -u 下失败分支自己就报 unbound variable，反而盖掉真正的失败信息。
     echo "  ✗ $desc  (${reason})"
     echo "    输出: $(printf '%s' "${out}" | tail -n 3)"
     FAIL=$((FAIL + 1))
   fi
 }
 
-# ---- 变更函数：每条约束各造一个违规 ----
 
 mut_non_dev_dep_enables_test_util() {
   replace_line "$FIX/Cargo.toml" \
@@ -151,7 +135,6 @@ mut_non_dev_dep_enables_test_util() {
 }
 
 mut_dev_dep_enables_test_util() {
-  # dev-dependencies 里开 test-util 是合法用法：测试要拿桩，生产不需要。
   printf '\n[dev-dependencies]\ngloss-core = { path = "../gloss-core", features = ["test-util"] }\n' \
     >>"$FIX/crates/gloss-app/Cargo.toml"
 }
@@ -209,7 +192,6 @@ mut_dep_without_default_features() {
     'pollster = "1.0.1"'
 }
 mut_dep_default_features_on_next_line() {
-  # default-features 写在跨行内联表的后半段：只看首行会误报
   insert_after_section "$FIX/crates/gloss-app/Cargo.toml" "[dependencies]" \
     'tokio = { version = "1", features = [
     "sync",
@@ -219,7 +201,6 @@ mut_dep_default_features_on_next_line() {
 echo "== 测试 check-constraints.sh =="
 echo ""
 echo "-- 合法用例（应通过，退出码 0）--"
-# 同时断言「真的扫到了依赖声明」，否则夹具没填进去也会绿
 assert_case "基线工作区全绿" 0 "" "检查 3 条第三方依赖声明"
 assert_case "跨行内联表里写了 default-features（不应误报）" 0 mut_dep_default_features_on_next_line "检查 4 条第三方依赖声明"
 assert_case "日志实参为英文（含中文注释）" 0 "" "0 处违规"

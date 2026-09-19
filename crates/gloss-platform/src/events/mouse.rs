@@ -1,18 +1,12 @@
 //! 全局鼠标监听：左键按下/释放 → 划词手势判定。
 //!
-//! 手势策略取「拖拽释放」（按下 → 位移超阈值 → 释放）：双击会把「打开
-//! 链接」这类普通操作误判成划词，修饰键确认需要额外的键盘全局钩子，停留
-//! 判定需要定时器——拖拽释放是误触最少的最简状态机。其余策略（含框选
-//! `RegionGesture`）待配置化与图像任务落地时引入。
+//! 手势策略取「拖拽释放」（按下 → 位移超阈值 → 释放）。
 //!
 //! **订阅面只有左键按下与释放**（见 [`SUBSCRIBED_EVENT_TYPES`]），坐标直接取自
-//! 事件自身。窄订阅面不只是省事：订阅「全部事件」的实现会把键盘事件也送进
-//! 回调，而把按键翻成字符要走输入法 API（macOS 的 TSM/HIToolbox 要求主线程），
-//! 回调一旦跑在监听线程上就会以 SIGILL 打死整个进程——跑起来的 Gloss 只要用户
-//! 按任意键（含 Ctrl-C）就消失。键盘事件从此不进入本模块，热键归 `global-hotkey`。
+//! 事件自身；键盘事件不进入本模块，热键归 `global-hotkey`。
 //!
 //! 线程约束：监听在**当前线程**建立事件 tap 并阻塞运行（回调跑在它自己的
-//! RunLoop 上，满足 08 §7.2 的亲和要求），不能在平台事件线程内运行，也没
+//! RunLoop 上），不能在平台事件线程内运行，也没
 //! 有停止 API——监听线程随进程退出消亡。需要辅助功能权限，未授权时监听
 //! 失败 → 手势功能整体降级，热键路径不受影响；降级经 [`MouseSource::spawn`]
 //! 返回的标志对外可观测，由组装点做一次性提示。
@@ -47,9 +41,7 @@ struct ButtonEvent {
 const CG_EVENT_LEFT_MOUSE_DOWN: u32 = 1;
 const CG_EVENT_LEFT_MOUSE_UP: u32 = 2;
 
-/// 必须排除的类型：键盘（10/11/12）与滚轮（22）。只在测试里用得到——列出来是
-/// 为了让「键盘事件绝不进订阅面」这条可断言，见 tests 的
-/// `keyboard_events_are_never_subscribed`。
+/// 必须排除的类型：键盘（10/11/12）与滚轮（22）。
 #[cfg(test)]
 const CG_EVENT_KEY_DOWN: u32 = 10;
 #[cfg(test)]
@@ -229,8 +221,6 @@ mod tap {
         }
     }
 
-    /// 测试缝隙：把生产侧订阅掩码暴露给回归测试（tests 直接断言它的返回
-    /// 值），避免测试自算掩码与生产实现分叉。
     #[cfg(test)]
     pub(super) fn subscribed_mask() -> u64 {
         imp::subscribed_mask()
@@ -238,12 +228,6 @@ mod tap {
 
     /// 自建只订阅左键的 CGEventTap。
     ///
-    /// 不用 rdev 的 `listen`：它的 tap 订阅 `kCGEventMaskForAllEvents`，键盘事件
-    /// 也进回调，而它把按键翻成字符要调 `TISCopyCurrentKeyboardInputSource`
-    /// （TSM/HIToolbox，要求主线程）——回调跑在 `gloss-mouse-tap` 线程上，
-    /// libdispatch 的 `dispatch_assert_queue` 断言失败后以 SIGILL 打死进程
-    /// （`EXC_BAD_INSTRUCTION`，崩溃线程 `gloss-mouse-tap`）。rdev 在本仓库
-    /// 仍用于按键注入（剪贴板兜底）。
     mod imp {
         use std::ffi::c_void;
 
@@ -421,7 +405,6 @@ mod tests {
         assert!(detector.feed(released((140.0, 30.0))));
     }
 
-    /// 验收标准「普通点击不误触发」：原地点击与阈值内抖动都不产出手势。
     #[test]
     fn plain_click_and_jitter_do_not_trigger() {
         let mut detector = GestureDetector::default();
@@ -435,8 +418,6 @@ mod tests {
         );
     }
 
-    /// 位移一律取自按下与释放事件自身的坐标——真实拖拽期间系统只投递「拖拽」
-    /// 事件，若位置另有来源（例如缓存最近一次移动），这里的位移会算成 0。
     #[test]
     fn displacement_comes_from_the_events_themselves() {
         let mut detector = GestureDetector::default();
@@ -452,7 +433,6 @@ mod tests {
         let mut detector = GestureDetector::default();
         assert!(!detector.feed(pressed((0.0, 0.0))));
         assert!(detector.feed(released((200.0, 0.0))));
-        // 第二次拖拽照常工作。
         assert!(!detector.feed(pressed((500.0, 500.0))));
         assert!(detector.feed(released((700.0, 500.0))));
     }
@@ -460,14 +440,12 @@ mod tests {
     #[test]
     fn stray_events_are_ignored() {
         let mut detector = GestureDetector::default();
-        // 无按下记录的释放、以及双重按下（重置起点而非 panic）。
         assert!(!detector.feed(released((1.0, 1.0))));
         assert!(!detector.feed(pressed((0.0, 0.0))));
         assert!(!detector.feed(pressed((100.0, 100.0))));
         assert!(detector.feed(released((200.0, 100.0))));
     }
 
-    /// 状态机经通道驱动（事件线程的实际用法）。
     #[test]
     fn poll_drains_channel_through_state_machine() {
         let (tx, rx) = unbounded::<ButtonEvent>();
@@ -478,10 +456,6 @@ mod tests {
         assert_eq!(detector.poll(&rx), 0, "drained queue stays empty");
     }
 
-    /// 订阅面只有左键按下与释放——**键盘事件绝不订阅**，滚轮也不。
-    ///
-    /// 这条是回归测试：订阅「全部事件」的实现会把按键送进回调，进而调起
-    /// 要求主线程的输入法 API（TSM/HIToolbox），以 SIGILL 打死整个进程。
     #[test]
     fn keyboard_events_are_never_subscribed() {
         assert_eq!(
@@ -503,8 +477,6 @@ mod tests {
         ] {
             assert_eq!(classify(raw), None, "type {raw} must never be handled");
         }
-        // 掩码断言直接对准生产侧的订阅掩码（经 [`tap::subscribed_mask`] 测试
-        // 缝隙，唯一出处）：键盘位必须一位不置，除左键两位外没有别的位。
         let mask = tap::subscribed_mask();
         assert_eq!(
             mask,
@@ -523,8 +495,6 @@ mod tests {
     }
 }
 
-/// L4 opt-in 真机注入测试（OS 事件边界，分层测试说明见 AGENTS.md）：
-/// 只在授权真机以 `cargo test -- --ignored` 运行，不进 CI。
 #[cfg(test)]
 mod injected_gesture_live_tests {
     use std::time::{Duration, Instant};
@@ -534,12 +504,6 @@ mod injected_gesture_live_tests {
     use super::tap::MouseSource;
     use crate::events::EventSource;
 
-    /// 验收：辅助功能授权下，注入的拖拽序列（按下→移动→释放）经真实
-    /// 系统 tap 被监听并判定为划词手势；监听器未降级。
-    ///
-    /// 判定的位移来自注入的按下与释放事件各自的坐标：先把光标移到已知起
-    /// 点再按下，保证按下点 (100,100) 与释放点 (400,300) 之间确有位移
-    /// （真实拖拽同理）。
     #[test]
     #[ignore = "注入真实全局鼠标事件：先把运行测试的终端 App 加入 系统设置→隐私与安全性→辅助功能（未授权时由 live_test_support 快速失败）"]
     fn injected_drag_yields_selection_gesture() {
@@ -547,8 +511,6 @@ mod injected_gesture_live_tests {
         let (source, degraded) = MouseSource::spawn();
         let mut source = source.expect("tap must start under accessibility grant");
 
-        // 拖拽：先移到 (100,100) 再按下（按下事件自带当时坐标），分五段
-        // 移动到 (400,300)，释放。
         rdev::simulate(&EventType::MouseMove { x: 100.0, y: 100.0 }).expect("move injection");
         rdev::simulate(&EventType::ButtonPress(Button::Left)).expect("button press injection");
         for step in 1..=5 {
@@ -560,7 +522,6 @@ mod injected_gesture_live_tests {
         }
         rdev::simulate(&EventType::ButtonRelease(Button::Left)).expect("button release injection");
 
-        // tap 回调异步进入通道：轮询直到手势出现或超时。
         let deadline = Instant::now() + Duration::from_secs(2);
         while Instant::now() < deadline {
             if !source.poll().is_empty() {

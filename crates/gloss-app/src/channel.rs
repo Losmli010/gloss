@@ -1,4 +1,4 @@
-//! 线程间消息与通道（架构文档 §4.3）：四条通道 + 一个取消信号。
+//! 线程间消息与通道：四条通道 + 一个取消信号。
 //!
 //! 请求代数（字段名 `generation`，文档记作 gen——`gen` 是 Rust 2024 保留字）只在
 //! App 一处赋值：`PlatformEvent` 不含它，其后所有消息携带同一个值，主线程对
@@ -252,7 +252,6 @@ mod tests {
         }
     }
 
-    /// PlatformEvent 不含请求代数：generation 由 App 在消费时赋值（架构文档 §4.2）。
     #[test]
     fn acquire_commands_carry_app_assigned_gen() {
         let ch = CrossbeamPair::<AcquireCommand>::new();
@@ -280,7 +279,6 @@ mod tests {
         }
     }
 
-    /// 通道③走 tokio mpsc：取消令牌随任务下发，App 侧 cancel 对接收侧立即可见。
     #[test]
     fn run_task_command_delivers_cancellable_task() {
         let mut ch = CommandChannel::new();
@@ -305,7 +303,6 @@ mod tests {
         assert!(received.is_cancelled());
     }
 
-    /// 通道④ MPMC：事件线程与 tokio 各持一个 Sender，主线程按到达顺序消费。
     #[test]
     fn event_channel_supports_dual_senders() {
         let ch = CrossbeamPair::<Event>::new();
@@ -380,7 +377,6 @@ mod tests {
         );
     }
 
-    /// 主线程渲染循环用 try_recv 非阻塞拉取：空队列返回 Empty 而不是挂起。
     #[test]
     fn try_recv_on_empty_queue_returns_empty() {
         let ch: CrossbeamPair<Event> = CrossbeamPair::new();
@@ -390,7 +386,6 @@ mod tests {
         ));
     }
 
-    /// 通道销毁语义：全部 Sender drop 后 try_recv 报 Disconnected，主线程据此可安全收尾。
     #[test]
     fn try_recv_after_senders_dropped_reports_disconnected() {
         let ch: CrossbeamPair<Event> = CrossbeamPair::new();
@@ -414,7 +409,6 @@ mod tests {
         ));
     }
 
-    /// 组装点一次性建齐四条通道；跨通道互不串扰（各收各的）。
     #[test]
     fn channels_bundles_all_four() {
         let mut channels = Channels::new();
@@ -473,7 +467,6 @@ mod tests {
         );
     }
 
-    /// ④ 的 Sender 是 MPMC：克隆出的发送端与原型等价（tokio 侧持有一份）。
     #[test]
     fn event_sender_clone_is_independent() {
         let ch = CrossbeamPair::<Event>::new();

@@ -103,7 +103,7 @@ pub struct Task {
 }
 
 impl Task {
-    /// 模态约束表（06 §5.1）校验：管道在执行前调用，非法组合直接落
+    /// 模态约束表校验：管道在执行前调用，非法组合直接落
     /// `TaskFailed`，不进 prompt 与引擎。
     pub fn validate(&self) -> Result<(), GlossError> {
         validate_modality(self.kind, &self.input)
@@ -126,7 +126,7 @@ impl TaskKind {
     }
 }
 
-/// 模态约束表（06 §5.1）：任务类型与输入模态的合法组合。唯一被拒的
+/// 模态约束表：任务类型与输入模态的合法组合。唯一被拒的
 /// 错误是 [`GlossError::UnsupportedModality`]。
 pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError> {
     let legal = match (kind, input) {
@@ -257,7 +257,6 @@ mod tests {
         }
     }
 
-    /// 文本取材判据取自模态矩阵：文本 kind 接受文本输入，图像 kind 拒绝。
     #[test]
     fn accepts_text_follows_the_modality_matrix() {
         assert!(TaskKind::TranslateWord.accepts_text());
@@ -324,10 +323,6 @@ mod tests {
         }
     }
 
-    /// 模态约束表（06 §5.1）全矩阵：5 kind × 3 输入逐格断言。期望值按
-    /// （kind, 模态）格子计算而非按 kind，文本 kind 的合法格在 Text 列、
-    /// 图像 kind 的合法格在 Image 列。新增 TaskKind 变体时会在此处编译
-    /// 失败（数组缺项），逼出有意识的分类决策而不是静默落进 `_` 通配。
     #[test]
     fn modality_matrix_is_enforced_cell_by_cell() {
         let all_kinds = [
@@ -361,7 +356,6 @@ mod tests {
             );
         }
 
-        // Audio 是预留模态：在语音任务落地前对任何 kind 都非法。
         let audio_task = |kind| Task {
             kind,
             input: TaskInput::Audio {
@@ -379,7 +373,6 @@ mod tests {
         }
     }
 
-    /// 验收标准：serde 序列化可用——整条 Task 往返无损。
     #[test]
     fn task_round_trips_through_serde() {
         let task = Task {
@@ -398,8 +391,6 @@ mod tests {
         assert_eq!(back, task);
     }
 
-    /// Image 变体经 serde 往返：锁住 `Arc<[u8]>` 依赖的 serde `rc` 特性
-    /// 与「按内部值序列化、字节内容不变」的语义。
     #[test]
     fn image_input_round_trips_through_serde() {
         let png: Arc<[u8]> = vec![0x89, b'P', b'N', b'G'].into();
@@ -415,7 +406,6 @@ mod tests {
         let json = serde_json::to_string(&input).expect("image input should serialize");
         let back: TaskInput = serde_json::from_str(&json).expect("image input should deserialize");
         assert_eq!(back, input, "bytes and rect must survive the roundtrip");
-        // rc 语义：反序列化得到的是新分配的 Arc，与原值不共享。
         assert!(!matches!(&back, TaskInput::Image { png: moved, .. } if Arc::ptr_eq(&png, moved)));
     }
 }

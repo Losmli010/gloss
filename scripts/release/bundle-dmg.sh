@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # 把打包好的 .app 压成 .dmg（UDZO 压缩镜像，Finder 打开即拖装）。
-# cargo-bundle 的 osx 格式只产 .app，.dmg 由本脚本用系统自带的 hdiutil 补齐，
-# 不引入 create-dmg 之类的第三方依赖。
 # 用法：./scripts/release/bundle-dmg.sh <path/to/Gloss.app> [输出.dmg 路径]
 set -euo pipefail
 

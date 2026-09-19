@@ -22,33 +22,27 @@ gloss/
 
 ## 架构速览
 
-- **取材链路**：平台事件线程读取选区或截图，产物经 `Event::InputReady` 回到主线程；由主线程组装 `Task` 下发 tokio 推理，因此过期任务的取材产物不会触发推理。
-- **四线程**：主线程（winit 事件循环 + UI）/ 平台事件线程（NSRunLoop：热键与取材，有线程亲和性要求）/ 鼠标监听线程（`gloss-mouse-tap`：全局事件 tap 的回调是阻塞式的，且 panic 穿过它的 C 回调会 abort 进程，故单独一条线程收口；**macOS 用自建 CGEventTap 只订阅左键按下/释放**——订阅面必须窄，因为把按键翻成字符要调要求主线程的 TSM/HIToolbox，回调跑在监听线程上会以 SIGILL 打死整个进程）/ tokio 后台（网络与缓存）。
-- **四通道**：① `PlatformEvent`（事件线程 → 主）② `AcquireCommand`（主 → 事件线程）③ `Command`（主 → tokio，mpsc）④ `Event`（流式回传 → 主）。请求代数 `gen` 一律由 App 赋值，用于丢弃陈旧响应；取消统一走 `CancellationToken`。
-- **任务化 AI 层**：`TaskKind`（单词/句子翻译、代码解释、图片 OCR、图片解释）+ `TaskInput`（文本 / 图像，语音为预留模态）→ 统一的 `AiEngine`，不按模态拆分客户端。
+- **四线程**：主线程（winit 事件循环 + UI）、平台事件线程（NSRunLoop：热键与取材，有线程亲和性要求）、鼠标监听线程（`gloss-mouse-tap`：全局事件 tap 在此收口）、tokio 后台（网络与缓存）。鼠标 tap 的回调是阻塞式的，panic 穿过其 C 回调会 abort 进程；**CGEventTap 只订阅左键按下/释放**——把按键翻成字符要调主线程专属的 TSM/HIToolbox，回调跑在监听线程上会以 SIGILL 打死进程，订阅面必须窄。
+- **四通道**：① `PlatformEvent`（事件线程 → 主）② `AcquireCommand`（主 → 事件线程）③ `Command`（主 → tokio）④ `Event`（流式回传 → 主）。代数 `gen` 由 App 赋值以丢弃陈旧响应；取消统一走 `CancellationToken`。
+- **任务化 AI 层**：`TaskKind` + `TaskInput` → 统一的 `AiEngine`，不按模态拆分客户端。
 
 ## 常用命令
 
 ```bash
-just install-hooks     # clone 后执行一次，安装本地 git hooks
-just setup             # clone 后环境初始化：工具链校验 + 可选工具清点 + git hooks（幂等）
-just icons             # 重建应用图标产物（assets/icons：.icns 与 Dock 图标 PNG）
-just run               # 运行开发版
-just logs              # 跟随最新日志文件（~/.gloss/logs）
-just logs-dir          # 打印日志目录
-just precommit         # 提交前静态检查：约束 + 文档引用 + fmt + TOML 格式/lint + clippy + 密钥扫描（pre-commit 钩子跑的就是它）
-just check             # 全量门禁：precommit 的全部 + test（本地要跑测试时用这条）
+just install-hooks     # 安装本地 git hooks（clone 后运行一次）
+just setup             # clone 后一键环境初始化：工具链校验 + 可选工具清点 + git hooks（幂等）
+just run               # 运行开发版（debug）
+just logs              # 跟随最新日志文件（Ctrl-C 退出）
+just precommit         # 提交前门禁：约束 + 文档引用 + fmt + TOML + clippy + 密钥扫描
+just check             # 完整质量门禁：precommit 的全部 + test
+just test              # 运行全部测试
 just fmt-fix           # 自动格式化
-just fmt-toml          # TOML 格式检查（tombi --check，不落盘；自动修复用 just fmt-toml-fix，语法/schema lint 用 just lint-toml）
 just lint              # Clippy 严格检查（警告即失败）
-just secrets           # 硬编码密钥扫描（命中即失败；放行规则见 scripts/hooks/check-secrets.sh）
-just agents-doc        # 校验本文件提到的仓库事实（配方 / 路径 / 测试目标 / 约束名引用）未漂移
-just constraints       # 校验「不可协商的约束」里可机械判定的那几条（依赖方向 / 日志出口 / 版本单点 …）
-just audit             # cargo audit 依赖漏洞审计
-just deny              # cargo deny 依赖合规（许可证 / 重复依赖 / 来源，配置见 deny.toml）
-just miri              # Miri 未定义行为检测（nightly；只覆盖 gloss-core 纯逻辑层，CI 的 sanitizers.yml 同款）
-just changelog         # 基于 conventional commits 生成 CHANGELOG
-just --list            # 查看全部 recipe
+just secrets           # 硬编码密钥扫描（命中即失败）
+just agents-doc        # 校验 AGENTS.md 引用的配方/路径/测试目标/约束名真实存在
+just constraints       # 「不可协商的约束」的机械门禁（依赖方向 / 日志 / 版本单点 / 依赖特性）
+just icons             # 重建应用图标产物（.icns 与 Dock 图标 PNG）
+just --list            # 查看全部配方
 ```
 
 ## 不可协商的约束
@@ -67,11 +61,12 @@ just --list            # 查看全部 recipe
 6. **[HIGH] 生产路径传播错误**：错误一律用 `Result`/`Option` 传播或降级，不靠 panic 收场（宏清单与门禁见「门禁对照」）。确需绕过时必须在旁边注释文档化不变量（为什么 panic 不可能），并配 `#[allow(clippy::unwrap_used)]` 之类的显式豁免。
 7. **[MEDIUM] 组装点唯一**：只有根包入口 `src/main.rs` 把适配器注入端口、分发通道 Sender；其他模块不得持有组装逻辑。
 8. **[MEDIUM] 版本单点维护**：`version` / `edition` 写在根 `Cargo.toml` 的 `[workspace.package]`，子 crate 以 `*.workspace = true` 继承，不要硬写。
-9. **[LOW] 注释纪律**：
-   - **不写显而易见的东西**：把代码用自然语言再说一遍（`i += 1; // i 自增`）不会让读者少想一步，只是让文件变长。
-   - **函数与全局数据要有注释**：公共 API 的文档注释另有约束与门禁，这条管其余部分——模块级常量、静态量、私有函数的用途、单位与生命周期假设，光读代码猜不出来。
-   - **注释不能与代码矛盾**：过期的注释比没有注释更糟，它会把读者引向错误的方向。改代码时同步改注释，属于这次改动本身，不是收尾的礼貌。
-   - **澄清，而不是添障碍**：写不出「为什么」时宁可不写。任务编号可以用来交代某段代码为何处于当前临时状态（如 `M5-T4 前为占位`），但那只是出处，不能代替「为什么」本身。
+9. **[LOW] 注释纪律**：代码内注释基于代码逻辑，准确描述代码的行为——这段代码在做什么、契约与单位、边界条件；「为什么」（决策、备选、历史、取舍）一律外置到本地 docs/comments/ 目录。
+   - **考虑长期维护价值**：注释与外置记录都是写给未来维护者（包括未来的自己）的——只写能降低未来理解与修改成本的；一条注释该不该写、该留在代码还是外置，都以此判断。
+   - **描述行为，不解释动机**：注释跟着代码逻辑走，说的都是「这段代码做什么」；「为什么这样写」从命名与代码里读不出来，属于外置记录。SAFETY 除外——必须紧贴 unsafe 块、写明单块不变量，永不外置。
+   - **「为什么」外置**：决策过程、备选方案对比、任务/PR/评审引入的来龙去脉，写进 `docs/comments/<文件名>_comment.md`，按符号锚定（不写行号），改到相关代码时同步更新；mod.rs 同名冲突带父目录前缀。docs/ 整目录本地 gitignore，被跟踪文件（含代码）不留指向外置决策记录的指针，记录仅本地可见。
+   - **其它文件同一原则**：justfile、Cargo.toml 与其余 TOML/YAML 配置、shell 脚本、workflow 等非 Rust 文件的注释同样只写行为与用法；决策/历史/取舍外置到 `docs/comments/<文件名>_comment.md`，命名与锚定规则同上。
+   - **测试代码禁止注释**：`#[cfg(test)]` 模块与 `tests/` 目录里一律不写注释（`// SAFETY:` 除外，同上）；测试的验收标准、形态说明与辅助契约外置到 `docs/comments/<文件名>_tests_comment.md`，锚定与同步规则同上，文件顶部维护一份测试行为速览——每条测试按 BDD 顺序（给定/当/则）一句话描述，新增或修改测试时同步登记。test-util 特性模块按生产代码对待，不在此列。
 10. **[LOW] 日志一律英文**：日志消息、字段值、span 名只用英文——日志是面向终端的诊断文本，不做本地化；中文只出现在注释、文档与用户可见文案里。
 11. **[LOW] 公共 API 有文档注释**：公共 API 必须有文档注释，文档里的示例代码由 doc test 验证可编译可运行。
 
@@ -110,7 +105,7 @@ just --list            # 查看全部 recipe
 | LOW | 日志一律英文 | `just constraints`：日志宏实参不得含非 ASCII 字节（日志面向终端诊断，不做本地化） |
 | LOW | 本文件描述的仓库事实不漂移 | `just agents-doc`：校验本文件提到的每个 `just` 配方、仓库路径与测试目标真实存在，并核对仓库各处对约束的指名引用（引用一律写成 `AGENTS.md 约束「名字」`——条号会随重排失效） |
 
-约束条目里的「纯 Rust 技术栈」「组装点唯一」与「注释纪律」**不在上表**：它们的判断没有可靠的机械门禁（纯 Rust 技术栈只作口头约束——这类判断发生在「要不要引入这个新依赖」的评审现场，枚举包名的 deny 名单覆盖不了没见过的运行时；注释纪律要判的是「有没有澄清情况、有没有跟代码打架」，不是措辞），靠人工评审，别为它们硬造检查。表里与约束同名的行就是该约束的门禁实现，其余行是评审层面的额外强制项。
+约束条目里的「纯 Rust 技术栈」「组装点唯一」与「注释纪律」**不在上表**：它们的判断没有可靠的机械门禁（纯 Rust 技术栈只作口头约束——这类判断发生在「要不要引入这个新依赖」的评审现场，枚举包名的 deny 名单覆盖不了没见过的运行时；注释纪律要判的是「有没有长期维护价值、该外置的「为什么」有没有外置」，不是措辞），靠人工评审，别为它们硬造检查。表里与约束同名的行就是该约束的门禁实现，其余行是评审层面的额外强制项。
 
 ### 人工评审关注点（无可靠机械门禁，勿硬造）
 
@@ -176,6 +171,6 @@ just --list            # 查看全部 recipe
 - **测试替身放端口边界**：真实时钟、网络、磁盘、剪贴板、keychain 都不进常规测试，需要时用端口替身或注入延迟。
 - **clippy 在测试代码里的三种情形**（别照搬网上的豁免写法）：
   - `clippy.toml` 已对 `#[test]` / `#[cfg(test)]` 自动放行 unwrap / expect / panic / print——测试正文里直接断言失败即可；
-  - `tests/` 下的集成测试**辅助函数**不在自动放行范围，要显式 `#[allow(clippy::expect_used, clippy::panic)]` 并注明「测试辅助：失败即 panic 是断言语义」（见 `crates/gloss-app/tests/pipeline.rs`）；
+  - `tests/` 下的集成测试**辅助函数**不在自动放行范围，要显式 `#[allow(clippy::expect_used, clippy::panic)]`——缘由（测试辅助：失败即 panic 是断言语义）不写代码注释（测试代码禁止注释），记入对应文件的 tests 外置记录（见 `crates/gloss-app/tests/pipeline.rs`）；
   - `harness = false` 的目标**完全不豁免**（既无 `#[test]` 也非 `cfg(test)`，已实测 `expect` 会被 `expect_used` 拦下）：代码要写成无 panic，输出走 `gloss_core::log`，失败靠返回非 0 退出码表达。
 - **命名与放置**：测试文件按被测功能域命名，不加 `_test` / `_e2e` 后缀。**E2E 代码不得进入生产路径**——只放 `tests/`、`cfg(test)` 或 `#[ignore]`。

@@ -1,5 +1,5 @@
-//! 窗口管理器：浮层（预创建复用，只显隐不反复销毁，06 §6.2）+ 设置窗口
-//! （M4-T6，普通带标题栏窗口，关闭即隐藏）。
+//! 窗口管理器：浮层（预创建复用，只显隐不反复销毁）+ 设置窗口
+//!（普通带标题栏窗口，关闭即隐藏）。
 
 use std::sync::Arc;
 
@@ -8,9 +8,9 @@ use winit::error::OsError;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId, WindowLevel};
 
-/// 浮层默认宽度（UI 规范 §2：默认 380px，长文本自适应上限 480px）
+/// 浮层默认宽度（默认 380px，长文本自适应上限 480px）
 const OVERLAY_WIDTH: f64 = 380.0;
-/// 浮层默认高度：M1 只有渲染自检面板，按内容给一个紧凑初值
+/// 浮层默认高度：自检期只有渲染面板，按内容给一个紧凑初值
 const OVERLAY_HEIGHT: f64 = 200.0;
 /// 设置窗口尺寸：全部配置区块一屏放下的紧凑初值（可拖拽调整）。
 const SETTINGS_WIDTH: f64 = 460.0;
@@ -37,7 +37,7 @@ impl WindowManager {
                 // 透明：卡片圆角之外要让桌面透出来，因此 surface 也得选带 alpha 的合成模式
                 .with_transparent(true),
         )?;
-        // 窗口创建即可见，预创建的浮层必须立刻压下去（06 §6.2）
+        // 窗口创建即可见，预创建的浮层必须立刻压下去
         overlay.set_visible(false);
 
         let settings = event_loop.create_window(
@@ -60,12 +60,12 @@ impl WindowManager {
         &self.overlay
     }
 
-    /// 浮层逻辑尺寸（M1 固定，内容自适应等 M3 结果卡接入再做）。
+    /// 浮层逻辑尺寸（固定尺寸；内容自适应随结果卡演进再引入）。
     pub fn logical_size(&self) -> LogicalSize<f64> {
         LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT)
     }
 
-    /// reposition + show：唯一显示入口（06 §6.2，预创建复用只显隐）。
+    /// reposition + show：唯一显示入口（预创建复用只显隐）。
     pub fn show_at(&self, position: LogicalPosition<f64>) {
         self.overlay.set_outer_position(position);
         self.overlay.set_visible(true);

@@ -12,17 +12,6 @@
 #                          字面量只允许出现在根 [workspace.package]。
 #   依赖只开需要的特性  —— 每个第三方依赖声明必须带 default-features = false。
 #
-# 不覆盖，以及为什么：
-#   纯 Rust 技术栈  —— 按项目决定只作口头约束，不落门禁：这类判断发生在「要不要引入
-#                      这个新依赖」的评审现场，枚举包名的 deny 名单覆盖不了没见过的运行时。
-#   组装点唯一      ——「是否持有组装逻辑」没法靠模式匹配可靠判定（构造适配器的写法
-#                      无穷），硬造门禁只会变成误报源，留人工评审。
-#   注释纪律        —— 要判的是「有没有澄清情况、有没有跟代码打架」，这是语义判断，措辞
-#                      层面扫不出来；能扫的少数形态（任务编号、TODO）在实际代码里是合法
-#                      写法。留人工评审。
-#   生产路径传播错误 / unsafe 有据 / 公共 API 有文档注释 —— 均已由 clippy 与 rustc
-#                      的 deny 级 lint 承担，见 AGENTS.md 的「门禁对照」表。
-#
 # 用法：scripts/hooks/check-constraints.sh [仓库根]   # 缺省为本脚本的上一级目录
 set -euo pipefail
 
@@ -76,8 +65,6 @@ section_body() {
 # 抽取依赖条目，输出 "section<TAB>key<TAB>行号<TAB>条目全文（跨行拼接）"。
 # 依赖表含 [dependencies] / [dev-dependencies] / [build-dependencies]，以及
 # [target.'cfg(...)'.dev-dependencies] 这类门控形式（均以 dependencies] 结尾）。
-# 内联表可能跨行（features 数组换行），故按花括号配平把条目文本拼全再判定——
-# 只看首行会因为 default-features 写在下一样而误报。
 dep_entries() {
   awk '
     function braces(s,   i, c, d) {
@@ -123,7 +110,7 @@ is_path_dep() {
 }
 
 # 约束「依赖方向」的允许边表。新增 crate 必须在这里登记（并与 AGENTS.md 同步），
-# 漏登记即失败——这是让「新 crate 该放哪一层」变成一次有意识的决定。
+# 漏登记即失败。
 allowed_own_deps() {
   case "$1" in
     gloss) printf 'gloss-core gloss-platform gloss-app' ;;
@@ -134,8 +121,7 @@ allowed_own_deps() {
   esac
 }
 
-# gloss-core 的红线：平台 / 渲染 / 系统适配栈。前缀匹配覆盖同族新包
-# （wgpu-core / egui-wgpu / objc2-app-kit …），免得每次出新包都要补名单。
+# gloss-core 的红线：平台 / 渲染 / 系统适配栈。
 core_forbidden() {
   case "$1" in
     winit | winit-* | wgpu | wgpu-* | egui | egui-* | epaint | epaint-* | \
@@ -192,10 +178,6 @@ fi
 ok "依赖方向（${edges} 条本仓库依赖边 + 各 crate 的 crate 名登记）"
 
 # ---- 约束「依赖方向」附加红线：测试桩不得进生产构建 ----
-# core 的 `test-util` 特性会打开 MockEngine 与 ports::mocks；生产装配只需要
-# 真实引擎（M4-T4 起），桩只该由下游 crate 的 dev-dependencies 开启。这条以前
-# 靠一次性人工 `cargo tree` 核对，现在钉成门禁：谁把它加回 [dependencies]（含
-# target 门控的非 dev 段），这里当场失败。
 stub_deps=0
 while IFS='|' read -r owner manifest sec key start text; do
   [ -n "$owner" ] || continue
@@ -227,8 +209,7 @@ ok "日志统一出口（${log_owners} 个 crate 的日志依赖归属）"
 
 # ---- 约束「日志一律英文」 ----
 # 把源文件折成一行再抓日志宏的实参（到第一个右括号为止），实参里出现非 ASCII
-# 字节即违规——日志要面向终端诊断，不做本地化。行内反引号/注释里的中文不受影响，
-# 因为它不在宏实参里。
+# 字节即违规；行内反引号/注释里的中文不受影响（不在宏实参里）。
 rs_files=0
 log_violations=0
 while IFS= read -r f; do

@@ -13,9 +13,7 @@ env:
 permissions:
   contents: read
 
-# 内存安全与未定义行为深检，只覆盖 gloss-core（纯逻辑层）：
-# - Miri 解释执行 MIR、无法执行 FFI——平台层（macOS 框架调用）与渲染层（wgpu/egui）跑不了；
-# - Valgrind 只有 Linux 版，而本仓库 macOS-only 后 Linux 上能编译的只有 gloss-core。
+# 内存安全与未定义行为深检，只覆盖 gloss-core（纯逻辑层）。
 jobs:
   miri:
     name: Miri (gloss-core)
@@ -24,7 +22,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Miri 只随 nightly 发布，上游只对最新 nightly 测试——跑挂了先跟着升 nightly
       - name: Install Rust nightly with Miri
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -62,12 +59,8 @@ jobs:
 
       - name: Run Valgrind
         run: |
-          # 先编译再单独包测试二进制：直接包 cargo 会把 rustc 编译进程也拖进 valgrind
           TEST_BIN=$(cargo test -p gloss-core --lib --no-run --message-format=json \
             | jq -r 'select(.reason == "compiler-artifact" and .executable != null and .profile.test == true) | .executable' \
             | head -n 1)
           echo "test binary: $TEST_BIN"
-          # memcheck 非法读写立即失败；泄漏只判 definite（真不可达），possible
-          # 多为后台线程持有的误报——且 valgrind 3.22 的 errors-for-leak-kinds
-          # 默认把 possible 也算错误，不显式收紧会误伤（首次 CI 实跑踩中）
           valgrind --leak-check=full --show-leak-kinds=definite --errors-for-leak-kinds=definite --error-exitcode=1 "$TEST_BIN"

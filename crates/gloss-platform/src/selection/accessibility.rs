@@ -1,16 +1,14 @@
 //! AX 读选区：`AccessibilityReader`。
 //!
 //! 经 Accessibility API（HIServices）向系统问询「systemwide 焦点元素 →
-//! 选中文本」，是向目标应用发起的同步跨进程调用，按 08 §4.4 的线程模型
+//! 选中文本」，是向目标应用发起的同步跨进程调用，按线程模型约束
 //! 必须运行在平台事件线程（调用方保证亲和性）。权限缺失返回
 //! [`GlossError::AccessibilityDenied`]；无选区、应用不支持选区属性或系统
 //! 调用失败返回 [`GlossError::SelectionUnavailable`]——一律经 `Result`
 //! 传播，不允许 panic 逃出。授权引导属设置页/权限引导路径，读取侧只如实
 //! 报告，不代为弹窗。
 //!
-//! 策略取最简一条路径：只读 `kAXSelectedTextAttribute`。部分应用（如个别
-//! Electron/Chromium 场景）只暴露 parameterized 选区属性，暂不兜底——
-//! 由 CompositeReader 的剪贴板兜底通道覆盖。
+//! 策略取最简一条路径：只读 `kAXSelectedTextAttribute`。
 
 use gloss_core::model::GlossError;
 
@@ -124,7 +122,7 @@ mod imp {
 
         /// 读取前台应用的选中文本。
         ///
-        /// 调用方保证：在平台事件线程上调用（08 §4.4 亲和性）。
+        /// 调用方保证：在平台事件线程上调用。
         pub fn read(&mut self) -> Result<String, GlossError> {
             // SAFETY: 纯查询型 FFI，无前置条件。未授权时不发起跨进程取值，
             // 直接按权限语义收口。
@@ -271,11 +269,6 @@ pub use imp::AccessibilityReader;
 mod live_tests {
     use super::imp::AccessibilityReader;
 
-    /// 手动验收入口：在任意文本编辑器中选中文字后运行
-    /// `cargo test -p gloss-platform -- --ignored --nocapture`，断言能读出
-    /// 选中文本。CI 无图形会话与授权，不参与常规测试；未授权时本测试
-    /// 应以 `AccessibilityDenied` 失败（有权限语义的错误返回），而非 FFI
-    /// 或信号级崩溃。
     #[test]
     #[ignore = "需授权真机：先把运行测试的终端 App 加入 系统设置→隐私与                安全性→辅助功能（未授权时由 live_test_support 快速失败）"]
     fn reads_live_selection_when_authorized() {
@@ -299,7 +292,6 @@ mod tests {
 
     #[test]
     fn untrusted_maps_to_accessibility_denied() {
-        // 未授权时无论取值结果如何都判权限缺失：权限语义优先于一切。
         assert_eq!(
             interpret(false, text("selected")),
             Err(GlossError::AccessibilityDenied)
@@ -313,7 +305,6 @@ mod tests {
     #[test]
     fn selected_text_passes_through_verbatim() {
         assert_eq!(interpret(true, text("hello")), Ok("hello".to_string()));
-        // 原样透传，不做裁剪策略（空白的取舍归下游管线）。
         assert_eq!(interpret(true, text("  ")), Ok("  ".to_string()));
     }
 
@@ -331,17 +322,12 @@ mod tests {
 
     #[test]
     fn api_disabled_after_trusted_check_maps_to_denied() {
-        // 授权检查与取值之间权限可能被收回：以 AX 的 APIDisabled 码为准，
-        // 依旧收口到权限语义而非笼统的不可用。
         assert_eq!(
             interpret(true, Err(AX_ERROR_API_DISABLED)),
             Err(GlossError::AccessibilityDenied)
         );
     }
 
-    /// 相邻码对账（AXError.h）：APIDisabled(-25211) 与 NoValue(-25212) 只差
-    /// 一位，前者是权限语义、后者是「属性存在但无值」——即已授权且无选区
-    /// 时的常见返回，归不可用而非权限缺失。
     #[test]
     fn adjacent_error_codes_are_told_apart() {
         assert_eq!(AX_ERROR_API_DISABLED, -25211);
@@ -358,8 +344,6 @@ mod tests {
 
     #[test]
     fn other_ax_errors_map_to_unavailable() {
-        // kAXErrorActionUnsupported / kAXErrorParameterizedAttributeUnsupported
-        // / kAXErrorFailure。
         for code in [-25206, -25213, -25200] {
             assert_eq!(
                 interpret(true, Err(code)),

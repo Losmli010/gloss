@@ -1,4 +1,4 @@
-//! 平台事件线程：全局热键、鼠标监听等系统事件源的唯一宿主（08 §7.2）。
+//! 平台事件线程：全局热键、鼠标监听等系统事件源的唯一宿主。
 //!
 //! 事件线程必须是 RunLoop 线程而非裸 `std::thread`：线程宿主为 CFRunLoop，
 //! 以周期定时器抽干各事件源；鼠标 tap 这类自带 run loop 的源在自己的监听
@@ -117,8 +117,6 @@ impl EventThread {
         if let Some(join) = self.join.take()
             && join.join().is_err()
         {
-            // 防护齐备时线程 panic 近乎不可能，但一旦发生必须留痕，
-            // 否则事件线程死了应用无任何信号。
             error!(thread = thread::EVENT, "platform event thread died");
         }
     }
@@ -211,7 +209,7 @@ where
     TickOutcome::Continue
 }
 
-/// 事件线程的驱动：RunLoop 不能阻塞在 crossbeam 上（08 §7.2），挂一个周期
+/// 事件线程的驱动：RunLoop 不能阻塞在 crossbeam 上，挂一个周期
 /// 定时器执行与 [`tick`] 相同的一轮消费；鼠标 tap 等自带 run loop 的源在
 /// 各自线程上运行，产物经通道汇入由这里抽干（见 events/mouse.rs）。
 fn run_loop<C, E, P, F>(
@@ -322,7 +320,6 @@ mod tests {
 
     use crossbeam_channel::unbounded;
 
-    /// platform 不依赖 gloss-app：本地桩类型足以驱动整条循环。
     struct TestCommand(u64);
     struct TestEvent(u64);
 
@@ -337,7 +334,6 @@ mod tests {
         Vec::new()
     }
 
-    /// 通道②按顺序消费、产物按顺序到达；drop Sender 后线程自行退出。
     #[test]
     fn commands_are_consumed_in_order_then_thread_exits() {
         let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
@@ -366,7 +362,6 @@ mod tests {
         assert!(ev_rx.try_recv().is_err(), "no events after exit");
     }
 
-    /// 初始抽干之后线程仍持续轮询：晚到的命令也能被消费。
     #[test]
     fn late_commands_are_still_consumed() {
         let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
@@ -383,7 +378,6 @@ mod tests {
         cmd_tx.send(TestCommand(1)).unwrap();
         assert_eq!(ev_rx.recv().unwrap().0, 1);
 
-        // 等过首个消费窗口再发第二条：命令要跨一个定时器周期（33ms）才被抽干。
         std::thread::sleep(Duration::from_millis(60));
         cmd_tx.send(TestCommand(2)).unwrap();
         assert_eq!(ev_rx.recv().unwrap().0, 2);
@@ -392,7 +386,6 @@ mod tests {
         thread.join();
     }
 
-    /// 事件源每轮 tick 被抽干，产出经 sink 送出（热键/手势走的同一条路）。
     #[test]
     fn sources_are_polled_and_forwarded() {
         let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
@@ -412,7 +405,6 @@ mod tests {
         assert_eq!(plat_rx.recv().unwrap(), ());
         assert_eq!(plat_rx.recv().unwrap(), ());
 
-        // 命令通道不受源影响，照常消费。
         cmd_tx.send(TestCommand(7)).unwrap();
         assert_eq!(ev_rx.recv().unwrap().0, 7);
 
@@ -421,7 +413,6 @@ mod tests {
         thread.join();
     }
 
-    /// 命令处理器 panic 不允许带倒事件线程：后续命令照常消费。
     #[test]
     fn panicking_handler_does_not_kill_thread() {
         let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
@@ -447,7 +438,6 @@ mod tests {
         thread.join();
     }
 
-    /// 事件源 poll panic 同样被拦截：线程存活，后续轮次照常抽干。
     #[test]
     fn panicking_source_does_not_kill_thread() {
         let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
@@ -482,7 +472,6 @@ mod tests {
         thread.join();
     }
 
-    /// 组装点尚未接线时，sink 发送失败只返回 false，不允许 panic。
     #[test]
     fn sink_send_tolerates_closed_receivers() {
         let (ev_tx, ev_rx) = unbounded::<TestEvent>();
@@ -494,7 +483,6 @@ mod tests {
         assert!(!sink.send_platform(()));
     }
 
-    /// 主线程可能睡在事件循环里：发送成功必须唤醒，接收端消失则不必。
     #[test]
     fn successful_send_wakes_main_thread() {
         let (ev_tx, ev_rx) = unbounded::<TestEvent>();

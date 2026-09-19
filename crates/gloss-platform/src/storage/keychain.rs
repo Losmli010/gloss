@@ -7,8 +7,7 @@
 //! 新缓存）：keychain 的 ACL 按代码签名信任读取方，dev 构建每次重编译签
 //! 名都变，不在条目信任列表里——每次读取都会弹「允许访问钥匙串」并阻塞
 //! 到用户点击。缓存把弹窗从每任务收敛到每进程一次；设置页改密钥经同一
-//! 实例的 `set` 写入缓存，即时生效，无需重启。代价是进程运行期间绕开本
-//! 应用的外部改动（如钥匙串 App 里手动删除）读到旧值，重启后可见。
+//! 实例的 `set` 写入缓存，即时生效，无需重启。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -119,23 +118,19 @@ impl KeychainSecret {
 mod tests {
     use super::*;
 
-    /// 测试用服务名：与出厂条目隔离，条目随测随清。
     fn test_store() -> KeychainSecret {
         KeychainSecret::with_service("io.github.losmli010.gloss.test")
     }
 
-    /// 未设置时读返回 None 而不是错误（区分「未设置」与「存储不可用」）。
     #[test]
     fn missing_entry_reads_as_none() {
         let store = test_store();
         let key = "test/missing-entry-reads-as-none";
 
-        // 先清一次，保证前置状态与上次运行残留无关。
         store.delete(key).ok();
         assert_eq!(store.get(key).expect("read should succeed"), None);
     }
 
-    /// 未找到条目的删除是幂等成功。
     #[test]
     fn delete_missing_entry_is_ok() {
         let store = test_store();
@@ -144,21 +139,15 @@ mod tests {
             .expect("delete of missing entry should succeed");
     }
 
-    /// 缓存一致性：写后读命中缓存返回新值、删除后读 None；克隆的副本共
-    /// 享同一份缓存（组装点的 Arc 分发语义）。本组不走真实 keychain 写入
-    /// （CI 无授权会失败），只经 delete 预置负缓存与内存侧断言。
     #[test]
     fn cached_reads_stay_consistent_with_writes() {
         let store = test_store();
         let key = "test/cached-reads-consistency";
         let cloned = store.clone();
 
-        // 预置负缓存（条目不存在），后续 get 全部走缓存。
         store.delete(key).expect("preset delete should succeed");
         assert_eq!(store.get(key).expect("read should succeed"), None);
 
-        // 克隆副本与原型共享缓存：副本写、原型读可见（省去真实 keychain
-        // 授权的写路径，锁的是「共享」与「写后读一致」这两个行为契约）。
         cloned
             .cached_map()
             .insert(key.to_owned(), Some("sk-cached".into()));
@@ -168,7 +157,6 @@ mod tests {
             "clones must share the cache"
         );
 
-        // 删除同步更新缓存：再读回到 None 而不是陈旧值。
         store.delete(key).expect("delete should succeed");
         assert_eq!(
             cloned.get(key).expect("read should succeed"),
@@ -178,12 +166,6 @@ mod tests {
     }
 }
 
-/// 密钥读写往返真机验证：写 → 读一致 → 覆盖 → 删除后 None。直接操作
-/// 测试服务名下的 keychain 条目，结束清理，不产生明文落盘。
-///
-/// opt-in（`cargo test -p gloss-platform -- --ignored`）：keychain 写入
-/// 在部分受控环境（沙箱、CI runner）会被系统拒绝或需要授权，不宜作为
-/// 无条件门禁；只读行为由上方非忽略测试覆盖。
 #[cfg(test)]
 mod live_tests {
     use super::*;

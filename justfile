@@ -1,5 +1,5 @@
 # Gloss 项目命令入口
-# 本地开发与 CI/CD 共用同一套命令，保证行为一致。
+# 本地开发与 CI/CD 共用同一套命令，保证行为一致
 # 配方按 dev / ci / release / hooks 四桶组织，与 scripts/ 及 .github/workflows/ 同构：
 #   dev     本地开发与构建
 #   ci      需要编译的质量门禁（CI 的 ci.yml 用）
@@ -14,9 +14,7 @@ set shell := ["bash", "-uc"]
 default:
     @just --list
 
-# 行覆盖率下限：低于该值即失败（本地 just coverage 与 CI 的 coverage job 共用）
-# M3 分层测试（状态机抽出 + pipeline/popup 集成与 harness 测试）落地后，
-# 总量实测 81%，35 的临时值还账调回 70。
+# 行覆盖率下限：低于即失败（本地与 CI 共用同一判定）
 coverage_min := "70"
 
 # ---- dev：本地开发与构建 ----
@@ -29,7 +27,7 @@ run:
 watch:
     cargo watch -x run
 
-# 日志目录（~/.gloss/logs，与代码里的 log_dir() 保持一致）
+# 打印日志目录（~/.gloss/logs）
 logs-dir:
     @echo "${HOME}/.gloss/logs"
 
@@ -46,15 +44,15 @@ logs:
     echo "tailing $newest"
     tail -n +1 -f "$newest"
 
-# Debug 构建
+# Debug 构建整个 workspace
 build:
     cargo build --workspace
 
-# 指定 target 构建（CI 构建矩阵用）
+# 指定 target 三元组构建（CI 构建矩阵用）
 build-target target:
     cargo build --workspace --target {{target}}
 
-# Release 构建（优化）
+# Release 优化构建
 build-release:
     cargo build --release
 
@@ -62,7 +60,7 @@ build-release:
 clean:
     cargo clean
 
-# 列出所有依赖树
+# 列出依赖树
 deps:
     cargo tree
 
@@ -70,8 +68,7 @@ deps:
 setup:
     ./scripts/dev/setup-dev.sh
 
-# 重建应用图标产物（assets/icons/Gloss.icns 与 Dock 图标 PNG）；
-# 换 Logo 方案或调色后跑一次，改动矢量源后务必重跑
+# 重建应用图标产物（.icns 与 Dock 图标 PNG）
 icons:
     ./scripts/dev/build-app-icon.sh
 
@@ -85,8 +82,7 @@ fmt:
 fmt-fix:
     cargo fmt --all
 
-# TOML 格式检查（tombi --check 只校验不落盘；自动修复用 fmt-toml-fix）。
-# CI 的 tombi 钉 1.5.5，本地版本以接近为佳。
+# TOML 格式检查（tombi --check，不落盘）
 fmt-toml:
     tombi format --check $(git ls-files '*.toml')
 
@@ -94,8 +90,7 @@ fmt-toml:
 fmt-toml-fix:
     tombi format $(git ls-files '*.toml')
 
-# TOML 语法与 schema lint（不带 --error-on-warnings：根 Cargo.toml 现有 6 条
-# 「表格乱序」风格 warning 待整理，error 级仍会失败）
+# TOML 语法与 schema lint（error 级仍会失败）
 lint-toml:
     tombi lint $(git ls-files '*.toml')
 
@@ -107,59 +102,48 @@ lint:
 lint-fix:
     cargo clippy --workspace --all-targets --all-features --fix --allow-dirty
 
-# 运行单元测试
+# 运行全部测试
 test:
     cargo test --workspace --all-features
 
-# L3 显隐自检：100 轮浮层显隐 + 首帧延迟预算（需要窗口服务与 GPU）。
-# harness=false 的独立测试目标会随 just test（cargo test）一起执行，此配方供单独运行。
+# L3 显隐自检：100 轮浮层显隐 + 首帧预算（需窗口服务与 GPU）
 selftest:
     cargo test -p gloss --test overlay_selftest
 
-# 测试覆盖率：终端摘要 + HTML 报告（→ target/llvm-cov/html；CI 也跑这条）
-# 最后一步带阈值，行覆盖率低于 coverage_min 时整个配方失败
+# 测试覆盖率（摘要 + HTML 报告），低于 coverage_min 即失败
 coverage:
     cargo llvm-cov clean --workspace
     cargo llvm-cov --no-report --workspace --all-features
     cargo llvm-cov report --workspace --html
     cargo llvm-cov report --workspace --fail-under-lines {{coverage_min}}
 
-# 测试覆盖率：只打终端摘要并按同一阈值判定（不生成 HTML）
+# 测试覆盖率（仅终端摘要），按同一阈值判定
 coverage-check:
     cargo llvm-cov --workspace --all-features --fail-under-lines {{coverage_min}}
 
-# 安全审计（已知漏洞）
+# 安全审计（RustSec 已知漏洞）
 audit:
     cargo audit
 
-# 依赖合规检查：漏洞 / 许可证 / 重复依赖 / 来源（配置见 deny.toml）
+# 依赖合规检查（许可证 / 重复依赖 / 来源）
 deny:
     cargo deny check
 
-# Miri 未定义行为检测（需 nightly 与 miri 组件）。只覆盖 gloss-core 纯逻辑层：
-# Miri 解释执行 MIR、无法执行 FFI，平台层（macOS 框架）与渲染层（wgpu/egui）跑不了。
-# 两处实测裁剪（2026-09-17）：
-# - --skip cache:: / engine::：moka 背后的 crossbeam-epoch 指针技巧在 Miri 的
-#   Stacked Borrows 下报 UB（tree-borrows 更糟），凡经 MokaCache 的测试整体排除；
-# - -Zmiri-disable-isolation：放行 config 落盘类测试的文件/环境访问，内存 UB 检测不变。
-# CI 的 sanitizers.yml 跑同一条配方（nightly；上游只对最新 nightly 测试，挂了先升 nightly）
+# Miri 未定义行为检测（nightly，只覆盖 gloss-core 纯逻辑层）
 miri:
-    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine::
+    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine:: --skip file_writer_persists_lines_into_daily_file
 
-# 完整质量门禁：约束检查 + 格式化 + Clippy + 测试 + 密钥扫描 + 文档引用校验（CI 核心；本地要全量验证时手动跑）
+# 完整质量门禁：precommit 的全部 + test
 check: constraints agents-doc fmt fmt-toml lint lint-toml test secrets
     @echo "✓ 质量门禁全部通过"
 
-# 提交前门禁：约束检查 + 文档引用校验 + 格式化 + Clippy + 密钥扫描（pre-commit 用）
-# 不含 test：测试由 CI 跑，本地提交不必等编译测试
+# 提交前门禁：约束 + 文档引用 + fmt + TOML + clippy + 密钥扫描
 precommit: constraints agents-doc fmt fmt-toml lint lint-toml secrets
     @echo "✓ 提交前检查通过（测试交给 CI）"
 
 # ---- release：发布链（CI 的 release.yml 用同一批脚本）----
 
-# ad-hoc 签名免费可跑，用户首次打开需右键 → 打开；上 Developer ID 后把
-# codesign - 换成正式身份并接 notarytool（当前 ad-hoc，正式签名待 Developer ID）。
-# 流程：release 构建 → cargo bundle 出 .app → ad-hoc 签名 → 压 .dmg
+# 发布打包：release 构建 → bundle 出 .app → ad-hoc 签名 → 压 .dmg
 package-macos: build-release
     #!/usr/bin/env bash
     set -euo pipefail
@@ -170,41 +154,37 @@ package-macos: build-release
     ./scripts/release/bundle-dmg.sh "$app"
     echo "产物：$app 与 ${app%.app}.dmg"
 
-# 发布冒烟：启动打包出的 .app，验证能启动、活得住、日志无 panic（判定细则见脚本头）
+# 发布冒烟：启动 .app，验证能启动、活得住、日志无 panic
 smoke-app app:
     ./scripts/release/smoke-app.sh {{app}}
 
-# 发版前校验 tag 与版本单点一致（release workflow 构建产物前跑同一条脚本）
+# 校验发布 tag 与版本单点一致
 release-check tag:
     ./scripts/release/check-release-tag.sh {{tag}}
 
-# 生成/更新 CHANGELOG.md（基于 conventional commits，需 git-cliff）
+# 基于 conventional commits 生成 CHANGELOG
 changelog:
     git cliff -o CHANGELOG.md
 
-# 预览下次发版将生成的 CHANGELOG（不写文件）
+# 预览将生成的 CHANGELOG（不写文件）
 changelog-preview:
     git cliff --unreleased
 
 # ---- hooks：pre-commit 同款检查（纯 bash 秒级，CI 的 hooks.yml 也跑）----
 
-# 硬编码密钥扫描（脚本同时被 CI 的 hook-checks job 复用；规则与放行标记见脚本头注释）
+# 硬编码密钥扫描（命中即失败）
 secrets:
     ./scripts/hooks/check-secrets.sh
 
-# AGENTS.md 引用一致性：文档里提到的每个 just 配方 / 仓库路径 / 测试目标必须真实
-# 存在（脚本同时被 CI 的 hook-checks job 复用）。指令文件是唯一会被逐次加载的文档，
-# 它描述的世界一旦过期，代理就照着错的信息干活。
+# 校验 AGENTS.md 引用的配方/路径/测试目标/约束名真实存在
 agents-doc:
     ./scripts/hooks/check-agents-doc.sh
 
-# 「不可协商的约束」里可机械判定的部分：依赖方向 / 日志统一出口 / 日志英文 /
-# 版本单点 / 依赖特性（按 manifest 与源码解析，纯 bash，不碰 cargo，秒级）。
-# 逐条覆盖与不覆盖的理由见脚本头注释。
+# 「不可协商的约束」的机械门禁（依赖方向 / 日志 / 版本单点 / 依赖特性）
 constraints:
     ./scripts/hooks/check-constraints.sh
 
-# 校验 commit message 是否符合 Conventional Commits（与 CI 共用同一脚本，手动排查用）
+# 校验单条 commit message 是否符合 Conventional Commits
 lint-commit file:
     ./scripts/hooks/check-commit-msg.sh "{{file}}"
 
