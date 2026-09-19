@@ -5,7 +5,7 @@
 #     登记在 bdd.md；
 #   - 清单侧：bdd.md 的每个条目必须能在测试源码里找到同名测试。
 # 条目的描述文字不在校验面（描述与代码冲突时以代码为准，见 AGENTS.md「测试」节）。
-# 本地 `just test-bdd`（pre-commit 的一部分）与 CI 的 hooks job 共用此脚本。
+# 本地 `just test-bdd`（pre-commit 的一部分）与 CI 的 Test BDD check job 共用此脚本。
 set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

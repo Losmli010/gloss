@@ -49,7 +49,7 @@ jobs:
       - name: Check AGENTS.md references
         run: just agents-doc
 
-  # 不可协商约束里可自动判定的部分
+  # 自动化门禁：可由工具判定的部分
   constraints:
     name: Constraints check
     runs-on: ubuntu-latest

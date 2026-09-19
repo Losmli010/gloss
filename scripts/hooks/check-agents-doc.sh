@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # AGENTS.md 引用一致性门禁：校验指令文件里提到的仓库事实确实存在。
-# 本地 `just agents-doc`（pre-commit 的一部分）与 CI 的 quality job 共用此脚本，
+# 本地 `just agents-doc`（pre-commit 的一部分）与 CI 的 Docs check job 共用此脚本，
 # 保证本地与 CI 判定一致。
 #
 # 校验对象以 AGENTS.md 为准，五类引用：
@@ -10,8 +10,8 @@
 #      必须在仓库根存在；
 #   4. 全文任何 `cargo test --test <name>` 提到的测试目标必须存在对应的
 #      tests/<name>.rs（根包或任一 crate）；
-#   5. 仓库各处（*.rs / *.toml / *.sh / *.yml / justfile / *.md）对约束名的指名
-#      引用 `约束「名字」` 必须真的在文档的「不可协商的约束」段里。
+#   5. 仓库各处（*.rs / *.toml / *.sh / *.yml / justfile / *.md）对质量条目的指名
+#      引用 `质量条目「名字」` 必须真的在文档的「质量条目总表」段里（带 **名字** 的条目）。
 #
 # 扫描范围：`just <recipe>` 与 `cargo test --test` 逐行扫描，代码块内同样算数。
 # 路径只认行内反引号包裹的仓库相对路径。
@@ -95,16 +95,20 @@ while IFS= read -r line; do
 
 done < "$DOC"
 
-# ---- 5. 仓库各处对约束名的指名引用必须存在 ----
-# 约定：引用约束写成 `AGENTS.md 约束「名字」`，不写条号。
+# ---- 5. 仓库各处对质量条目的指名引用必须存在 ----
+# 约定：引用写成 `AGENTS.md 质量条目「名字」`；被指名的条目在总表里以 **名字** 起头。
 #
 # 扫描范围：*.rs / *.toml / *.yml / justfile / *.sh 里「同一行同时出现 AGENTS.md 与
-# 约束「」」的引用。本脚本自身与其单测按构造就含这个模式，故跳过，见下方 case。
-CONSTRAINT_NAMES="$(
-  awk '/^## / { insec = ($0 == "## 不可协商的约束") } insec { print }' "$DOC" |
-    grep -oE '\*\*\[[A-Z]+\] [^*]+\*\*' | sed -E 's/^\*\*\[[A-Z]+\] //; s/\*\*$//' || true
+# 质量条目「」」的引用。本脚本自身与其单测按构造就含这个模式，故跳过，见下方 case。
+RULE_NAMES="$(
+  awk '
+    /^### 质量条目总表/ { insec = 1; next }
+    insec && /^## / { insec = 0 }
+    insec { print }
+  ' "$DOC" |
+    grep -oE '\*\*[^*]+\*\*' | sed -E 's/^\*\*//; s/\*\*$//' || true
 )"
-REF_PATTERN='AGENTS\.md.*约束「'
+REF_PATTERN='AGENTS\.md.*质量条目「'
 ref_files=0
 refs=0
 while IFS= read -r ref_file; do
@@ -115,10 +119,10 @@ while IFS= read -r ref_file; do
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     refs=$((refs + 1))
-    if ! printf '%s\n' "$CONSTRAINT_NAMES" | grep -qxF "$name"; then
-      fail "${ref_file#"$ROOT"/}: 引用了约束「${name}」，但 ${DOC_NAME} 里没有这个约束名"
+    if ! printf '%s\n' "$RULE_NAMES" | grep -qxF "$name"; then
+      fail "${ref_file#"$ROOT"/}: 引用了质量条目「${name}」，但 ${DOC_NAME} 的质量条目总表里没有这个条目名"
     fi
-  done < <(grep -E "$REF_PATTERN" "$ref_file" | grep -oE '约束「[^」]+」' | sed -E 's/^约束「//; s/」$//')
+  done < <(grep -E "$REF_PATTERN" "$ref_file" | grep -oE '质量条目「[^」]+」' | sed -E 's/^质量条目「//; s/」$//')
 done < <(find "$ROOT" -type f \
   \( -name '*.rs' -o -name '*.toml' -o -name '*.sh' -o -name '*.yml' -o -name 'justfile' \) \
   -not -path "$ROOT/target/*" -not -path "$ROOT/.git/*")
@@ -128,9 +132,9 @@ if [ "$FAILED" -ne 0 ]; then
   echo "错误：${DOC_NAME} 有 ${FAILED} 处引用与其来源不符（见上）。" >&2
   echo "  - 命令或路径确实变了：改文档，别让它描述一个不存在的世界；" >&2
   echo "  - 只是举例或占位：换个措辞，或写成含 * < > ~ 的形式跳过校验；" >&2
-  echo "  - 约束改了名字：把引用它的地方一起改（用 约束「名字」 指名，别用条号）。" >&2
+  echo "  - 条目改了名字：把引用它的地方一起改（用 质量条目「名字」 指名）。" >&2
   exit 1
 fi
 
-echo "✓ ${DOC_NAME} 引用一致（校验 ${CHECKED} 处：just 配方 / 仓库路径 / 测试目标；另在 ${ref_files} 个文件里核对 ${refs} 处约束名引用）"
+echo "✓ ${DOC_NAME} 引用一致（校验 ${CHECKED} 处：just 配方 / 仓库路径 / 测试目标；另在 ${ref_files} 个文件里核对 ${refs} 处质量条目名引用）"
 exit 0

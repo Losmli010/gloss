@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# 「不可协商的约束」自动化门禁：把 AGENTS.md 里已被工具判定得了的约束逐条落成检查。
-# 本地 `just constraints`（pre-commit 的一部分）与 CI 的 quality job 共用此脚本，
+# 仓库自动化门禁：把可由工具判定的规则逐条落成检查
+# （依赖方向 / 日志 / 版本 / 依赖特性 / 残留标记）。
+# 本地 `just constraints`（pre-commit 的一部分）与 CI 的 Constraints check job 共用此脚本，
 # 保证本地与 CI 判定一致。
 #
-# 覆盖（按 AGENTS.md 约束的名字对应）：
+# 覆盖：
 #   依赖方向            —— 各 crate 只能依赖允许的边；gloss-core 不得出现平台/渲染栈
 #                          （红线：winit / wgpu / 平台 API）。
 #   日志统一出口        —— 除 gloss-core 外不得直接依赖 tracing 三件套。
@@ -283,9 +284,9 @@ fi
 
 if [ "$FAILED" -ne 0 ]; then
   echo "" >&2
-  echo "错误：有 ${FAILED} 处违反「不可协商的约束」（见上）。" >&2
-  echo "  - 约束本身不打算改：改代码；" >&2
-  echo "  - 约束确实要改：先改 $(rel "$AGENTS_MD")，再改本脚本与 deny.toml，别只改一处。" >&2
+  echo "错误：有 ${FAILED} 处未通过自动化门禁（见上）。" >&2
+  echo "  - 规则本身不打算改：改代码；" >&2
+  echo "  - 规则确实要改：先改 $(rel "$AGENTS_MD") 与相关配置，再改本脚本，别只改一处。" >&2
   exit 1
 fi
 

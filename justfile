@@ -176,7 +176,7 @@ changelog-preview:
 secrets:
     ./scripts/hooks/check-secrets.sh
 
-# 校验 AGENTS.md 引用的配方/路径/测试目标/约束名真实存在
+# 校验 AGENTS.md 引用的配方/路径/测试目标/质量条目名真实存在
 agents-doc:
     ./scripts/hooks/check-agents-doc.sh
 
@@ -184,7 +184,7 @@ agents-doc:
 test-bdd:
     ./scripts/hooks/check-test-bdd.sh
 
-# 「不可协商的约束」的自动化门禁（依赖方向 / 日志 / 版本单点 / 依赖特性）
+# 自动化门禁（依赖方向 / 日志 / 版本单点 / 依赖特性 / 残留标记）
 constraints:
     ./scripts/hooks/check-constraints.sh
 
