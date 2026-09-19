@@ -528,6 +528,9 @@ mod imp {
                     "copy key injection failed"
                 );
                 if index > 0 {
+                    // 错误路径上的补发释放是尽力而为：释放失败已由紧随的
+                    // SelectionUnavailable 收口，无更优处理。
+                    #[allow(clippy::let_underscore_must_use)]
                     let _ = rdev::simulate(&EventType::KeyRelease(COPY_MODIFIER));
                 }
                 return Err(GlossError::SelectionUnavailable);
@@ -585,6 +588,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)]
 mod live_tests {
     use std::ffi::{CStr, c_void};
     use std::sync::Mutex;

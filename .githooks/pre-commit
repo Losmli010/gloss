@@ -34,7 +34,12 @@ if [ -z "$STAGED_RS" ]; then
   fi
   if ! just agents-doc; then
     echo "" >&2
-    echo "✗ AGENTS.md 描述了不存在的配方/路径/约束名，已阻止提交（见上）" >&2
+    echo "✗ AGENTS.md 描述了不存在的配方/路径，已阻止提交（见上）" >&2
+    exit 1
+  fi
+  if ! just test-bdd; then
+    echo "" >&2
+    echo "✗ bdd.md 与测试源码不一致，已阻止提交（见上）" >&2
     exit 1
   fi
   if ! just constraints; then

@@ -1,28 +1,19 @@
-//! mock AiEngine：按脚本吐预置流式 chunk 的假引擎。
-//!
-//! 供 core 单测（cfg(test)）与下游 crate 的 dev-dependencies
-//! （开 `test-util` 特性）使用，验收任务编排与缓存的全链路测试：
-//! - 可调延迟模拟真实流式（chunk 间 `tokio::time::sleep`）；
-//! - 可注入失败：execute 整体失败，或流中任意位置插 `Err`；
-//! - 调用计数供「缓存命中不调引擎」类断言。
+//! 脚本引擎桩：按预置序列产流，支持整体失败、chunk 间延迟、panic 注入
+//! 与调用计数。
 
 use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use futures_core::Stream;
+use futures::Stream;
 use tokio::time::sleep;
 
-use crate::model::GlossError;
-use crate::ports::{AiEngine, BoxFuture, EngineRequest, TaskStream};
+use gloss_core::model::GlossError;
+use gloss_core::ports::{AiEngine, BoxFuture, EngineRequest, TaskStream};
 
-/// 锁中毒恢复：测试基建不值得 panic，拿回守卫继续用（数据由测试自身
-/// 单线程写入，中毒不可能源于本模块逻辑）。
-fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
+use super::lock_or_recover;
 
 /// 脚本引擎：按预置序列产流，支持整体失败、chunk 间延迟与调用计数。
 ///
@@ -185,103 +176,5 @@ impl Stream for ChunkStream {
             }
             None => Poll::Ready(None),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::{Duration, Instant};
-
-    use futures::StreamExt;
-
-    use super::MockEngine;
-    use crate::model::GlossError;
-    use crate::ports::AiEngine;
-    use crate::ports::EngineRequest;
-    use crate::prompt::ChatMessage;
-    use crate::task::TaskKind;
-
-    fn sample_request() -> EngineRequest {
-        EngineRequest {
-            kind: TaskKind::TranslateWord,
-            messages: vec![ChatMessage {
-                role: crate::prompt::Role::User,
-                content: "gloss".into(),
-            }],
-            model: "mock-model".into(),
-        }
-    }
-
-    #[tokio::test]
-    async fn chunk_delay_paces_the_stream() {
-        let engine = MockEngine::new()
-            .with_chunk_delay(Duration::from_millis(30))
-            .with_chunks(vec![Ok("光".into()), Ok("泽".into()), Ok("注释".into())]);
-        let mut stream = engine.execute(&sample_request()).await.expect("stream");
-
-        let start = Instant::now();
-        let mut seen = Vec::new();
-        while let Some(chunk) = stream.next().await {
-            seen.push(chunk.expect("chunk ok"));
-        }
-        assert_eq!(seen, vec!["光", "泽", "注释"]);
-        assert!(
-            start.elapsed() >= Duration::from_millis(60),
-            "two inter-chunk delays must pace the stream, got {:?}",
-            start.elapsed()
-        );
-    }
-
-    #[tokio::test]
-    async fn failures_are_injectable() {
-        for error in [
-            GlossError::EngineNetwork,
-            GlossError::EngineAuth,
-            GlossError::EngineRateLimited,
-            GlossError::EngineResponse("bad json".into()),
-        ] {
-            let engine = MockEngine::new().with_execute_failure(error.clone());
-            match engine.execute(&sample_request()).await {
-                Err(actual) => assert_eq!(actual, error, "failure must surface verbatim"),
-                Ok(_) => panic!("expected {error:?}, got a stream"),
-            }
-        }
-
-        let mid_stream = MockEngine::new().with_chunks(vec![
-            Ok("部分".into()),
-            Err(GlossError::EngineNetwork),
-            Ok("流继续".into()),
-        ]);
-        let mut stream = mid_stream.execute(&sample_request()).await.expect("stream");
-        assert_eq!(stream.next().await, Some(Ok("部分".into())));
-        assert_eq!(
-            stream.next().await,
-            Some(Err(GlossError::EngineNetwork)),
-            "mid-stream failure must surface in order"
-        );
-        assert_eq!(stream.next().await, Some(Ok("流继续".into())));
-        assert!(stream.next().await.is_none(), "stream ends at script end");
-    }
-
-    #[tokio::test]
-    async fn call_count_tracks_execute_invocations() {
-        let engine = MockEngine::new().with_chunks(vec![Ok("x".into())]);
-        assert_eq!(engine.call_count(), 0);
-        let mut stream = engine.execute(&sample_request()).await.expect("stream");
-        while let Some(chunk) = stream.next().await {
-            chunk.expect("chunk ok");
-        }
-        assert_eq!(engine.call_count(), 1);
-
-        let cloned = engine.clone();
-        let _ = cloned.execute(&sample_request()).await.expect("stream");
-        assert_eq!(engine.call_count(), 2);
-    }
-
-    #[tokio::test]
-    async fn empty_script_yields_empty_stream() {
-        let engine = MockEngine::new();
-        let mut stream = engine.execute(&sample_request()).await.expect("stream");
-        assert!(stream.next().await.is_none());
     }
 }

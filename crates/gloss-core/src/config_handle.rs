@@ -114,7 +114,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use crate::model::Lang;
-    use crate::ports::mocks::MemoryConfigStore;
+    use crate::stubs::ports::MemoryConfigStore;
 
     use super::*;
 

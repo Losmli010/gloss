@@ -883,9 +883,9 @@ impl ApplicationHandler<UserEvent> for GlossApp {
 mod tests {
     use super::*;
     use crate::machine::{AppState, OverlayView};
+    use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder};
     use gloss_core::config::{Config, DEFAULT_TEXT_MODEL, ModelBinding};
     use gloss_core::model::{GlossError, Lang};
-    use gloss_core::ports::mocks::{MemoryConfigStore, RecordingHotkeyBinder};
     use gloss_core::task::{HotkeyBinding, InputSource, TaskKind};
 
     #[test]

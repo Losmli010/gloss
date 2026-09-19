@@ -81,6 +81,9 @@ pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
         let active = file.as_ref().map(|(_, _, dir)| dir.clone());
         match file {
             Some((writer, guard, _)) => {
+                // init 在 INIT.call_once 内只执行一次，OnceLock::set 的已占用
+                // Err 在这里不可能发生，丢弃即可。
+                #[allow(clippy::let_underscore_must_use)]
                 let _ = FILE_GUARD.set(guard);
                 subscriber
                     .with(fmt::layer().with_ansi(false).with_writer(writer))
@@ -88,6 +91,8 @@ pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
             }
             None => subscriber.init(),
         }
+        // 同上：call_once 内首次 set，Err 不可能发生。
+        #[allow(clippy::let_underscore_must_use)]
         let _ = FILE_DIR.set(active);
     });
     FILE_DIR.get().cloned().flatten()
@@ -113,6 +118,7 @@ fn build_filter(raw: Option<&str>) -> EnvFilter {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)]
 mod tests {
     use std::fs;
     use std::io::Write as _;

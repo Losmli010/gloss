@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# 「不可协商的约束」机械门禁：把 AGENTS.md 里已被工具判定得了的约束逐条落成检查。
-# 本地 `just constraints`（pre-commit 的一部分）与 CI 的 quality job 共用此脚本，
+# 仓库自动化门禁：把可由工具判定的规则逐条落成检查
+# （依赖方向 / 日志 / 版本 / 依赖特性 / 残留标记）。
+# 本地 `just constraints`（pre-commit 的一部分）与 CI 的 Constraints check job 共用此脚本，
 # 保证本地与 CI 判定一致。
 #
-# 覆盖（按 AGENTS.md 约束的名字对应）：
+# 覆盖：
 #   依赖方向            —— 各 crate 只能依赖允许的边；gloss-core 不得出现平台/渲染栈
 #                          （红线：winit / wgpu / 平台 API）。
+#   桩副本一致          —— 各 crate tests/stubs/ 的同名桩逐字一致，防跨 crate 漂移。
 #   日志统一出口        —— 除 gloss-core 外不得直接依赖 tracing 三件套。
 #   日志一律英文        —— 日志宏实参里不得出现非 ASCII 字节。
 #   版本单点维护        —— 子 crate 的 version / edition 必须 *.workspace = true，
 #                          字面量只允许出现在根 [workspace.package]。
 #   依赖只开需要的特性  —— 每个第三方依赖声明必须带 default-features = false。
+#   残留任务标记        —— TODO / FIXME / HACK / TBD 大写词全字匹配，命中即失败。
 #
 # 用法：scripts/hooks/check-constraints.sh [仓库根]   # 缺省为本脚本的上一级目录
 set -euo pipefail
@@ -177,22 +180,47 @@ if [ -f "$AGENTS_MD" ]; then
 fi
 ok "依赖方向（${edges} 条本仓库依赖边 + 各 crate 的 crate 名登记）"
 
-# ---- 约束「依赖方向」附加红线：测试桩不得进生产构建 ----
-stub_deps=0
-while IFS='|' read -r owner manifest sec key start text; do
-  [ -n "$owner" ] || continue
-  [ "$key" = "gloss-core" ] || continue
-  case "$sec" in
-    *dev-dependencies*) continue ;;
-  esac
-  case "$text" in
-    *test-util*)
-      fail "约束「依赖方向」：${owner} 的非 dev 依赖启用了 gloss-core/test-util（$(rel "$manifest"):${start}）——测试桩会进生产构建，只允许写在 dev-dependencies 里"
-      ;;
-    *) stub_deps=$((stub_deps + 1)) ;;
-  esac
-done <<<"$DEP_DUMP"
-ok "测试桩不进生产构建（核对 ${stub_deps} 条非 dev 的本仓库依赖）"
+# ---- 测试桩副本一致性（AGENTS.md「测试」节：跨 crate 复用的同名桩逐字一致）----
+# 桩按 crate 自持（tests/stubs/），一份漂移会让两个 crate 的测试在语义不同的
+# 假实现上各自通过。engine.rs 全文比对；端口桩按节比对——节以「列 0 的 ///」
+# 切分（桩的条目文档都在列 0，结构体字段文档有缩进，不会误切）。
+stub_section() { # <文件> <节首文档前缀>
+  awk -v pat="^/// $2" '
+    found { if ($0 ~ /^\/\/\//) exit; lines[++n] = $0; next }
+    $0 ~ pat { found = 1; lines[++n] = $0; next }
+    END {
+      m = n
+      while (m > 1 && lines[m] ~ /^[[:space:]]*$/) m--
+      for (i = 1; i <= m; i++) print lines[i]
+    }
+  ' "$1"
+}
+
+CORE_STUBS="$ROOT/crates/gloss-core/tests/stubs"
+if [ -f "$CORE_STUBS/engine.rs" ]; then
+  drifts=0
+  assert_same() { # <说明> <文件或节A> <文件或节B>
+    if ! cmp -s "$2" "$3"; then
+      fail "桩副本漂移：$1 —— 同名桩必须逐字一致，改注入语义时跨 crate 同步"
+      drifts=$((drifts + 1))
+    fi
+  }
+  assert_same "engine.rs（core ↔ app）" \
+    "$CORE_STUBS/engine.rs" "$ROOT/crates/gloss-app/tests/stubs/engine.rs"
+  for sec in "内存版配置存储桩" "记录每次重绑定的热键桩"; do
+    assert_same "${sec}（core ↔ app）" \
+      <(stub_section "$CORE_STUBS/ports.rs" "$sec") \
+      <(stub_section "$ROOT/crates/gloss-app/tests/stubs/ports.rs" "$sec")
+  done
+  assert_same "内存版配置存储桩（core ↔ platform）" \
+    <(stub_section "$CORE_STUBS/ports.rs" "内存版配置存储桩") \
+    <(stub_section "$ROOT/crates/gloss-platform/tests/stubs/ports.rs" "内存版配置存储桩")
+  if [ "$drifts" -eq 0 ]; then
+    ok "桩副本逐字一致（engine.rs 全文 + 共享端口桩逐节比对）"
+  fi
+else
+  ok "桩副本逐字一致（无 tests/stubs/，跳过）"
+fi
 
 # ---- 约束「日志统一出口」 ----
 log_owners=""
@@ -264,11 +292,27 @@ while IFS='|' read -r owner manifest sec key start text; do
 done <<<"$DEP_DUMP"
 ok "依赖只开需要的特性（检查 ${deps_checked} 条第三方依赖声明）"
 
+# ---- 残留任务标记扫描（AGENTS.md 质量条目「代码不留残留标记」） ----
+# 大写词全字匹配 TODO / FIXME / HACK / TBD，扫全部 git 跟踪文件；
+# -I 跳过二进制。AGENTS.md（规则本体）与本脚本及其自测（夹具含字面量）豁免，
+# 避免自命中。非 git 仓库（门禁自测夹具）无跟踪面可扫，整段跳过。
+if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  while IFS= read -r -d '' f; do
+    case "$f" in
+      AGENTS.md | scripts/hooks/check-constraints.sh | scripts/hooks/check-constraints.test.sh) continue ;;
+    esac
+    hits="$(grep -nEw -I -- 'TODO|FIXME|HACK|TBD' "$ROOT/$f" 2>/dev/null || true)"
+    [ -n "$hits" ] || continue
+    fail "残留任务标记：$f —— $(printf '%s' "$hits" | head -n 1 | cut -c1-60)"
+  done < <(git -C "$ROOT" ls-files -z)
+  ok "无残留任务标记（git 跟踪文件全字扫描）"
+fi
+
 if [ "$FAILED" -ne 0 ]; then
   echo "" >&2
-  echo "错误：有 ${FAILED} 处违反「不可协商的约束」（见上）。" >&2
-  echo "  - 约束本身不打算改：改代码；" >&2
-  echo "  - 约束确实要改：先改 $(rel "$AGENTS_MD")，再改本脚本与 deny.toml，别只改一处。" >&2
+  echo "错误：有 ${FAILED} 处未通过自动化门禁（见上）。" >&2
+  echo "  - 规则本身不打算改：改代码；" >&2
+  echo "  - 规则确实要改：先改 $(rel "$AGENTS_MD") 与相关配置，再改本脚本，别只改一处。" >&2
   exit 1
 fi
 

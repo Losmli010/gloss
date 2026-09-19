@@ -93,8 +93,6 @@ toml = {
 }
 
 [dev-dependencies]
-# LlmClient 单测的内存配置/密钥桩（core 的 test-util 面），避免手搓 fake。
-gloss-core = { path = "../gloss-core", features = ["test-util"] }
 # storage 单测的临时目录。
 tempfile = { version = "3", default-features = false }
 # L4 opt-in 真机测试要跑异步引擎（手动 poll 流的 future）。

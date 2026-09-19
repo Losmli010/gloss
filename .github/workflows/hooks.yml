@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # edited：标题编辑后重跑，标题校验不漏掉合并前的改名
+    types: [opened, synchronize, reopened, edited]
 
 # 最小权限：只读代码与提交历史即可完成全部检查。
 permissions:
@@ -49,7 +51,7 @@ jobs:
       - name: Check AGENTS.md references
         run: just agents-doc
 
-  # 不可协商约束里可机械判定的部分
+  # 自动化门禁：可由工具判定的部分
   constraints:
     name: Constraints check
     runs-on: ubuntu-latest
@@ -67,6 +69,25 @@ jobs:
 
       - name: Check non-negotiable constraints
         run: just constraints
+
+  # BDD 测试行为清单与测试源码双向一致
+  test-bdd:
+    name: Test BDD check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Run checker unit tests
+        run: bash scripts/hooks/check-test-bdd.test.sh
+
+      - name: Check BDD inventory against test code
+        run: just test-bdd
 
   # TOML 格式与 lint（tombi）：纯文本秒级；版本钉死保证判定一致
   toml:
@@ -103,6 +124,8 @@ jobs:
         run: bash scripts/hooks/check-commit-msg.test.sh
 
       - name: Validate commit messages
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           # 校验本次 PR 引入的所有 commit message（跳过 merge commit）
           # PR 场景：比较 base 与 head 分支的实际提交
@@ -120,3 +143,8 @@ jobs:
             echo "检查 commit $sha"
             echo "$msg" | ./scripts/hooks/check-commit-msg.sh -
           done
+          # squash 合并产生的 commit message 取自 PR 标题，标题走同一套校验
+          if [ -n "$PR_TITLE" ]; then
+            echo "检查 PR 标题"
+            printf '%s\n' "$PR_TITLE" | ./scripts/hooks/check-commit-msg.sh -
+          fi
