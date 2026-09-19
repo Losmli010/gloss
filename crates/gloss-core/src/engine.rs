@@ -4,7 +4,7 @@
 //! 运行在 tokio 后台（通道③的消费者）。流式增量经 `on_chunk` 回调逐条
 //! 交出（调用方映射为通道④的 `Event::TaskChunk`）；产物按 prompt 模块
 //! 定下的输出契约解析（` ```gloss ` 围栏 JSON），解析失败按 best-effort
-//! 回退为整段正文——装饰性结构化信息不值得让任务失败。
+//! 回退为整段正文。
 
 use std::sync::Arc;
 
@@ -208,7 +208,6 @@ mod tests {
         }
     }
 
-    /// 验收标准：流式 chunk 正确拼接——增量按序转发，正文完整落进产物。
     #[tokio::test]
     async fn streams_chunks_in_order_and_assembles_body() {
         let (engine, service) = make_service(&MockEngine::new().with_chunks(vec![
@@ -233,7 +232,6 @@ mod tests {
         assert_eq!(engine.call_count(), 1);
     }
 
-    /// 验收标准：缓存命中不调引擎——第二次执行直接取缓存，引擎计数不变。
     #[tokio::test]
     async fn cache_hit_skips_the_engine() {
         let (engine, service) = make_service(
@@ -254,7 +252,6 @@ mod tests {
         assert_eq!(engine.call_count(), 1, "cache hit must not reach engine");
     }
 
-    /// 换模型不命中缓存（key 含模型 id）。
     #[tokio::test]
     async fn different_model_misses_the_cache() {
         let (engine, service) =
@@ -271,7 +268,6 @@ mod tests {
         assert_eq!(engine.call_count(), 2, "model switch must re-execute");
     }
 
-    /// 结构化解析：词卡按输出契约解析，围栏块从正文剥离。
     #[tokio::test]
     async fn word_card_is_parsed_from_structured_block() {
         let script = vec![
@@ -303,7 +299,6 @@ mod tests {
         }
     }
 
-    /// 模板承诺「音标或 null」：JSON null 与缺失同样得到 None。
     #[tokio::test]
     async fn phonetic_null_maps_to_none() {
         let script = vec![
@@ -326,8 +321,6 @@ mod tests {
         }
     }
 
-    /// best-effort 的粒度是单条释义：坏条目跳过，好条目保留——一条坏数
-    /// 据不再丢掉整张词卡（senses 字段整体缺失才回退）。
     #[test]
     fn bad_sense_entries_are_skipped_not_fatal() {
         let json = r#"{"word":"gloss","senses":[
@@ -350,8 +343,6 @@ mod tests {
         }
     }
 
-    /// 合法围栏之后契约外的尾随文字：随围栏块一并剥离（剥离起点是最后
-    /// 一个围栏标记）——测试钉住这一边界语义。
     #[test]
     fn trailing_text_after_fence_is_dropped() {
         let (body, structured) = super::parse_structured(
@@ -367,8 +358,6 @@ mod tests {
         );
     }
 
-    /// 模型没按契约给围栏：正文原样保留、回退为无标题 Plain——装饰信息
-    /// 缺失不让任务失败（文本 kind 经 execute 全链路验证）。
     #[tokio::test]
     async fn missing_structured_block_falls_back_to_plain() {
         let (_, service) =
@@ -381,8 +370,6 @@ mod tests {
         assert_eq!(plain.structured, OutcomeStructured::Plain { title: None });
     }
 
-    /// OCR 的围栏缺失/解析失败回退为全文提取（parse_structured 直测——
-    /// 图像任务在 M5-T4 前被模态渲染拦下，走不到 execute）。
     #[test]
     fn ocr_fallback_extracts_whole_body() {
         let (body, structured) = super::parse_structured(TaskKind::ImageOcr, "提取到的全文");
@@ -392,8 +379,6 @@ mod tests {
             OutcomeStructured::Extracted { ref text } if text == "提取到的全文"
         ));
 
-        // 有围栏但 JSON 非法：同样回退为全文，且围栏残片留在正文里
-        //（不做有损剥离）。
         let (body, structured) =
             super::parse_structured(TaskKind::ImageOcr, "文本\n```gloss\n{broken\n```");
         assert_eq!(body, "文本\n```gloss\n{broken\n```");
@@ -402,7 +387,6 @@ mod tests {
             OutcomeStructured::Extracted { ref text } if text.contains("{broken")
         ));
 
-        // 正常路径：围栏内 text 字段被提取，正文剥离。
         let (body, structured) = super::parse_structured(
             TaskKind::ImageOcr,
             "markdown 段落\n```gloss\n{\"text\":\"纯文本\"}\n```",
@@ -414,7 +398,6 @@ mod tests {
         ));
     }
 
-    /// 验收标准：错误路径——execute 整体失败原样上抛；流中失败终止任务。
     #[tokio::test]
     async fn engine_failures_propagate() {
         let (_, service) =
@@ -444,7 +427,6 @@ mod tests {
         );
     }
 
-    /// 模态不合法在引擎之前被拒（渲染阶段），引擎零调用。
     #[tokio::test]
     async fn modality_mismatch_is_rejected_before_engine() {
         let (engine, service) = make_service(&MockEngine::new().with_chunks(vec![Ok("x".into())]));
@@ -463,7 +445,6 @@ mod tests {
         assert_eq!(engine.call_count(), 0, "engine must not be reached");
     }
 
-    /// 图像任务在 M5-T4 前渲染为 UnsupportedModality（占位语义贯穿编排）。
     #[tokio::test]
     async fn image_tasks_stay_unsupported() {
         let (engine, service) = make_service(&MockEngine::new());

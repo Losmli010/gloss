@@ -60,8 +60,6 @@ pub trait RegionCapture: Send {
 ///
 /// 渲染是 core 编排的职责（`AiTaskService` 调 `PromptRegistry`，含模态校验），
 /// 引擎只负责把请求送出去、把响应流回来——不做渲染，也不回读配置。模型随
-/// 请求携带而非由引擎查表：否则「缓存 key 用的模型」与「实际请求的模型」可以
-/// 来自两份配置快照（模型参与缓存 key，见 `AiTaskService::execute`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineRequest {
     /// 任务类型：引擎侧只用于诊断与能力判断，不参与渲染。
@@ -75,7 +73,7 @@ pub struct EngineRequest {
 /// AI 引擎（端口）：统一入口，不按输入模态拆分——文本/图文仅由消息
 /// payload 与模型 id（[`EngineRequest`]）决定。渲染归 core 编排（引擎不做
 /// 渲染）；**模型不回读配置**（随请求携带）。引擎自己读快照的只有端点与
-/// provider 条目——这两者不进缓存 key，每请求取一次换来改端点无需重启。
+/// provider 条目——这两者不进缓存 key。
 ///
 /// 实现方保证：`execute` 返回的 future 与流都是 `'static` 且 `Send`——
 /// **不得借用 `request` 或 `self`**，请求数据需克隆或移入 future；消费端
@@ -119,9 +117,7 @@ pub trait ConfigStore: Send + Sync {
 /// 缓存（端口）：core 内置 moka 内存实现（M3-T5）。
 ///
 /// key = hash(kind, input, options, model)——同一文本在不同任务下不共享
-/// 缓存；调用方保证 key 由统一哈希函数派生，且派生函数
-/// 须抗碰撞：碰撞不是缓存 miss，而是把别的任务的产物交给用户（桌面规模
-/// 下 64 位摘要概率可忽略，属接受的取舍）。
+/// 缓存；调用方保证 key 由统一哈希函数派生，且派生函数须抗碰撞。
 pub trait Cache: Send + Sync {
     /// 取缓存产物。
     fn get(&self, key: u64) -> Option<TaskOutcome>;
@@ -133,22 +129,15 @@ pub trait Cache: Send + Sync {
 ///
 /// 与其余端口不同，本端口**有意不加 `Send + Sync`**——热键的注册与注销
 /// 必须在创建管理器的线程上执行：后端要求主线程跑 NSApp 事件循环，`Drop`
-/// 清理同样亲和创建线程。实现只允许在主线程使用；
-/// 调用方（设置页保存路径）本来就跑在主线程的事件循环里，因此这里是同步
-/// 调用而非通道命令——加 `Send` 反而会把一个用不上的跨线程承诺强加给实现。
+/// 清理同样亲和创建线程。实现只允许在主线程使用。
 ///
-/// 降级契约：绑定解析失败、被其他应用占用、管理器不可用等一律告警跳过，
-/// **不返回错误**——热键是可降级功能，某个键被占用不该让一次配置保存整体
-/// 失败（保存的落盘与快照替换照常完成）。于是「配置里有、按下去没反应」
-/// 是可能出现的合法状态，判断依据只有日志。
+/// 降级契约：绑定解析失败、被其他应用占用、管理器不可用等一律告警跳过，**不返回错误**。
 pub trait HotkeyBinder {
     /// 用给定绑定表**替换**当前注册（不是追加）。
     ///
     /// 返回**真正交给平台且注册成功**的条数，供调用方记日志：少于入参说明
     /// 有绑定被跳过或被降级。管理器不可用时恒为 0——此时实现
-    /// 仍会把解析成功的条目留在内部表里以便诊断，所以 0 表示「一个键都没
-    /// 生效」，不等于「配置无效」；`declared > applied` 正是「热键为什么没
-    /// 反应」的第一手线索。
+    /// 仍会把解析成功的条目留在内部表里以便诊断，所以 0 表示「一个键都没生效」，
     fn rebind(&self, bindings: &[HotkeyBinding]) -> usize;
 }
 
@@ -376,7 +365,6 @@ mod tests {
     use crate::model::ScreenRect as Rect;
     use crate::task::{HotkeyBinding, InputSource, TaskKind};
 
-    /// 引擎请求样例：桩不读它，只为满足端口签名。
     fn sample_request() -> EngineRequest {
         EngineRequest {
             kind: TaskKind::TranslateWord,
@@ -396,7 +384,6 @@ mod tests {
         }
     }
 
-    /// SelectionReader 契约：桩原样返回预置结果（成功与失败两路）。
     #[test]
     fn selection_reader_mock_returns_presets() {
         let mut ok = FixedSelectionReader(Ok("selected".into()));
@@ -406,7 +393,6 @@ mod tests {
         assert_eq!(denied.read(), Err(GlossError::AccessibilityDenied));
     }
 
-    /// RegionCapture 契约：桩原样返回 PNG 字节。
     #[test]
     fn region_capture_mock_returns_png() {
         let png: Arc<[u8]> = vec![1, 2, 3].into();
@@ -422,7 +408,6 @@ mod tests {
         assert!(Arc::ptr_eq(&png, &got));
     }
 
-    /// ConfigStore 契约：未设置返回 None，写入后可读回。
     #[test]
     fn config_store_mock_round_trips_secrets() {
         let store = MemoryConfigStore::default();
@@ -433,7 +418,6 @@ mod tests {
         assert_eq!(store.secret("api_key"), Ok(Some("sk-test".into())));
     }
 
-    /// ConfigStore 契约：未保存过返回出厂默认，保存后原样读回。
     #[test]
     fn config_store_mock_round_trips_document() {
         let store = MemoryConfigStore::default();
@@ -447,7 +431,6 @@ mod tests {
         assert_eq!(store.load(), Ok(config));
     }
 
-    /// Cache 契约：miss → set → hit，且不同 key 互不可见。
     #[test]
     fn cache_mock_stores_and_isolates_keys() {
         let cache = MemoryCache::default();
@@ -457,8 +440,6 @@ mod tests {
         assert!(cache.get(2).is_none(), "unrelated key must not see entry");
     }
 
-    /// HotkeyBinder 契约：桩按序记下每次收到的绑定表，并如实回报生效条数。
-    /// 「从未调用」也要可区分——否则「保存没触发重注册」会被误判为通过。
     #[test]
     fn hotkey_binder_mock_records_every_call() {
         let binder = RecordingHotkeyBinder::default();
@@ -487,7 +468,6 @@ mod tests {
         assert_eq!(binder.rebind(&[]), 0, "an empty table applies nothing");
     }
 
-    /// AiEngine 契约：桩按脚本吐出流式增量，流可完整消费。
     #[tokio::test]
     async fn ai_engine_mock_streams_scripted_deltas() {
         let engine = ScriptedEngine(vec![Ok("光".into()), Ok("泽".into())]);
@@ -503,14 +483,12 @@ mod tests {
         assert_eq!(seen, "光泽");
     }
 
-    /// TaskStream 构造助手：空脚本产出立即结束的流。
     #[tokio::test]
     async fn delta_stream_ends_without_chunks() {
         let mut stream = delta_stream(Vec::new());
         assert!(stream.next().await.is_none());
     }
 
-    /// 失败增量能穿透 TaskStream：Err chunk 按序到达，流随后正常结束。
     #[tokio::test]
     async fn delta_stream_carries_failure_chunks() {
         let mut stream = delta_stream(vec![

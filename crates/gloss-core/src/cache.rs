@@ -37,10 +37,6 @@ pub fn cache_key(task: &Task, model: &str) -> u64 {
 /// [`Cache`] 端口的 moka 内存实现：线程安全，`get`/`set` 可从任意线程
 /// 调用（tokio 侧与事件线程共用同一实例）。
 ///
-/// 取舍说明：moka 的 sync cache 没有专职维护线程，逐出/过期由调用线程
-/// 内联执行（写入阈值或周期触发），写通道满时 `insert` 会短暂等待——
-/// async 场景理论上会阻塞 tokio worker 一瞬。桌面单用户 + 256 条的规模
-/// 下实际影响可忽略，MVP 接受；若将来规模上去再换 future 异步面。
 #[derive(Debug)]
 pub struct MokaCache {
     inner: moka::sync::Cache<u64, TaskOutcome>,
@@ -113,7 +109,6 @@ mod tests {
         }
     }
 
-    /// 验收标准：同一文本不同 kind 不共享缓存。
     #[test]
     fn same_text_different_kinds_do_not_share_cache() {
         let word = cache_key(&text_task(TaskKind::TranslateWord, "gloss"), "m1");
@@ -129,7 +124,6 @@ mod tests {
         assert_eq!(cache.get(word).map(|o| o.body), Some("词卡产物".into()));
     }
 
-    /// 模型 id 参与派生：换模型不命中旧产物（M4 配置切换的前提）。
     #[test]
     fn model_id_participates_in_key() {
         let a = cache_key(&text_task(TaskKind::TranslateWord, "gloss"), "m1");
@@ -137,7 +131,6 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    /// 输入差异必须反映在 key 上（hint、options 同理走完整序列化）。
     #[test]
     fn input_and_options_participate_in_key() {
         let mut hinted = text_task(TaskKind::ExplainCode, "fn main() {}");
@@ -158,8 +151,6 @@ mod tests {
         );
     }
 
-    /// 验收标准：TTL 过期生效（moka 的过期判定是惰性的，用
-    /// run_pending_tasks 强制同步）。
     #[test]
     fn ttl_expiry_takes_effect() {
         let cache = MokaCache::with_ttl(Duration::from_millis(60));
@@ -172,7 +163,6 @@ mod tests {
         assert!(cache.get(key).is_none(), "expired entry must be gone");
     }
 
-    /// 序列化失败回退路径：含 NaN 的 Audio 输入也能得到稳定 key。
     #[test]
     fn cache_key_falls_back_when_serialization_fails() {
         let audio = |hint: Option<f32>| Task {

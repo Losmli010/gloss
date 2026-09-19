@@ -1,15 +1,6 @@
 //! 配置模型：`Config` 结构、出厂默认与查找助手。
 //!
-//! 与设计草案的偏差（字段一一对应，仅类型收窄）：
-//! - `provider_keys` / `model_by_kind` 由元组数组改为命名字段结构——
-//!   配置文件面向用户手改，TOML 的 `[[provider_keys]]` 段落比二元数组可读；
-//! - `target_lang` 由 `String` 收窄为 [`Lang`]——与 `TaskOptions::target_lang`
-//!   同型，避免运行时二次解析。
-//!
-//! 反序列化不带 `deny_unknown_fields`：未知键被静默忽略，换取配置文件的
-//! 向前兼容；手改配置时注意键名拼写。
-//!
-//! 密钥红线（06 ADR）：配置里只存 keychain 条目标识，密钥本体永不进
+//! 密钥红线：配置里只存 keychain 条目标识，密钥本体永不进
 //! `Config`——运行时整份快照可被任意线程读取，不能携带凭据。
 
 use std::sync::OnceLock;
@@ -276,7 +267,6 @@ mod tests {
 
     use super::*;
 
-    /// 出厂默认值契约：与热键写死默认对齐的抽查。
     #[test]
     fn factory_defaults_match_spec() {
         let config = Config::default();
@@ -287,8 +277,6 @@ mod tests {
         assert_eq!(config.theme, Theme::System);
         assert_eq!(config.base_url, DEFAULT_BASE_URL);
 
-        // 文本任务装完即可用（只差 keychain 里那把钥匙）；图像任务留空，
-        // 免得拿文本模型去接图像任务。
         assert_eq!(
             config.resolved_model(TaskKind::TranslateWord),
             Some(DEFAULT_TEXT_MODEL)
@@ -330,8 +318,6 @@ mod tests {
         );
     }
 
-    /// 完整自定义配置经 serde 往返无损（含 `Lang::Other` 携载数据的
-    /// 变体）；TOML 形态的往返由 platform 侧 storage 测试覆盖。
     #[test]
     fn config_round_trips_through_serde() {
         let config = Config {
@@ -367,7 +353,6 @@ mod tests {
         assert_eq!(back, config);
     }
 
-    /// 验收标准：手改配置缺字段时按出厂默认补齐，不允许半份配置。
     #[test]
     fn partial_document_fills_factory_defaults() {
         let config: Config =
@@ -376,19 +361,15 @@ mod tests {
         assert_eq!(config.target_lang, Lang::Zh, "missing field must default");
         assert_eq!(config.cache_ttl_secs, 60 * 60);
         assert_eq!(config.hotkey_bindings.len(), 3);
-        // 端点与 provider 条目也是缺字段时的出厂值（M4-T4 新增）。
         assert_eq!(config.base_url, DEFAULT_BASE_URL);
         assert_eq!(config.resolved_provider().provider, "deepseek");
         assert_eq!(
             config.resolved_model(TaskKind::TranslateWord),
             Some(DEFAULT_TEXT_MODEL)
         );
-        // 任务开关缺字段按全启用补齐（M4-T6；老配置没有这个键）。
         assert!(ALL_KINDS.iter().all(|&kind| config.is_kind_enabled(kind)));
     }
 
-    /// 任务开关语义：显式空表 = 全部停用（与 `provider_keys` 的「显式空
-    /// 保持为空」同一条 serde 规则的两面）。
     #[test]
     fn explicit_empty_enabled_kinds_disables_everything() {
         let config: Config =
@@ -399,9 +380,6 @@ mod tests {
         );
     }
 
-    /// 两条语义要分清：**缺失**字段走出厂默认（老版本没写过的键），**显式空
-    /// 数组**保持为空（M4-T3 时代落盘的 `provider_keys = []` 就是这样）——后者
-    /// 由 `resolved_provider` / `resolved_model` 兜底，老用户不会卡在配置错误上。
     #[test]
     fn missing_fields_default_while_explicit_empty_stays_empty() {
         let cleared: Config = serde_json::from_str(r#"{"provider_keys": [], "model_by_kind": []}"#)
@@ -426,8 +404,6 @@ mod tests {
         );
     }
 
-    /// 划词路径的 kind 收口：配置里写成图像 kind（手改误配）时回退
-    /// TranslateWord——划词只取得到文本，图像 kind 必被模态校验拒。
     #[test]
     fn selection_kind_falls_back_for_image_kinds() {
         let misconfigured = Config {
@@ -447,8 +423,6 @@ mod tests {
         assert_eq!(text_config.selection_task_kind(), TaskKind::ExplainCode);
     }
 
-    /// 出厂 TTL 与缓存实现同源：一条断言把两处钉在一起（此前只有注释声称
-    /// 一致，改一边不会有人红）。
     #[test]
     fn default_cache_ttl_matches_cache_implementation() {
         assert_eq!(
@@ -457,8 +431,6 @@ mod tests {
         );
     }
 
-    /// 任务开关与模型表的编辑助手（设置页落点）：启用不重复追加、停用可
-    /// 幂等移除；模型条目按 kind 整体重建，空白视为未配置。
     #[test]
     fn edit_helpers_keep_tables_canonical() {
         let mut config = Config::default();
@@ -504,7 +476,6 @@ mod tests {
         );
     }
 
-    /// 查找助手：后条覆盖前条；未配置返回 None。
     #[test]
     fn lookups_prefer_later_entries() {
         let config = Config {

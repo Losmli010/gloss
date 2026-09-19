@@ -6,10 +6,8 @@
 //! 可见层。组装点把同一句柄注入两侧（app 在 M4-T3、platform 在 M4-T4）。
 //!
 //! **模型不经此解析**：引擎从 `EngineRequest::model` 取模型（App 已在触发时按
-//! `Config::resolved_model` 解析并随请求携带），不读快照——否则「缓存 key 用的
-//! 模型」与「实际请求的模型」可能来自两份快照（见 [`crate::ports::AiEngine`]）。
-//! 引擎读快照的只有端点与 provider 条目：这两者不参与缓存 key，每请求取一次
-//! 反而让改端点无需重启。
+//! `Config::resolved_model` 解析并随请求携带），不读快照。
+//! 引擎读快照的只有端点与 provider 条目：这两者不参与缓存 key。
 //!
 //! 三条不变量：
 //! - **读路径零锁**：`snapshot` 是 `ArcSwap::load_full`，不碰任何锁；`save_lock`
@@ -120,7 +118,6 @@ mod tests {
 
     use super::*;
 
-    /// 版本 A：目标语言日语 + TTL 111（成对字段，用于识别「半个版本」）。
     fn version_a() -> Config {
         Config {
             target_lang: Lang::Ja,
@@ -129,7 +126,6 @@ mod tests {
         }
     }
 
-    /// 版本 B：目标语言英语 + TTL 222。
     fn version_b() -> Config {
         Config {
             target_lang: Lang::En,
@@ -138,7 +134,6 @@ mod tests {
         }
     }
 
-    /// 装配期：首份快照就是存储里那份配置。
     #[test]
     fn load_takes_first_snapshot_from_store() {
         let store = Arc::new(MemoryConfigStore::default());
@@ -148,7 +143,6 @@ mod tests {
         assert_eq!(*handle.snapshot(), version_a());
     }
 
-    /// 验收标准：保存 = 写文件 + 原子替换快照——两条路径都拿到新版本。
     #[test]
     fn save_writes_through_and_swaps_snapshot() {
         let store = Arc::new(MemoryConfigStore::default());
@@ -168,7 +162,6 @@ mod tests {
         );
     }
 
-    /// 落盘失败不得推进运行时视图：磁盘是唯一真相，内存不先行。
     #[test]
     fn failed_save_keeps_previous_snapshot() {
         let store = Arc::new(
@@ -188,9 +181,6 @@ mod tests {
         );
     }
 
-    /// 降级路径的两条分支：存储里有配置就用它当首份快照（生产每次启动都
-    /// 走这条），存储报错（配置损坏）才退到出厂默认。两条并列，避免「无脑
-    /// 返回出厂默认」的错误实现蒙混通过。
     #[test]
     fn load_or_default_uses_store_snapshot_or_falls_back() {
         let store = Arc::new(MemoryConfigStore::default());
@@ -210,7 +200,6 @@ mod tests {
         assert_eq!(*fallback.snapshot(), Config::default());
     }
 
-    /// 装配期硬错误：加载失败且调用方要求传播时，错误原样上抛。
     #[test]
     fn load_propagates_store_failure() {
         let store = Arc::new(
@@ -222,8 +211,6 @@ mod tests {
         assert!(matches!(err, GlossError::Config(_)), "got: {err:?}");
     }
 
-    /// 换版本对别的线程可见（事件同步点，不靠等够久）：写方 save 完成后用
-    /// channel 放行读方，读方必须拿到新版本。
     #[test]
     fn saved_version_is_visible_from_another_thread() {
         let store = Arc::new(MemoryConfigStore::default());
@@ -247,9 +234,6 @@ mod tests {
         );
     }
 
-    /// 并发读写下每个快照都是**某个完整版本**（回归护栏：有人把快照替换改成
-    /// 逐字段改就会红）。读者与写者用 Barrier 对齐起跑，读者统计实际读取次数，
-    /// 避免「读者一次没跑到也算过」的空转通过。
     #[test]
     fn concurrent_readers_never_see_a_mixed_version() {
         const READERS: usize = 4;
@@ -268,7 +252,6 @@ mod tests {
                 std::thread::spawn(move || {
                     let mut consistent = true;
                     barrier.wait();
-                    // 先读再判结束：读者至少观察一份快照，测试不因调度快慢空转。
                     loop {
                         consistent &= is_whole_version(&handle.snapshot());
                         reads.fetch_add(1, Ordering::Relaxed);
@@ -299,15 +282,12 @@ mod tests {
         assert_eq!(*handle.snapshot(), version_b(), "last save wins");
     }
 
-    /// 版本完整性判据：目标语言与 TTL 必须成对来自同一版（A 或 B）。
     fn is_whole_version(config: &Config) -> bool {
         let is_a = config.target_lang == Lang::Ja && config.cache_ttl_secs == 111;
         let is_b = config.target_lang == Lang::En && config.cache_ttl_secs == 222;
         is_a || is_b
     }
 
-    /// 并发保存被写侧临界区串行化：全部结束后磁盘与内存是同一版（回归：
-    /// 两步写入不加临界区时，交错可让磁盘与内存各留一版）。
     #[test]
     fn concurrent_saves_keep_disk_and_snapshot_in_step() {
         let store = Arc::new(MemoryConfigStore::default());

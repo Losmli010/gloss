@@ -212,8 +212,6 @@ mod tests {
         }
     }
 
-    /// 验收标准：可调延迟模拟真实流式——三个 chunk 的总耗时下界为两段
-    /// chunk 间延迟。
     #[tokio::test]
     async fn chunk_delay_paces_the_stream() {
         let engine = MockEngine::new()
@@ -234,7 +232,6 @@ mod tests {
         );
     }
 
-    /// 验收标准：可注入各类 GlossError——execute 整体失败与流中失败两路。
     #[tokio::test]
     async fn failures_are_injectable() {
         for error in [
@@ -262,13 +259,10 @@ mod tests {
             Some(Err(GlossError::EngineNetwork)),
             "mid-stream failure must surface in order"
         );
-        // 流本身按脚本播完，Err 只是普通增量——在 Err 处截断是编排层
-        // （AiTaskService）的职责，见 engine::tests。
         assert_eq!(stream.next().await, Some(Ok("流继续".into())));
         assert!(stream.next().await.is_none(), "stream ends at script end");
     }
 
-    /// 调用计数：缓存命中断言（T6 测试）的基础。
     #[tokio::test]
     async fn call_count_tracks_execute_invocations() {
         let engine = MockEngine::new().with_chunks(vec![Ok("x".into())]);
@@ -279,13 +273,11 @@ mod tests {
         }
         assert_eq!(engine.call_count(), 1);
 
-        // 克隆共享同一计数。
         let cloned = engine.clone();
         let _ = cloned.execute(&sample_request()).await.expect("stream");
         assert_eq!(engine.call_count(), 2);
     }
 
-    /// 空脚本产出立即结束的流（全缓存命中路径的边界）。
     #[tokio::test]
     async fn empty_script_yields_empty_stream() {
         let engine = MockEngine::new();

@@ -56,7 +56,7 @@ const MAX_LOG_FILES: usize = 7;
 
 static INIT: Once = Once::new();
 static FILE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
-/// 非阻塞写盘的 guard：必须活到进程结束，否则队列里未落盘的日志会被丢掉。
+/// 非阻塞写盘的 guard：必须活到进程结束。
 static FILE_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
 /// 初始化全局日志：`info` 打底，`RUST_LOG` 在其之上追加或覆盖。
@@ -120,7 +120,6 @@ mod tests {
 
     use super::{FILE_PREFIX, build_filter, init, open_file_writer};
 
-    /// 每个用例独占一个临时目录，避免并行跑测试时互相踩。
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("gloss-log-{name}"));
         let _ = fs::remove_dir_all(&dir);
@@ -177,7 +176,6 @@ mod tests {
 
     #[test]
     fn file_writer_degrades_when_directory_is_unusable() {
-        // 路径上蹲着一个常规文件，建目录必然失败
         let path = temp_dir("blocked");
         fs::write(&path, b"not a directory").expect("probe file should be writable");
 
