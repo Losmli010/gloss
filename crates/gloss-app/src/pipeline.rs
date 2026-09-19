@@ -143,7 +143,7 @@ fn panic_detail(payload: &Box<dyn std::any::Any + Send>) -> String {
 
 /// 模型 id：任务自带（App 在触发时按 `Config::resolved_model` 解析）。
 ///
-/// 留空表示该 kind 没有可用模型——图像类未配视觉模型时就是这种情形（M5-T4
+/// 留空表示该 kind 没有可用模型——图像类未配视觉模型时就是这种情形（
 /// 接线后由它配视觉模型）。这里**明确失败**而不是退回文本模型：拿 `deepseek-chat`
 /// 去接图像任务，用户看到的是服务端 400，与「去设置页配模型」的引导完全相反
 /// （与 `Config::resolved_model` 的取舍一致）。文本 kind 的兜底只服务直接构造

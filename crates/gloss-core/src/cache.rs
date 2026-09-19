@@ -1,4 +1,4 @@
-//! Cache 端口的内存实现：moka LRU + TTL（M3-T5）。
+//! Cache 端口的内存实现：moka LRU + TTL。
 //!
 //! key 由 [`cache_key`] 统一派生（kind, input, options, model 的规范化序
 //! 列化摘要）——同一文本在不同任务类型/模型下不共享缓存。

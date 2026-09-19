@@ -1,4 +1,4 @@
-//! mock AiEngine（M3-T7）：按脚本吐预置流式 chunk 的假引擎。
+//! mock AiEngine：按脚本吐预置流式 chunk 的假引擎。
 //!
 //! 供 core 单测（cfg(test)）与下游 crate 的 dev-dependencies
 //! （开 `test-util` 特性）使用，验收 M3 出口标准与 T6/T8 的全链路测试：

@@ -8,7 +8,7 @@
 //! pump 下发事件线程；脱离主线程创建会让事件分发落不到在跑的事件循环上，
 //! 表现为热键不可用。
 //!
-//! 绑定来自配置（M4-T7）：registrar 启动时按 `Config::hotkey_bindings` 建表，
+//! 绑定来自配置：registrar 启动时按 `Config::hotkey_bindings` 建表，
 //! 设置页保存后经 [`HotkeyBinder`] 端口重绑定。**重绑定同样必须在主线程
 //! 调用**（注销与注册是同一类亲和调用），这也是该端口不加 `Send + Sync` 的
 //! 原因。表本身与事件线程的 pump 共享（`Arc<RwLock<..>>`）：换表后 pump 立刻
@@ -46,7 +46,7 @@ pub struct HotkeyRegistrar {
 }
 
 impl HotkeyRegistrar {
-    /// 按给定绑定表注册。绑定来自配置（M4-T7 起不再有写死的默认表：
+    /// 按给定绑定表注册。绑定来自配置（不再有写死的默认表：
     /// 出厂默认在 `gloss_core::config`，与设置页可编辑的是同一份）。
     pub fn new(bindings: impl IntoIterator<Item = HotkeyBinding>) -> Self {
         let manager = match GlobalHotKeyManager::new() {
@@ -95,7 +95,7 @@ impl HotkeyRegistrar {
     }
 }
 
-/// 重绑定（端口实现，M4-T7）：**只在主线程调用**（见模块注释的线程亲和
+/// 重绑定（端口实现）：**只在主线程调用**（见模块注释的线程亲和
 /// 约束）。返回**真正注册成功**的条数——少于入参说明有绑定被跳过或降级，
 /// 管理器不可用时恒为 0（表照填，见 [`register_all`] 的注释）。
 ///

@@ -64,7 +64,7 @@ pub trait RegionCapture: Send {
 pub struct EngineRequest {
     /// 任务类型：引擎侧只用于诊断与能力判断，不参与渲染。
     pub kind: TaskKind,
-    /// 渲染好的消息（多模态 content 数组随 M5-T4 扩展）。
+    /// 渲染好的消息（多模态 content 数组随图像任务扩展）。
     pub messages: Vec<ChatMessage>,
     /// 本任务使用的模型 id（App 在触发时按配置解析）。
     pub model: String,
@@ -114,7 +114,7 @@ pub trait ConfigStore: Send + Sync {
     fn delete_secret(&self, key: &str) -> Result<(), GlossError>;
 }
 
-/// 缓存（端口）：core 内置 moka 内存实现（M3-T5）。
+/// 缓存（端口）：core 内置 moka 内存实现。
 ///
 /// key = hash(kind, input, options, model)——同一文本在不同任务下不共享
 /// 缓存；调用方保证 key 由统一哈希函数派生，且派生函数须抗碰撞。
@@ -125,7 +125,7 @@ pub trait Cache: Send + Sync {
     fn set(&self, key: u64, value: TaskOutcome);
 }
 
-/// 热键重绑定（端口，M4-T7）：把配置里的绑定表交给平台侧注册。
+/// 热键重绑定（端口）：把配置里的绑定表交给平台侧注册。
 ///
 /// 与其余端口不同，本端口**有意不加 `Send + Sync`**——热键的注册与注销
 /// 必须在创建管理器的线程上执行：后端要求主线程跑 NSApp 事件循环，`Drop`
@@ -288,7 +288,7 @@ pub mod mocks {
     ///
     /// 与真实实现不同，它不接触任何平台资源。观测点是「调用发生过」与
     /// 「收到的是哪份绑定表」，注入点是调用次数（首次装配不调、保存成功
-    /// 才调），够覆盖 M4-T7 的接线契约；真实的降级行为（键被别的应用占用
+    /// 才调），够覆盖接线契约；真实的降级行为（键被别的应用占用
     /// 而跳过、管理器不可用）由 gloss-platform 的 registrar 单测覆盖。
     #[derive(Default)]
     pub struct RecordingHotkeyBinder {

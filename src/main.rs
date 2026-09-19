@@ -71,7 +71,7 @@ fn log_dir() -> Option<PathBuf> {
 type ConfigWiring = (Arc<ConfigHandle>, Arc<dyn ConfigStore>);
 
 /// 装配配置句柄（启动骨架第 2 步）：配置文件走标准配置目录的
-/// `config.toml`，密钥走系统安全存储（M4-T2）。
+/// `config.toml`，密钥走系统安全存储。
 ///
 /// 唯一必须成功的失败是「拿不到配置目录」——那时无处读写配置，属启动硬
 /// 错误；文档本身损坏由 `ConfigHandle::load_or_default` 降级为出厂默认
@@ -150,7 +150,7 @@ fn run_event_loop(
 
     // 热键 registrar 必须创建在主线程（后端的事件注册与 Drop 清理亲和
     // 创建线程，见 hotkey.rs 模块注释），并存活至进程退出。
-    // 绑定取自启动时那份配置快照（M4-T7）：出厂默认与设置页改的是同一份
+    // 绑定取自启动时那份配置快照：出厂默认与设置页改的是同一份
     // 表，本文件不再有第二份写死的默认。
     let registrar = Arc::new(HotkeyRegistrar::new(
         config.snapshot().hotkey_bindings.iter().cloned(),

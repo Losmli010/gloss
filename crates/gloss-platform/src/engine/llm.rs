@@ -1,4 +1,4 @@
-//! LlmClient：OpenAI 兼容端点的流式引擎适配器（M4-T4）。
+//! LlmClient：OpenAI 兼容端点的流式引擎适配器。
 //!
 //! 边界：**只负责把请求送出去、把响应流回来**。messages 由 core 编排渲染
 //! （`AiTaskService` → `PromptRegistry`，含模态校验），模型也已由 App 按配置
@@ -109,7 +109,7 @@ impl AiEngine for LlmClient {
                 return Err(GlossError::EngineResponse("empty request".into()));
             }
             // 空白模型同样是配置问题：发了也是必然 400 的请求，还会把病因
-            // 藏进服务端的错误文案里（手改 model_by_kind 或 M4-T6 存了空串）。
+            // 藏进服务端的错误文案里（手改 model_by_kind 或设置页存了空串）。
             if model.trim().is_empty() {
                 return Err(GlossError::Config("empty model id".into()));
             }

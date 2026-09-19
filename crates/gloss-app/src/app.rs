@@ -179,10 +179,10 @@ struct GlossApp {
     /// 任务状态机（functional core，见 machine.rs）：纯状态转移，壳只做
     /// 通道发送、浮层窗口操作与日志。
     machine: TaskStateMachine,
-    /// 运行时配置句柄（M4-T3）：每批平台事件取一份快照交给状态机，
+    /// 运行时配置句柄：每批平台事件取一份快照交给状态机，
     /// 配置保存后无需重启即对下一次触发生效。
     config: Arc<ConfigHandle>,
-    /// 配置存储（M4-T6）：设置页写 keychain 用——文档半边走句柄，密钥
+    /// 配置存储：设置页写 keychain 用——文档半边走句柄，密钥
     /// 半边不进快照也不进句柄，经这里直查。
     store: Arc<dyn ConfigStore>,
     /// 设置窗口的渲染帧；随窗口栈在 `resumed` 时建好，隐藏期保留。
@@ -190,7 +190,7 @@ struct GlossApp {
     /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
     /// 之丢弃）。
     settings: Option<SettingsState>,
-    /// 热键重绑定端口（M4-T7）：设置页保存后在主线程同步调用，不走通道。
+    /// 热键重绑定端口：设置页保存后在主线程同步调用，不走通道。
     hotkeys: Arc<dyn HotkeyBinder>,
     /// 已施加到两个 egui 上下文的主题偏好；`None` 表示还没施加过。
     applied_theme: Option<egui::ThemePreference>,
@@ -352,12 +352,12 @@ impl GlossApp {
             "settings saved, effective on the next trigger"
         );
         // 热键不受「下一次触发才生效」约束：注册是平台侧的即时动作，保存
-        // 成功即按新表重注册（M4-T7）。
+        // 成功即按新表重注册。
         self.rebind_hotkeys();
         self.close_settings();
     }
 
-    /// 按当前快照重注册热键（M4-T7）：绑定读自刚换上的快照。个别绑定被
+    /// 按当前快照重注册热键：绑定读自刚换上的快照。个别绑定被
     /// 占用时按 [`HotkeyBinder`] 的降级契约告警跳过，保存不整体失败。
     fn rebind_hotkeys(&self) {
         let bindings = self.config.snapshot().hotkey_bindings.clone();
@@ -370,7 +370,7 @@ impl GlossApp {
         );
     }
 
-    /// 把配置里的主题偏好施加到两个 egui 上下文（M4-T7）：偏好变化时才写，
+    /// 把配置里的主题偏好施加到两个 egui 上下文：偏好变化时才写，
     /// 两个上下文各写一次。
     fn apply_theme(&mut self) {
         let preference = theme_preference(self.config.snapshot().theme);
@@ -433,7 +433,7 @@ impl GlossApp {
             .as_ref()
             .map_or(Vec::new(), |e| e.platform_events.try_iter().collect());
         for event in events {
-            // 设置入口（M4-T6）：托盘/热键与浮层失败卡共用同一条路；不占
+            // 设置入口：托盘/热键与浮层失败卡共用同一条路；不占
             // 用代数（与未接线事件一样不进状态机）。
             if matches!(event, PlatformEvent::OpenSettingsRequested) {
                 info!(thread = thread::UI, "settings open requested");
@@ -479,7 +479,7 @@ impl GlossApp {
     /// 丢弃，浮层只显示最后一次请求的结果。状态决策在 machine，壳只做
     /// 通道发送、浮层展示与日志。
     ///
-    /// 浮层「什么时候自动露面」由 `auto_show` 决定（M4-T7），策略本身抽在
+    /// 浮层「什么时候自动露面」由 `auto_show` 决定，策略本身抽在
     /// [`auto_show_for`] / [`auto_show_after`] 这两个纯函数里。它是壳侧的
     /// 展示开关，不随任务下发、也不参与缓存 key，因此不像任务选项那样在
     /// 触发时冻结——按到达时的快照读即可。
@@ -731,7 +731,7 @@ fn event_kind(event: &Event) -> EventKind {
     }
 }
 
-/// 单个回传事件后浮层要不要自动露面（M4-T7 的 `auto_show` 策略）。
+/// 单个回传事件后浮层要不要自动露面（`auto_show` 策略）。
 ///
 /// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
 fn auto_show_for(kind: EventKind, auto_show: bool, accepted: bool) -> bool {
@@ -1130,7 +1130,7 @@ mod tests {
         assert!(cmd_rx.try_recv().is_err(), "no re-dispatch for settings");
         assert!(
             app.settings.is_some(),
-            "the open-settings action must start the edit session (M4-T6)"
+            "the open-settings action must start the edit session"
         );
     }
 

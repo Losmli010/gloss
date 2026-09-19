@@ -1,9 +1,9 @@
-//! 运行时配置共享与保存（M4-T3）：`ArcSwap<Config>` 快照替换。
+//! 运行时配置共享与保存：`ArcSwap<Config>` 快照替换。
 //!
 //! 落在 core 而不是 app：gloss-app 与 gloss-platform 都要读同一份快照（应用
 //! 侧在触发时解析任务选项；platform 侧的引擎每请求读端点与 keychain 条目
 //! 标识），而 platform 只依赖 core（依赖方向红线）——句柄必须放在两者共同的
-//! 可见层。组装点把同一句柄注入两侧（app 在 M4-T3、platform 在 M4-T4）。
+//! 可见层。组装点把同一句柄注入 app 与 platform 两侧。
 //!
 //! **模型不经此解析**：引擎从 `EngineRequest::model` 取模型（App 已在触发时按
 //! `Config::resolved_model` 解析并随请求携带），不读快照。

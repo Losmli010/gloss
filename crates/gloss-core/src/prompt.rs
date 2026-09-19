@@ -2,7 +2,7 @@
 //!
 //! 文本任务 3 个模板（词卡/句译/代码解释）统一输出契约：markdown 正文 +
 //! 末尾 ```gloss 围栏 JSON 块（按 kind 携带 [`crate::task::OutcomeStructured`]
-//! 的结构化字段），供任务编排（M3-T6）解析——正文给人读，JSON 给 UI 精排。
+//! 的结构化字段），供任务编排解析——正文给人读，JSON 给 UI 精排。
 //! 图像/音频输入一律 [`GlossError::UnsupportedModality`]，
 //! 不发出注定无效的请求。
 //!
@@ -40,7 +40,7 @@ pub enum Role {
 pub struct ChatMessage {
     /// 消息角色。
     pub role: Role,
-    /// 消息正文（多模态 content 数组随 M5-T4 引入）。
+    /// 消息正文（多模态 content 数组随图像任务引入）。
     pub content: String,
 }
 
@@ -62,7 +62,7 @@ impl ChatMessage {
 
 /// Prompt 模板注册表：内置文本任务模板，无状态可按需构造。
 ///
-/// M4-T7 配置化（自定义模板/热键绑定）落地时在此扩展注册机制。
+/// 配置化（自定义模板/热键绑定）落地时在此扩展注册机制。
 #[derive(Debug, Default, Clone, Copy)]
 pub struct PromptRegistry;
 
@@ -77,7 +77,7 @@ impl PromptRegistry {
     pub fn render(&self, task: &Task) -> Result<Vec<ChatMessage>, GlossError> {
         validate_modality(task.kind, &task.input)?;
         let TaskInput::Text { text, hint } = &task.input else {
-            // 图像模板随 M5-T4 落地；音频是预留模态，模态校验已拦，
+            // 图像模板随图像任务落地；音频是预留模态，模态校验已拦，
             // 这里对图像输入显式收口。
             return Err(GlossError::UnsupportedModality);
         };
@@ -313,7 +313,7 @@ mod tests {
         assert_eq!(
             registry.render(&task),
             Err(GlossError::UnsupportedModality),
-            "image template lands with M5-T4"
+            "image template lands with vision task"
         );
     }
 

@@ -94,7 +94,7 @@ pub struct ModelBinding {
 }
 
 /// 出厂默认模型表：文本类任务先给出可用默认（用户装完只差一把钥匙），
-/// 图像类留空——视觉模型随 M5-T4 接入，未配置时由引擎报能力不匹配。
+/// 图像类留空——视觉模型随图像任务接入，未配置时由引擎报能力不匹配。
 fn default_model_bindings() -> Vec<ModelBinding> {
     [
         TaskKind::TranslateWord,
@@ -114,10 +114,10 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// 手改配置缺字段时按出厂默认补齐，不允许半份配置带病运行。
 ///
 /// 落点（改动本节时同步更新）：`target_lang` / `model_by_kind` /
-/// `default_text_kind` 已在 M4-T3 接线（触发时解析进任务）；`base_url` /
-/// `provider_keys` 已在 M4-T4 接线（引擎每请求解析端点、按条目直查 keychain）；
-/// `enabled_kinds` 已在 M4-T6 接线（触发时过滤）；`hotkey_bindings` /
-/// `theme` / `auto_show` 已在 M4-T7 接线（保存后重注册热键；主题施加到两个
+/// `default_text_kind` 已接线（触发时解析进任务）；`base_url` /
+/// `provider_keys` 已接线（引擎每请求解析端点、按条目直查 keychain）；
+/// `enabled_kinds` 已接线（触发时过滤）；`hotkey_bindings` /
+/// `theme` / `auto_show` 已接线（保存后重注册热键；主题施加到两个
 /// egui 上下文；auto_show 决定浮层何时自动露面）——这三项都**不**在触发时
 /// 冻结；`cache_ttl_secs` 归缓存构造接线。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -204,7 +204,7 @@ impl Config {
     ///
     /// 划词路径只取得到文本，图像 kind 到引擎必被模态校验拒（`TaskFailed`），
     /// 用户看到的会是与病因无关的提示——配置格式合法不代表组合可用，这里
-    /// 按取材源收口。图像取材是 M5-T3 的框选路径，届时由它消费
+    /// 按取材源收口。图像取材的框选路径落地时由它消费
     /// `hotkey_bindings` 里的 `InputSource::Region` 绑定，不受本方法影响。
     pub fn selection_task_kind(&self) -> TaskKind {
         if self.default_text_kind.accepts_text() {
@@ -226,7 +226,7 @@ impl Config {
 
     /// 本任务实际使用的模型 id：`model_by_kind` 配了就用它，否则文本类任务
     /// 退回出厂默认 [`DEFAULT_TEXT_MODEL`]；图像类未配置时返回 `None`——
-    /// 视觉模型随 M5-T4 接入，不猜一个文本模型去接图像任务。
+    /// 视觉模型随图像任务接入，不猜一个文本模型去接图像任务。
     pub fn resolved_model(&self, kind: TaskKind) -> Option<&str> {
         self.model_for_kind(kind)
             .or_else(|| kind.accepts_text().then_some(DEFAULT_TEXT_MODEL))
@@ -243,9 +243,9 @@ impl Config {
     /// keychain 条目标识，不带密钥），因此**恒有值**——真正的失败面是「条目指
     /// 向的密钥没设」（`EngineAuth`，UI 引导去设置页）。
     ///
-    /// 兜底不只是「方便」：M4-T3 时代的出厂值是空数组，而 `#[serde(default)]`
+    /// 兜底不只是「方便」：旧版本落盘的出厂值是空数组，而 `#[serde(default)]`
     /// 只补缺失字段——那批机器上落盘的 `provider_keys = []` 会一直留着，设置页
-    /// （M4-T6）之前又没有改它的 UI；`resolved_model` 对同一类问题已有对称兜底。
+    /// 落地前又没有改它的 UI；`resolved_model` 对同一类问题已有对称兜底。
     pub fn resolved_provider(&self) -> &ProviderKey {
         self.active_provider()
             .unwrap_or_else(|| FACTORY_PROVIDER.get_or_init(factory_provider))

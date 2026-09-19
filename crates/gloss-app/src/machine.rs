@@ -52,7 +52,7 @@ pub enum AppState {
 }
 
 /// 浮层内容视图：状态机的可视化投影，由 `ui::popup` 按 TaskKind 分发
-/// 渲染（M3-T9）。
+/// 渲染。
 #[derive(Debug, Clone, PartialEq)]
 pub enum OverlayView {
     /// 取材/推理中：原文 + 已到达的流式正文（含结构化块的原始流，渲染
@@ -158,7 +158,7 @@ impl TaskStateMachine {
         // kind 从命令里取（两个变体都携带），选项按同一个 kind 从**同一份**
         // 快照解析——这里是「单次任务内配置一致」的实现点。
         //
-        // `CaptureRegion` 是 M5-T3 的预留：今天 `trigger` 不会返回它
+        // `CaptureRegion` 是框选取材的预留：今天 `trigger` 不会返回它
         // （`acquire_command_for` 对 Region 返回 None）。接线时必须同时让
         // `accept_input` 接纳 `TaskInput::Image`，否则任务会卡在 `Fetching`
         // 且不弹浮层（`accept_input` 只收文本）。
@@ -352,7 +352,7 @@ fn error_message(error: &GlossError) -> String {
 }
 
 /// 错误 → 失败卡动作（映射表）：网络/限流可原样重试；鉴权、模态
-/// 与配置错误都要进设置页才能修（模型绑定、密钥的修改入口在 M4-T6 落
+/// 与配置错误都要进设置页才能修（模型绑定、密钥的修改入口在设置页）：
 /// 地）；其余类别没有按钮意义上的出口——权限类引导已写在文案里，协议
 /// 异常重发同一个请求只会再错一次。
 fn error_action(error: &GlossError) -> Option<ErrorAction> {
@@ -387,7 +387,7 @@ fn acquire_command_for(
 ) -> Option<AcquireCommand> {
     match event {
         PlatformEvent::HotkeyTriggered { binding } => {
-            // 任务开关（M4-T6）：停用的 kind 对一切触发路径无响应，且不
+            // 任务开关：停用的 kind 对一切触发路径无响应，且不
             // 占用代数——与未接线事件同一出口。
             if !config.is_kind_enabled(binding.kind) {
                 return None;
