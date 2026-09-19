@@ -95,7 +95,7 @@ impl AiTaskService {
 /// 剥离边界：定位**最后一个**围栏标记，其后（含闭合围栏与契约外尾随
 /// 文字）一律不进正文——正常输出契约下模型不会有尾随内容；回退路径
 /// 则无损保留全文（不做有损剥离）。
-fn parse_structured(kind: TaskKind, body: &str) -> (String, OutcomeStructured) {
+pub fn parse_structured(kind: TaskKind, body: &str) -> (String, OutcomeStructured) {
     let fallback = || -> (String, OutcomeStructured) {
         let owned = body.to_owned();
         let structured = match kind {

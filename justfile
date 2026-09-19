@@ -72,6 +72,10 @@ setup:
 icons:
     ./scripts/dev/build-app-icon.sh
 
+# 跑 gloss-core 热点基准（criterion；报告与历史数据在 target/criterion）
+bench:
+    cargo bench --bench core
+
 # ---- ci：需要编译的质量门禁（本地与 CI 共用同一配方）----
 
 # 格式化检查
