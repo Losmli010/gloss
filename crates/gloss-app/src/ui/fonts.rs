@@ -133,7 +133,6 @@ mod tests {
     use super::*;
     use egui::FontTweak;
 
-    /// 后备字体必须排在内置字体之后（拉丁度量不受影响），且两个字体族都接上。
     #[test]
     fn cjk_fallback_appends_after_builtin_fonts() {
         let mut definitions = FontDefinitions::default();
@@ -155,7 +154,6 @@ mod tests {
         assert!(definitions.font_data.contains_key(FONT_NAME));
     }
 
-    /// 真实系统上必须能找到 CJK 字体（系统自带中文字体）。
     #[test]
     fn system_cjk_font_is_discoverable() {
         assert!(imp::find_cjk().is_some());

@@ -699,8 +699,7 @@ fn theme_preference(theme: Theme) -> egui::ThemePreference {
 /// 把偏好写到每个已建立的 egui 上下文，返回写到的上下文个数。
 ///
 /// 浮层与设置各持一个**独立**的 `egui::Context`（options 不共享），所以必须
-/// 逐个写——只写其中一个，用户会看到「改主题只影响半个界面」。抽成自由函数
-/// 是为了让这件事能被真实上下文观测：App 的帧要 GPU，L2 单测拿不到。
+/// 逐个写——只写其中一个，用户会看到「改主题只影响半个界面」。抽成自由函数。
 fn apply_theme_to<'a>(
     contexts: impl IntoIterator<Item = &'a egui::Context>,
     preference: egui::ThemePreference,

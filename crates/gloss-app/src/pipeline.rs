@@ -183,7 +183,6 @@ mod tests {
     use super::{CommandRuntime, Event, start_command_runtime};
     use crate::channel::Command;
 
-    /// 起一条完整管道：返回（③发送端，④接收端，运行时）。
     fn start(engine: &MockEngine) -> (UnboundedSender<Command>, Receiver<Event>, CommandRuntime) {
         let service = Arc::new(AiTaskService::new(
             Arc::new(engine.clone()) as Arc<dyn gloss_core::ports::AiEngine>,
@@ -223,7 +222,6 @@ mod tests {
         cancel
     }
 
-    /// 回传链路：chunk 按序转发、完成后 TaskDone 携带剥离后的产物与代数。
     #[tokio::test]
     async fn chunks_and_done_flow_back_in_order() {
         let engine = MockEngine::new().with_chunks(vec![
@@ -258,16 +256,11 @@ mod tests {
             other => panic!("expected task done, got {other:?}"),
         }
         drop(commands);
-        // 关停会阻塞，不能在 async 上下文直接 drop（生产路径在主线程）。
         tokio::task::spawn_blocking(move || drop(runtime))
             .await
             .expect("shutdown");
     }
 
-    /// 验收标准：取消立即生效——流式进行中取消，不再有后续回传事件。
-    /// 以首 chunk 到达为同步点而非 sleep 猜时机：取消紧随首 chunk 触发，
-    /// 与下一个 chunk（150ms 后）竞速确定胜出；CI 调度抖动只会推迟取消，
-    /// 不会制造假失败。
     #[tokio::test]
     async fn cancel_takes_effect_mid_stream() {
         let engine = MockEngine::new()
@@ -285,7 +278,6 @@ mod tests {
         );
         cancel.cancel();
 
-        // 窗口大于 chunk 间延迟：若取消失效，二 chunk 必落入窗口使断言失败。
         assert!(
             events.recv_timeout(Duration::from_millis(400)).is_err(),
             "cancelled task must not deliver any further event"
@@ -296,7 +288,6 @@ mod tests {
             .expect("shutdown");
     }
 
-    /// 引擎失败原样映射为 TaskFailed（带代数）。
     #[tokio::test]
     async fn engine_failure_becomes_task_failed() {
         let engine = MockEngine::new().with_execute_failure(GlossError::EngineRateLimited);
@@ -317,8 +308,6 @@ mod tests {
             .expect("shutdown");
     }
 
-    /// 图像任务没有可用模型时明确失败：不进引擎（不拿文本模型去接），
-    /// 错误经通道④回状态机，失败卡映射成「去设置页配模型」。
     #[tokio::test]
     async fn image_task_without_a_model_fails_before_the_engine() {
         let engine = MockEngine::new();
@@ -351,8 +340,6 @@ mod tests {
             .expect("shutdown");
     }
 
-    /// 验收标准（M4-T5）：后台 panic 被 tokio 捕获转 TaskFailed（用户看
-    /// 到失败卡而不是永悬的推理中），且消费循环存活——后续任务照常执行。
     #[tokio::test]
     async fn background_panic_becomes_task_failed_and_the_loop_survives() {
         let engine = MockEngine::new().with_execute_panic();
@@ -370,7 +357,6 @@ mod tests {
             "panic must surface as an engine response failure"
         );
 
-        // 循环还活着：换回正常脚本，第二个任务照常完成（先 chunk 后 done）。
         engine.clone().with_chunks(vec![Ok("劫后余生".into())]);
         run(&commands, 2, text_task("again"));
         loop {
@@ -389,14 +375,11 @@ mod tests {
             .expect("shutdown");
     }
 
-    /// 通道③关闭后消费循环退出，运行时可在超时内干净关停。
     #[tokio::test]
     async fn closing_commands_stops_the_consumer() {
         let engine = MockEngine::new();
         let (commands, _events, runtime) = start(&engine);
         drop(commands);
-        // CommandRuntime drop 内部 shutdown_timeout：2s 内应干净收尾。
-        // 关停会阻塞，经 spawn_blocking 移出 async 上下文。
         tokio::task::spawn_blocking(move || drop(runtime))
             .await
             .expect("shutdown within timeout");

@@ -316,11 +316,9 @@ fn acquire_command_handler() -> impl FnMut(AcquireCommand, &EventSink<Event, Pla
 mod tests {
     use super::*;
 
-    /// 事件循环一旦进入就不返回，所以冒烟测试只覆盖日志初始化与通道创建。
     #[test]
     fn channels_bundle_is_created() {
         let channels = create_channels();
-        // 发送端立即可用（接收端在同一结构里），不 panic 即可通过。
         channels
             .acquire_commands
             .tx

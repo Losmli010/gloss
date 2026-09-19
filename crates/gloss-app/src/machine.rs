@@ -449,7 +449,6 @@ mod tests {
         }
     }
 
-    /// 映射表：划词 → TranslateWord；热键绑定携带 kind；未接线事件 None。
     #[test]
     fn trigger_mapping_covers_wired_events_only() {
         let mut machine = TaskStateMachine::new();
@@ -487,10 +486,6 @@ mod tests {
         );
     }
 
-    /// 配置生效（M4-T3）：划词手势的任务类型取自快照的 `default_text_kind`，
-    /// **且**模型按同一个 kind 解析——两条断言并排，锁住「命令的 kind」与
-    /// 「选项里的模型」出自同一份快照、同一个 kind（只测其中一边的话，把
-    /// `task_options` 硬编码成 TranslateWord 也能全绿）。
     #[test]
     fn selection_kind_and_options_pair_with_one_snapshot() {
         let mut machine = TaskStateMachine::new();
@@ -536,8 +531,6 @@ mod tests {
         );
     }
 
-    /// 取材源收口：配置把 `default_text_kind` 误配成图像 kind 时，划词路径
-    /// 回退文本 kind，而不是把必被模态校验拒的任务送进引擎。
     #[test]
     fn image_default_kind_falls_back_to_a_text_kind() {
         let mut machine = TaskStateMachine::new();
@@ -558,8 +551,6 @@ mod tests {
         ));
     }
 
-    /// 任务开关（M4-T6）：停用的 kind 对划词与热键两条触发路径都无响应，
-    /// 且不占用代数（与未接线事件同一出口）；重新启用后照常触发。
     #[test]
     fn disabled_kinds_are_not_acquired_and_consume_no_generation() {
         let mut machine = TaskStateMachine::new();
@@ -571,7 +562,6 @@ mod tests {
             ..Default::default()
         };
 
-        // 划词默认 kind（TranslateWord）仍在开关表内：照常触发。
         assert!(
             machine
                 .trigger(&PlatformEvent::SelectionGesture, &config)
@@ -579,7 +569,6 @@ mod tests {
         );
         assert_eq!(machine.generation(), 1);
 
-        // ExplainCode（ALL_KINDS[2]）被停用：热键与划词默认两条路都不出命令。
         let binding = gloss_core::task::HotkeyBinding {
             trigger: "Cmd+Shift+E".into(),
             kind: gloss_core::config::ALL_KINDS[2],
@@ -610,8 +599,6 @@ mod tests {
         );
     }
 
-    /// 快照在触发时定下：取材途中换配置（这里模拟为换一份 config 再喂
-    /// InputReady）不影响已触发的任务——选项在 `trigger` 那一刻就固定了。
     #[test]
     fn options_freeze_at_trigger_time() {
         let mut machine = TaskStateMachine::new();
@@ -627,7 +614,6 @@ mod tests {
         machine
             .trigger(&PlatformEvent::SelectionGesture, &before)
             .expect("trigger");
-        // 触发后配置变了，但本任务的选项不跟着变。
         let request = machine
             .accept_input(1, text_input("hello"))
             .expect("input should be accepted");
@@ -636,7 +622,6 @@ mod tests {
             Some(Lang::Ja),
             "in-flight task must keep the snapshot taken at trigger"
         );
-        // 下一次触发才用上新配置。
         machine
             .trigger(&PlatformEvent::SelectionGesture, &after)
             .expect("second trigger");
@@ -646,7 +631,6 @@ mod tests {
         assert_eq!(request.task.options.target_lang, Some(Lang::Ko));
     }
 
-    /// 采纳输入返回下发请求；图像输入与非 Fetching 态被拒。
     #[test]
     fn accept_input_yields_run_request_and_guards_state() {
         let mut machine = TaskStateMachine::new();
@@ -662,11 +646,9 @@ mod tests {
         assert_eq!(machine.state(), AppState::Translating);
         assert!(machine.current_cancel().is_some());
 
-        // Translating 态不接受第二个 InputReady。
         assert!(machine.accept_input(1, text_input("again")).is_none());
     }
 
-    /// 图像输入在文本 kind 下被拒（模态错配不进入推理）。
     #[test]
     fn image_input_for_text_kind_is_rejected() {
         let mut machine = TaskStateMachine::new();
@@ -691,8 +673,6 @@ mod tests {
         );
     }
 
-    /// 隐藏即放弃：Translating 态隐藏取消在途任务、清空视图回 Idle；
-    /// 迟到的同代数 TaskDone/TaskFailed 一律被状态守卫丢弃。
     #[test]
     fn hide_abandons_inflight_and_drops_late_events() {
         let mut machine = TaskStateMachine::new();
@@ -721,18 +701,15 @@ mod tests {
         assert_eq!(machine.state(), AppState::Idle);
     }
 
-    /// 失败守卫收紧后：Fetching 态收取材失败、Error 态迟到失败被拒。
     #[test]
     fn failed_guard_matches_fetching_and_translating_only() {
         let mut machine = TaskStateMachine::new();
         machine
             .trigger(&PlatformEvent::SelectionGesture, &Config::default())
             .expect("trigger");
-        // Fetching 态：取材失败可采纳。
         assert!(machine.accept_failed(1, &GlossError::SelectionUnavailable));
         assert_eq!(machine.state(), AppState::Error);
 
-        // Error 态隐藏后：同代数迟到失败被状态守卫拒绝。
         machine.hide_overlay();
         assert!(
             !machine.accept_failed(1, &GlossError::EngineNetwork),
@@ -740,7 +717,6 @@ mod tests {
         );
     }
 
-    /// 模态错配不吃掉 pending：同代数的合法 InputReady 仍可采纳。
     #[test]
     fn modality_mismatch_preserves_pending_task() {
         let mut machine = TaskStateMachine::new();
@@ -769,8 +745,6 @@ mod tests {
         );
     }
 
-    /// 通道不可用降级：fail_transport 直接落 Error 并展示失败视图（无
-    /// 动作按钮——通道已死时重发只会再死一次）。
     #[test]
     fn transport_failure_lands_in_error() {
         let mut machine = TaskStateMachine::new();
@@ -788,8 +762,6 @@ mod tests {
         assert!(machine.retry().is_none());
     }
 
-    /// 可重试失败：失败卡带重试出口，retry() 原样重发同一个
-    /// 任务（同代数、同输入、新令牌），浮层回到流式视图。
     #[test]
     fn retryable_failure_keeps_task_and_retry_redispatches_it() {
         let mut machine = TaskStateMachine::new();
@@ -820,7 +792,6 @@ mod tests {
         ));
     }
 
-    /// 限流与网络同类可重试；配置/鉴权/模态类引导去设置页且不可按钮重试。
     #[test]
     fn error_actions_follow_the_mapping_table() {
         let mut machine = TaskStateMachine::new();
@@ -835,8 +806,6 @@ mod tests {
         );
         assert!(machine.retry().is_some());
 
-        // 限流失败把任务副本留在 Error 态；这里直接再次 accept_failed 不
-        // 合法（已是 Error 态），所以重新走一遍触发→输入→失败。
         machine
             .trigger(&PlatformEvent::SelectionGesture, &Config::default())
             .expect("trigger");
@@ -867,8 +836,6 @@ mod tests {
             })
         ));
 
-        // 配置类（如图像 kind 未配模型，pipeline 的 model_for 报出）同样
-        // 引导去设置页。
         machine
             .trigger(&PlatformEvent::SelectionGesture, &Config::default())
             .expect("trigger");
@@ -886,7 +853,6 @@ mod tests {
         ));
     }
 
-    /// 新触发与隐藏都作废重试：任务副本清空，retry() 返回 None。
     #[test]
     fn new_trigger_and_hide_supersede_the_retry_task() {
         let mut machine = TaskStateMachine::new();
@@ -896,13 +862,11 @@ mod tests {
         machine.accept_input(1, text_input("x")).expect("accepted");
         assert!(machine.accept_failed(1, &GlossError::EngineNetwork));
 
-        // 新触发取代失败卡：可重试副本作废。
         machine
             .trigger(&PlatformEvent::SelectionGesture, &Config::default())
             .expect("trigger");
         assert!(machine.retry().is_none(), "new trigger supersedes retry");
 
-        // 失败 → 隐藏：重试随浮层一起放弃。
         machine.accept_input(2, text_input("y")).expect("accepted");
         assert!(machine.accept_failed(2, &GlossError::EngineNetwork));
         machine.hide_overlay();
@@ -910,7 +874,6 @@ mod tests {
         assert!(machine.retry().is_none(), "hide drops the retry task");
     }
 
-    /// 展示文案按类别给出可执行的指引（权限类写清去哪里授权）。
     #[test]
     fn error_messages_name_the_fix() {
         assert_eq!(

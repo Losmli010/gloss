@@ -267,9 +267,6 @@ fn selfcheck_body(ui: &mut egui::Ui) {
 
 #[cfg(test)]
 mod kittest_tests {
-    //! L2 浮层 harness 测试：真实 `draw` 喂 `OverlayView` 序列，经
-    //! AccessKit 树断言内容、模拟点击复制按钮；快照对比阈值见仓库根
-    //! kittest.toml。
 
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -317,7 +314,6 @@ mod kittest_tests {
         }
     }
 
-    /// 无动作出口的失败（协议异常、权限缺失）：只展示文案，没有按钮。
     fn bare_failed_view() -> OverlayView {
         OverlayView::Failed {
             message: "服务返回异常：HTTP 400 Bad Request".into(),
@@ -325,16 +321,12 @@ mod kittest_tests {
         }
     }
 
-    /// 动作收集器：`draw` 的返回值经它带出闭包——点击测试断言的就是
-    /// 「点击 → 返回动作」这条交付物契约本身，而不是按钮可点。
     type Clicked = Rc<RefCell<Option<ErrorAction>>>;
 
     fn harness_for(view: OverlayView) -> (Harness<'static>, Clicked) {
         let clicked: Clicked = Rc::new(RefCell::new(None));
         let sink = Rc::clone(&clicked);
         let harness = Harness::new_ui(move |ui| {
-            // 只累积不覆盖：一次 run 可能驱动多帧，点击帧之后的帧返回
-            // None，不能把已上交的动作冲掉。
             if let Some(action) = draw(ui, Some(&view)) {
                 *sink.borrow_mut() = Some(action);
             }
@@ -342,8 +334,6 @@ mod kittest_tests {
         (harness, clicked)
     }
 
-    /// 词卡精排内容全部可达：词条、释义、例句与复制按钮都能在
-    /// AccessKit 树中按文本定位。
     #[test]
     fn word_card_exposes_entries_to_accesskit() {
         let (mut harness, _clicked) = harness_for(word_card_view());
@@ -355,8 +345,6 @@ mod kittest_tests {
         harness.get_by_label("复制");
     }
 
-    /// 一键复制按钮可定位可点击（剪贴板内容的端到端回读属真机 L4；
-    /// egui 的 copy_text 通路由 egui 自测覆盖）。
     #[test]
     fn copy_button_is_clickable() {
         let (mut harness, clicked) = harness_for(word_card_view());
@@ -366,8 +354,6 @@ mod kittest_tests {
         assert_eq!(*clicked.borrow(), None, "result cards expose no action");
     }
 
-    /// 流式视图过滤结构化块：正文可见，\`\`\`gloss\` 围栏不出现在
-    /// AccessKit 树里（围栏可能跨 chunk 切分，过滤在累积文本上进行）。
     #[test]
     fn streaming_view_hides_structured_block() {
         let (mut harness, _clicked) = harness_for(streaming_view());
@@ -384,8 +370,6 @@ mod kittest_tests {
         );
     }
 
-    /// 失败卡展示失败信息；可重试类带重试按钮，点击经返回值交给壳
-    /// （浮层只渲染，重发任务在 app 层）。
     #[test]
     fn failed_view_shows_retry_hint() {
         let (mut harness, clicked) = harness_for(failed_view());
@@ -400,7 +384,6 @@ mod kittest_tests {
         );
     }
 
-    /// 鉴权类失败引导去设置页：按钮可定位可点击。
     #[test]
     fn auth_failed_view_offers_open_settings() {
         let (mut harness, clicked) = harness_for(auth_failed_view());
@@ -415,7 +398,6 @@ mod kittest_tests {
         );
     }
 
-    /// 无动作出口的失败卡没有按钮可点。
     #[test]
     fn bare_failed_view_has_no_action_button() {
         let (mut harness, clicked) = harness_for(bare_failed_view());
@@ -428,8 +410,6 @@ mod kittest_tests {
         assert_eq!(*clicked.borrow(), None, "no click without a button");
     }
 
-    /// 快照对比（wgpu 渲染 + 基线图 diff，阈值见 kittest.toml）。
-    /// 多个 harness 的快照结果须合并为单个 SnapshotResults 处理。
     #[test]
     fn snapshots_match_baseline() {
         let mut results = egui_kittest::SnapshotResults::new();
