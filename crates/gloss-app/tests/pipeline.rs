@@ -18,11 +18,12 @@ use gloss_core::cache::MokaCache;
 use gloss_core::config::{Config, ModelBinding};
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
-use gloss_core::engine::mock::MockEngine;
 use gloss_core::model::{GlossError, Lang};
 use gloss_core::ports::AiEngine;
-use gloss_core::ports::mocks::MemoryConfigStore;
 use gloss_core::task::{TaskInput, TaskKind};
+
+mod mock;
+use mock::{MemoryConfigStore, MockEngine};
 
 #[allow(clippy::expect_used, clippy::panic)]
 fn pipeline(engine: &MockEngine) -> Pipeline {

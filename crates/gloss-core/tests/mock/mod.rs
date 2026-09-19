@@ -1,22 +1,39 @@
-//! mock AiEngine：按脚本吐预置流式 chunk 的假引擎。
+//! gloss-core 测试桩库：端口替身与脚本引擎的唯一存放处。
 //!
-//! 供 core 单测（cfg(test)）与下游 crate 的 dev-dependencies
-//! （开 `test-util` 特性）使用，验收任务编排与缓存的全链路测试：
-//! - 可调延迟模拟真实流式（chunk 间 `tokio::time::sleep`）；
-//! - 可注入失败：execute 整体失败，或流中任意位置插 `Err`；
-//! - 调用计数供「缓存命中不调引擎」类断言。
+//! 供两类编译上下文共享同一份源：
+//! - 集成测试目标（`tests/*.rs` 经 `mod mock;` 引入）；
+//! - `src/` 内联单测（`lib.rs` 以 `#[cfg(test)] #[path]` 包含为 `crate::mock`）。
+//!
+//! 因此本文件统一以 `gloss_core::` 绝对路径引用库条目（lib 侧靠
+//! `extern crate self as gloss_core` 让自引用成立）。本模块按生产代码
+//! 对待（lint 与注释规则同 `src/`，见 AGENTS.md「注释纪律」）。
+//!
+//! 桩只承担两件事：**预置返回值**与**可注入的失败**——注入点要能造出想测
+//! 的那种时序，观测点要能证明它发生过（见 AGENTS.md「测试」一节）。需要
+//! 新能力时扩展本模块，别在测试里手搓 fake。桩按 crate 自持：跨 crate
+//! 刻意不共享（各 crate 的 `tests/mock/` 各留所需副本），一份桩的行为变化
+//! 不得静默改写另一个 crate 测试套件的语义。
 
+// 桩是按需取用的能力全集：每个编译目标只用到其中一部分，未用能力不算死代码。
+#![allow(dead_code)]
+
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use futures_core::Stream;
+use futures::Stream;
 use tokio::time::sleep;
 
-use crate::model::GlossError;
-use crate::ports::{AiEngine, BoxFuture, EngineRequest, TaskStream};
+use gloss_core::config::Config;
+use gloss_core::model::{GlossError, ScreenRect};
+use gloss_core::ports::{
+    AiEngine, BoxFuture, Cache, ConfigStore, EngineRequest, HotkeyBinder, RegionCapture,
+    SelectionReader, TaskStream,
+};
+use gloss_core::task::{HotkeyBinding, TaskOutcome};
 
 /// 锁中毒恢复：测试基建不值得 panic，拿回守卫继续用（数据由测试自身
 /// 单线程写入，中毒不可能源于本模块逻辑）。
@@ -188,100 +205,131 @@ impl Stream for ChunkStream {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::time::{Duration, Instant};
+/// 返回预置结果（成功文本或失败）的选区读取桩。
+pub struct FixedSelectionReader(
+    /// 每次 `read` 原样返回的结果。
+    pub Result<String, GlossError>,
+);
 
-    use futures::StreamExt;
+impl SelectionReader for FixedSelectionReader {
+    fn read(&mut self) -> Result<String, GlossError> {
+        self.0.clone()
+    }
+}
 
-    use super::MockEngine;
-    use crate::model::GlossError;
-    use crate::ports::AiEngine;
-    use crate::ports::EngineRequest;
-    use crate::prompt::ChatMessage;
-    use crate::task::TaskKind;
+/// 返回预置 PNG 字节的截图桩。
+pub struct FixedRegionCapture(
+    /// 每次 `capture` 原样返回的结果。
+    pub Result<Arc<[u8]>, GlossError>,
+);
 
-    fn sample_request() -> EngineRequest {
-        EngineRequest {
-            kind: TaskKind::TranslateWord,
-            messages: vec![ChatMessage {
-                role: crate::prompt::Role::User,
-                content: "gloss".into(),
-            }],
-            model: "mock-model".into(),
-        }
+impl RegionCapture for FixedRegionCapture {
+    fn capture(&mut self, _rect: ScreenRect) -> Result<Arc<[u8]>, GlossError> {
+        self.0.clone()
+    }
+}
+
+/// 内存版配置存储桩：密钥键值对 + 单份配置文档，可按需注入失败。
+#[derive(Default)]
+pub struct MemoryConfigStore {
+    secrets: Mutex<HashMap<String, String>>,
+    config: Mutex<Option<Config>>,
+    /// `Some` 时 `load` 直接返回它（模拟损坏的配置文件）。
+    load_failure: Mutex<Option<GlossError>>,
+    /// `Some` 时 `save` 直接返回它（模拟落盘失败）。
+    save_failure: Mutex<Option<GlossError>>,
+}
+
+impl MemoryConfigStore {
+    /// 让后续 `load` 一律失败（配置文件损坏路径）。
+    pub fn with_load_failure(self, error: GlossError) -> Self {
+        *lock_or_recover(&self.load_failure) = Some(error);
+        self
     }
 
-    #[tokio::test]
-    async fn chunk_delay_paces_the_stream() {
-        let engine = MockEngine::new()
-            .with_chunk_delay(Duration::from_millis(30))
-            .with_chunks(vec![Ok("光".into()), Ok("泽".into()), Ok("注释".into())]);
-        let mut stream = engine.execute(&sample_request()).await.expect("stream");
+    /// 让后续 `save` 一律失败（落盘失败路径）。
+    pub fn with_save_failure(self, error: GlossError) -> Self {
+        *lock_or_recover(&self.save_failure) = Some(error);
+        self
+    }
+}
 
-        let start = Instant::now();
-        let mut seen = Vec::new();
-        while let Some(chunk) = stream.next().await {
-            seen.push(chunk.expect("chunk ok"));
+impl ConfigStore for MemoryConfigStore {
+    fn load(&self) -> Result<Config, GlossError> {
+        if let Some(err) = lock_or_recover(&self.load_failure).clone() {
+            return Err(err);
         }
-        assert_eq!(seen, vec!["光", "泽", "注释"]);
-        assert!(
-            start.elapsed() >= Duration::from_millis(60),
-            "two inter-chunk delays must pace the stream, got {:?}",
-            start.elapsed()
-        );
+        Ok(lock_or_recover(&self.config).clone().unwrap_or_default())
     }
 
-    #[tokio::test]
-    async fn failures_are_injectable() {
-        for error in [
-            GlossError::EngineNetwork,
-            GlossError::EngineAuth,
-            GlossError::EngineRateLimited,
-            GlossError::EngineResponse("bad json".into()),
-        ] {
-            let engine = MockEngine::new().with_execute_failure(error.clone());
-            match engine.execute(&sample_request()).await {
-                Err(actual) => assert_eq!(actual, error, "failure must surface verbatim"),
-                Ok(_) => panic!("expected {error:?}, got a stream"),
-            }
+    fn save(&self, config: &Config) -> Result<(), GlossError> {
+        if let Some(err) = lock_or_recover(&self.save_failure).clone() {
+            return Err(err);
         }
-
-        let mid_stream = MockEngine::new().with_chunks(vec![
-            Ok("部分".into()),
-            Err(GlossError::EngineNetwork),
-            Ok("流继续".into()),
-        ]);
-        let mut stream = mid_stream.execute(&sample_request()).await.expect("stream");
-        assert_eq!(stream.next().await, Some(Ok("部分".into())));
-        assert_eq!(
-            stream.next().await,
-            Some(Err(GlossError::EngineNetwork)),
-            "mid-stream failure must surface in order"
-        );
-        assert_eq!(stream.next().await, Some(Ok("流继续".into())));
-        assert!(stream.next().await.is_none(), "stream ends at script end");
+        *lock_or_recover(&self.config) = Some(config.clone());
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn call_count_tracks_execute_invocations() {
-        let engine = MockEngine::new().with_chunks(vec![Ok("x".into())]);
-        assert_eq!(engine.call_count(), 0);
-        let mut stream = engine.execute(&sample_request()).await.expect("stream");
-        while let Some(chunk) = stream.next().await {
-            chunk.expect("chunk ok");
-        }
-        assert_eq!(engine.call_count(), 1);
-
-        let cloned = engine.clone();
-        let _ = cloned.execute(&sample_request()).await.expect("stream");
-        assert_eq!(engine.call_count(), 2);
+    fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
+        Ok(lock_or_recover(&self.secrets).get(key).cloned())
     }
 
-    #[tokio::test]
-    async fn empty_script_yields_empty_stream() {
-        let engine = MockEngine::new();
-        let mut stream = engine.execute(&sample_request()).await.expect("stream");
-        assert!(stream.next().await.is_none());
+    fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError> {
+        lock_or_recover(&self.secrets).insert(key.to_owned(), value.to_owned());
+        Ok(())
+    }
+
+    fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
+        lock_or_recover(&self.secrets).remove(key);
+        Ok(())
+    }
+}
+
+/// 内存键值缓存桩。
+#[derive(Default)]
+pub struct MemoryCache(
+    /// key → 产物。
+    Mutex<HashMap<u64, TaskOutcome>>,
+);
+
+impl Cache for MemoryCache {
+    fn get(&self, key: u64) -> Option<TaskOutcome> {
+        lock_or_recover(&self.0).get(&key).cloned()
+    }
+
+    fn set(&self, key: u64, value: TaskOutcome) {
+        lock_or_recover(&self.0).insert(key, value);
+    }
+}
+
+/// 记录每次重绑定的热键桩。
+///
+/// 与真实实现不同，它不接触任何平台资源。观测点是「调用发生过」与
+/// 「收到的是哪份绑定表」，注入点是调用次数（首次装配不调、保存成功
+/// 才调），够覆盖接线契约；真实的降级行为（键被别的应用占用
+/// 而跳过、管理器不可用）由 gloss-platform 的 registrar 单测覆盖。
+#[derive(Default)]
+pub struct RecordingHotkeyBinder {
+    calls: Mutex<Vec<Vec<HotkeyBinding>>>,
+}
+
+impl RecordingHotkeyBinder {
+    /// 收到过的重绑定次数。
+    pub fn call_count(&self) -> usize {
+        lock_or_recover(&self.calls).len()
+    }
+
+    /// 最近一次收到的绑定表；从未被调用过时返回 `None`。
+    pub fn last(&self) -> Option<Vec<HotkeyBinding>> {
+        lock_or_recover(&self.calls).last().cloned()
+    }
+}
+
+impl HotkeyBinder for RecordingHotkeyBinder {
+    fn rebind(&self, bindings: &[HotkeyBinding]) -> usize {
+        lock_or_recover(&self.calls).push(bindings.to_vec());
+        // 桩不做平台注册，全部绑定视为生效——即模拟一个一切正常的平台。
+        // 「几条被占用、几级被降级」是平台侧的事实，桩不替它编结果。
+        bindings.len()
     }
 }

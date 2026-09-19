@@ -85,8 +85,7 @@ egui_kittest = {
     "wgpu",
   ]
 }
-# 管道测试用 mock 引擎（延迟/失败注入）；测试还需要异步运行时宏与时间。
-gloss-core = { path = "../gloss-core", features = ["test-util"] }
+# 管道测试需要异步运行时宏与时间（mock 引擎的延迟注入用）。
 tokio = {
   version = "1",
   default-features = false,

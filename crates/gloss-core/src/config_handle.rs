@@ -113,8 +113,8 @@ mod tests {
     use std::sync::Barrier;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+    use crate::mock::MemoryConfigStore;
     use crate::model::Lang;
-    use crate::ports::mocks::MemoryConfigStore;
 
     use super::*;
 
