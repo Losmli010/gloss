@@ -98,7 +98,7 @@ impl OverlaySelfTest {
         let Some(frame) = &mut self.frame else {
             return;
         };
-        let (repaint, _) = render_frame(frame, None);
+        let (repaint, _, _) = render_frame(frame, None);
         self.next_repaint = repaint;
         if let Some(shown) = self.shown_at.take() {
             self.latencies.push(Instant::now() - shown);

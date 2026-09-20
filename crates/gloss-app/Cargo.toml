@@ -17,6 +17,15 @@ egui = {
     "default_fonts",
   ]
 }
+# 结果卡 markdown 正文渲染：pulldown-cmark 解析后端；不开
+# load-images/fetch/svg（LLM 结果卡无需联网取图）。
+egui_commonmark = {
+  version = "0.25",
+  default-features = false,
+  features = [
+    "pulldown_cmark",
+  ]
+}
 # 保留 macos-window-resize-jitter-fix：真实的窗口缩放抖动修复。
 egui-wgpu = {
   version = "0.36.2",
