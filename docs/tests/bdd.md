@@ -12,7 +12,7 @@
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 12 | `just test` |
-| 单元测试 | 225 | `just test` |
+| 单元测试 | 227 | `just test` |
 
 ## 人工测试
 
@@ -318,6 +318,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | open_settings_action_keeps_the_error_card | 打开设置保留错误卡 | 给定鉴权失败卡，当执行 OpenSettings 动作，则停在 Error、通道③无流量、编辑会话就位 | 2026-09-19 |
 | auto_show_policy_decides_when_the_overlay_pops | 自动弹出按策略表 | 给定事件类别×采纳×开关组合，当逐事件判定，则按策略表露面、未采纳一律不弹、chunk 从不弹 | 2026-09-19 |
 | auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则一条被采纳的完成/失败即弹、整批陈旧不弹、空批不弹 | 2026-09-19 |
+| show_position_follows_selection_only_for_the_current_generation | 显示位置跟随当代划词 | 给定划词锚点与代数，当决策显示位置，则当代跟随选区（右下偏移）、代数不符或无锚点回落居中 | 2026-09-20 |
+| selection_trigger_records_its_anchor_per_generation | 划词触发按代数记锚点 | 给定两次划词触发，当消费，则锚点随代数刷新为各自释放坐标 | 2026-09-20 |
 
 ### crates/gloss-app/src/app/settings_session.rs
 

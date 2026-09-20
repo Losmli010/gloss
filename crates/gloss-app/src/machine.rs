@@ -401,7 +401,7 @@ fn acquire_command_for(
                 InputSource::Region => None,
             }
         }
-        PlatformEvent::SelectionGesture => {
+        PlatformEvent::SelectionGesture { .. } => {
             let kind = config.selection_task_kind();
             config
                 .is_kind_enabled(kind)
@@ -429,10 +429,16 @@ mod tests {
     use std::sync::Arc;
 
     use gloss_core::config::ModelBinding;
-    use gloss_core::model::{Lang, ScreenRect};
+    use gloss_core::model::{GlossError, Lang, ScreenPoint, ScreenRect};
     use gloss_core::task::{InputHint, OutcomeStructured};
 
     use super::*;
+
+    fn selection_gesture() -> PlatformEvent {
+        PlatformEvent::SelectionGesture {
+            pos: ScreenPoint::new(0, 0),
+        }
+    }
 
     fn plain_outcome(body: &str) -> TaskOutcome {
         TaskOutcome {
@@ -453,7 +459,7 @@ mod tests {
     fn trigger_mapping_covers_wired_events_only() {
         let mut machine = TaskStateMachine::new();
         let command = machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("selection gesture must acquire");
         assert!(matches!(
             command,
@@ -506,7 +512,7 @@ mod tests {
         };
 
         let command = machine
-            .trigger(&PlatformEvent::SelectionGesture, &config)
+            .trigger(&selection_gesture(), &config)
             .expect("selection gesture must acquire");
         assert!(
             matches!(
@@ -540,7 +546,7 @@ mod tests {
         };
 
         let command = machine
-            .trigger(&PlatformEvent::SelectionGesture, &config)
+            .trigger(&selection_gesture(), &config)
             .expect("selection gesture must acquire");
         assert!(matches!(
             command,
@@ -562,11 +568,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(
-            machine
-                .trigger(&PlatformEvent::SelectionGesture, &config)
-                .is_some()
-        );
+        assert!(machine.trigger(&selection_gesture(), &config).is_some());
         assert_eq!(machine.generation(), 1);
 
         let binding = gloss_core::task::HotkeyBinding {
@@ -593,7 +595,7 @@ mod tests {
         };
         assert!(
             machine
-                .trigger(&PlatformEvent::SelectionGesture, &disabled_default)
+                .trigger(&selection_gesture(), &disabled_default)
                 .is_none(),
             "disabled selection kind must not acquire"
         );
@@ -612,7 +614,7 @@ mod tests {
         };
 
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &before)
+            .trigger(&selection_gesture(), &before)
             .expect("trigger");
         let request = machine
             .accept_input(1, text_input("hello"))
@@ -623,7 +625,7 @@ mod tests {
             "in-flight task must keep the snapshot taken at trigger"
         );
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &after)
+            .trigger(&selection_gesture(), &after)
             .expect("second trigger");
         let request = machine
             .accept_input(2, text_input("world"))
@@ -635,7 +637,7 @@ mod tests {
     fn accept_input_yields_run_request_and_guards_state() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
 
         let request = machine
@@ -653,7 +655,7 @@ mod tests {
     fn image_input_for_text_kind_is_rejected() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         assert!(
             machine
@@ -677,7 +679,7 @@ mod tests {
     fn hide_abandons_inflight_and_drops_late_events() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         let request = machine
             .accept_input(1, text_input("hello"))
@@ -705,7 +707,7 @@ mod tests {
     fn failed_guard_matches_fetching_and_translating_only() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         assert!(machine.accept_failed(1, &GlossError::SelectionUnavailable));
         assert_eq!(machine.state(), AppState::Error);
@@ -721,7 +723,7 @@ mod tests {
     fn modality_mismatch_preserves_pending_task() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         assert!(
             machine
@@ -749,7 +751,7 @@ mod tests {
     fn transport_failure_lands_in_error() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         let request = machine.accept_input(1, text_input("x")).expect("accepted");
         machine.fail_transport(request.generation);
@@ -766,7 +768,7 @@ mod tests {
     fn retryable_failure_keeps_task_and_retry_redispatches_it() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         let original = machine
             .accept_input(1, text_input("hello"))
@@ -796,7 +798,7 @@ mod tests {
     fn error_actions_follow_the_mapping_table() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         machine.accept_input(1, text_input("x")).expect("accepted");
 
@@ -807,7 +809,7 @@ mod tests {
         assert!(machine.retry().is_some());
 
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         machine.accept_input(2, text_input("x")).expect("accepted");
         assert!(machine.accept_failed(2, &GlossError::EngineAuth));
@@ -824,7 +826,7 @@ mod tests {
         );
 
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         machine.accept_input(3, text_input("x")).expect("accepted");
         assert!(machine.accept_failed(3, &GlossError::UnsupportedModality));
@@ -837,7 +839,7 @@ mod tests {
         ));
 
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         machine.accept_input(4, text_input("x")).expect("accepted");
         assert!(machine.accept_failed(
@@ -857,13 +859,13 @@ mod tests {
     fn new_trigger_and_hide_supersede_the_retry_task() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         machine.accept_input(1, text_input("x")).expect("accepted");
         assert!(machine.accept_failed(1, &GlossError::EngineNetwork));
 
         machine
-            .trigger(&PlatformEvent::SelectionGesture, &Config::default())
+            .trigger(&selection_gesture(), &Config::default())
             .expect("trigger");
         assert!(machine.retry().is_none(), "new trigger supersedes retry");
 

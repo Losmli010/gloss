@@ -6,7 +6,7 @@
 //! 下发 clone，取消立即生效且覆盖多个 await 点。
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use gloss_core::model::{GlossError, ScreenRect};
+use gloss_core::model::{GlossError, ScreenPoint, ScreenRect};
 use gloss_core::task::{HotkeyBinding, Task, TaskInput, TaskKind, TaskOutcome};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio_util::sync::CancellationToken;
@@ -19,8 +19,12 @@ pub enum PlatformEvent {
         /// 触发的热键绑定。
         binding: HotkeyBinding,
     },
-    /// 划词手势（文本任务）。
-    SelectionGesture,
+    /// 划词手势（文本任务），载荷是释放坐标（系统全局坐标，逻辑点）——
+    /// 浮层跟随划词位置的输入；热键触发不带坐标。
+    SelectionGesture {
+        /// 释放坐标。
+        pos: ScreenPoint,
+    },
     /// 框选手势（图像任务）。
     RegionGesture {
         /// 框选区域的屏幕坐标。
@@ -232,7 +236,9 @@ mod tests {
             PlatformEvent::HotkeyTriggered {
                 binding: selection_binding(),
             },
-            PlatformEvent::SelectionGesture,
+            PlatformEvent::SelectionGesture {
+                pos: ScreenPoint::new(30, 40),
+            },
             PlatformEvent::RegionGesture {
                 rect: ScreenRect {
                     x: 10,
@@ -415,7 +421,9 @@ mod tests {
         channels
             .platform_events
             .tx
-            .send(PlatformEvent::SelectionGesture)
+            .send(PlatformEvent::SelectionGesture {
+                pos: ScreenPoint::new(30, 40),
+            })
             .unwrap();
         channels
             .acquire_commands
@@ -445,7 +453,9 @@ mod tests {
 
         assert_eq!(
             channels.platform_events.rx.recv().unwrap(),
-            PlatformEvent::SelectionGesture
+            PlatformEvent::SelectionGesture {
+                pos: ScreenPoint::new(30, 40)
+            }
         );
         assert_eq!(
             channels.acquire_commands.rx.recv().unwrap(),

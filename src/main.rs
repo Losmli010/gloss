@@ -16,7 +16,7 @@ use gloss_core::task::TaskInput;
 use gloss_platform::appearance::MacAppIcon;
 use gloss_platform::engine::llm::LlmClient;
 use gloss_platform::events::hotkey::HotkeyRegistrar;
-use gloss_platform::events::mouse::MouseSource;
+use gloss_platform::events::mouse::{MouseGesture, MouseSource};
 use gloss_platform::events::{EventSink, EventSource, EventSources};
 use gloss_platform::selection::composite::CompositeReader;
 use gloss_platform::storage::CompositeConfigStore;
@@ -233,7 +233,9 @@ fn event_sources(registrar: &HotkeyRegistrar) -> EventSources<PlatformEvent> {
             source
                 .poll()
                 .into_iter()
-                .map(|_| PlatformEvent::SelectionGesture)
+                .map(|gesture| match gesture {
+                    MouseGesture::Selection { pos } => PlatformEvent::SelectionGesture { pos },
+                })
                 .collect()
         }));
     }

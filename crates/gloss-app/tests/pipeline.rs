@@ -18,6 +18,7 @@ use gloss_core::cache::MokaCache;
 use gloss_core::config::{Config, ModelBinding};
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
+use gloss_core::model::ScreenPoint;
 use gloss_core::model::{GlossError, Lang};
 use gloss_core::ports::AiEngine;
 use gloss_core::task::{TaskInput, TaskKind};
@@ -79,7 +80,12 @@ impl Pipeline {
     fn trigger_and_feed(&mut self, text: &str) -> tokio_util::sync::CancellationToken {
         let command = self
             .machine
-            .trigger(&PlatformEvent::SelectionGesture, &self.config.snapshot())
+            .trigger(
+                &PlatformEvent::SelectionGesture {
+                    pos: ScreenPoint::new(0, 0),
+                },
+                &self.config.snapshot(),
+            )
             .expect("selection gesture must acquire");
         let AcquireCommand::AcquireText { generation, .. } = &command else {
             panic!("acquire text expected");

@@ -127,6 +127,20 @@ impl WindowManager {
         })
     }
 
+    /// 把浮层期望位置钳制在当前显示器范围内（跟随划词位置用）：以浮层
+    /// 当前尺寸为界，右/下越界时向内收；拿不到显示器时原样返回。坐标
+    /// 口径与居中计算一致（显示器局部坐标，原点在该显示器左上）。
+    pub fn clamp_position(&self, position: LogicalPosition<f64>) -> LogicalPosition<f64> {
+        let Some(monitor) = self.overlay.current_monitor() else {
+            return position;
+        };
+        let scale = monitor.scale_factor();
+        let screen = monitor.size().to_logical::<f64>(scale);
+        let max_x = (screen.width - self.overlay_size.width).max(0.0);
+        let max_y = (screen.height - self.overlay_size.height).max(0.0);
+        LogicalPosition::new(position.x.clamp(0.0, max_x), position.y.clamp(0.0, max_y))
+    }
+
     /// 高度按浮层所在显示器钳制（超出部分由内容侧滚动兜底）；拿不到
     /// 显示器时原样返回。
     fn cap_height_to_screen(&self, size: LogicalSize<f64>) -> LogicalSize<f64> {

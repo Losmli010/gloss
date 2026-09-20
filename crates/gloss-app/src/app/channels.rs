@@ -11,7 +11,9 @@ use crate::channel::{AcquireCommand, Command, Event, PlatformEvent};
 use crate::machine::RunRequest;
 
 use super::GlossApp;
-use super::overlay::{AUTO_HIDE_AFTER, auto_show_after, centered_position, event_kind};
+use super::overlay::{
+    AUTO_HIDE_AFTER, auto_show_after, centered_position, event_kind, show_position,
+};
 
 impl GlossApp {
     /// 消费通道①：平台事件 → 取材命令。只有真实下发的命令才占用新代数
@@ -43,6 +45,11 @@ impl GlossApp {
                     cancelled_inflight = superseded,
                     "platform event dispatched as acquire command"
                 );
+                // 划词触发记录释放坐标（随代数）：浮层显示时跟随选区；
+                // 其它触发源（热键）不带坐标，显示决策回落居中。
+                if let PlatformEvent::SelectionGesture { pos } = event {
+                    self.selection_anchor = Some((self.machine.generation(), pos));
+                }
                 self.send_acquire(command);
             } else {
                 debug!(
@@ -111,7 +118,12 @@ impl GlossApp {
         if auto_show_after(batch, auto_show)
             && let Some(windows) = &self.windows
         {
-            let position = centered_position(event_loop, windows);
+            // 划词触发的浮层跟随选区（代数对得上时），否则居中；屏幕
+            // 边缘钳制后显示。
+            let centered = centered_position(event_loop, windows);
+            let position =
+                show_position(self.selection_anchor, self.machine.generation(), centered);
+            let position = windows.clamp_position(position);
             self.show_overlay(position);
         }
         self.request_redraw();
