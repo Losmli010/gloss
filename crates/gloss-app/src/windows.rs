@@ -22,17 +22,35 @@ const RESIZE_EPSILON: f64 = 0.5;
 const SETTINGS_WIDTH: f64 = 460.0;
 const SETTINGS_HEIGHT: f64 = 640.0;
 
-/// 浮层在指定显示器上居中的逻辑坐标（尺寸用逻辑值，显示器尺寸按缩放
-/// 比例换算）。
+/// 浮层在指定显示器上居中的全局桌面坐标（winit 的窗口定位口径是跨显示
+/// 器的桌面坐标，主显示器左上为原点；显示器尺寸按各自缩放比例换算）。
 fn centered_on_monitor(
     monitor: &winit::monitor::MonitorHandle,
     size: LogicalSize<f64>,
 ) -> LogicalPosition<f64> {
     let scale = monitor.scale_factor();
     let monitor_size = monitor.size().to_logical::<f64>(scale);
+    let origin = monitor.position();
     LogicalPosition::new(
-        (monitor_size.width - size.width) / 2.0,
-        (monitor_size.height - size.height) / 2.0,
+        f64::from(origin.x) + (monitor_size.width - size.width) / 2.0,
+        f64::from(origin.y) + (monitor_size.height - size.height) / 2.0,
+    )
+}
+
+/// 把期望位置钳制进「原点在 `origin`、逻辑尺寸 `screen` 的显示器」内，
+/// 以浮层尺寸 `overlay` 为界（右/下越界向内收，显示器比浮层还小时贴
+/// 原点）。坐标是全局桌面坐标，与 winit 窗口定位口径一致。
+fn clamp_to_monitor(
+    position: LogicalPosition<f64>,
+    origin: LogicalPosition<f64>,
+    screen: LogicalSize<f64>,
+    overlay: LogicalSize<f64>,
+) -> LogicalPosition<f64> {
+    let max_x = origin.x + (screen.width - overlay.width).max(0.0);
+    let max_y = origin.y + (screen.height - overlay.height).max(0.0);
+    LogicalPosition::new(
+        position.x.clamp(origin.x, max_x),
+        position.y.clamp(origin.y, max_y),
     )
 }
 
@@ -127,18 +145,46 @@ impl WindowManager {
         })
     }
 
-    /// 把浮层期望位置钳制在当前显示器范围内（跟随划词位置用）：以浮层
-    /// 当前尺寸为界，右/下越界时向内收；拿不到显示器时原样返回。坐标
-    /// 口径与居中计算一致（显示器局部坐标，原点在该显示器左上）。
+    /// 把浮层期望位置钳制在释放点命中的显示器范围内（跟随划词位置用）：
+    /// 以浮层当前尺寸为界，右/下越界时向内收；找不到命中显示器时回落
+    /// 浮层当前所在显示器，再拿不到就原样返回。坐标是全局桌面坐标
+    /// （与 winit 窗口定位、CG 释放坐标同口径）。
     pub fn clamp_position(&self, position: LogicalPosition<f64>) -> LogicalPosition<f64> {
-        let Some(monitor) = self.overlay.current_monitor() else {
+        let monitor = self
+            .monitor_containing(position)
+            .or_else(|| self.overlay.current_monitor());
+        let Some(monitor) = monitor else {
             return position;
         };
         let scale = monitor.scale_factor();
         let screen = monitor.size().to_logical::<f64>(scale);
-        let max_x = (screen.width - self.overlay_size.width).max(0.0);
-        let max_y = (screen.height - self.overlay_size.height).max(0.0);
-        LogicalPosition::new(position.x.clamp(0.0, max_x), position.y.clamp(0.0, max_y))
+        let origin = monitor.position();
+        clamp_to_monitor(
+            position,
+            LogicalPosition::new(f64::from(origin.x), f64::from(origin.y)),
+            screen,
+            self.overlay_size,
+        )
+    }
+
+    /// 释放点命中的显示器（按全局桌面坐标判界）；浮层当前显示器作兜底。
+    fn monitor_containing(
+        &self,
+        position: LogicalPosition<f64>,
+    ) -> Option<winit::monitor::MonitorHandle> {
+        self.overlay
+            .available_monitors()
+            .find(|monitor| {
+                let origin = monitor.position();
+                let scale = monitor.scale_factor();
+                let size = monitor.size().to_logical::<f64>(scale);
+                let (x, y) = (f64::from(origin.x), f64::from(origin.y));
+                position.x >= x
+                    && position.x < x + size.width
+                    && position.y >= y
+                    && position.y < y + size.height
+            })
+            .or_else(|| self.overlay.current_monitor())
     }
 
     /// 高度按浮层所在显示器钳制（超出部分由内容侧滚动兜底）；拿不到
@@ -219,5 +265,71 @@ impl WindowManager {
     /// 请求重绘设置窗口。
     pub fn request_redraw_settings(&self) {
         self.settings.request_redraw();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_to_monitor;
+    use winit::dpi::{LogicalPosition, LogicalSize};
+
+    const SCREEN: LogicalSize<f64> = LogicalSize::new(1920.0, 1080.0);
+    const OVERLAY: LogicalSize<f64> = LogicalSize::new(380.0, 200.0);
+
+    #[test]
+    fn position_inside_the_monitor_is_untouched() {
+        let origin = LogicalPosition::new(0.0, 0.0);
+        let pos = LogicalPosition::new(500.0, 300.0);
+        assert_eq!(clamp_to_monitor(pos, origin, SCREEN, OVERLAY), pos);
+    }
+
+    #[test]
+    fn position_past_the_right_or_bottom_edge_pulls_back() {
+        let origin = LogicalPosition::new(0.0, 0.0);
+        assert_eq!(
+            clamp_to_monitor(LogicalPosition::new(1900.0, 300.0), origin, SCREEN, OVERLAY),
+            LogicalPosition::new(1540.0, 300.0),
+            "右越界收到 1920-380"
+        );
+        assert_eq!(
+            clamp_to_monitor(LogicalPosition::new(500.0, 2000.0), origin, SCREEN, OVERLAY),
+            LogicalPosition::new(500.0, 880.0),
+            "下越界收到 1080-200"
+        );
+    }
+
+    #[test]
+    fn position_before_the_origin_clamps_to_it() {
+        let origin = LogicalPosition::new(1440.0, 0.0);
+        assert_eq!(
+            clamp_to_monitor(LogicalPosition::new(-50.0, 300.0), origin, SCREEN, OVERLAY),
+            LogicalPosition::new(1440.0, 300.0),
+            "负全局坐标（主屏左侧的显示器）钳到该屏原点，不跳到主屏"
+        );
+    }
+
+    #[test]
+    fn clamping_respects_the_monitor_origin_on_secondary_displays() {
+        let origin = LogicalPosition::new(1440.0, 0.0);
+        assert_eq!(
+            clamp_to_monitor(LogicalPosition::new(3200.0, 300.0), origin, SCREEN, OVERLAY),
+            LogicalPosition::new(2980.0, 300.0),
+            "副屏右缘按 1440+1920-380 收，不是主屏的 1540"
+        );
+    }
+
+    #[test]
+    fn monitor_smaller_than_the_overlay_pins_to_the_origin() {
+        let origin = LogicalPosition::new(1440.0, 0.0);
+        assert_eq!(
+            clamp_to_monitor(
+                LogicalPosition::new(1500.0, 300.0),
+                origin,
+                LogicalSize::new(300.0, 200.0),
+                OVERLAY
+            ),
+            LogicalPosition::new(1440.0, 0.0),
+            "显示器比浮层还小时贴原点（max 取 0）"
+        );
     }
 }

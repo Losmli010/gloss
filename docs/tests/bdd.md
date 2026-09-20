@@ -12,7 +12,7 @@
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 12 | `just test` |
-| 单元测试 | 227 | `just test` |
+| 单元测试 | 232 | `just test` |
 
 ## 人工测试
 
@@ -302,6 +302,16 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | stale_input_ready_is_dropped_entirely | 陈旧 InputReady 整体丢弃 | 给定陈旧代数 InputReady，当采纳，则整体丢弃、不下发通道③ | 2026-09-19 |
 | saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置，当下一次触发，则目标语言与模型随任务下发 | 2026-09-19 |
 | saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定触发后、产物到达前保存新配置，当在途任务下发，则仍用触发时快照 | 2026-09-19 |
+
+### crates/gloss-app/src/windows.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| position_inside_the_monitor_is_untouched | 屏内位置原样保留 | 给定显示器范围内的位置，当钳制，则原样返回 | 2026-09-20 |
+| position_past_the_right_or_bottom_edge_pulls_back | 右下越界向内收 | 给定越出右/下边缘的位置，当钳制，则收到屏宽/高减浮层尺寸处 | 2026-09-20 |
+| position_before_the_origin_clamps_to_it | 负坐标钳到屏原点 | 给定负全局坐标（主屏左侧显示器），当钳制，则收到该显示器原点而非主屏 | 2026-09-20 |
+| clamping_respects_the_monitor_origin_on_secondary_displays | 副屏钳制按全局原点 | 给定副屏（全局原点非零）右缘位置，当钳制，则按副屏全局区间收口而非主屏 | 2026-09-20 |
+| monitor_smaller_than_the_overlay_pins_to_the_origin | 显示器小于浮层贴原点 | 给定比浮层还小的显示器与屏内位置，当钳制，则贴显示器原点（上限取 0） | 2026-09-20 |
 
 ### crates/gloss-app/src/ui/popup.rs
 
