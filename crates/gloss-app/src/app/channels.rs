@@ -116,13 +116,15 @@ impl GlossApp {
             batch.push((kind, accepted));
         }
         if auto_show_after(batch, auto_show)
-            && let Some(windows) = &self.windows
+            && let Some(windows) = &mut self.windows
         {
             // 划词触发的浮层跟随选区（代数对得上时），否则居中；屏幕
-            // 边缘钳制后显示。
+            // 边缘钳制后显示，并按摆放意图记录——后续内容撑高窗口时
+            // 才能按同一意图重定位。
             let centered = centered_position(event_loop, windows);
-            let position =
+            let (position, placement) =
                 show_position(self.selection_anchor, self.machine.generation(), centered);
+            windows.set_placement(placement);
             let position = windows.clamp_position(position);
             self.show_overlay(position);
         }
