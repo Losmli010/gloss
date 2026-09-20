@@ -180,21 +180,23 @@ fn render_content(
                 Some(pos) => &body[..pos],
                 None => body,
             };
-            let pre_scroll = ui.min_rect().height();
+            // ScrollArea 内容起点 = cursor（egui 的 cursor 停在前序内容底边
+            // 加一个 item_spacing 处），从这里起算正文完整高。
+            let body_top = ui.cursor().min.y;
             let scrolled = ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 render_markdown(ui, state, visible);
             });
-            *content_h = pre_scroll + scrolled.content_size.y;
+            *content_h = body_top + scrolled.content_size.y;
             None
         }
         Some(OverlayView::Outcome(outcome)) => {
             header(ui, crate::ui::kind_label(outcome.kind));
             ui.add_space(SECTION_SPACE);
-            let pre_scroll = ui.min_rect().height();
+            let body_top = ui.cursor().min.y;
             let scrolled = ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 outcome_body(ui, outcome, state);
             });
-            *content_h = pre_scroll + scrolled.content_size.y;
+            *content_h = body_top + scrolled.content_size.y;
             None
         }
         Some(OverlayView::Failed { message, action }) => {
