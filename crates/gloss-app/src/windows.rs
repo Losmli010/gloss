@@ -54,11 +54,24 @@ fn clamp_to_monitor(
     )
 }
 
+/// 浮层摆放意图——尺寸自适应变化时的重定位依据：居中者在尺寸变化后
+/// 重新居中（显示入口只能按上一帧尺寸算位置）；定点者（跟随划词）在
+/// 原锚点上按新尺寸重新钳制，不被居中覆盖。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Placement {
+    /// 居中显示（热键触发等无坐标场景）。
+    Centered,
+    /// 定点显示：锚点是期望的浮层左上位置（全局桌面坐标，未钳制）。
+    At(LogicalPosition<f64>),
+}
+
 /// 窗口管理器：持有各窗口的生存期，对上层只暴露「谁的窗口」「显示/隐藏」。
 pub struct WindowManager {
     overlay: Arc<Window>,
     /// 浮层当前逻辑尺寸（内容自适应；`centered_position` 居中计算取它）。
     overlay_size: LogicalSize<f64>,
+    /// 当前摆放意图（`set_placement` 更新，尺寸变化时按它重定位）。
+    placement: Placement,
     settings: Arc<Window>,
 }
 
@@ -92,6 +105,7 @@ impl WindowManager {
         Ok(Self {
             overlay: Arc::new(overlay),
             overlay_size: LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT),
+            placement: Placement::Centered,
             settings: Arc::new(settings),
         })
     }
@@ -107,10 +121,17 @@ impl WindowManager {
         self.overlay_size
     }
 
+    /// 记录浮层的摆放意图（每次显示前设置）；尺寸自适应变化时按它重定位
+    /// ——居中者重新居中，定点者原锚点重新钳制。
+    pub fn set_placement(&mut self, placement: Placement) {
+        self.placement = placement;
+    }
+
     /// 应用浮层内容的期望尺寸（内容自适应高度）：按显示器钳制高度后才
     /// 重设窗口，变化小于阈值时不动——渲染帧后逐帧调用也只在真实变化
-    /// 时触发 resize；尺寸变化即按当前显示器重新居中（显示入口用的是
-    /// 上一帧尺寸算的位置，不重定位的话接近屏高的卡片会向下溢出屏幕）。
+    /// 时触发 resize；尺寸变化后按摆放意图重定位（显示入口只能按上一帧
+    /// 尺寸算位置：居中者不重定位会向下溢出屏幕，定点者不重定位会被
+    /// 旧尺寸的钳制结果挤离锚点）。
     pub fn set_overlay_size(&mut self, size: LogicalSize<f64>) {
         let capped = self.cap_height_to_screen(size);
         if (capped.width - self.overlay_size.width).abs() < RESIZE_EPSILON
@@ -127,9 +148,17 @@ impl WindowManager {
         } else {
             self.overlay_size = capped;
         }
-        if let Some(monitor) = self.overlay.current_monitor() {
-            let position = centered_on_monitor(&monitor, self.overlay_size);
-            self.overlay.set_outer_position(position);
+        match self.placement {
+            Placement::Centered => {
+                if let Some(monitor) = self.overlay.current_monitor() {
+                    let position = centered_on_monitor(&monitor, self.overlay_size);
+                    self.overlay.set_outer_position(position);
+                }
+            }
+            Placement::At(anchor) => {
+                let position = self.clamp_position(anchor);
+                self.overlay.set_outer_position(position);
+            }
         }
     }
 
