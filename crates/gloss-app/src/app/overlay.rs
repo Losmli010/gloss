@@ -72,24 +72,13 @@ impl GlossApp {
 }
 
 /// 浮层居中于显示器（逻辑坐标）：优先窗口当前所在的显示器，其次主显示器。
+/// 定位与尺寸的算法在窗口管理器（`WindowManager::centered_position`），
+/// 这里是给壳与自检 handler 的稳定入口。
 pub fn centered_position(
     event_loop: &ActiveEventLoop,
     windows: &WindowManager,
 ) -> LogicalPosition<f64> {
-    let monitor = windows
-        .overlay_handle()
-        .current_monitor()
-        .or_else(|| event_loop.primary_monitor());
-    let Some(monitor) = monitor else {
-        return LogicalPosition::new(0.0, 0.0);
-    };
-    let scale = monitor.scale_factor();
-    let monitor_size = monitor.size().to_logical::<f64>(scale);
-    let overlay_size = windows.logical_size();
-    LogicalPosition::new(
-        (monitor_size.width - overlay_size.width) / 2.0,
-        (monitor_size.height - overlay_size.height) / 2.0,
-    )
+    windows.centered_position(event_loop)
 }
 
 /// 回传事件的类别标签（`auto_show` 策略只关心类别，不关心代数与载荷）。

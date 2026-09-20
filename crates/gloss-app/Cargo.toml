@@ -18,7 +18,7 @@ egui = {
   ]
 }
 # 结果卡 markdown 正文渲染：pulldown-cmark 解析后端；不开
-# load-images/fetch/svg（LLM 结果卡无需联网取图）。
+# load-images/fetch/svg 取图路径。
 egui_commonmark = {
   version = "0.25",
   default-features = false,

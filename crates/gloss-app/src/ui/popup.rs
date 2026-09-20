@@ -26,6 +26,8 @@ const TALL_GROW: f32 = 320.0;
 /// 宽度收回阈值：已加宽的浮层内容矮于此值才收回默认宽（与 TALL_GROW
 /// 之间的滞回带防逐帧来回切换）
 const TALL_SHRINK: f32 = 240.0;
+/// 宽度档位判定的浮点容差
+const WIDTH_SWITCH_EPSILON: f32 = 0.5;
 /// 卡片圆角
 const CORNER_RADIUS: u8 = 8;
 /// 内容区内边距
@@ -122,7 +124,20 @@ pub(crate) fn draw(
 
     // 宽度按内容体量收敛：矮内容保持默认宽，长文本加宽到上限，滞回带
     // 防两档间来回切换；高度取完整内容高（超出屏幕由壳侧钳制、滚动兜底）。
-    let width = if state.last_width.get() >= MAX_WIDTH - 0.5 {
+    let width = resolve_width(state.last_width.get(), content_h);
+    state.last_width.set(width);
+    output.sizing = OverlaySizing {
+        width,
+        height: (content_h + 2.0 * PADDING as f32 + STROKE_WIDTH).round(),
+    };
+    output
+}
+
+/// 宽度收敛决策：已加宽的浮层内容矮于 [`TALL_SHRINK`] 才收回默认宽，
+/// 默认宽的内容高于 [`TALL_GROW`] 才加宽——两阈值之间的滞回带保持原档，
+/// 内容高随宽度变化时不振荡。
+fn resolve_width(last_width: f32, content_h: f32) -> f32 {
+    if last_width >= MAX_WIDTH - WIDTH_SWITCH_EPSILON {
         if content_h < TALL_SHRINK {
             WIDTH
         } else {
@@ -132,13 +147,7 @@ pub(crate) fn draw(
         MAX_WIDTH
     } else {
         WIDTH
-    };
-    state.last_width.set(width);
-    output.sizing = OverlaySizing {
-        width,
-        height: (content_h + 2.0 * PADDING as f32 + STROKE_WIDTH).round(),
-    };
-    output
+    }
 }
 
 /// 浮层内容（头部 + 各视图正文），并把完整内容高记入 `content_h`：
@@ -171,21 +180,21 @@ fn render_content(
                 Some(pos) => &body[..pos],
                 None => body,
             };
+            let pre_scroll = ui.min_rect().height();
             let scrolled = ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 render_markdown(ui, state, visible);
-                ui.min_rect().height()
             });
-            *content_h = scrolled.inner.max(scrolled.content_size.y);
+            *content_h = pre_scroll + scrolled.content_size.y;
             None
         }
         Some(OverlayView::Outcome(outcome)) => {
             header(ui, crate::ui::kind_label(outcome.kind));
             ui.add_space(SECTION_SPACE);
+            let pre_scroll = ui.min_rect().height();
             let scrolled = ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 outcome_body(ui, outcome, state);
-                ui.min_rect().height()
             });
-            *content_h = scrolled.inner.max(scrolled.content_size.y);
+            *content_h = pre_scroll + scrolled.content_size.y;
             None
         }
         Some(OverlayView::Failed { message, action }) => {
@@ -351,6 +360,39 @@ fn selfcheck_body(ui: &mut egui::Ui) {
             .size(NOTICE_SIZE)
             .color(weak),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_WIDTH, WIDTH, resolve_width};
+
+    #[test]
+    fn width_hysteresis_does_not_oscillate_between_frames() {
+        let grown = resolve_width(WIDTH, 400.0);
+        assert_eq!(grown, MAX_WIDTH, "长内容必须加宽");
+
+        assert_eq!(resolve_width(MAX_WIDTH, 400.0), MAX_WIDTH);
+        assert_eq!(
+            resolve_width(MAX_WIDTH, 300.0),
+            MAX_WIDTH,
+            "滞回带内保持已加宽档"
+        );
+
+        assert_eq!(
+            resolve_width(MAX_WIDTH, 200.0),
+            WIDTH,
+            "明显变矮才收回默认档"
+        );
+        assert_eq!(resolve_width(WIDTH, 200.0), WIDTH, "矮内容保持默认档");
+    }
+
+    #[test]
+    fn width_hysteresis_band_bounds_are_symmetric() {
+        assert_eq!(resolve_width(WIDTH, 321.0), MAX_WIDTH);
+        assert_eq!(resolve_width(WIDTH, 319.0), WIDTH, "阈值之下不加宽");
+        assert_eq!(resolve_width(MAX_WIDTH, 241.0), MAX_WIDTH);
+        assert_eq!(resolve_width(MAX_WIDTH, 239.0), WIDTH, "阈值之下才收回");
+    }
 }
 
 #[cfg(test)]
