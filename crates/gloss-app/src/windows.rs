@@ -22,6 +22,20 @@ const RESIZE_EPSILON: f64 = 0.5;
 const SETTINGS_WIDTH: f64 = 460.0;
 const SETTINGS_HEIGHT: f64 = 640.0;
 
+/// 浮层在指定显示器上居中的逻辑坐标（尺寸用逻辑值，显示器尺寸按缩放
+/// 比例换算）。
+fn centered_on_monitor(
+    monitor: &winit::monitor::MonitorHandle,
+    size: LogicalSize<f64>,
+) -> LogicalPosition<f64> {
+    let scale = monitor.scale_factor();
+    let monitor_size = monitor.size().to_logical::<f64>(scale);
+    LogicalPosition::new(
+        (monitor_size.width - size.width) / 2.0,
+        (monitor_size.height - size.height) / 2.0,
+    )
+}
+
 /// 窗口管理器：持有各窗口的生存期，对上层只暴露「谁的窗口」「显示/隐藏」。
 pub struct WindowManager {
     overlay: Arc<Window>,
@@ -75,9 +89,10 @@ impl WindowManager {
         self.overlay_size
     }
 
-    /// 应用浮层内容的期望尺寸（内容自适应高度，T3）：按显示器钳制高度后
-    /// 才重设窗口，变化小于阈值时不动——渲染帧后逐帧调用也只在真实变化
-    /// 时触发 resize。
+    /// 应用浮层内容的期望尺寸（内容自适应高度）：按显示器钳制高度后才
+    /// 重设窗口，变化小于阈值时不动——渲染帧后逐帧调用也只在真实变化
+    /// 时触发 resize；尺寸变化即按当前显示器重新居中（显示入口用的是
+    /// 上一帧尺寸算的位置，不重定位的话接近屏高的卡片会向下溢出屏幕）。
     pub fn set_overlay_size(&mut self, size: LogicalSize<f64>) {
         let capped = self.cap_height_to_screen(size);
         if (capped.width - self.overlay_size.width).abs() < RESIZE_EPSILON
@@ -94,6 +109,22 @@ impl WindowManager {
         } else {
             self.overlay_size = capped;
         }
+        if let Some(monitor) = self.overlay.current_monitor() {
+            let position = centered_on_monitor(&monitor, self.overlay_size);
+            self.overlay.set_outer_position(position);
+        }
+    }
+
+    /// 浮层居中于显示器（逻辑坐标）：优先窗口当前所在的显示器，其次
+    /// 主显示器。
+    pub fn centered_position(&self, event_loop: &ActiveEventLoop) -> LogicalPosition<f64> {
+        let monitor = self
+            .overlay
+            .current_monitor()
+            .or_else(|| event_loop.primary_monitor());
+        monitor.map_or(LogicalPosition::new(0.0, 0.0), |monitor| {
+            centered_on_monitor(&monitor, self.overlay_size)
+        })
     }
 
     /// 高度按浮层所在显示器钳制（超出部分由内容侧滚动兜底）；拿不到
