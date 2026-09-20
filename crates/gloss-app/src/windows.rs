@@ -304,7 +304,7 @@ mod tests {
         assert_eq!(
             clamp_to_monitor(LogicalPosition::new(-50.0, 300.0), origin, SCREEN, OVERLAY),
             LogicalPosition::new(1440.0, 300.0),
-            "负全局坐标（主屏左侧的显示器）钳到该屏原点，不跳到主屏"
+            "越出该屏左缘的全局坐标钳到屏原点，不跳到别的屏"
         );
     }
 
