@@ -132,7 +132,7 @@ impl GlossApp {
 }
 
 #[cfg(test)]
-pub(super) mod test_support {
+mod test_support {
     use std::sync::Arc;
 
     use gloss_core::config::Config;
