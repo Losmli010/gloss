@@ -359,7 +359,7 @@ fn lang_combo(ui: &mut egui::Ui, current: &mut Lang) {
         });
 }
 
-/// 主题标签与下拉（消费在壳侧，见 `app::apply_theme`）。
+/// 主题标签与下拉（消费在壳侧，见 `app::theme`）。
 fn theme_combo(ui: &mut egui::Ui, current: &mut Theme) {
     egui::ComboBox::from_id_salt("theme")
         .selected_text(match current {

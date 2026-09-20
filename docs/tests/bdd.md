@@ -280,20 +280,42 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | channels_bundles_all_four | 四通道捆绑互不串扰 | 给定 Channels::new，当四条通道各发一条，则各自到达、互不串扰 | 2026-09-19 |
 | event_sender_clone_is_independent | 克隆 Sender 独立存活 | 给定克隆 Sender 且原型 drop，当用它发送，则消息照常到达 | 2026-09-19 |
 
-### crates/gloss-app/src/app.rs
+### crates/gloss-app/src/app/render.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | repaint_delay_max_means_no_wakeup | MAX 延迟不唤醒 | 给定 Duration::MAX 延迟，当换算唤醒时刻，则 None | 2026-09-19 |
 | repaint_delay_becomes_a_deadline | 延迟换算为截止时刻 | 给定 250ms/0 延迟，当换算，则 now+延迟/now | 2026-09-19 |
+
+### crates/gloss-app/src/app/handler.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 | sooner_picks_the_earliest_deadline | 取更早的截止时刻 | 给定两个时刻（可含 None），当取更早，则 None 让位、双 None 不唤醒 | 2026-09-19 |
+
+### crates/gloss-app/src/app/channels.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 | late_events_of_superseded_trigger_do_not_bleed | 被顶代数的迟到事件不渗漏 | 给定连续触发 A→B，当 A 的迟到 chunk/TaskDone 到达，则被陈旧过滤，B 的产物照常 Show | 2026-09-19 |
 | failed_task_lands_in_error_and_retry_works | 失败落错误态且可再触发 | 给定推理中任务，当匹配代数的失败到达，则落 Error；陈旧失败丢弃；再次触发回 Fetching | 2026-09-19 |
-| retry_action_redispatches_the_failed_task | Retry 动作重发失败任务 | 给定失败卡 Retry 动作，当执行，则同代数同任务新令牌重发通道③，重试产物照常采纳 | 2026-09-19 |
-| open_settings_action_keeps_the_error_card | 打开设置保留错误卡 | 给定鉴权失败卡，当执行 OpenSettings 动作，则停在 Error、通道③无流量、编辑会话就位 | 2026-09-19 |
 | stale_input_ready_is_dropped_entirely | 陈旧 InputReady 整体丢弃 | 给定陈旧代数 InputReady，当采纳，则整体丢弃、不下发通道③ | 2026-09-19 |
 | saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置，当下一次触发，则目标语言与模型随任务下发 | 2026-09-19 |
 | saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定触发后、产物到达前保存新配置，当在途任务下发，则仍用触发时快照 | 2026-09-19 |
+
+### crates/gloss-app/src/app/overlay.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| retry_action_redispatches_the_failed_task | Retry 动作重发失败任务 | 给定失败卡 Retry 动作，当执行，则同代数同任务新令牌重发通道③，重试产物照常采纳 | 2026-09-19 |
+| open_settings_action_keeps_the_error_card | 打开设置保留错误卡 | 给定鉴权失败卡，当执行 OpenSettings 动作，则停在 Error、通道③无流量、编辑会话就位 | 2026-09-19 |
+| auto_show_policy_decides_when_the_overlay_pops | 自动弹出按策略表 | 给定事件类别×采纳×开关组合，当逐事件判定，则按策略表露面、未采纳一律不弹、chunk 从不弹 | 2026-09-19 |
+| auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则一条被采纳的完成/失败即弹、整批陈旧不弹、空批不弹 | 2026-09-19 |
+
+### crates/gloss-app/src/app/settings_session.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 | open_settings_request_starts_an_edit_session | 打开设置即编辑会话 | 给定 OpenSettingsRequested，当消费，则编辑会话打开、草稿=当前快照、不占代数 | 2026-09-19 |
 | settings_save_writes_keychain_and_swaps_config | 保存写密钥串并换配置 | 给定含密钥替换的保存，当成功，则密钥进 keychain、快照换新、会话关闭，新模型随后续触发生效 | 2026-09-19 |
 | clearing_the_key_deletes_the_secret_on_save | 清除密钥保存即删除 | 给定 KeyUpdate::Clear，当保存，则 keychain 条目删除、会话关闭 | 2026-09-19 |
@@ -301,8 +323,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | saving_settings_rebinds_hotkeys_from_the_new_snapshot | 保存按新快照重注册热键 | 给定保存新热键表，当成功，则按新快照重注册一次（启动注册不计入 App） | 2026-09-19 |
 | every_save_rebinds_hotkeys_not_just_the_first | 每次保存都重注册 | 给定连续两次成功保存，当各次执行，则都重注册且第二次生效第二份 | 2026-09-19 |
 | failed_save_does_not_rebind_hotkeys | 失败保存不重注册 | 给定落盘失败，当保存，则重注册计数为 0 | 2026-09-19 |
-| auto_show_policy_decides_when_the_overlay_pops | 自动弹出按策略表 | 给定事件类别×采纳×开关组合，当逐事件判定，则按策略表露面、未采纳一律不弹、chunk 从不弹 | 2026-09-19 |
-| auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则一条被采纳的完成/失败即弹、整批陈旧不弹、空批不弹 | 2026-09-19 |
+
+### crates/gloss-app/src/app/theme.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 | theme_preference_covers_every_variant | 主题三档全映射 | 给定三档主题，当映射 egui 偏好，则一一对应且出厂跟随系统 | 2026-09-19 |
 | apply_theme_writes_every_context | 主题写满每个 Context | 给定两个 egui Context，当施加各档主题，则每个都被写；空集写 0 个不 panic | 2026-09-19 |
 | apply_theme_elides_writes_until_the_preference_changes | 主题未变不重写 | 给定未变的偏好，当重复 apply_theme，则不写；偏好变了则跟上 | 2026-09-19 |
