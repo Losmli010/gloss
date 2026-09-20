@@ -19,6 +19,22 @@ pub enum Lang {
     Other(String),
 }
 
+/// 屏幕逻辑坐标点。多显示器下坐标可为负，按手势/系统返回值原样传递。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenPoint {
+    /// 横坐标（逻辑像素）。
+    pub x: i32,
+    /// 纵坐标（逻辑像素）。
+    pub y: i32,
+}
+
+impl ScreenPoint {
+    /// 构造一个屏幕坐标点。
+    pub const fn new(x: i32, y: i32) -> Self {
+        Self { x, y }
+    }
+}
+
 /// 屏幕逻辑坐标矩形。多显示器下原点可为负，坐标按手势/系统返回值原样传递。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScreenRect {

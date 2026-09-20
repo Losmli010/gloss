@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use gloss_core::config_handle::ConfigHandle;
+use gloss_core::model::ScreenPoint;
 use gloss_core::ports::{ConfigStore, HotkeyBinder};
 use winit::dpi::LogicalSize;
 
@@ -63,6 +64,9 @@ struct GlossApp {
     hotkeys: Arc<dyn HotkeyBinder>,
     /// 已施加到两个 egui 上下文的主题偏好；`None` 表示还没施加过。
     applied_theme: Option<egui::ThemePreference>,
+    /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
+    /// 代数对不上（热键触发、陈旧）时浮层回落居中。
+    selection_anchor: Option<(u64, ScreenPoint)>,
 }
 
 impl GlossApp {
@@ -88,6 +92,7 @@ impl GlossApp {
             settings: None,
             hotkeys,
             applied_theme: None,
+            selection_anchor: None,
         }
     }
 
@@ -144,6 +149,7 @@ mod test_support {
 
     use gloss_core::config::Config;
     use gloss_core::config_handle::ConfigHandle;
+    use gloss_core::model::ScreenPoint;
     use gloss_core::ports::{ConfigStore, HotkeyBinder};
     use gloss_core::task::TaskInput;
 
@@ -219,7 +225,11 @@ mod test_support {
         app: &mut GlossApp,
         pe_tx: &crossbeam_channel::Sender<PlatformEvent>,
     ) {
-        pe_tx.send(PlatformEvent::SelectionGesture).unwrap();
+        pe_tx
+            .send(PlatformEvent::SelectionGesture {
+                pos: ScreenPoint::new(0, 0),
+            })
+            .unwrap();
         app.drain_platform_events();
     }
 

@@ -74,32 +74,33 @@ struct GestureDetector {
 }
 
 impl GestureDetector {
-    /// 抽干事件流并驱动状态机，返回本轮判定的拖拽选择次数。
-    fn poll(&mut self, events: &Receiver<ButtonEvent>) -> usize {
-        let mut fired = 0;
+    /// 抽干事件流并驱动状态机，返回本轮判定的拖拽选择与各自的释放坐标。
+    fn poll(&mut self, events: &Receiver<ButtonEvent>) -> Vec<(f64, f64)> {
+        let mut fired = Vec::new();
         while let Ok(event) = events.try_recv() {
-            if self.feed(event) {
-                fired += 1;
+            if let Some(pos) = self.feed(event) {
+                fired.push(pos);
             }
         }
         fired
     }
 
-    /// 喂入单个事件，返回是否判定为一次完整的拖拽选择（释放且位移超阈值）。
-    fn feed(&mut self, event: ButtonEvent) -> bool {
+    /// 喂入单个事件，判定为一次完整的拖拽选择（释放且位移超阈值）时返回
+    /// 释放坐标——浮层跟随划词位置的输入。
+    fn feed(&mut self, event: ButtonEvent) -> Option<(f64, f64)> {
         match (event.action, self.pressed_at) {
             (LeftButton::Pressed, _) => {
                 self.pressed_at = Some(event.pos);
-                false
+                None
             }
             (LeftButton::Released, Some(start)) => {
                 self.pressed_at = None;
                 let dx = event.pos.0 - start.0;
                 let dy = event.pos.1 - start.1;
-                dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD
+                (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD).then_some(event.pos)
             }
             // 无按下记录的释放（如监听启动前就按下的拖拽），静默忽略。
-            (LeftButton::Released, None) => false,
+            (LeftButton::Released, None) => None,
         }
     }
 }
@@ -113,6 +114,7 @@ mod tap {
     use crossbeam_channel::{Receiver, bounded};
 
     use gloss_core::log::{debug, info, thread, warn};
+    use gloss_core::model::ScreenPoint;
 
     use super::{ButtonEvent, GestureDetector};
     use crate::events::EventSource;
@@ -120,8 +122,12 @@ mod tap {
     /// 划词手势产物（platform 本地类型；组装点映射为 ① 的平台事件）。
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum MouseGesture {
-        /// 用户完成了一次典型的文本选择动作（拖拽释放）。
-        Selection,
+        /// 用户完成了一次典型的文本选择动作（拖拽释放），载荷是释放坐标
+        /// （系统全局坐标，逻辑点、左上原点）——浮层跟随划词位置用。
+        Selection {
+            /// 释放坐标（整型化，与 [`gloss_core::model::ScreenRect`] 同一口径）。
+            pos: ScreenPoint,
+        },
     }
 
     /// 监听启动失败的原因——只用于日志与降级判定（手势可降级，失败不向上
@@ -163,8 +169,12 @@ mod tap {
 
     impl EventSource<MouseGesture> for MouseSource {
         fn poll(&mut self) -> Vec<MouseGesture> {
-            (0..self.detector.poll(&self.events))
-                .map(|_| MouseGesture::Selection)
+            self.detector
+                .poll(&self.events)
+                .into_iter()
+                .map(|(x, y)| MouseGesture::Selection {
+                    pos: ScreenPoint::new(x.round() as i32, y.round() as i32),
+                })
                 .collect()
         }
     }
@@ -404,19 +414,20 @@ mod tests {
     #[test]
     fn drag_release_emits_selection() {
         let mut detector = GestureDetector::default();
-        assert!(!detector.feed(pressed((10.0, 10.0))));
-        assert!(detector.feed(released((140.0, 30.0))));
+        assert_eq!(detector.feed(pressed((10.0, 10.0))), None);
+        assert_eq!(detector.feed(released((140.0, 30.0))), Some((140.0, 30.0)));
     }
 
     #[test]
     fn plain_click_and_jitter_do_not_trigger() {
         let mut detector = GestureDetector::default();
-        assert!(!detector.feed(pressed((10.0, 10.0))));
-        assert!(!detector.feed(released((10.0, 10.0))));
+        assert_eq!(detector.feed(pressed((10.0, 10.0))), None);
+        assert_eq!(detector.feed(released((10.0, 10.0))), None);
 
-        assert!(!detector.feed(pressed((50.0, 50.0))));
-        assert!(
-            !detector.feed(released((56.0, 55.0))),
+        assert_eq!(detector.feed(pressed((50.0, 50.0))), None);
+        assert_eq!(
+            detector.feed(released((56.0, 55.0))),
+            None,
             "jitter below threshold"
         );
     }
@@ -424,9 +435,10 @@ mod tests {
     #[test]
     fn displacement_comes_from_the_events_themselves() {
         let mut detector = GestureDetector::default();
-        assert!(!detector.feed(pressed((100.0, 100.0))));
-        assert!(
+        assert_eq!(detector.feed(pressed((100.0, 100.0))), None);
+        assert_eq!(
             detector.feed(released((400.0, 100.0))),
+            Some((400.0, 100.0)),
             "release position is the release event's own position"
         );
     }
@@ -434,19 +446,25 @@ mod tests {
     #[test]
     fn state_resets_after_each_gesture() {
         let mut detector = GestureDetector::default();
-        assert!(!detector.feed(pressed((0.0, 0.0))));
-        assert!(detector.feed(released((200.0, 0.0))));
-        assert!(!detector.feed(pressed((500.0, 500.0))));
-        assert!(detector.feed(released((700.0, 500.0))));
+        assert_eq!(detector.feed(pressed((0.0, 0.0))), None);
+        assert_eq!(detector.feed(released((200.0, 0.0))), Some((200.0, 0.0)));
+        assert_eq!(detector.feed(pressed((500.0, 500.0))), None);
+        assert_eq!(
+            detector.feed(released((700.0, 500.0))),
+            Some((700.0, 500.0))
+        );
     }
 
     #[test]
     fn stray_events_are_ignored() {
         let mut detector = GestureDetector::default();
-        assert!(!detector.feed(released((1.0, 1.0))));
-        assert!(!detector.feed(pressed((0.0, 0.0))));
-        assert!(!detector.feed(pressed((100.0, 100.0))));
-        assert!(detector.feed(released((200.0, 100.0))));
+        assert_eq!(detector.feed(released((1.0, 1.0))), None);
+        assert_eq!(detector.feed(pressed((0.0, 0.0))), None);
+        assert_eq!(detector.feed(pressed((100.0, 100.0))), None);
+        assert_eq!(
+            detector.feed(released((200.0, 100.0))),
+            Some((200.0, 100.0))
+        );
     }
 
     #[test]
@@ -455,8 +473,8 @@ mod tests {
         let mut detector = GestureDetector::default();
         tx.send(pressed((0.0, 0.0))).unwrap();
         tx.send(released((100.0, 0.0))).unwrap();
-        assert_eq!(detector.poll(&rx), 1);
-        assert_eq!(detector.poll(&rx), 0, "drained queue stays empty");
+        assert_eq!(detector.poll(&rx), vec![(100.0, 0.0)]);
+        assert!(detector.poll(&rx).is_empty(), "drained queue stays empty");
     }
 
     #[test]

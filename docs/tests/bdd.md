@@ -12,7 +12,7 @@
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 12 | `just test` |
-| 单元测试 | 225 | `just test` |
+| 单元测试 | 232 | `just test` |
 
 ## 人工测试
 
@@ -303,6 +303,16 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置，当下一次触发，则目标语言与模型随任务下发 | 2026-09-19 |
 | saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定触发后、产物到达前保存新配置，当在途任务下发，则仍用触发时快照 | 2026-09-19 |
 
+### crates/gloss-app/src/windows.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| position_inside_the_monitor_is_untouched | 屏内位置原样保留 | 给定显示器范围内的位置，当钳制，则原样返回 | 2026-09-20 |
+| position_past_the_right_or_bottom_edge_pulls_back | 右下越界向内收 | 给定越出右/下边缘的位置，当钳制，则收到屏宽/高减浮层尺寸处 | 2026-09-20 |
+| position_before_the_origin_clamps_to_it | 负坐标钳到屏原点 | 给定负全局坐标（主屏左侧显示器），当钳制，则收到该显示器原点而非主屏 | 2026-09-20 |
+| clamping_respects_the_monitor_origin_on_secondary_displays | 副屏钳制按全局原点 | 给定副屏（全局原点非零）右缘位置，当钳制，则按副屏全局区间收口而非主屏 | 2026-09-20 |
+| monitor_smaller_than_the_overlay_pins_to_the_origin | 显示器小于浮层贴原点 | 给定比浮层还小的显示器与屏内位置，当钳制，则贴显示器原点（上限取 0） | 2026-09-20 |
+
 ### crates/gloss-app/src/ui/popup.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -318,6 +328,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | open_settings_action_keeps_the_error_card | 打开设置保留错误卡 | 给定鉴权失败卡，当执行 OpenSettings 动作，则停在 Error、通道③无流量、编辑会话就位 | 2026-09-19 |
 | auto_show_policy_decides_when_the_overlay_pops | 自动弹出按策略表 | 给定事件类别×采纳×开关组合，当逐事件判定，则按策略表露面、未采纳一律不弹、chunk 从不弹 | 2026-09-19 |
 | auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则一条被采纳的完成/失败即弹、整批陈旧不弹、空批不弹 | 2026-09-19 |
+| show_position_follows_selection_only_for_the_current_generation | 显示位置跟随当代划词 | 给定划词锚点与代数，当决策显示位置，则当代跟随选区（右下偏移）、代数不符或无锚点回落居中 | 2026-09-20 |
+| selection_trigger_records_its_anchor_per_generation | 划词触发按代数记锚点 | 给定两次划词触发，当消费，则锚点随代数刷新为各自释放坐标 | 2026-09-20 |
 
 ### crates/gloss-app/src/app/settings_session.rs
 
