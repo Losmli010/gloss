@@ -18,11 +18,15 @@ use super::GlossApp;
 pub(super) const AUTO_HIDE_AFTER: Duration = Duration::from_secs(10);
 
 impl GlossApp {
-    /// 统一显示入口：显示并启动自动隐藏计时。
+    /// 统一显示入口：显示并启动自动隐藏计时；同时重置出现动画起点，
+    /// 让本次显示从淡入开始。
     pub(super) fn show_overlay(&mut self, position: LogicalPosition<f64>) {
         let Some(windows) = &self.windows else {
             return;
         };
+        if let Some(frame) = self.frame.as_ref() {
+            crate::ui::popup::reset_appear_animation(&frame.egui_ctx);
+        }
         windows.show_at(position);
         self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
     }
@@ -36,6 +40,10 @@ impl GlossApp {
             return;
         }
         self.auto_hide = None;
+        self.overlay_repaint = None;
+        if let Some(frame) = self.frame.as_ref() {
+            crate::ui::popup::reset_appear_animation(&frame.egui_ctx);
+        }
         if let Some(windows) = &self.windows {
             windows.hide();
         }

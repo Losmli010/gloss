@@ -9,6 +9,7 @@
 //! 可能短暂显示，随下一 chunk 自愈。
 
 use std::cell::{Cell, RefCell};
+use std::time::Duration;
 
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, ScrollArea, Stroke, vec2};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
@@ -50,6 +51,8 @@ const EXAMPLE_SIZE: f32 = 12.0;
 const HEADER_SIZE: f32 = 12.0;
 const TAG_SIZE: f32 = 11.0;
 const BUTTON_SIZE: f32 = 12.0;
+/// 出现动画时长（淡入，秒）：显示/重显后的第一帧从 0 渐进到 1。
+const APPEAR_SECONDS: f32 = 0.18;
 /// 间距阶梯：标题行后 / 正文分区前 / 词条行后 / 释义组间 / 例句间
 const SECTION_SPACE: f32 = 12.0;
 const BODY_SPACE: f32 = 8.0;
@@ -89,6 +92,22 @@ pub struct OverlaySizing {
     pub height: f32,
 }
 
+/// 出现动画起点在 egui memory 里的键。
+fn appear_t0_id() -> egui::Id {
+    egui::Id::new("overlay_appear_t0")
+}
+
+/// 淡入进度：给定居内已流逝秒数，返回 0..=1 的不透明度。
+fn appear_progress(elapsed_secs: f64) -> f32 {
+    (elapsed_secs / f64::from(APPEAR_SECONDS)).clamp(0.0, 1.0) as f32
+}
+
+/// 清除出现动画起点：壳在隐藏与每次显示时调用，让下一帧重新从 0 淡入
+/// （隐藏期无帧运行，不清除则旧起点让重显直接落在完成态）。
+pub(crate) fn reset_appear_animation(ctx: &egui::Context) {
+    ctx.memory_mut(|mem| mem.data.remove_temp::<f64>(appear_t0_id()));
+}
+
 /// 画一帧浮层。根 `Ui` 覆盖整个窗口，卡片铺满它，圆角之外由透明窗口露出桌面。
 ///
 /// `view` 为 `None` 时显示渲染自检卡（预热与自检路径）。返回本帧绘制的
@@ -101,6 +120,20 @@ pub(crate) fn draw(
 ) -> PopupOutput {
     // 划选即复制路径：全部文本可选中（含跨 widget 连选）
     ui.style_mut().interaction.selectable_labels = true;
+
+    // 出现淡入：起点在每次显示（壳侧清除后）的首帧重新写入；进度未满时
+    // 请求短重绘推进动画。kittest 的 animation_time=0 与固定步进让快照
+    // 恒为完成态，不受动画影响。
+    let now = ui.input(|i| i.time);
+    let started_at = ui
+        .ctx()
+        .memory_mut(|mem| *mem.data.get_temp_mut_or_insert_with(appear_t0_id(), || now));
+    let progress = appear_progress(now - started_at);
+    if progress < 1.0 {
+        ui.ctx()
+            .request_repaint_after(Duration::from_secs_f32(0.016));
+    }
+    ui.set_opacity(progress);
 
     let fill = ui.visuals().window_fill;
     let stroke = ui.visuals().window_stroke;
@@ -161,14 +194,14 @@ fn render_content(
 ) -> Option<ErrorAction> {
     match view {
         None => {
-            header(ui, "自检");
+            header(ui, Some("自检"), false);
             ui.add_space(SECTION_SPACE);
             selfcheck_body(ui);
             *content_h = ui.min_rect().height();
             None
         }
         Some(OverlayView::Streaming { source, body }) => {
-            header(ui, "推理中");
+            header(ui, None, true);
             ui.add_space(BODY_SPACE);
             ui.label(
                 RichText::new(source)
@@ -190,7 +223,7 @@ fn render_content(
             None
         }
         Some(OverlayView::Outcome(outcome)) => {
-            header(ui, crate::ui::kind_label(outcome.kind));
+            header(ui, Some(crate::ui::kind_label(outcome.kind)), false);
             ui.add_space(SECTION_SPACE);
             let body_top = ui.cursor().min.y;
             let scrolled = ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
@@ -200,7 +233,7 @@ fn render_content(
             None
         }
         Some(OverlayView::Failed { message, action }) => {
-            header(ui, "失败");
+            header(ui, Some("失败"), false);
             ui.add_space(SECTION_SPACE);
             ui.label(
                 RichText::new(message.as_str())
@@ -234,15 +267,20 @@ fn action_label(action: ErrorAction) -> &'static str {
     }
 }
 
-/// 头部：身份圆点 + 品牌标签，右侧任务类型标签。
-fn header(ui: &mut egui::Ui, tag: &str) {
+/// 头部：身份圆点 + 品牌标签；`busy` 时右侧画旋转指示器替代任务标签
+/// （推理中的流式反馈），否则显示任务类型标签。
+fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool) {
     let weak = ui.visuals().weak_text_color();
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(8.0, 8.0), egui::Sense::hover());
         ui.painter().circle_filled(rect.center(), 4.0, BRAND_DOT);
         ui.label(RichText::new("翻译").size(HEADER_SIZE).color(weak));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(RichText::new(tag).size(TAG_SIZE).color(weak));
+            if busy {
+                ui.add(egui::Spinner::new().size(TAG_SIZE + 5.0));
+            } else if let Some(tag) = tag {
+                ui.label(RichText::new(tag).size(TAG_SIZE).color(weak));
+            }
         });
     });
 }
@@ -502,7 +540,7 @@ mod kittest_tests {
     #[test]
     fn streaming_view_hides_structured_block() {
         let (mut harness, _clicked) = harness_for(streaming_view());
-        harness.run();
+        harness.run_steps(3);
         harness.get_by_label_contains("已流式到达的正文");
         harness.get_by_label_contains("选中的原文");
         let fence_visible = harness
@@ -565,7 +603,9 @@ mod kittest_tests {
         results.extend_harness(&mut harness);
 
         let (mut harness, _clicked) = harness_for(streaming_view());
-        harness.run();
+        // Spinner 每帧请求重绘，run() 会在 max_steps 处报错；固定步数让
+        // 指示器角度确定，快照不抖。
+        harness.run_steps(3);
         harness.snapshot("popup_streaming");
         results.extend_harness(&mut harness);
 
