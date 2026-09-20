@@ -2,6 +2,7 @@
 //! 浮层与设置窗口共用。
 
 use std::error::Error;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -20,6 +21,9 @@ pub struct Frame {
     pub(super) egui_ctx: egui::Context,
     pub(super) egui: egui_winit::State,
     pub(super) surface: GpuSurface,
+    /// 浮层的跨帧渲染状态（markdown 缓存与尺寸收敛状态）：Rc 让它经绘制
+    /// 闭包进入 [`ui::popup::draw`]。仅浮层路径使用。
+    popup_state: Rc<ui::popup::RenderState>,
 }
 
 /// 建窗口栈与两个窗口的首帧渲染状态（生产 App 与自检 handler 共用）：
@@ -57,6 +61,7 @@ fn build_frame(window: Arc<Window>, context: &Arc<GpuContext>) -> Result<Frame, 
         egui_ctx,
         egui,
         surface,
+        popup_state: Rc::new(ui::popup::RenderState::default()),
     })
 }
 
@@ -94,14 +99,25 @@ pub fn render_frame_with<R>(
 }
 
 /// 渲染一帧浮层（[`render_frame_with`] 的浮层特化，供 App 与自检 handler
-/// 用）：返回（egui 要求的下一帧时刻，本帧被点击的失败卡动作按钮）。
+/// 用）：返回（egui 要求的下一帧时刻，本帧被点击的失败卡动作按钮，浮层
+/// 内容期望的窗口尺寸——由壳按显示器钳制后应用）。
 pub fn render_frame(
     frame: &mut Frame,
     view: Option<&OverlayView>,
-) -> (Option<Instant>, Option<ErrorAction>) {
-    let (repaint_at, clicked) = render_frame_with(frame, |ui| ui::popup::draw(ui, view));
+) -> (
+    Option<Instant>,
+    Option<ErrorAction>,
+    Option<ui::popup::OverlaySizing>,
+) {
+    let popup_state = Rc::clone(&frame.popup_state);
+    let (repaint_at, output) =
+        render_frame_with(frame, |ui| ui::popup::draw(ui, view, &popup_state));
     // 内层 Option 是「闭包有没有跑」的外壳，动作本身才是浮层的返回值。
-    (repaint_at, clicked.flatten())
+    (
+        repaint_at,
+        output.as_ref().and_then(|out| out.action),
+        output.map(|out| out.sizing),
+    )
 }
 
 /// egui 用 `Duration::MAX` 表示「不必重绘，等输入」；其余延迟换算成唤醒时刻。

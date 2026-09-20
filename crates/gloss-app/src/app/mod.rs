@@ -26,6 +26,7 @@ use std::time::Instant;
 
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::ports::{ConfigStore, HotkeyBinder};
+use winit::dpi::LogicalSize;
 
 use crate::channel::AppEndpoints;
 use crate::machine::TaskStateMachine;
@@ -91,18 +92,24 @@ impl GlossApp {
     }
 
     /// 画一帧：egui 出绘制数据 → wgpu 呈现，并把 egui 要求的下一帧记下
-    /// 来；失败卡上的动作按钮（重试/打开设置）就地执行。
+    /// 来；失败卡上的动作按钮（重试/打开设置）就地执行；浮层内容的期望
+    /// 尺寸就地应用（内容自适应高度，窗口管理器按显示器钳制）。
     fn draw(&mut self) {
         self.apply_theme();
         let Some(frame) = self.frame.as_mut() else {
             return;
         };
         let overlay_view = self.machine.overlay_view();
-        let (repaint, action) = render_frame(frame, overlay_view);
+        let (repaint, action, sizing) = render_frame(frame, overlay_view);
         self.overlay_repaint = repaint;
         // 失败卡的动作出口：重试原样重发，鉴权/配置类打开设置。
         if let Some(action) = action {
             self.handle_error_action(action);
+        }
+        if let Some(sizing) = sizing
+            && let Some(windows) = &mut self.windows
+        {
+            windows.set_overlay_size(LogicalSize::new(sizing.width as f64, sizing.height as f64));
         }
     }
 

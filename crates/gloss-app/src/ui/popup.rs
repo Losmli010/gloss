@@ -1,97 +1,218 @@
 //! 浮层内容：按 [`TaskKind`] 分发的结果卡与流式/失败视图。
 //!
-//! 词卡精排（音标/词性/释义/例句），其余任务展示 markdown 正文（以
-//! 可选中富文本呈现，语法级 markdown 渲染在需要时引入 egui_commonmark）；
-//! OCR 另提供纯文本一键复制。流式视图按 [`STRUCTURED_FENCE`] 过滤已
-//! 完整出现的结构化块（在累积文本上按最后围栏标记截断）；跨 chunk 切
-//! 分出的残缺围栏前缀可能短暂显示，随下一 chunk 自愈。
+//! 词卡精排（音标/词性/释义/例句），其余任务展示 markdown 正文
+//! （egui_commonmark 渲染；OCR 提取文本保持纯文本，不按 markdown 解释）。
+//! 划选即复制：全部文本可选中，无独立复制按钮。正文完整渲染不截断，
+//! 高度自适应内容（宽度默认 380、上限 480，高度上限按屏幕），超出部分
+//! 滚动兜底。流式视图按 [`STRUCTURED_FENCE`] 过滤已完整出现的结构化块
+//! （在累积文本上按最后围栏标记截断）；跨 chunk 切分出的残缺围栏前缀
+//! 可能短暂显示，随下一 chunk 自愈。
+
+use std::cell::{Cell, RefCell};
 
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, ScrollArea, Stroke, vec2};
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use gloss_core::prompt::STRUCTURED_FENCE;
 use gloss_core::task::OutcomeStructured;
 
 use crate::machine::{ErrorAction, OverlayView};
 
-/// 浮层宽度
+/// 浮层默认宽度（04 §二：默认 380px，长文本自适应，上限 480px）
 pub const WIDTH: f32 = 380.0;
+/// 长文本自适应的宽度上限
+const MAX_WIDTH: f32 = 480.0;
+/// 宽度收敛阈值：完整内容高超过此值视为长文本，加宽到上限
+const TALL_GROW: f32 = 320.0;
+/// 宽度收回阈值：已加宽的浮层内容矮于此值才收回默认宽（与 TALL_GROW
+/// 之间的滞回带防逐帧来回切换）
+const TALL_SHRINK: f32 = 240.0;
 /// 卡片圆角
 const CORNER_RADIUS: u8 = 8;
 /// 内容区内边距
 const PADDING: i8 = 14;
+/// 框线宽度（计入期望尺寸）
+const STROKE_WIDTH: f32 = 0.5;
 /// 头部身份圆点：品牌珊瑚橙
 const BRAND_DOT: Color32 = Color32::from_rgb(0xD8, 0x5A, 0x30);
-/// 流式正文/产物的展示字符上限（超出截断，浮层窗口固定）。
-const MAX_BODY_CHARS: usize = 4000;
+/// 字号阶梯：正文 / 流式来源与失败提示 / 标题
+const BODY_SIZE: f32 = 14.0;
+const NOTICE_SIZE: f32 = 13.0;
+const TITLE_SIZE: f32 = 15.0;
+/// 字号阶梯：词条 / 音标 / 释义 / 词性 / 例句
+const WORD_SIZE: f32 = 18.0;
+const PHONETIC_SIZE: f32 = 13.0;
+const MEANING_SIZE: f32 = 14.0;
+const POS_SIZE: f32 = 12.0;
+const EXAMPLE_SIZE: f32 = 12.0;
+/// 头部字号：品牌标签 / 任务类型 / 动作按钮
+const HEADER_SIZE: f32 = 12.0;
+const TAG_SIZE: f32 = 11.0;
+const BUTTON_SIZE: f32 = 12.0;
+/// 间距阶梯：标题行后 / 正文分区前 / 词条行后 / 释义组间 / 例句间
+const SECTION_SPACE: f32 = 12.0;
+const BODY_SPACE: f32 = 8.0;
+const WORD_ROW_SPACE: f32 = 10.0;
+const SENSE_SPACE: f32 = 6.0;
+const EXAMPLE_SPACE: f32 = 2.0;
+
+/// 浮层的跨帧渲染状态（每窗口一份，由渲染管线持有）。
+pub(crate) struct RenderState {
+    /// markdown 渲染状态（egui_commonmark 要求跨帧持有）。
+    pub cache: RefCell<CommonMarkCache>,
+    /// 上一帧应用的浮层宽度（宽度收敛的滞回状态）。
+    pub last_width: Cell<f32>,
+}
+
+impl Default for RenderState {
+    fn default() -> Self {
+        Self {
+            cache: RefCell::new(CommonMarkCache::default()),
+            last_width: Cell::new(WIDTH),
+        }
+    }
+}
+
+/// 一帧浮层绘制的产物：失败卡动作上交 + 内容期望的窗口尺寸（逻辑点）。
+pub(crate) struct PopupOutput {
+    pub action: Option<ErrorAction>,
+    pub sizing: OverlaySizing,
+}
+
+/// 内容自适应的期望窗口尺寸（逻辑点，含内边距与框线）。
+#[derive(Clone, Copy, Debug)]
+pub struct OverlaySizing {
+    /// 期望窗口宽度。
+    pub width: f32,
+    /// 期望窗口高度（完整内容高，壳侧按显示器钳制）。
+    pub height: f32,
+}
 
 /// 画一帧浮层。根 `Ui` 覆盖整个窗口，卡片铺满它，圆角之外由透明窗口露出桌面。
 ///
-/// `view` 为 `None` 时显示渲染自检卡（预热与自检路径）。返回本帧被点击
-/// 的失败卡动作按钮（重试/打开设置），由壳执行——浮层只渲染、不副作用。
-pub(crate) fn draw(ui: &mut egui::Ui, view: Option<&OverlayView>) -> Option<ErrorAction> {
+/// `view` 为 `None` 时显示渲染自检卡（预热与自检路径）。返回本帧绘制的
+/// 产物——失败卡动作按钮（重试/打开设置）由壳执行——浮层只渲染、不副作
+/// 用；期望尺寸由壳经窗口管理器应用（内容自适应高度，超出屏幕滚动兜底）。
+pub(crate) fn draw(
+    ui: &mut egui::Ui,
+    view: Option<&OverlayView>,
+    state: &RenderState,
+) -> PopupOutput {
+    // 划选即复制路径：全部文本可选中（含跨 widget 连选）
+    ui.style_mut().interaction.selectable_labels = true;
+
     let fill = ui.visuals().window_fill;
     let stroke = ui.visuals().window_stroke;
-
-    let mut clicked = None;
+    let mut output = PopupOutput {
+        action: None,
+        sizing: OverlaySizing {
+            width: state.last_width.get(),
+            height: 0.0,
+        },
+    };
+    let mut content_h = 0.0;
     Frame::new()
         .fill(fill)
-        .stroke(Stroke::new(0.5, stroke.color))
+        .stroke(Stroke::new(STROKE_WIDTH, stroke.color))
         .corner_radius(CornerRadius::same(CORNER_RADIUS))
         .inner_margin(Margin::same(PADDING))
         .show(ui, |ui| {
+            output.action = render_content(ui, view, state, &mut content_h);
             ui.set_min_size(ui.available_size());
-            match view {
-                None => {
-                    header(ui, "自检", None);
-                    ui.add_space(12.0);
-                    selfcheck_body(ui);
-                }
-                Some(OverlayView::Streaming { source, body }) => {
-                    header(ui, "推理中", None);
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(source)
-                            .size(13.0)
-                            .color(ui.visuals().weak_text_color()),
-                    );
-                    ui.add_space(8.0);
-                    streamed_body(ui, body);
-                }
-                Some(OverlayView::Outcome(outcome)) => {
-                    header(
-                        ui,
-                        crate::ui::kind_label(outcome.kind),
-                        Some(copy_text(outcome)),
-                    );
-                    ui.add_space(12.0);
-                    ScrollArea::vertical()
-                        .auto_shrink(false)
-                        .show(ui, |ui| outcome_body(ui, outcome));
-                }
-                Some(OverlayView::Failed { message, action }) => {
-                    header(ui, "失败", None);
-                    ui.add_space(12.0);
-                    ui.label(
-                        RichText::new(message.as_str())
-                            .size(13.0)
-                            .color(ui.visuals().warn_fg_color),
-                    );
-                    if let Some(action) = *action {
-                        ui.add_space(12.0);
-                        if ui
-                            .button(
-                                RichText::new(action_label(action))
-                                    .size(12.0)
-                                    .color(ui.visuals().strong_text_color()),
-                            )
-                            .clicked()
-                        {
-                            clicked = Some(action);
-                        }
-                    }
+        });
+
+    // 宽度按内容体量收敛：矮内容保持默认宽，长文本加宽到上限，滞回带
+    // 防两档间来回切换；高度取完整内容高（超出屏幕由壳侧钳制、滚动兜底）。
+    let width = if state.last_width.get() >= MAX_WIDTH - 0.5 {
+        if content_h < TALL_SHRINK {
+            WIDTH
+        } else {
+            MAX_WIDTH
+        }
+    } else if content_h > TALL_GROW {
+        MAX_WIDTH
+    } else {
+        WIDTH
+    };
+    state.last_width.set(width);
+    output.sizing = OverlaySizing {
+        width,
+        height: (content_h + 2.0 * PADDING as f32 + STROKE_WIDTH).round(),
+    };
+    output
+}
+
+/// 浮层内容（头部 + 各视图正文），并把完整内容高记入 `content_h`：
+/// 产物与流式正文放进 ScrollArea（完整渲染、超出滚动兜底），其高度取
+/// ScrollArea 报告的内容尺寸，不受视口裁剪影响。
+fn render_content(
+    ui: &mut egui::Ui,
+    view: Option<&OverlayView>,
+    state: &RenderState,
+    content_h: &mut f32,
+) -> Option<ErrorAction> {
+    match view {
+        None => {
+            header(ui, "自检");
+            ui.add_space(SECTION_SPACE);
+            selfcheck_body(ui);
+            *content_h = ui.min_rect().height();
+            None
+        }
+        Some(OverlayView::Streaming { source, body }) => {
+            header(ui, "推理中");
+            ui.add_space(BODY_SPACE);
+            ui.label(
+                RichText::new(source)
+                    .size(NOTICE_SIZE)
+                    .color(ui.visuals().weak_text_color()),
+            );
+            ui.add_space(BODY_SPACE);
+            let visible = match body.rfind(STRUCTURED_FENCE) {
+                Some(pos) => &body[..pos],
+                None => body,
+            };
+            let scrolled = ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                render_markdown(ui, state, visible);
+                ui.min_rect().height()
+            });
+            *content_h = scrolled.inner.max(scrolled.content_size.y);
+            None
+        }
+        Some(OverlayView::Outcome(outcome)) => {
+            header(ui, crate::ui::kind_label(outcome.kind));
+            ui.add_space(SECTION_SPACE);
+            let scrolled = ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                outcome_body(ui, outcome, state);
+                ui.min_rect().height()
+            });
+            *content_h = scrolled.inner.max(scrolled.content_size.y);
+            None
+        }
+        Some(OverlayView::Failed { message, action }) => {
+            header(ui, "失败");
+            ui.add_space(SECTION_SPACE);
+            ui.label(
+                RichText::new(message.as_str())
+                    .size(NOTICE_SIZE)
+                    .color(ui.visuals().warn_fg_color),
+            );
+            if let Some(action) = *action {
+                ui.add_space(SECTION_SPACE);
+                if ui
+                    .button(
+                        RichText::new(action_label(action))
+                            .size(BUTTON_SIZE)
+                            .color(ui.visuals().strong_text_color()),
+                    )
+                    .clicked()
+                {
+                    return Some(action);
                 }
             }
-        });
-    clicked
+            *content_h = ui.min_rect().height();
+            None
+        }
+    }
 }
 
 /// 动作按钮的文案。
@@ -102,53 +223,27 @@ fn action_label(action: ErrorAction) -> &'static str {
     }
 }
 
-/// 复制按钮写入剪贴板的文本：OCR 取纯文本，其余取 markdown 正文。
-fn copy_text(outcome: &gloss_core::task::TaskOutcome) -> String {
-    match &outcome.structured {
-        OutcomeStructured::Extracted { text } => text.clone(),
-        _ => outcome.body.clone(),
-    }
-}
-
-/// 头部：身份圆点 + 标题；右侧状态位与可选的一键复制按钮。
-fn header(ui: &mut egui::Ui, tag: &str, copy: Option<String>) {
+/// 头部：身份圆点 + 品牌标签，右侧任务类型标签。
+fn header(ui: &mut egui::Ui, tag: &str) {
     let weak = ui.visuals().weak_text_color();
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(8.0, 8.0), egui::Sense::hover());
         ui.painter().circle_filled(rect.center(), 4.0, BRAND_DOT);
-        ui.label(RichText::new("翻译").size(12.0).color(weak));
+        ui.label(RichText::new("翻译").size(HEADER_SIZE).color(weak));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if let Some(text) = copy
-                && ui
-                    .button(RichText::new("复制").size(11.0).color(weak))
-                    .clicked()
-            {
-                ui.ctx().copy_text(text);
-            }
-            ui.label(RichText::new(tag).size(11.0).color(weak));
+            ui.label(RichText::new(tag).size(TAG_SIZE).color(weak));
         });
     });
 }
 
-/// 流式正文：过滤掉已开始出现的结构化块（可能跨 chunk 切分，因此在
-/// 累积文本上按最后一次围栏标记截断），可滚动查看。
-fn streamed_body(ui: &mut egui::Ui, raw: &str) {
-    let visible = match raw.rfind(STRUCTURED_FENCE) {
-        Some(pos) => &raw[..pos],
-        None => raw,
-    };
-    ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        ui.label(
-            RichText::new(truncate(visible))
-                .size(14.0)
-                .strong()
-                .color(ui.visuals().strong_text_color()),
-        );
-    });
+/// markdown 正文：完整渲染（egui_commonmark 解析绘制），缓存跨帧持有。
+fn render_markdown(ui: &mut egui::Ui, state: &RenderState, text: &str) {
+    let mut cache = state.cache.borrow_mut();
+    CommonMarkViewer::new().show(ui, &mut cache, text);
 }
 
 /// 产物正文：词卡精排，其余任务展示 markdown 正文/提取文本。
-fn outcome_body(ui: &mut egui::Ui, outcome: &gloss_core::task::TaskOutcome) {
+fn outcome_body(ui: &mut egui::Ui, outcome: &gloss_core::task::TaskOutcome, state: &RenderState) {
     match &outcome.structured {
         OutcomeStructured::WordCard {
             word,
@@ -159,20 +254,19 @@ fn outcome_body(ui: &mut egui::Ui, outcome: &gloss_core::task::TaskOutcome) {
             if let Some(title) = title {
                 ui.label(
                     RichText::new(title.as_str())
-                        .size(15.0)
+                        .size(TITLE_SIZE)
                         .strong()
                         .color(ui.visuals().strong_text_color()),
                 );
-                ui.add_space(8.0);
+                ui.add_space(BODY_SPACE);
             }
-            selectable_body(ui, &outcome.body);
+            render_markdown(ui, state, &outcome.body);
         }
-        OutcomeStructured::Extracted { text } => selectable_body(ui, text),
+        OutcomeStructured::Extracted { text } => plain_body(ui, text),
     }
 }
 
-/// 词卡精排：词条 + 音标，按词性分组的释义与例句（最小
-/// 落地；精排细节随真实数据调优）。
+/// 词卡精排：词条 + 音标行，按词性分组的释义与弱化例句。
 fn word_card(
     ui: &mut egui::Ui,
     word: &str,
@@ -182,62 +276,57 @@ fn word_card(
     ui.horizontal(|ui| {
         ui.label(
             RichText::new(word)
-                .size(18.0)
+                .size(WORD_SIZE)
                 .strong()
                 .color(ui.visuals().strong_text_color()),
         );
         if let Some(phonetic) = phonetic {
             ui.label(
                 RichText::new(phonetic)
-                    .size(13.0)
+                    .size(PHONETIC_SIZE)
                     .color(ui.visuals().weak_text_color()),
             );
         }
     });
-    ui.add_space(10.0);
+    ui.add_space(WORD_ROW_SPACE);
     let strong = ui.visuals().strong_text_color();
     let weak = ui.visuals().weak_text_color();
     for sense in senses {
         ui.horizontal_wrapped(|ui| {
             if let Some(pos) = &sense.pos {
-                ui.label(RichText::new(pos.as_str()).size(13.0).color(weak));
+                ui.label(RichText::new(pos.as_str()).size(POS_SIZE).color(weak));
             }
             ui.label(
                 RichText::new(sense.meaning.as_str())
-                    .size(14.0)
+                    .size(MEANING_SIZE)
                     .color(strong),
             );
         });
         for example in &sense.examples {
+            ui.add_space(EXAMPLE_SPACE);
             ui.indent("example", |ui| {
-                ui.label(RichText::new(format!("· {example}")).size(12.0).color(weak));
+                ui.label(
+                    RichText::new(format!("· {example}"))
+                        .size(EXAMPLE_SIZE)
+                        .color(weak),
+                );
             });
         }
-        ui.add_space(6.0);
+        ui.add_space(SENSE_SPACE);
     }
 }
 
-/// 可选中、自动换行的正文标签（超长截断；markdown 富渲染按需后续引入）。
-fn selectable_body(ui: &mut egui::Ui, text: &str) {
+/// 可选中、自动换行的纯文本正文（OCR 提取文本不按 markdown 解释）。
+fn plain_body(ui: &mut egui::Ui, text: &str) {
     ui.add(
         egui::Label::new(
-            RichText::new(truncate(text))
-                .size(14.0)
+            RichText::new(text)
+                .size(BODY_SIZE)
                 .color(ui.visuals().strong_text_color()),
         )
         .wrap()
         .selectable(true),
     );
-}
-
-/// 展示截断：超出上限的尾部以省略号收束（截断只发生在展示层）。
-fn truncate(text: &str) -> String {
-    if text.chars().count() <= MAX_BODY_CHARS {
-        return text.to_owned();
-    }
-    let mut truncated: String = text.chars().take(MAX_BODY_CHARS).collect();
-    truncated.push('…');
-    truncated
 }
 
 /// 自检卡正文（预热与显隐自检路径）：中英混排一眼可辨字体链路健康。
@@ -246,21 +335,20 @@ fn selfcheck_body(ui: &mut egui::Ui) {
     let weak = ui.visuals().weak_text_color();
     ui.label(
         RichText::new("The quick brown fox jumps over the lazy dog.")
-            .size(13.0)
+            .size(NOTICE_SIZE)
             .color(weak),
     );
-    ui.add_space(12.0);
+    ui.add_space(SECTION_SPACE);
     ui.label(
         RichText::new("敏捷的棕色狐狸从懒狗身上跳过。")
-            .size(15.0)
+            .size(TITLE_SIZE)
             .strong()
             .color(strong),
     );
-    ui.add_space(12.0);
-    // 中英混排 + 中文标点：字体 fallback 链接没接上，一眼能看出来
+    ui.add_space(SECTION_SPACE);
     ui.label(
         RichText::new("中文渲染自检：划词翻译、代码解释、图片识别。")
-            .size(13.0)
+            .size(NOTICE_SIZE)
             .color(weak),
     );
 }
@@ -321,13 +409,23 @@ mod kittest_tests {
         }
     }
 
+    fn long_body_view() -> OverlayView {
+        OverlayView::Outcome(TaskOutcome {
+            kind: TaskKind::TranslateSentence,
+            body: "很长的正文段落。".repeat(1000) + "尾部标记",
+            structured: OutcomeStructured::Plain { title: None },
+        })
+    }
+
     type Clicked = Rc<RefCell<Option<ErrorAction>>>;
 
     fn harness_for(view: OverlayView) -> (Harness<'static>, Clicked) {
         let clicked: Clicked = Rc::new(RefCell::new(None));
         let sink = Rc::clone(&clicked);
+        let state = RenderState::default();
         let harness = Harness::new_ui(move |ui| {
-            if let Some(action) = draw(ui, Some(&view)) {
+            let output = draw(ui, Some(&view), &state);
+            if let Some(action) = output.action {
                 *sink.borrow_mut() = Some(action);
             }
         });
@@ -342,16 +440,19 @@ mod kittest_tests {
         harness.get_by_label("/ɡlɒs/");
         harness.get_by_label("光泽；注释");
         harness.get_by_label("· a gloss of silk");
-        harness.get_by_label("复制");
     }
 
     #[test]
-    fn copy_button_is_clickable() {
-        let (mut harness, clicked) = harness_for(word_card_view());
+    fn long_body_is_rendered_in_full() {
+        let (mut harness, _clicked) = harness_for(long_body_view());
         harness.run();
-        harness.get_by_label("复制").click();
-        harness.run();
-        assert_eq!(*clicked.borrow(), None, "result cards expose no action");
+        assert!(
+            harness
+                .query_all_by_label_contains("尾部标记")
+                .next()
+                .is_some(),
+            "完整渲染不得截断尾部内容"
+        );
     }
 
     #[test]
