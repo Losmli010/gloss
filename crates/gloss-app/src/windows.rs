@@ -8,17 +8,39 @@ use winit::error::OsError;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId, WindowLevel};
 
-/// 浮层默认宽度（默认 380px，长文本自适应上限 480px）
+/// 浮层默认宽度（默认 380px，长文本自适应上限 480px，上限由 popup 模块定）
 const OVERLAY_WIDTH: f64 = 380.0;
 /// 浮层默认高度：自检期只有渲染面板，按内容给一个紧凑初值
 const OVERLAY_HEIGHT: f64 = 200.0;
+/// 自适应高度的屏幕余量：winit 不提供工作区（work area），按显示器逻辑
+/// 高减去该值近似（菜单栏/Dock 的保守估计）。
+const WORK_AREA_MARGIN: f64 = 96.0;
+/// 浮层尺寸变化小于该阈值不重设窗口（防 egui 布局与 winit resize 的
+/// 帧迟滞来回抖动）。
+const RESIZE_EPSILON: f64 = 0.5;
 /// 设置窗口尺寸：全部配置区块一屏放下的紧凑初值（可拖拽调整）。
 const SETTINGS_WIDTH: f64 = 460.0;
 const SETTINGS_HEIGHT: f64 = 640.0;
 
+/// 浮层在指定显示器上居中的逻辑坐标（尺寸用逻辑值，显示器尺寸按缩放
+/// 比例换算）。
+fn centered_on_monitor(
+    monitor: &winit::monitor::MonitorHandle,
+    size: LogicalSize<f64>,
+) -> LogicalPosition<f64> {
+    let scale = monitor.scale_factor();
+    let monitor_size = monitor.size().to_logical::<f64>(scale);
+    LogicalPosition::new(
+        (monitor_size.width - size.width) / 2.0,
+        (monitor_size.height - size.height) / 2.0,
+    )
+}
+
 /// 窗口管理器：持有各窗口的生存期，对上层只暴露「谁的窗口」「显示/隐藏」。
 pub struct WindowManager {
     overlay: Arc<Window>,
+    /// 浮层当前逻辑尺寸（内容自适应；`centered_position` 居中计算取它）。
+    overlay_size: LogicalSize<f64>,
     settings: Arc<Window>,
 }
 
@@ -51,6 +73,7 @@ impl WindowManager {
 
         Ok(Self {
             overlay: Arc::new(overlay),
+            overlay_size: LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT),
             settings: Arc::new(settings),
         })
     }
@@ -60,9 +83,60 @@ impl WindowManager {
         &self.overlay
     }
 
-    /// 浮层逻辑尺寸（固定尺寸；内容自适应随结果卡演进再引入）。
+    /// 浮层当前逻辑尺寸（内容自适应，随 [`Self::set_overlay_size`] 更新；
+    /// `centered_position` 的居中计算取它）。
     pub fn logical_size(&self) -> LogicalSize<f64> {
-        LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+        self.overlay_size
+    }
+
+    /// 应用浮层内容的期望尺寸（内容自适应高度）：按显示器钳制高度后才
+    /// 重设窗口，变化小于阈值时不动——渲染帧后逐帧调用也只在真实变化
+    /// 时触发 resize；尺寸变化即按当前显示器重新居中（显示入口用的是
+    /// 上一帧尺寸算的位置，不重定位的话接近屏高的卡片会向下溢出屏幕）。
+    pub fn set_overlay_size(&mut self, size: LogicalSize<f64>) {
+        let capped = self.cap_height_to_screen(size);
+        if (capped.width - self.overlay_size.width).abs() < RESIZE_EPSILON
+            && (capped.height - self.overlay_size.height).abs() < RESIZE_EPSILON
+        {
+            return;
+        }
+        // 即时生效的平台返回实际物理尺寸（可能与请求有出入），换算回
+        // 逻辑值记录；异步交付的平台（Wayland）返回 None，先记请求值，
+        // 随后的 Resized 事件照常驱动 surface 重建。
+        if let Some(applied) = self.overlay.request_inner_size(capped) {
+            let scale = self.overlay.scale_factor();
+            self.overlay_size = applied.to_logical::<f64>(scale);
+        } else {
+            self.overlay_size = capped;
+        }
+        if let Some(monitor) = self.overlay.current_monitor() {
+            let position = centered_on_monitor(&monitor, self.overlay_size);
+            self.overlay.set_outer_position(position);
+        }
+    }
+
+    /// 浮层居中于显示器（逻辑坐标）：优先窗口当前所在的显示器，其次
+    /// 主显示器。
+    pub fn centered_position(&self, event_loop: &ActiveEventLoop) -> LogicalPosition<f64> {
+        let monitor = self
+            .overlay
+            .current_monitor()
+            .or_else(|| event_loop.primary_monitor());
+        monitor.map_or(LogicalPosition::new(0.0, 0.0), |monitor| {
+            centered_on_monitor(&monitor, self.overlay_size)
+        })
+    }
+
+    /// 高度按浮层所在显示器钳制（超出部分由内容侧滚动兜底）；拿不到
+    /// 显示器时原样返回。
+    fn cap_height_to_screen(&self, size: LogicalSize<f64>) -> LogicalSize<f64> {
+        let Some(monitor) = self.overlay.current_monitor() else {
+            return size;
+        };
+        let scale = monitor.scale_factor();
+        let screen_height = monitor.size().to_logical::<f64>(scale).height;
+        let max_height = (screen_height - WORK_AREA_MARGIN).max(OVERLAY_HEIGHT);
+        LogicalSize::new(size.width, size.height.min(max_height))
     }
 
     /// reposition + show：唯一显示入口（预创建复用只显隐）。
