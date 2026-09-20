@@ -130,6 +130,8 @@ pub(crate) fn draw(
         .memory_mut(|mem| *mem.data.get_temp_mut_or_insert_with(appear_t0_id(), || now));
     let progress = appear_progress(now - started_at);
     if progress < 1.0 {
+        // 请求尽快再来一帧推进淡入（生产中被预测帧时长扣减后接近立即
+        // 重绘，由呈现管道钳到 vsync 帧率）。
         ui.ctx()
             .request_repaint_after(Duration::from_secs_f32(0.016));
     }

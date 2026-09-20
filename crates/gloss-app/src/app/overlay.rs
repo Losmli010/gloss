@@ -41,9 +41,6 @@ impl GlossApp {
         }
         self.auto_hide = None;
         self.overlay_repaint = None;
-        if let Some(frame) = self.frame.as_ref() {
-            crate::ui::popup::reset_appear_animation(&frame.egui_ctx);
-        }
         if let Some(windows) = &self.windows {
             windows.hide();
         }

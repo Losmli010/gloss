@@ -110,11 +110,10 @@ impl ApplicationHandler<UserEvent> for GlossApp {
             }
             WindowEvent::Focused(false) if is_overlay => {
                 // 浮层失焦回 Idle：只隐藏不销毁；设置窗口失焦保持打开。
-                // 清掉渲染截止与出现动画起点，防空转、让重显重新淡入。
+                // 清掉渲染截止时刻防空转（出现动画起点不在隐藏时清：清了
+                // 会让隐藏后的收尾帧重新淡入并连发重绘，重显淡入由
+                // show_overlay 统一重置保证）。
                 self.overlay_repaint = None;
-                if let Some(frame) = self.frame.as_ref() {
-                    crate::ui::popup::reset_appear_animation(&frame.egui_ctx);
-                }
                 if let Some(windows) = &self.windows {
                     windows.hide();
                     self.auto_hide = None;
