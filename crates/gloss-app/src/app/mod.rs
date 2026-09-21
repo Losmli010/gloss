@@ -5,7 +5,7 @@
 //! - [`render`]——浮层与设置窗口共用的帧渲染管线；
 //! - [`handler`]——winit 事件分发（`ApplicationHandler` 实现）；
 //! - [`channels`]——通道①③④的消费与下发；
-//! - [`overlay`]——浮层显隐、自动隐藏与失败卡动作出口；
+//! - [`overlay`]——浮层显隐、收起出口与浮层动作执行；
 //! - [`settings_session`]——设置窗口的编辑会话生命周期；
 //! - [`theme`]——主题偏好施加到两个 egui 上下文。
 
@@ -42,8 +42,6 @@ struct GlossApp {
     /// 设置窗口 egui 要求的下一帧时间点，与浮层的 [`Self::overlay_repaint`]
     /// 各自独立。
     settings_repaint: Option<Instant>,
-    /// 浮层自动隐藏时刻；仅浮层可见时为 `Some`
-    auto_hide: Option<Instant>,
     /// 组装点移交的通道端点（① 收、② 发、③ 发、④ 收）。
     endpoints: Option<AppEndpoints>,
     /// 任务状态机（functional core，见 machine.rs）：纯状态转移，壳只做
@@ -83,7 +81,6 @@ impl GlossApp {
             frame: None,
             overlay_repaint: None,
             settings_repaint: None,
-            auto_hide: None,
             endpoints: Some(endpoints),
             machine: TaskStateMachine::new(),
             config,
@@ -97,7 +94,7 @@ impl GlossApp {
     }
 
     /// 画一帧：egui 出绘制数据 → wgpu 呈现，并把 egui 要求的下一帧记下
-    /// 来；失败卡上的动作按钮（重试/打开设置）就地执行；浮层内容的期望
+    /// 来；浮层上交的动作（失败卡与头部动作区）就地执行；浮层内容的期望
     /// 尺寸就地应用（内容自适应高度，窗口管理器按显示器钳制）。
     fn draw(&mut self) {
         self.apply_theme();
@@ -107,9 +104,8 @@ impl GlossApp {
         let overlay_view = self.machine.overlay_view();
         let (repaint, action, sizing) = render_frame(frame, overlay_view);
         self.overlay_repaint = repaint;
-        // 失败卡的动作出口：重试原样重发，鉴权/配置类打开设置。
         if let Some(action) = action {
-            self.handle_error_action(action);
+            self.handle_overlay_action(action);
         }
         if let Some(sizing) = sizing
             && let Some(windows) = &mut self.windows

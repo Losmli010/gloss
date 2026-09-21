@@ -1,7 +1,5 @@
-//! 浮层显隐：显示入口、自动隐藏计时与失败卡动作出口，附 auto_show
-//! 露面策略的纯函数。
-
-use std::time::{Duration, Instant};
+//! 浮层显隐：显示入口、收起出口与浮层动作执行，附 auto_show 露面策略
+//! 的纯函数。
 
 use gloss_core::log::{debug, info, thread};
 use gloss_core::model::ScreenPoint;
@@ -9,17 +7,14 @@ use winit::dpi::LogicalPosition;
 use winit::event_loop::ActiveEventLoop;
 
 use crate::channel::Event;
-use crate::machine::{AppState, ErrorAction};
+use crate::ui::popup::OverlayAction;
 use crate::windows::{Placement, WindowManager};
 
 use super::GlossApp;
 
-/// 浮层显示后的自动隐藏时长（超时回 Idle；失焦路径走 Focused 事件）
-pub(super) const AUTO_HIDE_AFTER: Duration = Duration::from_secs(10);
-
 impl GlossApp {
-    /// 统一显示入口：显示并启动自动隐藏计时；同时重置出现动画起点，
-    /// 让本次显示从淡入开始。
+    /// 统一显示入口：显示并重置出现动画起点，让本次显示从淡入开始。
+    /// 浮层常驻——收起只认 Esc、关闭按钮与新触发的内容替换。
     pub(super) fn show_overlay(&mut self, position: LogicalPosition<f64>) {
         let Some(windows) = &self.windows else {
             return;
@@ -28,18 +23,13 @@ impl GlossApp {
             crate::ui::popup::reset_appear_animation(&frame.egui_ctx);
         }
         windows.show_at(position);
-        self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
     }
 
-    /// 自动隐藏到点：收起浮层并回落 Idle；推理中（Translating）不收起，
-    /// 只把计时顺延一个周期，等 TaskDone/TaskFailed 落地后正常收起。Esc/
-    /// 点击外部等显式隐藏不走此路径，仍立即收起。
-    pub(super) fn on_auto_hide(&mut self, _event_loop: &ActiveEventLoop) {
-        if self.machine.state() == AppState::Translating {
-            self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
-            return;
-        }
-        self.auto_hide = None;
+    /// 收起浮层的统一出口（Esc / 关闭按钮）：隐藏窗口、清渲染截止时刻
+    /// 防空转，状态机放弃在途任务回 `Idle`（迟到产物经代数或状态守卫
+    /// 丢弃——为一个不可见的浮层继续推理与渲染纯属空转）。
+    pub(super) fn dismiss_overlay(&mut self, reason: &'static str) {
+        info!(thread = thread::UI, reason, "overlay dismissed");
         self.overlay_repaint = None;
         if let Some(windows) = &self.windows {
             windows.hide();
@@ -47,10 +37,10 @@ impl GlossApp {
         self.machine.hide_overlay();
     }
 
-    /// 执行失败卡的动作出口（错误映射的壳侧半边）。
-    pub(super) fn handle_error_action(&mut self, action: ErrorAction) {
+    /// 执行浮层一帧上交的动作（错误映射的壳侧半边 + 头部动作区）。
+    pub(super) fn handle_overlay_action(&mut self, action: OverlayAction) {
         match action {
-            ErrorAction::Retry => match self.machine.retry() {
+            OverlayAction::Retry => match self.machine.retry() {
                 Some(request) => {
                     info!(
                         thread = thread::UI,
@@ -58,10 +48,6 @@ impl GlossApp {
                         "error card retry, task re-dispatched to tokio"
                     );
                     self.send_run(request);
-                    // 重锚隐藏计时（与 accept_done 的重锚同一理由）。
-                    if self.windows.is_some() {
-                        self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
-                    }
                 }
                 None => {
                     debug!(
@@ -71,8 +57,9 @@ impl GlossApp {
                     );
                 }
             },
-            // 失败卡的「打开设置」与托盘/热键走同一个入口。
-            ErrorAction::OpenSettings => self.open_settings(),
+            // 失败卡的「打开设置」与头部齿轮、托盘/热键走同一个入口。
+            OverlayAction::OpenSettings => self.open_settings(),
+            OverlayAction::Dismiss => self.dismiss_overlay("close button"),
         }
     }
 }
@@ -236,7 +223,7 @@ mod tests {
             })
         ));
 
-        app.handle_error_action(ErrorAction::Retry);
+        app.handle_overlay_action(crate::ui::popup::OverlayAction::Retry);
         assert_eq!(app.machine.state(), AppState::Translating);
         let Command::RunTask {
             generation,
@@ -273,12 +260,32 @@ mod tests {
             })
         ));
 
-        app.handle_error_action(ErrorAction::OpenSettings);
+        app.handle_overlay_action(crate::ui::popup::OverlayAction::OpenSettings);
         assert_eq!(app.machine.state(), AppState::Error);
         assert!(cmd_rx.try_recv().is_err(), "no re-dispatch for settings");
         assert!(
             app.settings.is_some(),
             "the open-settings action must start the edit session"
+        );
+    }
+
+    #[test]
+    fn dismiss_abandons_the_inflight_task_and_returns_to_idle() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(1, text_input("A")));
+        let Command::RunTask { cancel, .. } = cmd_rx.try_recv().unwrap();
+
+        app.dismiss_overlay("test");
+        assert_eq!(app.machine.state(), AppState::Idle);
+        assert!(
+            cancel.is_cancelled(),
+            "dismiss must cancel the in-flight task"
+        );
+        assert!(app.machine.overlay_view().is_none());
+        assert!(
+            !app.accept_done(1, plain_outcome("迟到结果")),
+            "a late outcome after dismissal must be dropped"
         );
     }
 

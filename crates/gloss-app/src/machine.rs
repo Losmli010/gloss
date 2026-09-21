@@ -31,8 +31,8 @@ pub enum ErrorAction {
 /// 转移概要：任何可见态收到新触发（[`TaskStateMachine::trigger`]）都取
 /// 消在途任务并回 `Fetching`；`Fetching` 采纳 `InputReady` 后携取消令牌
 /// 下发通道③进 `Translating`；`Translating` 收 `TaskChunk` 追加展示、
-/// 收 `TaskDone` 定格 `Show`、收 `TaskFailed` 落 `Error`；失焦/超时隐藏
-/// 回 `Idle`。
+/// 收 `TaskDone` 定格 `Show`、收 `TaskFailed` 落 `Error`；收起（Esc /
+/// 关闭按钮）回 `Idle`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppState {
     /// 浮层隐藏，无在途任务。
@@ -287,7 +287,7 @@ impl TaskStateMachine {
         })
     }
 
-    /// 浮层收起（失焦/自动隐藏）即放弃在途任务：取消令牌（唯一取消机
+    /// 浮层收起（Esc / 关闭按钮）即放弃在途任务：取消令牌（唯一取消机
     /// 制）、清空视图并回 `Idle`。放弃后的迟到产物经代数或状态守卫丢弃
     /// ——为一个不可见的浮层继续推理与渲染纯属空转；重新划词即重新开
     /// 始，取材自当前选区（旧产物本就可能已过期）。

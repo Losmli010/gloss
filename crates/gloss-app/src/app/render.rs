@@ -11,7 +11,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
 use crate::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
-use crate::machine::{ErrorAction, OverlayView};
+use crate::machine::OverlayView;
 use crate::ui;
 use crate::windows::WindowManager;
 
@@ -99,14 +99,14 @@ pub fn render_frame_with<R>(
 }
 
 /// 渲染一帧浮层（[`render_frame_with`] 的浮层特化，供 App 与自检 handler
-/// 用）：返回（egui 要求的下一帧时刻，本帧被点击的失败卡动作按钮，浮层
-/// 内容期望的窗口尺寸——由壳按显示器钳制后应用）。
+/// 用）：返回（egui 要求的下一帧时刻，本帧被点击的浮层动作，浮层内容
+/// 期望的窗口尺寸——由壳按显示器钳制后应用）。
 pub fn render_frame(
     frame: &mut Frame,
     view: Option<&OverlayView>,
 ) -> (
     Option<Instant>,
-    Option<ErrorAction>,
+    Option<ui::popup::OverlayAction>,
     Option<ui::popup::OverlaySizing>,
 ) {
     let popup_state = Rc::clone(&frame.popup_state);
