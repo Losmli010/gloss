@@ -137,7 +137,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | failed_view_shows_retry_hint | 失败卡重试动作 | 给定 Retry 失败卡，当渲染并点击「重试」，则收集器收到 OverlayAction::Retry | 2026-09-21 |
 | auth_failed_view_offers_open_settings | 鉴权失败卡设置入口 | 给定鉴权失败卡，当渲染并点击「打开设置」，则收到 OverlayAction::OpenSettings（头部齿轮标签为「设置」，与正文按钮不混淆） | 2026-09-21 |
 | bare_failed_view_has_no_action_button | 无动作失败卡形态 | 给定 action=None 失败卡，当渲染，则无「重试」节点、无动作上交 | 2026-09-19 |
-| close_button_submits_dismiss_from_any_view | 头部关闭按钮上交收起 | 给定词卡视图，当点击无障碍标签「关闭浮层」的 × 钮，则 draw 产物为 OverlayAction::Dismiss | 2026-09-21 |
+| close_button_submits_dismiss | 头部关闭按钮上交收起 | 给定词卡视图（头部为各视图共用路径），当点击无障碍标签「关闭浮层」的 × 钮，则 draw 产物为 OverlayAction::Dismiss | 2026-09-21 |
 | gear_button_submits_open_settings | 头部齿轮上交打开设置 | 给定词卡视图，当点击无障碍标签「设置」的 ⚙ 钮，则 draw 产物为 OverlayAction::OpenSettings | 2026-09-21 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
 | snapshots_match_baseline（popup） | 浮层五视图渲染基线 | 给定五个视图（含自检卡），当 wgpu 渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck 五份基线一致，结果合并进单个 SnapshotResults | 2026-09-21 |

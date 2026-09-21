@@ -99,8 +99,9 @@ fn appear_progress(elapsed_secs: f64) -> f32 {
     (elapsed_secs / f64::from(APPEAR_SECONDS)).clamp(0.0, 1.0) as f32
 }
 
-/// 清除出现动画起点：壳在隐藏与每次显示时调用，让下一帧重新从 0 淡入
-/// （隐藏期无帧运行，不清除则旧起点让重显直接落在完成态）。
+/// 清除出现动画起点：壳在每次显示时调用，让下一帧重新从 0 淡入
+/// （隐藏期无帧运行，起点留在居内无副作用；不清除则旧起点让重显直接
+/// 落在完成态）。
 pub(crate) fn reset_appear_animation(ctx: &egui::Context) {
     ctx.memory_mut(|mem| mem.data.remove_temp::<f64>(appear_t0_id()));
 }
@@ -182,9 +183,6 @@ fn resolve_width(last_width: f32, content_h: f32) -> f32 {
     }
 }
 
-/// 浮层内容（头部 + 各视图正文），并把完整内容高记入 `content_h`：
-/// 产物与流式正文放进 ScrollArea（完整渲染、超出滚动兜底），其高度取
-/// ScrollArea 报告的内容尺寸，不受视口裁剪影响。
 /// 浮层内容（头部 + 各视图正文），并把完整内容高记入 `content_h`：
 /// 产物与流式正文放进 ScrollArea（完整渲染、超出滚动兜底），其高度取
 /// ScrollArea 报告的内容尺寸，不受视口裁剪影响。头部动作区与失败卡
@@ -287,10 +285,10 @@ fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool) -> Option<OverlayAct
         ui.label(RichText::new("翻译").size(font::CAPTION).color(weak));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // 图标钮的文字颜色交给 widget 状态笔刷（不写死在字形上），
-            // 才有「默认弱色、hover 显色」。
-            ui.visuals_mut().widgets.inactive.fg_stroke = Stroke::new(1.0, weak);
-            ui.visuals_mut().widgets.hovered.fg_stroke = Stroke::new(1.0, strong);
-            ui.visuals_mut().widgets.active.fg_stroke = Stroke::new(1.0, strong);
+            // 才有「默认弱色、hover 显色」；只换色，线宽保持出厂值。
+            ui.visuals_mut().widgets.inactive.fg_stroke.color = weak;
+            ui.visuals_mut().widgets.hovered.fg_stroke.color = strong;
+            ui.visuals_mut().widgets.active.fg_stroke.color = strong;
             let close = ui.add(icon_button("×"));
             close.widget_info(|| {
                 egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "关闭浮层")
@@ -615,7 +613,7 @@ mod kittest_tests {
     }
 
     #[test]
-    fn close_button_submits_dismiss_from_any_view() {
+    fn close_button_submits_dismiss() {
         let (mut harness, clicked) = harness_for(word_card_view());
         harness.run();
         harness.get_by_label("关闭浮层").click();

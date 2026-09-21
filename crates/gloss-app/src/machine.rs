@@ -31,8 +31,8 @@ pub enum ErrorAction {
 /// 转移概要：任何可见态收到新触发（[`TaskStateMachine::trigger`]）都取
 /// 消在途任务并回 `Fetching`；`Fetching` 采纳 `InputReady` 后携取消令牌
 /// 下发通道③进 `Translating`；`Translating` 收 `TaskChunk` 追加展示、
-/// 收 `TaskDone` 定格 `Show`、收 `TaskFailed` 落 `Error`；失焦/超时隐藏
-/// 回 `Idle`。
+/// 收 `TaskDone` 定格 `Show`、收 `TaskFailed` 落 `Error`；收起（Esc /
+/// 关闭按钮）回 `Idle`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppState {
     /// 浮层隐藏，无在途任务。
