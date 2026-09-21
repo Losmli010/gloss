@@ -56,7 +56,7 @@ while IFS= read -r line; do
     [ -n "$recipe" ] || continue
     CHECKED=$((CHECKED + 1))
     if [ ! -f "$JUSTFILE" ] ||
-      ! grep -qE "^${recipe}([[:space:]][^:=]+)?:([[:space:]]|\$)" "$JUSTFILE"; then
+      ! grep -qE "^${recipe}([[:space:]][^:]+)?:([[:space:]]|\$)" "$JUSTFILE"; then
       fail "${DOC_NAME}:${LINE_NO}  「just ${recipe}」在 justfile 中找不到同名配方"
     fi
   done < <(printf '%s\n' "$line" | grep -oE '(^|[^A-Za-z0-9_-])just [a-z][a-z0-9-]*' | sed -E 's/.*just //' || true)

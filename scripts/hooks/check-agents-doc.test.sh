@@ -34,6 +34,9 @@ logs-dir:
 
 test: run
     cargo test --workspace
+
+bench-check name="last":
+    @echo check {{name}}
 EOF
 }
 
@@ -69,6 +72,7 @@ echo "== 测试 check-agents-doc.sh =="
 echo ""
 echo "-- 合法用例（应通过，退出码 0）--"
 assert_doc "引用全部存在" 0 "见 \`just test\`、\`just logs\`、\`just logs-dir\`、\`docs/note.md\`、\`Cargo.toml\`"
+assert_doc "带默认值参数的配方" 0 "对照跑 \`just bench-check\`"
 assert_doc "仓库路径（文件与目录）" 0 "产物在 \`crates/demo/tests/\`，配置见 \`kittest.toml\`"
 assert_doc "cargo test 目标存在" 0 "跑 \`cargo test --test overlay_selftest\` 与 \`cargo test --test pipeline\`"
 assert_doc "占位符与仓库外路径跳过校验" 0 "分支名 \`feat/<主题>\`，日志在 \`~/.gloss/logs/\`，模式 \`*.workspace = true\`"

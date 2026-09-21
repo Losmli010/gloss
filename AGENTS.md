@@ -36,6 +36,8 @@ just lint              # Clippy 严格检查
 just fmt-fix           # 自动格式化
 just test              # 运行全部测试
 just bench             # 跑 gloss-core 热点基准（criterion，benches/core.rs）
+just bench-check       # 以命名基线为对照重跑基准（审计对照，不是门禁）
+just bench-summary     # 汇总最近一次基准运行为 Markdown 表
 just precommit         # 提交前门禁（git hook 自动跑）
 just check             # 完整质量门禁（precommit + test）
 just --list            # 全部配方与说明

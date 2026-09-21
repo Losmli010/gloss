@@ -60,7 +60,7 @@ harness = false
 name = "overlay_selftest"
 
 # gloss-core 热点基准（criterion，四组：cache_key / parse_structured / prompt_render / moka_cache）
-# 运行：just bench（cargo bench --bench core）
+# 运行：just bench
 [[bench]]
 harness = false
 name = "core"
