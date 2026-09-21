@@ -7,7 +7,6 @@ license.workspace = true
 
 [dependencies]
 # 配置热更新的无锁快照：ArcSwap<Config> 原子替换，读路径零锁。
-# 无默认特性可关，照写以保持 AGENTS.md 质量条目「依赖只开需要的特性」的写法统一。
 arc-swap = { version = "1", default-features = false }
 # TaskStream 的 Stream trait（no-std 最小集）；StreamExt 等工具留给使用方自选。
 futures-core = { version = "0.3", default-features = false }

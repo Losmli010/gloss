@@ -292,7 +292,7 @@ while IFS='|' read -r owner manifest sec key start text; do
 done <<<"$DEP_DUMP"
 ok "依赖只开需要的特性（检查 ${deps_checked} 条第三方依赖声明）"
 
-# ---- 残留任务标记扫描（AGENTS.md 质量条目「代码不留残留标记」） ----
+# ---- 残留任务标记扫描 ----
 # 大写词全字匹配 TODO / FIXME / HACK / TBD，扫全部 git 跟踪文件；
 # -I 跳过二进制。AGENTS.md（规则本体）与本脚本及其自测（夹具含字面量）豁免，
 # 避免自命中。非 git 仓库（门禁自测夹具）无跟踪面可扫，整段跳过。
