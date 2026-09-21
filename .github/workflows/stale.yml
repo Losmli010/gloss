@@ -17,7 +17,7 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v11
         with:
           # 30 天无动静先标记，再等 7 天无回应才关闭；回应（评论）即续期
           days-before-stale: 30
