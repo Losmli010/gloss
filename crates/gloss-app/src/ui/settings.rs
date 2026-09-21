@@ -590,6 +590,14 @@ mod tests {
         harness.run();
         harness.snapshot("settings_main");
         results.extend_harness(&mut harness);
+
+        let mut noticed = open(&Config::default());
+        noticed.report("保存失败：disk on fire".into());
+        let (mut harness, _action) = harness_for(noticed);
+        harness.run();
+        harness.get_by_label_contains("disk on fire");
+        harness.snapshot("settings_notice");
+        results.extend_harness(&mut harness);
         results.unwrap();
     }
 

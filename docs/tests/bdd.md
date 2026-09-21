@@ -11,8 +11,8 @@
 | 人工测试 | 10 | `cargo test -p gloss-platform -- --ignored` |
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
-| 快照测试 | 12 | `just test` |
-| 单元测试 | 233 | `just test` |
+| 快照测试 | 15 | `just test` |
+| 单元测试 | 235 | `just test` |
 
 ## 人工测试
 
@@ -127,22 +127,25 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_failed_auth；settings 快照基线：settings_main。
+popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_failed_auth、popup_selfcheck；settings 快照基线：settings_main、settings_notice。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、释义、例句（复制按钮已移除，划选即复制） | 2026-09-20 |
+| word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、释义、例句（复制按钮已移除，划选即复制） | 2026-09-21 |
 | long_body_is_rendered_in_full | 长正文完整渲染不截断 | 给定超长正文（尾部带标记），当渲染，则 AccessKit 树含尾部内容——无字符截断 | 2026-09-20 |
-| streaming_view_hides_structured_block | 流式视图不暴露结构化围栏 | 给定流式视图（正文含围栏），当渲染，则「已流式到达的正文」「选中的原文」可见而 ```gloss 围栏不在树中；头部标签为旋转指示器 | 2026-09-20 |
-| failed_view_shows_retry_hint | 失败卡重试动作 | 给定 Retry 失败卡，当渲染并点击「重试」，则收集器收到 ErrorAction::Retry | 2026-09-19 |
-| auth_failed_view_offers_open_settings | 鉴权失败卡设置入口 | 给定鉴权失败卡，当渲染并点击「打开设置」，则收到 ErrorAction::OpenSettings | 2026-09-19 |
-| bare_failed_view_has_no_action_button | 无动作失败卡形态 | 给定 action=None 失败卡，当渲染，则无「重试」节点、无动作 | 2026-09-19 |
-| snapshots_match_baseline（popup） | 浮层四视图渲染基线 | 给定四个视图，当 wgpu 渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth 四份基线一致，结果合并进单个 SnapshotResults | 2026-09-19 |
+| streaming_view_hides_structured_block | 流式视图不暴露结构化围栏 | 给定流式视图（正文含围栏），当渲染，则「已流式到达的正文」「选中的原文」可见而 ```gloss 围栏不在树中；头部为旋转指示器 + 常驻动作区 | 2026-09-21 |
+| failed_view_shows_retry_hint | 失败卡重试动作 | 给定 Retry 失败卡，当渲染并点击「重试」，则收集器收到 OverlayAction::Retry | 2026-09-21 |
+| auth_failed_view_offers_open_settings | 鉴权失败卡设置入口 | 给定鉴权失败卡，当渲染并点击「打开设置」，则收到 OverlayAction::OpenSettings（头部齿轮标签为「设置」，与正文按钮不混淆） | 2026-09-21 |
+| bare_failed_view_has_no_action_button | 无动作失败卡形态 | 给定 action=None 失败卡，当渲染，则无「重试」节点、无动作上交 | 2026-09-19 |
+| close_button_submits_dismiss_from_any_view | 头部关闭按钮上交收起 | 给定词卡视图，当点击无障碍标签「关闭浮层」的 × 钮，则 draw 产物为 OverlayAction::Dismiss | 2026-09-21 |
+| gear_button_submits_open_settings | 头部齿轮上交打开设置 | 给定词卡视图，当点击无障碍标签「设置」的 ⚙ 钮，则 draw 产物为 OverlayAction::OpenSettings | 2026-09-21 |
+| selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
+| snapshots_match_baseline（popup） | 浮层五视图渲染基线 | 给定五个视图（含自检卡），当 wgpu 渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck 五份基线一致，结果合并进单个 SnapshotResults | 2026-09-21 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用词卡」后保存，当检查上交配置，则 TranslateWord 已停用 | 2026-09-19 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
 | hotkey_rows_expose_trigger_and_kind | 热键行无障碍结构 | 给定出厂三条绑定，当渲染，则 3 行「划词」源标签进 AccessKit 树 | 2026-09-19 |
-| snapshots_match_baseline（settings） | 设置窗渲染基线 | 给定设置窗口，当 wgpu 渲染，则与 settings_main 基线 diff 不超阈值 | 2026-09-19 |
+| snapshots_match_baseline（settings） | 设置窗渲染基线（含提示行） | 给定默认与带保存失败提示两个状态，当 wgpu 渲染并 diff，则分别与 settings_main / settings_notice 基线一致且提示文本进树 | 2026-09-21 |
 
 ## 单元测试
 
@@ -291,6 +294,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
+| escape_press_is_the_dismiss_key | 浮层收起键判定 | 给定逻辑键与按下状态，当判定收起键，则 Escape 按下为真、释放与其它字符键为假 | 2026-09-21 |
 | sooner_picks_the_earliest_deadline | 取更早的截止时刻 | 给定两个时刻（可含 None），当取更早，则 None 让位、双 None 不唤醒 | 2026-09-19 |
 
 ### crates/gloss-app/src/app/channels.rs
@@ -324,8 +328,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| retry_action_redispatches_the_failed_task | Retry 动作重发失败任务 | 给定失败卡 Retry 动作，当执行，则同代数同任务新令牌重发通道③，重试产物照常采纳 | 2026-09-19 |
-| open_settings_action_keeps_the_error_card | 打开设置保留错误卡 | 给定鉴权失败卡，当执行 OpenSettings 动作，则停在 Error、通道③无流量、编辑会话就位 | 2026-09-19 |
+| retry_action_redispatches_the_failed_task | Retry 动作重发失败任务 | 给定失败卡 Retry 动作，当执行，则同代数同任务新令牌重发通道③，重试产物照常采纳 | 2026-09-21 |
+| open_settings_action_keeps_the_error_card | 打开设置保留错误卡 | 给定鉴权失败卡，当执行 OpenSettings 动作，则停在 Error、通道③无流量、编辑会话就位 | 2026-09-21 |
+| dismiss_abandons_the_inflight_task_and_returns_to_idle | 收起浮层放弃在途任务 | 给定推理中的浮层，当执行收起出口，则回 Idle、在途令牌取消、视图清空、迟到产物被丢弃 | 2026-09-21 |
 | auto_show_policy_decides_when_the_overlay_pops | 自动弹出按策略表 | 给定事件类别×采纳×开关组合，当逐事件判定，则按策略表露面、未采纳一律不弹、chunk 从不弹 | 2026-09-19 |
 | auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则一条被采纳的完成/失败即弹、整批陈旧不弹、空批不弹 | 2026-09-19 |
 | show_position_follows_selection_only_for_the_current_generation | 显示位置跟随当代划词 | 给定划词锚点与代数，当决策显示位置，则当代跟随选区（右下偏移）、代数不符或无锚点回落居中 | 2026-09-20 |

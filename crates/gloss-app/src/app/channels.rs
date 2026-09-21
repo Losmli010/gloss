@@ -1,8 +1,6 @@
 //! 通道①③④的消费与下发：平台事件→取材命令（通道②经 machine 产出）、
 //! 取材产物→推理任务（通道③）、回传事件→浮层展示决策（通道④）。
 
-use std::time::Instant;
-
 use gloss_core::log::{debug, info, thread, warn};
 use gloss_core::task::TaskInput;
 use winit::event_loop::ActiveEventLoop;
@@ -11,9 +9,7 @@ use crate::channel::{AcquireCommand, Command, Event, PlatformEvent};
 use crate::machine::RunRequest;
 
 use super::GlossApp;
-use super::overlay::{
-    AUTO_HIDE_AFTER, auto_show_after, centered_position, event_kind, show_position,
-};
+use super::overlay::{auto_show_after, centered_position, event_kind, show_position};
 
 impl GlossApp {
     /// 消费通道①：平台事件 → 取材命令。只有真实下发的命令才占用新代数
@@ -103,14 +99,7 @@ impl GlossApp {
                 Event::TaskDone {
                     generation,
                     outcome,
-                } => {
-                    let accepted = self.accept_done(generation, outcome);
-                    // 结果卡可见时长从完成时刻重新起算。
-                    if accepted && self.windows.is_some() {
-                        self.auto_hide = Some(Instant::now() + AUTO_HIDE_AFTER);
-                    }
-                    accepted
-                }
+                } => self.accept_done(generation, outcome),
                 Event::TaskFailed { generation, error } => self.accept_failed(generation, &error),
             };
             batch.push((kind, accepted));

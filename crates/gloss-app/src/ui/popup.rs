@@ -6,7 +6,8 @@
 //! 高度自适应内容（宽度默认 380、上限 480，高度上限按屏幕），超出部分
 //! 滚动兜底。流式视图按 [`STRUCTURED_FENCE`] 过滤已完整出现的结构化块
 //! （在累积文本上按最后围栏标记截断）；跨 chunk 切分出的残缺围栏前缀
-//! 可能短暂显示，随下一 chunk 自愈。
+//! 可能短暂显示，随下一 chunk 自愈。头部动作区常驻设置齿轮与关闭 ×，
+//! 点击经 draw 返回 [`OverlayAction`] 上交壳执行。
 
 use std::cell::{Cell, RefCell};
 use std::time::Duration;
@@ -30,6 +31,8 @@ const TALL_GROW: f32 = 320.0;
 const TALL_SHRINK: f32 = 240.0;
 /// 宽度档位判定的浮点容差
 const WIDTH_SWITCH_EPSILON: f32 = 0.5;
+/// 头部动作图标（齿轮/关闭）的字形尺寸
+const ACTION_ICON_SIZE: f32 = 16.0;
 /// 出现动画时长（淡入，秒）：显示/重显后的第一帧从 0 渐进到 1。
 const APPEAR_SECONDS: f32 = 0.18;
 
@@ -50,10 +53,31 @@ impl Default for RenderState {
     }
 }
 
-/// 一帧浮层绘制的产物：失败卡动作上交 + 内容期望的窗口尺寸（逻辑点）。
+/// 一帧浮层绘制的产物：动作上交 + 内容期望的窗口尺寸（逻辑点）。
 pub(crate) struct PopupOutput {
-    pub action: Option<ErrorAction>,
+    pub action: Option<OverlayAction>,
     pub sizing: OverlaySizing,
+}
+
+/// 浮层上交壳执行的动作：失败卡动作（重试/打开设置）与头部动作区
+/// （齿轮=打开设置、×=收起）。浮层只渲染、不副作用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayAction {
+    /// 失败卡「重试」：同代数同任务重发通道③。
+    Retry,
+    /// 设置入口（失败卡按钮或头部齿轮）：走壳层统一 `open_settings`。
+    OpenSettings,
+    /// 头部「×」：收起浮层（壳层放弃在途任务回 Idle）。
+    Dismiss,
+}
+
+impl From<ErrorAction> for OverlayAction {
+    fn from(action: ErrorAction) -> Self {
+        match action {
+            ErrorAction::Retry => OverlayAction::Retry,
+            ErrorAction::OpenSettings => OverlayAction::OpenSettings,
+        }
+    }
 }
 
 /// 内容自适应的期望窗口尺寸（逻辑点，含内边距与框线）。
@@ -84,8 +108,8 @@ pub(crate) fn reset_appear_animation(ctx: &egui::Context) {
 /// 画一帧浮层。根 `Ui` 覆盖整个窗口，卡片铺满它，圆角之外由透明窗口露出桌面。
 ///
 /// `view` 为 `None` 时显示渲染自检卡（预热与自检路径）。返回本帧绘制的
-/// 产物——失败卡动作按钮（重试/打开设置）由壳执行——浮层只渲染、不副作
-/// 用；期望尺寸由壳经窗口管理器应用（内容自适应高度，超出屏幕滚动兜底）。
+/// 产物——失败卡动作与头部动作区（齿轮/×）上交壳执行——浮层只渲染、不
+/// 副作用；期望尺寸由壳经窗口管理器应用（内容自适应高度，超出屏幕滚动兜底）。
 pub(crate) fn draw(
     ui: &mut egui::Ui,
     view: Option<&OverlayView>,
@@ -161,22 +185,26 @@ fn resolve_width(last_width: f32, content_h: f32) -> f32 {
 /// 浮层内容（头部 + 各视图正文），并把完整内容高记入 `content_h`：
 /// 产物与流式正文放进 ScrollArea（完整渲染、超出滚动兜底），其高度取
 /// ScrollArea 报告的内容尺寸，不受视口裁剪影响。
+/// 浮层内容（头部 + 各视图正文），并把完整内容高记入 `content_h`：
+/// 产物与流式正文放进 ScrollArea（完整渲染、超出滚动兜底），其高度取
+/// ScrollArea 报告的内容尺寸，不受视口裁剪影响。头部动作区与失败卡
+/// 动作按钮的点击结果透传给调用方。
 fn render_content(
     ui: &mut egui::Ui,
     view: Option<&OverlayView>,
     state: &RenderState,
     content_h: &mut f32,
-) -> Option<ErrorAction> {
+) -> Option<OverlayAction> {
     match view {
         None => {
-            header(ui, Some("自检"), false);
+            let action = header(ui, Some("自检"), false);
             ui.add_space(space::SECTION);
             selfcheck_body(ui);
             *content_h = ui.min_rect().height();
-            None
+            action
         }
         Some(OverlayView::Streaming { source, body }) => {
-            header(ui, None, true);
+            let action = header(ui, None, true);
             ui.add_space(space::PARAGRAPH);
             ui.label(
                 RichText::new(source)
@@ -195,41 +223,44 @@ fn render_content(
                 render_markdown(ui, state, visible);
             });
             *content_h = body_top + scrolled.content_size.y;
-            None
+            action
         }
         Some(OverlayView::Outcome(outcome)) => {
-            header(ui, Some(crate::ui::kind_label(outcome.kind)), false);
+            let action = header(ui, Some(crate::ui::kind_label(outcome.kind)), false);
             ui.add_space(space::SECTION);
             let body_top = ui.cursor().min.y;
             let scrolled = ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 outcome_body(ui, outcome, state);
             });
             *content_h = body_top + scrolled.content_size.y;
-            None
+            action
         }
-        Some(OverlayView::Failed { message, action }) => {
-            header(ui, Some("失败"), false);
+        Some(OverlayView::Failed {
+            message,
+            action: error_action,
+        }) => {
+            let mut action = header(ui, Some("失败"), false);
             ui.add_space(space::SECTION);
             ui.label(
                 RichText::new(message.as_str())
                     .size(font::NOTICE)
                     .color(ui.visuals().warn_fg_color),
             );
-            if let Some(action) = *action {
+            if let Some(error_action) = *error_action {
                 ui.add_space(space::SECTION);
                 if ui
                     .button(
-                        RichText::new(action_label(action))
+                        RichText::new(action_label(error_action))
                             .size(font::CAPTION)
                             .color(ui.visuals().strong_text_color()),
                     )
                     .clicked()
                 {
-                    return Some(action);
+                    action = Some(error_action.into());
                 }
             }
             *content_h = ui.min_rect().height();
-            None
+            action
         }
     }
 }
@@ -242,16 +273,36 @@ fn action_label(action: ErrorAction) -> &'static str {
     }
 }
 
-/// 头部：身份圆点 + 品牌标签；`busy` 时右侧画旋转指示器替代任务标签
-/// （推理中的流式反馈），否则显示任务类型标签。
-fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool) {
+/// 头部：身份圆点 + 品牌标签，右侧动作区 `[任务标签 | ⚙ ×]`——× 最右
+/// （最后动作）、齿轮居左，图标默认弱色、hover/按下显色；`busy` 时旋转
+/// 指示器替代任务标签（推理中的流式反馈）。返回动作区点击。
+fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool) -> Option<OverlayAction> {
     let weak = ui.visuals().weak_text_color();
+    let strong = ui.visuals().strong_text_color();
+    let mut action = None;
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(8.0, 8.0), egui::Sense::hover());
         ui.painter()
             .circle_filled(rect.center(), 4.0, color::ACCENT);
         ui.label(RichText::new("翻译").size(font::CAPTION).color(weak));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // 图标钮的文字颜色交给 widget 状态笔刷（不写死在字形上），
+            // 才有「默认弱色、hover 显色」。
+            ui.visuals_mut().widgets.inactive.fg_stroke = Stroke::new(1.0, weak);
+            ui.visuals_mut().widgets.hovered.fg_stroke = Stroke::new(1.0, strong);
+            ui.visuals_mut().widgets.active.fg_stroke = Stroke::new(1.0, strong);
+            let close = ui.add(icon_button("×"));
+            close.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "关闭浮层")
+            });
+            if close.clicked() {
+                action = Some(OverlayAction::Dismiss);
+            }
+            let gear = ui.add(icon_button("⚙"));
+            gear.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "设置"));
+            if gear.clicked() {
+                action = Some(OverlayAction::OpenSettings);
+            }
             if busy {
                 ui.add(egui::Spinner::new().size(font::TAG + 5.0));
             } else if let Some(tag) = tag {
@@ -259,6 +310,12 @@ fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool) {
             }
         });
     });
+    action
+}
+
+/// 无边框的动作图标钮（glyph 字形，颜色由 widget 状态笔刷决定）。
+fn icon_button(glyph: &'static str) -> egui::Button<'static> {
+    egui::Button::new(RichText::new(glyph).size(ACTION_ICON_SIZE)).frame(false)
 }
 
 /// markdown 正文：完整渲染（egui_commonmark 解析绘制），缓存跨帧持有。
@@ -475,7 +532,7 @@ mod kittest_tests {
         })
     }
 
-    type Clicked = Rc<RefCell<Option<ErrorAction>>>;
+    type Clicked = Rc<RefCell<Option<OverlayAction>>>;
 
     fn harness_for(view: OverlayView) -> (Harness<'static>, Clicked) {
         let clicked: Clicked = Rc::new(RefCell::new(None));
@@ -538,7 +595,7 @@ mod kittest_tests {
         harness.run();
         assert_eq!(
             *clicked.borrow(),
-            Some(ErrorAction::Retry),
+            Some(OverlayAction::Retry),
             "clicking retry must surface the action via draw's return value"
         );
     }
@@ -552,9 +609,46 @@ mod kittest_tests {
         harness.run();
         assert_eq!(
             *clicked.borrow(),
-            Some(ErrorAction::OpenSettings),
+            Some(OverlayAction::OpenSettings),
             "clicking open-settings must surface the action"
         );
+    }
+
+    #[test]
+    fn close_button_submits_dismiss_from_any_view() {
+        let (mut harness, clicked) = harness_for(word_card_view());
+        harness.run();
+        harness.get_by_label("关闭浮层").click();
+        harness.run();
+        assert_eq!(
+            *clicked.borrow(),
+            Some(OverlayAction::Dismiss),
+            "the header close button must dismiss via the shell"
+        );
+    }
+
+    #[test]
+    fn gear_button_submits_open_settings() {
+        let (mut harness, clicked) = harness_for(word_card_view());
+        harness.run();
+        harness.get_by_label("设置").click();
+        harness.run();
+        assert_eq!(
+            *clicked.borrow(),
+            Some(OverlayAction::OpenSettings),
+            "the header gear must open settings via the shared entry"
+        );
+    }
+
+    #[test]
+    fn selfcheck_view_exposes_texts_to_accesskit() {
+        let state = RenderState::default();
+        let mut harness = Harness::new_ui(move |ui| {
+            let _ = draw(ui, None, &state);
+        });
+        harness.run();
+        harness.get_by_label_contains("quick brown fox");
+        harness.get_by_label_contains("中文渲染自检");
     }
 
     #[test]
@@ -593,6 +687,14 @@ mod kittest_tests {
         let (mut harness, _clicked) = harness_for(auth_failed_view());
         harness.run();
         harness.snapshot("popup_failed_auth");
+        results.extend_harness(&mut harness);
+
+        let state = RenderState::default();
+        let mut harness = Harness::new_ui(move |ui| {
+            let _ = draw(ui, None, &state);
+        });
+        harness.run();
+        harness.snapshot("popup_selfcheck");
         results.extend_harness(&mut harness);
 
         results.unwrap();

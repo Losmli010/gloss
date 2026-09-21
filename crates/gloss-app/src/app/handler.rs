@@ -6,8 +6,9 @@ use std::time::Instant;
 
 use gloss_core::log::{error, thread};
 use winit::application::ApplicationHandler;
-use winit::event::{StartCause, WindowEvent};
+use winit::event::{ElementState, StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
+use winit::keyboard::{Key, NamedKey};
 use winit::window::WindowId;
 
 use super::{GlossApp, UserEvent};
@@ -30,6 +31,12 @@ fn sooner(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
         (Some(a), Some(b)) => Some(a.min(b)),
         (a, b) => a.or(b),
     }
+}
+
+/// 浮层的收起键：Escape 按下（含重复）。键盘事件只会送进持焦窗口——
+/// 浮层失焦后 Esc 天然不再生效；设置窗持焦时不收浮层。
+fn is_dismiss_key(logical_key: &Key, state: ElementState) -> bool {
+    state == ElementState::Pressed && *logical_key == Key::Named(NamedKey::Escape)
 }
 
 impl ApplicationHandler<UserEvent> for GlossApp {
@@ -108,16 +115,11 @@ impl ApplicationHandler<UserEvent> for GlossApp {
                     event_loop.exit();
                 }
             }
-            WindowEvent::Focused(false) if is_overlay => {
-                // 浮层失焦回 Idle：只隐藏不销毁；设置窗口失焦保持打开。
-                // 清掉渲染截止时刻防空转（出现动画起点不在隐藏时清：清了
-                // 会让隐藏后的收尾帧重新淡入并连发重绘，重显淡入由
-                // show_overlay 统一重置保证）。
-                self.overlay_repaint = None;
-                if let Some(windows) = &self.windows {
-                    windows.hide();
-                    self.auto_hide = None;
-                    self.machine.hide_overlay();
+            WindowEvent::KeyboardInput { event: key, .. } if is_overlay => {
+                // egui_winit 已在同一事件上喂过 egui（输入框等自行消化）；
+                // 壳只观察收起键，不拦截事件。
+                if is_dismiss_key(&key.logical_key, key.state) {
+                    self.dismiss_overlay("escape key");
                 }
             }
             WindowEvent::Resized(size) => {
@@ -134,15 +136,12 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         }
     }
 
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
         if !matches!(cause, StartCause::ResumeTimeReached { .. }) {
             return;
         }
-        // 到点的可能是自动隐藏，也可能是 egui 要的下一帧，也可能两者都是
+        // 到点的是 egui 要的下一帧：浮层与设置窗各自的截止时刻独立检查。
         let now = Instant::now();
-        if self.auto_hide.is_some_and(|deadline| deadline <= now) {
-            self.on_auto_hide(event_loop);
-        }
         if self.overlay_repaint.is_some_and(|deadline| deadline <= now) {
             self.request_redraw();
         }
@@ -159,7 +158,6 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         // 没有待处理的唤醒时刻就彻底睡下，等窗口事件或唤醒句柄把自己叫醒
         event_loop.set_control_flow(
             sooner(self.overlay_repaint, self.settings_repaint)
-                .and_then(|repaint| sooner(Some(repaint), self.auto_hide))
                 .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
         );
     }
@@ -169,7 +167,26 @@ impl ApplicationHandler<UserEvent> for GlossApp {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::sooner;
+    use winit::event::ElementState;
+    use winit::keyboard::{Key, NamedKey};
+
+    use super::{is_dismiss_key, sooner};
+
+    #[test]
+    fn escape_press_is_the_dismiss_key() {
+        assert!(is_dismiss_key(
+            &Key::Named(NamedKey::Escape),
+            ElementState::Pressed
+        ));
+        assert!(!is_dismiss_key(
+            &Key::Named(NamedKey::Escape),
+            ElementState::Released
+        ));
+        assert!(!is_dismiss_key(
+            &Key::Character("a".into()),
+            ElementState::Pressed
+        ));
+    }
 
     #[test]
     fn sooner_picks_the_earliest_deadline() {
