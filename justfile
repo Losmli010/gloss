@@ -72,9 +72,21 @@ setup:
 icons:
     ./scripts/dev/build-app-icon.sh
 
-# 跑 gloss-core 热点基准（criterion；报告与历史数据在 target/criterion）
+# 跑 gloss-core 热点基准（criterion）：自动对照上一次运行，并把结果存为本机滚动基线 last
 bench:
-    cargo bench --bench core
+    cargo bench --bench core -- --save-baseline last
+
+# 把结果另存为命名基线（审计锚点，如在干净 main 上存 main），数据在 target/criterion/ 各基准目录下
+bench-save name:
+    cargo bench --bench core -- --save-baseline {{name}}
+
+# 以命名基线为对照重跑基准（缺省 last；供 bench-summary 呈现对照数字，退出码不是门禁）
+bench-check name="last":
+    cargo bench --bench core -- --baseline {{name}}
+
+# 汇总最近一次基准运行为 Markdown 表（均值、95% 区间、对照变化），标签仅用于展示
+bench-summary baseline="上一次运行":
+    ./scripts/bench-summary.py "{{baseline}}"
 
 # ---- ci：需要编译的质量门禁（本地与 CI 共用同一配方）----
 
@@ -112,7 +124,12 @@ test:
 
 # L3 显隐自检：100 轮浮层显隐 + 首帧预算（需窗口服务与 GPU）
 selftest:
-    cargo test -p gloss --test overlay_selftest
+    cargo test -p gloss --test overlay
+
+# L3 显隐自检并把性能记录追加导出为 JSON Lines（out 缺省 target/perf/overlay.jsonl）
+selftest-report out="target/perf/overlay.jsonl":
+    @mkdir -p "$(dirname "{{out}}")"
+    GLOSS_PERF_OUT="{{out}}" GLOSS_PERF_COMMIT=`git rev-parse --short HEAD` cargo test -p gloss --test overlay
 
 # 测试覆盖率（摘要 + HTML 报告），低于 coverage_min 即失败
 coverage:

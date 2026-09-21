@@ -119,11 +119,11 @@
 
 ## 性能测试
 
-文件：tests/overlay_selftest.rs（L3，harness = false 自带 main()，跑在主线程，需窗口服务与 GPU）。
+文件：tests/overlay.rs（L3，harness = false 自带 main()，跑在主线程，需窗口服务与 GPU）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| overlay_selftest | 真实窗口栈显隐生命周期与首帧预算 | 给定经公共 API build_window_stack 预创建的生产窗口栈，当反复 show → 渲染 → hide 共 100 轮（每轮停留 80ms），则统计 show→首帧延迟并计入门禁：跑满 100 轮且有延迟统计退出 0，无帧或首帧超 100ms 预算退出 1；窗口句柄数仅进日志供人工走查（验证复用不增长） | 2026-09-19 |
+| overlay | 真实窗口栈显隐生命周期与首帧预算 | 给定经公共 API build_window_stack 预创建的生产窗口栈，当反复 show → 渲染 → hide 共 100 轮（每轮停留 80ms），则统计 show→首帧延迟并计入门禁：跑满 100 轮且有延迟统计退出 0，无帧或首帧超 100ms 预算退出 1；窗口句柄数仅进日志供人工走查（验证复用不增长）；设 GLOSS_PERF_OUT 时追加一行 JSON 性能记录（first/p50/p95/max、预算判定与运行环境），写失败只记日志不改变退出码 | 2026-09-21 |
 
 ## 快照测试
 

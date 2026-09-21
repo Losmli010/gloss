@@ -25,6 +25,7 @@ docs/*
 !docs/tests/
 .DS_Store
 .zcode/
+.zcodeignore
 
 # egui_kittest 快照对比的临时产物
 **/tests/snapshots/**/*.diff.png

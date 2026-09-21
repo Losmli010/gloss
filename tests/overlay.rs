@@ -5,14 +5,21 @@
 //! 隐 100 轮，统计 show → 首帧延迟与窗口句柄数（预创建复用与 < 100ms
 //! 首帧预算计入门禁；句柄数进日志供人工走查）。需要窗口服务与 GPU。
 //!
+//! 设 `GLOSS_PERF_OUT` 时把性能记录追加导出为 JSON Lines，供量化审计。
+//!
 //! 退出码：跑满 100 轮且有延迟统计 `0`；无帧、首帧超预算 `1`。
 
+use std::env;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gloss_app::app::{Frame, build_window_stack, centered_position, render_frame};
 use gloss_app::windows::WindowManager;
 use gloss_core::log::{error, info};
+use serde_json::json;
 use winit::application::ApplicationHandler;
 use winit::event::{StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -41,17 +48,19 @@ fn main() -> ExitCode {
         );
         return ExitCode::FAILURE;
     };
+    let window_handles = handler
+        .windows
+        .as_ref()
+        .map_or(0, WindowManager::handle_refcount);
     info!(
         thread = gloss_core::log::thread::UI,
         rounds = handler.round,
         first_show_ms = first.as_millis() as u64,
         max_show_ms = max.as_millis() as u64,
-        window_handles = handler
-            .windows
-            .as_ref()
-            .map_or(0, WindowManager::handle_refcount),
+        window_handles = window_handles,
         "overlay self-test passed"
     );
+    export_perf(&handler, first, max, window_handles);
     if first > SHOW_BUDGET {
         error!(
             thread = gloss_core::log::thread::UI,
@@ -62,6 +71,74 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
+}
+
+fn export_perf(handler: &OverlaySelfTest, first: Duration, max: Duration, window_handles: usize) {
+    let Some(path) = env::var_os("GLOSS_PERF_OUT") else {
+        return;
+    };
+    let path = PathBuf::from(path);
+    let mut sorted: Vec<f64> = handler
+        .latencies
+        .iter()
+        .map(|latency| latency.as_secs_f64() * 1000.0)
+        .collect();
+    sorted.sort_by(f64::total_cmp);
+    let percentile = |p: f64| -> f64 {
+        if sorted.is_empty() {
+            return 0.0;
+        }
+        let rank = ((p / 100.0) * sorted.len() as f64).ceil() as usize;
+        sorted[(rank.max(1) - 1).min(sorted.len() - 1)]
+    };
+    let verdict = if first > SHOW_BUDGET { "fail" } else { "pass" };
+    let record = json!({
+        "kind": "overlay",
+        "commit": perf_commit(),
+        "ts_unix_ms": SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_millis() as u64),
+        "rounds": handler.round,
+        "first_ms": first.as_secs_f64() * 1000.0,
+        "p50_ms": percentile(50.0),
+        "p95_ms": percentile(95.0),
+        "max_ms": max.as_secs_f64() * 1000.0,
+        "budget_ms": SHOW_BUDGET.as_millis() as u64,
+        "verdict": verdict,
+        "window_handles": window_handles,
+        "env": {
+            "os": env::consts::OS,
+            "arch": env::consts::ARCH,
+            "gpu": handler.frame.as_ref().map(Frame::adapter_name),
+        },
+    });
+    if let Some(dir) = path.parent()
+        && let Err(err) = std::fs::create_dir_all(dir)
+    {
+        error!(
+            thread = gloss_core::log::thread::UI,
+            error = %err,
+            "failed to create perf output directory"
+        );
+    }
+    let outcome = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut file| writeln!(file, "{record}"));
+    if let Err(err) = outcome {
+        error!(
+            thread = gloss_core::log::thread::UI,
+            error = %err,
+            "failed to append perf record"
+        );
+    }
+}
+
+fn perf_commit() -> String {
+    env::var("GLOSS_PERF_COMMIT")
+        .or_else(|_| env::var("GITHUB_SHA"))
+        .unwrap_or_default()
 }
 
 #[derive(Default)]
