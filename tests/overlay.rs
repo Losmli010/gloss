@@ -5,15 +5,14 @@
 //! 隐 100 轮，统计 show → 首帧延迟与窗口句柄数（预创建复用与 < 100ms
 //! 首帧预算计入门禁；句柄数进日志供人工走查）。需要窗口服务与 GPU。
 //!
-//! 设 `GLOSS_PERF_OUT` 时，把延迟统计（first/p50/p95/max）与运行环境
-//! 以 JSON Lines 追加到指定文件，供量化审计；导出失败只记日志，不改变
-//! 退出码。commit 取 `GLOSS_PERF_COMMIT`，缺省回退 CI 的 `GITHUB_SHA`。
+//! 设 `GLOSS_PERF_OUT` 时把性能记录追加导出为 JSON Lines，供量化审计。
 //!
 //! 退出码：跑满 100 轮且有延迟统计 `0`；无帧、首帧超预算 `1`。
 
 use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -78,6 +77,7 @@ fn export_perf(handler: &OverlaySelfTest, first: Duration, max: Duration, window
     let Some(path) = env::var_os("GLOSS_PERF_OUT") else {
         return;
     };
+    let path = PathBuf::from(path);
     let mut sorted: Vec<f64> = handler
         .latencies
         .iter()
@@ -112,6 +112,15 @@ fn export_perf(handler: &OverlaySelfTest, first: Duration, max: Duration, window
             "gpu": handler.frame.as_ref().map(Frame::adapter_name),
         },
     });
+    if let Some(dir) = path.parent()
+        && let Err(err) = std::fs::create_dir_all(dir)
+    {
+        error!(
+            thread = gloss_core::log::thread::UI,
+            error = %err,
+            "failed to create perf output directory"
+        );
+    }
     let outcome = OpenOptions::new()
         .create(true)
         .append(true)

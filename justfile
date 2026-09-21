@@ -128,8 +128,8 @@ selftest:
 
 # L3 显隐自检并把性能记录追加导出为 JSON Lines（out 缺省 target/perf/overlay.jsonl）
 selftest-report out="target/perf/overlay.jsonl":
-    @mkdir -p $(dirname {{out}})
-    GLOSS_PERF_OUT={{out}} GLOSS_PERF_COMMIT=`git rev-parse --short HEAD` cargo test -p gloss --test overlay
+    @mkdir -p "$(dirname "{{out}}")"
+    GLOSS_PERF_OUT="{{out}}" GLOSS_PERF_COMMIT=`git rev-parse --short HEAD` cargo test -p gloss --test overlay
 
 # 测试覆盖率（摘要 + HTML 报告），低于 coverage_min 即失败
 coverage:
