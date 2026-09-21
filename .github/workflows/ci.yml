@@ -81,6 +81,17 @@ jobs:
 
       - name: Run tests
         run: just test
+        env:
+          GLOSS_PERF_OUT: ${{ runner.temp }}/perf/overlay.jsonl
+
+      - name: Upload perf records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-overlay-${{ github.run_id }}
+          path: ${{ runner.temp }}/perf/overlay.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
 
   # 覆盖率：macOS 单平台统计（全部代码在该平台编译），摘要写 job summary，HTML 存档。
   coverage:

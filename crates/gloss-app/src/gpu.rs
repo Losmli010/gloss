@@ -153,6 +153,11 @@ impl GpuSurface {
         self.configure();
     }
 
+    /// GPU 适配器名，供性能数据的环境记录使用。
+    pub fn adapter_name(&self) -> String {
+        self.context.adapter().get_info().name
+    }
+
     /// 画一帧：应用 egui 的纹理增量 → 提交顶点与索引 → 渲染 → 呈现。
     pub fn render(
         &mut self,

@@ -26,6 +26,13 @@ pub struct Frame {
     popup_state: Rc<ui::popup::RenderState>,
 }
 
+impl Frame {
+    /// GPU 适配器名，供自检的性能数据记录运行环境。
+    pub fn adapter_name(&self) -> String {
+        self.surface.adapter_name()
+    }
+}
+
 /// 建窗口栈与两个窗口的首帧渲染状态（生产 App 与自检 handler 共用）：
 /// 浮层帧在前、设置窗口帧在后。两个窗口共享同一份 `GpuContext`（设备与
 /// 队列各一份），egui 上下文各自独立（互不共享 UI 状态）。

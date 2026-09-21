@@ -57,7 +57,7 @@ path = "src/main.rs"
 
 [[test]]
 harness = false
-name = "overlay_selftest"
+name = "overlay"
 
 # gloss-core 热点基准（criterion，四组：cache_key / parse_structured / prompt_render / moka_cache）
 # 运行：just bench
@@ -76,7 +76,9 @@ gloss-platform = { path = "crates/gloss-platform" }
 [dev-dependencies]
 # 基准框架（benches/core）；特性只保留 cargo_bench_support。
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
-# L3 显隐自检（overlay_selftest）直接驱动 winit 窗口栈。
+# 自检性能记录落 JSON Lines（GLOSS_PERF_OUT 导出）。
+serde_json = { version = "1", default-features = false, features = ["std"] }
+# L3 显隐自检（overlay）直接驱动 winit 窗口栈。
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
 
 [lints]
