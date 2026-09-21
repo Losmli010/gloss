@@ -2,7 +2,8 @@
 //!
 //! 每个常量是一档视觉定稿——改值即改两窗口观感，快照基线随之重录；
 //! 同一语义只允许引用这里的 token，不写内联数值。窗口私有量（浮层宽度
-//! 档位、输入框宽度、动画时长）留在各自模块，不进阶梯。
+//! 档位、输入框等控件宽度、动画时长、单点绘制几何）留在各自模块，不进
+//! 阶梯。
 
 /// 字号阶梯（px，从大到小六档）。
 pub mod font {
@@ -28,9 +29,9 @@ pub mod space {
     pub const GROUP: f32 = 10.0;
     /// 段落之间：浮层正文分区之间、设置网格列距。
     pub const PARAGRAPH: f32 = 8.0;
-    /// 条目之间：释义组之间、设置网格行距、设置提示行与动作行之间。
+    /// 条目之间：释义组之间、设置网格行距、设置提示行与滚动区之间。
     pub const ITEM: f32 = 6.0;
-    /// 紧邻元素：设置子分组之间、提示行上方。
+    /// 紧邻元素：设置子分组之间、设置提示行与动作行之间。
     pub const TIGHT: f32 = 4.0;
     /// 行内：例句行之间。
     pub const INLINE: f32 = 2.0;
@@ -80,11 +81,11 @@ mod tests {
             space::TIGHT,
             space::INLINE,
         ];
-        for ladder in [font_ladder, space_ladder] {
+        for (name, ladder) in [("font", font_ladder), ("space", space_ladder)] {
             for pair in ladder.windows(2) {
                 assert!(
                     pair[0] > pair[1],
-                    "ladder must be strictly descending: {ladder:?}"
+                    "{name} ladder must be strictly descending: {ladder:?}"
                 );
             }
         }
