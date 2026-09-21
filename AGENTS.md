@@ -41,16 +41,12 @@ just bench-check       # 以命名基线为对照重跑基准（审计对照，�
 just bench-summary     # 汇总最近一次基准运行为 Markdown 表
 just precommit         # 提交前门禁（git hook 自动跑）
 just check             # 完整质量门禁（precommit + test）
-# 子门禁（随 just precommit 与 CI 同跑）：just constraints、just secrets、just test-bdd、just agents-doc
-# 较慢门禁（只在 CI 强制，本地按需）：just coverage、just miri（nightly）、just audit、just deny
 just --list            # 全部配方与说明
 ```
 
 ## 质量条目与门禁对照
 
 评审（人与 AI）按本节执行：**能自动化的条目已全部落入门禁**——规则一律由 workspace lints 与脚本强制，不靠口头约定；本地 `just precommit` 与 CI 共用同一批脚本，CI 另跑全量测试、覆盖率、Miri、Valgrind 与依赖审计等较慢的门禁。发现可自动化的新检查项时，优先补门禁而不是写进评审清单。
-
-表中的**强制方式**列只写命令名，运行位置分三类：随 `just precommit`（git hook 自动跑）与 CI 同跑——`just lint`、`just secrets`、`just constraints`、`just agents-doc`、`just test-bdd`；本地按需手动跑、CI 上由对应 workflow 强制——`just test`（已含在 `just check` 里）、`just coverage`、`just miri`（需 nightly）、`just audit`、`just deny`；标注**人工评审**的没有自动判定，判据即条目文字本身。
 
 ### 定级原则与优先级
 
@@ -65,7 +61,7 @@ just --list            # 全部配方与说明
 | 维度 | 级别 | 条目 | 强制方式 |
 | --- | --- | --- | --- |
 | 正确性 | CRITICAL | 借用与生命周期健全性，不绕过类型系统检查 | `just check` |
-| 正确性 | CRITICAL | 并发代码无数据竞争与悬垂，UB 零容忍 | `just miri`（仅覆盖 gloss-core，跳过 cache、engine 模块与 log 的写盘测试）+ 人工评审 |
+| 正确性 | CRITICAL | 并发代码无数据竞争与悬垂，UB 零容忍 | `just miri` + 人工评审 |
 | 可维护性 | CRITICAL | **日志统一出口**：只经 `gloss_core::log` 宏出口，不直接依赖 tracing 三件套、不用 `println!`，库 crate 不初始化 subscriber | `just constraints` |
 | 安全性 | CRITICAL | 敏感文本（选区内容、密钥）不写进日志、错误消息与测试断言输出 | 人工评审 |
 | 安全性 | CRITICAL | 不硬编码密钥与凭据；合法字面量行尾加 `secrets:allow` 并注明缘由 | `just secrets` |
