@@ -23,7 +23,7 @@ core-foundation-sys = {
 # 事件线程消费通道②、转发①④。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 # FileConfigStore 的配置目录定位（日志目录例外，不走 directories）。
-directories = { version = "5", default-features = false }
+directories = { version = "6", default-features = false }
 # 把响应适配成 core 的 TaskStream（Stream trait 的最小集合）。
 futures-core = { version = "0.3", default-features = false }
 # 全局鼠标监听（划词手势）；默认集只多出可选的 serde 支持，注册/监听用不到。
