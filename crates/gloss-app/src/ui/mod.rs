@@ -3,6 +3,7 @@
 pub mod fonts;
 pub mod popup;
 pub mod settings;
+pub mod style;
 
 use gloss_core::task::TaskKind;
 

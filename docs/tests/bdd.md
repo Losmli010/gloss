@@ -12,7 +12,7 @@
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 12 | `just test` |
-| 单元测试 | 232 | `just test` |
+| 单元测试 | 233 | `just test` |
 
 ## 人工测试
 
@@ -407,6 +407,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | clear_key_is_deferred_to_save_and_revocable | 清除密钥延迟到保存且可撤销 | 给定「清除密钥」标记，当交互与保存，则删除延迟到保存生效、重新输入可撤销标记 | 2026-09-19 |
 | open_copies_the_snapshot_into_the_draft | 打开设置拷贝快照进草稿 | 给定打开时的快照，当建草稿并随后改原配置，则草稿不跟随、可携带提示 | 2026-09-19 |
 | source_labels_cover_all_variants | 输入源标签穷举 | 给定两种输入源，当映射标签，则穷举为「划词」「框选」 | 2026-09-19 |
+
+### crates/gloss-app/src/ui/style.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| ladders_are_strictly_descending | 字号与间距阶梯严格递减 | 给定字号与间距两条阶梯，当逐档比较，则每档严格大于下一档（档位语义不塌缩） | 2026-09-21 |
 
 ### crates/gloss-platform/src/appearance/icon.rs
 

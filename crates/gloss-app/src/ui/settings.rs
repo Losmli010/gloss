@@ -11,12 +11,13 @@
 //! 缓存构造接线），照常可编辑保存——配置先行，不至于为了一个字段把设置页
 //! 留一半空白。
 
-use egui::{Color32, RichText, ScrollArea};
+use egui::{RichText, ScrollArea};
 use gloss_core::config::{ALL_KINDS, Config, Theme};
 use gloss_core::model::Lang;
 use gloss_core::task::{HotkeyBinding, InputSource, TaskKind};
 
 use super::kind_label;
+use super::style::{color, font, space};
 
 /// 设置窗口的一个编辑会话：打开时以当前快照建草稿，保存/关闭由壳销毁。
 pub struct SettingsState {
@@ -104,24 +105,24 @@ pub fn draw(ui: &mut egui::Ui, state: &mut SettingsState) -> SettingsAction {
             }
         });
         if let Some(notice) = &state.notice {
-            ui.add_space(4.0);
+            ui.add_space(space::TIGHT);
             ui.label(
                 RichText::new(notice.as_str())
-                    .size(12.0)
-                    .color(Color32::from_rgb(0xD8, 0x5A, 0x30)),
+                    .size(font::CAPTION)
+                    .color(color::ACCENT),
             );
         }
-        ui.add_space(6.0);
+        ui.add_space(space::ITEM);
         // bottom_up 会渗进子 Ui：滚动内容显式转回 top_down，区块才从顶部
         // 开始排列。
         ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                 connection_section(ui, state);
-                ui.add_space(10.0);
+                ui.add_space(space::GROUP);
                 task_section(ui, state);
-                ui.add_space(10.0);
+                ui.add_space(space::GROUP);
                 hotkey_section(ui, state);
-                ui.add_space(10.0);
+                ui.add_space(space::GROUP);
                 general_section(ui, state);
             });
         });
@@ -150,7 +151,7 @@ fn connection_section(ui: &mut egui::Ui, state: &mut SettingsState) {
     ui.strong("连接");
     egui::Grid::new("connection_grid")
         .num_columns(2)
-        .spacing([8.0, 6.0])
+        .spacing([space::PARAGRAPH, space::ITEM])
         .show(ui, |ui| {
             ui.label("端点");
             ui.add(
@@ -197,7 +198,7 @@ fn task_section(ui: &mut egui::Ui, state: &mut SettingsState) {
     ui.strong("任务");
     egui::Grid::new("task_grid")
         .num_columns(2)
-        .spacing([8.0, 6.0])
+        .spacing([space::PARAGRAPH, space::ITEM])
         .show(ui, |ui| {
             ui.label("划词默认任务");
             kind_combo(
@@ -213,7 +214,7 @@ fn task_section(ui: &mut egui::Ui, state: &mut SettingsState) {
             ui.end_row();
         });
 
-    ui.add_space(4.0);
+    ui.add_space(space::TIGHT);
     ui.label("任务开关");
     for kind in ALL_KINDS {
         let mut enabled = state.draft.is_kind_enabled(kind);
@@ -227,11 +228,11 @@ fn task_section(ui: &mut egui::Ui, state: &mut SettingsState) {
         }
     }
 
-    ui.add_space(4.0);
+    ui.add_space(space::TIGHT);
     ui.label("默认模型");
     egui::Grid::new("model_grid")
         .num_columns(2)
-        .spacing([8.0, 6.0])
+        .spacing([space::PARAGRAPH, space::ITEM])
         .show(ui, |ui| {
             for kind in ALL_KINDS {
                 let mut model = state
@@ -264,7 +265,7 @@ fn hotkey_section(ui: &mut egui::Ui, state: &mut SettingsState) {
     ui.strong("热键");
     egui::Grid::new("hotkey_grid")
         .num_columns(3)
-        .spacing([8.0, 6.0])
+        .spacing([space::PARAGRAPH, space::ITEM])
         .show(ui, |ui| {
             for index in 0..state.draft.hotkey_bindings.len() {
                 // 按下标借出可变绑定；Grid 闭包内逐行处理。
@@ -284,7 +285,7 @@ fn hotkey_section(ui: &mut egui::Ui, state: &mut SettingsState) {
                 kind_combo(ui, &format!("hotkey_kind_{index}"), kind, &ALL_KINDS);
                 ui.label(
                     RichText::new(source_label(source))
-                        .size(11.0)
+                        .size(font::TAG)
                         .color(ui.visuals().weak_text_color()),
                 );
                 ui.end_row();
@@ -298,7 +299,7 @@ fn general_section(ui: &mut egui::Ui, state: &mut SettingsState) {
     ui.checkbox(&mut state.draft.auto_show, "取材成功后自动弹出浮层");
     egui::Grid::new("general_grid")
         .num_columns(2)
-        .spacing([8.0, 6.0])
+        .spacing([space::PARAGRAPH, space::ITEM])
         .show(ui, |ui| {
             ui.label("缓存有效期");
             ui.add(

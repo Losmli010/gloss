@@ -11,11 +11,12 @@
 use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
-use egui::{Color32, CornerRadius, Frame, Margin, RichText, ScrollArea, Stroke, vec2};
+use egui::{CornerRadius, Frame, Margin, RichText, ScrollArea, Stroke, vec2};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use gloss_core::prompt::STRUCTURED_FENCE;
 use gloss_core::task::OutcomeStructured;
 
+use super::style::{color, font, radius, space, stroke};
 use crate::machine::{ErrorAction, OverlayView};
 
 /// 浮层默认宽度（04 §二：默认 380px，长文本自适应，上限 480px）
@@ -29,36 +30,8 @@ const TALL_GROW: f32 = 320.0;
 const TALL_SHRINK: f32 = 240.0;
 /// 宽度档位判定的浮点容差
 const WIDTH_SWITCH_EPSILON: f32 = 0.5;
-/// 卡片圆角
-const CORNER_RADIUS: u8 = 8;
-/// 内容区内边距
-const PADDING: i8 = 14;
-/// 框线宽度（计入期望尺寸）
-const STROKE_WIDTH: f32 = 0.5;
-/// 头部身份圆点：品牌珊瑚橙
-const BRAND_DOT: Color32 = Color32::from_rgb(0xD8, 0x5A, 0x30);
-/// 字号阶梯：正文 / 流式来源与失败提示 / 标题
-const BODY_SIZE: f32 = 14.0;
-const NOTICE_SIZE: f32 = 13.0;
-const TITLE_SIZE: f32 = 15.0;
-/// 字号阶梯：词条 / 音标 / 释义 / 词性 / 例句
-const WORD_SIZE: f32 = 18.0;
-const PHONETIC_SIZE: f32 = 13.0;
-const MEANING_SIZE: f32 = 14.0;
-const POS_SIZE: f32 = 12.0;
-const EXAMPLE_SIZE: f32 = 12.0;
-/// 头部字号：品牌标签 / 任务类型 / 动作按钮
-const HEADER_SIZE: f32 = 12.0;
-const TAG_SIZE: f32 = 11.0;
-const BUTTON_SIZE: f32 = 12.0;
 /// 出现动画时长（淡入，秒）：显示/重显后的第一帧从 0 渐进到 1。
 const APPEAR_SECONDS: f32 = 0.18;
-/// 间距阶梯：标题行后 / 正文分区前 / 词条行后 / 释义组间 / 例句间
-const SECTION_SPACE: f32 = 12.0;
-const BODY_SPACE: f32 = 8.0;
-const WORD_ROW_SPACE: f32 = 10.0;
-const SENSE_SPACE: f32 = 6.0;
-const EXAMPLE_SPACE: f32 = 2.0;
 
 /// 浮层的跨帧渲染状态（每窗口一份，由渲染管线持有）。
 pub(crate) struct RenderState {
@@ -138,7 +111,7 @@ pub(crate) fn draw(
     ui.set_opacity(progress);
 
     let fill = ui.visuals().window_fill;
-    let stroke = ui.visuals().window_stroke;
+    let window_stroke = ui.visuals().window_stroke;
     let mut output = PopupOutput {
         action: None,
         sizing: OverlaySizing {
@@ -149,9 +122,9 @@ pub(crate) fn draw(
     let mut content_h = 0.0;
     Frame::new()
         .fill(fill)
-        .stroke(Stroke::new(STROKE_WIDTH, stroke.color))
-        .corner_radius(CornerRadius::same(CORNER_RADIUS))
-        .inner_margin(Margin::same(PADDING))
+        .stroke(Stroke::new(stroke::CARD, window_stroke.color))
+        .corner_radius(CornerRadius::same(radius::CARD))
+        .inner_margin(Margin::same(space::CARD_PADDING))
         .show(ui, |ui| {
             output.action = render_content(ui, view, state, &mut content_h);
             ui.set_min_size(ui.available_size());
@@ -163,7 +136,7 @@ pub(crate) fn draw(
     state.last_width.set(width);
     output.sizing = OverlaySizing {
         width,
-        height: (content_h + 2.0 * PADDING as f32 + STROKE_WIDTH).round(),
+        height: (content_h + 2.0 * space::CARD_PADDING as f32 + stroke::CARD).round(),
     };
     output
 }
@@ -197,20 +170,20 @@ fn render_content(
     match view {
         None => {
             header(ui, Some("自检"), false);
-            ui.add_space(SECTION_SPACE);
+            ui.add_space(space::SECTION);
             selfcheck_body(ui);
             *content_h = ui.min_rect().height();
             None
         }
         Some(OverlayView::Streaming { source, body }) => {
             header(ui, None, true);
-            ui.add_space(BODY_SPACE);
+            ui.add_space(space::PARAGRAPH);
             ui.label(
                 RichText::new(source)
-                    .size(NOTICE_SIZE)
+                    .size(font::NOTICE)
                     .color(ui.visuals().weak_text_color()),
             );
-            ui.add_space(BODY_SPACE);
+            ui.add_space(space::PARAGRAPH);
             let visible = match body.rfind(STRUCTURED_FENCE) {
                 Some(pos) => &body[..pos],
                 None => body,
@@ -226,7 +199,7 @@ fn render_content(
         }
         Some(OverlayView::Outcome(outcome)) => {
             header(ui, Some(crate::ui::kind_label(outcome.kind)), false);
-            ui.add_space(SECTION_SPACE);
+            ui.add_space(space::SECTION);
             let body_top = ui.cursor().min.y;
             let scrolled = ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 outcome_body(ui, outcome, state);
@@ -236,18 +209,18 @@ fn render_content(
         }
         Some(OverlayView::Failed { message, action }) => {
             header(ui, Some("失败"), false);
-            ui.add_space(SECTION_SPACE);
+            ui.add_space(space::SECTION);
             ui.label(
                 RichText::new(message.as_str())
-                    .size(NOTICE_SIZE)
+                    .size(font::NOTICE)
                     .color(ui.visuals().warn_fg_color),
             );
             if let Some(action) = *action {
-                ui.add_space(SECTION_SPACE);
+                ui.add_space(space::SECTION);
                 if ui
                     .button(
                         RichText::new(action_label(action))
-                            .size(BUTTON_SIZE)
+                            .size(font::CAPTION)
                             .color(ui.visuals().strong_text_color()),
                     )
                     .clicked()
@@ -275,13 +248,14 @@ fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool) {
     let weak = ui.visuals().weak_text_color();
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(8.0, 8.0), egui::Sense::hover());
-        ui.painter().circle_filled(rect.center(), 4.0, BRAND_DOT);
-        ui.label(RichText::new("翻译").size(HEADER_SIZE).color(weak));
+        ui.painter()
+            .circle_filled(rect.center(), 4.0, color::ACCENT);
+        ui.label(RichText::new("翻译").size(font::CAPTION).color(weak));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if busy {
-                ui.add(egui::Spinner::new().size(TAG_SIZE + 5.0));
+                ui.add(egui::Spinner::new().size(font::TAG + 5.0));
             } else if let Some(tag) = tag {
-                ui.label(RichText::new(tag).size(TAG_SIZE).color(weak));
+                ui.label(RichText::new(tag).size(font::TAG).color(weak));
             }
         });
     });
@@ -305,11 +279,11 @@ fn outcome_body(ui: &mut egui::Ui, outcome: &gloss_core::task::TaskOutcome, stat
             if let Some(title) = title {
                 ui.label(
                     RichText::new(title.as_str())
-                        .size(TITLE_SIZE)
+                        .size(font::TITLE)
                         .strong()
                         .color(ui.visuals().strong_text_color()),
                 );
-                ui.add_space(BODY_SPACE);
+                ui.add_space(space::PARAGRAPH);
             }
             render_markdown(ui, state, &outcome.body);
         }
@@ -327,43 +301,43 @@ fn word_card(
     ui.horizontal(|ui| {
         ui.label(
             RichText::new(word)
-                .size(WORD_SIZE)
+                .size(font::WORD)
                 .strong()
                 .color(ui.visuals().strong_text_color()),
         );
         if let Some(phonetic) = phonetic {
             ui.label(
                 RichText::new(phonetic)
-                    .size(PHONETIC_SIZE)
+                    .size(font::NOTICE)
                     .color(ui.visuals().weak_text_color()),
             );
         }
     });
-    ui.add_space(WORD_ROW_SPACE);
+    ui.add_space(space::GROUP);
     let strong = ui.visuals().strong_text_color();
     let weak = ui.visuals().weak_text_color();
     for sense in senses {
         ui.horizontal_wrapped(|ui| {
             if let Some(pos) = &sense.pos {
-                ui.label(RichText::new(pos.as_str()).size(POS_SIZE).color(weak));
+                ui.label(RichText::new(pos.as_str()).size(font::CAPTION).color(weak));
             }
             ui.label(
                 RichText::new(sense.meaning.as_str())
-                    .size(MEANING_SIZE)
+                    .size(font::BODY)
                     .color(strong),
             );
         });
         for example in &sense.examples {
-            ui.add_space(EXAMPLE_SPACE);
+            ui.add_space(space::INLINE);
             ui.indent("example", |ui| {
                 ui.label(
                     RichText::new(format!("· {example}"))
-                        .size(EXAMPLE_SIZE)
+                        .size(font::CAPTION)
                         .color(weak),
                 );
             });
         }
-        ui.add_space(SENSE_SPACE);
+        ui.add_space(space::ITEM);
     }
 }
 
@@ -372,7 +346,7 @@ fn plain_body(ui: &mut egui::Ui, text: &str) {
     ui.add(
         egui::Label::new(
             RichText::new(text)
-                .size(BODY_SIZE)
+                .size(font::BODY)
                 .color(ui.visuals().strong_text_color()),
         )
         .wrap()
@@ -386,20 +360,20 @@ fn selfcheck_body(ui: &mut egui::Ui) {
     let weak = ui.visuals().weak_text_color();
     ui.label(
         RichText::new("The quick brown fox jumps over the lazy dog.")
-            .size(NOTICE_SIZE)
+            .size(font::NOTICE)
             .color(weak),
     );
-    ui.add_space(SECTION_SPACE);
+    ui.add_space(space::SECTION);
     ui.label(
         RichText::new("敏捷的棕色狐狸从懒狗身上跳过。")
-            .size(TITLE_SIZE)
+            .size(font::TITLE)
             .strong()
             .color(strong),
     );
-    ui.add_space(SECTION_SPACE);
+    ui.add_space(space::SECTION);
     ui.label(
         RichText::new("中文渲染自检：划词翻译、代码解释、图片识别。")
-            .size(NOTICE_SIZE)
+            .size(font::NOTICE)
             .color(weak),
     );
 }
