@@ -19,6 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use gloss_app::app::{Frame, build_window_stack, centered_position, render_frame};
 use gloss_app::windows::WindowManager;
 use gloss_core::log::{error, info};
+use gloss_core::model::Locale;
 use serde_json::json;
 use winit::application::ApplicationHandler;
 use winit::event::{StartCause, WindowEvent};
@@ -175,7 +176,8 @@ impl OverlaySelfTest {
         let Some(frame) = &mut self.frame else {
             return;
         };
-        let (repaint, _, _) = render_frame(frame, None);
+        // 文案表按出厂 locale 取：自检量的是显隐与首帧预算，与语言无关。
+        let (repaint, _, _) = render_frame(frame, None, Locale::default());
         self.next_repaint = repaint;
         if let Some(shown) = self.shown_at.take() {
             self.latencies.push(Instant::now() - shown);

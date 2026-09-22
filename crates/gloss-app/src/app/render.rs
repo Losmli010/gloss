@@ -7,10 +7,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use egui::ViewportId;
+use gloss_core::model::Locale;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
 use crate::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
+use crate::i18n::Text;
 use crate::machine::OverlayView;
 use crate::ui;
 use crate::windows::WindowManager;
@@ -106,19 +108,22 @@ pub fn render_frame_with<R>(
 }
 
 /// 渲染一帧浮层（[`render_frame_with`] 的浮层特化，供 App 与自检 handler
-/// 用）：返回（egui 要求的下一帧时刻，本帧被点击的浮层动作，浮层内容
-/// 期望的窗口尺寸——由壳按显示器钳制后应用）。
+/// 用）：`locale` 是界面语言（文案表选表依据，本层不做探测）；返回（egui
+/// 要求的下一帧时刻，本帧被点击的浮层动作，浮层内容期望的窗口尺寸——由
+/// 壳按显示器钳制后应用）。
 pub fn render_frame(
     frame: &mut Frame,
     view: Option<&OverlayView>,
+    locale: Locale,
 ) -> (
     Option<Instant>,
     Option<ui::popup::OverlayAction>,
     Option<ui::popup::OverlaySizing>,
 ) {
     let popup_state = Rc::clone(&frame.popup_state);
+    let text = Text::get(locale);
     let (repaint_at, output) =
-        render_frame_with(frame, |ui| ui::popup::draw(ui, view, &popup_state));
+        render_frame_with(frame, |ui| ui::popup::draw(ui, view, &popup_state, text));
     // 内层 Option 是「闭包有没有跑」的外壳，动作本身才是浮层的返回值。
     (
         repaint_at,

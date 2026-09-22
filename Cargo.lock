@@ -1412,8 +1412,10 @@ dependencies = [
  "gloss-core",
  "gloss-platform",
  "pollster",
+ "serde",
  "tokio",
  "tokio-util",
+ "toml 0.8.23",
  "wgpu",
  "winit",
 ]

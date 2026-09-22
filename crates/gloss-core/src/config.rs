@@ -7,8 +7,7 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::Lang;
-use crate::prompt::PromptLocale;
+use crate::model::{Lang, Locale};
 use crate::task::{HotkeyBinding, InputSource, TaskKind};
 
 /// 全部任务类型：`enabled_kinds` 的出厂值与设置页的任务开关列表共用，
@@ -72,14 +71,14 @@ pub enum Language {
 }
 
 impl Language {
-    /// 本语言的 prompt 模板语言：显式选择直接用；`System` 按调用方给的
+    /// 本语言落定成的 [`Locale`]：显式选择直接用；`System` 按调用方给的
     /// **系统语言**落定——进程内系统语言只会读一次（改系统语言要重启），
-    /// 因此这是纯映射，不做任何探测。
-    pub fn prompt_locale(self, system: PromptLocale) -> PromptLocale {
+    /// 因此这是纯映射，不做任何探测。prompt 模板与界面文案共用这一份结果。
+    pub fn resolve(self, system: Locale) -> Locale {
         match self {
             Language::System => system,
-            Language::Zh => PromptLocale::Zh,
-            Language::En => PromptLocale::En,
+            Language::Zh => Locale::Zh,
+            Language::En => Locale::En,
         }
     }
 }
@@ -533,25 +532,19 @@ mod tests {
     }
 
     #[test]
-    fn language_resolves_to_prompt_locale() {
+    fn language_resolves_to_locale() {
         assert_eq!(
-            Language::System.prompt_locale(PromptLocale::En),
-            PromptLocale::En,
+            Language::System.resolve(Locale::En),
+            Locale::En,
             "follow-the-system must take the detected system language"
         );
+        assert_eq!(Language::System.resolve(Locale::Zh), Locale::Zh);
         assert_eq!(
-            Language::System.prompt_locale(PromptLocale::Zh),
-            PromptLocale::Zh
-        );
-        assert_eq!(
-            Language::Zh.prompt_locale(PromptLocale::En),
-            PromptLocale::Zh,
+            Language::Zh.resolve(Locale::En),
+            Locale::Zh,
             "an explicit choice ignores the system language"
         );
-        assert_eq!(
-            Language::En.prompt_locale(PromptLocale::Zh),
-            PromptLocale::En
-        );
+        assert_eq!(Language::En.resolve(Locale::Zh), Locale::En);
     }
 
     #[test]

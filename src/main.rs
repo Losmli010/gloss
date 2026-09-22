@@ -163,7 +163,7 @@ fn run_event_loop(
     // 系统语言只在启动期读一次（改系统语言要重启）：配置里的
     // `Language::System` 要拿它落定成具体的 prompt 模板语言。适配器对
     // 「拿不到偏好语言」按英文兜底，因此这里没有失败面。
-    let system_locale = gloss_platform::locale::system_prompt_locale();
+    let system_locale = gloss_platform::locale::system_locale();
     info!(
         thread = thread::UI,
         locale = ?system_locale,

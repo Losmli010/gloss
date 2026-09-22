@@ -11,6 +11,10 @@
 //! 校验时机：首次点「保存」才进入错误态（编辑中的半成品不追着标红），
 //! 之后每帧实时复检、改对即清。视觉规范见 docs/14（卡片分区、开关行、
 //! 保存主按钮）。
+//!
+//! 文案与校验分家：校验只产出类型化错误（[`FieldError`]）与类型化提示
+//! （[`SettingsNotice`]），文案统一在渲染帧按当前 locale 落地——同一份草稿
+//! 换语言即换措辞，校验逻辑本身与语言无关。
 
 use std::collections::HashMap;
 
@@ -19,11 +23,12 @@ use gloss_core::config::{
     ALL_KINDS, BaseUrlError, CACHE_TTL_MAX_SECS, Config, Language, Theme, validate_base_url,
 };
 use gloss_core::hotkey::parse_trigger;
-use gloss_core::model::Lang;
+use gloss_core::model::{GlossError, Lang};
 use gloss_core::task::{HotkeyBinding, TaskKind};
 
 use super::kind_label;
 use super::style::{color, font, radius, space};
+use crate::i18n::{SettingsErrorText, Text, fill};
 
 /// 校验出错的字段：错误提示按字段定位到具体控件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -36,6 +41,57 @@ enum FieldKey {
     Model(TaskKind),
 }
 
+/// 校验错误的类型化形态：只记「哪里错了、错成什么样」，措辞归文案表。
+///
+/// 变体与 `[gloss_settings.error]` 的键一一对应（见 [`Self::message`]），
+/// 校验输出因此与语言无关——同一份草稿在任何 locale 下得出同一张错误表。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FieldError {
+    /// 该触发键与更早的行重复；`line` 是那条绑定的 1 起数行号。
+    DuplicateHotkey {
+        /// 先占用该组合的行号（1 起数）。
+        line: usize,
+    },
+    /// 触发键为空。
+    EmptyTrigger,
+    /// 触发键语法不合法，`trigger` 是用户原样输入。
+    InvalidTrigger {
+        /// 用户输入的原样回显。
+        trigger: String,
+    },
+    /// 模型名含换行。
+    NewlineInModel,
+    /// Base URL 为空。
+    BaseUrlEmpty,
+    /// Base URL 不是合法地址（语法不合法或非 https）。
+    BaseUrlNotHttps,
+    /// Base URL 内嵌账号密码。
+    BaseUrlCredentials,
+    /// Base URL 携带查询参数或锚点。
+    BaseUrlQuery,
+}
+
+impl FieldError {
+    /// 就地提示文案。
+    fn message(&self, text: &SettingsErrorText) -> String {
+        match self {
+            Self::DuplicateHotkey { line } => {
+                let line = line.to_string();
+                fill(&text.duplicate_hotkey, &[("line", &line)])
+            }
+            Self::EmptyTrigger => text.empty_trigger.clone(),
+            Self::InvalidTrigger { trigger } => {
+                fill(&text.invalid_trigger, &[("trigger", trigger)])
+            }
+            Self::NewlineInModel => text.newline_in_model.clone(),
+            Self::BaseUrlEmpty => text.base_url_empty.clone(),
+            Self::BaseUrlNotHttps => text.base_url_invalid.clone(),
+            Self::BaseUrlCredentials => text.base_url_credentials.clone(),
+            Self::BaseUrlQuery => text.base_url_query.clone(),
+        }
+    }
+}
+
 /// 设置窗口的一个编辑会话：打开时以当前快照建草稿，保存/关闭由壳销毁。
 pub struct SettingsState {
     /// 编辑中的整份配置；「保存」时整体上交（整份快照语义）。
@@ -44,8 +100,8 @@ pub struct SettingsState {
     api_key: String,
     /// 是否已标记「清除密钥」（保存时才真正删除；重新输入即撤销）。
     clear_key: bool,
-    /// 壳回写的提示（保存失败等）；用户可见文案。
-    notice: Option<String>,
+    /// 壳回写的提示（保存失败等）；文案在渲染帧落地。
+    notice: Option<SettingsNotice>,
     /// 是否已进入校验态：首次点「保存」置位，此后每帧就地标注错误；
     /// 置位前编辑不打扰。
     validated: bool,
@@ -81,6 +137,33 @@ pub enum SettingsAction {
     Close,
 }
 
+/// 壳回写的用户提示：三种失败各有各的措辞，具体错因按 [`GlossError`] 变体
+/// 带进来（不预拼英文 `Display` 字符串——那是诊断文本，改它不该改界面）。
+#[derive(Debug, Clone, PartialEq)]
+pub enum SettingsNotice {
+    /// 密钥写入失败，配置因此没有保存。
+    KeyUpdateFailed(GlossError),
+    /// 配置落盘失败（密钥未改动）。
+    SaveFailed(GlossError),
+    /// 密钥已生效，但配置落盘失败。
+    KeyUpdatedSaveFailed(GlossError),
+}
+
+impl SettingsNotice {
+    /// 提示文案：前缀说明场合，`{{detail}}` 填错因的本地化措辞。
+    fn message(&self, text: &Text) -> String {
+        let (template, error) = match self {
+            Self::KeyUpdateFailed(err) => (&text.settings.notice_key_update_failed, err),
+            Self::SaveFailed(err) => (&text.settings.notice_save_failed, err),
+            Self::KeyUpdatedSaveFailed(err) => (&text.settings.notice_key_updated_save_failed, err),
+        };
+        fill(
+            template,
+            &[("detail", &text.errors.for_error_detail(error))],
+        )
+    }
+}
+
 /// 打开一个编辑会话：草稿取自当前快照（打开后的配置变更不跟读，保存即
 /// 整份覆盖——与「单次任务内配置一致」同一取舍）。
 pub fn open(config: &Config) -> SettingsState {
@@ -94,9 +177,9 @@ pub fn open(config: &Config) -> SettingsState {
 }
 
 impl SettingsState {
-    /// 壳回写提示（保存失败等）；在下一次渲染帧展示。
-    pub fn report(&mut self, message: String) {
-        self.notice = Some(message);
+    /// 壳回写提示（保存失败等）；在下一次渲染帧按当前 locale 展示。
+    pub fn report(&mut self, notice: SettingsNotice) {
+        self.notice = Some(notice);
     }
 
     /// 当前草稿（壳只读：未保存变更提示等）。
@@ -105,13 +188,13 @@ impl SettingsState {
     }
 
     /// 最近一条壳回写的提示。
-    pub fn notice(&self) -> Option<&str> {
-        self.notice.as_deref()
+    pub fn notice(&self) -> Option<&SettingsNotice> {
+        self.notice.as_ref()
     }
 
     /// 逐字段校验结果：每帧从草稿重算，不存陈旧错误。未进入校验态时
     /// 返回空表（编辑中不标注）。
-    fn errors(&self) -> HashMap<FieldKey, String> {
+    fn errors(&self) -> HashMap<FieldKey, FieldError> {
         if self.validated {
             validate_draft(&self.draft)
         } else {
@@ -147,12 +230,12 @@ fn build_save(state: &mut SettingsState) -> SettingsAction {
     SettingsAction::Save { config: draft, key }
 }
 
-/// 逐字段校验（纯逻辑）：规则单点下沉 gloss-core，这里只做组合与展示
-/// 文案映射。
-fn validate_draft(draft: &Config) -> HashMap<FieldKey, String> {
+/// 逐字段校验（纯逻辑）：规则单点下沉 gloss-core，这里只做组合与
+/// [`FieldError`] 映射（文案留给渲染帧）。
+fn validate_draft(draft: &Config) -> HashMap<FieldKey, FieldError> {
     let mut errors = HashMap::new();
     if let Err(err) = validate_base_url(&draft.base_url) {
-        errors.insert(FieldKey::BaseUrl, base_url_hint(&err).to_owned());
+        errors.insert(FieldKey::BaseUrl, base_url_error(&err));
     }
     // 热键：语法 + 规范串去重（先到者保留，后者按重复报）。
     let mut seen: HashMap<String, usize> = HashMap::new();
@@ -163,19 +246,21 @@ fn validate_draft(draft: &Config) -> HashMap<FieldKey, String> {
                 if let Some(&first) = seen.get(&canonical) {
                     errors.insert(
                         FieldKey::Hotkey(index),
-                        format!("与第 {} 行重复", first + 1),
+                        FieldError::DuplicateHotkey { line: first + 1 },
                     );
                 } else {
                     seen.insert(canonical, index);
                 }
             }
             Err(gloss_core::hotkey::TriggerError::Empty) => {
-                errors.insert(FieldKey::Hotkey(index), "触发键不能为空".to_owned());
+                errors.insert(FieldKey::Hotkey(index), FieldError::EmptyTrigger);
             }
             Err(_) => {
                 errors.insert(
                     FieldKey::Hotkey(index),
-                    format!("无法解析触发键「{}」", binding.trigger),
+                    FieldError::InvalidTrigger {
+                        trigger: binding.trigger.clone(),
+                    },
                 );
             }
         }
@@ -183,30 +268,31 @@ fn validate_draft(draft: &Config) -> HashMap<FieldKey, String> {
     // 模型名：保存时 trim，禁换行（粘贴事故防护）；空 = 用内置默认，合法。
     for binding in &draft.model_by_kind {
         if binding.model.trim().contains('\n') {
-            errors.insert(FieldKey::Model(binding.kind), "不能包含换行".to_owned());
+            errors.insert(FieldKey::Model(binding.kind), FieldError::NewlineInModel);
         }
     }
     errors
 }
 
-/// Base URL 校验错误 → 就地提示文案。
-fn base_url_hint(err: &BaseUrlError) -> &'static str {
+/// Base URL 校验错误 → 字段错误（规则与提示的分界在这里）。
+fn base_url_error(err: &BaseUrlError) -> FieldError {
     match err {
-        BaseUrlError::Empty => "请填写服务地址",
-        BaseUrlError::Invalid | BaseUrlError::NotHttps => "不是合法地址：应以 https:// 开头",
-        BaseUrlError::EmbeddedCredentials => "不能内嵌账号密码",
-        BaseUrlError::QueryOrFragment => "不能携带查询参数或锚点",
+        BaseUrlError::Empty => FieldError::BaseUrlEmpty,
+        BaseUrlError::Invalid | BaseUrlError::NotHttps => FieldError::BaseUrlNotHttps,
+        BaseUrlError::EmbeddedCredentials => FieldError::BaseUrlCredentials,
+        BaseUrlError::QueryOrFragment => FieldError::BaseUrlQuery,
     }
 }
 
-/// 画一帧设置窗口，返回本帧用户上交的动作。
+/// 画一帧设置窗口，返回本帧用户上交的动作。`text` 是当前 locale 的文案表
+/// （由壳按帧给），本函数不探测语言。
 ///
 /// 自下而上布局：动作行钉在窗口底部（保存主按钮右对齐），提示在其上，
 /// 其余全部区块进滚动区——内容再长也不会把「保存」推出视口。
 /// 窗口内边距由 [`WINDOW_PADDING`] 统一给出；整幅先铺 `window_fill`
 /// 底色（设置窗不透明，清屏色不随主题，底色必须由 egui 自己画，
 /// 深浅主题切换才连同文字一起翻转）。
-pub fn draw(ui: &mut egui::Ui, state: &mut SettingsState) -> SettingsAction {
+pub(crate) fn draw(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) -> SettingsAction {
     let mut action = SettingsAction::Idle;
     let errors = state.errors();
     egui::Frame::new()
@@ -216,17 +302,25 @@ pub fn draw(ui: &mut egui::Ui, state: &mut SettingsState) -> SettingsAction {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                 // bottom_up 会渗进子 Ui：滚动内容显式转回 top_down，区块才
                 // 从顶部开始排列。
-                action_row(ui, state, &mut action);
-                notices(ui, state, &errors);
+                action_row(ui, state, &mut action, text);
+                notices(ui, state, &errors, text);
                 ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                     ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                        section(ui, "模型", |ui| connection_section(ui, state, &errors));
+                        section(ui, &text.settings.section_model, |ui| {
+                            connection_section(ui, state, &errors, text);
+                        });
                         ui.add_space(space::SECTION);
-                        section(ui, "任务", |ui| task_section(ui, state, &errors));
+                        section(ui, &text.settings.section_task, |ui| {
+                            task_section(ui, state, &errors, text);
+                        });
                         ui.add_space(space::SECTION);
-                        section(ui, "热键", |ui| hotkey_section(ui, state, &errors));
+                        section(ui, &text.settings.section_hotkey, |ui| {
+                            hotkey_section(ui, state, &errors, text);
+                        });
                         ui.add_space(space::SECTION);
-                        section(ui, "通用", |ui| general_section(ui, state));
+                        section(ui, &text.settings.section_general, |ui| {
+                            general_section(ui, state, text);
+                        });
                     });
                 });
             });
@@ -238,7 +332,12 @@ pub fn draw(ui: &mut egui::Ui, state: &mut SettingsState) -> SettingsAction {
 const WINDOW_PADDING: i8 = 16;
 
 /// 动作行：取消（次按钮）+ 保存（ACCENT 主按钮），右对齐。
-fn action_row(ui: &mut egui::Ui, state: &mut SettingsState, action: &mut SettingsAction) {
+fn action_row(
+    ui: &mut egui::Ui,
+    state: &mut SettingsState,
+    action: &mut SettingsAction,
+    text: &Text,
+) {
     // 先分配固定行高再右对齐：bottom_up 里直接 with_layout(RTL) 的子区域
     // 会撑满剩余整高，按钮被垂直居中到窗口中部，滚动区被挤剩一条。
     ui.allocate_ui_with_layout(
@@ -246,14 +345,16 @@ fn action_row(ui: &mut egui::Ui, state: &mut SettingsState, action: &mut Setting
         egui::Layout::right_to_left(egui::Align::Center),
         |ui| {
             let save = ui.add(
-                egui::Button::new(RichText::new("保存").color(egui::Color32::WHITE))
-                    .fill(color::ACCENT)
-                    .corner_radius(egui::CornerRadius::same(6)),
+                egui::Button::new(
+                    RichText::new(text.settings.save.as_str()).color(egui::Color32::WHITE),
+                )
+                .fill(color::ACCENT)
+                .corner_radius(egui::CornerRadius::same(6)),
             );
             if save.clicked() {
                 *action = build_save(state);
             }
-            if ui.button("取消").clicked() {
+            if ui.button(text.settings.cancel.as_str()).clicked() {
                 *action = SettingsAction::Close;
             }
         },
@@ -264,11 +365,17 @@ fn action_row(ui: &mut egui::Ui, state: &mut SettingsState, action: &mut Setting
 const ACTION_ROW_HEIGHT: f32 = 30.0;
 
 /// 提示行：校验汇总（进入校验态且有错）与壳回写提示（保存失败等）。
-fn notices(ui: &mut egui::Ui, state: &SettingsState, errors: &HashMap<FieldKey, String>) {
+fn notices(
+    ui: &mut egui::Ui,
+    state: &SettingsState,
+    errors: &HashMap<FieldKey, FieldError>,
+    text: &Text,
+) {
     if state.validated && !errors.is_empty() {
+        let count = errors.len().to_string();
         ui.add_space(space::TIGHT);
         ui.label(
-            RichText::new(format!("有 {} 处输入未通过校验，已就地标红", errors.len()))
+            RichText::new(fill(&text.settings.invalid_summary, &[("count", &count)]))
                 .size(font::CAPTION)
                 .color(color::DANGER),
         );
@@ -276,7 +383,7 @@ fn notices(ui: &mut egui::Ui, state: &SettingsState, errors: &HashMap<FieldKey, 
     if let Some(notice) = &state.notice {
         ui.add_space(space::TIGHT);
         ui.label(
-            RichText::new(notice.as_str())
+            RichText::new(notice.message(text))
                 .size(font::CAPTION)
                 .color(color::DANGER),
         );
@@ -327,7 +434,7 @@ fn add_input<'t>(
 fn underline_if_error(
     ui: &mut egui::Ui,
     response: &egui::Response,
-    errors: &HashMap<FieldKey, String>,
+    errors: &HashMap<FieldKey, FieldError>,
     key: FieldKey,
 ) {
     if errors.contains_key(&key) {
@@ -343,10 +450,15 @@ fn underline_if_error(
 }
 
 /// 就地错误提示（控件正下方，CAPTION DANGER）。
-fn error_text(ui: &mut egui::Ui, errors: &HashMap<FieldKey, String>, key: FieldKey) {
-    if let Some(message) = errors.get(&key) {
+fn error_text(
+    ui: &mut egui::Ui,
+    errors: &HashMap<FieldKey, FieldError>,
+    key: FieldKey,
+    text: &Text,
+) {
+    if let Some(error) = errors.get(&key) {
         ui.label(
-            RichText::new(message.clone())
+            RichText::new(error.message(&text.settings.error))
                 .size(font::CAPTION)
                 .color(color::DANGER),
         );
@@ -357,15 +469,16 @@ fn error_text(ui: &mut egui::Ui, errors: &HashMap<FieldKey, String>, key: FieldK
 fn connection_section(
     ui: &mut egui::Ui,
     state: &mut SettingsState,
-    errors: &HashMap<FieldKey, String>,
+    errors: &HashMap<FieldKey, FieldError>,
+    text: &Text,
 ) {
     ui.label("Base URL");
     let response = add_input(ui, &mut state.draft.base_url, |e| {
-        e.hint_text("OpenAI 兼容服务地址")
+        e.hint_text(text.settings.base_url_hint.as_str())
             .desired_width(f32::INFINITY)
     });
     underline_if_error(ui, &response, errors, FieldKey::BaseUrl);
-    error_text(ui, errors, FieldKey::BaseUrl);
+    error_text(ui, errors, FieldKey::BaseUrl, text);
     ui.add_space(space::ITEM);
 
     ui.label("API Key");
@@ -374,9 +487,9 @@ fn connection_section(
         let typed = add_input(ui, &mut state.api_key, |e| {
             e.password(true)
                 .hint_text(if state.clear_key {
-                    "保存后清除"
+                    text.settings.key_clear_hint.as_str()
                 } else {
-                    "留空则不修改"
+                    text.settings.key_keep_hint.as_str()
                 })
                 .desired_width(input_width)
         })
@@ -386,9 +499,9 @@ fn connection_section(
             state.clear_key = false;
         }
         let label = if state.clear_key {
-            "撤销清除"
+            text.settings.undo_clear_key.as_str()
         } else {
-            "清除密钥"
+            text.settings.clear_key.as_str()
         };
         if ui.button(label).clicked() {
             state.clear_key = !state.clear_key;
@@ -401,50 +514,56 @@ fn connection_section(
 const CLEAR_BUTTON_RESERVE: f32 = 88.0;
 
 /// 任务区：默认任务、目标语言、任务开关（左右开关钮）、每任务默认模型。
-fn task_section(ui: &mut egui::Ui, state: &mut SettingsState, errors: &HashMap<FieldKey, String>) {
-    choice_row(ui, "默认任务", |ui| {
+fn task_section(
+    ui: &mut egui::Ui,
+    state: &mut SettingsState,
+    errors: &HashMap<FieldKey, FieldError>,
+    text: &Text,
+) {
+    choice_row(ui, &text.settings.default_kind, |ui| {
         kind_combo(
             ui,
             "default_text_kind",
             &mut state.draft.default_text_kind,
             &TEXT_KINDS,
+            text,
         );
     });
-    choice_hint(ui, "划词触发时使用的任务");
-    choice_row(ui, "目标语言", |ui| {
-        lang_combo(ui, &mut state.draft.target_lang);
+    choice_hint(ui, &text.settings.default_kind_hint);
+    choice_row(ui, &text.settings.target_lang, |ui| {
+        lang_combo(ui, &mut state.draft.target_lang, text);
     });
 
     ui.add_space(space::TIGHT);
-    caption(ui, "任务开关");
-    caption(ui, "关闭后该任务不再触发（含热键）");
+    caption(ui, &text.settings.kind_switch);
+    caption(ui, &text.settings.kind_switch_hint);
     for kind in ALL_KINDS {
         let enabled = state.draft.is_kind_enabled(kind);
-        if switch_row(ui, kind_label(kind), enabled) {
+        if switch_row(ui, kind_label(kind, text), enabled, text) {
             state.draft.set_kind_enabled(kind, !enabled);
         }
     }
 
     ui.add_space(space::TIGHT);
-    caption(ui, "默认模型");
-    caption(ui, "留空使用内置默认模型");
+    caption(ui, &text.settings.default_model);
+    caption(ui, &text.settings.default_model_hint);
     for kind in ALL_KINDS {
         let mut model = state
             .draft
             .model_for_kind(kind)
             .unwrap_or_default()
             .to_owned();
-        ui.label(kind_label(kind));
+        ui.label(kind_label(kind, text));
         let response = add_input(ui, &mut model, |e| {
             let edit = e.desired_width(f32::INFINITY);
             if kind.accepts_text() {
                 edit
             } else {
-                edit.hint_text("视觉模型（M5）")
+                edit.hint_text(text.settings.vision_model_hint.as_str())
             }
         });
         underline_if_error(ui, &response, errors, FieldKey::Model(kind));
-        error_text(ui, errors, FieldKey::Model(kind));
+        error_text(ui, errors, FieldKey::Model(kind), text);
         if response.changed() {
             state.draft.set_model_for_kind(kind, &model);
         }
@@ -453,22 +572,26 @@ fn task_section(ui: &mut egui::Ui, state: &mut SettingsState, errors: &HashMap<F
 }
 
 /// 开关行：任务名左、开关钮右；点击切换。开关的可访问标签是
-/// 「启用{任务名}」——与可见文本区分，读屏与测试按它定位且不与裸
-/// 任务名重名。返回是否被点击。
-fn switch_row(ui: &mut egui::Ui, label: &str, enabled: bool) -> bool {
+/// 「启用{任务名}」（模板见文案表）——与可见文本区分，读屏与测试按它
+/// 定位且不与裸任务名重名。返回是否被点击。
+fn switch_row(ui: &mut egui::Ui, label: &str, enabled: bool, text: &Text) -> bool {
     ui.horizontal(|ui| {
         ui.label(label);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let (rect, response) = ui.allocate_exact_size(vec2(40.0, 24.0), egui::Sense::click());
             response.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("启用{label}"))
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Button,
+                    true,
+                    fill(&text.settings.switch_label, &[("kind", label)]),
+                )
             });
-            let fill = if enabled {
+            let track_fill = if enabled {
                 color::ACCENT
             } else {
                 ui.visuals().widgets.inactive.bg_fill
             };
-            ui.painter().rect_filled(rect, 12.0, fill);
+            ui.painter().rect_filled(rect, 12.0, track_fill);
             let knob_x = if enabled {
                 rect.right() - 12.0
             } else {
@@ -490,9 +613,10 @@ fn switch_row(ui: &mut egui::Ui, label: &str, enabled: bool) -> bool {
 fn hotkey_section(
     ui: &mut egui::Ui,
     state: &mut SettingsState,
-    errors: &HashMap<FieldKey, String>,
+    errors: &HashMap<FieldKey, FieldError>,
+    text: &Text,
 ) {
-    caption(ui, "选中文字后按下，用指定任务处理当前选区");
+    caption(ui, &text.settings.hotkey_hint);
     for index in 0..state.draft.hotkey_bindings.len() {
         let key = FieldKey::Hotkey(index);
         ui.horizontal(|ui| {
@@ -505,30 +629,30 @@ fn hotkey_section(
             });
             underline_if_error(ui, &response, errors, key);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                kind_combo(ui, &format!("hotkey_kind_{index}"), kind, &ALL_KINDS);
+                kind_combo(ui, &format!("hotkey_kind_{index}"), kind, &ALL_KINDS, text);
             });
         });
-        error_text(ui, errors, key);
+        error_text(ui, errors, key, text);
         ui.add_space(space::ITEM);
     }
 }
 
 /// 通用区：界面语言、界面主题、缓存有效期（上限由控件钳制）。
-fn general_section(ui: &mut egui::Ui, state: &mut SettingsState) {
-    choice_row(ui, "界面语言", |ui| {
-        language_combo(ui, &mut state.draft.language);
+fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
+    choice_row(ui, &text.settings.ui_language, |ui| {
+        language_combo(ui, &mut state.draft.language, text);
     });
-    choice_row(ui, "界面主题", |ui| {
-        theme_combo(ui, &mut state.draft.theme);
+    choice_row(ui, &text.settings.ui_theme, |ui| {
+        theme_combo(ui, &mut state.draft.theme, text);
     });
-    choice_row(ui, "缓存有效期", |ui| {
+    choice_row(ui, &text.settings.cache_ttl, |ui| {
         ui.add(
             egui::DragValue::new(&mut state.draft.cache_ttl_secs)
                 .range(0..=CACHE_TTL_MAX_SECS)
-                .suffix(" 秒"),
+                .suffix(text.settings.cache_ttl_suffix.as_str()),
         );
     });
-    choice_hint(ui, "相同内容的结果直接复用；0 = 永不失效，退出即清空");
+    choice_hint(ui, &text.settings.cache_ttl_hint);
 }
 
 /// 双列行：行标签左、控件推到卡片右缘（两端对齐）。
@@ -554,12 +678,18 @@ const TEXT_KINDS: [TaskKind; 3] = [
 ];
 
 /// 任务类型下拉；`id_salt` 需在窗口内唯一。
-fn kind_combo(ui: &mut egui::Ui, id_salt: &str, current: &mut TaskKind, choices: &[TaskKind]) {
+fn kind_combo(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    current: &mut TaskKind,
+    choices: &[TaskKind],
+    text: &Text,
+) {
     egui::ComboBox::from_id_salt(id_salt)
-        .selected_text(kind_label(*current))
+        .selected_text(kind_label(*current, text))
         .show_ui(ui, |ui| {
             for &kind in choices {
-                ui.selectable_value(current, kind, kind_label(kind));
+                ui.selectable_value(current, kind, kind_label(kind, text));
             }
         });
 }
@@ -567,69 +697,63 @@ fn kind_combo(ui: &mut egui::Ui, id_salt: &str, current: &mut TaskKind, choices:
 /// UI 固定可选的 5 语种（`Lang::Other` 只经配置文件到达，不在下拉里）。
 const LANG_CHOICES: fn() -> [Lang; 5] = || [Lang::Zh, Lang::En, Lang::Ja, Lang::Ko, Lang::Fr];
 
-/// 语言标签。
-fn lang_label(lang: &Lang) -> &'static str {
+/// 语言标签：产物语言（译文给谁看），与界面语言分属两张表。
+fn lang_label<'a>(lang: &Lang, text: &'a Text) -> &'a str {
     match lang {
-        Lang::Zh => "简体中文",
-        Lang::En => "英语",
-        Lang::Ja => "日语",
-        Lang::Ko => "韩语",
-        Lang::Fr => "法语",
-        Lang::Other(_) => "其他",
+        Lang::Zh => &text.langs.zh,
+        Lang::En => &text.langs.en,
+        Lang::Ja => &text.langs.ja,
+        Lang::Ko => &text.langs.ko,
+        Lang::Fr => &text.langs.fr,
+        Lang::Other(_) => &text.langs.other,
     }
 }
 
 /// 目标语言下拉。
-fn lang_combo(ui: &mut egui::Ui, current: &mut Lang) {
+fn lang_combo(ui: &mut egui::Ui, current: &mut Lang, text: &Text) {
     egui::ComboBox::from_id_salt("target_lang")
-        .selected_text(lang_label(current))
+        .selected_text(lang_label(current, text))
         .show_ui(ui, |ui| {
             for lang in LANG_CHOICES() {
-                let label = lang_label(&lang);
+                let label = lang_label(&lang, text);
                 ui.selectable_value(current, lang, label);
             }
         });
 }
 
-/// 界面语言标签。
-fn language_label(language: &Language) -> &'static str {
+/// 界面语言标签（三态偏好，落定见 `Language::resolve`）。
+fn language_label<'a>(language: &Language, text: &'a Text) -> &'a str {
     match language {
-        Language::System => "跟随系统",
-        Language::Zh => "简体中文",
-        Language::En => "English",
+        Language::System => &text.ui_language.system,
+        Language::Zh => &text.ui_language.zh,
+        Language::En => &text.ui_language.en,
     }
 }
 
-/// 界面语言下拉（prompt locale 已消费本项；UI 文案翻译归 R7）。
-fn language_combo(ui: &mut egui::Ui, current: &mut Language) {
+/// 界面语言下拉：本项同时决定 prompt 模板语言（`Language::resolve`）与本表
+/// 的选表依据；保存后下一次触发与下一帧界面即生效。
+fn language_combo(ui: &mut egui::Ui, current: &mut Language, text: &Text) {
     egui::ComboBox::from_id_salt("ui_language")
-        .selected_text(language_label(current))
+        .selected_text(language_label(current, text))
         .show_ui(ui, |ui| {
-            for (language, label) in [
-                (Language::System, "跟随系统"),
-                (Language::Zh, "简体中文"),
-                (Language::En, "English"),
-            ] {
-                ui.selectable_value(current, language, label);
+            for language in [Language::System, Language::Zh, Language::En] {
+                ui.selectable_value(current, language, language_label(&language, text));
             }
         });
 }
 
 /// 主题标签与下拉（消费在壳侧，见 `app::theme`）。
-fn theme_combo(ui: &mut egui::Ui, current: &mut Theme) {
+fn theme_combo(ui: &mut egui::Ui, current: &mut Theme, text: &Text) {
+    let label = |theme: &Theme| match theme {
+        Theme::System => text.theme.system.as_str(),
+        Theme::Light => text.theme.light.as_str(),
+        Theme::Dark => text.theme.dark.as_str(),
+    };
     egui::ComboBox::from_id_salt("theme")
-        .selected_text(match current {
-            Theme::System => "跟随系统",
-            Theme::Light => "浅色",
-            Theme::Dark => "深色",
-        })
+        .selected_text(label(current))
         .show_ui(ui, |ui| {
-            for (theme, label) in [
-                (Theme::System, "跟随系统"),
-                (Theme::Light, "浅色"),
-                (Theme::Dark, "深色"),
-            ] {
-                ui.selectable_value(current, theme, label);
+            for theme in [Theme::System, Theme::Light, Theme::Dark] {
+                ui.selectable_value(current, theme, label(&theme));
             }
         });
 }
@@ -640,9 +764,60 @@ mod tests {
     use std::rc::Rc;
 
     use egui_kittest::kittest::Queryable;
+    use gloss_core::model::Locale;
     use gloss_core::task::TaskKind;
 
     use super::*;
+
+    #[test]
+    fn field_errors_are_worded_per_locale() {
+        let zh = &Text::get(Locale::Zh).settings.error;
+        let en = &Text::get(Locale::En).settings.error;
+
+        assert_eq!(FieldError::EmptyTrigger.message(zh), "触发键不能为空");
+        assert_eq!(
+            FieldError::EmptyTrigger.message(en),
+            "Hotkey cannot be empty"
+        );
+        assert_eq!(
+            FieldError::DuplicateHotkey { line: 2 }.message(zh),
+            "与第 2 行重复"
+        );
+        assert_eq!(
+            FieldError::DuplicateHotkey { line: 2 }.message(en),
+            "Duplicate of line 2"
+        );
+        assert_eq!(
+            FieldError::InvalidTrigger {
+                trigger: "Cmd+".into()
+            }
+            .message(zh),
+            "无法解析触发键「Cmd+」"
+        );
+        assert_eq!(
+            FieldError::InvalidTrigger {
+                trigger: "Cmd+".into()
+            }
+            .message(en),
+            "Cannot parse hotkey \"Cmd+\""
+        );
+        assert_eq!(
+            FieldError::BaseUrlNotHttps.message(zh),
+            "不是合法地址：应以 https:// 开头"
+        );
+    }
+
+    #[test]
+    fn save_failure_notice_names_the_cause_in_the_current_language() {
+        let mut state = open(&Config::default());
+        state.report(SettingsNotice::SaveFailed(GlossError::Config(
+            "disk on fire".into(),
+        )));
+
+        let (mut harness, _action) = harness_for(state, Locale::Zh);
+        harness.run();
+        harness.get_by_label_contains("保存失败：disk on fire");
+    }
 
     #[test]
     fn save_trims_endpoint_and_treats_blank_key_as_unchanged() {
@@ -718,11 +893,11 @@ mod tests {
         state.draft.base_url = "htp://api.example.com".into();
 
         assert_eq!(build_save(&mut state), SettingsAction::Idle);
-        let errors = state.errors();
-        let error = errors
-            .get(&FieldKey::BaseUrl)
-            .expect("the invalid field must be flagged");
-        assert!(error.contains("https"), "hint must name the https rule");
+        assert_eq!(
+            state.errors().get(&FieldKey::BaseUrl),
+            Some(&FieldError::BaseUrlNotHttps),
+            "the invalid field must be flagged with the typed error"
+        );
     }
 
     #[test]
@@ -774,17 +949,28 @@ mod tests {
             Lang::Ja,
             "draft must not follow the live config"
         );
-        state.report("保存失败".into());
-        assert_eq!(state.notice.as_deref(), Some("保存失败"));
+        state.report(SettingsNotice::KeyUpdateFailed(GlossError::Config(
+            "keychain locked".into(),
+        )));
+        assert_eq!(
+            state.notice(),
+            Some(&SettingsNotice::KeyUpdateFailed(GlossError::Config(
+                "keychain locked".into()
+            ))),
+            "the notice keeps the variant so the wording stays late-bound"
+        );
     }
 
     fn harness_for(
-        mut state: SettingsState,
+        state: SettingsState,
+        locale: Locale,
     ) -> (egui_kittest::Harness<'static>, Rc<RefCell<SettingsAction>>) {
         let action = Rc::new(RefCell::new(SettingsAction::Idle));
         let sink = Rc::clone(&action);
+        let text = Text::get(locale);
+        let mut state = state;
         let mut harness = egui_kittest::Harness::new_ui(move |ui| {
-            let frame_action = draw(ui, &mut state);
+            let frame_action = draw(ui, &mut state, text);
             if frame_action != SettingsAction::Idle {
                 *sink.borrow_mut() = frame_action;
             }
@@ -794,8 +980,17 @@ mod tests {
     }
 
     #[test]
+    fn english_catalog_relabels_the_settings_window() {
+        let (mut harness, _action) = harness_for(open(&Config::default()), Locale::En);
+        harness.run();
+        for label in ["Save", "Cancel", "Interface language", "Enable Word card"] {
+            harness.get_by_label(label);
+        }
+    }
+
+    #[test]
     fn all_sections_render_and_save_submits_the_draft() {
-        let (mut harness, action) = harness_for(open(&Config::default()));
+        let (mut harness, action) = harness_for(open(&Config::default()), Locale::Zh);
         harness.run();
         for label in [
             "模型",
@@ -823,7 +1018,7 @@ mod tests {
 
     #[test]
     fn task_toggle_flips_enabled_kinds() {
-        let (mut harness, action) = harness_for(open(&Config::default()));
+        let (mut harness, action) = harness_for(open(&Config::default()), Locale::Zh);
         harness.run();
         harness.get_by_label("启用词卡").click_accesskit();
         harness.run();
@@ -840,11 +1035,14 @@ mod tests {
 
     #[test]
     fn invalid_save_is_blocked_with_field_hints() {
-        let (mut harness, action) = harness_for({
-            let mut state = open(&Config::default());
-            state.draft.base_url = "htp://api.example.com".into();
-            state
-        });
+        let (mut harness, action) = harness_for(
+            {
+                let mut state = open(&Config::default());
+                state.draft.base_url = "htp://api.example.com".into();
+                state
+            },
+            Locale::Zh,
+        );
         harness.run();
         harness.get_by_label("保存").click();
         harness.run();
@@ -858,13 +1056,13 @@ mod tests {
 
     #[test]
     fn cancel_and_clear_key_actions_are_submitted() {
-        let (mut harness, action) = harness_for(open(&Config::default()));
+        let (mut harness, action) = harness_for(open(&Config::default()), Locale::Zh);
         harness.run();
         harness.get_by_label("取消").click();
         harness.run();
         assert_eq!(*action.borrow(), SettingsAction::Close);
 
-        let (mut harness, _action) = harness_for(open(&Config::default()));
+        let (mut harness, _action) = harness_for(open(&Config::default()), Locale::Zh);
         harness.run();
         harness.get_by_label("清除密钥").click_accesskit();
         harness.run();
@@ -885,7 +1083,7 @@ mod tests {
 
     #[test]
     fn hotkey_rows_expose_their_triggers() {
-        let (mut harness, _action) = harness_for(open(&Config::default()));
+        let (mut harness, _action) = harness_for(open(&Config::default()), Locale::Zh);
         harness.run();
         for trigger in ["Cmd+Shift+D", "Cmd+Shift+F", "Cmd+Shift+E"] {
             assert!(
@@ -898,14 +1096,16 @@ mod tests {
     #[test]
     fn snapshots_match_baseline() {
         let mut results = egui_kittest::SnapshotResults::new();
-        let (mut harness, _action) = harness_for(open(&Config::default()));
+        let (mut harness, _action) = harness_for(open(&Config::default()), Locale::Zh);
         harness.run();
         harness.snapshot("settings_main");
         results.extend_harness(&mut harness);
 
         let mut noticed = open(&Config::default());
-        noticed.report("保存失败：disk on fire".into());
-        let (mut harness, _action) = harness_for(noticed);
+        noticed.report(SettingsNotice::SaveFailed(GlossError::Config(
+            "disk on fire".into(),
+        )));
+        let (mut harness, _action) = harness_for(noticed, Locale::Zh);
         harness.run();
         harness.get_by_label_contains("disk on fire");
         harness.snapshot("settings_notice");
@@ -913,7 +1113,7 @@ mod tests {
 
         let mut invalid = open(&Config::default());
         invalid.draft.base_url = "htp://api.example.com".into();
-        let (mut harness, _action) = harness_for(invalid);
+        let (mut harness, _action) = harness_for(invalid, Locale::Zh);
         harness.run();
         // 走可观察路径进入错误态：点保存被阻断，等同真实用户操作。
         harness.get_by_label("保存").click();

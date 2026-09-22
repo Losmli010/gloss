@@ -8,6 +8,8 @@ use winit::error::OsError;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId, WindowLevel};
 
+/// 应用名：浮层标题与设置窗创建期的占位标题（品牌不进文案表，不翻译）。
+const APP_NAME: &str = "Gloss";
 /// 浮层默认宽度（默认 380px，长文本自适应上限 480px，上限由 popup 模块定）
 const OVERLAY_WIDTH: f64 = 380.0;
 /// 浮层默认高度：自检期只有渲染面板，按内容给一个紧凑初值
@@ -81,7 +83,7 @@ impl WindowManager {
     pub fn new(event_loop: &ActiveEventLoop) -> Result<Self, OsError> {
         let overlay = event_loop.create_window(
             Window::default_attributes()
-                .with_title("Gloss")
+                .with_title(APP_NAME)
                 .with_inner_size(LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT))
                 // 浮层是「内容即窗口」的卡片：无系统标题栏、置顶、尺寸由内容决定
                 .with_decorations(false)
@@ -95,7 +97,9 @@ impl WindowManager {
 
         let settings = event_loop.create_window(
             Window::default_attributes()
-                .with_title("Gloss 设置")
+                // 创建即隐藏：可见前 [`Self::show_settings`] 会按当前界面语言
+                // 写入标题，这里的占位只在窗口从未显示过时存在。
+                .with_title(APP_NAME)
                 .with_inner_size(LogicalSize::new(SETTINGS_WIDTH, SETTINGS_HEIGHT))
                 // 与浮层同层：同层窗口按激活序排布，聚焦即浮于浮层之上。
                 .with_window_level(WindowLevel::AlwaysOnTop)
@@ -262,8 +266,10 @@ impl WindowManager {
         Arc::clone(&self.settings)
     }
 
-    /// 显示设置窗口并置前（已可见则只是聚焦）；草稿由调用方管理。
-    pub fn show_settings(&self) {
+    /// 显示设置窗口并置前（已可见则只是聚焦）；标题由调用方按当前界面语言
+    /// 给（`app::settings_title`），草稿与文案表都由调用方管理。
+    pub fn show_settings(&self, title: &str) {
+        self.settings.set_title(title);
         self.settings.set_visible(true);
         self.settings.focus_window();
     }

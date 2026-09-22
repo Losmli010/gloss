@@ -4,8 +4,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{GlossError, Lang, ScreenRect};
-use crate::prompt::PromptLocale;
+use crate::model::{GlossError, Lang, Locale, ScreenRect};
 
 /// 任务类型：新增场景 = 加变体 + Prompt 模板 + 结构化结果变体 + UI 模板，管道不动。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -94,7 +93,7 @@ pub struct TaskOptions {
     /// 解析（`System` 按启动期读到的系统语言落定）填入，缺省中文模板。
     /// 与模型同理，一次任务只认这一份快照值；locale 参与缓存 key——换了
     /// 模板语言后，同输入不得命中旧语言的产物。
-    pub prompt_locale: Option<PromptLocale>,
+    pub prompt_locale: Option<Locale>,
 }
 
 /// 一条待执行任务 = 类型 + 输入 + 选项。

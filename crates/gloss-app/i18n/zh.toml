@@ -1,0 +1,98 @@
+# 界面文案（简体中文）。键必须与 en.toml 完全一致——多键或少键都会让解析
+# 失败（见 crates/gloss-app/src/i18n.rs 的 Text 与 docs/comments/i18n_comment.md）。
+# 节名一律 gloss_<模块>（词条的全限定名即 gloss_<模块>.<词条>），模块名与前缀
+# 由 i18n.rs 的 serde rename 对齐，改节名要连同改那里。
+# 占位符写 {{name}}，由 i18n::fill 填充。
+
+[gloss_app]
+settings_title = "Gloss 设置"
+
+[gloss_kinds]
+translate_word = "词卡"
+translate_sentence = "翻译"
+explain_code = "代码解释"
+image_ocr = "提取结果"
+image_explain = "图片解释"
+
+[gloss_langs]
+zh = "简体中文"
+en = "英语"
+ja = "日语"
+ko = "韩语"
+fr = "法语"
+other = "其他"
+
+[gloss_popup]
+brand = "翻译"
+selfcheck = "自检"
+failed = "失败"
+retry = "重试"
+open_settings = "打开设置"
+close_label = "关闭浮层"
+settings_label = "设置"
+
+[gloss_errors]
+selection_unavailable = "未能读取选中文本，请重新选中后触发"
+accessibility_denied = "辅助功能权限未授权：系统设置 → 隐私与安全性 → 辅助功能"
+screen_capture_denied = "屏幕录制权限未授权：系统设置 → 隐私与安全性 → 屏幕录制"
+region_too_large = "框选区域超出屏幕，请重新框选"
+unsupported_modality = "当前模型不支持该任务，请在设置中为它配置匹配能力的模型"
+engine_network = "网络错误，请检查网络后重试"
+engine_auth = "API Key 无效或未配置，请到设置中检查"
+engine_rate_limited = "触发限流，请稍后重试"
+engine_response = "服务返回异常：{{detail}}"
+config = "配置有误：{{detail}}"
+acquire_channel = "任务失败：取材通道不可用"
+inference_channel = "任务失败：推理通道不可用"
+
+[gloss_settings]
+section_model = "模型"
+section_task = "任务"
+section_hotkey = "热键"
+section_general = "通用"
+save = "保存"
+cancel = "取消"
+invalid_summary = "有 {{count}} 处输入未通过校验，已就地标红"
+base_url_hint = "OpenAI 兼容服务地址"
+key_keep_hint = "留空则不修改"
+key_clear_hint = "保存后清除"
+clear_key = "清除密钥"
+undo_clear_key = "撤销清除"
+default_kind = "默认任务"
+default_kind_hint = "划词触发时使用的任务"
+target_lang = "目标语言"
+kind_switch = "任务开关"
+kind_switch_hint = "关闭后该任务不再触发（含热键）"
+default_model = "默认模型"
+default_model_hint = "留空使用内置默认模型"
+vision_model_hint = "视觉模型（M5）"
+switch_label = "启用{{kind}}"
+hotkey_hint = "选中文字后按下，用指定任务处理当前选区"
+ui_language = "界面语言"
+ui_theme = "界面主题"
+cache_ttl = "缓存有效期"
+cache_ttl_suffix = " 秒"
+cache_ttl_hint = "相同内容的结果直接复用；0 = 永不失效，退出即清空"
+notice_key_update_failed = "密钥更新失败（配置未保存）：{{detail}}"
+notice_save_failed = "保存失败：{{detail}}"
+notice_key_updated_save_failed = "密钥已更新，但配置保存失败：{{detail}}"
+
+[gloss_settings.error]
+duplicate_hotkey = "与第 {{line}} 行重复"
+empty_trigger = "触发键不能为空"
+invalid_trigger = "无法解析触发键「{{trigger}}」"
+newline_in_model = "不能包含换行"
+base_url_empty = "请填写服务地址"
+base_url_invalid = "不是合法地址：应以 https:// 开头"
+base_url_credentials = "不能内嵌账号密码"
+base_url_query = "不能携带查询参数或锚点"
+
+[gloss_ui_language]
+system = "跟随系统"
+zh = "简体中文"
+en = "English"
+
+[gloss_theme]
+system = "跟随系统"
+light = "浅色"
+dark = "深色"

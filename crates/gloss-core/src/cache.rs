@@ -85,8 +85,8 @@ mod tests {
 
     use super::{MokaCache, cache_key};
     use crate::model::Lang;
+    use crate::model::Locale;
     use crate::ports::Cache;
-    use crate::prompt::PromptLocale;
     use crate::task::{
         InputHint, OutcomeStructured, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome,
     };
@@ -155,7 +155,7 @@ mod tests {
     #[test]
     fn prompt_locale_participates_in_key() {
         let mut english = text_task(TaskKind::TranslateSentence, "hello");
-        english.options.prompt_locale = Some(PromptLocale::En);
+        english.options.prompt_locale = Some(Locale::En);
         assert_ne!(
             cache_key(&text_task(TaskKind::TranslateSentence, "hello"), "m1"),
             cache_key(&english, "m1"),

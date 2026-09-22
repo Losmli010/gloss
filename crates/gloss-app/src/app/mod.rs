@@ -25,12 +25,13 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use gloss_core::config_handle::ConfigHandle;
+use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
 use gloss_core::ports::{ConfigStore, HotkeyBinder};
-use gloss_core::prompt::PromptLocale;
 use winit::dpi::LogicalSize;
 
 use crate::channel::AppEndpoints;
+use crate::i18n::Text;
 use crate::machine::TaskStateMachine;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
 use crate::windows::WindowManager;
@@ -62,8 +63,8 @@ struct GlossApp {
     /// 热键重绑定端口：设置页保存后在主线程同步调用，不走通道。
     hotkeys: Arc<dyn HotkeyBinder>,
     /// 启动期读到的系统语言：配置里的 `Language::System` 靠它落定成具体的
-    /// prompt 模板语言（进程内不变，改系统语言要重启）。
-    system_locale: PromptLocale,
+    /// 界面语言与 prompt 模板语言（进程内不变，改系统语言要重启）。
+    system_locale: Locale,
     /// 已施加到两个 egui 上下文的主题偏好；`None` 表示还没施加过。
     applied_theme: Option<egui::ThemePreference>,
     /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
@@ -80,7 +81,7 @@ impl GlossApp {
         config: Arc<ConfigHandle>,
         store: Arc<dyn ConfigStore>,
         hotkeys: Arc<dyn HotkeyBinder>,
-        system_locale: PromptLocale,
+        system_locale: Locale,
     ) -> Self {
         Self {
             windows: None,
@@ -100,16 +101,23 @@ impl GlossApp {
         }
     }
 
+    /// 当前界面语言：配置里的三态偏好按启动期系统语言落定（与 prompt
+    /// 选表同一处取值）。逐帧从快照取——设置页保存后下一帧即换文案表。
+    fn locale(&self) -> Locale {
+        self.config.snapshot().language.resolve(self.system_locale)
+    }
+
     /// 画一帧：egui 出绘制数据 → wgpu 呈现，并把 egui 要求的下一帧记下
     /// 来；浮层上交的动作（失败卡与头部动作区）就地执行；浮层内容的期望
     /// 尺寸就地应用（内容自适应高度，窗口管理器按显示器钳制）。
     fn draw(&mut self) {
         self.apply_theme();
+        let locale = self.locale();
         let Some(frame) = self.frame.as_mut() else {
             return;
         };
         let overlay_view = self.machine.overlay_view();
-        let (repaint, action, sizing) = render_frame(frame, overlay_view);
+        let (repaint, action, sizing) = render_frame(frame, overlay_view, locale);
         self.overlay_repaint = repaint;
         if let Some(action) = action {
             self.handle_overlay_action(action);
@@ -124,10 +132,11 @@ impl GlossApp {
     /// 画一帧设置窗口：草稿编辑 + 动作上交（保存/密钥变更/取消）。
     fn draw_settings(&mut self) {
         self.apply_theme();
+        let text = Text::get(self.locale());
         let (Some(frame), Some(state)) = (&mut self.settings_frame, &mut self.settings) else {
             return;
         };
-        let (repaint, action) = render_frame_with(frame, |ui| settings::draw(ui, state));
+        let (repaint, action) = render_frame_with(frame, |ui| settings::draw(ui, state, text));
         self.settings_repaint = repaint;
         let Some(action) = action else {
             return;
@@ -152,9 +161,9 @@ mod test_support {
 
     use gloss_core::config::Config;
     use gloss_core::config_handle::ConfigHandle;
+    use gloss_core::model::Locale;
     use gloss_core::model::ScreenPoint;
     use gloss_core::ports::{ConfigStore, HotkeyBinder};
-    use gloss_core::prompt::PromptLocale;
     use gloss_core::task::TaskInput;
 
     use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent};
@@ -221,7 +230,7 @@ mod test_support {
             Arc::clone(&config),
             Arc::clone(&store) as Arc<dyn ConfigStore>,
             hotkeys,
-            PromptLocale::Zh,
+            Locale::Zh,
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
     }
@@ -265,5 +274,47 @@ mod test_support {
             Some(OverlayView::Outcome(outcome)) => &outcome.body,
             other => panic!("expected outcome view, got {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gloss_core::config::{Config, Language};
+    use gloss_core::model::Locale;
+
+    use super::test_support::driven_app;
+
+    #[test]
+    fn ui_locale_follows_the_saved_language_without_a_restart() {
+        let (app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        assert_eq!(
+            app.locale(),
+            Locale::Zh,
+            "the factory default follows the system locale"
+        );
+
+        config
+            .save(Config {
+                language: Language::En,
+                ..Default::default()
+            })
+            .expect("save should succeed");
+        assert_eq!(
+            app.locale(),
+            Locale::En,
+            "a saved language must drive the next frame's table, no restart needed"
+        );
+
+        config
+            .save(Config {
+                language: Language::System,
+                ..Default::default()
+            })
+            .expect("save should succeed");
+        assert_eq!(
+            app.locale(),
+            Locale::Zh,
+            "System resolves through the startup system locale"
+        );
     }
 }

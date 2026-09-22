@@ -18,10 +18,10 @@ use gloss_core::cache::MokaCache;
 use gloss_core::config::{Config, ModelBinding};
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
+use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
 use gloss_core::model::{GlossError, Lang};
 use gloss_core::ports::AiEngine;
-use gloss_core::prompt::PromptLocale;
 use gloss_core::task::{TaskInput, TaskKind};
 
 mod stubs;
@@ -86,7 +86,7 @@ impl Pipeline {
                     pos: ScreenPoint::new(0, 0),
                 },
                 &self.config.snapshot(),
-                PromptLocale::Zh,
+                Locale::Zh,
             )
             .expect("selection gesture must acquire");
         let AcquireCommand::AcquireText { generation, .. } = &command else {

@@ -8,6 +8,7 @@ pub(crate) mod stubs;
 pub mod app;
 pub mod channel;
 pub mod gpu;
+pub(crate) mod i18n;
 pub mod machine;
 pub mod pipeline;
 pub mod ui;
