@@ -214,6 +214,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | structured_contract_matches_outcome_schema | 结构化契约与 schema 对齐 | 给定词卡与代码解释模板，当检查系统指令，则分别声明 senses/phonetic 与 title 字段 | 2026-09-19 |
 | missing_target_lang_defaults_to_chinese | 目标语言缺省中文 | 给定未设 target_lang，当渲染句译，则系统指令含「中文」 | 2026-09-19 |
 | explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 Lang::Ja，当渲染，则系统指令含「日语」 | 2026-09-19 |
+| empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且契约围栏仍在 | 2026-09-22 |
 | hint_is_injected_and_defaults_to_nothing | hint 注入与缺省不注入 | 给定 CodeLanguage hint，当渲染，则注入系统与用户两处；无 hint 则两处均无注入行、用户消息为原文 | 2026-09-19 |
 | source_lang_hint_is_injected | 源语言 hint 注入 | 给定 SourceLang(法语)，当渲染，则系统指令含「源语言：法语」 | 2026-09-19 |
 | image_kinds_are_placeholders_until_m5 | 图像 kind 占位拒绝 | 给定图像 kind 的图像任务，当渲染，则报 UnsupportedModality | 2026-09-19 |
@@ -222,6 +223,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | render_template_substitutes_placeholders | 占位符显式替换 | 给定含 {{占位符}} 的模板，当渲染，则按值替换、同名占位符可重复；未声明与未闭合的占位符原样保留（留待完整性测试抓） | 2026-09-22 |
 | render_template_drops_lines_whose_placeholders_are_empty | 占位符全空的行整行消失 | 给定提示行与指令行模板，当某行占位符值全为空，则该行连同行内静态文字与换行一并删除，其余行不受影响 | 2026-09-22 |
 | render_template_keeps_blank_lines_without_placeholders | 无占位符空行是结构 | 给定模板里的空行（不含占位符），当渲染，则原样保留 | 2026-09-22 |
+| every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 locale 的五个模板原文，当扫占位符，则括号配对且名字都在已声明集合内（未声明者若与已声明占位符同行会被整行删掉，产物断言看不见） | 2026-09-22 |
 | every_locale_renders_without_leftover_placeholders | 全 locale 无残留占位符 | 给定两个 locale × 三个文本 kind × 三种 hint 组合，当渲染，则两段消息都不含 {{ 且系统指令带结构化契约围栏 | 2026-09-22 |
 | english_locale_renders_english_prompts | 英文 locale 出英文指令 | 给定 En locale 与 SourceLang(Fr) hint，当渲染，则系统指令与提示行标签均为英文、用户消息同样带英文提示行、且不含中文指令词 | 2026-09-22 |
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 En locale 未设目标语言、Zh locale 设 Lang::En，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含「英语」 | 2026-09-22 |

@@ -6,21 +6,16 @@
 //! 图像/音频输入一律 [`GlossError::UnsupportedModality`]，
 //! 不发出注定无效的请求。
 //!
-//! 模板文本是**文件资源**（`crates/gloss-core/prompts/{locale}/*.md`，
-//! `include_str!` 编译期嵌入）：改一句提示词不必碰 Rust 代码，也不存在
-//! 「装出来的二进制找不到模板文件」的运行期失败面。渲染是显式的
-//! `{{占位符}}` 替换而非 `format!`——模板正文自带花括号（围栏 JSON 示例），
-//! 转义会毁掉可维护性。占位符全为空的行整行消失（含行内静态文字），
-//! 「可选行」因此在模板里就是一行，不必在代码里做条件拼接。
+//! 模板文本是编译期嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，
+//! `include_str!`），渲染是显式的 `{{占位符}}` 替换（可选行语义见
+//! [`render_template`]）；输出契约的 schema JSON 留在代码里，与
+//! [`crate::task::OutcomeStructured`] 的解析器同源。
 //!
-//! 输出契约的 **schema JSON 不随模板文件走**：它与 `OutcomeStructured` 的
-//! 解析器是同一份字段契约，抽成文件后改一处忘一处会静默坏；契约的散文部分
-//! 随模板文件本地化。
+//! 模板内容面向模型，用各 locale 的语言书写，不受「日志一律英文」门禁约束
+//! （`just constraints` 只查日志宏实参）。
 //!
-//! 参数缺省：`options.target_lang` 缺省按中文；`options.prompt_locale`
-//! 缺省中文模板；`InputHint` 缺省不注入提示行。模板内容面向模型（用户可见
-//! 产物），用各 locale 的语言书写；日志一律英文的门禁（just constraints）
-//! 只约束日志宏实参，不涉及模板。
+//! 参数缺省：`options.target_lang` 缺省中文；`options.prompt_locale`
+//! 缺省中文模板；`InputHint` 缺省不注入提示行。
 
 use serde::{Deserialize, Serialize};
 
@@ -178,13 +173,22 @@ fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
     }
 }
 
-/// 目标语言显示名：缺省中文。语言名随 prompt locale——英文模板里写
-/// "Chinese" 而不是「中文」，否则模型拿到的是半汉半英的指令。
+/// 目标语言显示名：缺省中文，且**显示名不得为空**——指令模板里 `{{target}}`
+/// 独占一行语义、周围全是静态文字，空值会让整条指令被当作可选行删掉，
+/// 只剩契约。空名（`Lang::Other("")`）回落缺省。
+///
+/// 语言名随 prompt locale——英文模板里写 "Chinese" 而不是「中文」，否则
+/// 模型拿到的是半汉半英的指令。
 fn target_display(options: &TaskOptions, locale: PromptLocale) -> String {
-    lang_display(
+    let display = lang_display(
         options.target_lang.as_ref().unwrap_or(&DEFAULT_TARGET),
         locale,
-    )
+    );
+    if display.is_empty() {
+        lang_display(&DEFAULT_TARGET, locale)
+    } else {
+        display
+    }
 }
 
 /// 语言显示名（模板面向模型，用各 locale 的语言书写；`Lang::Other` 是
@@ -411,6 +415,29 @@ mod tests {
     }
 
     #[test]
+    fn empty_target_language_name_falls_back_to_default() {
+        let registry = PromptRegistry::new();
+        for locale in [PromptLocale::Zh, PromptLocale::En] {
+            let mut task = text_task(TaskKind::TranslateSentence, "hello", None);
+            task.options.target_lang = Some(Lang::Other(String::new()));
+            task.options.prompt_locale = Some(locale);
+            let messages = registry.render(&task).expect("render");
+            let expected = lang_display(&DEFAULT_TARGET, locale);
+            let instruction = match locale {
+                PromptLocale::Zh => "翻译助手",
+                PromptLocale::En => "translation assistant",
+            };
+            assert!(
+                messages[0].content.contains(instruction),
+                "{locale:?}: a blank target name must not swallow the instruction line: {}",
+                messages[0].content
+            );
+            assert!(messages[0].content.contains(&expected));
+            assert!(messages[0].content.contains(STRUCTURED_FENCE));
+        }
+    }
+
+    #[test]
     fn hint_is_injected_and_defaults_to_nothing() {
         let registry = PromptRegistry::new();
         let hinted = registry
@@ -535,6 +562,47 @@ mod tests {
             "a\n\nb\n",
             "blank lines without placeholders are structural"
         );
+    }
+
+    #[test]
+    fn every_template_placeholder_is_declared() {
+        let declared = [
+            "target",
+            "hint",
+            "contract",
+            "fence",
+            "schema",
+            "code_lang",
+            "source_lang",
+        ];
+        for locale in [PromptLocale::Zh, PromptLocale::En] {
+            let templates = locale.templates();
+            let files = [
+                ("word_card.md", templates.word_card),
+                ("sentence.md", templates.sentence),
+                ("code.md", templates.code),
+                ("contract.md", templates.contract),
+                ("hints.md", templates.hints),
+            ];
+            for (name, text) in files {
+                assert_eq!(
+                    text.matches("{{").count(),
+                    text.matches("}}").count(),
+                    "{locale:?}/{name}: unbalanced placeholder braces"
+                );
+                for chunk in text.split("{{").skip(1) {
+                    if let Some(end) = chunk.find("}}") {
+                        let key = chunk[..end].trim();
+                        assert!(
+                            declared.contains(&key),
+                            "{locale:?}/{name}: undeclared placeholder {key:?} sits on an \
+                             optional-line candidate and can be dropped without any render \
+                             output showing it"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

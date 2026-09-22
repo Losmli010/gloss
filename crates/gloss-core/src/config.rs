@@ -58,8 +58,8 @@ pub enum Theme {
     Dark,
 }
 
-/// 界面语言（与 [`Theme`] 同为壳侧展示开关：不随任务冻结）。
-/// 出厂跟随系统；消费归 prompt locale（R1）与 UI 文案翻译（R7）。
+/// 界面语言：出厂跟随系统。消费归 prompt locale（已接线，触发时解析、
+/// 随任务冻结）与 UI 文案翻译（R7，未接线）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Language {
     /// 跟随系统语言。

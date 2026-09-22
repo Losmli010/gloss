@@ -600,7 +600,7 @@ fn language_label(language: &Language) -> &'static str {
     }
 }
 
-/// 界面语言下拉（接线归 prompt locale 与 UI 文案翻译：本版仅持久化）。
+/// 界面语言下拉（prompt locale 已消费本项；UI 文案翻译归 R7）。
 fn language_combo(ui: &mut egui::Ui, current: &mut Language) {
     egui::ComboBox::from_id_salt("ui_language")
         .selected_text(language_label(current))
