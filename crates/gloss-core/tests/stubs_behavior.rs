@@ -188,7 +188,7 @@ fn config_store_mock_round_trips_document() {
     assert_eq!(store.load(), Ok(Config::default()));
 
     let config = Config {
-        auto_show: false,
+        language: gloss_core::config::Language::Zh,
         ..Default::default()
     };
     store.save(&config).expect("save should succeed");

@@ -57,6 +57,121 @@ pub enum Theme {
     Dark,
 }
 
+/// 界面语言（与 [`Theme`] 同为壳侧展示开关：不随任务冻结）。
+/// 出厂跟随系统；消费归 prompt locale（R1）与 UI 文案翻译（R7）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Language {
+    /// 跟随系统语言。
+    #[default]
+    System,
+    /// 简体中文。
+    Zh,
+    /// English。
+    En,
+}
+
+/// 缓存有效期的合法上限（秒）：30 天。0 = 永不失效（合法，进程内缓存
+/// 随退出清空）；上限只为拦手滑输入的天文数字。
+pub const CACHE_TTL_MAX_SECS: u64 = 30 * 24 * 60 * 60;
+
+/// Base URL 的结构性问题类别（[`validate_base_url`] 的失败面）。文案由
+/// 展示层映射；`Display` 是引擎侧的英文消息，与既有引擎检查逐字一致。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BaseUrlError {
+    /// trim 后为空。
+    Empty,
+    /// 缺 scheme/host 等结构性残缺，或含空白与控制字符。
+    Invalid,
+    /// scheme 不是 https。
+    NotHttps,
+    /// authority 段内嵌账号密码（会被 reqwest 抽成 Basic 认证）。
+    EmbeddedCredentials,
+    /// 带 query 或 fragment（路径拼接会落错位置）。
+    QueryOrFragment,
+}
+
+impl std::fmt::Display for BaseUrlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BaseUrlError::Empty => write!(f, "no provider endpoint configured"),
+            BaseUrlError::Invalid => write!(f, "invalid provider endpoint"),
+            BaseUrlError::NotHttps => write!(f, "provider endpoint must use https"),
+            BaseUrlError::EmbeddedCredentials => {
+                write!(f, "provider endpoint must not embed credentials")
+            }
+            BaseUrlError::QueryOrFragment => {
+                write!(f, "provider endpoint must not carry query or fragment")
+            }
+        }
+    }
+}
+
+/// Base URL 的结构性校验（纯逻辑）：设置页逐字段校验与引擎请求前检查
+/// 共用这一份规则，避免两套口径漂移。规则与既有引擎检查一致：
+/// 非空、https、无内嵌凭据、无 query/fragment、结构可解析；尾斜杠宽容。
+pub fn validate_base_url(raw: &str) -> Result<(), BaseUrlError> {
+    let url = raw.trim();
+    if url.is_empty() {
+        return Err(BaseUrlError::Empty);
+    }
+    if url
+        .chars()
+        .any(|c| c.is_whitespace() || c.is_control() || c == '<' || c == '>')
+    {
+        return Err(BaseUrlError::Invalid);
+    }
+    // scheme 以外的部分即 authority + path；query/fragment 全局拒绝。
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return Err(BaseUrlError::Invalid);
+    };
+    if !scheme.is_ascii() || scheme.is_empty() {
+        return Err(BaseUrlError::Invalid);
+    }
+    // scheme 大小写不敏感（url crate 会归一化为小写，`HTTPS://` 一直合法）。
+    if !scheme.eq_ignore_ascii_case("https") {
+        return Err(BaseUrlError::NotHttps);
+    }
+    if rest.contains('?') || rest.contains('#') {
+        return Err(BaseUrlError::QueryOrFragment);
+    }
+    // authority 到第一个 `/` 为止；`@` 出现在其中即内嵌凭据（须在
+    // host/port 拆分前检查——userinfo 里可能含冒号）。
+    let authority = rest.split('/').next().unwrap_or_default();
+    if authority.contains('@') {
+        return Err(BaseUrlError::EmbeddedCredentials);
+    }
+    // host 与端口拆分：IPv6 字面量（[...]）自带冒号，需先剥方括号。
+    let (host, port) = if let Some(v6_part) = authority.strip_prefix('[') {
+        match v6_part.split_once(']') {
+            Some((v6, "")) => (format!("[{v6}]"), None),
+            Some((v6, port)) => {
+                let Some(port) = port.strip_prefix(':') else {
+                    return Err(BaseUrlError::Invalid);
+                };
+                (format!("[{v6}]"), Some(port.to_owned()))
+            }
+            None => return Err(BaseUrlError::Invalid),
+        }
+    } else {
+        match authority.rsplit_once(':') {
+            Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => {
+                (host.to_owned(), Some(port.to_owned()))
+            }
+            Some(_) => return Err(BaseUrlError::Invalid),
+            None => (authority.to_owned(), None),
+        }
+    };
+    if host.is_empty() {
+        return Err(BaseUrlError::Invalid);
+    }
+    if let Some(port) = port
+        && port.parse::<u32>().map(|p| p > 65535).unwrap_or(true)
+    {
+        return Err(BaseUrlError::Invalid);
+    }
+    Ok(())
+}
+
 /// 一个 provider 的密钥条目：`keychain_id` 是密钥在系统 keychain 里的
 /// 条目标识，读取走 `ConfigStore::secret`，配置文件中永不出现密钥本体。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,9 +232,9 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// `default_text_kind` 已接线（触发时解析进任务）；`base_url` /
 /// `provider_keys` 已接线（引擎每请求解析端点、按条目直查 keychain）；
 /// `enabled_kinds` 已接线（触发时过滤）；`hotkey_bindings` /
-/// `theme` / `auto_show` 已接线（保存后重注册热键；主题施加到两个
-/// egui 上下文；auto_show 决定浮层何时自动露面）——这三项都**不**在触发时
-/// 冻结；`cache_ttl_secs` 归缓存构造接线。
+/// `theme` 已接线（保存后重注册热键；主题施加到两个 egui 上下文）——
+/// 都**不**在触发时冻结；`cache_ttl_secs` 归缓存构造接线；
+/// `language` 已持久化，消费归 prompt locale（R1）与 UI 文案翻译（R7）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -140,12 +255,12 @@ pub struct Config {
     /// 启用的任务类型：被停用的 kind 对一切触发路径无响应（设置页任务
     /// 开关）。缺字段（老配置）按全启用补齐。
     pub enabled_kinds: Vec<TaskKind>,
-    /// 取材成功后是否自动弹出浮层。
-    pub auto_show: bool,
-    /// 缓存条目存活时长（秒）。
+    /// 缓存条目存活时长（秒）；0 = 永不失效，上限 [`CACHE_TTL_MAX_SECS`]。
     pub cache_ttl_secs: u64,
     /// 界面主题。
     pub theme: Theme,
+    /// 界面语言。
+    pub language: Language,
 }
 
 impl Default for Config {
@@ -158,10 +273,10 @@ impl Default for Config {
             hotkey_bindings: default_hotkey_bindings(),
             default_text_kind: TaskKind::TranslateWord,
             enabled_kinds: ALL_KINDS.to_vec(),
-            auto_show: true,
             // 与 gloss-core::cache 的出厂 TTL（1 小时）一致。
             cache_ttl_secs: 60 * 60,
             theme: Theme::System,
+            language: Language::System,
         }
     }
 }
@@ -272,9 +387,9 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.target_lang, Lang::Zh);
         assert_eq!(config.default_text_kind, TaskKind::TranslateWord);
-        assert!(config.auto_show);
         assert_eq!(config.cache_ttl_secs, 60 * 60);
         assert_eq!(config.theme, Theme::System);
+        assert_eq!(config.language, Language::System);
         assert_eq!(config.base_url, DEFAULT_BASE_URL);
 
         assert_eq!(
@@ -319,6 +434,90 @@ mod tests {
     }
 
     #[test]
+    fn missing_fields_fall_back_to_defaults_on_deserialize() {
+        let json = serde_json::json!({
+            "base_url": DEFAULT_BASE_URL,
+            "provider_keys": [],
+            "model_by_kind": [],
+            "target_lang": "Zh",
+            "hotkey_bindings": [],
+            "default_text_kind": "TranslateWord",
+            "enabled_kinds": [],
+            "cache_ttl_secs": 0,
+            "theme": "System",
+        });
+        let config: Config =
+            serde_json::from_value(json).expect("missing language must fall back to default");
+        assert_eq!(config.language, Language::System);
+    }
+
+    #[test]
+    fn base_url_validation_rejects_structural_problems() {
+        assert_eq!(validate_base_url(""), Err(BaseUrlError::Empty));
+        assert_eq!(validate_base_url("   "), Err(BaseUrlError::Empty));
+        assert_eq!(
+            validate_base_url("ftp://api.example.com/v1"),
+            Err(BaseUrlError::NotHttps)
+        );
+        assert_eq!(
+            validate_base_url("api.example.com/v1"),
+            Err(BaseUrlError::Invalid)
+        );
+        assert_eq!(validate_base_url("https:///v1"), Err(BaseUrlError::Invalid));
+        assert_eq!(
+            validate_base_url("https://api.example .com/v1"),
+            Err(BaseUrlError::Invalid),
+            "trim 只作用于首尾，中部空白仍拒绝"
+        );
+        assert_eq!(
+            validate_base_url("https://user:pass@api.example.com"),
+            Err(BaseUrlError::EmbeddedCredentials)
+        );
+        assert_eq!(
+            validate_base_url("https://api.example.com/v1?x=1"),
+            Err(BaseUrlError::QueryOrFragment)
+        );
+        assert_eq!(
+            validate_base_url("https://api.example.com/v1?x=1"),
+            Err(BaseUrlError::QueryOrFragment)
+        );
+        assert_eq!(
+            validate_base_url("https://:8080/v1"),
+            Err(BaseUrlError::Invalid),
+            "缺 host 只带端口仍拒绝"
+        );
+        assert_eq!(
+            validate_base_url("https://api.example.com:99999"),
+            Err(BaseUrlError::Invalid),
+            "端口超出 16 位范围拒绝"
+        );
+        assert_eq!(
+            validate_base_url("https://api.example.com:abc"),
+            Err(BaseUrlError::Invalid),
+            "非数字端口拒绝"
+        );
+        assert_eq!(
+            validate_base_url("https://[::1/v1"),
+            Err(BaseUrlError::Invalid),
+            "IPv6 括号不闭合拒绝"
+        );
+    }
+
+    #[test]
+    fn base_url_validation_accepts_legal_addresses() {
+        assert_eq!(validate_base_url("https://api.deepseek.com/v1"), Ok(()));
+        assert_eq!(validate_base_url("  https://api.deepseek.com  "), Ok(()));
+        assert_eq!(validate_base_url("https://api.deepseek.com"), Ok(()));
+        assert_eq!(validate_base_url("https://127.0.0.1:8080/v1"), Ok(()));
+        assert_eq!(
+            validate_base_url("HTTPS://Api.Example.com/v1"),
+            Ok(()),
+            "scheme 大小写不敏感（url crate 归一化语义）"
+        );
+        assert_eq!(validate_base_url("https://[::1]:8080/v1"), Ok(()));
+    }
+
+    #[test]
     fn config_round_trips_through_serde() {
         let config = Config {
             base_url: "https://example.test/v1".into(),
@@ -344,9 +543,9 @@ mod tests {
             }],
             default_text_kind: TaskKind::ExplainCode,
             enabled_kinds: vec![TaskKind::TranslateWord, TaskKind::ExplainCode],
-            auto_show: false,
             cache_ttl_secs: 120,
             theme: Theme::Dark,
+            language: Language::En,
         };
         let json = serde_json::to_string(&config).expect("config should serialize");
         let back: Config = serde_json::from_str(&json).expect("config should deserialize");

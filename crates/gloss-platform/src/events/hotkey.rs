@@ -162,19 +162,13 @@ fn register_all(
             warn!(thread = thread::UI, trigger = %binding.trigger, "hotkey binding skipped: duplicate trigger");
             continue;
         }
-        let (hotkey, modifiers) = match parse_trigger(&binding.trigger) {
+        let (hotkey, _modifiers) = match parse_trigger(&binding.trigger) {
             Ok(parsed) => parsed,
             Err(err) => {
                 warn!(thread = thread::UI, trigger = %binding.trigger, error = err, "hotkey binding skipped: unparseable trigger");
                 continue;
             }
         };
-        // 无修饰键的裸键会作为全局热键在系统级吞掉普通输入（如字母 a），
-        // 一律拒绝——热键必须带修饰键。
-        if modifiers.is_empty() {
-            warn!(thread = thread::UI, trigger = %binding.trigger, "hotkey binding skipped: bare key would capture plain typing system-wide");
-            continue;
-        }
         if !seen_ids.insert(hotkey.id()) {
             warn!(thread = thread::UI, trigger = %binding.trigger, "hotkey binding skipped: same physical key as an earlier binding");
             continue;
@@ -230,61 +224,19 @@ fn drain_pressed(
     pressed
 }
 
-/// 把触发键字符串解析成 global-hotkey 的 `HotKey`，如 `"Cmd+Shift+1"`。
-/// 修饰键大小写不敏感；无法识别的段返回 Err（注册侧告警跳过）。
-/// 同时返回修饰键集合，供注册侧拒绝无修饰键的裸键（HotKey 本身不暴露）。
+/// 把触发键字符串映射成 global-hotkey 的 `HotKey`：语法解析在
+/// `gloss_core::hotkey`（设置页校验共用同一份），这里只做类型映射。
+/// 同时返回修饰键集合，供注册侧查表。
 fn parse_trigger(trigger: &str) -> Result<(HotKey, Modifiers), String> {
+    let parsed = gloss_core::hotkey::parse_trigger(trigger).map_err(|err| err.to_string())?;
     let mut modifiers = Modifiers::empty();
-    let mut key: Option<Code> = None;
-    for token in trigger.split('+') {
-        let token = token.trim();
-        match token.to_ascii_lowercase().as_str() {
-            // SUPER 即 Command 键，是 global-hotkey 的「系统键」概念；
-            // Cmd / Super / Win / Meta 等写法同映射。
-            "cmd" | "command" | "super" | "win" | "meta" => modifiers |= Modifiers::SUPER,
-            "ctrl" | "control" => modifiers |= Modifiers::CONTROL,
-            "shift" => modifiers |= Modifiers::SHIFT,
-            "alt" | "option" | "opt" => modifiers |= Modifiers::ALT,
-            other => match parse_code(other) {
-                Some(code) if key.is_none() => key = Some(code),
-                Some(_) => return Err(format!("duplicate key in `{trigger}`")),
-                None => return Err(format!("unknown key `{other}` in `{trigger}`")),
-            },
-        }
-    }
-    let key = key.ok_or_else(|| format!("no key in `{trigger}`"))?;
-    Ok((HotKey::new(Some(modifiers), key), modifiers))
-}
-
-/// 解析单个键名：数字/字母/功能键/少量命名键。global-hotkey 的 `Code`
-/// 遵循 keyboard-types 的物理键名（`Digit1` / `KeyA` / `F1`）。
-fn parse_code(name: &str) -> Option<Code> {
-    let lower = name.to_ascii_lowercase();
-    let canonical = match lower.as_str() {
-        "space" => "Space".to_owned(),
-        "enter" | "return" => "Enter".to_owned(),
-        "tab" => "Tab".to_owned(),
-        "esc" | "escape" => "Escape".to_owned(),
-        "up" => "ArrowUp".to_owned(),
-        "down" => "ArrowDown".to_owned(),
-        "left" => "ArrowLeft".to_owned(),
-        "right" => "ArrowRight".to_owned(),
-        other => {
-            let mut chars = other.chars();
-            let (first, rest) = (chars.next()?, chars.as_str());
-            if first.is_ascii_digit() && rest.is_empty() {
-                format!("Digit{}", first)
-            } else if first.is_ascii_alphabetic() && rest.is_empty() {
-                format!("Key{}", first.to_ascii_uppercase())
-            } else if first == 'f' && !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
-                // 功能键 F1..F24，键名原样大写。
-                other.to_ascii_uppercase()
-            } else {
-                return None;
-            }
-        }
-    };
-    Code::from_str(&canonical).ok()
+    modifiers.set(Modifiers::SUPER, parsed.modifiers.super_key);
+    modifiers.set(Modifiers::CONTROL, parsed.modifiers.ctrl);
+    modifiers.set(Modifiers::SHIFT, parsed.modifiers.shift);
+    modifiers.set(Modifiers::ALT, parsed.modifiers.alt);
+    // 语法层保证规范名可映射；映射失败按不可解析处理（注册侧跳过）。
+    let code = Code::from_str(&parsed.key).map_err(|err| err.to_string())?;
+    Ok((HotKey::new(Some(modifiers), code), modifiers))
 }
 
 #[cfg(test)]
@@ -304,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_modifier_combinations() {
+    fn thin_mapping_converts_core_syntax_into_hotkeys() {
         let (hotkey, modifiers) = parse_trigger("Cmd+Shift+1").unwrap();
         assert!(hotkey.id() != 0);
         assert!(modifiers.contains(Modifiers::SUPER) && modifiers.contains(Modifiers::SHIFT));
@@ -313,6 +265,11 @@ mod tests {
             "case-insensitive modifiers"
         );
         assert!(parse_trigger("Option+K").is_ok(), "option aliases alt");
+        let (named, _) = parse_trigger("Ctrl+Return").unwrap();
+        assert!(
+            Code::from_str("Enter").is_ok() && named.id() != 0,
+            "named keys map through the canonical name"
+        );
     }
 
     #[test]
@@ -320,15 +277,6 @@ mod tests {
         for bad in ["", "Cmd", "Cmd+Foo", "Cmd+1+2", "++", "Cmd+"] {
             assert!(parse_trigger(bad).is_err(), "`{bad}` should not parse");
         }
-    }
-
-    #[test]
-    fn code_covers_digits_letters_and_named_keys() {
-        assert!(matches!(parse_code("1"), Some(Code::Digit1)));
-        assert!(matches!(parse_code("a"), Some(Code::KeyA)));
-        assert!(matches!(parse_code("f5"), Some(Code::F5)));
-        assert!(matches!(parse_code("Return"), Some(Code::Enter)));
-        assert!(parse_code("Foo").is_none());
     }
 
     #[test]

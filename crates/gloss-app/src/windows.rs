@@ -97,6 +97,8 @@ impl WindowManager {
             Window::default_attributes()
                 .with_title("Gloss 设置")
                 .with_inner_size(LogicalSize::new(SETTINGS_WIDTH, SETTINGS_HEIGHT))
+                // 与浮层同层：同层窗口按激活序排布，聚焦即浮于浮层之上。
+                .with_window_level(WindowLevel::AlwaysOnTop)
                 .with_resizable(true)
                 .with_min_inner_size(LogicalSize::new(380.0, 420.0)),
         )?;

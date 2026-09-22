@@ -42,8 +42,8 @@ impl Waker {
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
 ///
 /// `hotkeys` 是热键重绑定端口：适配器在组装点创建（注册有主线程亲和），
-/// 设置页保存后由 App 直接调用。`auto_show` 决定浮层何时自动露面，
-/// `theme` 施加到两个 egui 上下文（见 `GlossApp::apply_theme`）。
+/// 设置页保存后由 App 直接调用。`theme` 施加到两个 egui 上下文（见
+/// `GlossApp::apply_theme`）。
 pub fn run(
     endpoints: AppEndpoints,
     config: Arc<ConfigHandle>,
