@@ -306,6 +306,23 @@ fn caption(ui: &mut egui::Ui, text: &str) {
     );
 }
 
+/// 设置页输入框统一入口：浅色主题下白底输入框与近白卡片几乎同色，
+/// 补一圈浅灰描边保持可见；深色主题输入框本身比卡片暗，不加描边。
+fn add_input<'t>(
+    ui: &mut egui::Ui,
+    text: &'t mut String,
+    build: impl FnOnce(egui::TextEdit<'t>) -> egui::TextEdit<'t>,
+) -> egui::Response {
+    ui.scope(|ui| {
+        if !ui.visuals().dark_mode {
+            ui.visuals_mut().widgets.inactive.bg_stroke =
+                Stroke::new(1.0, egui::Color32::from_gray(0xE2));
+        }
+        ui.add(build(egui::TextEdit::singleline(text)))
+    })
+    .inner
+}
+
 /// 字段错误态：控件底边 DANGER 下划线。
 fn underline_if_error(
     ui: &mut egui::Ui,
@@ -343,29 +360,27 @@ fn connection_section(
     errors: &HashMap<FieldKey, String>,
 ) {
     ui.label("Base URL");
-    let response = ui.add(
-        egui::TextEdit::singleline(&mut state.draft.base_url)
-            .hint_text("OpenAI 兼容服务地址")
-            .desired_width(f32::INFINITY),
-    );
+    let response = add_input(ui, &mut state.draft.base_url, |e| {
+        e.hint_text("OpenAI 兼容服务地址")
+            .desired_width(f32::INFINITY)
+    });
     underline_if_error(ui, &response, errors, FieldKey::BaseUrl);
     error_text(ui, errors, FieldKey::BaseUrl);
     ui.add_space(space::ITEM);
 
     ui.label("API Key");
     ui.horizontal(|ui| {
-        let typed = ui
-            .add(
-                egui::TextEdit::singleline(&mut state.api_key)
-                    .password(true)
-                    .hint_text(if state.clear_key {
-                        "保存后清除"
-                    } else {
-                        "留空则不修改"
-                    })
-                    .desired_width(ui.available_width() - CLEAR_BUTTON_RESERVE),
-            )
-            .changed();
+        let input_width = ui.available_width() - CLEAR_BUTTON_RESERVE;
+        let typed = add_input(ui, &mut state.api_key, |e| {
+            e.password(true)
+                .hint_text(if state.clear_key {
+                    "保存后清除"
+                } else {
+                    "留空则不修改"
+                })
+                .desired_width(input_width)
+        })
+        .changed();
         if typed {
             // 重新输入即撤销「清除」意图。
             state.clear_key = false;
@@ -420,13 +435,14 @@ fn task_section(ui: &mut egui::Ui, state: &mut SettingsState, errors: &HashMap<F
             .unwrap_or_default()
             .to_owned();
         ui.label(kind_label(kind));
-        let edit = egui::TextEdit::singleline(&mut model).desired_width(f32::INFINITY);
-        let edit = if kind.accepts_text() {
-            edit
-        } else {
-            edit.hint_text("视觉模型（M5）")
-        };
-        let response = ui.add(edit);
+        let response = add_input(ui, &mut model, |e| {
+            let edit = e.desired_width(f32::INFINITY);
+            if kind.accepts_text() {
+                edit
+            } else {
+                edit.hint_text("视觉模型（M5）")
+            }
+        });
         underline_if_error(ui, &response, errors, FieldKey::Model(kind));
         error_text(ui, errors, FieldKey::Model(kind));
         if response.changed() {
@@ -484,11 +500,9 @@ fn hotkey_section(
                 return;
             };
             let HotkeyBinding { trigger, kind, .. } = binding;
-            let response = ui.add(
-                egui::TextEdit::singleline(trigger)
-                    .desired_width(110.0)
-                    .font(egui::TextStyle::Monospace),
-            );
+            let response = add_input(ui, trigger, |e| {
+                e.desired_width(110.0).font(egui::TextStyle::Monospace)
+            });
             underline_if_error(ui, &response, errors, key);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 kind_combo(ui, &format!("hotkey_kind_{index}"), kind, &ALL_KINDS);
