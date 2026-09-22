@@ -203,11 +203,14 @@ fn base_url_hint(err: &BaseUrlError) -> &'static str {
 ///
 /// 自下而上布局：动作行钉在窗口底部（保存主按钮右对齐），提示在其上，
 /// 其余全部区块进滚动区——内容再长也不会把「保存」推出视口。
-/// 窗口内边距由 [`WINDOW_PADDING`] 统一给出。
+/// 窗口内边距由 [`WINDOW_PADDING`] 统一给出；整幅先铺 `window_fill`
+/// 底色（设置窗不透明，清屏色不随主题，底色必须由 egui 自己画，
+/// 深浅主题切换才连同文字一起翻转）。
 pub fn draw(ui: &mut egui::Ui, state: &mut SettingsState) -> SettingsAction {
     let mut action = SettingsAction::Idle;
     let errors = state.errors();
     egui::Frame::new()
+        .fill(ui.visuals().window_fill)
         .inner_margin(egui::Margin::same(WINDOW_PADDING))
         .show(ui, |ui| {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
@@ -384,25 +387,18 @@ const CLEAR_BUTTON_RESERVE: f32 = 88.0;
 
 /// 任务区：默认任务、目标语言、任务开关（左右开关钮）、每任务默认模型。
 fn task_section(ui: &mut egui::Ui, state: &mut SettingsState, errors: &HashMap<FieldKey, String>) {
-    egui::Grid::new("task_grid")
-        .num_columns(2)
-        .spacing([space::PARAGRAPH, space::ITEM])
-        .show(ui, |ui| {
-            ui.label("默认任务");
-            kind_combo(
-                ui,
-                "default_text_kind",
-                &mut state.draft.default_text_kind,
-                &TEXT_KINDS,
-            );
-            ui.end_row();
-            caption(ui, "划词触发时使用的任务");
-            ui.end_row();
-
-            ui.label("目标语言");
-            lang_combo(ui, &mut state.draft.target_lang);
-            ui.end_row();
-        });
+    choice_row(ui, "默认任务", |ui| {
+        kind_combo(
+            ui,
+            "default_text_kind",
+            &mut state.draft.default_text_kind,
+            &TEXT_KINDS,
+        );
+    });
+    choice_hint(ui, "划词触发时使用的任务");
+    choice_row(ui, "目标语言", |ui| {
+        lang_combo(ui, &mut state.draft.target_lang);
+    });
 
     ui.add_space(space::TIGHT);
     caption(ui, "任务开关");
@@ -505,27 +501,35 @@ fn hotkey_section(
 
 /// 通用区：界面语言、界面主题、缓存有效期（上限由控件钳制）。
 fn general_section(ui: &mut egui::Ui, state: &mut SettingsState) {
-    egui::Grid::new("general_grid")
-        .num_columns(2)
-        .spacing([space::PARAGRAPH, space::ITEM])
-        .show(ui, |ui| {
-            ui.label("界面语言");
-            language_combo(ui, &mut state.draft.language);
-            ui.end_row();
+    choice_row(ui, "界面语言", |ui| {
+        language_combo(ui, &mut state.draft.language);
+    });
+    choice_row(ui, "界面主题", |ui| {
+        theme_combo(ui, &mut state.draft.theme);
+    });
+    choice_row(ui, "缓存有效期", |ui| {
+        ui.add(
+            egui::DragValue::new(&mut state.draft.cache_ttl_secs)
+                .range(0..=CACHE_TTL_MAX_SECS)
+                .suffix(" 秒"),
+        );
+    });
+    choice_hint(ui, "相同内容的结果直接复用；0 = 永不失效，退出即清空");
+}
 
-            ui.label("界面主题");
-            theme_combo(ui, &mut state.draft.theme);
-            ui.end_row();
-
-            ui.label("缓存有效期");
-            ui.add(
-                egui::DragValue::new(&mut state.draft.cache_ttl_secs)
-                    .range(0..=CACHE_TTL_MAX_SECS)
-                    .suffix(" 秒"),
-            );
-            ui.end_row();
+/// 双列行：行标签左、控件推到卡片右缘（两端对齐）。
+fn choice_row(ui: &mut egui::Ui, label: &str, control: impl FnOnce(&mut egui::Ui)) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            control(ui);
         });
-    caption(ui, "相同内容的结果直接复用；0 = 永不失效，退出即清空");
+    });
+}
+
+/// 双列行的说明提示（左对齐，CAPTION 弱色）。
+fn choice_hint(ui: &mut egui::Ui, text: &str) {
+    caption(ui, text);
 }
 
 /// 划词可服务的任务类型（与 `Config::selection_task_kind` 的收口一致）。
