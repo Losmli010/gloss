@@ -50,6 +50,7 @@ impl GlossApp {
                 "api key updated from settings"
             );
         }
+        let language = config.language;
         if let Err(err) = self.config.save(config) {
             // 密钥已经生效，配置没有：如实说清哪一半落下了。
             warn!(thread = thread::UI, error = %err, "failed to save settings");
@@ -63,6 +64,7 @@ impl GlossApp {
         }
         info!(
             thread = thread::UI,
+            language = ?language,
             "settings saved, effective on the next trigger"
         );
         // 热键不受「下一次触发才生效」约束：注册是平台侧的即时动作，保存

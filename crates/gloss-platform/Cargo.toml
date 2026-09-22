@@ -51,7 +51,10 @@ objc2-foundation = {
   version = "0.3.2",
   default-features = false,
   features = [
+    "NSArray",
     "NSData",
+    "NSLocale",
+    "NSString",
   ]
 }
 # 兜底复制的按键注入与真机测试的事件注入（rdev::simulate）；默认集只多出

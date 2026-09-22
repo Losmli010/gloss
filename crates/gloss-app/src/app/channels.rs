@@ -34,7 +34,7 @@ impl GlossApp {
                 continue;
             }
             let superseded = self.machine.current_cancel().is_some();
-            if let Some(command) = self.machine.trigger(&event, &config) {
+            if let Some(command) = self.machine.trigger(&event, &config, self.system_locale) {
                 info!(
                     thread = thread::UI,
                     generation = self.machine.generation(),
@@ -126,6 +126,9 @@ impl GlossApp {
                 info!(
                     thread = thread::UI,
                     generation = request.generation,
+                    kind = ?request.task.kind,
+                    target_lang = ?request.task.options.target_lang,
+                    prompt_locale = ?request.task.options.prompt_locale,
                     "input ready, task dispatched to tokio"
                 );
                 self.send_run(request);

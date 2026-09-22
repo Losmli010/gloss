@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use gloss_core::config::Config;
 use gloss_core::model::GlossError;
+use gloss_core::prompt::PromptLocale;
 use gloss_core::task::{InputSource, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
 use crate::channel::{AcquireCommand, PlatformEvent};
@@ -142,9 +143,16 @@ impl TaskStateMachine {
 
     /// 触发的状态机入口：取消在途任务 → 推进代数（唯一赋值点）→ 组装取
     /// 材命令。`config` 是壳在任务开始时取的配置快照：划词手势的任务类型与
-    /// 后续选项都按它解析，此后本任务不再读配置。未接线的平台事件返回 None
+    /// 后续选项都按它解析，此后本任务不再读配置。`system_locale` 是壳在
+    /// 启动期读到的系统语言，供配置里的 `Language::System` 落定（配置快照
+    /// 里只有三态偏好，落定需要这一份环境事实）。未接线的平台事件返回 None
     /// 且不产生任何状态副作用。
-    pub fn trigger(&mut self, event: &PlatformEvent, config: &Config) -> Option<AcquireCommand> {
+    pub fn trigger(
+        &mut self,
+        event: &PlatformEvent,
+        config: &Config,
+        system_locale: PromptLocale,
+    ) -> Option<AcquireCommand> {
         let command = acquire_command_for(event, self.generation + 1, config)?;
         // 最新触发取代在途任务：旧推理立即取消（其迟到产物经代数过滤
         // 丢弃），令牌清空等待新任务。
@@ -168,7 +176,7 @@ impl TaskStateMachine {
         };
         self.pending = Some(PendingTask {
             kind,
-            options: task_options(kind, config),
+            options: task_options(kind, config, system_locale),
         });
         self.state = AppState::Fetching;
         Some(command)
@@ -414,12 +422,14 @@ fn acquire_command_for(
 }
 
 /// 按配置快照解析任务选项：目标语言取配置默认；模型按 kind 从
-/// `model_by_kind` 解析（缺项时 core 的出厂默认兜底）后随任务下发——引擎
-/// 只见到任务自身携带的模型，执行途中不再回读配置。
-fn task_options(kind: TaskKind, config: &Config) -> TaskOptions {
+/// `model_by_kind` 解析（缺项时 core 的出厂默认兜底）后随任务下发；prompt
+/// 模板语言按 `Language` 落定（`System` 取系统语言）——三者都是引擎/模板
+/// 侧的输入，随任务冻结，执行途中不再回读配置。
+fn task_options(kind: TaskKind, config: &Config, system_locale: PromptLocale) -> TaskOptions {
     TaskOptions {
         target_lang: Some(config.target_lang.clone()),
         model_override: config.resolved_model(kind).map(str::to_owned),
+        prompt_locale: Some(config.language.prompt_locale(system_locale)),
         ..Default::default()
     }
 }
@@ -428,7 +438,7 @@ fn task_options(kind: TaskKind, config: &Config) -> TaskOptions {
 mod tests {
     use std::sync::Arc;
 
-    use gloss_core::config::ModelBinding;
+    use gloss_core::config::{Language, ModelBinding};
     use gloss_core::model::{GlossError, Lang, ScreenPoint, ScreenRect};
     use gloss_core::task::{InputHint, OutcomeStructured};
 
@@ -459,7 +469,7 @@ mod tests {
     fn trigger_mapping_covers_wired_events_only() {
         let mut machine = TaskStateMachine::new();
         let command = machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("selection gesture must acquire");
         assert!(matches!(
             command,
@@ -480,7 +490,8 @@ mod tests {
                     &PlatformEvent::HotkeyTriggered {
                         binding: region_binding
                     },
-                    &Config::default()
+                    &Config::default(),
+                    PromptLocale::Zh
                 )
                 .is_none(),
             "region source has no acquisition path yet"
@@ -512,7 +523,7 @@ mod tests {
         };
 
         let command = machine
-            .trigger(&selection_gesture(), &config)
+            .trigger(&selection_gesture(), &config, PromptLocale::Zh)
             .expect("selection gesture must acquire");
         assert!(
             matches!(
@@ -546,7 +557,7 @@ mod tests {
         };
 
         let command = machine
-            .trigger(&selection_gesture(), &config)
+            .trigger(&selection_gesture(), &config, PromptLocale::Zh)
             .expect("selection gesture must acquire");
         assert!(matches!(
             command,
@@ -568,7 +579,11 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(machine.trigger(&selection_gesture(), &config).is_some());
+        assert!(
+            machine
+                .trigger(&selection_gesture(), &config, PromptLocale::Zh)
+                .is_some()
+        );
         assert_eq!(machine.generation(), 1);
 
         let binding = gloss_core::task::HotkeyBinding {
@@ -578,7 +593,11 @@ mod tests {
         };
         assert!(
             machine
-                .trigger(&PlatformEvent::HotkeyTriggered { binding }, &config)
+                .trigger(
+                    &PlatformEvent::HotkeyTriggered { binding },
+                    &config,
+                    PromptLocale::Zh
+                )
                 .is_none(),
             "disabled kind must not acquire via hotkey"
         );
@@ -595,9 +614,44 @@ mod tests {
         };
         assert!(
             machine
-                .trigger(&selection_gesture(), &disabled_default)
+                .trigger(&selection_gesture(), &disabled_default, PromptLocale::Zh)
                 .is_none(),
             "disabled selection kind must not acquire"
+        );
+    }
+
+    #[test]
+    fn prompt_locale_follows_config_language_and_the_system() {
+        let mut explicit = TaskStateMachine::new();
+        let chosen = Config {
+            language: Language::En,
+            ..Default::default()
+        };
+        explicit
+            .trigger(&selection_gesture(), &chosen, PromptLocale::Zh)
+            .expect("trigger");
+        let request = explicit
+            .accept_input(1, text_input("hello"))
+            .expect("input should be accepted");
+        assert_eq!(
+            request.task.options.prompt_locale,
+            Some(PromptLocale::En),
+            "an explicit choice ignores the injected system language"
+        );
+
+        let mut following = TaskStateMachine::new();
+        let factory = Config::default();
+        assert_eq!(factory.language, Language::System);
+        following
+            .trigger(&selection_gesture(), &factory, PromptLocale::En)
+            .expect("trigger");
+        let request = following
+            .accept_input(1, text_input("hello"))
+            .expect("input should be accepted");
+        assert_eq!(
+            request.task.options.prompt_locale,
+            Some(PromptLocale::En),
+            "follow-the-system takes the injected system language"
         );
     }
 
@@ -606,15 +660,17 @@ mod tests {
         let mut machine = TaskStateMachine::new();
         let before = Config {
             target_lang: Lang::Ja,
+            language: Language::En,
             ..Default::default()
         };
         let after = Config {
             target_lang: Lang::Ko,
+            language: Language::Zh,
             ..Default::default()
         };
 
         machine
-            .trigger(&selection_gesture(), &before)
+            .trigger(&selection_gesture(), &before, PromptLocale::Zh)
             .expect("trigger");
         let request = machine
             .accept_input(1, text_input("hello"))
@@ -624,20 +680,26 @@ mod tests {
             Some(Lang::Ja),
             "in-flight task must keep the snapshot taken at trigger"
         );
+        assert_eq!(
+            request.task.options.prompt_locale,
+            Some(PromptLocale::En),
+            "the prompt locale is frozen with the rest of the options"
+        );
         machine
-            .trigger(&selection_gesture(), &after)
+            .trigger(&selection_gesture(), &after, PromptLocale::Zh)
             .expect("second trigger");
         let request = machine
             .accept_input(2, text_input("world"))
             .expect("input should be accepted");
         assert_eq!(request.task.options.target_lang, Some(Lang::Ko));
+        assert_eq!(request.task.options.prompt_locale, Some(PromptLocale::Zh));
     }
 
     #[test]
     fn accept_input_yields_run_request_and_guards_state() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
 
         let request = machine
@@ -655,7 +717,7 @@ mod tests {
     fn image_input_for_text_kind_is_rejected() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         assert!(
             machine
@@ -679,7 +741,7 @@ mod tests {
     fn hide_abandons_inflight_and_drops_late_events() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         let request = machine
             .accept_input(1, text_input("hello"))
@@ -707,7 +769,7 @@ mod tests {
     fn failed_guard_matches_fetching_and_translating_only() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         assert!(machine.accept_failed(1, &GlossError::SelectionUnavailable));
         assert_eq!(machine.state(), AppState::Error);
@@ -723,7 +785,7 @@ mod tests {
     fn modality_mismatch_preserves_pending_task() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         assert!(
             machine
@@ -751,7 +813,7 @@ mod tests {
     fn transport_failure_lands_in_error() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         let request = machine.accept_input(1, text_input("x")).expect("accepted");
         machine.fail_transport(request.generation);
@@ -768,7 +830,7 @@ mod tests {
     fn retryable_failure_keeps_task_and_retry_redispatches_it() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         let original = machine
             .accept_input(1, text_input("hello"))
@@ -798,7 +860,7 @@ mod tests {
     fn error_actions_follow_the_mapping_table() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         machine.accept_input(1, text_input("x")).expect("accepted");
 
@@ -809,7 +871,7 @@ mod tests {
         assert!(machine.retry().is_some());
 
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         machine.accept_input(2, text_input("x")).expect("accepted");
         assert!(machine.accept_failed(2, &GlossError::EngineAuth));
@@ -826,7 +888,7 @@ mod tests {
         );
 
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         machine.accept_input(3, text_input("x")).expect("accepted");
         assert!(machine.accept_failed(3, &GlossError::UnsupportedModality));
@@ -839,7 +901,7 @@ mod tests {
         ));
 
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         machine.accept_input(4, text_input("x")).expect("accepted");
         assert!(machine.accept_failed(
@@ -859,13 +921,13 @@ mod tests {
     fn new_trigger_and_hide_supersede_the_retry_task() {
         let mut machine = TaskStateMachine::new();
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         machine.accept_input(1, text_input("x")).expect("accepted");
         assert!(machine.accept_failed(1, &GlossError::EngineNetwork));
 
         machine
-            .trigger(&selection_gesture(), &Config::default())
+            .trigger(&selection_gesture(), &Config::default(), PromptLocale::Zh)
             .expect("trigger");
         assert!(machine.retry().is_none(), "new trigger supersedes retry");
 

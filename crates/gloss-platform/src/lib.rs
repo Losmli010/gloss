@@ -8,6 +8,7 @@ pub(crate) mod stubs;
 pub mod appearance;
 pub mod engine;
 pub mod events;
+pub mod locale;
 pub mod selection;
 pub mod storage;
 
