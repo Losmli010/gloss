@@ -175,7 +175,8 @@ fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
 
 /// 目标语言显示名：缺省中文，且**显示名不得为空**——指令模板里 `{{target}}`
 /// 独占一行语义、周围全是静态文字，空值会让整条指令被当作可选行删掉，
-/// 只剩契约。空名（`Lang::Other("")`）回落缺省。
+/// 只剩契约。空名或纯空白名（`Lang::Other` 由配置文件手填得来，可能带空白）
+/// 回落缺省。
 ///
 /// 语言名随 prompt locale——英文模板里写 "Chinese" 而不是「中文」，否则
 /// 模型拿到的是半汉半英的指令。
@@ -184,7 +185,7 @@ fn target_display(options: &TaskOptions, locale: PromptLocale) -> String {
         options.target_lang.as_ref().unwrap_or(&DEFAULT_TARGET),
         locale,
     );
-    if display.is_empty() {
+    if display.trim().is_empty() {
         lang_display(&DEFAULT_TARGET, locale)
     } else {
         display
@@ -418,22 +419,25 @@ mod tests {
     fn empty_target_language_name_falls_back_to_default() {
         let registry = PromptRegistry::new();
         for locale in [PromptLocale::Zh, PromptLocale::En] {
-            let mut task = text_task(TaskKind::TranslateSentence, "hello", None);
-            task.options.target_lang = Some(Lang::Other(String::new()));
-            task.options.prompt_locale = Some(locale);
-            let messages = registry.render(&task).expect("render");
-            let expected = lang_display(&DEFAULT_TARGET, locale);
-            let instruction = match locale {
-                PromptLocale::Zh => "翻译助手",
-                PromptLocale::En => "translation assistant",
-            };
-            assert!(
-                messages[0].content.contains(instruction),
-                "{locale:?}: a blank target name must not swallow the instruction line: {}",
-                messages[0].content
-            );
-            assert!(messages[0].content.contains(&expected));
-            assert!(messages[0].content.contains(STRUCTURED_FENCE));
+            for name in ["", " "] {
+                let mut task = text_task(TaskKind::TranslateSentence, "hello", None);
+                task.options.target_lang = Some(Lang::Other(name.into()));
+                task.options.prompt_locale = Some(locale);
+                let messages = registry.render(&task).expect("render");
+                let expected = lang_display(&DEFAULT_TARGET, locale);
+                let instruction = match locale {
+                    PromptLocale::Zh => "翻译助手",
+                    PromptLocale::En => "translation assistant",
+                };
+                assert!(
+                    messages[0].content.contains(instruction),
+                    "{locale:?}/{name:?}: a blank target name must not swallow the instruction \
+                     line: {}",
+                    messages[0].content
+                );
+                assert!(messages[0].content.contains(&expected));
+                assert!(messages[0].content.contains(STRUCTURED_FENCE));
+            }
         }
     }
 

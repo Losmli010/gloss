@@ -214,7 +214,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | structured_contract_matches_outcome_schema | 结构化契约与 schema 对齐 | 给定词卡与代码解释模板，当检查系统指令，则分别声明 senses/phonetic 与 title 字段 | 2026-09-19 |
 | missing_target_lang_defaults_to_chinese | 目标语言缺省中文 | 给定未设 target_lang，当渲染句译，则系统指令含「中文」 | 2026-09-19 |
 | explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 Lang::Ja，当渲染，则系统指令含「日语」 | 2026-09-19 |
-| empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且契约围栏仍在 | 2026-09-22 |
+| empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") / Other(" ") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且契约围栏仍在 | 2026-09-22 |
 | hint_is_injected_and_defaults_to_nothing | hint 注入与缺省不注入 | 给定 CodeLanguage hint，当渲染，则注入系统与用户两处；无 hint 则两处均无注入行、用户消息为原文 | 2026-09-19 |
 | source_lang_hint_is_injected | 源语言 hint 注入 | 给定 SourceLang(法语)，当渲染，则系统指令含「源语言：法语」 | 2026-09-19 |
 | image_kinds_are_placeholders_until_m5 | 图像 kind 占位拒绝 | 给定图像 kind 的图像任务，当渲染，则报 UnsupportedModality | 2026-09-19 |
@@ -409,7 +409,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | selection_kind_and_options_pair_with_one_snapshot | kind 与选项出自同一快照 | 给定自定义配置快照，当划词触发并采纳输入，则 kind 与模型/语言选项出自同一份快照 | 2026-09-19 |
 | image_default_kind_falls_back_to_a_text_kind | 误配图像默认回退文本 kind | 给定 default_text_kind 误配图像类，当划词触发，则回退 TranslateWord | 2026-09-19 |
 | disabled_kinds_are_not_acquired_and_consume_no_generation | 停用 kind 不取材不占代数 | 给定含停用 kind 的配置，当划词/热键触发停用项，则 None 且不占代数 | 2026-09-19 |
-| options_freeze_at_trigger_time | 选项在触发时刻冻结 | 给定触发后更换配置，当采纳输入，则任务仍带触发时快照的选项；第二次触发才用新值 | 2026-09-19 |
+| options_freeze_at_trigger_time | 选项在触发时刻冻结 | 给定触发后更换配置（目标语言与界面语言同时变），当采纳输入，则任务仍带触发时快照的选项（含 prompt_locale）；第二次触发才用新值 | 2026-09-22 |
 | prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 Language::En 与出厂 System 两份配置，当触发并采纳输入，则任务携带的 prompt_locale 分别为 En 与注入的系统语言 | 2026-09-22 |
 | accept_input_yields_run_request_and_guards_state | 采纳输入下发请求并守卫状态 | 给定合法 InputReady，当采纳，则返回下发请求、进 Translating、持有取消令牌；同代数重复采纳被拒 | 2026-09-19 |
 | image_input_for_text_kind_is_rejected | 文本 kind 拒绝图像输入 | 给定文本 kind 配图像输入，当采纳，则 None | 2026-09-19 |

@@ -660,10 +660,12 @@ mod tests {
         let mut machine = TaskStateMachine::new();
         let before = Config {
             target_lang: Lang::Ja,
+            language: Language::En,
             ..Default::default()
         };
         let after = Config {
             target_lang: Lang::Ko,
+            language: Language::Zh,
             ..Default::default()
         };
 
@@ -678,6 +680,11 @@ mod tests {
             Some(Lang::Ja),
             "in-flight task must keep the snapshot taken at trigger"
         );
+        assert_eq!(
+            request.task.options.prompt_locale,
+            Some(PromptLocale::En),
+            "the prompt locale is frozen with the rest of the options"
+        );
         machine
             .trigger(&selection_gesture(), &after, PromptLocale::Zh)
             .expect("second trigger");
@@ -685,6 +692,7 @@ mod tests {
             .accept_input(2, text_input("world"))
             .expect("input should be accepted");
         assert_eq!(request.task.options.target_lang, Some(Lang::Ko));
+        assert_eq!(request.task.options.prompt_locale, Some(PromptLocale::Zh));
     }
 
     #[test]
