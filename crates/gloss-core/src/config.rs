@@ -169,9 +169,6 @@ pub fn validate_base_url(raw: &str) -> Result<(), BaseUrlError> {
     {
         return Err(BaseUrlError::Invalid);
     }
-    if authority.contains('@') {
-        return Err(BaseUrlError::EmbeddedCredentials);
-    }
     Ok(())
 }
 
