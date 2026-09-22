@@ -176,7 +176,6 @@ impl OverlaySelfTest {
         let Some(frame) = &mut self.frame else {
             return;
         };
-        // 文案表按出厂 locale 取：自检量的是显隐与首帧预算，与语言无关。
         let (repaint, _, _) = render_frame(frame, None, Locale::default());
         self.next_repaint = repaint;
         if let Some(shown) = self.shown_at.take() {

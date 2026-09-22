@@ -1,6 +1,6 @@
 # Interface text (English). Keys must match zh.toml exactly — a missing or
-# extra key fails parsing (see crates/gloss-app/src/i18n.rs and
-# docs/comments/i18n_comment.md). Section names are gloss_<module>, so an
+# extra key fails parsing (see crates/gloss-app/src/i18n.rs).
+# Section names are gloss_<module>, so an
 # entry's fully qualified name is gloss_<module>.<entry>; the prefix is
 # mirrored by the serde renames in i18n.rs — rename both together.
 # Placeholders are written {{name}} and filled by i18n::fill.

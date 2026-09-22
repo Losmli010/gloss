@@ -571,7 +571,6 @@ mod kittest_tests {
 
     type Clicked = Rc<RefCell<Option<OverlayAction>>>;
 
-    /// 出厂语言的浮层（快照基线都取自它）。
     fn harness_for(view: OverlayView) -> (Harness<'static>, Clicked) {
         harness_for_locale(view, Locale::Zh)
     }
@@ -746,8 +745,6 @@ mod kittest_tests {
         results.extend_harness(&mut harness);
 
         let (mut harness, _clicked) = harness_for(streaming_view());
-        // Spinner 每帧请求重绘，run() 会在 max_steps 处报错；固定步数让
-        // 指示器角度确定，快照不抖。
         harness.run_steps(3);
         harness.snapshot("popup_streaming");
         results.extend_harness(&mut harness);

@@ -1,5 +1,5 @@
 # 界面文案（简体中文）。键必须与 en.toml 完全一致——多键或少键都会让解析
-# 失败（见 crates/gloss-app/src/i18n.rs 的 Text 与 docs/comments/i18n_comment.md）。
+# 失败（见 crates/gloss-app/src/i18n.rs 的 Text）。
 # 节名一律 gloss_<模块>（词条的全限定名即 gloss_<模块>.<词条>），模块名与前缀
 # 由 i18n.rs 的 serde rename 对齐，改节名要连同改那里。
 # 占位符写 {{name}}，由 i18n::fill 填充。

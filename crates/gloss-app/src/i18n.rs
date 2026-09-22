@@ -241,11 +241,71 @@ mod tests {
 
     #[test]
     fn both_locale_files_declare_the_same_keys() {
-        let zh = keys_of(ZH);
-        let en = keys_of(EN);
-        assert!(zh.contains(&"gloss_settings.error.duplicate_hotkey".to_owned()));
-        assert!(zh.len() > 60, "key walk must cover the whole table");
-        assert_eq!(zh, en, "zh.toml and en.toml must declare the same keys");
+        let zh = leaves_of(ZH);
+        let en = leaves_of(EN);
+        assert_eq!(
+            zh.len(),
+            75,
+            "the entry count is pinned so a walker that stops recursing cannot pass"
+        );
+        assert_eq!(
+            zh.iter().map(|(key, _)| key).collect::<Vec<_>>(),
+            en.iter().map(|(key, _)| key).collect::<Vec<_>>(),
+            "zh.toml and en.toml must declare the same keys"
+        );
+    }
+
+    #[test]
+    fn every_entry_is_translated_in_the_english_catalog() {
+        let zh = leaves_of(ZH);
+        let en = leaves_of(EN);
+        assert_eq!(zh.len(), en.len());
+        for ((key, zh_value), (_, en_value)) in zh.iter().zip(&en) {
+            if key == "gloss_ui_language.en" {
+                assert_eq!(
+                    en_value, "English",
+                    "a language's own name is not translated"
+                );
+                continue;
+            }
+            assert_ne!(
+                zh_value, en_value,
+                "{key} is copied from zh.toml instead of translated"
+            );
+        }
+    }
+
+    #[test]
+    fn placeholders_match_across_locales() {
+        let zh = leaves_of(ZH);
+        let en = leaves_of(EN);
+        assert_eq!(zh.len(), en.len());
+        let mut templated = Vec::new();
+        for ((key, zh_value), (_, en_value)) in zh.iter().zip(&en) {
+            assert_eq!(
+                placeholders(zh_value),
+                placeholders(en_value),
+                "{key} declares different placeholders per locale"
+            );
+            if !placeholders(zh_value).is_empty() {
+                templated.push(key.as_str());
+            }
+        }
+        assert_eq!(
+            templated,
+            [
+                "gloss_errors.config",
+                "gloss_errors.engine_response",
+                "gloss_settings.error.duplicate_hotkey",
+                "gloss_settings.error.invalid_trigger",
+                "gloss_settings.invalid_summary",
+                "gloss_settings.notice_key_update_failed",
+                "gloss_settings.notice_key_updated_save_failed",
+                "gloss_settings.notice_save_failed",
+                "gloss_settings.switch_label",
+            ],
+            "every templated entry must be walked"
+        );
     }
 
     #[test]
@@ -287,6 +347,54 @@ mod tests {
     }
 
     #[test]
+    fn each_error_variant_maps_to_its_own_entry() {
+        let errors = &Text::get(Locale::Zh).errors;
+        for (error, expected) in [
+            (
+                GlossError::SelectionUnavailable,
+                &errors.selection_unavailable,
+            ),
+            (
+                GlossError::AccessibilityDenied,
+                &errors.accessibility_denied,
+            ),
+            (
+                GlossError::ScreenCaptureDenied,
+                &errors.screen_capture_denied,
+            ),
+            (GlossError::RegionTooLarge, &errors.region_too_large),
+            (
+                GlossError::UnsupportedModality,
+                &errors.unsupported_modality,
+            ),
+            (GlossError::EngineNetwork, &errors.engine_network),
+            (GlossError::EngineAuth, &errors.engine_auth),
+            (GlossError::EngineRateLimited, &errors.engine_rate_limited),
+        ] {
+            assert_eq!(
+                &errors.for_error(&error),
+                expected,
+                "{error:?} must use its own entry"
+            );
+            assert_eq!(
+                &errors.for_error_detail(&error),
+                expected,
+                "{error:?} has no diagnostic of its own"
+            );
+        }
+        let response = GlossError::EngineResponse("HTTP 400".into());
+        assert_eq!(
+            errors.for_error(&response),
+            fill(&errors.engine_response, &[("detail", "HTTP 400")])
+        );
+        let config = GlossError::Config("bad port".into());
+        assert_eq!(
+            errors.for_error(&config),
+            fill(&errors.config, &[("detail", "bad port")])
+        );
+    }
+
+    #[test]
     fn error_detail_prefers_the_variant_diagnostic() {
         let zh = &Text::get(Locale::Zh).errors;
         assert_eq!(
@@ -315,16 +423,20 @@ mod tests {
         );
     }
 
-    fn keys_of(raw: &str) -> Vec<String> {
+    fn leaves_of(raw: &str) -> Vec<(String, String)> {
         let value: toml::Value = toml::from_str(raw).expect("catalog must parse");
-        let mut keys = Vec::new();
-        collect_keys(&value, "", &mut keys);
-        keys.sort_unstable();
-        keys
+        let mut leaves = Vec::new();
+        collect_leaves(&value, "", &mut leaves);
+        leaves.sort_by(|a, b| a.0.cmp(&b.0));
+        leaves
     }
 
-    fn collect_keys(value: &toml::Value, prefix: &str, out: &mut Vec<String>) {
+    fn collect_leaves(value: &toml::Value, prefix: &str, out: &mut Vec<(String, String)>) {
         let toml::Value::Table(table) = value else {
+            out.push((
+                prefix.to_owned(),
+                value.as_str().expect("every entry is a string").to_owned(),
+            ));
             return;
         };
         for (key, child) in table {
@@ -333,8 +445,22 @@ mod tests {
             } else {
                 format!("{prefix}.{key}")
             };
-            out.push(path.clone());
-            collect_keys(child, &path, out);
+            collect_leaves(child, &path, out);
         }
+    }
+
+    fn placeholders(template: &str) -> Vec<String> {
+        let mut names = Vec::new();
+        let mut rest = template;
+        while let Some(start) = rest.find("{{") {
+            let Some(end) = rest[start..].find("}}") else {
+                break;
+            };
+            names.push(rest[start + 2..start + end].to_owned());
+            rest = &rest[start + end + 2..];
+        }
+        names.sort();
+        names.dedup();
+        names
     }
 }

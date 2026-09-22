@@ -45,7 +45,7 @@ impl Waker {
 /// `hotkeys` 是热键重绑定端口：适配器在组装点创建（注册有主线程亲和），
 /// 设置页保存后由 App 直接调用。`theme` 施加到两个 egui 上下文（见
 /// `GlossApp::apply_theme`）。`system_locale` 是组装点读到的系统语言，
-/// 供配置里的 `Language::System` 落定成 prompt 模板语言。
+/// 供配置里的 `Language::System` 落定成 [`Locale`]（prompt 模板与界面文案共用）。
 pub fn run(
     endpoints: AppEndpoints,
     config: Arc<ConfigHandle>,

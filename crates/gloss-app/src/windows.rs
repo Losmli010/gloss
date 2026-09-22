@@ -267,7 +267,7 @@ impl WindowManager {
     }
 
     /// 显示设置窗口并置前（已可见则只是聚焦）；标题由调用方按当前界面语言
-    /// 给（`app::settings_title`），草稿与文案表都由调用方管理。
+    /// 给（`Text::app.settings_title`），草稿与文案表都由调用方管理。
     pub fn show_settings(&self, title: &str) {
         self.settings.set_title(title);
         self.settings.set_visible(true);

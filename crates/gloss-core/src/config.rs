@@ -57,8 +57,8 @@ pub enum Theme {
     Dark,
 }
 
-/// 界面语言：出厂跟随系统。消费归 prompt locale（已接线，触发时解析、
-/// 随任务冻结）与 UI 文案翻译（R7，未接线）。
+/// 界面语言：出厂跟随系统。落定成 [`Locale`]，供 prompt 模板（触发时解析、
+/// 随任务冻结）与界面文案（渲染帧逐帧取表）共用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Language {
     /// 跟随系统语言。
@@ -247,8 +247,8 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// `enabled_kinds` 已接线（触发时过滤）；`hotkey_bindings` /
 /// `theme` 已接线（保存后重注册热键；主题施加到两个 egui 上下文）——
 /// 都**不**在触发时冻结；`cache_ttl_secs` 归缓存构造接线；
-/// `language` 已接线（触发时经 `Language::prompt_locale` 解析成 prompt
-/// 模板语言，随任务冻结；UI 文案翻译归 R7）。
+/// `language` 已接线（触发时经 `Language::resolve` 解析成 prompt 模板语言、
+/// 随任务冻结，渲染帧另按同一映射取界面文案表）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {

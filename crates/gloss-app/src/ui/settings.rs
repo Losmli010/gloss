@@ -762,10 +762,14 @@ fn theme_combo(ui: &mut egui::Ui, current: &mut Theme, text: &Text) {
 mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
+    use std::sync::Arc;
 
     use egui_kittest::kittest::Queryable;
+    use gloss_core::config_handle::ConfigHandle;
     use gloss_core::model::Locale;
     use gloss_core::task::TaskKind;
+
+    use crate::stubs::ports::MemoryConfigStore;
 
     use super::*;
 
@@ -773,42 +777,57 @@ mod tests {
     fn field_errors_are_worded_per_locale() {
         let zh = &Text::get(Locale::Zh).settings.error;
         let en = &Text::get(Locale::En).settings.error;
-
-        assert_eq!(FieldError::EmptyTrigger.message(zh), "触发键不能为空");
-        assert_eq!(
-            FieldError::EmptyTrigger.message(en),
-            "Hotkey cannot be empty"
-        );
-        assert_eq!(
-            FieldError::DuplicateHotkey { line: 2 }.message(zh),
-            "与第 2 行重复"
-        );
-        assert_eq!(
-            FieldError::DuplicateHotkey { line: 2 }.message(en),
-            "Duplicate of line 2"
-        );
-        assert_eq!(
-            FieldError::InvalidTrigger {
-                trigger: "Cmd+".into()
-            }
-            .message(zh),
-            "无法解析触发键「Cmd+」"
-        );
-        assert_eq!(
-            FieldError::InvalidTrigger {
-                trigger: "Cmd+".into()
-            }
-            .message(en),
-            "Cannot parse hotkey \"Cmd+\""
-        );
-        assert_eq!(
-            FieldError::BaseUrlNotHttps.message(zh),
-            "不是合法地址：应以 https:// 开头"
-        );
+        for (error, zh_message, en_message) in [
+            (
+                FieldError::DuplicateHotkey { line: 2 },
+                "与第 2 行重复",
+                "Duplicate of line 2",
+            ),
+            (
+                FieldError::EmptyTrigger,
+                "触发键不能为空",
+                "Hotkey cannot be empty",
+            ),
+            (
+                FieldError::InvalidTrigger {
+                    trigger: "Cmd+".into(),
+                },
+                "无法解析触发键「Cmd+」",
+                "Cannot parse hotkey \"Cmd+\"",
+            ),
+            (
+                FieldError::NewlineInModel,
+                "不能包含换行",
+                "Must not contain line breaks",
+            ),
+            (
+                FieldError::BaseUrlEmpty,
+                "请填写服务地址",
+                "Enter the service URL",
+            ),
+            (
+                FieldError::BaseUrlNotHttps,
+                "不是合法地址：应以 https:// 开头",
+                "Not a valid URL: it must start with https://",
+            ),
+            (
+                FieldError::BaseUrlCredentials,
+                "不能内嵌账号密码",
+                "Credentials must not be embedded",
+            ),
+            (
+                FieldError::BaseUrlQuery,
+                "不能携带查询参数或锚点",
+                "Query strings and fragments are not allowed",
+            ),
+        ] {
+            assert_eq!(error.message(zh), zh_message, "{error:?}");
+            assert_eq!(error.message(en), en_message, "{error:?}");
+        }
     }
 
     #[test]
-    fn save_failure_notice_names_the_cause_in_the_current_language() {
+    fn save_failure_notice_names_the_cause() {
         let mut state = open(&Config::default());
         state.report(SettingsNotice::SaveFailed(GlossError::Config(
             "disk on fire".into(),
@@ -983,8 +1002,114 @@ mod tests {
     fn english_catalog_relabels_the_settings_window() {
         let (mut harness, _action) = harness_for(open(&Config::default()), Locale::En);
         harness.run();
-        for label in ["Save", "Cancel", "Interface language", "Enable Word card"] {
+        for label in [
+            "Model",
+            "Tasks",
+            "Hotkeys",
+            "General",
+            "Save",
+            "Cancel",
+            "Default task",
+            "Target language",
+            "Task switches",
+            "Clear key",
+            "Interface language",
+            "Interface theme",
+            "Cache lifetime",
+            "Enable Word card",
+        ] {
             harness.get_by_label(label);
+        }
+        assert!(
+            harness.query_by_label("保存").is_none(),
+            "the English table must not leave Chinese labels behind"
+        );
+    }
+
+    #[test]
+    fn saving_the_language_swaps_the_rendered_labels_without_a_restart() {
+        let store = Arc::new(MemoryConfigStore::default());
+        let handle = Arc::new(ConfigHandle::with_config(store, Config::default()));
+        let render = |handle: &ConfigHandle| {
+            let locale = handle.snapshot().language.resolve(Locale::Zh);
+            harness_for(open(&Config::default()), locale)
+        };
+
+        let (mut before, _action) = render(&handle);
+        before.run();
+        before.get_by_label("保存");
+
+        handle
+            .save(Config {
+                language: Language::En,
+                ..Default::default()
+            })
+            .expect("save should succeed");
+
+        let (mut after, _action) = render(&handle);
+        after.run();
+        after.get_by_label("Save");
+        assert!(
+            after.query_by_label("保存").is_none(),
+            "the saved language must drive the very next frame"
+        );
+    }
+
+    #[test]
+    fn a_rendered_notice_follows_the_locale() {
+        let mut state = open(&Config::default());
+        state.report(SettingsNotice::SaveFailed(GlossError::Config(
+            "disk on fire".into(),
+        )));
+
+        let (mut harness, _action) = harness_for(state, Locale::En);
+        harness.run();
+        harness.get_by_label_contains("Could not save settings: disk on fire");
+    }
+
+    #[test]
+    fn every_notice_renders_its_localized_prefix_and_detail() {
+        let zh = Text::get(Locale::Zh);
+        let en = Text::get(Locale::En);
+        for (notice, zh_message, en_message) in [
+            (
+                SettingsNotice::KeyUpdateFailed(GlossError::Config("disk on fire".into())),
+                "密钥更新失败（配置未保存）：disk on fire",
+                "Could not update the API key (settings not saved): disk on fire",
+            ),
+            (
+                SettingsNotice::SaveFailed(GlossError::Config("disk on fire".into())),
+                "保存失败：disk on fire",
+                "Could not save settings: disk on fire",
+            ),
+            (
+                SettingsNotice::KeyUpdatedSaveFailed(GlossError::Config("disk on fire".into())),
+                "密钥已更新，但配置保存失败：disk on fire",
+                "The API key was updated but settings could not be saved: disk on fire",
+            ),
+        ] {
+            assert_eq!(notice.message(zh), zh_message);
+            assert_eq!(notice.message(en), en_message);
+            assert!(
+                !notice.message(zh).contains("{{") && !notice.message(en).contains("{{"),
+                "a mistyped placeholder must not reach the user as literal braces"
+            );
+        }
+    }
+
+    #[test]
+    fn base_url_errors_map_to_their_own_field_error() {
+        for (error, expected) in [
+            (BaseUrlError::Empty, FieldError::BaseUrlEmpty),
+            (BaseUrlError::Invalid, FieldError::BaseUrlNotHttps),
+            (BaseUrlError::NotHttps, FieldError::BaseUrlNotHttps),
+            (
+                BaseUrlError::EmbeddedCredentials,
+                FieldError::BaseUrlCredentials,
+            ),
+            (BaseUrlError::QueryOrFragment, FieldError::BaseUrlQuery),
+        ] {
+            assert_eq!(base_url_error(&error), expected, "{error:?}");
         }
     }
 
@@ -1051,6 +1176,7 @@ mod tests {
             "an invalid draft must not submit a save"
         );
         harness.get_by_label_contains("应以 https:// 开头");
+        harness.get_by_label_contains("有 1 处输入未通过校验");
         harness.get_by_label_contains("已就地标红");
     }
 
@@ -1115,7 +1241,6 @@ mod tests {
         invalid.draft.base_url = "htp://api.example.com".into();
         let (mut harness, _action) = harness_for(invalid, Locale::Zh);
         harness.run();
-        // 走可观察路径进入错误态：点保存被阻断，等同真实用户操作。
         harness.get_by_label("保存").click();
         harness.run();
         harness.get_by_label_contains("已就地标红");
