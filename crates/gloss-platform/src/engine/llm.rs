@@ -152,32 +152,12 @@ impl AiEngine for LlmClient {
 /// 请求端点：由配置快照解析 `{base_url}/chat/completions`。
 fn resolve_endpoint(config: &Config) -> Result<String, GlossError> {
     let base_url = config.base_url.trim();
-    if base_url.is_empty() {
-        return Err(GlossError::Config("no provider endpoint configured".into()));
-    }
+    // 结构性规则（非空/https/无凭据/无 query·fragment）与设置页逐字段
+    // 校验共源：`gloss_core::config::validate_base_url`。
+    gloss_core::config::validate_base_url(base_url)
+        .map_err(|err| GlossError::Config(err.to_string()))?;
     let mut endpoint = reqwest::Url::parse(base_url)
         .map_err(|err| GlossError::Config(format!("invalid provider endpoint: {err}")))?;
-    // 只接受 HTTPS：密钥经这个端点送出去，明文一律拒绝（本机网关请在前面
-    // 终止 TLS）。
-    if endpoint.scheme() != "https" {
-        return Err(GlossError::Config(
-            "provider endpoint must use https".into(),
-        ));
-    }
-    // 这三类成分都会静默改变请求的实际去向，手改配置时给明确错误比猜好：
-    // userinfo 会被 reqwest 抽成 Basic Authorization，与 bearer_auth 叠加成
-    // 两条 Authorization（用户贴进 base_url 的凭据会赢过 keychain 里的密钥）；
-    // query/fragment 会让路径后缀落进错误的位置。
-    if !endpoint.username().is_empty() || endpoint.password().is_some() {
-        return Err(GlossError::Config(
-            "provider endpoint must not embed credentials".into(),
-        ));
-    }
-    if endpoint.query().is_some() || endpoint.fragment().is_some() {
-        return Err(GlossError::Config(
-            "provider endpoint must not carry query or fragment".into(),
-        ));
-    }
     // 用 Url 设路径而不是字符串拼接：手改配置的尾斜杠写没写都得到同一结果。
     let path = format!(
         "{}/{CHAT_COMPLETIONS_PATH}",

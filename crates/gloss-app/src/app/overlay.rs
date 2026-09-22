@@ -118,26 +118,25 @@ pub(super) fn event_kind(event: &Event) -> EventKind {
     }
 }
 
-/// 单个回传事件后浮层要不要自动露面（`auto_show` 策略）。
+/// 单个回传事件后浮层要不要自动露面。
 ///
 /// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
-fn auto_show_for(kind: EventKind, auto_show: bool, accepted: bool) -> bool {
+/// 取材成功即弹（看到浮层就知道「划到了、正在查」）、失败总弹（错误
+/// 不该被吞掉）；流式增量只在已可见的浮层上追加、完成时浮层早已可见
+/// ——两者都不负责露面。auto_show 配置项已移除（owner 2026-09-21）。
+fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
     match kind {
-        EventKind::InputReady => accepted && auto_show,
-        EventKind::TaskDone => accepted && !auto_show,
-        EventKind::TaskChunk => false,
+        EventKind::InputReady => accepted,
         EventKind::TaskFailed => accepted,
+        EventKind::TaskDone | EventKind::TaskChunk => false,
     }
 }
 
 /// 一批回传之后浮层要不要自动露面：**任一**事件判为要显示就显示。
-pub(super) fn auto_show_after(
-    batch: impl IntoIterator<Item = (EventKind, bool)>,
-    auto_show: bool,
-) -> bool {
+pub(super) fn auto_show_after(batch: impl IntoIterator<Item = (EventKind, bool)>) -> bool {
     batch
         .into_iter()
-        .any(|(kind, accepted)| auto_show_for(kind, auto_show, accepted))
+        .any(|(kind, accepted)| auto_show_for(kind, accepted))
 }
 
 #[cfg(test)]
@@ -293,28 +292,17 @@ mod tests {
     fn auto_show_policy_decides_when_the_overlay_pops() {
         use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
 
-        assert!(auto_show_for(InputReady, true, true));
-        assert!(
-            !auto_show_for(TaskDone, true, true),
-            "the overlay is already up since input ready"
-        );
-
-        assert!(!auto_show_for(InputReady, false, true), "取材阶段不打扰");
-        assert!(auto_show_for(TaskDone, false, true), "完成才露面");
-        assert!(
-            auto_show_for(TaskFailed, false, true),
-            "关掉开关也不该把错误吞掉"
-        );
-        assert!(auto_show_for(TaskFailed, true, true));
+        assert!(auto_show_for(InputReady, true));
+        assert!(!auto_show_for(TaskDone, true), "浮层早在取材时就已可见");
+        assert!(!auto_show_for(TaskChunk, true), "chunk 只追加不露面");
+        assert!(auto_show_for(TaskFailed, true), "错误不该被吞掉");
 
         for kind in [InputReady, TaskChunk, TaskDone, TaskFailed] {
             assert!(
-                !auto_show_for(kind, true, false) && !auto_show_for(kind, false, false),
+                !auto_show_for(kind, false),
                 "未被采纳的 {kind:?} 不得触发显示"
             );
         }
-        assert!(!auto_show_for(TaskChunk, true, true));
-        assert!(!auto_show_for(TaskChunk, false, true));
     }
 
     #[test]
@@ -322,21 +310,17 @@ mod tests {
         use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
 
         assert!(
-            auto_show_after([(TaskChunk, true), (TaskDone, true)], false),
-            "关掉开关时，同一批里的完成那一条仍要把浮层带出来"
+            auto_show_after([(TaskChunk, true), (InputReady, true)]),
+            "任一事件要显示就显示"
         );
         assert!(
-            auto_show_after([(TaskDone, false), (TaskFailed, true)], false),
+            auto_show_after([(TaskDone, false), (TaskFailed, true)]),
             "陈旧的成功不得抵消一条被采纳的失败"
         );
         assert!(
-            auto_show_after([(TaskFailed, true), (InputReady, true)], true),
-            "失败与取材同批到达照常露面"
-        );
-        assert!(
-            !auto_show_after([(TaskDone, false), (InputReady, false)], true),
+            !auto_show_after([(TaskDone, false), (InputReady, false)]),
             "整批都没被采纳（陈旧）→ 不显示：迟到的产物不得把浮层弹回来"
         );
-        assert!(!auto_show_after([], true), "空批不显示");
+        assert!(!auto_show_after([]), "空批不显示");
     }
 }

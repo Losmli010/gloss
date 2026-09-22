@@ -13,6 +13,7 @@ pub mod cache;
 pub mod config;
 pub mod config_handle;
 pub mod engine;
+pub mod hotkey;
 pub mod log;
 pub mod model;
 pub mod ports;

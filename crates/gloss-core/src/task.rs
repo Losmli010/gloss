@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::model::{GlossError, Lang, ScreenRect};
 
 /// 任务类型：新增场景 = 加变体 + Prompt 模板 + 结构化结果变体 + UI 模板，管道不动。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TaskKind {
     /// 单词（词典式卡：音标/词性/释义/例句）。
     TranslateWord,

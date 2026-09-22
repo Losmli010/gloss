@@ -11,8 +11,8 @@
 | 人工测试 | 10 | `cargo test -p gloss-platform -- --ignored` |
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
-| 快照测试 | 15 | `just test` |
-| 单元测试 | 235 | `just test` |
+| 快照测试 | 16 | `just test` |
+| 单元测试 | 242 | `just test` |
 
 ## 人工测试
 
@@ -144,8 +144,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用词卡」后保存，当检查上交配置，则 TranslateWord 已停用 | 2026-09-19 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
-| hotkey_rows_expose_trigger_and_kind | 热键行无障碍结构 | 给定出厂三条绑定，当渲染，则 3 行「划词」源标签进 AccessKit 树 | 2026-09-19 |
-| snapshots_match_baseline（settings） | 设置窗渲染基线（含提示行） | 给定默认与带保存失败提示两个状态，当 wgpu 渲染并 diff，则分别与 settings_main / settings_notice 基线一致且提示文本进树 | 2026-09-21 |
+| hotkey_rows_expose_their_triggers | 热键行触发键无障碍结构 | 给定出厂三条绑定，当渲染，则三条触发键值各为可编辑输入节点进 AccessKit 树 | 2026-09-22 |
+| invalid_save_is_blocked_and_recovers | 非法草稿保存被阻断 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
+| snapshots_match_baseline（settings） | 设置窗渲染基线（正常/提示/错误三态） | 给定默认、带保存失败提示、校验错误三个状态，当 wgpu 渲染并 diff，则分别与 settings_main / settings_notice / settings_invalid 基线一致且关键文本进树 | 2026-09-22 |
 
 ## 单元测试
 
@@ -229,6 +230,18 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | saved_version_is_visible_from_another_thread | 保存结果跨线程可见 | 给定另一线程的读者，当 save 完成、信号放行后读取，则必见新版本 | 2026-09-19 |
 | concurrent_readers_never_see_a_mixed_version | 并发读者不见混合版本 | 给定 4 读者与 200 轮 A/B 交替保存，当读者全程校验，则每份快照都是完整版本且末次保存胜出 | 2026-09-19 |
 | concurrent_saves_keep_disk_and_snapshot_in_step | 并发保存盘与快照同步 | 给定 4 写者并发各存 50 次，当全部结束，则磁盘与内存快照同版 | 2026-09-19 |
+| base_url_validation_rejects_structural_problems | Base URL 结构性拒绝 | 给定空串/非 https/缺 scheme/缺 host/内嵌凭据/带 query 或 fragment/中部空白的地址，当 validate_base_url，则按类别返回 Err | 2026-09-22 |
+| base_url_validation_accepts_legal_addresses | Base URL 合法放行 | 给定 https 地址（含首尾空白、无路径、带端口），当 validate_base_url，则 Ok | 2026-09-22 |
+| missing_fields_fall_back_to_defaults_on_deserialize | 缺字段回落出厂默认 | 给定缺 language 字段的配置 JSON，当反序列化，则 language 按出厂跟随系统补齐 | 2026-09-22 |
+
+### crates/gloss-core/src/hotkey.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| parses_modifier_combinations | 触发键语法解析 | 给定 "Cmd+Shift+1"/"ctrl+alt+p"/"Option+K" 等，当 core parse_trigger，则解析出修饰键集合与主键规范名（大小写不敏感、Option≈Alt） | 2026-09-22 |
+| canonical_forms_agree_across_spellings | 同组合不同写法规范化一致 | 给定 Cmd+Alt+T / cmd+alt+t / Meta+Option+T / Super+Opt+T，当取规范化串，则四者一致（重复绑定检测的基础） | 2026-09-22 |
+| named_and_function_keys_resolve | 命名键与功能键解析 | 给定 Enter/Escape/ArrowUp/F12 等主键段，当解析，则得规范物理键名 | 2026-09-22 |
+| bare_keys_and_broken_grammars_are_rejected | 裸键与坏语法拒绝 | 给定空串/仅修饰键/裸键/双主键/未知键（含越界 F25），当解析，则按类别返回 Err（裸键会吞系统输入，必须带修饰键） | 2026-09-22 |
 
 ### crates/gloss-core/src/task.rs
 
@@ -331,8 +344,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | retry_action_redispatches_the_failed_task | Retry 动作重发失败任务 | 给定失败卡 Retry 动作，当执行，则同代数同任务新令牌重发通道③，重试产物照常采纳 | 2026-09-21 |
 | open_settings_action_keeps_the_error_card | 打开设置保留错误卡 | 给定鉴权失败卡，当执行 OpenSettings 动作，则停在 Error、通道③无流量、编辑会话就位 | 2026-09-21 |
 | dismiss_abandons_the_inflight_task_and_returns_to_idle | 收起浮层放弃在途任务 | 给定推理中的浮层，当执行收起出口，则回 Idle、在途令牌取消、视图清空、迟到产物被丢弃 | 2026-09-21 |
-| auto_show_policy_decides_when_the_overlay_pops | 自动弹出按策略表 | 给定事件类别×采纳×开关组合，当逐事件判定，则按策略表露面、未采纳一律不弹、chunk 从不弹 | 2026-09-19 |
-| auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则一条被采纳的完成/失败即弹、整批陈旧不弹、空批不弹 | 2026-09-19 |
+| auto_show_policy_decides_when_the_overlay_pops | 自动弹出按事件类别 | 给定事件类别×采纳组合，当逐事件判定，则取材成功与失败即弹、完成与 chunk 不弹（浮层已可见）、未采纳一律不弹 | 2026-09-22 |
+| auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则任一被采纳的取材/失败即弹、整批陈旧不弹、空批不弹 | 2026-09-22 |
 | show_position_follows_selection_only_for_the_current_generation | 显示位置跟随当代划词 | 给定划词锚点与代数，当决策显示位置，则当代跟随选区（右下偏移）、代数不符或无锚点回落居中 | 2026-09-20 |
 | selection_trigger_records_its_anchor_per_generation | 划词触发按代数记锚点 | 给定两次划词触发，当消费，则锚点随代数刷新为各自释放坐标 | 2026-09-20 |
 
@@ -407,11 +420,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| save_trims_endpoint_and_treats_blank_key_as_unchanged | 保存端点 trim、空白密钥视为未改 | 给定带空白的端点与空白密钥草稿，当 build_save，则端点被 trim、密钥按 Keep 上交 | 2026-09-19 |
-| save_carries_the_key_outside_the_config | 密钥走带外通道不上配置 | 给定非空密钥草稿，当 build_save，则密钥走 KeyUpdate::Replace、不进配置（连 Debug 表示也不含） | 2026-09-19 |
-| clear_key_is_deferred_to_save_and_revocable | 清除密钥延迟到保存且可撤销 | 给定「清除密钥」标记，当交互与保存，则删除延迟到保存生效、重新输入可撤销标记 | 2026-09-19 |
+| save_trims_endpoint_and_treats_blank_key_as_unchanged | 保存端点 trim、空白密钥视为未改 | 给定带空白的端点与空白密钥草稿，当 build_save，则端点被 trim、密钥按 Keep 上交 | 2026-09-22 |
+| save_carries_the_key_outside_the_config | 密钥走带外通道不上配置 | 给定非空密钥草稿，当 build_save，则密钥走 KeyUpdate::Replace、不进配置（连 Debug 表示也不含） | 2026-09-22 |
+| clear_key_is_deferred_to_save_and_revocable | 清除密钥延迟到保存且可撤销 | 给定「清除密钥」标记，当交互与保存，则删除延迟到保存生效、重新输入可撤销标记 | 2026-09-22 |
+| invalid_draft_blocks_save_and_enters_the_error_state | 非法草稿阻断保存进入错误态 | 给定非法 Base URL 草稿，当 build_save，则返回 Idle、置校验态、该字段提示含 https 规则 | 2026-09-22 |
+| duplicate_hotkey_triggers_are_flagged_by_canonical_form | 热键重复按规范化串判定 | 给定两条同组合不同写法的热键，当校验草稿，则后一条标重复、首条保留 | 2026-09-22 |
 | open_copies_the_snapshot_into_the_draft | 打开设置拷贝快照进草稿 | 给定打开时的快照，当建草稿并随后改原配置，则草稿不跟随、可携带提示 | 2026-09-19 |
-| source_labels_cover_all_variants | 输入源标签穷举 | 给定两种输入源，当映射标签，则穷举为「划词」「框选」 | 2026-09-19 |
 
 ### crates/gloss-app/src/ui/style.rs
 
@@ -482,10 +496,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| parses_modifier_combinations | 修饰键组合解析 | 给定 "Cmd+Shift+1"/"ctrl+alt+p"/"Option+K" 等，当 parse_trigger，则解析出 HotKey 与修饰键（大小写不敏感、Option≈Alt） | 2026-09-19 |
-| rejects_malformed_triggers | 坏串拒绝解析 | 给定空串、"Cmd"、"Cmd+Foo"、"Cmd+1+2"、"++" 等，当解析，则返回 Err | 2026-09-19 |
-| code_covers_digits_letters_and_named_keys | 键码覆盖数字字母命名键 | 给定数字/字母/F 键/命名键，当 parse_code，则映射到物理键码；未知键 None | 2026-09-19 |
-| factory_bindings_are_all_registerable | 出厂绑定全部可注册 | 给定出厂默认绑定表，当逐条解析，则全部可解析且都带修饰键 | 2026-09-19 |
+| rejects_malformed_triggers | 坏串拒绝解析 | 给定空串、"Cmd"、"Cmd+Foo"、"Cmd+1+2"、"++" 等，当经 core 语法薄映射解析，则返回 Err | 2026-09-22 |
+| factory_bindings_are_all_registerable | 出厂绑定全部可注册 | 给定出厂默认绑定表，当逐条解析，则全部可解析且都带修饰键 | 2026-09-22 |
 | degraded_registrar_keeps_parsed_table_and_stays_quiet | 降级注册器保持安静 | 给定 None 管理器，当装配 registrar，则不 panic、表保留全部出厂绑定、registered 为空、rebind 回报 0 | 2026-09-19 |
 | registrar_construction_never_panics | 注册器构造与 poll 不 panic | 给定真管理器，当构造与 poll，则不 panic、poll 空（真实注册系统热键，测后注销） | 2026-09-19 |
 | bare_keys_and_duplicates_are_rejected_before_registration | 裸键与重复在注册前拒绝 | 给定含裸键/重复/仅修饰键的表走公共构造，当装配，则非法条目不进表、重复收敛为一条 | 2026-09-19 |

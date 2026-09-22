@@ -77,16 +77,14 @@ impl GlossApp {
     /// 丢弃，浮层只显示最后一次请求的结果。状态决策在 machine，壳只做
     /// 通道发送、浮层展示与日志。
     ///
-    /// 浮层「什么时候自动露面」由 `auto_show` 决定，策略本身抽在
-    /// [`super::overlay::auto_show_for`] / [`super::overlay::auto_show_after`]
-    /// 这两个纯函数里。它是壳侧的展示开关，不随任务下发、也不参与缓存
-    /// key，因此不像任务选项那样在触发时冻结——按到达时的快照读即可。
+    /// 浮层「什么时候自动露面」抽在 [`super::overlay::auto_show_for`] /
+    /// [`super::overlay::auto_show_after`] 这两个纯函数里：取材成功与
+    /// 失败即弹，其余类别不负责露面。
     pub(super) fn drain_events(&mut self, event_loop: &ActiveEventLoop) {
         let events: Vec<Event> = self
             .endpoints
             .as_ref()
             .map_or(Vec::new(), |e| e.events.try_iter().collect());
-        let auto_show = self.config.snapshot().auto_show;
         // 先按批推进状态机、收集每条的采纳结果，再一次性决定这一批要不要
         // 露面：逐条 `|=` 等价于按批取或，抽出来是为了这条语义可测。
         let mut batch = Vec::with_capacity(events.len());
@@ -104,7 +102,7 @@ impl GlossApp {
             };
             batch.push((kind, accepted));
         }
-        if auto_show_after(batch, auto_show)
+        if auto_show_after(batch)
             && let Some(windows) = &mut self.windows
         {
             // 划词触发的浮层跟随选区（代数对得上时），否则居中；屏幕

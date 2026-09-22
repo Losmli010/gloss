@@ -55,8 +55,12 @@ pub mod stroke {
 pub mod color {
     use egui::Color32;
 
-    /// 品牌强调色（珊瑚橙）：浮层身份圆点、设置提示文案。
+    /// 品牌强调色（珊瑚橙）：浮层身份圆点、设置保存主按钮。
     pub const ACCENT: Color32 = Color32::from_rgb(0xD8, 0x5A, 0x30);
+
+    /// 错误色：设置页校验失败的下划线与就地提示、校验汇总行。
+    /// 与 ACCENT 同饱和度带的正红，明暗主题下均可读。
+    pub const DANGER: Color32 = Color32::from_rgb(0xC6, 0x28, 0x28);
 }
 
 #[cfg(test)]

@@ -271,7 +271,7 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Duration;
 
-    use gloss_core::config::{ModelBinding, ProviderKey, Theme};
+    use gloss_core::config::{Language, ModelBinding, ProviderKey, Theme};
     use gloss_core::model::Lang;
     use gloss_core::task::{HotkeyBinding, InputSource, TaskKind};
 
@@ -296,9 +296,9 @@ mod tests {
             }],
             default_text_kind: TaskKind::ExplainCode,
             enabled_kinds: vec![TaskKind::ImageOcr, TaskKind::ImageExplain],
-            auto_show: false,
             cache_ttl_secs: 120,
             theme: Theme::Dark,
+            language: Language::En,
         }
     }
 
