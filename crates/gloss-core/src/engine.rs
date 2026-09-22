@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use crate::cache::cache_key;
+use crate::log::{debug, info};
 use crate::model::GlossError;
 use crate::ports::{AiEngine, Cache, EngineRequest};
 use crate::prompt::{PromptRegistry, STRUCTURED_FENCE};
@@ -56,8 +57,18 @@ impl AiTaskService {
 
         let key = cache_key(task, model);
         if let Some(hit) = self.cache.get(key) {
+            info!(
+                kind = ?task.kind,
+                model = %model,
+                "cache hit, engine call skipped"
+            );
             return Ok(hit);
         }
+        debug!(
+            kind = ?task.kind,
+            model = %model,
+            "cache miss, calling the engine"
+        );
 
         let request = EngineRequest {
             kind: task.kind,

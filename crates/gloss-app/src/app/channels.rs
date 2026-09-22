@@ -126,6 +126,9 @@ impl GlossApp {
                 info!(
                     thread = thread::UI,
                     generation = request.generation,
+                    kind = ?request.task.kind,
+                    target_lang = ?request.task.options.target_lang,
+                    prompt_locale = ?request.task.options.prompt_locale,
                     "input ready, task dispatched to tokio"
                 );
                 self.send_run(request);
