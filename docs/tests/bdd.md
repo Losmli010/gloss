@@ -12,7 +12,7 @@
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 16 | `just test` |
-| 单元测试 | 242 | `just test` |
+| 单元测试 | 243 | `just test` |
 
 ## 人工测试
 
@@ -145,7 +145,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用词卡」后保存，当检查上交配置，则 TranslateWord 已停用 | 2026-09-19 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
 | hotkey_rows_expose_their_triggers | 热键行触发键无障碍结构 | 给定出厂三条绑定，当渲染，则三条触发键值各为可编辑输入节点进 AccessKit 树 | 2026-09-22 |
-| invalid_save_is_blocked_and_recovers | 非法草稿保存被阻断 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
+| invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
 | snapshots_match_baseline（settings） | 设置窗渲染基线（正常/提示/错误三态） | 给定默认、带保存失败提示、校验错误三个状态，当 wgpu 渲染并 diff，则分别与 settings_main / settings_notice / settings_invalid 基线一致且关键文本进树 | 2026-09-22 |
 
 ## 单元测试
@@ -157,7 +157,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | selection_reader_mock_returns_presets | 选区读取桩的两路透传 | 给定预置的成功/失败结果，当调用 SelectionReader 桩的 read，则两路都原样返回（Ok 与 AccessibilityDenied） | 2026-09-19 |
 | region_capture_mock_returns_png | 区域截图桩的字节透传 | 给定预置 PNG 字节，当 capture 一个 4×4 区域，则返回同一份 Arc 缓冲（ptr_eq 断言） | 2026-09-19 |
 | config_store_mock_round_trips_secrets | 密钥存取桩往返 | 给定密钥未设置时读为 None，当 set_secret 后再读，则读回写入值 | 2026-09-19 |
-| config_store_mock_round_trips_document | 配置文档桩往返 | 给定默认存储，当 save 一份 auto_show=false 的文档，则 load 原样读回 | 2026-09-19 |
+| config_store_mock_round_trips_document | 配置文档桩往返 | 给定带非默认 language 的配置文档，当 save 与 load，则往返无损且与出厂默认可区分 | 2026-09-22 |
 | cache_mock_stores_and_isolates_keys | 缓存桩存取与 key 隔离 | 给定 miss→set→hit 序列，当按不同 key 查询，则命中且无关 key 互不可见 | 2026-09-19 |
 | hotkey_binder_mock_records_every_call | 热键绑定桩如实记录 | 给定多次 rebind（含空表），当读桩的 call_count 与 last，则按调用序记录、生效条数如实、最后一次覆盖、空表计 0 | 2026-09-19 |
 | chunk_delay_paces_the_stream | chunk 延迟为流定速 | 给定 30ms chunk 间延迟的三段脚本，当消费流，则内容按序且总耗时下界为两段延迟 | 2026-09-19 |
@@ -239,6 +239,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | parses_modifier_combinations | 触发键语法解析 | 给定 "Cmd+Shift+1"/"ctrl+alt+p"/"Option+K" 等，当 core parse_trigger，则解析出修饰键集合与主键规范名（大小写不敏感、Option≈Alt） | 2026-09-22 |
+| thin_mapping_converts_core_syntax_into_hotkeys | core 语法薄映射为 HotKey（platform） | 给定 "Cmd+Shift+1"/"Ctrl+Return" 等，当 platform parse_trigger，则经规范名映射出 HotKey 与修饰键（命名键转 Code） | 2026-09-22 |
 | canonical_forms_agree_across_spellings | 同组合不同写法规范化一致 | 给定 Cmd+Alt+T / cmd+alt+t / Meta+Option+T / Super+Opt+T，当取规范化串，则四者一致（重复绑定检测的基础） | 2026-09-22 |
 | named_and_function_keys_resolve | 命名键与功能键解析 | 给定 Enter/Escape/ArrowUp/F12 等主键段，当解析，则得规范物理键名 | 2026-09-22 |
 | bare_keys_and_broken_grammars_are_rejected | 裸键与坏语法拒绝 | 给定空串/仅修饰键/裸键/双主键/未知键（含越界 F25），当解析，则按类别返回 Err（裸键会吞系统输入，必须带修饰键） | 2026-09-22 |
@@ -425,6 +426,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | clear_key_is_deferred_to_save_and_revocable | 清除密钥延迟到保存且可撤销 | 给定「清除密钥」标记，当交互与保存，则删除延迟到保存生效、重新输入可撤销标记 | 2026-09-22 |
 | invalid_draft_blocks_save_and_enters_the_error_state | 非法草稿阻断保存进入错误态 | 给定非法 Base URL 草稿，当 build_save，则返回 Idle、置校验态、该字段提示含 https 规则 | 2026-09-22 |
 | duplicate_hotkey_triggers_are_flagged_by_canonical_form | 热键重复按规范化串判定 | 给定两条同组合不同写法的热键，当校验草稿，则后一条标重复、首条保留 | 2026-09-22 |
+| fixing_the_field_restores_save | 改对字段恢复保存 | 给定被阻断的校验态，当修正 Base URL，则错误清空、再次 build_save 上交 Save | 2026-09-22 |
 | open_copies_the_snapshot_into_the_draft | 打开设置拷贝快照进草稿 | 给定打开时的快照，当建草稿并随后改原配置，则草稿不跟随、可携带提示 | 2026-09-19 |
 
 ### crates/gloss-app/src/ui/style.rs

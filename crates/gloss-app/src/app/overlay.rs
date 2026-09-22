@@ -123,7 +123,7 @@ pub(super) fn event_kind(event: &Event) -> EventKind {
 /// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
 /// 取材成功即弹（看到浮层就知道「划到了、正在查」）、失败总弹（错误
 /// 不该被吞掉）；流式增量只在已可见的浮层上追加、完成时浮层早已可见
-/// ——两者都不负责露面。auto_show 配置项已移除（owner 2026-09-21）。
+/// ——两者都不负责露面。
 fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
     match kind {
         EventKind::InputReady => accepted,

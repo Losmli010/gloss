@@ -149,7 +149,11 @@ fn canonical_key_name(name: &str) -> Option<String> {
                 format!("Digit{}", first)
             } else if first.is_ascii_alphabetic() && rest.is_empty() {
                 format!("Key{}", first.to_ascii_uppercase())
-            } else if first == 'f' && !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
+            } else if first == 'f'
+                && !rest.is_empty()
+                && !rest.starts_with('0')
+                && rest.bytes().all(|b| b.is_ascii_digit())
+            {
                 let number: usize = rest.parse().ok()?;
                 (1..=24)
                     .contains(&number)
@@ -190,6 +194,7 @@ mod tests {
     #[test]
     fn named_and_function_keys_resolve() {
         assert_eq!(parse_trigger("Ctrl+Enter").unwrap().key, "Enter");
+        assert_eq!(parse_trigger("Ctrl+Return").unwrap().key, "Enter");
         assert_eq!(parse_trigger("Ctrl+Esc").unwrap().key, "Escape");
         assert_eq!(parse_trigger("Cmd+Up").unwrap().key, "ArrowUp");
         assert_eq!(parse_trigger("Cmd+F12").unwrap().key, "F12");
@@ -218,6 +223,11 @@ mod tests {
             parse_trigger("Cmd+F25"),
             Err(TriggerError::UnknownKey("f25".into())),
             "错误串与原 platform 解析一致（段名小写化后回传）"
+        );
+        assert_eq!(
+            parse_trigger("Cmd+f01"),
+            Err(TriggerError::UnknownKey("f01".into())),
+            "前导零功能键与原 parse_code 一致（Code::from_str 必失败，提前拒绝）"
         );
     }
 }

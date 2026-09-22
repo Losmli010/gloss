@@ -256,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_modifier_combinations() {
+    fn thin_mapping_converts_core_syntax_into_hotkeys() {
         let (hotkey, modifiers) = parse_trigger("Cmd+Shift+1").unwrap();
         assert!(hotkey.id() != 0);
         assert!(modifiers.contains(Modifiers::SUPER) && modifiers.contains(Modifiers::SHIFT));
@@ -265,6 +265,11 @@ mod tests {
             "case-insensitive modifiers"
         );
         assert!(parse_trigger("Option+K").is_ok(), "option aliases alt");
+        let (named, _) = parse_trigger("Ctrl+Return").unwrap();
+        assert!(
+            Code::from_str("Enter").is_ok() && named.id() != 0,
+            "named keys map through the canonical name"
+        );
     }
 
     #[test]

@@ -124,14 +124,18 @@ impl SettingsState {
 /// 计；无错才走整份快照 + 密钥变更（清除标记优先，其次输入框内容，都
 /// 为空则保持原密钥）。
 fn build_save(state: &mut SettingsState) -> SettingsAction {
+    // 保存尝试即进入校验态并保持：壳侧落盘失败保留会话时，后续编辑仍
+    // 实时复检，不会退出错误模式。
+    state.validated = true;
     let errors = validate_draft(&state.draft);
     if !errors.is_empty() {
-        state.validated = true;
         return SettingsAction::Idle;
     }
-    state.validated = false;
     let mut draft = state.draft.clone();
     draft.base_url = draft.base_url.trim().to_owned();
+    for binding in &mut draft.model_by_kind {
+        binding.model = binding.model.trim().to_owned();
+    }
     let api_key = state.api_key.trim();
     let key = if state.clear_key {
         KeyUpdate::Clear
@@ -176,9 +180,9 @@ fn validate_draft(draft: &Config) -> HashMap<FieldKey, String> {
             }
         }
     }
-    // 模型名：禁换行（粘贴事故防护）；空 = 用内置默认，合法。
+    // 模型名：保存时 trim，禁换行（粘贴事故防护）；空 = 用内置默认，合法。
     for binding in &draft.model_by_kind {
-        if binding.model.contains('\n') {
+        if binding.model.trim().contains('\n') {
             errors.insert(FieldKey::Model(binding.kind), "不能包含换行".to_owned());
         }
     }
@@ -199,28 +203,36 @@ fn base_url_hint(err: &BaseUrlError) -> &'static str {
 ///
 /// 自下而上布局：动作行钉在窗口底部（保存主按钮右对齐），提示在其上，
 /// 其余全部区块进滚动区——内容再长也不会把「保存」推出视口。
+/// 窗口内边距由 [`WINDOW_PADDING`] 统一给出。
 pub fn draw(ui: &mut egui::Ui, state: &mut SettingsState) -> SettingsAction {
     let mut action = SettingsAction::Idle;
     let errors = state.errors();
-    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-        // bottom_up 会渗进子 Ui：滚动内容显式转回 top_down，区块才从顶部
-        // 开始排列。
-        action_row(ui, state, &mut action);
-        notices(ui, state, &errors);
-        ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                section(ui, "模型", |ui| connection_section(ui, state, &errors));
-                ui.add_space(space::SECTION);
-                section(ui, "任务", |ui| task_section(ui, state, &errors));
-                ui.add_space(space::SECTION);
-                section(ui, "热键", |ui| hotkey_section(ui, state, &errors));
-                ui.add_space(space::SECTION);
-                section(ui, "通用", |ui| general_section(ui, state));
+    egui::Frame::new()
+        .inner_margin(egui::Margin::same(WINDOW_PADDING))
+        .show(ui, |ui| {
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                // bottom_up 会渗进子 Ui：滚动内容显式转回 top_down，区块才
+                // 从顶部开始排列。
+                action_row(ui, state, &mut action);
+                notices(ui, state, &errors);
+                ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                    ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                        section(ui, "模型", |ui| connection_section(ui, state, &errors));
+                        ui.add_space(space::SECTION);
+                        section(ui, "任务", |ui| task_section(ui, state, &errors));
+                        ui.add_space(space::SECTION);
+                        section(ui, "热键", |ui| hotkey_section(ui, state, &errors));
+                        ui.add_space(space::SECTION);
+                        section(ui, "通用", |ui| general_section(ui, state));
+                    });
+                });
             });
         });
-    });
     action
 }
+
+/// 设置窗口内边距（窗口私有量，docs/14 定版 16）。
+const WINDOW_PADDING: i8 = 16;
 
 /// 动作行：取消（次按钮）+ 保存（ACCENT 主按钮），右对齐。
 fn action_row(ui: &mut egui::Ui, state: &mut SettingsState, action: &mut SettingsAction) {
@@ -384,6 +396,8 @@ fn task_section(ui: &mut egui::Ui, state: &mut SettingsState, errors: &HashMap<F
                 &TEXT_KINDS,
             );
             ui.end_row();
+            caption(ui, "划词触发时使用的任务");
+            ui.end_row();
 
             ui.label("目标语言");
             lang_combo(ui, &mut state.draft.target_lang);
@@ -427,8 +441,8 @@ fn task_section(ui: &mut egui::Ui, state: &mut SettingsState, errors: &HashMap<F
 }
 
 /// 开关行：任务名左、开关钮右；点击切换。开关的可访问标签是
-/// 「启用{任务名}」（与勾选框时代的树标签一致，kittest 按它定位）。
-/// 返回是否被点击。
+/// 「启用{任务名}」——与可见文本区分，读屏与测试按它定位且不与裸
+/// 任务名重名。返回是否被点击。
 fn switch_row(ui: &mut egui::Ui, label: &str, enabled: bool) -> bool {
     ui.horizontal(|ui| {
         ui.label(label);
@@ -686,12 +700,28 @@ mod tests {
         state.draft.base_url = "htp://api.example.com".into();
 
         assert_eq!(build_save(&mut state), SettingsAction::Idle);
-        assert!(state.validated, "a blocked save must enter the error state");
         let errors = state.errors();
         let error = errors
             .get(&FieldKey::BaseUrl)
             .expect("the invalid field must be flagged");
         assert!(error.contains("https"), "hint must name the https rule");
+    }
+
+    #[test]
+    fn fixing_the_field_restores_save() {
+        let mut state = open(&Config::default());
+        state.draft.base_url = "htp://api.example.com".into();
+        assert_eq!(build_save(&mut state), SettingsAction::Idle);
+
+        state.draft.base_url = "https://api.example.com".into();
+        assert!(
+            state.errors().is_empty(),
+            "a fixed field must clear its error"
+        );
+        assert!(matches!(
+            build_save(&mut state),
+            SettingsAction::Save { .. }
+        ));
     }
 
     #[test]
@@ -791,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_save_is_blocked_and_recovers() {
+    fn invalid_save_is_blocked_with_field_hints() {
         let (mut harness, action) = harness_for({
             let mut state = open(&Config::default());
             state.draft.base_url = "htp://api.example.com".into();
@@ -865,8 +895,10 @@ mod tests {
 
         let mut invalid = open(&Config::default());
         invalid.draft.base_url = "htp://api.example.com".into();
-        invalid.validated = true;
         let (mut harness, _action) = harness_for(invalid);
+        harness.run();
+        // 走可观察路径进入错误态：点保存被阻断，等同真实用户操作。
+        harness.get_by_label("保存").click();
         harness.run();
         harness.get_by_label_contains("已就地标红");
         harness.snapshot("settings_invalid");

@@ -127,15 +127,46 @@ pub fn validate_base_url(raw: &str) -> Result<(), BaseUrlError> {
     if !scheme.is_ascii() || scheme.is_empty() {
         return Err(BaseUrlError::Invalid);
     }
-    if scheme != "https" {
+    // scheme 大小写不敏感（url crate 会归一化为小写，`HTTPS://` 一直合法）。
+    if !scheme.eq_ignore_ascii_case("https") {
         return Err(BaseUrlError::NotHttps);
     }
     if rest.contains('?') || rest.contains('#') {
         return Err(BaseUrlError::QueryOrFragment);
     }
-    // authority 到第一个 `/` 为止；`@` 出现在其中即内嵌凭据。
+    // authority 到第一个 `/` 为止；`@` 出现在其中即内嵌凭据（须在
+    // host/port 拆分前检查——userinfo 里可能含冒号）。
     let authority = rest.split('/').next().unwrap_or_default();
-    if authority.is_empty() {
+    if authority.contains('@') {
+        return Err(BaseUrlError::EmbeddedCredentials);
+    }
+    // host 与端口拆分：IPv6 字面量（[...]）自带冒号，需先剥方括号。
+    let (host, port) = if let Some(v6_part) = authority.strip_prefix('[') {
+        match v6_part.split_once(']') {
+            Some((v6, "")) => (format!("[{v6}]"), None),
+            Some((v6, port)) => {
+                let Some(port) = port.strip_prefix(':') else {
+                    return Err(BaseUrlError::Invalid);
+                };
+                (format!("[{v6}]"), Some(port.to_owned()))
+            }
+            None => return Err(BaseUrlError::Invalid),
+        }
+    } else {
+        match authority.rsplit_once(':') {
+            Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => {
+                (host.to_owned(), Some(port.to_owned()))
+            }
+            Some(_) => return Err(BaseUrlError::Invalid),
+            None => (authority.to_owned(), None),
+        }
+    };
+    if host.is_empty() {
+        return Err(BaseUrlError::Invalid);
+    }
+    if let Some(port) = port
+        && port.parse::<u32>().map(|p| p > 65535).unwrap_or(true)
+    {
         return Err(BaseUrlError::Invalid);
     }
     if authority.contains('@') {
@@ -450,8 +481,28 @@ mod tests {
             Err(BaseUrlError::QueryOrFragment)
         );
         assert_eq!(
-            validate_base_url("https://api.example.com/v1#frag"),
+            validate_base_url("https://api.example.com/v1?x=1"),
             Err(BaseUrlError::QueryOrFragment)
+        );
+        assert_eq!(
+            validate_base_url("https://:8080/v1"),
+            Err(BaseUrlError::Invalid),
+            "缺 host 只带端口仍拒绝"
+        );
+        assert_eq!(
+            validate_base_url("https://api.example.com:99999"),
+            Err(BaseUrlError::Invalid),
+            "端口超出 16 位范围拒绝"
+        );
+        assert_eq!(
+            validate_base_url("https://api.example.com:abc"),
+            Err(BaseUrlError::Invalid),
+            "非数字端口拒绝"
+        );
+        assert_eq!(
+            validate_base_url("https://[::1/v1"),
+            Err(BaseUrlError::Invalid),
+            "IPv6 括号不闭合拒绝"
         );
     }
 
@@ -461,6 +512,12 @@ mod tests {
         assert_eq!(validate_base_url("  https://api.deepseek.com  "), Ok(()));
         assert_eq!(validate_base_url("https://api.deepseek.com"), Ok(()));
         assert_eq!(validate_base_url("https://127.0.0.1:8080/v1"), Ok(()));
+        assert_eq!(
+            validate_base_url("HTTPS://Api.Example.com/v1"),
+            Ok(()),
+            "scheme 大小写不敏感（url crate 归一化语义）"
+        );
+        assert_eq!(validate_base_url("https://[::1]:8080/v1"), Ok(()));
     }
 
     #[test]
