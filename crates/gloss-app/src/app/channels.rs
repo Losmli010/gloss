@@ -34,7 +34,7 @@ impl GlossApp {
                 continue;
             }
             let superseded = self.machine.current_cancel().is_some();
-            if let Some(command) = self.machine.trigger(&event, &config) {
+            if let Some(command) = self.machine.trigger(&event, &config, self.system_locale) {
                 info!(
                     thread = thread::UI,
                     generation = self.machine.generation(),

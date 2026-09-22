@@ -160,9 +160,19 @@ fn run_event_loop(
     // 不是第二个；第二个会与它抢热键）。
     let hotkeys = Arc::clone(&registrar) as Arc<dyn HotkeyBinder>;
 
+    // 系统语言只在启动期读一次（改系统语言要重启）：配置里的
+    // `Language::System` 要拿它落定成具体的 prompt 模板语言。适配器对
+    // 「拿不到偏好语言」按英文兜底，因此这里没有失败面。
+    let system_locale = gloss_platform::locale::system_prompt_locale();
+    info!(
+        thread = thread::UI,
+        locale = ?system_locale,
+        "system language resolved"
+    );
+
     let mut command_runtime = None;
     let mut event_thread = None;
-    let result = gloss_app::app::run(endpoints, config, store, hotkeys, |waker| {
+    let result = gloss_app::app::run(endpoints, config, store, hotkeys, system_locale, |waker| {
         // Dock 图标在这里装：macOS 的 NSApplication 单例只允许在 EventLoop
         // 建好之后访问，而本回调是主线程上第一个满足该时机的点（app::run
         // 建完 EventLoop 就回调它，早于任何窗口创建）。

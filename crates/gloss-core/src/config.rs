@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 use crate::model::Lang;
+use crate::prompt::PromptLocale;
 use crate::task::{HotkeyBinding, InputSource, TaskKind};
 
 /// 全部任务类型：`enabled_kinds` 的出厂值与设置页的任务开关列表共用，
@@ -68,6 +69,19 @@ pub enum Language {
     Zh,
     /// English。
     En,
+}
+
+impl Language {
+    /// 本语言的 prompt 模板语言：显式选择直接用；`System` 按调用方给的
+    /// **系统语言**落定——进程内系统语言只会读一次（改系统语言要重启），
+    /// 因此这是纯映射，不做任何探测。
+    pub fn prompt_locale(self, system: PromptLocale) -> PromptLocale {
+        match self {
+            Language::System => system,
+            Language::Zh => PromptLocale::Zh,
+            Language::En => PromptLocale::En,
+        }
+    }
 }
 
 /// 缓存有效期的合法上限（秒）：30 天。0 = 永不失效（合法，进程内缓存
@@ -234,7 +248,8 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// `enabled_kinds` 已接线（触发时过滤）；`hotkey_bindings` /
 /// `theme` 已接线（保存后重注册热键；主题施加到两个 egui 上下文）——
 /// 都**不**在触发时冻结；`cache_ttl_secs` 归缓存构造接线；
-/// `language` 已持久化，消费归 prompt locale（R1）与 UI 文案翻译（R7）。
+/// `language` 已接线（触发时经 `Language::prompt_locale` 解析成 prompt
+/// 模板语言，随任务冻结；UI 文案翻译归 R7）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -515,6 +530,28 @@ mod tests {
             "scheme 大小写不敏感（url crate 归一化语义）"
         );
         assert_eq!(validate_base_url("https://[::1]:8080/v1"), Ok(()));
+    }
+
+    #[test]
+    fn language_resolves_to_prompt_locale() {
+        assert_eq!(
+            Language::System.prompt_locale(PromptLocale::En),
+            PromptLocale::En,
+            "follow-the-system must take the detected system language"
+        );
+        assert_eq!(
+            Language::System.prompt_locale(PromptLocale::Zh),
+            PromptLocale::Zh
+        );
+        assert_eq!(
+            Language::Zh.prompt_locale(PromptLocale::En),
+            PromptLocale::Zh,
+            "an explicit choice ignores the system language"
+        );
+        assert_eq!(
+            Language::En.prompt_locale(PromptLocale::Zh),
+            PromptLocale::En
+        );
     }
 
     #[test]

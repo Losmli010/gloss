@@ -174,6 +174,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | same_text_different_kinds_do_not_share_cache | 缓存 key 按 kind 隔离 | 给定同文本不同 kind，当派生 key 并写词卡条目，则句译 key 不命中、词卡 key 命中 | 2026-09-19 |
 | model_id_participates_in_key | 模型 id 参与 key | 给定同任务同文本，当换模型 id，则 key 不同 | 2026-09-19 |
 | input_and_options_participate_in_key | 输入选项参与 key | 给定同 kind 同文本，当加 hint 或改 target_lang，则 key 均不同 | 2026-09-19 |
+| prompt_locale_participates_in_key | 模板语言参与 key | 给定同 kind 同文本同模型，当换 prompt_locale，则 key 不同（换模板语言不命中旧语言产物） | 2026-09-22 |
 | ttl_expiry_takes_effect | TTL 过期生效 | 给定 TTL 60ms 的条目，当过 120ms 并 run_pending_tasks 后读，则 miss | 2026-09-19 |
 | cache_key_falls_back_when_serialization_fails | 序列化失败时 key 稳定兜底 | 给定含 NaN 的 Audio 输入（序列化失败），当两次派生 key，则结果稳定且与 1.5 的 key 不同 | 2026-09-19 |
 
@@ -200,6 +201,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | explicit_empty_enabled_kinds_disables_everything | 显式空数组语义 | 给定 enabled_kinds 显式空数组，当加载，则所有 kind 停用 | 2026-09-19 |
 | missing_fields_default_while_explicit_empty_stays_empty | 缺省回退与显式空的区分 | 给定 provider_keys/model_by_kind 显式空，当加载，则纯查找为空、resolved 查找回退出厂项、图像 kind 不借文本模型 | 2026-09-19 |
 | selection_kind_falls_back_for_image_kinds | 误配图像默认回退文本 | 给定 default_text_kind 误配成 ImageOcr，当解析划词任务，则回退 TranslateWord | 2026-09-19 |
+| language_resolves_to_prompt_locale | 界面语言落定模板语言 | 给定 System/Zh/En 三态与注入的系统语言，当解析 prompt 模板语言，则 System 取系统语言、显式选择不被系统语言覆盖 | 2026-09-22 |
 | default_cache_ttl_matches_cache_implementation | 默认 TTL 单点一致 | 给定出厂 TTL，当与 cache::DEFAULT_TTL 比对，则相等 | 2026-09-19 |
 | edit_helpers_keep_tables_canonical | 编辑助手保持表规范 | 给定启用/停用与模型编辑操作，当调用助手，则不重复追加、停用幂等、模型按 kind 替换、空白视为未配置 | 2026-09-19 |
 | lookups_prefer_later_entries | 重复条目查找后者胜出 | 给定重复 kind 的多条目，当查找，则后条胜出、未配置为 None、未知 provider 无 keychain id | 2026-09-19 |
@@ -217,6 +219,13 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | image_kinds_are_placeholders_until_m5 | 图像 kind 占位拒绝 | 给定图像 kind 的图像任务，当渲染，则报 UnsupportedModality | 2026-09-19 |
 | modality_mismatch_is_rejected_before_rendering | 模态错配在渲染前拒绝 | 给定图像 kind 配文本输入，当渲染，则先被模态约束拒绝 | 2026-09-19 |
 | messages_serialize_to_openai_shape | 消息序列化为 OpenAI 形态 | 给定 ChatMessage，当序列化，则得 {"role","content"} 的 OpenAI 形态 | 2026-09-19 |
+| render_template_substitutes_placeholders | 占位符显式替换 | 给定含 {{占位符}} 的模板，当渲染，则按值替换、同名占位符可重复；未声明与未闭合的占位符原样保留（留待完整性测试抓） | 2026-09-22 |
+| render_template_drops_lines_whose_placeholders_are_empty | 占位符全空的行整行消失 | 给定提示行与指令行模板，当某行占位符值全为空，则该行连同行内静态文字与换行一并删除，其余行不受影响 | 2026-09-22 |
+| render_template_keeps_blank_lines_without_placeholders | 无占位符空行是结构 | 给定模板里的空行（不含占位符），当渲染，则原样保留 | 2026-09-22 |
+| every_locale_renders_without_leftover_placeholders | 全 locale 无残留占位符 | 给定两个 locale × 三个文本 kind × 三种 hint 组合，当渲染，则两段消息都不含 {{ 且系统指令带结构化契约围栏 | 2026-09-22 |
+| english_locale_renders_english_prompts | 英文 locale 出英文指令 | 给定 En locale 与 SourceLang(Fr) hint，当渲染，则系统指令与提示行标签均为英文、用户消息同样带英文提示行、且不含中文指令词 | 2026-09-22 |
+| prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 En locale 未设目标语言、Zh locale 设 Lang::En，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含「英语」 | 2026-09-22 |
+| prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 prompt_locale 的任务，当渲染，则结果与显式 Zh 逐字一致且含「词典助手」 | 2026-09-22 |
 
 ### crates/gloss-core/src/config_handle.rs
 
@@ -399,6 +408,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | image_default_kind_falls_back_to_a_text_kind | 误配图像默认回退文本 kind | 给定 default_text_kind 误配图像类，当划词触发，则回退 TranslateWord | 2026-09-19 |
 | disabled_kinds_are_not_acquired_and_consume_no_generation | 停用 kind 不取材不占代数 | 给定含停用 kind 的配置，当划词/热键触发停用项，则 None 且不占代数 | 2026-09-19 |
 | options_freeze_at_trigger_time | 选项在触发时刻冻结 | 给定触发后更换配置，当采纳输入，则任务仍带触发时快照的选项；第二次触发才用新值 | 2026-09-19 |
+| prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 Language::En 与出厂 System 两份配置，当触发并采纳输入，则任务携带的 prompt_locale 分别为 En 与注入的系统语言 | 2026-09-22 |
 | accept_input_yields_run_request_and_guards_state | 采纳输入下发请求并守卫状态 | 给定合法 InputReady，当采纳，则返回下发请求、进 Translating、持有取消令牌；同代数重复采纳被拒 | 2026-09-19 |
 | image_input_for_text_kind_is_rejected | 文本 kind 拒绝图像输入 | 给定文本 kind 配图像输入，当采纳，则 None | 2026-09-19 |
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 Translating 态隐藏，当收起，则令牌取消、视图清空回 Idle，迟到同代数产物/失败被拒 | 2026-09-19 |
@@ -440,6 +450,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | install_degrades_to_false_off_the_main_thread | 非主线程安装图标优雅降级 | 给定非主线程调用与坏 PNG 字节，当 install，则不 panic 且如实返回 false | 2026-09-19 |
+
+### crates/gloss-platform/src/locale.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| prompt_locale_maps_preferred_languages | 首选语言映射模板语言 | 给定 zh-Hans-CN / zh_CN / ZH-TW / en-US / ja-JP 与空值，当映射，则中文标签归中文模板、其余（含拿不到偏好语言）归英文模板 | 2026-09-22 |
 
 ### crates/gloss-platform/src/storage/mod.rs
 

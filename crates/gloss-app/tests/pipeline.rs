@@ -21,6 +21,7 @@ use gloss_core::engine::AiTaskService;
 use gloss_core::model::ScreenPoint;
 use gloss_core::model::{GlossError, Lang};
 use gloss_core::ports::AiEngine;
+use gloss_core::prompt::PromptLocale;
 use gloss_core::task::{TaskInput, TaskKind};
 
 mod stubs;
@@ -85,6 +86,7 @@ impl Pipeline {
                     pos: ScreenPoint::new(0, 0),
                 },
                 &self.config.snapshot(),
+                PromptLocale::Zh,
             )
             .expect("selection gesture must acquire");
         let AcquireCommand::AcquireText { generation, .. } = &command else {

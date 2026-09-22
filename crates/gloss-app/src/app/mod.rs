@@ -27,6 +27,7 @@ use std::time::Instant;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::model::ScreenPoint;
 use gloss_core::ports::{ConfigStore, HotkeyBinder};
+use gloss_core::prompt::PromptLocale;
 use winit::dpi::LogicalSize;
 
 use crate::channel::AppEndpoints;
@@ -60,6 +61,9 @@ struct GlossApp {
     settings: Option<SettingsState>,
     /// 热键重绑定端口：设置页保存后在主线程同步调用，不走通道。
     hotkeys: Arc<dyn HotkeyBinder>,
+    /// 启动期读到的系统语言：配置里的 `Language::System` 靠它落定成具体的
+    /// prompt 模板语言（进程内不变，改系统语言要重启）。
+    system_locale: PromptLocale,
     /// 已施加到两个 egui 上下文的主题偏好；`None` 表示还没施加过。
     applied_theme: Option<egui::ThemePreference>,
     /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
@@ -69,12 +73,14 @@ struct GlossApp {
 
 impl GlossApp {
     /// 组装点移交的通道端点、配置句柄、配置存储与热键端口；窗口与帧状态
-    /// 在 `resumed` 时建立。
+    /// 在 `resumed` 时建立。`system_locale` 同样来自组装点（系统语言是
+    /// 平台适配器的事，壳只消费）。
     fn new(
         endpoints: AppEndpoints,
         config: Arc<ConfigHandle>,
         store: Arc<dyn ConfigStore>,
         hotkeys: Arc<dyn HotkeyBinder>,
+        system_locale: PromptLocale,
     ) -> Self {
         Self {
             windows: None,
@@ -88,6 +94,7 @@ impl GlossApp {
             settings_frame: None,
             settings: None,
             hotkeys,
+            system_locale,
             applied_theme: None,
             selection_anchor: None,
         }
@@ -147,6 +154,7 @@ mod test_support {
     use gloss_core::config_handle::ConfigHandle;
     use gloss_core::model::ScreenPoint;
     use gloss_core::ports::{ConfigStore, HotkeyBinder};
+    use gloss_core::prompt::PromptLocale;
     use gloss_core::task::TaskInput;
 
     use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent};
@@ -213,6 +221,7 @@ mod test_support {
             Arc::clone(&config),
             Arc::clone(&store) as Arc<dyn ConfigStore>,
             hotkeys,
+            PromptLocale::Zh,
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
     }
