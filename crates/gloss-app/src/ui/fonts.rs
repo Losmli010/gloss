@@ -49,10 +49,7 @@ fn apply(definitions: &mut FontDefinitions, bytes: Option<&'static [u8]>) -> boo
 }
 
 /// 把一个字体以后备（最低优先级）追加进比例与等宽两个字体族：
-/// 内置字体先挑，挑不到的字形才轮到系统字体。
-///
-/// 字节以借用形态登记：egui 建字体表时对借用字节只存指针，对自有字节逐份复制，
-/// 借用是多个 egui 上下文共用同一份字体内存的形态。
+/// 内置字体先挑，挑不到的字形才轮到系统字体。字节以借用形态登记。
 fn append_fallback(definitions: &mut FontDefinitions, bytes: &'static [u8]) {
     definitions
         .font_data
@@ -80,11 +77,8 @@ mod imp {
 
     /// 依候选顺序查系统 CJK 字体，命中第一个就返回它的字节。
     ///
-    /// 匹配走 CSS Fonts L3 的 `select_best_match`，CoreText 侧按家族名解析出面
-    /// （本机拿到 PingFangSC-Medium，权重不由这里的 properties 决定）。字体集合
-    /// 在 load 时被 font-kit 就地解包成单面数据：表记录只留该面的表、仍指向原
-    /// 文件偏移，缓冲区因而是整份集合的大小（PingFang 77.9MB，该面实际用到的
-    /// 表 13.1MB），egui 侧的 face index 恒为 0。
+    /// 匹配走 CSS Fonts L3 的 `select_best_match`；CoreText 侧按家族名解析出面，
+    /// 交出的数据已被 font-kit 就地解包成单面 sfnt，egui 侧 face index 恒为 0。
     pub(super) fn load_cjk_bytes() -> Option<Vec<u8>> {
         let source = SystemSource::new();
         let mut properties = Properties::new();
@@ -123,10 +117,17 @@ mod imp {
                     }
                 }
             };
-            // 上面那块结束时 font-kit 的字体已析构：此刻 Arc 无其他持有者，
-            // try_unwrap 直接拿走 Vec，不再复制整包（CJK 字体几十 MB）
+            // 走到这里 font-kit 的字体已析构，Arc 只剩这一个持有者：
+            // try_unwrap 直接取走 Vec，不复制整包
             let len = bytes.len();
-            let vec = Arc::try_unwrap(bytes).unwrap_or_else(|arc| (*arc).clone());
+            let vec = Arc::try_unwrap(bytes).unwrap_or_else(|arc| {
+                debug!(
+                    thread = thread::UI,
+                    bytes = len,
+                    "CJK font bytes copied out"
+                );
+                (*arc).clone()
+            });
             info!(
                 thread = thread::UI,
                 family,
@@ -176,13 +177,18 @@ mod tests {
     #[test]
     fn cjk_fallback_without_system_font_installs_nothing() {
         let mut definitions = FontDefinitions::default();
-        let builtin_len = definitions.families[&FontFamily::Proportional].len();
+        let proportional_len = definitions.families[&FontFamily::Proportional].len();
+        let monospace_len = definitions.families[&FontFamily::Monospace].len();
 
         assert!(!apply(&mut definitions, None));
         assert!(!definitions.font_data.contains_key(FONT_NAME));
         assert_eq!(
             definitions.families[&FontFamily::Proportional].len(),
-            builtin_len
+            proportional_len
+        );
+        assert_eq!(
+            definitions.families[&FontFamily::Monospace].len(),
+            monospace_len
         );
     }
 
@@ -209,8 +215,13 @@ mod tests {
     fn system_cjk_font_is_loaded_once() {
         let first = cjk_bytes().expect("host CJK font");
         let second = cjk_bytes().expect("host CJK font");
-
         assert!(!first.is_empty());
         assert!(std::ptr::eq(first, second));
+
+        let mut one = FontDefinitions::default();
+        let mut two = FontDefinitions::default();
+        assert!(apply(&mut one, Some(first)));
+        assert!(apply(&mut two, Some(second)));
+        assert!(std::ptr::eq(registered_bytes(&one), registered_bytes(&two)));
     }
 }
