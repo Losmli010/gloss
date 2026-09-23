@@ -7,11 +7,13 @@
 
 use egui::{Context, ThemePreference};
 use gloss_core::config::Theme;
+use gloss_core::log::{info, thread};
 
 /// 新建装好的 egui 上下文（字体与主题一次到位）——全仓唯一的上下文建立入口。
 pub fn new_context(theme: Theme) -> Context {
     let ctx = Context::default();
-    install(&ctx, theme);
+    let cjk_fallback = install(&ctx, theme);
+    info!(thread = thread::UI, cjk_fallback, "egui context created");
     ctx
 }
 
@@ -25,11 +27,18 @@ pub fn reapply<'a>(contexts: impl IntoIterator<Item = &'a Context>, theme: Theme
     written
 }
 
-/// 施加全部「每个 egui 上下文都要有」的设置；重复施加结果不变
-/// （字体表按定义相等判定，相等即不重建）。
-fn install(ctx: &Context, theme: Theme) {
-    super::fonts::install(ctx);
+/// 施加全部「每个 egui 上下文都要有」的设置，返回字体是否接上；重复施加结果
+/// 不变（字体表按定义相等判定，相等即不重建）。对 egui 上下文的写入都收在这里。
+fn install(ctx: &Context, theme: Theme) -> bool {
+    let cjk_fallback = match super::fonts::definitions() {
+        Some(definitions) => {
+            ctx.set_fonts(definitions);
+            true
+        }
+        None => false,
+    };
     ctx.set_theme(theme_preference(theme));
+    cjk_fallback
 }
 
 /// 配置主题 → egui 主题偏好（出厂跟随系统，设置页可固定明/暗）。
@@ -73,9 +82,11 @@ mod tests {
                 .ctx()
                 .fonts(|fonts| fonts.definitions().font_data.contains_key(fonts::FONT_NAME));
         });
-        // 没有渲染后端消费图集增量：丢弃（epaint 在析构时会对未处理增量断言）
         output.drop_without_applying_deltas();
-        assert!(fallback, "新上下文必须已接上 CJK 后备字体");
+        assert!(
+            fallback,
+            "新上下文必须已接上 CJK 后备字体（宿主机需有系统 CJK 字体）"
+        );
     }
 
     #[test]

@@ -21,8 +21,6 @@ impl GlossApp {
         self.frame = Some(frame);
         self.settings_frame = Some(settings_frame);
         self.windows = Some(windows);
-        // 上下文在建立时已装好字体与主题：记下已施加状态，首帧不必再写一遍
-        self.applied_theme = Some(theme);
         self.draw();
         Ok(())
     }
