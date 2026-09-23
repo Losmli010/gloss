@@ -11,6 +11,7 @@
 #   日志统一出口        —— 除 gloss-core 外不得直接依赖 tracing 三件套。
 #   日志一律英文        —— 日志宏实参里不得出现非 ASCII 字节。
 #   egui 上下文装入点   —— 除 ui/context.rs 外不得直接建立 egui::Context。
+#   FFI 声明集中        —— extern "C" 声明只允许出现在 gloss-platform 的 ffi 模块。
 #   版本单点维护        —— 子 crate 的 version / edition 必须 *.workspace = true，
 #                          字面量只允许出现在根 [workspace.package]。
 #   依赖只开需要的特性  —— 每个第三方依赖声明必须带 default-features = false。
@@ -272,6 +273,26 @@ while IFS= read -r f; do
   fail "约束「egui 上下文统一装入点」：$(rel "$f") 绕过统一装入点 —— 走 ui/context.rs 的 new_context / reapply（$(printf '%s' "$hits" | head -n 1 | cut -c1-40)）"
 done < <(find "$ROOT" -name '*.rs' -type f -not -path "$ROOT/target/*" -not -path "$ROOT/.git/*")
 ok "egui 上下文统一装入点（扫 ${ctx_files} 个 .rs 文件，${ctx_violations} 处绕过）"
+
+# ---- 约束「FFI 声明集中」 ----
+# 平台 FFI 的 extern 声明只允许出现在 gloss-platform 的 ffi 模块（签名与 SAFETY
+# 依据一处审计）；业务模块从那里引用，就地再声明一份会与真签名漂移。C 声明只能
+# 写在 extern 块里，故按块匹配（匹配前去掉空白）；`extern "C" fn name(...)` 形式
+# 的回调定义不在其列：那是我们导出的函数，随各自的业务模块走。
+ffi_owner_dir="crates/gloss-platform/src/ffi/"
+ffi_files=0
+ffi_violations=0
+while IFS= read -r f; do
+  ffi_files=$((ffi_files + 1))
+  case "$(rel "$f")" in
+    "$ffi_owner_dir"*) continue ;;
+  esac
+  hits="$(tr -d ' \t' <"$f" | grep -nE 'extern"C"\{' || true)"
+  [ -n "$hits" ] || continue
+  ffi_violations=$((ffi_violations + 1))
+  fail "约束「FFI 声明集中」：$(rel "$f") 就地声明了 C 接口 —— 收进 gloss-platform 的 ffi 模块（$(printf '%s' "$hits" | head -n 1 | cut -c1-40)）"
+done < <(find "$ROOT" -name '*.rs' -type f -not -path "$ROOT/target/*" -not -path "$ROOT/.git/*")
+ok "FFI 声明集中（扫 ${ffi_files} 个 .rs 文件，${ffi_violations} 处就地声明）"
 
 # ---- 约束「版本单点维护」 ----
 root_ws=""

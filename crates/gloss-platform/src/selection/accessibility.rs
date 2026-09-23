@@ -38,18 +38,11 @@ fn interpret(trusted: bool, outcome: Result<Option<String>, i32>) -> Result<Stri
 }
 
 mod imp {
-    use std::ffi::{CStr, c_void};
-
-    use core_foundation_sys::base::{
-        Boolean, CFGetTypeID, CFIndex, CFRange, CFRelease, CFTypeRef, kCFAllocatorDefault,
-    };
-    use core_foundation_sys::string::{
-        CFStringCreateWithCString, CFStringGetBytes, CFStringGetLength,
-        CFStringGetMaximumSizeForEncoding, CFStringGetTypeID, CFStringRef, kCFStringEncodingUTF8,
-    };
-
     use gloss_core::log::{debug, thread};
     use gloss_core::model::GlossError;
+
+    use crate::ffi::ax::{self, AXUIElementRef};
+    use crate::ffi::cf::{self, CFTypeRef, CfGuard};
 
     use super::{MAX_SELECTION_BYTES, interpret};
 
@@ -57,58 +50,6 @@ mod imp {
     const AX_ERROR_FAILURE: i32 = -25200;
     /// AXError.h 的 kAXErrorSuccess。
     const AX_ERROR_SUCCESS: i32 = 0;
-
-    /// HIServices 的 AX 元素句柄：CF 不透明类型，遵守 +1/-1 内存管理规则。
-    type AXUIElementRef = *mut c_void;
-
-    /// 「焦点元素」属性名的稳定字符串值（kAXFocusedUIElementAttribute 的
-    /// 文档契约，与 System Events/AppleScript 所用同名）。
-    const AX_FOCUSED_UI_ELEMENT: &CStr = c"AXFocusedUIElement";
-    /// 「选中文本」属性名的稳定字符串值（kAXSelectedTextAttribute 同上）。
-    const AX_SELECTED_TEXT: &CStr = c"AXSelectedText";
-
-    #[link(name = "ApplicationServices", kind = "framework")]
-    unsafe extern "C" {
-        /// 当前进程是否已获辅助功能授权（TCC）；纯查询，无前置条件。
-        fn AXIsProcessTrusted() -> Boolean;
-        /// 创建 systemwide AX 元素，成功返回 +1 引用。
-        fn AXUIElementCreateSystemWide() -> AXUIElementRef;
-        /// 复制元素属性：成功时 `value` 收到 +1 引用，失败时不写入。
-        fn AXUIElementCopyAttributeValue(
-            element: AXUIElementRef,
-            attribute: CFStringRef,
-            value: *mut CFTypeRef,
-        ) -> i32;
-    }
-
-    /// 按名构造属性名 CFString：现行系统不再导出 kAX* 数据符号，改用其
-    /// 稳定字符串值。返回 +1 引用，交给 [`CfGuard`] 释放。
-    ///
-    /// # Safety
-    ///
-    /// 分配失败返回 NULL；非 NULL 引用必须恰好释放一次。
-    unsafe fn create_attr_string(name: &CStr) -> Option<CFStringRef> {
-        // SAFETY: `name` 是 NUL 结尾的有效 C 字符串，编码为受支持的 UTF-8；
-        // 分配失败返回 NULL，由调用方判别。
-        let s = unsafe {
-            CFStringCreateWithCString(kCFAllocatorDefault, name.as_ptr(), kCFStringEncodingUTF8)
-        };
-        (!s.is_null()).then_some(s)
-    }
-
-    /// CF 对象守卫：出作用域即 CFRelease，杜绝错误路径上的手工释放遗漏。
-    struct CfGuard(CFTypeRef);
-
-    impl Drop for CfGuard {
-        fn drop(&mut self) {
-            if !self.0.is_null() {
-                // SAFETY: `self.0` 来自 AXUIElementCreateSystemWide /
-                // AXUIElementCopyAttributeValue 的 +1 引用（NULL 已判空），
-                // 此处是唯一释放点，恰好归还一次。
-                unsafe { CFRelease(self.0) };
-            }
-        }
-    }
 
     /// AX 读选区实现：无状态，可按需构造。
     #[derive(Debug, Default, Clone, Copy)]
@@ -124,9 +65,8 @@ mod imp {
         ///
         /// 调用方保证：在平台事件线程上调用。
         pub fn read(&mut self) -> Result<String, GlossError> {
-            // SAFETY: 纯查询型 FFI，无前置条件。未授权时不发起跨进程取值，
-            // 直接按权限语义收口。
-            let trusted = unsafe { AXIsProcessTrusted() } != 0;
+            // 未授权时不发起跨进程取值，直接按权限语义收口。
+            let trusted = ax::is_process_trusted();
             if !trusted {
                 debug!(
                     thread = thread::EVENT,
@@ -159,107 +99,47 @@ mod imp {
     /// 都以 AX 原始错误码返回，语义映射交给 [`interpret`]。
     fn copy_selected_text() -> Result<Option<String>, i32> {
         // SAFETY: 无前置条件；返回的 +1 引用可能为 NULL（系统异常），随后判空。
-        let system_wide = unsafe { AXUIElementCreateSystemWide() };
+        let system_wide = unsafe { ax::create_system_wide() };
         if system_wide.is_null() {
             return Err(AX_ERROR_FAILURE);
         }
-        let _system_wide = CfGuard(system_wide);
+        let _system_wide = CfGuard::new(system_wide as CFTypeRef);
 
         // 属性名按需构造、用毕即释放；分配失败视为本次读取失败。
-        // SAFETY: 入参是 NUL 结尾的字面量，满足 create_attr_string 的契约；
-        // 返回的 +1 引用交由守卫恰好释放一次。
-        let Some(focused_attr) = (unsafe { create_attr_string(AX_FOCUSED_UI_ELEMENT) }) else {
+        let Some(focused_attr) = cf::cf_string(ax::FOCUSED_UI_ELEMENT_ATTRIBUTE) else {
             return Err(AX_ERROR_FAILURE);
         };
-        let _focused_attr = CfGuard(focused_attr as CFTypeRef);
-        // SAFETY: 同上，+1 引用交由守卫释放。
-        let Some(text_attr) = (unsafe { create_attr_string(AX_SELECTED_TEXT) }) else {
+        let Some(text_attr) = cf::cf_string(ax::SELECTED_TEXT_ATTRIBUTE) else {
             return Err(AX_ERROR_FAILURE);
         };
-        let _text_attr = CfGuard(text_attr as CFTypeRef);
 
         // 出参在失败时不写入，成功时由守卫接管 +1 引用。
         let mut focused: CFTypeRef = std::ptr::null();
         // SAFETY: 元素与属性名均为有效 +1 引用，出参指向刚声明的栈上变量。
-        let err = unsafe { AXUIElementCopyAttributeValue(system_wide, focused_attr, &mut focused) };
+        let err =
+            unsafe { ax::copy_attribute(system_wide, focused_attr.string_ref(), &mut focused) };
         if err != AX_ERROR_SUCCESS {
             return Err(err);
         }
-        let _focused = CfGuard(focused);
+        let _focused = CfGuard::new(focused);
 
         let mut value: CFTypeRef = std::ptr::null();
         // SAFETY: `focused` 是上一步成功拷贝的元素引用，其余不变量同上。
         let err = unsafe {
-            AXUIElementCopyAttributeValue(focused as AXUIElementRef, text_attr, &mut value)
+            ax::copy_attribute(
+                focused as AXUIElementRef,
+                text_attr.string_ref(),
+                &mut value,
+            )
         };
         if err != AX_ERROR_SUCCESS {
             return Err(err);
         }
-        let _value = CfGuard(value);
+        let _value = CfGuard::new(value);
 
         // SAFETY: `value` 持有 kAXSelectedTextAttribute 拷贝出的有效 CF 对象，
-        // cfstring 内部先验类型再解引用。
-        Ok(unsafe { cfstring(value) })
-    }
-
-    /// 把 CF 对象转成 Rust 字符串；非 CFString 或编码失败返回 `None`。
-    ///
-    /// # Safety
-    ///
-    /// `value` 必须是有效的 CF 对象引用（+1 引用仍在调用方持有，可为 NULL，
-    /// 也允许非 CFString 类型——内部先验类型）。
-    unsafe fn cfstring(value: CFTypeRef) -> Option<String> {
-        let s = value as CFStringRef;
-        if s.is_null() {
-            return None;
-        }
-        // SAFETY: `s` 非空且为有效 CF 对象；GetTypeID 对任意 CF 对象安全，
-        // 确认类型后才调用 CFString 专属 API。
-        if unsafe { CFGetTypeID(s as CFTypeRef) } != unsafe { CFStringGetTypeID() } {
-            return None;
-        }
-        // SAFETY: `s` 已确认为 CFString，长度查询无前置条件。
-        let len = unsafe { CFStringGetLength(s) };
-        if len == 0 {
-            return Some(String::new());
-        }
-        // SAFETY: UTF-8 为受支持编码，返回非负的编码字节数上界。
-        let max = unsafe { CFStringGetMaximumSizeForEncoding(len, kCFStringEncodingUTF8) };
-        let Ok(max) = usize::try_from(max) else {
-            return None;
-        };
-        // 分配前先设上界：超限（远端报告的异常长度或极端选区）按取不到
-        // 选区处理，无界分配失败会 abort 进程而非返回错误。
-        if max > MAX_SELECTION_BYTES {
-            return None;
-        }
-        let mut buf = vec![0u8; max];
-        let mut used: CFIndex = 0;
-        // SAFETY: `s` 是有效 CFString；缓冲区容量恰为上界 `max`，GetBytes 不
-        // 越界写；lossByte=0 表示无法完整转换时返回值小于请求长度。
-        let converted = unsafe {
-            CFStringGetBytes(
-                s,
-                CFRange {
-                    location: 0,
-                    length: len,
-                },
-                kCFStringEncodingUTF8,
-                0,
-                0,
-                buf.as_mut_ptr(),
-                max as CFIndex,
-                &mut used,
-            )
-        };
-        if converted != len {
-            return None;
-        }
-        let Ok(used) = usize::try_from(used) else {
-            return None;
-        };
-        buf.truncate(used);
-        String::from_utf8(buf).ok()
+        // string_from 内部先验类型再解引用。
+        Ok(unsafe { cf::string_from(value, MAX_SELECTION_BYTES) })
     }
 }
 

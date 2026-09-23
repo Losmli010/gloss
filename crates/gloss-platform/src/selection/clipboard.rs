@@ -32,17 +32,22 @@ fn wait_for_write(
 }
 
 mod imp {
-    use std::ffi::{CStr, c_void};
     use std::time::Instant;
 
     use arboard::Clipboard;
-    use core_foundation_sys::array::{CFArrayGetCount, CFArrayGetValueAtIndex, CFArrayRef};
-    use core_foundation_sys::base::{CFIndex, CFRelease, CFRetain, CFTypeRef, kCFAllocatorDefault};
-    use core_foundation_sys::data::{CFDataCreate, CFDataGetBytePtr, CFDataGetLength, CFDataRef};
-    use core_foundation_sys::string::{
-        CFStringCreateWithCString, CFStringRef, kCFStringEncodingUTF8,
-    };
     use rdev::{EventType, Key};
+
+    use crate::ffi::cf::{
+        self, CFArrayGetCount, CFArrayGetValueAtIndex, CFArrayRef, CFDataCreate, CFDataGetBytePtr,
+        CFDataGetLength, CFDataRef, CFIndex, CFRelease, CFRetain, CFStringRef, CFTypeRef, CfGuard,
+        kCFAllocatorDefault,
+    };
+    use crate::ffi::pasteboard::{
+        CLIPBOARD_NAME, K_PASTEBOARD_MODIFIED, PasteboardClear, PasteboardCopyItemFlavorData,
+        PasteboardCopyItemFlavors, PasteboardCreate, PasteboardGetItemCount,
+        PasteboardGetItemIdentifier, PasteboardItemID, PasteboardPutItemFlavor, PasteboardRef,
+        PasteboardSynchronize,
+    };
 
     use gloss_core::log::{debug, error, thread};
     use gloss_core::model::GlossError;
@@ -51,89 +56,6 @@ mod imp {
 
     /// 复制快捷键的修饰键：Cmd（rdev 映射 Meta）。
     const COPY_MODIFIER: Key = Key::MetaLeft;
-
-    // ---- Pasteboard C API（快照/恢复与写入确认信号）----
-
-    /// 系统剪贴板的注册名（kPasteboardClipboard 的字符串值）。
-    const PASTEBOARD_NAME: &CStr = c"com.apple.pasteboard.clipboard";
-
-    /// kPasteboardModified：自上次经本地引用访问以来全局粘贴板已被修改；
-    /// 标志在 Synchronize 调用时被消费，探针侧需闩锁。
-    const K_PASTEBOARD_MODIFIED: u32 = 1 << 0;
-
-    /// 粘贴板句柄：CF 不透明类型，Create 返回 +1 引用。
-    type PasteboardRef = *mut c_void;
-    /// 粘贴板条目标识符：客户端自定义的不透明指针，同一次快照内唯一即可。
-    type PasteboardItemID = *mut c_void;
-
-    #[link(name = "ApplicationServices", kind = "framework")]
-    unsafe extern "C" {
-        /// 创建指向指定名称全局粘贴板的本地引用（+1），失败返回非零状态码。
-        fn PasteboardCreate(name: CFStringRef, out: *mut PasteboardRef) -> i32;
-        /// 与全局粘贴板同步，返回标志集（含 kPasteboardModified）。
-        fn PasteboardSynchronize(pasteboard: PasteboardRef) -> u32;
-        /// 返回粘贴板条目数，失败返回非零状态码。出参是 ItemCount
-        /// （MacTypes.h 的 unsigned long，Darwin LP64 下 8 字节）。
-        fn PasteboardGetItemCount(pasteboard: PasteboardRef, out_count: *mut usize) -> i32;
-        /// 取条目标识符（index 从 1 起，见 Pasteboard.h），失败返回非零状态码。
-        fn PasteboardGetItemIdentifier(
-            pasteboard: PasteboardRef,
-            index: CFIndex,
-            out: *mut PasteboardItemID,
-        ) -> i32;
-        /// 拷贝条目的全部 flavor 名（CFArray，元素为 CFString，数组 +1 引用），
-        /// 失败返回非零状态码。
-        fn PasteboardCopyItemFlavors(
-            pasteboard: PasteboardRef,
-            item: PasteboardItemID,
-            out: *mut CFArrayRef,
-        ) -> i32;
-        /// 拷贝条目指定 flavor 的原始数据（+1 引用）；数据尚未物化（promised）
-        /// 时失败，失败返回非零状态码。
-        fn PasteboardCopyItemFlavorData(
-            pasteboard: PasteboardRef,
-            item: PasteboardItemID,
-            flavor: CFStringRef,
-            out: *mut CFDataRef,
-        ) -> i32;
-        /// 清空粘贴板全部条目，失败返回非零状态码。
-        fn PasteboardClear(pasteboard: PasteboardRef) -> i32;
-        /// 向条目写入 flavor 数据；不接管 `data` 引用，调用方保活至调用返回。
-        fn PasteboardPutItemFlavor(
-            pasteboard: PasteboardRef,
-            item: PasteboardItemID,
-            flavor: CFStringRef,
-            data: CFDataRef,
-            flags: u32,
-        ) -> i32;
-    }
-
-    /// CF 对象守卫：出作用域即 CFRelease，杜绝错误路径上的手工释放遗漏。
-    struct CfGuard(CFTypeRef);
-
-    impl Drop for CfGuard {
-        fn drop(&mut self) {
-            if !self.0.is_null() {
-                // SAFETY: `self.0` 是创建/拷贝/Retain 函数返回的 +1 引用
-                // （NULL 已判空），此处是唯一释放点，恰好归还一次。
-                unsafe { CFRelease(self.0) };
-            }
-        }
-    }
-
-    /// 按名构造 CFString：返回 +1 引用，交给守卫释放。
-    ///
-    /// # Safety
-    ///
-    /// 分配失败返回 NULL；非 NULL 引用必须恰好释放一次。
-    unsafe fn create_cf_string(name: &CStr) -> Option<CFStringRef> {
-        // SAFETY: `name` 是 NUL 结尾的有效 C 字符串，编码为受支持的 UTF-8；
-        // 分配失败返回 NULL，由调用方判别。
-        let s = unsafe {
-            CFStringCreateWithCString(kCFAllocatorDefault, name.as_ptr(), kCFStringEncodingUTF8)
-        };
-        (!s.is_null()).then_some(s)
-    }
 
     /// 打开的系统粘贴板：引用与名称字符串一并用守卫释放。
     struct OpenPasteboard {
@@ -151,21 +73,15 @@ mod imp {
 
     /// 打开系统剪贴板的本地引用。
     fn open_pasteboard() -> Option<OpenPasteboard> {
-        // SAFETY: 入参是 NUL 结尾的字面量，满足 create_cf_string 的契约；
-        // 返回的 +1 引用交由守卫恰好释放一次。
-        let name = unsafe { create_cf_string(PASTEBOARD_NAME) }?;
-        let name_guard = CfGuard(name as CFTypeRef);
+        let name = cf::cf_string(CLIPBOARD_NAME)?;
         let mut raw: PasteboardRef = std::ptr::null_mut();
         // SAFETY: `name` 是有效 CFString 引用，出参指向栈上变量；失败时不
         // 写入出参。
-        let status = unsafe { PasteboardCreate(name, &mut raw) };
+        let status = unsafe { PasteboardCreate(name.string_ref(), &mut raw) };
         if status != 0 || raw.is_null() {
             return None;
         }
-        Some(OpenPasteboard {
-            raw,
-            _name: name_guard,
-        })
+        Some(OpenPasteboard { raw, _name: name })
     }
 
     /// 写入确认信号源：注入前建立基线，之后轮询代数变化。
@@ -389,7 +305,7 @@ mod imp {
                 );
                 return None;
             }
-            let _flavors = CfGuard(flavors_ref as CFTypeRef);
+            let _flavors = CfGuard::new(flavors_ref as CFTypeRef);
             // SAFETY: `flavors_ref` 是刚拷贝的有效 CFArray 引用。
             let flavor_count = unsafe { CFArrayGetCount(flavors_ref) };
             let Ok(flavor_count) = usize::try_from(flavor_count) else {
@@ -407,7 +323,7 @@ mod imp {
                     as CFStringRef;
                 // SAFETY: `flavor` 是有效 CF 对象引用，Retain 后交由守卫
                 // 恰好释放一次。
-                let name = CfGuard(unsafe { CFRetain(flavor as CFTypeRef) });
+                let name = CfGuard::new(unsafe { CFRetain(flavor as CFTypeRef) });
                 let mut data: CFDataRef = std::ptr::null();
                 // SAFETY: `raw`/`id`/`flavor` 均为有效引用，出参指向栈上
                 // 变量；数据未物化（promised）时返回失败。
@@ -419,7 +335,7 @@ mod imp {
                     );
                     return None;
                 }
-                let _data = CfGuard(data as CFTypeRef);
+                let _data = CfGuard::new(data as CFTypeRef);
                 // SAFETY: `data` 是刚拷贝的有效 CFData 引用，长度与字节
                 // 指针来自同一对象。
                 let (len, bytes_ptr) = unsafe { (CFDataGetLength(data), CFDataGetBytePtr(data)) };
@@ -476,8 +392,8 @@ mod imp {
                 }
                 staged.push((
                     item.id,
-                    flavor.name.0 as CFStringRef,
-                    CfGuard(data as CFTypeRef),
+                    flavor.name.string_ref(),
+                    CfGuard::new(data as CFTypeRef),
                 ));
             }
         }
@@ -491,8 +407,7 @@ mod imp {
         for (id, name, data) in &staged {
             // SAFETY: `raw`/`id`/`name`/`data` 均为阶段一备齐的有效引用；
             // Put 不接管 `data` 引用，由 staged 的守卫释放。
-            let status =
-                unsafe { PasteboardPutItemFlavor(pb.raw, *id, *name, data.0 as CFDataRef, 0) };
+            let status = unsafe { PasteboardPutItemFlavor(pb.raw, *id, *name, data.data_ref(), 0) };
             if status != 0 {
                 debug!(
                     thread = thread::EVENT,
@@ -594,10 +509,12 @@ mod live_tests {
     use std::sync::Mutex;
 
     use arboard::Clipboard;
-    use core_foundation_sys::base::{CFIndex, CFRelease, CFTypeRef, kCFAllocatorDefault};
-    use core_foundation_sys::data::{CFDataCreate, CFDataGetBytePtr, CFDataGetLength, CFDataRef};
-    use core_foundation_sys::string::{
-        CFStringCreateWithCString, CFStringRef, kCFStringEncodingUTF8,
+
+    use crate::ffi::cf::{self, CFDataGetBytePtr, CFDataGetLength, CFDataRef, CFIndex, CfGuard};
+    use crate::ffi::pasteboard::{
+        CLIPBOARD_NAME, PasteboardClear, PasteboardCopyItemFlavorData, PasteboardCreate,
+        PasteboardGetItemIdentifier, PasteboardItemID, PasteboardPutItemFlavor, PasteboardRef,
+        PasteboardSynchronize,
     };
 
     use super::imp::ClipboardFallbackReader;
@@ -716,63 +633,18 @@ mod live_tests {
         );
     }
 
-    type PasteboardRef = *mut c_void;
-    type PasteboardItemID = *mut c_void;
-
-    #[link(name = "ApplicationServices", kind = "framework")]
-    unsafe extern "C" {
-        fn PasteboardCreate(name: CFStringRef, out: *mut PasteboardRef) -> i32;
-        fn PasteboardSynchronize(pasteboard: PasteboardRef) -> u32;
-        fn PasteboardClear(pasteboard: PasteboardRef) -> i32;
-        fn PasteboardPutItemFlavor(
-            pasteboard: PasteboardRef,
-            item: PasteboardItemID,
-            flavor: CFStringRef,
-            data: CFDataRef,
-            flags: u32,
-        ) -> i32;
-        fn PasteboardGetItemIdentifier(
-            pasteboard: PasteboardRef,
-            index: CFIndex,
-            out: *mut PasteboardItemID,
-        ) -> i32;
-        fn PasteboardCopyItemFlavorData(
-            pasteboard: PasteboardRef,
-            item: PasteboardItemID,
-            flavor: CFStringRef,
-            out: *mut CFDataRef,
-        ) -> i32;
-    }
-
-    unsafe fn cf_string(name: &CStr) -> CFStringRef {
-        // SAFETY: `name` 是 NUL 结尾的有效 C 字符串，编码受支持。
-        unsafe {
-            CFStringCreateWithCString(kCFAllocatorDefault, name.as_ptr(), kCFStringEncodingUTF8)
-        }
-    }
-
-    unsafe fn cf_data(bytes: &[u8]) -> CFDataRef {
-        // SAFETY: `bytes` 在本次调用内存活且非悬空，长度即缓冲长度。
-        unsafe { CFDataCreate(kCFAllocatorDefault, bytes.as_ptr(), bytes.len() as CFIndex) }
-    }
-
     fn preset_items(items: &[(&str, &CStr, &[u8])]) -> bool {
-        let clipboard_name = c"com.apple.pasteboard.clipboard";
-        // SAFETY: 入参是 NUL 结尾的字面量；非 NULL 引用在函数尾部释放。
-        let name_ref = unsafe { cf_string(clipboard_name) };
-        if name_ref.is_null() {
+        let Some(name_ref) = cf::cf_string(CLIPBOARD_NAME) else {
             return false;
-        }
-        // SAFETY: `name_ref` 非空，此处是唯一释放点。
-        let _name = ReleaseOnDrop(name_ref as CFTypeRef);
+        };
         let mut pb: PasteboardRef = std::ptr::null_mut();
         // SAFETY: `name_ref` 是有效 CFString 引用，出参指向栈上变量。
-        let status = unsafe { PasteboardCreate(name_ref, &mut pb) };
+        let status = unsafe { PasteboardCreate(name_ref.string_ref(), &mut pb) };
         if status != 0 || pb.is_null() {
             return false;
         }
-        // SAFETY: `pb` 是 PasteboardCreate 返回的 +1 引用，此处是唯一释放点。
-        let _pb = ReleaseOnDrop(pb as CFTypeRef);
+        // SAFETY: `pb` 是 PasteboardCreate 返回的 +1 引用，交给守卫释放。
+        let _pb = CfGuard::new(pb as *const c_void);
 
         // SAFETY: `pb` 是有效 +1 引用。
         let status = unsafe { PasteboardClear(pb) };
@@ -795,77 +667,61 @@ mod live_tests {
         flavor: &CStr,
         data: &[u8],
     ) -> bool {
-        // SAFETY: `c"public.utf8-plain-text"` 是 NUL 结尾的字面量。
-        let text_ref = unsafe { cf_string(c"public.utf8-plain-text") };
-        // SAFETY: `flavor` 是 NUL 结尾的有效 C 字符串。
-        let flavor_ref = unsafe { cf_string(flavor) };
-        // SAFETY: `text` 字节在本次调用内存活，非 NULL 引用由后续判别。
-        let text_data = unsafe { cf_data(text.as_bytes()) };
-        // SAFETY: `data` 字节在本次调用内存活，非 NULL 引用由后续判别。
-        let flavor_data = unsafe { cf_data(data) };
-        // SAFETY: 四个引用的 +1 归属移交守卫，函数尾统一释放。
-        let _refs = (
-            ReleaseOnDrop(text_ref as CFTypeRef),
-            ReleaseOnDrop(flavor_ref as CFTypeRef),
-            ReleaseOnDrop(text_data as CFTypeRef),
-            ReleaseOnDrop(flavor_data as CFTypeRef),
-        );
-        if text_ref.is_null()
-            || flavor_ref.is_null()
-            || text_data.is_null()
-            || flavor_data.is_null()
-        {
+        let (Some(text_ref), Some(flavor_ref), Some(text_data), Some(flavor_data)) = (
+            cf::cf_string(c"public.utf8-plain-text"),
+            cf::cf_string(flavor),
+            cf::cf_data(text.as_bytes()),
+            cf::cf_data(data),
+        ) else {
             return false;
-        }
-        // SAFETY: `pb`/`text_ref`/`text_data` 均为有效引用，Put 不接管引用。
-        let status = unsafe { PasteboardPutItemFlavor(pb, item_id, text_ref, text_data, 0) };
+        };
+        // SAFETY: `pb` 与四个引用的守卫均存活到函数末尾，Put 不接管引用。
+        let status = unsafe {
+            PasteboardPutItemFlavor(pb, item_id, text_ref.string_ref(), text_data.data_ref(), 0)
+        };
         if status != 0 {
             return false;
         }
-        // SAFETY: `pb`/`flavor_ref`/`flavor_data` 均为有效引用，Put 不接管引用。
-        let status = unsafe { PasteboardPutItemFlavor(pb, item_id, flavor_ref, flavor_data, 0) };
+        // SAFETY: 同上，引用仍由守卫持有。
+        let status = unsafe {
+            PasteboardPutItemFlavor(
+                pb,
+                item_id,
+                flavor_ref.string_ref(),
+                flavor_data.data_ref(),
+                0,
+            )
+        };
         status == 0
     }
 
     fn clear_pasteboard_for_test() -> bool {
-        let clipboard_name = c"com.apple.pasteboard.clipboard";
-        // SAFETY: 入参是 NUL 结尾的字面量；非 NULL 引用在函数尾部释放。
-        let name_ref = unsafe { cf_string(clipboard_name) };
-        if name_ref.is_null() {
+        let Some(name_ref) = cf::cf_string(CLIPBOARD_NAME) else {
             return false;
-        }
-        // SAFETY: `name_ref` 非空，此处是唯一释放点。
-        let _name = ReleaseOnDrop(name_ref as CFTypeRef);
+        };
         let mut pb: PasteboardRef = std::ptr::null_mut();
         // SAFETY: `name_ref` 是有效 CFString 引用，出参指向栈上变量。
-        let status = unsafe { PasteboardCreate(name_ref, &mut pb) };
+        let status = unsafe { PasteboardCreate(name_ref.string_ref(), &mut pb) };
         if status != 0 || pb.is_null() {
             return false;
         }
-        // SAFETY: `pb` 是 PasteboardCreate 返回的 +1 引用，此处是唯一释放点。
-        let _pb = ReleaseOnDrop(pb as CFTypeRef);
+        // SAFETY: `pb` 是 PasteboardCreate 返回的 +1 引用，交给守卫释放。
+        let _pb = CfGuard::new(pb as *const _);
         // SAFETY: `pb` 是有效 +1 引用。
         let status = unsafe { PasteboardClear(pb) };
         status == 0
     }
 
     fn read_flavor_data(item_index: CFIndex, flavor: &CStr) -> Option<Vec<u8>> {
-        let clipboard_name = c"com.apple.pasteboard.clipboard";
-        // SAFETY: 入参是 NUL 结尾的字面量；非 NULL 引用在函数尾部释放。
-        let name_ref = unsafe { cf_string(clipboard_name) };
-        if name_ref.is_null() {
-            return None;
-        }
-        // SAFETY: `name_ref` 非空，此处是唯一释放点。
-        let _name = ReleaseOnDrop(name_ref as CFTypeRef);
+        let name_ref = cf::cf_string(CLIPBOARD_NAME)?;
         let mut pb: PasteboardRef = std::ptr::null_mut();
         // SAFETY: `name_ref` 是有效 CFString 引用，出参指向栈上变量。
-        let status = unsafe { PasteboardCreate(name_ref, &mut pb) };
+        let status = unsafe { PasteboardCreate(name_ref.string_ref(), &mut pb) };
         if status != 0 || pb.is_null() {
             return None;
         }
-        // SAFETY: `pb` 是 PasteboardCreate 返回的 +1 引用，此处是唯一释放点。
-        let _pb = ReleaseOnDrop(pb as CFTypeRef);
+        // SAFETY: `pb` 是 PasteboardCreate 返回的 +1 引用，交给守卫释放。
+        let _pb = CfGuard::new(pb as *const _);
         // SAFETY: `pb` 是有效 +1 引用；本地引用可能滞后于全局板，先同步。
         unsafe { PasteboardSynchronize(pb) };
         let mut id: PasteboardItemID = std::ptr::null_mut();
@@ -874,16 +730,11 @@ mod live_tests {
         if status != 0 {
             return None;
         }
-        // SAFETY: `flavor` 是 NUL 结尾的有效 C 字符串。
-        let flavor_ref = unsafe { cf_string(flavor) };
-        if flavor_ref.is_null() {
-            return None;
-        }
-        // SAFETY: `flavor_ref` 非空，此处是唯一释放点。
-        let _flavor = ReleaseOnDrop(flavor_ref as CFTypeRef);
+        let flavor_ref = cf::cf_string(flavor)?;
         let mut data: CFDataRef = std::ptr::null();
-        // SAFETY: `pb`/`id`/`flavor_ref` 均为有效引用，出参指向栈上变量。
-        let status = unsafe { PasteboardCopyItemFlavorData(pb, id, flavor_ref, &mut data) };
+        // SAFETY: `pb`/`id` 与 `flavor_ref` 均为有效引用，出参指向栈上变量。
+        let status =
+            unsafe { PasteboardCopyItemFlavorData(pb, id, flavor_ref.string_ref(), &mut data) };
         if status != 0 || data.is_null() {
             return None;
         }
@@ -899,18 +750,6 @@ mod live_tests {
         // 数恰为 `len`。
         let bytes = unsafe { std::slice::from_raw_parts(bytes_ptr, len) };
         Some(bytes.to_vec())
-    }
-
-    struct ReleaseOnDrop(CFTypeRef);
-
-    impl Drop for ReleaseOnDrop {
-        fn drop(&mut self) {
-            if !self.0.is_null() {
-                // SAFETY: `self.0` 是创建/拷贝函数返回的 +1 引用（NULL 已
-                // 判空），此处是唯一释放点，恰好归还一次。
-                unsafe { CFRelease(self.0) };
-            }
-        }
     }
 
     #[test]

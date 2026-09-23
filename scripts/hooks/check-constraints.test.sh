@@ -215,6 +215,21 @@ mut_installed_egui_context() {
   mkdir -p "$FIX/crates/gloss-app/src/ui"
   printf 'let ctx = Context::default();\n' >"$FIX/crates/gloss-app/src/ui/context.rs"
 }
+mut_ffi_declared_outside() {
+  mkdir -p "$FIX/crates/gloss-platform/src"
+  printf '#[link(name = "CoreGraphics", kind = "framework")]\nunsafe extern "C" {\n    fn CGWarpMouseCursorPosition(p: u32) -> i32;\n}\n' \
+    >"$FIX/crates/gloss-platform/src/sneaky.rs"
+}
+mut_ffi_declared_in_owner() {
+  mkdir -p "$FIX/crates/gloss-platform/src/ffi"
+  printf '#[link(name = "CoreGraphics", kind = "framework")]\nunsafe extern "C" {\n    pub(crate) fn CGWarpMouseCursorPosition(p: u32) -> i32;\n}\n' \
+    >"$FIX/crates/gloss-platform/src/ffi/cg.rs"
+}
+mut_ffi_callback_definition() {
+  mkdir -p "$FIX/crates/gloss-platform/src"
+  printf 'extern "C" fn fire(info: *mut c_void) {\n    let _ = info;\n}\n' \
+    >"$FIX/crates/gloss-platform/src/callback.rs"
+}
 mut_crate_version_literal() {
   replace_line "$FIX/crates/gloss-app/Cargo.toml" "version.workspace = true" 'version = "0.1.0"'
 }
@@ -272,6 +287,12 @@ assert_case "统一装入点之外调用 set_fonts" 1 mut_fonts_written_outside 
 assert_case "统一装入点之外调用 set_theme" 1 mut_theme_written_outside "egui 上下文统一装入点"
 assert_case "注了 constraints:allow-context 的阴性对照放过" 0 mut_context_allowed "0 处绕过"
 assert_case "统一装入点内建立上下文（不应误报）" 0 mut_installed_egui_context "0 处绕过"
+
+echo ""
+echo "-- 约束「FFI 声明集中」（应拒绝，退出码非 0）--"
+assert_case "业务模块就地声明 C 接口" 1 mut_ffi_declared_outside "FFI 声明集中"
+assert_case "ffi 模块内声明 C 接口（不应误报）" 0 mut_ffi_declared_in_owner "0 处就地声明"
+assert_case "导出的 C 回调定义不算就地声明" 0 mut_ffi_callback_definition "0 处就地声明"
 
 echo ""
 echo "-- 约束「版本单点维护」（应拒绝，退出码非 0）--"
