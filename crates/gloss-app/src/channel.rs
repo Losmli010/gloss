@@ -2,10 +2,12 @@
 //!
 //! 请求代数（字段名 `generation`，文档记作 gen——`gen` 是 Rust 2024 保留字）只在
 //! App 一处赋值：`PlatformEvent` 不含它，其后所有消息携带同一个值，主线程对
-//! 不匹配的回传事件静默丢弃。取消不走通道——`CancellationToken` 随 `RunTask`
+//! 不匹配的回传事件静默丢弃。下发方向（②③）的载荷还带着触发点的任务 span
+//! （见 [`Traced`]），接收线程的日志因此自动带上代数。取消不走通道——`CancellationToken` 随 `RunTask`
 //! 下发 clone，取消立即生效且覆盖多个 await 点。
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
+use gloss_core::log::Span;
 use gloss_core::model::{GlossError, ScreenPoint, ScreenRect};
 use gloss_core::task::{HotkeyBinding, Task, TaskInput, TaskKind, TaskOutcome};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -113,6 +115,27 @@ pub enum Event {
     },
 }
 
+/// 带任务 span 的通道载荷：span 在触发点创建（代数在那里赋值），随通道②③
+/// 下发到平台事件线程与 tokio——接收侧进入它，范围内的日志自动带上
+/// `generation`（含取材读选区、推理引擎这些拿不到代数的深层日志点）。
+#[derive(Debug, Clone)]
+pub struct Traced<T> {
+    /// 原始载荷。
+    pub payload: T,
+    /// 本次任务的 span。
+    pub span: Span,
+}
+
+impl<T> Traced<T> {
+    /// 不带 span 的载荷：测试与不属于任何任务的命令用（进入空 span 是空操作）。
+    pub fn untraced(payload: T) -> Self {
+        Self {
+            payload,
+            span: Span::none(),
+        }
+    }
+}
+
 /// crossbeam 无界通道对：①②④ 共用这一选型（MPMC + 主线程 `try_recv` 非阻塞）。
 pub struct CrossbeamPair<T> {
     /// 发送端，可克隆（MPMC）。
@@ -138,9 +161,9 @@ impl<T> Default for CrossbeamPair<T> {
 /// 通道③的 tokio half：Receiver 移交 tokio 消费任务，Sender 留在主线程。
 pub struct CommandChannel {
     /// 发送端，留在主线程。
-    pub tx: UnboundedSender<Command>,
+    pub tx: UnboundedSender<Traced<Command>>,
     /// 接收端，移交 tokio 消费任务。
-    pub rx: UnboundedReceiver<Command>,
+    pub rx: UnboundedReceiver<Traced<Command>>,
 }
 
 impl CommandChannel {
@@ -163,8 +186,8 @@ impl Default for CommandChannel {
 pub struct Channels {
     /// 通道①：平台事件源 → 主线程。
     pub platform_events: CrossbeamPair<PlatformEvent>,
-    /// 通道②：主线程 → 平台事件线程（取材命令）。
-    pub acquire_commands: CrossbeamPair<AcquireCommand>,
+    /// 通道②：主线程 → 平台事件线程（取材命令 + 任务 span）。
+    pub acquire_commands: CrossbeamPair<Traced<AcquireCommand>>,
     /// 通道③：主线程 → tokio（推理任务）。
     pub commands: CommandChannel,
     /// 通道④：事件线程 / tokio → 主线程（取材与推理回传）。
@@ -196,9 +219,9 @@ pub struct AppEndpoints {
     /// 通道①接收端：主线程在事件循环里消费平台事件。
     pub platform_events: Receiver<PlatformEvent>,
     /// 通道②发送端：主线程向事件线程下发取材命令。
-    pub acquire_commands: Sender<AcquireCommand>,
+    pub acquire_commands: Sender<Traced<AcquireCommand>>,
     /// 通道③发送端：主线程把组装好的任务随取消令牌下发 tokio。
-    pub commands: UnboundedSender<Command>,
+    pub commands: UnboundedSender<Traced<Command>>,
     /// 通道④接收端：主线程在事件循环里消费取材与推理回传。
     pub events: Receiver<Event>,
 }
@@ -260,7 +283,7 @@ mod tests {
 
     #[test]
     fn acquire_commands_carry_app_assigned_gen() {
-        let ch = CrossbeamPair::<AcquireCommand>::new();
+        let ch = CrossbeamPair::<Traced<AcquireCommand>>::new();
         let commands = vec![
             AcquireCommand::AcquireText {
                 generation: 1,
@@ -278,10 +301,10 @@ mod tests {
             },
         ];
         for c in &commands {
-            ch.tx.send(c.clone()).unwrap();
+            ch.tx.send(Traced::untraced(c.clone())).unwrap();
         }
         for expected in commands {
-            assert_eq!(ch.rx.recv().unwrap(), expected);
+            assert_eq!(ch.rx.recv().unwrap().payload, expected);
         }
     }
 
@@ -290,18 +313,18 @@ mod tests {
         let mut ch = CommandChannel::new();
         let cancel = CancellationToken::new();
         ch.tx
-            .send(Command::RunTask {
+            .send(Traced::untraced(Command::RunTask {
                 generation: 7,
                 task: sample_task(),
                 cancel: cancel.clone(),
-            })
+            }))
             .unwrap();
 
         let Command::RunTask {
             generation,
             task,
             cancel: received,
-        } = ch.rx.blocking_recv().unwrap();
+        } = ch.rx.blocking_recv().unwrap().payload;
         assert_eq!(generation, 7);
         assert_eq!(task, sample_task());
         assert!(!received.is_cancelled());
@@ -428,19 +451,19 @@ mod tests {
         channels
             .acquire_commands
             .tx
-            .send(AcquireCommand::AcquireText {
+            .send(Traced::untraced(AcquireCommand::AcquireText {
                 generation: 1,
                 kind: TaskKind::ExplainCode,
-            })
+            }))
             .unwrap();
         channels
             .commands
             .tx
-            .send(Command::RunTask {
+            .send(Traced::untraced(Command::RunTask {
                 generation: 1,
                 task: sample_task(),
                 cancel: CancellationToken::new(),
-            })
+            }))
             .unwrap();
         channels
             .events
@@ -458,14 +481,14 @@ mod tests {
             }
         );
         assert_eq!(
-            channels.acquire_commands.rx.recv().unwrap(),
+            channels.acquire_commands.rx.recv().unwrap().payload,
             AcquireCommand::AcquireText {
                 generation: 1,
                 kind: TaskKind::ExplainCode
             }
         );
         assert!(matches!(
-            channels.commands.rx.blocking_recv().unwrap(),
+            channels.commands.rx.blocking_recv().unwrap().payload,
             Command::RunTask { generation: 1, .. }
         ));
         assert_eq!(

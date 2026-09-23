@@ -168,7 +168,7 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let crate::channel::Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        let crate::channel::Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(
             task.options.model_override.as_deref(),
             Some("deepseek-reasoner")

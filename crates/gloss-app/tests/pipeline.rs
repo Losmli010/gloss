@@ -11,7 +11,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use gloss_app::channel::{AcquireCommand, Channels, Command, Event, PlatformEvent};
+use gloss_app::channel::{AcquireCommand, Channels, Command, Event, PlatformEvent, Traced};
 use gloss_app::machine::{AppState, ErrorAction, OverlayView, TaskStateMachine};
 use gloss_app::pipeline::start_command_runtime;
 use gloss_core::cache::MokaCache;
@@ -70,8 +70,8 @@ struct Pipeline {
     machine: TaskStateMachine,
     config: Arc<ConfigHandle>,
     _pe_tx: crossbeam_channel::Sender<PlatformEvent>,
-    _ac_tx: crossbeam_channel::Sender<AcquireCommand>,
-    commands_tx: tokio::sync::mpsc::UnboundedSender<Command>,
+    _ac_tx: crossbeam_channel::Sender<Traced<AcquireCommand>>,
+    commands_tx: tokio::sync::mpsc::UnboundedSender<Traced<Command>>,
     events_rx: crossbeam_channel::Receiver<Event>,
     _runtime: gloss_app::pipeline::CommandRuntime,
 }
@@ -103,11 +103,11 @@ impl Pipeline {
             )
             .expect("input should be accepted while fetching");
         self.commands_tx
-            .send(Command::RunTask {
+            .send(Traced::untraced(Command::RunTask {
                 generation: request.generation,
                 task: request.task,
                 cancel: request.cancel.clone(),
-            })
+            }))
             .expect("command channel open");
         request.cancel
     }
@@ -260,11 +260,11 @@ fn error_card_retry_redispatches_the_same_task() {
     let request = pipe.machine.retry().expect("retry must be available");
     assert_eq!(request.generation, generation, "retry keeps the generation");
     pipe.commands_tx
-        .send(Command::RunTask {
+        .send(Traced::untraced(Command::RunTask {
             generation: request.generation,
             task: request.task,
             cancel: request.cancel,
-        })
+        }))
         .expect("command channel open");
     wait_done(&mut pipe);
     assert_eq!(pipe.machine.state(), AppState::Show);

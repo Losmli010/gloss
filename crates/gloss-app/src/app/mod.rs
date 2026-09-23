@@ -26,6 +26,7 @@ use std::time::Instant;
 
 use gloss_core::config::Theme;
 use gloss_core::config_handle::ConfigHandle;
+use gloss_core::log::Span;
 use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
 use gloss_core::ports::{ConfigStore, HotkeyBinder};
@@ -72,6 +73,9 @@ struct GlossApp {
     /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
     /// 代数对不上（热键触发、陈旧）时浮层回落居中。
     selection_anchor: Option<(u64, ScreenPoint)>,
+    /// 当前任务的 span（触发点创建）：随通道②③下发，让接收线程的日志自动
+    /// 带上 `generation`。重试沿用同一个（代数不变）。
+    task_span: Option<Span>,
 }
 
 impl GlossApp {
@@ -100,7 +104,14 @@ impl GlossApp {
             system_locale,
             applied_theme: None,
             selection_anchor: None,
+            task_span: None,
         }
+    }
+
+    /// 当前任务 span 的副本：`enter()` 的守卫借用这个局部值，与 `&mut self`
+    /// 不冲突；无任务时为 `None`（空操作）。
+    fn current_task_span(&self) -> Option<Span> {
+        self.task_span.clone()
     }
 
     /// 当前界面语言：配置里的三态偏好按启动期系统语言落定（与 prompt
@@ -168,7 +179,7 @@ mod test_support {
     use gloss_core::ports::{ConfigStore, HotkeyBinder};
     use gloss_core::task::TaskInput;
 
-    use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent};
+    use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent, Traced};
     use crate::machine::OverlayView;
     use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder};
 
@@ -179,8 +190,8 @@ mod test_support {
         Arc<ConfigHandle>,
         Arc<dyn ConfigStore>,
         crossbeam_channel::Sender<PlatformEvent>,
-        crossbeam_channel::Receiver<AcquireCommand>,
-        tokio::sync::mpsc::UnboundedReceiver<Command>,
+        crossbeam_channel::Receiver<Traced<AcquireCommand>>,
+        tokio::sync::mpsc::UnboundedReceiver<Traced<Command>>,
         crossbeam_channel::Sender<Event>,
     );
 
