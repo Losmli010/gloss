@@ -276,9 +276,9 @@ ok "egui 上下文统一装入点（扫 ${ctx_files} 个 .rs 文件，${ctx_viol
 
 # ---- 约束「FFI 声明集中」 ----
 # 平台 FFI 的 extern 声明只允许出现在 gloss-platform 的 ffi 模块（签名与 SAFETY
-# 依据一处审计）；业务模块从那里引用，就地再声明一份会与真签名漂移——R2 收编的
-# 正是这类重复（AXIsProcessTrusted 的 u8/Boolean、粘贴板 extern 两处）。回调定义
-# （`extern "C" fn name(...)`）不在其列：那是我们导出的函数，随各自的业务模块走。
+# 依据一处审计）；业务模块从那里引用，就地再声明一份会与真签名漂移。C 声明只能
+# 写在 extern 块里，故按块匹配（匹配前去掉空白）；`extern "C" fn name(...)` 形式
+# 的回调定义不在其列：那是我们导出的函数，随各自的业务模块走。
 ffi_owner_dir="crates/gloss-platform/src/ffi/"
 ffi_files=0
 ffi_violations=0
@@ -287,7 +287,7 @@ while IFS= read -r f; do
   case "$(rel "$f")" in
     "$ffi_owner_dir"*) continue ;;
   esac
-  hits="$(grep -nE 'extern "C" \{' "$f" || true)"
+  hits="$(tr -d ' \t' <"$f" | grep -nE 'extern"C"\{' || true)"
   [ -n "$hits" ] || continue
   ffi_violations=$((ffi_violations + 1))
   fail "约束「FFI 声明集中」：$(rel "$f") 就地声明了 C 接口 —— 收进 gloss-platform 的 ffi 模块（$(printf '%s' "$hits" | head -n 1 | cut -c1-40)）"

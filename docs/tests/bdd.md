@@ -502,7 +502,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | --- | --- | --- | --- |
 | cf_string_round_trips_back_to_utf8 | CFString 往返回环 | 给定 C 字符串，当构造 CFString 再转回 Rust 字符串，则内容逐字一致（含非 ASCII） | 2026-09-23 |
 | string_from_rejects_non_string_objects | 非 CFString 拒绝转换 | 给定 CFData，当按字符串转换，则返回 None（先验类型） | 2026-09-23 |
-| string_from_respects_the_byte_ceiling | 字节上界先于分配判定 | 给定超过上界的长度，当转换，则返回 None 而非分配缓冲 | 2026-09-23 |
+| string_from_respects_the_byte_ceiling | 字节上界起作用 | 给定远低于所需的字节上界，当转换，则返回 None | 2026-09-23 |
 | empty_cf_string_converts_to_empty_rust_string | 空串转换 | 给定空 CFString，当转换，则得到空 Rust 字符串而非 None | 2026-09-23 |
 
 ### crates/gloss-platform/src/locale.rs

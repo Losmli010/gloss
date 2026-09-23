@@ -146,8 +146,9 @@ mod tests {
     fn string_from_rejects_non_string_objects() {
         let guard = cf_data(b"not a string").expect("cf data");
 
-        // SAFETY: 守卫持有有效 +1 引用；类型不符由内部判定。
-        let text = unsafe { string_from(guard.data_ref() as CFTypeRef, 1024) };
+        // SAFETY: 守卫持有有效 +1 引用；上界刻意放到最大，让类型检查成为唯一
+        // 可能的拒绝原因。
+        let text = unsafe { string_from(guard.data_ref() as CFTypeRef, usize::MAX) };
         assert_eq!(text, None);
     }
 
