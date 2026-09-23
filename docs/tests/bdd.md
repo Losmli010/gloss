@@ -11,8 +11,8 @@
 | 人工测试 | 10 | `cargo test -p gloss-platform -- --ignored` |
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
-| 快照测试 | 22 | `just test` |
-| 单元测试 | 268 | `just test` |
+| 快照测试 | 24 | `just test` |
+| 单元测试 | 272 | `just test` |
 
 ## 人工测试
 
@@ -127,7 +127,7 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_failed_auth、popup_selfcheck；settings 快照基线：settings_main、settings_notice、settings_invalid。
+popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_failed_auth、popup_selfcheck；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -142,11 +142,13 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
 | snapshots_match_baseline（popup） | 浮层五视图渲染基线 | 给定五个视图（含自检卡），当 wgpu 渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck 五份基线一致，结果合并进单个 SnapshotResults | 2026-09-21 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
-| task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用词卡」后保存，当检查上交配置，则 TranslateWord 已停用 | 2026-09-19 |
+| task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用翻译」后保存，当检查上交配置，则 TranslateSentence 已停用（默认任务不在此列——停用它会被跨字段校验拦下） | 2026-09-23 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
 | hotkey_rows_expose_their_triggers | 热键行触发键无障碍结构 | 给定出厂三条绑定，当渲染，则三条触发键值各为可编辑输入节点进 AccessKit 树 | 2026-09-22 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
-| snapshots_match_baseline（settings） | 设置窗渲染基线（正常/提示/错误三态） | 给定默认、带保存失败提示、校验错误三个状态，当 wgpu 渲染并 diff，则分别与 settings_main / settings_notice / settings_invalid 基线一致且关键文本进树 | 2026-09-22 |
+| a_disabled_default_task_is_blocked_with_an_in_place_hint | 停用的默认任务阻断保存并就地提示 | 给定默认任务被任务开关停用的设置窗，当点保存，则不上交 Save、默认任务行出停用提示（替换该行说明提示），启用该任务后恢复可保存 | 2026-09-23 |
+| switching_off_the_default_task_is_blocked_until_it_comes_back | 关掉默认任务所在开关被拦下 | 给定出厂配置的设置窗，当点掉「启用词卡」再保存，则不上交 Save 且出停用提示（首次保存前不唠叨），开关扳回后恢复可保存 | 2026-09-23 |
+| snapshots_match_baseline（settings） | 设置窗渲染基线（正常/提示/错误/默认任务停用四态） | 给定默认、带保存失败提示、校验错误、默认任务被停用四个状态，当 wgpu 渲染并 diff，则分别与 settings_main / settings_notice / settings_invalid / settings_default_kind_disabled 基线一致且关键文本进树 | 2026-09-23 |
 | failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、协议异常（带诊断）、取材通道不可用、推理通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-09-22 |
 | failure_card_follows_the_locale | 失败卡随 locale 出表 | 给定英文 locale 的网络失败卡，当渲染，则出英文文案与英文「Retry」动作 | 2026-09-22 |
 | save_failure_notice_names_the_cause | 保存失败提示出场合与诊断 | 给定带 SaveFailed(Config) 类型化提示的设置窗（中文表），当渲染，则出「保存失败：<诊断>」（前缀交代场合、诊断不重复本地化整句） | 2026-09-22 |
@@ -343,12 +345,13 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | stale_input_ready_is_dropped_entirely | 陈旧 InputReady 整体丢弃 | 给定陈旧代数 InputReady，当采纳，则整体丢弃、不下发通道③ | 2026-09-19 |
 | saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置，当下一次触发，则目标语言与模型随任务下发 | 2026-09-19 |
 | saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定触发后、产物到达前保存新配置，当在途任务下发，则仍用触发时快照 | 2026-09-19 |
+| a_disabled_default_kind_makes_the_selection_gesture_a_no_op | 默认任务被停用时划词彻底无声 | 给定默认任务被停用的配置，当划词触发，则取材命令不下发、代数不推进、状态留 Idle（浮层与失败卡都没有）；换回出厂配置后同一手势照常下发 | 2026-09-23 |
 
 ### crates/gloss-app/src/i18n.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 75（条数钉住，防遍历退化） | 2026-09-22 |
+| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 76（条数钉住，防遍历退化） | 2026-09-23 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language_en）外无一与中文表逐字相同 | 2026-09-23 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 gloss_ 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
 | placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条 | 2026-09-22 |
@@ -432,6 +435,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | trigger_mapping_covers_wired_events_only | 触发映射只覆盖已接线事件 | 给定划词手势与未接线的框选热键，当 trigger，则前者发 AcquireText、后者 None 且不占代数 | 2026-09-19 |
+| trigger_route_separates_disabled_triggers_from_unwired_events | 触发去向分出停用与未接线 | 给定默认任务与热键均被停用的配置，当 trigger_route，则两者各报 Disabled（划词 kind 经配置收口）、框选绑定与设置请求为 None、出厂配置为 Allowed | 2026-09-23 |
 | selection_kind_and_options_pair_with_one_snapshot | kind 与选项出自同一快照 | 给定自定义配置快照，当划词触发并采纳输入，则 kind 与模型/语言选项出自同一份快照 | 2026-09-19 |
 | image_default_kind_falls_back_to_a_text_kind | 误配图像默认回退文本 kind | 给定 default_text_kind 误配图像类，当划词触发，则回退 TranslateWord | 2026-09-19 |
 | disabled_kinds_are_not_acquired_and_consume_no_generation | 停用 kind 不取材不占代数 | 给定含停用 kind 的配置，当划词/热键触发停用项，则 None 且不占代数 | 2026-09-19 |
@@ -462,10 +466,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | save_carries_the_key_outside_the_config | 密钥走带外通道不上配置 | 给定非空密钥草稿，当 build_save，则密钥走 KeyUpdate::Replace、不进配置（连 Debug 表示也不含） | 2026-09-22 |
 | clear_key_is_deferred_to_save_and_revocable | 清除密钥延迟到保存且可撤销 | 给定「清除密钥」标记，当交互与保存，则删除延迟到保存生效、重新输入可撤销标记 | 2026-09-22 |
 | invalid_draft_blocks_save_and_enters_the_error_state | 非法草稿阻断保存进入错误态 | 给定非法 Base URL 草稿，当 build_save，则返回 Idle、置校验态、该字段提示含 https 规则 | 2026-09-22 |
+| a_disabled_default_task_blocks_save | 停用的默认任务阻断保存 | 给定默认任务设为被停用的代码解释，当 build_save，则返回 Idle、默认任务行标停用错误，启用该任务后错误清空并恢复上交 Save | 2026-09-23 |
+| the_default_task_rule_follows_the_selection_kind_fold | 默认任务规则按收口后的 kind 判定 | 给定手改配置把默认任务写成图像 kind，当校验草稿，则判的是划词实际用的 TranslateWord——它启用即放行、它停用即标红（照字段面判会漏判） | 2026-09-23 |
 | duplicate_hotkey_triggers_are_flagged_by_canonical_form | 热键重复按规范化串判定 | 给定两条同组合不同写法的热键，当校验草稿，则后一条标重复、首条保留 | 2026-09-22 |
 | fixing_the_field_restores_save | 改对字段恢复保存 | 给定被阻断的校验态，当修正 Base URL，则错误清空、再次 build_save 上交 Save | 2026-09-22 |
 | open_copies_the_snapshot_into_the_draft | 打开设置拷贝快照进草稿 | 给定打开时的快照，当建草稿并随后改原配置，则草稿不跟随、可携带提示 | 2026-09-19 |
-| field_errors_are_worded_per_locale | 字段错误按 locale 出措辞 | 给定全部八类字段错误（含行号与触发键回显两种模板），当按中英文表取文案，则各出对应措辞（换臂或漏译会被抓住） | 2026-09-22 |
+| field_errors_are_worded_per_locale | 字段错误按 locale 出措辞 | 给定全部九类字段错误（含行号与触发键回显两种模板），当按中英文表取文案，则各出对应措辞（换臂或漏译会被抓住） | 2026-09-23 |
 | every_notice_renders_its_localized_prefix_and_detail | 三类提示的中英措辞 | 给定三类壳回写提示（各带同一诊断），当按中英表取文案，则前缀与诊断都按表落地、且无残留的 {{占位符}}（两条从未渲染过的模板由此覆上） | 2026-09-22 |
 | base_url_errors_map_to_their_own_field_error | Base URL 错因映射到字段错误 | 给定五类 BaseUrlError，当映射，则空/语法与 https/内嵌凭据/查询参数各落到对应 FieldError（内嵌凭据与查询参数两臂易错） | 2026-09-22 |
 

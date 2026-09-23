@@ -374,42 +374,56 @@ fn source_text(task: &Task) -> String {
     }
 }
 
-/// 平台事件 → 取材命令的映射：每次真实触发占用一个新代数；未接线的
-/// 平台事件（框选、设置、退出）与被任务开关停用的 kind 返回 None。划词
-/// 手势的任务类型来自配置的 `default_text_kind`，并按取材源收口成文本类
-/// ——配置写成图像 kind 时不送进引擎挨模态校验（见
-/// `Config::selection_task_kind`）；热键绑定携带的 kind 是逐条显式意图，
-/// 不做收口（只看开关）。
+/// 一次平台事件的去向：进取材，或被任务开关拦下。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TriggerRoute {
+    /// 放行：该任务类型已启用，事件进入取材。
+    Allowed(TaskKind),
+    /// 拦下：该任务类型被设置页的任务开关停用。
+    Disabled(TaskKind),
+}
+
+/// 事件若是一次真实触发，给出它的去向；未接线的事件（框选、设置、退出）
+/// 返回 `None`。
+///
+/// 停用判定只在本函数里做一次：取材映射按 `Allowed` 放行，壳按 `Disabled`
+/// 记一条 warn——被任务开关停用的触发是用户能自己修的配置问题，与「事件
+/// 还没接线」不是一类，日志级别因此不同（见 [`AcquireCommand`] 的两个
+/// `None` 出口）。
+///
+/// 划词手势的任务类型来自配置的 `default_text_kind`，并按取材源收口成文本
+/// 类——配置写成图像 kind 时不送进引擎挨模态校验（见
+/// `Config::selection_task_kind`）；热键绑定携带的 kind 是逐条显式意图，不
+/// 做收口（只看开关）。
+pub fn trigger_route(event: &PlatformEvent, config: &Config) -> Option<TriggerRoute> {
+    let kind = match event {
+        PlatformEvent::HotkeyTriggered { binding } => match binding.source {
+            InputSource::Selection => binding.kind,
+            // 图像取材待框选路径接入后消费。
+            InputSource::Region => return None,
+        },
+        PlatformEvent::SelectionGesture { .. } => config.selection_task_kind(),
+        PlatformEvent::RegionGesture { .. }
+        | PlatformEvent::OpenSettingsRequested
+        | PlatformEvent::QuitRequested => return None,
+    };
+    Some(if config.is_kind_enabled(kind) {
+        TriggerRoute::Allowed(kind)
+    } else {
+        TriggerRoute::Disabled(kind)
+    })
+}
+
+/// 平台事件 → 取材命令的映射：每次真实触发占用一个新代数；未接线的平台
+/// 事件与停用的 kind 返回 None（判定见 [`trigger_route`]）。
 fn acquire_command_for(
     event: &PlatformEvent,
     generation: u64,
     config: &Config,
 ) -> Option<AcquireCommand> {
-    match event {
-        PlatformEvent::HotkeyTriggered { binding } => {
-            // 任务开关：停用的 kind 对一切触发路径无响应，且不
-            // 占用代数——与未接线事件同一出口。
-            if !config.is_kind_enabled(binding.kind) {
-                return None;
-            }
-            match binding.source {
-                InputSource::Selection => Some(AcquireCommand::AcquireText {
-                    generation,
-                    kind: binding.kind,
-                }),
-                // 图像取材待框选路径接入后消费。
-                InputSource::Region => None,
-            }
-        }
-        PlatformEvent::SelectionGesture { .. } => {
-            let kind = config.selection_task_kind();
-            config
-                .is_kind_enabled(kind)
-                .then_some(AcquireCommand::AcquireText { generation, kind })
-        }
-        PlatformEvent::RegionGesture { .. }
-        | PlatformEvent::OpenSettingsRequested
-        | PlatformEvent::QuitRequested => None,
+    match trigger_route(event, config)? {
+        TriggerRoute::Allowed(kind) => Some(AcquireCommand::AcquireText { generation, kind }),
+        TriggerRoute::Disabled(_) => None,
     }
 }
 
@@ -492,6 +506,91 @@ mod tests {
             machine.generation(),
             1,
             "unwired events must not consume a generation"
+        );
+    }
+
+    #[test]
+    fn trigger_route_separates_disabled_triggers_from_unwired_events() {
+        let config = Config {
+            default_text_kind: TaskKind::ExplainCode,
+            enabled_kinds: vec![TaskKind::TranslateWord],
+            ..Default::default()
+        };
+        assert_eq!(
+            trigger_route(&selection_gesture(), &config),
+            Some(TriggerRoute::Disabled(TaskKind::ExplainCode)),
+            "a selection whose default task is switched off is a trigger the user can fix"
+        );
+        assert_eq!(
+            trigger_route(
+                &PlatformEvent::HotkeyTriggered {
+                    binding: gloss_core::task::HotkeyBinding {
+                        trigger: "Cmd+Shift+E".into(),
+                        kind: TaskKind::ExplainCode,
+                        source: gloss_core::task::InputSource::Selection,
+                    }
+                },
+                &config
+            ),
+            Some(TriggerRoute::Disabled(TaskKind::ExplainCode)),
+            "a disabled hotkey binding is disabled, not unwired"
+        );
+        assert_eq!(
+            trigger_route(
+                &PlatformEvent::HotkeyTriggered {
+                    binding: gloss_core::task::HotkeyBinding {
+                        trigger: "Cmd+Shift+R".into(),
+                        kind: TaskKind::ImageOcr,
+                        source: gloss_core::task::InputSource::Region,
+                    }
+                },
+                &config
+            ),
+            None,
+            "region bindings stay outside the route table until the capture path lands"
+        );
+        assert_eq!(
+            trigger_route(
+                &PlatformEvent::HotkeyTriggered {
+                    binding: gloss_core::task::HotkeyBinding {
+                        trigger: "Cmd+Shift+O".into(),
+                        kind: TaskKind::ImageOcr,
+                        source: gloss_core::task::InputSource::Selection,
+                    }
+                },
+                &Config::default()
+            ),
+            Some(TriggerRoute::Allowed(TaskKind::ImageOcr)),
+            "a hotkey kind is an explicit per-binding choice: no text-kind fold applies to it"
+        );
+        assert_eq!(
+            trigger_route(&PlatformEvent::OpenSettingsRequested, &config),
+            None,
+            "settings is an entry point, not a trigger"
+        );
+        assert_eq!(
+            trigger_route(
+                &PlatformEvent::RegionGesture {
+                    rect: ScreenRect {
+                        x: 0,
+                        y: 0,
+                        width: 10,
+                        height: 10,
+                    },
+                },
+                &config
+            ),
+            None,
+            "the capture gesture has no acquisition path yet"
+        );
+        assert_eq!(
+            trigger_route(&PlatformEvent::QuitRequested, &config),
+            None,
+            "quit is an exit, not a trigger"
+        );
+        assert_eq!(
+            trigger_route(&selection_gesture(), &Config::default()),
+            Some(TriggerRoute::Allowed(TaskKind::TranslateWord))
         );
     }
 

@@ -71,6 +71,7 @@ gloss_settings_notice_key_update_failed = "密钥更新失败（配置未保存�
 gloss_settings_notice_save_failed = "保存失败：{{detail}}"
 gloss_settings_notice_key_updated_save_failed = "密钥已更新，但配置保存失败：{{detail}}"
 
+gloss_settings_error_default_kind_disabled = "默认任务已停用：请在下方「任务开关」中启用它"
 gloss_settings_error_duplicate_hotkey = "与第 {{line}} 行重复"
 gloss_settings_error_empty_trigger = "触发键不能为空"
 gloss_settings_error_invalid_trigger = "无法解析触发键「{{trigger}}」"
