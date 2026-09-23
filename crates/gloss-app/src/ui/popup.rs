@@ -198,7 +198,7 @@ fn render_content(
 ) -> Option<OverlayAction> {
     match view {
         None => {
-            let action = header(ui, Some(text.popup.selfcheck.as_str()), false, text);
+            let action = header(ui, Some(text.gloss_popup_selfcheck.as_str()), false, text);
             ui.add_space(space::SECTION);
             selfcheck_body(ui);
             *content_h = ui.min_rect().height();
@@ -245,7 +245,7 @@ fn render_content(
             cause,
             action: error_action,
         }) => {
-            let mut action = header(ui, Some(text.popup.failed.as_str()), false, text);
+            let mut action = header(ui, Some(text.gloss_popup_failed.as_str()), false, text);
             ui.add_space(space::SECTION);
             ui.label(
                 RichText::new(failure_message(cause, text))
@@ -274,17 +274,17 @@ fn render_content(
 /// 失败卡文案：按失败来源映射。
 fn failure_message(cause: &FailureCause, text: &Text) -> String {
     match cause {
-        FailureCause::Task(error) => text.errors.for_error(error),
-        FailureCause::AcquireChannel => text.errors.acquire_channel.clone(),
-        FailureCause::TransportChannel => text.errors.inference_channel.clone(),
+        FailureCause::Task(error) => text.for_error(error),
+        FailureCause::AcquireChannel => text.gloss_errors_acquire_channel.clone(),
+        FailureCause::TransportChannel => text.gloss_errors_inference_channel.clone(),
     }
 }
 
 /// 动作按钮的文案。
 fn action_label(action: ErrorAction, text: &Text) -> &str {
     match action {
-        ErrorAction::Retry => text.popup.retry.as_str(),
-        ErrorAction::OpenSettings => text.popup.open_settings.as_str(),
+        ErrorAction::Retry => text.gloss_popup_retry.as_str(),
+        ErrorAction::OpenSettings => text.gloss_popup_open_settings.as_str(),
     }
 }
 
@@ -300,7 +300,7 @@ fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool, text: &Text) -> Opti
         ui.painter()
             .circle_filled(rect.center(), 4.0, color::ACCENT);
         ui.label(
-            RichText::new(text.popup.brand.as_str())
+            RichText::new(text.gloss_popup_brand.as_str())
                 .size(font::CAPTION)
                 .color(weak),
         );
@@ -315,7 +315,7 @@ fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool, text: &Text) -> Opti
                 egui::WidgetInfo::labeled(
                     egui::WidgetType::Button,
                     true,
-                    text.popup.close_label.as_str(),
+                    text.gloss_popup_close_label.as_str(),
                 )
             });
             if close.clicked() {
@@ -326,7 +326,7 @@ fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool, text: &Text) -> Opti
                 egui::WidgetInfo::labeled(
                     egui::WidgetType::Button,
                     true,
-                    text.popup.settings_label.as_str(),
+                    text.gloss_popup_settings_label.as_str(),
                 )
             });
             if gear.clicked() {
@@ -591,11 +591,11 @@ mod kittest_tests {
 
     #[test]
     fn failure_card_words_each_cause() {
-        let errors = &Text::get(Locale::Zh).errors;
+        let errors = Text::get(Locale::Zh);
         for (cause, expected) in [
             (
                 FailureCause::Task(GlossError::EngineNetwork),
-                errors.engine_network.as_str(),
+                errors.gloss_errors_engine_network.as_str(),
             ),
             (
                 FailureCause::Task(GlossError::EngineResponse("HTTP 400".into())),

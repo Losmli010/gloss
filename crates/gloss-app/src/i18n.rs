@@ -21,170 +21,116 @@ const ZH: &str = include_str!("../i18n/zh.toml");
 /// 英文文案。
 const EN: &str = include_str!("../i18n/en.toml");
 
-/// 一个 locale 的全部界面文案。
+/// 一个 locale 的全部界面文案：一张扁平表，字段名就是 TOML 里的键。
 ///
-/// 字段名（= 模块名）与 TOML 节名分处两侧，靠 `rename` 对齐：节名一律
-/// `gloss_<模块>`，于是词条的全限定名是 `gloss_<模块>.<词条>`——扁平且全局唯一，
-/// 便于整表导入外部翻译平台。改节名要连同改这里。
+/// 键一律是全限定名 `gloss_<模块>_<词条>`（下划线连接，见 `i18n/*.toml`）；
+/// 字段与文件逐字同名，因此既没有 rename 层也没有嵌套结构体——文件与代码读到的
+/// 是同一个名字。改词条名要连着改 TOML 里的那一行，名字对不上即解析失败。
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Text {
-    #[serde(rename = "gloss_app")]
-    pub(crate) app: AppText,
-    #[serde(rename = "gloss_kinds")]
-    pub(crate) kinds: KindText,
-    #[serde(rename = "gloss_langs")]
-    pub(crate) langs: LangText,
-    #[serde(rename = "gloss_popup")]
-    pub(crate) popup: PopupText,
-    #[serde(rename = "gloss_errors")]
-    pub(crate) errors: ErrorText,
-    #[serde(rename = "gloss_settings")]
-    pub(crate) settings: SettingsText,
-    #[serde(rename = "gloss_ui_language")]
-    pub(crate) ui_language: UiLanguageText,
-    #[serde(rename = "gloss_theme")]
-    pub(crate) theme: ThemeText,
+    pub(crate) gloss_app_settings_title: String,
+
+    pub(crate) gloss_kinds_translate_word: String,
+    pub(crate) gloss_kinds_translate_sentence: String,
+    pub(crate) gloss_kinds_explain_code: String,
+    pub(crate) gloss_kinds_image_ocr: String,
+    pub(crate) gloss_kinds_image_explain: String,
+
+    pub(crate) gloss_langs_zh: String,
+    pub(crate) gloss_langs_en: String,
+    pub(crate) gloss_langs_ja: String,
+    pub(crate) gloss_langs_ko: String,
+    pub(crate) gloss_langs_fr: String,
+    pub(crate) gloss_langs_other: String,
+
+    pub(crate) gloss_popup_brand: String,
+    pub(crate) gloss_popup_selfcheck: String,
+    pub(crate) gloss_popup_failed: String,
+    pub(crate) gloss_popup_retry: String,
+    pub(crate) gloss_popup_open_settings: String,
+    pub(crate) gloss_popup_close_label: String,
+    pub(crate) gloss_popup_settings_label: String,
+
+    pub(crate) gloss_errors_selection_unavailable: String,
+    pub(crate) gloss_errors_accessibility_denied: String,
+    pub(crate) gloss_errors_screen_capture_denied: String,
+    pub(crate) gloss_errors_region_too_large: String,
+    pub(crate) gloss_errors_unsupported_modality: String,
+    pub(crate) gloss_errors_engine_network: String,
+    pub(crate) gloss_errors_engine_auth: String,
+    pub(crate) gloss_errors_engine_rate_limited: String,
+    pub(crate) gloss_errors_engine_response: String,
+    pub(crate) gloss_errors_config: String,
+    pub(crate) gloss_errors_acquire_channel: String,
+    pub(crate) gloss_errors_inference_channel: String,
+
+    pub(crate) gloss_settings_section_model: String,
+    pub(crate) gloss_settings_section_task: String,
+    pub(crate) gloss_settings_section_hotkey: String,
+    pub(crate) gloss_settings_section_general: String,
+
+    pub(crate) gloss_settings_save: String,
+    pub(crate) gloss_settings_cancel: String,
+    pub(crate) gloss_settings_invalid_summary: String,
+    pub(crate) gloss_settings_base_url_hint: String,
+    pub(crate) gloss_settings_key_keep_hint: String,
+    pub(crate) gloss_settings_key_clear_hint: String,
+    pub(crate) gloss_settings_clear_key: String,
+    pub(crate) gloss_settings_undo_clear_key: String,
+    pub(crate) gloss_settings_default_kind: String,
+    pub(crate) gloss_settings_default_kind_hint: String,
+    pub(crate) gloss_settings_target_lang: String,
+    pub(crate) gloss_settings_kind_switch: String,
+    pub(crate) gloss_settings_kind_switch_hint: String,
+    pub(crate) gloss_settings_default_model: String,
+    pub(crate) gloss_settings_default_model_hint: String,
+    pub(crate) gloss_settings_vision_model_hint: String,
+    pub(crate) gloss_settings_switch_label: String,
+    pub(crate) gloss_settings_hotkey_hint: String,
+    pub(crate) gloss_settings_ui_language: String,
+    pub(crate) gloss_settings_ui_theme: String,
+    pub(crate) gloss_settings_cache_ttl: String,
+    pub(crate) gloss_settings_cache_ttl_suffix: String,
+    pub(crate) gloss_settings_cache_ttl_hint: String,
+    pub(crate) gloss_settings_notice_key_update_failed: String,
+    pub(crate) gloss_settings_notice_save_failed: String,
+    pub(crate) gloss_settings_notice_key_updated_save_failed: String,
+    pub(crate) gloss_settings_error_duplicate_hotkey: String,
+    pub(crate) gloss_settings_error_empty_trigger: String,
+    pub(crate) gloss_settings_error_invalid_trigger: String,
+    pub(crate) gloss_settings_error_newline_in_model: String,
+    pub(crate) gloss_settings_error_base_url_empty: String,
+    pub(crate) gloss_settings_error_base_url_invalid: String,
+    pub(crate) gloss_settings_error_base_url_credentials: String,
+    pub(crate) gloss_settings_error_base_url_query: String,
+
+    pub(crate) gloss_ui_language_system: String,
+    pub(crate) gloss_ui_language_zh: String,
+    pub(crate) gloss_ui_language_en: String,
+
+    pub(crate) gloss_theme_system: String,
+    pub(crate) gloss_theme_light: String,
+    pub(crate) gloss_theme_dark: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct AppText {
-    pub(crate) settings_title: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct KindText {
-    pub(crate) translate_word: String,
-    pub(crate) translate_sentence: String,
-    pub(crate) explain_code: String,
-    pub(crate) image_ocr: String,
-    pub(crate) image_explain: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct LangText {
-    pub(crate) zh: String,
-    pub(crate) en: String,
-    pub(crate) ja: String,
-    pub(crate) ko: String,
-    pub(crate) fr: String,
-    pub(crate) other: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct PopupText {
-    pub(crate) brand: String,
-    pub(crate) selfcheck: String,
-    pub(crate) failed: String,
-    pub(crate) retry: String,
-    pub(crate) open_settings: String,
-    pub(crate) close_label: String,
-    pub(crate) settings_label: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ErrorText {
-    pub(crate) selection_unavailable: String,
-    pub(crate) accessibility_denied: String,
-    pub(crate) screen_capture_denied: String,
-    pub(crate) region_too_large: String,
-    pub(crate) unsupported_modality: String,
-    pub(crate) engine_network: String,
-    pub(crate) engine_auth: String,
-    pub(crate) engine_rate_limited: String,
-    pub(crate) engine_response: String,
-    pub(crate) config: String,
-    pub(crate) acquire_channel: String,
-    pub(crate) inference_channel: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SettingsText {
-    pub(crate) section_model: String,
-    pub(crate) section_task: String,
-    pub(crate) section_hotkey: String,
-    pub(crate) section_general: String,
-    pub(crate) save: String,
-    pub(crate) cancel: String,
-    pub(crate) invalid_summary: String,
-    pub(crate) base_url_hint: String,
-    pub(crate) key_keep_hint: String,
-    pub(crate) key_clear_hint: String,
-    pub(crate) clear_key: String,
-    pub(crate) undo_clear_key: String,
-    pub(crate) default_kind: String,
-    pub(crate) default_kind_hint: String,
-    pub(crate) target_lang: String,
-    pub(crate) kind_switch: String,
-    pub(crate) kind_switch_hint: String,
-    pub(crate) default_model: String,
-    pub(crate) default_model_hint: String,
-    pub(crate) vision_model_hint: String,
-    pub(crate) switch_label: String,
-    pub(crate) hotkey_hint: String,
-    pub(crate) ui_language: String,
-    pub(crate) ui_theme: String,
-    pub(crate) cache_ttl: String,
-    pub(crate) cache_ttl_suffix: String,
-    pub(crate) cache_ttl_hint: String,
-    pub(crate) notice_key_update_failed: String,
-    pub(crate) notice_save_failed: String,
-    pub(crate) notice_key_updated_save_failed: String,
-    pub(crate) error: SettingsErrorText,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SettingsErrorText {
-    pub(crate) duplicate_hotkey: String,
-    pub(crate) empty_trigger: String,
-    pub(crate) invalid_trigger: String,
-    pub(crate) newline_in_model: String,
-    pub(crate) base_url_empty: String,
-    pub(crate) base_url_invalid: String,
-    pub(crate) base_url_credentials: String,
-    pub(crate) base_url_query: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct UiLanguageText {
-    pub(crate) system: String,
-    pub(crate) zh: String,
-    pub(crate) en: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ThemeText {
-    pub(crate) system: String,
-    pub(crate) light: String,
-    pub(crate) dark: String,
-}
-
-impl ErrorText {
+impl Text {
     /// 失败卡文案：按 [`GlossError`] 变体映射，不按英文 `Display` 反查
     /// ——后者是日志用的诊断文本，措辞与它无关（改 `Display` 不该改界面）。
     pub(crate) fn for_error(&self, error: &GlossError) -> String {
         match error {
-            GlossError::SelectionUnavailable => self.selection_unavailable.clone(),
-            GlossError::AccessibilityDenied => self.accessibility_denied.clone(),
-            GlossError::ScreenCaptureDenied => self.screen_capture_denied.clone(),
-            GlossError::RegionTooLarge => self.region_too_large.clone(),
-            GlossError::UnsupportedModality => self.unsupported_modality.clone(),
-            GlossError::EngineNetwork => self.engine_network.clone(),
-            GlossError::EngineAuth => self.engine_auth.clone(),
-            GlossError::EngineRateLimited => self.engine_rate_limited.clone(),
+            GlossError::SelectionUnavailable => self.gloss_errors_selection_unavailable.clone(),
+            GlossError::AccessibilityDenied => self.gloss_errors_accessibility_denied.clone(),
+            GlossError::ScreenCaptureDenied => self.gloss_errors_screen_capture_denied.clone(),
+            GlossError::RegionTooLarge => self.gloss_errors_region_too_large.clone(),
+            GlossError::UnsupportedModality => self.gloss_errors_unsupported_modality.clone(),
+            GlossError::EngineNetwork => self.gloss_errors_engine_network.clone(),
+            GlossError::EngineAuth => self.gloss_errors_engine_auth.clone(),
+            GlossError::EngineRateLimited => self.gloss_errors_engine_rate_limited.clone(),
             GlossError::EngineResponse(detail) => {
-                fill(&self.engine_response, &[("detail", detail)])
+                fill(&self.gloss_errors_engine_response, &[("detail", detail)])
             }
-            GlossError::Config(detail) => fill(&self.config, &[("detail", detail)]),
+            GlossError::Config(detail) => fill(&self.gloss_errors_config, &[("detail", detail)]),
         }
     }
 
@@ -199,9 +145,7 @@ impl ErrorText {
             other => self.for_error(other),
         }
     }
-}
 
-impl Text {
     /// 取某 locale 的文案表。首次调用时解析两份文件并常驻，之后零锁读取。
     pub(crate) fn get(locale: Locale) -> &'static Self {
         static CATALOGS: OnceLock<[Text; 2]> = OnceLock::new();
@@ -256,12 +200,31 @@ mod tests {
     }
 
     #[test]
+    fn entries_are_written_fully_qualified() {
+        for (name, raw) in [("zh.toml", ZH), ("en.toml", EN)] {
+            for line in raw.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                let Some((key, _)) = line.split_once(" = ") else {
+                    panic!("{name}: not a key/value line: {line}");
+                };
+                assert!(
+                    key.starts_with("gloss_") && !key.contains('.'),
+                    "{name}: a key must be gloss_<module>_<entry>, underscore-joined: {key}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_entry_is_translated_in_the_english_catalog() {
         let zh = leaves_of(ZH);
         let en = leaves_of(EN);
         assert_eq!(zh.len(), en.len());
         for ((key, zh_value), (_, en_value)) in zh.iter().zip(&en) {
-            if key == "gloss_ui_language.en" {
+            if key == "gloss_ui_language_en" {
                 assert_eq!(
                     en_value, "English",
                     "a language's own name is not translated"
@@ -294,15 +257,15 @@ mod tests {
         assert_eq!(
             templated,
             [
-                "gloss_errors.config",
-                "gloss_errors.engine_response",
-                "gloss_settings.error.duplicate_hotkey",
-                "gloss_settings.error.invalid_trigger",
-                "gloss_settings.invalid_summary",
-                "gloss_settings.notice_key_update_failed",
-                "gloss_settings.notice_key_updated_save_failed",
-                "gloss_settings.notice_save_failed",
-                "gloss_settings.switch_label",
+                "gloss_errors_config",
+                "gloss_errors_engine_response",
+                "gloss_settings_error_duplicate_hotkey",
+                "gloss_settings_error_invalid_trigger",
+                "gloss_settings_invalid_summary",
+                "gloss_settings_notice_key_update_failed",
+                "gloss_settings_notice_key_updated_save_failed",
+                "gloss_settings_notice_save_failed",
+                "gloss_settings_switch_label",
             ],
             "every templated entry must be walked"
         );
@@ -310,18 +273,18 @@ mod tests {
 
     #[test]
     fn catalogs_parse_into_typed_fields() {
-        assert_eq!(Text::get(Locale::Zh).settings.save, "保存");
-        assert_eq!(Text::get(Locale::En).settings.save, "Save");
+        assert_eq!(Text::get(Locale::Zh).gloss_settings_save, "保存");
+        assert_eq!(Text::get(Locale::En).gloss_settings_save, "Save");
         assert_ne!(
-            Text::get(Locale::Zh).popup.failed,
-            Text::get(Locale::En).popup.failed
+            Text::get(Locale::Zh).gloss_popup_failed,
+            Text::get(Locale::En).gloss_popup_failed
         );
     }
 
     #[test]
     fn error_text_maps_every_variant_per_locale() {
-        let zh = &Text::get(Locale::Zh).errors;
-        let en = &Text::get(Locale::En).errors;
+        let zh = Text::get(Locale::Zh);
+        let en = Text::get(Locale::En);
         for error in [
             GlossError::SelectionUnavailable,
             GlossError::AccessibilityDenied,
@@ -348,28 +311,37 @@ mod tests {
 
     #[test]
     fn each_error_variant_maps_to_its_own_entry() {
-        let errors = &Text::get(Locale::Zh).errors;
+        let errors = Text::get(Locale::Zh);
         for (error, expected) in [
             (
                 GlossError::SelectionUnavailable,
-                &errors.selection_unavailable,
+                &errors.gloss_errors_selection_unavailable,
             ),
             (
                 GlossError::AccessibilityDenied,
-                &errors.accessibility_denied,
+                &errors.gloss_errors_accessibility_denied,
             ),
             (
                 GlossError::ScreenCaptureDenied,
-                &errors.screen_capture_denied,
+                &errors.gloss_errors_screen_capture_denied,
             ),
-            (GlossError::RegionTooLarge, &errors.region_too_large),
+            (
+                GlossError::RegionTooLarge,
+                &errors.gloss_errors_region_too_large,
+            ),
             (
                 GlossError::UnsupportedModality,
-                &errors.unsupported_modality,
+                &errors.gloss_errors_unsupported_modality,
             ),
-            (GlossError::EngineNetwork, &errors.engine_network),
-            (GlossError::EngineAuth, &errors.engine_auth),
-            (GlossError::EngineRateLimited, &errors.engine_rate_limited),
+            (
+                GlossError::EngineNetwork,
+                &errors.gloss_errors_engine_network,
+            ),
+            (GlossError::EngineAuth, &errors.gloss_errors_engine_auth),
+            (
+                GlossError::EngineRateLimited,
+                &errors.gloss_errors_engine_rate_limited,
+            ),
         ] {
             assert_eq!(
                 &errors.for_error(&error),
@@ -385,18 +357,21 @@ mod tests {
         let response = GlossError::EngineResponse("HTTP 400".into());
         assert_eq!(
             errors.for_error(&response),
-            fill(&errors.engine_response, &[("detail", "HTTP 400")])
+            fill(
+                &errors.gloss_errors_engine_response,
+                &[("detail", "HTTP 400")]
+            )
         );
         let config = GlossError::Config("bad port".into());
         assert_eq!(
             errors.for_error(&config),
-            fill(&errors.config, &[("detail", "bad port")])
+            fill(&errors.gloss_errors_config, &[("detail", "bad port")])
         );
     }
 
     #[test]
     fn error_detail_prefers_the_variant_diagnostic() {
-        let zh = &Text::get(Locale::Zh).errors;
+        let zh = Text::get(Locale::Zh);
         assert_eq!(
             zh.for_error_detail(&GlossError::Config("disk on fire".into())),
             "disk on fire",

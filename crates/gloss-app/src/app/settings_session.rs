@@ -15,7 +15,7 @@ impl GlossApp {
     /// 快照开一个新编辑会话——未保存的草稿随旧会话一并作废。
     pub(super) fn open_settings(&mut self) {
         // 窗口标题按当前界面语言写入：窗内文案取自同一份快照语言，两者同语。
-        let title = Text::get(self.locale()).app.settings_title.as_str();
+        let title = Text::get(self.locale()).gloss_app_settings_title.as_str();
         if self.settings.is_some() {
             if let Some(windows) = &self.windows {
                 windows.show_settings(title);

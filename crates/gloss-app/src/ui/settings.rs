@@ -28,7 +28,7 @@ use gloss_core::task::{HotkeyBinding, TaskKind};
 
 use super::kind_label;
 use super::style::{color, font, radius, space};
-use crate::i18n::{SettingsErrorText, Text, fill};
+use crate::i18n::{Text, fill};
 
 /// 校验出错的字段：错误提示按字段定位到具体控件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,21 +73,25 @@ enum FieldError {
 
 impl FieldError {
     /// 就地提示文案。
-    fn message(&self, text: &SettingsErrorText) -> String {
+    fn message(&self, text: &Text) -> String {
         match self {
             Self::DuplicateHotkey { line } => {
                 let line = line.to_string();
-                fill(&text.duplicate_hotkey, &[("line", &line)])
+                fill(
+                    &text.gloss_settings_error_duplicate_hotkey,
+                    &[("line", &line)],
+                )
             }
-            Self::EmptyTrigger => text.empty_trigger.clone(),
-            Self::InvalidTrigger { trigger } => {
-                fill(&text.invalid_trigger, &[("trigger", trigger)])
-            }
-            Self::NewlineInModel => text.newline_in_model.clone(),
-            Self::BaseUrlEmpty => text.base_url_empty.clone(),
-            Self::BaseUrlNotHttps => text.base_url_invalid.clone(),
-            Self::BaseUrlCredentials => text.base_url_credentials.clone(),
-            Self::BaseUrlQuery => text.base_url_query.clone(),
+            Self::EmptyTrigger => text.gloss_settings_error_empty_trigger.clone(),
+            Self::InvalidTrigger { trigger } => fill(
+                &text.gloss_settings_error_invalid_trigger,
+                &[("trigger", trigger)],
+            ),
+            Self::NewlineInModel => text.gloss_settings_error_newline_in_model.clone(),
+            Self::BaseUrlEmpty => text.gloss_settings_error_base_url_empty.clone(),
+            Self::BaseUrlNotHttps => text.gloss_settings_error_base_url_invalid.clone(),
+            Self::BaseUrlCredentials => text.gloss_settings_error_base_url_credentials.clone(),
+            Self::BaseUrlQuery => text.gloss_settings_error_base_url_query.clone(),
         }
     }
 }
@@ -153,14 +157,13 @@ impl SettingsNotice {
     /// 提示文案：前缀说明场合，`{{detail}}` 填错因的本地化措辞。
     fn message(&self, text: &Text) -> String {
         let (template, error) = match self {
-            Self::KeyUpdateFailed(err) => (&text.settings.notice_key_update_failed, err),
-            Self::SaveFailed(err) => (&text.settings.notice_save_failed, err),
-            Self::KeyUpdatedSaveFailed(err) => (&text.settings.notice_key_updated_save_failed, err),
+            Self::KeyUpdateFailed(err) => (&text.gloss_settings_notice_key_update_failed, err),
+            Self::SaveFailed(err) => (&text.gloss_settings_notice_save_failed, err),
+            Self::KeyUpdatedSaveFailed(err) => {
+                (&text.gloss_settings_notice_key_updated_save_failed, err)
+            }
         };
-        fill(
-            template,
-            &[("detail", &text.errors.for_error_detail(error))],
-        )
+        fill(template, &[("detail", &text.for_error_detail(error))])
     }
 }
 
@@ -306,19 +309,19 @@ pub(crate) fn draw(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) ->
                 notices(ui, state, &errors, text);
                 ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                     ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                        section(ui, &text.settings.section_model, |ui| {
+                        section(ui, &text.gloss_settings_section_model, |ui| {
                             connection_section(ui, state, &errors, text);
                         });
                         ui.add_space(space::SECTION);
-                        section(ui, &text.settings.section_task, |ui| {
+                        section(ui, &text.gloss_settings_section_task, |ui| {
                             task_section(ui, state, &errors, text);
                         });
                         ui.add_space(space::SECTION);
-                        section(ui, &text.settings.section_hotkey, |ui| {
+                        section(ui, &text.gloss_settings_section_hotkey, |ui| {
                             hotkey_section(ui, state, &errors, text);
                         });
                         ui.add_space(space::SECTION);
-                        section(ui, &text.settings.section_general, |ui| {
+                        section(ui, &text.gloss_settings_section_general, |ui| {
                             general_section(ui, state, text);
                         });
                     });
@@ -346,7 +349,7 @@ fn action_row(
         |ui| {
             let save = ui.add(
                 egui::Button::new(
-                    RichText::new(text.settings.save.as_str()).color(egui::Color32::WHITE),
+                    RichText::new(text.gloss_settings_save.as_str()).color(egui::Color32::WHITE),
                 )
                 .fill(color::ACCENT)
                 .corner_radius(egui::CornerRadius::same(6)),
@@ -354,7 +357,7 @@ fn action_row(
             if save.clicked() {
                 *action = build_save(state);
             }
-            if ui.button(text.settings.cancel.as_str()).clicked() {
+            if ui.button(text.gloss_settings_cancel.as_str()).clicked() {
                 *action = SettingsAction::Close;
             }
         },
@@ -375,9 +378,12 @@ fn notices(
         let count = errors.len().to_string();
         ui.add_space(space::TIGHT);
         ui.label(
-            RichText::new(fill(&text.settings.invalid_summary, &[("count", &count)]))
-                .size(font::CAPTION)
-                .color(color::DANGER),
+            RichText::new(fill(
+                &text.gloss_settings_invalid_summary,
+                &[("count", &count)],
+            ))
+            .size(font::CAPTION)
+            .color(color::DANGER),
         );
     }
     if let Some(notice) = &state.notice {
@@ -458,7 +464,7 @@ fn error_text(
 ) {
     if let Some(error) = errors.get(&key) {
         ui.label(
-            RichText::new(error.message(&text.settings.error))
+            RichText::new(error.message(text))
                 .size(font::CAPTION)
                 .color(color::DANGER),
         );
@@ -474,7 +480,7 @@ fn connection_section(
 ) {
     ui.label("Base URL");
     let response = add_input(ui, &mut state.draft.base_url, |e| {
-        e.hint_text(text.settings.base_url_hint.as_str())
+        e.hint_text(text.gloss_settings_base_url_hint.as_str())
             .desired_width(f32::INFINITY)
     });
     underline_if_error(ui, &response, errors, FieldKey::BaseUrl);
@@ -487,9 +493,9 @@ fn connection_section(
         let typed = add_input(ui, &mut state.api_key, |e| {
             e.password(true)
                 .hint_text(if state.clear_key {
-                    text.settings.key_clear_hint.as_str()
+                    text.gloss_settings_key_clear_hint.as_str()
                 } else {
-                    text.settings.key_keep_hint.as_str()
+                    text.gloss_settings_key_keep_hint.as_str()
                 })
                 .desired_width(input_width)
         })
@@ -499,9 +505,9 @@ fn connection_section(
             state.clear_key = false;
         }
         let label = if state.clear_key {
-            text.settings.undo_clear_key.as_str()
+            text.gloss_settings_undo_clear_key.as_str()
         } else {
-            text.settings.clear_key.as_str()
+            text.gloss_settings_clear_key.as_str()
         };
         if ui.button(label).clicked() {
             state.clear_key = !state.clear_key;
@@ -520,7 +526,7 @@ fn task_section(
     errors: &HashMap<FieldKey, FieldError>,
     text: &Text,
 ) {
-    choice_row(ui, &text.settings.default_kind, |ui| {
+    choice_row(ui, &text.gloss_settings_default_kind, |ui| {
         kind_combo(
             ui,
             "default_text_kind",
@@ -529,14 +535,14 @@ fn task_section(
             text,
         );
     });
-    choice_hint(ui, &text.settings.default_kind_hint);
-    choice_row(ui, &text.settings.target_lang, |ui| {
+    choice_hint(ui, &text.gloss_settings_default_kind_hint);
+    choice_row(ui, &text.gloss_settings_target_lang, |ui| {
         lang_combo(ui, &mut state.draft.target_lang, text);
     });
 
     ui.add_space(space::TIGHT);
-    caption(ui, &text.settings.kind_switch);
-    caption(ui, &text.settings.kind_switch_hint);
+    caption(ui, &text.gloss_settings_kind_switch);
+    caption(ui, &text.gloss_settings_kind_switch_hint);
     for kind in ALL_KINDS {
         let enabled = state.draft.is_kind_enabled(kind);
         if switch_row(ui, kind_label(kind, text), enabled, text) {
@@ -545,8 +551,8 @@ fn task_section(
     }
 
     ui.add_space(space::TIGHT);
-    caption(ui, &text.settings.default_model);
-    caption(ui, &text.settings.default_model_hint);
+    caption(ui, &text.gloss_settings_default_model);
+    caption(ui, &text.gloss_settings_default_model_hint);
     for kind in ALL_KINDS {
         let mut model = state
             .draft
@@ -559,7 +565,7 @@ fn task_section(
             if kind.accepts_text() {
                 edit
             } else {
-                edit.hint_text(text.settings.vision_model_hint.as_str())
+                edit.hint_text(text.gloss_settings_vision_model_hint.as_str())
             }
         });
         underline_if_error(ui, &response, errors, FieldKey::Model(kind));
@@ -583,7 +589,7 @@ fn switch_row(ui: &mut egui::Ui, label: &str, enabled: bool, text: &Text) -> boo
                 egui::WidgetInfo::labeled(
                     egui::WidgetType::Button,
                     true,
-                    fill(&text.settings.switch_label, &[("kind", label)]),
+                    fill(&text.gloss_settings_switch_label, &[("kind", label)]),
                 )
             });
             let track_fill = if enabled {
@@ -616,7 +622,7 @@ fn hotkey_section(
     errors: &HashMap<FieldKey, FieldError>,
     text: &Text,
 ) {
-    caption(ui, &text.settings.hotkey_hint);
+    caption(ui, &text.gloss_settings_hotkey_hint);
     for index in 0..state.draft.hotkey_bindings.len() {
         let key = FieldKey::Hotkey(index);
         ui.horizontal(|ui| {
@@ -639,20 +645,20 @@ fn hotkey_section(
 
 /// 通用区：界面语言、界面主题、缓存有效期（上限由控件钳制）。
 fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
-    choice_row(ui, &text.settings.ui_language, |ui| {
+    choice_row(ui, &text.gloss_settings_ui_language, |ui| {
         language_combo(ui, &mut state.draft.language, text);
     });
-    choice_row(ui, &text.settings.ui_theme, |ui| {
+    choice_row(ui, &text.gloss_settings_ui_theme, |ui| {
         theme_combo(ui, &mut state.draft.theme, text);
     });
-    choice_row(ui, &text.settings.cache_ttl, |ui| {
+    choice_row(ui, &text.gloss_settings_cache_ttl, |ui| {
         ui.add(
             egui::DragValue::new(&mut state.draft.cache_ttl_secs)
                 .range(0..=CACHE_TTL_MAX_SECS)
-                .suffix(text.settings.cache_ttl_suffix.as_str()),
+                .suffix(text.gloss_settings_cache_ttl_suffix.as_str()),
         );
     });
-    choice_hint(ui, &text.settings.cache_ttl_hint);
+    choice_hint(ui, &text.gloss_settings_cache_ttl_hint);
 }
 
 /// 双列行：行标签左、控件推到卡片右缘（两端对齐）。
@@ -700,12 +706,12 @@ const LANG_CHOICES: fn() -> [Lang; 5] = || [Lang::Zh, Lang::En, Lang::Ja, Lang::
 /// 语言标签：产物语言（译文给谁看），与界面语言分属两张表。
 fn lang_label<'a>(lang: &Lang, text: &'a Text) -> &'a str {
     match lang {
-        Lang::Zh => &text.langs.zh,
-        Lang::En => &text.langs.en,
-        Lang::Ja => &text.langs.ja,
-        Lang::Ko => &text.langs.ko,
-        Lang::Fr => &text.langs.fr,
-        Lang::Other(_) => &text.langs.other,
+        Lang::Zh => &text.gloss_langs_zh,
+        Lang::En => &text.gloss_langs_en,
+        Lang::Ja => &text.gloss_langs_ja,
+        Lang::Ko => &text.gloss_langs_ko,
+        Lang::Fr => &text.gloss_langs_fr,
+        Lang::Other(_) => &text.gloss_langs_other,
     }
 }
 
@@ -724,9 +730,9 @@ fn lang_combo(ui: &mut egui::Ui, current: &mut Lang, text: &Text) {
 /// 界面语言标签（三态偏好，落定见 `Language::resolve`）。
 fn language_label<'a>(language: &Language, text: &'a Text) -> &'a str {
     match language {
-        Language::System => &text.ui_language.system,
-        Language::Zh => &text.ui_language.zh,
-        Language::En => &text.ui_language.en,
+        Language::System => &text.gloss_ui_language_system,
+        Language::Zh => &text.gloss_ui_language_zh,
+        Language::En => &text.gloss_ui_language_en,
     }
 }
 
@@ -745,9 +751,9 @@ fn language_combo(ui: &mut egui::Ui, current: &mut Language, text: &Text) {
 /// 主题标签与下拉（消费在壳侧，见 `app::theme`）。
 fn theme_combo(ui: &mut egui::Ui, current: &mut Theme, text: &Text) {
     let label = |theme: &Theme| match theme {
-        Theme::System => text.theme.system.as_str(),
-        Theme::Light => text.theme.light.as_str(),
-        Theme::Dark => text.theme.dark.as_str(),
+        Theme::System => text.gloss_theme_system.as_str(),
+        Theme::Light => text.gloss_theme_light.as_str(),
+        Theme::Dark => text.gloss_theme_dark.as_str(),
     };
     egui::ComboBox::from_id_salt("theme")
         .selected_text(label(current))
@@ -775,8 +781,8 @@ mod tests {
 
     #[test]
     fn field_errors_are_worded_per_locale() {
-        let zh = &Text::get(Locale::Zh).settings.error;
-        let en = &Text::get(Locale::En).settings.error;
+        let zh = Text::get(Locale::Zh);
+        let en = Text::get(Locale::En);
         for (error, zh_message, en_message) in [
             (
                 FieldError::DuplicateHotkey { line: 2 },

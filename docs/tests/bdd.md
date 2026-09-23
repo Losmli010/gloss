@@ -12,7 +12,7 @@
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 22 | `just test` |
-| 单元测试 | 267 | `just test` |
+| 单元测试 | 268 | `just test` |
 
 ## 人工测试
 
@@ -349,7 +349,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 75（条数钉住，防遍历退化） | 2026-09-22 |
-| every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language.en）外无一与中文表逐字相同 | 2026-09-22 |
+| every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language_en）外无一与中文表逐字相同 | 2026-09-23 |
+| entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 gloss_ 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
 | placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条 | 2026-09-22 |
 | catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功且两语言取值可区分 | 2026-09-22 |
 | fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数/无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |

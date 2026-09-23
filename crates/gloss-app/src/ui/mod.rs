@@ -12,10 +12,10 @@ use crate::i18n::Text;
 /// 任务类型 → 界面标签（结果卡头部与设置页共用一张表，改一处两处同步）。
 pub(crate) fn kind_label(kind: TaskKind, text: &Text) -> &str {
     match kind {
-        TaskKind::TranslateWord => &text.kinds.translate_word,
-        TaskKind::TranslateSentence => &text.kinds.translate_sentence,
-        TaskKind::ExplainCode => &text.kinds.explain_code,
-        TaskKind::ImageOcr => &text.kinds.image_ocr,
-        TaskKind::ImageExplain => &text.kinds.image_explain,
+        TaskKind::TranslateWord => &text.gloss_kinds_translate_word,
+        TaskKind::TranslateSentence => &text.gloss_kinds_translate_sentence,
+        TaskKind::ExplainCode => &text.gloss_kinds_explain_code,
+        TaskKind::ImageOcr => &text.gloss_kinds_image_ocr,
+        TaskKind::ImageExplain => &text.gloss_kinds_image_explain,
     }
 }
