@@ -222,11 +222,10 @@ fn run_loop<C, E, P, F>(
 {
     use std::ffi::c_void;
 
-    use core_foundation_sys::base::{CFRelease, kCFAllocatorDefault};
-    use core_foundation_sys::date::CFAbsoluteTimeGetCurrent;
-    use core_foundation_sys::runloop::{
-        CFRunLoopAddTimer, CFRunLoopGetCurrent, CFRunLoopRun, CFRunLoopStop, CFRunLoopTimerContext,
-        CFRunLoopTimerCreate, CFRunLoopTimerInvalidate, CFRunLoopTimerRef, kCFRunLoopCommonModes,
+    use crate::ffi::cf::{
+        CFAbsoluteTimeGetCurrent, CFRelease, CFRunLoopAddTimer, CFRunLoopGetCurrent, CFRunLoopRef,
+        CFRunLoopRun, CFRunLoopStop, CFRunLoopTimerContext, CFRunLoopTimerCreate,
+        CFRunLoopTimerInvalidate, CFRunLoopTimerRef, kCFAllocatorDefault, kCFRunLoopCommonModes,
     };
 
     struct LoopState<C, E, P, F> {
@@ -234,7 +233,7 @@ fn run_loop<C, E, P, F>(
         sink: EventSink<E, P>,
         on_command: F,
         sources: EventSources<P>,
-        run_loop: core_foundation_sys::runloop::CFRunLoopRef,
+        run_loop: CFRunLoopRef,
     }
 
     extern "C" fn fire<C, E, P, F>(_timer: CFRunLoopTimerRef, info: *mut c_void)
