@@ -18,7 +18,8 @@ use gloss_core::prompt::STRUCTURED_FENCE;
 use gloss_core::task::OutcomeStructured;
 
 use super::style::{color, font, radius, space, stroke};
-use crate::machine::{ErrorAction, OverlayView};
+use crate::i18n::Text;
+use crate::machine::{ErrorAction, FailureCause, OverlayView};
 
 /// 浮层默认宽度（04 §二：默认 380px，长文本自适应，上限 480px）
 pub const WIDTH: f32 = 380.0;
@@ -115,6 +116,7 @@ pub(crate) fn draw(
     ui: &mut egui::Ui,
     view: Option<&OverlayView>,
     state: &RenderState,
+    text: &Text,
 ) -> PopupOutput {
     // 划选即复制路径：全部文本可选中（含跨 widget 连选）
     ui.style_mut().interaction.selectable_labels = true;
@@ -151,7 +153,7 @@ pub(crate) fn draw(
         .corner_radius(CornerRadius::same(radius::CARD))
         .inner_margin(Margin::same(space::CARD_PADDING))
         .show(ui, |ui| {
-            output.action = render_content(ui, view, state, &mut content_h);
+            output.action = render_content(ui, view, state, &mut content_h, text);
             ui.set_min_size(ui.available_size());
         });
 
@@ -192,17 +194,18 @@ fn render_content(
     view: Option<&OverlayView>,
     state: &RenderState,
     content_h: &mut f32,
+    text: &Text,
 ) -> Option<OverlayAction> {
     match view {
         None => {
-            let action = header(ui, Some("自检"), false);
+            let action = header(ui, Some(text.gloss_popup_selfcheck.as_str()), false, text);
             ui.add_space(space::SECTION);
             selfcheck_body(ui);
             *content_h = ui.min_rect().height();
             action
         }
         Some(OverlayView::Streaming { source, body }) => {
-            let action = header(ui, None, true);
+            let action = header(ui, None, true, text);
             ui.add_space(space::PARAGRAPH);
             ui.label(
                 RichText::new(source)
@@ -224,7 +227,12 @@ fn render_content(
             action
         }
         Some(OverlayView::Outcome(outcome)) => {
-            let action = header(ui, Some(crate::ui::kind_label(outcome.kind)), false);
+            let action = header(
+                ui,
+                Some(crate::ui::kind_label(outcome.kind, text)),
+                false,
+                text,
+            );
             ui.add_space(space::SECTION);
             let body_top = ui.cursor().min.y;
             let scrolled = ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
@@ -234,13 +242,13 @@ fn render_content(
             action
         }
         Some(OverlayView::Failed {
-            message,
+            cause,
             action: error_action,
         }) => {
-            let mut action = header(ui, Some("失败"), false);
+            let mut action = header(ui, Some(text.gloss_popup_failed.as_str()), false, text);
             ui.add_space(space::SECTION);
             ui.label(
-                RichText::new(message.as_str())
+                RichText::new(failure_message(cause, text))
                     .size(font::NOTICE)
                     .color(ui.visuals().warn_fg_color),
             );
@@ -248,7 +256,7 @@ fn render_content(
                 ui.add_space(space::SECTION);
                 if ui
                     .button(
-                        RichText::new(action_label(error_action))
+                        RichText::new(action_label(error_action, text))
                             .size(font::CAPTION)
                             .color(ui.visuals().strong_text_color()),
                     )
@@ -263,18 +271,27 @@ fn render_content(
     }
 }
 
+/// 失败卡文案：按失败来源映射。
+fn failure_message(cause: &FailureCause, text: &Text) -> String {
+    match cause {
+        FailureCause::Task(error) => text.for_error(error),
+        FailureCause::AcquireChannel => text.gloss_errors_acquire_channel.clone(),
+        FailureCause::TransportChannel => text.gloss_errors_inference_channel.clone(),
+    }
+}
+
 /// 动作按钮的文案。
-fn action_label(action: ErrorAction) -> &'static str {
+fn action_label(action: ErrorAction, text: &Text) -> &str {
     match action {
-        ErrorAction::Retry => "重试",
-        ErrorAction::OpenSettings => "打开设置",
+        ErrorAction::Retry => text.gloss_popup_retry.as_str(),
+        ErrorAction::OpenSettings => text.gloss_popup_open_settings.as_str(),
     }
 }
 
 /// 头部：身份圆点 + 品牌标签，右侧动作区 `[任务标签 | ⚙ ×]`——× 最右
 /// （最后动作）、齿轮居左，图标默认弱色、hover/按下显色；`busy` 时旋转
 /// 指示器替代任务标签（推理中的流式反馈）。返回动作区点击。
-fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool) -> Option<OverlayAction> {
+fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool, text: &Text) -> Option<OverlayAction> {
     let weak = ui.visuals().weak_text_color();
     let strong = ui.visuals().strong_text_color();
     let mut action = None;
@@ -282,7 +299,11 @@ fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool) -> Option<OverlayAct
         let (rect, _) = ui.allocate_exact_size(vec2(8.0, 8.0), egui::Sense::hover());
         ui.painter()
             .circle_filled(rect.center(), 4.0, color::ACCENT);
-        ui.label(RichText::new("翻译").size(font::CAPTION).color(weak));
+        ui.label(
+            RichText::new(text.gloss_popup_brand.as_str())
+                .size(font::CAPTION)
+                .color(weak),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // 图标钮的文字颜色交给 widget 状态笔刷（不写死在字形上），
             // 才有「默认弱色、hover 显色」；只换色，线宽保持出厂值。
@@ -291,13 +312,23 @@ fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool) -> Option<OverlayAct
             ui.visuals_mut().widgets.active.fg_stroke.color = strong;
             let close = ui.add(icon_button("×"));
             close.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "关闭浮层")
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Button,
+                    true,
+                    text.gloss_popup_close_label.as_str(),
+                )
             });
             if close.clicked() {
                 action = Some(OverlayAction::Dismiss);
             }
             let gear = ui.add(icon_button("⚙"));
-            gear.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "设置"));
+            gear.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Button,
+                    true,
+                    text.gloss_popup_settings_label.as_str(),
+                )
+            });
             if gear.clicked() {
                 action = Some(OverlayAction::OpenSettings);
             }
@@ -476,6 +507,7 @@ mod kittest_tests {
 
     use super::*;
     use crate::machine::OverlayView;
+    use gloss_core::model::{GlossError, Locale};
     use gloss_core::task::{Sense, TaskKind, TaskOutcome};
 
     fn word_card_view() -> OverlayView {
@@ -503,21 +535,28 @@ mod kittest_tests {
 
     fn failed_view() -> OverlayView {
         OverlayView::Failed {
-            message: "网络错误，请检查网络后重试".into(),
+            cause: FailureCause::Task(GlossError::EngineNetwork),
             action: Some(ErrorAction::Retry),
         }
     }
 
     fn auth_failed_view() -> OverlayView {
         OverlayView::Failed {
-            message: "API Key 无效或未配置，请到设置中检查".into(),
+            cause: FailureCause::Task(GlossError::EngineAuth),
             action: Some(ErrorAction::OpenSettings),
         }
     }
 
     fn bare_failed_view() -> OverlayView {
         OverlayView::Failed {
-            message: "服务返回异常：HTTP 400 Bad Request".into(),
+            cause: FailureCause::Task(GlossError::EngineResponse("HTTP 400 Bad Request".into())),
+            action: None,
+        }
+    }
+
+    fn failed_view_with(cause: FailureCause) -> OverlayView {
+        OverlayView::Failed {
+            cause,
             action: None,
         }
     }
@@ -533,16 +572,50 @@ mod kittest_tests {
     type Clicked = Rc<RefCell<Option<OverlayAction>>>;
 
     fn harness_for(view: OverlayView) -> (Harness<'static>, Clicked) {
+        harness_for_locale(view, Locale::Zh)
+    }
+
+    fn harness_for_locale(view: OverlayView, locale: Locale) -> (Harness<'static>, Clicked) {
         let clicked: Clicked = Rc::new(RefCell::new(None));
         let sink = Rc::clone(&clicked);
         let state = RenderState::default();
+        let text = Text::get(locale);
         let harness = Harness::new_ui(move |ui| {
-            let output = draw(ui, Some(&view), &state);
+            let output = draw(ui, Some(&view), &state, text);
             if let Some(action) = output.action {
                 *sink.borrow_mut() = Some(action);
             }
         });
         (harness, clicked)
+    }
+
+    #[test]
+    fn failure_card_words_each_cause() {
+        let errors = Text::get(Locale::Zh);
+        for (cause, expected) in [
+            (
+                FailureCause::Task(GlossError::EngineNetwork),
+                errors.gloss_errors_engine_network.as_str(),
+            ),
+            (
+                FailureCause::Task(GlossError::EngineResponse("HTTP 400".into())),
+                "服务返回异常：HTTP 400",
+            ),
+            (FailureCause::AcquireChannel, "任务失败：取材通道不可用"),
+            (FailureCause::TransportChannel, "任务失败：推理通道不可用"),
+        ] {
+            let (mut harness, _clicked) = harness_for(failed_view_with(cause));
+            harness.run();
+            harness.get_by_label_contains(expected);
+        }
+    }
+
+    #[test]
+    fn failure_card_follows_the_locale() {
+        let (mut harness, _clicked) = harness_for_locale(failed_view(), Locale::En);
+        harness.run();
+        harness.get_by_label_contains("Network error.");
+        harness.get_by_label("Retry");
     }
 
     #[test]
@@ -641,8 +714,9 @@ mod kittest_tests {
     #[test]
     fn selfcheck_view_exposes_texts_to_accesskit() {
         let state = RenderState::default();
+        let text = Text::get(Locale::Zh);
         let mut harness = Harness::new_ui(move |ui| {
-            let _ = draw(ui, None, &state);
+            let _ = draw(ui, None, &state, text);
         });
         harness.run();
         harness.get_by_label_contains("quick brown fox");
@@ -671,8 +745,6 @@ mod kittest_tests {
         results.extend_harness(&mut harness);
 
         let (mut harness, _clicked) = harness_for(streaming_view());
-        // Spinner 每帧请求重绘，run() 会在 max_steps 处报错；固定步数让
-        // 指示器角度确定，快照不抖。
         harness.run_steps(3);
         harness.snapshot("popup_streaming");
         results.extend_harness(&mut harness);
@@ -688,8 +760,9 @@ mod kittest_tests {
         results.extend_harness(&mut harness);
 
         let state = RenderState::default();
+        let text = Text::get(Locale::Zh);
         let mut harness = Harness::new_ui(move |ui| {
-            let _ = draw(ui, None, &state);
+            let _ = draw(ui, None, &state, text);
         });
         harness.run();
         harness.snapshot("popup_selfcheck");

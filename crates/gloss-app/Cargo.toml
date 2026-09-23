@@ -51,6 +51,8 @@ gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
 # 同步等待 GPU 初始化。
 pollster = { version = "1.0.1", default-features = false }
+# 界面文案表的强类型反序列化：键缺失或多键都算解析失败。
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
 # 通道③用 tokio mpsc；pipeline 的消费运行时与 select! 宏。
 tokio = {
   version = "1",
@@ -64,6 +66,14 @@ tokio = {
 }
 # RunTask 携带的 CancellationToken。
 tokio-util = { version = "0.7", default-features = false }
+# 界面文案文件（i18n/*.toml）的解析；版本与 platform 保持一致。
+toml = {
+  version = "0.8",
+  default-features = false,
+  features = [
+    "parse",
+  ]
+}
 # 只留实际使用的 Metal 后端，配合 egui-wgpu 已声明的 std + wgsl。
 wgpu = {
   version = "30.0.1",

@@ -7,13 +7,15 @@ pub mod style;
 
 use gloss_core::task::TaskKind;
 
-/// 任务类型 → 中文标签（结果卡头部与设置页共用一张表，改一处两处同步）。
-pub(crate) fn kind_label(kind: TaskKind) -> &'static str {
+use crate::i18n::Text;
+
+/// 任务类型 → 界面标签（结果卡头部与设置页共用一张表，改一处两处同步）。
+pub(crate) fn kind_label(kind: TaskKind, text: &Text) -> &str {
     match kind {
-        TaskKind::TranslateWord => "词卡",
-        TaskKind::TranslateSentence => "翻译",
-        TaskKind::ExplainCode => "代码解释",
-        TaskKind::ImageOcr => "提取结果",
-        TaskKind::ImageExplain => "图片解释",
+        TaskKind::TranslateWord => &text.gloss_kinds_translate_word,
+        TaskKind::TranslateSentence => &text.gloss_kinds_translate_sentence,
+        TaskKind::ExplainCode => &text.gloss_kinds_explain_code,
+        TaskKind::ImageOcr => &text.gloss_kinds_image_ocr,
+        TaskKind::ImageExplain => &text.gloss_kinds_image_explain,
     }
 }

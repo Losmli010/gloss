@@ -15,7 +15,7 @@ gloss/
 └── crates/
     ├── gloss-core/      # 领域层 + 端口（ports：core 里定义的 trait 契约）：模型、任务、提示词、引擎、缓存、配置、日志（零平台依赖）
     ├── gloss-platform/  # 适配器层：实现 core 的端口——选区读取、热键与鼠标事件源、配置与密钥存储、LLM 网络（SSE 流式）、应用外观（Dock 图标）
-    └── gloss-app/       # 表现层 + 应用层：状态机、窗口、wgpu 与 egui、通道类型、tokio 消费桥
+    └── gloss-app/       # 表现层 + 应用层：状态机、窗口、wgpu 与 egui、通道类型、tokio 消费桥、界面文案表（i18n 下的 zh/en TOML，编译期嵌入）
 ```
 
 具体文件清单以 `crates/*/src` 为准，本节只讲分层职责——文件名会随重构漂移，职责不会。

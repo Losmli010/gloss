@@ -4,8 +4,8 @@ use std::error::Error;
 use std::sync::Arc;
 
 use gloss_core::config_handle::ConfigHandle;
+use gloss_core::model::Locale;
 use gloss_core::ports::{ConfigStore, HotkeyBinder};
-use gloss_core::prompt::PromptLocale;
 use winit::event_loop::{EventLoop, EventLoopProxy};
 
 use crate::channel::AppEndpoints;
@@ -45,13 +45,13 @@ impl Waker {
 /// `hotkeys` 是热键重绑定端口：适配器在组装点创建（注册有主线程亲和），
 /// 设置页保存后由 App 直接调用。`theme` 施加到两个 egui 上下文（见
 /// `GlossApp::apply_theme`）。`system_locale` 是组装点读到的系统语言，
-/// 供配置里的 `Language::System` 落定成 prompt 模板语言。
+/// 供配置里的 `Language::System` 落定成 [`Locale`]（prompt 模板与界面文案共用）。
 pub fn run(
     endpoints: AppEndpoints,
     config: Arc<ConfigHandle>,
     store: Arc<dyn ConfigStore>,
     hotkeys: Arc<dyn HotkeyBinder>,
-    system_locale: PromptLocale,
+    system_locale: Locale,
     on_waker: impl FnOnce(Waker),
 ) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;

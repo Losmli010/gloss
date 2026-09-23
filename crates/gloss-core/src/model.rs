@@ -19,6 +19,21 @@ pub enum Lang {
     Other(String),
 }
 
+/// 应用自身的语言环境：prompt 模板与界面文案的选表依据。
+///
+/// `Config::language` 的 `System` 在壳侧按系统语言落定后只剩这两个具体值
+/// （形如 `config::Theme` 的三态之下的二态）。与 [`Lang`] 分工不同：`Lang`
+/// 是**产物**语言（译文给谁看），`Locale` 是**界面**语言（应用跟用户说什么
+/// 话），两者解耦。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Locale {
+    /// 中文（出厂）。
+    #[default]
+    Zh,
+    /// 英文。
+    En,
+}
+
 /// 屏幕逻辑坐标点。多显示器下坐标可为负，按手势/系统返回值原样传递。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScreenPoint {

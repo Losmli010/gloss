@@ -4,7 +4,8 @@
 use gloss_core::config::Config;
 use gloss_core::log::{info, thread, warn};
 
-use crate::ui::settings::KeyUpdate;
+use crate::i18n::Text;
+use crate::ui::settings::{KeyUpdate, SettingsNotice};
 
 use super::GlossApp;
 
@@ -13,15 +14,17 @@ impl GlossApp {
     /// 失败卡的「打开设置」走同一条路）。窗口已可见时只聚焦；否则以当前
     /// 快照开一个新编辑会话——未保存的草稿随旧会话一并作废。
     pub(super) fn open_settings(&mut self) {
+        // 窗口标题按当前界面语言写入：窗内文案取自同一份快照语言，两者同语。
+        let title = Text::get(self.locale()).gloss_app_settings_title.as_str();
         if self.settings.is_some() {
             if let Some(windows) = &self.windows {
-                windows.show_settings();
+                windows.show_settings(title);
             }
             return;
         }
         self.settings = Some(crate::ui::settings::open(&self.config.snapshot()));
         if let Some(windows) = &self.windows {
-            windows.show_settings();
+            windows.show_settings(title);
             windows.request_redraw_settings();
         }
         info!(thread = thread::UI, "settings window opened");
@@ -39,7 +42,7 @@ impl GlossApp {
         };
         if let Err(err) = key_result {
             warn!(thread = thread::UI, error = %err, "failed to update the api key");
-            self.report_settings(format!("密钥更新失败（配置未保存）：{err}"));
+            self.report_settings(SettingsNotice::KeyUpdateFailed(err));
             return;
         }
         if key_update != KeyUpdate::Keep {
@@ -54,12 +57,12 @@ impl GlossApp {
         if let Err(err) = self.config.save(config) {
             // 密钥已经生效，配置没有：如实说清哪一半落下了。
             warn!(thread = thread::UI, error = %err, "failed to save settings");
-            let prefix = if key_update == KeyUpdate::Keep {
-                "保存失败"
+            let notice = if key_update == KeyUpdate::Keep {
+                SettingsNotice::SaveFailed(err)
             } else {
-                "密钥已更新，但配置保存失败"
+                SettingsNotice::KeyUpdatedSaveFailed(err)
             };
-            self.report_settings(format!("{prefix}：{err}"));
+            self.report_settings(notice);
             return;
         }
         info!(
@@ -87,9 +90,9 @@ impl GlossApp {
     }
 
     /// 设置窗口的用户提示（保存失败等）；窗口已关则无处可报，只留日志。
-    fn report_settings(&mut self, message: String) {
+    fn report_settings(&mut self, notice: SettingsNotice) {
         if let Some(state) = &mut self.settings {
-            state.report(message);
+            state.report(notice);
         }
     }
 
@@ -117,7 +120,7 @@ mod tests {
     use crate::channel::PlatformEvent;
     use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder};
     use crate::ui;
-    use crate::ui::settings::KeyUpdate;
+    use crate::ui::settings::{KeyUpdate, SettingsNotice};
 
     #[test]
     fn open_settings_request_starts_an_edit_session() {
@@ -204,9 +207,12 @@ mod tests {
         app.save_settings(draft, KeyUpdate::Keep);
 
         let state = app.settings.as_ref().expect("session must stay open");
-        assert!(
-            state.notice().is_some_and(|n| n.contains("disk on fire")),
-            "the save error must be reported into the session"
+        assert_eq!(
+            state.notice(),
+            Some(&SettingsNotice::SaveFailed(GlossError::Config(
+                "disk on fire".into()
+            ))),
+            "the save error must be reported into the session as a typed notice"
         );
         assert_eq!(
             config.snapshot().target_lang,

@@ -11,8 +11,8 @@
 | 人工测试 | 10 | `cargo test -p gloss-platform -- --ignored` |
 | 集成测试 | 5 | `just test` |
 | 性能测试 | 1 | `just selftest` |
-| 快照测试 | 16 | `just test` |
-| 单元测试 | 243 | `just test` |
+| 快照测试 | 22 | `just test` |
+| 单元测试 | 268 | `just test` |
 
 ## 人工测试
 
@@ -127,7 +127,7 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_failed_auth、popup_selfcheck；settings 快照基线：settings_main、settings_notice。
+popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_failed_auth、popup_selfcheck；settings 快照基线：settings_main、settings_notice、settings_invalid。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -147,6 +147,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | hotkey_rows_expose_their_triggers | 热键行触发键无障碍结构 | 给定出厂三条绑定，当渲染，则三条触发键值各为可编辑输入节点进 AccessKit 树 | 2026-09-22 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
 | snapshots_match_baseline（settings） | 设置窗渲染基线（正常/提示/错误三态） | 给定默认、带保存失败提示、校验错误三个状态，当 wgpu 渲染并 diff，则分别与 settings_main / settings_notice / settings_invalid 基线一致且关键文本进树 | 2026-09-22 |
+| failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、协议异常（带诊断）、取材通道不可用、推理通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-09-22 |
+| failure_card_follows_the_locale | 失败卡随 locale 出表 | 给定英文 locale 的网络失败卡，当渲染，则出英文文案与英文「Retry」动作 | 2026-09-22 |
+| save_failure_notice_names_the_cause | 保存失败提示出场合与诊断 | 给定带 SaveFailed(Config) 类型化提示的设置窗（中文表），当渲染，则出「保存失败：<诊断>」（前缀交代场合、诊断不重复本地化整句） | 2026-09-22 |
+| a_rendered_notice_follows_the_locale | 提示行随 locale 出表 | 给定带同一类型化提示的设置窗（英文表），当渲染，则出英文前缀与诊断（提示行不是只有中文基线可查） | 2026-09-22 |
+| saving_the_language_swaps_the_rendered_labels_without_a_restart | 保存语言即换渲染文案 | 给定同一进程内保存 Language::En 前后的配置句柄，当各渲染一帧设置窗，则文案由「保存」变为「Save」且中文标不再在树上（配置快照 → 落定 → 选表 → 渲染全链，不重启） | 2026-09-22 |
+| english_catalog_relabels_the_settings_window | 英文文案表驱动设置窗 | 给定英文 locale 的设置窗，当渲染，则四个区块标、动作按钮、默认任务/目标语言/任务开关/清除密钥/界面语言/界面主题/缓存有效期各出自英文表（含「Enable <任务>」开关的无障碍标签模板），且中文标不在树上 | 2026-09-22 |
 
 ## 单元测试
 
@@ -201,7 +207,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | explicit_empty_enabled_kinds_disables_everything | 显式空数组语义 | 给定 enabled_kinds 显式空数组，当加载，则所有 kind 停用 | 2026-09-19 |
 | missing_fields_default_while_explicit_empty_stays_empty | 缺省回退与显式空的区分 | 给定 provider_keys/model_by_kind 显式空，当加载，则纯查找为空、resolved 查找回退出厂项、图像 kind 不借文本模型 | 2026-09-19 |
 | selection_kind_falls_back_for_image_kinds | 误配图像默认回退文本 | 给定 default_text_kind 误配成 ImageOcr，当解析划词任务，则回退 TranslateWord | 2026-09-19 |
-| language_resolves_to_prompt_locale | 界面语言落定模板语言 | 给定 System/Zh/En 三态与注入的系统语言，当解析 prompt 模板语言，则 System 取系统语言、显式选择不被系统语言覆盖 | 2026-09-22 |
+| language_resolves_to_locale | 界面语言落定具体 locale | 给定 System/Zh/En 三态与注入的系统语言，当解析界面语言，则 System 取系统语言、显式选择不被系统语言覆盖（同一处取值供 UI 文案表与 prompt 模板选表） | 2026-09-22 |
 | default_cache_ttl_matches_cache_implementation | 默认 TTL 单点一致 | 给定出厂 TTL，当与 cache::DEFAULT_TTL 比对，则相等 | 2026-09-19 |
 | edit_helpers_keep_tables_canonical | 编辑助手保持表规范 | 给定启用/停用与模型编辑操作，当调用助手，则不重复追加、停用幂等、模型按 kind 替换、空白视为未配置 | 2026-09-19 |
 | lookups_prefer_later_entries | 重复条目查找后者胜出 | 给定重复 kind 的多条目，当查找，则后条胜出、未配置为 None、未知 provider 无 keychain id | 2026-09-19 |
@@ -308,6 +314,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | channels_bundles_all_four | 四通道捆绑互不串扰 | 给定 Channels::new，当四条通道各发一条，则各自到达、互不串扰 | 2026-09-19 |
 | event_sender_clone_is_independent | 克隆 Sender 独立存活 | 给定克隆 Sender 且原型 drop，当用它发送，则消息照常到达 | 2026-09-19 |
 
+### crates/gloss-app/src/app/mod.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| ui_locale_follows_the_saved_language_without_a_restart | 界面语言随保存即时切换 | 给定出厂配置（跟随系统），当保存 Language::En 再保存 Language::System，则逐帧解析出的 locale 依次为 Zh→En→Zh（不重启即换文案表） | 2026-09-22 |
+
 ### crates/gloss-app/src/app/render.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -331,6 +343,20 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | stale_input_ready_is_dropped_entirely | 陈旧 InputReady 整体丢弃 | 给定陈旧代数 InputReady，当采纳，则整体丢弃、不下发通道③ | 2026-09-19 |
 | saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置，当下一次触发，则目标语言与模型随任务下发 | 2026-09-19 |
 | saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定触发后、产物到达前保存新配置，当在途任务下发，则仍用触发时快照 | 2026-09-19 |
+
+### crates/gloss-app/src/i18n.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 75（条数钉住，防遍历退化） | 2026-09-22 |
+| every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language_en）外无一与中文表逐字相同 | 2026-09-23 |
+| entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 gloss_ 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
+| placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条 | 2026-09-22 |
+| catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功且两语言取值可区分 | 2026-09-22 |
+| fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数/无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |
+| error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定 GlossError 的十个变体（含两个带诊断文本的），当取失败卡文案，则各自的两种语言都非空且互不相同 | 2026-09-22 |
+| each_error_variant_maps_to_its_own_entry | 错误变体各取自己的词条 | 给定八个无诊断文本的变体，当取失败卡文案与错因细节，则各等于本变体对应的词条（两臂对调会被抓住）；带诊断的两个变体按模板填诊断 | 2026-09-22 |
+| error_detail_prefers_the_variant_diagnostic | 复合提示取诊断细节 | 给定带诊断的变体与不带诊断的变体，当取错因细节，则前者只出诊断原文、后者回落本地化整句 | 2026-09-22 |
 
 ### crates/gloss-app/src/windows.rs
 
@@ -417,10 +443,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | failed_guard_matches_fetching_and_translating_only | 失败守卫只认两个在途态 | 给定取材失败与隐藏后的迟到失败，当采纳，则前者落 Error、后者被拒 | 2026-09-19 |
 | modality_mismatch_preserves_pending_task | 模态错配保留待定任务 | 给定模态错配被拒后，当同代数合法输入到达，则仍可采纳 | 2026-09-19 |
 | transport_failure_lands_in_error | 传输失败落错误态 | 给定取材通道不可用，当 fail_transport，则落 Error、失败视图无动作按钮、retry 为 None | 2026-09-19 |
-| retryable_failure_keeps_task_and_retry_redispatches_it | 可重试失败保留任务 | 给定网络类失败，当落 Error，则消息点名类别、retry 同代数同任务新令牌重发且回流式视图 | 2026-09-19 |
+| retryable_failure_keeps_task_and_retry_redispatches_it | 可重试失败保留任务 | 给定网络类失败，当落 Error，则失败原因按变体记录（FailureCause::Task(EngineNetwork)）、retry 同代数同任务新令牌重发且回流式视图 | 2026-09-22 |
 | error_actions_follow_the_mapping_table | 错误动作按映射表 | 给定限流/鉴权/模态/配置类失败，当映射，则限流可重试，其余引导打开设置且不可重试 | 2026-09-19 |
 | new_trigger_and_hide_supersede_the_retry_task | 新触发与隐藏取代重试 | 给定失败卡在场时新触发或隐藏，当发生，则 retry 返回 None | 2026-09-19 |
-| error_messages_name_the_fix | 错误文案给出可执行指引 | 给定权限/鉴权/协议类错误，当生成文案，则给出可执行指引且保留诊断文本 | 2026-09-19 |
 
 ### crates/gloss-app/src/ui/fonts.rs
 
@@ -440,6 +465,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | duplicate_hotkey_triggers_are_flagged_by_canonical_form | 热键重复按规范化串判定 | 给定两条同组合不同写法的热键，当校验草稿，则后一条标重复、首条保留 | 2026-09-22 |
 | fixing_the_field_restores_save | 改对字段恢复保存 | 给定被阻断的校验态，当修正 Base URL，则错误清空、再次 build_save 上交 Save | 2026-09-22 |
 | open_copies_the_snapshot_into_the_draft | 打开设置拷贝快照进草稿 | 给定打开时的快照，当建草稿并随后改原配置，则草稿不跟随、可携带提示 | 2026-09-19 |
+| field_errors_are_worded_per_locale | 字段错误按 locale 出措辞 | 给定全部八类字段错误（含行号与触发键回显两种模板），当按中英文表取文案，则各出对应措辞（换臂或漏译会被抓住） | 2026-09-22 |
+| every_notice_renders_its_localized_prefix_and_detail | 三类提示的中英措辞 | 给定三类壳回写提示（各带同一诊断），当按中英表取文案，则前缀与诊断都按表落地、且无残留的 {{占位符}}（两条从未渲染过的模板由此覆上） | 2026-09-22 |
+| base_url_errors_map_to_their_own_field_error | Base URL 错因映射到字段错误 | 给定五类 BaseUrlError，当映射，则空/语法与 https/内嵌凭据/查询参数各落到对应 FieldError（内嵌凭据与查询参数两臂易错） | 2026-09-22 |
 
 ### crates/gloss-app/src/ui/style.rs
 
@@ -457,7 +485,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| prompt_locale_maps_preferred_languages | 首选语言映射模板语言 | 给定 zh-Hans-CN / zh_CN / ZH-TW / en-US / ja-JP 与空值，当映射，则中文标签归中文模板、其余（含拿不到偏好语言）归英文模板 | 2026-09-22 |
+| locale_maps_preferred_languages | 首选语言映射界面语言 | 给定 zh-Hans-CN / zh_CN / ZH-TW / en-US / ja-JP 与空值，当映射，则中文标签归中文、其余（含拿不到偏好语言）归英文 | 2026-09-22 |
 
 ### crates/gloss-platform/src/storage/mod.rs
 

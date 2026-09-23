@@ -17,9 +17,9 @@
 //! 参数缺省：`options.target_lang` 缺省中文；`options.prompt_locale`
 //! 缺省中文模板；`InputHint` 缺省不注入提示行。
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::model::{GlossError, Lang};
+use crate::model::{GlossError, Lang, Locale};
 use crate::task::{InputHint, Task, TaskInput, TaskKind, TaskOptions, validate_modality};
 
 /// 目标语言缺省值（`TaskOptions::target_lang` 文档：缺省中文）。
@@ -29,17 +29,6 @@ const DEFAULT_TARGET: Lang = Lang::Zh;
 /// 编排侧（engine）按同一标记解析，UI 侧流式渲染按它过滤未完成的
 /// 结构化块——三处共用单一事实源。
 pub const STRUCTURED_FENCE: &str = "```gloss";
-
-/// Prompt 模板语言：`Config::language` 的 `System` 在壳侧按系统语言落定后
-/// 只剩这两个具体值（形如 [`crate::config::Theme`] 的三态之下的二态）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum PromptLocale {
-    /// 中文模板（出厂）。
-    #[default]
-    Zh,
-    /// 英文模板。
-    En,
-}
 
 /// 一个 locale 的模板文件集：三个文本 kind 的指令 + 输出契约散文 + 模态
 /// 提示行片段。契约与提示行抽成片段而不是抄进三个指令：抄写会在改契约时
@@ -53,18 +42,18 @@ struct Templates {
     hints: &'static str,
 }
 
-impl PromptLocale {
+impl Locale {
     /// 本 locale 的模板文件集（编译期嵌入，无 IO）。
     fn templates(self) -> Templates {
         match self {
-            PromptLocale::Zh => Templates {
+            Locale::Zh => Templates {
                 word_card: include_str!("../prompts/zh/word_card.md"),
                 sentence: include_str!("../prompts/zh/sentence.md"),
                 code: include_str!("../prompts/zh/code.md"),
                 contract: include_str!("../prompts/zh/contract.md"),
                 hints: include_str!("../prompts/zh/hints.md"),
             },
-            PromptLocale::En => Templates {
+            Locale::En => Templates {
                 word_card: include_str!("../prompts/en/word_card.md"),
                 sentence: include_str!("../prompts/en/sentence.md"),
                 code: include_str!("../prompts/en/code.md"),
@@ -180,7 +169,7 @@ fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
 ///
 /// 语言名随 prompt locale——英文模板里写 "Chinese" 而不是「中文」，否则
 /// 模型拿到的是半汉半英的指令。
-fn target_display(options: &TaskOptions, locale: PromptLocale) -> String {
+fn target_display(options: &TaskOptions, locale: Locale) -> String {
     let display = lang_display(
         options.target_lang.as_ref().unwrap_or(&DEFAULT_TARGET),
         locale,
@@ -194,9 +183,9 @@ fn target_display(options: &TaskOptions, locale: PromptLocale) -> String {
 
 /// 语言显示名（模板面向模型，用各 locale 的语言书写；`Lang::Other` 是
 /// 用户自填的名字，原样透传）。
-fn lang_display(lang: &Lang, locale: PromptLocale) -> String {
+fn lang_display(lang: &Lang, locale: Locale) -> String {
     match locale {
-        PromptLocale::Zh => match lang {
+        Locale::Zh => match lang {
             Lang::Zh => "中文".into(),
             Lang::En => "英语".into(),
             Lang::Ja => "日语".into(),
@@ -204,7 +193,7 @@ fn lang_display(lang: &Lang, locale: PromptLocale) -> String {
             Lang::Fr => "法语".into(),
             Lang::Other(name) => name.clone(),
         },
-        PromptLocale::En => match lang {
+        Locale::En => match lang {
             Lang::Zh => "Chinese".into(),
             Lang::En => "English".into(),
             Lang::Ja => "Japanese".into(),
@@ -220,7 +209,7 @@ fn lang_display(lang: &Lang, locale: PromptLocale) -> String {
 ///
 /// 末尾换行在这里去掉：两处注入点各自决定换行（系统指令里占位符独占一行、
 /// 用户消息里另起一段），留着会让消息多出空行。
-fn hint_block(hints: &str, hint: Option<&InputHint>, locale: PromptLocale) -> String {
+fn hint_block(hints: &str, hint: Option<&InputHint>, locale: Locale) -> String {
     let mut code_lang = String::new();
     let mut source_lang = String::new();
     match hint {
@@ -344,7 +333,7 @@ mod tests {
         }
     }
 
-    fn localized_task(kind: TaskKind, text: &str, locale: PromptLocale) -> Task {
+    fn localized_task(kind: TaskKind, text: &str, locale: Locale) -> Task {
         let mut task = text_task(kind, text, None);
         task.options.prompt_locale = Some(locale);
         task
@@ -418,7 +407,7 @@ mod tests {
     #[test]
     fn empty_target_language_name_falls_back_to_default() {
         let registry = PromptRegistry::new();
-        for locale in [PromptLocale::Zh, PromptLocale::En] {
+        for locale in [Locale::Zh, Locale::En] {
             for name in ["", " "] {
                 let mut task = text_task(TaskKind::TranslateSentence, "hello", None);
                 task.options.target_lang = Some(Lang::Other(name.into()));
@@ -426,8 +415,8 @@ mod tests {
                 let messages = registry.render(&task).expect("render");
                 let expected = lang_display(&DEFAULT_TARGET, locale);
                 let instruction = match locale {
-                    PromptLocale::Zh => "翻译助手",
-                    PromptLocale::En => "translation assistant",
+                    Locale::Zh => "翻译助手",
+                    Locale::En => "translation assistant",
                 };
                 assert!(
                     messages[0].content.contains(instruction),
@@ -579,7 +568,7 @@ mod tests {
             "code_lang",
             "source_lang",
         ];
-        for locale in [PromptLocale::Zh, PromptLocale::En] {
+        for locale in [Locale::Zh, Locale::En] {
             let templates = locale.templates();
             let files = [
                 ("word_card.md", templates.word_card),
@@ -617,7 +606,7 @@ mod tests {
             Some(InputHint::CodeLanguage("rust".into())),
             Some(InputHint::SourceLang(Lang::Ja)),
         ];
-        for locale in [PromptLocale::Zh, PromptLocale::En] {
+        for locale in [Locale::Zh, Locale::En] {
             for kind in [
                 TaskKind::TranslateWord,
                 TaskKind::TranslateSentence,
@@ -646,7 +635,7 @@ mod tests {
     #[test]
     fn english_locale_renders_english_prompts() {
         let registry = PromptRegistry::new();
-        let mut task = localized_task(TaskKind::TranslateSentence, "bonjour", PromptLocale::En);
+        let mut task = localized_task(TaskKind::TranslateSentence, "bonjour", Locale::En);
         task.input = TaskInput::Text {
             text: "bonjour".into(),
             hint: Some(InputHint::SourceLang(Lang::Fr)),
@@ -667,7 +656,7 @@ mod tests {
             .render(&localized_task(
                 TaskKind::TranslateSentence,
                 "hello",
-                PromptLocale::En,
+                Locale::En,
             ))
             .expect("render");
         assert!(english_prompt[0].content.contains("translation assistant"));
@@ -677,8 +666,7 @@ mod tests {
             english_prompt[0].content
         );
 
-        let mut chinese_prompt =
-            localized_task(TaskKind::TranslateSentence, "hello", PromptLocale::Zh);
+        let mut chinese_prompt = localized_task(TaskKind::TranslateSentence, "hello", Locale::Zh);
         chinese_prompt.options.target_lang = Some(Lang::En);
         let messages = registry.render(&chinese_prompt).expect("render");
         assert!(messages[0].content.contains("翻译助手"));
@@ -695,11 +683,11 @@ mod tests {
             .render(&localized_task(
                 TaskKind::TranslateWord,
                 "gloss",
-                PromptLocale::Zh,
+                Locale::Zh,
             ))
             .expect("render");
         assert_eq!(defaulted, explicit, "no locale means the Chinese templates");
         assert!(defaulted[0].content.contains("词典助手"));
-        assert_eq!(PromptLocale::default(), PromptLocale::Zh);
+        assert_eq!(Locale::default(), Locale::Zh);
     }
 }

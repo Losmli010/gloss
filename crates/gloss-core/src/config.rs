@@ -7,8 +7,7 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::Lang;
-use crate::prompt::PromptLocale;
+use crate::model::{Lang, Locale};
 use crate::task::{HotkeyBinding, InputSource, TaskKind};
 
 /// 全部任务类型：`enabled_kinds` 的出厂值与设置页的任务开关列表共用，
@@ -58,8 +57,8 @@ pub enum Theme {
     Dark,
 }
 
-/// 界面语言：出厂跟随系统。消费归 prompt locale（已接线，触发时解析、
-/// 随任务冻结）与 UI 文案翻译（R7，未接线）。
+/// 界面语言：出厂跟随系统。落定成 [`Locale`]，供 prompt 模板（触发时解析、
+/// 随任务冻结）与界面文案（渲染帧逐帧取表）共用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Language {
     /// 跟随系统语言。
@@ -72,14 +71,14 @@ pub enum Language {
 }
 
 impl Language {
-    /// 本语言的 prompt 模板语言：显式选择直接用；`System` 按调用方给的
+    /// 本语言落定成的 [`Locale`]：显式选择直接用；`System` 按调用方给的
     /// **系统语言**落定——进程内系统语言只会读一次（改系统语言要重启），
-    /// 因此这是纯映射，不做任何探测。
-    pub fn prompt_locale(self, system: PromptLocale) -> PromptLocale {
+    /// 因此这是纯映射，不做任何探测。prompt 模板与界面文案共用这一份结果。
+    pub fn resolve(self, system: Locale) -> Locale {
         match self {
             Language::System => system,
-            Language::Zh => PromptLocale::Zh,
-            Language::En => PromptLocale::En,
+            Language::Zh => Locale::Zh,
+            Language::En => Locale::En,
         }
     }
 }
@@ -248,8 +247,8 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// `enabled_kinds` 已接线（触发时过滤）；`hotkey_bindings` /
 /// `theme` 已接线（保存后重注册热键；主题施加到两个 egui 上下文）——
 /// 都**不**在触发时冻结；`cache_ttl_secs` 归缓存构造接线；
-/// `language` 已接线（触发时经 `Language::prompt_locale` 解析成 prompt
-/// 模板语言，随任务冻结；UI 文案翻译归 R7）。
+/// `language` 已接线（触发时经 `Language::resolve` 解析成 prompt 模板语言、
+/// 随任务冻结，渲染帧另按同一映射取界面文案表）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -533,25 +532,19 @@ mod tests {
     }
 
     #[test]
-    fn language_resolves_to_prompt_locale() {
+    fn language_resolves_to_locale() {
         assert_eq!(
-            Language::System.prompt_locale(PromptLocale::En),
-            PromptLocale::En,
+            Language::System.resolve(Locale::En),
+            Locale::En,
             "follow-the-system must take the detected system language"
         );
+        assert_eq!(Language::System.resolve(Locale::Zh), Locale::Zh);
         assert_eq!(
-            Language::System.prompt_locale(PromptLocale::Zh),
-            PromptLocale::Zh
-        );
-        assert_eq!(
-            Language::Zh.prompt_locale(PromptLocale::En),
-            PromptLocale::Zh,
+            Language::Zh.resolve(Locale::En),
+            Locale::Zh,
             "an explicit choice ignores the system language"
         );
-        assert_eq!(
-            Language::En.prompt_locale(PromptLocale::Zh),
-            PromptLocale::En
-        );
+        assert_eq!(Language::En.resolve(Locale::Zh), Locale::En);
     }
 
     #[test]
