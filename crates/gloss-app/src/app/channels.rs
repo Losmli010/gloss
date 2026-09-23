@@ -1,11 +1,11 @@
 //! 通道①③④的消费与下发：平台事件→取材命令（通道②经 machine 产出）、
 //! 取材产物→推理任务（通道③）、回传事件→浮层展示决策（通道④）。
 
-use gloss_core::log::{debug, info, thread, warn};
+use gloss_core::log::{Span, debug, info, task_span, thread, warn};
 use gloss_core::task::TaskInput;
 use winit::event_loop::ActiveEventLoop;
 
-use crate::channel::{AcquireCommand, Command, Event, PlatformEvent};
+use crate::channel::{AcquireCommand, Command, Event, PlatformEvent, Traced};
 use crate::machine::{RunRequest, TriggerRoute, trigger_route};
 
 use super::GlossApp;
@@ -35,9 +35,12 @@ impl GlossApp {
             }
             let superseded = self.machine.current_cancel().is_some();
             if let Some(command) = self.machine.trigger(&event, &config, self.system_locale) {
+                let span = task_span(self.machine.generation());
+                self.task_span = Some((self.machine.generation(), span.clone()));
+                let entered_span = span.clone();
+                let _entered = entered_span.enter();
                 info!(
                     thread = thread::UI,
-                    generation = self.machine.generation(),
                     cancelled_inflight = superseded,
                     "platform event dispatched as acquire command"
                 );
@@ -46,7 +49,7 @@ impl GlossApp {
                 if let PlatformEvent::SelectionGesture { pos } = event {
                     self.selection_anchor = Some((self.machine.generation(), pos));
                 }
-                self.send_acquire(command);
+                self.send_acquire(command, span);
             } else {
                 // 被任务开关拦下的触发记 warn、未接线的事件记 debug：前者
                 // 是用户能自己修的配置问题，不该只留在默认级别看不见的
@@ -69,11 +72,15 @@ impl GlossApp {
 
     /// 通道②发送；接收端消失（事件线程死亡/退出）时落 Error 态兜底，
     /// 避免滞留 Fetching。
-    fn send_acquire(&mut self, command: AcquireCommand) {
+    fn send_acquire(&mut self, command: AcquireCommand, span: Span) {
         let Some(endpoints) = &self.endpoints else {
             return;
         };
-        if endpoints.acquire_commands.send(command).is_err() {
+        let traced = Traced {
+            payload: command,
+            span,
+        };
+        if endpoints.acquire_commands.send(traced).is_err() {
             warn!(
                 thread = thread::UI,
                 generation = self.machine.generation(),
@@ -163,15 +170,15 @@ impl GlossApp {
             self.machine.fail_transport(request.generation);
             return;
         };
-        if endpoints
-            .commands
-            .send(Command::RunTask {
+        let traced = Traced {
+            payload: Command::RunTask {
                 generation: request.generation,
                 task: request.task,
                 cancel: request.cancel,
-            })
-            .is_err()
-        {
+            },
+            span: self.span_for(request.generation).unwrap_or_else(Span::none),
+        };
+        if endpoints.commands.send(traced).is_err() {
             warn!(
                 thread = thread::UI,
                 generation = request.generation,
@@ -252,6 +259,7 @@ impl GlossApp {
 #[cfg(test)]
 mod tests {
     use gloss_core::config::{Config, DEFAULT_TEXT_MODEL, ModelBinding};
+    use gloss_core::log::{capture_global, info, thread};
     use gloss_core::model::Lang;
     use gloss_core::task::TaskKind;
 
@@ -260,6 +268,24 @@ mod tests {
     };
     use crate::channel::{AcquireCommand, Command};
     use crate::machine::AppState;
+
+    #[test]
+    fn dispatched_acquire_carries_the_task_span() {
+        let logs = capture_global();
+        let (mut app, _config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app();
+
+        trigger_selection(&mut app, &pe_tx);
+        let job = ac_rx.try_recv().expect("acquire command dispatched");
+        let _entered = job.span.enter();
+        info!(thread = thread::EVENT, "probe");
+
+        let text = logs.text();
+        let probe = text
+            .lines()
+            .find(|line| line.contains("probe"))
+            .unwrap_or_default();
+        assert!(probe.contains("generation=1"), "{text}");
+    }
 
     #[test]
     fn a_disabled_default_kind_makes_the_selection_gesture_a_no_op() {
@@ -291,7 +317,7 @@ mod tests {
         config.save(Config::default()).expect("save should succeed");
         trigger_selection(&mut app, &pe_tx);
         assert!(matches!(
-            ac_rx.try_recv().unwrap(),
+            ac_rx.try_recv().unwrap().payload,
             AcquireCommand::AcquireText {
                 generation: 1,
                 kind: TaskKind::TranslateWord
@@ -307,7 +333,7 @@ mod tests {
         assert_eq!(app.machine.state(), AppState::Fetching);
         assert_eq!(app.machine.generation(), 1);
         assert!(matches!(
-            ac_rx.try_recv().unwrap(),
+            ac_rx.try_recv().unwrap().payload,
             AcquireCommand::AcquireText { generation: 1, .. }
         ));
 
@@ -317,7 +343,7 @@ mod tests {
             generation: 1,
             cancel: token_a,
             ..
-        } = cmd_rx.try_recv().unwrap()
+        } = cmd_rx.try_recv().unwrap().payload
         else {
             panic!("run task expected");
         };
@@ -339,7 +365,7 @@ mod tests {
 
         assert!(app.accept_input(2, text_input("B")));
         assert!(matches!(
-            cmd_rx.try_recv().unwrap(),
+            cmd_rx.try_recv().unwrap().payload,
             Command::RunTask { generation: 2, .. }
         ));
         assert!(!app.accept_done(1, plain_outcome("迟到结果A")));
@@ -387,7 +413,7 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(task.options.target_lang, Some(Lang::Zh));
         assert_eq!(
             task.options.model_override.as_deref(),
@@ -407,7 +433,7 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
-        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(task.options.target_lang, Some(Lang::Ja));
         assert_eq!(
             task.options.model_override.as_deref(),
@@ -428,7 +454,7 @@ mod tests {
             .expect("save should succeed");
         assert!(app.accept_input(1, text_input("A")));
 
-        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(
             task.options.target_lang,
             Some(Lang::Zh),
@@ -437,7 +463,7 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
-        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap();
+        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(task.options.target_lang, Some(Lang::Ja));
     }
 }

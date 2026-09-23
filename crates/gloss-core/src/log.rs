@@ -3,7 +3,8 @@
 //! 其余 crate 不直接依赖 `tracing`，只经 `gloss_core::log` 使用宏与 [`init`]。
 //!
 //! 跨线程排查靠结构化字段而非字符串拼接，三个字段全链路携带：
-//! - `gen`：请求代数，串联一次任务的完整时序；
+//! - `gen`：请求代数，串联一次任务的完整时序——由 [`task_span`] 的 span 字段
+//!   自动带给范围内的日志，跨线程只传 span 句柄；
 //! - `kind`：`TaskKind`，按任务类型过滤；
 //! - `thread`：线程角色，取 [`thread::UI`] / [`thread::EVENT`] / [`thread::TOKIO`]。
 //!
@@ -19,7 +20,7 @@
 use std::fs;
 use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
-use std::sync::{Once, OnceLock};
+use std::sync::{Arc, Mutex, Once, OnceLock};
 
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
@@ -98,6 +99,20 @@ pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
     FILE_DIR.get().cloned().flatten()
 }
 
+/// 任务 span：以 `generation` 字段承载请求代数，范围内所有日志自动带上它。
+///
+/// 在触发点创建（代数在那里赋值），句柄随通道下发到平台事件线程与 tokio——
+/// 深层的日志点（取材读选区、推理引擎）因此不必自己携带代数。无订阅者的
+/// 进程里是禁用 span，进入它是空操作。
+///
+/// 级别取 `WARN` 而不是 `INFO`：span 被级别压掉时**字段也不会出现**，而任务
+/// 作用域里要留住的恰是 warn 及以上那几行（拒绝授权、后台 panic）——排障时
+/// 最需要它们。作用域内没有 error 级日志，故 warn 覆盖了「任何可能打印的
+/// 级别」；`RUST_LOG=error` 时这些行同样被压掉，不丢信息。
+pub fn task_span(generation: u64) -> Span {
+    warn_span!("task", generation)
+}
+
 /// 按天滚动的文件写入器；目录不可用时返回 `None`，让日志退回 stderr 单路。
 fn open_file_writer(dir: &Path) -> Option<(NonBlocking, WorkerGuard, PathBuf)> {
     fs::create_dir_all(dir).ok()?;
@@ -109,6 +124,99 @@ fn open_file_writer(dir: &Path) -> Option<(NonBlocking, WorkerGuard, PathBuf)> {
         .ok()?;
     let (writer, guard) = tracing_appender::non_blocking(appender);
     Some((writer, guard, dir.to_path_buf()))
+}
+
+/// 在捕获订阅者下运行 `f`，返回这段时间里格式化后的日志文本（含 span 字段）。
+///
+/// 订阅者是**线程局部**的：与全局 [`init`] 互不影响，也不干扰其它线程，因此
+/// 可以并行调用；过滤器取 [`init`] 的同一档基准级别，所以断言同时钉住了
+/// 「这条日志在生产默认级别下也打得出来」。
+///
+/// 两个坑：**span 必须在 `f` 里创建**——tracing 在创建时就按当时订阅者的兴趣
+/// 定启用与否，没有订阅者时创建出来的 span 永远是禁用态，事后再捕获也补不
+/// 回来；以及 `f` 内新起的线程不在此订阅者覆盖范围内（跨线程断言用
+/// [`capture_global`]）。
+pub fn capture<F: FnOnce()>(f: F) -> String {
+    let buffer = Arc::new(Mutex::new(Vec::new()));
+    let subscriber = tracing_subscriber::registry()
+        .with(build_filter(None))
+        .with(
+            fmt::layer()
+                .with_ansi(false)
+                .with_writer(CaptureWriter(Arc::clone(&buffer))),
+        );
+    tracing::subscriber::with_default(subscriber, f);
+    let bytes = buffer
+        .lock()
+        .map(|buffer| buffer.clone())
+        .unwrap_or_default();
+    String::from_utf8(bytes).unwrap_or_default()
+}
+
+/// 装上**进程级**捕获订阅者，返回读取端；日志来自别的线程时用它。
+///
+/// 与 [`init`] 互斥（一个进程只有一个全局订阅者）：测试进程里没人调用 [`init`]，
+/// 同一进程重复调用本函数拿到同一个读取端（只装一次）。
+pub fn capture_global() -> CaptureReader {
+    static GLOBAL: OnceLock<Arc<Mutex<Vec<u8>>>> = OnceLock::new();
+    let buffer = Arc::clone(GLOBAL.get_or_init(|| {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::registry()
+            .with(build_filter(None))
+            .with(
+                fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(CaptureWriter(Arc::clone(&buffer))),
+            );
+        // 测试进程里没有别的全局订阅者；万一已有，说明调用方用错了工具，
+        // 这里按「捕获不可用」继续，断言会如实失败。
+        #[allow(clippy::let_underscore_must_use)]
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        buffer
+    }));
+    CaptureReader(buffer)
+}
+
+/// [`capture_global`] 的读取端：按需取走累积到此刻的日志文本。
+pub struct CaptureReader(Arc<Mutex<Vec<u8>>>);
+
+impl CaptureReader {
+    /// 已捕获的日志文本（每次调用取一份快照，不清空缓冲）。
+    pub fn text(&self) -> String {
+        let bytes = self
+            .0
+            .lock()
+            .map(|buffer| buffer.clone())
+            .unwrap_or_default();
+        String::from_utf8(bytes).unwrap_or_default()
+    }
+}
+
+/// 把格式化后的日志行收进内存缓冲的写入器（[`capture`] 用）。
+struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CaptureWriter {
+    type Writer = CaptureHandle;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        CaptureHandle(Arc::clone(&self.0))
+    }
+}
+
+struct CaptureHandle(Arc<Mutex<Vec<u8>>>);
+
+impl io::Write for CaptureHandle {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0
+            .lock()
+            .map(|mut bytes| bytes.extend_from_slice(buf))
+            .map_err(|_| io::Error::other("capture buffer poisoned"))?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// 基准级别打底 + `raw` 追加：全局指令后写者胜，故 `off` / `warn` 仍能压制打底级别，
@@ -124,7 +232,7 @@ mod tests {
     use std::io::Write as _;
     use std::path::PathBuf;
 
-    use super::{FILE_PREFIX, build_filter, init, open_file_writer};
+    use super::{FILE_PREFIX, build_filter, capture, info, init, open_file_writer, task_span};
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("gloss-log-{name}"));
@@ -188,6 +296,18 @@ mod tests {
         assert!(open_file_writer(&path).is_none());
 
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn task_span_carries_generation_into_events() {
+        let text = capture(|| {
+            let span = task_span(7);
+            let _entered = span.enter();
+            info!(thread = crate::log::thread::EVENT, "probe");
+        });
+
+        assert!(text.contains("generation=7"), "{text}");
+        assert!(text.contains("probe"), "{text}");
     }
 
     #[test]

@@ -5,7 +5,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gloss_app::channel::{AcquireCommand, AppEndpoints, Channels, Event, PlatformEvent};
+use gloss_app::channel::{AcquireCommand, AppEndpoints, Channels, Event, PlatformEvent, Traced};
 use gloss_core::cache::MokaCache;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
@@ -268,11 +268,14 @@ fn event_sources(registrar: &HotkeyRegistrar) -> EventSources<PlatformEvent> {
 
 /// 通道②消费处理器：取材命令 → 组合读取 → ④ 回传，运行在事件线程上
 /// 顺序执行。读取器提升进闭包复用（当前无状态，为将来缓存留位）。
-fn acquire_command_handler() -> impl FnMut(AcquireCommand, &EventSink<Event, PlatformEvent>) + Send
-{
+fn acquire_command_handler()
+-> impl FnMut(Traced<AcquireCommand>, &EventSink<Event, PlatformEvent>) + Send {
     let mut reader = CompositeReader::new();
-    move |command, sink| {
-        let AcquireCommand::AcquireText { generation, kind } = command else {
+    move |job, sink| {
+        // 进入触发点建好的任务 span：本处理器（含取材读选区、剪贴板兜底）
+        // 的日志自动带上 `generation`。
+        let _entered = job.span.enter();
+        let AcquireCommand::AcquireText { generation, kind } = job.payload else {
             debug!(
                 thread = thread::EVENT,
                 "capture region command not wired yet, dropped"
@@ -281,7 +284,6 @@ fn acquire_command_handler() -> impl FnMut(AcquireCommand, &EventSink<Event, Pla
         };
         info!(
             thread = thread::EVENT,
-            generation = generation,
             kind = ?kind,
             "acquiring text"
         );
@@ -290,7 +292,6 @@ fn acquire_command_handler() -> impl FnMut(AcquireCommand, &EventSink<Event, Pla
                 // 只记形态不记原文：选区是用户敏感内容，不落进日志文件。
                 debug!(
                     thread = thread::EVENT,
-                    generation = generation,
                     kind = ?kind,
                     bytes = text.len(),
                     chars = text.chars().count(),
@@ -335,10 +336,10 @@ mod tests {
         channels
             .acquire_commands
             .tx
-            .send(AcquireCommand::AcquireText {
+            .send(Traced::untraced(AcquireCommand::AcquireText {
                 generation: 1,
                 kind: gloss_core::task::TaskKind::TranslateWord,
-            })
+            }))
             .expect("acquire channel must accept commands");
     }
 }

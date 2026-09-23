@@ -11,13 +11,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use gloss_app::channel::{AcquireCommand, Channels, Command, Event, PlatformEvent};
+use gloss_app::channel::{AcquireCommand, Channels, Command, Event, PlatformEvent, Traced};
 use gloss_app::machine::{AppState, ErrorAction, OverlayView, TaskStateMachine};
 use gloss_app::pipeline::start_command_runtime;
 use gloss_core::cache::MokaCache;
 use gloss_core::config::{Config, ModelBinding};
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
+use gloss_core::log::Span;
 use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
 use gloss_core::model::{GlossError, Lang};
@@ -70,8 +71,8 @@ struct Pipeline {
     machine: TaskStateMachine,
     config: Arc<ConfigHandle>,
     _pe_tx: crossbeam_channel::Sender<PlatformEvent>,
-    _ac_tx: crossbeam_channel::Sender<AcquireCommand>,
-    commands_tx: tokio::sync::mpsc::UnboundedSender<Command>,
+    _ac_tx: crossbeam_channel::Sender<Traced<AcquireCommand>>,
+    commands_tx: tokio::sync::mpsc::UnboundedSender<Traced<Command>>,
     events_rx: crossbeam_channel::Receiver<Event>,
     _runtime: gloss_app::pipeline::CommandRuntime,
 }
@@ -79,6 +80,15 @@ struct Pipeline {
 impl Pipeline {
     #[allow(clippy::expect_used, clippy::panic)]
     fn trigger_and_feed(&mut self, text: &str) -> tokio_util::sync::CancellationToken {
+        self.trigger_and_feed_in(text, Span::none())
+    }
+
+    #[allow(clippy::expect_used, clippy::panic)]
+    fn trigger_and_feed_in(
+        &mut self,
+        text: &str,
+        span: Span,
+    ) -> tokio_util::sync::CancellationToken {
         let command = self
             .machine
             .trigger(
@@ -103,14 +113,37 @@ impl Pipeline {
             )
             .expect("input should be accepted while fetching");
         self.commands_tx
-            .send(Command::RunTask {
-                generation: request.generation,
-                task: request.task,
-                cancel: request.cancel.clone(),
+            .send(Traced {
+                payload: Command::RunTask {
+                    generation: request.generation,
+                    task: request.task,
+                    cancel: request.cancel.clone(),
+                },
+                span,
             })
             .expect("command channel open");
         request.cancel
     }
+}
+
+#[test]
+fn engine_logs_carry_the_task_span() {
+    let logs = gloss_core::log::capture_global();
+    let engine = MockEngine::new().with_chunks(vec![Ok("产物".into())]);
+    let mut pipe = pipeline(&engine);
+
+    pipe.trigger_and_feed("hello");
+    wait_done(&mut pipe);
+    pipe.trigger_and_feed_in("hello", gloss_core::log::task_span(2));
+    wait_done(&mut pipe);
+
+    assert!(
+        logs.text()
+            .lines()
+            .any(|line| line.contains("cache hit") && line.contains("generation=2")),
+        "{}",
+        logs.text()
+    );
 }
 
 #[test]
@@ -260,11 +293,11 @@ fn error_card_retry_redispatches_the_same_task() {
     let request = pipe.machine.retry().expect("retry must be available");
     assert_eq!(request.generation, generation, "retry keeps the generation");
     pipe.commands_tx
-        .send(Command::RunTask {
+        .send(Traced::untraced(Command::RunTask {
             generation: request.generation,
             task: request.task,
             cancel: request.cancel,
-        })
+        }))
         .expect("command channel open");
     wait_done(&mut pipe);
     assert_eq!(pipe.machine.state(), AppState::Show);

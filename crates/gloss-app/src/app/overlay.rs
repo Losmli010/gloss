@@ -212,7 +212,7 @@ mod tests {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let Command::RunTask { cancel, .. } = cmd_rx.try_recv().unwrap();
+        let Command::RunTask { cancel, .. } = cmd_rx.try_recv().unwrap().payload;
         assert!(app.accept_failed(1, &gloss_core::model::GlossError::EngineNetwork));
         assert!(matches!(
             app.machine.overlay_view(),
@@ -228,7 +228,7 @@ mod tests {
             generation,
             task,
             cancel: retried,
-        } = cmd_rx.try_recv().unwrap();
+        } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(generation, 1, "retry keeps the failed task's generation");
         assert!(matches!(
             task.input,
@@ -249,7 +249,7 @@ mod tests {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let Command::RunTask { .. } = cmd_rx.try_recv().unwrap();
+        let Command::RunTask { .. } = cmd_rx.try_recv().unwrap().payload;
         assert!(app.accept_failed(1, &gloss_core::model::GlossError::EngineAuth));
         assert!(matches!(
             app.machine.overlay_view(),
@@ -273,7 +273,7 @@ mod tests {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let Command::RunTask { cancel, .. } = cmd_rx.try_recv().unwrap();
+        let Command::RunTask { cancel, .. } = cmd_rx.try_recv().unwrap().payload;
 
         app.dismiss_overlay("test");
         assert_eq!(app.machine.state(), AppState::Idle);

@@ -16,12 +16,12 @@ use crossbeam_channel::Sender;
 use futures::FutureExt;
 use gloss_core::config::DEFAULT_TEXT_MODEL;
 use gloss_core::engine::AiTaskService;
-use gloss_core::log::{debug, thread, warn};
+use gloss_core::log::{Instrument, debug, thread, warn};
 use gloss_core::model::GlossError;
 use gloss_core::task::Task;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::channel::{Command, Event};
+use crate::channel::{Command, Event, Traced};
 
 /// 关停运行时的等待上限：正常退出路径里通道③已关闭、消费循环已在收尾，
 /// 只兜底极端悬挂。
@@ -46,7 +46,7 @@ impl Drop for CommandRuntime {
 /// 唤醒睡在主线程事件循环里的 UI。
 pub fn start_command_runtime(
     service: Arc<AiTaskService>,
-    commands: UnboundedReceiver<Command>,
+    commands: UnboundedReceiver<Traced<Command>>,
     events: Sender<Event>,
     wake: impl Fn() + Send + Sync + 'static,
 ) -> std::io::Result<CommandRuntime> {
@@ -61,17 +61,19 @@ pub fn start_command_runtime(
 /// 随事件循环结束 drop）后循环结束。
 async fn consume_loop(
     service: Arc<AiTaskService>,
-    mut commands: UnboundedReceiver<Command>,
+    mut commands: UnboundedReceiver<Traced<Command>>,
     events: Sender<Event>,
     wake: impl Fn() + Send + Sync,
 ) {
-    while let Some(command) = commands.recv().await {
-        // Command 当前只有 RunTask 一个变体，直接解构。
+    while let Some(job) = commands.recv().await {
+        // Command 当前只有 RunTask 一个变体，直接解构；span 来自触发点，
+        // 进入它让引擎内部的日志自动带上代数。
+        let Traced { payload, span } = job;
         let Command::RunTask {
             generation,
             task,
             cancel,
-        } = command;
+        } = payload;
         let model = match model_for(&task) {
             Ok(model) => model,
             Err(error) => {
@@ -88,14 +90,11 @@ async fn consume_loop(
         //
         // execute 包在 catch_unwind 里：后台 panic 转 TaskFailed（错误
         // 卡给用户「服务异常」而不是永悬的推理中），循环自身继续消费。
-        tokio::select! {
-            _ = cancel.cancelled() => {
-                debug!(
-                    thread = thread::TOKIO,
-                    generation = generation,
-                    "task cancelled, result dropped"
-                );
-            }
+        async {
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    debug!(thread = thread::TOKIO, "task cancelled, result dropped");
+                }
             outcome = std::panic::AssertUnwindSafe(service.execute(&task, model, |delta| {
                 send_event(&events, &wake, Event::TaskChunk { generation, delta });
             }))
@@ -106,7 +105,6 @@ async fn consume_loop(
                     let detail = panic_detail(&payload);
                     warn!(
                         thread = thread::TOKIO,
-                        generation = generation,
                         detail = %detail,
                         "background task panicked"
                     );
@@ -122,7 +120,10 @@ async fn consume_loop(
                     );
                 }
             },
+            }
         }
+        .instrument(span)
+        .await;
     }
     debug!(
         thread = thread::TOKIO,
@@ -181,9 +182,15 @@ mod tests {
     use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
     use super::{CommandRuntime, Event, start_command_runtime};
-    use crate::channel::Command;
+    use crate::channel::{Command, Traced};
 
-    fn start(engine: &MockEngine) -> (UnboundedSender<Command>, Receiver<Event>, CommandRuntime) {
+    fn start(
+        engine: &MockEngine,
+    ) -> (
+        UnboundedSender<Traced<Command>>,
+        Receiver<Event>,
+        CommandRuntime,
+    ) {
         let service = Arc::new(AiTaskService::new(
             Arc::new(engine.clone()) as Arc<dyn gloss_core::ports::AiEngine>,
             Arc::new(MokaCache::new()),
@@ -207,17 +214,17 @@ mod tests {
     }
 
     fn run(
-        commands: &UnboundedSender<Command>,
+        commands: &UnboundedSender<Traced<Command>>,
         generation: u64,
         task: Task,
     ) -> tokio_util::sync::CancellationToken {
         let cancel = tokio_util::sync::CancellationToken::new();
         commands
-            .send(Command::RunTask {
+            .send(Traced::untraced(Command::RunTask {
                 generation,
                 task,
                 cancel: cancel.clone(),
-            })
+            }))
             .expect("command channel should accept");
         cancel
     }
