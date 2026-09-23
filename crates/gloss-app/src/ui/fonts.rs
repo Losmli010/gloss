@@ -12,13 +12,15 @@ use egui::{FontData, FontDefinitions, FontFamily};
 use gloss_core::log::{info, thread, warn};
 
 /// CJK 字体在 egui 字体表里登记的名字。
-const FONT_NAME: &str = "gloss-cjk";
+pub(super) const FONT_NAME: &str = "gloss-cjk";
 
 /// 系统 CJK 字体的字节——进程内唯一一份。取用失败同样缓存，不重复查找系统。
 static CJK_BYTES: OnceLock<Option<Vec<u8>>> = OnceLock::new();
 
 /// 把系统中文字体接进 egui 的后备链。失败只记日志，返回 `false` 表示未接入。
-pub fn install(ctx: &egui::Context) {
+///
+/// 只由 [`super::context`] 的统一装入点调用：上下文都经那里建立。
+pub(in crate::ui) fn install(ctx: &egui::Context) {
     let mut definitions = FontDefinitions::default();
     if apply(&mut definitions, cjk_bytes()) {
         ctx.set_fonts(definitions);

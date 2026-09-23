@@ -24,6 +24,7 @@ pub use render::{Frame, build_window_stack, render_frame, render_frame_with};
 use std::sync::Arc;
 use std::time::Instant;
 
+use gloss_core::config::Theme;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
@@ -65,8 +66,9 @@ struct GlossApp {
     /// 启动期读到的系统语言：配置里的 `Language::System` 靠它落定成具体的
     /// 界面语言与 prompt 模板语言（进程内不变，改系统语言要重启）。
     system_locale: Locale,
-    /// 已施加到两个 egui 上下文的主题偏好；`None` 表示还没施加过。
-    applied_theme: Option<egui::ThemePreference>,
+    /// 已施加到两个 egui 上下文的主题；`None` 表示还没施加过（窗口未起时
+    /// 会有这个状态）。
+    applied_theme: Option<Theme>,
     /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
     /// 代数对不上（热键触发、陈旧）时浮层回落居中。
     selection_anchor: Option<(u64, ScreenPoint)>,

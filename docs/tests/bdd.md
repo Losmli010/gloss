@@ -406,9 +406,15 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| theme_preference_covers_every_variant | 主题三档全映射 | 给定三档主题，当映射 egui 偏好，则一一对应且出厂跟随系统 | 2026-09-19 |
-| apply_theme_writes_every_context | 主题写满每个 Context | 给定两个 egui Context，当施加各档主题，则每个都被写；空集写 0 个不 panic | 2026-09-19 |
-| apply_theme_elides_writes_until_the_preference_changes | 主题未变不重写 | 给定未变的偏好，当重复 apply_theme，则不写；偏好变了则跟上 | 2026-09-19 |
+| apply_theme_elides_writes_until_the_preference_changes | 主题未变不重写 | 给定未变的偏好，当重复 apply_theme，则不写；偏好变了则跟上 | 2026-09-23 |
+
+### crates/gloss-app/src/ui/context.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| theme_preference_covers_every_variant | 主题三档全映射 | 给定三档主题，当映射 egui 偏好，则一一对应且出厂跟随系统 | 2026-09-23 |
+| new_context_carries_fonts_and_theme | 新上下文两样都装好 | 给定主题，当新建上下文，则主题偏好落上且字体表含 CJK 后备（依赖宿主机字体） | 2026-09-23 |
+| reapply_writes_every_context | 重施加写满每个上下文 | 给定两个已装好的上下文，当施加各档主题，则每个都被写；空集写 0 个不 panic | 2026-09-23 |
 
 ### crates/gloss-app/src/gpu.rs
 

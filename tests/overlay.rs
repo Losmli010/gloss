@@ -18,6 +18,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gloss_app::app::{Frame, build_window_stack, centered_position, render_frame};
 use gloss_app::windows::WindowManager;
+use gloss_core::config::Theme;
 use gloss_core::log::{error, info};
 use gloss_core::model::Locale;
 use serde_json::json;
@@ -189,7 +190,7 @@ impl ApplicationHandler for OverlaySelfTest {
         if self.windows.is_some() {
             return;
         }
-        match build_window_stack(event_loop) {
+        match build_window_stack(event_loop, Theme::System) {
             Ok((windows, frame, _settings_frame)) => {
                 self.windows = Some(windows);
                 self.frame = Some(frame);

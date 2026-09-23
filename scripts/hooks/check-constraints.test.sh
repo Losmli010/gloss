@@ -199,6 +199,14 @@ mut_edition_literal() {
 mut_root_missing_workspace_package() {
   replace_line "$FIX/Cargo.toml" 'version = "0.1.0"' "# 版本字面量被挪走了"
 }
+mut_bare_egui_context() {
+  mkdir -p "$FIX/crates/gloss-app/src"
+  printf 'let ctx = egui::Context::default();\n' >"$FIX/crates/gloss-app/src/bare.rs"
+}
+mut_installed_egui_context() {
+  mkdir -p "$FIX/crates/gloss-app/src/ui"
+  printf 'let ctx = Context::default();\n' >"$FIX/crates/gloss-app/src/ui/context.rs"
+}
 mut_dep_without_default_features() {
   insert_after_section "$FIX/crates/gloss-app/Cargo.toml" "[dependencies]" \
     'pollster = "1.0.1"'
@@ -238,6 +246,11 @@ echo ""
 echo "-- 约束「日志一律英文」（应拒绝，退出码非 0）--"
 assert_case "日志实参含中文" 1 mut_log_message_in_chinese "日志实参含非 ASCII"
 assert_case "日志实参跨行且含中文" 1 mut_log_message_multiline_chinese "日志实参含非 ASCII"
+
+echo ""
+echo "-- 约束「egui 上下文统一装入点」（应拒绝，退出码非 0）--"
+assert_case "统一装入点之外直接建 egui 上下文" 1 mut_bare_egui_context "egui 上下文统一装入点"
+assert_case "统一装入点内建立上下文（不应误报）" 0 mut_installed_egui_context "egui 上下文统一装入点（0 处绕过）"
 
 echo ""
 echo "-- 约束「版本单点维护」（应拒绝，退出码非 0）--"
