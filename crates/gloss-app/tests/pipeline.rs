@@ -140,7 +140,7 @@ fn engine_logs_carry_the_task_span() {
     assert!(
         logs.text()
             .lines()
-            .any(|line| line.contains("cache hit") && line.contains("generation=2")),
+            .any(|line| line.contains("cache hit") && line.contains("\"generation\":2")),
         "{}",
         logs.text()
     );

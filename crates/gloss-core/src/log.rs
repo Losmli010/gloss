@@ -14,11 +14,14 @@
 //! `#[instrument]` 是过程宏，无法跨 crate 转发（下游会报 `E0433`）；
 //! 下游请改用 [`info_span!`] 等 span 宏配合 [`Instrument`]。
 //!
-//! 输出两路：终端（stderr，TTY 才带色）+ 文件（[`init`] 收到目录时启用，
-//! 按天滚动、只留最近 7 份）——用户报障时让他们把日志目录交出来即可。
+//! 输出两路：终端（stderr）+ 文件（[`init`] 收到目录时启用，按天滚动、只留最近 7 份）
+//! ——用户报障时让他们把日志目录交出来即可。两路都是 **JSON Lines**：一行一个
+//! JSON 对象，字段是 `timestamp` / `level` / `target` / `message` 与本次事件的
+//! 结构化字段；span 字段挂在 `span` 下（任务 span 的代数因此在 `span.generation`）。
+//! 查询举例：`jq 'select(.span.generation == 2)' 日志文件`。
 
 use std::fs;
-use std::io::{self, IsTerminal};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Once, OnceLock};
 
@@ -74,9 +77,7 @@ static FILE_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
     INIT.call_once(|| {
         let filter = build_filter(std::env::var("RUST_LOG").ok().as_deref());
-        let console = fmt::layer()
-            .with_ansi(io::stderr().is_terminal())
-            .with_writer(io::stderr);
+        let console = json_layer().with_writer(io::stderr);
         let subscriber = tracing_subscriber::registry().with(filter).with(console);
         let file = dir.and_then(open_file_writer);
         let active = file.as_ref().map(|(_, _, dir)| dir.clone());
@@ -86,9 +87,7 @@ pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
                 // Err 在这里不可能发生，丢弃即可。
                 #[allow(clippy::let_underscore_must_use)]
                 let _ = FILE_GUARD.set(guard);
-                subscriber
-                    .with(fmt::layer().with_ansi(false).with_writer(writer))
-                    .init();
+                subscriber.with(json_layer().with_writer(writer)).init();
             }
             None => subscriber.init(),
         }
@@ -111,6 +110,17 @@ pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
 /// 级别」；`RUST_LOG=error` 时这些行同样被压掉，不丢信息。
 pub fn task_span(generation: u64) -> Span {
     warn_span!("task", generation)
+}
+
+/// 日志行格式（两路共用）：JSON Lines，事件字段摊到顶层，span 字段留在 `span` 下
+/// （JSON 形态本身不带颜色转义，不需要 ANSI 开关）。span 列表关掉是为了避免把同一个
+/// span 再抄一份到 `spans` 数组里。
+fn json_layer<S>() -> fmt::Layer<S, fmt::format::JsonFields, fmt::format::Format<fmt::format::Json>>
+{
+    fmt::layer()
+        .json()
+        .flatten_event(true)
+        .with_span_list(false)
 }
 
 /// 按天滚动的文件写入器；目录不可用时返回 `None`，让日志退回 stderr 单路。
@@ -140,11 +150,7 @@ pub fn capture<F: FnOnce()>(f: F) -> String {
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let subscriber = tracing_subscriber::registry()
         .with(build_filter(None))
-        .with(
-            fmt::layer()
-                .with_ansi(false)
-                .with_writer(CaptureWriter(Arc::clone(&buffer))),
-        );
+        .with(json_layer().with_writer(CaptureWriter(Arc::clone(&buffer))));
     tracing::subscriber::with_default(subscriber, f);
     let bytes = buffer
         .lock()
@@ -163,11 +169,7 @@ pub fn capture_global() -> CaptureReader {
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let subscriber = tracing_subscriber::registry()
             .with(build_filter(None))
-            .with(
-                fmt::layer()
-                    .with_ansi(false)
-                    .with_writer(CaptureWriter(Arc::clone(&buffer))),
-            );
+            .with(json_layer().with_writer(CaptureWriter(Arc::clone(&buffer))));
         // 测试进程里没有别的全局订阅者；万一已有，说明调用方用错了工具，
         // 这里按「捕获不可用」继续，断言会如实失败。
         #[allow(clippy::let_underscore_must_use)]
@@ -233,6 +235,12 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{FILE_PREFIX, build_filter, capture, info, init, open_file_writer, task_span};
+
+    fn probe_line(text: &str) -> &str {
+        text.lines()
+            .find(|line| line.contains("probe"))
+            .expect("probe line must be captured")
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("gloss-log-{name}"));
@@ -306,8 +314,36 @@ mod tests {
             info!(thread = crate::log::thread::EVENT, "probe");
         });
 
-        assert!(text.contains("generation=7"), "{text}");
-        assert!(text.contains("probe"), "{text}");
+        let line = probe_line(&text);
+        let value: serde_json::Value = serde_json::from_str(line).expect("日志行应是 JSON");
+        assert_eq!(value["span"]["generation"], 7, "{line}");
+        assert_eq!(value["message"], "probe", "{line}");
+    }
+
+    #[test]
+    fn json_lines_carry_the_structured_contract() {
+        let text = capture(|| {
+            info!(
+                thread = crate::log::thread::EVENT,
+                kind = "probe",
+                "probe json contract"
+            );
+        });
+
+        let line = probe_line(&text);
+        assert!(!line.contains('\u{1b}'), "JSON 行不带 ANSI 转义：{line}");
+
+        let value: serde_json::Value = serde_json::from_str(line).expect("日志行应是 JSON");
+        assert_eq!(value["level"], "INFO", "{line}");
+        assert_eq!(value["message"], "probe json contract", "{line}");
+        assert_eq!(value["thread"], "event", "{line}");
+        assert_eq!(value["kind"], "probe", "{line}");
+        assert!(
+            value["target"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("gloss")),
+            "{line}"
+        );
     }
 
     #[test]
