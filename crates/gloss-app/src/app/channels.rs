@@ -6,7 +6,7 @@ use gloss_core::task::TaskInput;
 use winit::event_loop::ActiveEventLoop;
 
 use crate::channel::{AcquireCommand, Command, Event, PlatformEvent};
-use crate::machine::RunRequest;
+use crate::machine::{RunRequest, TriggerRoute, trigger_route};
 
 use super::GlossApp;
 use super::overlay::{auto_show_after, centered_position, event_kind, show_position};
@@ -48,11 +48,21 @@ impl GlossApp {
                 }
                 self.send_acquire(command);
             } else {
-                debug!(
-                    thread = thread::UI,
-                    event = ?event,
-                    "platform event ignored: not wired yet, or its task kind is disabled"
-                );
+                // 被任务开关拦下的触发记 warn、未接线的事件记 debug：前者
+                // 是用户能自己修的配置问题，不该只留在默认级别看不见的
+                // debug 里（分类见 machine::trigger_route）。
+                match trigger_route(&event, &config) {
+                    Some(TriggerRoute::Disabled(kind)) => warn!(
+                        thread = thread::UI,
+                        kind = ?kind,
+                        "trigger ignored: the task kind is disabled in settings"
+                    ),
+                    _ => debug!(
+                        thread = thread::UI,
+                        event = ?event,
+                        "platform event ignored: not wired yet"
+                    ),
+                }
             }
         }
     }
@@ -250,6 +260,44 @@ mod tests {
     };
     use crate::channel::{AcquireCommand, Command};
     use crate::machine::AppState;
+
+    #[test]
+    fn a_disabled_default_kind_makes_the_selection_gesture_a_no_op() {
+        let (mut app, config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        config
+            .save(Config {
+                default_text_kind: TaskKind::ExplainCode,
+                enabled_kinds: vec![TaskKind::TranslateWord],
+                ..Default::default()
+            })
+            .expect("save should succeed");
+
+        trigger_selection(&mut app, &pe_tx);
+        assert!(
+            ac_rx.try_recv().is_err(),
+            "the gate must stop the command before it reaches the event thread"
+        );
+        assert_eq!(
+            app.machine.generation(),
+            0,
+            "a dropped trigger keeps no gen"
+        );
+        assert_eq!(
+            app.machine.state(),
+            AppState::Idle,
+            "no overlay, no failure card: this is the state the settings page now blocks"
+        );
+
+        config.save(Config::default()).expect("save should succeed");
+        trigger_selection(&mut app, &pe_tx);
+        assert!(matches!(
+            ac_rx.try_recv().unwrap(),
+            AcquireCommand::AcquireText {
+                generation: 1,
+                kind: TaskKind::TranslateWord
+            }
+        ));
+    }
 
     #[test]
     fn late_events_of_superseded_trigger_do_not_bleed() {

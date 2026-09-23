@@ -72,6 +72,7 @@ gloss_settings_notice_key_update_failed = "Could not update the API key (setting
 gloss_settings_notice_save_failed = "Could not save settings: {{detail}}"
 gloss_settings_notice_key_updated_save_failed = "The API key was updated but settings could not be saved: {{detail}}"
 
+gloss_settings_error_default_kind_disabled = "The default task is disabled: enable it under Task switches below"
 gloss_settings_error_duplicate_hotkey = "Duplicate of line {{line}}"
 gloss_settings_error_empty_trigger = "Hotkey cannot be empty"
 gloss_settings_error_invalid_trigger = "Cannot parse hotkey \"{{trigger}}\""

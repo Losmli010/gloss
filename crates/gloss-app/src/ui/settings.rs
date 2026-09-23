@@ -33,6 +33,8 @@ use crate::i18n::{Text, fill};
 /// 校验出错的字段：错误提示按字段定位到具体控件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum FieldKey {
+    /// 默认任务（跨字段：选中的任务类型须处于启用状态）。
+    DefaultKind,
     /// Base URL（结构性校验）。
     BaseUrl,
     /// 热键绑定行（按行下标）。
@@ -47,6 +49,8 @@ enum FieldKey {
 /// 校验输出因此与语言无关——同一份草稿在任何 locale 下得出同一张错误表。
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum FieldError {
+    /// 默认任务选中的任务类型被任务开关停用。
+    DefaultKindDisabled,
     /// 该触发键与更早的行重复；`line` 是那条绑定的 1 起数行号。
     DuplicateHotkey {
         /// 先占用该组合的行号（1 起数）。
@@ -75,6 +79,7 @@ impl FieldError {
     /// 就地提示文案。
     fn message(&self, text: &Text) -> String {
         match self {
+            Self::DefaultKindDisabled => text.gloss_settings_error_default_kind_disabled.clone(),
             Self::DuplicateHotkey { line } => {
                 let line = line.to_string();
                 fill(
@@ -237,6 +242,11 @@ fn build_save(state: &mut SettingsState) -> SettingsAction {
 /// [`FieldError`] 映射（文案留给渲染帧）。
 fn validate_draft(draft: &Config) -> HashMap<FieldKey, FieldError> {
     let mut errors = HashMap::new();
+    // 跨字段不变量：默认任务（划词手势的任务类型）必须处于启用状态——
+    // 停用的 kind 对一切触发路径无响应，二者同存等于划词手势永不生效。
+    if !draft.is_kind_enabled(draft.selection_task_kind()) {
+        errors.insert(FieldKey::DefaultKind, FieldError::DefaultKindDisabled);
+    }
     if let Err(err) = validate_base_url(&draft.base_url) {
         errors.insert(FieldKey::BaseUrl, base_url_error(&err));
     }
@@ -526,16 +536,22 @@ fn task_section(
     errors: &HashMap<FieldKey, FieldError>,
     text: &Text,
 ) {
-    choice_row(ui, &text.gloss_settings_default_kind, |ui| {
+    let default_kind = choice_row(ui, &text.gloss_settings_default_kind, |ui| {
         kind_combo(
             ui,
             "default_text_kind",
             &mut state.draft.default_text_kind,
             &TEXT_KINDS,
             text,
-        );
+        )
     });
-    choice_hint(ui, &text.gloss_settings_default_kind_hint);
+    underline_if_error(ui, &default_kind, errors, FieldKey::DefaultKind);
+    // 说明提示与错误提示同位：该行有错误时只显示错误。
+    if errors.contains_key(&FieldKey::DefaultKind) {
+        error_text(ui, errors, FieldKey::DefaultKind, text);
+    } else {
+        choice_hint(ui, &text.gloss_settings_default_kind_hint);
+    }
     choice_row(ui, &text.gloss_settings_target_lang, |ui| {
         lang_combo(ui, &mut state.draft.target_lang, text);
     });
@@ -661,14 +677,15 @@ fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
     choice_hint(ui, &text.gloss_settings_cache_ttl_hint);
 }
 
-/// 双列行：行标签左、控件推到卡片右缘（两端对齐）。
-fn choice_row(ui: &mut egui::Ui, label: &str, control: impl FnOnce(&mut egui::Ui)) {
+/// 双列行：行标签左、控件推到卡片右缘（两端对齐）；返回控件自身的响应
+/// （字段标红要按控件的矩形画下划线）。
+fn choice_row<R>(ui: &mut egui::Ui, label: &str, control: impl FnOnce(&mut egui::Ui) -> R) -> R {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            control(ui);
-        });
-    });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), control)
+            .inner
+    })
+    .inner
 }
 
 /// 双列行的说明提示（左对齐，CAPTION 弱色）。
@@ -683,21 +700,23 @@ const TEXT_KINDS: [TaskKind; 3] = [
     TaskKind::ExplainCode,
 ];
 
-/// 任务类型下拉；`id_salt` 需在窗口内唯一。
+/// 任务类型下拉；`id_salt` 需在窗口内唯一。返回下拉框自身的响应（外层
+/// 据此画字段错误态）。
 fn kind_combo(
     ui: &mut egui::Ui,
     id_salt: &str,
     current: &mut TaskKind,
     choices: &[TaskKind],
     text: &Text,
-) {
+) -> egui::Response {
     egui::ComboBox::from_id_salt(id_salt)
         .selected_text(kind_label(*current, text))
         .show_ui(ui, |ui| {
             for &kind in choices {
                 ui.selectable_value(current, kind, kind_label(kind, text));
             }
-        });
+        })
+        .response
 }
 
 /// UI 固定可选的 5 语种（`Lang::Other` 只经配置文件到达，不在下拉里）。
@@ -784,6 +803,11 @@ mod tests {
         let zh = Text::get(Locale::Zh);
         let en = Text::get(Locale::En);
         for (error, zh_message, en_message) in [
+            (
+                FieldError::DefaultKindDisabled,
+                "默认任务已停用：请在下方「任务开关」中启用它",
+                "The default task is disabled: enable it under Task switches below",
+            ),
             (
                 FieldError::DuplicateHotkey { line: 2 },
                 "与第 2 行重复",
@@ -909,6 +933,51 @@ mod tests {
                 key: KeyUpdate::Replace(_),
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn the_default_task_rule_follows_the_selection_kind_fold() {
+        let mut state = open(&Config::default());
+        state.draft.default_text_kind = TaskKind::ImageOcr;
+        state.draft.enabled_kinds = vec![TaskKind::TranslateWord];
+        assert!(
+            matches!(build_save(&mut state), SettingsAction::Save { .. }),
+            "a hand-edited image default folds to TranslateWord: the rule judges what the gesture runs"
+        );
+
+        let mut state = open(&Config::default());
+        state.draft.default_text_kind = TaskKind::ImageOcr;
+        state.draft.enabled_kinds = vec![TaskKind::ImageOcr];
+        assert_eq!(build_save(&mut state), SettingsAction::Idle);
+        assert_eq!(
+            state.errors().get(&FieldKey::DefaultKind),
+            Some(&FieldError::DefaultKindDisabled),
+            "the folded kind is what the gate checks, not the field the combo shows"
+        );
+    }
+
+    #[test]
+    fn a_disabled_default_task_blocks_save() {
+        let mut state = open(&Config::default());
+        state.draft.default_text_kind = TaskKind::ExplainCode;
+        state.draft.set_kind_enabled(TaskKind::ExplainCode, false);
+
+        assert_eq!(build_save(&mut state), SettingsAction::Idle);
+        assert_eq!(
+            state.errors().get(&FieldKey::DefaultKind),
+            Some(&FieldError::DefaultKindDisabled),
+            "the default task is the selection gesture: a disabled one can never fire"
+        );
+
+        state.draft.set_kind_enabled(TaskKind::ExplainCode, true);
+        assert!(
+            state.errors().is_empty(),
+            "enabling the kind clears the error"
+        );
+        assert!(matches!(
+            build_save(&mut state),
+            SettingsAction::Save { .. }
         ));
     }
 
@@ -1151,17 +1220,83 @@ mod tests {
     fn task_toggle_flips_enabled_kinds() {
         let (mut harness, action) = harness_for(open(&Config::default()), Locale::Zh);
         harness.run();
-        harness.get_by_label("启用词卡").click_accesskit();
+        harness.get_by_label("启用翻译").click_accesskit();
         harness.run();
         harness.get_by_label("保存").click();
         harness.run();
         match &*action.borrow() {
             SettingsAction::Save { config, .. } => assert!(
-                !config.is_kind_enabled(TaskKind::TranslateWord),
+                !config.is_kind_enabled(TaskKind::TranslateSentence),
                 "toggled-off kind must be disabled in the submitted config"
             ),
             other => panic!("save action expected, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_disabled_default_task_is_blocked_with_an_in_place_hint() {
+        let (mut harness, action) = harness_for(
+            {
+                let mut state = open(&Config::default());
+                state.draft.default_text_kind = TaskKind::ExplainCode;
+                state.draft.set_kind_enabled(TaskKind::ExplainCode, false);
+                state
+            },
+            Locale::Zh,
+        );
+        harness.run();
+        harness.get_by_label("保存").click();
+        harness.run();
+        assert!(
+            matches!(&*action.borrow(), SettingsAction::Idle),
+            "a default task that can never fire must not be saved"
+        );
+        harness.get_by_label_contains("默认任务已停用");
+        assert!(
+            harness
+                .query_by_label_contains("划词触发时使用的任务")
+                .is_none(),
+            "the error must replace the field hint instead of stacking under it"
+        );
+
+        harness.get_by_label("启用代码解释").click_accesskit();
+        harness.run();
+        harness.get_by_label_contains("划词触发时使用的任务");
+        harness.get_by_label("保存").click();
+        harness.run();
+        assert!(
+            matches!(&*action.borrow(), SettingsAction::Save { .. }),
+            "enabling the kind restores save"
+        );
+    }
+
+    #[test]
+    fn switching_off_the_default_task_is_blocked_until_it_comes_back() {
+        let (mut harness, action) = harness_for(open(&Config::default()), Locale::Zh);
+        harness.run();
+        assert!(
+            harness.query_by_label_contains("默认任务已停用").is_none(),
+            "an untouched draft must not be nagged before the first save"
+        );
+
+        harness.get_by_label("启用词卡").click_accesskit();
+        harness.run();
+        harness.get_by_label("保存").click();
+        harness.run();
+        assert!(
+            matches!(&*action.borrow(), SettingsAction::Idle),
+            "disabling the task behind the selection gesture must not be saved"
+        );
+        harness.get_by_label_contains("默认任务已停用");
+
+        harness.get_by_label("启用词卡").click_accesskit();
+        harness.run();
+        harness.get_by_label("保存").click();
+        harness.run();
+        assert!(
+            matches!(&*action.borrow(), SettingsAction::Save { .. }),
+            "switching the kind back on restores save"
+        );
     }
 
     #[test]
@@ -1251,6 +1386,19 @@ mod tests {
         harness.run();
         harness.get_by_label_contains("已就地标红");
         harness.snapshot("settings_invalid");
+        results.extend_harness(&mut harness);
+
+        let mut disabled_default = open(&Config::default());
+        disabled_default.draft.default_text_kind = TaskKind::ExplainCode;
+        disabled_default
+            .draft
+            .set_kind_enabled(TaskKind::ExplainCode, false);
+        let (mut harness, _action) = harness_for(disabled_default, Locale::Zh);
+        harness.run();
+        harness.get_by_label("保存").click();
+        harness.run();
+        harness.get_by_label_contains("默认任务已停用");
+        harness.snapshot("settings_default_kind_disabled");
         results.extend_harness(&mut harness);
         results.unwrap();
     }
