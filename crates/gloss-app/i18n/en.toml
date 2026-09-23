@@ -1,8 +1,8 @@
 # Interface text (English). Keys must match zh.toml exactly — a missing or
 # extra key fails parsing (see crates/gloss-app/src/i18n.rs).
-# Entries are written fully qualified as gloss_<module>.<entry>: the prefix sits
-# on every line (no section headers), and the Rust fields carry the same names
-# verbatim — there is no rename layer.
+# Entries are underscore-joined fully qualified names, gloss_<module>_<entry>,
+# with the prefix on every line (there are no section headers); the Rust fields
+# carry the same names verbatim, so there is no rename layer.
 # Placeholders are written {{name}} and filled by i18n::fill.
 
 gloss_app_settings_title = "Gloss Settings"
