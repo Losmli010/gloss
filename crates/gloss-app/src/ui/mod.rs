@@ -1,5 +1,6 @@
-//! 浮层与设置窗口的 UI：内容渲染模板与字体。
+//! 浮层与设置窗口的 UI：内容渲染模板、字体与上下文的统一装入点。
 
+pub mod context;
 pub mod fonts;
 pub mod popup;
 pub mod settings;

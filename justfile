@@ -205,7 +205,7 @@ agents-doc:
 test-bdd:
     ./scripts/hooks/check-test-bdd.sh
 
-# 自动化门禁（依赖方向 / 日志 / 版本单点 / 依赖特性 / 残留标记）
+# 自动化门禁（依赖方向 / 日志 / egui 上下文装入点 / 版本单点 / 依赖特性 / 残留标记）
 constraints:
     ./scripts/hooks/check-constraints.sh
 

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use egui::ViewportId;
+use gloss_core::config::Theme;
 use gloss_core::model::Locale;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
@@ -37,26 +38,30 @@ impl Frame {
 
 /// 建窗口栈与两个窗口的首帧渲染状态（生产 App 与自检 handler 共用）：
 /// 浮层帧在前、设置窗口帧在后。两个窗口共享同一份 `GpuContext`（设备与
-/// 队列各一份），egui 上下文各自独立（互不共享 UI 状态）。
+/// 队列各一份）；egui 上下文各自独立，都经 [`ui::context::new_context`]
+/// 装好字体与主题（`theme` 是建立时的主题偏好）。
 pub fn build_window_stack(
     event_loop: &ActiveEventLoop,
+    theme: Theme,
 ) -> Result<(WindowManager, Frame, Frame), Box<dyn Error>> {
     let windows = WindowManager::new(event_loop)?;
 
     let context = Arc::new(GpuContext::new()?);
-    let frame = build_frame(windows.overlay_handle(), &context)?;
-    let settings_frame = build_frame(windows.settings_handle(), &context)?;
+    let frame = build_frame(windows.overlay_handle(), &context, theme)?;
+    let settings_frame = build_frame(windows.settings_handle(), &context, theme)?;
 
     Ok((windows, frame, settings_frame))
 }
 
 /// 建单个窗口的 egui 渲染状态 + surface（浮层与设置窗口同构）。
-fn build_frame(window: Arc<Window>, context: &Arc<GpuContext>) -> Result<Frame, Box<dyn Error>> {
+fn build_frame(
+    window: Arc<Window>,
+    context: &Arc<GpuContext>,
+    theme: Theme,
+) -> Result<Frame, Box<dyn Error>> {
     let surface = GpuSurface::new(context, Arc::clone(&window))?;
 
-    let egui_ctx = egui::Context::default();
-    // 内置字体不含 CJK 字形，画第一帧前把系统中文字体接进后备链
-    ui::fonts::install(&egui_ctx);
+    let egui_ctx = ui::context::new_context(theme);
     let egui = egui_winit::State::new(
         egui_ctx.clone(),
         ViewportId::ROOT,

@@ -10,6 +10,7 @@
 #   桩副本一致          —— 各 crate tests/stubs/ 的同名桩逐字一致，防跨 crate 漂移。
 #   日志统一出口        —— 除 gloss-core 外不得直接依赖 tracing 三件套。
 #   日志一律英文        —— 日志宏实参里不得出现非 ASCII 字节。
+#   egui 上下文装入点   —— 除 ui/context.rs 外不得直接建立 egui::Context。
 #   版本单点维护        —— 子 crate 的 version / edition 必须 *.workspace = true，
 #                          字面量只允许出现在根 [workspace.package]。
 #   依赖只开需要的特性  —— 每个第三方依赖声明必须带 default-features = false。
@@ -250,6 +251,27 @@ while IFS= read -r f; do
   fi
 done < <(find "$ROOT" -name '*.rs' -type f -not -path "$ROOT/target/*" -not -path "$ROOT/.git/*")
 ok "日志一律英文（扫 ${rs_files} 个 .rs 文件，${log_violations} 处违规）"
+
+# ---- 约束「egui 上下文统一装入点」 ----
+# 浮层与设置窗各持一个独立的 egui::Context，字体与主题都要逐个上下文装上；
+# 这两件事只允许经 ui/context.rs（new_context / reapply）发生——别处直接建上下文、
+# 或直接调用 set_fonts / set_theme，都会得到一个少装了东西的上下文。
+# 匹配前去掉空白，`Context :: default ()` 这类写法同样命中；确需绕过的行
+# 注明 `constraints:allow-context` 并写明缘由（同 secrets:allow 惯例）。
+context_owner="crates/gloss-app/src/ui/context.rs"
+ctx_files=0
+ctx_violations=0
+while IFS= read -r f; do
+  ctx_files=$((ctx_files + 1))
+  [ "$(rel "$f")" = "$context_owner" ] && continue
+  hits="$(tr -d ' \t' <"$f" |
+    grep -nE '(^|[^[:alnum:]_])Context::default\(\)|\.set_fonts\(|\.set_theme\(' |
+    grep -v 'constraints:allow-context' || true)"
+  [ -n "$hits" ] || continue
+  ctx_violations=$((ctx_violations + 1))
+  fail "约束「egui 上下文统一装入点」：$(rel "$f") 绕过统一装入点 —— 走 ui/context.rs 的 new_context / reapply（$(printf '%s' "$hits" | head -n 1 | cut -c1-40)）"
+done < <(find "$ROOT" -name '*.rs' -type f -not -path "$ROOT/target/*" -not -path "$ROOT/.git/*")
+ok "egui 上下文统一装入点（扫 ${ctx_files} 个 .rs 文件，${ctx_violations} 处绕过）"
 
 # ---- 约束「版本单点维护」 ----
 root_ws=""

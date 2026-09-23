@@ -9,20 +9,17 @@
 use std::sync::{Arc, OnceLock};
 
 use egui::{FontData, FontDefinitions, FontFamily};
-use gloss_core::log::{info, thread, warn};
-
 /// CJK 字体在 egui 字体表里登记的名字。
-const FONT_NAME: &str = "gloss-cjk";
+pub(super) const FONT_NAME: &str = "gloss-cjk";
 
 /// 系统 CJK 字体的字节——进程内唯一一份。取用失败同样缓存，不重复查找系统。
 static CJK_BYTES: OnceLock<Option<Vec<u8>>> = OnceLock::new();
 
-/// 把系统中文字体接进 egui 的后备链。失败只记日志，返回 `false` 表示未接入。
-pub fn install(ctx: &egui::Context) {
+/// 带 CJK 后备的字体定义；系统里找不到中文字体时返回 `None`（加载处已告警）。
+/// 交给哪个上下文由 [`super::context`] 的统一装入点决定。
+pub(in crate::ui) fn definitions() -> Option<FontDefinitions> {
     let mut definitions = FontDefinitions::default();
-    if apply(&mut definitions, cjk_bytes()) {
-        ctx.set_fonts(definitions);
-    }
+    apply(&mut definitions, cjk_bytes()).then_some(definitions)
 }
 
 /// 系统 CJK 字体字节；首次调用向系统取，之后命中缓存。
@@ -30,21 +27,14 @@ fn cjk_bytes() -> Option<&'static [u8]> {
     CJK_BYTES.get_or_init(imp::load_cjk_bytes).as_deref()
 }
 
-/// 把字体字节写进字体定义；返回是否接入。
+/// 把字体字节写进字体定义；返回是否写入。
 fn apply(definitions: &mut FontDefinitions, bytes: Option<&'static [u8]>) -> bool {
     match bytes {
         Some(bytes) => {
             append_fallback(definitions, bytes);
-            info!(thread = thread::UI, "CJK fallback font installed into egui");
             true
         }
-        None => {
-            warn!(
-                thread = thread::UI,
-                "no system CJK font found; Chinese text will render as boxes"
-            );
-            false
-        }
+        None => false,
     }
 }
 
