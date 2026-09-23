@@ -102,10 +102,15 @@ pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
 /// 任务 span：以 `generation` 字段承载请求代数，范围内所有日志自动带上它。
 ///
 /// 在触发点创建（代数在那里赋值），句柄随通道下发到平台事件线程与 tokio——
-/// 深层的日志点（取材读选区、推理引擎）因此不必自己携带代数。无订阅者、
-/// 或级别被 `RUST_LOG` 压制时返回禁用 span，进入它是空操作。
+/// 深层的日志点（取材读选区、推理引擎）因此不必自己携带代数。无订阅者的
+/// 进程里是禁用 span，进入它是空操作。
+///
+/// 级别取 `WARN` 而不是 `INFO`：span 被级别压掉时**字段也不会出现**，而任务
+/// 作用域里要留住的恰是 warn 及以上那几行（拒绝授权、后台 panic）——排障时
+/// 最需要它们。作用域内没有 error 级日志，故 warn 覆盖了「任何可能打印的
+/// 级别」；`RUST_LOG=error` 时这些行同样被压掉，不丢信息。
 pub fn task_span(generation: u64) -> Span {
-    info_span!("task", generation)
+    warn_span!("task", generation)
 }
 
 /// 按天滚动的文件写入器；目录不可用时返回 `None`，让日志退回 stderr 单路。
@@ -124,22 +129,67 @@ fn open_file_writer(dir: &Path) -> Option<(NonBlocking, WorkerGuard, PathBuf)> {
 /// 在捕获订阅者下运行 `f`，返回这段时间里格式化后的日志文本（含 span 字段）。
 ///
 /// 订阅者是**线程局部**的：与全局 [`init`] 互不影响，也不干扰其它线程，因此
-/// 可以并行使用。用途有两个：断言日志确实带上了某个字段（如任务 span 的
-/// `generation`），以及排查「这行日志为什么没带字段」——注意没有订阅者时 span
-/// 是禁用态、`RUST_LOG` 压制下同理，断言会落空。
+/// 可以并行调用；过滤器取 [`init`] 的同一档基准级别，所以断言同时钉住了
+/// 「这条日志在生产默认级别下也打得出来」。
+///
+/// 两个坑：**span 必须在 `f` 里创建**——tracing 在创建时就按当时订阅者的兴趣
+/// 定启用与否，没有订阅者时创建出来的 span 永远是禁用态，事后再捕获也补不
+/// 回来；以及 `f` 内新起的线程不在此订阅者覆盖范围内（跨线程断言用
+/// [`capture_global`]）。
 pub fn capture<F: FnOnce()>(f: F) -> String {
     let buffer = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = tracing_subscriber::registry().with(
-        fmt::layer()
-            .with_ansi(false)
-            .with_writer(CaptureWriter(Arc::clone(&buffer))),
-    );
+    let subscriber = tracing_subscriber::registry()
+        .with(build_filter(None))
+        .with(
+            fmt::layer()
+                .with_ansi(false)
+                .with_writer(CaptureWriter(Arc::clone(&buffer))),
+        );
     tracing::subscriber::with_default(subscriber, f);
     let bytes = buffer
         .lock()
         .map(|buffer| buffer.clone())
         .unwrap_or_default();
     String::from_utf8(bytes).unwrap_or_default()
+}
+
+/// 装上**进程级**捕获订阅者，返回读取端；日志来自别的线程时用它。
+///
+/// 与 [`init`] 互斥（一个进程只有一个全局订阅者）：测试进程里没人调用 [`init`]，
+/// 同一进程重复调用本函数拿到同一个读取端（只装一次）。
+pub fn capture_global() -> CaptureReader {
+    static GLOBAL: OnceLock<Arc<Mutex<Vec<u8>>>> = OnceLock::new();
+    let buffer = Arc::clone(GLOBAL.get_or_init(|| {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::registry()
+            .with(build_filter(None))
+            .with(
+                fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(CaptureWriter(Arc::clone(&buffer))),
+            );
+        // 测试进程里没有别的全局订阅者；万一已有，说明调用方用错了工具，
+        // 这里按「捕获不可用」继续，断言会如实失败。
+        #[allow(clippy::let_underscore_must_use)]
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        buffer
+    }));
+    CaptureReader(buffer)
+}
+
+/// [`capture_global`] 的读取端：按需取走累积到此刻的日志文本。
+pub struct CaptureReader(Arc<Mutex<Vec<u8>>>);
+
+impl CaptureReader {
+    /// 已捕获的日志文本（每次调用取一份快照，不清空缓冲）。
+    pub fn text(&self) -> String {
+        let bytes = self
+            .0
+            .lock()
+            .map(|buffer| buffer.clone())
+            .unwrap_or_default();
+        String::from_utf8(bytes).unwrap_or_default()
+    }
 }
 
 /// 把格式化后的日志行收进内存缓冲的写入器（[`capture`] 用）。

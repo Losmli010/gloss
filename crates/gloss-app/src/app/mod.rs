@@ -73,9 +73,9 @@ struct GlossApp {
     /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
     /// 代数对不上（热键触发、陈旧）时浮层回落居中。
     selection_anchor: Option<(u64, ScreenPoint)>,
-    /// 当前任务的 span（触发点创建）：随通道②③下发，让接收线程的日志自动
-    /// 带上 `generation`。重试沿用同一个（代数不变）。
-    task_span: Option<Span>,
+    /// 当前任务的 span（触发点创建）与它所属的代数：随通道②③下发，让接收
+    /// 线程的日志自动带上 `generation`。重试沿用同一个（代数不变）。
+    task_span: Option<(u64, Span)>,
 }
 
 impl GlossApp {
@@ -108,10 +108,13 @@ impl GlossApp {
         }
     }
 
-    /// 当前任务 span 的副本：`enter()` 的守卫借用这个局部值，与 `&mut self`
-    /// 不冲突；无任务时为 `None`（空操作）。
-    fn current_task_span(&self) -> Option<Span> {
-        self.task_span.clone()
+    /// 指定代数的任务 span（副本，供 `enter()` 借用）；代数不符或尚无任务时
+    /// 为 `None`。
+    fn span_for(&self, generation: u64) -> Option<Span> {
+        self.task_span
+            .as_ref()
+            .filter(|(current, _)| *current == generation)
+            .map(|(_, span)| span.clone())
     }
 
     /// 当前界面语言：配置里的三态偏好按启动期系统语言落定（与 prompt

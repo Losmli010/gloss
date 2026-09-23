@@ -18,6 +18,7 @@ use gloss_core::cache::MokaCache;
 use gloss_core::config::{Config, ModelBinding};
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
+use gloss_core::log::Span;
 use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
 use gloss_core::model::{GlossError, Lang};
@@ -79,6 +80,15 @@ struct Pipeline {
 impl Pipeline {
     #[allow(clippy::expect_used, clippy::panic)]
     fn trigger_and_feed(&mut self, text: &str) -> tokio_util::sync::CancellationToken {
+        self.trigger_and_feed_in(text, Span::none())
+    }
+
+    #[allow(clippy::expect_used, clippy::panic)]
+    fn trigger_and_feed_in(
+        &mut self,
+        text: &str,
+        span: Span,
+    ) -> tokio_util::sync::CancellationToken {
         let command = self
             .machine
             .trigger(
@@ -103,14 +113,37 @@ impl Pipeline {
             )
             .expect("input should be accepted while fetching");
         self.commands_tx
-            .send(Traced::untraced(Command::RunTask {
-                generation: request.generation,
-                task: request.task,
-                cancel: request.cancel.clone(),
-            }))
+            .send(Traced {
+                payload: Command::RunTask {
+                    generation: request.generation,
+                    task: request.task,
+                    cancel: request.cancel.clone(),
+                },
+                span,
+            })
             .expect("command channel open");
         request.cancel
     }
+}
+
+#[test]
+fn engine_logs_carry_the_task_span() {
+    let logs = gloss_core::log::capture_global();
+    let engine = MockEngine::new().with_chunks(vec![Ok("产物".into())]);
+    let mut pipe = pipeline(&engine);
+
+    pipe.trigger_and_feed("hello");
+    wait_done(&mut pipe);
+    pipe.trigger_and_feed_in("hello", gloss_core::log::task_span(2));
+    wait_done(&mut pipe);
+
+    assert!(
+        logs.text()
+            .lines()
+            .any(|line| line.contains("cache hit") && line.contains("generation=2")),
+        "{}",
+        logs.text()
+    );
 }
 
 #[test]

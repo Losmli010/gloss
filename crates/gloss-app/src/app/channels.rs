@@ -36,8 +36,7 @@ impl GlossApp {
             let superseded = self.machine.current_cancel().is_some();
             if let Some(command) = self.machine.trigger(&event, &config, self.system_locale) {
                 let span = task_span(self.machine.generation());
-                self.task_span = Some(span.clone());
-                // 进入 span 用副本：守卫借用它，原值仍可移进通道②
+                self.task_span = Some((self.machine.generation(), span.clone()));
                 let entered_span = span.clone();
                 let _entered = entered_span.enter();
                 info!(
@@ -177,7 +176,7 @@ impl GlossApp {
                 task: request.task,
                 cancel: request.cancel,
             },
-            span: self.current_task_span().unwrap_or_else(Span::none),
+            span: self.span_for(request.generation).unwrap_or_else(Span::none),
         };
         if endpoints.commands.send(traced).is_err() {
             warn!(
@@ -260,7 +259,7 @@ impl GlossApp {
 #[cfg(test)]
 mod tests {
     use gloss_core::config::{Config, DEFAULT_TEXT_MODEL, ModelBinding};
-    use gloss_core::log::{capture, info, thread};
+    use gloss_core::log::{capture_global, info, thread};
     use gloss_core::model::Lang;
     use gloss_core::task::TaskKind;
 
@@ -272,20 +271,20 @@ mod tests {
 
     #[test]
     fn dispatched_acquire_carries_the_task_span() {
+        let logs = capture_global();
         let (mut app, _config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app();
 
-        let text = capture(|| {
-            trigger_selection(&mut app, &pe_tx);
-            let job = ac_rx.try_recv().expect("acquire command dispatched");
-            let _entered = job.span.enter();
-            info!(thread = thread::EVENT, "probe");
-        });
+        trigger_selection(&mut app, &pe_tx);
+        let job = ac_rx.try_recv().expect("acquire command dispatched");
+        let _entered = job.span.enter();
+        info!(thread = thread::EVENT, "probe");
 
-        let probe_line = text
+        let text = logs.text();
+        let probe = text
             .lines()
             .find(|line| line.contains("probe"))
-            .expect("probe line must be captured");
-        assert!(probe_line.contains("generation=1"), "{text}");
+            .unwrap_or_default();
+        assert!(probe.contains("generation=1"), "{text}");
     }
 
     #[test]

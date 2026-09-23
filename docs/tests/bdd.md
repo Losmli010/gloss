@@ -9,7 +9,7 @@
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
 | 人工测试 | 10 | `cargo test -p gloss-platform -- --ignored` |
-| 集成测试 | 5 | `just test` |
+| 集成测试 | 6 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 24 | `just test` |
 | 单元测试 | 272 | `just test` |
@@ -116,6 +116,7 @@
 | failure_lands_in_error_and_retry_succeeds | 失败落错误态且重试可达 | 给定首次注入 EngineRateLimited 失败，当失败回传后再次触发，则落 Error 态、第二次任务完成落 Show | 2026-09-19 |
 | error_card_retry_redispatches_the_same_task | 重试动作重发同一任务 | 给定可重试失败的 Retry 出口，当 retry 并重发 RunTask，则同代数重发同一任务并完成落 Show | 2026-09-19 |
 | config_change_invalidates_cache_for_the_next_task | 配置变更对缓存 key 的失效 | 给定同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎 1 次）、换模型与换目标语言各触发一次重新请求（共 3 次） | 2026-09-19 |
+| engine_logs_carry_the_task_span | 引擎日志经 span 带上代数 | 给定带 span 的任务命令（进程级捕获订阅者），当引擎执行到缓存命中，则命中行同时含 cache hit 与 generation=2 | 2026-09-23 |
 
 ## 性能测试
 
