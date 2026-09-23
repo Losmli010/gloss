@@ -455,8 +455,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| cjk_fallback_appends_after_builtin_fonts | CJK 后备排在内置字体后 | 给定注入后备字体后的 FontDefinitions，当检查，则 CJK 后备排在比例与等宽两族内置字体之后 | 2026-09-19 |
-| system_cjk_font_is_discoverable | 系统 CJK 字体可发现 | 给定真实系统，当执行 CJK 字体发现，则必须找到（依赖宿主机） | 2026-09-19 |
+| cjk_fallback_appends_after_builtin_fonts | CJK 后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且 CJK 后备排在比例与等宽两族内置字体之后 | 2026-09-23 |
+| cjk_fallback_without_system_font_installs_nothing | 无系统字体时不接入 | 给定缺失字体字节，当接入字体定义，则接入失败且字体表与比例、等宽两族均保持内置原样 | 2026-09-23 |
+| cjk_fallback_shares_bytes_across_contexts | 后备字体字节按借用登记、零拷贝共享 | 给定同一段字体字节接入两份字体定义，当检查，则两份定义都按借用登记且指向同一地址 | 2026-09-23 |
+| system_cjk_font_is_discoverable | 系统 CJK 字体可发现 | 给定真实系统，当执行 CJK 字体发现，则必须找到且字节非空（依赖宿主机） | 2026-09-23 |
+| system_cjk_font_is_loaded_once | 系统 CJK 字体只加载一次且两份定义共享 | 给定真实系统，当连续两次取字体字节并各自接入字体定义，则两次返回同一段内存、两份定义登记到同一地址（依赖宿主机） | 2026-09-23 |
 
 ### crates/gloss-app/src/ui/settings.rs
 
