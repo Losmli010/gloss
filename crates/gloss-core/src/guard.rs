@@ -4,13 +4,27 @@
 //! 调用方从平台取来，本模块只判定——因此能在 L1 层以任意组合驱动，不需要
 //! 真机，也不需要网络。
 //!
-//! 两者都只压「意外发送」，都不拦主动发送：场景闸门让触发不发生（不取材、
-//! 不下发、不占代数），内容闸门让任务在用户裁决前留在原地不下发。命中的
-//! 原文既不进日志也不进错误消息，只有类别（[`SensitiveKind`]）出去。
+//! 两者都是**无条件拦截**：命中即这次请求不成（场景闸门让触发不发生，
+//! 内容闸门让取材产物止步于状态机），没有开关、没有名单编辑、也没有
+//! 「仍然继续」这一路出口——防护不交由用户控制。判据只有类别出去：命中的
+//! 原文既不进日志也不进错误消息，只留 [`SensitiveKind`] / [`TriggerBlock`]。
 
 use std::fmt;
 
-use crate::config::Config;
+/// 触发被场景闸门拦下的前台应用名单：密码管理器与钥匙串访问——这些应用
+/// 里的划词几乎只会是凭据（主密码、生成的口令）。
+///
+/// 内建常量而非配置项：名单一旦可被编辑，防护就有了旁路出口。匹配对象是
+/// 前台应用的 Bundle ID 或应用名（不区分 ASCII 大小写），见 [`matched_entry`]。
+const SENSITIVE_APPS: [&str; 7] = [
+    "com.1password.1password",
+    "com.agilebits.onepassword7",
+    "com.bitwarden.desktop",
+    "com.lastpass.LastPass",
+    "com.dashlane.dashlane",
+    "com.apple.keychainaccess",
+    "com.apple.Passwords",
+];
 
 /// 前台应用标识：敏感应用名单的匹配对象。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -30,13 +44,13 @@ pub struct SceneFacts {
     pub front_app: Option<FrontApp>,
 }
 
-/// 触发被场景闸门拦下的原因：只记类别与名单里那一条，不含选区内容。
+/// 触发被场景闸门拦下的原因：只记类别与命中的名单条目，不含选区内容。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TriggerBlock {
     /// 安全输入态（密码框聚焦）。
     SecureInput,
     /// 前台应用命中敏感应用名单，携带命中的名单条目（原样，供日志对照）。
-    BlockedApp(String),
+    BlockedApp(&'static str),
 }
 
 impl fmt::Display for TriggerBlock {
@@ -51,38 +65,28 @@ impl fmt::Display for TriggerBlock {
 /// 触发前的场景闸门：`None` 即放行，`Some` 即不取材不触发。
 ///
 /// 判定顺序与两个事实无关，只为「先判不依赖前台应用的那条」：安全输入态
-/// 与前台是谁无关，先判它才不会因为拿不到前台应用而漏掉。总开关关闭时
-/// 恒放行——防护本身是用户可控的（设置页「敏感信息防护」）。
-pub fn trigger_block(config: &Config, facts: &SceneFacts) -> Option<TriggerBlock> {
-    if !config.guard_enabled {
-        return None;
-    }
+/// 与前台是谁无关，先判它才不会因为拿不到前台应用而漏掉。
+pub fn trigger_block(facts: &SceneFacts) -> Option<TriggerBlock> {
     if facts.secure_input {
         return Some(TriggerBlock::SecureInput);
     }
     let front = facts.front_app.as_ref()?;
-    matched_entry(front, &config.guard_blocked_apps).map(TriggerBlock::BlockedApp)
+    matched_entry(front).map(TriggerBlock::BlockedApp)
 }
 
-/// 名单匹配：Bundle ID 或应用名与名单条目逐字相等（ASCII 大小写不敏感）
-/// 即命中，返回名单里那一条。空白条目跳过（手工编辑配置留下的空行不该
-/// 匹配任何东西）。
-pub fn matched_entry(front: &FrontApp, blocked: &[String]) -> Option<String> {
+/// 名单匹配：Bundle ID 或应用名与 [`SENSITIVE_APPS`] 的条目逐字相等（ASCII
+/// 大小写不敏感）即命中，返回名单里那一条（名单目前全是 bundle id）。
+fn matched_entry(front: &FrontApp) -> Option<&'static str> {
     let identities = [front.bundle_id.as_deref(), front.name.as_deref()];
-    blocked
-        .iter()
-        .find(|entry| {
-            let needle = entry.trim();
-            !needle.is_empty()
-                && identities
-                    .iter()
-                    .flatten()
-                    .any(|identity| identity.eq_ignore_ascii_case(needle))
-        })
-        .cloned()
+    SENSITIVE_APPS.iter().copied().find(|entry| {
+        identities
+            .iter()
+            .flatten()
+            .any(|identity| identity.eq_ignore_ascii_case(entry))
+    })
 }
 
-/// 内容命中的敏感信息类别。类别进日志与菜单文案，命中的原文不进。
+/// 内容命中的敏感信息类别。类别进日志，命中的原文不进。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SensitiveKind {
     /// 已知前缀的密钥/令牌（`sk-`、`ghp_`、`AKIA`…）或 `Bearer` 后接长令牌。
@@ -95,7 +99,7 @@ pub enum SensitiveKind {
     CardNumber,
 }
 
-/// 发送前的内容启发式：命中返回类别，未命中返回 `None`。
+/// 发送前的内容闸门：命中返回类别，未命中返回 `None`。
 ///
 /// 只做高置信度模式，判定顺序与命中概率无关，只为「更确定的类别先报」：
 /// 私钥块 → 密钥/令牌 → 卡号 → 高熵串（前者命中就不再往下猜）。
@@ -196,8 +200,9 @@ fn is_token_body(body: &str, min_len: usize) -> bool {
 /// 小写/大写/数字三类字符齐全、香农熵 ≥ 4.5 bit/字符。
 ///
 /// 「三类字符齐全」是排除伪阳性的主力：长标识符（全小写加下划线）、路径
-/// （含 `/`）、中文长句（非 ASCII）都过不了它；命中只提示不拦截，所以这里
-/// 宁可漏报——漏报不改变「选中即发送」的原有行为。
+/// （含 `/`）、中文长句（非 ASCII）都过不了它。命中即拦截、没有旁路出口，
+/// 所以这里宁可漏报：漏报只是这一次照常发送，误报却会让用户彻底失去这条
+/// 路径的可用性。
 fn has_high_entropy_token(text: &str) -> bool {
     text.split_whitespace().any(|raw| {
         let word = raw.trim_matches(TRIMMED);
@@ -336,23 +341,16 @@ mod tests {
         }
     }
 
-    fn listed(entries: &[&str]) -> Vec<String> {
-        entries.iter().map(|entry| (*entry).to_owned()).collect()
-    }
-
     #[test]
     fn scene_gate_blocks_secure_input_and_listed_apps() {
-        let config = Config::default();
         assert_eq!(
-            trigger_block(&config, &secure_input()),
+            trigger_block(&secure_input()),
             Some(TriggerBlock::SecureInput)
         );
         assert_eq!(
-            trigger_block(&config, &in_app("com.1password.1password", "1Password")),
-            Some(TriggerBlock::BlockedApp(
-                "com.1password.1password".to_owned()
-            )),
-            "the factory list already carries the password managers"
+            trigger_block(&in_app("com.1password.1password", "1Password")),
+            Some(TriggerBlock::BlockedApp("com.1password.1password")),
+            "the built-in list already carries the password managers"
         );
         assert!(
             TriggerBlock::SecureInput
@@ -361,62 +359,50 @@ mod tests {
             "the reason is read by humans in the log"
         );
         assert!(
-            TriggerBlock::BlockedApp("com.acme.vault".to_owned())
+            TriggerBlock::BlockedApp("com.apple.keychainaccess")
                 .to_string()
-                .contains("com.acme.vault"),
+                .contains("com.apple.keychainaccess"),
             "the blocked entry is echoed so the log names the list row that matched"
         );
-    }
-
-    #[test]
-    fn scene_gate_follows_the_master_switch() {
-        let off = Config {
-            guard_enabled: false,
-            ..Default::default()
-        };
-        assert_eq!(trigger_block(&off, &secure_input()), None);
         assert_eq!(
-            trigger_block(&off, &in_app("com.1password.1password", "1Password")),
+            trigger_block(&in_app("com.example.editor", "Editor")),
             None,
-            "the switch is the only bypass, and it bypasses both facts"
+            "an app outside the list is not a scene to block"
         );
         assert_eq!(
-            trigger_block(&Config::default(), &SceneFacts::default()),
+            trigger_block(&SceneFacts::default()),
             None,
             "no facts and no reason to block"
         );
     }
 
     #[test]
-    fn entry_matching_skips_blank_entries() {
-        let list = listed(&["", "   ", "Acme Vault"]);
+    fn entry_matching_covers_every_identity_an_app_can_offer() {
         assert_eq!(
-            matched_entry(&front("com.acme.vault", "Acme Vault"), &list),
-            Some("Acme Vault".to_owned()),
-            "a blank row must not match, and the matched row comes back verbatim"
-        );
-        assert_eq!(matched_entry(&front("com.other.app", "Other"), &list), None);
-        assert_eq!(
-            matched_entry(
-                &front("com.acme.vault", "Acme Vault"),
-                &listed(&["ACME VAULT"])
-            ),
-            Some("ACME VAULT".to_owned()),
-            "matching is case-insensitive, the row keeps its own spelling"
-        );
-        assert_eq!(
-            matched_entry(&front("com.acme.vault", "Acme Vault"), &[]),
+            matched_entry(&front("com.acme.vault", "Acme Vault")),
             None,
-            "an empty list matches nothing"
+            "an app outside the built-in list matches nothing"
         );
         assert_eq!(
-            matched_entry(
-                &FrontApp {
-                    bundle_id: None,
-                    name: None,
-                },
-                &listed(&["Acme Vault"])
-            ),
+            matched_entry(&front("com.apple.Passwords", "Passwords")),
+            Some("com.apple.Passwords"),
+            "the bundle id matches verbatim, mixed case included"
+        );
+        assert_eq!(
+            matched_entry(&front("COM.APPLE.KEYCHAINACCESS", "Keychain Access")),
+            Some("com.apple.keychainaccess"),
+            "matching is ASCII case-insensitive, and the list row comes back verbatim"
+        );
+        assert_eq!(
+            matched_entry(&front("com.acme.vault", "1password")),
+            None,
+            "a display name only matches if the list carries that very name"
+        );
+        assert_eq!(
+            matched_entry(&FrontApp {
+                bundle_id: None,
+                name: None,
+            }),
             None,
             "an app with no identity cannot match"
         );

@@ -25,9 +25,9 @@ impl GlossApp {
         windows.show_at(position);
     }
 
-    /// 收起浮层的统一出口（Esc / 关闭按钮）：隐藏窗口、清渲染截止时刻
-    /// 防空转，状态机放弃在途任务回 `Idle`（迟到产物经代数或状态守卫
-    /// 丢弃——为一个不可见的浮层继续推理与渲染纯属空转）。
+    /// 收起浮层的统一出口（Esc / 关闭按钮 / 内容闸门拦下）：隐藏窗口、清
+    /// 渲染截止时刻防空转，状态机放弃在途任务回 `Idle`（迟到产物经代数或
+    /// 状态守卫丢弃——为一个不可见的浮层继续推理与渲染纯属空转）。
     pub(super) fn dismiss_overlay(&mut self, reason: &'static str) {
         info!(
             thread = thread::UI,
@@ -42,7 +42,7 @@ impl GlossApp {
         self.machine.hide_overlay();
     }
 
-    /// 执行浮层一帧上交的动作（错误映射的壳侧半边 + 确认卡裁决 + 头部动作区）。
+    /// 执行浮层一帧上交的动作（错误映射的壳侧半边 + 头部动作区）。
     pub(super) fn handle_overlay_action(&mut self, action: OverlayAction) {
         match action {
             OverlayAction::Retry => match self.machine.retry() {
@@ -63,29 +63,6 @@ impl GlossApp {
                     );
                 }
             },
-            // 确认卡的「仍要翻译」：用户看过风险后放行，任务原样下发。
-            OverlayAction::ConfirmTranslate => match self.machine.confirm_translate() {
-                Some(request) => {
-                    info!(
-                        thread = thread::UI,
-                        generation = request.generation,
-                        kind = ?request.task.kind,
-                        "sensitive content confirmed, task dispatched to tokio"
-                    );
-                    self.send_run(request);
-                }
-                None => {
-                    debug!(
-                        thread = thread::UI,
-                        generation = self.machine.generation(),
-                        state = ?self.machine.state(),
-                        "stale confirmation click dropped"
-                    );
-                }
-            },
-            // 确认卡的「取消」：与 Esc / 头部 × 同一条放弃语义，只是出处不同
-            // （日志的 reason 要说得准）。
-            OverlayAction::ConfirmCancel => self.dismiss_overlay("confirmation declined"),
             // 失败卡的「打开设置」与头部齿轮、托盘/热键走同一个入口。
             OverlayAction::OpenSettings => self.open_settings(),
             OverlayAction::Dismiss => self.dismiss_overlay("close button"),

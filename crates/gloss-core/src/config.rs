@@ -45,24 +45,6 @@ fn default_hotkey_bindings() -> Vec<HotkeyBinding> {
     ]
 }
 
-/// 出厂默认敏感应用名单：密码管理器与钥匙串访问——这些应用里的划词几乎
-/// 只会是凭据（主密码、生成的口令），默认拦下最省事。名单按 Bundle ID
-/// 匹配，用户可在设置页按应用名增删。
-fn default_blocked_apps() -> Vec<String> {
-    [
-        "com.1password.1password",
-        "com.agilebits.onepassword7",
-        "com.bitwarden.desktop",
-        "com.lastpass.LastPass",
-        "com.dashlane.dashlane",
-        "com.apple.keychainaccess",
-        "com.apple.Passwords",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
-}
-
 /// 界面主题：跟随系统 / 固定浅色 / 固定深色。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Theme {
@@ -262,13 +244,13 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// 落点（改动本节时同步更新）：`target_lang` / `model_by_kind` /
 /// `default_text_kind` 已接线（触发时解析进任务）；`base_url` /
 /// `provider_keys` 已接线（引擎每请求解析端点、按条目直查 keychain）；
-/// `enabled_kinds` 已接线（触发时过滤）；`guard_enabled` /
-/// `guard_blocked_apps` 已接线（触发时场景闸门、取材后内容闸门，见
-/// `gloss_core::guard`）；`hotkey_bindings` /
+/// `enabled_kinds` 已接线（触发时过滤）；`hotkey_bindings` /
 /// `theme` 已接线（保存后重注册热键；主题施加到两个 egui 上下文）——
 /// 都**不**在触发时冻结；`cache_ttl_secs` 归缓存构造接线；
 /// `language` 已接线（触发时经 `Language::resolve` 解析成 prompt 模板语言、
 /// 随任务冻结，渲染帧另按同一映射取界面文案表）。
+///
+/// 敏感信息防护不在此列：它不是配置项，判据内建在 `gloss_core::guard`。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -295,12 +277,6 @@ pub struct Config {
     pub theme: Theme,
     /// 界面语言。
     pub language: Language,
-    /// 敏感信息防护总开关：开时场景闸门（安全输入态、敏感应用）与内容
-    /// 闸门（疑似凭据先确认）都生效；关掉即两条都放行。出厂开。
-    pub guard_enabled: bool,
-    /// 敏感应用名单：前台应用的 Bundle ID 或应用名命中即不触发（不区分
-    /// 大小写）。显式清空即「只留安全输入态闸门」。
-    pub guard_blocked_apps: Vec<String>,
 }
 
 impl Default for Config {
@@ -317,8 +293,6 @@ impl Default for Config {
             cache_ttl_secs: 60 * 60,
             theme: Theme::System,
             language: Language::System,
-            guard_enabled: true,
-            guard_blocked_apps: default_blocked_apps(),
         }
     }
 }
@@ -433,14 +407,6 @@ mod tests {
         assert_eq!(config.theme, Theme::System);
         assert_eq!(config.language, Language::System);
         assert_eq!(config.base_url, DEFAULT_BASE_URL);
-        assert!(config.guard_enabled, "the guard ships switched on");
-        assert!(
-            config
-                .guard_blocked_apps
-                .iter()
-                .any(|entry| entry.contains("1password")),
-            "the factory app list must cover password managers"
-        );
 
         assert_eq!(
             config.resolved_model(TaskKind::TranslateWord),
@@ -612,8 +578,6 @@ mod tests {
             cache_ttl_secs: 120,
             theme: Theme::Dark,
             language: Language::En,
-            guard_enabled: false,
-            guard_blocked_apps: vec!["com.example.vault".into(), "Vault".into()],
         };
         let json = serde_json::to_string(&config).expect("config should serialize");
         let back: Config = serde_json::from_str(&json).expect("config should deserialize");
@@ -635,8 +599,6 @@ mod tests {
             Some(DEFAULT_TEXT_MODEL)
         );
         assert!(ALL_KINDS.iter().all(|&kind| config.is_kind_enabled(kind)));
-        assert!(config.guard_enabled);
-        assert!(!config.guard_blocked_apps.is_empty());
     }
 
     #[test]
@@ -646,25 +608,6 @@ mod tests {
         assert!(
             ALL_KINDS.iter().all(|&kind| !config.is_kind_enabled(kind)),
             "explicit empty table must disable every kind"
-        );
-    }
-
-    #[test]
-    fn explicit_empty_app_list_stays_empty() {
-        let config: Config = serde_json::from_str(r#"{"guard_blocked_apps": []}"#)
-            .expect("explicit empty should parse");
-        assert!(
-            config.guard_blocked_apps.is_empty(),
-            "clearing the list in the settings window must survive the round trip"
-        );
-        assert!(
-            config.guard_enabled,
-            "clearing the list keeps the rest at factory"
-        );
-        let missing: Config = serde_json::from_str("{}").expect("empty document should parse");
-        assert!(
-            !missing.guard_blocked_apps.is_empty(),
-            "a missing field still falls back to the factory app list"
         );
     }
 

@@ -109,10 +109,6 @@ pub struct SettingsState {
     api_key: String,
     /// 是否已标记「清除密钥」（保存时才真正删除；重新输入即撤销）。
     clear_key: bool,
-    /// 敏感应用名单的编辑缓冲（每行一条）：原始文本独立于 `draft` 里的表，
-    /// 改一行即解析回表——否则「解析 → 重建文本」会把输入途中的空行吃掉，
-    /// 第二行永远敲不出来。
-    guard_apps: String,
     /// 壳回写的提示（保存失败等）；文案在渲染帧落地。
     notice: Option<SettingsNotice>,
     /// 是否已进入校验态：首次点「保存」置位，此后每帧就地标注错误；
@@ -188,7 +184,6 @@ pub fn open(config: &Config) -> SettingsState {
         draft: config.clone(),
         api_key: String::new(),
         clear_key: false,
-        guard_apps: config.guard_blocked_apps.join("\n"),
         notice: None,
         validated: false,
     }
@@ -346,10 +341,6 @@ pub(crate) fn draw(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) ->
                         ui.add_space(space::SECTION);
                         section(ui, &text.gloss_settings_section_general, |ui| {
                             general_section(ui, state, text);
-                        });
-                        ui.add_space(space::SECTION);
-                        section(ui, &text.gloss_settings_section_privacy, |ui| {
-                            privacy_section(ui, state, text);
                         });
                     });
                 });
@@ -692,46 +683,6 @@ fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
         );
     });
     choice_hint(ui, &text.gloss_settings_cache_ttl_hint);
-}
-
-/// 隐私区：敏感信息防护总开关 + 敏感应用名单。名单是多行文本，改动即
-/// 解析回草稿（见 [`parse_blocked_apps`]）——保存路径上它就是配置里的表，
-/// 没有第二套表示。
-fn privacy_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
-    let enabled = state.draft.guard_enabled;
-    if switch_row(ui, &text.gloss_settings_guard_switch, enabled, text) {
-        state.draft.guard_enabled = !enabled;
-    }
-    ui.add_space(space::ITEM);
-    caption(ui, &text.gloss_settings_guard_apps);
-    let response = ui.add(
-        egui::TextEdit::multiline(&mut state.guard_apps)
-            .desired_rows(3)
-            .desired_width(f32::INFINITY),
-    );
-    if response.changed() {
-        state.draft.guard_blocked_apps = parse_blocked_apps(&state.guard_apps);
-    }
-    choice_hint(ui, &text.gloss_settings_guard_apps_hint);
-}
-
-/// 名单文本 → 表：按行（也容忍逗号）切分、去空白、丢空条目、按不区分
-/// 大小写去重（先到者保留原样——文件里留着用户敲的字形）。空白条目不是
-/// 错误，只是被忽略：输入途中的空行不该在保存时变成一条匹配一切的东西。
-fn parse_blocked_apps(raw: &str) -> Vec<String> {
-    let mut entries: Vec<String> = Vec::new();
-    for candidate in raw.split(['\n', ',']) {
-        let entry = candidate.trim();
-        if entry.is_empty()
-            || entries
-                .iter()
-                .any(|existing| existing.eq_ignore_ascii_case(entry))
-        {
-            continue;
-        }
-        entries.push(entry.to_owned());
-    }
-    entries
 }
 
 /// 双列行：行标签左、控件推到卡片右缘（两端对齐）；返回控件自身的响应
@@ -1258,7 +1209,6 @@ mod tests {
             "目标语言",
             "热键",
             "通用",
-            "隐私",
             "保存",
         ] {
             harness.get_by_label(label);
@@ -1415,51 +1365,6 @@ mod tests {
                 harness.get_all_by_value(trigger).next().is_some(),
                 "trigger `{trigger}` must be an editable row"
             );
-        }
-    }
-
-    #[test]
-    fn app_list_text_parses_into_a_trimmed_table() {
-        assert_eq!(
-            parse_blocked_apps(" com.example.vault \n\nCOM.EXAMPLE.VAULT\n,com.other.app,"),
-            vec!["com.example.vault".to_owned(), "com.other.app".to_owned()],
-            "blank entries drop and duplicates collapse case-insensitively"
-        );
-        assert!(parse_blocked_apps("   \n  ").is_empty());
-        assert!(parse_blocked_apps("").is_empty());
-    }
-
-    #[test]
-    fn guard_controls_reach_the_submitted_config() {
-        let mut state = open(&Config::default());
-        state.guard_apps = "com.example.vault\nAcme Vault".into();
-        state.draft.guard_blocked_apps = parse_blocked_apps(&state.guard_apps);
-        let (mut harness, action) = harness_for(state, Locale::Zh);
-        harness.run();
-        assert!(
-            harness
-                .get_all_by_value("com.example.vault\nAcme Vault")
-                .next()
-                .is_some(),
-            "the app list must be editable in place"
-        );
-        harness.get_by_label("启用敏感信息防护").click_accesskit();
-        harness.run();
-        harness.get_by_label("保存").click();
-        harness.run();
-        match &*action.borrow() {
-            SettingsAction::Save { config, .. } => {
-                assert!(
-                    !config.guard_enabled,
-                    "the toggled-off guard must be off in the submitted config"
-                );
-                assert_eq!(
-                    config.guard_blocked_apps,
-                    vec!["com.example.vault".to_owned(), "Acme Vault".to_owned()],
-                    "the edited list must be saved line by line"
-                );
-            }
-            other => panic!("save action expected, got {other:?}"),
         }
     }
 

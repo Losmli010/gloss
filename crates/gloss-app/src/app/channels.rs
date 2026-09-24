@@ -18,7 +18,7 @@ impl GlossApp {
     ///
     /// 触发前读一次场景事实（安全输入态、前台应用）：闸门拦下的触发与
     /// 未接线事件一样不进状态机，但记 warn——用户会想知道「为什么划了没
-    /// 反应」，而这是他能自己修的（换应用、关防护、取消聚焦密码框）。
+    /// 反应」，而这是他能自己修的（换一个应用，或取消密码框的聚焦）。
     pub(super) fn drain_platform_events(&mut self) {
         // 配置快照在本批事件的起手处取一次（零锁读）：本批触发的任务都用
         // 同一份配置解析类型与选项——任务一旦触发，其配置就固定了。
@@ -152,8 +152,8 @@ impl GlossApp {
     }
 
     /// 采纳取材产物：组装 Task 携令牌下发通道③，进入 Translating；内容
-    /// 闸门命中时改为把任务留在状态机里、浮层出确认卡（不下发）。返回是否
-    /// 进入了需要展示浮层的新任务——两种情况都要露面。
+    /// 闸门命中时这次取材作废——不下发、不出浮层，只记一行 warn 并收起浮层
+    /// （上一次的结果已经与新选区无关）。返回是否进入了需要展示浮层的新任务。
     pub(super) fn accept_input(&mut self, generation: u64, input: TaskInput) -> bool {
         match self.machine.accept_input(generation, input) {
             InputOutcome::Dispatch(request) => {
@@ -168,14 +168,18 @@ impl GlossApp {
                 self.send_run(request);
                 true
             }
-            InputOutcome::AwaitingConfirm { reason } => {
-                info!(
+            InputOutcome::Blocked(reason) => {
+                warn!(
                     thread = thread::UI,
                     generation = generation,
                     reason = ?reason,
-                    "input held for confirmation: suspected sensitive content"
+                    "input suppressed by the sensitive content guard, task not dispatched"
                 );
-                true
+                // 状态机那边已回 Idle 并清空视图，这里做的是窗口那半边：
+                // 隐藏浮层、清渲染截止时刻。浮层里可能还挂着上一次的结果，
+                // 它属于另一次取材，留着会被读成「这次划词的结果」。
+                self.dismiss_overlay("sensitive content blocked");
+                false
             }
             InputOutcome::Ignored => {
                 debug!(
@@ -298,7 +302,7 @@ mod tests {
         trigger_selection,
     };
     use crate::channel::{AcquireCommand, Command};
-    use crate::machine::{AppState, OverlayView};
+    use crate::machine::AppState;
     use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder, StubSceneProbe};
 
     fn suspicious_text() -> String {
@@ -550,29 +554,29 @@ mod tests {
     }
 
     #[test]
-    fn suspicious_input_holds_the_task_and_shows_the_card() {
+    fn suspicious_input_is_suppressed_and_shows_nothing() {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
 
         assert!(
-            app.accept_input(1, text_input(&suspicious_text())),
-            "the confirmation card needs the overlay on screen"
+            !app.accept_input(1, text_input(&suspicious_text())),
+            "a refused fetch must not ask for the overlay"
         );
         assert!(
             cmd_rx.try_recv().is_err(),
-            "nothing may reach tokio before the user decides"
+            "nothing may reach tokio — there is no confirmation path to wait for"
         );
-        assert_eq!(app.machine.state(), AppState::AwaitingConfirm);
-        assert!(matches!(
-            app.machine.overlay_view(),
-            Some(OverlayView::Confirm { .. })
-        ));
+        assert_eq!(app.machine.state(), AppState::Idle);
+        assert!(
+            app.machine.overlay_view().is_none(),
+            "no card, no question: the guard is not a dialog"
+        );
 
-        app.handle_overlay_action(crate::ui::popup::OverlayAction::ConfirmTranslate);
-        assert_eq!(app.machine.state(), AppState::Translating);
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(2, text_input("普通的文本")));
         assert!(matches!(
             cmd_rx.try_recv().unwrap().payload,
-            Command::RunTask { generation: 1, .. }
+            Command::RunTask { generation: 2, .. }
         ));
     }
 }

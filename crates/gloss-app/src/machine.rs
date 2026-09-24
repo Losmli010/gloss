@@ -9,8 +9,9 @@
 //! 只有真实下发的触发才递增；回传事件按代数匹配，不匹配即陈旧丢弃。
 //!
 //! 两道敏感信息闸门的落点：场景闸门在 [`trigger_decision`]（触发前，
-//! 拦下即不取材不占代数），内容闸门在 [`TaskStateMachine::accept_input`]
-//! （取材后、下发前，命中即驻留 `AwaitingConfirm` 等用户裁决）。
+//! 拦下即不取材不占代数、不出浮层），内容闸门在
+//! [`TaskStateMachine::accept_input`]（取材后、下发前，命中即丢弃这次取材
+//! 回 `Idle`——不下发、不出浮层，壳只记一行 warn）。
 
 use tokio_util::sync::CancellationToken;
 
@@ -36,10 +37,10 @@ pub enum ErrorAction {
 ///
 /// 转移概要：任何可见态收到新触发（[`TaskStateMachine::trigger`]）都取
 /// 消在途任务并回 `Fetching`；`Fetching` 采纳 `InputReady` 后携取消令牌
-/// 下发通道③进 `Translating`——**除非内容闸门命中**，那时改驻留
-/// `AwaitingConfirm` 且不下发；`Translating` 收 `TaskChunk` 追加展示、
-/// 收 `TaskDone` 定格 `Show`、收 `TaskFailed` 落 `Error`；收起（Esc /
-/// 关闭按钮）回 `Idle`。
+/// 下发通道③进 `Translating`——**除非内容闸门命中**，那时这次取材被丢弃、
+/// 直接回 `Idle`（不下发、不出浮层）；`Translating` 收 `TaskChunk` 追加
+/// 展示、收 `TaskDone` 定格 `Show`、收 `TaskFailed` 落 `Error`；收起
+/// （Esc / 关闭按钮）回 `Idle`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppState {
     /// 浮层隐藏，无在途任务。
@@ -47,9 +48,6 @@ pub enum AppState {
     Idle,
     /// 取材中：通道②命令已下发，等待 `InputReady`。
     Fetching,
-    /// 待确认：内容疑似敏感，任务**未下发**，等用户在确认卡上裁决
-    /// （仍要翻译 / 取消）。这是状态机里唯一「等用户输入才继续」的驻留态。
-    AwaitingConfirm,
     /// 推理中：`RunTask` 已下发 tokio，chunk 流式到达。
     Translating,
     /// 展示产物。
@@ -75,13 +73,6 @@ pub enum OverlayView {
     },
     /// 产物卡：按 `TaskKind` 精排或展示 markdown 正文。
     Outcome(TaskOutcome),
-    /// 确认卡：选区疑似敏感内容，任务尚未下发，等用户裁决。只携带命中的
-    /// 类别（原文在 `AppState::AwaitingConfirm` 期间不外显——用户刚选中它，
-    /// 卡片再抄一遍既没必要、也把敏感文本多渲染进一个窗口）。
-    Confirm {
-        /// 命中的敏感信息类别，供渲染层按界面语言出措辞。
-        reason: SensitiveKind,
-    },
     /// 失败信息与动作出口：`action` 指出浮层该给用户的按钮（错误
     /// 映射），`None` 表示无可操作出口（重新划词即可）。
     Failed {
@@ -106,18 +97,15 @@ pub enum FailureCause {
     TransportChannel,
 }
 
-/// `accept_input` 的结果：下发 / 驻留待确认 / 不采纳。三态而非 `Option`——
-/// 「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者要浮层出面并记
-/// 一条 info、后者只记 debug），合并成 `None` 就分不出来了。
+/// `accept_input` 的结果：下发 / 被内容闸门拦下 / 不采纳。三态而非 `Option`
+/// ——「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者要记一条 warn，
+/// 后者只记 debug），合并成 `None` 就分不出来了。
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputOutcome {
     /// 任务已组装，壳经通道③下发。
     Dispatch(RunRequest),
-    /// 内容疑似敏感：任务**不下发**，浮层改出确认卡等用户裁决。
-    AwaitingConfirm {
-        /// 命中的敏感信息类别（日志只记它，不记原文）。
-        reason: SensitiveKind,
-    },
+    /// 内容疑似敏感：这次取材作废——任务不组装、不下发、浮层不露面。
+    Blocked(SensitiveKind),
     /// 陈旧代数、非取材态或模态错配：不采纳，浮层与通道都不动。
     Ignored,
 }
@@ -137,17 +125,12 @@ pub struct RunRequest {
 /// 触发时定下的任务：一次配置快照解析出类型与选项，`InputReady` 到达后
 /// 直接组装——单次任务的配置从触发那一刻起就固定了（「单次任务内
 /// 配置一致」），取材途中换配置不会让同一个任务用上两个版本的参数。
-///
-/// 内容闸门的总开关一并在此冻结：取材已在进行中，此时改设置不该改变
-/// 这次任务的判定口径（与其余选项同一条理由）。
 #[derive(Debug, Clone, PartialEq)]
 struct PendingTask {
     /// 触发时确定的任务类型。
     kind: TaskKind,
     /// 由同一次快照解析出的任务选项。
     options: TaskOptions,
-    /// 触发时的内容闸门开关。
-    guard_enabled: bool,
 }
 
 /// 任务状态机：纯状态 + 决策，无 IO，可全时序驱动。
@@ -235,7 +218,6 @@ impl TaskStateMachine {
         self.pending = Some(PendingTask {
             kind,
             options: task_options(kind, config, system_locale),
-            guard_enabled: config.guard_enabled,
         });
         self.state = AppState::Fetching;
         Some(command)
@@ -244,9 +226,9 @@ impl TaskStateMachine {
     /// 采纳取材产物：组装 `Task` 并返回下发请求（壳经通道③发送），进入
     /// `Translating`。选项取触发时那份快照（不经参数再传配置）。
     ///
-    /// 内容闸门命中时改驻留 `AwaitingConfirm`：任务不下发、不建取消令牌
-    /// （无在途），任务副本留在 `active_task` 供 [`Self::confirm_translate`]
-    /// 原样下发——「取消」则走既有放弃语义（壳收起浮层）。
+    /// 内容闸门命中时这次取材作废：任务不组装、不下发、浮层不露面，直接回
+    /// `Idle`（壳据 [`InputOutcome::Blocked`] 记一行 warn 并收起浮层窗口）。
+    /// **没有放行出口**——防护不交由用户控制，命中就是发送不成。
     pub fn accept_input(&mut self, generation: u64, input: TaskInput) -> InputOutcome {
         if generation != self.generation || self.state != AppState::Fetching {
             return InputOutcome::Ignored;
@@ -256,14 +238,16 @@ impl TaskStateMachine {
         let TaskInput::Text { text, hint } = input else {
             return InputOutcome::Ignored;
         };
-        let Some(PendingTask {
-            kind,
-            options,
-            guard_enabled,
-        }) = self.pending.take()
-        else {
+        let Some(PendingTask { kind, options }) = self.pending.take() else {
             return InputOutcome::Ignored;
         };
+        if let Some(reason) = guard::detect_sensitive(&text) {
+            // 视图一并清掉：里面可能还留着上一次任务的产物卡，而它属于另
+            // 一次取材（留着会被读成「这次划词的结果」）。
+            self.overlay_view = None;
+            self.state = AppState::Idle;
+            return InputOutcome::Blocked(reason);
+        }
         let task = Task {
             kind,
             input: TaskInput::Text {
@@ -272,12 +256,6 @@ impl TaskStateMachine {
             },
             options,
         };
-        if guard_enabled && let Some(reason) = guard::detect_sensitive(&text) {
-            self.active_task = Some(task);
-            self.overlay_view = Some(OverlayView::Confirm { reason });
-            self.state = AppState::AwaitingConfirm;
-            return InputOutcome::AwaitingConfirm { reason };
-        }
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
             body: String::new(),
@@ -345,22 +323,7 @@ impl TaskStateMachine {
     /// ——旧任务的流已随首个错误终结，不会有两路同代回传），浮层回到
     /// 流式视图。非 Error 态或无可重试任务时返回 `None`。
     pub fn retry(&mut self) -> Option<RunRequest> {
-        self.redispatch(AppState::Error)
-    }
-
-    /// 确认卡上的「仍要翻译」（`AwaitingConfirm` 态）：用户裁决放行，把
-    /// 驻留的任务原样下发（同代数——这期间没有任何产物在途）。非待确认态
-    /// 或任务副本缺失时返回 `None`。
-    pub fn confirm_translate(&mut self) -> Option<RunRequest> {
-        self.redispatch(AppState::AwaitingConfirm)
-    }
-
-    /// 「从某个等待态放行同一个任务」的共用半边：新建取消令牌（唯一取消
-    /// 机制）、浮层回到流式视图、进入 `Translating`。重试与确认放行的差别
-    /// 只在**允许从哪个态发起**，转移本身一模一样——两条路径各写一份迟早
-    /// 会漂移出两个语义。
-    fn redispatch(&mut self, from: AppState) -> Option<RunRequest> {
-        if self.state != from {
+        if self.state != AppState::Error {
             return None;
         }
         let task = self.active_task.clone()?;
@@ -370,8 +333,8 @@ impl TaskStateMachine {
     }
 
     /// 下发一个任务的共用半边：换新取消令牌并记在途（`active_task` 留在
-    /// 状态机里，失败可重试）。视图与状态由调用方先定好——只有调用方知道
-    /// 这次下发是初次、重试还是放行。
+    /// 状态机里，失败可重试）。视图由调用方先定好——只有调用方知道这次
+    /// 下发用哪个视图。
     fn begin_run(&mut self, task: Task) -> RunRequest {
         let cancel = CancellationToken::new();
         self.current_cancel = Some(cancel.clone());
@@ -439,7 +402,7 @@ fn error_action(error: &GlossError) -> Option<ErrorAction> {
     }
 }
 
-/// 一个任务下发的流式视图起点：原文照抄、正文空。重试与确认放行共用。
+/// 一个任务下发的流式视图起点：原文照抄、正文空。重试与首次下发共用。
 fn streaming_view(task: &Task) -> OverlayView {
     OverlayView::Streaming {
         source: source_text(task),
@@ -497,7 +460,7 @@ pub fn trigger_decision(
     if !config.is_kind_enabled(kind) {
         return TriggerDecision::Disabled(kind);
     }
-    match guard::trigger_block(config, scene) {
+    match guard::trigger_block(scene) {
         Some(block) => TriggerDecision::Blocked(block),
         None => TriggerDecision::Acquire(kind),
     }
@@ -710,7 +673,7 @@ mod tests {
         );
         assert_eq!(
             trigger_decision(&selection_gesture(), &Config::default(), &blocked_by_app()),
-            TriggerDecision::Blocked(TriggerBlock::BlockedApp("com.1password.1password".into())),
+            TriggerDecision::Blocked(TriggerBlock::BlockedApp("com.1password.1password")),
             "an enabled kind in a sensitive app is blocked, not disabled"
         );
     }
@@ -757,18 +720,6 @@ mod tests {
             AppState::Idle,
             "no overlay, no failure card"
         );
-
-        let off = Config {
-            guard_enabled: false,
-            ..Default::default()
-        };
-        assert!(
-            machine
-                .trigger(&selection_gesture(), &off, Locale::Zh, &blocked_by_app())
-                .is_some(),
-            "the switch off lets the very same scene through"
-        );
-        assert_eq!(machine.generation(), 1);
     }
 
     #[test]
@@ -1166,29 +1117,26 @@ mod tests {
     }
 
     #[test]
-    fn sensitive_content_holds_the_task_for_confirmation() {
+    fn suspicious_input_is_dropped_without_a_task_or_a_card() {
         let mut machine = TaskStateMachine::new();
         trigger(&mut machine, &Config::default()).expect("trigger");
+        dispatched(machine.accept_input(1, text_input("上一次的普通文本")));
+        assert!(machine.accept_done(1, plain_outcome("上一次的产物")));
 
-        let outcome = machine.accept_input(1, text_input(&suspicious_text()));
+        trigger(&mut machine, &Config::default()).expect("second trigger");
+        let outcome = machine.accept_input(2, text_input(&suspicious_text()));
         assert!(
-            matches!(
-                outcome,
-                InputOutcome::AwaitingConfirm {
-                    reason: SensitiveKind::Token
-                }
-            ),
-            "a selection that looks like a token must be held, got {outcome:?}"
+            matches!(outcome, InputOutcome::Blocked(SensitiveKind::Token)),
+            "a selection that looks like a token must be refused, got {outcome:?}"
         );
-        assert_eq!(machine.state(), AppState::AwaitingConfirm);
+        assert_eq!(
+            machine.state(),
+            AppState::Idle,
+            "the refused fetch leaves nothing behind"
+        );
         assert!(
-            matches!(
-                machine.overlay_view(),
-                Some(OverlayView::Confirm {
-                    reason: SensitiveKind::Token
-                })
-            ),
-            "the card must carry the matched kind"
+            machine.overlay_view().is_none(),
+            "nothing is shown for a refused fetch — no card, no question, and the previous card is cleared too"
         );
         assert!(
             machine.current_cancel().is_none(),
@@ -1197,91 +1145,47 @@ mod tests {
     }
 
     #[test]
-    fn confirmation_approval_dispatches_the_held_task() {
+    fn blocked_input_is_not_redispatched_by_any_later_path() {
         let mut machine = TaskStateMachine::new();
         trigger(&mut machine, &Config::default()).expect("trigger");
         machine.accept_input(1, text_input("card 4111 1111 1111 1111"));
 
-        let request = machine
-            .confirm_translate()
-            .expect("the held task must be dispatchable");
-
-        assert_eq!(request.generation, 1, "the approval keeps the generation");
-        assert!(matches!(
-            &request.task.input,
-            TaskInput::Text { text, .. } if text == "card 4111 1111 1111 1111"
-        ));
-        assert!(!request.cancel.is_cancelled());
-        assert_eq!(machine.state(), AppState::Translating);
-        assert!(matches!(
-            machine.overlay_view(),
-            Some(OverlayView::Streaming { source, .. }) if source == "card 4111 1111 1111 1111"
-        ));
         assert!(
-            machine.current_cancel().is_some(),
-            "an approved task is in flight and must be cancellable"
+            machine.retry().is_none(),
+            "a refused fetch is not a retryable failure"
         );
-    }
-
-    #[test]
-    fn confirmation_cancel_and_superseding_trigger_drop_the_held_task() {
-        let mut machine = TaskStateMachine::new();
-        trigger(&mut machine, &Config::default()).expect("trigger");
-        machine.accept_input(1, text_input("card 4111 1111 1111 1111"));
-
         assert!(matches!(
             machine.accept_input(1, text_input("second arrival")),
             InputOutcome::Ignored
         ));
-        machine.hide_overlay();
-        assert_eq!(machine.state(), AppState::Idle);
         assert!(
-            machine.confirm_translate().is_none(),
-            "a declined card must not leave a dispatchable task behind"
+            !machine.accept_chunk(1, "迟到的正文".into())
+                && !machine.accept_done(1, plain_outcome("迟到的产物"))
+                && !machine.accept_failed(1, &GlossError::EngineNetwork),
+            "no product of a refused fetch may be adopted either"
         );
 
         trigger(&mut machine, &Config::default()).expect("trigger");
-        machine.accept_input(2, text_input("card 4111 1111 1111 1111"));
-        trigger(&mut machine, &Config::default()).expect("new trigger");
-        assert!(
-            machine.confirm_translate().is_none(),
-            "a new trigger supersedes the held task"
-        );
-        assert_eq!(machine.state(), AppState::Fetching);
+        assert_eq!(machine.generation(), 2, "the next trigger starts over");
+        assert!(matches!(
+            machine.accept_input(2, text_input(&suspicious_text())),
+            InputOutcome::Blocked(_)
+        ));
+        assert_eq!(machine.state(), AppState::Idle);
     }
 
     #[test]
-    fn guard_switch_off_dispatches_suspicious_text() {
+    fn ordinary_input_still_passes_the_content_gate() {
         let mut machine = TaskStateMachine::new();
-        let off = Config {
-            guard_enabled: false,
-            ..Default::default()
-        };
-        trigger(&mut machine, &off).expect("trigger");
+        trigger(&mut machine, &Config::default()).expect("trigger");
 
         assert!(
             matches!(
-                machine.accept_input(1, text_input(&suspicious_text())),
+                machine.accept_input(1, text_input("今天下午三点开会")),
                 InputOutcome::Dispatch(_)
             ),
-            "with the switch off the same selection goes straight through"
+            "the gate only fires on the high-confidence patterns"
         );
         assert_eq!(machine.state(), AppState::Translating);
-    }
-
-    #[test]
-    fn stray_events_do_not_replace_the_confirmation_card() {
-        let mut machine = TaskStateMachine::new();
-        trigger(&mut machine, &Config::default()).expect("trigger");
-        machine.accept_input(1, text_input("card 4111 1111 1111 1111"));
-
-        assert!(!machine.accept_chunk(1, "迟到的正文".into()));
-        assert!(!machine.accept_done(1, plain_outcome("迟到的产物")));
-        assert!(!machine.accept_failed(1, &GlossError::EngineNetwork));
-        assert!(
-            matches!(machine.overlay_view(), Some(OverlayView::Confirm { .. })),
-            "nothing was dispatched, so no in-flight product may overwrite the card"
-        );
-        assert_eq!(machine.state(), AppState::AwaitingConfirm);
     }
 }

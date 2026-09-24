@@ -51,15 +51,6 @@ pub(crate) struct Text {
     pub(crate) gloss_popup_open_settings: String,
     pub(crate) gloss_popup_close_label: String,
     pub(crate) gloss_popup_settings_label: String,
-    pub(crate) gloss_popup_guard_title: String,
-    pub(crate) gloss_popup_guard_notice: String,
-    pub(crate) gloss_popup_guard_translate: String,
-    pub(crate) gloss_popup_guard_cancel: String,
-
-    pub(crate) gloss_guard_reason_token: String,
-    pub(crate) gloss_guard_reason_private_key: String,
-    pub(crate) gloss_guard_reason_high_entropy: String,
-    pub(crate) gloss_guard_reason_card_number: String,
 
     pub(crate) gloss_errors_selection_unavailable: String,
     pub(crate) gloss_errors_accessibility_denied: String,
@@ -78,11 +69,6 @@ pub(crate) struct Text {
     pub(crate) gloss_settings_section_task: String,
     pub(crate) gloss_settings_section_hotkey: String,
     pub(crate) gloss_settings_section_general: String,
-    pub(crate) gloss_settings_section_privacy: String,
-
-    pub(crate) gloss_settings_guard_switch: String,
-    pub(crate) gloss_settings_guard_apps: String,
-    pub(crate) gloss_settings_guard_apps_hint: String,
 
     pub(crate) gloss_settings_save: String,
     pub(crate) gloss_settings_cancel: String,
@@ -204,7 +190,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            88,
+            76,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -274,7 +260,6 @@ mod tests {
             [
                 "gloss_errors_config",
                 "gloss_errors_engine_response",
-                "gloss_popup_guard_notice",
                 "gloss_settings_error_duplicate_hotkey",
                 "gloss_settings_error_invalid_trigger",
                 "gloss_settings_invalid_summary",
