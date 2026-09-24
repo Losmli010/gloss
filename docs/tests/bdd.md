@@ -12,7 +12,7 @@
 | 集成测试 | 6 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 24 | `just test` |
-| 单元测试 | 272 | `just test` |
+| 单元测试 | 288 | `just test` |
 
 ## 人工测试
 
@@ -116,7 +116,7 @@
 | failure_lands_in_error_and_retry_succeeds | 失败落错误态且重试可达 | 给定首次注入 EngineRateLimited 失败，当失败回传后再次触发，则落 Error 态、第二次任务完成落 Show | 2026-09-19 |
 | error_card_retry_redispatches_the_same_task | 重试动作重发同一任务 | 给定可重试失败的 Retry 出口，当 retry 并重发 RunTask，则同代数重发同一任务并完成落 Show | 2026-09-19 |
 | config_change_invalidates_cache_for_the_next_task | 配置变更对缓存 key 的失效 | 给定同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎 1 次）、换模型与换目标语言各触发一次重新请求（共 3 次） | 2026-09-19 |
-| engine_logs_carry_the_task_span | 引擎日志经 span 带上代数 | 给定带 span 的任务命令（进程级捕获订阅者），当引擎执行到缓存命中，则命中行同时含 cache hit 与 generation=2 | 2026-09-23 |
+| engine_logs_carry_the_task_span | 引擎日志经 span 带上代数 | 给定带 span 的任务命令（进程级捕获订阅者），当引擎执行到缓存命中，则命中行同时含 cache hit 与 "generation":2 | 2026-09-23 |
 
 ## 性能测试
 
@@ -199,7 +199,13 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | filter_keeps_default_level_alongside_module_directives | 模块指令与默认级别并存 | 给定模块指令，当解析，则模块级与默认 info 并存 | 2026-09-19 |
 | filter_lets_global_directives_override_default | 全局指令覆盖默认级别 | 给定 off/warn/error 全局指令，当解析，则覆盖默认 info | 2026-09-19 |
 | filter_drops_invalid_directives_but_keeps_valid_ones | 非法指令丢弃、合法保留 | 给定含非法指令的串，当解析，则非法项丢弃、合法项保留 | 2026-09-19 |
-| task_span_carries_generation_into_events | 任务 span 把代数带给范围内的日志 | 给定 task_span(7) 并在其中记一条日志，当格式化输出，则事件行带 generation=7 | 2026-09-23 |
+| json_lines_carry_the_structured_contract | 日志行是结构化 JSON | 给定带 thread/kind 字段的一条日志，当解析该行，则 level/message/thread/kind/target 均在顶层且行内无 ANSI 转义 | 2026-09-23 |
+| logs_outside_a_task_carry_no_generation | 流程外的日志不带代数 | 给定任务 span 之外记的一条日志，当解析该行，则既无 generation 也无 span 对象 | 2026-09-24 |
+| civil_date_matches_known_anchors | 天数换算公历 | 给定 1970-01-01 / 2000-01-01 / 2026-09-24 / 2026-12-31 对应的天数，当换算，则年月日与已知值一致 | 2026-09-24 |
+| log_file_name_is_dated_jsonl | 日志文件名带日期与后缀 | 给定日期 2026-09-24，当取名，则得 gloss-2026-09-24.jsonl | 2026-09-24 |
+| daily_writer_appends_into_todays_file | 按天文件追加写入 | 给定两个写入器实例写同一份今日日志，当读回，则两行都在今天的文件里 | 2026-09-24 |
+| prune_keeps_the_newest_files_only | 旧日志按天数保留 | 给定 9 份日志与一个无关文件，当清理，则只留最近 7 份日志且无关文件不动 | 2026-09-24 |
+| task_span_carries_generation_into_events | 任务 span 把代数带给范围内的日志 | 给定 task_span(7) 并在其中记一条日志，当格式化输出，则事件行是 JSON、顶层 generation=7 且无 span 对象 | 2026-09-24 |
 
 ### crates/gloss-core/src/config.rs
 
@@ -347,7 +353,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | stale_input_ready_is_dropped_entirely | 陈旧 InputReady 整体丢弃 | 给定陈旧代数 InputReady，当采纳，则整体丢弃、不下发通道③ | 2026-09-19 |
 | saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置，当下一次触发，则目标语言与模型随任务下发 | 2026-09-19 |
 | saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定触发后、产物到达前保存新配置，当在途任务下发，则仍用触发时快照 | 2026-09-19 |
-| dispatched_acquire_carries_the_task_span | 取材命令带着任务 span 下发 | 给定划词触发，当取出通道②载荷并进入它的 span，则记出的日志行带 generation=1 | 2026-09-23 |
+| dispatched_acquire_carries_the_task_span | 取材命令带着任务 span 下发 | 给定划词触发，当取出通道②载荷并进入它的 span，则探针日志行是 JSON 且带 "generation":1 | 2026-09-23 |
 | a_disabled_default_kind_makes_the_selection_gesture_a_no_op | 默认任务被停用时划词彻底无声 | 给定默认任务被停用的配置，当划词触发，则取材命令不下发、代数不推进、状态留 Idle（浮层与失败卡都没有）；换回出厂配置后同一手势照常下发 | 2026-09-23 |
 
 ### crates/gloss-app/src/i18n.rs

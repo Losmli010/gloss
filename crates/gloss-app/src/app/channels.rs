@@ -284,7 +284,7 @@ mod tests {
             .lines()
             .find(|line| line.contains("probe"))
             .unwrap_or_default();
-        assert!(probe.contains("generation=1"), "{text}");
+        assert!(probe.contains("\"generation\":1"), "{text}");
     }
 
     #[test]

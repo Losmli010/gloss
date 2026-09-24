@@ -28,6 +28,7 @@ tracing-subscriber = {
     "ansi",
     "env-filter",
     "fmt",
+    "json",
     "smallvec",
     "std",
     "tracing-log",

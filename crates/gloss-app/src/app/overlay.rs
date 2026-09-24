@@ -29,7 +29,12 @@ impl GlossApp {
     /// 防空转，状态机放弃在途任务回 `Idle`（迟到产物经代数或状态守卫
     /// 丢弃——为一个不可见的浮层继续推理与渲染纯属空转）。
     pub(super) fn dismiss_overlay(&mut self, reason: &'static str) {
-        info!(thread = thread::UI, reason, "overlay dismissed");
+        info!(
+            thread = thread::UI,
+            generation = self.machine.generation(),
+            reason,
+            "overlay dismissed"
+        );
         self.overlay_repaint = None;
         if let Some(windows) = &self.windows {
             windows.hide();
@@ -52,6 +57,7 @@ impl GlossApp {
                 None => {
                     debug!(
                         thread = thread::UI,
+                        generation = self.machine.generation(),
                         state = ?self.machine.state(),
                         "stale retry click dropped"
                     );
