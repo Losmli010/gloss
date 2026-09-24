@@ -18,6 +18,7 @@ use gloss_platform::engine::llm::LlmClient;
 use gloss_platform::events::hotkey::HotkeyRegistrar;
 use gloss_platform::events::mouse::{MouseGesture, MouseSource};
 use gloss_platform::events::{EventSink, EventSource, EventSources};
+use gloss_platform::scene::SystemSceneProbe;
 use gloss_platform::selection::composite::CompositeReader;
 use gloss_platform::storage::CompositeConfigStore;
 
@@ -171,44 +172,56 @@ fn run_event_loop(
         "system language resolved"
     );
 
+    // 触发前场景探针：安全输入态与前台应用都由系统查询回答（纯查询、
+    // 不索取新权限）。与系统语言同类——平台适配器的事，壳只消费。
+    let scene = Arc::new(SystemSceneProbe);
+
     let mut command_runtime = None;
     let mut event_thread = None;
-    let result = gloss_app::app::run(endpoints, config, store, hotkeys, system_locale, |waker| {
-        // Dock 图标在这里装：macOS 的 NSApplication 单例只允许在 EventLoop
-        // 建好之后访问，而本回调是主线程上第一个满足该时机的点（app::run
-        // 建完 EventLoop 就回调它，早于任何窗口创建）。
-        install_app_icon();
-        // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
-        // 睡在事件循环里的主线程。运行时存活至 run_event_loop 结束——
-        // App drop 关闭通道③后，消费循环自行退出。
-        let runtime_waker = waker.clone();
-        match gloss_app::pipeline::start_command_runtime(
-            service,
-            commands_rx,
-            events_tx.clone(),
-            move || {
-                runtime_waker.wake();
-            },
-        ) {
-            Ok(runtime) => command_runtime = Some(runtime),
-            Err(err) => error!(
-                thread = thread::UI,
-                error = %err,
-                "failed to start command runtime, inference disabled"
-            ),
-        }
-        // 事件线程同样在拿到唤醒句柄后再启动：sink 发送产物时要靠它唤醒
-        // 睡在事件循环里的主线程。
-        let sink = EventSink::new(events_tx, platform_tx, move || {
-            waker.wake();
-        });
-        event_thread = Some(gloss_platform::events::spawn(
-            acquire_rx,
-            sink,
-            acquire_command_handler(),
-            event_sources(&registrar),
-        ));
-    });
+    let result = gloss_app::app::run(
+        endpoints,
+        config,
+        store,
+        hotkeys,
+        scene,
+        system_locale,
+        |waker| {
+            // Dock 图标在这里装：macOS 的 NSApplication 单例只允许在 EventLoop
+            // 建好之后访问，而本回调是主线程上第一个满足该时机的点（app::run
+            // 建完 EventLoop 就回调它，早于任何窗口创建）。
+            install_app_icon();
+            // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
+            // 睡在事件循环里的主线程。运行时存活至 run_event_loop 结束——
+            // App drop 关闭通道③后，消费循环自行退出。
+            let runtime_waker = waker.clone();
+            match gloss_app::pipeline::start_command_runtime(
+                service,
+                commands_rx,
+                events_tx.clone(),
+                move || {
+                    runtime_waker.wake();
+                },
+            ) {
+                Ok(runtime) => command_runtime = Some(runtime),
+                Err(err) => error!(
+                    thread = thread::UI,
+                    error = %err,
+                    "failed to start command runtime, inference disabled"
+                ),
+            }
+            // 事件线程同样在拿到唤醒句柄后再启动：sink 发送产物时要靠它唤醒
+            // 睡在事件循环里的主线程。
+            let sink = EventSink::new(events_tx, platform_tx, move || {
+                waker.wake();
+            });
+            event_thread = Some(gloss_platform::events::spawn(
+                acquire_rx,
+                sink,
+                acquire_command_handler(),
+                event_sources(&registrar),
+            ));
+        },
+    );
 
     // App 已随事件循环结束 drop：通道②仅剩的 Sender（endpoints 内）归还
     // 后事件线程看到 Disconnected 自行退出；通道③关闭后消费循环退出，

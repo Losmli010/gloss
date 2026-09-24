@@ -6,7 +6,7 @@ use gloss_core::task::TaskInput;
 use winit::event_loop::ActiveEventLoop;
 
 use crate::channel::{AcquireCommand, Command, Event, PlatformEvent, Traced};
-use crate::machine::{RunRequest, TriggerRoute, trigger_route};
+use crate::machine::{InputOutcome, RunRequest, TriggerDecision, trigger_decision};
 
 use super::GlossApp;
 use super::overlay::{auto_show_after, centered_position, event_kind, show_position};
@@ -15,6 +15,10 @@ impl GlossApp {
     /// 消费通道①：平台事件 → 取材命令。只有真实下发的命令才占用新代数
     /// （未接线事件不作废在途回传）；触发→命令的日志链路同时承担热键端到
     /// 端的验收验证（CI 无法合成真实按键，只能真机按日志走查）。
+    ///
+    /// 触发前读一次场景事实（安全输入态、前台应用）：闸门拦下的触发与
+    /// 未接线事件一样不进状态机，但记 warn——用户会想知道「为什么划了没
+    /// 反应」，而这是他能自己修的（换应用、关防护、取消聚焦密码框）。
     pub(super) fn drain_platform_events(&mut self) {
         // 配置快照在本批事件的起手处取一次（零锁读）：本批触发的任务都用
         // 同一份配置解析类型与选项——任务一旦触发，其配置就固定了。
@@ -34,7 +38,13 @@ impl GlossApp {
                 continue;
             }
             let superseded = self.machine.current_cancel().is_some();
-            if let Some(command) = self.machine.trigger(&event, &config, self.system_locale) {
+            // 逐事件现读场景事实：安全输入态与前台应用都可能在两条触发
+            // 之间变化，探针也就两次纯查询。
+            let scene = self.scene.facts();
+            if let Some(command) = self
+                .machine
+                .trigger(&event, &config, self.system_locale, &scene)
+            {
                 let span = task_span(self.machine.generation());
                 self.task_span = Some((self.machine.generation(), span.clone()));
                 let entered_span = span.clone();
@@ -51,14 +61,20 @@ impl GlossApp {
                 }
                 self.send_acquire(command, span);
             } else {
-                // 被任务开关拦下的触发记 warn、未接线的事件记 debug：前者
-                // 是用户能自己修的配置问题，不该只留在默认级别看不见的
-                // debug 里（分类见 machine::trigger_route）。
-                match trigger_route(&event, &config) {
-                    Some(TriggerRoute::Disabled(kind)) => warn!(
+                // 三类拦下各有各的级别与措辞：被任务开关停用的触发是用户
+                // 能自己修的配置问题；被场景闸门拦下的是「这一次的场景不
+                // 合适」（换应用或取消聚焦密码框即可，也可能是防护开关）；
+                // 未接线的事件只留在默认级别看不见的 debug 里。
+                match trigger_decision(&event, &config, &scene) {
+                    TriggerDecision::Disabled(kind) => warn!(
                         thread = thread::UI,
                         kind = ?kind,
                         "trigger ignored: the task kind is disabled in settings"
+                    ),
+                    TriggerDecision::Blocked(block) => warn!(
+                        thread = thread::UI,
+                        reason = %block,
+                        "trigger suppressed by the sensitive content guard"
                     ),
                     _ => debug!(
                         thread = thread::UI,
@@ -135,11 +151,12 @@ impl GlossApp {
         self.request_redraw();
     }
 
-    /// 采纳取材产物：组装 Task 携令牌下发通道③，进入 Translating。
-    /// 返回是否进入了需要展示浮层的新任务。
+    /// 采纳取材产物：组装 Task 携令牌下发通道③，进入 Translating；内容
+    /// 闸门命中时改为把任务留在状态机里、浮层出确认卡（不下发）。返回是否
+    /// 进入了需要展示浮层的新任务——两种情况都要露面。
     pub(super) fn accept_input(&mut self, generation: u64, input: TaskInput) -> bool {
         match self.machine.accept_input(generation, input) {
-            Some(request) => {
+            InputOutcome::Dispatch(request) => {
                 info!(
                     thread = thread::UI,
                     generation = request.generation,
@@ -151,7 +168,16 @@ impl GlossApp {
                 self.send_run(request);
                 true
             }
-            None => {
+            InputOutcome::AwaitingConfirm { reason } => {
+                info!(
+                    thread = thread::UI,
+                    generation = generation,
+                    reason = ?reason,
+                    "input held for confirmation: suspected sensitive content"
+                );
+                true
+            }
+            InputOutcome::Ignored => {
                 debug!(
                     thread = thread::UI,
                     generation = generation,
@@ -258,16 +284,26 @@ impl GlossApp {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use gloss_core::config::{Config, DEFAULT_TEXT_MODEL, ModelBinding};
+    use gloss_core::guard::{FrontApp, SceneFacts};
     use gloss_core::log::{capture_global, info, thread};
     use gloss_core::model::Lang;
+    use gloss_core::ports::SceneProbe;
     use gloss_core::task::TaskKind;
 
     use crate::app::test_support::{
-        driven_app, outcome_body, plain_outcome, streaming_body, text_input, trigger_selection,
+        driven_app, driven_app_with_scene, outcome_body, plain_outcome, streaming_body, text_input,
+        trigger_selection,
     };
     use crate::channel::{AcquireCommand, Command};
-    use crate::machine::AppState;
+    use crate::machine::{AppState, OverlayView};
+    use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder, StubSceneProbe};
+
+    fn suspicious_text() -> String {
+        format!("key sk-{}", "aB3".repeat(8))
+    }
 
     #[test]
     fn dispatched_acquire_carries_the_task_span() {
@@ -465,5 +501,78 @@ mod tests {
         assert!(app.accept_input(2, text_input("B")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(task.options.target_lang, Some(Lang::Ja));
+    }
+
+    #[test]
+    fn a_sensitive_scene_makes_the_selection_gesture_a_no_op() {
+        let scene = Arc::new(StubSceneProbe::default());
+        let (mut app, _config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app_with_scene(
+            Arc::new(MemoryConfigStore::default()),
+            Arc::new(RecordingHotkeyBinder::default()),
+            Arc::clone(&scene) as Arc<dyn SceneProbe>,
+        );
+
+        scene.set_facts(SceneFacts {
+            secure_input: true,
+            front_app: None,
+        });
+        trigger_selection(&mut app, &pe_tx);
+        assert!(
+            ac_rx.try_recv().is_err(),
+            "a focused password field must stop the command before the event thread"
+        );
+
+        scene.set_facts(SceneFacts {
+            secure_input: false,
+            front_app: Some(FrontApp {
+                bundle_id: Some("com.1password.1password".into()),
+                name: None,
+            }),
+        });
+        trigger_selection(&mut app, &pe_tx);
+        assert!(
+            ac_rx.try_recv().is_err(),
+            "a listed frontmost app must stop the command too"
+        );
+        assert_eq!(
+            app.machine.generation(),
+            0,
+            "a suppressed trigger keeps no generation"
+        );
+        assert_eq!(app.machine.state(), AppState::Idle);
+
+        scene.set_facts(SceneFacts::default());
+        trigger_selection(&mut app, &pe_tx);
+        assert!(matches!(
+            ac_rx.try_recv().unwrap().payload,
+            AcquireCommand::AcquireText { generation: 1, .. }
+        ));
+    }
+
+    #[test]
+    fn suspicious_input_holds_the_task_and_shows_the_card() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        trigger_selection(&mut app, &pe_tx);
+
+        assert!(
+            app.accept_input(1, text_input(&suspicious_text())),
+            "the confirmation card needs the overlay on screen"
+        );
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "nothing may reach tokio before the user decides"
+        );
+        assert_eq!(app.machine.state(), AppState::AwaitingConfirm);
+        assert!(matches!(
+            app.machine.overlay_view(),
+            Some(OverlayView::Confirm { .. })
+        ));
+
+        app.handle_overlay_action(crate::ui::popup::OverlayAction::ConfirmTranslate);
+        assert_eq!(app.machine.state(), AppState::Translating);
+        assert!(matches!(
+            cmd_rx.try_recv().unwrap().payload,
+            Command::RunTask { generation: 1, .. }
+        ));
     }
 }

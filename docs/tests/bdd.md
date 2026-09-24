@@ -11,8 +11,8 @@
 | 人工测试 | 10 | `cargo test -p gloss-platform -- --ignored` |
 | 集成测试 | 6 | `just test` |
 | 性能测试 | 1 | `just selftest` |
-| 快照测试 | 24 | `just test` |
-| 单元测试 | 288 | `just test` |
+| 快照测试 | 27 | `just test` |
+| 单元测试 | 312 | `just test` |
 
 ## 人工测试
 
@@ -128,7 +128,7 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_failed_auth、popup_selfcheck；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled。
+popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_failed_auth、popup_selfcheck、popup_confirm；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -141,7 +141,10 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | close_button_submits_dismiss | 头部关闭按钮上交收起 | 给定词卡视图（头部为各视图共用路径），当点击无障碍标签「关闭浮层」的 × 钮，则 draw 产物为 OverlayAction::Dismiss | 2026-09-21 |
 | gear_button_submits_open_settings | 头部齿轮上交打开设置 | 给定词卡视图，当点击无障碍标签「设置」的 ⚙ 钮，则 draw 产物为 OverlayAction::OpenSettings | 2026-09-21 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层五视图渲染基线 | 给定五个视图（含自检卡），当 wgpu 渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck 五份基线一致，结果合并进单个 SnapshotResults | 2026-09-21 |
+| confirm_card_names_the_reason_and_offers_both_choices | 确认卡出因由与两个出口 | 给定 Token 类命中，当渲染，则出「发送前确认」抬头、命中类别的因由、以及「仍要翻译」「取消」两个动作；卡片不含被警告的选区原文（不把敏感文本再抄一份到界面），点「仍要翻译」上交 ConfirmTranslate | 2026-09-24 |
+| confirm_card_declines_in_the_current_locale | 确认卡随 locale 出表 | 给定英文 locale 的命中卡，当渲染，则抬头、因由与两个动作全出自英文表（中文标不在树上），点「Cancel」上交 ConfirmCancel——它与头部关闭按钮是两个动作 | 2026-09-24 |
+| confirm_card_words_every_reason | 确认卡四类因由各有措辞 | 给定四类敏感信息（令牌/私钥/高熵串/卡号），当渲染，则各出对应因由标签，且两个动作在四种情形下都在场 | 2026-09-24 |
+| snapshots_match_baseline（popup） | 浮层六视图渲染基线 | 给定六个视图（含自检卡与确认卡），当 wgpu 渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck / popup_confirm 六份基线一致，结果合并进单个 SnapshotResults | 2026-09-24 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用翻译」后保存，当检查上交配置，则 TranslateSentence 已停用（默认任务不在此列——停用它会被跨字段校验拦下） | 2026-09-23 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
@@ -155,7 +158,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | save_failure_notice_names_the_cause | 保存失败提示出场合与诊断 | 给定带 SaveFailed(Config) 类型化提示的设置窗（中文表），当渲染，则出「保存失败：<诊断>」（前缀交代场合、诊断不重复本地化整句） | 2026-09-22 |
 | a_rendered_notice_follows_the_locale | 提示行随 locale 出表 | 给定带同一类型化提示的设置窗（英文表），当渲染，则出英文前缀与诊断（提示行不是只有中文基线可查） | 2026-09-22 |
 | saving_the_language_swaps_the_rendered_labels_without_a_restart | 保存语言即换渲染文案 | 给定同一进程内保存 Language::En 前后的配置句柄，当各渲染一帧设置窗，则文案由「保存」变为「Save」且中文标不再在树上（配置快照 → 落定 → 选表 → 渲染全链，不重启） | 2026-09-22 |
-| english_catalog_relabels_the_settings_window | 英文文案表驱动设置窗 | 给定英文 locale 的设置窗，当渲染，则四个区块标、动作按钮、默认任务/目标语言/任务开关/清除密钥/界面语言/界面主题/缓存有效期各出自英文表（含「Enable <任务>」开关的无障碍标签模板），且中文标不在树上 | 2026-09-22 |
+| english_catalog_relabels_the_settings_window | 英文文案表驱动设置窗 | 给定英文 locale 的设置窗，当渲染，则五个区块标（含隐私区）、动作按钮、默认任务/目标语言/任务开关/清除密钥/界面语言/界面主题/缓存有效期各出自英文表（含「Enable <任务>」开关与「Enable sensitive content guard」的无障碍标签模板），且中文标不在树上 | 2026-09-24 |
 
 ## 单元测试
 
@@ -221,6 +224,23 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | default_cache_ttl_matches_cache_implementation | 默认 TTL 单点一致 | 给定出厂 TTL，当与 cache::DEFAULT_TTL 比对，则相等 | 2026-09-19 |
 | edit_helpers_keep_tables_canonical | 编辑助手保持表规范 | 给定启用/停用与模型编辑操作，当调用助手，则不重复追加、停用幂等、模型按 kind 替换、空白视为未配置 | 2026-09-19 |
 | lookups_prefer_later_entries | 重复条目查找后者胜出 | 给定重复 kind 的多条目，当查找，则后条胜出、未配置为 None、未知 provider 无 keychain id | 2026-09-19 |
+| explicit_empty_app_list_stays_empty | 敏感应用清单显式空语义 | 给定 guard_blocked_apps 显式空数组，当加载，则保持为空（App 列表语义不同于 enabled_kinds 的兜底，空白名单是「一个都不拦」的合法选择） | 2026-09-24 |
+
+### crates/gloss-core/src/guard.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| scene_gate_blocks_secure_input_and_listed_apps | 场景闸门的两路拦截 | 给定安全输入开启或前台应用在名单内，当判闸门，则各返回对应因由（安全输入优先于名单，因由是给人看的中文说明） | 2026-09-24 |
+| scene_gate_follows_the_master_switch | 场景闸门跟随总开关 | 给定总开关关闭，当同上判闸门，则一律放行（开关是唯一的旁路出口） | 2026-09-24 |
+| entry_matching_skips_blank_entries | 名单匹配跳过空条目 | 给定含空串与纯空白的名单，当匹配前台应用，则跳过空条目、命中返回原始条目原文（bundle id 与显示名都参与匹配） | 2026-09-24 |
+| token_prefixes_are_detected | 各类令牌前缀识别 | 给定 sk-/ghp_/xoxb-/AKIA/Bearer 各形态、带空白与引号包裹的令牌、以及 `NAME=<令牌>` 赋值形态（.env 行与 shell 导出语句），当检测，则都命中 Token | 2026-09-24 |
+| prose_about_tokens_is_not_a_hit | 谈论令牌的散文不误报 | 给定本仓库文档里描述敏感信息守则的原话、过短的 sk-abc、以及「AKIA 是前缀」这类说明，当检测，则都不命中 | 2026-09-24 |
+| private_key_blocks_are_detected_before_tokens | 私钥块先于令牌判定 | 给定 PEM 私钥块（含它同时含 sk- 形式串），当检测，则报 PrivateKey（更确定的类别胜出） | 2026-09-24 |
+| card_numbers_pass_luhn_only | 卡号只有过 Luhn 才算 | 给定 4111 1111 1111 1111、差一位的变体与全零串，当检测，则只有真正过 Luhn 且数字不重复的那条命中 CardNumber | 2026-09-24 |
+| high_entropy_strings_are_detected | 高熵长随机串识别 | 给定 32 位以上、含三类字符的高熵串，当检测，则命中 HighEntropy | 2026-09-24 |
+| identifiers_and_prose_stay_below_the_entropy_threshold | 标识符与散文不触熵阈值 | 给定长下划线标识符、纯小写长词与中文句子，当检测，则都不命中（熵阈值 + 三类字符要求共同收口） | 2026-09-24 |
+| detection_prefers_the_more_certain_kind | 检测按确定度排序 | 给定同时可判多类的文本，当检测，则返回更确定的那个类别（私钥 > 令牌 > 卡号 > 高熵） | 2026-09-24 |
+| ordinary_text_is_never_flagged | 日常文本一律不拦 | 给定常用句中英文本、中文段落与代码片段，当检测，则全部为 None | 2026-09-24 |
 
 ### crates/gloss-core/src/prompt.rs
 
@@ -355,15 +375,17 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定触发后、产物到达前保存新配置，当在途任务下发，则仍用触发时快照 | 2026-09-19 |
 | dispatched_acquire_carries_the_task_span | 取材命令带着任务 span 下发 | 给定划词触发，当取出通道②载荷并进入它的 span，则探针日志行是 JSON 且带 "generation":1 | 2026-09-23 |
 | a_disabled_default_kind_makes_the_selection_gesture_a_no_op | 默认任务被停用时划词彻底无声 | 给定默认任务被停用的配置，当划词触发，则取材命令不下发、代数不推进、状态留 Idle（浮层与失败卡都没有）；换回出厂配置后同一手势照常下发 | 2026-09-23 |
+| a_sensitive_scene_makes_the_selection_gesture_a_no_op | 敏感场景下划词彻底无声 | 给定安全输入开启、再给定前台应用在拦截名单内（两侧各自设置），当划词触发，则取材命令都不下发、代数不推进、状态留 Idle；场景恢复后同一手势照常下发并占代数 1 | 2026-09-24 |
+| suspicious_input_holds_the_task_and_shows_the_card | 可疑内容驻留任务并出确认卡 | 给定带令牌的取材产物，当采纳，则通道③一条都没有、状态进 AwaitingConfirm、浮层改出确认卡；点「仍要翻译」后同代数下发该任务并进 Translating | 2026-09-24 |
 
 ### crates/gloss-app/src/i18n.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 76（条数钉住，防遍历退化） | 2026-09-23 |
+| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 88（条数钉住，防遍历退化） | 2026-09-24 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language_en）外无一与中文表逐字相同 | 2026-09-23 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 gloss_ 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
-| placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条 | 2026-09-22 |
+| placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 10 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
 | catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功且两语言取值可区分 | 2026-09-22 |
 | fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数/无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |
 | error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定 GlossError 的十个变体（含两个带诊断文本的），当取失败卡文案，则各自的两种语言都非空且互不相同 | 2026-09-22 |
@@ -450,7 +472,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | trigger_mapping_covers_wired_events_only | 触发映射只覆盖已接线事件 | 给定划词手势与未接线的框选热键，当 trigger，则前者发 AcquireText、后者 None 且不占代数 | 2026-09-19 |
-| trigger_route_separates_disabled_triggers_from_unwired_events | 触发去向分出停用与未接线 | 给定默认任务与热键均被停用的配置，当 trigger_route，则两者各报 Disabled（划词 kind 经配置收口）、框选绑定与设置请求为 None、出厂配置为 Allowed | 2026-09-23 |
+| trigger_decision_separates_disabled_blocked_and_unwired_events | 触发去向分出停用/被拦/未接线 | 给定默认任务被停用的配置，当 trigger_decision，则划词与停用热键各报 Disabled、框选绑定与退出一律 Unwired、设置请求与退出不因场景被拦；出厂配置下同一划词为 Acquire，换到拦截名单内的前台应用则报 Blocked（被拦的 kind 是已启用的——场景闸门不是「停用」） | 2026-09-24 |
+| scene_gate_stops_the_trigger_before_acquisition | 场景闸门在取材前停住触发 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 trigger，则两次都 None、代数 0、状态留 Idle；把总开关关掉后同一场景照常占代数 1（闸门按事实判定，不看开关以外的任何东西） | 2026-09-24 |
 | selection_kind_and_options_pair_with_one_snapshot | kind 与选项出自同一快照 | 给定自定义配置快照，当划词触发并采纳输入，则 kind 与模型/语言选项出自同一份快照 | 2026-09-19 |
 | image_default_kind_falls_back_to_a_text_kind | 误配图像默认回退文本 kind | 给定 default_text_kind 误配图像类，当划词触发，则回退 TranslateWord | 2026-09-19 |
 | disabled_kinds_are_not_acquired_and_consume_no_generation | 停用 kind 不取材不占代数 | 给定含停用 kind 的配置，当划词/热键触发停用项，则 None 且不占代数 | 2026-09-19 |
@@ -465,6 +488,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | retryable_failure_keeps_task_and_retry_redispatches_it | 可重试失败保留任务 | 给定网络类失败，当落 Error，则失败原因按变体记录（FailureCause::Task(EngineNetwork)）、retry 同代数同任务新令牌重发且回流式视图 | 2026-09-22 |
 | error_actions_follow_the_mapping_table | 错误动作按映射表 | 给定限流/鉴权/模态/配置类失败，当映射，则限流可重试，其余引导打开设置且不可重试 | 2026-09-19 |
 | new_trigger_and_hide_supersede_the_retry_task | 新触发与隐藏取代重试 | 给定失败卡在场时新触发或隐藏，当发生，则 retry 返回 None | 2026-09-19 |
+| sensitive_content_holds_the_task_for_confirmation | 可疑内容驻留任务不出确认卡外的任何东西 | 给定带令牌的取材产物，当采纳，则结果是 AwaitingConfirm{Token}、状态进 AwaitingConfirm、浮层改出只携类别的确认卡，且**没有**取消令牌（一条产物都没下发） | 2026-09-24 |
+| confirmation_approval_dispatches_the_held_task | 确认放行下发驻留任务 | 给定确认卡在场（卡号命中），当 confirm_translate，则同代数、同原文、全新未取消的令牌下发，状态进 Translating 且浮层回流式视图、任务可取消 | 2026-09-24 |
+| confirmation_cancel_and_superseding_trigger_drop_the_held_task | 取消与新触发丢掉驻留任务 | 给定确认卡在场的任务，当同代数重复采纳（被拒）、再隐藏浮层，则 confirm_translate 返回 None；新触发后再走一遍，新触发同样令旧驻留任务不可放行并回 Fetching | 2026-09-24 |
+| guard_switch_off_dispatches_suspicious_text | 总开关关闭时可疑文本直通 | 给定 guard_enabled=false，当采纳同一个令牌文本，则直接 Dispatch 并进 Translating（开关是唯一的旁路出口） | 2026-09-24 |
+| stray_events_do_not_replace_the_confirmation_card | 确认卡不被在途产物顶掉 | 给定确认卡在场，当同代数 chunk/done/failed 陆续到达，则全部被拒，确认卡保持原样、状态留 AwaitingConfirm | 2026-09-24 |
 
 ### crates/gloss-app/src/ui/fonts.rs
 
@@ -492,6 +520,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | field_errors_are_worded_per_locale | 字段错误按 locale 出措辞 | 给定全部九类字段错误（含行号与触发键回显两种模板），当按中英文表取文案，则各出对应措辞（换臂或漏译会被抓住） | 2026-09-23 |
 | every_notice_renders_its_localized_prefix_and_detail | 三类提示的中英措辞 | 给定三类壳回写提示（各带同一诊断），当按中英表取文案，则前缀与诊断都按表落地、且无残留的 {{占位符}}（两条从未渲染过的模板由此覆上） | 2026-09-22 |
 | base_url_errors_map_to_their_own_field_error | Base URL 错因映射到字段错误 | 给定五类 BaseUrlError，当映射，则空/语法与 https/内嵌凭据/查询参数各落到对应 FieldError（内嵌凭据与查询参数两臂易错） | 2026-09-22 |
+| app_list_text_parses_into_a_trimmed_table | 应用清单文本解析成表 | 给定混用换行与逗号、带首尾空白与大小写重复的清单文本，当解析，则逐条 trim、空条目丢弃、重复按大小写不敏感折叠（纯空白与空串得空表） | 2026-09-24 |
+| guard_controls_reach_the_submitted_config | 防护控件写进上交配置 | 给定改过的应用清单草稿，当渲染，则该清单在输入节点里可就地编辑；点掉「启用敏感信息防护」再保存，则上交的配置里开关为关、清单逐行落表 | 2026-09-24 |
 
 ### crates/gloss-app/src/ui/style.rs
 
@@ -514,11 +544,23 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | string_from_respects_the_byte_ceiling | 字节上界起作用 | 给定远低于所需的字节上界，当转换，则返回 None | 2026-09-23 |
 | empty_cf_string_converts_to_empty_rust_string | 空串转换 | 给定空 CFString，当转换，则得到空 Rust 字符串而非 None | 2026-09-23 |
 
+### crates/gloss-platform/src/ffi/carbon.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| secure_input_query_links_and_answers_off_by_default | 安全输入查询可链接且默认为关 | 给定真实系统（无密码框持有焦点），当查询安全输入，则调用成功返回假——只要 Carbon 框架没链上或符号对不上，链接期就红 | 2026-09-24 |
+
 ### crates/gloss-platform/src/locale.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | locale_maps_preferred_languages | 首选语言映射界面语言 | 给定 zh-Hans-CN / zh_CN / ZH-TW / en-US / ja-JP 与空值，当映射，则中文标签归中文、其余（含拿不到偏好语言）归英文 | 2026-09-22 |
+
+### crates/gloss-platform/src/scene.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| scene_probe_answers_with_a_coherent_snapshot | 场景探针给出一致快照 | 给定真实系统，当读一次场景事实，则安全输入为假（测试环境下无密码框持焦），且若报出前台应用则其身份字段非空 | 2026-09-24 |
 
 ### crates/gloss-platform/src/storage/mod.rs
 

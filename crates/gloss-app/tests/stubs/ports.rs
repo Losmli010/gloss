@@ -1,11 +1,12 @@
-//! 端口桩：本 crate 测试用到的配置存储与热键重绑定预置替身。
+//! 端口桩：本 crate 测试用到的配置存储、热键重绑定与场景探针预置替身。
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use gloss_core::config::Config;
+use gloss_core::guard::SceneFacts;
 use gloss_core::model::GlossError;
-use gloss_core::ports::{ConfigStore, HotkeyBinder};
+use gloss_core::ports::{ConfigStore, HotkeyBinder, SceneProbe};
 use gloss_core::task::HotkeyBinding;
 
 use super::lock_or_recover;
@@ -95,5 +96,32 @@ impl HotkeyBinder for RecordingHotkeyBinder {
         // 桩不做平台注册，全部绑定视为生效——即模拟一个一切正常的平台。
         // 「几条被占用、几级被降级」是平台侧的事实，桩不替它编结果。
         bindings.len()
+    }
+}
+
+/// 场景探针桩：事实可预置、可中途改写，默认「无事实」（两道场景闸门
+/// 都放行）——测试不碰真机的安全输入态与前台应用。
+#[derive(Default)]
+pub struct StubSceneProbe {
+    facts: Mutex<SceneFacts>,
+}
+
+impl StubSceneProbe {
+    /// 预置场景事实。
+    pub fn with_facts(facts: SceneFacts) -> Self {
+        Self {
+            facts: Mutex::new(facts),
+        }
+    }
+
+    /// 改写当前事实（模拟两次触发之间的场景变化）。
+    pub fn set_facts(&self, facts: SceneFacts) {
+        *lock_or_recover(&self.facts) = facts;
+    }
+}
+
+impl SceneProbe for StubSceneProbe {
+    fn facts(&self) -> SceneFacts {
+        lock_or_recover(&self.facts).clone()
     }
 }

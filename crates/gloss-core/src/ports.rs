@@ -10,6 +10,7 @@ use std::sync::Arc;
 use futures_core::Stream;
 
 use crate::config::Config;
+use crate::guard::SceneFacts;
 use crate::model::{GlossError, ScreenRect};
 use crate::prompt::ChatMessage;
 use crate::task::{HotkeyBinding, TaskKind, TaskOutcome};
@@ -58,6 +59,18 @@ pub struct EngineRequest {
     pub messages: Vec<ChatMessage>,
     /// 本任务使用的模型 id（App 在触发时按配置解析）。
     pub model: String,
+}
+
+/// 触发前场景探针（端口）：读一次当前场景事实（安全输入态与前台应用），
+/// 供 `gloss_core::guard` 的场景闸门判定。
+///
+/// 与其余端口的差别是**没有失败面**：探针取不到事实就返回空事实（
+/// [`SceneFacts::default`]），闸门按「无事实」放行——探针的作用是拦下能
+/// 确定的危险场景，不该因为自己读不到而把用户的正常划词也拦掉。同理，
+/// 实现方必须**纯查询、不阻塞、不索取新权限**：每次真实触发前都会调用一次。
+pub trait SceneProbe: Send + Sync {
+    /// 读一次场景事实。
+    fn facts(&self) -> SceneFacts;
 }
 
 /// AI 引擎（端口）：统一入口，不按输入模态拆分——文本/图文仅由消息

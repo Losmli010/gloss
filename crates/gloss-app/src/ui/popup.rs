@@ -6,7 +6,9 @@
 //! 高度自适应内容（宽度默认 380、上限 480，高度上限按屏幕），超出部分
 //! 滚动兜底。流式视图按 [`STRUCTURED_FENCE`] 过滤已完整出现的结构化块
 //! （在累积文本上按最后围栏标记截断）；跨 chunk 切分出的残缺围栏前缀
-//! 可能短暂显示，随下一 chunk 自愈。头部动作区常驻设置齿轮与关闭 ×，
+//! 可能短暂显示，随下一 chunk 自愈。确认卡只出类别措辞与两个裁决按钮，
+//! **不抄选区原文**（用户刚选中它，值得多渲染一遍敏感文本的地方一个也
+//! 没有）。头部动作区常驻设置齿轮与关闭 ×，
 //! 点击经 draw 返回 [`OverlayAction`] 上交壳执行。
 
 use std::cell::{Cell, RefCell};
@@ -14,6 +16,7 @@ use std::time::Duration;
 
 use egui::{CornerRadius, Frame, Margin, RichText, ScrollArea, Stroke, vec2};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use gloss_core::guard::SensitiveKind;
 use gloss_core::prompt::STRUCTURED_FENCE;
 use gloss_core::task::OutcomeStructured;
 
@@ -60,12 +63,16 @@ pub(crate) struct PopupOutput {
     pub sizing: OverlaySizing,
 }
 
-/// 浮层上交壳执行的动作：失败卡动作（重试/打开设置）与头部动作区
-/// （齿轮=打开设置、×=收起）。浮层只渲染、不副作用。
+/// 浮层上交壳执行的动作：失败卡动作（重试/打开设置）、确认卡裁决与头部
+/// 动作区（齿轮=打开设置、×=收起）。浮层只渲染、不副作用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayAction {
     /// 失败卡「重试」：同代数同任务重发通道③。
     Retry,
+    /// 确认卡「仍要翻译」：用户裁决放行，驻留的任务原样下发通道③。
+    ConfirmTranslate,
+    /// 确认卡「取消」：放弃任务并收起浮层（与 Esc / × 同为放弃语义）。
+    ConfirmCancel,
     /// 设置入口（失败卡按钮或头部齿轮）：走壳层统一 `open_settings`。
     OpenSettings,
     /// 头部「×」：收起浮层（壳层放弃在途任务回 Idle）。
@@ -226,6 +233,40 @@ fn render_content(
             *content_h = body_top + scrolled.content_size.y;
             action
         }
+        Some(OverlayView::Confirm { reason }) => {
+            let mut action = header(ui, Some(text.gloss_popup_guard_title.as_str()), false, text);
+            ui.add_space(space::SECTION);
+            ui.label(
+                RichText::new(guard_message(*reason, text))
+                    .size(font::NOTICE)
+                    .color(ui.visuals().warn_fg_color),
+            );
+            ui.add_space(space::SECTION);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .button(
+                        RichText::new(text.gloss_popup_guard_translate.as_str())
+                            .size(font::CAPTION)
+                            .color(ui.visuals().strong_text_color()),
+                    )
+                    .clicked()
+                {
+                    action = Some(OverlayAction::ConfirmTranslate);
+                }
+                if ui
+                    .button(
+                        RichText::new(text.gloss_popup_guard_cancel.as_str())
+                            .size(font::CAPTION)
+                            .color(ui.visuals().weak_text_color()),
+                    )
+                    .clicked()
+                {
+                    action = Some(OverlayAction::ConfirmCancel);
+                }
+            });
+            *content_h = ui.min_rect().height();
+            action
+        }
         Some(OverlayView::Outcome(outcome)) => {
             let action = header(
                 ui,
@@ -285,6 +326,24 @@ fn action_label(action: ErrorAction, text: &Text) -> &str {
     match action {
         ErrorAction::Retry => text.gloss_popup_retry.as_str(),
         ErrorAction::OpenSettings => text.gloss_popup_open_settings.as_str(),
+    }
+}
+
+/// 确认卡文案：套用提示模板并填入命中的类别（模板与类别标签各自本地化）。
+fn guard_message(reason: SensitiveKind, text: &Text) -> String {
+    crate::i18n::fill(
+        &text.gloss_popup_guard_notice,
+        &[("reason", guard_reason_label(reason, text))],
+    )
+}
+
+/// 命中的敏感信息类别的措辞。
+fn guard_reason_label(reason: SensitiveKind, text: &Text) -> &str {
+    match reason {
+        SensitiveKind::Token => text.gloss_guard_reason_token.as_str(),
+        SensitiveKind::PrivateKey => text.gloss_guard_reason_private_key.as_str(),
+        SensitiveKind::HighEntropy => text.gloss_guard_reason_high_entropy.as_str(),
+        SensitiveKind::CardNumber => text.gloss_guard_reason_card_number.as_str(),
     }
 }
 
@@ -569,6 +628,10 @@ mod kittest_tests {
         })
     }
 
+    fn confirm_view(reason: SensitiveKind) -> OverlayView {
+        OverlayView::Confirm { reason }
+    }
+
     type Clicked = Rc<RefCell<Option<OverlayAction>>>;
 
     fn harness_for(view: OverlayView) -> (Harness<'static>, Clicked) {
@@ -736,6 +799,59 @@ mod kittest_tests {
     }
 
     #[test]
+    fn confirm_card_names_the_reason_and_offers_both_choices() {
+        let (mut harness, clicked) = harness_for(confirm_view(SensitiveKind::Token));
+        harness.run();
+        harness.get_by_label_contains("像是密钥或令牌");
+        assert!(
+            harness
+                .query_all_by_label_contains("选中的")
+                .next()
+                .is_none(),
+            "the card carries no copy of the selection it warns about"
+        );
+        assert_eq!(*clicked.borrow(), None);
+        harness.get_by_label("仍要翻译").click();
+        harness.run();
+        assert_eq!(
+            *clicked.borrow(),
+            Some(OverlayAction::ConfirmTranslate),
+            "approving must reach the shell as its own action"
+        );
+    }
+
+    #[test]
+    fn confirm_card_declines_in_the_current_locale() {
+        let (mut harness, clicked) =
+            harness_for_locale(confirm_view(SensitiveKind::Token), Locale::En);
+        harness.run();
+        harness.get_by_label_contains("a possible key or token");
+        harness.get_by_label("Cancel").click();
+        harness.run();
+        assert_eq!(
+            *clicked.borrow(),
+            Some(OverlayAction::ConfirmCancel),
+            "declining is a distinct action from the header close button"
+        );
+    }
+
+    #[test]
+    fn confirm_card_words_every_reason() {
+        for (reason, expected) in [
+            (SensitiveKind::Token, "像是密钥或令牌"),
+            (SensitiveKind::PrivateKey, "像是私钥文件"),
+            (SensitiveKind::HighEntropy, "像是随机生成的凭据"),
+            (SensitiveKind::CardNumber, "像是银行卡号"),
+        ] {
+            let (mut harness, _clicked) = harness_for(confirm_view(reason));
+            harness.run();
+            harness.get_by_label_contains(expected);
+            harness.get_by_label("仍要翻译");
+            harness.get_by_label("取消");
+        }
+    }
+
+    #[test]
     fn snapshots_match_baseline() {
         let mut results = egui_kittest::SnapshotResults::new();
 
@@ -757,6 +873,11 @@ mod kittest_tests {
         let (mut harness, _clicked) = harness_for(auth_failed_view());
         harness.run();
         harness.snapshot("popup_failed_auth");
+        results.extend_harness(&mut harness);
+
+        let (mut harness, _clicked) = harness_for(confirm_view(SensitiveKind::Token));
+        harness.run();
+        harness.snapshot("popup_confirm");
         results.extend_harness(&mut harness);
 
         let state = RenderState::default();

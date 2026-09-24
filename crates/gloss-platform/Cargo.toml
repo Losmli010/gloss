@@ -45,6 +45,8 @@ objc2-app-kit = {
     "NSApplication",
     "NSImage",
     "NSResponder",
+    "NSRunningApplication",
+    "NSWorkspace",
   ]
 }
 objc2-foundation = {
