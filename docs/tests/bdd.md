@@ -12,7 +12,7 @@
 | 集成测试 | 6 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 24 | `just test` |
-| 单元测试 | 283 | `just test` |
+| 单元测试 | 288 | `just test` |
 
 ## 人工测试
 
@@ -200,7 +200,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | filter_lets_global_directives_override_default | 全局指令覆盖默认级别 | 给定 off/warn/error 全局指令，当解析，则覆盖默认 info | 2026-09-19 |
 | filter_drops_invalid_directives_but_keeps_valid_ones | 非法指令丢弃、合法保留 | 给定含非法指令的串，当解析，则非法项丢弃、合法项保留 | 2026-09-19 |
 | json_lines_carry_the_structured_contract | 日志行是结构化 JSON | 给定带 thread/kind 字段的一条日志，当解析该行，则 level/message/thread/kind/target 均在顶层且行内无 ANSI 转义 | 2026-09-23 |
-| task_span_carries_generation_into_events | 任务 span 把代数带给范围内的日志 | 给定 task_span(7) 并在其中记一条日志，当格式化输出，则事件行是 JSON 且 span.generation=7 | 2026-09-23 |
+| logs_outside_a_task_carry_no_generation | 流程外的日志不带代数 | 给定任务 span 之外记的一条日志，当解析该行，则既无 generation 也无 span 对象 | 2026-09-24 |
+| civil_date_matches_known_anchors | 天数换算公历 | 给定 1970-01-01 / 2000-01-01 / 2026-09-24 / 2026-12-31 对应的天数，当换算，则年月日与已知值一致 | 2026-09-24 |
+| log_file_name_is_dated_jsonl | 日志文件名带日期与后缀 | 给定日期 2026-09-24，当取名，则得 gloss-2026-09-24.jsonl | 2026-09-24 |
+| daily_writer_appends_into_todays_file | 按天文件追加写入 | 给定两个写入器实例写同一份今日日志，当读回，则两行都在今天的文件里 | 2026-09-24 |
+| prune_keeps_the_newest_files_only | 旧日志按天数保留 | 给定 9 份日志与一个无关文件，当清理，则只留最近 7 份日志且无关文件不动 | 2026-09-24 |
+| task_span_carries_generation_into_events | 任务 span 把代数带给范围内的日志 | 给定 task_span(7) 并在其中记一条日志，当格式化输出，则事件行是 JSON、顶层 generation=7 且无 span 对象 | 2026-09-24 |
 
 ### crates/gloss-core/src/config.rs
 

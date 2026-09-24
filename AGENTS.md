@@ -31,7 +31,7 @@ gloss/
 ```bash
 just setup             # 环境初始化（clone 后一次，幂等）
 just run               # 运行开发版
-just logs              # 跟随最新日志
+just logs              # 渲染最新日志（JSONL → 人读；--generation/--level 可筛）
 just lint              # Clippy 严格检查
 just fmt-fix           # 自动格式化
 just test              # 运行全部测试

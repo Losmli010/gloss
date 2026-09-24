@@ -32,17 +32,8 @@ logs-dir:
     @echo "${HOME}/.gloss/logs"
 
 # 跟随最新日志文件（Ctrl-C 退出）
-logs:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    dir="${HOME}/.gloss/logs"
-    newest=$(ls -t "$dir"/gloss.log.* 2>/dev/null | head -n 1 || true)
-    if [ -z "${newest:-}" ]; then
-        echo "no log file under $dir yet (run the app first)" >&2
-        exit 1
-    fi
-    echo "tailing $newest"
-    tail -n +1 -f "$newest"
+logs *args:
+    @python3 scripts/dev/gloss-logs.py {{args}}
 
 # Debug 构建整个 workspace
 build:
