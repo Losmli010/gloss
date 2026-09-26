@@ -131,6 +131,11 @@ pub enum KeyUpdate {
 }
 
 /// 设置窗口上交的动作：浮层只渲染，落盘/密钥/关窗都在壳。
+///
+/// `Save` 的配置装箱：`Config` 是快照的大小头（每加一组字段就长一截），而
+/// 这个枚举每帧都当返回值传，不装箱迟早把 `Idle`/`Close` 一起撑大——
+/// 装箱后枚举本体只剩指针，代价是每次保存多一次分配，而保存是人手按下
+/// 的路径，不在热路径上。
 #[derive(Debug, PartialEq)]
 pub enum SettingsAction {
     /// 普通编辑帧，无需壳动作。
@@ -138,7 +143,7 @@ pub enum SettingsAction {
     /// 保存整份配置并应用密钥变更。
     Save {
         /// 保存的整份配置。
-        config: Config,
+        config: Box<Config>,
         /// 密钥变更（保持 / 覆盖 / 清除）。
         key: KeyUpdate,
     },
@@ -235,7 +240,10 @@ fn build_save(state: &mut SettingsState) -> SettingsAction {
     } else {
         KeyUpdate::Replace(api_key.to_owned())
     };
-    SettingsAction::Save { config: draft, key }
+    SettingsAction::Save {
+        config: Box::new(draft),
+        key,
+    }
 }
 
 /// 逐字段校验（纯逻辑）：规则单点下沉 gloss-core，这里只做组合与
@@ -1209,7 +1217,7 @@ mod tests {
         harness.run();
         match &*action.borrow() {
             SettingsAction::Save { config, key } => {
-                assert_eq!(*config, Config::default(), "unmodified draft saves as-is");
+                assert_eq!(**config, Config::default(), "unmodified draft saves as-is");
                 assert_eq!(*key, KeyUpdate::Keep);
             }
             other => panic!("save action expected, got {other:?}"),

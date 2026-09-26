@@ -8,6 +8,9 @@
 //! （在累积文本上按最后围栏标记截断）；跨 chunk 切分出的残缺围栏前缀
 //! 可能短暂显示，随下一 chunk 自愈。头部动作区常驻设置齿轮与关闭 ×，
 //! 点击经 draw 返回 [`OverlayAction`] 上交壳执行。
+//!
+//! 敏感信息防护不在这里：两条闸门都不出浮层（见 `gloss_app::machine`），
+//! 因此也没有「疑似敏感」这张卡。
 
 use std::cell::{Cell, RefCell};
 use std::time::Duration;

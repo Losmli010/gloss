@@ -12,12 +12,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gloss_app::channel::{AcquireCommand, Channels, Command, Event, PlatformEvent, Traced};
-use gloss_app::machine::{AppState, ErrorAction, OverlayView, TaskStateMachine};
+use gloss_app::machine::{AppState, ErrorAction, InputOutcome, OverlayView, TaskStateMachine};
 use gloss_app::pipeline::start_command_runtime;
 use gloss_core::cache::MokaCache;
 use gloss_core::config::{Config, ModelBinding};
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
+use gloss_core::guard::SceneFacts;
 use gloss_core::log::Span;
 use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
@@ -97,21 +98,21 @@ impl Pipeline {
                 },
                 &self.config.snapshot(),
                 Locale::Zh,
+                &SceneFacts::default(),
             )
             .expect("selection gesture must acquire");
         let AcquireCommand::AcquireText { generation, .. } = &command else {
             panic!("acquire text expected");
         };
-        let request = self
-            .machine
-            .accept_input(
-                *generation,
-                TaskInput::Text {
-                    text: text.into(),
-                    hint: None,
-                },
-            )
-            .expect("input should be accepted while fetching");
+        let InputOutcome::Dispatch(request) = self.machine.accept_input(
+            *generation,
+            TaskInput::Text {
+                text: text.into(),
+                hint: None,
+            },
+        ) else {
+            panic!("input should be accepted while fetching");
+        };
         self.commands_tx
             .send(Traced {
                 payload: Command::RunTask {

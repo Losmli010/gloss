@@ -7,10 +7,16 @@
 //!
 //! 代数（generation）的**唯一赋值点**是 [`TaskStateMachine::trigger`]：
 //! 只有真实下发的触发才递增；回传事件按代数匹配，不匹配即陈旧丢弃。
+//!
+//! 两道敏感信息闸门的落点：场景闸门在 [`trigger_decision`]（触发前，
+//! 拦下即不取材不占代数、不出浮层），内容闸门在
+//! [`TaskStateMachine::accept_input`]（取材后、下发前，命中即丢弃这次取材
+//! 回 `Idle`——不下发、不出浮层，壳只记一行 warn）。
 
 use tokio_util::sync::CancellationToken;
 
 use gloss_core::config::Config;
+use gloss_core::guard::{self, SceneFacts, SensitiveKind, TriggerBlock};
 use gloss_core::model::GlossError;
 use gloss_core::model::Locale;
 use gloss_core::task::{InputSource, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome};
@@ -31,9 +37,10 @@ pub enum ErrorAction {
 ///
 /// 转移概要：任何可见态收到新触发（[`TaskStateMachine::trigger`]）都取
 /// 消在途任务并回 `Fetching`；`Fetching` 采纳 `InputReady` 后携取消令牌
-/// 下发通道③进 `Translating`；`Translating` 收 `TaskChunk` 追加展示、
-/// 收 `TaskDone` 定格 `Show`、收 `TaskFailed` 落 `Error`；收起（Esc /
-/// 关闭按钮）回 `Idle`。
+/// 下发通道③进 `Translating`——**除非内容闸门命中**，那时这次取材被丢弃、
+/// 直接回 `Idle`（不下发、不出浮层）；`Translating` 收 `TaskChunk` 追加
+/// 展示、收 `TaskDone` 定格 `Show`、收 `TaskFailed` 落 `Error`；收起
+/// （Esc / 关闭按钮）回 `Idle`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppState {
     /// 浮层隐藏，无在途任务。
@@ -88,6 +95,19 @@ pub enum FailureCause {
     AcquireChannel,
     /// 推理通道不可用（通道③发送失败）。
     TransportChannel,
+}
+
+/// `accept_input` 的结果：下发 / 被内容闸门拦下 / 不采纳。三态而非 `Option`
+/// ——「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者要记一条 warn，
+/// 后者只记 debug），合并成 `None` 就分不出来了。
+#[derive(Debug, Clone, PartialEq)]
+pub enum InputOutcome {
+    /// 任务已组装，壳经通道③下发。
+    Dispatch(RunRequest),
+    /// 内容疑似敏感：这次取材作废——任务不组装、不下发、浮层不露面。
+    Blocked(SensitiveKind),
+    /// 陈旧代数、非取材态或模态错配：不采纳，浮层与通道都不动。
+    Ignored,
 }
 
 /// `accept_input` 采纳取材产物后的下发请求：壳把它经通道③发送。
@@ -159,35 +179,42 @@ impl TaskStateMachine {
     /// 材命令。`config` 是壳在任务开始时取的配置快照：划词手势的任务类型与
     /// 后续选项都按它解析，此后本任务不再读配置。`system_locale` 是壳在
     /// 启动期读到的系统语言，供配置里的 `Language::System` 落定（配置快照
-    /// 里只有三态偏好，落定需要这一份环境事实）。未接线的平台事件返回 None
-    /// 且不产生任何状态副作用。
+    /// 里只有三态偏好，落定需要这一份环境事实）。`scene` 是壳在触发前读到
+    /// 的场景事实，供敏感场景闸门判定（见 [`trigger_decision`]）。未接线的
+    /// 平台事件与被拦下的触发都返回 None 且不产生任何状态副作用。
     pub fn trigger(
         &mut self,
         event: &PlatformEvent,
         config: &Config,
         system_locale: Locale,
+        scene: &SceneFacts,
     ) -> Option<AcquireCommand> {
-        let command = acquire_command_for(event, self.generation + 1, config)?;
+        let kind = match trigger_decision(event, config, scene) {
+            TriggerDecision::Acquire(kind) => kind,
+            TriggerDecision::Disabled(_)
+            | TriggerDecision::Blocked(_)
+            | TriggerDecision::Unwired => return None,
+        };
+        let command = AcquireCommand::AcquireText {
+            generation: self.generation + 1,
+            kind,
+        };
         // 最新触发取代在途任务：旧推理立即取消（其迟到产物经代数过滤
         // 丢弃），令牌清空等待新任务。
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
         self.generation += 1;
-        // 新触发取代一切旧任务：连可重试的失败任务副本一并作废（重发它
-        // 没有意义，用户已经表达了新的意图）。
+        // 新触发取代一切旧任务：连可重试的失败任务副本一并作废
+        // （重发它没有意义，用户已经表达了新的意图）。
         self.active_task = None;
         // kind 从命令里取（两个变体都携带），选项按同一个 kind 从**同一份**
         // 快照解析——这里是「单次任务内配置一致」的实现点。
         //
         // `CaptureRegion` 是框选取材的预留：今天 `trigger` 不会返回它
-        // （`acquire_command_for` 对 Region 返回 None）。接线时必须同时让
+        // （`trigger_decision` 对 Region 返回 `Unwired`）。接线时必须同时让
         // `accept_input` 接纳 `TaskInput::Image`，否则任务会卡在 `Fetching`
         // 且不弹浮层（`accept_input` 只收文本）。
-        let kind = match &command {
-            AcquireCommand::AcquireText { kind, .. }
-            | AcquireCommand::CaptureRegion { kind, .. } => *kind,
-        };
         self.pending = Some(PendingTask {
             kind,
             options: task_options(kind, config, system_locale),
@@ -197,20 +224,30 @@ impl TaskStateMachine {
     }
 
     /// 采纳取材产物：组装 `Task` 并返回下发请求（壳经通道③发送），进入
-    /// `Translating`。选项取触发时那份快照（不经参数再传配置）。返回
-    /// `Some` 表示进入了需要展示浮层的新任务。
-    pub fn accept_input(&mut self, generation: u64, input: TaskInput) -> Option<RunRequest> {
+    /// `Translating`。选项取触发时那份快照（不经参数再传配置）。
+    ///
+    /// 内容闸门命中时这次取材作废：任务不组装、不下发、浮层不露面，直接回
+    /// `Idle`（壳据 [`InputOutcome::Blocked`] 记一行 warn 并收起浮层窗口）。
+    /// **没有放行出口**——防护不交由用户控制，命中就是发送不成。
+    pub fn accept_input(&mut self, generation: u64, input: TaskInput) -> InputOutcome {
         if generation != self.generation || self.state != AppState::Fetching {
-            return None;
+            return InputOutcome::Ignored;
         }
         // 先校验模态再消费 pending：模态错配不吃掉待组装任务，同代数
         // 的后续合法 InputReady 仍可被采纳。
         let TaskInput::Text { text, hint } = input else {
-            return None;
+            return InputOutcome::Ignored;
         };
-        let PendingTask { kind, options } = self.pending.take()?;
-        let cancel = CancellationToken::new();
-        self.current_cancel = Some(cancel.clone());
+        let Some(PendingTask { kind, options }) = self.pending.take() else {
+            return InputOutcome::Ignored;
+        };
+        if let Some(reason) = guard::detect_sensitive(&text) {
+            // 视图一并清掉：里面可能还留着上一次任务的产物卡，而它属于另
+            // 一次取材（留着会被读成「这次划词的结果」）。
+            self.overlay_view = None;
+            self.state = AppState::Idle;
+            return InputOutcome::Blocked(reason);
+        }
         let task = Task {
             kind,
             input: TaskInput::Text {
@@ -219,17 +256,12 @@ impl TaskStateMachine {
             },
             options,
         };
-        self.active_task = Some(task.clone());
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
             body: String::new(),
         });
         self.state = AppState::Translating;
-        Some(RunRequest {
-            generation,
-            task,
-            cancel,
-        })
+        InputOutcome::Dispatch(self.begin_run(task))
     }
 
     /// 采纳流式增量：追加到流式视图的原始正文（围栏过滤在渲染层）。
@@ -295,18 +327,23 @@ impl TaskStateMachine {
             return None;
         }
         let task = self.active_task.clone()?;
+        self.overlay_view = Some(streaming_view(&task));
+        self.state = AppState::Translating;
+        Some(self.begin_run(task))
+    }
+
+    /// 下发一个任务的共用半边：换新取消令牌并记在途（`active_task` 留在
+    /// 状态机里，失败可重试）。视图由调用方先定好——只有调用方知道这次
+    /// 下发用哪个视图。
+    fn begin_run(&mut self, task: Task) -> RunRequest {
         let cancel = CancellationToken::new();
         self.current_cancel = Some(cancel.clone());
-        self.overlay_view = Some(OverlayView::Streaming {
-            source: source_text(&task),
-            body: String::new(),
-        });
-        self.state = AppState::Translating;
-        Some(RunRequest {
+        self.active_task = Some(task.clone());
+        RunRequest {
             generation: self.generation,
             task,
             cancel,
-        })
+        }
     }
 
     /// 浮层收起（Esc / 关闭按钮）即放弃在途任务：取消令牌（唯一取消机
@@ -324,8 +361,11 @@ impl TaskStateMachine {
 
     /// 取材通道不可用（②发送失败）时的降级：直接落 `Error` 态，避免
     /// 滞留 Fetching 等一个永远不会到达的 `InputReady`。
+    ///
+    /// 与 `accept_*` 家族同一条守卫：只认「该代确实在取材中」——被内容
+    /// 闸门拦下的那次取材已经回 `Idle`，它的通道故障不该再摆一张失败卡。
     pub fn fail_acquire(&mut self, generation: u64) {
-        if generation != self.generation {
+        if generation != self.generation || self.state != AppState::Fetching {
             return;
         }
         self.state = AppState::Error;
@@ -338,7 +378,7 @@ impl TaskStateMachine {
     /// 推理通道不可用（③发送失败）时的降级：直接落 `Error` 态。通道
     /// 已死时重发只会再死一次，失败卡不带重试按钮。
     pub fn fail_transport(&mut self, generation: u64) {
-        if generation != self.generation {
+        if generation != self.generation || self.state != AppState::Translating {
             return;
         }
         self.current_cancel = None;
@@ -365,6 +405,14 @@ fn error_action(error: &GlossError) -> Option<ErrorAction> {
     }
 }
 
+/// 一个任务下发的流式视图起点：原文照抄、正文空。重试与首次下发共用。
+fn streaming_view(task: &Task) -> OverlayView {
+    OverlayView::Streaming {
+        source: source_text(task),
+        body: String::new(),
+    }
+}
+
 /// 任务原文（流式视图与重试用）：当前只有文本任务进入推理（图像取材接入
 /// 像取材时随它扩展），其余模态留空。
 fn source_text(task: &Task) -> String {
@@ -374,56 +422,50 @@ fn source_text(task: &Task) -> String {
     }
 }
 
-/// 一次平台事件的去向：进取材，或被任务开关拦下。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TriggerRoute {
-    /// 放行：该任务类型已启用，事件进入取材。
-    Allowed(TaskKind),
+/// 一次平台事件的去向：取材，或被三类闸门之一拦下。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TriggerDecision {
+    /// 放行：该任务类型已启用且场景闸门放行，事件进入取材。
+    Acquire(TaskKind),
     /// 拦下：该任务类型被设置页的任务开关停用。
     Disabled(TaskKind),
+    /// 拦下：触发前场景闸门（安全输入态 / 敏感应用名单）。只拦真实触发，
+    /// 设置与退出不在此列。
+    Blocked(TriggerBlock),
+    /// 未接线的事件（框选、设置、退出）。
+    Unwired,
 }
 
-/// 事件若是一次真实触发，给出它的去向；未接线的事件（框选、设置、退出）
-/// 返回 `None`。
+/// 一次平台事件的去向判定：任务开关与场景闸门都在这里做一次（上游据此
+/// 记不同级别的日志与不同的动作）。
 ///
-/// 停用判定只在本函数里做一次：取材映射按 `Allowed` 放行，壳按 `Disabled`
-/// 记一条 warn——被任务开关停用的触发是用户能自己修的配置问题，与「事件
-/// 还没接线」不是一类，日志级别因此不同（见 [`AcquireCommand`] 的两个
-/// `None` 出口）。
-///
-/// 划词手势的任务类型来自配置的 `default_text_kind`，并按取材源收口成文本
-/// 类——配置写成图像 kind 时不送进引擎挨模态校验（见
-/// `Config::selection_task_kind`）；热键绑定携带的 kind 是逐条显式意图，不
-/// 做收口（只看开关）。
-pub fn trigger_route(event: &PlatformEvent, config: &Config) -> Option<TriggerRoute> {
+/// 顺序是「开关 → 场景」：被停用的 kind 本来就无响应，先判它才不会让
+/// 日志把「无响应」说成「被防护拦下」。
+pub fn trigger_decision(
+    event: &PlatformEvent,
+    config: &Config,
+    scene: &SceneFacts,
+) -> TriggerDecision {
     let kind = match event {
         PlatformEvent::HotkeyTriggered { binding } => match binding.source {
             InputSource::Selection => binding.kind,
             // 图像取材待框选路径接入后消费。
-            InputSource::Region => return None,
+            InputSource::Region => return TriggerDecision::Unwired,
         },
         PlatformEvent::SelectionGesture { .. } => config.selection_task_kind(),
         PlatformEvent::RegionGesture { .. }
         | PlatformEvent::OpenSettingsRequested
-        | PlatformEvent::QuitRequested => return None,
+        | PlatformEvent::QuitRequested => return TriggerDecision::Unwired,
     };
-    Some(if config.is_kind_enabled(kind) {
-        TriggerRoute::Allowed(kind)
-    } else {
-        TriggerRoute::Disabled(kind)
-    })
-}
-
-/// 平台事件 → 取材命令的映射：每次真实触发占用一个新代数；未接线的平台
-/// 事件与停用的 kind 返回 None（判定见 [`trigger_route`]）。
-fn acquire_command_for(
-    event: &PlatformEvent,
-    generation: u64,
-    config: &Config,
-) -> Option<AcquireCommand> {
-    match trigger_route(event, config)? {
-        TriggerRoute::Allowed(kind) => Some(AcquireCommand::AcquireText { generation, kind }),
-        TriggerRoute::Disabled(_) => None,
+    // 停用判定只在这条路径上做一次（划词手势的任务类型已按取材源收口成
+    // 文本类，见 `Config::selection_task_kind`；热键绑定携带的 kind 是逐条
+    // 显式意图，不做收口）。
+    if !config.is_kind_enabled(kind) {
+        return TriggerDecision::Disabled(kind);
+    }
+    match guard::trigger_block(scene) {
+        Some(block) => TriggerDecision::Blocked(block),
+        None => TriggerDecision::Acquire(kind),
     }
 }
 
@@ -445,6 +487,7 @@ mod tests {
     use std::sync::Arc;
 
     use gloss_core::config::{Language, ModelBinding};
+    use gloss_core::guard::{FrontApp, SceneFacts, SensitiveKind};
     use gloss_core::model::{GlossError, Lang, ScreenPoint, ScreenRect};
     use gloss_core::task::{InputHint, OutcomeStructured};
 
@@ -471,12 +514,41 @@ mod tests {
         }
     }
 
+    fn suspicious_text() -> String {
+        format!("key sk-{}", "aB3".repeat(8))
+    }
+
+    fn trigger(machine: &mut TaskStateMachine, config: &Config) -> Option<AcquireCommand> {
+        machine.trigger(
+            &selection_gesture(),
+            config,
+            Locale::Zh,
+            &SceneFacts::default(),
+        )
+    }
+
+    fn dispatched(outcome: InputOutcome) -> RunRequest {
+        match outcome {
+            InputOutcome::Dispatch(request) => request,
+            other => panic!("expected a dispatch, got {other:?}"),
+        }
+    }
+
+    fn blocked_by_app() -> SceneFacts {
+        SceneFacts {
+            secure_input: false,
+            front_app: Some(FrontApp {
+                bundle_id: Some("com.1password.1password".into()),
+                name: None,
+            }),
+        }
+    }
+
     #[test]
     fn trigger_mapping_covers_wired_events_only() {
         let mut machine = TaskStateMachine::new();
-        let command = machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("selection gesture must acquire");
+        let command =
+            trigger(&mut machine, &Config::default()).expect("selection gesture must acquire");
         assert!(matches!(
             command,
             AcquireCommand::AcquireText {
@@ -497,7 +569,8 @@ mod tests {
                         binding: region_binding
                     },
                     &Config::default(),
-                    Locale::Zh
+                    Locale::Zh,
+                    &SceneFacts::default()
                 )
                 .is_none(),
             "region source has no acquisition path yet"
@@ -510,19 +583,20 @@ mod tests {
     }
 
     #[test]
-    fn trigger_route_separates_disabled_triggers_from_unwired_events() {
+    fn trigger_decision_separates_disabled_blocked_and_unwired_events() {
+        let open = SceneFacts::default();
         let config = Config {
             default_text_kind: TaskKind::ExplainCode,
             enabled_kinds: vec![TaskKind::TranslateWord],
             ..Default::default()
         };
         assert_eq!(
-            trigger_route(&selection_gesture(), &config),
-            Some(TriggerRoute::Disabled(TaskKind::ExplainCode)),
+            trigger_decision(&selection_gesture(), &config, &open),
+            TriggerDecision::Disabled(TaskKind::ExplainCode),
             "a selection whose default task is switched off is a trigger the user can fix"
         );
         assert_eq!(
-            trigger_route(
+            trigger_decision(
                 &PlatformEvent::HotkeyTriggered {
                     binding: gloss_core::task::HotkeyBinding {
                         trigger: "Cmd+Shift+E".into(),
@@ -530,13 +604,14 @@ mod tests {
                         source: gloss_core::task::InputSource::Selection,
                     }
                 },
-                &config
+                &config,
+                &open
             ),
-            Some(TriggerRoute::Disabled(TaskKind::ExplainCode)),
+            TriggerDecision::Disabled(TaskKind::ExplainCode),
             "a disabled hotkey binding is disabled, not unwired"
         );
         assert_eq!(
-            trigger_route(
+            trigger_decision(
                 &PlatformEvent::HotkeyTriggered {
                     binding: gloss_core::task::HotkeyBinding {
                         trigger: "Cmd+Shift+R".into(),
@@ -544,13 +619,14 @@ mod tests {
                         source: gloss_core::task::InputSource::Region,
                     }
                 },
-                &config
+                &config,
+                &open
             ),
-            None,
+            TriggerDecision::Unwired,
             "region bindings stay outside the route table until the capture path lands"
         );
         assert_eq!(
-            trigger_route(
+            trigger_decision(
                 &PlatformEvent::HotkeyTriggered {
                     binding: gloss_core::task::HotkeyBinding {
                         trigger: "Cmd+Shift+O".into(),
@@ -558,18 +634,23 @@ mod tests {
                         source: gloss_core::task::InputSource::Selection,
                     }
                 },
-                &Config::default()
+                &Config::default(),
+                &open
             ),
-            Some(TriggerRoute::Allowed(TaskKind::ImageOcr)),
+            TriggerDecision::Acquire(TaskKind::ImageOcr),
             "a hotkey kind is an explicit per-binding choice: no text-kind fold applies to it"
         );
         assert_eq!(
-            trigger_route(&PlatformEvent::OpenSettingsRequested, &config),
-            None,
-            "settings is an entry point, not a trigger"
+            trigger_decision(
+                &PlatformEvent::OpenSettingsRequested,
+                &config,
+                &blocked_by_app()
+            ),
+            TriggerDecision::Unwired,
+            "settings is an entry point, never a gated trigger"
         );
         assert_eq!(
-            trigger_route(
+            trigger_decision(
                 &PlatformEvent::RegionGesture {
                     rect: ScreenRect {
                         x: 0,
@@ -578,20 +659,76 @@ mod tests {
                         height: 10,
                     },
                 },
-                &config
+                &config,
+                &open
             ),
-            None,
+            TriggerDecision::Unwired,
             "the capture gesture has no acquisition path yet"
         );
         assert_eq!(
-            trigger_route(&PlatformEvent::QuitRequested, &config),
-            None,
-            "quit is an exit, not a trigger"
+            trigger_decision(&PlatformEvent::QuitRequested, &config, &blocked_by_app()),
+            TriggerDecision::Unwired,
+            "quit is an exit, never a gated trigger"
         );
         assert_eq!(
-            trigger_route(&selection_gesture(), &Config::default()),
-            Some(TriggerRoute::Allowed(TaskKind::TranslateWord))
+            trigger_decision(&selection_gesture(), &Config::default(), &open),
+            TriggerDecision::Acquire(TaskKind::TranslateWord)
         );
+        assert_eq!(
+            trigger_decision(&selection_gesture(), &Config::default(), &blocked_by_app()),
+            TriggerDecision::Blocked(TriggerBlock::BlockedApp("com.1password.1password")),
+            "an enabled kind in a sensitive app is blocked, not disabled"
+        );
+    }
+
+    #[test]
+    fn scene_gate_stops_the_trigger_before_acquisition() {
+        let mut machine = TaskStateMachine::new();
+        let secure = SceneFacts {
+            secure_input: true,
+            front_app: Some(FrontApp {
+                bundle_id: Some("com.example.editor".into()),
+                name: None,
+            }),
+        };
+        assert!(
+            machine
+                .trigger(
+                    &selection_gesture(),
+                    &Config::default(),
+                    Locale::Zh,
+                    &secure
+                )
+                .is_none(),
+            "a focused password field stops the trigger"
+        );
+        assert!(
+            machine
+                .trigger(
+                    &selection_gesture(),
+                    &Config::default(),
+                    Locale::Zh,
+                    &blocked_by_app()
+                )
+                .is_none(),
+            "a listed frontmost app stops the trigger"
+        );
+        assert_eq!(
+            machine.generation(),
+            0,
+            "a suppressed trigger consumes no generation"
+        );
+        assert_eq!(
+            machine.state(),
+            AppState::Idle,
+            "no overlay, no failure card"
+        );
+
+        assert!(
+            trigger(&mut machine, &Config::default()).is_some(),
+            "the same gesture fires once the scene clears"
+        );
+        assert_eq!(machine.generation(), 1, "and it takes a generation");
     }
 
     #[test]
@@ -613,9 +750,7 @@ mod tests {
             ..Default::default()
         };
 
-        let command = machine
-            .trigger(&selection_gesture(), &config, Locale::Zh)
-            .expect("selection gesture must acquire");
+        let command = trigger(&mut machine, &config).expect("selection gesture must acquire");
         assert!(
             matches!(
                 command,
@@ -627,9 +762,7 @@ mod tests {
             "gesture kind must come from the snapshot"
         );
 
-        let request = machine
-            .accept_input(1, text_input("fn main() {}"))
-            .expect("input should be accepted");
+        let request = dispatched(machine.accept_input(1, text_input("fn main() {}")));
         assert_eq!(request.task.kind, TaskKind::ExplainCode);
         assert_eq!(request.task.options.target_lang, Some(Lang::Ja));
         assert_eq!(
@@ -647,9 +780,7 @@ mod tests {
             ..Default::default()
         };
 
-        let command = machine
-            .trigger(&selection_gesture(), &config, Locale::Zh)
-            .expect("selection gesture must acquire");
+        let command = trigger(&mut machine, &config).expect("selection gesture must acquire");
         assert!(matches!(
             command,
             AcquireCommand::AcquireText {
@@ -670,11 +801,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(
-            machine
-                .trigger(&selection_gesture(), &config, Locale::Zh)
-                .is_some()
-        );
+        assert!(trigger(&mut machine, &config).is_some());
         assert_eq!(machine.generation(), 1);
 
         let binding = gloss_core::task::HotkeyBinding {
@@ -687,7 +814,8 @@ mod tests {
                 .trigger(
                     &PlatformEvent::HotkeyTriggered { binding },
                     &config,
-                    Locale::Zh
+                    Locale::Zh,
+                    &SceneFacts::default()
                 )
                 .is_none(),
             "disabled kind must not acquire via hotkey"
@@ -704,9 +832,7 @@ mod tests {
             ..Default::default()
         };
         assert!(
-            machine
-                .trigger(&selection_gesture(), &disabled_default, Locale::Zh)
-                .is_none(),
+            trigger(&mut machine, &disabled_default).is_none(),
             "disabled selection kind must not acquire"
         );
     }
@@ -719,11 +845,14 @@ mod tests {
             ..Default::default()
         };
         explicit
-            .trigger(&selection_gesture(), &chosen, Locale::Zh)
+            .trigger(
+                &selection_gesture(),
+                &chosen,
+                Locale::Zh,
+                &SceneFacts::default(),
+            )
             .expect("trigger");
-        let request = explicit
-            .accept_input(1, text_input("hello"))
-            .expect("input should be accepted");
+        let request = dispatched(explicit.accept_input(1, text_input("hello")));
         assert_eq!(
             request.task.options.prompt_locale,
             Some(Locale::En),
@@ -734,11 +863,14 @@ mod tests {
         let factory = Config::default();
         assert_eq!(factory.language, Language::System);
         following
-            .trigger(&selection_gesture(), &factory, Locale::En)
+            .trigger(
+                &selection_gesture(),
+                &factory,
+                Locale::En,
+                &SceneFacts::default(),
+            )
             .expect("trigger");
-        let request = following
-            .accept_input(1, text_input("hello"))
-            .expect("input should be accepted");
+        let request = dispatched(following.accept_input(1, text_input("hello")));
         assert_eq!(
             request.task.options.prompt_locale,
             Some(Locale::En),
@@ -760,12 +892,8 @@ mod tests {
             ..Default::default()
         };
 
-        machine
-            .trigger(&selection_gesture(), &before, Locale::Zh)
-            .expect("trigger");
-        let request = machine
-            .accept_input(1, text_input("hello"))
-            .expect("input should be accepted");
+        trigger(&mut machine, &before).expect("trigger");
+        let request = dispatched(machine.accept_input(1, text_input("hello")));
         assert_eq!(
             request.task.options.target_lang,
             Some(Lang::Ja),
@@ -776,12 +904,8 @@ mod tests {
             Some(Locale::En),
             "the prompt locale is frozen with the rest of the options"
         );
-        machine
-            .trigger(&selection_gesture(), &after, Locale::Zh)
-            .expect("second trigger");
-        let request = machine
-            .accept_input(2, text_input("world"))
-            .expect("input should be accepted");
+        trigger(&mut machine, &after).expect("second trigger");
+        let request = dispatched(machine.accept_input(2, text_input("world")));
         assert_eq!(request.task.options.target_lang, Some(Lang::Ko));
         assert_eq!(request.task.options.prompt_locale, Some(Locale::Zh));
     }
@@ -789,54 +913,46 @@ mod tests {
     #[test]
     fn accept_input_yields_run_request_and_guards_state() {
         let mut machine = TaskStateMachine::new();
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
+        trigger(&mut machine, &Config::default()).expect("trigger");
 
-        let request = machine
-            .accept_input(1, text_input("hello"))
-            .expect("input should be accepted");
+        let request = dispatched(machine.accept_input(1, text_input("hello")));
         assert_eq!(request.generation, 1);
         assert_eq!(request.task.kind, TaskKind::TranslateWord);
         assert_eq!(machine.state(), AppState::Translating);
         assert!(machine.current_cancel().is_some());
 
-        assert!(machine.accept_input(1, text_input("again")).is_none());
+        assert!(matches!(
+            machine.accept_input(1, text_input("again")),
+            InputOutcome::Ignored
+        ));
     }
 
     #[test]
     fn image_input_for_text_kind_is_rejected() {
         let mut machine = TaskStateMachine::new();
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
-        assert!(
-            machine
-                .accept_input(
-                    1,
-                    TaskInput::Image {
-                        png: Arc::from(&b"png"[..]),
-                        region: ScreenRect {
-                            x: 0,
-                            y: 0,
-                            width: 1,
-                            height: 1
-                        }
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        assert!(matches!(
+            machine.accept_input(
+                1,
+                TaskInput::Image {
+                    png: Arc::from(&b"png"[..]),
+                    region: ScreenRect {
+                        x: 0,
+                        y: 0,
+                        width: 1,
+                        height: 1
                     }
-                )
-                .is_none()
-        );
+                }
+            ),
+            InputOutcome::Ignored
+        ));
     }
 
     #[test]
     fn hide_abandons_inflight_and_drops_late_events() {
         let mut machine = TaskStateMachine::new();
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
-        let request = machine
-            .accept_input(1, text_input("hello"))
-            .expect("accepted");
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        let request = dispatched(machine.accept_input(1, text_input("hello")));
         let token = request.cancel;
 
         machine.hide_overlay();
@@ -859,9 +975,7 @@ mod tests {
     #[test]
     fn failed_guard_matches_fetching_and_translating_only() {
         let mut machine = TaskStateMachine::new();
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
+        trigger(&mut machine, &Config::default()).expect("trigger");
         assert!(machine.accept_failed(1, &GlossError::SelectionUnavailable));
         assert_eq!(machine.state(), AppState::Error);
 
@@ -875,27 +989,27 @@ mod tests {
     #[test]
     fn modality_mismatch_preserves_pending_task() {
         let mut machine = TaskStateMachine::new();
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
-        assert!(
-            machine
-                .accept_input(
-                    1,
-                    TaskInput::Image {
-                        png: Arc::from(&b"png"[..]),
-                        region: ScreenRect {
-                            x: 0,
-                            y: 0,
-                            width: 1,
-                            height: 1
-                        }
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        assert!(matches!(
+            machine.accept_input(
+                1,
+                TaskInput::Image {
+                    png: Arc::from(&b"png"[..]),
+                    region: ScreenRect {
+                        x: 0,
+                        y: 0,
+                        width: 1,
+                        height: 1
                     }
-                )
-                .is_none()
-        );
+                }
+            ),
+            InputOutcome::Ignored
+        ));
         assert!(
-            machine.accept_input(1, text_input("第二次")).is_some(),
+            matches!(
+                machine.accept_input(1, text_input("第二次")),
+                InputOutcome::Dispatch(_)
+            ),
             "pending kind must survive a modality mismatch"
         );
     }
@@ -903,10 +1017,8 @@ mod tests {
     #[test]
     fn transport_failure_lands_in_error() {
         let mut machine = TaskStateMachine::new();
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
-        let request = machine.accept_input(1, text_input("x")).expect("accepted");
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        let request = dispatched(machine.accept_input(1, text_input("x")));
         machine.fail_transport(request.generation);
         assert_eq!(machine.state(), AppState::Error);
         assert!(machine.current_cancel().is_none());
@@ -920,12 +1032,8 @@ mod tests {
     #[test]
     fn retryable_failure_keeps_task_and_retry_redispatches_it() {
         let mut machine = TaskStateMachine::new();
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
-        let original = machine
-            .accept_input(1, text_input("hello"))
-            .expect("accepted");
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        let original = dispatched(machine.accept_input(1, text_input("hello")));
         assert!(machine.accept_failed(1, &GlossError::EngineNetwork));
 
         assert!(matches!(
@@ -950,10 +1058,8 @@ mod tests {
     #[test]
     fn error_actions_follow_the_mapping_table() {
         let mut machine = TaskStateMachine::new();
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
-        machine.accept_input(1, text_input("x")).expect("accepted");
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        dispatched(machine.accept_input(1, text_input("x")));
 
         assert!(
             machine.accept_failed(1, &GlossError::EngineRateLimited),
@@ -961,10 +1067,8 @@ mod tests {
         );
         assert!(machine.retry().is_some());
 
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
-        machine.accept_input(2, text_input("x")).expect("accepted");
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        dispatched(machine.accept_input(2, text_input("x")));
         assert!(machine.accept_failed(2, &GlossError::EngineAuth));
         assert!(matches!(
             machine.overlay_view(),
@@ -978,10 +1082,8 @@ mod tests {
             "auth failure must not offer a retry button"
         );
 
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
-        machine.accept_input(3, text_input("x")).expect("accepted");
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        dispatched(machine.accept_input(3, text_input("x")));
         assert!(machine.accept_failed(3, &GlossError::UnsupportedModality));
         assert!(matches!(
             machine.overlay_view(),
@@ -991,10 +1093,8 @@ mod tests {
             })
         ));
 
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
-        machine.accept_input(4, text_input("x")).expect("accepted");
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        dispatched(machine.accept_input(4, text_input("x")));
         assert!(machine.accept_failed(
             4,
             &GlossError::Config("no model configured for this task kind".into())
@@ -1011,21 +1111,102 @@ mod tests {
     #[test]
     fn new_trigger_and_hide_supersede_the_retry_task() {
         let mut machine = TaskStateMachine::new();
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
-        machine.accept_input(1, text_input("x")).expect("accepted");
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        dispatched(machine.accept_input(1, text_input("x")));
         assert!(machine.accept_failed(1, &GlossError::EngineNetwork));
 
-        machine
-            .trigger(&selection_gesture(), &Config::default(), Locale::Zh)
-            .expect("trigger");
+        trigger(&mut machine, &Config::default()).expect("trigger");
         assert!(machine.retry().is_none(), "new trigger supersedes retry");
 
-        machine.accept_input(2, text_input("y")).expect("accepted");
+        dispatched(machine.accept_input(2, text_input("y")));
         assert!(machine.accept_failed(2, &GlossError::EngineNetwork));
         machine.hide_overlay();
         assert_eq!(machine.state(), AppState::Idle);
         assert!(machine.retry().is_none(), "hide drops the retry task");
+    }
+
+    #[test]
+    fn suspicious_input_is_dropped_without_a_task_or_a_card() {
+        let mut machine = TaskStateMachine::new();
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        dispatched(machine.accept_input(1, text_input("上一次的普通文本")));
+        assert!(machine.accept_done(1, plain_outcome("上一次的产物")));
+
+        trigger(&mut machine, &Config::default()).expect("second trigger");
+        let outcome = machine.accept_input(2, text_input(&suspicious_text()));
+        assert!(
+            matches!(outcome, InputOutcome::Blocked(SensitiveKind::Token)),
+            "a selection that looks like a token must be refused, got {outcome:?}"
+        );
+        assert_eq!(
+            machine.state(),
+            AppState::Idle,
+            "the refused fetch leaves nothing behind"
+        );
+        assert!(
+            machine.overlay_view().is_none(),
+            "nothing is shown for a refused fetch — no card, no question, and the previous card is cleared too"
+        );
+        assert!(
+            machine.active_task.is_none(),
+            "no task copy is left behind for a later retry to pick up"
+        );
+        assert!(
+            machine.current_cancel().is_none(),
+            "nothing was dispatched, so there is no token to cancel"
+        );
+    }
+
+    #[test]
+    fn blocked_input_is_not_redispatched_by_any_later_path() {
+        let mut machine = TaskStateMachine::new();
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        machine.accept_input(1, text_input("card 4111 1111 1111 1111"));
+
+        assert!(
+            machine.retry().is_none(),
+            "a refused fetch is not a retryable failure"
+        );
+        assert!(matches!(
+            machine.accept_input(1, text_input("second arrival")),
+            InputOutcome::Ignored
+        ));
+        assert!(
+            !machine.accept_chunk(1, "迟到的正文".into())
+                && !machine.accept_done(1, plain_outcome("迟到的产物"))
+                && !machine.accept_failed(1, &GlossError::EngineNetwork),
+            "no product of a refused fetch may be adopted either"
+        );
+        machine.fail_acquire(1);
+        machine.fail_transport(1);
+        assert_eq!(
+            machine.state(),
+            AppState::Idle,
+            "channel failures of the refused fetch must not raise a failure card"
+        );
+        assert!(machine.overlay_view().is_none());
+
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        assert_eq!(machine.generation(), 2, "the next trigger starts over");
+        assert!(matches!(
+            machine.accept_input(2, text_input(&suspicious_text())),
+            InputOutcome::Blocked(_)
+        ));
+        assert_eq!(machine.state(), AppState::Idle);
+    }
+
+    #[test]
+    fn ordinary_input_still_passes_the_content_gate() {
+        let mut machine = TaskStateMachine::new();
+        trigger(&mut machine, &Config::default()).expect("trigger");
+
+        assert!(
+            matches!(
+                machine.accept_input(1, text_input("今天下午三点开会")),
+                InputOutcome::Dispatch(_)
+            ),
+            "the gate only fires on the high-confidence patterns"
+        );
+        assert_eq!(machine.state(), AppState::Translating);
     }
 }

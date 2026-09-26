@@ -10,6 +10,7 @@ pub mod engine;
 pub mod events;
 mod ffi;
 pub mod locale;
+pub mod scene;
 pub mod selection;
 pub mod storage;
 

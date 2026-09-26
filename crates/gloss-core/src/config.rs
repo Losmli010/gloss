@@ -45,7 +45,7 @@ fn default_hotkey_bindings() -> Vec<HotkeyBinding> {
     ]
 }
 
-/// 界面主题。
+/// 界面主题：跟随系统 / 固定浅色 / 固定深色。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Theme {
     /// 跟随系统外观。
@@ -249,6 +249,8 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// 都**不**在触发时冻结；`cache_ttl_secs` 归缓存构造接线；
 /// `language` 已接线（触发时经 `Language::resolve` 解析成 prompt 模板语言、
 /// 随任务冻结，渲染帧另按同一映射取界面文案表）。
+///
+/// 敏感信息防护不在此列：它不是配置项，判据内建在 `gloss_core::guard`。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -580,6 +582,16 @@ mod tests {
         let json = serde_json::to_string(&config).expect("config should serialize");
         let back: Config = serde_json::from_str(&json).expect("config should deserialize");
         assert_eq!(back, config);
+    }
+
+    #[test]
+    fn retired_guard_fields_are_ignored_on_load() {
+        let config: Config = serde_json::from_str(
+            r#"{"theme": "Light", "guard_enabled": false, "guard_blocked_apps": ["com.example.vault"]}"#,
+        )
+        .expect("a config written by an older version must still load");
+        assert_eq!(config.theme, Theme::Light, "known fields keep their values");
+        assert_eq!(config.target_lang, Lang::Zh, "missing fields still default");
     }
 
     #[test]

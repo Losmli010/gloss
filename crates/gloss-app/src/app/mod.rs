@@ -29,7 +29,7 @@ use gloss_core::config_handle::ConfigHandle;
 use gloss_core::log::Span;
 use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
-use gloss_core::ports::{ConfigStore, HotkeyBinder};
+use gloss_core::ports::{ConfigStore, HotkeyBinder, SceneProbe};
 use winit::dpi::LogicalSize;
 
 use crate::channel::AppEndpoints;
@@ -64,6 +64,9 @@ struct GlossApp {
     settings: Option<SettingsState>,
     /// 热键重绑定端口：设置页保存后在主线程同步调用，不走通道。
     hotkeys: Arc<dyn HotkeyBinder>,
+    /// 触发前场景探针：安全输入态与前台应用由它现读，壳只把它转交状态机
+    /// 作场景闸门判定（见 `drain_platform_events`）。
+    scene: Arc<dyn SceneProbe>,
     /// 启动期读到的系统语言：配置里的 `Language::System` 靠它落定成具体的
     /// 界面语言与 prompt 模板语言（进程内不变，改系统语言要重启）。
     system_locale: Locale,
@@ -87,6 +90,7 @@ impl GlossApp {
         config: Arc<ConfigHandle>,
         store: Arc<dyn ConfigStore>,
         hotkeys: Arc<dyn HotkeyBinder>,
+        scene: Arc<dyn SceneProbe>,
         system_locale: Locale,
     ) -> Self {
         Self {
@@ -101,6 +105,7 @@ impl GlossApp {
             settings_frame: None,
             settings: None,
             hotkeys,
+            scene,
             system_locale,
             applied_theme: None,
             selection_anchor: None,
@@ -159,7 +164,7 @@ impl GlossApp {
         };
         match action {
             SettingsAction::Idle => {}
-            SettingsAction::Save { config, key } => self.save_settings(config, key),
+            SettingsAction::Save { config, key } => self.save_settings(*config, key),
             SettingsAction::Close => self.close_settings(),
         }
     }
@@ -179,12 +184,12 @@ mod test_support {
     use gloss_core::config_handle::ConfigHandle;
     use gloss_core::model::Locale;
     use gloss_core::model::ScreenPoint;
-    use gloss_core::ports::{ConfigStore, HotkeyBinder};
+    use gloss_core::ports::{ConfigStore, HotkeyBinder, SceneProbe};
     use gloss_core::task::TaskInput;
 
     use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent, Traced};
     use crate::machine::OverlayView;
-    use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder};
+    use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder, StubSceneProbe};
 
     use super::GlossApp;
 
@@ -209,6 +214,14 @@ mod test_support {
     pub(super) fn driven_app_using(
         store: Arc<dyn ConfigStore>,
         hotkeys: Arc<dyn HotkeyBinder>,
+    ) -> DrivenApp {
+        driven_app_with_scene(store, hotkeys, Arc::new(StubSceneProbe::default()))
+    }
+
+    pub(super) fn driven_app_with_scene(
+        store: Arc<dyn ConfigStore>,
+        hotkeys: Arc<dyn HotkeyBinder>,
+        scene: Arc<dyn SceneProbe>,
     ) -> DrivenApp {
         let crate::channel::Channels {
             platform_events,
@@ -246,6 +259,7 @@ mod test_support {
             Arc::clone(&config),
             Arc::clone(&store) as Arc<dyn ConfigStore>,
             hotkeys,
+            scene,
             Locale::Zh,
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
