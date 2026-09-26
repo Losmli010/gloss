@@ -585,6 +585,16 @@ mod tests {
     }
 
     #[test]
+    fn retired_guard_fields_are_ignored_on_load() {
+        let config: Config = serde_json::from_str(
+            r#"{"theme": "Light", "guard_enabled": false, "guard_blocked_apps": ["com.example.vault"]}"#,
+        )
+        .expect("a config written by an older version must still load");
+        assert_eq!(config.theme, Theme::Light, "known fields keep their values");
+        assert_eq!(config.target_lang, Lang::Zh, "missing fields still default");
+    }
+
+    #[test]
     fn partial_document_fills_factory_defaults() {
         let config: Config =
             serde_json::from_str(r#"{"theme": "Light"}"#).expect("partial config should parse");
