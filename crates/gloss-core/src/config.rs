@@ -332,10 +332,11 @@ impl Config {
 
     /// 分类的兜底任务类型：划词手势固定走 [`TaskKind::Auto`] 由模型分类，
     /// 分类失败或校验不过时回退到 `default_text_kind`；字段被手改成图像
-    /// kind（旧配置遗留）时退回出厂默认 `TranslateWord`——与文本取材的
-    /// 收口同一规则（图像 kind 到引擎必被模态校验拒）。
+    /// kind 或哨兵本身（旧配置遗留/误编辑）时退回出厂默认 `TranslateWord`
+    /// ——兜底必须是可渲染、可执行的具体 kind，否则分类失败会一路回落成
+    /// ClassifyRequired 的死循环。
     pub fn classify_fallback(&self) -> TaskKind {
-        if self.default_text_kind.accepts_text() {
+        if self.default_text_kind.accepts_text() && self.default_text_kind != TaskKind::Auto {
             self.default_text_kind
         } else {
             TaskKind::TranslateWord
@@ -659,6 +660,16 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(text_config.classify_fallback(), TaskKind::ExplainCode);
+
+        let sentinel = Config {
+            default_text_kind: TaskKind::Auto,
+            ..Default::default()
+        };
+        assert_eq!(
+            sentinel.classify_fallback(),
+            TaskKind::TranslateWord,
+            "a hand-edited Auto default must not recurse into itself as the fallback"
+        );
     }
 
     #[test]
