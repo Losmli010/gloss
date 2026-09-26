@@ -230,13 +230,17 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | scene_gate_blocks_secure_input_and_listed_apps | 场景闸门的两路拦截 | 给定安全输入开启或前台应用在内建名单里，当判闸门，则各返回对应因由（安全输入优先于名单、名单外的应用放行、无事实放行，因由是给人看的一句说明） | 2026-09-24 |
 | entry_matching_covers_every_identity_an_app_can_offer | 名单匹配按身份逐字比对 | 给定内建名单，当匹配前台应用，则 bundle id 命中（ASCII 大小写不敏感、返回名单原文）、名单外的应用与无身份的应用都不命中 | 2026-09-24 |
 | token_prefixes_are_detected | 各类令牌前缀识别 | 给定 sk-/ghp_/xoxb-/AKIA/Bearer 各形态、带空白与引号包裹的令牌、以及 `NAME=<令牌>` 赋值形态（.env 行与 shell 导出语句），当检测，则都命中 Token | 2026-09-24 |
+| tokens_embedded_in_structured_text_are_detected | 嵌在结构里的令牌照样命中 | 给定 JSON 值、查询串参数、URL 路径段、.env 行、代码围栏包裹的令牌（前缀不在词首，前面是 `"` `:` `=` `/` 这类分隔符），当检测，则都命中 Token（前缀判定看的是「前面不是字母数字」，不是词首） | 2026-09-26 |
+| short_dummy_keys_are_detected | 手写的短假密钥照样命中 | 给定 sk-123456 / sk-abc123 / sk-XXXXXXXX / sk_live_1234abcd / ghp_1234abcd 这类十几字符内的假密钥、以及被换行截断的令牌，当检测，则都命中 Token（主体 ≥ 4 且含数字或大写即算） | 2026-09-26 |
+| invisible_characters_do_not_hide_a_token | 不可见字符藏不住令牌 | 给定令牌中间混入零宽空格、软连字符、BOM 的选区，当检测，则仍命中 Token（判定前从副本里剥掉这些字符，发送的原文不动） | 2026-09-26 |
 | prose_about_tokens_is_not_a_hit | 谈论令牌的散文不误报 | 给定本仓库文档里描述敏感信息守则的原话、过短的 sk-abc、以及「AKIA 是前缀」这类说明，当检测，则都不命中 | 2026-09-24 |
+| hyphenated_words_are_not_mistaken_for_prefixed_tokens | 英文复合词不被误判成令牌 | 给定 disk-space-2024 / risk-managed-portfolio / mask-the-answer / sk-learn-scikit 这类含 `sk-` 的普通复合词，当检测，则都不命中（前缀前面是字母即不算，普通小写主体也不算短档） | 2026-09-26 |
 | private_key_blocks_are_detected_before_tokens | 私钥块先于令牌判定 | 给定 PEM 私钥块（含它同时含 sk- 形式串），当检测，则报 PrivateKey（更确定的类别胜出） | 2026-09-24 |
 | card_numbers_pass_luhn_only | 卡号只有过 Luhn 才算 | 给定 4111 1111 1111 1111、差一位的变体与全零串，当检测，则只有真正过 Luhn 且数字不重复的那条命中 CardNumber | 2026-09-24 |
 | high_entropy_strings_are_detected | 高熵长随机串识别 | 给定 32 位以上、含三类字符的高熵串，当检测，则命中 HighEntropy | 2026-09-24 |
 | identifiers_and_prose_stay_below_the_entropy_threshold | 标识符与散文不触熵阈值 | 给定长下划线标识符、纯小写长词与中文句子，当检测，则都不命中（熵阈值 + 三类字符要求共同收口） | 2026-09-24 |
 | detection_prefers_the_more_certain_kind | 检测按确定度排序 | 给定同时可判多类的文本，当检测，则返回更确定的那个类别（私钥 > 令牌 > 卡号 > 高熵） | 2026-09-24 |
-| ordinary_text_is_never_flagged | 日常文本一律不拦 | 给定常用句中英文本、中文段落与代码片段，当检测，则全部为 None | 2026-09-24 |
+| ordinary_text_is_never_flagged | 日常文本一律不拦 | 给定常用句中英文本、中文段落、代码片段、带 `sk-` 的普通英文句与 `let key = "sk-test";` 这类代码，当检测，则全部为 None | 2026-09-26 |
 
 ### crates/gloss-core/src/prompt.rs
 

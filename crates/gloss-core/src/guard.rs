@@ -8,6 +8,11 @@
 //! 内容闸门让取材产物止步于状态机），没有开关、没有名单编辑、也没有
 //! 「仍然继续」这一路出口——防护不交由用户控制。判据只有类别出去：命中的
 //! 原文既不进日志也不进错误消息，只留 [`SensitiveKind`] / [`TriggerBlock`]。
+//!
+//! 内容闸门只认**形状**：已知前缀 + 像凭据的主体、PEM 块、过 Luhn 的卡号、
+//! 高熵串。形状判定必须容得下「用户实际选中的样子」——引号/括号/JSON/查询
+//! 串里嵌着的令牌、手写的短假密钥、复制时混进零宽字符的令牌，都算命中；
+//! 反过来，普通小写复合词（`sk-learn-scikit`）与谈论前缀的散文不算。
 
 use std::fmt;
 
@@ -104,6 +109,15 @@ pub enum SensitiveKind {
 /// 只做高置信度模式，判定顺序与命中概率无关，只为「更确定的类别先报」：
 /// 私钥块 → 密钥/令牌 → 卡号 → 高熵串（前者命中就不再往下猜）。
 pub fn detect_sensitive(text: &str) -> Option<SensitiveKind> {
+    // 网页与编辑器复制时常把不可见字符混进令牌中间，前面的词首判定会被它
+    // 挡住。只在真含有它们时才拷贝副本（选区是热路径）。
+    let cleaned;
+    let text = if text.contains(&INVISIBLE[..]) {
+        cleaned = text.replace(&INVISIBLE[..], "");
+        cleaned.as_str()
+    } else {
+        text
+    };
     if has_private_key_block(text) {
         return Some(SensitiveKind::PrivateKey);
     }
@@ -125,13 +139,23 @@ const TRIMMED: &[char] = &[
     '，', '、',
 ];
 
-/// 已知密钥/令牌前缀（逐字匹配，大小写敏感——这些前缀本身区分大小写）。
-const TOKEN_PREFIXES: [&str; 8] = [
-    "sk-", "ghp_", "gho_", "ghs_", "ghu_", "ghr_", "xoxb-", "xoxp-",
+/// 复制时会切断令牌的不可见字符：零宽空格/连接符、词连接符、BOM、软连字符。
+const INVISIBLE: [char; 6] = [
+    '\u{200b}', '\u{200c}', '\u{200d}', '\u{2060}', '\u{feff}', '\u{00ad}',
 ];
 
-/// 前缀之后还需要的最小主体长度：三个字符的 `sk-` 本身只是散文。
+/// 已知密钥/令牌前缀（逐字匹配，大小写敏感——这些前缀本身区分大小写）。
+/// `sk_live_` / `sk_test_` 是 Stripe 的两档 secret key，`sk-proj-` 那一类
+/// 已被 `sk-` 覆盖。
+const TOKEN_PREFIXES: [&str; 10] = [
+    "sk-", "sk_live_", "sk_test_", "ghp_", "gho_", "ghs_", "ghu_", "ghr_", "xoxb-", "xoxp-",
+];
+
+/// 前缀之后算令牌的主体长度上限档：长过它一律算令牌。
 const MIN_TOKEN_BODY: usize = 16;
+/// 短主体档的下限：手写的假密钥（`sk-123456`、`sk-abc123`）就在这一档，
+/// 长度够了还得**含数字或大写**——普通小写复合词（`sk-learn-scikit`）不能中。
+const SHORT_TOKEN_BODY: usize = 4;
 /// `Bearer` 之后的最小令牌长度。
 const MIN_BEARER_BODY: usize = 20;
 /// AWS access key id 的主体长度（`AKIA` 后 16 位）。
@@ -148,12 +172,11 @@ const MAX_CARD_DIGITS: usize = 19;
 fn has_private_key_block(text: &str) -> bool {
     text.contains("-----BEGIN") && text.contains("PRIVATE KEY")
 }
-
-/// 密钥/令牌：按空白切词，逐词试前缀；`Bearer <token>` 是两词，单独判。
+/// 密钥/令牌：按空白切词，逐词扫描前缀；`Bearer <token>` 是两词，单独判。
 fn has_token(text: &str) -> bool {
     if text
         .split_whitespace()
-        .any(|raw| is_prefixed_token(after_assignment(raw.trim_matches(TRIMMED))))
+        .any(|raw| is_prefixed_token(raw.trim_matches(TRIMMED)))
     {
         return true;
     }
@@ -164,27 +187,75 @@ fn has_token(text: &str) -> bool {
     })
 }
 
-/// 赋值形态（`OPENAI_API_KEY=sk-...`、`AUTH=Bearer ...`）的取值半边：`.env`
-/// 行与 shell 导出语句是密钥最常见的手抄/粘贴形态，只认词首会整片漏掉。
-/// 切**最后一个**等号——令牌主体自己的字符集里没有等号，取最后一个更稳。
+/// 赋值形态（`AUTH=Bearer ...`）的取值半边：切**最后一个**等号——令牌主体
+/// 自己的字符集里没有等号，取最后一个更稳。
 fn after_assignment(word: &str) -> &str {
     word.rsplit_once('=').map_or(word, |(_, value)| value)
 }
 
-/// 带前缀的密钥：前缀 + 足够长的令牌主体。`AKIA` 单独判（其后只允许
-/// 大写字母与数字——AWS access key id 的字符集）。
+/// 词内扫描已知前缀与 `AKIA`：命中要求前缀**前面不是字母数字**（词首，或
+/// 前面是 `=` `:` `"` `/` 这类分隔符）——`{"key":"sk-xxx"}`、`key=sk-xxx`、
+/// `“sk-xxx”`、`/sk-xxx` 因此都能命中，而英文复合词（`disk-space-2024`、
+/// `risk-managed-portfolio`）不会。
 fn is_prefixed_token(candidate: &str) -> bool {
-    if let Some(body) = candidate.strip_prefix("AKIA") {
-        return body.len() >= AWS_KEY_ID_BODY
-            && body
-                .bytes()
-                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit());
+    for (at, _) in candidate.char_indices() {
+        let at_token_start = at == 0
+            || !candidate[..at]
+                .chars()
+                .next_back()
+                .is_some_and(char::is_alphanumeric);
+        if !at_token_start {
+            continue;
+        }
+        let rest = &candidate[at..];
+        if rest.starts_with("AKIA") && is_aws_key_id(body_run(&rest["AKIA".len()..])) {
+            return true;
+        }
+        if TOKEN_PREFIXES.iter().any(|prefix| {
+            rest.strip_prefix(prefix)
+                .is_some_and(|body| is_prefixed_body(body_run(body)))
+        }) {
+            return true;
+        }
     }
-    TOKEN_PREFIXES.iter().any(|prefix| {
-        candidate
-            .strip_prefix(prefix)
-            .is_some_and(|body| is_token_body(body, MIN_TOKEN_BODY))
-    })
+    false
+}
+
+/// 前缀令牌的主体形状：两档长度（见 [`MIN_TOKEN_BODY`] / [`SHORT_TOKEN_BODY`]）。
+fn is_prefixed_body(body: &str) -> bool {
+    let len = body.chars().count();
+    if len >= MIN_TOKEN_BODY {
+        return true;
+    }
+    len >= SHORT_TOKEN_BODY
+        && body
+            .chars()
+            .any(|ch| ch.is_ascii_digit() || ch.is_ascii_uppercase())
+}
+
+/// 前缀之后连续的主体字符：遇到别的字符即止——`"sk-abc123"` 的收尾引号、
+/// `sk-abc123}` 的右花括号不该让前面的令牌作废。
+fn body_run(rest: &str) -> &str {
+    let end = rest
+        .char_indices()
+        .find(|&(_, ch)| !is_prefixed_body_char(ch))
+        .map_or(rest.len(), |(at, _)| at);
+    &rest[..end]
+}
+
+/// 前缀令牌的主体字符集：URL-safe 与标准 base64 都在内（`+` `/` `=` 常见于
+/// 手写的假密钥，`Bearer` 与高熵那两条仍用窄字符集）。
+fn is_prefixed_body_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-' | '+' | '/' | '=')
+}
+
+/// AWS access key id 的主体：长度够且全为大写字母或数字（它自己的字符集，
+/// 与前缀表其余项不同）。
+fn is_aws_key_id(body: &str) -> bool {
+    body.len() >= AWS_KEY_ID_BODY
+        && body
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
 }
 
 /// 令牌主体：长度够且字符全在 `[A-Za-z0-9._-]` 内（URL-safe base64、十六
@@ -429,6 +500,65 @@ mod tests {
     }
 
     #[test]
+    fn tokens_embedded_in_structured_text_are_detected() {
+        let long = filler(24);
+        let mut cases = vec![
+            r#"{"token":"sk-1234567890abcd"}"#.to_owned(),
+            r#"{"key":"ghp_1234567890abcd","env":"prod"}"#.to_owned(),
+            "https://example.test/v1?token=sk-1234567890abcd&model=x".to_owned(),
+            "https://platform.example.com/keys/sk-1234567890abcd".to_owned(),
+            "OPENAI_API_KEY=sk-1234567890abcd".to_owned(),
+            "export GITHUB_TOKEN=ghp_1234567890abcd".to_owned(),
+            "```\nsk-1234567890abcd\n```".to_owned(),
+        ];
+        cases.push(format!(r#"{{"token":"sk-{long}"}}"#));
+        for text in cases {
+            assert_eq!(
+                detect_sensitive(&text),
+                Some(SensitiveKind::Token),
+                "{text} hides a token that must still be reported"
+            );
+        }
+    }
+
+    #[test]
+    fn short_dummy_keys_are_detected() {
+        for text in [
+            "sk-123456",
+            "sk-abc123",
+            "sk-XXXXXXXX",
+            "sk-AbCdEf12",
+            "sk_live_1234abcd",
+            "sk_test_1234abcd",
+            "ghp_1234abcd",
+            "sk-1234567890abcd",
+            "sk-1234567890abcd\nefghijklmnopqrst",
+        ] {
+            let kind = detect_sensitive(text);
+            assert_eq!(
+                kind,
+                Some(SensitiveKind::Token),
+                "{text} is a hand-written dummy key and must be reported, got {kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invisible_characters_do_not_hide_a_token() {
+        for text in [
+            "sk-\u{200b}1234567890abcd",
+            "sk-1234567890\u{00ad}abcd",
+            "\u{feff}sk-123456",
+        ] {
+            assert_eq!(
+                detect_sensitive(text),
+                Some(SensitiveKind::Token),
+                "{text} carries an invisible character inside the token"
+            );
+        }
+    }
+
+    #[test]
     fn prose_about_tokens_is_not_a_hit() {
         for text in [
             "密钥前缀 sk- 与 AKIA 是最常见的两种形态",
@@ -440,6 +570,24 @@ mod tests {
                 detect_sensitive(text),
                 None,
                 "{text} is prose, not a secret"
+            );
+        }
+    }
+
+    #[test]
+    fn hyphenated_words_are_not_mistaken_for_prefixed_tokens() {
+        for text in [
+            "disk-space-2024",
+            "risk-managed-portfolio",
+            "task-completed-2024",
+            "sk-learn-scikit",
+            "sk-abcdefgh",
+            "mask-the-answer",
+        ] {
+            assert_eq!(
+                detect_sensitive(text),
+                None,
+                "{text} is an ordinary hyphenated word, not a credential"
             );
         }
     }
@@ -530,6 +678,9 @@ mod tests {
             "fn main() { println!(\"hello\"); }",
             "https://example.com/docs/getting-started",
             "let model = resolved_model(TaskKind::TranslateWord);",
+            "The disk-space-2024 report is ready.",
+            "let key = \"sk-test\";",
+            "这段文字里出现了 sk- 这个前缀。",
         ] {
             assert_eq!(detect_sensitive(text), None, "{text} is ordinary text");
         }

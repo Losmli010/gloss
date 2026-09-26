@@ -306,7 +306,7 @@ mod tests {
     use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder, StubSceneProbe};
 
     fn suspicious_text() -> String {
-        format!("key sk-{}", "aB3".repeat(8))
+        format!("key sk-{}", "9f2b7c1d")
     }
 
     #[test]
