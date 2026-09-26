@@ -266,6 +266,10 @@ impl TaskStateMachine {
 
     /// 采纳流式增量：追加到流式视图的原始正文（围栏过滤在渲染层）。
     /// 返回是否有新内容需要重绘。
+    ///
+    /// 这份累积只服务**流式显示**；tokio 桥为完成态组装另有独立的一份
+    /// body 累积（见 `crate::pipeline`）。两处并存，权威源是完成态的
+    /// `TaskDone.outcome.body`——`accept_done` 用它整卡覆盖流式视图。
     pub fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
@@ -277,6 +281,9 @@ impl TaskStateMachine {
     }
 
     /// 采纳任务产物：定格正文并进入 `Show`。返回是否需要重绘。
+    ///
+    /// `outcome.body` 是权威正文（桥经 `finalize_outcome` 剥围栏后的净
+    /// 结果），直接覆盖流式视图——machine 侧的流式累积只到此刻为止。
     pub fn accept_done(&mut self, generation: u64, outcome: TaskOutcome) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;

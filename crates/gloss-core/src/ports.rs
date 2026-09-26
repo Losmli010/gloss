@@ -59,6 +59,10 @@ pub struct EngineRequest {
     pub messages: Vec<ChatMessage>,
     /// 本任务使用的模型 id（App 在触发时按配置解析）。
     pub model: String,
+    /// 回复的 token 上限（OpenAI 兼容 `max_tokens`）：`None` = 不设限。
+    /// 渲染与转发不感知它——需要截断回复的调用方（如分类这类只回一小段
+    /// JSON 的请求）按请求性质自行携带。
+    pub max_tokens: Option<u32>,
 }
 
 /// 触发前场景探针（端口）：读一次当前场景事实（安全输入态与前台应用），
