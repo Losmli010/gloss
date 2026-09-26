@@ -35,6 +35,10 @@ logs-dir:
 logs *args:
     @python3 scripts/dev/gloss-logs.py {{args}}
 
+# 本地预览站点（web/，同源无 manifest.json 时页面走 GitHub Releases 降级路径）
+site-preview port="8137":
+    python3 -m http.server {{port}} --directory web
+
 # Debug 构建整个 workspace
 build:
     cargo build --workspace
