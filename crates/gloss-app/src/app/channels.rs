@@ -63,8 +63,8 @@ impl GlossApp {
             } else {
                 // 三类拦下各有各的级别与措辞：被任务开关停用的触发是用户
                 // 能自己修的配置问题；被场景闸门拦下的是「这一次的场景不
-                // 合适」（换应用或取消聚焦密码框即可，也可能是防护开关）；
-                // 未接线的事件只留在默认级别看不见的 debug 里。
+                // 合适」（换一个应用，或取消密码框的聚焦）；未接线的事件
+                // 只留在默认级别看不见的 debug 里。
                 match trigger_decision(&event, &config, &scene) {
                     TriggerDecision::Disabled(kind) => warn!(
                         thread = thread::UI,
@@ -175,9 +175,10 @@ impl GlossApp {
                     reason = ?reason,
                     "input suppressed by the sensitive content guard, task not dispatched"
                 );
-                // 状态机那边已回 Idle 并清空视图，这里做的是窗口那半边：
-                // 隐藏浮层、清渲染截止时刻。浮层里可能还挂着上一次的结果，
-                // 它属于另一次取材，留着会被读成「这次划词的结果」。
+                // 浮层里可能还挂着上一次的结果，它属于另一次取材，留着会
+                // 被读成「这次划词的结果」——收起它。走的是统一收起出口，
+                // 它会顺带再清一遍状态机的在途字段（此处两者都已是空的）、
+                // 隐藏窗口并清渲染截止时刻。
                 self.dismiss_overlay("sensitive content blocked");
                 false
             }
@@ -306,7 +307,7 @@ mod tests {
     use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder, StubSceneProbe};
 
     fn suspicious_text() -> String {
-        format!("key sk-{}", "9f2b7c1d")
+        format!("{{\"token\":\"sk-{}\"}}", "9f2b7c1d")
     }
 
     #[test]

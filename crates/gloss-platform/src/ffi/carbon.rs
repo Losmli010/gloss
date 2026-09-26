@@ -21,10 +21,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn secure_input_query_links_and_answers_off_by_default() {
-        assert!(
-            !is_secure_event_input_enabled(),
-            "a plain test process holds no password field, so secure input is off"
+    fn secure_input_query_links_and_answers_consistently() {
+        let first = is_secure_event_input_enabled();
+        assert_eq!(
+            first,
+            is_secure_event_input_enabled(),
+            "the query is a pure read of a system-wide flag, so two calls in a row must agree"
         );
     }
 }

@@ -11,8 +11,10 @@
 //!
 //! 内容闸门只认**形状**：已知前缀 + 像凭据的主体、PEM 块、过 Luhn 的卡号、
 //! 高熵串。形状判定必须容得下「用户实际选中的样子」——引号/括号/JSON/查询
-//! 串里嵌着的令牌、手写的短假密钥、复制时混进零宽字符的令牌，都算命中；
-//! 反过来，普通小写复合词（`sk-learn-scikit`）与谈论前缀的散文不算。
+//! 串里嵌着的令牌、汉字紧贴的令牌、手写的短假密钥、复制时混进零宽字符的
+//! 令牌、卡号后面跟着有效期或 CVC，都算命中；谈论前缀的散文不算。前缀令牌
+//! 的形状下限分两档（见 [`is_prefixed_body`]）：长档只看长度，短档还要求含
+//! 数字或大写——普通小写复合词被挡在短档之外，够长的那些算中（写明的取舍）。
 
 use std::fmt;
 
@@ -172,30 +174,39 @@ const MAX_CARD_DIGITS: usize = 19;
 fn has_private_key_block(text: &str) -> bool {
     text.contains("-----BEGIN") && text.contains("PRIVATE KEY")
 }
-/// 密钥/令牌：按空白切词，逐词扫描前缀；`Bearer <token>` 是两词，单独判。
+/// 密钥/令牌：按空白切词逐词扫描前缀，同时盯住「前一个词是 `Bearer`」这一
+/// 双词形态——一趟遍历里两件事一起做，不为此把整段选区收成 `Vec`。
 fn has_token(text: &str) -> bool {
-    if text
-        .split_whitespace()
-        .any(|raw| is_prefixed_token(raw.trim_matches(TRIMMED)))
-    {
-        return true;
+    let mut previous: Option<&str> = None;
+    for raw in text.split_whitespace() {
+        let word = raw.trim_matches(TRIMMED);
+        if is_prefixed_token(word) {
+            return true;
+        }
+        if is_bearer_token(previous, word) {
+            return true;
+        }
+        previous = Some(word);
     }
-    let words: Vec<&str> = text.split_whitespace().collect();
-    words.windows(2).any(|pair| {
-        after_assignment(pair[0].trim_matches(TRIMMED)).eq_ignore_ascii_case("bearer")
-            && is_token_body(pair[1].trim_matches(TRIMMED), MIN_BEARER_BODY)
-    })
+    false
 }
 
-/// 赋值形态（`AUTH=Bearer ...`）的取值半边：切**最后一个**等号——令牌主体
-/// 自己的字符集里没有等号，取最后一个更稳。
+/// `Bearer <token>`：前一个词是 `Bearer`（大小写不敏感，允许 `AUTH=Bearer`
+/// 这种赋值形态）且当前词够长。
+fn is_bearer_token(previous: Option<&str>, word: &str) -> bool {
+    previous.is_some_and(|prev| after_assignment(prev).eq_ignore_ascii_case("bearer"))
+        && is_token_body(word, MIN_BEARER_BODY)
+}
+
+/// 赋值形态（`AUTH=Bearer ...`）的取值半边：切**最后一个**等号——`Bearer`
+/// 的前面可能是 `AUTH=`，取最后一个更稳。
 fn after_assignment(word: &str) -> &str {
     word.rsplit_once('=').map_or(word, |(_, value)| value)
 }
 
-/// 词内扫描已知前缀与 `AKIA`：命中要求前缀**前面不是字母数字**（词首，或
-/// 前面是 `=` `:` `"` `/` 这类分隔符）——`{"key":"sk-xxx"}`、`key=sk-xxx`、
-/// `“sk-xxx”`、`/sk-xxx` 因此都能命中，而英文复合词（`disk-space-2024`、
+/// 词内扫描已知前缀与 `AKIA`：命中要求前缀**前面不是 ASCII 字母数字**（词首，
+/// 或前面是 `=` `:` `"` `/` 这类分隔符）——`{"key":"sk-xxx"}`、`key=sk-xxx`、
+/// `密钥是sk-xxx`、`/sk-xxx` 因此都能命中，而英文复合词（`disk-space-2024`、
 /// `risk-managed-portfolio`）不会。
 fn is_prefixed_token(candidate: &str) -> bool {
     for (at, _) in candidate.char_indices() {
@@ -203,12 +214,14 @@ fn is_prefixed_token(candidate: &str) -> bool {
             || !candidate[..at]
                 .chars()
                 .next_back()
-                .is_some_and(char::is_alphanumeric);
+                .is_some_and(|prev| prev.is_ascii_alphanumeric());
         if !at_token_start {
             continue;
         }
         let rest = &candidate[at..];
-        if rest.starts_with("AKIA") && is_aws_key_id(body_run(&rest["AKIA".len()..])) {
+        if let Some(body) = rest.strip_prefix("AKIA")
+            && aws_body_run(body).len() >= AWS_KEY_ID_BODY
+        {
             return true;
         }
         if TOKEN_PREFIXES.iter().any(|prefix| {
@@ -249,13 +262,15 @@ fn is_prefixed_body_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-' | '+' | '/' | '=')
 }
 
-/// AWS access key id 的主体：长度够且全为大写字母或数字（它自己的字符集，
-/// 与前缀表其余项不同）。
-fn is_aws_key_id(body: &str) -> bool {
-    body.len() >= AWS_KEY_ID_BODY
-        && body
-            .bytes()
-            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+/// `AKIA` 之后连续的 access key id 字符（大写字母与数字）：`AKIA…EXAMPLE=`、
+/// `AKIA…EXAMPLE+1` 里的填充符与后缀属于下一个词元，不该让编号作废——判据
+/// 只要求「够长的一串大写字母与数字」。
+fn aws_body_run(rest: &str) -> &str {
+    let end = rest
+        .char_indices()
+        .find(|&(_, ch)| !(ch.is_ascii_uppercase() || ch.is_ascii_digit()))
+        .map_or(rest.len(), |(at, _)| at);
+    &rest[..end]
 }
 
 /// 令牌主体：长度够且字符全在 `[A-Za-z0-9._-]` 内（URL-safe base64、十六
@@ -319,26 +334,29 @@ fn shannon_bits_per_char(word: &str) -> f64 {
         .sum()
 }
 
-/// 卡号：13–19 位数字（组间允许单个空格或连字符）、过 Luhn 校验、且至少
+/// 卡号：13–19 位数字（组间允许空格或连字符连续出现）、过 Luhn 校验、且至少
 /// 出现两种不同数字（全同数字串是填充号，不是卡号）。
+///
+/// 判定点有两类：**每个组分界**与**整段末尾**。「卡号 + 有效期/CVC」是粘贴
+/// 卡片信息最常见的形态，只在末尾判会让 `4111 1111 1111 1111 12/26` 这类
+/// 因为后段数字并进累加串而整条漏掉；组界处提前判一次就看得见那 16 位。
 fn has_card_number(text: &str) -> bool {
     let mut digits = String::new();
-    let mut separated = false;
     for ch in text.chars() {
         if ch.is_ascii_digit() {
             if digits.len() >= MAX_CARD_DIGITS {
                 digits.clear();
             }
             digits.push(ch);
-            separated = false;
-        } else if matches!(ch, ' ' | '-') && !digits.is_empty() && !separated {
-            separated = true;
+        } else if matches!(ch, ' ' | '-') && !digits.is_empty() {
+            if luhn_ok(&digits) {
+                return true;
+            }
         } else {
             if luhn_ok(&digits) {
                 return true;
             }
             digits.clear();
-            separated = false;
         }
     }
     luhn_ok(&digits)
@@ -441,6 +459,14 @@ mod tests {
             "an app outside the list is not a scene to block"
         );
         assert_eq!(
+            trigger_block(&SceneFacts {
+                secure_input: true,
+                front_app: Some(front("com.1password.1password", "1Password")),
+            }),
+            Some(TriggerBlock::SecureInput),
+            "when both facts hold, secure input is the reason that comes back"
+        );
+        assert_eq!(
             trigger_block(&SceneFacts::default()),
             None,
             "no facts and no reason to block"
@@ -449,34 +475,41 @@ mod tests {
 
     #[test]
     fn entry_matching_covers_every_identity_an_app_can_offer() {
-        assert_eq!(
-            matched_entry(&front("com.acme.vault", "Acme Vault")),
-            None,
-            "an app outside the built-in list matches nothing"
-        );
-        assert_eq!(
-            matched_entry(&front("com.apple.Passwords", "Passwords")),
-            Some("com.apple.Passwords"),
-            "the bundle id matches verbatim, mixed case included"
-        );
-        assert_eq!(
-            matched_entry(&front("COM.APPLE.KEYCHAINACCESS", "Keychain Access")),
-            Some("com.apple.keychainaccess"),
-            "matching is ASCII case-insensitive, and the list row comes back verbatim"
-        );
-        assert_eq!(
-            matched_entry(&front("com.acme.vault", "1password")),
-            None,
-            "a display name only matches if the list carries that very name"
-        );
-        assert_eq!(
-            matched_entry(&FrontApp {
-                bundle_id: None,
-                name: None,
-            }),
-            None,
-            "an app with no identity cannot match"
-        );
+        for (facts, expected, message) in [
+            (
+                in_app("com.acme.vault", "Acme Vault"),
+                None,
+                "an app outside the built-in list matches nothing",
+            ),
+            (
+                in_app("com.apple.Passwords", "Passwords"),
+                Some(TriggerBlock::BlockedApp("com.apple.Passwords")),
+                "the bundle id matches verbatim, mixed case included",
+            ),
+            (
+                in_app("COM.APPLE.KEYCHAINACCESS", "Keychain Access"),
+                Some(TriggerBlock::BlockedApp("com.apple.keychainaccess")),
+                "matching is ASCII case-insensitive, and the list row comes back verbatim",
+            ),
+            (
+                in_app("com.acme.vault", "1password"),
+                None,
+                "a display name only matches if the list carries that very name",
+            ),
+            (
+                SceneFacts {
+                    secure_input: false,
+                    front_app: Some(FrontApp {
+                        bundle_id: None,
+                        name: None,
+                    }),
+                },
+                None,
+                "an app with no identity cannot match",
+            ),
+        ] {
+            assert_eq!(trigger_block(&facts), expected, "{message}");
+        }
     }
 
     #[test]
@@ -490,6 +523,7 @@ mod tests {
             format!("Bearer {body}"),
             format!("\"sk-{body}\""),
             format!("GITHUB_TOKEN=ghp_{body}"),
+            format!("AUTH=Bearer {body}"),
         ] {
             assert_eq!(
                 detect_sensitive(&text),
@@ -510,6 +544,8 @@ mod tests {
             "OPENAI_API_KEY=sk-1234567890abcd".to_owned(),
             "export GITHUB_TOKEN=ghp_1234567890abcd".to_owned(),
             "```\nsk-1234567890abcd\n```".to_owned(),
+            "密钥是sk-1234567890abcd".to_owned(),
+            "密钥：sk-1234567890abcd".to_owned(),
         ];
         cases.push(format!(r#"{{"token":"sk-{long}"}}"#));
         for text in cases {
@@ -547,13 +583,71 @@ mod tests {
     fn invisible_characters_do_not_hide_a_token() {
         for text in [
             "sk-\u{200b}1234567890abcd",
-            "sk-1234567890\u{00ad}abcd",
-            "\u{feff}sk-123456",
+            "sk-\u{00ad}1234567890abcd",
+            "sk-\u{2060}123456",
+            "sk-\u{200c}1234567890abcd",
+            "sk-\u{200d}1234567890abcd",
+            "sk-\u{feff}123456",
         ] {
             assert_eq!(
                 detect_sensitive(text),
                 Some(SensitiveKind::Token),
                 "{text} carries an invisible character inside the token"
+            );
+        }
+        assert_eq!(
+            detect_sensitive("卡号 4111\u{200b}1111 1111 1111"),
+            Some(SensitiveKind::CardNumber),
+            "the stripping happens before every detector, not just the token one"
+        );
+        assert_eq!(
+            detect_sensitive(&format!("key \u{200b}{}", entropy_filler(40))),
+            Some(SensitiveKind::HighEntropy),
+            "an invisible character inside a random string is stripped too"
+        );
+    }
+
+    #[test]
+    fn bearer_and_aws_key_ids_keep_their_own_bounds() {
+        let long = filler(24);
+        assert_eq!(
+            detect_sensitive(&format!("AKIA{}=", "A1".repeat(8))),
+            Some(SensitiveKind::Token),
+            "base64 padding after an access key id is not part of the id"
+        );
+        assert_eq!(
+            detect_sensitive(&format!("Bearer {long}+/==")),
+            None,
+            "the Bearer branch keeps the narrow charset: a standard-base64 body is out of its shape"
+        );
+        for text in [
+            "AKIA2024",
+            &format!("AKIA{}{}", "A1".repeat(5), "A1"),
+            &format!("akia{}", "A1".repeat(8)),
+            &format!("AKIA{}-{}", "ABCDEFGH", "IJKLMNOP"),
+        ] {
+            assert_eq!(
+                detect_sensitive(text),
+                None,
+                "{text} is too short, uses a lower-case prefix, or carries a character outside the id charset"
+            );
+        }
+    }
+
+    #[test]
+    fn the_long_tier_of_prefixed_bodies_ignores_shape() {
+        for text in ["sk-learn-scikit", "sk-abcdefgh"] {
+            assert_eq!(
+                detect_sensitive(text),
+                None,
+                "{text} is below the short tier's floor and looks like an ordinary word"
+            );
+        }
+        for text in ["sk-learn-scikit-learn", "sk-abcdefghijklmnop"] {
+            assert_eq!(
+                detect_sensitive(text),
+                Some(SensitiveKind::Token),
+                "{text} is long enough to be taken for a credential: the long tier only checks length, which is the written-off trade"
             );
         }
     }
@@ -629,6 +723,17 @@ mod tests {
             Some(SensitiveKind::CardNumber),
             "an unseparated run works too"
         );
+        for text in [
+            "4111 1111 1111 1111 12/26",
+            "4111 1111 1111 1111 123",
+            "4111  1111  1111  1111",
+        ] {
+            assert_eq!(
+                detect_sensitive(text),
+                Some(SensitiveKind::CardNumber),
+                "{text} carries a card number next to other digits"
+            );
+        }
     }
 
     #[test]
@@ -654,6 +759,17 @@ mod tests {
         ] {
             assert_eq!(detect_sensitive(text), None, "{text} is not a credential");
         }
+        let near: String = "Aa1Bb2Cc3Dd4Ee5Ff6Gg7"
+            .chars()
+            .flat_map(|ch| [ch, ch])
+            .collect();
+        for text in ["Aa1".repeat(12), "aB3.".repeat(10), near] {
+            assert_eq!(
+                detect_sensitive(&text),
+                None,
+                "{text} has all three character classes and the length, so only the entropy threshold can reject it"
+            );
+        }
     }
 
     #[test]
@@ -662,6 +778,11 @@ mod tests {
             detect_sensitive(&format!("4111 1111 1111 1111\n{}", entropy_filler(40))),
             Some(SensitiveKind::CardNumber),
             "a card number outranks an entropy hit"
+        );
+        assert_eq!(
+            detect_sensitive(&format!("sk-{}\n4111 1111 1111 1111", filler(24))),
+            Some(SensitiveKind::Token),
+            "a token outranks a card number"
         );
         assert_eq!(
             detect_sensitive(&format!("-----BEGIN {} PRIVATE KEY-----", "EC")),

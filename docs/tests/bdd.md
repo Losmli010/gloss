@@ -8,11 +8,11 @@
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
-| 人工测试 | 10 | `cargo test -p gloss-platform -- --ignored` |
+| 人工测试 | 11 | `cargo test -p gloss-platform -- --ignored` |
 | 集成测试 | 6 | `just test` |
 | 性能测试 | 1 | `just selftest` |
-| 快照测试 | 27 | `just test` |
-| 单元测试 | 312 | `just test` |
+| 快照测试 | 24 | `just test` |
+| 单元测试 | 313 | `just test` |
 
 ## 人工测试
 
@@ -104,6 +104,15 @@
   1. 随常规测试自动运行，无需授权与 --ignored
   2. 运行中会覆写并恢复本机剪贴板；经 CLIPBOARD_LIVE_LOCK 串行
 - 更新时间：2026-09-19
+
+### scene_probe_reports_the_frontmost_app
+- 测试目标：验证真机上 NSWorkspace 取前台应用这条路径（CI 里只能断「一致快照」，`Some` 分支跑不到）。
+- 测试场景：给定有前台应用的图形会话，当读一次场景事实，则报出前台应用且其身份字段非空。
+- 测试步骤：
+  1. 在有窗口服务的会话里运行（无前台应用的环境会当场失败）
+  2. 运行总览中人工测试的命令
+  3. 前台开着任意应用即可；在密码管理器内划词的行为另见 PR 走查清单
+- 更新时间：2026-09-26
 
 ## 集成测试
 
@@ -227,19 +236,21 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| scene_gate_blocks_secure_input_and_listed_apps | 场景闸门的两路拦截 | 给定安全输入开启或前台应用在内建名单里，当判闸门，则各返回对应因由（安全输入优先于名单、名单外的应用放行、无事实放行，因由是给人看的一句说明） | 2026-09-24 |
-| entry_matching_covers_every_identity_an_app_can_offer | 名单匹配按身份逐字比对 | 给定内建名单，当匹配前台应用，则 bundle id 命中（ASCII 大小写不敏感、返回名单原文）、名单外的应用与无身份的应用都不命中 | 2026-09-24 |
-| token_prefixes_are_detected | 各类令牌前缀识别 | 给定 sk-/ghp_/xoxb-/AKIA/Bearer 各形态、带空白与引号包裹的令牌、以及 `NAME=<令牌>` 赋值形态（.env 行与 shell 导出语句），当检测，则都命中 Token | 2026-09-24 |
-| tokens_embedded_in_structured_text_are_detected | 嵌在结构里的令牌照样命中 | 给定 JSON 值、查询串参数、URL 路径段、.env 行、代码围栏包裹的令牌（前缀不在词首，前面是 `"` `:` `=` `/` 这类分隔符），当检测，则都命中 Token（前缀判定看的是「前面不是字母数字」，不是词首） | 2026-09-26 |
+| scene_gate_blocks_secure_input_and_listed_apps | 场景闸门的两路拦截与优先级 | 给定安全输入开启、前台应用在内建名单里、两者同时成立、名单外的应用、无事实五种场景，当判闸门，则各返回对应因由（两者同时成立时报安全输入、名单外与无事实放行） | 2026-09-26 |
+| entry_matching_covers_every_identity_an_app_can_offer | 名单匹配按身份逐字比对 | 给定内建名单，当经公共入口 `trigger_block` 判闸门，则 bundle id 命中（ASCII 大小写不敏感、返回名单原文）、显示名不命中、名单外的应用与无身份的应用都放行 | 2026-09-26 |
+| token_prefixes_are_detected | 各类令牌前缀识别 | 给定 sk-/ghp_/xoxb-/AKIA/Bearer 各形态、带空白与引号包裹的令牌、以及 `NAME=<令牌>` 与 `AUTH=Bearer <令牌>` 两种赋值形态（.env 行、shell 导出与 Authorization 头），当检测，则都命中 Token | 2026-09-26 |
+| tokens_embedded_in_structured_text_are_detected | 嵌在结构里或汉字紧贴的令牌照样命中 | 给定 JSON 值、查询串参数、URL 路径段、.env 行、代码围栏包裹的令牌，以及紧贴汉字的令牌（`密钥是sk-…`），当检测，则都命中 Token（前缀判定看的是「前面不是 ASCII 字母数字」，不是词首） | 2026-09-26 |
 | short_dummy_keys_are_detected | 手写的短假密钥照样命中 | 给定 sk-123456 / sk-abc123 / sk-XXXXXXXX / sk_live_1234abcd / ghp_1234abcd 这类十几字符内的假密钥、以及被换行截断的令牌，当检测，则都命中 Token（主体 ≥ 4 且含数字或大写即算） | 2026-09-26 |
-| invisible_characters_do_not_hide_a_token | 不可见字符藏不住令牌 | 给定令牌中间混入零宽空格、软连字符、BOM 的选区，当检测，则仍命中 Token（判定前从副本里剥掉这些字符，发送的原文不动） | 2026-09-26 |
+| invisible_characters_do_not_hide_a_token | 不可见字符藏不住令牌 | 给定紧跟前缀、或嵌在卡号与高熵串里的六类不可见字符（零宽空格/连接符、词连接符、BOM、软连字符），当检测，则 Token / CardNumber / HighEntropy 各自仍命中（判定前从副本里剥掉它们，且发生在所有检测器之前） | 2026-09-26 |
 | prose_about_tokens_is_not_a_hit | 谈论令牌的散文不误报 | 给定本仓库文档里描述敏感信息守则的原话、过短的 sk-abc、以及「AKIA 是前缀」这类说明，当检测，则都不命中 | 2026-09-24 |
 | hyphenated_words_are_not_mistaken_for_prefixed_tokens | 英文复合词不被误判成令牌 | 给定 disk-space-2024 / risk-managed-portfolio / mask-the-answer / sk-learn-scikit 这类含 `sk-` 的普通复合词，当检测，则都不命中（前缀前面是字母即不算，普通小写主体也不算短档） | 2026-09-26 |
 | private_key_blocks_are_detected_before_tokens | 私钥块先于令牌判定 | 给定 PEM 私钥块（含它同时含 sk- 形式串），当检测，则报 PrivateKey（更确定的类别胜出） | 2026-09-24 |
-| card_numbers_pass_luhn_only | 卡号只有过 Luhn 才算 | 给定 4111 1111 1111 1111、差一位的变体与全零串，当检测，则只有真正过 Luhn 且数字不重复的那条命中 CardNumber | 2026-09-24 |
+| card_numbers_pass_luhn_only | 卡号只有过 Luhn 才算 | 给定 4111 1111 1111 1111、差一位的变体、全零串、以及「卡号 + 有效期/CVC」与连续分隔符形态（`4111 1111 1111 1111 12/26`、`4111  1111  1111  1111`），当检测，则只有真正过 Luhn 且数字不重复的才命中 CardNumber（组分界处也判一次） | 2026-09-26 |
 | high_entropy_strings_are_detected | 高熵长随机串识别 | 给定 32 位以上、含三类字符的高熵串，当检测，则命中 HighEntropy | 2026-09-24 |
-| identifiers_and_prose_stay_below_the_entropy_threshold | 标识符与散文不触熵阈值 | 给定长下划线标识符、纯小写长词与中文句子，当检测，则都不命中（熵阈值 + 三类字符要求共同收口） | 2026-09-24 |
-| detection_prefers_the_more_certain_kind | 检测按确定度排序 | 给定同时可判多类的文本，当检测，则返回更确定的那个类别（私钥 > 令牌 > 卡号 > 高熵） | 2026-09-24 |
+| identifiers_and_prose_stay_below_the_entropy_threshold | 标识符与散文不触熵阈值 | 给定长下划线标识符、纯小写长词、中文句子，以及三类字符齐备但分布均匀的长串，当检测，则都不命中——最后那类只可能被熵阈值否掉（含一条熵 4.32 的近界样本），阈值被删或放宽到 4.0 即红 | 2026-09-26 |
+| bearer_and_aws_key_ids_keep_their_own_bounds | Bearer 与 AKIA 各守自己的边界 | 给定带 base64 填充符的 AKIA 编号、过短或非大写的 AKIA 串、带连字符的伪编号、以及标准 base64 主体的 Bearer 令牌，当检测，则只有第一类命中 Token——Bearer 支仍用窄字符集，AKIA 只看连续的大写字母与数字 | 2026-09-26 |
+| the_long_tier_of_prefixed_bodies_ignores_shape | 前缀令牌长档不看形状 | 给定 13 字符与 16 字符的纯小写复合词，当检测，则短档那次放行、长档那次算令牌——长档只卡长度是写明的取舍，这条用例把边界钉在明面上 | 2026-09-26 |
+| detection_prefers_the_more_certain_kind | 检测按确定度排序 | 给定同时可判多类的文本，当检测，则返回更确定的那个类别（私钥 > 令牌 > 卡号 > 高熵；相邻两类各有一对同现的样例） | 2026-09-26 |
 | ordinary_text_is_never_flagged | 日常文本一律不拦 | 给定常用句中英文本、中文段落、代码片段、带 `sk-` 的普通英文句与 `let key = "sk-test";` 这类代码，当检测，则全部为 None | 2026-09-26 |
 
 ### crates/gloss-core/src/prompt.rs
@@ -376,7 +387,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | dispatched_acquire_carries_the_task_span | 取材命令带着任务 span 下发 | 给定划词触发，当取出通道②载荷并进入它的 span，则探针日志行是 JSON 且带 "generation":1 | 2026-09-23 |
 | a_disabled_default_kind_makes_the_selection_gesture_a_no_op | 默认任务被停用时划词彻底无声 | 给定默认任务被停用的配置，当划词触发，则取材命令不下发、代数不推进、状态留 Idle（浮层与失败卡都没有）；换回出厂配置后同一手势照常下发 | 2026-09-23 |
 | a_sensitive_scene_makes_the_selection_gesture_a_no_op | 敏感场景下划词彻底无声 | 给定安全输入开启、再给定前台应用在拦截名单内（两侧各自设置），当划词触发，则取材命令都不下发、代数不推进、状态留 Idle；场景恢复后同一手势照常下发并占代数 1 | 2026-09-24 |
-| suspicious_input_is_suppressed_and_shows_nothing | 可疑内容被拦下且什么都不出 | 给定带令牌的取材产物，当采纳，则通道③一条都没有、状态回 Idle、浮层视图为空（没有卡片、没有可点的出口）；下一次普通取材照常下发 | 2026-09-24 |
+| suspicious_input_is_suppressed_and_shows_nothing | 可疑内容被拦下且什么都不出 | 给定嵌在 JSON 里的短令牌取材产物，当采纳，则通道③一条都没有、状态回 Idle、浮层视图为空（没有卡片、没有可点的出口）；下一次普通取材照常下发 | 2026-09-26 |
 
 ### crates/gloss-app/src/i18n.rs
 
@@ -385,7 +396,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 76（条数钉住，防遍历退化） | 2026-09-24 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language_en）外无一与中文表逐字相同 | 2026-09-23 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 gloss_ 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
-| placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 10 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
+| placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
 | catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功且两语言取值可区分 | 2026-09-22 |
 | fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数/无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |
 | error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定 GlossError 的十个变体（含两个带诊断文本的），当取失败卡文案，则各自的两种语言都非空且互不相同 | 2026-09-22 |
@@ -473,7 +484,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | --- | --- | --- | --- |
 | trigger_mapping_covers_wired_events_only | 触发映射只覆盖已接线事件 | 给定划词手势与未接线的框选热键，当 trigger，则前者发 AcquireText、后者 None 且不占代数 | 2026-09-19 |
 | trigger_decision_separates_disabled_blocked_and_unwired_events | 触发去向分出停用/被拦/未接线 | 给定默认任务被停用的配置，当 trigger_decision，则划词与停用热键各报 Disabled、框选绑定与退出一律 Unwired、设置请求与退出不因场景被拦；出厂配置下同一划词为 Acquire，换到拦截名单内的前台应用则报 Blocked（被拦的 kind 是已启用的——场景闸门不是「停用」） | 2026-09-24 |
-| scene_gate_stops_the_trigger_before_acquisition | 场景闸门在取材前停住触发 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 trigger，则两次都 None、代数 0、状态留 Idle；把总开关关掉后同一场景照常占代数 1（闸门按事实判定，不看开关以外的任何东西） | 2026-09-24 |
+| scene_gate_stops_the_trigger_before_acquisition | 场景闸门在取材前停住触发 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 trigger，则两次都 None、代数 0、状态留 Idle；场景恢复后同一手势照常下发并占代数 1 | 2026-09-26 |
 | selection_kind_and_options_pair_with_one_snapshot | kind 与选项出自同一快照 | 给定自定义配置快照，当划词触发并采纳输入，则 kind 与模型/语言选项出自同一份快照 | 2026-09-19 |
 | image_default_kind_falls_back_to_a_text_kind | 误配图像默认回退文本 kind | 给定 default_text_kind 误配图像类，当划词触发，则回退 TranslateWord | 2026-09-19 |
 | disabled_kinds_are_not_acquired_and_consume_no_generation | 停用 kind 不取材不占代数 | 给定含停用 kind 的配置，当划词/热键触发停用项，则 None 且不占代数 | 2026-09-19 |
@@ -489,7 +500,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | error_actions_follow_the_mapping_table | 错误动作按映射表 | 给定限流/鉴权/模态/配置类失败，当映射，则限流可重试，其余引导打开设置且不可重试 | 2026-09-19 |
 | new_trigger_and_hide_supersede_the_retry_task | 新触发与隐藏取代重试 | 给定失败卡在场时新触发或隐藏，当发生，则 retry 返回 None | 2026-09-19 |
 | suspicious_input_is_dropped_without_a_task_or_a_card | 可疑内容丢弃且不留任何痕迹 | 给定带令牌的取材产物，当采纳，则结果是 Blocked{Token}、状态回 Idle、浮层视图为空、没有取消令牌（一条产物都没下发） | 2026-09-24 |
-| blocked_input_is_not_redispatched_by_any_later_path | 被拦下的取材没有旁路 | 给定已拦下的取材（卡号命中），当 retry、同代重复采纳、以及同代 chunk/done/failed 陆续到达，则全部被拒；新触发后同一份可疑文本仍被拦下且状态留 Idle | 2026-09-24 |
+| blocked_input_is_not_redispatched_by_any_later_path | 被拦下的取材没有旁路 | 给定已拦下的取材（卡号命中），当 retry、同代重复采纳、同代 chunk/done/failed、以及同代通道故障（fail_acquire / fail_transport）陆续到达，则全部被拒且不摆失败卡；新触发后同一份可疑文本仍被拦下且状态留 Idle | 2026-09-26 |
 | ordinary_input_still_passes_the_content_gate | 日常文本照常通过内容闸门 | 给定一段普通中文，当采纳，则照常 Dispatch 并进 Translating（闸门只认高置信度模式） | 2026-09-24 |
 
 ### crates/gloss-app/src/ui/fonts.rs
@@ -544,7 +555,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| secure_input_query_links_and_answers_off_by_default | 安全输入查询可链接且默认为关 | 给定真实系统（无密码框持有焦点），当查询安全输入，则调用成功返回假——只要 Carbon 框架没链上或符号对不上，链接期就红 | 2026-09-24 |
+| secure_input_query_links_and_answers_consistently | 安全输入查询可链接且自洽 | 给定真实系统，当连续查询两次安全输入，则两次一致——不断言系统的当前取值（那是环境事实），只要 Carbon 框架没链上或符号对不上，链接期就红 | 2026-09-26 |
 
 ### crates/gloss-platform/src/locale.rs
 
@@ -556,7 +567,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| scene_probe_answers_with_a_coherent_snapshot | 场景探针给出一致快照 | 给定真实系统，当读一次场景事实，则安全输入为假（测试环境下无密码框持焦），且若报出前台应用则其身份字段非空 | 2026-09-24 |
+| scene_probe_answers_with_a_coherent_snapshot | 场景探针给出一致快照 | 给定真实系统，当读一次场景事实，则若报出前台应用则其身份字段非空（不断言安全输入取值——那是环境事实，任何进程持有它都会变） | 2026-09-26 |
 
 ### crates/gloss-platform/src/storage/mod.rs
 

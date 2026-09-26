@@ -46,10 +46,6 @@ mod tests {
     #[test]
     fn scene_probe_answers_with_a_coherent_snapshot() {
         let facts = SystemSceneProbe.facts();
-        assert!(
-            !facts.secure_input,
-            "a plain test process holds no password field, so secure input is off"
-        );
         if let Some(app) = facts.front_app {
             assert!(
                 app.bundle_id
@@ -59,5 +55,28 @@ mod tests {
                 "a reported front app must carry at least one usable identity"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use gloss_core::ports::SceneProbe;
+
+    use super::SystemSceneProbe;
+
+    #[test]
+    #[ignore = "需图形会话：没有前台应用的环境（无窗口服务）会失败"]
+    fn scene_probe_reports_the_frontmost_app() {
+        let facts = SystemSceneProbe.facts();
+        let app = facts
+            .front_app
+            .expect("a session with a frontmost application must report one");
+        assert!(
+            app.bundle_id
+                .as_deref()
+                .is_some_and(|value| !value.is_empty())
+                || app.name.as_deref().is_some_and(|value| !value.is_empty()),
+            "the frontmost app must carry at least one usable identity"
+        );
     }
 }

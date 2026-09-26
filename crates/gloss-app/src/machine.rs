@@ -205,8 +205,8 @@ impl TaskStateMachine {
             cancel.cancel();
         }
         self.generation += 1;
-        // 新触发取代一切旧任务：连可重试的失败任务副本、待确认的任务
-        // 副本一并作废（重发它们没有意义，用户已经表达了新的意图）。
+        // 新触发取代一切旧任务：连可重试的失败任务副本一并作废
+        // （重发它没有意义，用户已经表达了新的意图）。
         self.active_task = None;
         // kind 从命令里取（两个变体都携带），选项按同一个 kind 从**同一份**
         // 快照解析——这里是「单次任务内配置一致」的实现点。
@@ -361,8 +361,11 @@ impl TaskStateMachine {
 
     /// 取材通道不可用（②发送失败）时的降级：直接落 `Error` 态，避免
     /// 滞留 Fetching 等一个永远不会到达的 `InputReady`。
+    ///
+    /// 与 `accept_*` 家族同一条守卫：只认「该代确实在取材中」——被内容
+    /// 闸门拦下的那次取材已经回 `Idle`，它的通道故障不该再摆一张失败卡。
     pub fn fail_acquire(&mut self, generation: u64) {
-        if generation != self.generation {
+        if generation != self.generation || self.state != AppState::Fetching {
             return;
         }
         self.state = AppState::Error;
@@ -375,7 +378,7 @@ impl TaskStateMachine {
     /// 推理通道不可用（③发送失败）时的降级：直接落 `Error` 态。通道
     /// 已死时重发只会再死一次，失败卡不带重试按钮。
     pub fn fail_transport(&mut self, generation: u64) {
-        if generation != self.generation {
+        if generation != self.generation || self.state != AppState::Translating {
             return;
         }
         self.current_cancel = None;
@@ -720,6 +723,12 @@ mod tests {
             AppState::Idle,
             "no overlay, no failure card"
         );
+
+        assert!(
+            trigger(&mut machine, &Config::default()).is_some(),
+            "the same gesture fires once the scene clears"
+        );
+        assert_eq!(machine.generation(), 1, "and it takes a generation");
     }
 
     #[test]
@@ -1139,6 +1148,10 @@ mod tests {
             "nothing is shown for a refused fetch — no card, no question, and the previous card is cleared too"
         );
         assert!(
+            machine.active_task.is_none(),
+            "no task copy is left behind for a later retry to pick up"
+        );
+        assert!(
             machine.current_cancel().is_none(),
             "nothing was dispatched, so there is no token to cancel"
         );
@@ -1164,6 +1177,14 @@ mod tests {
                 && !machine.accept_failed(1, &GlossError::EngineNetwork),
             "no product of a refused fetch may be adopted either"
         );
+        machine.fail_acquire(1);
+        machine.fail_transport(1);
+        assert_eq!(
+            machine.state(),
+            AppState::Idle,
+            "channel failures of the refused fetch must not raise a failure card"
+        );
+        assert!(machine.overlay_view().is_none());
 
         trigger(&mut machine, &Config::default()).expect("trigger");
         assert_eq!(machine.generation(), 2, "the next trigger starts over");
