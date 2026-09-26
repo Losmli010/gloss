@@ -207,8 +207,17 @@ fn render_content(
             *content_h = ui.min_rect().height();
             action
         }
-        Some(OverlayView::Streaming { source, body }) => {
-            let action = header(ui, None, true, text);
+        Some(OverlayView::Streaming {
+            source,
+            body,
+            classified,
+        }) => {
+            let action = header(
+                ui,
+                classified.map(|kind| crate::ui::kind_label(kind, text)),
+                true,
+                text,
+            );
             ui.add_space(space::PARAGRAPH);
             ui.label(
                 RichText::new(source)
@@ -290,7 +299,8 @@ fn action_label(action: ErrorAction, text: &Text) -> &str {
 
 /// 头部：身份圆点 + 品牌标签，右侧动作区 `[任务标签 | ⚙ ×]`——× 最右
 /// （最后动作）、齿轮居左，图标默认弱色、hover/按下显色；`busy` 时旋转
-/// 指示器替代任务标签（推理中的流式反馈）。返回动作区点击。
+/// 指示器随行，`tag` 有值时任务标签与它并存（自动分类判明后标签出现）。
+/// 返回动作区点击。
 fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool, text: &Text) -> Option<OverlayAction> {
     let weak = ui.visuals().weak_text_color();
     let strong = ui.visuals().strong_text_color();
@@ -334,7 +344,8 @@ fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool, text: &Text) -> Opti
             }
             if busy {
                 ui.add(egui::Spinner::new().size(font::TAG + 5.0));
-            } else if let Some(tag) = tag {
+            }
+            if let Some(tag) = tag {
                 ui.label(RichText::new(tag).size(font::TAG).color(weak));
             }
         });
@@ -567,6 +578,7 @@ mod kittest_tests {
         OverlayView::Streaming {
             source: "选中的原文".into(),
             body: "已流式到达的正文\n```gloss\n{\"title\":\"摘要\"}\n```".into(),
+            classified: Some(TaskKind::TranslateWord),
         }
     }
 

@@ -250,9 +250,9 @@ fn build_save(state: &mut SettingsState) -> SettingsAction {
 /// [`FieldError`] 映射（文案留给渲染帧）。
 fn validate_draft(draft: &Config) -> HashMap<FieldKey, FieldError> {
     let mut errors = HashMap::new();
-    // 跨字段不变量：默认任务（划词手势的任务类型）必须处于启用状态——
-    // 停用的 kind 对一切触发路径无响应，二者同存等于划词手势永不生效。
-    if !draft.is_kind_enabled(draft.selection_task_kind()) {
+    // 跨字段不变量：分类的兜底任务类型必须处于启用状态——分类失败
+    // 回退到一个停用的 kind，用户拿到的是一张执行不了任务的卡。
+    if !draft.is_kind_enabled(draft.classify_fallback()) {
         errors.insert(FieldKey::DefaultKind, FieldError::DefaultKindDisabled);
     }
     if let Err(err) = validate_base_url(&draft.base_url) {
@@ -701,7 +701,7 @@ fn choice_hint(ui: &mut egui::Ui, text: &str) {
     caption(ui, text);
 }
 
-/// 划词可服务的任务类型（与 `Config::selection_task_kind` 的收口一致）。
+/// 文本取材可服务的任务类型（默认任务下拉的候选集）。
 const TEXT_KINDS: [TaskKind; 3] = [
     TaskKind::TranslateWord,
     TaskKind::TranslateSentence,

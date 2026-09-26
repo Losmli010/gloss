@@ -36,6 +36,7 @@ pub(crate) struct Text {
     pub(crate) gloss_kinds_explain_code: String,
     pub(crate) gloss_kinds_image_ocr: String,
     pub(crate) gloss_kinds_image_explain: String,
+    pub(crate) gloss_kinds_auto: String,
 
     pub(crate) gloss_langs_zh: String,
     pub(crate) gloss_langs_en: String,
@@ -57,6 +58,7 @@ pub(crate) struct Text {
     pub(crate) gloss_errors_screen_capture_denied: String,
     pub(crate) gloss_errors_region_too_large: String,
     pub(crate) gloss_errors_unsupported_modality: String,
+    pub(crate) gloss_errors_classify_required: String,
     pub(crate) gloss_errors_engine_network: String,
     pub(crate) gloss_errors_engine_auth: String,
     pub(crate) gloss_errors_engine_rate_limited: String,
@@ -125,6 +127,7 @@ impl Text {
             GlossError::ScreenCaptureDenied => self.gloss_errors_screen_capture_denied.clone(),
             GlossError::RegionTooLarge => self.gloss_errors_region_too_large.clone(),
             GlossError::UnsupportedModality => self.gloss_errors_unsupported_modality.clone(),
+            GlossError::ClassifyRequired => self.gloss_errors_classify_required.clone(),
             GlossError::EngineNetwork => self.gloss_errors_engine_network.clone(),
             GlossError::EngineAuth => self.gloss_errors_engine_auth.clone(),
             GlossError::EngineRateLimited => self.gloss_errors_engine_rate_limited.clone(),
@@ -190,7 +193,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            76,
+            78,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -342,6 +345,10 @@ mod tests {
             (
                 GlossError::EngineRateLimited,
                 &errors.gloss_errors_engine_rate_limited,
+            ),
+            (
+                GlossError::ClassifyRequired,
+                &errors.gloss_errors_classify_required,
             ),
         ] {
             assert_eq!(

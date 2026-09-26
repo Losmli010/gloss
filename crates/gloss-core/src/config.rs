@@ -330,14 +330,11 @@ impl Config {
         }
     }
 
-    /// 划词手势（文本取材）实际使用的任务类型：`default_text_kind` 若被手改
-    /// 成图像 kind，回退出厂默认 `TranslateWord`。
-    ///
-    /// 划词路径只取得到文本，图像 kind 到引擎必被模态校验拒（`TaskFailed`），
-    /// 用户看到的会是与病因无关的提示——配置格式合法不代表组合可用，这里
-    /// 按取材源收口。图像取材的框选路径落地时由它消费
-    /// `hotkey_bindings` 里的 `InputSource::Region` 绑定，不受本方法影响。
-    pub fn selection_task_kind(&self) -> TaskKind {
+    /// 分类的兜底任务类型：划词手势固定走 [`TaskKind::Auto`] 由模型分类，
+    /// 分类失败或校验不过时回退到 `default_text_kind`；字段被手改成图像
+    /// kind（旧配置遗留）时退回出厂默认 `TranslateWord`——与文本取材的
+    /// 收口同一规则（图像 kind 到引擎必被模态校验拒）。
+    pub fn classify_fallback(&self) -> TaskKind {
         if self.default_text_kind.accepts_text() {
             self.default_text_kind
         } else {
@@ -646,22 +643,30 @@ mod tests {
     }
 
     #[test]
-    fn selection_kind_falls_back_for_image_kinds() {
+    fn classify_fallback_falls_back_for_image_kinds() {
         let misconfigured = Config {
             default_text_kind: TaskKind::ImageOcr,
             ..Default::default()
         };
         assert_eq!(
-            misconfigured.selection_task_kind(),
+            misconfigured.classify_fallback(),
             TaskKind::TranslateWord,
-            "image kind cannot be served by the selection gesture"
+            "an image kind cannot serve as the classification fallback"
         );
 
         let text_config = Config {
             default_text_kind: TaskKind::ExplainCode,
             ..Default::default()
         };
-        assert_eq!(text_config.selection_task_kind(), TaskKind::ExplainCode);
+        assert_eq!(text_config.classify_fallback(), TaskKind::ExplainCode);
+    }
+
+    #[test]
+    fn auto_kind_stays_out_of_the_settings_list() {
+        assert!(
+            !ALL_KINDS.contains(&TaskKind::Auto),
+            "the classification sentinel must not be a user-toggleable task"
+        );
     }
 
     #[test]

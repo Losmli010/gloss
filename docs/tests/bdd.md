@@ -9,10 +9,10 @@
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
 | 人工测试 | 11 | `cargo test -p gloss-platform -- --ignored` |
-| 集成测试 | 8 | `just test` |
+| 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 24 | `just test` |
-| 单元测试 | 313 | `just test` |
+| 单元测试 | 322 | `just test` |
 
 ## 人工测试
 
@@ -120,13 +120,15 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| full_flow_streams_and_settles | 全链路流式回流与终态 | 给定触发→取材→三段流式响应，当全链路推进并逐条回喂状态机，则 chunk 逐条回流、TaskDone 后定格 Show、正文剥离围栏且词卡解析出 word/senses | 2026-09-26 |
-| cache_hit_delivers_done_without_chunks_or_engine | 缓存命中直出产物不再过引擎 | 给定同一任务第二次触发，当消费桥查主缓存命中，则下一条事件直接是 TaskDone（无 TaskChunk）、引擎调用数仍为 1、状态定格 Show | 2026-09-26 |
-| hide_overlay_cancels_the_stream_and_late_events_are_dropped | 收起浮层取消流并丢弃迟到事件 | 给定慢流中已收到首个 chunk，当 hide_overlay 取消在途令牌，则不再有任何回传事件、机器侧拒绝该任务的迟到 chunk/产物并回 Idle | 2026-09-26 |
-| superseded_trigger_cancels_and_filters_late_events | 新触发取消旧任务并过滤迟到事件 | 给定 A 未完成时触发 B，当 B 触发，则 A 的令牌立即取消、代数 +1、A 代数的迟到 chunk 被状态机拒绝，B 的 chunk/done 正常回流至 Show | 2026-09-19 |
-| failure_lands_in_error_and_retry_succeeds | 失败落错误态且重试可达 | 给定首次注入 EngineRateLimited 失败，当失败回传后再次触发，则落 Error 态、第二次任务完成落 Show | 2026-09-19 |
-| error_card_retry_redispatches_the_same_task | 重试动作重发同一任务 | 给定可重试失败的 Retry 出口，当 retry 并重发 RunTask，则同代数重发同一任务并完成落 Show | 2026-09-19 |
-| config_change_invalidates_cache_for_the_next_task | 配置变更对缓存 key 的失效 | 给定同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎 1 次）、换模型与换目标语言各触发一次重新请求（共 3 次） | 2026-09-19 |
+| full_flow_classifies_then_streams_and_settles | 全链路分类+流式回流与终态 | 给定划词手势注入含围栏契约的流式脚本，当全链路推进，则先回 TaskClassified(TranslateWord)（分类流解析围栏）、chunk 逐条回流、TaskDone 后定格 Show、正文剥离围栏且词卡解析出 word/senses | 2026-09-26 |
+| classify_failure_falls_back_and_the_task_still_completes | 分类失败回退兜底且任务照常完成 | 给定分类请求注入一次性失败，当桥编排分类，则 TaskClassified 携带兜底 kind、告警无内容、重建任务照常执行完成落 Show | 2026-09-26 |
+| code_language_hint_skips_the_classification_round_trip | 代码语言提示直通分类 | 给定带 CodeLanguage 提示的 Auto 任务，当桥编排，则 TaskClassified 恒为 ExplainCode、仅任务执行一次引擎调用（零分类往返） | 2026-09-26 |
+| cache_hit_delivers_done_without_chunks_or_engine | 分类与产物双缓存命中直出 | 给定可解析分类回复的同一任务第二次触发，当桥先查分类缓存再查主缓存，则第二次仅回 TaskClassified+TaskDone（无 TaskChunk）、引擎调用数维持 2（首轮分类+执行）、状态定格 Show | 2026-09-26 |
+| hide_overlay_cancels_the_stream_and_late_events_are_dropped | 收起浮层取消流并丢弃迟到事件 | 给定慢流中已收到分类结果与首个 chunk，当 hide_overlay 取消在途令牌，则不再有任何回传事件、机器侧拒绝该任务的迟到 chunk/产物并回 Idle | 2026-09-26 |
+| superseded_trigger_cancels_and_filters_late_events | 新触发取消旧任务并过滤迟到事件 | 给定 A 的分类流未完成时触发 B，当 B 触发，则 A 的令牌立即取消、代数 +1、A 代数的迟到事件被状态机拒绝，B 经分类回退后 chunk/done 正常回流至 Show | 2026-09-26 |
+| failure_lands_in_error_and_retry_succeeds | 失败落错误态且重试可达 | 给定热键固定 kind 任务首次注入 EngineRateLimited 失败，当失败回传后再次触发，则落 Error 态、第二次任务完成落 Show | 2026-09-26 |
+| error_card_retry_redispatches_the_same_task | 重试动作重发同一任务 | 给定热键固定 kind 任务的可重试失败 Retry 出口，当 retry 并重发 RunTask，则同代数重发同一任务并完成落 Show | 2026-09-26 |
+| config_change_invalidates_cache_for_the_next_task | 配置变更对主缓存 key 的失效 | 给定热键固定 kind 的同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎 1 次）、换模型与换目标语言各触发一次重新请求（共 3 次） | 2026-09-26 |
 | engine_logs_carry_the_task_span | 桥日志经 span 带上代数 | 给定带 span 的任务命令（进程级捕获订阅者），当消费桥执行到缓存命中，则命中行同时含 cache hit 与 "generation":2 | 2026-09-26 |
 
 ## 性能测试
@@ -145,7 +147,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | --- | --- | --- | --- |
 | word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、释义、例句（复制按钮已移除，划选即复制） | 2026-09-21 |
 | long_body_is_rendered_in_full | 长正文完整渲染不截断 | 给定超长正文（尾部带标记），当渲染，则 AccessKit 树含尾部内容——无字符截断 | 2026-09-20 |
-| streaming_view_hides_structured_block | 流式视图不暴露结构化围栏 | 给定流式视图（正文含围栏），当渲染，则「已流式到达的正文」「选中的原文」可见而 ```gloss 围栏不在树中（首个围栏起截断）；头部为旋转指示器 + 常驻动作区 | 2026-09-26 |
+| streaming_view_hides_structured_block | 流式视图不暴露结构化围栏 | 给定流式视图（正文含围栏、已判明 kind），当渲染，则「已流式到达的正文」「选中的原文」可见而 ```gloss 围栏不在树中（首个围栏起截断）；头部为旋转指示器 + 分类任务标签 + 常驻动作区 | 2026-09-26 |
 | failed_view_shows_retry_hint | 失败卡重试动作 | 给定 Retry 失败卡，当渲染并点击「重试」，则收集器收到 OverlayAction::Retry | 2026-09-21 |
 | auth_failed_view_offers_open_settings | 鉴权失败卡设置入口 | 给定鉴权失败卡，当渲染并点击「打开设置」，则收到 OverlayAction::OpenSettings（头部齿轮标签为「设置」，与正文按钮不混淆） | 2026-09-21 |
 | bare_failed_view_has_no_action_button | 无动作失败卡形态 | 给定 action=None 失败卡，当渲染，则无「重试」节点、无动作上交 | 2026-09-19 |
@@ -218,6 +220,18 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | prune_keeps_the_newest_files_only | 旧日志按天数保留 | 给定 9 份日志与一个无关文件，当清理，则只留最近 7 份日志且无关文件不动 | 2026-09-24 |
 | task_span_carries_generation_into_events | 任务 span 把代数带给范围内的日志 | 给定 task_span(7) 并在其中记一条日志，当格式化输出，则事件行是 JSON、顶层 generation=7 且无 span 对象 | 2026-09-24 |
 
+### crates/gloss-core/src/classify.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| code_language_hint_short_circuits_without_the_engine | 代码语言提示直通不调引擎 | 给定带 CodeLanguage 提示的文本输入，当 classify，则恒得 ExplainCode 且引擎 0 调用 | 2026-09-26 |
+| non_text_input_is_rejected | 非文本输入拒绝分类 | 给定 Audio 输入，当 classify，则 UnsupportedModality | 2026-09-26 |
+| bare_json_reply_selects_the_kind | 裸 JSON 回复解析 kind | 给定 {"kind":"TranslateWord"} 回复，当 classify，则得 TranslateWord | 2026-09-26 |
+| fenced_reply_is_extracted_despite_the_contract | 围栏回复容错提取 | 给定模型不守约输出的 ```json 围栏回复，当 classify，则提取围栏内 JSON 并判出 ExplainCode | 2026-09-26 |
+| engine_failure_propagates | 分类请求失败原样上抛 | 给定分类请求整体失败与流中失败，当 classify，则错误原样上抛（回退由桥编排） | 2026-09-26 |
+| replies_outside_the_allowed_list_are_rejected | 回复越界/不可识别一律拒绝 | 给定清单外 kind、未知标识、null、纯散文、空串与 gloss 围栏六种回复，当解析，则前五者 EngineResponse、围栏内合法 kind 放行 | 2026-09-26 |
+| classify_key_is_stable_and_sensitive | 分类缓存 key 稳定且敏感 | 给定同输入重复派生与文本/提示/语言/模型各自变化，当 classify_key，则同输入同 key、任一变化不同 key | 2026-09-26 |
+
 ### crates/gloss-core/src/config.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -228,7 +242,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | explicit_empty_enabled_kinds_disables_everything | 显式空数组语义 | 给定 enabled_kinds 显式空数组，当加载，则所有 kind 停用 | 2026-09-19 |
 | retired_guard_fields_are_ignored_on_load | 退役的防护字段仍能加载 | 给定含 guard_enabled / guard_blocked_apps 的旧配置（两个字段已从 Config 移除），当加载，则照常读出、已知字段取值不变、缺字段仍回出厂默认——旧版本落盘不会被当成非法配置隔离降级 | 2026-09-26 |
 | missing_fields_default_while_explicit_empty_stays_empty | 缺省回退与显式空的区分 | 给定 provider_keys/model_by_kind 显式空，当加载，则纯查找为空、resolved 查找回退出厂项、图像 kind 不借文本模型 | 2026-09-19 |
-| selection_kind_falls_back_for_image_kinds | 误配图像默认回退文本 | 给定 default_text_kind 误配成 ImageOcr，当解析划词任务，则回退 TranslateWord | 2026-09-19 |
+| classify_fallback_falls_back_for_image_kinds | 误配图像默认回退文本 | 给定 default_text_kind 误配成 ImageOcr，当取分类兜底 kind，则回退 TranslateWord；正常文本 kind 原样作为兜底 | 2026-09-26 |
+| auto_kind_stays_out_of_the_settings_list | 哨兵不进设置任务清单 | 给定 ALL_KINDS（设置页任务开关清单），当查包含性，则 Auto 不在其中（分类哨兵不是可开关的任务类型） | 2026-09-26 |
 | language_resolves_to_locale | 界面语言落定具体 locale | 给定 System/Zh/En 三态与注入的系统语言，当解析界面语言，则 System 取系统语言、显式选择不被系统语言覆盖（同一处取值供 UI 文案表与 prompt 模板选表） | 2026-09-22 |
 | default_cache_ttl_matches_cache_implementation | 默认 TTL 单点一致 | 给定出厂 TTL，当与 cache::DEFAULT_TTL 比对，则相等 | 2026-09-19 |
 | edit_helpers_keep_tables_canonical | 编辑助手保持表规范 | 给定启用/停用与模型编辑操作，当调用助手，则不重复追加、停用幂等、模型按 kind 替换、空白视为未配置 | 2026-09-19 |
@@ -259,6 +274,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
+| classify_prompt_carries_allowed_kinds_and_the_text | 分类提示词携带允许清单与原文 | 给定允许清单与原文，当 render_classify（双语），则用户消息为原文、系统指令含全部 kind 标识与 kind 契约、不含 Auto、无残留占位符 | 2026-09-26 |
+| render_rejects_the_auto_sentinel | 任务渲染拒绝 Auto 哨兵 | 给定 kind=Auto 的任务，当 render，则报 ClassifyRequired（哨兵必须先分类再渲染） | 2026-09-26 |
 | text_kinds_render_system_and_user_with_kind_content | 文本 kind 渲染两段消息 | 给定三个文本 kind，当渲染，则得 [System, User] 两段，系统指令含各自关键词与结构化契约围栏，用户消息为原文 | 2026-09-19 |
 | structured_contract_matches_outcome_schema | 结构化契约与 schema 对齐 | 给定词卡与代码解释模板，当检查系统指令，则分别声明 senses/phonetic 与 title 字段 | 2026-09-19 |
 | missing_target_lang_defaults_to_chinese | 目标语言缺省中文 | 给定未设 target_lang，当渲染句译，则系统指令含「中文」 | 2026-09-19 |
@@ -311,10 +328,10 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | task_input_carries_text_and_hint | 文本输入携带 hint | 给定文本与 hint，当构造 TaskInput::Text，则两者正确携带 | 2026-09-19 |
 | task_binds_kind_input_and_options | Task 三元正确绑定 | 给定构造参数，当建 Task，则 kind/input/options 正确绑定 | 2026-09-19 |
 | image_input_shares_png_bytes_via_arc | 图像输入 Arc 共享 | 给定 PNG 字节，当构造 Image 输入，则经 Arc 共享（ptr_eq）并携带区域 | 2026-09-19 |
-| accepts_text_follows_the_modality_matrix | kind 接受文本的模态矩阵 | 给定五种 kind，当查 accepts_text，则文本类 true、图像类 false | 2026-09-19 |
+| accepts_text_follows_the_modality_matrix | kind 接受文本的模态矩阵 | 给定六种 kind（含 Auto 哨兵），当查 accepts_text，则文本类与 Auto true、图像类 false | 2026-09-26 |
 | hotkey_binding_pairs_kind_with_source | 热键绑定与源配对 | 给定 trigger/kind/source，当构造 HotkeyBinding，则 source 正确配对 | 2026-09-19 |
 | outcome_carries_structured_variants | 词卡结构化字段携带 | 给定 WordCard 变体，当构造 TaskOutcome，则 word 字段完整携带 | 2026-09-19 |
-| modality_matrix_is_enforced_cell_by_cell | 模态矩阵逐格校验 | 给定 5 kind × 3 输入全矩阵，当逐格 validate，则文本/Image 各占合法列、Audio 全列非法 | 2026-09-19 |
+| modality_matrix_is_enforced_cell_by_cell | 模态矩阵逐格校验 | 给定 6 kind（含 Auto）× 3 输入全矩阵，当逐格 validate，则文本列（含 Auto）与 Image 列合法、Audio 全列非法 | 2026-09-26 |
 | task_round_trips_through_serde | Task serde 往返无损 | 给定整条 Task（含 hint 与目标语言），当 serde 往返，则无损 | 2026-09-19 |
 | image_input_round_trips_through_serde | 图像输入 serde 往返 | 给定 Image 输入，当 serde 往返，则字节与区域不变且反序列化得到新 Arc（不与原值共享） | 2026-09-19 |
 
@@ -382,10 +399,10 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | late_events_of_superseded_trigger_do_not_bleed | 被顶代数的迟到事件不渗漏 | 给定连续触发 A→B，当 A 的迟到 chunk/TaskDone 到达，则被陈旧过滤，B 的产物照常 Show | 2026-09-19 |
 | failed_task_lands_in_error_and_retry_works | 失败落错误态且可再触发 | 给定推理中任务，当匹配代数的失败到达，则落 Error；陈旧失败丢弃；再次触发回 Fetching | 2026-09-19 |
 | stale_input_ready_is_dropped_entirely | 陈旧 InputReady 整体丢弃 | 给定陈旧代数 InputReady，当采纳，则整体丢弃、不下发通道③ | 2026-09-19 |
-| saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置，当下一次触发，则目标语言与模型随任务下发 | 2026-09-19 |
+| saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置，当下一次划词触发，则目标语言随 Auto 任务下发（模型在桥重建时按判定 kind 解析，哨兵不带模型） | 2026-09-26 |
 | saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定触发后、产物到达前保存新配置，当在途任务下发，则仍用触发时快照 | 2026-09-19 |
 | dispatched_acquire_carries_the_task_span | 取材命令带着任务 span 下发 | 给定划词触发，当取出通道②载荷并进入它的 span，则探针日志行是 JSON 且带 "generation":1 | 2026-09-23 |
-| a_disabled_default_kind_makes_the_selection_gesture_a_no_op | 默认任务被停用时划词彻底无声 | 给定默认任务被停用的配置，当划词触发，则取材命令不下发、代数不推进、状态留 Idle（浮层与失败卡都没有）；换回出厂配置后同一手势照常下发 | 2026-09-23 |
+| a_disabled_default_kind_does_not_stop_the_selection_gesture | 任务开关不拦划词手势 | 给定默认任务被停用的配置，当划词触发，则仍下发 Auto 取材命令（手势不带显式意图，开关只拦显式 kind） | 2026-09-26 |
 | a_sensitive_scene_makes_the_selection_gesture_a_no_op | 敏感场景下划词彻底无声 | 给定安全输入开启、再给定前台应用在拦截名单内（两侧各自设置），当划词触发，则取材命令都不下发、代数不推进、状态留 Idle；场景恢复后同一手势照常下发并占代数 1 | 2026-09-24 |
 | suspicious_input_is_suppressed_and_shows_nothing | 可疑内容被拦下且什么都不出 | 给定嵌在 JSON 里的短令牌取材产物，当采纳，则通道③一条都没有、状态回 Idle、浮层视图为空（没有卡片、没有可点的出口）；下一次普通取材照常下发 | 2026-09-26 |
 
@@ -438,7 +455,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | open_settings_request_starts_an_edit_session | 打开设置即编辑会话 | 给定 OpenSettingsRequested，当消费，则编辑会话打开、草稿=当前快照、不占代数 | 2026-09-19 |
-| settings_save_writes_keychain_and_swaps_config | 保存写密钥串并换配置 | 给定含密钥替换的保存，当成功，则密钥进 keychain、快照换新、会话关闭，新模型随后续触发生效 | 2026-09-19 |
+| settings_save_writes_keychain_and_swaps_config | 保存写密钥串并换配置 | 给定含密钥替换的保存，当成功，则密钥进 keychain、快照换新、会话关闭，新配置随后续触发生效 | 2026-09-26 |
 | clearing_the_key_deletes_the_secret_on_save | 清除密钥保存即删除 | 给定 KeyUpdate::Clear，当保存，则 keychain 条目删除、会话关闭 | 2026-09-19 |
 | failed_save_keeps_the_session_open_with_a_notice | 失败保存会话不关 | 给定落盘必失败存储，当保存，则会话保持打开、错误进提示、快照不变 | 2026-09-19 |
 | saving_settings_rebinds_hotkeys_from_the_new_snapshot | 保存按新快照重注册热键 | 给定保存新热键表，当成功，则按新快照重注册一次（启动注册不计入 App） | 2026-09-19 |
@@ -483,12 +500,13 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| trigger_mapping_covers_wired_events_only | 触发映射只覆盖已接线事件 | 给定划词手势与未接线的框选热键，当 trigger，则前者发 AcquireText、后者 None 且不占代数 | 2026-09-19 |
-| trigger_decision_separates_disabled_blocked_and_unwired_events | 触发去向分出停用/被拦/未接线 | 给定默认任务被停用的配置，当 trigger_decision，则划词与停用热键各报 Disabled、框选绑定与退出一律 Unwired、设置请求与退出不因场景被拦；出厂配置下同一划词为 Acquire，换到拦截名单内的前台应用则报 Blocked（被拦的 kind 是已启用的——场景闸门不是「停用」） | 2026-09-24 |
+| trigger_mapping_covers_wired_events_only | 触发映射只覆盖已接线事件 | 给定划词手势与未接线的框选热键，当 trigger，则前者发 AcquireText(kind=Auto)、后者 None 且不占代数 | 2026-09-26 |
+| trigger_decision_separates_disabled_blocked_and_unwired_events | 触发去向分出停用/被拦/未接线 | 给定含停用 kind 的配置，当 trigger_decision，则划词恒为 Acquire(Auto)、停用热键报 Disabled、框选绑定与退出报 Unwired、设置与退出不因场景被拦；出厂配置下划词为 Acquire，拦截名单内的前台应用则报 Blocked | 2026-09-26 |
 | scene_gate_stops_the_trigger_before_acquisition | 场景闸门在取材前停住触发 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 trigger，则两次都 None、代数 0、状态留 Idle；场景恢复后同一手势照常下发并占代数 1 | 2026-09-26 |
-| selection_kind_and_options_pair_with_one_snapshot | kind 与选项出自同一快照 | 给定自定义配置快照，当划词触发并采纳输入，则 kind 与模型/语言选项出自同一份快照 | 2026-09-19 |
-| image_default_kind_falls_back_to_a_text_kind | 误配图像默认回退文本 kind | 给定 default_text_kind 误配图像类，当划词触发，则回退 TranslateWord | 2026-09-19 |
-| disabled_kinds_are_not_acquired_and_consume_no_generation | 停用 kind 不取材不占代数 | 给定含停用 kind 的配置，当划词/热键触发停用项，则 None 且不占代数 | 2026-09-19 |
+| selection_kind_and_options_pair_with_one_snapshot | kind 与选项出自同一快照 | 给定自定义配置快照，当划词触发并采纳输入，则 kind=Auto、目标语言出自快照、模型为 None（重建时由桥按快照解析） | 2026-09-26 |
+| gesture_acquires_even_with_a_legacy_image_default_kind | 误配图像默认不影响手势 | 给定 default_text_kind 误配图像类，当划词触发，则仍下发 Acquire(Auto)（图像默认只影响桥侧兜底 kind） | 2026-09-26 |
+| disabled_kinds_are_not_acquired_via_hotkey_and_consume_no_generation | 停用 kind 热键不取材不占代数 | 给定含停用 kind 的配置，当热键触发停用项，则 None 且不占代数；同一配置下划词手势照常取材（Auto 不受开关约束） | 2026-09-26 |
+| classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 accept_classified，则当前代写入判定 kind、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
 | options_freeze_at_trigger_time | 选项在触发时刻冻结 | 给定触发后更换配置（目标语言与界面语言同时变），当采纳输入，则任务仍带触发时快照的选项（含 prompt_locale）；第二次触发才用新值 | 2026-09-22 |
 | prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 Language::En 与出厂 System 两份配置，当触发并采纳输入，则任务携带的 prompt_locale 分别为 En 与注入的系统语言 | 2026-09-22 |
 | accept_input_yields_run_request_and_guards_state | 采纳输入下发请求并守卫状态 | 给定合法 InputReady，当采纳，则返回下发请求、进 Translating、持有取消令牌；同代数重复采纳被拒 | 2026-09-19 |

@@ -109,6 +109,7 @@ pub fn centered_position(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum EventKind {
     InputReady,
+    TaskClassified,
     TaskChunk,
     TaskDone,
     TaskFailed,
@@ -118,6 +119,7 @@ pub(super) enum EventKind {
 pub(super) fn event_kind(event: &Event) -> EventKind {
     match event {
         Event::InputReady { .. } => EventKind::InputReady,
+        Event::TaskClassified { .. } => EventKind::TaskClassified,
         Event::TaskChunk { .. } => EventKind::TaskChunk,
         Event::TaskDone { .. } => EventKind::TaskDone,
         Event::TaskFailed { .. } => EventKind::TaskFailed,
@@ -128,13 +130,13 @@ pub(super) fn event_kind(event: &Event) -> EventKind {
 ///
 /// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
 /// 取材成功即弹（看到浮层就知道「划到了、正在查」）、失败总弹（错误
-/// 不该被吞掉）；流式增量只在已可见的浮层上追加、完成时浮层早已可见
-/// ——两者都不负责露面。
+/// 不该被吞掉）；分类结果与流式增量只在已可见的浮层上更新、完成时浮层
+/// 早已可见——三者都不负责露面。
 fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
     match kind {
         EventKind::InputReady => accepted,
         EventKind::TaskFailed => accepted,
-        EventKind::TaskDone | EventKind::TaskChunk => false,
+        EventKind::TaskClassified | EventKind::TaskDone | EventKind::TaskChunk => false,
     }
 }
 
