@@ -4,10 +4,10 @@
 //! （egui_commonmark 渲染；OCR 提取文本保持纯文本，不按 markdown 解释）。
 //! 划选即复制：全部文本可选中，无独立复制按钮。正文完整渲染不截断，
 //! 高度自适应内容（宽度默认 380、上限 480，高度上限按屏幕），超出部分
-//! 滚动兜底。流式视图按 [`STRUCTURED_FENCE`] 过滤已完整出现的结构化块
-//! （在累积文本上按最后围栏标记截断）；跨 chunk 切分出的残缺围栏前缀
-//! 可能短暂显示，随下一 chunk 自愈。头部动作区常驻设置齿轮与关闭 ×，
-//! 点击经 draw 返回 [`OverlayAction`] 上交壳执行。
+//! 滚动兜底。流式视图按 [`STRUCTURED_FENCE`] 从**首个**围栏标记起整段
+//! 截断（围栏后是模型在写结构化 JSON，一个字节都不该闪现；跨 chunk 切分
+//! 出的残缺围栏前缀可能短暂显示，随下一 chunk 自愈）。头部动作区常驻
+//! 设置齿轮与关闭 ×，点击经 draw 返回 [`OverlayAction`] 上交壳执行。
 //!
 //! 敏感信息防护不在这里：两条闸门都不出浮层（见 `gloss_app::machine`），
 //! 因此也没有「疑似敏感」这张卡。
@@ -216,10 +216,7 @@ fn render_content(
                     .color(ui.visuals().weak_text_color()),
             );
             ui.add_space(space::PARAGRAPH);
-            let visible = match body.rfind(STRUCTURED_FENCE) {
-                Some(pos) => &body[..pos],
-                None => body,
-            };
+            let visible = stream_visible_body(body);
             // ScrollArea 内容起点 = cursor（egui 的 cursor 停在前序内容底边
             // 加一个 item_spacing 处），从这里起算正文完整高。
             let body_top = ui.cursor().min.y;
@@ -350,6 +347,18 @@ fn icon_button(glyph: &'static str) -> egui::Button<'static> {
     egui::Button::new(RichText::new(glyph).size(ACTION_ICON_SIZE)).frame(false)
 }
 
+/// 流式正文的可见部分：从**首个**结构化围栏标记起整段截断。模型按契约
+/// 先写完正文再写围栏 JSON，围栏一出现其后全是结构化载荷；取首个而不是
+/// 末个，模型跑偏（正文里提前出现围栏标记后继续写正文）时同样被拦在
+/// 围栏外。与完成态 core 侧的剥离（`finalize_outcome`）共用
+/// [`STRUCTURED_FENCE`] 单点，两侧各一处实现。
+fn stream_visible_body(body: &str) -> &str {
+    match body.find(STRUCTURED_FENCE) {
+        Some(pos) => &body[..pos],
+        None => body,
+    }
+}
+
 /// markdown 正文：完整渲染（egui_commonmark 解析绘制），缓存跨帧持有。
 fn render_markdown(ui: &mut egui::Ui, state: &RenderState, text: &str) {
     let mut cache = state.cache.borrow_mut();
@@ -469,7 +478,7 @@ fn selfcheck_body(ui: &mut egui::Ui) {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_WIDTH, WIDTH, resolve_width};
+    use super::{MAX_WIDTH, WIDTH, resolve_width, stream_visible_body};
 
     #[test]
     fn width_hysteresis_does_not_oscillate_between_frames() {
@@ -497,6 +506,31 @@ mod tests {
         assert_eq!(resolve_width(WIDTH, 319.0), WIDTH, "阈值之下不加宽");
         assert_eq!(resolve_width(MAX_WIDTH, 241.0), MAX_WIDTH);
         assert_eq!(resolve_width(MAX_WIDTH, 239.0), WIDTH, "阈值之下才收回");
+    }
+
+    #[test]
+    fn stream_visible_body_truncates_from_the_first_fence() {
+        assert_eq!(
+            stream_visible_body("正文一\n```gloss\n{\"title\":\"x\"}\n```\n正文二"),
+            "正文一\n",
+            "everything from the first fence on is hidden, including later prose"
+        );
+        assert_eq!(
+            stream_visible_body("没有围栏的正文"),
+            "没有围栏的正文",
+            "no fence means the whole body is visible"
+        );
+        assert_eq!(stream_visible_body(""), "");
+        assert_eq!(
+            stream_visible_body("```gloss\n{\"title\":\"x\"}"),
+            "",
+            "a body that opens with the fence shows nothing"
+        );
+        assert_eq!(
+            stream_visible_body("正文\n```glossparticular\n不该显示"),
+            "正文\n",
+            "the marker matches by prefix, matching the core-side stripper"
+        );
     }
 }
 

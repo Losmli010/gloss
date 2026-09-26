@@ -9,7 +9,7 @@
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
 | 人工测试 | 11 | `cargo test -p gloss-platform -- --ignored` |
-| 集成测试 | 6 | `just test` |
+| 集成测试 | 8 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 24 | `just test` |
 | 单元测试 | 313 | `just test` |
@@ -120,12 +120,14 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| full_flow_streams_and_settles | 全链路流式回流与终态 | 给定触发→取材→三段流式响应，当全链路推进并逐条回喂状态机，则 chunk 逐条回流、TaskDone 后定格 Show、正文剥离围栏且词卡解析出 word/senses | 2026-09-19 |
+| full_flow_streams_and_settles | 全链路流式回流与终态 | 给定触发→取材→三段流式响应，当全链路推进并逐条回喂状态机，则 chunk 逐条回流、TaskDone 后定格 Show、正文剥离围栏且词卡解析出 word/senses | 2026-09-26 |
+| cache_hit_delivers_done_without_chunks_or_engine | 缓存命中直出产物不再过引擎 | 给定同一任务第二次触发，当消费桥查主缓存命中，则下一条事件直接是 TaskDone（无 TaskChunk）、引擎调用数仍为 1、状态定格 Show | 2026-09-26 |
+| hide_overlay_cancels_the_stream_and_late_events_are_dropped | 收起浮层取消流并丢弃迟到事件 | 给定慢流中已收到首个 chunk，当 hide_overlay 取消在途令牌，则不再有任何回传事件、机器侧拒绝该任务的迟到 chunk/产物并回 Idle | 2026-09-26 |
 | superseded_trigger_cancels_and_filters_late_events | 新触发取消旧任务并过滤迟到事件 | 给定 A 未完成时触发 B，当 B 触发，则 A 的令牌立即取消、代数 +1、A 代数的迟到 chunk 被状态机拒绝，B 的 chunk/done 正常回流至 Show | 2026-09-19 |
 | failure_lands_in_error_and_retry_succeeds | 失败落错误态且重试可达 | 给定首次注入 EngineRateLimited 失败，当失败回传后再次触发，则落 Error 态、第二次任务完成落 Show | 2026-09-19 |
 | error_card_retry_redispatches_the_same_task | 重试动作重发同一任务 | 给定可重试失败的 Retry 出口，当 retry 并重发 RunTask，则同代数重发同一任务并完成落 Show | 2026-09-19 |
 | config_change_invalidates_cache_for_the_next_task | 配置变更对缓存 key 的失效 | 给定同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎 1 次）、换模型与换目标语言各触发一次重新请求（共 3 次） | 2026-09-19 |
-| engine_logs_carry_the_task_span | 引擎日志经 span 带上代数 | 给定带 span 的任务命令（进程级捕获订阅者），当引擎执行到缓存命中，则命中行同时含 cache hit 与 "generation":2 | 2026-09-23 |
+| engine_logs_carry_the_task_span | 桥日志经 span 带上代数 | 给定带 span 的任务命令（进程级捕获订阅者），当消费桥执行到缓存命中，则命中行同时含 cache hit 与 "generation":2 | 2026-09-26 |
 
 ## 性能测试
 
@@ -143,7 +145,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | --- | --- | --- | --- |
 | word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、释义、例句（复制按钮已移除，划选即复制） | 2026-09-21 |
 | long_body_is_rendered_in_full | 长正文完整渲染不截断 | 给定超长正文（尾部带标记），当渲染，则 AccessKit 树含尾部内容——无字符截断 | 2026-09-20 |
-| streaming_view_hides_structured_block | 流式视图不暴露结构化围栏 | 给定流式视图（正文含围栏），当渲染，则「已流式到达的正文」「选中的原文」可见而 ```gloss 围栏不在树中；头部为旋转指示器 + 常驻动作区 | 2026-09-21 |
+| streaming_view_hides_structured_block | 流式视图不暴露结构化围栏 | 给定流式视图（正文含围栏），当渲染，则「已流式到达的正文」「选中的原文」可见而 ```gloss 围栏不在树中（首个围栏起截断）；头部为旋转指示器 + 常驻动作区 | 2026-09-26 |
 | failed_view_shows_retry_hint | 失败卡重试动作 | 给定 Retry 失败卡，当渲染并点击「重试」，则收集器收到 OverlayAction::Retry | 2026-09-21 |
 | auth_failed_view_offers_open_settings | 鉴权失败卡设置入口 | 给定鉴权失败卡，当渲染并点击「打开设置」，则收到 OverlayAction::OpenSettings（头部齿轮标签为「设置」，与正文按钮不混淆） | 2026-09-21 |
 | bare_failed_view_has_no_action_button | 无动作失败卡形态 | 给定 action=None 失败卡，当渲染，则无「重试」节点、无动作上交 | 2026-09-19 |
@@ -328,14 +330,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| streams_chunks_in_order_and_assembles_body | 流式增量按序转发并拼正文 | 给定三段流式脚本，当 execute，则增量按序转发、正文原样拼接、引擎调 1 次 | 2026-09-19 |
-| cache_hit_skips_the_engine | 缓存命中跳过引擎 | 给定已执行的同一任务，当第二次 execute，则结果与首次一致且引擎调用数仍为 1 | 2026-09-19 |
-| different_model_misses_the_cache | 模型参与缓存判定 | 给定同任务换模型 id，当两次执行，则引擎被调 2 次 | 2026-09-19 |
-| word_card_is_parsed_from_structured_block | 词卡从结构化围栏解析 | 给定正文+```gloss 围栏 JSON，当 execute，则围栏从正文剥离、词卡结构化字段完整回填 | 2026-09-19 |
-| phonetic_null_maps_to_none | phonetic null 映射 None | 给定 "phonetic":null 的围栏 JSON，当解析，则 phonetic 为 None、senses 为空 | 2026-09-19 |
+| streams_chunks_in_order_verbatim | 流式增量按序原样转发 | 给定三段流式脚本，当 execute，则增量按序原样转发给回调、返回 Ok、引擎调 1 次（不拼正文） | 2026-09-26 |
+| finalize_outcome_pairs_with_execute_forwarding | 完成态组装与转发的契约配对 | 给定含围栏的两段流式脚本，当桥式组合（execute 转发累积 + finalize_outcome），则产出 kind 正确、围栏从正文剥离、词卡结构化字段完整回填 | 2026-09-26 |
+| phonetic_null_maps_to_none | phonetic null 映射 None | 给定 "phonetic":null 的围栏 JSON，当 finalize_outcome，则 phonetic 为 None、senses 为空 | 2026-09-26 |
 | bad_sense_entries_are_skipped_not_fatal | 坏词条跳过不致命 | 给定含缺字段坏条目的 senses，当 parse_structured，则两条好条目保留、坏条目跳过 | 2026-09-19 |
 | trailing_text_after_fence_is_dropped | 围栏后尾随文字丢弃 | 给定围栏后的契约外尾随文字，当 parse_structured，则正文不含尾随文字、结构化为 Plain{title} | 2026-09-19 |
-| missing_structured_block_falls_back_to_plain | 无围栏回退纯文本 | 给定无围栏的流式正文，当 execute，则正文原样、结构化为无标题 Plain | 2026-09-19 |
+| missing_structured_block_falls_back_to_plain | 无围栏回退纯文本 | 给定无围栏的原始正文，当 finalize_outcome，则 kind 随任务、正文原样、结构化为无标题 Plain | 2026-09-26 |
 | ocr_fallback_extracts_whole_body | OCR 回退全文提取 | 给定 OCR 的三种输入（无围栏/坏 JSON/合法 text 围栏），当 parse_structured，则回退全文提取、残片不剥离、合法时剥离正文 | 2026-09-19 |
 | engine_failures_propagate | 引擎失败原样上抛 | 给定 execute 整体失败与流中 Err，当执行，则错误原样上抛且失败前的增量已转发 | 2026-09-19 |
 | modality_mismatch_is_rejected_before_engine | 模态错配在引擎前拒绝 | 给定模态错配任务，当 execute，则 UnsupportedModality 且引擎 0 调用 | 2026-09-19 |
@@ -419,6 +419,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | --- | --- | --- | --- |
 | width_hysteresis_does_not_oscillate_between_frames | 宽度滞回不振荡 | 给定上一帧宽度与内容高，当决策宽度，则长内容加宽、带内保持原档、明显变矮才收回 | 2026-09-20 |
 | width_hysteresis_band_bounds_are_symmetric | 滞回阈值边界对称 | 给定阈值附近的内容高，当按当前档决策，则过加宽阈值才加宽、过收回阈值才收回 | 2026-09-20 |
+| stream_visible_body_truncates_from_the_first_fence | 流式正文自首个围栏截断 | 给定双围栏/无围栏/空串/围栏开头/前缀相似标记五种正文，当取流式可见部分，则首个围栏起整段隐藏（含其后文字）、无围栏原样、空串恒空 | 2026-09-26 |
 
 ### crates/gloss-app/src/app/overlay.rs
 
@@ -679,7 +680,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | adapter_delivers_deltas_then_terminates_on_protocol_error | 协议错误先交增量再终结 | 给定增量后跟坏 JSON，当流推进，则先交付增量、随后以 EngineResponse 错误终结 | 2026-09-19 |
 | adapter_ends_cleanly_without_the_done_marker | 无 [DONE] 关流干净收尾 | 给定无 [DONE] 直接关流的响应，当解析，则带增量流按正常结束收尾 | 2026-09-19 |
 | adapter_reports_empty_completion_as_failure | 零增量完成报失败 | 给定零增量响应（仅 [DONE] 或 HTML 劫持页），当解析，则报 EngineResponse 错且流即止 | 2026-09-19 |
-| request_body_has_the_openai_envelope | 请求体 OpenAI 信封 | 给定 EngineRequest，当构造请求体，则 model/messages/stream 三键 wire 形态精确匹配 | 2026-09-19 |
+| request_body_has_the_openai_envelope | 请求体 OpenAI 信封 | 给定未设限的 EngineRequest，当构造请求体，则 model/messages/stream 三键 wire 形态精确匹配且无 max_tokens 键 | 2026-09-26 |
+| max_tokens_is_carried_only_when_set | max_tokens 仅设限时上线 | 给定 max_tokens=None 与 Some(64) 两个请求，当构造请求体，则 None 无该键、Some 携带数值 64 | 2026-09-26 |
 | maps_http_status_to_error_variants | HTTP 状态映射错误变体 | 给定 401/403/429/500/400+JSON/400+HTML，当映射，则分别得 EngineAuth/EngineRateLimited/EngineNetwork/带诊断的 EngineResponse | 2026-09-19 |
 
 ### crates/gloss-platform/src/engine/sse.rs

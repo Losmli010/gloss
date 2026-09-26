@@ -30,6 +30,7 @@ fn sample_request() -> EngineRequest {
             content: "gloss".into(),
         }],
         model: "mock-model".into(),
+        max_tokens: None,
     }
 }
 

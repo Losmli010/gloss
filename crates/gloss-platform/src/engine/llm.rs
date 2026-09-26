@@ -38,14 +38,19 @@ const CHAT_COMPLETIONS_PATH: &str = "chat/completions";
 /// 与既有非 JSON 路径一致）。
 const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 
-/// 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。
-///
+/// 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。`max_tokens` 只在
+/// 设限时携带：部分严格端点会拒绝显式的 `null`，缺键才是「不设限」的
+/// wire 语义。
 fn chat_request_body(request: &EngineRequest) -> serde_json::Value {
-    serde_json::json!({
+    let mut body = serde_json::json!({
         "model": request.model,
         "messages": request.messages,
         "stream": true,
-    })
+    });
+    if let Some(max_tokens) = request.max_tokens {
+        body["max_tokens"] = serde_json::json!(max_tokens);
+    }
+    body
 }
 
 /// 读响应体但不超过 `limit` 字节（丢失的只是诊断文本，不是业务数据）。
@@ -101,6 +106,7 @@ impl AiEngine for LlmClient {
         let kind = request.kind;
         let model = request.model.clone();
         let messages = request.messages.clone();
+        let max_tokens = request.max_tokens;
 
         Box::pin(async move {
             if messages.is_empty() {
@@ -121,6 +127,7 @@ impl AiEngine for LlmClient {
                 kind,
                 messages,
                 model: model.trim().to_owned(),
+                max_tokens,
             });
 
             let mut response = client
@@ -557,6 +564,7 @@ mod tests {
                 content: "把用户给的词翻成中文".into(),
             }],
             model: "deepseek-chat".into(),
+            max_tokens: None,
         };
         assert_eq!(
             chat_request_body(&request),
@@ -566,6 +574,31 @@ mod tests {
                 "stream": true,
             })
         );
+    }
+
+    #[test]
+    fn max_tokens_is_carried_only_when_set() {
+        let messages = vec![ChatMessage {
+            role: Role::User,
+            content: "hi".into(),
+        }];
+        let unset = chat_request_body(&EngineRequest {
+            kind: TaskKind::TranslateSentence,
+            messages: messages.clone(),
+            model: "m".into(),
+            max_tokens: None,
+        });
+        assert!(
+            unset.get("max_tokens").is_none(),
+            "an unset limit must stay off the wire, not null"
+        );
+        let capped = chat_request_body(&EngineRequest {
+            kind: TaskKind::TranslateSentence,
+            messages,
+            model: "m".into(),
+            max_tokens: Some(64),
+        });
+        assert_eq!(capped.get("max_tokens"), Some(&serde_json::json!(64)));
     }
 
     struct VecStream(std::vec::IntoIter<Result<bytes::Bytes, reqwest::Error>>);
@@ -674,6 +707,7 @@ mod live_tests {
                 },
             ],
             model,
+            max_tokens: None,
         };
 
         let mut stream = client

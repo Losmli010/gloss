@@ -24,7 +24,7 @@ use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
 use gloss_core::model::{GlossError, Lang};
 use gloss_core::ports::AiEngine;
-use gloss_core::task::{TaskInput, TaskKind};
+use gloss_core::task::{OutcomeStructured, TaskInput, TaskKind, TaskOutcome};
 
 mod stubs;
 use stubs::engine::MockEngine;
@@ -33,8 +33,7 @@ use stubs::ports::MemoryConfigStore;
 #[allow(clippy::expect_used, clippy::panic)]
 fn pipeline(engine: &MockEngine) -> Pipeline {
     let service = Arc::new(AiTaskService::new(
-        Arc::new(engine.clone()) as Arc<dyn AiEngine>,
-        Arc::new(MokaCache::new()),
+        Arc::new(engine.clone()) as Arc<dyn AiEngine>
     ));
     let Channels {
         platform_events,
@@ -52,8 +51,8 @@ fn pipeline(engine: &MockEngine) -> Pipeline {
         tx: cmd_tx,
         rx: cmd_rx,
     } = commands;
-    let runtime =
-        start_command_runtime(service, cmd_rx, ev_tx, || {}).expect("tokio bridge should start");
+    let runtime = start_command_runtime(service, Arc::new(MokaCache::new()), cmd_rx, ev_tx, || {})
+        .expect("tokio bridge should start");
     Pipeline {
         machine: TaskStateMachine::new(),
         config: Arc::new(ConfigHandle::with_config(
@@ -193,6 +192,69 @@ fn full_flow_streams_and_settles() {
         }
         other => panic!("expected outcome view, got {other:?}"),
     }
+}
+
+#[test]
+fn cache_hit_delivers_done_without_chunks_or_engine() {
+    let engine = MockEngine::new().with_chunks(vec![Ok("第一次的产物".into())]);
+    let mut pipe = pipeline(&engine);
+
+    pipe.trigger_and_feed("同一段文本");
+    wait_done(&mut pipe);
+    assert_eq!(engine.call_count(), 1, "first run must reach the engine");
+
+    pipe.trigger_and_feed("同一段文本");
+    match pipe.events_rx.recv().unwrap() {
+        Event::TaskDone {
+            generation,
+            outcome,
+        } => {
+            assert_eq!(generation, 2);
+            assert_eq!(outcome.body, "第一次的产物");
+            assert!(pipe.machine.accept_done(generation, outcome));
+        }
+        other => panic!("cache hit must settle directly without chunks, got {other:?}"),
+    }
+    assert_eq!(
+        engine.call_count(),
+        1,
+        "cache hit must not reach the engine"
+    );
+    assert_eq!(pipe.machine.state(), AppState::Show);
+}
+
+#[test]
+fn hide_overlay_cancels_the_stream_and_late_events_are_dropped() {
+    let engine = MockEngine::new()
+        .with_chunk_delay(Duration::from_millis(150))
+        .with_chunks(vec![Ok("一".into()), Ok("二".into()), Ok("三".into())]);
+    let mut pipe = pipeline(&engine);
+
+    let token = pipe.trigger_and_feed("慢慢来");
+    let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
+        panic!("chunk expected");
+    };
+    assert!(pipe.machine.accept_chunk(generation, delta));
+
+    pipe.machine.hide_overlay();
+    assert!(token.is_cancelled(), "hide must cancel the in-flight token");
+    assert!(
+        pipe.events_rx
+            .recv_timeout(Duration::from_millis(400))
+            .is_err(),
+        "cancelled task must not deliver any further event"
+    );
+    let late_outcome = TaskOutcome {
+        kind: TaskKind::TranslateWord,
+        body: "迟到的产物".into(),
+        structured: OutcomeStructured::Plain { title: None },
+    };
+    assert!(
+        !pipe.machine.accept_chunk(generation, "迟到的正文".into())
+            && !pipe.machine.accept_done(generation, late_outcome),
+        "products of the cancelled task must be dropped by the machine"
+    );
+    assert_eq!(pipe.machine.state(), AppState::Idle);
 }
 
 #[test]
