@@ -64,11 +64,14 @@ target_names="$(
 # ---- 清单侧：bdd.md 条目名 ----
 # 表格取首列，人工测试取 ### 小节标题；剥掉快照重名的（popup）/（settings）
 # 限定后缀；表头、分隔行与 crates/... 文件标题经标识符过滤自然排除。
+# 「## 发版人工步骤」节登记无自动化测试源码的发版链路运维步骤，整节豁免双向核对。
 bdd_names="$(
-  {
-    grep -E '^### ' "$BDD" | sed -E 's/^#[#]*[[:space:]]*//'
-    grep -E '^\|' "$BDD" | sed -E 's/^\|[[:space:]]*//; s/[[:space:]]*\|.*$//'
-  } | sed -E 's/（[^）]*）[[:space:]]*$//' \
+  awk '
+    /^## /  { exempt = ($0 ~ /^## 发版人工步骤/) ? 1 : 0 }
+    /^### / { if (!exempt) { sub(/^#[#]*[[:space:]]*/, ""); print } }
+    /^\|/   { if (!exempt) { sub(/^\|[[:space:]]*/, ""); sub(/[[:space:]]*\|.*$/, ""); print } }
+  ' "$BDD" \
+    | sed -E 's/（[^）]*）[[:space:]]*$//' \
     | grep -E '^[A-Za-z0-9_]+$' | sort -u
 )"
 

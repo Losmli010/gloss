@@ -32,6 +32,9 @@ jobs:
       - name: Run release tag checker unit tests
         run: bash scripts/release/check-release-tag.test.sh
 
+      - name: Run manifest generator unit tests
+        run: bash scripts/release/gen-manifest.test.sh
+
       - name: Verify version consistency
         id: version
         run: |
@@ -113,3 +116,42 @@ jobs:
           files: artifacts/*
           body_path: CHANGELOG.md
           generate_release_notes: false
+
+  # 站点部署：release 成功后把 web/ + 本 tag 二进制 + manifest.json 发上 GitHub Pages。
+  # Pages 部署失败不回滚 Release（Release 是历史事实源），job 显式失败可见，
+  # 补救：重跑本 job（消费同 run artifacts）；artifact 超保留期则重跑整个 workflow。
+  deploy-web:
+    name: Deploy web to GitHub Pages
+    needs: release
+    runs-on: ubuntu-latest
+    # Pages 部署需要的最小写权限（顶层仍为只读）。
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate manifest and stage binaries
+        run: |
+          # gen-manifest.sh 内部先跑 check-release-tag.sh（版本单点门禁，不一致即失败）
+          ./scripts/release/gen-manifest.sh "${GITHUB_REF_NAME}" artifacts > web/manifest.json
+          cp artifacts/gloss-*.zip artifacts/gloss-*.dmg web/latest/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
