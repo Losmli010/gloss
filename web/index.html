@@ -54,6 +54,7 @@
     @media (max-width: 640px) { .nav-links { display: none; } }
 
     section { padding: 56px 0; scroll-margin-top: 72px; }
+    #features { scroll-margin-top: 72px; }
     .section-title { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
     .section-lede { color: var(--ink-soft); margin-bottom: 28px; }
 
@@ -87,14 +88,14 @@
     .arch-toggle button.active { background: linear-gradient(180deg, var(--blue), var(--blue-deep)); color: #fff; font-weight: 600; }
     .download-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
     .btn-big { padding: 13px 34px; font-size: 16.5px; border-radius: 12px; }
-    .btn-big .size { font-weight: 400; font-size: 13px; opacity: 0.85; margin-left: 8px; }
+    .size { font-weight: 400; font-size: 13px; opacity: 0.85; margin-left: 6px; }
     .link-plain { color: var(--blue-deep); text-decoration: none; font-size: 14.5px; }
     .link-plain:hover { text-decoration: underline; }
     .download-note { color: var(--ink-soft); font-size: 13.5px; margin-top: 14px; }
     .install-guide {
       margin-top: 26px; background: #FFF8F2; border: 1px solid #F2D9C8; border-radius: var(--radius); padding: 16px 20px; max-width: 640px;
     }
-    .install-guide h4 { font-size: 15px; color: #B45429; margin-bottom: 6px; }
+    .install-guide h3 { font-size: 15px; color: #B45429; margin-bottom: 6px; }
     .install-guide ol { padding-left: 20px; color: var(--ink-soft); font-size: 14px; }
     .install-guide .why { margin-top: 8px; font-size: 13px; color: #A98064; }
 
@@ -137,7 +138,7 @@
         <div class="card card-demo wide">
           <img src="assets/demo-selection.svg" alt="演示示意：划词后弹出翻译浮层（占位素材）">
         </div>
-        <div id="features" class="card" style="scroll-margin-top: 72px;">
+        <div id="features" class="card">
           <span class="icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4h14M12 4v16M9 20h6"/></svg>
           </span>
@@ -181,20 +182,19 @@
       </div>
       <p class="section-lede">免费开源（MIT），支持 Apple Silicon 与 Intel 芯片的 Mac。</p>
       <div class="arch-toggle" role="group" aria-label="选择芯片架构">
-        <button type="button" id="arch-apple" class="active">Apple Silicon</button>
-        <button type="button" id="arch-intel">Intel</button>
+        <button type="button" id="arch-apple" class="active" aria-pressed="true">Apple Silicon</button>
+        <button type="button" id="arch-intel" aria-pressed="false">Intel</button>
       </div>
       <div class="download-actions">
         <a id="btn-dmg" class="btn btn-big" href="https://github.com/Losmli010/gloss/releases/latest">
           下载 <span id="arch-label">Apple Silicon</span> 版（.dmg）
-          <span id="dmg-size" class="size" hidden></span>
         </a>
-        <a id="link-zip" class="link-plain" href="https://github.com/Losmli010/gloss/releases/latest">下载 .zip 备用</a>
+        <a id="link-zip" class="link-plain" href="https://github.com/Losmli010/gloss/releases/latest">下载 .zip 备用<span id="zip-size" class="size" hidden></span></a>
         <a class="link-plain" href="https://github.com/Losmli010/gloss/releases">GitHub Releases 历史版本</a>
       </div>
       <p id="fallback-note" class="download-note" hidden>无法获取最新版本信息，已切换到 GitHub Releases 页面下载（资产名含版本号，请按架构选择）。</p>
       <div class="install-guide">
-        <h4>首次打开指引</h4>
+        <h3>首次打开指引</h3>
         <ol>
           <li>打开下载的 .dmg，把 Gloss 拖入「应用程序」；</li>
           <li>在「应用程序」中<strong>右键点击 Gloss → 打开</strong>，再点「打开」确认；</li>
@@ -250,10 +250,10 @@
     $('arch-label').textContent = ARCHES[arch].label;
     $('btn-dmg').href = (entry && entry.dmg_url) || RELEASES_LATEST;
     if (entry && typeof entry.size === 'number' && entry.size > 0) {
-      $('dmg-size').textContent = formatSize(entry.size);
-      $('dmg-size').hidden = false;
+      $('zip-size').textContent = formatSize(entry.size);
+      $('zip-size').hidden = false;
     } else {
-      $('dmg-size').hidden = true;
+      $('zip-size').hidden = true;
     }
     if (entry && entry.url) {
       $('link-zip').href = entry.url;
@@ -272,7 +272,10 @@
     if (!m || m.schema !== 1 || typeof m.version !== 'string' || !m.channels || !m.channels.stable) return false;
     return Object.values(ARCHES).some(({ key }) => {
       const e = m.channels.stable[key];
-      return e && typeof e.dmg_url === 'string' && typeof e.url === 'string';
+      return e
+        && typeof e.dmg_url === 'string' && e.dmg_url.startsWith('https://')
+        && typeof e.url === 'string' && e.url.startsWith('https://')
+        && typeof e.size === 'number';
     });
   }
 
@@ -296,6 +299,8 @@
   function toggleArch() {
     $('arch-apple').classList.toggle('active', arch === 'apple');
     $('arch-intel').classList.toggle('active', arch === 'intel');
+    $('arch-apple').setAttribute('aria-pressed', String(arch === 'apple'));
+    $('arch-intel').setAttribute('aria-pressed', String(arch === 'intel'));
   }
 </script>
 </body>
