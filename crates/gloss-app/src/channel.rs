@@ -92,6 +92,14 @@ pub enum Event {
         /// 取材产物。
         input: TaskInput,
     },
+    /// 自动分类完成：待分类任务已判明类型（含分类失败时的兜底 kind）。
+    /// 只更新界面上的任务标签，执行由桥用重建后的任务继续。
+    TaskClassified {
+        /// 请求代数，与触发它的任务同值。
+        generation: u64,
+        /// 判定的任务类型。
+        kind: TaskKind,
+    },
     /// 流式增量（markdown 正文片段）。
     TaskChunk {
         /// 请求代数，与触发它的任务同值。

@@ -1,18 +1,27 @@
 //! 通道③ → [`AiTaskService`] → 通道④ 的 tokio 消费桥（推理在
 //! tokio 后台，主线程不 await）。
 //!
-//! 桥的职责面：**缓存编排 + body 累积 + 产物组装**。core 服务只渲染与
-//! 转发——桥在派发前查主缓存（key = `cache_key`，命中直出 TaskDone、
-//! 不调引擎），在转发回调里累积原始 body 并逐条上抛 TaskChunk，流走完后
-//! 经 `finalize_outcome` 组装产物回填缓存再发 TaskDone；引擎失败不写缓存。
-//! machine 侧另有显示用的流式累积，与这里的完成态累积并存：**完成态以
-//! TaskDone 的 `outcome.body` 为权威源**（accept_done 用它整卡覆盖）。
+//! 桥的职责面：**分类编排 + 缓存编排 + body 累积 + 产物组装**。待分类
+//! 任务（`TaskKind::Auto` 哨兵，划词手势的默认起点）在前半程重建：分类
+//! 缓存 → `classify`（代码语言提示直通，否则极小 prompt 走 LLM）→
+//! `TaskClassified` 回传 → 按判定 kind 重建任务，随后与固定 kind 的任务
+//! 同路。core 服务只渲染与转发——这里查/写主缓存（key = `cache_key`，
+//! 命中直出 TaskDone、不调引擎），在转发回调里累积原始 body 并逐条上抛
+//! TaskChunk，流走完后经 `finalize_outcome` 组装产物回填缓存再发
+//! TaskDone；引擎失败不写缓存。machine 侧另有显示用的流式累积，与这里
+//! 的完成态累积并存：**完成态以 TaskDone 的 `outcome.body` 为权威源**
+//! （accept_done 用它整卡覆盖）。
 //!
-//! 每条 `RunTask` 的取消令牌经 `select!` 与执行竞速——取消在流式读取的
-//! 多个 await 点上即时生效，被取消的任务静默丢弃（App 已推进代数，任何
-//! 迟到产物都会被判 stale）。任务 future 包在 `catch_unwind` 里（后台
-//! panic 被 tokio 捕获转为 TaskFailed）：引擎或编排层炸掉时用户拿到失败
-//! 卡而不是永悬的「推理中」，消费循环继续存活。运行时由
+//! 分类阶段的配置事实（分类模型、兜底 kind、enabled 清单、重建后的模型
+//! 绑定）取自进桥那一刻的**单次**配置快照——解析出的值随重建后的任务
+//! 冻结，执行途中不再回读。Auto 永不进主缓存 key 与 prompt 渲染：
+//! 主缓存查询发生在重建出具体 kind 之后。
+//!
+//! 每条 `RunTask` 的取消令牌经 `select!` 与执行竞速——取消在分类、缓存
+//! 与流式读取的全部 await 点上即时生效，被取消的任务静默丢弃（App 已推
+//! 进代数，任何迟到产物都会被判 stale）。任务 future 包在 `catch_unwind`
+//! 里（后台 panic 被 tokio 捕获转为 TaskFailed）：引擎或编排层炸掉时用户
+//! 拿到失败卡而不是永悬的「推理中」，消费循环继续存活。运行时由
 //! [`start_command_runtime`] 创建并托管，进程退出时随通道③关闭自然收尾。
 
 use std::sync::Arc;
@@ -21,12 +30,15 @@ use std::time::Duration;
 use crossbeam_channel::Sender;
 use futures::FutureExt;
 use gloss_core::cache::cache_key;
+use gloss_core::classify::{classify, classify_key};
+use gloss_core::config::ALL_KINDS;
 use gloss_core::config::DEFAULT_TEXT_MODEL;
+use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::{AiTaskService, finalize_outcome};
 use gloss_core::log::{Instrument, debug, info, thread, warn};
 use gloss_core::model::GlossError;
 use gloss_core::ports::Cache;
-use gloss_core::task::Task;
+use gloss_core::task::{InputHint, Task, TaskInput, TaskKind, TaskOptions};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::channel::{Command, Event, Traced};
@@ -51,11 +63,12 @@ impl Drop for CommandRuntime {
 }
 
 /// 创建 tokio 运行时并启动消费循环。`cache` 是主产物缓存（编排在本桥，
-/// 见模块文档）；`wake` 在每条回传事件入队后调用，唤醒睡在主线程事件
-/// 循环里的 UI。
+/// 见模块文档）；`config` 供分类阶段取单次快照；`wake` 在每条回传事件
+/// 入队后调用，唤醒睡在主线程事件循环里的 UI。
 pub fn start_command_runtime(
     service: Arc<AiTaskService>,
     cache: Arc<dyn Cache>,
+    config: Arc<ConfigHandle>,
     commands: UnboundedReceiver<Traced<Command>>,
     events: Sender<Event>,
     wake: impl Fn() + Send + Sync + 'static,
@@ -63,7 +76,7 @@ pub fn start_command_runtime(
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    rt.spawn(consume_loop(service, cache, commands, events, wake));
+    rt.spawn(consume_loop(service, cache, config, commands, events, wake));
     Ok(CommandRuntime { rt: Some(rt) })
 }
 
@@ -72,6 +85,7 @@ pub fn start_command_runtime(
 async fn consume_loop(
     service: Arc<AiTaskService>,
     cache: Arc<dyn Cache>,
+    config: Arc<ConfigHandle>,
     mut commands: UnboundedReceiver<Traced<Command>>,
     events: Sender<Event>,
     wake: impl Fn() + Send + Sync,
@@ -85,9 +99,9 @@ async fn consume_loop(
             task,
             cancel,
         } = payload;
-        // 取消与执行竞速：取消即时生效，覆盖缓存查询与流式读取的全部
-        // await 点。被取消的任务不发任何回传——App 取消时已 gen+1，迟到
-        // 产物本就该被丢弃。
+        // 取消与执行竞速：取消即时生效，覆盖分类、缓存查询与流式读取的
+        // 全部 await 点。被取消的任务不发任何回传——App 取消时已 gen+1，
+        // 迟到产物本就该被丢弃。
         //
         // 执行体包在 catch_unwind 里：后台 panic 转 TaskFailed（错误卡给
         // 用户「服务异常」而不是永悬的推理中），循环自身继续消费。
@@ -99,8 +113,9 @@ async fn consume_loop(
             outcome = std::panic::AssertUnwindSafe(run_task(
                 service.as_ref(),
                 cache.as_ref(),
+                &config,
                 generation,
-                &task,
+                task,
                 &events,
                 &wake,
             ))
@@ -137,20 +152,36 @@ async fn consume_loop(
     );
 }
 
-/// 单个任务的桥侧执行体：模型解析 → 主缓存查询（命中直出）→ 服务渲染
-/// 转发（增量上抛 + body 累积）→ `finalize_outcome` 组装 → 回填缓存 →
-/// TaskDone。`Err` 交给调用方转 TaskFailed——失败路径不写缓存，下次触发
-/// 重新执行。
+/// 单个任务的桥侧执行体：Auto 前半程（分类 → 重建）→ 模型解析 → 主缓存
+/// 查询（命中直出）→ 服务渲染转发（增量上抛 + body 累积）→
+/// `finalize_outcome` 组装 → 回填缓存 → TaskDone。`Err` 交给调用方转
+/// TaskFailed——失败路径不写缓存，下次触发重新执行。
 async fn run_task(
     service: &AiTaskService,
     cache: &dyn Cache,
+    config: &ConfigHandle,
     generation: u64,
-    task: &Task,
+    task: Task,
     events: &Sender<Event>,
     wake: &(impl Fn() + Send + Sync),
 ) -> Result<(), GlossError> {
-    let model = model_for(task)?;
-    let key = cache_key(task, model);
+    let task = match task.kind {
+        TaskKind::Auto => {
+            classify_and_rebuild(
+                cache,
+                config,
+                service.engine(),
+                generation,
+                task,
+                events,
+                wake,
+            )
+            .await?
+        }
+        _ => task,
+    };
+    let model = model_for(&task)?;
+    let key = cache_key(&task, model);
     if let Some(outcome) = cache.get(key) {
         info!(
             kind = ?task.kind,
@@ -175,7 +206,7 @@ async fn run_task(
 
     let mut body = String::new();
     service
-        .execute(task, model, |delta| {
+        .execute(&task, model, |delta| {
             body.push_str(&delta);
             send_event(events, wake, Event::TaskChunk { generation, delta });
         })
@@ -192,6 +223,104 @@ async fn run_task(
         },
     );
     Ok(())
+}
+
+/// Auto 任务的前半程：分类 → `TaskClassified` 回传 → 按判定 kind 重建。
+///
+/// 次序固定为「分类缓存 → 分类 → 重建后走主缓存」：主缓存 key 含具体
+/// kind，哨兵在重建前没有可查的身份。分类失败的回退也发
+/// `TaskClassified`（kind = 兜底）——界面标签如实反映即将执行的任务。
+/// 允许清单 = text-capable ∩ enabled；清单为空或分类模型缺配时不发
+/// 分类请求，直接落兜底。
+async fn classify_and_rebuild(
+    cache: &dyn Cache,
+    config: &ConfigHandle,
+    engine: &dyn gloss_core::ports::AiEngine,
+    generation: u64,
+    task: Task,
+    events: &Sender<Event>,
+    wake: &(impl Fn() + Send + Sync),
+) -> Result<Task, GlossError> {
+    let TaskInput::Text { text, hint } = task.input else {
+        // Auto 只以文本取材进入编排（模态矩阵收口）；带着图像/音频到这里
+        // 是接线错误，明确失败而不是猜一个分类。
+        return Err(GlossError::UnsupportedModality);
+    };
+    let snapshot = config.snapshot();
+    let fallback = snapshot.classify_fallback();
+    let allowed: Vec<TaskKind> = ALL_KINDS
+        .iter()
+        .copied()
+        .filter(|kind| kind.accepts_text())
+        .filter(|kind| snapshot.is_kind_enabled(*kind))
+        .collect();
+    let locale = task.options.prompt_locale.unwrap_or_default();
+
+    let kind = match hint {
+        // 代码语言提示直通（classify 内部同一规则）；这里先截住是为了
+        // 不查缓存不取模型——提示在手的答案没有不确定性。
+        Some(InputHint::CodeLanguage(_)) => TaskKind::ExplainCode,
+        _ => match snapshot.resolved_model(fallback) {
+            None => {
+                warn!(
+                    thread = thread::TOKIO,
+                    "no model for classification, falling back"
+                );
+                fallback
+            }
+            Some(model) => {
+                let key = classify_key(&text, hint.as_ref(), locale, model);
+                let cached = cache
+                    .get_classify(key)
+                    .filter(|kind| allowed.contains(kind));
+                match cached {
+                    Some(kind) => {
+                        debug!(thread = thread::TOKIO, kind = ?kind, "classify cache hit");
+                        kind
+                    }
+                    None => match classify(
+                        engine,
+                        model,
+                        locale,
+                        &allowed,
+                        &TaskInput::Text {
+                            text: text.clone(),
+                            hint: hint.clone(),
+                        },
+                    )
+                    .await
+                    {
+                        Ok(kind) => {
+                            cache.set_classify(key, kind);
+                            kind
+                        }
+                        Err(error) => {
+                            // 回退有痕迹但无内容：错误分类不含选区原文，这里
+                            // 也只记错误类别，不记文本与模型回复。
+                            warn!(
+                                thread = thread::TOKIO,
+                                error = %error,
+                                "classification failed, falling back to the default kind"
+                            );
+                            fallback
+                        }
+                    },
+                }
+            }
+        },
+    };
+
+    send_event(events, wake, Event::TaskClassified { generation, kind });
+    Ok(Task {
+        kind,
+        input: TaskInput::Text { text, hint },
+        options: TaskOptions {
+            target_lang: task.options.target_lang,
+            detail_level: task.options.detail_level,
+            model_override: snapshot.resolved_model(kind).map(str::to_owned),
+            prompt_locale: task.options.prompt_locale,
+        },
+    })
 }
 
 /// 从 panic payload 提取诊断文本（只认 `&str` / `String` 载体，其余没有
@@ -239,6 +368,7 @@ mod tests {
     use crate::stubs::engine::MockEngine;
     use crossbeam_channel::Receiver;
     use gloss_core::cache::MokaCache;
+    use gloss_core::config_handle::ConfigHandle;
     use gloss_core::engine::AiTaskService;
     use gloss_core::model::GlossError;
     use gloss_core::task::{Task, TaskInput, TaskKind, TaskOptions};
@@ -257,11 +387,16 @@ mod tests {
         let service = Arc::new(AiTaskService::new(
             Arc::new(engine.clone()) as Arc<dyn gloss_core::ports::AiEngine>
         ));
+        let config = Arc::new(ConfigHandle::with_config(
+            Arc::new(crate::stubs::ports::MemoryConfigStore::default()),
+            gloss_core::config::Config::default(),
+        ));
         let (commands_tx, commands_rx) = unbounded_channel();
         let (events_tx, events_rx) = crossbeam_channel::unbounded();
         let runtime = start_command_runtime(
             service,
             Arc::new(MokaCache::new()),
+            config,
             commands_rx,
             events_tx,
             || {},

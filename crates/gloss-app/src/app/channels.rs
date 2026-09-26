@@ -2,7 +2,7 @@
 //! 取材产物→推理任务（通道③）、回传事件→浮层展示决策（通道④）。
 
 use gloss_core::log::{Span, debug, info, task_span, thread, warn};
-use gloss_core::task::TaskInput;
+use gloss_core::task::{TaskInput, TaskKind};
 use winit::event_loop::ActiveEventLoop;
 
 use crate::channel::{AcquireCommand, Command, Event, PlatformEvent, Traced};
@@ -126,6 +126,9 @@ impl GlossApp {
             let kind = event_kind(&event);
             let accepted = match event {
                 Event::InputReady { generation, input } => self.accept_input(generation, input),
+                Event::TaskClassified { generation, kind } => {
+                    self.accept_classified(generation, kind)
+                }
                 Event::TaskChunk { generation, delta } => self.accept_chunk(generation, delta),
                 Event::TaskDone {
                     generation,
@@ -234,6 +237,21 @@ impl GlossApp {
         accepted
     }
 
+    /// 采纳自动分类结果（头部任务标签的更新点）。返回是否需要重绘。
+    fn accept_classified(&mut self, generation: u64, kind: TaskKind) -> bool {
+        let accepted = self.machine.accept_classified(generation, kind);
+        if !accepted {
+            debug!(
+                thread = thread::UI,
+                generation = generation,
+                current = self.machine.generation(),
+                state = ?self.machine.state(),
+                "stale classification dropped"
+            );
+        }
+        accepted
+    }
+
     /// 采纳任务产物：定格正文并进入 `Show`。返回是否需要重绘。
     pub(super) fn accept_done(
         &mut self,
@@ -291,7 +309,7 @@ impl GlossApp {
 mod tests {
     use std::sync::Arc;
 
-    use gloss_core::config::{Config, DEFAULT_TEXT_MODEL, ModelBinding};
+    use gloss_core::config::{Config, ModelBinding};
     use gloss_core::guard::{FrontApp, SceneFacts};
     use gloss_core::log::{capture_global, info, thread};
     use gloss_core::model::Lang;
@@ -329,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn a_disabled_default_kind_makes_the_selection_gesture_a_no_op() {
+    fn a_disabled_default_kind_does_not_stop_the_selection_gesture() {
         let (mut app, config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app();
         config
             .save(Config {
@@ -341,29 +359,15 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(
-            ac_rx.try_recv().is_err(),
-            "the gate must stop the command before it reaches the event thread"
+            matches!(
+                ac_rx.try_recv().unwrap().payload,
+                AcquireCommand::AcquireText {
+                    generation: 1,
+                    kind: TaskKind::Auto
+                }
+            ),
+            "the gesture carries no explicit intent, so the kind switches do not gate it"
         );
-        assert_eq!(
-            app.machine.generation(),
-            0,
-            "a dropped trigger keeps no gen"
-        );
-        assert_eq!(
-            app.machine.state(),
-            AppState::Idle,
-            "no overlay, no failure card: this is the state the settings page now blocks"
-        );
-
-        config.save(Config::default()).expect("save should succeed");
-        trigger_selection(&mut app, &pe_tx);
-        assert!(matches!(
-            ac_rx.try_recv().unwrap().payload,
-            AcquireCommand::AcquireText {
-                generation: 1,
-                kind: TaskKind::TranslateWord
-            }
-        ));
     }
 
     #[test]
@@ -457,9 +461,11 @@ mod tests {
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(task.options.target_lang, Some(Lang::Zh));
         assert_eq!(
-            task.options.model_override.as_deref(),
-            Some(DEFAULT_TEXT_MODEL)
+            task.kind,
+            TaskKind::Auto,
+            "the gesture dispatches the sentinel; the model is resolved at rebuild"
         );
+        assert_eq!(task.options.model_override, None);
 
         config
             .save(Config {
@@ -476,10 +482,7 @@ mod tests {
         assert!(app.accept_input(2, text_input("B")));
         let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(task.options.target_lang, Some(Lang::Ja));
-        assert_eq!(
-            task.options.model_override.as_deref(),
-            Some("deepseek-reasoner")
-        );
+        assert_eq!(task.kind, TaskKind::Auto);
     }
 
     #[test]

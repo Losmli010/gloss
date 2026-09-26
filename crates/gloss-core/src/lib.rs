@@ -10,6 +10,7 @@ extern crate self as gloss_core;
 pub(crate) mod stubs;
 
 pub mod cache;
+pub mod classify;
 pub mod config;
 pub mod config_handle;
 pub mod engine;

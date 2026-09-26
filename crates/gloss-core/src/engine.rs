@@ -32,6 +32,12 @@ impl AiTaskService {
         }
     }
 
+    /// 引擎端口：分类编排（`classify`）与任务转发共用同一引擎实例——
+    /// 连接池只有一份。渲染与转发的路径仍走 [`Self::execute`]。
+    pub fn engine(&self) -> &dyn AiEngine {
+        self.engine.as_ref()
+    }
+
     /// 渲染并转发一条任务：模板渲染（含模态校验，非法组合在进引擎前
     /// 拒绝）→ 引擎流式，每个增量经 `on_chunk` 原样转发 → 流走完或首错
     /// 即返回。返回 `Ok` 只表示流正常收尾——产物由调用方组装。

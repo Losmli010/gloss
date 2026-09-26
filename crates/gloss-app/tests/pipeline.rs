@@ -5,6 +5,10 @@
 //! 边界，归 L4 opt-in 层——这里取材产物以 `machine.accept_input` 直接
 //! 注入，等价于事件线程回传的产物。
 //!
+//! 两条触发路径：划词手势下发 `TaskKind::Auto`（走桥的分类前半程），
+//! 热键绑定固定 kind（跳过分类直达缓存/引擎）。纯流式/取消/重试语义用
+//! 热键路径锁定，分类编排用手势路径锁定。
+//!
 //! 驱动方式：全部经公共 API（`TaskStateMachine` / `Channels` /
 //! `start_command_runtime`），`cargo test` 直接跑。
 
@@ -24,7 +28,7 @@ use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
 use gloss_core::model::{GlossError, Lang};
 use gloss_core::ports::AiEngine;
-use gloss_core::task::{OutcomeStructured, TaskInput, TaskKind, TaskOutcome};
+use gloss_core::task::{InputHint, OutcomeStructured, TaskInput, TaskKind, TaskOutcome};
 
 mod stubs;
 use stubs::engine::MockEngine;
@@ -51,14 +55,22 @@ fn pipeline(engine: &MockEngine) -> Pipeline {
         tx: cmd_tx,
         rx: cmd_rx,
     } = commands;
-    let runtime = start_command_runtime(service, Arc::new(MokaCache::new()), cmd_rx, ev_tx, || {})
-        .expect("tokio bridge should start");
+    let config = Arc::new(ConfigHandle::with_config(
+        Arc::new(MemoryConfigStore::default()),
+        Config::default(),
+    ));
+    let runtime = start_command_runtime(
+        service,
+        Arc::new(MokaCache::new()),
+        Arc::clone(&config),
+        cmd_rx,
+        ev_tx,
+        || {},
+    )
+    .expect("tokio bridge should start");
     Pipeline {
         machine: TaskStateMachine::new(),
-        config: Arc::new(ConfigHandle::with_config(
-            Arc::new(MemoryConfigStore::default()),
-            Config::default(),
-        )),
+        config,
         _pe_tx: pe_tx,
         _ac_tx: ac_tx,
         commands_tx: cmd_tx,
@@ -79,14 +91,35 @@ struct Pipeline {
 
 impl Pipeline {
     #[allow(clippy::expect_used, clippy::panic)]
-    fn trigger_and_feed(&mut self, text: &str) -> tokio_util::sync::CancellationToken {
-        self.trigger_and_feed_in(text, Span::none())
+    fn dispatch(
+        &mut self,
+        request: gloss_app::machine::RunRequest,
+    ) -> tokio_util::sync::CancellationToken {
+        self.commands_tx
+            .send(Traced {
+                payload: Command::RunTask {
+                    generation: request.generation,
+                    task: request.task,
+                    cancel: request.cancel.clone(),
+                },
+                span: Span::none(),
+            })
+            .expect("command channel open");
+        request.cancel
     }
 
+    /// 划词手势路径：触发 → 注入选区文本 → 下发 Auto 任务。
     #[allow(clippy::expect_used, clippy::panic)]
-    fn trigger_and_feed_in(
+    fn trigger_and_feed(&mut self, text: &str) -> tokio_util::sync::CancellationToken {
+        self.trigger_and_feed_with(text, None, Span::none())
+    }
+
+    /// 带模态提示的划词路径（代码语言提示直通分类）。
+    #[allow(clippy::expect_used, clippy::panic)]
+    fn trigger_and_feed_with(
         &mut self,
         text: &str,
+        hint: Option<InputHint>,
         span: Span,
     ) -> tokio_util::sync::CancellationToken {
         let command = self
@@ -107,7 +140,7 @@ impl Pipeline {
             *generation,
             TaskInput::Text {
                 text: text.into(),
-                hint: None,
+                hint,
             },
         ) else {
             panic!("input should be accepted while fetching");
@@ -124,6 +157,43 @@ impl Pipeline {
             .expect("command channel open");
         request.cancel
     }
+
+    /// 热键路径：固定 kind，不经过分类前半程。
+    #[allow(clippy::expect_used, clippy::panic)]
+    fn trigger_hotkey_and_feed(
+        &mut self,
+        kind: TaskKind,
+        text: &str,
+    ) -> tokio_util::sync::CancellationToken {
+        let command = self
+            .machine
+            .trigger(
+                &PlatformEvent::HotkeyTriggered {
+                    binding: gloss_core::task::HotkeyBinding {
+                        trigger: "Cmd+Shift+T".into(),
+                        kind,
+                        source: gloss_core::task::InputSource::Selection,
+                    },
+                },
+                &self.config.snapshot(),
+                Locale::Zh,
+                &SceneFacts::default(),
+            )
+            .expect("enabled hotkey must acquire");
+        let AcquireCommand::AcquireText { generation, .. } = &command else {
+            panic!("acquire text expected");
+        };
+        let InputOutcome::Dispatch(request) = self.machine.accept_input(
+            *generation,
+            TaskInput::Text {
+                text: text.into(),
+                hint: None,
+            },
+        ) else {
+            panic!("input should be accepted while fetching");
+        };
+        self.dispatch(request)
+    }
 }
 
 #[test]
@@ -134,7 +204,7 @@ fn engine_logs_carry_the_task_span() {
 
     pipe.trigger_and_feed("hello");
     wait_done(&mut pipe);
-    pipe.trigger_and_feed_in("hello", gloss_core::log::task_span(2));
+    pipe.trigger_and_feed_with("hello", None, gloss_core::log::task_span(2));
     wait_done(&mut pipe);
 
     assert!(
@@ -147,7 +217,7 @@ fn engine_logs_carry_the_task_span() {
 }
 
 #[test]
-fn full_flow_streams_and_settles() {
+fn full_flow_classifies_then_streams_and_settles() {
     let engine = MockEngine::new().with_chunks(vec![
         Ok("光泽".into()),
         Ok("：注释".into()),
@@ -161,6 +231,12 @@ fn full_flow_streams_and_settles() {
     let token = pipe.trigger_and_feed("gloss");
     assert_eq!(pipe.machine.state(), AppState::Translating);
     assert!(!token.is_cancelled());
+
+    assert_eq!(
+        expect_classified(&mut pipe),
+        TaskKind::TranslateWord,
+        "the classification replays the script and parses the gloss fence"
+    );
 
     for _ in 0..3 {
         let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
@@ -195,30 +271,96 @@ fn full_flow_streams_and_settles() {
 }
 
 #[test]
+fn classify_failure_falls_back_and_the_task_still_completes() {
+    let logs = gloss_core::log::capture_global();
+    let engine = MockEngine::new()
+        .with_execute_failure_once(GlossError::EngineRateLimited)
+        .with_chunks(vec![Ok("兜底产物".into())]);
+    let mut pipe = pipeline(&engine);
+
+    pipe.trigger_and_feed("第一次划词");
+    assert_eq!(
+        expect_classified(&mut pipe),
+        TaskKind::TranslateWord,
+        "the failed classification must fall back to the default text kind"
+    );
+    wait_done(&mut pipe);
+    assert_eq!(outcome_body(&pipe.machine), "兜底产物");
+    assert_eq!(pipe.machine.state(), AppState::Show);
+
+    let text = logs.text();
+    let fallback_line = text
+        .lines()
+        .find(|line| line.contains("classification failed"))
+        .expect("the fallback must leave a trace");
+    assert!(
+        !fallback_line.contains("第一次划词"),
+        "the fallback warn must not carry the selection content: {fallback_line}"
+    );
+}
+
+#[test]
+fn code_language_hint_skips_the_classification_round_trip() {
+    let engine = MockEngine::new().with_chunks(vec![Ok("代码解释产物".into())]);
+    let mut pipe = pipeline(&engine);
+
+    pipe.trigger_and_feed_with(
+        "fn main() {}",
+        Some(InputHint::CodeLanguage("rust".into())),
+        Span::none(),
+    );
+    assert_eq!(
+        expect_classified(&mut pipe),
+        TaskKind::ExplainCode,
+        "the hint classifies directly"
+    );
+    wait_done(&mut pipe);
+    assert_eq!(
+        engine.call_count(),
+        1,
+        "only the task execution may reach the engine"
+    );
+}
+
+#[test]
 fn cache_hit_delivers_done_without_chunks_or_engine() {
-    let engine = MockEngine::new().with_chunks(vec![Ok("第一次的产物".into())]);
+    let engine = MockEngine::new().with_chunks(vec![Ok("{\"kind\":\"TranslateWord\"}".into())]);
     let mut pipe = pipeline(&engine);
 
     pipe.trigger_and_feed("同一段文本");
+    assert_eq!(
+        expect_classified(&mut pipe),
+        TaskKind::TranslateWord,
+        "first run classifies via the engine (script replay)"
+    );
     wait_done(&mut pipe);
-    assert_eq!(engine.call_count(), 1, "first run must reach the engine");
+    assert_eq!(
+        engine.call_count(),
+        2,
+        "first run: one classify call + one task execution"
+    );
 
     pipe.trigger_and_feed("同一段文本");
+    assert_eq!(
+        expect_classified(&mut pipe),
+        TaskKind::TranslateWord,
+        "second run resolves from the classify cache"
+    );
     match pipe.events_rx.recv().unwrap() {
         Event::TaskDone {
             generation,
             outcome,
         } => {
             assert_eq!(generation, 2);
-            assert_eq!(outcome.body, "第一次的产物");
+            assert_eq!(outcome.body, "{\"kind\":\"TranslateWord\"}");
             assert!(pipe.machine.accept_done(generation, outcome));
         }
         other => panic!("cache hit must settle directly without chunks, got {other:?}"),
     }
     assert_eq!(
         engine.call_count(),
-        1,
-        "cache hit must not reach the engine"
+        2,
+        "classify cache + product cache must not reach the engine again"
     );
     assert_eq!(pipe.machine.state(), AppState::Show);
 }
@@ -231,6 +373,7 @@ fn hide_overlay_cancels_the_stream_and_late_events_are_dropped() {
     let mut pipe = pipeline(&engine);
 
     let token = pipe.trigger_and_feed("慢慢来");
+    let _ = expect_classified(&mut pipe);
     let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
         panic!("chunk expected");
     };
@@ -278,6 +421,11 @@ fn superseded_trigger_cancels_and_filters_late_events() {
         "stale generation must be dropped by the machine"
     );
 
+    assert_eq!(
+        expect_classified(&mut pipe),
+        TaskKind::TranslateWord,
+        "task B classifies (the script text parses as nothing, so the fallback applies)"
+    );
     for expected in ["A1", "A2"] {
         let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
             panic!("chunk expected");
@@ -305,14 +453,14 @@ fn failure_lands_in_error_and_retry_succeeds() {
         .with_chunks(vec![Ok("第二次的产物".into())]);
     let mut pipe = pipeline(&engine);
 
-    let _ = pipe.trigger_and_feed("第一次");
+    let _ = pipe.trigger_hotkey_and_feed(TaskKind::TranslateSentence, "第一次");
     let Event::TaskFailed { generation, error } = pipe.events_rx.recv().unwrap() else {
         panic!("task failed expected");
     };
     assert!(pipe.machine.accept_failed(generation, &error));
     assert_eq!(pipe.machine.state(), AppState::Error);
 
-    let _ = pipe.trigger_and_feed("第二次");
+    let _ = pipe.trigger_hotkey_and_feed(TaskKind::TranslateSentence, "第二次");
     loop {
         match pipe.events_rx.recv().unwrap() {
             Event::TaskChunk { generation, delta } => {
@@ -340,7 +488,7 @@ fn error_card_retry_redispatches_the_same_task() {
         .with_chunks(vec![Ok("重试后的产物".into())]);
     let mut pipe = pipeline(&engine);
 
-    let _ = pipe.trigger_and_feed("第一次");
+    let _ = pipe.trigger_hotkey_and_feed(TaskKind::TranslateSentence, "第一次");
     let Event::TaskFailed { generation, error } = pipe.events_rx.recv().unwrap() else {
         panic!("task failed expected");
     };
@@ -367,47 +515,16 @@ fn error_card_retry_redispatches_the_same_task() {
     assert_eq!(outcome_body(&pipe.machine), "重试后的产物");
 }
 
-#[allow(clippy::panic)] // 测试辅助：失败即 panic 是断言语义
-fn outcome_body(machine: &TaskStateMachine) -> &str {
-    match machine.overlay_view() {
-        Some(OverlayView::Outcome(outcome)) => &outcome.body,
-        other => panic!("expected outcome view, got {other:?}"),
-    }
-}
-
-#[allow(clippy::expect_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
-fn wait_done(pipe: &mut Pipeline) {
-    loop {
-        let event = pipe
-            .events_rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("task must finish within 5s (waiting for chunk or done)");
-        match event {
-            Event::TaskChunk { generation, delta } => {
-                assert!(pipe.machine.accept_chunk(generation, delta));
-            }
-            Event::TaskDone {
-                generation,
-                outcome,
-            } => {
-                assert!(pipe.machine.accept_done(generation, outcome));
-                return;
-            }
-            other => panic!("unexpected event: {other:?}"),
-        }
-    }
-}
-
 #[test]
 fn config_change_invalidates_cache_for_the_next_task() {
     let engine = MockEngine::new().with_chunks(vec![Ok("结果".into())]);
     let mut pipe = pipeline(&engine);
 
-    pipe.trigger_and_feed("同一段文本");
+    pipe.trigger_hotkey_and_feed(TaskKind::TranslateWord, "同一段文本");
     wait_done(&mut pipe);
     assert_eq!(engine.call_count(), 1, "first run must reach the engine");
 
-    pipe.trigger_and_feed("同一段文本");
+    pipe.trigger_hotkey_and_feed(TaskKind::TranslateWord, "同一段文本");
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
@@ -425,7 +542,7 @@ fn config_change_invalidates_cache_for_the_next_task() {
         })
         .expect("save should succeed");
 
-    pipe.trigger_and_feed("同一段文本");
+    pipe.trigger_hotkey_and_feed(TaskKind::TranslateWord, "同一段文本");
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
@@ -444,7 +561,7 @@ fn config_change_invalidates_cache_for_the_next_task() {
         })
         .expect("save should succeed");
 
-    pipe.trigger_and_feed("同一段文本");
+    pipe.trigger_hotkey_and_feed(TaskKind::TranslateWord, "同一段文本");
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
@@ -452,4 +569,49 @@ fn config_change_invalidates_cache_for_the_next_task() {
         "target language switch must miss the old cache entry"
     );
     assert_eq!(outcome_body(&pipe.machine), "结果");
+}
+
+#[allow(clippy::expect_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+fn expect_classified(pipe: &mut Pipeline) -> TaskKind {
+    match pipe.events_rx.recv().expect("event channel open") {
+        Event::TaskClassified { generation, kind } => {
+            assert!(pipe.machine.accept_classified(generation, kind));
+            kind
+        }
+        other => panic!("task classified expected, got {other:?}"),
+    }
+}
+
+#[allow(clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+fn outcome_body(machine: &TaskStateMachine) -> &str {
+    match machine.overlay_view() {
+        Some(OverlayView::Outcome(outcome)) => &outcome.body,
+        other => panic!("expected outcome view, got {other:?}"),
+    }
+}
+
+#[allow(clippy::expect_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+fn wait_done(pipe: &mut Pipeline) {
+    loop {
+        let event = pipe
+            .events_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("task must finish within 5s (waiting for chunk or done)");
+        match event {
+            Event::TaskClassified { generation, kind } => {
+                assert!(pipe.machine.accept_classified(generation, kind));
+            }
+            Event::TaskChunk { generation, delta } => {
+                assert!(pipe.machine.accept_chunk(generation, delta));
+            }
+            Event::TaskDone {
+                generation,
+                outcome,
+            } => {
+                assert!(pipe.machine.accept_done(generation, outcome));
+                return;
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
 }

@@ -64,12 +64,16 @@ pub enum AppState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum OverlayView {
     /// 取材/推理中：原文 + 已到达的流式正文（含结构化块的原始流，渲染
-    /// 层按 [`gloss_core::prompt::STRUCTURED_FENCE`] 过滤）。
+    /// 层按 [`gloss_core::prompt::STRUCTURED_FENCE`] 过滤）。`classified`
+    /// 是自动分类的判定结果（`None` = 尚未判明）：头部任务标签随它出现。
     Streaming {
         /// 触发时选中的原文。
         source: String,
         /// 已到达的流式正文累积（原始流）。
         body: String,
+        /// 自动分类判明的任务类型；非 Auto 任务恒为 `None`（标签来自
+        /// 产物卡的 kind）。
+        classified: Option<TaskKind>,
     },
     /// 产物卡：按 `TaskKind` 精排或展示 markdown 正文。
     Outcome(TaskOutcome),
@@ -259,6 +263,7 @@ impl TaskStateMachine {
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
             body: String::new(),
+            classified: None,
         });
         self.state = AppState::Translating;
         InputOutcome::Dispatch(self.begin_run(task))
@@ -290,6 +295,21 @@ impl TaskStateMachine {
         self.overlay_view = Some(OverlayView::Outcome(outcome));
         self.state = AppState::Show;
         true
+    }
+
+    /// 采纳自动分类结果：把判定的任务类型写进流式视图，头部任务标签随
+    /// 它出现（含分类失败时桥给的兜底 kind——标签如实反映即将执行的
+    /// 任务）。返回是否需要重绘。陈旧代数、非推理态或非流式视图不采纳
+    /// （迟到标签不得落在已定格的产物卡上）。
+    pub fn accept_classified(&mut self, generation: u64, kind: TaskKind) -> bool {
+        if generation != self.generation || self.state != AppState::Translating {
+            return false;
+        }
+        if let Some(OverlayView::Streaming { classified, .. }) = &mut self.overlay_view {
+            *classified = Some(kind);
+            return true;
+        }
+        false
     }
 
     /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（错误
@@ -410,11 +430,13 @@ fn error_action(error: &GlossError) -> Option<ErrorAction> {
     }
 }
 
-/// 一个任务下发的流式视图起点：原文照抄、正文空。重试与首次下发共用。
+/// 一个任务下发的流式视图起点：原文照抄、正文空、未分类。重试与首次
+/// 下发共用。
 fn streaming_view(task: &Task) -> OverlayView {
     OverlayView::Streaming {
         source: source_text(task),
         body: String::new(),
+        classified: None,
     }
 }
 
@@ -457,14 +479,21 @@ pub fn trigger_decision(
             // 图像取材待框选路径接入后消费。
             InputSource::Region => return TriggerDecision::Unwired,
         },
-        PlatformEvent::SelectionGesture { .. } => config.selection_task_kind(),
+        // 划词手势不带显式意图：固定走向 Auto 哨兵，由桥按输入内容分类
+        // 后重建具体 kind。任务开关不拦手势——Auto 不在设置清单里，可
+        // 不可用由前半程的「allowed = text-capable ∩ enabled」校验兜住；
+        // 场景闸门照常生效。
+        PlatformEvent::SelectionGesture { .. } => {
+            return match guard::trigger_block(scene) {
+                Some(block) => TriggerDecision::Blocked(block),
+                None => TriggerDecision::Acquire(TaskKind::Auto),
+            };
+        }
         PlatformEvent::RegionGesture { .. }
         | PlatformEvent::OpenSettingsRequested
         | PlatformEvent::QuitRequested => return TriggerDecision::Unwired,
     };
-    // 停用判定只在这条路径上做一次（划词手势的任务类型已按取材源收口成
-    // 文本类，见 `Config::selection_task_kind`；热键绑定携带的 kind 是逐条
-    // 显式意图，不做收口）。
+    // 停用判定只对显式 kind 做（热键绑定携带的 kind 是逐条显式意图）。
     if !config.is_kind_enabled(kind) {
         return TriggerDecision::Disabled(kind);
     }
@@ -478,10 +507,18 @@ pub fn trigger_decision(
 /// `model_by_kind` 解析（缺项时 core 的出厂默认兜底）后随任务下发；prompt
 /// 模板语言按 `Language` 落定（`System` 取系统语言）——三者都是引擎/模板
 /// 侧的输入，随任务冻结，执行途中不再回读配置。
+///
+/// [`TaskKind::Auto`] 不解析模型：哨兵自己不执行——分类用哪个模型由桥
+/// 按快照的兜底 kind 解析，重建后的任务再按判定 kind 解析。
 fn task_options(kind: TaskKind, config: &Config, system_locale: Locale) -> TaskOptions {
+    let model = if kind == TaskKind::Auto {
+        None
+    } else {
+        config.resolved_model(kind)
+    };
     TaskOptions {
         target_lang: Some(config.target_lang.clone()),
-        model_override: config.resolved_model(kind).map(str::to_owned),
+        model_override: model.map(str::to_owned),
         prompt_locale: Some(config.language.resolve(system_locale)),
         ..Default::default()
     }
@@ -558,7 +595,7 @@ mod tests {
             command,
             AcquireCommand::AcquireText {
                 generation: 1,
-                kind: TaskKind::TranslateWord
+                kind: TaskKind::Auto
             }
         ));
 
@@ -597,8 +634,8 @@ mod tests {
         };
         assert_eq!(
             trigger_decision(&selection_gesture(), &config, &open),
-            TriggerDecision::Disabled(TaskKind::ExplainCode),
-            "a selection whose default task is switched off is a trigger the user can fix"
+            TriggerDecision::Acquire(TaskKind::Auto),
+            "a selection carries no explicit intent: kind switches gate hotkeys, not the gesture"
         );
         assert_eq!(
             trigger_decision(
@@ -677,7 +714,7 @@ mod tests {
         );
         assert_eq!(
             trigger_decision(&selection_gesture(), &Config::default(), &open),
-            TriggerDecision::Acquire(TaskKind::TranslateWord)
+            TriggerDecision::Acquire(TaskKind::Auto)
         );
         assert_eq!(
             trigger_decision(&selection_gesture(), &Config::default(), &blocked_by_app()),
@@ -761,24 +798,27 @@ mod tests {
                 command,
                 AcquireCommand::AcquireText {
                     generation: 1,
-                    kind: TaskKind::ExplainCode
+                    kind: TaskKind::Auto
                 }
             ),
-            "gesture kind must come from the snapshot"
+            "the gesture dispatches the sentinel; per-kind model resolution moves to the bridge"
         );
 
         let request = dispatched(machine.accept_input(1, text_input("fn main() {}")));
-        assert_eq!(request.task.kind, TaskKind::ExplainCode);
-        assert_eq!(request.task.options.target_lang, Some(Lang::Ja));
+        assert_eq!(request.task.kind, TaskKind::Auto);
         assert_eq!(
-            request.task.options.model_override.as_deref(),
-            Some("code-model"),
-            "model must be resolved for the same kind, not the factory default"
+            request.task.options.model_override, None,
+            "the sentinel executes nothing, so it carries no model"
+        );
+        assert_eq!(
+            request.task.options.target_lang,
+            Some(Lang::Ja),
+            "target language still freezes from the trigger-time snapshot"
         );
     }
 
     #[test]
-    fn image_default_kind_falls_back_to_a_text_kind() {
+    fn gesture_acquires_even_with_a_legacy_image_default_kind() {
         let mut machine = TaskStateMachine::new();
         let config = Config {
             default_text_kind: TaskKind::ImageOcr,
@@ -786,17 +826,20 @@ mod tests {
         };
 
         let command = trigger(&mut machine, &config).expect("selection gesture must acquire");
-        assert!(matches!(
-            command,
-            AcquireCommand::AcquireText {
-                kind: TaskKind::TranslateWord,
-                ..
-            }
-        ));
+        assert!(
+            matches!(
+                command,
+                AcquireCommand::AcquireText {
+                    kind: TaskKind::Auto,
+                    ..
+                }
+            ),
+            "the gesture always classifies; the image default only shifts the fallback kind"
+        );
     }
 
     #[test]
-    fn disabled_kinds_are_not_acquired_and_consume_no_generation() {
+    fn disabled_kinds_are_not_acquired_via_hotkey_and_consume_no_generation() {
         let mut machine = TaskStateMachine::new();
         let config = Config {
             enabled_kinds: vec![
@@ -831,14 +874,9 @@ mod tests {
             "disabled trigger must not consume a generation"
         );
 
-        let disabled_default = Config {
-            default_text_kind: gloss_core::config::ALL_KINDS[2],
-            enabled_kinds: Vec::new(),
-            ..Default::default()
-        };
         assert!(
-            trigger(&mut machine, &disabled_default).is_none(),
-            "disabled selection kind must not acquire"
+            trigger(&mut machine, &config).is_some(),
+            "the gesture has no explicit kind, so the switches do not stop it"
         );
     }
 
@@ -922,7 +960,7 @@ mod tests {
 
         let request = dispatched(machine.accept_input(1, text_input("hello")));
         assert_eq!(request.generation, 1);
-        assert_eq!(request.task.kind, TaskKind::TranslateWord);
+        assert_eq!(request.task.kind, TaskKind::Auto);
         assert_eq!(machine.state(), AppState::Translating);
         assert!(machine.current_cancel().is_some());
 
@@ -951,6 +989,39 @@ mod tests {
             ),
             InputOutcome::Ignored
         ));
+    }
+
+    #[test]
+    fn classified_kind_updates_the_streaming_chip_only_once_current() {
+        let mut machine = TaskStateMachine::new();
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        dispatched(machine.accept_input(1, text_input("hello")));
+
+        assert!(
+            !machine.accept_classified(0, TaskKind::TranslateWord),
+            "a stale classification must be dropped"
+        );
+        assert!(machine.accept_classified(1, TaskKind::TranslateWord));
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Streaming {
+                classified: Some(TaskKind::TranslateWord),
+                ..
+            })
+        ));
+
+        machine.accept_done(
+            1,
+            TaskOutcome {
+                kind: TaskKind::TranslateWord,
+                body: "产物".into(),
+                structured: OutcomeStructured::Plain { title: None },
+            },
+        );
+        assert!(
+            !machine.accept_classified(1, TaskKind::ExplainCode),
+            "a late classification must not touch a settled outcome card"
+        );
     }
 
     #[test]

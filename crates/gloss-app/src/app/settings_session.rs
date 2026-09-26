@@ -170,8 +170,9 @@ mod tests {
         assert!(app.accept_input(1, text_input("A")));
         let crate::channel::Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(
-            task.options.model_override.as_deref(),
-            Some("deepseek-reasoner")
+            task.kind,
+            TaskKind::Auto,
+            "the dispatched sentinel carries no model; the binding applies at rebuild"
         );
     }
 

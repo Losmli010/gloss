@@ -179,6 +179,8 @@ fn run_event_loop(
 
     let mut command_runtime = None;
     let mut event_thread = None;
+    // 桥的分类阶段也要读配置快照：这里先拆一份，主句柄照旧交给 App。
+    let bridge_config = Arc::clone(&config);
     let result = gloss_app::app::run(
         endpoints,
         config,
@@ -192,14 +194,15 @@ fn run_event_loop(
             // 建完 EventLoop 就回调它，早于任何窗口创建）。
             install_app_icon();
             // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
-            // 睡在事件循环里的主线程。主产物缓存在这里交给桥（编排见
-            // gloss_app::pipeline）。运行时存活至 run_event_loop 结束——
-            // App drop 关闭通道③后，消费循环自行退出。
+            // 睡在事件循环里的主线程。主产物缓存与配置句柄在这里交给桥
+            // （编排见 gloss_app::pipeline）。运行时存活至 run_event_loop
+            // 结束——App drop 关闭通道③后，消费循环自行退出。
             let runtime_waker = waker.clone();
             let cache: Arc<dyn gloss_core::ports::Cache> = Arc::new(MokaCache::new());
             match gloss_app::pipeline::start_command_runtime(
                 service,
                 cache,
+                bridge_config,
                 commands_rx,
                 events_tx.clone(),
                 move || {

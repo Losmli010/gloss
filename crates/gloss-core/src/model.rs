@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 任务的语言参数；UI 固定常用 5 语种，「自动检测」由 `Option<Lang>` 留空表达。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Lang {
     /// 简体中文。
     Zh,
@@ -25,7 +25,7 @@ pub enum Lang {
 /// （形如 `config::Theme` 的三态之下的二态）。与 [`Lang`] 分工不同：`Lang`
 /// 是**产物**语言（译文给谁看），`Locale` 是**界面**语言（应用跟用户说什么
 /// 话），两者解耦。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum Locale {
     /// 中文（出厂）。
     #[default]
@@ -76,6 +76,9 @@ pub enum GlossError {
     RegionTooLarge,
     /// 任务所需模态与配置的模型能力不匹配（如图像任务未配视觉模型）。
     UnsupportedModality,
+    /// 待分类任务未经分类就到达了渲染层。正常编排下不可达（分类在前半程
+    /// 完成），出现即编排接线错误。
+    ClassifyRequired,
     /// 网络错误，可重试。
     EngineNetwork,
     /// API key 无效或过期。
@@ -96,6 +99,9 @@ impl std::fmt::Display for GlossError {
             Self::ScreenCaptureDenied => write!(f, "screen capture permission denied"),
             Self::RegionTooLarge => write!(f, "screen region too large"),
             Self::UnsupportedModality => write!(f, "model capability does not match task modality"),
+            Self::ClassifyRequired => {
+                write!(f, "auto task reached rendering without classification")
+            }
             Self::EngineNetwork => write!(f, "engine network error"),
             Self::EngineAuth => write!(f, "engine authentication failed"),
             Self::EngineRateLimited => write!(f, "engine rate limited"),
