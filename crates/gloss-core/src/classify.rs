@@ -26,9 +26,16 @@ use crate::task::{InputHint, TaskInput, TaskKind};
 pub const CLASSIFY_MAX_TOKENS: u32 = 128;
 
 /// 回复累积上限（字节）：`max_tokens` 之外的第二道界，防止不守约的
-/// 端点把无界回复灌进内存。超限部分丢弃——截断的 JSON 解析不过，同样
-/// 落到兜底。
+/// 端点把无界回复灌进内存。超限部分丢弃（按字符边界截断）——截断的
+/// JSON 解析不过，同样落到兜底。
 const REPLY_CAP_BYTES: usize = 4096;
+
+/// 模态提示的启发式直通：能不经 LLM 直接定型的 kind（当前只有代码
+/// 语言提示 → [`TaskKind::ExplainCode`]）。桥在查缓存前用它截住确定性
+/// 答案，[`classify`] 内部用它短路引擎调用——规则单点在这。
+pub fn hint_kind(hint: Option<&InputHint>) -> Option<TaskKind> {
+    matches!(hint, Some(InputHint::CodeLanguage(_))).then_some(TaskKind::ExplainCode)
+}
 
 /// 判定一条文本输入的任务类型。`allowed` 是允许模型选择的清单（调用方
 /// 按「text-capable ∩ enabled」算好传入），识别结果超出清单按未识别
@@ -45,10 +52,10 @@ pub async fn classify(
         // 到不了这里。
         return Err(GlossError::UnsupportedModality);
     };
-    // 启发式直通：带代码语言提示的输入就是代码解释，不花一次往返。
-    if matches!(hint, Some(InputHint::CodeLanguage(_))) {
-        debug!(kind = ?TaskKind::ExplainCode, "classified by the code-language hint");
-        return Ok(TaskKind::ExplainCode);
+    // 启发式直通：能由提示定型的输入不花一次往返。
+    if let Some(kind) = hint_kind(hint.as_ref()) {
+        debug!(kind = ?kind, "classified by the input hint");
+        return Ok(kind);
     }
 
     let messages = PromptRegistry::new().render_classify(locale, allowed, text);
@@ -63,8 +70,13 @@ pub async fn classify(
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {
             Ok(delta) => {
-                if reply.len() < REPLY_CAP_BYTES {
-                    reply.push_str(&delta);
+                let budget = REPLY_CAP_BYTES.saturating_sub(reply.len());
+                if budget > 0 {
+                    let mut take = budget.min(delta.len());
+                    while take > 0 && !delta.is_char_boundary(take) {
+                        take -= 1;
+                    }
+                    reply.push_str(&delta[..take]);
                 }
             }
             Err(error) => return Err(error),
