@@ -272,6 +272,7 @@ fn full_flow_classifies_then_streams_and_settles() {
 
 #[test]
 fn classify_failure_falls_back_and_the_task_still_completes() {
+    let logs = gloss_core::log::capture_global();
     let engine = MockEngine::new()
         .with_execute_failure_once(GlossError::EngineRateLimited)
         .with_chunks(vec![Ok("兜底产物".into())]);
@@ -286,6 +287,16 @@ fn classify_failure_falls_back_and_the_task_still_completes() {
     wait_done(&mut pipe);
     assert_eq!(outcome_body(&pipe.machine), "兜底产物");
     assert_eq!(pipe.machine.state(), AppState::Show);
+
+    let text = logs.text();
+    let fallback_line = text
+        .lines()
+        .find(|line| line.contains("classification failed"))
+        .expect("the fallback must leave a trace");
+    assert!(
+        !fallback_line.contains("第一次划词"),
+        "the fallback warn must not carry the selection content: {fallback_line}"
+    );
 }
 
 #[test]
