@@ -9,6 +9,7 @@
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
 | 人工测试 | 11 | `cargo test -p gloss-platform -- --ignored` |
+| 发版人工步骤 | 4 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
 | 集成测试 | 6 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 24 | `just test` |
@@ -112,6 +113,52 @@
   1. 在有窗口服务的会话里运行（无前台应用的环境会当场失败）
   2. 运行总览中人工测试的命令
   3. 前台开着任意应用即可；在密码管理器内划词的行为另见 PR 走查清单
+- 更新时间：2026-09-26
+
+## 发版人工步骤
+
+发版链路的一次性运维与真机步骤：没有可执行的自动化测试源码，bdd 门禁对本节豁免双向核对；
+条目仍按「名称、目标、场景、照抄步骤、更新时间」登记，命名用测试风格的标识符。
+
+### pages_source_is_github_actions
+- 测试目标：验证仓库 GitHub Pages 已启用且 source 为 GitHub Actions（deploy-web job 的前置，一次性）。
+- 测试场景：给定仓库管理员权限，当查看 Settings → Pages，则 Build and deployment 的 Source 为 GitHub Actions。
+- 测试步骤：
+  1. 打开 https://github.com/Losmli010/gloss/settings/pages
+  2. Build and deployment → Source 选 GitHub Actions（若尚未选择）
+  3. 保存即可，无需手工建分支（deploy-web job 用 actions/deploy-pages 直接部署）
+- 更新时间：2026-09-26
+
+### pages_site_point_check
+- 测试目标：验证 Pages 部署后站点的导航锚点、下载按钮、manifest 读取与降级路径。
+- 测试场景：给定一次成功的 deploy-web 部署，当浏览器访问站点逐项点检，则锚点跳转正常、下载按钮指向 latest/ 对应架构直链、manifest.json 可读取且字段齐备；manifest 取不到时页面降级为 GitHub Releases 外链。
+- 测试步骤：
+  1. 打开 https://losmli010.github.io/gloss/
+  2. 依次点导航「演示 / 功能 / 下载 / 更新日志」，确认锚点跳转
+  3. 确认版本号显示；切换 Apple Silicon / Intel，确认下载链接随之指向对应架构的 latest/ 文件
+  4. 直接访问 https://losmli010.github.io/gloss/manifest.json，确认 schema/version/channels 双架构字段齐备
+  5. 降级路径：本地 `just site-preview`（无 manifest.json）打开页面，确认显示「无法获取最新版本信息」且下载按钮退到 GitHub Releases 外链
+- 更新时间：2026-09-26
+
+### real_update_round_trip_on_device
+- 测试目标：验证真机上的真实清单拉取、整包下载校验与替换重启，双架构各一次。
+- 测试场景：给定装有旧版 Gloss 的真机（有网络），当设置页手动检查更新并确认下载、确认重启替换，则应用升到清单版本并正常启动，旧 bundle 无残留。
+- 测试步骤：
+  1. 在 Apple Silicon 与 Intel 真机各装上一个发布版本的 Gloss
+  2. 设置页点「检查更新」，确认提示新版与目标版本
+  3. 确认下载，等待「更新就绪」提示
+  4. 点「重启更新」，确认替换后应用以新版本启动
+  5. 检查 /Applications 无 .app.old 残留；`just logs` 无 panic
+- 更新时间：2026-09-26
+
+### release_pipeline_end_to_end
+- 测试目标：验证打 tag 后 Release 与 Pages 同步发布的全链路。
+- 测试场景：给定与版本单点一致的 tag，当推送 tag 触发 release workflow，则 build/release 产出 Release 资产、deploy-web 部署成功，站点 manifest.json 的 version 与 tag 一致。
+- 测试步骤：
+  1. 本地 `just release-check vX.Y.Z` 确认版本一致后打 tag 并推送
+  2. 在 Actions 观察 release workflow：build → release → deploy-web 依次成功
+  3. 打开 GitHub Release，确认双架构 zip/dmg 共 4 个资产
+  4. 打开站点确认 manifest.json 的 version 与 tag（去 v）一致，latest/ 下 4 个文件可下载
 - 更新时间：2026-09-26
 
 ## 集成测试

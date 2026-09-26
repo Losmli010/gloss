@@ -178,6 +178,10 @@ smoke-app app:
 release-check tag:
     ./scripts/release/check-release-tag.sh {{tag}}
 
+# 本地生成站点 manifest.json 到 stdout（artifacts 目录须含双架构 zip/dmg 四个产物）
+gen-manifest tag artifacts-dir:
+    ./scripts/release/gen-manifest.sh {{tag}} {{artifacts-dir}}
+
 # 基于 conventional commits 生成 CHANGELOG
 changelog:
     git cliff -o CHANGELOG.md
