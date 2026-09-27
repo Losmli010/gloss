@@ -12,4 +12,5 @@ pub(crate) mod i18n;
 pub mod machine;
 pub mod pipeline;
 pub mod ui;
+pub mod update;
 pub mod windows;
