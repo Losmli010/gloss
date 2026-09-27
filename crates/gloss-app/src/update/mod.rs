@@ -151,7 +151,7 @@ fn spawn_module() -> UpdateHandle {
         });
     if let Err(err) = spawn {
         error!(
-            thread = thread::TOKIO,
+            thread = thread::UI,
             error = %err,
             "update: worker thread spawn failed, update disabled"
         );
