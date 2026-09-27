@@ -76,8 +76,9 @@ struct GlossApp {
     /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
     /// 代数对不上（热键触发、陈旧）时浮层回落居中。
     selection_anchor: Option<(u64, ScreenPoint)>,
-    /// 触发即显挂起（M4-①）：占代数的触发置位，下一次 drain_events 消费
-    /// （那里才有 ActiveEventLoop 可做定位与显示）。
+    /// 触发即显挂起：占代数的触发置位，下一次 drain_events 消费
+    /// （那里才有 ActiveEventLoop 可做定位与显示；显形判定在
+    /// `overlay::should_reveal`）。
     pending_reveal: bool,
     /// 当前任务的 span（触发点创建）与它所属的代数：随通道②③下发，让接收
     /// 线程的日志自动带上 `generation`。重试沿用同一个（代数不变）。

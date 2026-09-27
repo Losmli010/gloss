@@ -12,7 +12,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 25 | `just test` |
-| 单元测试 | 341 | `just test` |
+| 单元测试 | 343 | `just test` |
 
 ## 人工测试
 
@@ -430,7 +430,7 @@ popup 快照基线：popup_word_card、popup_acquiring、popup_streaming、popup
 | position_before_the_origin_clamps_to_it | 负坐标钳到屏原点 | 给定负全局坐标（主屏左侧显示器），当钳制，则收到该显示器原点而非主屏 | 2026-09-20 |
 | clamping_respects_the_monitor_origin_on_secondary_displays | 副屏钳制按全局原点 | 给定副屏（全局原点非零）右缘位置，当钳制，则按副屏全局区间收口而非主屏 | 2026-09-20 |
 | monitor_smaller_than_the_overlay_pins_to_the_origin | 显示器小于浮层贴原点 | 给定比浮层还小的显示器与屏内位置，当钳制，则贴显示器原点（上限取 0） | 2026-09-20 |
-| width_is_locked_to_the_current_tier | 流式锁宽（M4-②） | 给定当前档与更高宽度档的请求，当流式防抖，则宽度保持当前档、高度量化到步长倍数 | 2026-09-26 |
+| width_is_locked_to_the_current_tier | 流式锁宽 | 给定当前档与更高宽度档的请求，当流式防抖，则宽度保持当前档、高度量化到步长倍数 | 2026-09-26 |
 | height_steps_up_in_quantized_increments | 步进增高 | 给定略高于当前档的高度请求，当流式防抖，则上升一个完整步长 | 2026-09-26 |
 | height_never_shrinks_during_streaming | 流式不回缩 | 给定明显小于当前档的请求，当流式防抖，则保持当前高度（回缩留给完成态精确重排） | 2026-09-26 |
 | current_size_quantizes_up_to_the_step_boundary | 首帧落在步长边界 | 给定与当前相等的请求，当流式防抖，则高度量化到当前之上的步长边界、宽度不变 | 2026-09-26 |
@@ -452,6 +452,8 @@ popup 快照基线：popup_word_card、popup_acquiring、popup_streaming、popup
 | dismiss_abandons_the_inflight_task_and_returns_to_idle | 收起浮层放弃在途任务 | 给定推理中的浮层，当执行收起出口，则回 Idle、在途令牌取消、视图清空、迟到产物被丢弃 | 2026-09-21 |
 | auto_show_policy_decides_when_the_overlay_pops | 自动弹出按事件类别 | 给定事件类别×采纳组合，当逐事件判定，则失败即弹；取材成功不再露面（触发即显骨架已带浮层上屏，采纳只换卡）、完成与 chunk 不弹（浮层已可见）；未采纳一律不弹 | 2026-09-26 |
 | auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则任一被采纳的失败即弹、整批陈旧不弹、空批不弹 | 2026-09-26 |
+| pending_reveal_shows_the_skeleton_only_over_a_live_view | 触发即显的显形守卫只认活视图 | 给定挂起的显形请求与机器视图有无两种状态，当判显形，则视图在场即显形、视图为空不显形（弹出渲染自检卡）、无挂起且批次无失败即弹也不显形 | 2026-09-27 |
+| reveal_decision_combines_the_pending_request_with_the_batch | 显形决策对挂起请求与批次取或 | 给定挂起显形请求配整批陈旧回传、无挂起配被采纳的失败、无挂起配取材成功与流式增量，当判显形，则挂起显形不依赖批次（陈旧批也拦不下）、失败即弹独立成立、取材成功与流式增量不负责露面 | 2026-09-27 |
 | show_position_follows_selection_only_for_the_current_generation | 显示位置跟随当代划词 | 给定划词锚点与代数，当决策显示位置，则当代跟随选区（右下偏移）、代数不符或无锚点回落居中 | 2026-09-20 |
 | selection_trigger_records_its_anchor_per_generation | 划词触发按代数记锚点 | 给定两次划词触发，当消费，则锚点随代数刷新为各自释放坐标 | 2026-09-20 |
 

@@ -63,7 +63,7 @@ pub enum AppState {
 /// 渲染。
 #[derive(Debug, Clone, PartialEq)]
 pub enum OverlayView {
-    /// 取材中骨架（触发即显，M4-①）：spinner + 「读取选区…」，尚无选区
+    /// 取材中骨架（触发即显）：spinner + 「读取选区…」，尚无选区
     /// 数据可展示。`accept_input` 采纳取材后即被流式视图整卡替换。
     Acquiring,
     /// 取材/推理中：原文 + 已到达的流式正文（含结构化块的原始流，渲染
@@ -226,7 +226,7 @@ impl TaskStateMachine {
             kind,
             options: task_options(kind, config, system_locale),
         });
-        // 触发即显骨架（M4-①）：占代数的触发立刻给出「正在读取选区」
+        // 触发即显骨架：占代数的触发立刻给出「正在读取选区」
         // 的浮层，取材产物到达后由 accept_input 整卡替换；被闸门拦下的
         // 触发走不到这里（不出浮层）。
         self.overlay_view = Some(OverlayView::Acquiring);

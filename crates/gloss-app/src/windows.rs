@@ -21,13 +21,13 @@ const WORK_AREA_MARGIN: f64 = 96.0;
 /// 帧迟滞来回抖动）。
 const RESIZE_EPSILON: f64 = 0.5;
 /// 流式期间的增高步长（逻辑点）：逐 chunk 的内容增长被量化成台阶，
-/// 避免每个增量都触发一次窗口 resize（M4-②）。
+/// 避免每个增量都触发一次窗口 resize。
 const STREAM_HEIGHT_STEP: f64 = 48.0;
 /// 设置窗口尺寸：全部配置区块一屏放下的紧凑初值（可拖拽调整）。
 const SETTINGS_WIDTH: f64 = 460.0;
 const SETTINGS_HEIGHT: f64 = 640.0;
 
-/// 流式防抖尺寸（M4-②）：宽度保持当前档（popup 的宽度滞回到完成态
+/// 流式防抖尺寸：宽度保持当前档（popup 的宽度滞回到完成态
 /// 再一次应用），高度向上量化到 [`STREAM_HEIGHT_STEP`] 的倍数且相对
 /// 当前值**只增不减**——内容回缩留给完成态的精确重排。
 fn debounced_size(current: LogicalSize<f64>, requested: LogicalSize<f64>) -> LogicalSize<f64> {
@@ -151,7 +151,7 @@ impl WindowManager {
     /// 尺寸算位置：居中者不重定位会向下溢出屏幕，定点者不重定位会被
     /// 旧尺寸的钳制结果挤离锚点）。
     ///
-    /// `debounced` 为真时走流式防抖（M4-②，[`debounced_size`]）：宽度
+    /// `debounced` 为真时走流式防抖（[`debounced_size`]）：宽度
     /// 锁定当前档、高度按步长只增不减；为假（骨架/失败/完成态）按精确
     /// 尺寸重排——TaskDone 的定型也走这一支。
     pub fn set_overlay_size(&mut self, size: LogicalSize<f64>, debounced: bool) {
