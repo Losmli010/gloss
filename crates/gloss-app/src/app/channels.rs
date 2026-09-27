@@ -60,6 +60,9 @@ impl GlossApp {
                     self.selection_anchor = Some((self.machine.generation(), pos));
                 }
                 self.send_acquire(command, span);
+                // 触发即显（M4-①）：骨架浮层跟这代任务走；显示动作由
+                // drain_events 执行（那里才有 ActiveEventLoop）。
+                self.pending_reveal = true;
             } else {
                 // 三类拦下各有各的级别与措辞：被任务开关停用的触发是用户
                 // 能自己修的配置问题；被场景闸门拦下的是「这一次的场景不
@@ -111,9 +114,12 @@ impl GlossApp {
     /// 通道发送、浮层展示与日志。
     ///
     /// 浮层「什么时候自动露面」抽在 [`super::overlay::auto_show_for`] /
-    /// [`super::overlay::auto_show_after`] 这两个纯函数里：取材成功与
-    /// 失败即弹，其余类别不负责露面。
+    /// [`super::overlay::auto_show_after`] 这两个纯函数里：触发即显骨架
+    /// （M4-①，经 `pending_reveal`），失败即弹，其余类别不负责露面。
     pub(super) fn drain_events(&mut self, event_loop: &ActiveEventLoop) {
+        // 触发即显的挂起请求（M4-①）：platform 事件分支在占代数的触发后
+        // 置位，这里消费——骨架浮层与通道④回传共用同一个显示出口。
+        let pending_reveal = std::mem::take(&mut self.pending_reveal);
         let events: Vec<Event> = self
             .endpoints
             .as_ref()
@@ -138,7 +144,7 @@ impl GlossApp {
             };
             batch.push((kind, accepted));
         }
-        if auto_show_after(batch)
+        if (pending_reveal || auto_show_after(batch))
             && let Some(windows) = &mut self.windows
         {
             // 划词触发的浮层跟随选区（代数对得上时），否则居中；屏幕
@@ -404,8 +410,12 @@ mod tests {
 
         assert!(!app.accept_chunk(1, "迟到A".into()));
         assert!(
-            !streaming_body(&app).contains("迟到A"),
-            "late chunk of A must not bleed into the overlay"
+            matches!(
+                app.machine.overlay_view(),
+                Some(crate::machine::OverlayView::Acquiring)
+            ),
+            "the superseding trigger replaced A's streaming body with the skeleton, \
+             so its late chunk has nowhere to bleed"
         );
 
         assert!(app.accept_input(2, text_input("B")));

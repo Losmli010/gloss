@@ -129,12 +129,15 @@ pub(super) fn event_kind(event: &Event) -> EventKind {
 /// 单个回传事件后浮层要不要自动露面。
 ///
 /// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
-/// 取材成功即弹（看到浮层就知道「划到了、正在查」）、失败总弹（错误
-/// 不该被吞掉）；分类结果与流式增量只在已可见的浮层上更新、完成时浮层
-/// 早已可见——三者都不负责露面。
+/// 露面的两个来源：触发即显的骨架（M4-①，经壳层 `pending_reveal`，
+/// 不走本函数——那时还没有回传事件），与失败总弹（错误不该被吞掉）。
+/// 取材成功不再负责露面：骨架已把浮层带到屏上，采纳后整卡换成流式
+/// 视图即可；用户若在取材中收起浮层，机器回 Idle，陈旧的取材产物
+/// 采纳不上，自然也不会把浮层弹回。分类结果、流式增量与完成态都只在
+/// 已可见的浮层上更新——三者同样不负责露面。
 fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
     match kind {
-        EventKind::InputReady => accepted,
+        EventKind::InputReady => false,
         EventKind::TaskFailed => accepted,
         EventKind::TaskClassified | EventKind::TaskDone | EventKind::TaskChunk => false,
     }
@@ -300,8 +303,10 @@ mod tests {
     fn auto_show_policy_decides_when_the_overlay_pops() {
         use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
 
-        assert!(auto_show_for(InputReady, true));
-        assert!(!auto_show_for(TaskDone, true), "浮层早在取材时就已可见");
+        // 触发即显（M4-①）把取材成功的露面职责接走了：骨架浮层已在屏上，
+        // 采纳 InputReady 只是把骨架整卡换成流式视图。
+        assert!(!auto_show_for(InputReady, true), "骨架已代为露面");
+        assert!(!auto_show_for(TaskDone, true), "完成时浮层早已可见");
         assert!(!auto_show_for(TaskChunk, true), "chunk 只追加不露面");
         assert!(auto_show_for(TaskFailed, true), "错误不该被吞掉");
 
@@ -318,7 +323,7 @@ mod tests {
         use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
 
         assert!(
-            auto_show_after([(TaskChunk, true), (InputReady, true)]),
+            auto_show_after([(TaskChunk, true), (TaskFailed, true)]),
             "任一事件要显示就显示"
         );
         assert!(
