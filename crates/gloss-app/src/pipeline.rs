@@ -30,7 +30,7 @@ use std::time::Duration;
 use crossbeam_channel::Sender;
 use futures::FutureExt;
 use gloss_core::cache::cache_key;
-use gloss_core::classify::{classify, classify_key};
+use gloss_core::classify::{classify, classify_key, hint_kind};
 use gloss_core::config::ALL_KINDS;
 use gloss_core::config::DEFAULT_TEXT_MODEL;
 use gloss_core::config_handle::ConfigHandle;
@@ -38,7 +38,7 @@ use gloss_core::engine::{AiTaskService, finalize_outcome};
 use gloss_core::log::{Instrument, debug, info, thread, warn};
 use gloss_core::model::GlossError;
 use gloss_core::ports::Cache;
-use gloss_core::task::{InputHint, Task, TaskInput, TaskKind, TaskOptions};
+use gloss_core::task::{Task, TaskInput, TaskKind, TaskOptions};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::channel::{Command, Event, Traced};
@@ -256,58 +256,70 @@ async fn classify_and_rebuild(
         .collect();
     let locale = task.options.prompt_locale.unwrap_or_default();
 
-    let kind = match hint {
-        // 代码语言提示直通（classify 内部同一规则）；这里先截住是为了
-        // 不查缓存不取模型——提示在手的答案没有不确定性。
-        Some(InputHint::CodeLanguage(_)) => TaskKind::ExplainCode,
-        _ => match snapshot.resolved_model(fallback) {
-            None => {
+    let kind = match hint_kind(hint.as_ref()) {
+        // 提示在手的答案没有不确定性：不查缓存、不取模型、不发请求。
+        Some(kind) => kind,
+        None => {
+            if allowed.is_empty() {
                 warn!(
                     thread = thread::TOKIO,
-                    "no model for classification, falling back"
+                    "no enabled text kinds to classify into, falling back"
                 );
                 fallback
-            }
-            Some(model) => {
-                let key = classify_key(&text, hint.as_ref(), locale, model);
-                let cached = cache
-                    .get_classify(key)
-                    .filter(|kind| allowed.contains(kind));
-                match cached {
-                    Some(kind) => {
-                        debug!(thread = thread::TOKIO, kind = ?kind, "classify cache hit");
-                        kind
+            } else {
+                match snapshot.resolved_model(fallback) {
+                    None => {
+                        warn!(
+                            thread = thread::TOKIO,
+                            "no model for classification, falling back"
+                        );
+                        fallback
                     }
-                    None => match classify(
-                        engine,
-                        model,
-                        locale,
-                        &allowed,
-                        &TaskInput::Text {
-                            text: text.clone(),
-                            hint: hint.clone(),
-                        },
-                    )
-                    .await
-                    {
-                        Ok(kind) => {
-                            cache.set_classify(key, kind);
-                            kind
+                    Some(model) => {
+                        let key = classify_key(&text, hint.as_ref(), locale, model);
+                        let cached = cache
+                            .get_classify(key)
+                            .filter(|kind| allowed.contains(kind));
+                        match cached {
+                            Some(kind) => {
+                                debug!(thread = thread::TOKIO, kind = ?kind, "classify cache hit");
+                                kind
+                            }
+                            None => {
+                                match classify(
+                                    engine,
+                                    model,
+                                    locale,
+                                    &allowed,
+                                    &TaskInput::Text {
+                                        text: text.clone(),
+                                        hint: hint.clone(),
+                                    },
+                                )
+                                .await
+                                {
+                                    Ok(kind) => {
+                                        cache.set_classify(key, kind);
+                                        kind
+                                    }
+                                    Err(error) => {
+                                        // 回退有痕迹但无内容：错误分类不含选区
+                                        // 原文，这里也只记错误类别，不记文本与
+                                        // 模型回复。
+                                        warn!(
+                                            thread = thread::TOKIO,
+                                            error = %error,
+                                            "classification failed, falling back to the default kind"
+                                        );
+                                        fallback
+                                    }
+                                }
+                            }
                         }
-                        Err(error) => {
-                            // 回退有痕迹但无内容：错误分类不含选区原文，这里
-                            // 也只记错误类别，不记文本与模型回复。
-                            warn!(
-                                thread = thread::TOKIO,
-                                error = %error,
-                                "classification failed, falling back to the default kind"
-                            );
-                            fallback
-                        }
-                    },
+                    }
                 }
             }
-        },
+        }
     };
 
     send_event(events, wake, Event::TaskClassified { generation, kind });
