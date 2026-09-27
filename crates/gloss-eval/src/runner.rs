@@ -121,13 +121,15 @@ pub async fn run_live(
     };
     for case in &cases {
         let started = Instant::now();
-        let reply = match run_classify_request(engine.as_ref(), &config, &case.text).await {
-            Ok(reply) => reply,
+        let (reply, deltas) = match run_classify_request(engine.as_ref(), &config, &case.text).await
+        {
+            Ok(outcome) => outcome,
             Err(_) => {
-                // 网络失败也计入回退侧（分类请求失败＝该条没有可用判定），
-                // 逐条继续——评测要跑完全集而不是中途夭折。
+                // 引擎失败单列（网络/限流与模型行为无关），但也计入回退率
+                // （生产编排对这类条目同样落兜底）；逐条继续——评测要跑完
+                // 全集而不是中途夭折。
                 classify.evaluated += 1;
-                classify.rejected += 1;
+                classify.engine_errors += 1;
                 continue;
             }
         };
@@ -135,7 +137,7 @@ pub async fn run_live(
         if options.record {
             recordings.push(Fixture {
                 id: case.id.clone(),
-                deltas: vec![reply.clone()],
+                deltas,
             });
         }
         classify.evaluated += 1;
@@ -160,14 +162,20 @@ pub async fn run_live(
         let mut metrics = TaskMetrics::default();
         for case in &cases {
             let started = Instant::now();
-            let reply = run_task_request(engine.as_ref(), &config, case)
-                .await
-                .map_err(|err| err.to_string())?;
+            // 与分类轨同一策略：任务请求失败计一条降级并继续，跑完全集。
+            let (reply, deltas) = match run_task_request(engine.as_ref(), &config, case).await {
+                Ok(outcome) => outcome,
+                Err(_) => {
+                    metrics.evaluated += 1;
+                    metrics.degraded += 1;
+                    continue;
+                }
+            };
             latency.record(started.elapsed().as_secs_f64() * 1000.0);
             if options.record {
                 recordings.push(Fixture {
                     id: case.id.clone(),
-                    deltas: vec![reply.clone()],
+                    deltas,
                 });
             }
             metrics.record(&TaskVerdict::for_reply(case, &reply));
@@ -180,17 +188,15 @@ pub async fn run_live(
         tasks.push((name, metrics));
     }
 
-    let judge_summary = options.judge.then(|| {
+    // judge 未计入任何分数时不产摘要（count=0 的「均分 0」会被读成
+    // 「评了 0 分」）。
+    let judge_summary = (options.judge && !judge_scores.is_empty()).then(|| {
         let count = judge_scores.len();
-        let average = if judge_scores.is_empty() {
-            0.0
-        } else {
-            judge_scores
-                .iter()
-                .map(|score| f64::from(*score))
-                .sum::<f64>()
-                / count as f64
-        };
+        let average = judge_scores
+            .iter()
+            .map(|score| f64::from(*score))
+            .sum::<f64>()
+            / count as f64;
         crate::report::JudgeSummary { count, average }
     });
 
@@ -208,7 +214,10 @@ pub async fn run_live(
 }
 
 /// live 轨的端点配置（全部来自 `GLOSS_LIVE_*` 环境变量，缺一即失败）。
-#[derive(Debug, Clone)]
+///
+/// `Debug` 手写脱敏：key 不进任何日志面（密钥红线），排查时只能看到
+/// 「有/无 key」。
+#[derive(Clone)]
 pub struct LiveEnv {
     /// OpenAI 兼容端点 base_url。
     pub base_url: String,
@@ -216,6 +225,23 @@ pub struct LiveEnv {
     pub model: String,
     /// API key（只进请求头；不进日志与报告）。
     pub api_key: String,
+}
+
+impl std::fmt::Debug for LiveEnv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LiveEnv")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "<none>"
+                } else {
+                    "<set>"
+                },
+            )
+            .finish()
+    }
 }
 
 impl LiveEnv {
@@ -287,7 +313,7 @@ async fn run_classify_request(
     engine: &dyn AiEngine,
     config: &ConfigHandle,
     text: &str,
-) -> Result<String, GlossError> {
+) -> Result<(String, Vec<String>), GlossError> {
     let snapshot = config.snapshot();
     let model = snapshot
         .resolved_model(snapshot.classify_fallback())
@@ -316,7 +342,7 @@ async fn run_task_request(
     engine: &dyn AiEngine,
     config: &ConfigHandle,
     case: &TaskCase,
-) -> Result<String, GlossError> {
+) -> Result<(String, Vec<String>), GlossError> {
     let snapshot = config.snapshot();
     let model = snapshot
         .resolved_model(case.kind)
@@ -359,13 +385,13 @@ async fn judge_one(
         .map(str::to_owned)?;
     let reference = case.reference.to_string();
     let messages = judge::render_judge(&case.text, reply, &reference);
-    let judge_reply = collect(
+    let (judge_reply, _) = collect(
         engine,
         &EngineRequest {
             kind: case.kind,
             messages,
             model,
-            max_tokens: Some(gloss_core::classify::CLASSIFY_MAX_TOKENS),
+            max_tokens: Some(judge::JUDGE_MAX_TOKENS),
         },
     )
     .await
@@ -373,17 +399,26 @@ async fn judge_one(
     judge::parse_judge_reply(&judge_reply)
 }
 
-/// 消费一条引擎流：拼出完整回复原文（指标判定与夹具录制共用）。
-async fn collect(engine: &dyn AiEngine, request: &EngineRequest) -> Result<String, GlossError> {
+/// 消费一条引擎流：返回完整回复原文与原始增量序列（指标判定用前者，
+/// 夹具录制用后者——录制要保留真实 SSE 的增量形状）。回复累积走生产
+/// 的 `push_capped`（与分类编排同一道 4KiB 界）。
+async fn collect(
+    engine: &dyn AiEngine,
+    request: &EngineRequest,
+) -> Result<(String, Vec<String>), GlossError> {
     let mut stream = engine.execute(request).await?;
     let mut reply = String::new();
+    let mut deltas = Vec::new();
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {
-            Ok(delta) => reply.push_str(&delta),
+            Ok(delta) => {
+                gloss_core::classify::push_capped(&mut reply, &delta);
+                deltas.push(delta);
+            }
             Err(error) => return Err(error),
         }
     }
-    Ok(reply)
+    Ok((reply, deltas))
 }
 
 fn bump_confusion(metrics: &mut ClassifyMetrics, expected: TaskKind, actual: TaskKind) {

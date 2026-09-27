@@ -37,10 +37,13 @@ pub struct ClassifyMetrics {
     pub correct: usize,
     /// 混淆矩阵：期望 kind → 实际 kind → 次数（判定错误路径）。
     pub confusion: BTreeMap<TaskKind, BTreeMap<TaskKind, usize>>,
-    /// 回复不是合法 JSON 的次数。
+    /// 回复不是合法 JSON 的次数（模型输出格式质量问题）。
     pub invalid_json: usize,
-    /// JSON 合法但被生产校验器拒绝的次数。
+    /// JSON 合法但被生产校验器拒绝的次数（契约问题）。
     pub rejected: usize,
+    /// 分类请求本身失败（网络/限流）的次数——与模型行为无关，不计入
+    /// 格式类指标，但计入回退率（生产编排对这类条目同样落兜底）。
+    pub engine_errors: usize,
 }
 
 impl ClassifyMetrics {
@@ -49,9 +52,13 @@ impl ClassifyMetrics {
         ratio(self.correct, self.evaluated)
     }
 
-    /// 回退率：生产编排会对这些条目落兜底 kind（无效 JSON + 被拒绝）。
+    /// 回退率：生产编排会对这些条目落兜底 kind（无效 JSON + 被拒绝 +
+    /// 引擎失败）。
     pub fn fallback_rate(&self) -> f64 {
-        ratio(self.invalid_json + self.rejected, self.evaluated)
+        ratio(
+            self.invalid_json + self.rejected + self.engine_errors,
+            self.evaluated,
+        )
     }
 }
 
@@ -70,6 +77,10 @@ pub struct TaskVerdict {
 
 impl TaskVerdict {
     /// 按 [`TaskCase`] 的 kind 与回复原文逐级判定。
+    ///
+    /// 围栏提取取**最后一个**围栏（镜像生产 `parse_structured` 的 rfind
+    /// 语义）；分类轨走生产 `parse_classify_reply`（首个围栏），各自与
+    /// 生产同源。
     pub fn for_reply(case: &TaskCase, reply: &str) -> Self {
         let fence_present = reply.contains(STRUCTURED_FENCE);
         let parsed = fenced_json(reply)
@@ -90,7 +101,10 @@ impl TaskVerdict {
     }
 
     /// 降级判定：围栏缺失 / JSON 不可解析 / 必需字段不全，三者任一即视为
-    /// 降级（生产侧会以无结构化的 Plain/全文兜底呈现）。
+    /// 降级。从严于生产的**接受**条件：生产 `parse_structured` 对缺
+    /// `word`（空串兜底）或缺 `title`（None 兜底）仍给出结构化产物，而
+    /// 本判定按 prompt 输出契约记为降级——指标度量的是「模型有没有按
+    /// 契约输出」，不是「生产有没有兜住」。
     pub fn degraded(&self) -> bool {
         !(self.fence_present && self.json_parseable && self.fields_complete)
     }
@@ -201,16 +215,17 @@ fn is_json_like(reply: &str) -> bool {
     fenced_json(trimmed).is_some_and(|json| serde_json::from_str::<serde_json::Value>(json).is_ok())
 }
 
-/// 提取围栏内 JSON：```gloss 围栏优先，退到任意 ``` 围栏（语言标识行
-/// 跳过）。无围栏返回 `None`。
+/// 提取围栏内 JSON：取**最后一个** ``` 围栏（```gloss 或 ```json，语言
+/// 标识行跳过）——镜像生产 `parse_structured` 的 rfind 语义。无围栏返回
+/// `None`。
 fn fenced_json(reply: &str) -> Option<&str> {
     let start = reply
-        .find(STRUCTURED_FENCE)
+        .rfind(STRUCTURED_FENCE)
         .map(|pos| pos + STRUCTURED_FENCE.len());
     let after_marker = match start {
         Some(pos) => &reply[pos..],
         None => {
-            let pos = reply.find("```")?;
+            let pos = reply.rfind("```")?;
             &reply[pos + 3..]
         }
     };

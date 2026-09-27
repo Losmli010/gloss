@@ -873,7 +873,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | classify_dataset_loads_with_unique_ids | 分类数据集加载与唯一性 | 给定内嵌 classify.jsonl，当加载，则 ≥60 条、全部为文本任务 kind、id 无重复 | 2026-09-26 |
 | task_datasets_load_and_match_required_fields | 任务数据集加载与 kind 对位 | 给定三个内嵌任务数据集，当加载，则非空且每行 kind 与其文件一致、reference 满足必需键 | 2026-09-26 |
-| fixtures_load_and_align_with_cases | 夹具加载与非空增量 | 给定分类/任务夹具文件，当加载，则 id 无重复且每条 deltas 非空 | 2026-09-26 |
+| fixtures_align_with_dataset_ids | 夹具与数据集 id 对齐 | 给定分类/任务夹具文件与数据集，当加载，则 id 无重复、deltas 非空、且每条夹具 id 都存在于对应数据集（陈旧 id 即失败） | 2026-09-26 |
 | duplicate_ids_are_rejected | 重复 id 硬错误 | 给定含重复 id 的 jsonl，当加载，则报错而非静默跳过 | 2026-09-26 |
 | bad_reference_is_rejected | reference 缺必需键硬错误 | 给定词卡条目缺 senses 的 jsonl，当加载，则报错 | 2026-09-26 |
 | required_fields_follow_the_contract | 必需键随结构化契约 | 给定各任务 kind，当查必需键，则词卡 word+senses、句译/代码 title、OCR text | 2026-09-26 |

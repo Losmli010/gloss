@@ -9,6 +9,10 @@ use gloss_core::prompt::{ChatMessage, Role};
 /// judge rubric：输入 / 产出 / 参考答案三占位符。
 pub const JUDGE_PROMPT: &str = include_str!("../prompts/judge.md");
 
+/// judge 回复的 token 上限：分数 + 一句话理由，比分类的 kind 标识宽裕
+/// （分类的 128 会截断 reason，丢掉人读的依据）。
+pub const JUDGE_MAX_TOKENS: u32 = 512;
+
 /// 渲染 judge 请求的 messages：系统指令 = rubric，用户消息 = 三段内容。
 pub fn render_judge(input: &str, output: &str, reference: &str) -> Vec<ChatMessage> {
     let system = JUDGE_PROMPT

@@ -21,9 +21,5 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 # live 轨的运行时（replay 不触网，不用异步设施）。
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread"] }
 
-[dev-dependencies]
-# 评分器单测跑 #[tokio::test]（classify 走 async 生产函数）。
-tokio = { version = "1", default-features = false, features = ["macros"] }
-
 [lints]
 workspace = true

@@ -11,7 +11,7 @@ use crate::metrics::{ClassifyMetrics, Latency, TaskMetrics};
 pub struct EvalReport {
     /// 运行模式（replay / live）。
     pub mode: String,
-    /// 报告生成时间（本地时区，人读用）。
+    /// 报告生成时间（UNIX 纪元秒，不引入时间库依赖）。
     pub generated_at: String,
     /// 分类轨指标（replay 只统计有夹具的条目）。
     pub classify: Option<ClassifyStats>,
@@ -333,6 +333,7 @@ mod tests {
             invalid_json: 1,
             confusion,
             rejected: 0,
+            engine_errors: 0,
         };
         let verdicts = [
             TaskVerdict::for_reply(
