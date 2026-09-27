@@ -1,0 +1,2 @@
+{"id": "task-word-01", "kind": "TranslateWord", "text": "serendipity", "reference": {"word": "serendipity", "phonetic": "/ˌserənˈdɪpɪti/", "senses": [{"pos": "n.", "meaning": "意外发现珍宝的运气", "examples": ["a happy serendipity"]}]}}
+{"id": "task-word-02", "kind": "TranslateWord", "text": "idempotent", "reference": {"word": "idempotent", "phonetic": null, "senses": [{"pos": "adj.", "meaning": "幂等的", "examples": []}]}}

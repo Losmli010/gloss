@@ -1,0 +1,68 @@
+{"id": "zh-word-01", "text": "光泽", "expected": "TranslateWord"}
+{"id": "zh-word-02", "text": "自惭形秽", "expected": "TranslateWord"}
+{"id": "zh-word-03", "text": "阈值", "expected": "TranslateWord"}
+{"id": "zh-word-04", "text": "词不达意", "expected": "TranslateWord"}
+{"id": "en-word-01", "text": "serendipity", "expected": "TranslateWord"}
+{"id": "en-word-02", "text": "threshold", "expected": "TranslateWord"}
+{"id": "en-word-03", "text": "idempotent", "expected": "TranslateWord"}
+{"id": "en-word-04", "text": "corner case", "expected": "TranslateWord"}
+{"id": "en-word-05", "text": "to bite the bullet", "expected": "TranslateWord"}
+{"id": "en-word-06", "text": "a blessing in disguise", "expected": "TranslateWord"}
+{"id": "ja-word-01", "text": "生きがい", "expected": "TranslateWord"}
+{"id": "fr-word-01", "text": "flâner", "expected": "TranslateWord"}
+{"id": "zh-sent-01", "text": "今天下午三点在会议室开产品评审会。", "expected": "TranslateSentence"}
+{"id": "zh-sent-02", "text": "这个方案的成本比预期高不少，我们需要重新评估排期。", "expected": "TranslateSentence"}
+{"id": "zh-sent-03", "text": "收到，我这边尽快同步给大家。", "expected": "TranslateSentence"}
+{"id": "zh-sent-04", "text": "由于上游服务在高峰期频繁超时，网关的重试策略反而放大了流量，导致雪崩。我们要引入指数退避和熔断，并对关键路径做降级预案。", "expected": "TranslateSentence"}
+{"id": "zh-sent-05", "text": "落霞与孤鹜齐飞，秋水共长天一色。", "expected": "TranslateSentence"}
+{"id": "zh-sent-06", "text": "帮我把这句话的意思说清楚一点：有关部门会视情况适时处理。", "expected": "TranslateSentence"}
+{"id": "en-sent-01", "text": "The quick brown fox jumps over the lazy dog.", "expected": "TranslateSentence"}
+{"id": "en-sent-02", "text": "Shipping is a feature. Get it in front of users and iterate.", "expected": "TranslateSentence"}
+{"id": "en-sent-03", "text": "Could you say that in plain English?", "expected": "TranslateSentence"}
+{"id": "en-sent-04", "text": "This function returns the number of elements that satisfy the predicate.", "expected": "TranslateSentence"}
+{"id": "en-sent-05", "text": "Although the experiment failed twice, the third attempt revealed an unexpected interaction between the two variables that neither model had predicted.", "expected": "TranslateSentence"}
+{"id": "ja-sent-01", "text": "明日の会議は中止になりました。代わりに資料を共有しておきます。", "expected": "TranslateSentence"}
+{"id": "ko-sent-01", "text": "이번 스프린트 목표는 온보딩 개선입니다.", "expected": "TranslateSentence"}
+{"id": "fr-sent-01", "text": "Il faut tourner la page sans oublier la leçon.", "expected": "TranslateSentence"}
+{"id": "mix-sent-01", "text": "这个 PR 的 scope 太大了，建议拆成几个小的再 review。", "expected": "TranslateSentence"}
+{"id": "mix-sent-02", "text": "AI Agent 是什么？", "expected": "TranslateSentence"}
+{"id": "mix-sent-03", "text": "Rust 的 ownership 和 borrowing 有什么区别？", "expected": "TranslateSentence"}
+{"id": "mix-sent-04", "text": "这段代码为什么会 panic？", "expected": "TranslateSentence"}
+{"id": "code-rs-01", "text": "fn main() { println!(\"hello\"); }", "expected": "ExplainCode"}
+{"id": "code-rs-02", "text": "let mut v = Vec::with_capacity(16);\nv.push(1);\nv.extend_from_slice(&[2, 3]);", "expected": "ExplainCode"}
+{"id": "code-rs-03", "text": "async fn fetch() -> Result<Resp, Error> {\n    let resp = client.get(url).send().await?;\n    Ok(resp.json().await?)\n}", "expected": "ExplainCode"}
+{"id": "code-rs-04", "text": "impl Display for Wrapper {\n    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {\n        write!(f, \"{}\", self.0)\n    }\n}", "expected": "ExplainCode"}
+{"id": "code-py-01", "text": "def quicksort(arr):\n    if len(arr) <= 1:\n        return arr\n    pivot = arr[0]\n    left = [x for x in arr[1:] if x < pivot]\n    right = [x for x in arr[1:] if x >= pivot]\n    return quicksort(left) + [pivot] + quicksort(right)", "expected": "ExplainCode"}
+{"id": "code-py-02", "text": "print(', '.join(sorted(set(words))))", "expected": "ExplainCode"}
+{"id": "code-py-03", "text": "if __name__ == '__main__':\n    main()", "expected": "ExplainCode"}
+{"id": "code-js-01", "text": "const debounce = (fn, ms) => {\n  let t;\n  return (...a) => {\n    clearTimeout(t);\n    t = setTimeout(() => fn(...a), ms);\n  };\n};", "expected": "ExplainCode"}
+{"id": "code-ts-01", "text": "type Result<T> = { ok: true; value: T } | { ok: false; error: string };", "expected": "ExplainCode"}
+{"id": "code-sql-01", "text": "SELECT u.id, COUNT(o.id) FROM users u LEFT JOIN orders o ON o.user_id = u.id GROUP BY u.id HAVING COUNT(o.id) > 5;", "expected": "ExplainCode"}
+{"id": "code-sh-01", "text": "grep -rn 'deprecated' src/ | wc -l", "expected": "ExplainCode"}
+{"id": "code-sh-02", "text": "kubectl get pods -n prod", "expected": "ExplainCode"}
+{"id": "code-sh-03", "text": "git rebase -i HEAD~3", "expected": "ExplainCode"}
+{"id": "code-sh-04", "text": "npm install -g pnpm", "expected": "ExplainCode"}
+{"id": "code-css-01", "text": ".card > p:not(:first-child) { margin-top: 0.5em; }", "expected": "ExplainCode"}
+{"id": "code-c-01", "text": "for (int i = 0; i < n; i++) {\n    free(matrix[i]);\n}\nfree(matrix);", "expected": "ExplainCode"}
+{"id": "code-go-01", "text": "go func() { ch <- compute(x) }()", "expected": "ExplainCode"}
+{"id": "code-java-01", "text": "public static <T> List<T> distinct(List<T> xs) {\n    return new ArrayList<>(new LinkedHashSet<>(xs));\n}", "expected": "ExplainCode"}
+{"id": "code-json-01", "text": "{\"retry\": {\"max_attempts\": 3, \"backoff\": \"exponential\"}}", "expected": "ExplainCode"}
+{"id": "code-yaml-01", "text": "services:\n  web:\n    image: nginx:latest\n    ports:\n      - \"80:80\"", "expected": "ExplainCode"}
+{"id": "code-docker-01", "text": "FROM rust:1.83 AS build\nCOPY . /app\nRUN cargo build --release", "expected": "ExplainCode"}
+{"id": "code-re-01", "text": "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,}$", "expected": "ExplainCode"}
+{"id": "code-diff-01", "text": "- let x = compute_legacy(input);\n+ let x = compute(input)?;", "expected": "ExplainCode"}
+{"id": "code-http-01", "text": "GET /api/users?id=42 HTTP/1.1", "expected": "ExplainCode"}
+{"id": "edge-01", "text": "let", "expected": "TranslateWord"}
+{"id": "edge-02", "text": "match", "expected": "TranslateWord"}
+{"id": "edge-03", "text": "unwrap", "expected": "TranslateWord"}
+{"id": "edge-04", "text": "SELECT", "expected": "TranslateWord"}
+{"id": "edge-05", "text": "error handling", "expected": "TranslateWord"}
+{"id": "edge-06", "text": "vs.", "expected": "TranslateWord"}
+{"id": "edge-07", "text": "500 Internal Server Error", "expected": "ExplainCode"}
+{"id": "edge-08", "text": "sha256sum manifest.txt", "expected": "ExplainCode"}
+{"id": "edge-09", "text": "百年孤独", "expected": "TranslateWord"}
+{"id": "edge-10", "text": "2 + 2 = 4", "expected": "TranslateSentence"}
+{"id": "edge-11", "text": "e.g.", "expected": "TranslateWord"}
+{"id": "edge-12", "text": "春节，又称农历新年，是中国最重要的传统节日。", "expected": "TranslateSentence"}
+{"id": "edge-13", "text": "v2.3.1 release notes", "expected": "TranslateSentence"}
+{"id": "edge-14", "text": "1 + 1", "expected": "TranslateWord"}

@@ -1,0 +1,29 @@
+[package]
+name = "gloss-eval"
+version.workspace = true
+edition.workspace = true
+description = "Prompt 评测：确定性重放 + LLM judge（评测资产与工具链，不进生产）"
+license.workspace = true
+
+# 唯一入口：评测 CLI（replay / live / report 三种模式，见 src/main.rs）。
+[[bin]]
+name = "eval"
+path = "src/main.rs"
+
+[dependencies]
+gloss-core = { path = "../gloss-core" }
+# live 轨复用生产 SSE 引擎（LlmClient）；本 crate 只许消费，不许被生产
+# crate 依赖——check-constraints.sh 的依赖方向断言强制。
+gloss-platform = { path = "../gloss-platform" }
+# 评测数据集与报告的序列化。
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+# live 轨的运行时（replay 不触网，不用异步设施）。
+tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread"] }
+
+[dev-dependencies]
+# 评分器单测跑 #[tokio::test]（classify 走 async 生产函数）。
+tokio = { version = "1", default-features = false, features = ["macros"] }
+
+[lints]
+workspace = true

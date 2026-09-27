@@ -1477,6 +1477,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gloss-eval"
+version = "0.1.0"
+dependencies = [
+ "gloss-core",
+ "gloss-platform",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "gloss-platform"
 version = "0.1.2"
 dependencies = [

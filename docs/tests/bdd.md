@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 29 | `just test` |
-| 单元测试 | 378 | `just test` |
+| 单元测试 | 393 | `just test` |
 
 ## 人工测试
 
@@ -866,3 +866,43 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | channels_bundle_is_created | 组装点创建的通道捆绑可用 | 给定 create_channels() 创建的四通道捆绑，当向通道②发送 AcquireText 命令，则发送成功 | 2026-09-19 |
+
+### crates/gloss-eval/src/dataset.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| classify_dataset_loads_with_unique_ids | 分类数据集加载与唯一性 | 给定内嵌 classify.jsonl，当加载，则 ≥60 条、全部为文本任务 kind、id 无重复 | 2026-09-26 |
+| task_datasets_load_and_match_required_fields | 任务数据集加载与 kind 对位 | 给定三个内嵌任务数据集，当加载，则非空且每行 kind 与其文件一致、reference 满足必需键 | 2026-09-26 |
+| fixtures_load_and_align_with_cases | 夹具加载与非空增量 | 给定分类/任务夹具文件，当加载，则 id 无重复且每条 deltas 非空 | 2026-09-26 |
+| duplicate_ids_are_rejected | 重复 id 硬错误 | 给定含重复 id 的 jsonl，当加载，则报错而非静默跳过 | 2026-09-26 |
+| bad_reference_is_rejected | reference 缺必需键硬错误 | 给定词卡条目缺 senses 的 jsonl，当加载，则报错 | 2026-09-26 |
+| required_fields_follow_the_contract | 必需键随结构化契约 | 给定各任务 kind，当查必需键，则词卡 word+senses、句译/代码 title、OCR text | 2026-09-26 |
+
+### crates/gloss-eval/src/metrics.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| classify_verdicts_cover_the_matrix | 分类判定四分类 | 给定正确/混淆/非 JSON/未知 kind/清单外 kind 五种回复，当经生产校验器判定，则分别落 Correct/Wrong/InvalidJson/Rejected | 2026-09-26 |
+| task_verdict_reads_the_four_levels | 任务契约四级判定 | 给定完整契约/无围栏/坏 JSON 三种词卡回复，当 TaskVerdict.for_reply，则四级标志与生产降级产物（Plain 兜底）符合预期 | 2026-09-26 |
+| field_completeness_requires_the_contract_keys | 字段完整性按契约键 | 给定缺 senses 的词卡围栏，当判定，则 fields_complete=false 且视为降级 | 2026-09-26 |
+| latency_percentiles_interpolate | 延迟百分位线性插值 | 给定四个样本，当取 p0/p50/p95/p100，则插值结果精确；空样本返回 None | 2026-09-26 |
+
+### crates/gloss-eval/src/judge.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| judge_prompt_carries_all_three_sections | judge rubric 三段齐备 | 给定输入/产出/参考，当渲染 judge messages，则系统指令含三段且无残留占位符 | 2026-09-26 |
+| judge_reply_parsing_accepts_json_and_score_line | judge 回复分数解析 | 给定 JSON 与 SCORE: 行两种回复，当解析，则得 1–5 分；越界与缺失为 None | 2026-09-26 |
+
+### crates/gloss-eval/src/report.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告，当渲染，则指标表、accuracy 百分比、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-09-26 |
+| latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本的报告，当渲染，则不含延迟行 | 2026-09-26 |
+
+### crates/gloss-eval/src/runner.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| replay_runs_the_full_deterministic_track_over_embedded_assets | 重放轨全链路离线跑通 | 给定内嵌数据集与夹具，当 run_replay，则有夹具条目计入、部分覆盖（<全集）、正确/无效 JSON/被拒路径均有命中、各任务集有覆盖、无延迟样本 | 2026-09-26 |

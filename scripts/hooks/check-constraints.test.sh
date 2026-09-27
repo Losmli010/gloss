@@ -347,6 +347,22 @@ assert_mark "AGENTS.md 含大写 TODO 豁免（规则本体）" 0 "AGENTS.md" \
 assert_mark "小写 todo 与词边界（TODOs / MY_TODO）不误报" 0 "src/boundary.rs" \
   'let todo = "TODOS"; let _x = MY_TODO;'
 # checker 自身豁免：脚本副本（内含 TODO|FIXME|HACK|TBD 字面量）已被 git add -A 跟踪，
+# ---- eval 资产隔离 ----
+
+mut_eval_dep() {
+  insert_after_section "$FIX/crates/gloss-app/Cargo.toml" "[dependencies]" \
+    'gloss-eval = { path = "../gloss-eval" }'
+}
+
+assert_case "生产 crate 依赖 gloss-eval 被拒" 1 mut_eval_dep "不得进生产依赖图"
+
+mut_eval_include() {
+  printf 'const X: &str = include_str!("../../gloss-eval/datasets/classify.jsonl");\n' \
+    >"$FIX/crates/gloss-core/src/lib.rs"
+}
+
+assert_case "生产代码 include eval 资产被拒" 1 mut_eval_include "eval 资产嵌进了生产代码"
+
 # 「干净 git 仓库通过」用例退出 0 即证明其未被自命中。
 
 echo ""

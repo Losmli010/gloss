@@ -102,7 +102,9 @@ pub fn classify_key(text: &str, hint: Option<&InputHint>, locale: Locale, model:
 /// ```json 围栏都收）。kind 标识必须是 [`TaskKind`] 的 serde 名且在
 /// `allowed` 清单内，否则一律 [`GlossError::EngineResponse`]——错误文本
 /// 是固定措辞，不携带回复原文。
-fn parse_classify_reply(reply: &str, allowed: &[TaskKind]) -> Result<TaskKind, GlossError> {
+///
+/// pub 供 gloss-eval 评测重放复用：评测与生产走同一个校验器。
+pub fn parse_classify_reply(reply: &str, allowed: &[TaskKind]) -> Result<TaskKind, GlossError> {
     let rejected = || GlossError::EngineResponse("unrecognized classify reply".into());
     let trimmed = reply.trim();
     let value = serde_json::from_str::<serde_json::Value>(trimmed)
