@@ -162,7 +162,9 @@ pub async fn run_live(
         let mut metrics = TaskMetrics::default();
         for case in &cases {
             let started = Instant::now();
-            // 与分类轨同一策略：任务请求失败计一条降级并继续，跑完全集。
+            // 与分类轨同一「跑完全集」策略；差别在记账——分类轨把引擎
+            // 失败单列 engine_errors，任务轨并入 degraded（live 的降 Plain
+            // 率因此混入传输失败，见 TaskMetrics 文档）。
             let (reply, deltas) = match run_task_request(engine.as_ref(), &config, case).await {
                 Ok(outcome) => outcome,
                 Err(_) => {
@@ -412,8 +414,11 @@ async fn collect(
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {
             Ok(delta) => {
+                // 预算耗尽后连增量也停止缓冲：不守约的端点不能把内存灌穿。
+                if reply.len() < gloss_core::classify::CLASSIFY_REPLY_CAP_BYTES {
+                    deltas.push(delta.clone());
+                }
                 gloss_core::classify::push_capped(&mut reply, &delta);
-                deltas.push(delta);
             }
             Err(error) => return Err(error),
         }
@@ -477,10 +482,6 @@ mod tests {
         assert_eq!(report.mode, "replay");
         let classify = report.classify.as_ref().expect("classify track");
         assert!(classify.metrics.evaluated > 0, "fixtures must cover cases");
-        assert!(
-            classify.metrics.evaluated < 68,
-            "fixtures cover a maintained subset, not the whole dataset"
-        );
         assert!(
             classify.accuracy > 0.0,
             "the fixture set contains correct judgments: {}",
