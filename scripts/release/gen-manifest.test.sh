@@ -34,7 +34,7 @@ expect() {
   local fixture out rc
   fixture="$TMP/case-$PASS-$FAIL"
   new_fixture "$fixture" "$manifest"
-  out="$(cd "$fixture" && bash scripts/release/gen-manifest.sh "$tag" artifacts 2>/dev/null)"
+  out="$(cd "$fixture" && bash scripts/release/gen-manifest.sh "$tag" artifacts 2>&1)"
   rc=$?
   if [ "$rc" -ne "$expected" ]; then
     FAIL=$((FAIL + 1))
@@ -106,8 +106,8 @@ expect_missing "缺 zip → 拒绝" "gloss-0.1.0-aarch64-apple-darwin.zip"
 expect_missing "缺 dmg → 拒绝" "gloss-0.1.0-x86_64-apple-darwin.dmg"
 
 # 版本单点复用：tag 与 Cargo.toml 不一致、tag 格式坏 → 一并拒绝
-expect "tag 与 Cargo.toml 版本不一致 → 拒绝" 1 "v0.2.0" "$MANIFEST_OK"
-expect "tag 缺 v 前缀 → 拒绝" 1 "0.1.0" "$MANIFEST_OK"
+expect "tag 与 Cargo.toml 版本不一致 → 拒绝" 1 "v0.2.0" "$MANIFEST_OK" "版本号不一致"
+expect "tag 缺 v 前缀 → 拒绝" 1 "0.1.0" "$MANIFEST_OK" "缺 v 前缀"
 
 # 缺参数 → 用法提示（退出码 2）
 out="$(bash "$GENERATOR" 2>&1)"
