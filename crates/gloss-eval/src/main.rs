@@ -60,7 +60,7 @@ fn run_live_cli(args: &[String]) -> Result<(), String> {
                 let enabled = std::env::var("GLOSS_LIVE_JUDGE").ok().as_deref() == Some("1");
                 if !enabled {
                     return Err(
-                        "--judge additionally requires GLOSS_LIVE_JUDGE=1 (it costs one                          extra model call per case)"
+                        "--judge additionally requires GLOSS_LIVE_JUDGE=1 (it costs one extra model call per case)"
                             .into(),
                     );
                 }

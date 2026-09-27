@@ -121,7 +121,9 @@ pub struct TaskMetrics {
     pub json_parseable: usize,
     /// 必需字段完整数。
     pub fields_complete: usize,
-    /// 降级数（见 [`TaskVerdict::degraded`]）。
+    /// 降级数（见 [`TaskVerdict::degraded`]）。live 轨的任务请求失败也
+    /// 记入此处——降 Plain 率因此混入传输失败（与分类轨单列
+    /// engine_errors 不同），读数时注意。
     pub degraded: usize,
 }
 
@@ -205,14 +207,29 @@ pub fn judge_classify_reply(
     }
 }
 
-/// 回复是否「长得像 JSON」：裸 JSON 或任一围栏内是 JSON。只判形态，
-/// 不判 kind 合法性——那归生产校验器。
+/// 回复是否「长得像 JSON」：裸 JSON 或**首个** ``` 围栏内是 JSON——
+/// 镜像生产 `parse_classify_reply` 的裸先行、首围栏兜底提取（与任务轨
+/// 的 rfind 提取不同，多围栏的退化场景下两侧各自与生产对齐）。只判
+/// 形态，不判 kind 合法性——那归生产校验器。
 fn is_json_like(reply: &str) -> bool {
     let trimmed = reply.trim();
     if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
         return true;
     }
-    fenced_json(trimmed).is_some_and(|json| serde_json::from_str::<serde_json::Value>(json).is_ok())
+    first_fenced_json(trimmed)
+        .is_some_and(|json| serde_json::from_str::<serde_json::Value>(json).is_ok())
+}
+
+/// 首个 ``` 围栏内 JSON（语言标识行跳过）；镜像生产分类回复的容错提取。
+fn first_fenced_json(reply: &str) -> Option<&str> {
+    let pos = reply.find("```")?;
+    let after_marker = &reply[pos + 3..];
+    let content = match after_marker.find('\n') {
+        Some(line_end) => &after_marker[line_end + 1..],
+        None => after_marker,
+    };
+    let end = content.find("```")?;
+    Some(content[..end].trim())
 }
 
 /// 提取围栏内 JSON：取**最后一个** ``` 围栏（```gloss 或 ```json，语言
