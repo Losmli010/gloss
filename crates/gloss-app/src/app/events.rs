@@ -9,6 +9,7 @@ use gloss_core::ports::{ConfigStore, HotkeyBinder, SceneProbe};
 use winit::event_loop::{EventLoop, EventLoopProxy};
 
 use crate::channel::AppEndpoints;
+use crate::update::UpdateWiring;
 
 use super::GlossApp;
 
@@ -48,6 +49,14 @@ impl Waker {
 /// 供配置里的 `Language::System` 落定成 [`Locale`]（prompt 模板与界面文案共用）。
 /// `scene` 是触发前场景探针（安全输入态、前台应用），供敏感信息防护的
 /// 场景闸门判定——同样是平台适配器的事，壳只消费。
+///
+/// `update` 是更新子系统的壳侧接线（组装点经 `update::start_once()` 建立，
+/// 见 [`UpdateWiring`]）：设置页每帧读 [`watch::Receiver`] 里的
+/// [`UpdateState`] 渲染，用户动作经出口转投模块——与主流程四通道完全隔离。
+#[allow(
+    clippy::too_many_arguments,
+    reason = "组装点的主入口：每项都是不同关注点的注入端点，收敛成结构体只会把清单变成字段袋"
+)]
 pub fn run(
     endpoints: AppEndpoints,
     config: Arc<ConfigHandle>,
@@ -55,12 +64,21 @@ pub fn run(
     hotkeys: Arc<dyn HotkeyBinder>,
     scene: Arc<dyn SceneProbe>,
     system_locale: Locale,
+    update: UpdateWiring,
     on_waker: impl FnOnce(Waker),
 ) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     let waker = Waker(event_loop.create_proxy());
     on_waker(waker);
-    let mut app = GlossApp::new(endpoints, config, store, hotkeys, scene, system_locale);
+    let mut app = GlossApp::new(
+        endpoints,
+        config,
+        store,
+        hotkeys,
+        scene,
+        system_locale,
+        update,
+    );
     event_loop.run_app(&mut app)?;
     Ok(())
 }

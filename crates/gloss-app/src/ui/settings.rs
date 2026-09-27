@@ -29,6 +29,8 @@ use gloss_core::task::{HotkeyBinding, TaskKind};
 use super::kind_label;
 use super::style::{color, font, radius, space};
 use crate::i18n::{Text, fill};
+use crate::update::UpdateMsg;
+use crate::update::state::{FailStep, UpdatePhase, UpdateState};
 
 /// 校验出错的字段：错误提示按字段定位到具体控件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -149,6 +151,8 @@ pub enum SettingsAction {
     },
     /// 关闭窗口并丢弃草稿。
     Close,
+    /// 更新区的用户动作（检查/下载/重启/取消/重试），壳转投更新模块。
+    Update(UpdateMsg),
 }
 
 /// 壳回写的用户提示：三种失败各有各的措辞，具体错因按 [`GlossError`] 变体
@@ -313,7 +317,12 @@ fn base_url_error(err: &BaseUrlError) -> FieldError {
 /// 窗口内边距由 [`WINDOW_PADDING`] 统一给出；整幅先铺 `window_fill`
 /// 底色（设置窗不透明，清屏色不随主题，底色必须由 egui 自己画，
 /// 深浅主题切换才连同文字一起翻转）。
-pub(crate) fn draw(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) -> SettingsAction {
+pub(crate) fn draw(
+    ui: &mut egui::Ui,
+    state: &mut SettingsState,
+    update: &UpdateState,
+    text: &Text,
+) -> SettingsAction {
     let mut action = SettingsAction::Idle;
     let errors = state.errors();
     egui::Frame::new()
@@ -341,6 +350,10 @@ pub(crate) fn draw(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) ->
                         ui.add_space(space::SECTION);
                         section(ui, &text.gloss_settings_section_general, |ui| {
                             general_section(ui, state, text);
+                        });
+                        ui.add_space(space::SECTION);
+                        section(ui, &text.gloss_settings_section_update, |ui| {
+                            update_section(ui, update, &mut action, text);
                         });
                     });
                 });
@@ -687,6 +700,72 @@ fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
 
 /// 双列行：行标签左、控件推到卡片右缘（两端对齐）；返回控件自身的响应
 /// （字段标红要按控件的矩形画下划线）。
+/// 更新区：相位标签 + 单一动作按钮（两道确认、取消与失败重试都收敛在
+/// 这一行）。`Checking` 与 `ReadyToRestart` 无可点动作；替换步失败附
+/// 安装指引（只读卷 / 权限不足的出口，见分发设计 §4.4）。
+fn update_section(
+    ui: &mut egui::Ui,
+    update: &UpdateState,
+    action: &mut SettingsAction,
+    text: &Text,
+) {
+    let version = update.version.clone().unwrap_or_default();
+    let (label, button) = match update.phase {
+        UpdatePhase::Idle => (
+            text.gloss_settings_update_idle.clone(),
+            Some((text.gloss_settings_update_check.clone(), UpdateMsg::Check)),
+        ),
+        UpdatePhase::Checking => (text.gloss_settings_update_checking.clone(), None),
+        UpdatePhase::UpToDate => (
+            text.gloss_settings_update_up_to_date.clone(),
+            Some((text.gloss_settings_update_check.clone(), UpdateMsg::Check)),
+        ),
+        UpdatePhase::UpdateAvailable => (
+            fill(
+                &text.gloss_settings_update_available,
+                &[("version", &version)],
+            ),
+            Some((
+                text.gloss_settings_update_download.clone(),
+                UpdateMsg::ConfirmDownload,
+            )),
+        ),
+        UpdatePhase::Downloading => (
+            text.gloss_settings_update_downloading.clone(),
+            Some((text.gloss_settings_update_cancel.clone(), UpdateMsg::Cancel)),
+        ),
+        UpdatePhase::UpdateReady => (
+            fill(&text.gloss_settings_update_ready, &[("version", &version)]),
+            Some((
+                text.gloss_settings_update_restart.clone(),
+                UpdateMsg::ConfirmRestart,
+            )),
+        ),
+        UpdatePhase::ReadyToRestart => (text.gloss_settings_update_installing.clone(), None),
+        UpdatePhase::Failed(step) => {
+            let label = match step {
+                FailStep::Manifest => text.gloss_settings_update_failed_check.clone(),
+                FailStep::Download => text.gloss_settings_update_failed_download.clone(),
+                FailStep::Install => text.gloss_settings_update_failed_install.clone(),
+            };
+            (
+                label,
+                Some((text.gloss_settings_update_retry.clone(), UpdateMsg::Retry)),
+            )
+        }
+    };
+    choice_row(ui, &label, |ui| {
+        if let Some((label, msg)) = button
+            && ui.button(label).clicked()
+        {
+            *action = SettingsAction::Update(msg);
+        }
+    });
+    if update.phase == UpdatePhase::Failed(FailStep::Install) {
+        choice_hint(ui, &text.gloss_settings_update_install_hint);
+    }
+}
+
 fn choice_row<R>(ui: &mut egui::Ui, label: &str, control: impl FnOnce(&mut egui::Ui) -> R) -> R {
     ui.horizontal(|ui| {
         ui.label(label);
@@ -1067,12 +1146,21 @@ mod tests {
         state: SettingsState,
         locale: Locale,
     ) -> (egui_kittest::Harness<'static>, Rc<RefCell<SettingsAction>>) {
+        harness_for_update(state, &UpdateState::default(), locale)
+    }
+
+    fn harness_for_update(
+        state: SettingsState,
+        update: &UpdateState,
+        locale: Locale,
+    ) -> (egui_kittest::Harness<'static>, Rc<RefCell<SettingsAction>>) {
         let action = Rc::new(RefCell::new(SettingsAction::Idle));
         let sink = Rc::clone(&action);
         let text = Text::get(locale);
+        let update = update.clone();
         let mut state = state;
         let mut harness = egui_kittest::Harness::new_ui(move |ui| {
-            let frame_action = draw(ui, &mut state, text);
+            let frame_action = draw(ui, &mut state, &update, text);
             if frame_action != SettingsAction::Idle {
                 *sink.borrow_mut() = frame_action;
             }
@@ -1408,6 +1496,140 @@ mod tests {
         harness.get_by_label_contains("默认任务已停用");
         harness.snapshot("settings_default_kind_disabled");
         results.extend_harness(&mut harness);
+
+        for (name, update) in [
+            (
+                "settings_update_up_to_date",
+                UpdateState {
+                    phase: UpdatePhase::UpToDate,
+                    version: None,
+                },
+            ),
+            (
+                "settings_update_available",
+                UpdateState {
+                    phase: UpdatePhase::UpdateAvailable,
+                    version: Some("0.2.0".into()),
+                },
+            ),
+            (
+                "settings_update_downloading",
+                UpdateState {
+                    phase: UpdatePhase::Downloading,
+                    version: Some("0.2.0".into()),
+                },
+            ),
+            (
+                "settings_update_ready",
+                UpdateState {
+                    phase: UpdatePhase::UpdateReady,
+                    version: Some("0.2.0".into()),
+                },
+            ),
+            (
+                "settings_update_failed_install",
+                UpdateState {
+                    phase: UpdatePhase::Failed(FailStep::Install),
+                    version: Some("0.2.0".into()),
+                },
+            ),
+        ] {
+            let (mut harness, _action) =
+                harness_for_update(open(&Config::default()), &update, Locale::Zh);
+            harness.run();
+            harness.snapshot(name);
+            results.extend_harness(&mut harness);
+        }
         results.unwrap();
+    }
+
+    fn update_state_of(phase: UpdatePhase) -> UpdateState {
+        let version = matches!(
+            phase,
+            UpdatePhase::UpdateAvailable
+                | UpdatePhase::Downloading
+                | UpdatePhase::UpdateReady
+                | UpdatePhase::Failed(_)
+        )
+        .then(|| "0.2.0".to_owned());
+        UpdateState { phase, version }
+    }
+
+    #[test]
+    fn update_section_buttons_follow_the_phase() {
+        for (phase, label, expected) in [
+            (UpdatePhase::Idle, "检查更新", UpdateMsg::Check),
+            (UpdatePhase::UpToDate, "检查更新", UpdateMsg::Check),
+            (
+                UpdatePhase::UpdateAvailable,
+                "下载更新",
+                UpdateMsg::ConfirmDownload,
+            ),
+            (UpdatePhase::Downloading, "取消下载", UpdateMsg::Cancel),
+            (
+                UpdatePhase::UpdateReady,
+                "重启更新",
+                UpdateMsg::ConfirmRestart,
+            ),
+            (
+                UpdatePhase::Failed(FailStep::Manifest),
+                "重试",
+                UpdateMsg::Retry,
+            ),
+            (
+                UpdatePhase::Failed(FailStep::Download),
+                "重试",
+                UpdateMsg::Retry,
+            ),
+        ] {
+            let (mut harness, action) = harness_for_update(
+                open(&Config::default()),
+                &update_state_of(phase),
+                Locale::Zh,
+            );
+            harness.run();
+            harness.get_by_label(label).click();
+            harness.run();
+            assert_eq!(
+                *action.borrow(),
+                SettingsAction::Update(expected),
+                "phase {phase:?} must offer the `{label}` action"
+            );
+        }
+    }
+
+    #[test]
+    fn update_busy_phases_offer_no_action_and_show_the_target_version() {
+        for phase in [UpdatePhase::Checking, UpdatePhase::ReadyToRestart] {
+            let (mut harness, action) = harness_for_update(
+                open(&Config::default()),
+                &update_state_of(phase),
+                Locale::Zh,
+            );
+            harness.run();
+            assert!(
+                matches!(&*action.borrow(), SettingsAction::Idle),
+                "phase {phase:?} must not offer an action"
+            );
+        }
+        let (mut harness, _action) = harness_for_update(
+            open(&Config::default()),
+            &update_state_of(UpdatePhase::UpdateAvailable),
+            Locale::Zh,
+        );
+        harness.run();
+        harness.get_by_label_contains("0.2.0");
+    }
+
+    #[test]
+    fn failed_install_shows_the_install_hint() {
+        let (mut harness, action) = harness_for_update(
+            open(&Config::default()),
+            &update_state_of(UpdatePhase::Failed(FailStep::Install)),
+            Locale::Zh,
+        );
+        harness.run();
+        harness.get_by_label_contains("应用程序");
+        assert!(matches!(&*action.borrow(), SettingsAction::Idle));
     }
 }

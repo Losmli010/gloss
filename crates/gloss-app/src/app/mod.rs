@@ -36,6 +36,7 @@ use crate::channel::AppEndpoints;
 use crate::i18n::Text;
 use crate::machine::TaskStateMachine;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
+use crate::update::UpdateWiring;
 use crate::windows::WindowManager;
 
 struct GlossApp {
@@ -79,6 +80,9 @@ struct GlossApp {
     /// 当前任务的 span（触发点创建）与它所属的代数：随通道②③下发，让接收
     /// 线程的日志自动带上 `generation`。重试沿用同一个（代数不变）。
     task_span: Option<(u64, Span)>,
+    /// 更新子系统的壳侧接线：设置页每帧读其 receiver 渲染，用户动作经
+    /// 出口转投模块（与主流程四通道隔离）。
+    update: UpdateWiring,
 }
 
 impl GlossApp {
@@ -92,6 +96,7 @@ impl GlossApp {
         hotkeys: Arc<dyn HotkeyBinder>,
         scene: Arc<dyn SceneProbe>,
         system_locale: Locale,
+        update: UpdateWiring,
     ) -> Self {
         Self {
             windows: None,
@@ -110,6 +115,7 @@ impl GlossApp {
             applied_theme: None,
             selection_anchor: None,
             task_span: None,
+            update,
         }
     }
 
@@ -150,14 +156,16 @@ impl GlossApp {
         }
     }
 
-    /// 画一帧设置窗口：草稿编辑 + 动作上交（保存/密钥变更/取消）。
+    /// 画一帧设置窗口：草稿编辑 + 动作上交（保存/密钥变更/取消/更新动作）。
     fn draw_settings(&mut self) {
         self.apply_theme();
         let text = Text::get(self.locale());
+        let update_state = self.update.receiver.borrow().clone();
         let (Some(frame), Some(state)) = (&mut self.settings_frame, &mut self.settings) else {
             return;
         };
-        let (repaint, action) = render_frame_with(frame, |ui| settings::draw(ui, state, text));
+        let (repaint, action) =
+            render_frame_with(frame, |ui| settings::draw(ui, state, &update_state, text));
         self.settings_repaint = repaint;
         let Some(action) = action else {
             return;
@@ -166,6 +174,7 @@ impl GlossApp {
             SettingsAction::Idle => {}
             SettingsAction::Save { config, key } => self.save_settings(*config, key),
             SettingsAction::Close => self.close_settings(),
+            SettingsAction::Update(msg) => (self.update.send)(msg),
         }
     }
 
@@ -192,6 +201,17 @@ mod test_support {
     use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder, StubSceneProbe};
 
     use super::GlossApp;
+
+    /// 更新接线的测试桩：本地 watch（恒为初始快照）+ 空发送出口，
+    /// 不拉起真实模块、不触碰网络。
+    pub(super) fn update_wiring() -> crate::update::UpdateWiring {
+        let (_tx, receiver) =
+            tokio::sync::watch::channel(crate::update::state::UpdateState::default());
+        crate::update::UpdateWiring {
+            receiver,
+            send: Arc::new(|_msg: crate::update::UpdateMsg| {}),
+        }
+    }
 
     pub(super) type DrivenApp = (
         GlossApp,
@@ -261,6 +281,7 @@ mod test_support {
             hotkeys,
             scene,
             Locale::Zh,
+            update_wiring(),
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
     }
