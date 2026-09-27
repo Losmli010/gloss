@@ -79,6 +79,19 @@ bench-check name="last":
 bench-summary baseline="上一次运行":
     ./scripts/bench-summary.py "{{baseline}}"
 
+# Prompt 评测 live 轨：真实 LLM（需 GLOSS_LIVE_*，opt-in）
+# --record 回写夹具；--judge 启用 judge 评分轨（额外一次模型调用/条）
+eval *args:
+    cargo run -p gloss-eval --bin eval -- live {{args}}
+
+# Prompt 评测离线重放：夹具驱动，无网络无凭据（CI 安全）
+eval-replay:
+    cargo run -p gloss-eval --bin eval -- replay
+
+# 把 target/eval 下最近一次评测报告渲染为 Markdown 表（--dir 换目录）
+eval-report *args:
+    cargo run -p gloss-eval --bin eval -- report {{args}}
+
 # ---- ci：需要编译的质量门禁（本地与 CI 共用同一配方）----
 
 # 格式化检查

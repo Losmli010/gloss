@@ -15,7 +15,8 @@ gloss/
 └── crates/
     ├── gloss-core/      # 领域层 + 端口（ports：core 里定义的 trait 契约）：模型、任务、提示词、引擎、缓存、配置、日志（零平台依赖）
     ├── gloss-platform/  # 适配器层：实现 core 的端口——选区读取、热键与鼠标事件源、配置与密钥存储、LLM 网络（SSE 流式）、应用外观（Dock 图标）
-    └── gloss-app/       # 表现层 + 应用层：状态机、窗口、wgpu 与 egui、通道类型、tokio 消费桥、界面文案表（i18n 下的 zh/en TOML，编译期嵌入）
+    ├── gloss-app/       # 表现层 + 应用层：状态机、窗口、wgpu 与 egui、通道类型、tokio 消费桥、界面文案表（i18n 下的 zh/en TOML，编译期嵌入）
+    └── gloss-eval/      # 评测工具链（bin eval + datasets/fixtures/prompts 资产）：只消费 core 与 platform，不被任何生产 crate 依赖（check-constraints 强制），不进应用启动路径
 ```
 
 具体文件清单以 `crates/*/src` 为准，本节只讲分层职责——文件名会随重构漂移，职责不会。
@@ -39,6 +40,9 @@ just selftest          # 单跑 L3 显隐自检（just test 已含；需窗口�
 just bench             # 跑 gloss-core 热点基准（criterion，benches/core.rs）
 just bench-check       # 以命名基线为对照重跑基准（审计对照，不是门禁）
 just bench-summary     # 汇总最近一次基准运行为 Markdown 表
+just eval              # Prompt 评测 live 轨（需 GLOSS_LIVE_*，opt-in；--record 回写夹具、--judge 启用评分轨）
+just eval-replay       # Prompt 评测离线重放（夹具驱动，CI 安全）
+just eval-report       # 把 target/eval 下最近一次评测报告渲染为 Markdown 表
 just precommit         # 提交前门禁（git hook 自动跑）
 just check             # 完整质量门禁（precommit + test）
 just --list            # 全部配方与说明

@@ -12,7 +12,7 @@ use crate::model::{GlossError, Lang, Locale, ScreenRect};
 /// 模板与产物卡。它的活动范围钉死在前半程（触发 → 分类 → 重建具体 kind），
 /// 永不进 prompt 渲染、主缓存 key 与设置任务列表（`config::ALL_KINDS` 不含
 /// 它），由测试钉住。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum TaskKind {
     /// 单词（词典式卡：音标/词性/释义/例句）。
     TranslateWord,
