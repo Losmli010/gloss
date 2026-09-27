@@ -71,7 +71,7 @@ fn replace(zip: &Path, dir: &Path, bundle: &Path) -> Result<(), InstallError> {
     ));
     if let Err(err) = std::fs::remove_dir_all(&old) {
         debug!(
-            thread = thread::UI,
+            thread = thread::TOKIO,
             error = %err,
             "update: stale old bundle cleanup failed, replacing anyway"
         );
@@ -79,14 +79,14 @@ fn replace(zip: &Path, dir: &Path, bundle: &Path) -> Result<(), InstallError> {
 
     let unpack = dir.join(format!(".gloss-update-{}", std::process::id()));
     if let Err(err) = std::fs::remove_dir_all(&unpack) {
-        debug!(thread = thread::UI, error = %err, "update: stale unpack dir cleanup failed");
+        debug!(thread = thread::TOKIO, error = %err, "update: stale unpack dir cleanup failed");
     }
     std::fs::create_dir_all(&unpack)
         .map_err(|err| InstallError::Unzip(format!("create unpack dir: {err}")))?;
 
     if let Err(err) = ditto_extract(zip, &unpack) {
         if let Err(cleanup) = std::fs::remove_dir_all(&unpack) {
-            debug!(thread = thread::UI, error = %cleanup, "update: unpack dir cleanup failed");
+            debug!(thread = thread::TOKIO, error = %cleanup, "update: unpack dir cleanup failed");
         }
         return Err(err);
     }
@@ -94,7 +94,7 @@ fn replace(zip: &Path, dir: &Path, bundle: &Path) -> Result<(), InstallError> {
         Some(found) => found,
         None => {
             if let Err(cleanup) = std::fs::remove_dir_all(&unpack) {
-                debug!(thread = thread::UI, error = %cleanup, "update: unpack dir cleanup failed");
+                debug!(thread = thread::TOKIO, error = %cleanup, "update: unpack dir cleanup failed");
             }
             return Err(InstallError::InvalidStructure);
         }
@@ -104,26 +104,26 @@ fn replace(zip: &Path, dir: &Path, bundle: &Path) -> Result<(), InstallError> {
     // 失败时，把旧 bundle 改回原位，现场恢复到替换前。
     if let Err(err) = std::fs::rename(bundle, &old) {
         if let Err(cleanup) = std::fs::remove_dir_all(&unpack) {
-            debug!(thread = thread::UI, error = %cleanup, "update: unpack dir cleanup failed");
+            debug!(thread = thread::TOKIO, error = %cleanup, "update: unpack dir cleanup failed");
         }
         return Err(InstallError::Replace(format!("stash old bundle: {err}")));
     }
     if let Err(err) = std::fs::rename(&new_app, bundle) {
         match std::fs::rename(&old, bundle) {
             Ok(()) => warn!(
-                thread = thread::UI,
+                thread = thread::TOKIO,
                 error = %err,
                 "update: install rolled back, old bundle restored"
             ),
             Err(rollback) => warn!(
-                thread = thread::UI,
+                thread = thread::TOKIO,
                 error = %err,
                 rollback = %rollback,
                 "update: install failed and rollback also failed, old bundle kept as .app.old"
             ),
         }
         if let Err(cleanup) = std::fs::remove_dir_all(&unpack) {
-            debug!(thread = thread::UI, error = %cleanup, "update: unpack dir cleanup failed");
+            debug!(thread = thread::TOKIO, error = %cleanup, "update: unpack dir cleanup failed");
         }
         return Err(InstallError::Replace(format!("move new bundle: {err}")));
     }
@@ -132,14 +132,14 @@ fn replace(zip: &Path, dir: &Path, bundle: &Path) -> Result<(), InstallError> {
     // 在 .app.old 不影响新 bundle 运行，下次替换先清场），记日志即可。
     if let Err(err) = std::fs::remove_dir_all(&old) {
         warn!(
-            thread = thread::UI,
+            thread = thread::TOKIO,
             path = %old.display(),
             error = %err,
             "update: old bundle cleanup failed, kept as .app.old"
         );
     }
     if let Err(err) = std::fs::remove_dir_all(&unpack) {
-        debug!(thread = thread::UI, error = %err, "update: unpack dir cleanup failed");
+        debug!(thread = thread::TOKIO, error = %err, "update: unpack dir cleanup failed");
     }
     Ok(())
 }
@@ -193,7 +193,7 @@ fn dir_writable(dir: &Path) -> bool {
     match std::fs::write(&probe, b"") {
         Ok(()) => {
             if let Err(err) = std::fs::remove_file(&probe) {
-                debug!(thread = thread::UI, error = %err, "update: writability probe cleanup failed");
+                debug!(thread = thread::TOKIO, error = %err, "update: writability probe cleanup failed");
             }
             true
         }
@@ -216,8 +216,6 @@ mod tests {
         dir
     }
 
-    // 夹具：一个结构完整（Contents/MacOS + 标记文件）的 Gloss.app，经
-    // ditto -c -k --keepParent 压成与发布链同构的 zip。
     fn fixture_zip(tag: &str, marker: &str) -> PathBuf {
         let dir = temp_dir(tag);
         let app = dir.join("Gloss.app");
@@ -320,8 +318,6 @@ mod tests {
         );
     }
 
-    // install() 以 current_exe 定位 bundle，单测注入不了进程路径；
-    // dir_writable 是它的全部环境判定，直接驱动。
     fn install_probe(bundle: &Path) -> Option<InstallError> {
         let dir = bundle.parent().expect("bundle parent").to_path_buf();
         if !dir_writable(&dir) {

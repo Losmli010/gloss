@@ -276,8 +276,6 @@ mod tests {
         TruncateAfter(usize),
     }
 
-    // 最小 HTTP/1.1 静态服务器：一次连接一个请求，按行为回 200/206/截断。
-    // 每个用例独占端口，串行应答，无共享状态。
     fn spawn_server(behavior: ServerBehavior, body: Vec<u8>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
@@ -388,8 +386,6 @@ mod tests {
         let error = run_download(&url, body.len() as u64, &sha_hex(&body), &work, false)
             .await
             .expect_err("truncated stream must fail");
-        // Content-Length 已声明而字节提前收尾：流干净结束、按少收字节报
-        // SizeMismatch（连接中断类则报 Network），两者都保留 .partial。
         assert!(
             matches!(
                 error,

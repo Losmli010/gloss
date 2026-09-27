@@ -13,7 +13,7 @@
 | 集成测试 | 6 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 24 | `just test` |
-| 单元测试 | 360 | `just test` |
+| 单元测试 | 362 | `just test` |
 
 ## 人工测试
 
@@ -563,6 +563,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | download_failure_lands_in_failed_and_retry_resumes | 下载步失败与续传重试 | 给定下载失败回包，当失败后再点重试，则落 Failed(Download)、重跑下载桩且 resume 为真 | 2026-09-26 |
 | install_failure_lands_in_failed_install_and_retry_installs | 替换步失败与重试 | 给定替换失败回包，当失败后再点重试，则落 Failed(Install)、重跑替换桩并以成功收尾 | 2026-09-26 |
 | cancel_during_download_returns_to_update_available | 取消下载与迟到回包丢弃 | 给定下载中任务，当取消，则回 UpdateAvailable；其后的迟到下载回包被丢弃（确认下载仍可用即相位未被动过） | 2026-09-26 |
+| fetch_manifest_parses_a_valid_body_from_the_wire | 线上清单解析 | 给定本地服务器回的合法清单（带 Content-Length），当 fetch，则解析出版本 | 2026-09-27 |
+| fetch_manifest_rejects_oversize_body_without_content_length | 无长度声明的超限 body 拒绝 | 给定不声明 Content-Length、逐块送出 1.5 MiB 的服务器，当 fetch，则中途判超限拒绝（无界内存禁入） | 2026-09-27 |
 
 ### crates/gloss-app/src/update/manifest.rs
 

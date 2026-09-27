@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use futures::StreamExt;
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -53,7 +54,8 @@ pub enum UpdateMsg {
     ConfirmDownload,
     /// 确认重启替换（两道确认的第二道）。
     ConfirmRestart,
-    /// 取消在途下载（中断保留 `.partial` 供续传）。
+    /// 取消在途下载（在途进度留在 `.partial`，下次全量下载时清除；
+    /// 仅失败重试路径会基于它续传）。
     Cancel,
 }
 
@@ -68,7 +70,7 @@ impl UpdateHandle {
     pub fn send(&self, msg: UpdateMsg) {
         if let Err(err) = self.sender.send(msg) {
             warn!(
-                thread = thread::TOKIO,
+                thread = thread::UI,
                 error = %err,
                 "update: message dropped, module is gone"
             );
@@ -415,7 +417,7 @@ fn real_hooks() -> Hooks {
         check: Arc::new(|_cancel| {
             tokio::spawn(async move {
                 let result = match build_client() {
-                    Ok(client) => fetch_manifest(&client).await,
+                    Ok(client) => fetch_manifest(&client, MANIFEST_URL).await,
                     Err(err) => {
                         warn!(
                             thread = thread::TOKIO,
@@ -458,34 +460,34 @@ fn download_work_dir() -> PathBuf {
 
 /// 清单拉取：非 200、超限 body、UTF-8 不符、校验矩阵不符都收敛为失败
 /// （细节只进日志，状态机只认失败）。
-async fn fetch_manifest(client: &reqwest::Client) -> Result<UpdateManifest, ()> {
-    let response = client.get(MANIFEST_URL).send().await.map_err(|err| {
-        debug!(thread = thread::TOKIO, error = %err, "update: manifest fetch failed");
+async fn fetch_manifest(client: &reqwest::Client, url: &str) -> Result<UpdateManifest, ()> {
+    let response = client.get(url).send().await.map_err(|err| {
+        warn!(thread = thread::TOKIO, error = %err, "update: manifest fetch failed");
     })?;
     let status = response.status();
     if status != reqwest::StatusCode::OK {
-        debug!(thread = thread::TOKIO, status = %status, "update: manifest fetch not ok");
+        warn!(thread = thread::TOKIO, status = %status, "update: manifest fetch not ok");
         return Err(());
     }
-    if response
-        .content_length()
-        .is_some_and(|len| len > MAX_MANIFEST_BYTES)
-    {
-        debug!(thread = thread::TOKIO, "update: manifest body too large");
-        return Err(());
-    }
-    let bytes = response.bytes().await.map_err(|err| {
-        debug!(thread = thread::TOKIO, error = %err, "update: manifest body read failed");
-    })?;
-    if bytes.len() as u64 > MAX_MANIFEST_BYTES {
-        debug!(thread = thread::TOKIO, "update: manifest body too large");
-        return Err(());
+    // 分块累计、超限即断：content-length 缺省（HTTP/2 常见）时上限照样
+    // 生效，不给无界缓冲留入口。
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|err| {
+            warn!(thread = thread::TOKIO, error = %err, "update: manifest body read failed");
+        })?;
+        if bytes.len() + chunk.len() > MAX_MANIFEST_BYTES as usize {
+            warn!(thread = thread::TOKIO, "update: manifest body too large");
+            return Err(());
+        }
+        bytes.extend_from_slice(&chunk);
     }
     let text = std::str::from_utf8(&bytes).map_err(|err| {
-        debug!(thread = thread::TOKIO, error = %err, "update: manifest body is not utf-8");
+        warn!(thread = thread::TOKIO, error = %err, "update: manifest body is not utf-8");
     })?;
     manifest::parse(text).map_err(|err| {
-        debug!(thread = thread::TOKIO, error = ?err, "update: manifest rejected");
+        warn!(thread = thread::TOKIO, error = ?err, "update: manifest rejected");
     })
 }
 
@@ -870,9 +872,6 @@ mod tests {
             state::UpdatePhase::UpdateAvailable
         );
 
-        // 取消后的下载回包是迟到回包：先回填它，再以「确认下载仍可用」
-        // 证明相位没有被它推进到 UpdateReady（若被推进，这条确认会因
-        // 相位守卫无操作，下面的状态等待将永远等不到广播）。
         harness
             .download
             .triggers
@@ -884,5 +883,65 @@ mod tests {
             state_after(&mut harness).await.phase,
             state::UpdatePhase::Downloading
         );
+    }
+
+    fn spawn_body_server(head: &str, body: &[u8]) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let head = head.to_owned();
+        let body = body.to_vec();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                use std::io::{Read, Write};
+                let mut buf = [0u8; 4096];
+                drop(stream.read(&mut buf));
+                drop(stream.write_all(head.as_bytes()));
+                drop(stream.write_all(&body));
+                drop(stream.flush());
+                drop(stream.shutdown(std::net::Shutdown::Write));
+            }
+        });
+        format!("http://{addr}/manifest.json")
+    }
+
+    fn manifest_body_wire(version: &str) -> String {
+        format!(
+            r#"{{"schema":1,"version":"{version}","channels":{{"stable":{{
+  "aarch64-apple-darwin":{{"url":"https://p/a.zip","size":1,"sha256":"{sha_a}"}},
+  "x86_64-apple-darwin":{{"url":"https://p/x.zip","size":2,"sha256":"{sha_b}"}}}}}}}}"#,
+            sha_a = SHA_A,
+            sha_b = SHA_B,
+        )
+    }
+
+    #[tokio::test]
+    async fn fetch_manifest_parses_a_valid_body_from_the_wire() {
+        let body = manifest_body_wire("99.0.0");
+        let url = spawn_body_server(
+            &format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            ),
+            body.as_bytes(),
+        );
+        let client = reqwest::Client::builder().build().expect("client");
+        let manifest = fetch_manifest(&client, &url)
+            .await
+            .expect("valid wire manifest must parse");
+        assert_eq!(manifest.version().to_string(), "99.0.0");
+    }
+
+    #[tokio::test]
+    async fn fetch_manifest_rejects_oversize_body_without_content_length() {
+        let url = spawn_body_server(
+            "HTTP/1.1 200 OK
+Connection: close
+
+",
+            &vec![b'a'; 24 * 64 * 1024],
+        );
+        let client = reqwest::Client::builder().build().expect("client");
+        let result = fetch_manifest(&client, &url).await;
+        assert_eq!(result, Err(()), "a 1.5 MiB body must be refused mid-stream");
     }
 }

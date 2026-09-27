@@ -115,8 +115,7 @@ const ARM_DARWIN: &str = "aarch64-apple-darwin";
 const X64_DARWIN: &str = "x86_64-apple-darwin";
 
 /// 版本比较（semver crate 的全序）：清单版本高于本地才视为有更新，相等
-/// 或更低一律无更新。全序把构建元数据作并列时的最终裁决——比规范的
-/// 优先级序（忽略构建元数据）更细，只为满足全序的可比性。
+/// 或更低一律无更新。
 pub fn is_newer(candidate: &Version, current: &Version) -> bool {
     candidate > current
 }
