@@ -13,7 +13,7 @@
 | 集成测试 | 6 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 24 | `just test` |
-| 单元测试 | 313 | `just test` |
+| 单元测试 | 360 | `just test` |
 
 ## 人工测试
 
@@ -549,6 +549,88 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | suspicious_input_is_dropped_without_a_task_or_a_card | 可疑内容丢弃且不留任何痕迹 | 给定带令牌的取材产物，当采纳，则结果是 Blocked{Token}、状态回 Idle、浮层视图为空、没有取消令牌（一条产物都没下发） | 2026-09-24 |
 | blocked_input_is_not_redispatched_by_any_later_path | 被拦下的取材没有旁路 | 给定已拦下的取材（卡号命中），当 retry、同代重复采纳、同代 chunk/done/failed、以及同代通道故障（fail_acquire / fail_transport）陆续到达，则全部被拒且不摆失败卡；新触发后同一份可疑文本仍被拦下且状态留 Idle | 2026-09-26 |
 | ordinary_input_still_passes_the_content_gate | 日常文本照常通过内容闸门 | 给定一段普通中文，当采纳，则照常 Dispatch 并进 Translating（闸门只认高置信度模式） | 2026-09-24 |
+
+### crates/gloss-app/src/update/mod.rs
+
+模块接线与集成时序（L1）：经公共 API（消息通道 + watch 广播）驱动，桩 hooks 用本地 oneshot 触发回包，同步点全走 watch，不碰网络。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| initial_broadcast_is_the_idle_snapshot | 启动即广播初始快照 | 给定刚拉起的模块，当订阅 watch，则先收到 Idle 快照 | 2026-09-26 |
+| confirmed_flow_runs_check_download_install_to_completion | 两道确认全流程到替换成功 | 给定新版清单与下载、替换成功桩，当检查→确认下载→确认重启，则相位依次推进且替换收到 zip 路径、任务以「已安装」收尾 | 2026-09-26 |
+| not_newer_manifest_lands_in_up_to_date_without_a_target | 无新版落 UpToDate | 给定与本地等版本的清单回包，当检查完成，则落 UpToDate 且无目标版本 | 2026-09-26 |
+| manifest_failure_lands_in_failed_and_retry_rechecks | 清单步失败与重试 | 给定清单拉取失败回包，当检查完成再点重试，则先落 Failed(Manifest) 再回 Checking 并重跑检查桩 | 2026-09-26 |
+| download_failure_lands_in_failed_and_retry_resumes | 下载步失败与续传重试 | 给定下载失败回包，当失败后再点重试，则落 Failed(Download)、重跑下载桩且 resume 为真 | 2026-09-26 |
+| install_failure_lands_in_failed_install_and_retry_installs | 替换步失败与重试 | 给定替换失败回包，当失败后再点重试，则落 Failed(Install)、重跑替换桩并以成功收尾 | 2026-09-26 |
+| cancel_during_download_returns_to_update_available | 取消下载与迟到回包丢弃 | 给定下载中任务，当取消，则回 UpdateAvailable；其后的迟到下载回包被丢弃（确认下载仍可用即相位未被动过） | 2026-09-26 |
+
+### crates/gloss-app/src/update/manifest.rs
+
+清单校验矩阵与版本比较（L1）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| valid_manifest_parses_with_all_fields | 合法清单全字段解析 | 给定 schema=1 双架构齐备的清单，当 parse，则版本、发布时间、说明页与本机架构条目全部就位 | 2026-09-26 |
+| unknown_fields_are_ignored_for_forward_compatibility | 未知字段前向兼容 | 给定含 dmg_url 等未知字段的清单，当 parse，则照常通过 | 2026-09-26 |
+| optional_fields_may_be_absent | 可选字段缺省 | 给定无 published_at/notes_url 的清单，当 parse，则通过且对应 getter 为 None | 2026-09-26 |
+| unknown_schema_is_fail_closed | 未知 schema 拒绝 | 给定 schema 为 0/2/99 的清单，当 parse，则 UnknownSchema 拒绝且不继续解析 | 2026-09-26 |
+| unparsable_body_is_rejected | 非法 body 拒绝 | 给定空串、非 JSON、数组、schema 类型不符的 body，当 parse，则 Unparsable | 2026-09-26 |
+| version_must_be_a_semver_triple | 版本必须可解析 | 给定空串/两段/带 v/非数字的 version，当 parse，则 Invalid | 2026-09-26 |
+| both_architectures_are_required_by_the_matrix | 双架构条目必须齐备 | 给定缺 channels、缺 stable、单架构的清单，当 parse，则 Invalid | 2026-09-26 |
+| artifact_fields_follow_the_matrix | 条目字段矩阵 | 给定缺 url/size/sha256 或类型不符的条目，当 parse，则 Invalid（类型不符 Unparsable） | 2026-09-26 |
+| artifact_url_must_be_https | 条目 url 仅接受 https | 给定 http:// 的 url，当 parse，则 Invalid | 2026-09-26 |
+| sha256_must_be_64_lowercase_hex | sha256 形态校验 | 给定非 64 位/大写/非 hex 的 sha256，当 parse，则 Invalid | 2026-09-26 |
+| is_newer_follows_semver_precedence | semver 全序比较 | 给定更高/相等/更低/预发布/构建元数据版本，当比较，则按 semver 全序判定是否更新 | 2026-09-26 |
+| arch_keys_cover_the_published_pair | 架构键覆盖双 target | 给定编译期架构键，当取键对，则恰为 aarch64/x86_64 两个发布 target | 2026-09-26 |
+| current_version_matches_the_cargo_package_version | 本地版本回落分支锁定 | 给定 CARGO_PKG_VERSION，当解析，则 current_version 与之相等（回落分支不可达） | 2026-09-26 |
+
+### crates/gloss-app/src/update/state.rs
+
+更新子状态机迁移表逐行（L1）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| starts_from_idle_into_checking_with_a_command | 发起检查进 Checking | 给定 Idle 状态机，当 check，则落 Checking 并交出清单拉取命令与令牌 | 2026-09-26 |
+| checking_manifest_newer_lands_in_update_available | 新版落 UpdateAvailable | 给定更高版本的清单，当采纳，则锁目标版本与本机架构产物 | 2026-09-26 |
+| checking_manifest_not_newer_lands_in_up_to_date | 无新版落 UpToDate | 给定不高于本地的清单，当采纳，则落 UpToDate 且清掉旧目标 | 2026-09-26 |
+| checking_manifest_unavailable_lands_in_failed_manifest_step | 清单失败落清单步 | 给定清单不可用，当采纳，则落 Failed(Manifest) 且令牌清空 | 2026-09-26 |
+| recheck_from_any_active_phase_cancels_and_returns_to_checking | 重复检查先取消 | 给定下载中的任务，当再次检查，则回 Checking 且下载令牌被取消 | 2026-09-26 |
+| ready_to_restart_refuses_a_new_check | 替换执行中拒绝新检查 | 给定 ReadyToRestart，当 check，则拒绝且相位不动 | 2026-09-26 |
+| confirm_download_only_from_update_available | 确认下载仅限待确认态 | 给定 Idle/Checking/UpdateAvailable，当 confirm_download，则仅最后者交出全量下载命令（resume 为假） | 2026-09-26 |
+| download_verified_lands_in_update_ready_then_install_confirms | 下载完成与确认重启 | 给定下载完成回包，当采纳并确认重启，则经 UpdateReady 落 ReadyToRestart 并交出替换命令 | 2026-09-26 |
+| download_failed_lands_in_failed_download_step | 下载失败落下载步 | 给定下载失败回包，当采纳，则落 Failed(Download) 且目标保留 | 2026-09-26 |
+| retry_returns_to_the_recorded_step | 重试回到记录步骤 | 给定三类失败态，当 retry，则分别回 Checking/Downloading(resume)/ReadyToRestart 并交出对应命令 | 2026-09-26 |
+| install_failed_lands_in_failed_install_step | 替换失败落替换步 | 给定 ReadyToRestart，当采纳替换失败，则落 Failed(Install) | 2026-09-26 |
+| cancel_only_interrupts_a_download | 取消仅对下载有效 | 给定 Idle/Checking/Downloading，当 cancel，则仅下载中取消令牌并回 UpdateAvailable，其余拒绝 | 2026-09-26 |
+| late_outcomes_are_rejected_by_phase_guards | 迟到回包被相位守卫拒绝 | 给定已离开中间相位的状态机，当重放各回包，则一律拒绝且状态不动 | 2026-09-26 |
+| update_available_clears_when_a_new_check_finds_nothing_newer | 新检查收回旧提示 | 给定 UpdateAvailable，当重新检查发现无新版，则落 UpToDate 且目标撤下 | 2026-09-26 |
+
+### crates/gloss-app/src/update/download.rs
+
+整包下载与校验（L1，mock HTTP 服务器驱动）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| full_download_verifies_and_lands_at_dest | 全量下载落位 | 给定 200 全量响应，当下载，则 size/sha256 校验通过、原子改名落位且 .partial 消失 | 2026-09-26 |
+| truncated_stream_keeps_partial_for_resume | 断连保留残料 | 给定提前断连的响应，当下载失败，则报长度/传输错误且 .partial 保留在途字节 | 2026-09-26 |
+| resume_from_partial_completes_and_verifies | 续传完成并全量校验 | 给定遗留 .partial 与支持 Range 的服务器（206），当 resume 下载，则拼接完整、校验通过、落位 | 2026-09-26 |
+| server_without_range_support_restarts_from_scratch | 不支持 Range 整体重下 | 给定忽略 Range 的服务器（200），当 resume 下载，则从头重下且结果完整不重复 | 2026-09-26 |
+| sha_mismatch_discards_the_partial | 校验不符拒绝并丢弃 | 给定 sha256 与清单不符的响应，当下载完成，则报 ShaMismatch 且 .partial 已丢弃 | 2026-09-26 |
+| oversize_response_is_rejected_and_discarded | 超长响应拒绝 | 给定超过清单 size 的响应，当下载，则报 TooLarge 且 .partial 已丢弃 | 2026-09-26 |
+| cancellation_returns_cancelled_without_dest | 取消即取消 | 给定已取消的令牌，当下载，则报 Cancelled 且无落位文件 | 2026-09-26 |
+| bad_artifact_url_is_rejected_before_any_request | 非法产物名前置拒绝 | 给定取不出文件名的 url，当下载，则在发起请求前报 Network | 2026-09-26 |
+
+### crates/gloss-app/src/update/install.rs
+
+bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| replace_swaps_bundle_and_leaves_no_litter | 替换换装无残留 | 给定旧 bundle 与合法 zip，当 replace，则新 bundle 就位原路径、.app.old 清除、解压现场清空 | 2026-09-26 |
+| replace_over_a_stale_app_old_still_succeeds | 残留 .app.old 先清场 | 给定上次替换遗留的 .app.old，当替换，则先清场并成功换装 | 2026-09-26 |
+| zip_without_a_structured_app_leaves_the_bundle_intact | 坏 zip 不动原 bundle | 给定非 zip 文件，当 replace，则报 Unzip 且已安装 bundle 原样 | 2026-09-26 |
+| zip_with_an_app_missing_macos_dir_is_invalid_structure | 包结构检查 | 给定缺 Contents/MacOS 的 .app zip，当 replace，则报 InvalidStructure 且原 bundle 原样 | 2026-09-26 |
+| unwritable_dir_is_reported_before_anything_is_touched | 只读目录前置拒绝 | 给定只读的 bundle 目录，当安装，则报 Unwritable 且 bundle 未被触碰 | 2026-09-26 |
 
 ### crates/gloss-app/src/ui/fonts.rs
 
