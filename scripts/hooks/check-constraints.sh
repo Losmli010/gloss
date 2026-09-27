@@ -208,7 +208,7 @@ while IFS= read -r f; do
   [ -n "$hits" ] || continue
   eval_asset_violations=$((eval_asset_violations + 1))
   fail "约束「eval 资产隔离」：$(rel "$f") 把 gloss-eval 资产嵌进了生产代码（$(printf '%s' "$hits" | head -n 1 | cut -c1-60)）"
-done < <(find "$ROOT/crates" "$ROOT/src" -name '*.rs' -type f -not -path "$ROOT/target/*" 2>/dev/null)
+done < <(find "$ROOT/crates" "$ROOT/src" "$ROOT/tests" "$ROOT/benches" -name '*.rs' -type f -not -path "$ROOT/target/*" 2>/dev/null)
 if [ "$eval_dep_violations" -eq 0 ] && [ "$eval_asset_violations" -eq 0 ]; then
   ok "eval 资产隔离（依赖 0 处 + include 0 处）"
 fi

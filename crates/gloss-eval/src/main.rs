@@ -55,7 +55,16 @@ fn run_live_cli(args: &[String]) -> Result<(), String> {
     while index < args.len() {
         match args[index].as_str() {
             "--record" => options.record = true,
-            "--judge" => options.judge = true,
+            "--judge" => {
+                options.judge = true;
+                let enabled = std::env::var("GLOSS_LIVE_JUDGE").ok().as_deref() == Some("1");
+                if !enabled {
+                    return Err(
+                        "--judge additionally requires GLOSS_LIVE_JUDGE=1 (it costs one                          extra model call per case)"
+                            .into(),
+                    );
+                }
+            }
             "--limit" => {
                 let Some(value) = args.get(index + 1) else {
                     return Err("--limit needs a number".into());

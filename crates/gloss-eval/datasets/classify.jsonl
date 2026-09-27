@@ -65,4 +65,4 @@
 {"id": "edge-11", "text": "e.g.", "expected": "TranslateWord"}
 {"id": "edge-12", "text": "春节，又称农历新年，是中国最重要的传统节日。", "expected": "TranslateSentence"}
 {"id": "edge-13", "text": "v2.3.1 release notes", "expected": "TranslateSentence"}
-{"id": "edge-14", "text": "1 + 1", "expected": "TranslateWord"}
+{"id": "edge-14", "text": "1 + 1", "expected": "TranslateSentence"}

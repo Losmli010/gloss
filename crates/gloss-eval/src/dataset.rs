@@ -117,8 +117,9 @@ pub fn load_fixtures(jsonl: &str) -> Result<Vec<Fixture>, String> {
     Ok(fixtures)
 }
 
-/// 任务 kind 的结构化契约必需键（与 `parse_structured` 的解析契约同源；
-/// 允许缺省的键——phonetic / title null——不算必需）。
+/// 任务 kind 的 prompt 输出契约必需键（评测从严于生产
+/// `parse_structured` 的接受条件：生产对缺 word/title 有兜底，评测按
+/// 契约要求其在场；允许 null 的键——phonetic / title null——不算必需）。
 pub fn required_fields(kind: TaskKind) -> &'static [&'static str] {
     match kind {
         TaskKind::TranslateWord => &["word", "senses"],
@@ -193,14 +194,42 @@ mod tests {
     }
 
     #[test]
-    fn fixtures_load_and_align_with_cases() {
-        let fixtures = load_fixtures(crate::assets::CLASSIFY_FIXTURES).expect("fixtures");
-        assert!(!fixtures.is_empty());
-        for fixture in &fixtures {
+    fn fixtures_align_with_dataset_ids() {
+        let classify_ids: std::collections::BTreeSet<String> =
+            load_classify(crate::assets::CLASSIFY_DATASET)
+                .expect("dataset")
+                .into_iter()
+                .map(|case| case.id)
+                .collect();
+        let classify_fixtures = load_fixtures(crate::assets::CLASSIFY_FIXTURES).expect("fixtures");
+        assert!(!classify_fixtures.is_empty());
+        for fixture in &classify_fixtures {
             assert!(!fixture.deltas.is_empty(), "{}: empty deltas", fixture.id);
+            assert!(
+                classify_ids.contains(&fixture.id),
+                "{}: fixture id must exist in the classify dataset",
+                fixture.id
+            );
         }
-        let fixtures = load_fixtures(crate::assets::TASK_FIXTURES).expect("task fixtures");
-        assert!(!fixtures.is_empty());
+
+        let task_ids: std::collections::BTreeSet<String> = [
+            crate::assets::TASK_WORD_DATASET,
+            crate::assets::TASK_SENTENCE_DATASET,
+            crate::assets::TASK_CODE_DATASET,
+        ]
+        .iter()
+        .flat_map(|raw| load_task(raw).expect("task dataset"))
+        .map(|case| case.id)
+        .collect();
+        let task_fixtures = load_fixtures(crate::assets::TASK_FIXTURES).expect("task fixtures");
+        assert!(!task_fixtures.is_empty());
+        for fixture in &task_fixtures {
+            assert!(
+                task_ids.contains(&fixture.id),
+                "{}: fixture id must exist in a task dataset",
+                fixture.id
+            );
+        }
     }
 
     #[test]
