@@ -144,7 +144,11 @@ impl GlossApp {
             };
             batch.push((kind, accepted));
         }
-        if (pending_reveal || auto_show_after(batch))
+        // 骨架显形要求机器确有视图：pending_reveal 置位与本次消费之间
+        // 理论上没有插入点（两段 drain 同帧连跑），守卫只为防御——
+        // 视图为空时弹出的会是渲染自检卡。
+        let reveal_pending = pending_reveal && self.machine.overlay_view().is_some();
+        if (reveal_pending || auto_show_after(batch))
             && let Some(windows) = &mut self.windows
         {
             // 划词触发的浮层跟随选区（代数对得上时），否则居中；屏幕

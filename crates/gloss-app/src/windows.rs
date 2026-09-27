@@ -155,12 +155,14 @@ impl WindowManager {
     /// 锁定当前档、高度按步长只增不减；为假（骨架/失败/完成态）按精确
     /// 尺寸重排——TaskDone 的定型也走这一支。
     pub fn set_overlay_size(&mut self, size: LogicalSize<f64>, debounced: bool) {
-        let capped = self.cap_height_to_screen(size);
-        let capped = if debounced {
-            debounced_size(self.overlay_size, capped)
+        // 顺序：先防抖量化、再按屏幕钳制——反过来的话，量化取整会把已
+        // 钳到屏高的高度又推回去（800 → 816），每帧在边界上抖动。
+        let sized = if debounced {
+            debounced_size(self.overlay_size, size)
         } else {
-            capped
+            size
         };
+        let capped = self.cap_height_to_screen(sized);
         if (capped.width - self.overlay_size.width).abs() < RESIZE_EPSILON
             && (capped.height - self.overlay_size.height).abs() < RESIZE_EPSILON
         {
