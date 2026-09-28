@@ -176,6 +176,11 @@ fn run_event_loop(
     // 不索取新权限）。与系统语言同类——平台适配器的事，壳只消费。
     let scene = Arc::new(SystemSceneProbe);
 
+    // 启动钩子：更新子系统的进程内幂等入口，首发一次静默检查——发现新版
+    // 仅置状态由设置页提示，失败落 Failed 供被动渲染，不打扰划词。
+    let update_handle = gloss_app::update::start_once();
+    let update = gloss_app::update::UpdateWiring::from_handle(update_handle);
+
     let mut command_runtime = None;
     let mut event_thread = None;
     let result = gloss_app::app::run(
@@ -185,11 +190,17 @@ fn run_event_loop(
         hotkeys,
         scene,
         system_locale,
+        update,
         |waker| {
             // Dock 图标在这里装：macOS 的 NSApplication 单例只允许在 EventLoop
             // 建好之后访问，而本回调是主线程上第一个满足该时机的点（app::run
             // 建完 EventLoop 就回调它，早于任何窗口创建）。
             install_app_icon();
+            // 更新子系统的唤醒出口：相位迁移时请求设置窗重绘。
+            let update_waker = waker.clone();
+            update_handle.install_wake(move || {
+                update_waker.wake_settings();
+            });
             // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
             // 睡在事件循环里的主线程。运行时存活至 run_event_loop 结束——
             // App drop 关闭通道③后，消费循环自行退出。
