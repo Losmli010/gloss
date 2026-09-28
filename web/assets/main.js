@@ -43,7 +43,7 @@ function render() {
   $('hero-dl').href = dmgHref;
   $('nav-dl').href = dmgHref;
   $('hero-arch-label').textContent = ARCHES[arch].label;
-  $$('#hero-split .menu-item, #nav-split .menu-item').forEach((item) => {
+  $$('#hero-split .menu-item').forEach((item) => {
     item.setAttribute('aria-checked', String(item.dataset.arch === arch));
     const e = entryFor(item.dataset.arch);
     // manifest 的 size 是 zip 包实测值，展示时必须带 zip 标注以免误当 .dmg 大小
@@ -114,10 +114,10 @@ detectArch().then((detected) => {
   }
 });
 
-// 分体按钮的架构下拉（hero 与导航各一处，共享同一选中态）。
+// 架构下拉（仅 hero 一处，导航的下载按钮为跟随当前架构的直链）。
 // 键盘契约按 ARIA menu 模式：方向键循环、Home/End 跳转、Esc 关闭回焦、
 // Tab 走默认顺序并收起菜单；打开即聚焦当前选中项。
-const splits = ['hero-split', 'nav-split'].map((id) => {
+const splits = ['hero-split'].map((id) => {
   const root = $(id);
   const caret = $(id === 'hero-split' ? 'hero-caret' : 'nav-caret');
   const menu = root.querySelector('.menu');
