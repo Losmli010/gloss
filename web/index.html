@@ -3,198 +3,272 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gloss — 划词翻译 · 选中即译的 macOS 工具</title>
-  <meta name="description" content="Gloss 是一款 macOS 划词翻译工具：鼠标选中文字，即弹出大模型流式翻译结果。纯 Rust + WebGPU 原生渲染，轻量克制。">
+  <title>Gloss — 选中即译的 macOS 划词翻译</title>
+  <meta name="description" content="Gloss 是一款 macOS 划词翻译工具：选中文字，浮层即刻弹出大模型流式结果。纯 Rust + WebGPU 原生渲染，单进程、无 WebView，免费开源。">
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
-  <style>
-    :root {
-      --blue: #4699E4;
-      --blue-deep: #2F7FD0;
-      --orange: #EE7443;
-      --ink: #22384E;
-      --ink-soft: #51677D;
-      --line: #D8E4F2;
-      --bg: #F7FAFD;
-      --card: #FFFFFF;
-      --radius: 14px;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
-      color: var(--ink);
-      background: var(--bg);
-      line-height: 1.6;
-    }
-    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
-
-    /* 头部导航栏 */
-    .nav {
-      position: sticky; top: 0; z-index: 10;
-      background: rgba(247, 250, 253, 0.94);
-      backdrop-filter: blur(10px);
-      border-bottom: 1px solid var(--line);
-    }
-    .nav .wrap { display: flex; align-items: center; gap: 28px; height: 60px; }
-    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; color: var(--ink); text-decoration: none; }
-    .brand img { width: 30px; height: 30px; border-radius: 8px; }
-    .nav-links { display: flex; gap: 22px; margin-left: auto; }
-    .nav-links a { color: var(--ink-soft); text-decoration: none; font-size: 15px; }
-    .nav-links a:hover { color: var(--blue-deep); }
-    .btn {
-      display: inline-block; padding: 9px 22px; border-radius: 999px;
-      background: linear-gradient(180deg, var(--blue), var(--blue-deep));
-      color: #fff; text-decoration: none; font-size: 15px; font-weight: 600;
-      border: none; cursor: pointer;
-      transition: filter 0.15s ease, transform 0.15s ease;
-    }
-    .btn:hover { filter: brightness(1.06); }
-    .btn:active { transform: translateY(1px); }
-    .nav .btn { padding: 7px 18px; }
-    @media (max-width: 640px) { .nav-links { display: none; } }
-
-    section { padding: 56px 0; scroll-margin-top: 72px; }
-    #features { scroll-margin-top: 72px; }
-    .section-title { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
-    .section-lede { color: var(--ink-soft); margin-bottom: 28px; }
-
-    /* 演示与功能卡片区 */
-    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
-    .card {
-      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
-      padding: 20px; transition: box-shadow 0.18s ease, transform 0.18s ease;
-    }
-    .card:hover { box-shadow: 0 10px 28px rgba(27, 78, 127, 0.10); transform: translateY(-2px); }
-    .card-demo { padding: 12px; }
-    .card-demo img { width: 100%; height: auto; border-radius: 10px; display: block; }
-    .card-demo.wide { grid-column: span 2; }
-    .card-demo.full { grid-column: span 3; }
-    @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } .card-demo.full { grid-column: span 2; } }
-    @media (max-width: 640px) { .cards { grid-template-columns: 1fr; } .card-demo.wide, .card-demo.full { grid-column: auto; } }
-    .card h3 { font-size: 17px; margin: 10px 0 6px; display: flex; align-items: center; gap: 8px; }
-    .card p { color: var(--ink-soft); font-size: 14.5px; }
-    .card .icon { width: 36px; height: 36px; border-radius: 9px; background: #EAF3FC; color: var(--blue-deep); display: inline-flex; align-items: center; justify-content: center; }
-    .card .icon svg { width: 20px; height: 20px; }
-
-    /* 下载区 */
-    #download { background: linear-gradient(180deg, #EDF4FB 0%, var(--bg) 100%); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-    .download-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-    .version-pill { background: #E3EFFA; color: var(--blue-deep); border-radius: 999px; padding: 2px 12px; font-size: 14px; font-weight: 600; }
-    .arch-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; background: var(--card); overflow: hidden; margin: 18px 0 20px; }
-    .arch-toggle button {
-      padding: 8px 22px; border: none; background: transparent; cursor: pointer;
-      font-size: 14.5px; color: var(--ink-soft); font-family: inherit;
-    }
-    .arch-toggle button.active { background: linear-gradient(180deg, var(--blue), var(--blue-deep)); color: #fff; font-weight: 600; }
-    .download-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-    .btn-big { padding: 13px 34px; font-size: 16.5px; border-radius: 12px; }
-    .size { font-weight: 400; font-size: 13px; opacity: 0.85; margin-left: 6px; }
-    .link-plain { color: var(--blue-deep); text-decoration: none; font-size: 14.5px; }
-    .link-plain:hover { text-decoration: underline; }
-    .download-note { color: var(--ink-soft); font-size: 13.5px; margin-top: 14px; }
-    .install-guide {
-      margin-top: 26px; background: #FFF8F2; border: 1px solid #F2D9C8; border-radius: var(--radius); padding: 16px 20px; max-width: 640px;
-    }
-    .install-guide h3 { font-size: 15px; color: #B45429; margin-bottom: 6px; }
-    .install-guide ol { padding-left: 20px; color: var(--ink-soft); font-size: 14px; }
-    .install-guide .why { margin-top: 8px; font-size: 13px; color: #A98064; }
-
-    /* 更新日志 */
-    .log-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
-    .log-links .card a { color: var(--blue-deep); text-decoration: none; font-weight: 600; }
-    .log-links .card a:hover { text-decoration: underline; }
-
-    footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--ink-soft); font-size: 13.5px; }
-    footer .wrap { display: flex; gap: 18px; flex-wrap: wrap; }
-    footer a { color: var(--ink-soft); }
-    footer .push-right { margin-left: auto; }
-  </style>
+  <meta name="theme-color" content="#F5F9FD">
+  <link rel="canonical" href="https://losmli010.github.io/gloss/">
+  <meta property="og:title" content="Gloss — 选中即译的 macOS 划词翻译">
+  <meta property="og:description" content="选中文字，译文立现。纯 Rust + WebGPU 原生渲染，单进程、无 WebView，免费开源（MIT）。">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://losmli010.github.io/gloss/">
+  <link rel="stylesheet" href="assets/style.css">
+  <script src="assets/main.js" defer></script>
 </head>
-<body>
+<body id="top">
+<a class="skip" href="#main">跳到主要内容</a>
 
-<header class="nav">
-  <div class="wrap">
+<header class="nav" id="nav">
+  <div class="wrap nav-inner">
     <a class="brand" href="#top">
-      <img src="assets/logo.svg" alt="Gloss 图标">
-      Gloss
+      <img src="assets/logo.svg" alt=""> Gloss
     </a>
-    <nav class="nav-links">
-      <a href="#demo">演示</a>
-      <a href="#features">功能</a>
+    <nav class="links" aria-label="主导航">
+      <a href="#tasks">任务</a>
+      <a href="#tech">技术</a>
       <a href="#download">下载</a>
-      <a href="#changelog">更新日志</a>
+      <a href="#changelog">更新</a>
     </nav>
-    <a class="btn" href="#download">下载</a>
+    <div class="nav-cta">
+      <a class="icon-link" href="https://github.com/Losmli010/gloss" aria-label="GitHub 仓库" title="GitHub">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55v-2.15c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.75 2.69 1.25 3.34.95.1-.74.4-1.25.72-1.53-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.59.23 2.76.11 3.05.74.81 1.18 1.83 1.18 3.09 0 4.42-2.7 5.39-5.26 5.68.41.35.77 1.05.77 2.12v3.14c0 .31.21.67.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/></svg>
+      </a>
+      <a class="btn btn-primary" id="nav-dl" href="https://github.com/Losmli010/gloss/releases/latest">下载</a>
+    </div>
   </div>
 </header>
 
-<main id="top">
-  <!-- 演示与功能合并卡片区：演示占位卡与功能卡混排，导航锚点「演示 / 功能」共用本区 -->
-  <section id="demo">
+<main id="main">
+
+  <!-- ── Hero ─────────────────────────────────────── -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <span class="eyebrow"><span class="dot" aria-hidden="true"></span>macOS · 免费开源 · MIT</span>
+        <h1>选中文字，<br><em>译文立现</em></h1>
+        <p class="lede">Gloss 是一款 macOS 划词翻译工具：划选任意文字，浮层即刻弹出大模型流式结果。纯 Rust + WebGPU 原生渲染，单进程、无 WebView，常驻几乎无感。</p>
+        <div class="cta-row">
+          <div class="split split-lg" id="hero-split">
+            <a class="btn btn-primary btn-main btn-lg" id="hero-dl" href="https://github.com/Losmli010/gloss/releases/latest">下载 for macOS</a>
+            <button class="btn-caret btn-lg" id="hero-caret" aria-haspopup="menu" aria-expanded="false" aria-controls="hero-menu" aria-label="选择芯片架构">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="menu" id="hero-menu" role="menu" aria-label="选择芯片架构">
+              <button class="menu-item" role="menuitemradio" data-arch="aarch64-apple-darwin" aria-checked="true">
+                <span>Apple Silicon</span><span class="mi-size"></span>
+                <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m4 12 5 5L20 7"/></svg>
+              </button>
+              <button class="menu-item" role="menuitemradio" data-arch="x86_64-apple-darwin" aria-checked="false">
+                <span>Intel 芯片</span><span class="mi-size"></span>
+                <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m4 12 5 5L20 7"/></svg>
+              </button>
+            </div>
+          </div>
+          <a class="btn btn-ghost btn-lg" href="https://github.com/Losmli010/gloss">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55v-2.15c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.75 2.69 1.25 3.34.95.1-.74.4-1.25.72-1.53-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.59.23 2.76.11 3.05.74.81 1.18 1.83 1.18 3.09 0 4.42-2.7 5.39-5.26 5.68.41.35.77 1.05.77 2.12v3.14c0 .31.21.67.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/></svg>
+            GitHub 源码
+          </a>
+        </div>
+        <p class="hero-meta">
+          <span class="pill" id="hero-version" hidden></span>
+          <span id="hero-arch-label">Apple Silicon</span> · 免费 · 无需账号 · 密钥只存本机钥匙串
+        </p>
+      </div>
+
+      <div class="hero-visual" aria-hidden="true">
+        <div class="mock-window">
+          <div class="mock-titlebar">
+            <span class="tl tl-r"></span><span class="tl tl-y"></span><span class="tl tl-g"></span>
+            <span class="addr">Safari — The Rust Programming Language</span>
+          </div>
+          <div class="mock-body">
+            <span class="mock-line w85"></span>
+            <span class="mock-line w60"></span>
+            <span class="mock-sel">The borrow checker understands all of this</span>
+            <span class="mock-line w90"></span>
+            <span class="mock-line w75"></span>
+            <span class="mock-line w50"></span>
+            <span class="mock-line w85"></span>
+            <span class="mock-line w65"></span>
+          </div>
+        </div>
+        <div class="mock-popup">
+          <div class="popup-head">
+            <img class="popup-logo" src="assets/logo.svg" alt="">
+            <span class="popup-title">Gloss</span>
+            <span class="popup-kind">翻译</span>
+            <span class="popup-close">✕</span>
+          </div>
+          <div class="popup-src">The borrow checker understands all of…</div>
+          <div class="popup-out">
+            <span class="dim">借用检查器理解这一切，它在编译期就能</span>拒绝不满足所有权规则的代码<span class="caret"></span>
+          </div>
+          <div class="popup-foot"><span>⏎ 切换任务</span><span>⌘C 复制</span><span>Esc 关闭</span></div>
+        </div>
+        <span class="chip-float chip-a">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z"/></svg>
+          WebGPU 原生渲染
+        </span>
+        <span class="chip-float chip-b">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/></svg>
+          单进程 · 无 WebView
+        </span>
+      </div>
+    </div>
+
     <div class="wrap">
-      <h2 class="section-title">选中文字，即出译文</h2>
-      <p class="section-lede">划词翻译是高频打扰式交互，Gloss 的答案只有四个字：快、清、小、稳。</p>
-      <div class="cards">
-        <div class="card card-demo wide">
-          <img src="assets/demo-selection.svg" alt="演示示意：划词后弹出翻译浮层（占位素材）">
+      <div class="principles reveal">
+        <div class="principle"><b>快</b><span>选中即弹，无需切换窗口</span></div>
+        <div class="principle"><b>清</b><span>克制浮层，读完即走</span></div>
+        <div class="principle"><b>小</b><span>无浏览器内核，常驻无感</span></div>
+        <div class="principle"><b>稳</b><span>随时取消，陈旧结果自动丢弃</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 任务场景 ─────────────────────────────────── -->
+  <section class="section" id="tasks">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="sec-kicker">任务场景</span>
+        <h2 class="sec-title">一个划词，五种任务</h2>
+        <p class="sec-lede">同一个划词手势，按需切换任务类型。结果以浮层流式呈现，随时取消或重试。</p>
+      </div>
+      <div class="tasks-grid">
+        <div class="task-card wide reveal">
+          <span class="task-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 19.5V6a2 2 0 0 1 2-2h14v14H6.5A2.5 2.5 0 0 0 4 20.5V19.5Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/></svg></span>
+          <h3>词卡</h3>
+          <p>词典式呈现：音标、词性、释义与例句，一个词讲透。</p>
+          <div class="shot" aria-hidden="true">
+            <span class="hl">glossary</span> <span class="ph">/ˈɡlɒsəri/</span> <span class="dim">n.</span><br>
+            <span class="zh">术语表；词汇表（书末的注释清单）</span><br>
+            <span class="dim">Check the glossary at the end of the book.</span>
+          </div>
         </div>
-        <div id="features" class="card">
-          <span class="icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4h14M12 4v16M9 20h6"/></svg>
-          </span>
-          <h3>划词即译</h3>
-          <p>鼠标选中文字，浮层即刻弹出，无需切换窗口、无需粘贴。</p>
+        <div class="task-card wide reveal">
+          <span class="task-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 5h16M4 5v10h6m4 0h6M4 19h9"/><path d="m14 12 3 3 3-3"/></svg></span>
+          <h3>翻译</h3>
+          <p>整句与段落翻译，忠实原文语气的自然表达。</p>
+          <div class="shot" aria-hidden="true">
+            <span class="en">Fearless concurrency — the compiler has your back.</span><br>
+            <span class="zh">无所畏惧的并发 —— 编译器为你兜底。</span><span class="caret"></span>
+          </div>
         </div>
-        <div class="card">
-          <span class="icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg>
-          </span>
-          <h3>LLM 流式</h3>
-          <p>大模型流式输出，边生成边显示，随时取消、陈旧结果自动丢弃。</p>
+        <div class="task-card reveal">
+          <span class="task-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 8-4 4 4 4m8-8 4 4-4 4M14 5l-4 14"/></svg></span>
+          <h3>代码解释</h3>
+          <p>选中代码片段，逐行讲清意图与陷阱。</p>
+          <div class="shot shot-code" aria-hidden="true">
+            <span class="kw">let</span> <span class="fn">mut</span> v = <span class="fn">vec!</span>[];<br>
+            <span class="dim">→ 声明可增长向量，容量按需分配…</span>
+          </div>
         </div>
-        <div class="card">
-          <span class="icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/></svg>
-          </span>
-          <h3>纯本地轻量</h3>
-          <p>纯 Rust + WebGPU 原生渲染，单进程、无浏览器内核，常驻几乎无感。</p>
+        <div class="task-card reveal">
+          <span class="task-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/></svg></span>
+          <h3>提取结果</h3>
+          <p>屏幕文字不可复制？框选一下，直接取出文本。</p>
+          <div class="shot" aria-hidden="true">
+            <span class="dim">〘 识别 〙</span> <span class="zh">Invoice No. 2026-0928</span><span class="caret"></span>
+          </div>
         </div>
-        <div class="card">
-          <span class="icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M7 13h4"/></svg>
-          </span>
-          <h3>macOS 原生</h3>
-          <p>原生划词手势与全局热键，贴合系统体验，界面随系统语言切换。</p>
-        </div>
-        <div class="card card-demo full">
-          <img src="assets/demo-stream.svg" alt="演示示意：译文流式输出（占位素材）">
+        <div class="task-card reveal">
+          <span class="task-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m5 19 5.5-5.5L14 17l3-3 3 3"/></svg></span>
+          <h3>图片解释</h3>
+          <p>框选一张图，让模型讲出图里的内容与要点。</p>
+          <div class="shot shot-img" aria-hidden="true">
+            <span class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m5 19 5.5-5.5L14 17l3-3 3 3"/></svg></span>
+            <span class="zh">这是一张架构图：左侧为客户端…</span>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- 下载区：链接由同源 manifest.json 填充，取不到则降级到 GitHub Releases 页面 -->
-  <section id="download">
+  <!-- ── 技术特性 ─────────────────────────────────── -->
+  <section class="section section-flush" id="tech">
     <div class="wrap">
-      <div class="download-head">
-        <h2 class="section-title">下载 Gloss</h2>
-        <span id="version-pill" class="version-pill" hidden></span>
+      <div class="sec-head reveal">
+        <span class="sec-kicker">工程克制</span>
+        <h2 class="sec-title">把常驻工具做到无感</h2>
+        <p class="sec-lede">翻译是高频打扰式交互，Gloss 用一套克制的纯 Rust 技术栈托住它。</p>
       </div>
-      <p class="section-lede">免费开源（MIT），支持 Apple Silicon 与 Intel 芯片的 Mac。</p>
-      <div class="arch-toggle" role="group" aria-label="选择芯片架构">
-        <button type="button" id="arch-apple" class="active" aria-pressed="true">Apple Silicon</button>
-        <button type="button" id="arch-intel" aria-pressed="false">Intel</button>
+      <div class="tech-grid">
+        <div class="tech-card wide-full reveal">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>单进程四线程，通道贯穿始终</h3>
+          <p>主线程渲染、平台事件线程取材、鼠标监听线程收口、tokio 后台跑网络与缓存。事件经四条通道单向流动，带代数标记：陈旧响应在主线程被直接丢弃。</p>
+          <div class="arch-flow" aria-hidden="true">
+            <div class="arch-node hot"><b>平台事件线程</b><span>热键 · 划词取材</span></div>
+            <span class="arch-arrow">→</span>
+            <div class="arch-node"><b>主线程</b><span>winit + wgpu + egui</span></div>
+            <span class="arch-arrow">→</span>
+            <div class="arch-node"><b>tokio 后台</b><span>LLM 流式 · 缓存</span></div>
+            <span class="arch-arrow">→</span>
+            <div class="arch-node"><b>结果浮层</b><span>流式渲染 · 可取消</span></div>
+          </div>
+        </div>
+        <div class="tech-card reveal">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z"/></svg>WebGPU 渲染</h3>
+          <p>wgpu 走 Metal，egui 即时模式绘制。没有浏览器内核，内存与启动开销天然就小。</p>
+        </div>
+        <div class="tech-card reveal">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg>流式 &amp; 可取消</h3>
+          <p>SSE 边生成边显示；重新划词自动取消上一次任务，竞速结果只留最新。</p>
+        </div>
+        <div class="tech-card reveal">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.66 3.13 3 7 3s7-1.34 7-3V6"/><path d="M5 12c0 1.66 3.13 3 7 3s7-1.34 7-3"/></svg>本地缓存</h3>
+          <p>相同内容直接复用结果，有效期可调；退出即清空，不留痕迹。</p>
+        </div>
+        <div class="tech-card reveal">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1.5"/></svg>密钥进钥匙串</h3>
+          <p>API Key 只存 macOS Keychain，不经配置快照传递，日志与错误消息零泄漏。</p>
+        </div>
+        <div class="tech-card reveal">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>全局热键</h3>
+          <p>选中文字按下热键即触发；任务开关逐项可控，关掉的任务不再响应。</p>
+        </div>
+        <div class="tech-card reveal">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 4 5.6 4 9s-1.5 6.4-4 9c-2.5-2.6-4-5.6-4-9s1.5-6.4 4-9Z"/></svg>随系统语言</h3>
+          <p>界面文案内置中英双语，跟随系统语言切换，无需重启。</p>
+        </div>
+        <div class="tech-card wide-full reveal">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>自动检查更新</h3>
+          <p>启动静默检查新版本，设置页一键下载替换；更新清单由 CI 签发生成。</p>
+        </div>
       </div>
-      <div class="download-actions">
-        <a id="btn-dmg" class="btn btn-big" href="https://github.com/Losmli010/gloss/releases/latest">
-          下载 <span id="arch-label">Apple Silicon</span> 版（.dmg）
-        </a>
-        <a id="link-zip" class="link-plain" href="https://github.com/Losmli010/gloss/releases/latest">下载 .zip 备用<span id="zip-size" class="size" hidden></span></a>
-        <a class="link-plain" href="https://github.com/Losmli010/gloss/releases">GitHub Releases 历史版本</a>
+      <div class="wall reveal" role="list" aria-label="技术栈">
+        <span role="listitem">Rust</span><span role="listitem">wgpu · Metal</span><span role="listitem">egui</span><span role="listitem">winit</span><span role="listitem">tokio</span><span role="listitem">reqwest · SSE</span><span role="listitem">serde</span><span role="listitem">Keychain</span><span role="listitem">零 WebView</span><span role="listitem">MIT</span>
       </div>
-      <p id="fallback-note" class="download-note" hidden>无法获取最新版本信息，已切换到 GitHub Releases 页面下载（资产名含版本号，请按架构选择）。</p>
-      <div class="install-guide">
-        <h3>首次打开指引</h3>
+    </div>
+  </section>
+
+  <!-- ── 下载 ─────────────────────────────────────── -->
+  <section class="dl" id="download">
+    <div class="wrap">
+      <div class="dl-head reveal">
+        <h2>开始使用 Gloss<span class="pill" id="dl-version" hidden></span></h2>
+        <p class="sub">免费开源（MIT），支持 Apple Silicon 与 Intel 芯片的 Mac。</p>
+      </div>
+      <div class="arch-cards">
+        <div class="arch-card reveal">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 6.5c1.2-1.7 3-2.4 4.6-2.3.2 1.7-.5 3.3-1.5 4.4-1 1.2-2.5 2-4 1.9-.2-1.6.6-3.2 1.9-4Z"/><path d="M16.6 13.3c0-2.2 1.8-3.2 1.9-3.3-1-1.5-2.6-1.7-3.2-1.7-1.3-.1-2.6.8-3.3.8-.7 0-1.7-.8-2.8-.8-1.4 0-2.8.8-3.5 2.1-1.5 2.6-.4 6.5 1.1 8.6.7 1 1.6 2.2 2.7 2.1 1.1 0 1.5-.7 2.8-.7s1.7.7 2.8.7c1.2 0 1.9-1 2.6-2.1.8-1.2 1.2-2.4 1.2-2.4s-2.3-.9-2.3-3.3Z"/></svg></span>
+          <h3>Apple Silicon</h3>
+          <p class="cpu">M1 / M2 / M3 / M4 系列</p>
+          <a class="btn btn-primary btn-lg" id="card-dmg-aarch64" href="https://github.com/Losmli010/gloss/releases/latest">下载 .dmg</a>
+          <p class="zip-row"><a id="card-zip-aarch64" href="https://github.com/Losmli010/gloss/releases/latest">下载 .zip 备用</a></p>
+          <p class="size" id="card-size-aarch64"></p>
+        </div>
+        <div class="arch-card reveal">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span>
+          <h3>Intel 芯片</h3>
+          <p class="cpu">MacBook / iMac（x86_64）</p>
+          <a class="btn btn-primary btn-lg" id="card-dmg-x86_64" href="https://github.com/Losmli010/gloss/releases/latest">下载 .dmg</a>
+          <p class="zip-row"><a id="card-zip-x86_64" href="https://github.com/Losmli010/gloss/releases/latest">下载 .zip 备用</a></p>
+          <p class="size" id="card-size-x86_64"></p>
+        </div>
+      </div>
+      <p class="dl-note" id="fallback-note" hidden>未能获取最新版本信息，已切换到 GitHub Releases 页面下载 —— 资产名含版本号，请按芯片架构选择。</p>
+      <div class="guide reveal">
+        <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>首次打开指引</h3>
         <ol>
           <li>打开下载的 .dmg，把 Gloss 拖入「应用程序」；</li>
           <li>在「应用程序」中<strong>右键点击 Gloss → 打开</strong>，再点「打开」确认；</li>
@@ -205,103 +279,38 @@
     </div>
   </section>
 
-  <!-- 更新日志入口 -->
-  <section id="changelog">
+  <!-- ── 更新日志 ─────────────────────────────────── -->
+  <section class="section" id="changelog">
     <div class="wrap">
-      <h2 class="section-title">更新日志</h2>
-      <p class="section-lede">了解每个版本带来了什么。</p>
-      <div class="log-links">
-        <div class="card">
-          <h3>GitHub Releases</h3>
-          <p><a href="https://github.com/Losmli010/gloss/releases">逐版本发布说明与历史安装包 →</a></p>
-        </div>
-        <div class="card">
-          <h3>CHANGELOG</h3>
-          <p><a href="https://github.com/Losmli010/gloss/blob/main/CHANGELOG.md">由提交历史自动生成的完整变更日志 →</a></p>
-        </div>
+      <div class="sec-head reveal">
+        <span class="sec-kicker">更新日志</span>
+        <h2 class="sec-title">每个版本，有迹可循</h2>
+      </div>
+      <div class="log-grid">
+        <a class="log-card reveal" href="https://github.com/Losmli010/gloss/releases">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 3h12M6 21h12M7 3v4l4 5-4 5v4m10-18v4l-4 5 4 5v4"/></svg></span>
+          <span><b>GitHub Releases</b><span>逐版本发布说明与历史安装包</span></span>
+          <span class="go">→</span>
+        </a>
+        <a class="log-card reveal" href="https://github.com/Losmli010/gloss/blob/main/CHANGELOG.md">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg></span>
+          <span><b>CHANGELOG</b><span>由提交历史自动生成的完整变更日志</span></span>
+          <span class="go">→</span>
+        </a>
       </div>
     </div>
   </section>
 </main>
 
 <footer>
-  <div class="wrap">
-    <span>© 2026 Gloss</span>
+  <div class="wrap foot-inner">
+    <span class="foot-brand"><img src="assets/logo.svg" alt="">Gloss</span>
+    <span>© 2026</span>
     <a href="https://github.com/Losmli010/gloss/blob/main/LICENSE">MIT License</a>
     <a href="https://github.com/Losmli010/gloss">GitHub 仓库</a>
     <a href="https://github.com/Losmli010/gloss/blob/main/SECURITY.md">安全策略</a>
-    <span class="push-right">纯 Rust 构建 · 无 WebView</span>
   </div>
 </footer>
 
-<script>
-  const RELEASES_LATEST = 'https://github.com/Losmli010/gloss/releases/latest';
-  const ARCHES = {
-    apple: { key: 'aarch64-apple-darwin', label: 'Apple Silicon' },
-    intel: { key: 'x86_64-apple-darwin', label: 'Intel' }
-  };
-  let arch = 'apple';
-  let manifest = null;
-
-  const $ = (id) => document.getElementById(id);
-
-  function render() {
-    const entry = manifest && manifest.channels && manifest.channels.stable[ARCHES[arch].key];
-    $('arch-label').textContent = ARCHES[arch].label;
-    $('btn-dmg').href = (entry && entry.dmg_url) || RELEASES_LATEST;
-    if (entry && typeof entry.size === 'number' && entry.size > 0) {
-      $('zip-size').textContent = formatSize(entry.size);
-      $('zip-size').hidden = false;
-    } else {
-      $('zip-size').hidden = true;
-    }
-    if (entry && entry.url) {
-      $('link-zip').href = entry.url;
-      $('link-zip').hidden = false;
-    } else {
-      $('link-zip').hidden = true;
-    }
-  }
-
-  function formatSize(bytes) {
-    const mb = bytes / (1024 * 1024);
-    return mb >= 1 ? `约 ${mb.toFixed(1)} MB` : `约 ${(bytes / 1024).toFixed(0)} KB`;
-  }
-
-  function manifestLooksValid(m) {
-    if (!m || m.schema !== 1 || typeof m.version !== 'string' || !m.channels || !m.channels.stable) return false;
-    return Object.values(ARCHES).some(({ key }) => {
-      const e = m.channels.stable[key];
-      return e
-        && typeof e.dmg_url === 'string' && e.dmg_url.startsWith('https://')
-        && typeof e.url === 'string' && e.url.startsWith('https://')
-        && typeof e.size === 'number';
-    });
-  }
-
-  // 版本与直链来自同源 manifest.json（CI 注入）；取不到则整体降级为 GitHub Releases 外链
-  fetch('manifest.json')
-    .then((res) => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
-    .then((m) => {
-      if (!manifestLooksValid(m)) throw new Error('manifest 校验不符');
-      manifest = m;
-      $('version-pill').textContent = `v${m.version}`;
-      $('version-pill').hidden = false;
-      render();
-    })
-    .catch(() => {
-      $('fallback-note').hidden = false;
-      render();
-    });
-
-  $('arch-apple').addEventListener('click', () => { arch = 'apple'; toggleArch(); render(); });
-  $('arch-intel').addEventListener('click', () => { arch = 'intel'; toggleArch(); render(); });
-  function toggleArch() {
-    $('arch-apple').classList.toggle('active', arch === 'apple');
-    $('arch-intel').classList.toggle('active', arch === 'intel');
-    $('arch-apple').setAttribute('aria-pressed', String(arch === 'apple'));
-    $('arch-intel').setAttribute('aria-pressed', String(arch === 'intel'));
-  }
-</script>
 </body>
 </html>
