@@ -202,8 +202,6 @@ mod test_support {
 
     use super::GlossApp;
 
-    /// 更新接线的测试桩：本地 watch（恒为初始快照）+ 空发送出口，
-    /// 不拉起真实模块、不触碰网络。
     pub(super) fn update_wiring() -> crate::update::UpdateWiring {
         let (_tx, receiver) =
             tokio::sync::watch::channel(crate::update::state::UpdateState::default());

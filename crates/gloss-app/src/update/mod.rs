@@ -4,7 +4,9 @@
 //! current-thread 运行时），不占用四通道（`Command`/`Event` 等）、不引入
 //! 代数（generation）。UI → 模块走 mpsc（[`UpdateMsg`]），模块 → UI 走
 //! `watch` 广播最新 [`UpdateState`]——设置页每帧从 receiver 读最新状态
-//! 渲染，不引入 `Arc<Mutex<…>>`。
+//! 渲染，不引入 `Arc<Mutex<…>>`。每次广播附带一次 UI 唤醒：经组装点安装
+//! 的出口（[`UpdateHandle::install_wake`]）投递壳层的
+//! `UserEvent::RedrawSettings`，由壳请求设置窗重绘。
 //!
 //! 触发入口只有两个：[`start_once`]（启动钩子，进程内幂等，首次调用拉起
 //! 模块任务并发起一次静默检查，失败落 `Failed` 供设置页被动渲染、不弹层）
@@ -59,10 +61,16 @@ pub enum UpdateMsg {
     Cancel,
 }
 
-/// 模块的 UI 侧句柄：设置页经它发消息、每帧读最新状态。
+/// 相位迁移的 UI 唤醒出口槽：模块广播时读，组装点晚装（唤醒句柄在事件
+/// 循环建好后才存在）；未安装时广播只更新 watch。
+type WakeSlot = Arc<OnceLock<Arc<dyn Fn() + Send + Sync>>>;
+
+/// 模块的 UI 侧句柄：设置页经它发消息、每帧读最新状态；组装点另经
+/// [`UpdateHandle::install_wake`] 装相位迁移的唤醒出口。
 pub struct UpdateHandle {
     sender: mpsc::UnboundedSender<UpdateMsg>,
     receiver: watch::Receiver<UpdateState>,
+    wake: WakeSlot,
 }
 
 impl UpdateHandle {
@@ -80,6 +88,12 @@ impl UpdateHandle {
     /// 订阅状态广播（每帧从 receiver 读最新 [`UpdateState`]）。
     pub fn subscribe(&self) -> watch::Receiver<UpdateState> {
         self.receiver.clone()
+    }
+
+    /// 安装相位迁移的 UI 唤醒出口（组装点在事件循环建好后调用；首次安装
+    /// 生效，重复调用忽略）。此后每次状态广播调用它一次。
+    pub fn install_wake(&self, wake: impl Fn() + Send + Sync + 'static) {
+        self.wake.get_or_init(|| Arc::new(wake));
     }
 }
 
@@ -124,6 +138,8 @@ pub fn check_now() {
 fn spawn_module() -> UpdateHandle {
     let (sender, receiver) = mpsc::unbounded_channel();
     let (state_tx, state_rx) = watch::channel(UpdateState::default());
+    let wake: WakeSlot = Arc::default();
+    let task_wake = Arc::clone(&wake);
     let spawn = std::thread::Builder::new()
         .name("gloss-update".into())
         .spawn(move || {
@@ -141,7 +157,14 @@ fn spawn_module() -> UpdateHandle {
                     return;
                 }
             };
-            if runtime.block_on(run(receiver, state_tx, real_hooks())) {
+            if runtime.block_on(run(
+                receiver,
+                Broadcaster {
+                    tx: state_tx,
+                    wake: task_wake,
+                },
+                real_hooks(),
+            )) {
                 info!(
                     thread = thread::TOKIO,
                     "update: installed, restarting process"
@@ -159,6 +182,7 @@ fn spawn_module() -> UpdateHandle {
     UpdateHandle {
         sender,
         receiver: state_rx,
+        wake,
     }
 }
 
@@ -204,17 +228,35 @@ enum PendingKind {
     Download,
 }
 
+/// 模块的状态出口：watch 发送端 + 相位迁移的 UI 唤醒槽（与
+/// [`UpdateHandle`] 共享同一个槽）。
+pub(crate) struct Broadcaster {
+    tx: watch::Sender<UpdateState>,
+    wake: WakeSlot,
+}
+
+impl Broadcaster {
+    /// 广播最新快照并调用已安装的唤醒出口——主线程睡在
+    /// `ControlFlow::Wait` 时靠后者醒来重绘设置窗。
+    fn send(&self, state: UpdateState) {
+        self.tx.send_replace(state);
+        if let Some(wake) = self.wake.get() {
+            wake();
+        }
+    }
+}
+
 /// 模块任务主循环：用户消息与在途回包在此收敛；每一步状态机采纳后都
 /// 广播最新快照。返回真表示替换已成功（调用方随即退出进程）。
 pub(crate) async fn run(
     mut msg_rx: mpsc::UnboundedReceiver<UpdateMsg>,
-    state_tx: watch::Sender<UpdateState>,
+    out: Broadcaster,
     hooks: Hooks,
 ) -> bool {
     let mut machine = UpdateMachine::new();
     let mut pending: Option<Pending> = None;
     let mut zip: Option<PathBuf> = None;
-    state_tx.send_replace(machine.snapshot());
+    out.send(machine.snapshot());
 
     loop {
         tokio::select! {
@@ -222,7 +264,7 @@ pub(crate) async fn run(
                 match msg {
                     None => return false,
                     Some(msg) => {
-                        if handle_msg(msg, &mut machine, &mut pending, &mut zip, &hooks, &state_tx) {
+                        if handle_msg(msg, &mut machine, &mut pending, &mut zip, &hooks, &out) {
                             return true;
                         }
                     }
@@ -233,7 +275,7 @@ pub(crate) async fn run(
                 if token.is_cancelled() {
                     debug!(thread = thread::TOKIO, "update: stale task reply dropped");
                 } else {
-                    apply_result(result, &mut machine, &mut zip, &state_tx);
+                    apply_result(result, &mut machine, &mut zip, &out);
                 }
                 pending = None;
             }
@@ -249,7 +291,7 @@ fn handle_msg(
     pending: &mut Option<Pending>,
     zip: &mut Option<PathBuf>,
     hooks: &Hooks,
-    state_tx: &watch::Sender<UpdateState>,
+    out: &Broadcaster,
 ) -> bool {
     match msg {
         UpdateMsg::Check => {
@@ -259,7 +301,7 @@ fn handle_msg(
                     token: cancel,
                     kind: PendingKind::Check,
                 });
-                broadcast(machine, state_tx);
+                broadcast(machine, out);
             }
         }
         UpdateMsg::Retry => match machine.retry() {
@@ -269,7 +311,7 @@ fn handle_msg(
                     token: cancel,
                     kind: PendingKind::Check,
                 });
-                broadcast(machine, state_tx);
+                broadcast(machine, out);
             }
             Some(UpdateCommand::Download {
                 target,
@@ -282,12 +324,12 @@ fn handle_msg(
                     token: cancel,
                     kind: PendingKind::Download,
                 });
-                broadcast(machine, state_tx);
+                broadcast(machine, out);
             }
             Some(UpdateCommand::Install { .. }) => {
                 // 进入 ReadyToRestart 先广播（替换执行中），再跑替换。
-                broadcast(machine, state_tx);
-                return restart(machine, zip, hooks, state_tx);
+                broadcast(machine, out);
+                return restart(machine, zip, hooks, out);
             }
             None => {}
         },
@@ -304,19 +346,19 @@ fn handle_msg(
                     token: cancel,
                     kind: PendingKind::Download,
                 });
-                broadcast(machine, state_tx);
+                broadcast(machine, out);
             }
         }
         UpdateMsg::ConfirmRestart => {
             if let Some(UpdateCommand::Install { .. }) = machine.confirm_restart() {
                 // 进入 ReadyToRestart 先广播（替换执行中），再跑替换。
-                broadcast(machine, state_tx);
-                return restart(machine, zip, hooks, state_tx);
+                broadcast(machine, out);
+                return restart(machine, zip, hooks, out);
             }
         }
         UpdateMsg::Cancel => {
             if machine.cancel() {
-                broadcast(machine, state_tx);
+                broadcast(machine, out);
             }
         }
     }
@@ -330,11 +372,11 @@ fn restart(
     machine: &mut UpdateMachine,
     zip_slot: &mut Option<PathBuf>,
     hooks: &Hooks,
-    state_tx: &watch::Sender<UpdateState>,
+    out: &Broadcaster,
 ) -> bool {
     let Some(zip) = zip_slot.take() else {
         machine.accept_install_failed();
-        broadcast(machine, state_tx);
+        broadcast(machine, out);
         return false;
     };
     match (hooks.install)(&zip) {
@@ -347,7 +389,7 @@ fn restart(
             );
             machine.accept_install_failed();
             *zip_slot = Some(zip);
-            broadcast(machine, state_tx);
+            broadcast(machine, out);
             false
         }
     }
@@ -358,7 +400,7 @@ fn apply_result(
     result: PendingResult,
     machine: &mut UpdateMachine,
     zip: &mut Option<PathBuf>,
-    state_tx: &watch::Sender<UpdateState>,
+    out: &Broadcaster,
 ) {
     match result {
         PendingResult::Checked(Ok(manifest)) => {
@@ -380,7 +422,7 @@ fn apply_result(
             machine.accept_download_failed();
         }
     }
-    broadcast(machine, state_tx);
+    broadcast(machine, out);
 }
 
 /// 在途回包流：无在途任务时永远挂起（select 的另一半继续等消息）。
@@ -405,9 +447,10 @@ async fn pending_outcome(pending: &mut Option<Pending>) -> (PendingResult, Cance
     }
 }
 
-/// 广播最新快照（watch 的 send_replace 每次都唤醒订阅者）。
-fn broadcast(machine: &UpdateMachine, state_tx: &watch::Sender<UpdateState>) {
-    state_tx.send_replace(machine.snapshot());
+/// 广播最新快照（watch 的 send_replace 每次都唤醒订阅者；唤醒出口随
+/// [`Broadcaster::send`] 一并触发）。
+fn broadcast(machine: &UpdateMachine, out: &Broadcaster) {
+    out.send(machine.snapshot());
 }
 
 /// 真实 hooks：清单拉取与整包下载各自现建 HTTP 客户端（建失败按该次
@@ -506,6 +549,7 @@ fn build_client() -> Result<reqwest::Client, reqwest::Error> {
 mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use tokio::sync::{mpsc, oneshot, watch};
 
@@ -534,6 +578,7 @@ mod tests {
         download: Arc<DownloadStub>,
         install_results: Arc<Mutex<VecDeque<Result<(), InstallError>>>>,
         install_calls: Arc<Mutex<Vec<PathBuf>>>,
+        wake_count: Arc<AtomicUsize>,
     }
 
     struct TriggerQueue<T> {
@@ -576,6 +621,17 @@ mod tests {
     fn harness() -> Harness {
         let (tx, rx) = mpsc::unbounded_channel();
         let (state_tx, state_rx) = watch::channel(UpdateState::default());
+        let wake_slot: WakeSlot = Arc::default();
+        let wake_count = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&wake_count);
+        assert!(
+            wake_slot
+                .set(Arc::new(move || {
+                    counter.fetch_add(1, Ordering::Relaxed);
+                }))
+                .is_ok(),
+            "wake slot must be fresh"
+        );
         let check = Arc::new(TriggerQueue::default());
         let download = Arc::new(DownloadStub::default());
         let install_results = Arc::new(Mutex::new(VecDeque::new()));
@@ -618,7 +674,14 @@ mod tests {
                     .unwrap_or(Ok(()))
             }),
         };
-        let task = tokio::spawn(run(rx, state_tx, hooks));
+        let task = tokio::spawn(run(
+            rx,
+            Broadcaster {
+                tx: state_tx,
+                wake: wake_slot,
+            },
+            hooks,
+        ));
         Harness {
             tx,
             rx: state_rx,
@@ -627,6 +690,7 @@ mod tests {
             download,
             install_results,
             install_calls,
+            wake_count,
         }
     }
 
@@ -639,6 +703,37 @@ mod tests {
     async fn initial_broadcast_is_the_idle_snapshot() {
         let mut harness = harness();
         assert_eq!(state_after(&mut harness).await, UpdateState::default());
+    }
+
+    #[tokio::test]
+    async fn state_transition_wakes_the_ui_without_input() {
+        let mut harness = harness();
+        assert_eq!(state_after(&mut harness).await, UpdateState::default());
+        let after_initial = harness.wake_count.load(Ordering::Relaxed);
+
+        harness.tx.send(UpdateMsg::Check).expect("send");
+        assert_eq!(
+            state_after(&mut harness).await.phase,
+            state::UpdatePhase::Checking
+        );
+        assert_eq!(
+            harness.wake_count.load(Ordering::Relaxed),
+            after_initial + 1,
+            "an accepted transition must wake the UI"
+        );
+
+        harness
+            .check
+            .complete(PendingResult::Checked(Ok(manifest_of("99.0.0"))));
+        assert_eq!(
+            state_after(&mut harness).await.phase,
+            state::UpdatePhase::UpdateAvailable
+        );
+        assert_eq!(
+            harness.wake_count.load(Ordering::Relaxed),
+            after_initial + 2,
+            "a background reply adoption must wake the UI too, no input involved"
+        );
     }
 
     #[tokio::test]

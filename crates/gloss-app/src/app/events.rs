@@ -18,6 +18,8 @@ use super::GlossApp;
 pub enum UserEvent {
     /// 有跨线程消息待处理
     Wake,
+    /// 设置窗口内容自外部变化（更新子系统相位迁移）：窗口可见时请求重绘
+    RedrawSettings,
 }
 
 /// 唤醒主线程的句柄：事件线程与 tokio 各持一份 clone。
@@ -28,6 +30,12 @@ impl Waker {
     /// 唤醒主线程；返回 `false` 表示事件循环已退出。
     pub fn wake(&self) -> bool {
         self.0.send_event(UserEvent::Wake).is_ok()
+    }
+
+    /// 唤醒主线程请求设置窗重绘（设置窗内容自外部变化时用）；返回 `false`
+    /// 表示事件循环已退出。
+    pub fn wake_settings(&self) -> bool {
+        self.0.send_event(UserEvent::RedrawSettings).is_ok()
     }
 }
 
