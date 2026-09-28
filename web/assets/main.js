@@ -1,4 +1,7 @@
 // Gloss 站点脚本：下载直链 + 本机架构识别 + 界面微交互。
+// 首行标记 JS 可用：进场动画的隐藏态只在 html.js 下生效，脚本加载失败时内容保持可见。
+document.documentElement.classList.add('js');
+
 // 下载契约：同源 manifest.json（CI 注入）提供 channels.stable[<triple>] 的
 // dmg_url / url / size；取不到或校验不过则整体降级到 GitHub Releases。
 const RELEASES_LATEST = 'https://github.com/Losmli010/gloss/releases/latest';
@@ -36,16 +39,16 @@ function manifestLooksValid(m) {
 function render() {
   const entry = entryFor(arch);
   const dmgHref = (entry && entry.dmg_url) || RELEASES_LATEST;
-  const sizeText = entry && typeof entry.size === 'number' && entry.size > 0 ? formatSize(entry.size) : '';
 
   $('hero-dl').href = dmgHref;
   $('nav-dl').href = dmgHref;
   $('hero-arch-label').textContent = ARCHES[arch].label;
   $$('#hero-split .menu-item, #nav-split .menu-item').forEach((item) => {
     item.setAttribute('aria-checked', String(item.dataset.arch === arch));
-    const sizeEl = item.querySelector('.mi-size');
     const e = entryFor(item.dataset.arch);
-    sizeEl.textContent = e && typeof e.size === 'number' && e.size > 0 ? formatSize(e.size) : '';
+    // manifest 的 size 是 zip 包实测值，展示时必须带 zip 标注以免误当 .dmg 大小
+    item.querySelector('.mi-size').textContent =
+      e && typeof e.size === 'number' && e.size > 0 ? `zip ${formatSize(e.size)}` : '';
   });
 
   for (const triple of Object.keys(ARCHES)) {
@@ -54,7 +57,7 @@ function render() {
     $(`card-dmg-${short}`).href = (e && e.dmg_url) || RELEASES_LATEST;
     $(`card-zip-${short}`).href = (e && e.url) || RELEASES_LATEST;
     $(`card-size-${short}`).textContent =
-      e && typeof e.size === 'number' && e.size > 0 ? `安装包 ${formatSize(e.size)}` : '';
+      e && typeof e.size === 'number' && e.size > 0 ? `zip ${formatSize(e.size)}` : '';
   }
 }
 
@@ -74,9 +77,12 @@ fetch('manifest.json')
     render();
   });
 
-// 本机架构识别：WebGL 渲染器名优先（Apple Silicon 报 "Apple M2"/"Apple GPU"，
-// Intel Mac 报 "Intel/AMD/NVIDIA"），取不到再走 UA-CH；都取不到保持默认。
+// 本机架构识别：仅对 macOS 访客生效，WebGL 渲染器名优先（Apple Silicon 报
+// "Apple M2"/"Apple GPU"，Intel Mac 报 "Intel/AMD/NVIDIA"；该口径天然兼容
+// Rosetta 下浏览器跑在 Apple Silicon 的边界——按 GPU 而非浏览器架构选包），
+// 取不到再走 UA-CH；都取不到保持默认。
 async function detectArch() {
+  if (!/Mac/i.test(navigator.userAgent)) return null;
   try {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
@@ -108,29 +114,81 @@ detectArch().then((detected) => {
   }
 });
 
-// 分体按钮的架构下拉
-for (const splitId of ['hero-split', 'nav-split']) {
-  const split = $(splitId);
-  const caret = $(splitId === 'hero-split' ? 'hero-caret' : 'nav-caret');
-  caret.addEventListener('click', (ev) => {
+// 分体按钮的架构下拉（hero 与导航各一处，共享同一选中态）。
+// 键盘契约按 ARIA menu 模式：方向键循环、Home/End 跳转、Esc 关闭回焦、
+// Tab 走默认顺序并收起菜单；打开即聚焦当前选中项。
+const splits = ['hero-split', 'nav-split'].map((id) => {
+  const root = $(id);
+  const caret = $(id === 'hero-split' ? 'hero-caret' : 'nav-caret');
+  const menu = root.querySelector('.menu');
+  const items = $$('.menu-item', menu);
+  return { root, caret, menu, items };
+});
+
+function closeSplits(except) {
+  for (const s of splits) {
+    if (s === except) continue;
+    s.root.classList.remove('open');
+    s.caret.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function openSplit(s) {
+  closeSplits(s);
+  s.root.classList.add('open');
+  s.caret.setAttribute('aria-expanded', 'true');
+  const current = s.items.find((item) => item.getAttribute('aria-checked') === 'true') || s.items[0];
+  current.focus();
+}
+
+for (const s of splits) {
+  s.caret.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    const open = split.classList.toggle('open');
-    caret.setAttribute('aria-expanded', String(open));
+    if (s.root.classList.contains('open')) {
+      closeSplits();
+    } else {
+      openSplit(s);
+    }
   });
-  document.addEventListener('click', () => {
-    split.classList.remove('open');
-    caret.setAttribute('aria-expanded', 'false');
+  s.caret.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && s.root.classList.contains('open')) {
+      closeSplits();
+    } else if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(ev.key)) {
+      ev.preventDefault();
+      openSplit(s);
+    }
   });
-  $$('.menu-item', split).forEach((item) => {
+  s.items.forEach((item, idx) => {
+    item.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        const dir = ev.key === 'ArrowDown' ? 1 : -1;
+        s.items[(idx + dir + s.items.length) % s.items.length].focus();
+      } else if (ev.key === 'Home') {
+        ev.preventDefault();
+        s.items[0].focus();
+      } else if (ev.key === 'End') {
+        ev.preventDefault();
+        s.items[s.items.length - 1].focus();
+      } else if (ev.key === 'Escape') {
+        closeSplits();
+        s.caret.focus();
+      } else if (ev.key === 'Tab') {
+        closeSplits();
+      }
+    });
     item.addEventListener('click', () => {
       userPicked = true;
       arch = item.dataset.arch;
-      split.classList.remove('open');
-      caret.setAttribute('aria-expanded', 'false');
+      closeSplits();
       render();
     });
   });
+  s.root.addEventListener('focusout', (ev) => {
+    if (!s.root.contains(ev.relatedTarget)) closeSplits();
+  });
 }
+document.addEventListener('click', () => closeSplits());
 
 // 滚动状态与进场动画
 const nav = $('nav');

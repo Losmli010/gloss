@@ -6,9 +6,12 @@
   <title>Gloss — 选中即译的 macOS 划词翻译</title>
   <meta name="description" content="Gloss 是一款 macOS 划词翻译工具：选中文字，浮层即刻弹出大模型流式结果。纯 Rust + WebGPU 原生渲染，单进程、无 WebView，免费开源。">
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+  <meta name="theme-color" content="#F5F9FD">
+  <link rel="canonical" href="https://losmli010.github.io/gloss/">
   <meta property="og:title" content="Gloss — 选中即译的 macOS 划词翻译">
   <meta property="og:description" content="选中文字，译文立现。纯 Rust + WebGPU 原生渲染，单进程、无 WebView，免费开源（MIT）。">
   <meta property="og:type" content="website">
+  <meta property="og:url" content="https://losmli010.github.io/gloss/">
   <link rel="stylesheet" href="assets/style.css">
   <script src="assets/main.js" defer></script>
 </head>
@@ -18,7 +21,7 @@
 <header class="nav" id="nav">
   <div class="wrap nav-inner">
     <a class="brand" href="#top">
-      <img src="assets/logo.svg" alt="Gloss 图标"> Gloss
+      <img src="assets/logo.svg" alt=""> Gloss
     </a>
     <nav class="links" aria-label="主导航">
       <a href="#tasks">任务</a>
@@ -32,9 +35,19 @@
       </a>
       <div class="split" id="nav-split">
         <a class="btn btn-primary btn-main" id="nav-dl" href="https://github.com/Losmli010/gloss/releases/latest">下载</a>
-        <button class="btn-caret" id="nav-caret" aria-haspopup="menu" aria-expanded="false" aria-label="选择芯片架构">
+        <button class="btn-caret" id="nav-caret" aria-haspopup="menu" aria-expanded="false" aria-controls="nav-menu" aria-label="选择芯片架构">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         </button>
+        <div class="menu" id="nav-menu" role="menu" aria-label="选择芯片架构">
+          <button class="menu-item" role="menuitemradio" data-arch="aarch64-apple-darwin" aria-checked="true">
+            <span>Apple Silicon</span><span class="mi-size"></span>
+            <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m4 12 5 5L20 7"/></svg>
+          </button>
+          <button class="menu-item" role="menuitemradio" data-arch="x86_64-apple-darwin" aria-checked="false">
+            <span>Intel 芯片</span><span class="mi-size"></span>
+            <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m4 12 5 5L20 7"/></svg>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -52,16 +65,16 @@
         <div class="cta-row">
           <div class="split split-lg" id="hero-split">
             <a class="btn btn-primary btn-main btn-lg" id="hero-dl" href="https://github.com/Losmli010/gloss/releases/latest">下载 for macOS</a>
-            <button class="btn-caret btn-lg" id="hero-caret" aria-haspopup="menu" aria-expanded="false" aria-label="选择芯片架构">
+            <button class="btn-caret btn-lg" id="hero-caret" aria-haspopup="menu" aria-expanded="false" aria-controls="hero-menu" aria-label="选择芯片架构">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
             </button>
-            <div class="menu" role="menu" aria-label="选择芯片架构">
+            <div class="menu" id="hero-menu" role="menu" aria-label="选择芯片架构">
               <button class="menu-item" role="menuitemradio" data-arch="aarch64-apple-darwin" aria-checked="true">
-                <span>Apple Silicon</span><span class="mi-size" data-size="aarch64-apple-darwin"></span>
+                <span>Apple Silicon</span><span class="mi-size"></span>
                 <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m4 12 5 5L20 7"/></svg>
               </button>
               <button class="menu-item" role="menuitemradio" data-arch="x86_64-apple-darwin" aria-checked="false">
-                <span>Intel 芯片</span><span class="mi-size" data-size="x86_64-apple-darwin"></span>
+                <span>Intel 芯片</span><span class="mi-size"></span>
                 <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m4 12 5 5L20 7"/></svg>
               </button>
             </div>
@@ -187,7 +200,7 @@
   </section>
 
   <!-- ── 技术特性 ─────────────────────────────────── -->
-  <section class="section" id="tech" style="padding-top: 0;">
+  <section class="section section-flush" id="tech">
     <div class="wrap">
       <div class="sec-head reveal">
         <span class="sec-kicker">工程克制</span>
@@ -237,8 +250,8 @@
           <p>启动静默检查新版本，设置页一键下载替换；更新清单由 CI 签发生成。</p>
         </div>
       </div>
-      <div class="wall reveal" aria-label="技术栈">
-        <span>Rust</span><span>wgpu · Metal</span><span>egui</span><span>winit</span><span>tokio</span><span>reqwest · SSE</span><span>serde</span><span>Keychain</span><span>零 WebView</span><span>MIT</span>
+      <div class="wall reveal" role="list" aria-label="技术栈">
+        <span role="listitem">Rust</span><span role="listitem">wgpu · Metal</span><span role="listitem">egui</span><span role="listitem">winit</span><span role="listitem">tokio</span><span role="listitem">reqwest · SSE</span><span role="listitem">serde</span><span role="listitem">Keychain</span><span role="listitem">零 WebView</span><span role="listitem">MIT</span>
       </div>
     </div>
   </section>

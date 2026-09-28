@@ -8,7 +8,7 @@
   --line-strong: #C9D9EA;
   --text: #17293D;
   --muted: #4E6479;
-  --faint: #7A8FA5;
+  --faint: #5E7288;
   --blue: #2F7FD0;
   --blue-deep: #1D6FBF;
   --cyan: #0E86C8;
@@ -102,9 +102,14 @@ a { color: inherit; }
   background: var(--panel); border: 1px solid var(--line-strong); border-radius: 14px;
   padding: 6px; box-shadow: 0 16px 40px rgba(23, 58, 94, 0.18);
   opacity: 0; transform: translateY(-6px); pointer-events: none;
-  transition: opacity 0.16s ease, transform 0.16s ease; z-index: 60;
+  visibility: hidden; z-index: 60;
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0s linear 0.16s;
 }
-.split.open .menu { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.split.open .menu {
+  opacity: 1; transform: translateY(0); pointer-events: auto;
+  visibility: visible;
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0s;
+}
 .menu-item {
   display: flex; align-items: center; gap: 10px; width: 100%;
   padding: 10px 12px; border-radius: 10px; border: none; cursor: pointer;
@@ -351,7 +356,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #0E86C8, #2F7FD0
 .guide h3 svg { width: 16px; height: 16px; }
 .guide ol { padding-left: 20px; color: var(--muted); font-size: 13.8px; }
 .guide ol li + li { margin-top: 4px; }
-.guide .why { margin-top: 10px; font-size: 12.5px; color: #A98064; }
+.guide .why { margin-top: 10px; font-size: 12.5px; color: #8A6544; }
 
 /* ── 更新日志 ───────────────────────────────── */
 .log-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
@@ -377,12 +382,17 @@ footer { border-top: 1px solid var(--line); padding: 34px 0 44px; }
 .foot-inner a { color: var(--faint); text-decoration: none; }
 .foot-inner a:hover { color: var(--text); }
 
-/* ── 进场动画 ───────────────────────────────── */
-.reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.55s ease, transform 0.55s ease; }
-.reveal.in { opacity: 1; transform: none; }
+/* ── 进场动画 ─────────────────────────────────
+   隐藏态只在 <html class="js">（由 main.js 首行添加）下生效：
+   脚本加载失败时内容保持可见，不做无兜底的透明化。 */
+.section-flush { padding-top: 0; }
+.reveal { transition: opacity 0.55s ease, transform 0.55s ease; }
+.js .reveal { opacity: 0; transform: translateY(18px); }
+.js .reveal.in { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .reveal { opacity: 1; transform: none; transition: none; }
+  .reveal { transition: none; }
+  .js .reveal { opacity: 1; transform: none; }
   .mock-popup, .chip-a, .chip-b { animation: none; }
   .caret { animation: none; }
 }
