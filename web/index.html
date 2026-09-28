@@ -274,7 +274,12 @@
           <li>在「应用程序」中<strong>右键点击 Gloss → 打开</strong>，再点「打开」确认；</li>
           <li>之后即可正常双击启动。</li>
         </ol>
-        <p class="why">当前安装包为 ad-hoc 签名，尚未做 Developer ID 公证，首次打开需以上方式放行。</p>
+        <p class="alt">右键放行无效时，以下任一方式替代：</p>
+        <ol class="alt-list">
+          <li>系统设置 → 隐私与安全性 → 底部点击<strong>「仍要打开」</strong>；</li>
+          <li>或在终端执行 <code>xattr -dr com.apple.quarantine /Applications/Gloss.app</code> 后直接打开。</li>
+        </ol>
+        <p class="why">当前安装包为 ad-hoc 签名，尚未做 Developer ID 公证，首次打开需以上任一方式放行；xattr 命令只移除下载隔离标记，不改动应用内容。</p>
       </div>
     </div>
   </section>
