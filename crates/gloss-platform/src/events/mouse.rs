@@ -216,7 +216,8 @@ mod tap {
                         warn!(
                             thread = thread::MOUSE_TAP,
                             error = ?err,
-                            "mouse listener failed, selection gesture disabled"
+                            "mouse listener failed, selection gesture disabled; \
+                             grant Input Monitoring in System Settings > Privacy & Security"
                         );
                     }
                 }

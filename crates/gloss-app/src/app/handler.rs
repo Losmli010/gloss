@@ -57,7 +57,16 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         self.draw();
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, _event: UserEvent) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        if matches!(event, UserEvent::RedrawSettings) {
+            // 相位迁移只牵动设置窗：窗口可见才请求重绘，不抽干主流程通道。
+            if let Some(windows) = &self.windows
+                && windows.is_settings_visible()
+            {
+                windows.request_redraw_settings();
+            }
+            return;
+        }
         self.drain_platform_events();
         self.drain_events(event_loop);
         self.request_redraw();
