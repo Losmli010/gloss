@@ -1423,7 +1423,7 @@ dependencies = [
 
 [[package]]
 name = "gloss"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "criterion",
  "gloss-app",
@@ -1435,7 +1435,7 @@ dependencies = [
 
 [[package]]
 name = "gloss-app"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "crossbeam-channel",
  "egui",
@@ -1462,7 +1462,7 @@ dependencies = [
 
 [[package]]
 name = "gloss-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "arc-swap",
  "futures",
@@ -1478,7 +1478,7 @@ dependencies = [
 
 [[package]]
 name = "gloss-platform"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "arboard",
  "bytes",
