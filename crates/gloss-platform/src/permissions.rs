@@ -37,10 +37,11 @@ pub fn request_accessibility() -> bool {
 /// 没有价值。启动失败只记日志不拦启动。
 pub fn open_input_monitoring_pane() -> bool {
     let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent";
-    let opened = Command::new("open").arg(pane).spawn().map(|_| true);
-    match opened {
-        Ok(true) => true,
-        Ok(false) | Err(_) => {
+    match Command::new("open").arg(pane).spawn() {
+        // spawn 的 Child 有意即时 drop：调用点有一次性标志，至多一个
+        // 短命僵尸表项、有界不累积（open 自身秒退）；多次触发需先补收尸。
+        Ok(_) => true,
+        Err(_) => {
             // 打不开设置面板是引导路径的降级，不影响功能主流程。
             gloss_core::log::warn!(
                 thread = gloss_core::log::thread::EVENT,
