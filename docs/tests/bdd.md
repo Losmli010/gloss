@@ -2,17 +2,18 @@
 
 以测试代码为唯一事实源：本清单逐条描述仓库当前测试的行为；新增、修改、删除测试时在同一 PR 内登记并刷新该条目的更新时间；描述与代码冲突时以代码为准并立即修正。
 
-组织：人工测试 → 集成测试 → 性能测试 → 快照测试 → 单元测试。条目四字段：测试名称、测试目标、测试场景（给定/当/则）、更新时间。
+组织：人工测试 → 发版人工步骤 → 集成测试 → 性能测试 → 快照测试 → 单元测试。条目四字段：测试名称、测试目标、测试场景（给定/当/则）、更新时间。
 
 ## 总览
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
 | 人工测试 | 11 | `cargo test -p gloss-platform -- --ignored` |
+| 发版人工步骤 | 4 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
 | 集成测试 | 8 | `just test` |
 | 性能测试 | 1 | `just selftest` |
-| 快照测试 | 24 | `just test` |
-| 单元测试 | 313 | `just test` |
+| 快照测试 | 29 | `just test` |
+| 单元测试 | 366 | `just test` |
 
 ## 人工测试
 
@@ -114,6 +115,52 @@
   3. 前台开着任意应用即可；在密码管理器内划词的行为另见 PR 走查清单
 - 更新时间：2026-09-26
 
+## 发版人工步骤
+
+发版链路的一次性运维与真机步骤：没有可执行的自动化测试源码，bdd 门禁对本节豁免双向核对；
+条目仍按「名称、目标、场景、照抄步骤、更新时间」登记，命名用测试风格的标识符。
+
+### pages_source_is_github_actions
+- 测试目标：验证仓库 GitHub Pages 已启用且 source 为 GitHub Actions（deploy-web job 的前置，一次性）。
+- 测试场景：给定仓库管理员权限，当查看 Settings → Pages，则 Build and deployment 的 Source 为 GitHub Actions。
+- 测试步骤：
+  1. 打开 https://github.com/Losmli010/gloss/settings/pages
+  2. Build and deployment → Source 选 GitHub Actions（若尚未选择）
+  3. 保存即可，无需手工建分支（deploy-web job 用 actions/deploy-pages 直接部署）
+- 更新时间：2026-09-26
+
+### pages_site_point_check
+- 测试目标：验证 Pages 部署后站点的导航锚点、下载按钮、manifest 读取与降级路径。
+- 测试场景：给定一次成功的 deploy-web 部署，当浏览器访问站点逐项点检，则锚点跳转正常、下载按钮指向 latest/ 对应架构直链、manifest.json 可读取且字段齐备；manifest 取不到时页面降级为 GitHub Releases 外链。
+- 测试步骤：
+  1. 打开 https://losmli010.github.io/gloss/
+  2. 依次点导航「演示 / 功能 / 下载 / 更新日志」，确认锚点跳转
+  3. 确认版本号显示；切换 Apple Silicon / Intel，确认下载链接随之指向对应架构的 latest/ 文件
+  4. 直接访问 https://losmli010.github.io/gloss/manifest.json，确认 schema/version/channels 双架构字段齐备
+  5. 降级路径：本地 `just site-preview`（无 manifest.json）打开页面，确认显示「无法获取最新版本信息」且下载按钮退到 GitHub Releases 外链
+- 更新时间：2026-09-26
+
+### real_update_round_trip_on_device
+- 测试目标：验证真机上的真实清单拉取、整包下载校验与替换重启，双架构各一次。
+- 测试场景：给定装有旧版 Gloss 的真机（有网络），当设置页手动检查更新并确认下载、确认重启替换，则应用升到清单版本并正常启动，旧 bundle 无残留。
+- 测试步骤：
+  1. 在 Apple Silicon 与 Intel 真机各装上一个发布版本的 Gloss
+  2. 设置页点「检查更新」，确认提示新版与目标版本
+  3. 确认下载，等待「更新就绪」提示
+  4. 点「重启更新」，确认替换后应用以新版本启动
+  5. 检查 /Applications 无 .app.old 残留；`just logs` 无 panic
+- 更新时间：2026-09-26
+
+### release_pipeline_end_to_end
+- 测试目标：验证打 tag 后 Release 与 Pages 同步发布的全链路。
+- 测试场景：给定与版本单点一致的 tag，当推送 tag 触发 release workflow，则 build/release 产出 Release 资产、deploy-web 部署成功，站点 manifest.json 的 version 与 tag 一致。
+- 测试步骤：
+  1. 本地 `just release-check vX.Y.Z` 确认版本一致后打 tag 并推送
+  2. 在 Actions 观察 release workflow：build → release → deploy-web 依次成功
+  3. 打开 GitHub Release，确认双架构 zip/dmg 共 4 个资产
+  4. 打开站点确认 manifest.json 的 version 与 tag（去 v）一致，latest/ 下 4 个文件可下载
+- 更新时间：2026-09-26
+
 ## 集成测试
 
 文件：crates/gloss-app/tests/pipeline.rs（L1，经公共 API 与通道两端驱动状态机 + 通道③④ + tokio 桥 + mock 引擎的全时序）。
@@ -160,7 +207,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
 | a_disabled_default_task_is_blocked_with_an_in_place_hint | 停用的默认任务阻断保存并就地提示 | 给定默认任务被任务开关停用的设置窗，当点保存，则不上交 Save、默认任务行出停用提示（替换该行说明提示），启用该任务后恢复可保存 | 2026-09-23 |
 | switching_off_the_default_task_is_blocked_until_it_comes_back | 关掉默认任务所在开关被拦下 | 给定出厂配置的设置窗，当点掉「启用词卡」再保存，则不上交 Save 且出停用提示（首次保存前不唠叨），开关扳回后恢复可保存 | 2026-09-23 |
-| snapshots_match_baseline（settings） | 设置窗渲染基线（正常/提示/错误/默认任务停用四态） | 给定默认、带保存失败提示、校验错误、默认任务被停用四个状态，当 wgpu 渲染并 diff，则分别与 settings_main / settings_notice / settings_invalid / settings_default_kind_disabled 基线一致且关键文本进树 | 2026-09-23 |
+| snapshots_match_baseline（settings） | 设置窗渲染基线（正常/提示/错误/默认任务停用四态 + 更新区五相位） | 给定默认、带保存失败提示、校验错误、默认任务被停用四个状态与更新区五个相位（UpToDate/Available/Downloading/Ready/Failed(Install)），当 wgpu 渲染并 diff，则与对应基线一致且关键文本进树 | 2026-09-27 |
 | failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、协议异常（带诊断）、取材通道不可用、推理通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-09-22 |
 | failure_card_follows_the_locale | 失败卡随 locale 出表 | 给定英文 locale 的网络失败卡，当渲染，则出英文文案与英文「Retry」动作 | 2026-09-22 |
 | save_failure_notice_names_the_cause | 保存失败提示出场合与诊断 | 给定带 SaveFailed(Config) 类型化提示的设置窗（中文表），当渲染，则出「保存失败：<诊断>」（前缀交代场合、诊断不重复本地化整句） | 2026-09-22 |
@@ -504,6 +551,91 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | blocked_input_is_not_redispatched_by_any_later_path | 被拦下的取材没有旁路 | 给定已拦下的取材（卡号命中），当 retry、同代重复采纳、同代 chunk/done/failed、以及同代通道故障（fail_acquire / fail_transport）陆续到达，则全部被拒且不摆失败卡；新触发后同一份可疑文本仍被拦下且状态留 Idle | 2026-09-26 |
 | ordinary_input_still_passes_the_content_gate | 日常文本照常通过内容闸门 | 给定一段普通中文，当采纳，则照常 Dispatch 并进 Translating（闸门只认高置信度模式） | 2026-09-24 |
 
+### crates/gloss-app/src/update/mod.rs
+
+模块接线与集成时序（L1）：经公共 API（消息通道 + watch 广播）驱动，桩 hooks 用本地 oneshot 触发回包，同步点全走 watch，不碰网络。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| initial_broadcast_is_the_idle_snapshot | 启动即广播初始快照 | 给定刚拉起的模块，当订阅 watch，则先收到 Idle 快照 | 2026-09-26 |
+| state_transition_wakes_the_ui_without_input | 相位迁移唤醒壳层 | 给定已安装的唤醒桩，当检查被受理与在途回包被采纳，则两次迁移各触发一次唤醒、全程无输入 | 2026-09-27 |
+| confirmed_flow_runs_check_download_install_to_completion | 两道确认全流程到替换成功 | 给定新版清单与下载、替换成功桩，当检查→确认下载→确认重启，则相位依次推进且替换收到 zip 路径、任务以「已安装」收尾 | 2026-09-26 |
+| not_newer_manifest_lands_in_up_to_date_without_a_target | 无新版落 UpToDate | 给定与本地等版本的清单回包，当检查完成，则落 UpToDate 且无目标版本 | 2026-09-26 |
+| manifest_failure_lands_in_failed_and_retry_rechecks | 清单步失败与重试 | 给定清单拉取失败回包，当检查完成再点重试，则先落 Failed(Manifest) 再回 Checking 并重跑检查桩 | 2026-09-26 |
+| download_failure_lands_in_failed_and_retry_resumes | 下载步失败与续传重试 | 给定下载失败回包，当失败后再点重试，则落 Failed(Download)、重跑下载桩且 resume 为真 | 2026-09-26 |
+| install_failure_lands_in_failed_install_and_retry_installs | 替换步失败与重试 | 给定替换失败回包，当失败后再点重试，则落 Failed(Install)、重跑替换桩并以成功收尾 | 2026-09-26 |
+| cancel_during_download_returns_to_update_available | 取消下载与迟到回包丢弃 | 给定下载中任务，当取消，则回 UpdateAvailable；其后的迟到下载回包被丢弃（确认下载仍可用即相位未被动过） | 2026-09-26 |
+| fetch_manifest_parses_a_valid_body_from_the_wire | 线上清单解析 | 给定本地服务器回的合法清单（带 Content-Length），当 fetch，则解析出版本 | 2026-09-27 |
+| fetch_manifest_rejects_oversize_body_without_content_length | 无长度声明的超限 body 拒绝 | 给定不声明 Content-Length、逐块送出 1.5 MiB 的服务器，当 fetch，则中途判超限拒绝（无界内存禁入） | 2026-09-27 |
+
+### crates/gloss-app/src/update/manifest.rs
+
+清单校验矩阵与版本比较（L1）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| valid_manifest_parses_with_all_fields | 合法清单全字段解析 | 给定 schema=1 双架构齐备的清单，当 parse，则版本、发布时间、说明页与本机架构条目全部就位 | 2026-09-26 |
+| unknown_fields_are_ignored_for_forward_compatibility | 未知字段前向兼容 | 给定含 dmg_url 等未知字段的清单，当 parse，则照常通过 | 2026-09-26 |
+| optional_fields_may_be_absent | 可选字段缺省 | 给定无 published_at/notes_url 的清单，当 parse，则通过且对应 getter 为 None | 2026-09-26 |
+| unknown_schema_is_fail_closed | 未知 schema 拒绝 | 给定 schema 为 0/2/99 的清单，当 parse，则 UnknownSchema 拒绝且不继续解析 | 2026-09-26 |
+| unparsable_body_is_rejected | 非法 body 拒绝 | 给定空串、非 JSON、数组、schema 类型不符的 body，当 parse，则 Unparsable | 2026-09-26 |
+| version_must_be_a_semver_triple | 版本必须可解析 | 给定空串/两段/带 v/非数字的 version，当 parse，则 Invalid | 2026-09-26 |
+| both_architectures_are_required_by_the_matrix | 双架构条目必须齐备 | 给定缺 channels、缺 stable、单架构的清单，当 parse，则 Invalid | 2026-09-26 |
+| artifact_fields_follow_the_matrix | 条目字段矩阵 | 给定缺 url/size/sha256 或类型不符的条目，当 parse，则 Invalid（类型不符 Unparsable） | 2026-09-26 |
+| artifact_url_must_be_https | 条目 url 仅接受 https | 给定 http:// 的 url，当 parse，则 Invalid | 2026-09-26 |
+| sha256_must_be_64_lowercase_hex | sha256 形态校验 | 给定非 64 位/大写/非 hex 的 sha256，当 parse，则 Invalid | 2026-09-26 |
+| is_newer_follows_semver_precedence | semver 全序比较 | 给定更高/相等/更低/预发布/构建元数据版本，当比较，则按 semver 全序判定是否更新 | 2026-09-26 |
+| arch_keys_cover_the_published_pair | 架构键覆盖双 target | 给定编译期架构键，当取键对，则恰为 aarch64/x86_64 两个发布 target | 2026-09-26 |
+| current_version_matches_the_cargo_package_version | 本地版本回落分支锁定 | 给定 CARGO_PKG_VERSION，当解析，则 current_version 与之相等（回落分支不可达） | 2026-09-26 |
+
+### crates/gloss-app/src/update/state.rs
+
+更新子状态机迁移表逐行（L1）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| starts_from_idle_into_checking_with_a_command | 发起检查进 Checking | 给定 Idle 状态机，当 check，则落 Checking 并交出清单拉取命令与令牌 | 2026-09-26 |
+| checking_manifest_newer_lands_in_update_available | 新版落 UpdateAvailable | 给定更高版本的清单，当采纳，则锁目标版本与本机架构产物 | 2026-09-26 |
+| checking_manifest_not_newer_lands_in_up_to_date | 无新版落 UpToDate | 给定不高于本地的清单，当采纳，则落 UpToDate 且清掉旧目标 | 2026-09-26 |
+| checking_manifest_unavailable_lands_in_failed_manifest_step | 清单失败落清单步 | 给定清单不可用，当采纳，则落 Failed(Manifest) 且令牌清空 | 2026-09-26 |
+| recheck_from_any_active_phase_cancels_and_returns_to_checking | 重复检查先取消 | 给定下载中的任务，当再次检查，则回 Checking 且下载令牌被取消 | 2026-09-26 |
+| ready_to_restart_refuses_a_new_check | 替换执行中拒绝新检查 | 给定 ReadyToRestart，当 check，则拒绝且相位不动 | 2026-09-26 |
+| confirm_download_only_from_update_available | 确认下载仅限待确认态 | 给定 Idle/Checking/UpdateAvailable，当 confirm_download，则仅最后者交出全量下载命令（resume 为假） | 2026-09-26 |
+| download_verified_lands_in_update_ready_then_install_confirms | 下载完成与确认重启 | 给定下载完成回包，当采纳并确认重启，则经 UpdateReady 落 ReadyToRestart 并交出替换命令 | 2026-09-26 |
+| download_failed_lands_in_failed_download_step | 下载失败落下载步 | 给定下载失败回包，当采纳，则落 Failed(Download) 且目标保留 | 2026-09-26 |
+| retry_returns_to_the_recorded_step | 重试回到记录步骤 | 给定三类失败态，当 retry，则分别回 Checking/Downloading(resume)/ReadyToRestart 并交出对应命令 | 2026-09-26 |
+| install_failed_lands_in_failed_install_step | 替换失败落替换步 | 给定 ReadyToRestart，当采纳替换失败，则落 Failed(Install) | 2026-09-26 |
+| cancel_only_interrupts_a_download | 取消仅对下载有效 | 给定 Idle/Checking/Downloading，当 cancel，则仅下载中取消令牌并回 UpdateAvailable，其余拒绝 | 2026-09-26 |
+| late_outcomes_are_rejected_by_phase_guards | 迟到回包被相位守卫拒绝 | 给定已离开中间相位的状态机，当重放各回包，则一律拒绝且状态不动 | 2026-09-26 |
+| update_available_clears_when_a_new_check_finds_nothing_newer | 新检查收回旧提示 | 给定 UpdateAvailable，当重新检查发现无新版，则落 UpToDate 且目标撤下 | 2026-09-26 |
+
+### crates/gloss-app/src/update/download.rs
+
+整包下载与校验（L1，mock HTTP 服务器驱动）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| full_download_verifies_and_lands_at_dest | 全量下载落位 | 给定 200 全量响应，当下载，则 size/sha256 校验通过、原子改名落位且 .partial 消失 | 2026-09-26 |
+| truncated_stream_keeps_partial_for_resume | 断连保留残料 | 给定提前断连的响应，当下载失败，则报长度/传输错误且 .partial 保留在途字节 | 2026-09-26 |
+| resume_from_partial_completes_and_verifies | 续传完成并全量校验 | 给定遗留 .partial 与支持 Range 的服务器（206），当 resume 下载，则拼接完整、校验通过、落位 | 2026-09-26 |
+| server_without_range_support_restarts_from_scratch | 不支持 Range 整体重下 | 给定忽略 Range 的服务器（200），当 resume 下载，则从头重下且结果完整不重复 | 2026-09-26 |
+| sha_mismatch_discards_the_partial | 校验不符拒绝并丢弃 | 给定 sha256 与清单不符的响应，当下载完成，则报 ShaMismatch 且 .partial 已丢弃 | 2026-09-26 |
+| oversize_response_is_rejected_and_discarded | 超长响应拒绝 | 给定超过清单 size 的响应，当下载，则报 TooLarge 且 .partial 已丢弃 | 2026-09-26 |
+| cancellation_returns_cancelled_without_dest | 取消即取消 | 给定已取消的令牌，当下载，则报 Cancelled 且无落位文件 | 2026-09-26 |
+| bad_artifact_url_is_rejected_before_any_request | 非法产物名前置拒绝 | 给定取不出文件名的 url，当下载，则在发起请求前报 Network | 2026-09-26 |
+
+### crates/gloss-app/src/update/install.rs
+
+bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| replace_swaps_bundle_and_leaves_no_litter | 替换换装无残留 | 给定旧 bundle 与合法 zip，当 replace，则新 bundle 就位原路径、.app.old 清除、解压现场清空 | 2026-09-26 |
+| replace_over_a_stale_app_old_still_succeeds | 残留 .app.old 先清场 | 给定上次替换遗留的 .app.old，当替换，则先清场并成功换装 | 2026-09-26 |
+| zip_without_a_structured_app_leaves_the_bundle_intact | 坏 zip 不动原 bundle | 给定非 zip 文件，当 replace，则报 Unzip 且已安装 bundle 原样 | 2026-09-26 |
+| zip_with_an_app_missing_macos_dir_is_invalid_structure | 包结构检查 | 给定缺 Contents/MacOS 的 .app zip，当 replace，则报 InvalidStructure 且原 bundle 原样 | 2026-09-26 |
+| unwritable_dir_is_reported_before_anything_is_touched | 只读目录前置拒绝 | 给定只读的 bundle 目录，当安装，则报 Unwritable 且 bundle 未被触碰 | 2026-09-26 |
+
 ### crates/gloss-app/src/ui/fonts.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -530,6 +662,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | field_errors_are_worded_per_locale | 字段错误按 locale 出措辞 | 给定全部九类字段错误（含行号与触发键回显两种模板），当按中英文表取文案，则各出对应措辞（换臂或漏译会被抓住） | 2026-09-23 |
 | every_notice_renders_its_localized_prefix_and_detail | 三类提示的中英措辞 | 给定三类壳回写提示（各带同一诊断），当按中英表取文案，则前缀与诊断都按表落地、且无残留的 {{占位符}}（两条从未渲染过的模板由此覆上） | 2026-09-22 |
 | base_url_errors_map_to_their_own_field_error | Base URL 错因映射到字段错误 | 给定五类 BaseUrlError，当映射，则空/语法与 https/内嵌凭据/查询参数各落到对应 FieldError（内嵌凭据与查询参数两臂易错） | 2026-09-22 |
+| update_section_buttons_follow_the_phase | 更新区动作按钮随相位 | 给定七个带动作的更新相位，当点对应按钮，则上交 Check/ConfirmDownload/Cancel/ConfirmRestart/Retry 之一 | 2026-09-27 |
+| update_busy_phases_offer_no_action_and_show_the_target_version | 忙碌相位无动作、显示目标版本 | 给定 Checking/ReadyToRestart，当渲染，则无任何更新动作上交；UpdateAvailable 的行标签含目标版本号 | 2026-09-27 |
+| failed_install_shows_the_install_hint | 替换失败附安装指引 | 给定 Failed(Install)，当渲染，则指引行可见（DMG 装入 / 权限出口）且无副作用动作 | 2026-09-27 |
 
 ### crates/gloss-app/src/ui/style.rs
 
@@ -606,6 +741,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | api_disabled_after_trusted_check_maps_to_denied | 授权后 API 禁用仍映射拒绝 | 给定授权后 AX 报 APIDisabled，当映射，则仍是 AccessibilityDenied | 2026-09-19 |
 | adjacent_error_codes_are_told_apart | 相邻错误码区分 | 给定相邻码 -25211（APIDisabled）与 -25212（NoValue），当映射，则前者 Denied、后者 Unavailable | 2026-09-19 |
 | other_ax_errors_map_to_unavailable | 其余 AX 错误映射不可用 | 给定 -25206/-25213/-25200，当映射，则归 SelectionUnavailable | 2026-09-19 |
+
+### crates/gloss-platform/src/permissions.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| accessibility_denied_is_recognized | 权限错误语义识别 | 给定 AccessibilityDenied 与其它取材错误，当识别，则前者命中、其余不误伤 | 2026-09-29 |
 
 ### crates/gloss-platform/src/selection/composite.rs
 

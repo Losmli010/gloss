@@ -276,11 +276,13 @@ impl GlossApp {
                 "task failed"
             );
         } else {
-            debug!(
+            // 陈旧失败的丢弃是竞速语义（新划词覆盖旧划词），但这条线正是
+            // 「划了没弹窗」的排查盲区——升为 info 保证默认日志可见。
+            info!(
                 thread = thread::UI,
                 generation = generation,
                 current = self.machine.generation(),
-                "stale task failed dropped"
+                "stale task failed dropped, superseded by a newer gesture"
             );
         }
         accepted

@@ -35,6 +35,10 @@ logs-dir:
 logs *args:
     @python3 scripts/dev/gloss-logs.py {{args}}
 
+# 本地预览站点（web/，同源无 manifest.json 时页面走 GitHub Releases 降级路径）
+site-preview port="8137":
+    python3 -m http.server {{port}} --directory web
+
 # Debug 构建整个 workspace
 build:
     cargo build --workspace
@@ -173,6 +177,10 @@ smoke-app app:
 # 校验发布 tag 与版本单点一致
 release-check tag:
     ./scripts/release/check-release-tag.sh {{tag}}
+
+# 本地生成站点 manifest.json 到 stdout（artifacts 目录须含双架构 zip/dmg 四个产物）
+gen-manifest tag artifacts-dir:
+    ./scripts/release/gen-manifest.sh {{tag}} {{artifacts-dir}}
 
 # 基于 conventional commits 生成 CHANGELOG
 changelog:

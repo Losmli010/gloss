@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Gloss 主标 — 划·译（glossline）</title>
+  <desc>灰条（原文，次要）→ 白条（译文，主角）→ 橙色划线（划词动作）。满幅设计稿，四角圆角为图标底形；派生出的 macOS 规范画布版见 gloss-app-icon.svg。</desc>
+  <defs>
+    <linearGradient id="gtile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4699E4"/>
+      <stop offset="1" stop-color="#2F7FD0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#gtile)"/>
+  <rect x="272" y="336" width="300" height="58" rx="29" fill="#FFFFFF" fill-opacity="0.55"/>
+  <rect x="272" y="440" width="480" height="74" rx="37" fill="#FFFFFF"/>
+  <path d="M 276 640 Q 512 688 748 618" fill="none" stroke="#EE7443" stroke-width="50" stroke-linecap="round"/>
+</svg>
