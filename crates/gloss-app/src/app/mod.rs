@@ -34,7 +34,7 @@ use winit::dpi::LogicalSize;
 
 use crate::channel::AppEndpoints;
 use crate::i18n::Text;
-use crate::machine::TaskStateMachine;
+use crate::machine::{AppState, TaskStateMachine};
 use crate::ui::settings::{self, SettingsAction, SettingsState};
 use crate::update::UpdateWiring;
 use crate::windows::WindowManager;
@@ -77,6 +77,10 @@ struct GlossApp {
     /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
     /// 代数对不上（热键触发、陈旧）时浮层回落居中。
     selection_anchor: Option<(u64, ScreenPoint)>,
+    /// 触发即显挂起：占代数的触发置位，下一次 drain_events 消费
+    /// （那里才有 ActiveEventLoop 可做定位与显示；显形判定在
+    /// `overlay::should_reveal`）。
+    pending_reveal: bool,
     /// 当前任务的 span（触发点创建）与它所属的代数：随通道②③下发，让接收
     /// 线程的日志自动带上 `generation`。重试沿用同一个（代数不变）。
     task_span: Option<(u64, Span)>,
@@ -115,6 +119,7 @@ impl GlossApp {
             applied_theme: None,
             selection_anchor: None,
             task_span: None,
+            pending_reveal: false,
             update,
         }
     }
@@ -152,7 +157,13 @@ impl GlossApp {
         if let Some(sizing) = sizing
             && let Some(windows) = &mut self.windows
         {
-            windows.set_overlay_size(LogicalSize::new(sizing.width as f64, sizing.height as f64));
+            // 流式期间走防抖尺寸（锁宽 + 步进增高），其余状态按精确尺寸
+            // 重排——TaskDone 的定型重排也走这一支。
+            let streaming = self.machine.state() == AppState::Translating;
+            windows.set_overlay_size(
+                LogicalSize::new(sizing.width as f64, sizing.height as f64),
+                streaming,
+            );
         }
     }
 

@@ -20,9 +20,21 @@ const WORK_AREA_MARGIN: f64 = 96.0;
 /// 浮层尺寸变化小于该阈值不重设窗口（防 egui 布局与 winit resize 的
 /// 帧迟滞来回抖动）。
 const RESIZE_EPSILON: f64 = 0.5;
+/// 流式期间的增高步长（逻辑点）：逐 chunk 的内容增长被量化成台阶，
+/// 避免每个增量都触发一次窗口 resize。
+const STREAM_HEIGHT_STEP: f64 = 48.0;
 /// 设置窗口尺寸：全部配置区块一屏放下的紧凑初值（可拖拽调整）。
 const SETTINGS_WIDTH: f64 = 460.0;
 const SETTINGS_HEIGHT: f64 = 640.0;
+
+/// 流式防抖尺寸：宽度保持当前档（popup 的宽度滞回到完成态
+/// 再一次应用），高度向上量化到 [`STREAM_HEIGHT_STEP`] 的倍数且相对
+/// 当前值**只增不减**——内容回缩留给完成态的精确重排。
+fn debounced_size(current: LogicalSize<f64>, requested: LogicalSize<f64>) -> LogicalSize<f64> {
+    let steps = (requested.height / STREAM_HEIGHT_STEP).ceil();
+    let stepped = (steps * STREAM_HEIGHT_STEP).max(current.height);
+    LogicalSize::new(current.width, stepped)
+}
 
 /// 浮层在指定显示器上居中的全局桌面坐标（winit 的窗口定位口径是跨显示
 /// 器的桌面坐标，主显示器左上为原点；显示器尺寸按各自缩放比例换算）。
@@ -138,8 +150,19 @@ impl WindowManager {
     /// 时触发 resize；尺寸变化后按摆放意图重定位（显示入口只能按上一帧
     /// 尺寸算位置：居中者不重定位会向下溢出屏幕，定点者不重定位会被
     /// 旧尺寸的钳制结果挤离锚点）。
-    pub fn set_overlay_size(&mut self, size: LogicalSize<f64>) {
-        let capped = self.cap_height_to_screen(size);
+    ///
+    /// `debounced` 为真时走流式防抖（[`debounced_size`]）：宽度
+    /// 锁定当前档、高度按步长只增不减；为假（骨架/失败/完成态）按精确
+    /// 尺寸重排——TaskDone 的定型也走这一支。
+    pub fn set_overlay_size(&mut self, size: LogicalSize<f64>, debounced: bool) {
+        // 顺序：先防抖量化、再按屏幕钳制——反过来的话，量化取整会把已
+        // 钳到屏高的高度又推回去（800 → 816），每帧在边界上抖动。
+        let sized = if debounced {
+            debounced_size(self.overlay_size, size)
+        } else {
+            size
+        };
+        let capped = self.cap_height_to_screen(sized);
         if (capped.width - self.overlay_size.width).abs() < RESIZE_EPSILON
             && (capped.height - self.overlay_size.height).abs() < RESIZE_EPSILON
         {
@@ -368,5 +391,52 @@ mod tests {
             LogicalPosition::new(1440.0, 0.0),
             "显示器比浮层还小时贴原点（max 取 0）"
         );
+    }
+}
+
+#[cfg(test)]
+mod debounce_tests {
+    use super::{STREAM_HEIGHT_STEP, debounced_size};
+    use winit::dpi::LogicalSize;
+
+    const CURRENT: LogicalSize<f64> = LogicalSize::new(380.0, 200.0);
+
+    #[test]
+    fn width_is_locked_to_the_current_tier() {
+        let grown = debounced_size(CURRENT, LogicalSize::new(480.0, 400.0));
+        assert_eq!(grown.width, 380.0, "streaming must not switch width tiers");
+        assert_eq!(
+            grown.height, 432.0,
+            "height quantizes up to a step multiple"
+        );
+    }
+
+    #[test]
+    fn height_steps_up_in_quantized_increments() {
+        let grown = debounced_size(CURRENT, LogicalSize::new(380.0, 205.0));
+        assert_eq!(
+            grown.height, 240.0,
+            "one step past the current height is a full step"
+        );
+        assert_eq!(STREAM_HEIGHT_STEP, 48.0);
+    }
+
+    #[test]
+    fn height_never_shrinks_during_streaming() {
+        let shrunk = debounced_size(CURRENT, LogicalSize::new(380.0, 80.0));
+        assert_eq!(
+            shrunk.height, 200.0,
+            "content shrinkage waits for the final relayout"
+        );
+    }
+
+    #[test]
+    fn current_size_quantizes_up_to_the_step_boundary() {
+        let same = debounced_size(CURRENT, CURRENT);
+        assert_eq!(
+            same.height, 240.0,
+            "the first streaming frame lands on the step boundary above the skeleton"
+        );
+        assert_eq!(same.width, CURRENT.width);
     }
 }

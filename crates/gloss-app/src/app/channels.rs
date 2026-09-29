@@ -9,7 +9,7 @@ use crate::channel::{AcquireCommand, Command, Event, PlatformEvent, Traced};
 use crate::machine::{InputOutcome, RunRequest, TriggerDecision, trigger_decision};
 
 use super::GlossApp;
-use super::overlay::{auto_show_after, centered_position, event_kind, show_position};
+use super::overlay::{centered_position, event_kind, should_reveal, show_position};
 
 impl GlossApp {
     /// 消费通道①：平台事件 → 取材命令。只有真实下发的命令才占用新代数
@@ -60,6 +60,9 @@ impl GlossApp {
                     self.selection_anchor = Some((self.machine.generation(), pos));
                 }
                 self.send_acquire(command, span);
+                // 触发即显：骨架浮层跟这代任务走；显示动作由
+                // drain_events 执行（那里才有 ActiveEventLoop）。
+                self.pending_reveal = true;
             } else {
                 // 三类拦下各有各的级别与措辞：被任务开关停用的触发是用户
                 // 能自己修的配置问题；被场景闸门拦下的是「这一次的场景不
@@ -110,10 +113,13 @@ impl GlossApp {
     /// 丢弃，浮层只显示最后一次请求的结果。状态决策在 machine，壳只做
     /// 通道发送、浮层展示与日志。
     ///
-    /// 浮层「什么时候自动露面」抽在 [`super::overlay::auto_show_for`] /
-    /// [`super::overlay::auto_show_after`] 这两个纯函数里：取材成功与
-    /// 失败即弹，其余类别不负责露面。
+    /// 浮层「什么时候露面」抽在 [`super::overlay::should_reveal`]（内含
+    /// [`super::overlay::auto_show_after`] 的按批判定）：触发即显骨架经
+    /// `pending_reveal` 显形，失败即弹，其余类别不负责露面。
     pub(super) fn drain_events(&mut self, event_loop: &ActiveEventLoop) {
+        // 触发即显的挂起请求：platform 事件分支在占代数的触发后置位，
+        // 这里消费——骨架浮层与通道④回传共用同一个显示出口。
+        let pending_reveal = std::mem::take(&mut self.pending_reveal);
         let events: Vec<Event> = self
             .endpoints
             .as_ref()
@@ -138,7 +144,9 @@ impl GlossApp {
             };
             batch.push((kind, accepted));
         }
-        if auto_show_after(batch)
+        // 显形决策（守卫与「显形或失败即弹」的取舍）在 should_reveal：
+        // 这里只递交挂起请求、机器当前视图与本批回传。
+        if should_reveal(pending_reveal, self.machine.overlay_view().is_some(), batch)
             && let Some(windows) = &mut self.windows
         {
             // 划词触发的浮层跟随选区（代数对得上时），否则居中；屏幕
@@ -406,8 +414,12 @@ mod tests {
 
         assert!(!app.accept_chunk(1, "迟到A".into()));
         assert!(
-            !streaming_body(&app).contains("迟到A"),
-            "late chunk of A must not bleed into the overlay"
+            matches!(
+                app.machine.overlay_view(),
+                Some(crate::machine::OverlayView::Acquiring)
+            ),
+            "the superseding trigger replaced A's streaming body with the skeleton, \
+             so its late chunk has nowhere to bleed"
         );
 
         assert!(app.accept_input(2, text_input("B")));

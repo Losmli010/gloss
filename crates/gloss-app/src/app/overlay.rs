@@ -1,5 +1,5 @@
-//! 浮层显隐：显示入口、收起出口与浮层动作执行，附 auto_show 露面策略
-//! 的纯函数。
+//! 浮层显隐：显示入口、收起出口与浮层动作执行，附露面与显形决策的
+//! 纯函数。
 
 use gloss_core::log::{debug, info, thread};
 use gloss_core::model::ScreenPoint;
@@ -129,12 +129,16 @@ pub(super) fn event_kind(event: &Event) -> EventKind {
 /// 单个回传事件后浮层要不要自动露面。
 ///
 /// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
-/// 取材成功即弹（看到浮层就知道「划到了、正在查」）、失败总弹（错误
-/// 不该被吞掉）；分类结果与流式增量只在已可见的浮层上更新、完成时浮层
-/// 早已可见——三者都不负责露面。
+/// 露面的两个来源：触发即显的骨架（经壳层 `pending_reveal`，见
+/// [`should_reveal`]——那时还没有回传事件），与失败总弹（错误不该被
+/// 吞掉）。
+/// 取材成功不再负责露面：骨架已把浮层带到屏上，采纳后整卡换成流式
+/// 视图即可；用户若在取材中收起浮层，机器回 Idle，陈旧的取材产物
+/// 采纳不上，自然也不会把浮层弹回。分类结果、流式增量与完成态都只在
+/// 已可见的浮层上更新——三者同样不负责露面。
 fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
     match kind {
-        EventKind::InputReady => accepted,
+        EventKind::InputReady => false,
         EventKind::TaskFailed => accepted,
         EventKind::TaskClassified | EventKind::TaskDone | EventKind::TaskChunk => false,
     }
@@ -147,6 +151,18 @@ pub(super) fn auto_show_after(batch: impl IntoIterator<Item = (EventKind, bool)>
         .any(|(kind, accepted)| auto_show_for(kind, accepted))
 }
 
+/// 一批回传处理后浮层要不要显形：触发即显的挂起请求（`pending`）要求
+/// 机器确有视图——视图为空时弹出的会是渲染自检卡（挂起置位与消费之间
+/// 没有插入点，两段 drain 同帧连跑，守卫只为防御）；挂起显形不依赖
+/// 回传批次，与批次内的「失败即弹」任一成立即显示。
+pub(super) fn should_reveal(
+    pending: bool,
+    has_view: bool,
+    batch: impl IntoIterator<Item = (EventKind, bool)>,
+) -> bool {
+    (pending && has_view) || auto_show_after(batch)
+}
+
 #[cfg(test)]
 mod tests {
     use gloss_core::model::ScreenPoint;
@@ -157,7 +173,7 @@ mod tests {
     use crate::machine::{AppState, ErrorAction, OverlayView};
     use winit::dpi::LogicalPosition;
 
-    use super::{EventKind, auto_show_after, auto_show_for, show_position};
+    use super::{EventKind, auto_show_after, auto_show_for, should_reveal, show_position};
     use crate::windows::Placement;
 
     #[test]
@@ -300,8 +316,8 @@ mod tests {
     fn auto_show_policy_decides_when_the_overlay_pops() {
         use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
 
-        assert!(auto_show_for(InputReady, true));
-        assert!(!auto_show_for(TaskDone, true), "浮层早在取材时就已可见");
+        assert!(!auto_show_for(InputReady, true), "骨架已代为露面");
+        assert!(!auto_show_for(TaskDone, true), "完成时浮层早已可见");
         assert!(!auto_show_for(TaskChunk, true), "chunk 只追加不露面");
         assert!(auto_show_for(TaskFailed, true), "错误不该被吞掉");
 
@@ -318,7 +334,7 @@ mod tests {
         use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
 
         assert!(
-            auto_show_after([(TaskChunk, true), (InputReady, true)]),
+            auto_show_after([(TaskChunk, true), (TaskFailed, true)]),
             "任一事件要显示就显示"
         );
         assert!(
@@ -330,5 +346,41 @@ mod tests {
             "整批都没被采纳（陈旧）→ 不显示：迟到的产物不得把浮层弹回来"
         );
         assert!(!auto_show_after([]), "空批不显示");
+    }
+
+    #[test]
+    fn pending_reveal_shows_the_skeleton_only_over_a_live_view() {
+        use EventKind::TaskFailed;
+
+        assert!(
+            should_reveal(true, true, []),
+            "触发即显：骨架视图在场时挂起请求即显形"
+        );
+        assert!(
+            !should_reveal(true, false, []),
+            "视图为空时弹出的会是渲染自检卡，守卫必须拦下挂起显形"
+        );
+        assert!(
+            !should_reveal(false, false, [(TaskFailed, false)]),
+            "无挂起且批次里没有失败即弹时不显示"
+        );
+    }
+
+    #[test]
+    fn reveal_decision_combines_the_pending_request_with_the_batch() {
+        use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
+
+        assert!(
+            should_reveal(true, true, [(TaskDone, false), (InputReady, false)]),
+            "挂起显形不依赖回传批次：整批陈旧也拦不下它"
+        );
+        assert!(
+            should_reveal(false, false, [(TaskFailed, true)]),
+            "失败即弹独立成立：无挂起也照常显示"
+        );
+        assert!(
+            !should_reveal(false, true, [(InputReady, true), (TaskChunk, true)]),
+            "取材成功与流式增量不负责露面：批次再新鲜也不显形"
+        );
     }
 }

@@ -1,4 +1,4 @@
-//! 浮层内容：按 [`TaskKind`] 分发的结果卡与流式/失败视图。
+//! 浮层内容：按 [`TaskKind`] 分发的骨架、结果卡与流式/失败视图。
 //!
 //! 词卡精排（音标/词性/释义/例句），其余任务展示 markdown 正文
 //! （egui_commonmark 渲染；OCR 提取文本保持纯文本，不按 markdown 解释）。
@@ -204,6 +204,19 @@ fn render_content(
             let action = header(ui, Some(text.gloss_popup_selfcheck.as_str()), false, text);
             ui.add_space(space::SECTION);
             selfcheck_body(ui);
+            *content_h = ui.min_rect().height();
+            action
+        }
+        Some(OverlayView::Acquiring) => {
+            // 取材骨架（触发即显）：头部旋转指示器 + 弱色占位行。没有
+            // 选区数据可展示，整卡保持紧凑，取材完成即整卡替换。
+            let action = header(ui, None, true, text);
+            ui.add_space(space::SECTION);
+            ui.label(
+                RichText::new(text.gloss_popup_fetching.as_str())
+                    .size(font::NOTICE)
+                    .color(ui.visuals().weak_text_color()),
+            );
             *content_h = ui.min_rect().height();
             action
         }
@@ -582,6 +595,10 @@ mod kittest_tests {
         }
     }
 
+    fn acquiring_view() -> OverlayView {
+        OverlayView::Acquiring
+    }
+
     fn failed_view() -> OverlayView {
         OverlayView::Failed {
             cause: FailureCause::Task(GlossError::EngineNetwork),
@@ -691,6 +708,18 @@ mod kittest_tests {
     }
 
     #[test]
+    fn acquiring_view_shows_the_fetching_skeleton() {
+        let (mut harness, _clicked) = harness_for(acquiring_view());
+        harness.run_steps(3);
+        harness.get_by_label_contains("正在读取选区");
+        let fence_visible = harness.query_all_by_label_contains("原文").next().is_some();
+        assert!(
+            !fence_visible,
+            "the skeleton carries no source or streaming content"
+        );
+    }
+
+    #[test]
     fn streaming_view_hides_structured_block() {
         let (mut harness, _clicked) = harness_for(streaming_view());
         harness.run_steps(3);
@@ -791,6 +820,11 @@ mod kittest_tests {
         let (mut harness, _clicked) = harness_for(word_card_view());
         harness.run();
         harness.snapshot("popup_word_card");
+        results.extend_harness(&mut harness);
+
+        let (mut harness, _clicked) = harness_for(acquiring_view());
+        harness.run_steps(3);
+        harness.snapshot("popup_acquiring");
         results.extend_harness(&mut harness);
 
         let (mut harness, _clicked) = harness_for(streaming_view());
