@@ -1,23 +1,31 @@
 //! 通道③ → [`AiTaskService`] → 通道④ 的 tokio 消费桥（推理在
 //! tokio 后台，主线程不 await）。
 //!
-//! 每条 `RunTask` 的取消令牌经 `select!` 与 execute 竞速——取消在流式
-//! 读取的多个 await 点上即时生效，被取消的任务静默丢弃（App 已推进代
-//! 数，任何迟到产物都会被判 stale）。任务 future 包在 `catch_unwind`
-//! 里（后台 panic 被 tokio 捕获转为 TaskFailed）：引擎或编排
-//! 层炸掉时用户拿到失败卡而不是永悬的「推理中」，消费循环继续存活。
-//! 运行时由 [`start_command_runtime`] 创建并托管，进程退出时随通道③
-//! 关闭自然收尾。
+//! 桥的职责面：**缓存编排 + body 累积 + 产物组装**。core 服务只渲染与
+//! 转发——桥在派发前查主缓存（key = `cache_key`，命中直出 TaskDone、
+//! 不调引擎），在转发回调里累积原始 body 并逐条上抛 TaskChunk，流走完后
+//! 经 `finalize_outcome` 组装产物回填缓存再发 TaskDone；引擎失败不写缓存。
+//! machine 侧另有显示用的流式累积，与这里的完成态累积并存：**完成态以
+//! TaskDone 的 `outcome.body` 为权威源**（accept_done 用它整卡覆盖）。
+//!
+//! 每条 `RunTask` 的取消令牌经 `select!` 与执行竞速——取消在流式读取的
+//! 多个 await 点上即时生效，被取消的任务静默丢弃（App 已推进代数，任何
+//! 迟到产物都会被判 stale）。任务 future 包在 `catch_unwind` 里（后台
+//! panic 被 tokio 捕获转为 TaskFailed）：引擎或编排层炸掉时用户拿到失败
+//! 卡而不是永悬的「推理中」，消费循环继续存活。运行时由
+//! [`start_command_runtime`] 创建并托管，进程退出时随通道③关闭自然收尾。
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use crossbeam_channel::Sender;
 use futures::FutureExt;
+use gloss_core::cache::cache_key;
 use gloss_core::config::DEFAULT_TEXT_MODEL;
-use gloss_core::engine::AiTaskService;
-use gloss_core::log::{Instrument, debug, thread, warn};
+use gloss_core::engine::{AiTaskService, finalize_outcome};
+use gloss_core::log::{Instrument, debug, info, thread, warn};
 use gloss_core::model::GlossError;
+use gloss_core::ports::Cache;
 use gloss_core::task::Task;
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -42,10 +50,12 @@ impl Drop for CommandRuntime {
     }
 }
 
-/// 创建 tokio 运行时并启动消费循环。`wake` 在每条回传事件入队后调用，
-/// 唤醒睡在主线程事件循环里的 UI。
+/// 创建 tokio 运行时并启动消费循环。`cache` 是主产物缓存（编排在本桥，
+/// 见模块文档）；`wake` 在每条回传事件入队后调用，唤醒睡在主线程事件
+/// 循环里的 UI。
 pub fn start_command_runtime(
     service: Arc<AiTaskService>,
+    cache: Arc<dyn Cache>,
     commands: UnboundedReceiver<Traced<Command>>,
     events: Sender<Event>,
     wake: impl Fn() + Send + Sync + 'static,
@@ -53,7 +63,7 @@ pub fn start_command_runtime(
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    rt.spawn(consume_loop(service, commands, events, wake));
+    rt.spawn(consume_loop(service, cache, commands, events, wake));
     Ok(CommandRuntime { rt: Some(rt) })
 }
 
@@ -61,45 +71,41 @@ pub fn start_command_runtime(
 /// 随事件循环结束 drop）后循环结束。
 async fn consume_loop(
     service: Arc<AiTaskService>,
+    cache: Arc<dyn Cache>,
     mut commands: UnboundedReceiver<Traced<Command>>,
     events: Sender<Event>,
     wake: impl Fn() + Send + Sync,
 ) {
     while let Some(job) = commands.recv().await {
         // Command 当前只有 RunTask 一个变体，直接解构；span 来自触发点，
-        // 进入它让引擎内部的日志自动带上代数。
+        // 进入它让缓存与引擎内部的日志自动带上代数。
         let Traced { payload, span } = job;
         let Command::RunTask {
             generation,
             task,
             cancel,
         } = payload;
-        let model = match model_for(&task) {
-            Ok(model) => model,
-            Err(error) => {
-                // 没有可用模型（图像任务未配视觉模型）：明确失败，不拿文本模型
-                // 去接图像任务——用户看到的是「去设置页配模型」，而不是服务端
-                // 400 的转述。
-                send_event(&events, &wake, Event::TaskFailed { generation, error });
-                continue;
-            }
-        };
-        // 取消与 execute 竞速：取消即时生效，覆盖 execute 内部的全部
-        // await 点（渲染、缓存、流式读取）。被取消的任务不发任何回传——
-        // App 取消时已 gen+1，迟到产物本就该被丢弃。
+        // 取消与执行竞速：取消即时生效，覆盖缓存查询与流式读取的全部
+        // await 点。被取消的任务不发任何回传——App 取消时已 gen+1，迟到
+        // 产物本就该被丢弃。
         //
-        // execute 包在 catch_unwind 里：后台 panic 转 TaskFailed（错误
-        // 卡给用户「服务异常」而不是永悬的推理中），循环自身继续消费。
+        // 执行体包在 catch_unwind 里：后台 panic 转 TaskFailed（错误卡给
+        // 用户「服务异常」而不是永悬的推理中），循环自身继续消费。
         async {
             tokio::select! {
                 _ = cancel.cancelled() => {
                     debug!(thread = thread::TOKIO, "task cancelled, result dropped");
                 }
-            outcome = std::panic::AssertUnwindSafe(service.execute(&task, model, |delta| {
-                send_event(&events, &wake, Event::TaskChunk { generation, delta });
-            }))
+            outcome = std::panic::AssertUnwindSafe(run_task(
+                service.as_ref(),
+                cache.as_ref(),
+                generation,
+                &task,
+                &events,
+                &wake,
+            ))
             .catch_unwind() => match outcome {
-                Ok(Ok(outcome)) => send_event(&events, &wake, Event::TaskDone { generation, outcome }),
+                Ok(Ok(())) => {}
                 Ok(Err(error)) => send_event(&events, &wake, Event::TaskFailed { generation, error }),
                 Err(payload) => {
                     let detail = panic_detail(&payload);
@@ -129,6 +135,63 @@ async fn consume_loop(
         thread = thread::TOKIO,
         "command channel closed, consumer exits"
     );
+}
+
+/// 单个任务的桥侧执行体：模型解析 → 主缓存查询（命中直出）→ 服务渲染
+/// 转发（增量上抛 + body 累积）→ `finalize_outcome` 组装 → 回填缓存 →
+/// TaskDone。`Err` 交给调用方转 TaskFailed——失败路径不写缓存，下次触发
+/// 重新执行。
+async fn run_task(
+    service: &AiTaskService,
+    cache: &dyn Cache,
+    generation: u64,
+    task: &Task,
+    events: &Sender<Event>,
+    wake: &(impl Fn() + Send + Sync),
+) -> Result<(), GlossError> {
+    let model = model_for(task)?;
+    let key = cache_key(task, model);
+    if let Some(outcome) = cache.get(key) {
+        info!(
+            kind = ?task.kind,
+            model = %model,
+            "cache hit, engine call skipped"
+        );
+        send_event(
+            events,
+            wake,
+            Event::TaskDone {
+                generation,
+                outcome,
+            },
+        );
+        return Ok(());
+    }
+    debug!(
+        kind = ?task.kind,
+        model = %model,
+        "cache miss, calling the engine"
+    );
+
+    let mut body = String::new();
+    service
+        .execute(task, model, |delta| {
+            body.push_str(&delta);
+            send_event(events, wake, Event::TaskChunk { generation, delta });
+        })
+        .await?;
+
+    let outcome = finalize_outcome(task.kind, &body);
+    cache.set(key, outcome.clone());
+    send_event(
+        events,
+        wake,
+        Event::TaskDone {
+            generation,
+            outcome,
+        },
+    );
+    Ok(())
 }
 
 /// 从 panic payload 提取诊断文本（只认 `&str` / `String` 载体，其余没有
@@ -192,13 +255,18 @@ mod tests {
         CommandRuntime,
     ) {
         let service = Arc::new(AiTaskService::new(
-            Arc::new(engine.clone()) as Arc<dyn gloss_core::ports::AiEngine>,
-            Arc::new(MokaCache::new()),
+            Arc::new(engine.clone()) as Arc<dyn gloss_core::ports::AiEngine>
         ));
         let (commands_tx, commands_rx) = unbounded_channel();
         let (events_tx, events_rx) = crossbeam_channel::unbounded();
-        let runtime = start_command_runtime(service, commands_rx, events_tx, || {})
-            .expect("runtime should start");
+        let runtime = start_command_runtime(
+            service,
+            Arc::new(MokaCache::new()),
+            commands_rx,
+            events_tx,
+            || {},
+        )
+        .expect("runtime should start");
         (commands_tx, events_rx, runtime)
     }
 

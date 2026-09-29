@@ -115,7 +115,9 @@ fn load_config() -> Result<ConfigWiring, Box<dyn Error>> {
     Ok((handle, store))
 }
 
-/// 装配推理服务（启动骨架第 6 步）：真实引擎 + moka 缓存。
+/// 装配推理服务（启动骨架第 6 步）：真实引擎。主产物缓存不在这里——
+/// 缓存编排归 gloss-app 的消费桥（`pipeline::start_command_runtime`），
+/// 服务只做渲染与转发。
 ///
 /// 引擎构造失败（HTTP/TLS 栈起不来）是启动硬错误——不装配服务就进事件
 /// 循环的话，通道③没有消费者，用户触发的任务会静默石沉大海（
@@ -126,8 +128,7 @@ fn build_service(
 ) -> Result<Arc<AiTaskService>, Box<dyn Error>> {
     let engine = LlmClient::new(Arc::clone(config), Arc::clone(store))?;
     Ok(Arc::new(AiTaskService::new(
-        Arc::new(engine) as Arc<dyn AiEngine>,
-        Arc::new(MokaCache::new()),
+        Arc::new(engine) as Arc<dyn AiEngine>
     )))
 }
 
@@ -231,11 +232,14 @@ fn run_event_loop(
                 update_waker.wake_settings();
             });
             // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
-            // 睡在事件循环里的主线程。运行时存活至 run_event_loop 结束——
+            // 睡在事件循环里的主线程。主产物缓存在这里交给桥（编排见
+            // gloss_app::pipeline）。运行时存活至 run_event_loop 结束——
             // App drop 关闭通道③后，消费循环自行退出。
             let runtime_waker = waker.clone();
+            let cache: Arc<dyn gloss_core::ports::Cache> = Arc::new(MokaCache::new());
             match gloss_app::pipeline::start_command_runtime(
                 service,
+                cache,
                 commands_rx,
                 events_tx.clone(),
                 move || {
