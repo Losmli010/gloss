@@ -741,6 +741,12 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | adjacent_error_codes_are_told_apart | 相邻错误码区分 | 给定相邻码 -25211（APIDisabled）与 -25212（NoValue），当映射，则前者 Denied、后者 Unavailable | 2026-09-19 |
 | other_ax_errors_map_to_unavailable | 其余 AX 错误映射不可用 | 给定 -25206/-25213/-25200，当映射，则归 SelectionUnavailable | 2026-09-19 |
 
+### crates/gloss-platform/src/permissions.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| accessibility_denied_is_recognized | 权限错误语义识别 | 给定 AccessibilityDenied 与其它取材错误，当识别，则前者命中、其余不误伤 | 2026-09-29 |
+
 ### crates/gloss-platform/src/selection/composite.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
