@@ -56,8 +56,17 @@ pub mod stroke {
 pub mod color {
     use egui::Color32;
 
-    /// 品牌强调色（珊瑚橙）：浮层身份圆点、设置保存主按钮。
+    /// 品牌强调色（珊瑚橙）：设置保存主按钮与开关钮的着轨。
     pub const ACCENT: Color32 = Color32::from_rgb(0xD8, 0x5A, 0x30);
+
+    /// 品牌蓝：应用图标渐变的基色，页头任务标签铺底的色源。
+    pub const TAG_BLUE: Color32 = Color32::from_rgb(0x46, 0x99, 0xE4);
+
+    /// 页头任务标签文字（浅色主题）：品牌蓝压暗到白底可读的同色相变体。
+    pub const TAG_TEXT_LIGHT: Color32 = Color32::from_rgb(0x32, 0x73, 0xA9);
+
+    /// 页头任务标签文字（深色主题）：品牌蓝提亮到深底可读的同色相变体。
+    pub const TAG_TEXT_DARK: Color32 = Color32::from_rgb(0x82, 0xB8, 0xEA);
 
     /// 错误色：设置页校验失败的下划线与就地提示、校验汇总行。
     /// 与 ACCENT 同饱和度带的正红，明暗主题下均可读。

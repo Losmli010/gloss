@@ -45,7 +45,6 @@ pub(crate) struct Text {
     pub(crate) gloss_langs_fr: String,
     pub(crate) gloss_langs_other: String,
 
-    pub(crate) gloss_popup_brand: String,
     pub(crate) gloss_popup_selfcheck: String,
     pub(crate) gloss_popup_fetching: String,
     pub(crate) gloss_popup_failed: String,
@@ -213,7 +212,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            96,
+            95,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
