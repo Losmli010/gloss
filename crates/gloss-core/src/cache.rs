@@ -9,7 +9,7 @@ use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 use crate::ports::Cache;
-use crate::task::{Task, TaskOutcome};
+use crate::task::{Task, TaskKind, TaskOutcome};
 
 /// 缓存条目存活时长：任务产物在会话内重复触发收益明显，超过后过期腾位置。
 /// `pub(crate)` 供 `config` 的出厂默认用例对齐——`Config::cache_ttl_secs`
@@ -37,9 +37,12 @@ pub fn cache_key(task: &Task, model: &str) -> u64 {
 /// [`Cache`] 端口的 moka 内存实现：线程安全，`get`/`set` 可从任意线程
 /// 调用（tokio 侧与事件线程共用同一实例）。
 ///
+/// 主产物与分类缓存是两个独立 moka 实例：条目形状不同（产物卡 vs 单个
+/// kind），分开的容量/TTL 让高频划词的分类结果不会把产物卡挤出缓存。
 #[derive(Debug)]
 pub struct MokaCache {
     inner: moka::sync::Cache<u64, TaskOutcome>,
+    classify: moka::sync::Cache<u64, TaskKind>,
 }
 
 impl MokaCache {
@@ -50,16 +53,22 @@ impl MokaCache {
 
     /// 自定义 TTL（测试用短 TTL 验证过期路径）。
     pub fn with_ttl(ttl: Duration) -> Self {
-        let inner = moka::sync::Cache::builder()
-            .time_to_live(ttl)
-            .max_capacity(MAX_ENTRIES)
-            .build();
-        Self { inner }
+        Self {
+            inner: moka::sync::Cache::builder()
+                .time_to_live(ttl)
+                .max_capacity(MAX_ENTRIES)
+                .build(),
+            classify: moka::sync::Cache::builder()
+                .time_to_live(ttl)
+                .max_capacity(MAX_ENTRIES)
+                .build(),
+        }
     }
 
     /// 强制处理逐出/过期（生产代码无需调用；测试用它同步过期判定）。
     pub fn run_pending_tasks(&self) {
         self.inner.run_pending_tasks();
+        self.classify.run_pending_tasks();
     }
 }
 
@@ -76,6 +85,14 @@ impl Cache for MokaCache {
 
     fn set(&self, key: u64, value: TaskOutcome) {
         self.inner.insert(key, value);
+    }
+
+    fn get_classify(&self, key: u64) -> Option<TaskKind> {
+        self.classify.get(&key)
+    }
+
+    fn set_classify(&self, key: u64, kind: TaskKind) {
+        self.classify.insert(key, kind);
     }
 }
 

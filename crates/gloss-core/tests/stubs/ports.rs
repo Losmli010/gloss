@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use gloss_core::config::Config;
 use gloss_core::model::{GlossError, ScreenRect};
 use gloss_core::ports::{Cache, ConfigStore, HotkeyBinder, RegionCapture, SelectionReader};
-use gloss_core::task::{HotkeyBinding, TaskOutcome};
+use gloss_core::task::{HotkeyBinding, TaskKind, TaskOutcome};
 
 use super::lock_or_recover;
 
@@ -90,20 +90,30 @@ impl ConfigStore for MemoryConfigStore {
     }
 }
 
-/// 内存键值缓存桩。
+/// 内存键值缓存桩：主产物与分类缓存各一格。
 #[derive(Default)]
-pub struct MemoryCache(
+pub struct MemoryCache {
     /// key → 产物。
-    Mutex<HashMap<u64, TaskOutcome>>,
-);
+    outcomes: Mutex<HashMap<u64, TaskOutcome>>,
+    /// key → 已判定任务类型。
+    classify: Mutex<HashMap<u64, TaskKind>>,
+}
 
 impl Cache for MemoryCache {
     fn get(&self, key: u64) -> Option<TaskOutcome> {
-        lock_or_recover(&self.0).get(&key).cloned()
+        lock_or_recover(&self.outcomes).get(&key).cloned()
     }
 
     fn set(&self, key: u64, value: TaskOutcome) {
-        lock_or_recover(&self.0).insert(key, value);
+        lock_or_recover(&self.outcomes).insert(key, value);
+    }
+
+    fn get_classify(&self, key: u64) -> Option<TaskKind> {
+        lock_or_recover(&self.classify).get(&key).copied()
+    }
+
+    fn set_classify(&self, key: u64, kind: TaskKind) {
+        lock_or_recover(&self.classify).insert(key, kind);
     }
 }
 

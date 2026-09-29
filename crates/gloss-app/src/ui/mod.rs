@@ -11,6 +11,8 @@ use gloss_core::task::TaskKind;
 use crate::i18n::Text;
 
 /// 任务类型 → 界面标签（结果卡头部与设置页共用一张表，改一处两处同步）。
+/// [`TaskKind::Auto`] 是哨兵，不出现在设置清单与产物卡上——标签只服务
+/// 穷举匹配，不进正常渲染路径。
 pub(crate) fn kind_label(kind: TaskKind, text: &Text) -> &str {
     match kind {
         TaskKind::TranslateWord => &text.gloss_kinds_translate_word,
@@ -18,5 +20,6 @@ pub(crate) fn kind_label(kind: TaskKind, text: &Text) -> &str {
         TaskKind::ExplainCode => &text.gloss_kinds_explain_code,
         TaskKind::ImageOcr => &text.gloss_kinds_image_ocr,
         TaskKind::ImageExplain => &text.gloss_kinds_image_explain,
+        TaskKind::Auto => &text.gloss_kinds_auto,
     }
 }

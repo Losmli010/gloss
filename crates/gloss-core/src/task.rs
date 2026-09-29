@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 use crate::model::{GlossError, Lang, Locale, ScreenRect};
 
 /// 任务类型：新增场景 = 加变体 + Prompt 模板 + 结构化结果变体 + UI 模板，管道不动。
+///
+/// [`TaskKind::Auto`] 是**哨兵变体**：只表达「待分类」，不对应任何 prompt
+/// 模板与产物卡。它的活动范围钉死在前半程（触发 → 分类 → 重建具体 kind），
+/// 永不进 prompt 渲染、主缓存 key 与设置任务列表（`config::ALL_KINDS` 不含
+/// 它），由测试钉住。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TaskKind {
     /// 单词（词典式卡：音标/词性/释义/例句）。
@@ -19,6 +24,9 @@ pub enum TaskKind {
     ImageOcr,
     /// 框选图片 → 解释内容。
     ImageExplain,
+    /// 待分类（划词手势的默认起点）：由任务编排按输入内容自动分类后
+    /// **重建**为具体 kind，再进渲染与执行。
+    Auto,
 }
 
 /// 输入源规格：触发时确定「去哪取」，不携带数据。
@@ -32,7 +40,7 @@ pub enum InputSource {
 }
 
 /// 模态提示：为 prompt 填充提供上下文。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InputHint {
     /// 代码语言，如 "rust"。
     CodeLanguage(String),
@@ -119,6 +127,9 @@ impl TaskKind {
     /// 该任务类型是否由**文本取材**驱动（划词路径可用的任务类型集合）。
     /// 判据直接取自 [`validate_modality`] 的模态矩阵，不另立一份名单——
     /// 矩阵改了这里自动跟随。
+    ///
+    /// [`TaskKind::Auto`] 恒为 `true`：它以文本输入进入编排，分类后重建为
+    /// 具体 kind——「能吃文本」说的是运输合法性，不代表它可渲染。
     pub fn accepts_text(self) -> bool {
         validate_modality(
             self,
@@ -133,10 +144,17 @@ impl TaskKind {
 
 /// 模态约束表：任务类型与输入模态的合法组合。唯一被拒的
 /// 错误是 [`GlossError::UnsupportedModality`]。
+///
+/// `Auto + Text` 合法：哨兵以文本输入进入编排。渲染侧另有自己的收口
+/// （`PromptRegistry::render` 拒绝 Auto）——模态表管「能不能运输」，
+/// 不管「能不能渲染」。
 pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError> {
     let legal = match (kind, input) {
         (
-            TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode,
+            TaskKind::TranslateWord
+            | TaskKind::TranslateSentence
+            | TaskKind::ExplainCode
+            | TaskKind::Auto,
             TaskInput::Text { .. },
         )
         | (TaskKind::ImageOcr | TaskKind::ImageExplain, TaskInput::Image { .. }) => true,
@@ -269,6 +287,7 @@ mod tests {
         assert!(TaskKind::ExplainCode.accepts_text());
         assert!(!TaskKind::ImageOcr.accepts_text());
         assert!(!TaskKind::ImageExplain.accepts_text());
+        assert!(TaskKind::Auto.accepts_text(), "Auto travels as text input");
     }
 
     #[test]
@@ -336,11 +355,15 @@ mod tests {
             TaskKind::ExplainCode,
             TaskKind::ImageOcr,
             TaskKind::ImageExplain,
+            TaskKind::Auto,
         ];
         let text_legal = |kind| {
             matches!(
                 kind,
-                TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode
+                TaskKind::TranslateWord
+                    | TaskKind::TranslateSentence
+                    | TaskKind::ExplainCode
+                    | TaskKind::Auto
             )
         };
         let image_legal = |kind| matches!(kind, TaskKind::ImageOcr | TaskKind::ImageExplain);

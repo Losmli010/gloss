@@ -126,11 +126,19 @@ pub trait ConfigStore: Send + Sync {
 ///
 /// key = hash(kind, input, options, model)——同一文本在不同任务下不共享
 /// 缓存；调用方保证 key 由统一哈希函数派生，且派生函数须抗碰撞。
+///
+/// 主产物之外另有一格**分类缓存**（`get_classify`/`set_classify`）：文本
+/// → 已判定 kind 的键值对，与主产物分实例存放（容量/TTL 独立），避免
+/// 两种条目互相挤占。分类 key 由 `classify::classify_key` 统一派生。
 pub trait Cache: Send + Sync {
     /// 取缓存产物。
     fn get(&self, key: u64) -> Option<TaskOutcome>;
     /// 写缓存产物。
     fn set(&self, key: u64, value: TaskOutcome);
+    /// 取分类缓存：该文本最近一次判定的任务类型。
+    fn get_classify(&self, key: u64) -> Option<TaskKind>;
+    /// 写分类缓存。
+    fn set_classify(&self, key: u64, kind: TaskKind);
 }
 
 /// 热键重绑定（端口）：把配置里的绑定表交给平台侧注册。

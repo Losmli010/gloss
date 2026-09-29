@@ -31,8 +31,8 @@ const DEFAULT_TARGET: Lang = Lang::Zh;
 pub const STRUCTURED_FENCE: &str = "```gloss";
 
 /// 一个 locale 的模板文件集：三个文本 kind 的指令 + 输出契约散文 + 模态
-/// 提示行片段。契约与提示行抽成片段而不是抄进三个指令：抄写会在改契约时
-/// 漏掉其中一处。
+/// 提示行片段 + 分类指令。契约与提示行抽成片段而不是抄进三个指令：抄写
+/// 会在改契约时漏掉其中一处。
 #[derive(Debug, Clone, Copy)]
 struct Templates {
     word_card: &'static str,
@@ -40,6 +40,7 @@ struct Templates {
     code: &'static str,
     contract: &'static str,
     hints: &'static str,
+    classify: &'static str,
 }
 
 impl Locale {
@@ -52,6 +53,7 @@ impl Locale {
                 code: include_str!("../prompts/zh/code.md"),
                 contract: include_str!("../prompts/zh/contract.md"),
                 hints: include_str!("../prompts/zh/hints.md"),
+                classify: include_str!("../prompts/zh/classify.md"),
             },
             Locale::En => Templates {
                 word_card: include_str!("../prompts/en/word_card.md"),
@@ -59,6 +61,7 @@ impl Locale {
                 code: include_str!("../prompts/en/code.md"),
                 contract: include_str!("../prompts/en/contract.md"),
                 hints: include_str!("../prompts/en/hints.md"),
+                classify: include_str!("../prompts/en/classify.md"),
             },
         }
     }
@@ -118,7 +121,14 @@ impl PromptRegistry {
     /// 返回 [`GlossError::UnsupportedModality`]。模板语言取任务自带的
     /// `options.prompt_locale`（缺省中文）——与模型、目标语言一样，一次
     /// 任务只认触发时定下的那一份。
+    ///
+    /// [`TaskKind::Auto`] 在这里被显式拒绝（[`GlossError::ClassifyRequired`]）：
+    /// 模态矩阵放行它的运输，但渲染不存在「待分类」的模板——走到这里
+    /// 说明编排没把分类做在前半程。
     pub fn render(&self, task: &Task) -> Result<Vec<ChatMessage>, GlossError> {
+        if task.kind == TaskKind::Auto {
+            return Err(GlossError::ClassifyRequired);
+        }
         validate_modality(task.kind, &task.input)?;
         let TaskInput::Text { text, hint } = &task.input else {
             // 图像模板随图像任务落地；音频是预留模态，模态校验已拦，
@@ -149,6 +159,60 @@ impl PromptRegistry {
             ChatMessage::user(user_content(text, &hint_lines)),
         ])
     }
+
+    /// 渲染**分类请求**的 messages：系统指令来自 classify 模板（任务说明、
+    /// 允许清单、输出契约），用户消息只有待分类原文。与任务渲染的分工：
+    /// 分类不走 `render`（那是 Task 的路径，Auto 在那里被拒绝），输出契约
+    /// 见 [`schema_json`] 的 Auto 臂。
+    ///
+    /// `allowed` 是允许模型选择的任务类型清单（调用方按
+    /// 「text-capable ∩ enabled」算好传入）；清单里的 [`TaskKind::Auto`]
+    /// 不渲染（哨兵不是可选答案）。
+    pub fn render_classify(
+        &self,
+        locale: Locale,
+        allowed: &[TaskKind],
+        text: &str,
+    ) -> Vec<ChatMessage> {
+        let templates = locale.templates();
+        let allowed_block = classify_allowed_block(allowed, locale);
+        let system = render_template(
+            templates.classify,
+            &[
+                ("allowed", &allowed_block),
+                ("schema", schema_json(TaskKind::Auto)),
+            ],
+        );
+        vec![ChatMessage::system(system), ChatMessage::user(text)]
+    }
+}
+
+/// 允许清单的渲染块：每个 kind 一行「serde 标识 — 一句话判据」。标识是
+/// 模型要原样输出的契约值，判据给它选择的依据；语言随 locale。
+/// [`TaskKind::Auto`] 不是可选答案，跳过。
+fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
+    let mut lines = Vec::new();
+    for kind in allowed {
+        let description = match (kind, locale) {
+            (TaskKind::TranslateWord, Locale::Zh) => {
+                "单个词或短语，适合词典式查询（音标、释义、例句）"
+            }
+            (TaskKind::TranslateSentence, Locale::Zh) => "句子或段落，需要翻译成目标语言",
+            (TaskKind::ExplainCode, Locale::Zh) => "代码片段，需要解释其行为或原理",
+            (TaskKind::ImageOcr, Locale::Zh) => "图片，需要提取其中文字",
+            (TaskKind::ImageExplain, Locale::Zh) => "图片，需要解释其内容",
+            (TaskKind::TranslateWord, Locale::En) => {
+                "a single word or phrase suited to a dictionary-style card"
+            }
+            (TaskKind::TranslateSentence, Locale::En) => "a sentence or paragraph to translate",
+            (TaskKind::ExplainCode, Locale::En) => "a code snippet to explain",
+            (TaskKind::ImageOcr, Locale::En) => "an image to extract text from",
+            (TaskKind::ImageExplain, Locale::En) => "an image to explain",
+            (TaskKind::Auto, _) => continue,
+        };
+        lines.push(format!("{kind:?} — {description}"));
+    }
+    lines.join("\n")
 }
 
 /// 指令模板：按 kind 取本 locale 对应文件。
@@ -158,7 +222,8 @@ fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
         TaskKind::TranslateSentence => templates.sentence,
         TaskKind::ExplainCode => templates.code,
         // 图像 kind 走不到这里：render 已把非文本输入收口。
-        TaskKind::ImageOcr | TaskKind::ImageExplain => "",
+        // Auto 同样走不到：render 在模态表之前就拒绝了它。
+        TaskKind::ImageOcr | TaskKind::ImageExplain | TaskKind::Auto => "",
     }
 }
 
@@ -237,7 +302,11 @@ fn user_content(text: &str, hint_lines: &str) -> String {
 /// 同源，故留在代码里（见模块文档）；字段名是给解析器的契约，示例值是给
 /// 模型的提示，因此不随 prompt locale 变——契约只有一份，改 schema 的人
 /// 面前不会出现两份措辞。
-fn schema_json(kind: TaskKind) -> &'static str {
+///
+/// [`TaskKind::Auto`] 臂是**分类**的输出契约（`classify` 模块按它解析）：
+/// 只回一个 kind 标识，不带任何理由字段——理由会把选区内容带进模型回复，
+/// 而回复会进日志面。
+pub(crate) fn schema_json(kind: TaskKind) -> &'static str {
     match kind {
         TaskKind::TranslateWord => {
             r#"{"word":"词条原文","phonetic":"音标或 null","senses":[{"pos":"词性或 null","meaning":"释义","examples":["例句"]}]}"#
@@ -245,6 +314,7 @@ fn schema_json(kind: TaskKind) -> &'static str {
         TaskKind::TranslateSentence | TaskKind::ExplainCode => r#"{"title":"一句话摘要或 null"}"#,
         TaskKind::ImageOcr => r#"{"text":"提取的纯文本"}"#,
         TaskKind::ImageExplain => r#"{"title":"一句话摘要或 null"}"#,
+        TaskKind::Auto => r#"{"kind":"TranslateSentence"}"#,
     }
 }
 
@@ -502,6 +572,37 @@ mod tests {
         let user = ChatMessage::user("hi");
         let json = serde_json::to_string(&user).expect("message should serialize");
         assert!(json.contains(r#""role":"user""#));
+    }
+
+    #[test]
+    fn classify_prompt_carries_allowed_kinds_and_the_text() {
+        let registry = PromptRegistry::new();
+        let allowed = [TaskKind::TranslateWord, TaskKind::ExplainCode];
+        for locale in [Locale::Zh, Locale::En] {
+            let messages = registry.render_classify(locale, &allowed, "gloss 原文");
+            assert_eq!(messages.len(), 2);
+            assert_eq!(messages[1].content, "gloss 原文");
+            assert!(messages[0].content.contains("TranslateWord"), "{locale:?}");
+            assert!(messages[0].content.contains("ExplainCode"));
+            assert!(
+                !messages[0].content.contains("Auto"),
+                "the sentinel is never offered as an answer: {}",
+                messages[0].content
+            );
+            assert!(messages[0].content.contains("\"kind\""));
+            assert!(!messages[0].content.contains("{{"));
+        }
+    }
+
+    #[test]
+    fn render_rejects_the_auto_sentinel() {
+        let registry = PromptRegistry::new();
+        let task = text_task(TaskKind::Auto, "待分类", None);
+        assert_eq!(
+            registry.render(&task),
+            Err(GlossError::ClassifyRequired),
+            "Auto must be classified before it can render"
+        );
     }
 
     #[test]
