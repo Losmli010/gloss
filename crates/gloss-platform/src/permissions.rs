@@ -32,16 +32,18 @@ pub fn request_accessibility() -> bool {
 }
 
 /// 打开系统设置的「输入监控」面板；用于 CGEventTap 创建失败的引导（该
-/// 授权无公开预检 API，tap 失败即视为缺失）。启动失败只记日志不拦启动。
+/// 授权无公开预检 API，tap 失败即视为缺失）。只发起不等待：调用方可能
+/// 在延迟关键的事件线程上（见 main.rs 的降级提示），阻塞等 `open` 退出
+/// 没有价值。启动失败只记日志不拦启动。
 pub fn open_input_monitoring_pane() -> bool {
     let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent";
-    let opened = Command::new("open").arg(pane).status().map(|s| s.success());
+    let opened = Command::new("open").arg(pane).spawn().map(|_| true);
     match opened {
         Ok(true) => true,
         Ok(false) | Err(_) => {
             // 打不开设置面板是引导路径的降级，不影响功能主流程。
             gloss_core::log::warn!(
-                thread = gloss_core::log::thread::UI,
+                thread = gloss_core::log::thread::EVENT,
                 "failed to open the Input Monitoring settings pane"
             );
             false

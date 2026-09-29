@@ -35,9 +35,12 @@ unsafe extern "C" {
         attribute: CFStringRef,
         value: *mut CFTypeRef,
     ) -> i32;
-    /// 设置该元素的跨进程消息超时（秒）：此后对该元素（含经它取到的
-    /// 子元素）的同步 AX 调用，超过时长即以 kAXErrorCannotComplete 返回。
-    fn AXUIElementSetMessagingTimeout(element: AXUIElementRef, timeout: f64) -> i32;
+    /// 设置跨进程消息超时（秒）：传 systemwide 元素 = 对**本进程全局**生效
+    /// （此后所有元素的同步 AX 调用按此时长超时）；传其它元素只对该元素
+    /// 自身生效，不传播到相等的其它对象。设 0：systemwide 重置回系统默认，
+    /// 其它元素回落到全局值。超时后同步调用以 kAXErrorCannotComplete 返回，
+    /// 不再无限等待远端应用。返回非 0 表示设置失败（如非法值）。
+    fn AXUIElementSetMessagingTimeout(element: AXUIElementRef, timeout: f32) -> i32;
 }
 
 /// 当前进程是否已获辅助功能授权（TCC）；纯查询，无前置条件。
@@ -51,12 +54,13 @@ pub(crate) fn is_process_trusted() -> bool {
 /// （内含「打开系统设置」入口），返回值仍是查询时刻的授权状态。
 ///
 /// 引导对话框每次调用至多弹一个（系统对同一进程的重复请求会自行合并），
-/// 调用方应把调用频次控制在新任务创建这类低频节点上。
+/// 调用方应把调用频次控制在启动预检这类低频节点上。
 pub(crate) fn is_process_trusted_prompting() -> bool {
     let Some(key) = cf_string(TRUSTED_CHECK_OPTION_PROMPT) else {
         return is_process_trusted();
     };
-    let _key = CfGuard::new(key.string_ref() as CFTypeRef);
+    // kCFType 字典回调会对键 retain，key 的守卫已覆盖调用全程；
+    // 这里不得再对 key.string_ref() 建第二个守卫（会双重释放）。
     let key_ref = key.string_ref() as CFTypeRef;
     // SAFETY: 读 extern static 的地址值——kCFBooleanTrue 是系统框架导出的
     // 常量指针，地址本身稳定，取地址不存在数据竞争。
@@ -106,14 +110,14 @@ pub(crate) unsafe fn copy_attribute(
     unsafe { AXUIElementCopyAttributeValue(element, attribute, out) }
 }
 
-/// 设置单个元素的跨进程消息超时（秒）：此后对该元素的同步 AX 调用超过
-/// 时长即以 kAXErrorCannotComplete 返回，不再无限等待远端应用响应。
-/// 返回非 0 表示设置失败（超时回退系统默认，调用方无须区分）。
+/// 设置跨进程消息超时（秒）：传 systemwide 元素 = 对本进程全局生效；
+/// 传其它元素只对该元素自身生效。超时后同步调用以 kAXErrorCannotComplete
+/// 返回，不再无限等待远端应用。返回非 0 表示设置失败（如非法值）。
 ///
 /// # Safety
 ///
 /// `element` 必须是有效的 AX 元素引用。
-pub(crate) unsafe fn set_messaging_timeout(element: AXUIElementRef, timeout: f64) -> i32 {
+pub(crate) unsafe fn set_messaging_timeout(element: AXUIElementRef, timeout: f32) -> i32 {
     // SAFETY: 前置条件由调用方保证。
     unsafe { AXUIElementSetMessagingTimeout(element, timeout) }
 }

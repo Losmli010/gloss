@@ -55,11 +55,12 @@ mod imp {
     #[derive(Debug, Default, Clone, Copy)]
     pub struct AccessibilityReader;
 
-    /// AX 跨进程调用的单元素消息超时（秒）：目标应用不响应 AX 轮询时
+    /// AX 跨进程调用的消息超时（秒）：目标应用不响应 AX 轮询时
     /// （Electron/自绘控件常见），同步调用会阻塞到系统默认超时（数秒），
     /// 把事件线程整个占住、后续手势只能排队——收紧到 1 秒，超时即返回
-    /// 错误并交由剪贴板兜底接管。
-    const AX_MESSAGE_TIMEOUT_SECS: f64 = 1.0;
+    /// 错误并交由剪贴板兜底接管。对 systemwide 元素设置即对本进程全局
+    /// 生效，覆盖此后所有元素的取值调用。
+    const AX_MESSAGE_TIMEOUT_SECS: f32 = 1.0;
 
     impl AccessibilityReader {
         /// 创建读取器。
@@ -102,8 +103,9 @@ mod imp {
     }
 
     /// 读选区的 FFI 薄壳：systemwide → 焦点元素 → 选中文本。任何一步失败
-    /// 都以 AX 原始错误码返回，语义映射交给 [`interpret`]。两处元素都先
-    /// 收紧消息超时（见 [`AX_MESSAGE_TIMEOUT_SECS`]）再取值。
+    /// 都以 AX 原始错误码返回，语义映射交给 [`interpret`]。取值前对
+    /// systemwide 设一次消息超时即对本进程全局生效（见
+    /// [`AX_MESSAGE_TIMEOUT_SECS`]）。
     fn copy_selected_text() -> Result<Option<String>, i32> {
         // SAFETY: 无前置条件；返回的 +1 引用可能为 NULL（系统异常），随后判空。
         let system_wide = unsafe { ax::create_system_wide() };
@@ -131,10 +133,6 @@ mod imp {
             return Err(err);
         }
         let _focused = CfGuard::new(focused);
-
-        // SAFETY: `focused` 是上一步成功拷贝的元素引用；对它也设超时，
-        // 元素级超时不从 systemwide 继承，选中文本的取值发生在它身上。
-        unsafe { ax::set_messaging_timeout(focused as AXUIElementRef, AX_MESSAGE_TIMEOUT_SECS) };
 
         let mut value: CFTypeRef = std::ptr::null();
         // SAFETY: `focused` 是上一步成功拷贝的元素引用，其余不变量同上。
