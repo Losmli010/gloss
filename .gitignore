@@ -34,3 +34,8 @@ docs/*
 
 # WorkBuddy 会话工具目录（本地状态，不进仓库）
 .workbuddy/
+
+# GitHub Pages 部署注入产物：latest/ 二进制与 manifest.json 由 CI 生成，不进 git
+web/manifest.json
+web/latest/*
+!web/latest/.gitkeep

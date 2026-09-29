@@ -51,13 +51,32 @@ gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
 # 同步等待 GPU 初始化。
 pollster = { version = "1.0.1", default-features = false }
+# OpenAI 兼容端点的流式调用（platform 同款最小特性集）；更新子系统复用
+# 同一套 TLS 与流式配置，清单与整包都走 rustls + 系统根证书。
+reqwest = {
+  version = "0.12",
+  default-features = false,
+  features = [
+    "rustls-tls-native-roots",
+    "stream",
+  ]
+}
+# 更新清单的版本比较（semver 全序，构建元数据不参与优先级）。
+semver = { version = "1", default-features = false, features = ["std"] }
 # 界面文案表的强类型反序列化：键缺失或多键都算解析失败。
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
+# 更新清单（manifest.json）的 JSON 反序列化：未知字段必须忽略（前向兼容），
+# 不开 deny_unknown_fields 之类的严格面。
+serde_json = { version = "1", default-features = false, features = ["std"] }
+# 下载体的 sha256 校验（成熟库，不手搓）。
+sha2 = { version = "0.10", default-features = false, features = ["std"] }
 # 通道③用 tokio mpsc；pipeline 的消费运行时与 select! 宏。
 tokio = {
   version = "1",
   default-features = false,
   features = [
+    "fs",
+    "io-util",
     "macros",
     "rt",
     "rt-multi-thread",

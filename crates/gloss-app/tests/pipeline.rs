@@ -108,13 +108,11 @@ impl Pipeline {
         request.cancel
     }
 
-    /// 划词手势路径：触发 → 注入选区文本 → 下发 Auto 任务。
     #[allow(clippy::expect_used, clippy::panic)]
     fn trigger_and_feed(&mut self, text: &str) -> tokio_util::sync::CancellationToken {
         self.trigger_and_feed_with(text, None, Span::none())
     }
 
-    /// 带模态提示的划词路径（代码语言提示直通分类）。
     #[allow(clippy::expect_used, clippy::panic)]
     fn trigger_and_feed_with(
         &mut self,
@@ -158,7 +156,6 @@ impl Pipeline {
         request.cancel
     }
 
-    /// 热键路径：固定 kind，不经过分类前半程。
     #[allow(clippy::expect_used, clippy::panic)]
     fn trigger_hotkey_and_feed(
         &mut self,

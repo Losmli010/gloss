@@ -99,6 +99,25 @@ pub(crate) struct Text {
     pub(crate) gloss_settings_notice_key_update_failed: String,
     pub(crate) gloss_settings_notice_save_failed: String,
     pub(crate) gloss_settings_notice_key_updated_save_failed: String,
+
+    pub(crate) gloss_settings_section_update: String,
+    pub(crate) gloss_settings_update_idle: String,
+    pub(crate) gloss_settings_update_check: String,
+    pub(crate) gloss_settings_update_checking: String,
+    pub(crate) gloss_settings_update_up_to_date: String,
+    pub(crate) gloss_settings_update_available: String,
+    pub(crate) gloss_settings_update_download: String,
+    pub(crate) gloss_settings_update_downloading: String,
+    pub(crate) gloss_settings_update_cancel: String,
+    pub(crate) gloss_settings_update_ready: String,
+    pub(crate) gloss_settings_update_restart: String,
+    pub(crate) gloss_settings_update_installing: String,
+    pub(crate) gloss_settings_update_failed_check: String,
+    pub(crate) gloss_settings_update_failed_download: String,
+    pub(crate) gloss_settings_update_failed_install: String,
+    pub(crate) gloss_settings_update_retry: String,
+    pub(crate) gloss_settings_update_install_hint: String,
+
     pub(crate) gloss_settings_error_default_kind_disabled: String,
     pub(crate) gloss_settings_error_duplicate_hotkey: String,
     pub(crate) gloss_settings_error_empty_trigger: String,
@@ -194,7 +213,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            79,
+            96,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -271,6 +290,8 @@ mod tests {
                 "gloss_settings_notice_key_updated_save_failed",
                 "gloss_settings_notice_save_failed",
                 "gloss_settings_switch_label",
+                "gloss_settings_update_available",
+                "gloss_settings_update_ready",
             ],
             "every templated entry must be walked"
         );

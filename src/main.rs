@@ -18,6 +18,7 @@ use gloss_platform::engine::llm::LlmClient;
 use gloss_platform::events::hotkey::HotkeyRegistrar;
 use gloss_platform::events::mouse::{MouseGesture, MouseSource};
 use gloss_platform::events::{EventSink, EventSource, EventSources};
+use gloss_platform::permissions;
 use gloss_platform::scene::SystemSceneProbe;
 use gloss_platform::selection::composite::CompositeReader;
 use gloss_platform::storage::CompositeConfigStore;
@@ -35,9 +36,37 @@ fn main() -> StartupResult {
 
 fn run() -> StartupResult {
     init_logging();
+    preflight_event_permissions();
     let (config, store) = load_config()?;
     let service = build_service(&config, &store)?;
     run_event_loop(config, store, service)
+}
+
+/// 启动期权限预检（启动骨架第 1.5 步）：选区读取（AX → 辅助功能）是划词
+/// 链路里**有公开预检 API** 的那一项授权，缺失时选区读取会被拒、弹窗只剩
+/// 失败卡。此处立即补一次系统引导对话框，把「划词失败后摸着失败卡找原因」
+/// 变成「启动即指路」；已授权则只留一条确认痕迹。另一项授权（CGEventTap
+/// → 输入监控）没有公开预检 API，其引导挂在手势降级提示上（见
+/// `build_event_sources`）。
+fn preflight_event_permissions() {
+    if permissions::preflight_accessibility() {
+        info!(
+            thread = thread::UI,
+            "accessibility permission granted for selection reading"
+        );
+        return;
+    }
+    warn!(
+        thread = thread::UI,
+        "accessibility permission missing, triggering the system guidance dialog"
+    );
+    if !permissions::request_accessibility() {
+        warn!(
+            thread = thread::UI,
+            "accessibility still missing after guidance; selection reading stays denied \
+             until granted in System Settings"
+        );
+    }
 }
 
 fn init_logging() {
@@ -177,6 +206,11 @@ fn run_event_loop(
     // 不索取新权限）。与系统语言同类——平台适配器的事，壳只消费。
     let scene = Arc::new(SystemSceneProbe);
 
+    // 启动钩子：更新子系统的进程内幂等入口，首发一次静默检查——发现新版
+    // 仅置状态由设置页提示，失败落 Failed 供被动渲染，不打扰划词。
+    let update_handle = gloss_app::update::start_once();
+    let update = gloss_app::update::UpdateWiring::from_handle(update_handle);
+
     let mut command_runtime = None;
     let mut event_thread = None;
     // 桥的分类阶段也要读配置快照：这里先拆一份，主句柄照旧交给 App。
@@ -188,11 +222,17 @@ fn run_event_loop(
         hotkeys,
         scene,
         system_locale,
+        update,
         |waker| {
             // Dock 图标在这里装：macOS 的 NSApplication 单例只允许在 EventLoop
             // 建好之后访问，而本回调是主线程上第一个满足该时机的点（app::run
             // 建完 EventLoop 就回调它，早于任何窗口创建）。
             install_app_icon();
+            // 更新子系统的唤醒出口：相位迁移时请求设置窗重绘。
+            let update_waker = waker.clone();
+            update_handle.install_wake(move || {
+                update_waker.wake_settings();
+            });
             // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
             // 睡在事件循环里的主线程。主产物缓存与配置句柄在这里交给桥
             // （编排见 gloss_app::pipeline）。运行时存活至 run_event_loop
@@ -278,8 +318,13 @@ fn event_sources(registrar: &HotkeyRegistrar) -> EventSources<PlatformEvent> {
             hinted = true;
             warn!(
                 thread = thread::EVENT,
-                "mouse listener degraded, selection gesture disabled"
+                "mouse listener degraded, selection gesture disabled; \
+                 open the Input Monitoring pane to grant the permission"
             );
+            // 事件 tap 缺「输入监控」授权是最常见的降级原因，而该项没有
+            // 公开预检 API——降级即视为缺失，直接把设置面板送到用户面前
+            // （打开失败只降级记日志，见 permissions）。
+            let _ = permissions::open_input_monitoring_pane();
         }
         Vec::new()
     }));
