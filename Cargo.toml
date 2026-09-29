@@ -19,7 +19,7 @@ long_description = "鼠标选中文字，即弹出 LLM 翻译结果。纯 Rust +
 
 [workspace]
 resolver = "3"
-members = ["crates/gloss-app", "crates/gloss-core", "crates/gloss-platform"]
+members = ["crates/gloss-app", "crates/gloss-core", "crates/gloss-eval", "crates/gloss-platform"]
 
 # 版本与 edition 单点维护，各 crate 继承
 [workspace.package]

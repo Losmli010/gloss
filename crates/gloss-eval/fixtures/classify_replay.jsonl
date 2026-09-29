@@ -1,0 +1,8 @@
+{"id": "zh-word-01", "deltas": ["{\"kind\":", "\"TranslateWord\"}"]}
+{"id": "en-word-03", "deltas": ["{\"kind\": \"Translate", "Word\"}"]}
+{"id": "zh-sent-01", "deltas": ["这是一段句子。", "\n```gloss\n{\"kind\":\"TranslateSentence\"}\n```"]}
+{"id": "code-rs-01", "deltas": ["{", "\"kind\": \"Explain", "Code", "\"}"]}
+{"id": "ja-sent-01", "deltas": ["{\"kind\":\"ExplainCode\"}"]}
+{"id": "code-sql-01", "deltas": ["这是分类结果：{\"kind\":\""]}
+{"id": "zh-word-04", "deltas": ["我认为应该翻译成中文。"]}
+{"id": "en-sent-02", "deltas": ["{\"kind\":\"ImageOcr\"}"]}

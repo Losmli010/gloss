@@ -7,6 +7,8 @@
 # 覆盖：
 #   依赖方向            —— 各 crate 只能依赖允许的边；gloss-core 不得出现平台/渲染栈
 #                          （红线：winit / wgpu / 平台 API）。
+#   eval 资产隔离       —— gloss-eval 不被任何 manifest 依赖；eval 资产不被生产
+#                          代码 include_str!/include_bytes! 引用。
 #   桩副本一致          —— 各 crate tests/stubs/ 的同名桩逐字一致，防跨 crate 漂移。
 #   日志统一出口        —— 除 gloss-core 外不得直接依赖 tracing 三件套。
 #   日志一律英文        —— 日志宏实参里不得出现非 ASCII 字节。
@@ -122,6 +124,7 @@ allowed_own_deps() {
     gloss-app) printf 'gloss-core gloss-platform' ;;
     gloss-platform) printf 'gloss-core' ;;
     gloss-core) printf '' ;;
+    gloss-eval) printf 'gloss-core gloss-platform' ;;
     *) printf '' ;;
   esac
 }
@@ -181,6 +184,34 @@ if [ -f "$AGENTS_MD" ]; then
   done
 fi
 ok "依赖方向（${edges} 条本仓库依赖边 + 各 crate 的 crate 名登记）"
+
+# ---- 约束「eval 资产隔离」 ----
+# gloss-eval 是评测工具链，依赖方向断言已保证它只消费、不被依赖；这里再钉
+# 两条硬边界，防评测资产从旁路渗进生产：
+#   1. 任何 gloss-eval 之外的 manifest 不得出现对它的依赖（即使边表将来被
+#      误放宽，这条仍然挡住）；
+#   2. gloss-eval 之外的 .rs 不得 include_str!/include_bytes! 引用 eval
+#      资产（datasets/fixtures/prompts）。
+eval_dep_violations=0
+while IFS='|' read -r owner manifest sec key start text; do
+  [ "$key" = "gloss-eval" ] || continue
+  [ "$owner" = "gloss-eval" ] && continue
+  fail "约束「eval 资产隔离」：${owner} 依赖了 gloss-eval（$(rel "$manifest"):${start}）——评测工具链不得进生产依赖图"
+  eval_dep_violations=$((eval_dep_violations + 1))
+done <<<"$DEP_DUMP"
+eval_asset_violations=0
+while IFS= read -r f; do
+  case "$(rel "$f")" in
+    crates/gloss-eval/*) continue ;;
+  esac
+  hits="$(grep -nE 'include_str!\(.*gloss-eval|include_bytes!\(.*gloss-eval' "$f" || true)"
+  [ -n "$hits" ] || continue
+  eval_asset_violations=$((eval_asset_violations + 1))
+  fail "约束「eval 资产隔离」：$(rel "$f") 把 gloss-eval 资产嵌进了生产代码（$(printf '%s' "$hits" | head -n 1 | cut -c1-60)）"
+done < <(find "$ROOT/crates" "$ROOT/src" "$ROOT/tests" "$ROOT/benches" -name '*.rs' -type f -not -path "$ROOT/target/*" 2>/dev/null)
+if [ "$eval_dep_violations" -eq 0 ] && [ "$eval_asset_violations" -eq 0 ]; then
+  ok "eval 资产隔离（依赖 0 处 + include 0 处）"
+fi
 
 # ---- 测试桩副本一致性（AGENTS.md「测试」节：跨 crate 复用的同名桩逐字一致）----
 # 桩按 crate 自持（tests/stubs/），一份漂移会让两个 crate 的测试在语义不同的

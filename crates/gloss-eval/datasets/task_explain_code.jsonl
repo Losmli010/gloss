@@ -1,0 +1,2 @@
+{"id": "task-code-01", "kind": "ExplainCode", "text": "print(', '.join(sorted(set(words))))", "reference": {"title": "去重排序后拼接"}}
+{"id": "task-code-02", "kind": "ExplainCode", "text": "kubectl get pods -n prod", "reference": {"title": null}}

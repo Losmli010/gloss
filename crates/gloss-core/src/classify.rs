@@ -27,8 +27,23 @@ pub const CLASSIFY_MAX_TOKENS: u32 = 128;
 
 /// 回复累积上限（字节）：`max_tokens` 之外的第二道界，防止不守约的
 /// 端点把无界回复灌进内存。超限部分丢弃（按字符边界截断）——截断的
-/// JSON 解析不过，同样落到兜底。
-const REPLY_CAP_BYTES: usize = 4096;
+/// JSON 解析不过，同样落到兜底。pub 供 gloss-eval 的 live 轨复用同一
+/// 道界（评测与生产同源）。
+pub const CLASSIFY_REPLY_CAP_BYTES: usize = 4096;
+
+/// 按预算累积回复：单条增量超预算时按字符边界截断。分类编排与评测
+/// live 轨共用。
+pub fn push_capped(reply: &mut String, delta: &str) {
+    let budget = CLASSIFY_REPLY_CAP_BYTES.saturating_sub(reply.len());
+    if budget == 0 {
+        return;
+    }
+    let mut take = budget.min(delta.len());
+    while take > 0 && !delta.is_char_boundary(take) {
+        take -= 1;
+    }
+    reply.push_str(&delta[..take]);
+}
 
 /// 模态提示的启发式直通：能不经 LLM 直接定型的 kind（当前只有代码
 /// 语言提示 → [`TaskKind::ExplainCode`]）。桥在查缓存前用它截住确定性
@@ -69,16 +84,7 @@ pub async fn classify(
     let mut reply = String::new();
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {
-            Ok(delta) => {
-                let budget = REPLY_CAP_BYTES.saturating_sub(reply.len());
-                if budget > 0 {
-                    let mut take = budget.min(delta.len());
-                    while take > 0 && !delta.is_char_boundary(take) {
-                        take -= 1;
-                    }
-                    reply.push_str(&delta[..take]);
-                }
-            }
+            Ok(delta) => push_capped(&mut reply, &delta),
             Err(error) => return Err(error),
         }
     }
@@ -102,7 +108,9 @@ pub fn classify_key(text: &str, hint: Option<&InputHint>, locale: Locale, model:
 /// ```json 围栏都收）。kind 标识必须是 [`TaskKind`] 的 serde 名且在
 /// `allowed` 清单内，否则一律 [`GlossError::EngineResponse`]——错误文本
 /// 是固定措辞，不携带回复原文。
-fn parse_classify_reply(reply: &str, allowed: &[TaskKind]) -> Result<TaskKind, GlossError> {
+///
+/// pub 供 gloss-eval 评测重放复用：评测与生产走同一个校验器。
+pub fn parse_classify_reply(reply: &str, allowed: &[TaskKind]) -> Result<TaskKind, GlossError> {
     let rejected = || GlossError::EngineResponse("unrecognized classify reply".into());
     let trimmed = reply.trim();
     let value = serde_json::from_str::<serde_json::Value>(trimmed)
