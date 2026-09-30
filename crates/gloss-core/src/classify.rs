@@ -4,7 +4,8 @@
 //! 引擎）→ LLM 分类（极小 prompt + [`CLASSIFY_MAX_TOKENS`] 截断）→ JSON
 //! 校验（kind 必须在允许清单内）。解析先认 `{"kind": "…"}` 裸 JSON，失败
 //! 退围栏提取；识别不出即 `Err`——回退到兜底 kind 是调用方（app 桥）的
-//! 编排决策，本模块不做静默回退。
+//! 编排决策，本模块不做静默回退。流式循环内每次累积后即尝试解析，首个
+//! 能通过校验的完整 JSON 立即定型返回（不等流自然结束，见 [`classify`]）。
 //!
 //! 内容红线：分类输出契约只有一个 kind 标识，没有理由字段；本模块的
 //! 错误与日志（由调用方记）都不携带输入内容与模型回复原文。
@@ -84,7 +85,20 @@ pub async fn classify(
     let mut reply = String::new();
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {
-            Ok(delta) => push_capped(&mut reply, &delta),
+            Ok(delta) => {
+                push_capped(&mut reply, &delta);
+                // 增量解析提前退出：裸 JSON 到闭合括号即定型，不等流自然
+                // 结束——首个能通过校验的完整 JSON 就是判定，其后的增量
+                // 与结束帧作废（提前还流即还回 TTFT）。只在 Ok 时退出：
+                // 部分 JSON 继续等，跑偏与截断的回复照旧走完流、落到循环
+                // 外的同一条解析路径。每次累积后的全量 parse 上界是回复
+                // 上限（4KB）× 个位数 chunk，相对 chunk 的毫秒级到达间隔
+                // 可忽略。
+                if let Ok(kind) = parse_classify_reply(&reply, allowed) {
+                    debug!(kind = ?kind, "classified by the model");
+                    return Ok(kind);
+                }
+            }
             Err(error) => return Err(error),
         }
     }
@@ -240,6 +254,63 @@ mod tests {
         .await
         .expect("a fenced reply must still parse");
         assert_eq!(kind, TaskKind::ExplainCode);
+    }
+
+    #[tokio::test]
+    async fn a_complete_json_settles_before_the_stream_ends() {
+        let engine = MockEngine::new().with_chunks(vec![
+            Ok("{\"kind\":\"Transl".into()),
+            Ok("ateWord\"}".into()),
+            Err(GlossError::EngineRateLimited),
+        ]);
+        let kind = classify(
+            &engine,
+            "m",
+            Locale::Zh,
+            &all_text_kinds(),
+            &text_input("gloss", None),
+        )
+        .await
+        .expect("the completed JSON must settle before the trailing failure");
+        assert_eq!(kind, TaskKind::TranslateWord);
+    }
+
+    #[tokio::test]
+    async fn the_first_complete_json_wins_over_later_deltas() {
+        let engine = MockEngine::new().with_chunks(vec![
+            Ok("{\"kind\":\"TranslateWord\"}".into()),
+            Ok("{\"kind\":\"ExplainCode\"}".into()),
+        ]);
+        let kind = classify(
+            &engine,
+            "m",
+            Locale::Zh,
+            &all_text_kinds(),
+            &text_input("gloss", None),
+        )
+        .await
+        .expect("the first complete JSON must win");
+        assert_eq!(kind, TaskKind::TranslateWord);
+    }
+
+    #[tokio::test]
+    async fn partial_json_keeps_waiting_for_the_stream() {
+        let engine = MockEngine::new().with_chunks(vec![
+            Ok("{\"kind\":\"Transl".into()),
+            Ok("ateWord\"".into()),
+        ]);
+        assert!(
+            classify(
+                &engine,
+                "m",
+                Locale::Zh,
+                &all_text_kinds(),
+                &text_input("gloss", None),
+            )
+            .await
+            .is_err(),
+            "a truncated reply must not settle"
+        );
     }
 
     #[tokio::test]
