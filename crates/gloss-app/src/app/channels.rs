@@ -611,7 +611,6 @@ mod tests {
             "the acquiring skeleton is withdrawn with the silent drop"
         );
 
-        // 热键是显式请求：同一失败必须得到可见反馈。
         pe_tx
             .send(PlatformEvent::HotkeyTriggered {
                 binding: HotkeyBinding {

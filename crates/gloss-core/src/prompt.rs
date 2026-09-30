@@ -681,8 +681,6 @@ mod tests {
         assert!(en.contains("Command lines"));
         assert!(en.contains("Discrimination rules"));
 
-        // 清单里没有 ExplainCode 时，指向它的规则消失，其余规则保留——
-        // 规则不得指向一个必然被拒绝的答案。
         let without_code = [TaskKind::TranslateSentence];
         let zh = registry.render_classify(Locale::Zh, &without_code, "kubectl get pods")[0]
             .content
@@ -690,7 +688,6 @@ mod tests {
         assert!(!zh.contains("命令行"));
         assert!(zh.contains("判别规则"), "{zh}");
 
-        // 清单里没有任何带规则的 kind 时，整段规则连同标签消失。
         let without_rules = [TaskKind::TranslateWord];
         let zh = registry.render_classify(Locale::Zh, &without_rules, "光泽")[0]
             .content

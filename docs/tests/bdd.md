@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 25 | `just test` |
-| 单元测试 | 410 | `just test` |
+| 单元测试 | 413 | `just test` |
 
 ## 人工测试
 
@@ -276,6 +276,9 @@ popup 快照基线：popup_word_card、popup_acquiring、popup_streaming、popup
 | non_text_input_is_rejected | 非文本输入拒绝分类 | 给定 Audio 输入，当 classify，则 UnsupportedModality | 2026-09-26 |
 | bare_json_reply_selects_the_kind | 裸 JSON 回复解析 kind | 给定 {"kind":"TranslateWord"} 回复，当 classify，则得 TranslateWord | 2026-09-26 |
 | fenced_reply_is_extracted_despite_the_contract | 围栏回复容错提取 | 给定模型不守约输出的 ```json 围栏回复，当 classify，则提取围栏内 JSON 并判出 ExplainCode | 2026-09-26 |
+| a_complete_json_settles_before_the_stream_ends | 完整 JSON 先于流结束定型 | 给定「半截 → 闭合 → 流内错误」的增量序列，当 classify，则返回首个完整 JSON 的判定（等流结束就会拿到那个错误） | 2026-09-30 |
+| the_first_complete_json_wins_over_later_deltas | 首个完整 JSON 胜出 | 给定两段各自完整的 JSON 增量，当 classify，则返回前者（拼接后两端都解析不过，只有提前退出才拿得到） | 2026-09-30 |
+| partial_json_keeps_waiting_for_the_stream | 半截 JSON 继续等流 | 给定到流结束都补不齐的半截 JSON，当 classify，则走完流并按解析失败收口（不静默回退） | 2026-09-30 |
 | engine_failure_propagates | 分类请求失败原样上抛 | 给定分类请求整体失败与流中失败，当 classify，则错误原样上抛（回退由桥编排） | 2026-09-26 |
 | replies_outside_the_allowed_list_are_rejected | 回复越界/不可识别一律拒绝 | 给定清单外 kind、未知标识、null、纯散文、空串与 gloss 围栏六种回复，当解析，则前五者 EngineResponse、围栏内合法 kind 放行 | 2026-09-26 |
 | classify_key_is_stable_and_sensitive | 分类缓存 key 稳定且敏感 | 给定同输入重复派生与文本/提示/语言/模型各自变化，当 classify_key，则同输入同 key、任一变化不同 key | 2026-09-26 |
