@@ -132,43 +132,40 @@
       <div class="sec-head reveal">
         <span class="sec-kicker">任务场景</span>
         <h2 class="sec-title">一个划词，五种任务</h2>
-        <p class="sec-lede">同一个划词手势，按需切换任务类型。结果以浮层流式呈现，随时取消或重试。</p>
+        <p class="sec-lede">划词触发，浮层即出：原文为经，译文与释义为注，译注例句为疏——译文是主角，触发即骨架、流式呈现。</p>
       </div>
       <div class="tasks-grid">
         <div class="task-card wide reveal">
           <span class="task-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 19.5V6a2 2 0 0 1 2-2h14v14H6.5A2.5 2.5 0 0 0 4 20.5V19.5Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/></svg></span>
           <h3>词卡</h3>
-          <p>词典式呈现：音标、词性、释义与例句，一个词讲透。</p>
-          <div class="shot" aria-hidden="true">
-            <span class="hl">glossary</span> <span class="ph">/ˈɡlɒsəri/</span> <span class="dim">n.</span><br>
-            <span class="zh">术语表；词汇表（书末的注释清单）</span><br>
-            <span class="dim">Check the glossary at the end of the book.</span>
+          <p>词典式呈现：词条落于经位，释义列于注位，例句收于疏位。</p>
+          <div class="shot shot-frame" aria-hidden="true">
+            <img src="assets/task-word.png" alt="" width="840" height="494" loading="lazy">
           </div>
         </div>
         <div class="task-card wide reveal">
           <span class="task-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 5h16M4 5v10h6m4 0h6M4 19h9"/><path d="m14 12 3 3 3-3"/></svg></span>
           <h3>翻译</h3>
-          <p>整句与段落翻译，忠实原文语气的自然表达。</p>
-          <div class="shot" aria-hidden="true">
-            <span class="en">Fearless concurrency — the compiler has your back.</span><br>
-            <span class="zh">无所畏惧的并发 —— 编译器为你兜底。</span><span class="caret"></span>
+          <p>原文弱化为经，译文居于注位主角，译注收于疏位；生成中只显骨架与「正在注解」。</p>
+          <div class="shot shot-frame shot-pair" aria-hidden="true">
+            <figure><img src="assets/task-loading.png" alt="" width="840" height="438" loading="lazy"><figcaption>生成中</figcaption></figure>
+            <figure><img src="assets/task-sentence.png" alt="" width="840" height="592" loading="lazy"><figcaption>完成</figcaption></figure>
           </div>
         </div>
         <div class="task-card reveal">
           <span class="task-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 8-4 4 4 4m8-8 4 4-4 4M14 5l-4 14"/></svg></span>
           <h3>代码解释</h3>
-          <p>选中代码片段，逐行讲清意图与陷阱。</p>
-          <div class="shot shot-code" aria-hidden="true">
-            <span class="kw">let</span> <span class="fn">mut</span> v = <span class="fn">vec!</span>[];<br>
-            <span class="dim">→ 声明可增长向量，容量按需分配…</span>
+          <p>代码块置于经位并保留高亮，一句话概要为注，关键点收于疏。</p>
+          <div class="shot shot-frame" aria-hidden="true">
+            <img src="assets/task-code.png" alt="" width="840" height="856" loading="lazy">
           </div>
         </div>
         <div class="task-card reveal">
           <span class="task-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/></svg></span>
           <h3>提取结果</h3>
-          <p>屏幕文字不可复制？框选一下，直接取出文本。</p>
-          <div class="shot" aria-hidden="true">
-            <span class="dim">〘 识别 〙</span> <span class="zh">Invoice No. 2026-0928</span><span class="caret"></span>
+          <p>屏幕文字不可复制？划词一下直接取出，疏位附「凡 N 言 · N 行」小记。</p>
+          <div class="shot shot-frame" aria-hidden="true">
+            <img src="assets/task-extract.png" alt="" width="840" height="530" loading="lazy">
           </div>
         </div>
         <div class="task-card reveal">
