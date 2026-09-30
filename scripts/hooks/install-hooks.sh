@@ -8,6 +8,7 @@ cd "$ROOT_DIR"
 
 # 1. 给 hook 脚本加执行权限（一并覆盖 checker 的配套脚本与发布脚本）
 chmod +x .githooks/pre-commit
+chmod +x .githooks/commit-msg
 chmod +x scripts/hooks/check-commit-msg.sh scripts/hooks/check-commit-msg.test.sh
 chmod +x scripts/hooks/check-secrets.sh scripts/hooks/check-secrets.test.sh
 chmod +x scripts/hooks/check-agents-doc.sh scripts/hooks/check-agents-doc.test.sh
@@ -21,3 +22,4 @@ git config core.hooksPath .githooks
 echo "✓ git hooks 已启用"
 echo "  hooksPath: $(git config core.hooksPath)"
 echo "  生效的钩子: pre-commit（约束检查 + 文档引用校验 + fmt + clippy + 密钥扫描，经 just precommit）"
+echo "             commit-msg（Conventional Commits 校验，与 CI 的 Commit message check 同款）"
