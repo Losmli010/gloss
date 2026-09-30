@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# commit-msg hook：提交信息落定后、提交完成前校验 Conventional Commits 规范
+# （type(scope): subject、标题 ≤81 字节），把 CI 的 message 返工挡在本地。
+# 校验逻辑与 CI 的 Commit message check 共用 check-commit-msg.sh 单点。
+set -euo pipefail
+
+# 定位项目根目录（hook 可能从任何子目录触发）
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+# merge commit 的自动消息（Merge branch ...）不在规范内，跳过——与 CI 校验
+# 的 --no-merges 口径一致；squash 后的正式提交仍会走 PR 标题校验。
+if [ -n "$(git rev-parse -q --verify MERGE_HEAD)" ]; then
+  exit 0
+fi
+
+if ! ./scripts/hooks/check-commit-msg.sh "$1"; then
+  echo "" >&2
+  echo "✗ commit message 不符合规范，已阻止提交（CI 同款校验，修消息不返工）" >&2
+  echo "  补救：git commit --amend 后重提；规范说明见 scripts/hooks/check-commit-msg.sh" >&2
+  exit 1
+fi
