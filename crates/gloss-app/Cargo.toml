@@ -49,8 +49,7 @@ font-kit = { version = "0.14", default-features = false, features = ["source"] }
 futures = { version = "0.3", default-features = false, features = ["std"] }
 gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
-# 页头应用图标的 PNG 解码（assets/icons/gloss-dock-icon.png 同源资产）；
-# 只开 png 特性（crate 已随 arboard 在依赖树内，不新增传递面）。
+# 页头应用图标的 PNG 解码（assets/icons/gloss-dock-icon.png 同源资产）。
 image = { version = "0.25", default-features = false, features = ["png"] }
 # 同步等待 GPU 初始化。
 pollster = { version = "1.0.1", default-features = false }

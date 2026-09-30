@@ -489,6 +489,8 @@ popup 快照基线：popup_word_card、popup_acquiring、popup_streaming、popup
 | width_hysteresis_does_not_oscillate_between_frames | 宽度滞回不振荡 | 给定上一帧宽度与内容高，当决策宽度，则长内容加宽、带内保持原档、明显变矮才收回 | 2026-09-20 |
 | width_hysteresis_band_bounds_are_symmetric | 滞回阈值边界对称 | 给定阈值附近的内容高，当按当前档决策，则过加宽阈值才加宽、过收回阈值才收回 | 2026-09-20 |
 | stream_visible_body_truncates_from_the_first_fence | 流式正文自首个围栏截断 | 给定双围栏/无围栏/空串/围栏开头/前缀相似标记五种正文，当取流式可见部分，则首个围栏起整段隐藏（含其后文字）、无围栏原样、空串恒空 | 2026-09-26 |
+| decode_app_icon_rejects_bad_bytes | 图标解码失败隔离降级 | 给定非 PNG 字节，当解码应用图标，则返回 None（页头退化为无图标行，不 panic） | 2026-09-30 |
+| decode_app_icon_crops_to_the_content_square | 图标按画布比例裁本体 | 给定内嵌的 Dock 图标 PNG，当解码裁剪，则得 206×206 的图形本体（256 按 100/824/1024 画布比例裁去透明边距） | 2026-09-30 |
 
 ### crates/gloss-app/src/app/overlay.rs
 

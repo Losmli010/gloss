@@ -105,14 +105,17 @@ impl RenderState {
 /// 应用图标的解码结果：进程内只解码一次（含失败）。
 fn app_icon_image() -> Option<egui::ColorImage> {
     static DECODED: OnceLock<Option<egui::ColorImage>> = OnceLock::new();
-    DECODED.get_or_init(decode_app_icon).clone()
+    DECODED
+        .get_or_init(|| decode_app_icon(APP_ICON_PNG))
+        .clone()
 }
 
-/// 解码并按画布比例裁出图形本体；失败走隔离降级——记一条告警，页头退化
-/// 为无图标的品牌名行，不影响其余内容。
-fn decode_app_icon() -> Option<egui::ColorImage> {
+/// 解码给定的 PNG 字节并按画布比例裁出图形本体；失败走隔离降级——记一条
+/// 告警，页头退化为无图标的品牌名行，不影响其余内容。参数化 PNG 来源，
+/// 裁剪数学与降级分支可经 L1 测试直接驱动。
+fn decode_app_icon(png: &[u8]) -> Option<egui::ColorImage> {
     use image::GenericImageView;
-    let decoded = match image::load_from_memory(APP_ICON_PNG) {
+    let decoded = match image::load_from_memory(png) {
         Ok(decoded) => decoded,
         Err(error) => {
             warn!(
@@ -123,7 +126,10 @@ fn decode_app_icon() -> Option<egui::ColorImage> {
             return None;
         }
     };
-    let (width, _) = decoded.dimensions();
+    let (width, height) = decoded.dimensions();
+    // 裁剪数学假设正方形画布与四边等边距（SVG 源即如此）；资产若改版失衡，
+    // debug 构建里第一时间显形。
+    debug_assert_eq!(width, height, "app icon canvas is expected to be square");
     let margin = width * ICON_MARGIN / ICON_CANVAS;
     let content = width * ICON_CONTENT / ICON_CANVAS;
     let rgba = decoded
@@ -675,7 +681,21 @@ fn selfcheck_body(ui: &mut egui::Ui) {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_WIDTH, WIDTH, resolve_width, stream_visible_body};
+    use super::{
+        APP_ICON_PNG, MAX_WIDTH, WIDTH, decode_app_icon, resolve_width, stream_visible_body,
+    };
+
+    #[test]
+    fn decode_app_icon_rejects_bad_bytes() {
+        assert!(decode_app_icon(b"not a png").is_none());
+    }
+
+    #[test]
+    fn decode_app_icon_crops_to_the_content_square() {
+        let image = decode_app_icon(APP_ICON_PNG).expect("embedded icon must decode");
+        assert_eq!(image.width(), 206, "256 * 824 / 1024");
+        assert_eq!(image.height(), 206, "256 * 824 / 1024");
+    }
 
     #[test]
     fn width_hysteresis_does_not_oscillate_between_frames() {
