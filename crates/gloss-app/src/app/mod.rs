@@ -331,7 +331,7 @@ mod test_support {
 
     pub(super) fn outcome_body(app: &GlossApp) -> &str {
         match app.machine.overlay_view() {
-            Some(OverlayView::Outcome(outcome)) => &outcome.body,
+            Some(OverlayView::Outcome { outcome, .. }) => &outcome.body,
             other => panic!("expected outcome view, got {other:?}"),
         }
     }
