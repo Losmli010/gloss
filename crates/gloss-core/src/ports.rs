@@ -32,7 +32,8 @@ pub type TaskStream = Pin<Box<dyn Stream<Item = Result<String, GlossError>> + Se
 ///
 pub trait SelectionReader: Send {
     /// 读取前台应用当前选中文本；权限缺失返回
-    /// [`GlossError::AccessibilityDenied`]，取不到返回
+    /// [`GlossError::AccessibilityDenied`]，选区为空返回
+    /// [`GlossError::SelectionEmpty`]，其余取不到的情形返回
     /// [`GlossError::SelectionUnavailable`]。
     fn read(&mut self) -> Result<String, GlossError>;
 }

@@ -30,6 +30,7 @@ gloss_popup_close_label = "Close overlay"
 gloss_popup_settings_label = "Settings"
 
 gloss_errors_selection_unavailable = "Could not read the selected text. Select it again and retry."
+gloss_errors_selection_empty = "No text is selected. Select some text and try again."
 gloss_errors_accessibility_denied = "Accessibility permission not granted: System Settings → Privacy & Security → Accessibility"
 gloss_errors_screen_capture_denied = "Screen recording permission not granted: System Settings → Privacy & Security → Screen Recording"
 gloss_errors_region_too_large = "The selected region is outside the screen. Select it again."

@@ -105,7 +105,7 @@ pub enum FailureCause {
 }
 
 /// `accept_input` 的结果：下发 / 被内容闸门拦下 / 不采纳。三态而非 `Option`
-/// ——「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者要记一条 warn，
+/// ——「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者要记一行 warn，
 /// 后者只记 debug），合并成 `None` 就分不出来了。
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputOutcome {
@@ -115,6 +115,30 @@ pub enum InputOutcome {
     Blocked(SensitiveKind),
     /// 陈旧代数、非取材态或模态错配：不采纳，浮层与通道都不动。
     Ignored,
+}
+
+/// `accept_failed` 的结果：弹失败卡 / 静默收回 / 不采纳。三态而非 bool
+/// ——「静默收回」与「陈旧丢弃」在壳侧要做不同的事：前者要收起已显形的
+/// 骨架窗口，后者连窗口都不能碰。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureOutcome {
+    /// 已落 `Error` 态，浮层弹失败卡（壳记 warn）。
+    Shown,
+    /// 手势触发的「无选区可读」静默收回：回 `Idle`、不弹卡（壳收起浮层
+    /// 窗口、只留 debug 痕迹）。
+    SilentlyDropped,
+    /// 陈旧代数或已隐藏：不采纳，浮层与状态都不动（壳记 info）。
+    Ignored,
+}
+
+/// 当前代的触发源：空选区失败弹卡还是静默收回的分支依据——手势无显式
+/// 意图，弹「读取失败」卡是打扰；热键是显式请求，沉默才让人困惑。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TriggerSource {
+    /// 划词手势。
+    Gesture,
+    /// 热键。
+    Hotkey,
 }
 
 /// `accept_input` 采纳取材产物后的下发请求：壳把它经通道③发送。
@@ -147,6 +171,9 @@ pub struct TaskStateMachine {
     state: AppState,
     /// 触发时确定的任务类型与选项，待 `InputReady` 到达后组装 `Task`。
     pending: Option<PendingTask>,
+    /// 当前代的触发源（手势/热键）：随 [`Self::trigger`] 记录，空选区失败
+    /// 是否静默收回的依据；收起与新触发都会刷新或清掉。
+    trigger_source: Option<TriggerSource>,
     /// 在途推理的取消令牌：新触发时取消旧任务（唯一取消机制）。
     current_cancel: Option<CancellationToken>,
     /// 当前任务的副本：推理期间随行，可重试失败后留在 Error 态供
@@ -196,10 +223,20 @@ impl TaskStateMachine {
         system_locale: Locale,
         scene: &SceneFacts,
     ) -> Option<AcquireCommand> {
+        // 触发源先于去向判定解析：未接线事件在这里就地返回，走到状态变更
+        // 的一定是手势或热键，后续记录不再有第三种可能。
+        let source = match event {
+            PlatformEvent::SelectionGesture { .. } => TriggerSource::Gesture,
+            PlatformEvent::HotkeyTriggered { .. } => TriggerSource::Hotkey,
+            PlatformEvent::RegionGesture { .. }
+            | PlatformEvent::OpenSettingsRequested
+            | PlatformEvent::QuitRequested => return None,
+        };
         let kind = match trigger_decision(event, config, scene) {
             TriggerDecision::Acquire(kind) => kind,
             TriggerDecision::Disabled(_)
             | TriggerDecision::Blocked(_)
+            | TriggerDecision::SelfSuppressed
             | TriggerDecision::Unwired => return None,
         };
         let command = AcquireCommand::AcquireText {
@@ -215,6 +252,8 @@ impl TaskStateMachine {
         // 新触发取代一切旧任务：连可重试的失败任务副本一并作废
         // （重发它没有意义，用户已经表达了新的意图）。
         self.active_task = None;
+        // 触发源随代记录：空选区失败按它分支「静默收回 / 弹卡」。
+        self.trigger_source = Some(source);
         // kind 从命令里取（两个变体都携带），选项按同一个 kind 从**同一份**
         // 快照解析——这里是「单次任务内配置一致」的实现点。
         //
@@ -321,14 +360,31 @@ impl TaskStateMachine {
 
     /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（错误
     /// 映射：可重试类带重试按钮并保留任务副本，配置/鉴权类引导去设置页）。
-    /// 返回是否需要展示浮层。
-    pub fn accept_failed(&mut self, generation: u64, error: &GlossError) -> bool {
+    ///
+    /// 例外是手势触发的「无选区可读」（取材态遇 `SelectionEmpty` /
+    /// `SelectionUnavailable`）：静默回 `Idle`、不弹卡——纯误滑不该用一张
+    /// 失败卡打断；热键触发仍弹卡，显式请求需要反馈。返回处置结果，壳按
+    /// [`FailureOutcome`] 区分日志与窗口动作。
+    pub fn accept_failed(&mut self, generation: u64, error: &GlossError) -> FailureOutcome {
         // Fetching 态收取材失败、Translating 态收推理失败；其余（含已
         // 隐藏）不采纳——失败卡不得把已收起的浮层弹回。
         if generation != self.generation
             || !matches!(self.state, AppState::Fetching | AppState::Translating)
         {
-            return false;
+            return FailureOutcome::Ignored;
+        }
+        if self.state == AppState::Fetching
+            && self.trigger_source == Some(TriggerSource::Gesture)
+            && matches!(
+                error,
+                GlossError::SelectionUnavailable | GlossError::SelectionEmpty
+            )
+        {
+            // 取材态没有在途推理（令牌与任务副本都在触发时清掉了），
+            // 收回只是把骨架视图与状态一并放下。
+            self.state = AppState::Idle;
+            self.overlay_view = None;
+            return FailureOutcome::SilentlyDropped;
         }
         self.current_cancel = None;
         // 只有「原样重发有意义」的失败才留任务副本；其余类别（含通道级
@@ -348,7 +404,7 @@ impl TaskStateMachine {
             cause: FailureCause::Task(error.clone()),
             action,
         });
-        true
+        FailureOutcome::Shown
     }
 
     /// 重试失败卡上的任务（Error 态）：原样重发失败的那个任务（同代数
@@ -387,6 +443,7 @@ impl TaskStateMachine {
             cancel.cancel();
         }
         self.active_task = None;
+        self.trigger_source = None;
         self.state = AppState::Idle;
         self.overlay_view = None;
     }
@@ -456,7 +513,7 @@ fn source_text(task: &Task) -> String {
     }
 }
 
-/// 一次平台事件的去向：取材，或被三类闸门之一拦下。
+/// 一次平台事件的去向：取材，或被四类闸门之一拦下。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TriggerDecision {
     /// 放行：该任务类型已启用且场景闸门放行，事件进入取材。
@@ -466,6 +523,9 @@ pub enum TriggerDecision {
     /// 拦下：触发前场景闸门（安全输入态 / 敏感应用名单）。只拦真实触发，
     /// 设置与退出不在此列。
     Blocked(TriggerBlock),
+    /// 拦下：Gloss 自身是前台应用时的划词手势（防误触——HID 全局 tap 连拖
+    /// Gloss 自己的浮层不该触发取材）。热键不受此限：显式意图总是成立。
+    SelfSuppressed,
     /// 未接线的事件（框选、设置、退出）。
     Unwired,
 }
@@ -474,7 +534,8 @@ pub enum TriggerDecision {
 /// 记不同级别的日志与不同的动作）。
 ///
 /// 顺序是「开关 → 场景」：被停用的 kind 本来就无响应，先判它才不会让
-/// 日志把「无响应」说成「被防护拦下」。
+/// 日志把「无响应」说成「被防护拦下」。手势分支先判自身前台（防误触，
+/// 与敏感防护无关、级别也不同）再过场景闸门。
 pub fn trigger_decision(
     event: &PlatformEvent,
     config: &Config,
@@ -491,6 +552,9 @@ pub fn trigger_decision(
         // 不可用由前半程的「allowed = text-capable ∩ enabled」校验兜住；
         // 场景闸门照常生效。
         PlatformEvent::SelectionGesture { .. } => {
+            if scene.front_app.as_ref().is_some_and(|app| app.is_self) {
+                return TriggerDecision::SelfSuppressed;
+            }
             return match guard::trigger_block(scene) {
                 Some(block) => TriggerDecision::Blocked(block),
                 None => TriggerDecision::Acquire(TaskKind::Auto),
@@ -548,6 +612,16 @@ mod tests {
         }
     }
 
+    fn hotkey_trigger() -> PlatformEvent {
+        PlatformEvent::HotkeyTriggered {
+            binding: gloss_core::task::HotkeyBinding {
+                trigger: "Cmd+Shift+T".into(),
+                kind: TaskKind::TranslateSentence,
+                source: gloss_core::task::InputSource::Selection,
+            },
+        }
+    }
+
     fn plain_outcome(body: &str) -> TaskOutcome {
         TaskOutcome {
             kind: TaskKind::TranslateWord,
@@ -576,6 +650,15 @@ mod tests {
         )
     }
 
+    fn trigger_hotkey(machine: &mut TaskStateMachine, config: &Config) -> Option<AcquireCommand> {
+        machine.trigger(
+            &hotkey_trigger(),
+            config,
+            Locale::Zh,
+            &SceneFacts::default(),
+        )
+    }
+
     fn dispatched(outcome: InputOutcome) -> RunRequest {
         match outcome {
             InputOutcome::Dispatch(request) => request,
@@ -589,6 +672,18 @@ mod tests {
             front_app: Some(FrontApp {
                 bundle_id: Some("com.1password.1password".into()),
                 name: None,
+                is_self: false,
+            }),
+        }
+    }
+
+    fn frontmost_is_self() -> SceneFacts {
+        SceneFacts {
+            secure_input: false,
+            front_app: Some(FrontApp {
+                bundle_id: Some("com.example.gloss".into()),
+                name: None,
+                is_self: true,
             }),
         }
     }
@@ -738,6 +833,7 @@ mod tests {
             front_app: Some(FrontApp {
                 bundle_id: Some("com.example.editor".into()),
                 name: None,
+                is_self: false,
             }),
         };
         assert!(
@@ -778,6 +874,49 @@ mod tests {
             "the same gesture fires once the scene clears"
         );
         assert_eq!(machine.generation(), 1, "and it takes a generation");
+    }
+
+    #[test]
+    fn gesture_in_the_self_frontmost_scene_is_suppressed_without_a_generation() {
+        assert_eq!(
+            trigger_decision(
+                &selection_gesture(),
+                &Config::default(),
+                &frontmost_is_self()
+            ),
+            TriggerDecision::SelfSuppressed,
+            "a drag over gloss's own window is anti-mistouch territory, not a trigger"
+        );
+
+        let mut machine = TaskStateMachine::new();
+        assert!(
+            machine
+                .trigger(
+                    &selection_gesture(),
+                    &Config::default(),
+                    Locale::Zh,
+                    &frontmost_is_self()
+                )
+                .is_none(),
+            "the suppressed gesture acquires nothing"
+        );
+        assert_eq!(
+            machine.generation(),
+            0,
+            "the suppressed trigger consumes no generation"
+        );
+        assert_eq!(machine.state(), AppState::Idle);
+        assert!(machine.overlay_view().is_none());
+
+        assert_eq!(
+            trigger_decision(&hotkey_trigger(), &Config::default(), &frontmost_is_self()),
+            TriggerDecision::Acquire(TaskKind::TranslateSentence),
+            "a hotkey keeps working while gloss itself is frontmost"
+        );
+        assert!(
+            trigger_hotkey(&mut machine, &Config::default()).is_some(),
+            "the hotkey path is untouched by the self suppression"
+        );
     }
 
     #[test]
@@ -1048,8 +1187,9 @@ mod tests {
             !machine.accept_done(1, plain_outcome("迟到产物")),
             "hidden task's late outcome must be dropped"
         );
-        assert!(
-            !machine.accept_failed(1, &GlossError::EngineNetwork),
+        assert_eq!(
+            machine.accept_failed(1, &GlossError::EngineNetwork),
+            FailureOutcome::Ignored,
             "hidden task's late failure must be dropped"
         );
         assert_eq!(machine.state(), AppState::Idle);
@@ -1059,14 +1199,64 @@ mod tests {
     fn failed_guard_matches_fetching_and_translating_only() {
         let mut machine = TaskStateMachine::new();
         trigger(&mut machine, &Config::default()).expect("trigger");
-        assert!(machine.accept_failed(1, &GlossError::SelectionUnavailable));
+        assert_eq!(
+            machine.accept_failed(1, &GlossError::EngineNetwork),
+            FailureOutcome::Shown,
+            "an engine failure is not the no-selection family, the card still shows"
+        );
         assert_eq!(machine.state(), AppState::Error);
 
         machine.hide_overlay();
-        assert!(
-            !machine.accept_failed(1, &GlossError::EngineNetwork),
+        assert_eq!(
+            machine.accept_failed(1, &GlossError::EngineNetwork),
+            FailureOutcome::Ignored,
             "hidden error card must not be resurrected"
         );
+    }
+
+    #[test]
+    fn gesture_no_selection_failures_are_silently_withdrawn_in_fetching() {
+        for error in [GlossError::SelectionUnavailable, GlossError::SelectionEmpty] {
+            let mut machine = TaskStateMachine::new();
+            trigger(&mut machine, &Config::default()).expect("trigger");
+            assert_eq!(
+                machine.accept_failed(1, &error),
+                FailureOutcome::SilentlyDropped,
+                "{error:?} on a gesture fetch is a pure mis-drag: no card"
+            );
+            assert_eq!(machine.state(), AppState::Idle);
+            assert!(
+                machine.overlay_view().is_none(),
+                "the acquiring skeleton is withdrawn with it"
+            );
+        }
+    }
+
+    #[test]
+    fn hotkey_no_selection_failures_still_raise_the_card() {
+        for error in [GlossError::SelectionUnavailable, GlossError::SelectionEmpty] {
+            let mut machine = TaskStateMachine::new();
+            trigger_hotkey(&mut machine, &Config::default()).expect("trigger");
+            assert_eq!(
+                machine.accept_failed(1, &error),
+                FailureOutcome::Shown,
+                "an explicit hotkey request deserves visible feedback, {error:?}"
+            );
+            assert_eq!(machine.state(), AppState::Error);
+        }
+    }
+
+    #[test]
+    fn gesture_failures_outside_fetching_still_raise_the_card() {
+        let mut machine = TaskStateMachine::new();
+        trigger(&mut machine, &Config::default()).expect("trigger");
+        dispatched(machine.accept_input(1, text_input("hello")));
+        assert_eq!(
+            machine.accept_failed(1, &GlossError::SelectionUnavailable),
+            FailureOutcome::Shown,
+            "the silent withdrawal covers the fetch leg only; an inference failure is a card"
+        );
+        assert_eq!(machine.state(), AppState::Error);
     }
 
     #[test]
@@ -1117,7 +1307,10 @@ mod tests {
         let mut machine = TaskStateMachine::new();
         trigger(&mut machine, &Config::default()).expect("trigger");
         let original = dispatched(machine.accept_input(1, text_input("hello")));
-        assert!(machine.accept_failed(1, &GlossError::EngineNetwork));
+        assert_eq!(
+            machine.accept_failed(1, &GlossError::EngineNetwork),
+            FailureOutcome::Shown
+        );
 
         assert!(matches!(
             machine.overlay_view(),
@@ -1144,15 +1337,19 @@ mod tests {
         trigger(&mut machine, &Config::default()).expect("trigger");
         dispatched(machine.accept_input(1, text_input("x")));
 
-        assert!(
+        assert_eq!(
             machine.accept_failed(1, &GlossError::EngineRateLimited),
+            FailureOutcome::Shown,
             "rate limited is retryable"
         );
         assert!(machine.retry().is_some());
 
         trigger(&mut machine, &Config::default()).expect("trigger");
         dispatched(machine.accept_input(2, text_input("x")));
-        assert!(machine.accept_failed(2, &GlossError::EngineAuth));
+        assert_eq!(
+            machine.accept_failed(2, &GlossError::EngineAuth),
+            FailureOutcome::Shown
+        );
         assert!(matches!(
             machine.overlay_view(),
             Some(OverlayView::Failed {
@@ -1167,7 +1364,10 @@ mod tests {
 
         trigger(&mut machine, &Config::default()).expect("trigger");
         dispatched(machine.accept_input(3, text_input("x")));
-        assert!(machine.accept_failed(3, &GlossError::UnsupportedModality));
+        assert_eq!(
+            machine.accept_failed(3, &GlossError::UnsupportedModality),
+            FailureOutcome::Shown
+        );
         assert!(matches!(
             machine.overlay_view(),
             Some(OverlayView::Failed {
@@ -1178,10 +1378,13 @@ mod tests {
 
         trigger(&mut machine, &Config::default()).expect("trigger");
         dispatched(machine.accept_input(4, text_input("x")));
-        assert!(machine.accept_failed(
-            4,
-            &GlossError::Config("no model configured for this task kind".into())
-        ));
+        assert_eq!(
+            machine.accept_failed(
+                4,
+                &GlossError::Config("no model configured for this task kind".into())
+            ),
+            FailureOutcome::Shown
+        );
         assert!(matches!(
             machine.overlay_view(),
             Some(OverlayView::Failed {
@@ -1196,13 +1399,19 @@ mod tests {
         let mut machine = TaskStateMachine::new();
         trigger(&mut machine, &Config::default()).expect("trigger");
         dispatched(machine.accept_input(1, text_input("x")));
-        assert!(machine.accept_failed(1, &GlossError::EngineNetwork));
+        assert_eq!(
+            machine.accept_failed(1, &GlossError::EngineNetwork),
+            FailureOutcome::Shown
+        );
 
         trigger(&mut machine, &Config::default()).expect("trigger");
         assert!(machine.retry().is_none(), "new trigger supersedes retry");
 
         dispatched(machine.accept_input(2, text_input("y")));
-        assert!(machine.accept_failed(2, &GlossError::EngineNetwork));
+        assert_eq!(
+            machine.accept_failed(2, &GlossError::EngineNetwork),
+            FailureOutcome::Shown
+        );
         machine.hide_overlay();
         assert_eq!(machine.state(), AppState::Idle);
         assert!(machine.retry().is_none(), "hide drops the retry task");
@@ -1257,7 +1466,7 @@ mod tests {
         assert!(
             !machine.accept_chunk(1, "迟到的正文".into())
                 && !machine.accept_done(1, plain_outcome("迟到的产物"))
-                && !machine.accept_failed(1, &GlossError::EngineNetwork),
+                && machine.accept_failed(1, &GlossError::EngineNetwork) == FailureOutcome::Ignored,
             "no product of a refused fetch may be adopted either"
         );
         machine.fail_acquire(1);

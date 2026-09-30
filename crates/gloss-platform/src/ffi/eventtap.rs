@@ -23,6 +23,9 @@ pub(crate) const K_CG_HID_EVENT_TAP: u32 = 0;
 pub(crate) const K_CG_HEAD_INSERT_EVENT_TAP: u32 = 0;
 /// CGEventTapOptions 的 kCGEventTapOptionListenOnly：只观察，不改写事件流。
 pub(crate) const K_CG_EVENT_TAP_OPTION_LISTEN_ONLY: u32 = 1;
+/// CGEventField 的 kCGEventTimestampField：事件自身的整数取值字段之一，
+/// 值为事件发生时刻的时间戳（纳秒，自系统启动起，单调）。
+pub(crate) const K_CG_EVENT_TIMESTAMP_FIELD: u32 = 0;
 
 /// tap 回调的 C 签名。
 pub(crate) type TapCallback =
@@ -43,4 +46,7 @@ unsafe extern "C" {
     pub(crate) fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
     /// 事件发生时的指针位置（全局坐标，原点在左上）。
     pub(crate) fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
+    /// 事件整数取值字段的通用读取器（[`K_CG_EVENT_TIMESTAMP_FIELD`] 用它取
+    /// 事件时间戳）。
+    pub(crate) fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
 }

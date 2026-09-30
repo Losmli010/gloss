@@ -16,7 +16,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gloss_app::channel::{AcquireCommand, Channels, Command, Event, PlatformEvent, Traced};
-use gloss_app::machine::{AppState, ErrorAction, InputOutcome, OverlayView, TaskStateMachine};
+use gloss_app::machine::{
+    AppState, ErrorAction, FailureOutcome, InputOutcome, OverlayView, TaskStateMachine,
+};
 use gloss_app::pipeline::start_command_runtime;
 use gloss_core::cache::MokaCache;
 use gloss_core::config::{Config, ModelBinding};
@@ -454,7 +456,10 @@ fn failure_lands_in_error_and_retry_succeeds() {
     let Event::TaskFailed { generation, error } = pipe.events_rx.recv().unwrap() else {
         panic!("task failed expected");
     };
-    assert!(pipe.machine.accept_failed(generation, &error));
+    assert_eq!(
+        pipe.machine.accept_failed(generation, &error),
+        FailureOutcome::Shown
+    );
     assert_eq!(pipe.machine.state(), AppState::Error);
 
     let _ = pipe.trigger_hotkey_and_feed(TaskKind::TranslateSentence, "第二次");
@@ -489,7 +494,10 @@ fn error_card_retry_redispatches_the_same_task() {
     let Event::TaskFailed { generation, error } = pipe.events_rx.recv().unwrap() else {
         panic!("task failed expected");
     };
-    assert!(pipe.machine.accept_failed(generation, &error));
+    assert_eq!(
+        pipe.machine.accept_failed(generation, &error),
+        FailureOutcome::Shown
+    );
     match pipe.machine.overlay_view() {
         Some(OverlayView::Failed {
             action: Some(ErrorAction::Retry),
