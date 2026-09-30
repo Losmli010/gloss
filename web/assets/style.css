@@ -253,6 +253,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #0E86C8, #2F7FD0
 }
 .task-card:hover { transform: translateY(-3px); border-color: rgba(70, 153, 228, 0.55); box-shadow: var(--shadow-card); }
 .task-card.wide { grid-column: span 3; }
+.task-card { min-width: 0; }
 .task-ico {
   width: 40px; height: 40px; border-radius: 11px; margin-bottom: 14px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -265,6 +266,13 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #0E86C8, #2F7FD0
   margin-top: 16px; border-radius: 11px; border: 1px solid #E2ECF5;
   background: var(--panel-soft); padding: 13px 15px; font-size: 12.5px; line-height: 1.75;
 }
+.shot.shot-frame { padding: 0; overflow: hidden; background: #101418; }
+.shot img { display: block; width: 100%; height: auto; max-width: 100%; }
+.shot-pair { display: grid; grid-template-columns: 1fr 1.35fr; gap: 10px; align-items: end; }
+.shot-pair figure { margin: 0; min-width: 0; }
+.shot-pair figure img { border-radius: 7px; }
+.shot-pair figcaption { font-size: 11px; color: var(--faint); text-align: center; padding: 6px 0 2px; }
+@media (max-width: 560px) { .shot-pair { grid-template-columns: 1fr; } }
 .shot .en { color: var(--faint); }
 .shot .hl { color: var(--text); background: rgba(70, 153, 228, 0.20); border-radius: 3px; padding: 0 3px; }
 .shot .zh { color: var(--text); }
