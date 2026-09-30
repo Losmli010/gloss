@@ -161,9 +161,9 @@ impl PromptRegistry {
     }
 
     /// 渲染**分类请求**的 messages：系统指令来自 classify 模板（任务说明、
-    /// 允许清单、输出契约），用户消息只有待分类原文。与任务渲染的分工：
-    /// 分类不走 `render`（那是 Task 的路径，Auto 在那里被拒绝），输出契约
-    /// 见 [`schema_json`] 的 Auto 臂。
+    /// 允许清单、判别规则、输出契约），用户消息只有待分类原文。与任务渲染
+    /// 的分工：分类不走 `render`（那是 Task 的路径，Auto 在那里被拒绝），
+    /// 输出契约见 [`schema_json`] 的 Auto 臂。
     ///
     /// `allowed` 是允许模型选择的任务类型清单（调用方按
     /// 「text-capable ∩ enabled」算好传入）；清单里的 [`TaskKind::Auto`]
@@ -176,10 +176,12 @@ impl PromptRegistry {
     ) -> Vec<ChatMessage> {
         let templates = locale.templates();
         let allowed_block = classify_allowed_block(allowed, locale);
+        let rules_block = classify_rules_block(allowed, locale);
         let system = render_template(
             templates.classify,
             &[
                 ("allowed", &allowed_block),
+                ("rules", &rules_block),
                 ("schema", schema_json(TaskKind::Auto)),
             ],
         );
@@ -197,15 +199,24 @@ fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
             (TaskKind::TranslateWord, Locale::Zh) => {
                 "单个词或短语，适合词典式查询（音标、释义、例句）"
             }
-            (TaskKind::TranslateSentence, Locale::Zh) => "句子或段落，需要翻译成目标语言",
-            (TaskKind::ExplainCode, Locale::Zh) => "代码片段，需要解释其行为或原理",
+            (TaskKind::TranslateSentence, Locale::Zh) => {
+                "自然语言句子或段落（可夹杂术语），需要翻译成目标语言"
+            }
+            (TaskKind::ExplainCode, Locale::Zh) => {
+                "代码片段（含命令行、报错堆栈、配置与数据格式片段），需要解释其行为或原理"
+            }
             (TaskKind::ImageOcr, Locale::Zh) => "图片，需要提取其中文字",
             (TaskKind::ImageExplain, Locale::Zh) => "图片，需要解释其内容",
             (TaskKind::TranslateWord, Locale::En) => {
                 "a single word or phrase suited to a dictionary-style card"
             }
-            (TaskKind::TranslateSentence, Locale::En) => "a sentence or paragraph to translate",
-            (TaskKind::ExplainCode, Locale::En) => "a code snippet to explain",
+            (TaskKind::TranslateSentence, Locale::En) => {
+                "a natural-language sentence or paragraph (terms mixed in are fine) to translate"
+            }
+            (TaskKind::ExplainCode, Locale::En) => {
+                "a code snippet (including command lines, error stack traces, and config or \
+                 data-format fragments) to explain"
+            }
             (TaskKind::ImageOcr, Locale::En) => "an image to extract text from",
             (TaskKind::ImageExplain, Locale::En) => "an image to explain",
             (TaskKind::Auto, _) => continue,
@@ -213,6 +224,46 @@ fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
         lines.push(format!("{kind:?} — {description}"));
     }
     lines.join("\n")
+}
+
+/// 易混淆簇的判别规则段（含段首标签，作为**一个可选单元**渲染）：只补
+/// 「清单判据一句话说不清」的边界（命令、报错、配置片段没有代码围栏也属
+/// 代码解释），不引入少样本示例——示例会把输出偏置到它自己的类别。规则
+/// 只对**清单里存在**的 kind 出现：规则指向一个不在清单里的答案，等于
+/// 推着模型选一个必然被拒绝的项；清单里一条规则都没有时整段为空，模板
+/// 那一行按可选行语义整行剔除（标签随之消失）。
+fn classify_rules_block(allowed: &[TaskKind], locale: Locale) -> String {
+    let mut lines = Vec::new();
+    for kind in allowed {
+        let rule = match (kind, locale) {
+            (TaskKind::ExplainCode, Locale::Zh) => Some(
+                "命令行、报错堆栈、配置与数据格式片段，即使没有代码围栏或缩进，也按代码解释处理。",
+            ),
+            (TaskKind::TranslateSentence, Locale::Zh) => {
+                Some("完整的自然语言句子或段落（即使夹杂术语），按句子翻译处理。")
+            }
+            (TaskKind::ExplainCode, Locale::En) => Some(
+                "Command lines, error stack traces, and config or data-format fragments count \
+                 as code to explain even without fences or indentation.",
+            ),
+            (TaskKind::TranslateSentence, Locale::En) => Some(
+                "A full natural-language sentence or paragraph counts as a translation task \
+                 even when terms are mixed in.",
+            ),
+            _ => None,
+        };
+        if let Some(rule) = rule {
+            lines.push(format!("- {rule}"));
+        }
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    let label = match locale {
+        Locale::Zh => "判别规则（逐条遵守）：",
+        Locale::En => "Discrimination rules (follow each one):",
+    };
+    format!("{label}\n{}", lines.join("\n"))
 }
 
 /// 指令模板：按 kind 取本 locale 对应文件。
@@ -314,7 +365,9 @@ pub(crate) fn schema_json(kind: TaskKind) -> &'static str {
         TaskKind::TranslateSentence | TaskKind::ExplainCode => r#"{"title":"一句话摘要或 null"}"#,
         TaskKind::ImageOcr => r#"{"text":"提取的纯文本"}"#,
         TaskKind::ImageExplain => r#"{"title":"一句话摘要或 null"}"#,
-        TaskKind::Auto => r#"{"kind":"TranslateSentence"}"#,
+        // 分类契约只示范形状：值用中性占位——写死某个具体 kind 会形成
+        // 少样本偏置，模型照抄示例类别的比例随示例显著性上升。
+        TaskKind::Auto => r#"{"kind":"…"}"#,
     }
 }
 
@@ -592,6 +645,59 @@ mod tests {
             assert!(messages[0].content.contains("\"kind\""));
             assert!(!messages[0].content.contains("{{"));
         }
+    }
+
+    #[test]
+    fn auto_schema_is_a_neutral_placeholder() {
+        let schema = schema_json(TaskKind::Auto);
+        for kind in [
+            TaskKind::TranslateWord,
+            TaskKind::TranslateSentence,
+            TaskKind::ExplainCode,
+        ] {
+            let serde_name = format!("{kind:?}");
+            assert!(
+                !schema.contains(&serde_name),
+                "the classify contract must not name a concrete kind ({serde_name}): \
+                 the example is a few-shot bias"
+            );
+        }
+    }
+
+    #[test]
+    fn rules_follow_the_allowed_list_and_leave_no_dangling_label() {
+        let registry = PromptRegistry::new();
+        let full = [TaskKind::TranslateSentence, TaskKind::ExplainCode];
+
+        let zh = registry.render_classify(Locale::Zh, &full, "kubectl get pods")[0]
+            .content
+            .clone();
+        assert!(zh.contains("命令行"));
+        assert!(zh.contains("判别规则"));
+
+        let en = registry.render_classify(Locale::En, &full, "kubectl get pods")[0]
+            .content
+            .clone();
+        assert!(en.contains("Command lines"));
+        assert!(en.contains("Discrimination rules"));
+
+        // 清单里没有 ExplainCode 时，指向它的规则消失，其余规则保留——
+        // 规则不得指向一个必然被拒绝的答案。
+        let without_code = [TaskKind::TranslateSentence];
+        let zh = registry.render_classify(Locale::Zh, &without_code, "kubectl get pods")[0]
+            .content
+            .clone();
+        assert!(!zh.contains("命令行"));
+        assert!(zh.contains("判别规则"), "{zh}");
+
+        // 清单里没有任何带规则的 kind 时，整段规则连同标签消失。
+        let without_rules = [TaskKind::TranslateWord];
+        let zh = registry.render_classify(Locale::Zh, &without_rules, "光泽")[0]
+            .content
+            .clone();
+        assert!(!zh.contains("命令行"));
+        assert!(!zh.contains("判别规则"), "{zh}");
+        assert!(!zh.contains("{{"), "{zh}");
     }
 
     #[test]
