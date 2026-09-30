@@ -6,17 +6,20 @@
 //! 高度自适应内容（宽度默认 380、上限 480，高度上限按屏幕），超出部分
 //! 滚动兜底。流式视图按 [`STRUCTURED_FENCE`] 从**首个**围栏标记起整段
 //! 截断（围栏后是模型在写结构化 JSON，一个字节都不该闪现；跨 chunk 切分
-//! 出的残缺围栏前缀可能短暂显示，随下一 chunk 自愈）。头部动作区常驻
-//! 设置齿轮与关闭 ×，点击经 draw 返回 [`OverlayAction`] 上交壳执行。
+//! 出的残缺围栏前缀可能短暂显示，随下一 chunk 自愈）。页头是应用图标 +
+//! 品牌名 + 任务标签药丸；动作区常驻设置齿轮与关闭 ×，点击经 draw 返回
+//! [`OverlayAction`] 上交壳执行。
 //!
 //! 敏感信息防护不在这里：两条闸门都不出浮层（见 `gloss_app::machine`），
 //! 因此也没有「疑似敏感」这张卡。
 
 use std::cell::{Cell, RefCell};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use egui::{CornerRadius, Frame, Margin, RichText, ScrollArea, Stroke, vec2};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use gloss_core::log::{thread, warn};
 use gloss_core::prompt::STRUCTURED_FENCE;
 use gloss_core::task::OutcomeStructured;
 
@@ -35,8 +38,32 @@ const TALL_GROW: f32 = 320.0;
 const TALL_SHRINK: f32 = 240.0;
 /// 宽度档位判定的浮点容差
 const WIDTH_SWITCH_EPSILON: f32 = 0.5;
-/// 头部动作图标（齿轮/关闭）的字形尺寸
+/// 页头品牌名：应用名不翻译（与文案表「语言名不翻译」同一原则）。
+const BRAND_NAME: &str = "Gloss";
+/// 页头应用图标的边长
+const HEADER_ICON: f32 = 20.0;
+/// 应用图标 PNG：与 Dock 图标同一份设计资产（矢量源与画布说明见
+/// assets/icons/gloss-app-icon.svg）。
+const APP_ICON_PNG: &[u8] = include_bytes!("../../../../assets/icons/gloss-dock-icon.png");
+/// 应用图标画布的 Big Sur 规范比例：画布 1024、四周透明边距 100、图形本体
+/// 824（SVG 源同值）；页头按此比例裁出图形本体，不显示透明边距。
+const ICON_CANVAS: u32 = 1024;
+const ICON_MARGIN: u32 = 100;
+const ICON_CONTENT: u32 = 824;
+/// 头部齿轮的字形尺寸
 const ACTION_ICON_SIZE: f32 = 16.0;
+/// 头部动作钮的方块边长：齿轮与关闭的命中区统一到这个盒子
+const ACTION_BUTTON: f32 = 20.0;
+/// 关闭 × 的半臂长与线宽：画出的 × 与齿轮字形等视觉大小（齿轮 14×15）
+const CLOSE_ARM: f32 = 6.0;
+const CLOSE_STROKE: f32 = 2.0;
+/// 页头标签药丸的内边距（水平/垂直）
+const TAG_PILL_PADDING_H: i8 = 6;
+const TAG_PILL_PADDING_V: i8 = 3;
+/// 页头标签药丸圆角（egui 自动钳到半高，等效全圆胶囊）
+const TAG_PILL_RADIUS: u8 = 10;
+/// 页头标签铺底的透明度（0-255）：约一成不透明度的同色铺底
+const TAG_TINT_ALPHA: u8 = 0x1A;
 /// 出现动画时长（淡入，秒）：显示/重显后的第一帧从 0 渐进到 1。
 const APPEAR_SECONDS: f32 = 0.18;
 
@@ -46,6 +73,10 @@ pub(crate) struct RenderState {
     pub cache: RefCell<CommonMarkCache>,
     /// 上一帧应用的浮层宽度（宽度收敛的滞回状态）。
     pub last_width: Cell<f32>,
+    /// 页头应用图标的纹理（每个 egui 上下文一份，惰性装入）。None＝尚未
+    /// 装入或解码失败；失败时每帧重试的成本只有一次常量读取，不再单设
+    /// 失败标记。
+    icon: RefCell<Option<egui::TextureHandle>>,
 }
 
 impl Default for RenderState {
@@ -53,8 +84,61 @@ impl Default for RenderState {
         Self {
             cache: RefCell::new(CommonMarkCache::default()),
             last_width: Cell::new(WIDTH),
+            icon: RefCell::new(None),
         }
     }
+}
+
+impl RenderState {
+    /// 页头应用图标纹理；首次调用解码 PNG 并装入当前上下文。
+    fn icon_texture(&self, ctx: &egui::Context) -> Option<egui::TextureHandle> {
+        let mut slot = self.icon.borrow_mut();
+        if slot.is_none()
+            && let Some(image) = app_icon_image()
+        {
+            *slot = Some(ctx.load_texture("gloss_app_icon", image, egui::TextureOptions::LINEAR));
+        }
+        slot.clone()
+    }
+}
+
+/// 应用图标的解码结果：进程内只解码一次（含失败）。
+fn app_icon_image() -> Option<egui::ColorImage> {
+    static DECODED: OnceLock<Option<egui::ColorImage>> = OnceLock::new();
+    DECODED
+        .get_or_init(|| decode_app_icon(APP_ICON_PNG))
+        .clone()
+}
+
+/// 解码给定的 PNG 字节并按画布比例裁出图形本体；失败走隔离降级——记一条
+/// 告警，页头退化为无图标的品牌名行，不影响其余内容。参数化 PNG 来源，
+/// 裁剪数学与降级分支可经 L1 测试直接驱动。
+fn decode_app_icon(png: &[u8]) -> Option<egui::ColorImage> {
+    use image::GenericImageView;
+    let decoded = match image::load_from_memory(png) {
+        Ok(decoded) => decoded,
+        Err(error) => {
+            warn!(
+                thread = thread::UI,
+                error = %error,
+                "app icon failed to decode, header renders without it"
+            );
+            return None;
+        }
+    };
+    let (width, height) = decoded.dimensions();
+    // 裁剪数学假设正方形画布与四边等边距（SVG 源即如此）；资产若改版失衡，
+    // debug 构建里第一时间显形。
+    debug_assert_eq!(width, height, "app icon canvas is expected to be square");
+    let margin = width * ICON_MARGIN / ICON_CANVAS;
+    let content = width * ICON_CONTENT / ICON_CANVAS;
+    let rgba = decoded
+        .crop_imm(margin, margin, content, content)
+        .to_rgba8();
+    Some(egui::ColorImage::from_rgba_unmultiplied(
+        [content as usize, content as usize],
+        rgba.as_raw(),
+    ))
 }
 
 /// 一帧浮层绘制的产物：动作上交 + 内容期望的窗口尺寸（逻辑点）。
@@ -201,7 +285,14 @@ fn render_content(
 ) -> Option<OverlayAction> {
     match view {
         None => {
-            let action = header(ui, Some(text.gloss_popup_selfcheck.as_str()), false, text);
+            let action = header(
+                ui,
+                state,
+                Some(text.gloss_popup_selfcheck.as_str()),
+                TagTint::Brand,
+                false,
+                text,
+            );
             ui.add_space(space::SECTION);
             selfcheck_body(ui);
             *content_h = ui.min_rect().height();
@@ -210,7 +301,7 @@ fn render_content(
         Some(OverlayView::Acquiring) => {
             // 取材骨架（触发即显）：头部旋转指示器 + 弱色占位行。没有
             // 选区数据可展示，整卡保持紧凑，取材完成即整卡替换。
-            let action = header(ui, None, true, text);
+            let action = header(ui, state, None, TagTint::Brand, true, text);
             ui.add_space(space::SECTION);
             ui.label(
                 RichText::new(text.gloss_popup_fetching.as_str())
@@ -227,7 +318,9 @@ fn render_content(
         }) => {
             let action = header(
                 ui,
+                state,
                 classified.map(|kind| crate::ui::kind_label(kind, text)),
+                TagTint::Brand,
                 true,
                 text,
             );
@@ -251,7 +344,9 @@ fn render_content(
         Some(OverlayView::Outcome(outcome)) => {
             let action = header(
                 ui,
+                state,
                 Some(crate::ui::kind_label(outcome.kind, text)),
+                TagTint::Brand,
                 false,
                 text,
             );
@@ -267,7 +362,14 @@ fn render_content(
             cause,
             action: error_action,
         }) => {
-            let mut action = header(ui, Some(text.gloss_popup_failed.as_str()), false, text);
+            let mut action = header(
+                ui,
+                state,
+                Some(text.gloss_popup_failed.as_str()),
+                TagTint::Warn,
+                false,
+                text,
+            );
             ui.add_space(space::SECTION);
             ui.label(
                 RichText::new(failure_message(cause, text))
@@ -310,37 +412,47 @@ fn action_label(action: ErrorAction, text: &Text) -> &str {
     }
 }
 
-/// 头部：身份圆点 + 品牌标签，右侧动作区 `[任务标签 | ⚙ ×]`——× 最右
-/// （最后动作）、齿轮居左，图标默认弱色、hover/按下显色；`busy` 时旋转
-/// 指示器随行，`tag` 有值时任务标签与它并存（自动分类判明后标签出现）。
-/// 返回动作区点击。
-fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool, text: &Text) -> Option<OverlayAction> {
+/// 页头标签的着色档：任务/自检标签走品牌蓝，失败标签走警示色。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TagTint {
+    Brand,
+    Warn,
+}
+
+/// 页头：应用图标 + 品牌名 + 任务标签药丸（着色按 [`TagTint`]），右侧动作
+/// 区 `[Spinner | ⚙ ×]`——× 最右（最后动作）、齿轮居左，图标默认弱色、
+/// hover/按下显色；`busy` 时旋转指示器随行，`tag` 有值时药丸与它并存
+/// （自动分类判明后标签出现）。返回动作区点击。
+fn header(
+    ui: &mut egui::Ui,
+    state: &RenderState,
+    tag: Option<&str>,
+    tint: TagTint,
+    busy: bool,
+    text: &Text,
+) -> Option<OverlayAction> {
     let weak = ui.visuals().weak_text_color();
     let strong = ui.visuals().strong_text_color();
     let mut action = None;
     ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(vec2(8.0, 8.0), egui::Sense::hover());
-        ui.painter()
-            .circle_filled(rect.center(), 4.0, color::ACCENT);
-        ui.label(
-            RichText::new(text.gloss_popup_brand.as_str())
-                .size(font::CAPTION)
-                .color(weak),
-        );
+        if let Some(icon) = state.icon_texture(ui.ctx()) {
+            ui.add(
+                egui::Image::from_texture(&icon).fit_to_exact_size(vec2(HEADER_ICON, HEADER_ICON)),
+            );
+            ui.add_space(space::PARAGRAPH);
+        }
+        ui.label(RichText::new(BRAND_NAME).size(font::BODY).color(strong));
+        if let Some(tag) = tag {
+            ui.add_space(space::PARAGRAPH);
+            tag_pill(ui, tag, tint);
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // 图标钮的文字颜色交给 widget 状态笔刷（不写死在字形上），
             // 才有「默认弱色、hover 显色」；只换色，线宽保持出厂值。
             ui.visuals_mut().widgets.inactive.fg_stroke.color = weak;
             ui.visuals_mut().widgets.hovered.fg_stroke.color = strong;
             ui.visuals_mut().widgets.active.fg_stroke.color = strong;
-            let close = ui.add(icon_button("×"));
-            close.widget_info(|| {
-                egui::WidgetInfo::labeled(
-                    egui::WidgetType::Button,
-                    true,
-                    text.gloss_popup_close_label.as_str(),
-                )
-            });
+            let close = close_button(ui, text);
             if close.clicked() {
                 action = Some(OverlayAction::Dismiss);
             }
@@ -358,17 +470,84 @@ fn header(ui: &mut egui::Ui, tag: Option<&str>, busy: bool, text: &Text) -> Opti
             if busy {
                 ui.add(egui::Spinner::new().size(font::TAG + 5.0));
             }
-            if let Some(tag) = tag {
-                ui.label(RichText::new(tag).size(font::TAG).color(weak));
-            }
         });
     });
     action
 }
 
-/// 无边框的动作图标钮（glyph 字形，颜色由 widget 状态笔刷决定）。
+/// 头部动作钮（关闭 ×）：与齿轮同尺寸的方块命中区，× 本体用两条圆头线段
+/// 绘制——内置字体里 × 字形只有 ⚙ 的四成大，靠字号拉平会撑破按钮盒。
+fn close_button(ui: &mut egui::Ui, text: &Text) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(ACTION_BUTTON, ACTION_BUTTON), egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            true,
+            text.gloss_popup_close_label.as_str(),
+        )
+    });
+    let color = if response.hovered() || response.is_pointer_button_down_on() {
+        ui.visuals().strong_text_color()
+    } else {
+        ui.visuals().weak_text_color()
+    };
+    let stroke = Stroke::new(CLOSE_STROKE, color);
+    let center = rect.center();
+    ui.painter().line_segment(
+        [
+            center - vec2(CLOSE_ARM, CLOSE_ARM),
+            center + vec2(CLOSE_ARM, CLOSE_ARM),
+        ],
+        stroke,
+    );
+    ui.painter().line_segment(
+        [
+            center - vec2(CLOSE_ARM, -CLOSE_ARM),
+            center + vec2(CLOSE_ARM, -CLOSE_ARM),
+        ],
+        stroke,
+    );
+    response
+}
+
+/// 页头标签药丸：品牌蓝/警示色的低透明度铺底 + 同色文字，明暗主题各取
+/// 可读变体。
+fn tag_pill(ui: &mut egui::Ui, label: &str, tint: TagTint) {
+    let (fg, bg) = match tint {
+        TagTint::Brand => {
+            let fg = if ui.visuals().dark_mode {
+                color::TAG_TEXT_DARK
+            } else {
+                color::TAG_TEXT_LIGHT
+            };
+            (fg, tag_tint(color::TAG_BLUE))
+        }
+        TagTint::Warn => {
+            let fg = ui.visuals().warn_fg_color;
+            (fg, tag_tint(fg))
+        }
+    };
+    egui::Frame::new()
+        .fill(bg)
+        .corner_radius(CornerRadius::same(TAG_PILL_RADIUS))
+        .inner_margin(Margin::symmetric(TAG_PILL_PADDING_H, TAG_PILL_PADDING_V))
+        .show(ui, |ui| {
+            ui.label(RichText::new(label).size(font::TAG).color(fg));
+        });
+}
+
+/// 同色低透明度铺底。
+fn tag_tint(base: egui::Color32) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), TAG_TINT_ALPHA)
+}
+
+/// 无边框的动作图标钮（glyph 字形，颜色由 widget 状态笔刷决定）；方块
+/// min_size 让齿轮与关闭钮命中区等大。
 fn icon_button(glyph: &'static str) -> egui::Button<'static> {
-    egui::Button::new(RichText::new(glyph).size(ACTION_ICON_SIZE)).frame(false)
+    egui::Button::new(RichText::new(glyph).size(ACTION_ICON_SIZE))
+        .frame(false)
+        .min_size(vec2(ACTION_BUTTON, ACTION_BUTTON))
 }
 
 /// 流式正文的可见部分：从**首个**结构化围栏标记起整段截断。模型按契约
@@ -502,7 +681,21 @@ fn selfcheck_body(ui: &mut egui::Ui) {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_WIDTH, WIDTH, resolve_width, stream_visible_body};
+    use super::{
+        APP_ICON_PNG, MAX_WIDTH, WIDTH, decode_app_icon, resolve_width, stream_visible_body,
+    };
+
+    #[test]
+    fn decode_app_icon_rejects_bad_bytes() {
+        assert!(decode_app_icon(b"not a png").is_none());
+    }
+
+    #[test]
+    fn decode_app_icon_crops_to_the_content_square() {
+        let image = decode_app_icon(APP_ICON_PNG).expect("embedded icon must decode");
+        assert_eq!(image.width(), 206, "256 * 824 / 1024");
+        assert_eq!(image.height(), 206, "256 * 824 / 1024");
+    }
 
     #[test]
     fn width_hysteresis_does_not_oscillate_between_frames() {

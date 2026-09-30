@@ -1447,6 +1447,7 @@ dependencies = [
  "futures",
  "gloss-core",
  "gloss-platform",
+ "image",
  "pollster",
  "reqwest",
  "semver",
