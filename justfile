@@ -195,14 +195,6 @@ release-check tag:
 gen-manifest tag artifacts-dir:
     ./scripts/release/gen-manifest.sh {{tag}} {{artifacts-dir}}
 
-# 基于 conventional commits 生成 CHANGELOG
-changelog:
-    git cliff -o CHANGELOG.md
-
-# 预览将生成的 CHANGELOG（不写文件）
-changelog-preview:
-    git cliff --unreleased
-
 # ---- hooks：pre-commit 同款检查（纯 bash 秒级，CI 的 hooks.yml 也跑）----
 
 # 硬编码密钥扫描（命中即失败）
