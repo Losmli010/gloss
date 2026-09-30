@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 25 | `just test` |
-| 单元测试 | 407 | `just test` |
+| 单元测试 | 408 | `just test` |
 
 ## 人工测试
 
@@ -571,6 +571,7 @@ popup 快照基线：popup_word_card、popup_acquiring、popup_streaming、popup
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 Translating 态隐藏，当收起，则令牌取消、视图清空回 Idle，迟到同代数产物/失败被拒 | 2026-09-19 |
 | failed_guard_matches_fetching_and_translating_only | 失败守卫只认两个在途态 | 给定推理失败与隐藏后的迟到失败，当采纳，则前者落 Error（Shown）、后者被拒（Ignored） | 2026-09-30 |
 | gesture_no_selection_failures_are_silently_withdrawn_in_fetching | 手势空选区静默收回 | 给定手势触发的取材态，当收 SelectionUnavailable / SelectionEmpty 失败，则静默回 Idle 不弹卡、骨架视图一并清掉 | 2026-09-30 |
+| gesture_empty_selection_is_silently_withdrawn_but_hotkey_still_raises_the_card | 壳层时序：静默收回不弹窗、热键仍弹卡 | 给定手势触发的取材中壳，当收空选区失败，则壳不请求浮层、状态回 Idle、视图清空；热键触发的同一失败仍落 Error 弹卡 | 2026-09-30 |
 | hotkey_no_selection_failures_still_raise_the_card | 热键空选区仍弹卡 | 给定热键触发的取材态，当收 SelectionUnavailable / SelectionEmpty 失败，则落 Error 弹失败卡（显式请求需反馈） | 2026-09-30 |
 | gesture_failures_outside_fetching_still_raise_the_card | 手势推理失败仍弹卡 | 给定手势触发已进推理态，当收 SelectionUnavailable，则落 Error 弹卡（静默只覆盖取材一腿） | 2026-09-30 |
 | gesture_in_the_self_frontmost_scene_is_suppressed_without_a_generation | 自身前台的划词被拦且不占代数 | 给定前台应用 is_self 为真，当手势 trigger_decision，则 SelfSuppressed、trigger 为 None、代数 0、无浮层；同一场景下热键照常 Acquire | 2026-09-30 |
@@ -769,7 +770,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | untrusted_maps_to_accessibility_denied | 未授权一律映射拒绝 | 给定未授权进程的取值结果，当 interpret 映射，则一律 AccessibilityDenied | 2026-09-19 |
 | selected_text_passes_through_verbatim | 选中文本原样透传 | 给定读到的选中文本（含纯空白），当映射，则原样透传不裁剪 | 2026-09-19 |
-| empty_and_missing_selection_are_empty_not_unavailable | 空与缺失映射为选区为空 | 给定空选区与 None（属性可读但值为空），当映射，则 SelectionEmpty——「没选东西」与「读不到」分开建档 | 2026-09-30 |
+| an_empty_selection_is_empty_but_a_missing_value_stays_unavailable | 空选区与读不到分开建档 | 给定空串与 None（超上限/非字符串），当映射，则前者 SelectionEmpty（没选东西）、后者 SelectionUnavailable（选了但读不动，兜底仍值得一试）；NoValue 归前者 | 2026-09-30 |
 | api_disabled_after_trusted_check_maps_to_denied | 授权后 API 禁用仍映射拒绝 | 给定授权后 AX 报 APIDisabled，当映射，则仍是 AccessibilityDenied | 2026-09-19 |
 | adjacent_error_codes_are_told_apart | 相邻错误码区分 | 给定相邻码 -25211（APIDisabled）与 -25212（NoValue），当映射，则前者 Denied、后者 SelectionEmpty（错一位语义就反转） | 2026-09-30 |
 | other_ax_errors_map_to_unavailable | 其余 AX 错误映射不可用 | 给定 -25206/-25213/-25200，当映射，则归 SelectionUnavailable | 2026-09-19 |

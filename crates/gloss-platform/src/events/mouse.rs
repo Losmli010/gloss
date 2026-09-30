@@ -273,9 +273,9 @@ mod tap {
             CFRunLoopRun, kCFAllocatorDefault, kCFRunLoopCommonModes,
         };
         use crate::ffi::eventtap::{
-            CGEventGetIntegerValueField, CGEventGetLocation, CGEventRef, CGEventTapCreate,
+            CGEventGetLocation, CGEventGetTimestamp, CGEventRef, CGEventTapCreate,
             CGEventTapEnable, CGEventTapProxy, CGPoint, K_CG_EVENT_TAP_OPTION_LISTEN_ONLY,
-            K_CG_EVENT_TIMESTAMP_FIELD, K_CG_HEAD_INSERT_EVENT_TAP, K_CG_HID_EVENT_TAP,
+            K_CG_HEAD_INSERT_EVENT_TAP, K_CG_HID_EVENT_TAP,
         };
 
         use super::super::{ButtonEvent, SUBSCRIBED_EVENT_TYPES, classify};
@@ -367,15 +367,12 @@ mod tap {
                 // SAFETY: `event` 是系统在回调期间借给我们的事件引用，只读位置
                 // 与时间戳，不转移所有权。
                 let CGPoint { x, y } = unsafe { CGEventGetLocation(event) };
-                // SAFETY: 同上，`event` 在回调期间有效；整数取值字段是纯读取。
-                let timestamp =
-                    unsafe { CGEventGetIntegerValueField(event, K_CG_EVENT_TIMESTAMP_FIELD) };
+                // SAFETY: 同上，`event` 在回调期间有效；时间戳是纯读取。
+                let time = unsafe { CGEventGetTimestamp(event) };
                 sink(ButtonEvent {
                     action,
                     pos: (x, y),
-                    // 时间戳实际不为负；模拟事件若给出负值按 0 处理——时长
-                    // 判定失败闭合（滤除），真实事件对不受影响。
-                    time: u64::try_from(timestamp).unwrap_or(0),
+                    time,
                 });
             }
             event

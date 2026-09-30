@@ -3,7 +3,7 @@
 //! 经 Accessibility API（HIServices）向系统问询「systemwide 焦点元素 →
 //! 选中文本」，是向目标应用发起的同步跨进程调用，按线程模型约束
 //! 必须运行在平台事件线程（调用方保证亲和性）。权限缺失返回
-//! [`GlossError::AccessibilityDenied`]；「属性可读但选区为空」（含
+//! [`GlossError::AccessibilityDenied`]；「属性可读但选区为空」（空串，含
 //! kAXErrorNoValue 的「属性存在但无值」）返回 [`GlossError::SelectionEmpty`]
 //! ——组合通道对它不落剪贴板兜底；应用不支持选区属性或系统调用失败返回
 //! [`GlossError::SelectionUnavailable`]——一律经 `Result`
@@ -30,17 +30,19 @@ const MAX_SELECTION_BYTES: usize = 8 * 1024 * 1024;
 
 /// 把「是否已授权 + AX 取值结果」映射为统一错误语义（纯逻辑，单测覆盖）：
 /// 未授权一律 [`GlossError::AccessibilityDenied`]（权限检查先于取值，AX
-/// 返回同一码时以更明确的权限语义收口）；「属性可读但值为空」（空串、
-/// 非字符串值、`kAXErrorNoValue`）归 [`GlossError::SelectionEmpty`]——
-/// 属性在而选区空，是「没选东西」不是「读不到」；其余取不到选区的情形
-/// （应用不支持属性、系统调用失败）归 [`GlossError::SelectionUnavailable`]。
+/// 返回同一码时以更明确的权限语义收口）；空串与 `kAXErrorNoValue` 归
+/// [`GlossError::SelectionEmpty`]——属性在而选区空，是「没选东西」不是
+/// 「读不到」；`Ok(None)`（超长度上限、非字符串值）与其余取不到的情形
+/// （应用不支持属性、系统调用失败）归 [`GlossError::SelectionUnavailable`]
+/// ——它们可能是「选了但读不动」，兜底通道（剪贴板）仍值得一试。
 fn interpret(trusted: bool, outcome: Result<Option<String>, i32>) -> Result<String, GlossError> {
     if !trusted {
         return Err(GlossError::AccessibilityDenied);
     }
     match outcome {
         Ok(Some(text)) if !text.is_empty() => Ok(text),
-        Ok(_) => Err(GlossError::SelectionEmpty),
+        Ok(Some(_)) => Err(GlossError::SelectionEmpty),
+        Ok(None) => Err(GlossError::SelectionUnavailable),
         Err(AX_ERROR_API_DISABLED) => Err(GlossError::AccessibilityDenied),
         Err(AX_ERROR_NO_VALUE) => Err(GlossError::SelectionEmpty),
         Err(_) => Err(GlossError::SelectionUnavailable),
@@ -210,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_and_missing_selection_are_empty_not_unavailable() {
+    fn an_empty_selection_is_empty_but_a_missing_value_stays_unavailable() {
         assert_eq!(
             interpret(true, Ok(Some(String::new()))),
             Err(GlossError::SelectionEmpty),
@@ -218,8 +220,9 @@ mod tests {
         );
         assert_eq!(
             interpret(true, Ok(None)),
-            Err(GlossError::SelectionEmpty),
-            "a non-string value is likewise not a readable selection"
+            Err(GlossError::SelectionUnavailable),
+            "None means the value could not be delivered (over the size ceiling, \
+             non-string): a fallback is still worth trying"
         );
     }
 

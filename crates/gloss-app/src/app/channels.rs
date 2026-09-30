@@ -351,7 +351,7 @@ mod tests {
         driven_app, driven_app_with_scene, outcome_body, plain_outcome, streaming_body, text_input,
         trigger_selection,
     };
-    use crate::channel::{AcquireCommand, Command};
+    use crate::channel::{AcquireCommand, Command, PlatformEvent};
     use crate::machine::AppState;
     use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder, StubSceneProbe};
 
@@ -591,6 +591,39 @@ mod tests {
             ac_rx.try_recv().unwrap().payload,
             AcquireCommand::AcquireText { generation: 1, .. }
         ));
+    }
+
+    #[test]
+    fn gesture_empty_selection_is_silently_withdrawn_but_hotkey_still_raises_the_card() {
+        use gloss_core::task::{HotkeyBinding, InputSource};
+
+        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        trigger_selection(&mut app, &pe_tx);
+        assert_eq!(app.machine.state(), AppState::Fetching);
+
+        assert!(
+            !app.accept_failed(1, &gloss_core::model::GlossError::SelectionUnavailable),
+            "a pure mis-drag must not pop the overlay for a failure card"
+        );
+        assert_eq!(app.machine.state(), AppState::Idle);
+        assert!(
+            app.machine.overlay_view().is_none(),
+            "the acquiring skeleton is withdrawn with the silent drop"
+        );
+
+        // 热键是显式请求：同一失败必须得到可见反馈。
+        pe_tx
+            .send(PlatformEvent::HotkeyTriggered {
+                binding: HotkeyBinding {
+                    trigger: "Cmd+Shift+T".into(),
+                    kind: TaskKind::TranslateSentence,
+                    source: InputSource::Selection,
+                },
+            })
+            .unwrap();
+        app.drain_platform_events();
+        assert!(app.accept_failed(2, &gloss_core::model::GlossError::SelectionUnavailable));
+        assert_eq!(app.machine.state(), AppState::Error);
     }
 
     #[test]
