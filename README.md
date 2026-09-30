@@ -41,7 +41,7 @@
 - **提交信息**：遵循 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/)，由本地 git hooks + CI 双重校验。
 - **质量门禁**：`just check`（fmt + clippy + test + 约束 + 密钥扫描），CI 在 PR 上强制通过。
 - **依赖更新**：Dependabot 每周自动检查 cargo 与 GitHub Actions 依赖。
-- **变更日志**：由 git-cliff 从提交历史自动生成（`just changelog`）。
+- **发版说明**：以 GitHub Releases 页为唯一来源，由 CI 在打 tag 时从提交历史生成。
 
 ## License
 
