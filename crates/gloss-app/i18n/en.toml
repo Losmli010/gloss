@@ -21,7 +21,6 @@ gloss_langs_ko = "Korean"
 gloss_langs_fr = "French"
 gloss_langs_other = "Other"
 
-gloss_popup_brand = "Translate"
 gloss_popup_selfcheck = "Self-check"
 gloss_popup_failed = "Failed"
 gloss_popup_retry = "Retry"
