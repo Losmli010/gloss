@@ -47,6 +47,8 @@ objc2-app-kit = {
     "NSResponder",
     "NSRunningApplication",
     "NSWorkspace",
+    # NSRunningApplication 的 processIdentifier（is_self 判定）被 libc 特性门控。
+    "libc",
   ]
 }
 objc2-foundation = {

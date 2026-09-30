@@ -66,8 +66,11 @@ pub struct ScreenRect {
 /// 全链路统一错误：状态机 Error 态与重试策略都按变体分支，不允许 panic 逃出主循环。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GlossError {
-    /// 选区读不到（权限缺失或空选区）。
+    /// 选区读不到（应用不支持选区属性或 AX/兜底通道失败）。
     SelectionUnavailable,
+    /// 选区为空（应用支持选区属性、如实报告了空值）——与「读不到」分开
+    /// 建档：组合通道对前者不落剪贴板兜底，状态机对手势触发静默收回。
+    SelectionEmpty,
     /// 辅助功能权限缺失。
     AccessibilityDenied,
     /// 屏幕录制权限缺失。
@@ -95,6 +98,7 @@ impl std::fmt::Display for GlossError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SelectionUnavailable => write!(f, "selection unavailable"),
+            Self::SelectionEmpty => write!(f, "selection is empty"),
             Self::AccessibilityDenied => write!(f, "accessibility permission denied"),
             Self::ScreenCaptureDenied => write!(f, "screen capture permission denied"),
             Self::RegionTooLarge => write!(f, "screen region too large"),
@@ -151,6 +155,7 @@ mod tests {
             GlossError::SelectionUnavailable.to_string(),
             "selection unavailable"
         );
+        assert_eq!(GlossError::SelectionEmpty.to_string(), "selection is empty");
         assert_eq!(
             GlossError::EngineResponse("bad json".into()).to_string(),
             "engine response error: bad json"

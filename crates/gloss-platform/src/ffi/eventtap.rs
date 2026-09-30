@@ -43,4 +43,7 @@ unsafe extern "C" {
     pub(crate) fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
     /// 事件发生时的指针位置（全局坐标，原点在左上）。
     pub(crate) fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
+    /// 事件自身的时间戳（CGEventTimestamp = uint64_t，约自系统启动起的
+    /// 纳秒数；CGEvent.h 的原话）。
+    pub(crate) fn CGEventGetTimestamp(event: CGEventRef) -> u64;
 }

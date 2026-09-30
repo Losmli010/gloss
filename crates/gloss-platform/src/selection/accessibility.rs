@@ -3,8 +3,10 @@
 //! 经 Accessibility API（HIServices）向系统问询「systemwide 焦点元素 →
 //! 选中文本」，是向目标应用发起的同步跨进程调用，按线程模型约束
 //! 必须运行在平台事件线程（调用方保证亲和性）。权限缺失返回
-//! [`GlossError::AccessibilityDenied`]；无选区、应用不支持选区属性或系统
-//! 调用失败返回 [`GlossError::SelectionUnavailable`]——一律经 `Result`
+//! [`GlossError::AccessibilityDenied`]；「属性可读但选区为空」（空串，含
+//! kAXErrorNoValue 的「属性存在但无值」）返回 [`GlossError::SelectionEmpty`]
+//! ——组合通道对它不落剪贴板兜底；应用不支持选区属性或系统调用失败返回
+//! [`GlossError::SelectionUnavailable`]——一律经 `Result`
 //! 传播，不允许 panic 逃出。授权引导属设置页/权限引导路径，读取侧只如实
 //! 报告，不代为弹窗。
 //!
@@ -17,22 +19,32 @@ use gloss_core::model::GlossError;
 /// 的常见返回），二者错一位语义就反转，见 tests 的相邻码对账测试。
 const AX_ERROR_API_DISABLED: i32 = -25211;
 
+/// AXError.h 的 kAXErrorNoValue：属性存在但无值——「选区为空」的 AX 侧
+/// 说法，与「取不到」（[`GlossError::SelectionUnavailable`]）分开归档，
+/// 前者不该触发剪贴板兜底（见 `composite::combine`）。
+const AX_ERROR_NO_VALUE: i32 = -25212;
+
 /// 取值缓冲区的分配上界（字节）：长度来自远端进程报告，无校验的分配
 /// 失败会直接 abort 进程而非返回错误，超限按取不到选区处理。
 const MAX_SELECTION_BYTES: usize = 8 * 1024 * 1024;
 
 /// 把「是否已授权 + AX 取值结果」映射为统一错误语义（纯逻辑，单测覆盖）：
 /// 未授权一律 [`GlossError::AccessibilityDenied`]（权限检查先于取值，AX
-/// 返回同一码时以更明确的权限语义收口）；其余取不到选区的情形——空选区、
-/// 应用不支持属性、系统调用失败——归 [`GlossError::SelectionUnavailable`]。
+/// 返回同一码时以更明确的权限语义收口）；空串与 `kAXErrorNoValue` 归
+/// [`GlossError::SelectionEmpty`]——属性在而选区空，是「没选东西」不是
+/// 「读不到」；`Ok(None)`（超长度上限、非字符串值）与其余取不到的情形
+/// （应用不支持属性、系统调用失败）归 [`GlossError::SelectionUnavailable`]
+/// ——它们可能是「选了但读不动」，兜底通道（剪贴板）仍值得一试。
 fn interpret(trusted: bool, outcome: Result<Option<String>, i32>) -> Result<String, GlossError> {
     if !trusted {
         return Err(GlossError::AccessibilityDenied);
     }
     match outcome {
         Ok(Some(text)) if !text.is_empty() => Ok(text),
-        Ok(_) => Err(GlossError::SelectionUnavailable),
+        Ok(Some(_)) => Err(GlossError::SelectionEmpty),
+        Ok(None) => Err(GlossError::SelectionUnavailable),
         Err(AX_ERROR_API_DISABLED) => Err(GlossError::AccessibilityDenied),
+        Err(AX_ERROR_NO_VALUE) => Err(GlossError::SelectionEmpty),
         Err(_) => Err(GlossError::SelectionUnavailable),
     }
 }
@@ -200,14 +212,17 @@ mod tests {
     }
 
     #[test]
-    fn empty_and_missing_selection_are_unavailable() {
+    fn an_empty_selection_is_empty_but_a_missing_value_stays_unavailable() {
         assert_eq!(
             interpret(true, Ok(Some(String::new()))),
-            Err(GlossError::SelectionUnavailable)
+            Err(GlossError::SelectionEmpty),
+            "an empty string is an existing attribute reporting no selection"
         );
         assert_eq!(
             interpret(true, Ok(None)),
-            Err(GlossError::SelectionUnavailable)
+            Err(GlossError::SelectionUnavailable),
+            "None means the value could not be delivered (over the size ceiling, \
+             non-string): a fallback is still worth trying"
         );
     }
 
@@ -228,8 +243,9 @@ mod tests {
         );
         assert_eq!(
             interpret(true, Err(-25212)),
-            Err(GlossError::SelectionUnavailable),
-            "kAXErrorNoValue (no selection) must not read as permission denied"
+            Err(GlossError::SelectionEmpty),
+            "kAXErrorNoValue (attribute exists, no value) must not read as permission denied \
+             nor as an unsupported attribute"
         );
     }
 

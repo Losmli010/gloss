@@ -54,6 +54,7 @@ pub(crate) struct Text {
     pub(crate) gloss_popup_settings_label: String,
 
     pub(crate) gloss_errors_selection_unavailable: String,
+    pub(crate) gloss_errors_selection_empty: String,
     pub(crate) gloss_errors_accessibility_denied: String,
     pub(crate) gloss_errors_screen_capture_denied: String,
     pub(crate) gloss_errors_region_too_large: String,
@@ -142,6 +143,7 @@ impl Text {
     pub(crate) fn for_error(&self, error: &GlossError) -> String {
         match error {
             GlossError::SelectionUnavailable => self.gloss_errors_selection_unavailable.clone(),
+            GlossError::SelectionEmpty => self.gloss_errors_selection_empty.clone(),
             GlossError::AccessibilityDenied => self.gloss_errors_accessibility_denied.clone(),
             GlossError::ScreenCaptureDenied => self.gloss_errors_screen_capture_denied.clone(),
             GlossError::RegionTooLarge => self.gloss_errors_region_too_large.clone(),
@@ -212,7 +214,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            95,
+            96,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(

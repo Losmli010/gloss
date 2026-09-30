@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 25 | `just test` |
-| 单元测试 | 399 | `just test` |
+| 单元测试 | 408 | `just test` |
 
 ## 人工测试
 
@@ -49,13 +49,13 @@
 
 ### injected_drag_yields_selection_gesture
 - 测试目标：验证真实 CGEventTap 下的注入拖拽手势判定。
-- 测试场景：给定辅助功能授权与 rdev 注入的拖拽序列（(100,100) 按下 → 五段移动 → 释放），当经真实事件 tap，则 2s 内监听到手势且监听器未降级。
+- 测试场景：给定辅助功能授权与 rdev 注入的拖拽序列（(100,100) 按下 → 五段移动 → 释放前真实睡过最短按压时长），当经真实事件 tap，则 2s 内监听到手势且监听器未降级。
 - 测试步骤：
   1. 系统设置 → 隐私与安全性 → 辅助功能 → 放行运行测试的终端 App
   2. 运行总览中人工测试的命令
   3. 测试注入真实全局鼠标事件，屏幕光标会移动
   4. 未授权时前置检查当场失败并打印修复指引
-- 更新时间：2026-09-19
+- 更新时间：2026-09-30
 
 ### keychain_round_trip_on_real_store
 - 测试目标：验证真实 keychain 的写→读→覆盖→删除往返。
@@ -317,6 +317,7 @@ popup 快照基线：popup_word_card、popup_acquiring、popup_streaming、popup
 | the_long_tier_of_prefixed_bodies_ignores_shape | 前缀令牌长档不看形状 | 给定 13 字符与 16 字符的纯小写复合词，当检测，则短档那次放行、长档那次算令牌——长档只卡长度是写明的取舍，这条用例把边界钉在明面上 | 2026-09-26 |
 | detection_prefers_the_more_certain_kind | 检测按确定度排序 | 给定同时可判多类的文本，当检测，则返回更确定的那个类别（私钥 > 令牌 > 卡号 > 高熵；相邻两类各有一对同现的样例） | 2026-09-26 |
 | ordinary_text_is_never_flagged | 日常文本一律不拦 | 给定常用句中英文本、中文段落、代码片段、带 `sk-` 的普通英文句与 `let key = "sk-test";` 这类代码，当检测，则全部为 None | 2026-09-26 |
+| the_self_flag_is_not_consumed_by_the_sensitive_list | is_self 与敏感名单无关 | 给定 is_self 为真的名单外前台应用，当判闸门，则放行（is_self 只归触发决策的防误触分支，不是名单命中） | 2026-09-30 |
 
 ### crates/gloss-core/src/prompt.rs
 
@@ -568,7 +569,12 @@ popup 快照基线：popup_word_card、popup_acquiring、popup_streaming、popup
 | accept_input_yields_run_request_and_guards_state | 采纳输入下发请求并守卫状态 | 给定合法 InputReady，当采纳，则返回下发请求、进 Translating、持有取消令牌；同代数重复采纳被拒 | 2026-09-19 |
 | image_input_for_text_kind_is_rejected | 文本 kind 拒绝图像输入 | 给定文本 kind 配图像输入，当采纳，则 None | 2026-09-19 |
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 Translating 态隐藏，当收起，则令牌取消、视图清空回 Idle，迟到同代数产物/失败被拒 | 2026-09-19 |
-| failed_guard_matches_fetching_and_translating_only | 失败守卫只认两个在途态 | 给定取材失败与隐藏后的迟到失败，当采纳，则前者落 Error、后者被拒 | 2026-09-19 |
+| failed_guard_matches_fetching_and_translating_only | 失败守卫只认两个在途态 | 给定推理失败与隐藏后的迟到失败，当采纳，则前者落 Error（Shown）、后者被拒（Ignored） | 2026-09-30 |
+| gesture_no_selection_failures_are_silently_withdrawn_in_fetching | 手势空选区静默收回 | 给定手势触发的取材态，当收 SelectionUnavailable / SelectionEmpty 失败，则静默回 Idle 不弹卡、骨架视图一并清掉 | 2026-09-30 |
+| gesture_empty_selection_is_silently_withdrawn_but_hotkey_still_raises_the_card | 壳层时序：静默收回不弹窗、热键仍弹卡 | 给定手势触发的取材中壳，当收空选区失败，则壳不请求浮层、状态回 Idle、视图清空；热键触发的同一失败仍落 Error 弹卡 | 2026-09-30 |
+| hotkey_no_selection_failures_still_raise_the_card | 热键空选区仍弹卡 | 给定热键触发的取材态，当收 SelectionUnavailable / SelectionEmpty 失败，则落 Error 弹失败卡（显式请求需反馈） | 2026-09-30 |
+| gesture_failures_outside_fetching_still_raise_the_card | 手势推理失败仍弹卡 | 给定手势触发已进推理态，当收 SelectionUnavailable，则落 Error 弹卡（静默只覆盖取材一腿） | 2026-09-30 |
+| gesture_in_the_self_frontmost_scene_is_suppressed_without_a_generation | 自身前台的划词被拦且不占代数 | 给定前台应用 is_self 为真，当手势 trigger_decision，则 SelfSuppressed、trigger 为 None、代数 0、无浮层；同一场景下热键照常 Acquire | 2026-09-30 |
 | modality_mismatch_preserves_pending_task | 模态错配保留待定任务 | 给定模态错配被拒后，当同代数合法输入到达，则仍可采纳 | 2026-09-19 |
 | transport_failure_lands_in_error | 传输失败落错误态 | 给定取材通道不可用，当 fail_transport，则落 Error、失败视图无动作按钮、retry 为 None | 2026-09-19 |
 | retryable_failure_keeps_task_and_retry_redispatches_it | 可重试失败保留任务 | 给定网络类失败，当落 Error，则失败原因按变体记录（FailureCause::Task(EngineNetwork)）、retry 同代数同任务新令牌重发且回流式视图 | 2026-09-22 |
@@ -764,9 +770,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | untrusted_maps_to_accessibility_denied | 未授权一律映射拒绝 | 给定未授权进程的取值结果，当 interpret 映射，则一律 AccessibilityDenied | 2026-09-19 |
 | selected_text_passes_through_verbatim | 选中文本原样透传 | 给定读到的选中文本（含纯空白），当映射，则原样透传不裁剪 | 2026-09-19 |
-| empty_and_missing_selection_are_unavailable | 空与缺失映射不可用 | 给定空选区与 None，当映射，则 SelectionUnavailable | 2026-09-19 |
+| an_empty_selection_is_empty_but_a_missing_value_stays_unavailable | 空选区与读不到分开建档 | 给定空串与 None（超上限/非字符串），当映射，则前者 SelectionEmpty（没选东西）、后者 SelectionUnavailable（选了但读不动，兜底仍值得一试）；NoValue 归前者 | 2026-09-30 |
 | api_disabled_after_trusted_check_maps_to_denied | 授权后 API 禁用仍映射拒绝 | 给定授权后 AX 报 APIDisabled，当映射，则仍是 AccessibilityDenied | 2026-09-19 |
-| adjacent_error_codes_are_told_apart | 相邻错误码区分 | 给定相邻码 -25211（APIDisabled）与 -25212（NoValue），当映射，则前者 Denied、后者 Unavailable | 2026-09-19 |
+| adjacent_error_codes_are_told_apart | 相邻错误码区分 | 给定相邻码 -25211（APIDisabled）与 -25212（NoValue），当映射，则前者 Denied、后者 SelectionEmpty（错一位语义就反转） | 2026-09-30 |
 | other_ax_errors_map_to_unavailable | 其余 AX 错误映射不可用 | 给定 -25206/-25213/-25200，当映射，则归 SelectionUnavailable | 2026-09-19 |
 
 ### crates/gloss-platform/src/permissions.rs
@@ -781,6 +787,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | fallback_is_lazy_on_ax_success | AX 成功时兜底惰性求值 | 给定 AX 成功，当 combine，则采纳 AX 结果且剪贴板兜底闭包不被求值 | 2026-09-19 |
 | permission_denied_skips_fallback | 权限拒绝跳过兜底 | 给定 AccessibilityDenied，当 combine，则原样上抛且不兜底 | 2026-09-19 |
+| empty_selection_skips_fallback | 空选区跳过兜底 | 给定 SelectionEmpty，当 combine，则原样上抛且不兜底（不注入 Cmd+C，陈旧剪贴板不得冒充本次选区） | 2026-09-30 |
 | unavailable_ax_falls_back_to_clipboard | AX 不可用落兜底 | 给定 SelectionUnavailable，当 combine，则落到兜底结果；兜底也失败则以兜底错误收口 | 2026-09-19 |
 
 ### crates/gloss-platform/src/selection/clipboard.rs
@@ -823,7 +830,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| drag_release_emits_selection | 拖拽释放判定划词手势 | 给定按下→位移超阈值→释放序列，当驱动 GestureDetector，则判定一次划词手势 | 2026-09-19 |
+| drag_release_emits_selection | 拖拽释放判定划词手势 | 给定按下→时长与位移双达标→释放序列，当驱动 GestureDetector，则判定一次划词手势 | 2026-09-30 |
+| flick_shorter_than_the_minimum_press_is_filtered | 快甩被最短按压时长滤除 | 给定按压仅 10ms 但位移充足的事件对，当驱动，则不产出手势 | 2026-09-30 |
+| press_duration_is_observed_at_the_boundary | 按压时长在边界被遵守 | 给定比下限短 1ns 与恰好等于下限（150ms）的两对事件，当驱动，则前者滤除、后者判定 | 2026-09-30 |
 | plain_click_and_jitter_do_not_trigger | 原地点击与抖动不触发 | 给定原地点击与阈值内抖动，当驱动，则不产出手势 | 2026-09-19 |
 | displacement_comes_from_the_events_themselves | 位移取自事件自身坐标 | 给定长距离拖拽，当算位移，则取按下/释放事件自身坐标（释放位置即位移来源） | 2026-09-19 |
 | state_resets_after_each_gesture | 每轮手势后状态重置 | 给定连续两轮完整手势，当驱动，则每轮后状态机重置、第二轮照常判定 | 2026-09-19 |

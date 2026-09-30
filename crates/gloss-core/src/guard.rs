@@ -40,6 +40,10 @@ pub struct FrontApp {
     pub bundle_id: Option<String>,
     /// 面向用户的本地化应用名。
     pub name: Option<String>,
+    /// 前台应用是否 Gloss 自身进程（探针按 `processIdentifier == getpid()`
+    /// 判定）。防误触用：连拖 Gloss 自己的浮层不该触发划词；名单匹配
+    /// 不消费它。
+    pub is_self: bool,
 }
 
 /// 触发前的场景事实：壳在取材前取一次，交状态机判定。
@@ -413,6 +417,7 @@ mod tests {
         FrontApp {
             bundle_id: Some(bundle_id.to_owned()),
             name: Some(name.to_owned()),
+            is_self: false,
         }
     }
 
@@ -502,6 +507,7 @@ mod tests {
                     front_app: Some(FrontApp {
                         bundle_id: None,
                         name: None,
+                        is_self: false,
                     }),
                 },
                 None,
@@ -510,6 +516,21 @@ mod tests {
         ] {
             assert_eq!(trigger_block(&facts), expected, "{message}");
         }
+    }
+
+    #[test]
+    fn the_self_flag_is_not_consumed_by_the_sensitive_list() {
+        let mut facts = in_app("com.example.editor", "Editor");
+        facts
+            .front_app
+            .as_mut()
+            .expect("front helper sets an app")
+            .is_self = true;
+        assert_eq!(
+            trigger_block(&facts),
+            None,
+            "is_self routes anti-mistouch in the trigger decision, it is not a sensitive-app hit"
+        );
     }
 
     #[test]

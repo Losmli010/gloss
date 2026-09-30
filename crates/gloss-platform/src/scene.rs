@@ -28,13 +28,15 @@ impl SceneProbe for SystemSceneProbe {
 }
 
 /// 前台应用的标识：Bundle ID 与本地化名各取一次（都可能为 `None`——
-/// 无 Info.plist 的进程没有 Bundle ID）。
+/// 无 Info.plist 的进程没有 Bundle ID）；`is_self` 按进程号与自身比对
+/// （防误触：Gloss 在前台时的划词手势不触发）。
 fn frontmost_app() -> Option<FrontApp> {
     let workspace = NSWorkspace::sharedWorkspace();
     let app = workspace.frontmostApplication()?;
     let identity = FrontApp {
         bundle_id: app.bundleIdentifier().map(|value| value.to_string()),
         name: app.localizedName().map(|value| value.to_string()),
+        is_self: app.processIdentifier() == std::process::id() as i32,
     };
     (identity.bundle_id.is_some() || identity.name.is_some()).then_some(identity)
 }

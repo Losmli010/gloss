@@ -1,6 +1,7 @@
 //! 全局鼠标监听：左键按下/释放 → 划词手势判定。
 //!
-//! 手势策略取「拖拽释放」（按下 → 位移超阈值 → 释放）。
+//! 手势策略取「拖拽释放」（按下 → 时长与位移双达标 → 释放）：最短按压时长
+//! 滤除瞬时甩动，位移阈值区分普通点击。
 //!
 //! **订阅面只有左键按下与释放**（见 [`SUBSCRIBED_EVENT_TYPES`]），坐标直接取自
 //! 事件自身；键盘事件不进入本模块，热键归 `global-hotkey`。
@@ -17,6 +18,13 @@ use crossbeam_channel::Receiver;
 /// 折算）——远高于普通点击的抖动。
 const DRAG_THRESHOLD: f64 = 12.0;
 
+/// 判定为「拖拽选择」所需的最短按压时长（纳秒）：瞬时甩动（按下与释放几乎
+/// 同时到达）在此被滤除。取 150ms 的缘由：人手有意的拖拽选择从按下到释放
+/// 稳定在数百毫秒量级（点击本身的按压就有约 100ms，再加上拖动时间），而
+/// 甩动、HID 层连滑这类误触的按压与释放间隔趋近于零——150ms 在两者之间
+/// 两侧都留足裕量：快甩滤得掉，慢拖不受影响。
+const MIN_PRESS_NANOS: u64 = 150_000_000;
+
 /// 左键的两种动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LeftButton {
@@ -24,16 +32,19 @@ enum LeftButton {
     Released,
 }
 
-/// tap 层交给手势层的事件：动作 + **该事件自身**的坐标。
+/// tap 层交给手势层的事件：动作 + **该事件自身**的坐标与时间戳。
 ///
 /// 坐标不做「沿用最近一次移动位置」的缓存：真实拖拽期间系统只投递「拖拽」
 /// 事件（不是「移动」），缓存下来的位置会停在按下之前，释放时算出的位移恒为
 /// 零，手势一次也判不出来。让每个事件自带坐标，判定的输入就不再依赖系统是否
-/// 恰好投递了移动事件。
+/// 恰好投递了移动事件。时间戳同理取事件自身的（纳秒，单调），按压时长的
+/// 判定因此不依赖回调投递的先后延迟。
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ButtonEvent {
     action: LeftButton,
     pos: (f64, f64),
+    /// 事件自身的时间戳（纳秒，自系统启动起）。
+    time: u64,
 }
 
 /// CGEventTypes.h 的事件类型原始值。用原始数字而不是 core-graphics 的
@@ -66,11 +77,18 @@ fn classify(raw_type: u32) -> Option<LeftButton> {
         .map(|(_, action)| *action)
 }
 
-/// 划词手势状态机：Idle →（左键按下）→ Pressed →（位移超阈值后释放）
+/// 划词手势状态机：Idle →（左键按下）→ Pressed →（时长与位移双达标后释放）
 /// → 判定一次拖拽选择。模块私有——公共面只经 [`MouseSource`] 使用它。
 #[derive(Default)]
 struct GestureDetector {
-    pressed_at: Option<(f64, f64)>,
+    press: Option<Press>,
+}
+
+/// 一次按下的快照：位置与事件时间戳，释放时算位移与按压时长用。
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Press {
+    pos: (f64, f64),
+    time: u64,
 }
 
 impl GestureDetector {
@@ -85,19 +103,24 @@ impl GestureDetector {
         fired
     }
 
-    /// 喂入单个事件，判定为一次完整的拖拽选择（释放且位移超阈值）时返回
-    /// 释放坐标——浮层跟随划词位置的输入。
+    /// 喂入单个事件，判定为一次完整的拖拽选择（释放且按压时长与位移双达标）
+    /// 时返回释放坐标——浮层跟随划词位置的输入。
     fn feed(&mut self, event: ButtonEvent) -> Option<(f64, f64)> {
-        match (event.action, self.pressed_at) {
+        match (event.action, self.press) {
             (LeftButton::Pressed, _) => {
-                self.pressed_at = Some(event.pos);
+                self.press = Some(Press {
+                    pos: event.pos,
+                    time: event.time,
+                });
                 None
             }
             (LeftButton::Released, Some(start)) => {
-                self.pressed_at = None;
-                let dx = event.pos.0 - start.0;
-                let dy = event.pos.1 - start.1;
-                (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD).then_some(event.pos)
+                self.press = None;
+                let dx = event.pos.0 - start.pos.0;
+                let dy = event.pos.1 - start.pos.1;
+                let held = event.time.saturating_sub(start.time);
+                (held >= MIN_PRESS_NANOS && dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD)
+                    .then_some(event.pos)
             }
             // 无按下记录的释放（如监听启动前就按下的拖拽），静默忽略。
             (LeftButton::Released, None) => None,
@@ -250,9 +273,9 @@ mod tap {
             CFRunLoopRun, kCFAllocatorDefault, kCFRunLoopCommonModes,
         };
         use crate::ffi::eventtap::{
-            CGEventGetLocation, CGEventRef, CGEventTapCreate, CGEventTapEnable, CGEventTapProxy,
-            CGPoint, K_CG_EVENT_TAP_OPTION_LISTEN_ONLY, K_CG_HEAD_INSERT_EVENT_TAP,
-            K_CG_HID_EVENT_TAP,
+            CGEventGetLocation, CGEventGetTimestamp, CGEventRef, CGEventTapCreate,
+            CGEventTapEnable, CGEventTapProxy, CGPoint, K_CG_EVENT_TAP_OPTION_LISTEN_ONLY,
+            K_CG_HEAD_INSERT_EVENT_TAP, K_CG_HID_EVENT_TAP,
         };
 
         use super::super::{ButtonEvent, SUBSCRIBED_EVENT_TYPES, classify};
@@ -329,8 +352,8 @@ mod tap {
         /// tap 回调：把订阅到的事件翻译成 [`ButtonEvent`] 交给 sink，未订阅的
         /// 一律原样放行（listen-only 的 tap 也必须返回事件本身）。
         ///
-        /// 翻译只用常量查表加一次位置读取（不分配、不调用会 panic 的 API），
-        /// panic 兜底在 sink 侧（见 [`listen`] 的调用方保证）。
+        /// 翻译只用常量查表加位置与时间戳各一次读取（不分配、不调用会 panic
+        /// 的 API），panic 兜底在 sink 侧（见 [`listen`] 的调用方保证）。
         unsafe extern "C" fn raw_callback(
             _proxy: CGEventTapProxy,
             raw_type: u32,
@@ -341,12 +364,15 @@ mod tap {
                 // SAFETY: `user_info` 是 `listen` 传进来、有意泄漏到进程结束的
                 // Box<dyn Fn(ButtonEvent)> 指针；C 侧不释放它。
                 let sink = unsafe { &*(user_info as *const Box<dyn Fn(ButtonEvent)>) };
-                // SAFETY: `event` 是系统在回调期间借给我们的事件引用，只读位置，
-                // 不转移所有权。
+                // SAFETY: `event` 是系统在回调期间借给我们的事件引用，只读位置
+                // 与时间戳，不转移所有权。
                 let CGPoint { x, y } = unsafe { CGEventGetLocation(event) };
+                // SAFETY: 同上，`event` 在回调期间有效；时间戳是纯读取。
+                let time = unsafe { CGEventGetTimestamp(event) };
                 sink(ButtonEvent {
                     action,
                     pos: (x, y),
+                    time,
                 });
             }
             event
@@ -361,47 +387,91 @@ mod tests {
     use super::*;
     use crossbeam_channel::unbounded;
 
-    fn pressed(pos: (f64, f64)) -> ButtonEvent {
+    fn pressed(pos: (f64, f64), at_ns: u64) -> ButtonEvent {
         ButtonEvent {
             action: LeftButton::Pressed,
             pos,
+            time: at_ns,
         }
     }
 
-    fn released(pos: (f64, f64)) -> ButtonEvent {
+    fn released(pos: (f64, f64), at_ns: u64) -> ButtonEvent {
         ButtonEvent {
             action: LeftButton::Released,
             pos,
+            time: at_ns,
         }
     }
+
+    /// 慢拖用的常量时刻：按下 1s，释放 1.4s——按压时长 400ms，稳过下限。
+    const SLOW_PRESS: u64 = 1_000_000_000;
+    const SLOW_RELEASE: u64 = 1_400_000_000;
 
     #[test]
     fn drag_release_emits_selection() {
         let mut detector = GestureDetector::default();
-        assert_eq!(detector.feed(pressed((10.0, 10.0))), None);
-        assert_eq!(detector.feed(released((140.0, 30.0))), Some((140.0, 30.0)));
+        assert_eq!(detector.feed(pressed((10.0, 10.0), SLOW_PRESS)), None);
+        assert_eq!(
+            detector.feed(released((140.0, 30.0), SLOW_RELEASE)),
+            Some((140.0, 30.0))
+        );
     }
 
     #[test]
     fn plain_click_and_jitter_do_not_trigger() {
         let mut detector = GestureDetector::default();
-        assert_eq!(detector.feed(pressed((10.0, 10.0))), None);
-        assert_eq!(detector.feed(released((10.0, 10.0))), None);
-
-        assert_eq!(detector.feed(pressed((50.0, 50.0))), None);
+        assert_eq!(detector.feed(pressed((10.0, 10.0), SLOW_PRESS)), None);
         assert_eq!(
-            detector.feed(released((56.0, 55.0))),
+            detector.feed(released((10.0, 10.0), SLOW_RELEASE)),
+            None,
+            "no displacement, no gesture even with a long press"
+        );
+
+        assert_eq!(detector.feed(pressed((50.0, 50.0), SLOW_PRESS)), None);
+        assert_eq!(
+            detector.feed(released((56.0, 55.0), SLOW_RELEASE)),
             None,
             "jitter below threshold"
         );
     }
 
     #[test]
+    fn flick_shorter_than_the_minimum_press_is_filtered() {
+        let mut detector = GestureDetector::default();
+        let press = 2_000_000_000;
+        assert_eq!(detector.feed(pressed((10.0, 10.0), press)), None);
+        assert_eq!(
+            detector.feed(released((140.0, 30.0), press + 10_000_000)),
+            None,
+            "a 10ms flick with ample displacement must not fire"
+        );
+    }
+
+    #[test]
+    fn press_duration_is_observed_at_the_boundary() {
+        let mut detector = GestureDetector::default();
+        let press = 3_000_000_000;
+        assert_eq!(detector.feed(pressed((0.0, 0.0), press)), None);
+        assert_eq!(
+            detector.feed(released((200.0, 0.0), press + MIN_PRESS_NANOS - 1)),
+            None,
+            "one nanosecond short of the floor stays filtered"
+        );
+
+        assert_eq!(detector.feed(pressed((0.0, 0.0), press)), None);
+        assert_eq!(
+            detector.feed(released((200.0, 0.0), press + MIN_PRESS_NANOS)),
+            Some((200.0, 0.0)),
+            "exactly the floor counts as a deliberate drag"
+        );
+    }
+
+    #[test]
     fn displacement_comes_from_the_events_themselves() {
         let mut detector = GestureDetector::default();
-        assert_eq!(detector.feed(pressed((100.0, 100.0))), None);
+        assert_eq!(detector.feed(pressed((100.0, 100.0), SLOW_PRESS)), None);
         assert_eq!(
-            detector.feed(released((400.0, 100.0))),
+            detector.feed(released((400.0, 100.0), SLOW_RELEASE)),
             Some((400.0, 100.0)),
             "release position is the release event's own position"
         );
@@ -410,11 +480,14 @@ mod tests {
     #[test]
     fn state_resets_after_each_gesture() {
         let mut detector = GestureDetector::default();
-        assert_eq!(detector.feed(pressed((0.0, 0.0))), None);
-        assert_eq!(detector.feed(released((200.0, 0.0))), Some((200.0, 0.0)));
-        assert_eq!(detector.feed(pressed((500.0, 500.0))), None);
+        assert_eq!(detector.feed(pressed((0.0, 0.0), SLOW_PRESS)), None);
         assert_eq!(
-            detector.feed(released((700.0, 500.0))),
+            detector.feed(released((200.0, 0.0), SLOW_RELEASE)),
+            Some((200.0, 0.0))
+        );
+        assert_eq!(detector.feed(pressed((500.0, 500.0), SLOW_RELEASE)), None);
+        assert_eq!(
+            detector.feed(released((700.0, 500.0), SLOW_RELEASE + 400_000_000)),
             Some((700.0, 500.0))
         );
     }
@@ -422,11 +495,11 @@ mod tests {
     #[test]
     fn stray_events_are_ignored() {
         let mut detector = GestureDetector::default();
-        assert_eq!(detector.feed(released((1.0, 1.0))), None);
-        assert_eq!(detector.feed(pressed((0.0, 0.0))), None);
-        assert_eq!(detector.feed(pressed((100.0, 100.0))), None);
+        assert_eq!(detector.feed(released((1.0, 1.0), SLOW_PRESS)), None);
+        assert_eq!(detector.feed(pressed((0.0, 0.0), SLOW_PRESS)), None);
+        assert_eq!(detector.feed(pressed((100.0, 100.0), SLOW_PRESS)), None);
         assert_eq!(
-            detector.feed(released((200.0, 100.0))),
+            detector.feed(released((200.0, 100.0), SLOW_RELEASE)),
             Some((200.0, 100.0))
         );
     }
@@ -435,8 +508,8 @@ mod tests {
     fn poll_drains_channel_through_state_machine() {
         let (tx, rx) = unbounded::<ButtonEvent>();
         let mut detector = GestureDetector::default();
-        tx.send(pressed((0.0, 0.0))).unwrap();
-        tx.send(released((100.0, 0.0))).unwrap();
+        tx.send(pressed((0.0, 0.0), SLOW_PRESS)).unwrap();
+        tx.send(released((100.0, 0.0), SLOW_RELEASE)).unwrap();
         assert_eq!(detector.poll(&rx), vec![(100.0, 0.0)]);
         assert!(detector.poll(&rx).is_empty(), "drained queue stays empty");
     }
@@ -505,6 +578,9 @@ mod injected_gesture_live_tests {
             })
             .expect("move injection");
         }
+        // 注入的事件自带真实时间戳：释放前真实睡过最短按压时长，否则手势会
+        // 被时长下限滤除（快甩滤除是本就想要的行为）。
+        std::thread::sleep(Duration::from_millis(200));
         rdev::simulate(&EventType::ButtonRelease(Button::Left)).expect("button release injection");
 
         let deadline = Instant::now() + Duration::from_secs(2);

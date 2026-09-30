@@ -6,7 +6,7 @@ use gloss_core::task::{TaskInput, TaskKind};
 use winit::event_loop::ActiveEventLoop;
 
 use crate::channel::{AcquireCommand, Command, Event, PlatformEvent, Traced};
-use crate::machine::{InputOutcome, RunRequest, TriggerDecision, trigger_decision};
+use crate::machine::{FailureOutcome, InputOutcome, RunRequest, TriggerDecision, trigger_decision};
 
 use super::GlossApp;
 use super::overlay::{centered_position, event_kind, should_reveal, show_position};
@@ -66,8 +66,9 @@ impl GlossApp {
             } else {
                 // 三类拦下各有各的级别与措辞：被任务开关停用的触发是用户
                 // 能自己修的配置问题；被场景闸门拦下的是「这一次的场景不
-                // 合适」（换一个应用，或取消密码框的聚焦）；未接线的事件
-                // 只留在默认级别看不见的 debug 里。
+                // 合适」（换一个应用，或取消密码框的聚焦）；自身前台是
+                // 防误触的日常过滤（连拖 Gloss 自己的浮层），只留 debug；
+                // 未接线的事件同样只留在默认级别看不见的 debug 里。
                 match trigger_decision(&event, &config, &scene) {
                     TriggerDecision::Disabled(kind) => warn!(
                         thread = thread::UI,
@@ -78,6 +79,10 @@ impl GlossApp {
                         thread = thread::UI,
                         reason = %block,
                         "trigger suppressed by the sensitive content guard"
+                    ),
+                    TriggerDecision::SelfSuppressed => debug!(
+                        thread = thread::UI,
+                        "selection gesture ignored: gloss itself is the frontmost app"
                     ),
                     _ => debug!(
                         thread = thread::UI,
@@ -286,32 +291,48 @@ impl GlossApp {
     }
 
     /// 采纳任务失败：落 `Error` 态并展示失败卡（文案与动作出口由
-    /// machine 按错误类别给出，见 `machine::error_action`）。
-    /// 返回是否需要展示浮层。
+    /// machine 按错误类别给出，见 `machine::error_action`）；手势触发的
+    /// 空选区静默收回（不弹卡，且把已显形的骨架窗口一并收起）。返回是否
+    /// 需要展示浮层。
     pub(super) fn accept_failed(
         &mut self,
         generation: u64,
         error: &gloss_core::model::GlossError,
     ) -> bool {
-        let accepted = self.machine.accept_failed(generation, error);
-        if accepted {
-            warn!(
-                thread = thread::UI,
-                generation = generation,
-                error = %error,
-                "task failed"
-            );
-        } else {
-            // 陈旧失败的丢弃是竞速语义（新划词覆盖旧划词），但这条线正是
-            // 「划了没弹窗」的排查盲区——升为 info 保证默认日志可见。
-            info!(
-                thread = thread::UI,
-                generation = generation,
-                current = self.machine.generation(),
-                "stale task failed dropped, superseded by a newer gesture"
-            );
+        match self.machine.accept_failed(generation, error) {
+            FailureOutcome::Shown => {
+                warn!(
+                    thread = thread::UI,
+                    generation = generation,
+                    error = %error,
+                    "task failed"
+                );
+                true
+            }
+            FailureOutcome::SilentlyDropped => {
+                // 纯误滑的日常收场：不留 warn 痕迹（debug 足够回溯），但
+                // 触发即显的骨架可能已经在屏上，统一出口把它收起来。
+                debug!(
+                    thread = thread::UI,
+                    generation = generation,
+                    error = %error,
+                    "empty selection from a gesture, overlay silently withdrawn"
+                );
+                self.dismiss_overlay("empty selection");
+                false
+            }
+            FailureOutcome::Ignored => {
+                // 陈旧失败的丢弃是竞速语义（新划词覆盖旧划词），但这条线正是
+                // 「划了没弹窗」的排查盲区——升为 info 保证默认日志可见。
+                info!(
+                    thread = thread::UI,
+                    generation = generation,
+                    current = self.machine.generation(),
+                    "stale task failed dropped, superseded by a newer gesture"
+                );
+                false
+            }
         }
-        accepted
     }
 }
 
@@ -330,7 +351,7 @@ mod tests {
         driven_app, driven_app_with_scene, outcome_body, plain_outcome, streaming_body, text_input,
         trigger_selection,
     };
-    use crate::channel::{AcquireCommand, Command};
+    use crate::channel::{AcquireCommand, Command, PlatformEvent};
     use crate::machine::AppState;
     use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder, StubSceneProbe};
 
@@ -549,6 +570,7 @@ mod tests {
             front_app: Some(FrontApp {
                 bundle_id: Some("com.1password.1password".into()),
                 name: None,
+                is_self: false,
             }),
         });
         trigger_selection(&mut app, &pe_tx);
@@ -569,6 +591,39 @@ mod tests {
             ac_rx.try_recv().unwrap().payload,
             AcquireCommand::AcquireText { generation: 1, .. }
         ));
+    }
+
+    #[test]
+    fn gesture_empty_selection_is_silently_withdrawn_but_hotkey_still_raises_the_card() {
+        use gloss_core::task::{HotkeyBinding, InputSource};
+
+        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        trigger_selection(&mut app, &pe_tx);
+        assert_eq!(app.machine.state(), AppState::Fetching);
+
+        assert!(
+            !app.accept_failed(1, &gloss_core::model::GlossError::SelectionUnavailable),
+            "a pure mis-drag must not pop the overlay for a failure card"
+        );
+        assert_eq!(app.machine.state(), AppState::Idle);
+        assert!(
+            app.machine.overlay_view().is_none(),
+            "the acquiring skeleton is withdrawn with the silent drop"
+        );
+
+        // 热键是显式请求：同一失败必须得到可见反馈。
+        pe_tx
+            .send(PlatformEvent::HotkeyTriggered {
+                binding: HotkeyBinding {
+                    trigger: "Cmd+Shift+T".into(),
+                    kind: TaskKind::TranslateSentence,
+                    source: InputSource::Selection,
+                },
+            })
+            .unwrap();
+        app.drain_platform_events();
+        assert!(app.accept_failed(2, &gloss_core::model::GlossError::SelectionUnavailable));
+        assert_eq!(app.machine.state(), AppState::Error);
     }
 
     #[test]

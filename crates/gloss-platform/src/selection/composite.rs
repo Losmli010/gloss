@@ -2,20 +2,22 @@
 //!
 //! 降级边界：AX 报权限缺失时不兜底——兜底依赖按键注入，未授权时注入会被
 //! 系统静默忽略，白等超时只会拖慢失败路径；此时把权限语义原样上抛，由
-//! 上层做权限引导。
+//! 上层做权限引导。AX 报「选区为空」（属性在而值为空）同样不兜底——那
+//! 是「没选东西」的如实回答，注入 Cmd+C 只会把剪贴板里的陈旧内容当成
+//! 「这次划词的选区」发出去。
 
 use gloss_core::model::GlossError;
 
-/// 组合判定（纯逻辑，单测覆盖）：AX 成功直接采纳；权限缺失原样上抛且
-/// 不评估兜底（见模块注释）；其余读不到的情形才落到兜底结果。`fallback`
-/// 是惰性求值——兜底路径含按键注入，未走到就不该有副作用。
+/// 组合判定（纯逻辑，单测覆盖）：AX 成功直接采纳；权限缺失与空选区原样
+/// 上抛且不评估兜底（见模块注释）；其余读不到的情形才落到兜底结果。
+/// `fallback` 是惰性求值——兜底路径含按键注入，未走到就不该有副作用。
 fn combine(
     ax: Result<String, GlossError>,
     fallback: impl FnOnce() -> Result<String, GlossError>,
 ) -> Result<String, GlossError> {
     match ax {
         Ok(text) => Ok(text),
-        Err(GlossError::AccessibilityDenied) => Err(GlossError::AccessibilityDenied),
+        Err(err @ (GlossError::AccessibilityDenied | GlossError::SelectionEmpty)) => Err(err),
         Err(_) => fallback(),
     }
 }
@@ -88,6 +90,20 @@ mod tests {
         assert!(
             !clipboard_called,
             "permission denied must not fall back to the clipboard"
+        );
+    }
+
+    #[test]
+    fn empty_selection_skips_fallback() {
+        let mut clipboard_called = false;
+        let outcome = combine(Err(GlossError::SelectionEmpty), || {
+            clipboard_called = true;
+            Ok::<String, GlossError>("stale clipboard".into())
+        });
+        assert_eq!(outcome, Err(GlossError::SelectionEmpty));
+        assert!(
+            !clipboard_called,
+            "an empty selection must not inject Cmd+C: the stale clipboard would pose as the selection"
         );
     }
 
