@@ -254,7 +254,7 @@ fn full_flow_classifies_then_streams_and_settles() {
 
     assert_eq!(pipe.machine.state(), AppState::Show);
     match pipe.machine.overlay_view() {
-        Some(OverlayView::Outcome(outcome)) => {
+        Some(OverlayView::Outcome { outcome, .. }) => {
             assert_eq!(outcome.body, "光泽：注释", "fence stripped from body");
             assert!(
                 matches!(
@@ -590,7 +590,7 @@ fn expect_classified(pipe: &mut Pipeline) -> TaskKind {
 #[allow(clippy::panic)] // 测试辅助：失败即 panic 是断言语义
 fn outcome_body(machine: &TaskStateMachine) -> &str {
     match machine.overlay_view() {
-        Some(OverlayView::Outcome(outcome)) => &outcome.body,
+        Some(OverlayView::Outcome { outcome, .. }) => &outcome.body,
         other => panic!("expected outcome view, got {other:?}"),
     }
 }

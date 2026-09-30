@@ -44,6 +44,9 @@ pub mod space {
 pub mod radius {
     /// 浮层卡片圆角。
     pub const CARD: u8 = 8;
+
+    /// 经注疏印章的圆角（小圆角方块，近方而不刺）。
+    pub const SEAL: u8 = 6;
 }
 
 /// 线宽。
@@ -71,6 +74,12 @@ pub mod color {
     /// 错误色：设置页校验失败的下划线与就地提示、校验汇总行。
     /// 与 ACCENT 同饱和度带的正红，明暗主题下均可读。
     pub const DANGER: Color32 = Color32::from_rgb(0xC6, 0x28, 0x28);
+
+    /// 朱砂（浅色主题）：经注疏印章的实心印与朱丝栏的线色源。压暗到白底可读。
+    pub const SEAL_ZHU_LIGHT: Color32 = Color32::from_rgb(0xB8, 0x43, 0x2F);
+
+    /// 朱砂（深色主题）：同一色相提亮到深底可读。
+    pub const SEAL_ZHU_DARK: Color32 = Color32::from_rgb(0xE0, 0x6A, 0x52);
 }
 
 #[cfg(test)]

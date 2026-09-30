@@ -78,8 +78,15 @@ pub enum OverlayView {
         /// 产物卡的 kind）。
         classified: Option<TaskKind>,
     },
-    /// 产物卡：按 `TaskKind` 精排或展示 markdown 正文。
-    Outcome(TaskOutcome),
+    /// 产物卡：按 `TaskKind` 精排或展示 markdown 正文。`source` 是本次
+    /// 任务的原文（从流式视图随行而来），经注疏排布的「经」位用——
+    /// 完成态不再只剩译文。
+    Outcome {
+        /// 触发时选中的原文。
+        source: String,
+        /// 产物本体。
+        outcome: TaskOutcome,
+    },
     /// 失败信息与动作出口：`action` 指出浮层该给用户的按钮（错误
     /// 映射），`None` 表示无可操作出口（重新划词即可）。
     Failed {
@@ -265,9 +272,9 @@ impl TaskStateMachine {
             kind,
             options: task_options(kind, config, system_locale),
         });
-        // 触发即显骨架：占代数的触发立刻给出「正在读取选区」
-        // 的浮层，取材产物到达后由 accept_input 整卡替换；被闸门拦下的
-        // 触发走不到这里（不出浮层）。
+        // 触发即显骨架：占代数的触发立刻给出纯骨架浮层（无取材文字，
+        // 文案的设计取舍见 popup 渲染层），取材产物到达后由 accept_input
+        // 整卡替换；被闸门拦下的触发走不到这里（不出浮层）。
         self.overlay_view = Some(OverlayView::Acquiring);
         self.state = AppState::Fetching;
         Some(command)
@@ -332,13 +339,19 @@ impl TaskStateMachine {
 
     /// 采纳任务产物：定格正文并进入 `Show`。返回是否需要重绘。
     ///
-    /// `outcome.body` 直接覆盖流式视图（权威源约定见 `crate::pipeline`）。
+    /// `outcome.body` 直接覆盖流式视图（权威源约定见 `crate::pipeline`）；
+    /// 原文从流式视图随行进产物卡（经注疏的「经」位），完成态保有原文
+    /// 对照——「翻译无原文/译文对照」的展示缺口在状态机侧的落点。
     pub fn accept_done(&mut self, generation: u64, outcome: TaskOutcome) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
         }
+        let source = match &self.overlay_view {
+            Some(OverlayView::Streaming { source, .. }) => source.clone(),
+            _ => String::new(),
+        };
         self.active_task = None;
-        self.overlay_view = Some(OverlayView::Outcome(outcome));
+        self.overlay_view = Some(OverlayView::Outcome { source, outcome });
         self.state = AppState::Show;
         true
     }

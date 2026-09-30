@@ -12,7 +12,7 @@
 | 发版人工步骤 | 4 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
-| 快照测试 | 25 | `just test` |
+| 快照测试 | 28 | `just test` |
 | 单元测试 | 413 | `just test` |
 
 ## 人工测试
@@ -188,21 +188,24 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_acquiring、popup_streaming、popup_failed、popup_failed_auth、popup_selfcheck；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。
+popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、释义、例句（复制按钮已移除，划选即复制） | 2026-09-21 |
 | long_body_is_rendered_in_full | 长正文完整渲染不截断 | 给定超长正文（尾部带标记），当渲染，则 AccessKit 树含尾部内容——无字符截断 | 2026-09-20 |
-| acquiring_view_shows_the_fetching_skeleton | 取材骨架视图（触发即显） | 给定 Acquiring 骨架视图，当渲染，则「正在读取选区」可见、头部为旋转指示器、无原文与流式内容 | 2026-09-26 |
-| streaming_view_hides_structured_block | 流式视图不暴露结构化围栏 | 给定流式视图（正文含围栏、已判明 kind），当渲染，则「已流式到达的正文」「选中的原文」可见而 ```gloss 围栏不在树中（首个围栏起截断）；头部为旋转指示器 + 分类任务标签 + 常驻动作区 | 2026-09-26 |
+| acquiring_view_shows_a_bare_skeleton | 取材骨架视图（触发即显） | 给定 Acquiring 骨架视图，当渲染，则整组骨架带「正在注解」的进度指示标签、「正在读取选区」不出现、无原文与流式内容 | 2026-09-30 |
+| streaming_view_shows_the_annotating_footer | 流式视图页脚注解指示 | 给定流式视图，当渲染，则「正在注解」在页脚出现、经/注印章就位 | 2026-09-30 |
+| word_card_marks_the_three_sections_per_locale | 词卡三分区印章随 locale | 给定词卡视图（zh/en 各一），当渲染，则印章字分别为 经/注/疏 与 SRC/NOTE/EXP | 2026-09-30 |
+| extract_view_notes_the_measurement | 提取视图疏位小记 | 给定提取产物视图，当渲染，则提取文本在经位、疏位附「凡 N 言 · N 行」小记（字数去空白、行数按换行） | 2026-09-30 |
+| streaming_view_hides_structured_block | 流式视图不暴露结构化围栏 | 给定流式视图（正文含围栏），当渲染，则「已流式到达的正文」「选中的原文」可见而 ```gloss 围栏不在树中（首个围栏起截断）；头部只有图标与动作区（任务药丸与旋转指示器已删） | 2026-09-30 |
 | failed_view_shows_retry_hint | 失败卡重试动作 | 给定 Retry 失败卡，当渲染并点击「重试」，则收集器收到 OverlayAction::Retry | 2026-09-21 |
 | auth_failed_view_offers_open_settings | 鉴权失败卡设置入口 | 给定鉴权失败卡，当渲染并点击「打开设置」，则收到 OverlayAction::OpenSettings（头部齿轮标签为「设置」，与正文按钮不混淆） | 2026-09-21 |
 | bare_failed_view_has_no_action_button | 无动作失败卡形态 | 给定 action=None 失败卡，当渲染，则无「重试」节点、无动作上交 | 2026-09-19 |
 | close_button_submits_dismiss | 头部关闭按钮上交收起 | 给定词卡视图（头部为各视图共用路径），当点击无障碍标签「关闭浮层」的 × 钮，则 draw 产物为 OverlayAction::Dismiss | 2026-09-21 |
 | gear_button_submits_open_settings | 头部齿轮上交打开设置 | 给定词卡视图，当点击无障碍标签「设置」的 ⚙ 钮，则 draw 产物为 OverlayAction::OpenSettings | 2026-09-21 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层五视图渲染基线 | 给定五个视图（含自检卡），当 wgpu 渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck 五份基线一致，结果合并进单个 SnapshotResults | 2026-09-24 |
+| snapshots_match_baseline（popup） | 浮层七视图渲染基线 | 给定七个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡），当 wgpu 渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck 七份基线一致，结果合并进单个 SnapshotResults | 2026-09-30 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用翻译」后保存，当检查上交配置，则 TranslateSentence 已停用（默认任务不在此列——停用它会被跨字段校验拦下） | 2026-09-23 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
