@@ -1169,6 +1169,22 @@ mod tests {
         (harness, action)
     }
 
+    fn snapshot_harness(
+        state: SettingsState,
+        update: &UpdateState,
+    ) -> egui_kittest::Harness<'static> {
+        let text = Text::get(Locale::En);
+        let update = update.clone();
+        let mut state = state;
+        let mut harness = egui_kittest::Harness::builder()
+            .with_theme(egui::Theme::Light)
+            .build_ui(move |ui| {
+                let _ = draw(ui, &mut state, &update, text);
+            });
+        harness.set_size(egui::vec2(460.0, 1200.0));
+        harness
+    }
+
     #[test]
     fn english_catalog_relabels_the_settings_window() {
         let (mut harness, _action) = harness_for(open(&Config::default()), Locale::En);
@@ -1459,7 +1475,7 @@ mod tests {
     #[test]
     fn snapshots_match_baseline() {
         let mut results = egui_kittest::SnapshotResults::new();
-        let (mut harness, _action) = harness_for(open(&Config::default()), Locale::Zh);
+        let mut harness = snapshot_harness(open(&Config::default()), &UpdateState::default());
         harness.run();
         harness.snapshot("settings_main");
         results.extend_harness(&mut harness);
@@ -1468,7 +1484,7 @@ mod tests {
         noticed.report(SettingsNotice::SaveFailed(GlossError::Config(
             "disk on fire".into(),
         )));
-        let (mut harness, _action) = harness_for(noticed, Locale::Zh);
+        let mut harness = snapshot_harness(noticed, &UpdateState::default());
         harness.run();
         harness.get_by_label_contains("disk on fire");
         harness.snapshot("settings_notice");
@@ -1476,11 +1492,11 @@ mod tests {
 
         let mut invalid = open(&Config::default());
         invalid.draft.base_url = "htp://api.example.com".into();
-        let (mut harness, _action) = harness_for(invalid, Locale::Zh);
+        let mut harness = snapshot_harness(invalid, &UpdateState::default());
         harness.run();
-        harness.get_by_label("保存").click();
+        harness.get_by_label("Save").click();
         harness.run();
-        harness.get_by_label_contains("已就地标红");
+        harness.get_by_label_contains("marked in place");
         harness.snapshot("settings_invalid");
         results.extend_harness(&mut harness);
 
@@ -1489,11 +1505,11 @@ mod tests {
         disabled_default
             .draft
             .set_kind_enabled(TaskKind::ExplainCode, false);
-        let (mut harness, _action) = harness_for(disabled_default, Locale::Zh);
+        let mut harness = snapshot_harness(disabled_default, &UpdateState::default());
         harness.run();
-        harness.get_by_label("保存").click();
+        harness.get_by_label("Save").click();
         harness.run();
-        harness.get_by_label_contains("默认任务已停用");
+        harness.get_by_label_contains("The default task is disabled");
         harness.snapshot("settings_default_kind_disabled");
         results.extend_harness(&mut harness);
 
@@ -1534,8 +1550,7 @@ mod tests {
                 },
             ),
         ] {
-            let (mut harness, _action) =
-                harness_for_update(open(&Config::default()), &update, Locale::Zh);
+            let mut harness = snapshot_harness(open(&Config::default()), &update);
             harness.run();
             harness.snapshot(name);
             results.extend_harness(&mut harness);

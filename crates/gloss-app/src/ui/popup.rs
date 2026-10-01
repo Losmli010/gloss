@@ -1352,6 +1352,53 @@ mod kittest_tests {
         }
     }
 
+    fn word_card_view_en() -> OverlayView {
+        OverlayView::Outcome {
+            source: String::new(),
+            outcome: TaskOutcome {
+                kind: TaskKind::TranslateWord,
+                body: String::new(),
+                structured: OutcomeStructured::WordCard {
+                    word: "gloss".into(),
+                    phonetic: Some("/ɡlɒs/".into()),
+                    senses: vec![
+                        Sense {
+                            pos: Some("n.".into()),
+                            meaning: "a surface shine; luster".into(),
+                            examples: vec!["The polished wood had a deep gloss.".into()],
+                        },
+                        Sense {
+                            pos: Some("v.".into()),
+                            meaning: "to add a gloss or commentary".into(),
+                            examples: vec![],
+                        },
+                    ],
+                },
+            },
+        }
+    }
+
+    fn streaming_view_en() -> OverlayView {
+        OverlayView::Streaming {
+            source: "It is not that I am so smart.".into(),
+            body: "Partial body already streamed.\n```gloss\n{\"title\":\"Summary\"}\n```".into(),
+            classified: Some(TaskKind::TranslateSentence),
+        }
+    }
+
+    fn extract_view_en() -> OverlayView {
+        OverlayView::Outcome {
+            source: String::new(),
+            outcome: TaskOutcome {
+                kind: TaskKind::ImageOcr,
+                body: String::new(),
+                structured: OutcomeStructured::Extracted {
+                    text: "Meeting notes\nAttendees: product, client, eval".into(),
+                },
+            },
+        }
+    }
+
     type Clicked = Rc<RefCell<Option<OverlayAction>>>;
 
     fn font_first_frame(installed: &Cell<bool>, ctx: &egui::Context) -> bool {
@@ -1383,6 +1430,20 @@ mod kittest_tests {
             }
         });
         (harness, clicked)
+    }
+
+    fn snapshot_harness(view: Option<OverlayView>) -> Harness<'static> {
+        let state = RenderState::default();
+        let text = Text::get(Locale::En);
+        let installed = Cell::new(false);
+        Harness::builder()
+            .with_theme(egui::Theme::Light)
+            .build_ui(move |ui| {
+                if font_first_frame(&installed, ui.ctx()) {
+                    return;
+                }
+                let _ = draw(ui, view.as_ref(), &state, text);
+            })
     }
 
     #[test]
@@ -1641,45 +1702,37 @@ mod kittest_tests {
     fn snapshots_match_baseline() {
         let mut results = egui_kittest::SnapshotResults::new();
 
-        let (mut harness, _clicked) = harness_for(word_card_view());
+        let mut harness = snapshot_harness(Some(word_card_view_en()));
         harness.run();
         harness.snapshot("popup_word_card");
         results.extend_harness(&mut harness);
 
-        let (mut harness, _clicked) = harness_for(acquiring_view());
+        let mut harness = snapshot_harness(Some(acquiring_view()));
         harness.run_steps(3);
         harness.snapshot("popup_loading");
         results.extend_harness(&mut harness);
 
-        let (mut harness, _clicked) = harness_for(extract_view());
+        let mut harness = snapshot_harness(Some(extract_view_en()));
         harness.run();
         harness.snapshot("popup_extract");
         results.extend_harness(&mut harness);
 
-        let (mut harness, _clicked) = harness_for(streaming_view());
+        let mut harness = snapshot_harness(Some(streaming_view_en()));
         harness.run_steps(3);
         harness.snapshot("popup_streaming");
         results.extend_harness(&mut harness);
 
-        let (mut harness, _clicked) = harness_for(failed_view());
+        let mut harness = snapshot_harness(Some(failed_view()));
         harness.run();
         harness.snapshot("popup_failed");
         results.extend_harness(&mut harness);
 
-        let (mut harness, _clicked) = harness_for(auth_failed_view());
+        let mut harness = snapshot_harness(Some(auth_failed_view()));
         harness.run();
         harness.snapshot("popup_failed_auth");
         results.extend_harness(&mut harness);
 
-        let state = RenderState::default();
-        let text = Text::get(Locale::Zh);
-        let installed = Cell::new(false);
-        let mut harness = Harness::new_ui(move |ui| {
-            if font_first_frame(&installed, ui.ctx()) {
-                return;
-            }
-            let _ = draw(ui, None, &state, text);
-        });
+        let mut harness = snapshot_harness(None);
         harness.run();
         harness.snapshot("popup_selfcheck");
         results.extend_harness(&mut harness);
