@@ -12,8 +12,8 @@
 | 发版人工步骤 | 4 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
-| 快照测试 | 28 | `just test` |
-| 单元测试 | 413 | `just test` |
+| 快照测试 | 30 | `just test` |
+| 单元测试 | 420 | `just test` |
 
 ## 人工测试
 
@@ -188,24 +188,26 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。
+popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、释义、例句（复制按钮已移除，划选即复制） | 2026-09-21 |
+| word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定双释义的词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、两条释义、例句（复制按钮已移除，划选即复制） | 2026-10-01 |
+| word_card_senses_stack_vertically | 释义逐行向下排 | 给定两条释义的词卡视图，当渲染，则第二条释义的节点矩形在第一条之下（正文列显式垂直布局，不横向并排） | 2026-10-01 |
+| watermark_sits_inside_the_computed_window_height | 页脚水印落在期望窗口内 | 给定流式/词卡/取材骨架三种视图，当按内容尺寸重设渲染窗口再量水印矩形，则水印底边不超出 draw 上交的期望窗口高（页脚被内容挤出窗外即失败） | 2026-10-01 |
 | long_body_is_rendered_in_full | 长正文完整渲染不截断 | 给定超长正文（尾部带标记），当渲染，则 AccessKit 树含尾部内容——无字符截断 | 2026-09-20 |
-| acquiring_view_shows_a_bare_skeleton | 取材骨架视图（触发即显） | 给定 Acquiring 骨架视图，当渲染，则整组骨架带「正在注解」的进度指示标签、「正在读取选区」不出现、无原文与流式内容 | 2026-09-30 |
-| streaming_view_shows_the_annotating_footer | 流式视图页脚注解指示 | 给定流式视图，当渲染，则「正在注解」在页脚出现、经/注印章就位 | 2026-09-30 |
+| acquiring_view_shows_a_bare_skeleton | 取材骨架视图（触发即显） | 给定 Acquiring 骨架视图，当渲染，则页脚带「正在注解」的进度指示标签（骨架条本身无文字）、「正在读取选区」不出现、无原文与流式内容 | 2026-10-01 |
+| streaming_view_shows_the_annotating_footer | 流式视图页脚注解指示 | 给定流式视图，当渲染，则「正在注解」在页脚出现、经/注印章就位 | 2026-10-01 |
 | word_card_marks_the_three_sections_per_locale | 词卡三分区印章随 locale | 给定词卡视图（zh/en 各一），当渲染，则印章字分别为 经/注/疏 与 SRC/NOTE/EXP | 2026-09-30 |
 | extract_view_notes_the_measurement | 提取视图疏位小记 | 给定提取产物视图，当渲染，则提取文本在经位、疏位附「凡 N 言 · N 行」小记（字数去空白、行数按换行） | 2026-09-30 |
-| streaming_view_hides_structured_block | 流式视图不暴露结构化围栏 | 给定流式视图（正文含围栏），当渲染，则「已流式到达的正文」「选中的原文」可见而 ```gloss 围栏不在树中（首个围栏起截断）；头部只有图标与动作区（任务药丸与旋转指示器已删） | 2026-09-30 |
+| streaming_view_hides_structured_block | 流式视图不暴露结构化围栏 | 给定流式视图（正文含围栏），当渲染，则「已流式到达的正文」「选中的原文」可见而 ```gloss 围栏不在树中（首个围栏起截断）；头部只有图标与动作区（任务药丸、旋转指示器与状态药丸均已删） | 2026-10-01 |
 | failed_view_shows_retry_hint | 失败卡重试动作 | 给定 Retry 失败卡，当渲染并点击「重试」，则收集器收到 OverlayAction::Retry | 2026-09-21 |
 | auth_failed_view_offers_open_settings | 鉴权失败卡设置入口 | 给定鉴权失败卡，当渲染并点击「打开设置」，则收到 OverlayAction::OpenSettings（头部齿轮标签为「设置」，与正文按钮不混淆） | 2026-09-21 |
 | bare_failed_view_has_no_action_button | 无动作失败卡形态 | 给定 action=None 失败卡，当渲染，则无「重试」节点、无动作上交 | 2026-09-19 |
 | close_button_submits_dismiss | 头部关闭按钮上交收起 | 给定词卡视图（头部为各视图共用路径），当点击无障碍标签「关闭浮层」的 × 钮，则 draw 产物为 OverlayAction::Dismiss | 2026-09-21 |
 | gear_button_submits_open_settings | 头部齿轮上交打开设置 | 给定词卡视图，当点击无障碍标签「设置」的 ⚙ 钮，则 draw 产物为 OverlayAction::OpenSettings | 2026-09-21 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层七视图渲染基线 | 给定七个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡），当 wgpu 渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck 七份基线一致，结果合并进单个 SnapshotResults | 2026-09-30 |
+| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck 七份基线一致，结果合并进单个 SnapshotResults（2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置） | 2026-10-01 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用翻译」后保存，当检查上交配置，则 TranslateSentence 已停用（默认任务不在此列——停用它会被跨字段校验拦下） | 2026-09-23 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
@@ -213,7 +215,7 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
 | a_disabled_default_task_is_blocked_with_an_in_place_hint | 停用的默认任务阻断保存并就地提示 | 给定默认任务被任务开关停用的设置窗，当点保存，则不上交 Save、默认任务行出停用提示（替换该行说明提示），启用该任务后恢复可保存 | 2026-09-23 |
 | switching_off_the_default_task_is_blocked_until_it_comes_back | 关掉默认任务所在开关被拦下 | 给定出厂配置的设置窗，当点掉「启用词卡」再保存，则不上交 Save 且出停用提示（首次保存前不唠叨），开关扳回后恢复可保存 | 2026-09-23 |
-| snapshots_match_baseline（settings） | 设置窗渲染基线（正常/提示/错误/默认任务停用四态 + 更新区五相位） | 给定默认、带保存失败提示、校验错误、默认任务被停用四个状态与更新区五个相位（UpToDate/Available/Downloading/Ready/Failed(Install)），当 wgpu 渲染并 diff，则与对应基线一致且关键文本进树 | 2026-09-27 |
+| snapshots_match_baseline（settings） | 设置窗渲染基线（英文浅色；正常/提示/错误/默认任务停用四态 + 更新区五相位） | 给定默认、带保存失败提示、校验错误、默认任务被停用四个状态与更新区五个相位（UpToDate/Available/Downloading/Ready/Failed(Install)），当 wgpu 以英文文案与浅色主题渲染并 diff，则与对应基线一致且关键文本进树 | 2026-10-01 |
 | failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、协议异常（带诊断）、取材通道不可用、推理通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-09-22 |
 | failure_card_follows_the_locale | 失败卡随 locale 出表 | 给定英文 locale 的网络失败卡，当渲染，则出英文文案与英文「Retry」动作 | 2026-09-22 |
 | save_failure_notice_names_the_cause | 保存失败提示出场合与诊断 | 给定带 SaveFailed(Config) 类型化提示的设置窗（中文表），当渲染，则出「保存失败：<诊断>」（前缀交代场合、诊断不重复本地化整句） | 2026-09-22 |
@@ -500,6 +502,8 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | stream_visible_body_truncates_from_the_first_fence | 流式正文自首个围栏截断 | 给定双围栏/无围栏/空串/围栏开头/前缀相似标记五种正文，当取流式可见部分，则首个围栏起整段隐藏（含其后文字）、无围栏原样、空串恒空 | 2026-09-26 |
 | decode_app_icon_rejects_bad_bytes | 图标解码失败隔离降级 | 给定非 PNG 字节，当解码应用图标，则返回 None（页头退化为无图标行，不 panic） | 2026-09-30 |
 | decode_app_icon_crops_to_the_content_square | 图标按画布比例裁本体 | 给定内嵌的 Dock 图标 PNG，当解码裁剪，则得 206×206 的图形本体（256 按 100/824/1024 画布比例裁去透明边距） | 2026-09-30 |
+| example_lines_split_at_the_first_cjk_glyph | 例句在首个 CJK 字形处拆两行 | 给定「英译+中译」/纯英文/开头即 CJK/开头即 CJK 的例句四种输入，当 example_lines，则英汉混合的拆出原文与译文两行、其余原样单行 | 2026-10-01 |
+| watermark_is_the_untranslated_brand_name | 页脚水印是品牌名 | 给定水印取值入口，当取值，则恒为 "Gloss"（品牌名不翻译） | 2026-10-01 |
 
 ### crates/gloss-app/src/app/overlay.rs
 
@@ -681,11 +685,14 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| cjk_fallback_appends_after_builtin_fonts | CJK 后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且 CJK 后备排在比例与等宽两族内置字体之后 | 2026-09-23 |
-| cjk_fallback_without_system_font_installs_nothing | 无系统字体时不接入 | 给定缺失字体字节，当接入字体定义，则接入失败且字体表与比例、等宽两族均保持内置原样 | 2026-09-23 |
-| cjk_fallback_shares_bytes_across_contexts | 后备字体字节按借用登记、零拷贝共享 | 给定同一段字体字节接入两份字体定义，当检查，则两份定义都按借用登记且指向同一地址 | 2026-09-23 |
-| system_cjk_font_is_discoverable | 系统 CJK 字体可发现 | 给定真实系统，当执行 CJK 字体发现，则必须找到且字节非空（依赖宿主机） | 2026-09-23 |
-| system_cjk_font_is_loaded_once | 系统 CJK 字体只加载一次且两份定义共享 | 给定真实系统，当连续两次取字体字节并各自接入字体定义，则两次返回同一段内存、两份定义登记到同一地址（依赖宿主机） | 2026-09-23 |
+| cjk_fallback_appends_after_builtin_fonts | CJK 后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且 CJK 后备排在比例与等宽两族内置字体之后 | 2026-10-01 |
+| named_family_without_bytes_binds_the_builtin_glyphs | 命名字体族无字节时绑内置字形 | 给定缺失的字体字节，当注册宋体命名字体族，则不发明字体数据、族仍绑定到内置字形（epaint 对未绑定族直接 panic，族必须恒存在） | 2026-10-01 |
+| cjk_fallback_shares_bytes_across_contexts | 后备字体字节按借用登记、零拷贝共享 | 给定同一段字体字节接入两份字体定义，当检查，则两份定义都按借用登记且指向同一地址 | 2026-10-01 |
+| named_family_registers_bytes_verbatim | 命名字体族按字节注册 | 给定字体字节，当注册宋体命名字体族，则族名指向自身且字节按借用原样登记 | 2026-10-01 |
+| definitions_always_bind_the_named_typography_families | 宋楷命名族恒绑定 | 给定真实系统的字体定义，当取 definitions，则宋楷两命名族要么有自身字体数据、要么绑定到内置字形（epaint 对未绑定族直接 panic，族恒存在） | 2026-10-01 |
+| zhu_family_is_always_named | 注区字体族恒为命名族 | 给定 zhu_family 入口，当取值，则恒为楷体命名字体族 | 2026-10-01 |
+| system_cjk_font_is_discoverable | 系统 CJK 字体可发现 | 给定真实系统，当执行 CJK 字体发现，则必须找到且字节非空（依赖宿主机） | 2026-10-01 |
+| system_cjk_font_is_loaded_once | 系统 CJK 字体只加载一次且两份定义共享 | 给定真实系统，当连续两次取字体字节并各自接入字体定义，则两次返回同一段内存、两份定义登记到同一地址（依赖宿主机） | 2026-10-01 |
 
 ### crates/gloss-app/src/ui/settings.rs
 
@@ -793,10 +800,12 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| fallback_is_lazy_on_ax_success | AX 成功时兜底惰性求值 | 给定 AX 成功，当 combine，则采纳 AX 结果且剪贴板兜底闭包不被求值 | 2026-09-19 |
-| permission_denied_skips_fallback | 权限拒绝跳过兜底 | 给定 AccessibilityDenied，当 combine，则原样上抛且不兜底 | 2026-09-19 |
-| empty_selection_skips_fallback | 空选区跳过兜底 | 给定 SelectionEmpty，当 combine，则原样上抛且不兜底（不注入 Cmd+C，陈旧剪贴板不得冒充本次选区） | 2026-09-30 |
-| unavailable_ax_falls_back_to_clipboard | AX 不可用落兜底 | 给定 SelectionUnavailable，当 combine，则落到兜底结果；兜底也失败则以兜底错误收口 | 2026-09-19 |
+| fallback_is_lazy_on_ax_success | AX 成功时兜底惰性求值 | 给定 AX 成功，当 combine，则采纳 AX 结果且剪贴板兜底闭包不被求值 | 2026-10-01 |
+| permission_denied_skips_fallback | 权限拒绝跳过兜底 | 给定 AccessibilityDenied，当 combine，则原样上抛且不兜底 | 2026-10-01 |
+| empty_selection_settles_and_retries_before_giving_up | 空选区让渡补读后再收口 | 给定持续 SelectionEmpty 的 AX 读与零让渡策略，当 combine，则补读至预算用尽才原样上抛且不兜底（不注入 Cmd+C，陈旧剪贴板不得冒充本次选区） | 2026-10-01 |
+| empty_then_ready_ax_read_adopts_the_late_selection | 补读等到迟到的选区 | 给定首次空、二次有值的 AX 读，当 combine，则采纳第二次读到的选区且不兜底 | 2026-10-01 |
+| settle_budget_is_bounded_and_positive | 让渡预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 settle_delay，则预算内返回正的让渡时长、预算用尽（含 usize::MAX）返回 None | 2026-10-01 |
+| unavailable_ax_falls_back_to_clipboard | AX 不可用落兜底 | 给定 SelectionUnavailable，当 combine，则落到兜底结果；兜底也失败则以兜底错误收口 | 2026-10-01 |
 
 ### crates/gloss-platform/src/selection/clipboard.rs
 

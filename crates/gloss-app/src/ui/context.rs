@@ -27,18 +27,31 @@ pub fn reapply<'a>(contexts: impl IntoIterator<Item = &'a Context>, theme: Theme
     written
 }
 
-/// 施加全部「每个 egui 上下文都要有」的设置，返回字体是否接上；重复施加结果
-/// 不变（字体表按定义相等判定，相等即不重建）。对 egui 上下文的写入都收在这里。
+/// 施加全部「每个 egui 上下文都要有」的设置，返回 CJK 后备是否接上；重复
+/// 施加结果不变（字体表按定义相等判定，相等即不重建）。对 egui 上下文的
+/// 写入都收在这里。宋楷命名字体族恒绑定（fonts::definitions 兜底到内置
+/// 字形），这里返回的只是 CJK 后备状态。
 fn install(ctx: &Context, theme: Theme) -> bool {
-    let cjk_fallback = match super::fonts::definitions() {
-        Some(definitions) => {
-            ctx.set_fonts(definitions);
-            true
-        }
-        None => false,
-    };
+    let (definitions, cjk_fallback) = super::fonts::definitions();
+    ctx.set_fonts(definitions);
     ctx.set_theme(theme_preference(theme));
     cjk_fallback
+}
+
+/// kittest 自建上下文的字体绑定（测试专用）：把宋楷命名字体族绑到内置
+/// 字形上，排版字号照常生效、字形不依赖宿主字体（快照 tofu 约定）。
+/// 生产路径走 [`install`]；对 set_fonts 的调用收在本模块（统一装入点），
+/// 测试也不例外。
+#[cfg(test)]
+pub(crate) fn install_kittest_fonts(ctx: &Context) {
+    let mut definitions = egui::FontDefinitions::default();
+    for name in [super::fonts::FONT_SERIF_NAME, super::fonts::FONT_KAITI_NAME] {
+        definitions.families.insert(
+            egui::FontFamily::Name(name.into()),
+            vec![super::fonts::BUILTIN_FALLBACK_FONT.to_owned()],
+        );
+    }
+    ctx.set_fonts(definitions);
 }
 
 /// 配置主题 → egui 主题偏好（出厂跟随系统，设置页可固定明/暗）。

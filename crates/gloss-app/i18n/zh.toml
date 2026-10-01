@@ -20,8 +20,6 @@ gloss_langs_ko = "韩语"
 gloss_langs_fr = "法语"
 gloss_langs_other = "其他"
 
-gloss_popup_selfcheck = "自检"
-gloss_popup_failed = "失败"
 gloss_popup_retry = "重试"
 gloss_popup_annotating = "正在注解"
 gloss_popup_seal_jing = "经"
