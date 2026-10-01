@@ -8,8 +8,10 @@
 //! 字形解析完全不受影响。楷体在系统里缺席时按 demo 自己的回退链落到宋体
 //! （docs/demo/popup-redesign.html 的 --kai 栈以 Songti SC 收尾）。
 //! 字体字节进程内只向系统取一份，浮层与设置窗两个 egui 上下文引用同一份。
-//! 查找失败只降级告警，不阻塞启动：浮层照常工作，中文暂时不可读，后续版本
-//! 可考虑内嵌开源字体兜底。
+//! 查找失败只降级告警，不阻塞启动：CJK 后备缺席时比例/等宽族不接系统字形
+//! （中文暂时不可读），宋楷命名字体族仍恒注册、兜底到内置字形——epaint 对
+//! 未绑定的字体族直接 panic，族必须永远存在。后续版本可考虑内嵌开源字体
+//! 兜底。
 
 use std::sync::{Arc, OnceLock};
 
@@ -47,24 +49,30 @@ const SERIF_FAMILIES: &[&str] = &["Songti SC", "STSong", "Noto Serif SC", "SimSu
 /// 楷体候选（demo --kai 栈的实名项）。
 const KAITI_FAMILIES: &[&str] = &["Kaiti SC", "STKaiti", "Kaiti TC", "KaiTi"];
 
-/// 带 CJK 后备与宋楷字族的字体定义。CJK 后备缺系统字体时返回 `None`
-/// （加载处已告警）。宋楷两族**无条件注册**——epaint 对未绑定的字体族
-/// 直接 panic——系统里找不到宋/楷时绑到 CJK 后备字节上，排版降级为默认
-/// 字体而不是崩。交给哪个上下文由 [`super::context`] 的统一装入点决定。
-pub(in crate::ui) fn definitions() -> Option<FontDefinitions> {
+/// egui 内置字形的登记名（default_fonts 特性自带）：宋楷两族在系统与
+/// CJK 后备双双缺席时的族内兜底，排版降级为默认字形而不是 panic。
+const BUILTIN_FALLBACK_FONT: &str = "Ubuntu-Light";
+
+/// 带 CJK 后备与宋楷字族的字体定义；bool 表示 CJK 后备是否接上（加载处
+/// 已告警，比例/等宽族在未接上时中文不可读）。宋楷两族**无条件注册**——
+/// epaint 对未绑定的字体族直接 panic——兜底链为 宋/楷系统字体 → 宋体
+/// 字节 → CJK 后备字节 → 内置字形，排版逐级降级而不是崩。交给哪个上下文
+/// 由 [`super::context`] 的统一装入点决定。
+pub(in crate::ui) fn definitions() -> (FontDefinitions, bool) {
     let mut definitions = FontDefinitions::default();
-    let cjk = cjk_bytes()?;
-    append_fallback(&mut definitions, cjk);
+    let cjk = cjk_bytes();
+    if let Some(cjk) = cjk {
+        append_fallback(&mut definitions, cjk);
+    }
 
     let serif = SERIF_BYTES.get_or_init(|| imp::load_family_bytes(SERIF_FAMILIES));
     let kaiti = KAITI_BYTES
         .get_or_init(|| imp::load_family_bytes(KAITI_FAMILIES).or_else(|| serif.clone()));
-    // 字节三处兜底链的末端都是 CJK 后备字节：族恒注册，字节恒存在。
-    let serif_bytes = serif.as_deref().or(Some(cjk));
+    let serif_bytes = serif.as_deref().or(cjk);
     let kaiti_bytes = kaiti.as_deref().or(serif_bytes);
-    register_named(&mut definitions, FONT_SERIF_NAME, serif_bytes);
-    register_named(&mut definitions, FONT_KAITI_NAME, kaiti_bytes);
-    Some(definitions)
+    register_named_or_builtin(&mut definitions, FONT_SERIF_NAME, serif_bytes);
+    register_named_or_builtin(&mut definitions, FONT_KAITI_NAME, kaiti_bytes);
+    (definitions, cjk.is_some())
 }
 
 /// 系统 CJK 字体字节；首次调用向系统取，之后命中缓存。
@@ -87,22 +95,29 @@ fn append_fallback(definitions: &mut FontDefinitions, bytes: &'static [u8]) {
     }
 }
 
-/// 把一批字体字节注册成命名字体族；字节缺失时不注册，返回是否注册。
-fn register_named(
+/// 把一批字体字节注册成命名字体族；字节缺失时把族绑到内置字形上——
+/// 族必须恒存在（epaint 对未绑定的族直接 panic），字形逐级降级。
+fn register_named_or_builtin(
     definitions: &mut FontDefinitions,
     name: &'static str,
     bytes: Option<&'static [u8]>,
-) -> bool {
-    let Some(bytes) = bytes else {
-        return false;
-    };
-    definitions
-        .font_data
-        .insert(name.to_owned(), Arc::new(FontData::from_static(bytes)));
-    definitions
-        .families
-        .insert(FontFamily::Name(name.into()), vec![name.to_owned()]);
-    true
+) {
+    match bytes {
+        Some(bytes) => {
+            definitions
+                .font_data
+                .insert(name.to_owned(), Arc::new(FontData::from_static(bytes)));
+            definitions
+                .families
+                .insert(FontFamily::Name(name.into()), vec![name.to_owned()]);
+        }
+        None => {
+            definitions.families.insert(
+                FontFamily::Name(name.into()),
+                vec![BUILTIN_FALLBACK_FONT.to_owned()],
+            );
+        }
+    }
 }
 
 mod imp {
@@ -223,15 +238,31 @@ mod tests {
         let proportional_len = definitions.families[&FontFamily::Proportional].len();
         let monospace_len = definitions.families[&FontFamily::Monospace].len();
 
-        assert!(!register_named(&mut definitions, FONT_NAME, None));
-        assert!(!definitions.font_data.contains_key(FONT_NAME));
+        append_fallback(&mut definitions, SAMPLE_FONT);
+        assert!(definitions.font_data.contains_key(FONT_NAME));
         assert_eq!(
             definitions.families[&FontFamily::Proportional].len(),
-            proportional_len
+            proportional_len + 1
         );
         assert_eq!(
             definitions.families[&FontFamily::Monospace].len(),
-            monospace_len
+            monospace_len + 1
+        );
+    }
+
+    #[test]
+    fn named_family_without_bytes_binds_the_builtin_glyphs() {
+        let mut definitions = FontDefinitions::default();
+        register_named_or_builtin(&mut definitions, FONT_SERIF_NAME, None);
+
+        assert!(
+            !definitions.font_data.contains_key(FONT_SERIF_NAME),
+            "no bytes must not invent font data"
+        );
+        assert_eq!(
+            definitions.families[&FontFamily::Name(FONT_SERIF_NAME.into())],
+            vec![BUILTIN_FALLBACK_FONT.to_owned()],
+            "the family must still be bound, or epaint panics on first use"
         );
     }
 
@@ -253,16 +284,10 @@ mod tests {
     }
 
     #[test]
-    fn named_family_registers_only_with_bytes() {
+    fn named_family_registers_bytes_verbatim() {
         let mut definitions = FontDefinitions::default();
-        assert!(!register_named(&mut definitions, FONT_SERIF_NAME, None));
-        assert!(!definitions.font_data.contains_key(FONT_SERIF_NAME));
+        register_named_or_builtin(&mut definitions, FONT_SERIF_NAME, Some(SAMPLE_FONT));
 
-        assert!(register_named(
-            &mut definitions,
-            FONT_SERIF_NAME,
-            Some(SAMPLE_FONT)
-        ));
         assert_eq!(
             definitions.families[&FontFamily::Name(FONT_SERIF_NAME.into())],
             vec![FONT_SERIF_NAME.to_owned()]
@@ -272,16 +297,14 @@ mod tests {
 
     #[test]
     fn definitions_always_bind_the_named_typography_families() {
-        let definitions = definitions().expect("host CJK font");
+        let (definitions, _cjk_fallback) = definitions();
 
         for name in [FONT_SERIF_NAME, FONT_KAITI_NAME] {
             assert!(
-                definitions.font_data.contains_key(name),
-                "epaint panics on unbound families: {name} must always register"
-            );
-            assert_eq!(
-                definitions.families[&FontFamily::Name(name.into())],
-                vec![name.to_owned()]
+                definitions.font_data.contains_key(name)
+                    || definitions.families[&FontFamily::Name(name.into())]
+                        == vec![BUILTIN_FALLBACK_FONT.to_owned()],
+                "epaint panics on unbound families: {name} must always be bound"
             );
         }
     }

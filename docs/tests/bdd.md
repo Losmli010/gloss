@@ -686,10 +686,12 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | cjk_fallback_appends_after_builtin_fonts | CJK 后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且 CJK 后备排在比例与等宽两族内置字体之后 | 2026-10-01 |
-| cjk_fallback_without_system_font_installs_nothing | 无字体字节不注册 | 给定缺失字体字节，当注册命名族/后备，则不写入字体表、两族保持内置原样 | 2026-10-01 |
+| cjk_fallback_appends_after_builtin_fonts | CJK 后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且 CJK 后备排在比例与等宽两族内置字体之后 | 2026-10-01 |
+| cjk_fallback_without_system_font_installs_nothing | 后备恰占一行且进字体表 | 给定字体字节，当接入字体定义，则比例与等宽两族各多一行且字体表含 CJK 条目 | 2026-10-01 |
+| named_family_without_bytes_binds_the_builtin_glyphs | 命名字体族无字节时绑内置字形 | 给定缺失的字体字节，当注册宋体命名字体族，则不发明字体数据、族仍绑定到内置字形（epaint 对未绑定族直接 panic，族必须恒存在） | 2026-10-01 |
 | cjk_fallback_shares_bytes_across_contexts | 后备字体字节按借用登记、零拷贝共享 | 给定同一段字体字节接入两份字体定义，当检查，则两份定义都按借用登记且指向同一地址 | 2026-10-01 |
-| named_family_registers_only_with_bytes | 命名字体族按字节注册 | 给定缺失与存在的字节，当注册宋体命名字体族，则前者不注册、后者注册且族内指向自身 | 2026-10-01 |
-| definitions_always_bind_the_named_typography_families | 宋楷命名族恒注册 | 给定真实系统的字体定义，当取 definitions，则宋楷两命名族必有字体数据且族名指向自身（epaint 对未绑定族直接 panic，族恒存在） | 2026-10-01 |
+| named_family_registers_bytes_verbatim | 命名字体族按字节注册 | 给定字体字节，当注册宋体命名字体族，则族名指向自身且字节按借用原样登记 | 2026-10-01 |
+| definitions_always_bind_the_named_typography_families | 宋楷命名族恒绑定 | 给定真实系统的字体定义，当取 definitions，则宋楷两命名族要么有自身字体数据、要么绑定到内置字形（epaint 对未绑定族直接 panic，族恒存在） | 2026-10-01 |
 | zhu_family_is_always_named | 注区字体族恒为命名族 | 给定 zhu_family 入口，当取值，则恒为楷体命名字体族 | 2026-10-01 |
 | system_cjk_font_is_discoverable | 系统 CJK 字体可发现 | 给定真实系统，当执行 CJK 字体发现，则必须找到且字节非空（依赖宿主机） | 2026-10-01 |
 | system_cjk_font_is_loaded_once | 系统 CJK 字体只加载一次且两份定义共享 | 给定真实系统，当连续两次取字体字节并各自接入字体定义，则两次返回同一段内存、两份定义登记到同一地址（依赖宿主机） | 2026-10-01 |

@@ -27,16 +27,13 @@ pub fn reapply<'a>(contexts: impl IntoIterator<Item = &'a Context>, theme: Theme
     written
 }
 
-/// 施加全部「每个 egui 上下文都要有」的设置，返回字体是否接上；重复施加结果
-/// 不变（字体表按定义相等判定，相等即不重建）。对 egui 上下文的写入都收在这里。
+/// 施加全部「每个 egui 上下文都要有」的设置，返回 CJK 后备是否接上；重复
+/// 施加结果不变（字体表按定义相等判定，相等即不重建）。对 egui 上下文的
+/// 写入都收在这里。宋楷命名字体族恒绑定（fonts::definitions 兜底到内置
+/// 字形），这里返回的只是 CJK 后备状态。
 fn install(ctx: &Context, theme: Theme) -> bool {
-    let cjk_fallback = match super::fonts::definitions() {
-        Some(definitions) => {
-            ctx.set_fonts(definitions);
-            true
-        }
-        None => false,
-    };
+    let (definitions, cjk_fallback) = super::fonts::definitions();
+    ctx.set_fonts(definitions);
     ctx.set_theme(theme_preference(theme));
     cjk_fallback
 }

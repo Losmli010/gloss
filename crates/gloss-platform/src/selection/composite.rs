@@ -16,13 +16,14 @@ use gloss_core::model::GlossError;
 /// 数百毫秒，远小于兜底路径的最坏 4s）。
 const EMPTY_SETTLE_DELAY: Duration = Duration::from_millis(120);
 
-/// 空选区的总读取次数（首读 + 补读）：补读预算以「误滑收回前骨架多亮
-/// 数百毫秒」为上限换真实划词的判定率，超出即认定确实无选区。
-const EMPTY_READ_ATTEMPTS: usize = 4;
+/// 让渡次数上限：最多 3 次让渡 × 120ms ≈ 360ms 睡眠预算（首读 + 3 次补读
+/// 共 4 次读取，各次 AX 往返耗时另计），以「误滑收回前骨架多亮数百毫秒」
+/// 换真实划词的判定率，超出即认定确实无选区。
+const EMPTY_SETTLE_BUDGET: usize = 3;
 
 /// 第 `attempt` 次空读后的让渡时长；预算用尽返回 `None`（纯逻辑，单测覆盖）。
 fn settle_delay(attempt: usize) -> Option<Duration> {
-    (attempt.checked_add(1)? < EMPTY_READ_ATTEMPTS).then_some(EMPTY_SETTLE_DELAY)
+    (attempt < EMPTY_SETTLE_BUDGET).then_some(EMPTY_SETTLE_DELAY)
 }
 
 /// 组合判定（纯逻辑，单测覆盖）：AX 成功直接采纳；权限缺失原样上抛且不
@@ -89,7 +90,7 @@ mod tests {
 
     use gloss_core::model::GlossError;
 
-    use super::{EMPTY_READ_ATTEMPTS, EMPTY_SETTLE_DELAY, combine, settle_delay};
+    use super::{EMPTY_SETTLE_BUDGET, EMPTY_SETTLE_DELAY, combine, settle_delay};
 
     fn ax_ok(text: &str) -> impl FnMut() -> Result<String, GlossError> {
         let text = text.to_owned();
@@ -149,7 +150,7 @@ mod tests {
             no_delay,
         );
         assert_eq!(outcome, Err(GlossError::SelectionEmpty));
-        assert_eq!(reads, EMPTY_READ_ATTEMPTS);
+        assert_eq!(reads, EMPTY_SETTLE_BUDGET + 1);
     }
 
     #[test]
@@ -188,10 +189,10 @@ mod tests {
     fn settle_budget_is_bounded_and_positive() {
         assert_eq!(settle_delay(0), Some(EMPTY_SETTLE_DELAY));
         assert_eq!(
-            settle_delay(EMPTY_READ_ATTEMPTS - 2),
+            settle_delay(EMPTY_SETTLE_BUDGET - 1),
             Some(EMPTY_SETTLE_DELAY)
         );
-        assert_eq!(settle_delay(EMPTY_READ_ATTEMPTS - 1), None);
+        assert_eq!(settle_delay(EMPTY_SETTLE_BUDGET), None);
         assert_eq!(settle_delay(usize::MAX), None);
         assert!(EMPTY_SETTLE_DELAY > Duration::ZERO);
     }

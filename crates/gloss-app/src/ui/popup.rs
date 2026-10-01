@@ -121,8 +121,8 @@ const SHIMMER_ALPHA_MAX: u8 = 96;
 /// 页脚呼吸点的半径与个数
 const FOOTER_DOT_RADIUS: f32 = 2.0;
 const FOOTER_DOT_COUNT: usize = 3;
-/// 页脚水印槽的宽度：容纳水印字串并留余量，右对齐贴页脚右缘。
-const WATERMARK_WIDTH: f32 = 60.0;
+/// 页脚水印字串与槽缘的余量（单侧）：槽宽按实测字宽加此余量。
+const WATERMARK_PADDING: f32 = 6.0;
 /// 页脚带高（demo 页脚含上下留白，窄带取 26）。
 const FOOTER_HEIGHT: f32 = 26.0;
 /// 页脚与正文之间的空隙；滚动区按这条带宽预留视口
@@ -841,11 +841,15 @@ fn footer(ui: &mut egui::Ui, streaming: bool, text: &Text) {
         ui.ctx()
             .request_repaint_after(Duration::from_secs_f32(0.016));
     }
-    // 水印走 Label 而不是 painter 文字：进无障碍树，可检索、可测。
-    // 槽宽取水印字宽的上限余量，右对齐贴页脚右缘。
+    // 水印走 Label 而不是 painter 文字：进无障碍树，可检索、可测。槽宽按
+    // 水印字串实测宽 + 余量（与印章同一模式），右对齐贴页脚右缘。
+    let galley =
+        ui.painter()
+            .layout_no_wrap(watermark().to_owned(), FontId::proportional(font::TAG), dim);
+    let slot = galley.size().x + 2.0 * WATERMARK_PADDING;
     ui.put(
         egui::Rect::from_min_max(
-            egui::pos2(rect.max.x - WATERMARK_WIDTH, rect.min.y),
+            egui::pos2(rect.max.x - slot, rect.min.y),
             egui::pos2(rect.max.x, rect.max.y),
         ),
         egui::Label::new(RichText::new(watermark()).size(font::TAG).color(dim))
