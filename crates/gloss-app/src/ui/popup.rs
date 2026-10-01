@@ -20,7 +20,8 @@
 //! 模型在写结构化 JSON，一个字节都不该闪现；跨 chunk 切分出的残缺围栏前缀
 //! 可能短暂显示，随下一 chunk 自愈）。
 //!
-//! 页头回归品牌：只有应用图标与动作区（⚙/×），任务由内容层自明。页脚常驻
+//! 页头回归品牌：只有应用图标与动作区（⚙/×），任务与状态由内容层自明，
+//! 页头不带任何标签药丸。页脚常驻
 //! 一条窄带：推理中左端是呼吸点 + 「正在注解」（生成指示唯一落点），右端
 //! 恒为 Gloss 水印（品牌名不翻译，与窗口标题同一原则）；滚动区按页脚带宽
 //! 预留视口，页脚不被内容挤出窗外。取材中是纯骨架（脉动条），全程无
@@ -75,13 +76,6 @@ const ACTION_BUTTON: f32 = 20.0;
 /// 关闭 × 的半臂长与线宽：画出的 × 与齿轮字形等视觉大小（齿轮 14×15）
 const CLOSE_ARM: f32 = 6.0;
 const CLOSE_STROKE: f32 = 2.0;
-/// 页头标签药丸的内边距（水平/垂直）
-const TAG_PILL_PADDING_H: i8 = 6;
-const TAG_PILL_PADDING_V: i8 = 3;
-/// 页头标签药丸圆角（egui 自动钳到半高，等效全圆胶囊）
-const TAG_PILL_RADIUS: u8 = 10;
-/// 页头标签铺底的透明度（0-255）：约一成不透明度的同色铺底
-const TAG_TINT_ALPHA: u8 = 0x1A;
 /// 出现动画时长（淡入，秒）：显示/重显后的第一帧从 0 渐进到 1。
 const APPEAR_SECONDS: f32 = 0.18;
 /// 经注疏排版的字号（demo 定稿值）：经 15.5、注 15、疏 12.5；词条 25，
@@ -369,13 +363,7 @@ fn render_content(
 ) -> Option<OverlayAction> {
     match view {
         None => {
-            let action = header(
-                ui,
-                state,
-                Some(text.gloss_popup_selfcheck.as_str()),
-                TagTint::Brand,
-                text,
-            );
+            let action = header(ui, state, text);
             ui.add_space(space::SECTION);
             selfcheck_body(ui);
             ui.add_space(space::PARAGRAPH);
@@ -386,7 +374,7 @@ fn render_content(
         Some(OverlayView::Acquiring) => {
             // 取材骨架（触发即显）：纯脉动条，无任何取材文字。没有选区
             // 数据可展示，整卡保持紧凑，取材完成即整卡替换。
-            let action = header(ui, state, None, TagTint::Brand, text);
+            let action = header(ui, state, text);
             ui.add_space(space::SECTION);
             shimmer_bars(ui);
             ui.add_space(space::PARAGRAPH);
@@ -399,7 +387,7 @@ fn render_content(
             body,
             classified,
         }) => {
-            let action = header(ui, state, None, TagTint::Brand, text);
+            let action = header(ui, state, text);
             ui.add_space(space::SECTION);
             jing_section(ui, text, |ui| {
                 source_block(ui, source, is_code(*classified))
@@ -429,7 +417,7 @@ fn render_content(
             action
         }
         Some(OverlayView::Outcome { source, outcome }) => {
-            let action = header(ui, state, None, TagTint::Brand, text);
+            let action = header(ui, state, text);
             ui.add_space(space::SECTION);
             let viewport_max = (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT);
             let scrolled = ScrollArea::vertical()
@@ -447,13 +435,7 @@ fn render_content(
             cause,
             action: error_action,
         }) => {
-            let mut action = header(
-                ui,
-                state,
-                Some(text.gloss_popup_failed.as_str()),
-                TagTint::Warn,
-                text,
-            );
+            let mut action = header(ui, state, text);
             ui.add_space(space::SECTION);
             ui.label(
                 RichText::new(failure_message(cause, text))
@@ -498,24 +480,11 @@ fn action_label(action: ErrorAction, text: &Text) -> &str {
     }
 }
 
-/// 页头标签的着色档：任务/自检标签走品牌蓝，失败标签走警示色。
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum TagTint {
-    Brand,
-    Warn,
-}
-
 /// 页头：应用图标 + 右侧动作区 `[⚙ ×]`——× 最右（最后动作）、齿轮居左，
-/// 图标默认弱色、hover/按下显色。任务由内容层（经注疏）自明：任务药丸
-/// 与旋转指示器不进页头（生成指示移交页脚，见 [`footer`]），非任务场景
-/// （自检/失败）经 `tag` 保留状态药丸。返回动作区点击。
-fn header(
-    ui: &mut egui::Ui,
-    state: &RenderState,
-    tag: Option<&str>,
-    tint: TagTint,
-    text: &Text,
-) -> Option<OverlayAction> {
+/// 图标默认弱色、hover/按下显色。任务与状态都由内容层自明（经注疏分区、
+/// 失败卡正文），页头不带任何标签药丸（demo 定稿：页头回归品牌，只有
+/// 图标与动作区；生成指示移交页脚，见 [`footer`]）。返回动作区点击。
+fn header(ui: &mut egui::Ui, state: &RenderState, text: &Text) -> Option<OverlayAction> {
     let weak = ui.visuals().weak_text_color();
     let strong = ui.visuals().strong_text_color();
     let mut action = None;
@@ -524,10 +493,6 @@ fn header(
             ui.add(
                 egui::Image::from_texture(&icon).fit_to_exact_size(vec2(HEADER_ICON, HEADER_ICON)),
             );
-        }
-        if let Some(tag) = tag {
-            ui.add_space(space::PARAGRAPH);
-            tag_pill(ui, tag, tint);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // 图标钮的文字颜色交给 widget 状态笔刷（不写死在字形上），
@@ -589,37 +554,6 @@ fn close_button(ui: &mut egui::Ui, text: &Text) -> egui::Response {
         stroke,
     );
     response
-}
-
-/// 页头标签药丸：品牌蓝/警示色的低透明度铺底 + 同色文字，明暗主题各取
-/// 可读变体。
-fn tag_pill(ui: &mut egui::Ui, label: &str, tint: TagTint) {
-    let (fg, bg) = match tint {
-        TagTint::Brand => {
-            let fg = if ui.visuals().dark_mode {
-                color::TAG_TEXT_DARK
-            } else {
-                color::TAG_TEXT_LIGHT
-            };
-            (fg, tag_tint(color::TAG_BLUE))
-        }
-        TagTint::Warn => {
-            let fg = ui.visuals().warn_fg_color;
-            (fg, tag_tint(fg))
-        }
-    };
-    egui::Frame::new()
-        .fill(bg)
-        .corner_radius(CornerRadius::same(TAG_PILL_RADIUS))
-        .inner_margin(Margin::symmetric(TAG_PILL_PADDING_H, TAG_PILL_PADDING_V))
-        .show(ui, |ui| {
-            ui.label(RichText::new(label).size(font::TAG).color(fg));
-        });
-}
-
-/// 同色低透明度铺底。
-fn tag_tint(base: egui::Color32) -> egui::Color32 {
-    egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), TAG_TINT_ALPHA)
 }
 
 /// 印章着色档：墨印（纸色实心 + 墨色字，经用）、朱印（朱砂实心 + 纸色字，
