@@ -101,6 +101,17 @@ assert_scan "字符串里的 ] 不破坏属性配对" 0 "crates/gloss-app/src/br
   "$(printf '#[allow(clippy::doc_markdown, reason = "数组 [0] 说明")]\nlet x = 1;')"
 
 echo ""
+echo "-- 扩展扫描面：gloss-core 与 gloss-platform --"
+assert_scan "gloss-core 生产代码内嵌中文拦截" 1 "crates/gloss-core/src/hardcoded.rs" \
+  "$(printf 'fn label() -> String {\n    "未能读取选区".to_owned()\n}')"
+assert_scan "gloss-platform 生产代码内嵌中文拦截" 1 "crates/gloss-platform/src/hardcoded.rs" \
+  "$(printf 'pub fn hint() -> &\x27static str {\n    "打开设置"\n}')"
+assert_scan "prompt.rs 作为模型面向文案处理点整文件豁免" 0 "crates/gloss-core/src/prompt.rs" \
+  "$(printf 'fn lang_name() -> &\x27static str {\n    "中文"\n}')"
+assert_scan "core 生产代码的 i18n:allow 放行" 0 "crates/gloss-core/src/allowed.rs" \
+  "$(printf "const DOTS: &str = \"…\"; // %s 诊断省略号，非 locale 文案\n" "$MARKER")"
+
+echo ""
 echo "-- 装入点集中与词条表唯一（应拦截，退出码 1）--"
 assert_scan "owner 之外 include_str 引用 i18n 资源" 1 "crates/gloss-core/src/alias.rs" \
   "$(printf 'const P: &str = include_str!("../i18n/zh.toml");')" \

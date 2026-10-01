@@ -5,10 +5,12 @@
 # 保证本地与 CI 判定一致。
 #
 # 覆盖三条检查：
-#   文案字面量拦截  —— gloss-app 与根包 src 的生产代码里，字符串 / char /
-#                      原始字符串字面量出现非 ASCII 字节即违规；#[cfg(test)] 模块、
-#                      注释、#[...] 属性内部（clippy reason 等元信息）不在判罚面。
-#                      纯 ASCII 的英文硬编码不可由文本判定，靠人工评审。
+#   文案字面量拦截  —— gloss-app / 根包 / gloss-core / gloss-platform 的生产代码里，
+#                      字符串 / char / 原始字符串字面量出现非 ASCII 字节即违规；
+#                      #[cfg(test)] 模块、注释、#[...] 属性内部（clippy reason 等
+#                      元信息）不在判罚面。crates/gloss-core/src/prompt.rs 是模型
+#                      面向文案的统一处理点（prompts/ 模板资源 + 注入片段），整文件
+#                      豁免。纯 ASCII 的英文硬编码不可由文本判定，靠人工评审。
 #   装入点集中      —— include_str! / include_bytes! 引用 i18n 资源只允许出现在
 #                      crates/gloss-app/src/i18n.rs。
 #   词条表文件唯一  —— 声明 gloss_ 前缀键的 TOML 只允许在 crates/gloss-app/i18n/ 下。
@@ -24,7 +26,7 @@ ROOT="${1:-$(cd "$SELF_DIR/../.." && pwd)}"
 RULE="界面文案统一进文案表"
 OWNER="crates/gloss-app/src/i18n.rs"
 CATALOG_DIR="crates/gloss-app/i18n"
-SCAN_DIRS="crates/gloss-app/src 与根包 src"
+SCAN_DIRS="gloss-app / 根包 / gloss-core / gloss-platform 的 src"
 ALLOW_MARKER="i18n:allow"
 
 FAILED=0
@@ -335,8 +337,12 @@ def literal_lines(src):
 for base in (
     os.path.join(root, "crates", "gloss-app", "src"),
     os.path.join(root, "src"),
+    os.path.join(root, "crates", "gloss-core", "src"),
+    os.path.join(root, "crates", "gloss-platform", "src"),
 ):
     for path in rs_files(base):
+        if os.path.relpath(path, root) == "crates/gloss-core/src/prompt.rs":
+            continue
         with open(path, encoding="utf-8", errors="replace") as fh:
             src = fh.read()
         lines = src.split("\n")
