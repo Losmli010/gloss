@@ -129,13 +129,13 @@ pub(super) fn event_kind(event: &Event) -> EventKind {
 /// 单个回传事件后浮层要不要自动露面。
 ///
 /// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
-/// 露面的两个来源：触发即显的骨架（经壳层 `pending_reveal`，见
-/// [`should_reveal`]——那时还没有回传事件），与失败总弹（错误不该被
-/// 吞掉）。
-/// 取材成功不再负责露面：骨架已把浮层带到屏上，采纳后整卡换成流式
-/// 视图即可；用户若在取材中收起浮层，机器回 Idle，陈旧的取材产物
-/// 采纳不上，自然也不会把浮层弹回。分类结果、流式增量与完成态都只在
-/// 已可见的浮层上更新——三者同样不负责露面。
+/// 露面的两个来源：挂起显形请求（经壳层 `pending_reveal`——热键触发
+/// 即显骨架、划词提交即显流式卡，见 [`should_reveal`]——那时还没有
+/// 回传事件或产物已在批内提交），与失败总弹（错误不该被吞掉）。
+/// 取材成功不直接负责露面：划词路径的显形随提交置位，热键路径的骨架
+/// 已把浮层带到屏上；用户若在取材中收起浮层，机器回 Idle，陈旧的取材
+/// 产物采纳不上，自然也不会把浮层弹回。分类结果、流式增量与完成态都
+/// 只在已可见的浮层上更新——三者同样不负责露面。
 fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
     match kind {
         EventKind::InputReady => false,
@@ -151,10 +151,11 @@ pub(super) fn auto_show_after(batch: impl IntoIterator<Item = (EventKind, bool)>
         .any(|(kind, accepted)| auto_show_for(kind, accepted))
 }
 
-/// 一批回传处理后浮层要不要显形：触发即显的挂起请求（`pending`）要求
-/// 机器确有视图——视图为空时弹出的会是渲染自检卡（挂起置位与消费之间
-/// 没有插入点，两段 drain 同帧连跑，守卫只为防御）；挂起显形不依赖
-/// 回传批次，与批次内的「失败即弹」任一成立即显示。
+/// 一批回传处理后浮层要不要显形：挂起显形请求（`pending`）要求机器确有
+/// 视图——视图为空时弹出的会是渲染自检卡（挂起置位与消费之间没有插入
+/// 点，两段 drain 同帧连跑，守卫只为防御）；划词提交的置位在批内
+/// `accept_input`，热键触发的置位在 `drain_platform_events`，都在同一帧
+/// 消费。挂起显形不依赖回传批次，与批次内的「失败即弹」任一成立即显示。
 pub(super) fn should_reveal(
     pending: bool,
     has_view: bool,
@@ -316,7 +317,10 @@ mod tests {
     fn auto_show_policy_decides_when_the_overlay_pops() {
         use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
 
-        assert!(!auto_show_for(InputReady, true), "骨架已代为露面");
+        assert!(
+            !auto_show_for(InputReady, true),
+            "显形走挂起请求，取材成功不负责露面"
+        );
         assert!(!auto_show_for(TaskDone, true), "完成时浮层早已可见");
         assert!(!auto_show_for(TaskChunk, true), "chunk 只追加不露面");
         assert!(auto_show_for(TaskFailed, true), "错误不该被吞掉");

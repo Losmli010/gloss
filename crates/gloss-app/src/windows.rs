@@ -17,6 +17,9 @@ const OVERLAY_HEIGHT: f64 = 200.0;
 /// 自适应高度的屏幕余量：winit 不提供工作区（work area），按显示器逻辑
 /// 高减去该值近似（菜单栏/Dock 的保守估计）。
 const WORK_AREA_MARGIN: f64 = 96.0;
+/// 高度钳制的屏幕占比：浮层最大高度按显示器**逻辑高度的一半**为界（先
+/// 取一半再扣 [`WORK_AREA_MARGIN`]），超出部分由内容侧滚动兜底。
+const HEIGHT_CAP_FRACTION: f64 = 0.5;
 /// 浮层尺寸变化小于该阈值不重设窗口（防 egui 布局与 winit resize 的
 /// 帧迟滞来回抖动）。
 const RESIZE_EPSILON: f64 = 0.5;
@@ -34,6 +37,14 @@ fn debounced_size(current: LogicalSize<f64>, requested: LogicalSize<f64>) -> Log
     let steps = (requested.height / STREAM_HEIGHT_STEP).ceil();
     let stepped = (steps * STREAM_HEIGHT_STEP).max(current.height);
     LogicalSize::new(current.width, stepped)
+}
+
+/// 由显示器逻辑高度算浮层高度上限（纯逻辑，单测覆盖）：先取
+/// [`HEIGHT_CAP_FRACTION`] 的一半，再扣 [`WORK_AREA_MARGIN`]，且不低于
+/// [`OVERLAY_HEIGHT`]（矮屏兜底）；请求不超过上限时原样返回。
+fn capped_height(screen_height: f64, requested_height: f64) -> f64 {
+    let max_height = (screen_height * HEIGHT_CAP_FRACTION - WORK_AREA_MARGIN).max(OVERLAY_HEIGHT);
+    requested_height.min(max_height)
 }
 
 /// 浮层在指定显示器上居中的全局桌面坐标（winit 的窗口定位口径是跨显示
@@ -245,7 +256,8 @@ impl WindowManager {
             .or_else(|| self.overlay.current_monitor())
     }
 
-    /// 高度按浮层所在显示器钳制（超出部分由内容侧滚动兜底）；拿不到
+    /// 高度按浮层所在显示器钳制，上限为显示器逻辑高度的一半减去工作区
+    /// 余量（见 [`capped_height`]；超出部分由内容侧滚动兜底）；拿不到
     /// 显示器时原样返回。
     fn cap_height_to_screen(&self, size: LogicalSize<f64>) -> LogicalSize<f64> {
         let Some(monitor) = self.overlay.current_monitor() else {
@@ -253,8 +265,7 @@ impl WindowManager {
         };
         let scale = monitor.scale_factor();
         let screen_height = monitor.size().to_logical::<f64>(scale).height;
-        let max_height = (screen_height - WORK_AREA_MARGIN).max(OVERLAY_HEIGHT);
-        LogicalSize::new(size.width, size.height.min(max_height))
+        LogicalSize::new(size.width, capped_height(screen_height, size.height))
     }
 
     /// reposition + show：唯一显示入口（预创建复用只显隐）。
@@ -391,6 +402,30 @@ mod tests {
             LogicalPosition::new(1440.0, 0.0),
             "显示器比浮层还小时贴原点（max 取 0）"
         );
+    }
+}
+
+#[cfg(test)]
+mod cap_height_tests {
+    use super::{OVERLAY_HEIGHT, WORK_AREA_MARGIN, capped_height};
+
+    #[test]
+    fn height_caps_at_half_the_screen_minus_the_margin() {
+        assert_eq!(
+            capped_height(1080.0, 2000.0),
+            1080.0 * 0.5 - WORK_AREA_MARGIN,
+            "444 on a 1080-logical-point display"
+        );
+    }
+
+    #[test]
+    fn smaller_requests_pass_through_untouched() {
+        assert_eq!(capped_height(1080.0, 300.0), 300.0);
+    }
+
+    #[test]
+    fn short_screens_bottom_out_at_the_default_height() {
+        assert_eq!(capped_height(300.0, 2000.0), OVERLAY_HEIGHT);
     }
 }
 
