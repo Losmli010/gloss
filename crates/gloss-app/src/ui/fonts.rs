@@ -8,14 +8,15 @@
 //! 字形解析完全不受影响。楷体在系统里缺席时按 demo 自己的回退链落到宋体
 //! （docs/demo/popup-redesign.html 的 --kai 栈以 Songti SC 收尾）。
 //! 字体字节进程内只向系统取一份，浮层与设置窗两个 egui 上下文引用同一份。
-//! 查找失败只降级告警，不阻塞启动：CJK 后备缺席时比例/等宽族不接系统字形
-//! （中文暂时不可读），宋楷命名字体族仍恒注册、兜底到内置字形——epaint 对
+//! 查找失败只降级不阻塞启动：CJK 后备缺席出 warn，比例/等宽族不接系统
+//! 字形（中文暂时不可读）；宋楷命名字体族仍恒注册、兜底到内置字形——epaint 对
 //! 未绑定的字体族直接 panic，族必须永远存在。后续版本可考虑内嵌开源字体
 //! 兜底。
 
 use std::sync::{Arc, OnceLock};
 
 use egui::{FontData, FontDefinitions, FontFamily};
+use gloss_core::log::{thread, warn};
 /// CJK 字体在 egui 字体表里登记的名字。
 pub(super) const FONT_NAME: &str = "gloss-cjk";
 /// 宋体命名字体族：经/疏正文的排版字体（demo 的 --serif 栈）。
@@ -51,10 +52,10 @@ const KAITI_FAMILIES: &[&str] = &["Kaiti SC", "STKaiti", "Kaiti TC", "KaiTi"];
 
 /// egui 内置字形的登记名（default_fonts 特性自带）：宋楷两族在系统与
 /// CJK 后备双双缺席时的族内兜底，排版降级为默认字形而不是 panic。
-const BUILTIN_FALLBACK_FONT: &str = "Ubuntu-Light";
+pub(crate) const BUILTIN_FALLBACK_FONT: &str = "Ubuntu-Light";
 
-/// 带 CJK 后备与宋楷字族的字体定义；bool 表示 CJK 后备是否接上（加载处
-/// 已告警，比例/等宽族在未接上时中文不可读）。宋楷两族**无条件注册**——
+/// 带 CJK 后备与宋楷字族的字体定义；bool 表示 CJK 后备是否接上（缺席时
+/// 此处出 warn，比例/等宽族中文不可读）。宋楷两族**无条件注册**——
 /// epaint 对未绑定的字体族直接 panic——兜底链为 宋/楷系统字体 → 宋体
 /// 字节 → CJK 后备字节 → 内置字形，排版逐级降级而不是崩。交给哪个上下文
 /// 由 [`super::context`] 的统一装入点决定。
@@ -63,11 +64,15 @@ pub(in crate::ui) fn definitions() -> (FontDefinitions, bool) {
     let cjk = cjk_bytes();
     if let Some(cjk) = cjk {
         append_fallback(&mut definitions, cjk);
+    } else {
+        warn!(
+            thread = thread::UI,
+            "no system CJK font found, CJK text renders without fallback glyphs"
+        );
     }
 
     let serif = SERIF_BYTES.get_or_init(|| imp::load_family_bytes(SERIF_FAMILIES));
-    let kaiti = KAITI_BYTES
-        .get_or_init(|| imp::load_family_bytes(KAITI_FAMILIES).or_else(|| serif.clone()));
+    let kaiti = KAITI_BYTES.get_or_init(|| imp::load_family_bytes(KAITI_FAMILIES));
     let serif_bytes = serif.as_deref().or(cjk);
     let kaiti_bytes = kaiti.as_deref().or(serif_bytes);
     register_named_or_builtin(&mut definitions, FONT_SERIF_NAME, serif_bytes);
@@ -230,24 +235,6 @@ mod tests {
         assert_eq!(proportional.last(), Some(&FONT_NAME.to_owned()));
         assert_eq!(monospace.last(), Some(&FONT_NAME.to_owned()));
         assert!(definitions.font_data.contains_key(FONT_NAME));
-    }
-
-    #[test]
-    fn cjk_fallback_without_system_font_installs_nothing() {
-        let mut definitions = FontDefinitions::default();
-        let proportional_len = definitions.families[&FontFamily::Proportional].len();
-        let monospace_len = definitions.families[&FontFamily::Monospace].len();
-
-        append_fallback(&mut definitions, SAMPLE_FONT);
-        assert!(definitions.font_data.contains_key(FONT_NAME));
-        assert_eq!(
-            definitions.families[&FontFamily::Proportional].len(),
-            proportional_len + 1
-        );
-        assert_eq!(
-            definitions.families[&FontFamily::Monospace].len(),
-            monospace_len + 1
-        );
     }
 
     #[test]

@@ -207,7 +207,7 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | close_button_submits_dismiss | 头部关闭按钮上交收起 | 给定词卡视图（头部为各视图共用路径），当点击无障碍标签「关闭浮层」的 × 钮，则 draw 产物为 OverlayAction::Dismiss | 2026-09-21 |
 | gear_button_submits_open_settings | 头部齿轮上交打开设置 | 给定词卡视图，当点击无障碍标签「设置」的 ⚙ 钮，则 draw 产物为 OverlayAction::OpenSettings | 2026-09-21 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck 七份基线一致，结果合并进单个 SnapshotResults（2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印） | 2026-10-01 |
+| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck 七份基线一致，结果合并进单个 SnapshotResults（2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置） | 2026-10-01 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用翻译」后保存，当检查上交配置，则 TranslateSentence 已停用（默认任务不在此列——停用它会被跨字段校验拦下） | 2026-09-23 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
@@ -686,8 +686,6 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | cjk_fallback_appends_after_builtin_fonts | CJK 后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且 CJK 后备排在比例与等宽两族内置字体之后 | 2026-10-01 |
-| cjk_fallback_appends_after_builtin_fonts | CJK 后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且 CJK 后备排在比例与等宽两族内置字体之后 | 2026-10-01 |
-| cjk_fallback_without_system_font_installs_nothing | 后备恰占一行且进字体表 | 给定字体字节，当接入字体定义，则比例与等宽两族各多一行且字体表含 CJK 条目 | 2026-10-01 |
 | named_family_without_bytes_binds_the_builtin_glyphs | 命名字体族无字节时绑内置字形 | 给定缺失的字体字节，当注册宋体命名字体族，则不发明字体数据、族仍绑定到内置字形（epaint 对未绑定族直接 panic，族必须恒存在） | 2026-10-01 |
 | cjk_fallback_shares_bytes_across_contexts | 后备字体字节按借用登记、零拷贝共享 | 给定同一段字体字节接入两份字体定义，当检查，则两份定义都按借用登记且指向同一地址 | 2026-10-01 |
 | named_family_registers_bytes_verbatim | 命名字体族按字节注册 | 给定字体字节，当注册宋体命名字体族，则族名指向自身且字节按借用原样登记 | 2026-10-01 |

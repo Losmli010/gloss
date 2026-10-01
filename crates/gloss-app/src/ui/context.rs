@@ -48,7 +48,7 @@ pub(crate) fn install_kittest_fonts(ctx: &Context) {
     for name in [super::fonts::FONT_SERIF_NAME, super::fonts::FONT_KAITI_NAME] {
         definitions.families.insert(
             egui::FontFamily::Name(name.into()),
-            vec!["Ubuntu-Light".to_owned()],
+            vec![super::fonts::BUILTIN_FALLBACK_FONT.to_owned()],
         );
     }
     ctx.set_fonts(definitions);
