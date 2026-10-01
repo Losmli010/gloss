@@ -20,17 +20,17 @@ use gloss_core::log::{thread, warn};
 /// CJK 字体在 egui 字体表里登记的名字。
 pub(super) const FONT_NAME: &str = "gloss-cjk";
 /// 宋体命名字体族：经/疏正文的排版字体（demo 的 --serif 栈）。
-pub const FONT_SERIF_NAME: &str = "gloss-songti";
+pub(super) const FONT_SERIF_NAME: &str = "gloss-songti";
 /// 楷体命名字体族：注正文的排版字体（demo 的 --kai 栈）。
-pub const FONT_KAITI_NAME: &str = "gloss-kaiti";
+pub(super) const FONT_KAITI_NAME: &str = "gloss-kaiti";
 
 /// 注正文的字体族。
-pub fn zhu_family() -> FontFamily {
+pub(super) fn zhu_family() -> FontFamily {
     FontFamily::Name(FONT_KAITI_NAME.into())
 }
 
 /// 经/疏正文的字体族。
-pub fn serif_family() -> FontFamily {
+pub(super) fn serif_family() -> FontFamily {
     FontFamily::Name(FONT_SERIF_NAME.into())
 }
 
@@ -52,7 +52,7 @@ const KAITI_FAMILIES: &[&str] = &["Kaiti SC", "STKaiti", "Kaiti TC", "KaiTi"];
 
 /// egui 内置字形的登记名（default_fonts 特性自带）：宋楷两族在系统与
 /// CJK 后备双双缺席时的族内兜底，排版降级为默认字形而不是 panic。
-pub(crate) const BUILTIN_FALLBACK_FONT: &str = "Ubuntu-Light";
+pub(super) const BUILTIN_FALLBACK_FONT: &str = "Ubuntu-Light";
 
 /// 带 CJK 后备与宋楷字族的字体定义；bool 表示 CJK 后备是否接上（缺席时
 /// 此处出 warn，比例/等宽族中文不可读）。宋楷两族**无条件注册**——
