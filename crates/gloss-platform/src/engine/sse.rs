@@ -182,7 +182,7 @@ fn truncate(text: &str) -> String {
         return text.to_owned();
     }
     let head: String = text.chars().take(MAX_DIAGNOSTIC_CHARS).collect();
-    format!("{head}…")
+    format!("{head}…") // i18n:allow 诊断截断的省略号，非 locale 文案
 }
 
 /// 流式响应的一块：OpenAI 兼容 `chat.completion.chunk`。

@@ -70,6 +70,25 @@ jobs:
       - name: Check non-negotiable constraints
         run: just constraints
 
+  # 界面文案统一进文案表：文案字面量 / 装入点 / 词条表唯一
+  i18n:
+    name: I18n check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Run checker unit tests
+        run: bash scripts/hooks/check-i18n.test.sh
+
+      - name: Check UI copy lives in the catalog
+        run: just i18n
+
   # BDD 测试行为清单与测试源码双向一致
   test-bdd:
     name: Test BDD check
