@@ -37,7 +37,7 @@ use gloss_core::prompt::STRUCTURED_FENCE;
 use gloss_core::task::OutcomeStructured;
 
 use super::style::{color, font, radius, space, stroke};
-use crate::i18n::Text;
+use crate::i18n::{Text, fill};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
 
 /// 浮层默认宽度（04 §二：默认 380px，长文本自适应，上限 480px）
@@ -467,7 +467,7 @@ fn header(
             if close.clicked() {
                 action = Some(OverlayAction::Dismiss);
             }
-            let gear = ui.add(icon_button("⚙"));
+            let gear = ui.add(icon_button("⚙")); // i18n:allow 图标字形，非 locale 文案
             gear.widget_info(|| {
                 egui::WidgetInfo::labeled(
                     egui::WidgetType::Button,
@@ -812,7 +812,7 @@ fn outcome_body(
             jing_section(ui, text, |ui| plain_body(ui, extracted));
             ui.add_space(space::PARAGRAPH);
             shu_section(ui, text, |ui| {
-                ui.label(extract_note(extracted));
+                ui.label(extract_note(text, extracted));
             });
         }
     }
@@ -820,12 +820,17 @@ fn outcome_body(
 
 /// 提取小记（疏）：「凡 N 言 · N 行」，字数按去空白计、行数按换行计，
 /// 与 demo 定稿的口径一致。
-fn extract_note(text: &str) -> RichText {
+fn extract_note(catalog: &Text, text: &str) -> RichText {
     let chars = text.chars().filter(|ch| !ch.is_whitespace()).count();
     let lines = text.lines().count().max(1);
-    RichText::new(format!("凡 {chars} 言 · {lines} 行"))
-        .size(font::CAPTION)
-        .weak()
+    let chars = chars.to_string();
+    let lines = lines.to_string();
+    RichText::new(fill(
+        &catalog.gloss_popup_seal_note,
+        &[("chars", &chars), ("lines", &lines)],
+    ))
+    .size(font::CAPTION)
+    .weak()
 }
 
 /// 词卡精排（经注疏三分）：词条 + 音标行落经位，按词性分组的释义落注位
@@ -882,7 +887,7 @@ fn word_card(
             for sense in senses {
                 for example in &sense.examples {
                     ui.label(
-                        RichText::new(format!("· {example}"))
+                        RichText::new(format!("· {example}")) // i18n:allow 列表符号，非 locale 文案
                             .size(font::CAPTION)
                             .weak(),
                     );
@@ -916,14 +921,14 @@ fn selfcheck_body(ui: &mut egui::Ui) {
     );
     ui.add_space(space::SECTION);
     ui.label(
-        RichText::new("敏捷的棕色狐狸从懒狗身上跳过。")
+        RichText::new("敏捷的棕色狐狸从懒狗身上跳过。") // i18n:allow 自检字样，字体链路夹具
             .size(font::TITLE)
             .strong()
             .color(strong),
     );
     ui.add_space(space::SECTION);
     ui.label(
-        RichText::new("中文渲染自检：划词翻译、代码解释、图片识别。")
+        RichText::new("中文渲染自检：划词翻译、代码解释、图片识别。") // i18n:allow 自检字样，字体链路夹具
             .size(font::NOTICE)
             .color(weak),
     );
