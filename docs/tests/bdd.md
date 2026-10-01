@@ -12,8 +12,8 @@
 | 发版人工步骤 | 4 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
-| 快照测试 | 28 | `just test` |
-| 单元测试 | 413 | `just test` |
+| 快照测试 | 30 | `just test` |
+| 单元测试 | 420 | `just test` |
 
 ## 人工测试
 
@@ -192,10 +192,12 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、释义、例句（复制按钮已移除，划选即复制） | 2026-09-21 |
+| word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定双释义的词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、两条释义、例句（复制按钮已移除，划选即复制） | 2026-10-01 |
+| word_card_senses_stack_vertically | 释义逐行向下排 | 给定两条释义的词卡视图，当渲染，则第二条释义的节点矩形在第一条之下（正文列显式垂直布局，不横向并排） | 2026-10-01 |
+| watermark_sits_inside_the_computed_window_height | 页脚水印落在期望窗口内 | 给定流式/词卡/取材骨架三种视图，当按内容尺寸重设渲染窗口再量水印矩形，则水印底边不超出 draw 上交的期望窗口高（页脚被内容挤出窗外即失败） | 2026-10-01 |
 | long_body_is_rendered_in_full | 长正文完整渲染不截断 | 给定超长正文（尾部带标记），当渲染，则 AccessKit 树含尾部内容——无字符截断 | 2026-09-20 |
-| acquiring_view_shows_a_bare_skeleton | 取材骨架视图（触发即显） | 给定 Acquiring 骨架视图，当渲染，则整组骨架带「正在注解」的进度指示标签、「正在读取选区」不出现、无原文与流式内容 | 2026-09-30 |
-| streaming_view_shows_the_annotating_footer | 流式视图页脚注解指示 | 给定流式视图，当渲染，则「正在注解」在页脚出现、经/注印章就位 | 2026-09-30 |
+| acquiring_view_shows_a_bare_skeleton | 取材骨架视图（触发即显） | 给定 Acquiring 骨架视图，当渲染，则页脚带「正在注解」的进度指示标签（骨架条本身无文字）、「正在读取选区」不出现、无原文与流式内容 | 2026-10-01 |
+| streaming_view_shows_the_annotating_footer | 流式视图页脚注解指示 | 给定流式视图，当渲染，则「正在注解」在页脚出现、经/注印章就位 | 2026-10-01 |
 | word_card_marks_the_three_sections_per_locale | 词卡三分区印章随 locale | 给定词卡视图（zh/en 各一），当渲染，则印章字分别为 经/注/疏 与 SRC/NOTE/EXP | 2026-09-30 |
 | extract_view_notes_the_measurement | 提取视图疏位小记 | 给定提取产物视图，当渲染，则提取文本在经位、疏位附「凡 N 言 · N 行」小记（字数去空白、行数按换行） | 2026-09-30 |
 | streaming_view_hides_structured_block | 流式视图不暴露结构化围栏 | 给定流式视图（正文含围栏），当渲染，则「已流式到达的正文」「选中的原文」可见而 ```gloss 围栏不在树中（首个围栏起截断）；头部只有图标与动作区（任务药丸与旋转指示器已删） | 2026-09-30 |
@@ -205,7 +207,7 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | close_button_submits_dismiss | 头部关闭按钮上交收起 | 给定词卡视图（头部为各视图共用路径），当点击无障碍标签「关闭浮层」的 × 钮，则 draw 产物为 OverlayAction::Dismiss | 2026-09-21 |
 | gear_button_submits_open_settings | 头部齿轮上交打开设置 | 给定词卡视图，当点击无障碍标签「设置」的 ⚙ 钮，则 draw 产物为 OverlayAction::OpenSettings | 2026-09-21 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层七视图渲染基线 | 给定七个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡），当 wgpu 渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck 七份基线一致，结果合并进单个 SnapshotResults | 2026-09-30 |
+| snapshots_match_baseline（popup） | 浮层七视图渲染基线 | 给定七个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡），当 wgpu 渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck 七份基线一致，结果合并进单个 SnapshotResults（2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印） | 2026-10-01 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用翻译」后保存，当检查上交配置，则 TranslateSentence 已停用（默认任务不在此列——停用它会被跨字段校验拦下） | 2026-09-23 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
@@ -500,6 +502,8 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | stream_visible_body_truncates_from_the_first_fence | 流式正文自首个围栏截断 | 给定双围栏/无围栏/空串/围栏开头/前缀相似标记五种正文，当取流式可见部分，则首个围栏起整段隐藏（含其后文字）、无围栏原样、空串恒空 | 2026-09-26 |
 | decode_app_icon_rejects_bad_bytes | 图标解码失败隔离降级 | 给定非 PNG 字节，当解码应用图标，则返回 None（页头退化为无图标行，不 panic） | 2026-09-30 |
 | decode_app_icon_crops_to_the_content_square | 图标按画布比例裁本体 | 给定内嵌的 Dock 图标 PNG，当解码裁剪，则得 206×206 的图形本体（256 按 100/824/1024 画布比例裁去透明边距） | 2026-09-30 |
+| example_lines_split_at_the_first_cjk_glyph | 例句在首个 CJK 字形处拆两行 | 给定「英译+中译」/纯英文/开头即 CJK/开头即 CJK 的例句四种输入，当 example_lines，则英汉混合的拆出原文与译文两行、其余原样单行 | 2026-10-01 |
+| watermark_is_the_untranslated_brand_name | 页脚水印是品牌名 | 给定水印取值入口，当取值，则恒为 "Gloss"（品牌名不翻译） | 2026-10-01 |
 
 ### crates/gloss-app/src/app/overlay.rs
 
@@ -681,11 +685,14 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| cjk_fallback_appends_after_builtin_fonts | CJK 后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且 CJK 后备排在比例与等宽两族内置字体之后 | 2026-09-23 |
-| cjk_fallback_without_system_font_installs_nothing | 无系统字体时不接入 | 给定缺失字体字节，当接入字体定义，则接入失败且字体表与比例、等宽两族均保持内置原样 | 2026-09-23 |
-| cjk_fallback_shares_bytes_across_contexts | 后备字体字节按借用登记、零拷贝共享 | 给定同一段字体字节接入两份字体定义，当检查，则两份定义都按借用登记且指向同一地址 | 2026-09-23 |
-| system_cjk_font_is_discoverable | 系统 CJK 字体可发现 | 给定真实系统，当执行 CJK 字体发现，则必须找到且字节非空（依赖宿主机） | 2026-09-23 |
-| system_cjk_font_is_loaded_once | 系统 CJK 字体只加载一次且两份定义共享 | 给定真实系统，当连续两次取字体字节并各自接入字体定义，则两次返回同一段内存、两份定义登记到同一地址（依赖宿主机） | 2026-09-23 |
+| cjk_fallback_appends_after_builtin_fonts | CJK 后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且 CJK 后备排在比例与等宽两族内置字体之后 | 2026-10-01 |
+| cjk_fallback_without_system_font_installs_nothing | 无字体字节不注册 | 给定缺失字体字节，当注册命名族/后备，则不写入字体表、两族保持内置原样 | 2026-10-01 |
+| cjk_fallback_shares_bytes_across_contexts | 后备字体字节按借用登记、零拷贝共享 | 给定同一段字体字节接入两份字体定义，当检查，则两份定义都按借用登记且指向同一地址 | 2026-10-01 |
+| named_family_registers_only_with_bytes | 命名字体族按字节注册 | 给定缺失与存在的字节，当注册宋体命名字体族，则前者不注册、后者注册且族内指向自身 | 2026-10-01 |
+| definitions_always_bind_the_named_typography_families | 宋楷命名族恒注册 | 给定真实系统的字体定义，当取 definitions，则宋楷两命名族必有字体数据且族名指向自身（epaint 对未绑定族直接 panic，族恒存在） | 2026-10-01 |
+| zhu_family_is_always_named | 注区字体族恒为命名族 | 给定 zhu_family 入口，当取值，则恒为楷体命名字体族 | 2026-10-01 |
+| system_cjk_font_is_discoverable | 系统 CJK 字体可发现 | 给定真实系统，当执行 CJK 字体发现，则必须找到且字节非空（依赖宿主机） | 2026-10-01 |
+| system_cjk_font_is_loaded_once | 系统 CJK 字体只加载一次且两份定义共享 | 给定真实系统，当连续两次取字体字节并各自接入字体定义，则两次返回同一段内存、两份定义登记到同一地址（依赖宿主机） | 2026-10-01 |
 
 ### crates/gloss-app/src/ui/settings.rs
 
@@ -793,10 +800,12 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| fallback_is_lazy_on_ax_success | AX 成功时兜底惰性求值 | 给定 AX 成功，当 combine，则采纳 AX 结果且剪贴板兜底闭包不被求值 | 2026-09-19 |
-| permission_denied_skips_fallback | 权限拒绝跳过兜底 | 给定 AccessibilityDenied，当 combine，则原样上抛且不兜底 | 2026-09-19 |
-| empty_selection_skips_fallback | 空选区跳过兜底 | 给定 SelectionEmpty，当 combine，则原样上抛且不兜底（不注入 Cmd+C，陈旧剪贴板不得冒充本次选区） | 2026-09-30 |
-| unavailable_ax_falls_back_to_clipboard | AX 不可用落兜底 | 给定 SelectionUnavailable，当 combine，则落到兜底结果；兜底也失败则以兜底错误收口 | 2026-09-19 |
+| fallback_is_lazy_on_ax_success | AX 成功时兜底惰性求值 | 给定 AX 成功，当 combine，则采纳 AX 结果且剪贴板兜底闭包不被求值 | 2026-10-01 |
+| permission_denied_skips_fallback | 权限拒绝跳过兜底 | 给定 AccessibilityDenied，当 combine，则原样上抛且不兜底 | 2026-10-01 |
+| empty_selection_settles_and_retries_before_giving_up | 空选区让渡补读后再收口 | 给定持续 SelectionEmpty 的 AX 读与零让渡策略，当 combine，则补读至预算用尽才原样上抛且不兜底（不注入 Cmd+C，陈旧剪贴板不得冒充本次选区） | 2026-10-01 |
+| empty_then_ready_ax_read_adopts_the_late_selection | 补读等到迟到的选区 | 给定首次空、二次有值的 AX 读，当 combine，则采纳第二次读到的选区且不兜底 | 2026-10-01 |
+| settle_budget_is_bounded_and_positive | 让渡预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 settle_delay，则预算内返回正的让渡时长、预算用尽（含 usize::MAX）返回 None | 2026-10-01 |
+| unavailable_ax_falls_back_to_clipboard | AX 不可用落兜底 | 给定 SelectionUnavailable，当 combine，则落到兜底结果；兜底也失败则以兜底错误收口 | 2026-10-01 |
 
 ### crates/gloss-platform/src/selection/clipboard.rs
 

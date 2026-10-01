@@ -41,6 +41,22 @@ fn install(ctx: &Context, theme: Theme) -> bool {
     cjk_fallback
 }
 
+/// kittest 自建上下文的字体绑定（测试专用）：把宋楷命名字体族绑到内置
+/// 字形上，排版字号照常生效、字形不依赖宿主字体（快照 tofu 约定）。
+/// 生产路径走 [`install`]；对 set_fonts 的调用收在本模块（统一装入点），
+/// 测试也不例外。
+#[cfg(test)]
+pub(crate) fn install_kittest_fonts(ctx: &Context) {
+    let mut definitions = egui::FontDefinitions::default();
+    for name in [super::fonts::FONT_SERIF_NAME, super::fonts::FONT_KAITI_NAME] {
+        definitions.families.insert(
+            egui::FontFamily::Name(name.into()),
+            vec!["Ubuntu-Light".to_owned()],
+        );
+    }
+    ctx.set_fonts(definitions);
+}
+
 /// 配置主题 → egui 主题偏好（出厂跟随系统，设置页可固定明/暗）。
 fn theme_preference(theme: Theme) -> ThemePreference {
     match theme {
