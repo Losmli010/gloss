@@ -26,6 +26,7 @@ assert_scan() {
   local expected="$2"
   local rel="$3"
   local content="$4"
+  local expect="${5:-}"
 
   mkdir -p "$TMP/$(dirname "$rel")"
   printf '%s\n' "$content" > "$TMP/$rel"
@@ -34,11 +35,12 @@ assert_scan() {
   out="$(bash "$TMP/scripts/hooks/check-i18n.sh" 2>&1 >/dev/null)"
   actual=$?
 
-  if [ "$actual" -eq "$expected" ]; then
+  if [ "$actual" -eq "$expected" ] &&
+    { [ -z "$expect" ] || printf '%s' "${out}" | grep -qF "$expect"; }; then
     echo "  ✓ $desc"
     PASS=$((PASS + 1))
   else
-    echo "  ✗ $desc  (期望退出码 ${expected}，实际 ${actual})"
+    echo "  ✗ $desc  (期望退出码 ${expected}，实际 ${actual}${expect:+；期望输出含「${expect}」})"
     echo "    夹具: ${rel}"
     echo "    checker 输出: $(printf '%s' "${out}" | head -3)"
     FAIL=$((FAIL + 1))
@@ -64,6 +66,10 @@ assert_scan "cfg(test) mod tests 内的中文断言" 0 "crates/gloss-app/src/wit
   "$(printf 'pub fn add(a: u32, b: u32) -> u32 { a + b }\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {\n        assert_eq!(1, 1, "中文断言");\n    }\n}')"
 assert_scan "cfg(test) pub(crate) mod 内的中文" 0 "crates/gloss-app/src/support.rs" \
   "$(printf 'pub fn visible() -> u32 { 1 }\n\n#[cfg(test)]\npub(crate) mod support {\n    pub fn need() {\n        panic!("中文指引");\n    }\n}')"
+assert_scan "嵌套 cfg(test) mod：内层闭合后外层仍豁免" 0 "crates/gloss-app/src/nested_tests.rs" \
+  "$(printf 'pub fn visible() -> u32 { 1 }\n\n#[cfg(test)]\nmod outer {\n    use super::*;\n\n    #[cfg(test)]\n    mod inner {\n        #[test]\n        fn t() {\n            assert_eq!(1, 1, "内层中文断言");\n        }\n    }\n\n    #[test]\n    fn u() {\n        assert!(true, "外层中文断言");\n    }\n}')"
+assert_scan "文件级 #![...] 内联属性内的中文" 0 "crates/gloss-app/src/inner_attr.rs" \
+  "$(printf '#![allow(clippy::too_many_arguments, reason = "内联属性理由：字段袋说明")]\nfn main() {}')"
 assert_scan "生命周期与 ASCII char 不误报" 0 "crates/gloss-app/src/lifetimes.rs" \
   "$(printf "fn pick<'a>(a: &'a str, b: &'a str) -> &'a str { if a.len() > b.len() { a } else { b } }\nlet c = 'x';\nlet s: &'static str = \"ok\";")"
 assert_scan "i18n:allow 放行所在行" 0 "crates/gloss-app/src/allow_ok.rs" \
@@ -88,13 +94,20 @@ assert_scan "cfg(test) mod 闭合后的生产代码仍受管" 1 "crates/gloss-ap
   "$(printf '#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {\n        assert_eq!(1, 1, "中文断言");\n    }\n}\n\nlet _ = "模块之后的生产文案";')"
 assert_scan "字符串里的 // 不当注释吞掉后续命中" 1 "crates/gloss-app/src/url.rs" \
   "$(printf 'let url = "https://example.com/a";\nlet s = "中文";')"
+assert_scan "字符串续行不使行号失步（报告行=真实行）" 1 "crates/gloss-app/src/continuation.rs" \
+  "$(printf 'let a = "no chinese \\\nstill ascii";\n\nlet s = "打开设置";\n')" \
+  "continuation.rs 第 4 行"
 assert_scan "字符串里的 ] 不破坏属性配对" 0 "crates/gloss-app/src/bracket.rs" \
   "$(printf '#[allow(clippy::doc_markdown, reason = "数组 [0] 说明")]\nlet x = 1;')"
 
 echo ""
 echo "-- 装入点集中与词条表唯一（应拦截，退出码 1）--"
 assert_scan "owner 之外 include_str 引用 i18n 资源" 1 "crates/gloss-core/src/alias.rs" \
-  "$(printf 'const P: &str = include_str!("../i18n/zh.toml");')"
+  "$(printf 'const P: &str = include_str!("../i18n/zh.toml");')" \
+  "alias.rs"
+assert_scan "owner 之外 include_bytes 引用 i18n 资源" 1 "crates/gloss-core/src/blob.rs" \
+  "$(printf 'const B: &[u8] = include_bytes!("../i18n/zh.toml");')" \
+  "blob.rs"
 assert_scan "i18n 目录之外声明词条键的 TOML" 1 "extra.toml" \
   "$(printf 'gloss_extra_foo = "x"\n')"
 assert_scan "i18n 目录之外的普通 TOML 键放行" 0 "plain.toml" \

@@ -233,6 +233,10 @@ def literal_lines(src):
         if state in ("str", "raw"):
             if state == "str":
                 if c == "\\":
+                    # 续行符（反斜杠紧跟换行）：换行被转义吞掉，行计数要手动补上，
+                    # 否则后续命中整段失步、i18n:allow 按行放行失效
+                    if i + 1 < n and src[i + 1] == "\n":
+                        line += 1
                     i += 2
                     continue
                 if c == '"':
@@ -316,7 +320,7 @@ def literal_lines(src):
         if test_pending:
             test_pending = False
             if c == "{":
-                test_depth = 1
+                test_depth += 1
                 i += 1
                 continue
         if test_depth > 0:

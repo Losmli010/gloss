@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# pre-commit hook：提交前的静态检查 —— 格式化 + Clippy + 硬编码密钥扫描。
+# pre-commit hook：提交前的静态检查 —— 格式化 + Clippy + 硬编码密钥扫描等
+# （全套清单见 justfile 的 precommit 配方）。
 # 需要本地全量验证时手动跑 `just check`（fmt + clippy + test）。
 set -euo pipefail
 
@@ -47,10 +48,15 @@ if [ -z "$STAGED_RS" ]; then
     echo "✗ 违反「不可协商的约束」，已阻止提交（见上）" >&2
     exit 1
   fi
+  if ! just i18n; then
+    echo "" >&2
+    echo "✗ 违反「界面文案统一进文案表」，已阻止提交（见上）" >&2
+    exit 1
+  fi
   exit 0
 fi
 
-echo "→ pre-commit: 运行静态检查（just precommit = 约束检查 + 文档引用校验 + fmt + clippy + secrets）..."
+echo "→ pre-commit: 运行静态检查（just precommit 全套：约束 + 文档引用 + BDD 清单 + 文案表 + fmt + clippy + secrets）..."
 if ! just precommit; then
   echo "" >&2
   echo "✗ 静态检查未通过，已阻止提交" >&2
