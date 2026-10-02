@@ -38,14 +38,18 @@ fn install(ctx: &Context, theme: Theme) -> bool {
     cjk_fallback
 }
 
-/// kittest 自建上下文的字体绑定（测试专用）：把宋楷命名字体族绑到内置
-/// 字形上，排版字号照常生效、字形不依赖宿主字体（快照 tofu 约定）。
+/// kittest 自建上下文的字体绑定（测试专用）：把宋楷与等宽命名字体族绑到
+/// 内置字形上，排版字号照常生效、字形不依赖宿主字体（快照 tofu 约定）。
 /// 生产路径走 [`install`]；对 set_fonts 的调用收在本模块（统一装入点），
 /// 测试也不例外。
 #[cfg(test)]
 pub(crate) fn install_kittest_fonts(ctx: &Context) {
     let mut definitions = egui::FontDefinitions::default();
-    for name in [super::fonts::FONT_SERIF_NAME, super::fonts::FONT_KAITI_NAME] {
+    for name in [
+        super::fonts::FONT_SERIF_NAME,
+        super::fonts::FONT_KAITI_NAME,
+        super::fonts::FONT_MONO_NAME,
+    ] {
         definitions.families.insert(
             egui::FontFamily::Name(name.into()),
             vec![super::fonts::BUILTIN_FALLBACK_FONT.to_owned()],
