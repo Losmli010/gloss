@@ -1011,7 +1011,7 @@ fn word_card(
             if let Some(phonetic) = phonetic {
                 ui.label(
                     RichText::new(phonetic)
-                        .font(FontId::new(PHON_FONT, FontFamily::Monospace))
+                        .font(FontId::new(PHON_FONT, fonts::mono_family()))
                         .color(ui.visuals().weak_text_color()),
                 );
             }
