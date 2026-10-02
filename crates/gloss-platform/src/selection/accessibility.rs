@@ -5,10 +5,10 @@
 //! 必须运行在平台事件线程（调用方保证亲和性）。权限缺失返回
 //! [`GlossError::AccessibilityDenied`]；「属性可读但选区为空」（空串，含
 //! kAXErrorNoValue 的「属性存在但无值」）返回 [`GlossError::SelectionEmpty`]
-//! ——组合通道对它不落剪贴板兜底；应用不支持选区属性或系统调用失败返回
-//! [`GlossError::SelectionUnavailable`]——一律经 `Result`
-//! 传播，不允许 panic 逃出。授权引导属设置页/权限引导路径，读取侧只如实
-//! 报告，不代为弹窗。
+//! ——组合通道先让渡补读，预算耗尽仍空与「读不到」一样落剪贴板兜底；
+//! 应用不支持选区属性或系统调用失败返回 [`GlossError::SelectionUnavailable`]
+//! ——一律经 `Result` 传播，不允许 panic 逃出。授权引导属设置页/权限引导
+//! 路径，读取侧只如实报告，不代为弹窗。
 //!
 //! 策略取最简一条路径：只读 `kAXSelectedTextAttribute`。
 
@@ -20,8 +20,9 @@ use gloss_core::model::GlossError;
 const AX_ERROR_API_DISABLED: i32 = -25211;
 
 /// AXError.h 的 kAXErrorNoValue：属性存在但无值——「选区为空」的 AX 侧
-/// 说法，与「取不到」（[`GlossError::SelectionUnavailable`]）分开归档，
-/// 前者不该触发剪贴板兜底（见 `composite::combine`）。
+/// 说法，与「取不到」（[`GlossError::SelectionUnavailable`]）分开归档：
+/// 前者让渡补读后与后者一样落剪贴板兜底（见 `composite::combine`），
+/// 由确认写入分辨「确实没选」与「读了但拿不到」。
 const AX_ERROR_NO_VALUE: i32 = -25212;
 
 /// 取值缓冲区的分配上界（字节）：长度来自远端进程报告，无校验的分配

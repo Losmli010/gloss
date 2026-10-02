@@ -26,6 +26,7 @@ use std::time::Instant;
 
 use gloss_core::config::Theme;
 use gloss_core::config_handle::ConfigHandle;
+use gloss_core::guard::FrontApp;
 use gloss_core::log::Span;
 use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
@@ -77,6 +78,9 @@ struct GlossApp {
     /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
     /// 代数对不上（热键触发、陈旧）时浮层回落居中。
     selection_anchor: Option<(u64, ScreenPoint)>,
+    /// 在途划词探测触发时的前台应用标识：探测失败按误滑静默丢弃，这条
+    /// 标识是「划了没反应」排查日志的唯一线索；探测提交/丢弃即清。
+    probe_front_app: Option<FrontApp>,
     /// 触发即显挂起：占代数的触发置位，下一次 drain_events 消费
     /// （那里才有 ActiveEventLoop 可做定位与显示；显形判定在
     /// `overlay::should_reveal`）。
@@ -118,6 +122,7 @@ impl GlossApp {
             system_locale,
             applied_theme: None,
             selection_anchor: None,
+            probe_front_app: None,
             task_span: None,
             pending_reveal: false,
             update,

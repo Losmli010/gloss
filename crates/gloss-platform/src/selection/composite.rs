@@ -2,12 +2,16 @@
 //!
 //! 降级边界：AX 报权限缺失时不兜底——兜底依赖按键注入，未授权时注入会被
 //! 系统静默忽略，白等超时只会拖慢失败路径；此时把权限语义原样上抛，由
-//! 上层做权限引导。AX 报「选区为空」先短暂让渡补读（见 [`settle_delay`]），
-//! 仍为空才不兜底上抛——那是「没选东西」的如实回答，注入 Cmd+C 只会把
-//! 剪贴板里的陈旧内容当成「这次划词的选区」发出去。
+//! 上层做权限引导。AX 报「选区为空」先短暂让渡补读（见 [`settle_delay`]）
+//! ——释放瞬间读到的空多半是还没写好；预算耗尽仍空则与「读不到」一样
+//! 落剪贴板兜底：一部分应用（无障碍树未激活、不暴露选中文本）对真实划词
+//! 也如实回「空」，只有兜底的确认写入能分辨「确实没选」与「读了但拿不
+//! 到」——注入 Cmd+C 后剪贴板没有真实写入就不采纳，误滑不会把陈旧剪贴板
+//! 内容当成选区。
 
 use std::time::Duration;
 
+use gloss_core::log::{info, thread};
 use gloss_core::model::GlossError;
 
 /// 两次读取之间的让渡时长：鼠标释放到目标应用把选区写入 AX 属性之间有
@@ -27,9 +31,9 @@ fn settle_delay(attempt: usize) -> Option<Duration> {
 }
 
 /// 组合判定（纯逻辑，单测覆盖）：AX 成功直接采纳；权限缺失原样上抛且不
-/// 评估兜底（见模块注释）；空选区按 [`settle_delay`] 让渡后补读，仍空才
-/// 上抛；其余读不到的情形才落到兜底结果。`fallback` 是惰性求值——兜底
-/// 路径含按键注入，未走到就不该有副作用。
+/// 评估兜底（见模块注释）；空选区按 [`settle_delay`] 让渡后补读，预算
+/// 耗尽仍空与「其余读不到的情形」一样落到兜底结果。`fallback` 是惰性
+/// 求值——兜底路径含按键注入，未走到就不该有副作用。
 /// `delay_for` 把让渡策略参数化，测试零睡眠直达时序断言。
 fn combine(
     mut ax: impl FnMut() -> Result<String, GlossError>,
@@ -43,7 +47,11 @@ fn combine(
             Err(err @ GlossError::AccessibilityDenied) => return Err(err),
             Err(GlossError::SelectionEmpty) => {
                 let Some(delay) = delay_for(attempts) else {
-                    return Err(GlossError::SelectionEmpty);
+                    info!(
+                        thread = thread::EVENT,
+                        "selection still empty after settle budget, falling back to the clipboard"
+                    );
+                    return fallback();
                 };
                 attempts += 1;
                 std::thread::sleep(delay);
@@ -139,18 +147,30 @@ mod tests {
     }
 
     #[test]
-    fn empty_selection_settles_and_retries_before_giving_up() {
+    fn empty_selection_settles_then_falls_back_to_the_clipboard() {
         let mut reads = 0;
+        let mut fallback_calls = 0;
         let outcome = combine(
             || {
                 reads += 1;
                 Err::<String, GlossError>(GlossError::SelectionEmpty)
             },
-            || panic!("an empty selection must not fall back to the clipboard"),
+            || {
+                fallback_calls += 1;
+                Ok::<String, GlossError>("from clipboard".into())
+            },
             no_delay,
         );
-        assert_eq!(outcome, Err(GlossError::SelectionEmpty));
-        assert_eq!(reads, EMPTY_SETTLE_BUDGET + 1);
+        assert_eq!(outcome, Ok("from clipboard".into()));
+        assert_eq!(
+            reads,
+            EMPTY_SETTLE_BUDGET + 1,
+            "the AX read is retried through the whole settle budget first"
+        );
+        assert_eq!(
+            fallback_calls, 1,
+            "the fallback runs once, only after the budget is exhausted"
+        );
     }
 
     #[test]

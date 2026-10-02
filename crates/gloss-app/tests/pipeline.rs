@@ -124,7 +124,7 @@ impl Pipeline {
     ) -> tokio_util::sync::CancellationToken {
         let command = self
             .machine
-            .trigger(
+            .begin_selection_probe(
                 &PlatformEvent::SelectionGesture {
                     pos: ScreenPoint::new(0, 0),
                 },
@@ -132,18 +132,18 @@ impl Pipeline {
                 Locale::Zh,
                 &SceneFacts::default(),
             )
-            .expect("selection gesture must acquire");
+            .expect("selection gesture must probe");
         let AcquireCommand::AcquireText { generation, .. } = &command else {
             panic!("acquire text expected");
         };
-        let InputOutcome::Dispatch(request) = self.machine.accept_input(
+        let InputOutcome::Dispatch(request) = self.machine.commit_selection(
             *generation,
             TaskInput::Text {
                 text: text.into(),
                 hint,
             },
         ) else {
-            panic!("input should be accepted while fetching");
+            panic!("the probe product should be committed");
         };
         self.commands_tx
             .send(Traced {

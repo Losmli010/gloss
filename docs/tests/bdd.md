@@ -455,15 +455,18 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| late_events_of_superseded_trigger_do_not_bleed | 被顶代数的迟到事件不渗漏 | 给定连续触发 A→B，当 A 的迟到 chunk/TaskDone 到达，则被陈旧过滤；B 的触发把浮层换成骨架视图，A 的流式正文无处渗漏，B 的产物照常 Show | 2026-09-26 |
-| failed_task_lands_in_error_and_retry_works | 失败落错误态且可再触发 | 给定推理中任务，当匹配代数的失败到达，则落 Error；陈旧失败丢弃；再次触发回 Fetching | 2026-09-19 |
-| stale_input_ready_is_dropped_entirely | 陈旧 InputReady 整体丢弃 | 给定陈旧代数 InputReady，当采纳，则整体丢弃、不下发通道③ | 2026-09-19 |
-| saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置，当下一次划词触发，则目标语言随 Auto 任务下发（模型在桥重建时按判定 kind 解析，哨兵不带模型） | 2026-09-26 |
-| saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定触发后、产物到达前保存新配置，当在途任务下发，则仍用触发时快照 | 2026-09-19 |
+| late_events_of_superseded_trigger_do_not_bleed | 旧会话的迟到事件不渗漏 | 给定划词提交 A 在推理中、再给一次新划词探测，当探测期间 A 的流照常推进，随后提交 B，则提交才取消 A、A 的迟到 chunk/TaskDone 被陈旧过滤、B 的产物照常 Show | 2026-10-01 |
+| failed_task_lands_in_error_and_retry_works | 失败落错误态且可再划词 | 给定推理中任务，当匹配代数的失败到达，则落 Error；陈旧失败丢弃；再次划词探测不动失败卡（探测编号在场） | 2026-10-01 |
+| stale_input_ready_is_dropped_entirely | 陈旧 InputReady 整体丢弃 | 给定陈旧编号 InputReady，当采纳，则整体丢弃、不下发通道③ | 2026-09-19 |
+| saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置，当下一次划词提交，则目标语言随 Auto 任务下发（模型在桥重建时按判定 kind 解析，哨兵不带模型） | 2026-09-26 |
+| saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定探测后、产物到达前保存新配置，当产物提交下发，则仍用探测时快照 | 2026-09-19 |
 | dispatched_acquire_carries_the_task_span | 取材命令带着任务 span 下发 | 给定划词触发，当取出通道②载荷并进入它的 span，则探针日志行是 JSON 且带 "generation":1 | 2026-09-23 |
 | a_disabled_default_kind_does_not_stop_the_selection_gesture | 任务开关不拦划词手势 | 给定默认任务被停用的配置，当划词触发，则仍下发 Auto 取材命令（手势不带显式意图，开关只拦显式 kind） | 2026-09-26 |
-| a_sensitive_scene_makes_the_selection_gesture_a_no_op | 敏感场景下划词彻底无声 | 给定安全输入开启、再给定前台应用在拦截名单内（两侧各自设置），当划词触发，则取材命令都不下发、代数不推进、状态留 Idle；场景恢复后同一手势照常下发并占代数 1 | 2026-09-24 |
-| suspicious_input_is_suppressed_and_shows_nothing | 可疑内容被拦下且什么都不出 | 给定嵌在 JSON 里的短令牌取材产物，当采纳，则通道③一条都没有、状态回 Idle、浮层视图为空（没有卡片、没有可点的出口）；下一次普通取材照常下发 | 2026-09-26 |
+| a_sensitive_scene_makes_the_selection_gesture_a_no_op | 敏感场景下划词彻底无声 | 给定安全输入开启、再给定前台应用在拦截名单内（两侧各自设置），当划词触发，则取材命令都不下发、探测编号不领、状态留 Idle；场景恢复后同一手势照常下发 | 2026-09-24 |
+| suspicious_input_is_suppressed_and_shows_nothing | 可疑内容被拦下且什么都不出 | 给定嵌在 JSON 里的短令牌取材产物，当采纳，则通道③一条都没有、可见会话不被触碰（没有卡片、没有可点的出口）；下一次普通取材照常下发 | 2026-10-01 |
+| probe_empty_selection_is_silently_dropped_but_hotkey_still_raises_the_card | 壳层时序：误滑静默丢弃、热键仍弹卡 | 给定划词探测（状态机不动），当收空选区失败，则壳不请求浮层、状态机与视图原样、探测消费；热键触发的同一失败仍落 Error 弹卡 | 2026-10-01 |
+| a_mis_slide_over_a_visible_session_preserves_it_entirely | 已显示会话对误滑零感知 | 给定推理中的可见会话，当新划词探测以空选区失败收场，则令牌未取消、状态与视图原样、无显形挂起、流式正文照常追加 | 2026-10-01 |
+| committing_the_probe_flags_the_reveal_for_the_same_frame | 提交即挂起显形 | 给定在途划词探测，当产物提交，则置位显形挂起（drain_events 同帧消费）、进入 Translating | 2026-10-01 |
 
 ### crates/gloss-app/src/i18n.rs
 
@@ -488,6 +491,9 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | position_before_the_origin_clamps_to_it | 负坐标钳到屏原点 | 给定负全局坐标（主屏左侧显示器），当钳制，则收到该显示器原点而非主屏 | 2026-09-20 |
 | clamping_respects_the_monitor_origin_on_secondary_displays | 副屏钳制按全局原点 | 给定副屏（全局原点非零）右缘位置，当钳制，则按副屏全局区间收口而非主屏 | 2026-09-20 |
 | monitor_smaller_than_the_overlay_pins_to_the_origin | 显示器小于浮层贴原点 | 给定比浮层还小的显示器与屏内位置，当钳制，则贴显示器原点（上限取 0） | 2026-09-20 |
+| height_caps_at_half_the_screen_minus_the_margin | 高度上限为半屏减余量 | 给定逻辑高 1080 的显示器与超限请求，当 capped_height，则上限取一半屏高减工作区余量（444） | 2026-10-02 |
+| smaller_requests_pass_through_untouched | 未超限的高度原样保留 | 给定远小于上限的请求，当 capped_height，则原样返回 | 2026-10-02 |
+| short_screens_bottom_out_at_the_default_height | 矮屏回落默认高度 | 给定半屏扣余量后仍低于默认高度的显示器，当 capped_height，则下限取默认高度 200 | 2026-10-02 |
 | width_is_locked_to_the_current_tier | 流式锁宽 | 给定当前档与更高宽度档的请求，当流式防抖，则宽度保持当前档、高度量化到步长倍数 | 2026-09-26 |
 | height_steps_up_in_quantized_increments | 步进增高 | 给定略高于当前档的高度请求，当流式防抖，则上升一个完整步长 | 2026-09-26 |
 | height_never_shrinks_during_streaming | 流式不回缩 | 给定明显小于当前档的请求，当流式防抖，则保持当前高度（回缩留给完成态精确重排） | 2026-09-26 |
@@ -569,32 +575,37 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| trigger_mapping_covers_wired_events_only | 触发映射只覆盖已接线事件 | 给定划词手势与未接线的框选热键，当 trigger，则前者发 AcquireText(kind=Auto)、后者 None 且不占代数 | 2026-09-26 |
+| trigger_mapping_covers_wired_events_only | 触发映射只覆盖已接线事件 | 给定划词手势与未接线的框选热键，当 begin_selection_probe 与 trigger，则前者发 AcquireText(kind=Auto) 且只领探测编号不动代数、后者 None 且不占代数 | 2026-10-01 |
 | trigger_decision_separates_disabled_blocked_and_unwired_events | 触发去向分出停用/被拦/未接线 | 给定含停用 kind 的配置，当 trigger_decision，则划词恒为 Acquire(Auto)、停用热键报 Disabled、框选绑定与退出报 Unwired、设置与退出不因场景被拦；出厂配置下划词为 Acquire，拦截名单内的前台应用则报 Blocked | 2026-09-26 |
-| scene_gate_stops_the_trigger_before_acquisition | 场景闸门在取材前停住触发 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 trigger，则两次都 None、代数 0、状态留 Idle；场景恢复后同一手势照常下发并占代数 1 | 2026-09-26 |
-| selection_kind_and_options_pair_with_one_snapshot | kind 与选项出自同一快照 | 给定自定义配置快照，当划词触发并采纳输入，则 kind=Auto、目标语言出自快照、模型为 None（重建时由桥按快照解析） | 2026-09-26 |
-| gesture_acquires_even_with_a_legacy_image_default_kind | 误配图像默认不影响手势 | 给定 default_text_kind 误配图像类，当划词触发，则仍下发 Acquire(Auto)（图像默认只影响桥侧兜底 kind） | 2026-09-26 |
+| scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 begin_selection_probe，则两次都 None、无探测编号、状态留 Idle；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
+| selection_kind_and_options_pair_with_one_snapshot | kind 与选项出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则 kind=Auto、目标语言出自快照、模型为 None（重建时由桥按快照解析） | 2026-10-01 |
+| gesture_acquires_even_with_a_legacy_image_default_kind | 误配图像默认不影响手势 | 给定 default_text_kind 误配图像类，当划词探测，则仍下发 Acquire(Auto)（图像默认只影响桥侧兜底 kind） | 2026-09-26 |
 | disabled_kinds_are_not_acquired_via_hotkey_and_consume_no_generation | 停用 kind 热键不取材不占代数 | 给定含停用 kind 的配置，当热键触发停用项，则 None 且不占代数；同一配置下划词手势照常取材（Auto 不受开关约束） | 2026-09-26 |
 | classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 accept_classified，则当前代写入判定 kind、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
-| options_freeze_at_trigger_time | 选项在触发时刻冻结 | 给定触发后更换配置（目标语言与界面语言同时变），当采纳输入，则任务仍带触发时快照的选项（含 prompt_locale）；第二次触发才用新值 | 2026-09-22 |
-| prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 Language::En 与出厂 System 两份配置，当触发并采纳输入，则任务携带的 prompt_locale 分别为 En 与注入的系统语言 | 2026-09-22 |
-| accept_input_yields_run_request_and_guards_state | 采纳输入下发请求并守卫状态 | 给定合法 InputReady，当采纳，则返回下发请求、进 Translating、持有取消令牌；同代数重复采纳被拒 | 2026-09-19 |
-| image_input_for_text_kind_is_rejected | 文本 kind 拒绝图像输入 | 给定文本 kind 配图像输入，当采纳，则 None | 2026-09-19 |
+| options_freeze_at_probe_time | 选项在探测时刻冻结 | 给定探测后更换配置（目标语言与界面语言同时变），当提交产物，则任务仍带探测时快照的选项（含 prompt_locale）；第二次探测才用新值 | 2026-10-01 |
+| prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 Language::En 与出厂 System 两份配置，当探测并提交产物，则任务携带的 prompt_locale 分别为 En 与注入的系统语言 | 2026-09-22 |
+| commit_selection_yields_run_request_and_supersedes_the_previous_session | 提交探测接管会话并守卫状态 | 给定命中在途探测的合法产物，当 commit_selection，则返回下发请求、探测编号提升为代数、旧在途任务被取消、视图换流式卡；同编号重复提交被拒 | 2026-10-01 |
+| a_probe_leaves_a_visible_session_completely_untouched | 探测与误滑不扰动可见会话 | 给定推理中的可见会话，当新划词探测、再当探测以空选区失败收场，则状态、视图、取消令牌全程原样，流式正文照常追加 | 2026-10-01 |
+| image_input_for_text_kind_is_rejected | 文本 kind 拒绝图像输入 | 给定文本 kind 配图像输入，当提交，则 Ignored | 2026-09-19 |
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 Translating 态隐藏，当收起，则令牌取消、视图清空回 Idle，迟到同代数产物/失败被拒 | 2026-09-19 |
-| failed_guard_matches_fetching_and_translating_only | 失败守卫只认两个在途态 | 给定推理失败与隐藏后的迟到失败，当采纳，则前者落 Error（Shown）、后者被拒（Ignored） | 2026-09-30 |
-| gesture_no_selection_failures_are_silently_withdrawn_in_fetching | 手势空选区静默收回 | 给定手势触发的取材态，当收 SelectionUnavailable / SelectionEmpty 失败，则静默回 Idle 不弹卡、骨架视图一并清掉 | 2026-09-30 |
-| gesture_empty_selection_is_silently_withdrawn_but_hotkey_still_raises_the_card | 壳层时序：静默收回不弹窗、热键仍弹卡 | 给定手势触发的取材中壳，当收空选区失败，则壳不请求浮层、状态回 Idle、视图清空；热键触发的同一失败仍落 Error 弹卡 | 2026-09-30 |
+| hide_overlay_drops_the_outstanding_probe | 隐藏作废在途探测 | 给定在途探测，当收起浮层，则迟到的探测产物与失败均被拒（不得把浮层弹回） | 2026-10-01 |
+| failed_guard_matches_fetching_and_translating_only | 失败守卫只认两个在途态 | 给定热键取材中与推理中的失败、以及隐藏后的迟到失败，当采纳，则前两者落 Error（Shown）、后者被拒（Ignored） | 2026-10-01 |
+| probe_no_selection_failures_are_silently_dropped | 探测空选区静默丢弃 | 给定在途划词探测，当收 SelectionUnavailable / SelectionEmpty 失败，则静默丢弃不弹卡，状态机与当前显示一律不动、探测编号消费 | 2026-10-01 |
+| probe_permission_failures_still_raise_the_card | 探测权限失败仍弹卡 | 给定在途划词探测，当收 AccessibilityDenied 失败，则接管会话落 Error 弹失败卡（真实故障需要显式反馈） | 2026-10-01 |
 | hotkey_no_selection_failures_still_raise_the_card | 热键空选区仍弹卡 | 给定热键触发的取材态，当收 SelectionUnavailable / SelectionEmpty 失败，则落 Error 弹失败卡（显式请求需反馈） | 2026-09-30 |
-| gesture_failures_outside_fetching_still_raise_the_card | 手势推理失败仍弹卡 | 给定手势触发已进推理态，当收 SelectionUnavailable，则落 Error 弹卡（静默只覆盖取材一腿） | 2026-09-30 |
-| gesture_in_the_self_frontmost_scene_is_suppressed_without_a_generation | 自身前台的划词被拦且不占代数 | 给定前台应用 is_self 为真，当手势 trigger_decision，则 SelfSuppressed、trigger 为 None、代数 0、无浮层；同一场景下热键照常 Acquire | 2026-09-30 |
-| modality_mismatch_preserves_pending_task | 模态错配保留待定任务 | 给定模态错配被拒后，当同代数合法输入到达，则仍可采纳 | 2026-09-19 |
-| transport_failure_lands_in_error | 传输失败落错误态 | 给定取材通道不可用，当 fail_transport，则落 Error、失败视图无动作按钮、retry 为 None | 2026-09-19 |
+| selection_failures_outside_the_probe_still_raise_the_card | 推理期取材类失败仍弹卡 | 给定划词提交已进推理态，当收 SelectionUnavailable，则落 Error 弹卡（静默只覆盖探测一腿） | 2026-10-01 |
+| stale_probe_results_are_dropped | 陈旧探测产物整体丢弃 | 给定新探测替换旧探测，当旧编号的产物/失败到达，则一律 Ignored | 2026-10-01 |
+| hotkey_supersedes_the_outstanding_probe | 热键取代在途探测 | 给定在途探测，当热键触发，则热键领新代数、探测作废，迟到的探测产物不得劫持热键会话 | 2026-10-01 |
+| commit_while_hotkey_fetching_supersedes_the_hotkey_session | 探测提交取代热键取材会话 | 给定热键取材中到达划词探测，当探测产物先提交，则编号提升为代数、进 Translating、热键冻结任务清掉，热键的迟到 InputReady 被拒 | 2026-10-02 |
+| probe_in_the_self_frontmost_scene_is_suppressed_without_an_id | 自身前台的划词被拦且不占编号 | 给定前台应用 is_self 为真，当手势 trigger_decision，则 SelfSuppressed、探测为 None、无浮层；同一场景下热键照常 Acquire | 2026-10-01 |
+| modality_mismatch_preserves_pending_task | 模态错配保留待定任务 | 给定模态错配被拒后，当同编号合法产物到达，则仍可提交 | 2026-09-19 |
+| transport_failure_lands_in_error | 传输失败落错误态 | 给定推理通道不可用，当 fail_transport，则落 Error、失败视图无动作按钮、retry 为 None | 2026-09-19 |
 | retryable_failure_keeps_task_and_retry_redispatches_it | 可重试失败保留任务 | 给定网络类失败，当落 Error，则失败原因按变体记录（FailureCause::Task(EngineNetwork)）、retry 同代数同任务新令牌重发且回流式视图 | 2026-09-22 |
 | error_actions_follow_the_mapping_table | 错误动作按映射表 | 给定限流/鉴权/模态/配置类失败，当映射，则限流可重试，其余引导打开设置且不可重试 | 2026-09-19 |
-| new_trigger_and_hide_supersede_the_retry_task | 新触发与隐藏取代重试 | 给定失败卡在场时新触发或隐藏，当发生，则 retry 返回 None | 2026-09-19 |
-| suspicious_input_is_dropped_without_a_task_or_a_card | 可疑内容丢弃且不留任何痕迹 | 给定带令牌的取材产物，当采纳，则结果是 Blocked{Token}、状态回 Idle、浮层视图为空、没有取消令牌（一条产物都没下发） | 2026-09-24 |
-| blocked_input_is_not_redispatched_by_any_later_path | 被拦下的取材没有旁路 | 给定已拦下的取材（卡号命中），当 retry、同代重复采纳、同代 chunk/done/failed、以及同代通道故障（fail_acquire / fail_transport）陆续到达，则全部被拒且不摆失败卡；新触发后同一份可疑文本仍被拦下且状态留 Idle | 2026-09-26 |
-| ordinary_input_still_passes_the_content_gate | 日常文本照常通过内容闸门 | 给定一段普通中文，当采纳，则照常 Dispatch 并进 Translating（闸门只认高置信度模式） | 2026-09-24 |
+| new_commit_and_hide_supersede_the_retry_task | 新提交与隐藏取代重试 | 给定失败卡在场时新探测，则 retry 仍在（误滑不得杀掉重试出口）；当提交产物或隐藏，则 retry 返回 None | 2026-10-01 |
+| suspicious_input_is_dropped_while_the_visible_session_survives | 可疑内容丢弃且当前显示保留 | 给定可见会话（产物卡在场）时到达带令牌的探测产物，当提交，则结果是 Blocked{Token}、探测消费、可见会话的状态与视图原样保留、已完结会话的令牌不被取消 | 2026-10-01 |
+| blocked_input_is_not_redispatched_by_any_later_path | 被拦下的取材没有旁路 | 给定已拦下的探测产物（卡号命中），当 retry、同编号重复提交、同编号 chunk/done/failed、以及同编号通道故障（fail_acquire / fail_transport）陆续到达，则全部被拒且状态机不被触碰；新探测后同一份可疑文本仍被拦下 | 2026-10-01 |
+| ordinary_input_still_passes_the_content_gate | 日常文本照常通过内容闸门 | 给定一段普通中文，当提交，则照常 Dispatch 并进 Translating（闸门只认高置信度模式） | 2026-09-24 |
 
 ### crates/gloss-app/src/update/mod.rs
 
@@ -802,7 +813,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | fallback_is_lazy_on_ax_success | AX 成功时兜底惰性求值 | 给定 AX 成功，当 combine，则采纳 AX 结果且剪贴板兜底闭包不被求值 | 2026-10-01 |
 | permission_denied_skips_fallback | 权限拒绝跳过兜底 | 给定 AccessibilityDenied，当 combine，则原样上抛且不兜底 | 2026-10-01 |
-| empty_selection_settles_and_retries_before_giving_up | 空选区让渡补读后再收口 | 给定持续 SelectionEmpty 的 AX 读与零让渡策略，当 combine，则补读至预算用尽才原样上抛且不兜底（不注入 Cmd+C，陈旧剪贴板不得冒充本次选区） | 2026-10-01 |
+| empty_selection_settles_then_falls_back_to_the_clipboard | 空选区让渡补读后再落兜底 | 给定持续 SelectionEmpty 的 AX 读与零让渡策略，当 combine，则补读至预算耗尽（恰 4 读）才落一次剪贴板兜底并采纳其结果（确认写入把关，陈旧剪贴板不得冒充本次选区） | 2026-10-01 |
 | empty_then_ready_ax_read_adopts_the_late_selection | 补读等到迟到的选区 | 给定首次空、二次有值的 AX 读，当 combine，则采纳第二次读到的选区且不兜底 | 2026-10-01 |
 | settle_budget_is_bounded_and_positive | 让渡预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 settle_delay，则预算内返回正的让渡时长、预算用尽（含 usize::MAX）返回 None | 2026-10-01 |
 | unavailable_ax_falls_back_to_clipboard | AX 不可用落兜底 | 给定 SelectionUnavailable，当 combine，则落到兜底结果；兜底也失败则以兜底错误收口 | 2026-10-01 |
