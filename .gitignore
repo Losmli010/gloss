@@ -24,7 +24,10 @@ target
 docs/*
 !docs/tests/
 .DS_Store
-.zcode/
+# ZCode 共享配置与钩子随仓库跟踪；本地会话状态（plans、workflow-drafts、workflow-runs）不进 git
+.zcode/*
+!.zcode/config.json
+!.zcode/hooks/
 .zcodeignore
 
 # egui_kittest 快照对比的临时产物

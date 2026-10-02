@@ -26,8 +26,11 @@ else
   MSG="$(cat "$1")"
 fi
 
-# 去掉注释行（git 会忽略 # 开头的行）
-MSG="$(printf '%s\n' "$MSG" | sed '/^#/d')"
+# 去掉注释行（git 会忽略 # 开头的行）；单行输入没有注释区，# 是标题本身（如 issue 引用式
+# PR 标题），不剥离，否则会被误报为空 message
+if [ "$(printf '%s\n' "$MSG" | wc -l | tr -d ' ')" -gt 1 ]; then
+  MSG="$(printf '%s\n' "$MSG" | sed '/^#/d')"
+fi
 
 # 去掉开头的空白行（这样第一行一定是 header）。
 MSG="$(printf '%s\n' "$MSG" | awk 'NF { found=1 } found { print }')"
