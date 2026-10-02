@@ -1271,7 +1271,7 @@ fn looks_like_sql(head: &str) -> bool {
         }
         match line_chars.next() {
             Some(ch) => !(ch.is_alphanumeric() || ch == '_'),
-            None => false,
+            None => true,
         }
     }
     let mut has_select = false;
