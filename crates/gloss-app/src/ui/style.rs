@@ -73,7 +73,7 @@ pub mod color {
     pub const SEAL_ZHU_DARK: Color32 = Color32::from_rgb(0xE0, 0x6A, 0x52);
 
     /// 代码面板底色（浅色主题）：经位代码面板专属底（demo code-bg #f5f7f9），
-    /// 区别于卡片底的淡界栏。
+    /// 以底色本身与近隐形边从卡片上定界。
     pub const CODE_BG_LIGHT: Color32 = Color32::from_rgb(0xF5, 0xF7, 0xF9);
 
     /// 代码面板底色（深色主题）：同一语义的深色档（demo code-bg #16181e）。

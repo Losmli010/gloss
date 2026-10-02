@@ -3,7 +3,7 @@
 //! 内容按「经 · 注 · 疏」三层组织，视觉定稿以 docs/demo/popup-redesign.html
 //! 为准（本地文件，不进 git）：
 //! - **经**＝选区原文/词条/提取文本（宋体；代码任务为单层代码面板
-//!   ——专属底色、`gloss-mono` 等宽体、不换行横滚、右上角语言角标）；
+//!   ——专属底色、`gloss-mono` 等宽体、不换行横滚、左上角语言标签行）；
 //! - **注**＝译文/释义/概要（楷体，系统缺楷体时随 demo 回退链落宋体；
 //!   朱丝栏左线 + 朱印）；
 //! - **疏**＝译注/例句/小记（小号宋体、弱色、上缘虚线 + 疏印）。
@@ -957,7 +957,7 @@ fn render_markdown(ui: &mut egui::Ui, state: &RenderState, text: &str) {
     CommonMarkViewer::new().show(ui, &mut cache, text);
 }
 
-/// 该任务是否按代码排版（经位走等宽体 + 界栏框）：流式视图看自动分类的
+/// 该任务是否按代码排版（经位走代码面板）：流式视图看自动分类的
 /// 判定，完成态看产物任务的类型。
 fn is_code(kind: Option<TaskKind>) -> bool {
     kind == Some(TaskKind::ExplainCode)
