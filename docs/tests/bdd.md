@@ -511,6 +511,7 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | example_lines_split_at_the_first_cjk_glyph | 例句在首个 CJK 字形处拆两行 | 给定「英译+中译」/纯英文/开头即 CJK/开头即 CJK 的例句四种输入，当 example_lines，则英汉混合的拆出原文与译文两行、其余原样单行 | 2026-10-01 |
 | watermark_is_the_untranslated_brand_name | 页脚水印是品牌名 | 给定水印取值入口，当取值，则恒为 "Gloss"（品牌名不翻译） | 2026-10-01 |
 | code_views_expose_the_language_badge_and_prose_untouched | 代码视图语言标签入树、非代码无标签 | 给定 ExplainCode 流式视图，当渲染，则无障碍树可检索语言标签 rust（面板首行左上、原样小写）；给定翻译流式视图，当渲染，则树上无标签（未知/非代码不显示） | 2026-10-02 |
+| snapshots_match_baseline（popup 代码视图随高亮再录） | 两份代码视图基线随语法着色重录 | 给定 popup_code_streaming / popup_code_outcome 的英文夹具，当 wgpu 渲染并 diff，则与基线一致（2026-10-02 随 T4 单趟正则六类着色再录：关键字/函数形/字符串着色；其余七份 popup 与 settings 基线零变化——着色只落代码分支） | 2026-10-02 |
 
 ### crates/gloss-app/src/app/overlay.rs
 
@@ -555,6 +556,21 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | detect_language_reads_language_signatures | 语言签名形探测 | 给定 fn main、package main+func main、func main、def 、import 开头的代码，当内容探测，则各判为 rust/go/python（go 的 package 子句胜 func 签名、裸 import 兜底 python） | 2026-10-02 |
 | detect_language_matches_signatures_only_at_line_starts | 签名形只在行首命中 | 给定行中段含 "def" 的普通句子，当内容探测，则无语言（弱签名不做子串匹配） | 2026-10-02 |
 | detect_language_yields_none_for_plain_text | 普通文本无语言 | 给定空串、英文句子与中文句子，当内容探测，则恒为 None | 2026-10-02 |
+| detect_language_reads_sql_shapes | SQL 形状探测 | 给定 SELECT...FROM 跨行对（大小写各一）、 lone SELECT、读起来像该对的单行散文，当内容探测，则跨行对判为 sql（大小写不敏感）、孤 SELECT 与单行散文不判（防散文误报） | 2026-10-02 |
+| known_languages_color_keywords_and_shapes | 已知语言的关键字与形状着色 | 给定 rust 与 python 代码片段，当 tokenize，则 fn/def/return 落 Keyword、函数调用形落 Function 且区间从标识符起（定界符裁掉） | 2026-10-02 |
+| unknown_languages_still_color_strings_and_comments | 清单外语言走通用启发集 | 给定清单外语言（fortran）的字符串与行注释代码，当 tokenize，则字符串与注释仍着色（空输入无 token） | 2026-10-02 |
+| missing_language_falls_to_the_generic_set | 无语言提示落通用集 | 给定无 hint 的含字符串与注释代码，当 tokenize，则字符串与注释照常着色 | 2026-10-02 |
+| json_keys_specialize_ahead_of_strings | JSON 键特化先于字符串 | 给定 {"key": 1}，当按 json 与无语言各 tokenize，则 json 下冒号前字符串落 Type（键）、通用集下同段落 String | 2026-10-02 |
+| markup_tags_and_attributes_specialize | 标记语言标签与属性特化 | 给定 HTML 片段，当 tokenize，则标签名落 Keyword、属性名（等号前）落 Function | 2026-10-02 |
+| sql_keywords_are_case_insensitive | SQL 关键字大小写不敏感 | 给定全小写 select/from/where 查询，当 tokenize，则三个关键字全部着色 | 2026-10-02 |
+| block_comments_span_lines_and_triples_span_lines | 块注释与三引号跨行 | 给定跨行块注释的 rust 代码与三引号字符串的 python 代码，当 tokenize，则各自为单个跨行 token | 2026-10-02 |
+| hex_numbers_color_whole | 十六进制字面量整体着色 | 给定含 0xFF_00 的 rust 代码，当 tokenize，则十六进制字面量为单个 Number token | 2026-10-02 |
+| every_class_has_its_own_color_per_theme | 六类色明暗两套互异 | 给定六类别与明暗两主题，当取色，则同主题内六色两两不同、注释恒斜体 | 2026-10-02 |
+| js_template_strings_color_with_the_backtick_ruleset | JS 别名落到反引号规则集 | 给定含反引号模板串的 js 代码，当按 "js" tokenize，则 const 为关键字、模板串为字符串（别名表查到的是带反引号的条目） | 2026-10-02 |
+| keywords_with_non_word_edges_still_color | 非词边缘关键字着色 | 给定 objc @interface、ruby defined?、clojure set! 的代码，当 tokenize，则各自关键字着色（\b 不存在于 @ 前、?/! 后，裸匹配） | 2026-10-02 |
+| toml_section_headers_color_on_every_line | TOML 节头任意行着色 | 给定首行与第四行各一个节头的 TOML，当 tokenize，则两个节头都落 Function（多行锚定） | 2026-10-02 |
+| sql_detection_ignores_non_statement_lines | SQL 探测忽略非语句行 | 给定注释里含 select...from 对的 rust 代码、selected/fromage 子串散文，当内容探测，则前者 rust、后者无语言（行锚定 + 词边界） | 2026-10-02 |
+| css_hex_colors_color_as_numbers_not_selectors | CSS 十六进制色值归数字 | 给定含 #fff 短色值与 #wrap id 选择器的 CSS，当 tokenize，则色值落 Number（色值组先于选择器组） | 2026-10-02 |
 
 ### crates/gloss-app/src/ui/context.rs
 
