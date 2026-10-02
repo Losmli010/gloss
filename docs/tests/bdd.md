@@ -188,7 +188,7 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
+popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck、popup_code_streaming、popup_code_outcome；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -207,7 +207,7 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | close_button_submits_dismiss | 头部关闭按钮上交收起 | 给定词卡视图（头部为各视图共用路径），当点击无障碍标签「关闭浮层」的 × 钮，则 draw 产物为 OverlayAction::Dismiss | 2026-09-21 |
 | gear_button_submits_open_settings | 头部齿轮上交打开设置 | 给定词卡视图，当点击无障碍标签「设置」的 ⚙ 钮，则 draw 产物为 OverlayAction::OpenSettings | 2026-09-21 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck 七份基线一致，结果合并进单个 SnapshotResults（2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中） | 2026-10-02 |
+| snapshots_match_baseline（popup） | 浮层九视图渲染基线（英文浅色） | 给定九个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 九份基线一致，结果合并进单个 SnapshotResults（2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）） | 2026-10-02 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用翻译」后保存，当检查上交配置，则 TranslateSentence 已停用（默认任务不在此列——停用它会被跨字段校验拦下） | 2026-09-23 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
@@ -510,6 +510,7 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | decode_app_icon_crops_to_the_content_square | 图标按画布比例裁本体 | 给定内嵌的 Dock 图标 PNG，当解码裁剪，则得 206×206 的图形本体（256 按 100/824/1024 画布比例裁去透明边距） | 2026-09-30 |
 | example_lines_split_at_the_first_cjk_glyph | 例句在首个 CJK 字形处拆两行 | 给定「英译+中译」/纯英文/开头即 CJK/开头即 CJK 的例句四种输入，当 example_lines，则英汉混合的拆出原文与译文两行、其余原样单行 | 2026-10-01 |
 | watermark_is_the_untranslated_brand_name | 页脚水印是品牌名 | 给定水印取值入口，当取值，则恒为 "Gloss"（品牌名不翻译） | 2026-10-01 |
+| code_views_expose_the_language_badge_and_prose_untouched | 代码视图语言标签入树、非代码无标签 | 给定 ExplainCode 流式视图，当渲染，则无障碍树可检索语言标签 rust（面板首行左上、原样小写）；给定翻译流式视图，当渲染，则树上无标签（未知/非代码不显示） | 2026-10-02 |
 
 ### crates/gloss-app/src/app/overlay.rs
 
@@ -542,6 +543,18 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | apply_theme_elides_writes_until_the_preference_changes | 主题未变不重写 | 给定未变的偏好，当重复 apply_theme，则不写；偏好变了则跟上 | 2026-09-23 |
+
+### crates/gloss-app/src/ui/code_hl.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| normalize_language_collapses_aliases_to_canonical_names | 语言名归一化收拢别名 | 给定 rs/py/TS/golang/c++ 与规范名、清单外名，当归一化，则别名折叠到规范名（rust/python/typescript/go/cpp）、规范名原样、未知名保留小写原形 | 2026-10-02 |
+| normalize_language_rejects_blank_names | 空白语言名无语言 | 给定空串与全空白名，当归一化，则恒为 None | 2026-10-02 |
+| detect_language_reads_shebang_interpreters | shebang 解释器映射语言 | 给定 python3/bash/ruby/node 的 shebang 脚本与未知解释器，当内容探测，则各映射到 python/bash/ruby/javascript、未知解释器无语言 | 2026-10-02 |
+| detect_language_reads_markup_declarations | 标记语言显式声明 | 给定 DOCTYPE html、<?xml、<?php 开头的文本，当内容探测，则各判为 html/xml/php | 2026-10-02 |
+| detect_language_reads_language_signatures | 语言签名形探测 | 给定 fn main、package main+func main、func main、def 、import 开头的代码，当内容探测，则各判为 rust/go/python（go 的 package 子句胜 func 签名、裸 import 兜底 python） | 2026-10-02 |
+| detect_language_matches_signatures_only_at_line_starts | 签名形只在行首命中 | 给定行中段含 "def" 的普通句子，当内容探测，则无语言（弱签名不做子串匹配） | 2026-10-02 |
+| detect_language_yields_none_for_plain_text | 普通文本无语言 | 给定空串、英文句子与中文句子，当内容探测，则恒为 None | 2026-10-02 |
 
 ### crates/gloss-app/src/ui/context.rs
 
@@ -582,6 +595,8 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | gesture_acquires_even_with_a_legacy_image_default_kind | 误配图像默认不影响手势 | 给定 default_text_kind 误配图像类，当划词探测，则仍下发 Acquire(Auto)（图像默认只影响桥侧兜底 kind） | 2026-09-26 |
 | disabled_kinds_are_not_acquired_via_hotkey_and_consume_no_generation | 停用 kind 热键不取材不占代数 | 给定含停用 kind 的配置，当热键触发停用项，则 None 且不占代数；同一配置下划词手势照常取材（Auto 不受开关约束） | 2026-09-26 |
 | classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 accept_classified，则当前代写入判定 kind、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
+| fixed_kinds_arrive_classified_while_the_auto_sentinel_waits | 固定 kind 创建即分类、Auto 等精化 | 给定热键（TranslateSentence）触发并采纳取材，当检查流式视图，则 classified 创建即 Some 且语言落内容探测（fn main→rust）；给定划词提交，当检查，则 classified 与 code_lang 创建均为 None（等分类半程） | 2026-10-02 |
+| code_language_prefers_the_hint_and_rides_into_the_outcome | 语言 hint 优先并随行进产物卡 | 给定 hint CodeLanguage("py") 的划词提交，当检查流式视图，则 code_lang 为归一化后的 "python"（hint 胜内容探测）；accept_done 后当检查产物卡，则 code_lang 原样随行 | 2026-10-02 |
 | options_freeze_at_probe_time | 选项在探测时刻冻结 | 给定探测后更换配置（目标语言与界面语言同时变），当提交产物，则任务仍带探测时快照的选项（含 prompt_locale）；第二次探测才用新值 | 2026-10-01 |
 | prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 Language::En 与出厂 System 两份配置，当探测并提交产物，则任务携带的 prompt_locale 分别为 En 与注入的系统语言 | 2026-09-22 |
 | commit_selection_yields_run_request_and_supersedes_the_previous_session | 提交探测接管会话并守卫状态 | 给定命中在途探测的合法产物，当 commit_selection，则返回下发请求、探测编号提升为代数、旧在途任务被取消、视图换流式卡；同编号重复提交被拒 | 2026-10-01 |
