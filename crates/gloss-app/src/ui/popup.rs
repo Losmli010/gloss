@@ -21,8 +21,9 @@
 //! 可能短暂显示，随下一 chunk 自愈）。
 //!
 //! 页头回归品牌：只有应用图标与动作区（⚙/×），任务与状态由内容层自明，
-//! 页头不带任何标签药丸。页脚常驻
-//! 一条窄带：推理中左端是呼吸点 + 「正在注解」（生成指示唯一落点），右端
+//! 页头不带任何标签药丸；行下缘发丝线与页脚上缘线呼应成卡片的上下界。
+//! 页脚常驻
+//! 一条窄带（带高取 [`FOOTER_HEIGHT`]）：推理中左端是呼吸点 + 「正在注解」（生成指示唯一落点），右端
 //! 恒为 Gloss 水印（品牌名不翻译，与窗口标题同一原则）；滚动区按页脚带宽
 //! 预留视口，页脚不被内容挤出窗外。取材中是纯骨架（脉动条），全程无
 //! 「正在读取选区」类文字。动作点击经 draw 返回 [`OverlayAction`] 上交壳执行。
@@ -123,8 +124,8 @@ const FOOTER_DOT_RADIUS: f32 = 2.0;
 const FOOTER_DOT_COUNT: usize = 3;
 /// 页脚水印字串与槽缘的余量（单侧）：槽宽按实测字宽加此余量。
 const WATERMARK_PADDING: f32 = 6.0;
-/// 页脚带高（demo 页脚含上下留白，窄带取 26）。
-const FOOTER_HEIGHT: f32 = 26.0;
+/// 页脚带高（demo 页脚含上下留白，窄带随降高定 20）。
+const FOOTER_HEIGHT: f32 = 20.0;
 /// 页脚与正文之间的空隙；滚动区按这条带宽预留视口
 /// （auto_shrink(false) 的滚动区会吃光剩余空间，不预留页脚就被挤出窗外）。
 const FOOTER_RESERVE: f32 = FOOTER_HEIGHT + space::PARAGRAPH;
@@ -483,40 +484,54 @@ fn action_label(action: ErrorAction, text: &Text) -> &str {
 /// 页头：应用图标 + 右侧动作区 `[⚙ ×]`——× 最右（最后动作）、齿轮居左，
 /// 图标默认弱色、hover/按下显色。任务与状态都由内容层自明（经注疏分区、
 /// 失败卡正文），页头不带任何标签药丸（demo 定稿：页头回归品牌，只有
-/// 图标与动作区；生成指示移交页脚，见 [`footer`]）。返回动作区点击。
+/// 图标与动作区；生成指示移交页脚，见 [`footer`]）。行下缘画一条与页脚
+/// 上缘同规格的发丝线，横贯内容宽，与正文之间仍由各视图的
+/// `space::SECTION` 隔开。返回动作区点击。
 fn header(ui: &mut egui::Ui, state: &RenderState, text: &Text) -> Option<OverlayAction> {
     let weak = ui.visuals().weak_text_color();
     let strong = ui.visuals().strong_text_color();
     let mut action = None;
-    ui.horizontal(|ui| {
-        if let Some(icon) = state.icon_texture(ui.ctx()) {
-            ui.add(
-                egui::Image::from_texture(&icon).fit_to_exact_size(vec2(HEADER_ICON, HEADER_ICON)),
-            );
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // 图标钮的文字颜色交给 widget 状态笔刷（不写死在字形上），
-            // 才有「默认弱色、hover 显色」；只换色，线宽保持出厂值。
-            ui.visuals_mut().widgets.inactive.fg_stroke.color = weak;
-            ui.visuals_mut().widgets.hovered.fg_stroke.color = strong;
-            ui.visuals_mut().widgets.active.fg_stroke.color = strong;
-            let close = close_button(ui, text);
-            if close.clicked() {
-                action = Some(OverlayAction::Dismiss);
+    let row_rect = ui
+        .horizontal(|ui| {
+            if let Some(icon) = state.icon_texture(ui.ctx()) {
+                ui.add(
+                    egui::Image::from_texture(&icon)
+                        .fit_to_exact_size(vec2(HEADER_ICON, HEADER_ICON)),
+                );
             }
-            let gear = ui.add(icon_button("⚙")); // i18n:allow 图标字形，非 locale 文案
-            gear.widget_info(|| {
-                egui::WidgetInfo::labeled(
-                    egui::WidgetType::Button,
-                    true,
-                    text.gloss_popup_settings_label.as_str(),
-                )
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // 图标钮的文字颜色交给 widget 状态笔刷（不写死在字形上），
+                // 才有「默认弱色、hover 显色」；只换色，线宽保持出厂值。
+                ui.visuals_mut().widgets.inactive.fg_stroke.color = weak;
+                ui.visuals_mut().widgets.hovered.fg_stroke.color = strong;
+                ui.visuals_mut().widgets.active.fg_stroke.color = strong;
+                let close = close_button(ui, text);
+                if close.clicked() {
+                    action = Some(OverlayAction::Dismiss);
+                }
+                let gear = ui.add(icon_button("⚙")); // i18n:allow 图标字形，非 locale 文案
+                gear.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        true,
+                        text.gloss_popup_settings_label.as_str(),
+                    )
+                });
+                if gear.clicked() {
+                    action = Some(OverlayAction::OpenSettings);
+                }
             });
-            if gear.clicked() {
-                action = Some(OverlayAction::OpenSettings);
-            }
-        });
-    });
+        })
+        .response
+        .rect;
+    ui.painter().hline(
+        row_rect.x_range(),
+        row_rect.max.y,
+        Stroke::new(
+            stroke::CARD,
+            ui.visuals().widgets.noninteractive.bg_stroke.color,
+        ),
+    );
     action
 }
 
