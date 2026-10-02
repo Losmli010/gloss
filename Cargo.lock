@@ -1449,6 +1449,7 @@ dependencies = [
  "gloss-platform",
  "image",
  "pollster",
+ "regex",
  "reqwest",
  "semver",
  "serde",

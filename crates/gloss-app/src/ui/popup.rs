@@ -45,6 +45,7 @@ use gloss_core::log::{thread, warn};
 use gloss_core::prompt::STRUCTURED_FENCE;
 use gloss_core::task::{OutcomeStructured, TaskKind};
 
+use super::code_hl;
 use super::fonts;
 use super::style::{color, font, radius, space, stroke};
 use crate::i18n::{Text, fill};
@@ -730,7 +731,8 @@ fn shu_section(ui: &mut egui::Ui, text: &Text, body: impl FnOnce(&mut egui::Ui))
 
 /// 经区块的正文：原文/词条随任务形制。代码任务为单层代码面板——代码
 /// 底色直接铺满经位区块（用户反馈定稿：无外层底色的界栏框），配等宽
-/// 体、不换行与左上角语言标签行；其余为宋体原文。
+/// 体、不换行、左上角语言标签行与单趟正则的六类语法着色；其余为宋体
+/// 原文。
 fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&str>) {
     let strong = ui.visuals().strong_text_color();
     if code {
@@ -749,16 +751,10 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
                 ScrollArea::horizontal()
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(source)
-                                    .font(FontId::new(CODE_FONT, fonts::mono_family()))
-                                    .line_height(Some(CODE_LINE_HEIGHT))
-                                    .color(strong),
-                            )
-                            .wrap_mode(egui::TextWrapMode::Extend)
-                            .selectable(true),
-                        );
+                        let dark = ui.visuals().dark_mode;
+                        let job = code_job(source, code_lang, dark);
+                        let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+                        ui.add(egui::Label::new(egui::WidgetText::Galley(galley)).selectable(true));
                     });
             });
         return;
@@ -772,6 +768,60 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
         .wrap()
         .selectable(true),
     );
+}
+
+/// 代码正文的着色排版：单趟正则切类别，逐段出 [`egui::text::LayoutJob`]
+/// （六类色 + 注释斜体，明暗随主题取 demo token）。不换行、按行断开、
+/// 行高 1.65；标记间的间隙与尾部都补平文段，正文整段可被选中复制。
+fn code_job(source: &str, code_lang: Option<&str>, dark: bool) -> egui::text::LayoutJob {
+    let font_id = FontId::new(CODE_FONT, fonts::mono_family());
+    let plain = egui::TextFormat {
+        line_height: Some(CODE_LINE_HEIGHT),
+        ..egui::TextFormat::simple(font_id.clone(), strong_code_color(dark))
+    };
+    let mut job = egui::text::LayoutJob {
+        text: source.to_owned(),
+        wrap: egui::text::TextWrapping::no_max_width(),
+        break_on_newline: true,
+        ..egui::text::LayoutJob::default()
+    };
+    let mut cursor = 0;
+    for (range, class) in code_hl::tokenize(source, code_lang) {
+        if range.start > cursor {
+            job.sections.push(egui::text::LayoutSection {
+                leading_space: 0.0,
+                byte_range: egui::text::ByteIndex(cursor)..egui::text::ByteIndex(range.start),
+                format: plain.clone(),
+            });
+        }
+        job.sections.push(egui::text::LayoutSection {
+            leading_space: 0.0,
+            byte_range: egui::text::ByteIndex(range.start)..egui::text::ByteIndex(range.end),
+            format: egui::TextFormat {
+                color: class.color(dark),
+                italics: class.italic(),
+                ..plain.clone()
+            },
+        });
+        cursor = range.end;
+    }
+    if cursor < source.len() {
+        job.sections.push(egui::text::LayoutSection {
+            leading_space: 0.0,
+            byte_range: egui::text::ByteIndex(cursor)..egui::text::ByteIndex(source.len()),
+            format: plain,
+        });
+    }
+    job
+}
+
+/// 代码平文字的底色：明暗主题下各取面板底上的主文字色。
+fn strong_code_color(dark: bool) -> egui::Color32 {
+    if dark {
+        egui::Color32::from_rgb(0xE6, 0xE6, 0xE6)
+    } else {
+        egui::Color32::from_rgb(0x24, 0x29, 0x2E)
+    }
 }
 
 /// 代码面板底色（明暗随主题，demo code-bg 双档）。

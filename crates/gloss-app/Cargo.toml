@@ -53,6 +53,9 @@ gloss-platform = { path = "../gloss-platform" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 # 同步等待 GPU 初始化。
 pollster = { version = "1.0.1", default-features = false }
+# 代码面板的单趟正则着色（demo 同架构）；unicode 供 \b/\w 按码点判定，
+# perf 开字面量预前缀优化。
+regex = { version = "1", default-features = false, features = ["perf", "std", "unicode"] }
 # OpenAI 兼容端点的流式调用（platform 同款最小特性集）；更新子系统复用
 # 同一套 TLS 与流式配置，清单与整包都走 rustls + 系统根证书。
 reqwest = {
