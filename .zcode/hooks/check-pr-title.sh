@@ -55,7 +55,11 @@ elif tool == "Bash":
         toks = []
     for i in range(len(toks) - 2):
         if (toks[i] == "gh" or toks[i].endswith("/gh")) and toks[i + 1] == "pr" and toks[i + 2] in ("create", "edit"):
-            rest = toks[i + 3:]
+            rest = []
+            for x in toks[i + 3:]:
+                if x in (";", "&&", "||", "|", "&"):
+                    break
+                rest.append(x)
             if "--fill" in rest or "--web" in rest or any(x.startswith("--title-file") for x in rest):
                 break
             for j, x in enumerate(rest):
@@ -68,8 +72,8 @@ elif tool == "Bash":
                     break
             break
 
-if title and ("$" in title or "\x60" in title):
-    title = ""
+    if title and ("$" in title or "\x60" in title):
+        title = ""
 
 if title:
     sys.stdout.write(title)
