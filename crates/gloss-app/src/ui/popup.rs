@@ -120,10 +120,8 @@ const CODE_PANEL_PADDING_H: i8 = 13;
 /// 代码正文的字号与行高（demo 定稿：12px、行高 1.65）。
 const CODE_FONT: f32 = 12.0;
 const CODE_LINE_HEIGHT: f32 = CODE_FONT * 1.65;
-/// 语言角标的字号与其在面板右上角的偏移（demo：top 8 / right 11）。
+/// 语言标签的字号（图样定稿：弱色小标，面板内独立行）。
 const CODE_BADGE_FONT: f32 = 10.0;
-const CODE_BADGE_TOP: f32 = 8.0;
-const CODE_BADGE_RIGHT: f32 = 11.0;
 /// 骨架条高（取材骨架与「经显注未至」的占位行同款）
 const SHIMMER_BAR_HEIGHT: f32 = 12.0;
 /// 骨架条圆角
@@ -736,8 +734,8 @@ fn shu_section(ui: &mut egui::Ui, text: &Text, body: impl FnOnce(&mut egui::Ui))
 }
 
 /// 经区块的正文：原文/词条随任务形制。代码任务为界栏框内嵌代码面板
-/// （demo 的代码经位双层结构：专属底色、等宽体、不换行、右上角语言
-/// 角标），其余为宋体原文。
+/// （图样定稿的双层结构：专属底色、等宽体、不换行、左上角语言标签行），
+/// 其余为宋体原文。
 fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&str>) {
     let strong = ui.visuals().strong_text_color();
     if code {
@@ -753,18 +751,16 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
                 JING_FRAME_PADDING_V,
             ))
             .show(ui, |ui| {
-                let panel = Frame::new()
+                Frame::new()
                     .fill(code_bg(ui))
-                    .stroke(Stroke::new(
-                        CODE_PANEL_STROKE,
-                        ui.visuals().widgets.noninteractive.bg_stroke.color,
-                    ))
+                    .stroke(Stroke::new(CODE_PANEL_STROKE, code_border(ui)))
                     .corner_radius(CornerRadius::same(CODE_PANEL_RADIUS))
                     .inner_margin(Margin::symmetric(
                         CODE_PANEL_PADDING_H,
                         CODE_PANEL_PADDING_V,
                     ))
                     .show(ui, |ui| {
+                        code_badge(ui, code_lang);
                         // 不换行：超宽由面板内横向滚动兜底（流式视图的经位
                         // 在正文 ScrollArea 之外，横向滚动必须自己带）。
                         ScrollArea::horizontal()
@@ -781,10 +777,7 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
                                     .selectable(true),
                                 );
                             });
-                    })
-                    .response
-                    .rect;
-                code_badge(ui, panel, code_lang);
+                    });
             });
         return;
     }
@@ -808,36 +801,29 @@ fn code_bg(ui: &egui::Ui) -> egui::Color32 {
     }
 }
 
-/// 语言角标：面板右上角浮置的大写弱色小字（demo top 8 / right 11），未知
-/// 语言不显示。painter 落字、hover 响应携带无障碍标签（语言进树可检索）。
-fn code_badge(ui: &mut egui::Ui, panel: egui::Rect, lang: Option<&str>) {
+/// 代码面板边色（明暗随主题，demo card-border 的近隐形档）。
+fn code_border(ui: &egui::Ui) -> egui::Color32 {
+    if ui.visuals().dark_mode {
+        color::CODE_BORDER_DARK
+    } else {
+        color::CODE_BORDER_LIGHT
+    }
+}
+
+/// 语言标签：面板内首行左上的原样小写弱色小字（图样定稿：与浅色一致
+/// 的统一面板底，不做标签带；标签行与代码之间空一个代码行高），未知
+/// 语言不显示。Label 落字自带无障碍标签（语言进树可检索）。
+fn code_badge(ui: &mut egui::Ui, lang: Option<&str>) {
     let Some(lang) = lang else {
         return;
     };
-    let label = lang.to_uppercase();
-    let dim = ui.visuals().weak_text_color();
-    let galley = ui.painter().layout_no_wrap(
-        label.clone(),
-        FontId::new(CODE_BADGE_FONT, FontFamily::Proportional),
-        dim,
-    );
-    let size = galley.size();
-    let rect = egui::Rect::from_min_size(
-        egui::pos2(
-            (panel.max.x - CODE_BADGE_RIGHT - size.x)
-                .max(panel.min.x + f32::from(CODE_PANEL_PADDING_H)),
-            panel.min.y + CODE_BADGE_TOP,
-        ),
-        size,
-    );
-    ui.painter().galley(rect.min, galley, dim);
-    let response = ui.interact(
-        rect,
-        ui.id().with(("code_lang_badge", label.clone())),
-        egui::Sense::hover(),
-    );
-    response
-        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, label.clone()));
+    ui.label(
+        RichText::new(lang)
+            .font(FontId::new(CODE_BADGE_FONT, FontFamily::Proportional))
+            .color(ui.visuals().weak_text_color()),
+    )
+    .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, lang.to_owned()));
+    ui.add_space(CODE_LINE_HEIGHT);
 }
 
 /// 注区的文本样式改写：markdown 正文与列表项落到楷体字号（egui_commonmark
@@ -1690,12 +1676,12 @@ mod kittest_tests {
     fn code_views_expose_the_language_badge_and_prose_untouched() {
         let (mut harness, _clicked) = harness_for(code_streaming_view_en());
         harness.run_steps(3);
-        harness.get_by_label("RUST");
+        harness.get_by_label("rust");
 
         let (mut harness, _clicked) = harness_for(streaming_view_en());
         harness.run_steps(3);
         assert!(
-            harness.query_all_by_label_contains("RUST").next().is_none(),
+            harness.query_all_by_label_contains("rust").next().is_none(),
             "non-code tasks carry no language badge"
         );
     }
