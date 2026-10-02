@@ -2,7 +2,7 @@
 //!
 //! 内容按「经 · 注 · 疏」三层组织，视觉定稿以 docs/demo/popup-redesign.html
 //! 为准（本地文件，不进 git）：
-//! - **经**＝选区原文/词条/提取文本（宋体；代码任务为界栏框内嵌代码面板
+//! - **经**＝选区原文/词条/提取文本（宋体；代码任务为单层代码面板
 //!   ——专属底色、`gloss-mono` 等宽体、不换行横滚、右上角语言角标）；
 //! - **注**＝译文/释义/概要（楷体，系统缺楷体时随 demo 回退链落宋体；
 //!   朱丝栏左线 + 朱印）；
@@ -106,13 +106,8 @@ const SHU_TEXT_GAP: i8 = 9;
 /// 疏区虚线的段长与空隙。
 const SHU_DASH_LENGTH: f32 = 4.0;
 const SHU_GAP_LENGTH: f32 = 3.0;
-/// 经区块（界栏框）的圆角与内边距（demo jing-frame：radius 10、10px 13px）。
-const JING_FRAME_RADIUS: u8 = 10;
-/// 界栏框内边距（水平/垂直）。
-const JING_FRAME_PADDING_H: i8 = 13;
-const JING_FRAME_PADDING_V: i8 = 10;
-/// 代码面板（界栏框内嵌层）的圆角、边宽与内边距（demo code 面板：
-/// radius 10、1px 边、11px 13px）。
+/// 代码面板的圆角、边宽与内边距（demo code 面板：radius 10、1px 边、
+/// 11px 13px）；代码底色直接铺满经位区块，无外层界栏框。
 const CODE_PANEL_RADIUS: u8 = 10;
 const CODE_PANEL_STROKE: f32 = 1.0;
 const CODE_PANEL_PADDING_V: i8 = 11;
@@ -733,50 +728,37 @@ fn shu_section(ui: &mut egui::Ui, text: &Text, body: impl FnOnce(&mut egui::Ui))
     });
 }
 
-/// 经区块的正文：原文/词条随任务形制。代码任务为界栏框内嵌代码面板
-/// （图样定稿的双层结构：专属底色、等宽体、不换行、左上角语言标签行），
-/// 其余为宋体原文。
+/// 经区块的正文：原文/词条随任务形制。代码任务为单层代码面板——代码
+/// 底色直接铺满经位区块（用户反馈定稿：无外层底色的界栏框），配等宽
+/// 体、不换行与左上角语言标签行；其余为宋体原文。
 fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&str>) {
     let strong = ui.visuals().strong_text_color();
     if code {
         Frame::new()
-            .fill(ui.visuals().faint_bg_color)
-            .stroke(Stroke::new(
-                stroke::CARD,
-                ui.visuals().widgets.noninteractive.bg_stroke.color,
-            ))
-            .corner_radius(CornerRadius::same(JING_FRAME_RADIUS))
+            .fill(code_bg(ui))
+            .stroke(Stroke::new(CODE_PANEL_STROKE, code_border(ui)))
+            .corner_radius(CornerRadius::same(CODE_PANEL_RADIUS))
             .inner_margin(Margin::symmetric(
-                JING_FRAME_PADDING_H,
-                JING_FRAME_PADDING_V,
+                CODE_PANEL_PADDING_H,
+                CODE_PANEL_PADDING_V,
             ))
             .show(ui, |ui| {
-                Frame::new()
-                    .fill(code_bg(ui))
-                    .stroke(Stroke::new(CODE_PANEL_STROKE, code_border(ui)))
-                    .corner_radius(CornerRadius::same(CODE_PANEL_RADIUS))
-                    .inner_margin(Margin::symmetric(
-                        CODE_PANEL_PADDING_H,
-                        CODE_PANEL_PADDING_V,
-                    ))
+                code_badge(ui, code_lang);
+                // 不换行：超宽由面板内横向滚动兜底（流式视图的经位
+                // 在正文 ScrollArea 之外，横向滚动必须自己带）。
+                ScrollArea::horizontal()
+                    .auto_shrink([false, true])
                     .show(ui, |ui| {
-                        code_badge(ui, code_lang);
-                        // 不换行：超宽由面板内横向滚动兜底（流式视图的经位
-                        // 在正文 ScrollArea 之外，横向滚动必须自己带）。
-                        ScrollArea::horizontal()
-                            .auto_shrink([false, true])
-                            .show(ui, |ui| {
-                                ui.add(
-                                    egui::Label::new(
-                                        RichText::new(source)
-                                            .font(FontId::new(CODE_FONT, fonts::mono_family()))
-                                            .line_height(Some(CODE_LINE_HEIGHT))
-                                            .color(strong),
-                                    )
-                                    .wrap_mode(egui::TextWrapMode::Extend)
-                                    .selectable(true),
-                                );
-                            });
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(source)
+                                    .font(FontId::new(CODE_FONT, fonts::mono_family()))
+                                    .line_height(Some(CODE_LINE_HEIGHT))
+                                    .color(strong),
+                            )
+                            .wrap_mode(egui::TextWrapMode::Extend)
+                            .selectable(true),
+                        );
                     });
             });
         return;
