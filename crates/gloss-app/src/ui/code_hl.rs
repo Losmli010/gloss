@@ -1095,8 +1095,9 @@ const SQL_KW: &[&str] = &[
 const JSON_KW: &[&str] = &["true", "false", "null"];
 const DATA_BOOL_KW: &[&str] = &["true", "false", "null", "yes", "no", "on", "off"];
 
-/// 全语言表：规范名 → 词法配置。特化族（json/yaml/toml/html/xml/css）
-/// 由 [`pattern_for`] 按名分支组装；其余走 [`generic_builder`]。
+/// 全语言表：规范名 → 词法配置，[`pattern_for`] 组装；json/yaml/toml/
+/// html/xml/css 由独立特化模式在 [`regex_for`] 组表，未知语言落
+/// [`generic_pattern`]。javascript 条目带反引号模板串（末条 override）。
 const LANGS: &[LangSpec] = &[
     lex("rust", &["//"], Some(("/*", "*/")), RUST_KW),
     lex("c", &["//"], Some(("/*", "*/")), C_KW),
@@ -1105,7 +1106,6 @@ const LANGS: &[LangSpec] = &[
     lex("java", &["//"], Some(("/*", "*/")), JAVA_KW),
     lex("csharp", &["//"], Some(("/*", "*/")), CSHARP_KW),
     lex("go", &["//"], Some(("/*", "*/")), GO_KW),
-    lex("javascript", &["//"], Some(("/*", "*/")), JAVASCRIPT_KW),
     lex("typescript", &["//"], Some(("/*", "*/")), TYPESCRIPT_KW),
     lex("kotlin", &["//"], Some(("/*", "*/")), KOTLIN_KW),
     lex("swift", &["//"], Some(("/*", "*/")), SWIFT_KW),
@@ -1187,8 +1187,7 @@ pub(crate) fn detect_language(text: &str) -> Option<String> {
     if head.starts_with("<?php") {
         return Some("php".to_owned());
     }
-    let upper = head.to_ascii_uppercase();
-    if upper.contains("SELECT") && upper.contains("FROM") && head.contains('\n') {
+    if looks_like_sql(head) {
         return Some("sql".to_owned());
     }
     if has_line_start(head, "package main") {
@@ -1253,6 +1252,35 @@ fn detect_shebang(head: &str) -> Option<String> {
 fn has_line_start(text: &str, needle: &str) -> bool {
     text.lines()
         .any(|line| line.trim_start().starts_with(needle))
+}
+
+/// SQL 形状：某行以 SELECT 开头、另一行以 FROM 开头（均按词，大小写
+/// 不敏感）。行锚定 + 词边界——「selected / fromage」与注释里的子串
+/// 都不算；单行散文（"select one from many"）天然不命中。
+fn looks_like_sql(head: &str) -> bool {
+    fn line_starts_with_keyword(line: &str, keyword: &str) -> bool {
+        let line = line.trim_start();
+        let mut line_chars = line.chars();
+        for keyword_char in keyword.chars() {
+            if !line_chars
+                .next()
+                .is_some_and(|ch| ch.eq_ignore_ascii_case(&keyword_char))
+            {
+                return false;
+            }
+        }
+        match line_chars.next() {
+            Some(ch) => !(ch.is_alphanumeric() || ch == '_'),
+            None => false,
+        }
+    }
+    let mut has_select = false;
+    let mut has_from = false;
+    for line in head.lines() {
+        has_select |= line_starts_with_keyword(line, "select");
+        has_from |= line_starts_with_keyword(line, "from");
+    }
+    has_select && has_from
 }
 
 /// 规则集正则：按语言惰性编译一次（首帧全表编译，之后查表零成本）。
@@ -1369,7 +1397,7 @@ fn data_pattern(section_headers: bool) -> String {
         ),
     ];
     if section_headers {
-        parts.push(r"(?P<f>^\[[^\]\n]*\])".to_owned());
+        parts.push(r"(?P<f>(?m:^\[[^\]\n]*\]))".to_owned());
     }
     parts.push(keyword_group(DATA_BOOL_KW, false));
     parts.push(numbers());
@@ -1405,8 +1433,8 @@ fn css_pattern() -> String {
         ),
         r"(?P<k>@[A-Za-z-]+)".to_owned(),
         r"(?P<t>[A-Za-z-]+\s*:)".to_owned(),
-        r"(?P<f>[.#][A-Za-z][\w-]*)".to_owned(),
         r"(?P<n>#[0-9a-fA-F]{3,8}\b|\b\d[\d.]*(?:px|em|rem|vh|vw|%|s|ms|fr)?\b)".to_owned(),
+        r"(?P<f>[.#][A-Za-z][\w-]*)".to_owned(),
     ]
     .join("|")
 }
@@ -1475,18 +1503,29 @@ fn string_alternatives(spec: &LangSpec) -> String {
     alternatives.join("|")
 }
 
-/// 词法积木：关键字表（可选大小写不敏感，如 SQL）。
+/// 词法积木：关键字表（可选大小写不敏感，如 SQL）。首尾都是词字符的
+/// 关键字加 `\b` 边界；含非词边缘的关键字（objc 的 `@interface`、ruby
+/// 的 `defined?`、clojure 的 `set!`）裸匹配——`\b` 在 `@` 前、`?`/`!`
+/// 后不存在，加了反而永不命中。
 fn keyword_group(keywords: &[&str], case_insensitive: bool) -> String {
-    let keywords = keywords
-        .iter()
-        .map(|keyword| regex::escape(keyword))
-        .collect::<Vec<_>>()
-        .join("|");
-    if case_insensitive {
-        format!(r"(?P<k>(?i:\b(?:{keywords})\b))")
-    } else {
-        format!(r"(?P<k>\b(?:{keywords})\b)")
+    let (mut worded, mut bare) = (Vec::new(), Vec::new());
+    for keyword in keywords {
+        let word_char = |ch: Option<char>| ch.is_some_and(|ch| ch.is_alphanumeric() || ch == '_');
+        if word_char(keyword.chars().next()) && word_char(keyword.chars().last()) {
+            worded.push(regex::escape(keyword));
+        } else {
+            bare.push(regex::escape(keyword));
+        }
     }
+    let flag = if case_insensitive { "i" } else { "" };
+    let mut alternatives = Vec::new();
+    if !bare.is_empty() {
+        alternatives.push(format!(r"(?{flag}:{})", bare.join("|")));
+    }
+    if !worded.is_empty() {
+        alternatives.push(format!(r"(?{flag}:\b(?:{})\b)", worded.join("|")));
+    }
+    format!(r"(?P<k>{})", alternatives.join("|"))
 }
 
 #[cfg(test)]
@@ -1771,6 +1810,77 @@ mod tests {
     }
 
     #[test]
+    fn js_template_strings_color_with_the_backtick_ruleset() {
+        let tokens = tokenize("const s = `hi ${x}`;", Some("js"));
+        assert_eq!(
+            classes_of(&tokens),
+            vec![Class::Keyword, Class::String],
+            "js alias reaches the backtick-enabled ruleset: {tokens:?}"
+        );
+    }
+
+    #[test]
+    fn keywords_with_non_word_edges_still_color() {
+        assert!(
+            classes_of(&tokenize("@interface Foo : NSObject", Some("objc")))
+                .contains(&Class::Keyword),
+            "objc @-keywords have no leading word edge and must still match"
+        );
+        assert!(
+            classes_of(&tokenize("x = defined? y", Some("ruby"))).contains(&Class::Keyword),
+            "ruby defined? has no trailing word edge"
+        );
+        assert!(
+            classes_of(&tokenize("(set! x 1)", Some("clojure"))).contains(&Class::Keyword),
+            "clojure set! has no trailing word edge"
+        );
+    }
+
+    #[test]
+    fn toml_section_headers_color_on_every_line() {
+        let source = "[dependencies]\nserde = 1\n\n[dev-dependencies]";
+        let tokens = tokenize(source, Some("toml"));
+        let headers = tokens
+            .iter()
+            .filter(|(_, class)| *class == Class::Function)
+            .count();
+        assert_eq!(
+            headers, 2,
+            "a section header colors on any line, not just the first: {tokens:?}"
+        );
+    }
+
+    #[test]
+    fn sql_detection_ignores_non_statement_lines() {
+        assert_eq!(
+            detect_language("// select x from y\nfn main() {}").as_deref(),
+            Some("rust"),
+            "a select/from pair inside a comment is not an SQL statement"
+        );
+        assert_eq!(
+            detect_language("we selected options fromage the menu\nand more").as_deref(),
+            None,
+            "substring hits (selected/fromage) are not the keyword pair"
+        );
+    }
+
+    #[test]
+    fn css_hex_colors_color_as_numbers_not_selectors() {
+        let tokens = tokenize("a { color: #fff; } #wrap { top: 0; }", Some("css"));
+        let hexes = tokens
+            .iter()
+            .filter(|(range, class)| {
+                *class == Class::Number
+                    && range.start
+                        == "a { color: #fff; } #wrap"
+                            .find("#fff")
+                            .expect("hex present")
+            })
+            .count();
+        assert_eq!(hexes, 1, "a short hex color is a number: {tokens:?}");
+    }
+
+    #[test]
     fn every_class_has_its_own_color_per_theme() {
         let classes = [
             Class::Keyword,
@@ -1782,8 +1892,10 @@ mod tests {
         ];
         for dark in [true, false] {
             let colors: Vec<_> = classes.iter().map(|class| class.color(dark)).collect();
-            for pair in colors.windows(2) {
-                assert_ne!(pair[0], pair[1], "classes must stay visually distinct");
+            for (index, left) in colors.iter().enumerate() {
+                for right in colors.iter().skip(index + 1) {
+                    assert_ne!(left, right, "classes must stay visually distinct");
+                }
             }
         }
         assert!(Class::Comment.italic());

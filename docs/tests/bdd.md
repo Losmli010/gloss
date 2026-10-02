@@ -566,6 +566,11 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | block_comments_span_lines_and_triples_span_lines | 块注释与三引号跨行 | 给定跨行块注释的 rust 代码与三引号字符串的 python 代码，当 tokenize，则各自为单个跨行 token | 2026-10-02 |
 | hex_numbers_color_whole | 十六进制字面量整体着色 | 给定含 0xFF_00 的 rust 代码，当 tokenize，则十六进制字面量为单个 Number token | 2026-10-02 |
 | every_class_has_its_own_color_per_theme | 六类色明暗两套互异 | 给定六类别与明暗两主题，当取色，则同主题内六色两两不同、注释恒斜体 | 2026-10-02 |
+| js_template_strings_color_with_the_backtick_ruleset | JS 别名落到反引号规则集 | 给定含反引号模板串的 js 代码，当按 "js" tokenize，则 const 为关键字、模板串为字符串（别名表查到的是带反引号的条目） | 2026-10-02 |
+| keywords_with_non_word_edges_still_color | 非词边缘关键字着色 | 给定 objc @interface、ruby defined?、clojure set! 的代码，当 tokenize，则各自关键字着色（\b 不存在于 @ 前、?/! 后，裸匹配） | 2026-10-02 |
+| toml_section_headers_color_on_every_line | TOML 节头任意行着色 | 给定首行与第四行各一个节头的 TOML，当 tokenize，则两个节头都落 Function（多行锚定） | 2026-10-02 |
+| sql_detection_ignores_non_statement_lines | SQL 探测忽略非语句行 | 给定注释里含 select...from 对的 rust 代码、selected/fromage 子串散文，当内容探测，则前者 rust、后者无语言（行锚定 + 词边界） | 2026-10-02 |
+| css_hex_colors_color_as_numbers_not_selectors | CSS 十六进制色值归数字 | 给定含 #fff 短色值与 #wrap id 选择器的 CSS，当 tokenize，则色值落 Number（色值组先于选择器组） | 2026-10-02 |
 
 ### crates/gloss-app/src/ui/context.rs
 
