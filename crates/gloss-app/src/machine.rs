@@ -406,8 +406,7 @@ impl TaskStateMachine {
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
             body: String::new(),
-            // 划词走向 Auto 哨兵：kind 此刻不可用，等分类半程精化。
-            classified: None,
+            classified: (kind != TaskKind::Auto).then_some(kind),
             code_lang,
         });
         self.state = AppState::Translating;
@@ -683,7 +682,7 @@ fn streaming_view(task: &Task) -> OverlayView {
         return OverlayView::Streaming {
             source: String::new(),
             body: String::new(),
-            classified: None,
+            classified: (task.kind != TaskKind::Auto).then_some(task.kind),
             code_lang: None,
         };
     };
@@ -1398,8 +1397,6 @@ mod tests {
 
     #[test]
     fn fixed_kinds_arrive_classified_while_the_auto_sentinel_waits() {
-        // 热键（固定 kind）：创建时即 Some——代码解释从首帧就按代码排版
-        // （曾恒写 None，衬线闪现的根因）。
         let mut machine = TaskStateMachine::new();
         let command = trigger_hotkey(&mut machine, &Config::default()).expect("hotkey triggers");
         let AcquireCommand::AcquireText { generation, .. } = command else {
@@ -1424,7 +1421,6 @@ mod tests {
             "a fixed kind is classified at creation, and the language falls to content detection"
         );
 
-        // 划词（Auto 哨兵）：kind 此刻不可用，创建时 None，等分类半程精化。
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
         dispatched(machine.commit_selection(

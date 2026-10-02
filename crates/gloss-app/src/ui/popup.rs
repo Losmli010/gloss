@@ -824,7 +824,8 @@ fn code_badge(ui: &mut egui::Ui, panel: egui::Rect, lang: Option<&str>) {
     let size = galley.size();
     let rect = egui::Rect::from_min_size(
         egui::pos2(
-            panel.max.x - CODE_BADGE_RIGHT - size.x,
+            (panel.max.x - CODE_BADGE_RIGHT - size.x)
+                .max(panel.min.x + f32::from(CODE_PANEL_PADDING_H)),
             panel.min.y + CODE_BADGE_TOP,
         ),
         size,
@@ -1430,8 +1431,6 @@ mod kittest_tests {
         }
     }
 
-    /// 代码流式视图夹具（英文）：ExplainCode 从首帧即代码排版——固定
-    /// kind 创建时即 Some（machine 语义），语言来自 hint/内容探测。
     fn code_streaming_view_en() -> OverlayView {
         OverlayView::Streaming {
             source: "fn main() {\n    let gloss = \"光\";\n    println!(\"{gloss}\");\n}".into(),
@@ -1442,7 +1441,6 @@ mod kittest_tests {
         }
     }
 
-    /// 代码完成态夹具（英文）：经位代码面板沿用流式判定的语言。
     fn code_outcome_view_en() -> OverlayView {
         OverlayView::Outcome {
             source: "fn main() {\n    let gloss = \"光\";\n    println!(\"{gloss}\");\n}".into(),

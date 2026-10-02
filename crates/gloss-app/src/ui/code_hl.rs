@@ -70,18 +70,31 @@ pub(crate) fn detect_language(text: &str) -> Option<String> {
 }
 
 /// shebang 行（`#!` 开头）按解释器名映射语言；认不出解释器则无语言。
+/// 首个空白分隔 token 是解释器路径；`env` 转发时跳过旗标取其首个参数
+/// （`#!/bin/sh -e`、`#!/usr/bin/env -S python3` 这类带旗标形态）。
 fn detect_shebang(head: &str) -> Option<String> {
     let first = head.lines().next()?;
-    let path = first.strip_prefix("#!")?;
-    let interpreter = path
-        .rsplit(['/', ' '])
-        .find(|segment| !segment.is_empty())
-        .unwrap_or(path);
-    // `env python3` / `python3.12` 这类带后缀的解释器名截掉版本尾巴。
-    let base = interpreter
+    let mut tokens = first.strip_prefix("#!")?.split_whitespace();
+    fn basename(path: &str) -> &str {
+        path.rsplit('/').next().unwrap_or(path)
+    }
+    let mut path = tokens.next()?;
+    let mut name = basename(path);
+    if name == "env" {
+        loop {
+            path = tokens.next()?;
+            if path.starts_with('-') {
+                continue;
+            }
+            name = basename(path);
+            break;
+        }
+    }
+    // `python3` / `python3.12` 这类带版本尾巴的解释器名截掉数字段。
+    let base = name
         .split(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
         .next()
-        .unwrap_or(interpreter);
+        .unwrap_or(name);
     match base {
         "python" => Some("python".to_owned()),
         "bash" => Some("bash".to_owned()),
@@ -152,6 +165,16 @@ mod tests {
         assert_eq!(
             detect_language("#!/usr/bin/node\nconsole.log(1)").as_deref(),
             Some("javascript")
+        );
+        assert_eq!(
+            detect_language("#!/bin/sh -e\nx").as_deref(),
+            Some("bash"),
+            "a flag after the interpreter path must not shadow the name"
+        );
+        assert_eq!(
+            detect_language("#!/usr/bin/env -S python3 -a\nx").as_deref(),
+            Some("python"),
+            "env flags are skipped to reach the interpreter"
         );
         assert_eq!(
             detect_language("#!/usr/bin/unknown-thing\nx").as_deref(),
