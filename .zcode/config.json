@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "PreToolUse": [
+        {
+          "matcher": "^(mcp__github__create_pull_request|mcp__github__update_pull_request|Bash)$",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bash \"${ZCODE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-.}}/.zcode/hooks/check-pr-title.sh\"",
+              "shell": "bash",
+              "timeoutMs": 10000,
+              "statusMessage": "校验 PR 标题（check-commit-msg）"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
