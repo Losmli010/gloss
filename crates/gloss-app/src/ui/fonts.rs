@@ -1,5 +1,5 @@
-//! 系统字体发现与注入：给 egui 补上 CJK 后备字形与经注疏的宋楷字族、
-//! 代码/音标的等宽字族。
+//! 系统字体发现与注入：给 egui 补上 CJK 后备字形、经注疏的宋楷字族与
+//! 音标的等宽字族。
 //!
 //! egui 内置字体只覆盖拉丁与常见符号，中文会渲染成豆腐块；这里用 font-kit 从
 //! 系统里定位一个 CJK 字体，以「最低优先级后备」追加进 egui 的字体族——拉丁
@@ -26,8 +26,8 @@ pub(super) const FONT_NAME: &str = "gloss-cjk";
 pub(super) const FONT_SERIF_NAME: &str = "gloss-songti";
 /// 楷体命名字体族：注正文的排版字体（demo 的 --kai 栈）。
 pub(super) const FONT_KAITI_NAME: &str = "gloss-kaiti";
-/// 等宽命名字体族：词卡音标与代码面板的排版字体（demo 的 ui-monospace
-/// 栈的落地，覆盖内置等宽缺的 IPA 音标字形）。
+/// 等宽命名字体族：词卡音标的排版字体（demo 的 ui-monospace 栈的落地，
+/// 覆盖内置等宽缺的 IPA 音标字形）。
 pub(super) const FONT_MONO_NAME: &str = "gloss-mono";
 
 /// 注正文的字体族。
@@ -40,7 +40,7 @@ pub(super) fn serif_family() -> FontFamily {
     FontFamily::Name(FONT_SERIF_NAME.into())
 }
 
-/// 代码/音标的等宽字体族。
+/// 音标的等宽字体族。
 pub(super) fn mono_family() -> FontFamily {
     FontFamily::Name(FONT_MONO_NAME.into())
 }
