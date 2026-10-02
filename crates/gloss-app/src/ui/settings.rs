@@ -365,7 +365,17 @@ pub(crate) fn draw(
 /// 设置窗口内边距（窗口私有量，docs/14 定版 16）。
 const WINDOW_PADDING: i8 = 16;
 
-/// 动作行：取消（次按钮）+ 保存（ACCENT 主按钮），右对齐。
+/// 品牌强调色：明暗主题各取朱砂档——浅底用压暗档、深底用提亮档，与印章
+/// 朱丝栏、品牌划线同一色源。
+fn accent(ui: &egui::Ui) -> egui::Color32 {
+    if ui.visuals().dark_mode {
+        color::ACCENT_DARK
+    } else {
+        color::ACCENT_LIGHT
+    }
+}
+
+/// 动作行：取消（次按钮）+ 保存（朱砂主按钮），右对齐。
 fn action_row(
     ui: &mut egui::Ui,
     state: &mut SettingsState,
@@ -382,7 +392,7 @@ fn action_row(
                 egui::Button::new(
                     RichText::new(text.gloss_settings_save.as_str()).color(egui::Color32::WHITE),
                 )
-                .fill(color::ACCENT)
+                .fill(accent(ui))
                 .corner_radius(egui::CornerRadius::same(6)),
             );
             if save.clicked() {
@@ -630,7 +640,7 @@ fn switch_row(ui: &mut egui::Ui, label: &str, enabled: bool, text: &Text) -> boo
                 )
             });
             let track_fill = if enabled {
-                color::ACCENT
+                accent(ui)
             } else {
                 ui.visuals().widgets.inactive.bg_fill
             };

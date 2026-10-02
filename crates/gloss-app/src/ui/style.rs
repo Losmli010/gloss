@@ -59,11 +59,15 @@ pub mod stroke {
 pub mod color {
     use egui::Color32;
 
-    /// 品牌强调色（珊瑚橙）：设置保存主按钮与开关钮的着轨。
-    pub const ACCENT: Color32 = Color32::from_rgb(0xD8, 0x5A, 0x30);
+    /// 品牌强调色（朱砂·浅色主题）：设置保存主按钮与开关钮的着轨。与印章、
+    /// 朱丝栏、品牌划线同一色板，压暗到白底可读。
+    pub const ACCENT_LIGHT: Color32 = SEAL_ZHU_LIGHT;
+
+    /// 品牌强调色（朱砂·深色主题）：同一色相提亮到深底可读。
+    pub const ACCENT_DARK: Color32 = SEAL_ZHU_DARK;
 
     /// 错误色：设置页校验失败的下划线与就地提示、校验汇总行。
-    /// 与 ACCENT 同饱和度带的正红，明暗主题下均可读。
+    /// 与朱砂强调色同饱和度带的正红，明暗主题下均可读。
     pub const DANGER: Color32 = Color32::from_rgb(0xC6, 0x28, 0x28);
 
     /// 朱砂（浅色主题）：经注疏印章的实心印与朱丝栏的线色源。压暗到白底可读。
