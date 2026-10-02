@@ -45,19 +45,21 @@ impl GlossApp {
             // 逐事件现读场景事实：安全输入态与前台应用都可能在两条触发
             // 之间变化，探针也就两次纯查询。
             let scene = self.scene.facts();
-            // 划词探测不取消在途任务；热键触发取消（日志照旧带真相）。
-            let superseded = self.machine.current_cancel().is_some();
+            // 划词探测不取消在途任务；热键触发取消（日志要带「顶掉在途」
+            // 的真相，因此取消状态只在热键分支、触发前取一次）。
             let routed = match &event {
                 PlatformEvent::SelectionGesture { .. } => self
                     .machine
                     .begin_selection_probe(&event, &config, self.system_locale, &scene)
-                    .map(|command| (command, false)),
-                _ => self
-                    .machine
-                    .trigger(&event, &config, self.system_locale, &scene)
-                    .map(|command| (command, true)),
+                    .map(|command| (command, false, false)),
+                _ => {
+                    let superseded = self.machine.current_cancel().is_some();
+                    self.machine
+                        .trigger(&event, &config, self.system_locale, &scene)
+                        .map(|command| (command, true, superseded))
+                }
             };
-            let Some((command, immediate_reveal)) = routed else {
+            let Some((command, immediate_reveal, superseded)) = routed else {
                 // 三类拦下各有各的级别与措辞：被任务开关停用的触发是用户
                 // 能自己修的配置问题；被场景闸门拦下的是「这一次的场景不
                 // 合适」（换一个应用，或取消密码框的聚焦）；自身前台是

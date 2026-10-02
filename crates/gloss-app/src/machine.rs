@@ -376,11 +376,13 @@ impl TaskStateMachine {
         if let Some(reason) = guard::detect_sensitive(&text) {
             return InputOutcome::Blocked(reason);
         }
-        // 提交即接管：旧在途任务让位。
+        // 提交即接管：旧在途任务让位，热键取材会话的待组装任务一并作废
+        // （与 trigger 的接管语义对齐，不留等待被下一次热键覆盖的死数据）。
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
         self.active_task = None;
+        self.pending = None;
         self.generation = id;
         let task = Task {
             kind,
@@ -424,12 +426,14 @@ impl TaskStateMachine {
         self.probe = None;
     }
 
-    /// 落 `Error` 态的共用半边：取消在途、作废任务副本、按错误映射给
+    /// 落 `Error` 态的共用半边：取消在途、作废任务副本与热键取材会话的
+    /// 待组装任务（接管即全清，重试只认 `active_task`）、按错误映射给
     /// 动作出口并落失败卡。
     fn land_error(&mut self, error: &GlossError) {
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
+        self.pending = None;
         // 只有「原样重发有意义」的失败才留任务副本；其余类别（含通道级
         // 故障的 fail_* 降级路径）一律清掉，retry() 自然无从发起。副本
         // 缺失时（未来取材路径若回传可重试错误）不给 Retry 出口——别摆
@@ -449,8 +453,9 @@ impl TaskStateMachine {
         });
     }
 
-    /// 采纳取材产物：组装 `Task` 并返回下发请求（壳经通道③发送），进入
-    /// `Translating`。选项取触发时那份快照（不经参数再传配置）。
+    /// 采纳取材产物（热键路径）：组装 `Task` 并返回下发请求（壳经通道③
+    /// 发送），进入 `Translating`。选项取触发时那份快照（不经参数再传配
+    /// 置）。划词路径的产物采纳走 [`Self::commit_selection`]。
     ///
     /// 内容闸门命中时这次取材作废：任务不组装、不下发、浮层不露面，直接回
     /// `Idle`（壳据 [`InputOutcome::Blocked`] 记一行 warn 并收起浮层窗口）。
@@ -1516,6 +1521,37 @@ mod tests {
             ),
             "the superseded probe must not hijack the hotkey's session"
         );
+    }
+
+    #[test]
+    fn commit_while_hotkey_fetching_supersedes_the_hotkey_session() {
+        let mut machine = TaskStateMachine::new();
+        trigger_hotkey(&mut machine, &Config::default()).expect("trigger");
+        assert_eq!(machine.state(), AppState::Fetching);
+
+        assert_eq!(
+            probe(&mut machine, &Config::default()),
+            2,
+            "a gesture during a hotkey fetch probes without touching it"
+        );
+        assert_eq!(machine.state(), AppState::Fetching, "探测不动热键会话");
+
+        let request = dispatched(machine.commit_selection(2, text_input("划词先到")));
+        assert_eq!(machine.generation(), 2, "the probe id is promoted");
+        assert_eq!(machine.state(), AppState::Translating);
+        assert!(
+            machine.pending.is_none(),
+            "the hotkey's frozen task is dropped with the session"
+        );
+
+        assert!(
+            matches!(
+                machine.accept_input(1, text_input("热键的迟到产物")),
+                InputOutcome::Ignored
+            ),
+            "the hotkey's late product must not hijack the committed session"
+        );
+        assert_eq!(request.generation, 2);
     }
 
     #[test]

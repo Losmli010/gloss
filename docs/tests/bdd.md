@@ -596,6 +596,7 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | selection_failures_outside_the_probe_still_raise_the_card | 推理期取材类失败仍弹卡 | 给定划词提交已进推理态，当收 SelectionUnavailable，则落 Error 弹卡（静默只覆盖探测一腿） | 2026-10-01 |
 | stale_probe_results_are_dropped | 陈旧探测产物整体丢弃 | 给定新探测替换旧探测，当旧编号的产物/失败到达，则一律 Ignored | 2026-10-01 |
 | hotkey_supersedes_the_outstanding_probe | 热键取代在途探测 | 给定在途探测，当热键触发，则热键领新代数、探测作废，迟到的探测产物不得劫持热键会话 | 2026-10-01 |
+| commit_while_hotkey_fetching_supersedes_the_hotkey_session | 探测提交取代热键取材会话 | 给定热键取材中到达划词探测，当探测产物先提交，则编号提升为代数、进 Translating、热键冻结任务清掉，热键的迟到 InputReady 被拒 | 2026-10-02 |
 | probe_in_the_self_frontmost_scene_is_suppressed_without_an_id | 自身前台的划词被拦且不占编号 | 给定前台应用 is_self 为真，当手势 trigger_decision，则 SelfSuppressed、探测为 None、无浮层；同一场景下热键照常 Acquire | 2026-10-01 |
 | modality_mismatch_preserves_pending_task | 模态错配保留待定任务 | 给定模态错配被拒后，当同编号合法产物到达，则仍可提交 | 2026-09-19 |
 | transport_failure_lands_in_error | 传输失败落错误态 | 给定推理通道不可用，当 fail_transport，则落 Error、失败视图无动作按钮、retry 为 None | 2026-09-19 |
