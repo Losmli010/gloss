@@ -207,7 +207,7 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | close_button_submits_dismiss | 头部关闭按钮上交收起 | 给定词卡视图（头部为各视图共用路径），当点击无障碍标签「关闭浮层」的 × 钮，则 draw 产物为 OverlayAction::Dismiss | 2026-09-21 |
 | gear_button_submits_open_settings | 头部齿轮上交打开设置 | 给定词卡视图，当点击无障碍标签「设置」的 ⚙ 钮，则 draw 产物为 OverlayAction::OpenSettings | 2026-09-21 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck 七份基线一致，结果合并进单个 SnapshotResults（2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录） | 2026-10-02 |
+| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck 七份基线一致，结果合并进单个 SnapshotResults（2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中） | 2026-10-02 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用翻译」后保存，当检查上交配置，则 TranslateSentence 已停用（默认任务不在此列——停用它会被跨字段校验拦下） | 2026-09-23 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
@@ -700,9 +700,13 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | named_family_without_bytes_binds_the_builtin_glyphs | 命名字体族无字节时绑内置字形 | 给定缺失的字体字节，当注册宋体命名字体族，则不发明字体数据、族仍绑定到内置字形（epaint 对未绑定族直接 panic，族必须恒存在） | 2026-10-01 |
 | cjk_fallback_shares_bytes_across_contexts | 后备字体字节按借用登记、零拷贝共享 | 给定同一段字体字节接入两份字体定义，当检查，则两份定义都按借用登记且指向同一地址 | 2026-10-01 |
 | named_family_registers_bytes_verbatim | 命名字体族按字节注册 | 给定字体字节，当注册宋体命名字体族，则族名指向自身且字节按借用原样登记 | 2026-10-01 |
-| definitions_always_bind_the_named_typography_families | 宋楷命名族恒绑定 | 给定真实系统的字体定义，当取 definitions，则宋楷两命名族要么有自身字体数据、要么绑定到内置字形（epaint 对未绑定族直接 panic，族恒存在） | 2026-10-01 |
+| definitions_always_bind_the_named_typography_families | 宋楷与等宽命名族恒绑定 | 给定真实系统的字体定义，当取 definitions，则宋楷与等宽三命名族要么有自身字体数据、要么绑定到内置字形（epaint 对未绑定族直接 panic，族恒存在） | 2026-10-02 |
 | zhu_family_is_always_named | 注区字体族恒为命名族 | 给定 zhu_family 入口，当取值，则恒为楷体命名字体族 | 2026-10-01 |
+| mono_family_is_always_named | 代码/音标字体族恒为命名族 | 给定 mono_family 入口，当取值，则恒为 gloss-mono 命名字体族 | 2026-10-02 |
+| mono_family_chain_appends_the_cjk_fallback | 等宽族绑定含 CJK 后备 | 给定等宽与 CJK 两段字体字节（CJK 已按后备登记），当注册等宽命名字族，则族链为系统等宽在前、CJK 后备在后（代码内中文可读） | 2026-10-02 |
+| mono_family_without_a_system_mono_binds_the_builtin_glyphs | 等宽族不向比例 CJK 降级 | 给定缺失的系统等宽字节，当注册等宽命名字族，则族绑内置字形、不落 CJK 比例字体（等宽对齐优先于字形覆盖） | 2026-10-02 |
 | system_cjk_font_is_discoverable | 系统 CJK 字体可发现 | 给定真实系统，当执行 CJK 字体发现，则必须找到且字节非空（依赖宿主机） | 2026-10-01 |
+| system_monospace_font_is_discoverable | 系统等宽字体可发现 | 给定真实系统，当按候选顺序（SF Mono → Menlo → Monaco → DejaVu Sans Mono → Consolas）执行等宽字体发现，则必须找到（依赖宿主机） | 2026-10-02 |
 | system_cjk_font_is_loaded_once | 系统 CJK 字体只加载一次且两份定义共享 | 给定真实系统，当连续两次取字体字节并各自接入字体定义，则两次返回同一段内存、两份定义登记到同一地址（依赖宿主机） | 2026-10-01 |
 
 ### crates/gloss-app/src/ui/settings.rs
