@@ -28,7 +28,9 @@ use gloss_core::config::Config;
 use gloss_core::guard::{self, SceneFacts, SensitiveKind, TriggerBlock};
 use gloss_core::model::GlossError;
 use gloss_core::model::Locale;
-use gloss_core::task::{InputSource, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome};
+use gloss_core::task::{
+    InputHint, InputSource, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome,
+};
 
 use crate::channel::{AcquireCommand, PlatformEvent};
 
@@ -80,24 +82,31 @@ pub enum OverlayView {
     Acquiring,
     /// 取材/推理中：原文 + 已到达的流式正文（含结构化块的原始流，渲染
     /// 层按 [`gloss_core::prompt::STRUCTURED_FENCE`] 过滤）。`classified`
-    /// 是自动分类的判定结果（`None` = 尚未判明）：头部任务标签随它出现。
+    /// 是按代码排版的判定结果：热键等固定 kind 的任务创建时即知（非
+    /// Auto 恒 `Some`，代码解释从首帧就按代码排版），划词（Auto 哨兵）
+    /// 为 `None`、`accept_classified` 到达后精化。
     Streaming {
         /// 触发时选中的原文。
         source: String,
         /// 已到达的流式正文累积（原始流）。
         body: String,
-        /// 自动分类判明的任务类型；非 Auto 任务恒为 `None`（标签来自
-        /// 产物卡的 kind）。
+        /// 自动分类判明的任务类型（创建时已知则立即可用）。
         classified: Option<TaskKind>,
+        /// 代码语言（角标与高亮规则集共用）：`InputHint::CodeLanguage`
+        /// 优先，缺失时对原文内容探测；视图创建时判定一次。
+        code_lang: Option<String>,
     },
     /// 产物卡：按 `TaskKind` 精排或展示 markdown 正文。`source` 是本次
     /// 任务的原文（从流式视图随行而来），经注疏排布的「经」位用——
-    /// 完成态不再只剩译文。
+    /// 完成态不再只剩译文。`code_lang` 与 `source` 同路随行（代码解释
+    /// 的完成态角标沿用流式时的判定，不因正文到达而重探）。
     Outcome {
         /// 触发时选中的原文。
         source: String,
         /// 产物本体。
         outcome: TaskOutcome,
+        /// 代码语言（自流式视图随行）。
+        code_lang: Option<String>,
     },
     /// 失败信息与动作出口：`action` 指出浮层该给用户的按钮（错误
     /// 映射），`None` 表示无可操作出口（重新划词即可）。
@@ -384,6 +393,8 @@ impl TaskStateMachine {
         self.active_task = None;
         self.pending = None;
         self.generation = id;
+        // 视图与任务各要一份原文；语言判定要在 hint 被任务带走之前做。
+        let code_lang = code_lang_of(&text, &hint);
         let task = Task {
             kind,
             input: TaskInput::Text {
@@ -395,7 +406,9 @@ impl TaskStateMachine {
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
             body: String::new(),
+            // 划词走向 Auto 哨兵：kind 此刻不可用，等分类半程精化。
             classified: None,
+            code_lang,
         });
         self.state = AppState::Translating;
         InputOutcome::Dispatch(self.begin_run(task))
@@ -479,6 +492,8 @@ impl TaskStateMachine {
             self.state = AppState::Idle;
             return InputOutcome::Blocked(reason);
         }
+        // 视图与任务各要一份原文；语言判定要在 hint 被任务带走之前做。
+        let code_lang = code_lang_of(&text, &hint);
         let task = Task {
             kind,
             input: TaskInput::Text {
@@ -490,7 +505,10 @@ impl TaskStateMachine {
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
             body: String::new(),
-            classified: None,
+            // 热键是显式意图：kind 触发时即知（非 Auto 恒 Some），代码
+            // 解释从首帧就按代码排版——曾恒写 None，衬线闪现的根因。
+            classified: (kind != TaskKind::Auto).then_some(kind),
+            code_lang,
         });
         self.state = AppState::Translating;
         InputOutcome::Dispatch(self.begin_run(task))
@@ -520,12 +538,18 @@ impl TaskStateMachine {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
         }
-        let source = match &self.overlay_view {
-            Some(OverlayView::Streaming { source, .. }) => source.clone(),
-            _ => String::new(),
+        let (source, code_lang) = match &self.overlay_view {
+            Some(OverlayView::Streaming {
+                source, code_lang, ..
+            }) => (source.clone(), code_lang.clone()),
+            _ => (String::new(), None),
         };
         self.active_task = None;
-        self.overlay_view = Some(OverlayView::Outcome { source, outcome });
+        self.overlay_view = Some(OverlayView::Outcome {
+            source,
+            outcome,
+            code_lang,
+        });
         self.state = AppState::Show;
         true
     }
@@ -652,23 +676,34 @@ fn error_action(error: &GlossError) -> Option<ErrorAction> {
     }
 }
 
-/// 一个任务下发的流式视图起点：原文照抄、正文空、未分类。重试与首次
-/// 下发共用。
+/// 一个任务下发的流式视图起点：原文照抄、正文空；固定 kind 即已分类，
+/// 划词哨兵留待分类精化。重试与首次下发共用。
 fn streaming_view(task: &Task) -> OverlayView {
+    let TaskInput::Text { text, hint } = &task.input else {
+        return OverlayView::Streaming {
+            source: String::new(),
+            body: String::new(),
+            classified: None,
+            code_lang: None,
+        };
+    };
     OverlayView::Streaming {
-        source: source_text(task),
+        source: text.clone(),
         body: String::new(),
-        classified: None,
+        classified: (task.kind != TaskKind::Auto).then_some(task.kind),
+        code_lang: code_lang_of(text, hint),
     }
 }
 
-/// 任务原文（流式视图与重试用）：当前只有文本任务进入推理（图像取材接入
-/// 像取材时随它扩展），其余模态留空。
-fn source_text(task: &Task) -> String {
-    match &task.input {
-        TaskInput::Text { text, .. } => text.clone(),
-        TaskInput::Image { .. } | TaskInput::Audio { .. } => String::new(),
-    }
+/// 代码语言的判定：hint 显式声明优先（归一化后采用），缺失时对原文内容
+/// 探测。视图创建时一次，不进渲染热路径。
+fn code_lang_of(text: &str, hint: &Option<InputHint>) -> Option<String> {
+    hint.as_ref()
+        .and_then(|hint| match hint {
+            InputHint::CodeLanguage(lang) => crate::ui::code_hl::normalize_language(lang),
+            InputHint::SourceLang(_) => None,
+        })
+        .or_else(|| crate::ui::code_hl::detect_language(text))
 }
 
 /// 一次平台事件的去向：取材，或被四类闸门之一拦下。
@@ -1358,6 +1393,99 @@ mod tests {
         assert!(
             !machine.accept_classified(1, TaskKind::ExplainCode),
             "a late classification must not touch a settled outcome card"
+        );
+    }
+
+    #[test]
+    fn fixed_kinds_arrive_classified_while_the_auto_sentinel_waits() {
+        // 热键（固定 kind）：创建时即 Some——代码解释从首帧就按代码排版
+        // （曾恒写 None，衬线闪现的根因）。
+        let mut machine = TaskStateMachine::new();
+        let command = trigger_hotkey(&mut machine, &Config::default()).expect("hotkey triggers");
+        let AcquireCommand::AcquireText { generation, .. } = command else {
+            panic!("acquire text expected");
+        };
+        dispatched(machine.accept_input(
+            generation,
+            TaskInput::Text {
+                text: "fn main() {}".into(),
+                hint: None,
+            },
+        ));
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Streaming {
+                    classified: Some(TaskKind::TranslateSentence),
+                    code_lang: Some(lang),
+                    ..
+                }) if lang == "rust"
+            ),
+            "a fixed kind is classified at creation, and the language falls to content detection"
+        );
+
+        // 划词（Auto 哨兵）：kind 此刻不可用，创建时 None，等分类半程精化。
+        let mut machine = TaskStateMachine::new();
+        let probe_id = probe(&mut machine, &Config::default());
+        dispatched(machine.commit_selection(
+            probe_id,
+            TaskInput::Text {
+                text: "hello".into(),
+                hint: None,
+            },
+        ));
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Streaming {
+                    classified: None,
+                    code_lang: None,
+                    ..
+                })
+            ),
+            "the Auto sentinel stays unclassified until the classify half reports"
+        );
+    }
+
+    #[test]
+    fn code_language_prefers_the_hint_and_rides_into_the_outcome() {
+        let mut machine = TaskStateMachine::new();
+        let probe_id = probe(&mut machine, &Config::default());
+        dispatched(machine.commit_selection(
+            probe_id,
+            TaskInput::Text {
+                text: "print('hi')".into(),
+                hint: Some(InputHint::CodeLanguage("py".into())),
+            },
+        ));
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Streaming {
+                    code_lang: Some(lang),
+                    ..
+                }) if lang == "python"
+            ),
+            "an explicit hint wins over content detection, after normalization"
+        );
+
+        machine.accept_done(
+            1,
+            TaskOutcome {
+                kind: TaskKind::ExplainCode,
+                body: "产物".into(),
+                structured: OutcomeStructured::Plain { title: None },
+            },
+        );
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Outcome {
+                    code_lang: Some(lang),
+                    ..
+                }) if lang == "python"
+            ),
+            "the settled outcome card carries the language from the streaming view"
         );
     }
 

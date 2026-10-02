@@ -2,7 +2,8 @@
 //!
 //! 内容按「经 · 注 · 疏」三层组织，视觉定稿以 docs/demo/popup-redesign.html
 //! 为准（本地文件，不进 git）：
-//! - **经**＝选区原文/词条/提取文本（宋体；代码任务为等宽体加界栏框）；
+//! - **经**＝选区原文/词条/提取文本（宋体；代码任务为界栏框内嵌代码面板
+//!   ——专属底色、`gloss-mono` 等宽体、不换行横滚、右上角语言角标）；
 //! - **注**＝译文/释义/概要（楷体，系统缺楷体时随 demo 回退链落宋体；
 //!   朱丝栏左线 + 朱印）；
 //! - **疏**＝译注/例句/小记（小号宋体、弱色、上缘虚线 + 疏印）。
@@ -110,6 +111,19 @@ const JING_FRAME_RADIUS: u8 = 10;
 /// 界栏框内边距（水平/垂直）。
 const JING_FRAME_PADDING_H: i8 = 13;
 const JING_FRAME_PADDING_V: i8 = 10;
+/// 代码面板（界栏框内嵌层）的圆角、边宽与内边距（demo code 面板：
+/// radius 10、1px 边、11px 13px）。
+const CODE_PANEL_RADIUS: u8 = 10;
+const CODE_PANEL_STROKE: f32 = 1.0;
+const CODE_PANEL_PADDING_V: i8 = 11;
+const CODE_PANEL_PADDING_H: i8 = 13;
+/// 代码正文的字号与行高（demo 定稿：12px、行高 1.65）。
+const CODE_FONT: f32 = 12.0;
+const CODE_LINE_HEIGHT: f32 = CODE_FONT * 1.65;
+/// 语言角标的字号与其在面板右上角的偏移（demo：top 8 / right 11）。
+const CODE_BADGE_FONT: f32 = 10.0;
+const CODE_BADGE_TOP: f32 = 8.0;
+const CODE_BADGE_RIGHT: f32 = 11.0;
 /// 骨架条高（取材骨架与「经显注未至」的占位行同款）
 const SHIMMER_BAR_HEIGHT: f32 = 12.0;
 /// 骨架条圆角
@@ -387,18 +401,20 @@ fn render_content(
             source,
             body,
             classified,
+            code_lang,
         }) => {
             let action = header(ui, state, text);
             ui.add_space(space::SECTION);
+            let code = is_code(*classified);
             jing_section(ui, text, |ui| {
-                source_block(ui, source, is_code(*classified))
+                source_block(ui, source, code, code_lang.as_deref())
             });
             ui.add_space(space::PARAGRAPH);
             // ScrollArea 内容起点 = cursor（egui 的 cursor 停在前序内容底边
             // 加一个 item_spacing 处），从这里起算正文完整高。
             let visible = stream_visible_body(body);
             let viewport_max = (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT);
-            let scrolled = ScrollArea::vertical()
+            let scrolled = ScrollArea::new([code, true])
                 .auto_shrink([false, true])
                 .max_height(viewport_max)
                 .show(ui, |ui| {
@@ -417,15 +433,19 @@ fn render_content(
             record_scrolled_height(ui, content_h, &scrolled);
             action
         }
-        Some(OverlayView::Outcome { source, outcome }) => {
+        Some(OverlayView::Outcome {
+            source,
+            outcome,
+            code_lang,
+        }) => {
             let action = header(ui, state, text);
             ui.add_space(space::SECTION);
             let viewport_max = (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT);
-            let scrolled = ScrollArea::vertical()
+            let scrolled = ScrollArea::new([is_code(Some(outcome.kind)), true])
                 .auto_shrink([false, true])
                 .max_height(viewport_max)
                 .show(ui, |ui| {
-                    outcome_body(ui, source, outcome, state, text);
+                    outcome_body(ui, source, outcome, code_lang.as_deref(), state, text);
                 });
             ui.add_space(space::PARAGRAPH);
             footer(ui, false, text);
@@ -715,9 +735,10 @@ fn shu_section(ui: &mut egui::Ui, text: &Text, body: impl FnOnce(&mut egui::Ui))
     });
 }
 
-/// 经区块的正文：原文/词条随任务形制。代码任务为等宽体 + 界栏框
-/// （demo 的代码经位），其余为宋体原文。
-fn source_block(ui: &mut egui::Ui, source: &str, code: bool) {
+/// 经区块的正文：原文/词条随任务形制。代码任务为界栏框内嵌代码面板
+/// （demo 的代码经位双层结构：专属底色、等宽体、不换行、右上角语言
+/// 角标），其余为宋体原文。
+fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&str>) {
     let strong = ui.visuals().strong_text_color();
     if code {
         Frame::new()
@@ -732,15 +753,38 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool) {
                 JING_FRAME_PADDING_V,
             ))
             .show(ui, |ui| {
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(source)
-                            .font(FontId::new(SHU_FONT, FontFamily::Monospace))
-                            .color(strong),
-                    )
-                    .wrap()
-                    .selectable(true),
-                );
+                let panel = Frame::new()
+                    .fill(code_bg(ui))
+                    .stroke(Stroke::new(
+                        CODE_PANEL_STROKE,
+                        ui.visuals().widgets.noninteractive.bg_stroke.color,
+                    ))
+                    .corner_radius(CornerRadius::same(CODE_PANEL_RADIUS))
+                    .inner_margin(Margin::symmetric(
+                        CODE_PANEL_PADDING_H,
+                        CODE_PANEL_PADDING_V,
+                    ))
+                    .show(ui, |ui| {
+                        // 不换行：超宽由面板内横向滚动兜底（流式视图的经位
+                        // 在正文 ScrollArea 之外，横向滚动必须自己带）。
+                        ScrollArea::horizontal()
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(source)
+                                            .font(FontId::new(CODE_FONT, fonts::mono_family()))
+                                            .line_height(Some(CODE_LINE_HEIGHT))
+                                            .color(strong),
+                                    )
+                                    .wrap_mode(egui::TextWrapMode::Extend)
+                                    .selectable(true),
+                                );
+                            });
+                    })
+                    .response
+                    .rect;
+                code_badge(ui, panel, code_lang);
             });
         return;
     }
@@ -753,6 +797,46 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool) {
         .wrap()
         .selectable(true),
     );
+}
+
+/// 代码面板底色（明暗随主题，demo code-bg 双档）。
+fn code_bg(ui: &egui::Ui) -> egui::Color32 {
+    if ui.visuals().dark_mode {
+        color::CODE_BG_DARK
+    } else {
+        color::CODE_BG_LIGHT
+    }
+}
+
+/// 语言角标：面板右上角浮置的大写弱色小字（demo top 8 / right 11），未知
+/// 语言不显示。painter 落字、hover 响应携带无障碍标签（语言进树可检索）。
+fn code_badge(ui: &mut egui::Ui, panel: egui::Rect, lang: Option<&str>) {
+    let Some(lang) = lang else {
+        return;
+    };
+    let label = lang.to_uppercase();
+    let dim = ui.visuals().weak_text_color();
+    let galley = ui.painter().layout_no_wrap(
+        label.clone(),
+        FontId::new(CODE_BADGE_FONT, FontFamily::Proportional),
+        dim,
+    );
+    let size = galley.size();
+    let rect = egui::Rect::from_min_size(
+        egui::pos2(
+            panel.max.x - CODE_BADGE_RIGHT - size.x,
+            panel.min.y + CODE_BADGE_TOP,
+        ),
+        size,
+    );
+    ui.painter().galley(rect.min, galley, dim);
+    let response = ui.interact(
+        rect,
+        ui.id().with(("code_lang_badge", label.clone())),
+        egui::Sense::hover(),
+    );
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, label.clone()));
 }
 
 /// 注区的文本样式改写：markdown 正文与列表项落到楷体字号（egui_commonmark
@@ -916,6 +1000,7 @@ fn outcome_body(
     ui: &mut egui::Ui,
     source: &str,
     outcome: &gloss_core::task::TaskOutcome,
+    code_lang: Option<&str>,
     state: &RenderState,
     text: &Text,
 ) {
@@ -928,7 +1013,7 @@ fn outcome_body(
         OutcomeStructured::Plain { title } => {
             if !source.trim().is_empty() {
                 jing_section(ui, text, |ui| {
-                    source_block(ui, source, is_code(Some(outcome.kind)))
+                    source_block(ui, source, is_code(Some(outcome.kind)), code_lang)
                 });
                 ui.add_space(space::PARAGRAPH);
             }
@@ -1238,6 +1323,7 @@ mod kittest_tests {
                     ],
                 },
             },
+            code_lang: None,
         }
     }
 
@@ -1246,6 +1332,7 @@ mod kittest_tests {
             source: "选中的原文".into(),
             body: "已流式到达的正文\n```gloss\n{\"title\":\"摘要\"}\n```".into(),
             classified: Some(TaskKind::TranslateWord),
+            code_lang: None,
         }
     }
 
@@ -1289,6 +1376,7 @@ mod kittest_tests {
                 body: "很长的正文段落。".repeat(1000) + "尾部标记",
                 structured: OutcomeStructured::Plain { title: None },
             },
+            code_lang: None,
         }
     }
 
@@ -1302,6 +1390,7 @@ mod kittest_tests {
                     text: "会议纪要\n参会：产品组、评测组".into(),
                 },
             },
+            code_lang: None,
         }
     }
 
@@ -1328,6 +1417,7 @@ mod kittest_tests {
                     ],
                 },
             },
+            code_lang: None,
         }
     }
 
@@ -1336,6 +1426,34 @@ mod kittest_tests {
             source: "It is not that I am so smart.".into(),
             body: "Partial body already streamed.\n```gloss\n{\"title\":\"Summary\"}\n```".into(),
             classified: Some(TaskKind::TranslateSentence),
+            code_lang: None,
+        }
+    }
+
+    /// 代码流式视图夹具（英文）：ExplainCode 从首帧即代码排版——固定
+    /// kind 创建时即 Some（machine 语义），语言来自 hint/内容探测。
+    fn code_streaming_view_en() -> OverlayView {
+        OverlayView::Streaming {
+            source: "fn main() {\n    let gloss = \"光\";\n    println!(\"{gloss}\");\n}".into(),
+            body: "Partial explanation already streamed.\n```gloss\n{\"title\":\"Rust\"}\n```"
+                .into(),
+            classified: Some(TaskKind::ExplainCode),
+            code_lang: Some("rust".into()),
+        }
+    }
+
+    /// 代码完成态夹具（英文）：经位代码面板沿用流式判定的语言。
+    fn code_outcome_view_en() -> OverlayView {
+        OverlayView::Outcome {
+            source: "fn main() {\n    let gloss = \"光\";\n    println!(\"{gloss}\");\n}".into(),
+            outcome: TaskOutcome {
+                kind: TaskKind::ExplainCode,
+                body: "### What it does\n\nPrints the CJK word for *gloss*.".into(),
+                structured: OutcomeStructured::Plain {
+                    title: Some("Rust snippet".into()),
+                },
+            },
+            code_lang: Some("rust".into()),
         }
     }
 
@@ -1349,6 +1467,7 @@ mod kittest_tests {
                     text: "Meeting notes\nAttendees: product, client, eval".into(),
                 },
             },
+            code_lang: None,
         }
     }
 
@@ -1570,6 +1689,20 @@ mod kittest_tests {
     }
 
     #[test]
+    fn code_views_expose_the_language_badge_and_prose_untouched() {
+        let (mut harness, _clicked) = harness_for(code_streaming_view_en());
+        harness.run_steps(3);
+        harness.get_by_label("RUST");
+
+        let (mut harness, _clicked) = harness_for(streaming_view_en());
+        harness.run_steps(3);
+        assert!(
+            harness.query_all_by_label_contains("RUST").next().is_none(),
+            "non-code tasks carry no language badge"
+        );
+    }
+
+    #[test]
     fn failed_view_shows_retry_hint() {
         let (mut harness, clicked) = harness_for(failed_view());
         harness.run();
@@ -1683,6 +1816,16 @@ mod kittest_tests {
         let mut harness = snapshot_harness(Some(auth_failed_view()));
         harness.run();
         harness.snapshot("popup_failed_auth");
+        results.extend_harness(&mut harness);
+
+        let mut harness = snapshot_harness(Some(code_streaming_view_en()));
+        harness.run_steps(3);
+        harness.snapshot("popup_code_streaming");
+        results.extend_harness(&mut harness);
+
+        let mut harness = snapshot_harness(Some(code_outcome_view_en()));
+        harness.run();
+        harness.snapshot("popup_code_outcome");
         results.extend_harness(&mut harness);
 
         let mut harness = snapshot_harness(None);
