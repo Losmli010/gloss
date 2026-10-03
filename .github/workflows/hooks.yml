@@ -162,8 +162,9 @@ jobs:
             echo "检查 commit $sha"
             echo "$msg" | ./scripts/hooks/check-commit-msg.sh -
           done
-          # squash 合并产生的 commit message 取自 PR 标题，标题走同一套校验
+          # squash 合并产生的 commit message 取自 PR 标题（GitHub 追加 (#PR号)），
+          # 按最长常见占位 (#99999) 模拟合并产物校验：标题自身合规而合并后超限同样拦下
           if [ -n "$PR_TITLE" ]; then
-            echo "检查 PR 标题"
-            printf '%s\n' "$PR_TITLE" | ./scripts/hooks/check-commit-msg.sh -
+            echo "检查 PR 标题（含 squash 后缀模拟 (#99999)）"
+            printf '%s\n' "$PR_TITLE (#99999)" | ./scripts/hooks/check-commit-msg.sh -
           fi

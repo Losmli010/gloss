@@ -9,6 +9,8 @@
 #   - Bash → 按 shell 词法（shlex）分词后定位 gh pr create|edit，只在其后找 --title
 #     （--title "x" / 'x' / =x 等价）；标题取不到（--fill/--web/--title-file、无 --title、
 #     分词失败）或运行时才可知（值含 $、反引号）→ 放行；
+#   - 校验串是 squash 合并产物的模拟：GitHub 合并时给标题追加 (#PR号)，按最长常见
+#     占位 (#99999) 拼接后送校验，超限判定对齐合并后的真实形态；
 #   - 标题校验失败 → check-commit-msg 的错误输出进 stderr，退出码 2 阻断本次工具调用；
 #   - 标题不存在、不适用、或钩子自身任何异常 → 退出码 0 放行，不误伤正常提交。
 set -uo pipefail
@@ -83,12 +85,12 @@ if [ -z "$TITLE" ] || [ ! -f "$CHECK" ]; then
   exit 0
 fi
 
-CHECK_ERR="$(printf '%s\n' "$TITLE" | bash "$CHECK" - 2>&1 >/dev/null)"
+CHECK_ERR="$(printf '%s\n' "$TITLE (#99999)" | bash "$CHECK" - 2>&1 >/dev/null)"
 CHECK_RC=$?
 
 if [ "$CHECK_RC" -ne 0 ]; then
   printf '%s\n' "$CHECK_ERR" >&2
-  echo "PR 标题未通过 check-commit-msg 校验，已拦截本次提交（与 CI 对 PR 标题的校验一致）：" >&2
+  echo "PR 标题按 squash 合并产物（标题 + \" (#99999)\"）模拟校验未通过，已拦截本次提交：" >&2
   echo "  你提交的标题是: ${TITLE}" >&2
   exit 2
 fi
