@@ -152,10 +152,13 @@ pub(crate) struct RenderState {
     pub cache: RefCell<CommonMarkCache>,
     /// 上一帧应用的浮层宽度（宽度收敛的滞回状态）。
     pub last_width: Cell<f32>,
-    /// 页头拖动的按压点（窗口内相对坐标，逻辑点）：拖动开始帧记录，
-    /// 结束即清——壳侧落点 = 窗口当前实际位置 +（当前指针 − 按压点），
-    /// 无增量记账，窗口中途被谁动过都会被下一帧落点自然吸收。
-    drag_press_pos: Cell<Option<egui::Pos2>>,
+    /// 页头拖动的按压点（**物理像素**，按压帧的窗口内逻辑坐标乘当下
+    /// `pixels_per_point`）：拖动开始帧记录，结束即清。存物理口径是为
+    /// 跨 DPI 显示器的拖动——逻辑坐标随新显示器的缩放比例重标定，逻辑
+    /// 按压点会混尺；物理位移按当下比例还原成当下尺度的逻辑位移，与壳
+    /// 侧落点换算（`apply_overlay_drag`）同口径。清零后 egui 侧若仍有
+    /// 残留拖动所有权（见 [`drag_strip`]），热区保持惰性。
+    drag_press_phys: Cell<Option<egui::Pos2>>,
     /// 页头应用图标的纹理（每个 egui 上下文一份，惰性装入）。None＝尚未
     /// 装入或解码失败；失败时每帧重试的成本只有一次常量读取，不再单设
     /// 失败标记。
@@ -167,13 +170,21 @@ impl Default for RenderState {
         Self {
             cache: RefCell::new(CommonMarkCache::default()),
             last_width: Cell::new(WIDTH),
-            drag_press_pos: Cell::new(None),
+            drag_press_phys: Cell::new(None),
             icon: RefCell::new(None),
         }
     }
 }
 
 impl RenderState {
+    /// 清除页头拖动的按压点：壳在收起/显示浮层的边界调用（见
+    /// `app::overlay`）。跨显示残留的拖动状态由此失效——egui 的拖动
+    /// 所有权可能因隐藏期丢失的鼠标释放而残留（按压点已清，热区保持
+    /// 惰性），下一次真实按压经 `drag_started` 重新握点自愈。
+    pub(crate) fn reset_drag_state(&self) {
+        self.drag_press_phys.set(None);
+    }
+
     /// 页头应用图标纹理；首次调用解码 PNG 并装入当前上下文。
     fn icon_texture(&self, ctx: &egui::Context) -> Option<egui::TextureHandle> {
         let mut slot = self.icon.borrow_mut();
@@ -529,7 +540,7 @@ fn hairline(ui: &egui::Ui) -> Stroke {
 /// 图标与动作区；生成指示移交页脚，见 [`footer`]）。行内容之下隔开
 /// `space::ITEM` 画一条与页脚上缘同规格的发丝线，横贯内容宽（取容器
 /// 全宽，与图标装没装无关），线与正文之间仍由各视图的 `space::SECTION`
-/// 隔开。行身同时是拖动热区（见 [`RenderState::drag_press_pos`] 与
+/// 隔开。行身同时是拖动热区（见 [`RenderState::drag_press_phys`] 与
 /// [`drag_strip`]），返回（动作区点击，拖动热区状态）。
 fn header(
     ui: &mut egui::Ui,
@@ -583,7 +594,14 @@ fn header(
 }
 
 /// 拖动热区的指针位移上交：按下帧确立握点（位移为零），之后每帧
-/// 上报指针自按压点起的累计位移；松开/未拖动返回 `None` 并清按压点。
+/// 上报指针自按压点起的累计位移（按压点按物理像素记录，跨 DPI 显示器
+/// 不混尺）；松开/未拖动返回 `None` 并清按压点。
+///
+/// 残留所有权保持惰性：egui 的拖动所有权只经按压事件授予（`egui`
+/// `interaction.rs` 的 `PointerEvent::Pressed` 分支），浮层隐藏期间丢失
+/// 的鼠标释放会让它跨显示残留；此时按压点已被壳在显隐边界清掉（
+/// [`RenderState::reset_drag_state`]），本函数对无按压点的拖动一概不
+/// 上交位移——窗口不会跟着无按键的指针走，下一次真实按压重新握点。
 fn drag_strip(
     ui: &mut egui::Ui,
     state: &RenderState,
@@ -614,19 +632,20 @@ fn drag_strip(
         egui::CursorIcon::Grab
     };
     let response = response.on_hover_cursor(cursor);
+    let (pointer, pixels_per_point) = ui.input(|i| (i.pointer.interact_pos(), i.pixels_per_point));
     if response.drag_started() {
         state
-            .drag_press_pos
-            .set(ui.input(|i| i.pointer.interact_pos()));
+            .drag_press_phys
+            .set(pointer.map(|pos| pos * pixels_per_point));
         return Some(egui::Vec2::ZERO);
     }
     if !response.dragged() {
-        state.drag_press_pos.set(None);
+        state.drag_press_phys.set(None);
         return None;
     }
-    let press = state.drag_press_pos.get()?;
-    let pointer = ui.input(|i| i.pointer.interact_pos())?;
-    Some(pointer - press)
+    let press_phys = state.drag_press_phys.get()?;
+    let pointer_phys = pointer? * pixels_per_point;
+    Some((pointer_phys - press_phys) / pixels_per_point)
 }
 
 /// 头部动作钮（关闭 ×）：与齿轮同尺寸的方块命中区，× 本体用两条圆头线段
@@ -1877,6 +1896,16 @@ mod kittest_tests {
         assert!(
             strip.height() >= HEADER_ICON,
             "热区与页头行同高，覆盖图标与动作区之间的整段行身: {strip:?}"
+        );
+        let gear = harness.get_by_label("设置").rect();
+        let close = harness.get_by_label("关闭浮层").rect();
+        assert!(
+            strip.right() <= gear.left(),
+            "热区止于最左动作钮左缘（收 DRAG_STRIP_INSET），与齿轮零重叠: {strip:?} vs {gear:?}"
+        );
+        assert!(
+            strip.left() <= close.left(),
+            "热区左缘在关闭钮左侧（水平区间不与任一动作钮相交）: {strip:?} vs {close:?}"
         );
     }
 

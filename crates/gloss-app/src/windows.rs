@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use gloss_core::log::{thread, warn};
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::error::OsError;
 use winit::event_loop::ActiveEventLoop;
@@ -213,10 +214,19 @@ impl WindowManager {
     /// 落点每帧从实际位置重算（无增量记账）：窗口中途被谁动过（流式
     /// 重定位、指针随窗口移动的反馈）都被下一帧的落点自然吸收；指针未
     /// 动时落点即当前位置，等于动量以下的位置变化不再下发（流式重绘
-    /// 帧不做无谓的平台调用）。
+    /// 帧不做无谓的平台调用）。当前位置读不到（窗口已亡等）时带痕迹
+    /// 降级：跳过本帧平移。
     pub fn apply_overlay_drag(&mut self, offset: (f64, f64)) {
-        let Ok(physical) = self.overlay.outer_position() else {
-            return;
+        let physical = match self.overlay.outer_position() {
+            Ok(physical) => physical,
+            Err(error) => {
+                warn!(
+                    thread = thread::UI,
+                    error = %error,
+                    "overlay position unavailable, drag frame skipped"
+                );
+                return;
+            }
         };
         let scale = self.overlay.scale_factor();
         let current = physical.to_logical::<f64>(scale);

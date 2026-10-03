@@ -34,6 +34,12 @@ impl Frame {
     pub fn adapter_name(&self) -> String {
         self.surface.adapter_name()
     }
+
+    /// 清除浮层的跨帧拖动状态：壳在浮层显隐边界调用，跨显示残留的
+    /// 拖动所有权由此失效（见 `ui::popup::RenderState::reset_drag_state`）。
+    pub(crate) fn reset_overlay_drag(&self) {
+        self.popup_state.reset_drag_state();
+    }
 }
 
 /// 建窗口栈与两个窗口的首帧渲染状态（生产 App 与自检 handler 共用）：
