@@ -520,7 +520,7 @@ mod tests {
         let text = logs.text();
         let probe = text
             .lines()
-            .find(|line| line.contains("probe"))
+            .find(|line| line.contains(r#""message":"probe""#))
             .unwrap_or_default();
         assert!(probe.contains("\"generation\":1"), "{text}");
     }
