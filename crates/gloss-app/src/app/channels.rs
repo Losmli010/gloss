@@ -13,11 +13,8 @@ use super::overlay::{centered_position, event_kind, should_reveal, show_position
 
 impl GlossApp {
     /// 消费通道①：平台事件 → 取材命令。只有真实下发的命令才占用编号
-    /// （未接线事件不作废在途回传）。两条路：划词手势走探测段
-    /// （`begin_selection_probe`——状态机不动、不显形，产物到达才提交），
-    /// 其余触发走热键即显路径（`trigger`——占代数、进 Fetching、骨架即显）。
-    /// 触发→命令的日志链路同时承担热键端到端的验收验证（CI 无法合成真实
-    /// 按键，只能真机按日志走查）。
+    /// （未接线事件不作废在途回传）。划词手势走探测段
+    /// （`begin_selection_probe`——状态机不动、不显形，产物到达才提交）。
     ///
     /// 触发前读一次场景事实（安全输入态、前台应用）：闸门拦下的触发与
     /// 未接线事件一样不进状态机，但记 warn——用户会想知道「为什么划了没
@@ -35,42 +32,28 @@ impl GlossApp {
             .as_ref()
             .map_or(Vec::new(), |e| e.platform_events.try_iter().collect());
         for event in events {
-            // 设置入口：托盘/热键与浮层失败卡共用同一条路；不占
+            // 设置入口：托盘与浮层失败卡共用同一条路；不占
             // 用代数（与未接线事件一样不进状态机）。
             if matches!(event, PlatformEvent::OpenSettingsRequested) {
                 info!(thread = thread::UI, "settings open requested");
                 self.open_settings();
                 continue;
             }
-            // 逐事件现读场景事实：安全输入态与前台应用都可能在两条触发
+            // 逐事件现读场景事实：安全输入态与前台应用都可能在两次触发
             // 之间变化，探针也就两次纯查询。
             let scene = self.scene.facts();
-            // 划词探测不取消在途任务；热键触发取消（日志要带「顶掉在途」
-            // 的真相，因此取消状态只在热键分支、触发前取一次）。
-            let routed = match &event {
-                PlatformEvent::SelectionGesture { .. } => self
-                    .machine
-                    .begin_selection_probe(&event, &config, self.system_locale, &scene)
-                    .map(|command| (command, false, false)),
-                _ => {
-                    let superseded = self.machine.current_cancel().is_some();
+            let Some(command) = (match &event {
+                PlatformEvent::SelectionGesture { .. } => {
                     self.machine
-                        .trigger(&event, &config, self.system_locale, &scene)
-                        .map(|command| (command, true, superseded))
+                        .begin_selection_probe(&event, &config, self.system_locale, &scene)
                 }
-            };
-            let Some((command, immediate_reveal, superseded)) = routed else {
-                // 三类拦下各有各的级别与措辞：被任务开关停用的触发是用户
-                // 能自己修的配置问题；被场景闸门拦下的是「这一次的场景不
-                // 合适」（换一个应用，或取消密码框的聚焦）；自身前台是
-                // 防误触的日常过滤（连拖 Gloss 自己的浮层），只留 debug；
-                // 未接线的事件同样只留在默认级别看不见的 debug 里。
-                match trigger_decision(&event, &config, &scene) {
-                    TriggerDecision::Disabled(kind) => warn!(
-                        thread = thread::UI,
-                        kind = ?kind,
-                        "trigger ignored: the task kind is disabled in settings"
-                    ),
+                _ => None,
+            }) else {
+                // 两类拦下各有各的级别与措辞：被场景闸门拦下的是「这一次
+                // 的场景不合适」（换一个应用，或取消密码框的聚焦）；自身
+                // 前台是防误触的日常过滤（连拖 Gloss 自己的浮层），只留
+                // debug；未接线的事件同样只留在默认级别看不见的 debug 里。
+                match trigger_decision(&event, &scene) {
                     TriggerDecision::Blocked(block) => warn!(
                         thread = thread::UI,
                         reason = %block,
@@ -96,50 +79,26 @@ impl GlossApp {
             self.task_span = Some((generation, span.clone()));
             let entered_span = span.clone();
             let _entered = entered_span.enter();
-            if immediate_reveal {
-                info!(
-                    thread = thread::UI,
-                    cancelled_inflight = superseded,
-                    "platform event dispatched as acquire command"
-                );
-            } else {
-                info!(
-                    thread = thread::UI,
-                    "selection probe dispatched as acquire command"
-                );
-            }
+            info!(
+                thread = thread::UI,
+                "selection probe dispatched as acquire command"
+            );
             // 划词探测记录释放坐标与前台应用（随探测编号）：浮层显示时跟随
-            // 选区；探测失败的排查日志带上应用标识。其它触发源（热键）不
-            // 带坐标，显示决策回落居中。
+            // 选区；探测失败的排查日志带上应用标识。
             if let PlatformEvent::SelectionGesture { pos } = event {
                 self.selection_anchor = Some((generation, pos));
                 self.probe_front_app = scene.front_app;
-            } else {
+            }
+            if !self.send_acquire(command, span) {
+                // 取材通道发送失败：作废探测即可（当前显示不动）。
+                self.machine.drop_probe();
                 self.probe_front_app = None;
-            }
-            let dispatched = self.send_acquire(command, span);
-            if !dispatched {
-                // 取材通道发送失败：热键路径落 Error 态避免滞留 Fetching；
-                // 划词路径作废探测即可（当前显示不动）。
-                if immediate_reveal {
-                    self.machine.fail_acquire(generation);
-                } else {
-                    self.machine.drop_probe();
-                    self.probe_front_app = None;
-                }
-            }
-            if immediate_reveal {
-                // 热键即显：骨架浮层跟这代任务走；显示动作由
-                // drain_events 执行（那里才有 ActiveEventLoop）。
-                // 划词不在此列——内容到达才显形（见 commit_probe）。
-                self.pending_reveal = true;
             }
         }
     }
 
     /// 通道②发送；返回是否发出。接收端消失（事件线程死亡/退出）时由
-    /// 调用方按路径降级：热键路径落 `Error` 态避免滞留 `Fetching`，划词
-    /// 路径作废探测（当前显示不动）。
+    /// 调用方作废探测（当前显示不动）。
     fn send_acquire(&mut self, command: AcquireCommand, span: Span) -> bool {
         let AcquireCommand::AcquireText { generation, .. } = &command else {
             return false;
@@ -168,8 +127,8 @@ impl GlossApp {
     ///
     /// 浮层「什么时候露面」抽在 [`super::overlay::should_reveal`]（内含
     /// [`super::overlay::auto_show_after`] 的按批判定）：挂起显形请求由
-    /// 热键触发（触发即显骨架）与划词提交（内容到达才显形）两处置位，
-    /// 批处理后在同一帧消费；失败即弹（权限卡等）走批次判定。
+    /// 划词提交（内容到达才显形）置位，批处理后在同一帧消费；失败即弹
+    /// （权限卡等）走批次判定。
     pub(super) fn drain_events(&mut self, event_loop: &ActiveEventLoop) {
         let events: Vec<Event> = self
             .endpoints
@@ -196,7 +155,7 @@ impl GlossApp {
             batch.push((kind, accepted));
         }
         // 挂起显形在批处理**之后**消费：划词提交的置位点就在本批的
-        // accept_input 里——取前会把它拖到下一帧，取后同帧即显。
+        // commit_probe 里——取前会把它拖到下一帧，取后同帧即显。
         let pending_reveal = std::mem::take(&mut self.pending_reveal);
         // 显形决策（守卫与「显形或失败即弹」的取舍）在 should_reveal：
         // 这里只递交挂起请求、机器当前视图与本批回传。
@@ -216,51 +175,21 @@ impl GlossApp {
         self.request_redraw();
     }
 
-    /// 采纳取材产物：划词探测命中走提交段（内容到达才显形），其余走
-    /// 热键路径（Fetching 态采纳）。返回是否进入了需要展示浮层的新任务。
+    /// 采纳取材产物：划词探测命中走提交段（内容到达才显形），其余按
+    /// 陈旧产物丢弃（收起后的取材、被顶掉的旧探测）。返回是否进入了
+    /// 需要展示浮层的新任务。
     pub(super) fn accept_input(&mut self, generation: u64, input: TaskInput) -> bool {
-        // 探测编号在提交时才提升为代数，与热键路径的代数匹配互不干扰。
+        // 探测编号在提交时才提升为代数，陈旧过滤按编号而不是代数。
         if self.machine.probe_id() == Some(generation) {
             return self.commit_probe(generation, input);
         }
-        match self.machine.accept_input(generation, input) {
-            InputOutcome::Dispatch(request) => {
-                info!(
-                    thread = thread::UI,
-                    generation = request.generation,
-                    kind = ?request.task.kind,
-                    target_lang = ?request.task.options.target_lang,
-                    prompt_locale = ?request.task.options.prompt_locale,
-                    "input ready, task dispatched to tokio"
-                );
-                self.send_run(request);
-                true
-            }
-            InputOutcome::Blocked(reason) => {
-                warn!(
-                    thread = thread::UI,
-                    generation = generation,
-                    reason = ?reason,
-                    "input suppressed by the sensitive content guard, task not dispatched"
-                );
-                // 浮层里可能还挂着上一次的结果，它属于另一次取材，留着会
-                // 被读成「这次划词的结果」——收起它。走的是统一收起出口，
-                // 它会顺带再清一遍状态机的在途字段（此处两者都已是空的）、
-                // 隐藏窗口并清渲染截止时刻。
-                self.dismiss_overlay("sensitive content blocked");
-                false
-            }
-            InputOutcome::Ignored => {
-                debug!(
-                    thread = thread::UI,
-                    generation = generation,
-                    current = self.machine.generation(),
-                    state = ?self.machine.state(),
-                    "stale or unexpected input ready dropped"
-                );
-                false
-            }
-        }
+        debug!(
+            thread = thread::UI,
+            generation = generation,
+            current = self.machine.generation(),
+            "stale or unexpected input ready dropped"
+        );
+        false
     }
 
     /// 提交划词探测（取材产物到达）：状态机接管（旧会话让位、代数提升、
@@ -387,9 +316,9 @@ impl GlossApp {
     }
 
     /// 采纳任务失败：划词探测命中走探测失败处置（误滑静默丢弃 / 权限卡
-    /// 显式反馈），其余走热键路径（落 `Error` 态弹失败卡，文案与动作出口
-    /// 由 machine 按错误类别给出，见 `machine::error_action`）。返回是否
-    /// 需要展示浮层。
+    /// 显式反馈），其余按推理失败处置（落 `Error` 态弹失败卡，文案与动作
+    /// 出口由 machine 按错误类别给出，见 `machine::error_action`）。返回
+    /// 是否需要展示浮层。
     pub(super) fn accept_failed(
         &mut self,
         generation: u64,
@@ -499,9 +428,9 @@ mod tests {
         driven_app, driven_app_with_scene, outcome_body, plain_outcome, streaming_body, text_input,
         trigger_selection,
     };
-    use crate::channel::{AcquireCommand, Command, PlatformEvent};
+    use crate::channel::{AcquireCommand, Command};
     use crate::machine::AppState;
-    use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder, StubSceneProbe};
+    use crate::stubs::ports::{MemoryConfigStore, StubSceneProbe};
 
     fn suspicious_text() -> String {
         format!("{{\"token\":\"sk-{}\"}}", "9f2b7c1d")
@@ -713,7 +642,6 @@ mod tests {
         let scene = Arc::new(StubSceneProbe::default());
         let (mut app, _config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app_with_scene(
             Arc::new(MemoryConfigStore::default()),
-            Arc::new(RecordingHotkeyBinder::default()),
             Arc::clone(&scene) as Arc<dyn SceneProbe>,
         );
 
@@ -756,9 +684,7 @@ mod tests {
     }
 
     #[test]
-    fn probe_empty_selection_is_silently_dropped_but_hotkey_still_raises_the_card() {
-        use gloss_core::task::{HotkeyBinding, InputSource};
-
+    fn probe_empty_selection_is_silently_dropped() {
         let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert_eq!(
@@ -777,20 +703,6 @@ mod tests {
             "nothing was ever shown, nothing needs withdrawing"
         );
         assert!(app.machine.probe_id().is_none(), "the probe is consumed");
-
-        pe_tx
-            .send(PlatformEvent::HotkeyTriggered {
-                binding: HotkeyBinding {
-                    trigger: "Cmd+Shift+T".into(),
-                    kind: TaskKind::TranslateSentence,
-                    source: InputSource::Selection,
-                },
-            })
-            .unwrap();
-        app.drain_platform_events();
-        assert_eq!(app.machine.state(), AppState::Fetching);
-        assert!(app.accept_failed(2, &gloss_core::model::GlossError::SelectionUnavailable));
-        assert_eq!(app.machine.state(), AppState::Error);
     }
 
     #[test]

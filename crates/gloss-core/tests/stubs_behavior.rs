@@ -8,17 +8,15 @@ use std::time::{Duration, Instant};
 use futures::StreamExt;
 
 use stubs::engine::MockEngine;
-use stubs::ports::{
-    FixedRegionCapture, FixedSelectionReader, MemoryCache, MemoryConfigStore, RecordingHotkeyBinder,
-};
+use stubs::ports::{FixedRegionCapture, FixedSelectionReader, MemoryCache, MemoryConfigStore};
 
 use gloss_core::config::Config;
 use gloss_core::model::GlossError;
 use gloss_core::ports::{
-    AiEngine, Cache, ConfigStore, EngineRequest, HotkeyBinder, RegionCapture, SelectionReader,
+    AiEngine, Cache, ConfigStore, EngineRequest, RegionCapture, SelectionReader,
 };
 use gloss_core::prompt::{ChatMessage, Role};
-use gloss_core::task::{HotkeyBinding, InputSource, OutcomeStructured, TaskKind, TaskOutcome};
+use gloss_core::task::{OutcomeStructured, TaskKind, TaskOutcome};
 
 mod stubs;
 
@@ -203,32 +201,4 @@ fn cache_mock_stores_and_isolates_keys() {
     cache.set(1, outcome("cached"));
     assert_eq!(cache.get(1).map(|o| o.body), Some("cached".into()));
     assert!(cache.get(2).is_none(), "unrelated key must not see entry");
-}
-
-#[test]
-fn hotkey_binder_mock_records_every_call() {
-    let binder = RecordingHotkeyBinder::default();
-    assert_eq!(binder.call_count(), 0);
-    assert!(binder.last().is_none(), "no call means nothing to report");
-
-    let first = vec![HotkeyBinding {
-        trigger: "Cmd+Shift+D".into(),
-        kind: TaskKind::TranslateWord,
-        source: InputSource::Selection,
-    }];
-    assert_eq!(binder.rebind(&first), 1, "applied count mirrors the input");
-
-    let second = vec![HotkeyBinding {
-        trigger: "Cmd+Shift+E".into(),
-        kind: TaskKind::ExplainCode,
-        source: InputSource::Selection,
-    }];
-    binder.rebind(&second);
-    assert_eq!(binder.call_count(), 2);
-    assert_eq!(
-        binder.last(),
-        Some(second),
-        "the last call must win, not the first"
-    );
-    assert_eq!(binder.rebind(&[]), 0, "an empty table applies nothing");
 }

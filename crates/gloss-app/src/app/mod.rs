@@ -30,7 +30,7 @@ use gloss_core::guard::FrontApp;
 use gloss_core::log::Span;
 use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
-use gloss_core::ports::{ConfigStore, HotkeyBinder, SceneProbe};
+use gloss_core::ports::{ConfigStore, SceneProbe};
 use winit::dpi::LogicalSize;
 
 use crate::channel::AppEndpoints;
@@ -64,8 +64,6 @@ struct GlossApp {
     /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
     /// 之丢弃）。
     settings: Option<SettingsState>,
-    /// 热键重绑定端口：设置页保存后在主线程同步调用，不走通道。
-    hotkeys: Arc<dyn HotkeyBinder>,
     /// 触发前场景探针：安全输入态与前台应用由它现读，壳只把它转交状态机
     /// 作场景闸门判定（见 `drain_platform_events`）。
     scene: Arc<dyn SceneProbe>,
@@ -76,7 +74,7 @@ struct GlossApp {
     /// 会有这个状态）。
     applied_theme: Option<Theme>,
     /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
-    /// 代数对不上（热键触发、陈旧）时浮层回落居中。
+    /// 代数对不上（陈旧）时浮层回落居中。
     selection_anchor: Option<(u64, ScreenPoint)>,
     /// 在途划词探测触发时的前台应用标识：探测失败按误滑静默丢弃，这条
     /// 标识是「划了没反应」排查日志的唯一线索；探测提交/丢弃即清。
@@ -94,14 +92,13 @@ struct GlossApp {
 }
 
 impl GlossApp {
-    /// 组装点移交的通道端点、配置句柄、配置存储与热键端口；窗口与帧状态
+    /// 组装点移交的通道端点、配置句柄与配置存储；窗口与帧状态
     /// 在 `resumed` 时建立。`system_locale` 同样来自组装点（系统语言是
     /// 平台适配器的事，壳只消费）。
     fn new(
         endpoints: AppEndpoints,
         config: Arc<ConfigHandle>,
         store: Arc<dyn ConfigStore>,
-        hotkeys: Arc<dyn HotkeyBinder>,
         scene: Arc<dyn SceneProbe>,
         system_locale: Locale,
         update: UpdateWiring,
@@ -117,7 +114,6 @@ impl GlossApp {
             store,
             settings_frame: None,
             settings: None,
-            hotkeys,
             scene,
             system_locale,
             applied_theme: None,
@@ -217,12 +213,12 @@ mod test_support {
     use gloss_core::config_handle::ConfigHandle;
     use gloss_core::model::Locale;
     use gloss_core::model::ScreenPoint;
-    use gloss_core::ports::{ConfigStore, HotkeyBinder, SceneProbe};
+    use gloss_core::ports::{ConfigStore, SceneProbe};
     use gloss_core::task::TaskInput;
 
     use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent, Traced};
     use crate::machine::OverlayView;
-    use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder, StubSceneProbe};
+    use crate::stubs::ports::{MemoryConfigStore, StubSceneProbe};
 
     use super::GlossApp;
 
@@ -250,19 +246,11 @@ mod test_support {
     }
 
     pub(super) fn driven_app_with(store: Arc<dyn ConfigStore>) -> DrivenApp {
-        driven_app_using(store, Arc::new(RecordingHotkeyBinder::default()))
-    }
-
-    pub(super) fn driven_app_using(
-        store: Arc<dyn ConfigStore>,
-        hotkeys: Arc<dyn HotkeyBinder>,
-    ) -> DrivenApp {
-        driven_app_with_scene(store, hotkeys, Arc::new(StubSceneProbe::default()))
+        driven_app_with_scene(store, Arc::new(StubSceneProbe::default()))
     }
 
     pub(super) fn driven_app_with_scene(
         store: Arc<dyn ConfigStore>,
-        hotkeys: Arc<dyn HotkeyBinder>,
         scene: Arc<dyn SceneProbe>,
     ) -> DrivenApp {
         let crate::channel::Channels {
@@ -300,7 +288,6 @@ mod test_support {
             },
             Arc::clone(&config),
             Arc::clone(&store) as Arc<dyn ConfigStore>,
-            hotkeys,
             scene,
             Locale::Zh,
             update_wiring(),

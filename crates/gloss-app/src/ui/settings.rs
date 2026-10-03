@@ -2,7 +2,7 @@
 //!
 //! 边界：本模块只做「草稿编辑 + 校验 + 动作上交」——编辑发生在
 //! [`SettingsState`] 的草稿上，校验是纯函数（规则下沉 gloss-core：
-//! Base URL 与引擎请求前检查共源、热键语法与注册映射共源），保存/
+//! Base URL 与引擎请求前检查共源），保存/
 //! 清除密钥/关闭以 [`SettingsAction`] 交还壳执行（落盘走
 //! `ConfigHandle::save` 热更新路径、密钥走 `ConfigStore`，都在壳侧）。
 //! API key 只存在于输入框字符串里，永不进 `Config` 草稿（配置红线：
@@ -22,9 +22,8 @@ use egui::{RichText, ScrollArea, Stroke, vec2};
 use gloss_core::config::{
     ALL_KINDS, BaseUrlError, CACHE_TTL_MAX_SECS, Config, Language, Theme, validate_base_url,
 };
-use gloss_core::hotkey::parse_trigger;
 use gloss_core::model::{GlossError, Lang};
-use gloss_core::task::{HotkeyBinding, TaskKind};
+use gloss_core::task::TaskKind;
 
 use super::kind_label;
 use super::style::{color, font, radius, space};
@@ -39,8 +38,6 @@ enum FieldKey {
     DefaultKind,
     /// Base URL（结构性校验）。
     BaseUrl,
-    /// 热键绑定行（按行下标）。
-    Hotkey(usize),
     /// 任务默认模型（禁换行）。
     Model(TaskKind),
 }
@@ -53,18 +50,6 @@ enum FieldKey {
 enum FieldError {
     /// 默认任务选中的任务类型被任务开关停用。
     DefaultKindDisabled,
-    /// 该触发键与更早的行重复；`line` 是那条绑定的 1 起数行号。
-    DuplicateHotkey {
-        /// 先占用该组合的行号（1 起数）。
-        line: usize,
-    },
-    /// 触发键为空。
-    EmptyTrigger,
-    /// 触发键语法不合法，`trigger` 是用户原样输入。
-    InvalidTrigger {
-        /// 用户输入的原样回显。
-        trigger: String,
-    },
     /// 模型名含换行。
     NewlineInModel,
     /// Base URL 为空。
@@ -82,18 +67,6 @@ impl FieldError {
     fn message(&self, text: &Text) -> String {
         match self {
             Self::DefaultKindDisabled => text.gloss_settings_error_default_kind_disabled.clone(),
-            Self::DuplicateHotkey { line } => {
-                let line = line.to_string();
-                fill(
-                    &text.gloss_settings_error_duplicate_hotkey,
-                    &[("line", &line)],
-                )
-            }
-            Self::EmptyTrigger => text.gloss_settings_error_empty_trigger.clone(),
-            Self::InvalidTrigger { trigger } => fill(
-                &text.gloss_settings_error_invalid_trigger,
-                &[("trigger", trigger)],
-            ),
             Self::NewlineInModel => text.gloss_settings_error_newline_in_model.clone(),
             Self::BaseUrlEmpty => text.gloss_settings_error_base_url_empty.clone(),
             Self::BaseUrlNotHttps => text.gloss_settings_error_base_url_invalid.clone(),
@@ -262,34 +235,6 @@ fn validate_draft(draft: &Config) -> HashMap<FieldKey, FieldError> {
     if let Err(err) = validate_base_url(&draft.base_url) {
         errors.insert(FieldKey::BaseUrl, base_url_error(&err));
     }
-    // 热键：语法 + 规范串去重（先到者保留，后者按重复报）。
-    let mut seen: HashMap<String, usize> = HashMap::new();
-    for (index, binding) in draft.hotkey_bindings.iter().enumerate() {
-        match parse_trigger(&binding.trigger) {
-            Ok(parsed) => {
-                let canonical = parsed.canonical();
-                if let Some(&first) = seen.get(&canonical) {
-                    errors.insert(
-                        FieldKey::Hotkey(index),
-                        FieldError::DuplicateHotkey { line: first + 1 },
-                    );
-                } else {
-                    seen.insert(canonical, index);
-                }
-            }
-            Err(gloss_core::hotkey::TriggerError::Empty) => {
-                errors.insert(FieldKey::Hotkey(index), FieldError::EmptyTrigger);
-            }
-            Err(_) => {
-                errors.insert(
-                    FieldKey::Hotkey(index),
-                    FieldError::InvalidTrigger {
-                        trigger: binding.trigger.clone(),
-                    },
-                );
-            }
-        }
-    }
     // 模型名：保存时 trim，禁换行（粘贴事故防护）；空 = 用内置默认，合法。
     for binding in &draft.model_by_kind {
         if binding.model.trim().contains('\n') {
@@ -342,10 +287,6 @@ pub(crate) fn draw(
                         ui.add_space(space::SECTION);
                         section(ui, &text.gloss_settings_section_task, |ui| {
                             task_section(ui, state, &errors, text);
-                        });
-                        ui.add_space(space::SECTION);
-                        section(ui, &text.gloss_settings_section_hotkey, |ui| {
-                            hotkey_section(ui, state, &errors, text);
                         });
                         ui.add_space(space::SECTION);
                         section(ui, &text.gloss_settings_section_general, |ui| {
@@ -662,34 +603,6 @@ fn switch_row(ui: &mut egui::Ui, label: &str, enabled: bool, text: &Text) -> boo
     .inner
 }
 
-/// 热键区：绑定表就地编辑（左右结构——触发键左、任务下拉右）。
-fn hotkey_section(
-    ui: &mut egui::Ui,
-    state: &mut SettingsState,
-    errors: &HashMap<FieldKey, FieldError>,
-    text: &Text,
-) {
-    caption(ui, &text.gloss_settings_hotkey_hint);
-    for index in 0..state.draft.hotkey_bindings.len() {
-        let key = FieldKey::Hotkey(index);
-        ui.horizontal(|ui| {
-            let Some(binding) = state.draft.hotkey_bindings.get_mut(index) else {
-                return;
-            };
-            let HotkeyBinding { trigger, kind, .. } = binding;
-            let response = add_input(ui, trigger, |e| {
-                e.desired_width(110.0).font(egui::TextStyle::Monospace)
-            });
-            underline_if_error(ui, &response, errors, key);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                kind_combo(ui, &format!("hotkey_kind_{index}"), kind, &ALL_KINDS, text);
-            });
-        });
-        error_text(ui, errors, key, text);
-        ui.add_space(space::ITEM);
-    }
-}
-
 /// 通用区：界面语言、界面主题、缓存有效期（上限由控件钳制）。
 fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
     choice_row(ui, &text.gloss_settings_ui_language, |ui| {
@@ -906,23 +819,6 @@ mod tests {
                 "The default task is disabled: enable it under Task switches below",
             ),
             (
-                FieldError::DuplicateHotkey { line: 2 },
-                "与第 2 行重复",
-                "Duplicate of line 2",
-            ),
-            (
-                FieldError::EmptyTrigger,
-                "触发键不能为空",
-                "Hotkey cannot be empty",
-            ),
-            (
-                FieldError::InvalidTrigger {
-                    trigger: "Cmd+".into(),
-                },
-                "无法解析触发键「Cmd+」",
-                "Cannot parse hotkey \"Cmd+\"",
-            ),
-            (
                 FieldError::NewlineInModel,
                 "不能包含换行",
                 "Must not contain line breaks",
@@ -1109,23 +1005,6 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_hotkey_triggers_are_flagged_by_canonical_form() {
-        let mut state = open(&Config::default());
-        state.draft.hotkey_bindings[1].trigger =
-            state.draft.hotkey_bindings[0].trigger.to_ascii_lowercase();
-
-        let errors = validate_draft(&state.draft);
-        assert!(
-            errors.contains_key(&FieldKey::Hotkey(1)),
-            "same combination in a different spelling must be flagged"
-        );
-        assert!(
-            !errors.contains_key(&FieldKey::Hotkey(0)),
-            "the first binding keeps the combination"
-        );
-    }
-
-    #[test]
     fn open_copies_the_snapshot_into_the_draft() {
         let mut config = Config {
             target_lang: Lang::Ja,
@@ -1202,7 +1081,6 @@ mod tests {
         for label in [
             "Model",
             "Tasks",
-            "Hotkeys",
             "General",
             "Save",
             "Cancel",
@@ -1321,7 +1199,6 @@ mod tests {
             "任务",
             "默认任务",
             "目标语言",
-            "热键",
             "通用",
             "保存",
         ] {
@@ -1468,18 +1345,6 @@ mod tests {
             ),
             "the clear mark must surface on save, not on click"
         );
-    }
-
-    #[test]
-    fn hotkey_rows_expose_their_triggers() {
-        let (mut harness, _action) = harness_for(open(&Config::default()), Locale::Zh);
-        harness.run();
-        for trigger in ["Cmd+Shift+D", "Cmd+Shift+F", "Cmd+Shift+E"] {
-            assert!(
-                harness.get_all_by_value(trigger).next().is_some(),
-                "trigger `{trigger}` must be an editable row"
-            );
-        }
     }
 
     #[test]

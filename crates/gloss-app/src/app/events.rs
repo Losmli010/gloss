@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::model::Locale;
-use gloss_core::ports::{ConfigStore, HotkeyBinder, SceneProbe};
+use gloss_core::ports::{ConfigStore, SceneProbe};
 use winit::event_loop::{EventLoop, EventLoopProxy};
 
 use crate::channel::AppEndpoints;
@@ -51,8 +51,7 @@ impl Waker {
 /// `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
 ///
-/// `hotkeys` 是热键重绑定端口：适配器在组装点创建（注册有主线程亲和），
-/// 设置页保存后由 App 直接调用。`theme` 施加到两个 egui 上下文（见
+/// `theme` 施加到两个 egui 上下文（见
 /// `GlossApp::apply_theme`）。`system_locale` 是组装点读到的系统语言，
 /// 供配置里的 `Language::System` 落定成 [`Locale`]（prompt 模板与界面文案共用）。
 /// `scene` 是触发前场景探针（安全输入态、前台应用），供敏感信息防护的
@@ -69,7 +68,6 @@ pub fn run(
     endpoints: AppEndpoints,
     config: Arc<ConfigHandle>,
     store: Arc<dyn ConfigStore>,
-    hotkeys: Arc<dyn HotkeyBinder>,
     scene: Arc<dyn SceneProbe>,
     system_locale: Locale,
     update: UpdateWiring,
@@ -78,15 +76,7 @@ pub fn run(
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     let waker = Waker(event_loop.create_proxy());
     on_waker(waker);
-    let mut app = GlossApp::new(
-        endpoints,
-        config,
-        store,
-        hotkeys,
-        scene,
-        system_locale,
-        update,
-    );
+    let mut app = GlossApp::new(endpoints, config, store, scene, system_locale, update);
     event_loop.run_app(&mut app)?;
     Ok(())
 }

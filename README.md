@@ -30,7 +30,7 @@
 - [x] 应用图标（方案 A「划·译」：打包 .icns + 开发期 Dock 图标，见 `assets/icons/`）
 - [x] CI/CD 基建（justfile + GitHub Actions + Dependabot + git-cliff）
 - [x] M1 渲染闭环（winit + wgpu + egui 最小浮层窗口）
-- [x] M2 划词取材（选区读取 + 鼠标手势 + 热键）
+- [x] M2 划词取材（选区读取 + 鼠标手势）
 - [x] M3 AI 管道（任务编排 + LLM 流式 + 结果浮层 + 取消/竞速）
 - [x] M4 配置与设置（配置热更新 + Keychain + 设置窗口 + 错误出口）
 - [ ] M5 图像任务（框选截图 → OCR / 图片解释）

@@ -14,7 +14,7 @@ gloss/
 ├── src/main.rs          # 唯一入口 / 唯一组装点
 └── crates/
     ├── gloss-core/      # 领域层 + 端口（ports：core 里定义的 trait 契约）：模型、任务、提示词、引擎、缓存、配置、日志（零平台依赖）
-    ├── gloss-platform/  # 适配器层：实现 core 的端口——选区读取、热键与鼠标事件源、配置与密钥存储、LLM 网络（SSE 流式）、应用外观（Dock 图标）
+    ├── gloss-platform/  # 适配器层：实现 core 的端口——选区读取、鼠标事件源、配置与密钥存储、LLM 网络（SSE 流式）、应用外观（Dock 图标）
     ├── gloss-app/       # 表现层 + 应用层：状态机、窗口、wgpu 与 egui、通道类型、tokio 消费桥、界面文案表（i18n 下的 zh/en TOML，编译期嵌入）
     └── gloss-eval/      # 评测工具链（bin eval + datasets/fixtures/prompts 资产）：只消费 core 与 platform，不被任何生产 crate 依赖（check-constraints 强制），不进应用启动路径
 ```
@@ -23,7 +23,7 @@ gloss/
 
 ## 架构速览
 
-- **四线程**：主线程（winit 事件循环 + UI）、平台事件线程（NSRunLoop：热键与取材，有线程亲和性要求）、鼠标监听线程（线程名 `gloss-mouse-tap`：全局事件 tap 在此收口）、tokio 后台（网络与缓存）。平台回调的订阅面必须最小（鼠标 tap 只订阅左键按下/释放）；回调里只做事件搬运——读事件字段、把事件投进通道（满则丢弃），不调用要求主线程的 API；panic 穿过 C 回调会 abort 进程。
+- **四线程**：主线程（winit 事件循环 + UI）、平台事件线程（NSRunLoop：取材命令消费，有线程亲和性要求）、鼠标监听线程（线程名 `gloss-mouse-tap`：全局事件 tap 在此收口）、tokio 后台（网络与缓存）。平台回调的订阅面必须最小（鼠标 tap 只订阅左键按下/释放）；回调里只做事件搬运——读事件字段、把事件投进通道（满则丢弃），不调用要求主线程的 API；panic 穿过 C 回调会 abort 进程。
 - **四通道**：① `PlatformEvent`（事件线程 → 主）② `AcquireCommand`（主 → 事件线程）③ `Command`（主 → tokio）④ `Event`（流式回传 → 主）。请求代数（字段名 `generation`）由 App 在收到 ① 后赋值，之后随 ②③④ 的消息贯穿（① `PlatformEvent` 本身不含它），主线程据此丢弃陈旧响应；取消统一走 `CancellationToken`。
 - **任务化 AI 层**：`TaskKind` + `TaskInput` → 统一的 `AiEngine`，不按输入模态（文本/图像；语音为未实现的预留变体）拆分客户端。
 

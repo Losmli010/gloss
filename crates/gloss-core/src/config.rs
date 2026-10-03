@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Lang, Locale};
-use crate::task::{HotkeyBinding, InputSource, TaskKind};
+use crate::task::TaskKind;
 
 /// 全部任务类型：`enabled_kinds` 的出厂值与设置页的任务开关列表共用，
 /// 两处来自同一常量，新增 kind 时不会漏掉一边。
@@ -27,23 +27,6 @@ pub const DEFAULT_TEXT_MODEL: &str = "deepseek-chat";
 /// 出厂默认 OpenAI 兼容端点：DeepSeek。客户端按
 /// `{base_url}/chat/completions` 拼接，设置页可改。
 pub const DEFAULT_BASE_URL: &str = "https://api.deepseek.com/v1";
-
-/// 出厂默认热键表：与 `gloss-platform::events::hotkey` 的写死默认一致。
-/// 有意避开系统截图（Cmd+Shift+3/4/5）等系统级组合。
-fn default_hotkey_bindings() -> Vec<HotkeyBinding> {
-    fn selection(trigger: &str, kind: TaskKind) -> HotkeyBinding {
-        HotkeyBinding {
-            trigger: trigger.to_owned(),
-            kind,
-            source: InputSource::Selection,
-        }
-    }
-    vec![
-        selection("Cmd+Shift+D", TaskKind::TranslateWord),
-        selection("Cmd+Shift+F", TaskKind::TranslateSentence),
-        selection("Cmd+Shift+E", TaskKind::ExplainCode),
-    ]
-}
 
 /// 界面主题：跟随系统 / 固定浅色 / 固定深色。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -244,9 +227,8 @@ fn default_model_bindings() -> Vec<ModelBinding> {
 /// 落点（改动本节时同步更新）：`target_lang` / `model_by_kind` /
 /// `default_text_kind` 已接线（触发时解析进任务）；`base_url` /
 /// `provider_keys` 已接线（引擎每请求解析端点、按条目直查 keychain）；
-/// `enabled_kinds` 已接线（触发时过滤）；`hotkey_bindings` /
-/// `theme` 已接线（保存后重注册热键；主题施加到两个 egui 上下文）——
-/// 都**不**在触发时冻结；`cache_ttl_secs` 归缓存构造接线；
+/// `enabled_kinds` 已接线（触发时过滤）；`theme` 已接线（主题施加到两个
+/// egui 上下文）——都**不**在触发时冻结；`cache_ttl_secs` 归缓存构造接线；
 /// `language` 已接线（触发时经 `Language::resolve` 解析成 prompt 模板语言、
 /// 随任务冻结，渲染帧另按同一映射取界面文案表）。
 ///
@@ -264,8 +246,6 @@ pub struct Config {
     pub model_by_kind: Vec<ModelBinding>,
     /// 翻译类任务的默认目标语言。
     pub target_lang: Lang,
-    /// 全局热键 → 任务类型 + 输入源。
-    pub hotkey_bindings: Vec<HotkeyBinding>,
     /// 划词手势的默认任务类型。
     pub default_text_kind: TaskKind,
     /// 启用的任务类型：被停用的 kind 对一切触发路径无响应（设置页任务
@@ -286,7 +266,6 @@ impl Default for Config {
             provider_keys: default_provider_keys(),
             model_by_kind: default_model_bindings(),
             target_lang: Lang::Zh,
-            hotkey_bindings: default_hotkey_bindings(),
             default_text_kind: TaskKind::TranslateWord,
             enabled_kinds: ALL_KINDS.to_vec(),
             // 与 gloss-core::cache 的出厂 TTL（1 小时）一致。
@@ -423,28 +402,6 @@ mod tests {
         let provider = config.active_provider().expect("factory provider");
         assert_eq!(provider.provider, "deepseek");
         assert_eq!(provider.keychain_id, "gloss/deepseek");
-
-        let triggers: Vec<_> = config
-            .hotkey_bindings
-            .iter()
-            .map(|b| (b.trigger.as_str(), b.kind, b.source))
-            .collect();
-        assert_eq!(
-            triggers,
-            vec![
-                (
-                    "Cmd+Shift+D",
-                    TaskKind::TranslateWord,
-                    InputSource::Selection
-                ),
-                (
-                    "Cmd+Shift+F",
-                    TaskKind::TranslateSentence,
-                    InputSource::Selection
-                ),
-                ("Cmd+Shift+E", TaskKind::ExplainCode, InputSource::Selection),
-            ]
-        );
     }
 
     #[test]
@@ -454,7 +411,6 @@ mod tests {
             "provider_keys": [],
             "model_by_kind": [],
             "target_lang": "Zh",
-            "hotkey_bindings": [],
             "default_text_kind": "TranslateWord",
             "enabled_kinds": [],
             "cache_ttl_secs": 0,
@@ -566,11 +522,6 @@ mod tests {
                 },
             ],
             target_lang: Lang::Other("ko".into()),
-            hotkey_bindings: vec![HotkeyBinding {
-                trigger: "Cmd+Shift+R".into(),
-                kind: TaskKind::ImageExplain,
-                source: InputSource::Region,
-            }],
             default_text_kind: TaskKind::ExplainCode,
             enabled_kinds: vec![TaskKind::TranslateWord, TaskKind::ExplainCode],
             cache_ttl_secs: 120,
@@ -583,9 +534,9 @@ mod tests {
     }
 
     #[test]
-    fn retired_guard_fields_are_ignored_on_load() {
+    fn retired_fields_are_ignored_on_load() {
         let config: Config = serde_json::from_str(
-            r#"{"theme": "Light", "guard_enabled": false, "guard_blocked_apps": ["com.example.vault"]}"#,
+            r#"{"theme": "Light", "guard_enabled": false, "guard_blocked_apps": ["com.example.vault"], "hotkey_bindings": [{"trigger": "Cmd+Shift+D"}]}"#,
         )
         .expect("a config written by an older version must still load");
         assert_eq!(config.theme, Theme::Light, "known fields keep their values");
@@ -599,7 +550,6 @@ mod tests {
         assert_eq!(config.theme, Theme::Light, "present field must be kept");
         assert_eq!(config.target_lang, Lang::Zh, "missing field must default");
         assert_eq!(config.cache_ttl_secs, 60 * 60);
-        assert_eq!(config.hotkey_bindings.len(), 3);
         assert_eq!(config.base_url, DEFAULT_BASE_URL);
         assert_eq!(config.resolved_provider().provider, "deepseek");
         assert_eq!(

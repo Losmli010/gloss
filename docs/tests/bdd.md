@@ -173,9 +173,9 @@
 | cache_hit_delivers_done_without_chunks_or_engine | 分类与产物双缓存命中直出 | 给定可解析分类回复的同一任务第二次触发，当桥先查分类缓存再查主缓存，则第二次仅回 TaskClassified+TaskDone（无 TaskChunk）、引擎调用数维持 2（首轮分类+执行）、状态定格 Show | 2026-09-26 |
 | hide_overlay_cancels_the_stream_and_late_events_are_dropped | 收起浮层取消流并丢弃迟到事件 | 给定慢流中已收到分类结果与首个 chunk，当 hide_overlay 取消在途令牌，则不再有任何回传事件、机器侧拒绝该任务的迟到 chunk/产物并回 Idle | 2026-09-26 |
 | superseded_trigger_cancels_and_filters_late_events | 新触发取消旧任务并过滤迟到事件 | 给定 A 的分类流未完成时触发 B，当 B 触发，则 A 的令牌立即取消、代数 +1、A 代数的迟到事件被状态机拒绝，B 经分类回退后 chunk/done 正常回流至 Show | 2026-09-26 |
-| failure_lands_in_error_and_retry_succeeds | 失败落错误态且重试可达 | 给定热键固定 kind 任务首次注入 EngineRateLimited 失败，当失败回传后再次触发，则落 Error 态、第二次任务完成落 Show | 2026-09-26 |
-| error_card_retry_redispatches_the_same_task | 重试动作重发同一任务 | 给定热键固定 kind 任务的可重试失败 Retry 出口，当 retry 并重发 RunTask，则同代数重发同一任务并完成落 Show | 2026-09-26 |
-| config_change_invalidates_cache_for_the_next_task | 配置变更对主缓存 key 的失效 | 给定热键固定 kind 的同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎 1 次）、换模型与换目标语言各触发一次重新请求（共 3 次） | 2026-09-26 |
+| failure_lands_in_error_and_retry_succeeds | 失败落错误态且重试可达 | 给定 CodeLanguage hint 固定 kind 任务首次注入 EngineRateLimited 失败，当失败回传后再次触发，则落 Error 态、第二次任务完成落 Show | 2026-10-03 |
+| error_card_retry_redispatches_the_same_task | 重试动作重发同一任务 | 给定 CodeLanguage hint 固定 kind 任务的可重试失败 Retry 出口，当 retry 并重发 RunTask，则同代数重发同一任务并完成落 Show | 2026-10-03 |
+| config_change_invalidates_cache_for_the_next_task | 配置变更对主缓存 key 的失效 | 给定 CodeLanguage hint 固定 kind 的同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎 1 次）、换模型与换目标语言各触发一次重新请求（共 3 次） | 2026-10-03 |
 | engine_logs_carry_the_task_span | 桥日志经 span 带上代数 | 给定带 span 的任务命令（进程级捕获订阅者），当消费桥执行到缓存命中，则命中行同时含 cache hit 与 "generation":2 | 2026-09-26 |
 
 ## 性能测试
@@ -188,15 +188,14 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck、popup_code_streaming、popup_code_outcome；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
+popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck、popup_code_streaming、popup_code_outcome；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定双释义的词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、两条释义、例句（复制按钮已移除，划选即复制） | 2026-10-01 |
 | word_card_senses_stack_vertically | 释义逐行向下排 | 给定两条释义的词卡视图，当渲染，则第二条释义的节点矩形在第一条之下（正文列显式垂直布局，不横向并排） | 2026-10-01 |
-| watermark_sits_inside_the_computed_window_height | 页脚水印落在期望窗口内 | 给定流式/词卡/取材骨架三种视图，当按内容尺寸重设渲染窗口再量水印矩形，则水印底边不超出 draw 上交的期望窗口高（页脚被内容挤出窗外即失败） | 2026-10-01 |
+| watermark_sits_inside_the_computed_window_height | 页脚水印落在期望窗口内 | 给定流式/词卡两种视图，当按内容尺寸重设渲染窗口再量水印矩形，则水印底边不超出 draw 上交的期望窗口高（页脚被内容挤出窗外即失败） | 2026-10-03 |
 | long_body_is_rendered_in_full | 长正文完整渲染不截断 | 给定超长正文（尾部带标记），当渲染，则 AccessKit 树含尾部内容——无字符截断 | 2026-09-20 |
-| acquiring_view_shows_a_bare_skeleton | 取材骨架视图（触发即显） | 给定 Acquiring 骨架视图，当渲染，则页脚带「正在注解」的进度指示标签（骨架条本身无文字）、「正在读取选区」不出现、无原文与流式内容 | 2026-10-01 |
 | streaming_view_shows_the_annotating_footer | 流式视图页脚注解指示 | 给定流式视图，当渲染，则「正在注解」在页脚出现、经/注印章就位 | 2026-10-01 |
 | word_card_marks_the_three_sections_per_locale | 词卡三分区印章随 locale | 给定词卡视图（zh/en 各一），当渲染，则印章字分别为 经/注/疏 与 SRC/NOTE/EXP | 2026-09-30 |
 | extract_view_notes_the_measurement | 提取视图疏位小记 | 给定提取产物视图，当渲染，则提取文本在经位、疏位附「凡 N 言 · N 行」小记（字数去空白、行数按换行） | 2026-09-30 |
@@ -209,15 +208,14 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | header_drag_strip_is_exposed_to_accesskit | 页头拖动热区进无障碍树且与动作钮零重叠 | 给定词卡视图，当渲染，则无障碍树有「拖动浮层」热区节点、矩形与页头行同高（不小于头部图标边长）且水平区间止于最左动作钮左缘（收 DRAG_STRIP_INSET，与齿轮/× 零重叠） | 2026-10-03 |
 | header_drag_reports_cumulative_offset_and_ends_on_release | 页头拖动上交自按压点的累计位移 | 给定词卡视图与页头热区中心，当按下→两段移动→松开→再移动，则上交位移自按压点累计（按下为零、两段各 (20,10)/(30,15)，非逐帧增量）、松开后不再上交；按压点按物理像素记录（跨 DPI 显示器不混尺）；落点换算与屏幕钳制在壳侧 apply_overlay_drag（无状态：以窗口实际位置为基准，中途被动过会被下一帧落点吸收） | 2026-10-03 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层九视图渲染基线（英文浅色） | 给定九个视图（词卡/加载骨架/流式/提取/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_loading / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 九份基线一致，结果合并进单个 SnapshotResults（2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）） | 2026-10-02 |
+| snapshots_match_baseline（popup） | 浮层八视图渲染基线（英文浅色） | 给定八个视图（词卡/流式/提取/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 八份基线一致，结果合并进单个 SnapshotResults（基线沿革：2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、Acquiring 骨架视图删除，popup_loading 基线一并移除，余八份） | 2026-10-03 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | task_toggle_flips_enabled_kinds | 任务开关写回启用表 | 给定点掉「启用翻译」后保存，当检查上交配置，则 TranslateSentence 已停用（默认任务不在此列——停用它会被跨字段校验拦下） | 2026-09-23 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
-| hotkey_rows_expose_their_triggers | 热键行触发键无障碍结构 | 给定出厂三条绑定，当渲染，则三条触发键值各为可编辑输入节点进 AccessKit 树 | 2026-09-22 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
 | a_disabled_default_task_is_blocked_with_an_in_place_hint | 停用的默认任务阻断保存并就地提示 | 给定默认任务被任务开关停用的设置窗，当点保存，则不上交 Save、默认任务行出停用提示（替换该行说明提示），启用该任务后恢复可保存 | 2026-09-23 |
 | switching_off_the_default_task_is_blocked_until_it_comes_back | 关掉默认任务所在开关被拦下 | 给定出厂配置的设置窗，当点掉「启用词卡」再保存，则不上交 Save 且出停用提示（首次保存前不唠叨），开关扳回后恢复可保存 | 2026-09-23 |
-| snapshots_match_baseline（settings） | 设置窗渲染基线（英文浅色；正常/提示/错误/默认任务停用四态 + 更新区五相位） | 给定默认、带保存失败提示、校验错误、默认任务被停用四个状态与更新区五个相位（UpToDate/Available/Downloading/Ready/Failed(Install)），当 wgpu 以英文文案与浅色主题渲染并 diff，则与对应基线一致且关键文本进树 | 2026-10-01 |
+| snapshots_match_baseline（settings） | 设置窗渲染基线（英文浅色；正常/提示/错误/默认任务停用四态 + 更新区五相位） | 给定默认、带保存失败提示、校验错误、默认任务被停用四个状态与更新区五个相位（UpToDate/Available/Downloading/Ready/Failed(Install)），当 wgpu 以英文文案与浅色主题渲染并 diff，则与对应基线一致且关键文本进树（2026-10-03 随热键区删除、热键校验错误移除重录） | 2026-10-03 |
 | failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、协议异常（带诊断）、取材通道不可用、推理通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-09-22 |
 | failure_card_follows_the_locale | 失败卡随 locale 出表 | 给定英文 locale 的网络失败卡，当渲染，则出英文文案与英文「Retry」动作 | 2026-09-22 |
 | save_failure_notice_names_the_cause | 保存失败提示出场合与诊断 | 给定带 SaveFailed(Config) 类型化提示的设置窗（中文表），当渲染，则出「保存失败：<诊断>」（前缀交代场合、诊断不重复本地化整句） | 2026-09-22 |
@@ -236,7 +234,6 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | config_store_mock_round_trips_secrets | 密钥存取桩往返 | 给定密钥未设置时读为 None，当 set_secret 后再读，则读回写入值 | 2026-09-19 |
 | config_store_mock_round_trips_document | 配置文档桩往返 | 给定带非默认 language 的配置文档，当 save 与 load，则往返无损且与出厂默认可区分 | 2026-09-22 |
 | cache_mock_stores_and_isolates_keys | 缓存桩存取与 key 隔离 | 给定 miss→set→hit 序列，当按不同 key 查询，则命中且无关 key 互不可见 | 2026-09-19 |
-| hotkey_binder_mock_records_every_call | 热键绑定桩如实记录 | 给定多次 rebind（含空表），当读桩的 call_count 与 last，则按调用序记录、生效条数如实、最后一次覆盖、空表计 0 | 2026-09-19 |
 | chunk_delay_paces_the_stream | chunk 延迟为流定速 | 给定 30ms chunk 间延迟的三段脚本，当消费流，则内容按序且总耗时下界为两段延迟 | 2026-09-19 |
 | failures_are_injectable | 失败位置可注入 | 给定注入的各类 GlossError 与流中 Err，当 execute，则失败在注入位置原样发生、流继续按脚本 | 2026-09-19 |
 | execute_failure_once_fails_exactly_once | 一次性失败只生效一次 | 给定注入一次性失败与恢复脚本的引擎，当连续两次 execute，则首次返回注入错误、第二次照常产流 | 2026-09-19 |
@@ -294,11 +291,11 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| factory_defaults_match_spec | 出厂默认符合规格 | 给定出厂 Config，当逐字段抽查，则默认语言/任务/热键三条/提供商/文本模型等全部符合规格 | 2026-09-19 |
+| factory_defaults_match_spec | 出厂默认符合规格 | 给定出厂 Config，当逐字段抽查，则默认语言/任务/提供商/文本模型等全部符合规格 | 2026-09-19 |
 | config_round_trips_through_serde | 配置 serde 往返无损 | 给定含 Lang::Other 等携数据变体的完整配置，当 serde_json 往返，则无损 | 2026-09-19 |
-| partial_document_fills_factory_defaults | 部分文档补全出厂默认 | 给定只写 theme 的 JSON，当加载，则该字段保留、其余走出厂默认（含三条热键与全部 kind 启用） | 2026-09-19 |
+| partial_document_fills_factory_defaults | 部分文档补全出厂默认 | 给定只写 theme 的 JSON，当加载，则该字段保留、其余走出厂默认（含全部 kind 启用） | 2026-09-19 |
 | explicit_empty_enabled_kinds_disables_everything | 显式空数组语义 | 给定 enabled_kinds 显式空数组，当加载，则所有 kind 停用 | 2026-09-19 |
-| retired_guard_fields_are_ignored_on_load | 退役的防护字段仍能加载 | 给定含 guard_enabled / guard_blocked_apps 的旧配置（两个字段已从 Config 移除），当加载，则照常读出、已知字段取值不变、缺字段仍回出厂默认——旧版本落盘不会被当成非法配置隔离降级 | 2026-09-26 |
+| retired_fields_are_ignored_on_load | 退役字段仍能加载 | 给定含 guard_enabled / guard_blocked_apps / hotkey_bindings 的旧配置（字段已从 Config 移除），当加载，则照常读出、已知字段取值不变、缺字段仍回出厂默认——旧版本落盘不会被当成非法配置隔离降级 | 2026-10-03 |
 | missing_fields_default_while_explicit_empty_stays_empty | 缺省回退与显式空的区分 | 给定 provider_keys/model_by_kind 显式空，当加载，则纯查找为空、resolved 查找回退出厂项、图像 kind 不借文本模型 | 2026-09-19 |
 | classify_fallback_falls_back_for_image_kinds | 误配图像默认回退文本 | 给定 default_text_kind 误配成 ImageOcr，当取分类兜底 kind，则回退 TranslateWord；正常文本 kind 原样作为兜底 | 2026-09-26 |
 | auto_kind_stays_out_of_the_settings_list | 哨兵不进设置任务清单 | 给定 ALL_KINDS（设置页任务开关清单），当查包含性，则 Auto 不在其中（分类哨兵不是可开关的任务类型） | 2026-09-26 |
@@ -372,16 +369,6 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | base_url_validation_accepts_legal_addresses | Base URL 合法放行 | 给定 https 地址（含首尾空白、无路径、带端口），当 validate_base_url，则 Ok | 2026-09-22 |
 | missing_fields_fall_back_to_defaults_on_deserialize | 缺字段回落出厂默认 | 给定缺 language 字段的配置 JSON，当反序列化，则 language 按出厂跟随系统补齐 | 2026-09-22 |
 
-### crates/gloss-core/src/hotkey.rs
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| parses_modifier_combinations | 触发键语法解析 | 给定 "Cmd+Shift+1"/"ctrl+alt+p"/"Option+K" 等，当 core parse_trigger，则解析出修饰键集合与主键规范名（大小写不敏感、Option≈Alt） | 2026-09-22 |
-| thin_mapping_converts_core_syntax_into_hotkeys | core 语法薄映射为 HotKey（platform） | 给定 "Cmd+Shift+1"/"Ctrl+Return" 等，当 platform parse_trigger，则经规范名映射出 HotKey 与修饰键（命名键转 Code） | 2026-09-22 |
-| canonical_forms_agree_across_spellings | 同组合不同写法规范化一致 | 给定 Cmd+Alt+T / cmd+alt+t / Meta+Option+T / Super+Opt+T，当取规范化串，则四者一致（重复绑定检测的基础） | 2026-09-22 |
-| named_and_function_keys_resolve | 命名键与功能键解析 | 给定 Enter/Escape/ArrowUp/F12 等主键段，当解析，则得规范物理键名 | 2026-09-22 |
-| bare_keys_and_broken_grammars_are_rejected | 裸键与坏语法拒绝 | 给定空串/仅修饰键/裸键/双主键/未知键（含越界 F25），当解析，则按类别返回 Err（裸键会吞系统输入，必须带修饰键） | 2026-09-22 |
-
 ### crates/gloss-core/src/task.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -390,7 +377,6 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | task_binds_kind_input_and_options | Task 三元正确绑定 | 给定构造参数，当建 Task，则 kind/input/options 正确绑定 | 2026-09-19 |
 | image_input_shares_png_bytes_via_arc | 图像输入 Arc 共享 | 给定 PNG 字节，当构造 Image 输入，则经 Arc 共享（ptr_eq）并携带区域 | 2026-09-19 |
 | accepts_text_follows_the_modality_matrix | kind 接受文本的模态矩阵 | 给定六种 kind（含 Auto 哨兵），当查 accepts_text，则文本类与 Auto true、图像类 false | 2026-09-26 |
-| hotkey_binding_pairs_kind_with_source | 热键绑定与源配对 | 给定 trigger/kind/source，当构造 HotkeyBinding，则 source 正确配对 | 2026-09-19 |
 | outcome_carries_structured_variants | 词卡结构化字段携带 | 给定 WordCard 变体，当构造 TaskOutcome，则 word 字段完整携带 | 2026-09-19 |
 | modality_matrix_is_enforced_cell_by_cell | 模态矩阵逐格校验 | 给定 6 kind（含 Auto）× 3 输入全矩阵，当逐格 validate，则文本列（含 Auto）与 Image 列合法、Audio 全列非法 | 2026-09-26 |
 | task_round_trips_through_serde | Task serde 往返无损 | 给定整条 Task（含 hint 与目标语言），当 serde 往返，则无损 | 2026-09-19 |
@@ -458,6 +444,7 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | late_events_of_superseded_trigger_do_not_bleed | 旧会话的迟到事件不渗漏 | 给定划词提交 A 在推理中、再给一次新划词探测，当探测期间 A 的流照常推进，随后提交 B，则提交才取消 A、A 的迟到 chunk/TaskDone 被陈旧过滤、B 的产物照常 Show | 2026-10-01 |
+| probe_empty_selection_is_silently_dropped | 壳层时序：误滑静默丢弃 | 给定划词探测（状态机不动），当收空选区失败，则壳不请求浮层、状态机与视图原样、探测消费 | 2026-10-03 |
 | failed_task_lands_in_error_and_retry_works | 失败落错误态且可再划词 | 给定推理中任务，当匹配代数的失败到达，则落 Error；陈旧失败丢弃；再次划词探测不动失败卡（探测编号在场） | 2026-10-01 |
 | stale_input_ready_is_dropped_entirely | 陈旧 InputReady 整体丢弃 | 给定陈旧编号 InputReady，当采纳，则整体丢弃、不下发通道③ | 2026-09-19 |
 | saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置，当下一次划词提交，则目标语言随 Auto 任务下发（模型在桥重建时按判定 kind 解析，哨兵不带模型） | 2026-09-26 |
@@ -466,7 +453,6 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | a_disabled_default_kind_does_not_stop_the_selection_gesture | 任务开关不拦划词手势 | 给定默认任务被停用的配置，当划词触发，则仍下发 Auto 取材命令（手势不带显式意图，开关只拦显式 kind） | 2026-09-26 |
 | a_sensitive_scene_makes_the_selection_gesture_a_no_op | 敏感场景下划词彻底无声 | 给定安全输入开启、再给定前台应用在拦截名单内（两侧各自设置），当划词触发，则取材命令都不下发、探测编号不领、状态留 Idle；场景恢复后同一手势照常下发 | 2026-09-24 |
 | suspicious_input_is_suppressed_and_shows_nothing | 可疑内容被拦下且什么都不出 | 给定嵌在 JSON 里的短令牌取材产物，当采纳，则通道③一条都没有、可见会话不被触碰（没有卡片、没有可点的出口）；下一次普通取材照常下发 | 2026-10-01 |
-| probe_empty_selection_is_silently_dropped_but_hotkey_still_raises_the_card | 壳层时序：误滑静默丢弃、热键仍弹卡 | 给定划词探测（状态机不动），当收空选区失败，则壳不请求浮层、状态机与视图原样、探测消费；热键触发的同一失败仍落 Error 弹卡 | 2026-10-01 |
 | a_mis_slide_over_a_visible_session_preserves_it_entirely | 已显示会话对误滑零感知 | 给定推理中的可见会话，当新划词探测以空选区失败收场，则令牌未取消、状态与视图原样、无显形挂起、流式正文照常追加 | 2026-10-01 |
 | committing_the_probe_flags_the_reveal_for_the_same_frame | 提交即挂起显形 | 给定在途划词探测，当产物提交，则置位显形挂起（drain_events 同帧消费）、进入 Translating | 2026-10-01 |
 
@@ -522,9 +508,9 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | retry_action_redispatches_the_failed_task | Retry 动作重发失败任务 | 给定失败卡 Retry 动作，当执行，则同代数同任务新令牌重发通道③，重试产物照常采纳 | 2026-09-21 |
 | open_settings_action_keeps_the_error_card | 打开设置保留错误卡 | 给定鉴权失败卡，当执行 OpenSettings 动作，则停在 Error、通道③无流量、编辑会话就位 | 2026-09-21 |
 | dismiss_abandons_the_inflight_task_and_returns_to_idle | 收起浮层放弃在途任务 | 给定推理中的浮层，当执行收起出口，则回 Idle、在途令牌取消、视图清空、迟到产物被丢弃 | 2026-09-21 |
-| auto_show_policy_decides_when_the_overlay_pops | 自动弹出按事件类别 | 给定事件类别×采纳组合，当逐事件判定，则失败即弹；取材成功不再露面（触发即显骨架已带浮层上屏，采纳只换卡）、完成与 chunk 不弹（浮层已可见）；未采纳一律不弹 | 2026-09-26 |
+| auto_show_policy_decides_when_the_overlay_pops | 自动弹出按事件类别 | 给定事件类别×采纳组合，当逐事件判定，则失败即弹；取材成功不再露面（显形随划词提交置位）、完成与 chunk 不弹（浮层已可见）；未采纳一律不弹 | 2026-09-26 |
 | auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则任一被采纳的失败即弹、整批陈旧不弹、空批不弹 | 2026-09-26 |
-| pending_reveal_shows_the_skeleton_only_over_a_live_view | 触发即显的显形守卫只认活视图 | 给定挂起的显形请求与机器视图有无两种状态，当判显形，则视图在场即显形、视图为空不显形（弹出渲染自检卡）、无挂起且批次无失败即弹也不显形 | 2026-09-27 |
+| pending_reveal_shows_only_over_a_live_view | 挂起显形的守卫只认活视图 | 给定挂起的显形请求与机器视图有无两种状态，当判显形，则视图在场即显形、视图为空不显形（弹出渲染自检卡）、无挂起且批次无失败即弹也不显形 | 2026-10-03 |
 | reveal_decision_combines_the_pending_request_with_the_batch | 显形决策对挂起请求与批次取或 | 给定挂起显形请求配整批陈旧回传、无挂起配被采纳的失败、无挂起配取材成功与流式增量，当判显形，则挂起显形不依赖批次（陈旧批也拦不下）、失败即弹独立成立、取材成功与流式增量不负责露面 | 2026-09-27 |
 | show_position_follows_selection_only_for_the_current_generation | 显示位置跟随当代划词 | 给定划词锚点与代数，当决策显示位置，则当代跟随选区（右下偏移）、代数不符或无锚点回落居中 | 2026-09-20 |
 | selection_trigger_records_its_anchor_per_generation | 划词触发按代数记锚点 | 给定两次划词触发，当消费，则锚点随代数刷新为各自释放坐标 | 2026-09-20 |
@@ -537,9 +523,6 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | settings_save_writes_keychain_and_swaps_config | 保存写密钥串并换配置 | 给定含密钥替换的保存，当成功，则密钥进 keychain、快照换新、会话关闭，新配置随后续触发生效 | 2026-09-26 |
 | clearing_the_key_deletes_the_secret_on_save | 清除密钥保存即删除 | 给定 KeyUpdate::Clear，当保存，则 keychain 条目删除、会话关闭 | 2026-09-19 |
 | failed_save_keeps_the_session_open_with_a_notice | 失败保存会话不关 | 给定落盘必失败存储，当保存，则会话保持打开、错误进提示、快照不变 | 2026-09-19 |
-| saving_settings_rebinds_hotkeys_from_the_new_snapshot | 保存按新快照重注册热键 | 给定保存新热键表，当成功，则按新快照重注册一次（启动注册不计入 App） | 2026-09-19 |
-| every_save_rebinds_hotkeys_not_just_the_first | 每次保存都重注册 | 给定连续两次成功保存，当各次执行，则都重注册且第二次生效第二份 | 2026-09-19 |
-| failed_save_does_not_rebind_hotkeys | 失败保存不重注册 | 给定落盘失败，当保存，则重注册计数为 0 | 2026-09-19 |
 
 ### crates/gloss-app/src/app/theme.rs
 
@@ -606,14 +589,12 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| trigger_mapping_covers_wired_events_only | 触发映射只覆盖已接线事件 | 给定划词手势与未接线的框选热键，当 begin_selection_probe 与 trigger，则前者发 AcquireText(kind=Auto) 且只领探测编号不动代数、后者 None 且不占代数 | 2026-10-01 |
-| trigger_decision_separates_disabled_blocked_and_unwired_events | 触发去向分出停用/被拦/未接线 | 给定含停用 kind 的配置，当 trigger_decision，则划词恒为 Acquire(Auto)、停用热键报 Disabled、框选绑定与退出报 Unwired、设置与退出不因场景被拦；出厂配置下划词为 Acquire，拦截名单内的前台应用则报 Blocked | 2026-09-26 |
+| probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（框选、设置、退出），当 begin_selection_probe，则前者发 AcquireText(kind=Auto) 且只领探测编号不动代数、后者 None 且不占代数不顶掉在途探测 | 2026-10-03 |
+| trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦/未接线 | 给定 trigger_decision，则划词恒为 Acquire(Auto)（任务开关不拦手势，由桥的 allowed 校验兜住）、框选与退出报 Unwired、设置与退出不因场景被拦；出厂配置下划词为 Acquire，拦截名单内的前台应用则报 Blocked | 2026-10-03 |
 | scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 begin_selection_probe，则两次都 None、无探测编号、状态留 Idle；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
 | selection_kind_and_options_pair_with_one_snapshot | kind 与选项出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则 kind=Auto、目标语言出自快照、模型为 None（重建时由桥按快照解析） | 2026-10-01 |
 | gesture_acquires_even_with_a_legacy_image_default_kind | 误配图像默认不影响手势 | 给定 default_text_kind 误配图像类，当划词探测，则仍下发 Acquire(Auto)（图像默认只影响桥侧兜底 kind） | 2026-09-26 |
-| disabled_kinds_are_not_acquired_via_hotkey_and_consume_no_generation | 停用 kind 热键不取材不占代数 | 给定含停用 kind 的配置，当热键触发停用项，则 None 且不占代数；同一配置下划词手势照常取材（Auto 不受开关约束） | 2026-09-26 |
 | classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 accept_classified，则当前代写入判定 kind、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
-| fixed_kinds_arrive_classified_while_the_auto_sentinel_waits | 固定 kind 创建即分类、Auto 等精化 | 给定热键（TranslateSentence）触发并采纳取材，当检查流式视图，则 classified 创建即 Some 且语言落内容探测（fn main→rust）；给定划词提交，当检查，则 classified 与 code_lang 创建均为 None（等分类半程） | 2026-10-02 |
 | code_language_prefers_the_hint_and_rides_into_the_outcome | 语言 hint 优先并随行进产物卡 | 给定 hint CodeLanguage("py") 的划词提交，当检查流式视图，则 code_lang 为归一化后的 "python"（hint 胜内容探测）；accept_done 后当检查产物卡，则 code_lang 原样随行 | 2026-10-02 |
 | options_freeze_at_probe_time | 选项在探测时刻冻结 | 给定探测后更换配置（目标语言与界面语言同时变），当提交产物，则任务仍带探测时快照的选项（含 prompt_locale）；第二次探测才用新值 | 2026-10-01 |
 | prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 Language::En 与出厂 System 两份配置，当探测并提交产物，则任务携带的 prompt_locale 分别为 En 与注入的系统语言 | 2026-09-22 |
@@ -622,15 +603,13 @@ popup 快照基线：popup_word_card、popup_loading、popup_streaming、popup_e
 | image_input_for_text_kind_is_rejected | 文本 kind 拒绝图像输入 | 给定文本 kind 配图像输入，当提交，则 Ignored | 2026-09-19 |
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 Translating 态隐藏，当收起，则令牌取消、视图清空回 Idle，迟到同代数产物/失败被拒 | 2026-09-19 |
 | hide_overlay_drops_the_outstanding_probe | 隐藏作废在途探测 | 给定在途探测，当收起浮层，则迟到的探测产物与失败均被拒（不得把浮层弹回） | 2026-10-01 |
-| failed_guard_matches_fetching_and_translating_only | 失败守卫只认两个在途态 | 给定热键取材中与推理中的失败、以及隐藏后的迟到失败，当采纳，则前两者落 Error（Shown）、后者被拒（Ignored） | 2026-10-01 |
+| the_auto_sentinel_waits_unclassified_until_the_classify_half_reports | Auto 哨兵等分类精化 | 给定划词提交（hint 为空），当检查流式视图，则 classified 与 code_lang 创建均为 None（等分类半程） | 2026-10-03 |
+| failed_guard_matches_translating_only | 失败守卫只认推理在途态 | 给定推理中任务的失败、以及隐藏后的迟到失败，当采纳，则前者落 Error（Shown）、后者被拒（Ignored） | 2026-10-03 |
 | probe_no_selection_failures_are_silently_dropped | 探测空选区静默丢弃 | 给定在途划词探测，当收 SelectionUnavailable / SelectionEmpty 失败，则静默丢弃不弹卡，状态机与当前显示一律不动、探测编号消费 | 2026-10-01 |
 | probe_permission_failures_still_raise_the_card | 探测权限失败仍弹卡 | 给定在途划词探测，当收 AccessibilityDenied 失败，则接管会话落 Error 弹失败卡（真实故障需要显式反馈） | 2026-10-01 |
-| hotkey_no_selection_failures_still_raise_the_card | 热键空选区仍弹卡 | 给定热键触发的取材态，当收 SelectionUnavailable / SelectionEmpty 失败，则落 Error 弹失败卡（显式请求需反馈） | 2026-09-30 |
 | selection_failures_outside_the_probe_still_raise_the_card | 推理期取材类失败仍弹卡 | 给定划词提交已进推理态，当收 SelectionUnavailable，则落 Error 弹卡（静默只覆盖探测一腿） | 2026-10-01 |
 | stale_probe_results_are_dropped | 陈旧探测产物整体丢弃 | 给定新探测替换旧探测，当旧编号的产物/失败到达，则一律 Ignored | 2026-10-01 |
-| hotkey_supersedes_the_outstanding_probe | 热键取代在途探测 | 给定在途探测，当热键触发，则热键领新代数、探测作废，迟到的探测产物不得劫持热键会话 | 2026-10-01 |
-| commit_while_hotkey_fetching_supersedes_the_hotkey_session | 探测提交取代热键取材会话 | 给定热键取材中到达划词探测，当探测产物先提交，则编号提升为代数、进 Translating、热键冻结任务清掉，热键的迟到 InputReady 被拒 | 2026-10-02 |
-| probe_in_the_self_frontmost_scene_is_suppressed_without_an_id | 自身前台的划词被拦且不占编号 | 给定前台应用 is_self 为真，当手势 trigger_decision，则 SelfSuppressed、探测为 None、无浮层；同一场景下热键照常 Acquire | 2026-10-01 |
+| probe_in_the_self_frontmost_scene_is_suppressed_without_an_id | 自身前台的划词被拦且不占编号 | 给定前台应用 is_self 为真，当手势 trigger_decision，则 SelfSuppressed、探测为 None、无浮层 | 2026-10-03 |
 | modality_mismatch_preserves_pending_task | 模态错配保留待定任务 | 给定模态错配被拒后，当同编号合法产物到达，则仍可提交 | 2026-09-19 |
 | transport_failure_lands_in_error | 传输失败落错误态 | 给定推理通道不可用，当 fail_transport，则落 Error、失败视图无动作按钮、retry 为 None | 2026-09-19 |
 | retryable_failure_keeps_task_and_retry_redispatches_it | 可重试失败保留任务 | 给定网络类失败，当落 Error，则失败原因按变体记录（FailureCause::Task(EngineNetwork)）、retry 同代数同任务新令牌重发且回流式视图 | 2026-09-22 |
@@ -752,7 +731,6 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | invalid_draft_blocks_save_and_enters_the_error_state | 非法草稿阻断保存进入错误态 | 给定非法 Base URL 草稿，当 build_save，则返回 Idle、置校验态、该字段提示含 https 规则 | 2026-09-22 |
 | a_disabled_default_task_blocks_save | 停用的默认任务阻断保存 | 给定默认任务设为被停用的代码解释，当 build_save，则返回 Idle、默认任务行标停用错误，启用该任务后错误清空并恢复上交 Save | 2026-09-23 |
 | the_default_task_rule_follows_the_selection_kind_fold | 默认任务规则按收口后的 kind 判定 | 给定手改配置把默认任务写成图像 kind，当校验草稿，则判的是划词实际用的 TranslateWord——它启用即放行、它停用即标红（照字段面判会漏判） | 2026-09-23 |
-| duplicate_hotkey_triggers_are_flagged_by_canonical_form | 热键重复按规范化串判定 | 给定两条同组合不同写法的热键，当校验草稿，则后一条标重复、首条保留 | 2026-09-22 |
 | fixing_the_field_restores_save | 改对字段恢复保存 | 给定被阻断的校验态，当修正 Base URL，则错误清空、再次 build_save 上交 Save | 2026-09-22 |
 | open_copies_the_snapshot_into_the_draft | 打开设置拷贝快照进草稿 | 给定打开时的快照，当建草稿并随后改原配置，则草稿不跟随、可携带提示 | 2026-09-19 |
 | field_errors_are_worded_per_locale | 字段错误按 locale 出措辞 | 给定全部九类字段错误（含行号与触发键回显两种模板），当按中英文表取文案，则各出对应措辞（换臂或漏译会被抓住） | 2026-09-23 |
@@ -862,22 +840,6 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | change_is_detected_when_generation_bumps | 写入确认按代数探测 | 给定基线代数 0 与第 3 轮才变化的 probe，当 wait_for_write，则确认成功且恰好轮询 3 次 | 2026-09-19 |
 | timeout_returns_false_without_hanging | 超时返回不悬挂 | 给定 probe 恒不变化，当到 deadline，则返回 false 且 2s 内返回 | 2026-09-19 |
 | unavailable_probe_keeps_polling_until_deadline | probe 恒 None 轮询到期限 | 给定 probe 恒 None，当到 deadline，则返回 false、不提前放弃也不永久等 | 2026-09-19 |
-
-### crates/gloss-platform/src/events/hotkey.rs
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| rejects_malformed_triggers | 坏串拒绝解析 | 给定空串、"Cmd"、"Cmd+Foo"、"Cmd+1+2"、"++" 等，当经 core 语法薄映射解析，则返回 Err | 2026-09-22 |
-| factory_bindings_are_all_registerable | 出厂绑定全部可注册 | 给定出厂默认绑定表，当逐条解析，则全部可解析且都带修饰键 | 2026-09-22 |
-| degraded_registrar_keeps_parsed_table_and_stays_quiet | 降级注册器保持安静 | 给定 None 管理器，当装配 registrar，则不 panic、表保留全部出厂绑定、registered 为空、rebind 回报 0 | 2026-09-19 |
-| registrar_construction_never_panics | 注册器构造与 poll 不 panic | 给定真管理器，当构造与 poll，则不 panic、poll 空（真实注册系统热键，测后注销） | 2026-09-19 |
-| bare_keys_and_duplicates_are_rejected_before_registration | 裸键与重复在注册前拒绝 | 给定含裸键/重复/仅修饰键的表走公共构造，当装配，则非法条目不进表、重复收敛为一条 | 2026-09-19 |
-| rejects_invalid_and_duplicate_triggers | 非法与重复触发过滤 | 给定混合合法/非法/重复的表走纯过滤路径，当过滤，则只留两条互不重复的合法绑定、无注销记录 | 2026-09-19 |
-| distinct_spelling_of_one_physical_key_loses_to_the_first | 同物理键先到者占表 | 给定同物理键的两种写法 Cmd+Shift+1 / Super+Shift+1，当注册，则后者被拒、先到者占表 | 2026-09-19 |
-| pump_observes_the_rebound_table | 泵观察重绑后的表 | 给定 rebind 换的新表，当 pump 读，则共享同一 Arc 表、只见新绑定；生效数至多 1 | 2026-09-19 |
-| rebind_replaces_instead_of_appending | rebind 替换不追加 | 给定连续改小的绑定表，当连续 rebind，则表替换不追加、空表清空全部 | 2026-09-19 |
-| binder_port_is_object_safe_and_reports_applied_count | 绑定端口对象安全并回报生效数 | 给定 Arc<dyn HotkeyBinder>，当对空表/裸键 rebind，则正常工作且回报 0 | 2026-09-19 |
-| drain_pressed_skips_released_and_unknown_ids_without_stopping | 抽取按下事件跳过杂项 | 给定 Pressed/Released/未知 id 混合流，当 drain_pressed，则跳过后者继续收集同批有效 Pressed（两条） | 2026-09-19 |
 
 ### crates/gloss-platform/src/events/mod.rs
 

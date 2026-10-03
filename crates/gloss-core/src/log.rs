@@ -41,7 +41,7 @@ pub use tracing::{
 pub mod thread {
     /// 主线程：winit 事件循环 + UI。
     pub const UI: &str = "ui";
-    /// 平台事件线程：热键、鼠标手势与取材。
+    /// 平台事件线程：鼠标手势与取材命令消费。
     pub const EVENT: &str = "event";
     /// 鼠标 tap 监听线程：rdev 全局事件流的独立宿主。
     pub const MOUSE_TAP: &str = "mouse_tap";

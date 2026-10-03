@@ -5,22 +5,17 @@
 //! 决策、不副作用，因此可被集成测试以公共 API 全时序驱动（分层测试
 //! 的 L1 层，见 tests/pipeline.rs）。
 //!
-//! 触发有两条路，共享同一个单调计数器（编号不复用，代数与探测编号
-//! 永不碰撞）：
-//! - **热键**（显式请求）：[`TaskStateMachine::trigger`] 即占代数进
-//!   `Fetching`，触发即显骨架，失败弹卡。
-//! - **划词手势**（无显式意图）：两段式「探测—提交」。[`TaskStateMachine::begin_selection_probe`]
-//!   只领一个探测编号、在状态机之外取材——不改状态、不换视图、不取消
-//!   在途任务，已显示的内容与在途推理全程无感；[`TaskStateMachine::commit_selection`]
-//!   在产物到达时才提交：探测编号提升为代数、旧任务让位、视图换流式卡。
-//!   探测失败（[`TaskStateMachine::commit_selection_failed`]）：空选区/
-//!   读不到按误滑静默丢弃（显示原样保留），权限缺失落失败卡。
+//! 触发只有**划词手势**一条路：两段式「探测—提交」，编号共用一个单调
+//! 计数器（编号不复用，代数与探测编号永不碰撞）。[`TaskStateMachine::begin_selection_probe`]
+//! 只领一个探测编号、在状态机之外取材——不改状态、不换视图、不取消
+//! 在途任务，已显示的内容与在途推理全程无感；[`TaskStateMachine::commit_selection`]
+//! 在产物到达时才提交：探测编号提升为代数、旧任务让位、视图换流式卡。
+//! 探测失败（[`TaskStateMachine::commit_selection_failed`]）：空选区/
+//! 读不到按误滑静默丢弃（显示原样保留），权限缺失落失败卡。
 //!
 //! 两道敏感信息闸门的落点：场景闸门在 [`trigger_decision`]（触发前，
-//! 拦下即不取材不占编号、不出浮层），内容闸门在 [`TaskStateMachine::accept_input`]
-//! 与 [`TaskStateMachine::commit_selection`]（取材后、下发前，热键路径
-//! 命中即作废这次取材回 `Idle`，划词路径命中即丢弃探测且当前显示保留
-//! ——不下发、不出浮层）。
+//! 拦下即不取材不占编号、不出浮层），内容闸门在 [`TaskStateMachine::commit_selection`]
+//! （取材后、下发前，命中即丢弃探测且当前显示保留——不下发、不出浮层）。
 
 use tokio_util::sync::CancellationToken;
 
@@ -28,9 +23,7 @@ use gloss_core::config::Config;
 use gloss_core::guard::{self, SceneFacts, SensitiveKind, TriggerBlock};
 use gloss_core::model::GlossError;
 use gloss_core::model::Locale;
-use gloss_core::task::{
-    InputHint, InputSource, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome,
-};
+use gloss_core::task::{InputHint, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
 use crate::channel::{AcquireCommand, PlatformEvent};
 
@@ -46,21 +39,16 @@ pub enum ErrorAction {
 
 /// 应用状态机：触发 → 取材 → 推理 → 展示/失败。
 ///
-/// 转移概要：热键触发（[`TaskStateMachine::trigger`]）取消在途任务并进
-/// `Fetching`，触发即显骨架；划词手势不走状态（探测段在状态机之外，
-/// 产物经 [`TaskStateMachine::commit_selection`] 直接进 `Translating`）。
-/// `Fetching` 采纳 `InputReady` 后携取消令牌下发通道③进 `Translating`
-/// ——**除非内容闸门命中**，那时这次取材被丢弃、直接回 `Idle`（不下发、
-/// 不出浮层）；`Translating` 收 `TaskChunk` 追加展示、收 `TaskDone` 定格
-/// `Show`、收 `TaskFailed` 落 `Error`；收起（Esc / 关闭按钮）回 `Idle`。
+/// 转移概要：划词手势不走状态（探测段在状态机之外，产物经
+/// [`TaskStateMachine::commit_selection`] 直接进 `Translating`，取消在途
+/// 任务并换流式卡）；`Translating` 收 `TaskChunk` 追加展示、收 `TaskDone`
+/// 定格 `Show`、收 `TaskFailed` 落 `Error`；收起（Esc / 关闭按钮）回
+/// `Idle`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppState {
     /// 浮层隐藏，无在途任务。
     #[default]
     Idle,
-    /// 取材中（热键即显路径）：通道②命令已下发，等待 `InputReady`。
-    /// 划词手势不经过此态——探测段在状态机之外。
-    Fetching,
     /// 推理中：`RunTask` 已下发 tokio，chunk 流式到达。
     Translating,
     /// 展示产物。
@@ -76,13 +64,9 @@ pub enum AppState {
 /// 渲染。
 #[derive(Debug, Clone, PartialEq)]
 pub enum OverlayView {
-    /// 取材中骨架（热键触发即显）：spinner + 「读取选区…」，尚无选区
-    /// 数据可展示。`accept_input` 采纳取材后即被流式视图整卡替换。划词
-    /// 手势不产生此视图（探测段在状态机之外，产物直接进流式卡）。
-    Acquiring,
     /// 取材/推理中：原文 + 已到达的流式正文（含结构化块的原始流，渲染
     /// 层按 [`gloss_core::prompt::STRUCTURED_FENCE`] 过滤）。`classified`
-    /// 是按代码排版的判定结果：热键等固定 kind 的任务创建时即知（非
+    /// 是按代码排版的判定结果：固定 kind 的任务创建时即知（非
     /// Auto 恒 `Some`，代码解释从首帧就按代码排版），划词（Auto 哨兵）
     /// 为 `None`、`accept_classified` 到达后精化。
     Streaming {
@@ -126,23 +110,20 @@ pub enum OverlayView {
 pub enum FailureCause {
     /// 任务链路返回的错误。
     Task(GlossError),
-    /// 取材通道不可用（通道②发送失败）。
-    AcquireChannel,
     /// 推理通道不可用（通道③发送失败）。
     TransportChannel,
 }
 
-/// `accept_input` 的结果：下发 / 被内容闸门拦下 / 不采纳。三态而非 `Option`
+/// `commit_selection` 的结果：下发 / 被内容闸门拦下 / 不采纳。三态而非 `Option`
 /// ——「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者要记一行 warn，
 /// 后者只记 debug），合并成 `None` 就分不出来了。
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputOutcome {
     /// 任务已组装，壳经通道③下发。
     Dispatch(RunRequest),
-    /// 内容疑似敏感：热键路径上这次取材作废（回 `Idle`、浮层收起）；
-    /// 划词路径上探测丢弃（当前显示保留）。
+    /// 内容疑似敏感：探测丢弃（当前显示保留，它属于上一个会话）。
     Blocked(SensitiveKind),
-    /// 陈旧代数、非取材态或模态错配：不采纳，浮层与通道都不动。
+    /// 陈旧探测编号或模态错配：不采纳，浮层与通道都不动。
     Ignored,
 }
 
@@ -156,11 +137,11 @@ pub enum FailureOutcome {
     /// 划词探测遇「无选区可读」：纯误滑——探测丢弃、不弹卡，状态机与
     /// 当前显示一律不动（壳只记一条带前台应用的 info）。
     SilentlyDropped,
-    /// 陈旧代数或已隐藏：不采纳，浮层与状态都不动（壳记 info）。
+    /// 探测编号不符、代数陈旧或已隐藏：不采纳，浮层与状态都不动（壳记 info）。
     Ignored,
 }
 
-/// `accept_input` 采纳取材产物后的下发请求：壳把它经通道③发送。
+/// `commit_selection` 采纳取材产物后的下发请求：壳把它经通道③发送。
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunRequest {
     /// 请求代数，与触发同值。
@@ -172,8 +153,8 @@ pub struct RunRequest {
     pub cancel: CancellationToken,
 }
 
-/// 触发时定下的任务：一次配置快照解析出类型与选项，`InputReady` 到达后
-/// 直接组装——单次任务的配置从触发那一刻起就固定了（「单次任务内
+/// 探测时定下的任务：一次配置快照解析出类型与选项，产物到达（提交）时
+/// 组装——单次任务的配置从探测那一刻起就固定了（「单次任务内
 /// 配置一致」），取材途中换配置不会让同一个任务用上两个版本的参数。
 #[derive(Debug, Clone, PartialEq)]
 struct PendingTask {
@@ -196,20 +177,17 @@ struct ProbeTask {
 /// 任务状态机：纯状态 + 决策，无 IO，可全时序驱动。
 #[derive(Debug, Default)]
 pub struct TaskStateMachine {
-    /// 代数与探测编号共用的单调计数器：`trigger` 与
-    /// `begin_selection_probe` 各从这里领号，永不复用。
+    /// 代数与探测编号共用的单调计数器：`begin_selection_probe` 从这里
+    /// 领号，永不复用。
     next_id: u64,
     /// 当前已提交会话的代数：`accept_chunk`/`accept_done`/`accept_failed`
     /// 的陈旧过滤基准。探测编号在提交时才提升为代数。
     generation: u64,
     state: AppState,
-    /// 触发时确定的任务类型与选项，待 `InputReady` 到达后组装 `Task`
-    /// （热键路径）。
-    pending: Option<PendingTask>,
     /// 在途的划词探测：取材在状态机之外进行，产物到达时提交或丢弃。
-    /// 新探测、热键触发与收起都会替换或清掉它。
+    /// 新探测与收起都会替换或清掉它。
     probe: Option<ProbeTask>,
-    /// 在途推理的取消令牌：提交与热键触发时取消旧任务（唯一取消机制）。
+    /// 在途推理的取消令牌：提交时取消旧任务（唯一取消机制）。
     current_cancel: Option<CancellationToken>,
     /// 当前任务的副本：推理期间随行，可重试失败后留在 Error 态供
     /// [`TaskStateMachine::retry`] 原样重发；完成、隐藏与不可重试失败即清。
@@ -250,78 +228,14 @@ impl TaskStateMachine {
         self.current_cancel.as_ref()
     }
 
-    /// 触发的状态机入口（热键即显路径）：取消在途任务 → 领新代数 → 组装
-    /// 取材命令。`config` 是壳在任务开始时取的配置快照：任务类型与后续
-    /// 选项都按它解析，此后本任务不再读配置。`system_locale` 是壳在启动期
-    /// 读到的系统语言，供配置里的 `Language::System` 落定（配置快照里只有
-    /// 三态偏好，落定需要这一份环境事实）。`scene` 是壳在触发前读到的场景
-    /// 事实，供敏感场景闸门判定（见 [`trigger_decision`]）。未接线的平台
-    /// 事件、划词手势（走 [`Self::begin_selection_probe`] 两段式）与被拦下
-    /// 的触发都返回 None 且不产生任何状态副作用。
-    pub fn trigger(
-        &mut self,
-        event: &PlatformEvent,
-        config: &Config,
-        system_locale: Locale,
-        scene: &SceneFacts,
-    ) -> Option<AcquireCommand> {
-        // 划词手势改走探测—提交两段式（误滑零干扰）；其余未接线事件照旧。
-        if matches!(
-            event,
-            PlatformEvent::SelectionGesture { .. }
-                | PlatformEvent::RegionGesture { .. }
-                | PlatformEvent::OpenSettingsRequested
-                | PlatformEvent::QuitRequested
-        ) {
-            return None;
-        }
-        let kind = match trigger_decision(event, config, scene) {
-            TriggerDecision::Acquire(kind) => kind,
-            TriggerDecision::Disabled(_)
-            | TriggerDecision::Blocked(_)
-            | TriggerDecision::SelfSuppressed
-            | TriggerDecision::Unwired => return None,
-        };
-        // 热键是显式请求：在途划词探测一并作废（其迟到产物经编号过滤丢弃）。
-        self.probe = None;
-        let command = AcquireCommand::AcquireText {
-            generation: self.next_id + 1,
-            kind,
-        };
-        // 最新触发取代在途任务：旧推理立即取消（其迟到产物经代数过滤
-        // 丢弃），令牌清空等待新任务。
-        if let Some(cancel) = self.current_cancel.take() {
-            cancel.cancel();
-        }
-        self.next_id += 1;
-        self.generation = self.next_id;
-        // 新触发取代一切旧任务：连可重试的失败任务副本一并作废
-        // （重发它没有意义，用户已经表达了新的意图）。
-        self.active_task = None;
-        // kind 从命令里取（两个变体都携带），选项按同一个 kind 从**同一份**
-        // 快照解析——这里是「单次任务内配置一致」的实现点。
-        //
-        // `CaptureRegion` 是框选取材的预留：今天 `trigger` 不会返回它
-        // （`trigger_decision` 对 Region 返回 `Unwired`）。接线时必须同时让
-        // `accept_input` 接纳 `TaskInput::Image`，否则任务会卡在 `Fetching`
-        // 且不弹浮层（`accept_input` 只收文本）。
-        self.pending = Some(PendingTask {
-            kind,
-            options: task_options(kind, config, system_locale),
-        });
-        // 热键即显骨架：占代数的触发立刻给出纯骨架浮层（无取材文字，
-        // 文案的设计取舍见 popup 渲染层），取材产物到达后由 accept_input
-        // 整卡替换；被闸门拦下的触发走不到这里（不出浮层）。
-        self.overlay_view = Some(OverlayView::Acquiring);
-        self.state = AppState::Fetching;
-        Some(command)
-    }
-
     /// 划词探测的入口（探测段）：只领探测编号、冻结任务配置并返回取材
     /// 命令——**不改状态、不换视图、不取消在途任务**。取材在状态机之外
     /// 进行：产物到达走 [`Self::commit_selection`]，失败走
     /// [`Self::commit_selection_failed`]。已显示的内容与在途推理全程无感，
-    /// 误滑（取不到内容）因此零干扰。参数语义与 [`Self::trigger`] 相同；
+    /// 误滑（取不到内容）因此零干扰。`config` 是壳在事件起手处取的配置
+    /// 快照，任务选项按它解析并随探测冻结；`system_locale` 是壳在启动期
+    /// 读到的系统语言，供配置里的 `Language::System` 落定；`scene` 是壳在
+    /// 触发前读到的场景事实，供敏感场景闸门判定（见 [`trigger_decision`]）。
     /// 未接线事件与被闸门拦下的手势返回 None 且无任何副作用。新探测替换
     /// 旧探测（旧探测的迟到产物经编号过滤丢弃）。
     pub fn begin_selection_probe(
@@ -334,10 +248,9 @@ impl TaskStateMachine {
         if !matches!(event, PlatformEvent::SelectionGesture { .. }) {
             return None;
         }
-        let kind = match trigger_decision(event, config, scene) {
+        let kind = match trigger_decision(event, scene) {
             TriggerDecision::Acquire(kind) => kind,
-            TriggerDecision::Disabled(_)
-            | TriggerDecision::Blocked(_)
+            TriggerDecision::Blocked(_)
             | TriggerDecision::SelfSuppressed
             | TriggerDecision::Unwired => return None,
         };
@@ -385,13 +298,11 @@ impl TaskStateMachine {
         if let Some(reason) = guard::detect_sensitive(&text) {
             return InputOutcome::Blocked(reason);
         }
-        // 提交即接管：旧在途任务让位，热键取材会话的待组装任务一并作废
-        // （与 trigger 的接管语义对齐，不留等待被下一次热键覆盖的死数据）。
+        // 提交即接管：旧在途任务让位，不留滞留的死数据。
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
         self.active_task = None;
-        self.pending = None;
         self.generation = id;
         // 视图与任务各要一份原文；语言判定要在 hint 被任务带走之前做。
         let code_lang = code_lang_of(&text, &hint);
@@ -438,14 +349,12 @@ impl TaskStateMachine {
         self.probe = None;
     }
 
-    /// 落 `Error` 态的共用半边：取消在途、作废任务副本与热键取材会话的
-    /// 待组装任务（接管即全清，重试只认 `active_task`）、按错误映射给
-    /// 动作出口并落失败卡。
+    /// 落 `Error` 态的共用半边：取消在途、作废任务副本（重试只认
+    /// `active_task`）、按错误映射给动作出口并落失败卡。
     fn land_error(&mut self, error: &GlossError) {
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
-        self.pending = None;
         // 只有「原样重发有意义」的失败才留任务副本；其余类别（含通道级
         // 故障的 fail_* 降级路径）一律清掉，retry() 自然无从发起。副本
         // 缺失时（未来取材路径若回传可重试错误）不给 Retry 出口——别摆
@@ -463,54 +372,6 @@ impl TaskStateMachine {
             cause: FailureCause::Task(error.clone()),
             action,
         });
-    }
-
-    /// 采纳取材产物（热键路径）：组装 `Task` 并返回下发请求（壳经通道③
-    /// 发送），进入 `Translating`。选项取触发时那份快照（不经参数再传配
-    /// 置）。划词路径的产物采纳走 [`Self::commit_selection`]。
-    ///
-    /// 内容闸门命中时这次取材作废：任务不组装、不下发、浮层不露面，直接回
-    /// `Idle`（壳据 [`InputOutcome::Blocked`] 记一行 warn 并收起浮层窗口）。
-    /// **没有放行出口**——防护不交由用户控制，命中就是发送不成。
-    pub fn accept_input(&mut self, generation: u64, input: TaskInput) -> InputOutcome {
-        if generation != self.generation || self.state != AppState::Fetching {
-            return InputOutcome::Ignored;
-        }
-        // 先校验模态再消费 pending：模态错配不吃掉待组装任务，同代数
-        // 的后续合法 InputReady 仍可被采纳。
-        let TaskInput::Text { text, hint } = input else {
-            return InputOutcome::Ignored;
-        };
-        let Some(PendingTask { kind, options }) = self.pending.take() else {
-            return InputOutcome::Ignored;
-        };
-        if let Some(reason) = guard::detect_sensitive(&text) {
-            // 视图一并清掉：里面可能还留着上一次任务的产物卡，而它属于另
-            // 一次取材（留着会被读成「这次划词的结果」）。
-            self.overlay_view = None;
-            self.state = AppState::Idle;
-            return InputOutcome::Blocked(reason);
-        }
-        // 视图与任务各要一份原文；语言判定要在 hint 被任务带走之前做。
-        let code_lang = code_lang_of(&text, &hint);
-        let task = Task {
-            kind,
-            input: TaskInput::Text {
-                text: text.clone(),
-                hint,
-            },
-            options,
-        };
-        self.overlay_view = Some(OverlayView::Streaming {
-            source: text,
-            body: String::new(),
-            // 热键是显式意图：kind 触发时即知（非 Auto 恒 Some），代码
-            // 解释从首帧就按代码排版——曾恒写 None，衬线闪现的根因。
-            classified: (kind != TaskKind::Auto).then_some(kind),
-            code_lang,
-        });
-        self.state = AppState::Translating;
-        InputOutcome::Dispatch(self.begin_run(task))
     }
 
     /// 采纳流式增量：追加到流式视图的原始正文（围栏过滤在渲染层）。
@@ -570,16 +431,12 @@ impl TaskStateMachine {
 
     /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（错误
     /// 映射：可重试类带重试按钮并保留任务副本，配置/鉴权类引导去设置页）。
-    /// 这是热键路径（`Fetching` 收取材失败、`Translating` 收推理失败）；
-    /// 划词探测的失败走 [`Self::commit_selection_failed`]。其余状态不采纳
-    /// ——失败卡不得把已收起的浮层弹回。返回处置结果，壳按
-    /// [`FailureOutcome`] 区分日志与窗口动作。
+    /// 这是推理路径（`Translating` 收推理失败）；划词探测的失败走
+    /// [`Self::commit_selection_failed`]。其余状态不采纳——失败卡不得把
+    /// 已收起的浮层弹回。返回处置结果，壳按 [`FailureOutcome`] 区分日志
+    /// 与窗口动作。
     pub fn accept_failed(&mut self, generation: u64, error: &GlossError) -> FailureOutcome {
-        // Fetching 态收取材失败、Translating 态收推理失败；其余（含已
-        // 隐藏）不采纳——失败卡不得把已收起的浮层弹回。
-        if generation != self.generation
-            || !matches!(self.state, AppState::Fetching | AppState::Translating)
-        {
+        if generation != self.generation || self.state != AppState::Translating {
             return FailureOutcome::Ignored;
         }
         self.current_cancel = None;
@@ -627,22 +484,6 @@ impl TaskStateMachine {
         self.probe = None;
         self.state = AppState::Idle;
         self.overlay_view = None;
-    }
-
-    /// 取材通道不可用（②发送失败）时的降级：直接落 `Error` 态，避免
-    /// 滞留 Fetching 等一个永远不会到达的 `InputReady`。
-    ///
-    /// 与 `accept_*` 家族同一条守卫：只认「该代确实在取材中」——被内容
-    /// 闸门拦下的那次取材已经回 `Idle`，它的通道故障不该再摆一张失败卡。
-    pub fn fail_acquire(&mut self, generation: u64) {
-        if generation != self.generation || self.state != AppState::Fetching {
-            return;
-        }
-        self.state = AppState::Error;
-        self.overlay_view = Some(OverlayView::Failed {
-            cause: FailureCause::AcquireChannel,
-            action: None,
-        });
     }
 
     /// 推理通道不可用（③发送失败）时的降级：直接落 `Error` 态。通道
@@ -705,64 +546,40 @@ fn code_lang_of(text: &str, hint: &Option<InputHint>) -> Option<String> {
         .or_else(|| crate::ui::code_hl::detect_language(text))
 }
 
-/// 一次平台事件的去向：取材，或被四类闸门之一拦下。
+/// 一次平台事件的去向：取材，或被闸门拦下。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TriggerDecision {
-    /// 放行：该任务类型已启用且场景闸门放行，事件进入取材。
+    /// 放行：场景闸门放行，事件进入取材（划词固定走 Auto 哨兵）。
     Acquire(TaskKind),
-    /// 拦下：该任务类型被设置页的任务开关停用。
-    Disabled(TaskKind),
     /// 拦下：触发前场景闸门（安全输入态 / 敏感应用名单）。只拦真实触发，
     /// 设置与退出不在此列。
     Blocked(TriggerBlock),
     /// 拦下：Gloss 自身是前台应用时的划词手势（防误触——HID 全局 tap 连拖
-    /// Gloss 自己的浮层不该触发取材）。热键不受此限：显式意图总是成立。
+    /// Gloss 自己的浮层不该触发取材）。
     SelfSuppressed,
     /// 未接线的事件（框选、设置、退出）。
     Unwired,
 }
 
-/// 一次平台事件的去向判定：任务开关与场景闸门都在这里做一次（上游据此
-/// 记不同级别的日志与不同的动作）。
-///
-/// 顺序是「开关 → 场景」：被停用的 kind 本来就无响应，先判它才不会让
-/// 日志把「无响应」说成「被防护拦下」。手势分支先判自身前台（防误触，
-/// 与敏感防护无关、级别也不同）再过场景闸门。
-pub fn trigger_decision(
-    event: &PlatformEvent,
-    config: &Config,
-    scene: &SceneFacts,
-) -> TriggerDecision {
-    let kind = match event {
-        PlatformEvent::HotkeyTriggered { binding } => match binding.source {
-            InputSource::Selection => binding.kind,
-            // 图像取材待框选路径接入后消费。
-            InputSource::Region => return TriggerDecision::Unwired,
-        },
+/// 一次平台事件的去向判定：场景闸门在这里做一次（上游据此记不同级别
+/// 的日志与不同的动作）。手势分支先判自身前台（防误触，与敏感防护无关、
+/// 级别也不同）再过场景闸门。
+pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDecision {
+    match event {
         // 划词手势不带显式意图：固定走向 Auto 哨兵，由桥按输入内容分类
-        // 后重建具体 kind。任务开关不拦手势——Auto 不在设置清单里，可
-        // 不可用由前半程的「allowed = text-capable ∩ enabled」校验兜住；
-        // 场景闸门照常生效。
+        // 后重建具体 kind。场景闸门照常生效。
         PlatformEvent::SelectionGesture { .. } => {
             if scene.front_app.as_ref().is_some_and(|app| app.is_self) {
                 return TriggerDecision::SelfSuppressed;
             }
-            return match guard::trigger_block(scene) {
+            match guard::trigger_block(scene) {
                 Some(block) => TriggerDecision::Blocked(block),
                 None => TriggerDecision::Acquire(TaskKind::Auto),
-            };
+            }
         }
         PlatformEvent::RegionGesture { .. }
         | PlatformEvent::OpenSettingsRequested
-        | PlatformEvent::QuitRequested => return TriggerDecision::Unwired,
-    };
-    // 停用判定只对显式 kind 做（热键绑定携带的 kind 是逐条显式意图）。
-    if !config.is_kind_enabled(kind) {
-        return TriggerDecision::Disabled(kind);
-    }
-    match guard::trigger_block(scene) {
-        Some(block) => TriggerDecision::Blocked(block),
-        None => TriggerDecision::Acquire(kind),
+        | PlatformEvent::QuitRequested => TriggerDecision::Unwired,
     }
 }
 
@@ -804,16 +621,6 @@ mod tests {
         }
     }
 
-    fn hotkey_trigger() -> PlatformEvent {
-        PlatformEvent::HotkeyTriggered {
-            binding: gloss_core::task::HotkeyBinding {
-                trigger: "Cmd+Shift+T".into(),
-                kind: TaskKind::TranslateSentence,
-                source: gloss_core::task::InputSource::Selection,
-            },
-        }
-    }
-
     fn plain_outcome(body: &str) -> TaskOutcome {
         TaskOutcome {
             kind: TaskKind::TranslateWord,
@@ -852,15 +659,6 @@ mod tests {
         generation
     }
 
-    fn trigger_hotkey(machine: &mut TaskStateMachine, config: &Config) -> Option<AcquireCommand> {
-        machine.trigger(
-            &hotkey_trigger(),
-            config,
-            Locale::Zh,
-            &SceneFacts::default(),
-        )
-    }
-
     fn dispatched(outcome: InputOutcome) -> RunRequest {
         match outcome {
             InputOutcome::Dispatch(request) => request,
@@ -891,7 +689,7 @@ mod tests {
     }
 
     #[test]
-    fn trigger_mapping_covers_wired_events_only() {
+    fn probe_mapping_covers_wired_events_only() {
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
         assert_eq!(
@@ -904,95 +702,52 @@ mod tests {
             "a probe takes a probe id, not a generation: the visible session is untouched"
         );
 
-        let region_binding = gloss_core::task::HotkeyBinding {
-            trigger: "Cmd+Shift+R".into(),
-            kind: TaskKind::ImageOcr,
-            source: gloss_core::task::InputSource::Region,
-        };
-        assert!(
-            machine
-                .trigger(
-                    &PlatformEvent::HotkeyTriggered {
-                        binding: region_binding
-                    },
-                    &Config::default(),
-                    Locale::Zh,
-                    &SceneFacts::default()
-                )
-                .is_none(),
-            "region source has no acquisition path yet"
-        );
+        for event in [
+            PlatformEvent::RegionGesture {
+                rect: ScreenRect {
+                    x: 0,
+                    y: 0,
+                    width: 10,
+                    height: 10,
+                },
+            },
+            PlatformEvent::OpenSettingsRequested,
+            PlatformEvent::QuitRequested,
+        ] {
+            assert!(
+                machine
+                    .begin_selection_probe(
+                        &event,
+                        &Config::default(),
+                        Locale::Zh,
+                        &SceneFacts::default()
+                    )
+                    .is_none(),
+                "unwired events must not acquire"
+            );
+        }
         assert_eq!(
             machine.generation(),
             0,
             "unwired events must not consume a generation"
         );
+        assert_eq!(
+            machine.probe_id(),
+            Some(1),
+            "unwired events must not replace the outstanding probe"
+        );
     }
 
     #[test]
-    fn trigger_decision_separates_disabled_blocked_and_unwired_events() {
+    fn trigger_decision_separates_blocked_and_unwired_events() {
         let open = SceneFacts::default();
-        let config = Config {
-            default_text_kind: TaskKind::ExplainCode,
-            enabled_kinds: vec![TaskKind::TranslateWord],
-            ..Default::default()
-        };
         assert_eq!(
-            trigger_decision(&selection_gesture(), &config, &open),
+            trigger_decision(&selection_gesture(), &open),
             TriggerDecision::Acquire(TaskKind::Auto),
-            "a selection carries no explicit intent: kind switches gate hotkeys, not the gesture"
+            "a selection carries no explicit intent: kind switches gate the bridge, not the gesture"
         );
         assert_eq!(
-            trigger_decision(
-                &PlatformEvent::HotkeyTriggered {
-                    binding: gloss_core::task::HotkeyBinding {
-                        trigger: "Cmd+Shift+E".into(),
-                        kind: TaskKind::ExplainCode,
-                        source: gloss_core::task::InputSource::Selection,
-                    }
-                },
-                &config,
-                &open
-            ),
-            TriggerDecision::Disabled(TaskKind::ExplainCode),
-            "a disabled hotkey binding is disabled, not unwired"
-        );
-        assert_eq!(
-            trigger_decision(
-                &PlatformEvent::HotkeyTriggered {
-                    binding: gloss_core::task::HotkeyBinding {
-                        trigger: "Cmd+Shift+R".into(),
-                        kind: TaskKind::ImageOcr,
-                        source: gloss_core::task::InputSource::Region,
-                    }
-                },
-                &config,
-                &open
-            ),
-            TriggerDecision::Unwired,
-            "region bindings stay outside the route table until the capture path lands"
-        );
-        assert_eq!(
-            trigger_decision(
-                &PlatformEvent::HotkeyTriggered {
-                    binding: gloss_core::task::HotkeyBinding {
-                        trigger: "Cmd+Shift+O".into(),
-                        kind: TaskKind::ImageOcr,
-                        source: gloss_core::task::InputSource::Selection,
-                    }
-                },
-                &Config::default(),
-                &open
-            ),
-            TriggerDecision::Acquire(TaskKind::ImageOcr),
-            "a hotkey kind is an explicit per-binding choice: no text-kind fold applies to it"
-        );
-        assert_eq!(
-            trigger_decision(
-                &PlatformEvent::OpenSettingsRequested,
-                &config,
-                &blocked_by_app()
-            ),
+            trigger_decision(&PlatformEvent::OpenSettingsRequested, &blocked_by_app()),
             TriggerDecision::Unwired,
             "settings is an entry point, never a gated trigger"
         );
@@ -1006,25 +761,24 @@ mod tests {
                         height: 10,
                     },
                 },
-                &config,
                 &open
             ),
             TriggerDecision::Unwired,
             "the capture gesture has no acquisition path yet"
         );
         assert_eq!(
-            trigger_decision(&PlatformEvent::QuitRequested, &config, &blocked_by_app()),
+            trigger_decision(&PlatformEvent::QuitRequested, &blocked_by_app()),
             TriggerDecision::Unwired,
             "quit is an exit, never a gated trigger"
         );
         assert_eq!(
-            trigger_decision(&selection_gesture(), &Config::default(), &open),
+            trigger_decision(&selection_gesture(), &open),
             TriggerDecision::Acquire(TaskKind::Auto)
         );
         assert_eq!(
-            trigger_decision(&selection_gesture(), &Config::default(), &blocked_by_app()),
+            trigger_decision(&selection_gesture(), &blocked_by_app()),
             TriggerDecision::Blocked(TriggerBlock::BlockedApp("com.1password.1password")),
-            "an enabled kind in a sensitive app is blocked, not disabled"
+            "a selection in a sensitive app is blocked"
         );
     }
 
@@ -1087,11 +841,7 @@ mod tests {
     #[test]
     fn probe_in_the_self_frontmost_scene_is_suppressed_without_an_id() {
         assert_eq!(
-            trigger_decision(
-                &selection_gesture(),
-                &Config::default(),
-                &frontmost_is_self()
-            ),
+            trigger_decision(&selection_gesture(), &frontmost_is_self()),
             TriggerDecision::SelfSuppressed,
             "a drag over gloss's own window is anti-mistouch territory, not a trigger"
         );
@@ -1111,16 +861,6 @@ mod tests {
         assert_eq!(machine.probe_id(), None);
         assert_eq!(machine.state(), AppState::Idle);
         assert!(machine.overlay_view().is_none());
-
-        assert_eq!(
-            trigger_decision(&hotkey_trigger(), &Config::default(), &frontmost_is_self()),
-            TriggerDecision::Acquire(TaskKind::TranslateSentence),
-            "a hotkey keeps working while gloss itself is frontmost"
-        );
-        assert!(
-            trigger_hotkey(&mut machine, &Config::default()).is_some(),
-            "the hotkey path is untouched by the self suppression"
-        );
     }
 
     #[test]
@@ -1173,50 +913,6 @@ mod tests {
         assert_eq!(
             probe_id, 1,
             "the gesture always classifies; the image default only shifts the fallback kind"
-        );
-    }
-
-    #[test]
-    fn disabled_kinds_are_not_acquired_via_hotkey_and_consume_no_generation() {
-        let mut machine = TaskStateMachine::new();
-        let config = Config {
-            enabled_kinds: vec![
-                gloss_core::config::ALL_KINDS[0],
-                gloss_core::config::ALL_KINDS[1],
-            ],
-            ..Default::default()
-        };
-
-        assert_eq!(probe(&mut machine, &config), 1);
-        machine.commit_selection(1, text_input("x"));
-        assert_eq!(machine.generation(), 1);
-
-        let binding = gloss_core::task::HotkeyBinding {
-            trigger: "Cmd+Shift+E".into(),
-            kind: gloss_core::config::ALL_KINDS[2],
-            source: gloss_core::task::InputSource::Selection,
-        };
-        assert!(
-            machine
-                .trigger(
-                    &PlatformEvent::HotkeyTriggered { binding },
-                    &config,
-                    Locale::Zh,
-                    &SceneFacts::default()
-                )
-                .is_none(),
-            "disabled kind must not acquire via hotkey"
-        );
-        assert_eq!(
-            machine.generation(),
-            1,
-            "disabled trigger must not consume a generation"
-        );
-
-        assert_eq!(
-            probe(&mut machine, &config),
-            2,
-            "the gesture has no explicit kind, so the switches do not stop it"
         );
     }
 
@@ -1396,31 +1092,7 @@ mod tests {
     }
 
     #[test]
-    fn fixed_kinds_arrive_classified_while_the_auto_sentinel_waits() {
-        let mut machine = TaskStateMachine::new();
-        let command = trigger_hotkey(&mut machine, &Config::default()).expect("hotkey triggers");
-        let AcquireCommand::AcquireText { generation, .. } = command else {
-            panic!("acquire text expected");
-        };
-        dispatched(machine.accept_input(
-            generation,
-            TaskInput::Text {
-                text: "fn main() {}".into(),
-                hint: None,
-            },
-        ));
-        assert!(
-            matches!(
-                machine.overlay_view(),
-                Some(OverlayView::Streaming {
-                    classified: Some(TaskKind::TranslateSentence),
-                    code_lang: Some(lang),
-                    ..
-                }) if lang == "rust"
-            ),
-            "a fixed kind is classified at creation, and the language falls to content detection"
-        );
-
+    fn the_auto_sentinel_waits_unclassified_until_the_classify_half_reports() {
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
         dispatched(machine.commit_selection(
@@ -1529,9 +1201,10 @@ mod tests {
     }
 
     #[test]
-    fn failed_guard_matches_fetching_and_translating_only() {
+    fn failed_guard_matches_translating_only() {
         let mut machine = TaskStateMachine::new();
-        trigger_hotkey(&mut machine, &Config::default()).expect("trigger");
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+        dispatched(machine.commit_selection(1, text_input("hello")));
         assert_eq!(
             machine.accept_failed(1, &GlossError::EngineNetwork),
             FailureOutcome::Shown,
@@ -1580,20 +1253,6 @@ mod tests {
     }
 
     #[test]
-    fn hotkey_no_selection_failures_still_raise_the_card() {
-        for error in [GlossError::SelectionUnavailable, GlossError::SelectionEmpty] {
-            let mut machine = TaskStateMachine::new();
-            trigger_hotkey(&mut machine, &Config::default()).expect("trigger");
-            assert_eq!(
-                machine.accept_failed(1, &error),
-                FailureOutcome::Shown,
-                "an explicit hotkey request deserves visible feedback, {error:?}"
-            );
-            assert_eq!(machine.state(), AppState::Error);
-        }
-    }
-
-    #[test]
     fn selection_failures_outside_the_probe_still_raise_the_card() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
@@ -1626,56 +1285,6 @@ mod tests {
             machine.commit_selection_failed(1, &GlossError::SelectionUnavailable),
             FailureOutcome::Ignored
         );
-    }
-
-    #[test]
-    fn hotkey_supersedes_the_outstanding_probe() {
-        let mut machine = TaskStateMachine::new();
-        assert_eq!(probe(&mut machine, &Config::default()), 1);
-        trigger_hotkey(&mut machine, &Config::default()).expect("trigger");
-        assert_eq!(machine.generation(), 2, "the hotkey takes the next id");
-        assert!(
-            machine.probe_id().is_none(),
-            "the explicit hotkey request invalidates the probe"
-        );
-        assert!(
-            matches!(
-                machine.commit_selection(1, text_input("迟到的探测产物")),
-                InputOutcome::Ignored
-            ),
-            "the superseded probe must not hijack the hotkey's session"
-        );
-    }
-
-    #[test]
-    fn commit_while_hotkey_fetching_supersedes_the_hotkey_session() {
-        let mut machine = TaskStateMachine::new();
-        trigger_hotkey(&mut machine, &Config::default()).expect("trigger");
-        assert_eq!(machine.state(), AppState::Fetching);
-
-        assert_eq!(
-            probe(&mut machine, &Config::default()),
-            2,
-            "a gesture during a hotkey fetch probes without touching it"
-        );
-        assert_eq!(machine.state(), AppState::Fetching, "探测不动热键会话");
-
-        let request = dispatched(machine.commit_selection(2, text_input("划词先到")));
-        assert_eq!(machine.generation(), 2, "the probe id is promoted");
-        assert_eq!(machine.state(), AppState::Translating);
-        assert!(
-            machine.pending.is_none(),
-            "the hotkey's frozen task is dropped with the session"
-        );
-
-        assert!(
-            matches!(
-                machine.accept_input(1, text_input("热键的迟到产物")),
-                InputOutcome::Ignored
-            ),
-            "the hotkey's late product must not hijack the committed session"
-        );
-        assert_eq!(request.generation, 2);
     }
 
     #[test]
@@ -1902,7 +1511,6 @@ mod tests {
                 && machine.accept_failed(1, &GlossError::EngineNetwork) == FailureOutcome::Ignored,
             "no product of a refused probe may be adopted either"
         );
-        machine.fail_acquire(1);
         machine.fail_transport(1);
         assert_eq!(
             machine.generation(),

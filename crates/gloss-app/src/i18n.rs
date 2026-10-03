@@ -68,12 +68,10 @@ pub(crate) struct Text {
     pub(crate) gloss_errors_engine_rate_limited: String,
     pub(crate) gloss_errors_engine_response: String,
     pub(crate) gloss_errors_config: String,
-    pub(crate) gloss_errors_acquire_channel: String,
     pub(crate) gloss_errors_inference_channel: String,
 
     pub(crate) gloss_settings_section_model: String,
     pub(crate) gloss_settings_section_task: String,
-    pub(crate) gloss_settings_section_hotkey: String,
     pub(crate) gloss_settings_section_general: String,
 
     pub(crate) gloss_settings_save: String,
@@ -93,7 +91,6 @@ pub(crate) struct Text {
     pub(crate) gloss_settings_default_model_hint: String,
     pub(crate) gloss_settings_vision_model_hint: String,
     pub(crate) gloss_settings_switch_label: String,
-    pub(crate) gloss_settings_hotkey_hint: String,
     pub(crate) gloss_settings_ui_language: String,
     pub(crate) gloss_settings_ui_theme: String,
     pub(crate) gloss_settings_cache_ttl: String,
@@ -122,9 +119,6 @@ pub(crate) struct Text {
     pub(crate) gloss_settings_update_install_hint: String,
 
     pub(crate) gloss_settings_error_default_kind_disabled: String,
-    pub(crate) gloss_settings_error_duplicate_hotkey: String,
-    pub(crate) gloss_settings_error_empty_trigger: String,
-    pub(crate) gloss_settings_error_invalid_trigger: String,
     pub(crate) gloss_settings_error_newline_in_model: String,
     pub(crate) gloss_settings_error_base_url_empty: String,
     pub(crate) gloss_settings_error_base_url_invalid: String,
@@ -217,7 +211,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            99,
+            93,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -288,8 +282,6 @@ mod tests {
                 "gloss_errors_config",
                 "gloss_errors_engine_response",
                 "gloss_popup_seal_note",
-                "gloss_settings_error_duplicate_hotkey",
-                "gloss_settings_error_invalid_trigger",
                 "gloss_settings_invalid_summary",
                 "gloss_settings_notice_key_update_failed",
                 "gloss_settings_notice_key_updated_save_failed",

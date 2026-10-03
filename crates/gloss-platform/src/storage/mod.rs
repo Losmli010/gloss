@@ -273,7 +273,7 @@ mod tests {
 
     use gloss_core::config::{Language, ModelBinding, ProviderKey, Theme};
     use gloss_core::model::Lang;
-    use gloss_core::task::{HotkeyBinding, InputSource, TaskKind};
+    use gloss_core::task::TaskKind;
 
     use super::*;
 
@@ -289,11 +289,6 @@ mod tests {
                 model: "vision-model".into(),
             }],
             target_lang: Lang::Other("ko".into()),
-            hotkey_bindings: vec![HotkeyBinding {
-                trigger: "Cmd+Shift+R".into(),
-                kind: TaskKind::ImageExplain,
-                source: InputSource::Region,
-            }],
             default_text_kind: TaskKind::ExplainCode,
             enabled_kinds: vec![TaskKind::ImageOcr, TaskKind::ImageExplain],
             cache_ttl_secs: 120,

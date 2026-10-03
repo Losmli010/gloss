@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::guard::SceneFacts;
 use crate::model::{GlossError, ScreenRect};
 use crate::prompt::ChatMessage;
-use crate::task::{HotkeyBinding, TaskKind, TaskOutcome};
+use crate::task::{TaskKind, TaskOutcome};
 
 /// 装箱 future：让 trait 方法携带异步结果的同时保持对象安全（`dyn` 可用）。
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -142,25 +142,9 @@ pub trait Cache: Send + Sync {
     fn set_classify(&self, key: u64, kind: TaskKind);
 }
 
-/// 热键重绑定（端口）：把配置里的绑定表交给平台侧注册。
-///
-/// 与其余端口不同，本端口**有意不加 `Send + Sync`**——热键的注册与注销
-/// 必须在创建管理器的线程上执行：后端要求主线程跑 NSApp 事件循环，`Drop`
-/// 清理同样亲和创建线程。实现只允许在主线程使用。
-///
-/// 降级契约：绑定解析失败、被其他应用占用、管理器不可用等一律告警跳过，**不返回错误**。
-pub trait HotkeyBinder {
-    /// 用给定绑定表**替换**当前注册（不是追加）。
-    ///
-    /// 返回**真正交给平台且注册成功**的条数，供调用方记日志：少于入参说明
-    /// 有绑定被跳过或被降级。管理器不可用时恒为 0——此时实现
-    /// 仍会把解析成功的条目留在内部表里以便诊断，所以 0 表示「一个键都没生效」，
-    fn rebind(&self, bindings: &[HotkeyBinding]) -> usize;
-}
-
 /// 应用图标（端口）：把品牌图标交给平台外壳（Dock / 应用切换器）。
 ///
-/// 与 [`HotkeyBinder`] 同为**降级端口**：安装失败（调用线程不对、系统拒绝、
+/// 与其余端口不同，本端口是**降级端口**：安装失败（调用线程不对、系统拒绝、
 /// 字节解不出图）只让图标退回系统默认，不影响启动，因此**不返回错误**——
 /// 只回报是否设置成功，供调用方记一行日志定位。
 ///

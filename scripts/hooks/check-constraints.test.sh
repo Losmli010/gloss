@@ -87,7 +87,7 @@ gloss-platform = { path = "../gloss-platform" }'
   cp "$dir/crates/gloss-core/tests/stubs/engine.rs" \
     "$dir/crates/gloss-app/tests/stubs/engine.rs"
   for c in gloss-core gloss-app; do
-    printf '/// 内存版配置存储桩\npub struct MemoryConfigStore;\n/// 记录每次重绑定的热键桩\npub struct RecordingHotkeyBinder;\n' \
+    printf '/// 内存版配置存储桩\npub struct MemoryConfigStore;\n' \
       >"$dir/crates/$c/tests/stubs/ports.rs"
   done
   printf '/// 内存版配置存储桩\npub struct MemoryConfigStore;\n' \
