@@ -180,7 +180,9 @@ impl RenderState {
     /// 清除页头拖动的按压点：壳在收起/显示浮层的边界调用（见
     /// `app::overlay`）。跨显示残留的拖动状态由此失效——egui 的拖动
     /// 所有权可能因隐藏期丢失的鼠标释放而残留（按压点已清，热区保持
-    /// 惰性），下一次真实按压经 `drag_started` 重新握点自愈。
+    /// 惰性）；残留所有权要到下一次释放事件才清零，其间的第一次按压
+    /// 拖动不产生 `drag_started`（所有权无 None→Some 迁移），整段惰性，
+    /// 松开即自愈——之后（所有权已清）的按压才重新握点。
     pub(crate) fn reset_drag_state(&self) {
         self.drag_press_phys.set(None);
     }
@@ -601,7 +603,9 @@ fn header(
 /// `interaction.rs` 的 `PointerEvent::Pressed` 分支），浮层隐藏期间丢失
 /// 的鼠标释放会让它跨显示残留；此时按压点已被壳在显隐边界清掉（
 /// [`RenderState::reset_drag_state`]），本函数对无按压点的拖动一概不
-/// 上交位移——窗口不会跟着无按键的指针走，下一次真实按压重新握点。
+/// 上交位移——窗口不会跟着无按键的指针走。残留所有权在下一个释放
+/// 事件清零，其间的第一次按压拖动整段惰性（无所有权迁移、
+/// `drag_started` 不触发），松开即自愈，之后的按压才重新握点。
 fn drag_strip(
     ui: &mut egui::Ui,
     state: &RenderState,
