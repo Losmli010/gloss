@@ -123,7 +123,7 @@ pub enum InputOutcome {
     Dispatch(RunRequest),
     /// 内容疑似敏感：探测丢弃（当前显示保留，它属于上一个会话）。
     Blocked(SensitiveKind),
-    /// 陈旧代数、非取材态或模态错配：不采纳，浮层与通道都不动。
+    /// 陈旧探测编号或模态错配：不采纳，浮层与通道都不动。
     Ignored,
 }
 
@@ -137,7 +137,7 @@ pub enum FailureOutcome {
     /// 划词探测遇「无选区可读」：纯误滑——探测丢弃、不弹卡，状态机与
     /// 当前显示一律不动（壳只记一条带前台应用的 info）。
     SilentlyDropped,
-    /// 陈旧代数或已隐藏：不采纳，浮层与状态都不动（壳记 info）。
+    /// 探测编号不符、代数陈旧或已隐藏：不采纳，浮层与状态都不动（壳记 info）。
     Ignored,
 }
 

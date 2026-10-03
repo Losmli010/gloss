@@ -240,11 +240,9 @@ if [ -f "$CORE_STUBS/engine.rs" ]; then
   }
   assert_same "engine.rs（core ↔ app）" \
     "$CORE_STUBS/engine.rs" "$ROOT/crates/gloss-app/tests/stubs/engine.rs"
-  for sec in "内存版配置存储桩" "记录每次重绑定的热键桩"; do
-    assert_same "${sec}（core ↔ app）" \
-      <(stub_section "$CORE_STUBS/ports.rs" "$sec") \
-      <(stub_section "$ROOT/crates/gloss-app/tests/stubs/ports.rs" "$sec")
-  done
+  assert_same "内存版配置存储桩（core ↔ app）" \
+    <(stub_section "$CORE_STUBS/ports.rs" "内存版配置存储桩") \
+    <(stub_section "$ROOT/crates/gloss-app/tests/stubs/ports.rs" "内存版配置存储桩")
   assert_same "内存版配置存储桩（core ↔ platform）" \
     <(stub_section "$CORE_STUBS/ports.rs" "内存版配置存储桩") \
     <(stub_section "$ROOT/crates/gloss-platform/tests/stubs/ports.rs" "内存版配置存储桩")

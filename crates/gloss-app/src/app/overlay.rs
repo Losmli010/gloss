@@ -29,7 +29,7 @@ impl GlossApp {
         windows.show_at(position);
     }
 
-    /// 收起浮层的统一出口（Esc / 关闭按钮 / 内容闸门拦下）：隐藏窗口、清
+    /// 收起浮层的统一出口（Esc / 关闭按钮）：隐藏窗口、清
     /// 渲染截止时刻与拖动状态防空转防残留，状态机放弃在途任务回 `Idle`
     /// （迟到产物经代数或状态守卫丢弃——为一个不可见的浮层继续推理与
     /// 渲染纯属空转）。
@@ -361,12 +361,12 @@ mod tests {
     }
 
     #[test]
-    fn pending_reveal_shows_the_skeleton_only_over_a_live_view() {
+    fn pending_reveal_shows_only_over_a_live_view() {
         use EventKind::TaskFailed;
 
         assert!(
             should_reveal(true, true, []),
-            "触发即显：骨架视图在场时挂起请求即显形"
+            "划词提交：挂起请求只在活视图在场时显形"
         );
         assert!(
             !should_reveal(true, false, []),

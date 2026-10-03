@@ -295,7 +295,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | config_round_trips_through_serde | 配置 serde 往返无损 | 给定含 Lang::Other 等携数据变体的完整配置，当 serde_json 往返，则无损 | 2026-09-19 |
 | partial_document_fills_factory_defaults | 部分文档补全出厂默认 | 给定只写 theme 的 JSON，当加载，则该字段保留、其余走出厂默认（含全部 kind 启用） | 2026-09-19 |
 | explicit_empty_enabled_kinds_disables_everything | 显式空数组语义 | 给定 enabled_kinds 显式空数组，当加载，则所有 kind 停用 | 2026-09-19 |
-| retired_guard_fields_are_ignored_on_load | 退役的防护字段仍能加载 | 给定含 guard_enabled / guard_blocked_apps 的旧配置（两个字段已从 Config 移除），当加载，则照常读出、已知字段取值不变、缺字段仍回出厂默认——旧版本落盘不会被当成非法配置隔离降级 | 2026-09-26 |
+| retired_fields_are_ignored_on_load | 退役字段仍能加载 | 给定含 guard_enabled / guard_blocked_apps / hotkey_bindings 的旧配置（字段已从 Config 移除），当加载，则照常读出、已知字段取值不变、缺字段仍回出厂默认——旧版本落盘不会被当成非法配置隔离降级 | 2026-10-03 |
 | missing_fields_default_while_explicit_empty_stays_empty | 缺省回退与显式空的区分 | 给定 provider_keys/model_by_kind 显式空，当加载，则纯查找为空、resolved 查找回退出厂项、图像 kind 不借文本模型 | 2026-09-19 |
 | classify_fallback_falls_back_for_image_kinds | 误配图像默认回退文本 | 给定 default_text_kind 误配成 ImageOcr，当取分类兜底 kind，则回退 TranslateWord；正常文本 kind 原样作为兜底 | 2026-09-26 |
 | auto_kind_stays_out_of_the_settings_list | 哨兵不进设置任务清单 | 给定 ALL_KINDS（设置页任务开关清单），当查包含性，则 Auto 不在其中（分类哨兵不是可开关的任务类型） | 2026-09-26 |
@@ -510,7 +510,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | dismiss_abandons_the_inflight_task_and_returns_to_idle | 收起浮层放弃在途任务 | 给定推理中的浮层，当执行收起出口，则回 Idle、在途令牌取消、视图清空、迟到产物被丢弃 | 2026-09-21 |
 | auto_show_policy_decides_when_the_overlay_pops | 自动弹出按事件类别 | 给定事件类别×采纳组合，当逐事件判定，则失败即弹；取材成功不再露面（显形随划词提交置位）、完成与 chunk 不弹（浮层已可见）；未采纳一律不弹 | 2026-09-26 |
 | auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则任一被采纳的失败即弹、整批陈旧不弹、空批不弹 | 2026-09-26 |
-| pending_reveal_shows_the_skeleton_only_over_a_live_view | 触发即显的显形守卫只认活视图 | 给定挂起的显形请求与机器视图有无两种状态，当判显形，则视图在场即显形、视图为空不显形（弹出渲染自检卡）、无挂起且批次无失败即弹也不显形 | 2026-09-27 |
+| pending_reveal_shows_only_over_a_live_view | 挂起显形的守卫只认活视图 | 给定挂起的显形请求与机器视图有无两种状态，当判显形，则视图在场即显形、视图为空不显形（弹出渲染自检卡）、无挂起且批次无失败即弹也不显形 | 2026-10-03 |
 | reveal_decision_combines_the_pending_request_with_the_batch | 显形决策对挂起请求与批次取或 | 给定挂起显形请求配整批陈旧回传、无挂起配被采纳的失败、无挂起配取材成功与流式增量，当判显形，则挂起显形不依赖批次（陈旧批也拦不下）、失败即弹独立成立、取材成功与流式增量不负责露面 | 2026-09-27 |
 | show_position_follows_selection_only_for_the_current_generation | 显示位置跟随当代划词 | 给定划词锚点与代数，当决策显示位置，则当代跟随选区（右下偏移）、代数不符或无锚点回落居中 | 2026-09-20 |
 | selection_trigger_records_its_anchor_per_generation | 划词触发按代数记锚点 | 给定两次划词触发，当消费，则锚点随代数刷新为各自释放坐标 | 2026-09-20 |

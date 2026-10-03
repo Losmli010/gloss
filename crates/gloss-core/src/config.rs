@@ -534,9 +534,9 @@ mod tests {
     }
 
     #[test]
-    fn retired_guard_fields_are_ignored_on_load() {
+    fn retired_fields_are_ignored_on_load() {
         let config: Config = serde_json::from_str(
-            r#"{"theme": "Light", "guard_enabled": false, "guard_blocked_apps": ["com.example.vault"]}"#,
+            r#"{"theme": "Light", "guard_enabled": false, "guard_blocked_apps": ["com.example.vault"], "hotkey_bindings": [{"trigger": "Cmd+Shift+D"}]}"#,
         )
         .expect("a config written by an older version must still load");
         assert_eq!(config.theme, Theme::Light, "known fields keep their values");
