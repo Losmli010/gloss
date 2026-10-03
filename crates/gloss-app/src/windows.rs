@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use gloss_core::log::{thread, warn};
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::error::OsError;
 use winit::event_loop::ActiveEventLoop;
@@ -26,6 +27,9 @@ const RESIZE_EPSILON: f64 = 0.5;
 /// 流式期间的增高步长（逻辑点）：逐 chunk 的内容增长被量化成台阶，
 /// 避免每个增量都触发一次窗口 resize。
 const STREAM_HEIGHT_STEP: f64 = 48.0;
+/// 拖动落点小于该阈值（逻辑点）不重设窗口：指针未动或贴边钳制的帧
+/// 不做无谓的平台调用。
+const DRAG_POSITION_EPSILON: f64 = 0.5;
 /// 设置窗口尺寸：全部配置区块一屏放下的紧凑初值（可拖拽调整）。
 const SETTINGS_WIDTH: f64 = 460.0;
 const SETTINGS_HEIGHT: f64 = 640.0;
@@ -80,13 +84,15 @@ fn clamp_to_monitor(
 }
 
 /// 浮层摆放意图——尺寸自适应变化时的重定位依据：居中者在尺寸变化后
-/// 重新居中（显示入口只能按上一帧尺寸算位置）；定点者（跟随划词）在
-/// 原锚点上按新尺寸重新钳制，不被居中覆盖。
+/// 重新居中（显示入口只能按上一帧尺寸算位置）；定点者（跟随划词，或
+/// 用户拖动后的落点）在原锚点上按新尺寸重新钳制，不被居中覆盖。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Placement {
     /// 居中显示（热键触发等无坐标场景）。
     Centered,
-    /// 定点显示：锚点是期望的浮层左上位置（全局桌面坐标，未钳制）。
+    /// 定点显示：锚点是期望的浮层左上位置（全局桌面坐标；写入方钳制
+    /// 与否不定——跟随划词写原始释放点，拖动写钳制后的落点），读取侧
+    /// 一律再钳制。
     At(LogicalPosition<f64>),
 }
 
@@ -200,6 +206,41 @@ impl WindowManager {
                 self.overlay.set_outer_position(position);
             }
         }
+    }
+
+    /// 页头拖动的逐帧落点：以浮层**当前实际**位置为基准，加上指针自按
+    /// 压点起的累计位移（窗口内相对逻辑点，egui 口径），按命中的显示器
+    /// 钳制后应用，并把摆放意图记为定点——锚点随拖动落点走，流式增高
+    /// 的重定位因此不会把窗口拽回拖动前的旧锚点。
+    ///
+    /// 落点每帧从实际位置重算（无增量记账）：窗口中途被谁动过（流式
+    /// 重定位、指针随窗口移动的反馈）都被下一帧的落点自然吸收；指针未
+    /// 动时落点即当前位置，等于动量以下的位置变化不再下发（流式重绘
+    /// 帧不做无谓的平台调用）。当前位置读不到（窗口已亡等）时带痕迹
+    /// 降级：跳过本帧平移。
+    pub fn apply_overlay_drag(&mut self, offset: (f64, f64)) {
+        let physical = match self.overlay.outer_position() {
+            Ok(physical) => physical,
+            Err(error) => {
+                warn!(
+                    thread = thread::UI,
+                    error = %error,
+                    "overlay position unavailable, drag frame skipped"
+                );
+                return;
+            }
+        };
+        let scale = self.overlay.scale_factor();
+        let current = physical.to_logical::<f64>(scale);
+        let target = LogicalPosition::new(current.x + offset.0, current.y + offset.1);
+        let clamped = self.clamp_position(target);
+        if (clamped.x - current.x).abs() < DRAG_POSITION_EPSILON
+            && (clamped.y - current.y).abs() < DRAG_POSITION_EPSILON
+        {
+            return;
+        }
+        self.overlay.set_outer_position(clamped);
+        self.placement = Placement::At(clamped);
     }
 
     /// 浮层居中于显示器（逻辑坐标）：优先窗口当前所在的显示器，其次

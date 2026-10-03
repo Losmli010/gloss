@@ -13,7 +13,10 @@ use crate::windows::{Placement, WindowManager};
 use super::GlossApp;
 
 impl GlossApp {
-    /// 统一显示入口：显示并重置出现动画起点，让本次显示从淡入开始。
+    /// 统一显示入口：显示并重置出现动画起点，让本次显示从淡入开始；
+    /// 同时清上一轮的拖动状态，跨显示残留的拖动所有权不得带进本轮
+    /// （隐藏期丢失的鼠标释放会让 egui 侧拖动所有权残留，按压点清掉后
+    /// 热区保持惰性，见 `ui::popup::RenderState::reset_drag_state`）。
     /// 浮层常驻——收起只认 Esc、关闭按钮与新触发的内容替换。
     pub(super) fn show_overlay(&mut self, position: LogicalPosition<f64>) {
         let Some(windows) = &self.windows else {
@@ -21,13 +24,15 @@ impl GlossApp {
         };
         if let Some(frame) = self.frame.as_ref() {
             crate::ui::popup::reset_appear_animation(&frame.egui_ctx);
+            frame.reset_overlay_drag();
         }
         windows.show_at(position);
     }
 
     /// 收起浮层的统一出口（Esc / 关闭按钮 / 内容闸门拦下）：隐藏窗口、清
-    /// 渲染截止时刻防空转，状态机放弃在途任务回 `Idle`（迟到产物经代数或
-    /// 状态守卫丢弃——为一个不可见的浮层继续推理与渲染纯属空转）。
+    /// 渲染截止时刻与拖动状态防空转防残留，状态机放弃在途任务回 `Idle`
+    /// （迟到产物经代数或状态守卫丢弃——为一个不可见的浮层继续推理与
+    /// 渲染纯属空转）。
     pub(super) fn dismiss_overlay(&mut self, reason: &'static str) {
         info!(
             thread = thread::UI,
@@ -36,6 +41,9 @@ impl GlossApp {
             "overlay dismissed"
         );
         self.overlay_repaint = None;
+        if let Some(frame) = self.frame.as_ref() {
+            frame.reset_overlay_drag();
+        }
         if let Some(windows) = &self.windows {
             windows.hide();
         }

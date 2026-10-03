@@ -30,6 +30,7 @@ gloss_popup_seal_note = "{{chars}} chars · {{lines}} lines"
 gloss_popup_open_settings = "Open settings"
 gloss_popup_close_label = "Close overlay"
 gloss_popup_settings_label = "Settings"
+gloss_popup_drag_label = "Drag overlay"
 
 gloss_errors_selection_unavailable = "Could not read the selected text. Select it again and retry."
 gloss_errors_selection_empty = "No text is selected. Select some text and try again."

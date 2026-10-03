@@ -23,11 +23,14 @@
 //!
 //! 页头回归品牌：只有应用图标与动作区（⚙/×），任务与状态由内容层自明，
 //! 页头不带任何标签药丸；行下发丝线与页脚上缘线呼应成卡片的上下界。
+//! 页头行同时是拖动热区：按住拖动即移动浮层（壳侧逐帧平移窗口），热区
+//! 与动作钮零重叠，按钮点击不受影响。
 //! 页脚常驻
 //! 一条窄带（带高取 [`FOOTER_HEIGHT`]）：推理中左端是呼吸点 + 「正在注解」（生成指示唯一落点），右端
 //! 恒为 Gloss 水印（品牌名不翻译，与窗口标题同一原则）；滚动区按页脚带宽
 //! 预留视口，页脚不被内容挤出窗外。取材中是纯骨架（脉动条），全程无
-//! 「正在读取选区」类文字。动作点击经 draw 返回 [`OverlayAction`] 上交壳执行。
+//! 「正在读取选区」类文字。动作点击经 draw 返回 [`OverlayAction`] 上交壳执行；
+//! 拖动热区的指针位移经 [`PopupOutput::drag`] 上交壳换算。
 //!
 //! 敏感信息防护不在这里：两条闸门都不出浮层（见 `gloss_app::machine`），
 //! 因此也没有「疑似敏感」这张卡。
@@ -79,6 +82,9 @@ const ACTION_BUTTON: f32 = 20.0;
 /// 关闭 × 的半臂长与线宽：× 本体 10×10，较齿轮字形偏小
 const CLOSE_ARM: f32 = 5.0;
 const CLOSE_STROKE: f32 = 2.0;
+/// 页头拖动热区右缘与最左动作钮的间隙：热区不碰到按钮命中盒，按压
+/// 永远落在其中之一，不存在「点按钮变成拖动」的边界。
+const DRAG_STRIP_INSET: f32 = 6.0;
 /// 出现动画时长（淡入，秒）：显示/重显后的第一帧从 0 渐进到 1。
 const APPEAR_SECONDS: f32 = 0.18;
 /// 经注疏排版的字号（demo 定稿值）：经 15.5、注 15、疏 12.5；词条 25，
@@ -146,6 +152,13 @@ pub(crate) struct RenderState {
     pub cache: RefCell<CommonMarkCache>,
     /// 上一帧应用的浮层宽度（宽度收敛的滞回状态）。
     pub last_width: Cell<f32>,
+    /// 页头拖动的按压点（**物理像素**，按压帧的窗口内逻辑坐标乘当下
+    /// `pixels_per_point`）：拖动开始帧记录，结束即清。存物理口径是为
+    /// 跨 DPI 显示器的拖动——逻辑坐标随新显示器的缩放比例重标定，逻辑
+    /// 按压点会混尺；物理位移按当下比例还原成当下尺度的逻辑位移，与壳
+    /// 侧落点换算（`apply_overlay_drag`）同口径。清零后 egui 侧若仍有
+    /// 残留拖动所有权（见 [`drag_strip`]），热区保持惰性。
+    drag_press_phys: Cell<Option<egui::Pos2>>,
     /// 页头应用图标的纹理（每个 egui 上下文一份，惰性装入）。None＝尚未
     /// 装入或解码失败；失败时每帧重试的成本只有一次常量读取，不再单设
     /// 失败标记。
@@ -157,12 +170,23 @@ impl Default for RenderState {
         Self {
             cache: RefCell::new(CommonMarkCache::default()),
             last_width: Cell::new(WIDTH),
+            drag_press_phys: Cell::new(None),
             icon: RefCell::new(None),
         }
     }
 }
 
 impl RenderState {
+    /// 清除页头拖动的按压点：壳在收起/显示浮层的边界调用（见
+    /// `app::overlay`）。跨显示残留的拖动状态由此失效——egui 的拖动
+    /// 所有权可能因隐藏期丢失的鼠标释放而残留（按压点已清，热区保持
+    /// 惰性）；残留所有权要到下一次释放事件才清零，其间的第一次按压
+    /// 拖动不产生 `drag_started`（所有权无 None→Some 迁移），整段惰性，
+    /// 松开即自愈——之后（所有权已清）的按压才重新握点。
+    pub(crate) fn reset_drag_state(&self) {
+        self.drag_press_phys.set(None);
+    }
+
     /// 页头应用图标纹理；首次调用解码 PNG 并装入当前上下文。
     fn icon_texture(&self, ctx: &egui::Context) -> Option<egui::TextureHandle> {
         let mut slot = self.icon.borrow_mut();
@@ -218,6 +242,11 @@ fn decode_app_icon(png: &[u8]) -> Option<egui::ColorImage> {
 pub(crate) struct PopupOutput {
     pub action: Option<OverlayAction>,
     pub sizing: OverlaySizing,
+    /// 页头拖动热区的状态：`Some(offset)`＝拖动进行中，offset 是指针自
+    /// 按压点起的**累计**位移（窗口内相对坐标，逻辑点；按下帧为零），
+    /// `None`＝本帧不在拖动。壳以它换算窗口落点（见
+    /// `WindowManager::apply_overlay_drag`）。
+    pub drag: Option<egui::Vec2>,
 }
 
 /// 浮层上交壳执行的动作：失败卡动作（重试/打开设置）与头部动作区
@@ -305,6 +334,7 @@ pub(crate) fn draw(
             width: state.last_width.get(),
             height: 0.0,
         },
+        drag: None,
     };
     let mut content_h = 0.0;
     Frame::new()
@@ -313,7 +343,9 @@ pub(crate) fn draw(
         .corner_radius(CornerRadius::same(radius::CARD))
         .inner_margin(Margin::same(space::CARD_PADDING))
         .show(ui, |ui| {
-            output.action = render_content(ui, view, state, &mut content_h, text);
+            let (action, drag) = render_content(ui, view, state, &mut content_h, text);
+            output.action = action;
+            output.drag = drag;
             ui.set_min_size(ui.available_size());
         });
 
@@ -362,34 +394,34 @@ fn record_scrolled_height(
 /// 产物与流式正文放进 ScrollArea（完整渲染、超出滚动兜底），其高度取
 /// ScrollArea 报告的内容尺寸，不受视口裁剪影响；页脚带恒在（滚动区按
 /// [`FOOTER_RESERVE`] 预留视口，页脚不被内容挤出窗外）。头部动作区与
-/// 失败卡动作按钮的点击结果透传给调用方。
+/// 失败卡动作按钮的点击结果、页头拖动热区的位移一并透传给调用方。
 fn render_content(
     ui: &mut egui::Ui,
     view: Option<&OverlayView>,
     state: &RenderState,
     content_h: &mut f32,
     text: &Text,
-) -> Option<OverlayAction> {
+) -> (Option<OverlayAction>, Option<egui::Vec2>) {
     match view {
         None => {
-            let action = header(ui, state, text);
+            let (action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
             selfcheck_body(ui);
             ui.add_space(space::PARAGRAPH);
             footer(ui, false, text);
             *content_h = ui.min_rect().height();
-            action
+            (action, drag)
         }
         Some(OverlayView::Acquiring) => {
             // 取材骨架（触发即显）：纯脉动条，无任何取材文字。没有选区
             // 数据可展示，整卡保持紧凑，取材完成即整卡替换。
-            let action = header(ui, state, text);
+            let (action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
             shimmer_bars(ui);
             ui.add_space(space::PARAGRAPH);
             footer(ui, true, text);
             *content_h = ui.min_rect().height();
-            action
+            (action, drag)
         }
         Some(OverlayView::Streaming {
             source,
@@ -397,7 +429,7 @@ fn render_content(
             classified,
             code_lang,
         }) => {
-            let action = header(ui, state, text);
+            let (action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
             let code = is_code(*classified);
             jing_section(ui, text, |ui| {
@@ -425,14 +457,14 @@ fn render_content(
             ui.add_space(space::PARAGRAPH);
             footer(ui, true, text);
             record_scrolled_height(ui, content_h, &scrolled);
-            action
+            (action, drag)
         }
         Some(OverlayView::Outcome {
             source,
             outcome,
             code_lang,
         }) => {
-            let action = header(ui, state, text);
+            let (action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
             let viewport_max = (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT);
             let scrolled = ScrollArea::new([is_code(Some(outcome.kind)), true])
@@ -444,13 +476,13 @@ fn render_content(
             ui.add_space(space::PARAGRAPH);
             footer(ui, false, text);
             record_scrolled_height(ui, content_h, &scrolled);
-            action
+            (action, drag)
         }
         Some(OverlayView::Failed {
             cause,
             action: error_action,
         }) => {
-            let mut action = header(ui, state, text);
+            let (mut action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
             ui.label(
                 RichText::new(failure_message(cause, text))
@@ -473,7 +505,7 @@ fn render_content(
             ui.add_space(space::PARAGRAPH);
             footer(ui, false, text);
             *content_h = ui.min_rect().height();
-            action
+            (action, drag)
         }
     }
 }
@@ -510,11 +542,20 @@ fn hairline(ui: &egui::Ui) -> Stroke {
 /// 图标与动作区；生成指示移交页脚，见 [`footer`]）。行内容之下隔开
 /// `space::ITEM` 画一条与页脚上缘同规格的发丝线，横贯内容宽（取容器
 /// 全宽，与图标装没装无关），线与正文之间仍由各视图的 `space::SECTION`
-/// 隔开。返回动作区点击。
-fn header(ui: &mut egui::Ui, state: &RenderState, text: &Text) -> Option<OverlayAction> {
+/// 隔开。行身同时是拖动热区（见 [`RenderState::drag_press_phys`] 与
+/// [`drag_strip`]），返回（动作区点击，拖动热区状态）。
+fn header(
+    ui: &mut egui::Ui,
+    state: &RenderState,
+    text: &Text,
+) -> (Option<OverlayAction>, Option<egui::Vec2>) {
     let weak = ui.visuals().weak_text_color();
     let strong = ui.visuals().strong_text_color();
     let mut action = None;
+    let mut drag = None;
+    // 最左动作钮（齿轮）的左缘：拖动热区到它为止，动作钮的点击不被
+    // 热区覆盖。
+    let mut gear_left = f32::INFINITY;
     ui.horizontal(|ui| {
         if let Some(icon) = state.icon_texture(ui.ctx()) {
             ui.add(
@@ -532,6 +573,7 @@ fn header(ui: &mut egui::Ui, state: &RenderState, text: &Text) -> Option<Overlay
                 action = Some(OverlayAction::Dismiss);
             }
             let gear = ui.add(icon_button("⚙")); // i18n:allow 图标字形，非 locale 文案
+            gear_left = gear.rect.left();
             gear.widget_info(|| {
                 egui::WidgetInfo::labeled(
                     egui::WidgetType::Button,
@@ -543,13 +585,71 @@ fn header(ui: &mut egui::Ui, state: &RenderState, text: &Text) -> Option<Overlay
                 action = Some(OverlayAction::OpenSettings);
             }
         });
+        drag = drag_strip(ui, state, gear_left, text);
     });
     // 发丝线与行内容（图标/动作钮）之间留一档间距，不贴着字形底边。
     ui.add_space(space::ITEM);
     let line_y = ui.cursor().top();
     ui.painter()
         .hline(ui.max_rect().x_range(), line_y, hairline(ui));
-    action
+    (action, drag)
+}
+
+/// 拖动热区的指针位移上交：按下帧确立握点（位移为零），之后每帧
+/// 上报指针自按压点起的累计位移（按压点按物理像素记录，跨 DPI 显示器
+/// 不混尺）；松开/未拖动返回 `None` 并清按压点。
+///
+/// 残留所有权保持惰性：egui 的拖动所有权只经按压事件授予（`egui`
+/// `interaction.rs` 的 `PointerEvent::Pressed` 分支），浮层隐藏期间丢失
+/// 的鼠标释放会让它跨显示残留；此时按压点已被壳在显隐边界清掉（
+/// [`RenderState::reset_drag_state`]），本函数对无按压点的拖动一概不
+/// 上交位移——窗口不会跟着无按键的指针走。残留所有权在下一个释放
+/// 事件清零，其间的第一次按压拖动整段惰性（无所有权迁移、
+/// `drag_started` 不触发），松开即自愈，之后的按压才重新握点。
+fn drag_strip(
+    ui: &mut egui::Ui,
+    state: &RenderState,
+    gear_left: f32,
+    text: &Text,
+) -> Option<egui::Vec2> {
+    let row = ui.min_rect();
+    let right = (gear_left - DRAG_STRIP_INSET).max(row.left());
+    let rect = egui::Rect::from_min_max(
+        egui::pos2(row.left(), row.top()),
+        egui::pos2(right, row.bottom()),
+    );
+    let response = ui.interact(
+        rect,
+        egui::Id::new("overlay_header_drag"),
+        egui::Sense::drag(),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Other,
+            true,
+            text.gloss_popup_drag_label.as_str(),
+        )
+    });
+    let cursor = if response.dragged() {
+        egui::CursorIcon::Grabbing
+    } else {
+        egui::CursorIcon::Grab
+    };
+    let response = response.on_hover_cursor(cursor);
+    let (pointer, pixels_per_point) = ui.input(|i| (i.pointer.interact_pos(), i.pixels_per_point));
+    if response.drag_started() {
+        state
+            .drag_press_phys
+            .set(pointer.map(|pos| pos * pixels_per_point));
+        return Some(egui::Vec2::ZERO);
+    }
+    if !response.dragged() {
+        state.drag_press_phys.set(None);
+        return None;
+    }
+    let press_phys = state.drag_press_phys.get()?;
+    let pointer_phys = pointer? * pixels_per_point;
+    Some((pointer_phys - press_phys) / pixels_per_point)
 }
 
 /// 头部动作钮（关闭 ×）：与齿轮同尺寸的方块命中区，× 本体用两条圆头线段
@@ -1769,6 +1869,88 @@ mod kittest_tests {
             *clicked.borrow(),
             Some(OverlayAction::OpenSettings),
             "the header gear must open settings via the shared entry"
+        );
+    }
+
+    type DragLog = Rc<RefCell<Vec<egui::Vec2>>>;
+
+    fn drag_harness(view: OverlayView) -> (Harness<'static>, DragLog) {
+        let drags: DragLog = Rc::new(RefCell::new(Vec::new()));
+        let sink = Rc::clone(&drags);
+        let state = RenderState::default();
+        let text = Text::get(Locale::Zh);
+        let installed = Cell::new(false);
+        let harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let output = draw(ui, Some(&view), &state, text);
+            if let Some(drag) = output.drag {
+                sink.borrow_mut().push(drag);
+            }
+        });
+        (harness, drags)
+    }
+
+    #[test]
+    fn header_drag_strip_is_exposed_to_accesskit() {
+        let (mut harness, _drags) = drag_harness(word_card_view());
+        harness.run();
+        let strip = harness.get_by_label("拖动浮层").rect();
+        assert!(
+            strip.height() >= HEADER_ICON,
+            "热区与页头行同高，覆盖图标与动作区之间的整段行身: {strip:?}"
+        );
+        let gear = harness.get_by_label("设置").rect();
+        let close = harness.get_by_label("关闭浮层").rect();
+        assert!(
+            strip.right() <= gear.left(),
+            "热区止于最左动作钮左缘（收 DRAG_STRIP_INSET），与齿轮零重叠: {strip:?} vs {gear:?}"
+        );
+        assert!(
+            strip.left() <= close.left(),
+            "热区左缘在关闭钮左侧（水平区间不与任一动作钮相交）: {strip:?} vs {close:?}"
+        );
+    }
+
+    #[test]
+    fn header_drag_reports_cumulative_offset_and_ends_on_release() {
+        let (mut harness, drags) = drag_harness(word_card_view());
+        harness.run();
+        let center = harness.get_by_label("拖动浮层").rect().center();
+
+        harness.drag_at(center);
+        harness.run();
+        assert_eq!(
+            drags.borrow().last(),
+            Some(&egui::Vec2::ZERO),
+            "按下帧确立握点，位移从零起算"
+        );
+
+        harness.hover_at(center + egui::vec2(20.0, 10.0));
+        harness.run();
+        harness.hover_at(center + egui::vec2(30.0, 15.0));
+        harness.run();
+        assert!(
+            drags.borrow().contains(&egui::vec2(20.0, 10.0)),
+            "位移按按压点累计: {:?}",
+            drags.borrow()
+        );
+        assert_eq!(
+            drags.borrow().last(),
+            Some(&egui::vec2(30.0, 15.0)),
+            "offset 累计自按压点（而非逐帧增量，否则第二段是 (10, 5)）"
+        );
+
+        let length_before_release = drags.borrow().len();
+        harness.drop_at(center + egui::vec2(30.0, 15.0));
+        harness.run();
+        harness.hover_at(center + egui::vec2(40.0, 20.0));
+        harness.run();
+        assert_eq!(
+            drags.borrow().len(),
+            length_before_release,
+            "松开后不再上交拖动状态（释放帧与后续移动帧都是 None）"
         );
     }
 

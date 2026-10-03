@@ -29,6 +29,7 @@ gloss_popup_seal_note = "凡 {{chars}} 言 · {{lines}} 行"
 gloss_popup_open_settings = "打开设置"
 gloss_popup_close_label = "关闭浮层"
 gloss_popup_settings_label = "设置"
+gloss_popup_drag_label = "拖动浮层"
 
 gloss_errors_selection_unavailable = "未能读取选中文本，请重新选中后触发"
 gloss_errors_selection_empty = "当前没有选中的文字，请先选中再触发"
