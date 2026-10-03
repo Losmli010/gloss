@@ -112,29 +112,36 @@ pub fn render_frame_with<R>(
     (repaint_at, result)
 }
 
+/// 一帧浮层的上交产物：头部动作、内容期望尺寸与页头拖动位移。
+#[derive(Default)]
+pub struct OverlayFrameOutput {
+    /// 本帧被点击的浮层动作（失败卡与头部动作区）。
+    pub action: Option<ui::popup::OverlayAction>,
+    /// 浮层内容期望的窗口尺寸（壳按显示器钳制后应用）。
+    pub sizing: Option<ui::popup::OverlaySizing>,
+    /// 页头拖动热区的指针位移（窗口内相对逻辑点）；`Some`＝拖动进行中。
+    pub drag: Option<egui::Vec2>,
+}
+
 /// 渲染一帧浮层（[`render_frame_with`] 的浮层特化，供 App 与自检 handler
-/// 用）：`locale` 是界面语言（文案表选表依据，本层不做探测）；返回（egui
-/// 要求的下一帧时刻，本帧被点击的浮层动作，浮层内容期望的窗口尺寸——由
-/// 壳按显示器钳制后应用）。
+/// 用）：`locale` 是界面语言（文案表选表依据，本层不做探测）；返回
+/// （egui 要求的下一帧时刻，本帧的浮层上交产物）。
 pub fn render_frame(
     frame: &mut Frame,
     view: Option<&OverlayView>,
     locale: Locale,
-) -> (
-    Option<Instant>,
-    Option<ui::popup::OverlayAction>,
-    Option<ui::popup::OverlaySizing>,
-) {
+) -> (Option<Instant>, OverlayFrameOutput) {
     let popup_state = Rc::clone(&frame.popup_state);
     let text = Text::get(locale);
     let (repaint_at, output) =
         render_frame_with(frame, |ui| ui::popup::draw(ui, view, &popup_state, text));
     // 内层 Option 是「闭包有没有跑」的外壳，动作本身才是浮层的返回值。
-    (
-        repaint_at,
-        output.as_ref().and_then(|out| out.action),
-        output.map(|out| out.sizing),
-    )
+    let output = output.map_or(OverlayFrameOutput::default(), |out| OverlayFrameOutput {
+        action: out.action,
+        sizing: Some(out.sizing),
+        drag: out.drag,
+    });
+    (repaint_at, output)
 }
 
 /// egui 用 `Duration::MAX` 表示「不必重绘，等输入」；其余延迟换算成唤醒时刻。

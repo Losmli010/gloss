@@ -145,8 +145,9 @@ impl GlossApp {
     }
 
     /// 画一帧：egui 出绘制数据 → wgpu 呈现，并把 egui 要求的下一帧记下
-    /// 来；浮层上交的动作（失败卡与头部动作区）就地执行；浮层内容的期望
-    /// 尺寸就地应用（内容自适应高度，窗口管理器按显示器钳制）。
+    /// 来；浮层上交的动作（失败卡与头部动作区）就地执行；页头拖动按
+    /// 指针累计位移换算窗口落点；浮层内容的期望尺寸就地应用（内容自适
+    /// 应高度，窗口管理器按显示器钳制）。
     fn draw(&mut self) {
         self.apply_theme();
         let locale = self.locale();
@@ -154,12 +155,19 @@ impl GlossApp {
             return;
         };
         let overlay_view = self.machine.overlay_view();
-        let (repaint, action, sizing) = render_frame(frame, overlay_view, locale);
+        let (repaint, output) = render_frame(frame, overlay_view, locale);
         self.overlay_repaint = repaint;
-        if let Some(action) = action {
+        if let Some(action) = output.action {
             self.handle_overlay_action(action);
         }
-        if let Some(sizing) = sizing
+        // 页头拖动：落点以窗口当前实际位置为基准（无增量记账，见
+        // apply_overlay_drag），拖动中的每帧按需平移。
+        if let Some(offset) = output.drag
+            && let Some(windows) = &mut self.windows
+        {
+            windows.apply_overlay_drag((f64::from(offset.x), f64::from(offset.y)));
+        }
+        if let Some(sizing) = output.sizing
             && let Some(windows) = &mut self.windows
         {
             // 流式期间走防抖尺寸（锁宽 + 步进增高），其余状态按精确尺寸
