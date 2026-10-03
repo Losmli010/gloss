@@ -71,7 +71,7 @@ impl GlossApp {
                     );
                 }
             },
-            // 失败卡的「打开设置」与头部齿轮、托盘/热键走同一个入口。
+            // 失败卡的「打开设置」与头部齿轮、托盘走同一个入口。
             OverlayAction::OpenSettings => self.open_settings(),
             OverlayAction::Dismiss => self.dismiss_overlay("close button"),
         }
@@ -81,7 +81,7 @@ impl GlossApp {
 /// 浮层显示位置与摆放意图的决策：当前代数携带划词释放坐标时在选区
 /// 附近露面（右下偏移一点，避免浮层压在光标/选区上）并记为定点摆放
 /// ——后续内容撑高窗口时原锚点重新钳制而非被居中覆盖；否则居中
-/// （热键触发不带坐标；陈旧代数同样回落居中）。
+/// （陈旧代数同样回落居中）。
 pub(super) fn show_position(
     anchor: Option<(u64, ScreenPoint)>,
     generation: u64,
@@ -137,13 +137,13 @@ pub(super) fn event_kind(event: &Event) -> EventKind {
 /// 单个回传事件后浮层要不要自动露面。
 ///
 /// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
-/// 露面的两个来源：挂起显形请求（经壳层 `pending_reveal`——热键触发
-/// 即显骨架、划词提交即显流式卡，见 [`should_reveal`]——那时还没有
-/// 回传事件或产物已在批内提交），与失败总弹（错误不该被吞掉）。
-/// 取材成功不直接负责露面：划词路径的显形随提交置位，热键路径的骨架
-/// 已把浮层带到屏上；用户若在取材中收起浮层，机器回 Idle，陈旧的取材
-/// 产物采纳不上，自然也不会把浮层弹回。分类结果、流式增量与完成态都
-/// 只在已可见的浮层上更新——三者同样不负责露面。
+/// 露面的两个来源：挂起显形请求（经壳层 `pending_reveal`——划词提交
+/// 即显流式卡，见 [`should_reveal`]——那时还没有回传事件或产物已在批内
+/// 提交），与失败总弹（错误不该被吞掉）。
+/// 取材成功不直接负责露面：划词路径的显形随提交置位；用户若在取材中
+/// 收起浮层，机器回 Idle，陈旧的取材产物采纳不上，自然也不会把浮层弹回。
+/// 分类结果、流式增量与完成态都只在已可见的浮层上更新——三者同样不负责
+/// 露面。
 fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
     match kind {
         EventKind::InputReady => false,
@@ -162,8 +162,8 @@ pub(super) fn auto_show_after(batch: impl IntoIterator<Item = (EventKind, bool)>
 /// 一批回传处理后浮层要不要显形：挂起显形请求（`pending`）要求机器确有
 /// 视图——视图为空时弹出的会是渲染自检卡（挂起置位与消费之间没有插入
 /// 点，两段 drain 同帧连跑，守卫只为防御）；划词提交的置位在批内
-/// `accept_input`，热键触发的置位在 `drain_platform_events`，都在同一帧
-/// 消费。挂起显形不依赖回传批次，与批次内的「失败即弹」任一成立即显示。
+/// `commit_probe`，同一帧消费。挂起显形不依赖回传批次，与批次内的
+/// 「失败即弹」任一成立即显示。
 pub(super) fn should_reveal(
     pending: bool,
     has_view: bool,
@@ -203,11 +203,11 @@ mod tests {
         );
 
         let (position, placement) = show_position(anchor, 2, centered);
-        assert_eq!(position, centered, "代数对不上（后续热键触发）回落居中");
+        assert_eq!(position, centered, "代数对不上（后续触发）回落居中");
         assert_eq!(placement, Placement::Centered);
 
         let (position, placement) = show_position(None, 1, centered);
-        assert_eq!(position, centered, "无划词锚点（热键触发）回落居中");
+        assert_eq!(position, centered, "无划词锚点回落居中");
         assert_eq!(placement, Placement::Centered);
     }
 

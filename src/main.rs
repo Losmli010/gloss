@@ -11,11 +11,10 @@ use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::log::{self, debug, error, info, thread, warn};
 use gloss_core::model::GlossError;
-use gloss_core::ports::{AiEngine, AppIcon, ConfigStore, HotkeyBinder};
+use gloss_core::ports::{AiEngine, AppIcon, ConfigStore};
 use gloss_core::task::TaskInput;
 use gloss_platform::appearance::MacAppIcon;
 use gloss_platform::engine::llm::LlmClient;
-use gloss_platform::events::hotkey::HotkeyRegistrar;
 use gloss_platform::events::mouse::{MouseGesture, MouseSource};
 use gloss_platform::events::{EventSink, EventSource, EventSources};
 use gloss_platform::permissions;
@@ -132,15 +131,13 @@ fn build_service(
     )))
 }
 
-/// 组装事件循环：拆分四通道端点、主线程按配置建热键 registrar、装配推理
-/// 服务与消费运行时、启动应用，并在拿到唤醒句柄后启动平台事件线程。
+/// 组装事件循环：拆分四通道端点、装配推理服务与消费运行时、启动应用，
+/// 并在拿到唤醒句柄后启动平台事件线程。
 ///
 /// 端点分发：App 持有 ① 收 / ② 发 / ③ 发 / ④ 收；事件线程持有 ① 发 /
 /// ② 收 / ④ 发（组装进 sink）；tokio 消费循环持有 ③ 收 / ④ 发。配置侧：
 /// 句柄给 App（任务选项）与引擎（端点），存储另路给 App（设置页写
-/// keychain）与引擎（每请求直查密钥）。热键侧：同一个 registrar 分两路
-/// ——pump 给事件线程抽干按键队列，`HotkeyBinder` 端口给 App 在设置页
-/// 保存后重注册（注册的线程亲和约束见 hotkey.rs 模块注释）。
+/// keychain）与引擎（每请求直查密钥）。
 fn run_event_loop(
     config: Arc<ConfigHandle>,
     store: Arc<dyn ConfigStore>,
@@ -179,18 +176,6 @@ fn run_event_loop(
     // 事件线程永远看不到 Disconnected，run_app 返回后会卡死在 join。
     drop(acquire_tx);
 
-    // 热键 registrar 必须创建在主线程（后端的事件注册与 Drop 清理亲和
-    // 创建线程，见 hotkey.rs 模块注释），并存活至进程退出。
-    // 绑定取自启动时那份配置快照：出厂默认与设置页改的是同一份
-    // 表，本文件不再有第二份写死的默认。
-    let registrar = Arc::new(HotkeyRegistrar::new(
-        config.snapshot().hotkey_bindings.iter().cloned(),
-    ));
-    // 设置页保存后 App 要按新配置重注册，而重绑定同样只能在主线程做——
-    // 把同一个 registrar 以端口形态再给 App 一份句柄（是同一个管理器，
-    // 不是第二个；第二个会与它抢热键）。
-    let hotkeys = Arc::clone(&registrar) as Arc<dyn HotkeyBinder>;
-
     // 系统语言只在启动期读一次（改系统语言要重启）：配置里的
     // `Language::System` 要拿它落定成具体的 `Locale`（prompt 模板语言与
     // 界面文案表共用）。适配器对「拿不到偏好语言」按英文兜底，因此这里
@@ -219,7 +204,6 @@ fn run_event_loop(
         endpoints,
         config,
         store,
-        hotkeys,
         scene,
         system_locale,
         update,
@@ -265,7 +249,7 @@ fn run_event_loop(
                 acquire_rx,
                 sink,
                 acquire_command_handler(),
-                event_sources(&registrar),
+                event_sources(),
             ));
         },
     );
@@ -285,18 +269,9 @@ fn create_channels() -> Channels {
     Channels::new()
 }
 
-/// 事件源集合：热键泵、划词手势与监听降级提示。
-fn event_sources(registrar: &HotkeyRegistrar) -> EventSources<PlatformEvent> {
+/// 事件源集合：划词手势与监听降级提示。
+fn event_sources() -> EventSources<PlatformEvent> {
     let mut sources: EventSources<PlatformEvent> = Vec::new();
-
-    // 热键：registrar 在主线程创建（亲和约束），只把 pump 下发事件线程。
-    let pump = registrar.pump();
-    sources.push(Box::new(move || {
-        pump.poll()
-            .into_iter()
-            .map(|binding| PlatformEvent::HotkeyTriggered { binding })
-            .collect()
-    }));
 
     let (mouse_source, degraded) = MouseSource::spawn();
     if let Some(mut source) = mouse_source {

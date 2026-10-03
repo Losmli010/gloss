@@ -2,12 +2,13 @@
 //! MockEngine + moka 缓存的全链路时序（见 AGENTS.md）。
 //!
 //! 边界：真实事件线程（通道②消费、RunLoop、CompositeReader）属于 OS
-//! 边界，归 L4 opt-in 层——这里取材产物以 `machine.accept_input` 直接
-//! 注入，等价于事件线程回传的产物。
+//! 边界，归 L4 opt-in 层——这里取材产物以 `machine.commit_selection`
+//! 直接注入，等价于事件线程回传的产物。
 //!
-//! 两条触发路径：划词手势下发 `TaskKind::Auto`（走桥的分类前半程），
-//! 热键绑定固定 kind（跳过分类直达缓存/引擎）。纯流式/取消/重试语义用
-//! 热键路径锁定，分类编排用手势路径锁定。
+//! 两条驱动方式：无 hint 的划词下发 `TaskKind::Auto`（走桥的分类前半
+//! 程）；带 `CodeLanguage` hint 的划词由桥按 hint 直接定 kind（跳过分
+//! 类，直达缓存/引擎）。纯流式/取消/重试语义用 hint 路径锁定，分类编
+//! 排用无 hint 路径锁定。
 //!
 //! 驱动方式：全部经公共 API（`TaskStateMachine` / `Channels` /
 //! `start_command_runtime`），`cargo test` 直接跑。
@@ -159,37 +160,29 @@ impl Pipeline {
     }
 
     #[allow(clippy::expect_used, clippy::panic)]
-    fn trigger_hotkey_and_feed(
-        &mut self,
-        kind: TaskKind,
-        text: &str,
-    ) -> tokio_util::sync::CancellationToken {
+    fn trigger_fixed_kind_and_feed(&mut self, text: &str) -> tokio_util::sync::CancellationToken {
         let command = self
             .machine
-            .trigger(
-                &PlatformEvent::HotkeyTriggered {
-                    binding: gloss_core::task::HotkeyBinding {
-                        trigger: "Cmd+Shift+T".into(),
-                        kind,
-                        source: gloss_core::task::InputSource::Selection,
-                    },
+            .begin_selection_probe(
+                &PlatformEvent::SelectionGesture {
+                    pos: ScreenPoint::new(0, 0),
                 },
                 &self.config.snapshot(),
                 Locale::Zh,
                 &SceneFacts::default(),
             )
-            .expect("enabled hotkey must acquire");
+            .expect("selection gesture must probe");
         let AcquireCommand::AcquireText { generation, .. } = &command else {
             panic!("acquire text expected");
         };
-        let InputOutcome::Dispatch(request) = self.machine.accept_input(
+        let InputOutcome::Dispatch(request) = self.machine.commit_selection(
             *generation,
             TaskInput::Text {
                 text: text.into(),
-                hint: None,
+                hint: Some(InputHint::CodeLanguage("rust".into())),
             },
         ) else {
-            panic!("input should be accepted while fetching");
+            panic!("the probe product should be committed");
         };
         self.dispatch(request)
     }
@@ -452,7 +445,8 @@ fn failure_lands_in_error_and_retry_succeeds() {
         .with_chunks(vec![Ok("第二次的产物".into())]);
     let mut pipe = pipeline(&engine);
 
-    let _ = pipe.trigger_hotkey_and_feed(TaskKind::TranslateSentence, "第一次");
+    let _ = pipe.trigger_fixed_kind_and_feed("第一次");
+    expect_classified(&mut pipe);
     let Event::TaskFailed { generation, error } = pipe.events_rx.recv().unwrap() else {
         panic!("task failed expected");
     };
@@ -462,7 +456,8 @@ fn failure_lands_in_error_and_retry_succeeds() {
     );
     assert_eq!(pipe.machine.state(), AppState::Error);
 
-    let _ = pipe.trigger_hotkey_and_feed(TaskKind::TranslateSentence, "第二次");
+    let _ = pipe.trigger_fixed_kind_and_feed("第二次");
+    expect_classified(&mut pipe);
     loop {
         match pipe.events_rx.recv().unwrap() {
             Event::TaskChunk { generation, delta } => {
@@ -490,7 +485,8 @@ fn error_card_retry_redispatches_the_same_task() {
         .with_chunks(vec![Ok("重试后的产物".into())]);
     let mut pipe = pipeline(&engine);
 
-    let _ = pipe.trigger_hotkey_and_feed(TaskKind::TranslateSentence, "第一次");
+    let _ = pipe.trigger_fixed_kind_and_feed("第一次");
+    expect_classified(&mut pipe);
     let Event::TaskFailed { generation, error } = pipe.events_rx.recv().unwrap() else {
         panic!("task failed expected");
     };
@@ -525,11 +521,11 @@ fn config_change_invalidates_cache_for_the_next_task() {
     let engine = MockEngine::new().with_chunks(vec![Ok("结果".into())]);
     let mut pipe = pipeline(&engine);
 
-    pipe.trigger_hotkey_and_feed(TaskKind::TranslateWord, "同一段文本");
+    pipe.trigger_fixed_kind_and_feed("同一段文本");
     wait_done(&mut pipe);
     assert_eq!(engine.call_count(), 1, "first run must reach the engine");
 
-    pipe.trigger_hotkey_and_feed(TaskKind::TranslateWord, "同一段文本");
+    pipe.trigger_fixed_kind_and_feed("同一段文本");
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
@@ -540,14 +536,14 @@ fn config_change_invalidates_cache_for_the_next_task() {
     pipe.config
         .save(Config {
             model_by_kind: vec![ModelBinding {
-                kind: TaskKind::TranslateWord,
+                kind: TaskKind::ExplainCode,
                 model: "deepseek-reasoner".into(),
             }],
             ..Default::default()
         })
         .expect("save should succeed");
 
-    pipe.trigger_hotkey_and_feed(TaskKind::TranslateWord, "同一段文本");
+    pipe.trigger_fixed_kind_and_feed("同一段文本");
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
@@ -559,14 +555,14 @@ fn config_change_invalidates_cache_for_the_next_task() {
         .save(Config {
             target_lang: Lang::Ja,
             model_by_kind: vec![ModelBinding {
-                kind: TaskKind::TranslateWord,
+                kind: TaskKind::ExplainCode,
                 model: "deepseek-reasoner".into(),
             }],
             ..Default::default()
         })
         .expect("save should succeed");
 
-    pipe.trigger_hotkey_and_feed(TaskKind::TranslateWord, "同一段文本");
+    pipe.trigger_fixed_kind_and_feed("同一段文本");
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),

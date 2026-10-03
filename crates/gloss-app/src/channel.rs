@@ -9,20 +9,15 @@
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use gloss_core::log::Span;
 use gloss_core::model::{GlossError, ScreenPoint, ScreenRect};
-use gloss_core::task::{HotkeyBinding, Task, TaskInput, TaskKind, TaskOutcome};
+use gloss_core::task::{Task, TaskInput, TaskKind, TaskOutcome};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio_util::sync::CancellationToken;
 
 /// ① 平台事件源 → 主线程。专用事件线程产生；不含请求代数——由 App 收到后统一赋值。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlatformEvent {
-    /// 热键触发；绑定 = 任务类型 + 输入源。
-    HotkeyTriggered {
-        /// 触发的热键绑定。
-        binding: HotkeyBinding,
-    },
     /// 划词手势（文本任务），载荷是释放坐标（系统全局坐标，逻辑点）——
-    /// 浮层跟随划词位置的输入；热键触发不带坐标。
+    /// 浮层跟随划词位置的输入。
     SelectionGesture {
         /// 释放坐标。
         pos: ScreenPoint,
@@ -32,9 +27,9 @@ pub enum PlatformEvent {
         /// 框选区域的屏幕坐标。
         rect: ScreenRect,
     },
-    /// 托盘/热键请求打开设置。
+    /// 托盘请求打开设置。
     OpenSettingsRequested,
-    /// 托盘/热键请求退出应用。
+    /// 托盘请求退出应用。
     QuitRequested,
 }
 
@@ -239,15 +234,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use gloss_core::task::{InputHint, InputSource, OutcomeStructured, Sense, TaskOptions};
-
-    fn selection_binding() -> HotkeyBinding {
-        HotkeyBinding {
-            trigger: "Cmd+Shift+1".into(),
-            kind: TaskKind::TranslateWord,
-            source: InputSource::Selection,
-        }
-    }
+    use gloss_core::task::{InputHint, OutcomeStructured, Sense, TaskOptions};
 
     fn sample_task() -> Task {
         Task {
@@ -264,9 +251,6 @@ mod tests {
     fn platform_events_round_trip_through_crossbeam() {
         let ch = CrossbeamPair::<PlatformEvent>::new();
         let events = vec![
-            PlatformEvent::HotkeyTriggered {
-                binding: selection_binding(),
-            },
             PlatformEvent::SelectionGesture {
                 pos: ScreenPoint::new(30, 40),
             },

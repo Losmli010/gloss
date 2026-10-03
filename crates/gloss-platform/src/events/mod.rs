@@ -1,4 +1,4 @@
-//! 平台事件线程：全局热键、鼠标监听等系统事件源的唯一宿主。
+//! 平台事件线程：鼠标手势等系统事件源的唯一宿主。
 //!
 //! 事件线程必须是 RunLoop 线程而非裸 `std::thread`：线程宿主为 CFRunLoop，
 //! 以周期定时器抽干各事件源；鼠标 tap 这类自带 run loop 的源在自己的监听
@@ -16,10 +16,9 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError};
 
 use gloss_core::log::{debug, error, info, thread, warn};
 
-pub mod hotkey;
 pub mod mouse;
 
-/// 所有事件源（热键泵、鼠标手势等）每轮 tick 抽干一次，产出 ① 的载荷。
+/// 所有事件源（鼠标手势等）每轮 tick 抽干一次，产出 ① 的载荷。
 /// 组装点用闭包把 platform 本地类型映射为真实的平台事件，映射闭包与命令
 /// 处理器同等对待——panic 不允许带倒事件线程。
 pub trait EventSource<P>: Send {
@@ -40,7 +39,7 @@ where
 pub type EventSources<P> = Vec<Box<dyn EventSource<P> + Send>>;
 
 /// 源事件的 drain 周期：run loop 无法阻塞等待 crossbeam 通道，以定时器
-/// 节奏抽干。热键/手势到浮层的端到端延迟上界即此值，33ms 低于可感知阈值。
+/// 节奏抽干。手势到浮层的端到端延迟上界即此值，33ms 低于可感知阈值。
 const TICK: Duration = Duration::from_millis(33);
 
 /// 事件线程的产物出口：④ 回传事件与 ① 平台事件，由组装点接上真实通道。
@@ -125,7 +124,7 @@ impl EventThread {
 /// 启动平台事件线程。
 ///
 /// `on_command` 在事件线程上顺序消费通道②（取材接线前可先挂测试桩）；
-/// `sources` 是挂载到本线程的事件源（热键、鼠标手势……），每个 tick 抽干
+/// `sources` 是挂载到本线程的事件源（鼠标手势……），每个 tick 抽干
 /// 一轮。退出协议：调用方 drop 通道② Sender，线程抽干剩余命令后自行结束，
 /// `join` 返回即线程已终止。
 pub fn spawn<C, E, P, F>(
@@ -149,7 +148,7 @@ where
         });
     match spawned {
         Ok(join) => EventThread { join: Some(join) },
-        // 线程缺失时应用仍能启动，但热键/取材全部失效——必须留痕。
+        // 线程缺失时应用仍能启动，但取材手势全部失效——必须留痕。
         Err(err) => {
             warn!(thread = thread::EVENT, error = %err, "failed to spawn platform event thread");
             EventThread { join: None }

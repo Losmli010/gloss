@@ -412,17 +412,6 @@ fn render_content(
             *content_h = ui.min_rect().height();
             (action, drag)
         }
-        Some(OverlayView::Acquiring) => {
-            // 取材骨架（触发即显）：纯脉动条，无任何取材文字。没有选区
-            // 数据可展示，整卡保持紧凑，取材完成即整卡替换。
-            let (action, drag) = header(ui, state, text);
-            ui.add_space(space::SECTION);
-            shimmer_bars(ui);
-            ui.add_space(space::PARAGRAPH);
-            footer(ui, true, text);
-            *content_h = ui.min_rect().height();
-            (action, drag)
-        }
         Some(OverlayView::Streaming {
             source,
             body,
@@ -514,7 +503,6 @@ fn render_content(
 fn failure_message(cause: &FailureCause, text: &Text) -> String {
     match cause {
         FailureCause::Task(error) => text.for_error(error),
-        FailureCause::AcquireChannel => text.gloss_errors_acquire_channel.clone(),
         FailureCause::TransportChannel => text.gloss_errors_inference_channel.clone(),
     }
 }
@@ -1455,10 +1443,6 @@ mod kittest_tests {
         }
     }
 
-    fn acquiring_view() -> OverlayView {
-        OverlayView::Acquiring
-    }
-
     fn failed_view() -> OverlayView {
         OverlayView::Failed {
             cause: FailureCause::Task(GlossError::EngineNetwork),
@@ -1646,7 +1630,6 @@ mod kittest_tests {
                 FailureCause::Task(GlossError::EngineResponse("HTTP 400".into())),
                 "服务返回异常：HTTP 400",
             ),
-            (FailureCause::AcquireChannel, "任务失败：取材通道不可用"),
             (FailureCause::TransportChannel, "任务失败：推理通道不可用"),
         ] {
             let (mut harness, _clicked) = harness_for(failed_view_with(cause));
@@ -1700,26 +1683,6 @@ mod kittest_tests {
     }
 
     #[test]
-    fn acquiring_view_shows_a_bare_skeleton() {
-        let (mut harness, _clicked) = harness_for(acquiring_view());
-        harness.run_steps(3);
-        harness.get_by_label_contains("正在注解");
-        let fetching_copy = harness
-            .query_all_by_label_contains("正在读取选区")
-            .next()
-            .is_some();
-        assert!(
-            !fetching_copy,
-            "the skeleton carries no fetching copy anywhere"
-        );
-        let fence_visible = harness.query_all_by_label_contains("原文").next().is_some();
-        assert!(
-            !fence_visible,
-            "the skeleton carries no source or streaming content"
-        );
-    }
-
-    #[test]
     fn streaming_view_shows_the_annotating_footer() {
         let (mut harness, _clicked) = harness_for(streaming_view());
         harness.run_steps(3);
@@ -1736,7 +1699,7 @@ mod kittest_tests {
 
     #[test]
     fn watermark_sits_inside_the_computed_window_height() {
-        for view in [streaming_view(), word_card_view(), acquiring_view()] {
+        for view in [streaming_view(), word_card_view()] {
             let state = RenderState::default();
             let text = Text::get(Locale::Zh);
             let sizing: Rc<Cell<OverlaySizing>> = Rc::new(Cell::new(OverlaySizing {
@@ -1989,11 +1952,6 @@ mod kittest_tests {
         let mut harness = snapshot_harness(Some(word_card_view_en()));
         harness.run();
         harness.snapshot("popup_word_card");
-        results.extend_harness(&mut harness);
-
-        let mut harness = snapshot_harness(Some(acquiring_view()));
-        harness.run_steps(3);
-        harness.snapshot("popup_loading");
         results.extend_harness(&mut harness);
 
         let mut harness = snapshot_harness(Some(extract_view_en()));

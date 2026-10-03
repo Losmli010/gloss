@@ -1,5 +1,4 @@
-//! 设置窗口的编辑会话生命周期：打开、保存（密钥 + 配置）、热键重注册、
-//! 用户提示与关闭。
+//! 设置窗口的编辑会话生命周期：打开、保存（密钥 + 配置）、用户提示与关闭。
 
 use gloss_core::config::Config;
 use gloss_core::log::{info, thread, warn};
@@ -10,7 +9,7 @@ use crate::ui::settings::{KeyUpdate, SettingsNotice};
 use super::GlossApp;
 
 impl GlossApp {
-    /// 打开设置窗口的统一入口（托盘/热键的 `OpenSettingsRequested` 与浮层
+    /// 打开设置窗口的统一入口（托盘的 `OpenSettingsRequested` 与浮层
     /// 失败卡的「打开设置」走同一条路）。窗口已可见时只聚焦；否则以当前
     /// 快照开一个新编辑会话——未保存的草稿随旧会话一并作废。
     pub(super) fn open_settings(&mut self) {
@@ -70,23 +69,7 @@ impl GlossApp {
             language = ?language,
             "settings saved, effective on the next trigger"
         );
-        // 热键不受「下一次触发才生效」约束：注册是平台侧的即时动作，保存
-        // 成功即按新表重注册。
-        self.rebind_hotkeys();
         self.close_settings();
-    }
-
-    /// 按当前快照重注册热键：绑定读自刚换上的快照。个别绑定被
-    /// 占用时按 [`HotkeyBinder`] 的降级契约告警跳过，保存不整体失败。
-    fn rebind_hotkeys(&self) {
-        let bindings = self.config.snapshot().hotkey_bindings.clone();
-        let applied = self.hotkeys.rebind(&bindings);
-        info!(
-            thread = thread::UI,
-            declared = bindings.len(),
-            applied,
-            "hotkey bindings re-registered after save"
-        );
     }
 
     /// 设置窗口的用户提示（保存失败等）；窗口已关则无处可报，只留日志。
@@ -111,14 +94,11 @@ mod tests {
     use std::sync::Arc;
 
     use gloss_core::model::{GlossError, Lang};
-    use gloss_core::ports::HotkeyBinder;
-    use gloss_core::task::{HotkeyBinding, InputSource, TaskKind};
+    use gloss_core::task::TaskKind;
 
-    use crate::app::test_support::{
-        driven_app, driven_app_using, driven_app_with, text_input, trigger_selection,
-    };
+    use crate::app::test_support::{driven_app, driven_app_with, text_input, trigger_selection};
     use crate::channel::PlatformEvent;
-    use crate::stubs::ports::{MemoryConfigStore, RecordingHotkeyBinder};
+    use crate::stubs::ports::MemoryConfigStore;
     use crate::ui;
     use crate::ui::settings::{KeyUpdate, SettingsNotice};
 
@@ -219,100 +199,6 @@ mod tests {
             config.snapshot().target_lang,
             Lang::Zh,
             "failed save must not advance the runtime snapshot"
-        );
-    }
-
-    #[test]
-    fn saving_settings_rebinds_hotkeys_from_the_new_snapshot() {
-        let binder = Arc::new(RecordingHotkeyBinder::default());
-        let (mut app, config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app_using(
-            Arc::new(MemoryConfigStore::default()),
-            Arc::clone(&binder) as Arc<dyn HotkeyBinder>,
-        );
-        assert_eq!(
-            binder.call_count(),
-            0,
-            "the startup registration belongs to the assembly point, not the App"
-        );
-
-        pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
-        app.drain_platform_events();
-
-        let mut draft = (*config.snapshot()).clone();
-        draft.hotkey_bindings = vec![
-            HotkeyBinding {
-                trigger: "Cmd+Alt+T".into(),
-                kind: TaskKind::TranslateSentence,
-                source: InputSource::Selection,
-            },
-            HotkeyBinding {
-                trigger: "Cmd+Alt+C".into(),
-                kind: TaskKind::ExplainCode,
-                source: InputSource::Selection,
-            },
-        ];
-        app.save_settings(draft, KeyUpdate::Keep);
-
-        assert_eq!(binder.call_count(), 1, "one save means one rebind");
-        let rebound = binder.last().expect("a successful save must rebind");
-        let triggers: Vec<&str> = rebound.iter().map(|b| b.trigger.as_str()).collect();
-        assert_eq!(triggers, ["Cmd+Alt+T", "Cmd+Alt+C"]);
-    }
-
-    #[test]
-    fn every_save_rebinds_hotkeys_not_just_the_first() {
-        let binder = Arc::new(RecordingHotkeyBinder::default());
-        let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app_using(
-            Arc::new(MemoryConfigStore::default()),
-            Arc::clone(&binder) as Arc<dyn HotkeyBinder>,
-        );
-
-        for trigger in ["Cmd+Alt+T", "Cmd+Alt+R"] {
-            app.settings = Some(ui::settings::open(&config.snapshot()));
-            let mut draft = (*config.snapshot()).clone();
-            draft.hotkey_bindings = vec![HotkeyBinding {
-                trigger: trigger.into(),
-                kind: TaskKind::TranslateSentence,
-                source: InputSource::Selection,
-            }];
-            app.save_settings(draft, KeyUpdate::Keep);
-        }
-
-        assert_eq!(binder.call_count(), 2, "两次保存 = 两次重注册");
-        let rebound = binder.last().expect("a successful save must rebind");
-        assert_eq!(
-            rebound
-                .iter()
-                .map(|b| b.trigger.as_str())
-                .collect::<Vec<_>>(),
-            ["Cmd+Alt+R"],
-            "第二次生效的必须是第二次保存的那份，不是第一次的"
-        );
-    }
-
-    #[test]
-    fn failed_save_does_not_rebind_hotkeys() {
-        let binder = Arc::new(RecordingHotkeyBinder::default());
-        let failing = MemoryConfigStore::default()
-            .with_save_failure(GlossError::Config("disk on fire".into()));
-        let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app_using(
-            Arc::new(failing),
-            Arc::clone(&binder) as Arc<dyn HotkeyBinder>,
-        );
-        app.settings = Some(ui::settings::open(&config.snapshot()));
-
-        let mut draft = (*config.snapshot()).clone();
-        draft.hotkey_bindings = vec![HotkeyBinding {
-            trigger: "Cmd+Alt+T".into(),
-            kind: TaskKind::TranslateSentence,
-            source: InputSource::Selection,
-        }];
-        app.save_settings(draft, KeyUpdate::Keep);
-
-        assert_eq!(
-            binder.call_count(),
-            0,
-            "a failed save keeps the old bindings live"
         );
     }
 }

@@ -1,4 +1,4 @@
-//! 端口桩：本 crate 测试用到的配置存储、热键重绑定与场景探针预置替身。
+//! 端口桩：本 crate 测试用到的配置存储与场景探针预置替身。
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -6,8 +6,7 @@ use std::sync::Mutex;
 use gloss_core::config::Config;
 use gloss_core::guard::SceneFacts;
 use gloss_core::model::GlossError;
-use gloss_core::ports::{ConfigStore, HotkeyBinder, SceneProbe};
-use gloss_core::task::HotkeyBinding;
+use gloss_core::ports::{ConfigStore, SceneProbe};
 
 use super::lock_or_recover;
 
@@ -64,38 +63,6 @@ impl ConfigStore for MemoryConfigStore {
     fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
         lock_or_recover(&self.secrets).remove(key);
         Ok(())
-    }
-}
-
-/// 记录每次重绑定的热键桩。
-///
-/// 与真实实现不同，它不接触任何平台资源。观测点是「调用发生过」与
-/// 「收到的是哪份绑定表」，注入点是调用次数（首次装配不调、保存成功
-/// 才调），够覆盖接线契约；真实的降级行为（键被别的应用占用
-/// 而跳过、管理器不可用）由 gloss-platform 的 registrar 单测覆盖。
-#[derive(Default)]
-pub struct RecordingHotkeyBinder {
-    calls: Mutex<Vec<Vec<HotkeyBinding>>>,
-}
-
-impl RecordingHotkeyBinder {
-    /// 收到过的重绑定次数。
-    pub fn call_count(&self) -> usize {
-        lock_or_recover(&self.calls).len()
-    }
-
-    /// 最近一次收到的绑定表；从未被调用过时返回 `None`。
-    pub fn last(&self) -> Option<Vec<HotkeyBinding>> {
-        lock_or_recover(&self.calls).last().cloned()
-    }
-}
-
-impl HotkeyBinder for RecordingHotkeyBinder {
-    fn rebind(&self, bindings: &[HotkeyBinding]) -> usize {
-        lock_or_recover(&self.calls).push(bindings.to_vec());
-        // 桩不做平台注册，全部绑定视为生效——即模拟一个一切正常的平台。
-        // 「几条被占用、几级被降级」是平台侧的事实，桩不替它编结果。
-        bindings.len()
     }
 }
 
