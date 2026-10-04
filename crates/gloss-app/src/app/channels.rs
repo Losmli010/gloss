@@ -202,9 +202,9 @@ impl GlossApp {
                 info!(
                     thread = thread::UI,
                     generation = request.generation,
-                    kind = ?request.task.kind,
-                    target_lang = ?request.task.options.target_lang,
-                    prompt_locale = ?request.task.options.prompt_locale,
+                    model = %request.options.model,
+                    target_lang = ?request.options.target_lang,
+                    prompt_locale = ?request.options.prompt_locale,
                     "selection committed, task dispatched to tokio"
                 );
                 self.probe_front_app = None;
@@ -245,7 +245,8 @@ impl GlossApp {
         let traced = Traced {
             payload: Command::RunTask {
                 generation: request.generation,
-                task: request.task,
+                input: request.input,
+                options: request.options,
                 cancel: request.cancel,
             },
             span: self.span_for(request.generation).unwrap_or_else(Span::none),
@@ -417,15 +418,14 @@ impl GlossApp {
 mod tests {
     use std::sync::Arc;
 
-    use gloss_core::config::{Config, ModelBinding};
+    use gloss_core::config::Config;
     use gloss_core::guard::{FrontApp, SceneFacts};
     use gloss_core::log::{capture_global, info, thread};
     use gloss_core::model::Lang;
     use gloss_core::ports::SceneProbe;
-    use gloss_core::task::TaskKind;
 
     use crate::app::test_support::{
-        driven_app, driven_app_with_scene, outcome_body, plain_outcome, streaming_body, text_input,
+        driven_app, driven_app_with_scene, outcome_note, plain_outcome, streaming_raw, text_input,
         trigger_selection,
     };
     use crate::channel::{AcquireCommand, Command};
@@ -459,8 +459,7 @@ mod tests {
         let (mut app, config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app();
         config
             .save(Config {
-                default_text_kind: TaskKind::ExplainCode,
-                enabled_kinds: vec![TaskKind::TranslateWord],
+                target_lang: Lang::Ja,
                 ..Default::default()
             })
             .expect("save should succeed");
@@ -469,12 +468,9 @@ mod tests {
         assert!(
             matches!(
                 ac_rx.try_recv().unwrap().payload,
-                AcquireCommand::AcquireText {
-                    generation: 1,
-                    kind: TaskKind::Auto
-                }
+                AcquireCommand::AcquireText { generation: 1 }
             ),
-            "the gesture carries no explicit intent, so the kind switches do not gate it"
+            "the gesture carries no explicit intent: acquisition is kind-free"
         );
     }
 
@@ -508,7 +504,7 @@ mod tests {
         assert!(!token_a.is_cancelled());
 
         assert!(app.accept_chunk(1, "部分A".into()));
-        assert!(streaming_body(&app).contains("部分A"));
+        assert!(streaming_raw(&app).contains("部分A"));
 
         trigger_selection(&mut app, &pe_tx);
         assert_eq!(
@@ -537,7 +533,7 @@ mod tests {
         assert!(!app.accept_done(1, plain_outcome("迟到结果A")));
         assert!(app.accept_done(2, plain_outcome("结果B")));
         assert_eq!(app.machine.state(), AppState::Show);
-        assert_eq!(outcome_body(&app), "结果B");
+        assert_eq!(outcome_note(&app), "结果B");
     }
 
     #[test]
@@ -584,31 +580,30 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
-        assert_eq!(task.options.target_lang, Some(Lang::Zh));
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        assert_eq!(options.target_lang, Some(Lang::Zh));
         assert_eq!(
-            task.kind,
-            TaskKind::Auto,
-            "the gesture dispatches the sentinel; the model is resolved at rebuild"
+            options.model,
+            gloss_core::config::DEFAULT_TEXT_MODEL,
+            "the factory model freezes into the first task"
         );
-        assert_eq!(task.options.model_override, None);
 
         config
             .save(Config {
                 target_lang: Lang::Ja,
-                model_by_kind: vec![ModelBinding {
-                    kind: TaskKind::TranslateWord,
-                    model: "deepseek-reasoner".into(),
-                }],
+                model: "deepseek-reasoner".into(),
                 ..Default::default()
             })
             .expect("save should succeed");
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
-        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
-        assert_eq!(task.options.target_lang, Some(Lang::Ja));
-        assert_eq!(task.kind, TaskKind::Auto);
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        assert_eq!(options.target_lang, Some(Lang::Ja));
+        assert_eq!(
+            options.model, "deepseek-reasoner",
+            "the saved model freezes into the next task"
+        );
     }
 
     #[test]
@@ -624,17 +619,17 @@ mod tests {
             .expect("save should succeed");
         assert!(app.accept_input(1, text_input("A")));
 
-        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(
-            task.options.target_lang,
+            options.target_lang,
             Some(Lang::Zh),
             "in-flight task must keep the snapshot taken at trigger"
         );
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
-        let Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
-        assert_eq!(task.options.target_lang, Some(Lang::Ja));
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        assert_eq!(options.target_lang, Some(Lang::Ja));
     }
 
     #[test]
@@ -735,7 +730,7 @@ mod tests {
         assert!(app.machine.probe_id().is_none());
 
         assert!(app.accept_chunk(1, "、继续".into()));
-        assert!(streaming_body(&app).contains("继续"));
+        assert!(streaming_raw(&app).contains("继续"));
     }
 
     #[test]

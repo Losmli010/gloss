@@ -1,7 +1,8 @@
 //! gloss-eval：Prompt 评测（确定性重放轨 + LLM judge 轨）。
 //!
 //! 与生产同源：分类校验器（`gloss_core::classify::parse_classify_reply`）、
-//! 结构化解析（`gloss_core::engine::parse_structured` / `finalize_outcome`）
+//! 结构化解析（生产语义见 gloss-app 的 finalize：JSON 主路径 + 围栏
+//! fallback；本 crate 按依赖方向约束以本地镜像对齐同一规则）
 //! 与 prompt 渲染（`PromptRegistry`）直接复用，评测数字度量的是生产行为。
 //!
 //! 隔离红线：本 crate 是评测工具链，**不被任何生产 crate 依赖**——
@@ -12,8 +13,8 @@
 //! 两条轨：
 //! - **确定性轨**（`replay`，CI 安全）：数据集条目对上 `fixtures/` 里
 //!   录制的真实 SSE 增量，经生产解析函数算出 accuracy / 混淆矩阵 /
-//!   无效 JSON 率 / 回退率 / 围栏在场率 / JSON 可解析率 / 字段完整率 /
-//!   降 Plain 率。无网络、无凭据，`cargo test -p gloss-eval` 内置覆盖。
+//!   无效 JSON 率 / 回退率 / 契约 JSON 率 / note 在场率 / 字段完整率 /
+//!   降级率。无网络、无凭据，`cargo test -p gloss-eval` 内置覆盖。
 //! - **live 轨**（opt-in，需 `GLOSS_LIVE_*`）：数据集逐条打真实 LLM
 //!   （延迟 p50/p95 只在这一轨有意义），可选 `--record` 把增量回写
 //!   `fixtures/`，可选 `GLOSS_LIVE_JUDGE=1` 启用 judge 评分。

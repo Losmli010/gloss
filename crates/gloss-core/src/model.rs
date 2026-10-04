@@ -79,9 +79,6 @@ pub enum GlossError {
     RegionTooLarge,
     /// 任务所需模态与配置的模型能力不匹配（如图像任务未配视觉模型）。
     UnsupportedModality,
-    /// 待分类任务未经分类就到达了渲染层。正常编排下不可达（分类在前半程
-    /// 完成），出现即编排接线错误。
-    ClassifyRequired,
     /// 网络错误，可重试。
     EngineNetwork,
     /// API key 无效或过期。
@@ -103,9 +100,6 @@ impl std::fmt::Display for GlossError {
             Self::ScreenCaptureDenied => write!(f, "screen capture permission denied"),
             Self::RegionTooLarge => write!(f, "screen region too large"),
             Self::UnsupportedModality => write!(f, "model capability does not match task modality"),
-            Self::ClassifyRequired => {
-                write!(f, "auto task reached rendering without classification")
-            }
             Self::EngineNetwork => write!(f, "engine network error"),
             Self::EngineAuth => write!(f, "engine authentication failed"),
             Self::EngineRateLimited => write!(f, "engine rate limited"),

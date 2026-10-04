@@ -13,9 +13,9 @@ gloss/
 ├── Cargo.toml           # workspace 根 + 根包 gloss（bin gloss，唯一入口 src/main.rs）
 ├── src/main.rs          # 唯一入口 / 唯一组装点
 └── crates/
-    ├── gloss-core/      # 领域层 + 端口（ports：core 里定义的 trait 契约）：模型、任务、提示词、引擎、缓存、配置、日志（零平台依赖）
+    ├── gloss-core/      # 领域层 + 端口（ports：core 里定义的 trait 契约）：模型、任务、提示词、引擎、分类、配置、日志（零平台依赖，零缓存零配置读取——模型随任务选项携带）
     ├── gloss-platform/  # 适配器层：实现 core 的端口——选区读取、鼠标事件源、配置与密钥存储、LLM 网络（SSE 流式）、应用外观（Dock 图标）
-    ├── gloss-app/       # 表现层 + 应用层：状态机、窗口、wgpu 与 egui、通道类型、tokio 消费桥、界面文案表（i18n 下的 zh/en TOML，编译期嵌入）
+    ├── gloss-app/       # 表现层 + 应用层：状态机、窗口、wgpu 与 egui、通道类型、tokio 消费桥（**缓存站点**：TaskCache 与完成态解析都在这里）、界面文案表（i18n 下的 zh/en TOML，编译期嵌入）
     └── gloss-eval/      # 评测工具链（bin eval + datasets/fixtures/prompts 资产）：只消费 core 与 platform，不被任何生产 crate 依赖（check-constraints 强制），不进应用启动路径
 ```
 
@@ -23,9 +23,9 @@ gloss/
 
 ## 架构速览
 
-- **四线程**：主线程（winit 事件循环 + UI）、平台事件线程（NSRunLoop：取材命令消费，有线程亲和性要求）、鼠标监听线程（线程名 `gloss-mouse-tap`：全局事件 tap 在此收口）、tokio 后台（网络与缓存）。平台回调的订阅面必须最小（鼠标 tap 只订阅左键按下/释放）；回调里只做事件搬运——读事件字段、把事件投进通道（满则丢弃），不调用要求主线程的 API；panic 穿过 C 回调会 abort 进程。
+- **四线程**：主线程（winit 事件循环 + UI）、平台事件线程（NSRunLoop：取材命令消费，有线程亲和性要求）、鼠标监听线程（线程名 `gloss-mouse-tap`：全局事件 tap 在此收口）、tokio 后台（网络与缓存读写）。平台回调的订阅面必须最小（鼠标 tap 只订阅左键按下/释放）；回调里只做事件搬运——读事件字段、把事件投进通道（满则丢弃），不调用要求主线程的 API；panic 穿过 C 回调会 abort 进程。
 - **四通道**：① `PlatformEvent`（事件线程 → 主）② `AcquireCommand`（主 → 事件线程）③ `Command`（主 → tokio）④ `Event`（流式回传 → 主）。请求代数（字段名 `generation`）由 App 在收到 ① 后赋值，之后随 ②③④ 的消息贯穿（① `PlatformEvent` 本身不含它），主线程据此丢弃陈旧响应；取消统一走 `CancellationToken`。
-- **任务化 AI 层**：`TaskKind` + `TaskInput` → 统一的 `AiEngine`，不按输入模态（文本/图像；语音为未实现的预留变体）拆分客户端。
+- **任务化 AI 层**：`TaskInput` + `TaskOptions`（含单次快照冻结的模型 id）→ 统一的 `AiEngine`，不按输入模态（文本/图像；语音为未实现的预留变体）拆分客户端。**分类在 LLM 层内**（提示直通 → LLM 分类 → 常量兜底），状态机与通道载荷不携带任务类型；缓存只认 `cache_key(input, options)`、恒存完成产物，站点归 gloss-app 桥。
 
 ## 常用命令
 
@@ -37,7 +37,7 @@ just lint              # Clippy 严格检查
 just fmt-fix           # 自动格式化
 just test              # 运行全部测试
 just selftest          # 单跑 L3 显隐自检（just test 已含；需窗口服务与 GPU）
-just bench             # 跑 gloss-core 热点基准（criterion，benches/core.rs）
+just bench             # 跑热点基准（criterion，benches/core.rs）
 just bench-check       # 以命名基线为对照重跑基准（审计对照，不是门禁）
 just bench-summary     # 汇总最近一次基准运行为 Markdown 表
 just eval              # Prompt 评测 live 轨（需 GLOSS_LIVE_*，opt-in；--record 回写夹具、--judge 启用评分轨）

@@ -17,9 +17,12 @@
 //! 走 markdown（egui_commonmark 渲染；注区统一改写文本样式为楷体字号）。
 //! 划选即复制：全部文本可选中，无独立复制按钮。正文完整渲染不截断，高度
 //! 自适应内容（宽度默认 380、上限 480，高度上限按屏幕），超出部分滚动兜底。
-//! 流式视图按 [`STRUCTURED_FENCE`] 从**首个**围栏标记起整段截断（围栏后是
-//! 模型在写结构化 JSON，一个字节都不该闪现；跨 chunk 切分出的残缺围栏前缀
-//! 可能短暂显示，随下一 chunk 自愈）。
+//! 流式视图对累积的原始流做**转义感知**的 `note`（注）渐进提取（现行输出
+//! 契约是纯 JSON 对象，见 `gloss_core::prompt`）：`note` 键未到齐时正文区
+//! 落骨架、页脚保留「正在注解」；旧契约（markdown + 围栏）不含 `note` 键，
+//! 全程进度态，完成态由 finalize 的围栏 fallback 兜住。注文一律换行排版：
+//! 代码面板等宽折行、markdown 由 egui_commonmark 按可用宽折行，横滚不进
+//! 弹窗。
 //!
 //! 页头回归品牌：只有应用图标与动作区（⚙/×），任务与状态由内容层自明，
 //! 页头不带任何标签药丸；行下发丝线与页脚上缘线呼应成卡片的上下界。
@@ -45,7 +48,6 @@ use egui::{
 };
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use gloss_core::log::{thread, warn};
-use gloss_core::prompt::STRUCTURED_FENCE;
 use gloss_core::task::{OutcomeStructured, TaskKind};
 
 use super::code_hl;
@@ -414,7 +416,7 @@ fn render_content(
         }
         Some(OverlayView::Streaming {
             source,
-            body,
+            raw,
             classified,
             code_lang,
         }) => {
@@ -427,9 +429,10 @@ fn render_content(
             ui.add_space(space::PARAGRAPH);
             // ScrollArea 内容起点 = cursor（egui 的 cursor 停在前序内容底边
             // 加一个 item_spacing 处），从这里起算正文完整高。
-            let visible = stream_visible_body(body);
+            let visible = stream_note(raw);
             let viewport_max = (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT);
-            let scrolled = ScrollArea::new([code, true])
+            // 只纵向滚动：正文一律换行，横滚不进弹窗（长行由折行兜住）。
+            let scrolled = ScrollArea::new([false, true])
                 .auto_shrink([false, true])
                 .max_height(viewport_max)
                 .show(ui, |ui| {
@@ -439,7 +442,7 @@ fn render_content(
                     } else {
                         zhu_section(ui, text, |ui| {
                             apply_zhu_typography(ui);
-                            render_markdown(ui, state, visible);
+                            render_markdown(ui, state, &visible);
                         });
                     }
                 });
@@ -456,7 +459,8 @@ fn render_content(
             let (action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
             let viewport_max = (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT);
-            let scrolled = ScrollArea::new([is_code(Some(outcome.kind)), true])
+            // 只纵向滚动：与流式视图同规，代码正文按可用宽折行。
+            let scrolled = ScrollArea::new([false, true])
                 .auto_shrink([false, true])
                 .max_height(viewport_max)
                 .show(ui, |ui| {
@@ -833,17 +837,16 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
                 CODE_PANEL_PADDING_V,
             ))
             .show(ui, |ui| {
+                // 面板底色铺满弹窗可用宽（Frame 默认随内容收缩，这里把
+                // 内容列定到可用宽，外框连同底色一起撑满）。
+                ui.set_width(ui.available_width());
                 code_badge(ui, code_lang);
-                // 不换行：超宽由面板内横向滚动兜底（流式视图的经位
-                // 在正文 ScrollArea 之外，横向滚动必须自己带）。
-                ScrollArea::horizontal()
-                    .auto_shrink([false, true])
-                    .show(ui, |ui| {
-                        let dark = ui.visuals().dark_mode;
-                        let job = code_job(source, code_lang, dark);
-                        let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
-                        ui.add(egui::Label::new(egui::WidgetText::Galley(galley)).selectable(true));
-                    });
+                // 等宽折行：超宽按可用宽换行（经位在正文 ScrollArea 之外，
+                // 没有外层滚动区兜底，横滚不进弹窗）。
+                let dark = ui.visuals().dark_mode;
+                let job = code_job(source, code_lang, dark, ui.available_width());
+                let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+                ui.add(egui::Label::new(egui::WidgetText::Galley(galley)).selectable(true));
             });
         return;
     }
@@ -859,9 +862,15 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
 }
 
 /// 代码正文的着色排版：单趟正则切类别，逐段出 [`egui::text::LayoutJob`]
-/// （六类色 + 注释斜体，明暗随主题取 demo token）。不换行、按行断开、
-/// 行高 1.65；标记间的间隙与尾部都补平文段，正文整段可被选中复制。
-fn code_job(source: &str, code_lang: Option<&str>, dark: bool) -> egui::text::LayoutJob {
+/// （六类色 + 注释斜体，明暗随主题取 demo token）。按可用宽折行（长 token
+/// 允许任意字符处断行，保证不超面板宽）、按行断开、行高 1.65；标记间的
+/// 间隙与尾部都补平文段，正文整段可被选中复制。
+fn code_job(
+    source: &str,
+    code_lang: Option<&str>,
+    dark: bool,
+    wrap_width: f32,
+) -> egui::text::LayoutJob {
     let font_id = FontId::new(CODE_FONT, fonts::mono_family());
     let plain = egui::TextFormat {
         line_height: Some(CODE_LINE_HEIGHT),
@@ -869,7 +878,11 @@ fn code_job(source: &str, code_lang: Option<&str>, dark: bool) -> egui::text::La
     };
     let mut job = egui::text::LayoutJob {
         text: source.to_owned(),
-        wrap: egui::text::TextWrapping::no_max_width(),
+        wrap: egui::text::TextWrapping {
+            max_width: wrap_width,
+            break_anywhere: true,
+            ..egui::text::TextWrapping::no_max_width()
+        },
         break_on_newline: true,
         ..egui::text::LayoutJob::default()
     };
@@ -1077,15 +1090,167 @@ fn icon_button(glyph: &'static str) -> egui::Button<'static> {
         .min_size(vec2(ACTION_BUTTON, ACTION_BUTTON))
 }
 
-/// 流式正文的可见部分：从**首个**结构化围栏标记起整段截断。模型按契约
-/// 先写完正文再写围栏 JSON，围栏一出现其后全是结构化载荷；取首个而不是
-/// 末个，模型跑偏（正文里提前出现围栏标记后继续写正文）时同样被拦在
-/// 围栏外。与完成态 core 侧的剥离（`finalize_outcome`）共用
-/// [`STRUCTURED_FENCE`] 单点，两侧各一处实现。
-fn stream_visible_body(body: &str) -> &str {
-    match body.find(STRUCTURED_FENCE) {
-        Some(pos) => &body[..pos],
-        None => body,
+/// 流式注文的可见部分：对累积的原始流做**转义感知**的 `note`（义）渐进
+/// 提取，返回已到达内容的反转义前缀。现行输出契约是纯 JSON 对象，`note`
+/// 的位置随 kind 而定（词卡的 phonetic 在它前面），因此扫描器逐对跳过
+/// 先到的完整键值——`note` 键或值未到齐时返回空串，正文区落骨架，页脚
+/// 保留「正在注解」进度态。值到齐后按 JSON 字符串转义规则逐段反转义；
+/// 残缺的转义序列（尾部孤反斜杠、不足四位的 `\uXXXX`）本帧丢弃、下一帧
+/// 补齐，UTF-16 代理对在流式期暂缺（完成态以 `outcome.note` 为权威源）。
+/// 旧契约（markdown + 围栏）不含 `note` 键，全程进度态，由 finalize 的
+/// 围栏 fallback 在完成态兜住。
+fn stream_note(raw: &str) -> String {
+    let mut cursor = Cursor {
+        rest: raw.trim_start(),
+    };
+    if !cursor.strip("{") {
+        return String::new();
+    }
+    loop {
+        // 键：字符串字面量；未闭合则整路进度态。
+        let Some(key) = cursor.json_string() else {
+            return String::new();
+        };
+        cursor.skip_ws();
+        if !cursor.strip(":") {
+            return String::new();
+        }
+        cursor.skip_ws();
+        if key == "note" {
+            return cursor.json_string().unwrap_or_default();
+        }
+        // 其余键：跳过完整值；值未写完则进度态。
+        if !cursor.skip_value() {
+            return String::new();
+        }
+        cursor.skip_ws();
+        if !cursor.strip(",") {
+            return String::new();
+        }
+    }
+}
+
+/// JSON 前缀扫描游标：`rest` 恒为未消费部分；所有「未到齐」情形都消费
+/// 尽量少并让调用方落进度态（下一帧整段重扫，流式帧几十 KB 上界、无
+/// 分配，无需增量缓存）。
+struct Cursor<'a> {
+    rest: &'a str,
+}
+
+impl Cursor<'_> {
+    /// 剥掉前缀；不匹配则原样保留并返回 `false`。
+    fn strip(&mut self, prefix: &str) -> bool {
+        let Some(rest) = self.rest.strip_prefix(prefix) else {
+            return false;
+        };
+        self.rest = rest;
+        true
+    }
+
+    fn skip_ws(&mut self) {
+        self.rest = self.rest.trim_start();
+    }
+
+    /// 提取一个 JSON 字符串的反转义内容（调用方已确认 `"` 起头；未闭合
+    /// 返回 `None`，残缺转义就地截断、下一帧补齐）。
+    fn json_string(&mut self) -> Option<String> {
+        self.skip_ws();
+        if !self.strip("\"") {
+            return None;
+        }
+        let mut out = String::new();
+        let mut chars = self.rest.chars();
+        loop {
+            // 输入耗尽＝值未写完：已到达的部分照样上屏（下一帧整段重扫）。
+            let Some(ch) = chars.next() else {
+                self.rest = "";
+                return Some(out);
+            };
+            match ch {
+                '"' => {
+                    self.rest = chars.as_str();
+                    return Some(out);
+                }
+                '\\' => {
+                    // 残缺转义（尾部孤反斜杠/不足四位的 \uXXXX）就地截断、
+                    // 返回已到达部分——下一帧整段重扫后补齐。
+                    let Some(escaped) = chars.next() else {
+                        self.rest = "";
+                        return Some(out);
+                    };
+                    match escaped {
+                        'n' => out.push('\n'),
+                        't' => out.push('\t'),
+                        'r' => out.push('\r'),
+                        'b' => out.push('\u{0008}'),
+                        'f' => out.push('\u{000C}'),
+                        'u' => {
+                            let mut hex = String::new();
+                            for _ in 0..4 {
+                                let Some(digit) = chars.next() else {
+                                    self.rest = "";
+                                    return Some(out);
+                                };
+                                hex.push(digit);
+                            }
+                            if let Ok(code) = u32::from_str_radix(&hex, 16)
+                                && let Some(decoded) = char::from_u32(code)
+                            {
+                                out.push(decoded);
+                            }
+                        }
+                        other => out.push(other),
+                    }
+                }
+                other => out.push(other),
+            }
+        }
+    }
+
+    /// 跳过一个完整 JSON 值（字符串/数字/true/false/null/数组/对象）；
+    /// 值未写完返回 `false`（进度态）。
+    fn skip_value(&mut self) -> bool {
+        self.skip_ws();
+        let Some(first) = self.rest.chars().next() else {
+            return false;
+        };
+        match first {
+            '"' => self.json_string().is_some(),
+            '{' | '[' => {
+                let close = if first == '{' { '}' } else { ']' };
+                if !self.strip(first.encode_utf8(&mut [0; 4])) {
+                    return false;
+                }
+                loop {
+                    self.skip_ws();
+                    let Some(next) = self.rest.chars().next() else {
+                        return false;
+                    };
+                    if next == '"' {
+                        if self.json_string().is_none() {
+                            return false;
+                        }
+                    } else if next == '{' || next == '[' {
+                        if !self.skip_value() {
+                            return false;
+                        }
+                    } else if next == close {
+                        self.rest = &self.rest[next.len_utf8()..];
+                        return true;
+                    } else {
+                        self.rest = &self.rest[next.len_utf8()..];
+                    }
+                }
+            }
+            // 数字与字面量（true/false/null）：读到结构性边界。
+            _ => match self.rest.find([',', '}', ']']) {
+                Some(end) => {
+                    self.rest = &self.rest[end..];
+                    true
+                }
+                None => false,
+            },
+        }
     }
 }
 
@@ -1101,8 +1266,9 @@ fn is_code(kind: Option<TaskKind>) -> bool {
     kind == Some(TaskKind::ExplainCode)
 }
 
-/// 产物正文（经注疏排布）：词卡三分（词条/释义/例句），句译与代码解释
-/// 经（原文）+ 注（markdown 正文），提取任务经（提取文本）+ 疏（小记）。
+/// 产物正文（经注疏排布）：经（原文；提取任务为 note 提取文本）、
+/// 注（markdown 注文，词卡的义/句译的译文/讲解的正文）、疏（examples
+/// 疏证逐条；提取任务为凡 N 言小记）。
 fn outcome_body(
     ui: &mut egui::Ui,
     source: &str,
@@ -1112,12 +1278,21 @@ fn outcome_body(
     text: &Text,
 ) {
     match &outcome.structured {
-        OutcomeStructured::WordCard {
-            word,
-            phonetic,
-            senses,
-        } => word_card(ui, word, phonetic.as_deref(), senses, text),
-        OutcomeStructured::Plain { title } => {
+        OutcomeStructured::WordCard { phonetic, examples } => {
+            if !source.trim().is_empty() {
+                jing_section(ui, text, |ui| word_head(ui, source, phonetic.as_deref()));
+                ui.add_space(space::PARAGRAPH);
+            }
+            zhu_section(ui, text, |ui| {
+                apply_zhu_typography(ui);
+                render_markdown(ui, state, &outcome.note);
+            });
+            if !examples.is_empty() {
+                ui.add_space(space::PARAGRAPH);
+                shu_examples(ui, examples, text);
+            }
+        }
+        OutcomeStructured::Plain { examples } => {
             if !source.trim().is_empty() {
                 jing_section(ui, text, |ui| {
                     source_block(ui, source, is_code(Some(outcome.kind)), code_lang)
@@ -1126,26 +1301,39 @@ fn outcome_body(
             }
             zhu_section(ui, text, |ui| {
                 apply_zhu_typography(ui);
-                if let Some(title) = title {
-                    ui.label(
-                        RichText::new(title.as_str())
-                            .font(kaiti_font(JING_FONT))
-                            .strong()
-                            .color(ui.visuals().strong_text_color()),
-                    );
-                    ui.add_space(space::PARAGRAPH);
-                }
-                render_markdown(ui, state, &outcome.body);
+                render_markdown(ui, state, &outcome.note);
             });
+            if !examples.is_empty() {
+                ui.add_space(space::PARAGRAPH);
+                shu_examples(ui, examples, text);
+            }
         }
-        OutcomeStructured::Extracted { text: extracted } => {
-            jing_section(ui, text, |ui| plain_body(ui, extracted));
+        OutcomeStructured::Extracted => {
+            jing_section(ui, text, |ui| plain_body(ui, &outcome.note));
             ui.add_space(space::PARAGRAPH);
             shu_section(ui, text, |ui| {
-                ui.label(extract_note(text, extracted));
+                ui.label(extract_note(text, &outcome.note));
             });
         }
     }
+}
+
+/// 词卡经位（说文体例的字头行）：原文（选区词条）+ 音标（读若）随行。
+fn word_head(ui: &mut egui::Ui, word: &str, phonetic: Option<&str>) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            RichText::new(word)
+                .font(serif_font(WORD_FONT))
+                .color(ui.visuals().strong_text_color()),
+        );
+        if let Some(phonetic) = phonetic {
+            ui.label(
+                RichText::new(phonetic)
+                    .font(FontId::new(PHON_FONT, fonts::mono_family()))
+                    .color(ui.visuals().weak_text_color()),
+            );
+        }
+    });
 }
 
 /// 提取小记（疏）：「凡 N 言 · N 行」，字数按去空白计、行数按换行计，
@@ -1184,79 +1372,29 @@ fn example_lines(example: &str) -> (&str, Option<&str>) {
     }
 }
 
-/// 词卡精排（经注疏三分）：词条 + 音标行落经位（demo w-head），释义逐行
-/// 落注位（朱丝栏，楷体，词性朱砂），例句拆行落疏位。
-fn word_card(
-    ui: &mut egui::Ui,
-    word: &str,
-    phonetic: Option<&str>,
-    senses: &[gloss_core::task::Sense],
-    text: &Text,
-) {
-    jing_section(ui, text, |ui| {
-        ui.horizontal(|ui| {
+/// 疏位疏证（examples 逐条）：例句/展开讲解拆行（demo w-ex 的 `.en` 行
+/// + `.zh` 块），楷体弱色。
+fn shu_examples(ui: &mut egui::Ui, examples: &[String], text: &Text) {
+    shu_section(ui, text, |ui| {
+        let weak = ui.visuals().weak_text_color();
+        for example in examples {
+            let (source, translation) = example_lines(example);
             ui.label(
-                RichText::new(word)
-                    .font(serif_font(WORD_FONT))
-                    .color(ui.visuals().strong_text_color()),
+                RichText::new(format!("· {source}")) // i18n:allow 列表符号，非 locale 文案
+                    .font(serif_font(SHU_FONT))
+                    .italics()
+                    .color(weak),
             );
-            if let Some(phonetic) = phonetic {
+            if let Some(translation) = translation {
                 ui.label(
-                    RichText::new(phonetic)
-                        .font(FontId::new(PHON_FONT, fonts::mono_family()))
-                        .color(ui.visuals().weak_text_color()),
+                    RichText::new(translation)
+                        .font(serif_font(SHU_FONT))
+                        .color(weak),
                 );
             }
-        });
-    });
-    ui.add_space(space::PARAGRAPH);
-    zhu_section(ui, text, |ui| {
-        let strong = ui.visuals().strong_text_color();
-        for sense in senses {
-            ui.horizontal_wrapped(|ui| {
-                if let Some(pos) = &sense.pos {
-                    ui.label(
-                        RichText::new(pos.as_str())
-                            .font(kaiti_font(PHON_FONT))
-                            .color(zhu_color(ui)),
-                    );
-                    ui.add_space(space::TIGHT);
-                }
-                ui.label(
-                    RichText::new(sense.meaning.as_str())
-                        .font(kaiti_font(ZHU_FONT))
-                        .color(strong),
-                );
-            });
-            ui.add_space(space::ITEM);
+            ui.add_space(space::INLINE);
         }
     });
-    let has_examples = senses.iter().any(|sense| !sense.examples.is_empty());
-    if has_examples {
-        ui.add_space(space::PARAGRAPH);
-        shu_section(ui, text, |ui| {
-            let weak = ui.visuals().weak_text_color();
-            for sense in senses {
-                for example in &sense.examples {
-                    let (source, translation) = example_lines(example);
-                    ui.label(
-                        RichText::new(format!("· {source}")) // i18n:allow 列表符号，非 locale 文案
-                            .font(serif_font(SHU_FONT))
-                            .italics()
-                            .color(weak),
-                    );
-                    if let Some(translation) = translation {
-                        ui.label(
-                            RichText::new(translation)
-                                .font(serif_font(SHU_FONT))
-                                .color(weak),
-                        );
-                    }
-                    ui.add_space(space::INLINE);
-                }
-            }
-        });
-    }
 }
 
 /// 可选中、自动换行的纯文本正文（OCR 提取文本不按 markdown 解释）。
@@ -1299,8 +1437,8 @@ fn selfcheck_body(ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::{
-        APP_ICON_PNG, MAX_WIDTH, WIDTH, decode_app_icon, example_lines, resolve_width,
-        stream_visible_body, watermark,
+        APP_ICON_PNG, MAX_WIDTH, WIDTH, decode_app_icon, example_lines, resolve_width, stream_note,
+        watermark,
     };
 
     #[test]
@@ -1344,27 +1482,79 @@ mod tests {
     }
 
     #[test]
-    fn stream_visible_body_truncates_from_the_first_fence() {
+    fn stream_note_extracts_the_json_field_progressively() {
         assert_eq!(
-            stream_visible_body("正文一\n```gloss\n{\"title\":\"x\"}\n```\n正文二"),
-            "正文一\n",
-            "everything from the first fence on is hidden, including later prose"
+            stream_note(r#"{"note":"正文一\n正文二","title":"x"}"#),
+            "正文一\n正文二",
+            "escapes decode and the value stops at the closing quote"
         );
+        assert_eq!(stream_note(""), "");
         assert_eq!(
-            stream_visible_body("没有围栏的正文"),
-            "没有围栏的正文",
-            "no fence means the whole body is visible"
-        );
-        assert_eq!(stream_visible_body(""), "");
-        assert_eq!(
-            stream_visible_body("```gloss\n{\"title\":\"x\"}"),
+            stream_note("plain markdown"),
             "",
-            "a body that opens with the fence shows nothing"
+            "non-JSON stays in progress"
+        );
+        assert_eq!(stream_note("{"), "");
+        assert_eq!(stream_note(r#"{"bod"#), "", "a partial key keeps waiting");
+        assert_eq!(
+            stream_note(r#"{"note""#),
+            "",
+            "key without colon keeps waiting"
         );
         assert_eq!(
-            stream_visible_body("正文\n```glossparticular\n不该显示"),
-            "正文\n",
-            "the marker matches by prefix, matching the core-side stripper"
+            stream_note(r#"{"note":"#),
+            "",
+            "colon without value keeps waiting"
+        );
+        assert_eq!(
+            stream_note(r#"{"note":""#),
+            "",
+            "an open value shows nothing yet"
+        );
+        assert_eq!(
+            stream_note(r#"{"note":"未闭合"#),
+            "未闭合",
+            "an unterminated value still shows what arrived"
+        );
+        assert_eq!(
+            stream_note(r#"{"phonetic":"/ɡlɒs/","note":"义释"}"#),
+            "义释",
+            "a preceding complete foreign key (word card's phonetic) is skipped"
+        );
+        assert_eq!(
+            stream_note(r#"{"phonetic":"/ɡ"#),
+            "",
+            "a foreign string value that is still streaming keeps progress"
+        );
+        assert_eq!(
+            stream_note(r#"{"examples":["一","二"],"note":"义"}"#),
+            "义",
+            "an array-valued foreign key is skipped whole"
+        );
+        assert_eq!(
+            stream_note(r#"{"note":"esc\"ape\\path"}"#),
+            "esc\"ape\\path",
+            "quote and backslash escapes decode"
+        );
+        assert_eq!(
+            stream_note(r#"{"note":"你\u4f60好"}"#),
+            "你你好",
+            "a complete unicode escape decodes"
+        );
+        assert_eq!(
+            stream_note(r#"{"note":"你\u4"#),
+            "你",
+            "a partial unicode escape waits for the next frame"
+        );
+        assert_eq!(
+            stream_note(r#"{"note":"尾\"#),
+            "尾",
+            "a dangling backslash is dropped until it completes"
+        );
+        assert_eq!(
+            stream_note("正文\n```gloss\n{\"title\":\"x\"}\n```"),
+            "",
+            "the legacy fence contract has no note key: progress state"
         );
     }
 
@@ -1400,34 +1590,23 @@ mod kittest_tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use egui_kittest::{Harness, kittest::Queryable};
+    use egui_kittest::{Harness, kittest::NodeT, kittest::Queryable};
 
     use super::*;
     use crate::machine::OverlayView;
     use gloss_core::model::{GlossError, Locale};
-    use gloss_core::task::{Sense, TaskKind, TaskOutcome};
+    use gloss_core::task::{TaskKind, TaskOutcome};
 
     fn word_card_view() -> OverlayView {
         OverlayView::Outcome {
-            source: String::new(),
+            source: "gloss".into(),
             outcome: TaskOutcome {
                 kind: TaskKind::TranslateWord,
-                body: "markdown 正文".into(),
+                note: "**光泽**；注释：表面的一层光亮。".into(),
+                code_language: None,
                 structured: OutcomeStructured::WordCard {
-                    word: "gloss".into(),
                     phonetic: Some("/ɡlɒs/".into()),
-                    senses: vec![
-                        Sense {
-                            pos: Some("n.".into()),
-                            meaning: "光泽；注释".into(),
-                            examples: vec!["a gloss of silk".into()],
-                        },
-                        Sense {
-                            pos: Some("v.".into()),
-                            meaning: "作注解".into(),
-                            examples: vec![],
-                        },
-                    ],
+                    examples: vec!["a gloss of silk 丝绸的光泽".into()],
                 },
             },
             code_lang: None,
@@ -1437,7 +1616,7 @@ mod kittest_tests {
     fn streaming_view() -> OverlayView {
         OverlayView::Streaming {
             source: "选中的原文".into(),
-            body: "已流式到达的正文\n```gloss\n{\"title\":\"摘要\"}\n```".into(),
+            raw: r#"{"note":"已流式到达的正文"}"#.into(),
             classified: Some(TaskKind::TranslateWord),
             code_lang: None,
         }
@@ -1476,8 +1655,11 @@ mod kittest_tests {
             source: String::new(),
             outcome: TaskOutcome {
                 kind: TaskKind::TranslateSentence,
-                body: "很长的正文段落。".repeat(1000) + "尾部标记",
-                structured: OutcomeStructured::Plain { title: None },
+                note: "很长的正文段落。".repeat(1000) + "尾部标记",
+                code_language: None,
+                structured: OutcomeStructured::Plain {
+                    examples: Vec::new(),
+                },
             },
             code_lang: None,
         }
@@ -1488,10 +1670,9 @@ mod kittest_tests {
             source: String::new(),
             outcome: TaskOutcome {
                 kind: TaskKind::ImageOcr,
-                body: String::new(),
-                structured: OutcomeStructured::Extracted {
-                    text: "会议纪要\n参会：产品组、评测组".into(),
-                },
+                note: "会议纪要\n参会：产品组、评测组".into(),
+                code_language: None,
+                structured: OutcomeStructured::Extracted,
             },
             code_lang: None,
         }
@@ -1499,25 +1680,14 @@ mod kittest_tests {
 
     fn word_card_view_en() -> OverlayView {
         OverlayView::Outcome {
-            source: String::new(),
+            source: "gloss".into(),
             outcome: TaskOutcome {
                 kind: TaskKind::TranslateWord,
-                body: String::new(),
+                note: "A surface shine; luster. To add a gloss or commentary.".into(),
+                code_language: None,
                 structured: OutcomeStructured::WordCard {
-                    word: "gloss".into(),
                     phonetic: Some("/ɡlɒs/".into()),
-                    senses: vec![
-                        Sense {
-                            pos: Some("n.".into()),
-                            meaning: "a surface shine; luster".into(),
-                            examples: vec!["The polished wood had a deep gloss.".into()],
-                        },
-                        Sense {
-                            pos: Some("v.".into()),
-                            meaning: "to add a gloss or commentary".into(),
-                            examples: vec![],
-                        },
-                    ],
+                    examples: vec!["The polished wood had a deep gloss.".into()],
                 },
             },
             code_lang: None,
@@ -1527,7 +1697,7 @@ mod kittest_tests {
     fn streaming_view_en() -> OverlayView {
         OverlayView::Streaming {
             source: "It is not that I am so smart.".into(),
-            body: "Partial body already streamed.\n```gloss\n{\"title\":\"Summary\"}\n```".into(),
+            raw: r#"{"note":"Partial note already streamed.""#.into(),
             classified: Some(TaskKind::TranslateSentence),
             code_lang: None,
         }
@@ -1536,8 +1706,7 @@ mod kittest_tests {
     fn code_streaming_view_en() -> OverlayView {
         OverlayView::Streaming {
             source: "fn main() {\n    let gloss = \"光\";\n    println!(\"{gloss}\");\n}".into(),
-            body: "Partial explanation already streamed.\n```gloss\n{\"title\":\"Rust\"}\n```"
-                .into(),
+            raw: r#"{"note":"Partial explanation already streamed.""#.into(),
             classified: Some(TaskKind::ExplainCode),
             code_lang: Some("rust".into()),
         }
@@ -1548,9 +1717,10 @@ mod kittest_tests {
             source: "fn main() {\n    let gloss = \"光\";\n    println!(\"{gloss}\");\n}".into(),
             outcome: TaskOutcome {
                 kind: TaskKind::ExplainCode,
-                body: "### What it does\n\nPrints the CJK word for *gloss*.".into(),
+                note: "### What it does\n\nPrints the CJK word for *gloss*.".into(),
+                code_language: Some("rust".into()),
                 structured: OutcomeStructured::Plain {
-                    title: Some("Rust snippet".into()),
+                    examples: Vec::new(),
                 },
             },
             code_lang: Some("rust".into()),
@@ -1562,12 +1732,48 @@ mod kittest_tests {
             source: String::new(),
             outcome: TaskOutcome {
                 kind: TaskKind::ImageOcr,
-                body: String::new(),
-                structured: OutcomeStructured::Extracted {
-                    text: "Meeting notes\nAttendees: product, client, eval".into(),
+                note: "Meeting notes\nAttendees: product, client, eval".into(),
+                code_language: None,
+                structured: OutcomeStructured::Extracted,
+            },
+            code_lang: None,
+        }
+    }
+
+    /// 超长无空格行的产物夹具：markdown 段落与围栏代码块各一段长行——
+    /// 「不超出窗口可用宽度」的快照与逐节点断言共用。正文用 ASCII 无空格
+    /// 长串（快照 harness 绑内置字形，无 CJK 字面）。
+    fn long_line_view() -> OverlayView {
+        let long_prose = "glossary".repeat(60);
+        let long_code = "let value = compute(someVeryLongIdentifierChain).expect();\n".repeat(6);
+        OverlayView::Outcome {
+            source: String::new(),
+            outcome: TaskOutcome {
+                kind: TaskKind::TranslateSentence,
+                note: format!("{long_prose}\n\n```rust\n{long_code}```"),
+                code_language: None,
+                structured: OutcomeStructured::Plain {
+                    examples: Vec::new(),
                 },
             },
             code_lang: None,
+        }
+    }
+
+    /// 超长代码原文夹具：经位代码面板的单 token 长行（等宽折行的断言面）。
+    fn long_code_source_view() -> OverlayView {
+        let long_token = "compute".repeat(40);
+        OverlayView::Outcome {
+            source: format!("fn main() {{ let x = \"{long_token}\"; }}"),
+            outcome: TaskOutcome {
+                kind: TaskKind::ExplainCode,
+                note: "### Summary\n\nShort body.".into(),
+                code_language: Some("rust".into()),
+                structured: OutcomeStructured::Plain {
+                    examples: Vec::new(),
+                },
+            },
+            code_lang: Some("rust".into()),
         }
     }
 
@@ -1652,20 +1858,18 @@ mod kittest_tests {
         harness.run();
         harness.get_by_label("gloss");
         harness.get_by_label("/ɡlɒs/");
-        harness.get_by_label("光泽；注释");
-        harness.get_by_label("作注解");
         harness.get_by_label("· a gloss of silk");
     }
 
     #[test]
-    fn word_card_senses_stack_vertically() {
+    fn word_card_sections_stack_vertically() {
         let (mut harness, _clicked) = harness_for(word_card_view());
         harness.run();
-        let first = harness.get_by_label("光泽；注释").rect();
-        let second = harness.get_by_label("作注解").rect();
+        let head = harness.get_by_label("/ɡlɒs/").rect();
+        let example = harness.get_by_label("· a gloss of silk").rect();
         assert!(
-            second.top() > first.top(),
-            "释义必须逐行向下排（正文列显式垂直布局），不能横向并排: {first:?} {second:?}"
+            example.top() > head.top(),
+            "经→疏必须自上而下排（分区显式垂直布局），不能横向并排: {head:?} {example:?}"
         );
     }
 
@@ -1752,19 +1956,20 @@ mod kittest_tests {
     }
 
     #[test]
-    fn streaming_view_hides_structured_block() {
+    fn streaming_view_shows_only_the_extracted_note() {
         let (mut harness, _clicked) = harness_for(streaming_view());
         harness.run_steps(3);
         harness.get_by_label_contains("已流式到达的正文");
         harness.get_by_label_contains("选中的原文");
-        let fence_visible = harness
-            .query_all_by_label_contains("```gloss")
-            .next()
-            .is_some();
-        assert!(
-            !fence_visible,
-            "structured fence must be filtered out of the streaming view"
-        );
+        for artifact in ["title", "\"note\"", "```gloss"] {
+            assert!(
+                harness
+                    .query_all_by_label_contains(artifact)
+                    .next()
+                    .is_none(),
+                "raw JSON or fence artifacts must stay out of the streaming view: {artifact}"
+            );
+        }
     }
 
     #[test]
@@ -1946,6 +2151,36 @@ mod kittest_tests {
     }
 
     #[test]
+    fn long_lines_never_exceed_the_window_width() {
+        for view in [long_line_view(), long_code_source_view()] {
+            let state = RenderState::default();
+            let text = Text::get(Locale::En);
+            let installed = Cell::new(false);
+            let mut harness =
+                Harness::builder()
+                    .with_theme(egui::Theme::Light)
+                    .build_ui(move |ui| {
+                        if font_first_frame(&installed, ui.ctx()) {
+                            return;
+                        }
+                        let _ = draw(ui, Some(&view), &state, text);
+                    });
+            harness.set_size(egui::vec2(WIDTH, 800.0));
+            harness.run();
+            let overflowing: Vec<_> = harness
+                .query_all_by(|_| true)
+                .filter(|node| node.accesskit_node().bounding_box().is_some())
+                .map(|node| node.rect())
+                .filter(|rect| rect.right() > WIDTH + 0.5)
+                .collect();
+            assert!(
+                overflowing.is_empty(),
+                "横滚不进弹窗：全部内容节点不得超出窗口可用宽 {WIDTH}: {overflowing:?}"
+            );
+        }
+    }
+
+    #[test]
     fn snapshots_match_baseline() {
         let mut results = egui_kittest::SnapshotResults::new();
 
@@ -1987,6 +2222,11 @@ mod kittest_tests {
         let mut harness = snapshot_harness(None);
         harness.run();
         harness.snapshot("popup_selfcheck");
+        results.extend_harness(&mut harness);
+
+        let mut harness = snapshot_harness(Some(long_line_view()));
+        harness.run();
+        harness.snapshot("popup_long_line");
         results.extend_harness(&mut harness);
 
         results.unwrap();

@@ -271,9 +271,8 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Duration;
 
-    use gloss_core::config::{Language, ModelBinding, ProviderKey, Theme};
+    use gloss_core::config::{Language, ProviderKey, Theme};
     use gloss_core::model::Lang;
-    use gloss_core::task::TaskKind;
 
     use super::*;
 
@@ -284,13 +283,8 @@ mod tests {
                 provider: "deepseek".into(),
                 keychain_id: "gloss/deepseek".into(),
             }],
-            model_by_kind: vec![ModelBinding {
-                kind: TaskKind::ImageOcr,
-                model: "vision-model".into(),
-            }],
+            model: "vision-model".into(),
             target_lang: Lang::Other("ko".into()),
-            default_text_kind: TaskKind::ExplainCode,
-            enabled_kinds: vec![TaskKind::ImageOcr, TaskKind::ImageExplain],
             cache_ttl_secs: 120,
             theme: Theme::Dark,
             language: Language::En,
@@ -455,10 +449,7 @@ mod tests {
         assert_eq!(config.base_url, gloss_core::config::DEFAULT_BASE_URL);
         assert!(config.active_provider().is_none());
         assert_eq!(config.resolved_provider().keychain_id, "gloss/deepseek");
-        assert_eq!(
-            config.resolved_model(gloss_core::task::TaskKind::TranslateWord),
-            Some(gloss_core::config::DEFAULT_TEXT_MODEL)
-        );
+        assert_eq!(config.model, gloss_core::config::DEFAULT_TEXT_MODEL);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! 端口定义：全部跨层 trait 的唯一定义点（Ports & Adapters）。
 //!
 //! core 只声明契约；实现侧在 gloss-platform（`CompositeReader` /
-//! `ScreenCapturer` / `LlmClient` / `FileConfigStore` / moka `Cache`），
+//! `ScreenCapturer` / `LlmClient` / `FileConfigStore`），
 //! 核心编排只见到这些 trait，测试用各 crate tests/stubs/ 下的桩。
 //!
 use std::pin::Pin;
@@ -13,7 +13,6 @@ use crate::config::Config;
 use crate::guard::SceneFacts;
 use crate::model::{GlossError, ScreenRect};
 use crate::prompt::ChatMessage;
-use crate::task::{TaskKind, TaskOutcome};
 
 /// 装箱 future：让 trait 方法携带异步结果的同时保持对象安全（`dyn` 可用）。
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -51,14 +50,12 @@ pub trait RegionCapture: Send {
 /// 模型 id。
 ///
 /// 渲染是 core 编排的职责（`AiTaskService` 调 `PromptRegistry`，含模态校验），
-/// 引擎只负责把请求送出去、把响应流回来——不做渲染，也不回读配置。模型随
+/// 引擎只负责把请求送出去、把响应流回来——不做渲染，也不回读配置。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineRequest {
-    /// 任务类型：引擎侧只用于诊断与能力判断，不参与渲染。
-    pub kind: TaskKind,
     /// 渲染好的消息（多模态 content 数组随图像任务扩展）。
     pub messages: Vec<ChatMessage>,
-    /// 本任务使用的模型 id（App 在触发时按配置解析）。
+    /// 本任务使用的模型 id（App 在触发时按配置冻结）。
     pub model: String,
     /// 回复的 token 上限（OpenAI 兼容 `max_tokens`）：`None` = 不设限。
     /// 渲染与转发不感知它——需要截断回复的调用方（如分类这类只回一小段
@@ -82,7 +79,7 @@ pub trait SceneProbe: Send + Sync {
 /// AI 引擎（端口）：统一入口，不按输入模态拆分——文本/图文仅由消息
 /// payload 与模型 id（[`EngineRequest`]）决定。渲染归 core 编排（引擎不做
 /// 渲染）；**模型不回读配置**（随请求携带）。引擎自己读快照的只有端点与
-/// provider 条目——这两者不进缓存 key。
+/// provider 条目。
 ///
 /// 实现方保证：`execute` 返回的 future 与流都是 `'static` 且 `Send`——
 /// **不得借用 `request` 或 `self`**，请求数据需克隆或移入 future；消费端
@@ -121,25 +118,6 @@ pub trait ConfigStore: Send + Sync {
     fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError>;
     /// 删除密钥；条目不存在视为成功（幂等，设置页「清除密钥」路径用）。
     fn delete_secret(&self, key: &str) -> Result<(), GlossError>;
-}
-
-/// 缓存（端口）：core 内置 moka 内存实现。
-///
-/// key = hash(kind, input, options, model)——同一文本在不同任务下不共享
-/// 缓存；调用方保证 key 由统一哈希函数派生，且派生函数须抗碰撞。
-///
-/// 主产物之外另有一格**分类缓存**（`get_classify`/`set_classify`）：文本
-/// → 已判定 kind 的键值对，与主产物分实例存放（容量/TTL 独立），避免
-/// 两种条目互相挤占。分类 key 由 `classify::classify_key` 统一派生。
-pub trait Cache: Send + Sync {
-    /// 取缓存产物。
-    fn get(&self, key: u64) -> Option<TaskOutcome>;
-    /// 写缓存产物。
-    fn set(&self, key: u64, value: TaskOutcome);
-    /// 取分类缓存：该文本最近一次判定的任务类型。
-    fn get_classify(&self, key: u64) -> Option<TaskKind>;
-    /// 写分类缓存。
-    fn set_classify(&self, key: u64, kind: TaskKind);
 }
 
 /// 应用图标（端口）：把品牌图标交给平台外壳（Dock / 应用切换器）。

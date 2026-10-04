@@ -126,6 +126,54 @@ mut_file_heading_only_change() {
     "$TMP/docs/tests/bdd.md" >"$TMP/docs/tests/bdd.md.tmp" &&
     mv "$TMP/docs/tests/bdd.md.tmp" "$TMP/docs/tests/bdd.md"
 }
+mut_duplicate_row() {
+  printf '| registered_plain | 目标 | 给定…当…则… | 2026-09-19 |\n' >>"$TMP/docs/tests/bdd.md"
+}
+mut_history_row_same_name() {
+  printf '| registered_plain | 旧目标 | 旧场景措辞 | 2026-09-01 |\n' >>"$TMP/docs/tests/bdd.md"
+}
+mut_drop_section_header() {
+  awk '{ if ($0 ~ /^\|[[:space:]]*测试名称/ || $0 ~ /^\|[[:space:]]*---/) next; print }' \
+    "$TMP/docs/tests/bdd.md" >"$TMP/docs/tests/bdd.md.tmp" &&
+    mv "$TMP/docs/tests/bdd.md.tmp" "$TMP/docs/tests/bdd.md"
+}
+mut_name_collides_with_target() {
+  printf '\n[[test]]\nname = "collide_target"\nharness = false\n' >>"$TMP/Cargo.toml"
+  printf '\n#[test]\nfn collide_target() {}\n' >>"$TMP/src/lib.rs"
+  printf '| collide_target | 目标 | 给定…当…则… | 2026-09-19 |\n' >>"$TMP/docs/tests/bdd.md"
+}
+mut_duplicate_chapter() {
+  printf '\n## 性能测试\n' >>"$TMP/docs/tests/bdd.md"
+}
+mut_blank_split_table() {
+  awk '{ print } $0 ~ /^\|[[:space:]]*---/ && !done { print ""; done = 1 }' \
+    "$TMP/docs/tests/bdd.md" >"$TMP/docs/tests/bdd.md.tmp" &&
+    mv "$TMP/docs/tests/bdd.md.tmp" "$TMP/docs/tests/bdd.md"
+}
+mut_paragraph_split_table() {
+  awk '{ print } $0 ~ /^\|[[:space:]]*---/ && !done { print "段落混进了表体。"; done = 1 }' \
+    "$TMP/docs/tests/bdd.md" >"$TMP/docs/tests/bdd.md.tmp" &&
+    mv "$TMP/docs/tests/bdd.md.tmp" "$TMP/docs/tests/bdd.md"
+}
+mut_drop_table_header() {
+  awk '
+    $0 ~ /^\|[[:space:]]*测试名称/ && !dropped { dropped = 1; next }
+    dropped == 1 && $0 ~ /^\|[[:space:]]*---/ { dropped = 2; next }
+    { print }
+  ' "$TMP/docs/tests/bdd.md" >"$TMP/docs/tests/bdd.md.tmp" &&
+    mv "$TMP/docs/tests/bdd.md.tmp" "$TMP/docs/tests/bdd.md"
+}
+mut_manual_entry_once() {
+  printf '\n#[test]\n#[ignore = "needs device"]\nfn live_manual_thing() {}\n' >>"$TMP/src/lib.rs"
+  printf '\n### live_manual_thing\n- 测试目标：探针。\n- 测试步骤：\n  1. 跑一次\n- 更新时间：2026-09-19\n' >>"$TMP/docs/tests/bdd.md"
+}
+mut_duplicate_bullet() {
+  printf -- '- 测试目标：重复块探针。\n- 测试目标：重复块探针。\n' >>"$TMP/docs/tests/bdd.md"
+}
+mut_duplicate_h3() {
+  printf '\n### crates/demo.rs\n' >>"$TMP/docs/tests/bdd.md"
+  printf '\n### crates/demo.rs\n' >>"$TMP/docs/tests/bdd.md"
+}
 
 echo "== 测试 check-test-bdd.sh =="
 echo ""
@@ -133,6 +181,9 @@ echo "-- 一致（应通过，退出码 0）--"
 assert_case "全量登记一致（fn/tokio/ignore/同行属性/重名后缀剥除/[[test]] 目标）" 0
 assert_case "bdd 文件小节标题（crates/…）变化不影响核对" 0 mut_file_heading_only_change
 assert_case "表头与分隔行不误判为条目" 0
+assert_case "同名沿革行（描述不同）不误判为重复" 0 mut_history_row_same_name
+assert_case "fn 名与 [[test]] 目标同名不去重误报" 0 mut_name_collides_with_target
+assert_case "人工测试条目（### + 条目行）登记一次" 0 mut_manual_entry_once
 
 echo ""
 echo "-- 不一致（应拒绝，退出码非 0）--"
@@ -140,6 +191,14 @@ assert_case "源码测试未登记进 bdd.md" 1 mut_unregistered_test "unregiste
 assert_case "bdd.md 条目在源码中不存在" 1 mut_stale_bdd_entry "ghost_entry"
 assert_case "源码改名后清单未同步" 1 mut_rename_in_code_only "registered_plain_renamed"
 assert_case "bdd.md 缺失" 1 mut_drop_bdd_file "找不到"
+assert_case "整行精确重复登记（改名后旧行未删）" 1 mut_duplicate_row "重复登记"
+assert_case "小节表格缺表头" 1 mut_drop_section_header "缺表头"
+assert_case "同名 ## 章节标题重复" 1 mut_duplicate_chapter "重复出现"
+assert_case "表体被空行从表头切断" 1 mut_blank_split_table "缺表头"
+assert_case "表体被正文从表头切断" 1 mut_paragraph_split_table "缺表头"
+assert_case "表头分隔行被删只剩表体" 1 mut_drop_table_header "缺表头"
+assert_case "小节内条目行逐字重复" 1 mut_duplicate_bullet "重复出现"
+assert_case "同章节内小节标题重复" 1 mut_duplicate_h3 "重复出现"
 
 echo ""
 echo "== 测试结果 =="

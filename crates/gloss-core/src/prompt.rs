@@ -1,45 +1,56 @@
 //! Prompt 模板注册表：kind + input + locale → OpenAI 兼容 messages。
 //!
-//! 文本任务 3 个模板（词卡/句译/代码解释）统一输出契约：markdown 正文 +
-//! 末尾 ```gloss 围栏 JSON 块（按 kind 携带 [`crate::task::OutcomeStructured`]
-//! 的结构化字段），供任务编排解析——正文给人读，JSON 给 UI 精排。
-//! 图像/音频输入一律 [`GlossError::UnsupportedModality`]，
-//! 不发出注定无效的请求。
+//! 文本任务**一个任务一份自包含模板**（词卡/句译/代码解释）：任务说明与
+//! 纯 JSON 输出契约（含一份**中性占位**的输出示例）都在同一个文件里，改
+//! 一个任务的任务书不会牵动其它任务。契约按经注疏/说文解字的层次组织：
+//! `note`（义，markdown 注文）+ 按 kind 的疏证字段——词卡是
+//! phonetic/examples（音/例，字头即选区原文），句译与讲解是 examples
+//! （展开讲解），代码另带 code_language（LLM 判定，UI 角标与高亮使用）。
+//! 模板里的输出示例就是解析侧（`gloss_app::finalize`）所吃形状的唯一描述，
+//! 两处改一须改二；示例值恒为占位（同分类契约的少样本偏置取舍）。图像/
+//! 音频输入一律 [`GlossError::UnsupportedModality`]，不发出注定无效的
+//! 请求。
+//!
+//! [`STRUCTURED_FENCE`] 是**旧契约的围栏标记**，只服务两处兼容位：分类
+//! 回复的围栏容错提取（`classify::parse_classify_reply`）与完成态解析的
+//! 围栏 fallback（模型跑偏输出旧契约时兜底）——现行任务 prompt 不再要求
+//! 围栏。
 //!
 //! 模板文本是编译期嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，
 //! `include_str!`），渲染是显式的 `{{占位符}}` 替换（可选行语义见
-//! [`render_template`]）；输出契约的 schema JSON 留在代码里，与
-//! [`crate::task::OutcomeStructured`] 的解析器同源。
+//! [`render_template`]）。不注入模态提示行：源语言与代码语言都由模型
+//! 从原文自行判断，代码语言经产物 JSON 的 `code_language` 回传 UI。
 //!
 //! 模板内容面向模型，用各 locale 的语言书写，不受「日志一律英文」门禁约束
 //! （`just constraints` 只查日志宏实参）。
 //!
 //! 参数缺省：`options.target_lang` 缺省中文；`options.prompt_locale`
-//! 缺省中文模板；`InputHint` 缺省不注入提示行。
+//! 缺省中文模板。
 
 use serde::Serialize;
 
 use crate::model::{GlossError, Lang, Locale};
-use crate::task::{InputHint, Task, TaskInput, TaskKind, TaskOptions, validate_modality};
+use crate::task::{Task, TaskInput, TaskKind, TaskOptions, validate_modality};
 
 /// 目标语言缺省值（`TaskOptions::target_lang` 文档：缺省中文）。
 const DEFAULT_TARGET: Lang = Lang::Zh;
 
-/// 结构化 JSON 块的围栏标记：正文之后模型按此契约追加结构化字段；
-/// 编排侧（engine）按同一标记解析，UI 侧流式渲染按它过滤未完成的
-/// 结构化块——三处共用单一事实源。
+/// 旧契约的结构化围栏标记：模型按旧契约把结构化 JSON 追加在正文之后的
+/// ` ```gloss … ``` ` 块里。现行契约是纯 JSON 对象，本标记只剩兼容位——
+/// 分类回复的容错提取与完成态的围栏 fallback 解析共用（单一事实源）。
 pub const STRUCTURED_FENCE: &str = "```gloss";
 
-/// 一个 locale 的模板文件集：三个文本 kind 的指令 + 输出契约散文 + 模态
-/// 提示行片段 + 分类指令。契约与提示行抽成片段而不是抄进三个指令：抄写
-/// 会在改契约时漏掉其中一处。
+/// 分类输出契约的 schema：只示范形状，值用中性占位——写死某个具体 kind
+/// 会形成少样本偏置，模型照抄示例类别的比例随示例显著性上升。
+pub(crate) const CLASSIFY_SCHEMA: &str = r#"{"kind":"…"}"#;
+
+/// 一个 locale 的模板文件集：三个文本 kind 的自包含任务书（说明 + 提示
+/// 行 + 输出契约与示例都在文件内）+ 分类指令。
 #[derive(Debug, Clone, Copy)]
 struct Templates {
     word_card: &'static str,
     sentence: &'static str,
     code: &'static str,
-    contract: &'static str,
-    hints: &'static str,
     classify: &'static str,
 }
 
@@ -51,16 +62,12 @@ impl Locale {
                 word_card: include_str!("../prompts/zh/word_card.md"),
                 sentence: include_str!("../prompts/zh/sentence.md"),
                 code: include_str!("../prompts/zh/code.md"),
-                contract: include_str!("../prompts/zh/contract.md"),
-                hints: include_str!("../prompts/zh/hints.md"),
                 classify: include_str!("../prompts/zh/classify.md"),
             },
             Locale::En => Templates {
                 word_card: include_str!("../prompts/en/word_card.md"),
                 sentence: include_str!("../prompts/en/sentence.md"),
                 code: include_str!("../prompts/en/code.md"),
-                contract: include_str!("../prompts/en/contract.md"),
-                hints: include_str!("../prompts/en/hints.md"),
                 classify: include_str!("../prompts/en/classify.md"),
             },
         }
@@ -120,54 +127,35 @@ impl PromptRegistry {
     /// 渲染任务的完整 messages：先过模态约束表，非法组合
     /// 返回 [`GlossError::UnsupportedModality`]。模板语言取任务自带的
     /// `options.prompt_locale`（缺省中文）——与模型、目标语言一样，一次
-    /// 任务只认触发时定下的那一份。
-    ///
-    /// [`TaskKind::Auto`] 在这里被显式拒绝（[`GlossError::ClassifyRequired`]）：
-    /// 模态矩阵放行它的运输，但渲染不存在「待分类」的模板——走到这里
-    /// 说明编排没把分类做在前半程。
+    /// 任务只认触发时定下的那一份。系统指令是模板渲染结果，用户消息只有
+    /// 原文（取材不携带模态提示，语言线索由模型从原文判断）。
     pub fn render(&self, task: &Task) -> Result<Vec<ChatMessage>, GlossError> {
-        if task.kind == TaskKind::Auto {
-            return Err(GlossError::ClassifyRequired);
-        }
         validate_modality(task.kind, &task.input)?;
-        let TaskInput::Text { text, hint } = &task.input else {
+        let TaskInput::Text { text, .. } = &task.input else {
             // 图像模板随图像任务落地；音频是预留模态，模态校验已拦，
             // 这里对图像输入显式收口。
             return Err(GlossError::UnsupportedModality);
         };
         let locale = task.options.prompt_locale.unwrap_or_default();
         let templates = locale.templates();
-        let hint_lines = hint_block(templates.hints, hint.as_ref(), locale);
-        let contract = render_template(
-            templates.contract,
-            &[
-                ("fence", STRUCTURED_FENCE),
-                ("schema", schema_json(task.kind)),
-            ],
-        );
         let target = target_display(&task.options, locale);
         let system = render_template(
             instruction_template(templates, task.kind),
-            &[
-                ("target", &target),
-                ("hint", &hint_lines),
-                ("contract", &contract),
-            ],
+            &[("target", &target)],
         );
         Ok(vec![
             ChatMessage::system(system),
-            ChatMessage::user(user_content(text, &hint_lines)),
+            ChatMessage::user(text.to_owned()),
         ])
     }
 
     /// 渲染**分类请求**的 messages：系统指令来自 classify 模板（任务说明、
     /// 允许清单、判别规则、输出契约），用户消息只有待分类原文。与任务渲染
-    /// 的分工：分类不走 `render`（那是 Task 的路径，Auto 在那里被拒绝），
-    /// 输出契约见 [`schema_json`] 的 Auto 臂。
+    /// 的分工：分类不走 `render`（那是任务的路径），输出契约见
+    /// [`CLASSIFY_SCHEMA`]。
     ///
-    /// `allowed` 是允许模型选择的任务类型清单（调用方按
-    /// 「text-capable ∩ enabled」算好传入）；清单里的 [`TaskKind::Auto`]
-    /// 不渲染（哨兵不是可选答案）。
+    /// `allowed` 是允许模型选择的任务类型清单（编排传
+    /// [`crate::classify::CLASSIFY_KINDS`]）。
     pub fn render_classify(
         &self,
         locale: Locale,
@@ -182,7 +170,7 @@ impl PromptRegistry {
             &[
                 ("allowed", &allowed_block),
                 ("rules", &rules_block),
-                ("schema", schema_json(TaskKind::Auto)),
+                ("schema", CLASSIFY_SCHEMA),
             ],
         );
         vec![ChatMessage::system(system), ChatMessage::user(text)]
@@ -191,7 +179,6 @@ impl PromptRegistry {
 
 /// 允许清单的渲染块：每个 kind 一行「serde 标识 — 一句话判据」。标识是
 /// 模型要原样输出的契约值，判据给它选择的依据；语言随 locale。
-/// [`TaskKind::Auto`] 不是可选答案，跳过。
 fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
     let mut lines = Vec::new();
     for kind in allowed {
@@ -219,7 +206,6 @@ fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
             }
             (TaskKind::ImageOcr, Locale::En) => "an image to extract text from",
             (TaskKind::ImageExplain, Locale::En) => "an image to explain",
-            (TaskKind::Auto, _) => continue,
         };
         lines.push(format!("{kind:?} — {description}"));
     }
@@ -273,8 +259,7 @@ fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
         TaskKind::TranslateSentence => templates.sentence,
         TaskKind::ExplainCode => templates.code,
         // 图像 kind 走不到这里：render 已把非文本输入收口。
-        // Auto 同样走不到：render 在模态表之前就拒绝了它。
-        TaskKind::ImageOcr | TaskKind::ImageExplain | TaskKind::Auto => "",
+        TaskKind::ImageOcr | TaskKind::ImageExplain => "",
     }
 }
 
@@ -317,57 +302,6 @@ fn lang_display(lang: &Lang, locale: Locale) -> String {
             Lang::Fr => "French".into(),
             Lang::Other(name) => name.clone(),
         },
-    }
-}
-
-/// 提示行片段：文本任务的输入只有一个 hint（[`InputHint`] 单值），两行
-/// 占位符里最多一行有值。无 hint 时两行都渲染为空并整行剔除，得到空串。
-///
-/// 末尾换行在这里去掉：两处注入点各自决定换行（系统指令里占位符独占一行、
-/// 用户消息里另起一段），留着会让消息多出空行。
-fn hint_block(hints: &str, hint: Option<&InputHint>, locale: Locale) -> String {
-    let mut code_lang = String::new();
-    let mut source_lang = String::new();
-    match hint {
-        Some(InputHint::CodeLanguage(lang)) => code_lang.clone_from(lang),
-        Some(InputHint::SourceLang(lang)) => source_lang = lang_display(lang, locale),
-        None => {}
-    }
-    let rendered = render_template(
-        hints,
-        &[("code_lang", &code_lang), ("source_lang", &source_lang)],
-    );
-    rendered.trim_end_matches('\n').to_owned()
-}
-
-/// 用户消息：提示行片段 + 输入原文（无提示行时只有原文）。
-fn user_content(text: &str, hint_lines: &str) -> String {
-    if hint_lines.is_empty() {
-        text.to_owned()
-    } else {
-        format!("{hint_lines}\n\n{text}")
-    }
-}
-
-/// 输出契约的字段 schema：与 [`crate::task::OutcomeStructured`] 的解析器
-/// 同源，故留在代码里（见模块文档）；字段名是给解析器的契约，示例值是给
-/// 模型的提示，因此不随 prompt locale 变——契约只有一份，改 schema 的人
-/// 面前不会出现两份措辞。
-///
-/// [`TaskKind::Auto`] 臂是**分类**的输出契约（`classify` 模块按它解析）：
-/// 只回一个 kind 标识，不带任何理由字段——理由会把选区内容带进模型回复，
-/// 而回复会进日志面。
-pub(crate) fn schema_json(kind: TaskKind) -> &'static str {
-    match kind {
-        TaskKind::TranslateWord => {
-            r#"{"word":"词条原文","phonetic":"音标或 null","senses":[{"pos":"词性或 null","meaning":"释义","examples":["例句"]}]}"#
-        }
-        TaskKind::TranslateSentence | TaskKind::ExplainCode => r#"{"title":"一句话摘要或 null"}"#,
-        TaskKind::ImageOcr => r#"{"text":"提取的纯文本"}"#,
-        TaskKind::ImageExplain => r#"{"title":"一句话摘要或 null"}"#,
-        // 分类契约只示范形状：值用中性占位——写死某个具体 kind 会形成
-        // 少样本偏置，模型照抄示例类别的比例随示例显著性上升。
-        TaskKind::Auto => r#"{"kind":"…"}"#,
     }
 }
 
@@ -445,19 +379,16 @@ fn substitute_line(line: &str, values: &[(&str, &str)]) -> RenderedLine {
 mod tests {
     use super::*;
 
-    fn text_task(kind: TaskKind, text: &str, hint: Option<InputHint>) -> Task {
+    fn text_task(kind: TaskKind, text: &str) -> Task {
         Task {
             kind,
-            input: TaskInput::Text {
-                text: text.into(),
-                hint,
-            },
+            input: TaskInput::Text { text: text.into() },
             options: TaskOptions::default(),
         }
     }
 
     fn localized_task(kind: TaskKind, text: &str, locale: Locale) -> Task {
-        let mut task = text_task(kind, text, None);
+        let mut task = text_task(kind, text);
         task.options.prompt_locale = Some(locale);
         task
     }
@@ -471,7 +402,7 @@ mod tests {
             (TaskKind::ExplainCode, "代码"),
         ];
         for (kind, keyword) in cases {
-            let task = text_task(kind, "hello world", None);
+            let task = text_task(kind, "hello world");
             let messages = registry.render(&task).expect("text task should render");
             assert_eq!(messages.len(), 2, "{kind:?}");
             assert_eq!(messages[0].role, Role::System);
@@ -483,33 +414,71 @@ mod tests {
                 messages[0].content
             );
             assert!(
-                messages[0].content.contains(STRUCTURED_FENCE),
-                "{kind:?} must carry the structured output contract"
+                messages[0].content.contains("\"note\""),
+                "{kind:?} must carry the pure-JSON output contract: {}",
+                messages[0].content
             );
         }
     }
 
     #[test]
-    fn structured_contract_matches_outcome_schema() {
+    fn output_example_carries_the_kind_fields() {
         let registry = PromptRegistry::new();
 
         let word = registry
-            .render(&text_task(TaskKind::TranslateWord, "gloss", None))
+            .render(&text_task(TaskKind::TranslateWord, "gloss"))
             .expect("render");
-        assert!(word[0].content.contains("\"senses\""));
         assert!(word[0].content.contains("\"phonetic\""));
+        assert!(word[0].content.contains("\"examples\""));
+        assert!(word[0].content.contains("\"note\""));
 
         let plain = registry
-            .render(&text_task(TaskKind::ExplainCode, "fn main() {}", None))
+            .render(&text_task(TaskKind::ExplainCode, "fn main() {}"))
             .expect("render");
-        assert!(plain[0].content.contains("\"title\""));
+        assert!(plain[0].content.contains("\"examples\""));
+        assert!(plain[0].content.contains("\"code_language\""));
+        assert!(plain[0].content.contains("\"note\""));
+
+        let sentence = registry
+            .render(&text_task(TaskKind::TranslateSentence, "hello"))
+            .expect("render");
+        assert!(sentence[0].content.contains("\"examples\""));
+        assert!(sentence[0].content.contains("\"note\""));
+    }
+
+    #[test]
+    fn output_example_carries_the_note_field() {
+        fn example_object(template: &str) -> &str {
+            template
+                .lines()
+                .find(|line| line.trim_start().starts_with('{'))
+                .expect("the output example must be a JSON object line")
+        }
+
+        for locale in [Locale::Zh, Locale::En] {
+            let templates = locale.templates();
+            for (name, text) in [
+                ("word_card.md", templates.word_card),
+                ("sentence.md", templates.sentence),
+                ("code.md", templates.code),
+            ] {
+                let object = example_object(text);
+                let value: serde_json::Value = serde_json::from_str(object)
+                    .unwrap_or_else(|err| panic!("{locale:?}/{name}: example must parse: {err}"));
+                let keys = value.as_object().expect("example object");
+                assert!(
+                    keys.contains_key("note"),
+                    "{locale:?}/{name}: the example must carry the note field"
+                );
+            }
+        }
     }
 
     #[test]
     fn missing_target_lang_defaults_to_chinese() {
         let registry = PromptRegistry::new();
         let messages = registry
-            .render(&text_task(TaskKind::TranslateSentence, "hello", None))
+            .render(&text_task(TaskKind::TranslateSentence, "hello"))
             .expect("render");
         assert!(
             messages[0].content.contains("中文"),
@@ -521,7 +490,7 @@ mod tests {
     #[test]
     fn explicit_target_lang_is_rendered() {
         let registry = PromptRegistry::new();
-        let mut task = text_task(TaskKind::TranslateSentence, "hello", None);
+        let mut task = text_task(TaskKind::TranslateSentence, "hello");
         task.options.target_lang = Some(Lang::Ja);
         let messages = registry.render(&task).expect("render");
         assert!(messages[0].content.contains("日语"));
@@ -532,7 +501,7 @@ mod tests {
         let registry = PromptRegistry::new();
         for locale in [Locale::Zh, Locale::En] {
             for name in ["", " "] {
-                let mut task = text_task(TaskKind::TranslateSentence, "hello", None);
+                let mut task = text_task(TaskKind::TranslateSentence, "hello");
                 task.options.target_lang = Some(Lang::Other(name.into()));
                 task.options.prompt_locale = Some(locale);
                 let messages = registry.render(&task).expect("render");
@@ -548,43 +517,9 @@ mod tests {
                     messages[0].content
                 );
                 assert!(messages[0].content.contains(&expected));
-                assert!(messages[0].content.contains(STRUCTURED_FENCE));
+                assert!(messages[0].content.contains("\"note\""));
             }
         }
-    }
-
-    #[test]
-    fn hint_is_injected_and_defaults_to_nothing() {
-        let registry = PromptRegistry::new();
-        let hinted = registry
-            .render(&text_task(
-                TaskKind::ExplainCode,
-                "fn main() {}",
-                Some(InputHint::CodeLanguage("rust".into())),
-            ))
-            .expect("render");
-        assert!(hinted[0].content.contains("代码语言：rust"));
-        assert!(hinted[1].content.contains("代码语言：rust"));
-        assert!(hinted[1].content.contains("fn main() {}"));
-
-        let plain = registry
-            .render(&text_task(TaskKind::ExplainCode, "fn main() {}", None))
-            .expect("render");
-        assert!(!plain[0].content.contains("代码语言："));
-        assert_eq!(plain[1].content, "fn main() {}");
-    }
-
-    #[test]
-    fn source_lang_hint_is_injected() {
-        let registry = PromptRegistry::new();
-        let messages = registry
-            .render(&text_task(
-                TaskKind::TranslateSentence,
-                "bonjour",
-                Some(InputHint::SourceLang(Lang::Fr)),
-            ))
-            .expect("render");
-        assert!(messages[0].content.contains("源语言：法语"));
     }
 
     #[test]
@@ -613,7 +548,7 @@ mod tests {
     #[test]
     fn modality_mismatch_is_rejected_before_rendering() {
         let registry = PromptRegistry::new();
-        let task = text_task(TaskKind::ImageOcr, "not an image", None);
+        let task = text_task(TaskKind::ImageOcr, "not an image");
         assert_eq!(registry.render(&task), Err(GlossError::UnsupportedModality));
     }
 
@@ -637,19 +572,13 @@ mod tests {
             assert_eq!(messages[1].content, "gloss 原文");
             assert!(messages[0].content.contains("TranslateWord"), "{locale:?}");
             assert!(messages[0].content.contains("ExplainCode"));
-            assert!(
-                !messages[0].content.contains("Auto"),
-                "the sentinel is never offered as an answer: {}",
-                messages[0].content
-            );
             assert!(messages[0].content.contains("\"kind\""));
             assert!(!messages[0].content.contains("{{"));
         }
     }
 
     #[test]
-    fn auto_schema_is_a_neutral_placeholder() {
-        let schema = schema_json(TaskKind::Auto);
+    fn classify_schema_is_a_neutral_placeholder() {
         for kind in [
             TaskKind::TranslateWord,
             TaskKind::TranslateSentence,
@@ -657,7 +586,7 @@ mod tests {
         ] {
             let serde_name = format!("{kind:?}");
             assert!(
-                !schema.contains(&serde_name),
+                !CLASSIFY_SCHEMA.contains(&serde_name),
                 "the classify contract must not name a concrete kind ({serde_name}): \
                  the example is a few-shot bias"
             );
@@ -695,17 +624,6 @@ mod tests {
         assert!(!zh.contains("命令行"));
         assert!(!zh.contains("判别规则"), "{zh}");
         assert!(!zh.contains("{{"), "{zh}");
-    }
-
-    #[test]
-    fn render_rejects_the_auto_sentinel() {
-        let registry = PromptRegistry::new();
-        let task = text_task(TaskKind::Auto, "待分类", None);
-        assert_eq!(
-            registry.render(&task),
-            Err(GlossError::ClassifyRequired),
-            "Auto must be classified before it can render"
-        );
     }
 
     #[test]
@@ -763,23 +681,13 @@ mod tests {
 
     #[test]
     fn every_template_placeholder_is_declared() {
-        let declared = [
-            "target",
-            "hint",
-            "contract",
-            "fence",
-            "schema",
-            "code_lang",
-            "source_lang",
-        ];
+        let declared = ["target", "hint"];
         for locale in [Locale::Zh, Locale::En] {
             let templates = locale.templates();
             let files = [
                 ("word_card.md", templates.word_card),
                 ("sentence.md", templates.sentence),
                 ("code.md", templates.code),
-                ("contract.md", templates.contract),
-                ("hints.md", templates.hints),
             ];
             for (name, text) in files {
                 assert_eq!(
@@ -803,21 +711,41 @@ mod tests {
     }
 
     #[test]
+    fn output_example_values_are_neutral_placeholders() {
+        // 同分类契约的少样本偏置取舍：示例值必须是占位而不是真实词条，
+        // 模型照抄示例类别的比例随示例显著性上升。
+        for locale in [Locale::Zh, Locale::En] {
+            let templates = locale.templates();
+            for (name, text) in [
+                ("word_card.md", templates.word_card),
+                ("sentence.md", templates.sentence),
+                ("code.md", templates.code),
+            ] {
+                assert!(
+                    text.contains("\"…\""),
+                    "{locale:?}/{name}: the example values must be neutral placeholders"
+                );
+                for proper_noun in ["serendipity", "glossary", "pangram"] {
+                    assert!(
+                        !text.contains(proper_noun),
+                        "{locale:?}/{name}: a concrete example value biases the output: {proper_noun}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn every_locale_renders_without_leftover_placeholders() {
         let registry = PromptRegistry::new();
-        let hints = [
-            None,
-            Some(InputHint::CodeLanguage("rust".into())),
-            Some(InputHint::SourceLang(Lang::Ja)),
-        ];
         for locale in [Locale::Zh, Locale::En] {
             for kind in [
                 TaskKind::TranslateWord,
                 TaskKind::TranslateSentence,
                 TaskKind::ExplainCode,
             ] {
-                for hint in hints.clone() {
-                    let mut task = text_task(kind, "gloss", hint);
+                {
+                    let mut task = text_task(kind, "gloss");
                     task.options.prompt_locale = Some(locale);
                     let messages = registry.render(&task).expect("render");
                     for message in &messages {
@@ -828,8 +756,13 @@ mod tests {
                         );
                     }
                     assert!(
-                        messages[0].content.contains(STRUCTURED_FENCE),
-                        "{locale:?} x {kind:?} must carry the structured contract"
+                        messages[0].content.contains("\"note\""),
+                        "{locale:?} x {kind:?} must carry the pure-JSON contract"
+                    );
+                    assert!(
+                        !messages[0].content.contains(STRUCTURED_FENCE),
+                        "{locale:?} x {kind:?}: the fence is legacy-fallback only and must not \
+                         appear in the current prompt"
                     );
                 }
             }
@@ -839,16 +772,16 @@ mod tests {
     #[test]
     fn english_locale_renders_english_prompts() {
         let registry = PromptRegistry::new();
-        let mut task = localized_task(TaskKind::TranslateSentence, "bonjour", Locale::En);
-        task.input = TaskInput::Text {
-            text: "bonjour".into(),
-            hint: Some(InputHint::SourceLang(Lang::Fr)),
-        };
-        let messages = registry.render(&task).expect("render");
+        let messages = registry
+            .render(&localized_task(
+                TaskKind::TranslateSentence,
+                "bonjour",
+                Locale::En,
+            ))
+            .expect("render");
         assert!(messages[0].content.contains("translation assistant"));
-        assert!(messages[0].content.contains("Source language: French"));
-        assert!(messages[0].content.contains("JSON block"));
-        assert!(messages[1].content.contains("Source language: French"));
+        assert!(messages[0].content.contains("JSON object"));
+        assert!(messages[1].content.contains("bonjour"));
         assert!(!messages[0].content.contains("翻译助手"));
     }
 
@@ -881,7 +814,7 @@ mod tests {
     fn prompt_locale_defaults_to_chinese() {
         let registry = PromptRegistry::new();
         let defaulted = registry
-            .render(&text_task(TaskKind::TranslateWord, "gloss", None))
+            .render(&text_task(TaskKind::TranslateWord, "gloss"))
             .expect("render");
         let explicit = registry
             .render(&localized_task(

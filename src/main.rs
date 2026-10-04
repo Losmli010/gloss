@@ -4,9 +4,11 @@ use std::env;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
+use gloss_app::cache::TaskCache;
 use gloss_app::channel::{AcquireCommand, AppEndpoints, Channels, Event, PlatformEvent, Traced};
-use gloss_core::cache::MokaCache;
+use gloss_core::config::CACHE_TTL_MAX_SECS;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::log::{self, debug, error, info, thread, warn};
@@ -198,8 +200,8 @@ fn run_event_loop(
 
     let mut command_runtime = None;
     let mut event_thread = None;
-    // 桥的分类阶段也要读配置快照：这里先拆一份，主句柄照旧交给 App。
-    let bridge_config = Arc::clone(&config);
+    // 缓存 TTL 在启动回调里读一次快照：App 按值收走主句柄，这里先拆一份。
+    let cache_config = Arc::clone(&config);
     let result = gloss_app::app::run(
         endpoints,
         config,
@@ -218,15 +220,20 @@ fn run_event_loop(
                 update_waker.wake_settings();
             });
             // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
-            // 睡在事件循环里的主线程。主产物缓存与配置句柄在这里交给桥
-            // （编排见 gloss_app::pipeline）。运行时存活至 run_event_loop
-            // 结束——App drop 关闭通道③后，消费循环自行退出。
+            // 睡在事件循环里的主线程。任务产物缓存（缓存站点归桥）在这里
+            // 组装：TTL 取配置（手改超出上限的值按上限钳制）。运行时存活至
+            // run_event_loop 结束——App drop 关闭通道③后，消费循环自行退出。
             let runtime_waker = waker.clone();
-            let cache: Arc<dyn gloss_core::ports::Cache> = Arc::new(MokaCache::new());
+            let ttl = Duration::from_secs(
+                cache_config
+                    .snapshot()
+                    .cache_ttl_secs
+                    .min(CACHE_TTL_MAX_SECS),
+            );
+            let cache = Arc::new(TaskCache::with_ttl(ttl));
             match gloss_app::pipeline::start_command_runtime(
                 service,
                 cache,
-                bridge_config,
                 commands_rx,
                 events_tx.clone(),
                 move || {
@@ -315,31 +322,26 @@ fn acquire_command_handler()
         // 进入触发点建好的任务 span：本处理器（含取材读选区、剪贴板兜底）
         // 的日志自动带上 `generation`。
         let _entered = job.span.enter();
-        let AcquireCommand::AcquireText { generation, kind } = job.payload else {
+        let AcquireCommand::AcquireText { generation } = job.payload else {
             debug!(
                 thread = thread::EVENT,
                 "capture region command not wired yet, dropped"
             );
             return;
         };
-        info!(
-            thread = thread::EVENT,
-            kind = ?kind,
-            "acquiring text"
-        );
+        info!(thread = thread::EVENT, "acquiring text");
         match reader.read() {
             Ok(text) => {
                 // 只记形态不记原文：选区是用户敏感内容，不落进日志文件。
                 debug!(
                     thread = thread::EVENT,
-                    kind = ?kind,
                     bytes = text.len(),
                     chars = text.chars().count(),
                     "text input acquired"
                 );
                 sink.send_event(Event::InputReady {
                     generation,
-                    input: TaskInput::Text { text, hint: None },
+                    input: TaskInput::Text { text },
                 });
             }
             // 失败也回传（TaskFailed），主线程与用户不至无感；日志分级：
@@ -378,7 +380,6 @@ mod tests {
             .tx
             .send(Traced::untraced(AcquireCommand::AcquireText {
                 generation: 1,
-                kind: gloss_core::task::TaskKind::TranslateWord,
             }))
             .expect("acquire channel must accept commands");
     }

@@ -9,7 +9,7 @@
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use gloss_core::log::Span;
 use gloss_core::model::{GlossError, ScreenPoint, ScreenRect};
-use gloss_core::task::{Task, TaskInput, TaskKind, TaskOutcome};
+use gloss_core::task::{TaskInput, TaskKind, TaskOptions, TaskOutcome};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio_util::sync::CancellationToken;
 
@@ -43,8 +43,6 @@ pub enum AcquireCommand {
     AcquireText {
         /// 请求代数，由 App 统一赋值（见模块文档）。
         generation: u64,
-        /// 本次文本任务的任务类型。
-        kind: TaskKind,
     },
     /// 截取屏幕区域为图像。
     CaptureRegion {
@@ -52,8 +50,6 @@ pub enum AcquireCommand {
         generation: u64,
         /// 框选区域的屏幕坐标。
         rect: ScreenRect,
-        /// 本次图像任务的任务类型。
-        kind: TaskKind,
     },
 }
 
@@ -63,12 +59,16 @@ pub enum AcquireCommand {
 /// 永不阻塞、也不需要定容量策略——命令是轻量枚举，产量受用户手势限制。
 #[derive(Debug, Clone)]
 pub enum Command {
-    /// 执行一条完整任务。
+    /// 执行一条任务：取材输入 + 触发时冻结的选项。任务类型不在其中——
+    /// 分类是 LLM 层（`AiTaskService::run`）的职责，桥与状态机都不预设
+    /// kind；判定的类型经事件④的 `TaskClassified` 与 `TaskDone` 回传。
     RunTask {
         /// 请求代数，由 App 统一赋值（见模块文档）。
         generation: u64,
-        /// 任务全量数据（类型 + 输入 + 选项）。
-        task: Task,
+        /// 取材输入（划词文本；图像/音频随对应取材路径接入）。
+        input: TaskInput,
+        /// 触发时按配置快照冻结的任务选项（含模型 id）。
+        options: TaskOptions,
         /// 取消令牌：App 为每次任务创建并 clone 下发；取消 = 调 `cancel()`。
         cancel: CancellationToken,
     },
@@ -87,8 +87,8 @@ pub enum Event {
         /// 取材产物。
         input: TaskInput,
     },
-    /// 自动分类完成：待分类任务已判明类型（含分类失败时的兜底 kind）。
-    /// 只更新界面上的任务标签，执行由桥用重建后的任务继续。
+    /// 自动分类完成：本次任务判明的类型（含提示直通与失败兜底）。流式
+    /// 视图据此精化排版（代码解释的判定从首帧就位），执行由 LLM 层继续。
     TaskClassified {
         /// 请求代数，与触发它的任务同值。
         generation: u64,
@@ -234,16 +234,18 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use gloss_core::task::{InputHint, OutcomeStructured, Sense, TaskOptions};
+    use gloss_core::task::OutcomeStructured;
 
-    fn sample_task() -> Task {
-        Task {
-            kind: TaskKind::TranslateWord,
-            input: TaskInput::Text {
-                text: "gloss".into(),
-                hint: Some(InputHint::CodeLanguage("rust".into())),
-            },
-            options: TaskOptions::default(),
+    fn sample_input() -> TaskInput {
+        TaskInput::Text {
+            text: "gloss".into(),
+        }
+    }
+
+    fn sample_options() -> TaskOptions {
+        TaskOptions {
+            target_lang: Some(gloss_core::model::Lang::Zh),
+            ..TaskOptions::default()
         }
     }
 
@@ -277,10 +279,7 @@ mod tests {
     fn acquire_commands_carry_app_assigned_gen() {
         let ch = CrossbeamPair::<Traced<AcquireCommand>>::new();
         let commands = vec![
-            AcquireCommand::AcquireText {
-                generation: 1,
-                kind: TaskKind::TranslateSentence,
-            },
+            AcquireCommand::AcquireText { generation: 1 },
             AcquireCommand::CaptureRegion {
                 generation: 2,
                 rect: ScreenRect {
@@ -289,7 +288,6 @@ mod tests {
                     width: 1920,
                     height: 1080,
                 },
-                kind: TaskKind::ImageOcr,
             },
         ];
         for c in &commands {
@@ -307,18 +305,21 @@ mod tests {
         ch.tx
             .send(Traced::untraced(Command::RunTask {
                 generation: 7,
-                task: sample_task(),
+                input: sample_input(),
+                options: sample_options(),
                 cancel: cancel.clone(),
             }))
             .unwrap();
 
         let Command::RunTask {
             generation,
-            task,
+            input,
+            options,
             cancel: received,
         } = ch.rx.blocking_recv().unwrap().payload;
         assert_eq!(generation, 7);
-        assert_eq!(task, sample_task());
+        assert_eq!(input, sample_input());
+        assert_eq!(options, sample_options());
         assert!(!received.is_cancelled());
         cancel.cancel();
         assert!(received.is_cancelled());
@@ -334,7 +335,6 @@ mod tests {
                 generation: 1,
                 input: TaskInput::Text {
                     text: "hello".into(),
-                    hint: None,
                 },
             })
             .unwrap();
@@ -343,15 +343,11 @@ mod tests {
                 generation: 1,
                 outcome: TaskOutcome {
                     kind: TaskKind::TranslateWord,
-                    body: "# gloss".into(),
+                    note: "# gloss".into(),
+                    code_language: None,
                     structured: OutcomeStructured::WordCard {
-                        word: "gloss".into(),
                         phonetic: Some("/ɡlɒs/".into()),
-                        senses: vec![Sense {
-                            pos: Some("n.".into()),
-                            meaning: "光泽；注释".into(),
-                            examples: vec![],
-                        }],
+                        examples: vec![],
                     },
                 },
             })
@@ -445,7 +441,6 @@ mod tests {
             .tx
             .send(Traced::untraced(AcquireCommand::AcquireText {
                 generation: 1,
-                kind: TaskKind::ExplainCode,
             }))
             .unwrap();
         channels
@@ -453,7 +448,8 @@ mod tests {
             .tx
             .send(Traced::untraced(Command::RunTask {
                 generation: 1,
-                task: sample_task(),
+                input: sample_input(),
+                options: sample_options(),
                 cancel: CancellationToken::new(),
             }))
             .unwrap();
@@ -474,10 +470,7 @@ mod tests {
         );
         assert_eq!(
             channels.acquire_commands.rx.recv().unwrap().payload,
-            AcquireCommand::AcquireText {
-                generation: 1,
-                kind: TaskKind::ExplainCode
-            }
+            AcquireCommand::AcquireText { generation: 1 }
         );
         assert!(matches!(
             channels.commands.rx.blocking_recv().unwrap().payload,

@@ -259,12 +259,13 @@ mod tests {
         assert_eq!(app.machine.state(), AppState::Translating);
         let Command::RunTask {
             generation,
-            task,
+            input,
+            options: _,
             cancel: retried,
         } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(generation, 1, "retry keeps the failed task's generation");
         assert!(matches!(
-            task.input,
+            input,
             TaskInput::Text { ref text, .. } if text == "A"
         ));
         assert!(!retried.is_cancelled());

@@ -103,7 +103,6 @@ impl AiEngine for LlmClient {
         let client = self.client.clone();
         let config = Arc::clone(&self.config);
         let store = Arc::clone(&self.store);
-        let kind = request.kind;
         let model = request.model.clone();
         let messages = request.messages.clone();
         let max_tokens = request.max_tokens;
@@ -115,7 +114,7 @@ impl AiEngine for LlmClient {
                 return Err(GlossError::EngineResponse("empty request".into()));
             }
             // 空白模型同样是配置问题：发了也是必然 400 的请求，还会把病因
-            // 藏进服务端的错误文案里（手改 model_by_kind 或设置页存了空串）。
+            // 藏进服务端的错误文案里（手改配置或设置页存了空串）。
             if model.trim().is_empty() {
                 return Err(GlossError::Config("empty model id".into()));
             }
@@ -124,7 +123,6 @@ impl AiEngine for LlmClient {
             let url = resolve_endpoint(&snapshot)?;
             let key = resolve_api_key(&snapshot, store.as_ref())?;
             let body = chat_request_body(&EngineRequest {
-                kind,
                 messages,
                 model: model.trim().to_owned(),
                 max_tokens,
@@ -147,7 +145,6 @@ impl AiEngine for LlmClient {
                 return Err(map_failure(status, &detail));
             }
             debug!(
-                kind = ?kind,
                 model = %model,
                 "llm stream established"
             );
@@ -335,7 +332,6 @@ mod tests {
     use super::*;
     use crate::stubs::ports::MemoryConfigStore;
     use gloss_core::prompt::{ChatMessage, Role};
-    use gloss_core::task::TaskKind;
 
     fn fixture(secret: Option<&str>) -> (Arc<ConfigHandle>, Arc<MemoryConfigStore>) {
         let store = Arc::new(MemoryConfigStore::default());
@@ -558,7 +554,6 @@ mod tests {
     #[test]
     fn request_body_has_the_openai_envelope() {
         let request = EngineRequest {
-            kind: TaskKind::TranslateWord,
             messages: vec![ChatMessage {
                 role: Role::System,
                 content: "把用户给的词翻成中文".into(),
@@ -583,7 +578,6 @@ mod tests {
             content: "hi".into(),
         }];
         let unset = chat_request_body(&EngineRequest {
-            kind: TaskKind::TranslateSentence,
             messages: messages.clone(),
             model: "m".into(),
             max_tokens: None,
@@ -593,7 +587,6 @@ mod tests {
             "an unset limit must stay off the wire, not null"
         );
         let capped = chat_request_body(&EngineRequest {
-            kind: TaskKind::TranslateSentence,
             messages,
             model: "m".into(),
             max_tokens: Some(64),
@@ -650,9 +643,7 @@ mod tests {
 mod live_tests {
     use super::*;
     use crate::stubs::ports::MemoryConfigStore;
-    use gloss_core::config::ModelBinding;
     use gloss_core::prompt::{ChatMessage, Role};
-    use gloss_core::task::TaskKind;
 
     fn require_live_env() -> (String, String, String) {
         let read = |name: &str| {
@@ -685,17 +676,13 @@ mod live_tests {
             .expect("stub store accepts secret");
         let config = Config {
             base_url,
-            model_by_kind: vec![ModelBinding {
-                kind: TaskKind::TranslateSentence,
-                model: model.clone(),
-            }],
+            model: model.clone(),
             ..Default::default()
         };
         let handle = Arc::new(ConfigHandle::with_config(store.clone(), config));
         let client = LlmClient::new(handle, store).expect("http client should build");
 
         let request = EngineRequest {
-            kind: TaskKind::TranslateSentence,
             messages: vec![
                 ChatMessage {
                     role: Role::System,
