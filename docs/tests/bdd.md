@@ -167,7 +167,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| full_flow_classifies_then_streams_and_settles | 全链路分类+流式回流与终态 | 给定划词手势注入含围栏契约的流式脚本，当全链路推进，则先回 TaskClassified(TranslateWord)（分类流解析围栏）、chunk 逐条回流、TaskDone 后定格 Show、正文剥离围栏且词卡解析出 word/senses | 2026-09-26 |
+| full_flow_classifies_then_streams_and_settles | 全链路分类+流式回流与终态 | 给定划词手势注入契约 JSON（仅 body 字段）的流式脚本，当全链路推进，则先回 TaskClassified(TranslateWord)（分类解析不出 kind 落兜底）、chunk 逐条回流、TaskDone 后定格 Show、正文取自 body 字段、词卡字段缺失按契约落空卡 | 2026-09-26 |
 | classify_failure_falls_back_and_the_task_still_completes | 分类失败回退兜底且任务照常完成 | 给定分类请求注入一次性失败，当桥编排分类，则 TaskClassified 携带兜底 kind、告警无内容、重建任务照常执行完成落 Show | 2026-09-26 |
 | code_language_hint_skips_the_classification_round_trip | 代码语言提示直通分类 | 给定带 CodeLanguage 提示的 Auto 任务，当桥编排，则 TaskClassified 恒为 ExplainCode、仅任务执行一次引擎调用（零分类往返） | 2026-09-26 |
 | second_trigger_is_a_full_cache_hit_without_engine_calls | 二次触发全缓存命中直出 | 给定同一 input+options 的任务第二次触发，当桥按 cache_key(input, options) 查产物缓存命中，则仅回 TaskClassified+TaskDone（无 TaskChunk）、引擎调用数维持 2（首轮分类+执行）、分类 kind 随缓存产物回放、状态定格 Show | 2026-10-03 |
@@ -178,7 +178,7 @@
 | frozen_options_carry_the_factory_model_by_default | 冻结选项默认带出厂模型 | 给定出厂配置的划词提交（hint 直通），当下发 RunTask，则 options.model 为 DEFAULT_TEXT_MODEL（快照冻结面） | 2026-10-03 |
 | config_change_invalidates_cache_for_the_next_task | 配置变更对主缓存 key 的失效 | 给定 CodeLanguage hint 固定 kind 的同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎 1 次）、换模型与换目标语言各触发一次重新请求（共 3 次） | 2026-10-03 |
 | engine_logs_carry_the_task_span | 桥日志经 span 带上代数 | 给定带 span 的任务命令（进程级捕获订阅者），当消费桥执行到缓存命中，则命中行同时含 cache hit 与 "generation":2 | 2026-09-26 |
-| legacy_fence_contract_falls_back_to_a_complete_card | 旧围栏契约落 fallback 出完整卡 | 给定旧契约（markdown + 末尾 gloss 围栏）的两段脚本，当跑完整桥，则完成态走围栏 fallback、正文剥离围栏、title 进结构化（模型跑偏时产物不丢） | 2026-10-03 |
+| legacy_fence_contract_falls_back_to_a_complete_card | 旧围栏契约落 fallback 出完整卡 | 给定旧契约（markdown + 末尾 gloss 围栏）的两段脚本与代码语言 hint（Plain 系 kind），当跑完整桥，则完成态走围栏 fallback、正文剥离围栏、title 进结构化（模型跑偏时产物不丢；word kind 缺 senses 按 core 原语义整体回退） | 2026-10-03 |
 
 ## 性能测试
 
@@ -284,7 +284,6 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | partial_document_fills_factory_defaults | 部分文档补全出厂默认 | 给定只写 theme 的 JSON，当加载，则该字段保留、其余走出厂默认（含全部 kind 启用） | 2026-09-19 |
 | retired_fields_are_ignored_on_load | 退役字段仍能加载 | 给定含 guard_enabled / guard_blocked_apps / hotkey_bindings 的旧配置（字段已从 Config 移除），当加载，则照常读出、已知字段取值不变、缺字段仍回出厂默认——旧版本落盘不会被当成非法配置隔离降级 | 2026-10-03 |
 | language_resolves_to_locale | 界面语言落定具体 locale | 给定 System/Zh/En 三态与注入的系统语言，当解析界面语言，则 System 取系统语言、显式选择不被系统语言覆盖（同一处取值供 UI 文案表与 prompt 模板选表） | 2026-09-22 |
-| factory_ttl_matches_the_config_default | 默认 TTL 单点一致 | 给定出厂 TTL（Config::cache_ttl_secs），当与 gloss_app::cache 的 DEFAULT_TTL 比对，则相等 | 2026-10-03 |
 | lookups_prefer_later_entries | 重复条目查找后者胜出 | 给定重复 kind 的多条目，当查找，则后条胜出、未配置为 None、未知 provider 无 keychain id | 2026-09-19 |
 
 ### crates/gloss-core/src/guard.rs
@@ -623,7 +622,6 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | retryable_failure_keeps_request_and_retry_redispatches_it | 可重试失败保留请求 | 给定网络类失败，当落 Error，则失败原因按变体记录（FailureCause::Task(EngineNetwork)）、retry 同代数按原 input+options 新令牌重发且回流式视图（不回读配置） | 2026-10-03 |
 | error_actions_follow_the_mapping_table | 错误动作按映射表 | 给定限流/鉴权/模态/配置类失败，当映射，则限流可重试，其余引导打开设置且不可重试 | 2026-09-19 |
 | new_commit_and_hide_supersede_the_retry_request | 新提交与隐藏取代重试 | 给定失败卡在场时新探测，则 retry 仍在（误滑不得杀掉重试出口）；当提交产物或隐藏，则 retry 返回 None | 2026-10-03 |
-| new_commit_and_hide_supersede_the_retry_request | 新提交与隐藏取代重试 | 给定失败卡在场时新探测，则 retry 仍在（误滑不得杀掉重试出口）；当提交产物或隐藏，则 retry 返回 None | 2026-10-03 |
 | suspicious_input_is_dropped_while_the_visible_session_survives | 可疑内容丢弃且当前显示保留 | 给定可见会话（产物卡在场）时到达带令牌的探测产物，当提交，则结果是 Blocked{Token}、探测消费、可见会话的状态与视图原样保留、已完结会话的令牌不被取消 | 2026-10-01 |
 | blocked_input_is_not_redispatched_by_any_later_path | 被拦下的取材没有旁路 | 给定已拦下的探测产物（卡号命中），当 retry、同编号重复提交、同编号 chunk/done/failed、以及同编号通道故障（fail_acquire / fail_transport）陆续到达，则全部被拒且状态机不被触碰；新探测后同一份可疑文本仍被拦下 | 2026-10-01 |
 | ordinary_input_still_passes_the_content_gate | 日常文本照常通过内容闸门 | 给定一段普通中文，当提交，则照常 Dispatch 并进 Translating（闸门只认高置信度模式） | 2026-09-24 |
@@ -735,6 +733,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | save_trims_endpoint_and_treats_blank_key_as_unchanged | 保存端点 trim、空白密钥视为未改 | 给定带空白的端点与空白密钥草稿，当 build_save，则端点被 trim、密钥按 Keep 上交 | 2026-09-22 |
+| blank_model_saves_as_the_factory_default | 空白模型折叠出厂默认 | 给定模型输入框为空白的草稿，当 build_save，则落盘 config.model 为 DEFAULT_TEXT_MODEL（下游对空串明确失败，不接住会锁死任务） | 2026-10-03 |
 | save_carries_the_key_outside_the_config | 密钥走带外通道不上配置 | 给定非空密钥草稿，当 build_save，则密钥走 KeyUpdate::Replace、不进配置（连 Debug 表示也不含） | 2026-09-22 |
 | clear_key_is_deferred_to_save_and_revocable | 清除密钥延迟到保存且可撤销 | 给定「清除密钥」标记，当交互与保存，则删除延迟到保存生效、重新输入可撤销标记 | 2026-09-22 |
 | invalid_draft_blocks_save_and_enters_the_error_state | 非法草稿阻断保存进入错误态 | 给定非法 Base URL 草稿，当 build_save，则返回 Idle、置校验态、该字段提示含 https 规则 | 2026-09-22 |

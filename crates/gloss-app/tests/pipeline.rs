@@ -144,7 +144,7 @@ fn engine_logs_carry_the_task_span() {
 
     pipe.trigger_and_feed("hello");
     wait_done(&mut pipe);
-    pipe.trigger_and_feed("hello");
+    pipe.trigger_and_feed_with("hello", None, gloss_core::log::task_span(2));
     wait_done(&mut pipe);
 
     assert!(
@@ -196,8 +196,12 @@ fn full_flow_classifies_then_streams_and_settles() {
             );
             assert_eq!(
                 outcome.structured,
-                OutcomeStructured::Plain { title: None },
-                "the script carries no title field, the contract default applies"
+                OutcomeStructured::WordCard {
+                    word: String::new(),
+                    phonetic: None,
+                    senses: Vec::new(),
+                },
+                "missing word-kind fields fall back per the contract (empty card)"
             );
         }
         other => panic!("expected outcome view, got {other:?}"),
@@ -303,7 +307,13 @@ fn legacy_fence_contract_falls_back_to_a_complete_card() {
     ]);
     let mut pipe = pipeline(&engine);
 
-    pipe.trigger_and_feed("gloss");
+    // 代码语言 hint 让任务以 Plain 系 kind 执行：旧契约围栏里的 title 在
+    // fallback 层照常出卡（word kind 缺 senses 时按 core 原语义整体回退）。
+    pipe.trigger_and_feed_with(
+        "gloss",
+        Some(InputHint::CodeLanguage("rust".into())),
+        Span::none(),
+    );
     expect_classified(&mut pipe);
     wait_done(&mut pipe);
 
@@ -337,6 +347,7 @@ fn hide_overlay_cancels_the_stream_and_late_events_are_dropped() {
         Some(InputHint::CodeLanguage("rust".into())),
         Span::none(),
     );
+    expect_classified(&mut pipe);
     let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
         panic!("chunk expected");
     };
@@ -385,11 +396,23 @@ fn superseded_trigger_cancels_and_filters_late_events() {
         "stale generation must be dropped by the machine"
     );
 
-    assert_eq!(
-        expect_classified(&mut pipe),
-        TaskKind::ExplainCode,
-        "the hinted path classifies directly"
-    );
+    // 两条 hinted 任务各发一次 TaskClassified：先到的一条属于已被顶掉的
+    // A（或竞速下的 B），按代数分流——只有当前代的判定被采纳。
+    loop {
+        match pipe.events_rx.recv().unwrap() {
+            Event::TaskClassified { generation, kind } => {
+                assert_eq!(
+                    pipe.machine.accept_classified(generation, kind),
+                    generation == gen_b,
+                    "only the current generation's classification is accepted"
+                );
+                if generation == gen_b {
+                    break;
+                }
+            }
+            other => panic!("task classified expected, got {other:?}"),
+        }
+    }
     for expected in ["A1", "A2"] {
         let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
             panic!("chunk expected");

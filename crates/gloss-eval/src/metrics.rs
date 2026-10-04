@@ -115,9 +115,13 @@ impl TaskVerdict {
 /// 与 gloss-app `finalize` 同一条规则：`body` 缺失退围栏；坏 sense 条目
 /// 跳过；字段缺失按 kind 兜底。
 fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(reply.trim())
-        && value.get("body").and_then(|body| body.as_str()).is_some()
-    {
+    let body = serde_json::from_str::<serde_json::Value>(reply.trim())
+        .ok()
+        .and_then(|value| {
+            let body = value.get("body").and_then(|body| body.as_str())?.to_owned();
+            Some((value, body))
+        });
+    if let Some((value, body)) = body {
         return match kind {
             TaskKind::TranslateWord => OutcomeStructured::WordCard {
                 word: text_field(&value, "word").unwrap_or_default(),
@@ -125,7 +129,7 @@ fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
                 senses: mirror_senses(value.get("senses")).unwrap_or_default(),
             },
             TaskKind::ImageOcr => OutcomeStructured::Extracted {
-                text: text_field(&value, "text").unwrap_or_default(),
+                text: text_field(&value, "text").unwrap_or_else(|| body.clone()),
             },
             _ => OutcomeStructured::Plain {
                 title: text_field(&value, "title"),

@@ -316,12 +316,13 @@ mod tests {
             OutcomeStructured::Extracted { ref text } if text.contains("{broken")
         ));
 
-        // 坏 sense 条目整体不可解析时也走 kind 回退。
+        // word kind 缺 senses（围栏 JSON 解析不出词卡）走 kind 回退：
+        // 全文无损保留、结构化落无标题 Plain（core 原语义）。
         let (body, structured) = parse_structured(
             TaskKind::TranslateWord,
             "正文\n```gloss\n{\"word\":\"gloss\"}\n```",
         );
-        assert_eq!(body, "正文");
+        assert_eq!(body, "正文\n```gloss\n{\"word\":\"gloss\"}\n```");
         assert_eq!(structured, OutcomeStructured::Plain { title: None });
     }
 

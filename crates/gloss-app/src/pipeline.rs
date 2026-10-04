@@ -188,9 +188,8 @@ async fn run_task(
     );
 
     // 钩子把 LLM 层的中间产物逐条泵回主线程：分类定型（含提示直通与
-    // 兜底 kind）与流式增量。body 的完成态累积在这里并行做一份，供
-    // run 返回后解析。
-    let mut body = String::new();
+    // 兜底 kind）与流式增量。原始正文的完成态累积归 LLM 层（run 的返回
+    // 值），这里只泵不存——完成态解析以 output.body 为唯一真相源。
     let output = service
         .run(
             &input,
@@ -199,13 +198,12 @@ async fn run_task(
                 send_event(events, wake, Event::TaskClassified { generation, kind });
             },
             |delta| {
-                body.push_str(&delta);
                 send_event(events, wake, Event::TaskChunk { generation, delta });
             },
         )
         .await?;
 
-    let outcome = complete(output.kind, &body);
+    let outcome = complete(output.kind, &output.body);
     cache.set(key, outcome.clone());
     send_event(
         events,
@@ -359,6 +357,16 @@ mod tests {
         assert!(
             matches!(
                 events.recv().unwrap(),
+                Event::TaskClassified {
+                    generation: 1,
+                    kind: gloss_core::task::TaskKind::ExplainCode
+                }
+            ),
+            "the hinted path still classifies (constant direct pass) before any chunk"
+        );
+        assert!(
+            matches!(
+                events.recv().unwrap(),
                 Event::TaskChunk { generation: 1, ref delta } if delta == "一"
             ),
             "first chunk must arrive before cancellation"
@@ -382,6 +390,15 @@ mod tests {
 
         run(&commands, 3, text_input("boom"), text_options());
 
+        // 分类先失败（同引擎同错误）落兜底并回传判定，任务段再失败才是
+        // TaskFailed——两条错误同变体，事件序是本断言的靶心。
+        assert!(matches!(
+            events.recv().unwrap(),
+            Event::TaskClassified {
+                generation: 3,
+                kind: gloss_core::task::TaskKind::TranslateWord
+            }
+        ));
         assert!(matches!(
             events.recv().unwrap(),
             Event::TaskFailed {
@@ -416,6 +433,8 @@ mod tests {
         run(&commands, 2, text_input("again"), text_options());
         loop {
             match events.recv().unwrap() {
+                // 分类解析不出 kind 落兜底：判定先于正文回传。
+                Event::TaskClassified { generation: 2, .. } => {}
                 Event::TaskChunk {
                     generation: 2,
                     delta,

@@ -72,8 +72,9 @@ impl AiTaskService {
             return Err(GlossError::Config("empty model id".into()));
         }
         let TaskInput::Text { text, hint } = input else {
-            // 本服务只接划词路径的文本输入；图像/音频任务带着具体 kind
-            // 到编排时由模态矩阵在渲染前拒绝。
+            // 本服务只接划词路径的文本输入；图像/音频输入在这里直接拒绝
+            //（模态矩阵管 kind × input 的组合校验，本入口对非文本模态
+            // 一律不放行）。
             return Err(GlossError::UnsupportedModality);
         };
 
@@ -223,23 +224,30 @@ mod tests {
         assert_eq!(events.iter().filter(|event| **event == "chunk").count(), 2);
     }
 
-    #[tokio::test]
-    async fn classify_failure_falls_back_and_the_task_still_runs() {
-        let logs = crate::log::capture_global();
+    #[test]
+    fn classify_failure_falls_back_and_the_task_still_runs() {
+        // 线程局部捕获（capture_global 会与 init_is_idempotent 竞争进程级
+        // 订阅者）：current_thread 运行时让 warn 落在捕获作用域的同一线程。
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("runtime should build");
         let (engine, service) = make_service(
             &MockEngine::new()
                 .with_execute_failure_once(GlossError::EngineRateLimited)
                 .with_chunks(vec![Ok("兜底产物".into())]),
         );
-        let output = service
-            .run(&text_input("第一次划词"), &options(), |_| {}, |_| {})
-            .await
-            .expect("the fallback must let the task run");
-        assert_eq!(output.kind, TaskKind::TranslateWord);
+        let input = text_input("第一次划词");
+        let options = options();
+        let logs = crate::log::capture(|| {
+            let output = rt
+                .block_on(service.run(&input, &options, |_| {}, |_| {}))
+                .expect("the fallback must let the task run");
+            assert_eq!(output.kind, TaskKind::TranslateWord);
+        });
         assert_eq!(engine.call_count(), 2, "one classify call + one task call");
 
-        let text = logs.text();
-        let line = text
+        let line = logs
             .lines()
             .find(|line| line.contains("classification failed"))
             .expect("the fallback must leave a trace");

@@ -199,7 +199,13 @@ fn build_save(state: &mut SettingsState) -> SettingsAction {
     }
     let mut draft = state.draft.clone();
     draft.base_url = draft.base_url.trim().to_owned();
+    // 模型名保存时 trim；空白折叠回出厂默认——输入框 hint 承诺「留空使用
+    // 内置默认」，而下游（任务冻结 → LLM 层校验）对空串是明确失败，不接
+    // 住会把用户锁进「清空 → 失败卡 → 回设置页」的死循环。
     draft.model = draft.model.trim().to_owned();
+    if draft.model.is_empty() {
+        draft.model = gloss_core::config::DEFAULT_TEXT_MODEL.to_owned();
+    }
     let api_key = state.api_key.trim();
     let key = if state.clear_key {
         KeyUpdate::Clear
@@ -718,6 +724,21 @@ mod tests {
         let (mut harness, _action) = harness_for(state, Locale::Zh);
         harness.run();
         harness.get_by_label_contains("保存失败：disk on fire");
+    }
+
+    #[test]
+    fn blank_model_saves_as_the_factory_default() {
+        let mut state = open(&Config::default());
+        state.draft.model = "   ".into();
+
+        let SettingsAction::Save { config, .. } = build_save(&mut state) else {
+            panic!("save expected");
+        };
+        assert_eq!(
+            config.model,
+            gloss_core::config::DEFAULT_TEXT_MODEL,
+            "a blank model must not reach the disk: the frozen empty id would fail every task"
+        );
     }
 
     #[test]

@@ -1496,7 +1496,7 @@ mod kittest_tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use egui_kittest::{Harness, kittest::Queryable};
+    use egui_kittest::{Harness, kittest::NodeT, kittest::Queryable};
 
     use super::*;
     use crate::machine::OverlayView;
@@ -2093,6 +2093,7 @@ mod kittest_tests {
             harness.run();
             let overflowing: Vec<_> = harness
                 .query_all_by(|_| true)
+                .filter(|node| node.accesskit_node().bounding_box().is_some())
                 .map(|node| node.rect())
                 .filter(|rect| rect.right() > WIDTH + 0.5)
                 .collect();

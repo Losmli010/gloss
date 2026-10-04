@@ -269,7 +269,6 @@ mod tests {
                 "gloss_settings_notice_key_update_failed",
                 "gloss_settings_notice_key_updated_save_failed",
                 "gloss_settings_notice_save_failed",
-                "gloss_settings_switch_label",
                 "gloss_settings_update_available",
                 "gloss_settings_update_ready",
             ],

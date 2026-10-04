@@ -5,9 +5,9 @@
 //! 标识），而 platform 只依赖 core（依赖方向红线）——句柄必须放在两者共同的
 //! 可见层。组装点把同一句柄注入 app 与 platform 两侧。
 //!
-//! **模型不经此解析**：引擎从 `EngineRequest::model` 取模型（App 已在触发时按
-//! `Config::resolved_model` 解析并随请求携带），不读快照。
-//! 引擎读快照的只有端点与 provider 条目：这两者不参与缓存 key。
+//! **模型不经此解析**：引擎从 `EngineRequest::model` 取模型（App 已在触发
+//! 时把 `Config::model` 冻结进任务选项并随请求携带），不读快照。引擎读
+//! 快照的只有端点与 provider 条目。
 //!
 //! 三条不变量：
 //! - **读路径零锁**：`snapshot` 是 `ArcSwap::load_full`，不碰任何锁；`save_lock`
