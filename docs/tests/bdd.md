@@ -167,7 +167,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| full_flow_classifies_then_streams_and_settles | 全链路分类+流式回流与终态 | 给定划词手势注入契约 JSON（仅 body 字段）的流式脚本，当全链路推进，则先回 TaskClassified(TranslateWord)（分类解析不出 kind 落兜底）、chunk 逐条回流、TaskDone 后定格 Show、正文取自 body 字段、词卡字段缺失按契约落空卡 | 2026-09-26 |
+| full_flow_classifies_then_streams_and_settles | 全链路分类+流式回流与终态 | 给定划词手势注入契约 JSON（仅 body 字段）的流式脚本，当全链路推进，则先回 TaskClassified(TranslateWord)（分类解析不出 kind 落兜底）、chunk 逐条回流、TaskDone 后定格 Show、正文取自 body 字段、词卡字段缺失按契约落空卡 | 2026-10-03 |
 | classify_failure_falls_back_and_the_task_still_completes | 分类失败回退兜底且任务照常完成 | 给定分类请求注入一次性失败，当桥编排分类，则 TaskClassified 携带兜底 kind、告警无内容、重建任务照常执行完成落 Show | 2026-09-26 |
 | code_language_hint_skips_the_classification_round_trip | 代码语言提示直通分类 | 给定带 CodeLanguage 提示的 Auto 任务，当桥编排，则 TaskClassified 恒为 ExplainCode、仅任务执行一次引擎调用（零分类往返） | 2026-09-26 |
 | second_trigger_is_a_full_cache_hit_without_engine_calls | 二次触发全缓存命中直出 | 给定同一 input+options 的任务第二次触发，当桥按 cache_key(input, options) 查产物缓存命中，则仅回 TaskClassified+TaskDone（无 TaskChunk）、引擎调用数维持 2（首轮分类+执行）、分类 kind 随缓存产物回放、状态定格 Show | 2026-10-03 |
@@ -215,7 +215,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
-| snapshots_match_baseline（settings） | 设置窗渲染基线（英文浅色；正常/提示/错误/默认任务停用四态 + 更新区五相位） | 给定默认、带保存失败提示、校验错误、默认任务被停用四个状态与更新区五个相位（UpToDate/Available/Downloading/Ready/Failed(Install)），当 wgpu 以英文文案与浅色主题渲染并 diff，则与对应基线一致且关键文本进树（2026-10-03 随热键区删除、热键校验错误移除重录） | 2026-10-03 |
+| snapshots_match_baseline（settings） | 设置窗渲染基线（英文浅色；正常/提示/错误三态 + 更新区五相位） | 给定默认、带保存失败提示、校验错误三个状态与更新区五个相位（UpToDate/Available/Downloading/Ready/Failed(Install)），当 wgpu 以英文文案与浅色主题渲染并 diff，则与对应基线一致且关键文本进树（沿革：2026-10-03 随热键区删除、热键校验错误移除重录；同日随职责重划删除任务开关/默认任务/每类模型三区块、新增单一模型输入行重录并移除默认任务停用态，又随「模型 ID」字段标签再录） | 2026-10-03 |
 | failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、协议异常（带诊断）、取材通道不可用、推理通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-09-22 |
 | failure_card_follows_the_locale | 失败卡随 locale 出表 | 给定英文 locale 的网络失败卡，当渲染，则出英文文案与英文「Retry」动作 | 2026-09-22 |
 | save_failure_notice_names_the_cause | 保存失败提示出场合与诊断 | 给定带 SaveFailed(Config) 类型化提示的设置窗（中文表），当渲染，则出「保存失败：<诊断>」（前缀交代场合、诊断不重复本地化整句） | 2026-09-22 |
