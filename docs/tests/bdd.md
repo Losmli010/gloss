@@ -314,10 +314,10 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | --- | --- | --- | --- |
 | classify_prompt_carries_allowed_kinds_and_the_text | 分类提示词携带允许清单与原文 | 给定允许清单与原文，当 render_classify（双语），则用户消息为原文、系统指令含全部 kind 标识与 kind 契约、不含 Auto、无残留占位符 | 2026-09-30 |
 | classify_schema_is_a_neutral_placeholder | 分类契约为中性占位 | 给定分类输出契约（CLASSIFY_SCHEMA），当检查，则不含任何具体 kind 标识（示例值是少样本偏置，写死哪类模型就偏向哪类） | 2026-10-03 |
-| body_is_the_first_contract_field_for_every_kind | body 恒为契约首字段 | 给定三种文本 kind 的 schema，当解析 schema JSON，则首键恒为 body（流式渐进提取依赖字段序） | 2026-10-03 |
+| output_example_leads_with_the_body_field | 输出示例以 body 领头 | 给定双 locale 三份任务模板，当提取示例 JSON 对象并解析，则示例可解析且首键恒为 body（示例是解析侧所吃形状的唯一描述；流式渐进提取依赖字段序） | 2026-10-04 |
 | rules_follow_the_allowed_list_and_leave_no_dangling_label | 判别规则跟随允许清单 | 给定含/不含 ExplainCode、以及全无规则的清单，当 render_classify，则命令行等边界规则只在对应 kind 在清单里时出现；清单里没有带规则的 kind 时整段（含标签）消失、无残留占位符 | 2026-09-30 |
 | text_kinds_render_system_and_user_with_kind_content | 文本 kind 渲染两段消息 | 给定三个文本 kind，当渲染，则得 [System, User] 两段，系统指令含各自关键词与结构化契约围栏，用户消息为原文 | 2026-09-19 |
-| structured_contract_matches_outcome_schema | 结构化契约与 schema 对齐 | 给定词卡与代码解释模板，当检查系统指令，则分别声明 senses/phonetic 与 title 字段 | 2026-09-19 |
+| output_example_carries_the_kind_fields | 输出示例携带 kind 字段 | 给定词卡/句译/代码解释模板（自包含任务书，含输出示例），当渲染并检查系统指令，则词卡示例声明 word/senses/phonetic、句译与代码示例声明 title 字段 | 2026-10-04 |
 | missing_target_lang_defaults_to_chinese | 目标语言缺省中文 | 给定未设 target_lang，当渲染句译，则系统指令含「中文」 | 2026-09-19 |
 | explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 Lang::Ja，当渲染，则系统指令含「日语」 | 2026-09-19 |
 | empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") / Other(" ") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且契约围栏仍在 | 2026-09-22 |

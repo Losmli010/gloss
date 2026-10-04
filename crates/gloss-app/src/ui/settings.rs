@@ -439,7 +439,7 @@ fn error_text(
     }
 }
 
-/// 模型区：Base URL + API Key（写 keychain，不进配置）。
+/// 模型区：Base URL → API Key（写 keychain，不进配置）→ 模型 ID。
 fn connection_section(
     ui: &mut egui::Ui,
     state: &mut SettingsState,
@@ -453,16 +453,6 @@ fn connection_section(
     });
     underline_if_error(ui, &response, errors, FieldKey::BaseUrl);
     error_text(ui, errors, FieldKey::BaseUrl, text);
-    ui.add_space(space::ITEM);
-
-    ui.label(&text.gloss_settings_model);
-    let response = add_input(ui, &mut state.draft.model, |e| {
-        e.hint_text(text.gloss_settings_model_hint.as_str())
-            .desired_width(f32::INFINITY)
-    });
-    underline_if_error(ui, &response, errors, FieldKey::Model);
-    error_text(ui, errors, FieldKey::Model, text);
-    choice_hint(ui, &text.gloss_settings_model_hint);
     ui.add_space(space::ITEM);
 
     ui.label("API Key");
@@ -492,6 +482,16 @@ fn connection_section(
             state.api_key.clear();
         }
     });
+    ui.add_space(space::ITEM);
+
+    ui.label(&text.gloss_settings_model);
+    let response = add_input(ui, &mut state.draft.model, |e| {
+        e.hint_text(text.gloss_settings_model_hint.as_str())
+            .desired_width(f32::INFINITY)
+    });
+    underline_if_error(ui, &response, errors, FieldKey::Model);
+    error_text(ui, errors, FieldKey::Model, text);
+    choice_hint(ui, &text.gloss_settings_model_hint);
 }
 
 /// 清除密钥按钮的占位余量（按钮宽 + 间距；输入框占满剩余宽）。

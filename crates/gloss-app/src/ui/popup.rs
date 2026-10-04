@@ -836,6 +836,9 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
                 CODE_PANEL_PADDING_V,
             ))
             .show(ui, |ui| {
+                // 面板底色铺满弹窗可用宽（Frame 默认随内容收缩，这里把
+                // 内容列定到可用宽，外框连同底色一起撑满）。
+                ui.set_width(ui.available_width());
                 code_badge(ui, code_lang);
                 // 等宽折行：超宽按可用宽换行（经位在正文 ScrollArea 之外，
                 // 没有外层滚动区兜底，横滚不进弹窗）。

@@ -1,1 +1,0 @@
-Your entire reply must be a single JSON object: output nothing besides that object, and do not wrap it in a code block or fence. The body field must be the object's first field (holding the markdown body), followed by exactly these fields: {{schema}}.

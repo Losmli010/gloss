@@ -1,20 +1,23 @@
 //! Prompt 模板注册表：kind + input + locale → OpenAI 兼容 messages。
 //!
-//! 文本任务 3 个模板（词卡/句译/代码解释）统一**纯 JSON 输出契约**：模型
-//! 的整个回复是一个 JSON 对象——`body` 字段（markdown 正文）放首位，其后
-//! 按 kind 携带 [`crate::task::OutcomeStructured`] 的结构化字段。正文给人
-//! 读，JSON 给 UI 精排。图像/音频输入一律
-//! [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
+//! 文本任务**一个任务一份自包含模板**（词卡/句译/代码解释）：任务说明、
+//! 模态提示行与纯 JSON 输出契约（含一份具体输出示例）都在同一个文件里，
+//! 改一个任务的任务书不会牵动其它任务。契约统一为：模型的整个回复是一个
+//! JSON 对象——`body` 字段（markdown 正文）放首位，其后按 kind 携带
+//! [`crate::task::OutcomeStructured`] 的结构化字段；模板里的输出示例就是
+//! 解析侧（`gloss_app::finalize`）所吃形状的唯一描述，两处改一须改二。
+//! 图像/音频输入一律 [`GlossError::UnsupportedModality`]，不发出注定无效
+//! 的请求。
 //!
 //! [`STRUCTURED_FENCE`] 是**旧契约的围栏标记**，只服务两处兼容位：分类
 //! 回复的围栏容错提取（`classify::parse_classify_reply`）与完成态解析的
-//! 围栏 fallback（`gloss_app::finalize`，模型跑偏输出旧契约时兜底）——
-//! 现行任务 prompt 不再要求围栏。
+//! 围栏 fallback（模型跑偏输出旧契约时兜底）——现行任务 prompt 不再要求
+//! 围栏。
 //!
 //! 模板文本是编译期嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，
 //! `include_str!`），渲染是显式的 `{{占位符}}` 替换（可选行语义见
-//! [`render_template`]）；输出契约的 schema JSON 留在代码里，与完成态
-//! 解析器同源（见模块尾注）。
+//! [`render_template`]）。模态提示行不设文件——两行固定句式由
+//! [`hint_lines`] 按提示类型直接拼出。
 //!
 //! 模板内容面向模型，用各 locale 的语言书写，不受「日志一律英文」门禁约束
 //! （`just constraints` 只查日志宏实参）。
@@ -39,16 +42,13 @@ pub const STRUCTURED_FENCE: &str = "```gloss";
 /// 会形成少样本偏置，模型照抄示例类别的比例随示例显著性上升。
 pub(crate) const CLASSIFY_SCHEMA: &str = r#"{"kind":"…"}"#;
 
-/// 一个 locale 的模板文件集：三个文本 kind 的指令 + 输出契约散文 + 模态
-/// 提示行片段 + 分类指令。契约与提示行抽成片段而不是抄进三个指令：抄写
-/// 会在改契约时漏掉其中一处。
+/// 一个 locale 的模板文件集：三个文本 kind 的自包含任务书（说明 + 提示
+/// 行 + 输出契约与示例都在文件内）+ 分类指令。
 #[derive(Debug, Clone, Copy)]
 struct Templates {
     word_card: &'static str,
     sentence: &'static str,
     code: &'static str,
-    contract: &'static str,
-    hints: &'static str,
     classify: &'static str,
 }
 
@@ -60,16 +60,12 @@ impl Locale {
                 word_card: include_str!("../prompts/zh/word_card.md"),
                 sentence: include_str!("../prompts/zh/sentence.md"),
                 code: include_str!("../prompts/zh/code.md"),
-                contract: include_str!("../prompts/zh/contract.md"),
-                hints: include_str!("../prompts/zh/hints.md"),
                 classify: include_str!("../prompts/zh/classify.md"),
             },
             Locale::En => Templates {
                 word_card: include_str!("../prompts/en/word_card.md"),
                 sentence: include_str!("../prompts/en/sentence.md"),
                 code: include_str!("../prompts/en/code.md"),
-                contract: include_str!("../prompts/en/contract.md"),
-                hints: include_str!("../prompts/en/hints.md"),
                 classify: include_str!("../prompts/en/classify.md"),
             },
         }
@@ -139,16 +135,11 @@ impl PromptRegistry {
         };
         let locale = task.options.prompt_locale.unwrap_or_default();
         let templates = locale.templates();
-        let hint_lines = hint_block(templates.hints, hint.as_ref(), locale);
-        let contract = render_template(templates.contract, &[("schema", schema_json(task.kind))]);
+        let hint_lines = hint_lines(hint.as_ref(), locale);
         let target = target_display(&task.options, locale);
         let system = render_template(
             instruction_template(templates, task.kind),
-            &[
-                ("target", &target),
-                ("hint", &hint_lines),
-                ("contract", &contract),
-            ],
+            &[("target", &target), ("hint", &hint_lines)],
         );
         Ok(vec![
             ChatMessage::system(system),
@@ -312,24 +303,24 @@ fn lang_display(lang: &Lang, locale: Locale) -> String {
     }
 }
 
-/// 提示行片段：文本任务的输入只有一个 hint（[`InputHint`] 单值），两行
-/// 占位符里最多一行有值。无 hint 时两行都渲染为空并整行剔除，得到空串。
+/// 模态提示行：文本任务的输入只有一个 hint（[`InputHint`] 单值），最多
+/// 一行有值，无 hint 时为空串（模板里 `{{hint}}` 独占一行，按可选行语义
+/// 整行剔除）。两行固定句式在这里拼出——不再设片段文件。
 ///
-/// 末尾换行在这里去掉：两处注入点各自决定换行（系统指令里占位符独占一行、
-/// 用户消息里另起一段），留着会让消息多出空行。
-fn hint_block(hints: &str, hint: Option<&InputHint>, locale: Locale) -> String {
-    let mut code_lang = String::new();
-    let mut source_lang = String::new();
+/// 末尾无换行：两处注入点各自决定换行（系统指令里占位符独占一行、用户
+/// 消息里另起一段）。
+fn hint_lines(hint: Option<&InputHint>, locale: Locale) -> String {
     match hint {
-        Some(InputHint::CodeLanguage(lang)) => code_lang.clone_from(lang),
-        Some(InputHint::SourceLang(lang)) => source_lang = lang_display(lang, locale),
-        None => {}
+        Some(InputHint::CodeLanguage(lang)) => match locale {
+            Locale::Zh => format!("代码语言：{lang}"),
+            Locale::En => format!("Code language: {lang}"),
+        },
+        Some(InputHint::SourceLang(lang)) => match locale {
+            Locale::Zh => format!("源语言：{}", lang_display(lang, locale)),
+            Locale::En => format!("Source language: {}", lang_display(lang, locale)),
+        },
+        None => String::new(),
     }
-    let rendered = render_template(
-        hints,
-        &[("code_lang", &code_lang), ("source_lang", &source_lang)],
-    );
-    rendered.trim_end_matches('\n').to_owned()
 }
 
 /// 用户消息：提示行片段 + 输入原文（无提示行时只有原文）。
@@ -338,22 +329,6 @@ fn user_content(text: &str, hint_lines: &str) -> String {
         text.to_owned()
     } else {
         format!("{hint_lines}\n\n{text}")
-    }
-}
-
-/// 输出契约的字段 schema：与完成态解析器同源，故留在代码里（见模块尾注）；
-/// 字段名是给解析器的契约，示例值是给模型的提示，因此不随 prompt locale
-/// 变——契约只有一份，改 schema 的人面前不会出现两份措辞。`body` 恒在
-/// 首位：流式显示按 JSON 的字段序渐进提取正文，body 靠前才能尽早亮出。
-pub(crate) fn schema_json(kind: TaskKind) -> &'static str {
-    match kind {
-        TaskKind::TranslateWord => {
-            r#"{"body":"markdown 正文","word":"词条原文","phonetic":"音标或 null","senses":[{"pos":"词性或 null","meaning":"释义","examples":["例句"]}]}"#
-        }
-        TaskKind::TranslateSentence | TaskKind::ExplainCode | TaskKind::ImageExplain => {
-            r#"{"body":"markdown 正文","title":"一句话摘要或 null"}"#
-        }
-        TaskKind::ImageOcr => r#"{"body":"markdown 正文","text":"提取的纯文本"}"#,
     }
 }
 
@@ -477,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn structured_contract_matches_outcome_schema() {
+    fn output_example_carries_the_kind_fields() {
         let registry = PromptRegistry::new();
 
         let word = registry
@@ -485,29 +460,70 @@ mod tests {
             .expect("render");
         assert!(word[0].content.contains("\"senses\""));
         assert!(word[0].content.contains("\"phonetic\""));
+        assert!(word[0].content.contains("\"word\""));
 
         let plain = registry
             .render(&text_task(TaskKind::ExplainCode, "fn main() {}", None))
             .expect("render");
         assert!(plain[0].content.contains("\"title\""));
+
+        let sentence = registry
+            .render(&text_task(TaskKind::TranslateSentence, "hello", None))
+            .expect("render");
+        assert!(sentence[0].content.contains("\"title\""));
     }
 
     #[test]
-    fn body_is_the_first_contract_field_for_every_kind() {
-        for kind in [
-            TaskKind::TranslateWord,
-            TaskKind::TranslateSentence,
-            TaskKind::ExplainCode,
-        ] {
-            let schema = schema_json(kind);
-            let value: serde_json::Value =
-                serde_json::from_str(schema).unwrap_or_else(|err| panic!("{kind:?}: {err}"));
-            let keys = value.as_object().expect("schema object");
-            assert_eq!(
-                keys.keys().next(),
-                Some(&"body".to_owned()),
-                "{kind:?}: body must lead the schema for progressive streaming extraction"
-            );
+    fn output_example_leads_with_the_body_field() {
+        // 模板里的输出示例就是解析侧所吃形状的唯一描述：body 恒为对象
+        // 首字段（流式渐进提取依赖字段序），且示例必须是可解析的 JSON。
+        fn example_object(template: &str) -> &str {
+            let start = template
+                .find("{\"body\"")
+                .expect("the output example must lead with the body field");
+            let bytes = template.as_bytes();
+            let mut depth = 0usize;
+            let mut in_string = false;
+            let mut escaped = false;
+            for (offset, &byte) in bytes[start..].iter().enumerate() {
+                let ch = char::from(byte);
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                match ch {
+                    '\\' if in_string => escaped = true,
+                    '"' => in_string = !in_string,
+                    '{' if !in_string => depth += 1,
+                    '}' if !in_string => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return &template[start..start + offset + 1];
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            panic!("the output example object is never closed");
+        }
+
+        for locale in [Locale::Zh, Locale::En] {
+            let templates = locale.templates();
+            for (name, text) in [
+                ("word_card.md", templates.word_card),
+                ("sentence.md", templates.sentence),
+                ("code.md", templates.code),
+            ] {
+                let object = example_object(text);
+                let value: serde_json::Value = serde_json::from_str(object)
+                    .unwrap_or_else(|err| panic!("{locale:?}/{name}: example must parse: {err}"));
+                let keys = value.as_object().expect("example object");
+                assert_eq!(
+                    keys.keys().next(),
+                    Some(&"body".to_owned()),
+                    "{locale:?}/{name}: body must be the example's first field"
+                );
+            }
         }
     }
 
@@ -752,22 +768,13 @@ mod tests {
 
     #[test]
     fn every_template_placeholder_is_declared() {
-        let declared = [
-            "target",
-            "hint",
-            "contract",
-            "schema",
-            "code_lang",
-            "source_lang",
-        ];
+        let declared = ["target", "hint"];
         for locale in [Locale::Zh, Locale::En] {
             let templates = locale.templates();
             let files = [
                 ("word_card.md", templates.word_card),
                 ("sentence.md", templates.sentence),
                 ("code.md", templates.code),
-                ("contract.md", templates.contract),
-                ("hints.md", templates.hints),
             ];
             for (name, text) in files {
                 assert_eq!(
