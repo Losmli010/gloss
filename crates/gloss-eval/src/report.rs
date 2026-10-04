@@ -135,17 +135,17 @@ impl EvalReport {
             line(
                 &mut out,
                 format!(
-                    "| {} 围栏在场率 | {:.1}% |",
+                    "| {} 契约 JSON 率 | {:.1}% |",
                     stats.dataset,
-                    rate(metrics.fence_present, metrics.evaluated)
+                    rate(metrics.json_object, metrics.evaluated)
                 ),
             );
             line(
                 &mut out,
                 format!(
-                    "| {} JSON 可解析率 | {:.1}% |",
+                    "| {} body 在场率 | {:.1}% |",
                     stats.dataset,
-                    rate(metrics.json_parseable, metrics.evaluated)
+                    rate(metrics.body_present, metrics.evaluated)
                 ),
             );
             line(
@@ -159,7 +159,7 @@ impl EvalReport {
             line(
                 &mut out,
                 format!(
-                    "| {} 降 Plain 率 | {:.1}% |",
+                    "| {} 降级率 | {:.1}% |",
                     stats.dataset,
                     rate(metrics.degraded, metrics.evaluated)
                 ),
@@ -304,7 +304,7 @@ mod tests {
         assert!(markdown.contains("混淆矩阵"));
         assert!(markdown.contains("| TranslateWord | ExplainCode | 1 |"));
         assert!(markdown.contains("task_translate_word 字段完整率 | 50.0%"));
-        assert!(markdown.contains("task_translate_word 降 Plain 率 | 50.0%"));
+        assert!(markdown.contains("task_translate_word 降级率 | 50.0%"));
         assert!(markdown.contains("跳过（无夹具）1 条"));
     }
 
@@ -338,7 +338,7 @@ mod tests {
         let verdicts = [
             TaskVerdict::for_reply(
                 &cases[0],
-                "```gloss\n{\"word\":\"gloss\",\"senses\":[]}\n```",
+                r#"{"body":"正文","word":"gloss","phonetic":null,"senses":[]}"#,
             ),
             TaskVerdict::for_reply(&cases[1], "只有正文"),
         ];

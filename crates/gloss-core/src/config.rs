@@ -1,4 +1,4 @@
-//! 配置模型：`Config` 结构、出厂默认与查找助手。
+//! 配置模型：`Config` 结构与出厂默认。
 //!
 //! 密钥红线：配置里只存 keychain 条目标识，密钥本体永不进
 //! `Config`——运行时整份快照可被任意线程读取，不能携带凭据。
@@ -8,20 +8,9 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Lang, Locale};
-use crate::task::TaskKind;
 
-/// 全部任务类型：`enabled_kinds` 的出厂值与设置页的任务开关列表共用，
-/// 两处来自同一常量，新增 kind 时不会漏掉一边。
-pub const ALL_KINDS: [TaskKind; 5] = [
-    TaskKind::TranslateWord,
-    TaskKind::TranslateSentence,
-    TaskKind::ExplainCode,
-    TaskKind::ImageOcr,
-    TaskKind::ImageExplain,
-];
-
-/// 出厂默认文本模型 id：既是 `model_by_kind` 的出厂值，也是 `model_by_kind`
-/// 缺项时的兜底——两处共用同一处字面量（各写一份时改一边不会有人红）。
+/// 出厂默认模型 id：`Config::model` 的出厂值——单一模型承接全部任务
+/// （分类与执行同一模型）。设置页可改；App 在触发时冻结进任务选项。
 pub const DEFAULT_TEXT_MODEL: &str = "deepseek-chat";
 
 /// 出厂默认 OpenAI 兼容端点：DeepSeek。客户端按
@@ -194,43 +183,16 @@ fn default_provider_keys() -> Vec<ProviderKey> {
     vec![factory_provider()]
 }
 
-/// 任务类型 → 默认模型 id 的绑定：统一 LLM 客户端下，模态能力差异是
-/// 配置问题——文本任务配文本模型、图像任务配视觉模型。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelBinding {
-    /// 任务类型。
-    pub kind: TaskKind,
-    /// 该任务默认使用的模型 id。
-    pub model: String,
-}
-
-/// 出厂默认模型表：文本类任务先给出可用默认（用户装完只差一把钥匙），
-/// 图像类留空——视觉模型随图像任务接入，未配置时由引擎报能力不匹配。
-fn default_model_bindings() -> Vec<ModelBinding> {
-    [
-        TaskKind::TranslateWord,
-        TaskKind::TranslateSentence,
-        TaskKind::ExplainCode,
-    ]
-    .into_iter()
-    .map(|kind| ModelBinding {
-        kind,
-        model: DEFAULT_TEXT_MODEL.to_owned(),
-    })
-    .collect()
-}
-
 /// 应用配置：持久化为 TOML（`FileConfigStore`），运行时以整份快照在
 /// 各线程间共享（共享形态不携带密钥，见模块文档红线）。反序列化带 `#[serde(default)]`：
-/// 手改配置缺字段时按出厂默认补齐，不允许半份配置带病运行。
+/// 手改配置缺字段时按出厂默认补齐，不允许半份配置带病运行；退役字段
+/// （历史版本写下的多余键）静默忽略，测试有钉子。
 ///
-/// 落点（改动本节时同步更新）：`target_lang` / `model_by_kind` /
-/// `default_text_kind` 已接线（触发时解析进任务）；`base_url` /
-/// `provider_keys` 已接线（引擎每请求解析端点、按条目直查 keychain）；
-/// `enabled_kinds` 已接线（触发时过滤）；`theme` 已接线（主题施加到两个
-/// egui 上下文）——都**不**在触发时冻结；`cache_ttl_secs` 归缓存构造接线；
-/// `language` 已接线（触发时经 `Language::resolve` 解析成 prompt 模板语言、
-/// 随任务冻结，渲染帧另按同一映射取界面文案表）。
+/// 落点（改动本节时同步更新）：`target_lang` / `model` / `language` 已接线
+/// （触发时由状态机按快照冻结进任务选项）；`base_url` / `provider_keys`
+/// 已接线（引擎每请求解析端点、按条目直查 keychain）；`theme` 已接线
+/// （主题施加到两个 egui 上下文）；`cache_ttl_secs` 归 gloss-app 的缓存
+/// 构造接线。都不在触发时冻结的只有 `theme`（渲染帧读取）。
 ///
 /// 敏感信息防护不在此列：它不是配置项，判据内建在 `gloss_core::guard`。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -242,15 +204,10 @@ pub struct Config {
     pub base_url: String,
     /// 各 provider 的 keychain 条目标识；密钥本体只在 keychain。
     pub provider_keys: Vec<ProviderKey>,
-    /// 每个任务类型的默认模型 id。
-    pub model_by_kind: Vec<ModelBinding>,
+    /// 全部任务共用的模型 id：分类与执行同一模型，触发时随任务选项冻结。
+    pub model: String,
     /// 翻译类任务的默认目标语言。
     pub target_lang: Lang,
-    /// 划词手势的默认任务类型。
-    pub default_text_kind: TaskKind,
-    /// 启用的任务类型：被停用的 kind 对一切触发路径无响应（设置页任务
-    /// 开关）。缺字段（老配置）按全启用补齐。
-    pub enabled_kinds: Vec<TaskKind>,
     /// 缓存条目存活时长（秒）；0 = 永不失效，上限 [`CACHE_TTL_MAX_SECS`]。
     pub cache_ttl_secs: u64,
     /// 界面主题。
@@ -264,11 +221,10 @@ impl Default for Config {
         Self {
             base_url: DEFAULT_BASE_URL.to_owned(),
             provider_keys: default_provider_keys(),
-            model_by_kind: default_model_bindings(),
+            model: DEFAULT_TEXT_MODEL.to_owned(),
             target_lang: Lang::Zh,
-            default_text_kind: TaskKind::TranslateWord,
-            enabled_kinds: ALL_KINDS.to_vec(),
-            // 与 gloss-core::cache 的出厂 TTL（1 小时）一致。
+            // 与 gloss-app::cache 的出厂 TTL（1 小时）一致（同源校验测试
+            // 在 app 侧，随 DEFAULT_TTL 钉住）。
             cache_ttl_secs: 60 * 60,
             theme: Theme::System,
             language: Language::System,
@@ -277,72 +233,9 @@ impl Default for Config {
 }
 
 impl Config {
-    /// 某任务类型是否启用：停用的 kind 对一切触发路径无响应（设置页任务
-    /// 开关）。空表视为「全部停用」——显式清空是用户的明确意图，不猜。
-    pub fn is_kind_enabled(&self, kind: TaskKind) -> bool {
-        self.enabled_kinds.contains(&kind)
-    }
-
-    /// 设置某任务类型的开关（设置页任务开关的落点）：启用为追加、停用为
-    /// 移除，保证表内不出现重复条目。
-    pub fn set_kind_enabled(&mut self, kind: TaskKind, enabled: bool) {
-        if enabled {
-            if !self.enabled_kinds.contains(&kind) {
-                self.enabled_kinds.push(kind);
-            }
-        } else {
-            self.enabled_kinds.retain(|&candidate| candidate != kind);
-        }
-    }
-
-    /// 设置某任务类型的默认模型 id（设置页模型表的落点）：替换该 kind 的
-    /// 全部既有条目（查找助手按「后条覆盖前条」语义，整表重建前不留旧条
-    /// 目）；空串/纯空白视为未配置，移除条目。
-    pub fn set_model_for_kind(&mut self, kind: TaskKind, model: &str) {
-        self.model_by_kind.retain(|binding| binding.kind != kind);
-        let trimmed = model.trim();
-        if !trimmed.is_empty() {
-            self.model_by_kind.push(ModelBinding {
-                kind,
-                model: trimmed.to_owned(),
-            });
-        }
-    }
-
-    /// 分类的兜底任务类型：划词手势固定走 [`TaskKind::Auto`] 由模型分类，
-    /// 分类失败或校验不过时回退到 `default_text_kind`；字段被手改成图像
-    /// kind 或哨兵本身（旧配置遗留/误编辑）时退回出厂默认 `TranslateWord`
-    /// ——兜底必须是可渲染、可执行的具体 kind，否则分类失败会一路回落成
-    /// ClassifyRequired 的死循环。
-    pub fn classify_fallback(&self) -> TaskKind {
-        if self.default_text_kind.accepts_text() && self.default_text_kind != TaskKind::Auto {
-            self.default_text_kind
-        } else {
-            TaskKind::TranslateWord
-        }
-    }
-
-    /// 查某任务类型的默认模型 id。同 kind 多条时**后条覆盖前条**（设置页
-    /// 保存按追加语义更新）；未配置返回 `None`，兜底策略由调用方决定。
-    pub fn model_for_kind(&self, kind: TaskKind) -> Option<&str> {
-        self.model_by_kind
-            .iter()
-            .rev()
-            .find(|binding| binding.kind == kind)
-            .map(|binding| binding.model.as_str())
-    }
-
-    /// 本任务实际使用的模型 id：`model_by_kind` 配了就用它，否则文本类任务
-    /// 退回出厂默认 [`DEFAULT_TEXT_MODEL`]；图像类未配置时返回 `None`——
-    /// 视觉模型随图像任务接入，不猜一个文本模型去接图像任务。
-    pub fn resolved_model(&self, kind: TaskKind) -> Option<&str> {
-        self.model_for_kind(kind)
-            .or_else(|| kind.accepts_text().then_some(DEFAULT_TEXT_MODEL))
-    }
-
-    /// 本任务使用的 provider 条目：MVP 单端点，取最后一条（与
+    /// 本任务实际使用的 provider 条目：MVP 单端点，取最后一条（与
     /// `keychain_id_for` 的「后条覆盖前条」一致）；`provider_keys` 为空时返回
-    /// `None`（纯查表，与 `model_for_kind` 对称）。
+    /// `None`（纯查表）。
     pub fn active_provider(&self) -> Option<&ProviderKey> {
         self.provider_keys.last()
     }
@@ -353,7 +246,7 @@ impl Config {
     ///
     /// 兜底不只是「方便」：旧版本落盘的出厂值是空数组，而 `#[serde(default)]`
     /// 只补缺失字段——那批机器上落盘的 `provider_keys = []` 会一直留着，设置页
-    /// 落地前又没有改它的 UI；`resolved_model` 对同一类问题已有对称兜底。
+    /// 落地前又没有改它的 UI。
     pub fn resolved_provider(&self) -> &ProviderKey {
         self.active_provider()
             .unwrap_or_else(|| FACTORY_PROVIDER.get_or_init(factory_provider))
@@ -371,33 +264,17 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
 
     #[test]
     fn factory_defaults_match_spec() {
         let config = Config::default();
         assert_eq!(config.target_lang, Lang::Zh);
-        assert_eq!(config.default_text_kind, TaskKind::TranslateWord);
+        assert_eq!(config.model, DEFAULT_TEXT_MODEL);
         assert_eq!(config.cache_ttl_secs, 60 * 60);
         assert_eq!(config.theme, Theme::System);
         assert_eq!(config.language, Language::System);
         assert_eq!(config.base_url, DEFAULT_BASE_URL);
-
-        assert_eq!(
-            config.resolved_model(TaskKind::TranslateWord),
-            Some(DEFAULT_TEXT_MODEL)
-        );
-        assert_eq!(
-            config.resolved_model(TaskKind::TranslateSentence),
-            Some(DEFAULT_TEXT_MODEL)
-        );
-        assert_eq!(
-            config.resolved_model(TaskKind::ExplainCode),
-            Some(DEFAULT_TEXT_MODEL)
-        );
-        assert_eq!(config.resolved_model(TaskKind::ImageOcr), None);
 
         let provider = config.active_provider().expect("factory provider");
         assert_eq!(provider.provider, "deepseek");
@@ -409,16 +286,14 @@ mod tests {
         let json = serde_json::json!({
             "base_url": DEFAULT_BASE_URL,
             "provider_keys": [],
-            "model_by_kind": [],
             "target_lang": "Zh",
-            "default_text_kind": "TranslateWord",
-            "enabled_kinds": [],
             "cache_ttl_secs": 0,
             "theme": "System",
         });
         let config: Config =
             serde_json::from_value(json).expect("missing language must fall back to default");
         assert_eq!(config.language, Language::System);
+        assert_eq!(config.model, DEFAULT_TEXT_MODEL);
     }
 
     #[test]
@@ -511,19 +386,8 @@ mod tests {
                 provider: "deepseek".into(),
                 keychain_id: "gloss/deepseek".into(),
             }],
-            model_by_kind: vec![
-                ModelBinding {
-                    kind: TaskKind::TranslateWord,
-                    model: "deepseek-chat".into(),
-                },
-                ModelBinding {
-                    kind: TaskKind::ImageOcr,
-                    model: "vision-model".into(),
-                },
-            ],
+            model: "custom-model".into(),
             target_lang: Lang::Other("ko".into()),
-            default_text_kind: TaskKind::ExplainCode,
-            enabled_kinds: vec![TaskKind::TranslateWord, TaskKind::ExplainCode],
             cache_ttl_secs: 120,
             theme: Theme::Dark,
             language: Language::En,
@@ -536,11 +400,15 @@ mod tests {
     #[test]
     fn retired_fields_are_ignored_on_load() {
         let config: Config = serde_json::from_str(
-            r#"{"theme": "Light", "guard_enabled": false, "guard_blocked_apps": ["com.example.vault"], "hotkey_bindings": [{"trigger": "Cmd+Shift+D"}]}"#,
+            r#"{"theme": "Light", "guard_enabled": false, "guard_blocked_apps": ["com.example.vault"], "hotkey_bindings": [{"trigger": "Cmd+Shift+D"}], "model_by_kind": [{"kind": "TranslateWord", "model": "old-model"}], "default_text_kind": "ExplainCode", "enabled_kinds": ["TranslateWord"]}"#,
         )
         .expect("a config written by an older version must still load");
         assert_eq!(config.theme, Theme::Light, "known fields keep their values");
         assert_eq!(config.target_lang, Lang::Zh, "missing fields still default");
+        assert_eq!(
+            config.model, DEFAULT_TEXT_MODEL,
+            "retired per-kind model tables must not leak into the single model"
+        );
     }
 
     #[test]
@@ -552,171 +420,35 @@ mod tests {
         assert_eq!(config.cache_ttl_secs, 60 * 60);
         assert_eq!(config.base_url, DEFAULT_BASE_URL);
         assert_eq!(config.resolved_provider().provider, "deepseek");
-        assert_eq!(
-            config.resolved_model(TaskKind::TranslateWord),
-            Some(DEFAULT_TEXT_MODEL)
-        );
-        assert!(ALL_KINDS.iter().all(|&kind| config.is_kind_enabled(kind)));
-    }
-
-    #[test]
-    fn explicit_empty_enabled_kinds_disables_everything() {
-        let config: Config =
-            serde_json::from_str(r#"{"enabled_kinds": []}"#).expect("explicit empty should parse");
-        assert!(
-            ALL_KINDS.iter().all(|&kind| !config.is_kind_enabled(kind)),
-            "explicit empty table must disable every kind"
-        );
-    }
-
-    #[test]
-    fn missing_fields_default_while_explicit_empty_stays_empty() {
-        let cleared: Config = serde_json::from_str(r#"{"provider_keys": [], "model_by_kind": []}"#)
-            .expect("explicit empty config should parse");
-        assert!(
-            cleared.active_provider().is_none(),
-            "explicit empty must stay empty for pure lookups"
-        );
-        assert_eq!(
-            cleared.resolved_provider().keychain_id,
-            "gloss/deepseek",
-            "resolved lookup must fall back to the factory entry"
-        );
-        assert_eq!(
-            cleared.resolved_model(TaskKind::TranslateWord),
-            Some(DEFAULT_TEXT_MODEL)
-        );
-        assert_eq!(
-            cleared.resolved_model(TaskKind::ImageOcr),
-            None,
-            "image kinds must not borrow the text model"
-        );
-    }
-
-    #[test]
-    fn classify_fallback_falls_back_for_image_kinds() {
-        let misconfigured = Config {
-            default_text_kind: TaskKind::ImageOcr,
-            ..Default::default()
-        };
-        assert_eq!(
-            misconfigured.classify_fallback(),
-            TaskKind::TranslateWord,
-            "an image kind cannot serve as the classification fallback"
-        );
-
-        let text_config = Config {
-            default_text_kind: TaskKind::ExplainCode,
-            ..Default::default()
-        };
-        assert_eq!(text_config.classify_fallback(), TaskKind::ExplainCode);
-
-        let sentinel = Config {
-            default_text_kind: TaskKind::Auto,
-            ..Default::default()
-        };
-        assert_eq!(
-            sentinel.classify_fallback(),
-            TaskKind::TranslateWord,
-            "a hand-edited Auto default must not recurse into itself as the fallback"
-        );
-    }
-
-    #[test]
-    fn auto_kind_stays_out_of_the_settings_list() {
-        assert!(
-            !ALL_KINDS.contains(&TaskKind::Auto),
-            "the classification sentinel must not be a user-toggleable task"
-        );
-    }
-
-    #[test]
-    fn default_cache_ttl_matches_cache_implementation() {
-        assert_eq!(
-            Duration::from_secs(Config::default().cache_ttl_secs),
-            crate::cache::DEFAULT_TTL
-        );
-    }
-
-    #[test]
-    fn edit_helpers_keep_tables_canonical() {
-        let mut config = Config::default();
-        assert!(config.is_kind_enabled(TaskKind::TranslateWord));
-
-        config.set_kind_enabled(TaskKind::TranslateWord, true);
-        assert_eq!(
-            config
-                .enabled_kinds
-                .iter()
-                .filter(|&&k| k == TaskKind::TranslateWord)
-                .count(),
-            1,
-            "enabling an enabled kind must not duplicate the entry"
-        );
-
-        config.set_kind_enabled(TaskKind::TranslateWord, false);
-        assert!(!config.is_kind_enabled(TaskKind::TranslateWord));
-        config.set_kind_enabled(TaskKind::TranslateWord, false);
-        assert_eq!(
-            config
-                .enabled_kinds
-                .iter()
-                .filter(|&&k| k == TaskKind::TranslateWord)
-                .count(),
-            0,
-            "disabling twice stays empty"
-        );
-
-        config.set_model_for_kind(TaskKind::ImageOcr, "  vision-x  ");
-        assert_eq!(config.model_for_kind(TaskKind::ImageOcr), Some("vision-x"));
-        config.set_model_for_kind(TaskKind::ImageOcr, "vision-y");
-        assert_eq!(
-            config.model_for_kind(TaskKind::ImageOcr),
-            Some("vision-y"),
-            "re-setting must replace, not append"
-        );
-        config.set_model_for_kind(TaskKind::ImageOcr, "   ");
-        assert_eq!(
-            config.model_for_kind(TaskKind::ImageOcr),
-            None,
-            "blank model id means unconfigured"
-        );
+        assert_eq!(config.model, DEFAULT_TEXT_MODEL);
     }
 
     #[test]
     fn lookups_prefer_later_entries() {
         let config = Config {
-            model_by_kind: vec![
-                ModelBinding {
-                    kind: TaskKind::TranslateWord,
-                    model: "old-model".into(),
+            provider_keys: vec![
+                ProviderKey {
+                    provider: "deepseek".into(),
+                    keychain_id: "gloss/deepseek".into(),
                 },
-                ModelBinding {
-                    kind: TaskKind::TranslateWord,
-                    model: "new-model".into(),
+                ProviderKey {
+                    provider: "deepseek".into(),
+                    keychain_id: "gloss/deepseek-2".into(),
                 },
-                ModelBinding {
-                    kind: TaskKind::ExplainCode,
-                    model: "code-model".into(),
+                ProviderKey {
+                    provider: "openai".into(),
+                    keychain_id: "gloss/openai".into(),
                 },
             ],
-            provider_keys: vec![ProviderKey {
-                provider: "deepseek".into(),
-                keychain_id: "gloss/deepseek".into(),
-            }],
             ..Default::default()
         };
 
+        assert_eq!(config.keychain_id_for("deepseek"), Some("gloss/deepseek-2"));
+        assert_eq!(config.keychain_id_for("openai"), Some("gloss/openai"));
+        assert_eq!(config.keychain_id_for("mistral"), None);
         assert_eq!(
-            config.model_for_kind(TaskKind::TranslateWord),
-            Some("new-model")
+            config.active_provider().map(|p| &p.provider),
+            Some(&"openai".to_owned())
         );
-        assert_eq!(
-            config.model_for_kind(TaskKind::ExplainCode),
-            Some("code-model")
-        );
-        assert_eq!(config.model_for_kind(TaskKind::ImageOcr), None);
-        assert_eq!(config.keychain_id_for("deepseek"), Some("gloss/deepseek"));
-        assert_eq!(config.keychain_id_for("openai"), None);
     }
 }

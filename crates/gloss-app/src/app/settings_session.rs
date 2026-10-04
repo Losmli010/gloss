@@ -94,7 +94,6 @@ mod tests {
     use std::sync::Arc;
 
     use gloss_core::model::{GlossError, Lang};
-    use gloss_core::task::TaskKind;
 
     use crate::app::test_support::{driven_app, driven_app_with, text_input, trigger_selection};
     use crate::channel::PlatformEvent;
@@ -129,10 +128,7 @@ mod tests {
 
         let mut draft = (*app.config.snapshot()).clone();
         draft.target_lang = Lang::Ja;
-        draft.set_model_for_kind(
-            gloss_core::task::TaskKind::TranslateWord,
-            "deepseek-reasoner",
-        );
+        draft.model = "deepseek-reasoner".into();
         app.save_settings(draft, KeyUpdate::Replace("sk-live-key".to_owned()));
 
         assert_eq!(
@@ -148,11 +144,10 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let crate::channel::Command::RunTask { task, .. } = cmd_rx.try_recv().unwrap().payload;
+        let crate::channel::Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
         assert_eq!(
-            task.kind,
-            TaskKind::Auto,
-            "the dispatched sentinel carries no model; the binding applies at rebuild"
+            options.model, "deepseek-reasoner",
+            "the saved model freezes into the next task"
         );
     }
 

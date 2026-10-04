@@ -117,16 +117,15 @@ pub fn load_fixtures(jsonl: &str) -> Result<Vec<Fixture>, String> {
     Ok(fixtures)
 }
 
-/// 任务 kind 的 prompt 输出契约必需键（评测从严于生产
-/// `parse_structured` 的接受条件：生产对缺 word/title 有兜底，评测按
-/// 契约要求其在场；允许 null 的键——phonetic / title null——不算必需）。
+/// 任务 kind 的 prompt 输出契约必需键（评测从严于生产的接受条件：生产
+/// 对缺 word/title 有兜底，评测按契约要求其在场；允许 null 的键——
+/// phonetic / title null——不算必需；`body` 单独由判定的 body_present
+/// 计，不与结构化字段混在一张表）。
 pub fn required_fields(kind: TaskKind) -> &'static [&'static str] {
     match kind {
         TaskKind::TranslateWord => &["word", "senses"],
-        TaskKind::TranslateSentence | TaskKind::ExplainCode => &["title"],
+        TaskKind::TranslateSentence | TaskKind::ExplainCode | TaskKind::ImageExplain => &["title"],
         TaskKind::ImageOcr => &["text"],
-        TaskKind::ImageExplain => &["title"],
-        TaskKind::Auto => &["kind"],
     }
 }
 

@@ -1,14 +1,14 @@
 //! L1 库级集成测试：状态机（machine）+ 通道③④ + tokio 消费桥 +
-//! MockEngine + moka 缓存的全链路时序（见 AGENTS.md）。
+//! MockEngine + TaskCache 的全链路时序（见 AGENTS.md）。
 //!
 //! 边界：真实事件线程（通道②消费、RunLoop、CompositeReader）属于 OS
 //! 边界，归 L4 opt-in 层——这里取材产物以 `machine.commit_selection`
 //! 直接注入，等价于事件线程回传的产物。
 //!
-//! 两条驱动方式：无 hint 的划词下发 `TaskKind::Auto`（走桥的分类前半
-//! 程）；带 `CodeLanguage` hint 的划词由桥按 hint 直接定 kind（跳过分
-//! 类，直达缓存/引擎）。纯流式/取消/重试语义用 hint 路径锁定，分类编
-//! 排用无 hint 路径锁定。
+//! 分类是 LLM 层（`AiTaskService::run`）内的事：无 hint 的划词先花一次
+//! 引擎调用分类（MockEngine 脚本通常解析不出 kind，落兜底），带
+//! `CodeLanguage` hint 的划词由服务直通定型、不花分类往返。纯流式/取消/
+//! 重试语义用 hint 路径锁定，缓存与兜底语义两条路径都覆盖。
 //!
 //! 驱动方式：全部经公共 API（`TaskStateMachine` / `Channels` /
 //! `start_command_runtime`），`cargo test` 直接跑。
@@ -16,13 +16,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use gloss_app::cache::TaskCache;
 use gloss_app::channel::{AcquireCommand, Channels, Command, Event, PlatformEvent, Traced};
 use gloss_app::machine::{
     AppState, ErrorAction, FailureOutcome, InputOutcome, OverlayView, TaskStateMachine,
 };
 use gloss_app::pipeline::start_command_runtime;
-use gloss_core::cache::MokaCache;
-use gloss_core::config::{Config, ModelBinding};
+use gloss_core::config::Config;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::guard::SceneFacts;
@@ -62,15 +62,8 @@ fn pipeline(engine: &MockEngine) -> Pipeline {
         Arc::new(MemoryConfigStore::default()),
         Config::default(),
     ));
-    let runtime = start_command_runtime(
-        service,
-        Arc::new(MokaCache::new()),
-        Arc::clone(&config),
-        cmd_rx,
-        ev_tx,
-        || {},
-    )
-    .expect("tokio bridge should start");
+    let runtime = start_command_runtime(service, Arc::new(TaskCache::new()), cmd_rx, ev_tx, || {})
+        .expect("tokio bridge should start");
     Pipeline {
         machine: TaskStateMachine::new(),
         config,
@@ -94,24 +87,6 @@ struct Pipeline {
 
 impl Pipeline {
     #[allow(clippy::expect_used, clippy::panic)]
-    fn dispatch(
-        &mut self,
-        request: gloss_app::machine::RunRequest,
-    ) -> tokio_util::sync::CancellationToken {
-        self.commands_tx
-            .send(Traced {
-                payload: Command::RunTask {
-                    generation: request.generation,
-                    task: request.task,
-                    cancel: request.cancel.clone(),
-                },
-                span: Span::none(),
-            })
-            .expect("command channel open");
-        request.cancel
-    }
-
-    #[allow(clippy::expect_used, clippy::panic)]
     fn trigger_and_feed(&mut self, text: &str) -> tokio_util::sync::CancellationToken {
         self.trigger_and_feed_with(text, None, Span::none())
     }
@@ -134,7 +109,7 @@ impl Pipeline {
                 &SceneFacts::default(),
             )
             .expect("selection gesture must probe");
-        let AcquireCommand::AcquireText { generation, .. } = &command else {
+        let AcquireCommand::AcquireText { generation } = &command else {
             panic!("acquire text expected");
         };
         let InputOutcome::Dispatch(request) = self.machine.commit_selection(
@@ -150,41 +125,14 @@ impl Pipeline {
             .send(Traced {
                 payload: Command::RunTask {
                     generation: request.generation,
-                    task: request.task,
+                    input: request.input,
+                    options: request.options,
                     cancel: request.cancel.clone(),
                 },
                 span,
             })
             .expect("command channel open");
         request.cancel
-    }
-
-    #[allow(clippy::expect_used, clippy::panic)]
-    fn trigger_fixed_kind_and_feed(&mut self, text: &str) -> tokio_util::sync::CancellationToken {
-        let command = self
-            .machine
-            .begin_selection_probe(
-                &PlatformEvent::SelectionGesture {
-                    pos: ScreenPoint::new(0, 0),
-                },
-                &self.config.snapshot(),
-                Locale::Zh,
-                &SceneFacts::default(),
-            )
-            .expect("selection gesture must probe");
-        let AcquireCommand::AcquireText { generation, .. } = &command else {
-            panic!("acquire text expected");
-        };
-        let InputOutcome::Dispatch(request) = self.machine.commit_selection(
-            *generation,
-            TaskInput::Text {
-                text: text.into(),
-                hint: Some(InputHint::CodeLanguage("rust".into())),
-            },
-        ) else {
-            panic!("the probe product should be committed");
-        };
-        self.dispatch(request)
     }
 }
 
@@ -196,7 +144,7 @@ fn engine_logs_carry_the_task_span() {
 
     pipe.trigger_and_feed("hello");
     wait_done(&mut pipe);
-    pipe.trigger_and_feed_with("hello", None, gloss_core::log::task_span(2));
+    pipe.trigger_and_feed("hello");
     wait_done(&mut pipe);
 
     assert!(
@@ -210,14 +158,8 @@ fn engine_logs_carry_the_task_span() {
 
 #[test]
 fn full_flow_classifies_then_streams_and_settles() {
-    let engine = MockEngine::new().with_chunks(vec![
-        Ok("光泽".into()),
-        Ok("：注释".into()),
-        Ok(
-            "\n```gloss\n{\"word\":\"gloss\",\"phonetic\":\"/ɡlɒs/\",\"senses\":[{\"pos\":\"n.\",\"meaning\":\"光泽\",\"examples\":[]}]}```"
-                .into(),
-        ),
-    ]);
+    let engine =
+        MockEngine::new().with_chunks(vec![Ok("{\"body\":\"光泽".into()), Ok("：注释\"} ".into())]);
     let mut pipe = pipeline(&engine);
 
     let token = pipe.trigger_and_feed("gloss");
@@ -227,10 +169,10 @@ fn full_flow_classifies_then_streams_and_settles() {
     assert_eq!(
         expect_classified(&mut pipe),
         TaskKind::TranslateWord,
-        "the classification replays the script and parses the gloss fence"
+        "the classify call cannot parse a kind from the task script, the fallback applies"
     );
 
-    for _ in 0..3 {
+    for _ in 0..2 {
         let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
             panic!("chunk expected");
         };
@@ -248,14 +190,14 @@ fn full_flow_classifies_then_streams_and_settles() {
     assert_eq!(pipe.machine.state(), AppState::Show);
     match pipe.machine.overlay_view() {
         Some(OverlayView::Outcome { outcome, .. }) => {
-            assert_eq!(outcome.body, "光泽：注释", "fence stripped from body");
-            assert!(
-                matches!(
-                    &outcome.structured,
-                    gloss_core::task::OutcomeStructured::WordCard { word, senses, .. }
-                        if word == "gloss" && senses.len() == 1
-                ),
-                "word card must be parsed from the structured block"
+            assert_eq!(
+                outcome.body, "光泽：注释",
+                "body comes from the JSON contract"
+            );
+            assert_eq!(
+                outcome.structured,
+                OutcomeStructured::Plain { title: None },
+                "the script carries no title field, the contract default applies"
             );
         }
         other => panic!("expected outcome view, got {other:?}"),
@@ -274,7 +216,7 @@ fn classify_failure_falls_back_and_the_task_still_completes() {
     assert_eq!(
         expect_classified(&mut pipe),
         TaskKind::TranslateWord,
-        "the failed classification must fall back to the default text kind"
+        "the failed classification must fall back to the constant default kind"
     );
     wait_done(&mut pipe);
     assert_eq!(outcome_body(&pipe.machine), "兜底产物");
@@ -315,16 +257,12 @@ fn code_language_hint_skips_the_classification_round_trip() {
 }
 
 #[test]
-fn cache_hit_delivers_done_without_chunks_or_engine() {
-    let engine = MockEngine::new().with_chunks(vec![Ok("{\"kind\":\"TranslateWord\"}".into())]);
+fn second_trigger_is_a_full_cache_hit_without_engine_calls() {
+    let engine = MockEngine::new().with_chunks(vec![Ok("{\"body\":\"产物\"}".into())]);
     let mut pipe = pipeline(&engine);
 
     pipe.trigger_and_feed("同一段文本");
-    assert_eq!(
-        expect_classified(&mut pipe),
-        TaskKind::TranslateWord,
-        "first run classifies via the engine (script replay)"
-    );
+    expect_classified(&mut pipe);
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
@@ -336,7 +274,7 @@ fn cache_hit_delivers_done_without_chunks_or_engine() {
     assert_eq!(
         expect_classified(&mut pipe),
         TaskKind::TranslateWord,
-        "second run resolves from the classify cache"
+        "the cache replays the classified kind of the settled outcome"
     );
     match pipe.events_rx.recv().unwrap() {
         Event::TaskDone {
@@ -344,7 +282,7 @@ fn cache_hit_delivers_done_without_chunks_or_engine() {
             outcome,
         } => {
             assert_eq!(generation, 2);
-            assert_eq!(outcome.body, "{\"kind\":\"TranslateWord\"}");
+            assert_eq!(outcome.body, "产物");
             assert!(pipe.machine.accept_done(generation, outcome));
         }
         other => panic!("cache hit must settle directly without chunks, got {other:?}"),
@@ -352,9 +290,39 @@ fn cache_hit_delivers_done_without_chunks_or_engine() {
     assert_eq!(
         engine.call_count(),
         2,
-        "classify cache + product cache must not reach the engine again"
+        "the product cache must not reach the engine again"
     );
     assert_eq!(pipe.machine.state(), AppState::Show);
+}
+
+#[test]
+fn legacy_fence_contract_falls_back_to_a_complete_card() {
+    let engine = MockEngine::new().with_chunks(vec![
+        Ok("旧契约正文\n".into()),
+        Ok("```gloss\n{\"title\":\"旧契约摘要\"}\n```".into()),
+    ]);
+    let mut pipe = pipeline(&engine);
+
+    pipe.trigger_and_feed("gloss");
+    expect_classified(&mut pipe);
+    wait_done(&mut pipe);
+
+    match pipe.machine.overlay_view() {
+        Some(OverlayView::Outcome { outcome, .. }) => {
+            assert_eq!(
+                outcome.body, "旧契约正文",
+                "the fence fallback strips the structured block from the body"
+            );
+            assert_eq!(
+                outcome.structured,
+                OutcomeStructured::Plain {
+                    title: Some("旧契约摘要".into())
+                },
+                "the old contract's fence JSON still lands as a complete card"
+            );
+        }
+        other => panic!("expected outcome view, got {other:?}"),
+    }
 }
 
 #[test]
@@ -364,8 +332,11 @@ fn hide_overlay_cancels_the_stream_and_late_events_are_dropped() {
         .with_chunks(vec![Ok("一".into()), Ok("二".into()), Ok("三".into())]);
     let mut pipe = pipeline(&engine);
 
-    let token = pipe.trigger_and_feed("慢慢来");
-    let _ = expect_classified(&mut pipe);
+    let token = pipe.trigger_and_feed_with(
+        "慢慢来",
+        Some(InputHint::CodeLanguage("rust".into())),
+        Span::none(),
+    );
     let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
         panic!("chunk expected");
     };
@@ -399,10 +370,11 @@ fn superseded_trigger_cancels_and_filters_late_events() {
         .with_chunks(vec![Ok("A1".into()), Ok("A2".into())]);
     let mut pipe = pipeline(&engine);
 
-    let token_a = pipe.trigger_and_feed("A 的原文");
+    let hint = || Some(InputHint::CodeLanguage("rust".into()));
+    let token_a = pipe.trigger_and_feed_with("A 的原文", hint(), Span::none());
     let gen_a = pipe.machine.generation();
 
-    let token_b = pipe.trigger_and_feed("B 的原文");
+    let token_b = pipe.trigger_and_feed_with("B 的原文", hint(), Span::none());
     let gen_b = pipe.machine.generation();
     assert!(token_a.is_cancelled(), "new trigger must cancel task A");
     assert!(!token_b.is_cancelled());
@@ -415,8 +387,8 @@ fn superseded_trigger_cancels_and_filters_late_events() {
 
     assert_eq!(
         expect_classified(&mut pipe),
-        TaskKind::TranslateWord,
-        "task B classifies (the script text parses as nothing, so the fallback applies)"
+        TaskKind::ExplainCode,
+        "the hinted path classifies directly"
     );
     for expected in ["A1", "A2"] {
         let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
@@ -445,7 +417,11 @@ fn failure_lands_in_error_and_retry_succeeds() {
         .with_chunks(vec![Ok("第二次的产物".into())]);
     let mut pipe = pipeline(&engine);
 
-    let _ = pipe.trigger_fixed_kind_and_feed("第一次");
+    let _ = pipe.trigger_and_feed_with(
+        "第一次",
+        Some(InputHint::CodeLanguage("rust".into())),
+        Span::none(),
+    );
     expect_classified(&mut pipe);
     let Event::TaskFailed { generation, error } = pipe.events_rx.recv().unwrap() else {
         panic!("task failed expected");
@@ -456,7 +432,11 @@ fn failure_lands_in_error_and_retry_succeeds() {
     );
     assert_eq!(pipe.machine.state(), AppState::Error);
 
-    let _ = pipe.trigger_fixed_kind_and_feed("第二次");
+    let _ = pipe.trigger_and_feed_with(
+        "第二次",
+        Some(InputHint::CodeLanguage("rust".into())),
+        Span::none(),
+    );
     expect_classified(&mut pipe);
     loop {
         match pipe.events_rx.recv().unwrap() {
@@ -479,13 +459,17 @@ fn failure_lands_in_error_and_retry_succeeds() {
 }
 
 #[test]
-fn error_card_retry_redispatches_the_same_task() {
+fn error_card_retry_redispatches_the_same_request() {
     let engine = MockEngine::new()
         .with_execute_failure_once(GlossError::EngineNetwork)
         .with_chunks(vec![Ok("重试后的产物".into())]);
     let mut pipe = pipeline(&engine);
 
-    let _ = pipe.trigger_fixed_kind_and_feed("第一次");
+    let _ = pipe.trigger_and_feed_with(
+        "第一次",
+        Some(InputHint::CodeLanguage("rust".into())),
+        Span::none(),
+    );
     expect_classified(&mut pipe);
     let Event::TaskFailed { generation, error } = pipe.events_rx.recv().unwrap() else {
         panic!("task failed expected");
@@ -507,7 +491,8 @@ fn error_card_retry_redispatches_the_same_task() {
     pipe.commands_tx
         .send(Traced::untraced(Command::RunTask {
             generation: request.generation,
-            task: request.task,
+            input: request.input,
+            options: request.options,
             cancel: request.cancel,
         }))
         .expect("command channel open");
@@ -520,12 +505,13 @@ fn error_card_retry_redispatches_the_same_task() {
 fn config_change_invalidates_cache_for_the_next_task() {
     let engine = MockEngine::new().with_chunks(vec![Ok("结果".into())]);
     let mut pipe = pipeline(&engine);
+    let hint = || Some(InputHint::CodeLanguage("rust".into()));
 
-    pipe.trigger_fixed_kind_and_feed("同一段文本");
+    pipe.trigger_and_feed_with("同一段文本", hint(), Span::none());
     wait_done(&mut pipe);
     assert_eq!(engine.call_count(), 1, "first run must reach the engine");
 
-    pipe.trigger_fixed_kind_and_feed("同一段文本");
+    pipe.trigger_and_feed_with("同一段文本", hint(), Span::none());
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
@@ -535,15 +521,12 @@ fn config_change_invalidates_cache_for_the_next_task() {
 
     pipe.config
         .save(Config {
-            model_by_kind: vec![ModelBinding {
-                kind: TaskKind::ExplainCode,
-                model: "deepseek-reasoner".into(),
-            }],
+            model: "deepseek-reasoner".into(),
             ..Default::default()
         })
         .expect("save should succeed");
 
-    pipe.trigger_fixed_kind_and_feed("同一段文本");
+    pipe.trigger_and_feed_with("同一段文本", hint(), Span::none());
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
@@ -553,16 +536,13 @@ fn config_change_invalidates_cache_for_the_next_task() {
 
     pipe.config
         .save(Config {
+            model: "deepseek-reasoner".into(),
             target_lang: Lang::Ja,
-            model_by_kind: vec![ModelBinding {
-                kind: TaskKind::ExplainCode,
-                model: "deepseek-reasoner".into(),
-            }],
             ..Default::default()
         })
         .expect("save should succeed");
 
-    pipe.trigger_fixed_kind_and_feed("同一段文本");
+    pipe.trigger_and_feed_with("同一段文本", hint(), Span::none());
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
@@ -570,6 +550,21 @@ fn config_change_invalidates_cache_for_the_next_task() {
         "target language switch must miss the old cache entry"
     );
     assert_eq!(outcome_body(&pipe.machine), "结果");
+}
+
+#[test]
+fn frozen_options_carry_the_factory_model_by_default() {
+    let engine = MockEngine::new().with_chunks(vec![Ok("{\"body\":\"产物\"}".into())]);
+    let mut pipe = pipeline(&engine);
+
+    let _ = pipe.trigger_and_feed_with(
+        "fn main() {}",
+        Some(InputHint::CodeLanguage("rust".into())),
+        Span::none(),
+    );
+    expect_classified(&mut pipe);
+    wait_done(&mut pipe);
+    assert_eq!(engine.call_count(), 1);
 }
 
 #[allow(clippy::expect_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义

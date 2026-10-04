@@ -1,19 +1,18 @@
-//! gloss-core 热点基准：`cache_key` / `parse_structured` / `prompt_render` /
-//! `moka_cache` 四组。criterion `harness = false` 目标，`just bench`
-//! （`cargo bench --bench core`）运行。
+//! gloss-core/gloss-app 热点基准：`cache_key` / `complete`（完成态解析）/
+//! `prompt_render` / `task_cache` 四组。criterion `harness = false` 目标，
+//! `just bench`（`cargo bench --bench core`）运行。
 //!
 //! 测量输入全部在测量循环外构造（字面量 / 字符串拼接，不经 serde 解析），
-//! 经 `black_box` 进出测量；`moka_cache` 的 `set` 用 `iter_batched` 把产物
+//! 经 `black_box` 进出测量；`task_cache` 的 `set` 用 `iter_batched` 把产物
 //! 构造移出测量区间。
 
 use std::hint::black_box;
 use std::sync::Arc;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use gloss_core::cache::{MokaCache, cache_key};
-use gloss_core::engine::parse_structured;
+use gloss_app::cache::{TaskCache, cache_key};
+use gloss_app::finalize::parse_structured;
 use gloss_core::model::ScreenRect;
-use gloss_core::ports::Cache;
 use gloss_core::prompt::PromptRegistry;
 use gloss_core::task::{
     InputHint, OutcomeStructured, Sense, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome,
@@ -21,27 +20,39 @@ use gloss_core::task::{
 
 const MODEL: &str = "mock-model";
 
+fn text_options(text: &str, hint: Option<InputHint>) -> (TaskInput, TaskOptions) {
+    (
+        TaskInput::Text {
+            text: text.to_owned(),
+            hint,
+        },
+        TaskOptions {
+            model: MODEL.to_owned(),
+            ..TaskOptions::default()
+        },
+    )
+}
+
 fn text_task(kind: TaskKind, text: String, hint: Option<InputHint>) -> Task {
     Task {
         kind,
         input: TaskInput::Text { text, hint },
-        options: TaskOptions::default(),
+        options: TaskOptions {
+            model: MODEL.to_owned(),
+            ..TaskOptions::default()
+        },
     }
 }
 
-fn image_task(png_bytes: usize) -> Task {
-    Task {
-        kind: TaskKind::ImageOcr,
-        input: TaskInput::Image {
-            png: Arc::from(vec![0x89u8; png_bytes]),
-            region: ScreenRect {
-                x: 0,
-                y: 0,
-                width: 1920,
-                height: 1080,
-            },
+fn image_input(png_bytes: usize) -> TaskInput {
+    TaskInput::Image {
+        png: Arc::from(vec![0x89u8; png_bytes]),
+        region: ScreenRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
         },
-        options: TaskOptions::default(),
     }
 }
 
@@ -88,31 +99,30 @@ fn bench_cache_key(c: &mut Criterion) {
     let mut group = c.benchmark_group("cache_key");
 
     group.bench_function("text/short", |b| {
-        let task = text_task(TaskKind::TranslateWord, "gloss".into(), None);
-        b.iter(|| black_box(cache_key(black_box(&task), MODEL)))
+        let (input, options) = text_options("gloss", None);
+        b.iter(|| black_box(cache_key(black_box(&input), black_box(&options))))
     });
     group.bench_function("text/long", |b| {
-        let task = text_task(
-            TaskKind::ExplainCode,
-            long_code(),
-            Some(InputHint::CodeLanguage("rust".into())),
-        );
-        b.iter(|| black_box(cache_key(black_box(&task), MODEL)))
+        let (input, options) =
+            text_options(&long_code(), Some(InputHint::CodeLanguage("rust".into())));
+        b.iter(|| black_box(cache_key(black_box(&input), black_box(&options))))
     });
     group.bench_function("image/1mb", |b| {
-        let task = image_task(1024 * 1024);
-        b.iter(|| black_box(cache_key(black_box(&task), MODEL)))
+        let input = image_input(1024 * 1024);
+        let options = TaskOptions::default();
+        b.iter(|| black_box(cache_key(black_box(&input), black_box(&options))))
     });
     group.bench_function("image/4mb", |b| {
-        let task = image_task(4 * 1024 * 1024);
-        b.iter(|| black_box(cache_key(black_box(&task), MODEL)))
+        let input = image_input(4 * 1024 * 1024);
+        let options = TaskOptions::default();
+        b.iter(|| black_box(cache_key(black_box(&input), black_box(&options))))
     });
 
     group.finish();
 }
 
 fn bench_parse_structured(c: &mut Criterion) {
-    let mut group = c.benchmark_group("parse_structured");
+    let mut group = c.benchmark_group("complete");
 
     group.bench_function("word_card/ok", |b| {
         let body = word_card_body(3);
@@ -164,17 +174,13 @@ fn bench_prompt_render(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_moka_cache(c: &mut Criterion) {
-    let mut group = c.benchmark_group("moka_cache");
-    let cache = MokaCache::new();
-    let hit_key = cache_key(
-        &text_task(TaskKind::TranslateWord, "gloss".into(), None),
-        MODEL,
-    );
-    let miss_key = cache_key(
-        &text_task(TaskKind::TranslateWord, "never inserted".into(), None),
-        MODEL,
-    );
+fn bench_task_cache(c: &mut Criterion) {
+    let mut group = c.benchmark_group("task_cache");
+    let cache = TaskCache::new();
+    let (hit_input, hit_options) = text_options("gloss", None);
+    let hit_key = cache_key(&hit_input, &hit_options);
+    let (miss_input, miss_options) = text_options("never inserted", None);
+    let miss_key = cache_key(&miss_input, &miss_options);
     cache.set(hit_key, word_outcome());
 
     group.bench_function("get/hit", |b| {
@@ -210,6 +216,6 @@ criterion_group!(
     bench_cache_key,
     bench_parse_structured,
     bench_prompt_render,
-    bench_moka_cache
+    bench_task_cache
 );
 criterion_main!(benches);

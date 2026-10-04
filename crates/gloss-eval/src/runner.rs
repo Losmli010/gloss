@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use gloss_core::config::{ALL_KINDS, Config, ModelBinding};
+use gloss_core::classify::CLASSIFY_KINDS;
+use gloss_core::config::Config;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::model::{GlossError, Locale};
 use gloss_core::ports::{AiEngine, ConfigStore, EngineRequest};
@@ -42,11 +43,7 @@ pub fn run_replay() -> Result<EvalReport, String> {
         .iter()
         .map(|fixture| (fixture.id.as_str(), fixture))
         .collect();
-    let allowed: Vec<TaskKind> = ALL_KINDS
-        .iter()
-        .copied()
-        .filter(|kind| kind.accepts_text())
-        .collect();
+    let allowed: Vec<TaskKind> = CLASSIFY_KINDS.to_vec();
 
     let mut classify = ClassifyMetrics::default();
     let mut skipped = 0usize;
@@ -105,11 +102,7 @@ pub async fn run_live(
     config: Arc<ConfigHandle>,
     options: LiveOptions,
 ) -> Result<LiveRun, String> {
-    let allowed: Vec<TaskKind> = ALL_KINDS
-        .iter()
-        .copied()
-        .filter(|kind| kind.accepts_text())
-        .collect();
+    let allowed: Vec<TaskKind> = CLASSIFY_KINDS.to_vec();
     let classify_cases = load_classify(assets::CLASSIFY_DATASET)?;
     let mut classify = ClassifyMetrics::default();
     let mut latency = Latency::default();
@@ -163,7 +156,7 @@ pub async fn run_live(
         for case in &cases {
             let started = Instant::now();
             // 与分类轨同一「跑完全集」策略；差别在记账——分类轨把引擎
-            // 失败单列 engine_errors，任务轨并入 degraded（live 的降 Plain
+            // 失败单列 engine_errors，任务轨并入 degraded（live 的降级
             // 率因此混入传输失败，见 TaskMetrics 文档）。
             let (reply, deltas) = match run_task_request(engine.as_ref(), &config, case).await {
                 Ok(outcome) => outcome,
@@ -294,13 +287,7 @@ pub fn live_config(env: &LiveEnv) -> (Arc<ConfigHandle>, Arc<dyn ConfigStore>) {
     let store = Arc::new(EnvSecretStore::new(env.api_key.clone()));
     let config = Config {
         base_url: env.base_url.clone(),
-        model_by_kind: ALL_KINDS
-            .iter()
-            .map(|kind| ModelBinding {
-                kind: *kind,
-                model: env.model.clone(),
-            })
-            .collect(),
+        model: env.model.clone(),
         ..Config::default()
     };
     let handle = Arc::new(ConfigHandle::with_config(
@@ -316,21 +303,11 @@ async fn run_classify_request(
     config: &ConfigHandle,
     text: &str,
 ) -> Result<(String, Vec<String>), GlossError> {
-    let snapshot = config.snapshot();
-    let model = snapshot
-        .resolved_model(snapshot.classify_fallback())
-        .ok_or_else(|| GlossError::Config("no model for classification".into()))?
-        .to_owned();
-    let allowed: Vec<TaskKind> = ALL_KINDS
-        .iter()
-        .copied()
-        .filter(|kind| kind.accepts_text())
-        .collect();
-    let messages = PromptRegistry::new().render_classify(Locale::Zh, &allowed, text);
+    let model = config.snapshot().model.clone();
+    let messages = PromptRegistry::new().render_classify(Locale::Zh, &CLASSIFY_KINDS, text);
     collect(
         engine,
         &EngineRequest {
-            kind: TaskKind::Auto,
             messages,
             model,
             max_tokens: Some(gloss_core::classify::CLASSIFY_MAX_TOKENS),
@@ -345,11 +322,7 @@ async fn run_task_request(
     config: &ConfigHandle,
     case: &TaskCase,
 ) -> Result<(String, Vec<String>), GlossError> {
-    let snapshot = config.snapshot();
-    let model = snapshot
-        .resolved_model(case.kind)
-        .ok_or_else(|| GlossError::Config("no model for this task kind".into()))?
-        .to_owned();
+    let model = config.snapshot().model.clone();
     let task = Task {
         kind: case.kind,
         input: TaskInput::Text {
@@ -365,7 +338,6 @@ async fn run_task_request(
     collect(
         engine,
         &EngineRequest {
-            kind: case.kind,
             messages,
             model,
             max_tokens: None,
@@ -381,16 +353,12 @@ async fn judge_one(
     case: &TaskCase,
     reply: &str,
 ) -> Option<u8> {
-    let model = config
-        .snapshot()
-        .resolved_model(case.kind)
-        .map(str::to_owned)?;
+    let model = config.snapshot().model.clone();
     let reference = case.reference.to_string();
     let messages = judge::render_judge(&case.text, reply, &reference);
     let (judge_reply, _) = collect(
         engine,
         &EngineRequest {
-            kind: case.kind,
             messages,
             model,
             max_tokens: Some(judge::JUDGE_MAX_TOKENS),

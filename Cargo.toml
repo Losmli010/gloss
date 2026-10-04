@@ -59,7 +59,7 @@ path = "src/main.rs"
 harness = false
 name = "overlay"
 
-# gloss-core 热点基准（criterion，四组：cache_key / parse_structured / prompt_render / moka_cache）
+# 热点基准（criterion，四组：cache_key / complete / prompt_render / task_cache）
 # 运行：just bench
 [[bench]]
 harness = false

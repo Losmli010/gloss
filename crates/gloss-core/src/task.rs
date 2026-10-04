@@ -4,14 +4,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::DEFAULT_TEXT_MODEL;
 use crate::model::{GlossError, Lang, Locale, ScreenRect};
 
 /// 任务类型：新增场景 = 加变体 + Prompt 模板 + 结构化结果变体 + UI 模板，管道不动。
-///
-/// [`TaskKind::Auto`] 是**哨兵变体**：只表达「待分类」，不对应任何 prompt
-/// 模板与产物卡。它的活动范围钉死在前半程（触发 → 分类 → 重建具体 kind），
-/// 永不进 prompt 渲染、主缓存 key 与设置任务列表（`config::ALL_KINDS` 不含
-/// 它），由测试钉住。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum TaskKind {
     /// 单词（词典式卡：音标/词性/释义/例句）。
@@ -24,9 +20,6 @@ pub enum TaskKind {
     ImageOcr,
     /// 框选图片 → 解释内容。
     ImageExplain,
-    /// 待分类（划词手势的默认起点）：由任务编排按输入内容自动分类后
-    /// **重建**为具体 kind，再进渲染与执行。
-    Auto,
 }
 
 /// 模态提示：为 prompt 填充提供上下文。
@@ -65,22 +58,35 @@ pub enum TaskInput {
 }
 
 /// 任务选项；留空的字段按配置默认值填充。
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+///
+/// 全部字段都是**单次快照冻结**的：App 在触发时按配置快照一次性解析填入，
+/// 执行途中不再回读配置。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TaskOptions {
     /// 目标语言，None = 自动检测（默认中文）。
     pub target_lang: Option<Lang>,
     /// 回答深度档位。
     pub detail_level: Option<u8>,
-    /// 本任务使用的模型：App 在触发时按 `Config::resolved_model(kind)` 解析
-    /// 填入（文本类恒有值：`model_by_kind` 命中或退出厂默认；图像类未配视觉
-    /// 模型时为 `None`，由 `gloss-app::pipeline` 明确失败，不拿文本模型去接）。
-    /// 一次任务只认这一份快照值，执行途中不再回读配置。
-    pub model_override: Option<String>,
+    /// 本任务使用的模型 id：App 在触发时按 `Config::model` 冻结进来。
+    /// 缺省值只服务测试直构（[`DEFAULT_TEXT_MODEL`]）；App 路径恒由
+    /// 状态机按配置快照填入。
+    pub model: String,
     /// 本任务使用的 prompt 模板语言：App 在触发时按 `Config::language`
     /// 解析（`System` 按启动期读到的系统语言落定）填入，缺省中文模板。
-    /// 与模型同理，一次任务只认这一份快照值；locale 参与缓存 key——换了
-    /// 模板语言后，同输入不得命中旧语言的产物。
+    /// locale 参与缓存 key——换了模板语言后，同输入不得命中旧语言的产物。
     pub prompt_locale: Option<Locale>,
+}
+
+impl Default for TaskOptions {
+    fn default() -> Self {
+        Self {
+            target_lang: None,
+            detail_level: None,
+            model: DEFAULT_TEXT_MODEL.to_owned(),
+            prompt_locale: None,
+        }
+    }
 }
 
 /// 一条待执行任务 = 类型 + 输入 + 选项。
@@ -95,45 +101,19 @@ pub struct Task {
 }
 
 impl Task {
-    /// 模态约束表校验：管道在执行前调用，非法组合直接落
-    /// `TaskFailed`，不进 prompt 与引擎。
+    /// 模态约束表校验：编排层在渲染前调用，非法组合在进 prompt 与引擎前
+    /// 拒绝。
     pub fn validate(&self) -> Result<(), GlossError> {
         validate_modality(self.kind, &self.input)
     }
 }
 
-impl TaskKind {
-    /// 该任务类型是否由**文本取材**驱动（划词路径可用的任务类型集合）。
-    /// 判据直接取自 [`validate_modality`] 的模态矩阵，不另立一份名单——
-    /// 矩阵改了这里自动跟随。
-    ///
-    /// [`TaskKind::Auto`] 恒为 `true`：它以文本输入进入编排，分类后重建为
-    /// 具体 kind——「能吃文本」说的是运输合法性，不代表它可渲染。
-    pub fn accepts_text(self) -> bool {
-        validate_modality(
-            self,
-            &TaskInput::Text {
-                text: String::new(),
-                hint: None,
-            },
-        )
-        .is_ok()
-    }
-}
-
 /// 模态约束表：任务类型与输入模态的合法组合。唯一被拒的
 /// 错误是 [`GlossError::UnsupportedModality`]。
-///
-/// `Auto + Text` 合法：哨兵以文本输入进入编排。渲染侧另有自己的收口
-/// （`PromptRegistry::render` 拒绝 Auto）——模态表管「能不能运输」，
-/// 不管「能不能渲染」。
 pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError> {
     let legal = match (kind, input) {
         (
-            TaskKind::TranslateWord
-            | TaskKind::TranslateSentence
-            | TaskKind::ExplainCode
-            | TaskKind::Auto,
+            TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode,
             TaskInput::Text { .. },
         )
         | (TaskKind::ImageOcr | TaskKind::ImageExplain, TaskInput::Image { .. }) => true,
@@ -231,6 +211,14 @@ mod tests {
     }
 
     #[test]
+    fn task_options_default_carries_the_factory_model() {
+        let options = TaskOptions::default();
+        assert_eq!(options.model, DEFAULT_TEXT_MODEL);
+        assert_eq!(options.target_lang, None);
+        assert_eq!(options.prompt_locale, None);
+    }
+
+    #[test]
     fn image_input_shares_png_bytes_via_arc() {
         let png: Arc<[u8]> = vec![0x89, b'P', b'N', b'G'].into();
         let input = TaskInput::Image {
@@ -257,16 +245,6 @@ mod tests {
             }
             other => panic!("unexpected variant: {other:?}"),
         }
-    }
-
-    #[test]
-    fn accepts_text_follows_the_modality_matrix() {
-        assert!(TaskKind::TranslateWord.accepts_text());
-        assert!(TaskKind::TranslateSentence.accepts_text());
-        assert!(TaskKind::ExplainCode.accepts_text());
-        assert!(!TaskKind::ImageOcr.accepts_text());
-        assert!(!TaskKind::ImageExplain.accepts_text());
-        assert!(TaskKind::Auto.accepts_text(), "Auto travels as text input");
     }
 
     #[test]
@@ -324,15 +302,11 @@ mod tests {
             TaskKind::ExplainCode,
             TaskKind::ImageOcr,
             TaskKind::ImageExplain,
-            TaskKind::Auto,
         ];
         let text_legal = |kind| {
             matches!(
                 kind,
-                TaskKind::TranslateWord
-                    | TaskKind::TranslateSentence
-                    | TaskKind::ExplainCode
-                    | TaskKind::Auto
+                TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode
             )
         };
         let image_legal = |kind| matches!(kind, TaskKind::ImageOcr | TaskKind::ImageExplain);
@@ -380,6 +354,7 @@ mod tests {
             },
             options: TaskOptions {
                 target_lang: Some(Lang::Ja),
+                model: "mock-model".into(),
                 ..Default::default()
             },
         };

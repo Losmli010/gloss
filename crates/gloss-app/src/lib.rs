@@ -6,7 +6,9 @@
 pub(crate) mod stubs;
 
 pub mod app;
+pub mod cache;
 pub mod channel;
+pub mod finalize;
 pub mod gpu;
 pub(crate) mod i18n;
 pub mod machine;

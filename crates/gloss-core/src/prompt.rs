@@ -1,15 +1,20 @@
 //! Prompt 模板注册表：kind + input + locale → OpenAI 兼容 messages。
 //!
-//! 文本任务 3 个模板（词卡/句译/代码解释）统一输出契约：markdown 正文 +
-//! 末尾 ```gloss 围栏 JSON 块（按 kind 携带 [`crate::task::OutcomeStructured`]
-//! 的结构化字段），供任务编排解析——正文给人读，JSON 给 UI 精排。
-//! 图像/音频输入一律 [`GlossError::UnsupportedModality`]，
-//! 不发出注定无效的请求。
+//! 文本任务 3 个模板（词卡/句译/代码解释）统一**纯 JSON 输出契约**：模型
+//! 的整个回复是一个 JSON 对象——`body` 字段（markdown 正文）放首位，其后
+//! 按 kind 携带 [`crate::task::OutcomeStructured`] 的结构化字段。正文给人
+//! 读，JSON 给 UI 精排。图像/音频输入一律
+//! [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
+//!
+//! [`STRUCTURED_FENCE`] 是**旧契约的围栏标记**，只服务两处兼容位：分类
+//! 回复的围栏容错提取（`classify::parse_classify_reply`）与完成态解析的
+//! 围栏 fallback（`gloss_app::finalize`，模型跑偏输出旧契约时兜底）——
+//! 现行任务 prompt 不再要求围栏。
 //!
 //! 模板文本是编译期嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，
 //! `include_str!`），渲染是显式的 `{{占位符}}` 替换（可选行语义见
-//! [`render_template`]）；输出契约的 schema JSON 留在代码里，与
-//! [`crate::task::OutcomeStructured`] 的解析器同源。
+//! [`render_template`]）；输出契约的 schema JSON 留在代码里，与完成态
+//! 解析器同源（见模块尾注）。
 //!
 //! 模板内容面向模型，用各 locale 的语言书写，不受「日志一律英文」门禁约束
 //! （`just constraints` 只查日志宏实参）。
@@ -25,10 +30,14 @@ use crate::task::{InputHint, Task, TaskInput, TaskKind, TaskOptions, validate_mo
 /// 目标语言缺省值（`TaskOptions::target_lang` 文档：缺省中文）。
 const DEFAULT_TARGET: Lang = Lang::Zh;
 
-/// 结构化 JSON 块的围栏标记：正文之后模型按此契约追加结构化字段；
-/// 编排侧（engine）按同一标记解析，UI 侧流式渲染按它过滤未完成的
-/// 结构化块——三处共用单一事实源。
+/// 旧契约的结构化围栏标记：模型按旧契约把结构化 JSON 追加在正文之后的
+/// ` ```gloss … ``` ` 块里。现行契约是纯 JSON 对象，本标记只剩兼容位——
+/// 分类回复的容错提取与完成态的围栏 fallback 解析共用（单一事实源）。
 pub const STRUCTURED_FENCE: &str = "```gloss";
+
+/// 分类输出契约的 schema：只示范形状，值用中性占位——写死某个具体 kind
+/// 会形成少样本偏置，模型照抄示例类别的比例随示例显著性上升。
+pub(crate) const CLASSIFY_SCHEMA: &str = r#"{"kind":"…"}"#;
 
 /// 一个 locale 的模板文件集：三个文本 kind 的指令 + 输出契约散文 + 模态
 /// 提示行片段 + 分类指令。契约与提示行抽成片段而不是抄进三个指令：抄写
@@ -121,14 +130,7 @@ impl PromptRegistry {
     /// 返回 [`GlossError::UnsupportedModality`]。模板语言取任务自带的
     /// `options.prompt_locale`（缺省中文）——与模型、目标语言一样，一次
     /// 任务只认触发时定下的那一份。
-    ///
-    /// [`TaskKind::Auto`] 在这里被显式拒绝（[`GlossError::ClassifyRequired`]）：
-    /// 模态矩阵放行它的运输，但渲染不存在「待分类」的模板——走到这里
-    /// 说明编排没把分类做在前半程。
     pub fn render(&self, task: &Task) -> Result<Vec<ChatMessage>, GlossError> {
-        if task.kind == TaskKind::Auto {
-            return Err(GlossError::ClassifyRequired);
-        }
         validate_modality(task.kind, &task.input)?;
         let TaskInput::Text { text, hint } = &task.input else {
             // 图像模板随图像任务落地；音频是预留模态，模态校验已拦，
@@ -138,13 +140,7 @@ impl PromptRegistry {
         let locale = task.options.prompt_locale.unwrap_or_default();
         let templates = locale.templates();
         let hint_lines = hint_block(templates.hints, hint.as_ref(), locale);
-        let contract = render_template(
-            templates.contract,
-            &[
-                ("fence", STRUCTURED_FENCE),
-                ("schema", schema_json(task.kind)),
-            ],
-        );
+        let contract = render_template(templates.contract, &[("schema", schema_json(task.kind))]);
         let target = target_display(&task.options, locale);
         let system = render_template(
             instruction_template(templates, task.kind),
@@ -162,12 +158,11 @@ impl PromptRegistry {
 
     /// 渲染**分类请求**的 messages：系统指令来自 classify 模板（任务说明、
     /// 允许清单、判别规则、输出契约），用户消息只有待分类原文。与任务渲染
-    /// 的分工：分类不走 `render`（那是 Task 的路径，Auto 在那里被拒绝），
-    /// 输出契约见 [`schema_json`] 的 Auto 臂。
+    /// 的分工：分类不走 `render`（那是任务的路径），输出契约见
+    /// [`CLASSIFY_SCHEMA`]。
     ///
-    /// `allowed` 是允许模型选择的任务类型清单（调用方按
-    /// 「text-capable ∩ enabled」算好传入）；清单里的 [`TaskKind::Auto`]
-    /// 不渲染（哨兵不是可选答案）。
+    /// `allowed` 是允许模型选择的任务类型清单（编排传
+    /// [`crate::classify::CLASSIFY_KINDS`]）。
     pub fn render_classify(
         &self,
         locale: Locale,
@@ -182,7 +177,7 @@ impl PromptRegistry {
             &[
                 ("allowed", &allowed_block),
                 ("rules", &rules_block),
-                ("schema", schema_json(TaskKind::Auto)),
+                ("schema", CLASSIFY_SCHEMA),
             ],
         );
         vec![ChatMessage::system(system), ChatMessage::user(text)]
@@ -191,7 +186,6 @@ impl PromptRegistry {
 
 /// 允许清单的渲染块：每个 kind 一行「serde 标识 — 一句话判据」。标识是
 /// 模型要原样输出的契约值，判据给它选择的依据；语言随 locale。
-/// [`TaskKind::Auto`] 不是可选答案，跳过。
 fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
     let mut lines = Vec::new();
     for kind in allowed {
@@ -219,7 +213,6 @@ fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
             }
             (TaskKind::ImageOcr, Locale::En) => "an image to extract text from",
             (TaskKind::ImageExplain, Locale::En) => "an image to explain",
-            (TaskKind::Auto, _) => continue,
         };
         lines.push(format!("{kind:?} — {description}"));
     }
@@ -273,8 +266,7 @@ fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
         TaskKind::TranslateSentence => templates.sentence,
         TaskKind::ExplainCode => templates.code,
         // 图像 kind 走不到这里：render 已把非文本输入收口。
-        // Auto 同样走不到：render 在模态表之前就拒绝了它。
-        TaskKind::ImageOcr | TaskKind::ImageExplain | TaskKind::Auto => "",
+        TaskKind::ImageOcr | TaskKind::ImageExplain => "",
     }
 }
 
@@ -349,25 +341,19 @@ fn user_content(text: &str, hint_lines: &str) -> String {
     }
 }
 
-/// 输出契约的字段 schema：与 [`crate::task::OutcomeStructured`] 的解析器
-/// 同源，故留在代码里（见模块文档）；字段名是给解析器的契约，示例值是给
-/// 模型的提示，因此不随 prompt locale 变——契约只有一份，改 schema 的人
-/// 面前不会出现两份措辞。
-///
-/// [`TaskKind::Auto`] 臂是**分类**的输出契约（`classify` 模块按它解析）：
-/// 只回一个 kind 标识，不带任何理由字段——理由会把选区内容带进模型回复，
-/// 而回复会进日志面。
+/// 输出契约的字段 schema：与完成态解析器同源，故留在代码里（见模块尾注）；
+/// 字段名是给解析器的契约，示例值是给模型的提示，因此不随 prompt locale
+/// 变——契约只有一份，改 schema 的人面前不会出现两份措辞。`body` 恒在
+/// 首位：流式显示按 JSON 的字段序渐进提取正文，body 靠前才能尽早亮出。
 pub(crate) fn schema_json(kind: TaskKind) -> &'static str {
     match kind {
         TaskKind::TranslateWord => {
-            r#"{"word":"词条原文","phonetic":"音标或 null","senses":[{"pos":"词性或 null","meaning":"释义","examples":["例句"]}]}"#
+            r#"{"body":"markdown 正文","word":"词条原文","phonetic":"音标或 null","senses":[{"pos":"词性或 null","meaning":"释义","examples":["例句"]}]}"#
         }
-        TaskKind::TranslateSentence | TaskKind::ExplainCode => r#"{"title":"一句话摘要或 null"}"#,
-        TaskKind::ImageOcr => r#"{"text":"提取的纯文本"}"#,
-        TaskKind::ImageExplain => r#"{"title":"一句话摘要或 null"}"#,
-        // 分类契约只示范形状：值用中性占位——写死某个具体 kind 会形成
-        // 少样本偏置，模型照抄示例类别的比例随示例显著性上升。
-        TaskKind::Auto => r#"{"kind":"…"}"#,
+        TaskKind::TranslateSentence | TaskKind::ExplainCode | TaskKind::ImageExplain => {
+            r#"{"body":"markdown 正文","title":"一句话摘要或 null"}"#
+        }
+        TaskKind::ImageOcr => r#"{"body":"markdown 正文","text":"提取的纯文本"}"#,
     }
 }
 
@@ -483,8 +469,9 @@ mod tests {
                 messages[0].content
             );
             assert!(
-                messages[0].content.contains(STRUCTURED_FENCE),
-                "{kind:?} must carry the structured output contract"
+                messages[0].content.contains("\"body\""),
+                "{kind:?} must carry the pure-JSON output contract: {}",
+                messages[0].content
             );
         }
     }
@@ -503,6 +490,25 @@ mod tests {
             .render(&text_task(TaskKind::ExplainCode, "fn main() {}", None))
             .expect("render");
         assert!(plain[0].content.contains("\"title\""));
+    }
+
+    #[test]
+    fn body_is_the_first_contract_field_for_every_kind() {
+        for kind in [
+            TaskKind::TranslateWord,
+            TaskKind::TranslateSentence,
+            TaskKind::ExplainCode,
+        ] {
+            let schema = schema_json(kind);
+            let value: serde_json::Value =
+                serde_json::from_str(schema).unwrap_or_else(|err| panic!("{kind:?}: {err}"));
+            let keys = value.as_object().expect("schema object");
+            assert_eq!(
+                keys.keys().next(),
+                Some(&"body".to_owned()),
+                "{kind:?}: body must lead the schema for progressive streaming extraction"
+            );
+        }
     }
 
     #[test]
@@ -548,7 +554,7 @@ mod tests {
                     messages[0].content
                 );
                 assert!(messages[0].content.contains(&expected));
-                assert!(messages[0].content.contains(STRUCTURED_FENCE));
+                assert!(messages[0].content.contains("\"body\""));
             }
         }
     }
@@ -637,19 +643,13 @@ mod tests {
             assert_eq!(messages[1].content, "gloss 原文");
             assert!(messages[0].content.contains("TranslateWord"), "{locale:?}");
             assert!(messages[0].content.contains("ExplainCode"));
-            assert!(
-                !messages[0].content.contains("Auto"),
-                "the sentinel is never offered as an answer: {}",
-                messages[0].content
-            );
             assert!(messages[0].content.contains("\"kind\""));
             assert!(!messages[0].content.contains("{{"));
         }
     }
 
     #[test]
-    fn auto_schema_is_a_neutral_placeholder() {
-        let schema = schema_json(TaskKind::Auto);
+    fn classify_schema_is_a_neutral_placeholder() {
         for kind in [
             TaskKind::TranslateWord,
             TaskKind::TranslateSentence,
@@ -657,7 +657,7 @@ mod tests {
         ] {
             let serde_name = format!("{kind:?}");
             assert!(
-                !schema.contains(&serde_name),
+                !CLASSIFY_SCHEMA.contains(&serde_name),
                 "the classify contract must not name a concrete kind ({serde_name}): \
                  the example is a few-shot bias"
             );
@@ -695,17 +695,6 @@ mod tests {
         assert!(!zh.contains("命令行"));
         assert!(!zh.contains("判别规则"), "{zh}");
         assert!(!zh.contains("{{"), "{zh}");
-    }
-
-    #[test]
-    fn render_rejects_the_auto_sentinel() {
-        let registry = PromptRegistry::new();
-        let task = text_task(TaskKind::Auto, "待分类", None);
-        assert_eq!(
-            registry.render(&task),
-            Err(GlossError::ClassifyRequired),
-            "Auto must be classified before it can render"
-        );
     }
 
     #[test]
@@ -767,7 +756,6 @@ mod tests {
             "target",
             "hint",
             "contract",
-            "fence",
             "schema",
             "code_lang",
             "source_lang",
@@ -828,8 +816,13 @@ mod tests {
                         );
                     }
                     assert!(
-                        messages[0].content.contains(STRUCTURED_FENCE),
-                        "{locale:?} x {kind:?} must carry the structured contract"
+                        messages[0].content.contains("\"body\""),
+                        "{locale:?} x {kind:?} must carry the pure-JSON contract"
+                    );
+                    assert!(
+                        !messages[0].content.contains(STRUCTURED_FENCE),
+                        "{locale:?} x {kind:?}: the fence is legacy-fallback only and must not \
+                         appear in the current prompt"
                     );
                 }
             }
@@ -847,7 +840,7 @@ mod tests {
         let messages = registry.render(&task).expect("render");
         assert!(messages[0].content.contains("translation assistant"));
         assert!(messages[0].content.contains("Source language: French"));
-        assert!(messages[0].content.contains("JSON block"));
+        assert!(messages[0].content.contains("JSON object"));
         assert!(messages[1].content.contains("Source language: French"));
         assert!(!messages[0].content.contains("翻译助手"));
     }

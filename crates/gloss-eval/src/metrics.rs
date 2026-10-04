@@ -1,16 +1,16 @@
 //! 评分器：把「回复原文 + 期望」折算成确定性指标。
 //!
-//! 全部走生产解析函数（[`gloss_core::classify::parse_classify_reply`] /
-//! [`gloss_core::engine::finalize_outcome`]），评测数字度量的是生产行为
-//! 而不是评测自己的另一套解析。本模块是纯函数集，runner 与单测共用。
+//! 分类轨走生产校验器（[`gloss_core::classify::parse_classify_reply`]）；
+//! 任务轨的完成态判定**镜像生产语义**（gloss-app 的 JSON 主路径 + 旧围栏
+//! fallback）——eval 受依赖方向约束不能消费 gloss-app，这里按同一条规则
+//! 重写并由测试对齐两侧语义。本模块是纯函数集，runner 与单测共用。
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use gloss_core::engine::finalize_outcome;
 use gloss_core::prompt::STRUCTURED_FENCE;
-use gloss_core::task::{OutcomeStructured, TaskKind};
+use gloss_core::task::{OutcomeStructured, Sense, TaskKind};
 
 use crate::dataset::{TaskCase, required_fields};
 
@@ -65,64 +65,155 @@ impl ClassifyMetrics {
 /// 任务回复的契约达成情况（比「解析成功与否」细：四个指标各自独立）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaskVerdict {
-    /// 回复里出现了结构化围栏标记。
-    pub fence_present: bool,
-    /// 围栏内的 JSON 可解析（围栏在场才可能为真）。
-    pub json_parseable: bool,
-    /// 契约必需字段全部在场（JSON 可解析才可能为真）。
+    /// 回复是符合现行契约的 JSON 对象（生产完成态解析的主路径命中）。
+    pub json_object: bool,
+    /// JSON 对象携带 `body` 正文（主路径在场的必要项）。
+    pub body_present: bool,
+    /// kind 的契约必需结构化字段全部在场（JSON 对象在场才可能为真）。
     pub fields_complete: bool,
-    /// 生产解析结果（与 UI 收到的产物同源）。
+    /// 生产解析结果（与 UI 收到的产物同源，含围栏 fallback 的降级形态）。
     pub outcome: OutcomeStructured,
 }
 
 impl TaskVerdict {
     /// 按 [`TaskCase`] 的 kind 与回复原文逐级判定。
     ///
-    /// 围栏提取取**最后一个**围栏（镜像生产 `parse_structured` 的 rfind
-    /// 语义）；分类轨走生产 `parse_classify_reply`（首个围栏），各自与
-    /// 生产同源。
+    /// 判定镜像生产完成态解析（gloss-app `finalize::complete`）：整段
+    /// 回复解析为 JSON 对象且带 `body` 即主路径；否则退围栏 fallback
+    /// （取**最后一个**围栏，镜像生产的 rfind 语义）。
     pub fn for_reply(case: &TaskCase, reply: &str) -> Self {
-        let fence_present = reply.contains(STRUCTURED_FENCE);
-        let parsed = fenced_json(reply)
-            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok());
-        let json_parseable = parsed.is_some();
+        let parsed = serde_json::from_str::<serde_json::Value>(reply.trim()).ok();
+        let json_object = parsed.is_some();
+        let body_present = parsed
+            .as_ref()
+            .and_then(|value| value.get("body"))
+            .and_then(|body| body.as_str())
+            .is_some();
         let fields_complete = parsed.as_ref().is_some_and(|value| {
             required_fields(case.kind)
                 .iter()
                 .all(|key| value.get(*key).is_some())
         });
-        let outcome = finalize_outcome(case.kind, reply).structured;
+        let outcome = mirror_complete(case.kind, reply);
         Self {
-            fence_present,
-            json_parseable,
+            json_object,
+            body_present,
             fields_complete,
             outcome,
         }
     }
 
-    /// 降级判定：围栏缺失 / JSON 不可解析 / 必需字段不全，三者任一即视为
-    /// 降级。从严于生产的**接受**条件：生产 `parse_structured` 对缺
-    /// `word`（空串兜底）或缺 `title`（None 兜底）仍给出结构化产物，而
-    /// 本判定按 prompt 输出契约记为降级——指标度量的是「模型有没有按
-    /// 契约输出」，不是「生产有没有兜住」。
+    /// 降级判定：回复不是契约 JSON 对象或缺必需字段。存量围栏夹具（旧
+    /// 契约录制）天然落降级轨——生产对它们有 fallback 兜底，指标度量的是
+    /// 「模型有没有按现行契约输出」。
     pub fn degraded(&self) -> bool {
-        !(self.fence_present && self.json_parseable && self.fields_complete)
+        !(self.json_object && self.body_present && self.fields_complete)
     }
 }
 
-/// 任务指标：围栏在场率 / JSON 可解析率 / 字段完整率 / 降 Plain 率。
+/// 生产完成态解析的镜像（JSON 主路径 + 围栏 fallback → 结构化字段）。
+/// 与 gloss-app `finalize` 同一条规则：`body` 缺失退围栏；坏 sense 条目
+/// 跳过；字段缺失按 kind 兜底。
+fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(reply.trim())
+        && value.get("body").and_then(|body| body.as_str()).is_some()
+    {
+        return match kind {
+            TaskKind::TranslateWord => OutcomeStructured::WordCard {
+                word: text_field(&value, "word").unwrap_or_default(),
+                phonetic: text_field(&value, "phonetic"),
+                senses: mirror_senses(value.get("senses")).unwrap_or_default(),
+            },
+            TaskKind::ImageOcr => OutcomeStructured::Extracted {
+                text: text_field(&value, "text").unwrap_or_default(),
+            },
+            _ => OutcomeStructured::Plain {
+                title: text_field(&value, "title"),
+            },
+        };
+    }
+    let fallback = || match kind {
+        TaskKind::ImageOcr => OutcomeStructured::Extracted {
+            text: reply.to_owned(),
+        },
+        _ => OutcomeStructured::Plain { title: None },
+    };
+    let Some(start) = reply.rfind(STRUCTURED_FENCE) else {
+        return fallback();
+    };
+    let after_marker = &reply[start + STRUCTURED_FENCE.len()..];
+    let Some(end_rel) = after_marker.find("```") else {
+        return fallback();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(after_marker[..end_rel].trim())
+    else {
+        return fallback();
+    };
+    match kind {
+        TaskKind::TranslateWord => {
+            let Some(senses) = mirror_senses(value.get("senses")) else {
+                return fallback();
+            };
+            OutcomeStructured::WordCard {
+                word: text_field(&value, "word").unwrap_or_default(),
+                phonetic: text_field(&value, "phonetic"),
+                senses,
+            }
+        }
+        TaskKind::ImageOcr => match text_field(&value, "text") {
+            Some(text) => OutcomeStructured::Extracted { text },
+            None => fallback(),
+        },
+        _ => OutcomeStructured::Plain {
+            title: text_field(&value, "title"),
+        },
+    }
+}
+
+/// 释义数组的镜像解析：meaning 缺失/非字符串的坏条目跳过；字段整体缺失
+/// 返回 `None`（与生产同语义：word kind 围栏路径据此落 kind 兜底）。
+fn mirror_senses(value: Option<&serde_json::Value>) -> Option<Vec<Sense>> {
+    let entries = value?.as_array()?;
+    let senses = entries
+        .iter()
+        .filter_map(|entry| {
+            Some(Sense {
+                pos: text_field(entry, "pos"),
+                meaning: text_field(entry, "meaning")?,
+                examples: entry
+                    .get("examples")
+                    .and_then(|v| v.as_array())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|v| v.as_str().map(str::to_owned))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
+        })
+        .collect();
+    Some(senses)
+}
+
+/// 取字符串字段；JSON null 与缺失同样返回 None。
+fn text_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    value.get(key).and_then(|v| v.as_str()).map(str::to_owned)
+}
+
+/// 任务指标：契约 JSON 率 / body 在场率 / 字段完整率 / 降级率。
 #[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct TaskMetrics {
     /// 进入统计的条数。
     pub evaluated: usize,
-    /// 围栏在场数。
-    pub fence_present: usize,
-    /// 围栏 JSON 可解析数。
-    pub json_parseable: usize,
+    /// 回复是契约 JSON 对象的条数。
+    pub json_object: usize,
+    /// JSON 对象带 `body` 正文的条数。
+    pub body_present: usize,
     /// 必需字段完整数。
     pub fields_complete: usize,
     /// 降级数（见 [`TaskVerdict::degraded`]）。live 轨的任务请求失败也
-    /// 记入此处——降 Plain 率因此混入传输失败（与分类轨单列
+    /// 记入此处——降级率因此混入传输失败（与分类轨单列
     /// engine_errors 不同），读数时注意。
     pub degraded: usize,
 }
@@ -131,20 +222,20 @@ impl TaskMetrics {
     /// 记入一个判定。
     pub fn record(&mut self, verdict: &TaskVerdict) {
         self.evaluated += 1;
-        self.fence_present += usize::from(verdict.fence_present);
-        self.json_parseable += usize::from(verdict.json_parseable);
+        self.json_object += usize::from(verdict.json_object);
+        self.body_present += usize::from(verdict.body_present);
         self.fields_complete += usize::from(verdict.fields_complete);
         self.degraded += usize::from(verdict.degraded());
     }
 
-    /// 围栏在场率。
-    pub fn fence_rate(&self) -> f64 {
-        ratio(self.fence_present, self.evaluated)
+    /// 契约 JSON 率。
+    pub fn json_rate(&self) -> f64 {
+        ratio(self.json_object, self.evaluated)
     }
 
-    /// JSON 可解析率。
-    pub fn parse_rate(&self) -> f64 {
-        ratio(self.json_parseable, self.evaluated)
+    /// body 在场率。
+    pub fn body_rate(&self) -> f64 {
+        ratio(self.body_present, self.evaluated)
     }
 
     /// 字段完整率。
@@ -152,7 +243,7 @@ impl TaskMetrics {
         ratio(self.fields_complete, self.evaluated)
     }
 
-    /// 降级率（模型没按结构化契约输出的比例）。
+    /// 降级率（模型没按现行契约输出的比例）。
     pub fn degraded_rate(&self) -> f64 {
         ratio(self.degraded, self.evaluated)
     }
@@ -232,28 +323,6 @@ fn first_fenced_json(reply: &str) -> Option<&str> {
     Some(content[..end].trim())
 }
 
-/// 提取围栏内 JSON：取**最后一个** ``` 围栏（```gloss 或 ```json，语言
-/// 标识行跳过）——镜像生产 `parse_structured` 的 rfind 语义。无围栏返回
-/// `None`。
-fn fenced_json(reply: &str) -> Option<&str> {
-    let start = reply
-        .rfind(STRUCTURED_FENCE)
-        .map(|pos| pos + STRUCTURED_FENCE.len());
-    let after_marker = match start {
-        Some(pos) => &reply[pos..],
-        None => {
-            let pos = reply.rfind("```")?;
-            &reply[pos + 3..]
-        }
-    };
-    let content = match after_marker.find('\n') {
-        Some(line_end) => &after_marker[line_end + 1..],
-        None => after_marker,
-    };
-    let end = content.find("```")?;
-    Some(content[..end].trim())
-}
-
 fn ratio(numerator: usize, denominator: usize) -> f64 {
     if denominator == 0 {
         0.0
@@ -311,27 +380,47 @@ mod tests {
         let case = word_case();
         let good = TaskVerdict::for_reply(
             &case,
-            "正文\n```gloss\n{\"word\":\"gloss\",\"phonetic\":null,\"senses\":[]}\n```",
+            r#"{"body":"正文","word":"gloss","phonetic":null,"senses":[]}"#,
         );
         assert!(!good.degraded(), "complete contract is not degraded");
-        assert!(good.fields_complete);
+        assert!(good.json_object && good.body_present && good.fields_complete);
 
-        let no_fence = TaskVerdict::for_reply(&case, "只有正文");
-        assert!(no_fence.degraded());
-        assert!(!no_fence.fence_present);
+        let plain = TaskVerdict::for_reply(&case, "只有正文");
+        assert!(plain.degraded());
+        assert!(!plain.json_object);
         assert!(
-            matches!(no_fence.outcome, OutcomeStructured::Plain { title: None }),
-            "production outcome degrades to Plain for word kind without the fence"
+            matches!(plain.outcome, OutcomeStructured::Plain { title: None }),
+            "production outcome degrades to Plain for word kind without any contract"
         );
 
-        let bad_json = TaskVerdict::for_reply(&case, "正文\n```gloss\n{broken\n```");
-        assert!(bad_json.fence_present && !bad_json.json_parseable && bad_json.degraded());
+        let bad_json = TaskVerdict::for_reply(&case, r#"{"body":"正文","word":"gloss""#);
+        assert!(!bad_json.json_object && bad_json.degraded());
+    }
+
+    #[test]
+    fn legacy_fence_reply_falls_back_like_production() {
+        let case = word_case();
+        let fence = TaskVerdict::for_reply(
+            &case,
+            "正文\n```gloss\n{\"word\":\"gloss\",\"senses\":[]}\n```",
+        );
+        assert!(fence.degraded(), "the old contract is a degraded reply");
+        assert!(
+            matches!(&fence.outcome, OutcomeStructured::WordCard { word, .. } if word == "gloss"),
+            "production still assembles a complete card via the fence fallback"
+        );
+
+        let no_fence = TaskVerdict::for_reply(&case, "只有正文");
+        assert!(
+            matches!(no_fence.outcome, OutcomeStructured::Plain { title: None }),
+            "the kind fallback keeps the whole raw text as the body"
+        );
     }
 
     #[test]
     fn field_completeness_requires_the_contract_keys() {
         let case = word_case();
-        let missing_senses = TaskVerdict::for_reply(&case, "```gloss\n{\"word\":\"gloss\"}\n```");
+        let missing_senses = TaskVerdict::for_reply(&case, r#"{"body":"正文","word":"gloss"}"#);
         assert!(!missing_senses.fields_complete && missing_senses.degraded());
     }
 

@@ -17,9 +17,11 @@
 //! 走 markdown（egui_commonmark 渲染；注区统一改写文本样式为楷体字号）。
 //! 划选即复制：全部文本可选中，无独立复制按钮。正文完整渲染不截断，高度
 //! 自适应内容（宽度默认 380、上限 480，高度上限按屏幕），超出部分滚动兜底。
-//! 流式视图按 [`STRUCTURED_FENCE`] 从**首个**围栏标记起整段截断（围栏后是
-//! 模型在写结构化 JSON，一个字节都不该闪现；跨 chunk 切分出的残缺围栏前缀
-//! 可能短暂显示，随下一 chunk 自愈）。
+//! 流式视图对累积的原始流做**转义感知**的 `body` 渐进提取（现行输出契约是
+//! 纯 JSON 对象，见 `gloss_core::prompt`）：`body` 键未到齐时正文区落骨架、
+//! 页脚保留「正在注解」；旧契约（markdown + 围栏）不含 `body` 键，全程进度
+//! 态，完成态由 finalize 的围栏 fallback 兜住。正文一律换行排版：代码面板
+//! 等宽折行、markdown 由 egui_commonmark 按可用宽折行，横滚不进弹窗。
 //!
 //! 页头回归品牌：只有应用图标与动作区（⚙/×），任务与状态由内容层自明，
 //! 页头不带任何标签药丸；行下发丝线与页脚上缘线呼应成卡片的上下界。
@@ -45,7 +47,6 @@ use egui::{
 };
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use gloss_core::log::{thread, warn};
-use gloss_core::prompt::STRUCTURED_FENCE;
 use gloss_core::task::{OutcomeStructured, TaskKind};
 
 use super::code_hl;
@@ -427,9 +428,10 @@ fn render_content(
             ui.add_space(space::PARAGRAPH);
             // ScrollArea 内容起点 = cursor（egui 的 cursor 停在前序内容底边
             // 加一个 item_spacing 处），从这里起算正文完整高。
-            let visible = stream_visible_body(body);
+            let visible = stream_body(body);
             let viewport_max = (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT);
-            let scrolled = ScrollArea::new([code, true])
+            // 只纵向滚动：正文一律换行，横滚不进弹窗（长行由折行兜住）。
+            let scrolled = ScrollArea::new([false, true])
                 .auto_shrink([false, true])
                 .max_height(viewport_max)
                 .show(ui, |ui| {
@@ -439,7 +441,7 @@ fn render_content(
                     } else {
                         zhu_section(ui, text, |ui| {
                             apply_zhu_typography(ui);
-                            render_markdown(ui, state, visible);
+                            render_markdown(ui, state, &visible);
                         });
                     }
                 });
@@ -456,7 +458,8 @@ fn render_content(
             let (action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
             let viewport_max = (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT);
-            let scrolled = ScrollArea::new([is_code(Some(outcome.kind)), true])
+            // 只纵向滚动：与流式视图同规，代码正文按可用宽折行。
+            let scrolled = ScrollArea::new([false, true])
                 .auto_shrink([false, true])
                 .max_height(viewport_max)
                 .show(ui, |ui| {
@@ -834,16 +837,12 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
             ))
             .show(ui, |ui| {
                 code_badge(ui, code_lang);
-                // 不换行：超宽由面板内横向滚动兜底（流式视图的经位
-                // 在正文 ScrollArea 之外，横向滚动必须自己带）。
-                ScrollArea::horizontal()
-                    .auto_shrink([false, true])
-                    .show(ui, |ui| {
-                        let dark = ui.visuals().dark_mode;
-                        let job = code_job(source, code_lang, dark);
-                        let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
-                        ui.add(egui::Label::new(egui::WidgetText::Galley(galley)).selectable(true));
-                    });
+                // 等宽折行：超宽按可用宽换行（经位在正文 ScrollArea 之外，
+                // 没有外层滚动区兜底，横滚不进弹窗）。
+                let dark = ui.visuals().dark_mode;
+                let job = code_job(source, code_lang, dark, ui.available_width());
+                let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+                ui.add(egui::Label::new(egui::WidgetText::Galley(galley)).selectable(true));
             });
         return;
     }
@@ -859,9 +858,15 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
 }
 
 /// 代码正文的着色排版：单趟正则切类别，逐段出 [`egui::text::LayoutJob`]
-/// （六类色 + 注释斜体，明暗随主题取 demo token）。不换行、按行断开、
-/// 行高 1.65；标记间的间隙与尾部都补平文段，正文整段可被选中复制。
-fn code_job(source: &str, code_lang: Option<&str>, dark: bool) -> egui::text::LayoutJob {
+/// （六类色 + 注释斜体，明暗随主题取 demo token）。按可用宽折行（长 token
+/// 允许任意字符处断行，保证不超面板宽）、按行断开、行高 1.65；标记间的
+/// 间隙与尾部都补平文段，正文整段可被选中复制。
+fn code_job(
+    source: &str,
+    code_lang: Option<&str>,
+    dark: bool,
+    wrap_width: f32,
+) -> egui::text::LayoutJob {
     let font_id = FontId::new(CODE_FONT, fonts::mono_family());
     let plain = egui::TextFormat {
         line_height: Some(CODE_LINE_HEIGHT),
@@ -869,7 +874,11 @@ fn code_job(source: &str, code_lang: Option<&str>, dark: bool) -> egui::text::La
     };
     let mut job = egui::text::LayoutJob {
         text: source.to_owned(),
-        wrap: egui::text::TextWrapping::no_max_width(),
+        wrap: egui::text::TextWrapping {
+            max_width: wrap_width,
+            break_anywhere: true,
+            ..egui::text::TextWrapping::no_max_width()
+        },
         break_on_newline: true,
         ..egui::text::LayoutJob::default()
     };
@@ -1077,16 +1086,61 @@ fn icon_button(glyph: &'static str) -> egui::Button<'static> {
         .min_size(vec2(ACTION_BUTTON, ACTION_BUTTON))
 }
 
-/// 流式正文的可见部分：从**首个**结构化围栏标记起整段截断。模型按契约
-/// 先写完正文再写围栏 JSON，围栏一出现其后全是结构化载荷；取首个而不是
-/// 末个，模型跑偏（正文里提前出现围栏标记后继续写正文）时同样被拦在
-/// 围栏外。与完成态 core 侧的剥离（`finalize_outcome`）共用
-/// [`STRUCTURED_FENCE`] 单点，两侧各一处实现。
-fn stream_visible_body(body: &str) -> &str {
-    match body.find(STRUCTURED_FENCE) {
-        Some(pos) => &body[..pos],
-        None => body,
+/// 流式正文的可见部分：对累积的原始流做**转义感知**的 `body` 渐进提取，
+/// 返回已到达内容的反转义前缀。现行输出契约是纯 JSON 对象且 `body` 恒为
+/// 首个字段（见 `gloss_core::prompt`）：对象未开、`"body"` 键或值未到齐时
+/// 返回空串——正文区落骨架，页脚保留「正在注解」进度态。值到齐后按 JSON
+/// 字符串转义规则逐段反转义；残缺的转义序列（尾部孤反斜杠、不足四位的
+/// `\uXXXX`）本帧丢弃、下一帧补齐，UTF-16 代理对在流式期暂缺（完成态以
+/// `outcome.body` 为权威源）。旧契约（markdown + 围栏）不含 `body` 键，
+/// 全程进度态，由 finalize 的围栏 fallback 在完成态兜住。
+fn stream_body(raw: &str) -> String {
+    const KEY: &str = "\"body\"";
+    let Some(rest) = raw.trim_start().strip_prefix('{') else {
+        return String::new();
+    };
+    let Some(after_key) = rest.trim_start().strip_prefix(KEY) else {
+        // 键未到齐（部分前缀）或首个完整键不是 body（契约违例）：一律
+        // 进度态——前者下一帧自愈，后者等完成态的 fallback。
+        return String::new();
+    };
+    let Some(value) = after_key
+        .trim_start()
+        .strip_prefix(':')
+        .and_then(|rest| rest.trim_start().strip_prefix('"'))
+    else {
+        return String::new();
+    };
+
+    let mut out = String::new();
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => break,
+            '\\' => match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('b') => out.push('\u{0008}'),
+                Some('f') => out.push('\u{000C}'),
+                Some('u') => {
+                    let hex: String = chars.by_ref().take(4).collect();
+                    if hex.chars().count() < 4 {
+                        break;
+                    }
+                    if let Ok(code) = u32::from_str_radix(&hex, 16)
+                        && let Some(decoded) = char::from_u32(code)
+                    {
+                        out.push(decoded);
+                    }
+                }
+                Some(escaped) => out.push(escaped),
+                None => break,
+            },
+            other => out.push(other),
+        }
     }
+    out
 }
 
 /// markdown 正文：完整渲染（egui_commonmark 解析绘制），缓存跨帧持有。
@@ -1299,8 +1353,8 @@ fn selfcheck_body(ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::{
-        APP_ICON_PNG, MAX_WIDTH, WIDTH, decode_app_icon, example_lines, resolve_width,
-        stream_visible_body, watermark,
+        APP_ICON_PNG, MAX_WIDTH, WIDTH, decode_app_icon, example_lines, resolve_width, stream_body,
+        watermark,
     };
 
     #[test]
@@ -1344,27 +1398,69 @@ mod tests {
     }
 
     #[test]
-    fn stream_visible_body_truncates_from_the_first_fence() {
+    fn stream_body_extracts_the_json_body_progressively() {
         assert_eq!(
-            stream_visible_body("正文一\n```gloss\n{\"title\":\"x\"}\n```\n正文二"),
-            "正文一\n",
-            "everything from the first fence on is hidden, including later prose"
+            stream_body(r#"{"body":"正文一\n正文二","title":"x"}"#),
+            "正文一\n正文二",
+            "escapes decode and the value stops at the closing quote"
         );
+        assert_eq!(stream_body(""), "");
         assert_eq!(
-            stream_visible_body("没有围栏的正文"),
-            "没有围栏的正文",
-            "no fence means the whole body is visible"
-        );
-        assert_eq!(stream_visible_body(""), "");
-        assert_eq!(
-            stream_visible_body("```gloss\n{\"title\":\"x\"}"),
+            stream_body("plain markdown"),
             "",
-            "a body that opens with the fence shows nothing"
+            "non-JSON stays in progress"
+        );
+        assert_eq!(stream_body("{"), "");
+        assert_eq!(stream_body(r#"{"bod"#), "", "a partial key keeps waiting");
+        assert_eq!(
+            stream_body(r#"{"body""#),
+            "",
+            "key without colon keeps waiting"
         );
         assert_eq!(
-            stream_visible_body("正文\n```glossparticular\n不该显示"),
-            "正文\n",
-            "the marker matches by prefix, matching the core-side stripper"
+            stream_body(r#"{"body":"#),
+            "",
+            "colon without value keeps waiting"
+        );
+        assert_eq!(
+            stream_body(r#"{"body":""#),
+            "",
+            "an open value shows nothing yet"
+        );
+        assert_eq!(
+            stream_body(r#"{"body":"未闭合"#),
+            "未闭合",
+            "an unterminated value still shows what arrived"
+        );
+        assert_eq!(
+            stream_body(r#"{"title":"x","body":"y"}"#),
+            "",
+            "a leading foreign key is a contract violation: stay in progress"
+        );
+        assert_eq!(
+            stream_body(r#"{"body":"esc\"ape\\path"}"#),
+            "esc\"ape\\path",
+            "quote and backslash escapes decode"
+        );
+        assert_eq!(
+            stream_body(r#"{"body":"你\u4f60好"}"#),
+            "你你好",
+            "a complete unicode escape decodes"
+        );
+        assert_eq!(
+            stream_body(r#"{"body":"你\u4"#),
+            "你",
+            "a partial unicode escape waits for the next frame"
+        );
+        assert_eq!(
+            stream_body(r#"{"body":"尾\"#),
+            "尾",
+            "a dangling backslash is dropped until it completes"
+        );
+        assert_eq!(
+            stream_body("正文\n```gloss\n{\"title\":\"x\"}\n```"),
+            "",
+            "the legacy fence contract has no body key: progress state"
         );
     }
 
@@ -1437,7 +1533,7 @@ mod kittest_tests {
     fn streaming_view() -> OverlayView {
         OverlayView::Streaming {
             source: "选中的原文".into(),
-            body: "已流式到达的正文\n```gloss\n{\"title\":\"摘要\"}\n```".into(),
+            body: r#"{"body":"已流式到达的正文","title":"摘要"}"#.into(),
             classified: Some(TaskKind::TranslateWord),
             code_lang: None,
         }
@@ -1527,7 +1623,7 @@ mod kittest_tests {
     fn streaming_view_en() -> OverlayView {
         OverlayView::Streaming {
             source: "It is not that I am so smart.".into(),
-            body: "Partial body already streamed.\n```gloss\n{\"title\":\"Summary\"}\n```".into(),
+            body: r#"{"body":"Partial body already streamed.","title":"Summary"}"#.into(),
             classified: Some(TaskKind::TranslateSentence),
             code_lang: None,
         }
@@ -1536,8 +1632,7 @@ mod kittest_tests {
     fn code_streaming_view_en() -> OverlayView {
         OverlayView::Streaming {
             source: "fn main() {\n    let gloss = \"光\";\n    println!(\"{gloss}\");\n}".into(),
-            body: "Partial explanation already streamed.\n```gloss\n{\"title\":\"Rust\"}\n```"
-                .into(),
+            body: r#"{"body":"Partial explanation already streamed.","title":"Rust"}"#.into(),
             classified: Some(TaskKind::ExplainCode),
             code_lang: Some("rust".into()),
         }
@@ -1568,6 +1663,39 @@ mod kittest_tests {
                 },
             },
             code_lang: None,
+        }
+    }
+
+    /// 超长无空格行的产物夹具：markdown 段落与围栏代码块各一段长行——
+    /// 「不超出窗口可用宽度」的快照与逐节点断言共用。正文用 ASCII 无空格
+    /// 长串（快照 harness 绑内置字形，无 CJK 字面）。
+    fn long_line_view() -> OverlayView {
+        let long_prose = "glossary".repeat(60);
+        let long_code = "let value = compute(someVeryLongIdentifierChain).expect();\n".repeat(6);
+        OverlayView::Outcome {
+            source: String::new(),
+            outcome: TaskOutcome {
+                kind: TaskKind::TranslateSentence,
+                body: format!("{long_prose}\n\n```rust\n{long_code}```"),
+                structured: OutcomeStructured::Plain { title: None },
+            },
+            code_lang: None,
+        }
+    }
+
+    /// 超长代码原文夹具：经位代码面板的单 token 长行（等宽折行的断言面）。
+    fn long_code_source_view() -> OverlayView {
+        let long_token = "compute".repeat(40);
+        OverlayView::Outcome {
+            source: format!("fn main() {{ let x = \"{long_token}\"; }}"),
+            outcome: TaskOutcome {
+                kind: TaskKind::ExplainCode,
+                body: "### Summary\n\nShort body.".into(),
+                structured: OutcomeStructured::Plain {
+                    title: Some("Rust".into()),
+                },
+            },
+            code_lang: Some("rust".into()),
         }
     }
 
@@ -1752,19 +1880,20 @@ mod kittest_tests {
     }
 
     #[test]
-    fn streaming_view_hides_structured_block() {
+    fn streaming_view_shows_only_the_extracted_body() {
         let (mut harness, _clicked) = harness_for(streaming_view());
         harness.run_steps(3);
         harness.get_by_label_contains("已流式到达的正文");
         harness.get_by_label_contains("选中的原文");
-        let fence_visible = harness
-            .query_all_by_label_contains("```gloss")
-            .next()
-            .is_some();
-        assert!(
-            !fence_visible,
-            "structured fence must be filtered out of the streaming view"
-        );
+        for artifact in ["title", "\"body\"", "```gloss"] {
+            assert!(
+                harness
+                    .query_all_by_label_contains(artifact)
+                    .next()
+                    .is_none(),
+                "raw JSON or fence artifacts must stay out of the streaming view: {artifact}"
+            );
+        }
     }
 
     #[test]
@@ -1946,6 +2075,35 @@ mod kittest_tests {
     }
 
     #[test]
+    fn long_lines_never_exceed_the_window_width() {
+        for view in [long_line_view(), long_code_source_view()] {
+            let state = RenderState::default();
+            let text = Text::get(Locale::En);
+            let installed = Cell::new(false);
+            let mut harness =
+                Harness::builder()
+                    .with_theme(egui::Theme::Light)
+                    .build_ui(move |ui| {
+                        if font_first_frame(&installed, ui.ctx()) {
+                            return;
+                        }
+                        let _ = draw(ui, Some(&view), &state, text);
+                    });
+            harness.set_size(egui::vec2(WIDTH, 800.0));
+            harness.run();
+            let overflowing: Vec<_> = harness
+                .query_all_by(|_| true)
+                .map(|node| node.rect())
+                .filter(|rect| rect.right() > WIDTH + 0.5)
+                .collect();
+            assert!(
+                overflowing.is_empty(),
+                "横滚不进弹窗：全部内容节点不得超出窗口可用宽 {WIDTH}: {overflowing:?}"
+            );
+        }
+    }
+
+    #[test]
     fn snapshots_match_baseline() {
         let mut results = egui_kittest::SnapshotResults::new();
 
@@ -1987,6 +2145,11 @@ mod kittest_tests {
         let mut harness = snapshot_harness(None);
         harness.run();
         harness.snapshot("popup_selfcheck");
+        results.extend_harness(&mut harness);
+
+        let mut harness = snapshot_harness(Some(long_line_view()));
+        harness.run();
+        harness.snapshot("popup_long_line");
         results.extend_harness(&mut harness);
 
         results.unwrap();

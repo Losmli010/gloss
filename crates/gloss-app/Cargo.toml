@@ -51,6 +51,8 @@ gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
 # 页头应用图标的 PNG 解码（assets/icons/gloss-dock-icon.png 同源资产）。
 image = { version = "0.25", default-features = false, features = ["png"] }
+# 任务产物缓存（sync API 即所需，future 异步面不用）。
+moka = { version = "0.12", default-features = false, features = ["sync"] }
 # 同步等待 GPU 初始化。
 pollster = { version = "1.0.1", default-features = false }
 # 代码面板的单趟正则着色（demo 同架构）；unicode 供 \b/\w 按码点判定，
