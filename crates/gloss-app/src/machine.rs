@@ -69,15 +69,15 @@ pub enum AppState {
 /// 渲染。
 #[derive(Debug, Clone, PartialEq)]
 pub enum OverlayView {
-    /// 推理中：原文 + 已到达的流式正文（模型的原始 JSON 流，渲染层对
-    /// `body` 字段做渐进提取）。`classified` 是按代码排版的判定结果：
+    /// 推理中：原文 + 已到达的流式原始回复（模型的原始 JSON 流，渲染层
+    /// 对 `note` 字段做渐进提取）。`classified` 是按代码排版的判定结果：
     /// LLM 层分类前为 `None`，`accept_classified` 到达后精化（代码解释
     /// 从分类帧起按代码排版）。
     Streaming {
         /// 触发时选中的原文。
         source: String,
-        /// 已到达的流式正文累积（原始流）。
-        body: String,
+        /// 已到达的流式原始回复累积（含 JSON 结构，提取归渲染层）。
+        raw: String,
         /// 自动分类判明的任务类型（LLM 层回传后精化）。
         classified: Option<TaskKind>,
         /// 代码语言（角标与高亮规则集共用）：`InputHint::CodeLanguage`
@@ -309,7 +309,7 @@ impl TaskStateMachine {
         };
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
-            body: String::new(),
+            raw: String::new(),
             classified: None,
             code_lang,
         });
@@ -367,24 +367,24 @@ impl TaskStateMachine {
         });
     }
 
-    /// 采纳流式增量：追加到流式视图的原始正文（`body` 的渐进提取在
+    /// 采纳流式增量：追加到流式视图的原始回复（`note` 的渐进提取在
     /// 渲染层）。返回是否有新内容需要重绘。
     ///
     /// 这份累积只服务**流式显示**；与桥侧完成态的并存约定及权威源
-    /// 见 `crate::pipeline` 的模块文档（done 以 outcome.body 整卡覆盖）。
+    /// 见 `crate::pipeline` 的模块文档（done 以 outcome.note 整卡覆盖）。
     pub fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
         }
-        if let Some(OverlayView::Streaming { body, .. }) = &mut self.overlay_view {
-            body.push_str(&delta);
+        if let Some(OverlayView::Streaming { raw, .. }) = &mut self.overlay_view {
+            raw.push_str(&delta);
         }
         true
     }
 
     /// 采纳任务产物：定格正文并进入 `Show`。返回是否需要重绘。
     ///
-    /// `outcome.body` 直接覆盖流式视图（权威源约定见 `crate::pipeline`）；
+    /// `outcome.note` 直接覆盖流式视图（权威源约定见 `crate::pipeline`）；
     /// 原文从流式视图随行进产物卡（经注疏的「经」位），完成态保有原文
     /// 对照——「翻译无原文/译文对照」的展示缺口在状态机侧的落点。
     pub fn accept_done(&mut self, generation: u64, outcome: TaskOutcome) -> bool {
@@ -515,14 +515,14 @@ fn streaming_view(input: &TaskInput) -> OverlayView {
     let TaskInput::Text { text, hint } = input else {
         return OverlayView::Streaming {
             source: String::new(),
-            body: String::new(),
+            raw: String::new(),
             classified: None,
             code_lang: None,
         };
     };
     OverlayView::Streaming {
         source: text.clone(),
-        body: String::new(),
+        raw: String::new(),
         classified: None,
         code_lang: code_lang_of(text, hint),
     }
@@ -605,10 +605,10 @@ mod tests {
         }
     }
 
-    fn plain_outcome(body: &str) -> TaskOutcome {
+    fn plain_outcome(note: &str) -> TaskOutcome {
         TaskOutcome {
             kind: TaskKind::TranslateWord,
-            body: body.into(),
+            note: note.into(),
             structured: OutcomeStructured::Plain { title: None },
         }
     }
@@ -1045,7 +1045,7 @@ mod tests {
             1,
             TaskOutcome {
                 kind: TaskKind::TranslateWord,
-                body: "产物".into(),
+                note: "产物".into(),
                 structured: OutcomeStructured::Plain { title: None },
             },
         );
@@ -1105,7 +1105,7 @@ mod tests {
             1,
             TaskOutcome {
                 kind: TaskKind::ExplainCode,
-                body: "产物".into(),
+                note: "产物".into(),
                 structured: OutcomeStructured::Plain { title: None },
             },
         );

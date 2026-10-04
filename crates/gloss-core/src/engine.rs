@@ -27,7 +27,7 @@ pub struct RunOutput {
     /// 本次任务最终执行的类型（含分类兜底）。
     pub kind: TaskKind,
     /// 模型回复的原始完整文本（未解析、未剥离）。
-    pub body: String,
+    pub raw: String,
 }
 
 /// 渲染、分类与转发编排：只依赖端口与模板，单测用 `tests/stubs` 的
@@ -54,7 +54,8 @@ impl AiTaskService {
     /// - `on_classified` 在**任何** chunk 之前恰好调用一次（含提示直通与
     ///   兜底 kind）——界面的任务标签以它为准；
     /// - `on_chunk` 收到的是**原始流**（纯 JSON 契约下就是模型的原始
-    ///   输出），流式显示的渐进提取与完成态解析都在调用方；
+    ///   输出），流式显示的渐进提取与完成态解析都在调用方；返回值
+    ///   `raw` 是同一份文本的整体累积；
     /// - 返回 `Err` 时**已转发的增量不撤回**——以返回值为准丢弃半截正文
     ///   （状态机据此让 TaskChunk 之后接 TaskFailed 的渲染路径可收敛）；
     /// - 取消不进本服务：调用方以 `CancellationToken` 竞速，丢弃本 future
@@ -133,7 +134,7 @@ impl AiTaskService {
                 Err(error) => return Err(error),
             }
         }
-        Ok(RunOutput { kind, body })
+        Ok(RunOutput { kind, raw: body })
     }
 }
 
@@ -176,7 +177,7 @@ mod tests {
     #[tokio::test]
     async fn hint_passthrough_classifies_without_a_round_trip() {
         let (engine, service) =
-            make_service(&MockEngine::new().with_chunks(vec![Ok("{\"body\":\"正文\"}".into())]));
+            make_service(&MockEngine::new().with_chunks(vec![Ok("{\"note\":\"正文\"}".into())]));
         let kinds = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&kinds);
         let output = service
@@ -189,7 +190,7 @@ mod tests {
             .await
             .expect("run should succeed");
         assert_eq!(output.kind, TaskKind::ExplainCode);
-        assert_eq!(output.body, "{\"body\":\"正文\"}");
+        assert_eq!(output.raw, "{\"note\":\"正文\"}");
         assert_eq!(*kinds.lock().expect("kinds"), vec![TaskKind::ExplainCode]);
         assert_eq!(engine.call_count(), 1, "the hint needs no classify call");
     }
@@ -197,7 +198,7 @@ mod tests {
     #[tokio::test]
     async fn classified_kind_arrives_before_any_chunk() {
         let (_, service) = make_service(
-            &MockEngine::new().with_chunks(vec![Ok("{\"body\":\"你".into()), Ok("好\"}".into())]),
+            &MockEngine::new().with_chunks(vec![Ok("{\"note\":\"你".into()), Ok("好\"}".into())]),
         );
         let events = Arc::new(Mutex::new(Vec::<&'static str>::new()));
         let classified = Arc::clone(&events);
@@ -261,13 +262,13 @@ mod tests {
     async fn raw_text_is_returned_verbatim() {
         let (_, service) = make_service(
             &MockEngine::new()
-                .with_chunks(vec![Ok("{\"body\":\"光泽".into()), Ok("：注释\"}".into())]),
+                .with_chunks(vec![Ok("{\"note\":\"光泽".into()), Ok("：注释\"}".into())]),
         );
         let output = service
             .run(&text_input("gloss"), &options(), |_| {}, |_| {})
             .await
             .expect("run should succeed");
-        assert_eq!(output.body, "{\"body\":\"光泽：注释\"}");
+        assert_eq!(output.raw, "{\"note\":\"光泽：注释\"}");
     }
 
     #[tokio::test]

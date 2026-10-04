@@ -345,7 +345,7 @@ mod tests {
                 generation: 1,
                 outcome: TaskOutcome {
                     kind: TaskKind::TranslateWord,
-                    body: "# gloss".into(),
+                    note: "# gloss".into(),
                     structured: OutcomeStructured::WordCard {
                         word: "gloss".into(),
                         phonetic: Some("/ɡlɒs/".into()),

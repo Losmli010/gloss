@@ -67,8 +67,8 @@ impl ClassifyMetrics {
 pub struct TaskVerdict {
     /// 回复是符合现行契约的 JSON 对象（生产完成态解析的主路径命中）。
     pub json_object: bool,
-    /// JSON 对象携带 `body` 正文（主路径在场的必要项）。
-    pub body_present: bool,
+    /// JSON 对象携带 `note`（注；主路径在场的必要项，词卡/句译/讲解）。
+    pub note_present: bool,
     /// kind 的契约必需结构化字段全部在场（JSON 对象在场才可能为真）。
     pub fields_complete: bool,
     /// 生产解析结果（与 UI 收到的产物同源，含围栏 fallback 的降级形态）。
@@ -84,10 +84,10 @@ impl TaskVerdict {
     pub fn for_reply(case: &TaskCase, reply: &str) -> Self {
         let parsed = serde_json::from_str::<serde_json::Value>(reply.trim()).ok();
         let json_object = parsed.is_some();
-        let body_present = parsed
+        let note_present = parsed
             .as_ref()
-            .and_then(|value| value.get("body"))
-            .and_then(|body| body.as_str())
+            .and_then(|value| value.get("note"))
+            .and_then(|note| note.as_str())
             .is_some();
         let fields_complete = parsed.as_ref().is_some_and(|value| {
             required_fields(case.kind)
@@ -97,7 +97,7 @@ impl TaskVerdict {
         let outcome = mirror_complete(case.kind, reply);
         Self {
             json_object,
-            body_present,
+            note_present,
             fields_complete,
             outcome,
         }
@@ -107,7 +107,7 @@ impl TaskVerdict {
     /// 契约录制）天然落降级轨——生产对它们有 fallback 兜底，指标度量的是
     /// 「模型有没有按现行契约输出」。
     pub fn degraded(&self) -> bool {
-        !(self.json_object && self.body_present && self.fields_complete)
+        !(self.json_object && self.note_present && self.fields_complete)
     }
 }
 
@@ -115,13 +115,13 @@ impl TaskVerdict {
 /// 与 gloss-app `finalize` 同一条规则：`body` 缺失退围栏；坏 sense 条目
 /// 跳过；字段缺失按 kind 兜底。
 fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
-    let body = serde_json::from_str::<serde_json::Value>(reply.trim())
+    let note = serde_json::from_str::<serde_json::Value>(reply.trim())
         .ok()
         .and_then(|value| {
-            let body = value.get("body").and_then(|body| body.as_str())?.to_owned();
-            Some((value, body))
+            let note = value.get("note").and_then(|note| note.as_str())?.to_owned();
+            Some((value, note))
         });
-    if let Some((value, body)) = body {
+    if let Some((value, note)) = note {
         return match kind {
             TaskKind::TranslateWord => OutcomeStructured::WordCard {
                 word: text_field(&value, "word").unwrap_or_default(),
@@ -129,7 +129,11 @@ fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
                 senses: mirror_senses(value.get("senses")).unwrap_or_default(),
             },
             TaskKind::ImageOcr => OutcomeStructured::Extracted {
-                text: text_field(&value, "text").unwrap_or_else(|| body.clone()),
+                text: value
+                    .get("text")
+                    .and_then(|text| text.as_str())
+                    .map(str::to_owned)
+                    .unwrap_or(note),
             },
             _ => OutcomeStructured::Plain {
                 title: text_field(&value, "title"),
@@ -205,15 +209,15 @@ fn text_field(value: &serde_json::Value, key: &str) -> Option<String> {
     value.get(key).and_then(|v| v.as_str()).map(str::to_owned)
 }
 
-/// 任务指标：契约 JSON 率 / body 在场率 / 字段完整率 / 降级率。
+/// 任务指标：契约 JSON 率 / note 在场率 / 字段完整率 / 降级率。
 #[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct TaskMetrics {
     /// 进入统计的条数。
     pub evaluated: usize,
     /// 回复是契约 JSON 对象的条数。
     pub json_object: usize,
-    /// JSON 对象带 `body` 正文的条数。
-    pub body_present: usize,
+    /// JSON 对象带 `note`（注）的条数。
+    pub note_present: usize,
     /// 必需字段完整数。
     pub fields_complete: usize,
     /// 降级数（见 [`TaskVerdict::degraded`]）。live 轨的任务请求失败也
@@ -227,7 +231,7 @@ impl TaskMetrics {
     pub fn record(&mut self, verdict: &TaskVerdict) {
         self.evaluated += 1;
         self.json_object += usize::from(verdict.json_object);
-        self.body_present += usize::from(verdict.body_present);
+        self.note_present += usize::from(verdict.note_present);
         self.fields_complete += usize::from(verdict.fields_complete);
         self.degraded += usize::from(verdict.degraded());
     }
@@ -237,9 +241,9 @@ impl TaskMetrics {
         ratio(self.json_object, self.evaluated)
     }
 
-    /// body 在场率。
-    pub fn body_rate(&self) -> f64 {
-        ratio(self.body_present, self.evaluated)
+    /// note 在场率。
+    pub fn note_rate(&self) -> f64 {
+        ratio(self.note_present, self.evaluated)
     }
 
     /// 字段完整率。
@@ -384,10 +388,10 @@ mod tests {
         let case = word_case();
         let good = TaskVerdict::for_reply(
             &case,
-            r#"{"body":"正文","word":"gloss","phonetic":null,"senses":[]}"#,
+            r#"{"note":"正文","word":"gloss","phonetic":null,"senses":[]}"#,
         );
         assert!(!good.degraded(), "complete contract is not degraded");
-        assert!(good.json_object && good.body_present && good.fields_complete);
+        assert!(good.json_object && good.note_present && good.fields_complete);
 
         let plain = TaskVerdict::for_reply(&case, "只有正文");
         assert!(plain.degraded());
@@ -424,7 +428,7 @@ mod tests {
     #[test]
     fn field_completeness_requires_the_contract_keys() {
         let case = word_case();
-        let missing_senses = TaskVerdict::for_reply(&case, r#"{"body":"正文","word":"gloss"}"#);
+        let missing_senses = TaskVerdict::for_reply(&case, r#"{"note":"正文","word":"gloss"}"#);
         assert!(!missing_senses.fields_complete && missing_senses.degraded());
     }
 

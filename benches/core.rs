@@ -59,7 +59,7 @@ fn image_input(png_bytes: usize) -> TaskInput {
 fn word_outcome() -> TaskOutcome {
     TaskOutcome {
         kind: TaskKind::TranslateWord,
-        body: "# gloss\n\n/ɡlɒs/ n. 光泽".into(),
+        note: "# gloss\n\n/ɡlɒs/ n. 光泽".into(),
         structured: OutcomeStructured::WordCard {
             word: "gloss".into(),
             phonetic: Some("/ɡlɒs/".into()),

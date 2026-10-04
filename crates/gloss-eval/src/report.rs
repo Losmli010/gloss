@@ -143,9 +143,9 @@ impl EvalReport {
             line(
                 &mut out,
                 format!(
-                    "| {} body 在场率 | {:.1}% |",
+                    "| {} note 在场率 | {:.1}% |",
                     stats.dataset,
-                    rate(metrics.body_present, metrics.evaluated)
+                    rate(metrics.note_present, metrics.evaluated)
                 ),
             );
             line(
@@ -338,7 +338,7 @@ mod tests {
         let verdicts = [
             TaskVerdict::for_reply(
                 &cases[0],
-                r#"{"body":"正文","word":"gloss","phonetic":null,"senses":[]}"#,
+                r#"{"note":"正文","word":"gloss","phonetic":null,"senses":[]}"#,
             ),
             TaskVerdict::for_reply(&cases[1], "只有正文"),
         ];

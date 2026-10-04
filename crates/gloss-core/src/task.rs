@@ -127,13 +127,14 @@ pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossE
     }
 }
 
-/// 任务产物：正文统一 markdown，另带 kind 专属结构化字段供 UI 精排。
+/// 任务产物：注文统一 markdown（经注疏的「注」），另带 kind 专属结构化
+/// 字段供 UI 精排（词卡的字/音/义/例即说文解字式分层）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskOutcome {
     /// 产物对应的任务类型。
     pub kind: TaskKind,
-    /// markdown 正文（流式 chunk 拼接）。
-    pub body: String,
+    /// markdown 注文（流式 chunk 拼接；词卡为叙释 prose，句译/讲解为主体）。
+    pub note: String,
     /// kind 专属结构化字段，见 [`OutcomeStructured`]。
     pub structured: OutcomeStructured,
 }
@@ -251,7 +252,7 @@ mod tests {
     fn outcome_carries_structured_variants() {
         let card = TaskOutcome {
             kind: TaskKind::TranslateWord,
-            body: "# gloss".into(),
+            note: "# gloss".into(),
             structured: OutcomeStructured::WordCard {
                 word: "gloss".into(),
                 phonetic: Some("/ɡlɒs/".into()),

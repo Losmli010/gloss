@@ -1,10 +1,11 @@
 //! 完成态解析：模型原始回复 → [`TaskOutcome`]（缓存站点与产物卡的唯一入口）。
 //!
-//! 两层解析，逐层退让：
+//! 两层解析，逐层退让——**模型返回非 JSON 时必有产物**：
 //! 1. **JSON 主路径**（现行契约，见 `gloss_core::prompt`）：整段回复是一个
-//!    JSON 对象——`body` 字段（markdown 正文）+ 按 kind 的结构化字段。字段
+//!    JSON 对象——`note`（注，markdown 注文）放首位，其后按 kind 的结构化
+//!    字段（词卡的字/音/义/例，句译与讲解的 title，提取任务的 text）。字段
 //!    缺失按契约就地回退（word 空串、phonetic/title 缺省、坏 sense 条目
-//!    跳过），`body` 缺失才判整路失败。
+//!    跳过），`note` 缺失（OCR 则 `text` 缺失）才判整路失败。
 //! 2. **围栏 fallback**（`finalize_outcome`，自 core 原样迁入）：回复不是
 //!    JSON 时剥末尾 ` ```gloss … ``` ` 围栏解析——这是**旧契约**（markdown
 //!    正文 + 末尾结构化块）的兼容位，模型跑偏输出旧契约时保住产物；围栏
@@ -21,36 +22,43 @@ use gloss_core::task::{OutcomeStructured, Sense, TaskKind, TaskOutcome};
 /// 完成态产物组装（契约纯函数）：先走 JSON 主路径，失败退围栏 fallback。
 /// 引擎失败的任务到不了这里，因此产物恒可回填缓存（写缓存归调用方）。
 pub fn complete(kind: TaskKind, raw: &str) -> TaskOutcome {
-    if let Some((body, structured)) = parse_json_outcome(kind, raw) {
+    if let Some((note, structured)) = parse_json_outcome(kind, raw) {
         return TaskOutcome {
             kind,
-            body,
+            note,
             structured,
         };
     }
     finalize_outcome(kind, raw)
 }
 
-/// JSON 主路径：整段回复按一个 JSON 对象解析，`body` 给正文，结构化字段
-/// 按 kind 就地容错。`body` 缺失或非字符串返回 `None`（整路失败，交围栏
-/// fallback）。
+/// JSON 主路径：整段回复按一个 JSON 对象解析，`note`（注）给注文，
+/// 结构化字段按 kind 就地容错。词卡与句译/讲解要求 `note` 在场（流式
+/// 渐进提取的靶字段）；提取任务只要求 `text`（经文提取无注）。必需字段
+/// 缺失或非字符串返回 `None`（整路失败，交围栏 fallback）。
 fn parse_json_outcome(kind: TaskKind, raw: &str) -> Option<(String, OutcomeStructured)> {
     let value = serde_json::from_str::<serde_json::Value>(raw.trim()).ok()?;
-    let body = value.get("body")?.as_str()?.to_owned();
-    let structured = match kind {
-        TaskKind::TranslateWord => OutcomeStructured::WordCard {
-            word: text_field(&value, "word").unwrap_or_default(),
-            phonetic: text_field(&value, "phonetic"),
-            senses: parse_senses(value.get("senses")).unwrap_or_default(),
-        },
-        TaskKind::ImageOcr => OutcomeStructured::Extracted {
-            text: text_field(&value, "text").unwrap_or_else(|| body.clone()),
-        },
-        _ => OutcomeStructured::Plain {
-            title: text_field(&value, "title"),
-        },
-    };
-    Some((body, structured))
+    match kind {
+        TaskKind::ImageOcr => {
+            let text = value.get("text")?.as_str()?.to_owned();
+            let note = text_field(&value, "note").unwrap_or_default();
+            Some((note, OutcomeStructured::Extracted { text }))
+        }
+        _ => {
+            let note = value.get("note")?.as_str()?.to_owned();
+            let structured = match kind {
+                TaskKind::TranslateWord => OutcomeStructured::WordCard {
+                    word: text_field(&value, "word").unwrap_or_default(),
+                    phonetic: text_field(&value, "phonetic"),
+                    senses: parse_senses(value.get("senses")).unwrap_or_default(),
+                },
+                _ => OutcomeStructured::Plain {
+                    title: text_field(&value, "title"),
+                },
+            };
+            Some((note, structured))
+        }
+    }
 }
 
 /// 围栏 fallback（旧契约，自 gloss-core 原样迁入）：从原始回复里剥出末尾
@@ -62,19 +70,20 @@ fn parse_json_outcome(kind: TaskKind, raw: &str) -> Option<(String, OutcomeStruc
 /// 文字）一律不进正文——正常输出契约下模型不会有尾随内容；围栏缺失或
 /// 解析失败按 kind 回退（OCR 回退为全文提取，其余回退为无标题 Plain），
 /// 回退路径无损保留全文（不做有损剥离）。
-pub fn finalize_outcome(kind: TaskKind, body: &str) -> TaskOutcome {
-    let (body, structured) = parse_structured(kind, body);
+pub fn finalize_outcome(kind: TaskKind, raw: &str) -> TaskOutcome {
+    let (note, structured) = parse_structured(kind, raw);
     TaskOutcome {
         kind,
-        body,
+        note,
         structured,
     }
 }
 
-/// 从拼接正文中剥出旧契约的结构化 JSON 块：末尾的 ` ```gloss … ``` ` 围栏
-/// 解析为 [`OutcomeStructured`]，其余作为 markdown 正文。围栏缺失或解析
+/// 从原始回复里剥出旧契约的结构化 JSON 块：末尾的 ` ```gloss … ``` ` 围栏
+/// 解析为 [`OutcomeStructured`]，其余作为 markdown 注文。围栏缺失或解析
 /// 失败按 kind 回退（OCR 回退为全文提取，其余回退为无标题 Plain）。
-pub fn parse_structured(kind: TaskKind, body: &str) -> (String, OutcomeStructured) {
+pub fn parse_structured(kind: TaskKind, raw: &str) -> (String, OutcomeStructured) {
+    let body = raw;
     let fallback = || -> (String, OutcomeStructured) {
         let owned = body.to_owned();
         let structured = match kind {
@@ -160,10 +169,10 @@ mod tests {
 
     #[test]
     fn json_main_path_builds_the_word_card() {
-        let raw = r#"{"body":"**gloss** 的释义","word":"gloss","phonetic":"/ɡlɒs/","senses":[{"pos":"n.","meaning":"光泽","examples":["a gloss of silk"]}]}"#;
+        let raw = r#"{"note":"**gloss** 的释义","word":"gloss","phonetic":"/ɡlɒs/","senses":[{"pos":"n.","meaning":"光泽","examples":["a gloss of silk"]}]}"#;
         let outcome = complete(TaskKind::TranslateWord, raw);
         assert_eq!(outcome.kind, TaskKind::TranslateWord);
-        assert_eq!(outcome.body, "**gloss** 的释义");
+        assert_eq!(outcome.note, "**gloss** 的释义");
         match outcome.structured {
             OutcomeStructured::WordCard {
                 word,
@@ -184,7 +193,7 @@ mod tests {
     fn json_main_path_tolerates_null_and_missing_fields() {
         let outcome = complete(
             TaskKind::TranslateWord,
-            r#"{"body":"正文","word":"gloss","phonetic":null}"#,
+            r#"{"note":"正文","word":"gloss","phonetic":null}"#,
         );
         match outcome.structured {
             OutcomeStructured::WordCard {
@@ -198,14 +207,14 @@ mod tests {
 
         let plain = complete(
             TaskKind::TranslateSentence,
-            r#"{"body":"译文","title":null}"#,
+            r#"{"note":"译文","title":null}"#,
         );
         assert_eq!(plain.structured, OutcomeStructured::Plain { title: None });
     }
 
     #[test]
     fn json_main_path_skips_bad_sense_entries() {
-        let raw = r#"{"body":"正文","word":"gloss","senses":[
+        let raw = r#"{"note":"正文","word":"gloss","senses":[
             {"pos":"n.","meaning":"光泽","examples":[]},
             {"pos":"v.","meaning":null,"examples":[]},
             {"meaning":"注释"}
@@ -225,9 +234,9 @@ mod tests {
     fn json_main_path_covers_plain_and_extracted_kinds() {
         let plain = complete(
             TaskKind::ExplainCode,
-            r#"{"body":"What it does","title":"摘要"}"#,
+            r#"{"note":"What it does","title":"摘要"}"#,
         );
-        assert_eq!(plain.body, "What it does");
+        assert_eq!(plain.note, "What it does");
         assert_eq!(
             plain.structured,
             OutcomeStructured::Plain {
@@ -235,20 +244,24 @@ mod tests {
             }
         );
 
-        let ocr = complete(TaskKind::ImageOcr, r#"{"body":"**提取**","text":"纯文本"}"#);
+        let ocr = complete(TaskKind::ImageOcr, r#"{"text":"纯文本"}"#);
         assert!(matches!(
             ocr.structured,
             OutcomeStructured::Extracted { ref text } if text == "纯文本"
         ));
-        assert_eq!(ocr.body, "**提取**", "the body stays markdown as-is");
+        assert_eq!(
+            ocr.note, "",
+            "extraction carries no 注; the text is the product"
+        );
     }
 
     #[test]
-    fn missing_body_field_hands_over_to_the_fence_fallback() {
-        // body 缺失：JSON 主路径整路失败，围栏 fallback 接住旧契约输出。
+    fn missing_note_field_hands_over_to_the_fence_fallback() {
+        // note 缺失：JSON 主路径整路失败，围栏 fallback 接住旧契约输出
+        //（该围栏是完整的词卡，正文剥到围栏前）。
         let raw = "旧契约正文\n```gloss\n{\"word\":\"gloss\",\"senses\":[]}\n```";
         let outcome = complete(TaskKind::TranslateWord, raw);
-        assert_eq!(outcome.body, "旧契约正文");
+        assert_eq!(outcome.note, "旧契约正文");
         assert!(matches!(
             outcome.structured,
             OutcomeStructured::WordCard { ref word, .. } if word == "gloss"
@@ -259,7 +272,7 @@ mod tests {
     fn non_json_reply_falls_through_to_the_fence_fallback() {
         let outcome = complete(TaskKind::ExplainCode, "整段正文");
         assert_eq!(outcome.kind, TaskKind::ExplainCode);
-        assert_eq!(outcome.body, "整段正文");
+        assert_eq!(outcome.note, "整段正文");
         assert_eq!(outcome.structured, OutcomeStructured::Plain { title: None });
     }
 
@@ -269,7 +282,7 @@ mod tests {
             TaskKind::TranslateWord,
             "**gloss**\n\n/ɡlɒs/ n. 光泽\n\n```gloss\n{\"word\":\"gloss\",\"phonetic\":\"/ɡlɒs/\",\"senses\":[{\"pos\":\"n.\",\"meaning\":\"光泽\",\"examples\":[\"a gloss of silk\"]}]}\n```",
         );
-        assert_eq!(outcome.body, "**gloss**\n\n/ɡlɒs/ n. 光泽");
+        assert_eq!(outcome.note, "**gloss**\n\n/ɡlɒs/ n. 光泽");
         match outcome.structured {
             OutcomeStructured::WordCard { senses, .. } => {
                 assert_eq!(senses.len(), 1);
@@ -336,7 +349,7 @@ mod tests {
             OutcomeStructured::Extracted { .. }
         ));
         assert_eq!(
-            broken_json_then_bad_fence.body, "{not json\n```gloss\n{also broken\n```",
+            broken_json_then_bad_fence.note, "{not json\n```gloss\n{also broken\n```",
             "the kind fallback keeps the whole raw text"
         );
     }

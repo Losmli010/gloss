@@ -1,6 +1,6 @@
-{"id": "task-word-01", "deltas": ["{\"body\": \"**serendipity**\\n/ˌserənˈdɪpɪti/\\n\\n意外发现珍宝的运气\", \"word\": \"serendipity\", \"phonetic\": \"/ˌserənˈdɪpɪti/\", \"senses\": [{\"pos\": \"n.\", \"meaning\": \"意外发现珍宝的运气\", \"examples\": [\"a happy serendipity\"]}]}"]}
+{"id": "task-word-01", "deltas": ["{\"note\": \"**serendipity**\\n/ˌserənˈdɪpɪti/\\n\\n意外发现珍宝的运气\", \"word\": \"serendipity\", \"phonetic\": \"/ˌserənˈdɪpɪti/\", \"senses\": [{\"pos\": \"n.\", \"meaning\": \"意外发现珍宝的运气\", \"examples\": [\"a happy serendipity\"]}]}"]}
 {"id": "task-word-02", "deltas": ["幂等的。\n```gloss\n{\"word\":\"idempotent\",\"phonetic\":null,\"senses\":[{\"pos\":\"adj.\",\"meaning\":\"幂等的\",\"examples\":[]}]}\n```"]}
-{"id": "task-sent-01", "deltas": ["{\"body\": \"敏捷的棕色狐狸跳过懒狗。\", \"title\": \"经典全字母句\"}"]}
+{"id": "task-sent-01", "deltas": ["{\"note\": \"敏捷的棕色狐狸跳过懒狗。\", \"title\": \"经典全字母句\"}"]}
 {"id": "task-sent-02", "deltas": ["发布本身就是功能。把它交到用户手上，然后迭代。"]}
 {"id": "task-code-01", "deltas": ["先对 words 去重（set），再排序（sorted），最后用逗号拼接打印。\n```gloss\n{\"title\":\"去重排序后拼接\"}\n```"]}
 {"id": "task-code-02", "deltas": ["列出 prod 命名空间下的所有 Pod。\n```gloss\n{\"title\":\"kubectl get pods -n prod\"\n```"]}

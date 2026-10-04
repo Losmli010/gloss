@@ -17,11 +17,12 @@
 //! 走 markdown（egui_commonmark 渲染；注区统一改写文本样式为楷体字号）。
 //! 划选即复制：全部文本可选中，无独立复制按钮。正文完整渲染不截断，高度
 //! 自适应内容（宽度默认 380、上限 480，高度上限按屏幕），超出部分滚动兜底。
-//! 流式视图对累积的原始流做**转义感知**的 `body` 渐进提取（现行输出契约是
-//! 纯 JSON 对象，见 `gloss_core::prompt`）：`body` 键未到齐时正文区落骨架、
-//! 页脚保留「正在注解」；旧契约（markdown + 围栏）不含 `body` 键，全程进度
-//! 态，完成态由 finalize 的围栏 fallback 兜住。正文一律换行排版：代码面板
-//! 等宽折行、markdown 由 egui_commonmark 按可用宽折行，横滚不进弹窗。
+//! 流式视图对累积的原始流做**转义感知**的 `note`（注）渐进提取（现行输出
+//! 契约是纯 JSON 对象，见 `gloss_core::prompt`）：`note` 键未到齐时正文区
+//! 落骨架、页脚保留「正在注解」；旧契约（markdown + 围栏）不含 `note` 键，
+//! 全程进度态，完成态由 finalize 的围栏 fallback 兜住。注文一律换行排版：
+//! 代码面板等宽折行、markdown 由 egui_commonmark 按可用宽折行，横滚不进
+//! 弹窗。
 //!
 //! 页头回归品牌：只有应用图标与动作区（⚙/×），任务与状态由内容层自明，
 //! 页头不带任何标签药丸；行下发丝线与页脚上缘线呼应成卡片的上下界。
@@ -415,7 +416,7 @@ fn render_content(
         }
         Some(OverlayView::Streaming {
             source,
-            body,
+            raw,
             classified,
             code_lang,
         }) => {
@@ -428,7 +429,7 @@ fn render_content(
             ui.add_space(space::PARAGRAPH);
             // ScrollArea 内容起点 = cursor（egui 的 cursor 停在前序内容底边
             // 加一个 item_spacing 处），从这里起算正文完整高。
-            let visible = stream_body(body);
+            let visible = stream_note(raw);
             let viewport_max = (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT);
             // 只纵向滚动：正文一律换行，横滚不进弹窗（长行由折行兜住）。
             let scrolled = ScrollArea::new([false, true])
@@ -1089,16 +1090,16 @@ fn icon_button(glyph: &'static str) -> egui::Button<'static> {
         .min_size(vec2(ACTION_BUTTON, ACTION_BUTTON))
 }
 
-/// 流式正文的可见部分：对累积的原始流做**转义感知**的 `body` 渐进提取，
-/// 返回已到达内容的反转义前缀。现行输出契约是纯 JSON 对象且 `body` 恒为
-/// 首个字段（见 `gloss_core::prompt`）：对象未开、`"body"` 键或值未到齐时
-/// 返回空串——正文区落骨架，页脚保留「正在注解」进度态。值到齐后按 JSON
-/// 字符串转义规则逐段反转义；残缺的转义序列（尾部孤反斜杠、不足四位的
-/// `\uXXXX`）本帧丢弃、下一帧补齐，UTF-16 代理对在流式期暂缺（完成态以
-/// `outcome.body` 为权威源）。旧契约（markdown + 围栏）不含 `body` 键，
-/// 全程进度态，由 finalize 的围栏 fallback 在完成态兜住。
-fn stream_body(raw: &str) -> String {
-    const KEY: &str = "\"body\"";
+/// 流式注文的可见部分：对累积的原始流做**转义感知**的 `note`（注）渐进
+/// 提取，返回已到达内容的反转义前缀。现行输出契约是纯 JSON 对象且 `note`
+/// 恒为首个字段（见 `gloss_core::prompt`）：对象未开、`"note"` 键或值未
+/// 到齐时返回空串——正文区落骨架，页脚保留「正在注解」进度态。值到齐后
+/// 按 JSON 字符串转义规则逐段反转义；残缺的转义序列（尾部孤反斜杠、不足
+/// 四位的 `\uXXXX`）本帧丢弃、下一帧补齐，UTF-16 代理对在流式期暂缺
+/// （完成态以 `outcome.note` 为权威源）。旧契约（markdown + 围栏）不含
+/// `note` 键，全程进度态，由 finalize 的围栏 fallback 在完成态兜住。
+fn stream_note(raw: &str) -> String {
+    const KEY: &str = "\"note\"";
     let Some(rest) = raw.trim_start().strip_prefix('{') else {
         return String::new();
     };
@@ -1192,7 +1193,7 @@ fn outcome_body(
                     );
                     ui.add_space(space::PARAGRAPH);
                 }
-                render_markdown(ui, state, &outcome.body);
+                render_markdown(ui, state, &outcome.note);
             });
         }
         OutcomeStructured::Extracted { text: extracted } => {
@@ -1356,7 +1357,7 @@ fn selfcheck_body(ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::{
-        APP_ICON_PNG, MAX_WIDTH, WIDTH, decode_app_icon, example_lines, resolve_width, stream_body,
+        APP_ICON_PNG, MAX_WIDTH, WIDTH, decode_app_icon, example_lines, resolve_width, stream_note,
         watermark,
     };
 
@@ -1401,69 +1402,69 @@ mod tests {
     }
 
     #[test]
-    fn stream_body_extracts_the_json_body_progressively() {
+    fn stream_note_extracts_the_json_field_progressively() {
         assert_eq!(
-            stream_body(r#"{"body":"正文一\n正文二","title":"x"}"#),
+            stream_note(r#"{"note":"正文一\n正文二","title":"x"}"#),
             "正文一\n正文二",
             "escapes decode and the value stops at the closing quote"
         );
-        assert_eq!(stream_body(""), "");
+        assert_eq!(stream_note(""), "");
         assert_eq!(
-            stream_body("plain markdown"),
+            stream_note("plain markdown"),
             "",
             "non-JSON stays in progress"
         );
-        assert_eq!(stream_body("{"), "");
-        assert_eq!(stream_body(r#"{"bod"#), "", "a partial key keeps waiting");
+        assert_eq!(stream_note("{"), "");
+        assert_eq!(stream_note(r#"{"bod"#), "", "a partial key keeps waiting");
         assert_eq!(
-            stream_body(r#"{"body""#),
+            stream_note(r#"{"body""#),
             "",
             "key without colon keeps waiting"
         );
         assert_eq!(
-            stream_body(r#"{"body":"#),
+            stream_note(r#"{"note":"#),
             "",
             "colon without value keeps waiting"
         );
         assert_eq!(
-            stream_body(r#"{"body":""#),
+            stream_note(r#"{"note":""#),
             "",
             "an open value shows nothing yet"
         );
         assert_eq!(
-            stream_body(r#"{"body":"未闭合"#),
+            stream_note(r#"{"note":"未闭合"#),
             "未闭合",
             "an unterminated value still shows what arrived"
         );
         assert_eq!(
-            stream_body(r#"{"title":"x","body":"y"}"#),
+            stream_note(r#"{"title":"x","note":"y"}"#),
             "",
             "a leading foreign key is a contract violation: stay in progress"
         );
         assert_eq!(
-            stream_body(r#"{"body":"esc\"ape\\path"}"#),
+            stream_note(r#"{"note":"esc\"ape\\path"}"#),
             "esc\"ape\\path",
             "quote and backslash escapes decode"
         );
         assert_eq!(
-            stream_body(r#"{"body":"你\u4f60好"}"#),
+            stream_note(r#"{"note":"你\u4f60好"}"#),
             "你你好",
             "a complete unicode escape decodes"
         );
         assert_eq!(
-            stream_body(r#"{"body":"你\u4"#),
+            stream_note(r#"{"note":"你\u4"#),
             "你",
             "a partial unicode escape waits for the next frame"
         );
         assert_eq!(
-            stream_body(r#"{"body":"尾\"#),
+            stream_note(r#"{"note":"尾\"#),
             "尾",
             "a dangling backslash is dropped until it completes"
         );
         assert_eq!(
-            stream_body("正文\n```gloss\n{\"title\":\"x\"}\n```"),
+            stream_note("正文\n```gloss\n{\"title\":\"x\"}\n```"),
             "",
-            "the legacy fence contract has no body key: progress state"
+            "the legacy fence contract has no note key: progress state"
         );
     }
 
@@ -1511,7 +1512,7 @@ mod kittest_tests {
             source: String::new(),
             outcome: TaskOutcome {
                 kind: TaskKind::TranslateWord,
-                body: "markdown 正文".into(),
+                note: "markdown 正文".into(),
                 structured: OutcomeStructured::WordCard {
                     word: "gloss".into(),
                     phonetic: Some("/ɡlɒs/".into()),
@@ -1536,7 +1537,7 @@ mod kittest_tests {
     fn streaming_view() -> OverlayView {
         OverlayView::Streaming {
             source: "选中的原文".into(),
-            body: r#"{"body":"已流式到达的正文","title":"摘要"}"#.into(),
+            raw: r#"{"note":"已流式到达的正文","title":"摘要"}"#.into(),
             classified: Some(TaskKind::TranslateWord),
             code_lang: None,
         }
@@ -1575,7 +1576,7 @@ mod kittest_tests {
             source: String::new(),
             outcome: TaskOutcome {
                 kind: TaskKind::TranslateSentence,
-                body: "很长的正文段落。".repeat(1000) + "尾部标记",
+                note: "很长的正文段落。".repeat(1000) + "尾部标记",
                 structured: OutcomeStructured::Plain { title: None },
             },
             code_lang: None,
@@ -1587,7 +1588,7 @@ mod kittest_tests {
             source: String::new(),
             outcome: TaskOutcome {
                 kind: TaskKind::ImageOcr,
-                body: String::new(),
+                note: String::new(),
                 structured: OutcomeStructured::Extracted {
                     text: "会议纪要\n参会：产品组、评测组".into(),
                 },
@@ -1601,7 +1602,7 @@ mod kittest_tests {
             source: String::new(),
             outcome: TaskOutcome {
                 kind: TaskKind::TranslateWord,
-                body: String::new(),
+                note: String::new(),
                 structured: OutcomeStructured::WordCard {
                     word: "gloss".into(),
                     phonetic: Some("/ɡlɒs/".into()),
@@ -1626,7 +1627,7 @@ mod kittest_tests {
     fn streaming_view_en() -> OverlayView {
         OverlayView::Streaming {
             source: "It is not that I am so smart.".into(),
-            body: r#"{"body":"Partial body already streamed.","title":"Summary"}"#.into(),
+            raw: r#"{"note":"Partial note already streamed.","title":"Summary"}"#.into(),
             classified: Some(TaskKind::TranslateSentence),
             code_lang: None,
         }
@@ -1635,7 +1636,7 @@ mod kittest_tests {
     fn code_streaming_view_en() -> OverlayView {
         OverlayView::Streaming {
             source: "fn main() {\n    let gloss = \"光\";\n    println!(\"{gloss}\");\n}".into(),
-            body: r#"{"body":"Partial explanation already streamed.","title":"Rust"}"#.into(),
+            raw: r#"{"note":"Partial explanation already streamed.","title":"Rust"}"#.into(),
             classified: Some(TaskKind::ExplainCode),
             code_lang: Some("rust".into()),
         }
@@ -1646,7 +1647,7 @@ mod kittest_tests {
             source: "fn main() {\n    let gloss = \"光\";\n    println!(\"{gloss}\");\n}".into(),
             outcome: TaskOutcome {
                 kind: TaskKind::ExplainCode,
-                body: "### What it does\n\nPrints the CJK word for *gloss*.".into(),
+                note: "### What it does\n\nPrints the CJK word for *gloss*.".into(),
                 structured: OutcomeStructured::Plain {
                     title: Some("Rust snippet".into()),
                 },
@@ -1660,7 +1661,7 @@ mod kittest_tests {
             source: String::new(),
             outcome: TaskOutcome {
                 kind: TaskKind::ImageOcr,
-                body: String::new(),
+                note: String::new(),
                 structured: OutcomeStructured::Extracted {
                     text: "Meeting notes\nAttendees: product, client, eval".into(),
                 },
@@ -1679,7 +1680,7 @@ mod kittest_tests {
             source: String::new(),
             outcome: TaskOutcome {
                 kind: TaskKind::TranslateSentence,
-                body: format!("{long_prose}\n\n```rust\n{long_code}```"),
+                note: format!("{long_prose}\n\n```rust\n{long_code}```"),
                 structured: OutcomeStructured::Plain { title: None },
             },
             code_lang: None,
@@ -1693,7 +1694,7 @@ mod kittest_tests {
             source: format!("fn main() {{ let x = \"{long_token}\"; }}"),
             outcome: TaskOutcome {
                 kind: TaskKind::ExplainCode,
-                body: "### Summary\n\nShort body.".into(),
+                note: "### Summary\n\nShort body.".into(),
                 structured: OutcomeStructured::Plain {
                     title: Some("Rust".into()),
                 },
@@ -1883,12 +1884,12 @@ mod kittest_tests {
     }
 
     #[test]
-    fn streaming_view_shows_only_the_extracted_body() {
+    fn streaming_view_shows_only_the_extracted_note() {
         let (mut harness, _clicked) = harness_for(streaming_view());
         harness.run_steps(3);
         harness.get_by_label_contains("已流式到达的正文");
         harness.get_by_label_contains("选中的原文");
-        for artifact in ["title", "\"body\"", "```gloss"] {
+        for artifact in ["title", "\"note\"", "```gloss"] {
             assert!(
                 harness
                     .query_all_by_label_contains(artifact)

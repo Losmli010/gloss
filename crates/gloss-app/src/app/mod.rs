@@ -314,24 +314,24 @@ mod test_support {
         }
     }
 
-    pub(super) fn plain_outcome(body: &str) -> gloss_core::task::TaskOutcome {
+    pub(super) fn plain_outcome(note: &str) -> gloss_core::task::TaskOutcome {
         gloss_core::task::TaskOutcome {
             kind: gloss_core::task::TaskKind::TranslateWord,
-            body: body.into(),
+            note: note.into(),
             structured: gloss_core::task::OutcomeStructured::Plain { title: None },
         }
     }
 
-    pub(super) fn streaming_body(app: &GlossApp) -> &str {
+    pub(super) fn streaming_raw(app: &GlossApp) -> &str {
         match app.machine.overlay_view() {
-            Some(OverlayView::Streaming { body, .. }) => body,
+            Some(OverlayView::Streaming { raw, .. }) => raw,
             other => panic!("expected streaming view, got {other:?}"),
         }
     }
 
-    pub(super) fn outcome_body(app: &GlossApp) -> &str {
+    pub(super) fn outcome_note(app: &GlossApp) -> &str {
         match app.machine.overlay_view() {
-            Some(OverlayView::Outcome { outcome, .. }) => &outcome.body,
+            Some(OverlayView::Outcome { outcome, .. }) => &outcome.note,
             other => panic!("expected outcome view, got {other:?}"),
         }
     }

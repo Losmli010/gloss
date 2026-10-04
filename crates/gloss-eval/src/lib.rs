@@ -13,7 +13,7 @@
 //! 两条轨：
 //! - **确定性轨**（`replay`，CI 安全）：数据集条目对上 `fixtures/` 里
 //!   录制的真实 SSE 增量，经生产解析函数算出 accuracy / 混淆矩阵 /
-//!   无效 JSON 率 / 回退率 / 契约 JSON 率 / body 在场率 / 字段完整率 /
+//!   无效 JSON 率 / 回退率 / 契约 JSON 率 / note 在场率 / 字段完整率 /
 //!   降级率。无网络、无凭据，`cargo test -p gloss-eval` 内置覆盖。
 //! - **live 轨**（opt-in，需 `GLOSS_LIVE_*`）：数据集逐条打真实 LLM
 //!   （延迟 p50/p95 只在这一轨有意义），可选 `--record` 把增量回写

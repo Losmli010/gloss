@@ -425,7 +425,7 @@ mod tests {
     use gloss_core::ports::SceneProbe;
 
     use crate::app::test_support::{
-        driven_app, driven_app_with_scene, outcome_body, plain_outcome, streaming_body, text_input,
+        driven_app, driven_app_with_scene, outcome_note, plain_outcome, streaming_raw, text_input,
         trigger_selection,
     };
     use crate::channel::{AcquireCommand, Command};
@@ -504,7 +504,7 @@ mod tests {
         assert!(!token_a.is_cancelled());
 
         assert!(app.accept_chunk(1, "部分A".into()));
-        assert!(streaming_body(&app).contains("部分A"));
+        assert!(streaming_raw(&app).contains("部分A"));
 
         trigger_selection(&mut app, &pe_tx);
         assert_eq!(
@@ -533,7 +533,7 @@ mod tests {
         assert!(!app.accept_done(1, plain_outcome("迟到结果A")));
         assert!(app.accept_done(2, plain_outcome("结果B")));
         assert_eq!(app.machine.state(), AppState::Show);
-        assert_eq!(outcome_body(&app), "结果B");
+        assert_eq!(outcome_note(&app), "结果B");
     }
 
     #[test]
@@ -730,7 +730,7 @@ mod tests {
         assert!(app.machine.probe_id().is_none());
 
         assert!(app.accept_chunk(1, "、继续".into()));
-        assert!(streaming_body(&app).contains("继续"));
+        assert!(streaming_raw(&app).contains("继续"));
     }
 
     #[test]

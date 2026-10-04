@@ -102,10 +102,10 @@ mod tests {
         }
     }
 
-    fn outcome(body: &str) -> TaskOutcome {
+    fn outcome(note: &str) -> TaskOutcome {
         TaskOutcome {
             kind: TaskKind::TranslateWord,
-            body: body.into(),
+            note: note.into(),
             structured: OutcomeStructured::Plain { title: None },
         }
     }
@@ -195,7 +195,7 @@ mod tests {
         let hit = cache_key(&text_input("gloss"), &TaskOptions::default());
         let miss = cache_key(&text_input("gloss2"), &TaskOptions::default());
         cache.set(hit, outcome("词卡产物"));
-        assert_eq!(cache.get(hit).map(|o| o.body), Some("词卡产物".into()));
+        assert_eq!(cache.get(hit).map(|o| o.note), Some("词卡产物".into()));
         assert!(
             cache.get(miss).is_none(),
             "unrelated key must not see entry"

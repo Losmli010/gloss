@@ -21,7 +21,7 @@
 //! [`start_command_runtime`] 创建并托管，进程退出时随通道③关闭自然收尾。
 //!
 //! machine 侧另有显示用的流式累积，与这里的完成态解析并存：**完成态以
-//! TaskDone 的 `outcome.body` 为权威源**（accept_done 用它整卡覆盖）。
+//! TaskDone 的 `outcome.note` 为权威源**（accept_done 用它整卡覆盖）。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -188,8 +188,8 @@ async fn run_task(
     );
 
     // 钩子把 LLM 层的中间产物逐条泵回主线程：分类定型（含提示直通与
-    // 兜底 kind）与流式增量。原始正文的完成态累积归 LLM 层（run 的返回
-    // 值），这里只泵不存——完成态解析以 output.body 为唯一真相源。
+    // 兜底 kind）与流式增量。原始回复的完成态累积归 LLM 层（run 的返回
+    // 值），这里只泵不存——完成态解析以 output.raw 为唯一真相源。
     let output = service
         .run(
             &input,
@@ -203,7 +203,7 @@ async fn run_task(
         )
         .await?;
 
-    let outcome = complete(output.kind, &output.body);
+    let outcome = complete(output.kind, &output.raw);
     cache.set(key, outcome.clone());
     send_event(
         events,
@@ -305,7 +305,7 @@ mod tests {
     #[tokio::test]
     async fn classified_chunks_and_done_flow_back_in_order() {
         let engine =
-            MockEngine::new().with_chunks(vec![Ok("{\"body\":\"你".into()), Ok("好\"}".into())]);
+            MockEngine::new().with_chunks(vec![Ok("{\"note\":\"你".into()), Ok("好\"}".into())]);
         let (commands, events, runtime) = start(&engine);
 
         run(&commands, 7, text_input("hello"), text_options());
@@ -319,7 +319,7 @@ mod tests {
         ));
         assert!(matches!(
             events.recv().unwrap(),
-            Event::TaskChunk { generation: 7, ref delta } if delta == "{\"body\":\"你"
+            Event::TaskChunk { generation: 7, ref delta } if delta == "{\"note\":\"你"
         ));
         assert!(matches!(
             events.recv().unwrap(),
@@ -331,7 +331,7 @@ mod tests {
                 outcome,
             } => {
                 assert_eq!(generation, 7);
-                assert_eq!(outcome.body, "你好");
+                assert_eq!(outcome.note, "你好");
             }
             other => panic!("expected task done, got {other:?}"),
         }

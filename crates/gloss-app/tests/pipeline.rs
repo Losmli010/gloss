@@ -159,7 +159,7 @@ fn engine_logs_carry_the_task_span() {
 #[test]
 fn full_flow_classifies_then_streams_and_settles() {
     let engine =
-        MockEngine::new().with_chunks(vec![Ok("{\"body\":\"光泽".into()), Ok("：注释\"} ".into())]);
+        MockEngine::new().with_chunks(vec![Ok("{\"note\":\"光泽".into()), Ok("：注释\"} ".into())]);
     let mut pipe = pipeline(&engine);
 
     let token = pipe.trigger_and_feed("gloss");
@@ -191,7 +191,7 @@ fn full_flow_classifies_then_streams_and_settles() {
     match pipe.machine.overlay_view() {
         Some(OverlayView::Outcome { outcome, .. }) => {
             assert_eq!(
-                outcome.body, "光泽：注释",
+                outcome.note, "光泽：注释",
                 "body comes from the JSON contract"
             );
             assert_eq!(
@@ -262,7 +262,7 @@ fn code_language_hint_skips_the_classification_round_trip() {
 
 #[test]
 fn second_trigger_is_a_full_cache_hit_without_engine_calls() {
-    let engine = MockEngine::new().with_chunks(vec![Ok("{\"body\":\"产物\"}".into())]);
+    let engine = MockEngine::new().with_chunks(vec![Ok("{\"note\":\"产物\"}".into())]);
     let mut pipe = pipeline(&engine);
 
     pipe.trigger_and_feed("同一段文本");
@@ -286,7 +286,7 @@ fn second_trigger_is_a_full_cache_hit_without_engine_calls() {
             outcome,
         } => {
             assert_eq!(generation, 2);
-            assert_eq!(outcome.body, "产物");
+            assert_eq!(outcome.note, "产物");
             assert!(pipe.machine.accept_done(generation, outcome));
         }
         other => panic!("cache hit must settle directly without chunks, got {other:?}"),
@@ -320,8 +320,8 @@ fn legacy_fence_contract_falls_back_to_a_complete_card() {
     match pipe.machine.overlay_view() {
         Some(OverlayView::Outcome { outcome, .. }) => {
             assert_eq!(
-                outcome.body, "旧契约正文",
-                "the fence fallback strips the structured block from the body"
+                outcome.note, "旧契约正文",
+                "the fence fallback strips the structured block from the note"
             );
             assert_eq!(
                 outcome.structured,
@@ -363,7 +363,7 @@ fn hide_overlay_cancels_the_stream_and_late_events_are_dropped() {
     );
     let late_outcome = TaskOutcome {
         kind: TaskKind::TranslateWord,
-        body: "迟到的产物".into(),
+        note: "迟到的产物".into(),
         structured: OutcomeStructured::Plain { title: None },
     };
     assert!(
@@ -577,7 +577,7 @@ fn config_change_invalidates_cache_for_the_next_task() {
 
 #[test]
 fn frozen_options_carry_the_factory_model_by_default() {
-    let engine = MockEngine::new().with_chunks(vec![Ok("{\"body\":\"产物\"}".into())]);
+    let engine = MockEngine::new().with_chunks(vec![Ok("{\"note\":\"产物\"}".into())]);
     let mut pipe = pipeline(&engine);
 
     let _ = pipe.trigger_and_feed_with(
@@ -604,7 +604,7 @@ fn expect_classified(pipe: &mut Pipeline) -> TaskKind {
 #[allow(clippy::panic)] // 测试辅助：失败即 panic 是断言语义
 fn outcome_body(machine: &TaskStateMachine) -> &str {
     match machine.overlay_view() {
-        Some(OverlayView::Outcome { outcome, .. }) => &outcome.body,
+        Some(OverlayView::Outcome { outcome, .. }) => &outcome.note,
         other => panic!("expected outcome view, got {other:?}"),
     }
 }
