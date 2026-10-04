@@ -448,10 +448,6 @@ mod tests {
 
     #[test]
     fn output_example_carries_the_note_field() {
-        // 模板里的输出示例就是解析侧所吃形状的唯一描述：示例必须是可解析
-        // 的 JSON 且携带 note（义）。note 位置随 kind 而定（词卡按说文
-        // 体例 phonetic 领头），流式提取器按位独立扫描，不依赖字段序。
-        // 输出示例是契约正文之后唯一的 JSON 行，整行解析。
         fn example_object(template: &str) -> &str {
             template
                 .lines()

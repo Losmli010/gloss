@@ -395,12 +395,14 @@ impl TaskStateMachine {
             }) => (source.clone(), code_lang.clone()),
             _ => (String::new(), None),
         };
-        // 代码语言以 LLM 的判定为准（随产物到达）：过词元门槛后经归一
-        // 化（别名/大小写）采用；判定缺失、是散文/示例占位串时回落流式
-        // 期的内容探测——角标与高亮始终有值可依，自由文本不上角标。
+        // 代码语言以 LLM 的判定为准（随产物到达）：修剪首尾空白后过词元
+        // 门槛，再经归一化（别名/大小写）采用；判定缺失、是散文/示例占位
+        // 串时回落流式期的内容探测——角标与高亮始终有值可依，自由文本不
+        // 上角标。
         let code_lang = outcome
             .code_language
             .as_deref()
+            .map(str::trim)
             .filter(|verdict| plausible_code_language(verdict))
             .and_then(crate::ui::code_hl::normalize_language)
             .or(detected);
@@ -542,9 +544,9 @@ fn code_lang_of(text: &str) -> Option<String> {
 }
 
 /// LLM 代码语言判定的采纳门槛：语言标识应是单个 ASCII 词元（"rust"、
-/// "c++"、"objective-c" 这个形状）。含空白或非 ASCII 字符的判定是散文
-/// 或示例占位串（模型照抄「…或 null」），不可上角标——交由调用方回落
-/// 内容探测。
+/// "c++"、"objective-c" 这个形状）。内部含空白或非 ASCII 字符的判定是
+/// 散文或示例占位串（模型照抄「…或 null」），不可上角标——交由调用方
+/// 回落内容探测；首尾空白由调用方先行修剪。
 fn plausible_code_language(verdict: &str) -> bool {
     !verdict.is_empty()
         && verdict
@@ -1197,6 +1199,36 @@ mod tests {
                 }) if lang == "rust"
             ),
             "a placeholder verdict falls back to the streaming detection"
+        );
+
+        let mut machine = TaskStateMachine::new();
+        let probe_id = probe(&mut machine, &Config::default());
+        dispatched(machine.commit_selection(
+            probe_id,
+            TaskInput::Text {
+                text: "fn main() {}".into(),
+            },
+        ));
+        machine.accept_done(
+            1,
+            TaskOutcome {
+                kind: TaskKind::ExplainCode,
+                note: "产物".into(),
+                code_language: Some(" rust\n".into()),
+                structured: OutcomeStructured::Plain {
+                    examples: Vec::new(),
+                },
+            },
+        );
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Outcome {
+                    code_lang: Some(lang),
+                    ..
+                }) if lang == "rust"
+            ),
+            "a whitespace-padded verdict is trimmed before the plausibility gate"
         );
     }
 
