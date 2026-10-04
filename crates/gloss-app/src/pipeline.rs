@@ -187,7 +187,7 @@ async fn run_task(
         "cache miss, calling the engine"
     );
 
-    // 钩子把 LLM 层的中间产物逐条泵回主线程：分类定型（含提示直通与
+    // 钩子把 LLM 层的中间产物逐条泵回主线程：分类定型（LLM 判定或失败
     // 兜底 kind）与流式增量。原始回复的完成态累积归 LLM 层（run 的返回
     // 值），这里只泵不存——完成态解析以 output.raw 为唯一真相源。
     let output = service

@@ -79,16 +79,14 @@ impl TaskVerdict {
     /// 按 [`TaskCase`] 的 kind 与回复原文逐级判定。
     ///
     /// 判定镜像生产完成态解析（gloss-app `finalize::complete`）：整段
-    /// 回复解析为 JSON 对象且带 `body` 即主路径；否则退围栏 fallback
+    /// 回复解析为 JSON 对象且带 `note`（义）即主路径；否则退围栏 fallback
     /// （取**最后一个**围栏，镜像生产的 rfind 语义）。
     pub fn for_reply(case: &TaskCase, reply: &str) -> Self {
         let parsed = serde_json::from_str::<serde_json::Value>(reply.trim()).ok();
         let json_object = parsed.is_some();
         let note_present = parsed
             .as_ref()
-            .and_then(|value| value.get("note"))
-            .and_then(|note| note.as_str())
-            .is_some();
+            .is_some_and(|value| value.get("note").and_then(|n| n.as_str()).is_some());
         let fields_complete = parsed.as_ref().is_some_and(|value| {
             required_fields(case.kind)
                 .iter()
@@ -115,14 +113,10 @@ impl TaskVerdict {
 /// 与 gloss-app `finalize` 同一条规则：`note` 缺失退围栏；坏条目跳过；
 /// 字段缺失按 kind 兜底。
 fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
-    let note = serde_json::from_str::<serde_json::Value>(reply.trim())
+    let main_path = serde_json::from_str::<serde_json::Value>(reply.trim())
         .ok()
-        .and_then(|value| {
-            let note = value.get("note").and_then(|note| note.as_str())?.to_owned();
-            Some((value, note))
-        });
-    if let Some((value, note)) = note {
-        let _ = note;
+        .filter(|value| value.get("note").and_then(|n| n.as_str()).is_some());
+    if let Some(value) = main_path {
         return match kind {
             TaskKind::TranslateWord => OutcomeStructured::WordCard {
                 phonetic: text_field(&value, "phonetic"),

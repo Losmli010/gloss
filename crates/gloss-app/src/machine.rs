@@ -395,9 +395,15 @@ impl TaskStateMachine {
             }) => (source.clone(), code_lang.clone()),
             _ => (String::new(), None),
         };
-        // 代码语言以 LLM 的判定为准（随产物到达），缺失时回落流式期的
-        // 内容探测——角标与高亮始终有值可依。
-        let code_lang = outcome.code_language.clone().or(detected);
+        // 代码语言以 LLM 的判定为准（随产物到达）：过词元门槛后经归一
+        // 化（别名/大小写）采用；判定缺失、是散文/示例占位串时回落流式
+        // 期的内容探测——角标与高亮始终有值可依，自由文本不上角标。
+        let code_lang = outcome
+            .code_language
+            .as_deref()
+            .filter(|verdict| plausible_code_language(verdict))
+            .and_then(crate::ui::code_hl::normalize_language)
+            .or(detected);
         self.active_request = None;
         self.overlay_view = Some(OverlayView::Outcome {
             source,
@@ -533,6 +539,17 @@ fn streaming_view(input: &TaskInput) -> OverlayView {
 /// accept_done 精化）。视图创建时一次，不进渲染热路径。
 fn code_lang_of(text: &str) -> Option<String> {
     crate::ui::code_hl::detect_language(text)
+}
+
+/// LLM 代码语言判定的采纳门槛：语言标识应是单个 ASCII 词元（"rust"、
+/// "c++"、"objective-c" 这个形状）。含空白或非 ASCII 字符的判定是散文
+/// 或示例占位串（模型照抄「…或 null」），不可上角标——交由调用方回落
+/// 内容探测。
+fn plausible_code_language(verdict: &str) -> bool {
+    !verdict.is_empty()
+        && verdict
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '#' | '-' | '.'))
 }
 
 /// 一次平台事件的去向：取材，或被闸门拦下。
@@ -1150,6 +1167,36 @@ mod tests {
                 }) if lang == "rust"
             ),
             "a missing verdict falls back to the streaming detection"
+        );
+
+        let mut machine = TaskStateMachine::new();
+        let probe_id = probe(&mut machine, &Config::default());
+        dispatched(machine.commit_selection(
+            probe_id,
+            TaskInput::Text {
+                text: "fn main() {}".into(),
+            },
+        ));
+        machine.accept_done(
+            1,
+            TaskOutcome {
+                kind: TaskKind::ExplainCode,
+                note: "产物".into(),
+                code_language: Some("…或 null".into()),
+                structured: OutcomeStructured::Plain {
+                    examples: Vec::new(),
+                },
+            },
+        );
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Outcome {
+                    code_lang: Some(lang),
+                    ..
+                }) if lang == "rust"
+            ),
+            "a placeholder verdict falls back to the streaming detection"
         );
     }
 

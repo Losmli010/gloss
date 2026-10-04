@@ -81,19 +81,57 @@ if [ -z "$src_names" ] && [ -z "$target_names" ]; then
 fi
 
 # ---- 双向核对 ----
-missing_in_bdd="$(comm -23 <(printf '%s\n' "$src_names" "$target_names" | grep -v '^$' | sort -u) \
+src_all_names="$(printf '%s\n' "$src_names" "$target_names" | grep -v '^$' | sort)"
+missing_in_bdd="$(comm -23 <(printf '%s\n' "$src_all_names") \
                          <(printf '%s\n' "$bdd_names" | grep -v '^$' | sort -u) || true)"
-stale_in_bdd="$(comm -13 <(printf '%s\n' "$src_names" "$target_names" | grep -v '^$' | sort -u) \
+stale_in_bdd="$(comm -13 <(printf '%s\n' "$src_all_names") \
                         <(printf '%s\n' "$bdd_names" | grep -v '^$' | sort -u) || true)"
+# 重复登记：整行精确重复（同名同目标同场景同时间）＝改名后旧行未删的
+# 真实特征。同名不同描述的沿革行（历史重录记录）是有意保留，不拦。
+duplicate_rows="$(awk '
+    /^## /  { exempt = ($0 ~ /^## 发版人工步骤/) ? 1 : 0 }
+    /^\|/   {
+      if (exempt) next
+      if ($0 ~ /^[[:space:]]*\|[[:space:]]*测试名称/) next
+      if ($0 ~ /^[[:space:]]*\|[[:space:]]*---/) next
+      print
+    }
+  ' "$BDD" | sort | uniq -d)"
+
+if [ -n "$stale_in_bdd" ]; then
+  fail "以下 bdd.md 条目在测试源码中不存在（改名或删除后未同步）："
+  printf '%s\n' "$stale_in_bdd" | sed 's/^/    /' >&2
+fi
 
 if [ -n "$missing_in_bdd" ]; then
   fail "以下测试未登记进 bdd.md："
   printf '%s\n' "$missing_in_bdd" | sed 's/^/    /' >&2
 fi
+duplicate_entries="$duplicate_rows"
+if [ -n "$duplicate_entries" ]; then
+  fail "以下 bdd.md 条目重复登记（同名条目数超过源码同名测试数，改名后旧行未删？）："
+  printf '%s\n' "$duplicate_entries" | sed 's/^/    /' >&2
+fi
 
-if [ -n "$stale_in_bdd" ]; then
-  fail "以下 bdd.md 条目在测试源码中不存在（改名或删除后未同步）："
-  printf '%s\n' "$stale_in_bdd" | sed 's/^/    /' >&2
+# 结构校验：每个含表格行的小节（### / 发版人工步骤除外）必须带表头——
+# 表头行经去重脚本会被误当重复行删掉，Markdown 表格随之退化。
+header_missing="$(awk '
+  /^## /  { exempt = ($0 ~ /^## 发版人工步骤/) ? 1 : 0; next }
+  /^### / {
+    if (exempt) next
+    if (section != "" && has_row && !has_header) print section
+    section = $0; has_header = 0; has_row = 0; next
+  }
+  /^\|/ {
+    if (exempt || section == "") next
+    if ($0 ~ /^\|[[:space:]]*测试名称/) has_header = 1
+    else if ($0 !~ /^\|[[:space:]]*---/) has_row = 1
+  }
+  END { if (section != "" && has_row && !has_header) print section }
+' "$BDD")"
+if [ -n "$header_missing" ]; then
+  fail "以下小节的表格缺表头（或表头被误删）："
+  printf '%s\n' "$header_missing" | sed 's/^/    /' >&2
 fi
 
 if [ "$FAILED" -ne 0 ]; then
@@ -104,7 +142,7 @@ if [ "$FAILED" -ne 0 ]; then
   exit 1
 fi
 
-src_total="$(printf '%s\n' "$src_names" "$target_names" | grep -cv '^$' || true)"
+src_total="$(printf '%s\n' "$src_all_names" | grep -cv '^$' || true)"
 bdd_total="$(printf '%s\n' "$bdd_names" | grep -cv '^$' || true)"
 echo "✓ bdd.md 与测试源码一致（源码 ${src_total} 项 / 清单 ${bdd_total} 项）"
 exit 0

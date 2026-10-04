@@ -3,8 +3,9 @@
 //! 文本任务**一个任务一份自包含模板**（词卡/句译/代码解释）：任务说明与
 //! 纯 JSON 输出契约（含一份**中性占位**的输出示例）都在同一个文件里，改
 //! 一个任务的任务书不会牵动其它任务。契约按经注疏/说文解字的层次组织：
-//! `note`（注，markdown 注文）放首位，其后按 kind 携带结构化字段——词卡
-//! 是 word/phonetic/senses（字/音/义，例句随义），句译与讲解是 title。
+//! `note`（义，markdown 注文）+ 按 kind 的疏证字段——词卡是
+//! phonetic/examples（音/例，字头即选区原文），句译与讲解是 examples
+//! （展开讲解），代码另带 code_language（LLM 判定，UI 角标与高亮使用）。
 //! 模板里的输出示例就是解析侧（`gloss_app::finalize`）所吃形状的唯一描述，
 //! 两处改一须改二；示例值恒为占位（同分类契约的少样本偏置取舍）。图像/
 //! 音频输入一律 [`GlossError::UnsupportedModality`]，不发出注定无效的
@@ -17,8 +18,8 @@
 //!
 //! 模板文本是编译期嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，
 //! `include_str!`），渲染是显式的 `{{占位符}}` 替换（可选行语义见
-//! [`render_template`]）。不注入模态提示行：取材路径不携带 hint，代码
-//! 语言由模型从原文判断（分类的提示直通在 `classify`，不经 prompt）。
+//! [`render_template`]）。不注入模态提示行：源语言与代码语言都由模型
+//! 从原文自行判断，代码语言经产物 JSON 的 `code_language` 回传 UI。
 //!
 //! 模板内容面向模型，用各 locale 的语言书写，不受「日志一律英文」门禁约束
 //! （`just constraints` 只查日志宏实参）。
@@ -446,10 +447,10 @@ mod tests {
     }
 
     #[test]
-    fn output_example_leads_with_the_note_field() {
+    fn output_example_carries_the_note_field() {
         // 模板里的输出示例就是解析侧所吃形状的唯一描述：示例必须是可解析
-        // 的 JSON 且携带 note（义）——词卡按说文体例 phonetic 领头，流式
-        // 提取器按位独立扫描 note。
+        // 的 JSON 且携带 note（义）。note 位置随 kind 而定（词卡按说文
+        // 体例 phonetic 领头），流式提取器按位独立扫描，不依赖字段序。
         // 输出示例是契约正文之后唯一的 JSON 行，整行解析。
         fn example_object(template: &str) -> &str {
             template

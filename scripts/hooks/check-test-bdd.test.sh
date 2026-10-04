@@ -126,6 +126,17 @@ mut_file_heading_only_change() {
     "$TMP/docs/tests/bdd.md" >"$TMP/docs/tests/bdd.md.tmp" &&
     mv "$TMP/docs/tests/bdd.md.tmp" "$TMP/docs/tests/bdd.md"
 }
+mut_duplicate_row() {
+  printf '| registered_plain | 目标 | 给定…当…则… | 2026-09-19 |\n' >>"$TMP/docs/tests/bdd.md"
+}
+mut_history_row_same_name() {
+  printf '| registered_plain | 旧目标 | 旧场景措辞 | 2026-09-01 |\n' >>"$TMP/docs/tests/bdd.md"
+}
+mut_drop_section_header() {
+  awk '{ if ($0 ~ /^\|[[:space:]]*测试名称/ || $0 ~ /^\|[[:space:]]*---/) next; print }' \
+    "$TMP/docs/tests/bdd.md" >"$TMP/docs/tests/bdd.md.tmp" &&
+    mv "$TMP/docs/tests/bdd.md.tmp" "$TMP/docs/tests/bdd.md"
+}
 
 echo "== 测试 check-test-bdd.sh =="
 echo ""
@@ -133,6 +144,7 @@ echo "-- 一致（应通过，退出码 0）--"
 assert_case "全量登记一致（fn/tokio/ignore/同行属性/重名后缀剥除/[[test]] 目标）" 0
 assert_case "bdd 文件小节标题（crates/…）变化不影响核对" 0 mut_file_heading_only_change
 assert_case "表头与分隔行不误判为条目" 0
+assert_case "同名沿革行（描述不同）不误判为重复" 0 mut_history_row_same_name
 
 echo ""
 echo "-- 不一致（应拒绝，退出码非 0）--"
@@ -140,6 +152,8 @@ assert_case "源码测试未登记进 bdd.md" 1 mut_unregistered_test "unregiste
 assert_case "bdd.md 条目在源码中不存在" 1 mut_stale_bdd_entry "ghost_entry"
 assert_case "源码改名后清单未同步" 1 mut_rename_in_code_only "registered_plain_renamed"
 assert_case "bdd.md 缺失" 1 mut_drop_bdd_file "找不到"
+assert_case "整行精确重复登记（改名后旧行未删）" 1 mut_duplicate_row "重复登记"
+assert_case "小节表格缺表头" 1 mut_drop_section_header "缺表头"
 
 echo ""
 echo "== 测试结果 =="

@@ -27,7 +27,25 @@
   4. 未授权时测试当场失败并打印修复指引
 - 更新时间：2026-09-19
 
+- 测试目标：验证辅助功能授权下的真实选区读取。
+- 测试场景：给定授权真机与前台选中文本，当 reader.read()，则读出非空选中文本。
+- 测试步骤：
+  1. 系统设置 → 隐私与安全性 → 辅助功能 → 放行运行测试的终端 App
+  2. 在前台编辑器选中一段文字
+  3. 运行总览中人工测试的命令
+  4. 未授权时测试当场失败并打印修复指引
+- 更新时间：2026-09-19
+
 ### reads_live_selection_via_simulated_copy
+- 测试目标：验证辅助功能授权下经剪贴板兜底的真实选区读取。
+- 测试场景：给定授权真机且前台有选中文本，当跑兜底读取，则读出非空文本。
+- 测试步骤：
+  1. 系统设置 → 隐私与安全性 → 辅助功能 → 放行运行测试的终端 App
+  2. 前台保留可复制的文字
+  3. 运行总览中人工测试的命令
+  4. 测试会向前台应用注入 Cmd+C 并覆写系统剪贴板；全系列经 CLIPBOARD_LIVE_LOCK 串行，勿手动并行触发
+- 更新时间：2026-09-19
+
 - 测试目标：验证辅助功能授权下经剪贴板兜底的真实选区读取。
 - 测试场景：给定授权真机且前台有选中文本，当跑兜底读取，则读出非空文本。
 - 测试步骤：
@@ -47,7 +65,25 @@
   4. 测试预置的剪贴板内容会被写入并恢复；经 CLIPBOARD_LIVE_LOCK 串行
 - 更新时间：2026-09-19
 
+- 测试目标：验证富剪贴板场景下兜底读取的恢复保真。
+- 测试场景：给定预置富剪贴板与授权真机，当跑兜底读取，则读出选中文本且预置文本/自定义 flavor 原样恢复。
+- 测试步骤：
+  1. 系统设置 → 隐私与安全性 → 辅助功能 → 放行运行测试的终端 App
+  2. 前台保留可复制的文字
+  3. 运行总览中人工测试的命令
+  4. 测试预置的剪贴板内容会被写入并恢复；经 CLIPBOARD_LIVE_LOCK 串行
+- 更新时间：2026-09-19
+
 ### injected_drag_yields_selection_gesture
+- 测试目标：验证真实 CGEventTap 下的注入拖拽手势判定。
+- 测试场景：给定辅助功能授权与 rdev 注入的拖拽序列（(100,100) 按下 → 五段移动 → 释放前真实睡过最短按压时长），当经真实事件 tap，则 2s 内监听到手势且监听器未降级。
+- 测试步骤：
+  1. 系统设置 → 隐私与安全性 → 辅助功能 → 放行运行测试的终端 App
+  2. 运行总览中人工测试的命令
+  3. 测试注入真实全局鼠标事件，屏幕光标会移动
+  4. 未授权时前置检查当场失败并打印修复指引
+- 更新时间：2026-09-30
+
 - 测试目标：验证真实 CGEventTap 下的注入拖拽手势判定。
 - 测试场景：给定辅助功能授权与 rdev 注入的拖拽序列（(100,100) 按下 → 五段移动 → 释放前真实睡过最短按压时长），当经真实事件 tap，则 2s 内监听到手势且监听器未降级。
 - 测试步骤：
@@ -65,7 +101,22 @@
   2. 沙箱或 CI 会拒绝 keychain 写入，属预期环境限制
 - 更新时间：2026-09-19
 
+- 测试目标：验证真实 keychain 的写→读→覆盖→删除往返。
+- 测试场景：给定真实 keychain 测试服务名，当写→读→覆盖→删除，则各步读回一致、终态 None。
+- 测试步骤：
+  1. 在非受限会话的终端运行总览中人工测试的命令
+  2. 沙箱或 CI 会拒绝 keychain 写入，属预期环境限制
+- 更新时间：2026-09-19
+
 ### live_llm_streams_a_translation
+- 测试目标：验证真实 LLM 端点的流式翻译往返。
+- 测试场景：给定 GLOSS_LIVE_API_KEY / GLOSS_LIVE_BASE_URL / GLOSS_LIVE_MODEL 三个变量与真实端点，当请求翻译并消费流，则累计 80+ 字符非空译文。
+- 测试步骤：
+  1. 导出 GLOSS_LIVE_API_KEY / GLOSS_LIVE_BASE_URL / GLOSS_LIVE_MODEL 三个环境变量（密钥不打印）
+  2. 运行总览中人工测试的命令
+  3. 缺变量时测试当场打印可照抄的导出命令
+- 更新时间：2026-09-19
+
 - 测试目标：验证真实 LLM 端点的流式翻译往返。
 - 测试场景：给定 GLOSS_LIVE_API_KEY / GLOSS_LIVE_BASE_URL / GLOSS_LIVE_MODEL 三个变量与真实端点，当请求翻译并消费流，则累计 80+ 字符非空译文。
 - 测试步骤：
@@ -82,7 +133,21 @@
   2. 运行中会覆写并恢复本机剪贴板；经 CLIPBOARD_LIVE_LOCK 串行
 - 更新时间：2026-09-19
 
+- 测试目标：验证兜底读取后系统剪贴板恢复原内容。
+- 测试场景：给定预置文本的系统剪贴板，当跑一次兜底读取（成败皆可），则原内容恢复。
+- 测试步骤：
+  1. 随常规测试自动运行，无需授权与 --ignored
+  2. 运行中会覆写并恢复本机剪贴板；经 CLIPBOARD_LIVE_LOCK 串行
+- 更新时间：2026-09-19
+
 ### fallback_read_restores_multiflavor_clipboard
+- 测试目标：验证多 flavor 剪贴板的恢复保真。
+- 测试场景：给定「文本 + 自定义 flavor」双 flavor 条目，当跑一次兜底读取，则两种 flavor 字节原样恢复。
+- 测试步骤：
+  1. 随常规测试自动运行，无需授权与 --ignored
+  2. 运行中会覆写并恢复本机剪贴板；经 CLIPBOARD_LIVE_LOCK 串行
+- 更新时间：2026-09-19
+
 - 测试目标：验证多 flavor 剪贴板的恢复保真。
 - 测试场景：给定「文本 + 自定义 flavor」双 flavor 条目，当跑一次兜底读取，则两种 flavor 字节原样恢复。
 - 测试步骤：
@@ -98,6 +163,13 @@
   2. 运行中会覆写并恢复本机剪贴板；经 CLIPBOARD_LIVE_LOCK 串行
 - 更新时间：2026-09-19
 
+- 测试目标：验证空剪贴板场景的兜底不引入内容。
+- 测试场景：给定空剪贴板，当跑一次兜底读取，则剪贴板保持为空。
+- 测试步骤：
+  1. 随常规测试自动运行，无需授权与 --ignored
+  2. 运行中会覆写并恢复本机剪贴板；经 CLIPBOARD_LIVE_LOCK 串行
+- 更新时间：2026-09-19
+
 ### fallback_read_restores_multi_item_clipboard
 - 测试目标：验证多条目剪贴板的逐条目恢复。
 - 测试场景：给定两条目各带文本与自定义 flavor，当跑一次兜底读取，则四个 flavor 各归回原条目。
@@ -106,7 +178,27 @@
   2. 运行中会覆写并恢复本机剪贴板；经 CLIPBOARD_LIVE_LOCK 串行
 - 更新时间：2026-09-19
 
+- 测试目标：验证多条目剪贴板的逐条目恢复。
+- 测试场景：给定两条目各带文本与自定义 flavor，当跑一次兜底读取，则四个 flavor 各归回原条目。
+- 测试步骤：
+  1. 随常规测试自动运行，无需授权与 --ignored
+  2. 运行中会覆写并恢复本机剪贴板；经 CLIPBOARD_LIVE_LOCK 串行
+- 更新时间：2026-09-19
+
 ### scene_probe_reports_the_frontmost_app
+- 测试目标：验证真机上 NSWorkspace 取前台应用这条路径（CI 里只能断「一致快照」，`Some` 分支跑不到）。
+- 测试场景：给定有前台应用的图形会话，当读一次场景事实，则报出前台应用且其身份字段非空。
+- 测试步骤：
+  1. 在有窗口服务的会话里运行（无前台应用的环境会当场失败）
+  2. 运行总览中人工测试的命令
+  3. 前台开着任意应用即可；在密码管理器内划词的行为另见 PR 走查清单
+- 更新时间：2026-09-26
+
+## 发版人工步骤
+
+发版链路的一次性运维与真机步骤：没有可执行的自动化测试源码，bdd 门禁对本节豁免双向核对；
+条目仍按「名称、目标、场景、照抄步骤、更新时间」登记，命名用测试风格的标识符。
+
 - 测试目标：验证真机上 NSWorkspace 取前台应用这条路径（CI 里只能断「一致快照」，`Some` 分支跑不到）。
 - 测试场景：给定有前台应用的图形会话，当读一次场景事实，则报出前台应用且其身份字段非空。
 - 测试步骤：
@@ -129,6 +221,14 @@
   3. 保存即可，无需手工建分支（deploy-web job 用 actions/deploy-pages 直接部署）
 - 更新时间：2026-09-26
 
+- 测试目标：验证仓库 GitHub Pages 已启用且 source 为 GitHub Actions（deploy-web job 的前置，一次性）。
+- 测试场景：给定仓库管理员权限，当查看 Settings → Pages，则 Build and deployment 的 Source 为 GitHub Actions。
+- 测试步骤：
+  1. 打开 https://github.com/Losmli010/gloss/settings/pages
+  2. Build and deployment → Source 选 GitHub Actions（若尚未选择）
+  3. 保存即可，无需手工建分支（deploy-web job 用 actions/deploy-pages 直接部署）
+- 更新时间：2026-09-26
+
 ### pages_site_point_check
 - 测试目标：验证 Pages 部署后站点的导航锚点、下载按钮、manifest 读取与降级路径。
 - 测试场景：给定一次成功的 deploy-web 部署，当浏览器访问站点逐项点检，则锚点跳转正常、下载按钮指向 latest/ 对应架构直链、manifest.json 可读取且字段齐备；manifest 取不到时页面降级为 GitHub Releases 外链。
@@ -140,7 +240,27 @@
   5. 降级路径：本地 `just site-preview`（无 manifest.json）打开页面，确认显示「无法获取最新版本信息」且下载按钮退到 GitHub Releases 外链
 - 更新时间：2026-09-26
 
+- 测试目标：验证 Pages 部署后站点的导航锚点、下载按钮、manifest 读取与降级路径。
+- 测试场景：给定一次成功的 deploy-web 部署，当浏览器访问站点逐项点检，则锚点跳转正常、下载按钮指向 latest/ 对应架构直链、manifest.json 可读取且字段齐备；manifest 取不到时页面降级为 GitHub Releases 外链。
+- 测试步骤：
+  1. 打开 https://losmli010.github.io/gloss/
+  2. 依次点导航「演示 / 功能 / 下载 / 更新日志」，确认锚点跳转
+  3. 确认版本号显示；切换 Apple Silicon / Intel，确认下载链接随之指向对应架构的 latest/ 文件
+  4. 直接访问 https://losmli010.github.io/gloss/manifest.json，确认 schema/version/channels 双架构字段齐备
+  5. 降级路径：本地 `just site-preview`（无 manifest.json）打开页面，确认显示「无法获取最新版本信息」且下载按钮退到 GitHub Releases 外链
+- 更新时间：2026-09-26
+
 ### real_update_round_trip_on_device
+- 测试目标：验证真机上的真实清单拉取、整包下载校验与替换重启，双架构各一次。
+- 测试场景：给定装有旧版 Gloss 的真机（有网络），当设置页手动检查更新并确认下载、确认重启替换，则应用升到清单版本并正常启动，旧 bundle 无残留。
+- 测试步骤：
+  1. 在 Apple Silicon 与 Intel 真机各装上一个发布版本的 Gloss
+  2. 设置页点「检查更新」，确认提示新版与目标版本
+  3. 确认下载，等待「更新就绪」提示
+  4. 点「重启更新」，确认替换后应用以新版本启动
+  5. 检查 /Applications 无 .app.old 残留；`just logs` 无 panic
+- 更新时间：2026-09-26
+
 - 测试目标：验证真机上的真实清单拉取、整包下载校验与替换重启，双架构各一次。
 - 测试场景：给定装有旧版 Gloss 的真机（有网络），当设置页手动检查更新并确认下载、确认重启替换，则应用升到清单版本并正常启动，旧 bundle 无残留。
 - 测试步骤：
@@ -165,14 +285,28 @@
 
 文件：crates/gloss-app/tests/pipeline.rs（L1，经公共 API 与通道两端驱动状态机 + 通道③④ + tokio 桥 + mock 引擎的全时序）。
 
+- 测试目标：验证打 tag 后 Release 与 Pages 同步发布的全链路。
+- 测试场景：给定与版本单点一致的 tag，当推送 tag 触发 release workflow，则 build/release 产出 Release 资产、deploy-web 部署成功，站点 manifest.json 的 version 与 tag 一致。
+- 测试步骤：
+  1. 本地 `just release-check vX.Y.Z` 确认版本一致后打 tag 并推送
+  2. 在 Actions 观察 release workflow：build → release → deploy-web 依次成功
+  3. 打开 GitHub Release，确认双架构 zip/dmg 共 4 个资产
+  4. 打开站点确认 manifest.json 的 version 与 tag（去 v）一致，latest/ 下 4 个文件可下载
+- 更新时间：2026-09-26
+
+## 集成测试
+
+文件：crates/gloss-app/tests/pipeline.rs（L1，经公共 API 与通道两端驱动状态机 + 通道③④ + tokio 桥 + mock 引擎的全时序）。
+
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| full_flow_classifies_then_streams_and_settles | 全链路分类+流式回流与终态 | 给定划词手势注入契约 JSON（仅 note 字段）的流式脚本，当全链路推进，则先回 TaskClassified(TranslateWord)（分类解析不出 kind 落兜底）、chunk 逐条回流、TaskDone 后定格 Show、正文取自 body 字段、词卡字段缺失按契约落空卡 | 2026-10-03 |
+| --- | --- | --- | --- |
+| full_flow_classifies_then_streams_and_settles | 全链路分类+流式回流与终态 | 给定划词手势注入契约 JSON（仅 note 字段）的流式脚本，当全链路推进，则先回 TaskClassified(TranslateWord)（分类解析不出 kind 落兜底）、chunk 逐条回流、TaskDone 后定格 Show、正文取自 note 字段、词卡疏证字段缺失按契约落空卡 | 2026-10-03 |
 | classify_failure_falls_back_and_the_task_still_completes | 分类失败回退兜底且任务照常完成 | 给定分类请求注入一次性失败，当桥编排分类，则 TaskClassified 携带兜底 kind、告警无内容、重建任务照常执行完成落 Show | 2026-09-26 |
 | second_trigger_is_a_full_cache_hit_without_engine_calls | 二次触发全缓存命中直出 | 给定同一 input+options 的任务第二次触发，当桥按 cache_key(input, options) 查产物缓存命中，则仅回 TaskClassified+TaskDone（无 TaskChunk）、引擎调用数维持 2（首轮分类+执行）、分类 kind 随缓存产物回放、状态定格 Show | 2026-10-03 |
 | hide_overlay_cancels_the_stream_and_late_events_are_dropped | 收起浮层取消流并丢弃迟到事件 | 给定慢流中已收到分类结果与首个 chunk，当 hide_overlay 取消在途令牌，则不再有任何回传事件、机器侧拒绝该任务的迟到 chunk/产物并回 Idle | 2026-09-26 |
 | superseded_trigger_cancels_and_filters_late_events | 新触发取消旧任务并过滤迟到事件 | 给定 A 的分类流未完成时触发 B，当 B 触发，则 A 的令牌立即取消、代数 +1、A 代数的迟到事件被状态机拒绝，B 经分类回退后 chunk/done 正常回流至 Show | 2026-09-26 |
-| failure_lands_in_error_and_retry_succeeds | 失败落错误态且重试可达 | 给定 CodeLanguage hint 固定 kind 任务首次注入 EngineRateLimited 失败，当失败回传后再次触发，则落 Error 态、第二次任务完成落 Show | 2026-10-03 |
-| error_card_retry_redispatches_the_same_request | 重试动作重发同一请求 | 给定 CodeLanguage hint 固定路径的可重试失败 Retry 出口，当 retry 并重发 RunTask（input+options 原样），则同代数重发同一请求并完成落 Show | 2026-10-03 |
+| failure_lands_in_error_and_retry_succeeds | 失败落错误态且重试可达 | 给定首次注入两次 EngineRateLimited 一次性失败（分类与任务各吃一条），当失败回传后再次触发，则落 Error 态、第二次任务完成落 Show | 2026-10-03 |
+| error_card_retry_redispatches_the_same_request | 重试动作重发同一请求 | 给定注入两条一次性 EngineNetwork 失败（分类与任务各吃一条）的可重试 Retry 出口，当 retry 并重发 RunTask（input+options 原样），则同代数重发同一请求并完成落 Show | 2026-10-03 |
 | frozen_options_carry_the_factory_model_by_default | 冻结选项默认带出厂模型 | 给定出厂配置的划词提交（hint 直通），当下发 RunTask，则 options.model 为 DEFAULT_TEXT_MODEL（快照冻结面） | 2026-10-03 |
 | config_change_invalidates_cache_for_the_next_task | 配置变更对主缓存 key 的失效 | 给定 CodeLanguage hint 固定 kind 的同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎 1 次）、换模型与换目标语言各触发一次重新请求（共 3 次） | 2026-10-03 |
 | engine_logs_carry_the_task_span | 桥日志经 span 带上代数 | 给定带 span 的任务命令（进程级捕获订阅者），当消费桥执行到缓存命中，则命中行同时含 cache hit 与 "generation":2 | 2026-09-26 |
@@ -221,6 +355,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-core/tests/stubs_behavior.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | selection_reader_mock_returns_presets | 选区读取桩的两路透传 | 给定预置的成功/失败结果，当调用 SelectionReader 桩的 read，则两路都原样返回（Ok 与 AccessibilityDenied） | 2026-09-19 |
 | region_capture_mock_returns_png | 区域截图桩的字节透传 | 给定预置 PNG 字节，当 capture 一个 4×4 区域，则返回同一份 Arc 缓冲（ptr_eq 断言） | 2026-09-19 |
 | config_store_mock_round_trips_secrets | 密钥存取桩往返 | 给定密钥未设置时读为 None，当 set_secret 后再读，则读回写入值 | 2026-09-19 |
@@ -233,6 +370,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | empty_script_yields_empty_stream | 空脚本产出空流 | 给定空脚本，当 execute 并消费，则立即结束 | 2026-09-19 |
 
 ### crates/gloss-core/src/log.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | init_is_idempotent | 初始化幂等 | 给定已初始化的日志，当再次 init(None)，则无副作用不 panic | 2026-09-19 |
 | file_writer_creates_missing_directory | 日志目录自动创建 | 给定不存在的目录，当建 file writer，则目录被创建且 active 路径等于它 | 2026-09-19 |
@@ -252,6 +392,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-core/src/classify.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | classify_reads_the_kind_from_a_kind_tagged_script | 分类从 kind 标签脚本判型 | 给定带 "kind":"ExplainCode" 围栏的脚本，当 classify，则围栏提取解析出 kind（无提示直通——分类完全交给 LLM） | 2026-10-04 |
 | non_text_input_is_rejected | 非文本输入拒绝分类 | 给定 Audio 输入，当 classify，则 UnsupportedModality | 2026-09-26 |
 | bare_json_reply_selects_the_kind | 裸 JSON 回复解析 kind | 给定 {"kind":"TranslateWord"} 回复，当 classify，则得 TranslateWord | 2026-09-26 |
@@ -265,6 +408,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-core/src/config.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | factory_defaults_match_spec | 出厂默认符合规格 | 给定出厂 Config，当逐字段抽查，则默认语言/任务/提供商/文本模型等全部符合规格 | 2026-09-19 |
 | config_round_trips_through_serde | 配置 serde 往返无损 | 给定含 Lang::Other 等携数据变体的完整配置，当 serde_json 往返，则无损 | 2026-09-19 |
 | partial_document_fills_factory_defaults | 部分文档补全出厂默认 | 给定只写 theme 的 JSON，当加载，则该字段保留、其余走出厂默认（含全部 kind 启用） | 2026-09-19 |
@@ -273,6 +419,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | lookups_prefer_later_entries | 重复条目查找后者胜出 | 给定重复 kind 的多条目，当查找，则后条胜出、未配置为 None、未知 provider 无 keychain id | 2026-09-19 |
 
 ### crates/gloss-core/src/guard.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | scene_gate_blocks_secure_input_and_listed_apps | 场景闸门的两路拦截与优先级 | 给定安全输入开启、前台应用在内建名单里、两者同时成立、名单外的应用、无事实五种场景，当判闸门，则各返回对应因由（两者同时成立时报安全输入、名单外与无事实放行） | 2026-09-26 |
 | entry_matching_covers_every_identity_an_app_can_offer | 名单匹配按身份逐字比对 | 给定内建名单，当经公共入口 `trigger_block` 判闸门，则 bundle id 命中（ASCII 大小写不敏感、返回名单原文）、显示名不命中、名单外的应用与无身份的应用都放行 | 2026-09-26 |
@@ -294,14 +443,16 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-core/src/prompt.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | classify_prompt_carries_allowed_kinds_and_the_text | 分类提示词携带允许清单与原文 | 给定允许清单与原文，当 render_classify（双语），则用户消息为原文、系统指令含全部 kind 标识与 kind 契约、不含 Auto、无残留占位符 | 2026-09-30 |
 | classify_schema_is_a_neutral_placeholder | 分类契约为中性占位 | 给定分类输出契约（CLASSIFY_SCHEMA），当检查，则不含任何具体 kind 标识（示例值是少样本偏置，写死哪类模型就偏向哪类） | 2026-10-03 |
-| output_example_leads_with_the_note_field | 输出示例以 note 领头 | 给定双 locale 三份任务模板，当提取示例 JSON 对象并解析，则示例可解析且首键恒为 note（示例是解析侧所吃形状的唯一描述；流式渐进提取依赖字段序） | 2026-10-04 |
-| output_example_values_are_neutral_placeholders | 输出示例值为中性占位 | 给定双 locale 三份任务模板，当检查示例值，则恒为「…」类占位、不含具体词条——同分类契约的少样本偏置取舍（照抄示例的比例随示例显著性上升） | 2026-10-04 |
+| output_example_carries_the_note_field | 输出示例携带 note 字段 | 给定双 locale 三份任务模板，当整行解析示例 JSON，则示例可解析且恒带 note（义）——note 位置随 kind 而定（词卡 phonetic 领头），流式提取器按位独立扫描不依赖字段序 | 2026-10-04 |
 | output_example_values_are_neutral_placeholders | 输出示例值为中性占位 | 给定双 locale 三份任务模板，当检查示例值，则恒为「…」类占位、不含具体词条——同分类契约的少样本偏置取舍（照抄示例的比例随示例显著性上升） | 2026-10-04 |
 | rules_follow_the_allowed_list_and_leave_no_dangling_label | 判别规则跟随允许清单 | 给定含/不含 ExplainCode、以及全无规则的清单，当 render_classify，则命令行等边界规则只在对应 kind 在清单里时出现；清单里没有带规则的 kind 时整段（含标签）消失、无残留占位符 | 2026-09-30 |
 | text_kinds_render_system_and_user_with_kind_content | 文本 kind 渲染两段消息 | 给定三个文本 kind，当渲染，则得 [System, User] 两段，系统指令含各自关键词与结构化契约围栏，用户消息为原文 | 2026-09-19 |
-| output_example_carries_the_kind_fields | 输出示例携带 kind 字段 | 给定词卡/句译/代码解释模板（自包含任务书，含输出示例），当渲染并检查系统指令，则词卡示例声明 word/senses/phonetic、句译与代码示例声明 title 字段 | 2026-10-04 |
+| output_example_carries_the_kind_fields | 输出示例携带 kind 字段 | 给定词卡/句译/代码解释模板（自包含任务书，含输出示例），当渲染并检查系统指令，则词卡示例声明 phonetic/examples、句译示例声明 examples、代码示例声明 examples/code_language（note 恒在） | 2026-10-04 |
 | missing_target_lang_defaults_to_chinese | 目标语言缺省中文 | 给定未设 target_lang，当渲染句译，则系统指令含「中文」 | 2026-09-19 |
 | explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 Lang::Ja，当渲染，则系统指令含「日语」 | 2026-09-19 |
 | empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") / Other(" ") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且契约围栏仍在 | 2026-09-22 |
@@ -319,6 +470,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-core/src/config_handle.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | load_takes_first_snapshot_from_store | load 的首份快照来源 | 给定存储已有配置，当 ConfigHandle::load，则首份快照即存储内容 | 2026-09-19 |
 | save_writes_through_and_swaps_snapshot | save 穿透落盘并换快照 | 给定一次 save，当执行，则磁盘文档与运行时快照同时为新版 | 2026-09-19 |
 | failed_save_keeps_previous_snapshot | 失败保存保持旧快照 | 给定落盘必失败的存储，当 save，则错误上抛且快照保持旧版 | 2026-09-19 |
@@ -333,6 +487,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-core/src/task.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | task_input_carries_text_only | 输入只携带原文 | 给定文本输入，当构造 TaskInput，则只有 text——模态提示已废除（源语言/代码语言由 LLM 自行判断） | 2026-10-04 |
 | task_binds_kind_input_and_options | Task 三元正确绑定 | 给定构造参数，当建 Task，则 kind/input/options 正确绑定 | 2026-09-19 |
 | task_options_default_carries_the_factory_model | 选项缺省携带出厂模型 | 给定 TaskOptions::default()，当检查，则 model 为 DEFAULT_TEXT_MODEL、target_lang/prompt_locale 为 None（缺省只服务测试直构） | 2026-10-03 |
@@ -344,11 +501,17 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-core/src/model.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | screen_rect_compares_by_value | ScreenRect 按值比较 | 给定同值不同实例的 ScreenRect，当比较，则按值相等、异值不等 | 2026-09-19 |
 | error_display_is_diagnostic_text | 错误文案为诊断文本 | 给定各 GlossError 变体，当 to_string，则输出精确的诊断文案 | 2026-09-19 |
 | error_is_std_error | 错误可作 std Error | 给定 GlossError 装箱为 std Error，当 to_string，则输出正确文案 | 2026-09-19 |
 
 ### crates/gloss-core/src/engine.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | fence_fallback_pairs_with_the_raw_stream | 围栏 fallback 与原始流的契约配对 | 给定含围栏的原始回复，当 complete 的 fallback 层（finalize_outcome）解析，则产出 kind 正确、围栏从正文剥离、词卡结构化字段完整回填 | 2026-10-03 |
 | json_main_path_tolerates_null_and_missing_fields | JSON 主路径容忍 null 与缺字段 | 给定 "phonetic":null 或 senses 缺失的契约 JSON，当 complete，则 phonetic 为 None、senses 落空表（字段级按契约回退） | 2026-10-03 |
@@ -363,6 +526,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-app/src/cache.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | different_inputs_get_different_keys | 不同输入必不同 key | 给定不同文本/带 hint 文本/音频模态的输入，当 cache_key(input, options)，则 key 互不相同 | 2026-10-03 |
 | different_options_get_different_keys | 不同选项必不同 key | 给定同一输入，当换 target_lang/prompt_locale/model（非出厂值），则 key 均不同 | 2026-10-03 |
 | key_derivation_is_stable_and_serialization_failure_falls_back | key 派生稳定、序列化失败兜底 | 给定同输入重复派生与含 NaN 的 Audio 输入（序列化失败），当 cache_key，则同值同 key、回退路径确定性且与正常值可分辨 | 2026-10-03 |
@@ -372,12 +538,18 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-app/src/finalize.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | json_main_path_builds_the_word_card | JSON 主路径出词卡 | 给定契约 JSON（note + word/phonetic/senses），当 complete，则 note 原样、词卡结构化字段完整回填 | 2026-10-03 |
-| json_main_path_covers_plain_and_extracted_kinds | JSON 主路径覆盖 Plain 与提取 | 给定句译/代码（title）与 OCR（text）契约 JSON，当 complete，则 title 与 text 各按 kind 落结构化、body 保持 markdown | 2026-10-03 |
+| json_main_path_covers_plain_and_extracted_kinds | JSON 主路径覆盖 Plain 与提取 | 给定句译/代码（examples/code_language）与提取（note 即经文）契约 JSON，当 complete，则疏证各按 kind 落结构化、note 保持 markdown | 2026-10-03 |
 | missing_note_field_hands_over_to_the_fence_fallback | 缺 note 交围栏 fallback | 给定 note 缺失但带旧围栏的回复，当 complete，则 JSON 主路径整路失败、围栏 fallback 接住旧契约输出 | 2026-10-03 |
 | both_layers_agree_on_the_two_layer_handoff | 两层衔接各就各位 | 给定坏 JSON + 坏围栏的 OCR 回复，当 complete，则一路退到 kind 兜底、全文无损保留 | 2026-10-03 |
 
 ### crates/gloss-app/src/channel.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | platform_events_round_trip_through_crossbeam | 通道①事件往返 | 给定五种 PlatformEvent，当经通道①往返，则按序原样到达 | 2026-09-19 |
 | acquire_commands_carry_app_assigned_gen | 取材命令携带代数 | 给定带代数的取材命令，当下发，则接收侧读到同一代数与 kind/区域 | 2026-09-19 |
@@ -391,19 +563,31 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-app/src/app/mod.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | ui_locale_follows_the_saved_language_without_a_restart | 界面语言随保存即时切换 | 给定出厂配置（跟随系统），当保存 Language::En 再保存 Language::System，则逐帧解析出的 locale 依次为 Zh→En→Zh（不重启即换文案表） | 2026-09-22 |
 
 ### crates/gloss-app/src/app/render.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | repaint_delay_max_means_no_wakeup | MAX 延迟不唤醒 | 给定 Duration::MAX 延迟，当换算唤醒时刻，则 None | 2026-09-19 |
 | repaint_delay_becomes_a_deadline | 延迟换算为截止时刻 | 给定 250ms/0 延迟，当换算，则 now+延迟/now | 2026-09-19 |
 
 ### crates/gloss-app/src/app/handler.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | escape_press_is_the_dismiss_key | 浮层收起键判定 | 给定逻辑键与按下状态，当判定收起键，则 Escape 按下为真、释放与其它字符键为假 | 2026-09-21 |
 | sooner_picks_the_earliest_deadline | 取更早的截止时刻 | 给定两个时刻（可含 None），当取更早，则 None 让位、双 None 不唤醒 | 2026-09-19 |
 
 ### crates/gloss-app/src/app/channels.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | late_events_of_superseded_trigger_do_not_bleed | 旧会话的迟到事件不渗漏 | 给定划词提交 A 在推理中、再给一次新划词探测，当探测期间 A 的流照常推进，随后提交 B，则提交才取消 A、A 的迟到 chunk/TaskDone 被陈旧过滤、B 的产物照常 Show | 2026-10-01 |
 | probe_empty_selection_is_silently_dropped | 壳层时序：误滑静默丢弃 | 给定划词探测（状态机不动），当收空选区失败，则壳不请求浮层、状态机与视图原样、探测消费 | 2026-10-03 |
@@ -420,6 +604,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-app/src/i18n.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 76（条数钉住，防遍历退化） | 2026-09-24 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language_en）外无一与中文表逐字相同 | 2026-09-23 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 gloss_ 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
@@ -431,6 +618,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | error_detail_prefers_the_variant_diagnostic | 复合提示取诊断细节 | 给定带诊断的变体与不带诊断的变体，当取错因细节，则前者只出诊断原文、后者回落本地化整句 | 2026-09-22 |
 
 ### crates/gloss-app/src/windows.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | position_inside_the_monitor_is_untouched | 屏内位置原样保留 | 给定显示器范围内的位置，当钳制，则原样返回 | 2026-09-20 |
 | position_past_the_right_or_bottom_edge_pulls_back | 右下越界向内收 | 给定越出右/下边缘的位置，当钳制，则收到屏宽/高减浮层尺寸处 | 2026-09-20 |
@@ -447,9 +637,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-app/src/ui/popup.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | width_hysteresis_does_not_oscillate_between_frames | 宽度滞回不振荡 | 给定上一帧宽度与内容高，当决策宽度，则长内容加宽、带内保持原档、明显变矮才收回 | 2026-09-20 |
 | width_hysteresis_band_bounds_are_symmetric | 滞回阈值边界对称 | 给定阈值附近的内容高，当按当前档决策，则过加宽阈值才加宽、过收回阈值才收回 | 2026-09-20 |
-| stream_note_extracts_the_json_field_progressively | 流式注文按 JSON note 渐进提取 | 给定完整 JSON/空串/非 JSON/部分键/未闭合值/外键在前/转义（引号反斜杠 unicode）/残缺转义/旧围栏契约九类原始流，当 stream_body，则反转义前缀渐进可见、残缺序列留待下帧、无 body 键恒空（进度态） | 2026-10-03 |
+| stream_note_extracts_the_json_field_progressively | 流式注文按 JSON note 渐进提取 | 给定完整 JSON/空串/非 JSON/部分键/未闭合值/外键在前/转义（引号反斜杠 unicode）/残缺转义/旧围栏契约九类原始流，当 stream_note（按位独立扫描，不依赖字段序），则反转义前缀渐进可见、残缺序列留待下帧、无 note 键恒空（进度态） | 2026-10-03 |
 | decode_app_icon_rejects_bad_bytes | 图标解码失败隔离降级 | 给定非 PNG 字节，当解码应用图标，则返回 None（页头退化为无图标行，不 panic） | 2026-09-30 |
 | decode_app_icon_crops_to_the_content_square | 图标按画布比例裁本体 | 给定内嵌的 Dock 图标 PNG，当解码裁剪，则得 206×206 的图形本体（256 按 100/824/1024 画布比例裁去透明边距） | 2026-09-30 |
 | example_lines_split_at_the_first_cjk_glyph | 例句在首个 CJK 字形处拆两行 | 给定「英译+中译」/纯英文/开头即 CJK/开头即 CJK 的例句四种输入，当 example_lines，则英汉混合的拆出原文与译文两行、其余原样单行 | 2026-10-01 |
@@ -458,6 +651,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | snapshots_match_baseline（popup 代码视图随高亮再录） | 两份代码视图基线随语法着色重录 | 给定 popup_code_streaming / popup_code_outcome 的英文夹具，当 wgpu 渲染并 diff，则与基线一致（2026-10-02 随 T4 单趟正则六类着色再录：关键字/函数形/字符串着色；其余七份 popup 与 settings 基线零变化——着色只落代码分支） | 2026-10-02 |
 
 ### crates/gloss-app/src/app/overlay.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | retry_action_redispatches_the_failed_task | Retry 动作重发失败任务 | 给定失败卡 Retry 动作，当执行，则同代数同任务新令牌重发通道③，重试产物照常采纳 | 2026-09-21 |
 | open_settings_action_keeps_the_error_card | 打开设置保留错误卡 | 给定鉴权失败卡，当执行 OpenSettings 动作，则停在 Error、通道③无流量、编辑会话就位 | 2026-09-21 |
@@ -471,6 +667,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-app/src/app/settings_session.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | open_settings_request_starts_an_edit_session | 打开设置即编辑会话 | 给定 OpenSettingsRequested，当消费，则编辑会话打开、草稿=当前快照、不占代数 | 2026-09-19 |
 | settings_save_writes_keychain_and_swaps_config | 保存写密钥串并换配置 | 给定含密钥替换的保存，当成功，则密钥进 keychain、快照换新、会话关闭，新配置随后续触发生效 | 2026-09-26 |
 | clearing_the_key_deletes_the_secret_on_save | 清除密钥保存即删除 | 给定 KeyUpdate::Clear，当保存，则 keychain 条目删除、会话关闭 | 2026-09-19 |
@@ -478,9 +677,15 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-app/src/app/theme.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | apply_theme_elides_writes_until_the_preference_changes | 主题未变不重写 | 给定未变的偏好，当重复 apply_theme，则不写；偏好变了则跟上 | 2026-09-23 |
 
 ### crates/gloss-app/src/ui/code_hl.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | normalize_language_collapses_aliases_to_canonical_names | 语言名归一化收拢别名 | 给定 rs/py/TS/golang/c++ 与规范名、清单外名，当归一化，则别名折叠到规范名（rust/python/typescript/go/cpp）、规范名原样、未知名保留小写原形 | 2026-10-02 |
 | normalize_language_rejects_blank_names | 空白语言名无语言 | 给定空串与全空白名，当归一化，则恒为 None | 2026-10-02 |
@@ -507,11 +712,17 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-app/src/ui/context.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | theme_preference_covers_every_variant | 主题三档全映射 | 给定三档主题，当映射 egui 偏好，则一一对应且出厂跟随系统 | 2026-09-23 |
 | new_context_carries_fonts_and_theme | 新上下文两样都装好 | 给定主题，当新建上下文，则主题偏好落上且字体表含 CJK 后备（依赖宿主机字体） | 2026-09-23 |
 | reapply_writes_every_context | 重施加写满每个上下文 | 给定两个已装好的上下文，当施加各档主题，则每个都被写；空集写 0 个不 panic | 2026-09-23 |
 
 ### crates/gloss-app/src/gpu.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | alpha_mode_prefers_premultiplied | alpha 模式优先 PreMultiplied | 给定含 PreMultiplied 的候选，当挑选，则选它 | 2026-09-19 |
 | alpha_mode_falls_back_to_postmultiplied | alpha 模式回退 PostMultiplied | 给定缺 PreMultiplied 的候选，当挑选，则回退 PostMultiplied | 2026-09-19 |
@@ -520,6 +731,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 ### crates/gloss-app/src/pipeline.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | classified_chunks_and_done_flow_back_in_order | 分类、增量与完成按序回流 | 给定脚本化引擎流（脚本解析不出分类 kind，落兜底），当跑完整桥，则 TaskClassified → TaskChunk（按序携带代数）→ TaskDone（完成态解析后正文）依次回传 | 2026-10-03 |
 | cancel_takes_effect_mid_stream | 流中取消即时生效 | 给定慢流中紧随首 chunk 的取消，当取消，则不再有任何后续事件 | 2026-09-19 |
 | engine_failure_becomes_task_failed | 引擎失败映射 TaskFailed | 给定 execute 整体失败，当运行，则映射为带代数的 TaskFailed | 2026-09-19 |
@@ -527,6 +741,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | closing_commands_stops_the_consumer | 关闭命令通道停消费循环 | 给定通道③关闭，当 drop 运行时，则超时内干净关停 | 2026-09-19 |
 
 ### crates/gloss-app/src/machine.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（框选、设置、退出），当 begin_selection_probe，则前者发 AcquireText（无 kind——类型归 LLM 层）且只领探测编号不动代数、后者 None 且不占代数不顶掉在途探测 | 2026-10-03 |
 | trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦/未接线 | 给定 trigger_decision，则划词恒为 Acquire（无载荷——分类是 LLM 层的事）、框选与退出报 Unwired、设置与退出不因场景被拦；出厂配置下划词为 Acquire，拦截名单内的前台应用则报 Blocked | 2026-10-03 |
@@ -561,6 +778,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 模块接线与集成时序（L1）：经公共 API（消息通道 + watch 广播）驱动，桩 hooks 用本地 oneshot 触发回包，同步点全走 watch，不碰网络。
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
+模块接线与集成时序（L1）：经公共 API（消息通道 + watch 广播）驱动，桩 hooks 用本地 oneshot 触发回包，同步点全走 watch，不碰网络。
+
 | initial_broadcast_is_the_idle_snapshot | 启动即广播初始快照 | 给定刚拉起的模块，当订阅 watch，则先收到 Idle 快照 | 2026-09-26 |
 | state_transition_wakes_the_ui_without_input | 相位迁移唤醒壳层 | 给定已安装的唤醒桩，当检查被受理与在途回包被采纳，则两次迁移各触发一次唤醒、全程无输入 | 2026-09-27 |
 | confirmed_flow_runs_check_download_install_to_completion | 两道确认全流程到替换成功 | 给定新版清单与下载、替换成功桩，当检查→确认下载→确认重启，则相位依次推进且替换收到 zip 路径、任务以「已安装」收尾 | 2026-09-26 |
@@ -573,6 +795,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | fetch_manifest_rejects_oversize_body_without_content_length | 无长度声明的超限 body 拒绝 | 给定不声明 Content-Length、逐块送出 1.5 MiB 的服务器，当 fetch，则中途判超限拒绝（无界内存禁入） | 2026-09-27 |
 
 ### crates/gloss-app/src/update/manifest.rs
+
+清单校验矩阵与版本比较（L1）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 清单校验矩阵与版本比较（L1）。
 
@@ -591,6 +818,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | current_version_matches_the_cargo_package_version | 本地版本回落分支锁定 | 给定 CARGO_PKG_VERSION，当解析，则 current_version 与之相等（回落分支不可达） | 2026-09-26 |
 
 ### crates/gloss-app/src/update/state.rs
+
+更新子状态机迁移表逐行（L1）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 更新子状态机迁移表逐行（L1）。
 
@@ -613,6 +845,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 整包下载与校验（L1，mock HTTP 服务器驱动）。
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
+整包下载与校验（L1，mock HTTP 服务器驱动）。
+
 | full_download_verifies_and_lands_at_dest | 全量下载落位 | 给定 200 全量响应，当下载，则 size/sha256 校验通过、原子改名落位且 .partial 消失 | 2026-09-26 |
 | truncated_stream_keeps_partial_for_resume | 断连保留残料 | 给定提前断连的响应，当下载失败，则报长度/传输错误且 .partial 保留在途字节 | 2026-09-26 |
 | resume_from_partial_completes_and_verifies | 续传完成并全量校验 | 给定遗留 .partial 与支持 Range 的服务器（206），当 resume 下载，则拼接完整、校验通过、落位 | 2026-09-26 |
@@ -626,6 +863,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
+bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
+
 | replace_swaps_bundle_and_leaves_no_litter | 替换换装无残留 | 给定旧 bundle 与合法 zip，当 replace，则新 bundle 就位原路径、.app.old 清除、解压现场清空 | 2026-09-26 |
 | replace_over_a_stale_app_old_still_succeeds | 残留 .app.old 先清场 | 给定上次替换遗留的 .app.old，当替换，则先清场并成功换装 | 2026-09-26 |
 | zip_without_a_structured_app_leaves_the_bundle_intact | 坏 zip 不动原 bundle | 给定非 zip 文件，当 replace，则报 Unzip 且已安装 bundle 原样 | 2026-09-26 |
@@ -633,6 +875,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | unwritable_dir_is_reported_before_anything_is_touched | 只读目录前置拒绝 | 给定只读的 bundle 目录，当安装，则报 Unwritable 且 bundle 未被触碰 | 2026-09-26 |
 
 ### crates/gloss-app/src/ui/fonts.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | cjk_fallback_appends_after_builtin_fonts | CJK 后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且 CJK 后备排在比例与等宽两族内置字体之后 | 2026-10-01 |
 | named_family_without_bytes_binds_the_builtin_glyphs | 命名字体族无字节时绑内置字形 | 给定缺失的字体字节，当注册宋体命名字体族，则不发明字体数据、族仍绑定到内置字形（epaint 对未绑定族直接 panic，族必须恒存在） | 2026-10-01 |
@@ -648,6 +893,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | system_cjk_font_is_loaded_once | 系统 CJK 字体只加载一次且两份定义共享 | 给定真实系统，当连续两次取字体字节并各自接入字体定义，则两次返回同一段内存、两份定义登记到同一地址（依赖宿主机） | 2026-10-01 |
 
 ### crates/gloss-app/src/ui/settings.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | save_trims_endpoint_and_treats_blank_key_as_unchanged | 保存端点 trim、空白密钥视为未改 | 给定带空白的端点与空白密钥草稿，当 build_save，则端点被 trim、密钥按 Keep 上交 | 2026-09-22 |
 | blank_model_saves_as_the_factory_default | 空白模型折叠出厂默认 | 给定模型输入框为空白的草稿，当 build_save，则落盘 config.model 为 DEFAULT_TEXT_MODEL（下游对空串明确失败，不接住会锁死任务） | 2026-10-03 |
@@ -665,13 +913,22 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 ### crates/gloss-app/src/ui/style.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | ladders_are_strictly_descending | 字号与间距阶梯严格递减 | 给定字号与间距两条阶梯，当逐档比较，则每档严格大于下一档（档位语义不塌缩） | 2026-09-21 |
 
 ### crates/gloss-platform/src/appearance/icon.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | install_degrades_to_false_off_the_main_thread | 非主线程安装图标优雅降级 | 给定非主线程调用与坏 PNG 字节，当 install，则不 panic 且如实返回 false | 2026-09-19 |
 
 ### crates/gloss-platform/src/ffi/cf.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | cf_string_round_trips_back_to_utf8 | CFString 往返回环 | 给定 C 字符串，当构造 CFString 再转回 Rust 字符串，则内容逐字一致（含非 ASCII） | 2026-09-23 |
 | string_from_rejects_non_string_objects | 非 CFString 拒绝转换 | 给定 CFData，当按字符串转换，则返回 None（先验类型） | 2026-09-23 |
@@ -680,17 +937,29 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 ### crates/gloss-platform/src/ffi/carbon.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | secure_input_query_links_and_answers_consistently | 安全输入查询可链接且自洽 | 给定真实系统，当连续查询两次安全输入，则两次一致——不断言系统的当前取值（那是环境事实），只要 Carbon 框架没链上或符号对不上，链接期就红 | 2026-09-26 |
 
 ### crates/gloss-platform/src/locale.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | locale_maps_preferred_languages | 首选语言映射界面语言 | 给定 zh-Hans-CN / zh_CN / ZH-TW / en-US / ja-JP 与空值，当映射，则中文标签归中文、其余（含拿不到偏好语言）归英文 | 2026-09-22 |
 
 ### crates/gloss-platform/src/scene.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | scene_probe_answers_with_a_coherent_snapshot | 场景探针给出一致快照 | 给定真实系统，当读一次场景事实，则若报出前台应用则其身份字段非空（不断言安全输入取值——那是环境事实，任何进程持有它都会变） | 2026-09-26 |
 
 ### crates/gloss-platform/src/storage/mod.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | save_then_load_round_trips_every_field | 全字段配置存取往返 | 给定全字段差异样例配置，当 save→load，则逐字段相等 | 2026-09-19 |
 | load_generates_default_when_file_missing | 缺文件生成默认配置 | 给定缺文件目录，当 load，则返回出厂默认且落盘文件可再解析 | 2026-09-19 |
@@ -708,11 +977,17 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 ### crates/gloss-platform/src/storage/keychain.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | missing_entry_reads_as_none | 缺条目读为 None | 给定先删除预清的条目，当 get，则 None 而非错误 | 2026-09-19 |
 | delete_missing_entry_is_ok | 删除缺条目幂等成功 | 给定不存在的条目，当 delete，则幂等成功 | 2026-09-19 |
 | cached_reads_stay_consistent_with_writes | 缓存读写一致 | 给定写后读与删除后读，当经克隆共享缓存，则写后读新值、删除后克隆读 None（不走真实 keychain 写入） | 2026-09-19 |
 
 ### crates/gloss-platform/src/selection/accessibility.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | untrusted_maps_to_accessibility_denied | 未授权一律映射拒绝 | 给定未授权进程的取值结果，当 interpret 映射，则一律 AccessibilityDenied | 2026-09-19 |
 | selected_text_passes_through_verbatim | 选中文本原样透传 | 给定读到的选中文本（含纯空白），当映射，则原样透传不裁剪 | 2026-09-19 |
@@ -723,9 +998,15 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 ### crates/gloss-platform/src/permissions.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | accessibility_denied_is_recognized | 权限错误语义识别 | 给定 AccessibilityDenied 与其它取材错误，当识别，则前者命中、其余不误伤 | 2026-09-29 |
 
 ### crates/gloss-platform/src/selection/composite.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | fallback_is_lazy_on_ax_success | AX 成功时兜底惰性求值 | 给定 AX 成功，当 combine，则采纳 AX 结果且剪贴板兜底闭包不被求值 | 2026-10-01 |
 | permission_denied_skips_fallback | 权限拒绝跳过兜底 | 给定 AccessibilityDenied，当 combine，则原样上抛且不兜底 | 2026-10-01 |
@@ -736,11 +1017,17 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 ### crates/gloss-platform/src/selection/clipboard.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | change_is_detected_when_generation_bumps | 写入确认按代数探测 | 给定基线代数 0 与第 3 轮才变化的 probe，当 wait_for_write，则确认成功且恰好轮询 3 次 | 2026-09-19 |
 | timeout_returns_false_without_hanging | 超时返回不悬挂 | 给定 probe 恒不变化，当到 deadline，则返回 false 且 2s 内返回 | 2026-09-19 |
 | unavailable_probe_keeps_polling_until_deadline | probe 恒 None 轮询到期限 | 给定 probe 恒 None，当到 deadline，则返回 false、不提前放弃也不永久等 | 2026-09-19 |
 
 ### crates/gloss-platform/src/events/mod.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | commands_are_consumed_in_order_then_thread_exits | 命令按序消费线程干净退出 | 给定 16 条命令，当事件线程消费，则按序产出、Sender drop 后线程退出且无多余事件 | 2026-09-19 |
 | late_commands_are_still_consumed | 晚到命令仍被消费 | 给定跨定时器周期（60ms）晚到的命令，当消费，则仍被处理 | 2026-09-19 |
@@ -751,6 +1038,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | successful_send_wakes_main_thread | 发送成功唤醒主线程 | 给定主线程在事件循环等待，当发送成功，则唤醒回调被触发；发送失败不唤醒 | 2026-09-19 |
 
 ### crates/gloss-platform/src/events/mouse.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | drag_release_emits_selection | 拖拽释放判定划词手势 | 给定按下→时长与位移双达标→释放序列，当驱动 GestureDetector，则判定一次划词手势 | 2026-09-30 |
 | flick_shorter_than_the_minimum_press_is_filtered | 快甩被最短按压时长滤除 | 给定按压仅 10ms 但位移充足的事件对，当驱动，则不产出手势 | 2026-09-30 |
@@ -763,6 +1053,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | keyboard_events_are_never_subscribed | 键盘事件永不订阅 | 给定生产订阅掩码与 classify，当断言，则只有左键按下/抬起两位、键盘/滚轮/flags 各位不置（回归护栏） | 2026-09-19 |
 
 ### crates/gloss-platform/src/engine/llm.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | resolves_endpoint_from_config | 端点从配置解析 | 给定出厂配置，当解析端点，则得 {DEFAULT_BASE_URL}/chat/completions | 2026-09-19 |
 | endpoint_trimming_avoids_double_slash | 端点尾斜杠去重 | 给定尾斜杠 base_url，当解析，则无双斜杠 | 2026-09-19 |
@@ -783,6 +1076,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 ### crates/gloss-platform/src/engine/sse.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | decodes_a_complete_stream | 完整流解码 | 给定完整 OpenAI 兼容流，当一次喂完，则两段增量+Done（role 块不产出） | 2026-09-19 |
 | decodes_identically_for_every_chunk_split | 任意切分解码一致 | 给定同一段流按 1..n 每种字节切法，当逐块喂入，则产出完全一致 | 2026-09-19 |
 | byte_by_byte_input_keeps_multibyte_characters_intact | 逐字节输入多字节字符完好 | 给定逐字节喂入，当解析，则多字节字符「光泽」完好 | 2026-09-19 |
@@ -799,9 +1095,15 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 ### src/main.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | channels_bundle_is_created | 组装点创建的通道捆绑可用 | 给定 create_channels() 创建的四通道捆绑，当向通道②发送 AcquireText 命令，则发送成功 | 2026-09-19 |
 
 ### crates/gloss-eval/src/dataset.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | classify_dataset_loads_with_unique_ids | 分类数据集加载与唯一性 | 给定内嵌 classify.jsonl，当加载，则 ≥60 条、全部为文本任务 kind、id 无重复 | 2026-09-26 |
 | task_datasets_load_and_match_required_fields | 任务数据集加载与 kind 对位 | 给定三个内嵌任务数据集，当加载，则非空且每行 kind 与其文件一致、reference 满足必需键 | 2026-09-26 |
@@ -812,6 +1114,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 ### crates/gloss-eval/src/metrics.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | classify_verdicts_cover_the_matrix | 分类判定四分类 | 给定正确/混淆/非 JSON/未知 kind/清单外 kind 五种回复，当经生产校验器判定，则分别落 Correct/Wrong/InvalidJson/Rejected | 2026-09-26 |
 | legacy_fence_reply_falls_back_like_production | 旧围栏回复与生产同轨（eval） | 给定旧围栏与纯正文两类回复，当 TaskVerdict::for_reply，则判定为降级（未按现行契约）而 outcome 与生产 fallback 同形（词卡/Plain 兜底） | 2026-10-03 |
 | task_verdict_reads_the_four_levels | 任务契约四级判定 | 给定完整契约/无围栏/坏 JSON 三种词卡回复，当 TaskVerdict.for_reply，则四级标志与生产降级产物（Plain 兜底）符合预期 | 2026-09-26 |
@@ -820,14 +1125,23 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 ### crates/gloss-eval/src/judge.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | judge_prompt_carries_all_three_sections | judge rubric 三段齐备 | 给定输入/产出/参考，当渲染 judge messages，则系统指令含三段且无残留占位符 | 2026-09-26 |
 | judge_reply_parsing_accepts_json_and_score_line | judge 回复分数解析 | 给定 JSON 与 SCORE: 行两种回复，当解析，则得 1–5 分；越界与缺失为 None | 2026-09-26 |
 
 ### crates/gloss-eval/src/report.rs
 
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+
 | report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告，当渲染，则指标表、accuracy 百分比、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-09-26 |
 | latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本的报告，当渲染，则不含延迟行 | 2026-09-26 |
 
 ### crates/gloss-eval/src/runner.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 
 | replay_runs_the_full_deterministic_track_over_embedded_assets | 重放轨全链路离线跑通 | 给定内嵌数据集与夹具，当 run_replay，则有夹具条目计入（覆盖率随夹具维护增长，只设下限不设上限）、正确/无效 JSON/被拒路径均有命中、各任务集有覆盖、无延迟样本 | 2026-09-26 |
