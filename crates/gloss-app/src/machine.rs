@@ -1214,7 +1214,7 @@ mod tests {
             TaskOutcome {
                 kind: TaskKind::ExplainCode,
                 note: "产物".into(),
-                code_language: Some(" rust\n".into()),
+                code_language: Some(" python\n".into()),
                 structured: OutcomeStructured::Plain {
                     examples: Vec::new(),
                 },
@@ -1226,9 +1226,10 @@ mod tests {
                 Some(OverlayView::Outcome {
                     code_lang: Some(lang),
                     ..
-                }) if lang == "rust"
+                }) if lang == "python"
             ),
-            "a whitespace-padded verdict is trimmed before the plausibility gate"
+            "a whitespace-padded verdict is trimmed before the plausibility gate (the \
+             content probe would say rust)"
         );
     }
 

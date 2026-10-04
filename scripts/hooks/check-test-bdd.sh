@@ -122,6 +122,36 @@ if [ -n "$dup_chapters" ]; then
   printf '%s\n' "$dup_chapters" | sed 's/^/    /' >&2
 fi
 
+# 块级重复：同一 ## 章节内重复的 ### 小节标题，或同一小节内逐字重复的
+# 「- 」条目行——人工测试条目整段重复拼接的痕迹（表格行的重复由上面的
+# 整行精确重复检查覆盖）。
+duplicate_blocks="$(awk '
+    /^## /  {
+      chapter = $0
+      exempt = ($0 ~ /^## 发版人工步骤/) ? 1 : 0
+      section = exempt ? "" : $0
+      split("", h3)
+      split("", bullets)
+      next
+    }
+    /^### / {
+      if (exempt || chapter == "") next
+      if (h3[$0]++) print $0
+      section = $0
+      split("", bullets)
+      next
+    }
+    /^- / {
+      if (exempt || section == "") next
+      if (bullets[$0]++) print $0
+      next
+    }
+  ' "$BDD" | sort -u)"
+if [ -n "$duplicate_blocks" ]; then
+  fail "以下小节标题或条目行在同一章节/小节内重复出现（整段重复拼接的痕迹）："
+  printf '%s\n' "$duplicate_blocks" | sed 's/^/    /' >&2
+fi
+
 # 结构校验：非豁免小节里的每个表格必须是良构 GFM 表——表行连成一个块，
 # 且块的第二行是分隔行。空行或正文混在表头与表体之间会把表体从表头上
 # 切断（渲染退化为纯文本），一律按缺表头列出。

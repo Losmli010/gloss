@@ -163,6 +163,17 @@ mut_drop_table_header() {
   ' "$TMP/docs/tests/bdd.md" >"$TMP/docs/tests/bdd.md.tmp" &&
     mv "$TMP/docs/tests/bdd.md.tmp" "$TMP/docs/tests/bdd.md"
 }
+mut_manual_entry_once() {
+  printf '\n#[test]\n#[ignore = "needs device"]\nfn live_manual_thing() {}\n' >>"$TMP/src/lib.rs"
+  printf '\n### live_manual_thing\n- 测试目标：探针。\n- 测试步骤：\n  1. 跑一次\n- 更新时间：2026-09-19\n' >>"$TMP/docs/tests/bdd.md"
+}
+mut_duplicate_bullet() {
+  printf -- '- 测试目标：重复块探针。\n- 测试目标：重复块探针。\n' >>"$TMP/docs/tests/bdd.md"
+}
+mut_duplicate_h3() {
+  printf '\n### crates/demo.rs\n' >>"$TMP/docs/tests/bdd.md"
+  printf '\n### crates/demo.rs\n' >>"$TMP/docs/tests/bdd.md"
+}
 
 echo "== 测试 check-test-bdd.sh =="
 echo ""
@@ -172,6 +183,7 @@ assert_case "bdd 文件小节标题（crates/…）变化不影响核对" 0 mut_
 assert_case "表头与分隔行不误判为条目" 0
 assert_case "同名沿革行（描述不同）不误判为重复" 0 mut_history_row_same_name
 assert_case "fn 名与 [[test]] 目标同名不去重误报" 0 mut_name_collides_with_target
+assert_case "人工测试条目（### + 条目行）登记一次" 0 mut_manual_entry_once
 
 echo ""
 echo "-- 不一致（应拒绝，退出码非 0）--"
@@ -185,6 +197,8 @@ assert_case "同名 ## 章节标题重复" 1 mut_duplicate_chapter "重复出现
 assert_case "表体被空行从表头切断" 1 mut_blank_split_table "缺表头"
 assert_case "表体被正文从表头切断" 1 mut_paragraph_split_table "缺表头"
 assert_case "表头分隔行被删只剩表体" 1 mut_drop_table_header "缺表头"
+assert_case "小节内条目行逐字重复" 1 mut_duplicate_bullet "重复出现"
+assert_case "同章节内小节标题重复" 1 mut_duplicate_h3 "重复出现"
 
 echo ""
 echo "== 测试结果 =="
