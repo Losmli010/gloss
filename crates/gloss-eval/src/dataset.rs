@@ -118,14 +118,16 @@ pub fn load_fixtures(jsonl: &str) -> Result<Vec<Fixture>, String> {
 }
 
 /// 任务 kind 的 prompt 输出契约必需键（评测从严于生产的接受条件：生产
-/// 对缺 word/title 有兜底，评测按契约要求其在场；允许 null 的键——
-/// phonetic / title null——不算必需；`note`（注）单独由判定的
-/// note_present 计，不与结构化字段混在一张表）。
+/// 对缺失字段有兜底，评测按契约要求其在场；允许 null 的键——phonetic /
+/// code_language null——不算必需；`note`（义）单独由判定的 note_present
+/// 计，不与疏证字段混在一张表）。
 pub fn required_fields(kind: TaskKind) -> &'static [&'static str] {
     match kind {
-        TaskKind::TranslateWord => &["word", "senses"],
-        TaskKind::TranslateSentence | TaskKind::ExplainCode | TaskKind::ImageExplain => &["title"],
-        TaskKind::ImageOcr => &["text"],
+        TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode => {
+            &["examples"]
+        }
+        // 提取任务的产物即 note（经文），无疏证字段——note 由判定单独计。
+        TaskKind::ImageOcr | TaskKind::ImageExplain => &[],
     }
 }
 
@@ -248,11 +250,8 @@ mod tests {
 
     #[test]
     fn required_fields_follow_the_contract() {
-        assert_eq!(
-            required_fields(TaskKind::TranslateWord),
-            &["word", "senses"]
-        );
-        assert_eq!(required_fields(TaskKind::TranslateSentence), &["title"]);
-        assert_eq!(required_fields(TaskKind::ImageOcr), &["text"]);
+        assert_eq!(required_fields(TaskKind::TranslateWord), &["examples"]);
+        assert_eq!(required_fields(TaskKind::TranslateSentence), &["examples"]);
+        assert_eq!(required_fields(TaskKind::ImageOcr), &[] as &[&str]);
     }
 }

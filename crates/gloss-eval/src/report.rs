@@ -319,8 +319,8 @@ mod tests {
 
     fn fixture_report() -> EvalReport {
         let word_jsonl = concat!(
-            "{\"id\":\"w1\",\"kind\":\"TranslateWord\",\"text\":\"gloss\",\"reference\":{\"word\":\"gloss\",\"phonetic\":null,\"senses\":[]}}\n",
-            "{\"id\":\"w2\",\"kind\":\"TranslateWord\",\"text\":\"idempotent\",\"reference\":{\"word\":\"idempotent\",\"phonetic\":null,\"senses\":[]}}\n",
+            "{\"id\":\"w1\",\"kind\":\"TranslateWord\",\"text\":\"gloss\",\"reference\":{\"phonetic\":null,\"examples\":[]}}\n",
+            "{\"id\":\"w2\",\"kind\":\"TranslateWord\",\"text\":\"idempotent\",\"reference\":{\"phonetic\":null,\"examples\":[]}}\n",
         );
         let cases: Vec<TaskCase> = crate::dataset::load_task(word_jsonl).expect("cases");
         let confusion = BTreeMap::from([(
@@ -338,7 +338,7 @@ mod tests {
         let verdicts = [
             TaskVerdict::for_reply(
                 &cases[0],
-                r#"{"note":"正文","word":"gloss","phonetic":null,"senses":[]}"#,
+                r#"{"phonetic":null,"note":"正文","examples":[]}"#,
             ),
             TaskVerdict::for_reply(&cases[1], "只有正文"),
         ];

@@ -243,7 +243,7 @@ mod tests {
     use crossbeam_channel::Receiver;
     use gloss_core::engine::AiTaskService;
     use gloss_core::model::GlossError;
-    use gloss_core::task::{InputHint, TaskInput, TaskOptions};
+    use gloss_core::task::{TaskInput, TaskOptions};
     use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
     use super::{CommandRuntime, Event, start_command_runtime};
@@ -278,10 +278,7 @@ mod tests {
     }
 
     fn text_input(text: &str) -> TaskInput {
-        TaskInput::Text {
-            text: text.into(),
-            hint: None,
-        }
+        TaskInput::Text { text: text.into() }
     }
 
     fn run(
@@ -348,22 +345,12 @@ mod tests {
             .with_chunks(vec![Ok("一".into()), Ok("二".into()), Ok("三".into())]);
         let (commands, events, runtime) = start(&engine);
 
-        // 带 hint 的输入走直通分类：不消耗脚本，首条回传即任务流的 chunk。
-        let hinted = TaskInput::Text {
-            text: "slow".into(),
-            hint: Some(InputHint::CodeLanguage("rust".into())),
-        };
-        let cancel = run(&commands, 1, hinted, text_options());
-        assert!(
-            matches!(
-                events.recv().unwrap(),
-                Event::TaskClassified {
-                    generation: 1,
-                    kind: gloss_core::task::TaskKind::ExplainCode
-                }
-            ),
-            "the hinted path still classifies (constant direct pass) before any chunk"
-        );
+        // 分类先于任何增量（LLM 层恒发判定；脚本解析不出 kind 落兜底）。
+        let cancel = run(&commands, 1, text_input("slow"), text_options());
+        assert!(matches!(
+            events.recv().unwrap(),
+            Event::TaskClassified { generation: 1, .. }
+        ));
         assert!(
             matches!(
                 events.recv().unwrap(),

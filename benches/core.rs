@@ -14,17 +14,14 @@ use gloss_app::cache::{TaskCache, cache_key};
 use gloss_app::finalize::parse_structured;
 use gloss_core::model::ScreenRect;
 use gloss_core::prompt::PromptRegistry;
-use gloss_core::task::{
-    InputHint, OutcomeStructured, Sense, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome,
-};
+use gloss_core::task::{OutcomeStructured, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
 const MODEL: &str = "mock-model";
 
-fn text_options(text: &str, hint: Option<InputHint>) -> (TaskInput, TaskOptions) {
+fn text_options(text: &str) -> (TaskInput, TaskOptions) {
     (
         TaskInput::Text {
             text: text.to_owned(),
-            hint,
         },
         TaskOptions {
             model: MODEL.to_owned(),
@@ -33,10 +30,10 @@ fn text_options(text: &str, hint: Option<InputHint>) -> (TaskInput, TaskOptions)
     )
 }
 
-fn text_task(kind: TaskKind, text: String, hint: Option<InputHint>) -> Task {
+fn text_task(kind: TaskKind, text: String) -> Task {
     Task {
         kind,
-        input: TaskInput::Text { text, hint },
+        input: TaskInput::Text { text },
         options: TaskOptions {
             model: MODEL.to_owned(),
             ..TaskOptions::default()
@@ -60,14 +57,10 @@ fn word_outcome() -> TaskOutcome {
     TaskOutcome {
         kind: TaskKind::TranslateWord,
         note: "# gloss\n\n/ɡlɒs/ n. 光泽".into(),
+        code_language: None,
         structured: OutcomeStructured::WordCard {
-            word: "gloss".into(),
             phonetic: Some("/ɡlɒs/".into()),
-            senses: vec![Sense {
-                pos: Some("n.".into()),
-                meaning: "光泽".into(),
-                examples: vec!["a gloss of silk".into()],
-            }],
+            examples: vec!["a gloss of silk".into()],
         },
     }
 }
@@ -99,12 +92,11 @@ fn bench_cache_key(c: &mut Criterion) {
     let mut group = c.benchmark_group("cache_key");
 
     group.bench_function("text/short", |b| {
-        let (input, options) = text_options("gloss", None);
+        let (input, options) = text_options("gloss");
         b.iter(|| black_box(cache_key(black_box(&input), black_box(&options))))
     });
     group.bench_function("text/long", |b| {
-        let (input, options) =
-            text_options(&long_code(), Some(InputHint::CodeLanguage("rust".into())));
+        let (input, options) = text_options(&long_code());
         b.iter(|| black_box(cache_key(black_box(&input), black_box(&options))))
     });
     group.bench_function("image/1mb", |b| {
@@ -159,15 +151,11 @@ fn bench_prompt_render(c: &mut Criterion) {
     let registry = PromptRegistry;
 
     group.bench_function("word/short", |b| {
-        let task = text_task(TaskKind::TranslateWord, "gloss".into(), None);
+        let task = text_task(TaskKind::TranslateWord, "gloss".into());
         b.iter(|| black_box(registry.render(black_box(&task)).ok()))
     });
     group.bench_function("code/long", |b| {
-        let task = text_task(
-            TaskKind::ExplainCode,
-            long_code(),
-            Some(InputHint::CodeLanguage("rust".into())),
-        );
+        let task = text_task(TaskKind::ExplainCode, long_code());
         b.iter(|| black_box(registry.render(black_box(&task)).ok()))
     });
 
@@ -177,9 +165,9 @@ fn bench_prompt_render(c: &mut Criterion) {
 fn bench_task_cache(c: &mut Criterion) {
     let mut group = c.benchmark_group("task_cache");
     let cache = TaskCache::new();
-    let (hit_input, hit_options) = text_options("gloss", None);
+    let (hit_input, hit_options) = text_options("gloss");
     let hit_key = cache_key(&hit_input, &hit_options);
-    let (miss_input, miss_options) = text_options("never inserted", None);
+    let (miss_input, miss_options) = text_options("never inserted");
     let miss_key = cache_key(&miss_input, &miss_options);
     cache.set(hit_key, word_outcome());
 

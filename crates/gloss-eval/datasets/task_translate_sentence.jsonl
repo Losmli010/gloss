@@ -1,2 +1,2 @@
-{"id": "task-sent-01", "kind": "TranslateSentence", "text": "The quick brown fox jumps over the lazy dog.", "reference": {"title": "经典全字母句"}}
-{"id": "task-sent-02", "kind": "TranslateSentence", "text": "Shipping is a feature. Get it in front of users and iterate.", "reference": {"title": null}}
+{"id": "task-sent-01", "kind": "TranslateSentence", "text": "The quick brown fox jumps over the lazy dog.", "reference": {"examples": []}}
+{"id": "task-sent-02", "kind": "TranslateSentence", "text": "Shipping is a feature. Get it in front of users and iterate.", "reference": {"examples": []}}

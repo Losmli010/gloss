@@ -91,22 +91,20 @@ mod tests {
     use gloss_core::config::DEFAULT_TEXT_MODEL;
     use gloss_core::model::Lang;
     use gloss_core::model::Locale;
-    use gloss_core::task::{
-        InputHint, OutcomeStructured, TaskInput, TaskKind, TaskOptions, TaskOutcome,
-    };
+    use gloss_core::task::{OutcomeStructured, TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
     fn text_input(text: &str) -> TaskInput {
-        TaskInput::Text {
-            text: text.into(),
-            hint: None,
-        }
+        TaskInput::Text { text: text.into() }
     }
 
     fn outcome(note: &str) -> TaskOutcome {
         TaskOutcome {
             kind: TaskKind::TranslateWord,
             note: note.into(),
-            structured: OutcomeStructured::Plain { title: None },
+            code_language: None,
+            structured: OutcomeStructured::Plain {
+                examples: Vec::new(),
+            },
         }
     }
 
@@ -116,15 +114,6 @@ mod tests {
             cache_key(&text_input("gloss"), &TaskOptions::default()),
             cache_key(&text_input("gloss2"), &TaskOptions::default()),
             "text"
-        );
-        let hinted = TaskInput::Text {
-            text: "fn main() {}".into(),
-            hint: Some(InputHint::CodeLanguage("rust".into())),
-        };
-        assert_ne!(
-            cache_key(&hinted, &TaskOptions::default()),
-            cache_key(&text_input("fn main() {}"), &TaskOptions::default()),
-            "hint"
         );
         assert_ne!(
             cache_key(

@@ -341,7 +341,7 @@ fn acquire_command_handler()
                 );
                 sink.send_event(Event::InputReady {
                     generation,
-                    input: TaskInput::Text { text, hint: None },
+                    input: TaskInput::Text { text },
                 });
             }
             // 失败也回传（TaskFailed），主线程与用户不至无感；日志分级：

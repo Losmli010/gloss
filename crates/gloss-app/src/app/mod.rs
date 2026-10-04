@@ -308,17 +308,17 @@ mod test_support {
     }
 
     pub(super) fn text_input(text: &str) -> TaskInput {
-        TaskInput::Text {
-            text: text.into(),
-            hint: None,
-        }
+        TaskInput::Text { text: text.into() }
     }
 
     pub(super) fn plain_outcome(note: &str) -> gloss_core::task::TaskOutcome {
         gloss_core::task::TaskOutcome {
             kind: gloss_core::task::TaskKind::TranslateWord,
             note: note.into(),
-            structured: gloss_core::task::OutcomeStructured::Plain { title: None },
+            code_language: None,
+            structured: gloss_core::task::OutcomeStructured::Plain {
+                examples: Vec::new(),
+            },
         }
     }
 

@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use crate::classify::{CLASSIFY_FALLBACK, CLASSIFY_KINDS, classify, hint_kind};
+use crate::classify::{CLASSIFY_FALLBACK, CLASSIFY_KINDS, classify};
 use crate::log::{thread, warn};
 use crate::model::GlossError;
 use crate::ports::{AiEngine, EngineRequest};
@@ -46,9 +46,9 @@ impl AiTaskService {
         }
     }
 
-    /// 执行一条任务：入口校验（模型非空、文本模态）→ 分类（提示直通/
-    /// LLM 分类/兜底，`on_classified` 恒发）→ prompt 渲染 → 引擎流式，
-    /// 每个增量经 `on_chunk` 原样转交 → 流走完返回原始文本。
+    /// 执行一条任务：入口校验（模型非空、文本模态）→ LLM 分类（失败落
+    /// 兜底，`on_classified` 恒发）→ prompt 渲染 → 引擎流式，每个增量经
+    /// `on_chunk` 原样转交 → 流走完返回原始文本。
     ///
     /// 调用方契约（app 桥据此接线，见 `gloss_app::pipeline`）：
     /// - `on_classified` 在**任何** chunk 之前恰好调用一次（含提示直通与
@@ -72,37 +72,32 @@ impl AiTaskService {
         if options.model.trim().is_empty() {
             return Err(GlossError::Config("empty model id".into()));
         }
-        let TaskInput::Text { text, hint } = input else {
+        let TaskInput::Text { text } = input else {
             // 本服务只接划词路径的文本输入；图像/音频输入在这里直接拒绝
             //（模态矩阵管 kind × input 的组合校验，本入口对非文本模态
             // 一律不放行）。
             return Err(GlossError::UnsupportedModality);
         };
 
-        // 分类：提示直通 → LLM 分类 → 失败兜底。兜底有痕迹但无内容：
-        // warn 只记错误类别，不含选区原文与模型回复。
-        let kind = match hint_kind(hint.as_ref()) {
-            Some(kind) => kind,
-            None => {
-                match classify(
-                    self.engine.as_ref(),
-                    &options.model,
-                    options.prompt_locale.unwrap_or_default(),
-                    &CLASSIFY_KINDS,
-                    input,
-                )
-                .await
-                {
-                    Ok(kind) => kind,
-                    Err(error) => {
-                        warn!(
-                            thread = thread::TOKIO,
-                            error = %error,
-                            "classification failed, falling back to the default kind"
-                        );
-                        CLASSIFY_FALLBACK
-                    }
-                }
+        // 分类完全交给 LLM，失败落常量兜底。兜底有痕迹但无内容：warn
+        // 只记错误类别，不含选区原文与模型回复。
+        let kind = match classify(
+            self.engine.as_ref(),
+            &options.model,
+            options.prompt_locale.unwrap_or_default(),
+            &CLASSIFY_KINDS,
+            input,
+        )
+        .await
+        {
+            Ok(kind) => kind,
+            Err(error) => {
+                warn!(
+                    thread = thread::TOKIO,
+                    error = %error,
+                    "classification failed, falling back to the default kind"
+                );
+                CLASSIFY_FALLBACK
             }
         };
         on_classified(kind);
@@ -111,10 +106,7 @@ impl AiTaskService {
         // 恒取 options 冻结值。
         let task = Task {
             kind,
-            input: TaskInput::Text {
-                text: text.clone(),
-                hint: hint.clone(),
-            },
+            input: TaskInput::Text { text: text.clone() },
             options: options.clone(),
         };
         let messages = self.prompts.render(&task)?;
@@ -145,7 +137,7 @@ mod tests {
     use super::{AiEngine, AiTaskService, RunOutput};
     use crate::model::{GlossError, Lang};
     use crate::stubs::engine::MockEngine;
-    use crate::task::{InputHint, TaskInput, TaskKind, TaskOptions};
+    use crate::task::{TaskInput, TaskKind, TaskOptions};
 
     fn make_service(engine: &MockEngine) -> (Arc<MockEngine>, AiTaskService) {
         let engine = Arc::new(engine.clone());
@@ -154,17 +146,7 @@ mod tests {
     }
 
     fn text_input(text: &str) -> TaskInput {
-        TaskInput::Text {
-            text: text.into(),
-            hint: None,
-        }
-    }
-
-    fn hinted_input(text: &str) -> TaskInput {
-        TaskInput::Text {
-            text: text.into(),
-            hint: Some(InputHint::CodeLanguage("rust".into())),
-        }
+        TaskInput::Text { text: text.into() }
     }
 
     fn options() -> TaskOptions {
@@ -172,27 +154,6 @@ mod tests {
             target_lang: Some(Lang::Zh),
             ..Default::default()
         }
-    }
-
-    #[tokio::test]
-    async fn hint_passthrough_classifies_without_a_round_trip() {
-        let (engine, service) =
-            make_service(&MockEngine::new().with_chunks(vec![Ok("{\"note\":\"正文\"}".into())]));
-        let kinds = Arc::new(Mutex::new(Vec::new()));
-        let sink = Arc::clone(&kinds);
-        let output = service
-            .run(
-                &hinted_input("fn main() {}"),
-                &options(),
-                move |kind| sink.lock().expect("sink").push(kind),
-                |_| {},
-            )
-            .await
-            .expect("run should succeed");
-        assert_eq!(output.kind, TaskKind::ExplainCode);
-        assert_eq!(output.raw, "{\"note\":\"正文\"}");
-        assert_eq!(*kinds.lock().expect("kinds"), vec![TaskKind::ExplainCode]);
-        assert_eq!(engine.call_count(), 1, "the hint needs no classify call");
     }
 
     #[tokio::test]

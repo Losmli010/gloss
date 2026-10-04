@@ -381,10 +381,7 @@ mod tests {
     fn text_task(kind: TaskKind, text: &str) -> Task {
         Task {
             kind,
-            input: TaskInput::Text {
-                text: text.into(),
-                hint: None,
-            },
+            input: TaskInput::Text { text: text.into() },
             options: TaskOptions::default(),
         }
     }
@@ -430,53 +427,35 @@ mod tests {
         let word = registry
             .render(&text_task(TaskKind::TranslateWord, "gloss"))
             .expect("render");
-        assert!(word[0].content.contains("\"senses\""));
         assert!(word[0].content.contains("\"phonetic\""));
-        assert!(word[0].content.contains("\"word\""));
+        assert!(word[0].content.contains("\"examples\""));
+        assert!(word[0].content.contains("\"note\""));
 
         let plain = registry
             .render(&text_task(TaskKind::ExplainCode, "fn main() {}"))
             .expect("render");
-        assert!(plain[0].content.contains("\"title\""));
+        assert!(plain[0].content.contains("\"examples\""));
+        assert!(plain[0].content.contains("\"code_language\""));
+        assert!(plain[0].content.contains("\"note\""));
 
         let sentence = registry
             .render(&text_task(TaskKind::TranslateSentence, "hello"))
             .expect("render");
-        assert!(sentence[0].content.contains("\"title\""));
+        assert!(sentence[0].content.contains("\"examples\""));
+        assert!(sentence[0].content.contains("\"note\""));
     }
 
     #[test]
     fn output_example_leads_with_the_note_field() {
-        // 模板里的输出示例就是解析侧所吃形状的唯一描述：body 恒为对象
-        // 首字段（流式渐进提取依赖字段序），且示例必须是可解析的 JSON。
+        // 模板里的输出示例就是解析侧所吃形状的唯一描述：示例必须是可解析
+        // 的 JSON 且携带 note（义）——词卡按说文体例 phonetic 领头，流式
+        // 提取器按位独立扫描 note。
+        // 输出示例是契约正文之后唯一的 JSON 行，整行解析。
         fn example_object(template: &str) -> &str {
-            let start = template
-                .find("{\"note\"")
-                .expect("the output example must lead with the note field");
-            let bytes = template.as_bytes();
-            let mut depth = 0usize;
-            let mut in_string = false;
-            let mut escaped = false;
-            for (offset, &byte) in bytes[start..].iter().enumerate() {
-                let ch = char::from(byte);
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-                match ch {
-                    '\\' if in_string => escaped = true,
-                    '"' => in_string = !in_string,
-                    '{' if !in_string => depth += 1,
-                    '}' if !in_string => {
-                        depth -= 1;
-                        if depth == 0 {
-                            return &template[start..start + offset + 1];
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            panic!("the output example object is never closed");
+            template
+                .lines()
+                .find(|line| line.trim_start().starts_with('{'))
+                .expect("the output example must be a JSON object line")
         }
 
         for locale in [Locale::Zh, Locale::En] {
@@ -490,10 +469,9 @@ mod tests {
                 let value: serde_json::Value = serde_json::from_str(object)
                     .unwrap_or_else(|err| panic!("{locale:?}/{name}: example must parse: {err}"));
                 let keys = value.as_object().expect("example object");
-                assert_eq!(
-                    keys.keys().next(),
-                    Some(&"note".to_owned()),
-                    "{locale:?}/{name}: note must be the example's first field"
+                assert!(
+                    keys.contains_key("note"),
+                    "{locale:?}/{name}: the example must carry the note field"
                 );
             }
         }

@@ -327,7 +327,6 @@ async fn run_task_request(
         kind: case.kind,
         input: TaskInput::Text {
             text: case.text.clone(),
-            hint: None,
         },
         options: TaskOptions {
             prompt_locale: Some(Locale::Zh),

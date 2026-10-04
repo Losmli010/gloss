@@ -22,24 +22,17 @@ pub enum TaskKind {
     ImageExplain,
 }
 
-/// 模态提示：为 prompt 填充提供上下文。
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum InputHint {
-    /// 代码语言，如 "rust"。
-    CodeLanguage(String),
-    /// 已知源语言，避免模型误判（目标语言由 `TaskOptions` 决定）。
-    SourceLang(Lang),
-}
-
 /// 输入模态：取材产物的统一枚举形态，消息间 move 所有权。
+///
+/// 不携带模态提示：源语言与代码语言都由 LLM 从原文自行判断，代码语言
+/// 经产物 JSON 的 `code_language` 回传 UI（见 [`OutcomeStructured`] 与
+/// [`TaskOutcome::code_language`]）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TaskInput {
     /// 文本输入。
     Text {
         /// 待处理的文本原文。
         text: String,
-        /// 模态提示（如代码语言），用于 prompt 填充。
-        hint: Option<InputHint>,
     },
     /// 图像输入。
     Image {
@@ -128,50 +121,41 @@ pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossE
 }
 
 /// 任务产物：注文统一 markdown（经注疏的「注」），另带 kind 专属结构化
-/// 字段供 UI 精排（词卡的字/音/义/例即说文解字式分层）。
+/// 字段供 UI 精排（词卡的音/例即说文解字式分层，字头即选区原文）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskOutcome {
     /// 产物对应的任务类型。
     pub kind: TaskKind,
-    /// markdown 注文（流式 chunk 拼接；词卡为叙释 prose，句译/讲解为主体）。
+    /// markdown 注文（流式 chunk 拼接；词卡为义释，句译/讲解为主体，
+    /// 提取任务即提取文本）。
     pub note: String,
-    /// kind 专属结构化字段，见 [`OutcomeStructured`]。
+    /// LLM 判定的代码语言（仅代码解释任务回传，UI 角标与高亮使用；
+    /// 不确定时为 `None`，其余任务恒 `None`）。
+    #[serde(default)]
+    pub code_language: Option<String>,
+    /// kind 专属疏证字段，见 [`OutcomeStructured`]。
     pub structured: OutcomeStructured,
 }
 
-/// 结构化结果：按 `TaskKind` 给出 UI 精排所需的字段，与 markdown 正文并行下发。
+/// 结构化结果：按 `TaskKind` 给出 UI 精排所需的**疏证**字段——义在
+/// [`TaskOutcome::note`]（注），这里只带音、例与语言判定（说文解字式
+/// 分层：字头即选区原文，音/义/例各归其位）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OutcomeStructured {
-    /// 单词卡（词典式）。
+    /// 词卡疏证：音标（读若，模型给出时才有）与例句（疏位逐条）。
     WordCard {
-        /// 词条原文。
-        word: String,
-        /// 音标（模型给出时才有）。
+        /// 音标。
         phonetic: Option<String>,
-        /// 释义列表。
-        senses: Vec<Sense>,
+        /// 例句列表（疏）。
+        examples: Vec<String>,
     },
-    /// 句子翻译/代码解释/图片解释。
+    /// 句译/代码讲解的疏：展开讲解条目（疏位逐条）。
     Plain {
-        /// 标题（如代码解释的一句话摘要），可缺省。
-        title: Option<String>,
+        /// 展开讲解列表（疏）。
+        examples: Vec<String>,
     },
-    /// OCR：另存纯文本便于一键复制。
-    Extracted {
-        /// 提取出的纯文本。
-        text: String,
-    },
-}
-
-/// 词条释义（词典式卡）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Sense {
-    /// 词性，如 "n."。
-    pub pos: Option<String>,
-    /// 释义内容。
-    pub meaning: String,
-    /// 例句列表。
-    pub examples: Vec<String>,
+    /// 提取任务：经文提取即 [`TaskOutcome::note`] 本身，无疏证字段。
+    Extracted,
 }
 
 #[cfg(test)]
@@ -179,16 +163,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn task_input_carries_text_and_hint() {
+    fn task_input_carries_text_only() {
         let input = TaskInput::Text {
             text: "hello".into(),
-            hint: Some(InputHint::CodeLanguage("rust".into())),
         };
         match input {
-            TaskInput::Text { text, hint } => {
-                assert_eq!(text, "hello");
-                assert_eq!(hint, Some(InputHint::CodeLanguage("rust".into())));
-            }
+            TaskInput::Text { text } => assert_eq!(text, "hello"),
             other => panic!("unexpected variant: {other:?}"),
         }
     }
@@ -199,7 +179,6 @@ mod tests {
             kind: TaskKind::TranslateWord,
             input: TaskInput::Text {
                 text: "gloss".into(),
-                hint: None,
             },
             options: TaskOptions {
                 target_lang: Some(Lang::Zh),
@@ -249,23 +228,28 @@ mod tests {
     }
 
     #[test]
-    fn outcome_carries_structured_variants() {
+    fn outcome_carries_code_language_and_word_card_subprov() {
         let card = TaskOutcome {
             kind: TaskKind::TranslateWord,
-            note: "# gloss".into(),
+            note: "义释 markdown".into(),
+            code_language: None,
             structured: OutcomeStructured::WordCard {
-                word: "gloss".into(),
                 phonetic: Some("/ɡlɒs/".into()),
-                senses: vec![Sense {
-                    pos: Some("n.".into()),
-                    meaning: "光泽；注释".into(),
-                    examples: vec![],
-                }],
+                examples: vec!["a gloss of silk".into()],
             },
         };
         assert!(
-            matches!(card.structured, OutcomeStructured::WordCard { ref word, .. } if word == "gloss")
+            matches!(card.structured, OutcomeStructured::WordCard { phonetic, .. } if phonetic.as_deref() == Some("/ɡlɒs/"))
         );
+        assert_eq!(card.code_language, None);
+
+        let code = TaskOutcome {
+            kind: TaskKind::ExplainCode,
+            note: "讲解".into(),
+            code_language: Some("rust".into()),
+            structured: OutcomeStructured::Plain { examples: vec![] },
+        };
+        assert_eq!(code.code_language.as_deref(), Some("rust"));
     }
 
     fn text_task(kind: TaskKind) -> Task {
@@ -273,7 +257,6 @@ mod tests {
             kind,
             input: TaskInput::Text {
                 text: "hello".into(),
-                hint: None,
             },
             options: TaskOptions::default(),
         }
@@ -351,7 +334,6 @@ mod tests {
             kind: TaskKind::ExplainCode,
             input: TaskInput::Text {
                 text: "fn main() {}".into(),
-                hint: Some(InputHint::CodeLanguage("rust".into())),
             },
             options: TaskOptions {
                 target_lang: Some(Lang::Ja),

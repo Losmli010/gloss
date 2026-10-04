@@ -28,7 +28,7 @@ use gloss_core::config::Config;
 use gloss_core::guard::{self, SceneFacts, SensitiveKind, TriggerBlock};
 use gloss_core::model::GlossError;
 use gloss_core::model::Locale;
-use gloss_core::task::{InputHint, TaskInput, TaskKind, TaskOptions, TaskOutcome};
+use gloss_core::task::{TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
 use crate::channel::{AcquireCommand, PlatformEvent};
 
@@ -80,14 +80,14 @@ pub enum OverlayView {
         raw: String,
         /// 自动分类判明的任务类型（LLM 层回传后精化）。
         classified: Option<TaskKind>,
-        /// 代码语言（角标与高亮规则集共用）：`InputHint::CodeLanguage`
-        /// 优先，缺失时对原文内容探测；视图创建时判定一次。
+        /// 代码语言（角标与高亮规则集共用）：流式期对原文内容探测
+        /// （LLM 的判定要等产物到达），视图创建时判定一次。
         code_lang: Option<String>,
     },
-    /// 产物卡：按 `TaskKind` 精排或展示 markdown 正文。`source` 是本次
-    /// 任务的原文（从流式视图随行而来），经注疏排布的「经」位用——
-    /// 完成态不再只剩译文。`code_lang` 与 `source` 同路随行（代码解释
-    /// 的完成态角标沿用流式时的判定，不因正文到达而重探）。
+    /// 产物卡：按 `TaskKind` 精排或展示 markdown 注文。`source` 是本次
+    /// 任务的原文（从流式视图随行而来），经注疏排布的「经」位用。
+    /// `code_lang` 优先取产物自带的 LLM 判定（`outcome.code_language`），
+    /// 缺失时回落流式期的内容探测。
     Outcome {
         /// 触发时选中的原文。
         source: String,
@@ -282,7 +282,7 @@ impl TaskStateMachine {
         }
         // 先校验模态再消费探测：模态错配不吃掉待下发任务，同编号的
         // 后续合法产物仍可提交。
-        let TaskInput::Text { text, hint } = input else {
+        let TaskInput::Text { text } = input else {
             return InputOutcome::Ignored;
         };
         let Some(ProbeTask {
@@ -301,12 +301,10 @@ impl TaskStateMachine {
         }
         self.active_request = None;
         self.generation = id;
-        // 视图与任务各要一份原文；语言判定要在 hint 被任务带走之前做。
-        let code_lang = code_lang_of(&text, &hint);
-        let input = TaskInput::Text {
-            text: text.clone(),
-            hint,
-        };
+        // 视图与任务各要一份原文；语言判定对原文做一次（LLM 判定随
+        // 产物到达后精化）。
+        let code_lang = code_lang_of(&text);
+        let input = TaskInput::Text { text: text.clone() };
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
             raw: String::new(),
@@ -382,21 +380,24 @@ impl TaskStateMachine {
         true
     }
 
-    /// 采纳任务产物：定格正文并进入 `Show`。返回是否需要重绘。
+    /// 采纳任务产物：定格注文并进入 `Show`。返回是否需要重绘。
     ///
     /// `outcome.note` 直接覆盖流式视图（权威源约定见 `crate::pipeline`）；
     /// 原文从流式视图随行进产物卡（经注疏的「经」位），完成态保有原文
-    /// 对照——「翻译无原文/译文对照」的展示缺口在状态机侧的落点。
+    /// 对照；代码语言以产物的 LLM 判定优先。
     pub fn accept_done(&mut self, generation: u64, outcome: TaskOutcome) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
         }
-        let (source, code_lang) = match &self.overlay_view {
+        let (source, detected) = match &self.overlay_view {
             Some(OverlayView::Streaming {
                 source, code_lang, ..
             }) => (source.clone(), code_lang.clone()),
             _ => (String::new(), None),
         };
+        // 代码语言以 LLM 的判定为准（随产物到达），缺失时回落流式期的
+        // 内容探测——角标与高亮始终有值可依。
+        let code_lang = outcome.code_language.clone().or(detected);
         self.active_request = None;
         self.overlay_view = Some(OverlayView::Outcome {
             source,
@@ -512,7 +513,7 @@ fn error_action(error: &GlossError) -> Option<ErrorAction> {
 /// 一次下发请求的流式视图起点：原文照抄、正文空、未分类（LLM 层的
 /// `TaskClassified` 到达后精化）。重试与首次下发共用。
 fn streaming_view(input: &TaskInput) -> OverlayView {
-    let TaskInput::Text { text, hint } = input else {
+    let TaskInput::Text { text } = input else {
         return OverlayView::Streaming {
             source: String::new(),
             raw: String::new(),
@@ -524,19 +525,14 @@ fn streaming_view(input: &TaskInput) -> OverlayView {
         source: text.clone(),
         raw: String::new(),
         classified: None,
-        code_lang: code_lang_of(text, hint),
+        code_lang: code_lang_of(text),
     }
 }
 
-/// 代码语言的判定：hint 显式声明优先（归一化后采用），缺失时对原文内容
-/// 探测。视图创建时一次，不进渲染热路径。
-fn code_lang_of(text: &str, hint: &Option<InputHint>) -> Option<String> {
-    hint.as_ref()
-        .and_then(|hint| match hint {
-            InputHint::CodeLanguage(lang) => crate::ui::code_hl::normalize_language(lang),
-            InputHint::SourceLang(_) => None,
-        })
-        .or_else(|| crate::ui::code_hl::detect_language(text))
+/// 代码语言的流式期判定：对原文内容探测（LLM 判定随产物到达后在
+/// accept_done 精化）。视图创建时一次，不进渲染热路径。
+fn code_lang_of(text: &str) -> Option<String> {
+    crate::ui::code_hl::detect_language(text)
 }
 
 /// 一次平台事件的去向：取材，或被闸门拦下。
@@ -595,7 +591,7 @@ mod tests {
     use gloss_core::config::Language;
     use gloss_core::guard::{FrontApp, SceneFacts, SensitiveKind};
     use gloss_core::model::{GlossError, Lang, ScreenPoint, ScreenRect};
-    use gloss_core::task::{InputHint, OutcomeStructured};
+    use gloss_core::task::OutcomeStructured;
 
     use super::*;
 
@@ -609,15 +605,15 @@ mod tests {
         TaskOutcome {
             kind: TaskKind::TranslateWord,
             note: note.into(),
-            structured: OutcomeStructured::Plain { title: None },
+            code_language: None,
+            structured: OutcomeStructured::Plain {
+                examples: Vec::new(),
+            },
         }
     }
 
     fn text_input(text: &str) -> TaskInput {
-        TaskInput::Text {
-            text: text.into(),
-            hint: Some(InputHint::CodeLanguage("rust".into())),
-        }
+        TaskInput::Text { text: text.into() }
     }
 
     fn suspicious_text() -> String {
@@ -1046,7 +1042,10 @@ mod tests {
             TaskOutcome {
                 kind: TaskKind::TranslateWord,
                 note: "产物".into(),
-                structured: OutcomeStructured::Plain { title: None },
+                code_language: None,
+                structured: OutcomeStructured::Plain {
+                    examples: Vec::new(),
+                },
             },
         );
         assert!(
@@ -1063,7 +1062,6 @@ mod tests {
             probe_id,
             TaskInput::Text {
                 text: "hello".into(),
-                hint: None,
             },
         ));
         assert!(
@@ -1080,14 +1078,13 @@ mod tests {
     }
 
     #[test]
-    fn code_language_prefers_the_hint_and_rides_into_the_outcome() {
+    fn code_language_detection_covers_streaming_and_the_llm_verdict_wins() {
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
         dispatched(machine.commit_selection(
             probe_id,
             TaskInput::Text {
-                text: "print('hi')".into(),
-                hint: Some(InputHint::CodeLanguage("py".into())),
+                text: "fn main() {}".into(),
             },
         ));
         assert!(
@@ -1096,17 +1093,21 @@ mod tests {
                 Some(OverlayView::Streaming {
                     code_lang: Some(lang),
                     ..
-                }) if lang == "python"
+                }) if lang == "rust"
             ),
-            "an explicit hint wins over content detection, after normalization"
+            "the streaming view detects the language from the content"
         );
 
+        // LLM 判定随产物到达：以它为准。
         machine.accept_done(
             1,
             TaskOutcome {
                 kind: TaskKind::ExplainCode,
                 note: "产物".into(),
-                structured: OutcomeStructured::Plain { title: None },
+                code_language: Some("python".into()),
+                structured: OutcomeStructured::Plain {
+                    examples: Vec::new(),
+                },
             },
         );
         assert!(
@@ -1117,7 +1118,38 @@ mod tests {
                     ..
                 }) if lang == "python"
             ),
-            "the settled outcome card carries the language from the streaming view"
+            "the settled outcome card carries the LLM's verdict over the detection"
+        );
+
+        // LLM 未给出时回落流式期的内容探测。
+        let mut machine = TaskStateMachine::new();
+        let probe_id = probe(&mut machine, &Config::default());
+        dispatched(machine.commit_selection(
+            probe_id,
+            TaskInput::Text {
+                text: "fn main() {}".into(),
+            },
+        ));
+        machine.accept_done(
+            1,
+            TaskOutcome {
+                kind: TaskKind::ExplainCode,
+                note: "产物".into(),
+                code_language: None,
+                structured: OutcomeStructured::Plain {
+                    examples: Vec::new(),
+                },
+            },
+        );
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Outcome {
+                    code_lang: Some(lang),
+                    ..
+                }) if lang == "rust"
+            ),
+            "a missing verdict falls back to the streaming detection"
         );
     }
 

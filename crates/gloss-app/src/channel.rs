@@ -234,12 +234,11 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use gloss_core::task::{InputHint, OutcomeStructured, Sense};
+    use gloss_core::task::OutcomeStructured;
 
     fn sample_input() -> TaskInput {
         TaskInput::Text {
             text: "gloss".into(),
-            hint: Some(InputHint::CodeLanguage("rust".into())),
         }
     }
 
@@ -336,7 +335,6 @@ mod tests {
                 generation: 1,
                 input: TaskInput::Text {
                     text: "hello".into(),
-                    hint: None,
                 },
             })
             .unwrap();
@@ -346,14 +344,10 @@ mod tests {
                 outcome: TaskOutcome {
                     kind: TaskKind::TranslateWord,
                     note: "# gloss".into(),
+                    code_language: None,
                     structured: OutcomeStructured::WordCard {
-                        word: "gloss".into(),
                         phonetic: Some("/ɡlɒs/".into()),
-                        senses: vec![Sense {
-                            pos: Some("n.".into()),
-                            meaning: "光泽；注释".into(),
-                            examples: vec![],
-                        }],
+                        examples: vec![],
                     },
                 },
             })

@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use gloss_core::prompt::STRUCTURED_FENCE;
-use gloss_core::task::{OutcomeStructured, Sense, TaskKind};
+use gloss_core::task::{OutcomeStructured, TaskKind};
 
 use crate::dataset::{TaskCase, required_fields};
 
@@ -112,8 +112,8 @@ impl TaskVerdict {
 }
 
 /// 生产完成态解析的镜像（JSON 主路径 + 围栏 fallback → 结构化字段）。
-/// 与 gloss-app `finalize` 同一条规则：`body` 缺失退围栏；坏 sense 条目
-/// 跳过；字段缺失按 kind 兜底。
+/// 与 gloss-app `finalize` 同一条规则：`note` 缺失退围栏；坏条目跳过；
+/// 字段缺失按 kind 兜底。
 fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
     let note = serde_json::from_str::<serde_json::Value>(reply.trim())
         .ok()
@@ -122,29 +122,27 @@ fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
             Some((value, note))
         });
     if let Some((value, note)) = note {
+        let _ = note;
         return match kind {
             TaskKind::TranslateWord => OutcomeStructured::WordCard {
-                word: text_field(&value, "word").unwrap_or_default(),
                 phonetic: text_field(&value, "phonetic"),
-                senses: mirror_senses(value.get("senses")).unwrap_or_default(),
+                examples: mirror_examples(value.get("examples")),
             },
-            TaskKind::ImageOcr => OutcomeStructured::Extracted {
-                text: value
-                    .get("text")
-                    .and_then(|text| text.as_str())
-                    .map(str::to_owned)
-                    .unwrap_or(note),
-            },
+            TaskKind::ImageOcr | TaskKind::ImageExplain => OutcomeStructured::Extracted,
             _ => OutcomeStructured::Plain {
-                title: text_field(&value, "title"),
+                examples: mirror_examples(value.get("examples")),
             },
         };
     }
     let fallback = || match kind {
-        TaskKind::ImageOcr => OutcomeStructured::Extracted {
-            text: reply.to_owned(),
+        TaskKind::TranslateWord => OutcomeStructured::WordCard {
+            phonetic: None,
+            examples: Vec::new(),
         },
-        _ => OutcomeStructured::Plain { title: None },
+        TaskKind::ImageOcr | TaskKind::ImageExplain => OutcomeStructured::Extracted,
+        _ => OutcomeStructured::Plain {
+            examples: Vec::new(),
+        },
     };
     let Some(start) = reply.rfind(STRUCTURED_FENCE) else {
         return fallback();
@@ -158,50 +156,29 @@ fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
         return fallback();
     };
     match kind {
-        TaskKind::TranslateWord => {
-            let Some(senses) = mirror_senses(value.get("senses")) else {
-                return fallback();
-            };
-            OutcomeStructured::WordCard {
-                word: text_field(&value, "word").unwrap_or_default(),
-                phonetic: text_field(&value, "phonetic"),
-                senses,
-            }
-        }
-        TaskKind::ImageOcr => match text_field(&value, "text") {
-            Some(text) => OutcomeStructured::Extracted { text },
-            None => fallback(),
+        TaskKind::TranslateWord => OutcomeStructured::WordCard {
+            phonetic: text_field(&value, "phonetic"),
+            examples: mirror_examples(value.get("examples")),
         },
+        TaskKind::ImageOcr | TaskKind::ImageExplain => OutcomeStructured::Extracted,
         _ => OutcomeStructured::Plain {
-            title: text_field(&value, "title"),
+            examples: mirror_examples(value.get("examples")),
         },
     }
 }
 
-/// 释义数组的镜像解析：meaning 缺失/非字符串的坏条目跳过；字段整体缺失
-/// 返回 `None`（与生产同语义：word kind 围栏路径据此落 kind 兜底）。
-fn mirror_senses(value: Option<&serde_json::Value>) -> Option<Vec<Sense>> {
-    let entries = value?.as_array()?;
-    let senses = entries
-        .iter()
-        .filter_map(|entry| {
-            Some(Sense {
-                pos: text_field(entry, "pos"),
-                meaning: text_field(entry, "meaning")?,
-                examples: entry
-                    .get("examples")
-                    .and_then(|v| v.as_array())
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(|v| v.as_str().map(str::to_owned))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            })
+/// 例句/展开讲解数组的镜像解析：非字符串的坏条目跳过、好条目保留
+/// （与生产 `parse_examples` 同语义，缺失回退空表）。
+fn mirror_examples(value: Option<&serde_json::Value>) -> Vec<String> {
+    value
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|entry| entry.as_str().map(str::to_owned))
+                .collect()
         })
-        .collect();
-    Some(senses)
+        .unwrap_or_default()
 }
 
 /// 取字符串字段；JSON null 与缺失同样返回 None。
@@ -386,10 +363,8 @@ mod tests {
     #[test]
     fn task_verdict_reads_the_four_levels() {
         let case = word_case();
-        let good = TaskVerdict::for_reply(
-            &case,
-            r#"{"note":"正文","word":"gloss","phonetic":null,"senses":[]}"#,
-        );
+        let good =
+            TaskVerdict::for_reply(&case, r#"{"phonetic":null,"note":"正文","examples":[]}"#);
         assert!(!good.degraded(), "complete contract is not degraded");
         assert!(good.json_object && good.note_present && good.fields_complete);
 
@@ -397,11 +372,15 @@ mod tests {
         assert!(plain.degraded());
         assert!(!plain.json_object);
         assert!(
-            matches!(plain.outcome, OutcomeStructured::Plain { title: None }),
-            "production outcome degrades to Plain for word kind without any contract"
+            matches!(plain.outcome, OutcomeStructured::WordCard { .. }),
+            "production outcome is a word card (empty subprov) without any contract: \
+             outcome={:?} kind={:?} json_object={}",
+            plain.outcome,
+            case.kind,
+            plain.json_object
         );
 
-        let bad_json = TaskVerdict::for_reply(&case, r#"{"body":"正文","word":"gloss""#);
+        let bad_json = TaskVerdict::for_reply(&case, r#"{"note":"正文","phonetic""#);
         assert!(!bad_json.json_object && bad_json.degraded());
     }
 
@@ -414,14 +393,14 @@ mod tests {
         );
         assert!(fence.degraded(), "the old contract is a degraded reply");
         assert!(
-            matches!(&fence.outcome, OutcomeStructured::WordCard { word, .. } if word == "gloss"),
-            "production still assembles a complete card via the fence fallback"
+            matches!(&fence.outcome, OutcomeStructured::WordCard { .. }),
+            "production still assembles a word card via the fence fallback"
         );
 
         let no_fence = TaskVerdict::for_reply(&case, "只有正文");
         assert!(
-            matches!(no_fence.outcome, OutcomeStructured::Plain { title: None }),
-            "the kind fallback keeps the whole raw text as the body"
+            matches!(no_fence.outcome, OutcomeStructured::WordCard { .. }),
+            "the kind fallback keeps the whole raw text as the note"
         );
     }
 
@@ -446,7 +425,7 @@ mod tests {
     }
 
     fn word_case() -> TaskCase {
-        let jsonl = "{\"id\":\"w1\",\"kind\":\"TranslateWord\",\"text\":\"gloss\",\"reference\":{\"word\":\"gloss\",\"phonetic\":null,\"senses\":[]}}\n";
+        let jsonl = "{\"id\":\"w1\",\"kind\":\"TranslateWord\",\"text\":\"gloss\",\"reference\":{\"phonetic\":null,\"examples\":[]}}\n";
         load_task(jsonl)
             .expect("case")
             .into_iter()
