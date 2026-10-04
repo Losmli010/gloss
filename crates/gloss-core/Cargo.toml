@@ -10,12 +10,10 @@ license.workspace = true
 arc-swap = { version = "1", default-features = false }
 # TaskStream 的 Stream trait（no-std 最小集）；StreamExt 等工具留给使用方自选。
 futures-core = { version = "0.3", default-features = false }
-# Cache 端口的内存 LRU+TTL 实现（sync API 即所需，future 异步面不用）。
-moka = { version = "0.12", default-features = false, features = ["sync"] }
-# 任务模型的序列化（配置落盘 / 缓存 key / 未来跨进程）；rc 供 TaskInput 的
+# 任务模型的序列化（配置落盘 / 未来跨进程）；rc 供 TaskInput 的
 # Arc<[u8]> 图像字节按内部值序列化（反序列化会新分配，所有权语义不变）。
 serde = { version = "1", default-features = false, features = ["derive", "rc", "std"] }
-# cache_key 的规范化序列化（同文本不同 kind 必须得到不同 key）。
+# 任务/分类输出契约的 JSON 解析（评测与编排测试用）。
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # 日志三件套（统一出口的实现）。默认集先关再显式列全：tracing 留 std，
 # subscriber 列全 fmt::layer 所需特性，env-filter 供 RUST_LOG 过滤。

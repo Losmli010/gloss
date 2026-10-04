@@ -1,1 +1,1 @@
-After the body, output on a new line a JSON block fenced by {{fence}} (start with {{fence}} on its own line, end with a closing ``` on its own line), with exactly these fields: {{schema}}. Output nothing besides the body and that JSON block, and do not wrap the whole reply in a code block.
+Your entire reply must be a single JSON object: output nothing besides that object, and do not wrap it in a code block or fence. The body field must be the object's first field (holding the markdown body), followed by exactly these fields: {{schema}}.

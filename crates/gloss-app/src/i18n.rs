@@ -31,13 +31,6 @@ const EN: &str = include_str!("../i18n/en.toml");
 pub(crate) struct Text {
     pub(crate) gloss_app_settings_title: String,
 
-    pub(crate) gloss_kinds_translate_word: String,
-    pub(crate) gloss_kinds_translate_sentence: String,
-    pub(crate) gloss_kinds_explain_code: String,
-    pub(crate) gloss_kinds_image_ocr: String,
-    pub(crate) gloss_kinds_image_explain: String,
-    pub(crate) gloss_kinds_auto: String,
-
     pub(crate) gloss_langs_zh: String,
     pub(crate) gloss_langs_en: String,
     pub(crate) gloss_langs_ja: String,
@@ -62,7 +55,6 @@ pub(crate) struct Text {
     pub(crate) gloss_errors_screen_capture_denied: String,
     pub(crate) gloss_errors_region_too_large: String,
     pub(crate) gloss_errors_unsupported_modality: String,
-    pub(crate) gloss_errors_classify_required: String,
     pub(crate) gloss_errors_engine_network: String,
     pub(crate) gloss_errors_engine_auth: String,
     pub(crate) gloss_errors_engine_rate_limited: String,
@@ -71,26 +63,19 @@ pub(crate) struct Text {
     pub(crate) gloss_errors_inference_channel: String,
 
     pub(crate) gloss_settings_section_model: String,
-    pub(crate) gloss_settings_section_task: String,
     pub(crate) gloss_settings_section_general: String,
 
     pub(crate) gloss_settings_save: String,
     pub(crate) gloss_settings_cancel: String,
     pub(crate) gloss_settings_invalid_summary: String,
     pub(crate) gloss_settings_base_url_hint: String,
+    pub(crate) gloss_settings_model: String,
+    pub(crate) gloss_settings_model_hint: String,
     pub(crate) gloss_settings_key_keep_hint: String,
     pub(crate) gloss_settings_key_clear_hint: String,
     pub(crate) gloss_settings_clear_key: String,
     pub(crate) gloss_settings_undo_clear_key: String,
-    pub(crate) gloss_settings_default_kind: String,
-    pub(crate) gloss_settings_default_kind_hint: String,
     pub(crate) gloss_settings_target_lang: String,
-    pub(crate) gloss_settings_kind_switch: String,
-    pub(crate) gloss_settings_kind_switch_hint: String,
-    pub(crate) gloss_settings_default_model: String,
-    pub(crate) gloss_settings_default_model_hint: String,
-    pub(crate) gloss_settings_vision_model_hint: String,
-    pub(crate) gloss_settings_switch_label: String,
     pub(crate) gloss_settings_ui_language: String,
     pub(crate) gloss_settings_ui_theme: String,
     pub(crate) gloss_settings_cache_ttl: String,
@@ -118,7 +103,6 @@ pub(crate) struct Text {
     pub(crate) gloss_settings_update_retry: String,
     pub(crate) gloss_settings_update_install_hint: String,
 
-    pub(crate) gloss_settings_error_default_kind_disabled: String,
     pub(crate) gloss_settings_error_newline_in_model: String,
     pub(crate) gloss_settings_error_base_url_empty: String,
     pub(crate) gloss_settings_error_base_url_invalid: String,
@@ -145,7 +129,6 @@ impl Text {
             GlossError::ScreenCaptureDenied => self.gloss_errors_screen_capture_denied.clone(),
             GlossError::RegionTooLarge => self.gloss_errors_region_too_large.clone(),
             GlossError::UnsupportedModality => self.gloss_errors_unsupported_modality.clone(),
-            GlossError::ClassifyRequired => self.gloss_errors_classify_required.clone(),
             GlossError::EngineNetwork => self.gloss_errors_engine_network.clone(),
             GlossError::EngineAuth => self.gloss_errors_engine_auth.clone(),
             GlossError::EngineRateLimited => self.gloss_errors_engine_rate_limited.clone(),
@@ -211,7 +194,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            93,
+            78,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -286,7 +269,6 @@ mod tests {
                 "gloss_settings_notice_key_update_failed",
                 "gloss_settings_notice_key_updated_save_failed",
                 "gloss_settings_notice_save_failed",
-                "gloss_settings_switch_label",
                 "gloss_settings_update_available",
                 "gloss_settings_update_ready",
             ],
@@ -364,10 +346,6 @@ mod tests {
             (
                 GlossError::EngineRateLimited,
                 &errors.gloss_errors_engine_rate_limited,
-            ),
-            (
-                GlossError::ClassifyRequired,
-                &errors.gloss_errors_classify_required,
             ),
         ] {
             assert_eq!(

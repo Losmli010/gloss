@@ -1,12 +1,11 @@
-//! 端口桩：选区读取、截图、配置存储与缓存的预置替身。
+//! 端口桩：选区读取、截图与配置存储的预置替身。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use gloss_core::config::Config;
 use gloss_core::model::{GlossError, ScreenRect};
-use gloss_core::ports::{Cache, ConfigStore, RegionCapture, SelectionReader};
-use gloss_core::task::{TaskKind, TaskOutcome};
+use gloss_core::ports::{ConfigStore, RegionCapture, SelectionReader};
 
 use super::lock_or_recover;
 
@@ -87,32 +86,5 @@ impl ConfigStore for MemoryConfigStore {
     fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
         lock_or_recover(&self.secrets).remove(key);
         Ok(())
-    }
-}
-
-/// 内存键值缓存桩：主产物与分类缓存各一格。
-#[derive(Default)]
-pub struct MemoryCache {
-    /// key → 产物。
-    outcomes: Mutex<HashMap<u64, TaskOutcome>>,
-    /// key → 已判定任务类型。
-    classify: Mutex<HashMap<u64, TaskKind>>,
-}
-
-impl Cache for MemoryCache {
-    fn get(&self, key: u64) -> Option<TaskOutcome> {
-        lock_or_recover(&self.outcomes).get(&key).cloned()
-    }
-
-    fn set(&self, key: u64, value: TaskOutcome) {
-        lock_or_recover(&self.outcomes).insert(key, value);
-    }
-
-    fn get_classify(&self, key: u64) -> Option<TaskKind> {
-        lock_or_recover(&self.classify).get(&key).copied()
-    }
-
-    fn set_classify(&self, key: u64, kind: TaskKind) {
-        lock_or_recover(&self.classify).insert(key, kind);
     }
 }

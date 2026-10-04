@@ -18,14 +18,12 @@
 
 use std::collections::HashMap;
 
-use egui::{RichText, ScrollArea, Stroke, vec2};
+use egui::{RichText, ScrollArea, Stroke};
 use gloss_core::config::{
-    ALL_KINDS, BaseUrlError, CACHE_TTL_MAX_SECS, Config, Language, Theme, validate_base_url,
+    BaseUrlError, CACHE_TTL_MAX_SECS, Config, Language, Theme, validate_base_url,
 };
 use gloss_core::model::{GlossError, Lang};
-use gloss_core::task::TaskKind;
 
-use super::kind_label;
 use super::style::{color, font, radius, space};
 use crate::i18n::{Text, fill};
 use crate::update::UpdateMsg;
@@ -34,12 +32,10 @@ use crate::update::state::{FailStep, UpdatePhase, UpdateState};
 /// 校验出错的字段：错误提示按字段定位到具体控件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum FieldKey {
-    /// 默认任务（跨字段：选中的任务类型须处于启用状态）。
-    DefaultKind,
     /// Base URL（结构性校验）。
     BaseUrl,
-    /// 任务默认模型（禁换行）。
-    Model(TaskKind),
+    /// 模型 id（禁换行）。
+    Model,
 }
 
 /// 校验错误的类型化形态：只记「哪里错了、错成什么样」，措辞归文案表。
@@ -48,8 +44,6 @@ enum FieldKey {
 /// 校验输出因此与语言无关——同一份草稿在任何 locale 下得出同一张错误表。
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum FieldError {
-    /// 默认任务选中的任务类型被任务开关停用。
-    DefaultKindDisabled,
     /// 模型名含换行。
     NewlineInModel,
     /// Base URL 为空。
@@ -66,7 +60,6 @@ impl FieldError {
     /// 就地提示文案。
     fn message(&self, text: &Text) -> String {
         match self {
-            Self::DefaultKindDisabled => text.gloss_settings_error_default_kind_disabled.clone(),
             Self::NewlineInModel => text.gloss_settings_error_newline_in_model.clone(),
             Self::BaseUrlEmpty => text.gloss_settings_error_base_url_empty.clone(),
             Self::BaseUrlNotHttps => text.gloss_settings_error_base_url_invalid.clone(),
@@ -206,8 +199,12 @@ fn build_save(state: &mut SettingsState) -> SettingsAction {
     }
     let mut draft = state.draft.clone();
     draft.base_url = draft.base_url.trim().to_owned();
-    for binding in &mut draft.model_by_kind {
-        binding.model = binding.model.trim().to_owned();
+    // 模型名保存时 trim；空白折叠回出厂默认——输入框 hint 承诺「留空使用
+    // 内置默认」，而下游（任务冻结 → LLM 层校验）对空串是明确失败，不接
+    // 住会把用户锁进「清空 → 失败卡 → 回设置页」的死循环。
+    draft.model = draft.model.trim().to_owned();
+    if draft.model.is_empty() {
+        draft.model = gloss_core::config::DEFAULT_TEXT_MODEL.to_owned();
     }
     let api_key = state.api_key.trim();
     let key = if state.clear_key {
@@ -227,19 +224,12 @@ fn build_save(state: &mut SettingsState) -> SettingsAction {
 /// [`FieldError`] 映射（文案留给渲染帧）。
 fn validate_draft(draft: &Config) -> HashMap<FieldKey, FieldError> {
     let mut errors = HashMap::new();
-    // 跨字段不变量：分类的兜底任务类型必须处于启用状态——分类失败
-    // 回退到一个停用的 kind，用户拿到的是一张执行不了任务的卡。
-    if !draft.is_kind_enabled(draft.classify_fallback()) {
-        errors.insert(FieldKey::DefaultKind, FieldError::DefaultKindDisabled);
-    }
     if let Err(err) = validate_base_url(&draft.base_url) {
         errors.insert(FieldKey::BaseUrl, base_url_error(&err));
     }
     // 模型名：保存时 trim，禁换行（粘贴事故防护）；空 = 用内置默认，合法。
-    for binding in &draft.model_by_kind {
-        if binding.model.trim().contains('\n') {
-            errors.insert(FieldKey::Model(binding.kind), FieldError::NewlineInModel);
-        }
+    if draft.model.trim().contains('\n') {
+        errors.insert(FieldKey::Model, FieldError::NewlineInModel);
     }
     errors
 }
@@ -283,10 +273,6 @@ pub(crate) fn draw(
                     ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                         section(ui, &text.gloss_settings_section_model, |ui| {
                             connection_section(ui, state, &errors, text);
-                        });
-                        ui.add_space(space::SECTION);
-                        section(ui, &text.gloss_settings_section_task, |ui| {
-                            task_section(ui, state, &errors, text);
                         });
                         ui.add_space(space::SECTION);
                         section(ui, &text.gloss_settings_section_general, |ui| {
@@ -469,6 +455,16 @@ fn connection_section(
     error_text(ui, errors, FieldKey::BaseUrl, text);
     ui.add_space(space::ITEM);
 
+    ui.label(&text.gloss_settings_model);
+    let response = add_input(ui, &mut state.draft.model, |e| {
+        e.hint_text(text.gloss_settings_model_hint.as_str())
+            .desired_width(f32::INFINITY)
+    });
+    underline_if_error(ui, &response, errors, FieldKey::Model);
+    error_text(ui, errors, FieldKey::Model, text);
+    choice_hint(ui, &text.gloss_settings_model_hint);
+    ui.add_space(space::ITEM);
+
     ui.label("API Key");
     ui.horizontal(|ui| {
         let input_width = ui.available_width() - CLEAR_BUTTON_RESERVE;
@@ -501,110 +497,11 @@ fn connection_section(
 /// 清除密钥按钮的占位余量（按钮宽 + 间距；输入框占满剩余宽）。
 const CLEAR_BUTTON_RESERVE: f32 = 88.0;
 
-/// 任务区：默认任务、目标语言、任务开关（左右开关钮）、每任务默认模型。
-fn task_section(
-    ui: &mut egui::Ui,
-    state: &mut SettingsState,
-    errors: &HashMap<FieldKey, FieldError>,
-    text: &Text,
-) {
-    let default_kind = choice_row(ui, &text.gloss_settings_default_kind, |ui| {
-        kind_combo(
-            ui,
-            "default_text_kind",
-            &mut state.draft.default_text_kind,
-            &TEXT_KINDS,
-            text,
-        )
-    });
-    underline_if_error(ui, &default_kind, errors, FieldKey::DefaultKind);
-    // 说明提示与错误提示同位：该行有错误时只显示错误。
-    if errors.contains_key(&FieldKey::DefaultKind) {
-        error_text(ui, errors, FieldKey::DefaultKind, text);
-    } else {
-        choice_hint(ui, &text.gloss_settings_default_kind_hint);
-    }
+/// 通用区：目标语言、界面语言、界面主题、缓存有效期（上限由控件钳制）。
+fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
     choice_row(ui, &text.gloss_settings_target_lang, |ui| {
         lang_combo(ui, &mut state.draft.target_lang, text);
     });
-
-    ui.add_space(space::TIGHT);
-    caption(ui, &text.gloss_settings_kind_switch);
-    caption(ui, &text.gloss_settings_kind_switch_hint);
-    for kind in ALL_KINDS {
-        let enabled = state.draft.is_kind_enabled(kind);
-        if switch_row(ui, kind_label(kind, text), enabled, text) {
-            state.draft.set_kind_enabled(kind, !enabled);
-        }
-    }
-
-    ui.add_space(space::TIGHT);
-    caption(ui, &text.gloss_settings_default_model);
-    caption(ui, &text.gloss_settings_default_model_hint);
-    for kind in ALL_KINDS {
-        let mut model = state
-            .draft
-            .model_for_kind(kind)
-            .unwrap_or_default()
-            .to_owned();
-        ui.label(kind_label(kind, text));
-        let response = add_input(ui, &mut model, |e| {
-            let edit = e.desired_width(f32::INFINITY);
-            if kind.accepts_text() {
-                edit
-            } else {
-                edit.hint_text(text.gloss_settings_vision_model_hint.as_str())
-            }
-        });
-        underline_if_error(ui, &response, errors, FieldKey::Model(kind));
-        error_text(ui, errors, FieldKey::Model(kind), text);
-        if response.changed() {
-            state.draft.set_model_for_kind(kind, &model);
-        }
-        ui.add_space(space::TIGHT);
-    }
-}
-
-/// 开关行：任务名左、开关钮右；点击切换。开关的可访问标签是
-/// 「启用{任务名}」（模板见文案表）——与可见文本区分，读屏与测试按它
-/// 定位且不与裸任务名重名。返回是否被点击。
-fn switch_row(ui: &mut egui::Ui, label: &str, enabled: bool, text: &Text) -> bool {
-    ui.horizontal(|ui| {
-        ui.label(label);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let (rect, response) = ui.allocate_exact_size(vec2(40.0, 24.0), egui::Sense::click());
-            response.widget_info(|| {
-                egui::WidgetInfo::labeled(
-                    egui::WidgetType::Button,
-                    true,
-                    fill(&text.gloss_settings_switch_label, &[("kind", label)]),
-                )
-            });
-            let track_fill = if enabled {
-                accent(ui)
-            } else {
-                ui.visuals().widgets.inactive.bg_fill
-            };
-            ui.painter().rect_filled(rect, 12.0, track_fill);
-            let knob_x = if enabled {
-                rect.right() - 12.0
-            } else {
-                rect.left() + 12.0
-            };
-            ui.painter().circle_filled(
-                egui::pos2(knob_x, rect.center().y),
-                10.0,
-                egui::Color32::WHITE,
-            );
-            response.clicked()
-        })
-        .inner
-    })
-    .inner
-}
-
-/// 通用区：界面语言、界面主题、缓存有效期（上限由控件钳制）。
-fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
     choice_row(ui, &text.gloss_settings_ui_language, |ui| {
         language_combo(ui, &mut state.draft.language, text);
     });
@@ -703,32 +600,6 @@ fn choice_hint(ui: &mut egui::Ui, text: &str) {
     caption(ui, text);
 }
 
-/// 文本取材可服务的任务类型（默认任务下拉的候选集）。
-const TEXT_KINDS: [TaskKind; 3] = [
-    TaskKind::TranslateWord,
-    TaskKind::TranslateSentence,
-    TaskKind::ExplainCode,
-];
-
-/// 任务类型下拉；`id_salt` 需在窗口内唯一。返回下拉框自身的响应（外层
-/// 据此画字段错误态）。
-fn kind_combo(
-    ui: &mut egui::Ui,
-    id_salt: &str,
-    current: &mut TaskKind,
-    choices: &[TaskKind],
-    text: &Text,
-) -> egui::Response {
-    egui::ComboBox::from_id_salt(id_salt)
-        .selected_text(kind_label(*current, text))
-        .show_ui(ui, |ui| {
-            for &kind in choices {
-                ui.selectable_value(current, kind, kind_label(kind, text));
-            }
-        })
-        .response
-}
-
 /// UI 固定可选的 5 语种（`Lang::Other` 只经配置文件到达，不在下拉里）。
 const LANG_CHOICES: fn() -> [Lang; 5] = || [Lang::Zh, Lang::En, Lang::Ja, Lang::Ko, Lang::Fr];
 
@@ -802,7 +673,6 @@ mod tests {
     use egui_kittest::kittest::Queryable;
     use gloss_core::config_handle::ConfigHandle;
     use gloss_core::model::Locale;
-    use gloss_core::task::TaskKind;
 
     use crate::stubs::ports::MemoryConfigStore;
 
@@ -813,11 +683,6 @@ mod tests {
         let zh = Text::get(Locale::Zh);
         let en = Text::get(Locale::En);
         for (error, zh_message, en_message) in [
-            (
-                FieldError::DefaultKindDisabled,
-                "默认任务已停用：请在下方「任务开关」中启用它",
-                "The default task is disabled: enable it under Task switches below",
-            ),
             (
                 FieldError::NewlineInModel,
                 "不能包含换行",
@@ -862,6 +727,21 @@ mod tests {
     }
 
     #[test]
+    fn blank_model_saves_as_the_factory_default() {
+        let mut state = open(&Config::default());
+        state.draft.model = "   ".into();
+
+        let SettingsAction::Save { config, .. } = build_save(&mut state) else {
+            panic!("save expected");
+        };
+        assert_eq!(
+            config.model,
+            gloss_core::config::DEFAULT_TEXT_MODEL,
+            "a blank model must not reach the disk: the frozen empty id would fail every task"
+        );
+    }
+
+    #[test]
     fn save_trims_endpoint_and_treats_blank_key_as_unchanged() {
         let mut state = open(&Config::default());
         state.draft.base_url = "  https://api.example.test/v1/  ".into();
@@ -879,15 +759,13 @@ mod tests {
     fn save_carries_the_key_outside_the_config() {
         let mut state = open(&Config::default());
         state.api_key = "  sk-test  ".into();
-        state
-            .draft
-            .set_model_for_kind(TaskKind::TranslateWord, "m2");
+        state.draft.model = "m2".into();
 
         let SettingsAction::Save { config, key } = build_save(&mut state) else {
             panic!("save expected");
         };
         assert_eq!(key, KeyUpdate::Replace("sk-test".into()));
-        assert_eq!(config.model_for_kind(TaskKind::TranslateWord), Some("m2"));
+        assert_eq!(config.model, "m2");
         assert!(
             !format!("{config:?}").contains("sk-test"),
             "the key must never travel inside the config"
@@ -926,51 +804,6 @@ mod tests {
                 key: KeyUpdate::Replace(_),
                 ..
             }
-        ));
-    }
-
-    #[test]
-    fn the_default_task_rule_follows_the_selection_kind_fold() {
-        let mut state = open(&Config::default());
-        state.draft.default_text_kind = TaskKind::ImageOcr;
-        state.draft.enabled_kinds = vec![TaskKind::TranslateWord];
-        assert!(
-            matches!(build_save(&mut state), SettingsAction::Save { .. }),
-            "a hand-edited image default folds to TranslateWord: the rule judges what the gesture runs"
-        );
-
-        let mut state = open(&Config::default());
-        state.draft.default_text_kind = TaskKind::ImageOcr;
-        state.draft.enabled_kinds = vec![TaskKind::ImageOcr];
-        assert_eq!(build_save(&mut state), SettingsAction::Idle);
-        assert_eq!(
-            state.errors().get(&FieldKey::DefaultKind),
-            Some(&FieldError::DefaultKindDisabled),
-            "the folded kind is what the gate checks, not the field the combo shows"
-        );
-    }
-
-    #[test]
-    fn a_disabled_default_task_blocks_save() {
-        let mut state = open(&Config::default());
-        state.draft.default_text_kind = TaskKind::ExplainCode;
-        state.draft.set_kind_enabled(TaskKind::ExplainCode, false);
-
-        assert_eq!(build_save(&mut state), SettingsAction::Idle);
-        assert_eq!(
-            state.errors().get(&FieldKey::DefaultKind),
-            Some(&FieldError::DefaultKindDisabled),
-            "the default task is the selection gesture: a disabled one can never fire"
-        );
-
-        state.draft.set_kind_enabled(TaskKind::ExplainCode, true);
-        assert!(
-            state.errors().is_empty(),
-            "enabling the kind clears the error"
-        );
-        assert!(matches!(
-            build_save(&mut state),
-            SettingsAction::Save { .. }
         ));
     }
 
@@ -1080,18 +913,14 @@ mod tests {
         harness.run();
         for label in [
             "Model",
-            "Tasks",
             "General",
             "Save",
             "Cancel",
-            "Default task",
             "Target language",
-            "Task switches",
             "Clear key",
             "Interface language",
             "Interface theme",
             "Cache lifetime",
-            "Enable Word card",
         ] {
             harness.get_by_label(label);
         }
@@ -1192,16 +1021,7 @@ mod tests {
     fn all_sections_render_and_save_submits_the_draft() {
         let (mut harness, action) = harness_for(open(&Config::default()), Locale::Zh);
         harness.run();
-        for label in [
-            "模型",
-            "Base URL",
-            "API Key",
-            "任务",
-            "默认任务",
-            "目标语言",
-            "通用",
-            "保存",
-        ] {
+        for label in ["模型", "Base URL", "API Key", "目标语言", "通用", "保存"] {
             harness.get_by_label(label);
         }
         harness.get_by_label("保存").click();
@@ -1213,89 +1033,6 @@ mod tests {
             }
             other => panic!("save action expected, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn task_toggle_flips_enabled_kinds() {
-        let (mut harness, action) = harness_for(open(&Config::default()), Locale::Zh);
-        harness.run();
-        harness.get_by_label("启用翻译").click_accesskit();
-        harness.run();
-        harness.get_by_label("保存").click();
-        harness.run();
-        match &*action.borrow() {
-            SettingsAction::Save { config, .. } => assert!(
-                !config.is_kind_enabled(TaskKind::TranslateSentence),
-                "toggled-off kind must be disabled in the submitted config"
-            ),
-            other => panic!("save action expected, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn a_disabled_default_task_is_blocked_with_an_in_place_hint() {
-        let (mut harness, action) = harness_for(
-            {
-                let mut state = open(&Config::default());
-                state.draft.default_text_kind = TaskKind::ExplainCode;
-                state.draft.set_kind_enabled(TaskKind::ExplainCode, false);
-                state
-            },
-            Locale::Zh,
-        );
-        harness.run();
-        harness.get_by_label("保存").click();
-        harness.run();
-        assert!(
-            matches!(&*action.borrow(), SettingsAction::Idle),
-            "a default task that can never fire must not be saved"
-        );
-        harness.get_by_label_contains("默认任务已停用");
-        assert!(
-            harness
-                .query_by_label_contains("划词触发时使用的任务")
-                .is_none(),
-            "the error must replace the field hint instead of stacking under it"
-        );
-
-        harness.get_by_label("启用代码解释").click_accesskit();
-        harness.run();
-        harness.get_by_label_contains("划词触发时使用的任务");
-        harness.get_by_label("保存").click();
-        harness.run();
-        assert!(
-            matches!(&*action.borrow(), SettingsAction::Save { .. }),
-            "enabling the kind restores save"
-        );
-    }
-
-    #[test]
-    fn switching_off_the_default_task_is_blocked_until_it_comes_back() {
-        let (mut harness, action) = harness_for(open(&Config::default()), Locale::Zh);
-        harness.run();
-        assert!(
-            harness.query_by_label_contains("默认任务已停用").is_none(),
-            "an untouched draft must not be nagged before the first save"
-        );
-
-        harness.get_by_label("启用词卡").click_accesskit();
-        harness.run();
-        harness.get_by_label("保存").click();
-        harness.run();
-        assert!(
-            matches!(&*action.borrow(), SettingsAction::Idle),
-            "disabling the task behind the selection gesture must not be saved"
-        );
-        harness.get_by_label_contains("默认任务已停用");
-
-        harness.get_by_label("启用词卡").click_accesskit();
-        harness.run();
-        harness.get_by_label("保存").click();
-        harness.run();
-        assert!(
-            matches!(&*action.borrow(), SettingsAction::Save { .. }),
-            "switching the kind back on restores save"
-        );
     }
 
     #[test]
@@ -1373,19 +1110,6 @@ mod tests {
         harness.run();
         harness.get_by_label_contains("marked in place");
         harness.snapshot("settings_invalid");
-        results.extend_harness(&mut harness);
-
-        let mut disabled_default = open(&Config::default());
-        disabled_default.draft.default_text_kind = TaskKind::ExplainCode;
-        disabled_default
-            .draft
-            .set_kind_enabled(TaskKind::ExplainCode, false);
-        let mut harness = snapshot_harness(disabled_default, &UpdateState::default());
-        harness.run();
-        harness.get_by_label("Save").click();
-        harness.run();
-        harness.get_by_label_contains("The default task is disabled");
-        harness.snapshot("settings_default_kind_disabled");
         results.extend_harness(&mut harness);
 
         for (name, update) in [

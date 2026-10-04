@@ -8,35 +8,23 @@ use std::time::{Duration, Instant};
 use futures::StreamExt;
 
 use stubs::engine::MockEngine;
-use stubs::ports::{FixedRegionCapture, FixedSelectionReader, MemoryCache, MemoryConfigStore};
+use stubs::ports::{FixedRegionCapture, FixedSelectionReader, MemoryConfigStore};
 
 use gloss_core::config::Config;
 use gloss_core::model::GlossError;
-use gloss_core::ports::{
-    AiEngine, Cache, ConfigStore, EngineRequest, RegionCapture, SelectionReader,
-};
+use gloss_core::ports::{AiEngine, ConfigStore, EngineRequest, RegionCapture, SelectionReader};
 use gloss_core::prompt::{ChatMessage, Role};
-use gloss_core::task::{OutcomeStructured, TaskKind, TaskOutcome};
 
 mod stubs;
 
 fn sample_request() -> EngineRequest {
     EngineRequest {
-        kind: TaskKind::TranslateWord,
         messages: vec![ChatMessage {
             role: Role::User,
             content: "gloss".into(),
         }],
         model: "mock-model".into(),
         max_tokens: None,
-    }
-}
-
-fn outcome(body: &str) -> TaskOutcome {
-    TaskOutcome {
-        kind: TaskKind::TranslateWord,
-        body: body.into(),
-        structured: OutcomeStructured::Plain { title: None },
     }
 }
 
@@ -192,13 +180,4 @@ fn config_store_mock_round_trips_document() {
     };
     store.save(&config).expect("save should succeed");
     assert_eq!(store.load(), Ok(config));
-}
-
-#[test]
-fn cache_mock_stores_and_isolates_keys() {
-    let cache = MemoryCache::default();
-    assert!(cache.get(1).is_none());
-    cache.set(1, outcome("cached"));
-    assert_eq!(cache.get(1).map(|o| o.body), Some("cached".into()));
-    assert!(cache.get(2).is_none(), "unrelated key must not see entry");
 }

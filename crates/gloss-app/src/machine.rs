@@ -13,6 +13,11 @@
 //! 探测失败（[`TaskStateMachine::commit_selection_failed`]）：空选区/
 //! 读不到按误滑静默丢弃（显示原样保留），权限缺失落失败卡。
 //!
+//! **任务类型不在状态机**：划词手势不带显式意图，状态机冻结的只有配置
+//! 选项（单次快照）；kind 由 LLM 层在执行前分类（提示直通/LLM 分类/兜底
+//! 常量），经事件④的 `TaskClassified` 回传精化流式视图。失败卡的出口、
+//! 重试的重发都按「input + options」原样进行，不回读配置。
+//!
 //! 两道敏感信息闸门的落点：场景闸门在 [`trigger_decision`]（触发前，
 //! 拦下即不取材不占编号、不出浮层），内容闸门在 [`TaskStateMachine::commit_selection`]
 //! （取材后、下发前，命中即丢弃探测且当前显示保留——不下发、不出浮层）。
@@ -23,7 +28,7 @@ use gloss_core::config::Config;
 use gloss_core::guard::{self, SceneFacts, SensitiveKind, TriggerBlock};
 use gloss_core::model::GlossError;
 use gloss_core::model::Locale;
-use gloss_core::task::{InputHint, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome};
+use gloss_core::task::{InputHint, TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
 use crate::channel::{AcquireCommand, PlatformEvent};
 
@@ -64,17 +69,16 @@ pub enum AppState {
 /// 渲染。
 #[derive(Debug, Clone, PartialEq)]
 pub enum OverlayView {
-    /// 取材/推理中：原文 + 已到达的流式正文（含结构化块的原始流，渲染
-    /// 层按 [`gloss_core::prompt::STRUCTURED_FENCE`] 过滤）。`classified`
-    /// 是按代码排版的判定结果：固定 kind 的任务创建时即知（非
-    /// Auto 恒 `Some`，代码解释从首帧就按代码排版），划词（Auto 哨兵）
-    /// 为 `None`、`accept_classified` 到达后精化。
+    /// 推理中：原文 + 已到达的流式正文（模型的原始 JSON 流，渲染层对
+    /// `body` 字段做渐进提取）。`classified` 是按代码排版的判定结果：
+    /// LLM 层分类前为 `None`，`accept_classified` 到达后精化（代码解释
+    /// 从分类帧起按代码排版）。
     Streaming {
         /// 触发时选中的原文。
         source: String,
         /// 已到达的流式正文累积（原始流）。
         body: String,
-        /// 自动分类判明的任务类型（创建时已知则立即可用）。
+        /// 自动分类判明的任务类型（LLM 层回传后精化）。
         classified: Option<TaskKind>,
         /// 代码语言（角标与高亮规则集共用）：`InputHint::CodeLanguage`
         /// 优先，缺失时对原文内容探测；视图创建时判定一次。
@@ -146,32 +150,30 @@ pub enum FailureOutcome {
 pub struct RunRequest {
     /// 请求代数，与触发同值。
     pub generation: u64,
-    /// 组装好的任务：`kind` 与 `options` 都取自触发时那份配置快照（见
-    /// `PendingTask`），执行途中不再回读配置。
-    pub task: Task,
+    /// 取材输入，原样转发给 LLM 层。
+    pub input: TaskInput,
+    /// 触发时按配置快照冻结的任务选项（见 `PendingTask`），执行途中
+    /// 不再回读配置。
+    pub options: TaskOptions,
     /// 随任务下发的取消令牌（App 侧同时留存，新触发时取消）。
     pub cancel: CancellationToken,
 }
 
-/// 探测时定下的任务：一次配置快照解析出类型与选项，产物到达（提交）时
-/// 组装——单次任务的配置从探测那一刻起就固定了（「单次任务内
+/// 探测时定下的任务选项：一次配置快照解析出全部参数，产物到达（提交）
+/// 时随请求下发——单次任务的配置从探测那一刻起就固定了（「单次任务内
 /// 配置一致」），取材途中换配置不会让同一个任务用上两个版本的参数。
+/// 任务类型不在其中：kind 由 LLM 层在执行前分类。
 #[derive(Debug, Clone, PartialEq)]
-struct PendingTask {
-    /// 触发时确定的任务类型。
-    kind: TaskKind,
-    /// 由同一次快照解析出的任务选项。
-    options: TaskOptions,
-}
+struct PendingOptions(TaskOptions);
 
-/// 在途的划词探测：探测编号与触发时冻结的任务配置。探测段不进状态机
+/// 在途的划词探测：探测编号与触发时冻结的任务选项。探测段不进状态机
 /// ——产物到达时经 [`TaskStateMachine::commit_selection`] 才接管状态。
 #[derive(Debug, Clone, PartialEq)]
 struct ProbeTask {
     /// 探测编号：与代数同一计数器分配，提交时提升为代数。
     id: u64,
-    /// 探测时冻结的任务类型与选项。
-    pending: PendingTask,
+    /// 探测时冻结的任务选项。
+    pending: PendingOptions,
 }
 
 /// 任务状态机：纯状态 + 决策，无 IO，可全时序驱动。
@@ -189,9 +191,10 @@ pub struct TaskStateMachine {
     probe: Option<ProbeTask>,
     /// 在途推理的取消令牌：提交时取消旧任务（唯一取消机制）。
     current_cancel: Option<CancellationToken>,
-    /// 当前任务的副本：推理期间随行，可重试失败后留在 Error 态供
-    /// [`TaskStateMachine::retry`] 原样重发；完成、隐藏与不可重试失败即清。
-    active_task: Option<Task>,
+    /// 当前任务的请求副本（input + options）：推理期间随行，可重试失败后
+    /// 留在 Error 态供 [`TaskStateMachine::retry`] 原样重发；完成、隐藏与
+    /// 不可重试失败即清。
+    active_request: Option<(TaskInput, TaskOptions)>,
     /// 当前浮层的内容视图；`None` 时浮层显示渲染自检卡。
     overlay_view: Option<OverlayView>,
 }
@@ -228,7 +231,7 @@ impl TaskStateMachine {
         self.current_cancel.as_ref()
     }
 
-    /// 划词探测的入口（探测段）：只领探测编号、冻结任务配置并返回取材
+    /// 划词探测的入口（探测段）：只领探测编号、冻结任务选项并返回取材
     /// 命令——**不改状态、不换视图、不取消在途任务**。取材在状态机之外
     /// 进行：产物到达走 [`Self::commit_selection`]，失败走
     /// [`Self::commit_selection_failed`]。已显示的内容与在途推理全程无感，
@@ -248,29 +251,23 @@ impl TaskStateMachine {
         if !matches!(event, PlatformEvent::SelectionGesture { .. }) {
             return None;
         }
-        let kind = match trigger_decision(event, scene) {
-            TriggerDecision::Acquire(kind) => kind,
+        match trigger_decision(event, scene) {
+            TriggerDecision::Acquire => {}
             TriggerDecision::Blocked(_)
             | TriggerDecision::SelfSuppressed
             | TriggerDecision::Unwired => return None,
-        };
+        }
         let id = self.next_id + 1;
         self.next_id += 1;
         self.probe = Some(ProbeTask {
             id,
-            pending: PendingTask {
-                kind,
-                options: task_options(kind, config, system_locale),
-            },
+            pending: PendingOptions(task_options(config, system_locale)),
         });
-        Some(AcquireCommand::AcquireText {
-            generation: id,
-            kind,
-        })
+        Some(AcquireCommand::AcquireText { generation: id })
     }
 
     /// 提交划词探测（提交段）：探测编号提升为代数，旧会话让位（在途推理
-    /// 取消、任务副本作废，迟到的旧产物经代数过滤丢弃），视图整卡换成
+    /// 取消、请求副本作废，迟到的旧产物经代数过滤丢弃），视图整卡换成
     /// 流式视图并进入 `Translating`。配置取探测时冻结的那份（不经参数再
     /// 传配置）。
     ///
@@ -283,14 +280,14 @@ impl TaskStateMachine {
         if self.probe.as_ref().is_none_or(|probe| probe.id != probe_id) {
             return InputOutcome::Ignored;
         }
-        // 先校验模态再消费探测：模态错配不吃掉待组装任务，同编号的
+        // 先校验模态再消费探测：模态错配不吃掉待下发任务，同编号的
         // 后续合法产物仍可提交。
         let TaskInput::Text { text, hint } = input else {
             return InputOutcome::Ignored;
         };
         let Some(ProbeTask {
             id,
-            pending: PendingTask { kind, options },
+            pending: PendingOptions(options),
         }) = self.probe.take()
         else {
             return InputOutcome::Ignored;
@@ -302,26 +299,22 @@ impl TaskStateMachine {
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
-        self.active_task = None;
+        self.active_request = None;
         self.generation = id;
         // 视图与任务各要一份原文；语言判定要在 hint 被任务带走之前做。
         let code_lang = code_lang_of(&text, &hint);
-        let task = Task {
-            kind,
-            input: TaskInput::Text {
-                text: text.clone(),
-                hint,
-            },
-            options,
+        let input = TaskInput::Text {
+            text: text.clone(),
+            hint,
         };
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
             body: String::new(),
-            classified: (kind != TaskKind::Auto).then_some(kind),
+            classified: None,
             code_lang,
         });
         self.state = AppState::Translating;
-        InputOutcome::Dispatch(self.begin_run(task))
+        InputOutcome::Dispatch(self.begin_run(input, options))
     }
 
     /// 探测失败的处置：空选区/读不到按误滑静默丢弃（探测清掉，状态机与
@@ -349,23 +342,23 @@ impl TaskStateMachine {
         self.probe = None;
     }
 
-    /// 落 `Error` 态的共用半边：取消在途、作废任务副本（重试只认
-    /// `active_task`）、按错误映射给动作出口并落失败卡。
+    /// 落 `Error` 态的共用半边：取消在途、作废请求副本（重试只认
+    /// `active_request`）、按错误映射给动作出口并落失败卡。
     fn land_error(&mut self, error: &GlossError) {
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
-        // 只有「原样重发有意义」的失败才留任务副本；其余类别（含通道级
+        // 只有「原样重发有意义」的失败才留请求副本；其余类别（含通道级
         // 故障的 fail_* 降级路径）一律清掉，retry() 自然无从发起。副本
-        // 缺失时（未来取材路径若回传可重试错误）不给 Retry 出口——别摆
-        // 一颗点了没反应的死按钮。
+        // 缺失时（取材路径若回传可重试错误）不给 Retry 出口——别摆一颗
+        // 点了没反应的死按钮。
         let mut action = error_action(error);
         if action == Some(ErrorAction::Retry) {
-            if self.active_task.is_none() {
+            if self.active_request.is_none() {
                 action = None;
             }
         } else {
-            self.active_task = None;
+            self.active_request = None;
         }
         self.state = AppState::Error;
         self.overlay_view = Some(OverlayView::Failed {
@@ -374,10 +367,10 @@ impl TaskStateMachine {
         });
     }
 
-    /// 采纳流式增量：追加到流式视图的原始正文（围栏过滤在渲染层）。
-    /// 返回是否有新内容需要重绘。
+    /// 采纳流式增量：追加到流式视图的原始正文（`body` 的渐进提取在
+    /// 渲染层）。返回是否有新内容需要重绘。
     ///
-    /// 这份累积只服务**流式显示**；与桥侧完成态累积的并存约定及权威源
+    /// 这份累积只服务**流式显示**；与桥侧完成态的并存约定及权威源
     /// 见 `crate::pipeline` 的模块文档（done 以 outcome.body 整卡覆盖）。
     pub fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
@@ -404,7 +397,7 @@ impl TaskStateMachine {
             }) => (source.clone(), code_lang.clone()),
             _ => (String::new(), None),
         };
-        self.active_task = None;
+        self.active_request = None;
         self.overlay_view = Some(OverlayView::Outcome {
             source,
             outcome,
@@ -414,10 +407,10 @@ impl TaskStateMachine {
         true
     }
 
-    /// 采纳自动分类结果：把判定的任务类型写进流式视图，头部任务标签随
-    /// 它出现（含分类失败时桥给的兜底 kind——标签如实反映即将执行的
-    /// 任务）。返回是否需要重绘。陈旧代数、非推理态或非流式视图不采纳
-    /// （迟到标签不得落在已定格的产物卡上）。
+    /// 采纳自动分类结果：把判定的任务类型写进流式视图（含分类失败时
+    /// LLM 层给的兜底 kind——排版如实反映即将执行的任务）。返回是否需要
+    /// 重绘。陈旧代数、非推理态或非流式视图不采纳（迟到标签不得落在已
+    /// 定格的产物卡上）。
     pub fn accept_classified(&mut self, generation: u64, kind: TaskKind) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
@@ -430,7 +423,7 @@ impl TaskStateMachine {
     }
 
     /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（错误
-    /// 映射：可重试类带重试按钮并保留任务副本，配置/鉴权类引导去设置页）。
+    /// 映射：可重试类带重试按钮并保留请求副本，配置/鉴权类引导去设置页）。
     /// 这是推理路径（`Translating` 收推理失败）；划词探测的失败走
     /// [`Self::commit_selection_failed`]。其余状态不采纳——失败卡不得把
     /// 已收起的浮层弹回。返回处置结果，壳按 [`FailureOutcome`] 区分日志
@@ -444,29 +437,29 @@ impl TaskStateMachine {
         FailureOutcome::Shown
     }
 
-    /// 重试失败卡上的任务（Error 态）：原样重发失败的那个任务（同代数
+    /// 重试失败卡上的任务（Error 态）：原样重发失败的那个请求（同代数
     /// ——旧任务的流已随首个错误终结，不会有两路同代回传），浮层回到
-    /// 流式视图。非 Error 态或无可重试任务时返回 `None`。
+    /// 流式视图。非 Error 态或无可重试请求时返回 `None`。
     pub fn retry(&mut self) -> Option<RunRequest> {
         if self.state != AppState::Error {
             return None;
         }
-        let task = self.active_task.clone()?;
-        self.overlay_view = Some(streaming_view(&task));
+        let (input, options) = self.active_request.clone()?;
+        self.overlay_view = Some(streaming_view(&input));
         self.state = AppState::Translating;
-        Some(self.begin_run(task))
+        Some(self.begin_run(input, options))
     }
 
-    /// 下发一个任务的共用半边：换新取消令牌并记在途（`active_task` 留在
-    /// 状态机里，失败可重试）。视图由调用方先定好——只有调用方知道这次
-    /// 下发用哪个视图。
-    fn begin_run(&mut self, task: Task) -> RunRequest {
+    /// 下发一个任务的共用半边：换新取消令牌并把请求副本记在途（失败可
+    /// 重试）。视图由调用方先定好——只有调用方知道这次下发用哪个视图。
+    fn begin_run(&mut self, input: TaskInput, options: TaskOptions) -> RunRequest {
         let cancel = CancellationToken::new();
         self.current_cancel = Some(cancel.clone());
-        self.active_task = Some(task.clone());
+        self.active_request = Some((input.clone(), options.clone()));
         RunRequest {
             generation: self.generation,
-            task,
+            input,
+            options,
             cancel,
         }
     }
@@ -480,7 +473,7 @@ impl TaskStateMachine {
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
-        self.active_task = None;
+        self.active_request = None;
         self.probe = None;
         self.state = AppState::Idle;
         self.overlay_view = None;
@@ -493,7 +486,7 @@ impl TaskStateMachine {
             return;
         }
         self.current_cancel = None;
-        self.active_task = None;
+        self.active_request = None;
         self.state = AppState::Error;
         self.overlay_view = Some(OverlayView::Failed {
             cause: FailureCause::TransportChannel,
@@ -503,8 +496,8 @@ impl TaskStateMachine {
 }
 
 /// 错误 → 失败卡动作（映射表）：网络/限流可原样重试；鉴权、模态
-/// 与配置错误都要进设置页才能修（模型绑定、密钥的修改入口在设置页）：
-/// 地）；其余类别没有按钮意义上的出口——权限类引导已写在文案里，协议
+/// 与配置错误都要进设置页才能修（模型、密钥的修改入口在设置页）；
+/// 其余类别没有按钮意义上的出口——权限类引导已写在文案里，协议
 /// 异常重发同一个请求只会再错一次。
 fn error_action(error: &GlossError) -> Option<ErrorAction> {
     match error {
@@ -516,21 +509,21 @@ fn error_action(error: &GlossError) -> Option<ErrorAction> {
     }
 }
 
-/// 一个任务下发的流式视图起点：原文照抄、正文空；固定 kind 即已分类，
-/// 划词哨兵留待分类精化。重试与首次下发共用。
-fn streaming_view(task: &Task) -> OverlayView {
-    let TaskInput::Text { text, hint } = &task.input else {
+/// 一次下发请求的流式视图起点：原文照抄、正文空、未分类（LLM 层的
+/// `TaskClassified` 到达后精化）。重试与首次下发共用。
+fn streaming_view(input: &TaskInput) -> OverlayView {
+    let TaskInput::Text { text, hint } = input else {
         return OverlayView::Streaming {
             source: String::new(),
             body: String::new(),
-            classified: (task.kind != TaskKind::Auto).then_some(task.kind),
+            classified: None,
             code_lang: None,
         };
     };
     OverlayView::Streaming {
         source: text.clone(),
         body: String::new(),
-        classified: (task.kind != TaskKind::Auto).then_some(task.kind),
+        classified: None,
         code_lang: code_lang_of(text, hint),
     }
 }
@@ -549,8 +542,9 @@ fn code_lang_of(text: &str, hint: &Option<InputHint>) -> Option<String> {
 /// 一次平台事件的去向：取材，或被闸门拦下。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TriggerDecision {
-    /// 放行：场景闸门放行，事件进入取材（划词固定走 Auto 哨兵）。
-    Acquire(TaskKind),
+    /// 放行：场景闸门放行，事件进入取材（划词不带显式意图，类型由 LLM
+    /// 层分类决定）。
+    Acquire,
     /// 拦下：触发前场景闸门（安全输入态 / 敏感应用名单）。只拦真实触发，
     /// 设置与退出不在此列。
     Blocked(TriggerBlock),
@@ -566,15 +560,14 @@ pub enum TriggerDecision {
 /// 级别也不同）再过场景闸门。
 pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDecision {
     match event {
-        // 划词手势不带显式意图：固定走向 Auto 哨兵，由桥按输入内容分类
-        // 后重建具体 kind。场景闸门照常生效。
+        // 划词手势不带显式意图：类型由 LLM 层在执行前分类。场景闸门照常生效。
         PlatformEvent::SelectionGesture { .. } => {
             if scene.front_app.as_ref().is_some_and(|app| app.is_self) {
                 return TriggerDecision::SelfSuppressed;
             }
             match guard::trigger_block(scene) {
                 Some(block) => TriggerDecision::Blocked(block),
-                None => TriggerDecision::Acquire(TaskKind::Auto),
+                None => TriggerDecision::Acquire,
             }
         }
         PlatformEvent::RegionGesture { .. }
@@ -583,22 +576,13 @@ pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDec
     }
 }
 
-/// 按配置快照解析任务选项：目标语言取配置默认；模型按 kind 从
-/// `model_by_kind` 解析（缺项时 core 的出厂默认兜底）后随任务下发；prompt
-/// 模板语言按 `Language` 落定（`System` 取系统语言）——三者都是引擎/模板
-/// 侧的输入，随任务冻结，执行途中不再回读配置。
-///
-/// [`TaskKind::Auto`] 不解析模型：哨兵自己不执行——分类用哪个模型由桥
-/// 按快照的兜底 kind 解析，重建后的任务再按判定 kind 解析。
-fn task_options(kind: TaskKind, config: &Config, system_locale: Locale) -> TaskOptions {
-    let model = if kind == TaskKind::Auto {
-        None
-    } else {
-        config.resolved_model(kind)
-    };
+/// 按配置快照解析任务选项：目标语言取配置默认；模型取配置的单一项；
+/// prompt 模板语言按 `Language` 落定（`System` 取系统语言）——三者都是
+/// LLM 层的输入，随任务冻结，执行途中不再回读配置。
+fn task_options(config: &Config, system_locale: Locale) -> TaskOptions {
     TaskOptions {
         target_lang: Some(config.target_lang.clone()),
-        model_override: model.map(str::to_owned),
+        model: config.model.clone(),
         prompt_locale: Some(config.language.resolve(system_locale)),
         ..Default::default()
     }
@@ -608,7 +592,7 @@ fn task_options(kind: TaskKind, config: &Config, system_locale: Locale) -> TaskO
 mod tests {
     use std::sync::Arc;
 
-    use gloss_core::config::{Language, ModelBinding};
+    use gloss_core::config::Language;
     use gloss_core::guard::{FrontApp, SceneFacts, SensitiveKind};
     use gloss_core::model::{GlossError, Lang, ScreenPoint, ScreenRect};
     use gloss_core::task::{InputHint, OutcomeStructured};
@@ -653,7 +637,7 @@ mod tests {
                 &SceneFacts::default(),
             )
             .expect("selection gesture must probe");
-        let AcquireCommand::AcquireText { generation, .. } = command else {
+        let AcquireCommand::AcquireText { generation } = command else {
             panic!("acquire text expected");
         };
         generation
@@ -743,8 +727,8 @@ mod tests {
         let open = SceneFacts::default();
         assert_eq!(
             trigger_decision(&selection_gesture(), &open),
-            TriggerDecision::Acquire(TaskKind::Auto),
-            "a selection carries no explicit intent: kind switches gate the bridge, not the gesture"
+            TriggerDecision::Acquire,
+            "a selection carries no explicit intent: the kind is the LLM layer's call"
         );
         assert_eq!(
             trigger_decision(&PlatformEvent::OpenSettingsRequested, &blocked_by_app()),
@@ -773,7 +757,7 @@ mod tests {
         );
         assert_eq!(
             trigger_decision(&selection_gesture(), &open),
-            TriggerDecision::Acquire(TaskKind::Auto)
+            TriggerDecision::Acquire
         );
         assert_eq!(
             trigger_decision(&selection_gesture(), &blocked_by_app()),
@@ -864,55 +848,29 @@ mod tests {
     }
 
     #[test]
-    fn selection_kind_and_options_pair_with_one_snapshot() {
+    fn selection_options_pair_with_one_snapshot_including_the_model() {
         let mut machine = TaskStateMachine::new();
         let config = Config {
-            default_text_kind: TaskKind::ExplainCode,
             target_lang: Lang::Ja,
-            model_by_kind: vec![
-                ModelBinding {
-                    kind: TaskKind::TranslateWord,
-                    model: "word-model".into(),
-                },
-                ModelBinding {
-                    kind: TaskKind::ExplainCode,
-                    model: "code-model".into(),
-                },
-            ],
+            model: "frozen-model".into(),
             ..Default::default()
         };
 
         let probe_id = probe(&mut machine, &config);
         assert_eq!(
             probe_id, 1,
-            "the gesture dispatches the sentinel; per-kind model resolution moves to the bridge"
+            "the gesture dispatches no kind; the LLM layer classifies"
         );
 
         let request = dispatched(machine.commit_selection(1, text_input("fn main() {}")));
-        assert_eq!(request.task.kind, TaskKind::Auto);
         assert_eq!(
-            request.task.options.model_override, None,
-            "the sentinel executes nothing, so it carries no model"
+            request.options.model, "frozen-model",
+            "the model freezes from the probe-time snapshot"
         );
         assert_eq!(
-            request.task.options.target_lang,
+            request.options.target_lang,
             Some(Lang::Ja),
             "target language still freezes from the probe-time snapshot"
-        );
-    }
-
-    #[test]
-    fn gesture_acquires_even_with_a_legacy_image_default_kind() {
-        let mut machine = TaskStateMachine::new();
-        let config = Config {
-            default_text_kind: TaskKind::ImageOcr,
-            ..Default::default()
-        };
-
-        let probe_id = probe(&mut machine, &config);
-        assert_eq!(
-            probe_id, 1,
-            "the gesture always classifies; the image default only shifts the fallback kind"
         );
     }
 
@@ -926,7 +884,7 @@ mod tests {
         assert_eq!(probe(&mut explicit, &chosen), 1);
         let request = dispatched(explicit.commit_selection(1, text_input("hello")));
         assert_eq!(
-            request.task.options.prompt_locale,
+            request.options.prompt_locale,
             Some(Locale::En),
             "an explicit choice ignores the injected system language"
         );
@@ -937,7 +895,7 @@ mod tests {
         assert_eq!(probe_using(&mut following, &factory, Locale::En), 1);
         let request = dispatched(following.commit_selection(1, text_input("hello")));
         assert_eq!(
-            request.task.options.prompt_locale,
+            request.options.prompt_locale,
             Some(Locale::En),
             "follow-the-system takes the injected system language"
         );
@@ -948,11 +906,13 @@ mod tests {
         let mut machine = TaskStateMachine::new();
         let before = Config {
             target_lang: Lang::Ja,
+            model: "before-model".into(),
             language: Language::En,
             ..Default::default()
         };
         let after = Config {
             target_lang: Lang::Ko,
+            model: "after-model".into(),
             language: Language::Zh,
             ..Default::default()
         };
@@ -960,19 +920,24 @@ mod tests {
         assert_eq!(probe(&mut machine, &before), 1);
         let request = dispatched(machine.commit_selection(1, text_input("hello")));
         assert_eq!(
-            request.task.options.target_lang,
+            request.options.target_lang,
             Some(Lang::Ja),
             "in-flight task must keep the snapshot taken at probe time"
         );
         assert_eq!(
-            request.task.options.prompt_locale,
+            request.options.model, "before-model",
+            "the model is frozen with the rest of the options"
+        );
+        assert_eq!(
+            request.options.prompt_locale,
             Some(Locale::En),
             "the prompt locale is frozen with the rest of the options"
         );
         assert_eq!(probe(&mut machine, &after), 2);
         let request = dispatched(machine.commit_selection(2, text_input("world")));
-        assert_eq!(request.task.options.target_lang, Some(Lang::Ko));
-        assert_eq!(request.task.options.prompt_locale, Some(Locale::Zh));
+        assert_eq!(request.options.target_lang, Some(Lang::Ko));
+        assert_eq!(request.options.model, "after-model");
+        assert_eq!(request.options.prompt_locale, Some(Locale::Zh));
     }
 
     #[test]
@@ -982,7 +947,6 @@ mod tests {
 
         let request = dispatched(machine.commit_selection(1, text_input("hello")));
         assert_eq!(request.generation, 1);
-        assert_eq!(request.task.kind, TaskKind::Auto);
         assert_eq!(machine.generation(), 1, "the probe id is promoted");
         assert_eq!(machine.state(), AppState::Translating);
         assert!(machine.current_cancel().is_some());
@@ -1092,7 +1056,7 @@ mod tests {
     }
 
     #[test]
-    fn the_auto_sentinel_waits_unclassified_until_the_classify_half_reports() {
+    fn the_streaming_view_waits_unclassified_until_the_llm_layer_reports() {
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
         dispatched(machine.commit_selection(
@@ -1111,7 +1075,7 @@ mod tests {
                     ..
                 })
             ),
-            "the Auto sentinel stays unclassified until the classify half reports"
+            "the streaming view stays unclassified until the LLM layer reports"
         );
     }
 
@@ -1288,7 +1252,7 @@ mod tests {
     }
 
     #[test]
-    fn modality_mismatch_preserves_pending_task() {
+    fn modality_mismatch_preserves_pending_options() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
         assert!(matches!(
@@ -1311,7 +1275,7 @@ mod tests {
                 machine.commit_selection(1, text_input("第二次")),
                 InputOutcome::Dispatch(_)
             ),
-            "pending kind must survive a modality mismatch"
+            "pending options must survive a modality mismatch"
         );
     }
 
@@ -1331,7 +1295,7 @@ mod tests {
     }
 
     #[test]
-    fn retryable_failure_keeps_task_and_retry_redispatches_it() {
+    fn retryable_failure_keeps_request_and_retry_redispatches_it() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
         let original = dispatched(machine.commit_selection(1, text_input("hello")));
@@ -1350,7 +1314,11 @@ mod tests {
 
         let retried = machine.retry().expect("retry must be available");
         assert_eq!(retried.generation, original.generation, "same generation");
-        assert_eq!(retried.task, original.task, "same task is re-dispatched");
+        assert_eq!(retried.input, original.input, "same input is re-dispatched");
+        assert_eq!(
+            retried.options, original.options,
+            "same options are re-dispatched (no config re-read)"
+        );
         assert!(retried.cancel != original.cancel, "fresh cancel token");
         assert_eq!(machine.state(), AppState::Translating);
         assert!(matches!(
@@ -1407,10 +1375,7 @@ mod tests {
         assert_eq!(probe(&mut machine, &Config::default()), 4);
         dispatched(machine.commit_selection(4, text_input("x")));
         assert_eq!(
-            machine.accept_failed(
-                4,
-                &GlossError::Config("no model configured for this task kind".into())
-            ),
+            machine.accept_failed(4, &GlossError::Config("empty model id".into())),
             FailureOutcome::Shown
         );
         assert!(matches!(
@@ -1423,7 +1388,7 @@ mod tests {
     }
 
     #[test]
-    fn new_commit_and_hide_supersede_the_retry_task() {
+    fn new_commit_and_hide_supersede_the_retry_request() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
         dispatched(machine.commit_selection(1, text_input("x")));
@@ -1453,7 +1418,7 @@ mod tests {
         );
         machine.hide_overlay();
         assert_eq!(machine.state(), AppState::Idle);
-        assert!(machine.retry().is_none(), "hide drops the retry task");
+        assert!(machine.retry().is_none(), "hide drops the retry request");
     }
 
     #[test]
@@ -1482,8 +1447,8 @@ mod tests {
         );
         assert!(machine.probe_id().is_none(), "the probe is consumed");
         assert!(
-            machine.active_task.is_none(),
-            "no task copy is left behind for a later retry to pick up"
+            machine.active_request.is_none(),
+            "no request copy is left behind for a later retry to pick up"
         );
         assert!(
             !settled.cancel.is_cancelled(),
