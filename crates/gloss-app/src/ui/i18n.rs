@@ -28,7 +28,7 @@ const EN: &str = include_str!("../../i18n/en.toml");
 /// 是同一个名字。改词条名要连着改 TOML 里的那一行，名字对不上即解析失败。
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Text {
+pub struct Text {
     pub(crate) gloss_app_settings_title: String,
 
     pub(crate) gloss_langs_zh: String,
@@ -121,7 +121,7 @@ pub(crate) struct Text {
 impl Text {
     /// 失败卡文案：按 [`GlossError`] 变体映射，不按英文 `Display` 反查
     /// ——后者是日志用的诊断文本，措辞与它无关（改 `Display` 不该改界面）。
-    pub(crate) fn for_error(&self, error: &GlossError) -> String {
+    pub fn for_error(&self, error: &GlossError) -> String {
         match error {
             GlossError::SelectionUnavailable => self.gloss_errors_selection_unavailable.clone(),
             GlossError::SelectionEmpty => self.gloss_errors_selection_empty.clone(),
@@ -144,7 +144,7 @@ impl Text {
     /// 供**复合**提示用（如设置页的「保存失败：{{detail}}」）：复合提示的
     /// 前缀已经交代了场合，再拼一遍本地化整句会读成
     /// 「保存失败：配置有误：…」——落盘失败与配置本身非法是两回事。
-    pub(crate) fn for_error_detail(&self, error: &GlossError) -> String {
+    pub fn for_error_detail(&self, error: &GlossError) -> String {
         match error {
             GlossError::EngineResponse(detail) | GlossError::Config(detail) => detail.clone(),
             other => self.for_error(other),
@@ -152,7 +152,7 @@ impl Text {
     }
 
     /// 取某 locale 的文案表。首次调用时解析两份文件并常驻，之后零锁读取。
-    pub(crate) fn get(locale: Locale) -> &'static Self {
+    pub fn get(locale: Locale) -> &'static Self {
         static CATALOGS: OnceLock<[Text; 2]> = OnceLock::new();
         let catalogs = CATALOGS.get_or_init(|| [parse(ZH, "zh"), parse(EN, "en")]);
         match locale {

@@ -83,6 +83,27 @@ bench-check name="last":
 bench-summary baseline="上一次运行":
     ./scripts/bench-summary.py "{{baseline}}"
 
+# 跑 clone 热点基准（criterion 自定义测量：分配次数/字节，benches/clone.rs），结果存滚动基线 last
+clone-bench:
+    cargo bench --bench clone -- --save-baseline last
+
+# 统计生产代码 .clone() 调用分布与热点分配（口径见脚本 docstring）
+clone-stats:
+    ./scripts/clone-stats.py
+
+# 更新 .clone() 基线（scripts/baselines/clone-stats.json；计数 + 分配数据，分配部分需先跑 just clone-bench）并重绘 SVG 图表
+clone-baseline:
+    ./scripts/clone-stats.py --write
+    ./scripts/clone-chart.py
+
+# 用基线数据重绘 SVG 图表（scripts/baselines/clone-stats.svg，确定性输出）
+clone-chart:
+    ./scripts/clone-chart.py
+
+# 对照基线报告变化（clone 计数或热点分配上升即失败；审计对照，不在 precommit）
+clone-check:
+    ./scripts/clone-stats.py --check
+
 # Prompt 评测 live 轨：真实 LLM（需 GLOSS_LIVE_*，opt-in）
 # --record 回写夹具；--judge 启用 judge 评分轨（额外一次模型调用/条）
 eval *args:

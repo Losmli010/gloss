@@ -1406,6 +1406,7 @@ name = "gloss"
 version = "0.1.7"
 dependencies = [
  "criterion",
+ "egui",
  "gloss-app",
  "gloss-core",
  "gloss-platform",

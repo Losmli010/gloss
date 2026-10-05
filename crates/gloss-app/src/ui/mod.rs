@@ -3,7 +3,7 @@
 pub mod code_hl;
 pub mod context;
 pub mod fonts;
-pub(crate) mod i18n;
+pub mod i18n;
 pub mod popup;
 pub mod settings;
 pub mod style;

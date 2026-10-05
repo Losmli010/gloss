@@ -1,0 +1,101 @@
+{
+  "crates": {
+    "gloss": {
+      "clone": 5,
+      "derive_clone": 0,
+      "files": 1,
+      "loc": 257,
+      "path_clone": 4
+    },
+    "gloss-app": {
+      "clone": 70,
+      "derive_clone": 41,
+      "files": 35,
+      "loc": 6800,
+      "path_clone": 6
+    },
+    "gloss-core": {
+      "clone": 12,
+      "derive_clone": 27,
+      "files": 13,
+      "loc": 1753,
+      "path_clone": 7
+    },
+    "gloss-eval": {
+      "clone": 12,
+      "derive_clone": 17,
+      "files": 7,
+      "loc": 1146,
+      "path_clone": 2
+    },
+    "gloss-platform": {
+      "clone": 1,
+      "derive_clone": 9,
+      "files": 20,
+      "loc": 1534,
+      "path_clone": 1
+    }
+  },
+  "files": {
+    "crates/gloss-app/src/app/mod.rs": 1,
+    "crates/gloss-app/src/flow/probe.rs": 2,
+    "crates/gloss-app/src/flow/session.rs": 1,
+    "crates/gloss-app/src/flow/settings_session.rs": 1,
+    "crates/gloss-app/src/machine.rs": 11,
+    "crates/gloss-app/src/present/gpu.rs": 1,
+    "crates/gloss-app/src/present/render.rs": 1,
+    "crates/gloss-app/src/runtime/pipeline.rs": 1,
+    "crates/gloss-app/src/ui/fonts.rs": 1,
+    "crates/gloss-app/src/ui/i18n.rs": 10,
+    "crates/gloss-app/src/ui/popup.rs": 6,
+    "crates/gloss-app/src/ui/settings.rs": 22,
+    "crates/gloss-app/src/update/mod.rs": 6,
+    "crates/gloss-app/src/update/state.rs": 6,
+    "crates/gloss-core/src/engine.rs": 3,
+    "crates/gloss-core/src/engine/llm.rs": 3,
+    "crates/gloss-core/src/log.rs": 4,
+    "crates/gloss-core/src/prompt.rs": 2,
+    "crates/gloss-eval/src/metrics.rs": 1,
+    "crates/gloss-eval/src/runner.rs": 11,
+    "crates/gloss-platform/src/storage/keychain.rs": 1,
+    "src/main.rs": 5
+  },
+  "perf": {
+    "clone_allocs/i18n/for_error": {
+      "allocs": 1
+    },
+    "clone_allocs/i18n/for_error_detail": {
+      "allocs": 1
+    },
+    "clone_allocs/i18n/for_error_fill": {
+      "allocs": 5
+    },
+    "clone_allocs/machine/lifecycle": {
+      "allocs": 16
+    },
+    "clone_allocs/ui/popup_frame": {
+      "allocs": 183
+    },
+    "clone_allocs/ui/settings_frame": {
+      "allocs": 208
+    },
+    "clone_bytes/i18n/for_error": {
+      "bytes": 39
+    },
+    "clone_bytes/i18n/for_error_detail": {
+      "bytes": 22
+    },
+    "clone_bytes/i18n/for_error_fill": {
+      "bytes": 148
+    },
+    "clone_bytes/machine/lifecycle": {
+      "bytes": 812
+    },
+    "clone_bytes/ui/popup_frame": {
+      "bytes": 57715
+    },
+    "clone_bytes/ui/settings_frame": {
+      "bytes": 50613
+    }
+  }
+}

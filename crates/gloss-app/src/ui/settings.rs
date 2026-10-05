@@ -252,7 +252,7 @@ fn base_url_error(err: &BaseUrlError) -> FieldError {
 /// 窗口内边距由 [`WINDOW_PADDING`] 统一给出；整幅先铺 `window_fill`
 /// 底色（设置窗不透明，清屏色不随主题，底色必须由 egui 自己画，
 /// 深浅主题切换才连同文字一起翻转）。
-pub(crate) fn draw(
+pub fn draw(
     ui: &mut egui::Ui,
     state: &mut SettingsState,
     update: &UpdateState,
