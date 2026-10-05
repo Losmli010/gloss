@@ -17,8 +17,8 @@ chmod +x "$TMP/scripts/hooks/check-i18n.sh"
 MARKER="i18n:allow"
 
 # 基线：文案表装入点（owner）与词条表各就位，全部用例共享
-mkdir -p "$TMP/crates/gloss-app/src" "$TMP/crates/gloss-app/i18n"
-printf '%s\n' 'const ZH: &str = include_str!("../i18n/zh.toml");' > "$TMP/crates/gloss-app/src/i18n.rs"
+mkdir -p "$TMP/crates/gloss-app/src/ui" "$TMP/crates/gloss-app/i18n"
+printf '%s\n' 'const ZH: &str = include_str!("../../i18n/zh.toml");' > "$TMP/crates/gloss-app/src/ui/i18n.rs"
 printf '%s\n' 'gloss_app_title = "Gloss"' > "$TMP/crates/gloss-app/i18n/zh.toml"
 
 assert_scan() {
