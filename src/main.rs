@@ -105,7 +105,7 @@ fn log_dir() -> Option<PathBuf> {
 
 /// 日志目录解析：覆盖值非空即用，否则回落 home 下的 `.gloss/logs`。
 fn resolve_log_dir(override_dir: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
-    if let Some(dir) = override_dir {
+    if let Some(dir) = override_dir.filter(|dir| !dir.is_empty()) {
         return Some(PathBuf::from(dir));
     }
     let home = home?;
@@ -414,5 +414,11 @@ mod tests {
     #[test]
     fn log_dir_is_none_without_override_and_home() {
         assert_eq!(resolve_log_dir(None, None), None);
+    }
+
+    #[test]
+    fn log_dir_empty_override_falls_back_to_home() {
+        let dir = resolve_log_dir(Some("".into()), Some("/Users/dev".into()));
+        assert_eq!(dir, Some(PathBuf::from("/Users/dev/.gloss/logs")));
     }
 }

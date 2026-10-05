@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 32 | `just test` |
-| 单元测试 | 469 | `just test` |
+| 单元测试 | 470 | `just test` |
 
 ## 人工测试
 
@@ -922,6 +922,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | log_dir_override_wins_over_home | 日志目录覆盖优先于 home | 给定 GLOSS_LOG_DIR 覆盖值与 home 同时存在，当 resolve_log_dir，则返回覆盖值原样 | 2026-10-05 |
 | log_dir_falls_back_to_home_dot_gloss | 日志目录回落 home 惯例 | 给定无覆盖值，当 resolve_log_dir，则返回 `<home>/.gloss/logs` | 2026-10-05 |
 | log_dir_is_none_without_override_and_home | 无覆盖无 home 时放弃文件日志 | 给定覆盖值与 home 均缺失，当 resolve_log_dir，则返回 None | 2026-10-05 |
+| log_dir_empty_override_falls_back_to_home | 空串覆盖视同未设置 | 给定 GLOSS_LOG_DIR 为空串，当 resolve_log_dir，则回落 `<home>/.gloss/logs` | 2026-10-06 |
 
 ### crates/gloss-eval/src/dataset.rs
 

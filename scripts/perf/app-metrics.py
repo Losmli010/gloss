@@ -154,7 +154,7 @@ def one_run(idle_secs, ready_timeout):
             if sample is not None:
                 rss_samples.append(sample[0])
                 cpu_samples.append((now, sample[1]))
-            milestones = parse_milestones(log_dir) or milestones
+            milestones.update(parse_milestones(log_dir))
             if ready_wall_ms is None and READY_MILESTONE in milestones:
                 ready_wall_ms = (now - spawn_wall) * 1000
                 ready_cpu = cpu_samples[-1][1] if cpu_samples else None
