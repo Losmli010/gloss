@@ -1,4 +1,4 @@
-//! 单趟着色：规则集正则的组装与逐帧扫描。
+//! 单趟着色：语言名归一化、规则集正则的组装与逐帧扫描。
 //!
 //! 规则集由共享词法积木组装——行/块注释、字符串（含转义与三引号）、
 //! 数字（含十六进制/浮点）、大写驼峰类型、函数形——每语言只补关键字表；
@@ -7,7 +7,8 @@
 //! 语言惰性编译一次（`OnceLock` 全表），逐帧的匹配是单趟线性扫描；流式
 //! 重排由 egui 的 galley 缓存兜住，本模块不自建缓存。
 //!
-//! 类别与色板在 [`super::palette`]；语言探测与归一化在 [`super::detect`]。
+//! 类别与色板在 [`super::palette`]；语言的唯一来源是任务产物的
+//! `code_language`（LLM 判定），本模块只把它归一化成规范名再选规则集。
 
 use std::ops::Range;
 use std::sync::OnceLock;
@@ -15,8 +16,40 @@ use std::sync::OnceLock;
 use gloss_core::log::{thread, warn};
 use regex::Regex;
 
-use super::detect::normalize_language;
 use super::palette::Class;
+
+/// 把语言名归一化为规范名：别名映射收拢，未知输入原样小写返回（角标
+/// 如实显示），空白视为无语言。
+pub(crate) fn normalize_language(name: &str) -> Option<String> {
+    let lower = name.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return None;
+    }
+    Some(
+        match lower.as_str() {
+            "rs" => "rust",
+            "py" => "python",
+            "js" | "node" | "nodejs" | "mjs" | "cjs" | "jsx" => "javascript",
+            "ts" | "tsx" => "typescript",
+            "golang" => "go",
+            "sh" | "shell" | "zsh" => "bash",
+            "yml" => "yaml",
+            "cpp" | "c++" | "cxx" | "cc" | "hpp" => "cpp",
+            "cs" | "c#" => "csharp",
+            "kt" | "kts" => "kotlin",
+            "rb" => "ruby",
+            "pl" | "pm" => "perl",
+            "hs" => "haskell",
+            "ex" | "exs" => "elixir",
+            "jl" => "julia",
+            "clj" | "cljs" | "cljc" | "edn" => "clojure",
+            "objc" | "objective-c" | "objectivec" | "mm" => "objc",
+            "htm" | "xhtml" => "html",
+            _ => lower.as_str(),
+        }
+        .to_owned(),
+    )
+}
 
 /// 单趟着色：按语言的规则集扫一遍文本，交出各类别的字节区间（互不重
 /// 叠、按出现顺序）。`lang` 经归一化；未知语言与 `None` 都落通用启发
@@ -1343,6 +1376,41 @@ mod tests {
 
     fn classes_of(tokens: &[(Range<usize>, Class)]) -> Vec<Class> {
         tokens.iter().map(|(_, class)| *class).collect()
+    }
+
+    #[test]
+    fn normalize_language_collapses_aliases_to_canonical_names() {
+        assert_eq!(
+            normalize_language("rs").as_deref(),
+            Some("rust"),
+            "alias must fold to the canonical name"
+        );
+        assert_eq!(normalize_language("py").as_deref(), Some("python"));
+        assert_eq!(normalize_language("TS").as_deref(), Some("typescript"));
+        assert_eq!(normalize_language("golang").as_deref(), Some("go"));
+        assert_eq!(normalize_language("c++").as_deref(), Some("cpp"));
+        assert_eq!(normalize_language("kt").as_deref(), Some("kotlin"));
+        assert_eq!(normalize_language("rb").as_deref(), Some("ruby"));
+        assert_eq!(normalize_language("jl").as_deref(), Some("julia"));
+        assert_eq!(normalize_language("hs").as_deref(), Some("haskell"));
+        assert_eq!(normalize_language("clj").as_deref(), Some("clojure"));
+        assert_eq!(normalize_language("mm").as_deref(), Some("objc"));
+        assert_eq!(
+            normalize_language("kotlin").as_deref(),
+            Some("kotlin"),
+            "canonical names pass through unchanged"
+        );
+        assert_eq!(
+            normalize_language(" Fortran ").as_deref(),
+            Some("fortran"),
+            "unknown names keep their trimmed lowercase form"
+        );
+    }
+
+    #[test]
+    fn normalize_language_rejects_blank_names() {
+        assert_eq!(normalize_language(""), None);
+        assert_eq!(normalize_language("   "), None);
     }
 
     #[test]

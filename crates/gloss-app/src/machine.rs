@@ -83,20 +83,20 @@ pub enum OverlayView {
         raw: String,
         /// 自动分类判明的任务类型（LLM 层回传后精化）。
         classified: Option<TaskKind>,
-        /// 代码语言（角标与高亮规则集共用）：流式期对原文内容探测
-        /// （LLM 的判定要等产物到达），视图创建时判定一次。
+        /// 代码语言（角标与高亮规则集共用）：流式期恒 `None`——语言
+        /// 只认产物回传的判定，流式期按通用启发集着色、无角标。
         code_lang: Option<String>,
     },
     /// 产物卡：按 `TaskKind` 精排或展示 markdown 注文。`source` 是本次
     /// 任务的原文（从流式视图随行而来），经注疏排布的「经」位用。
-    /// `code_lang` 优先取产物自带的 LLM 判定（`outcome.code_language`），
-    /// 缺失时回落流式期的内容探测。
+    /// `code_lang` 取产物自带的 LLM 判定（`outcome.code_language`），
+    /// 采纳门槛见 `plausible_code_language`，缺失时不兜底、为 `None`。
     Outcome {
         /// 触发时选中的原文。
         source: String,
         /// 产物本体。
         outcome: TaskOutcome,
-        /// 代码语言（自流式视图随行）。
+        /// 代码语言（由产物判定现算，不经流式视图中转）。
         code_lang: Option<String>,
     },
     /// 失败信息与动作出口：`action` 指出浮层该给用户的按钮（错误
@@ -304,15 +304,14 @@ impl TaskStateMachine {
         }
         self.active_request = None;
         self.generation = id;
-        // 视图与任务各要一份原文；语言判定对原文做一次（LLM 判定随
-        // 产物到达后精化）。
-        let code_lang = code_lang_of(&text);
+        // 视图与任务各要一份原文；语言判定不在此做——只认产物回传的
+        // `code_language`（流式期无角标、按通用启发集着色）。
         let input = TaskInput::Text { text: text.clone() };
         self.overlay_view = Some(OverlayView::Streaming {
             source: text,
             raw: String::new(),
             classified: None,
-            code_lang,
+            code_lang: None,
         });
         self.state = AppState::Translating;
         InputOutcome::Dispatch(self.begin_run(input, options))
@@ -387,28 +386,25 @@ impl TaskStateMachine {
     ///
     /// `outcome.note` 直接覆盖流式视图（权威源约定见 `crate::runtime::pipeline`）；
     /// 原文从流式视图随行进产物卡（经注疏的「经」位），完成态保有原文
-    /// 对照；代码语言以产物的 LLM 判定优先。
+    /// 对照；代码语言只认产物的 LLM 判定（唯一来源）。
     pub fn accept_done(&mut self, generation: u64, outcome: TaskOutcome) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
         }
-        let (source, detected) = match &self.overlay_view {
-            Some(OverlayView::Streaming {
-                source, code_lang, ..
-            }) => (source.clone(), code_lang.clone()),
-            _ => (String::new(), None),
+        let source = match &self.overlay_view {
+            Some(OverlayView::Streaming { source, .. }) => source.clone(),
+            _ => String::new(),
         };
-        // 代码语言以 LLM 的判定为准（随产物到达）：修剪首尾空白后过词元
-        // 门槛，再经归一化（别名/大小写）采用；判定缺失、是散文/示例占位
-        // 串时回落流式期的内容探测——角标与高亮始终有值可依，自由文本不
-        // 上角标。
+        // 代码语言来自 LLM 的判定（随产物到达）：修剪首尾空白后过词元
+        // 门槛，再经归一化（别名/大小写）采用。判定缺失或是散文/示例占位
+        // 串时不做任何本地兜底——产物卡无角标、按通用启发集着色，自由
+        // 文本不上角标。
         let code_lang = outcome
             .code_language
             .as_deref()
             .map(str::trim)
             .filter(|verdict| plausible_code_language(verdict))
-            .and_then(crate::ui::code_hl::normalize_language)
-            .or(detected);
+            .and_then(crate::ui::code_hl::normalize_language);
         self.active_request = None;
         self.overlay_view = Some(OverlayView::Outcome {
             source,
@@ -522,7 +518,9 @@ fn error_action(error: &GlossError) -> Option<ErrorAction> {
 }
 
 /// 一次下发请求的流式视图起点：原文照抄、正文空、未分类（LLM 层的
-/// `TaskClassified` 到达后精化）。重试与首次下发共用。
+/// `TaskClassified` 到达后精化）、无语言判定（语言只认产物回传的
+/// `code_language`，流式期按通用启发集着色、无角标）。重试与首次下发
+/// 共用。
 fn streaming_view(input: &TaskInput) -> OverlayView {
     let TaskInput::Text { text } = input else {
         return OverlayView::Streaming {
@@ -536,20 +534,14 @@ fn streaming_view(input: &TaskInput) -> OverlayView {
         source: text.clone(),
         raw: String::new(),
         classified: None,
-        code_lang: code_lang_of(text),
+        code_lang: None,
     }
-}
-
-/// 代码语言的流式期判定：对原文内容探测（LLM 判定随产物到达后在
-/// accept_done 精化）。视图创建时一次，不进渲染热路径。
-fn code_lang_of(text: &str) -> Option<String> {
-    crate::ui::code_hl::detect_language(text)
 }
 
 /// LLM 代码语言判定的采纳门槛：语言标识应是单个 ASCII 词元（"rust"、
 /// "c++"、"objective-c" 这个形状）。内部含空白或非 ASCII 字符的判定是
 /// 散文或示例占位串（模型照抄「…或 null」），不可上角标——交由调用方
-/// 回落内容探测；首尾空白由调用方先行修剪。
+/// 落回无语言（无角标、通用启发集着色）；首尾空白由调用方先行修剪。
 fn plausible_code_language(verdict: &str) -> bool {
     !verdict.is_empty()
         && verdict
@@ -1159,7 +1151,7 @@ mod tests {
     }
 
     #[test]
-    fn code_language_detection_covers_streaming_and_the_llm_verdict_wins() {
+    fn code_language_comes_only_from_the_llm_verdict() {
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
         dispatched(machine.commit_selection(
@@ -1172,14 +1164,14 @@ mod tests {
             matches!(
                 machine.overlay_view(),
                 Some(OverlayView::Streaming {
-                    code_lang: Some(lang),
+                    code_lang: None,
                     ..
-                }) if lang == "rust"
+                })
             ),
-            "the streaming view detects the language from the content"
+            "no content probing: the streaming view carries no language"
         );
 
-        // LLM 判定随产物到达：以它为准。
+        // LLM 判定随产物到达：唯一来源。
         machine.accept_done(
             1,
             TaskOutcome {
@@ -1199,10 +1191,10 @@ mod tests {
                     ..
                 }) if lang == "python"
             ),
-            "the settled outcome card carries the LLM's verdict over the detection"
+            "the settled outcome card carries the LLM's verdict"
         );
 
-        // LLM 未给出时回落流式期的内容探测。
+        // 判定缺失：不做本地兜底，产物卡无语言。
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
         dispatched(machine.commit_selection(
@@ -1226,13 +1218,14 @@ mod tests {
             matches!(
                 machine.overlay_view(),
                 Some(OverlayView::Outcome {
-                    code_lang: Some(lang),
+                    code_lang: None,
                     ..
-                }) if lang == "rust"
+                })
             ),
-            "a missing verdict falls back to the streaming detection"
+            "a missing verdict leaves the outcome card without a language"
         );
 
+        // 占位串判定（散文/示例占位）同样不上角标。
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
         dispatched(machine.commit_selection(
@@ -1256,13 +1249,14 @@ mod tests {
             matches!(
                 machine.overlay_view(),
                 Some(OverlayView::Outcome {
-                    code_lang: Some(lang),
+                    code_lang: None,
                     ..
-                }) if lang == "rust"
+                })
             ),
-            "a placeholder verdict falls back to the streaming detection"
+            "a placeholder verdict is not adopted as a language"
         );
 
+        // 首尾空白先修剪再过门槛（不因空白误判成占位串）。
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
         dispatched(machine.commit_selection(
@@ -1290,8 +1284,7 @@ mod tests {
                     ..
                 }) if lang == "python"
             ),
-            "a whitespace-padded verdict is trimmed before the plausibility gate (the \
-             content probe would say rust)"
+            "a whitespace-padded verdict is trimmed before the plausibility gate"
         );
     }
 
