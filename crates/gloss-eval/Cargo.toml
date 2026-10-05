@@ -11,10 +11,9 @@ name = "eval"
 path = "src/main.rs"
 
 [dependencies]
+# live 轨复用生产 SSE 引擎（core 的 LlmClient）；本 crate 只许消费，不许被
+# 生产 crate 依赖——check-constraints.sh 的依赖方向断言强制。
 gloss-core = { path = "../gloss-core" }
-# live 轨复用生产 SSE 引擎（LlmClient）；本 crate 只许消费，不许被生产
-# crate 依赖——check-constraints.sh 的依赖方向断言强制。
-gloss-platform = { path = "../gloss-platform" }
 # 评测数据集与报告的序列化。
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }

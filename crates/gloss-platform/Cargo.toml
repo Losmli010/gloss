@@ -9,8 +9,6 @@ license.workspace = true
 # 剪贴板兜底读取（模拟复制）的原文保存/恢复。不用默认特性：文本能力不需要
 # 默认集里的 image-data（整条 image 依赖树）与各平台后端变体。
 arboard = { version = "3", default-features = false }
-# 流式响应的分块字节（reqwest 的 bytes_stream 逐块交出 Bytes）。
-bytes = { version = "1", default-features = false }
 # 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）与选区、剪贴板
 # 兜底的 CF 类型绑定。
 core-foundation-sys = {
@@ -24,8 +22,6 @@ core-foundation-sys = {
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 # FileConfigStore 的配置目录定位（日志目录例外，不走 directories）。
 directories = { version = "6", default-features = false }
-# 把响应适配成 core 的 TaskStream（Stream trait 的最小集合）。
-futures-core = { version = "0.3", default-features = false }
 gloss-core = { path = "../gloss-core" }
 # Dock 图标：非 bundle 运行（just run）时经 `NSApplication.setApplicationIconImage`
 # 装上品牌图标，bundle 运行走 .icns（同设计，视觉无差）。
@@ -62,31 +58,9 @@ objc2-foundation = {
 # 兜底复制的按键注入与真机测试的事件注入（rdev::simulate）；默认集只多出
 # 可选的 serde 支持，注入用不到。手势监听不走 rdev（见 events/mouse.rs 模块注释）。
 rdev = { version = "0.5", default-features = false }
-# OpenAI 兼容端点的流式调用。最小特性集：SSE 用 HTTP/1.1 足够，
-# TLS 走 rustls + 系统根证书。
-reqwest = {
-  version = "0.12",
-  default-features = false,
-  features = [
-    "json",
-    "rustls-tls-native-roots",
-    "stream",
-  ]
-}
 # KeychainSecret 的 Security framework 绑定（通用密码读写）。无版本门控
 # 特性需求。
 security-framework = { version = "3", default-features = false }
-# 流式载荷的反序列化（derive）。与 core 同写法：关默认集 + 显式列全。
-serde = {
-  version = "1",
-  default-features = false,
-  features = [
-    "derive",
-    "std",
-  ]
-}
-# SSE 增量解析（`choices[0].delta.content`）与错误对象解析。
-serde_json = { version = "1", default-features = false, features = ["std"] }
 # 配置文档的 TOML 序列化（parse 读 + display 写）。
 toml = {
   version = "0.8",
@@ -100,15 +74,6 @@ toml = {
 [dev-dependencies]
 # storage 单测的临时目录。
 tempfile = { version = "3", default-features = false }
-# L4 opt-in 真机测试要跑异步引擎（手动 poll 流的 future）。
-tokio = {
-  version = "1",
-  default-features = false,
-  features = [
-    "macros",
-    "rt",
-  ]
-}
 
 [lints]
 workspace = true

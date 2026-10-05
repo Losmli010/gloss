@@ -1448,8 +1448,10 @@ name = "gloss-core"
 version = "0.1.7"
 dependencies = [
  "arc-swap",
+ "bytes",
  "futures",
  "futures-core",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",
@@ -1463,7 +1465,6 @@ name = "gloss-eval"
 version = "0.1.7"
 dependencies = [
  "gloss-core",
- "gloss-platform",
  "serde",
  "serde_json",
  "tokio",
@@ -1474,22 +1475,16 @@ name = "gloss-platform"
 version = "0.1.7"
 dependencies = [
  "arboard",
- "bytes",
  "core-foundation-sys 0.8.7",
  "crossbeam-channel",
  "directories",
- "futures-core",
  "gloss-core",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "rdev",
- "reqwest",
  "security-framework",
- "serde",
- "serde_json",
  "tempfile",
- "tokio",
  "toml 0.8.23",
 ]
 

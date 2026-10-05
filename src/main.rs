@@ -11,12 +11,12 @@ use gloss_app::channel::{AcquireCommand, AppEndpoints, Channels, Event, Platform
 use gloss_core::config::CACHE_TTL_MAX_SECS;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
+use gloss_core::engine::llm::LlmClient;
 use gloss_core::log::{self, debug, error, info, thread, warn};
 use gloss_core::model::GlossError;
 use gloss_core::ports::{AiEngine, AppIcon, ConfigStore};
 use gloss_core::task::TaskInput;
 use gloss_platform::appearance::MacAppIcon;
-use gloss_platform::engine::llm::LlmClient;
 use gloss_platform::events::mouse::{MouseGesture, MouseSource};
 use gloss_platform::events::{EventSink, EventSource, EventSources};
 use gloss_platform::permissions;

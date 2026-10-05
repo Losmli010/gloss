@@ -13,7 +13,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gloss_platform::engine::llm::LlmClient;
+use gloss_core::engine::llm::LlmClient;
 
 /// 报告目录（与 dev-plan 约定一致：报告出 target/eval/，不进仓库）。
 const REPORT_DIR: &str = "target/eval";

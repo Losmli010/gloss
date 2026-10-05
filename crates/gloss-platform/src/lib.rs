@@ -6,7 +6,6 @@
 pub(crate) mod stubs;
 
 pub mod appearance;
-pub mod engine;
 pub mod events;
 mod ffi;
 pub mod locale;

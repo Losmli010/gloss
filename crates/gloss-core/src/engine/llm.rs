@@ -1,12 +1,14 @@
-//! LlmClient：OpenAI 兼容端点的流式引擎适配器。
+//! LlmClient：OpenAI 兼容端点的流式引擎适配器（[`crate::ports::AiEngine`]
+//! 端口的内建实现）。
 //!
-//! 边界：**只负责把请求送出去、把响应流回来**。messages 由 core 编排渲染
-//! （`AiTaskService` → `PromptRegistry`，含模态校验），模型也已由 App 按配置
-//! 解析后随 [`EngineRequest`] 携带——本模块不渲染 prompt，也不看配置里的模型。
+//! 边界：**只负责把请求送出去、把响应流回来**。messages 由编排层渲染
+//! （`super::AiTaskService` → `prompt::PromptRegistry`，含模态校验），模型
+//! 也已由 App 按配置解析后随 [`EngineRequest`] 携带——本模块不渲染
+//! prompt，也不看配置里的模型。
 //!
 //! 端点与密钥：端点取配置快照的 `base_url`；密钥按 provider 条目的 keychain
 //! 条目标识**每请求直查**（不缓存，除请求头外不进任何地方——错误消息与日志里
-//! 只有状态码与服务端诊断文本；红线与措辞见 `ports::ConfigStore` 的文档）。
+//! 只有状态码与服务端诊断文本；红线与措辞见 `crate::ports::ConfigStore` 的文档）。
 //!
 //! 超时：只设建连超时，流式响应不设总超时；
 //! 取消由调用方的 `CancellationToken` 竞速完成（future 被丢弃即断链）。
@@ -17,12 +19,12 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use crate::config::Config;
+use crate::config_handle::ConfigHandle;
+use crate::log::debug;
+use crate::model::GlossError;
+use crate::ports::{AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskStream};
 use futures_core::Stream;
-use gloss_core::config::Config;
-use gloss_core::config_handle::ConfigHandle;
-use gloss_core::log::debug;
-use gloss_core::model::GlossError;
-use gloss_core::ports::{AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskStream};
 use reqwest::StatusCode;
 
 use super::sse::{SseDecoder, SseItem};
@@ -157,8 +159,8 @@ impl AiEngine for LlmClient {
 fn resolve_endpoint(config: &Config) -> Result<String, GlossError> {
     let base_url = config.base_url.trim();
     // 结构性规则（非空/https/无凭据/无 query·fragment）与设置页逐字段
-    // 校验共源：`gloss_core::config::validate_base_url`。
-    gloss_core::config::validate_base_url(base_url)
+    // 校验共源：`crate::config::validate_base_url`。
+    crate::config::validate_base_url(base_url)
         .map_err(|err| GlossError::Config(err.to_string()))?;
     let mut endpoint = reqwest::Url::parse(base_url)
         .map_err(|err| GlossError::Config(format!("invalid provider endpoint: {err}")))?;
@@ -330,8 +332,8 @@ impl Stream for SseStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prompt::{ChatMessage, Role};
     use crate::stubs::ports::MemoryConfigStore;
-    use gloss_core::prompt::{ChatMessage, Role};
 
     fn fixture(secret: Option<&str>) -> (Arc<ConfigHandle>, Arc<MemoryConfigStore>) {
         let store = Arc::new(MemoryConfigStore::default());
@@ -351,7 +353,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(
             resolve_endpoint(&config).expect("resolve"),
-            format!("{}/chat/completions", gloss_core::config::DEFAULT_BASE_URL)
+            format!("{}/chat/completions", crate::config::DEFAULT_BASE_URL)
         );
     }
 
@@ -642,8 +644,8 @@ mod tests {
 #[cfg(test)]
 mod live_tests {
     use super::*;
+    use crate::prompt::{ChatMessage, Role};
     use crate::stubs::ports::MemoryConfigStore;
-    use gloss_core::prompt::{ChatMessage, Role};
 
     fn require_live_env() -> (String, String, String) {
         let read = |name: &str| {
@@ -660,7 +662,7 @@ mod live_tests {
                 "真机测试缺少环境变量。修复：GLOSS_LIVE_API_KEY=sk-... \
                  GLOSS_LIVE_BASE_URL=https://api.deepseek.com/v1 \
                  GLOSS_LIVE_MODEL=deepseek-chat \
-                 cargo test -p gloss-platform -- --ignored live_llm"
+                 cargo test -p gloss-core -- --ignored live_llm"
             );
         };
         (base_url, model, key)
