@@ -78,7 +78,14 @@ toml = { version = "0.8", default-features = false }'
     'gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }'
 
-  printf 'info!("ready");\n' >"$dir/crates/gloss-core/src/log.rs"
+  printf 'tracing::info!("ready");\n' >"$dir/crates/gloss-core/src/log.rs"
+  # 第三方依赖的使用证据（依赖无死条目检查的基线）：
+  # core 的 serde 经 derive 路径使用，platform 的 toml 经完整路径使用。
+  printf '#[derive(serde::Deserialize)]\npub struct Config;\n' \
+    >"$dir/crates/gloss-core/src/lib.rs"
+  mkdir -p "$dir/crates/gloss-platform/src"
+  printf 'let _v: String = toml::from_str("k = 1").unwrap();\n' \
+    >"$dir/crates/gloss-platform/src/lib.rs"
 
   # tests/stubs/ 桩副本夹具：让「桩副本一致」检查有可比对象
   mkdir -p "$dir/crates/gloss-core/tests/stubs" \
@@ -248,6 +255,33 @@ mut_dep_default_features_on_next_line() {
     'tokio = { version = "1", features = [
     "sync",
 ], default-features = false }'
+  # 跨行条目本身带使用证据：本用例只钉「features 检查不误报跨行」，
+  # 不让依赖无死条目检查分叉结论。
+  mkdir -p "$FIX/crates/gloss-app/src"
+  printf 'let _rt = tokio::runtime::Builder::new_current_thread();\n' \
+    >"$FIX/crates/gloss-app/src/tokio_probe.rs"
+}
+mut_platform_unused_dep() {
+  insert_after_section "$FIX/crates/gloss-platform/Cargo.toml" "[dependencies]" \
+    'serde_json = { version = "1", default-features = false }'
+}
+mut_platform_unused_dep_allowed() {
+  insert_after_section "$FIX/crates/gloss-platform/Cargo.toml" "[dependencies]" \
+    'serde_json = { version = "1", default-features = false } # deps:allow 自测阴性对照'
+}
+mut_platform_dash_key_unused() {
+  insert_after_section "$FIX/crates/gloss-platform/Cargo.toml" "[dependencies]" \
+    'crossbeam-channel = { version = "0.5", default-features = false }'
+}
+mut_platform_dash_key_used() {
+  insert_after_section "$FIX/crates/gloss-platform/Cargo.toml" "[dependencies]" \
+    'crossbeam-channel = { version = "0.5", default-features = false }'
+  printf 'let (tx, _rx) = crossbeam_channel::unbounded();\n' \
+    >"$FIX/crates/gloss-platform/src/queue.rs"
+}
+mut_platform_dev_dep_unused() {
+  printf '\n[dev-dependencies]\nserde_json = { version = "1", default-features = false }\n' \
+    >>"$FIX/crates/gloss-platform/Cargo.toml"
 }
 
 echo "== 测试 check-constraints.sh =="
@@ -303,6 +337,15 @@ assert_case "根 [workspace.package] 丢了版本字面量" 1 mut_root_missing_w
 echo ""
 echo "-- 约束「依赖只开需要的特性」（应拒绝，退出码非 0）--"
 assert_case "第三方依赖未关默认特性" 1 mut_dep_without_default_features "pollster 未写 default-features = false"
+
+echo ""
+echo "-- 约束「依赖无死条目」（应拒绝，退出码非 0）--"
+assert_case "声明了无使用的第三方依赖" 1 mut_platform_unused_dep "依赖无死条目"
+assert_case "deps:allow 放行所在条目" 0 mut_platform_unused_dep_allowed "依赖无死条目（扫"
+assert_case "连字符键名无使用（转下划线后仍无证据）" 1 mut_platform_dash_key_unused "依赖无死条目"
+assert_case "连字符键名按下划线使用不算死条目" 0 mut_platform_dash_key_used "deps:allow 0 条"
+assert_case "dev-dependencies 死条目同样判罚" 1 mut_platform_dev_dep_unused "依赖无死条目"
+assert_case "path 依赖无使用不判罚（归依赖方向管）" 0 "" "deps:allow 0 条"
 
 echo ""
 echo "-- 残留任务标记扫描（git 夹具；上方非 git 夹具用例覆盖自动跳过路径）--"

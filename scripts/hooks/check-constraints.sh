@@ -17,6 +17,7 @@
 #   版本单点维护        —— 子 crate 的 version / edition 必须 *.workspace = true，
 #                          字面量只允许出现在根 [workspace.package]。
 #   依赖只开需要的特性  —— 每个第三方依赖声明必须带 default-features = false。
+#   依赖无死条目        —— 声明的第三方依赖必须在 src/tests/benches 有使用证据。
 #   残留任务标记        —— TODO / FIXME / HACK / TBD 大写词全字匹配，命中即失败。
 #
 # 用法：scripts/hooks/check-constraints.sh [仓库根]   # 缺省为本脚本的上一级目录
@@ -363,6 +364,41 @@ while IFS='|' read -r owner manifest sec key start text; do
   esac
 done <<<"$DEP_DUMP"
 ok "依赖只开需要的特性（检查 ${deps_checked} 条第三方依赖声明）"
+
+# ---- 约束「依赖无死条目」 ----
+# 声明的每个第三方依赖（非本仓 path、非 workspace 继承）必须能在所属 crate 的
+# 源码面（src / tests / benches）找到使用证据：`名::` 路径（含属性宏与 derive
+# 内的路径，如 #[tokio::test]、#[derive(serde::Deserialize)]）、`名!` 宏调用，
+# 或 `use 名;`。依赖键连字符按 Rust 惯例转下划线后匹配；注释里的提及同样算
+# 证据（宽松判定，防误报优先）。条目行尾 `deps:allow` 放行该条（同
+# secrets:allow 惯例，须注明缘由）。本仓 path 依赖由「依赖方向」管辖，
+# 不在此判罚；本仓无 build.rs，若未来引入需把其纳入扫描面。
+dead_count=0
+dead_scanned=0
+dead_allowed=0
+while IFS='|' read -r owner manifest sec key start text; do
+  [ -n "$key" ] || continue
+  if is_path_dep "$text"; then continue; fi
+  case "$text" in *"workspace = true"*) continue ;; esac
+  dead_scanned=$((dead_scanned + 1))
+  case "$text" in *"deps:allow"*) dead_allowed=$((dead_allowed + 1)); continue ;; esac
+  case "$manifest" in
+    # DEP_DUMP 里的 manifest 是相对 $ROOT 的路径，scope 必须从 $ROOT 解析，
+    # 否则调用方的工作目录会泄漏进扫描面。
+    Cargo.toml) crate_dir="$ROOT" ;;
+    *) crate_dir="$ROOT/$(dirname "$manifest")" ;;
+  esac
+  import="${key//-/_}"
+  if grep -rqE "(^|[^A-Za-z0-9_])${import}(::|!)|^[[:space:]]*use[[:space:]]+${import}[[:space:]]*(;|as)" \
+    "$crate_dir/src" "$crate_dir/tests" "$crate_dir/benches" 2>/dev/null; then
+    continue
+  fi
+  fail "约束「依赖无死条目」：$(basename "$owner") 声明了 ${key}（$(rel "$manifest"):${start}）但 src/tests/benches 无使用证据 —— 用起来、删掉，或条目行尾 deps:allow 注明缘由"
+  dead_count=$((dead_count + 1))
+done <<<"$DEP_DUMP"
+if [ "$dead_count" -eq 0 ]; then
+  ok "依赖无死条目（扫 ${dead_scanned} 条第三方声明，deps:allow ${dead_allowed} 条）"
+fi
 
 # ---- 残留任务标记扫描 ----
 # 大写词全字匹配 TODO / FIXME / HACK / TBD，扫全部 git 跟踪文件；
