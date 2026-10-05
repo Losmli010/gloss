@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 32 | `just test` |
-| 单元测试 | 470 | `just test` |
+| 单元测试 | 463 | `just test` |
 
 ## 人工测试
 
@@ -557,20 +557,6 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | --- | --- | --- | --- |
 | apply_theme_elides_writes_until_the_preference_changes | 主题未变不重写 | 给定未变的偏好，当重复 apply_theme，则不写；偏好变了则跟上 | 2026-09-23 |
 
-### crates/gloss-app/src/ui/code_hl/detect.rs
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| normalize_language_collapses_aliases_to_canonical_names | 语言名归一化收拢别名 | 给定 rs/py/TS/golang/c++ 与规范名、清单外名，当归一化，则别名折叠到规范名（rust/python/typescript/go/cpp）、规范名原样、未知名保留小写原形 | 2026-10-02 |
-| normalize_language_rejects_blank_names | 空白语言名无语言 | 给定空串与全空白名，当归一化，则恒为 None | 2026-10-02 |
-| detect_language_reads_shebang_interpreters | shebang 解释器映射语言 | 给定 python3/bash/ruby/node 的 shebang 脚本与未知解释器，当内容探测，则各映射到 python/bash/ruby/javascript、未知解释器无语言 | 2026-10-02 |
-| detect_language_reads_markup_declarations | 标记语言显式声明 | 给定 DOCTYPE html、<?xml、<?php 开头的文本，当内容探测，则各判为 html/xml/php | 2026-10-02 |
-| detect_language_reads_language_signatures | 语言签名形探测 | 给定 fn main、package main+func main、func main、def 、import 开头的代码，当内容探测，则各判为 rust/go/python（go 的 package 子句胜 func 签名、裸 import 兜底 python） | 2026-10-02 |
-| detect_language_matches_signatures_only_at_line_starts | 签名形只在行首命中 | 给定行中段含 "def" 的普通句子，当内容探测，则无语言（弱签名不做子串匹配） | 2026-10-02 |
-| detect_language_yields_none_for_plain_text | 普通文本无语言 | 给定空串、英文句子与中文句子，当内容探测，则恒为 None | 2026-10-02 |
-| detect_language_reads_sql_shapes | SQL 形状探测 | 给定 SELECT...FROM 跨行对（大小写各一）、 lone SELECT、读起来像该对的单行散文，当内容探测，则跨行对判为 sql（大小写不敏感）、孤 SELECT 与单行散文不判（防散文误报） | 2026-10-02 |
-| sql_detection_ignores_non_statement_lines | SQL 探测忽略非语句行 | 给定注释里含 select...from 对的 rust 代码、selected/fromage 子串散文，当内容探测，则前者 rust、后者无语言（行锚定 + 词边界） | 2026-10-02 |
-
 ### crates/gloss-app/src/ui/code_hl/palette.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -581,6 +567,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
+| normalize_language_collapses_aliases_to_canonical_names | 语言名归一化收拢别名 | 给定 rs/py/TS/golang/c++ 与规范名、清单外名，当归一化，则别名折叠到规范名（rust/python/typescript/go/cpp）、规范名原样、未知名保留小写原形 | 2026-10-02 |
+| normalize_language_rejects_blank_names | 空白语言名无语言 | 给定空串与全空白名，当归一化，则恒为 None | 2026-10-02 |
 | known_languages_color_keywords_and_shapes | 已知语言的关键字与形状着色 | 给定 rust 与 python 代码片段，当 tokenize，则 fn/def/return 落 Keyword、函数调用形落 Function 且区间从标识符起（定界符裁掉） | 2026-10-02 |
 | unknown_languages_still_color_strings_and_comments | 清单外语言走通用启发集 | 给定清单外语言（fortran）的字符串与行注释代码，当 tokenize，则字符串与注释仍着色（空输入无 token） | 2026-10-02 |
 | missing_language_falls_to_the_generic_set | 无语言判定落通用集 | 给定未判定语言的含字符串与注释代码，当 tokenize，则字符串与注释照常着色 | 2026-10-03 |
@@ -630,7 +618,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 begin_selection_probe，则两次都 None、无探测编号、状态留 Idle；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
 | selection_options_pair_with_one_snapshot_including_the_model | 选项（含模型）出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则目标语言与模型 id 均出自快照冻结（类型不在其中——kind 由 LLM 层分类决定） | 2026-10-03 |
 | classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 accept_classified，则当前代写入判定 kind、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
-| code_language_detection_covers_streaming_and_the_llm_verdict_wins | 流式内容探测 + LLM 判定过门槛优先 | 给定 rust 代码片段的划词提交，当检查流式视图，则 code_lang 为内容探测的 "rust"；产物到达后 LLM 判定修剪首尾空白、过词元门槛并归一化优先采用，缺失或为占位串（如「…或 null」）时回落探测值；accept_done 后当检查产物卡，则 code_lang 原样随行 | 2026-10-03 |
+| code_language_comes_only_from_the_llm_verdict | 代码语言只认 LLM 产物判定 | 给定 rust 代码片段的划词提交，当检查流式视图，则 code_lang 为 None（本地不做内容探测）；产物到达后判定修剪首尾空白、过词元门槛并归一化采纳；判定缺失或为占位串（如「…或 null」）时不做兜底、产物卡无语言（无角标、通用集着色） | 2026-10-06 |
 | options_freeze_at_probe_time | 选项在探测时刻冻结 | 给定探测后更换配置（目标语言与界面语言同时变），当提交产物，则任务仍带探测时快照的选项（含 prompt_locale）；第二次探测才用新值 | 2026-10-01 |
 | prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 Language::En 与出厂 System 两份配置，当探测并提交产物，则任务携带的 prompt_locale 分别为 En 与注入的系统语言 | 2026-09-22 |
 | commit_selection_yields_run_request_and_supersedes_the_previous_session | 提交探测接管会话并守卫状态 | 给定命中在途探测的合法产物，当 commit_selection，则返回下发请求、探测编号提升为代数、旧在途任务被取消、视图换流式卡；同编号重复提交被拒 | 2026-10-01 |
