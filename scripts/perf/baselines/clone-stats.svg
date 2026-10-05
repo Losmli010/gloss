@@ -1,6 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="910" viewBox="0 0 960 910" font-family="-apple-system, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
-<text x="16" y="26" font-size="19" fill="#333333" font-weight="600" text-anchor="start">clone 基线</text>
-<text x="16" y="46" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">生产代码 .clone() 合计 100 次 · 密度 8.7 次/千行 · 性能基准 6 项（scripts/baselines/clone-stats.json）</text>
+<text x="16" y="46" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">生产代码 .clone() 合计 100 次 · 密度 8.7 次/千行 · 性能基准 6 项（scripts/perf/baselines/clone-stats.json）</text>
 <text x="16" y="76" font-size="15" fill="#333333" font-weight="600" text-anchor="start">一、各 crate 生产代码 .clone() 计数</text>
 <text x="16" y="96" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">口径：src/ + src/main.rs，剥离注释/字符串、剔除 #[cfg(test)]；条宽按计数线性</text>
 <rect x="16" y="130" width="714.0" height="24" fill="#eceff3" rx="4"/>
@@ -75,4 +74,5 @@
 <rect x="270" y="854" width="0.0" height="24" fill="#5b7db1" rx="4"/>
 <text x="16" y="871" font-size="12" fill="#333333" font-weight="400" text-anchor="start">i18n/for_error_detail</text>
 <text x="744" y="871" font-size="12" fill="#333333" font-weight="600" text-anchor="start">22 字节/迭代</text>
+<text x="16" y="26" font-size="19" fill="#333333" font-weight="600" text-anchor="start">clone 基线</text>
 </svg>

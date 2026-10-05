@@ -81,28 +81,25 @@ bench-check name="last":
 
 # 汇总最近一次基准运行为 Markdown 表（均值、95% 区间、对照变化），标签仅用于展示
 bench-summary baseline="上一次运行":
-    ./scripts/bench-summary.py "{{baseline}}"
+    ./scripts/perf/bench-summary.py "{{baseline}}"
 
 # 跑 clone 热点基准（criterion 自定义测量：分配次数/字节，benches/clone.rs），结果存滚动基线 last
 clone-bench:
     cargo bench --bench clone -- --save-baseline last
 
-# 统计生产代码 .clone() 调用分布与热点分配（口径见脚本 docstring）
+# 打印 clone 分布与热点分配（口径见脚本 docstring）
 clone-stats:
-    ./scripts/clone-stats.py
+    ./scripts/perf/clone-stats.py
 
-# 更新 .clone() 基线（scripts/baselines/clone-stats.json；计数 + 分配数据，分配部分需先跑 just clone-bench）并重绘 SVG 图表
-clone-baseline:
-    ./scripts/clone-stats.py --write
-    ./scripts/clone-chart.py
+# 重建性能基线并重绘图表：clone 计数+分配 → clone-stats.json；core 墙钟快照（含环境，需先跑 just bench）→ core-baseline.json
+perf-baseline:
+    ./scripts/perf/clone-stats.py --write
+    ./scripts/perf/bench-baseline.py
+    ./scripts/perf/perf-chart.py
 
-# 用基线数据重绘 SVG 图表（scripts/baselines/clone-stats.svg，确定性输出）
-clone-chart:
-    ./scripts/clone-chart.py
-
-# 对照基线报告变化（clone 计数或热点分配上升即失败；审计对照，不在 precommit）
+# 对照 clone 基线报告变化（clone 计数或热点分配上升即失败；core 墙钟仅记录不判罚；审计对照，不在 precommit）
 clone-check:
-    ./scripts/clone-stats.py --check
+    ./scripts/perf/clone-stats.py --check
 
 # Prompt 评测 live 轨：真实 LLM（需 GLOSS_LIVE_*，opt-in）
 # --record 回写夹具；--judge 启用 judge 评分轨（额外一次模型调用/条）

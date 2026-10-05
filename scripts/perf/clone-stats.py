@@ -12,10 +12,10 @@
 自身的基线机制（just bench-check / bench-summary）。
 
 用法：
-  scripts/clone-stats.py            打印当前分布
-  scripts/clone-stats.py --write    把当前分布写入基线 JSON（覆盖旧基线）
-  scripts/clone-stats.py --check    对照基线报告变化；clone 计数或热点分配
-                                    上升即退出码 1
+  scripts/perf/clone-stats.py            打印当前分布
+  scripts/perf/clone-stats.py --write    把当前分布写入基线 JSON（覆盖旧基线）
+  scripts/perf/clone-stats.py --check    对照基线报告变化；clone 计数或热点分配
+                                         上升即退出码 1
 """
 
 import argparse
@@ -24,7 +24,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = Path(__file__).resolve().parent / "baselines" / "clone-stats.json"
 
 CRATES = [

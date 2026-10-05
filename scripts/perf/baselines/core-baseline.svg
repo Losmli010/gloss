@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="932" viewBox="0 0 960 932" font-family="-apple-system, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
+<text x="16" y="46" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">15 项 · 均值，95% 区间见 JSON · 只记录不判罚（scripts/perf/baselines/core-baseline.json）</text>
+<text x="16" y="66" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">2026-10-05T16:51:34+08:00 · macOS-13.7.8-x86_64-i386-64bit · x86_64 · Intel(R) Core(TM) i5-7360U CPU @ 2.30GHz · rustc 1.96.1 (31fca3adb 2026-06-26) · 7cbb5f9</text>
+<text x="16" y="96" font-size="15" fill="#333333" font-weight="600" text-anchor="start">cache_key</text>
+<text x="16" y="116" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">均值；条宽按组内最大值线性</text>
+<rect x="16" y="150" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="150" width="460.0" height="24" fill="#3d5a8a" rx="4"/>
+<text x="16" y="167" font-size="12" fill="#333333" font-weight="400" text-anchor="start">image/4mb</text>
+<text x="744" y="167" font-size="12" fill="#333333" font-weight="600" text-anchor="start">44.201 ms</text>
+<rect x="16" y="186" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="186" width="129.2" height="24" fill="#5b7db1" rx="4"/>
+<text x="16" y="203" font-size="12" fill="#333333" font-weight="400" text-anchor="start">image/1mb</text>
+<text x="744" y="203" font-size="12" fill="#333333" font-weight="600" text-anchor="start">12.419 ms</text>
+<rect x="16" y="222" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="222" width="0.1" height="24" fill="#5b7db1" rx="4"/>
+<text x="16" y="239" font-size="12" fill="#333333" font-weight="400" text-anchor="start">text/long</text>
+<text x="744" y="239" font-size="12" fill="#333333" font-weight="600" text-anchor="start">11.64 µs</text>
+<rect x="16" y="258" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="258" width="0.0" height="24" fill="#5b7db1" rx="4"/>
+<text x="16" y="275" font-size="12" fill="#333333" font-weight="400" text-anchor="start">text/short</text>
+<text x="744" y="275" font-size="12" fill="#333333" font-weight="600" text-anchor="start">239.0 ns</text>
+<text x="16" y="314" font-size="15" fill="#333333" font-weight="600" text-anchor="start">complete</text>
+<text x="16" y="334" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">均值；条宽按组内最大值线性</text>
+<rect x="16" y="368" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="368" width="460.0" height="24" fill="#3d5a8a" rx="4"/>
+<text x="16" y="385" font-size="12" fill="#333333" font-weight="400" text-anchor="start">word_card/many_senses</text>
+<text x="744" y="385" font-size="12" fill="#333333" font-weight="600" text-anchor="start">29.99 µs</text>
+<rect x="16" y="404" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="404" width="90.9" height="24" fill="#5b7db1" rx="4"/>
+<text x="16" y="421" font-size="12" fill="#333333" font-weight="400" text-anchor="start">word_card/ok</text>
+<text x="744" y="421" font-size="12" fill="#333333" font-weight="600" text-anchor="start">5.93 µs</text>
+<rect x="16" y="440" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="440" width="36.8" height="24" fill="#5b7db1" rx="4"/>
+<text x="16" y="457" font-size="12" fill="#333333" font-weight="400" text-anchor="start">ocr/ok</text>
+<text x="744" y="457" font-size="12" fill="#333333" font-weight="600" text-anchor="start">2.40 µs</text>
+<rect x="16" y="476" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="476" width="23.2" height="24" fill="#5b7db1" rx="4"/>
+<text x="16" y="493" font-size="12" fill="#333333" font-weight="400" text-anchor="start">fence_missing</text>
+<text x="744" y="493" font-size="12" fill="#333333" font-weight="600" text-anchor="start">1.51 µs</text>
+<rect x="16" y="512" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="512" width="17.9" height="24" fill="#5b7db1" rx="4"/>
+<text x="16" y="529" font-size="12" fill="#333333" font-weight="400" text-anchor="start">json_broken</text>
+<text x="744" y="529" font-size="12" fill="#333333" font-weight="600" text-anchor="start">1.17 µs</text>
+<text x="16" y="568" font-size="15" fill="#333333" font-weight="600" text-anchor="start">prompt_render</text>
+<text x="16" y="588" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">均值；条宽按组内最大值线性</text>
+<rect x="16" y="622" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="622" width="460.0" height="24" fill="#3d5a8a" rx="4"/>
+<text x="16" y="639" font-size="12" fill="#333333" font-weight="400" text-anchor="start">code/long</text>
+<text x="744" y="639" font-size="12" fill="#333333" font-weight="600" text-anchor="start">1.48 µs</text>
+<rect x="16" y="658" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="658" width="412.9" height="24" fill="#5b7db1" rx="4"/>
+<text x="16" y="675" font-size="12" fill="#333333" font-weight="400" text-anchor="start">word/short</text>
+<text x="744" y="675" font-size="12" fill="#333333" font-weight="600" text-anchor="start">1.32 µs</text>
+<text x="16" y="714" font-size="15" fill="#333333" font-weight="600" text-anchor="start">task_cache</text>
+<text x="16" y="734" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">均值；条宽按组内最大值线性</text>
+<rect x="16" y="768" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="768" width="460.0" height="24" fill="#3d5a8a" rx="4"/>
+<text x="16" y="785" font-size="12" fill="#333333" font-weight="400" text-anchor="start">set/same_key</text>
+<text x="744" y="785" font-size="12" fill="#333333" font-weight="600" text-anchor="start">2.29 µs</text>
+<rect x="16" y="804" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="804" width="397.6" height="24" fill="#5b7db1" rx="4"/>
+<text x="16" y="821" font-size="12" fill="#333333" font-weight="400" text-anchor="start">set/new_key</text>
+<text x="744" y="821" font-size="12" fill="#333333" font-weight="600" text-anchor="start">1.98 µs</text>
+<rect x="16" y="840" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="840" width="118.7" height="24" fill="#5b7db1" rx="4"/>
+<text x="16" y="857" font-size="12" fill="#333333" font-weight="400" text-anchor="start">get/hit</text>
+<text x="744" y="857" font-size="12" fill="#333333" font-weight="600" text-anchor="start">592.0 ns</text>
+<rect x="16" y="876" width="714.0" height="24" fill="#eceff3" rx="4"/>
+<rect x="270" y="876" width="26.3" height="24" fill="#5b7db1" rx="4"/>
+<text x="16" y="893" font-size="12" fill="#333333" font-weight="400" text-anchor="start">get/miss</text>
+<text x="744" y="893" font-size="12" fill="#333333" font-weight="600" text-anchor="start">131.0 ns</text>
+<text x="16" y="26" font-size="19" fill="#333333" font-weight="600" text-anchor="start">core 基线（墙钟）</text>
+</svg>
