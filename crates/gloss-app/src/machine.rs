@@ -109,7 +109,7 @@ pub enum OverlayView {
 /// 失败卡的错误来源：任务链路的 [`GlossError`]，或壳层通道故障。
 ///
 /// 状态机只记来源、不记文案——文案随界面语言变，属渲染层的产物（见
-/// [`crate::i18n::ErrorText`]），不随任务冻结。
+/// [`crate::ui::i18n::ErrorText`]），不随任务冻结。
 #[derive(Debug, Clone, PartialEq)]
 pub enum FailureCause {
     /// 任务链路返回的错误。
@@ -369,7 +369,7 @@ impl TaskStateMachine {
     /// 渲染层）。返回是否有新内容需要重绘。
     ///
     /// 这份累积只服务**流式显示**；与桥侧完成态的并存约定及权威源
-    /// 见 `crate::pipeline` 的模块文档（done 以 outcome.note 整卡覆盖）。
+    /// 见 `crate::runtime::pipeline` 的模块文档（done 以 outcome.note 整卡覆盖）。
     pub fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
@@ -382,7 +382,7 @@ impl TaskStateMachine {
 
     /// 采纳任务产物：定格注文并进入 `Show`。返回是否需要重绘。
     ///
-    /// `outcome.note` 直接覆盖流式视图（权威源约定见 `crate::pipeline`）；
+    /// `outcome.note` 直接覆盖流式视图（权威源约定见 `crate::runtime::pipeline`）；
     /// 原文从流式视图随行进产物卡（经注疏的「经」位），完成态保有原文
     /// 对照；代码语言以产物的 LLM 判定优先。
     pub fn accept_done(&mut self, generation: u64, outcome: TaskOutcome) -> bool {

@@ -33,9 +33,9 @@ use gloss_core::log::{Instrument, debug, info, thread, warn};
 use gloss_core::model::GlossError;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::cache::{TaskCache, cache_key};
 use crate::channel::{Command, Event, Traced};
-use crate::finalize::complete;
+use crate::runtime::cache::{TaskCache, cache_key};
+use crate::runtime::finalize::complete;
 
 /// 关停运行时的等待上限：正常退出路径里通道③已关闭、消费循环已在收尾，
 /// 只兜底极端悬挂。
@@ -247,8 +247,8 @@ mod tests {
     use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
     use super::{CommandRuntime, Event, start_command_runtime};
-    use crate::cache::TaskCache;
     use crate::channel::{Command, Traced};
+    use crate::runtime::cache::TaskCache;
 
     fn start(
         engine: &MockEngine,

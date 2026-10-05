@@ -2,24 +2,19 @@
 //!
 //! 壳层按职责拆内部子模块，[`GlossApp`] 结构体与其余壳级编排留在本模块：
 //! - [`events`]——事件循环入口与跨线程唤醒句柄；
-//! - [`render`]——浮层与设置窗口共用的帧渲染管线；
 //! - [`handler`]——winit 事件分发（`ApplicationHandler` 实现）；
 //! - [`channels`]——通道①③④的消费与下发；
-//! - [`overlay`]——浮层显隐、收起出口与浮层动作执行；
-//! - [`settings_session`]——设置窗口的编辑会话生命周期；
-//! - [`theme`]——主题偏好施加到两个 egui 上下文。
+//! - [`overlay`]——浮层显隐、收起出口与浮层动作执行。
+//!
+//! 渲染帧管线与主题在 `present`，设置编辑会话在 `flow`。
 
 mod channels;
 mod events;
 mod handler;
 mod overlay;
-mod render;
-mod settings_session;
-mod theme;
 
 pub use events::{UserEvent, Waker, run};
 pub use overlay::centered_position;
-pub use render::{Frame, build_window_stack, render_frame, render_frame_with};
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -34,61 +29,62 @@ use gloss_core::ports::{ConfigStore, SceneProbe};
 use winit::dpi::LogicalSize;
 
 use crate::channel::AppEndpoints;
-use crate::i18n::Text;
 use crate::machine::{AppState, TaskStateMachine};
+use crate::present::render::{Frame, render_frame, render_frame_with};
+use crate::present::windows::WindowManager;
+use crate::ui::i18n::Text;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
 use crate::update::UpdateWiring;
-use crate::windows::WindowManager;
 
-struct GlossApp {
-    windows: Option<WindowManager>,
-    frame: Option<Frame>,
+pub(crate) struct GlossApp {
+    pub(crate) windows: Option<WindowManager>,
+    pub(crate) frame: Option<Frame>,
     /// 浮层 egui 要求的下一帧时间点；`None` 表示等到有事件再画。
-    overlay_repaint: Option<Instant>,
+    pub(crate) overlay_repaint: Option<Instant>,
     /// 设置窗口 egui 要求的下一帧时间点，与浮层的 [`Self::overlay_repaint`]
     /// 各自独立。
-    settings_repaint: Option<Instant>,
+    pub(crate) settings_repaint: Option<Instant>,
     /// 组装点移交的通道端点（① 收、② 发、③ 发、④ 收）。
-    endpoints: Option<AppEndpoints>,
+    pub(crate) endpoints: Option<AppEndpoints>,
     /// 任务状态机（functional core，见 machine.rs）：纯状态转移，壳只做
     /// 通道发送、浮层窗口操作与日志。
-    machine: TaskStateMachine,
+    pub(crate) machine: TaskStateMachine,
     /// 运行时配置句柄：每批平台事件取一份快照交给状态机，
     /// 配置保存后无需重启即对下一次触发生效。
-    config: Arc<ConfigHandle>,
+    pub(crate) config: Arc<ConfigHandle>,
     /// 配置存储：设置页写 keychain 用——文档半边走句柄，密钥
     /// 半边不进快照也不进句柄，经这里直查。
-    store: Arc<dyn ConfigStore>,
+    pub(crate) store: Arc<dyn ConfigStore>,
     /// 设置窗口的渲染帧；随窗口栈在 `resumed` 时建好，隐藏期保留。
-    settings_frame: Option<Frame>,
+    pub(crate) settings_frame: Option<Frame>,
     /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
     /// 之丢弃）。
-    settings: Option<SettingsState>,
+    pub(crate) settings: Option<SettingsState>,
     /// 触发前场景探针：安全输入态与前台应用由它现读，壳只把它转交状态机
     /// 作场景闸门判定（见 `drain_platform_events`）。
-    scene: Arc<dyn SceneProbe>,
+    pub(crate) scene: Arc<dyn SceneProbe>,
     /// 启动期读到的系统语言：配置里的 `Language::System` 靠它落定成具体的
     /// 界面语言与 prompt 模板语言（进程内不变，改系统语言要重启）。
-    system_locale: Locale,
+    pub(crate) system_locale: Locale,
     /// 已施加到两个 egui 上下文的主题；`None` 表示还没施加过（窗口未起时
     /// 会有这个状态）。
-    applied_theme: Option<Theme>,
+    pub(crate) applied_theme: Option<Theme>,
     /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
     /// 代数对不上（陈旧）时浮层回落居中。
-    selection_anchor: Option<(u64, ScreenPoint)>,
+    pub(crate) selection_anchor: Option<(u64, ScreenPoint)>,
     /// 在途划词探测触发时的前台应用标识：探测失败按误滑静默丢弃，这条
     /// 标识是「划了没反应」排查日志的唯一线索；探测提交/丢弃即清。
-    probe_front_app: Option<FrontApp>,
+    pub(crate) probe_front_app: Option<FrontApp>,
     /// 触发即显挂起：占代数的触发置位，下一次 drain_events 消费
     /// （那里才有 ActiveEventLoop 可做定位与显示；显形判定在
     /// `overlay::should_reveal`）。
-    pending_reveal: bool,
+    pub(crate) pending_reveal: bool,
     /// 当前任务的 span（触发点创建）与它所属的代数：随通道②③下发，让接收
     /// 线程的日志自动带上 `generation`。重试沿用同一个（代数不变）。
-    task_span: Option<(u64, Span)>,
+    pub(crate) task_span: Option<(u64, Span)>,
     /// 更新子系统的壳侧接线：设置页每帧读其 receiver 渲染，用户动作经
     /// 出口转投模块（与主流程四通道隔离）。
-    update: UpdateWiring,
+    pub(crate) update: UpdateWiring,
 }
 
 impl GlossApp {
@@ -136,7 +132,7 @@ impl GlossApp {
 
     /// 当前界面语言：配置里的三态偏好按启动期系统语言落定（与 prompt
     /// 选表同一处取值）。逐帧从快照取——设置页保存后下一帧即换文案表。
-    fn locale(&self) -> Locale {
+    pub(crate) fn locale(&self) -> Locale {
         self.config.snapshot().language.resolve(self.system_locale)
     }
 
@@ -206,7 +202,7 @@ impl GlossApp {
 }
 
 #[cfg(test)]
-mod test_support {
+pub(crate) mod test_support {
     use std::sync::Arc;
 
     use gloss_core::config::Config;
@@ -222,7 +218,7 @@ mod test_support {
 
     use super::GlossApp;
 
-    pub(super) fn update_wiring() -> crate::update::UpdateWiring {
+    pub(crate) fn update_wiring() -> crate::update::UpdateWiring {
         let (_tx, receiver) =
             tokio::sync::watch::channel(crate::update::state::UpdateState::default());
         crate::update::UpdateWiring {
@@ -231,7 +227,7 @@ mod test_support {
         }
     }
 
-    pub(super) type DrivenApp = (
+    pub(crate) type DrivenApp = (
         GlossApp,
         Arc<ConfigHandle>,
         Arc<dyn ConfigStore>,
@@ -241,15 +237,15 @@ mod test_support {
         crossbeam_channel::Sender<Event>,
     );
 
-    pub(super) fn driven_app() -> DrivenApp {
+    pub(crate) fn driven_app() -> DrivenApp {
         driven_app_with(Arc::new(MemoryConfigStore::default()))
     }
 
-    pub(super) fn driven_app_with(store: Arc<dyn ConfigStore>) -> DrivenApp {
+    pub(crate) fn driven_app_with(store: Arc<dyn ConfigStore>) -> DrivenApp {
         driven_app_with_scene(store, Arc::new(StubSceneProbe::default()))
     }
 
-    pub(super) fn driven_app_with_scene(
+    pub(crate) fn driven_app_with_scene(
         store: Arc<dyn ConfigStore>,
         scene: Arc<dyn SceneProbe>,
     ) -> DrivenApp {
@@ -295,7 +291,7 @@ mod test_support {
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
     }
 
-    pub(super) fn trigger_selection(
+    pub(crate) fn trigger_selection(
         app: &mut GlossApp,
         pe_tx: &crossbeam_channel::Sender<PlatformEvent>,
     ) {
@@ -307,11 +303,11 @@ mod test_support {
         app.drain_platform_events();
     }
 
-    pub(super) fn text_input(text: &str) -> TaskInput {
+    pub(crate) fn text_input(text: &str) -> TaskInput {
         TaskInput::Text { text: text.into() }
     }
 
-    pub(super) fn plain_outcome(note: &str) -> gloss_core::task::TaskOutcome {
+    pub(crate) fn plain_outcome(note: &str) -> gloss_core::task::TaskOutcome {
         gloss_core::task::TaskOutcome {
             kind: gloss_core::task::TaskKind::TranslateWord,
             note: note.into(),
@@ -322,14 +318,14 @@ mod test_support {
         }
     }
 
-    pub(super) fn streaming_raw(app: &GlossApp) -> &str {
+    pub(crate) fn streaming_raw(app: &GlossApp) -> &str {
         match app.machine.overlay_view() {
             Some(OverlayView::Streaming { raw, .. }) => raw,
             other => panic!("expected streaming view, got {other:?}"),
         }
     }
 
-    pub(super) fn outcome_note(app: &GlossApp) -> &str {
+    pub(crate) fn outcome_note(app: &GlossApp) -> &str {
         match app.machine.overlay_view() {
             Some(OverlayView::Outcome { outcome, .. }) => &outcome.note,
             other => panic!("expected outcome view, got {other:?}"),

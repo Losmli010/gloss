@@ -7,8 +7,8 @@ use winit::dpi::LogicalPosition;
 use winit::event_loop::ActiveEventLoop;
 
 use crate::channel::Event;
+use crate::present::windows::{Placement, WindowManager};
 use crate::ui::popup::OverlayAction;
-use crate::windows::{Placement, WindowManager};
 
 use super::GlossApp;
 
@@ -183,7 +183,7 @@ mod tests {
     use winit::dpi::LogicalPosition;
 
     use super::{EventKind, auto_show_after, auto_show_for, should_reveal, show_position};
-    use crate::windows::Placement;
+    use crate::present::windows::Placement;
 
     #[test]
     fn show_position_follows_selection_only_for_the_current_generation() {

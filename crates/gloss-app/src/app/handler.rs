@@ -17,7 +17,8 @@ impl GlossApp {
     /// 建窗口栈 → 建两个窗口的帧状态，一次做完。
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
         let theme = self.target_theme();
-        let (windows, frame, settings_frame) = super::build_window_stack(event_loop, theme)?;
+        let (windows, frame, settings_frame) =
+            crate::present::render::build_window_stack(event_loop, theme)?;
         self.frame = Some(frame);
         self.settings_frame = Some(settings_frame);
         self.windows = Some(windows);

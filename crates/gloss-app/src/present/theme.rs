@@ -5,16 +5,16 @@ use gloss_core::log::{debug, thread};
 
 use crate::ui::context;
 
-use super::GlossApp;
+use crate::app::GlossApp;
 
 impl GlossApp {
     /// 配置快照里的主题偏好：建帧（上下文建立时装入）与逐帧施加共用这一处取值。
-    pub(super) fn target_theme(&self) -> Theme {
+    pub(crate) fn target_theme(&self) -> Theme {
         self.config.snapshot().theme
     }
 
     /// 把主题偏好施加到两个 egui 上下文：偏好变化时才写，两个上下文各写一次。
-    pub(super) fn apply_theme(&mut self) {
+    pub(crate) fn apply_theme(&mut self) {
         let theme = self.target_theme();
         if self.applied_theme == Some(theme) {
             return;

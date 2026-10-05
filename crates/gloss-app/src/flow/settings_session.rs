@@ -3,16 +3,16 @@
 use gloss_core::config::Config;
 use gloss_core::log::{info, thread, warn};
 
-use crate::i18n::Text;
+use crate::ui::i18n::Text;
 use crate::ui::settings::{KeyUpdate, SettingsNotice};
 
-use super::GlossApp;
+use crate::app::GlossApp;
 
 impl GlossApp {
     /// 打开设置窗口的统一入口（托盘的 `OpenSettingsRequested` 与浮层
     /// 失败卡的「打开设置」走同一条路）。窗口已可见时只聚焦；否则以当前
     /// 快照开一个新编辑会话——未保存的草稿随旧会话一并作废。
-    pub(super) fn open_settings(&mut self) {
+    pub(crate) fn open_settings(&mut self) {
         // 窗口标题按当前界面语言写入：窗内文案取自同一份快照语言，两者同语。
         let title = Text::get(self.locale()).gloss_app_settings_title.as_str();
         if self.settings.is_some() {
@@ -32,7 +32,7 @@ impl GlossApp {
     /// 保存设置：密钥按 [`KeyUpdate`] 处理（失败即中止，不留下「密钥换了
     /// 配置没换」的半截状态），配置走热更新路径（先落盘再换快照）；成功即
     /// 关闭窗口——「下一次任务即生效」由快照语义保证。
-    pub(super) fn save_settings(&mut self, config: Config, key_update: KeyUpdate) {
+    pub(crate) fn save_settings(&mut self, config: Config, key_update: KeyUpdate) {
         let keychain_id = config.resolved_provider().keychain_id.clone();
         let key_result = match &key_update {
             KeyUpdate::Keep => Ok(()),
@@ -80,7 +80,7 @@ impl GlossApp {
     }
 
     /// 关闭设置窗口：隐藏不销毁，丢弃编辑会话（未保存的草稿一并作废）。
-    pub(super) fn close_settings(&mut self) {
+    pub(crate) fn close_settings(&mut self) {
         self.settings = None;
         self.settings_repaint = None;
         if let Some(windows) = &self.windows {

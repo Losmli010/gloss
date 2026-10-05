@@ -25,7 +25,7 @@ use gloss_core::config::{
 use gloss_core::model::{GlossError, Lang};
 
 use super::style::{color, font, radius, space};
-use crate::i18n::{Text, fill};
+use crate::ui::i18n::{Text, fill};
 use crate::update::UpdateMsg;
 use crate::update::state::{FailStep, UpdatePhase, UpdateState};
 

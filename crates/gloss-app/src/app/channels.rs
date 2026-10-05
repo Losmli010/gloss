@@ -21,7 +21,7 @@ impl GlossApp {
     /// 反应」，而这是他能自己修的（换一个应用，或取消密码框的聚焦）。
     /// 前台应用随划词探测留存（`probe_front_app`），探测失败的排查日志
     /// 带上它——那是「划了没反应」的唯一线索。
-    pub(super) fn drain_platform_events(&mut self) {
+    pub(crate) fn drain_platform_events(&mut self) {
         // 配置快照在本批事件的起手处取一次（零锁读）：本批触发的任务都用
         // 同一份配置解析类型与选项——任务一旦触发，其配置就固定了。
         let config = self.config.snapshot();
@@ -178,7 +178,7 @@ impl GlossApp {
     /// 采纳取材产物：划词探测命中走提交段（内容到达才显形），其余按
     /// 陈旧产物丢弃（收起后的取材、被顶掉的旧探测）。返回是否进入了
     /// 需要展示浮层的新任务。
-    pub(super) fn accept_input(&mut self, generation: u64, input: TaskInput) -> bool {
+    pub(crate) fn accept_input(&mut self, generation: u64, input: TaskInput) -> bool {
         // 探测编号在提交时才提升为代数，陈旧过滤按编号而不是代数。
         if self.machine.probe_id() == Some(generation) {
             return self.commit_probe(generation, input);
