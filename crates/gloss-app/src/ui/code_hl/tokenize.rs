@@ -1,67 +1,22 @@
-//! 代码语言探测、归一化与语法着色（demo 同款架构：单趟正则分组捕获）。
+//! 单趟着色：规则集正则的组装与逐帧扫描。
 //!
 //! 规则集由共享词法积木组装——行/块注释、字符串（含转义与三引号）、
 //! 数字（含十六进制/浮点）、大写驼峰类型、函数形——每语言只补关键字表；
 //! JSON/YAML/TOML/SQL/HTML/XML/CSS 出特化规则（键/标签/选择器）。未知
-//! 语言走通用启发集（字符串/两类注释/数字/类型/函数形仍着色），探测
-//! 不出的语言角标不显示。正则按语言惰性编译一次（`OnceLock` 全表），
-//! 逐帧的匹配是单趟线性扫描；流式重排由 egui 的 galley 缓存兜住，本
-//! 模块不自建缓存。
+//! 语言走通用启发集（字符串/两类注释/数字/类型/函数形仍着色）。正则按
+//! 语言惰性编译一次（`OnceLock` 全表），逐帧的匹配是单趟线性扫描；流式
+//! 重排由 egui 的 galley 缓存兜住，本模块不自建缓存。
 //!
-//! 语言有两级来源：平台 hint（[`gloss_core::task::InputHint::CodeLanguage`]）
-//! 优先，缺失时对文本内容探测（shebang、doctype、语言签名形）。判定在
-//! 视图创建时做一次，不进渲染热路径；结果同时供语言角标文字与高亮规则
-//! 集选择消费。归一化把别名收拢到规范名（rs→rust、py→python…），角标
-//! 与规则集都只认规范名。
+//! 类别与色板在 [`super::palette`]；语言探测与归一化在 [`super::detect`]。
 
 use std::ops::Range;
 use std::sync::OnceLock;
 
-use egui::Color32;
 use gloss_core::log::{thread, warn};
 use regex::Regex;
 
-/// 着色类别（demo 的 tok 六分类）：注释恒斜体，其余直立。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Class {
-    /// 关键字（demo --k）。
-    Keyword,
-    /// 字符串字面量（demo --s）。
-    String,
-    /// 行/块注释（demo --c，恒斜体）。
-    Comment,
-    /// 数字（demo --n）。
-    Number,
-    /// 类型/键/标签（demo --t）。
-    Type,
-    /// 函数形/属性/选择器（demo --f）。
-    Function,
-}
-
-impl Class {
-    /// 类别着色（demo token 明暗两套）。
-    pub(crate) fn color(self, dark: bool) -> Color32 {
-        match (self, dark) {
-            (Class::Keyword, true) => Color32::from_rgb(0xC7, 0x92, 0xEA),
-            (Class::String, true) => Color32::from_rgb(0xA5, 0xD6, 0xA7),
-            (Class::Comment, true) => Color32::from_rgb(0x6D, 0x76, 0x83),
-            (Class::Number, true) => Color32::from_rgb(0xF0, 0xB4, 0x52),
-            (Class::Type, true) => Color32::from_rgb(0x66, 0xC7, 0xD4),
-            (Class::Function, true) => Color32::from_rgb(0x7C, 0xB8, 0xEC),
-            (Class::Keyword, false) => Color32::from_rgb(0x8E, 0x44, 0xAD),
-            (Class::String, false) => Color32::from_rgb(0x1E, 0x7E, 0x34),
-            (Class::Comment, false) => Color32::from_rgb(0x9A, 0xA1, 0xAC),
-            (Class::Number, false) => Color32::from_rgb(0xB4, 0x53, 0x09),
-            (Class::Type, false) => Color32::from_rgb(0x0E, 0x7C, 0x8C),
-            (Class::Function, false) => Color32::from_rgb(0x2B, 0x6C, 0xB0),
-        }
-    }
-
-    /// 注释恒斜体（demo .tok.c 的 font-style: italic）。
-    pub(crate) fn italic(self) -> bool {
-        matches!(self, Class::Comment)
-    }
-}
+use super::detect::normalize_language;
+use super::palette::Class;
 
 /// 单趟着色：按语言的规则集扫一遍文本，交出各类别的字节区间（互不重
 /// 叠、按出现顺序）。`lang` 经归一化；未知语言与 `None` 都落通用启发
@@ -1137,152 +1092,6 @@ const LANGS: &[LangSpec] = &[
     },
 ];
 
-/// 把语言名归一化为规范名：别名映射收拢，未知输入原样小写返回（角标
-/// 如实显示），空白视为无语言。
-pub(crate) fn normalize_language(name: &str) -> Option<String> {
-    let lower = name.trim().to_ascii_lowercase();
-    if lower.is_empty() {
-        return None;
-    }
-    Some(
-        match lower.as_str() {
-            "rs" => "rust",
-            "py" => "python",
-            "js" | "node" | "nodejs" | "mjs" | "cjs" | "jsx" => "javascript",
-            "ts" | "tsx" => "typescript",
-            "golang" => "go",
-            "sh" | "shell" | "zsh" => "bash",
-            "yml" => "yaml",
-            "cpp" | "c++" | "cxx" | "cc" | "hpp" => "cpp",
-            "cs" | "c#" => "csharp",
-            "kt" | "kts" => "kotlin",
-            "rb" => "ruby",
-            "pl" | "pm" => "perl",
-            "hs" => "haskell",
-            "ex" | "exs" => "elixir",
-            "jl" => "julia",
-            "clj" | "cljs" | "cljc" | "edn" => "clojure",
-            "objc" | "objective-c" | "objectivec" | "mm" => "objc",
-            "htm" | "xhtml" => "html",
-            _ => lower.as_str(),
-        }
-        .to_owned(),
-    )
-}
-
-/// 内容探测：依序试各签名形，首个命中即返回规范名。顺序即优先级——
-/// shebang 与 doctype 这类显式声明先于语言签名形（`import ` 这类弱
-/// 签名放最后兜底）。
-pub(crate) fn detect_language(text: &str) -> Option<String> {
-    let head = text.trim_start();
-    if let Some(lang) = detect_shebang(head) {
-        return Some(lang);
-    }
-    if head.starts_with("<!DOCTYPE html") || head.starts_with("<!doctype html") {
-        return Some("html".to_owned());
-    }
-    if head.starts_with("<?xml") {
-        return Some("xml".to_owned());
-    }
-    if head.starts_with("<?php") {
-        return Some("php".to_owned());
-    }
-    if looks_like_sql(head) {
-        return Some("sql".to_owned());
-    }
-    if has_line_start(head, "package main") {
-        return Some("go".to_owned());
-    }
-    if head.contains("fn main") {
-        return Some("rust".to_owned());
-    }
-    if head.contains("func main") {
-        return Some("go".to_owned());
-    }
-    if has_line_start(head, "def ")
-        || has_line_start(head, "import ")
-        || has_line_start(head, "from ")
-    {
-        return Some("python".to_owned());
-    }
-    None
-}
-
-/// shebang 行（`#!` 开头）按解释器名映射语言；认不出解释器则无语言。
-/// 首个空白分隔 token 是解释器路径；`env` 转发时跳过旗标取其首个参数
-/// （`#!/bin/sh -e`、`#!/usr/bin/env -S python3` 这类带旗标形态）。
-fn detect_shebang(head: &str) -> Option<String> {
-    let first = head.lines().next()?;
-    let mut tokens = first.strip_prefix("#!")?.split_whitespace();
-    fn basename(path: &str) -> &str {
-        path.rsplit('/').next().unwrap_or(path)
-    }
-    let mut path = tokens.next()?;
-    let mut name = basename(path);
-    if name == "env" {
-        loop {
-            path = tokens.next()?;
-            if path.starts_with('-') {
-                continue;
-            }
-            name = basename(path);
-            break;
-        }
-    }
-    // `python3` / `python3.12` 这类带版本尾巴的解释器名截掉数字段。
-    let base = name
-        .split(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
-        .next()
-        .unwrap_or(name);
-    match base {
-        "python" => Some("python".to_owned()),
-        "bash" => Some("bash".to_owned()),
-        "sh" | "zsh" => Some("bash".to_owned()),
-        "ruby" => Some("ruby".to_owned()),
-        "perl" => Some("perl".to_owned()),
-        "node" => Some("javascript".to_owned()),
-        "lua" => Some("lua".to_owned()),
-        "Rscript" => Some("r".to_owned()),
-        _ => None,
-    }
-}
-
-/// `needle` 是否出现在某一行的行首（签名形的最弱锚定，避免命中行中间
-/// 的巧合子串）。
-fn has_line_start(text: &str, needle: &str) -> bool {
-    text.lines()
-        .any(|line| line.trim_start().starts_with(needle))
-}
-
-/// SQL 形状：某行以 SELECT 开头、另一行以 FROM 开头（均按词，大小写
-/// 不敏感）。行锚定 + 词边界——「selected / fromage」与注释里的子串
-/// 都不算；单行散文（"select one from many"）天然不命中。
-fn looks_like_sql(head: &str) -> bool {
-    fn line_starts_with_keyword(line: &str, keyword: &str) -> bool {
-        let line = line.trim_start();
-        let mut line_chars = line.chars();
-        for keyword_char in keyword.chars() {
-            if !line_chars
-                .next()
-                .is_some_and(|ch| ch.eq_ignore_ascii_case(&keyword_char))
-            {
-                return false;
-            }
-        }
-        match line_chars.next() {
-            Some(ch) => !(ch.is_alphanumeric() || ch == '_'),
-            None => true,
-        }
-    }
-    let mut has_select = false;
-    let mut has_from = false;
-    for line in head.lines() {
-        has_select |= line_starts_with_keyword(line, "select");
-        has_from |= line_starts_with_keyword(line, "from");
-    }
-    has_select && has_from
-}
-
 /// 规则集正则：按语言惰性编译一次（首帧全表编译，之后查表零成本）。
 /// 未知语言（表外规范名与 `None`）共用 `generic` 一套。
 /// 已编译规则集：generic 兜底一套 + 规范名查表（generic 编译失败时为
@@ -1537,152 +1346,6 @@ mod tests {
     }
 
     #[test]
-    fn normalize_language_collapses_aliases_to_canonical_names() {
-        assert_eq!(
-            normalize_language("rs").as_deref(),
-            Some("rust"),
-            "alias must fold to the canonical name"
-        );
-        assert_eq!(normalize_language("py").as_deref(), Some("python"));
-        assert_eq!(normalize_language("TS").as_deref(), Some("typescript"));
-        assert_eq!(normalize_language("golang").as_deref(), Some("go"));
-        assert_eq!(normalize_language("c++").as_deref(), Some("cpp"));
-        assert_eq!(normalize_language("kt").as_deref(), Some("kotlin"));
-        assert_eq!(normalize_language("rb").as_deref(), Some("ruby"));
-        assert_eq!(normalize_language("jl").as_deref(), Some("julia"));
-        assert_eq!(normalize_language("hs").as_deref(), Some("haskell"));
-        assert_eq!(normalize_language("clj").as_deref(), Some("clojure"));
-        assert_eq!(normalize_language("mm").as_deref(), Some("objc"));
-        assert_eq!(
-            normalize_language("kotlin").as_deref(),
-            Some("kotlin"),
-            "canonical names pass through unchanged"
-        );
-        assert_eq!(
-            normalize_language(" Fortran ").as_deref(),
-            Some("fortran"),
-            "unknown names keep their trimmed lowercase form"
-        );
-    }
-
-    #[test]
-    fn normalize_language_rejects_blank_names() {
-        assert_eq!(normalize_language(""), None);
-        assert_eq!(normalize_language("   "), None);
-    }
-
-    #[test]
-    fn detect_language_reads_shebang_interpreters() {
-        assert_eq!(
-            detect_language("#!/usr/bin/env python3\nprint('hi')").as_deref(),
-            Some("python")
-        );
-        assert_eq!(
-            detect_language("#!/bin/bash\nset -euo pipefail").as_deref(),
-            Some("bash")
-        );
-        assert_eq!(
-            detect_language("#!/usr/bin/ruby\nputs 'hi'").as_deref(),
-            Some("ruby")
-        );
-        assert_eq!(
-            detect_language("#!/usr/bin/node\nconsole.log(1)").as_deref(),
-            Some("javascript")
-        );
-        assert_eq!(
-            detect_language("#!/bin/sh -e\nx").as_deref(),
-            Some("bash"),
-            "a flag after the interpreter path must not shadow the name"
-        );
-        assert_eq!(
-            detect_language("#!/usr/bin/env -S python3 -a\nx").as_deref(),
-            Some("python"),
-            "env flags are skipped to reach the interpreter"
-        );
-        assert_eq!(
-            detect_language("#!/usr/bin/unknown-thing\nx").as_deref(),
-            None,
-            "an unrecognized interpreter yields no language"
-        );
-    }
-
-    #[test]
-    fn detect_language_reads_markup_declarations() {
-        assert_eq!(
-            detect_language("<!DOCTYPE html>\n<html>").as_deref(),
-            Some("html")
-        );
-        assert_eq!(
-            detect_language("<?xml version=\"1.0\"?>").as_deref(),
-            Some("xml")
-        );
-        assert_eq!(detect_language("<?php\necho 'hi';").as_deref(), Some("php"));
-    }
-
-    #[test]
-    fn detect_language_reads_language_signatures() {
-        assert_eq!(
-            detect_language("fn main() {\n    println!(\"hi\");\n}").as_deref(),
-            Some("rust")
-        );
-        assert_eq!(
-            detect_language("package main\n\nfunc main() {}").as_deref(),
-            Some("go"),
-            "the go package clause outranks the func signature"
-        );
-        assert_eq!(detect_language("func main() {}").as_deref(), Some("go"));
-        assert_eq!(
-            detect_language("def greet(name):\n    return name").as_deref(),
-            Some("python")
-        );
-        assert_eq!(
-            detect_language("import os").as_deref(),
-            Some("python"),
-            "a bare import line folds to python as the weakest signature"
-        );
-    }
-
-    #[test]
-    fn detect_language_reads_sql_shapes() {
-        assert_eq!(
-            detect_language("SELECT id\nFROM users").as_deref(),
-            Some("sql"),
-            "a select-from pair across lines is an SQL signature"
-        );
-        assert_eq!(
-            detect_language("select id\nfrom users").as_deref(),
-            Some("sql"),
-            "the shape is case-insensitive"
-        );
-        assert_eq!(
-            detect_language("SELECT 1").as_deref(),
-            None,
-            "a lone select without from is not enough"
-        );
-        assert_eq!(
-            detect_language("you select one from many options").as_deref(),
-            None,
-            "single-line prose that reads like the pair is left alone"
-        );
-    }
-
-    #[test]
-    fn detect_language_matches_signatures_only_at_line_starts() {
-        assert_eq!(
-            detect_language("the def in prose is not a signature").as_deref(),
-            None,
-            "mid-line matches must not count"
-        );
-    }
-
-    #[test]
-    fn detect_language_yields_none_for_plain_text() {
-        assert_eq!(detect_language(""), None);
-        assert_eq!(detect_language("just an ordinary sentence"), None);
-        assert_eq!(detect_language("选中的一般文本也没有语言"), None);
-    }
-
-    #[test]
     fn known_languages_color_keywords_and_shapes() {
         let tokens = tokenize("fn main() {}", Some("rs"));
         let text = "fn main() {}";
@@ -1851,20 +1514,6 @@ mod tests {
     }
 
     #[test]
-    fn sql_detection_ignores_non_statement_lines() {
-        assert_eq!(
-            detect_language("// select x from y\nfn main() {}").as_deref(),
-            Some("rust"),
-            "a select/from pair inside a comment is not an SQL statement"
-        );
-        assert_eq!(
-            detect_language("we selected options fromage the menu\nand more").as_deref(),
-            None,
-            "substring hits (selected/fromage) are not the keyword pair"
-        );
-    }
-
-    #[test]
     fn css_hex_colors_color_as_numbers_not_selectors() {
         let tokens = tokenize("a { color: #fff; } #wrap { top: 0; }", Some("css"));
         let hexes = tokens
@@ -1878,27 +1527,5 @@ mod tests {
             })
             .count();
         assert_eq!(hexes, 1, "a short hex color is a number: {tokens:?}");
-    }
-
-    #[test]
-    fn every_class_has_its_own_color_per_theme() {
-        let classes = [
-            Class::Keyword,
-            Class::String,
-            Class::Comment,
-            Class::Number,
-            Class::Type,
-            Class::Function,
-        ];
-        for dark in [true, false] {
-            let colors: Vec<_> = classes.iter().map(|class| class.color(dark)).collect();
-            for (index, left) in colors.iter().enumerate() {
-                for right in colors.iter().skip(index + 1) {
-                    assert_ne!(left, right, "classes must stay visually distinct");
-                }
-            }
-        }
-        assert!(Class::Comment.italic());
-        assert!(!Class::Keyword.italic());
     }
 }

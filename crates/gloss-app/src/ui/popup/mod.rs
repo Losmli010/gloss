@@ -10,8 +10,12 @@
 //!
 //! 三分区的正文列都显式声明垂直布局：egui 的 Frame/子 Ui 会继承父级的
 //! 水平布局（`new_child` 不带 layout 参数），横排父级里多条目正文会从左往
-//! 右流（释义并排、溢出右缘）。分区的字号/间距是本模块私有量（demo 定稿
-//! 值），不进 style 阶梯。
+//! 右流（释义并排、溢出右缘）。分区的间距是本模块私有量，字号规格与宋楷
+//! 字体助手在 [`content`]（都是 demo 定稿值），不进 style 阶梯。
+//!
+//! 决策纯函数不进绘制模板，按职责拆在子模块：[`note`]（流式 JSON 渐进
+//! 提取）、[`sizing`]（宽度滞回）、[`icon`]（图标解码裁剪）、[`content`]
+//! （文案整形）；本模块只留绘制模板与面板编排，依赖方向恒为绘制 → 决策。
 //!
 //! 词卡精排（词条/音标落经位，释义逐行落注位，例句落疏位），其余任务正文
 //! 走 markdown（egui_commonmark 渲染；注区统一改写文本样式为楷体字号）。
@@ -38,8 +42,21 @@
 //! 敏感信息防护不在这里：两条闸门都不出浮层（见 `gloss_app::machine`），
 //! 因此也没有「疑似敏感」这张卡。
 
+mod content;
+mod icon;
+mod note;
+mod sizing;
+
+use content::{
+    JING_FONT, PHON_FONT, SEAL_FONT, SHU_FONT, WORD_FONT, ZHU_FONT, example_lines, extract_note,
+    kaiti_font, serif_font, watermark,
+};
+use icon::app_icon_image;
+use note::stream_note;
+pub use sizing::WIDTH;
+use sizing::resolve_width;
+
 use std::cell::{Cell, RefCell};
-use std::sync::OnceLock;
 use std::time::Duration;
 
 use egui::{
@@ -47,36 +64,16 @@ use egui::{
     TextStyle, vec2,
 };
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
-use gloss_core::log::{thread, warn};
 use gloss_core::task::{OutcomeStructured, TaskKind};
 
 use super::code_hl;
 use super::fonts;
 use super::style::{color, font, radius, space, stroke};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
-use crate::ui::i18n::{Text, fill};
+use crate::ui::i18n::Text;
 
-/// 浮层默认宽度（04 §二：默认 380px，长文本自适应，上限 480px）
-pub const WIDTH: f32 = 380.0;
-/// 长文本自适应的宽度上限
-const MAX_WIDTH: f32 = 480.0;
-/// 宽度收敛阈值：完整内容高超过此值视为长文本，加宽到上限
-const TALL_GROW: f32 = 320.0;
-/// 宽度收回阈值：已加宽的浮层内容矮于此值才收回默认宽（与 TALL_GROW
-/// 之间的滞回带防逐帧来回切换）
-const TALL_SHRINK: f32 = 240.0;
-/// 宽度档位判定的浮点容差
-const WIDTH_SWITCH_EPSILON: f32 = 0.5;
 /// 页头应用图标的边长
 const HEADER_ICON: f32 = 20.0;
-/// 应用图标 PNG：与 Dock 图标同一份设计资产（矢量源与画布说明见
-/// assets/icons/gloss-app-icon.svg）。
-const APP_ICON_PNG: &[u8] = include_bytes!("../../../../assets/icons/gloss-dock-icon.png");
-/// 应用图标画布的 Big Sur 规范比例：画布 1024、四周透明边距 100、图形本体
-/// 824（SVG 源同值）；页头按此比例裁出图形本体，不显示透明边距。
-const ICON_CANVAS: u32 = 1024;
-const ICON_MARGIN: u32 = 100;
-const ICON_CONTENT: u32 = 824;
 /// 头部齿轮的字形尺寸
 const ACTION_ICON_SIZE: f32 = 16.0;
 /// 头部动作钮的方块边长：齿轮与关闭的命中区统一到这个盒子
@@ -89,14 +86,6 @@ const CLOSE_STROKE: f32 = 2.0;
 const DRAG_STRIP_INSET: f32 = 6.0;
 /// 出现动画时长（淡入，秒）：显示/重显后的第一帧从 0 渐进到 1。
 const APPEAR_SECONDS: f32 = 0.18;
-/// 经注疏排版的字号（demo 定稿值）：经 15.5、注 15、疏 12.5；词条 25，
-/// 音标/词性 13，印章字 12。
-const JING_FONT: f32 = 15.5;
-const ZHU_FONT: f32 = 15.0;
-const SHU_FONT: f32 = 12.5;
-const WORD_FONT: f32 = 25.0;
-const PHON_FONT: f32 = 13.0;
-const SEAL_FONT: f32 = 12.0;
 /// 印章方块的边长与圆角（demo 定稿：21px、5px 圆角）；en 缩写按文本宽度
 /// 撑宽，方块边长是下限。
 const SEAL_SIZE: f32 = 21.0;
@@ -199,45 +188,6 @@ impl RenderState {
         }
         slot.clone()
     }
-}
-
-/// 应用图标的解码结果：进程内只解码一次（含失败）。
-fn app_icon_image() -> Option<egui::ColorImage> {
-    static DECODED: OnceLock<Option<egui::ColorImage>> = OnceLock::new();
-    DECODED
-        .get_or_init(|| decode_app_icon(APP_ICON_PNG))
-        .clone()
-}
-
-/// 解码给定的 PNG 字节并按画布比例裁出图形本体；失败走隔离降级——记一条
-/// 告警，页头退化为无图标的动作行，不影响其余内容。参数化 PNG 来源，
-/// 裁剪数学与降级分支可经 L1 测试直接驱动。
-fn decode_app_icon(png: &[u8]) -> Option<egui::ColorImage> {
-    use image::GenericImageView;
-    let decoded = match image::load_from_memory(png) {
-        Ok(decoded) => decoded,
-        Err(error) => {
-            warn!(
-                thread = thread::UI,
-                error = %error,
-                "app icon failed to decode, header renders without it"
-            );
-            return None;
-        }
-    };
-    let (width, height) = decoded.dimensions();
-    // 裁剪数学假设正方形画布与四边等边距（SVG 源即如此）；资产若改版失衡，
-    // debug 构建里第一时间显形。
-    debug_assert_eq!(width, height, "app icon canvas is expected to be square");
-    let margin = width * ICON_MARGIN / ICON_CANVAS;
-    let content = width * ICON_CONTENT / ICON_CANVAS;
-    let rgba = decoded
-        .crop_imm(margin, margin, content, content)
-        .to_rgba8();
-    Some(egui::ColorImage::from_rgba_unmultiplied(
-        [content as usize, content as usize],
-        rgba.as_raw(),
-    ))
 }
 
 /// 一帧浮层绘制的产物：动作上交 + 内容期望的窗口尺寸（逻辑点）。
@@ -362,23 +312,6 @@ pub fn draw(
         height: (content_h + 2.0 * space::CARD_PADDING as f32 + stroke::CARD).round(),
     };
     output
-}
-
-/// 宽度收敛决策：已加宽的浮层内容矮于 [`TALL_SHRINK`] 才收回默认宽，
-/// 默认宽的内容高于 [`TALL_GROW`] 才加宽——两阈值之间的滞回带保持原档，
-/// 内容高随宽度变化时不振荡。
-fn resolve_width(last_width: f32, content_h: f32) -> f32 {
-    if last_width >= MAX_WIDTH - WIDTH_SWITCH_EPSILON {
-        if content_h < TALL_SHRINK {
-            WIDTH
-        } else {
-            MAX_WIDTH
-        }
-    } else if content_h > TALL_GROW {
-        MAX_WIDTH
-    } else {
-        WIDTH
-    }
 }
 
 /// 滚动视图的完整内容高：实测布局高（视口收缩到内容时即真实高度）加上
@@ -744,16 +677,6 @@ fn zhu_line_color(ui: &egui::Ui) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(zhu.r(), zhu.g(), zhu.b(), ZHU_LINE_ALPHA)
 }
 
-/// 宋体字（经/疏/印章）。
-fn serif_font(size: f32) -> FontId {
-    FontId::new(size, fonts::serif_family())
-}
-
-/// 楷体字（注）。
-fn kaiti_font(size: f32) -> FontId {
-    FontId::new(size, fonts::zhu_family())
-}
-
 /// 经区行：墨印 + 正文列（`body` 在列内绘制，显式垂直布局）。
 fn jing_section(ui: &mut egui::Ui, text: &Text, body: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal_top(|ui| {
@@ -1079,181 +1002,12 @@ fn footer(ui: &mut egui::Ui, streaming: bool, text: &Text) {
     );
 }
 
-/// 页脚水印的品牌名：应用名不翻译（与窗口标题同一原则）。
-fn watermark() -> &'static str {
-    "Gloss"
-}
-
 /// 无边框的动作图标钮（glyph 字形，颜色由 widget 状态笔刷决定）；方块
 /// min_size 让齿轮与关闭钮命中区等大。
 fn icon_button(glyph: &'static str) -> egui::Button<'static> {
     egui::Button::new(RichText::new(glyph).size(ACTION_ICON_SIZE))
         .frame(false)
         .min_size(vec2(ACTION_BUTTON, ACTION_BUTTON))
-}
-
-/// 流式注文的可见部分：对累积的原始流做**转义感知**的 `note`（义）渐进
-/// 提取，返回已到达内容的反转义前缀。现行输出契约是纯 JSON 对象，`note`
-/// 的位置随 kind 而定（词卡的 phonetic 在它前面），因此扫描器逐对跳过
-/// 先到的完整键值——`note` 键或值未到齐时返回空串，正文区落骨架，页脚
-/// 保留「正在注解」进度态。值到齐后按 JSON 字符串转义规则逐段反转义；
-/// 残缺的转义序列（尾部孤反斜杠、不足四位的 `\uXXXX`）本帧丢弃、下一帧
-/// 补齐，UTF-16 代理对在流式期暂缺（完成态以 `outcome.note` 为权威源）。
-/// 旧契约（markdown + 围栏）不含 `note` 键，全程进度态，由 finalize 的
-/// 围栏 fallback 在完成态兜住。
-fn stream_note(raw: &str) -> String {
-    let mut cursor = Cursor {
-        rest: raw.trim_start(),
-    };
-    if !cursor.strip("{") {
-        return String::new();
-    }
-    loop {
-        // 键：字符串字面量；未闭合则整路进度态。
-        let Some(key) = cursor.json_string() else {
-            return String::new();
-        };
-        cursor.skip_ws();
-        if !cursor.strip(":") {
-            return String::new();
-        }
-        cursor.skip_ws();
-        if key == "note" {
-            return cursor.json_string().unwrap_or_default();
-        }
-        // 其余键：跳过完整值；值未写完则进度态。
-        if !cursor.skip_value() {
-            return String::new();
-        }
-        cursor.skip_ws();
-        if !cursor.strip(",") {
-            return String::new();
-        }
-    }
-}
-
-/// JSON 前缀扫描游标：`rest` 恒为未消费部分；所有「未到齐」情形都消费
-/// 尽量少并让调用方落进度态（下一帧整段重扫，流式帧几十 KB 上界、无
-/// 分配，无需增量缓存）。
-struct Cursor<'a> {
-    rest: &'a str,
-}
-
-impl Cursor<'_> {
-    /// 剥掉前缀；不匹配则原样保留并返回 `false`。
-    fn strip(&mut self, prefix: &str) -> bool {
-        let Some(rest) = self.rest.strip_prefix(prefix) else {
-            return false;
-        };
-        self.rest = rest;
-        true
-    }
-
-    fn skip_ws(&mut self) {
-        self.rest = self.rest.trim_start();
-    }
-
-    /// 提取一个 JSON 字符串的反转义内容（调用方已确认 `"` 起头；未闭合
-    /// 返回 `None`，残缺转义就地截断、下一帧补齐）。
-    fn json_string(&mut self) -> Option<String> {
-        self.skip_ws();
-        if !self.strip("\"") {
-            return None;
-        }
-        let mut out = String::new();
-        let mut chars = self.rest.chars();
-        loop {
-            // 输入耗尽＝值未写完：已到达的部分照样上屏（下一帧整段重扫）。
-            let Some(ch) = chars.next() else {
-                self.rest = "";
-                return Some(out);
-            };
-            match ch {
-                '"' => {
-                    self.rest = chars.as_str();
-                    return Some(out);
-                }
-                '\\' => {
-                    // 残缺转义（尾部孤反斜杠/不足四位的 \uXXXX）就地截断、
-                    // 返回已到达部分——下一帧整段重扫后补齐。
-                    let Some(escaped) = chars.next() else {
-                        self.rest = "";
-                        return Some(out);
-                    };
-                    match escaped {
-                        'n' => out.push('\n'),
-                        't' => out.push('\t'),
-                        'r' => out.push('\r'),
-                        'b' => out.push('\u{0008}'),
-                        'f' => out.push('\u{000C}'),
-                        'u' => {
-                            let mut hex = String::new();
-                            for _ in 0..4 {
-                                let Some(digit) = chars.next() else {
-                                    self.rest = "";
-                                    return Some(out);
-                                };
-                                hex.push(digit);
-                            }
-                            if let Ok(code) = u32::from_str_radix(&hex, 16)
-                                && let Some(decoded) = char::from_u32(code)
-                            {
-                                out.push(decoded);
-                            }
-                        }
-                        other => out.push(other),
-                    }
-                }
-                other => out.push(other),
-            }
-        }
-    }
-
-    /// 跳过一个完整 JSON 值（字符串/数字/true/false/null/数组/对象）；
-    /// 值未写完返回 `false`（进度态）。
-    fn skip_value(&mut self) -> bool {
-        self.skip_ws();
-        let Some(first) = self.rest.chars().next() else {
-            return false;
-        };
-        match first {
-            '"' => self.json_string().is_some(),
-            '{' | '[' => {
-                let close = if first == '{' { '}' } else { ']' };
-                if !self.strip(first.encode_utf8(&mut [0; 4])) {
-                    return false;
-                }
-                loop {
-                    self.skip_ws();
-                    let Some(next) = self.rest.chars().next() else {
-                        return false;
-                    };
-                    if next == '"' {
-                        if self.json_string().is_none() {
-                            return false;
-                        }
-                    } else if next == '{' || next == '[' {
-                        if !self.skip_value() {
-                            return false;
-                        }
-                    } else if next == close {
-                        self.rest = &self.rest[next.len_utf8()..];
-                        return true;
-                    } else {
-                        self.rest = &self.rest[next.len_utf8()..];
-                    }
-                }
-            }
-            // 数字与字面量（true/false/null）：读到结构性边界。
-            _ => match self.rest.find([',', '}', ']']) {
-                Some(end) => {
-                    self.rest = &self.rest[end..];
-                    true
-                }
-                None => false,
-            },
-        }
-    }
 }
 
 /// markdown 正文：完整渲染（egui_commonmark 解析绘制），缓存跨帧持有。
@@ -1338,42 +1092,6 @@ fn word_head(ui: &mut egui::Ui, word: &str, phonetic: Option<&str>) {
     });
 }
 
-/// 提取小记（疏）：「凡 N 言 · N 行」，字数按去空白计、行数按换行计，
-/// 与 demo 定稿的口径一致。
-fn extract_note(catalog: &Text, text: &str) -> RichText {
-    let chars = text.chars().filter(|ch| !ch.is_whitespace()).count();
-    let lines = text.lines().count().max(1);
-    let chars = chars.to_string();
-    let lines = lines.to_string();
-    RichText::new(fill(
-        &catalog.gloss_popup_seal_note,
-        &[("chars", &chars), ("lines", &lines)],
-    ))
-    .font(serif_font(SHU_FONT))
-    .weak()
-}
-
-/// 例句拆分：在首个 CJK 字形处切成「原文 / 译文」两行（demo w-ex 的
-/// `.en` 行 + `.zh` 块）；没有 CJK 段的原样单行返回。
-fn example_lines(example: &str) -> (&str, Option<&str>) {
-    fn is_cjk(ch: char) -> bool {
-        matches!(ch as u32,
-            0x3000..=0x303F // CJK 符号与标点
-            | 0x3400..=0x4DBF // 扩展 A
-            | 0x4E00..=0x9FFF // 基本区
-            | 0xF900..=0xFAFF // 兼容表意
-            | 0xFF00..=0xFFEF // 全角形式
-        )
-    }
-    match example.char_indices().find(|(_, ch)| is_cjk(*ch)) {
-        Some((byte, _)) if !example[..byte].trim().is_empty() => (
-            example[..byte].trim_end(),
-            Some(example[byte..].trim_start()),
-        ),
-        _ => (example, None),
-    }
-}
-
 /// 疏位疏证（examples 逐条）：例句/展开讲解拆行（demo w-ex 的 `.en` 行
 /// + `.zh` 块），楷体弱色。
 fn shu_examples(ui: &mut egui::Ui, examples: &[String], text: &Text) {
@@ -1434,156 +1152,6 @@ fn selfcheck_body(ui: &mut egui::Ui) {
             .size(font::NOTICE)
             .color(weak),
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        APP_ICON_PNG, MAX_WIDTH, WIDTH, decode_app_icon, example_lines, resolve_width, stream_note,
-        watermark,
-    };
-
-    #[test]
-    fn decode_app_icon_rejects_bad_bytes() {
-        assert!(decode_app_icon(b"not a png").is_none());
-    }
-
-    #[test]
-    fn decode_app_icon_crops_to_the_content_square() {
-        let image = decode_app_icon(APP_ICON_PNG).expect("embedded icon must decode");
-        assert_eq!(image.width(), 206, "256 * 824 / 1024");
-        assert_eq!(image.height(), 206, "256 * 824 / 1024");
-    }
-
-    #[test]
-    fn width_hysteresis_does_not_oscillate_between_frames() {
-        let grown = resolve_width(WIDTH, 400.0);
-        assert_eq!(grown, MAX_WIDTH, "长内容必须加宽");
-
-        assert_eq!(resolve_width(MAX_WIDTH, 400.0), MAX_WIDTH);
-        assert_eq!(
-            resolve_width(MAX_WIDTH, 300.0),
-            MAX_WIDTH,
-            "滞回带内保持已加宽档"
-        );
-
-        assert_eq!(
-            resolve_width(MAX_WIDTH, 200.0),
-            WIDTH,
-            "明显变矮才收回默认档"
-        );
-        assert_eq!(resolve_width(WIDTH, 200.0), WIDTH, "矮内容保持默认档");
-    }
-
-    #[test]
-    fn width_hysteresis_band_bounds_are_symmetric() {
-        assert_eq!(resolve_width(WIDTH, 321.0), MAX_WIDTH);
-        assert_eq!(resolve_width(WIDTH, 319.0), WIDTH, "阈值之下不加宽");
-        assert_eq!(resolve_width(MAX_WIDTH, 241.0), MAX_WIDTH);
-        assert_eq!(resolve_width(MAX_WIDTH, 239.0), WIDTH, "阈值之下才收回");
-    }
-
-    #[test]
-    fn stream_note_extracts_the_json_field_progressively() {
-        assert_eq!(
-            stream_note(r#"{"note":"正文一\n正文二","title":"x"}"#),
-            "正文一\n正文二",
-            "escapes decode and the value stops at the closing quote"
-        );
-        assert_eq!(stream_note(""), "");
-        assert_eq!(
-            stream_note("plain markdown"),
-            "",
-            "non-JSON stays in progress"
-        );
-        assert_eq!(stream_note("{"), "");
-        assert_eq!(stream_note(r#"{"bod"#), "", "a partial key keeps waiting");
-        assert_eq!(
-            stream_note(r#"{"note""#),
-            "",
-            "key without colon keeps waiting"
-        );
-        assert_eq!(
-            stream_note(r#"{"note":"#),
-            "",
-            "colon without value keeps waiting"
-        );
-        assert_eq!(
-            stream_note(r#"{"note":""#),
-            "",
-            "an open value shows nothing yet"
-        );
-        assert_eq!(
-            stream_note(r#"{"note":"未闭合"#),
-            "未闭合",
-            "an unterminated value still shows what arrived"
-        );
-        assert_eq!(
-            stream_note(r#"{"phonetic":"/ɡlɒs/","note":"义释"}"#),
-            "义释",
-            "a preceding complete foreign key (word card's phonetic) is skipped"
-        );
-        assert_eq!(
-            stream_note(r#"{"phonetic":"/ɡ"#),
-            "",
-            "a foreign string value that is still streaming keeps progress"
-        );
-        assert_eq!(
-            stream_note(r#"{"examples":["一","二"],"note":"义"}"#),
-            "义",
-            "an array-valued foreign key is skipped whole"
-        );
-        assert_eq!(
-            stream_note(r#"{"note":"esc\"ape\\path"}"#),
-            "esc\"ape\\path",
-            "quote and backslash escapes decode"
-        );
-        assert_eq!(
-            stream_note(r#"{"note":"你\u4f60好"}"#),
-            "你你好",
-            "a complete unicode escape decodes"
-        );
-        assert_eq!(
-            stream_note(r#"{"note":"你\u4"#),
-            "你",
-            "a partial unicode escape waits for the next frame"
-        );
-        assert_eq!(
-            stream_note(r#"{"note":"尾\"#),
-            "尾",
-            "a dangling backslash is dropped until it completes"
-        );
-        assert_eq!(
-            stream_note("正文\n```gloss\n{\"title\":\"x\"}\n```"),
-            "",
-            "the legacy fence contract has no note key: progress state"
-        );
-    }
-
-    #[test]
-    fn example_lines_split_at_the_first_cjk_glyph() {
-        let (en, zh) =
-            example_lines("The polished wood had a deep gloss. 那块抛光的木料泛着深沉的光泽。");
-        assert_eq!(en, "The polished wood had a deep gloss.");
-        assert_eq!(zh, Some("那块抛光的木料泛着深沉的光泽。"));
-
-        let (en, zh) = example_lines("a gloss of silk");
-        assert_eq!(en, "a gloss of silk");
-        assert_eq!(zh, None);
-
-        let (en, zh) = example_lines("光泽");
-        assert_eq!(en, "光泽");
-        assert_eq!(zh, None);
-
-        let (en, zh) = example_lines("英译。中译");
-        assert_eq!(en, "英译。中译");
-        assert_eq!(zh, None, "开头即 CJK 的例句不拆");
-    }
-
-    #[test]
-    fn watermark_is_the_untranslated_brand_name() {
-        assert_eq!(watermark(), "Gloss");
-    }
 }
 
 #[cfg(test)]
