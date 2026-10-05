@@ -14,15 +14,17 @@ impl GlossApp {
     /// 快照开一个新编辑会话——未保存的草稿随旧会话一并作废。
     pub(crate) fn open_settings(&mut self) {
         // 窗口标题按当前界面语言写入：窗内文案取自同一份快照语言，两者同语。
-        let title = Text::get(self.locale()).gloss_app_settings_title.as_str();
+        let title = Text::get(self.env.locale())
+            .gloss_app_settings_title
+            .as_str();
         if self.settings.is_some() {
-            if let Some(windows) = &self.windows {
+            if let Some(windows) = &self.workspace.windows {
                 windows.show_settings(title);
             }
             return;
         }
-        self.settings = Some(crate::ui::settings::open(&self.config.snapshot()));
-        if let Some(windows) = &self.windows {
+        self.settings = Some(crate::ui::settings::open(&self.env.config.snapshot()));
+        if let Some(windows) = &self.workspace.windows {
             windows.show_settings(title);
             windows.request_redraw_settings();
         }
@@ -36,8 +38,8 @@ impl GlossApp {
         let keychain_id = config.resolved_provider().keychain_id.clone();
         let key_result = match &key_update {
             KeyUpdate::Keep => Ok(()),
-            KeyUpdate::Replace(key) => self.store.set_secret(&keychain_id, key),
-            KeyUpdate::Clear => self.store.delete_secret(&keychain_id),
+            KeyUpdate::Replace(key) => self.env.store.set_secret(&keychain_id, key),
+            KeyUpdate::Clear => self.env.store.delete_secret(&keychain_id),
         };
         if let Err(err) = key_result {
             warn!(thread = thread::UI, error = %err, "failed to update the api key");
@@ -53,7 +55,7 @@ impl GlossApp {
             );
         }
         let language = config.language;
-        if let Err(err) = self.config.save(config) {
+        if let Err(err) = self.env.config.save(config) {
             // 密钥已经生效，配置没有：如实说清哪一半落下了。
             warn!(thread = thread::UI, error = %err, "failed to save settings");
             let notice = if key_update == KeyUpdate::Keep {
@@ -82,8 +84,8 @@ impl GlossApp {
     /// 关闭设置窗口：隐藏不销毁，丢弃编辑会话（未保存的草稿一并作废）。
     pub(crate) fn close_settings(&mut self) {
         self.settings = None;
-        self.settings_repaint = None;
-        if let Some(windows) = &self.windows {
+        self.workspace.settings_repaint = None;
+        if let Some(windows) = &self.workspace.windows {
             windows.hide_settings();
         }
     }
@@ -110,7 +112,7 @@ mod tests {
         let state = app.settings.as_ref().expect("settings session expected");
         assert_eq!(
             state.draft(),
-            &*app.config.snapshot(),
+            &*app.env.config.snapshot(),
             "draft must start from the current snapshot"
         );
         assert_eq!(
@@ -126,7 +128,7 @@ mod tests {
         pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
         app.drain_platform_events();
 
-        let mut draft = (*app.config.snapshot()).clone();
+        let mut draft = (*app.env.config.snapshot()).clone();
         draft.target_lang = Lang::Ja;
         draft.model = "deepseek-reasoner".into();
         app.save_settings(draft, KeyUpdate::Replace("sk-live-key".to_owned()));

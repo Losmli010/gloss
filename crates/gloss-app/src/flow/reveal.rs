@@ -17,10 +17,10 @@ impl GlossApp {
     /// 热区保持惰性，见 `ui::popup::RenderState::reset_drag_state`）。
     /// 浮层常驻——收起只认 Esc、关闭按钮与新触发的内容替换。
     pub(crate) fn show_overlay(&mut self, position: LogicalPosition<f64>) {
-        let Some(windows) = &self.windows else {
+        let Some(windows) = &self.workspace.windows else {
             return;
         };
-        if let Some(frame) = self.frame.as_ref() {
+        if let Some(frame) = self.workspace.overlay_frame.as_ref() {
             crate::ui::popup::reset_appear_animation(&frame.egui_ctx);
             frame.reset_overlay_drag();
         }
@@ -38,11 +38,11 @@ impl GlossApp {
             reason,
             "overlay dismissed"
         );
-        self.overlay_repaint = None;
-        if let Some(frame) = self.frame.as_ref() {
+        self.workspace.overlay_repaint = None;
+        if let Some(frame) = self.workspace.overlay_frame.as_ref() {
             frame.reset_overlay_drag();
         }
-        if let Some(windows) = &self.windows {
+        if let Some(windows) = &self.workspace.windows {
             windows.hide();
         }
         self.machine.hide_overlay();
@@ -133,7 +133,7 @@ mod tests {
             .unwrap();
         app.drain_platform_events();
         assert_eq!(
-            app.selection_anchor,
+            app.session.selection_anchor,
             Some((1, ScreenPoint::new(123, 45))),
             "划词触发记录释放坐标随代数"
         );
@@ -145,7 +145,7 @@ mod tests {
             .unwrap();
         app.drain_platform_events();
         assert_eq!(
-            app.selection_anchor,
+            app.session.selection_anchor,
             Some((2, ScreenPoint::new(9, 9))),
             "新触发推进代数并刷新锚点"
         );

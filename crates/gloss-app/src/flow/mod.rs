@@ -6,5 +6,6 @@
 pub(crate) mod actions;
 pub(crate) mod probe;
 pub(crate) mod reveal;
+pub(crate) mod session;
 pub(crate) mod settings_session;
 pub(crate) mod task;

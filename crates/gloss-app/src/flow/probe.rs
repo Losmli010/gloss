@@ -21,7 +21,7 @@ impl GlossApp {
     pub(crate) fn drain_platform_events(&mut self) {
         // 配置快照在本批事件的起手处取一次（零锁读）：本批触发的任务都用
         // 同一份配置解析类型与选项——任务一旦触发，其配置就固定了。
-        let config = self.config.snapshot();
+        let config = self.env.config.snapshot();
         // 先收集再处理：endpoints 的借用与 &mut self 互斥，收进 Vec 后即
         // 归还，后续可用正常的方法调用。
         let events: Vec<PlatformEvent> = self
@@ -38,12 +38,14 @@ impl GlossApp {
             }
             // 逐事件现读场景事实：安全输入态与前台应用都可能在两次触发
             // 之间变化，探针也就两次纯查询。
-            let scene = self.scene.facts();
+            let scene = self.env.scene.facts();
             let Some(command) = (match &event {
-                PlatformEvent::SelectionGesture { .. } => {
-                    self.machine
-                        .begin_selection_probe(&event, &config, self.system_locale, &scene)
-                }
+                PlatformEvent::SelectionGesture { .. } => self.machine.begin_selection_probe(
+                    &event,
+                    &config,
+                    self.env.system_locale,
+                    &scene,
+                ),
                 _ => None,
             }) else {
                 // 两类拦下各有各的级别与措辞：被场景闸门拦下的是「这一次
@@ -73,7 +75,7 @@ impl GlossApp {
             };
             let generation = *generation;
             let span = task_span(generation);
-            self.task_span = Some((generation, span.clone()));
+            self.session.task_span = Some((generation, span.clone()));
             let entered_span = span.clone();
             let _entered = entered_span.enter();
             info!(
@@ -83,13 +85,13 @@ impl GlossApp {
             // 划词探测记录释放坐标与前台应用（随探测编号）：浮层显示时跟随
             // 选区；探测失败的排查日志带上应用标识。
             if let PlatformEvent::SelectionGesture { pos } = event {
-                self.selection_anchor = Some((generation, pos));
-                self.probe_front_app = scene.front_app;
+                self.session.selection_anchor = Some((generation, pos));
+                self.session.probe_front_app = scene.front_app;
             }
             if !self.send_acquire(command, span) {
                 // 取材通道发送失败：作废探测即可（当前显示不动）。
                 self.machine.drop_probe();
-                self.probe_front_app = None;
+                self.session.probe_front_app = None;
             }
         }
     }

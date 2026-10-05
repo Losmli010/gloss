@@ -48,18 +48,21 @@ impl GlossApp {
         }
         // 挂起显形在批处理**之后**消费：划词提交的置位点就在本批的
         // commit_probe 里——取前会把它拖到下一帧，取后同帧即显。
-        let pending_reveal = std::mem::take(&mut self.pending_reveal);
+        let pending_reveal = std::mem::take(&mut self.session.pending_reveal);
         // 显形决策（守卫与「显形或失败即弹」的取舍）在 should_reveal：
         // 这里只递交挂起请求、机器当前视图与本批回传。
         if should_reveal(pending_reveal, self.machine.overlay_view().is_some(), batch)
-            && let Some(windows) = &mut self.windows
+            && let Some(windows) = &mut self.workspace.windows
         {
             // 划词触发的浮层跟随选区（代数对得上时），否则居中；屏幕
             // 边缘钳制后显示，并按摆放意图记录——后续内容撑高窗口时
             // 才能按同一意图重定位。
             let centered = centered_position(event_loop, windows);
-            let (position, placement) =
-                show_position(self.selection_anchor, self.machine.generation(), centered);
+            let (position, placement) = show_position(
+                self.session.selection_anchor,
+                self.machine.generation(),
+                centered,
+            );
             windows.set_placement(placement);
             let position = windows.clamp_position(position);
             self.show_overlay(position);
@@ -99,11 +102,11 @@ impl GlossApp {
                     prompt_locale = ?request.options.prompt_locale,
                     "selection committed, task dispatched to tokio"
                 );
-                self.probe_front_app = None;
+                self.session.probe_front_app = None;
                 self.send_run(request);
                 // 内容到达才显形：从 Idle 出窗、从已显示改锚点重定位，
                 // 误滑（探测失败）永远走不到这里。
-                self.pending_reveal = true;
+                self.session.pending_reveal = true;
                 true
             }
             InputOutcome::Blocked(reason) => {
@@ -113,7 +116,7 @@ impl GlossApp {
                     reason = ?reason,
                     "probed selection suppressed by the sensitive content guard, task not dispatched"
                 );
-                self.probe_front_app = None;
+                self.session.probe_front_app = None;
                 false
             }
             InputOutcome::Ignored => {
@@ -264,6 +267,7 @@ impl GlossApp {
         match self.machine.commit_selection_failed(generation, error) {
             FailureOutcome::SilentlyDropped => {
                 let front_app = self
+                    .session
                     .probe_front_app
                     .as_ref()
                     .map(|app| {
@@ -280,7 +284,7 @@ impl GlossApp {
                     front_app,
                     "selection probe found nothing, treated as a mis-slide"
                 );
-                self.probe_front_app = None;
+                self.session.probe_front_app = None;
                 false
             }
             FailureOutcome::Shown => {
@@ -290,7 +294,7 @@ impl GlossApp {
                     error = %error,
                     "selection probe failed"
                 );
-                self.probe_front_app = None;
+                self.session.probe_front_app = None;
                 true
             }
             FailureOutcome::Ignored => {
@@ -503,10 +507,10 @@ mod tests {
         assert!(app.accept_input(1, text_input("正常选区")));
         let Command::RunTask { cancel: token, .. } = cmd_rx.try_recv().unwrap().payload;
         assert!(
-            app.pending_reveal,
+            app.session.pending_reveal,
             "the commit flagged the reveal for drain_events"
         );
-        app.pending_reveal = false;
+        app.session.pending_reveal = false;
         assert!(app.accept_chunk(1, "流式正文".into()));
         let view_before = app.machine.overlay_view().cloned();
         let state_before = app.machine.state();
@@ -522,7 +526,7 @@ mod tests {
         );
         assert_eq!(app.machine.state(), state_before);
         assert_eq!(app.machine.overlay_view(), view_before.as_ref());
-        assert!(!app.pending_reveal, "nothing new to reveal");
+        assert!(!app.session.pending_reveal, "nothing new to reveal");
         assert!(app.machine.probe_id().is_none());
 
         assert!(app.accept_chunk(1, "、继续".into()));
@@ -533,11 +537,11 @@ mod tests {
     fn committing_the_probe_flags_the_reveal_for_the_same_frame() {
         let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
-        assert!(!app.pending_reveal, "probing never reveals");
+        assert!(!app.session.pending_reveal, "probing never reveals");
 
         assert!(app.accept_input(1, text_input("内容到了")));
         assert!(
-            app.pending_reveal,
+            app.session.pending_reveal,
             "the commit flags the reveal; drain_events consumes it the same frame"
         );
         assert_eq!(app.machine.state(), AppState::Translating);

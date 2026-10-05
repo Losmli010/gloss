@@ -1,11 +1,11 @@
 //! winit 事件循环：主线程的窗口生命周期与渲染驱动。
 //!
-//! 壳层按职责拆内部子模块，[`GlossApp`] 结构体与其余壳级编排留在本模块：
+//! 壳层按职责拆内部子模块，[`GlossApp`] 组合根与其余壳级编排留在本模块：
 //! - [`events`]——事件循环入口与跨线程唤醒句柄；
 //! - [`handler`]——winit 事件分发（`ApplicationHandler` 实现）。
 //!
 //! 通道消费与浮层显隐、动作执行在 `flow`（probe / task / reveal / actions），
-//! 渲染帧管线与主题在 `present`，设置编辑会话在 `flow::settings_session`。
+//! 渲染帧管线与呈现资源在 `present`，设置编辑会话在 `flow::settings_session`。
 
 mod events;
 mod handler;
@@ -14,80 +14,81 @@ pub use crate::flow::reveal::centered_position;
 pub use events::{UserEvent, Waker, run};
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use gloss_core::config::Theme;
 use gloss_core::config_handle::ConfigHandle;
-use gloss_core::guard::FrontApp;
 use gloss_core::log::Span;
 use gloss_core::model::Locale;
-use gloss_core::model::ScreenPoint;
 use gloss_core::ports::{ConfigStore, SceneProbe};
 use winit::dpi::LogicalSize;
 
 use crate::channel::AppEndpoints;
+use crate::flow::session::Session;
 use crate::machine::{AppState, TaskStateMachine};
-use crate::present::render::{Frame, render_frame, render_frame_with};
-use crate::present::windows::WindowManager;
+use crate::present::render::{render_frame, render_frame_with};
+use crate::present::workspace::Workspace;
 use crate::ui::i18n::Text;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
 use crate::update::UpdateWiring;
 
-pub(crate) struct GlossApp {
-    pub(crate) windows: Option<WindowManager>,
-    pub(crate) frame: Option<Frame>,
-    /// 浮层 egui 要求的下一帧时间点；`None` 表示等到有事件再画。
-    pub(crate) overlay_repaint: Option<Instant>,
-    /// 设置窗口 egui 要求的下一帧时间点，与浮层的 [`Self::overlay_repaint`]
-    /// 各自独立。
-    pub(crate) settings_repaint: Option<Instant>,
-    /// 组装点移交的通道端点（① 收、② 发、③ 发、④ 收）。
-    pub(crate) endpoints: Option<AppEndpoints>,
-    /// 任务状态机（functional core，见 machine.rs）：纯状态转移，壳只做
-    /// 通道发送、浮层窗口操作与日志。
-    pub(crate) machine: TaskStateMachine,
+/// 外部服务句柄聚合：配置、存储、场景探针、启动期系统语言与更新接线。
+/// 句柄本身进程内不变（配置内容经句柄热更新）。
+pub(crate) struct Env {
     /// 运行时配置句柄：每批平台事件取一份快照交给状态机，
     /// 配置保存后无需重启即对下一次触发生效。
     pub(crate) config: Arc<ConfigHandle>,
     /// 配置存储：设置页写 keychain 用——文档半边走句柄，密钥
     /// 半边不进快照也不进句柄，经这里直查。
     pub(crate) store: Arc<dyn ConfigStore>,
-    /// 设置窗口的渲染帧；随窗口栈在 `resumed` 时建好，隐藏期保留。
-    pub(crate) settings_frame: Option<Frame>,
-    /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
-    /// 之丢弃）。
-    pub(crate) settings: Option<SettingsState>,
     /// 触发前场景探针：安全输入态与前台应用由它现读，壳只把它转交状态机
     /// 作场景闸门判定（见 `drain_platform_events`）。
     pub(crate) scene: Arc<dyn SceneProbe>,
     /// 启动期读到的系统语言：配置里的 `Language::System` 靠它落定成具体的
     /// 界面语言与 prompt 模板语言（进程内不变，改系统语言要重启）。
     pub(crate) system_locale: Locale,
-    /// 已施加到两个 egui 上下文的主题；`None` 表示还没施加过（窗口未起时
-    /// 会有这个状态）。
-    pub(crate) applied_theme: Option<Theme>,
-    /// 最近一次划词触发的释放坐标（随触发记录代数）：浮层跟随划词位置用，
-    /// 代数对不上（陈旧）时浮层回落居中。
-    pub(crate) selection_anchor: Option<(u64, ScreenPoint)>,
-    /// 在途划词探测触发时的前台应用标识：探测失败按误滑静默丢弃，这条
-    /// 标识是「划了没反应」排查日志的唯一线索；探测提交/丢弃即清。
-    pub(crate) probe_front_app: Option<FrontApp>,
-    /// 触发即显挂起：占代数的触发置位，下一次 drain_events 消费
-    /// （那里才有 ActiveEventLoop 可做定位与显示；显形判定在
-    /// `machine::should_reveal`）。
-    pub(crate) pending_reveal: bool,
-    /// 当前任务的 span（触发点创建）与它所属的代数：随通道②③下发，让接收
-    /// 线程的日志自动带上 `generation`。重试沿用同一个（代数不变）。
-    pub(crate) task_span: Option<(u64, Span)>,
     /// 更新子系统的壳侧接线：设置页每帧读其 receiver 渲染，用户动作经
     /// 出口转投模块（与主流程四通道隔离）。
     pub(crate) update: UpdateWiring,
 }
 
+impl Env {
+    /// 当前界面语言：配置里的三态偏好按启动期系统语言落定（与 prompt
+    /// 选表同一处取值）。逐帧从快照取——设置页保存后下一帧即换文案表。
+    pub(crate) fn locale(&self) -> Locale {
+        self.config.snapshot().language.resolve(self.system_locale)
+    }
+
+    /// 配置快照里的主题偏好：建帧（上下文建立时装入）与逐帧施加共用这
+    /// 一处取值。
+    pub(crate) fn target_theme(&self) -> Theme {
+        self.config.snapshot().theme
+    }
+}
+
+/// 主线程应用的组合根：每个所有者各持一类职责——任务决策在 `machine`、
+/// 管线会话状态在 `session`、呈现资源在 `workspace`、服务句柄在 `env`；
+/// 本结构体自身只剩绘制调度与设置窗编辑草稿。
+pub(crate) struct GlossApp {
+    /// 呈现资源：窗口管理器、两窗口渲染帧、各自的下一帧时刻、已施加主题。
+    pub(crate) workspace: Workspace,
+    /// 组装点移交的通道端点（① 收、② 发、③ 发、④ 收）。
+    pub(crate) endpoints: Option<AppEndpoints>,
+    /// 任务状态机（functional core，见 machine.rs）：纯状态转移，壳只做
+    /// 通道发送、浮层窗口操作与日志。
+    pub(crate) machine: TaskStateMachine,
+    /// 触发/任务的管线会话状态（锚点、排查线索、显形挂起、任务 span）。
+    pub(crate) session: Session,
+    /// 外部服务句柄（配置/存储/场景/系统语言/更新接线）。
+    pub(crate) env: Env,
+    /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
+    /// 之丢弃）。
+    pub(crate) settings: Option<SettingsState>,
+}
+
 impl GlossApp {
-    /// 组装点移交的通道端点、配置句柄与配置存储；窗口与帧状态
-    /// 在 `resumed` 时建立。`system_locale` 同样来自组装点（系统语言是
-    /// 平台适配器的事，壳只消费）。
+    /// 组装点移交的通道端点与外部服务句柄；窗口与帧状态在 `resumed` 时
+    /// 建立。`system_locale` 同样来自组装点（系统语言是平台适配器的事，
+    /// 壳只消费）。
     fn new(
         endpoints: AppEndpoints,
         config: Arc<ConfigHandle>,
@@ -97,40 +98,25 @@ impl GlossApp {
         update: UpdateWiring,
     ) -> Self {
         Self {
-            windows: None,
-            frame: None,
-            overlay_repaint: None,
-            settings_repaint: None,
+            workspace: Workspace::new(),
             endpoints: Some(endpoints),
             machine: TaskStateMachine::new(),
-            config,
-            store,
-            settings_frame: None,
+            session: Session::default(),
+            env: Env {
+                config,
+                store,
+                scene,
+                system_locale,
+                update,
+            },
             settings: None,
-            scene,
-            system_locale,
-            applied_theme: None,
-            selection_anchor: None,
-            probe_front_app: None,
-            task_span: None,
-            pending_reveal: false,
-            update,
         }
     }
 
     /// 指定代数的任务 span（副本，供 `enter()` 借用）；代数不符或尚无任务时
     /// 为 `None`。
     pub(crate) fn span_for(&self, generation: u64) -> Option<Span> {
-        self.task_span
-            .as_ref()
-            .filter(|(current, _)| *current == generation)
-            .map(|(_, span)| span.clone())
-    }
-
-    /// 当前界面语言：配置里的三态偏好按启动期系统语言落定（与 prompt
-    /// 选表同一处取值）。逐帧从快照取——设置页保存后下一帧即换文案表。
-    pub(crate) fn locale(&self) -> Locale {
-        self.config.snapshot().language.resolve(self.system_locale)
+        self.session.span_for(generation)
     }
 
     /// 画一帧：egui 出绘制数据 → wgpu 呈现，并把 egui 要求的下一帧记下
@@ -138,26 +124,26 @@ impl GlossApp {
     /// 指针累计位移换算窗口落点；浮层内容的期望尺寸就地应用（内容自适
     /// 应高度，窗口管理器按显示器钳制）。
     fn draw(&mut self) {
-        self.apply_theme();
-        let locale = self.locale();
-        let Some(frame) = self.frame.as_mut() else {
+        self.workspace.apply_theme(self.env.target_theme());
+        let locale = self.env.locale();
+        let Some(frame) = self.workspace.overlay_frame.as_mut() else {
             return;
         };
         let overlay_view = self.machine.overlay_view();
         let (repaint, output) = render_frame(frame, overlay_view, locale);
-        self.overlay_repaint = repaint;
+        self.workspace.overlay_repaint = repaint;
         if let Some(action) = output.action {
             self.handle_overlay_action(action);
         }
         // 页头拖动：落点以窗口当前实际位置为基准（无增量记账，见
         // apply_overlay_drag），拖动中的每帧按需平移。
         if let Some(offset) = output.drag
-            && let Some(windows) = &mut self.windows
+            && let Some(windows) = &mut self.workspace.windows
         {
             windows.apply_overlay_drag((f64::from(offset.x), f64::from(offset.y)));
         }
         if let Some(sizing) = output.sizing
-            && let Some(windows) = &mut self.windows
+            && let Some(windows) = &mut self.workspace.windows
         {
             // 流式期间走防抖尺寸（锁宽 + 步进增高），其余状态按精确尺寸
             // 重排——TaskDone 的定型重排也走这一支。
@@ -171,15 +157,18 @@ impl GlossApp {
 
     /// 画一帧设置窗口：草稿编辑 + 动作上交（保存/密钥变更/取消/更新动作）。
     fn draw_settings(&mut self) {
-        self.apply_theme();
-        let text = Text::get(self.locale());
-        let update_state = self.update.receiver.borrow().clone();
-        let (Some(frame), Some(state)) = (&mut self.settings_frame, &mut self.settings) else {
+        self.workspace.apply_theme(self.env.target_theme());
+        let text = Text::get(self.env.locale());
+        let update_state = self.env.update.receiver.borrow().clone();
+        let (Some(frame), Some(state)) = (
+            self.workspace.settings_frame.as_mut(),
+            self.settings.as_mut(),
+        ) else {
             return;
         };
         let (repaint, action) =
             render_frame_with(frame, |ui| settings::draw(ui, state, &update_state, text));
-        self.settings_repaint = repaint;
+        self.workspace.settings_repaint = repaint;
         let Some(action) = action else {
             return;
         };
@@ -187,14 +176,12 @@ impl GlossApp {
             SettingsAction::Idle => {}
             SettingsAction::Save { config, key } => self.save_settings(*config, key),
             SettingsAction::Close => self.close_settings(),
-            SettingsAction::Update(msg) => (self.update.send)(msg),
+            SettingsAction::Update(msg) => (self.env.update.send)(msg),
         }
     }
 
     pub(crate) fn request_redraw(&self) {
-        if let Some(windows) = &self.windows {
-            windows.request_redraw();
-        }
+        self.workspace.request_redraw();
     }
 }
 
@@ -341,7 +328,7 @@ mod tests {
     fn ui_locale_follows_the_saved_language_without_a_restart() {
         let (app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         assert_eq!(
-            app.locale(),
+            app.env.locale(),
             Locale::Zh,
             "the factory default follows the system locale"
         );
@@ -353,7 +340,7 @@ mod tests {
             })
             .expect("save should succeed");
         assert_eq!(
-            app.locale(),
+            app.env.locale(),
             Locale::En,
             "a saved language must drive the next frame's table, no restart needed"
         );
@@ -365,7 +352,7 @@ mod tests {
             })
             .expect("save should succeed");
         assert_eq!(
-            app.locale(),
+            app.env.locale(),
             Locale::Zh,
             "System resolves through the startup system locale"
         );
