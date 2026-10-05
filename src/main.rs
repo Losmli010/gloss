@@ -2,6 +2,7 @@
 
 use std::env;
 use std::error::Error;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,10 +37,14 @@ fn main() -> StartupResult {
 }
 
 fn run() -> StartupResult {
+    log::milestone("m0_entry");
     init_logging();
+    log::milestone("m1_logging");
     preflight_event_permissions();
     let (config, store) = load_config()?;
+    log::milestone("m2_config");
     let service = build_service(&config, &store)?;
+    log::milestone("m3_engine");
     run_event_loop(config, store, service)
 }
 
@@ -92,9 +97,18 @@ fn install_app_icon() {
     }
 }
 
-/// 日志目录：`~/.gloss/logs`（与 justfile 的 logs 配方保持一致）。
+/// 日志目录：`GLOSS_LOG_DIR` 优先（量化脚本用它把测量日志隔离出日常日志），
+/// 缺省 `~/.gloss/logs`（与 justfile 的 logs 配方保持一致）。
 fn log_dir() -> Option<PathBuf> {
-    let home = env::var_os("HOME")?;
+    resolve_log_dir(env::var_os("GLOSS_LOG_DIR"), env::var_os("HOME"))
+}
+
+/// 日志目录解析：覆盖值非空即用，否则回落 home 下的 `.gloss/logs`。
+fn resolve_log_dir(override_dir: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+    if let Some(dir) = override_dir {
+        return Some(PathBuf::from(dir));
+    }
+    let home = home?;
     Some(PathBuf::from(home).join(".gloss").join("logs"))
 }
 
@@ -258,6 +272,7 @@ fn run_event_loop(
                 acquire_command_handler(),
                 event_sources(),
             ));
+            log::milestone("m4_assembly");
         },
     );
 
@@ -382,5 +397,22 @@ mod tests {
                 generation: 1,
             }))
             .expect("acquire channel must accept commands");
+    }
+
+    #[test]
+    fn log_dir_override_wins_over_home() {
+        let dir = resolve_log_dir(Some("/tmp/metrics-logs".into()), Some("/Users/dev".into()));
+        assert_eq!(dir, Some(PathBuf::from("/tmp/metrics-logs")));
+    }
+
+    #[test]
+    fn log_dir_falls_back_to_home_dot_gloss() {
+        let dir = resolve_log_dir(None, Some("/Users/dev".into()));
+        assert_eq!(dir, Some(PathBuf::from("/Users/dev/.gloss/logs")));
+    }
+
+    #[test]
+    fn log_dir_is_none_without_override_and_home() {
+        assert_eq!(resolve_log_dir(None, None), None);
     }
 }

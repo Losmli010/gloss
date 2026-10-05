@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 1 | `just selftest` |
 | 快照测试 | 32 | `just test` |
-| 单元测试 | 465 | `just test` |
+| 单元测试 | 469 | `just test` |
 
 ## 人工测试
 
@@ -256,6 +256,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | civil_date_matches_known_anchors | 天数换算公历 | 给定 1970-01-01 / 2000-01-01 / 2026-09-24 / 2026-12-31 对应的天数，当换算，则年月日与已知值一致 | 2026-09-24 |
 | log_file_name_is_dated_jsonl | 日志文件名带日期与后缀 | 给定日期 2026-09-24，当取名，则得 gloss-2026-09-24.jsonl | 2026-09-24 |
 | daily_writer_appends_into_todays_file | 按天文件追加写入 | 给定两个写入器实例写同一份今日日志，当读回，则两行都在今天的文件里 | 2026-09-24 |
+| milestone_event_carries_id_and_elapsed_ms | 里程碑事件带 id 与累计毫秒 | 给定 milestone("m_test_probe") 一条记录，当捕获并解析该行，则 message/thread/milestone/elapsed_ms 均在顶层且 elapsed_ms 为非负整数 | 2026-10-05 |
 | prune_keeps_the_newest_files_only | 旧日志按天数保留 | 给定 9 份日志与一个无关文件，当清理，则只留最近 7 份日志且无关文件不动 | 2026-09-24 |
 | task_span_carries_generation_into_events | 任务 span 把代数带给范围内的日志 | 给定 task_span(7) 并在其中记一条日志，当格式化输出，则事件行是 JSON、顶层 generation=7 且无 span 对象 | 2026-09-24 |
 
@@ -918,6 +919,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | channels_bundle_is_created | 组装点创建的通道捆绑可用 | 给定 create_channels() 创建的四通道捆绑，当向通道②发送 AcquireText 命令，则发送成功 | 2026-09-19 |
+| log_dir_override_wins_over_home | 日志目录覆盖优先于 home | 给定 GLOSS_LOG_DIR 覆盖值与 home 同时存在，当 resolve_log_dir，则返回覆盖值原样 | 2026-10-05 |
+| log_dir_falls_back_to_home_dot_gloss | 日志目录回落 home 惯例 | 给定无覆盖值，当 resolve_log_dir，则返回 `<home>/.gloss/logs` | 2026-10-05 |
+| log_dir_is_none_without_override_and_home | 无覆盖无 home 时放弃文件日志 | 给定覆盖值与 home 均缺失，当 resolve_log_dir，则返回 None | 2026-10-05 |
 
 ### crates/gloss-eval/src/dataset.rs
 
