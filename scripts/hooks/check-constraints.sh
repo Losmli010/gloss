@@ -369,8 +369,9 @@ ok "依赖只开需要的特性（检查 ${deps_checked} 条第三方依赖声�
 # 声明的每个第三方依赖（非本仓 path、非 workspace 继承）必须能在所属 crate 的
 # 源码面（src / tests / benches）找到使用证据：`名::` 路径（含属性宏与 derive
 # 内的路径，如 #[tokio::test]、#[derive(serde::Deserialize)]）、`名!` 宏调用，
-# 或 `use 名;`。依赖键连字符按 Rust 惯例转下划线后匹配；注释里的提及同样算
-# 证据（宽松判定，防误报优先）。条目行尾 `deps:allow` 放行该条（同
+# 或 `use 名;`（`pub use`、`use 名 as 别名` 同算）。依赖键连字符按 Rust 惯例
+# 转下划线后匹配；证据按文本匹配、不区分注释与代码（宽松判定防误报优先，
+# 纯文字提及不含上述形态的不算）。条目行尾 `deps:allow` 放行该条（同
 # secrets:allow 惯例，须注明缘由）。本仓 path 依赖由「依赖方向」管辖，
 # 不在此判罚；本仓无 build.rs，若未来引入需把其纳入扫描面。
 dead_count=0
@@ -389,7 +390,10 @@ while IFS='|' read -r owner manifest sec key start text; do
     *) crate_dir="$ROOT/$(dirname "$manifest")" ;;
   esac
   import="${key//-/_}"
-  if grep -rqE "(^|[^A-Za-z0-9_])${import}(::|!)|^[[:space:]]*use[[:space:]]+${import}[[:space:]]*(;|as)" \
+  # 依赖 grep -q「命中即 0」的语义（GNU grep 明文保证、BSD grep 实测一致）：
+  # 缺目录等错误不会盖过命中；异构 grep 若命中时返回非 0 会误报死条目，
+  # 方向 fail-loud，有 deps:allow 兜底。
+  if grep -rqE "(^|[^A-Za-z0-9_])${import}(::|!)|^[[:space:]]*(pub[[:space:]]+)?use[[:space:]]+${import}[[:space:]]*(;|as)" \
     "$crate_dir/src" "$crate_dir/tests" "$crate_dir/benches" 2>/dev/null; then
     continue
   fi

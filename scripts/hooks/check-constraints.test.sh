@@ -283,6 +283,33 @@ mut_platform_dev_dep_unused() {
   printf '\n[dev-dependencies]\nserde_json = { version = "1", default-features = false }\n' \
     >>"$FIX/crates/gloss-platform/Cargo.toml"
 }
+mut_root_dep_unused() {
+  insert_after_section "$FIX/Cargo.toml" "[dependencies]" \
+    'serde_json = { version = "1", default-features = false }'
+}
+mut_root_dep_used() {
+  insert_after_section "$FIX/Cargo.toml" "[dependencies]" \
+    'serde_json = { version = "1", default-features = false }'
+  mkdir -p "$FIX/src"
+  printf 'fn main() {\n    let _: u64 = serde_json::from_str("1").unwrap();\n}\n' \
+    >"$FIX/src/main.rs"
+}
+mut_platform_use_bare_forms() {
+  insert_after_section "$FIX/crates/gloss-platform/Cargo.toml" "[dependencies]" \
+    'serde_json = { version = "1", default-features = false }'
+  printf 'pub use serde_json;\nuse serde_json as json;\n' \
+    >"$FIX/crates/gloss-platform/src/reexports.rs"
+}
+mut_platform_macro_form() {
+  insert_after_section "$FIX/crates/gloss-platform/Cargo.toml" "[dependencies]" \
+    'serde_json = { version = "1", default-features = false }'
+  printf 'let _v = serde_json!(1);\n' >"$FIX/crates/gloss-platform/src/macro_use.rs"
+}
+mut_platform_tests_only_evidence() {
+  insert_after_section "$FIX/crates/gloss-platform/Cargo.toml" "[dependencies]" \
+    'serde_json = { version = "1", default-features = false }'
+  printf 'use serde_json;\n' >"$FIX/crates/gloss-platform/tests/usage.rs"
+}
 
 echo "== 测试 check-constraints.sh =="
 echo ""
@@ -346,6 +373,11 @@ assert_case "连字符键名无使用（转下划线后仍无证据）" 1 mut_pl
 assert_case "连字符键名按下划线使用不算死条目" 0 mut_platform_dash_key_used "deps:allow 0 条"
 assert_case "dev-dependencies 死条目同样判罚" 1 mut_platform_dev_dep_unused "依赖无死条目"
 assert_case "path 依赖无使用不判罚（归依赖方向管）" 0 "" "deps:allow 0 条"
+assert_case "根 manifest 死条目同样判罚" 1 mut_root_dep_unused "依赖无死条目"
+assert_case "根 manifest：src 里的证据放行" 0 mut_root_dep_used "deps:allow 0 条"
+assert_case "pub use / use as 形态算证据" 0 mut_platform_use_bare_forms "deps:allow 0 条"
+assert_case "宏调用形态算证据" 0 mut_platform_macro_form "deps:allow 0 条"
+assert_case "tests/ 目录里的证据算数" 0 mut_platform_tests_only_evidence "deps:allow 0 条"
 
 echo ""
 echo "-- 残留任务标记扫描（git 夹具；上方非 git 夹具用例覆盖自动跳过路径）--"
