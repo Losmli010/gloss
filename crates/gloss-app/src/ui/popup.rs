@@ -53,8 +53,8 @@ use gloss_core::task::{OutcomeStructured, TaskKind};
 use super::code_hl;
 use super::fonts;
 use super::style::{color, font, radius, space, stroke};
-use crate::i18n::{Text, fill};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
+use crate::ui::i18n::{Text, fill};
 
 /// 浮层默认宽度（04 §二：默认 380px，长文本自适应，上限 480px）
 pub const WIDTH: f32 = 380.0;

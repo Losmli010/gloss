@@ -14,13 +14,10 @@ use winit::window::WindowId;
 use super::{GlossApp, UserEvent};
 
 impl GlossApp {
-    /// 建窗口栈 → 建两个窗口的帧状态，一次做完。
+    /// 建窗口栈与两个窗口的帧状态，一次做完（呈现资源收进 workspace）。
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
-        let theme = self.target_theme();
-        let (windows, frame, settings_frame) = super::build_window_stack(event_loop, theme)?;
-        self.frame = Some(frame);
-        self.settings_frame = Some(settings_frame);
-        self.windows = Some(windows);
+        let theme = self.env.target_theme();
+        self.workspace.init(event_loop, theme)?;
         self.draw();
         Ok(())
     }
@@ -43,7 +40,7 @@ fn is_dismiss_key(logical_key: &Key, state: ElementState) -> bool {
 impl ApplicationHandler<UserEvent> for GlossApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // resumed 可能连续投递，渲染栈只起一次
-        if self.windows.is_some() {
+        if self.workspace.is_ready() {
             return;
         }
         if let Err(err) = self.init(event_loop) {
@@ -60,7 +57,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         if matches!(event, UserEvent::RedrawSettings) {
             // 相位迁移只牵动设置窗：窗口可见才请求重绘，不抽干主流程通道。
-            if let Some(windows) = &self.windows
+            if let Some(windows) = &self.workspace.windows
                 && windows.is_settings_visible()
             {
                 windows.request_redraw_settings();
@@ -78,7 +75,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        let Some(windows) = &self.windows else {
+        let Some(windows) = &self.workspace.windows else {
             return;
         };
         let is_overlay = windows.matches_overlay(window_id);
@@ -99,9 +96,9 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         // 其余事件先喂给对应窗口的 egui，它决定是否消化掉以及要不要重绘
         let repaint = {
             let frame = if is_settings {
-                self.settings_frame.as_mut()
+                self.workspace.settings_frame.as_mut()
             } else {
-                self.frame.as_mut()
+                self.workspace.overlay_frame.as_mut()
             };
             let Some(frame) = frame else {
                 return;
@@ -134,9 +131,9 @@ impl ApplicationHandler<UserEvent> for GlossApp {
             }
             WindowEvent::Resized(size) => {
                 let frame = if is_settings {
-                    self.settings_frame.as_mut()
+                    self.workspace.settings_frame.as_mut()
                 } else {
-                    self.frame.as_mut()
+                    self.workspace.overlay_frame.as_mut()
                 };
                 if let Some(frame) = frame {
                     frame.surface.resize(size);
@@ -152,13 +149,18 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         }
         // 到点的是 egui 要的下一帧：浮层与设置窗各自的截止时刻独立检查。
         let now = Instant::now();
-        if self.overlay_repaint.is_some_and(|deadline| deadline <= now) {
+        if self
+            .workspace
+            .overlay_repaint
+            .is_some_and(|deadline| deadline <= now)
+        {
             self.request_redraw();
         }
         if self
+            .workspace
             .settings_repaint
             .is_some_and(|deadline| deadline <= now)
-            && let Some(windows) = &self.windows
+            && let Some(windows) = &self.workspace.windows
         {
             windows.request_redraw_settings();
         }
@@ -167,8 +169,11 @@ impl ApplicationHandler<UserEvent> for GlossApp {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // 没有待处理的唤醒时刻就彻底睡下，等窗口事件或唤醒句柄把自己叫醒
         event_loop.set_control_flow(
-            sooner(self.overlay_repaint, self.settings_repaint)
-                .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
+            sooner(
+                self.workspace.overlay_repaint,
+                self.workspace.settings_repaint,
+            )
+            .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
         );
     }
 }

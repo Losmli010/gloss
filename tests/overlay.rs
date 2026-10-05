@@ -16,8 +16,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use gloss_app::app::{Frame, build_window_stack, centered_position, render_frame};
-use gloss_app::windows::WindowManager;
+use gloss_app::app::centered_position;
+use gloss_app::present::windows::WindowManager;
+use gloss_app::present::{Frame, build_window_stack, render_frame};
 use gloss_core::config::Theme;
 use gloss_core::log::{error, info};
 use gloss_core::model::Locale;

@@ -17,9 +17,9 @@ use gloss_core::model::{GlossError, Locale};
 use serde::Deserialize;
 
 /// 中文文案（出厂 locale）。
-const ZH: &str = include_str!("../i18n/zh.toml");
+const ZH: &str = include_str!("../../i18n/zh.toml");
 /// 英文文案。
-const EN: &str = include_str!("../i18n/en.toml");
+const EN: &str = include_str!("../../i18n/en.toml");
 
 /// 一个 locale 的全部界面文案：一张扁平表，字段名就是 TOML 里的键。
 ///

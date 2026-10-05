@@ -6,13 +6,10 @@
 pub(crate) mod stubs;
 
 pub mod app;
-pub mod cache;
 pub mod channel;
-pub mod finalize;
-pub mod gpu;
-pub(crate) mod i18n;
+pub(crate) mod flow;
 pub mod machine;
-pub mod pipeline;
+pub mod present;
+pub mod runtime;
 pub mod ui;
 pub mod update;
-pub mod windows;

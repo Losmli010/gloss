@@ -10,7 +10,7 @@
 //!   不产出增量；
 //! - 服务端在流中报错时给 `{"error": {...}}`，按错误码映射到 [`GlossError`]。
 
-use gloss_core::model::GlossError;
+use crate::model::GlossError;
 
 /// 诊断文本上限：错误消息会进 UI 与日志，服务端给的长文本没有价值。
 const MAX_DIAGNOSTIC_CHARS: usize = 200;

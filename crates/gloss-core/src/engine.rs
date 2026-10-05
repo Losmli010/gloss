@@ -10,6 +10,12 @@
 //! 输出契约见 prompt 模块：模型按契约直接返回纯 JSON 对象（`note` 义 +
 //! 按 kind 疏证）；本层只搬运原始文本，不解析——解析归调用方的完成态
 //! （`gloss_app::finalize`，JSON 主路径 + 旧围栏契约 fallback）。
+//!
+//! 子模块 [`llm`] / [`sse`] 是 [`AiEngine`] 端口的内建传输适配：OpenAI
+//! 兼容端点的流式客户端与 SSE 增量解码。
+
+pub mod llm;
+pub mod sse;
 
 use std::sync::Arc;
 

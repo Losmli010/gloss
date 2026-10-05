@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 界面文案统一进文案表门禁：界面词条只定义在 crates/gloss-app/i18n/*.toml，
-# 只经 crates/gloss-app/src/i18n.rs 装入，代码里不内嵌文案字面量。
+# 只经 crates/gloss-app/src/ui/i18n.rs 装入，代码里不内嵌文案字面量。
 # 本地 `just i18n`（pre-commit 的一部分）与 CI 的 I18n check job 共用此脚本，
 # 保证本地与 CI 判定一致。
 #
@@ -12,7 +12,7 @@
 #                      面向文案的统一处理点（prompts/ 模板资源 + 注入片段），整文件
 #                      豁免。纯 ASCII 的英文硬编码不可由文本判定，靠人工评审。
 #   装入点集中      —— include_str! / include_bytes! 引用 i18n 资源只允许出现在
-#                      crates/gloss-app/src/i18n.rs。
+#                      crates/gloss-app/src/ui/i18n.rs。
 #   词条表文件唯一  —— 声明 gloss_ 前缀键的 TOML 只允许在 crates/gloss-app/i18n/ 下。
 #
 # 行尾 `i18n:allow` 放行所在行（同 secrets:allow 惯例），须注明缘由。
@@ -24,7 +24,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${1:-$(cd "$SELF_DIR/../.." && pwd)}"
 
 RULE="界面文案统一进文案表"
-OWNER="crates/gloss-app/src/i18n.rs"
+OWNER="crates/gloss-app/src/ui/i18n.rs"
 CATALOG_DIR="crates/gloss-app/i18n"
 SCAN_DIRS="gloss-app / 根包 / gloss-core / gloss-platform 的 src"
 ALLOW_MARKER="i18n:allow"

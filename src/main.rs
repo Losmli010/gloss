@@ -6,17 +6,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use gloss_app::cache::TaskCache;
 use gloss_app::channel::{AcquireCommand, AppEndpoints, Channels, Event, PlatformEvent, Traced};
+use gloss_app::runtime::cache::TaskCache;
 use gloss_core::config::CACHE_TTL_MAX_SECS;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
+use gloss_core::engine::llm::LlmClient;
 use gloss_core::log::{self, debug, error, info, thread, warn};
 use gloss_core::model::GlossError;
 use gloss_core::ports::{AiEngine, AppIcon, ConfigStore};
 use gloss_core::task::TaskInput;
 use gloss_platform::appearance::MacAppIcon;
-use gloss_platform::engine::llm::LlmClient;
 use gloss_platform::events::mouse::{MouseGesture, MouseSource};
 use gloss_platform::events::{EventSink, EventSource, EventSources};
 use gloss_platform::permissions;
@@ -231,7 +231,7 @@ fn run_event_loop(
                     .min(CACHE_TTL_MAX_SECS),
             );
             let cache = Arc::new(TaskCache::with_ttl(ttl));
-            match gloss_app::pipeline::start_command_runtime(
+            match gloss_app::runtime::pipeline::start_command_runtime(
                 service,
                 cache,
                 commands_rx,

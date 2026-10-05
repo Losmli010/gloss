@@ -10,8 +10,8 @@ use std::hint::black_box;
 use std::sync::Arc;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use gloss_app::cache::{TaskCache, cache_key};
-use gloss_app::finalize::parse_structured;
+use gloss_app::runtime::cache::{TaskCache, cache_key};
+use gloss_app::runtime::finalize::parse_structured;
 use gloss_core::model::ScreenRect;
 use gloss_core::prompt::PromptRegistry;
 use gloss_core::task::{OutcomeStructured, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome};

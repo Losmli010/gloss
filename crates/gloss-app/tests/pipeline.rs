@@ -16,12 +16,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use gloss_app::cache::TaskCache;
 use gloss_app::channel::{AcquireCommand, Channels, Command, Event, PlatformEvent, Traced};
 use gloss_app::machine::{
     AppState, ErrorAction, FailureOutcome, InputOutcome, OverlayView, TaskStateMachine,
 };
-use gloss_app::pipeline::start_command_runtime;
+use gloss_app::runtime::cache::TaskCache;
+use gloss_app::runtime::pipeline::start_command_runtime;
 use gloss_core::config::Config;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
@@ -82,7 +82,7 @@ struct Pipeline {
     _ac_tx: crossbeam_channel::Sender<Traced<AcquireCommand>>,
     commands_tx: tokio::sync::mpsc::UnboundedSender<Traced<Command>>,
     events_rx: crossbeam_channel::Receiver<Event>,
-    _runtime: gloss_app::pipeline::CommandRuntime,
+    _runtime: gloss_app::runtime::pipeline::CommandRuntime,
 }
 
 impl Pipeline {

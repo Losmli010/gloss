@@ -12,18 +12,18 @@ use gloss_core::model::Locale;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
-use crate::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
-use crate::i18n::Text;
 use crate::machine::OverlayView;
+use crate::present::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
+use crate::present::windows::WindowManager;
 use crate::ui;
-use crate::windows::WindowManager;
+use crate::ui::i18n::Text;
 
 /// 一帧渲染所需的全部状态；窗口建好之前为 `None`。
 pub struct Frame {
     pub(crate) window: Arc<Window>,
-    pub(super) egui_ctx: egui::Context,
-    pub(super) egui: egui_winit::State,
-    pub(super) surface: GpuSurface,
+    pub(crate) egui_ctx: egui::Context,
+    pub(crate) egui: egui_winit::State,
+    pub(crate) surface: GpuSurface,
     /// 浮层的跨帧渲染状态（markdown 缓存与尺寸收敛状态）：Rc 让它经绘制
     /// 闭包进入 [`ui::popup::draw`]。仅浮层路径使用。
     popup_state: Rc<ui::popup::RenderState>,
