@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """把性能基线历史渲染为确定性 SVG 趋势曲线。
 
-数据源是 baselines/history.jsonl（perf-history.py 每次 perf-baseline 追加
-一个快照点）。两张图：clone-stats.svg 画 clone 的整体聚合量（总数、密度、
-热点分配次数/字节合计）四条趋势；core-baseline.svg 按基准组分面板画各组
-内基准的均值曲线（对数纵轴），页头带最新快照的运行环境。同一 JSON 重绘
-逐字节一致。
+数据源是 baselines/history.jsonl（perf-history.py 每次 perf-baseline /
+app-metrics 追加一个快照点）。三张图：clone-stats.svg 画 clone 的整体聚合
+量（总数、密度、热点分配次数/字节合计）四条趋势；core-baseline.svg 按
+基准组分面板画各组内基准的均值曲线（对数纵轴），页头带最新快照的运行环
+境；app-runtime.svg 画应用运行时资源四项（启动总时长/CPU、稳态 RSS、二
+进制大小）。同一 JSON 重绘逐字节一致。
 
 用法：
-  scripts/perf/perf-chart.py    依据 history.jsonl 重绘两张趋势图
+  scripts/perf/perf-chart.py    依据 history.jsonl 重绘趋势图
 """
 
 import json
@@ -36,6 +37,13 @@ COLOR_TRACK = "#f2f4f7"
 PALETTE = ("#3d5a8a", "#c26b4a", "#4a8f6f", "#8a5fb0", "#a8842c", "#4a90a4")
 
 CORE_GROUPS = ("cache_key", "complete", "prompt_render", "task_cache")
+
+APP_PANELS = (
+    ("startup_ms", "一、启动总时长", "spawn→m5_ready 观测墙钟，含进程加载；只记录不判罚", lambda v: f"{v} ms"),
+    ("startup_cpu_ms", "二、启动 CPU", "启动期消耗的 CPU 时间，可低于墙钟（多核并行）", lambda v: f"{v} ms"),
+    ("rss_idle_kb", "三、稳态 RSS", "空闲窗口末段的常驻内存", lambda v: f"{fmt_int(v)} kb"),
+    ("binary_kb", "四、二进制大小", "release 产物体积", lambda v: f"{fmt_int(v)} kb"),
+)
 
 FONT_FAMILY = "-apple-system, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif"
 
@@ -330,16 +338,54 @@ def build_core_svg(history, core_baseline):
     return svg.render("core 基线（趋势）")
 
 
+def build_app_svg(history):
+    def col(key):
+        return [e.get("app", {}).get(key) if e.get("app") else None for e in history]
+
+    last = history[-1].get("app") or {}
+    svg = Svg()
+    svg.y = 46
+    svg.text(
+        16,
+        svg.y,
+        f"当前：启动 {last.get('startup_ms', '-')} ms · 启动 CPU {last.get('startup_cpu_ms', '-')} ms · "
+        f"稳态 RSS {last.get('rss_idle_kb', '-')} kb · 二进制 {last.get('binary_kb', '-')} kb",
+        size=12,
+        color=COLOR_MUTED,
+    )
+    svg.y += 18
+    svg.text(
+        16,
+        svg.y,
+        "数据：just app-metrics → scripts/perf/baselines/app-runtime-baseline.json"
+        "（环境快照在该 JSON 的 env 段）",
+        size=12,
+        color=COLOR_MUTED,
+    )
+
+    points = [(e["commit"], None) for e in history]
+    for key, title, subtitle, fmt in APP_PANELS:
+        line_panel(svg, title, subtitle, points, [(key, COLOR_LINE, col(key))], fmt)
+
+    svg.height = svg.y + BOTTOM_PAD
+    return svg.render("应用运行时基线（趋势）")
+
+
 def main():
     history = load_history()
     clone_baseline = json.loads((BASELINE_DIR / "clone-stats.json").read_text(encoding="utf-8"))
     core_path = BASELINE_DIR / "core-baseline.json"
     core_baseline = json.loads(core_path.read_text(encoding="utf-8")) if core_path.is_file() else None
 
-    outputs = (
+    outputs = [
         ("clone-stats.svg", build_clone_svg(history, clone_baseline)),
         ("core-baseline.svg", build_core_svg(history, core_baseline)),
-    )
+    ]
+    if any(e.get("app") for e in history):
+        outputs.append(("app-runtime.svg", build_app_svg(history)))
+    else:
+        print("提示：历史里还没有 app 指标，跳过 app-runtime.svg（跑 just app-metrics 追加）。", file=sys.stderr)
+
     for name, content in outputs:
         path = BASELINE_DIR / name
         path.write_text(content, encoding="utf-8")

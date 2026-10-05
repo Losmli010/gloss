@@ -102,6 +102,13 @@ perf-baseline:
 clone-check:
     ./scripts/perf/clone-stats.py --check
 
+# 量化应用运行时资源并重绘趋势：构建 → spawn 实例采启动里程碑/RSS/CPU（建议先退出在跑的 gloss）→ app-runtime-baseline.json；聚合点随 perf-history 进 history.jsonl，app-runtime.svg 随 perf-chart 重绘
+app-metrics:
+    cargo build --release
+    ./scripts/perf/app-metrics.py
+    ./scripts/perf/perf-history.py
+    ./scripts/perf/perf-chart.py
+
 # Prompt 评测 live 轨：真实 LLM（需 GLOSS_LIVE_*，opt-in）
 # --record 回写夹具；--judge 启用 judge 评分轨（额外一次模型调用/条）
 eval *args:

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="850" viewBox="0 0 960 850" font-family="-apple-system, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
+<text x="16.0" y="46.0" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">当前：启动 4744 ms · 启动 CPU 4350 ms · 稳态 RSS 104212 kb · 二进制 15222 kb</text>
+<text x="16.0" y="64.0" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">数据：just app-metrics → scripts/perf/baselines/app-runtime-baseline.json（环境快照在该 JSON 的 env 段）</text>
+<text x="16.0" y="94.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">一、启动总时长</text>
+<text x="16.0" y="114.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">spawn→m5_ready 观测墙钟，含进程加载；只记录不判罚</text>
+<rect x="62.0" y="122.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
+<circle cx="900.0" cy="173.9" r="3.5" fill="#3d5a8a"/>
+<rect x="873.7" y="156.3" width="52.7" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
+<text x="900.0" y="164.9" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">4744 ms</text>
+<text x="70.0" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="900.0" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="16.0" y="284.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">二、启动 CPU</text>
+<text x="16.0" y="304.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">启动期消耗的 CPU 时间，可低于墙钟（多核并行）</text>
+<rect x="62.0" y="312.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
+<circle cx="900.0" cy="363.9" r="3.5" fill="#3d5a8a"/>
+<rect x="873.7" y="346.3" width="52.7" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
+<text x="900.0" y="354.9" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">4350 ms</text>
+<text x="70.0" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="900.0" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="16.0" y="474.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">三、稳态 RSS</text>
+<text x="16.0" y="494.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">空闲窗口末段的常驻内存</text>
+<rect x="62.0" y="502.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
+<circle cx="900.0" cy="553.9" r="3.5" fill="#3d5a8a"/>
+<rect x="864.1" y="536.3" width="71.8" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
+<text x="900.0" y="544.9" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">104,212 kb</text>
+<text x="70.0" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="900.0" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="16.0" y="664.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">四、二进制大小</text>
+<text x="16.0" y="684.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">release 产物体积</text>
+<rect x="62.0" y="692.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
+<circle cx="900.0" cy="743.9" r="3.5" fill="#3d5a8a"/>
+<rect x="867.3" y="726.3" width="65.4" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
+<text x="900.0" y="734.9" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">15,222 kb</text>
+<text x="70.0" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="900.0" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="16.0" y="26.0" font-size="19" fill="#333333" font-weight="600" text-anchor="start">应用运行时基线（趋势）</text>
+</svg>
