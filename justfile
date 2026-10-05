@@ -91,10 +91,11 @@ clone-bench:
 clone-stats:
     ./scripts/perf/clone-stats.py
 
-# 重建性能基线并重绘图表：clone 计数+分配 → clone-stats.json；core 墙钟快照（含环境，需先跑 just bench）→ core-baseline.json
+# 重建性能基线并重绘趋势图：clone 计数+分配 → clone-stats.json；core 墙钟快照（含环境，需先跑 just bench）→ core-baseline.json；聚合点追加 history.jsonl
 perf-baseline:
     ./scripts/perf/clone-stats.py --write
     ./scripts/perf/bench-baseline.py
+    ./scripts/perf/perf-history.py
     ./scripts/perf/perf-chart.py
 
 # 对照 clone 基线报告变化（clone 计数或热点分配上升即失败；core 墙钟仅记录不判罚；审计对照，不在 precommit）

@@ -1,39 +1,41 @@
 #!/usr/bin/env python3
-"""把性能基线 JSON 渲染为确定性 SVG 图表。
+"""把性能基线历史渲染为确定性 SVG 趋势曲线。
 
-两张图：clone-stats.svg（clone 基线：crate 计数、热点分配次数/字节）与
-core-baseline.svg（benches/core.rs 墙钟：按基准组的均值条形，页头带快照
-时的运行环境）。布局按数据排序推导，不含生成时间戳——core 图的环境
-信息来自 JSON 的 env 字段（随基线更新），同一基线重绘逐字节一致。
+数据源是 baselines/history.jsonl（perf-history.py 每次 perf-baseline 追加
+一个快照点）。两张图：clone-stats.svg 画 clone 的整体聚合量（总数、密度、
+热点分配次数/字节合计）四条趋势；core-baseline.svg 按基准组分面板画各组
+内基准的均值曲线（对数纵轴），页头带最新快照的运行环境。同一 JSON 重绘
+逐字节一致。
 
 用法：
-  scripts/perf/perf-chart.py    重绘 baselines/ 下已存在的基线图表
+  scripts/perf/perf-chart.py    依据 history.jsonl 重绘两张趋势图
 """
 
 import json
 import math
+import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 BASELINE_DIR = SCRIPT_DIR / "baselines"
+HISTORY_PATH = BASELINE_DIR / "history.jsonl"
 
 WIDTH = 960
-LABEL_X = 16
-BAR_X = 270
-BAR_MAX_W = 460
-VALUE_X = 744
-BAR_H = 24
-ROW_STEP = 36
+PLOT_X0 = 70
+PLOT_X1 = 900
+PLOT_H = 90
 TITLE_H = 30
 SUBTITLE_H = 20
-CAPTION_H = 26
-BOTTOM_PAD = 30
+PANEL_GAP = 22
+BOTTOM_PAD = 26
 
-COLOR_BAR = "#5b7db1"
-COLOR_BAR_MAX = "#3d5a8a"
+COLOR_LINE = "#3d5a8a"
 COLOR_TEXT = "#333333"
 COLOR_MUTED = "#8a8f98"
-COLOR_TRACK = "#eceff3"
+COLOR_TRACK = "#f2f4f7"
+PALETTE = ("#3d5a8a", "#c26b4a", "#4a8f6f", "#8a5fb0", "#a8842c", "#4a90a4")
+
+CORE_GROUPS = ("cache_key", "complete", "prompt_render", "task_cache")
 
 FONT_FAMILY = "-apple-system, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif"
 
@@ -48,10 +50,6 @@ def esc(text):
     )
 
 
-def fmt_int(value):
-    return f"{value:,}"
-
-
 def human_ns(ns):
     if ns >= 1_000_000:
         return f"{ns / 1_000_000:.3f} ms"
@@ -60,204 +58,292 @@ def human_ns(ns):
     return f"{ns:.1f} ns"
 
 
-def linear_scale(max_value):
-    return lambda v: BAR_MAX_W * v / max_value if max_value else 0
-
-
-def log_scale(values):
-    positive = [v for v in values if v > 0]
-    if not positive:
-        return linear_scale(1)
-    lo, hi = min(positive), max(positive)
-    span = math.log10(hi / lo) if hi > lo else 1.0
-    return lambda v: BAR_MAX_W * (math.log10(v / lo) / span if v > 0 and span else 1.0)
+def fmt_int(value):
+    return f"{value:,}"
 
 
 class Svg:
     def __init__(self):
         self.parts = []
         self.y = 0
+        self.height = 0
 
-    def text(self, x, y, content, size=13, color=COLOR_TEXT, bold=False, anchor="start"):
+    def text(self, x, y, content, size=13, color=COLOR_TEXT, bold=False, anchor="start", halo=False):
+        if halo:
+            w = len(content) * size * 0.58 + 8
+            rx = x - w / 2 if anchor == "middle" else x - 3
+            self.parts.append(
+                f'<rect x="{rx:.1f}" y="{y - size * 0.78:.1f}" width="{w:.1f}" '
+                f'height="{size * 1.05:.1f}" fill="#ffffff" fill-opacity="0.92" rx="2"/>'
+            )
         weight = "600" if bold else "400"
         self.parts.append(
-            f'<text x="{x}" y="{y}" font-size="{size}" fill="{color}" '
+            f'<text x="{x:.1f}" y="{y:.1f}" font-size="{size}" fill="{color}" '
             f'font-weight="{weight}" text-anchor="{anchor}">{esc(content)}</text>'
         )
 
     def rect(self, x, y, w, h, color, rx=3):
         self.parts.append(
-            f'<rect x="{x}" y="{y}" width="{max(w, 0):.1f}" height="{h}" '
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{max(w, 0):.1f}" height="{h}" '
             f'fill="{color}" rx="{rx}"/>'
+        )
+
+    def circle(self, x, y, color, r=3.5):
+        self.parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="{color}"/>')
+
+    def polyline(self, pts, color):
+        points = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+        self.parts.append(
+            f'<polyline points="{points}" fill="none" stroke="{color}" stroke-width="2"/>'
         )
 
     def panel_title(self, title, subtitle):
         self.y += TITLE_H
-        self.text(LABEL_X, self.y, title, size=15, bold=True)
+        self.text(16, self.y, title, size=15, bold=True)
         self.y += SUBTITLE_H
-        self.text(LABEL_X, self.y, subtitle, size=11.5, color=COLOR_MUTED)
-        self.y += 10
+        self.text(16, self.y, subtitle, size=11.5, color=COLOR_MUTED)
+        self.y += 8
 
-    def rows(self, items, scale):
-        """items: [(label, value, value_text)]，scale(value)→条宽。"""
-        max_value = max((v for _, v, _ in items), default=0)
-        for label, value, value_text in items:
-            self.y += ROW_STEP - 12
-            bar_color = COLOR_BAR_MAX if value == max_value else COLOR_BAR
-            self.rect(LABEL_X, self.y, BAR_X + BAR_MAX_W - LABEL_X, BAR_H, COLOR_TRACK, rx=4)
-            self.rect(BAR_X, self.y, scale(value), BAR_H, bar_color, rx=4)
-            self.text(LABEL_X, self.y + BAR_H - 7, label, size=12)
-            self.text(VALUE_X, self.y + BAR_H - 7, value_text, size=12, bold=True)
-            self.y += 12
-        self.y += CAPTION_H - 12
+    def render(self, title_text):
+        head = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{self.height}" '
+            f'viewBox="0 0 {WIDTH} {self.height}" font-family="{FONT_FAMILY}">'
+        )
+        self.text(16, 26, title_text, size=19, bold=True)
+        return "\n".join([head, *self.parts, "</svg>"]) + "\n"
 
 
-def render(svg, title_text):
-    head = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{svg.height}" '
-        f'viewBox="0 0 {WIDTH} {svg.height}" font-family="{FONT_FAMILY}">'
-    )
-    svg.text(LABEL_X, 26, title_text, size=19, bold=True)
-    return "\n".join([head, *svg.parts, "</svg>"]) + "\n"
+def x_positions(count):
+    if count == 1:
+        return [(PLOT_X0 + PLOT_X1) / 2]
+    step = (PLOT_X1 - PLOT_X0) / (count - 1)
+    return [PLOT_X0 + i * step for i in range(count)]
 
 
-def build_clone_svg(baseline):
-    crates = baseline.get("crates", {})
-    perf = baseline.get("perf", {})
+def y_scale(values, log):
+    present = [v for v in values if v is not None]
+    if not present:
+        return lambda v: 0
+    if log:
+        present = [math.log10(v) for v in present]
+    lo, hi = min(present), max(present)
+    if lo == hi:
+        lo, hi = lo - 1, hi + 1
+    pad = (hi - lo) * 0.18
 
-    crate_rows = sorted(
-        ((name, agg["clone"], agg["loc"]) for name, agg in crates.items()),
-        key=lambda t: (-t[1], t[0]),
-    )
-    total = sum(c for _, c, _ in crate_rows)
-    total_loc = sum(loc for _, _, loc in crate_rows)
-    alloc_rows = sorted(
-        (
-            (bid[len("clone_allocs/") :], entry["allocs"])
-            for bid, entry in perf.items()
-            if "allocs" in entry
-        ),
-        key=lambda t: (-t[1], t[0]),
-    )
-    byte_rows = sorted(
-        (
-            (bid[len("clone_bytes/") :], entry["bytes"])
-            for bid, entry in perf.items()
-            if "bytes" in entry
-        ),
-        key=lambda t: (-t[1], t[0]),
-    )
+    def scale(v):
+        t = (math.log10(v) if log else v) - lo
+        return PLOT_H - (t / (hi + pad - lo)) * PLOT_H
+
+    return scale
+
+
+def line_panel(svg, title, subtitle, points, series, fmt, log=False, legend=False):
+    """points: [(commit, None)]；series: [(name, color, [v or None])]，与 points 对齐。"""
+    svg.panel_title(title, subtitle)
+    plot_y = svg.y
+    commits = [c for c, _ in points]
+    xs = x_positions(len(points))
+    svg.rect(PLOT_X0 - 8, plot_y, PLOT_X1 - PLOT_X0 + 16, PLOT_H, COLOR_TRACK, rx=4)
+
+    flat = [v for _, _, vals in series for v in vals]
+    scale = y_scale(flat, log)
+    labels = []
+    for name, color, vals in series:
+        pts = [(xs[i], plot_y + scale(v)) for i, v in enumerate(vals) if v is not None]
+        if len(pts) > 1:
+            svg.polyline(pts, color)
+        for x, y in pts:
+            svg.circle(x, y, color)
+        if pts:
+            lx, ly = pts[-1]
+            last_val = next(v for v in reversed(vals) if v is not None)
+            labels.append([lx, ly - 9, color, fmt(last_val)])
+    by_x = {}
+    for lab in labels:
+        by_x.setdefault(round(lab[0]), []).append(lab)
+    for group in by_x.values():
+        group.sort(key=lambda t: -t[1])
+        for i in range(1, len(group)):
+            group[i][1] = min(group[i][1], group[i - 1][1] - 13)
+        for lx, ly, color, text in group:
+            svg.text(lx, ly, text, size=11, color=color, bold=True, anchor="middle", halo=True)
+    tick_y = plot_y + PLOT_H + 14
+    for x, commit in zip(xs, commits):
+        svg.text(x, tick_y, commit, size=10, color=COLOR_MUTED, anchor="middle")
+    svg.y = tick_y + 6
+    if legend:
+        rows = (len(series) + 3) // 4
+        for idx, (name, color, _) in enumerate(series):
+            col_i, row_i = idx % 4, idx // 4
+            lx = 24 + col_i * 228
+            ly = svg.y + 14 + row_i * 16
+            svg.rect(lx, ly - 9, 10, 10, color, rx=2)
+            svg.text(lx + 14, ly, name, size=10.5, color=COLOR_TEXT)
+        svg.y += rows * 16 + 6
+    svg.y += PANEL_GAP
+
+
+def load_history():
+    if not HISTORY_PATH.is_file():
+        print("错误：缺少 history.jsonl，先运行 just perf-baseline", file=sys.stderr)
+        raise SystemExit(1)
+    return [
+        json.loads(line)
+        for line in HISTORY_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def build_clone_svg(history, clone_baseline):
+    points = [(e["commit"], None) for e in history]
+
+    def col(key):
+        return [e.get("clone", {}).get(key) for e in history]
 
     svg = Svg()
     svg.y = 46
-    density = total / total_loc * 1000 if total_loc else 0
+    last = history[-1]["clone"]
+    crates = clone_baseline.get("crates", {})
+    composition = " · ".join(
+        f"{name} {agg['clone']}"
+        for name, agg in sorted(crates.items(), key=lambda kv: -kv[1]["clone"])
+    )
     svg.text(
-        LABEL_X,
+        16,
         svg.y,
-        f"生产代码 .clone() 合计 {total} 次 · 密度 {density:.1f} 次/千行 · "
-        f"性能基准 {len(alloc_rows)} 项（scripts/perf/baselines/clone-stats.json）",
+        f"当前：合计 {last['total']} 次 · 密度 {last['density']} 次/千行 · "
+        f"热点分配合计 {last['allocs']} 次 / {fmt_int(last['bytes'])} 字节",
+        size=12,
+        color=COLOR_MUTED,
+    )
+    svg.y += 18
+    svg.text(
+        16,
+        svg.y,
+        f"构成：{composition}（明细见 scripts/perf/baselines/clone-stats.json）",
         size=12,
         color=COLOR_MUTED,
     )
 
-    svg.panel_title(
-        "一、各 crate 生产代码 .clone() 计数",
-        "口径：src/ + src/main.rs，剥离注释/字符串、剔除 #[cfg(test)]；条宽按计数线性",
+    line_panel(
+        svg,
+        "一、clone 总数趋势",
+        "整体聚合；x 轴为基线快照（just perf-baseline 追加，标注 commit）",
+        points,
+        [("总数", COLOR_LINE, col("total"))],
+        lambda v: f"{v} 次",
     )
-    svg.rows(
-        [
-            (name, count, f"{count} · {count / loc * 1000:.1f}/千行" if loc else f"{count}")
-            for name, count, loc in crate_rows
-        ],
-        linear_scale(max((c for _, c, _ in crate_rows), default=0)),
+    line_panel(
+        svg,
+        "二、密度趋势",
+        "次/千行生产代码，剔除规模变化后的公平口径",
+        points,
+        [("密度", COLOR_LINE, col("density"))],
+        lambda v: f"{v}/千行",
     )
-
-    svg.panel_title(
-        "二、热点分配次数 / 迭代",
-        "benches/clone.rs（criterion 自定义测量，均值）；条宽线性",
+    line_panel(
+        svg,
+        "三、热点分配次数合计",
+        "六项热点基准每迭代分配之和，作整体趋势指数",
+        points,
+        [("allocs", COLOR_LINE, col("allocs"))],
+        lambda v: f"{v} 次",
     )
-    svg.rows(
-        [(name, value, f"{value} 次/迭代") for name, value in alloc_rows],
-        linear_scale(max((v for _, v in alloc_rows), default=0)),
-    )
-
-    svg.panel_title(
-        "三、热点分配字节 / 迭代",
-        "同一基准的字节口径；跨三个数量级，条宽对数刻度",
-    )
-    svg.rows(
-        [(name, value, f"{value:,} 字节/迭代") for name, value in byte_rows],
-        log_scale([v for _, v in byte_rows]),
+    line_panel(
+        svg,
+        "四、热点分配字节合计",
+        "六项热点基准每迭代分配字节之和，作整体趋势指数",
+        points,
+        [("bytes", COLOR_LINE, col("bytes"))],
+        lambda v: f"{fmt_int(v)} B",
     )
 
     svg.height = svg.y + BOTTOM_PAD
-    return render(svg, "clone 基线")
+    return svg.render("clone 基线（整体趋势）")
 
 
-CORE_GROUPS = ("cache_key", "complete", "prompt_render", "task_cache")
-
-
-def build_core_svg(baseline):
-    benches = baseline.get("benches", {})
-    env = baseline.get("env", {})
+def build_core_svg(history, core_baseline):
+    benches = history[-1].get("core") or {}
+    env_src = (core_baseline or {}).get("env", {})
 
     grouped = {group: [] for group in CORE_GROUPS}
-    for full_id, entry in benches.items():
+    for full_id in benches:
         group = full_id.split("/", 1)[0]
-        grouped.setdefault(group, []).append((full_id, entry["mean_ns"]))
+        grouped.setdefault(group, []).append(full_id)
 
     svg = Svg()
     svg.y = 46
     svg.text(
-        LABEL_X,
+        16,
         svg.y,
-        f"{len(benches)} 项 · 均值，95% 区间见 JSON · 只记录不判罚"
+        f"{len(benches)} 项 · 组内对数纵轴 · 只记录不判罚"
         "（scripts/perf/baselines/core-baseline.json）",
         size=12,
         color=COLOR_MUTED,
     )
-    svg.y += 20
+    svg.y += 18
     svg.text(
-        LABEL_X,
+        16,
         svg.y,
         " · ".join(
-            str(env.get(key, "-"))
-            for key in ("generated_at", "os", "machine", "cpu", "rustc", "commit")
+            str(env_src.get(key, "-")) for key in ("generated_at", "os", "machine")
+        ),
+        size=11.5,
+        color=COLOR_MUTED,
+    )
+    svg.y += 16
+    svg.text(
+        16,
+        svg.y,
+        " · ".join(
+            str(env_src.get(key, "-")) for key in ("cpu", "rustc", "commit")
         ),
         size=11.5,
         color=COLOR_MUTED,
     )
 
     for group in list(CORE_GROUPS) + sorted(set(grouped) - set(CORE_GROUPS)):
-        rows = grouped.get(group) or []
-        if not rows:
+        ids = sorted(grouped.get(group) or [])
+        if not ids:
             continue
-        rows.sort(key=lambda t: (-t[1], t[0]))
-        svg.panel_title(f"{group}", "均值；条宽按组内最大值线性")
-        svg.rows(
-            [(full_id[len(group) + 1 :], mean, human_ns(mean)) for full_id, mean in rows],
-            linear_scale(max(mean for _, mean in rows)),
+        series = [
+            (
+                full_id[len(group) + 1 :],
+                PALETTE[i % len(PALETTE)],
+                [e.get("core", {}).get(full_id) if e.get("core") else None for e in history],
+            )
+            for i, full_id in enumerate(ids)
+        ]
+        line_panel(
+            svg,
+            f"{group}",
+            "组内各基准均值，对数纵轴；标注为该线最新值",
+            [(e["commit"], None) for e in history],
+            series,
+            human_ns,
+            log=True,
+            legend=True,
         )
 
     svg.height = svg.y + BOTTOM_PAD
-    return render(svg, "core 基线（墙钟）")
-
-
-CHARTS = (
-    ("clone-stats.json", build_clone_svg, "clone-stats.svg"),
-    ("core-baseline.json", build_core_svg, "core-baseline.svg"),
-)
+    return svg.render("core 基线（趋势）")
 
 
 def main():
-    for json_name, builder, svg_name in CHARTS:
-        json_path = BASELINE_DIR / json_name
-        if not json_path.is_file():
-            continue
-        baseline = json.loads(json_path.read_text(encoding="utf-8"))
-        svg_path = BASELINE_DIR / svg_name
-        svg_path.write_text(builder(baseline), encoding="utf-8")
-        print(f"图表已生成：{svg_path.relative_to(svg_path.parents[2])}")
+    history = load_history()
+    clone_baseline = json.loads((BASELINE_DIR / "clone-stats.json").read_text(encoding="utf-8"))
+    core_path = BASELINE_DIR / "core-baseline.json"
+    core_baseline = json.loads(core_path.read_text(encoding="utf-8")) if core_path.is_file() else None
+
+    outputs = (
+        ("clone-stats.svg", build_clone_svg(history, clone_baseline)),
+        ("core-baseline.svg", build_core_svg(history, core_baseline)),
+    )
+    for name, content in outputs:
+        path = BASELINE_DIR / name
+        path.write_text(content, encoding="utf-8")
+        print(f"图表已生成：{path.relative_to(path.parents[2])}")
 
 
 if __name__ == "__main__":

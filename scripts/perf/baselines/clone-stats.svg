@@ -1,78 +1,33 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="910" viewBox="0 0 960 910" font-family="-apple-system, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
-<text x="16" y="46" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">生产代码 .clone() 合计 100 次 · 密度 8.7 次/千行 · 性能基准 6 项（scripts/perf/baselines/clone-stats.json）</text>
-<text x="16" y="76" font-size="15" fill="#333333" font-weight="600" text-anchor="start">一、各 crate 生产代码 .clone() 计数</text>
-<text x="16" y="96" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">口径：src/ + src/main.rs，剥离注释/字符串、剔除 #[cfg(test)]；条宽按计数线性</text>
-<rect x="16" y="130" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="130" width="460.0" height="24" fill="#3d5a8a" rx="4"/>
-<text x="16" y="147" font-size="12" fill="#333333" font-weight="400" text-anchor="start">gloss-app</text>
-<text x="744" y="147" font-size="12" fill="#333333" font-weight="600" text-anchor="start">70 · 10.3/千行</text>
-<rect x="16" y="166" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="166" width="78.9" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="183" font-size="12" fill="#333333" font-weight="400" text-anchor="start">gloss-core</text>
-<text x="744" y="183" font-size="12" fill="#333333" font-weight="600" text-anchor="start">12 · 6.8/千行</text>
-<rect x="16" y="202" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="202" width="78.9" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="219" font-size="12" fill="#333333" font-weight="400" text-anchor="start">gloss-eval</text>
-<text x="744" y="219" font-size="12" fill="#333333" font-weight="600" text-anchor="start">12 · 10.5/千行</text>
-<rect x="16" y="238" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="238" width="32.9" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="255" font-size="12" fill="#333333" font-weight="400" text-anchor="start">gloss</text>
-<text x="744" y="255" font-size="12" fill="#333333" font-weight="600" text-anchor="start">5 · 19.5/千行</text>
-<rect x="16" y="274" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="274" width="6.6" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="291" font-size="12" fill="#333333" font-weight="400" text-anchor="start">gloss-platform</text>
-<text x="744" y="291" font-size="12" fill="#333333" font-weight="600" text-anchor="start">1 · 0.7/千行</text>
-<text x="16" y="330" font-size="15" fill="#333333" font-weight="600" text-anchor="start">二、热点分配次数 / 迭代</text>
-<text x="16" y="350" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">benches/clone.rs（criterion 自定义测量，均值）；条宽线性</text>
-<rect x="16" y="384" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="384" width="460.0" height="24" fill="#3d5a8a" rx="4"/>
-<text x="16" y="401" font-size="12" fill="#333333" font-weight="400" text-anchor="start">ui/settings_frame</text>
-<text x="744" y="401" font-size="12" fill="#333333" font-weight="600" text-anchor="start">208 次/迭代</text>
-<rect x="16" y="420" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="420" width="404.7" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="437" font-size="12" fill="#333333" font-weight="400" text-anchor="start">ui/popup_frame</text>
-<text x="744" y="437" font-size="12" fill="#333333" font-weight="600" text-anchor="start">183 次/迭代</text>
-<rect x="16" y="456" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="456" width="35.4" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="473" font-size="12" fill="#333333" font-weight="400" text-anchor="start">machine/lifecycle</text>
-<text x="744" y="473" font-size="12" fill="#333333" font-weight="600" text-anchor="start">16 次/迭代</text>
-<rect x="16" y="492" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="492" width="11.1" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="509" font-size="12" fill="#333333" font-weight="400" text-anchor="start">i18n/for_error_fill</text>
-<text x="744" y="509" font-size="12" fill="#333333" font-weight="600" text-anchor="start">5 次/迭代</text>
-<rect x="16" y="528" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="528" width="2.2" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="545" font-size="12" fill="#333333" font-weight="400" text-anchor="start">i18n/for_error</text>
-<text x="744" y="545" font-size="12" fill="#333333" font-weight="600" text-anchor="start">1 次/迭代</text>
-<rect x="16" y="564" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="564" width="2.2" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="581" font-size="12" fill="#333333" font-weight="400" text-anchor="start">i18n/for_error_detail</text>
-<text x="744" y="581" font-size="12" fill="#333333" font-weight="600" text-anchor="start">1 次/迭代</text>
-<text x="16" y="620" font-size="15" fill="#333333" font-weight="600" text-anchor="start">三、热点分配字节 / 迭代</text>
-<text x="16" y="640" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">同一基准的字节口径；跨三个数量级，条宽对数刻度</text>
-<rect x="16" y="674" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="674" width="460.0" height="24" fill="#3d5a8a" rx="4"/>
-<text x="16" y="691" font-size="12" fill="#333333" font-weight="400" text-anchor="start">ui/popup_frame</text>
-<text x="744" y="691" font-size="12" fill="#333333" font-weight="600" text-anchor="start">57,715 字节/迭代</text>
-<rect x="16" y="710" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="710" width="452.3" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="727" font-size="12" fill="#333333" font-weight="400" text-anchor="start">ui/settings_frame</text>
-<text x="744" y="727" font-size="12" fill="#333333" font-weight="600" text-anchor="start">50,613 字节/迭代</text>
-<rect x="16" y="746" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="746" width="210.9" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="763" font-size="12" fill="#333333" font-weight="400" text-anchor="start">machine/lifecycle</text>
-<text x="744" y="763" font-size="12" fill="#333333" font-weight="600" text-anchor="start">812 字节/迭代</text>
-<rect x="16" y="782" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="782" width="111.4" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="799" font-size="12" fill="#333333" font-weight="400" text-anchor="start">i18n/for_error_fill</text>
-<text x="744" y="799" font-size="12" fill="#333333" font-weight="600" text-anchor="start">148 字节/迭代</text>
-<rect x="16" y="818" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="818" width="33.5" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="835" font-size="12" fill="#333333" font-weight="400" text-anchor="start">i18n/for_error</text>
-<text x="744" y="835" font-size="12" fill="#333333" font-weight="600" text-anchor="start">39 字节/迭代</text>
-<rect x="16" y="854" width="714.0" height="24" fill="#eceff3" rx="4"/>
-<rect x="270" y="854" width="0.0" height="24" fill="#5b7db1" rx="4"/>
-<text x="16" y="871" font-size="12" fill="#333333" font-weight="400" text-anchor="start">i18n/for_error_detail</text>
-<text x="744" y="871" font-size="12" fill="#333333" font-weight="600" text-anchor="start">22 字节/迭代</text>
-<text x="16" y="26" font-size="19" fill="#333333" font-weight="600" text-anchor="start">clone 基线</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="850" viewBox="0 0 960 850" font-family="-apple-system, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
+<text x="16.0" y="46.0" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">当前：合计 100 次 · 密度 8.7 次/千行 · 热点分配合计 414 次 / 109,349 字节</text>
+<text x="16.0" y="64.0" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">构成：gloss-app 70 · gloss-core 12 · gloss-eval 12 · gloss 5 · gloss-platform 1（明细见 scripts/perf/baselines/clone-stats.json）</text>
+<text x="16.0" y="94.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">一、clone 总数趋势</text>
+<text x="16.0" y="114.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">整体聚合；x 轴为基线快照（just perf-baseline 追加，标注 commit）</text>
+<rect x="62.0" y="122.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
+<circle cx="485.0" cy="173.9" r="3.5" fill="#3d5a8a"/>
+<rect x="465.1" y="156.3" width="39.9" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
+<text x="485.0" y="164.9" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">100 次</text>
+<text x="485.0" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="16.0" y="284.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">二、密度趋势</text>
+<text x="16.0" y="304.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">次/千行生产代码，剔除规模变化后的公平口径</text>
+<rect x="62.0" y="312.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
+<circle cx="485.0" cy="363.9" r="3.5" fill="#3d5a8a"/>
+<rect x="461.9" y="346.3" width="46.3" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
+<text x="485.0" y="354.9" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">8.7/千行</text>
+<text x="485.0" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="16.0" y="474.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">三、热点分配次数合计</text>
+<text x="16.0" y="494.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">六项热点基准每迭代分配之和，作整体趋势指数</text>
+<rect x="62.0" y="502.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
+<circle cx="485.0" cy="553.9" r="3.5" fill="#3d5a8a"/>
+<rect x="465.1" y="536.3" width="39.9" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
+<text x="485.0" y="544.9" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">414 次</text>
+<text x="485.0" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="16.0" y="664.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">四、热点分配字节合计</text>
+<text x="16.0" y="684.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">六项热点基准每迭代分配字节之和，作整体趋势指数</text>
+<rect x="62.0" y="692.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
+<circle cx="485.0" cy="743.9" r="3.5" fill="#3d5a8a"/>
+<rect x="452.3" y="726.3" width="65.4" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
+<text x="485.0" y="734.9" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">109,349 B</text>
+<text x="485.0" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="16.0" y="26.0" font-size="19" fill="#333333" font-weight="600" text-anchor="start">clone 基线（整体趋势）</text>
 </svg>
