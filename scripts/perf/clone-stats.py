@@ -13,7 +13,9 @@
 
 用法：
   scripts/perf/clone-stats.py            打印当前分布
-  scripts/perf/clone-stats.py --write    把当前分布写入基线 JSON（覆盖旧基线）
+  scripts/perf/clone-stats.py --write    把当前分布写入基线 JSON（覆盖旧基线；
+                                         现行基线含性能段而本机无基准数据时
+                                         拒绝降级，--allow-no-perf 显式放行）
   scripts/perf/clone-stats.py --check    对照基线报告变化；clone 计数或热点分配
                                          上升即退出码 1
 """
@@ -308,22 +310,33 @@ def print_stats(crates, files):
             print(f"  {bench_id}: {parts}")
 
 
-def write_baseline():
+def write_baseline(allow_no_perf):
     crates, files = collect()
     perf = read_perf()
-    old_total = None
+    old = None
     if BASELINE_PATH.exists():
         old = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-        old_total = sum(c.get("clone", 0) for c in old.get("crates", {}).values())
+    old_total = (
+        sum(c.get("clone", 0) for c in old.get("crates", {}).values()) if old else None
+    )
+    if not perf:
+        if old and old.get("perf"):
+            if not allow_no_perf:
+                sys.exit(
+                    "错误：target/criterion 下没有 clone_allocs/clone_bytes 数据，"
+                    f"而现行基线含性能段，拒绝降级覆盖 {BASELINE_PATH.relative_to(ROOT)}；"
+                    "先运行 just clone-bench，或加 --allow-no-perf 显式降级。"
+                )
+            print("警告：按 --allow-no-perf 降级写入不含性能段的基线。", file=sys.stderr)
+        else:
+            print(
+                "提示：target/criterion 下没有 clone_allocs/clone_bytes 数据，"
+                "基线只含计数（性能部分先跑 just clone-bench）。",
+                file=sys.stderr,
+            )
     payload = {"crates": crates, "files": files}
     if perf:
         payload["perf"] = perf
-    else:
-        print(
-            "提示：target/criterion 下没有 clone_allocs/clone_bytes 数据，"
-            "基线只含计数（性能部分先跑 just clone-bench）。",
-            file=sys.stderr,
-        )
     BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
     BASELINE_PATH.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -340,7 +353,7 @@ def write_baseline():
 
 def check_baseline():
     if not BASELINE_PATH.exists():
-        sys.exit(f"错误：基线不存在 {BASELINE_PATH}，先运行 just clone-baseline")
+        sys.exit(f"错误：基线不存在 {BASELINE_PATH}，先运行 just perf-baseline")
     old = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
     old_crates = old.get("crates", {})
     old_files = old.get("files", {})
@@ -416,7 +429,7 @@ def check_baseline():
             print(f"  clone 计数上升：{count_names}。")
         if perf_regressions:
             print(f"  热点分配上升：{'、'.join(perf_regressions)}。")
-        print("  如属有意，运行 just clone-baseline 更新基线，并随本次改动一并审查。")
+        print("  如属有意，运行 just perf-baseline 更新基线，并随本次改动一并审查。")
         sys.exit(1)
     verdict = "改善" if improvements else "持平"
     print(f"\n✓ 对照基线{verdict}（clone 计数 {base_total} → {cur_total}）。")
@@ -427,9 +440,14 @@ def main():
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--write", action="store_true", help="把当前分布写入基线 JSON")
     group.add_argument("--check", action="store_true", help="对照基线报告变化")
+    parser.add_argument(
+        "--allow-no-perf",
+        action="store_true",
+        help="--write 时允许在缺基准数据下降级写入（仅当 clone 基准已移除）",
+    )
     args = parser.parse_args()
     if args.write:
-        write_baseline()
+        write_baseline(args.allow_no_perf)
     elif args.check:
         check_baseline()
     else:

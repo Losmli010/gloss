@@ -91,7 +91,7 @@ clone-bench:
 clone-stats:
     ./scripts/perf/clone-stats.py
 
-# 重建性能基线并重绘趋势图：clone 计数+分配 → clone-stats.json；core 墙钟快照（含环境，需先跑 just bench）→ core-baseline.json；聚合点追加 history.jsonl
+# 重建性能基线并重绘趋势图：clone 计数+分配（需先跑 just clone-bench）→ clone-stats.json；core 墙钟快照（含环境，需先跑 just bench）→ core-baseline.json；聚合点追加 history.jsonl
 perf-baseline:
     ./scripts/perf/clone-stats.py --write
     ./scripts/perf/bench-baseline.py

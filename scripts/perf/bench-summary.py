@@ -5,7 +5,7 @@
 最近一次的运行方式决定（just bench 对照上一次运行，just bench-check 对照
 命名基线），本脚本只读取数据，不运行基准。
 
-用法：scripts/bench-summary.py [对照标签] [criterion 目录]
+用法：scripts/perf/bench-summary.py [对照标签] [criterion 目录]
 """
 
 import json
