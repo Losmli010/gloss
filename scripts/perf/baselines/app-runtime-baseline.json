@@ -1,0 +1,39 @@
+{
+  "cpu": {
+    "idle_cpu_ms": 200,
+    "idle_window_ms": 30405
+  },
+  "disk": {
+    "binary_bytes": 15587700,
+    "config_bytes": 765,
+    "logs_bytes": 250760,
+    "logs_files": 7
+  },
+  "env": {
+    "commit": "53f1d30",
+    "cpu": "Intel(R) Core(TM) i5-7360U CPU @ 2.30GHz",
+    "generated_at": "2026-10-06T00:13:29+08:00",
+    "machine": "x86_64",
+    "os": "macOS-13.7.8-x86_64-i386-64bit",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "memory": {
+    "rss_idle_kb": 104212,
+    "rss_peak_kb": 339196
+  },
+  "runs": {
+    "requested": 3,
+    "succeeded": 3
+  },
+  "startup": {
+    "cpu_ms": 4350,
+    "milestones_ms": {
+      "m1_logging": 2,
+      "m2_config": 21,
+      "m3_engine": 378,
+      "m4_assembly": 493,
+      "m5_ready": 4624
+    },
+    "wall_ms": 4744
+  }
+}

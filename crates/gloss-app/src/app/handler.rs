@@ -4,7 +4,7 @@
 use std::error::Error;
 use std::time::Instant;
 
-use gloss_core::log::{error, thread};
+use gloss_core::log::{error, milestone, thread};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
@@ -52,6 +52,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         // 浮层预创建即隐藏（Idle 态）；先在隐藏状态画一帧预热——egui 图集构建、
         // Metal 管线编译与纹理上传都发生在首帧，不预热的话首次显示会超预算
         self.draw();
+        milestone("m5_ready");
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {

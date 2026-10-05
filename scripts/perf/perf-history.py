@@ -2,9 +2,11 @@
 """把当前基线快照折算成聚合点，追加进 baselines/history.jsonl（趋势曲线的数据源）。
 
 clone 取整体聚合口径：`.clone()` 总数、密度（次/千行）、热点分配次数合计、
-分配字节合计；core 记录各组各基准的均值（ns）。clone-stats.json 缺 perf 段时
-拒绝记录，避免 0 值进入趋势线。同一 commit 重跑原位覆盖旧点，不重复膨胀也
-不挪动既有时序位置。明细数据仍在 clone-stats.json / core-baseline.json，
+分配字节合计；core 记录各组各基准的均值（ns）；app 记录运行时资源四项
+（启动总时长/CPU、稳态 RSS、二进制大小，来自 app-metrics.py，缺文件时该
+组记 null）。clone-stats.json 缺 perf 段时拒绝记录，避免 0 值进入趋势线。
+同一 commit 重跑原位覆盖旧点，不重复膨胀也不挪动既有时序位置。明细数据
+仍在 clone-stats.json / core-baseline.json / app-runtime-baseline.json，
 历史文件只承载曲线需要的量。
 
 用法：
@@ -54,6 +56,19 @@ def clone_aggregates():
     }
 
 
+def app_aggregates():
+    path = BASELINE_DIR / "app-runtime-baseline.json"
+    if not path.is_file():
+        return None
+    data = load_json(path)
+    return {
+        "startup_ms": data["startup"]["wall_ms"],
+        "startup_cpu_ms": data["startup"]["cpu_ms"],
+        "rss_idle_kb": data["memory"]["rss_idle_kb"],
+        "binary_kb": data["disk"]["binary_bytes"] // 1024,
+    }
+
+
 def main():
     if not (BASELINE_DIR / "clone-stats.json").is_file():
         sys.exit("错误：缺少 clone-stats.json，先运行 just perf-baseline")
@@ -67,6 +82,7 @@ def main():
     if core_path.is_file():
         benches = load_json(core_path).get("benches") or {}
         entry["core"] = {full_id: bench["mean_ns"] for full_id, bench in benches.items()}
+    entry["app"] = app_aggregates()
 
     entries = []
     replaced = False

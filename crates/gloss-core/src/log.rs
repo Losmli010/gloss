@@ -24,7 +24,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Once, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_subscriber::layer::SubscriberExt;
@@ -114,6 +114,25 @@ pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
 /// 级别」；`RUST_LOG=error` 时这些行同样被压掉，不丢信息。
 pub fn task_span(generation: u64) -> Span {
     warn_span!("task", generation)
+}
+
+/// 启动里程碑计时原点：首次 [`milestone`] 调用即进程入口，其后各里程碑的
+/// `elapsed_ms` 都相对它累计。
+static MILESTONE_START: OnceLock<Instant> = OnceLock::new();
+
+/// 记一条启动里程碑：`milestone`（id）与 `elapsed_ms`（相对进程入口累计，
+/// 单调时钟）两个顶层字段。埋点位置按启动序列定：进程入口、日志/配置/引擎
+/// 就绪、事件循环装配完成、窗口与渲染栈就绪——量化脚本按 id 分段归因启动
+/// 耗时（基线见 `scripts/perf/baselines/app-runtime-baseline.json`）。
+pub fn milestone(id: &str) {
+    let start = MILESTONE_START.get_or_init(Instant::now);
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+    info!(
+        thread = thread::UI,
+        milestone = id,
+        elapsed_ms = elapsed_ms,
+        "startup milestone"
+    );
 }
 
 /// 日志行格式（两路共用）：JSON Lines，一行一个对象——`timestamp` / `level` /
@@ -379,7 +398,7 @@ mod tests {
 
     use super::{
         DailyFileWriter, FILE_PREFIX, MAX_LOG_FILES, build_filter, capture, civil_from_days, info,
-        init, log_file_name, open_file_writer, prune_old_logs, task_span, today_utc,
+        init, log_file_name, milestone, open_file_writer, prune_old_logs, task_span, today_utc,
     };
 
     fn probe_line(text: &str) -> &str {
@@ -566,6 +585,22 @@ mod tests {
                 .as_str()
                 .is_some_and(|t| t.starts_with("gloss")),
             "{line}"
+        );
+    }
+
+    #[test]
+    fn milestone_event_carries_id_and_elapsed_ms() {
+        let text = capture(|| milestone("m_test_probe"));
+
+        let line = probe_line(&text);
+        let value: serde_json::Value = serde_json::from_str(line).expect("日志行应是 JSON");
+        assert_eq!(value["level"], "INFO", "{line}");
+        assert_eq!(value["message"], "startup milestone", "{line}");
+        assert_eq!(value["thread"], "ui", "{line}");
+        assert_eq!(value["milestone"], "m_test_probe", "{line}");
+        assert!(
+            value["elapsed_ms"].as_u64().is_some(),
+            "elapsed_ms 应为非负整数：{line}"
         );
     }
 
