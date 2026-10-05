@@ -21,6 +21,9 @@
 //! 两道敏感信息闸门的落点：场景闸门在 [`trigger_decision`]（触发前，
 //! 拦下即不取材不占编号、不出浮层），内容闸门在 [`TaskStateMachine::commit_selection`]
 //! （取材后、下发前，命中即丢弃探测且当前显示保留——不下发、不出浮层）。
+//!
+//! 浮层露面策略（[`should_reveal`]）同样是本模块的纯决策：挂起显形请求
+//! 与「失败即弹」的按批判定；「怎么显示」在 `flow::reveal`。
 
 use tokio_util::sync::CancellationToken;
 
@@ -30,7 +33,7 @@ use gloss_core::model::GlossError;
 use gloss_core::model::Locale;
 use gloss_core::task::{TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
-use crate::channel::{AcquireCommand, PlatformEvent};
+use crate::channel::{AcquireCommand, Event, PlatformEvent};
 
 /// 失败卡的动作按钮（错误映射表）：状态机按错误变体给出该显式
 /// 给用户的出口，渲染层照画、壳执行。
@@ -601,6 +604,65 @@ fn task_options(config: &Config, system_locale: Locale) -> TaskOptions {
         prompt_locale: Some(config.language.resolve(system_locale)),
         ..Default::default()
     }
+}
+
+/// 回传事件的类别标签（露面策略只关心类别，不关心代数与载荷）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EventKind {
+    InputReady,
+    TaskClassified,
+    TaskChunk,
+    TaskDone,
+    TaskFailed,
+}
+
+/// 取回传事件的类别标签。
+pub(crate) fn event_kind(event: &Event) -> EventKind {
+    match event {
+        Event::InputReady { .. } => EventKind::InputReady,
+        Event::TaskClassified { .. } => EventKind::TaskClassified,
+        Event::TaskChunk { .. } => EventKind::TaskChunk,
+        Event::TaskDone { .. } => EventKind::TaskDone,
+        Event::TaskFailed { .. } => EventKind::TaskFailed,
+    }
+}
+
+/// 单个回传事件后浮层要不要自动露面。
+///
+/// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
+/// 露面的两个来源：挂起显形请求（经壳层 `pending_reveal`——划词提交
+/// 即显流式卡，见 [`should_reveal`]——那时还没有回传事件或产物已在批内
+/// 提交），与失败总弹（错误不该被吞掉）。
+/// 取材成功不直接负责露面：划词路径的显形随提交置位；用户若在取材中
+/// 收起浮层，机器回 Idle，陈旧的取材产物采纳不上，自然也不会把浮层弹回。
+/// 分类结果、流式增量与完成态都只在已可见的浮层上更新——三者同样不负责
+/// 露面。
+fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
+    match kind {
+        EventKind::InputReady => false,
+        EventKind::TaskFailed => accepted,
+        EventKind::TaskClassified | EventKind::TaskDone | EventKind::TaskChunk => false,
+    }
+}
+
+/// 一批回传之后浮层要不要自动露面：**任一**事件判为要显示就显示。
+pub(crate) fn auto_show_after(batch: impl IntoIterator<Item = (EventKind, bool)>) -> bool {
+    batch
+        .into_iter()
+        .any(|(kind, accepted)| auto_show_for(kind, accepted))
+}
+
+/// 一批回传处理后浮层要不要显形：挂起显形请求（`pending`）要求机器确有
+/// 视图——视图为空时弹出的会是渲染自检卡（挂起置位与消费之间没有插入
+/// 点，两段 drain 同帧连跑，守卫只为防御）；划词提交的置位在批内
+/// `commit_probe`，同一帧消费。挂起显形不依赖回传批次，与批次内的
+/// 「失败即弹」任一成立即显示。
+pub(crate) fn should_reveal(
+    pending: bool,
+    has_view: bool,
+    batch: impl IntoIterator<Item = (EventKind, bool)>,
+) -> bool {
+    (pending && has_view) || auto_show_after(batch)
 }
 
 #[cfg(test)]
@@ -1620,5 +1682,85 @@ mod tests {
             "the gate only fires on the high-confidence patterns"
         );
         assert_eq!(machine.state(), AppState::Translating);
+    }
+}
+
+#[cfg(test)]
+mod reveal_policy_tests {
+    use super::{EventKind, auto_show_after, auto_show_for, should_reveal};
+
+    #[test]
+    fn auto_show_policy_decides_when_the_overlay_pops() {
+        use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
+
+        assert!(
+            !auto_show_for(InputReady, true),
+            "显形走挂起请求，取材成功不负责露面"
+        );
+        assert!(!auto_show_for(TaskDone, true), "完成时浮层早已可见");
+        assert!(!auto_show_for(TaskChunk, true), "chunk 只追加不露面");
+        assert!(auto_show_for(TaskFailed, true), "错误不该被吞掉");
+
+        for kind in [InputReady, TaskChunk, TaskDone, TaskFailed] {
+            assert!(
+                !auto_show_for(kind, false),
+                "未被采纳的 {kind:?} 不得触发显示"
+            );
+        }
+    }
+
+    #[test]
+    fn auto_show_survives_a_mixed_batch() {
+        use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
+
+        assert!(
+            auto_show_after([(TaskChunk, true), (TaskFailed, true)]),
+            "任一事件要显示就显示"
+        );
+        assert!(
+            auto_show_after([(TaskDone, false), (TaskFailed, true)]),
+            "陈旧的成功不得抵消一条被采纳的失败"
+        );
+        assert!(
+            !auto_show_after([(TaskDone, false), (InputReady, false)]),
+            "整批都没被采纳（陈旧）→ 不显示：迟到的产物不得把浮层弹回来"
+        );
+        assert!(!auto_show_after([]), "空批不显示");
+    }
+
+    #[test]
+    fn pending_reveal_shows_only_over_a_live_view() {
+        use EventKind::TaskFailed;
+
+        assert!(
+            should_reveal(true, true, []),
+            "划词提交：挂起请求只在活视图在场时显形"
+        );
+        assert!(
+            !should_reveal(true, false, []),
+            "视图为空时弹出的会是渲染自检卡，守卫必须拦下挂起显形"
+        );
+        assert!(
+            !should_reveal(false, false, [(TaskFailed, false)]),
+            "无挂起且批次里没有失败即弹时不显示"
+        );
+    }
+
+    #[test]
+    fn reveal_decision_combines_the_pending_request_with_the_batch() {
+        use EventKind::{InputReady, TaskChunk, TaskDone, TaskFailed};
+
+        assert!(
+            should_reveal(true, true, [(TaskDone, false), (InputReady, false)]),
+            "挂起显形不依赖回传批次：整批陈旧也拦不下它"
+        );
+        assert!(
+            should_reveal(false, false, [(TaskFailed, true)]),
+            "失败即弹独立成立：无挂起也照常显示"
+        );
+        assert!(
+            !should_reveal(false, true, [(InputReady, true), (TaskChunk, true)]),
+            "取材成功与流式增量不负责露面：批次再新鲜也不显形"
+        );
     }
 }

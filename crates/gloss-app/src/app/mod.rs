@@ -2,19 +2,16 @@
 //!
 //! 壳层按职责拆内部子模块，[`GlossApp`] 结构体与其余壳级编排留在本模块：
 //! - [`events`]——事件循环入口与跨线程唤醒句柄；
-//! - [`handler`]——winit 事件分发（`ApplicationHandler` 实现）；
-//! - [`channels`]——通道①③④的消费与下发；
-//! - [`overlay`]——浮层显隐、收起出口与浮层动作执行。
+//! - [`handler`]——winit 事件分发（`ApplicationHandler` 实现）。
 //!
-//! 渲染帧管线与主题在 `present`，设置编辑会话在 `flow`。
+//! 通道消费与浮层显隐、动作执行在 `flow`（probe / task / reveal / actions），
+//! 渲染帧管线与主题在 `present`，设置编辑会话在 `flow::settings_session`。
 
-mod channels;
 mod events;
 mod handler;
-mod overlay;
 
+pub use crate::flow::reveal::centered_position;
 pub use events::{UserEvent, Waker, run};
-pub use overlay::centered_position;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -77,7 +74,7 @@ pub(crate) struct GlossApp {
     pub(crate) probe_front_app: Option<FrontApp>,
     /// 触发即显挂起：占代数的触发置位，下一次 drain_events 消费
     /// （那里才有 ActiveEventLoop 可做定位与显示；显形判定在
-    /// `overlay::should_reveal`）。
+    /// `machine::should_reveal`）。
     pub(crate) pending_reveal: bool,
     /// 当前任务的 span（触发点创建）与它所属的代数：随通道②③下发，让接收
     /// 线程的日志自动带上 `generation`。重试沿用同一个（代数不变）。
@@ -123,7 +120,7 @@ impl GlossApp {
 
     /// 指定代数的任务 span（副本，供 `enter()` 借用）；代数不符或尚无任务时
     /// 为 `None`。
-    fn span_for(&self, generation: u64) -> Option<Span> {
+    pub(crate) fn span_for(&self, generation: u64) -> Option<Span> {
         self.task_span
             .as_ref()
             .filter(|(current, _)| *current == generation)
@@ -194,7 +191,7 @@ impl GlossApp {
         }
     }
 
-    fn request_redraw(&self) {
+    pub(crate) fn request_redraw(&self) {
         if let Some(windows) = &self.windows {
             windows.request_redraw();
         }
