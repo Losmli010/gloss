@@ -13,10 +13,10 @@ gloss/
 ├── Cargo.toml           # workspace 根 + 根包 gloss（bin gloss，唯一入口 src/main.rs）
 ├── src/main.rs          # 唯一入口 / 唯一组装点
 └── crates/
-    ├── gloss-core/      # 领域层 + 端口（ports：core 里定义的 trait 契约）：模型、任务、提示词、引擎、分类、配置、日志（零平台依赖，零缓存零配置读取——模型随任务选项携带）
-    ├── gloss-platform/  # 适配器层：实现 core 的端口——选区读取、鼠标事件源、配置与密钥存储、LLM 网络（SSE 流式）、应用外观（Dock 图标）
-    ├── gloss-app/       # 表现层 + 应用层：状态机、窗口、wgpu 与 egui、通道类型、tokio 消费桥（**缓存站点**：TaskCache 与完成态解析都在这里）、界面文案表（i18n 下的 zh/en TOML，编译期嵌入）
-    └── gloss-eval/      # 评测工具链（bin eval + datasets/fixtures/prompts 资产）：只消费 core 与 platform，不被任何生产 crate 依赖（check-constraints 强制），不进应用启动路径
+    ├── gloss-core/      # 领域层 + 任务 AI 层 + 端口（ports：core 里定义的 trait 契约）：模型、任务、提示词、引擎、分类、配置、日志、内建 LLM 流式传输（engine/llm+sse）（零渲染/窗口依赖，零缓存零配置读取——模型随任务选项携带）
+    ├── gloss-platform/  # 适配器层：平台事件线程与取材线程——选区读取、鼠标事件源，返回 input；另有配置与密钥存储、应用外观（Dock 图标）
+    ├── gloss-app/       # 主线程应用层，目录即分层：壳 app（winit 循环）/ 编排 flow（probe/task/reveal/actions）/ 决策 machine / 视图 ui / 呈现 present / 后台桥 runtime（**缓存站点**：TaskCache 与完成态解析都在这里）、通道类型、界面文案表（i18n 下的 zh/en TOML，编译期嵌入）
+    └── gloss-eval/      # 评测工具链（bin eval + datasets/fixtures/prompts 资产）：只消费 core，不被任何生产 crate 依赖（check-constraints 强制），不进应用启动路径
 ```
 
 具体文件清单以 `crates/*/src` 为准，本节只讲分层职责——文件名会随重构漂移，职责不会。

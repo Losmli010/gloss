@@ -425,7 +425,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | --- | --- | --- | --- |
 | ui_locale_follows_the_saved_language_without_a_restart | 界面语言随保存即时切换 | 给定出厂配置（跟随系统），当保存 Language::En 再保存 Language::System，则逐帧解析出的 locale 依次为 Zh→En→Zh（不重启即换文案表） | 2026-09-22 |
 
-### crates/gloss-app/src/app/render.rs
+### crates/gloss-app/src/present/render.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -439,7 +439,15 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | escape_press_is_the_dismiss_key | 浮层收起键判定 | 给定逻辑键与按下状态，当判定收起键，则 Escape 按下为真、释放与其它字符键为假 | 2026-09-21 |
 | sooner_picks_the_earliest_deadline | 取更早的截止时刻 | 给定两个时刻（可含 None），当取更早，则 None 让位、双 None 不唤醒 | 2026-09-19 |
 
-### crates/gloss-app/src/app/channels.rs
+### crates/gloss-app/src/flow/probe.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| dispatched_acquire_carries_the_task_span | 取材命令带着任务 span 下发 | 给定划词触发，当取出通道②载荷并进入它的 span，则探针日志行是 JSON 且带 "generation":1 | 2026-09-23 |
+| a_disabled_default_kind_does_not_stop_the_selection_gesture | 任务开关不拦划词手势 | 给定默认任务被停用的配置，当划词触发，则仍下发 Auto 取材命令（手势不带显式意图，开关只拦显式 kind） | 2026-09-26 |
+| a_sensitive_scene_makes_the_selection_gesture_a_no_op | 敏感场景下划词彻底无声 | 给定安全输入开启、再给定前台应用在拦截名单内（两侧各自设置），当划词触发，则取材命令都不下发、探测编号不领、状态留 Idle；场景恢复后同一手势照常下发 | 2026-09-24 |
+
+### crates/gloss-app/src/flow/task.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -449,14 +457,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | stale_input_ready_is_dropped_entirely | 陈旧 InputReady 整体丢弃 | 给定陈旧编号 InputReady，当采纳，则整体丢弃、不下发通道③ | 2026-09-19 |
 | saved_config_applies_to_the_next_trigger | 新配置对下次触发生效 | 给定保存新配置（目标语言与模型），当下一次划词提交，则新值随任务选项冻结下发（模型与语言均出自探测时快照；kind 由 LLM 层分类） | 2026-10-03 |
 | saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定探测后、产物到达前保存新配置，当产物提交下发，则仍用探测时快照 | 2026-09-19 |
-| dispatched_acquire_carries_the_task_span | 取材命令带着任务 span 下发 | 给定划词触发，当取出通道②载荷并进入它的 span，则探针日志行是 JSON 且带 "generation":1 | 2026-09-23 |
-| a_disabled_default_kind_does_not_stop_the_selection_gesture | 任务开关不拦划词手势 | 给定默认任务被停用的配置，当划词触发，则仍下发 Auto 取材命令（手势不带显式意图，开关只拦显式 kind） | 2026-09-26 |
-| a_sensitive_scene_makes_the_selection_gesture_a_no_op | 敏感场景下划词彻底无声 | 给定安全输入开启、再给定前台应用在拦截名单内（两侧各自设置），当划词触发，则取材命令都不下发、探测编号不领、状态留 Idle；场景恢复后同一手势照常下发 | 2026-09-24 |
 | suspicious_input_is_suppressed_and_shows_nothing | 可疑内容被拦下且什么都不出 | 给定嵌在 JSON 里的短令牌取材产物，当采纳，则通道③一条都没有、可见会话不被触碰（没有卡片、没有可点的出口）；下一次普通取材照常下发 | 2026-10-01 |
 | a_mis_slide_over_a_visible_session_preserves_it_entirely | 已显示会话对误滑零感知 | 给定推理中的可见会话，当新划词探测以空选区失败收场，则令牌未取消、状态与视图原样、无显形挂起、流式正文照常追加 | 2026-10-01 |
 | committing_the_probe_flags_the_reveal_for_the_same_frame | 提交即挂起显形 | 给定在途划词探测，当产物提交，则置位显形挂起（drain_events 同帧消费）、进入 Translating | 2026-10-01 |
 
-### crates/gloss-app/src/i18n.rs
+### crates/gloss-app/src/ui/i18n.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -470,7 +475,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | each_error_variant_maps_to_its_own_entry | 错误变体各取自己的词条 | 给定八个无诊断文本的变体，当取失败卡文案与错因细节，则各等于本变体对应的词条（两臂对调会被抓住）；带诊断的两个变体按模板填诊断 | 2026-09-22 |
 | error_detail_prefers_the_variant_diagnostic | 复合提示取诊断细节 | 给定带诊断的变体与不带诊断的变体，当取错因细节，则前者只出诊断原文、后者回落本地化整句 | 2026-09-22 |
 
-### crates/gloss-app/src/windows.rs
+### crates/gloss-app/src/present/windows.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -501,21 +506,22 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | code_views_expose_the_language_badge_and_prose_untouched | 代码视图语言标签入树、非代码无标签 | 给定 ExplainCode 流式视图，当渲染，则无障碍树可检索语言标签 rust（面板首行左上、原样小写）；给定翻译流式视图，当渲染，则树上无标签（未知/非代码不显示） | 2026-10-02 |
 | snapshots_match_baseline（popup 代码视图随高亮再录） | 两份代码视图基线随语法着色重录 | 给定 popup_code_streaming / popup_code_outcome 的英文夹具，当 wgpu 渲染并 diff，则与基线一致（2026-10-02 随 T4 单趟正则六类着色再录：关键字/函数形/字符串着色；其余七份 popup 与 settings 基线零变化——着色只落代码分支） | 2026-10-02 |
 
-### crates/gloss-app/src/app/overlay.rs
+### crates/gloss-app/src/flow/actions.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | retry_action_redispatches_the_failed_task | Retry 动作重发失败任务 | 给定失败卡 Retry 动作，当执行，则同代数同任务新令牌重发通道③，重试产物照常采纳 | 2026-09-21 |
 | open_settings_action_keeps_the_error_card | 打开设置保留错误卡 | 给定鉴权失败卡，当执行 OpenSettings 动作，则停在 Error、通道③无流量、编辑会话就位 | 2026-09-21 |
+
+### crates/gloss-app/src/flow/reveal.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 | dismiss_abandons_the_inflight_task_and_returns_to_idle | 收起浮层放弃在途任务 | 给定推理中的浮层，当执行收起出口，则回 Idle、在途令牌取消、视图清空、迟到产物被丢弃 | 2026-09-21 |
-| auto_show_policy_decides_when_the_overlay_pops | 自动弹出按事件类别 | 给定事件类别×采纳组合，当逐事件判定，则失败即弹；取材成功不再露面（显形随划词提交置位）、完成与 chunk 不弹（浮层已可见）；未采纳一律不弹 | 2026-09-26 |
-| auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则任一被采纳的失败即弹、整批陈旧不弹、空批不弹 | 2026-09-26 |
-| pending_reveal_shows_only_over_a_live_view | 挂起显形的守卫只认活视图 | 给定挂起的显形请求与机器视图有无两种状态，当判显形，则视图在场即显形、视图为空不显形（弹出渲染自检卡）、无挂起且批次无失败即弹也不显形 | 2026-10-03 |
-| reveal_decision_combines_the_pending_request_with_the_batch | 显形决策对挂起请求与批次取或 | 给定挂起显形请求配整批陈旧回传、无挂起配被采纳的失败、无挂起配取材成功与流式增量，当判显形，则挂起显形不依赖批次（陈旧批也拦不下）、失败即弹独立成立、取材成功与流式增量不负责露面 | 2026-09-27 |
 | show_position_follows_selection_only_for_the_current_generation | 显示位置跟随当代划词 | 给定划词锚点与代数，当决策显示位置，则当代跟随选区（右下偏移）、代数不符或无锚点回落居中 | 2026-09-20 |
 | selection_trigger_records_its_anchor_per_generation | 划词触发按代数记锚点 | 给定两次划词触发，当消费，则锚点随代数刷新为各自释放坐标 | 2026-09-20 |
 
-### crates/gloss-app/src/app/settings_session.rs
+### crates/gloss-app/src/flow/settings_session.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -524,7 +530,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | clearing_the_key_deletes_the_secret_on_save | 清除密钥保存即删除 | 给定 KeyUpdate::Clear，当保存，则 keychain 条目删除、会话关闭 | 2026-09-19 |
 | failed_save_keeps_the_session_open_with_a_notice | 失败保存会话不关 | 给定落盘必失败存储，当保存，则会话保持打开、错误进提示、快照不变 | 2026-09-19 |
 
-### crates/gloss-app/src/app/theme.rs
+### crates/gloss-app/src/present/workspace.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -565,7 +571,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | new_context_carries_fonts_and_theme | 新上下文两样都装好 | 给定主题，当新建上下文，则主题偏好落上且字体表含 CJK 后备（依赖宿主机字体） | 2026-09-23 |
 | reapply_writes_every_context | 重施加写满每个上下文 | 给定两个已装好的上下文，当施加各档主题，则每个都被写；空集写 0 个不 panic | 2026-09-23 |
 
-### crates/gloss-app/src/gpu.rs
+### crates/gloss-app/src/present/gpu.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -574,7 +580,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | alpha_mode_degrades_to_auto_without_transparency | 无透明支持降级 Auto | 给定仅 Opaque/Auto 的候选或空列表，当挑选，则降级 Auto | 2026-09-19 |
 | errors_describe_their_cause | GPU 错误文案含根因 | 给定各 GpuError 变体，当 to_string，则文案包含根因 | 2026-09-19 |
 
-### crates/gloss-app/src/pipeline.rs
+### crates/gloss-app/src/runtime/pipeline.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -616,6 +622,10 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | suspicious_input_is_dropped_while_the_visible_session_survives | 可疑内容丢弃且当前显示保留 | 给定可见会话（产物卡在场）时到达带令牌的探测产物，当提交，则结果是 Blocked{Token}、探测消费、可见会话的状态与视图原样保留、已完结会话的令牌不被取消 | 2026-10-01 |
 | blocked_input_is_not_redispatched_by_any_later_path | 被拦下的取材没有旁路 | 给定已拦下的探测产物（卡号命中），当 retry、同编号重复提交、同编号 chunk/done/failed、以及同编号通道故障（fail_acquire / fail_transport）陆续到达，则全部被拒且状态机不被触碰；新探测后同一份可疑文本仍被拦下 | 2026-10-01 |
 | ordinary_input_still_passes_the_content_gate | 日常文本照常通过内容闸门 | 给定一段普通中文，当提交，则照常 Dispatch 并进 Translating（闸门只认高置信度模式） | 2026-09-24 |
+| auto_show_policy_decides_when_the_overlay_pops | 自动弹出按事件类别 | 给定事件类别×采纳组合，当逐事件判定，则失败即弹；取材成功不再露面（显形随划词提交置位）、完成与 chunk 不弹（浮层已可见）；未采纳一律不弹 | 2026-09-26 |
+| auto_show_survives_a_mixed_batch | 混合批次自动弹出取或 | 给定一批混合回传，当按批取或，则任一被采纳的失败即弹、整批陈旧不弹、空批不弹 | 2026-09-26 |
+| pending_reveal_shows_only_over_a_live_view | 挂起显形的守卫只认活视图 | 给定挂起的显形请求与机器视图有无两种状态，当判显形，则视图在场即显形、视图为空不显形（弹出渲染自检卡）、无挂起且批次无失败即弹也不显形 | 2026-10-03 |
+| reveal_decision_combines_the_pending_request_with_the_batch | 显形决策对挂起请求与批次取或 | 给定挂起显形请求配整批陈旧回传、无挂起配被采纳的失败、无挂起配取材成功与流式增量，当判显形，则挂起显形不依赖批次（陈旧批也拦不下）、失败即弹独立成立、取材成功与流式增量不负责露面 | 2026-09-27 |
 
 ### crates/gloss-app/src/update/mod.rs
 
