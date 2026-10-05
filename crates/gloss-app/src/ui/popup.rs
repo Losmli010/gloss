@@ -149,7 +149,7 @@ const FOOTER_RESERVE: f32 = FOOTER_HEIGHT + space::PARAGRAPH;
 const MIN_BODY_VIEWPORT: f32 = 48.0;
 
 /// 浮层的跨帧渲染状态（每窗口一份，由渲染管线持有）。
-pub(crate) struct RenderState {
+pub struct RenderState {
     /// markdown 渲染状态（egui_commonmark 要求跨帧持有）。
     pub cache: RefCell<CommonMarkCache>,
     /// 上一帧应用的浮层宽度（宽度收敛的滞回状态）。
@@ -241,8 +241,10 @@ fn decode_app_icon(png: &[u8]) -> Option<egui::ColorImage> {
 }
 
 /// 一帧浮层绘制的产物：动作上交 + 内容期望的窗口尺寸（逻辑点）。
-pub(crate) struct PopupOutput {
+pub struct PopupOutput {
+    /// 本帧上交壳执行的动作；`None`＝无动作。
     pub action: Option<OverlayAction>,
+    /// 本帧内容期望的浮层尺寸（壳据此调整窗口）。
     pub sizing: OverlaySizing,
     /// 页头拖动热区的状态：`Some(offset)`＝拖动进行中，offset 是指针自
     /// 按压点起的**累计**位移（窗口内相对坐标，逻辑点；按下帧为零），
@@ -303,7 +305,7 @@ pub(crate) fn reset_appear_animation(ctx: &egui::Context) {
 /// `view` 为 `None` 时显示渲染自检卡（预热与自检路径）。返回本帧绘制的
 /// 产物——失败卡动作与头部动作区（齿轮/×）上交壳执行——浮层只渲染、不
 /// 副作用；期望尺寸由壳经窗口管理器应用（内容自适应高度，超出屏幕滚动兜底）。
-pub(crate) fn draw(
+pub fn draw(
     ui: &mut egui::Ui,
     view: Option<&OverlayView>,
     state: &RenderState,

@@ -65,6 +65,12 @@ name = "overlay"
 harness = false
 name = "core"
 
+# clone 热点基准（criterion 自定义测量，两组：分配次数 / 分配字节）
+# 运行：just clone-bench
+[[bench]]
+harness = false
+name = "clone"
+
 [dependencies]
 gloss-app = { path = "crates/gloss-app" }
 # 测试桩只在 tests/stubs/，经 cfg(test) 编译进测试目标，不进发布二进制。
@@ -76,6 +82,8 @@ gloss-platform = { path = "crates/gloss-platform" }
 [dev-dependencies]
 # 基准框架（benches/core）；特性只保留 cargo_bench_support。
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+# clone 基准的无头帧驱动（benches/clone 用 run_ui）；版本与 gloss-app 同批。
+egui = { version = "0.36.2", default-features = false, features = ["default_fonts"] }
 # 自检性能记录落 JSON Lines（GLOSS_PERF_OUT 导出）。
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # L3 显隐自检（overlay）直接驱动 winit 窗口栈。

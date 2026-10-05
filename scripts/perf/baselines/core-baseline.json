@@ -1,0 +1,87 @@
+{
+  "benches": {
+    "cache_key/image/1mb": {
+      "ci_hi_ns": 13090405,
+      "ci_lo_ns": 11938831,
+      "mean_ns": 12418578
+    },
+    "cache_key/image/4mb": {
+      "ci_hi_ns": 45285378,
+      "ci_lo_ns": 43497703,
+      "mean_ns": 44201254
+    },
+    "cache_key/text/long": {
+      "ci_hi_ns": 12811,
+      "ci_lo_ns": 10829,
+      "mean_ns": 11638
+    },
+    "cache_key/text/short": {
+      "ci_hi_ns": 243,
+      "ci_lo_ns": 237,
+      "mean_ns": 239
+    },
+    "complete/fence_missing": {
+      "ci_hi_ns": 1690,
+      "ci_lo_ns": 1373,
+      "mean_ns": 1513
+    },
+    "complete/json_broken": {
+      "ci_hi_ns": 1237,
+      "ci_lo_ns": 1113,
+      "mean_ns": 1166
+    },
+    "complete/ocr/ok": {
+      "ci_hi_ns": 2553,
+      "ci_lo_ns": 2283,
+      "mean_ns": 2402
+    },
+    "complete/word_card/many_senses": {
+      "ci_hi_ns": 30272,
+      "ci_lo_ns": 29761,
+      "mean_ns": 29988
+    },
+    "complete/word_card/ok": {
+      "ci_hi_ns": 6507,
+      "ci_lo_ns": 5608,
+      "mean_ns": 5929
+    },
+    "prompt_render/code/long": {
+      "ci_hi_ns": 1503,
+      "ci_lo_ns": 1450,
+      "mean_ns": 1475
+    },
+    "prompt_render/word/short": {
+      "ci_hi_ns": 1368,
+      "ci_lo_ns": 1294,
+      "mean_ns": 1324
+    },
+    "task_cache/get/hit": {
+      "ci_hi_ns": 604,
+      "ci_lo_ns": 582,
+      "mean_ns": 592
+    },
+    "task_cache/get/miss": {
+      "ci_hi_ns": 135,
+      "ci_lo_ns": 127,
+      "mean_ns": 131
+    },
+    "task_cache/set/new_key": {
+      "ci_hi_ns": 2011,
+      "ci_lo_ns": 1960,
+      "mean_ns": 1983
+    },
+    "task_cache/set/same_key": {
+      "ci_hi_ns": 2343,
+      "ci_lo_ns": 2253,
+      "mean_ns": 2294
+    }
+  },
+  "env": {
+    "commit": "a69b5d6",
+    "cpu": "Intel(R) Core(TM) i5-7360U CPU @ 2.30GHz",
+    "generated_at": "2026-10-05T17:19:21+08:00",
+    "machine": "x86_64",
+    "os": "macOS-13.7.8-x86_64-i386-64bit",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  }
+}
