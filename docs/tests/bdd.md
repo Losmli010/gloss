@@ -556,7 +556,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | --- | --- | --- | --- |
 | apply_theme_elides_writes_until_the_preference_changes | 主题未变不重写 | 给定未变的偏好，当重复 apply_theme，则不写；偏好变了则跟上 | 2026-09-23 |
 
-### crates/gloss-app/src/ui/code_hl.rs
+### crates/gloss-app/src/ui/code_hl/detect.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -568,6 +568,18 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | detect_language_matches_signatures_only_at_line_starts | 签名形只在行首命中 | 给定行中段含 "def" 的普通句子，当内容探测，则无语言（弱签名不做子串匹配） | 2026-10-02 |
 | detect_language_yields_none_for_plain_text | 普通文本无语言 | 给定空串、英文句子与中文句子，当内容探测，则恒为 None | 2026-10-02 |
 | detect_language_reads_sql_shapes | SQL 形状探测 | 给定 SELECT...FROM 跨行对（大小写各一）、 lone SELECT、读起来像该对的单行散文，当内容探测，则跨行对判为 sql（大小写不敏感）、孤 SELECT 与单行散文不判（防散文误报） | 2026-10-02 |
+| sql_detection_ignores_non_statement_lines | SQL 探测忽略非语句行 | 给定注释里含 select...from 对的 rust 代码、selected/fromage 子串散文，当内容探测，则前者 rust、后者无语言（行锚定 + 词边界） | 2026-10-02 |
+
+### crates/gloss-app/src/ui/code_hl/palette.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| every_class_has_its_own_color_per_theme | 六类色明暗两套互异 | 给定六类别与明暗两主题，当取色，则同主题内六色两两不同、注释恒斜体 | 2026-10-02 |
+
+### crates/gloss-app/src/ui/code_hl/tokenize.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
 | known_languages_color_keywords_and_shapes | 已知语言的关键字与形状着色 | 给定 rust 与 python 代码片段，当 tokenize，则 fn/def/return 落 Keyword、函数调用形落 Function 且区间从标识符起（定界符裁掉） | 2026-10-02 |
 | unknown_languages_still_color_strings_and_comments | 清单外语言走通用启发集 | 给定清单外语言（fortran）的字符串与行注释代码，当 tokenize，则字符串与注释仍着色（空输入无 token） | 2026-10-02 |
 | missing_language_falls_to_the_generic_set | 无语言判定落通用集 | 给定未判定语言的含字符串与注释代码，当 tokenize，则字符串与注释照常着色 | 2026-10-03 |
@@ -576,11 +588,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | sql_keywords_are_case_insensitive | SQL 关键字大小写不敏感 | 给定全小写 select/from/where 查询，当 tokenize，则三个关键字全部着色 | 2026-10-02 |
 | block_comments_span_lines_and_triples_span_lines | 块注释与三引号跨行 | 给定跨行块注释的 rust 代码与三引号字符串的 python 代码，当 tokenize，则各自为单个跨行 token | 2026-10-02 |
 | hex_numbers_color_whole | 十六进制字面量整体着色 | 给定含 0xFF_00 的 rust 代码，当 tokenize，则十六进制字面量为单个 Number token | 2026-10-02 |
-| every_class_has_its_own_color_per_theme | 六类色明暗两套互异 | 给定六类别与明暗两主题，当取色，则同主题内六色两两不同、注释恒斜体 | 2026-10-02 |
 | js_template_strings_color_with_the_backtick_ruleset | JS 别名落到反引号规则集 | 给定含反引号模板串的 js 代码，当按 "js" tokenize，则 const 为关键字、模板串为字符串（别名表查到的是带反引号的条目） | 2026-10-02 |
 | keywords_with_non_word_edges_still_color | 非词边缘关键字着色 | 给定 objc @interface、ruby defined?、clojure set! 的代码，当 tokenize，则各自关键字着色（\b 不存在于 @ 前、?/! 后，裸匹配） | 2026-10-02 |
 | toml_section_headers_color_on_every_line | TOML 节头任意行着色 | 给定首行与第四行各一个节头的 TOML，当 tokenize，则两个节头都落 Function（多行锚定） | 2026-10-02 |
-| sql_detection_ignores_non_statement_lines | SQL 探测忽略非语句行 | 给定注释里含 select...from 对的 rust 代码、selected/fromage 子串散文，当内容探测，则前者 rust、后者无语言（行锚定 + 词边界） | 2026-10-02 |
 | css_hex_colors_color_as_numbers_not_selectors | CSS 十六进制色值归数字 | 给定含 #fff 短色值与 #wrap id 选择器的 CSS，当 tokenize，则色值落 Number（色值组先于选择器组） | 2026-10-02 |
 
 ### crates/gloss-app/src/ui/context.rs
