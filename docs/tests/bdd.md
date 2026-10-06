@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 32 | `just test` |
-| 单元测试 | 463 | `just test` |
+| 单元测试 | 464 | `just test` |
 
 ## 人工测试
 
@@ -186,7 +186,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | overlay | 真实窗口栈显隐生命周期与首帧预算 | 给定经公共 API build_window_stack 预创建的生产窗口栈，当反复 show → 渲染 → hide 共 100 轮（每轮停留 80ms），则统计 show→首帧延迟并计入门禁：跑满 100 轮且有延迟统计退出 0，无帧或首帧超 100ms 预算退出 1；窗口句柄数仅进日志供人工走查（验证复用不增长）；设 GLOSS_PERF_OUT 时追加一行 JSON 性能记录（first/p50/p95/max、预算判定与运行环境），写失败只记日志不改变退出码 | 2026-09-21 |
-| startup | 启动渲染栈段预算门禁 | 给定经公共 API build_window_stack 的生产同源初始化（EventLoop → 窗口栈 → 预热帧），当计进程内起点到预热帧完成的墙钟，则不超 15000ms 预算退出 0，超预算或初始化失败退出 1；分段耗时经日志里程碑 m5a/m5b/m5c 供人工定位（预算数值以源码常量为准，改动随本清单同步） | 2026-10-06 |
+| startup | 启动渲染栈段预算门禁 | 给定经公共 API build_window_stack 的生产同源初始化（EventLoop → 窗口栈 → 预热帧），当计进程内起点到预热帧完成的墙钟，则不超 4000ms 预算退出 0，超预算或初始化失败退出 1；分段耗时经日志里程碑 m5a/m5b/m5c 供人工定位（预算数值以源码常量为准，改动随本清单同步） | 2026-10-06 |
 
 ## 快照测试
 
@@ -588,7 +588,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | theme_preference_covers_every_variant | 主题三档全映射 | 给定三档主题，当映射 egui 偏好，则一一对应且出厂跟随系统 | 2026-09-23 |
-| new_context_carries_fonts_and_theme | 新上下文两样都装好 | 给定主题，当新建上下文，则主题偏好落上且字体表含 CJK 后备（依赖宿主机字体） | 2026-09-23 |
+| new_context_carries_fonts_and_theme | 新上下文快路径 + 延迟补装接上 CJK | 给定主题，当新建上下文，则主题偏好落上、命名字体族恒绑定且不含 CJK 后备（快路径）；当 apply_system_fonts 补装，则 CJK 后备接上（依赖宿主机字体） | 2026-10-06 |
+| builtin_definitions_binds_named_families_without_system_fonts | 内置快路径定义恒绑定命名字体族且不装系统字体 | 当取 builtin_definitions，则宋/楷/等宽三族都绑到内置字形且字体表无 CJK 后备条目 | 2026-10-06 |
 | reapply_writes_every_context | 重施加写满每个上下文 | 给定两个已装好的上下文，当施加各档主题，则每个都被写；空集写 0 个不 panic | 2026-09-23 |
 
 ### crates/gloss-app/src/present/gpu.rs

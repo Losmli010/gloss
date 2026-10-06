@@ -97,6 +97,30 @@ pub(in crate::ui) fn definitions() -> (FontDefinitions, bool) {
     (definitions, cjk.is_some())
 }
 
+/// 仅内置字形的字体定义：命名字体族恒绑定（绑到内置字形，epaint 对未
+/// 绑定族直接 panic），系统字体一个不装。启动首帧的快路径——系统字体
+/// 装载是秒级的（P1-1 归因），由 `context::apply_system_fonts` 延迟补装。
+pub(in crate::ui) fn builtin_definitions() -> FontDefinitions {
+    let mut definitions = FontDefinitions::default();
+    for name in [FONT_SERIF_NAME, FONT_KAITI_NAME, FONT_MONO_NAME] {
+        definitions.families.insert(
+            FontFamily::Name(name.into()),
+            vec![BUILTIN_FALLBACK_FONT.to_owned()],
+        );
+    }
+    definitions
+}
+
+/// 系统字体是否已装载过（字节级缓存就位）。统一装入点据此选择完整定义
+/// 与内置快路径：就位前任何上下文施加都走快路径，系统字体只由延迟装载
+/// 一次性补齐。
+pub(in crate::ui) fn system_fonts_ready() -> bool {
+    CJK_BYTES.get().is_some()
+        && SERIF_BYTES.get().is_some()
+        && KAITI_BYTES.get().is_some()
+        && MONO_BYTES.get().is_some()
+}
+
 /// 系统 CJK 字体字节；首次调用向系统取，之后命中缓存。
 fn cjk_bytes() -> Option<&'static [u8]> {
     CJK_BYTES.get_or_init(imp::load_cjk_bytes).as_deref()
@@ -415,5 +439,18 @@ mod tests {
             registered_bytes(&one, FONT_NAME),
             registered_bytes(&two, FONT_NAME)
         ));
+    }
+
+    #[test]
+    fn builtin_definitions_binds_named_families_without_system_fonts() {
+        let definitions = builtin_definitions();
+        for name in [FONT_SERIF_NAME, FONT_KAITI_NAME, FONT_MONO_NAME] {
+            let bound = definitions
+                .families
+                .get(&FontFamily::Name(name.into()))
+                .expect("named family must stay bound");
+            assert_eq!(bound, &[BUILTIN_FALLBACK_FONT.to_owned()]);
+        }
+        assert!(!definitions.font_data.contains_key(FONT_NAME));
     }
 }

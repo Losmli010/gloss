@@ -2,18 +2,28 @@
 //!
 //! 浮层与设置窗各持一个独立的 `egui::Context`（字体表与 options 都不共享），
 //! 任何「每个窗口都要有」的设置都必须逐个上下文施加。本模块是唯一的施加入口：
-//! 建立上下文走 [`new_context`]，运行中的偏好变化走 [`reapply`]，两者共用
-//! [`install`]——新增这类设置项时只改 [`install`]，两条路径自动跟上。
+//! 建立上下文走 [`new_context`]，运行中的偏好变化走 [`reapply`]，系统字体的
+//! 延迟补装走 [`apply_system_fonts`]，三者共用 [`install`]——新增这类设置项
+//! 时只改 [`install`]，各条路径自动跟上。
+
+use std::time::Instant;
 
 use egui::{Context, ThemePreference};
 use gloss_core::config::Theme;
 use gloss_core::log::{info, thread};
 
-/// 新建装好的 egui 上下文（字体与主题一次到位）——全仓唯一的上下文建立入口。
+/// 新建装好基础设置的 egui 上下文——全仓唯一的上下文建立入口。
+///
+/// 字体只装内置字形快路径（命名字体族恒绑定）：系统字体装载是秒级的
+/// （P1-1 归因，占启动 95%+），不挡首帧，由 [`apply_system_fonts`] 在
+/// 后台线程装载后补装。
 pub fn new_context(theme: Theme) -> Context {
     let ctx = Context::default();
-    let cjk_fallback = install(&ctx, theme);
-    info!(thread = thread::UI, cjk_fallback, "egui context created");
+    install(&ctx, theme);
+    info!(
+        thread = thread::UI,
+        "egui context created, system fonts deferred"
+    );
     ctx
 }
 
@@ -27,35 +37,48 @@ pub fn reapply<'a>(contexts: impl IntoIterator<Item = &'a Context>, theme: Theme
     written
 }
 
-/// 施加全部「每个 egui 上下文都要有」的设置，返回 CJK 后备是否接上；重复
-/// 施加结果不变（字体表按定义相等判定，相等即不重建）。对 egui 上下文的
-/// 写入都收在这里。宋楷命名字体族恒绑定（fonts::definitions 兜底到内置
-/// 字形），这里返回的只是 CJK 后备状态。
-fn install(ctx: &Context, theme: Theme) -> bool {
-    let (definitions, cjk_fallback) = super::fonts::definitions();
-    ctx.set_fonts(definitions);
-    ctx.set_theme(theme_preference(theme));
-    cjk_fallback
+/// 装载系统字体并补装到一批上下文（阻塞调用，供启动后的后台线程执行）：
+/// 装载完成前各上下文一直用内置字形快路径，完成后逐上下文换完整字体表
+/// 并请求重绘。
+pub fn apply_system_fonts(contexts: impl IntoIterator<Item = Context>, theme: Theme) {
+    let started = Instant::now();
+    // 先走一次完整装载把字体字节缓存填上，下面 install 的就绪判定才会
+    // 选完整定义；字节在 OnceLock 里，重复调用命中缓存。
+    let (_definitions, cjk_fallback) = super::fonts::definitions();
+    let mut applied = 0;
+    for ctx in contexts {
+        install(&ctx, theme);
+        ctx.request_repaint();
+        applied += 1;
+    }
+    info!(
+        thread = thread::UI,
+        cjk_fallback,
+        contexts = applied,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "system fonts applied"
+    );
 }
 
-/// kittest 自建上下文的字体绑定（测试专用）：把宋楷与等宽命名字体族绑到
-/// 内置字形上，排版字号照常生效、字形不依赖宿主字体（快照 tofu 约定）。
-/// 生产路径走 [`install`]；对 set_fonts 的调用收在本模块（统一装入点），
-/// 测试也不例外。
+/// 施加全部「每个 egui 上下文都要有」的设置。系统字体字节就位前走内置
+/// 快路径（[`fonts::builtin_definitions`]），就位后走完整定义（字节级
+/// 缓存命中，秒回）。对 egui 上下文的写入都收在这里。
+fn install(ctx: &Context, theme: Theme) {
+    let (definitions, _cjk_fallback) = if super::fonts::system_fonts_ready() {
+        super::fonts::definitions()
+    } else {
+        (super::fonts::builtin_definitions(), false)
+    };
+    ctx.set_fonts(definitions);
+    ctx.set_theme(theme_preference(theme));
+}
+
+/// kittest 自建上下文的字体绑定（测试专用）：与启动快路径同一套内置
+/// 定义，排版字号照常生效、字形不依赖宿主字体（快照 tofu 约定）。
+/// 对 set_fonts 的调用收在本模块（统一装入点），测试也不例外。
 #[cfg(test)]
 pub(crate) fn install_kittest_fonts(ctx: &Context) {
-    let mut definitions = egui::FontDefinitions::default();
-    for name in [
-        super::fonts::FONT_SERIF_NAME,
-        super::fonts::FONT_KAITI_NAME,
-        super::fonts::FONT_MONO_NAME,
-    ] {
-        definitions.families.insert(
-            egui::FontFamily::Name(name.into()),
-            vec![super::fonts::BUILTIN_FALLBACK_FONT.to_owned()],
-        );
-    }
-    ctx.set_fonts(definitions);
+    ctx.set_fonts(super::fonts::builtin_definitions());
 }
 
 /// 配置主题 → egui 主题偏好（出厂跟随系统，设置页可固定明/暗）。
@@ -93,16 +116,33 @@ mod tests {
             ThemePreference::Dark
         );
 
-        let mut fallback = false;
-        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            fallback = ui
-                .ctx()
-                .fonts(|fonts| fonts.definitions().font_data.contains_key(fonts::FONT_NAME));
-        });
-        output.drop_without_applying_deltas();
+        let has_cjk = |ctx: &Context| {
+            let mut has = false;
+            let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                has = ui
+                    .ctx()
+                    .fonts(|fonts| fonts.definitions().font_data.contains_key(fonts::FONT_NAME));
+            });
+            output.drop_without_applying_deltas();
+            has
+        };
         assert!(
-            fallback,
-            "新上下文必须已接上 CJK 后备字体（宿主机需有系统 CJK 字体）"
+            !has_cjk(&ctx),
+            "新上下文走内置快路径，CJK 后备等延迟装载补上"
+        );
+        ctx.fonts(|fonts| {
+            let definitions = fonts.definitions();
+            assert_eq!(
+                definitions.families[&egui::FontFamily::Name(fonts::FONT_SERIF_NAME.into())],
+                vec![fonts::BUILTIN_FALLBACK_FONT.to_owned()],
+                "命名字体族在快路径也必须恒绑定"
+            );
+        });
+
+        apply_system_fonts([ctx.clone()], Theme::Dark);
+        assert!(
+            has_cjk(&ctx),
+            "延迟装载后 CJK 后备必须接上（宿主机需有系统 CJK 字体）"
         );
     }
 

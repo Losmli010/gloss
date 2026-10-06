@@ -42,16 +42,21 @@ impl Workspace {
     }
 
     /// 建窗口栈与两个窗口的首帧渲染状态（`resumed` 里调用；resumed 可能
-    /// 连续投递，调用方先查 [`Self::is_ready`]）。
+    /// 连续投递，调用方先查 [`Self::is_ready`]）。系统字体由后台线程延迟
+    /// 装载补装（装载秒级，不挡首帧），装好即请求重绘。
     pub(crate) fn init(
         &mut self,
         event_loop: &ActiveEventLoop,
         theme: Theme,
     ) -> Result<(), Box<dyn Error>> {
         let (windows, frame, settings_frame) = build_window_stack(event_loop, theme)?;
+        let contexts = vec![frame.egui_ctx.clone(), settings_frame.egui_ctx.clone()];
         self.windows = Some(windows);
         self.overlay_frame = Some(frame);
         self.settings_frame = Some(settings_frame);
+        std::thread::Builder::new()
+            .name("gloss-fonts".to_owned())
+            .spawn(move || context::apply_system_fonts(contexts, theme))?;
         Ok(())
     }
 
