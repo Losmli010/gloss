@@ -109,7 +109,7 @@ def sample_process(pid):
     return rss_kb, cpu
 
 
-FOOTPRINT_VALUE = re.compile(r"^([0-9.]+)([KMG]?)$")
+FOOTPRINT_VALUE = re.compile(r"^(\d+(?:\.\d+)?)([KMG]?)$")
 
 
 def sample_footprint_kb(pid):
@@ -207,8 +207,7 @@ def one_run(idle_secs, ready_timeout):
             if ready_wall_ms is None and READY_MILESTONE in milestones:
                 ready_wall_ms = (now - spawn_wall) * 1000
                 ready_cpu = cpu_samples[-1][1] if cpu_samples else None
-            # 空闲窗口起点：就绪与字体补装两个锚点都到齐（补装线程异常时
-            # 按超时兜底，不能无限等）。
+            # 空闲窗口起点：就绪与字体补装两个锚点都到齐，或按超时兜底起窗
             if (
                 idle_start is None
                 and ready_wall_ms is not None
@@ -218,6 +217,9 @@ def one_run(idle_secs, ready_timeout):
                 if cpu_samples:
                     idle_cpu_start = cpu_samples[-1][1]
             if idle_start is not None and now - idle_start >= idle_secs:
+                if proc.poll() is not None:
+                    print("警告：应用提前退出，本次运行作废。", file=sys.stderr)
+                    return None
                 idle_wall_ms = (now - idle_start) * 1000
                 footprint = sample_footprint_kb(proc.pid)
                 break
