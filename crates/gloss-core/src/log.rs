@@ -45,6 +45,8 @@ pub mod thread {
     pub const EVENT: &str = "event";
     /// 鼠标 tap 监听线程：rdev 全局事件流的独立宿主。
     pub const MOUSE_TAP: &str = "mouse_tap";
+    /// 字体装载线程：系统字体延迟装载的后台宿主。
+    pub const FONTS: &str = "fonts";
     /// tokio 后台：网络请求与缓存。
     pub const TOKIO: &str = "tokio";
 }

@@ -22,6 +22,7 @@ use gloss_core::log::Span;
 use gloss_core::model::Locale;
 use gloss_core::ports::{ConfigStore, SceneProbe};
 use winit::dpi::LogicalSize;
+use winit::event_loop::EventLoopProxy;
 
 use crate::channel::AppEndpoints;
 use crate::flow::session::Session;
@@ -94,12 +95,19 @@ pub(crate) struct GlossApp {
     /// 启动向导会话：引导步骤或监听失效提示，窗口可见时有值；步骤走完
     /// （预热发出）或用户收起即清。
     pub(crate) wizard: Option<WizardState>,
+    /// 自定义事件的投递端：后台线程（字体装载）向主线程发完成信号用。
+    /// 测试驱动（不经 run()）为 None——那条路径不触发字体装载。
+    pub(crate) proxy: Option<EventLoopProxy<UserEvent>>,
 }
 
 impl GlossApp {
     /// 组装点移交的通道端点与外部服务句柄；窗口与帧状态在 `resumed` 时
     /// 建立。`system_locale` 同样来自组装点（系统语言是平台适配器的事，
     /// 壳只消费）。
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "组装点的主入口：每项都是不同关注点的注入端点，收敛成结构体只会把清单变成字段袋"
+    )]
     fn new(
         endpoints: AppEndpoints,
         config: Arc<ConfigHandle>,
@@ -108,6 +116,7 @@ impl GlossApp {
         system_locale: Locale,
         update: UpdateWiring,
         startup: StartupFacts,
+        proxy: Option<EventLoopProxy<UserEvent>>,
     ) -> Self {
         Self {
             workspace: Workspace::new(),
@@ -125,6 +134,7 @@ impl GlossApp {
             },
             settings: None,
             wizard: None,
+            proxy,
         }
     }
 
@@ -327,6 +337,7 @@ pub(crate) mod test_support {
             Locale::Zh,
             update_wiring(),
             startup,
+            None,
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
     }

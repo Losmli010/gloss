@@ -31,6 +31,8 @@ pub enum UserEvent {
     Wake,
     /// 设置窗口内容自外部变化（更新子系统相位迁移）：窗口可见时请求重绘
     RedrawSettings,
+    /// 系统字体装载完成：换完整字体表并按当前主题重施加，浮层请求重绘
+    FontsReady,
 }
 
 /// 唤醒主线程的句柄：事件线程与 tokio 各持一份 clone。
@@ -91,6 +93,7 @@ pub fn run(
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     let waker = Waker(event_loop.create_proxy());
     on_waker(waker);
+    let proxy = event_loop.create_proxy();
     let mut app = GlossApp::new(
         endpoints,
         config,
@@ -99,6 +102,7 @@ pub fn run(
         system_locale,
         update,
         startup,
+        Some(proxy),
     );
     event_loop.run_app(&mut app)?;
     Ok(())
