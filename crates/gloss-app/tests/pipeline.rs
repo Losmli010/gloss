@@ -62,8 +62,15 @@ fn pipeline(engine: &MockEngine) -> Pipeline {
         Arc::new(MemoryConfigStore::default()),
         Config::default(),
     ));
-    let runtime = start_command_runtime(service, Arc::new(TaskCache::new()), cmd_rx, ev_tx, || {})
-        .expect("tokio bridge should start");
+    let runtime = start_command_runtime(
+        service,
+        Arc::new(TaskCache::new()),
+        Arc::new(MemoryConfigStore::default()) as Arc<dyn gloss_core::ports::ConfigStore>,
+        cmd_rx,
+        ev_tx,
+        || {},
+    )
+    .expect("tokio bridge should start");
     Pipeline {
         machine: TaskStateMachine::new(),
         config,

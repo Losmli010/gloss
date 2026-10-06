@@ -33,6 +33,12 @@ impl GlossApp {
             // 策略只关心「哪一类回传」，事件本身在下一行被消费掉。
             let kind = event_kind(&event);
             let accepted = match event {
+                // 预热回执面向启动向导（不占代数，与浮层无关）：旁路处理
+                // 后不进露面批次。
+                Event::SecretPrewarmed { result } => {
+                    self.on_secret_prewarmed(&result);
+                    continue;
+                }
                 Event::InputReady { generation, input } => self.accept_input(generation, input),
                 Event::TaskClassified { generation, kind } => {
                     self.accept_classified(generation, kind)
@@ -346,7 +352,7 @@ mod tests {
             ..
         } = cmd_rx.try_recv().unwrap().payload
         else {
-            panic!("run task expected");
+            panic!("expected a RunTask command, got another variant")
         };
         assert!(!token_a.is_cancelled());
 
@@ -427,7 +433,9 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert_eq!(options.target_lang, Some(Lang::Zh));
         assert_eq!(
             options.model, DEFAULT_TEXT_MODEL,
@@ -444,7 +452,9 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
-        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert_eq!(options.target_lang, Some(Lang::Ja));
         assert_eq!(
             options.model, "deepseek-reasoner",
@@ -465,7 +475,9 @@ mod tests {
             .expect("save should succeed");
         assert!(app.accept_input(1, text_input("A")));
 
-        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert_eq!(
             options.target_lang,
             Some(Lang::Zh),
@@ -474,7 +486,9 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
-        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert_eq!(options.target_lang, Some(Lang::Ja));
     }
 
@@ -505,7 +519,9 @@ mod tests {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("正常选区")));
-        let Command::RunTask { cancel: token, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { cancel: token, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert!(
             app.session.pending_reveal,
             "the commit flagged the reveal for drain_events"

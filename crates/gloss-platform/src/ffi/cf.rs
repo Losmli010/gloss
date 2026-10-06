@@ -10,12 +10,7 @@ pub(crate) use core_foundation_sys::data::{
     CFDataCreate, CFDataGetBytePtr, CFDataGetLength, CFDataRef,
 };
 pub(crate) use core_foundation_sys::date::CFAbsoluteTimeGetCurrent;
-pub(crate) use core_foundation_sys::dictionary::{
-    CFDictionaryCreate, CFDictionaryRef, kCFTypeDictionaryKeyCallBacks,
-    kCFTypeDictionaryValueCallBacks,
-};
 pub(crate) use core_foundation_sys::mach_port::{CFMachPortCreateRunLoopSource, CFMachPortRef};
-pub(crate) use core_foundation_sys::number::kCFBooleanTrue;
 pub(crate) use core_foundation_sys::runloop::{
     CFRunLoopAddSource, CFRunLoopAddTimer, CFRunLoopGetCurrent, CFRunLoopRef, CFRunLoopRun,
     CFRunLoopStop, CFRunLoopTimerContext, CFRunLoopTimerCreate, CFRunLoopTimerInvalidate,

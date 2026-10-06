@@ -7,10 +7,10 @@
 //! 事件自身；键盘事件不进入本模块。
 //!
 //! 线程约束：监听在**当前线程**建立事件 tap 并阻塞运行（回调跑在它自己的
-//! RunLoop 上），不能在平台事件线程内运行，也没
-//! 有停止 API——监听线程随进程退出消亡。需要辅助功能权限，未授权时监听
-//! 失败 → 手势功能整体降级；降级经 [`MouseSource::spawn`]
-//! 返回的标志对外可观测，由组装点做一次性提示。
+//! RunLoop 上），不能在平台事件线程内运行，也没有停止 API——监听线程随进程
+//! 退出消亡。需要输入监控/辅助功能授权，未授权时 tap 建立失败 → 手势功能
+//! 整体降级：建立结果经 [`MouseSource::spawn`] **同步**可知（等创建相结果，
+//! 无须轮询），运行中失效才经标志异步置位。
 
 use crossbeam_channel::Receiver;
 
@@ -157,7 +157,7 @@ mod tap {
     /// 传播错误，与「外观类功能不拦启动」同一取向）。
     #[derive(Debug)]
     enum ListenError {
-        /// 系统拒绝建立事件 tap：最常见的原因是未授予辅助功能权限。
+        /// 系统拒绝建立事件 tap：最常见的原因是未授予输入监控/辅助功能权限。
         EventTap,
         /// 建立 tap 所需的 run loop source 没建起来（资源耗尽等）。
         RunLoopSource,
@@ -170,16 +170,16 @@ mod tap {
     }
 
     impl MouseSource {
-        /// 启动全局鼠标监听，返回事件线程侧源与降级标志。监听线程启动
-        /// 失败返回 `None`；监听器提前退出（如未授权辅助功能）是异步发生
-        /// 的，两者都经标志置位对外可观测，由组装点做一次性提示。返回
-        /// `None` 时手势功能整体降级。
+        /// 启动全局鼠标监听，返回事件线程侧源与「运行中失效」标志。
+        ///
+        /// tap 的建立结果在本调用内**同步**可知（等创建相结果的有界通道，
+        /// 非计时等待）：返回 `None` 即 tap 没建起来（未授权输入监控/辅助
+        /// 功能是最常见原因），组装点据此做启动期引导，无须等轮询；返回
+        /// `Some` 时 tap 已在投递事件。标志仅在 tap 中途停止投递时置位
+        /// （运行中失效的观测点），启动失败不经它表达。
         pub fn spawn() -> (Option<Self>, Arc<AtomicBool>) {
             let degraded = Arc::new(AtomicBool::new(false));
             let events = spawn_tap(Arc::clone(&degraded));
-            if events.is_none() {
-                degraded.store(true, Ordering::Relaxed);
-            }
             (
                 events.map(|events| Self {
                     events,
@@ -202,9 +202,13 @@ mod tap {
         }
     }
 
-    /// 启动 tap 监听线程，返回事件通道；线程起不来返回 `None` 并置位降级标志。
+    /// 启动 tap 监听线程并**同步等待**创建相结果：成功返回事件通道；失败
+    /// 返回 `None`（原因已记日志）。创建相与阻塞相分离（见 `imp`），失败
+    /// 在进 run loop 前就确定——本等待是通道事件且有界，创建本身无用户
+    /// 交互。
     fn spawn_tap(degraded: Arc<AtomicBool>) -> Option<Receiver<ButtonEvent>> {
         let (tx, rx) = bounded(256);
+        let (created_tx, created_rx) = bounded::<Result<(), ListenError>>(1);
         let spawned: Result<JoinHandle<()>, _> = std::thread::Builder::new()
             .name("gloss-mouse-tap".into())
             .spawn(move || {
@@ -227,26 +231,44 @@ mod tap {
                         }
                     }));
                 };
-                match imp::listen(sink) {
-                    // listen 正常返回只发生在系统层面停止投递时（如 tap 失效）：
-                    // 手势从此收不到，置位降级标志并留 info 便于诊断。
-                    Ok(()) => {
+                match imp::create(sink) {
+                    Ok(handle) => {
+                        // 创建成功先回报再进阻塞的 run loop（回报通道只有一
+                        // 位且调用方正同步等待；即便对方已提前放弃也不影响
+                        // 监听）。此后只有「运行中停止投递」一条退出路径
+                        // （tap 没有停止 API），置位降级标志并留 info 便于
+                        // 诊断。
+                        drop(created_tx.send(Ok(())));
+                        imp::run(handle);
                         degraded.store(true, Ordering::Relaxed);
                         info!(thread = thread::MOUSE_TAP, "mouse listener stopped");
                     }
                     Err(err) => {
-                        degraded.store(true, Ordering::Relaxed);
-                        warn!(
-                            thread = thread::MOUSE_TAP,
-                            error = ?err,
-                            "mouse listener failed, selection gesture disabled; \
-                             grant Input Monitoring in System Settings > Privacy & Security"
-                        );
+                        drop(created_tx.send(Err(err)));
                     }
                 }
             });
         match spawned {
-            Ok(_join) => Some(rx),
+            Ok(_join) => match created_rx.recv() {
+                Ok(Ok(())) => Some(rx),
+                Ok(Err(err)) => {
+                    warn!(
+                        thread = thread::MOUSE_TAP,
+                        error = ?err,
+                        "mouse tap creation failed, selection gesture disabled"
+                    );
+                    None
+                }
+                // 创建相在回报前就消亡（panic 于纯 FFI 与装箱路径，理论不可
+                // 达）：按缺失降级，与创建失败同一出口。
+                Err(_) => {
+                    warn!(
+                        thread = thread::MOUSE_TAP,
+                        "mouse tap thread vanished before reporting creation"
+                    );
+                    None
+                }
+            },
             Err(err) => {
                 warn!(
                     thread = thread::MOUSE_TAP,
@@ -289,13 +311,19 @@ mod tap {
                 .fold(0, |mask, (raw, _)| mask | (1_u64 << raw))
         }
 
-        /// 在**当前线程**建立只订阅左键按下/释放的 tap，然后阻塞运行该线程的
-        /// run loop。返回 `Err` 只表示 tap 没建起来（未授权是最常见的原因），
-        /// 调用方按降级处理。
+        /// 已建成待运行的 tap：`create` 与 `run` 两相的交接凭证。tap 与其
+        /// run loop source 已挂上当前线程的 run loop，句柄本身无状态——
+        /// 它让「没建成就不能运行」成为类型层面的约束。
+        pub struct TapHandle;
+
+        /// 在**当前线程**建立只订阅左键按下/释放的 tap（创建相）：建 tap、
+        /// 建 run loop source、挂上当前线程 run loop 并启用。不阻塞运行——
+        /// 那是 [`run`]（阻塞相）的事，两相之间创建结果才得以同步发回调用
+        /// 方（启动预检据此判定授权，见 `spawn_tap`）。
         ///
-        /// 调用方保证：`sink` 不向外抛 panic——它由 C 回调调用，panic 穿过 C
-        /// 边界会 abort 进程（兜底在 `spawn_tap`）。
-        pub fn listen(sink: impl Fn(ButtonEvent) + 'static) -> Result<(), ListenError> {
+        /// 调用方保证：`sink` 不向外抛 panic——它由 C 回调调用，panic 穿过
+        /// C 边界会 abort 进程（兜底在 `spawn_tap`）。
+        pub fn create(sink: impl Fn(ButtonEvent) + 'static) -> Result<TapHandle, ListenError> {
             // 回调上下文必须活到进程结束：tap 没有停止 API，本线程的 run loop
             // 一直跑到进程退出。故 **tap 建成后**有意泄漏这份 Box（每进程至多
             // 一份）——注意它是「泄漏」而非 `mem::forget` 式不可达：tap 的
@@ -343,10 +371,17 @@ mod tap {
                 CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
                 CFRelease(source.cast::<c_void>());
                 CGEventTapEnable(tap, true);
-                // 阻塞运行当前线程的 run loop：订阅的事件从这里投递进 `raw_callback`。
-                CFRunLoopRun();
             }
-            Ok(())
+            Ok(TapHandle)
+        }
+
+        /// 阻塞运行当前线程的 run loop（阻塞相）：订阅的事件从这里投递进
+        /// [`raw_callback`]。只在系统层面停止投递时返回（如 tap 失效），
+        /// 没有停止 API——返回即手势失效，调用方按降级处理。
+        pub fn run(_handle: TapHandle) {
+            // SAFETY: `create` 已把 source 挂到当前线程的 run loop 上，这里
+            // 只是进入阻塞运行。参数只承载两相顺序约束，进入运行即完成使命。
+            unsafe { CFRunLoopRun() };
         }
 
         /// tap 回调：把订阅到的事件翻译成 [`ButtonEvent`] 交给 sink，未订阅的
@@ -512,6 +547,19 @@ mod tests {
         tx.send(released((100.0, 0.0), SLOW_RELEASE)).unwrap();
         assert_eq!(detector.poll(&rx), vec![(100.0, 0.0)]);
         assert!(detector.poll(&rx).is_empty(), "drained queue stays empty");
+    }
+
+    /// tap 建立结果同步可知的契约：启动失败不经运行中失效标志表达（标志
+    /// 只属于运行中失效）。源的有无取决于测试机的授权状态（CI 无授权必为
+    /// `None`，已授权的开发机为 `Some`），两种结果都合法。
+    #[test]
+    fn spawn_resolves_synchronously_and_startup_failure_stays_off_the_flag() {
+        let (source, degraded) = MouseSource::spawn();
+        assert!(
+            !degraded.load(std::sync::atomic::Ordering::Relaxed),
+            "startup failure must not set the mid-run flag"
+        );
+        drop(source);
     }
 
     #[test]

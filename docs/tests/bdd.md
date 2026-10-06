@@ -12,8 +12,8 @@
 | 发版人工步骤 | 4 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
-| 快照测试 | 32 | `just test` |
-| 单元测试 | 463 | `just test` |
+| 快照测试 | 35 | `just test` |
+| 单元测试 | 477 | `just test` |
 
 ## 人工测试
 
@@ -58,12 +58,12 @@
 - 更新时间：2026-09-30
 
 ### keychain_round_trip_on_real_store
-- 测试目标：验证真实 keychain 的写→读→覆盖→删除往返。
-- 测试场景：给定真实 keychain 测试服务名，当写→读→覆盖→删除，则各步读回一致、终态 None。
+- 测试目标：验证真实 keychain 的写（删除+重建路径）→读→覆盖→删除往返。
+- 测试场景：给定真实 keychain 测试服务名，当写→读→覆盖（再次走删除+重建）→删除，则各步读回一致、终态 None。
 - 测试步骤：
   1. 在非受限会话的终端运行总览中人工测试的命令
   2. 沙箱或 CI 会拒绝 keychain 写入，属预期环境限制
-- 更新时间：2026-09-19
+- 更新时间：2026-10-06
 
 ### live_llm_streams_a_translation
 - 测试目标：验证真实 LLM 端点的流式翻译往返。
@@ -190,7 +190,7 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck、popup_code_streaming、popup_code_outcome；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
+popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck、popup_code_streaming、popup_code_outcome；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install；wizard 快照基线：wizard_accessibility、wizard_input_monitoring、wizard_degraded。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -222,6 +222,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | a_rendered_notice_follows_the_locale | 提示行随 locale 出表 | 给定带同一类型化提示的设置窗（英文表），当渲染，则出英文前缀与诊断（提示行不是只有中文基线可查） | 2026-09-22 |
 | saving_the_language_swaps_the_rendered_labels_without_a_restart | 保存语言即换渲染文案 | 给定同一进程内保存 Language::En 前后的配置句柄，当各渲染一帧设置窗，则文案由「保存」变为「Save」且中文标不再在树上（配置快照 → 落定 → 选表 → 渲染全链，不重启） | 2026-09-22 |
 | english_catalog_relabels_the_settings_window | 英文文案表驱动设置窗 | 给定英文 locale 的设置窗，当渲染，则四个区块标、动作按钮、默认任务/目标语言/任务开关/清除密钥/界面语言/界面主题/缓存有效期各出自英文表（含「Enable <任务>」开关的无障碍标签模板），且中文标不在树上 | 2026-09-24 |
+| open_settings_button_reports_the_step_guide | 向导主按钮上交开面板动作 | 给定辅助功能步骤的向导窗，当点击「Open System Settings」，则上交 OpenGuide(Accessibility)（开面板与推进都在流程层） | 2026-10-06 |
+| the_degraded_notice_dismisses_without_a_pane | 失效提示卡收起动作 | 给定监听失效提示卡，当点击「Got it」，则上交 Dismiss（不触发开面板） | 2026-10-06 |
+| snapshots_match_baseline（wizard） | 向导窗口渲染基线（英文浅色三视图） | 给定辅助功能步、输入监控步、失效提示卡三个状态，当 wgpu 以英文文案与浅色主题渲染并 diff，则与 wizard_accessibility / wizard_input_monitoring / wizard_degraded 三份基线一致且关键文本进树 | 2026-10-06 |
 
 ## 单元测试
 
@@ -411,9 +414,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| platform_events_round_trip_through_crossbeam | 通道①事件往返 | 给定五种 PlatformEvent，当经通道①往返，则按序原样到达 | 2026-09-19 |
+| platform_events_round_trip_through_crossbeam | 通道①事件往返 | 给定五种 PlatformEvent（含监听失效），当经通道①往返，则按序原样到达 | 2026-10-06 |
 | acquire_commands_carry_app_assigned_gen | 取材命令携带代数 | 给定带代数的取材命令，当下发，则接收侧读到同一代数与 kind/区域 | 2026-09-19 |
 | run_task_command_delivers_cancellable_task | 任务命令携带取消令牌 | 给定 RunTask 命令，当下发，则代数、任务、取消令牌完整到达且令牌联动 | 2026-09-19 |
+| prewarm_secret_command_carries_only_the_entry_id | 预热命令只携带条目定位符 | 给定 PrewarmSecret 命令，当下发，则到达的命令只含 keychain_id（密钥值不进通道载荷） | 2026-10-06 |
+| secret_prewarmed_receipt_round_trips_without_a_value | 预热回执成功失败两路往返 | 给定 Ok 与 Err 两条预热回执，当经通道④，则按序携带（Err 只含失败原因，不含密钥值） | 2026-10-06 |
 | event_channel_supports_dual_senders | 事件通道双发送端 | 给定克隆出的第二 Sender，当两端各发一条，则主线程按到达顺序都收到 | 2026-09-19 |
 | event_channel_carries_stream_chunks_and_failures | 通道④携带流块与失败 | 给定 TaskChunk 与 TaskFailed，当经通道④，则按序携带 | 2026-09-19 |
 | try_recv_on_empty_queue_returns_empty | 空队列 try_recv 返回 Empty | 给定空队列，当 try_recv，则返回 Empty | 2026-09-19 |
@@ -543,6 +548,19 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | show_position_follows_selection_only_for_the_current_generation | 显示位置跟随当代划词 | 给定划词锚点与代数，当决策显示位置，则当代跟随选区（右下偏移）、代数不符或无锚点回落居中 | 2026-09-20 |
 | selection_trigger_records_its_anchor_per_generation | 划词触发按代数记锚点 | 给定两次划词触发，当消费，则锚点随代数刷新为各自释放坐标 | 2026-09-20 |
 
+### crates/gloss-app/src/flow/wizard.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| missing_permissions_open_the_wizard_in_dependency_order | 双缺失按依赖顺序逐步引导 | 给定两项授权都缺失的启动事实，当启动向导并逐步「打开设置」，则先辅助功能步、确认后输入监控步、末步确认即收会话并发 PrewarmSecret | 2026-10-06 |
+| granted_permissions_skip_the_dialog_and_warm_up_directly | 双授权不弹窗直接预热 | 给定两项授权都就绪的启动事实，当启动向导，则不建会话且预热命令即发（恰一次） | 2026-10-06 |
+| only_the_missing_permission_gets_a_step | 只给缺失项出步骤 | 给定仅输入监控缺失的启动事实，当启动向导，则只出输入监控步，确认后收会话发预热 | 2026-10-06 |
+| acknowledge_advances_without_opening_a_pane | 跳过推进不开面板 | 给定双缺失的向导，当逐步跳过，则推进到下一步且不发预热直到走完 | 2026-10-06 |
+| closing_the_window_skips_the_whole_sequence_but_still_warms_up | 关窗跳过整段仍预热 | 给定双缺失的向导，当关窗（跳过剩余引导），则会话收起且预热命令仍发出 | 2026-10-06 |
+| degradation_shows_the_notice_without_rewarming | 失效提示卡不重发预热 | 给定已预热完成的会话，当监听失效事件到达，则出失效提示卡且不再发预热，收起即清会话 | 2026-10-06 |
+| degradation_during_guidance_jumps_the_input_monitoring_step_ahead | 引导中失效插队不丢步骤 | 给定正在辅助功能步的向导，当监听失效事件到达，则输入监控步插队展示、原步骤排回队尾，预热走完才发 | 2026-10-06 |
+| degradation_while_already_guiding_input_monitoring_is_a_no_op | 已在输入监控步的失效去重 | 给定正展示输入监控步的向导，当监听失效事件到达，则视图不变、不重复排队 | 2026-10-06 |
+
 ### crates/gloss-app/src/flow/settings_session.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -609,12 +627,15 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | engine_failure_becomes_task_failed | 引擎失败映射 TaskFailed | 给定 execute 整体失败，当运行，则映射为带代数的 TaskFailed | 2026-09-19 |
 | background_panic_becomes_task_failed_and_the_loop_survives | 后台 panic 转失败且循环存活 | 给定注入 panic 的引擎，当任务炸掉，则转 EngineResponse 失败且循环存活、第二个任务照常完成 | 2026-09-19 |
 | closing_commands_stops_the_consumer | 关闭命令通道停消费循环 | 给定通道③关闭，当 drop 运行时，则超时内干净关停 | 2026-09-19 |
+| prewarm_secret_reads_the_store_and_reports_success | 预热读密成功回执 | 给定已预置密钥的存储，当发 PrewarmSecret，则回执 Ok（值留在存储进程内缓存，不进事件） | 2026-10-06 |
+| prewarm_failure_surfaces_as_err_without_the_secret | 预热失败回执只带原因 | 给定读取必失败的存储，当发 PrewarmSecret，则回执 Err(Config)（不含密钥值，不拦主流程） | 2026-10-06 |
+| prewarm_receipt_never_carries_a_secret_value | 预热回执永不携带密钥值 | 给定 SecretPrewarmed 回执，当 Debug 格式化，则不含密钥值形态（sk- 前缀不存在） | 2026-10-06 |
 
 ### crates/gloss-app/src/machine.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（框选、设置、退出），当 begin_selection_probe，则前者发 AcquireText（无 kind——类型归 LLM 层）且只领探测编号不动代数、后者 None 且不占代数不顶掉在途探测 | 2026-10-03 |
+| probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（框选、设置、退出、监听失效），当 begin_selection_probe，则前者发 AcquireText（无 kind——类型归 LLM 层）且只领探测编号不动代数、后者 None 且不占代数不顶掉在途探测 | 2026-10-06 |
 | trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦/未接线 | 给定 trigger_decision，则划词恒为 Acquire（无载荷——分类是 LLM 层的事）、框选与退出报 Unwired、设置与退出不因场景被拦；出厂配置下划词为 Acquire，拦截名单内的前台应用则报 Blocked | 2026-10-03 |
 | scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 begin_selection_probe，则两次都 None、无探测编号、状态留 Idle；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
 | selection_options_pair_with_one_snapshot_including_the_model | 选项（含模型）出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则目标语言与模型 id 均出自快照冻结（类型不在其中——kind 由 LLM 层分类决定） | 2026-10-03 |
@@ -847,7 +868,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| accessibility_denied_is_recognized | 权限错误语义识别 | 给定 AccessibilityDenied 与其它取材错误，当识别，则前者命中、其余不误伤 | 2026-09-29 |
+| the_two_guides_target_distinct_panes | 两项授权引导指向不同设置面板 | 给定两项面板 URL 常量，当断言，则输入监控与辅助功能各指隐私与安全性下自己的面板、不互串 | 2026-10-06 |
 
 ### crates/gloss-platform/src/selection/composite.rs
 
@@ -893,6 +914,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | stray_events_are_ignored | 杂散事件静默忽略 | 给定无按下的释放、双按下等杂散序列，当驱动，则静默忽略、后续手势照常 | 2026-09-19 |
 | poll_drains_channel_through_state_machine | poll 抽干通道过状态机 | 给定事件通道，当 poll，则抽干并经状态机计数（第二次 poll 为 0） | 2026-09-19 |
 | keyboard_events_are_never_subscribed | 键盘事件永不订阅 | 给定生产订阅掩码与 classify，当断言，则只有左键按下/抬起两位、键盘/滚轮/flags 各位不置（回归护栏） | 2026-09-19 |
+| spawn_resolves_synchronously_and_startup_failure_stays_off_the_flag | tap 启动同步可知且失败不置运行中标志 | 给定真实 tap 启动（结果随测试机授权而异），当 spawn 返回，则立即返回且启动失败不经 degraded 标志表达（标志只属运行中失效） | 2026-10-06 |
 
 ### crates/gloss-platform/src/engine/llm.rs
 

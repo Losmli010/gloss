@@ -5,8 +5,10 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use gloss_app::app::StartupFacts;
 use gloss_app::channel::{AcquireCommand, AppEndpoints, Channels, Event, PlatformEvent, Traced};
 use gloss_app::runtime::cache::TaskCache;
 use gloss_core::config::CACHE_TTL_MAX_SECS;
@@ -40,39 +42,11 @@ fn run() -> StartupResult {
     log::milestone("m0_entry");
     init_logging();
     log::milestone("m1_logging");
-    preflight_event_permissions();
     let (config, store) = load_config()?;
     log::milestone("m2_config");
     let service = build_service(&config, &store)?;
     log::milestone("m3_engine");
     run_event_loop(config, store, service)
-}
-
-/// 启动期权限预检（启动骨架第 1.5 步）：选区读取（AX → 辅助功能）是划词
-/// 链路里**有公开预检 API** 的那一项授权，缺失时选区读取会被拒、弹窗只剩
-/// 失败卡。此处立即补一次系统引导对话框，把「划词失败后摸着失败卡找原因」
-/// 变成「启动即指路」；已授权则只留一条确认痕迹。另一项授权（CGEventTap
-/// → 输入监控）没有公开预检 API，其引导挂在手势降级提示上（见
-/// `build_event_sources`）。
-fn preflight_event_permissions() {
-    if permissions::preflight_accessibility() {
-        info!(
-            thread = thread::UI,
-            "accessibility permission granted for selection reading"
-        );
-        return;
-    }
-    warn!(
-        thread = thread::UI,
-        "accessibility permission missing, triggering the system guidance dialog"
-    );
-    if !permissions::request_accessibility() {
-        warn!(
-            thread = thread::UI,
-            "accessibility still missing after guidance; selection reading stays denied \
-             until granted in System Settings"
-        );
-    }
 }
 
 fn init_logging() {
@@ -212,10 +186,46 @@ fn run_event_loop(
     let update_handle = gloss_app::update::start_once();
     let update = gloss_app::update::UpdateWiring::from_handle(update_handle);
 
+    // 启动期事件源装配上移到组装段：tap 的建立结果同步可知（等待是通道
+    // 事件且有界，无用户交互），与辅助功能预检一起构成两项授权的启动快
+    // 照——向导据此决定要引导哪些步骤。tap 在这里先建好，事件线程稍后才
+    // 消费其产物；等待期间的手势事件在通道里有界排队。
+    let (mouse_source, mouse_degraded) = MouseSource::spawn();
+    let accessibility_granted = permissions::preflight_accessibility();
+    let startup = StartupFacts {
+        accessibility_granted,
+        mouse_listening: mouse_source.is_some(),
+    };
+    if accessibility_granted {
+        info!(
+            thread = thread::UI,
+            "accessibility permission granted for selection reading"
+        );
+    } else {
+        warn!(
+            thread = thread::UI,
+            "accessibility permission missing; the startup wizard will guide the grant"
+        );
+    }
+    if startup.mouse_listening {
+        info!(
+            thread = thread::UI,
+            "input monitoring granted for the selection gesture"
+        );
+    } else {
+        warn!(
+            thread = thread::UI,
+            "input monitoring permission missing; the startup wizard will guide the grant"
+        );
+    }
+
     let mut command_runtime = None;
     let mut event_thread = None;
     // 缓存 TTL 在启动回调里读一次快照：App 按值收走主句柄，这里先拆一份。
     let cache_config = Arc::clone(&config);
+    // tokio 消费桥与 App 共享同一份存储实例：预热读密命中引擎的同一份
+    // 进程内缓存（密钥不经快照，见 gloss-app 的 Env）。
+    let runtime_store = Arc::clone(&store);
     let result = gloss_app::app::run(
         endpoints,
         config,
@@ -223,6 +233,7 @@ fn run_event_loop(
         scene,
         system_locale,
         update,
+        startup,
         |waker| {
             // Dock 图标在这里装：macOS 的 NSApplication 单例只允许在 EventLoop
             // 建好之后访问，而本回调是主线程上第一个满足该时机的点（app::run
@@ -248,6 +259,7 @@ fn run_event_loop(
             match gloss_app::runtime::pipeline::start_command_runtime(
                 service,
                 cache,
+                runtime_store,
                 commands_rx,
                 events_tx.clone(),
                 move || {
@@ -270,7 +282,7 @@ fn run_event_loop(
                 acquire_rx,
                 sink,
                 acquire_command_handler(),
-                event_sources(),
+                event_sources(mouse_source, mouse_degraded),
             ));
             log::milestone("m4_assembly");
         },
@@ -291,11 +303,15 @@ fn create_channels() -> Channels {
     Channels::new()
 }
 
-/// 事件源集合：划词手势与监听降级提示。
-fn event_sources() -> EventSources<PlatformEvent> {
+/// 事件源集合：划词手势与监听降级上报。tap 的源与失效标志由组装点传入
+/// （spawn 在组装段同步完成，启动结果已进 [`StartupFacts`]，这里不再重复
+/// 表达）。
+fn event_sources(
+    mouse_source: Option<MouseSource>,
+    mouse_degraded: Arc<AtomicBool>,
+) -> EventSources<PlatformEvent> {
     let mut sources: EventSources<PlatformEvent> = Vec::new();
 
-    let (mouse_source, degraded) = MouseSource::spawn();
     if let Some(mut source) = mouse_source {
         sources.push(Box::new(move || {
             source
@@ -307,21 +323,18 @@ fn event_sources() -> EventSources<PlatformEvent> {
                 .collect()
         }));
     }
-    // 监听降级的一次性提示：标志由 tap 线程异步置位（如未授权辅助功能），
-    // 事件线程轮询到即告警一次。
+    // 监听降级的一次性上报：标志由 tap 线程在**运行中**失效时置位（启动
+    // 期失败不经它表达），事件线程轮询到即向主线程发一次降级事件——提示
+    // 与授权引导由主线程的向导窗口呈现。
     let mut hinted = false;
     sources.push(Box::new(move || {
-        if !hinted && degraded.load(std::sync::atomic::Ordering::Relaxed) {
+        if !hinted && mouse_degraded.load(Ordering::Relaxed) {
             hinted = true;
             warn!(
                 thread = thread::EVENT,
-                "mouse listener degraded, selection gesture disabled; \
-                 open the Input Monitoring pane to grant the permission"
+                "mouse listener degraded mid-run, selection gesture disabled"
             );
-            // 事件 tap 缺「输入监控」授权是最常见的降级原因，而该项没有
-            // 公开预检 API——降级即视为缺失，直接把设置面板送到用户面前
-            // （打开失败只降级记日志，见 permissions）。
-            let _ = permissions::open_input_monitoring_pane();
+            return vec![PlatformEvent::MouseListenerDegraded];
         }
         Vec::new()
     }));

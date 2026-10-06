@@ -1,5 +1,5 @@
 //! 窗口管理器：浮层（预创建复用，只显隐不反复销毁）+ 设置窗口
-//!（普通带标题栏窗口，关闭即隐藏）。
+//!（普通带标题栏窗口，关闭即隐藏）+ 启动向导窗口（同设置窗机制）。
 
 use std::sync::Arc;
 
@@ -33,6 +33,9 @@ const DRAG_POSITION_EPSILON: f64 = 0.5;
 /// 设置窗口尺寸：全部配置区块一屏放下的紧凑初值（可拖拽调整）。
 const SETTINGS_WIDTH: f64 = 460.0;
 const SETTINGS_HEIGHT: f64 = 640.0;
+/// 向导窗口尺寸：单步对话框的紧凑固定大小（不可拖拽调整）。
+const WIZARD_WIDTH: f64 = 420.0;
+const WIZARD_HEIGHT: f64 = 200.0;
 
 /// 流式防抖尺寸：宽度保持当前档（popup 的宽度滞回到完成态
 /// 再一次应用），高度向上量化到 [`STREAM_HEIGHT_STEP`] 的倍数且相对
@@ -104,6 +107,8 @@ pub struct WindowManager {
     /// 当前摆放意图（`set_placement` 更新，尺寸变化时按它重定位）。
     placement: Placement,
     settings: Arc<Window>,
+    /// 启动向导窗口（单步对话框，机制与设置窗同构）。
+    wizard: Arc<Window>,
 }
 
 impl WindowManager {
@@ -137,11 +142,24 @@ impl WindowManager {
         )?;
         settings.set_visible(false);
 
+        let wizard = event_loop.create_window(
+            Window::default_attributes()
+                // 创建即隐藏：可见前 [`Self::show_wizard`] 会按当前界面语言
+                // 写入标题，这里的占位只在窗口从未显示过时存在。
+                .with_title(APP_NAME)
+                .with_inner_size(LogicalSize::new(WIZARD_WIDTH, WIZARD_HEIGHT))
+                // 与浮层同层：同层窗口按激活序排布，聚焦即浮于浮层之上。
+                .with_window_level(WindowLevel::AlwaysOnTop)
+                .with_resizable(false),
+        )?;
+        wizard.set_visible(false);
+
         Ok(Self {
             overlay: Arc::new(overlay),
             overlay_size: LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT),
             placement: Placement::Centered,
             settings: Arc::new(settings),
+            wizard: Arc::new(wizard),
         })
     }
 
@@ -341,6 +359,29 @@ impl WindowManager {
         Arc::clone(&self.settings)
     }
 
+    /// 向导窗口的共享句柄（surface 持有到 'static）。
+    pub fn wizard_handle(&self) -> Arc<Window> {
+        Arc::clone(&self.wizard)
+    }
+
+    /// 显示向导窗口并置前（已可见则只是聚焦）；标题由调用方按当前界面
+    /// 语言给（`Text::gloss_wizard_title`），会话与文案表都由调用方管理。
+    pub fn show_wizard(&self, title: &str) {
+        self.wizard.set_title(title);
+        self.wizard.set_visible(true);
+        self.wizard.focus_window();
+    }
+
+    /// 隐藏向导窗口（步骤走完/用户收起）；窗口与 surface 保留。
+    pub fn hide_wizard(&self) {
+        self.wizard.set_visible(false);
+    }
+
+    /// 向导窗口是否可见。
+    pub fn is_wizard_visible(&self) -> bool {
+        self.wizard.is_visible().unwrap_or(false)
+    }
+
     /// 显示设置窗口并置前（已可见则只是聚焦）；标题由调用方按当前界面语言
     /// 给（`Text::app.settings_title`），草稿与文案表都由调用方管理。
     pub fn show_settings(&self, title: &str) {
@@ -369,6 +410,11 @@ impl WindowManager {
         self.settings.id() == id
     }
 
+    /// 事件是否来自向导窗口。
+    pub fn matches_wizard(&self, id: WindowId) -> bool {
+        self.wizard.id() == id
+    }
+
     /// 请求重绘浮层。
     pub fn request_redraw(&self) {
         self.overlay.request_redraw();
@@ -377,6 +423,11 @@ impl WindowManager {
     /// 请求重绘设置窗口。
     pub fn request_redraw_settings(&self) {
         self.settings.request_redraw();
+    }
+
+    /// 请求重绘向导窗口。
+    pub fn request_redraw_wizard(&self) {
+        self.wizard.request_redraw();
     }
 }
 

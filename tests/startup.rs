@@ -79,7 +79,7 @@ impl ApplicationHandler for StartupSelfTest {
             return;
         }
         match build_window_stack(event_loop, Theme::System) {
-            Ok((_windows, mut frame, _settings_frame)) => {
+            Ok((_windows, mut frame, _settings_frame, _wizard_frame)) => {
                 let _ = render_frame(&mut frame, None, Locale::default());
                 self.ready = Some(self.started.elapsed());
                 self.frame = Some(frame);

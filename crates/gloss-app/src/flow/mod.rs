@@ -9,3 +9,4 @@ pub(crate) mod reveal;
 pub(crate) mod session;
 pub(crate) mod settings_session;
 pub(crate) mod task;
+pub(crate) mod wizard;

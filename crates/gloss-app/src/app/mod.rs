@@ -5,13 +5,14 @@
 //! - [`handler`]——winit 事件分发（`ApplicationHandler` 实现）。
 //!
 //! 通道消费与浮层显隐、动作执行在 `flow`（probe / task / reveal / actions），
-//! 渲染帧管线与呈现资源在 `present`，设置编辑会话在 `flow::settings_session`。
+//! 渲染帧管线与呈现资源在 `present`，设置编辑会话在 `flow::settings_session`，
+//! 启动向导会话在 `flow::wizard`。
 
 mod events;
 mod handler;
 
 pub use crate::flow::reveal::centered_position;
-pub use events::{UserEvent, Waker, run};
+pub use events::{StartupFacts, UserEvent, Waker, run};
 
 use std::sync::Arc;
 
@@ -29,6 +30,7 @@ use crate::present::render::{render_frame, render_frame_with};
 use crate::present::workspace::Workspace;
 use crate::ui::i18n::Text;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
+use crate::ui::wizard::{WizardAction, WizardState, WizardStep};
 use crate::update::UpdateWiring;
 
 /// 外部服务句柄聚合：配置、存储、场景探针、启动期系统语言与更新接线。
@@ -49,6 +51,12 @@ pub(crate) struct Env {
     /// 更新子系统的壳侧接线：设置页每帧读其 receiver 渲染，用户动作经
     /// 出口转投模块（与主流程四通道隔离）。
     pub(crate) update: UpdateWiring,
+    /// 启动期权限事实（组装点快照）：启动向导的步骤决策输入。
+    pub(crate) startup: StartupFacts,
+    /// 授权引导动作（步骤 → 打开对应系统设置面板）：生产接 gloss-platform
+    /// 实现；测试注桩替换——真实的 `open` 进程不进单测（可测设计：平台
+    /// IO 与流程逻辑分离）。
+    pub(crate) guide: fn(WizardStep) -> bool,
 }
 
 impl Env {
@@ -78,11 +86,14 @@ pub(crate) struct GlossApp {
     pub(crate) machine: TaskStateMachine,
     /// 触发/任务的管线会话状态（锚点、排查线索、显形挂起、任务 span）。
     pub(crate) session: Session,
-    /// 外部服务句柄（配置/存储/场景/系统语言/更新接线）。
+    /// 外部服务句柄（配置/存储/场景/系统语言/更新接线/启动权限事实）。
     pub(crate) env: Env,
     /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
     /// 之丢弃）。
     pub(crate) settings: Option<SettingsState>,
+    /// 启动向导会话：引导步骤或监听失效提示，窗口可见时有值；步骤走完
+    /// （预热发出）或用户收起即清。
+    pub(crate) wizard: Option<WizardState>,
 }
 
 impl GlossApp {
@@ -96,6 +107,7 @@ impl GlossApp {
         scene: Arc<dyn SceneProbe>,
         system_locale: Locale,
         update: UpdateWiring,
+        startup: StartupFacts,
     ) -> Self {
         Self {
             workspace: Workspace::new(),
@@ -108,8 +120,11 @@ impl GlossApp {
                 scene,
                 system_locale,
                 update,
+                startup,
+                guide: crate::flow::wizard::platform_guide,
             },
             settings: None,
+            wizard: None,
         }
     }
 
@@ -180,6 +195,29 @@ impl GlossApp {
         }
     }
 
+    /// 画一帧向导窗口：引导步骤 / 失效提示卡，动作上交（打开设置面板 /
+    /// 收起），由 `flow::wizard` 执行。
+    fn draw_wizard(&mut self) {
+        self.workspace.apply_theme(self.env.target_theme());
+        let text = Text::get(self.env.locale());
+        let (Some(frame), Some(state)) =
+            (self.workspace.wizard_frame.as_mut(), self.wizard.as_mut())
+        else {
+            return;
+        };
+        let (repaint, action) =
+            render_frame_with(frame, |ui| crate::ui::wizard::draw(ui, state, text));
+        self.workspace.wizard_repaint = repaint;
+        let Some(action) = action else {
+            return;
+        };
+        match action {
+            WizardAction::Idle => {}
+            WizardAction::OpenGuide(step) => self.open_wizard_guide(step),
+            WizardAction::Dismiss => self.advance_wizard(),
+        }
+    }
+
     pub(crate) fn request_redraw(&self) {
         self.workspace.request_redraw();
     }
@@ -199,6 +237,8 @@ pub(crate) mod test_support {
     use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent, Traced};
     use crate::machine::OverlayView;
     use crate::stubs::ports::{MemoryConfigStore, StubSceneProbe};
+
+    use super::StartupFacts;
 
     use super::GlossApp;
 
@@ -232,6 +272,23 @@ pub(crate) mod test_support {
     pub(crate) fn driven_app_with_scene(
         store: Arc<dyn ConfigStore>,
         scene: Arc<dyn SceneProbe>,
+    ) -> DrivenApp {
+        driven_app_with_facts(
+            store,
+            scene,
+            StartupFacts {
+                accessibility_granted: true,
+                mouse_listening: true,
+            },
+        )
+    }
+
+    /// 带自定义启动权限事实的驱动器：向导流程测试用（其他用例默认双授权
+    /// 就绪，不触发向导）。
+    pub(crate) fn driven_app_with_facts(
+        store: Arc<dyn ConfigStore>,
+        scene: Arc<dyn SceneProbe>,
+        startup: StartupFacts,
     ) -> DrivenApp {
         let crate::channel::Channels {
             platform_events,
@@ -271,6 +328,7 @@ pub(crate) mod test_support {
             scene,
             Locale::Zh,
             update_wiring(),
+            startup,
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
     }

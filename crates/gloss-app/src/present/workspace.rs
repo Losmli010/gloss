@@ -1,4 +1,4 @@
-//! 呈现资源唯一所有者：窗口管理器、两个窗口的渲染帧、各自的下一帧时刻
+//! 呈现资源唯一所有者：窗口管理器、各窗口的渲染帧、各自的下一帧时刻
 //! 与已施加主题。壳与编排层经这里取用，不再各自持有窗口/帧的碎片。
 
 use std::error::Error;
@@ -14,17 +14,21 @@ use crate::ui::context;
 
 /// 呈现资源：窗口与帧建好之前各字段为 `None`（`resumed` 时 [`Self::init`]）。
 pub(crate) struct Workspace {
-    /// 窗口管理器：浮层 + 设置窗的生存期与显隐。
+    /// 窗口管理器：浮层 + 设置窗 + 向导窗的生存期与显隐。
     pub(crate) windows: Option<WindowManager>,
     /// 浮层的渲染帧；随窗口栈在 `resumed` 时建好，隐藏期保留。
     pub(crate) overlay_frame: Option<Frame>,
     /// 设置窗口的渲染帧；同上。
     pub(crate) settings_frame: Option<Frame>,
+    /// 向导窗口的渲染帧；同上。
+    pub(crate) wizard_frame: Option<Frame>,
     /// 浮层 egui 要求的下一帧时间点；`None` 表示等到有事件再画。
     pub(crate) overlay_repaint: Option<Instant>,
     /// 设置窗口 egui 要求的下一帧时间点，与浮层各自独立。
     pub(crate) settings_repaint: Option<Instant>,
-    /// 已施加到两个 egui 上下文的主题；`None` 表示还没施加过（窗口未起时
+    /// 向导窗口 egui 要求的下一帧时间点，与前两者各自独立。
+    pub(crate) wizard_repaint: Option<Instant>,
+    /// 已施加到各 egui 上下文的主题；`None` 表示还没施加过（窗口未起时
     /// 会有这个状态）。
     pub(crate) applied_theme: Option<Theme>,
 }
@@ -35,23 +39,26 @@ impl Workspace {
             windows: None,
             overlay_frame: None,
             settings_frame: None,
+            wizard_frame: None,
             overlay_repaint: None,
             settings_repaint: None,
+            wizard_repaint: None,
             applied_theme: None,
         }
     }
 
-    /// 建窗口栈与两个窗口的首帧渲染状态（`resumed` 里调用；resumed 可能
+    /// 建窗口栈与各窗口的首帧渲染状态（`resumed` 里调用；resumed 可能
     /// 连续投递，调用方先查 [`Self::is_ready`]）。
     pub(crate) fn init(
         &mut self,
         event_loop: &ActiveEventLoop,
         theme: Theme,
     ) -> Result<(), Box<dyn Error>> {
-        let (windows, frame, settings_frame) = build_window_stack(event_loop, theme)?;
+        let (windows, frame, settings_frame, wizard_frame) = build_window_stack(event_loop, theme)?;
         self.windows = Some(windows);
         self.overlay_frame = Some(frame);
         self.settings_frame = Some(settings_frame);
+        self.wizard_frame = Some(wizard_frame);
         Ok(())
     }
 
@@ -73,10 +80,14 @@ impl Workspace {
         }
         // 帧尚未建立（窗口未起）时这里是空集：只记状态，不 panic。
         let written = context::reapply(
-            [self.overlay_frame.as_ref(), self.settings_frame.as_ref()]
-                .into_iter()
-                .flatten()
-                .map(|frame| &frame.egui_ctx),
+            [
+                self.overlay_frame.as_ref(),
+                self.settings_frame.as_ref(),
+                self.wizard_frame.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            .map(|frame| &frame.egui_ctx),
             theme,
         );
         self.applied_theme = Some(theme);

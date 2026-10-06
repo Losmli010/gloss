@@ -50,7 +50,9 @@ mod tests {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let Command::RunTask { cancel, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { cancel, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert!(app.accept_failed(1, &GlossError::EngineNetwork));
         assert!(matches!(
             app.machine.overlay_view(),
@@ -67,7 +69,10 @@ mod tests {
             input,
             options: _,
             cancel: retried,
-        } = cmd_rx.try_recv().unwrap().payload;
+        } = cmd_rx.try_recv().unwrap().payload
+        else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert_eq!(generation, 1, "retry keeps the failed task's generation");
         assert!(matches!(
             input,
@@ -88,7 +93,9 @@ mod tests {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let Command::RunTask { .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert!(app.accept_failed(1, &GlossError::EngineAuth));
         assert!(matches!(
             app.machine.overlay_view(),

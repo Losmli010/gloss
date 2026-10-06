@@ -19,6 +19,8 @@ pub struct MemoryConfigStore {
     load_failure: Mutex<Option<GlossError>>,
     /// `Some` 时 `save` 直接返回它（模拟落盘失败）。
     save_failure: Mutex<Option<GlossError>>,
+    /// `Some` 时 `secret` 直接返回它（模拟 keychain 授权失败）。
+    secret_failure: Mutex<Option<GlossError>>,
 }
 
 impl MemoryConfigStore {
@@ -31,6 +33,12 @@ impl MemoryConfigStore {
     /// 让后续 `save` 一律失败（落盘失败路径）。
     pub fn with_save_failure(self, error: GlossError) -> Self {
         *lock_or_recover(&self.save_failure) = Some(error);
+        self
+    }
+
+    /// 让后续 `secret` 一律失败（keychain 读取失败路径）。
+    pub fn with_secret_failure(self, error: GlossError) -> Self {
+        *lock_or_recover(&self.secret_failure) = Some(error);
         self
     }
 }
@@ -52,6 +60,9 @@ impl ConfigStore for MemoryConfigStore {
     }
 
     fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
+        if let Some(err) = lock_or_recover(&self.secret_failure).clone() {
+            return Err(err);
+        }
         Ok(lock_or_recover(&self.secrets).get(key).cloned())
     }
 
