@@ -192,8 +192,8 @@ async fn run_task(
     // 值），这里只泵不存——完成态解析以 output.raw 为唯一真相源。
     let output = service
         .run(
-            &input,
-            &options,
+            input,
+            options,
             |kind| {
                 send_event(events, wake, Event::TaskClassified { generation, kind });
             },

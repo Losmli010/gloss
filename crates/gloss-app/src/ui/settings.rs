@@ -16,6 +16,7 @@
 //! （[`SettingsNotice`]），文案统一在渲染帧按当前 locale 落地——同一份草稿
 //! 换语言即换措辞，校验逻辑本身与语言无关。
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use egui::{RichText, ScrollArea, Stroke};
@@ -57,14 +58,14 @@ enum FieldError {
 }
 
 impl FieldError {
-    /// 就地提示文案。
-    fn message(&self, text: &Text) -> String {
+    /// 就地提示文案：借自常驻文案表（`Text::get` 返回 `&'static`），零拷贝。
+    fn message<'a>(&'a self, text: &'a Text) -> &'a str {
         match self {
-            Self::NewlineInModel => text.gloss_settings_error_newline_in_model.clone(),
-            Self::BaseUrlEmpty => text.gloss_settings_error_base_url_empty.clone(),
-            Self::BaseUrlNotHttps => text.gloss_settings_error_base_url_invalid.clone(),
-            Self::BaseUrlCredentials => text.gloss_settings_error_base_url_credentials.clone(),
-            Self::BaseUrlQuery => text.gloss_settings_error_base_url_query.clone(),
+            Self::NewlineInModel => &text.gloss_settings_error_newline_in_model,
+            Self::BaseUrlEmpty => &text.gloss_settings_error_base_url_empty,
+            Self::BaseUrlNotHttps => &text.gloss_settings_error_base_url_invalid,
+            Self::BaseUrlCredentials => &text.gloss_settings_error_base_url_credentials,
+            Self::BaseUrlQuery => &text.gloss_settings_error_base_url_query,
         }
     }
 }
@@ -143,7 +144,10 @@ impl SettingsNotice {
                 (&text.gloss_settings_notice_key_updated_save_failed, err)
             }
         };
-        fill(template, &[("detail", &text.for_error_detail(error))])
+        fill(
+            template,
+            &[("detail", text.for_error_detail(error).as_ref())],
+        )
     }
 }
 
@@ -529,48 +533,66 @@ fn update_section(
     action: &mut SettingsAction,
     text: &Text,
 ) {
-    let version = update.version.clone().unwrap_or_default();
-    let (label, button) = match update.phase {
+    let version = update.version.as_deref().unwrap_or_default();
+    // 文案借自常驻文案表，只有带占位符的相位才拼新串。
+    let (label, button): (Cow<'_, str>, Option<(Cow<'_, str>, UpdateMsg)>) = match update.phase {
         UpdatePhase::Idle => (
-            text.gloss_settings_update_idle.clone(),
-            Some((text.gloss_settings_update_check.clone(), UpdateMsg::Check)),
+            Cow::Borrowed(&text.gloss_settings_update_idle),
+            Some((
+                Cow::Borrowed(&text.gloss_settings_update_check),
+                UpdateMsg::Check,
+            )),
         ),
-        UpdatePhase::Checking => (text.gloss_settings_update_checking.clone(), None),
+        UpdatePhase::Checking => (Cow::Borrowed(&text.gloss_settings_update_checking), None),
         UpdatePhase::UpToDate => (
-            text.gloss_settings_update_up_to_date.clone(),
-            Some((text.gloss_settings_update_check.clone(), UpdateMsg::Check)),
+            Cow::Borrowed(&text.gloss_settings_update_up_to_date),
+            Some((
+                Cow::Borrowed(&text.gloss_settings_update_check),
+                UpdateMsg::Check,
+            )),
         ),
         UpdatePhase::UpdateAvailable => (
-            fill(
+            Cow::Owned(fill(
                 &text.gloss_settings_update_available,
-                &[("version", &version)],
-            ),
+                &[("version", version)],
+            )),
             Some((
-                text.gloss_settings_update_download.clone(),
+                Cow::Borrowed(&text.gloss_settings_update_download),
                 UpdateMsg::ConfirmDownload,
             )),
         ),
         UpdatePhase::Downloading => (
-            text.gloss_settings_update_downloading.clone(),
-            Some((text.gloss_settings_update_cancel.clone(), UpdateMsg::Cancel)),
+            Cow::Borrowed(&text.gloss_settings_update_downloading),
+            Some((
+                Cow::Borrowed(&text.gloss_settings_update_cancel),
+                UpdateMsg::Cancel,
+            )),
         ),
         UpdatePhase::UpdateReady => (
-            fill(&text.gloss_settings_update_ready, &[("version", &version)]),
+            Cow::Owned(fill(
+                &text.gloss_settings_update_ready,
+                &[("version", version)],
+            )),
             Some((
-                text.gloss_settings_update_restart.clone(),
+                Cow::Borrowed(&text.gloss_settings_update_restart),
                 UpdateMsg::ConfirmRestart,
             )),
         ),
-        UpdatePhase::ReadyToRestart => (text.gloss_settings_update_installing.clone(), None),
+        UpdatePhase::ReadyToRestart => {
+            (Cow::Borrowed(&text.gloss_settings_update_installing), None)
+        }
         UpdatePhase::Failed(step) => {
-            let label = match step {
-                FailStep::Manifest => text.gloss_settings_update_failed_check.clone(),
-                FailStep::Download => text.gloss_settings_update_failed_download.clone(),
-                FailStep::Install => text.gloss_settings_update_failed_install.clone(),
+            let label: Cow<'_, str> = match step {
+                FailStep::Manifest => Cow::Borrowed(&text.gloss_settings_update_failed_check),
+                FailStep::Download => Cow::Borrowed(&text.gloss_settings_update_failed_download),
+                FailStep::Install => Cow::Borrowed(&text.gloss_settings_update_failed_install),
             };
             (
                 label,
-                Some((text.gloss_settings_update_retry.clone(), UpdateMsg::Retry)),
+                Some((
+                    Cow::Borrowed(&text.gloss_settings_update_retry),
+                    UpdateMsg::Retry,
+                )),
             )
         }
     };

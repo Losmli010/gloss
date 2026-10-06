@@ -33,7 +33,7 @@ async fn chunk_delay_paces_the_stream() {
     let engine = MockEngine::new()
         .with_chunk_delay(Duration::from_millis(30))
         .with_chunks(vec![Ok("光".into()), Ok("泽".into()), Ok("注释".into())]);
-    let mut stream = engine.execute(&sample_request()).await.expect("stream");
+    let mut stream = engine.execute(sample_request()).await.expect("stream");
 
     let start = Instant::now();
     let mut seen = Vec::new();
@@ -57,7 +57,7 @@ async fn failures_are_injectable() {
         GlossError::EngineResponse("bad json".into()),
     ] {
         let engine = MockEngine::new().with_execute_failure(error.clone());
-        match engine.execute(&sample_request()).await {
+        match engine.execute(sample_request()).await {
             Err(actual) => assert_eq!(actual, error, "failure must surface verbatim"),
             Ok(_) => panic!("expected {error:?}, got a stream"),
         }
@@ -68,7 +68,7 @@ async fn failures_are_injectable() {
         Err(GlossError::EngineNetwork),
         Ok("流继续".into()),
     ]);
-    let mut stream = mid_stream.execute(&sample_request()).await.expect("stream");
+    let mut stream = mid_stream.execute(sample_request()).await.expect("stream");
     assert_eq!(stream.next().await, Some(Ok("部分".into())));
     assert_eq!(
         stream.next().await,
@@ -85,14 +85,14 @@ async fn execute_failure_once_fails_exactly_once() {
         .with_execute_failure_once(GlossError::EngineRateLimited)
         .with_chunks(vec![Ok("恢复".into())]);
 
-    let first = engine.execute(&sample_request()).await;
+    let first = engine.execute(sample_request()).await;
     assert_eq!(
         first.err(),
         Some(GlossError::EngineRateLimited),
         "the queued failure must fail exactly the first call"
     );
 
-    let second = engine.execute(&sample_request()).await;
+    let second = engine.execute(sample_request()).await;
     assert!(second.is_ok(), "the next call must stream again");
     if let Ok(mut stream) = second {
         assert_eq!(stream.next().await, Some(Ok("恢复".into())));
@@ -103,7 +103,7 @@ async fn execute_failure_once_fails_exactly_once() {
 #[tokio::test]
 async fn execute_panic_fires_on_first_poll() {
     let engine = MockEngine::new().with_execute_panic();
-    let joined = tokio::spawn(engine.execute(&sample_request()));
+    let joined = tokio::spawn(engine.execute(sample_request()));
     match joined.await {
         Err(join_error) => assert!(
             join_error.is_panic(),
@@ -117,21 +117,21 @@ async fn execute_panic_fires_on_first_poll() {
 async fn call_count_tracks_execute_invocations() {
     let engine = MockEngine::new().with_chunks(vec![Ok("x".into())]);
     assert_eq!(engine.call_count(), 0);
-    let mut stream = engine.execute(&sample_request()).await.expect("stream");
+    let mut stream = engine.execute(sample_request()).await.expect("stream");
     while let Some(chunk) = stream.next().await {
         chunk.expect("chunk ok");
     }
     assert_eq!(engine.call_count(), 1);
 
     let cloned = engine.clone();
-    let _ = cloned.execute(&sample_request()).await.expect("stream");
+    let _ = cloned.execute(sample_request()).await.expect("stream");
     assert_eq!(engine.call_count(), 2);
 }
 
 #[tokio::test]
 async fn empty_script_yields_empty_stream() {
     let engine = MockEngine::new();
-    let mut stream = engine.execute(&sample_request()).await.expect("stream");
+    let mut stream = engine.execute(sample_request()).await.expect("stream");
     assert!(stream.next().await.is_none());
 }
 
