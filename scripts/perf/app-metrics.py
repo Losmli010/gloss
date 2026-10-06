@@ -3,12 +3,15 @@
 
 每次运行：GLOSS_LOG_DIR 指向独立临时目录 spawn release 二进制，轮询日志
 解析里程碑行（milestone / elapsed_ms），并行按固定间隔采样 ps 的 RSS 与
-累计 CPU 时间；m5_ready（窗口+GPU+预热帧就绪）后再采一段空闲窗口，
-SIGTERM 收尾。共跑 --runs 次，各指标取中位数，连同磁盘清单与环境快照
+累计 CPU 时间；m5_ready（窗口+GPU+预热帧就绪）后再采一段空闲窗口——起点取 m5_ready
+与「system fonts applied」（后台字体补装完成）两者较晚者，空闲是真空
+闲；SIGTERM 收尾。共跑 --runs 次，各指标取中位数，连同磁盘清单与环境快照
 写入 baselines/app-runtime-baseline.json。
 
 启动总时长取 spawn→m5_ready 的观测墙钟（含进程加载，精度受轮询粒度限
-制），进程内分段归因看 milestones_ms。空闲 CPU 是空闲窗口的 CPU 时间增
+制），进程内分段归因看 milestones_ms。内存双口径：RSS（ps，压缩内存
+与 swap 不计，低估真实占用）与 phys_footprint（vmmap，活动监视器口径，
+空闲窗口末采样一次并带进程生命期峰值）。空闲 CPU 是空闲窗口的 CPU 时间增
 量，长驻进程预算口径 ≈0——winit 循环阻塞、tap 线程睡 CFRunLoop、tokio
 空闲，任何子系统空转都在这里显形。墙钟与 RSS 跨机器不可比：本基线只记
 录与展示，不做成败判定（趋势只认同机同环境历史）。
@@ -26,6 +29,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import statistics
 import subprocess
@@ -105,27 +109,66 @@ def sample_process(pid):
     return rss_kb, cpu
 
 
+FOOTPRINT_VALUE = re.compile(r"^(\d+(?:\.\d+)?)([KMG]?)$")
+
+
+def sample_footprint_kb(pid):
+    """vmmap 采活动监视器口径的物理占用：空闲值与进程生命期峰值（kb）。
+
+    进程已退出或 vmmap 不可用返回 None；只在空闲窗口末调用一次（vmmap
+    单次数百毫秒，不宜进高频采样循环）。
+    """
+    try:
+        out = subprocess.run(
+            ["vmmap", "--summary", str(pid)],
+            capture_output=True, text=True, check=True, timeout=30,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    values = {}
+    for line in out.splitlines():
+        stripped = line.strip()
+        for key in ("Physical footprint:", "Physical footprint (peak):"):
+            if not stripped.startswith(key):
+                continue
+            # 数值与单位连写（如 25.2M），正则一并吃下
+            match = FOOTPRINT_VALUE.match(stripped[len(key):].strip())
+            if match is None:
+                continue
+            multiplier = {"": 1.0, "K": 1.0, "M": 1024.0, "G": 1024.0 * 1024.0}[
+                match.group(2)
+            ]
+            values[key] = round(float(match.group(1)) * multiplier)
+    if "Physical footprint:" not in values:
+        return None
+    return values
+
+
 def find_log_file(log_dir):
     files = sorted(log_dir.glob("gloss-*.jsonl"))
     return files[-1] if files else None
 
 
 def parse_milestones(log_dir):
-    """解析日志里的里程碑行：id → elapsed_ms（进程内单调时钟，相对入口累计）。"""
+    """解析日志：里程碑 id → elapsed_ms，外加系统字体补装是否完成。"""
     log_file = find_log_file(log_dir)
     if log_file is None:
-        return {}
+        return {}, False
     milestones = {}
+    fonts_applied = False
     for line in log_file.read_text(encoding="utf-8").splitlines():
-        if '"milestone"' not in line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(event.get("milestone"), str) and isinstance(event.get("elapsed_ms"), int):
-            milestones[event["milestone"]] = event["elapsed_ms"]
-    return milestones
+        if '"milestone"' in line:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event.get("milestone"), str) and isinstance(
+                event.get("elapsed_ms"), int
+            ):
+                milestones[event["milestone"]] = event["elapsed_ms"]
+        elif '"system fonts applied"' in line:
+            fonts_applied = True
+    return milestones, fonts_applied
 
 
 def one_run(idle_secs, ready_timeout):
@@ -144,23 +187,41 @@ def one_run(idle_secs, ready_timeout):
     milestones = {}
     ready_wall_ms = None
     ready_cpu = None
+    fonts_seen_mono = None
+    idle_start = None
+    idle_cpu_start = None
     idle_wall_ms = None
     try:
         deadline = spawn_wall + ready_timeout
-        idle_start = None
+        fonts_deadline = spawn_wall + ready_timeout * 2
         while True:
             now = time.monotonic()
             sample = sample_process(proc.pid)
             if sample is not None:
                 rss_samples.append(sample[0])
                 cpu_samples.append((now, sample[1]))
-            milestones.update(parse_milestones(log_dir))
+            parsed, fonts_applied = parse_milestones(log_dir)
+            milestones.update(parsed)
+            if fonts_applied and fonts_seen_mono is None:
+                fonts_seen_mono = now
             if ready_wall_ms is None and READY_MILESTONE in milestones:
                 ready_wall_ms = (now - spawn_wall) * 1000
                 ready_cpu = cpu_samples[-1][1] if cpu_samples else None
+            # 空闲窗口起点：就绪与字体补装两个锚点都到齐，或按超时兜底起窗
+            if (
+                idle_start is None
+                and ready_wall_ms is not None
+                and (fonts_seen_mono is not None or now > fonts_deadline)
+            ):
                 idle_start = now
-            if ready_wall_ms is not None and now - idle_start >= idle_secs:
+                if cpu_samples:
+                    idle_cpu_start = cpu_samples[-1][1]
+            if idle_start is not None and now - idle_start >= idle_secs:
+                if proc.poll() is not None:
+                    print("警告：应用提前退出，本次运行作废。", file=sys.stderr)
+                    return None
                 idle_wall_ms = (now - idle_start) * 1000
+                footprint = sample_footprint_kb(proc.pid)
                 break
             if ready_wall_ms is None and now > deadline:
                 print(
@@ -172,17 +233,26 @@ def one_run(idle_secs, ready_timeout):
                 print("警告：应用提前退出，本次运行作废。", file=sys.stderr)
                 return None
             time.sleep(0.05 if ready_wall_ms is None else 1.0)
-        if ready_cpu is None or len(cpu_samples) < 2:
+        if ready_cpu is None or idle_cpu_start is None or len(cpu_samples) < 2:
             print("警告：CPU 采样不足，本次运行作废。", file=sys.stderr)
             return None
+        fonts_applied_ms = (
+            round((fonts_seen_mono - spawn_wall) * 1000)
+            if fonts_seen_mono is not None
+            else None
+        )
         return {
             "wall_ms": round(ready_wall_ms),
             "cpu_ms": round((ready_cpu - cpu_samples[0][1]) * 1000),
+            "fonts_applied_ms": fonts_applied_ms,
             "milestones": milestones,
             "rss_peak_kb": max(rss_samples),
             "rss_idle_kb": round(statistics.median(rss_samples[-5:])),
             "idle_window_ms": round(idle_wall_ms),
-            "idle_cpu_ms": round((cpu_samples[-1][1] - ready_cpu) * 1000),
+            "idle_cpu_ms": round((cpu_samples[-1][1] - idle_cpu_start) * 1000),
+            "footprint_idle_kb": footprint and footprint.get("Physical footprint:"),
+            "footprint_peak_kb": footprint
+            and footprint.get("Physical footprint (peak):"),
         }
     finally:
         if proc.poll() is None:
@@ -200,8 +270,8 @@ def one_run(idle_secs, ready_timeout):
 
 def aggregate(runs):
     def med(key):
-        values = [r[key] for r in runs]
-        return round(statistics.median(values))
+        values = [r[key] for r in runs if r.get(key) is not None]
+        return round(statistics.median(values)) if values else None
 
     milestone_ids = sorted({k for r in runs for k in r["milestones"]})
     milestones_ms = {}
@@ -212,11 +282,14 @@ def aggregate(runs):
         "startup": {
             "wall_ms": med("wall_ms"),
             "cpu_ms": med("cpu_ms"),
+            "fonts_applied_ms": med("fonts_applied_ms"),
             "milestones_ms": milestones_ms,
         },
         "memory": {
             "rss_peak_kb": med("rss_peak_kb"),
             "rss_idle_kb": med("rss_idle_kb"),
+            "footprint_idle_kb": med("footprint_idle_kb"),
+            "footprint_peak_kb": med("footprint_peak_kb"),
         },
         "cpu": {
             "idle_window_ms": med("idle_window_ms"),
