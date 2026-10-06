@@ -20,14 +20,10 @@ pub(crate) struct Workspace {
     pub(crate) overlay_frame: Option<Frame>,
     /// 设置窗口的渲染帧；同上。
     pub(crate) settings_frame: Option<Frame>,
-    /// 向导窗口的渲染帧；同上。
-    pub(crate) wizard_frame: Option<Frame>,
     /// 浮层 egui 要求的下一帧时间点；`None` 表示等到有事件再画。
     pub(crate) overlay_repaint: Option<Instant>,
     /// 设置窗口 egui 要求的下一帧时间点，与浮层各自独立。
     pub(crate) settings_repaint: Option<Instant>,
-    /// 向导窗口 egui 要求的下一帧时间点，与前两者各自独立。
-    pub(crate) wizard_repaint: Option<Instant>,
     /// 已施加到各 egui 上下文的主题；`None` 表示还没施加过（窗口未起时
     /// 会有这个状态）。
     pub(crate) applied_theme: Option<Theme>,
@@ -39,10 +35,8 @@ impl Workspace {
             windows: None,
             overlay_frame: None,
             settings_frame: None,
-            wizard_frame: None,
             overlay_repaint: None,
             settings_repaint: None,
-            wizard_repaint: None,
             applied_theme: None,
         }
     }
@@ -56,16 +50,11 @@ impl Workspace {
         theme: Theme,
         fonts_ready: impl FnOnce() + Send + 'static,
     ) -> Result<(), Box<dyn Error>> {
-        let (windows, frame, settings_frame, wizard_frame) = build_window_stack(event_loop, theme)?;
-        let contexts = vec![
-            frame.egui_ctx.clone(),
-            settings_frame.egui_ctx.clone(),
-            wizard_frame.egui_ctx.clone(),
-        ];
+        let (windows, frame, settings_frame) = build_window_stack(event_loop, theme)?;
+        let contexts = vec![frame.egui_ctx.clone(), settings_frame.egui_ctx.clone()];
         self.windows = Some(windows);
         self.overlay_frame = Some(frame);
         self.settings_frame = Some(settings_frame);
-        self.wizard_frame = Some(wizard_frame);
         match std::thread::Builder::new()
             .name("gloss-fonts".to_owned())
             .spawn(move || context::apply_system_fonts(contexts))
@@ -112,14 +101,10 @@ impl Workspace {
         }
         // 帧尚未建立（窗口未起）时这里是空集：只记状态，不 panic。
         let written = context::reapply(
-            [
-                self.overlay_frame.as_ref(),
-                self.settings_frame.as_ref(),
-                self.wizard_frame.as_ref(),
-            ]
-            .into_iter()
-            .flatten()
-            .map(|frame| &frame.egui_ctx),
+            [self.overlay_frame.as_ref(), self.settings_frame.as_ref()]
+                .into_iter()
+                .flatten()
+                .map(|frame| &frame.egui_ctx),
             theme,
         );
         self.applied_theme = Some(theme);

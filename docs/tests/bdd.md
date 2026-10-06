@@ -12,8 +12,8 @@
 | 发版人工步骤 | 4 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
-| 快照测试 | 35 | `just test` |
-| 单元测试 | 478 | `just test` |
+| 快照测试 | 32 | `just test` |
+| 单元测试 | 469 | `just test` |
 
 ## 人工测试
 
@@ -190,7 +190,7 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck、popup_code_streaming、popup_code_outcome；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install；wizard 快照基线：wizard_accessibility、wizard_input_monitoring、wizard_degraded。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
+popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck、popup_code_streaming、popup_code_outcome；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -222,8 +222,6 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | a_rendered_notice_follows_the_locale | 提示行随 locale 出表 | 给定带同一类型化提示的设置窗（英文表），当渲染，则出英文前缀与诊断（提示行不是只有中文基线可查） | 2026-09-22 |
 | saving_the_language_swaps_the_rendered_labels_without_a_restart | 保存语言即换渲染文案 | 给定同一进程内保存 Language::En 前后的配置句柄，当各渲染一帧设置窗，则文案由「保存」变为「Save」且中文标不再在树上（配置快照 → 落定 → 选表 → 渲染全链，不重启） | 2026-09-22 |
 | english_catalog_relabels_the_settings_window | 英文文案表驱动设置窗 | 给定英文 locale 的设置窗，当渲染，则四个区块标、动作按钮、默认任务/目标语言/任务开关/清除密钥/界面语言/界面主题/缓存有效期各出自英文表（含「Enable <任务>」开关的无障碍标签模板），且中文标不在树上 | 2026-09-24 |
-| open_settings_button_reports_the_step_guide | 向导主按钮上交开面板动作 | 给定辅助功能步骤的向导窗，当点击「Open System Settings」，则上交 OpenGuide(Accessibility)（开面板与推进都在流程层） | 2026-10-06 |
-| the_degraded_notice_dismisses_without_a_pane | 失效提示卡收起动作 | 给定监听失效提示卡，当点击「Got it」，则上交 Dismiss（不触发开面板） | 2026-10-06 |
 | snapshots_match_baseline（wizard） | 向导窗口渲染基线（英文浅色三视图） | 给定辅助功能步、输入监控步、失效提示卡三个状态，当 wgpu 以英文文案与浅色主题渲染并 diff，则与 wizard_accessibility / wizard_input_monitoring / wizard_degraded 三份基线一致且关键文本进树 | 2026-10-06 |
 
 ## 单元测试
@@ -548,20 +546,6 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | show_position_follows_selection_only_for_the_current_generation | 显示位置跟随当代划词 | 给定划词锚点与代数，当决策显示位置，则当代跟随选区（右下偏移）、代数不符或无锚点回落居中 | 2026-09-20 |
 | selection_trigger_records_its_anchor_per_generation | 划词触发按代数记锚点 | 给定两次划词触发，当消费，则锚点随代数刷新为各自释放坐标 | 2026-09-20 |
 
-### crates/gloss-app/src/flow/wizard.rs
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| missing_permissions_open_the_wizard_in_dependency_order | 双缺失按依赖顺序逐步引导 | 给定两项授权都缺失的启动事实，当启动向导并逐步「打开设置」，则先辅助功能步、确认后输入监控步、末步确认即收会话并发 PrewarmSecret | 2026-10-06 |
-| granted_permissions_skip_the_dialog_and_warm_up_directly | 双授权不弹窗直接预热 | 给定两项授权都就绪的启动事实，当启动向导，则不建会话且预热命令即发（恰一次） | 2026-10-06 |
-| only_the_missing_permission_gets_a_step | 只给缺失项出步骤 | 给定仅输入监控缺失的启动事实，当启动向导，则只出输入监控步，确认后收会话发预热 | 2026-10-06 |
-| acknowledge_advances_without_opening_a_pane | 跳过推进不开面板 | 给定双缺失的向导，当逐步跳过，则推进到下一步且不发预热直到走完 | 2026-10-06 |
-| closing_the_window_skips_the_whole_sequence_but_still_warms_up | 关窗跳过整段仍预热 | 给定双缺失的向导，当关窗（跳过剩余引导），则会话收起且预热命令仍发出 | 2026-10-06 |
-| degradation_shows_the_notice_without_rewarming | 失效提示卡不重发预热 | 给定已预热完成的会话，当监听失效事件到达，则出失效提示卡且不再发预热，收起即清会话 | 2026-10-06 |
-| degradation_during_guidance_jumps_the_input_monitoring_step_ahead | 引导中失效插队不丢步骤 | 给定正在辅助功能步的向导，当监听失效事件到达，则输入监控步插队展示、原步骤排回队尾，预热走完才发 | 2026-10-06 |
-| degradation_while_already_guiding_input_monitoring_is_a_no_op | 已在输入监控步的失效去重 | 给定正展示输入监控步的向导，当监听失效事件到达，则视图不变、不重复排队 | 2026-10-06 |
-| a_second_degradation_leaves_the_notice_steady | 失效提示卡对重复事件稳定 | 给定已展示失效提示卡的向导，当再次收到监听失效事件，则视图仍为提示卡、不变回引导步骤 | 2026-10-06 |
-
 ### crates/gloss-app/src/flow/settings_session.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -870,7 +854,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| the_two_guides_target_distinct_panes | 两项授权引导指向不同设置面板 | 给定两项面板 URL 常量，当断言，则输入监控与辅助功能各指隐私与安全性下自己的面板、不互串 | 2026-10-06 |
+| accessibility_denied_is_recognized | 权限错误语义识别 | 给定 AccessibilityDenied 与其它取材错误，当识别，则前者命中、其余不误伤 | 2026-10-06 |
 
 ### crates/gloss-platform/src/selection/composite.rs
 

@@ -36,11 +36,6 @@ impl GlossApp {
                 self.open_settings();
                 continue;
             }
-            // 监听失效：复用向导窗口呈现提示并接管授权引导；同样不进状态机。
-            if matches!(event, PlatformEvent::MouseListenerDegraded) {
-                self.on_listener_degraded();
-                continue;
-            }
             // 逐事件现读场景事实：安全输入态与前台应用都可能在两次触发
             // 之间变化，探针也就两次纯查询。
             let scene = self.env.scene.facts();

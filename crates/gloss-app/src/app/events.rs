@@ -13,17 +13,6 @@ use crate::update::UpdateWiring;
 
 use super::GlossApp;
 
-/// 启动期权限事实（组装点快照）：两项事件授权在启动时的状态，启动向导据
-/// 此决定要引导哪些步骤。进程内不复查——tap 运行中失效走 `MouseListener-
-/// Degraded` 事件，辅助功能失败走选区读取的失败卡。
-#[derive(Debug, Clone, Copy)]
-pub struct StartupFacts {
-    /// 辅助功能授权（AX 选区读取的前提，有公开查询 API）。
-    pub accessibility_granted: bool,
-    /// 输入监控授权（从 tap 建立结果同步推断；该项无公开预检 API）。
-    pub mouse_listening: bool,
-}
-
 /// 投递给主线程的自定义事件。
 #[derive(Clone, Copy, Debug)]
 pub enum UserEvent {
@@ -73,9 +62,6 @@ impl Waker {
 /// `update` 是更新子系统的壳侧接线（组装点经 `update::start_once()` 建立，
 /// 见 [`UpdateWiring`]）：设置页每帧读 [`watch::Receiver`] 里的
 /// [`UpdateState`] 渲染，用户动作经出口转投模块——与主流程四通道完全隔离。
-///
-/// `startup` 是组装点的启动权限事实（见 [`StartupFacts`]），启动向导的
-/// 步骤决策输入。
 #[allow(
     clippy::too_many_arguments,
     reason = "组装点的主入口：每项都是不同关注点的注入端点，收敛成结构体只会把清单变成字段袋"
@@ -87,7 +73,6 @@ pub fn run(
     scene: Arc<dyn SceneProbe>,
     system_locale: Locale,
     update: UpdateWiring,
-    startup: StartupFacts,
     on_waker: impl FnOnce(Waker),
 ) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
@@ -101,7 +86,6 @@ pub fn run(
         scene,
         system_locale,
         update,
-        startup,
         Some(proxy),
     );
     event_loop.run_app(&mut app)?;

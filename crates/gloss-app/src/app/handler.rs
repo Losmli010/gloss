@@ -63,9 +63,10 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         // 浮层预创建即隐藏（Idle 态）；先在隐藏状态画一帧预热——egui 图集构建、
         // Metal 管线编译与纹理上传都发生在首帧，不预热的话首次显示会超预算
         self.draw();
-        // 启动向导：按组装点的权限事实决定弹哪些引导步骤；全部就绪时窗口
-        // 不弹、只发密钥预热（flow::wizard）。
-        self.start_wizard();
+        // 密钥预热：启动授权引导（系统级弹窗，见 main.rs 的预检）之后即发，
+        // macOS 的 keychain 授权框由此前置到启动期受控出现，读到的值进存
+        // 储的进程内缓存，首次划词不再弹。
+        self.send_secret_prewarm();
         milestone("m5_ready");
     }
 
@@ -103,16 +104,13 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         };
         let is_overlay = windows.matches_overlay(window_id);
         let is_settings = !is_overlay && windows.matches_settings(window_id);
-        let is_wizard = !is_overlay && !is_settings && windows.matches_wizard(window_id);
-        if !is_overlay && !is_settings && !is_wizard {
+        if !is_overlay && !is_settings {
             return;
         }
 
         if matches!(event, WindowEvent::RedrawRequested) {
             if is_settings {
                 self.draw_settings();
-            } else if is_wizard {
-                self.draw_wizard();
             } else {
                 self.draw();
             }
@@ -123,8 +121,6 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         let repaint = {
             let frame = if is_settings {
                 self.workspace.settings_frame.as_mut()
-            } else if is_wizard {
-                self.workspace.wizard_frame.as_mut()
             } else {
                 self.workspace.overlay_frame.as_mut()
             };
@@ -136,8 +132,6 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         if repaint {
             if is_settings {
                 windows.request_redraw_settings();
-            } else if is_wizard {
-                windows.request_redraw_wizard();
             } else {
                 windows.request_redraw();
             }
@@ -148,31 +142,20 @@ impl ApplicationHandler<UserEvent> for GlossApp {
                 if is_settings {
                     // 设置窗口的关闭是「取消编辑」：隐藏丢弃草稿，进程照常
                     self.close_settings();
-                } else if is_wizard {
-                    // 向导窗口的关闭是「跳过剩余引导」：收起并直接走预热
-                    // 收尾，进程照常
-                    self.skip_wizard();
                 } else {
                     event_loop.exit();
                 }
             }
-            WindowEvent::KeyboardInput { event: key, .. } if is_overlay || is_wizard => {
+            WindowEvent::KeyboardInput { event: key, .. } if is_overlay => {
                 // egui_winit 已在同一事件上喂过 egui（输入框等自行消化）；
-                // 壳只观察收起键，不拦截事件。浮层收起回 Idle，向导收起
-                // 走跳过（与关窗同语义）。
+                // 壳只观察收起键，不拦截事件。
                 if is_dismiss_key(&key.logical_key, key.state) {
-                    if is_wizard {
-                        self.skip_wizard();
-                    } else {
-                        self.dismiss_overlay("escape key");
-                    }
+                    self.dismiss_overlay("escape key");
                 }
             }
             WindowEvent::Resized(size) => {
                 let frame = if is_settings {
                     self.workspace.settings_frame.as_mut()
-                } else if is_wizard {
-                    self.workspace.wizard_frame.as_mut()
                 } else {
                     self.workspace.overlay_frame.as_mut()
                 };
@@ -188,8 +171,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         if !matches!(cause, StartCause::ResumeTimeReached { .. }) {
             return;
         }
-        // 到点的是 egui 要的下一帧：浮层、设置窗与向导窗各自的截止时刻
-        // 独立检查。
+        // 到点的是 egui 要的下一帧：浮层与设置窗各自的截止时刻独立检查。
         let now = Instant::now();
         if self
             .workspace
@@ -206,23 +188,14 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         {
             windows.request_redraw_settings();
         }
-        if self
-            .workspace
-            .wizard_repaint
-            .is_some_and(|deadline| deadline <= now)
-            && let Some(windows) = &self.workspace.windows
-        {
-            windows.request_redraw_wizard();
-        }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // 没有待处理的唤醒时刻就彻底睡下，等窗口事件或唤醒句柄把自己叫醒
-        let wizard_deadline = self.workspace.wizard_repaint;
         event_loop.set_control_flow(
             sooner(
                 self.workspace.overlay_repaint,
-                sooner(self.workspace.settings_repaint, wizard_deadline),
+                self.workspace.settings_repaint,
             )
             .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
         );

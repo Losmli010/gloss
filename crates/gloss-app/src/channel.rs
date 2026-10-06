@@ -31,10 +31,6 @@ pub enum PlatformEvent {
     OpenSettingsRequested,
     /// 托盘请求退出应用。
     QuitRequested,
-    /// 鼠标监听运行中失效（tap 中途停止投递）：划词手势从此收不到，主线程
-    /// 据此呈现提示卡并接管授权引导。启动期的监听失败不经此事件——那在
-    /// 组装点就同步可知，由启动向导处理。
-    MouseListenerDegraded,
 }
 
 /// ② 主线程 → 平台事件线程：触发取材。
@@ -284,7 +280,6 @@ mod tests {
             },
             PlatformEvent::OpenSettingsRequested,
             PlatformEvent::QuitRequested,
-            PlatformEvent::MouseListenerDegraded,
         ];
         for e in &events {
             ch.tx.send(e.clone()).unwrap();

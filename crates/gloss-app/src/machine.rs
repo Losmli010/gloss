@@ -584,8 +584,7 @@ pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDec
         }
         PlatformEvent::RegionGesture { .. }
         | PlatformEvent::OpenSettingsRequested
-        | PlatformEvent::QuitRequested
-        | PlatformEvent::MouseListenerDegraded => TriggerDecision::Unwired,
+        | PlatformEvent::QuitRequested => TriggerDecision::Unwired,
     }
 }
 
@@ -774,7 +773,6 @@ mod tests {
             },
             PlatformEvent::OpenSettingsRequested,
             PlatformEvent::QuitRequested,
-            PlatformEvent::MouseListenerDegraded,
         ] {
             assert!(
                 machine

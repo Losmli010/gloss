@@ -7,4 +7,3 @@ pub mod i18n;
 pub mod popup;
 pub mod settings;
 pub mod style;
-pub mod wizard;

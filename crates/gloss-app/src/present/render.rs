@@ -43,14 +43,14 @@ impl Frame {
     }
 }
 
-/// 建窗口栈与各窗口的首帧渲染状态（生产 App 与自检 handler 共用）：
-/// 浮层帧、设置窗口帧、向导窗口帧依次排列。三个窗口共享同一份
-/// `GpuContext`（设备与队列各一份）；egui 上下文各自独立，都经
-/// [`ui::context::new_context`] 装好字体与主题（`theme` 是建立时的主题偏好）。
+/// 建窗口栈与两个窗口的首帧渲染状态（生产 App 与自检 handler 共用）：
+/// 浮层帧在前、设置窗口帧在后。两个窗口共享同一份 `GpuContext`（设备与
+/// 队列各一份）；egui 上下文各自独立，都经 [`ui::context::new_context`]
+/// 装好字体与主题（`theme` 是建立时的主题偏好）。
 pub fn build_window_stack(
     event_loop: &ActiveEventLoop,
     theme: Theme,
-) -> Result<(WindowManager, Frame, Frame, Frame), Box<dyn Error>> {
+) -> Result<(WindowManager, Frame, Frame), Box<dyn Error>> {
     let windows = WindowManager::new(event_loop)?;
     milestone("m5a_windows");
 
@@ -58,10 +58,9 @@ pub fn build_window_stack(
     milestone("m5b_gpu");
     let frame = build_frame(windows.overlay_handle(), &context, theme)?;
     let settings_frame = build_frame(windows.settings_handle(), &context, theme)?;
-    let wizard_frame = build_frame(windows.wizard_handle(), &context, theme)?;
     milestone("m5c_frames");
 
-    Ok((windows, frame, settings_frame, wizard_frame))
+    Ok((windows, frame, settings_frame))
 }
 
 /// 建单个窗口的 egui 渲染状态 + surface（浮层与设置窗口同构）。

@@ -3,6 +3,7 @@
 //! `machine::should_reveal`，「怎么显示」在 `reveal`。
 
 use gloss_core::log::{Span, debug, info, thread, warn};
+use gloss_core::model::GlossError;
 use gloss_core::task::TaskInput;
 use winit::event_loop::ActiveEventLoop;
 
@@ -312,6 +313,41 @@ impl GlossApp {
                 );
                 false
             }
+        }
+    }
+}
+
+impl GlossApp {
+    /// 发密钥预热命令（通道③，不带任务 span——预热不属于任何任务）：
+    /// 启动授权引导（系统级弹窗）之后即发，macOS 的 keychain 授权框由此
+    /// 前置到启动期受控出现，读到的值进存储的进程内缓存，首次划词不再弹。
+    /// 发送失败（通道已关，应用正在退出）只留痕。
+    pub(crate) fn send_secret_prewarm(&mut self) {
+        let keychain_id = self
+            .env
+            .config
+            .snapshot()
+            .resolved_provider()
+            .keychain_id
+            .clone();
+        let Some(endpoints) = &self.endpoints else {
+            return;
+        };
+        let command = Traced::untraced(Command::PrewarmSecret { keychain_id });
+        if let Err(err) = endpoints.commands.send(command) {
+            debug!(
+                thread = thread::UI,
+                error = %err,
+                "command channel closed, secret prewarm dropped"
+            );
+        }
+    }
+
+    /// 密钥预热回执（`SecretPrewarmed`）：只留痕——预热失败不拦主流程，
+    /// 首次任务会自然重读并按既有失败路径兜底。
+    pub(crate) fn on_secret_prewarmed(&mut self, result: &Result<(), GlossError>) {
+        if let Err(err) = result {
+            debug!(thread = thread::UI, error = %err, "secret prewarm reported failure");
         }
     }
 }
