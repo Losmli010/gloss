@@ -2,12 +2,14 @@
 //!
 //! 自带 `main()`、运行在进程主线程——满足 winit 事件循环的主线程约束。
 //! 经 gloss-app 公共 API 驱动与生产完全相同的窗口栈：预创建窗口反复显
-//! 隐 100 轮，统计 show → 首帧延迟与窗口句柄数（预创建复用与 < 100ms
-//! 首帧预算计入门禁；句柄数进日志供人工走查）。需要窗口服务与 GPU。
+//! 隐 100 轮，统计 show → 首帧延迟、窗口句柄数与进程 RSS 增长（复用与
+//! 首帧预算、句柄不增长、RSS 尾段净增长预算计入门禁——前 25 轮属一次
+//! 性预热分配，泄漏信号看尾段斜率）。需要窗口服务与 GPU。
 //!
 //! 设 `GLOSS_PERF_OUT` 时把性能记录追加导出为 JSON Lines，供量化审计。
 //!
-//! 退出码：跑满 100 轮且有延迟统计 `0`；无帧、首帧超预算 `1`。
+//! 退出码：跑满 100 轮且有延迟统计 `0`；无帧、首帧超预算、RSS 尾段
+//! 净增长超预算 `1`。
 
 use std::env;
 use std::fs::OpenOptions;
@@ -31,6 +33,15 @@ use winit::window::WindowId;
 const SELFTEST_VISIBLE: Duration = Duration::from_millis(80);
 const SELFTEST_ROUNDS: usize = 100;
 const SHOW_BUDGET: Duration = Duration::from_millis(100);
+const RSS_TAIL_GROWTH_BUDGET_KB: i64 = 2048;
+
+fn sample_rss_kb() -> Option<i64> {
+    let out = std::process::Command::new("ps")
+        .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
 
 fn main() -> ExitCode {
     let event_loop = match EventLoop::builder().build() {
@@ -63,7 +74,47 @@ fn main() -> ExitCode {
         window_handles = window_handles,
         "overlay self-test passed"
     );
-    export_perf(&handler, first, max, window_handles);
+    let rss = match (handler.rss_start_kb, handler.rss_end_kb) {
+        (Some(start), Some(end)) => Some((start, end, end - start)),
+        _ => None,
+    };
+    if let Some((start, end, growth)) = rss {
+        info!(
+            thread = gloss_core::log::thread::UI,
+            rss_start_kb = start,
+            rss_end_kb = end,
+            rss_growth_kb = growth,
+            curve = ?handler.rss_curve,
+            "overlay show/hide rss growth"
+        );
+    }
+    let tail_growth = handler
+        .rss_curve
+        .iter()
+        .find(|(round, _)| *round == 25)
+        .and_then(|(_, kb)| handler.rss_end_kb.map(|end| end - kb));
+    let rss_verdict = match tail_growth {
+        Some(tail) if tail > RSS_TAIL_GROWTH_BUDGET_KB => "fail",
+        Some(_) => "pass",
+        None => "skipped",
+    };
+    if rss_verdict == "skipped" {
+        info!(
+            thread = gloss_core::log::thread::UI,
+            reason = "rss samples incomplete (ps failed or round-25 anchor missing)",
+            "rss gate skipped"
+        );
+    }
+    export_perf(&handler, first, max, window_handles, rss, rss_verdict);
+    if rss_verdict == "fail" {
+        error!(
+            thread = gloss_core::log::thread::UI,
+            tail_growth_kb = tail_growth,
+            budget_kb = RSS_TAIL_GROWTH_BUDGET_KB,
+            "show/hide rss tail growth exceeded budget"
+        );
+        return ExitCode::FAILURE;
+    }
     if first > SHOW_BUDGET {
         error!(
             thread = gloss_core::log::thread::UI,
@@ -76,7 +127,14 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn export_perf(handler: &OverlaySelfTest, first: Duration, max: Duration, window_handles: usize) {
+fn export_perf(
+    handler: &OverlaySelfTest,
+    first: Duration,
+    max: Duration,
+    window_handles: usize,
+    rss: Option<(i64, i64, i64)>,
+    rss_verdict: &str,
+) {
     let Some(path) = env::var_os("GLOSS_PERF_OUT") else {
         return;
     };
@@ -94,7 +152,11 @@ fn export_perf(handler: &OverlaySelfTest, first: Duration, max: Duration, window
         let rank = ((p / 100.0) * sorted.len() as f64).ceil() as usize;
         sorted[(rank.max(1) - 1).min(sorted.len() - 1)]
     };
-    let verdict = if first > SHOW_BUDGET { "fail" } else { "pass" };
+    let verdict = if first > SHOW_BUDGET || rss_verdict == "fail" {
+        "fail"
+    } else {
+        "pass"
+    };
     let record = json!({
         "kind": "overlay",
         "commit": perf_commit(),
@@ -109,6 +171,16 @@ fn export_perf(handler: &OverlaySelfTest, first: Duration, max: Duration, window
         "budget_ms": SHOW_BUDGET.as_millis() as u64,
         "verdict": verdict,
         "window_handles": window_handles,
+        "rss_start_kb": rss.map(|(start, _, _)| start),
+        "rss_end_kb": rss.map(|(_, end, _)| end),
+        "rss_growth_kb": rss.map(|(_, _, growth)| growth),
+        "rss_tail_growth_kb": handler
+            .rss_curve
+            .iter()
+            .find(|(round, _)| *round == 25)
+            .and_then(|(_, kb)| handler.rss_end_kb.map(|end| end - kb)),
+        "rss_verdict": rss_verdict,
+        "rss_curve": handler.rss_curve.iter().map(|(round, kb)| json!({"round": round, "kb": kb})).collect::<Vec<_>>(),
         "env": {
             "os": env::consts::OS,
             "arch": env::consts::ARCH,
@@ -153,6 +225,9 @@ struct OverlaySelfTest {
     round: usize,
     shown_at: Option<Instant>,
     latencies: Vec<Duration>,
+    rss_start_kb: Option<i64>,
+    rss_end_kb: Option<i64>,
+    rss_curve: Vec<(usize, i64)>,
 }
 
 impl OverlaySelfTest {
@@ -163,6 +238,14 @@ impl OverlaySelfTest {
     }
 
     fn begin_round(&mut self, event_loop: &ActiveEventLoop) {
+        if self.round == 0 {
+            self.rss_start_kb = sample_rss_kb();
+        }
+        if self.round.is_multiple_of(25)
+            && let Some(rss) = sample_rss_kb()
+        {
+            self.rss_curve.push((self.round, rss));
+        }
         self.round += 1;
         let now = Instant::now();
         self.shown_at = Some(now);
@@ -238,6 +321,10 @@ impl ApplicationHandler for OverlaySelfTest {
                 windows.hide();
             }
             if self.round >= SELFTEST_ROUNDS {
+                if let Some(rss) = sample_rss_kb() {
+                    self.rss_curve.push((self.round, rss));
+                }
+                self.rss_end_kb = sample_rss_kb();
                 event_loop.exit();
                 return;
             }
