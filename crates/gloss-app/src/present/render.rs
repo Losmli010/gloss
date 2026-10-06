@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use egui::ViewportId;
 use gloss_core::config::Theme;
+use gloss_core::log::milestone;
 use gloss_core::model::Locale;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
@@ -51,10 +52,13 @@ pub fn build_window_stack(
     theme: Theme,
 ) -> Result<(WindowManager, Frame, Frame), Box<dyn Error>> {
     let windows = WindowManager::new(event_loop)?;
+    milestone("m5a_windows");
 
     let context = Arc::new(GpuContext::new()?);
+    milestone("m5b_gpu");
     let frame = build_frame(windows.overlay_handle(), &context, theme)?;
     let settings_frame = build_frame(windows.settings_handle(), &context, theme)?;
+    milestone("m5c_frames");
 
     Ok((windows, frame, settings_frame))
 }
