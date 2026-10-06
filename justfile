@@ -160,6 +160,10 @@ test:
 selftest:
     cargo test -p gloss --test overlay
 
+# L3 启动预算自检：渲染栈初始化墙钟对 STARTUP_BUDGET（需窗口服务与 GPU）
+startup-selftest:
+    cargo test -p gloss --test startup
+
 # L3 显隐自检并把性能记录追加导出为 JSON Lines（out 缺省 target/perf/overlay.jsonl）
 selftest-report out="target/perf/overlay.jsonl":
     @mkdir -p "$(dirname "{{out}}")"

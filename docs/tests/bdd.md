@@ -11,7 +11,7 @@
 | 人工测试 | 11 | `cargo test -p gloss-platform -- --ignored` |
 | 发版人工步骤 | 4 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
 | 集成测试 | 10 | `just test` |
-| 性能测试 | 1 | `just selftest` |
+| 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 32 | `just test` |
 | 单元测试 | 463 | `just test` |
 
@@ -181,11 +181,12 @@
 
 ## 性能测试
 
-文件：tests/overlay.rs（L3，harness = false 自带 main()，跑在主线程，需窗口服务与 GPU）。
+文件：tests/overlay.rs、tests/startup.rs（均 L3，harness = false 自带 main()，跑在主线程，需窗口服务与 GPU）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | overlay | 真实窗口栈显隐生命周期与首帧预算 | 给定经公共 API build_window_stack 预创建的生产窗口栈，当反复 show → 渲染 → hide 共 100 轮（每轮停留 80ms），则统计 show→首帧延迟并计入门禁：跑满 100 轮且有延迟统计退出 0，无帧或首帧超 100ms 预算退出 1；窗口句柄数仅进日志供人工走查（验证复用不增长）；设 GLOSS_PERF_OUT 时追加一行 JSON 性能记录（first/p50/p95/max、预算判定与运行环境），写失败只记日志不改变退出码 | 2026-09-21 |
+| startup | 启动渲染栈段预算门禁 | 给定经公共 API build_window_stack 的生产同源初始化（EventLoop → 窗口栈 → 预热帧），当计进程内起点到预热帧完成的墙钟，则不超 15000ms 预算退出 0，超预算或初始化失败退出 1；分段耗时经日志里程碑 m5a/m5b/m5c 供人工定位（预算数值以源码常量为准，改动随本清单同步） | 2026-10-06 |
 
 ## 快照测试
 
