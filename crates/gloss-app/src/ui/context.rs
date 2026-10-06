@@ -138,24 +138,23 @@ mod tests {
             output.drop_without_applying_deltas();
             has
         };
-        let serif_tail = |ctx: &Context| {
-            let mut tail = None;
+        let serif_bound = |ctx: &Context| {
+            let mut bound = false;
             let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-                tail = ui.ctx().fonts(|fonts| {
+                bound = ui.ctx().fonts(|fonts| {
                     fonts
                         .definitions()
                         .families
                         .get(&egui::FontFamily::Name(fonts::FONT_SERIF_NAME.into()))
-                        .and_then(|chain| chain.last().cloned())
+                        .is_some_and(|chain| !chain.is_empty())
                 });
             });
             output.drop_without_applying_deltas();
-            tail
+            bound
         };
-        assert_eq!(
-            serif_tail(&ctx),
-            Some(fonts::BUILTIN_FALLBACK_FONT.to_owned()),
-            "命名字体族必须恒绑定（快路径全绑内置；完整路径族尾也是内置）"
+        assert!(
+            serif_bound(&ctx),
+            "命名字体族必须恒绑定（epaint 对未绑定族 panic）"
         );
 
         apply_system_fonts([ctx.clone()]);

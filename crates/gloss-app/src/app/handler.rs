@@ -24,7 +24,7 @@ impl GlossApp {
                 && proxy.send_event(UserEvent::FontsReady).is_err()
             {
                 debug!(
-                    thread = thread::UI,
+                    thread = thread::FONTS,
                     "event loop gone before fonts ready, redraw skipped"
                 );
             }
@@ -69,8 +69,8 @@ impl ApplicationHandler<UserEvent> for GlossApp {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         if matches!(event, UserEvent::FontsReady) {
             // 字体装载完成：按当前主题强制重施加（含完整字体表）并重绘
-            // 两窗口。主题在这里统一施加，装载窗口内的偏好变更不会被
-            // 后台快照覆盖。
+            // 浮层。主题在这里统一施加，装载窗口内的偏好变更不会被后台
+            // 快照覆盖。
             self.workspace.apply_theme_forced(self.env.target_theme());
             self.request_redraw();
             return;
