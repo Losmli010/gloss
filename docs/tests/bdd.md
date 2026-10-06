@@ -9,7 +9,7 @@
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
 | 人工测试 | 11 | `cargo test -p gloss-platform -- --ignored` |
-| 发版人工步骤 | 4 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
+| 发版人工步骤 | 5 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 32 | `just test` |
@@ -160,6 +160,21 @@
   3. 打开 GitHub Release，确认双架构 zip/dmg 共 4 个资产
   4. 打开站点确认 manifest.json 的 version 与 tag（去 v）一致，latest/ 下 4 个文件可下载
 - 更新时间：2026-09-26
+
+### app_survives_eight_hour_mixed_load_soak
+- 测试目标：验证长驻进程 8 小时空闲 + 定期划词混合负载下的内存稳定性、日志有界性与运行健康。
+- 测试场景：给定授权真机与 release 构建，当应用静置并以 ~10 分钟间隔触发真实划词共 8 小时，则 RSS/phys_footprint 曲线无持续上漂、日志目录文件数 ≤ 7、进程存活且划词出卡正常。
+- 测试步骤：
+  1. 前置：辅助功能与输入监控已授权；系统负载低（建议夜间）；磁盘余量 ≥ 2GB
+  2. 构建 release 并启动：`cargo build --release` 然后 `./target/release/gloss`
+  3. 另开终端起触发循环（每 10 分钟注入一次真实选区读取，照抄）：
+     `while true; do cargo test -p gloss-platform -- --ignored reads_live_selection_when_authorized --exact; sleep 600; done`
+  4. 每 30 分钟记录一次（照抄，追加进临时文件）：
+     `echo "$(date +%H:%M) rss=$(ps -o rss= -p $(pgrep -x gloss)) kb" >> /tmp/soak-rss.txt`
+  5. 8 小时后 Ctrl-C 结束触发循环，正常退出应用（菜单/设置页退出）
+  6. 核对：`cat /tmp/soak-rss.txt` 首尾对比无持续上漂（一次性的启动后爬升属正常）；`ls ~/.gloss/logs | wc -l` ≤ 7；`just logs --level error` 无异常堆栈
+  7. 收尾采一次运行时基线归档：`just app-metrics`（趋势点随 git 走）
+- 更新时间：2026-10-06
 
 ## 集成测试
 
