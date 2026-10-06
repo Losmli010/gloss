@@ -42,16 +42,33 @@ impl Workspace {
     }
 
     /// 建窗口栈与两个窗口的首帧渲染状态（`resumed` 里调用；resumed 可能
-    /// 连续投递，调用方先查 [`Self::is_ready`]）。
+    /// 连续投递，调用方先查 [`Self::is_ready`]）。系统字体由后台线程延迟
+    /// 装载（秒级，不挡首帧），装好经 `fonts_ready` 通知主线程换表重绘。
     pub(crate) fn init(
         &mut self,
         event_loop: &ActiveEventLoop,
         theme: Theme,
+        fonts_ready: impl FnOnce() + Send + 'static,
     ) -> Result<(), Box<dyn Error>> {
         let (windows, frame, settings_frame) = build_window_stack(event_loop, theme)?;
+        let contexts = vec![frame.egui_ctx.clone(), settings_frame.egui_ctx.clone()];
         self.windows = Some(windows);
         self.overlay_frame = Some(frame);
         self.settings_frame = Some(settings_frame);
+        match std::thread::Builder::new()
+            .name("gloss-fonts".to_owned())
+            .spawn(move || context::apply_system_fonts(contexts))
+        {
+            Ok(_) => {}
+            Err(err) => {
+                debug!(
+                    thread = thread::UI,
+                    error = %err,
+                    "font loading thread not started, staying on builtin glyphs"
+                );
+                fonts_ready();
+            }
+        }
         Ok(())
     }
 
@@ -66,9 +83,20 @@ impl Workspace {
         }
     }
 
-    /// 把主题偏好施加到两个 egui 上下文：偏好变化时才写，两个上下文各写一次。
+    /// 把主题偏好施加到两个 egui 上下文：偏好变化时才写，两个上下文各写
+    /// 一次。`force` 绕过变化判定（字体补装完成时必须重施加——字体表要
+    /// 换完整定义，即使主题没变）。
+    pub(crate) fn apply_theme_forced(&mut self, theme: Theme) {
+        let force = true;
+        self.apply_theme_inner(theme, force);
+    }
+
     pub(crate) fn apply_theme(&mut self, theme: Theme) {
-        if self.applied_theme == Some(theme) {
+        self.apply_theme_inner(theme, false);
+    }
+
+    fn apply_theme_inner(&mut self, theme: Theme, force: bool) {
+        if !force && self.applied_theme == Some(theme) {
             return;
         }
         // 帧尚未建立（窗口未起）时这里是空集：只记状态，不 panic。

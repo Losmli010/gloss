@@ -17,7 +17,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::WindowId;
 
-const STARTUP_BUDGET: Duration = Duration::from_millis(15_000);
+const STARTUP_BUDGET: Duration = Duration::from_millis(4_000);
 
 fn main() -> ExitCode {
     init(None);

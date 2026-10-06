@@ -4,7 +4,7 @@
 use std::error::Error;
 use std::time::Instant;
 
-use gloss_core::log::{error, milestone, thread};
+use gloss_core::log::{debug, error, milestone, thread};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
@@ -15,9 +15,20 @@ use super::{GlossApp, UserEvent};
 
 impl GlossApp {
     /// 建窗口栈与两个窗口的帧状态，一次做完（呈现资源收进 workspace）。
+    /// 字体装载完成经 `UserEvent::FontsReady` 回主线程换表重绘。
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
         let theme = self.env.target_theme();
-        self.workspace.init(event_loop, theme)?;
+        let proxy = self.proxy.clone();
+        self.workspace.init(event_loop, theme, move || {
+            if let Some(proxy) = &proxy
+                && proxy.send_event(UserEvent::FontsReady).is_err()
+            {
+                debug!(
+                    thread = thread::FONTS,
+                    "event loop gone before fonts ready, redraw skipped"
+                );
+            }
+        })?;
         self.draw();
         Ok(())
     }
@@ -56,6 +67,14 @@ impl ApplicationHandler<UserEvent> for GlossApp {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        if matches!(event, UserEvent::FontsReady) {
+            // 字体装载完成：按当前主题强制重施加（含完整字体表）并重绘
+            // 浮层。主题在这里统一施加，装载窗口内的偏好变更不会被后台
+            // 快照覆盖。
+            self.workspace.apply_theme_forced(self.env.target_theme());
+            self.request_redraw();
+            return;
+        }
         if matches!(event, UserEvent::RedrawSettings) {
             // 相位迁移只牵动设置窗：窗口可见才请求重绘，不抽干主流程通道。
             if let Some(windows) = &self.workspace.windows
