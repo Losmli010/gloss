@@ -162,17 +162,16 @@
 - 更新时间：2026-09-26
 
 ### app_survives_eight_hour_mixed_load_soak
-- 测试目标：验证长驻进程 8 小时空闲 + 定期划词混合负载下的内存稳定性、日志有界性与运行健康。
-- 测试场景：给定授权真机与 release 构建，当应用静置并以 ~10 分钟间隔触发真实划词共 8 小时，则 RSS/phys_footprint 曲线无持续上漂、日志目录文件数 ≤ 7、进程存活且划词出卡正常。
+- 测试目标：验证长驻进程 8 小时「静置为主 + 周期性人工划词」混合负载下的内存稳定性、日志有界性与运行健康。
+- 测试场景：给定授权真机与 release 构建，当应用静置过夜并以 ~2 小时间隔人工划词数次，则 RSS 曲线无持续上漂、gloss 日志文件数 ≤ 7、进程存活且划词出卡正常。
 - 测试步骤：
-  1. 前置：辅助功能与输入监控已授权；系统负载低（建议夜间）；磁盘余量 ≥ 2GB
+  1. 前置：辅助功能与输入监控已授权（人工划词出卡依赖取材授权）；系统负载低（建议夜间）；磁盘余量 ≥ 2GB
   2. 构建 release 并启动：`cargo build --release` 然后 `./target/release/gloss`
-  3. 另开终端起触发循环（每 10 分钟注入一次真实选区读取，照抄）：
-     `while true; do cargo test -p gloss-platform -- --ignored reads_live_selection_when_authorized --exact; sleep 600; done`
-  4. 每 30 分钟记录一次（照抄，追加进临时文件）：
-     `echo "$(date +%H:%M) rss=$(ps -o rss= -p $(pgrep -x gloss)) kb" >> /tmp/soak-rss.txt`
-  5. 8 小时后 Ctrl-C 结束触发循环，正常退出应用（菜单/设置页退出）
-  6. 核对：`cat /tmp/soak-rss.txt` 首尾对比无持续上漂（一次性的启动后爬升属正常）；`ls ~/.gloss/logs | wc -l` ≤ 7；`just logs --level error` 无异常堆栈
+  3. 另开终端起 RSS 采样循环（每 30 分钟一次，照抄）：
+     `while true; do echo "$(date +%H:%M) rss=$(ps -o rss= -p $(pgrep -x gloss)) kb" >> /tmp/soak-rss.txt; sleep 1800; done`
+  4. 每 ~2 小时在任意含文本的应用做数次真实拖选划词，确认出卡正常（人工执行）
+  5. 8 小时后 Ctrl-C 结束采样循环，正常退出应用（菜单/设置页退出）
+  6. 核对：`cat /tmp/soak-rss.txt` 首尾对比无持续上漂（一次性的启动后爬升属正常）；`ls ~/.gloss/logs/gloss-*.jsonl | wc -l` ≤ 7；`just logs --no-follow --level error` 无异常堆栈（只渲染最新一份日志）
   7. 收尾采一次运行时基线归档：`just app-metrics`（趋势点随 git 走）
 - 更新时间：2026-10-06
 
