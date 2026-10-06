@@ -14,7 +14,7 @@ use crate::ui::context;
 
 /// 呈现资源：窗口与帧建好之前各字段为 `None`（`resumed` 时 [`Self::init`]）。
 pub(crate) struct Workspace {
-    /// 窗口管理器：浮层 + 设置窗 + 向导窗的生存期与显隐。
+    /// 窗口管理器：浮层 + 设置窗的生存期与显隐。
     pub(crate) windows: Option<WindowManager>,
     /// 浮层的渲染帧；随窗口栈在 `resumed` 时建好，隐藏期保留。
     pub(crate) overlay_frame: Option<Frame>,

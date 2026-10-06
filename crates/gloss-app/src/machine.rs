@@ -608,7 +608,7 @@ pub(crate) enum EventKind {
     TaskChunk,
     TaskDone,
     TaskFailed,
-    /// 密钥预热回执：与任务代数无关，露面策略恒不显示（向导自己消费）。
+    /// 密钥预热回执：与任务代数无关，露面策略恒不显示（壳层旁路留痕）。
     SecretPrewarmed,
 }
 
@@ -639,7 +639,7 @@ fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
         EventKind::InputReady => false,
         EventKind::TaskFailed => accepted,
         EventKind::TaskClassified | EventKind::TaskDone | EventKind::TaskChunk => false,
-        // 预热回执面向启动向导（独立窗口），与任务浮层无关。
+        // 预热回执由壳层旁路留痕，与任务浮层无关。
         EventKind::SecretPrewarmed => false,
     }
 }

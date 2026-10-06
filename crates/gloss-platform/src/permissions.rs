@@ -17,8 +17,6 @@
 
 use std::process::Command;
 
-use gloss_core::model::GlossError;
-
 /// 系统设置「输入监控」面板（kTCCServiceListenEvent 的授权入口）。
 const INPUT_MONITORING_PANE: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent";
@@ -52,21 +50,5 @@ pub fn open_input_monitoring_pane() -> bool {
             );
             false
         }
-    }
-}
-
-/// 判断错误是否属于辅助功能权限语义（引导提示与其它失败区分开）。
-pub fn is_accessibility_denied(error: &GlossError) -> bool {
-    matches!(error, GlossError::AccessibilityDenied)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn accessibility_denied_is_recognized() {
-        assert!(is_accessibility_denied(&GlossError::AccessibilityDenied));
-        assert!(!is_accessibility_denied(&GlossError::SelectionUnavailable));
     }
 }

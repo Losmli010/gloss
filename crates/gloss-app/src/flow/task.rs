@@ -34,8 +34,8 @@ impl GlossApp {
             // 策略只关心「哪一类回传」，事件本身在下一行被消费掉。
             let kind = event_kind(&event);
             let accepted = match event {
-                // 预热回执面向启动向导（不占代数，与浮层无关）：旁路处理
-                // 后不进露面批次。
+                // 预热回执与任务代数无关（不占代数，与浮层无关）：旁路
+                // 处理后不进露面批次。
                 Event::SecretPrewarmed { result } => {
                     self.on_secret_prewarmed(&result);
                     continue;
@@ -362,6 +362,45 @@ mod tests {
     };
     use crate::channel::{AcquireCommand, Command};
     use crate::machine::AppState;
+
+    #[test]
+    fn prewarm_dispatches_the_configured_keychain_entry_exactly_once() {
+        let (mut app, _config, _store, _pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+
+        app.send_secret_prewarm();
+        app.send_secret_prewarm();
+
+        let first = cmd_rx
+            .try_recv()
+            .expect("the first prewarm lands on channel 3");
+        assert!(
+            matches!(
+                first.payload,
+                Command::PrewarmSecret { ref keychain_id }
+                    if *keychain_id == app.env.config.snapshot().resolved_provider().keychain_id
+            ),
+            "the entry id must come from the current snapshot, got {:?}",
+            first.payload
+        );
+        let second = cmd_rx.try_recv().expect("each call sends its own command");
+        assert!(matches!(second.payload, Command::PrewarmSecret { .. }));
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "two calls send exactly two commands"
+        );
+    }
+
+    #[test]
+    fn prewarm_without_endpoints_is_a_silent_no_op() {
+        let (mut app, _config, _store, _pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        app.endpoints = None;
+
+        app.send_secret_prewarm();
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "no endpoints means nothing is sent and nothing panics"
+        );
+    }
 
     #[test]
     fn late_events_of_superseded_trigger_do_not_bleed() {

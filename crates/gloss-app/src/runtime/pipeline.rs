@@ -8,8 +8,8 @@
 //! → miss 时接线钩子（`TaskClassified`/`TaskChunk` 逐条回传）调
 //! `service.run` → 完成态经 [`complete`]（JSON 主路径 + 围栏 fallback）
 //! 解析出 [`TaskOutcome`] → 写缓存 → `TaskDone`。引擎失败不写缓存。
-//! 另有 `PrewarmSecret` 一条旁路：读一次密钥进进程内缓存（启动向导收尾
-//! 的预热），与任务代数无关。
+//! 另有 `PrewarmSecret` 一条旁路：读一次密钥进进程内缓存（启动期预热），
+//! 与任务代数无关。
 //!
 //! 选项单次快照冻结在 machine（探测时按配置快照解析），桥与 LLM 层都不
 //! 回读配置；分类缓存已删除——同一输入在同一选项下判定的 kind 唯一，

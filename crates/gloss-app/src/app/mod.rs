@@ -79,7 +79,7 @@ pub(crate) struct GlossApp {
     pub(crate) machine: TaskStateMachine,
     /// 触发/任务的管线会话状态（锚点、排查线索、显形挂起、任务 span）。
     pub(crate) session: Session,
-    /// 外部服务句柄（配置/存储/场景/系统语言/更新接线/启动权限事实）。
+    /// 外部服务句柄（配置/存储/场景/系统语言/更新接线）。
     pub(crate) env: Env,
     /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
     /// 之丢弃）。

@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 32 | `just test` |
-| 单元测试 | 469 | `just test` |
+| 单元测试 | 470 | `just test` |
 
 ## 人工测试
 
@@ -222,7 +222,6 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | a_rendered_notice_follows_the_locale | 提示行随 locale 出表 | 给定带同一类型化提示的设置窗（英文表），当渲染，则出英文前缀与诊断（提示行不是只有中文基线可查） | 2026-09-22 |
 | saving_the_language_swaps_the_rendered_labels_without_a_restart | 保存语言即换渲染文案 | 给定同一进程内保存 Language::En 前后的配置句柄，当各渲染一帧设置窗，则文案由「保存」变为「Save」且中文标不再在树上（配置快照 → 落定 → 选表 → 渲染全链，不重启） | 2026-09-22 |
 | english_catalog_relabels_the_settings_window | 英文文案表驱动设置窗 | 给定英文 locale 的设置窗，当渲染，则四个区块标、动作按钮、默认任务/目标语言/任务开关/清除密钥/界面语言/界面主题/缓存有效期各出自英文表（含「Enable <任务>」开关的无障碍标签模板），且中文标不在树上 | 2026-09-24 |
-| snapshots_match_baseline（wizard） | 向导窗口渲染基线（英文浅色三视图） | 给定辅助功能步、输入监控步、失效提示卡三个状态，当 wgpu 以英文文案与浅色主题渲染并 diff，则与 wizard_accessibility / wizard_input_monitoring / wizard_degraded 三份基线一致且关键文本进树 | 2026-10-06 |
 
 ## 单元测试
 
@@ -604,6 +603,13 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | alpha_mode_degrades_to_auto_without_transparency | 无透明支持降级 Auto | 给定仅 Opaque/Auto 的候选或空列表，当挑选，则降级 Auto | 2026-09-19 |
 | errors_describe_their_cause | GPU 错误文案含根因 | 给定各 GpuError 变体，当 to_string，则文案包含根因 | 2026-09-19 |
 
+### crates/gloss-app/src/flow/task.rs（预热发送端）
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| prewarm_dispatches_the_configured_keychain_entry_exactly_once | 预热命令携带当前配置条目且逐次下发 | 给定默认配置的驱动器，当连续两次 send_secret_prewarm，则通道③各收到一条 PrewarmSecret 且 keychain_id 取自当前快照（共两条） | 2026-10-06 |
+| prewarm_without_endpoints_is_a_silent_no_op | 无端点时预热静默跳过 | 给定 endpoints 已清空的驱动器，当 send_secret_prewarm，则不发任何命令、不 panic | 2026-10-06 |
+
 ### crates/gloss-app/src/runtime/pipeline.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -854,7 +860,6 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| accessibility_denied_is_recognized | 权限错误语义识别 | 给定 AccessibilityDenied 与其它取材错误，当识别，则前者命中、其余不误伤 | 2026-10-06 |
 
 ### crates/gloss-platform/src/selection/composite.rs
 
