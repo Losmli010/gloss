@@ -10,6 +10,7 @@
 //!
 //! 语言由调用方给（`Config::language` 落定成的 `Locale`），本模块不做探测。
 
+use std::borrow::Cow;
 use std::sync::OnceLock;
 
 use gloss_core::log::error;
@@ -121,21 +122,35 @@ pub struct Text {
 impl Text {
     /// 失败卡文案：按 [`GlossError`] 变体映射，不按英文 `Display` 反查
     /// ——后者是日志用的诊断文本，措辞与它无关（改 `Display` 不该改界面）。
-    pub fn for_error(&self, error: &GlossError) -> String {
+    ///
+    /// 静态词条借自常驻文案表（`Text::get` 返回 `&'static`，表与进程同寿），
+    /// 只有带占位符的变体才拼新串。
+    pub fn for_error<'a>(&'a self, error: &GlossError) -> Cow<'a, str> {
         match error {
-            GlossError::SelectionUnavailable => self.gloss_errors_selection_unavailable.clone(),
-            GlossError::SelectionEmpty => self.gloss_errors_selection_empty.clone(),
-            GlossError::AccessibilityDenied => self.gloss_errors_accessibility_denied.clone(),
-            GlossError::ScreenCaptureDenied => self.gloss_errors_screen_capture_denied.clone(),
-            GlossError::RegionTooLarge => self.gloss_errors_region_too_large.clone(),
-            GlossError::UnsupportedModality => self.gloss_errors_unsupported_modality.clone(),
-            GlossError::EngineNetwork => self.gloss_errors_engine_network.clone(),
-            GlossError::EngineAuth => self.gloss_errors_engine_auth.clone(),
-            GlossError::EngineRateLimited => self.gloss_errors_engine_rate_limited.clone(),
-            GlossError::EngineResponse(detail) => {
-                fill(&self.gloss_errors_engine_response, &[("detail", detail)])
+            GlossError::SelectionUnavailable => {
+                Cow::Borrowed(&self.gloss_errors_selection_unavailable)
             }
-            GlossError::Config(detail) => fill(&self.gloss_errors_config, &[("detail", detail)]),
+            GlossError::SelectionEmpty => Cow::Borrowed(&self.gloss_errors_selection_empty),
+            GlossError::AccessibilityDenied => {
+                Cow::Borrowed(&self.gloss_errors_accessibility_denied)
+            }
+            GlossError::ScreenCaptureDenied => {
+                Cow::Borrowed(&self.gloss_errors_screen_capture_denied)
+            }
+            GlossError::RegionTooLarge => Cow::Borrowed(&self.gloss_errors_region_too_large),
+            GlossError::UnsupportedModality => {
+                Cow::Borrowed(&self.gloss_errors_unsupported_modality)
+            }
+            GlossError::EngineNetwork => Cow::Borrowed(&self.gloss_errors_engine_network),
+            GlossError::EngineAuth => Cow::Borrowed(&self.gloss_errors_engine_auth),
+            GlossError::EngineRateLimited => Cow::Borrowed(&self.gloss_errors_engine_rate_limited),
+            GlossError::EngineResponse(detail) => Cow::Owned(fill(
+                &self.gloss_errors_engine_response,
+                &[("detail", detail)],
+            )),
+            GlossError::Config(detail) => {
+                Cow::Owned(fill(&self.gloss_errors_config, &[("detail", detail)]))
+            }
         }
     }
 
@@ -144,9 +159,11 @@ impl Text {
     /// 供**复合**提示用（如设置页的「保存失败：{{detail}}」）：复合提示的
     /// 前缀已经交代了场合，再拼一遍本地化整句会读成
     /// 「保存失败：配置有误：…」——落盘失败与配置本身非法是两回事。
-    pub fn for_error_detail(&self, error: &GlossError) -> String {
+    pub fn for_error_detail<'a>(&'a self, error: &'a GlossError) -> Cow<'a, str> {
         match error {
-            GlossError::EngineResponse(detail) | GlossError::Config(detail) => detail.clone(),
+            GlossError::EngineResponse(detail) | GlossError::Config(detail) => {
+                Cow::Borrowed(detail.as_str())
+            }
             other => self.for_error(other),
         }
     }
