@@ -137,11 +137,16 @@ impl ApplicationHandler<UserEvent> for GlossApp {
                     event_loop.exit();
                 }
             }
-            WindowEvent::KeyboardInput { event: key, .. } if is_overlay => {
+            WindowEvent::KeyboardInput { event: key, .. } if is_overlay || is_wizard => {
                 // egui_winit 已在同一事件上喂过 egui（输入框等自行消化）；
-                // 壳只观察收起键，不拦截事件。
+                // 壳只观察收起键，不拦截事件。浮层收起回 Idle，向导收起
+                // 走跳过（与关窗同语义）。
                 if is_dismiss_key(&key.logical_key, key.state) {
-                    self.dismiss_overlay("escape key");
+                    if is_wizard {
+                        self.skip_wizard();
+                    } else {
+                        self.dismiss_overlay("escape key");
+                    }
                 }
             }
             WindowEvent::Resized(size) => {

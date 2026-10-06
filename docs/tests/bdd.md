@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 35 | `just test` |
-| 单元测试 | 477 | `just test` |
+| 单元测试 | 478 | `just test` |
 
 ## 人工测试
 
@@ -560,6 +560,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | degradation_shows_the_notice_without_rewarming | 失效提示卡不重发预热 | 给定已预热完成的会话，当监听失效事件到达，则出失效提示卡且不再发预热，收起即清会话 | 2026-10-06 |
 | degradation_during_guidance_jumps_the_input_monitoring_step_ahead | 引导中失效插队不丢步骤 | 给定正在辅助功能步的向导，当监听失效事件到达，则输入监控步插队展示、原步骤排回队尾，预热走完才发 | 2026-10-06 |
 | degradation_while_already_guiding_input_monitoring_is_a_no_op | 已在输入监控步的失效去重 | 给定正展示输入监控步的向导，当监听失效事件到达，则视图不变、不重复排队 | 2026-10-06 |
+| a_second_degradation_leaves_the_notice_steady | 失效提示卡对重复事件稳定 | 给定已展示失效提示卡的向导，当再次收到监听失效事件，则视图仍为提示卡、不变回引导步骤 | 2026-10-06 |
 
 ### crates/gloss-app/src/flow/settings_session.rs
 

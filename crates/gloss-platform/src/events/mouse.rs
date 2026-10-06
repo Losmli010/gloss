@@ -549,9 +549,6 @@ mod tests {
         assert!(detector.poll(&rx).is_empty(), "drained queue stays empty");
     }
 
-    /// tap 建立结果同步可知的契约：启动失败不经运行中失效标志表达（标志
-    /// 只属于运行中失效）。源的有无取决于测试机的授权状态（CI 无授权必为
-    /// `None`，已授权的开发机为 `Some`），两种结果都合法。
     #[test]
     fn spawn_resolves_synchronously_and_startup_failure_stays_off_the_flag() {
         let (source, degraded) = MouseSource::spawn();

@@ -98,7 +98,9 @@ impl KeychainSecret {
     /// 会触发系统授权弹窗，而**删除不受条目 ACL 管**、重建出的新条目 ACL
     /// 信任当前二进制——写路径因此免弹窗。删除成功而重建失败时，尽力用
     /// 缓存里的旧值重建原条目（重建路径不再需要授权，失败多为环境性）；
-    /// 连重建也失败则如实上报，由设置页的既有失败通知兜底。
+    /// 连重建也失败则如实上报，由设置页的既有失败通知兜底。残余风险：本
+    /// 进程从未成功读过该条目（缓存为空）时回滚无源，旧值不可恢复——不
+    /// 删除前补读是为了不把读路径的授权弹窗重新引进写路径。
     pub fn set(&self, key: &str, value: &str) -> Result<(), GlossError> {
         match security_framework::passwords::delete_generic_password(&self.service, key) {
             Ok(()) => {}

@@ -56,7 +56,8 @@ impl GlossApp {
     }
 
     /// 推进向导：展示下一个待引导步骤；没有步骤了就收起窗口、发预热并
-    /// 结束会话。用户动作（打开设置/收起）与窗口关闭键都汇到这里。
+    /// 结束会话。「打开设置」与「收起」两个按钮动作汇到这里；窗口关闭键
+    /// 走 [`Self::skip_wizard`]（对整段引导的一次性跳过，语义不同）。
     pub(crate) fn advance_wizard(&mut self) {
         let Some(mut state) = self.wizard.take() else {
             return;
@@ -86,11 +87,15 @@ impl GlossApp {
     }
 
     /// 鼠标监听运行中失效（`MouseListenerDegraded`）：复用向导窗口呈现提
-    /// 示卡。已停在输入监控步骤的向导不重复提示；其余情形把输入监控步骤
-    /// 插到队首并展示（失效的恢复路径与缺失授权相同：重新授权 + 重启）。
+    /// 示卡。已停在输入监控步骤或失效提示卡的向导不重复提示；其余情形把
+    /// 输入监控步骤插到队首并展示（失效的恢复路径与缺失授权相同：重新
+    /// 授权 + 重启）。
     pub(crate) fn on_listener_degraded(&mut self) {
         if let Some(state) = &self.wizard
-            && matches!(state.view, WizardView::Step(WizardStep::InputMonitoring))
+            && matches!(
+                state.view,
+                WizardView::Step(WizardStep::InputMonitoring) | WizardView::Degraded
+            )
         {
             return;
         }
@@ -405,5 +410,24 @@ mod tests {
         assert_eq!(state.view, WizardView::Step(WizardStep::InputMonitoring));
         assert_eq!(state.steps.len(), 0, "no duplicate step is queued");
         assert!(cmd_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_second_degradation_leaves_the_notice_steady() {
+        let (mut app, pe_tx, _cmd_rx) = wizard_app(true, true);
+        app.start_wizard();
+        for _ in 0..2 {
+            pe_tx
+                .send(PlatformEvent::MouseListenerDegraded)
+                .expect("platform channel alive");
+            app.drain_platform_events();
+        }
+
+        let state = app.wizard.as_ref().expect("the notice keeps the session");
+        assert_eq!(
+            state.view,
+            WizardView::Degraded,
+            "a repeat event must not turn the notice into a guidance step"
+        );
     }
 }

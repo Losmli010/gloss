@@ -283,8 +283,6 @@ pub(crate) mod test_support {
         )
     }
 
-    /// 带自定义启动权限事实的驱动器：向导流程测试用（其他用例默认双授权
-    /// 就绪，不触发向导）。
     pub(crate) fn driven_app_with_facts(
         store: Arc<dyn ConfigStore>,
         scene: Arc<dyn SceneProbe>,
