@@ -100,14 +100,16 @@ impl LlmClient {
 impl AiEngine for LlmClient {
     fn execute(
         &self,
-        request: &EngineRequest,
+        request: EngineRequest,
     ) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
         let client = self.client.clone();
         let config = Arc::clone(&self.config);
         let store = Arc::clone(&self.store);
-        let model = request.model.clone();
-        let messages = request.messages.clone();
-        let max_tokens = request.max_tokens;
+        let EngineRequest {
+            messages,
+            model,
+            max_tokens,
+        } = request;
 
         Box::pin(async move {
             if messages.is_empty() {
@@ -699,10 +701,7 @@ mod live_tests {
             max_tokens: None,
         };
 
-        let mut stream = client
-            .execute(&request)
-            .await
-            .expect("request should start");
+        let mut stream = client.execute(request).await.expect("request should start");
         let mut text = String::new();
         while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
             match item {

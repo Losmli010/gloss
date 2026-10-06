@@ -391,8 +391,8 @@ impl TaskStateMachine {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
         }
-        let source = match &self.overlay_view {
-            Some(OverlayView::Streaming { source, .. }) => source.clone(),
+        let source = match std::mem::take(&mut self.overlay_view) {
+            Some(OverlayView::Streaming { source, .. }) => source,
             _ => String::new(),
         };
         // 代码语言来自 LLM 的判定（随产物到达）：修剪首尾空白后过词元
@@ -452,7 +452,9 @@ impl TaskStateMachine {
         if self.state != AppState::Error {
             return None;
         }
-        let (input, options) = self.active_request.clone()?;
+        // 取走在途请求原件：`begin_run` 会把请求副本重新记回在途，这里
+        // 无需先复制一份。
+        let (input, options) = self.active_request.take()?;
         self.overlay_view = Some(streaming_view(&input));
         self.state = AppState::Translating;
         Some(self.begin_run(input, options))

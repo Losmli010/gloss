@@ -56,6 +56,9 @@ impl AiTaskService {
     /// 兜底，`on_classified` 恒发）→ prompt 渲染 → 引擎流式，每个增量经
     /// `on_chunk` 原样转交 → 流走完返回原始文本。
     ///
+    /// `input` 与 `options` 按值接收：任务在执行期间独占两者，调用方
+    /// （app 桥）从通道解出后即交出所有权。
+    ///
     /// 调用方契约（app 桥据此接线，见 `gloss_app::pipeline`）：
     /// - `on_classified` 在**任何** chunk 之前恰好调用一次（含失败兜底
     ///   kind）——界面的任务标签以它为准；
@@ -68,8 +71,8 @@ impl AiTaskService {
     ///   即停止转发。
     pub async fn run(
         &self,
-        input: &TaskInput,
-        options: &TaskOptions,
+        input: TaskInput,
+        options: TaskOptions,
         mut on_classified: impl FnMut(TaskKind),
         mut on_chunk: impl FnMut(String),
     ) -> Result<RunOutput, GlossError> {
@@ -78,12 +81,12 @@ impl AiTaskService {
         if options.model.trim().is_empty() {
             return Err(GlossError::Config("empty model id".into()));
         }
-        let TaskInput::Text { text } = input else {
+        if !matches!(input, TaskInput::Text { .. }) {
             // 本服务只接划词路径的文本输入；图像/音频输入在这里直接拒绝
             //（模态矩阵管 kind × input 的组合校验，本入口对非文本模态
             // 一律不放行）。
             return Err(GlossError::UnsupportedModality);
-        };
+        }
 
         // 分类完全交给 LLM，失败落常量兜底。兜底有痕迹但无内容：warn
         // 只记错误类别，不含选区原文与模型回复。
@@ -92,7 +95,7 @@ impl AiTaskService {
             &options.model,
             options.prompt_locale.unwrap_or_default(),
             &CLASSIFY_KINDS,
-            input,
+            &input,
         )
         .await
         {
@@ -110,18 +113,19 @@ impl AiTaskService {
 
         // 任务形成与执行：渲染含模态校验（非法组合在进引擎前拒绝），模型
         // 恒取 options 冻结值。
+        let model = options.model.clone();
         let task = Task {
             kind,
-            input: TaskInput::Text { text: text.clone() },
-            options: options.clone(),
+            input,
+            options,
         };
         let messages = self.prompts.render(&task)?;
         let request = EngineRequest {
             messages,
-            model: options.model.clone(),
+            model,
             max_tokens: None,
         };
-        let mut stream = self.engine.execute(&request).await?;
+        let mut stream = self.engine.execute(request).await?;
         let mut body = String::new();
         while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
             match item {
@@ -172,8 +176,8 @@ mod tests {
         let chunks = Arc::clone(&events);
         service
             .run(
-                &text_input("hello"),
-                &options(),
+                text_input("hello"),
+                options(),
                 move |kind| {
                     classified.lock().expect("events").push(match kind {
                         TaskKind::TranslateWord => "classified:TranslateWord",
@@ -209,7 +213,7 @@ mod tests {
         let options = options();
         let logs = crate::log::capture(|| {
             let output = rt
-                .block_on(service.run(&input, &options, |_| {}, |_| {}))
+                .block_on(service.run(input, options, |_| {}, |_| {}))
                 .expect("the fallback must let the task run");
             assert_eq!(output.kind, TaskKind::TranslateWord);
         });
@@ -232,7 +236,7 @@ mod tests {
                 .with_chunks(vec![Ok("{\"note\":\"光泽".into()), Ok("：注释\"}".into())]),
         );
         let output = service
-            .run(&text_input("gloss"), &options(), |_| {}, |_| {})
+            .run(text_input("gloss"), options(), |_| {}, |_| {})
             .await
             .expect("run should succeed");
         assert_eq!(output.raw, "{\"note\":\"光泽：注释\"}");
@@ -244,11 +248,11 @@ mod tests {
         assert_eq!(
             service
                 .run(
-                    &TaskInput::Audio {
+                    TaskInput::Audio {
                         bytes: std::sync::Arc::from(&b"au"[..]),
                         duration_hint: None,
                     },
-                    &options(),
+                    options(),
                     |_| {},
                     |_| {}
                 )
@@ -267,7 +271,7 @@ mod tests {
         };
         assert!(matches!(
             service
-                .run(&text_input("hello"), &options, |_| {}, |_| {})
+                .run(text_input("hello"), options, |_| {}, |_| {})
                 .await,
             Err(GlossError::Config(_))
         ));
@@ -280,7 +284,7 @@ mod tests {
             make_service(&MockEngine::new().with_execute_failure(GlossError::EngineRateLimited));
         assert_eq!(
             service
-                .run(&text_input("gloss"), &options(), |_| {}, |_| {})
+                .run(text_input("gloss"), options(), |_| {}, |_| {})
                 .await,
             Err(GlossError::EngineRateLimited),
             "a classify-stage failure propagates as-is"
@@ -291,7 +295,7 @@ mod tests {
         );
         let mut seen = Vec::new();
         let result: Result<RunOutput, GlossError> = service
-            .run(&text_input("gloss"), &options(), |_| {}, |d| seen.push(d))
+            .run(text_input("gloss"), options(), |_| {}, |d| seen.push(d))
             .await;
         assert_eq!(result, Err(GlossError::EngineNetwork));
         assert_eq!(

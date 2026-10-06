@@ -82,16 +82,15 @@ pub trait SceneProbe: Send + Sync {
 /// provider 条目。
 ///
 /// 实现方保证：`execute` 返回的 future 与流都是 `'static` 且 `Send`——
-/// **不得借用 `request` 或 `self`**，请求数据需克隆或移入 future；消费端
-/// 在 tokio 上轮询。取消不进本端口，由调用方以 `CancellationToken` 在
-/// await 侧竞速（单一取消机制）——实现方只需保证 future 被丢弃
-/// 时连接随之关闭（异步客户端的默认行为）。
+/// **不得借用 `self`**；`request` 按值接收，调用方构造后即不再使用，
+/// 实现方把请求数据移入 future 即可。消费端在 tokio 上轮询。取消不进
+/// 本端口，由调用方以 `CancellationToken` 在 await 侧竞速（单一取消
+/// 机制）——实现方只需保证 future 被丢弃时连接随之关闭（异步客户端的
+/// 默认行为）。
 pub trait AiEngine: Send + Sync {
     /// 执行请求，返回流式产物流。
-    fn execute(
-        &self,
-        request: &EngineRequest,
-    ) -> BoxFuture<'static, Result<TaskStream, GlossError>>;
+    fn execute(&self, request: EngineRequest)
+    -> BoxFuture<'static, Result<TaskStream, GlossError>>;
 }
 
 /// 配置存储（端口）：应用配置与密钥的读写边界。
