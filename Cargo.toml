@@ -59,6 +59,12 @@ path = "src/main.rs"
 harness = false
 name = "overlay"
 
+# L3 启动预算自检：渲染栈初始化墙钟对 STARTUP_BUDGET 判门禁
+# 运行：just startup-selftest
+[[test]]
+harness = false
+name = "startup"
+
 # 热点基准（criterion，四组：cache_key / complete / prompt_render / task_cache）
 # 运行：just bench
 [[bench]]
