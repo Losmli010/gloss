@@ -307,7 +307,7 @@ async fn run_classify_request(
     let messages = PromptRegistry::new().render_classify(Locale::Zh, &CLASSIFY_KINDS, text);
     collect(
         engine,
-        &EngineRequest {
+        EngineRequest {
             messages,
             model,
             max_tokens: Some(gloss_core::classify::CLASSIFY_MAX_TOKENS),
@@ -336,7 +336,7 @@ async fn run_task_request(
     let messages = PromptRegistry::new().render(&task)?;
     collect(
         engine,
-        &EngineRequest {
+        EngineRequest {
             messages,
             model,
             max_tokens: None,
@@ -357,7 +357,7 @@ async fn judge_one(
     let messages = judge::render_judge(&case.text, reply, &reference);
     let (judge_reply, _) = collect(
         engine,
-        &EngineRequest {
+        EngineRequest {
             messages,
             model,
             max_tokens: Some(judge::JUDGE_MAX_TOKENS),
@@ -373,7 +373,7 @@ async fn judge_one(
 /// 的 `push_capped`（与分类编排同一道 4KiB 界）。
 async fn collect(
     engine: &dyn AiEngine,
-    request: &EngineRequest,
+    request: EngineRequest,
 ) -> Result<(String, Vec<String>), GlossError> {
     let mut stream = engine.execute(request).await?;
     let mut reply = String::new();

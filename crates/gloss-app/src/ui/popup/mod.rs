@@ -56,6 +56,7 @@ use note::stream_note;
 pub use sizing::WIDTH;
 use sizing::resolve_width;
 
+use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
@@ -438,11 +439,12 @@ fn render_content(
     }
 }
 
-/// 失败卡文案：按失败来源映射。
-fn failure_message(cause: &FailureCause, text: &Text) -> String {
+/// 失败卡文案：按失败来源映射（静态词条借自常驻文案表，带占位符的
+/// 变体才拼新串）。
+fn failure_message<'a>(cause: &'a FailureCause, text: &'a Text) -> Cow<'a, str> {
     match cause {
         FailureCause::Task(error) => text.for_error(error),
-        FailureCause::TransportChannel => text.gloss_errors_inference_channel.clone(),
+        FailureCause::TransportChannel => Cow::Borrowed(&text.gloss_errors_inference_channel),
     }
 }
 

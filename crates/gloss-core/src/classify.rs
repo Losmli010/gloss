@@ -75,7 +75,7 @@ pub async fn classify(
         model: model.to_owned(),
         max_tokens: Some(CLASSIFY_MAX_TOKENS),
     };
-    let mut stream = engine.execute(&request).await?;
+    let mut stream = engine.execute(request).await?;
     let mut reply = String::new();
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {

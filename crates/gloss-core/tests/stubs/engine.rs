@@ -107,7 +107,7 @@ impl Default for MockEngine {
 impl AiEngine for MockEngine {
     fn execute(
         &self,
-        _request: &EngineRequest,
+        _request: EngineRequest,
     ) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
         self.inner.calls.fetch_add(1, Ordering::Relaxed);
         let once = lock_or_recover(&self.inner.once_failures).pop_front();

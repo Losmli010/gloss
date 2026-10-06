@@ -5,21 +5,25 @@
 <text x="16.0" y="110.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">cache_key</text>
 <text x="16.0" y="130.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">组内各基准均值，对数纵轴；标注为该线最新值</text>
 <rect x="62.0" y="138.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
-<polyline points="70.0,159.7 485.0,159.7 900.0,159.7" fill="none" stroke="#3d5a8a" stroke-width="2"/>
+<polyline points="70.0,159.7 346.7,159.7 623.3,159.7 900.0,159.7" fill="none" stroke="#3d5a8a" stroke-width="2"/>
 <circle cx="70.0" cy="159.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="485.0" cy="159.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="346.7" cy="159.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="623.3" cy="159.7" r="3.5" fill="#3d5a8a"/>
 <circle cx="900.0" cy="159.7" r="3.5" fill="#3d5a8a"/>
-<polyline points="70.0,151.7 485.0,151.7 900.0,151.7" fill="none" stroke="#c26b4a" stroke-width="2"/>
+<polyline points="70.0,151.7 346.7,151.7 623.3,151.7 900.0,151.7" fill="none" stroke="#c26b4a" stroke-width="2"/>
 <circle cx="70.0" cy="151.7" r="3.5" fill="#c26b4a"/>
-<circle cx="485.0" cy="151.7" r="3.5" fill="#c26b4a"/>
+<circle cx="346.7" cy="151.7" r="3.5" fill="#c26b4a"/>
+<circle cx="623.3" cy="151.7" r="3.5" fill="#c26b4a"/>
 <circle cx="900.0" cy="151.7" r="3.5" fill="#c26b4a"/>
-<polyline points="70.0,203.6 485.0,203.6 900.0,203.6" fill="none" stroke="#4a8f6f" stroke-width="2"/>
+<polyline points="70.0,203.6 346.7,203.6 623.3,203.6 900.0,203.6" fill="none" stroke="#4a8f6f" stroke-width="2"/>
 <circle cx="70.0" cy="203.6" r="3.5" fill="#4a8f6f"/>
-<circle cx="485.0" cy="203.6" r="3.5" fill="#4a8f6f"/>
+<circle cx="346.7" cy="203.6" r="3.5" fill="#4a8f6f"/>
+<circle cx="623.3" cy="203.6" r="3.5" fill="#4a8f6f"/>
 <circle cx="900.0" cy="203.6" r="3.5" fill="#4a8f6f"/>
-<polyline points="70.0,228.0 485.0,228.0 900.0,228.0" fill="none" stroke="#8a5fb0" stroke-width="2"/>
+<polyline points="70.0,228.0 346.7,228.0 623.3,228.0 900.0,228.0" fill="none" stroke="#8a5fb0" stroke-width="2"/>
 <circle cx="70.0" cy="228.0" r="3.5" fill="#8a5fb0"/>
-<circle cx="485.0" cy="228.0" r="3.5" fill="#8a5fb0"/>
+<circle cx="346.7" cy="228.0" r="3.5" fill="#8a5fb0"/>
+<circle cx="623.3" cy="228.0" r="3.5" fill="#8a5fb0"/>
 <circle cx="900.0" cy="228.0" r="3.5" fill="#8a5fb0"/>
 <rect x="870.5" y="210.4" width="59.0" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
 <text x="900.0" y="219.0" font-size="11" fill="#8a5fb0" font-weight="600" text-anchor="middle">239.0 ns</text>
@@ -30,8 +34,9 @@
 <rect x="867.3" y="129.1" width="65.4" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
 <text x="900.0" y="137.7" font-size="11" fill="#c26b4a" font-weight="600" text-anchor="middle">44.201 ms</text>
 <text x="70.0" y="242.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="485.0" y="242.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="900.0" y="242.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="346.7" y="242.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="623.3" y="242.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="900.0" y="242.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
 <rect x="24.0" y="253.0" width="10.0" height="10" fill="#3d5a8a" rx="2"/>
 <text x="38.0" y="262.0" font-size="10.5" fill="#333333" font-weight="400" text-anchor="start">image/1mb</text>
 <rect x="252.0" y="253.0" width="10.0" height="10" fill="#c26b4a" rx="2"/>
@@ -43,25 +48,30 @@
 <text x="16.0" y="322.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">complete</text>
 <text x="16.0" y="342.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">组内各基准均值，对数纵轴；标注为该线最新值</text>
 <rect x="62.0" y="350.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
-<polyline points="70.0,433.9 485.0,433.9 900.0,433.9" fill="none" stroke="#3d5a8a" stroke-width="2"/>
+<polyline points="70.0,433.9 346.7,433.9 623.3,433.9 900.0,433.9" fill="none" stroke="#3d5a8a" stroke-width="2"/>
 <circle cx="70.0" cy="433.9" r="3.5" fill="#3d5a8a"/>
-<circle cx="485.0" cy="433.9" r="3.5" fill="#3d5a8a"/>
+<circle cx="346.7" cy="433.9" r="3.5" fill="#3d5a8a"/>
+<circle cx="623.3" cy="433.9" r="3.5" fill="#3d5a8a"/>
 <circle cx="900.0" cy="433.9" r="3.5" fill="#3d5a8a"/>
-<polyline points="70.0,440.0 485.0,440.0 900.0,440.0" fill="none" stroke="#c26b4a" stroke-width="2"/>
+<polyline points="70.0,440.0 346.7,440.0 623.3,440.0 900.0,440.0" fill="none" stroke="#c26b4a" stroke-width="2"/>
 <circle cx="70.0" cy="440.0" r="3.5" fill="#c26b4a"/>
-<circle cx="485.0" cy="440.0" r="3.5" fill="#c26b4a"/>
+<circle cx="346.7" cy="440.0" r="3.5" fill="#c26b4a"/>
+<circle cx="623.3" cy="440.0" r="3.5" fill="#c26b4a"/>
 <circle cx="900.0" cy="440.0" r="3.5" fill="#c26b4a"/>
-<polyline points="70.0,423.0 485.0,423.0 900.0,423.0" fill="none" stroke="#4a8f6f" stroke-width="2"/>
+<polyline points="70.0,423.0 346.7,423.0 623.3,423.0 900.0,423.0" fill="none" stroke="#4a8f6f" stroke-width="2"/>
 <circle cx="70.0" cy="423.0" r="3.5" fill="#4a8f6f"/>
-<circle cx="485.0" cy="423.0" r="3.5" fill="#4a8f6f"/>
+<circle cx="346.7" cy="423.0" r="3.5" fill="#4a8f6f"/>
+<circle cx="623.3" cy="423.0" r="3.5" fill="#4a8f6f"/>
 <circle cx="900.0" cy="423.0" r="3.5" fill="#4a8f6f"/>
-<polyline points="70.0,363.7 485.0,363.7 900.0,363.7" fill="none" stroke="#8a5fb0" stroke-width="2"/>
+<polyline points="70.0,363.7 346.7,363.7 623.3,363.7 900.0,363.7" fill="none" stroke="#8a5fb0" stroke-width="2"/>
 <circle cx="70.0" cy="363.7" r="3.5" fill="#8a5fb0"/>
-<circle cx="485.0" cy="363.7" r="3.5" fill="#8a5fb0"/>
+<circle cx="346.7" cy="363.7" r="3.5" fill="#8a5fb0"/>
+<circle cx="623.3" cy="363.7" r="3.5" fill="#8a5fb0"/>
 <circle cx="900.0" cy="363.7" r="3.5" fill="#8a5fb0"/>
-<polyline points="70.0,401.8 485.0,401.8 900.0,401.8" fill="none" stroke="#a8842c" stroke-width="2"/>
+<polyline points="70.0,401.8 346.7,401.8 623.3,401.8 900.0,401.8" fill="none" stroke="#a8842c" stroke-width="2"/>
 <circle cx="70.0" cy="401.8" r="3.5" fill="#a8842c"/>
-<circle cx="485.0" cy="401.8" r="3.5" fill="#a8842c"/>
+<circle cx="346.7" cy="401.8" r="3.5" fill="#a8842c"/>
+<circle cx="623.3" cy="401.8" r="3.5" fill="#a8842c"/>
 <circle cx="900.0" cy="401.8" r="3.5" fill="#a8842c"/>
 <rect x="873.7" y="422.4" width="52.7" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
 <text x="900.0" y="431.0" font-size="11" fill="#c26b4a" font-weight="600" text-anchor="middle">1.17 µs</text>
@@ -74,8 +84,9 @@
 <rect x="870.5" y="346.1" width="59.0" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
 <text x="900.0" y="354.7" font-size="11" fill="#8a5fb0" font-weight="600" text-anchor="middle">29.99 µs</text>
 <text x="70.0" y="454.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="485.0" y="454.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="900.0" y="454.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="346.7" y="454.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="623.3" y="454.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="900.0" y="454.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
 <rect x="24.0" y="465.0" width="10.0" height="10" fill="#3d5a8a" rx="2"/>
 <text x="38.0" y="474.0" font-size="10.5" fill="#333333" font-weight="400" text-anchor="start">fence_missing</text>
 <rect x="252.0" y="465.0" width="10.0" height="10" fill="#c26b4a" rx="2"/>
@@ -89,21 +100,24 @@
 <text x="16.0" y="550.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">prompt_render</text>
 <text x="16.0" y="570.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">组内各基准均值，对数纵轴；标注为该线最新值</text>
 <rect x="62.0" y="578.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
-<polyline points="70.0,591.7 485.0,591.7 900.0,591.7" fill="none" stroke="#3d5a8a" stroke-width="2"/>
+<polyline points="70.0,591.7 346.7,591.7 623.3,591.7 900.0,591.7" fill="none" stroke="#3d5a8a" stroke-width="2"/>
 <circle cx="70.0" cy="591.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="485.0" cy="591.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="346.7" cy="591.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="623.3" cy="591.7" r="3.5" fill="#3d5a8a"/>
 <circle cx="900.0" cy="591.7" r="3.5" fill="#3d5a8a"/>
-<polyline points="70.0,668.0 485.0,668.0 900.0,668.0" fill="none" stroke="#c26b4a" stroke-width="2"/>
+<polyline points="70.0,668.0 346.7,668.0 623.3,668.0 900.0,668.0" fill="none" stroke="#c26b4a" stroke-width="2"/>
 <circle cx="70.0" cy="668.0" r="3.5" fill="#c26b4a"/>
-<circle cx="485.0" cy="668.0" r="3.5" fill="#c26b4a"/>
+<circle cx="346.7" cy="668.0" r="3.5" fill="#c26b4a"/>
+<circle cx="623.3" cy="668.0" r="3.5" fill="#c26b4a"/>
 <circle cx="900.0" cy="668.0" r="3.5" fill="#c26b4a"/>
 <rect x="873.7" y="650.4" width="52.7" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
 <text x="900.0" y="659.0" font-size="11" fill="#c26b4a" font-weight="600" text-anchor="middle">1.32 µs</text>
 <rect x="873.7" y="574.1" width="52.7" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
 <text x="900.0" y="582.7" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">1.48 µs</text>
 <text x="70.0" y="682.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="485.0" y="682.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="900.0" y="682.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="346.7" y="682.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="623.3" y="682.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="900.0" y="682.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
 <rect x="24.0" y="693.0" width="10.0" height="10" fill="#3d5a8a" rx="2"/>
 <text x="38.0" y="702.0" font-size="10.5" fill="#333333" font-weight="400" text-anchor="start">code/long</text>
 <rect x="252.0" y="693.0" width="10.0" height="10" fill="#c26b4a" rx="2"/>
@@ -111,21 +125,25 @@
 <text x="16.0" y="762.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">task_cache</text>
 <text x="16.0" y="782.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">组内各基准均值，对数纵轴；标注为该线最新值</text>
 <rect x="62.0" y="790.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
-<polyline points="70.0,839.8 485.0,839.8 900.0,839.8" fill="none" stroke="#3d5a8a" stroke-width="2"/>
+<polyline points="70.0,839.8 346.7,839.8 623.3,839.8 900.0,839.8" fill="none" stroke="#3d5a8a" stroke-width="2"/>
 <circle cx="70.0" cy="839.8" r="3.5" fill="#3d5a8a"/>
-<circle cx="485.0" cy="839.8" r="3.5" fill="#3d5a8a"/>
+<circle cx="346.7" cy="839.8" r="3.5" fill="#3d5a8a"/>
+<circle cx="623.3" cy="839.8" r="3.5" fill="#3d5a8a"/>
 <circle cx="900.0" cy="839.8" r="3.5" fill="#3d5a8a"/>
-<polyline points="70.0,880.0 485.0,880.0 900.0,880.0" fill="none" stroke="#c26b4a" stroke-width="2"/>
+<polyline points="70.0,880.0 346.7,880.0 623.3,880.0 900.0,880.0" fill="none" stroke="#c26b4a" stroke-width="2"/>
 <circle cx="70.0" cy="880.0" r="3.5" fill="#c26b4a"/>
-<circle cx="485.0" cy="880.0" r="3.5" fill="#c26b4a"/>
+<circle cx="346.7" cy="880.0" r="3.5" fill="#c26b4a"/>
+<circle cx="623.3" cy="880.0" r="3.5" fill="#c26b4a"/>
 <circle cx="900.0" cy="880.0" r="3.5" fill="#c26b4a"/>
-<polyline points="70.0,807.6 485.0,807.6 900.0,807.6" fill="none" stroke="#4a8f6f" stroke-width="2"/>
+<polyline points="70.0,807.6 346.7,807.6 623.3,807.6 900.0,807.6" fill="none" stroke="#4a8f6f" stroke-width="2"/>
 <circle cx="70.0" cy="807.6" r="3.5" fill="#4a8f6f"/>
-<circle cx="485.0" cy="807.6" r="3.5" fill="#4a8f6f"/>
+<circle cx="346.7" cy="807.6" r="3.5" fill="#4a8f6f"/>
+<circle cx="623.3" cy="807.6" r="3.5" fill="#4a8f6f"/>
 <circle cx="900.0" cy="807.6" r="3.5" fill="#4a8f6f"/>
-<polyline points="70.0,803.7 485.0,803.7 900.0,803.7" fill="none" stroke="#8a5fb0" stroke-width="2"/>
+<polyline points="70.0,803.7 346.7,803.7 623.3,803.7 900.0,803.7" fill="none" stroke="#8a5fb0" stroke-width="2"/>
 <circle cx="70.0" cy="803.7" r="3.5" fill="#8a5fb0"/>
-<circle cx="485.0" cy="803.7" r="3.5" fill="#8a5fb0"/>
+<circle cx="346.7" cy="803.7" r="3.5" fill="#8a5fb0"/>
+<circle cx="623.3" cy="803.7" r="3.5" fill="#8a5fb0"/>
 <circle cx="900.0" cy="803.7" r="3.5" fill="#8a5fb0"/>
 <rect x="870.5" y="862.4" width="59.0" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
 <text x="900.0" y="871.0" font-size="11" fill="#c26b4a" font-weight="600" text-anchor="middle">131.0 ns</text>
@@ -136,8 +154,9 @@
 <rect x="873.7" y="777.0" width="52.7" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
 <text x="900.0" y="785.6" font-size="11" fill="#8a5fb0" font-weight="600" text-anchor="middle">2.29 µs</text>
 <text x="70.0" y="894.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="485.0" y="894.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="900.0" y="894.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="346.7" y="894.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="623.3" y="894.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="900.0" y="894.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
 <rect x="24.0" y="905.0" width="10.0" height="10" fill="#3d5a8a" rx="2"/>
 <text x="38.0" y="914.0" font-size="10.5" fill="#333333" font-weight="400" text-anchor="start">get/hit</text>
 <rect x="252.0" y="905.0" width="10.0" height="10" fill="#c26b4a" rx="2"/>
