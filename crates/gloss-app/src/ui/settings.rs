@@ -58,7 +58,7 @@ enum FieldError {
 }
 
 impl FieldError {
-    /// 就地提示文案：借自常驻文案表（`Text::get` 返回 `&'static`），零拷贝。
+    /// 就地提示文案：借自传入的文案表，不复制。
     fn message<'a>(&'a self, text: &'a Text) -> &'a str {
         match self {
             Self::NewlineInModel => &text.gloss_settings_error_newline_in_model,

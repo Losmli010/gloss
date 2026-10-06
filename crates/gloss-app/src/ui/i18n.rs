@@ -125,7 +125,7 @@ impl Text {
     ///
     /// 静态词条借自常驻文案表（`Text::get` 返回 `&'static`，表与进程同寿），
     /// 只有带占位符的变体才拼新串。
-    pub fn for_error<'a>(&'a self, error: &'a GlossError) -> Cow<'a, str> {
+    pub fn for_error<'a>(&'a self, error: &GlossError) -> Cow<'a, str> {
         match error {
             GlossError::SelectionUnavailable => {
                 Cow::Borrowed(&self.gloss_errors_selection_unavailable)
