@@ -8,8 +8,8 @@
 //!
 //! 设 `GLOSS_PERF_OUT` 时把性能记录追加导出为 JSON Lines，供量化审计。
 //!
-//! 退出码：跑满 100 轮且有延迟统计 `0`；无帧、首帧超预算、RSS 净增长
-//! 超预算 `1`。
+//! 退出码：跑满 100 轮且有延迟统计 `0`；无帧、首帧超预算、RSS 尾段
+//! 净增长超预算 `1`。
 
 use std::env;
 use std::fs::OpenOptions;
@@ -88,20 +88,28 @@ fn main() -> ExitCode {
             "overlay show/hide rss growth"
         );
     }
-    export_perf(&handler, first, max, window_handles, rss);
-    // 泄漏信号取尾段斜率（第 25 轮 → 收尾）：前 25 轮是一次性预热分配
-    // （字形图集、Metal 堆），全段增量对它不敏感。
     let tail_growth = handler
         .rss_curve
         .iter()
         .find(|(round, _)| *round == 25)
         .and_then(|(_, kb)| handler.rss_end_kb.map(|end| end - kb));
-    if let Some(tail) = tail_growth
-        && tail > RSS_TAIL_GROWTH_BUDGET_KB
-    {
+    let rss_verdict = match tail_growth {
+        Some(tail) if tail > RSS_TAIL_GROWTH_BUDGET_KB => "fail",
+        Some(_) => "pass",
+        None => "skipped",
+    };
+    if rss_verdict == "skipped" {
+        info!(
+            thread = gloss_core::log::thread::UI,
+            reason = "rss samples incomplete (ps failed or round-25 anchor missing)",
+            "rss gate skipped"
+        );
+    }
+    export_perf(&handler, first, max, window_handles, rss, rss_verdict);
+    if rss_verdict == "fail" {
         error!(
             thread = gloss_core::log::thread::UI,
-            tail_growth_kb = tail,
+            tail_growth_kb = tail_growth,
             budget_kb = RSS_TAIL_GROWTH_BUDGET_KB,
             "show/hide rss tail growth exceeded budget"
         );
@@ -125,6 +133,7 @@ fn export_perf(
     max: Duration,
     window_handles: usize,
     rss: Option<(i64, i64, i64)>,
+    rss_verdict: &str,
 ) {
     let Some(path) = env::var_os("GLOSS_PERF_OUT") else {
         return;
@@ -143,7 +152,11 @@ fn export_perf(
         let rank = ((p / 100.0) * sorted.len() as f64).ceil() as usize;
         sorted[(rank.max(1) - 1).min(sorted.len() - 1)]
     };
-    let verdict = if first > SHOW_BUDGET { "fail" } else { "pass" };
+    let verdict = if first > SHOW_BUDGET || rss_verdict == "fail" {
+        "fail"
+    } else {
+        "pass"
+    };
     let record = json!({
         "kind": "overlay",
         "commit": perf_commit(),
@@ -166,6 +179,7 @@ fn export_perf(
             .iter()
             .find(|(round, _)| *round == 25)
             .and_then(|(_, kb)| handler.rss_end_kb.map(|end| end - kb)),
+        "rss_verdict": rss_verdict,
         "rss_curve": handler.rss_curve.iter().map(|(round, kb)| json!({"round": round, "kb": kb})).collect::<Vec<_>>(),
         "env": {
             "os": env::consts::OS,
