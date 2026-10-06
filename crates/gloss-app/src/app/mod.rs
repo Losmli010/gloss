@@ -21,6 +21,7 @@ use gloss_core::log::Span;
 use gloss_core::model::Locale;
 use gloss_core::ports::{ConfigStore, SceneProbe};
 use winit::dpi::LogicalSize;
+use winit::event_loop::EventLoopProxy;
 
 use crate::channel::AppEndpoints;
 use crate::flow::session::Session;
@@ -83,6 +84,9 @@ pub(crate) struct GlossApp {
     /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
     /// 之丢弃）。
     pub(crate) settings: Option<SettingsState>,
+    /// 自定义事件的投递端：后台线程（字体装载）向主线程发完成信号用。
+    /// 测试驱动（不经 run()）为 None——那条路径不触发字体装载。
+    pub(crate) proxy: Option<EventLoopProxy<UserEvent>>,
 }
 
 impl GlossApp {
@@ -96,6 +100,7 @@ impl GlossApp {
         scene: Arc<dyn SceneProbe>,
         system_locale: Locale,
         update: UpdateWiring,
+        proxy: Option<EventLoopProxy<UserEvent>>,
     ) -> Self {
         Self {
             workspace: Workspace::new(),
@@ -110,6 +115,7 @@ impl GlossApp {
                 update,
             },
             settings: None,
+            proxy,
         }
     }
 
@@ -271,6 +277,7 @@ pub(crate) mod test_support {
             scene,
             Locale::Zh,
             update_wiring(),
+            None,
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
     }

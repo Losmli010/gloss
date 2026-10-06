@@ -588,7 +588,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | theme_preference_covers_every_variant | 主题三档全映射 | 给定三档主题，当映射 egui 偏好，则一一对应且出厂跟随系统 | 2026-09-23 |
-| new_context_carries_fonts_and_theme | 新上下文快路径 + 延迟补装接上 CJK | 给定主题，当新建上下文，则主题偏好落上、命名字体族恒绑定且不含 CJK 后备（快路径）；当 apply_system_fonts 补装，则 CJK 后备接上（依赖宿主机字体） | 2026-10-06 |
+| new_context_carries_fonts_and_theme | 新上下文恒绑定族 + 延迟补装接上 CJK | 给定主题，当新建上下文，则主题偏好落上且命名字体族恒绑定；当 apply_system_fonts 补装，则 CJK 后备接上（依赖宿主机字体） | 2026-10-06 |
 | builtin_definitions_binds_named_families_without_system_fonts | 内置快路径定义恒绑定命名字体族且不装系统字体 | 当取 builtin_definitions，则宋/楷/等宽三族都绑到内置字形且字体表无 CJK 后备条目 | 2026-10-06 |
 | reapply_writes_every_context | 重施加写满每个上下文 | 给定两个已装好的上下文，当施加各档主题，则每个都被写；空集写 0 个不 panic | 2026-09-23 |
 

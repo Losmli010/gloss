@@ -82,7 +82,7 @@ pub(in crate::ui) fn definitions() -> (FontDefinitions, bool) {
         append_fallback(&mut definitions, cjk);
     } else {
         warn!(
-            thread = thread::UI,
+            thread = thread::FONTS,
             "no system CJK font found, CJK text renders without fallback glyphs"
         );
     }
@@ -99,7 +99,7 @@ pub(in crate::ui) fn definitions() -> (FontDefinitions, bool) {
 
 /// 仅内置字形的字体定义：命名字体族恒绑定（绑到内置字形，epaint 对未
 /// 绑定族直接 panic），系统字体一个不装。启动首帧的快路径——系统字体
-/// 装载是秒级的（P1-1 归因），由 `context::apply_system_fonts` 延迟补装。
+/// 装载是秒级的，由 `context::apply_system_fonts` 延迟补装。
 pub(in crate::ui) fn builtin_definitions() -> FontDefinitions {
     let mut definitions = FontDefinitions::default();
     for name in [FONT_SERIF_NAME, FONT_KAITI_NAME, FONT_MONO_NAME] {
@@ -220,7 +220,7 @@ mod imp {
     pub(super) fn load_cjk_bytes() -> Option<Vec<u8>> {
         load_family_bytes(CJK_FAMILIES).inspect(|bytes| {
             info!(
-                thread = thread::UI,
+                thread = thread::FONTS,
                 font = FONT_NAME,
                 bytes = bytes.len(),
                 "located system CJK font"
@@ -240,7 +240,7 @@ mod imp {
             {
                 Ok(handle) => handle,
                 Err(err) => {
-                    debug!(thread = thread::UI, family, error = %err, "font family not matched");
+                    debug!(thread = thread::FONTS, family, error = %err, "font family not matched");
                     continue;
                 }
             };
@@ -249,7 +249,7 @@ mod imp {
                     Ok(font) => font,
                     Err(err) => {
                         warn!(
-                            thread = thread::UI,
+                            thread = thread::FONTS,
                             family,
                             error = %err,
                             "failed to load font family candidate"
@@ -261,7 +261,7 @@ mod imp {
                     Some(bytes) => bytes,
                     None => {
                         warn!(
-                            thread = thread::UI,
+                            thread = thread::FONTS,
                             family, "font data unavailable from system loader"
                         );
                         continue;
@@ -272,13 +272,13 @@ mod imp {
             // try_unwrap 直接取走 Vec，不复制整包
             let len = bytes.len();
             let vec = Arc::try_unwrap(bytes).unwrap_or_else(|arc| {
-                debug!(thread = thread::UI, bytes = len, "font bytes copied out");
+                debug!(thread = thread::FONTS, bytes = len, "font bytes copied out");
                 (*arc).clone()
             });
             return Some(vec);
         }
         debug!(
-            thread = thread::UI,
+            thread = thread::FONTS,
             ?families,
             "exhausted font family candidates"
         );

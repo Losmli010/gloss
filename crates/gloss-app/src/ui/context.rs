@@ -14,9 +14,8 @@ use gloss_core::log::{info, thread};
 
 /// 新建装好基础设置的 egui 上下文——全仓唯一的上下文建立入口。
 ///
-/// 字体只装内置字形快路径（命名字体族恒绑定）：系统字体装载是秒级的
-/// （P1-1 归因，占启动 95%+），不挡首帧，由 [`apply_system_fonts`] 在
-/// 后台线程装载后补装。
+/// 字体只装内置字形快路径（命名字体族恒绑定）：系统字体装载是秒级的，
+/// 不挡首帧，由 [`apply_system_fonts`] 在后台线程装载后补装。
 pub fn new_context(theme: Theme) -> Context {
     let ctx = Context::default();
     install(&ctx, theme);
@@ -37,27 +36,40 @@ pub fn reapply<'a>(contexts: impl IntoIterator<Item = &'a Context>, theme: Theme
     written
 }
 
-/// 装载系统字体并补装到一批上下文（阻塞调用，供启动后的后台线程执行）：
-/// 装载完成前各上下文一直用内置字形快路径，完成后逐上下文换完整字体表
-/// 并请求重绘。
-pub fn apply_system_fonts(contexts: impl IntoIterator<Item = Context>, theme: Theme) {
+/// 装载系统字体并补装到一批上下文的字体表（阻塞调用，供启动后的后台
+/// 线程执行）。装载完成前各上下文一直用内置字形快路径；完成后逐上下文
+/// 换完整字体表。重绘不在这里请求——egui 的重绘请求没有跨线程唤醒通路
+/// （egui-winit 不注册 repaint callback），完成信号由调用方经 Waker 送到
+/// 主线程（`UserEvent::FontsReady`），主题也由主线程按当前偏好重施加，
+/// 装载窗口内的主题变更因此不会被这里的快照覆盖。
+pub fn apply_system_fonts(contexts: impl IntoIterator<Item = Context>) {
     let started = Instant::now();
     // 先走一次完整装载把字体字节缓存填上，下面 install 的就绪判定才会
     // 选完整定义；字节在 OnceLock 里，重复调用命中缓存。
     let (_definitions, cjk_fallback) = super::fonts::definitions();
     let mut applied = 0;
     for ctx in contexts {
-        install(&ctx, theme);
-        ctx.request_repaint();
+        install_fonts(&ctx);
         applied += 1;
     }
     info!(
-        thread = thread::UI,
+        thread = thread::FONTS,
         cjk_fallback,
         contexts = applied,
         elapsed_ms = started.elapsed().as_millis() as u64,
         "system fonts applied"
     );
+}
+
+/// 只换字体表：补装路径专用。主题随 `UserEvent::FontsReady` 在主线程由
+/// reapply 统一施加，这里不碰主题。
+fn install_fonts(ctx: &Context) {
+    let definitions = if super::fonts::system_fonts_ready() {
+        super::fonts::definitions().0
+    } else {
+        super::fonts::builtin_definitions()
+    };
+    ctx.set_fonts(definitions);
 }
 
 /// 施加全部「每个 egui 上下文都要有」的设置。系统字体字节就位前走内置
@@ -126,20 +138,27 @@ mod tests {
             output.drop_without_applying_deltas();
             has
         };
-        assert!(
-            !has_cjk(&ctx),
-            "新上下文走内置快路径，CJK 后备等延迟装载补上"
+        let serif_tail = |ctx: &Context| {
+            let mut tail = None;
+            let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                tail = ui.ctx().fonts(|fonts| {
+                    fonts
+                        .definitions()
+                        .families
+                        .get(&egui::FontFamily::Name(fonts::FONT_SERIF_NAME.into()))
+                        .and_then(|chain| chain.last().cloned())
+                });
+            });
+            output.drop_without_applying_deltas();
+            tail
+        };
+        assert_eq!(
+            serif_tail(&ctx),
+            Some(fonts::BUILTIN_FALLBACK_FONT.to_owned()),
+            "命名字体族必须恒绑定（快路径全绑内置；完整路径族尾也是内置）"
         );
-        ctx.fonts(|fonts| {
-            let definitions = fonts.definitions();
-            assert_eq!(
-                definitions.families[&egui::FontFamily::Name(fonts::FONT_SERIF_NAME.into())],
-                vec![fonts::BUILTIN_FALLBACK_FONT.to_owned()],
-                "命名字体族在快路径也必须恒绑定"
-            );
-        });
 
-        apply_system_fonts([ctx.clone()], Theme::Dark);
+        apply_system_fonts([ctx.clone()]);
         assert!(
             has_cjk(&ctx),
             "延迟装载后 CJK 后备必须接上（宿主机需有系统 CJK 字体）"
