@@ -146,7 +146,10 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let crate::channel::Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        let crate::channel::Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload
+        else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert_eq!(
             options.model, "deepseek-reasoner",
             "the saved model freezes into the next task"

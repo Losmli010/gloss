@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 32 | `just test` |
-| 单元测试 | 464 | `just test` |
+| 单元测试 | 470 | `just test` |
 
 ## 人工测试
 
@@ -58,12 +58,12 @@
 - 更新时间：2026-09-30
 
 ### keychain_round_trip_on_real_store
-- 测试目标：验证真实 keychain 的写→读→覆盖→删除往返。
-- 测试场景：给定真实 keychain 测试服务名，当写→读→覆盖→删除，则各步读回一致、终态 None。
+- 测试目标：验证真实 keychain 的写（删除+重建路径）→读→覆盖→删除往返。
+- 测试场景：给定真实 keychain 测试服务名，当写→读→覆盖（再次走删除+重建）→删除，则各步读回一致、终态 None。
 - 测试步骤：
   1. 在非受限会话的终端运行总览中人工测试的命令
   2. 沙箱或 CI 会拒绝 keychain 写入，属预期环境限制
-- 更新时间：2026-09-19
+- 更新时间：2026-10-06
 
 ### live_llm_streams_a_translation
 - 测试目标：验证真实 LLM 端点的流式翻译往返。
@@ -425,9 +425,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| platform_events_round_trip_through_crossbeam | 通道①事件往返 | 给定五种 PlatformEvent，当经通道①往返，则按序原样到达 | 2026-09-19 |
+| platform_events_round_trip_through_crossbeam | 通道①事件往返 | 给定五种 PlatformEvent（含监听失效），当经通道①往返，则按序原样到达 | 2026-10-06 |
 | acquire_commands_carry_app_assigned_gen | 取材命令携带代数 | 给定带代数的取材命令，当下发，则接收侧读到同一代数与 kind/区域 | 2026-09-19 |
 | run_task_command_delivers_cancellable_task | 任务命令携带取消令牌 | 给定 RunTask 命令，当下发，则代数、任务、取消令牌完整到达且令牌联动 | 2026-09-19 |
+| prewarm_secret_command_carries_only_the_entry_id | 预热命令只携带条目定位符 | 给定 PrewarmSecret 命令，当下发，则到达的命令只含 keychain_id（密钥值不进通道载荷） | 2026-10-06 |
+| secret_prewarmed_receipt_round_trips_without_a_value | 预热回执成功失败两路往返 | 给定 Ok 与 Err 两条预热回执，当经通道④，则按序携带（Err 只含失败原因，不含密钥值） | 2026-10-06 |
 | event_channel_supports_dual_senders | 事件通道双发送端 | 给定克隆出的第二 Sender，当两端各发一条，则主线程按到达顺序都收到 | 2026-09-19 |
 | event_channel_carries_stream_chunks_and_failures | 通道④携带流块与失败 | 给定 TaskChunk 与 TaskFailed，当经通道④，则按序携带 | 2026-09-19 |
 | try_recv_on_empty_queue_returns_empty | 空队列 try_recv 返回 Empty | 给定空队列，当 try_recv，则返回 Empty | 2026-09-19 |
@@ -615,6 +617,13 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | alpha_mode_degrades_to_auto_without_transparency | 无透明支持降级 Auto | 给定仅 Opaque/Auto 的候选或空列表，当挑选，则降级 Auto | 2026-09-19 |
 | errors_describe_their_cause | GPU 错误文案含根因 | 给定各 GpuError 变体，当 to_string，则文案包含根因 | 2026-09-19 |
 
+### crates/gloss-app/src/flow/task.rs（预热发送端）
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| prewarm_dispatches_the_configured_keychain_entry_exactly_once | 预热命令携带当前配置条目且逐次下发 | 给定默认配置的驱动器，当连续两次 send_secret_prewarm，则通道③各收到一条 PrewarmSecret 且 keychain_id 取自当前快照（共两条） | 2026-10-06 |
+| prewarm_without_endpoints_is_a_silent_no_op | 无端点时预热静默跳过 | 给定 endpoints 已清空的驱动器，当 send_secret_prewarm，则不发任何命令、不 panic | 2026-10-06 |
+
 ### crates/gloss-app/src/runtime/pipeline.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -624,12 +633,15 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | engine_failure_becomes_task_failed | 引擎失败映射 TaskFailed | 给定 execute 整体失败，当运行，则映射为带代数的 TaskFailed | 2026-09-19 |
 | background_panic_becomes_task_failed_and_the_loop_survives | 后台 panic 转失败且循环存活 | 给定注入 panic 的引擎，当任务炸掉，则转 EngineResponse 失败且循环存活、第二个任务照常完成 | 2026-09-19 |
 | closing_commands_stops_the_consumer | 关闭命令通道停消费循环 | 给定通道③关闭，当 drop 运行时，则超时内干净关停 | 2026-09-19 |
+| prewarm_secret_reads_the_store_and_reports_success | 预热读密成功回执 | 给定已预置密钥的存储，当发 PrewarmSecret，则回执 Ok（值留在存储进程内缓存，不进事件） | 2026-10-06 |
+| prewarm_failure_surfaces_as_err_without_the_secret | 预热失败回执只带原因 | 给定读取必失败的存储，当发 PrewarmSecret，则回执 Err(Config)（不含密钥值，不拦主流程） | 2026-10-06 |
+| prewarm_receipt_never_carries_a_secret_value | 预热回执永不携带密钥值 | 给定 SecretPrewarmed 回执，当 Debug 格式化，则不含密钥值形态（sk- 前缀不存在） | 2026-10-06 |
 
 ### crates/gloss-app/src/machine.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（框选、设置、退出），当 begin_selection_probe，则前者发 AcquireText（无 kind——类型归 LLM 层）且只领探测编号不动代数、后者 None 且不占代数不顶掉在途探测 | 2026-10-03 |
+| probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（框选、设置、退出、监听失效），当 begin_selection_probe，则前者发 AcquireText（无 kind——类型归 LLM 层）且只领探测编号不动代数、后者 None 且不占代数不顶掉在途探测 | 2026-10-06 |
 | trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦/未接线 | 给定 trigger_decision，则划词恒为 Acquire（无载荷——分类是 LLM 层的事）、框选与退出报 Unwired、设置与退出不因场景被拦；出厂配置下划词为 Acquire，拦截名单内的前台应用则报 Blocked | 2026-10-03 |
 | scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 begin_selection_probe，则两次都 None、无探测编号、状态留 Idle；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
 | selection_options_pair_with_one_snapshot_including_the_model | 选项（含模型）出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则目标语言与模型 id 均出自快照冻结（类型不在其中——kind 由 LLM 层分类决定） | 2026-10-03 |
@@ -862,7 +874,6 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| accessibility_denied_is_recognized | 权限错误语义识别 | 给定 AccessibilityDenied 与其它取材错误，当识别，则前者命中、其余不误伤 | 2026-09-29 |
 
 ### crates/gloss-platform/src/selection/composite.rs
 
@@ -908,6 +919,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | stray_events_are_ignored | 杂散事件静默忽略 | 给定无按下的释放、双按下等杂散序列，当驱动，则静默忽略、后续手势照常 | 2026-09-19 |
 | poll_drains_channel_through_state_machine | poll 抽干通道过状态机 | 给定事件通道，当 poll，则抽干并经状态机计数（第二次 poll 为 0） | 2026-09-19 |
 | keyboard_events_are_never_subscribed | 键盘事件永不订阅 | 给定生产订阅掩码与 classify，当断言，则只有左键按下/抬起两位、键盘/滚轮/flags 各位不置（回归护栏） | 2026-09-19 |
+| spawn_resolves_synchronously_and_startup_failure_stays_off_the_flag | tap 启动同步可知且失败不置运行中标志 | 给定真实 tap 启动（结果随测试机授权而异），当 spawn 返回，则立即返回且启动失败不经 degraded 标志表达（标志只属运行中失效） | 2026-10-06 |
 
 ### crates/gloss-platform/src/engine/llm.rs
 

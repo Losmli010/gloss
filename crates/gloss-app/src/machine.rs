@@ -608,6 +608,8 @@ pub(crate) enum EventKind {
     TaskChunk,
     TaskDone,
     TaskFailed,
+    /// 密钥预热回执：与任务代数无关，露面策略恒不显示（壳层旁路留痕）。
+    SecretPrewarmed,
 }
 
 /// 取回传事件的类别标签。
@@ -618,6 +620,7 @@ pub(crate) fn event_kind(event: &Event) -> EventKind {
         Event::TaskChunk { .. } => EventKind::TaskChunk,
         Event::TaskDone { .. } => EventKind::TaskDone,
         Event::TaskFailed { .. } => EventKind::TaskFailed,
+        Event::SecretPrewarmed { .. } => EventKind::SecretPrewarmed,
     }
 }
 
@@ -636,6 +639,8 @@ fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
         EventKind::InputReady => false,
         EventKind::TaskFailed => accepted,
         EventKind::TaskClassified | EventKind::TaskDone | EventKind::TaskChunk => false,
+        // 预热回执由壳层旁路留痕，与任务浮层无关。
+        EventKind::SecretPrewarmed => false,
     }
 }
 

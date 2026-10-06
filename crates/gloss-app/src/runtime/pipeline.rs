@@ -8,6 +8,8 @@
 //! → miss 时接线钩子（`TaskClassified`/`TaskChunk` 逐条回传）调
 //! `service.run` → 完成态经 [`complete`]（JSON 主路径 + 围栏 fallback）
 //! 解析出 [`TaskOutcome`] → 写缓存 → `TaskDone`。引擎失败不写缓存。
+//! 另有 `PrewarmSecret` 一条旁路：读一次密钥进进程内缓存（启动期预热），
+//! 与任务代数无关。
 //!
 //! 选项单次快照冻结在 machine（探测时按配置快照解析），桥与 LLM 层都不
 //! 回读配置；分类缓存已删除——同一输入在同一选项下判定的 kind 唯一，
@@ -31,6 +33,7 @@ use futures::FutureExt;
 use gloss_core::engine::AiTaskService;
 use gloss_core::log::{Instrument, debug, info, thread, warn};
 use gloss_core::model::GlossError;
+use gloss_core::ports::ConfigStore;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::channel::{Command, Event, Traced};
@@ -57,19 +60,21 @@ impl Drop for CommandRuntime {
 }
 
 /// 创建 tokio 运行时并启动消费循环。`cache` 是任务产物缓存（缓存站点在
-/// 本桥，见模块文档）；`wake` 在每条回传事件入队后调用，唤醒睡在主线程
-/// 事件循环里的 UI。
+/// 本桥，见模块文档）；`store` 是配置存储的密钥半边（预热命令经它直查
+/// keychain，与引擎/设置页共享同一实例与进程内缓存）；`wake` 在每条回传
+/// 事件入队后调用，唤醒睡在主线程事件循环里的 UI。
 pub fn start_command_runtime(
     service: Arc<AiTaskService>,
     cache: Arc<TaskCache>,
+    store: Arc<dyn ConfigStore>,
     commands: UnboundedReceiver<Traced<Command>>,
     events: Sender<Event>,
-    wake: impl Fn() + Send + Sync + 'static,
+    wake: impl Fn() + Send + Sync + Clone + 'static,
 ) -> std::io::Result<CommandRuntime> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    rt.spawn(consume_loop(service, cache, commands, events, wake));
+    rt.spawn(consume_loop(service, cache, store, commands, events, wake));
     Ok(CommandRuntime { rt: Some(rt) })
 }
 
@@ -78,66 +83,95 @@ pub fn start_command_runtime(
 async fn consume_loop(
     service: Arc<AiTaskService>,
     cache: Arc<TaskCache>,
+    store: Arc<dyn ConfigStore>,
     mut commands: UnboundedReceiver<Traced<Command>>,
     events: Sender<Event>,
-    wake: impl Fn() + Send + Sync,
+    wake: impl Fn() + Send + Sync + Clone + 'static,
 ) {
     while let Some(job) = commands.recv().await {
-        // Command 当前只有 RunTask 一个变体，直接解构；span 来自触发点，
-        // 进入它让缓存与引擎内部的日志自动带上代数。
+        // span 来自触发点，进入它让缓存与引擎内部的日志自动带上代数；预热
+        // 命令不带任务 span（不属于任何任务）。
         let Traced { payload, span } = job;
-        let Command::RunTask {
-            generation,
-            input,
-            options,
-            cancel,
-        } = payload;
-        // 取消与执行竞速：取消即时生效，覆盖缓存查询与流式读取的全部
-        // await 点。被取消的任务不发任何回传——App 取消时已 gen+1，迟到
-        // 产物本就该被丢弃。
-        //
-        // 执行体包在 catch_unwind 里：后台 panic 转 TaskFailed（错误卡给
-        // 用户「服务异常」而不是永悬的推理中），循环自身继续消费。
-        async {
-            tokio::select! {
-                _ = cancel.cancelled() => {
-                    debug!(thread = thread::TOKIO, "task cancelled, result dropped");
-                }
-            outcome = std::panic::AssertUnwindSafe(run_task(
-                service.as_ref(),
-                cache.as_ref(),
+        match payload {
+            Command::RunTask {
                 generation,
                 input,
                 options,
-                &events,
-                &wake,
-            ))
-            .catch_unwind() => match outcome {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => send_event(&events, &wake, Event::TaskFailed { generation, error }),
-                Err(payload) => {
-                    let detail = panic_detail(&payload);
-                    warn!(
-                        thread = thread::TOKIO,
-                        detail = %detail,
-                        "background task panicked"
-                    );
-                    send_event(
-                        &events,
-                        &wake,
-                        Event::TaskFailed {
+                cancel,
+            } => {
+                // 取消与执行竞速：取消即时生效，覆盖缓存查询与流式读取的全
+                // 部 await 点。被取消的任务不发任何回传——App 取消时已
+                // gen+1，迟到产物本就该被丢弃。
+                //
+                // 执行体包在 catch_unwind 里：后台 panic 转 TaskFailed（错误
+                // 卡给用户「服务异常」而不是永悬的推理中），循环自身继续
+                // 消费。
+                async {
+                    tokio::select! {
+                        _ = cancel.cancelled() => {
+                            debug!(thread = thread::TOKIO, "task cancelled, result dropped");
+                        }
+                        outcome = std::panic::AssertUnwindSafe(run_task(
+                            service.as_ref(),
+                            cache.as_ref(),
                             generation,
-                            error: GlossError::EngineResponse(format!(
-                                "engine task panicked: {detail}"
-                            )),
+                            input,
+                            options,
+                            &events,
+                            &wake,
+                        ))
+                        .catch_unwind() => match outcome {
+                            Ok(Ok(())) => {}
+                            Ok(Err(error)) => send_event(&events, &wake, Event::TaskFailed { generation, error }),
+                            Err(payload) => {
+                                let detail = panic_detail(&payload);
+                                warn!(
+                                    thread = thread::TOKIO,
+                                    detail = %detail,
+                                    "background task panicked"
+                                );
+                                send_event(
+                                    &events,
+                                    &wake,
+                                    Event::TaskFailed {
+                                        generation,
+                                        error: GlossError::EngineResponse(format!(
+                                            "engine task panicked: {detail}"
+                                        )),
+                                    },
+                                );
+                            }
                         },
-                    );
+                    }
                 }
-            },
+                .instrument(span)
+                .await;
+            }
+            Command::PrewarmSecret { keychain_id } => {
+                // 读密钥可能被系统授权框长时间阻塞：甩进 blocking 线程池，
+                // 消费循环继续接收后续任务——首条 RunTask 不能排在密码框
+                // 后面。预热不占代数也不需要取消，失败只留痕（首次任务会
+                // 自然重读并按既有失败路径兜底）。
+                let store = Arc::clone(&store);
+                let events = events.clone();
+                let wake = wake.clone();
+                tokio::task::spawn_blocking(move || {
+                    let result = store.secret(&keychain_id).map(|_| ());
+                    match &result {
+                        Ok(()) => info!(
+                            thread = thread::TOKIO,
+                            "secret prewarmed into the in-process cache"
+                        ),
+                        Err(err) => warn!(
+                            thread = thread::TOKIO,
+                            error = %err,
+                            "secret prewarm failed; the first task will retry"
+                        ),
+                    }
+                    send_event(&events, &wake, Event::SecretPrewarmed { result });
+                });
             }
         }
-        .instrument(span)
-        .await;
     }
     debug!(
         thread = thread::TOKIO,
@@ -257,6 +291,20 @@ mod tests {
         Receiver<Event>,
         CommandRuntime,
     ) {
+        start_with_store(
+            engine,
+            Arc::new(crate::stubs::ports::MemoryConfigStore::default()),
+        )
+    }
+
+    fn start_with_store(
+        engine: &MockEngine,
+        store: Arc<dyn gloss_core::ports::ConfigStore>,
+    ) -> (
+        UnboundedSender<Traced<Command>>,
+        Receiver<Event>,
+        CommandRuntime,
+    ) {
         let service = Arc::new(AiTaskService::new(
             Arc::new(engine.clone()) as Arc<dyn gloss_core::ports::AiEngine>
         ));
@@ -265,6 +313,7 @@ mod tests {
         let runtime = start_command_runtime(
             service,
             Arc::new(TaskCache::new()),
+            store,
             commands_rx,
             events_tx,
             || {},
@@ -444,5 +493,75 @@ mod tests {
         tokio::task::spawn_blocking(move || drop(runtime))
             .await
             .expect("shutdown within timeout");
+    }
+
+    #[tokio::test]
+    async fn prewarm_secret_reads_the_store_and_reports_success() {
+        use gloss_core::ports::ConfigStore as _;
+
+        let engine = MockEngine::new();
+        let store = crate::stubs::ports::MemoryConfigStore::default();
+        store
+            .set_secret("gloss/deepseek", "sk-stocked")
+            .expect("stub store accepts secret");
+        let (commands, events, runtime) = start_with_store(
+            &engine,
+            Arc::new(store) as Arc<dyn gloss_core::ports::ConfigStore>,
+        );
+
+        commands
+            .send(Traced::untraced(Command::PrewarmSecret {
+                keychain_id: "gloss/deepseek".into(),
+            }))
+            .expect("command channel should accept");
+
+        assert!(
+            matches!(
+                events.recv().unwrap(),
+                Event::SecretPrewarmed { result: Ok(()) }
+            ),
+            "a stocked store prewarms successfully"
+        );
+        drop(commands);
+        tokio::task::spawn_blocking(move || drop(runtime))
+            .await
+            .expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn prewarm_failure_surfaces_as_err_without_the_secret() {
+        let engine = MockEngine::new();
+        let failing = crate::stubs::ports::MemoryConfigStore::default()
+            .with_secret_failure(GlossError::Config("keychain locked".into()));
+        let (commands, events, runtime) = start_with_store(
+            &engine,
+            Arc::new(failing) as Arc<dyn gloss_core::ports::ConfigStore>,
+        );
+
+        commands
+            .send(Traced::untraced(Command::PrewarmSecret {
+                keychain_id: "gloss/deepseek".into(),
+            }))
+            .expect("command channel should accept");
+
+        match events.recv().unwrap() {
+            Event::SecretPrewarmed {
+                result: Err(GlossError::Config(detail)),
+            } => assert_eq!(detail, "keychain locked"),
+            other => panic!("expected a failed prewarm receipt, got {other:?}"),
+        }
+        drop(commands);
+        tokio::task::spawn_blocking(move || drop(runtime))
+            .await
+            .expect("shutdown");
+    }
+
+    #[test]
+    fn prewarm_receipt_never_carries_a_secret_value() {
+        let receipt = Event::SecretPrewarmed { result: Ok(()) };
+        assert!(
+            !format!("{receipt:?}").contains("sk-"),
+            "the receipt must be value-free: the secret never leaves the store"
+        );
     }
 }

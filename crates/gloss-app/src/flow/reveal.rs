@@ -156,7 +156,9 @@ mod tests {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let Command::RunTask { cancel, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { cancel, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
 
         app.dismiss_overlay("test");
         assert_eq!(app.machine.state(), AppState::Idle);
