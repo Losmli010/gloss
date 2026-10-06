@@ -53,7 +53,7 @@ impl Waker {
 /// `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
 ///
-/// `theme` 施加到两个 egui 上下文（见
+/// `theme` 施加到各 egui 上下文（见
 /// `GlossApp::apply_theme`）。`system_locale` 是组装点读到的系统语言，
 /// 供配置里的 `Language::System` 落定成 [`Locale`]（prompt 模板与界面文案共用）。
 /// `scene` 是触发前场景探针（安全输入态、前台应用），供敏感信息防护的

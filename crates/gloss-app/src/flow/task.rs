@@ -3,6 +3,7 @@
 //! `machine::should_reveal`，「怎么显示」在 `reveal`。
 
 use gloss_core::log::{Span, debug, info, thread, warn};
+use gloss_core::model::GlossError;
 use gloss_core::task::TaskInput;
 use winit::event_loop::ActiveEventLoop;
 
@@ -33,6 +34,12 @@ impl GlossApp {
             // 策略只关心「哪一类回传」，事件本身在下一行被消费掉。
             let kind = event_kind(&event);
             let accepted = match event {
+                // 预热回执与任务代数无关（不占代数，与浮层无关）：旁路
+                // 处理后不进露面批次。
+                Event::SecretPrewarmed { result } => {
+                    self.on_secret_prewarmed(&result);
+                    continue;
+                }
                 Event::InputReady { generation, input } => self.accept_input(generation, input),
                 Event::TaskClassified { generation, kind } => {
                     self.accept_classified(generation, kind)
@@ -310,6 +317,41 @@ impl GlossApp {
     }
 }
 
+impl GlossApp {
+    /// 发密钥预热命令（通道③，不带任务 span——预热不属于任何任务）：
+    /// 启动授权引导（系统级弹窗）之后即发，macOS 的 keychain 授权框由此
+    /// 前置到启动期受控出现，读到的值进存储的进程内缓存，首次划词不再弹。
+    /// 发送失败（通道已关，应用正在退出）只留痕。
+    pub(crate) fn send_secret_prewarm(&mut self) {
+        let keychain_id = self
+            .env
+            .config
+            .snapshot()
+            .resolved_provider()
+            .keychain_id
+            .clone();
+        let Some(endpoints) = &self.endpoints else {
+            return;
+        };
+        let command = Traced::untraced(Command::PrewarmSecret { keychain_id });
+        if let Err(err) = endpoints.commands.send(command) {
+            debug!(
+                thread = thread::UI,
+                error = %err,
+                "command channel closed, secret prewarm dropped"
+            );
+        }
+    }
+
+    /// 密钥预热回执（`SecretPrewarmed`）：只留痕——预热失败不拦主流程，
+    /// 首次任务会自然重读并按既有失败路径兜底。
+    pub(crate) fn on_secret_prewarmed(&mut self, result: &Result<(), GlossError>) {
+        if let Err(err) = result {
+            debug!(thread = thread::UI, error = %err, "secret prewarm reported failure");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use gloss_core::config::{Config, DEFAULT_TEXT_MODEL};
@@ -320,6 +362,45 @@ mod tests {
     };
     use crate::channel::{AcquireCommand, Command};
     use crate::machine::AppState;
+
+    #[test]
+    fn prewarm_dispatches_the_configured_keychain_entry_exactly_once() {
+        let (mut app, _config, _store, _pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+
+        app.send_secret_prewarm();
+        app.send_secret_prewarm();
+
+        let first = cmd_rx
+            .try_recv()
+            .expect("the first prewarm lands on channel 3");
+        assert!(
+            matches!(
+                first.payload,
+                Command::PrewarmSecret { ref keychain_id }
+                    if *keychain_id == app.env.config.snapshot().resolved_provider().keychain_id
+            ),
+            "the entry id must come from the current snapshot, got {:?}",
+            first.payload
+        );
+        let second = cmd_rx.try_recv().expect("each call sends its own command");
+        assert!(matches!(second.payload, Command::PrewarmSecret { .. }));
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "two calls send exactly two commands"
+        );
+    }
+
+    #[test]
+    fn prewarm_without_endpoints_is_a_silent_no_op() {
+        let (mut app, _config, _store, _pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        app.endpoints = None;
+
+        app.send_secret_prewarm();
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "no endpoints means nothing is sent and nothing panics"
+        );
+    }
 
     #[test]
     fn late_events_of_superseded_trigger_do_not_bleed() {
@@ -346,7 +427,7 @@ mod tests {
             ..
         } = cmd_rx.try_recv().unwrap().payload
         else {
-            panic!("run task expected");
+            panic!("expected a RunTask command, got another variant")
         };
         assert!(!token_a.is_cancelled());
 
@@ -427,7 +508,9 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
-        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert_eq!(options.target_lang, Some(Lang::Zh));
         assert_eq!(
             options.model, DEFAULT_TEXT_MODEL,
@@ -444,7 +527,9 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
-        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert_eq!(options.target_lang, Some(Lang::Ja));
         assert_eq!(
             options.model, "deepseek-reasoner",
@@ -465,7 +550,9 @@ mod tests {
             .expect("save should succeed");
         assert!(app.accept_input(1, text_input("A")));
 
-        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert_eq!(
             options.target_lang,
             Some(Lang::Zh),
@@ -474,7 +561,9 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
-        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert_eq!(options.target_lang, Some(Lang::Ja));
     }
 
@@ -505,7 +594,9 @@ mod tests {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("正常选区")));
-        let Command::RunTask { cancel: token, .. } = cmd_rx.try_recv().unwrap().payload;
+        let Command::RunTask { cancel: token, .. } = cmd_rx.try_recv().unwrap().payload else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert!(
             app.session.pending_reveal,
             "the commit flagged the reveal for drain_events"

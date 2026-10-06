@@ -53,7 +53,7 @@ pub enum AcquireCommand {
     },
 }
 
-/// ③ 主线程 → tokio 后台：推理任务（携带完整数据与取消令牌）。
+/// ③ 主线程 → tokio 后台：推理任务（携带完整数据与取消令牌）与密钥预热。
 ///
 /// 用 tokio unbounded mpsc：消费端 async `recv().await`；主线程侧 `send`
 /// 永不阻塞、也不需要定容量策略——命令是轻量枚举，产量受用户手势限制。
@@ -71,6 +71,14 @@ pub enum Command {
         options: TaskOptions,
         /// 取消令牌：App 为每次任务创建并 clone 下发；取消 = 调 `cancel()`。
         cancel: CancellationToken,
+    },
+    /// 读一次当前 provider 的密钥（启动期预热）：真实读 keychain 首次访问
+    /// 会弹系统授权框，前置到启动授权引导之后让弹窗受控出现；读到的值进
+    /// 存储的进程内缓存，首次划词不再弹。只带条目定位符——密钥值永不进
+    /// 通道载荷。
+    PrewarmSecret {
+        /// 密钥条目定位符（配置的 `keychain_id`）。
+        keychain_id: String,
     },
 }
 
@@ -115,6 +123,12 @@ pub enum Event {
         generation: u64,
         /// 失败原因，状态机据此分支重试策略。
         error: GlossError,
+    },
+    /// 密钥预热完成（成功与否，不含密钥值）：失败不拦主流程——首次任务
+    /// 会自然重读并按既有失败路径兜底。
+    SecretPrewarmed {
+        /// 预热结果：`Err` 只携带失败原因（如用户拒绝授权）。
+        result: Result<(), GlossError>,
     },
 }
 
@@ -316,13 +330,58 @@ mod tests {
             input,
             options,
             cancel: received,
-        } = ch.rx.blocking_recv().unwrap().payload;
+        } = ch.rx.blocking_recv().unwrap().payload
+        else {
+            panic!("expected a RunTask command, got another variant")
+        };
         assert_eq!(generation, 7);
         assert_eq!(input, sample_input());
         assert_eq!(options, sample_options());
         assert!(!received.is_cancelled());
         cancel.cancel();
         assert!(received.is_cancelled());
+    }
+
+    #[test]
+    fn prewarm_secret_command_carries_only_the_entry_id() {
+        let mut ch = CommandChannel::new();
+        ch.tx
+            .send(Traced::untraced(Command::PrewarmSecret {
+                keychain_id: "gloss/deepseek".into(),
+            }))
+            .unwrap();
+
+        let received = ch.rx.blocking_recv().unwrap().payload;
+        assert!(
+            matches!(
+                received,
+                Command::PrewarmSecret { ref keychain_id } if keychain_id == "gloss/deepseek"
+            ),
+            "the prewarm command carries the entry id only, got {received:?}"
+        );
+    }
+
+    #[test]
+    fn secret_prewarmed_receipt_round_trips_without_a_value() {
+        let ch = CrossbeamPair::<Event>::new();
+        ch.tx
+            .send(Event::SecretPrewarmed { result: Ok(()) })
+            .unwrap();
+        ch.tx
+            .send(Event::SecretPrewarmed {
+                result: Err(GlossError::EngineAuth),
+            })
+            .unwrap();
+        assert!(matches!(
+            ch.rx.recv().unwrap(),
+            Event::SecretPrewarmed { result: Ok(()) }
+        ));
+        assert!(matches!(
+            ch.rx.recv().unwrap(),
+            Event::SecretPrewarmed {
+                result: Err(GlossError::EngineAuth)
+            }
+        ));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! 呈现资源唯一所有者：窗口管理器、两个窗口的渲染帧、各自的下一帧时刻
+//! 呈现资源唯一所有者：窗口管理器、各窗口的渲染帧、各自的下一帧时刻
 //! 与已施加主题。壳与编排层经这里取用，不再各自持有窗口/帧的碎片。
 
 use std::error::Error;
@@ -24,7 +24,7 @@ pub(crate) struct Workspace {
     pub(crate) overlay_repaint: Option<Instant>,
     /// 设置窗口 egui 要求的下一帧时间点，与浮层各自独立。
     pub(crate) settings_repaint: Option<Instant>,
-    /// 已施加到两个 egui 上下文的主题；`None` 表示还没施加过（窗口未起时
+    /// 已施加到各 egui 上下文的主题；`None` 表示还没施加过（窗口未起时
     /// 会有这个状态）。
     pub(crate) applied_theme: Option<Theme>,
 }
@@ -41,7 +41,7 @@ impl Workspace {
         }
     }
 
-    /// 建窗口栈与两个窗口的首帧渲染状态（`resumed` 里调用；resumed 可能
+    /// 建窗口栈与各窗口的首帧渲染状态（`resumed` 里调用；resumed 可能
     /// 连续投递，调用方先查 [`Self::is_ready`]）。系统字体由后台线程延迟
     /// 装载（秒级，不挡首帧），装好经 `fonts_ready` 通知主线程换表重绘。
     pub(crate) fn init(

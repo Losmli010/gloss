@@ -93,6 +93,10 @@ impl GlossApp {
     /// 组装点移交的通道端点与外部服务句柄；窗口与帧状态在 `resumed` 时
     /// 建立。`system_locale` 同样来自组装点（系统语言是平台适配器的事，
     /// 壳只消费）。
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "组装点的主入口：每项都是不同关注点的注入端点，收敛成结构体只会把清单变成字段袋"
+    )]
     fn new(
         endpoints: AppEndpoints,
         config: Arc<ConfigHandle>,
