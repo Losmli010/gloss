@@ -114,9 +114,13 @@ profile-run:
     cargo build --profile profiling
     ./target/profiling/gloss &
 
-# 采运行中的 gloss 实例 CPU 产出火焰图 SVG（macOS sample 零安装；输出 target/profile/，附原始报告与栈顶自耗 Top）
-profile-cpu pid="" duration="10":
-    ./scripts/perf/profile_cpu.py --pid "{{pid}}" --duration {{duration}}
+# 采运行中的 gloss 实例 CPU 产出火焰图 SVG（sudo dtrace 采样 + inferno 折叠渲染，dtrace 需 root；输出 target/profile/，附原始栈与栈顶自耗 Top）
+flame pid="" duration="10":
+    ./scripts/perf/flamegraph.py --pid "{{pid}}" --duration {{duration}}
+
+# 从启动起采样出启动路径火焰图（--root 只让 dtrace 提权，gloss 仍以普通用户运行；采样到 gloss 退出为止，采完退出 gloss 即出图）
+flame-startup:
+    cargo flamegraph --root --profile profiling --bin gloss --output target/profile/flamegraph-startup.svg
 
 # 二进制体积归因（记录性不判罚）：节级 size -m + 符号级 otool/nm 地址差分（strip 过的产物只做节级，符号级用 profiling/dev 产物）
 size-report bin="target/release/gloss" top="30":
