@@ -118,6 +118,10 @@ profile-run:
 profile-cpu pid="" duration="10":
     ./scripts/perf/profile_cpu.py --pid "{{pid}}" --duration {{duration}}
 
+# 二进制体积归因（记录性不判罚）：节级 size -m + 符号级 otool/nm 地址差分（strip 过的产物只做节级，符号级用 profiling/dev 产物）
+size-report bin="target/release/gloss" top="30":
+    ./scripts/perf/size_report.py --bin {{bin}} --top {{top}}
+
 # Prompt 评测 live 轨：真实 LLM（需 GLOSS_LIVE_*，opt-in）
 # --record 回写夹具；--judge 启用 judge 评分轨（额外一次模型调用/条）
 eval *args:
