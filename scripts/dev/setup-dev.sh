@@ -63,7 +63,7 @@ command -v tombi >/dev/null 2>&1 \
   || warn_missing "tombi（TOML 格式与 lint，precommit 依赖）" "npm i -g tombi@1.5.5（或 brew install tombi）"
 # just flame / flame-startup 的采样与渲染后端
 command -v inferno-flamegraph >/dev/null 2>&1 \
-  || warn_missing "cargo-flamegraph/inferno（火焰图剖析，just flame）" "cargo install flamegraph inferno rustfilt --locked"
+  || warn_missing "cargo-flamegraph/inferno（火焰图剖析，just flame 与 flame-startup 依赖）" "cargo install flamegraph inferno rustfilt --locked"
 
 echo "== 4/4 git hooks =="
 just install-hooks

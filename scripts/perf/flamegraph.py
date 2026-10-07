@@ -56,7 +56,13 @@ def default_pid() -> int:
 
 def require_tool(name: str) -> None:
     if shutil.which(name) is None:
-        sys.exit(f"缺 {name} —— 安装：cargo install cargo-flamegraph inferno rustfilt --locked")
+        sys.exit(f"缺 {name} —— 安装：cargo install flamegraph inferno rustfilt --locked")
+
+
+def require_alive(pid: int) -> None:
+    proc = subprocess.run(["ps", "-p", str(pid)], capture_output=True, text=True)
+    if proc.returncode != 0:
+        sys.exit(f"pid {pid} 不存在或已退出：确认实例在跑，或用 pgrep -x gloss 查当前 pid")
 
 
 def run_dtrace(pid: int, duration: int, rate: int, out: Path) -> None:
@@ -71,7 +77,7 @@ def run_dtrace(pid: int, duration: int, rate: int, out: Path) -> None:
     )
     if proc.returncode != 0:
         err = proc.stderr.strip()
-        if "password is required" in err or "requires root" in err:
+        if "password is required" in err or "additional privileges" in err:
             sys.exit(
                 "dtrace 采样需要 root，当前环境没有交互 sudo——"
                 "请在自己的终端里运行本命令（sudo 会提示输密码）"
@@ -87,7 +93,11 @@ def demangle_inplace(folded: Path) -> None:
         ["rustfilt"], input=folded.read_text(), capture_output=True, text=True
     )
     if proc.returncode != 0:
-        sys.exit(f"rustfilt 失败（exit {proc.returncode}）：{proc.stderr.strip()}")
+        print(
+            f"警告：rustfilt 失败（exit {proc.returncode}）：{proc.stderr.strip()}——"
+            "保留 mangled 帧名继续"
+        )
+        return
     folded.write_text(proc.stdout)
 
 
@@ -144,6 +154,7 @@ def main() -> None:
     require_tool("inferno-collapse-dtrace")
     require_tool("inferno-flamegraph")
     pid = args.pid or default_pid()
+    require_alive(pid)
 
     stamp = time.strftime("%Y%m%d-%H%M%S")
     svg = Path(args.out) if args.out else Path("target/profile") / f"flamegraph-{stamp}.svg"
@@ -165,13 +176,12 @@ def main() -> None:
     for name, count in top:
         print(f"  {100.0 * count / max(total, 1):5.1f}%  {name}")
 
-    frames = [
-        frame
-        for line in folded.read_text().splitlines()
-        for stack, sep, _ in [line.rpartition(" ")]
-        if sep and stack
-        for frame in stack.split(";")
-    ]
+    frames: list[str] = []
+    for line in folded.read_text().splitlines():
+        stack, sep, count_s = line.rpartition(" ")
+        if not sep or not count_s.isdigit() or not stack:
+            continue
+        frames.extend(stack.split(";"))
     if frames:
         unsized = sum(1 for frame in frames if UNSIZED_FRAME_RE.search(frame))
         if unsized / len(frames) > 0.6:
