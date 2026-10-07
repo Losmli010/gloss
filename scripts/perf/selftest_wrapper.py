@@ -5,7 +5,8 @@
 startup（自检只读 GLOSS_PERF_COMMIT 环境变量，wrapper 负责注入短 commit）
 → overlay 运行期间按固定间隔轮询 ps 采本进程 RSS（完整曲线，趋势用）
 → 从 stderr 提取结构化信号行：kind=overlay_round / kind=overlay_perf 的
-JSON 行原样保留；startup 提取 message=startup self-test finished 的 JSON 行
+JSON 行原样保留；startup 提取 message=startup self-test finished 的 JSON 行；
+非信号 stderr 原样回显到本脚本 stderr（error! 诊断随退出码一起可见）
 → 按采集顺序落 out（缺省 target/perf/selftest.jsonl，本地 handoff，不入
 git），RSS 曲线补一条 kind=rss_curve 行（samples 为 [自进程启动的毫秒,
 RSS kb] 数组）。
@@ -102,12 +103,13 @@ def run_overlay(binary: Path, env: dict, poll_ms: int) -> tuple[int, list[str], 
                 samples.append([elapsed_ms, kb])
             time.sleep(poll_ms / 1000.0)
         stderr_file.seek(0)
-        lines = [
-            line.strip()
-            for line in stderr_file.read().splitlines()
-            if signal_kind(line.strip()) in OVERLAY_SIGNAL_KINDS
-        ]
-    return proc.returncode, lines, samples
+        raw_lines = [line.strip() for line in stderr_file.read().splitlines()]
+    for line in raw_lines:
+        if signal_kind(line) not in OVERLAY_SIGNAL_KINDS:
+            print(line, file=sys.stderr)
+    return proc.returncode, [
+        line for line in raw_lines if signal_kind(line) in OVERLAY_SIGNAL_KINDS
+    ], samples
 
 
 def run_startup(binary: Path, env: dict) -> tuple[int, list[str]]:
@@ -119,12 +121,13 @@ def run_startup(binary: Path, env: dict) -> tuple[int, list[str]]:
         text=True,
         env=env,
     )
-    lines = [
-        line.strip()
-        for line in proc.stderr.splitlines()
-        if signal_kind(line.strip()) == STARTUP_SIGNAL_MESSAGE
+    raw_lines = [line.strip() for line in proc.stderr.splitlines()]
+    for line in raw_lines:
+        if signal_kind(line) != STARTUP_SIGNAL_MESSAGE:
+            print(line, file=sys.stderr)
+    return proc.returncode, [
+        line for line in raw_lines if signal_kind(line) == STARTUP_SIGNAL_MESSAGE
     ]
-    return proc.returncode, lines
 
 
 def sample_rss_kb(pid: int) -> int | None:

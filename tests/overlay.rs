@@ -226,20 +226,20 @@ impl OverlaySelfTest {
         let Some(frame) = &mut self.frame else {
             return;
         };
-        let now = Instant::now();
+        let render_started = Instant::now();
         let (repaint, _) = render_frame(frame, None, Locale::default());
         self.next_repaint = repaint;
         if let Some(shown) = self.shown_at.take() {
-            self.latencies.push(now - shown);
+            self.latencies.push(Instant::now() - shown);
         }
         if let Some(prev) = self.last_frame_at {
-            let interval_ms = (now - prev).as_secs_f64() * 1000.0;
+            let interval_ms = (render_started - prev).as_secs_f64() * 1000.0;
             if interval_ms > FRAME_INTERVAL_BUDGET_MS {
                 self.frame_missed += 1;
             }
             self.frame_intervals.push(interval_ms);
         }
-        self.last_frame_at = Some(now);
+        self.last_frame_at = Some(render_started);
     }
 }
 
