@@ -9,9 +9,10 @@
 #   git bisect reset
 #
 # gate 对照：startup=启动预算自检（m5_ready 预算），show=显隐预算自检
-# （首帧预算 + RSS 尾段净增长），clone=分配计数门禁。各 gate 的预算常量
-# 在各自源码里；预算常量被改动的提交本身会被判成坏——二分区间起点选在
-# 预算变更之前，或临时对齐两端的预算口径。
+# （首帧预算 + RSS 尾段净增长 + 窗口句柄数），clone=分配计数门禁（判据在
+# git 跟踪的 clone-stats.json 基线，不在源码常量）。预算常量/基线文件的
+# 变更会改变判据口径：收紧可能把两阈值之间的实测判成坏，放宽会掩盖既有
+# 回归——二分区间起点选在口径变更之前，或临时对齐两端口径。
 set -euo pipefail
 
 GATE="${1:-}"
@@ -31,7 +32,7 @@ case "$GATE" in
   show) CMD=(just selftest) ;;
   clone) CMD=(just clone-check) ;;
   *)
-    echo "未知 gate: $GATE（可选 startup|show|clone）" >&2
+    echo "未知 gate: ${GATE}（可选 startup|show|clone）" >&2
     exit 2
     ;;
 esac
