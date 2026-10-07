@@ -5,8 +5,8 @@
 （L3 自检信号 handoff）。两个视图：
 
   总览（缺省）        最新点的全部注册指标：最新值、vs 上一点、vs 首点、判定。
-                      预算门禁指标转述自检信号（预算数值 + PASS/FAIL），仅记录
-                      与精确计数门禁指标判定恒为「—」。
+                      预算门禁指标转述自检信号（预算数值 + PASS/FAIL），其余
+                      行呈现注册表的判定语义（judge 与 note 括注）。
   对比（--from/--to）  两期点按指标 id 对齐：改善/回归/持平/无数据摘要 + 明细表。
                       精确计数门禁类新值上升即回归（与 clone-check 同向），其余
                       按注册表 noise 阈值启发式判定；判定只作参考，表头与摘要
@@ -46,12 +46,34 @@ STARTUP_SIGNAL_MESSAGE = "startup self-test finished"
 OVERLAY_SIGNAL_KIND = "overlay_perf"
 
 # 预算指标 id → 自检信号行上的（指标值字段, 预算字段）；行内字段即自检判定的
-# 同源数据。新增预算门禁指标时同步这里，缺登记会在总览判定列当场 KeyError。
+# 同源数据。与注册表预算门禁指标的对应关系由 _validate_budget_signal_fields
+# 在 import 期校验，漂移当场带指引失败。
 BUDGET_SIGNAL_FIELDS = {
     "overlay.show_first_ms": ("first_ms", "budget_ms"),
     "overlay.rss_tail_growth_kb": ("rss_tail_growth_kb", "rss_tail_budget_kb"),
     "startup.elapsed_ms": ("elapsed_ms", "budget_ms"),
 }
+
+
+def _validate_budget_signal_fields():
+    """import 期校验：信号字段映射与注册表预算门禁指标一一对应。
+
+    登记项漂移当场失败（与 metrics.py 的 import 期自检同模式），不留到带
+    信号文件的运行才以裸 KeyError 暴露。
+    """
+    budget_ids = {mid for mid, metric in METRICS.items() if metric.judge == "预算门禁"}
+    mapped = set(BUDGET_SIGNAL_FIELDS)
+    if budget_ids != mapped:
+        missing = "、".join(sorted(budget_ids - mapped)) or "无"
+        extra = "、".join(sorted(mapped - budget_ids)) or "无"
+        raise SystemExit(
+            "错误：BUDGET_SIGNAL_FIELDS 与注册表预算门禁指标不一致"
+            f"（缺映射：{missing}；多余映射：{extra}）；"
+            "新增预算指标时同步此映射（对照 metrics.py 的 BUDGET_CONSTS）"
+        )
+
+
+_validate_budget_signal_fields()
 
 
 def resolve_path(raw):
@@ -184,14 +206,23 @@ def signal_verdict(metric_id, metric, signals):
     return "PASS" if value <= budget else "FAIL"
 
 
-def budget_verdict_cell(points, metric_id, metric, signals):
-    """总览判定列：预算指标转述 PASS/FAIL 并标注预算数值，其余指标恒为「—」。
+def judge_cell(metric):
+    """总览判定列的非预算行：注册表的 judge + note 括注（与设计 4.4 样例一致）。
+
+    这类行没有可转述的判定信号（判定权在 clone-check 与自检退出码），只
+    呈现判定语义本身，note 单源在注册表。
+    """
+    return f"{metric.judge}（{metric.note}）" if metric.note else metric.judge
+
+
+def verdict_cell(points, metric_id, metric, signals):
+    """总览判定列：预算指标转述 PASS/FAIL 并标注预算数值，其余行呈现 judge+note。
 
     预算数值取最新携带预算的历史点；预算与判定单独缺席时只展示在场的部分，
     都不缺才组合成完整判定。
     """
     if metric.judge != "预算门禁":
-        return "—"
+        return judge_cell(metric)
     verdict = signal_verdict(metric_id, metric, signals)
     budget = latest_budget(points, metric_id)
     if budget is None:
@@ -223,7 +254,7 @@ def render_overview(points, signals):
             f"| {CATEGORY_LABELS[metric.category]} | {metric_id} | {fmt(value, metric.unit)} "
             f"| {change_cell(value, previous) if previous is not None else '—'} "
             f"| {change_cell(value, initial) if initial is not None else '—'} "
-            f"| {budget_verdict_cell(points, metric_id, metric, signals)} |"
+            f"| {verdict_cell(points, metric_id, metric, signals)} |"
         )
     return "\n".join(lines)
 
