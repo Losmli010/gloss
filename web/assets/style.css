@@ -373,7 +373,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #16181D 0%, #B84
 .guide .why { margin-top: 10px; font-size: 12.5px; color: #8A5247; }
 
 /* ── 更新日志 ───────────────────────────────── */
-.log-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.log-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
 .log-card {
   display: flex; align-items: center; gap: 16px;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
@@ -386,7 +386,6 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #16181D 0%, #B84
 .log-card b { display: block; font-size: 15.5px; }
 .log-card span { color: var(--muted); font-size: 13.5px; }
 .log-card .go { margin-left: auto; color: var(--faint); }
-@media (max-width: 640px) { .log-grid { grid-template-columns: 1fr; } }
 
 /* ── 页脚 ───────────────────────────────────── */
 footer { border-top: 1px solid var(--line); padding: 34px 0 44px; }
