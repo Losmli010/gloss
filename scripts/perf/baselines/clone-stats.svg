@@ -1,69 +1,77 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="850" viewBox="0 0 960 850" font-family="-apple-system, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
-<text x="16.0" y="46.0" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">当前：合计 62 次 · 密度 5.4 次/千行 · 热点分配合计 410 次 / 109,198 字节</text>
-<text x="16.0" y="64.0" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">构成：gloss-app 36 · gloss-eval 12 · gloss-core 8 · gloss 5 · gloss-platform 1（明细见 scripts/perf/baselines/clone-stats.json）</text>
+<text x="16.0" y="46.0" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">当前：合计 68 次 · 密度 5.8 次/千行 · 热点分配合计 410 次 / 109,118 字节</text>
+<text x="16.0" y="64.0" font-size="12" fill="#8a8f98" font-weight="400" text-anchor="start">构成：gloss-app 42 · gloss-eval 12 · gloss-core 8 · gloss 5 · gloss-platform 1（明细见 scripts/perf/baselines/clone-stats.json）</text>
 <text x="16.0" y="94.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">一、clone 总数趋势</text>
 <text x="16.0" y="114.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">整体聚合；x 轴为基线快照（just perf-baseline 追加，标注 commit）</text>
 <rect x="62.0" y="122.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
-<polyline points="70.0,135.7 277.5,135.7 485.0,135.7 692.5,212.0 900.0,212.0" fill="none" stroke="#3d5a8a" stroke-width="2"/>
+<polyline points="70.0,135.7 236.0,135.7 402.0,135.7 568.0,212.0 734.0,212.0 900.0,200.0" fill="none" stroke="#3d5a8a" stroke-width="2"/>
 <circle cx="70.0" cy="135.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="277.5" cy="135.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="485.0" cy="135.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="692.5" cy="212.0" r="3.5" fill="#3d5a8a"/>
-<circle cx="900.0" cy="212.0" r="3.5" fill="#3d5a8a"/>
-<rect x="883.2" y="194.4" width="33.5" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
-<text x="900.0" y="203.0" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">62 次</text>
+<circle cx="236.0" cy="135.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="402.0" cy="135.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="568.0" cy="212.0" r="3.5" fill="#3d5a8a"/>
+<circle cx="734.0" cy="212.0" r="3.5" fill="#3d5a8a"/>
+<circle cx="900.0" cy="200.0" r="3.5" fill="#3d5a8a"/>
+<rect x="883.2" y="182.4" width="33.5" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
+<text x="900.0" y="191.0" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">68 次</text>
 <text x="70.0" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="277.5" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="485.0" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
-<text x="692.5" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
-<text x="900.0" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="236.0" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="402.0" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="568.0" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
+<text x="734.0" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="900.0" y="226.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f47539d</text>
 <text x="16.0" y="284.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">二、密度趋势</text>
 <text x="16.0" y="304.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">次/千行生产代码，剔除规模变化后的公平口径</text>
 <rect x="62.0" y="312.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
-<polyline points="70.0,325.7 277.5,325.7 485.0,325.7 692.5,402.0 900.0,402.0" fill="none" stroke="#3d5a8a" stroke-width="2"/>
+<polyline points="70.0,325.7 236.0,325.7 402.0,325.7 568.0,402.0 734.0,402.0 900.0,392.8" fill="none" stroke="#3d5a8a" stroke-width="2"/>
 <circle cx="70.0" cy="325.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="277.5" cy="325.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="485.0" cy="325.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="692.5" cy="402.0" r="3.5" fill="#3d5a8a"/>
-<circle cx="900.0" cy="402.0" r="3.5" fill="#3d5a8a"/>
-<rect x="876.9" y="384.4" width="46.3" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
-<text x="900.0" y="393.0" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">5.4/千行</text>
+<circle cx="236.0" cy="325.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="402.0" cy="325.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="568.0" cy="402.0" r="3.5" fill="#3d5a8a"/>
+<circle cx="734.0" cy="402.0" r="3.5" fill="#3d5a8a"/>
+<circle cx="900.0" cy="392.8" r="3.5" fill="#3d5a8a"/>
+<rect x="876.9" y="375.2" width="46.3" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
+<text x="900.0" y="383.8" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">5.8/千行</text>
 <text x="70.0" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="277.5" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="485.0" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
-<text x="692.5" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
-<text x="900.0" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="236.0" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="402.0" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="568.0" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
+<text x="734.0" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="900.0" y="416.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f47539d</text>
 <text x="16.0" y="474.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">三、热点分配次数合计</text>
 <text x="16.0" y="494.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">六项热点基准每迭代分配之和，作整体趋势指数</text>
 <rect x="62.0" y="502.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
-<polyline points="70.0,515.7 277.5,515.7 485.0,515.7 692.5,592.0 900.0,592.0" fill="none" stroke="#3d5a8a" stroke-width="2"/>
+<polyline points="70.0,515.7 236.0,515.7 402.0,515.7 568.0,592.0 734.0,592.0 900.0,592.0" fill="none" stroke="#3d5a8a" stroke-width="2"/>
 <circle cx="70.0" cy="515.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="277.5" cy="515.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="485.0" cy="515.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="692.5" cy="592.0" r="3.5" fill="#3d5a8a"/>
+<circle cx="236.0" cy="515.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="402.0" cy="515.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="568.0" cy="592.0" r="3.5" fill="#3d5a8a"/>
+<circle cx="734.0" cy="592.0" r="3.5" fill="#3d5a8a"/>
 <circle cx="900.0" cy="592.0" r="3.5" fill="#3d5a8a"/>
 <rect x="880.0" y="574.4" width="39.9" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
 <text x="900.0" y="583.0" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">410 次</text>
 <text x="70.0" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="277.5" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="485.0" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
-<text x="692.5" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
-<text x="900.0" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="236.0" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="402.0" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="568.0" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
+<text x="734.0" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="900.0" y="606.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f47539d</text>
 <text x="16.0" y="664.0" font-size="15" fill="#333333" font-weight="600" text-anchor="start">四、热点分配字节合计</text>
 <text x="16.0" y="684.0" font-size="11.5" fill="#8a8f98" font-weight="400" text-anchor="start">六项热点基准每迭代分配字节之和，作整体趋势指数</text>
 <rect x="62.0" y="692.0" width="846.0" height="90" fill="#f2f4f7" rx="4"/>
-<polyline points="70.0,705.7 277.5,705.7 485.0,705.7 692.5,782.0 900.0,782.0" fill="none" stroke="#3d5a8a" stroke-width="2"/>
+<polyline points="70.0,705.7 236.0,705.7 402.0,705.7 568.0,755.6 734.0,755.6 900.0,782.0" fill="none" stroke="#3d5a8a" stroke-width="2"/>
 <circle cx="70.0" cy="705.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="277.5" cy="705.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="485.0" cy="705.7" r="3.5" fill="#3d5a8a"/>
-<circle cx="692.5" cy="782.0" r="3.5" fill="#3d5a8a"/>
+<circle cx="236.0" cy="705.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="402.0" cy="705.7" r="3.5" fill="#3d5a8a"/>
+<circle cx="568.0" cy="755.6" r="3.5" fill="#3d5a8a"/>
+<circle cx="734.0" cy="755.6" r="3.5" fill="#3d5a8a"/>
 <circle cx="900.0" cy="782.0" r="3.5" fill="#3d5a8a"/>
 <rect x="867.3" y="764.4" width="65.4" height="11.6" fill="#ffffff" fill-opacity="0.92" rx="2"/>
-<text x="900.0" y="773.0" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">109,198 B</text>
+<text x="900.0" y="773.0" font-size="11" fill="#3d5a8a" font-weight="600" text-anchor="middle">109,118 B</text>
 <text x="70.0" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="277.5" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="485.0" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
-<text x="692.5" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
-<text x="900.0" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="236.0" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="402.0" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="568.0" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">9c5a369</text>
+<text x="734.0" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="900.0" y="796.0" font-size="10" fill="#8a8f98" font-weight="400" text-anchor="middle">f47539d</text>
 <text x="16.0" y="26.0" font-size="19" fill="#333333" font-weight="600" text-anchor="start">clone 基线（整体趋势）</text>
 </svg>
