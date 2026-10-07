@@ -67,26 +67,30 @@ def decode_rust_symbol(name: str) -> str | None:
     """解码 Rust 符号路径；解不动返回 None（调用方回退原始名）。
 
     旧式 `_ZN...E` 与 v0 `_RN...` 通用子集：标识符 `<长度><名字>` 连成
-    `crate::模块::函数`；v0 的 Cs 去混淆串与单字符命名空间标记（v/t/N…）
-    透明跳过。泛型实例化（I…E）与回引用（B…_）不解——退回原始名。
+    `crate::模块::函数`；v0 的 Cs 去混淆串、`s<数字>_` 实现路径消歧符与
+    单字符标记透明跳过，下划线开头的标识符在长度后多一个转义 `_`。泛型
+    实例化（I…E）与回引用（B…_）不解——退回原始名。
     """
     legacy = name.find("_ZN")
     if legacy >= 0:
-        return decode_components(name[legacy + 3 :], "E")
+        return decode_components(name[legacy + 3 :], "E", v0=False)
     v0 = name.find("_RN")
     if v0 >= 0:
-        return decode_components(name[v0 + 3 :], "E")
+        return decode_components(name[v0 + 3 :], "E", v0=True)
     return None
 
 
-def decode_components(body: str, terminator: str) -> str | None:
+def decode_components(body: str, terminator: str, v0: bool) -> str | None:
     parts: list[str] = []
     while body and not body.startswith(terminator):
-        if body.startswith("Cs"):
+        if v0 and body.startswith("Cs"):
             skip = body.find("_")
             if skip < 0:
                 return None
             body = body[skip + 1 :]
+            continue
+        if v0 and re.match(r"s\d*_", body):
+            body = body[re.match(r"s\d*_", body).end() :]
             continue
         if body[0] in "IBE":
             return None
@@ -98,6 +102,8 @@ def decode_components(body: str, terminator: str) -> str | None:
             return None
         length = int(digits.group(1))
         body = body[digits.end() :]
+        if v0 and body.startswith("_"):
+            body = body[1:]
         if len(body) < length:
             return None
         part = body[:length]
@@ -110,7 +116,7 @@ def decode_components(body: str, terminator: str) -> str | None:
     return "::".join(parts)
 
 
-V0_CRATE_RE = re.compile(r"Cs[0-9A-Za-z]*_(\d+)([0-9A-Za-z_]*)")
+V0_CRATE_RE = re.compile(r"Cs[0-9A-Za-z]*?_(\d+)([0-9A-Za-z_]*)")
 
 
 def crate_of(decoded: str | None, raw: str) -> str:
@@ -120,7 +126,10 @@ def crate_of(decoded: str | None, raw: str) -> str:
     match = V0_CRATE_RE.search(raw)
     if match:
         length = int(match.group(1))
-        return match.group(2)[:length] if length else "std"
+        name = match.group(2)
+        if name.startswith("_"):
+            name = name[1:]
+        return name[:length] if length else "std"
     return "<未解码>"
 
 
@@ -205,6 +214,9 @@ def main() -> None:
     try:
         symbols, crates, symbol_total = parse_symbols(binary, args.top)
     except SystemExit:
+        symbol_total = None
+    if symbol_total == 0:
+        symbols, crates, symbol_total = [], [], None
         print("（无符号表——strip 过的产物只做节级；符号级用 profiling/dev 产物重跑）")
 
     print(f"{binary}  文件大小 {human(file_size)}")
