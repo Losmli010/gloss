@@ -124,8 +124,8 @@ static MILESTONE_START: OnceLock<Instant> = OnceLock::new();
 
 /// 记一条启动里程碑：`milestone`（id）与 `elapsed_ms`（相对进程入口累计，
 /// 单调时钟）两个顶层字段。埋点位置按启动序列定：进程入口、日志/配置/引擎
-/// 就绪、事件循环装配完成、渲染栈建立（再分窗口/设备/帧三段，m5a–m5c）与
-/// 预热帧后就绪（m5_ready）——量化脚本按 id 分段归因启动耗时（基线见
+/// 就绪、事件循环装配完成、渲染栈建立（再分窗口/设备/帧三段，06a–06c）与
+/// 预热帧后就绪（06_ready）——量化脚本按 id 分段归因启动耗时（基线见
 /// `scripts/perf/baselines/app-runtime-baseline.json`）。
 pub fn milestone(id: &str) {
     let start = MILESTONE_START.get_or_init(Instant::now);

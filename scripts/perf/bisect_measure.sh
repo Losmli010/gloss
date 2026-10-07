@@ -8,7 +8,7 @@
 #   git bisect run scripts/perf/bisect_measure.sh startup   # 或 show / clone
 #   git bisect reset
 #
-# gate 对照：startup=启动预算自检（m5_ready 预算），show=显隐预算自检
+# gate 对照：startup=启动预算自检（06_ready 预算），show=显隐预算自检
 # （首帧预算 + RSS 尾段净增长 + 窗口句柄数），clone=分配计数门禁（判据在
 # git 跟踪的 clone-stats.json 基线，不在源码常量）。预算常量/基线文件的
 # 变更会改变判据口径：收紧可能把两阈值之间的实测判成坏，放宽会掩盖既有

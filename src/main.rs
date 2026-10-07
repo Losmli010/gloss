@@ -38,13 +38,13 @@ fn main() -> StartupResult {
 }
 
 fn run() -> StartupResult {
-    log::milestone("m0_entry");
+    log::milestone("01_entry");
     init_logging();
-    log::milestone("m1_logging");
+    log::milestone("02_logging");
     let (config, store) = load_config()?;
-    log::milestone("m2_config");
+    log::milestone("03_config");
     let service = build_service(&config, &store)?;
-    log::milestone("m3_engine");
+    log::milestone("04_engine");
     run_event_loop(config, store, service)
 }
 
@@ -287,7 +287,7 @@ fn run_event_loop(
                 acquire_command_handler(),
                 event_sources(mouse_source, mouse_degraded),
             ));
-            log::milestone("m4_assembly");
+            log::milestone("05_assembly");
         },
     );
 

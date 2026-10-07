@@ -182,10 +182,9 @@ selftest:
 startup-selftest:
     cargo test -p gloss --test startup
 
-# L3 显隐自检并把性能记录追加导出为 JSON Lines（out 缺省 target/perf/overlay.jsonl）
-selftest-report out="target/perf/overlay.jsonl":
-    @mkdir -p "$(dirname "{{out}}")"
-    GLOSS_PERF_OUT="{{out}}" GLOSS_PERF_COMMIT=`git rev-parse --short HEAD` cargo test -p gloss --test overlay
+# L3 双自检 wrapper：跑显隐+启动自检，从 stderr 提取结构化信号行并外部轮询完整 RSS 曲线，落 out（缺省 target/perf/selftest.jsonl，本地 handoff 不入 git）
+selftest-report out="target/perf/selftest.jsonl":
+    ./scripts/perf/selftest_wrapper.py --out {{out}}
 
 # 测试覆盖率（摘要 + HTML 报告），低于 coverage_min 即失败
 coverage:

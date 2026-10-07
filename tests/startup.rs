@@ -2,7 +2,7 @@
 //!
 //! 经 gloss-app 公共 API 走生产同源的渲染栈初始化：EventLoop 建立后
 //! `build_window_stack` 建窗口栈并画预热帧，进程内起点到预热帧完成的
-//! 墙钟对 STARTUP_BUDGET 判门禁，分段耗时看日志里程碑 m5a/m5b/m5c。
+//! 墙钟对 STARTUP_BUDGET 判门禁，分段耗时看日志里程碑 06a/06b/06c。
 //! 需要窗口服务与 GPU。退出码：不超预算 `0`；超预算或初始化失败 `1`。
 
 use std::process::ExitCode;

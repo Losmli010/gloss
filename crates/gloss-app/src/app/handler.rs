@@ -67,7 +67,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         // macOS 的 keychain 授权框由此前置到启动期受控出现，读到的值进存
         // 储的进程内缓存，首次划词不再弹。
         self.send_secret_prewarm();
-        milestone("m5_ready");
+        milestone("06_ready");
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
