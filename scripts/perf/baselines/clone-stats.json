@@ -4,21 +4,21 @@
       "clone": 5,
       "derive_clone": 0,
       "files": 1,
-      "loc": 269,
-      "path_clone": 4
+      "loc": 281,
+      "path_clone": 5
     },
     "gloss-app": {
-      "clone": 36,
+      "clone": 42,
       "derive_clone": 41,
       "files": 41,
-      "loc": 6756,
-      "path_clone": 6
+      "loc": 6920,
+      "path_clone": 7
     },
     "gloss-core": {
       "clone": 8,
       "derive_clone": 27,
       "files": 13,
-      "loc": 1764,
+      "loc": 1765,
       "path_clone": 7
     },
     "gloss-eval": {
@@ -32,19 +32,22 @@
       "clone": 1,
       "derive_clone": 9,
       "files": 20,
-      "loc": 1534,
+      "loc": 1566,
       "path_clone": 1
     }
   },
   "files": {
+    "crates/gloss-app/src/app/handler.rs": 1,
     "crates/gloss-app/src/app/mod.rs": 1,
     "crates/gloss-app/src/flow/probe.rs": 2,
     "crates/gloss-app/src/flow/session.rs": 1,
     "crates/gloss-app/src/flow/settings_session.rs": 1,
+    "crates/gloss-app/src/flow/task.rs": 1,
     "crates/gloss-app/src/machine.rs": 8,
     "crates/gloss-app/src/present/gpu.rs": 1,
     "crates/gloss-app/src/present/render.rs": 1,
-    "crates/gloss-app/src/runtime/pipeline.rs": 1,
+    "crates/gloss-app/src/present/workspace.rs": 2,
+    "crates/gloss-app/src/runtime/pipeline.rs": 3,
     "crates/gloss-app/src/ui/fonts.rs": 1,
     "crates/gloss-app/src/ui/popup/icon.rs": 1,
     "crates/gloss-app/src/ui/popup/mod.rs": 4,
@@ -80,7 +83,7 @@
       "bytes": 740
     },
     "clone_bytes/ui/popup_frame": {
-      "bytes": 57715
+      "bytes": 57635
     },
     "clone_bytes/ui/settings_frame": {
       "bytes": 50595
