@@ -133,9 +133,14 @@ def layout(roots: list[Node], total: int) -> tuple[list[list[tuple[float, float,
     """按深度分层铺所有线程的矩形：rows[depth] = [(x, w, count, name)]。"""
     rows: list[list[tuple[float, float, int, str]]] = []
     max_depth = 0
-
-    def place(node: Node, x: float, width: float, depth: int) -> None:
-        nonlocal max_depth
+    pending = []
+    x0 = 0.0
+    for root in roots:
+        width = CANVAS_W * root.count / max(total, 1)
+        pending.append((root, x0, width, 0))
+        x0 += width
+    while pending:
+        node, x, width, depth = pending.pop()
         max_depth = max(max_depth, depth)
         while len(rows) <= depth:
             rows.append([])
@@ -143,20 +148,14 @@ def layout(roots: list[Node], total: int) -> tuple[list[list[tuple[float, float,
             rows[depth].append((x, width, node.count, node.name))
         child_x = x
         for child in node.children:
-            child_w = width * child.count / node.count
-            place(child, child_x, child_w, depth + 1)
+            child_w = width * child.count / max(node.count, 1)
+            pending.append((child, child_x, child_w, depth + 1))
             child_x += child_w
-
-    x0 = 0.0
-    for root in roots:
-        width = CANVAS_W * root.count / total
-        place(root, x0, width, 0)
-        x0 += width
     return rows, max_depth
 
 
-def render_svg(roots: list[Node], total: int, title: str) -> str:
-    rows, max_depth = layout(roots, total)
+def render_svg(rows: list[list[tuple[float, float, int, str]]], total: int, title: str) -> str:
+    max_depth = len(rows) - 1
     height = HEADER_H + (max_depth + 1) * ROW_H + 8
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -186,21 +185,31 @@ def render_svg(roots: list[Node], total: int, title: str) -> str:
     return "\n".join(parts)
 
 
+def pid_arg(value: str) -> int:
+    if not value:
+        return 0
+    try:
+        return int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("pid 必须是整数")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="sample + 自包含 SVG 火焰图")
-    parser.add_argument("--pid", default="", help="目标进程（缺省自动找 gloss）")
+    parser.add_argument("--pid", type=pid_arg, default=0, help="目标进程（缺省自动找 gloss）")
     parser.add_argument("--duration", type=int, default=10, help="采样时长秒")
     parser.add_argument("--interval", type=int, default=1, help="采样间隔毫秒")
     parser.add_argument("--out", default="", help="SVG 输出路径")
     args = parser.parse_args()
 
-    pid = int(args.pid) if args.pid else default_pid()
+    pid = args.pid or default_pid()
     report = run_sample(pid, args.duration, args.interval)
     roots = parse_call_graph(report)
     total = sum(root.count for root in roots)
     if total == 0:
         sys.exit("采样为空：进程在采样窗口内没有在 CPU 上运行")
 
+    rows, _ = layout(roots, total)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     out_dir = Path("target/profile")
     out = Path(args.out) if args.out else out_dir / f"flamegraph-{stamp}.svg"
@@ -208,7 +217,7 @@ def main() -> None:
     report_path = out.with_suffix(".svg.sample.txt")
     report_path.write_text(report)
 
-    out.write_text(render_svg(roots, total, f"gloss pid {pid} — {args.duration}s · {stamp}"))
+    out.write_text(render_svg(rows, total, f"gloss pid {pid} — {args.duration}s · {stamp}"))
 
     top = parse_top_of_stack(report)[:10]
     print(f"火焰图：{out}")
@@ -217,7 +226,6 @@ def main() -> None:
     for name, count in top:
         print(f"  {100.0 * count / total:5.1f}%  {name}")
 
-    rows, _ = layout(roots, total)
     cells = [cell for row in rows for cell in row]
     unknown = sum(1 for cell in cells if cell[3].startswith("???"))
     if cells and unknown / len(cells) > 0.6:
