@@ -393,12 +393,25 @@ fn build_filter(raw: Option<&str>) -> EnvFilter {
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    pub(crate) fn lock_dispatchers() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::let_underscore_must_use)]
 mod tests {
     use std::fs;
     use std::io::Write as _;
     use std::path::PathBuf;
 
+    use super::test_support::lock_dispatchers;
     use super::{
         DailyFileWriter, FILE_PREFIX, MAX_LOG_FILES, build_filter, capture, civil_from_days, info,
         init, log_file_name, milestone, open_file_writer, prune_old_logs, task_span, today_utc,
@@ -482,6 +495,7 @@ mod tests {
 
     #[test]
     fn init_is_idempotent() {
+        let _serial = lock_dispatchers();
         init(None);
         init(None);
     }
@@ -540,6 +554,7 @@ mod tests {
 
     #[test]
     fn task_span_carries_generation_into_events() {
+        let _serial = lock_dispatchers();
         let text = capture(|| {
             let span = task_span(7);
             let _entered = span.enter();
@@ -555,6 +570,7 @@ mod tests {
 
     #[test]
     fn logs_outside_a_task_carry_no_generation() {
+        let _serial = lock_dispatchers();
         let text = capture(|| {
             info!(thread = crate::log::thread::UI, "probe without task");
         });
@@ -567,6 +583,7 @@ mod tests {
 
     #[test]
     fn json_lines_carry_the_structured_contract() {
+        let _serial = lock_dispatchers();
         let text = capture(|| {
             info!(
                 thread = crate::log::thread::EVENT,
@@ -593,6 +610,7 @@ mod tests {
 
     #[test]
     fn milestone_event_carries_id_and_elapsed_ms() {
+        let _serial = lock_dispatchers();
         let text = capture(|| milestone("m_test_probe"));
 
         let line = probe_line(&text);
