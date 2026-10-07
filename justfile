@@ -109,6 +109,15 @@ app-metrics:
     ./scripts/perf/perf-history.py
     ./scripts/perf/perf-chart.py
 
+# 以 profiling 配置构建并启动带符号实例（release 同级优化但保留符号表；先退出在跑的 gloss）
+profile-run:
+    cargo build --profile profiling
+    ./target/profiling/gloss &
+
+# 采运行中的 gloss 实例 CPU 产出火焰图 SVG（macOS sample 零安装；输出 target/profile/，附原始报告与栈顶自耗 Top）
+profile-cpu pid="" duration="10":
+    ./scripts/perf/profile_cpu.py --pid "{{pid}}" --duration {{duration}}
+
 # Prompt 评测 live 轨：真实 LLM（需 GLOSS_LIVE_*，opt-in）
 # --record 回写夹具；--judge 启用 judge 评分轨（额外一次模型调用/条）
 eval *args:

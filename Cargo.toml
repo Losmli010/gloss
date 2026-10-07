@@ -103,3 +103,9 @@ opt-level = 3
 strip = true
 lto = true
 codegen-units = 1
+
+# 剖析专用：release 同级优化，保留符号表与行号表供 sample / vmmap 符号化
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = "debuginfo"
