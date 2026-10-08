@@ -66,7 +66,10 @@ def require_alive(pid: int) -> None:
 
 
 def run_dtrace(pid: int, duration: int, rate: int, out: Path) -> None:
+    # BEGIN 在探针启用瞬间往输出文件写 armed：SIGSTOP 门闩类调用方轮询到它
+    # 再放行被采进程，启动第一条指令都不会漏（固定等待会输给 dtrace 启用耗时）。
     program = (
+        'BEGIN { printf("armed\\n"); }\n'
         f"profile-{rate} /pid == {pid} && arg1/ {{ @[ustack(100)] = count(); }}\n"
         f"tick-{duration}s {{ exit(0); }}"
     )

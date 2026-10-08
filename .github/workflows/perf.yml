@@ -102,27 +102,33 @@ jobs:
           print(f"binary_x64_kb = {data['binary_x64_kb']}")
           PY
 
-      # 火焰图用 SIGSTOP 门闩采样：spawn 即停住进程，flamegraph.py 的 pid-attach
-      # 探针就位后再放行——attach 延迟从此与采样无关，启动第一条指令都不会漏
-      # （二跑教训：探针先行仍会输给 VM 上 dtrace 数秒的启用耗时，40 样本 vs
-      # 理论 3 万）。dtrace -c 产子进程的 launch 模式不可用：那会让应用以 root
-      # 跑、连不上 WindowServer。窗口缩到 10s：启动突发后余量即收，防空闲稀释。
+      # 火焰图用 SIGSTOP 门闩 + BEGIN 握手：spawn 即停住进程，flamegraph.py 起
+      # dtrace 后轮询原始栈文件里的 armed（探针启用瞬间 BEGIN 写入）再放行——
+      # 二三跑实证固定等待会输给 VM 上 dtrace 的启用耗时（40/16 样本 vs 理论上万），
+      # 握手后一条指令都不会漏。门闩必须 bash -c（$$ 在 () 子壳里指向父壳，
+      # STOP 会打偏——本机冒烟实证）。应用 stdio 重定向到 /dev/null 且 TERM 补
+      # KILL：三跑实证存活的应用会拽住步骤管道把 job 拖到 6h 上限。dtrace -c
+      # 产子进程不可用（应用以 root 跑、连不上 WindowServer）；窗口 10s 防空闲稀释。
       - name: Startup flamegraph (profiling build)
         continue-on-error: true
         run: |
           cargo install --locked inferno rustfilt
           cargo build --profile profiling --bin gloss
-          ( kill -STOP $$; exec ./target/profiling/gloss ) &
+          out=target/perf/flamegraph-startup.svg
+          bash -c 'kill -STOP $$; exec ./target/profiling/gloss' >/dev/null 2>&1 &
           app=$!
-          ./scripts/perf/flamegraph.py --pid "$app" --duration 10 \
-            --out target/perf/flamegraph-startup.svg &
+          ./scripts/perf/flamegraph.py --pid "$app" --duration 10 --out "$out" &
           fg=$!
-          sleep 8
-          kill -CONT "$app" || true
-          wait "$fg" || true
+          for i in $(seq 1 60); do
+            grep -q armed "$out.dtrace.txt" 2>/dev/null && break
+            sleep 1
+          done
           kill -CONT "$app" 2>/dev/null || true
-          kill "$app" 2>/dev/null || true
-          test -s target/perf/flamegraph-startup.svg
+          wait "$fg" || true
+          kill -TERM "$app" 2>/dev/null || true
+          sleep 2
+          kill -KILL "$app" 2>/dev/null || true
+          test -s "$out"
 
       - name: Aggregate history point
         run: ./scripts/perf/perf-collect.py
