@@ -381,17 +381,23 @@ def value_label(value, unit, mb_axis):
 
 
 def change_text(cur, prev):
-    """较上一点变化：▼ 绿=改善 / ▲ 红=回归 / — 灰=持平（全部指标越低越好）。"""
+    """较上一点变化：▼ 绿=改善 / ▲ 红=回归 / — 灰=持平（全部指标越低越好）。
+
+    方向按数值本身比较（负值基线下 (cur-prev)/prev 会翻转符号——净增长从
+    -340 降到 -520 是改善，不是回归），幅度用 |Δ|/|prev|。
+    """
     if prev is None:
         return None
     if prev == 0:
         return ("— 持平", COLOR_MUTED) if cur == 0 else ("—", COLOR_MUTED)
-    pct = (cur - prev) / prev * 100
-    rounded = round(pct, 1)
+    delta = cur - prev
+    if delta == 0:
+        return ("— 持平", COLOR_MUTED)
+    rounded = round(abs(delta) / abs(prev) * 100, 1)
     if rounded == 0:
         return ("— 持平", COLOR_MUTED)
-    if pct < 0:
-        return (f"▼ {abs(rounded):.1f}%", COLOR_DOWN)
+    if delta < 0:
+        return (f"▼ {rounded:.1f}%", COLOR_DOWN)
     return (f"▲ {rounded:.1f}%", COLOR_UP)
 
 
@@ -578,6 +584,19 @@ class Figure:
         disp = (lambda v: v / KB_PER_MB) if mb_axis else (lambda v: v)
         top = axis_top(disp(peak), disp(budget) if budget is not None else None, unit == "count")
 
+        # 负值扩展：净增长类指标可为负，轴向下按同 step 整数倍延伸，0 轴保持在
+        # 网格线上（无负值时 lo=0，映射与网格布局退化为原 0 基轴形态）。
+        step = top / GRID_DIV
+        n_neg = 0
+        if flat and min(flat) < 0:
+            n_neg = math.ceil(-disp(min(flat)) / step)
+            lo = -n_neg * step
+        else:
+            lo = 0.0
+
+        def y_of(v):
+            return plot_bottom - (disp(v) - lo) / (top - lo) * PLOT_H
+
         if panel.get("unit", True):
             unit_label = ("MB" if mb_axis else "KB") if unit == "kb" else unit
             inner = f"{unit_label} · {panel['suffix']}" if panel["suffix"] else unit_label
@@ -618,16 +637,17 @@ class Figure:
         if note:
             self.parts.append(t(CHIP_RIGHT, baseline, note, 9.5, COLOR_MUTED, anchor="end"))
 
-        for k in range(GRID_DIV + 1):
-            value = top * k / GRID_DIV
-            gy = plot_bottom - k * (PLOT_H / GRID_DIV)
-            self.parts.append(line(PLOT_X0, gy, PLOT_X1, gy, COLOR_AXIS if k == 0 else COLOR_GRID))
+        n_lines = GRID_DIV + n_neg
+        for k in range(n_lines + 1):
+            value = lo + k * step
+            gy = plot_bottom - k * (PLOT_H / n_lines)
+            self.parts.append(line(PLOT_X0, gy, PLOT_X1, gy, COLOR_AXIS if k == n_neg else COLOR_GRID))
             self.parts.append(
                 t(54, gy + 3.5, value_label(value, unit, mb_axis), 10, COLOR_MUTED, anchor="end")
             )
 
         if budget is not None:
-            by = plot_bottom - disp(budget) / top * PLOT_H
+            by = y_of(budget)
             self.parts.append(rect(PLOT_X0, plot_top, PLOT_X1 - PLOT_X0, by - plot_top, COLOR_BUDGET, opacity=0.05))
             self.parts.append(line(PLOT_X0, by, PLOT_X1, by, COLOR_BUDGET, width=1.3, dash="5 4"))
 
@@ -641,24 +661,22 @@ class Figure:
             span = (max(present_vals) - min(present_vals)) / (top * (KB_PER_MB if mb_axis else 1))
             if contiguous and len(pts) > 1 and span >= AREA_MIN_SPAN:
                 self.gradients.add(color)
-                path = "M " + " L ".join(f"{f1(x)},{f1(plot_bottom - disp(v) / top * PLOT_H)}" for x, v in pts)
+                path = "M " + " L ".join(f"{f1(x)},{f1(y_of(v))}" for x, v in pts)
                 self.parts.append(
                     f'<path d="{path} L {f1(pts[-1][0])},{f1(plot_bottom)} '
                     f'L {f1(pts[0][0])},{f1(plot_bottom)} Z" fill="url(#g-{color.lstrip("#")})"/>'
                 )
         for _mid, _label, color, vals in series:
             for seg in segments(xs, vals):
-                self.parts.append(
-                    polyline([(x, plot_bottom - disp(v) / top * PLOT_H) for x, v in seg], color)
-                )
+                self.parts.append(polyline([(x, y_of(v)) for x, v in seg], color))
             pts = present(xs, vals)
             for x, v in pts[:-1]:
                 self.parts.append(
-                    circle(x, plot_bottom - disp(v) / top * PLOT_H, 3, "#ffffff", stroke=color, stroke_width=1.8)
+                    circle(x, y_of(v), 3, "#ffffff", stroke=color, stroke_width=1.8)
                 )
             if pts:
                 x, v = pts[-1]
-                y = plot_bottom - disp(v) / top * PLOT_H
+                y = y_of(v)
                 self.parts.append(circle(x, y, 8, color, opacity=0.14))
                 self.parts.append(circle(x, y, 3.5, color))
 
@@ -668,7 +686,7 @@ class Figure:
             PLOT_X1 - 4,
             series,
             xs,
-            lambda v: plot_bottom - disp(v) / top * PLOT_H,
+            y_of,
         )
 
         if not visible:
@@ -694,7 +712,7 @@ class Figure:
                         "value": vals[li],
                         "prev": prev_present(vals, li),
                         "color": color,
-                        "y": plot_bottom - disp(vals[li]) / top * PLOT_H,
+                        "y": y_of(vals[li]),
                     }
                 )
             entries.sort(key=lambda e: -e["value"])
