@@ -869,7 +869,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | missing_entry_reads_as_none | 缺条目读为 None | 给定先删除预清的条目，当 get，则 None 而非错误 | 2026-09-19 |
 | delete_missing_entry_is_ok | 删除缺条目幂等成功 | 给定不存在的条目，当 delete，则幂等成功 | 2026-09-19 |
 | cached_reads_stay_consistent_with_writes | 缓存读写一致 | 给定写后读与删除后读，当经克隆共享缓存，则写后读新值、删除后克隆读 None（不走真实 keychain 写入） | 2026-09-19 |
-| racing_first_reads_settle_on_the_cached_value | 并发首读共享同一次未命中 | 给定预清条目与 4 线程并发 get，当首读竞赛，则全部读到一致结果且不悬挂（首读按 key 过闸门串行，授权框阻塞期间并发读者等缓存回填而非各撞一次授权框） | 2026-10-08 |
+| racing_first_reads_settle_on_the_cached_value | 并发首读共享同一次未命中 | 给定不存在条目的全新实例（空缓存直逼未命中路径）与 4 线程并发 get，当首读竞赛，则全部读到一致结果、不悬挂，且底层读恰好 1 次（测试构建的读计数接缝：首读按 key 过闸门串行，授权框阻塞期间并发读者等缓存回填而非各撞一次授权框） | 2026-10-08 |
 
 ### crates/gloss-platform/src/selection/accessibility.rs
 
