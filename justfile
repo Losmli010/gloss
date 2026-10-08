@@ -109,6 +109,10 @@ app-metrics:
     ./scripts/perf/perf-history.py
     ./scripts/perf/perf-chart.py
 
+# 性能总览/对比 Markdown 报告（stdout，判定仅参考非门禁）：缺省输出最新点总览；--from <sha> --to <sha> 输出两期对比（精确计数类上升即回归，其余按注册表噪声阈值）
+perf-report *args:
+    ./scripts/perf/perf-report.py {{args}}
+
 # 以 profiling 配置构建并启动带符号实例（release 同级优化但保留符号表；先退出在跑的 gloss）
 profile-run:
     cargo build --profile profiling
