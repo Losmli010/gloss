@@ -6,11 +6,14 @@
 //! 带进程内读取缓存（`get` 未命中才访问 keychain，`set`/`delete` 同步更
 //! 新缓存）：keychain 的 ACL 按代码签名信任访问方，dev 构建每次重编译签
 //! 名都变，不在旧条目信任列表里——每次读取都会弹「允许访问钥匙串」并阻塞
-//! 到用户点击。缓存把读弹窗收敛到每进程一次；写路径走「删除 + 重建」
-//! （见 [`KeychainSecret::set`] 文档）免弹窗。设置页改密钥经同一实例的
-//! `set` 写入缓存，即时生效，无需重启。
+//! 到用户点击。缓存把读弹窗收敛到每进程一次，未命中缓存的首读另按 key
+//! 串行（见 [`KeychainSecret.read_gates`] 字段文档），并发首读不会各自撞
+//! 一次授权框；写路径走「删除 + 重建」（见 [`KeychainSecret::set`] 文档）
+//! 免弹窗。设置页改密钥经同一实例的 `set` 写入缓存，即时生效，无需重启。
 
 use std::collections::HashMap;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
 use gloss_core::model::GlossError;
@@ -35,6 +38,16 @@ pub struct KeychainSecret {
     service: String,
     /// 读取缓存：值含 `None`（条目不存在也被缓存），写删路径同步更新。
     cache: Arc<Mutex<HashMap<String, Option<String>>>>,
+    /// 未命中缓存首读的按 key 闸门：ACL 授权框阻塞首读期间（预热与任务
+    /// 请求可能并发读同一条目），后来的读者在闸门上等首读回填缓存，而不是
+    /// 各自撞一次系统授权框——「读弹窗每进程至多一次」因此对并发读取也
+    /// 成立。闸门只包住 keychain 读本身；写删路径不经它（键数由配置里的
+    /// keychain_id 决定，个位数级别，map 进程内只增不减不构成无界）。
+    read_gates: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    /// 底层读计数：闸门的载荷契约（并发首读只发生一次底层读）在真
+    /// keychain 上不可观测，仅测试构建累计，测试据此断言。
+    #[cfg(test)]
+    raw_reads: Arc<AtomicUsize>,
 }
 
 impl Default for KeychainSecret {
@@ -49,6 +62,9 @@ impl KeychainSecret {
         Self {
             service: SERVICE.to_owned(),
             cache: Arc::new(Mutex::new(HashMap::new())),
+            read_gates: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(test)]
+            raw_reads: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -57,6 +73,9 @@ impl KeychainSecret {
         Self {
             service: service.into(),
             cache: Arc::new(Mutex::new(HashMap::new())),
+            read_gates: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(test)]
+            raw_reads: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -71,6 +90,18 @@ impl KeychainSecret {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+
+    /// 取某 key 的首读闸门（无则建，克隆 Arc 出去再锁，避免持 map 锁等
+    /// 闸门）；锁中毒口径同缓存。
+    fn read_gate(&self, key: &str) -> Arc<Mutex<()>> {
+        Arc::clone(
+            self.read_gates
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .entry(key.to_owned())
+                .or_default(),
+        )
+    }
 }
 
 impl KeychainSecret {
@@ -78,17 +109,35 @@ impl KeychainSecret {
     ///
     /// API key 约定为 UTF-8 文本；非 UTF-8 字节按 replacement 降级，不
     /// 视为错误——密钥内容只该由本应用写入。
+    ///
+    /// 未命中缓存的首读可能被 ACL 授权框阻塞到用户应答；在闸门上等待的
+    /// 并发读者是同步阻塞（不在 await 点上，途中的取消不生效，见模块内
+    /// 闸门文档）。回填让并发写入胜出：读期间发生的 set/delete 已把缓存
+    /// 更新到更新的状态，按缓存值作答、本读的旧值作废。
     pub fn get(&self, key: &str) -> Result<Option<String>, GlossError> {
         if let Some(cached) = self.cached(key) {
             return Ok(cached);
         }
+        // 先取闸门再上锁，锁内双检：等闸门期间并发的首读可能已回填缓存。
+        let gate = self.read_gate(key);
+        let _gate = gate.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(cached) = self.cached(key) {
+            return Ok(cached);
+        }
+        #[cfg(test)]
+        self.raw_reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let value = match security_framework::passwords::get_generic_password(&self.service, key) {
             Ok(password) => Some(String::from_utf8_lossy(&password).into_owned()),
             Err(err) if err.code() == ERR_SEC_ITEM_NOT_FOUND => None,
             Err(err) => return Err(GlossError::Config(format!("keychain read failed: {err}"))),
         };
-        self.cached_map().insert(key.to_owned(), value.clone());
-        Ok(value)
+        let answer = self
+            .cached_map()
+            .entry(key.to_owned())
+            .or_insert(value)
+            .clone();
+        Ok(answer)
     }
 
     /// 写入（或覆盖）密钥；成功才更新缓存：失败时缓存保持旧值。
@@ -195,6 +244,35 @@ mod tests {
             cloned.get(key).expect("read should succeed"),
             None,
             "delete must invalidate the cached value"
+        );
+    }
+
+    #[test]
+    fn racing_first_reads_settle_on_the_cached_value() {
+        let store = test_store();
+        let key = "test/racing-first-reads";
+
+        let readers: Vec<_> = (0..4)
+            .map(|_| {
+                let reader = store.clone();
+                let key = key.to_owned();
+                std::thread::spawn(move || reader.get(&key))
+            })
+            .collect();
+        for reader in readers {
+            assert_eq!(
+                reader
+                    .join()
+                    .expect("reader must not panic")
+                    .expect("read should succeed"),
+                None,
+                "concurrent first reads must all observe the same missing entry"
+            );
+        }
+        assert_eq!(
+            store.raw_reads.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "racing first reads must collapse to exactly one underlying read"
         );
     }
 }

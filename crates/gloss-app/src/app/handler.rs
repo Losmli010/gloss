@@ -63,9 +63,9 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         // 浮层预创建即隐藏（Idle 态）；先在隐藏状态画一帧预热——egui 图集构建、
         // Metal 管线编译与纹理上传都发生在首帧，不预热的话首次显示会超预算
         self.draw();
-        // 密钥预热：启动授权引导（系统级弹窗，见 main.rs 的预检）之后即发，
-        // macOS 的 keychain 授权框由此前置到启动期受控出现，读到的值进存
-        // 储的进程内缓存，首次划词不再弹。
+        // 密钥预热是否此刻发送由 send_secret_prewarm 按启动权限预检结论门
+        // 控：权限就绪才读——keychain 授权框不得抢在系统权限引导弹窗之前，
+        // 未就绪则推迟到首次任务自然重读。
         self.send_secret_prewarm();
         milestone("06_ready");
     }
