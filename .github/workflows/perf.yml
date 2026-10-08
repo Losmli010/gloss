@@ -1,4 +1,4 @@
-# 性能数据流水线：手动触发（workflow_dispatch，取 main HEAD）→ 全量采集 → 自动开数据 PR 供人工审查合入。
+# 性能数据流水线：手动触发（workflow_dispatch，取 main HEAD）→ 全量采集 → 推数据分支，人工开 PR 审查合入。
 # 定位是趋势数据例行生产，不是门禁：不判任何 PR 的生死；合入 main 不自动触发。
 name: Perf data
 
@@ -8,13 +8,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-# 唯一写用途：推送数据分支 + 创建/更新数据 PR。
+# 唯一写用途：推送数据分支。
 permissions:
   contents: write
-  pull-requests: write
 
 # 数据分支基于触发时的 main HEAD、趋势点同 commit 原位覆盖：重复触发时取消
-# 在跑的一次，由最新一次（取最新 main）重新采集，避免并行采集互踩或开出竞争 PR。
+# 在跑的一次，由最新一次（取最新 main）重新采集，避免并行采集互踩数据分支。
 concurrency:
   group: perf-data
   cancel-in-progress: true
@@ -120,9 +119,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
-      - name: Create data pull request
+      - name: Push data branch
         env:
-          GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ steps.head.outputs.sha }}
         run: |
           set -euo pipefail
@@ -152,7 +150,12 @@ jobs:
           PY
           )
           {
-            echo "自动数据采集 PR：手动触发 perf.yml，采集 main HEAD ${HEAD_SHA}。趋势数据例行生产，非门禁。"
+            echo "数据分支 perf/collect-${HEAD_SHA} 已推送，请人工开 PR 审查合入。建议："
+            echo
+            echo '```'
+            echo "gh pr create --base main --head perf/collect-${HEAD_SHA} \\"
+            echo "  --title \"perf(data): 采集 ${HEAD_SHA} 趋势点\" --body-file pr-body.md"
+            echo '```'
             echo
             echo "## perf-report 对比（本点 vs 上一点，启发式参考，非门禁）"
             echo
@@ -163,12 +166,4 @@ jobs:
               echo
               ./scripts/perf/perf-report.py
             fi
-          } > pr-body.md
-          # 同 commit 重跑时数据 PR 已存在：force-push 后随分支自动更新，这里刷新 body。
-          if gh pr view "$branch" --json url > /dev/null 2>&1; then
-            gh pr edit "$branch" --body-file pr-body.md
-          else
-            gh pr create --base main --head "$branch" \
-              --title "perf(data): 采集 ${HEAD_SHA} 趋势点" \
-              --body-file pr-body.md
-          fi
+          } >> "$GITHUB_STEP_SUMMARY"

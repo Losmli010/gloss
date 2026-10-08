@@ -3,7 +3,7 @@
 <rect x="20.0" y="14.0" width="4.0" height="20" fill="#2563eb" rx="2"/>
 <text x="32.0" y="30.0" font-size="17" fill="#0f172a" font-weight="700" text-anchor="start">Gloss 性能趋势 · 响应性</text>
 <text x="32.0" y="48.0" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">环境：macOS arm64 · Apple M1 (Virtual) · Apple Paravirtual device · 数据随基线采集逐点沉淀</text>
-<text x="940.0" y="30.0" font-size="10.5" fill="#94a3b8" font-weight="400" text-anchor="end">8 commits · 最新 0e8af9b</text>
+<text x="940.0" y="30.0" font-size="10.5" fill="#94a3b8" font-weight="400" text-anchor="end">1 commits · 最新 0e8af9b</text>
 <rect x="20.0" y="64.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
 <text x="36.0" y="85.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">启动耗时（ms）</text>
 <rect x="864.8" y="72.0" width="59.2" height="18" fill="#ecfdf5" rx="9"/>
@@ -20,47 +20,24 @@
 <line x1="62.0" y1="236.0" x2="830.0" y2="236.0" stroke="#e2e8f0" stroke-width="1"/>
 <text x="54.0" y="239.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">0</text>
 <line x1="62.0" y1="206.5" x2="830.0" y2="206.5" stroke="#eef2f6" stroke-width="1"/>
-<text x="54.0" y="210.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">1,500</text>
+<text x="54.0" y="210.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">1,200</text>
 <line x1="62.0" y1="177.0" x2="830.0" y2="177.0" stroke="#eef2f6" stroke-width="1"/>
-<text x="54.0" y="180.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">3,000</text>
+<text x="54.0" y="180.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">2,400</text>
 <line x1="62.0" y1="147.5" x2="830.0" y2="147.5" stroke="#eef2f6" stroke-width="1"/>
-<text x="54.0" y="151.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">4,500</text>
+<text x="54.0" y="151.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">3,600</text>
 <line x1="62.0" y1="118.0" x2="830.0" y2="118.0" stroke="#eef2f6" stroke-width="1"/>
-<text x="54.0" y="121.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">6,000</text>
-<rect x="62.0" y="118.0" width="768.0" height="39.3" fill="#ef4444" fill-opacity="0.05" rx="0"/>
-<line x1="62.0" y1="157.3" x2="830.0" y2="157.3" stroke="#ef4444" stroke-width="1.3" stroke-dasharray="5 4"/>
-<polyline points="171.7,142.7 281.4,140.3 391.1,140.3 500.9,206.2 610.6,223.5 720.3,223.5 830.0,215.7" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="171.7" cy="142.7" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="281.4" cy="140.3" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="391.1" cy="140.3" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="500.9" cy="206.2" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="610.6" cy="223.5" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="720.3" cy="223.5" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="830.0" cy="215.7" r="8" fill="#2563eb" opacity="0.14"/>
-<circle cx="830.0" cy="215.7" r="3.5" fill="#2563eb"/>
-<circle cx="830.0" cy="226.5" r="8" fill="#059669" opacity="0.14"/>
-<circle cx="830.0" cy="226.5" r="3.5" fill="#059669"/>
-<text x="826.0" y="129.0" font-size="9" fill="#94a3b8" font-weight="400" text-anchor="end" stroke="#ffffff" stroke-width="2.5" paint-order="stroke">部分系列自 0e8af9b 起有数据</text>
+<text x="54.0" y="121.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">4,800</text>
+<rect x="62.0" y="118.0" width="768.0" height="19.7" fill="#ef4444" fill-opacity="0.05" rx="0"/>
+<line x1="62.0" y1="137.7" x2="830.0" y2="137.7" stroke="#ef4444" stroke-width="1.3" stroke-dasharray="5 4"/>
+<circle cx="446.0" cy="210.6" r="8" fill="#2563eb" opacity="0.14"/>
+<circle cx="446.0" cy="210.6" r="3.5" fill="#2563eb"/>
+<circle cx="446.0" cy="224.2" r="8" fill="#059669" opacity="0.14"/>
+<circle cx="446.0" cy="224.2" r="3.5" fill="#059669"/>
 <line x1="842.0" y1="118.0" x2="842.0" y2="236.0" stroke="#e2e8f0" stroke-width="1"/>
 <text x="850.0" y="196.0" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">1,032</text>
-<text x="850.0" y="208.0" font-size="9.5" fill="#dc2626" font-weight="400" text-anchor="start">▲ 62.0%</text>
 <text x="850.0" y="222.0" font-size="11.5" fill="#059669" font-weight="700" text-anchor="start">482</text>
-<text x="62.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="62.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-05</text>
-<text x="171.7" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="171.7" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="281.4" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f9647f4</text>
-<text x="281.4" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="391.1" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">9c5a369</text>
-<text x="391.1" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="500.9" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">4ba967e</text>
-<text x="500.9" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="610.6" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f47539d</text>
-<text x="610.6" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
-<text x="720.3" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">bbef191</text>
-<text x="720.3" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
-<text x="830.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
-<text x="830.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="446.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
+<text x="446.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
 <rect x="20.0" y="290.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
 <text x="36.0" y="311.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">划词 → 首帧（ms · 100 轮显隐自检）</text>
 <rect x="864.8" y="298.0" width="59.2" height="18" fill="#ecfdf5" rx="9"/>
@@ -89,33 +66,18 @@
 <text x="54.0" y="347.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">120</text>
 <rect x="62.0" y="344.0" width="768.0" height="19.7" fill="#ef4444" fill-opacity="0.05" rx="0"/>
 <line x1="62.0" y1="363.7" x2="830.0" y2="363.7" stroke="#ef4444" stroke-width="1.3" stroke-dasharray="5 4"/>
-<circle cx="830.0" cy="385.3" r="8" fill="#2563eb" opacity="0.14"/>
-<circle cx="830.0" cy="385.3" r="3.5" fill="#2563eb"/>
-<circle cx="830.0" cy="449.7" r="8" fill="#059669" opacity="0.14"/>
-<circle cx="830.0" cy="449.7" r="3.5" fill="#059669"/>
-<circle cx="830.0" cy="443.7" r="8" fill="#d97706" opacity="0.14"/>
-<circle cx="830.0" cy="443.7" r="3.5" fill="#d97706"/>
-<text x="826.0" y="355.0" font-size="9" fill="#94a3b8" font-weight="400" text-anchor="end" stroke="#ffffff" stroke-width="2.5" paint-order="stroke">部分系列自 0e8af9b 起有数据</text>
+<circle cx="446.0" cy="385.3" r="8" fill="#2563eb" opacity="0.14"/>
+<circle cx="446.0" cy="385.3" r="3.5" fill="#2563eb"/>
+<circle cx="446.0" cy="449.7" r="8" fill="#059669" opacity="0.14"/>
+<circle cx="446.0" cy="449.7" r="3.5" fill="#059669"/>
+<circle cx="446.0" cy="443.7" r="8" fill="#d97706" opacity="0.14"/>
+<circle cx="446.0" cy="443.7" r="3.5" fill="#d97706"/>
 <line x1="842.0" y1="344.0" x2="842.0" y2="462.0" stroke="#e2e8f0" stroke-width="1"/>
 <text x="850.0" y="363.7" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">78</text>
 <text x="850.0" y="422.0" font-size="11.5" fill="#d97706" font-weight="700" text-anchor="start">19</text>
 <text x="850.0" y="448.0" font-size="11.5" fill="#059669" font-weight="700" text-anchor="start">13</text>
-<text x="62.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="62.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-05</text>
-<text x="171.7" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="171.7" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="281.4" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f9647f4</text>
-<text x="281.4" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="391.1" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">9c5a369</text>
-<text x="391.1" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="500.9" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">4ba967e</text>
-<text x="500.9" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="610.6" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f47539d</text>
-<text x="610.6" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
-<text x="720.3" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">bbef191</text>
-<text x="720.3" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
-<text x="830.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
-<text x="830.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="446.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
+<text x="446.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
 <rect x="20.0" y="516.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
 <text x="36.0" y="537.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">隐藏延迟与动画帧时间（ms）</text>
 <rect x="880.0" y="524.0" width="44.0" height="18" fill="#f1f5f9" rx="9"/>
@@ -139,33 +101,18 @@
 <text x="54.0" y="603.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">600</text>
 <line x1="62.0" y1="570.0" x2="830.0" y2="570.0" stroke="#eef2f6" stroke-width="1"/>
 <text x="54.0" y="573.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">800</text>
-<circle cx="830.0" cy="687.7" r="8" fill="#2563eb" opacity="0.14"/>
-<circle cx="830.0" cy="687.7" r="3.5" fill="#2563eb"/>
-<circle cx="830.0" cy="589.3" r="8" fill="#059669" opacity="0.14"/>
-<circle cx="830.0" cy="589.3" r="3.5" fill="#059669"/>
-<circle cx="830.0" cy="685.2" r="8" fill="#d97706" opacity="0.14"/>
-<circle cx="830.0" cy="685.2" r="3.5" fill="#d97706"/>
-<text x="826.0" y="581.0" font-size="9" fill="#94a3b8" font-weight="400" text-anchor="end" stroke="#ffffff" stroke-width="2.5" paint-order="stroke">部分系列自 0e8af9b 起有数据</text>
+<circle cx="446.0" cy="687.7" r="8" fill="#2563eb" opacity="0.14"/>
+<circle cx="446.0" cy="687.7" r="3.5" fill="#2563eb"/>
+<circle cx="446.0" cy="589.3" r="8" fill="#059669" opacity="0.14"/>
+<circle cx="446.0" cy="589.3" r="3.5" fill="#059669"/>
+<circle cx="446.0" cy="685.2" r="8" fill="#d97706" opacity="0.14"/>
+<circle cx="446.0" cy="685.2" r="3.5" fill="#d97706"/>
 <line x1="842.0" y1="570.0" x2="842.0" y2="688.0" stroke="#e2e8f0" stroke-width="1"/>
 <text x="850.0" y="552.1" font-size="11.5" fill="#059669" font-weight="700" text-anchor="start">669</text>
 <text x="850.0" y="648.0" font-size="11.5" fill="#d97706" font-weight="700" text-anchor="start">19</text>
 <text x="850.0" y="674.0" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">2</text>
-<text x="62.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="62.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-05</text>
-<text x="171.7" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="171.7" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="281.4" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f9647f4</text>
-<text x="281.4" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="391.1" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">9c5a369</text>
-<text x="391.1" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="500.9" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">4ba967e</text>
-<text x="500.9" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="610.6" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f47539d</text>
-<text x="610.6" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
-<text x="720.3" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">bbef191</text>
-<text x="720.3" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
-<text x="830.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
-<text x="830.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="446.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
+<text x="446.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
 <rect x="20.0" y="742.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
 <text x="36.0" y="763.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">外部依赖 · LLM 任务端到端延迟（ms）</text>
 <rect x="880.0" y="750.0" width="44.0" height="18" fill="#f1f5f9" rx="9"/>
@@ -188,21 +135,7 @@
 <line x1="62.0" y1="796.0" x2="830.0" y2="796.0" stroke="#eef2f6" stroke-width="1"/>
 <text x="54.0" y="799.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">100</text>
 <text x="446.0" y="859.0" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="middle">暂无数据（等待采集并入）</text>
-<text x="62.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">a69b5d6</text>
-<text x="62.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-05</text>
-<text x="171.7" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">53f1d30</text>
-<text x="171.7" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="281.4" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f9647f4</text>
-<text x="281.4" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="391.1" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">9c5a369</text>
-<text x="391.1" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="500.9" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">4ba967e</text>
-<text x="500.9" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
-<text x="610.6" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f47539d</text>
-<text x="610.6" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
-<text x="720.3" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">bbef191</text>
-<text x="720.3" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
-<text x="830.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
-<text x="830.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="446.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
+<text x="446.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
 <text x="32.0" y="980.0" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">▼/▲ 较上一点变化（数值越低越好）· 缺源即缺段 · 峰值类与 frame_missed 仅报告不入图 · 图表为 history.jsonl 的派生工件，由 perf-chart.py 生成</text>
 </svg>
