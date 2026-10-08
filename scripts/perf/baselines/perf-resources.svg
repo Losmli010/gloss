@@ -34,7 +34,7 @@
 <circle cx="702.0" cy="136.8" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
 <circle cx="830.0" cy="136.8" r="8" fill="#2563eb" opacity="0.14"/>
 <circle cx="830.0" cy="136.8" r="3.5" fill="#2563eb"/>
-<text x="826.0" y="129.0" font-size="9" fill="#94a3b8" font-weight="400" text-anchor="end" stroke="#ffffff" stroke-width="2.5" paint-order="stroke">部分系列自 53f1d30 起有数据</text>
+<text x="826.0" y="231.5" font-size="9" fill="#94a3b8" font-weight="400" text-anchor="end" stroke="#ffffff" stroke-width="2.5" paint-order="stroke">部分系列自 53f1d30 起有数据</text>
 <line x1="842.0" y1="118.0" x2="842.0" y2="236.0" stroke="#e2e8f0" stroke-width="1"/>
 <text x="850.0" y="140.8" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">336.1</text>
 <text x="850.0" y="152.8" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">— 持平</text>
@@ -165,7 +165,7 @@
 <circle cx="702.0" cy="804.1" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
 <circle cx="830.0" cy="804.1" r="8" fill="#2563eb" opacity="0.14"/>
 <circle cx="830.0" cy="804.1" r="3.5" fill="#2563eb"/>
-<text x="826.0" y="807.0" font-size="9" fill="#94a3b8" font-weight="400" text-anchor="end" stroke="#ffffff" stroke-width="2.5" paint-order="stroke">部分系列自 53f1d30 起有数据</text>
+<text x="826.0" y="909.5" font-size="9" fill="#94a3b8" font-weight="400" text-anchor="end" stroke="#ffffff" stroke-width="2.5" paint-order="stroke">部分系列自 53f1d30 起有数据</text>
 <line x1="842.0" y1="796.0" x2="842.0" y2="914.0" stroke="#e2e8f0" stroke-width="1"/>
 <text x="850.0" y="808.1" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">14.9</text>
 <text x="850.0" y="820.1" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">— 持平</text>

@@ -15,12 +15,15 @@
 行流出、由统一采集器折算进点 budgets 段，任何环节不手写数值；常量名溯源走
 metrics.py 注册表。预算状态 chip 只按注册表中受预算约束（judge=预算门禁）的
 系列判定，同面板仅记录系列不参与；预算系列尚无测量值时不挂状态 chip（宁缺
-勿谎），预算 chip 与红线照挂。指标 id、单位格式化（fmt）全部取自 metrics.py
-注册表，面板清单在 import 期逐 id 校验，未登记 id 当场失败。
+勿谎），预算 chip 与红线照挂；history 尚无 budgets 段（预算值未入库）时挂
+「预算未入库」chip，不挂「仅记录」也不画红线。指标 id、单位格式化（fmt）
+全部取自 metrics.py 注册表，三张图的面板清单（含热路径派生面板）在 import
+期逐 id 校验，未登记 id 当场失败。
 
 面板是类别视图的固定结构：某指标尚无数据时面板照挂（图例、预算线照画），
-绘图区标「暂无数据（等待采集并入）」；某源中途才入库时跳段不造点，面板右上
-小字标注起始提交。峰值类（rss_peak / footprint_peak）与 frame_missed 不入图，
+绘图区标「暂无数据（等待采集并入）」；某源中途才入库时跳段不造点，绘图区
+右上小字标注起始提交（与右侧高位的数据带相撞时避让到右下，见
+_partial_note）。峰值类（rss_peak / footprint_peak）与 frame_missed 不入图，
 仅在 perf-report 总览表呈现。
 
 确定性字节输出：无时间戳、无集合遍历（渐变色收集后排序）、浮点坐标一律一位
@@ -216,12 +219,14 @@ def hotpath_panels():
         {
             "title": "clone 热点分配合计（allocs / bytes · 对数轴）",
             "series": (("clone.allocs", "allocs"), ("clone.bytes", "bytes")),
+            "mixed_units": True,
         }
     )
     panels.append(
         {
             "title": "clone 总数与密度（total / density · 对数轴）",
             "series": (("clone.total", "total"), ("clone.density", "density")),
+            "mixed_units": True,
         }
     )
     return tuple(panels)
@@ -230,15 +235,20 @@ def hotpath_panels():
 FIGURES = (
     ("perf-latency.svg", "Gloss 性能趋势 · 响应性", LATENCY_PANELS, "linear", FOOTER_GUTTER),
     ("perf-resources.svg", "Gloss 性能趋势 · 资源与体积", RESOURCES_PANELS, "linear", FOOTER_GUTTER),
-    ("perf-hotpath.svg", "Gloss 性能趋势 · 热路径", None, "log", FOOTER_HOTPATH),
+    ("perf-hotpath.svg", "Gloss 性能趋势 · 热路径", hotpath_panels(), "log", FOOTER_HOTPATH),
 )
 
 
 def _validate_panels():
-    """import 期校验：面板 id 未注册、预算语义漂移、同面板单位混装当场失败。"""
+    """import 期校验：面板 id 未注册、预算语义漂移、同面板单位混装当场失败。
+
+    三张图的面板（含 hotpath_panels() 派生的热路径面板）全部过检；标记
+    mixed_units 的面板（clone 两面板对数轴有意混装单位）豁免单位一致检查，
+    id 注册校验不豁免。
+    """
     problems = []
     for name, _title, panels, _kind, _footer in FIGURES:
-        for panel in panels or ():
+        for panel in panels:
             units = set()
             for mid, _label in panel["series"]:
                 metric = METRICS.get(mid)
@@ -246,7 +256,7 @@ def _validate_panels():
                     problems.append(f"{name}/{panel['title']}: 未注册指标 {mid}")
                     continue
                 units.add(metric.unit)
-            if len(units) > 1:
+            if len(units) > 1 and not panel.get("mixed_units"):
                 problems.append(f"{name}/{panel['title']}: 面板内单位混装 {sorted(units)}")
             budget_id = panel.get("budget")
             if budget_id is not None:
@@ -508,17 +518,45 @@ class Figure:
             self.parts.append(t(x, self.card_y + sha_dy, short_sha(point), 10, COLOR_MUTED, anchor="middle"))
             self.parts.append(t(x, self.card_y + date_dy, short_date(point), 9, COLOR_FAINT, anchor="middle"))
 
-    def _partial_note(self, plot_top, note_x, series):
+    def _partial_note(self, plot_top, plot_bottom, note_x, series, xs, y_of):
+        """「部分系列自 <sha> 起有数据」：默认绘图区右上，数据带相撞时避让。
+
+        轴顶恒贴系列峰值（top ≥ peak 且同量级），线在右侧高位时注释必压线
+        （二进制体积贴顶平线每次渲染都命中）。避让规则限定两条带——上带
+        （默认右上）与下带（绘图区右下），按注释 x 跨度 +8px 光晕余量内的
+        数据 y 范围（折线段 y 范围 = 端点范围，min/max 判交即精确）判定：
+        上带相撞移下带，两带皆占则回右上靠 halo 兜底。纯数据函数，确定性。
+        """
         firsts = []
         for _mid, _label, _color, vals in series:
             first = next((i for i, v in enumerate(vals) if v is not None), None)
             if first is not None:
                 firsts.append(first)
-        if firsts and max(firsts) > 0:
-            note = PARTIAL_MESSAGE.format(sha=short_sha(self.points[max(firsts)]))
-            self.parts.append(
-                t(note_x, plot_top + PARTIAL_NOTE_DY, note, 9, COLOR_MUTED, anchor="end", halo=True)
-            )
+        if not (firsts and max(firsts) > 0):
+            return
+        note = PARTIAL_MESSAGE.format(sha=short_sha(self.points[max(firsts)]))
+        note_left = note_x - text_w(note, 9)
+
+        def collides(band_top, band_bottom):
+            ys = [
+                y_of(v)
+                for _mid, _label, _color, vals in series
+                for x, v in zip(xs, vals)
+                if v is not None and x >= note_left - 8
+            ]
+            if not ys:
+                return False
+            return min(ys) - 8 <= band_bottom and max(ys) + 8 >= band_top
+
+        if collides(plot_top + 1, plot_top + 13.5) and not collides(
+            plot_bottom - 13.5, plot_bottom - 1
+        ):
+            baseline = plot_bottom - 4.5
+        else:
+            baseline = plot_top + PARTIAL_NOTE_DY
+        self.parts.append(
+            t(note_x, baseline, note, 9, COLOR_MUTED, anchor="end", halo=True)
+        )
 
     def linear_panel(self, panel):
         y0 = self.card_y
@@ -561,6 +599,8 @@ class Figure:
                     else ("● 超预算", CHIP_FAIL_BG, CHIP_FAIL_FG)
                 )
             chip_defs.append((f"预算 {fmt(budget, unit)}", CHIP_NEUTRAL_BG, CHIP_BUDGET_FG))
+        elif budget_id is not None:
+            chip_defs.append(("预算未入库", CHIP_NEUTRAL_BG, CHIP_RECORD_FG))
         else:
             chip_defs.append(("仅记录", CHIP_NEUTRAL_BG, CHIP_RECORD_FG))
         self._chips(y0, chip_defs)
@@ -622,7 +662,14 @@ class Figure:
                 self.parts.append(circle(x, y, 8, color, opacity=0.14))
                 self.parts.append(circle(x, y, 3.5, color))
 
-        self._partial_note(plot_top, PLOT_X1 - 4, series)
+        self._partial_note(
+            plot_top,
+            plot_bottom,
+            PLOT_X1 - 4,
+            series,
+            xs,
+            lambda v: plot_bottom - disp(v) / top * PLOT_H,
+        )
 
         if not visible:
             self.parts.append(
@@ -729,7 +776,7 @@ class Figure:
                 labels[i][1] = min(labels[i][1], labels[i - 1][1] - HP_LABEL_DE_COLLIDE)
             for x, y, color, label in labels:
                 self.parts.append(t(x, y, label, 10.5, color, weight="600", anchor="middle", halo=True))
-            self._partial_note(plot_top, HP_PLOT_X1 - 4, series)
+            self._partial_note(plot_top, plot_bottom, HP_PLOT_X1 - 4, series, xs, scale)
         else:
             self.parts.append(
                 t(
@@ -778,8 +825,6 @@ class Figure:
 
 def build_figure(spec, points):
     file_name, page_title, panels, kind, footer = spec
-    if panels is None:
-        panels = hotpath_panels()
     fig = Figure(page_title, points, footer, len(panels))
     for panel in panels:
         if kind == "linear":
