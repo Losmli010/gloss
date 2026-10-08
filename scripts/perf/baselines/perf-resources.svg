@@ -1,0 +1,217 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1214" viewBox="0 0 960 1214" font-family="-apple-system,'PingFang SC','Helvetica Neue',sans-serif">
+<rect x="0.0" y="0.0" width="960.0" height="1214" fill="#f8fafc" rx="0"/>
+<defs><linearGradient id="g-2563eb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2563eb" stop-opacity="0.16"/><stop offset="1" stop-color="#2563eb" stop-opacity="0"/></linearGradient></defs>
+<rect x="20.0" y="14.0" width="4.0" height="20" fill="#2563eb" rx="2"/>
+<text x="32.0" y="30.0" font-size="17" fill="#0f172a" font-weight="700" text-anchor="start">Gloss 性能趋势 · 资源与体积</text>
+<text x="32.0" y="48.0" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">环境：暂无记录 · 数据随基线采集逐点沉淀</text>
+<text x="940.0" y="30.0" font-size="10.5" fill="#94a3b8" font-weight="400" text-anchor="end">7 commits · 最新 bbef191</text>
+<rect x="20.0" y="64.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
+<text x="36.0" y="85.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">稳态内存（MB · RSS 与 phys_footprint 双口径）</text>
+<rect x="880.0" y="72.0" width="44.0" height="18" fill="#f1f5f9" rx="9"/>
+<text x="902.0" y="86.5" font-size="10" fill="#64748b" font-weight="400" text-anchor="middle">仅记录</text>
+<line x1="36.0" y1="99.0" x2="52.0" y2="99.0" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+<circle cx="44.0" cy="99.0" r="2.6" fill="#ffffff" stroke="#2563eb" stroke-width="1.6"/>
+<text x="57.0" y="102.5" font-size="10.5" fill="#334155" font-weight="400" text-anchor="start">app.rss_idle_kb</text>
+<line x1="163.3" y1="99.0" x2="179.3" y2="99.0" stroke="#059669" stroke-width="2" stroke-linecap="round"/>
+<circle cx="171.3" cy="99.0" r="2.6" fill="#ffffff" stroke="#059669" stroke-width="1.6"/>
+<text x="184.3" y="102.5" font-size="10.5" fill="#334155" font-weight="400" text-anchor="start">app.footprint_idle_kb</text>
+<line x1="62.0" y1="236.0" x2="830.0" y2="236.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="54.0" y="239.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">0.0</text>
+<line x1="62.0" y1="206.5" x2="830.0" y2="206.5" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="210.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">100.0</text>
+<line x1="62.0" y1="177.0" x2="830.0" y2="177.0" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="180.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">200.0</text>
+<line x1="62.0" y1="147.5" x2="830.0" y2="147.5" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="151.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">300.0</text>
+<line x1="62.0" y1="118.0" x2="830.0" y2="118.0" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="121.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">400.0</text>
+<path d="M 190.0,206.0 L 318.0,163.7 L 446.0,163.7 L 574.0,160.6 L 702.0,136.8 L 830.0,136.8 L 830.0,236.0 L 190.0,236.0 Z" fill="url(#g-2563eb)"/>
+<polyline points="190.0,206.0 318.0,163.7 446.0,163.7 574.0,160.6 702.0,136.8 830.0,136.8" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="190.0" cy="206.0" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="318.0" cy="163.7" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="446.0" cy="163.7" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="574.0" cy="160.6" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="702.0" cy="136.8" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="830.0" cy="136.8" r="8" fill="#2563eb" opacity="0.14"/>
+<circle cx="830.0" cy="136.8" r="3.5" fill="#2563eb"/>
+<text x="826.0" y="231.5" font-size="9" fill="#94a3b8" font-weight="400" text-anchor="end" stroke="#ffffff" stroke-width="2.5" paint-order="stroke">部分系列自 53f1d30 起有数据</text>
+<line x1="842.0" y1="118.0" x2="842.0" y2="236.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="850.0" y="140.8" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">336.1</text>
+<text x="850.0" y="152.8" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">— 持平</text>
+<text x="62.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="62.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-05</text>
+<text x="190.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="190.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="318.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="318.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="446.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">9c5a369</text>
+<text x="446.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="574.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="574.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="702.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f47539d</text>
+<text x="702.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
+<text x="830.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">bbef191</text>
+<text x="830.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
+<rect x="20.0" y="290.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
+<text x="36.0" y="311.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">显隐 100 轮 RSS 净增长（KB · 门禁看尾段）</text>
+<rect x="860.0" y="298.0" width="64.0" height="18" fill="#f1f5f9" rx="9"/>
+<text x="892.0" y="312.5" font-size="10" fill="#64748b" font-weight="400" text-anchor="middle">预算未入库</text>
+<line x1="36.0" y1="325.0" x2="52.0" y2="325.0" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+<circle cx="44.0" cy="325.0" r="2.6" fill="#ffffff" stroke="#2563eb" stroke-width="1.6"/>
+<text x="57.0" y="328.5" font-size="10.5" fill="#334155" font-weight="400" text-anchor="start">rss_growth_kb（全程）</text>
+<line x1="193.2" y1="325.0" x2="209.2" y2="325.0" stroke="#059669" stroke-width="2" stroke-linecap="round"/>
+<circle cx="201.2" cy="325.0" r="2.6" fill="#ffffff" stroke="#059669" stroke-width="1.6"/>
+<text x="214.2" y="328.5" font-size="10.5" fill="#334155" font-weight="400" text-anchor="start">rss_tail_growth_kb（尾段）</text>
+<text x="924.0" y="328.5" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="end">预算常量：tests/overlay.rs :: RSS_TAIL_GROWTH_BUDGET_KB</text>
+<line x1="62.0" y1="462.0" x2="830.0" y2="462.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="54.0" y="465.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">0</text>
+<line x1="62.0" y1="432.5" x2="830.0" y2="432.5" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="436.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">25</text>
+<line x1="62.0" y1="403.0" x2="830.0" y2="403.0" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="406.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">50</text>
+<line x1="62.0" y1="373.5" x2="830.0" y2="373.5" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="377.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">75</text>
+<line x1="62.0" y1="344.0" x2="830.0" y2="344.0" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="347.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">100</text>
+<text x="446.0" y="407.0" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="middle">暂无数据（等待采集并入）</text>
+<text x="62.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="62.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-05</text>
+<text x="190.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="190.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="318.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="318.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="446.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">9c5a369</text>
+<text x="446.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="574.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="574.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="702.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f47539d</text>
+<text x="702.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
+<text x="830.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">bbef191</text>
+<text x="830.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
+<rect x="20.0" y="516.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
+<text x="36.0" y="537.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">处理器（ms · 启动与空闲窗口）</text>
+<rect x="880.0" y="524.0" width="44.0" height="18" fill="#f1f5f9" rx="9"/>
+<text x="902.0" y="538.5" font-size="10" fill="#64748b" font-weight="400" text-anchor="middle">仅记录</text>
+<line x1="36.0" y1="551.0" x2="52.0" y2="551.0" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+<circle cx="44.0" cy="551.0" r="2.6" fill="#ffffff" stroke="#2563eb" stroke-width="1.6"/>
+<text x="57.0" y="554.5" font-size="10.5" fill="#334155" font-weight="400" text-anchor="start">app.startup_cpu_ms</text>
+<line x1="181.6" y1="551.0" x2="197.6" y2="551.0" stroke="#059669" stroke-width="2" stroke-linecap="round"/>
+<circle cx="189.6" cy="551.0" r="2.6" fill="#ffffff" stroke="#059669" stroke-width="1.6"/>
+<text x="202.6" y="554.5" font-size="10.5" fill="#334155" font-weight="400" text-anchor="start">app.cpu_idle_ms（30s）</text>
+<line x1="62.0" y1="688.0" x2="830.0" y2="688.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="54.0" y="691.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">0</text>
+<line x1="62.0" y1="658.5" x2="830.0" y2="658.5" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="662.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">1,200</text>
+<line x1="62.0" y1="629.0" x2="830.0" y2="629.0" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="632.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">2,400</text>
+<line x1="62.0" y1="599.5" x2="830.0" y2="599.5" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="603.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">3,600</text>
+<line x1="62.0" y1="570.0" x2="830.0" y2="570.0" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="573.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">4,800</text>
+<path d="M 190.0,581.1 L 318.0,582.5 L 446.0,582.5 L 574.0,663.9 L 702.0,675.2 L 830.0,675.2 L 830.0,688.0 L 190.0,688.0 Z" fill="url(#g-2563eb)"/>
+<polyline points="190.0,581.1 318.0,582.5 446.0,582.5 574.0,663.9 702.0,675.2 830.0,675.2" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="190.0" cy="581.1" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="318.0" cy="582.5" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="446.0" cy="582.5" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="574.0" cy="663.9" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="702.0" cy="675.2" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="830.0" cy="675.2" r="8" fill="#2563eb" opacity="0.14"/>
+<circle cx="830.0" cy="675.2" r="3.5" fill="#2563eb"/>
+<text x="826.0" y="581.0" font-size="9" fill="#94a3b8" font-weight="400" text-anchor="end" stroke="#ffffff" stroke-width="2.5" paint-order="stroke">部分系列自 53f1d30 起有数据</text>
+<line x1="842.0" y1="570.0" x2="842.0" y2="688.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="850.0" y="674.0" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">520</text>
+<text x="850.0" y="686.0" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">— 持平</text>
+<text x="62.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="62.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-05</text>
+<text x="190.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="190.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="318.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="318.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="446.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">9c5a369</text>
+<text x="446.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="574.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="574.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="702.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f47539d</text>
+<text x="702.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
+<text x="830.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">bbef191</text>
+<text x="830.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
+<rect x="20.0" y="742.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
+<text x="36.0" y="763.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">二进制体积（MB · release 产物）</text>
+<rect x="880.0" y="750.0" width="44.0" height="18" fill="#f1f5f9" rx="9"/>
+<text x="902.0" y="764.5" font-size="10" fill="#64748b" font-weight="400" text-anchor="middle">仅记录</text>
+<line x1="36.0" y1="777.0" x2="52.0" y2="777.0" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+<circle cx="44.0" cy="777.0" r="2.6" fill="#ffffff" stroke="#2563eb" stroke-width="1.6"/>
+<text x="57.0" y="780.5" font-size="10.5" fill="#334155" font-weight="400" text-anchor="start">app.binary_x64_kb</text>
+<line x1="175.5" y1="777.0" x2="191.5" y2="777.0" stroke="#059669" stroke-width="2" stroke-linecap="round"/>
+<circle cx="183.5" cy="777.0" r="2.6" fill="#ffffff" stroke="#059669" stroke-width="1.6"/>
+<text x="196.5" y="780.5" font-size="10.5" fill="#334155" font-weight="400" text-anchor="start">app.binary_arm64_kb</text>
+<line x1="62.0" y1="914.0" x2="830.0" y2="914.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="54.0" y="917.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">0.0</text>
+<line x1="62.0" y1="884.5" x2="830.0" y2="884.5" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="888.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">4.0</text>
+<line x1="62.0" y1="855.0" x2="830.0" y2="855.0" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="858.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">8.0</text>
+<line x1="62.0" y1="825.5" x2="830.0" y2="825.5" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="829.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">12.0</text>
+<line x1="62.0" y1="796.0" x2="830.0" y2="796.0" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="799.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">16.0</text>
+<polyline points="190.0,804.4 318.0,804.4 446.0,804.4 574.0,804.3 702.0,804.1 830.0,804.1" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="190.0" cy="804.4" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="318.0" cy="804.4" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="446.0" cy="804.4" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="574.0" cy="804.3" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="702.0" cy="804.1" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="830.0" cy="804.1" r="8" fill="#2563eb" opacity="0.14"/>
+<circle cx="830.0" cy="804.1" r="3.5" fill="#2563eb"/>
+<text x="826.0" y="909.5" font-size="9" fill="#94a3b8" font-weight="400" text-anchor="end" stroke="#ffffff" stroke-width="2.5" paint-order="stroke">部分系列自 53f1d30 起有数据</text>
+<line x1="842.0" y1="796.0" x2="842.0" y2="914.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="850.0" y="808.1" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">14.9</text>
+<text x="850.0" y="820.1" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">— 持平</text>
+<text x="62.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="62.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-05</text>
+<text x="190.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="190.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="318.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="318.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="446.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">9c5a369</text>
+<text x="446.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="574.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="574.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="702.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f47539d</text>
+<text x="702.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
+<text x="830.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">bbef191</text>
+<text x="830.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
+<rect x="20.0" y="968.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
+<text x="36.0" y="989.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">窗口句柄数</text>
+<rect x="880.0" y="976.0" width="44.0" height="18" fill="#f1f5f9" rx="9"/>
+<text x="902.0" y="990.5" font-size="10" fill="#64748b" font-weight="400" text-anchor="middle">仅记录</text>
+<line x1="36.0" y1="1003.0" x2="52.0" y2="1003.0" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+<circle cx="44.0" cy="1003.0" r="2.6" fill="#ffffff" stroke="#2563eb" stroke-width="1.6"/>
+<text x="57.0" y="1006.5" font-size="10.5" fill="#334155" font-weight="400" text-anchor="start">overlay.window_handles</text>
+<line x1="62.0" y1="1140.0" x2="830.0" y2="1140.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="54.0" y="1143.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">0</text>
+<line x1="62.0" y1="1110.5" x2="830.0" y2="1110.5" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="1114.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">1</text>
+<line x1="62.0" y1="1081.0" x2="830.0" y2="1081.0" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="1084.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">2</text>
+<line x1="62.0" y1="1051.5" x2="830.0" y2="1051.5" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="1055.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">3</text>
+<line x1="62.0" y1="1022.0" x2="830.0" y2="1022.0" stroke="#eef2f6" stroke-width="1"/>
+<text x="54.0" y="1025.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">4</text>
+<text x="446.0" y="1085.0" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="middle">暂无数据（等待采集并入）</text>
+<text x="62.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">a69b5d6</text>
+<text x="62.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-05</text>
+<text x="190.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">53f1d30</text>
+<text x="190.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="318.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f9647f4</text>
+<text x="318.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="446.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">9c5a369</text>
+<text x="446.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="574.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">4ba967e</text>
+<text x="574.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-06</text>
+<text x="702.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">f47539d</text>
+<text x="702.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
+<text x="830.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">bbef191</text>
+<text x="830.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-07</text>
+<text x="32.0" y="1206.0" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">▼/▲ 较上一点变化（数值越低越好）· 缺源即缺段 · 峰值类与 frame_missed 仅报告不入图 · 图表为 history.jsonl 的派生工件，由 perf-chart.py 生成</text>
+</svg>
