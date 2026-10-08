@@ -310,10 +310,12 @@ fn prune_old_logs(dir: &Path) {
 ///
 /// 订阅者是**线程局部**的：与全局 [`init`] 互不影响，多个线程可各自并发使用，
 /// 各自捕获各自线程上产生的日志。但**并发不等于不干扰**：tracing 的调用点
-/// 兴趣缓存是全局的，线程局部订阅者的进出会反复改写它，并发窗口内**其它
-/// 线程**正在打的共享调用点事件可能被整条跳过（并发实证：单线程跑过、
-/// 多线程随机落空）。因此断言本测试独有调用点用本函数即可；断言共享调用
-/// 点或跨线程一律用 [`capture_global`]（全局订阅者常驻，兴趣缓存稳定）。
+/// 兴趣缓存是进程级单份，未被捕获窗口覆盖的线程打日志时会把调用点缓存成
+/// `never`（无订阅者语境的注册结果），此后任何捕获窗口都整条收不到该调用点
+/// ——因此本函数在窗口内先重建一次兴趣缓存（按捕获订阅者重新注册全部调用
+/// 点），把窗口外的污染冲洗掉。并发窗口之间仍有残留竞争：断言共享调用点或
+/// 跨线程一律用 [`capture_global`]（全局订阅者常驻，缓存按它计算后不再被
+/// 无订阅者语境改写）。
 ///
 /// 过滤器取 [`init`] 的同一档基准级别，所以断言同时钉住了「这条日志在生产
 /// 默认级别下也打得出来」。
@@ -330,7 +332,14 @@ pub fn capture<F: FnOnce()>(f: F) -> String {
             let buffer = Arc::clone(&buffer);
             move || shaped_handle(CaptureHandle(Arc::clone(&buffer)))
         }));
-    tracing::subscriber::with_default(subscriber, f);
+    tracing::subscriber::with_default(subscriber, || {
+        // 缓存是进程级单份而兴趣按订阅者计算：窗口外的无订阅者求值会把调用点
+        // 缓存成 never（NoSubscriber::register_callsite 的返回值），macro 层对
+        // never 短路、根本不进 get_default，线程局部订阅者无从生效——在窗口内
+        // 重建，让全部已注册调用点按捕获订阅者重新计算。
+        tracing::callsite::rebuild_interest_cache();
+        f();
+    });
     let bytes = buffer
         .lock()
         .map(|buffer| buffer.clone())
