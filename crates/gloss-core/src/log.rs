@@ -124,8 +124,8 @@ static MILESTONE_START: OnceLock<Instant> = OnceLock::new();
 
 /// 记一条启动里程碑：`milestone`（id）与 `elapsed_ms`（相对进程入口累计，
 /// 单调时钟）两个顶层字段。埋点位置按启动序列定：进程入口、日志/配置/引擎
-/// 就绪、事件循环装配完成、渲染栈建立（再分窗口/设备/帧三段，m5a–m5c）与
-/// 预热帧后就绪（m5_ready）——量化脚本按 id 分段归因启动耗时（基线见
+/// 就绪、事件循环装配完成、渲染栈建立（再分窗口/设备/帧三段，06a–06c）与
+/// 预热帧后就绪（06_ready）——量化脚本按 id 分段归因启动耗时（基线见
 /// `scripts/perf/baselines/app-runtime-baseline.json`）。
 pub fn milestone(id: &str) {
     let start = MILESTONE_START.get_or_init(Instant::now);
@@ -308,9 +308,17 @@ fn prune_old_logs(dir: &Path) {
 
 /// 在捕获订阅者下运行 `f`，返回这段时间里格式化后的日志文本（含 span 字段）。
 ///
-/// 订阅者是**线程局部**的：与全局 [`init`] 互不影响，也不干扰其它线程，因此
-/// 可以并行调用；过滤器取 [`init`] 的同一档基准级别，所以断言同时钉住了
-/// 「这条日志在生产默认级别下也打得出来」。
+/// 订阅者是**线程局部**的：与全局 [`init`] 互不影响，多个线程可各自并发使用，
+/// 各自捕获各自线程上产生的日志。但**并发不等于不干扰**：tracing 的调用点
+/// 兴趣缓存是进程级单份，未被捕获窗口覆盖的线程打日志时会把调用点缓存成
+/// `never`（无订阅者语境的注册结果），此后任何捕获窗口都整条收不到该调用点
+/// ——因此本函数在窗口内先重建一次兴趣缓存（按捕获订阅者重新注册全部调用
+/// 点），把窗口外的污染冲洗掉。并发窗口之间仍有残留竞争：断言共享调用点或
+/// 跨线程一律用 [`capture_global`]（全局订阅者常驻，缓存按它计算后不再被
+/// 无订阅者语境改写）。
+///
+/// 过滤器取 [`init`] 的同一档基准级别，所以断言同时钉住了「这条日志在生产
+/// 默认级别下也打得出来」。
 ///
 /// 两个坑：**span 必须在 `f` 里创建**——tracing 在创建时就按当时订阅者的兴趣
 /// 定启用与否，没有订阅者时创建出来的 span 永远是禁用态，事后再捕获也补不
@@ -324,7 +332,14 @@ pub fn capture<F: FnOnce()>(f: F) -> String {
             let buffer = Arc::clone(&buffer);
             move || shaped_handle(CaptureHandle(Arc::clone(&buffer)))
         }));
-    tracing::subscriber::with_default(subscriber, f);
+    tracing::subscriber::with_default(subscriber, || {
+        // 缓存是进程级单份而兴趣按订阅者计算：窗口外的无订阅者求值会把调用点
+        // 缓存成 never（NoSubscriber::register_callsite 的返回值），macro 层对
+        // never 短路、根本不进 get_default，线程局部订阅者无从生效——在窗口内
+        // 重建，让全部已注册调用点按捕获订阅者重新计算。
+        tracing::callsite::rebuild_interest_cache();
+        f();
+    });
     let bytes = buffer
         .lock()
         .map(|buffer| buffer.clone())
@@ -393,12 +408,25 @@ fn build_filter(raw: Option<&str>) -> EnvFilter {
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    pub(crate) fn lock_dispatchers() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::let_underscore_must_use)]
 mod tests {
     use std::fs;
     use std::io::Write as _;
     use std::path::PathBuf;
 
+    use super::test_support::lock_dispatchers;
     use super::{
         DailyFileWriter, FILE_PREFIX, MAX_LOG_FILES, build_filter, capture, civil_from_days, info,
         init, log_file_name, milestone, open_file_writer, prune_old_logs, task_span, today_utc,
@@ -482,6 +510,7 @@ mod tests {
 
     #[test]
     fn init_is_idempotent() {
+        let _serial = lock_dispatchers();
         init(None);
         init(None);
     }
@@ -540,6 +569,7 @@ mod tests {
 
     #[test]
     fn task_span_carries_generation_into_events() {
+        let _serial = lock_dispatchers();
         let text = capture(|| {
             let span = task_span(7);
             let _entered = span.enter();
@@ -555,6 +585,7 @@ mod tests {
 
     #[test]
     fn logs_outside_a_task_carry_no_generation() {
+        let _serial = lock_dispatchers();
         let text = capture(|| {
             info!(thread = crate::log::thread::UI, "probe without task");
         });
@@ -567,6 +598,7 @@ mod tests {
 
     #[test]
     fn json_lines_carry_the_structured_contract() {
+        let _serial = lock_dispatchers();
         let text = capture(|| {
             info!(
                 thread = crate::log::thread::EVENT,
@@ -593,6 +625,7 @@ mod tests {
 
     #[test]
     fn milestone_event_carries_id_and_elapsed_ms() {
+        let _serial = lock_dispatchers();
         let text = capture(|| milestone("m_test_probe"));
 
         let line = probe_line(&text);

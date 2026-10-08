@@ -81,15 +81,17 @@ jobs:
 
       - name: Run tests
         run: just test
-        env:
-          GLOSS_PERF_OUT: ${{ runner.temp }}/perf/overlay.jsonl
 
-      - name: Upload perf records
+      - name: Run selftest report wrapper
+        if: always()
+        run: just selftest-report target/perf/selftest.jsonl
+
+      - name: Upload perf signals
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: perf-overlay-${{ github.run_id }}
-          path: ${{ runner.temp }}/perf/overlay.jsonl
+          name: perf-selftest-${{ github.run_id }}
+          path: target/perf/selftest.jsonl
           if-no-files-found: ignore
           retention-days: 90
 

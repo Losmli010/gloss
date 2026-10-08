@@ -39,7 +39,7 @@ PALETTE = ("#3d5a8a", "#c26b4a", "#4a8f6f", "#8a5fb0", "#a8842c", "#4a90a4")
 CORE_GROUPS = ("cache_key", "complete", "prompt_render", "task_cache")
 
 APP_PANELS = (
-    ("startup_ms", "一、启动总时长", "spawn→m5_ready 观测墙钟，含进程加载；只记录不判罚", lambda v: f"{v} ms"),
+    ("startup_ms", "一、启动总时长", "spawn→06_ready 观测墙钟，含进程加载；只记录不判罚", lambda v: f"{v} ms"),
     ("startup_cpu_ms", "二、启动 CPU", "启动期消耗的 CPU 时间，可低于墙钟（多核并行）", lambda v: f"{v} ms"),
     ("rss_idle_kb", "三、稳态 RSS", "空闲窗口末段的常驻内存", lambda v: f"{fmt_int(v)} kb"),
     ("binary_kb", "四、二进制大小", "release 产物体积", lambda v: f"{fmt_int(v)} kb"),

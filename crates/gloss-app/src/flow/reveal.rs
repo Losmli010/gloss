@@ -21,7 +21,7 @@ impl GlossApp {
             return;
         };
         if let Some(frame) = self.workspace.overlay_frame.as_ref() {
-            crate::ui::popup::reset_appear_animation(&frame.egui_ctx);
+            frame.reset_appear_animation();
             frame.reset_overlay_drag();
         }
         windows.show_at(position);

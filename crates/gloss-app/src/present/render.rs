@@ -41,6 +41,12 @@ impl Frame {
     pub(crate) fn reset_overlay_drag(&self) {
         self.popup_state.reset_drag_state();
     }
+
+    /// 清除浮层出现动画起点，让下一次显示从 0 淡入：生产显形入口在每次
+    /// 显示时调用，显隐自检的每轮显示也经它复现同一行为。
+    pub fn reset_appear_animation(&self) {
+        ui::popup::reset_appear_animation(&self.egui_ctx);
+    }
 }
 
 /// 建窗口栈与两个窗口的首帧渲染状态（生产 App 与自检 handler 共用）：
@@ -52,13 +58,13 @@ pub fn build_window_stack(
     theme: Theme,
 ) -> Result<(WindowManager, Frame, Frame), Box<dyn Error>> {
     let windows = WindowManager::new(event_loop)?;
-    milestone("m5a_windows");
+    milestone("06a_windows");
 
     let context = Arc::new(GpuContext::new()?);
-    milestone("m5b_gpu");
+    milestone("06b_gpu");
     let frame = build_frame(windows.overlay_handle(), &context, theme)?;
     let settings_frame = build_frame(windows.settings_handle(), &context, theme)?;
-    milestone("m5c_frames");
+    milestone("06c_frames");
 
     Ok((windows, frame, settings_frame))
 }

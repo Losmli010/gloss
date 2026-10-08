@@ -200,6 +200,7 @@ mod tests {
     fn classify_failure_falls_back_and_the_task_still_runs() {
         // 线程局部捕获（capture_global 会与 init_is_idempotent 竞争进程级
         // 订阅者）：current_thread 运行时让 warn 落在捕获作用域的同一线程。
+        let _serial = crate::log::test_support::lock_dispatchers();
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .build()

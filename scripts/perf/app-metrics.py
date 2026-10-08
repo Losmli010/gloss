@@ -3,12 +3,12 @@
 
 每次运行：GLOSS_LOG_DIR 指向独立临时目录 spawn release 二进制，轮询日志
 解析里程碑行（milestone / elapsed_ms），并行按固定间隔采样 ps 的 RSS 与
-累计 CPU 时间；m5_ready（窗口+GPU+预热帧就绪）后再采一段空闲窗口——起点取 m5_ready
+累计 CPU 时间；06_ready（窗口+GPU+预热帧就绪）后再采一段空闲窗口——起点取 06_ready
 与「system fonts applied」（后台字体补装完成）两者较晚者，空闲是真空
 闲；SIGTERM 收尾。共跑 --runs 次，各指标取中位数，连同磁盘清单与环境快照
 写入 baselines/app-runtime-baseline.json。
 
-启动总时长取 spawn→m5_ready 的观测墙钟（含进程加载，精度受轮询粒度限
+启动总时长取 spawn→06_ready 的观测墙钟（含进程加载，精度受轮询粒度限
 制），进程内分段归因看 milestones_ms。内存双口径：RSS（ps，压缩内存
 与 swap 不计，低估真实占用）与 phys_footprint（vmmap，活动监视器口径，
 空闲窗口末采样一次并带进程生命期峰值）。空闲 CPU 是空闲窗口的 CPU 时间增
@@ -44,7 +44,7 @@ ROOT = SCRIPT_DIR.parents[1]
 BINARY = ROOT / "target" / "release" / "gloss"
 BASELINE_PATH = SCRIPT_DIR / "baselines" / "app-runtime-baseline.json"
 
-READY_MILESTONE = "m5_ready"
+READY_MILESTONE = "06_ready"
 
 
 def run_text(cmd):
@@ -324,7 +324,7 @@ def main():
     )
     parser.add_argument("--runs", type=int, default=3, help="运行次数，各指标取中位数")
     parser.add_argument("--idle-secs", type=int, default=30, help="就绪后的空闲采样窗口秒数")
-    parser.add_argument("--ready-timeout", type=int, default=60, help="等待 m5_ready 的超时秒数")
+    parser.add_argument("--ready-timeout", type=int, default=60, help="等待 06_ready 的超时秒数")
     args = parser.parse_args()
 
     if not BINARY.is_file():
