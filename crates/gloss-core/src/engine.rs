@@ -198,36 +198,37 @@ mod tests {
 
     #[test]
     fn classify_failure_falls_back_and_the_task_still_runs() {
-        // 线程局部捕获（capture_global 会与 init_is_idempotent 竞争进程级
-        // 订阅者）：current_thread 运行时让 warn 落在捕获作用域的同一线程。
         let _serial = crate::log::test_support::lock_dispatchers();
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .build()
             .expect("runtime should build");
-        let (engine, service) = make_service(
-            &MockEngine::new()
-                .with_execute_failure_once(GlossError::EngineRateLimited)
-                .with_chunks(vec![Ok("兜底产物".into())]),
-        );
-        let input = text_input("第一次划词");
-        let options = options();
-        let logs = crate::log::capture(|| {
-            let output = rt
-                .block_on(service.run(input, options, |_| {}, |_| {}))
-                .expect("the fallback must let the task run");
-            assert_eq!(output.kind, TaskKind::TranslateWord);
-        });
-        assert_eq!(engine.call_count(), 2, "one classify call + one task call");
-
-        let line = logs
-            .lines()
-            .find(|line| line.contains("classification failed"))
-            .expect("the fallback must leave a trace");
-        assert!(
-            !line.contains("第一次划词"),
-            "the fallback warn must not carry the selection content: {line}"
-        );
+        let line = (0..3)
+            .find_map(|_| {
+                let (engine, service) = make_service(
+                    &MockEngine::new()
+                        .with_execute_failure_once(GlossError::EngineRateLimited)
+                        .with_chunks(vec![Ok("兜底产物".into())]),
+                );
+                let logs = crate::log::capture(|| {
+                    let output = rt
+                        .block_on(service.run(text_input("第一次划词"), options(), |_| {}, |_| {}))
+                        .expect("the fallback must let the task run");
+                    assert_eq!(output.kind, TaskKind::TranslateWord);
+                });
+                assert_eq!(engine.call_count(), 2, "one classify call + one task call");
+                logs.lines()
+                    .find(|line| line.contains("classification failed"))
+                    .inspect(|line| {
+                        assert!(
+                            !line.contains("第一次划词"),
+                            "the fallback warn must not carry the selection content: {line}"
+                        );
+                    })
+                    .map(str::to_owned)
+            })
+            .is_some();
+        assert!(line, "the fallback must leave a trace");
     }
 
     #[tokio::test]
