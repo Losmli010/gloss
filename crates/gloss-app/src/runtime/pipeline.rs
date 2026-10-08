@@ -151,7 +151,11 @@ async fn consume_loop(
                 // 读密钥可能被系统授权框长时间阻塞：甩进 blocking 线程池，
                 // 消费循环继续接收后续任务——首条 RunTask 不能排在密码框
                 // 后面。预热不占代数也不需要取消，失败只留痕（首次任务会
-                // 自然重读并按既有失败路径兜底）。
+                // 自然重读并按既有失败路径兜底）。任务路径自身的同步读密
+                // 撞上同一未回填首读时没有这份待遇：它嵌在 async 块里、
+                // 阻塞段不在 await 点上，select! 的取消分支对它不生效，
+                // 阻塞上界是一次授权框应答（keychain 读的按 key 闸门收敛
+                // 并发首读，不会叠加成多框）。
                 let store = Arc::clone(&store);
                 let events = events.clone();
                 let wake = wake.clone();

@@ -32,8 +32,8 @@ use crate::ui::i18n::Text;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
 use crate::update::UpdateWiring;
 
-/// 外部服务句柄聚合：配置、存储、场景探针、启动期系统语言与更新接线。
-/// 句柄本身进程内不变（配置内容经句柄热更新）。
+/// 外部服务句柄聚合：配置、存储、场景探针、启动期系统语言与权限预检结论、
+/// 更新接线。句柄本身进程内不变（配置内容经句柄热更新）。
 pub(crate) struct Env {
     /// 运行时配置句柄：每批平台事件取一份快照交给状态机，
     /// 配置保存后无需重启即对下一次触发生效。
@@ -47,6 +47,11 @@ pub(crate) struct Env {
     /// 启动期读到的系统语言：配置里的 `Language::System` 靠它落定成具体的
     /// 界面语言与 prompt 模板语言（进程内不变，改系统语言要重启）。
     pub(crate) system_locale: Locale,
+    /// 启动期权限预检结论：两项取材授权（辅助功能、输入监控）在启动时刻
+    /// 都已授予（组装点的合取，进程内不变）。密钥预热据此门控——未就绪
+    /// 意味着系统授权引导弹窗可能仍在途，预热读会让 keychain 授权框抢到
+    /// 它们之前。
+    pub(crate) permissions_ready: bool,
     /// 更新子系统的壳侧接线：设置页每帧读其 receiver 渲染，用户动作经
     /// 出口转投模块（与主流程四通道隔离）。
     pub(crate) update: UpdateWiring,
@@ -103,6 +108,7 @@ impl GlossApp {
         store: Arc<dyn ConfigStore>,
         scene: Arc<dyn SceneProbe>,
         system_locale: Locale,
+        permissions_ready: bool,
         update: UpdateWiring,
         proxy: Option<EventLoopProxy<UserEvent>>,
     ) -> Self {
@@ -116,6 +122,7 @@ impl GlossApp {
                 store,
                 scene,
                 system_locale,
+                permissions_ready,
                 update,
             },
             settings: None,
@@ -243,6 +250,24 @@ pub(crate) mod test_support {
         store: Arc<dyn ConfigStore>,
         scene: Arc<dyn SceneProbe>,
     ) -> DrivenApp {
+        driven_app_wired(store, scene, true)
+    }
+
+    /// 启动权限未就绪的驱动器：密钥预热在 `send_secret_prewarm` 处被门控
+    /// 跳过的行为以这条装配路径驱动。
+    pub(crate) fn driven_app_without_startup_permissions() -> DrivenApp {
+        driven_app_wired(
+            Arc::new(MemoryConfigStore::default()),
+            Arc::new(StubSceneProbe::default()),
+            false,
+        )
+    }
+
+    fn driven_app_wired(
+        store: Arc<dyn ConfigStore>,
+        scene: Arc<dyn SceneProbe>,
+        permissions_ready: bool,
+    ) -> DrivenApp {
         let crate::channel::Channels {
             platform_events,
             acquire_commands,
@@ -280,6 +305,7 @@ pub(crate) mod test_support {
             Arc::clone(&store) as Arc<dyn ConfigStore>,
             scene,
             Locale::Zh,
+            permissions_ready,
             update_wiring(),
             None,
         );

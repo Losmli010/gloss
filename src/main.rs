@@ -48,24 +48,31 @@ fn run() -> StartupResult {
     run_event_loop(config, store, service)
 }
 
-/// 启动期权限预检（启动骨架第 1.5 步，两项授权的缺失引导都在主线程直接
-/// 触发系统级弹窗，无应用内对话框）：辅助功能缺失即弹系统授权引导对话框
-/// （内含「打开系统设置」入口）；输入监控没有公开预检 API，tap 建立失败
-/// 即视为缺失，直接把系统设置的「输入监控」面板送到用户面前。授权状态
-/// 各留一条确认/缺失日志。
-fn preflight_event_permissions(mouse_listening: bool) {
+/// 启动期权限预检·辅助功能侧（启动骨架第 1.5 步的先手）：缺失即弹系统授
+/// 权引导对话框（内含「打开系统设置」入口）。必须在建 tap 之前调用——输入
+/// 监控的引导弹窗由 tap 建立动作本身异步触发，先弹本项，两项系统引导的
+/// 产生顺序才是「辅助功能 → 监控输入」。返回启动时刻的授权状态。
+fn preflight_accessibility() -> bool {
     if permissions::preflight_accessibility() {
         info!(
             thread = thread::UI,
             "accessibility permission granted for selection reading"
         );
+        true
     } else {
         warn!(
             thread = thread::UI,
             "accessibility permission missing, triggering the system guidance dialog"
         );
         permissions::request_accessibility();
+        false
     }
+}
+
+/// 启动期权限预检·输入监控侧（启动骨架第 1.5 步的后手）：没有公开预检
+/// API，tap 建立失败即视为缺失，直接把系统设置的「输入监控」面板送到用户
+/// 面前。授权状态留一条确认/缺失日志。
+fn preflight_input_monitoring(mouse_listening: bool) {
     if mouse_listening {
         info!(
             thread = thread::UI,
@@ -217,11 +224,19 @@ fn run_event_loop(
     let update_handle = gloss_app::update::start_once();
     let update = gloss_app::update::UpdateWiring::from_handle(update_handle);
 
-    // 启动期事件源装配上移到组装段：tap 的建立结果同步可知（等待是通道
-    // 事件且有界，无用户交互），tap 在这里先建好，事件线程稍后才消费其
-    // 产物；等待期间的手势事件在通道里有界排队。
+    // 启动期权限引导与事件源装配上移到组装段，且先后即系统弹窗的产生顺
+    // 序：先做辅助功能预检与引导，再建 tap（无输入监控授权时 tap 建立失败，
+    // 系统异步弹「监控输入」引导），最后对建立失败补开「输入监控」面板——
+    // 反过来建 tap 在先，两项引导就倒序出现。tap 的建立结果同步可知（等
+    // 待是通道事件且有界，无用户交互），tap 在这里先建好，事件线程稍后才
+    // 消费其产物；等待期间的手势事件在通道里有界排队。
+    let accessibility_ready = preflight_accessibility();
     let (mouse_source, mouse_degraded) = MouseSource::spawn();
-    preflight_event_permissions(mouse_source.is_some());
+    preflight_input_monitoring(mouse_source.is_some());
+    // 两项授权在启动时刻的合取：密钥预热据此门控——未就绪意味着系统授权
+    // 引导弹窗可能仍在途，keychain 授权框不能抢到它们之前（两项 TCC 弹窗
+    // 无落定回调，就绪与否只能取启动时刻的静态事实）。
+    let permissions_ready = accessibility_ready && mouse_source.is_some();
 
     let mut command_runtime = None;
     let mut event_thread = None;
@@ -236,6 +251,7 @@ fn run_event_loop(
         store,
         scene,
         system_locale,
+        permissions_ready,
         update,
         |waker| {
             // Dock 图标在这里装：macOS 的 NSApplication 单例只允许在 EventLoop
