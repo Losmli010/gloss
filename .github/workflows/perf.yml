@@ -61,8 +61,8 @@ jobs:
 
       # 采集顺序按设计文档 7.2 全量：clone 计数/密度（源码文本扫描，由
       # perf-collect 聚合时直接统计，无独立步骤）→ clone 分配 → 体积双架构
-      # → criterion 墙钟 → selftest wrapper → app-metrics → perf-collect
-      # 聚合 → perf-chart 重绘。托管 runner 独占硬件，无需负载先检。
+      # → criterion 墙钟 → selftest wrapper → app-metrics → 启动火焰图
+      # → perf-collect 聚合 → perf-chart 重绘。托管 runner 独占硬件，无需负载先检。
 
       - name: Clone allocs benchmark
         run: just clone-bench
@@ -102,14 +102,29 @@ jobs:
           print(f"binary_x64_kb = {data['binary_x64_kb']}")
           PY
 
+      # 火焰图走 attach 采样而非 cargo-flamegraph 的 launch 模式（flame-startup）：
+      # launch 模式要等进程退出才出图，CI 上无人退出 gloss；spawn 后立即采样同样
+      # 覆盖启动段。用 profiling 配置（带符号）才有函数级归因，release 是 strip 的。
+      # dtrace/SIP 在托管 runner 上的兼容性未证，辅助视图失败不拖垮整条采集链。
+      - name: Startup flamegraph (profiling build)
+        continue-on-error: true
+        run: |
+          cargo install --locked inferno rustfilt
+          cargo build --profile profiling --bin gloss
+          ./target/profiling/gloss &
+          app=$!
+          ./scripts/perf/flamegraph.py --pid "$app" --duration 20 \
+            --out target/perf/flamegraph-startup.svg
+          kill "$app" 2>/dev/null || true
+
       - name: Aggregate history point
         run: ./scripts/perf/perf-collect.py
 
       - name: Redraw trend charts
         run: ./scripts/perf/perf-chart.py
 
-      # 数据 PR 只入库 history 与三张 SVG；其余测量数据是 target/ 本地产物，
-      # 留 artifact 供事后审计取证（口径同 ci.yml 自检信号的 90 天）。
+      # 数据 PR 只入库 history 与三张 SVG；其余测量数据（含火焰图 SVG）是
+      # target/ 本地产物，留 artifact 供事后审计取证（口径同 ci.yml 自检信号的 90 天）。
       - name: Upload perf handoff
         if: always()
         uses: actions/upload-artifact@v7
@@ -156,6 +171,8 @@ jobs:
             echo "gh pr create --base main --head perf/collect-${HEAD_SHA} \\"
             echo "  --title \"perf(data): 采集 ${HEAD_SHA} 趋势点\" --body-file pr-body.md"
             echo '```'
+            echo
+            echo "启动火焰图不入库：见本 run 的 artifact perf-handoff-${{ github.run_id }} 内 flamegraph-startup.svg。"
             echo
             echo "## perf-report 对比（本点 vs 上一点，启发式参考，非门禁）"
             echo
