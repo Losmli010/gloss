@@ -102,36 +102,27 @@ jobs:
           print(f"binary_x64_kb = {data['binary_x64_kb']}")
           PY
 
-      # 火焰图走 dtrace 先行 + spawn 后采：flamegraph.py 的 pid-attach 模式要等
-      # 探针就位才知道 pid，attach 的数秒延迟会错过启动突发（首跑实证：20s 窗口
-      # 全落启动完成后的空闲段，零样本），故探针按 execname 过滤、先就位再 spawn；
-      # launch 模式（flame-startup）要等进程退出，CI 上无人退它，同样不可用。
-      # 折叠与渲染直接用 inferno；dtrace 在 runner VM 的 profile 提供器可用性
-      # 未证，辅助视图失败不拖垮整条采集链。
+      # 火焰图用 SIGSTOP 门闩采样：spawn 即停住进程，flamegraph.py 的 pid-attach
+      # 探针就位后再放行——attach 延迟从此与采样无关，启动第一条指令都不会漏
+      # （二跑教训：探针先行仍会输给 VM 上 dtrace 数秒的启用耗时，40 样本 vs
+      # 理论 3 万）。dtrace -c 产子进程的 launch 模式不可用：那会让应用以 root
+      # 跑、连不上 WindowServer。窗口缩到 10s：启动突发后余量即收，防空闲稀释。
       - name: Startup flamegraph (profiling build)
         continue-on-error: true
         run: |
           cargo install --locked inferno rustfilt
           cargo build --profile profiling --bin gloss
-          out=target/perf/flamegraph-startup.dtrace.txt
-          sudo dtrace -x ustackframes=100 -n '
-            profile-997 /execname == "gloss" && arg1/ { @[ustack(100)] = count(); }
-            tick-30s { exit(0); }' -o "$out" &
-          dpid=$!
-          ./target/profiling/gloss &
+          ( kill -STOP $$; exec ./target/profiling/gloss ) &
           app=$!
-          sleep 32
-          wait "$dpid" || true
+          ./scripts/perf/flamegraph.py --pid "$app" --duration 10 \
+            --out target/perf/flamegraph-startup.svg &
+          fg=$!
+          sleep 8
+          kill -CONT "$app" || true
+          wait "$fg" || true
+          kill -CONT "$app" 2>/dev/null || true
           kill "$app" 2>/dev/null || true
-          inferno-collapse-dtrace < "$out" | rustfilt \
-            > target/perf/flamegraph-startup.folded.txt
-          if [ ! -s target/perf/flamegraph-startup.folded.txt ]; then
-            echo "dtrace 零样本：runner VM 的 profile 提供器可能不可用，跳过出图" >&2
-            exit 1
-          fi
-          inferno-flamegraph --title "gloss startup 30s (macos-26 runner)" \
-            target/perf/flamegraph-startup.folded.txt \
-            > target/perf/flamegraph-startup.svg
+          test -s target/perf/flamegraph-startup.svg
 
       - name: Aggregate history point
         run: ./scripts/perf/perf-collect.py
