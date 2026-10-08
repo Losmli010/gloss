@@ -3,7 +3,7 @@
 <rect x="20.0" y="14.0" width="4.0" height="20" fill="#2563eb" rx="2"/>
 <text x="32.0" y="30.0" font-size="17" fill="#0f172a" font-weight="700" text-anchor="start">Gloss 性能趋势 · 资源与体积</text>
 <text x="32.0" y="48.0" font-size="11" fill="#94a3b8" font-weight="400" text-anchor="start">环境：macOS arm64 · Apple M1 (Virtual) · Apple Paravirtual device · 数据随基线采集逐点沉淀</text>
-<text x="940.0" y="30.0" font-size="10.5" fill="#94a3b8" font-weight="400" text-anchor="end">3 commits · 最新 40ed185</text>
+<text x="940.0" y="30.0" font-size="10.5" fill="#94a3b8" font-weight="400" text-anchor="end">4 commits · 最新 940c7ae</text>
 <rect x="20.0" y="64.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
 <text x="36.0" y="85.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">稳态内存（MB · RSS 与 phys_footprint 双口径）</text>
 <rect x="880.0" y="72.0" width="44.0" height="18" fill="#f1f5f9" rx="9"/>
@@ -24,29 +24,33 @@
 <text x="54.0" y="151.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">450.0</text>
 <line x1="62.0" y1="118.0" x2="830.0" y2="118.0" stroke="#eef2f6" stroke-width="1"/>
 <text x="54.0" y="121.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">600.0</text>
-<polyline points="62.0,130.4 446.0,130.4 830.0,130.4" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="62.0,130.4 318.0,130.4 574.0,130.4 830.0,130.4" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="62.0" cy="130.4" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="446.0" cy="130.4" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="318.0" cy="130.4" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="574.0" cy="130.4" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
 <circle cx="830.0" cy="130.4" r="8" fill="#2563eb" opacity="0.14"/>
 <circle cx="830.0" cy="130.4" r="3.5" fill="#2563eb"/>
-<polyline points="62.0,144.2 446.0,144.1 830.0,144.2" fill="none" stroke="#059669" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="62.0,144.2 318.0,144.1 574.0,144.2 830.0,144.2" fill="none" stroke="#059669" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="62.0" cy="144.2" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
-<circle cx="446.0" cy="144.1" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
+<circle cx="318.0" cy="144.1" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
+<circle cx="574.0" cy="144.2" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
 <circle cx="830.0" cy="144.2" r="8" fill="#059669" opacity="0.14"/>
 <circle cx="830.0" cy="144.2" r="3.5" fill="#059669"/>
 <line x1="842.0" y1="118.0" x2="842.0" y2="236.0" stroke="#e2e8f0" stroke-width="1"/>
-<text x="850.0" y="134.4" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">537.0</text>
+<text x="850.0" y="134.4" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">537.1</text>
 <text x="850.0" y="146.4" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">— 持平</text>
-<text x="850.0" y="160.4" font-size="11.5" fill="#059669" font-weight="700" text-anchor="start">467.0</text>
-<text x="850.0" y="172.4" font-size="9.5" fill="#059669" font-weight="400" text-anchor="start">▼ 0.1%</text>
+<text x="850.0" y="160.4" font-size="11.5" fill="#059669" font-weight="700" text-anchor="start">466.9</text>
+<text x="850.0" y="172.4" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">— 持平</text>
 <text x="62.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
 <text x="62.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
-<text x="446.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">d55fd4a</text>
-<text x="446.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
-<text x="830.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">40ed185</text>
+<text x="318.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">d55fd4a</text>
+<text x="318.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="574.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">40ed185</text>
+<text x="574.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="830.0" y="252.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">940c7ae</text>
 <text x="830.0" y="264.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
 <rect x="20.0" y="290.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
-<text x="36.0" y="311.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">显隐 100 轮 RSS 净增长（KB · 门禁看尾段）</text>
+<text x="36.0" y="311.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">显隐 100 轮 RSS 净增长（MB · 门禁看尾段）</text>
 <rect x="864.8" y="298.0" width="59.2" height="18" fill="#ecfdf5" rx="9"/>
 <text x="894.4" y="312.5" font-size="10" fill="#047857" font-weight="400" text-anchor="middle">● 预算内</text>
 <rect x="771.8" y="298.0" width="85.0" height="18" fill="#f1f5f9" rx="9"/>
@@ -59,37 +63,41 @@
 <text x="214.2" y="328.5" font-size="10.5" fill="#334155" font-weight="400" text-anchor="start">rss_tail_growth_kb（尾段）</text>
 <text x="924.0" y="328.5" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="end">预算常量：tests/overlay.rs :: RSS_TAIL_GROWTH_BUDGET_KB</text>
 <line x1="62.0" y1="462.0" x2="830.0" y2="462.0" stroke="#e2e8f0" stroke-width="1"/>
-<text x="54.0" y="465.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">0</text>
+<text x="54.0" y="465.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">0.0</text>
 <line x1="62.0" y1="432.5" x2="830.0" y2="432.5" stroke="#eef2f6" stroke-width="1"/>
-<text x="54.0" y="436.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">2,000</text>
+<text x="54.0" y="436.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">3.0</text>
 <line x1="62.0" y1="403.0" x2="830.0" y2="403.0" stroke="#eef2f6" stroke-width="1"/>
-<text x="54.0" y="406.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">4,000</text>
+<text x="54.0" y="406.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">6.0</text>
 <line x1="62.0" y1="373.5" x2="830.0" y2="373.5" stroke="#eef2f6" stroke-width="1"/>
-<text x="54.0" y="377.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">6,000</text>
+<text x="54.0" y="377.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">9.0</text>
 <line x1="62.0" y1="344.0" x2="830.0" y2="344.0" stroke="#eef2f6" stroke-width="1"/>
-<text x="54.0" y="347.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">8,000</text>
-<rect x="62.0" y="344.0" width="768.0" height="87.8" fill="#ef4444" fill-opacity="0.05" rx="0"/>
-<line x1="62.0" y1="431.8" x2="830.0" y2="431.8" stroke="#ef4444" stroke-width="1.3" stroke-dasharray="5 4"/>
-<polyline points="62.0,346.4 446.0,352.7 830.0,347.3" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="62.0" cy="346.4" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="446.0" cy="352.7" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="830.0" cy="347.3" r="8" fill="#2563eb" opacity="0.14"/>
-<circle cx="830.0" cy="347.3" r="3.5" fill="#2563eb"/>
-<polyline points="62.0,459.2 446.0,459.6 830.0,460.8" fill="none" stroke="#059669" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="62.0" cy="459.2" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
-<circle cx="446.0" cy="459.6" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
-<circle cx="830.0" cy="460.8" r="8" fill="#059669" opacity="0.14"/>
-<circle cx="830.0" cy="460.8" r="3.5" fill="#059669"/>
+<text x="54.0" y="347.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">12.0</text>
+<rect x="62.0" y="344.0" width="768.0" height="98.3" fill="#ef4444" fill-opacity="0.05" rx="0"/>
+<line x1="62.0" y1="442.3" x2="830.0" y2="442.3" stroke="#ef4444" stroke-width="1.3" stroke-dasharray="5 4"/>
+<polyline points="62.0,386.7 318.0,390.9 574.0,387.3 830.0,358.8" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="62.0" cy="386.7" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="318.0" cy="390.9" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="574.0" cy="387.3" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="830.0" cy="358.8" r="8" fill="#2563eb" opacity="0.14"/>
+<circle cx="830.0" cy="358.8" r="3.5" fill="#2563eb"/>
+<polyline points="62.0,460.2 318.0,460.5 574.0,461.2 830.0,460.6" fill="none" stroke="#059669" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="62.0" cy="460.2" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
+<circle cx="318.0" cy="460.5" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
+<circle cx="574.0" cy="461.2" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
+<circle cx="830.0" cy="460.6" r="8" fill="#059669" opacity="0.14"/>
+<circle cx="830.0" cy="460.6" r="3.5" fill="#059669"/>
 <line x1="842.0" y1="344.0" x2="842.0" y2="462.0" stroke="#e2e8f0" stroke-width="1"/>
-<text x="850.0" y="334.5" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">7,776</text>
-<text x="850.0" y="346.5" font-size="9.5" fill="#dc2626" font-weight="400" text-anchor="start">▲ 5.0%</text>
-<text x="850.0" y="448.0" font-size="11.5" fill="#059669" font-weight="700" text-anchor="start">80</text>
-<text x="850.0" y="460.0" font-size="9.5" fill="#059669" font-weight="400" text-anchor="start">▼ 50.0%</text>
+<text x="850.0" y="346.1" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">10.5</text>
+<text x="850.0" y="358.1" font-size="9.5" fill="#dc2626" font-weight="400" text-anchor="start">▲ 38.3%</text>
+<text x="850.0" y="448.0" font-size="11.5" fill="#059669" font-weight="700" text-anchor="start">0.1</text>
+<text x="850.0" y="460.0" font-size="9.5" fill="#dc2626" font-weight="400" text-anchor="start">▲ 80.0%</text>
 <text x="62.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
 <text x="62.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
-<text x="446.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">d55fd4a</text>
-<text x="446.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
-<text x="830.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">40ed185</text>
+<text x="318.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">d55fd4a</text>
+<text x="318.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="574.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">40ed185</text>
+<text x="574.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="830.0" y="478.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">940c7ae</text>
 <text x="830.0" y="490.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
 <rect x="20.0" y="516.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
 <text x="36.0" y="537.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">处理器（ms · 启动与空闲窗口）</text>
@@ -111,26 +119,30 @@
 <text x="54.0" y="603.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">750</text>
 <line x1="62.0" y1="570.0" x2="830.0" y2="570.0" stroke="#eef2f6" stroke-width="1"/>
 <text x="54.0" y="573.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">1,000</text>
-<polyline points="62.0,600.7 446.0,626.6 830.0,580.6" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="62.0,600.7 318.0,626.6 574.0,580.6 830.0,617.2" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="62.0" cy="600.7" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="446.0" cy="626.6" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="830.0" cy="580.6" r="8" fill="#2563eb" opacity="0.14"/>
-<circle cx="830.0" cy="580.6" r="3.5" fill="#2563eb"/>
-<polyline points="62.0,675.0 446.0,678.6 830.0,673.8" fill="none" stroke="#059669" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="318.0" cy="626.6" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="574.0" cy="580.6" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="830.0" cy="617.2" r="8" fill="#2563eb" opacity="0.14"/>
+<circle cx="830.0" cy="617.2" r="3.5" fill="#2563eb"/>
+<polyline points="62.0,675.0 318.0,678.6 574.0,673.8 830.0,676.2" fill="none" stroke="#059669" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="62.0" cy="675.0" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
-<circle cx="446.0" cy="678.6" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
-<circle cx="830.0" cy="673.8" r="8" fill="#059669" opacity="0.14"/>
-<circle cx="830.0" cy="673.8" r="3.5" fill="#059669"/>
+<circle cx="318.0" cy="678.6" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
+<circle cx="574.0" cy="673.8" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
+<circle cx="830.0" cy="676.2" r="8" fill="#059669" opacity="0.14"/>
+<circle cx="830.0" cy="676.2" r="3.5" fill="#059669"/>
 <line x1="842.0" y1="570.0" x2="842.0" y2="688.0" stroke="#e2e8f0" stroke-width="1"/>
-<text x="850.0" y="580.8" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">910</text>
-<text x="850.0" y="592.8" font-size="9.5" fill="#dc2626" font-weight="400" text-anchor="start">▲ 75.0%</text>
-<text x="850.0" y="674.0" font-size="11.5" fill="#059669" font-weight="700" text-anchor="start">120</text>
-<text x="850.0" y="686.0" font-size="9.5" fill="#dc2626" font-weight="400" text-anchor="start">▲ 50.0%</text>
+<text x="850.0" y="615.0" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">600</text>
+<text x="850.0" y="627.0" font-size="9.5" fill="#059669" font-weight="400" text-anchor="start">▼ 34.1%</text>
+<text x="850.0" y="674.0" font-size="11.5" fill="#059669" font-weight="700" text-anchor="start">100</text>
+<text x="850.0" y="686.0" font-size="9.5" fill="#059669" font-weight="400" text-anchor="start">▼ 16.7%</text>
 <text x="62.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
 <text x="62.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
-<text x="446.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">d55fd4a</text>
-<text x="446.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
-<text x="830.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">40ed185</text>
+<text x="318.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">d55fd4a</text>
+<text x="318.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="574.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">40ed185</text>
+<text x="574.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="830.0" y="704.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">940c7ae</text>
 <text x="830.0" y="716.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
 <rect x="20.0" y="742.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
 <text x="36.0" y="763.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">二进制体积（MB · release 产物）</text>
@@ -152,26 +164,30 @@
 <text x="54.0" y="829.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">12.0</text>
 <line x1="62.0" y1="796.0" x2="830.0" y2="796.0" stroke="#eef2f6" stroke-width="1"/>
 <text x="54.0" y="799.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">16.0</text>
-<polyline points="62.0,804.9 446.0,804.9 830.0,804.9" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="62.0,804.9 318.0,804.9 574.0,804.9 830.0,804.9" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="62.0" cy="804.9" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="446.0" cy="804.9" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="318.0" cy="804.9" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="574.0" cy="804.9" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
 <circle cx="830.0" cy="804.9" r="8" fill="#2563eb" opacity="0.14"/>
 <circle cx="830.0" cy="804.9" r="3.5" fill="#2563eb"/>
-<polyline points="62.0,815.2 446.0,815.2 830.0,815.2" fill="none" stroke="#059669" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="62.0,815.2 318.0,815.2 574.0,815.2 830.0,815.1" fill="none" stroke="#059669" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="62.0" cy="815.2" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
-<circle cx="446.0" cy="815.2" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
-<circle cx="830.0" cy="815.2" r="8" fill="#059669" opacity="0.14"/>
-<circle cx="830.0" cy="815.2" r="3.5" fill="#059669"/>
+<circle cx="318.0" cy="815.2" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
+<circle cx="574.0" cy="815.2" r="3" fill="#ffffff" stroke="#059669" stroke-width="1.8"/>
+<circle cx="830.0" cy="815.1" r="8" fill="#059669" opacity="0.14"/>
+<circle cx="830.0" cy="815.1" r="3.5" fill="#059669"/>
 <line x1="842.0" y1="796.0" x2="842.0" y2="914.0" stroke="#e2e8f0" stroke-width="1"/>
 <text x="850.0" y="808.9" font-size="11.5" fill="#2563eb" font-weight="700" text-anchor="start">14.8</text>
 <text x="850.0" y="820.9" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">— 持平</text>
 <text x="850.0" y="834.9" font-size="11.5" fill="#059669" font-weight="700" text-anchor="start">13.4</text>
-<text x="850.0" y="846.9" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">— 持平</text>
+<text x="850.0" y="846.9" font-size="9.5" fill="#dc2626" font-weight="400" text-anchor="start">▲ 0.1%</text>
 <text x="62.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
 <text x="62.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
-<text x="446.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">d55fd4a</text>
-<text x="446.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
-<text x="830.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">40ed185</text>
+<text x="318.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">d55fd4a</text>
+<text x="318.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="574.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">40ed185</text>
+<text x="574.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="830.0" y="930.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">940c7ae</text>
 <text x="830.0" y="942.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
 <rect x="20.0" y="968.0" width="920.0" height="212" fill="#ffffff" rx="10" stroke="#e2e8f0"/>
 <text x="36.0" y="989.0" font-size="12.5" fill="#0f172a" font-weight="600" text-anchor="start">窗口句柄数</text>
@@ -190,9 +206,10 @@
 <text x="54.0" y="1055.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">3</text>
 <line x1="62.0" y1="1022.0" x2="830.0" y2="1022.0" stroke="#eef2f6" stroke-width="1"/>
 <text x="54.0" y="1025.5" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="end">4</text>
-<polyline points="62.0,1051.5 446.0,1051.5 830.0,1051.5" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="62.0,1051.5 318.0,1051.5 574.0,1051.5 830.0,1051.5" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="62.0" cy="1051.5" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
-<circle cx="446.0" cy="1051.5" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="318.0" cy="1051.5" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+<circle cx="574.0" cy="1051.5" r="3" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
 <circle cx="830.0" cy="1051.5" r="8" fill="#2563eb" opacity="0.14"/>
 <circle cx="830.0" cy="1051.5" r="3.5" fill="#2563eb"/>
 <line x1="842.0" y1="1022.0" x2="842.0" y2="1140.0" stroke="#e2e8f0" stroke-width="1"/>
@@ -200,9 +217,11 @@
 <text x="850.0" y="1067.5" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">— 持平</text>
 <text x="62.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">0e8af9b</text>
 <text x="62.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
-<text x="446.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">d55fd4a</text>
-<text x="446.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
-<text x="830.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">40ed185</text>
+<text x="318.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">d55fd4a</text>
+<text x="318.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="574.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">40ed185</text>
+<text x="574.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
+<text x="830.0" y="1156.0" font-size="10" fill="#94a3b8" font-weight="400" text-anchor="middle">940c7ae</text>
 <text x="830.0" y="1168.0" font-size="9" fill="#cbd5e1" font-weight="400" text-anchor="middle">10-08</text>
 <text x="32.0" y="1206.0" font-size="9.5" fill="#94a3b8" font-weight="400" text-anchor="start">▼/▲ 较上一点变化（数值越低越好）· 缺源即缺段 · 峰值类与 frame_missed 仅报告不入图 · 图表为 history.jsonl 的派生工件，由 perf-chart.py 生成</text>
 </svg>
