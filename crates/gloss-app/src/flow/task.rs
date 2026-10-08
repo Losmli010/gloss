@@ -318,11 +318,21 @@ impl GlossApp {
 }
 
 impl GlossApp {
-    /// 发密钥预热命令（通道③，不带任务 span——预热不属于任何任务）：
-    /// 启动授权引导（系统级弹窗）之后即发，macOS 的 keychain 授权框由此
-    /// 前置到启动期受控出现，读到的值进存储的进程内缓存，首次划词不再弹。
+    /// 发密钥预热命令（通道③，不带任务 span——预热不属于任何任务）。仅在
+    /// 启动期两项授权都已就绪时发送：就绪时不会有系统权限引导弹窗在途，
+    /// keychain 授权框（仅旧签名条目存在时出现）独占出现且晚于一切权限引
+    /// 导，读到的值进存储的进程内缓存，首次划词不再弹；未就绪时系统的授权
+    /// 引导弹窗异步在途且无落定回调，预热读的同步授权框会抢到它们之前，
+    /// 故跳过启动期预热，首次任务自然重读——那时授权框必然晚于权限引导。
     /// 发送失败（通道已关，应用正在退出）只留痕。
     pub(crate) fn send_secret_prewarm(&mut self) {
+        if !self.env.permissions_ready {
+            debug!(
+                thread = thread::UI,
+                "startup permissions not ready, secret prewarm deferred to the first task"
+            );
+            return;
+        }
         let keychain_id = self
             .env
             .config
@@ -358,7 +368,8 @@ mod tests {
     use gloss_core::model::{GlossError, Lang};
 
     use crate::app::test_support::{
-        driven_app, outcome_note, plain_outcome, streaming_raw, text_input, trigger_selection,
+        driven_app, driven_app_without_startup_permissions, outcome_note, plain_outcome,
+        streaming_raw, text_input, trigger_selection,
     };
     use crate::channel::{AcquireCommand, Command};
     use crate::machine::AppState;
@@ -399,6 +410,19 @@ mod tests {
         assert!(
             cmd_rx.try_recv().is_err(),
             "no endpoints means nothing is sent and nothing panics"
+        );
+    }
+
+    #[test]
+    fn prewarm_is_deferred_when_startup_permissions_are_not_ready() {
+        let (mut app, _config, _store, _pe_tx, _ac_rx, mut cmd_rx, _ev_tx) =
+            driven_app_without_startup_permissions();
+
+        app.send_secret_prewarm();
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "with permission guidance still in flight the keychain read must not be pulled \
+             forward to startup"
         );
     }
 

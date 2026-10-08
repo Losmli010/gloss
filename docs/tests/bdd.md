@@ -9,11 +9,11 @@
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
 | 人工测试 | 11 | `cargo test -p gloss-platform -- --ignored` |
-| 发版人工步骤 | 5 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
+| 发版人工步骤 | 6 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 32 | `just test` |
-| 单元测试 | 470 | `just test` |
+| 单元测试 | 472 | `just test` |
 
 ## 人工测试
 
@@ -160,6 +160,16 @@
   3. 打开 GitHub Release，确认双架构 zip/dmg 共 4 个资产
   4. 打开站点确认 manifest.json 的 version 与 tag（去 v）一致，latest/ 下 4 个文件可下载
 - 更新时间：2026-09-26
+
+### first_launch_guides_accessibility_then_input_monitoring
+- 测试目标：验证全新环境首次启动的系统级引导顺序与 keychain 授权框的落点（三项引导的顺序口径：辅助功能 → 监控输入 → 密钥）。
+- 测试场景：给定撤销两项 TCC 授权的干净环境，当首次启动应用，则先弹辅助功能引导对话框、再出现监控输入引导；keychain 授权框不在前两者之前出现，且同一次进程内至多一次。
+- 测试步骤：
+  1. 撤销授权复位到首启状态：`tccutil reset Accessibility io.github.losmli010.gloss` 与 `tccutil reset ListenEvent io.github.losmli010.gloss`（bundle id 以构建为准）
+  2. 首次启动应用，确认先弹「辅助功能」引导对话框，随后出现「监控输入」引导/设置面板；期间不得出现「允许访问钥匙串」
+  3. 授予两项权限后重启应用：keychain 旧条目存在时授权框此刻才出现，点「始终允许」后同构建再重启不再弹
+  4. ad-hoc 构建跨版本重弹属预期（README「首次启动与系统授权」已注明）
+- 更新时间：2026-10-08
 
 ### app_survives_eight_hour_mixed_load_soak
 - 测试目标：验证长驻进程 8 小时「静置为主 + 周期性人工划词」混合负载下的内存稳定性、日志有界性与运行健康。
@@ -623,6 +633,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | --- | --- | --- | --- |
 | prewarm_dispatches_the_configured_keychain_entry_exactly_once | 预热命令携带当前配置条目且逐次下发 | 给定默认配置的驱动器，当连续两次 send_secret_prewarm，则通道③各收到一条 PrewarmSecret 且 keychain_id 取自当前快照（共两条） | 2026-10-06 |
 | prewarm_without_endpoints_is_a_silent_no_op | 无端点时预热静默跳过 | 给定 endpoints 已清空的驱动器，当 send_secret_prewarm，则不发任何命令、不 panic | 2026-10-06 |
+| prewarm_is_deferred_when_startup_permissions_are_not_ready | 启动权限未就绪时预热推迟 | 给定启动权限预检结论为未就绪的驱动器，当 send_secret_prewarm，则不发任何命令（keychain 授权框不得抢在系统权限引导弹窗之前，读密推迟到首次任务） | 2026-10-08 |
 
 ### crates/gloss-app/src/runtime/pipeline.rs
 
@@ -858,6 +869,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | missing_entry_reads_as_none | 缺条目读为 None | 给定先删除预清的条目，当 get，则 None 而非错误 | 2026-09-19 |
 | delete_missing_entry_is_ok | 删除缺条目幂等成功 | 给定不存在的条目，当 delete，则幂等成功 | 2026-09-19 |
 | cached_reads_stay_consistent_with_writes | 缓存读写一致 | 给定写后读与删除后读，当经克隆共享缓存，则写后读新值、删除后克隆读 None（不走真实 keychain 写入） | 2026-09-19 |
+| racing_first_reads_settle_on_the_cached_value | 并发首读共享同一次未命中 | 给定预清条目与 4 线程并发 get，当首读竞赛，则全部读到一致结果且不悬挂（首读按 key 过闸门串行，授权框阻塞期间并发读者等缓存回填而非各撞一次授权框） | 2026-10-08 |
 
 ### crates/gloss-platform/src/selection/accessibility.rs
 

@@ -57,7 +57,9 @@ impl Waker {
 /// `GlossApp::apply_theme`）。`system_locale` 是组装点读到的系统语言，
 /// 供配置里的 `Language::System` 落定成 [`Locale`]（prompt 模板与界面文案共用）。
 /// `scene` 是触发前场景探针（安全输入态、前台应用），供敏感信息防护的
-/// 场景闸门判定——同样是平台适配器的事，壳只消费。
+/// 场景闸门判定——同样是平台适配器的事，壳只消费。`permissions_ready`
+/// 是组装点的启动期权限预检结论（两项取材授权在启动时刻是否都已就绪），
+/// 密钥预热据此门控（见 `GlossApp::send_secret_prewarm`）。
 ///
 /// `update` 是更新子系统的壳侧接线（组装点经 `update::start_once()` 建立，
 /// 见 [`UpdateWiring`]）：设置页每帧读 [`watch::Receiver`] 里的
@@ -72,6 +74,7 @@ pub fn run(
     store: Arc<dyn ConfigStore>,
     scene: Arc<dyn SceneProbe>,
     system_locale: Locale,
+    permissions_ready: bool,
     update: UpdateWiring,
     on_waker: impl FnOnce(Waker),
 ) -> Result<(), Box<dyn Error>> {
@@ -85,6 +88,7 @@ pub fn run(
         store,
         scene,
         system_locale,
+        permissions_ready,
         update,
         Some(proxy),
     );
