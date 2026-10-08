@@ -91,22 +91,24 @@ clone-bench:
 clone-stats:
     ./scripts/perf/clone-stats.py
 
-# 重建性能基线并重绘趋势图：clone 计数+分配（需先跑 just clone-bench）→ clone-stats.json；core 墙钟快照（含环境，需先跑 just bench）→ core-baseline.json；聚合点追加 history.jsonl
+# 采集性能趋势点并重绘趋势图：perf-collect 聚合 target/ 本地产物为 history.jsonl 一个点（clone 计数+分配需先跑 just clone-bench、core 墙钟需先跑 just bench、自检信号需先跑 just selftest-report、app 片段需先跑 just app-metrics；某源缺席对应指标跳过）→ perf-chart 重绘三张 SVG；PR 审查看 history.jsonl 数值 diff + 三张 SVG 视觉 diff
 perf-baseline:
-    ./scripts/perf/clone-stats.py --write
-    ./scripts/perf/bench-baseline.py
-    ./scripts/perf/perf-history.py
+    ./scripts/perf/perf-collect.py
     ./scripts/perf/perf-chart.py
 
-# 对照 clone 基线报告变化（clone 计数或热点分配上升即失败；core 墙钟仅记录不判罚；审计对照，不在 precommit）
+# 仅重绘三张趋势 SVG（baselines/history.jsonl 的派生视图，不采集不判罚）
+perf-chart:
+    ./scripts/perf/perf-chart.py
+
+# 对照 history 最新点 clone 门禁基线报告变化（clone 计数或热点分配上升即失败；需先跑 just clone-bench 与 just perf-baseline；审计对照，不在 precommit）
 clone-check:
     ./scripts/perf/clone-stats.py --check
 
-# 量化应用运行时资源并重绘趋势：构建 → spawn 实例采启动里程碑/RSS/CPU（建议先退出在跑的 gloss）→ app-runtime-baseline.json；聚合点随 perf-history 进 history.jsonl，app-runtime.svg 随 perf-chart 重绘
+# 量化应用运行时资源并采集趋势点：构建 → spawn 实例采启动里程碑/RSS/CPU/体积（建议先退出在跑的 gloss）→ target/perf/app-runtime.json 片段（不入库）；随 perf-collect 折算进 history.jsonl，三张 SVG 随 perf-chart 重绘
 app-metrics:
     cargo build --release
     ./scripts/perf/app-metrics.py
-    ./scripts/perf/perf-history.py
+    ./scripts/perf/perf-collect.py
     ./scripts/perf/perf-chart.py
 
 # 性能总览/对比 Markdown 报告（stdout，判定仅参考非门禁）：缺省输出最新点总览；--from <sha> --to <sha> 输出两期对比（精确计数类上升即回归，其余按注册表噪声阈值）
