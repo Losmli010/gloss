@@ -8,9 +8,10 @@
 //! 属一次性预热分配，泄漏信号看尾段斜率）。需要窗口服务与 GPU。
 //!
 //! 信号走 stderr 结构化 JSON 行（`kind` 字段分型）：每轮一条轻量 round
-//! 标记行（round 序号，第 25 轮为预热边界），收尾一条 `overlay_perf`
-//! 汇总行（延迟分位/帧时间/尾段/句柄/预算与判定字段）；完整 RSS 曲线由
-//! selftest-report wrapper 在进程外 ps 轮询采集，不在本测试内。
+//! 标记行（round = 发出时已完成的轮数，0 起始——与进程内 RSS 采样键同一
+//! 刻度，25 = 预热边界），收尾一条 `overlay_perf` 汇总行（延迟分位/帧时
+//! 间/尾段/句柄/预算与判定字段）；完整 RSS 曲线由 selftest-report wrapper
+//! 在进程外 ps 轮询采集，不在本测试内。
 //!
 //! 退出码：跑满 100 轮且有延迟统计 `0`；无帧、首帧超预算、RSS 尾段
 //! 净增长超预算 `1`。
@@ -208,8 +209,8 @@ impl OverlaySelfTest {
         {
             self.rss_curve.push((self.round, rss));
         }
-        self.round += 1;
         eprintln!("{}", json!({"kind": "overlay_round", "round": self.round}));
+        self.round += 1;
         let now = Instant::now();
         self.shown_at = Some(now);
         self.auto_hide = Some(now + SELFTEST_VISIBLE);
