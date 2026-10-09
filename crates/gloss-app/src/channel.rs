@@ -285,6 +285,7 @@ mod tests {
             },
             PlatformEvent::OpenSettingsRequested,
             PlatformEvent::QuitRequested,
+            PlatformEvent::AccessibilityGranted,
         ];
         for e in &events {
             ch.tx.send(e.clone()).unwrap();

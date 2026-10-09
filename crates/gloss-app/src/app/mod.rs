@@ -32,8 +32,9 @@ use crate::ui::i18n::Text;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
 use crate::update::UpdateWiring;
 
-/// 外部服务句柄聚合：配置、存储、场景探针、启动期系统语言与权限预检结论、
-/// 更新接线。句柄本身进程内不变（配置内容经句柄热更新）。
+/// 外部服务句柄聚合：配置、存储、场景探针、系统语言、取材授权门控、
+/// 更新接线。句柄本身进程内不变（配置内容经句柄热更新；授权门控按运行
+/// 中授权落定置位，见 `permissions_ready`）。
 pub(crate) struct Env {
     /// 运行时配置句柄：每批平台事件取一份快照交给状态机，
     /// 配置保存后无需重启即对下一次触发生效。
