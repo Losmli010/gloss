@@ -161,21 +161,21 @@
   4. 打开站点确认 manifest.json 的 version 与 tag（去 v）一致，latest/ 下 4 个文件可下载
 - 更新时间：2026-09-26
 
-### first_launch_guides_accessibility_then_input_monitoring
-- 测试目标：验证全新环境首次启动的系统级引导顺序与 keychain 授权框的落点（三项引导的顺序口径：辅助功能 → 监控输入 → 密钥）。
-- 测试场景：给定撤销两项 TCC 授权的干净环境，当首次启动应用，则先弹辅助功能引导对话框、再出现监控输入引导；keychain 授权框不在前两者之前出现，且同一次进程内至多一次。
+### first_launch_guides_accessibility
+- 测试目标：验证全新环境首次启动的系统级引导顺序与 keychain 授权框的落点（引导顺序口径：辅助功能 → 密钥）。
+- 测试场景：给定撤销 TCC 授权的干净环境，当首次启动应用，则弹「辅助功能」引导对话框且不出现其他系统授权引导；keychain 授权框不在它之前出现，且同一次进程内至多一次。
 - 测试步骤：
-  1. 撤销授权复位到首启状态：`tccutil reset Accessibility io.github.losmli010.gloss` 与 `tccutil reset ListenEvent io.github.losmli010.gloss`（bundle id 以构建为准）
-  2. 首次启动应用，确认先弹「辅助功能」引导对话框，随后出现「监控输入」引导/设置面板；期间不得出现「允许访问钥匙串」
-  3. 授予两项权限后重启应用：keychain 旧条目存在时授权框此刻才出现，点「始终允许」后同构建再重启不再弹
+  1. 撤销授权复位到首启状态：`tccutil reset Accessibility io.github.losmli010.gloss`（bundle id 以构建为准）
+  2. 首次启动应用，确认弹「辅助功能」引导对话框；期间不得出现「允许访问钥匙串」，也不得出现「监控输入」设置面板
+  3. 授予辅助功能后重启应用：keychain 旧条目存在时授权框此刻才出现，点「始终允许」后同构建再重启不再弹
   4. ad-hoc 构建跨版本重弹属预期（README「首次启动与系统授权」已注明）
-- 更新时间：2026-10-08
+- 更新时间：2026-10-09
 
 ### app_survives_eight_hour_mixed_load_soak
 - 测试目标：验证长驻进程 8 小时「静置为主 + 周期性人工划词」混合负载下的内存稳定性、日志有界性与运行健康。
 - 测试场景：给定授权真机与 release 构建，当应用静置过夜并以 ~2 小时间隔人工划词数次，则 RSS 曲线无持续上漂、gloss 日志文件数 ≤ 7、进程存活且划词出卡正常。
 - 测试步骤：
-  1. 前置：辅助功能与输入监控已授权（人工划词出卡依赖取材授权）；系统负载低（建议夜间）；磁盘余量 ≥ 2GB
+  1. 前置：辅助功能已授权（人工划词出卡依赖取材授权）；系统负载低（建议夜间）；磁盘余量 ≥ 2GB
   2. 构建 release 并启动：`cargo build --release` 然后 `./target/release/gloss`
   3. 另开终端起 RSS 采样循环（每 30 分钟一次，照抄）：
      `while true; do echo "$(date +%H:%M) rss=$(ps -o rss= -p $(pgrep -x gloss)) kb" >> /tmp/soak-rss.txt; sleep 1800; done`

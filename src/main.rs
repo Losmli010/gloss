@@ -48,10 +48,10 @@ fn run() -> StartupResult {
     run_event_loop(config, store, service)
 }
 
-/// 启动期权限预检·辅助功能侧（启动骨架第 1.5 步的先手）：缺失即弹系统授
-/// 权引导对话框（内含「打开系统设置」入口）。必须在建 tap 之前调用——输入
-/// 监控的引导弹窗由 tap 建立动作本身异步触发，先弹本项，两项系统引导的
-/// 产生顺序才是「辅助功能 → 监控输入」。返回启动时刻的授权状态。
+/// 启动期权限预检（启动骨架第 1.5 步）：缺失即弹系统授权引导对话框（内
+/// 含「打开系统设置」入口）。必须在建 tap 之前调用——授权对话框非阻塞，
+/// 先弹引导再装配事件源，避免 tap 建立期的日志与事件被引导动作穿插。返回
+/// 启动时刻的授权状态（密钥预热的门控依据，见组装段）。
 fn preflight_accessibility() -> bool {
     if permissions::preflight_accessibility() {
         info!(
@@ -66,24 +66,6 @@ fn preflight_accessibility() -> bool {
         );
         permissions::request_accessibility();
         false
-    }
-}
-
-/// 启动期权限预检·输入监控侧（启动骨架第 1.5 步的后手）：没有公开预检
-/// API，tap 建立失败即视为缺失，直接把系统设置的「输入监控」面板送到用户
-/// 面前。授权状态留一条确认/缺失日志。
-fn preflight_input_monitoring(mouse_listening: bool) {
-    if mouse_listening {
-        info!(
-            thread = thread::UI,
-            "input monitoring granted for the selection gesture"
-        );
-    } else {
-        warn!(
-            thread = thread::UI,
-            "input monitoring permission missing, opening the Input Monitoring pane"
-        );
-        permissions::open_input_monitoring_pane();
     }
 }
 
@@ -224,19 +206,22 @@ fn run_event_loop(
     let update_handle = gloss_app::update::start_once();
     let update = gloss_app::update::UpdateWiring::from_handle(update_handle);
 
-    // 启动期权限引导与事件源装配上移到组装段，且先后即系统弹窗的产生顺
-    // 序：先做辅助功能预检与引导，再建 tap（无输入监控授权时 tap 建立失败，
-    // 系统异步弹「监控输入」引导），最后对建立失败补开「输入监控」面板——
-    // 反过来建 tap 在先，两项引导就倒序出现。tap 的建立结果同步可知（等
-    // 待是通道事件且有界，无用户交互），tap 在这里先建好，事件线程稍后才
-    // 消费其产物；等待期间的手势事件在通道里有界排队。
+    // 启动期权限引导与事件源装配上移到组装段：先做辅助功能预检与引导（唯
+    // 一的取材授权项），再建 tap。tap 的建立结果同步可知（等待是通道事件
+    // 且有界，无用户交互），tap 在这里先建好，事件线程稍后才消费其产物；
+    // 等待期间的手势事件在通道里有界排队。
     let accessibility_ready = preflight_accessibility();
     let (mouse_source, mouse_degraded) = MouseSource::spawn();
-    preflight_input_monitoring(mouse_source.is_some());
-    // 两项授权在启动时刻的合取：密钥预热据此门控——未就绪意味着系统授权
-    // 引导弹窗可能仍在途，keychain 授权框不能抢到它们之前（两项 TCC 弹窗
-    // 无落定回调，就绪与否只能取启动时刻的静态事实）。
-    let permissions_ready = accessibility_ready && mouse_source.is_some();
+    if mouse_source.is_some() {
+        info!(
+            thread = thread::UI,
+            "event tap established for the selection gesture"
+        );
+    }
+    // 密钥预热据此门控：未就绪即辅助功能引导对话框在途，keychain 授权框
+    // 不得抢在它之前（引导对话框无落定回调，就绪与否只能取启动时刻的
+    // 静态事实），预热推迟到首次任务自然重读。
+    let permissions_ready = accessibility_ready;
 
     let mut command_runtime = None;
     let mut event_thread = None;
@@ -323,8 +308,8 @@ fn create_channels() -> Channels {
 }
 
 /// 事件源集合：划词手势与监听降级提示。tap 的源与失效标志由组装点传入
-/// （spawn 在组装段同步完成，启动期失败已在 [`preflight_event_permissions`]
-/// 引导，这里只覆盖运行中失效）。
+/// （spawn 在组装段同步完成，启动期失败已由 [`MouseSource::spawn`] 留
+/// warn 日志并整体降级，这里只覆盖运行中失效）。
 fn event_sources(
     mouse_source: Option<MouseSource>,
     mouse_degraded: Arc<AtomicBool>,
@@ -343,18 +328,15 @@ fn event_sources(
         }));
     }
     // 监听降级的一次性提示：标志由 tap 线程在**运行中**失效时置位（启动
-    // 期失败不经它表达），事件线程轮询到即告警一次并直接打开系统设置的
-    // 「输入监控」面板（授权引导统一走系统级 UI，无应用内对话框）。
+    // 期失败不经它表达），事件线程轮询到即告警一次。
     let mut hinted = false;
     sources.push(Box::new(move || {
         if !hinted && mouse_degraded.load(Ordering::Relaxed) {
             hinted = true;
             warn!(
                 thread = thread::EVENT,
-                "mouse listener degraded mid-run, selection gesture disabled; \
-                 opening the Input Monitoring pane to re-grant"
+                "mouse listener degraded mid-run, selection gesture disabled"
             );
-            permissions::open_input_monitoring_pane();
         }
         Vec::new()
     }));
