@@ -21,7 +21,7 @@ use gloss_core::task::TaskInput;
 use gloss_platform::appearance::MacAppIcon;
 use gloss_platform::events::mouse::{MouseGesture, MouseSource};
 use gloss_platform::events::{EventSink, EventSource, EventSources};
-use gloss_platform::permissions;
+use gloss_platform::permissions::{self, AccessibilityWatch};
 use gloss_platform::scene::SystemSceneProbe;
 use gloss_platform::selection::composite::CompositeReader;
 use gloss_platform::storage::CompositeConfigStore;
@@ -287,7 +287,7 @@ fn run_event_loop(
                 acquire_rx,
                 sink,
                 acquire_command_handler(),
-                event_sources(mouse_source, mouse_degraded),
+                event_sources(mouse_source, mouse_degraded, accessibility_ready),
             ));
             log::milestone("05_assembly");
         },
@@ -308,14 +308,26 @@ fn create_channels() -> Channels {
     Channels::new()
 }
 
-/// 事件源集合：划词手势与监听降级提示。tap 的源与失效标志由组装点传入
-/// （spawn 在组装段同步完成，启动期失败已由 [`MouseSource::spawn`] 留
-/// warn 日志并整体降级，这里只覆盖运行中失效）。
+/// 事件源集合：划词手势、监听降级提示与运行中授权观察。tap 的源与失效
+/// 标志由组装点传入（spawn 在组装段同步完成，启动期失败已由
+/// [`MouseSource::spawn`] 留 warn 日志并整体降级，这里只覆盖运行中失效）；
+/// 授权观察仅在启动预检未就绪的会话武装——授权落定经 ① 通知 App 解除预
+/// 热门控并补发被推迟的密钥预热，落定只产出一次。
 fn event_sources(
     mouse_source: Option<MouseSource>,
     mouse_degraded: Arc<AtomicBool>,
+    accessibility_ready: bool,
 ) -> EventSources<PlatformEvent> {
     let mut sources: EventSources<PlatformEvent> = Vec::new();
+
+    let mut watch = AccessibilityWatch::armed_if(!accessibility_ready);
+    sources.push(Box::new(move || {
+        watch
+            .poll()
+            .then_some(PlatformEvent::AccessibilityGranted)
+            .into_iter()
+            .collect()
+    }));
 
     if let Some(mut source) = mouse_source {
         sources.push(Box::new(move || {

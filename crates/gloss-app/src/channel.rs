@@ -31,6 +31,11 @@ pub enum PlatformEvent {
     OpenSettingsRequested,
     /// 托盘请求退出应用。
     QuitRequested,
+    /// 运行中观察到取材授权（辅助功能）落定——仅启动预检未就绪的会话由
+    /// 授权观察器产出一次（事件线程节流轮询，见 platform 的
+    /// `AccessibilityWatch`）；不占用代数（与设置/退出入口同为不进状态机
+    /// 的直通事件）。
+    AccessibilityGranted,
 }
 
 /// ② 主线程 → 平台事件线程：触发取材。

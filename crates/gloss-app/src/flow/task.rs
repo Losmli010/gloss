@@ -318,15 +318,38 @@ impl GlossApp {
 }
 
 impl GlossApp {
+    /// 运行中取材授权（辅助功能）落定：解除预热门控并补发启动期被推迟的
+    /// 密钥预热。仅启动预检未就绪的会话会收到本事件（授权观察器由组装点
+    /// 按预检结论武装，落定只产出一次）；就绪即无系统权限引导弹窗在途，
+    /// keychain 授权框此刻出现符合引导顺序（辅助功能 → 密钥），用户无须
+    /// 重启或撞上首次任务。重复事件（理论不可达：观察器一次性）按已就绪
+    /// 静默忽略。
+    pub(crate) fn on_accessibility_granted(&mut self) {
+        if self.env.permissions_ready {
+            debug!(
+                thread = thread::UI,
+                "accessibility grant event ignored, permissions already ready"
+            );
+            return;
+        }
+        self.env.permissions_ready = true;
+        info!(
+            thread = thread::UI,
+            "accessibility granted mid-run, dispatching the deferred secret prewarm"
+        );
+        self.send_secret_prewarm();
+    }
+
     /// 发密钥预热命令（通道③，不带任务 span——预热不属于任何任务）。仅在
-    /// 启动期取材授权（辅助功能）已就绪时发送：就绪时不会有系统权限引导弹
-    /// 窗在途，keychain 授权框（仅旧签名条目存在时出现）独占出现且晚于一切
-    /// 权限引导，读到的值进存储的进程内缓存，首次划词不再弹；未就绪时系统
-    /// 的授权引导弹窗异步在途且无落定回调，预热读的同步授权框会抢到它们之
-    /// 前，故跳过启动期预热，首次任务自然重读——那时授权框必然晚于权限引导。
-    /// 推迟路径下任务自身的读密是同步阻塞（撞上未回填首读时卡在闸门/授权
-    /// 框上，取消不生效，见消费桥与 keychain 读的文档）。发送失败（通道已
-    /// 关，应用正在退出）只留痕。
+    /// 预热门控就绪时发送——就绪即没有系统权限引导弹窗在途（启动预检通过，
+    /// 或运行中授权落定后），keychain 授权框（仅旧签名条目存在时出现）独占
+    /// 出现且晚于一切权限引导，读到的值进存储的进程内缓存，首次划词不再
+    /// 弹；未就绪时系统的授权引导弹窗异步在途且无落定回调，预热读的同步
+    /// 授权框会抢到它们之前，故跳过启动期预热（由授权落定事件补发），否则
+    /// 首次任务自然重读——两种路径下授权框都必然晚于权限引导。推迟路径下
+    /// 任务自身的读密是同步阻塞（撞上未回填首读时卡在闸门/授权框上，取消
+    /// 不生效，见消费桥与 keychain 读的文档）。发送失败（通道已关，应用正
+    /// 在退出）只留痕。
     pub(crate) fn send_secret_prewarm(&mut self) {
         if !self.env.permissions_ready {
             debug!(
@@ -373,8 +396,51 @@ mod tests {
         driven_app, driven_app_without_startup_permissions, outcome_note, plain_outcome,
         streaming_raw, text_input, trigger_selection,
     };
-    use crate::channel::{AcquireCommand, Command};
+    use crate::channel::{AcquireCommand, Command, PlatformEvent};
     use crate::machine::AppState;
+
+    #[test]
+    fn accessibility_grant_event_unblocks_and_dispatches_deferred_prewarm() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) =
+            driven_app_without_startup_permissions();
+
+        pe_tx
+            .send(PlatformEvent::AccessibilityGranted)
+            .expect("platform channel open");
+        app.drain_platform_events();
+
+        let first = cmd_rx
+            .try_recv()
+            .expect("the grant must unblock the deferred prewarm");
+        assert!(
+            matches!(first.payload, Command::PrewarmSecret { .. }),
+            "the dispatched command is the secret prewarm, got {:?}",
+            first.payload
+        );
+
+        pe_tx
+            .send(PlatformEvent::AccessibilityGranted)
+            .expect("platform channel open");
+        app.drain_platform_events();
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "a repeat grant event must not re-dispatch: the gate stays unblocked"
+        );
+    }
+
+    #[test]
+    fn accessibility_grant_event_is_a_noop_when_already_ready() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+
+        pe_tx
+            .send(PlatformEvent::AccessibilityGranted)
+            .expect("platform channel open");
+        app.drain_platform_events();
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "a ready app gains nothing from the grant event"
+        );
+    }
 
     #[test]
     fn prewarm_dispatches_the_configured_keychain_entry_exactly_once() {
