@@ -7,8 +7,8 @@
 //! 回包（[`UpdateOutcome`]）在此收敛成命令与状态，UI 每帧读最新相位渲染。
 //!
 //! 状态迁移逐行对应分发设计 §4.1 的迁移表；额外说明三条表外语义：
-//! - 初始相位 [`UpdatePhase::Idle`] 只存在于首次检查发起之前（start_once
-//!   在启动即触发，稳态不可达）；
+//! - 初始相位 [`UpdatePhase::Idle`] 只存在于首次检查发起之前（启动静默
+//!   检查在首帧就绪后补发，稳态不可达）；
 //! - [`Self::cancel`] 只对下载中有效，回到待确认下载——清单已知且校验
 //!   通过，该事实不因下载取消而消失；在途进度留在 `.partial`（下次全量
 //!   下载时清除，仅失败重试路径会续传）；检查中无处可回，不予取消
@@ -28,7 +28,7 @@ use super::manifest::{self, Artifact, UpdateManifest};
 /// 子状态机七相位（另加初始相位 `Idle`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UpdatePhase {
-    /// 尚未发起过检查（仅 start_once 之前存在）。
+    /// 尚未发起过检查（仅首次静默检查之前存在）。
     #[default]
     Idle,
     /// 清单拉取与校验进行中。
@@ -160,7 +160,7 @@ impl UpdateMachine {
         }
     }
 
-    /// 发起一次检查（start_once / check_now 共用入口）：`ReadyToRestart`
+    /// 发起一次检查（启动静默检查 / 设置页检查共用入口）：`ReadyToRestart`
     /// 之外任意相位可发起，先取消在途任务（下载中断保留 `.partial`），
     /// 落 `Checking` 并交出清单拉取命令。清单步重试同走此处。
     pub fn check(&mut self) -> Option<UpdateCommand> {
