@@ -36,6 +36,12 @@ impl GlossApp {
                 self.open_settings();
                 continue;
             }
+            // 授权落定：启动预检未就绪的会话里运行中补齐了辅助功能授权，
+            // 解预热门控并补发被推迟的密钥预热；不占用代数（不进状态机）。
+            if matches!(event, PlatformEvent::AccessibilityGranted) {
+                self.on_accessibility_granted();
+                continue;
+            }
             // 逐事件现读场景事实：安全输入态与前台应用都可能在两次触发
             // 之间变化，探针也就两次纯查询。
             let scene = self.env.scene.facts();

@@ -162,12 +162,12 @@
 - 更新时间：2026-09-26
 
 ### first_launch_guides_accessibility
-- 测试目标：验证全新环境首次启动的系统级引导顺序与 keychain 授权框的落点（引导顺序口径：辅助功能 → 密钥）。
-- 测试场景：给定撤销 TCC 授权的干净环境，当首次启动应用，则弹「辅助功能」引导对话框且不出现其他系统授权引导；keychain 授权框不在它之前出现，且同一次进程内至多一次。
+- 测试目标：验证全新环境首次启动的系统级引导顺序与 keychain 授权框的落点（引导顺序口径：辅助功能 → 密钥），以及运行中授权落定后的预热补发。
+- 测试场景：给定撤销 TCC 授权的干净环境，当首次启动应用，则弹「辅助功能」引导对话框且不出现其他系统授权引导；keychain 授权框不在它之前出现，且同一次进程内至多一次；运行中授予辅助功能后授权框随之出现（无须重启）。
 - 测试步骤：
   1. 撤销授权复位到首启状态：`tccutil reset Accessibility io.github.losmli010.gloss`（bundle id 以构建为准）
   2. 首次启动应用，确认弹「辅助功能」引导对话框；期间不得出现「允许访问钥匙串」，也不得出现「监控输入」设置面板
-  3. 授予辅助功能后重启应用：keychain 旧条目存在时授权框此刻才出现，点「始终允许」后同构建再重启不再弹
+  3. 授予辅助功能：数秒内 keychain 旧条目的授权框出现（无须重启；授权观察器按 1s 节流观察落定），点「始终允许」后同构建再重启不再弹
   4. ad-hoc 构建跨版本重弹属预期（README「首次启动与系统授权」已注明）
 - 更新时间：2026-10-09
 
@@ -634,6 +634,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | prewarm_dispatches_the_configured_keychain_entry_exactly_once | 预热命令携带当前配置条目且逐次下发 | 给定默认配置的驱动器，当连续两次 send_secret_prewarm，则通道③各收到一条 PrewarmSecret 且 keychain_id 取自当前快照（共两条） | 2026-10-06 |
 | prewarm_without_endpoints_is_a_silent_no_op | 无端点时预热静默跳过 | 给定 endpoints 已清空的驱动器，当 send_secret_prewarm，则不发任何命令、不 panic | 2026-10-06 |
 | prewarm_is_deferred_when_startup_permissions_are_not_ready | 启动权限未就绪时预热推迟 | 给定启动权限预检结论为未就绪的驱动器，当 send_secret_prewarm，则不发任何命令（keychain 授权框不得抢在系统权限引导弹窗之前，读密推迟到首次任务） | 2026-10-08 |
+| accessibility_grant_event_unblocks_and_dispatches_deferred_prewarm | 授权落定解门控补发预热 | 给定启动权限未就绪的驱动器，当 drain 收到 AccessibilityGranted，则预热门控置位且通道③补发一条 PrewarmSecret；重复事件不再补发 | 2026-10-09 |
+| accessibility_grant_event_is_a_noop_when_already_ready | 已就绪时授权事件无操作 | 给定启动权限已就绪的驱动器，当 drain 收到 AccessibilityGranted，则不发任何命令 | 2026-10-09 |
 
 ### crates/gloss-app/src/runtime/pipeline.rs
 
@@ -653,7 +655,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（框选、设置、退出、监听失效），当 begin_selection_probe，则前者发 AcquireText（无 kind——类型归 LLM 层）且只领探测编号不动代数、后者 None 且不占代数不顶掉在途探测 | 2026-10-06 |
-| trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦/未接线 | 给定 trigger_decision，则划词恒为 Acquire（无载荷——分类是 LLM 层的事）、框选与退出报 Unwired、设置与退出不因场景被拦；出厂配置下划词为 Acquire，拦截名单内的前台应用则报 Blocked | 2026-10-03 |
+| trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦/未接线 | 给定 trigger_decision，则划词恒为 Acquire（无载荷——分类是 LLM 层的事）、框选、退出与授权落定报 Unwired、设置与退出不因场景被拦；出厂配置下划词为 Acquire，拦截名单内的前台应用则报 Blocked | 2026-10-09 |
 | scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 begin_selection_probe，则两次都 None、无探测编号、状态留 Idle；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
 | selection_options_pair_with_one_snapshot_including_the_model | 选项（含模型）出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则目标语言与模型 id 均出自快照冻结（类型不在其中——kind 由 LLM 层分类决定） | 2026-10-03 |
 | classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 accept_classified，则当前代写入判定 kind、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
@@ -891,6 +893,10 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
+| armed_watch_fires_once_then_disarms | 授权落定只产出一次并解除武装 | 给定武装的观察器与先拒后准的授权序列，当按查询间隔 poll_at，则落定时恰返回一次 true，此后解除武装不再查询 | 2026-10-09 |
+| unarmed_watch_never_queries | 未武装观察器不查询 | 给定预检已就绪（未武装）的观察器，当 poll_at，则恒 false 且授权查询闭包不被调用 | 2026-10-09 |
+| queries_are_throttled_to_the_interval | 真实查询按间隔节流 | 给定武装观察器，当以半个间隔与整间隔推进 poll_at，则半个间隔跳过查询、整间隔才再次查询 | 2026-10-09 |
+| a_poll_exactly_at_the_interval_queries | 恰到间隔的轮询放行查询 | 给定上轮查询后恰过一个完整间隔，当 poll_at，则再次执行真实查询 | 2026-10-09 |
 
 ### crates/gloss-platform/src/selection/composite.rs
 

@@ -58,8 +58,9 @@ impl Waker {
 /// 供配置里的 `Language::System` 落定成 [`Locale`]（prompt 模板与界面文案共用）。
 /// `scene` 是触发前场景探针（安全输入态、前台应用），供敏感信息防护的
 /// 场景闸门判定——同样是平台适配器的事，壳只消费。`permissions_ready`
-/// 是组装点的启动期权限预检结论（取材授权「辅助功能」在启动时刻是否
-/// 已就绪），密钥预热据此门控（见 `GlossApp::send_secret_prewarm`）。
+/// 是取材授权「辅助功能」的门控：启动时刻取预检结论，未就绪的会话在运
+/// 行中授权落定后置位（见 `GlossApp::on_accessibility_granted`），密钥预
+/// 热据此门控（见 `GlossApp::send_secret_prewarm`）。
 ///
 /// `update` 是更新子系统的壳侧接线（组装点经 `update::start_once()` 建立，
 /// 见 [`UpdateWiring`]）：设置页每帧读 [`watch::Receiver`] 里的

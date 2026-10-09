@@ -563,7 +563,8 @@ pub enum TriggerDecision {
     /// 拦下：Gloss 自身是前台应用时的划词手势（防误触——HID 全局 tap 连拖
     /// Gloss 自己的浮层不该触发取材）。
     SelfSuppressed,
-    /// 未接线的事件（框选、设置、退出）。
+    /// 不进状态机的直通事件（框选、设置、退出、授权落定——各自在 drain
+    /// 处有自己的出口）。
     Unwired,
 }
 
@@ -584,7 +585,9 @@ pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDec
         }
         PlatformEvent::RegionGesture { .. }
         | PlatformEvent::OpenSettingsRequested
-        | PlatformEvent::QuitRequested => TriggerDecision::Unwired,
+        | PlatformEvent::QuitRequested
+        // 授权落定在 drain 处直通处理（解预热门控），不经状态机。
+        | PlatformEvent::AccessibilityGranted => TriggerDecision::Unwired,
     }
 }
 
@@ -810,6 +813,11 @@ mod tests {
             trigger_decision(&PlatformEvent::OpenSettingsRequested, &blocked_by_app()),
             TriggerDecision::Unwired,
             "settings is an entry point, never a gated trigger"
+        );
+        assert_eq!(
+            trigger_decision(&PlatformEvent::AccessibilityGranted, &open),
+            TriggerDecision::Unwired,
+            "the grant event is handled in the drain, never a gated trigger"
         );
         assert_eq!(
             trigger_decision(
