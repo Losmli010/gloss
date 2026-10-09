@@ -201,8 +201,9 @@ fn run_event_loop(
     // 不索取新权限）。与系统语言同类——平台适配器的事，壳只消费。
     let scene = Arc::new(SystemSceneProbe);
 
-    // 启动钩子：更新子系统的进程内幂等入口，首发一次静默检查——发现新版
-    // 仅置状态由设置页提示，失败落 Failed 供被动渲染，不打扰划词。
+    // 启动钩子：更新子系统的进程内幂等入口，只拉起模块任务——静默检查
+    // 在首帧就绪后由壳补发，发现新版仅置状态由设置页提示，失败落 Failed
+    // 供被动渲染，不打扰划词。
     let update_handle = gloss_app::update::start_once();
     let update = gloss_app::update::UpdateWiring::from_handle(update_handle);
 

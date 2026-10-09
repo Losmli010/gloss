@@ -692,6 +692,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | initial_broadcast_is_the_idle_snapshot | 启动即广播初始快照 | 给定刚拉起的模块，当订阅 watch，则先收到 Idle 快照 | 2026-09-26 |
+| shared_client_hands_out_one_process_wide_instance | HTTP 客户端进程内唯一 | 给定共享客户端入口，当连续两次取用，则两次拿到同一实例（构建成功后常驻，失败不缓存下次重建） | 2026-10-09 |
 | state_transition_wakes_the_ui_without_input | 相位迁移唤醒壳层 | 给定已安装的唤醒桩，当检查被受理与在途回包被采纳，则两次迁移各触发一次唤醒、全程无输入 | 2026-09-27 |
 | confirmed_flow_runs_check_download_install_to_completion | 两道确认全流程到替换成功 | 给定新版清单与下载、替换成功桩，当检查→确认下载→确认重启，则相位依次推进且替换收到 zip 路径、任务以「已安装」收尾 | 2026-09-26 |
 | not_newer_manifest_lands_in_up_to_date_without_a_target | 无新版落 UpToDate | 给定与本地等版本的清单回包，当检查完成，则落 UpToDate 且无目标版本 | 2026-09-26 |
