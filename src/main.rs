@@ -308,8 +308,8 @@ fn create_channels() -> Channels {
 }
 
 /// 事件源集合：划词手势与监听降级提示。tap 的源与失效标志由组装点传入
-/// （spawn 在组装段同步完成，启动期失败已在 [`preflight_event_permissions`]
-/// 引导，这里只覆盖运行中失效）。
+/// （spawn 在组装段同步完成，启动期失败已由 [`MouseSource::spawn`] 留
+/// warn 日志并整体降级，这里只覆盖运行中失效）。
 fn event_sources(
     mouse_source: Option<MouseSource>,
     mouse_degraded: Arc<AtomicBool>,
