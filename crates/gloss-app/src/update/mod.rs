@@ -8,8 +8,9 @@
 //! 的出口（[`UpdateHandle::install_wake`]）投递壳层的
 //! `UserEvent::RedrawSettings`，由壳请求设置窗重绘。
 //!
-//! 触发入口只有两个：[`start_once`]（启动钩子，进程内幂等，首次调用拉起
-//! 模块任务并发起一次静默检查，失败落 `Failed` 供设置页被动渲染、不弹层）
+//! 触发入口只有两个：[`start_once`]（启动钩子，进程内幂等，只拉起模块
+//! 任务不发起检查——静默检查由 [`start_silent_check`] 在首帧就绪后补发，
+//! 客户端构建不挤占启动窗口；失败落 `Failed` 供设置页被动渲染、不弹层）
 //! 与 [`check_now`]（设置页手动检查）。两道确认（确认下载 / 确认重启替换）
 //! 由设置页经句柄发对应消息；重试是设计 §4.1 迁移表的「用户点重试」事件，
 //! 比消息草案多出的 [`UpdateMsg::Retry`] 为它服务。
@@ -116,15 +117,19 @@ impl UpdateWiring {
     }
 }
 
-/// 启动钩子入口：进程内幂等。首次调用拉起模块线程并发起一次静默检查，
-/// 后续调用只返回既有句柄。
+/// 启动钩子入口：进程内幂等。首次调用只拉起模块线程（停在 `Idle` 相
+/// 位），后续调用只返回既有句柄；启动静默检查由 [`start_silent_check`]
+/// 在首帧就绪后补发。
 pub fn start_once() -> &'static UpdateHandle {
     static HANDLE: OnceLock<UpdateHandle> = OnceLock::new();
-    HANDLE.get_or_init(|| {
-        let handle = spawn_module();
-        handle.send(UpdateMsg::Check);
-        handle
-    })
+    HANDLE.get_or_init(spawn_module)
+}
+
+/// 启动静默检查：壳层在首帧就绪（`06_ready`）后调用一次——发现新版仅置
+/// 状态由设置页提示，失败落 `Failed` 供被动渲染，不打扰划词。模块任务
+/// 尚未拉起时先拉起。
+pub(crate) fn start_silent_check() {
+    start_once().send(UpdateMsg::Check);
 }
 
 /// 设置页手动检查：除 `ReadyToRestart`（替换执行中）外任意态可发起，
@@ -453,14 +458,14 @@ fn broadcast(machine: &UpdateMachine, out: &Broadcaster) {
     out.send(machine.snapshot());
 }
 
-/// 真实 hooks：清单拉取与整包下载各自现建 HTTP 客户端（建失败按该次
-/// 任务失败处理，重试自然重建），替换走 [`install::install`]。
+/// 真实 hooks：清单拉取与整包下载共用进程内唯一 HTTP 客户端（见
+/// [`shared_client`]），替换走 [`install::install`]。
 fn real_hooks() -> Hooks {
     Hooks {
         check: Arc::new(|_cancel| {
             tokio::spawn(async move {
-                let result = match build_client() {
-                    Ok(client) => fetch_manifest(&client, MANIFEST_URL).await,
+                let result = match shared_client() {
+                    Ok(client) => fetch_manifest(client, MANIFEST_URL).await,
                     Err(err) => {
                         warn!(
                             thread = thread::TOKIO,
@@ -475,10 +480,10 @@ fn real_hooks() -> Hooks {
         }),
         download: Arc::new(|target, resume, cancel| {
             tokio::spawn(async move {
-                let result = match build_client() {
+                let result = match shared_client() {
                     Ok(client) => {
                         download::download(
-                            &client,
+                            client,
                             &target.artifact,
                             &download_work_dir(),
                             resume,
@@ -534,8 +539,27 @@ async fn fetch_manifest(client: &reqwest::Client, url: &str) -> Result<UpdateMan
     })
 }
 
-/// 更新子系统的 HTTP 客户端：与 platform 的 LLM 客户端同一套取向——
+/// 进程内唯一的 HTTP 客户端：与 platform 的 LLM 客户端同一套取向——
 /// 建连/读超时、明确 UA、不跟随重定向（重定向会改写信任根的宿主）。
+/// macOS 上构建要解析整套信任设置（秒级 CPU），故只建一次常驻；构建
+/// 失败不缓存，下次任务重试自然重建。
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn shared_client() -> Result<&'static reqwest::Client, reqwest::Error> {
+    let client = match HTTP_CLIENT.get() {
+        Some(client) => client,
+        None => {
+            // 先构建：失败直接传播且不污染缓存，下次任务重试自然重建。
+            // get_or_init 只认胜者：并发首建时输家的这份被丢弃，复用
+            // 赢家放入的同一份。
+            let client = build_client()?;
+            HTTP_CLIENT.get_or_init(|| client)
+        }
+    };
+    Ok(client)
+}
+
+/// 更新子系统的 HTTP 客户端，取向见 [`HTTP_CLIENT`]。
 fn build_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
@@ -703,6 +727,13 @@ mod tests {
     async fn initial_broadcast_is_the_idle_snapshot() {
         let mut harness = harness();
         assert_eq!(state_after(&mut harness).await, UpdateState::default());
+    }
+
+    #[test]
+    fn shared_client_hands_out_one_process_wide_instance() {
+        let first = shared_client().expect("client builds without network");
+        let second = shared_client().expect("client builds without network");
+        assert!(std::ptr::eq(first, second));
     }
 
     #[tokio::test]

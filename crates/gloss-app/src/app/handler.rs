@@ -68,6 +68,8 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         // 未就绪则推迟到首次任务自然重读。
         self.send_secret_prewarm();
         milestone("06_ready");
+        // 启动静默检查在此补发：更新客户端的信任链构建不挤占启动窗口。
+        crate::update::start_silent_check();
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
