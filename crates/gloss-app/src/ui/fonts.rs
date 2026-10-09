@@ -226,14 +226,13 @@ fn register_mono_family(
 mod imp {
     use core_foundation::array::CFArray;
     use core_foundation::base::TCFType;
+    use core_foundation::dictionary::CFDictionary;
     use core_foundation::string::CFString;
-    use core_foundation::url::{CFURL, kCFURLPOSIXPathStyle};
     use core_text::font_collection;
     use core_text::font_descriptor::{
         CTFontDescriptor, TraitAccessors, kCTFontBoldTrait, kCTFontCondensedTrait,
-        kCTFontExpandedTrait, kCTFontItalicTrait,
+        kCTFontExpandedTrait, kCTFontItalicTrait, new_from_attributes,
     };
-    use core_text::font_manager::CTFontManagerCreateFontDescriptorsFromURL;
     use gloss_core::log::{debug, info, thread, warn};
 
     use super::{CJK_FAMILIES, FONT_NAME, FamilyFont};
@@ -280,7 +279,7 @@ mod imp {
                     continue;
                 }
             };
-            let index = match face_index(&bytes, &path, &postscript) {
+            let index = match face_index(&bytes, &postscript) {
                 Ok(index) => index,
                 Err(err) => {
                     warn!(
@@ -306,11 +305,19 @@ mod imp {
     /// 家族集合里选常规面：先比风格修正位（粗斜宽窄，越少越常规），再比
     /// 权重离常规（0）的距离——与 font-kit 时代 Weight NORMAL + Style
     /// NORMAL 的取向一致。集合缺席或为空按无此族处理。
+    ///
+    /// 查询走字体集合（只扫**已安装**字体，font-kit 同款形状）：描述符
+    /// 匹配会命中系统的「可下载字体」目录，查询缺席家族（未随机型的楷
+    /// 体等）会弹字体下载确认框。
     fn select_regular_face(family: &str) -> Option<CTFontDescriptor> {
         const STYLE_PENALTY_MASK: u32 =
             kCTFontBoldTrait | kCTFontItalicTrait | kCTFontExpandedTrait | kCTFontCondensedTrait;
-        let collection = font_collection::create_for_family(family)?;
-        let descriptors = collection.get_descriptors()?;
+        let attributes = CFDictionary::from_CFType_pairs(&[(
+            CFString::new("NSFontFamilyAttribute"),
+            CFString::new(family).as_CFType(),
+        )]);
+        let specified = CFArray::from_CFTypes(&[new_from_attributes(&attributes)]);
+        let descriptors = font_collection::new_from_descriptors(&specified).get_descriptors()?;
         let mut best: Option<((u32, i64), CTFontDescriptor)> = None;
         for i in 0..descriptors.len() {
             let Some(descriptor) = descriptors.get(i) else {
@@ -330,40 +337,36 @@ mod imp {
         best.map(|(_, descriptor)| descriptor)
     }
 
-    /// 目标面在字体文件内的序号：单面文件恒 0；ttc 集合按 CoreText 的
-    /// 文件枚举找 postscript 名的位次，并用文件自身的 name 表复核该序号
-    /// 确实交出同一个名字——枚举位次与文件序号的对齐是经验事实，复核失
-    /// 败就放弃该候选，不冒险登记错面。
-    fn face_index(bytes: &[u8], path: &std::path::Path, postscript: &str) -> Result<u32, String> {
+    /// 目标面在字体文件内的序号：单面文件恒 0；ttc 集合按头部面数逐面
+    /// 解析 name 表找 postscript 名的命中——序号完全由文件自身回答（与
+    /// egui 侧解析器同源同约定），找不到即失败降级。不做 CoreText 的
+    /// 文件枚举：那在无窗口服务的 CI runner 上每次要挂十几分钟（fontd
+    /// 病态），纯字节解析是微秒级。
+    fn face_index(bytes: &[u8], postscript: &str) -> Result<u32, String> {
+        const MAX_SCANNED_FACES: u32 = 1024;
         if !is_collection(bytes) {
             return Ok(0);
         }
-        let descriptors = file_face_descriptors(path)?;
-        let count = descriptors.len();
-        let mut position = None;
-        for i in 0..count {
-            if let Some(descriptor) = descriptors.get(i)
-                && descriptor.font_name() == postscript
-            {
-                position = Some(i as usize);
-                break;
+        let faces = num_fonts(bytes).min(MAX_SCANNED_FACES) as usize;
+        for index in 0..faces {
+            let face = face_offset(bytes, index)?;
+            if face_postscript_name(bytes, face).as_deref() == Some(postscript) {
+                return Ok(index as u32);
             }
         }
-        let position = position
-            .ok_or_else(|| format!("face {postscript} not enumerated in {}", path.display()))?;
-        let face = face_offset(bytes, position)?;
-        match face_postscript_name(bytes, face) {
-            Some(name) if name == postscript => Ok(position as u32),
-            found => Err(format!(
-                "face {postscript} at directory {position} of {} has name {found:?}",
-                path.display()
-            )),
-        }
+        Err(format!(
+            "face {postscript} not found in {faces} collection faces"
+        ))
     }
 
     /// 文件是否为 TrueType 集合（ttc/otc 共用的 `ttcf` 魔数）。
     pub(super) fn is_collection(bytes: &[u8]) -> bool {
         bytes.first_chunk::<4>() == Some(b"ttcf")
+    }
+
+    /// ttc 头部的面数（大端 u32，+8）；头部损坏按零面处理。
+    pub(super) fn num_fonts(bytes: &[u8]) -> u32 {
+        u32_at(bytes, 8).unwrap_or(0)
     }
 
     /// ttc 头部第 `index` 个面的目录偏移（大端 u32，从 +12 起）。
@@ -394,7 +397,7 @@ mod imp {
 
     /// 解析 `face` 目录指向那面的 name 表，取 postscript 名（nameID 6；
     /// 优先 Windows 平台 UTF-16BE，退回 Macintosh ASCII）。只为
-    /// [`face_index`] 的序号复核服务，解析不了返回 `None`。
+    /// [`face_index`] 的序号定位服务，解析不了返回 `None`。
     pub(super) fn face_postscript_name(bytes: &[u8], face: usize) -> Option<String> {
         let name_at = locate_name_table(bytes, face)?;
         let count = u16_at(bytes, name_at + 2)? as usize;
@@ -430,27 +433,6 @@ mod imp {
 
     fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
         Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
-    }
-
-    /// 按文件枚举字体面的描述符数组（次序即文件内面序号，与本仓
-    /// PingFang/Songti/Menlo 实测一致）。
-    fn file_face_descriptors(path: &std::path::Path) -> Result<CFArray<CTFontDescriptor>, String> {
-        let url = CFURL::from_file_system_path(
-            CFString::new(&path.to_string_lossy()),
-            kCFURLPOSIXPathStyle,
-            false,
-        );
-        // SAFETY: 枚举失败时 CoreText 返回 NULL，成功时返回带 +1 引用计数
-        // 的 CFArrayRef；NULL 分支提前报错，非 NULL 交给 CFArray 接管释放。
-        let raw = unsafe { CTFontManagerCreateFontDescriptorsFromURL(url.as_concrete_TypeRef()) };
-        if raw.is_null() {
-            return Err(format!(
-                "coretext enumeration failed for {}",
-                path.display()
-            ));
-        }
-        // SAFETY: raw 是上一步刚创建的 +1 数组引用，此后无人再持它。
-        Ok(unsafe { CFArray::<CTFontDescriptor>::wrap_under_create_rule(raw) })
     }
 }
 

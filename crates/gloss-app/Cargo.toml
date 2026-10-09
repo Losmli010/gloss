@@ -6,9 +6,9 @@ description = "Gloss 表现层与应用层：状态机 + 渲染胶水"
 license.workspace = true
 
 [dependencies]
-# 系统字体发现：CoreText 家族选面与 ttc 文件内面定位，字体文件字节
-# 只读一次进 egui。core-foundation 留 link 特性（链接 CoreFoundation
-# 框架），其余默认特性为空。
+# 系统字体发现：已安装字体集合查询（CFDictionary/CFArray/CFString）+
+# CoreText 选面；文件字节直接 fs::read 一次进 egui，面序号由文件自身
+# 解析回答。core-foundation 留 link 特性（链接 CoreFoundation 框架）。
 core-foundation = {
   version = "0.9",
   default-features = false,
