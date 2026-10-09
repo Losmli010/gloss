@@ -787,6 +787,10 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | system_cjk_font_is_discoverable | 系统 CJK 字体可发现 | 给定真实系统，当执行 CJK 字体发现，则必须找到且字节非空（依赖宿主机） | 2026-10-01 |
 | system_monospace_font_is_discoverable | 系统等宽字体可发现 | 给定真实系统，当按候选顺序（SF Mono → Menlo → Monaco → DejaVu Sans Mono → Consolas）执行等宽字体发现，则必须找到（依赖宿主机） | 2026-10-02 |
 | system_cjk_font_is_loaded_once | 系统 CJK 字体只加载一次且两份定义共享 | 给定真实系统，当连续两次取字体字节并各自接入字体定义，则两次返回同一段内存、两份定义登记到同一地址（依赖宿主机） | 2026-10-01 |
+| single_face_files_register_face_zero | 单面文件恒登记 0 号面 | 给定真实系统的等宽字体，当其为单面文件时，则登记面序号为 0（依赖宿主机） | 2026-10-09 |
+| face_postscript_name_parses_a_synthetic_collection | 合成 ttc 解析出 postscript 名 | 给定手工拼装的最小 ttc 夹具（表偏移按规范从文件头量起），当解析 0 号面的 name 表，则交出夹具写入的 postscript 名 | 2026-10-09 |
+| face_postscript_name_rejects_a_truncated_collection | 截断输入安全返回无名 | 给定被截断的 ttc 字节，当解析面目录与 name 表，则不越界、返回「无偏移/无名」 | 2026-10-09 |
+| face_postscript_name_rejects_an_out_of_range_table_offset | 越界表偏移安全返回无名 | 给定 name 表偏移被改写到文件末尾之外的 ttc，当解析 postscript 名，则返回无名（该候选降级） | 2026-10-09 |
 
 ### crates/gloss-app/src/ui/settings.rs
 

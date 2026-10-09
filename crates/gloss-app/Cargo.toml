@@ -6,6 +6,17 @@ description = "Gloss 表现层与应用层：状态机 + 渲染胶水"
 license.workspace = true
 
 [dependencies]
+# 系统字体发现：CoreText 家族选面与 ttc 文件内面定位，字体文件字节
+# 只读一次进 egui。core-foundation 留 link 特性（链接 CoreFoundation
+# 框架），其余默认特性为空。
+core-foundation = {
+  version = "0.9",
+  default-features = false,
+  features = [
+    "link",
+  ]
+}
+core-text = { version = "20.1", default-features = false }
 # 通道①②④用 crossbeam（MPMC，主线程 try_recv 非阻塞）。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 # 渲染栈整批版本：winit 0.30.13 / wgpu 30.0.1 / egui + egui-wgpu + egui-winit
@@ -42,8 +53,6 @@ egui-winit = {
     "links",
   ]
 }
-# 系统字体发现：查系统 CJK 字体接进 egui 后备链。
-font-kit = { version = "0.14", default-features = false, features = ["source"] }
 # FutureExt::catch_unwind 包住 tokio 消费循环里的任务 future（后台
 # panic 被 tokio 捕获转为 TaskFailed」）。
 futures = { version = "0.3", default-features = false, features = ["std"] }
