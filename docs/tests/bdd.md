@@ -9,11 +9,11 @@
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
 | 人工测试 | 12 | `cargo test -p gloss-platform -- --ignored` |
-| 发版人工步骤 | 6 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
+| 发版人工步骤 | 8 | 手动执行（无自动化测试源码的真机/运维步骤，bdd 门禁豁免） |
 | 集成测试 | 14 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
-| 快照测试 | 32 | `just test` |
-| 单元测试 | 491 | `just test` |
+| 快照测试 | 34 | `just test` |
+| 单元测试 | 502 | `just test` |
 
 ## 人工测试
 
@@ -179,6 +179,27 @@
   4. ad-hoc 构建跨版本重弹属预期（README「首次启动与系统授权」已注明）
 - 更新时间：2026-10-09
 
+### pasteboard_first_read_permission_closure
+- 测试目标：验证 macOS 15+ 首次读剪贴板内容的系统「允许粘贴」授权闭环：哨兵只读 changeCount 不触发授权，读内容才触发；拒绝后的失败路径可观察（失败卡或静默 + 日志）。
+- 测试场景：给定 macOS 15+ 真机、出厂默认配置与已授予的辅助功能，当开启「监听剪贴板图片」并复制一张图片，则首次出卡前系统弹「允许粘贴」授权框；允许后图片卡正常出卡（经=图、注=描述流式、疏=逐条解读）；拒绝后复制图片走可观察的失败路径，应用不崩、内容不落盘。
+- 测试步骤：
+  1. 设置页开启「监听剪贴板图片」并保存（无需重启）
+  2. 在任意应用复制一张图片（⌘C），确认首次出卡前出现系统「允许粘贴」授权框；点「允许」，确认出卡
+  3. 再复制另一张图片：确认不再重复弹授权框、直接出卡
+  4. 拒绝路径：系统设置 → 隐私与安全性撤销 Gloss 的粘贴授权（或首次弹框点「不允许」）后复制图片，确认失败卡或静默（`just logs --no-follow --level warn` 有痕迹），应用不崩
+- 更新时间：2026-10-10
+
+### image_commentary_sources_toggle_and_limits_manual_checks
+- 测试目标：验证图像卡的真实来源矩阵、监听开关热切换、pastebomb 双上限与同图缓存秒出（真机触发链路行为）。
+- 测试场景：给定开启监听的真实剪贴板，当从各来源复制图片，则 ⌘⇧4+Ctrl 截图、浏览器/微信/Preview 复制图片、Excel 图表均出卡；关闭开关后复制图片零反应；超大图片出「图片过大」失败卡；同图第二次复制缓存秒出；敏感场景下不触发。
+- 测试步骤：
+  1. 开启「监听剪贴板图片」，逐来源复制并确认出卡（经=图、注=描述、疏=逐条）：⌘⇧4+Ctrl 截图；Safari/Chrome 复制图片；微信聊天图片右键复制；Preview 复制；Excel 复制图表
+  2. 热切换：设置页关闭开关（不重启），复制图片确认零反应；重新开启后恢复出卡
+  3. pastebomb：复制一张超大图片（超 4096×4096 像素或 flavor 字节上限的 TIFF），确认「图片过大」失败卡（整体拒绝、不截断、不崩）
+  4. 缓存：同一张图片复制两次，第二次秒出（`just logs` 可见 cache hit）
+  5. 敏感场景闸门：在 Secure Input 激活的密码框或敏感应用下复制图片，确认不触发
+- 更新时间：2026-10-10
+
 ### app_survives_eight_hour_mixed_load_soak
 - 测试目标：验证长驻进程 8 小时「静置为主 + 周期性人工划词」混合负载下的内存稳定性、日志有界性与运行健康。
 - 测试场景：给定授权真机与 release 构建，当应用静置过夜并以 ~2 小时间隔人工划词数次，则 RSS 曲线无持续上漂、gloss 日志文件数 ≤ 7、进程存活且划词出卡正常。
@@ -225,7 +246,7 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck、popup_code_streaming、popup_code_outcome；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
+popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_failed、popup_failed_auth、popup_selfcheck、popup_code_streaming、popup_code_outcome、popup_image_outcome、popup_image_streaming、popup_image_failed；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -238,6 +259,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | extract_view_notes_the_measurement | 提取视图疏位小记 | 给定提取产物视图，当渲染，则提取文本在经位、疏位附「凡 N 言 · N 行」小记（字数去空白、行数按换行） | 2026-09-30 |
 | streaming_view_shows_only_the_extracted_note | 流式视图只显示提取出的义 | 给定流式视图（正文为 JSON 契约原始流），当渲染，则「已流式到达的正文」「选中的原文」可见而 JSON 残片与 ```gloss 围栏均不在树中；头部只有图标与动作区 | 2026-10-03 |
 | long_lines_never_exceed_the_window_width | 长行不超窗口可用宽 | 给定长中文段落 + 围栏代码块与长 token 代码原文两类视图，当以 380 宽渲染，则全部内容节点右缘不超窗口宽（横滚不进弹窗）；popup_long_line 基线锁定形态 | 2026-10-03 |
+| image_card_exposes_the_commentary_to_accesskit | 图像完成态卡经注疏入树且纵排 | 给定附件图像 + ImageCommentary 产物（注 + 两条解读）的完成态视图，当渲染，则注与两条解读皆可按文本定位，且疏位条目矩形在注位之下（经=图、注→疏纵向排布） | 2026-10-10 |
+| image_streaming_card_shows_the_interpretation_items_as_they_arrive | 图像流式卡双字段渐进上屏 | 给定 note 截断 + interpretation 两条（第二条中段截断）的图像流式视图，当渲染，则注前缀与两条疏条目（含在写条目的已到达前缀）可见而 JSON 残片不在树中（描述流完不静默等待） | 2026-10-10 |
+| image_streaming_card_without_a_note_keeps_the_skeleton | 图像流式卡注未至落骨架 | 给定原始流为空的图像流式视图，当渲染，则「正在注解」页脚在（骨架态，经位图像照常回显） | 2026-10-10 |
+| image_card_degrades_to_a_placeholder_when_the_bytes_do_not_decode | 图像字节解码失败占位降级 | 给定不可解码字节的图像完成态卡，当渲染，则经位出「The image could not be displayed.」占位、注位照常（不 panic） | 2026-10-10 |
+| attached_image_texture_is_reused_across_frames | 附件图像纹理跨帧复用 | 给定同一份附件图像字节连续渲染七帧，当比对第 2 帧与第 7 帧的 egui 纹理分配数，则计数不增（同字节恒同纹理，逐帧解码即失败） | 2026-10-10 |
+| attached_image_slot_is_dropped_once_an_imageless_frame_renders | 会话离开图像卡即清纹理槽 | 给定图像帧（纹理就位）后切到无附件帧再切回同图，当逐段比对 egui 纹理分配数，则无附件帧分配数下降（源字节与纹理同帧释放，敏感数据不驻留会话外）、同图再上卡重新解码回到原驻留数 | 2026-10-10 |
 | failed_view_shows_retry_hint | 失败卡重试动作 | 给定 Retry 失败卡，当渲染并点击「重试」，则收集器收到 OverlayAction::Retry | 2026-09-21 |
 | auth_failed_view_offers_open_settings | 鉴权失败卡设置入口 | 给定鉴权失败卡，当渲染并点击「打开设置」，则收到 OverlayAction::OpenSettings（头部齿轮标签为「设置」，与正文按钮不混淆） | 2026-09-21 |
 | bare_failed_view_has_no_action_button | 无动作失败卡形态 | 给定 action=None 失败卡，当渲染，则无「重试」节点、无动作上交 | 2026-09-19 |
@@ -246,17 +273,17 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | header_drag_strip_is_exposed_to_accesskit | 页头拖动热区进无障碍树且与动作钮零重叠 | 给定词卡视图，当渲染，则无障碍树有「拖动浮层」热区节点、矩形与页头行同高（不小于头部图标边长）且水平区间止于最左动作钮左缘（收 DRAG_STRIP_INSET，与齿轮/× 零重叠） | 2026-10-03 |
 | header_drag_reports_cumulative_offset_and_ends_on_release | 页头拖动上交自按压点的累计位移 | 给定词卡视图与页头热区中心，当按下→两段移动→松开→再移动，则上交位移自按压点累计（按下为零、两段各 (20,10)/(30,15)，非逐帧增量）、松开后不再上交；按压点按物理像素记录（跨 DPI 显示器不混尺）；落点换算与屏幕钳制在壳侧 apply_overlay_drag（无状态：以窗口实际位置为基准，中途被动过会被下一帧落点吸收） | 2026-10-03 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层八视图渲染基线（英文浅色） | 给定八个视图（词卡/流式/提取/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 八份基线一致，结果合并进单个 SnapshotResults（基线沿革：2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、Acquiring 骨架视图删除，popup_loading 基线一并移除，余八份） | 2026-10-03 |
+| snapshots_match_baseline（popup） | 浮层八视图渲染基线（英文浅色） | 给定八个视图（词卡/流式/提取/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_streaming / popup_extract / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 八份基线一致，结果合并进单个 SnapshotResults（基线沿革：2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、Acquiring 骨架视图删除，popup_loading 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 popup_image_outcome / popup_image_streaming / popup_image_failed 三份基线（图像经位 + 注疏，夹具为测试内确定性编码的 120×80 渐变 PNG；英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）） | 2026-10-10 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
-| snapshots_match_baseline（settings） | 设置窗渲染基线（英文浅色；正常/提示/错误三态 + 更新区五相位） | 给定默认、带保存失败提示、校验错误三个状态与更新区五个相位（UpToDate/Available/Downloading/Ready/Failed(Install)），当 wgpu 以英文文案与浅色主题渲染并 diff，则与对应基线一致且关键文本进树（沿革：2026-10-03 随热键区删除、热键校验错误移除重录；同日随职责重划删除任务开关/默认任务/每类模型三区块、新增单一模型输入行重录并移除默认任务停用态，又随「模型 ID」字段标签再录） | 2026-10-03 |
+| snapshots_match_baseline（settings） | 设置窗渲染基线（英文浅色；正常/提示/错误三态 + 更新区五相位） | 给定默认、带保存失败提示、校验错误三个状态与更新区五个相位（UpToDate/Available/Downloading/Ready/Failed(Install)），当 wgpu 以英文文案与浅色主题渲染并 diff，则与对应基线一致且关键文本进树（沿革：2026-10-03 随热键区删除、热键校验错误移除重录；同日随职责重划删除任务开关/默认任务/每类模型三区块、新增单一模型输入行重录并移除默认任务停用态，又随「模型 ID」字段标签再录；2026-10-10 通用区新增「监听剪贴板图片」开关行与说明随录，八份基线 diff 均仅为该行插入与其下内容的既段位移，其余像素零变化；同日评审修复把初版勾选框改为自绘开关滑块（egui 0.36 无内建 Switch，按官方 demo 范式，轨 36×20 较勾选框高 ~2px）再录，diff 仍仅限该行控件本体与其下既段位移） | 2026-10-10 |
 | failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、协议异常（带诊断）、取材通道不可用、推理通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-09-22 |
 | failure_card_follows_the_locale | 失败卡随 locale 出表 | 给定英文 locale 的网络失败卡，当渲染，则出英文文案与英文「Retry」动作 | 2026-09-22 |
 | save_failure_notice_names_the_cause | 保存失败提示出场合与诊断 | 给定带 SaveFailed(Config) 类型化提示的设置窗（中文表），当渲染，则出「保存失败：<诊断>」（前缀交代场合、诊断不重复本地化整句） | 2026-09-22 |
 | a_rendered_notice_follows_the_locale | 提示行随 locale 出表 | 给定带同一类型化提示的设置窗（英文表），当渲染，则出英文前缀与诊断（提示行不是只有中文基线可查） | 2026-09-22 |
 | saving_the_language_swaps_the_rendered_labels_without_a_restart | 保存语言即换渲染文案 | 给定同一进程内保存 Language::En 前后的配置句柄，当各渲染一帧设置窗，则文案由「保存」变为「Save」且中文标不再在树上（配置快照 → 落定 → 选表 → 渲染全链，不重启） | 2026-09-22 |
-| english_catalog_relabels_the_settings_window | 英文文案表驱动设置窗 | 给定英文 locale 的设置窗，当渲染，则四个区块标、动作按钮、默认任务/目标语言/任务开关/清除密钥/界面语言/界面主题/缓存有效期各出自英文表（含「Enable <任务>」开关的无障碍标签模板），且中文标不在树上 | 2026-09-24 |
+| english_catalog_relabels_the_settings_window | 英文文案表驱动设置窗 | 给定英文 locale 的设置窗，当渲染，则区块标、动作按钮、目标语言/清除密钥/界面语言/界面主题/缓存有效期/监听剪贴板图片等行标各出自英文表，且中文标不在树上 | 2026-10-10 |
 
 ## 单元测试
 
@@ -556,7 +583,15 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| stream_note_extracts_the_json_field_progressively | 流式注文按 JSON note 渐进提取 | 给定完整 JSON/空串/非 JSON/部分键/未闭合值/外键在前/转义（引号反斜杠 unicode）/残缺转义/旧围栏契约九类原始流，当 stream_note（按位独立扫描，不依赖字段序），则反转义前缀渐进可见、残缺序列留待下帧、无 note 键恒空（进度态） | 2026-10-03 |
+| stream_fields_extracts_the_json_fields_progressively | 流式正文按 JSON note 渐进提取 | 给定完整 JSON（含转义），当 stream_fields，则 note 反转义前缀可见、interpretation 恒空 | 2026-10-10 |
+| stream_fields_walks_past_note_into_the_interpretation_array | note 闭合后游标推进进疏数组 | 给定 note 与 interpretation 双字段完整 JSON，当 stream_fields，则两字段全量提取（描述流完不等整个响应） | 2026-10-10 |
+| stream_fields_shows_the_partial_item_while_the_array_streams | 在写疏条目带上屏 | 给定 interpretation 数组截断在第二条字符串中段的原始流，当 stream_fields，则已闭合条目全量、在写条目带反转义前缀、closed 停在数组处 | 2026-10-10 |
+| stream_fields_keeps_note_only_until_its_value_closes | note 未闭合保持进度态 | 给定 note 值未闭合/刚起头/冒号后无值三类原始流，当 stream_fields，则 note 按已到达前缀或空串落进度态、interpretation 恒空 | 2026-10-10 |
+| stream_fields_note_stays_visible_while_waiting_for_the_array | 等疏数组期间注保持可见 | 给定 note 闭合、数组首条闭合后逗号截断的原始流，当 stream_fields，则 note 全量可见、疏只带已闭合条目（已到字段不因后字段未到而回退） | 2026-10-10 |
+| stream_fields_tolerates_foreign_keys_around_the_contract | 外键跳过不碍契约字段 | 给定 kind 在前/phonetic 在前（词卡）/外键字符串未闭合/examples 数组外键/tail 数值外键五类原始流，当 stream_fields，则外键整值跳过、note 与 interpretation 照常渐进 | 2026-10-10 |
+| stream_fields_decodes_escapes_in_both_fields | 双字段转义解码与残缺截断 | 给定引号/反斜杠/unicode 转义与尾部孤反斜杠的原始流，当 stream_fields，则完整转义解码、残缺序列就地截断留待下帧 | 2026-10-10 |
+| stream_fields_stays_in_progress_off_contract | 非契约输入恒进度态 | 给定空串/plain markdown/裸 {/部分键/键无冒号/旧围栏契约六类输入，当 stream_fields，则两字段恒空（完成态由 finalize 兜底） | 2026-10-10 |
+| stream_fields_stops_at_the_closing_brace | 对象闭合即收工 | 给定 note+interpretation+尾随外键的完整 JSON，当 stream_fields，则两字段提取后在 } 处返回（不误吞尾随结构） | 2026-10-10 |
 
 ### crates/gloss-app/src/ui/popup/icon.rs
 
@@ -564,6 +599,12 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | --- | --- | --- | --- |
 | decode_app_icon_rejects_bad_bytes | 图标解码失败隔离降级 | 给定非 PNG 字节，当解码应用图标，则返回 None（页头退化为无图标行，不 panic） | 2026-09-30 |
 | decode_app_icon_crops_to_the_content_square | 图标按画布比例裁本体 | 给定内嵌的 Dock 图标 PNG，当解码裁剪，则得 206×206 的图形本体（256 按 100/824/1024 画布比例裁去透明边距） | 2026-09-30 |
+### crates/gloss-app/src/ui/popup/image.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| decode_attached_rejects_bad_bytes | 经位图像解码失败隔离降级 | 给定非 PNG 字节，当 decode_attached，则返回 None（经位落占位，不 panic） | 2026-10-10 |
+| decode_attached_keeps_the_pixel_dimensions | 经位图像按原像素尺寸解码 | 给定 4×2 夹具 PNG，当 decode_attached，则得 4×2 的 RGBA 像素容器（纹理侧等比随卡宽） | 2026-10-10 |
 
 ### crates/gloss-app/src/ui/popup/content.rs
 
@@ -839,6 +880,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | invalid_draft_blocks_save_and_enters_the_error_state | 非法草稿阻断保存进入错误态 | 给定非法 Base URL 草稿，当 build_save，则返回 Idle、置校验态、该字段提示含 https 规则 | 2026-09-22 |
 | fixing_the_field_restores_save | 改对字段恢复保存 | 给定被阻断的校验态，当修正 Base URL，则错误清空、再次 build_save 上交 Save | 2026-09-22 |
 | open_copies_the_snapshot_into_the_draft | 打开设置拷贝快照进草稿 | 给定打开时的快照，当建草稿并随后改原配置，则草稿不跟随、可携带提示 | 2026-09-19 |
+| clipboard_watch_toggle_travels_with_the_saved_draft | 剪贴板监听开关随草稿保存 | 给定出厂配置的设置窗（英文表），当渲染并点「Watch the clipboard for images」行的开关滑块再保存，则出厂默认 off、点击切换为 on 后随 Save 上交进落盘快照（热切换由保存路径承接）；开关以 WidgetType::Checkbox + toggled 态上报（egui 0.36 角色映射无 switch 档） | 2026-10-10 |
 | field_errors_are_worded_per_locale | 字段错误按 locale 出措辞 | 给定全部九类字段错误（含行号与触发键回显两种模板），当按中英文表取文案，则各出对应措辞（换臂或漏译会被抓住） | 2026-09-23 |
 | every_notice_renders_its_localized_prefix_and_detail | 三类提示的中英措辞 | 给定三类壳回写提示（各带同一诊断），当按中英表取文案，则前缀与诊断都按表落地、且无残留的 {{占位符}}（两条从未渲染过的模板由此覆上） | 2026-09-22 |
 | base_url_errors_map_to_their_own_field_error | Base URL 错因映射到字段错误 | 给定五类 BaseUrlError，当映射，则空/语法与 https/内嵌凭据/查询参数各落到对应 FieldError（内嵌凭据与查询参数两臂易错） | 2026-09-22 |

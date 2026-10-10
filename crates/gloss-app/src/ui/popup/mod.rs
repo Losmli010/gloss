@@ -44,15 +44,19 @@
 
 mod content;
 mod icon;
+mod image;
 mod note;
 mod sizing;
+
+use std::sync::Arc;
 
 use content::{
     JING_FONT, PHON_FONT, SEAL_FONT, SHU_FONT, WORD_FONT, ZHU_FONT, example_lines, extract_note,
     kaiti_font, serif_font, watermark,
 };
 use icon::app_icon_image;
-use note::stream_note;
+use image::decode_attached;
+use note::{StreamFields, stream_fields};
 pub use sizing::WIDTH;
 use sizing::resolve_width;
 
@@ -155,6 +159,18 @@ pub struct RenderState {
     /// 装入或解码失败；失败时每帧重试的成本只有一次常量读取，不再单设
     /// 失败标记。
     icon: RefCell<Option<egui::TextureHandle>>,
+    /// 经位附件图像的跨帧纹理缓存槽（见 [`AttachedTexture`]）。
+    attached: RefCell<Option<AttachedTexture>>,
+}
+
+/// 经位附件图像的纹理缓存：键是源字节的 `Arc` 指针身份——同图跨帧与
+/// 重试恒复用同一纹理，绝不逐帧解码；纹理 `None`＝这份字节解码失败
+/// （同样只试一次，占位降级），换图（指针不同）即重新解码。同时至多
+/// 驻留一份图像纹理（新图即替换；会话离开图像卡即清空，见
+/// `RenderState::drop_attached`）。
+struct AttachedTexture {
+    source: Arc<[u8]>,
+    texture: Option<egui::TextureHandle>,
 }
 
 impl Default for RenderState {
@@ -164,6 +180,7 @@ impl Default for RenderState {
             last_width: Cell::new(WIDTH),
             drag_press_phys: Cell::new(None),
             icon: RefCell::new(None),
+            attached: RefCell::new(None),
         }
     }
 }
@@ -188,6 +205,37 @@ impl RenderState {
             *slot = Some(ctx.load_texture("gloss_app_icon", image, egui::TextureOptions::LINEAR));
         }
         slot.clone()
+    }
+
+    /// 经位附件图像的纹理；首次见到这份字节时解码并装入当前上下文，之后
+    /// 跨帧复用（解码失败按 `None` 缓存，同字节不重试；换字节即重解码）。
+    fn attached_texture(
+        &self,
+        ctx: &egui::Context,
+        png: &Arc<[u8]>,
+    ) -> Option<egui::TextureHandle> {
+        let mut slot = self.attached.borrow_mut();
+        if let Some(cached) = slot.as_ref()
+            && Arc::ptr_eq(&cached.source, png)
+        {
+            return cached.texture.clone();
+        }
+        let texture = decode_attached(png).map(|image| {
+            ctx.load_texture("gloss_attached_image", image, egui::TextureOptions::LINEAR)
+        });
+        *slot = Some(AttachedTexture {
+            source: Arc::clone(png),
+            texture: texture.clone(),
+        });
+        texture
+    }
+
+    /// 清空经位附件图像的缓存槽：源字节 `Arc` 与解码纹理一并释放。壳在
+    /// 无附件的帧调用（图像会话已被收起/替换/失败）——图像字节属敏感数
+    /// 据，生命周期不得长于会话；同图下一帧重新解码即回（一次解码，不
+    /// 在会话内重复发生）。
+    fn drop_attached(&self) {
+        *self.attached.borrow_mut() = None;
     }
 }
 
@@ -253,12 +301,15 @@ pub(crate) fn reset_appear_animation(ctx: &egui::Context) {
 
 /// 画一帧浮层。根 `Ui` 覆盖整个窗口，卡片铺满它，圆角之外由透明窗口露出桌面。
 ///
-/// `view` 为 `None` 时显示渲染自检卡（预热与自检路径）。返回本帧绘制的
+/// `view` 为 `None` 时显示渲染自检卡（预热与自检路径）。`attached` 是
+/// 本会话经位附件图像（图像任务的原文，状态机留存，经访问器随行——
+/// 不进 [`OverlayView`] 变体形状），仅图像卡渲染它。返回本帧绘制的
 /// 产物——失败卡动作与头部动作区（齿轮/×）上交壳执行——浮层只渲染、不
 /// 副作用；期望尺寸由壳经窗口管理器应用（内容自适应高度，超出屏幕滚动兜底）。
 pub fn draw(
     ui: &mut egui::Ui,
     view: Option<&OverlayView>,
+    attached: Option<&Arc<[u8]>>,
     state: &RenderState,
     text: &Text,
 ) -> PopupOutput {
@@ -281,6 +332,13 @@ pub fn draw(
     }
     ui.set_opacity(progress);
 
+    // 本帧无附件＝会话已离开图像卡（收起、换任务或失败）：立即清空纹理
+    // 缓存槽——图像字节属敏感数据，源字节与解码纹理都不得驻留到会话之外
+    // （机器侧清 attached_image 的渲染侧镜像，见 `RenderState::drop_attached`）。
+    if attached.is_none() {
+        state.drop_attached();
+    }
+
     let fill = ui.visuals().window_fill;
     let window_stroke = ui.visuals().window_stroke;
     let mut output = PopupOutput {
@@ -298,7 +356,7 @@ pub fn draw(
         .corner_radius(CornerRadius::same(radius::CARD))
         .inner_margin(Margin::same(space::CARD_PADDING))
         .show(ui, |ui| {
-            let (action, drag) = render_content(ui, view, state, &mut content_h, text);
+            let (action, drag) = render_content(ui, view, attached, state, &mut content_h, text);
             output.action = action;
             output.drag = drag;
             ui.set_min_size(ui.available_size());
@@ -328,6 +386,52 @@ fn record_scrolled_height(
     *content_h = ui.min_rect().height() + overflow;
 }
 
+/// 滚动区视口上限：可用高扣掉页脚带预留，极矮窗口下仍有滚动下限。
+fn viewport_max(ui: &egui::Ui) -> f32 {
+    (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT)
+}
+
+/// 流式正文（注位渐进 markdown + 疏位已到达的解读条目）：两字段全空落
+/// 骨架（经已回显、注未至——无注印，还没有可注的内容）。
+fn streamed_sections(ui: &mut egui::Ui, fields: &StreamFields, state: &RenderState, text: &Text) {
+    if fields.note.is_empty() && fields.interpretation.is_empty() {
+        shimmer_bars(ui);
+        return;
+    }
+    if !fields.note.is_empty() {
+        zhu_section(ui, text, |ui| {
+            apply_zhu_typography(ui);
+            render_markdown(ui, state, &fields.note);
+        });
+    }
+    if !fields.interpretation.is_empty() {
+        ui.add_space(space::PARAGRAPH);
+        shu_examples(ui, &fields.interpretation, text);
+    }
+}
+
+/// 经位附件图像：纹理经 [`RenderState`] 跨帧复用（同字节恒同纹理，绝不
+/// 逐帧解码），宽度随卡宽等比收缩；解码失败落占位降级（字节进不了纹理
+/// 不是 panic 面）。
+fn attached_image(ui: &mut egui::Ui, png: &Arc<[u8]>, state: &RenderState, text: &Text) {
+    match state.attached_texture(ui.ctx(), png) {
+        Some(texture) => {
+            ui.add(egui::Image::new(&texture).max_width(ui.available_width()));
+        }
+        None => image_unavailable(ui, text),
+    }
+}
+
+/// 经位图像的占位降级：图像缺席（无可渲染的字节）或解码失败时，经位落
+/// 一行弱色占位，注/疏照常。
+fn image_unavailable(ui: &mut egui::Ui, text: &Text) {
+    ui.label(
+        RichText::new(&text.gloss_popup_image_unavailable)
+            .font(serif_font(SHU_FONT))
+            .weak(),
+    );
+}
+
 /// 浮层内容（头部 + 各视图正文），并把完整内容高记入 `content_h`：
 /// 产物与流式正文放进 ScrollArea（完整渲染、超出滚动兜底），其高度取
 /// ScrollArea 报告的内容尺寸，不受视口裁剪影响；页脚带恒在（滚动区按
@@ -336,6 +440,7 @@ fn record_scrolled_height(
 fn render_content(
     ui: &mut egui::Ui,
     view: Option<&OverlayView>,
+    attached: Option<&Arc<[u8]>>,
     state: &RenderState,
     content_h: &mut f32,
     text: &Text,
@@ -359,32 +464,40 @@ fn render_content(
             let (action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
             let code = is_code(*classified);
-            jing_section(ui, text, |ui| {
-                source_block(ui, source, code, code_lang.as_deref())
-            });
-            ui.add_space(space::PARAGRAPH);
-            // ScrollArea 内容起点 = cursor（egui 的 cursor 停在前序内容底边
-            // 加一个 item_spacing 处），从这里起算正文完整高。
-            let visible = stream_note(raw);
-            let viewport_max = (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT);
-            // 只纵向滚动：正文一律换行，横滚不进弹窗（长行由折行兜住）。
-            let scrolled = ScrollArea::new([false, true])
-                .auto_shrink([false, true])
-                .max_height(viewport_max)
-                .show(ui, |ui| {
-                    if visible.is_empty() {
-                        // 经已回显、注未至：正文保持骨架（无注印——还没有可注的内容）。
-                        shimmer_bars(ui);
-                    } else {
-                        zhu_section(ui, text, |ui| {
-                            apply_zhu_typography(ui);
-                            render_markdown(ui, state, &visible);
+            let fields = stream_fields(raw);
+            match attached {
+                // 图像卡：经位图像与注/疏一起进滚动区——高图由滚动区吞
+                // 高，窗口按完整内容高申请、壳侧钳到屏，超出滚动兜底。
+                Some(png) => {
+                    let scrolled = ScrollArea::new([false, true])
+                        .auto_shrink([false, true])
+                        .max_height(viewport_max(ui))
+                        .show(ui, |ui| {
+                            jing_section(ui, text, |ui| attached_image(ui, png, state, text));
+                            ui.add_space(space::PARAGRAPH);
+                            streamed_sections(ui, &fields, state, text);
                         });
-                    }
-                });
-            ui.add_space(space::PARAGRAPH);
-            footer(ui, true, text);
-            record_scrolled_height(ui, content_h, &scrolled);
+                    ui.add_space(space::PARAGRAPH);
+                    footer(ui, true, text);
+                    record_scrolled_height(ui, content_h, &scrolled);
+                }
+                None => {
+                    jing_section(ui, text, |ui| {
+                        source_block(ui, source, code, code_lang.as_deref())
+                    });
+                    ui.add_space(space::PARAGRAPH);
+                    // ScrollArea 内容起点 = cursor（egui 的 cursor 停在
+                    // 前序内容底边加一个 item_spacing 处），从这里起算
+                    // 正文完整高。
+                    let scrolled = ScrollArea::new([false, true])
+                        .auto_shrink([false, true])
+                        .max_height(viewport_max(ui))
+                        .show(ui, |ui| streamed_sections(ui, &fields, state, text));
+                    ui.add_space(space::PARAGRAPH);
+                    footer(ui, true, text);
+                    record_scrolled_height(ui, content_h, &scrolled);
+                }
+            }
             (action, drag)
         }
         Some(OverlayView::Outcome {
@@ -394,13 +507,21 @@ fn render_content(
         }) => {
             let (action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
-            let viewport_max = (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT);
+            let viewport_max = viewport_max(ui);
             // 只纵向滚动：与流式视图同规，代码正文按可用宽折行。
             let scrolled = ScrollArea::new([false, true])
                 .auto_shrink([false, true])
                 .max_height(viewport_max)
                 .show(ui, |ui| {
-                    outcome_body(ui, source, outcome, code_lang.as_deref(), state, text);
+                    outcome_body(
+                        ui,
+                        source,
+                        outcome,
+                        code_lang.as_deref(),
+                        attached,
+                        state,
+                        text,
+                    );
                 });
             ui.add_space(space::PARAGRAPH);
             footer(ui, false, text);
@@ -1024,14 +1145,16 @@ fn is_code(kind: Option<TaskKind>) -> bool {
     kind == Some(TaskKind::ExplainCode)
 }
 
-/// 产物正文（经注疏排布）：经（原文；提取任务为 note 提取文本）、
-/// 注（markdown 注文，词卡的义/句译的译文/讲解的正文）、疏（examples
-/// 疏证逐条，图像解读为 interpretation 逐条；提取任务为凡 N 言小记）。
+/// 产物正文（经注疏排布）：经（原文；提取任务为 note 提取文本；图像
+/// 任务为附件图像本身，缺席或解码失败落占位）、注（markdown 注文，词卡
+/// 的义/句译的译文/讲解的正文）、疏（examples 疏证逐条，图像解读为
+/// interpretation 逐条；提取任务为凡 N 言小记）。
 fn outcome_body(
     ui: &mut egui::Ui,
     source: &str,
     outcome: &gloss_core::task::TaskOutcome,
     code_lang: Option<&str>,
+    attached: Option<&Arc<[u8]>>,
     state: &RenderState,
     text: &Text,
 ) {
@@ -1074,10 +1197,16 @@ fn outcome_body(
             });
         }
         OutcomeStructured::ImageCommentary { interpretation } => {
-            if !source.trim().is_empty() {
-                jing_section(ui, text, |ui| source_block(ui, source, false, code_lang));
-                ui.add_space(space::PARAGRAPH);
+            // 经位：图像本身是经（布局开关＝附件在场，不依赖 classified
+            // 到达时序）；缺图回落原文经位（缓存命中等会话边缘），再缺落占位。
+            match attached {
+                Some(png) => jing_section(ui, text, |ui| attached_image(ui, png, state, text)),
+                None if !source.trim().is_empty() => {
+                    jing_section(ui, text, |ui| source_block(ui, source, false, code_lang));
+                }
+                None => jing_section(ui, text, |ui| image_unavailable(ui, text)),
             }
+            ui.add_space(space::PARAGRAPH);
             zhu_section(ui, text, |ui| {
                 apply_zhu_typography(ui);
                 render_markdown(ui, state, &outcome.note);
@@ -1229,6 +1358,13 @@ mod kittest_tests {
         }
     }
 
+    fn image_too_large_view() -> OverlayView {
+        OverlayView::Failed {
+            cause: FailureCause::Task(GlossError::ImageTooLarge),
+            action: None,
+        }
+    }
+
     fn failed_view_with(cause: FailureCause) -> OverlayView {
         OverlayView::Failed {
             cause,
@@ -1363,6 +1499,47 @@ mod kittest_tests {
         }
     }
 
+    fn image_commentary_view_en() -> OverlayView {
+        OverlayView::Outcome {
+            source: String::new(),
+            outcome: TaskOutcome {
+                kind: TaskKind::ImageExplain,
+                note: "A gradient panel with the caption **gloss**.".into(),
+                code_language: None,
+                structured: OutcomeStructured::ImageCommentary {
+                    interpretation: vec![
+                        "The picture is a generated placeholder, not a screenshot.".into(),
+                        "Its palette suggests a dark-mode product shot.".into(),
+                    ],
+                },
+            },
+            code_lang: None,
+        }
+    }
+
+    fn image_streaming_view_en() -> OverlayView {
+        OverlayView::Streaming {
+            source: String::new(),
+            raw: r#"{"note":"A gradient panel with","interpretation":["The picture is a generated placeholder","Its palette suggests a dark-mo"#.into(),
+            classified: Some(TaskKind::ImageExplain),
+            code_lang: None,
+        }
+    }
+
+    fn fixture_png() -> Arc<[u8]> {
+        let image = ::image::RgbaImage::from_fn(120, 80, |x, y| {
+            ::image::Rgba([(x * 2) as u8, (y * 3) as u8, ((x + y) * 2) as u8, 255])
+        });
+        let mut bytes = Vec::new();
+        image
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                ::image::ImageFormat::Png,
+            )
+            .expect("fixture png encodes");
+        bytes.into()
+    }
+
     type Clicked = Rc<RefCell<Option<OverlayAction>>>;
 
     fn font_first_frame(installed: &Cell<bool>, ctx: &egui::Context) -> bool {
@@ -1388,7 +1565,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let output = draw(ui, Some(&view), &state, text);
+            let output = draw(ui, Some(&view), None, &state, text);
             if let Some(action) = output.action {
                 *sink.borrow_mut() = Some(action);
             }
@@ -1397,6 +1574,13 @@ mod kittest_tests {
     }
 
     fn snapshot_harness(view: Option<OverlayView>) -> Harness<'static> {
+        snapshot_harness_with(view, None)
+    }
+
+    fn snapshot_harness_with(
+        view: Option<OverlayView>,
+        attached: Option<Arc<[u8]>>,
+    ) -> Harness<'static> {
         let state = RenderState::default();
         let text = Text::get(Locale::En);
         let installed = Cell::new(false);
@@ -1406,7 +1590,7 @@ mod kittest_tests {
                 if font_first_frame(&installed, ui.ctx()) {
                     return;
                 }
-                let _ = draw(ui, view.as_ref(), &state, text);
+                let _ = draw(ui, view.as_ref(), attached.as_ref(), &state, text);
             })
     }
 
@@ -1502,7 +1686,7 @@ mod kittest_tests {
                 if font_first_frame(&installed, ui.ctx()) {
                     return;
                 }
-                sink.set(draw(ui, Some(&view), &state, text).sizing);
+                sink.set(draw(ui, Some(&view), None, &state, text).sizing);
             });
             harness.run_steps(2);
             harness.set_size(vec2(sizing.get().width, sizing.get().height));
@@ -1638,7 +1822,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let output = draw(ui, Some(&view), &state, text);
+            let output = draw(ui, Some(&view), None, &state, text);
             if let Some(drag) = output.drag {
                 sink.borrow_mut().push(drag);
             }
@@ -1717,7 +1901,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let _ = draw(ui, None, &state, text);
+            let _ = draw(ui, None, None, &state, text);
         });
         harness.run();
         harness.get_by_label_contains("quick brown fox");
@@ -1749,7 +1933,7 @@ mod kittest_tests {
                         if font_first_frame(&installed, ui.ctx()) {
                             return;
                         }
-                        let _ = draw(ui, Some(&view), &state, text);
+                        let _ = draw(ui, Some(&view), None, &state, text);
                     });
             harness.set_size(egui::vec2(WIDTH, 800.0));
             harness.run();
@@ -1764,6 +1948,164 @@ mod kittest_tests {
                 "横滚不进弹窗：全部内容节点不得超出窗口可用宽 {WIDTH}: {overflowing:?}"
             );
         }
+    }
+
+    #[test]
+    fn image_card_exposes_the_commentary_to_accesskit() {
+        let png = fixture_png();
+        let state = RenderState::default();
+        let text = Text::get(Locale::En);
+        let installed = Cell::new(false);
+        let view = image_commentary_view_en();
+        let mut harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let _ = draw(ui, Some(&view), Some(&png), &state, text);
+        });
+        harness.run();
+        harness.get_by_label_contains("A gradient panel with");
+        harness.get_by_label_contains("The picture is a generated placeholder");
+        harness.get_by_label_contains("Its palette suggests a dark-mode product shot.");
+        let note = harness
+            .get_by_label_contains("A gradient panel with")
+            .rect();
+        let item = harness.get_by_label_contains("Its palette suggests").rect();
+        assert!(
+            item.top() > note.top(),
+            "注→疏必须自上而下排（经=图在上，解读条目随后）: {note:?} {item:?}"
+        );
+    }
+
+    #[test]
+    fn image_streaming_card_shows_the_interpretation_items_as_they_arrive() {
+        let png = fixture_png();
+        let state = RenderState::default();
+        let text = Text::get(Locale::En);
+        let installed = Cell::new(false);
+        let view = image_streaming_view_en();
+        let mut harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let _ = draw(ui, Some(&view), Some(&png), &state, text);
+        });
+        harness.run_steps(3);
+        harness.get_by_label_contains("A gradient panel with");
+        harness.get_by_label_contains("The picture is a generated placeholder");
+        harness.get_by_label_contains("Its palette suggests a dark-mo");
+        assert!(
+            harness.query_by_label_contains("interpretation").is_none(),
+            "raw JSON scaffolding must not reach the card"
+        );
+    }
+
+    #[test]
+    fn image_streaming_card_without_a_note_keeps_the_skeleton() {
+        let png = fixture_png();
+        let state = RenderState::default();
+        let text = Text::get(Locale::Zh);
+        let installed = Cell::new(false);
+        let view = OverlayView::Streaming {
+            source: String::new(),
+            raw: String::new(),
+            classified: Some(TaskKind::ImageExplain),
+            code_lang: None,
+        };
+        let mut harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let _ = draw(ui, Some(&view), Some(&png), &state, text);
+        });
+        harness.run_steps(3);
+        harness.get_by_label_contains("正在注解");
+    }
+
+    #[test]
+    fn image_card_degrades_to_a_placeholder_when_the_bytes_do_not_decode() {
+        let broken: Arc<[u8]> = Arc::from(&b"not a png"[..]);
+        let state = RenderState::default();
+        let text = Text::get(Locale::En);
+        let installed = Cell::new(false);
+        let view = image_commentary_view_en();
+        let mut harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let _ = draw(ui, Some(&view), Some(&broken), &state, text);
+        });
+        harness.run();
+        harness.get_by_label_contains("The image could not be displayed.");
+        harness.get_by_label_contains("A gradient panel with");
+    }
+
+    #[test]
+    fn attached_image_texture_is_reused_across_frames() {
+        let png = fixture_png();
+        let state = RenderState::default();
+        let text = Text::get(Locale::En);
+        let installed = Cell::new(false);
+        let view = image_commentary_view_en();
+        let mut harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let _ = draw(ui, Some(&view), Some(&png), &state, text);
+        });
+        harness.run();
+        harness.run();
+        let settled = harness.ctx.tex_manager().read().num_allocated();
+        for _ in 0..5 {
+            harness.run();
+        }
+        assert_eq!(
+            harness.ctx.tex_manager().read().num_allocated(),
+            settled,
+            "同图逐帧复用同一纹理：帧数增长不得新装纹理（逐帧解码即失败）"
+        );
+    }
+
+    #[test]
+    fn attached_image_slot_is_dropped_once_an_imageless_frame_renders() {
+        let png = fixture_png();
+        let state = RenderState::default();
+        let text = Text::get(Locale::En);
+        let installed = Cell::new(false);
+        let view = image_commentary_view_en();
+        let mode = Rc::new(Cell::new(0u8));
+        let frame_mode = Rc::clone(&mode);
+        let mut harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let attached = if frame_mode.get() == 0 {
+                Some(&png)
+            } else {
+                None
+            };
+            let _ = draw(ui, Some(&view), attached, &state, text);
+        });
+
+        harness.run();
+        harness.run();
+        let with_image = harness.ctx.tex_manager().read().num_allocated();
+
+        mode.set(1);
+        harness.run();
+        let after_drop = harness.ctx.tex_manager().read().num_allocated();
+        assert!(
+            after_drop < with_image,
+            "会话离开图像卡即清槽：源字节与纹理同帧释放（{after_drop} < {with_image}）"
+        );
+
+        mode.set(0);
+        harness.run();
+        assert_eq!(
+            harness.ctx.tex_manager().read().num_allocated(),
+            with_image,
+            "同图重新上卡走重新解码：驻留恢复但不复用已释放的纹理"
+        );
     }
 
     #[test]
@@ -1803,6 +2145,23 @@ mod kittest_tests {
         let mut harness = snapshot_harness(Some(code_outcome_view_en()));
         harness.run();
         harness.snapshot("popup_code_outcome");
+        results.extend_harness(&mut harness);
+
+        let mut harness =
+            snapshot_harness_with(Some(image_commentary_view_en()), Some(fixture_png()));
+        harness.run();
+        harness.snapshot("popup_image_outcome");
+        results.extend_harness(&mut harness);
+
+        let mut harness =
+            snapshot_harness_with(Some(image_streaming_view_en()), Some(fixture_png()));
+        harness.run_steps(3);
+        harness.snapshot("popup_image_streaming");
+        results.extend_harness(&mut harness);
+
+        let mut harness = snapshot_harness(Some(image_too_large_view()));
+        harness.run();
+        harness.snapshot("popup_image_failed");
         results.extend_harness(&mut harness);
 
         let mut harness = snapshot_harness(None);

@@ -49,6 +49,7 @@ pub struct Text {
     pub(crate) gloss_popup_close_label: String,
     pub(crate) gloss_popup_settings_label: String,
     pub(crate) gloss_popup_drag_label: String,
+    pub(crate) gloss_popup_image_unavailable: String,
 
     pub(crate) gloss_errors_selection_unavailable: String,
     pub(crate) gloss_errors_selection_empty: String,
@@ -83,6 +84,8 @@ pub struct Text {
     pub(crate) gloss_settings_cache_ttl: String,
     pub(crate) gloss_settings_cache_ttl_suffix: String,
     pub(crate) gloss_settings_cache_ttl_hint: String,
+    pub(crate) gloss_settings_watch_clipboard_images: String,
+    pub(crate) gloss_settings_watch_clipboard_images_hint: String,
     pub(crate) gloss_settings_notice_key_update_failed: String,
     pub(crate) gloss_settings_notice_save_failed: String,
     pub(crate) gloss_settings_notice_key_updated_save_failed: String,
@@ -213,7 +216,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            79,
+            82,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(

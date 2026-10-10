@@ -228,7 +228,7 @@ impl OverlaySelfTest {
             return;
         };
         let render_started = Instant::now();
-        let (repaint, _) = render_frame(frame, None, Locale::default());
+        let (repaint, _) = render_frame(frame, None, None, Locale::default());
         self.next_repaint = repaint;
         if let Some(shown) = self.shown_at.take() {
             self.latencies.push(Instant::now() - shown);

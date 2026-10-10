@@ -257,13 +257,13 @@ fn bench_popup_frame<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
 
     for i in 0..WARMUP_FRAMES {
         run_frame(&ctx, i as f64 / 30.0, |ui| {
-            popup::draw(ui, Some(&view), &render, text);
+            popup::draw(ui, Some(&view), None, &render, text);
         });
     }
     group.bench_function("ui/popup_frame", |b| {
         b.iter(|| {
             run_frame(&ctx, STEADY_TIME, |ui| {
-                black_box(popup::draw(ui, Some(&view), &render, text));
+                black_box(popup::draw(ui, Some(&view), None, &render, text));
             });
         })
     });

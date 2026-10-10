@@ -501,7 +501,8 @@ fn connection_section(
 /// 清除密钥按钮的占位余量（按钮宽 + 间距；输入框占满剩余宽）。
 const CLEAR_BUTTON_RESERVE: f32 = 88.0;
 
-/// 通用区：目标语言、界面语言、界面主题、缓存有效期（上限由控件钳制）。
+/// 通用区：目标语言、界面语言、界面主题、缓存有效期（上限由控件钳制）、
+/// 剪贴板图片监听开关（保存时整体上交，热切换不要求重启）。
 fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
     choice_row(ui, &text.gloss_settings_target_lang, |ui| {
         lang_combo(ui, &mut state.draft.target_lang, text);
@@ -520,6 +521,59 @@ fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
         );
     });
     choice_hint(ui, &text.gloss_settings_cache_ttl_hint);
+    choice_row(ui, &text.gloss_settings_watch_clipboard_images, |ui| {
+        toggle_switch(ui, &mut state.draft.watch_clipboard_images)
+    });
+    choice_hint(ui, &text.gloss_settings_watch_clipboard_images_hint);
+}
+
+/// 开关滑块的轨道尺寸与滑钮半径（demo 定稿比例的紧凑档：滑钮直径略小
+/// 于轨高，上下各留一线余量）。
+const TOGGLE_TRACK: egui::Vec2 = egui::vec2(36.0, 20.0);
+const TOGGLE_KNOB_RADIUS: f32 = 7.0;
+const TOGGLE_KNOB_INSET: f32 = 3.0;
+
+/// 最小开关（switch）：egui 0.36 无内建 Switch（`WidgetType` 亦无 switch
+/// 档），按官方 demo 的 `toggle_switch` 范式自绘——点击整块切换，无障碍
+/// 以 `WidgetType::Checkbox` + 选中态上报（0.36 的角色映射里唯一的双态
+/// 档，内建 `Checkbox` 也走它）。返回的响应供调用方感知变更。
+fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
+    let (rect, mut response) = ui.allocate_exact_size(TOGGLE_TRACK, egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, "")
+    });
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+
+    let visuals = ui.visuals();
+    let (track, knob) = if *on {
+        (visuals.selection.bg_fill, visuals.strong_text_color())
+    } else {
+        (visuals.extreme_bg_color, visuals.weak_text_color())
+    };
+    let painter = ui.painter();
+    painter.rect_filled(rect, f32::INFINITY, track);
+    if !(*on) {
+        painter.rect_stroke(
+            rect,
+            f32::INFINITY,
+            visuals.widgets.noninteractive.bg_stroke,
+            egui::StrokeKind::Inside,
+        );
+    }
+    let knob_x = if *on {
+        rect.right() - TOGGLE_KNOB_INSET - TOGGLE_KNOB_RADIUS
+    } else {
+        rect.left() + TOGGLE_KNOB_INSET + TOGGLE_KNOB_RADIUS
+    };
+    painter.circle_filled(
+        egui::pos2(knob_x, rect.center().y),
+        TOGGLE_KNOB_RADIUS,
+        knob,
+    );
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// 双列行：行标签左、控件推到卡片右缘（两端对齐）；返回控件自身的响应
@@ -692,7 +746,7 @@ mod tests {
     use std::rc::Rc;
     use std::sync::Arc;
 
-    use egui_kittest::kittest::Queryable;
+    use egui_kittest::kittest::{NodeT, Queryable};
     use gloss_core::config_handle::ConfigHandle;
     use gloss_core::model::Locale;
 
@@ -943,6 +997,7 @@ mod tests {
             "Interface language",
             "Interface theme",
             "Cache lifetime",
+            "Watch the clipboard for images",
         ] {
             harness.get_by_label(label);
         }
@@ -950,6 +1005,32 @@ mod tests {
             harness.query_by_label("保存").is_none(),
             "the English table must not leave Chinese labels behind"
         );
+    }
+
+    #[test]
+    fn clipboard_watch_toggle_travels_with_the_saved_draft() {
+        let (mut harness, action) = harness_for(open(&Config::default()), Locale::En);
+        harness.run();
+        harness.get_by_label("Watch the clipboard for images");
+        assert_eq!(
+            harness
+                .get_by_role(egui::accesskit::Role::CheckBox)
+                .accesskit_node()
+                .toggled(),
+            Some(egui::accesskit::Toggled::False),
+            "the factory default keeps clipboard watching off"
+        );
+        harness.get_by_role(egui::accesskit::Role::CheckBox).click();
+        harness.run();
+        harness.get_by_label("Save").click();
+        harness.run();
+        match &*action.borrow() {
+            SettingsAction::Save { config, .. } => assert!(
+                config.watch_clipboard_images,
+                "the toggled checkbox must reach the saved snapshot"
+            ),
+            other => panic!("save action expected, got {other:?}"),
+        }
     }
 
     #[test]
