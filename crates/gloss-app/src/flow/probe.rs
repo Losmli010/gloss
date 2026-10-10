@@ -10,8 +10,8 @@ use crate::app::GlossApp;
 
 impl GlossApp {
     /// 消费通道①：平台事件 → 取材命令。只有真实下发的命令才占用编号
-    /// （未接线事件不作废在途回传）。划词手势走探测段
-    /// （`begin_selection_probe`——状态机不动、不显形，产物到达才提交）。
+    /// （未接线事件不作废在途回传）。划词手势与剪贴板图片观察各走各的
+    /// 探测段入口（状态机不动、不显形，产物到达才提交）。
     ///
     /// 触发前读一次场景事实（安全输入态、前台应用）：闸门拦下的触发与
     /// 未接线事件一样不进状态机，但记 warn——用户会想知道「为什么划了没
@@ -52,6 +52,12 @@ impl GlossApp {
                     self.env.system_locale,
                     &scene,
                 ),
+                PlatformEvent::PasteboardImageObserved => self.machine.begin_pasteboard_probe(
+                    &event,
+                    &config,
+                    self.env.system_locale,
+                    &scene,
+                ),
                 _ => None,
             }) else {
                 // 两类拦下各有各的级别与措辞：被场景闸门拦下的是「这一次
@@ -76,23 +82,34 @@ impl GlossApp {
                 }
                 continue;
             };
-            let AcquireCommand::AcquireText { generation, .. } = &command else {
-                continue;
+            let generation = match &command {
+                AcquireCommand::AcquireText { generation }
+                | AcquireCommand::AcquireClipboardImage { generation } => *generation,
+                AcquireCommand::CaptureRegion { generation, .. } => *generation,
             };
-            let generation = *generation;
             let span = task_span(generation);
             self.session.task_span = Some((generation, span.clone()));
             let entered_span = span.clone();
             let _entered = entered_span.enter();
-            info!(
-                thread = thread::UI,
-                "selection probe dispatched as acquire command"
-            );
             // 划词探测记录释放坐标与前台应用（随探测编号）：浮层显示时跟随
-            // 选区；探测失败的排查日志带上应用标识。
-            if let PlatformEvent::SelectionGesture { pos } = event {
-                self.session.selection_anchor = Some((generation, pos));
-                self.session.probe_front_app = scene.front_app;
+            // 选区；探测失败的排查日志带上应用标识。剪贴板观察无锚点——
+            // 浮层露面走既有居中路径。
+            match event {
+                PlatformEvent::SelectionGesture { pos } => {
+                    info!(
+                        thread = thread::UI,
+                        "selection probe dispatched as acquire command"
+                    );
+                    self.session.selection_anchor = Some((generation, pos));
+                    self.session.probe_front_app = scene.front_app;
+                }
+                PlatformEvent::PasteboardImageObserved => {
+                    info!(
+                        thread = thread::UI,
+                        "pasteboard image probe dispatched as acquire command"
+                    );
+                }
+                _ => {}
             }
             if !self.send_acquire(command, span) {
                 // 取材通道发送失败：作废探测即可（当前显示不动）。
@@ -105,10 +122,11 @@ impl GlossApp {
     /// 通道②发送；返回是否发出。接收端消失（事件线程死亡/退出）时由
     /// 调用方作废探测（当前显示不动）。
     fn send_acquire(&mut self, command: AcquireCommand, span: Span) -> bool {
-        let AcquireCommand::AcquireText { generation, .. } = &command else {
-            return false;
+        let generation = match &command {
+            AcquireCommand::AcquireText { generation }
+            | AcquireCommand::AcquireClipboardImage { generation } => *generation,
+            AcquireCommand::CaptureRegion { generation, .. } => *generation,
         };
-        let generation = *generation;
         let Some(endpoints) = &self.endpoints else {
             return false;
         };
@@ -138,7 +156,7 @@ mod tests {
     use gloss_core::ports::SceneProbe;
 
     use crate::app::test_support::{driven_app, driven_app_with_scene, trigger_selection};
-    use crate::channel::AcquireCommand;
+    use crate::channel::{AcquireCommand, PlatformEvent};
     use crate::machine::AppState;
     use crate::stubs::ports::{MemoryConfigStore, StubSceneProbe};
 
@@ -223,6 +241,91 @@ mod tests {
         assert!(matches!(
             ac_rx.try_recv().unwrap().payload,
             AcquireCommand::AcquireText { generation: 1, .. }
+        ));
+    }
+
+    #[test]
+    fn a_pasteboard_observation_dispatches_the_clipboard_acquire_command() {
+        let (mut app, _config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app();
+
+        pe_tx
+            .send(PlatformEvent::PasteboardImageObserved)
+            .expect("platform channel open");
+        app.drain_platform_events();
+
+        assert_eq!(
+            app.machine.state(),
+            AppState::Idle,
+            "the probe leaves the state machine alone until content arrives"
+        );
+        assert_eq!(app.machine.generation(), 0);
+        assert_eq!(app.machine.probe_id(), Some(1));
+        assert!(
+            matches!(
+                ac_rx
+                    .try_recv()
+                    .expect("acquire command dispatched")
+                    .payload,
+                AcquireCommand::AcquireClipboardImage { generation: 1 }
+            ),
+            "the observation acquires the clipboard image"
+        );
+        assert!(
+            app.session.selection_anchor.is_none(),
+            "a pasteboard probe records no anchor: the reveal falls back to centering"
+        );
+    }
+
+    #[test]
+    fn a_sensitive_scene_silences_the_pasteboard_observation() {
+        let scene = Arc::new(StubSceneProbe::default());
+        let (mut app, _config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app_with_scene(
+            Arc::new(MemoryConfigStore::default()),
+            Arc::clone(&scene) as Arc<dyn SceneProbe>,
+        );
+
+        scene.set_facts(SceneFacts {
+            secure_input: true,
+            front_app: None,
+        });
+        pe_tx
+            .send(PlatformEvent::PasteboardImageObserved)
+            .expect("platform channel open");
+        app.drain_platform_events();
+
+        assert!(
+            ac_rx.try_recv().is_err(),
+            "a focused password field must stop the clipboard probe"
+        );
+        assert_eq!(app.machine.generation(), 0);
+        assert_eq!(app.machine.probe_id(), None);
+        assert_eq!(app.machine.state(), AppState::Idle);
+
+        scene.set_facts(SceneFacts {
+            secure_input: false,
+            front_app: Some(FrontApp {
+                bundle_id: Some("com.1password.1password".into()),
+                name: None,
+                is_self: false,
+            }),
+        });
+        pe_tx
+            .send(PlatformEvent::PasteboardImageObserved)
+            .expect("platform channel open");
+        app.drain_platform_events();
+        assert!(
+            ac_rx.try_recv().is_err(),
+            "a listed frontmost app must stop the clipboard probe too"
+        );
+
+        scene.set_facts(SceneFacts::default());
+        pe_tx
+            .send(PlatformEvent::PasteboardImageObserved)
+            .expect("platform channel open");
+        app.drain_platform_events();
+        assert!(matches!(
+            ac_rx.try_recv().unwrap().payload,
+            AcquireCommand::AcquireClipboardImage { generation: 1 }
         ));
     }
 }

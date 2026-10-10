@@ -10,10 +10,10 @@
 | --- | --- | --- |
 | 人工测试 | 11 | `cargo test -p gloss-platform -- --ignored` |
 | 发版人工步骤 | 6 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
-| 集成测试 | 10 | `just test` |
+| 集成测试 | 14 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 32 | `just test` |
-| 单元测试 | 479 | `just test` |
+| 单元测试 | 476 | `just test` |
 
 ## 人工测试
 
@@ -202,6 +202,9 @@
 | config_change_invalidates_cache_for_the_next_task | 配置变更对主缓存 key 的失效 | 给定同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎维持 2 次：分类+执行）、换模型与换目标语言各再触发一轮（各 +2，共 6 次） | 2026-10-03 |
 | engine_logs_carry_the_task_span | 桥日志经 span 带上代数 | 给定带 span 的任务命令（进程级捕获订阅者），当消费桥执行到缓存命中，则命中行同时含 cache hit 与 "generation":2 | 2026-09-26 |
 | legacy_fence_contract_falls_back_to_a_complete_card | 旧围栏契约落 fallback 出完整卡 | 给定旧契约（markdown + 末尾 gloss 围栏）的流式脚本，当跑完整桥，则分类从围栏 kind 标签判 ExplainCode、完成态走围栏 fallback：正文剥离围栏、产物落完整卡（例句空集） | 2026-10-03 |
+| image_flow_classifies_before_chunks_and_settles_the_commentary | 图像任务先分类后流式并落经注疏产物 | 给定粘贴板观察注入 JSON 契约（note + interpretation）的流式脚本，当全链路推进，则先回 TaskClassified(ImageExplain)（图像跳过 LLM 分类、恒定映射、先于任何 chunk 恰一次）、chunk 逐条回流、TaskDone 后定格 Show：note 落注位、interpretation 落 ImageCommentary 疏位、引擎恰被调用 1 次、attached_image 保持 Arc 同一性 | 2026-10-10 |
+| repeated_image_copy_is_a_full_cache_hit | 同图重复复制全缓存命中直出 | 给定同一图像字节（cache_key 摘要一致）的第二次复制，当桥查产物缓存命中，则仅回 TaskClassified(ImageExplain)+TaskDone（无 TaskChunk）、引擎调用数维持 1（首轮仅执行）、状态定格 Show | 2026-10-10 |
+| hide_overlay_cancels_the_image_stream_and_drops_late_events | 收起浮层取消图像流并丢弃迟到事件 | 给定慢流中的图像任务已收到分类与首个 chunk，当 hide_overlay 取消在途令牌，则不再有任何回传事件、attached_image 清空、机器侧拒绝该任务的迟到 chunk 并回 Idle | 2026-10-10 |
 
 ## 性能测试
 
@@ -444,8 +447,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| platform_events_round_trip_through_crossbeam | 通道①事件往返 | 给定五种 PlatformEvent（含监听失效），当经通道①往返，则按序原样到达 | 2026-10-06 |
-| acquire_commands_carry_app_assigned_gen | 取材命令携带代数 | 给定带代数的取材命令，当下发，则接收侧读到同一代数与 kind/区域 | 2026-09-19 |
+| platform_events_round_trip_through_crossbeam | 通道①事件往返 | 给定六种 PlatformEvent（含粘贴板图片观察与监听失效），当经通道①往返，则按序原样到达 | 2026-10-10 |
+| acquire_commands_carry_app_assigned_gen | 取材命令携带代数 | 给定带代数的三种取材命令（读文本、读剪贴板图、框选区域），当下发，则接收侧读到同一代数与各自的载荷 | 2026-10-10 |
 | run_task_command_delivers_cancellable_task | 任务命令携带取消令牌 | 给定 RunTask 命令，当下发，则代数、任务、取消令牌完整到达且令牌联动 | 2026-09-19 |
 | prewarm_secret_command_carries_only_the_entry_id | 预热命令只携带条目定位符 | 给定 PrewarmSecret 命令，当下发，则到达的命令只含 keychain_id（密钥值不进通道载荷） | 2026-10-06 |
 | secret_prewarmed_receipt_round_trips_without_a_value | 预热回执成功失败两路往返 | 给定 Ok 与 Err 两条预热回执，当经通道④，则按序携带（Err 只含失败原因，不含密钥值） | 2026-10-06 |
@@ -483,6 +486,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | dispatched_acquire_carries_the_task_span | 取材命令带着任务 span 下发 | 给定划词触发，当取出通道②载荷并进入它的 span，则探针日志行是 JSON 且带 "generation":1 | 2026-09-23 |
 | a_disabled_default_kind_does_not_stop_the_selection_gesture | 任务开关不拦划词手势 | 给定默认任务被停用的配置，当划词触发，则仍下发 Auto 取材命令（手势不带显式意图，开关只拦显式 kind） | 2026-09-26 |
 | a_sensitive_scene_makes_the_selection_gesture_a_no_op | 敏感场景下划词彻底无声 | 给定安全输入开启、再给定前台应用在拦截名单内（两侧各自设置），当划词触发，则取材命令都不下发、探测编号不领、状态留 Idle；场景恢复后同一手势照常下发 | 2026-09-24 |
+| a_pasteboard_observation_dispatches_the_clipboard_acquire_command | 粘贴板观察下发剪贴板读图命令 | 给定粘贴板图片观察事件，当消费通道①，则状态机留 Idle、只领探测编号（id=1、代数 0）、通道②收到 AcquireClipboardImage{1}、不记录划词锚点（露面走居中） | 2026-10-10 |
+| a_sensitive_scene_silences_the_pasteboard_observation | 敏感场景下粘贴板观察无声 | 给定安全输入开启、再给定前台应用在拦截名单内（两侧各自设置），当粘贴板观察触发，则读图命令不下发、探测编号不领、状态留 Idle；场景恢复后同一观察照常下发 | 2026-10-10 |
 
 ### crates/gloss-app/src/flow/task.rs
 
@@ -497,12 +502,15 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | suspicious_input_is_suppressed_and_shows_nothing | 可疑内容被拦下且什么都不出 | 给定嵌在 JSON 里的短令牌取材产物，当采纳，则通道③一条都没有、可见会话不被触碰（没有卡片、没有可点的出口）；下一次普通取材照常下发 | 2026-10-01 |
 | a_mis_slide_over_a_visible_session_preserves_it_entirely | 已显示会话对误滑零感知 | 给定推理中的可见会话，当新划词探测以空选区失败收场，则令牌未取消、状态与视图原样、无显形挂起、流式正文照常追加 | 2026-10-01 |
 | committing_the_probe_flags_the_reveal_for_the_same_frame | 提交即挂起显形 | 给定在途划词探测，当产物提交，则置位显形挂起（drain_events 同帧消费）、进入 Translating | 2026-10-01 |
+| pasteboard_commit_retains_the_image_and_flags_the_reveal | 粘贴板提交留图并挂起显形 | 给定在途粘贴板探测，当图像产物提交，则置 Translating、图像以 Arc 留存进 attached_image、置位显形挂起（无匹配代数的锚点——露面走居中）、通道③收到携带 TaskInput::Image 的 RunTask、视图换流式卡 | 2026-10-10 |
+| a_pasteboard_product_without_a_matching_probe_is_dropped | 无匹配探测的图像产物整体丢弃 | 给定陈旧编号的图像 InputReady（无在途探测），当采纳，则整体丢弃、不下发通道③、不留随行图像 | 2026-10-10 |
+| pasteboard_oversized_failure_lands_in_the_error_card | 图片超上限失败落错误卡 | 给定在途粘贴板探测，当收 ImageTooLarge 失败，则落 Error 弹失败卡（显式可观察）、探测消费 | 2026-10-10 |
 
 ### crates/gloss-app/src/ui/i18n.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 76（条数钉住，防遍历退化） | 2026-09-24 |
+| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 79（条数钉住，防遍历退化） | 2026-10-10 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language_en）外无一与中文表逐字相同 | 2026-09-23 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 gloss_ 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
 | placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
@@ -663,19 +671,28 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（框选、设置、退出、监听失效），当 begin_selection_probe，则前者发 AcquireText（无 kind——类型归 LLM 层）且只领探测编号不动代数、后者 None 且不占代数不顶掉在途探测 | 2026-10-06 |
-| trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦/未接线 | 给定 trigger_decision，则划词恒为 Acquire（无载荷——分类是 LLM 层的事）、框选、退出与授权落定报 Unwired、设置与退出不因场景被拦；出厂配置下划词为 Acquire，拦截名单内的前台应用则报 Blocked | 2026-10-09 |
+| probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（框选、粘贴板观察、设置、退出），当 begin_selection_probe，则前者发 AcquireText（无 kind——类型归 LLM 层）且只领探测编号不动代数、后者 None 且不占代数不顶掉在途探测 | 2026-10-10 |
+| trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦/未接线 | 给定 trigger_decision，则划词恒为 Acquire（无载荷——分类是 LLM 层的事）、剪贴板观察为 Acquire（取材动作即显式意图）且只受场景闸门（名单内报 Blocked、自身前台不设防）、框选、退出与授权落定报 Unwired；出厂配置下划词为 Acquire | 2026-10-10 |
 | scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 begin_selection_probe，则两次都 None、无探测编号、状态留 Idle；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
 | selection_options_pair_with_one_snapshot_including_the_model | 选项（含模型）出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则目标语言与模型 id 均出自快照冻结（类型不在其中——kind 由 LLM 层分类决定） | 2026-10-03 |
 | classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 accept_classified，则当前代写入判定 kind、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
 | code_language_comes_only_from_the_llm_verdict | 代码语言只认 LLM 产物判定 | 给定 rust 代码片段的划词提交，当检查流式视图，则 code_lang 为 None（本地不做内容探测）；产物到达后判定修剪首尾空白、过词元门槛并归一化采纳；判定缺失或为占位串（如「…或 null」）时不做兜底、产物卡无语言（无角标、通用集着色） | 2026-10-06 |
 | options_freeze_at_probe_time | 选项在探测时刻冻结 | 给定探测后更换配置（目标语言与界面语言同时变），当提交产物，则任务仍带探测时快照的选项（含 prompt_locale）；第二次探测才用新值 | 2026-10-01 |
 | prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 Language::En 与出厂 System 两份配置，当探测并提交产物，则任务携带的 prompt_locale 分别为 En 与注入的系统语言 | 2026-09-22 |
-| commit_selection_yields_run_request_and_supersedes_the_previous_session | 提交探测接管会话并守卫状态 | 给定命中在途探测的合法产物，当 commit_selection，则返回下发请求、探测编号提升为代数、旧在途任务被取消、视图换流式卡；同编号重复提交被拒 | 2026-10-01 |
+| commit_probe_yields_run_request_and_supersedes_the_previous_session | 提交探测接管会话并守卫状态 | 给定命中在途探测的合法产物，当 commit_probe，则返回下发请求、探测编号提升为代数、旧在途任务被取消、视图换流式卡；同编号重复提交被拒 | 2026-10-01 |
 | a_probe_leaves_a_visible_session_completely_untouched | 探测与误滑不扰动可见会话 | 给定推理中的可见会话，当新划词探测、再当探测以空选区失败收场，则状态、视图、取消令牌全程原样，流式正文照常追加 | 2026-10-01 |
-| image_input_for_text_kind_is_rejected | 文本 kind 拒绝图像输入 | 给定文本 kind 配图像输入，当提交，则 Ignored | 2026-09-19 |
+| image_input_for_text_kind_is_rejected | 划词探测拒收图像输入 | 给定在途划词探测收图像产物，当提交，则 Ignored（模态按探测的取材来源配对） | 2026-10-10 |
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 Translating 态隐藏，当收起，则令牌取消、视图清空回 Idle，迟到同代数产物/失败被拒 | 2026-09-19 |
-| hide_overlay_drops_the_outstanding_probe | 隐藏作废在途探测 | 给定在途探测，当收起浮层，则迟到的探测产物与失败均被拒（不得把浮层弹回） | 2026-10-01 |
+| hide_overlay_drops_the_outstanding_probe | 隐藏作废在途探测 | 给定在途探测（划词与粘贴板各验一遍），当收起浮层，则迟到的探测产物与失败均被拒（不得把浮层弹回） | 2026-10-10 |
+| pasteboard_probe_takes_an_id_without_touching_the_session | 粘贴板探测只领编号不动会话 | 给定空白机器与推理中的可见会话，当 begin_pasteboard_probe，则发 AcquireClipboardImage、只领探测编号不动代数、状态与视图原样、在途任务不被取消、无随行图像 | 2026-10-10 |
+| the_scene_gate_stops_the_pasteboard_probe_too | 场景闸门同样停住粘贴板探测 | 给定安全输入开启与前台应用在名单内两种场景，当 begin_pasteboard_probe，则两次都 None、无探测编号、状态留 Idle；场景恢复后同一观察照常探测（仍不动代数） | 2026-10-10 |
+| pasteboard_commit_retains_the_image_and_dispatches | 粘贴板提交留图并下发 | 给定在途粘贴板探测的图像产物，当 commit_probe，则返回下发请求、探测编号提升为代数、图像以 Arc 零拷贝留存进 attached_image、流式卡经位原文为空（经是图本身）、探测消费 | 2026-10-10 |
+| probes_are_mutually_exclusive_across_triggers | 两路探测互斥（同一探测槽） | 给定划词探测在途时来粘贴板观察（反向亦然），当新探测到达，则顶掉旧探测；旧编号的产物与失败一律 Ignored、新编号照常提交 | 2026-10-10 |
+| text_on_a_pasteboard_probe_is_ignored_without_consuming | 粘贴板探测拒收文本不消费探测 | 给定在途粘贴板探测收文本产物，当 commit_probe，则 Ignored；同编号的合法图像产物随后仍可提交 | 2026-10-10 |
+| pasteboard_commit_supersedes_and_a_new_task_clears_the_image | 粘贴板提交接管且新任务清图 | 给定推理中的文本任务，当粘贴板提交，则旧任务取消、随行图像就位；随后新文本任务提交，则 attached_image 清空 | 2026-10-10 |
+| hide_overlay_clears_the_attached_image | 隐藏清空随行图像 | 给定已提交图像任务的会话，当 hide_overlay，则 attached_image 清空 | 2026-10-10 |
+| image_too_large_failure_lands_in_the_failure_card | 图片超上限失败落失败卡 | 给定在途粘贴板探测，当收 ImageTooLarge，则 Shown 落 Error 弹失败卡（无动作按钮——超限没有按钮意义上的出口、retry 为 None）、探测消费、无随行图像 | 2026-10-10 |
+| retrying_a_failed_image_task_keeps_the_attached_image | 图像任务失败重试保住随行图像 | 给定图像任务流中失败落 Error，当 retry，则同代数原样重发（input 含同一图像 Arc、新令牌）、attached_image 指针不变、回流式卡（经位原文为空） | 2026-10-10 |
 | the_streaming_view_waits_unclassified_until_the_llm_layer_reports | 流式视图等 LLM 层分类精化 | 给定划词提交，当检查流式视图，则 classified 与 code_lang 创建均为 None（等 LLM 层回传） | 2026-10-03 |
 | failed_guard_matches_translating_only | 失败守卫只认推理在途态 | 给定推理中任务的失败、以及隐藏后的迟到失败，当采纳，则前者落 Error（Shown）、后者被拒（Ignored） | 2026-10-03 |
 | probe_no_selection_failures_are_silently_dropped | 探测空选区静默丢弃 | 给定在途划词探测，当收 SelectionUnavailable / SelectionEmpty 失败，则静默丢弃不弹卡，状态机与当前显示一律不动、探测编号消费 | 2026-10-01 |

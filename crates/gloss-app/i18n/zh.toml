@@ -29,6 +29,7 @@ gloss_errors_selection_empty = "当前没有选中的文字，请先选中再触
 gloss_errors_accessibility_denied = "辅助功能权限未授权：系统设置 → 隐私与安全性 → 辅助功能"
 gloss_errors_screen_capture_denied = "屏幕录制权限未授权：系统设置 → 隐私与安全性 → 屏幕录制"
 gloss_errors_region_too_large = "框选区域超出屏幕，请重新框选"
+gloss_errors_image_too_large = "图片过大，超出可处理的上限"
 gloss_errors_unsupported_modality = "当前模型不支持该任务，请在设置中为它配置匹配能力的模型"
 gloss_errors_engine_network = "网络错误，请检查网络后重试"
 gloss_errors_engine_auth = "API Key 无效或未配置，请到设置中检查"

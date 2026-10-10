@@ -365,12 +365,24 @@ fn acquire_command_handler()
         // 进入触发点建好的任务 span：本处理器（含取材读选区、剪贴板兜底）
         // 的日志自动带上 `generation`。
         let _entered = job.span.enter();
-        let AcquireCommand::AcquireText { generation } = job.payload else {
-            debug!(
-                thread = thread::EVENT,
-                "capture region command not wired yet, dropped"
-            );
-            return;
+        let generation = match job.payload {
+            AcquireCommand::AcquireText { generation } => generation,
+            // 剪贴板读图与框选取材的读取栈随后续步骤接入：命令先按未接线
+            // 丢弃（留痕带代数，方便排查）。
+            AcquireCommand::AcquireClipboardImage { generation } => {
+                debug!(
+                    thread = thread::EVENT,
+                    generation, "clipboard image acquisition not wired yet, dropped"
+                );
+                return;
+            }
+            AcquireCommand::CaptureRegion { generation, .. } => {
+                debug!(
+                    thread = thread::EVENT,
+                    generation, "capture region command not wired yet, dropped"
+                );
+                return;
+            }
         };
         info!(thread = thread::EVENT, "acquiring text");
         match reader.read() {

@@ -77,6 +77,8 @@ pub enum GlossError {
     ScreenCaptureDenied,
     /// 框选区域超出屏幕或阈值。
     RegionTooLarge,
+    /// 剪贴板图片超出字节总量或像素面积上限（超限报错，不截断）。
+    ImageTooLarge,
     /// 任务所需模态与配置的模型能力不匹配（如图像任务未配视觉模型）。
     UnsupportedModality,
     /// 网络错误，可重试。
@@ -99,6 +101,7 @@ impl std::fmt::Display for GlossError {
             Self::AccessibilityDenied => write!(f, "accessibility permission denied"),
             Self::ScreenCaptureDenied => write!(f, "screen capture permission denied"),
             Self::RegionTooLarge => write!(f, "screen region too large"),
+            Self::ImageTooLarge => write!(f, "pasteboard image too large"),
             Self::UnsupportedModality => write!(f, "model capability does not match task modality"),
             Self::EngineNetwork => write!(f, "engine network error"),
             Self::EngineAuth => write!(f, "engine authentication failed"),

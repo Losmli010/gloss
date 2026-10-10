@@ -199,7 +199,7 @@ fn bench_machine_lifecycle<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
             ) else {
                 return;
             };
-            black_box(machine.commit_selection(generation, input));
+            black_box(machine.commit_probe(generation, input));
             black_box(machine.accept_classified(generation, TaskKind::TranslateWord));
             black_box(machine.accept_chunk(generation, delta));
             black_box(machine.accept_done(generation, outcome));

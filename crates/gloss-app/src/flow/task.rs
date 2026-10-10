@@ -77,9 +77,9 @@ impl GlossApp {
         self.request_redraw();
     }
 
-    /// 采纳取材产物：划词探测命中走提交段（内容到达才显形），其余按
-    /// 陈旧产物丢弃（收起后的取材、被顶掉的旧探测）。返回是否进入了
-    /// 需要展示浮层的新任务。
+    /// 采纳取材产物：探测命中走提交段（内容到达才显形），其余按陈旧产物
+    /// 丢弃（收起后的取材、被顶掉的旧探测）。返回是否进入了需要展示浮层
+    /// 的新任务。
     pub(crate) fn accept_input(&mut self, generation: u64, input: TaskInput) -> bool {
         // 探测编号在提交时才提升为代数，陈旧过滤按编号而不是代数。
         if self.machine.probe_id() == Some(generation) {
@@ -94,21 +94,34 @@ impl GlossApp {
         false
     }
 
-    /// 提交划词探测（取材产物到达）：状态机接管（旧会话让位、代数提升、
-    /// 视图整卡换流式卡），置挂起显形——出窗与重定位由 drain_events 在
-    /// 同帧统一执行（那里才有 ActiveEventLoop）。内容闸门命中时探测作废
-    /// 但**当前显示保留**（它属于上一个会话），只记一行 warn。
+    /// 提交探测（取材产物到达，划词与剪贴板图片共用）：状态机接管（旧会话
+    /// 让位、代数提升、视图整卡换流式卡），置挂起显形——出窗与重定位由
+    /// drain_events 在同帧统一执行（那里才有 ActiveEventLoop）。内容闸门
+    /// 命中时探测作废但**当前显示保留**（它属于上一个会话），只记一行
+    /// warn。
     fn commit_probe(&mut self, generation: u64, input: TaskInput) -> bool {
-        match self.machine.commit_selection(generation, input) {
+        match self.machine.commit_probe(generation, input) {
             InputOutcome::Dispatch(request) => {
-                info!(
-                    thread = thread::UI,
-                    generation = request.generation,
-                    model = %request.options.model,
-                    target_lang = ?request.options.target_lang,
-                    prompt_locale = ?request.options.prompt_locale,
-                    "selection committed, task dispatched to tokio"
-                );
+                // 只记字节量不记内容：图像字节是用户敏感内容，不落日志。
+                match &request.input {
+                    TaskInput::Image { png, .. } => info!(
+                        thread = thread::UI,
+                        generation = request.generation,
+                        bytes = png.len(),
+                        model = %request.options.model,
+                        target_lang = ?request.options.target_lang,
+                        prompt_locale = ?request.options.prompt_locale,
+                        "pasteboard image committed, task dispatched to tokio"
+                    ),
+                    _ => info!(
+                        thread = thread::UI,
+                        generation = request.generation,
+                        model = %request.options.model,
+                        target_lang = ?request.options.target_lang,
+                        prompt_locale = ?request.options.prompt_locale,
+                        "selection committed, task dispatched to tokio"
+                    ),
+                }
                 self.session.probe_front_app = None;
                 self.send_run(request);
                 // 内容到达才显形：从 Idle 出窗、从已显示改锚点重定位，
@@ -131,7 +144,7 @@ impl GlossApp {
                     thread = thread::UI,
                     generation = generation,
                     current = self.machine.generation(),
-                    "stale selection probe result dropped"
+                    "stale probe result dropped"
                 );
                 false
             }
@@ -265,13 +278,13 @@ impl GlossApp {
         }
     }
 
-    /// 划词探测失败：空选区/读不到按误滑静默丢弃——不留窗口动作、不留
-    /// 弹窗（若浮层正在显示，当前内容原样保留），只留一条带前台应用的
-    /// 排查痕迹，那是「划了没反应」的唯一日志线索；其余失败（权限缺失
-    /// 等）落失败卡，经「失败即弹」显形（从 Idle 出窗或顶替已显示内容
-    /// ——真实故障不该被吞掉）。
+    /// 探测失败（划词或剪贴板图片）：划词的空选区/读不到按误滑静默丢弃
+    /// ——不留窗口动作、不留弹窗（若浮层正在显示，当前内容原样保留），
+    /// 只留一条带前台应用的排查痕迹，那是「划了没反应」的唯一日志线索；
+    /// 其余失败（划词权限缺失、剪贴板图片超上限等）落失败卡，经「失败即
+    /// 弹」显形（从 Idle 出窗或顶替已显示内容——真实故障不该被吞掉）。
     fn fail_probe(&mut self, generation: u64, error: &gloss_core::model::GlossError) -> bool {
-        match self.machine.commit_selection_failed(generation, error) {
+        match self.machine.commit_probe_failed(generation, error) {
             FailureOutcome::SilentlyDropped => {
                 let front_app = self
                     .session
@@ -299,7 +312,7 @@ impl GlossApp {
                     thread = thread::UI,
                     generation = generation,
                     error = %error,
-                    "selection probe failed"
+                    "probe failed"
                 );
                 self.session.probe_front_app = None;
                 true
@@ -309,7 +322,7 @@ impl GlossApp {
                     thread = thread::UI,
                     generation = generation,
                     current = self.machine.generation(),
-                    "stale selection probe failure dropped"
+                    "stale probe failure dropped"
                 );
                 false
             }
@@ -389,15 +402,34 @@ impl GlossApp {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use gloss_core::config::{Config, DEFAULT_MODEL};
     use gloss_core::model::{GlossError, Lang};
+    use gloss_core::task::TaskInput;
 
     use crate::app::test_support::{
         driven_app, driven_app_without_startup_permissions, outcome_note, plain_outcome,
         streaming_raw, text_input, trigger_selection,
     };
     use crate::channel::{AcquireCommand, Command, PlatformEvent};
-    use crate::machine::AppState;
+    use crate::machine::{AppState, OverlayView};
+
+    use crate::app::GlossApp;
+
+    fn pasteboard_probe(app: &mut GlossApp, pe_tx: &crossbeam_channel::Sender<PlatformEvent>) {
+        pe_tx
+            .send(PlatformEvent::PasteboardImageObserved)
+            .expect("platform channel open");
+        app.drain_platform_events();
+    }
+
+    fn image_input() -> TaskInput {
+        TaskInput::Image {
+            png: Arc::from(&b"png-bytes"[..]),
+            region: None,
+        }
+    }
 
     #[test]
     fn accessibility_grant_event_unblocks_and_dispatches_deferred_prewarm() {
@@ -756,5 +788,73 @@ mod tests {
             cmd_rx.try_recv().unwrap().payload,
             Command::RunTask { generation: 2, .. }
         ));
+    }
+
+    #[test]
+    fn pasteboard_commit_retains_the_image_and_flags_the_reveal() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        pasteboard_probe(&mut app, &pe_tx);
+
+        assert!(
+            app.accept_input(1, image_input()),
+            "the pasteboard product enters a task that needs the overlay"
+        );
+        assert_eq!(app.machine.state(), AppState::Translating);
+        assert!(app.machine.attached_image().is_some());
+        assert!(
+            app.session.pending_reveal,
+            "the commit flags the reveal; drain_events consumes it the same frame"
+        );
+        assert!(
+            app.session
+                .selection_anchor
+                .is_none_or(|(generation, _)| generation != app.machine.generation()),
+            "no anchor matches a pasteboard generation: the reveal centers"
+        );
+        assert!(matches!(
+            cmd_rx.try_recv().unwrap().payload,
+            Command::RunTask {
+                generation: 1,
+                input: TaskInput::Image { .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            app.machine.overlay_view(),
+            Some(OverlayView::Streaming { .. })
+        ));
+    }
+
+    #[test]
+    fn a_pasteboard_product_without_a_matching_probe_is_dropped() {
+        let (mut app, _config, _store, _pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+
+        assert!(
+            !app.accept_input(7, image_input()),
+            "no outstanding probe: the product is stale"
+        );
+        assert_eq!(app.machine.state(), AppState::Idle);
+        assert!(app.machine.attached_image().is_none());
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "stale input must not reach tokio"
+        );
+    }
+
+    #[test]
+    fn pasteboard_oversized_failure_lands_in_the_error_card() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        pasteboard_probe(&mut app, &pe_tx);
+
+        assert!(
+            app.accept_failed(1, &GlossError::ImageTooLarge),
+            "an oversized image must be observable: the failure card pops"
+        );
+        assert_eq!(app.machine.state(), AppState::Error);
+        assert!(
+            app.machine.overlay_view().is_some(),
+            "the card carries the oversized-image wording via the i18n mapping"
+        );
+        assert!(app.machine.probe_id().is_none());
     }
 }

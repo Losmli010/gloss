@@ -2,13 +2,14 @@
 //! MockEngine + TaskCache 的全链路时序（见 AGENTS.md）。
 //!
 //! 边界：真实事件线程（通道②消费、RunLoop、CompositeReader）属于 OS
-//! 边界，归 L4 opt-in 层——这里取材产物以 `machine.commit_selection`
+//! 边界，归 L4 opt-in 层——这里取材产物以 `machine.commit_probe`
 //! 直接注入，等价于事件线程回传的产物。
 //!
-//! 分类完全交给 LLM 层：每次任务先花一次引擎调用分类（MockEngine 脚本
+//! 分类完全交给 LLM 层：文本任务先花一次引擎调用分类（MockEngine 脚本
 //! 通常解析不出 kind，落兜底 TranslateWord），再花一次执行；脚本里带
-//! `"kind"` 字段的围栏可让分类解析出具体 kind。纯流式/取消/重试语义与
-//! 缓存/兜底语义都按这两次调用记账。
+//! `"kind"` 字段的围栏可让分类解析出具体 kind。剪贴板图片任务在 LLM 层
+//! 恒定映射 ImageExplain、跳过分类——只有那一次执行调用。纯流式/取消/
+//! 重试语义与缓存/兜底语义按各自的调用数记账。
 //!
 //! 驱动方式：全部经公共 API（`TaskStateMachine` / `Channels` /
 //! `start_command_runtime`），`cargo test` 直接跑。
@@ -111,9 +112,47 @@ impl Pipeline {
         };
         let InputOutcome::Dispatch(request) = self
             .machine
-            .commit_selection(*generation, TaskInput::Text { text: text.into() })
+            .commit_probe(*generation, TaskInput::Text { text: text.into() })
         else {
             panic!("the probe product should be committed");
+        };
+        self.commands_tx
+            .send(Traced {
+                payload: Command::RunTask {
+                    generation: request.generation,
+                    input: request.input,
+                    options: request.options,
+                    cancel: request.cancel.clone(),
+                },
+                span,
+            })
+            .expect("command channel open");
+        request.cancel
+    }
+
+    #[allow(clippy::expect_used, clippy::panic)]
+    fn trigger_image_feed(
+        &mut self,
+        png: Arc<[u8]>,
+        span: Span,
+    ) -> tokio_util::sync::CancellationToken {
+        let command = self
+            .machine
+            .begin_pasteboard_probe(
+                &PlatformEvent::PasteboardImageObserved,
+                &self.config.snapshot(),
+                Locale::Zh,
+                &SceneFacts::default(),
+            )
+            .expect("pasteboard observation must probe");
+        let AcquireCommand::AcquireClipboardImage { generation } = &command else {
+            panic!("acquire clipboard image expected");
+        };
+        let InputOutcome::Dispatch(request) = self
+            .machine
+            .commit_probe(*generation, TaskInput::Image { png, region: None })
+        else {
+            panic!("the pasteboard product should be committed");
         };
         self.commands_tx
             .send(Traced {
@@ -318,6 +357,163 @@ fn legacy_fence_contract_falls_back_to_a_complete_card() {
         }
         other => panic!("expected outcome view, got {other:?}"),
     }
+}
+
+#[test]
+fn image_flow_classifies_before_chunks_and_settles_the_commentary() {
+    let engine = MockEngine::new().with_chunks(vec![
+        Ok("{\"note\":\"图表描述".into()),
+        Ok("\",\"interpretation\":[\"要点一\",\"要点二\"]}".into()),
+    ]);
+    let mut pipe = pipeline(&engine);
+
+    let png: Arc<[u8]> = Arc::from(&b"png-bytes"[..]);
+    let token = pipe.trigger_image_feed(Arc::clone(&png), Span::none());
+    assert_eq!(pipe.machine.state(), AppState::Translating);
+    assert!(!token.is_cancelled());
+    assert!(
+        pipe.machine.attached_image().is_some(),
+        "the commit retains the image for the settled card"
+    );
+
+    let Event::TaskClassified { generation, kind } = pipe.events_rx.recv().unwrap() else {
+        panic!("task classified expected");
+    };
+    assert_eq!(generation, 1);
+    assert_eq!(
+        kind,
+        TaskKind::ImageExplain,
+        "the image task's kind is a constant mapping, not a classify call"
+    );
+    assert!(pipe.machine.accept_classified(generation, kind));
+
+    for expected in [
+        "{\"note\":\"图表描述",
+        "\",\"interpretation\":[\"要点一\",\"要点二\"]}",
+    ] {
+        let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
+            panic!("chunk expected");
+        };
+        assert_eq!(delta, expected);
+        assert!(pipe.machine.accept_chunk(generation, delta));
+    }
+    let Event::TaskDone {
+        generation,
+        outcome,
+    } = pipe.events_rx.recv().unwrap()
+    else {
+        panic!("task done expected");
+    };
+    assert!(pipe.machine.accept_done(generation, outcome));
+
+    assert_eq!(
+        engine.call_count(),
+        1,
+        "the image task skips the classify roundtrip entirely"
+    );
+    assert_eq!(pipe.machine.state(), AppState::Show);
+    match pipe.machine.overlay_view() {
+        Some(OverlayView::Outcome { outcome, .. }) => {
+            assert_eq!(outcome.kind, TaskKind::ImageExplain);
+            assert_eq!(outcome.note, "图表描述");
+            assert_eq!(
+                outcome.structured,
+                OutcomeStructured::ImageCommentary {
+                    interpretation: vec!["要点一".into(), "要点二".into()],
+                },
+                "the interpretation array lands in the 疏 slot"
+            );
+        }
+        other => panic!("expected outcome view, got {other:?}"),
+    }
+    assert!(
+        pipe.machine
+            .attached_image()
+            .is_some_and(|attached| Arc::ptr_eq(attached, &png)),
+        "the settled outcome card keeps the retained image"
+    );
+}
+
+#[test]
+fn repeated_image_copy_is_a_full_cache_hit() {
+    let engine =
+        MockEngine::new().with_chunks(vec![Ok("{\"note\":\"图注\",\"interpretation\":[]}".into())]);
+    let mut pipe = pipeline(&engine);
+
+    let png: Arc<[u8]> = Arc::from(&b"same-png-bytes"[..]);
+    pipe.trigger_image_feed(Arc::clone(&png), Span::none());
+    wait_done(&mut pipe);
+    assert_eq!(engine.call_count(), 1);
+
+    pipe.trigger_image_feed(Arc::clone(&png), Span::none());
+    assert_eq!(
+        expect_classified(&mut pipe),
+        TaskKind::ImageExplain,
+        "the cache replays the settled kind of the image task"
+    );
+    match pipe.events_rx.recv().unwrap() {
+        Event::TaskDone {
+            generation,
+            outcome,
+        } => {
+            assert_eq!(generation, 2);
+            assert_eq!(outcome.note, "图注");
+            assert!(pipe.machine.accept_done(generation, outcome));
+        }
+        other => panic!("cache hit must settle directly without chunks, got {other:?}"),
+    }
+    assert_eq!(
+        engine.call_count(),
+        1,
+        "the second copy of the same image must not reach the engine"
+    );
+    assert_eq!(pipe.machine.state(), AppState::Show);
+}
+
+#[test]
+fn hide_overlay_cancels_the_image_stream_and_drops_late_events() {
+    let engine = MockEngine::new()
+        .with_chunk_delay(Duration::from_millis(150))
+        .with_chunks(vec![
+            Ok("{\"note\":\"一".into()),
+            Ok("\",\"interpretation\":[]}".into()),
+        ]);
+    let mut pipe = pipeline(&engine);
+
+    let png: Arc<[u8]> = Arc::from(&b"png-bytes"[..]);
+    let token = pipe.trigger_image_feed(Arc::clone(&png), Span::none());
+    assert!(matches!(
+        pipe.events_rx.recv().unwrap(),
+        Event::TaskClassified {
+            generation: 1,
+            kind: TaskKind::ImageExplain
+        }
+    ));
+    let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
+        panic!("chunk expected");
+    };
+    assert!(pipe.machine.accept_chunk(generation, delta));
+
+    pipe.machine.hide_overlay();
+    assert!(
+        token.is_cancelled(),
+        "hide must cancel the in-flight image task"
+    );
+    assert!(
+        pipe.machine.attached_image().is_none(),
+        "hide clears the attached image"
+    );
+    assert!(
+        pipe.events_rx
+            .recv_timeout(Duration::from_millis(400))
+            .is_err(),
+        "cancelled task must not deliver any further event"
+    );
+    assert!(
+        !pipe.machine.accept_chunk(generation, "迟到的正文".into()),
+        "products of the cancelled image task must be dropped by the machine"
+    );
+    assert_eq!(pipe.machine.state(), AppState::Idle);
 }
 
 #[test]
