@@ -3,7 +3,8 @@
 //! 两层解析，逐层退让——**模型返回非 JSON 时必有产物**：
 //! 1. **JSON 主路径**（现行契约，见 `gloss_core::prompt`）：整段回复是一个
 //!    JSON 对象——`note`（义，markdown 注文）+ 按 kind 的疏证字段（词卡的
-//!    phonetic/examples，句译与讲解的 examples，代码另带 code_language）。
+//!    phonetic/examples，句译与讲解的 examples，图像解读的 interpretation，
+//!    代码另带 code_language）。
 //!    字段缺失按契约就地回退（phonetic 缺省 null、坏条目跳过、examples
 //!    空表），`note` 缺失才判整路失败。
 //! 2. **围栏 fallback**（`finalize_outcome`，自 core 原样迁入）：回复不是
@@ -47,7 +48,10 @@ fn parse_json_outcome(
             phonetic: text_field(&value, "phonetic"),
             examples: parse_examples(value.get("examples")),
         },
-        TaskKind::ImageOcr | TaskKind::ImageExplain => OutcomeStructured::Extracted,
+        TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
+            interpretation: parse_examples(value.get("interpretation")),
+        },
+        TaskKind::ImageOcr => OutcomeStructured::Extracted,
         _ => OutcomeStructured::Plain {
             examples: parse_examples(value.get("examples")),
         },
@@ -88,7 +92,10 @@ pub fn parse_structured(kind: TaskKind, raw: &str) -> (String, OutcomeStructured
                 phonetic: None,
                 examples: Vec::new(),
             },
-            TaskKind::ImageOcr | TaskKind::ImageExplain => OutcomeStructured::Extracted,
+            TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
+                interpretation: Vec::new(),
+            },
+            TaskKind::ImageOcr => OutcomeStructured::Extracted,
             _ => OutcomeStructured::Plain {
                 examples: Vec::new(),
             },
@@ -113,7 +120,10 @@ pub fn parse_structured(kind: TaskKind, raw: &str) -> (String, OutcomeStructured
             phonetic: text_field(&value, "phonetic"),
             examples: parse_examples(value.get("examples")),
         },
-        TaskKind::ImageOcr | TaskKind::ImageExplain => OutcomeStructured::Extracted,
+        TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
+            interpretation: parse_examples(value.get("interpretation")),
+        },
+        TaskKind::ImageOcr => OutcomeStructured::Extracted,
         _ => OutcomeStructured::Plain {
             examples: parse_examples(value.get("examples")),
         },
@@ -212,6 +222,101 @@ mod tests {
         let extracted = complete(TaskKind::ImageOcr, r#"{"note":"会议纪要\n参会：产品组"}"#);
         assert_eq!(extracted.note, "会议纪要\n参会：产品组");
         assert_eq!(extracted.structured, OutcomeStructured::Extracted);
+    }
+
+    #[test]
+    fn image_explain_json_path_builds_the_commentary() {
+        let outcome = complete(
+            TaskKind::ImageExplain,
+            r#"{"note":"一张折线图，展示近三月的访问量走势","interpretation":["九月起访问量加速增长","增长主要由分享渠道带来","纵轴刻度从非零开始，夸大了斜率"]}"#,
+        );
+        assert_eq!(outcome.kind, TaskKind::ImageExplain);
+        assert_eq!(outcome.note, "一张折线图，展示近三月的访问量走势");
+        assert_eq!(outcome.code_language, None);
+        match outcome.structured {
+            OutcomeStructured::ImageCommentary { interpretation } => {
+                assert_eq!(interpretation.len(), 3);
+                assert_eq!(interpretation[0], "九月起访问量加速增长");
+                assert_eq!(
+                    interpretation[2], "纵轴刻度从非零开始，夸大了斜率",
+                    "entries keep the model's order"
+                );
+            }
+            other => panic!("expected image commentary, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn image_explain_tolerates_missing_or_bad_interpretation() {
+        let bare = complete(TaskKind::ImageExplain, r#"{"note":"只有描述"}"#);
+        assert_eq!(
+            bare.structured,
+            OutcomeStructured::ImageCommentary {
+                interpretation: Vec::new()
+            },
+            "missing interpretation falls back to an empty list per the contract"
+        );
+
+        let mixed = complete(
+            TaskKind::ImageExplain,
+            r#"{"note":"描述","interpretation":[null,"好条目",42]}"#,
+        );
+        match mixed.structured {
+            OutcomeStructured::ImageCommentary { interpretation } => {
+                assert_eq!(interpretation, vec!["好条目"], "bad entries are skipped");
+            }
+            other => panic!("expected image commentary, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn image_explain_missing_note_degrades_to_the_kind_fallback() {
+        let raw = r#"{"interpretation":["无注的解读"]}"#;
+        let outcome = complete(TaskKind::ImageExplain, raw);
+        assert_eq!(
+            outcome.note, raw,
+            "note missing hands the whole raw text to the note slot"
+        );
+        assert_eq!(
+            outcome.structured,
+            OutcomeStructured::ImageCommentary {
+                interpretation: Vec::new()
+            }
+        );
+    }
+
+    #[test]
+    fn image_explain_falls_through_the_three_layers() {
+        let outcome = complete(
+            TaskKind::ImageExplain,
+            "{not json\n```gloss\n{also broken\n```",
+        );
+        assert_eq!(
+            outcome.note, "{not json\n```gloss\n{also broken\n```",
+            "the kind fallback keeps the whole raw text"
+        );
+        assert_eq!(
+            outcome.structured,
+            OutcomeStructured::ImageCommentary {
+                interpretation: Vec::new()
+            }
+        );
+    }
+
+    #[test]
+    fn image_explain_fence_fallback_parses_interpretation() {
+        let outcome = finalize_outcome(
+            TaskKind::ImageExplain,
+            "描述正文\n```gloss\n{\"interpretation\":[\"要点一\",\"要点二\"]}\n```",
+        );
+        assert_eq!(outcome.note, "描述正文");
+        assert_eq!(outcome.code_language, None);
+        match outcome.structured {
+            OutcomeStructured::ImageCommentary { interpretation } => {
+                assert_eq!(interpretation, vec!["要点一", "要点二"]);
+            }
+            other => panic!("expected image commentary, got {other:?}"),
+        }
     }
 
     #[test]

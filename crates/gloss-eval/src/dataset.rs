@@ -126,8 +126,9 @@ pub fn required_fields(kind: TaskKind) -> &'static [&'static str] {
         TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode => {
             &["examples"]
         }
+        TaskKind::ImageExplain => &["interpretation"],
         // 提取任务的产物即 note（经文），无疏证字段——note 由判定单独计。
-        TaskKind::ImageOcr | TaskKind::ImageExplain => &[],
+        TaskKind::ImageOcr => &[],
     }
 }
 
@@ -252,6 +253,7 @@ mod tests {
     fn required_fields_follow_the_contract() {
         assert_eq!(required_fields(TaskKind::TranslateWord), &["examples"]);
         assert_eq!(required_fields(TaskKind::TranslateSentence), &["examples"]);
+        assert_eq!(required_fields(TaskKind::ImageExplain), &["interpretation"]);
         assert_eq!(required_fields(TaskKind::ImageOcr), &[] as &[&str]);
     }
 }

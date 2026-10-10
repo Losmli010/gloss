@@ -4,7 +4,9 @@
 //! 选项共同决定产物，kind 不参与（分类在 LLM 层内完成，同一输入在
 //! 同一选项下判定的 kind 唯一，无需单独去重）。模型 id 在 `options`
 //! 里——同文本换模型不得命中旧产物。摘要用 std `DefaultHasher`
-//! （SipHash）：只要求进程内稳定，不要求跨版本持久稳定。
+//! （SipHash）：只要求进程内稳定，不要求跨版本持久稳定。输入按变体
+//! 直接喂哈希器（图像字节流式写入，不经 serde 展开临时缓冲）；选项
+//! 仍走 serde 全量参与。
 //!
 //! 缓存恒存**完成产物**（[`TaskOutcome`]）：只有成功解析的整卡才写入，
 //! 半截流与失败不入缓存。TTL 来自配置（`Config::cache_ttl_secs`，组装点
@@ -25,16 +27,38 @@ pub(crate) const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
 const MAX_ENTRIES: u64 = 256;
 
 /// 派生缓存 key：输入与选项全量参与（含模型 id 与 prompt 模板语言）。
-/// 序列化失败（非有限浮点等）退回 `Debug` 文本哈希，保证 key 恒可得且
-/// 不同任务间碰撞概率不因回退路径上升。
+/// 输入按变体直接喂哈希器——Text 哈希字符串；Image 流式哈希 png 字节与
+/// region（`None` 也参与），字节不展开成临时缓冲；Audio 哈希字节与时长的
+/// 位形态（`f32` 非 `Hash`，bits 表达对同值稳定）。选项走 serde 全量
+/// 参与；其字段均为可直接序列化的标量，序列化失败分支只为 `Result` 完整
+/// 性保留（`Debug` 文本哈希对同值稳定）。
 pub fn cache_key(input: &TaskInput, options: &TaskOptions) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
-    match serde_json::to_vec(&(input, options)) {
+    hash_input(input, &mut hasher);
+    match serde_json::to_vec(options) {
         Ok(bytes) => bytes.hash(&mut hasher),
-        // 序列化失败路径：Debug 表示对同值输入稳定，仍是有效的规范化输入。
-        Err(_) => format!("{input:?}{options:?}").hash(&mut hasher),
+        Err(_) => format!("{options:?}").hash(&mut hasher),
     }
     hasher.finish()
+}
+
+/// 输入的变体化哈希：模态以 `discriminant` 区分，载荷逐字段喂入。
+fn hash_input(input: &TaskInput, hasher: &mut std::hash::DefaultHasher) {
+    std::mem::discriminant(input).hash(hasher);
+    match input {
+        TaskInput::Text { text } => text.hash(hasher),
+        TaskInput::Image { png, region } => {
+            png.as_ref().hash(hasher);
+            region.hash(hasher);
+        }
+        TaskInput::Audio {
+            bytes,
+            duration_hint,
+        } => {
+            bytes.as_ref().hash(hasher);
+            duration_hint.map(f32::to_bits).hash(hasher);
+        }
+    }
 }
 
 /// 任务产物缓存：线程安全的 moka 内存实现，`get`/`set` 可从任意线程
@@ -91,6 +115,7 @@ mod tests {
     use gloss_core::config::DEFAULT_MODEL;
     use gloss_core::model::Lang;
     use gloss_core::model::Locale;
+    use gloss_core::model::ScreenRect;
     use gloss_core::task::{OutcomeStructured, TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
     fn text_input(text: &str) -> TaskInput {
@@ -156,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn key_derivation_is_stable_and_serialization_failure_falls_back() {
+    fn key_derivation_is_stable_and_non_finite_audio_hashes_by_bits() {
         let base = cache_key(&text_input("gloss"), &TaskOptions::default());
         assert_eq!(
             base,
@@ -164,7 +189,6 @@ mod tests {
             "same input and options must derive the same key"
         );
 
-        // 非有限浮点让 serde_json 序列化失败：回退路径必须确定性且仍可分辨。
         let nan = |hint: Option<f32>| TaskInput::Audio {
             bytes: Arc::from(&b"au"[..]),
             duration_hint: hint,
@@ -173,9 +197,54 @@ mod tests {
         assert_eq!(
             nan_key,
             cache_key(&nan(Some(f32::NAN)), &TaskOptions::default()),
-            "fallback path must be deterministic"
+            "non-finite durations hash deterministically by bit form"
         );
-        assert_ne!(nan_key, cache_key(&nan(Some(1.5)), &TaskOptions::default()));
+        assert_ne!(
+            nan_key,
+            cache_key(&nan(Some(1.5)), &TaskOptions::default()),
+            "non-finite and finite durations must not alias"
+        );
+    }
+
+    #[test]
+    fn image_keys_follow_png_bytes_and_region() {
+        let options = TaskOptions::default();
+        let image = |bytes: &[u8], region: Option<ScreenRect>| TaskInput::Image {
+            png: Arc::from(bytes),
+            region,
+        };
+        let rect = ScreenRect {
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+        };
+        let base = cache_key(&image(b"png-bytes", None), &options);
+        assert_eq!(
+            base,
+            cache_key(&image(b"png-bytes", None), &options),
+            "identical bytes must derive the same key"
+        );
+        assert_ne!(
+            base,
+            cache_key(&image(b"png-bytes-2", None), &options),
+            "different bytes must not alias"
+        );
+        assert_ne!(
+            base,
+            cache_key(&image(b"png-bytes", Some(rect)), &options),
+            "None and Some region must not alias"
+        );
+        assert_eq!(
+            cache_key(&image(b"png-bytes", Some(rect)), &options),
+            cache_key(&image(b"png-bytes", Some(rect)), &options),
+            "identical bytes and region must derive the same key"
+        );
+        assert_ne!(
+            cache_key(&text_input("png-bytes"), &options),
+            base,
+            "modality is hashed even when payloads coincide"
+        );
     }
 
     #[test]

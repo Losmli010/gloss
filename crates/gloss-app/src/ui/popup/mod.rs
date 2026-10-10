@@ -1026,7 +1026,7 @@ fn is_code(kind: Option<TaskKind>) -> bool {
 
 /// 产物正文（经注疏排布）：经（原文；提取任务为 note 提取文本）、
 /// 注（markdown 注文，词卡的义/句译的译文/讲解的正文）、疏（examples
-/// 疏证逐条；提取任务为凡 N 言小记）。
+/// 疏证逐条，图像解读为 interpretation 逐条；提取任务为凡 N 言小记）。
 fn outcome_body(
     ui: &mut egui::Ui,
     source: &str,
@@ -1072,6 +1072,20 @@ fn outcome_body(
             shu_section(ui, text, |ui| {
                 ui.label(extract_note(text, &outcome.note));
             });
+        }
+        OutcomeStructured::ImageCommentary { interpretation } => {
+            if !source.trim().is_empty() {
+                jing_section(ui, text, |ui| source_block(ui, source, false, code_lang));
+                ui.add_space(space::PARAGRAPH);
+            }
+            zhu_section(ui, text, |ui| {
+                apply_zhu_typography(ui);
+                render_markdown(ui, state, &outcome.note);
+            });
+            if !interpretation.is_empty() {
+                ui.add_space(space::PARAGRAPH);
+                shu_examples(ui, interpretation, text);
+            }
         }
     }
 }
