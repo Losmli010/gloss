@@ -19,6 +19,7 @@ use gloss_core::model::GlossError;
 use gloss_core::ports::{AiEngine, AppIcon, ConfigStore};
 use gloss_core::task::TaskInput;
 use gloss_platform::appearance::MacAppIcon;
+use gloss_platform::clipboard::{ClipboardImageReader, ClipboardWatchSource};
 use gloss_platform::events::mouse::{MouseGesture, MouseSource};
 use gloss_platform::events::{EventSink, EventSource, EventSources};
 use gloss_platform::permissions::{self, AccessibilityWatch};
@@ -228,6 +229,9 @@ fn run_event_loop(
     let mut event_thread = None;
     // 缓存 TTL 在启动回调里读一次快照：App 按值收走主句柄，这里先拆一份。
     let cache_config = Arc::clone(&config);
+    // 剪贴板图片哨兵的开关取启动快照（运行中由设置页经共享位热切换，不在
+    // 触发时冻结）：组装点持布尔值即可，原子位在回调里与哨兵源同造。
+    let watch_clipboard_images = config.snapshot().watch_clipboard_images;
     // tokio 消费桥与 App 共享同一份存储实例：预热读密命中引擎的同一份
     // 进程内缓存（密钥不经快照，见 gloss-app 的 Env）。
     let runtime_store = Arc::clone(&store);
@@ -279,15 +283,24 @@ fn run_event_loop(
                 ),
             }
             // 事件线程同样在拿到唤醒句柄后再启动：sink 发送产物时要靠它唤醒
-            // 睡在事件循环里的主线程。
+            // 睡在事件循环里的主线程。剪贴板图片哨兵源与取材读取器在此同造：
+            // ① 观察记录经共享句柄交给读取器比对竞态（见 clipboard 模块）。
             let sink = EventSink::new(events_tx, platform_tx, move || {
                 waker.wake();
             });
+            let clipboard_watch =
+                ClipboardWatchSource::new(Arc::new(AtomicBool::new(watch_clipboard_images)));
+            let image_reader = ClipboardImageReader::new(clipboard_watch.observer());
             event_thread = Some(gloss_platform::events::spawn(
                 acquire_rx,
                 sink,
-                acquire_command_handler(),
-                event_sources(mouse_source, mouse_degraded, accessibility_ready),
+                acquire_command_handler(image_reader),
+                event_sources(
+                    mouse_source,
+                    mouse_degraded,
+                    accessibility_ready,
+                    clipboard_watch,
+                ),
             ));
             log::milestone("05_assembly");
         },
@@ -308,15 +321,17 @@ fn create_channels() -> Channels {
     Channels::new()
 }
 
-/// 事件源集合：划词手势、监听降级提示与运行中授权观察。tap 的源与失效
-/// 标志由组装点传入（spawn 在组装段同步完成，启动期失败已由
-/// [`MouseSource::spawn`] 留 warn 日志并整体降级，这里只覆盖运行中失效）；
+/// 事件源集合：划词手势、剪贴板图片哨兵、监听降级提示与运行中授权观察。
+/// tap 的源与失效标志由组装点传入（spawn 在组装段同步完成，启动期失败已
+/// 由 [`MouseSource::spawn`] 留 warn 日志并整体降级，这里只覆盖运行中失效）；
 /// 授权观察仅在启动预检未就绪的会话武装——授权落定经 ① 通知 App 解除预
-/// 热门控并补发被推迟的密钥预热，落定只产出一次。
+/// 热门控并补发被推迟的密钥预热，落定只产出一次。剪贴板哨兵随组装点传入
+/// （开关位与观察记录句柄在组装段与取材读取器共享）。
 fn event_sources(
     mouse_source: Option<MouseSource>,
     mouse_degraded: Arc<AtomicBool>,
     accessibility_ready: bool,
+    clipboard_watch: ClipboardWatchSource,
 ) -> EventSources<PlatformEvent> {
     let mut sources: EventSources<PlatformEvent> = Vec::new();
 
@@ -340,6 +355,16 @@ fn event_sources(
                 .collect()
         }));
     }
+    // 剪贴板图片哨兵：源内自节流与开关位见 clipboard 模块；观察无载荷，
+    // 内容由状态机下发的取材命令②到读取器再取。
+    let mut clipboard_watch = clipboard_watch;
+    sources.push(Box::new(move || {
+        clipboard_watch
+            .poll()
+            .into_iter()
+            .map(|_| PlatformEvent::PasteboardImageObserved)
+            .collect()
+    }));
     // 监听降级的一次性提示：标志由 tap 线程在**运行中**失效时置位（启动
     // 期失败不经它表达），事件线程轮询到即告警一次。
     let mut hinted = false;
@@ -357,67 +382,99 @@ fn event_sources(
 }
 
 /// 通道②消费处理器：取材命令 → 组合读取 → ④ 回传，运行在事件线程上
-/// 顺序执行。读取器提升进闭包复用（当前无状态，为将来缓存留位）。
-fn acquire_command_handler()
--> impl FnMut(Traced<AcquireCommand>, &EventSink<Event, PlatformEvent>) + Send {
+/// 顺序执行。读取器提升进闭包复用：选区组合读取器（当前无状态，为将来
+/// 缓存留位）与剪贴板图片读取器（观察句柄与哨兵源在组装段共享）。
+fn acquire_command_handler(
+    mut image_reader: ClipboardImageReader,
+) -> impl FnMut(Traced<AcquireCommand>, &EventSink<Event, PlatformEvent>) + Send {
     let mut reader = CompositeReader::new();
     move |job, sink| {
-        // 进入触发点建好的任务 span：本处理器（含取材读选区、剪贴板兜底）
-        // 的日志自动带上 `generation`。
+        // 进入触发点建好的任务 span：本处理器（含取材读选区、剪贴板兜底
+        // 与读图）的日志自动带上 `generation`。
         let _entered = job.span.enter();
-        let generation = match job.payload {
-            AcquireCommand::AcquireText { generation } => generation,
-            // 剪贴板读图与框选取材的读取栈随后续步骤接入：命令先按未接线
-            // 丢弃（留痕带代数，方便排查）。
-            AcquireCommand::AcquireClipboardImage { generation } => {
-                debug!(
-                    thread = thread::EVENT,
-                    generation, "clipboard image acquisition not wired yet, dropped"
-                );
-                return;
+        match job.payload {
+            AcquireCommand::AcquireText { generation } => {
+                info!(thread = thread::EVENT, "acquiring text");
+                match reader.read() {
+                    Ok(text) => {
+                        // 只记形态不记原文：选区是用户敏感内容，不落进日志文件。
+                        debug!(
+                            thread = thread::EVENT,
+                            bytes = text.len(),
+                            chars = text.chars().count(),
+                            "text input acquired"
+                        );
+                        sink.send_event(Event::InputReady {
+                            generation,
+                            input: TaskInput::Text { text },
+                        });
+                    }
+                    // 失败也回传（TaskFailed），主线程与用户不至无感；日志分级：
+                    // 权限缺失值得引导授权（warn），其余是日常路径（debug）。
+                    Err(err) => {
+                        sink.send_event(Event::TaskFailed {
+                            generation,
+                            error: err.clone(),
+                        });
+                        if err == GlossError::AccessibilityDenied {
+                            warn!(
+                                thread = thread::EVENT,
+                                "accessibility permission missing, text acquisition denied"
+                            );
+                        } else {
+                            debug!(
+                                thread = thread::EVENT,
+                                error = %err,
+                                "text acquisition failed"
+                            );
+                        }
+                    }
+                }
             }
+            AcquireCommand::AcquireClipboardImage { generation } => {
+                info!(thread = thread::EVENT, "acquiring clipboard image");
+                match image_reader.read() {
+                    Ok(Some(png)) => {
+                        // 只记字节数不记内容：图像字节是用户敏感数据，不落
+                        // 进日志文件（像素尺寸由读取器在各自路径上留痕）。
+                        debug!(
+                            thread = thread::EVENT,
+                            bytes = png.len(),
+                            "clipboard image acquired"
+                        );
+                        sink.send_event(Event::InputReady {
+                            generation,
+                            input: TaskInput::Image { png, region: None },
+                        });
+                    }
+                    // ① 与②之间剪贴板被覆盖：静默丢弃不弹卡（与划词空选区
+                    // 误滑同型处置）。
+                    Ok(None) => {
+                        debug!(
+                            thread = thread::EVENT,
+                            generation, "clipboard changed since the observation, image dropped"
+                        );
+                    }
+                    Err(err) => {
+                        sink.send_event(Event::TaskFailed {
+                            generation,
+                            error: err.clone(),
+                        });
+                        debug!(
+                            thread = thread::EVENT,
+                            error = %err,
+                            "clipboard image acquisition failed"
+                        );
+                    }
+                }
+            }
+            // 框选取材的读取栈随后续步骤接入：命令先按未接线丢弃（留痕带
+            // 代数，方便排查）。
             AcquireCommand::CaptureRegion { generation, .. } => {
                 debug!(
                     thread = thread::EVENT,
                     generation, "capture region command not wired yet, dropped"
                 );
-                return;
-            }
-        };
-        info!(thread = thread::EVENT, "acquiring text");
-        match reader.read() {
-            Ok(text) => {
-                // 只记形态不记原文：选区是用户敏感内容，不落进日志文件。
-                debug!(
-                    thread = thread::EVENT,
-                    bytes = text.len(),
-                    chars = text.chars().count(),
-                    "text input acquired"
-                );
-                sink.send_event(Event::InputReady {
-                    generation,
-                    input: TaskInput::Text { text },
-                });
-            }
-            // 失败也回传（TaskFailed），主线程与用户不至无感；日志分级：
-            // 权限缺失值得引导授权（warn），其余是日常路径（debug）。
-            Err(err) => {
-                sink.send_event(Event::TaskFailed {
-                    generation,
-                    error: err.clone(),
-                });
-                if err == GlossError::AccessibilityDenied {
-                    warn!(
-                        thread = thread::EVENT,
-                        "accessibility permission missing, text acquisition denied"
-                    );
-                } else {
-                    debug!(
-                        thread = thread::EVENT,
-                        error = %err,
-                        "text acquisition failed"
-                    );
-                }
             }
         }
     }

@@ -193,7 +193,9 @@ fn default_provider_keys() -> Vec<ProviderKey> {
 /// （触发时由状态机按快照冻结进任务选项）；`base_url` / `provider_keys`
 /// 已接线（引擎每请求解析端点、按条目直查 keychain）；`theme` 已接线
 /// （主题施加到两个 egui 上下文）；`cache_ttl_secs` 归 gloss-app 的缓存
-/// 构造接线。都不在触发时冻结的只有 `theme`（渲染帧读取）。
+/// 构造接线；`watch_clipboard_images` 已接线（组装点按启动快照初始化哨兵
+/// 开关位，运行中经共享位热切换，不在触发时冻结）。都不在触发时冻结的
+/// 只有 `theme` 与 `watch_clipboard_images`（渲染帧/事件线程读取）。
 ///
 /// 敏感信息防护不在此列：它不是配置项，判据内建在 `gloss_core::guard`。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -215,6 +217,11 @@ pub struct Config {
     pub theme: Theme,
     /// 界面语言。
     pub language: Language,
+    /// 剪贴板图片触发开关：开时事件线程的哨兵源观察系统剪贴板的新图片并
+    /// 自动弹出解读卡片，关时剪贴板行为与既有版本完全一致（哨兵不查询）。
+    /// 默认关——自动触发是固有打扰面，opt-in；运行中经共享开关位热切换，
+    /// 不要求重启。
+    pub watch_clipboard_images: bool,
 }
 
 impl Default for Config {
@@ -229,6 +236,7 @@ impl Default for Config {
             cache_ttl_secs: 60 * 60,
             theme: Theme::System,
             language: Language::System,
+            watch_clipboard_images: false,
         }
     }
 }
@@ -276,6 +284,10 @@ mod tests {
         assert_eq!(config.theme, Theme::System);
         assert_eq!(config.language, Language::System);
         assert_eq!(config.base_url, DEFAULT_BASE_URL);
+        assert!(
+            !config.watch_clipboard_images,
+            "clipboard image watch must default to off"
+        );
 
         let provider = config.active_provider().expect("factory provider");
         assert_eq!(provider.provider, "deepseek");
@@ -295,6 +307,10 @@ mod tests {
             serde_json::from_value(json).expect("missing language must fall back to default");
         assert_eq!(config.language, Language::System);
         assert_eq!(config.model, DEFAULT_MODEL);
+        assert!(
+            !config.watch_clipboard_images,
+            "a config file without the watch key must fall back to off"
+        );
     }
 
     #[test]
@@ -392,6 +408,7 @@ mod tests {
             cache_ttl_secs: 120,
             theme: Theme::Dark,
             language: Language::En,
+            watch_clipboard_images: true,
         };
         let json = serde_json::to_string(&config).expect("config should serialize");
         let back: Config = serde_json::from_str(&json).expect("config should deserialize");

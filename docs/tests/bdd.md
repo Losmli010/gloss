@@ -8,14 +8,22 @@
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
-| 人工测试 | 11 | `cargo test -p gloss-platform -- --ignored` |
+| 人工测试 | 12 | `cargo test -p gloss-platform -- --ignored` |
 | 发版人工步骤 | 6 | 手动执行（发版链路运维步骤，无自动化测试源码，bdd 门禁豁免） |
 | 集成测试 | 14 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 32 | `just test` |
-| 单元测试 | 476 | `just test` |
+| 单元测试 | 488 | `just test` |
 
 ## 人工测试
+
+### watch_and_reader_carry_a_real_image_copy
+- 测试目标：验证真实剪贴板链路上哨兵观察与取材读取的端到端协作（`--ignored`，`cargo test -p gloss-platform --lib clipboard::watch -- --ignored`）。
+- 测试场景：给定真实剪贴板与武装哨兵（构造时记基线），当经 arboard 写入一张 2×2 图片并睡过节流窗口，则哨兵恰产出一个观察事件；当以观察句柄构造读取器读图，则得到可解码的 PNG 且尺寸为 2×2。
+- 测试步骤：
+  1. 运行总览中人工测试的命令（只跑 clipboard::watch::live_tests）
+  2. 测试会写真实剪贴板（预设文本 → 测试图片 → 恢复预设文本），勿并行触发其它剪贴板测试
+- 更新时间：2026-10-10
 
 ### reads_live_selection_when_authorized
 - 测试目标：验证辅助功能授权下的真实选区读取。
@@ -942,6 +950,28 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | change_is_detected_when_generation_bumps | 写入确认按代数探测 | 给定基线代数 0 与第 3 轮才变化的 probe，当 wait_for_write，则确认成功且恰好轮询 3 次 | 2026-09-19 |
 | timeout_returns_false_without_hanging | 超时返回不悬挂 | 给定 probe 恒不变化，当到 deadline，则返回 false 且 2s 内返回 | 2026-09-19 |
 | unavailable_probe_keeps_polling_until_deadline | probe 恒 None 轮询到期限 | 给定 probe 恒 None，当到 deadline，则返回 false、不提前放弃也不永久等 | 2026-09-19 |
+
+### crates/gloss-platform/src/clipboard/watch.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| advance_with_an_image_fires_once_and_records_the_change | 有图前进恰好发一次并记下观察 | 给定基线 7 的武装哨兵，当 changeCount 前进到 8 且 types 含图像，则产出一个观察事件、观察记录更新为 8；同读数的下一轮不重发也不复查 types | 2026-10-10 |
+| text_advance_is_consumed_without_firing_or_rechecking | 文本前进消费基线不触发不复查 | 给定基线 7 的武装哨兵，当 changeCount 前进到 8 而 types 无图像，则无观察事件、types 恰查一次、观察记录不更新；同读数下一轮不再复查 | 2026-10-10 |
+| queries_are_throttled_within_the_interval | 节流窗口内不查询 | 给定武装哨兵，当节奏点轮询后再在窗口内（100ms < 250ms）轮询，则 changeCount 不被查询；到 250ms 节奏点才查下一轮 | 2026-10-10 |
+| a_disabled_switch_never_queries_and_drops_the_baseline | 开关关零查询且基线作废 | 给定开关关的哨兵，当轮询，则 changeCount 与 types 都不被查询；重开后当轮只重记基线（关闭期间的旧内容不触发），新的前进照常触发 | 2026-10-10 |
+| an_unarmed_source_arms_without_firing | 未武装只记基线不触发 | 给定未武装（基线缺失）的哨兵，当首轮轮询，则只记基线无观察事件；下一次前进照常触发 | 2026-10-10 |
+| a_failed_count_query_stays_quiet_and_recovers | 读数失败静默且可恢复 | 给定武装哨兵，当 changeCount 读数返回 None，则本轮静默；下一轮读数正常则照常触发 | 2026-10-10 |
+| observer_mismatch_flags_the_race | 观察记录比对判竞态 | 给定观察记录，当现值与记录一致则匹配；记录更新后旧值不匹配、新值匹配（①②之间被覆盖即竞态） | 2026-10-10 |
+
+### crates/gloss-platform/src/clipboard/image.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| small_rgba_encodes_to_a_decodable_png | RGBA 编码出可解码 PNG | 给定 2×2 RGBA 位图，当 encode_png，则产出 PNG 且解码回同尺寸 | 2026-10-10 |
+| pixel_budget_rejects_area_over_the_limit | 像素面积上限整体拒收 | 给定恰好 4096×4096 与超一像素（4097×4096）两种面积，当判预算，则前者在内、后者拒收；超限 encode_png 报 ImageTooLarge | 2026-10-10 |
+| pixel_budget_is_checked_before_the_buffer | 面积检查先于缓冲检查 | 给定面积在预算内但缓冲为空的输入，当 encode_png，则按读取失败处理（面积超限的输入不会走到缓冲检查） | 2026-10-10 |
+| a_mismatched_rgba_buffer_is_a_read_failure | RGBA 缓冲与尺寸不符按读取失败 | 给定声明 2×2 但缓冲 3 字节的输入，当 encode_png，则报读取失败（不 panic、不产残缺图） | 2026-10-10 |
+| byte_budget_rejects_length_over_the_limit | PNG 字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收（20MiB 上限） | 2026-10-10 |
 
 ### crates/gloss-platform/src/events/mod.rs
 

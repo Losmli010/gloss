@@ -6,9 +6,10 @@ description = "Gloss 适配器层：实现 gloss-core 端口 + 平台事件源"
 license.workspace = true
 
 [dependencies]
-# 剪贴板兜底读取（模拟复制）的原文保存/恢复。不用默认特性：文本能力不需要
-# 默认集里的 image-data（整条 image 依赖树）与各平台后端变体。
-arboard = { version = "3", default-features = false }
+# 剪贴板兜底读取（模拟复制）的原文保存/恢复 + 剪贴板图片取材的 RGBA 读出
+# （image-data：macOS 上经内部 NSBitmapImageRep 解码 TIFF/PNG flavor）。
+# 不用默认集的其余特性（wayland 后端变体等）。
+arboard = { version = "3", default-features = false, features = ["image-data"] }
 # 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）与选区、剪贴板
 # 兜底的 CF 类型绑定。
 core-foundation-sys = {
@@ -23,6 +24,9 @@ crossbeam-channel = { version = "0.5", default-features = false, features = ["st
 # FileConfigStore 的配置目录定位（日志目录例外，不走 directories）。
 directories = { version = "6", default-features = false }
 gloss-core = { path = "../gloss-core" }
+# 剪贴板图片取材的 RGBA → PNG 编码（快速压缩档，事件线程上执行）。与
+# arboard image-data 在 macOS 上引入的同一版本族（0.25）共享一棵依赖树。
+image = { version = "0.25", default-features = false, features = ["png"] }
 # Dock 图标：非 bundle 运行（just run）时经 `NSApplication.setApplicationIconImage`
 # 装上品牌图标，bundle 运行走 .icns（同设计，视觉无差）。
 objc2 = {
@@ -38,6 +42,7 @@ objc2-app-kit = {
   features = [
     "NSApplication",
     "NSImage",
+    "NSPasteboard",
     "NSResponder",
     "NSRunningApplication",
     "NSWorkspace",
