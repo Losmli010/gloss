@@ -288,6 +288,7 @@ mod tests {
             cache_ttl_secs: 120,
             theme: Theme::Dark,
             language: Language::En,
+            watch_clipboard_images: true,
         }
     }
 
