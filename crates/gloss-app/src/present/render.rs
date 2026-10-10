@@ -140,17 +140,20 @@ pub struct OverlayFrameOutput {
 }
 
 /// 渲染一帧浮层（[`render_frame_with`] 的浮层特化，供 App 与自检 handler
-/// 用）：`locale` 是界面语言（文案表选表依据，本层不做探测）；返回
+/// 用）：`locale` 是界面语言（文案表选表依据，本层不做探测）；`attached`
+/// 是本会话经位附件图像（图像卡的经位，状态机经访问器随行）。返回
 /// （egui 要求的下一帧时刻，本帧的浮层上交产物）。
 pub fn render_frame(
     frame: &mut Frame,
     view: Option<&OverlayView>,
+    attached: Option<&Arc<[u8]>>,
     locale: Locale,
 ) -> (Option<Instant>, OverlayFrameOutput) {
     let popup_state = Rc::clone(&frame.popup_state);
     let text = Text::get(locale);
-    let (repaint_at, output) =
-        render_frame_with(frame, |ui| ui::popup::draw(ui, view, &popup_state, text));
+    let (repaint_at, output) = render_frame_with(frame, |ui| {
+        ui::popup::draw(ui, view, attached, &popup_state, text)
+    });
     // 内层 Option 是「闭包有没有跑」的外壳，动作本身才是浮层的返回值。
     let output = output.map_or(OverlayFrameOutput::default(), |out| OverlayFrameOutput {
         action: out.action,

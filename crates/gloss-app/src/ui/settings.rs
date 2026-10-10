@@ -501,7 +501,8 @@ fn connection_section(
 /// 清除密钥按钮的占位余量（按钮宽 + 间距；输入框占满剩余宽）。
 const CLEAR_BUTTON_RESERVE: f32 = 88.0;
 
-/// 通用区：目标语言、界面语言、界面主题、缓存有效期（上限由控件钳制）。
+/// 通用区：目标语言、界面语言、界面主题、缓存有效期（上限由控件钳制）、
+/// 剪贴板图片监听开关（保存时整体上交，热切换不要求重启）。
 fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
     choice_row(ui, &text.gloss_settings_target_lang, |ui| {
         lang_combo(ui, &mut state.draft.target_lang, text);
@@ -520,6 +521,12 @@ fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
         );
     });
     choice_hint(ui, &text.gloss_settings_cache_ttl_hint);
+    choice_row(ui, &text.gloss_settings_watch_clipboard_images, |ui| {
+        ui.add(egui::Checkbox::without_text(
+            &mut state.draft.watch_clipboard_images,
+        ))
+    });
+    choice_hint(ui, &text.gloss_settings_watch_clipboard_images_hint);
 }
 
 /// 双列行：行标签左、控件推到卡片右缘（两端对齐）；返回控件自身的响应
@@ -692,7 +699,7 @@ mod tests {
     use std::rc::Rc;
     use std::sync::Arc;
 
-    use egui_kittest::kittest::Queryable;
+    use egui_kittest::kittest::{NodeT, Queryable};
     use gloss_core::config_handle::ConfigHandle;
     use gloss_core::model::Locale;
 
@@ -943,6 +950,7 @@ mod tests {
             "Interface language",
             "Interface theme",
             "Cache lifetime",
+            "Watch the clipboard for images",
         ] {
             harness.get_by_label(label);
         }
@@ -950,6 +958,32 @@ mod tests {
             harness.query_by_label("保存").is_none(),
             "the English table must not leave Chinese labels behind"
         );
+    }
+
+    #[test]
+    fn clipboard_watch_toggle_travels_with_the_saved_draft() {
+        let (mut harness, action) = harness_for(open(&Config::default()), Locale::En);
+        harness.run();
+        harness.get_by_label("Watch the clipboard for images");
+        assert_eq!(
+            harness
+                .get_by_role(egui::accesskit::Role::CheckBox)
+                .accesskit_node()
+                .toggled(),
+            Some(egui::accesskit::Toggled::False),
+            "the factory default keeps clipboard watching off"
+        );
+        harness.get_by_role(egui::accesskit::Role::CheckBox).click();
+        harness.run();
+        harness.get_by_label("Save").click();
+        harness.run();
+        match &*action.borrow() {
+            SettingsAction::Save { config, .. } => assert!(
+                config.watch_clipboard_images,
+                "the toggled checkbox must reach the saved snapshot"
+            ),
+            other => panic!("save action expected, got {other:?}"),
+        }
     }
 
     #[test]

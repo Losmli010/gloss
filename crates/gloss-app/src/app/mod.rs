@@ -148,7 +148,8 @@ impl GlossApp {
             return;
         };
         let overlay_view = self.machine.overlay_view();
-        let (repaint, output) = render_frame(frame, overlay_view, locale);
+        let attached = self.machine.attached_image().cloned();
+        let (repaint, output) = render_frame(frame, overlay_view, attached.as_ref(), locale);
         self.workspace.overlay_repaint = repaint;
         if let Some(action) = output.action {
             self.handle_overlay_action(action);
