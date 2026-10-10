@@ -13,16 +13,16 @@
 | 集成测试 | 14 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 32 | `just test` |
-| 单元测试 | 488 | `just test` |
+| 单元测试 | 491 | `just test` |
 
 ## 人工测试
 
 ### watch_and_reader_carry_a_real_image_copy
 - 测试目标：验证真实剪贴板链路上哨兵观察与取材读取的端到端协作（`--ignored`，`cargo test -p gloss-platform --lib clipboard::watch -- --ignored`）。
-- 测试场景：给定真实剪贴板与武装哨兵（构造时记基线），当经 arboard 写入一张 2×2 图片并睡过节流窗口，则哨兵恰产出一个观察事件；当以观察句柄构造读取器读图，则得到可解码的 PNG 且尺寸为 2×2。
+- 测试场景：给定真实剪贴板与武装哨兵（构造时记基线），当经 NSPasteboard 写入 TIFF flavor 的 2×2 图片，则哨兵恰产出一个观察事件（同读数下轮不再观察）且以观察句柄构造的读取器读回可解码的同尺寸 PNG；再当写入仅含 PNG flavor 的 2×2 图片并重新武装哨兵，则同样恰产出一次观察并读回（PNG-only 板不再静默失败）。
 - 测试步骤：
   1. 运行总览中人工测试的命令（只跑 clipboard::watch::live_tests）
-  2. 测试会写真实剪贴板（预设文本 → 测试图片 → 恢复预设文本），勿并行触发其它剪贴板测试
+  2. 测试会写真实剪贴板（先后写入 TIFF 与 PNG-only 测试图片；收场经 Drop 恢复测试开始时可读的文本内容，原内容若非文本则无法恢复），勿并行触发其它剪贴板测试
 - 更新时间：2026-10-10
 
 ### reads_live_selection_when_authorized
@@ -967,10 +967,13 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| small_rgba_encodes_to_a_decodable_png | RGBA 编码出可解码 PNG | 给定 2×2 RGBA 位图，当 encode_png，则产出 PNG 且解码回同尺寸 | 2026-10-10 |
-| pixel_budget_rejects_area_over_the_limit | 像素面积上限整体拒收 | 给定恰好 4096×4096 与超一像素（4097×4096）两种面积，当判预算，则前者在内、后者拒收；超限 encode_png 报 ImageTooLarge | 2026-10-10 |
-| pixel_budget_is_checked_before_the_buffer | 面积检查先于缓冲检查 | 给定面积在预算内但缓冲为空的输入，当 encode_png，则按读取失败处理（面积超限的输入不会走到缓冲检查） | 2026-10-10 |
+| png_and_tiff_flavors_decode_to_png | TIFF/PNG 双 flavor 解码出 PNG | 给定同一 2×2 RGBA 的 PNG 与 TIFF 编码字节，当 decode_to_png，则各自产出可解码回 2×2 的 PNG | 2026-10-10 |
+| flavor_budget_rejects_bytes_over_the_limit | flavor 字节上限先于头解析 | 给定恰好上限与超一字节的输入，当判预算与解码，则边界内通过、超限整体报 ImageTooLarge（头解析从未发生） | 2026-10-10 |
+| header_dimensions_are_bounded_before_the_decode | 像素面积在整图解码前判 | 给定真实 TIFF 编码后把宽高 tag 补丁为 4097×4096 的输入，当 decode_to_png，则 ImageTooLarge（整图解码从未发生——发生了会报解码失败） | 2026-10-10 |
+| a_truncated_flavor_decodes_to_a_read_failure | flavor 截断按读取失败 | 给定 IHDR 之后截断的 PNG，当 decode_to_png，则头可读、解码失败映射读取失败 | 2026-10-10 |
+| pixel_budget_rejects_area_over_the_limit | 像素面积上限边界 | 给定恰好 4096×4096 与超一像素（4097×4096）两种面积，当判预算，则前者在内、后者拒收 | 2026-10-10 |
 | a_mismatched_rgba_buffer_is_a_read_failure | RGBA 缓冲与尺寸不符按读取失败 | 给定声明 2×2 但缓冲 3 字节的输入，当 encode_png，则报读取失败（不 panic、不产残缺图） | 2026-10-10 |
+| pixel_budget_is_checked_before_the_buffer | 面积检查先于缓冲检查 | 给定面积在预算内但缓冲为空的输入，当 encode_png，则按读取失败处理（面积超限的输入不会走到缓冲检查） | 2026-10-10 |
 | byte_budget_rejects_length_over_the_limit | PNG 字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收（20MiB 上限） | 2026-10-10 |
 
 ### crates/gloss-platform/src/events/mod.rs

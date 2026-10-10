@@ -307,53 +307,106 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)]
 mod live_tests {
+    use std::io::Cursor;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
 
-    use arboard::{Clipboard, ImageData};
+    use arboard::Clipboard;
+    use objc2_app_kit::{
+        NSPasteboard, NSPasteboardType, NSPasteboardTypePNG, NSPasteboardTypeTIFF,
+    };
+    use objc2_foundation::NSData;
 
     use super::*;
     use crate::clipboard::ClipboardImageReader;
 
+    struct RestoreOnDrop {
+        text: Option<String>,
+    }
+
+    impl Drop for RestoreOnDrop {
+        fn drop(&mut self) {
+            let Some(text) = self.text.take() else {
+                return;
+            };
+            if let Ok(mut clipboard) = Clipboard::new() {
+                let _ = clipboard.set_text(text);
+            }
+        }
+    }
+
+    fn write_flavor(flavor_type: &'static NSPasteboardType, bytes: &[u8]) {
+        let board = NSPasteboard::generalPasteboard();
+        board.clearContents();
+        let data = NSData::with_bytes(bytes);
+        assert!(
+            board.setData_forType(Some(&data), flavor_type),
+            "flavor write must succeed"
+        );
+    }
+
+    fn encoded_2x2(format: image::ImageFormat) -> Vec<u8> {
+        let rgba = vec![
+            255u8, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 0,
+        ];
+        let canvas = image::RgbaImage::from_raw(2, 2, rgba).expect("canvas");
+        let mut bytes = Cursor::new(Vec::new());
+        canvas.write_to(&mut bytes, format).expect("encode");
+        bytes.into_inner()
+    }
+
     #[test]
     #[ignore = "需图形会话：写真实剪贴板并观察哨兵与取材读取器"]
     fn watch_and_reader_carry_a_real_image_copy() {
-        let mut clipboard = Clipboard::new().expect("clipboard should be available");
-        let preset = format!("gloss-clip-watch-{}", std::process::id());
-        clipboard.set_text(preset.clone()).expect("preset text");
+        let text_before = Clipboard::new()
+            .ok()
+            .and_then(|mut clipboard| clipboard.get_text().ok());
+        let _restore = RestoreOnDrop { text: text_before };
 
-        let mut watch = ClipboardWatchSource::new(Arc::new(AtomicBool::new(true)));
-        clipboard
-            .set_image(ImageData {
-                width: 2,
-                height: 2,
-                bytes: vec![
-                    255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 0,
-                ]
-                .into(),
-            })
-            .expect("image write");
-
-        let events = watch.poll();
-        assert_eq!(
-            events.len(),
-            1,
-            "the image copy must produce exactly one observation"
+        let (flavor, flavor_type, format) = (
+            crate::clipboard::ImageFlavor::Tiff,
+            // SAFETY: AppKit 导出的常量字符串 extern static，进程存活期内恒有效。
+            unsafe { NSPasteboardTypeTIFF },
+            image::ImageFormat::Tiff,
         );
+        let mut watch = ClipboardWatchSource::new(Arc::new(AtomicBool::new(true)));
+        write_flavor(flavor_type, &encoded_2x2(format));
+        let events = watch.poll();
+        assert_eq!(events.len(), 1, "the image write must be observed once");
         assert!(
             watch.poll().is_empty(),
             "no further observation without a change"
         );
-
         let mut reader = ClipboardImageReader::new(watch.observer());
         let png = reader
             .read()
             .expect("read must succeed")
             .expect("the observed image must still be on the board");
         let decoded = image::load_from_memory(&png).expect("valid png");
-        assert_eq!((decoded.width(), decoded.height()), (2, 2));
+        assert_eq!((decoded.width(), decoded.height()), (2, 2), "{flavor:?}");
 
-        clipboard.set_text(preset).expect("restore text");
+        let (flavor, flavor_type, format) = (
+            crate::clipboard::ImageFlavor::Png,
+            // SAFETY: AppKit 导出的常量字符串 extern static，进程存活期内恒有效。
+            unsafe { NSPasteboardTypePNG },
+            image::ImageFormat::Png,
+        );
+        let mut watch = ClipboardWatchSource::new(Arc::new(AtomicBool::new(true)));
+        write_flavor(flavor_type, &encoded_2x2(format));
+        let events = watch.poll();
+        assert_eq!(
+            events.len(),
+            1,
+            "a PNG-only board must be observed exactly once"
+        );
+        let mut reader = ClipboardImageReader::new(watch.observer());
+        let png = reader
+            .read()
+            .expect("read must succeed")
+            .expect("the observed PNG must still be on the board");
+        let decoded = image::load_from_memory(&png).expect("valid png");
+        assert_eq!((decoded.width(), decoded.height()), (2, 2), "{flavor:?}");
     }
 }

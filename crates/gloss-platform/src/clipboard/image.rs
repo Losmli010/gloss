@@ -1,22 +1,26 @@
-//! 剪贴板图片取材读取器：arboard 读 RGBA → PNG（快速压缩档）。
+//! 剪贴板图片取材读取器：读 NSPasteboard 图像 flavor → 解码 → PNG（快速压缩档）。
 //!
 //! 竞态兜底：① 观察与 ② 取材之间剪贴板可能被覆盖——changeCount 再变，或
-//! 内容已不是图片（`ContentNotAvailable`），都按竞态返回 `Ok(None)`，调用
-//! 方静默丢弃不弹卡；硬失败返回 `Err`，由调用方上抛 `TaskFailed`。
+//! 内容已不是可读图像，都按竞态返回 `Ok(None)`，调用方静默丢弃不弹卡；硬
+//! 失败返回 `Err`，由调用方上抛 `TaskFailed`。
 //!
-//! 边界与上限：像素面积与 PNG 字节双上限（超限整体报 `ImageTooLarge`，不
-//! 截断），RGBA 缓冲与声明尺寸不符按读取失败处理——图片不完整的产物不发
-//! 往下游。日志只记字节数与像素尺寸。
+//! 设界逐级前置：flavor 字节上限 → 仅读头取尺寸过像素面积上限 → 才整图
+//! 解码 → 产物过 PNG 字节上限。pastebomb 在任何大分配发生之前被整体拒绝。
+//! 日志只记字节数与像素尺寸。
 
+use std::io::Cursor;
 use std::sync::Arc;
 
-use arboard::Clipboard;
 use gloss_core::log::{debug, thread};
 use gloss_core::model::GlossError;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
-use image::{ExtendedColorType, ImageEncoder};
+use image::{ExtendedColorType, ImageEncoder, ImageFormat, ImageReader};
 
-use super::{PasteboardObserver, pasteboard_change_count};
+use super::{ImageFlavor, PasteboardObserver, pasteboard_change_count, pasteboard_image_flavor};
+
+/// flavor 字节上限：恰好 4096² 的未压缩 TIFF（RGB8）约 43MB，给满尺寸的
+/// 合法图像留量；超限在头解析之前整体拒绝。
+pub const MAX_FLAVOR_BYTES: usize = 64 * 1024 * 1024;
 
 /// 像素面积上限：4096×4096 ≈ 16MP（4K 截图 8.3MP 在内）；面积在上限处的
 /// RGBA 位图即 64MB，超出即视为 pastebomb。
@@ -25,6 +29,11 @@ pub const MAX_PIXELS: u64 = 4096 * 4096;
 /// PNG 字节上限：取材产物进 `TaskInput`、缓存会话与出网请求体，超限整体
 /// 报错。
 pub const MAX_PNG_BYTES: usize = 20 * 1024 * 1024;
+
+/// flavor 字节是否在预算内（纯逻辑，单测覆盖边界）。
+fn flavor_within_budget(len: usize) -> bool {
+    len <= MAX_FLAVOR_BYTES
+}
 
 /// 像素面积是否在预算内（纯逻辑，单测覆盖边界）。
 fn pixels_within_budget(width: u32, height: u32) -> bool {
@@ -36,14 +45,36 @@ fn png_within_budget(len: usize) -> bool {
     len <= MAX_PNG_BYTES
 }
 
-/// RGBA 位图 → PNG（快速压缩档：编码在事件线程上执行，时长直接挂在触发
-/// 到弹卡的链路上）。像素面积超限报 `ImageTooLarge`；RGBA 缓冲与尺寸不符、
-/// 编码失败都按读取失败处理。
-fn encode_png(width: usize, height: usize, rgba: &[u8]) -> Result<Arc<[u8]>, GlossError> {
-    let (Ok(width), Ok(height)) = (u32::try_from(width), u32::try_from(height)) else {
-        debug!(thread = thread::EVENT, "pasteboard image size out of range");
-        return Err(GlossError::SelectionUnavailable);
+/// 图像 flavor 编码数据 → 解码 RGBA → PNG（快速压缩档：编码在事件线程上
+/// 执行，时长直接挂在触发到弹卡的链路上）。
+///
+/// 设界依次执行：flavor 字节上限在头解析之前，像素面积上限以仅读头的
+/// 尺寸判定、先于整图解码，PNG 字节上限判在编码产物上。超限整体报
+/// `ImageTooLarge`（不截断）；头不可读、解码失败、缓冲与尺寸不符都按
+/// 读取失败处理。
+fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossError> {
+    if !flavor_within_budget(bytes.len()) {
+        debug!(
+            thread = thread::EVENT,
+            bytes = bytes.len(),
+            "pasteboard image exceeds the flavor budget"
+        );
+        return Err(GlossError::ImageTooLarge);
+    }
+    let format = match flavor {
+        ImageFlavor::Tiff => ImageFormat::Tiff,
+        ImageFlavor::Png => ImageFormat::Png,
     };
+    let (width, height) = ImageReader::with_format(Cursor::new(bytes), format)
+        .into_dimensions()
+        .map_err(|err| {
+            debug!(
+                thread = thread::EVENT,
+                error = %err,
+                "pasteboard image header unreadable"
+            );
+            GlossError::SelectionUnavailable
+        })?;
     if !pixels_within_budget(width, height) {
         debug!(
             thread = thread::EVENT,
@@ -51,6 +82,23 @@ fn encode_png(width: usize, height: usize, rgba: &[u8]) -> Result<Arc<[u8]>, Glo
         );
         return Err(GlossError::ImageTooLarge);
     }
+    let decoded = ImageReader::with_format(Cursor::new(bytes), format)
+        .decode()
+        .map_err(|err| {
+            debug!(
+                thread = thread::EVENT,
+                error = %err,
+                "pasteboard image decode failed"
+            );
+            GlossError::SelectionUnavailable
+        })?;
+    let rgba = decoded.to_rgba8();
+    encode_png(rgba.width(), rgba.height(), rgba.as_raw())
+}
+
+/// RGBA 位图 → PNG。缓冲与声明尺寸不符按读取失败处理（校验在前，
+/// `write_image` 的内部校验兜底）。
+fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Arc<[u8]>, GlossError> {
     if rgba.len() != width as usize * height as usize * 4 {
         debug!(
             thread = thread::EVENT,
@@ -105,50 +153,102 @@ impl ClipboardImageReader {
         if !self.observer.matches(current) {
             return Ok(None);
         }
-        let mut clipboard = match Clipboard::new() {
-            Ok(clipboard) => clipboard,
-            Err(err) => {
-                debug!(
-                    thread = thread::EVENT,
-                    error = %err,
-                    "clipboard unavailable, image read declined"
-                );
-                return Err(GlossError::SelectionUnavailable);
-            }
+        let Some((flavor, data)) = pasteboard_image_flavor() else {
+            debug!(
+                thread = thread::EVENT,
+                "clipboard no longer holds a readable image flavor, dropped"
+            );
+            return Ok(None);
         };
-        match clipboard.get_image() {
-            Ok(image) => encode_png(image.width, image.height, &image.bytes).map(Some),
-            Err(arboard::Error::ContentNotAvailable) => {
-                debug!(
-                    thread = thread::EVENT,
-                    "clipboard no longer holds an image, dropped"
-                );
-                Ok(None)
-            }
-            Err(err) => {
-                debug!(
-                    thread = thread::EVENT,
-                    error = %err,
-                    "clipboard image read failed"
-                );
-                Err(GlossError::SelectionUnavailable)
-            }
-        }
+        // SAFETY: `data`（Retained<NSData>）在本作用域内存活且不被改写，切片
+        // 的借用不逃逸出本函数——解码产物即刻转为持有字节。
+        let bytes = unsafe { data.as_bytes_unchecked() };
+        decode_to_png(flavor, bytes).map(Some)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
 
+    const RGBA_2X2: [u8; 16] = [
+        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 0,
+    ];
+
+    fn encoded_2x2(format: ImageFormat) -> Vec<u8> {
+        let canvas = image::RgbaImage::from_raw(2, 2, RGBA_2X2.to_vec()).expect("canvas");
+        let mut bytes = Cursor::new(Vec::new());
+        canvas.write_to(&mut bytes, format).expect("encode");
+        bytes.into_inner()
+    }
+
+    fn patch_tiff_dimension_tag(bytes: &mut [u8], tag: u16, value: u32) {
+        let mut cursor = 0;
+        while cursor + 12 <= bytes.len() {
+            if bytes[cursor..cursor + 2] == tag.to_le_bytes()
+                && bytes[cursor + 2..cursor + 4] == 4u16.to_le_bytes()
+                && bytes[cursor + 4..cursor + 8] == 1u32.to_le_bytes()
+            {
+                bytes[cursor + 8..cursor + 12].copy_from_slice(&value.to_le_bytes());
+                return;
+            }
+            cursor += 1;
+        }
+        panic!("dimension tag must exist in the encoded tiff");
+    }
+
     #[test]
-    fn small_rgba_encodes_to_a_decodable_png() {
-        let rgba = [
-            255u8, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 0,
-        ];
-        let png = encode_png(2, 2, &rgba).expect("encode must succeed");
-        let decoded = image::load_from_memory(&png).expect("valid png");
-        assert_eq!((decoded.width(), decoded.height()), (2, 2));
+    fn png_and_tiff_flavors_decode_to_png() {
+        for (flavor, bytes) in [
+            (ImageFlavor::Png, encoded_2x2(ImageFormat::Png)),
+            (ImageFlavor::Tiff, encoded_2x2(ImageFormat::Tiff)),
+        ] {
+            let png = decode_to_png(flavor, &bytes).expect("decode must succeed");
+            let decoded = image::load_from_memory(&png).expect("valid png");
+            assert_eq!((decoded.width(), decoded.height()), (2, 2));
+        }
+    }
+
+    #[test]
+    fn flavor_budget_rejects_bytes_over_the_limit() {
+        assert!(
+            flavor_within_budget(MAX_FLAVOR_BYTES),
+            "the limit itself fits"
+        );
+        assert!(
+            !flavor_within_budget(MAX_FLAVOR_BYTES + 1),
+            "one byte over the limit is rejected"
+        );
+        let over = vec![0u8; MAX_FLAVOR_BYTES + 1];
+        let err = decode_to_png(ImageFlavor::Png, &over).expect_err("over-budget flavor");
+        assert_eq!(
+            err,
+            GlossError::ImageTooLarge,
+            "the flavor cap fires before any header parsing"
+        );
+    }
+
+    #[test]
+    fn header_dimensions_are_bounded_before_the_decode() {
+        let mut bytes = encoded_2x2(ImageFormat::Tiff);
+        patch_tiff_dimension_tag(&mut bytes, 256, 4097);
+        patch_tiff_dimension_tag(&mut bytes, 257, 4096);
+        let err = decode_to_png(ImageFlavor::Tiff, &bytes).expect_err("over-budget image");
+        assert_eq!(
+            err,
+            GlossError::ImageTooLarge,
+            "the header gate fires before the full decode"
+        );
+    }
+
+    #[test]
+    fn a_truncated_flavor_decodes_to_a_read_failure() {
+        let bytes = encoded_2x2(ImageFormat::Png);
+        let truncated = &bytes[..40];
+        let err = decode_to_png(ImageFlavor::Png, truncated).expect_err("truncated flavor");
+        assert_eq!(err, GlossError::SelectionUnavailable);
     }
 
     #[test]
@@ -158,8 +258,12 @@ mod tests {
             !pixels_within_budget(4097, 4096),
             "one pixel over the limit is rejected"
         );
-        let err = encode_png(4097, 4096, &[]).expect_err("over-budget image");
-        assert_eq!(err, GlossError::ImageTooLarge);
+    }
+
+    #[test]
+    fn a_mismatched_rgba_buffer_is_a_read_failure() {
+        let err = encode_png(2, 2, &[1, 2, 3]).expect_err("buffer mismatch");
+        assert_eq!(err, GlossError::SelectionUnavailable);
     }
 
     #[test]
@@ -170,12 +274,6 @@ mod tests {
             GlossError::SelectionUnavailable,
             "within-budget dims fall through to the buffer check"
         );
-    }
-
-    #[test]
-    fn a_mismatched_rgba_buffer_is_a_read_failure() {
-        let err = encode_png(2, 2, &[1, 2, 3]).expect_err("buffer mismatch");
-        assert_eq!(err, GlossError::SelectionUnavailable);
     }
 
     #[test]
