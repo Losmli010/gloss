@@ -294,7 +294,7 @@ mod tests {
             )
             .is_err()
         );
-        assert!(parse_classify_reply("{\"kind\":\"ImageOcr\"}", &CLASSIFY_KINDS).is_err());
+        assert!(parse_classify_reply("{\"kind\":\"ImageExplain\"}", &CLASSIFY_KINDS).is_err());
         assert!(parse_classify_reply("{\"kind\":\"Nonsense\"}", &CLASSIFY_KINDS).is_err());
         assert!(parse_classify_reply("{\"kind\":null}", &CLASSIFY_KINDS).is_err());
         assert!(parse_classify_reply("我觉得这是一段翻译", &CLASSIFY_KINDS).is_err());
