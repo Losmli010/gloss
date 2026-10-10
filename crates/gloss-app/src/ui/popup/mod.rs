@@ -166,7 +166,8 @@ pub struct RenderState {
 /// 经位附件图像的纹理缓存：键是源字节的 `Arc` 指针身份——同图跨帧与
 /// 重试恒复用同一纹理，绝不逐帧解码；纹理 `None`＝这份字节解码失败
 /// （同样只试一次，占位降级），换图（指针不同）即重新解码。同时至多
-/// 驻留一份图像纹理（新图即替换）。
+/// 驻留一份图像纹理（新图即替换；会话离开图像卡即清空，见
+/// `RenderState::drop_attached`）。
 struct AttachedTexture {
     source: Arc<[u8]>,
     texture: Option<egui::TextureHandle>,
@@ -227,6 +228,14 @@ impl RenderState {
             texture: texture.clone(),
         });
         texture
+    }
+
+    /// 清空经位附件图像的缓存槽：源字节 `Arc` 与解码纹理一并释放。壳在
+    /// 无附件的帧调用（图像会话已被收起/替换/失败）——图像字节属敏感数
+    /// 据，生命周期不得长于会话；同图下一帧重新解码即回（一次解码，不
+    /// 在会话内重复发生）。
+    fn drop_attached(&self) {
+        *self.attached.borrow_mut() = None;
     }
 }
 
@@ -322,6 +331,13 @@ pub fn draw(
             .request_repaint_after(Duration::from_secs_f32(0.016));
     }
     ui.set_opacity(progress);
+
+    // 本帧无附件＝会话已离开图像卡（收起、换任务或失败）：立即清空纹理
+    // 缓存槽——图像字节属敏感数据，源字节与解码纹理都不得驻留到会话之外
+    // （机器侧清 attached_image 的渲染侧镜像，见 `RenderState::drop_attached`）。
+    if attached.is_none() {
+        state.drop_attached();
+    }
 
     let fill = ui.visuals().window_fill;
     let window_stroke = ui.visuals().window_stroke;
@@ -2047,6 +2063,48 @@ mod kittest_tests {
             harness.ctx.tex_manager().read().num_allocated(),
             settled,
             "同图逐帧复用同一纹理：帧数增长不得新装纹理（逐帧解码即失败）"
+        );
+    }
+
+    #[test]
+    fn attached_image_slot_is_dropped_once_an_imageless_frame_renders() {
+        let png = fixture_png();
+        let state = RenderState::default();
+        let text = Text::get(Locale::En);
+        let installed = Cell::new(false);
+        let view = image_commentary_view_en();
+        let mode = Rc::new(Cell::new(0u8));
+        let frame_mode = Rc::clone(&mode);
+        let mut harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let attached = if frame_mode.get() == 0 {
+                Some(&png)
+            } else {
+                None
+            };
+            let _ = draw(ui, Some(&view), attached, &state, text);
+        });
+
+        harness.run();
+        harness.run();
+        let with_image = harness.ctx.tex_manager().read().num_allocated();
+
+        mode.set(1);
+        harness.run();
+        let after_drop = harness.ctx.tex_manager().read().num_allocated();
+        assert!(
+            after_drop < with_image,
+            "会话离开图像卡即清槽：源字节与纹理同帧释放（{after_drop} < {with_image}）"
+        );
+
+        mode.set(0);
+        harness.run();
+        assert_eq!(
+            harness.ctx.tex_manager().read().num_allocated(),
+            with_image,
+            "同图重新上卡走重新解码：驻留恢复但不复用已释放的纹理"
         );
     }
 
