@@ -1,11 +1,12 @@
-//! LLM 任务服务（编排层）：分类 → prompt 渲染 → 引擎流式转发。
+//! LLM 任务服务（编排层）：意图定型 → prompt 渲染 → 引擎流式转发。
 //!
-//! 一次 `run` 的完整前半程都在这里：输入校验 → 分类（极小 prompt 走
-//! LLM，失败落 [`CLASSIFY_FALLBACK`]）→ `on_classified` 回调 → 任务形成
-//! （prompt 渲染 + 模态校验）→ 流式执行（原始增量经 `on_chunk` 逐条转
-//! 交，同时累积）→ 返回原始完整文本与判定的 kind。**零缓存零配置**：
-//! 模型取自 `options.model`，本层与缓存彻底无关——查/写缓存、完成态解
-//! 析与产物组装都归调用方（app 桥）。
+//! 一次 `run` 的完整前半程都在这里：输入校验 → 意图定型（文本走 LLM
+//! 分类，失败落 [`CLASSIFY_FALLBACK`]；图像输入自带显式意图，恒定映射
+//! ImageExplain、跳过分类）→ `on_classified` 回调 → 任务形成（prompt 渲
+//! 染 + 模态校验）→ 流式执行（原始增量经 `on_chunk` 逐条转交，同时累积）
+//! → 返回原始完整文本与判定的 kind。**零缓存零配置**：模型取自
+//! `options.model`，本层与缓存彻底无关——查/写缓存、完成态解析与产物组
+//! 装都归调用方（app 桥）。
 //!
 //! 输出契约见 prompt 模块：模型按契约直接返回纯 JSON 对象（`note` 义 +
 //! 按 kind 疏证）；本层只搬运原始文本，不解析——解析归调用方的完成态
@@ -52,8 +53,9 @@ impl AiTaskService {
         }
     }
 
-    /// 执行一条任务：入口校验（模型非空、文本模态）→ LLM 分类（失败落
-    /// 兜底，`on_classified` 恒发）→ prompt 渲染 → 引擎流式，每个增量经
+    /// 执行一条任务：入口校验（模型非空、模态放行）→ 意图定型（文本走
+    /// LLM 分类，失败落兜底；图像输入恒定映射 ImageExplain、跳过分类，
+    /// `on_classified` 恒发）→ prompt 渲染 → 引擎流式，每个增量经
     /// `on_chunk` 原样转交 → 流走完返回原始文本。
     ///
     /// `input` 与 `options` 按值接收：任务在执行期间独占两者，调用方
@@ -61,7 +63,7 @@ impl AiTaskService {
     ///
     /// 调用方契约（app 桥据此接线，见 `gloss_app::pipeline`）：
     /// - `on_classified` 在**任何** chunk 之前恰好调用一次（含失败兜底
-    ///   kind）——界面的任务标签以它为准；
+    ///   kind 与图像的固定 kind）——界面的任务标签以它为准；
     /// - `on_chunk` 收到的是**原始流**（纯 JSON 契约下就是模型的原始
     ///   输出），流式显示的渐进提取与完成态解析都在调用方；返回值
     ///   `raw` 是同一份文本的整体累积；
@@ -81,33 +83,35 @@ impl AiTaskService {
         if options.model.trim().is_empty() {
             return Err(GlossError::Config("empty model id".into()));
         }
-        if !matches!(input, TaskInput::Text { .. }) {
-            // 本服务只接划词路径的文本输入；图像/音频输入在这里直接拒绝
-            //（模态矩阵管 kind × input 的组合校验，本入口对非文本模态
-            // 一律不放行）。
-            return Err(GlossError::UnsupportedModality);
-        }
 
-        // 分类完全交给 LLM，失败落常量兜底。兜底有痕迹但无内容：warn
-        // 只记错误类别，不含选区原文与模型回复。
-        let kind = match classify(
-            self.engine.as_ref(),
-            &options.model,
-            options.prompt_locale.unwrap_or_default(),
-            &CLASSIFY_KINDS,
-            &input,
-        )
-        .await
-        {
-            Ok(kind) => kind,
-            Err(error) => {
-                warn!(
-                    thread = thread::TOKIO,
-                    error = %error,
-                    "classification failed, falling back to the default kind"
-                );
-                CLASSIFY_FALLBACK
-            }
+        // 意图定型：文本输入没有显式意图，交给 LLM 分类（失败落常量兜
+        // 底；兜底有痕迹但无内容——warn 只记错误类别，不含选区原文与模型
+        // 回复）；图像输入的取材动作即显式意图（剪贴板图片任务就是图像解
+        // 读），恒定映射 ImageExplain、跳过分类——显式意图恒定映射与分类
+        // 常量兜底同哲学，`CLASSIFY_KINDS` 不动，引擎调用少一次往返。
+        let kind = match &input {
+            TaskInput::Text { .. } => match classify(
+                self.engine.as_ref(),
+                &options.model,
+                options.prompt_locale.unwrap_or_default(),
+                &CLASSIFY_KINDS,
+                &input,
+            )
+            .await
+            {
+                Ok(kind) => kind,
+                Err(error) => {
+                    warn!(
+                        thread = thread::TOKIO,
+                        error = %error,
+                        "classification failed, falling back to the default kind"
+                    );
+                    CLASSIFY_FALLBACK
+                }
+            },
+            TaskInput::Image { .. } => TaskKind::ImageExplain,
+            // 语音是预留模态：取材端口未落地，任何 kind 都不放行。
+            TaskInput::Audio { .. } => return Err(GlossError::UnsupportedModality),
         };
         on_classified(kind);
 
@@ -245,7 +249,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn non_text_input_is_rejected_before_anything() {
+    async fn audio_input_is_still_rejected_before_anything() {
         let (engine, service) = make_service(&MockEngine::new());
         assert_eq!(
             service
@@ -262,6 +266,66 @@ mod tests {
             Err(GlossError::UnsupportedModality)
         );
         assert_eq!(engine.call_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn image_input_skips_classification_and_lands_on_image_explain() {
+        let (engine, service) = make_service(
+            &MockEngine::new().with_chunks(vec![Ok("{\"note\":\"图\"".into()), Ok("}".into())]),
+        );
+        let events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let classified = Arc::clone(&events);
+        let chunks = Arc::clone(&events);
+        let output = service
+            .run(
+                TaskInput::Image {
+                    png: std::sync::Arc::from(&b"png"[..]),
+                    region: None,
+                },
+                options(),
+                move |kind| {
+                    classified
+                        .lock()
+                        .expect("events")
+                        .push(format!("classified:{kind:?}"));
+                },
+                move |delta| {
+                    chunks
+                        .lock()
+                        .expect("events")
+                        .push(format!("chunk:{delta}"));
+                },
+            )
+            .await
+            .expect("image task should run");
+        assert_eq!(output.kind, TaskKind::ImageExplain);
+        assert_eq!(output.raw, "{\"note\":\"图\"}");
+        let events = events.lock().expect("events");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.starts_with("classified:"))
+                .count(),
+            1,
+            "the fixed kind is reported exactly once: {events:?}"
+        );
+        assert_eq!(
+            events.first().map(String::as_str),
+            Some("classified:ImageExplain"),
+            "the fixed kind precedes every chunk: {events:?}"
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.starts_with("chunk:"))
+                .count(),
+            2
+        );
+        assert_eq!(
+            engine.call_count(),
+            1,
+            "image input skips classification: one engine call in total"
+        );
     }
 
     #[tokio::test]

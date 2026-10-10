@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::model::{Lang, Locale};
 
 /// 出厂默认模型 id：`Config::model` 的出厂值——单一模型承接全部任务
-/// （分类与执行同一模型）。设置页可改；App 在触发时冻结进任务选项。
-pub const DEFAULT_TEXT_MODEL: &str = "deepseek-chat";
+/// （分类与执行同一模型），文本与图像模态不分（引擎按不透明 id 透传）。
+/// 设置页可改；App 在触发时冻结进任务选项。
+pub const DEFAULT_MODEL: &str = "deepseek-flash";
 
 /// 出厂默认 OpenAI 兼容端点：DeepSeek。客户端按
 /// `{base_url}/chat/completions` 拼接，设置页可改。
@@ -221,7 +222,7 @@ impl Default for Config {
         Self {
             base_url: DEFAULT_BASE_URL.to_owned(),
             provider_keys: default_provider_keys(),
-            model: DEFAULT_TEXT_MODEL.to_owned(),
+            model: DEFAULT_MODEL.to_owned(),
             target_lang: Lang::Zh,
             // 与 gloss-app::cache 的出厂 TTL（1 小时）一致（同源校验测试
             // 在 app 侧，随 DEFAULT_TTL 钉住）。
@@ -270,7 +271,7 @@ mod tests {
     fn factory_defaults_match_spec() {
         let config = Config::default();
         assert_eq!(config.target_lang, Lang::Zh);
-        assert_eq!(config.model, DEFAULT_TEXT_MODEL);
+        assert_eq!(config.model, DEFAULT_MODEL);
         assert_eq!(config.cache_ttl_secs, 60 * 60);
         assert_eq!(config.theme, Theme::System);
         assert_eq!(config.language, Language::System);
@@ -293,7 +294,7 @@ mod tests {
         let config: Config =
             serde_json::from_value(json).expect("missing language must fall back to default");
         assert_eq!(config.language, Language::System);
-        assert_eq!(config.model, DEFAULT_TEXT_MODEL);
+        assert_eq!(config.model, DEFAULT_MODEL);
     }
 
     #[test]
@@ -406,7 +407,7 @@ mod tests {
         assert_eq!(config.theme, Theme::Light, "known fields keep their values");
         assert_eq!(config.target_lang, Lang::Zh, "missing fields still default");
         assert_eq!(
-            config.model, DEFAULT_TEXT_MODEL,
+            config.model, DEFAULT_MODEL,
             "retired per-kind model tables must not leak into the single model"
         );
     }
@@ -420,7 +421,7 @@ mod tests {
         assert_eq!(config.cache_ttl_secs, 60 * 60);
         assert_eq!(config.base_url, DEFAULT_BASE_URL);
         assert_eq!(config.resolved_provider().provider, "deepseek");
-        assert_eq!(config.model, DEFAULT_TEXT_MODEL);
+        assert_eq!(config.model, DEFAULT_MODEL);
     }
 
     #[test]

@@ -251,7 +251,7 @@ impl LiveEnv {
                     format!(
                         "missing {name}; set GLOSS_LIVE_API_KEY=sk-... \
                          GLOSS_LIVE_BASE_URL=https://api.deepseek.com/v1 \
-                         GLOSS_LIVE_MODEL=deepseek-chat before running the live eval"
+                         GLOSS_LIVE_MODEL=deepseek-flash before running the live eval"
                     )
                 })
         };

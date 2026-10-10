@@ -4,7 +4,9 @@
 //! 边界：**只负责把请求送出去、把响应流回来**。messages 由编排层渲染
 //! （`super::AiTaskService` → `prompt::PromptRegistry`，含模态校验），模型
 //! 也已由 App 按配置解析后随 [`EngineRequest`] 携带——本模块不渲染
-//! prompt，也不看配置里的模型。
+//! prompt，也不看配置里的模型。域形态的消息（[`ChatMessage`]：文本或多
+//! 模态部件）在这里映成 OpenAI 兼容 wire 形状；图像部件的 base64 与
+//! data URL 前缀也只在请求体构造处编码（域类型不带 base64）。
 //!
 //! 端点与密钥：端点取配置快照的 `base_url`；密钥按 provider 条目的 keychain
 //! 条目标识**每请求直查**（不缓存，除请求头外不进任何地方——错误消息与日志里
@@ -24,6 +26,9 @@ use crate::config_handle::ConfigHandle;
 use crate::log::debug;
 use crate::model::GlossError;
 use crate::ports::{AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskStream};
+use crate::prompt::{ChatMessage, ContentPart, MessageContent};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use futures_core::Stream;
 use reqwest::StatusCode;
 
@@ -40,19 +45,55 @@ const CHAT_COMPLETIONS_PATH: &str = "chat/completions";
 /// 与既有非 JSON 路径一致）。
 const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 
-/// 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。`max_tokens` 只在
-/// 设限时携带：部分严格端点会拒绝显式的 `null`，缺键才是「不设限」的
-/// wire 语义。
+/// 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。消息在这里从域
+/// 形态映成 wire 形状；`max_tokens` 只在设限时携带：部分严格端点会拒绝
+/// 显式的 `null`，缺键才是「不设限」的 wire 语义。
 fn chat_request_body(request: &EngineRequest) -> serde_json::Value {
+    let messages: Vec<serde_json::Value> = request.messages.iter().map(message_to_value).collect();
     let mut body = serde_json::json!({
         "model": request.model,
-        "messages": request.messages,
+        "messages": messages,
         "stream": true,
     });
     if let Some(max_tokens) = request.max_tokens {
         body["max_tokens"] = serde_json::json!(max_tokens);
     }
     body
+}
+
+/// 单条消息 → OpenAI 兼容 JSON：role 用小写契约名（`Role` 的 serde 拼写），
+/// 正文按域形态分派（纯文本即 JSON 字符串，部件即 content 数组）。
+fn message_to_value(message: &ChatMessage) -> serde_json::Value {
+    serde_json::json!({
+        "role": message.role,
+        "content": content_to_value(&message.content),
+    })
+}
+
+/// 消息正文 → wire 值：纯文本即字符串，部件数组即 OpenAI 兼容 content
+/// 数组（`{"type":"text",…}` / `{"type":"image_url",…}`）。
+fn content_to_value(content: &MessageContent) -> serde_json::Value {
+    match content {
+        MessageContent::Text(text) => serde_json::json!(text),
+        MessageContent::Parts(parts) => {
+            serde_json::Value::Array(parts.iter().map(part_to_value).collect())
+        }
+    }
+}
+
+/// 单个部件 → wire 值。图像字节在这里才做 base64 编码并拼 data URL 前缀
+/// （`data:image/png;base64,…`）——域类型只携带原始字节，编码不出请求体
+/// 构造这一步。
+fn part_to_value(part: &ContentPart) -> serde_json::Value {
+    match part {
+        ContentPart::Text(text) => serde_json::json!({ "type": "text", "text": text }),
+        ContentPart::ImagePng(png) => serde_json::json!({
+            "type": "image_url",
+            "image_url": {
+                "url": format!("data:image/png;base64,{}", BASE64_STANDARD.encode(png)),
+            },
+        }),
+    }
 }
 
 /// 读响应体但不超过 `limit` 字节（丢失的只是诊断文本，不是业务数据）。
@@ -334,8 +375,16 @@ impl Stream for SseStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prompt::{ChatMessage, Role};
+
     use crate::stubs::ports::MemoryConfigStore;
+
+    const FIXTURE_PNG: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0B, 0x49, 0x44, 0x41, 0x54, 0x78, 0xDA, 0x63, 0x60,
+        0x00, 0x02, 0x00, 0x00, 0x05, 0x00, 0x01, 0xE9, 0xFA, 0xDC, 0xD8, 0x00, 0x00, 0x00, 0x00,
+        0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
 
     fn fixture(secret: Option<&str>) -> (Arc<ConfigHandle>, Arc<MemoryConfigStore>) {
         let store = Arc::new(MemoryConfigStore::default());
@@ -558,10 +607,7 @@ mod tests {
     #[test]
     fn request_body_has_the_openai_envelope() {
         let request = EngineRequest {
-            messages: vec![ChatMessage {
-                role: Role::System,
-                content: "把用户给的词翻成中文".into(),
-            }],
+            messages: vec![ChatMessage::system("把用户给的词翻成中文")],
             model: "deepseek-chat".into(),
             max_tokens: None,
         };
@@ -576,11 +622,56 @@ mod tests {
     }
 
     #[test]
+    fn text_content_stays_a_json_string_on_the_wire() {
+        let request = EngineRequest {
+            messages: vec![ChatMessage::user("hi")],
+            model: "m".into(),
+            max_tokens: None,
+        };
+        let body = chat_request_body(&request);
+        assert_eq!(
+            body["messages"][0],
+            serde_json::json!({"role": "user", "content": "hi"}),
+            "a plain-text message must not become a content array"
+        );
+    }
+
+    #[test]
+    fn multimodal_parts_map_to_the_openai_content_array() {
+        let request = EngineRequest {
+            messages: vec![
+                ChatMessage::system("解读图片"),
+                ChatMessage::user_parts(vec![
+                    ContentPart::Text("这张图里有什么".into()),
+                    ContentPart::ImagePng(FIXTURE_PNG.into()),
+                ]),
+            ],
+            model: "deepseek-flash".into(),
+            max_tokens: None,
+        };
+        assert_eq!(
+            chat_request_body(&request),
+            serde_json::json!({
+                "model": "deepseek-flash",
+                "messages": [
+                    {"role": "system", "content": "解读图片"},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": "这张图里有什么"},
+                        {"type": "image_url", "image_url": {"url": concat!(
+                            "data:image/png;base64,",
+                            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAA",
+                            "AAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII=",
+                        )}},
+                    ]},
+                ],
+                "stream": true,
+            })
+        );
+    }
+
+    #[test]
     fn max_tokens_is_carried_only_when_set() {
-        let messages = vec![ChatMessage {
-            role: Role::User,
-            content: "hi".into(),
-        }];
+        let messages = vec![ChatMessage::user("hi")];
         let unset = chat_request_body(&EngineRequest {
             messages: messages.clone(),
             model: "m".into(),
@@ -646,7 +737,7 @@ mod tests {
 #[cfg(test)]
 mod live_tests {
     use super::*;
-    use crate::prompt::{ChatMessage, Role};
+
     use crate::stubs::ports::MemoryConfigStore;
 
     fn require_live_env() -> (String, String, String) {
@@ -663,7 +754,7 @@ mod live_tests {
             panic!(
                 "真机测试缺少环境变量。修复：GLOSS_LIVE_API_KEY=sk-... \
                  GLOSS_LIVE_BASE_URL=https://api.deepseek.com/v1 \
-                 GLOSS_LIVE_MODEL=deepseek-chat \
+                 GLOSS_LIVE_MODEL=deepseek-flash \
                  cargo test -p gloss-core -- --ignored live_llm"
             );
         };
@@ -688,14 +779,8 @@ mod live_tests {
 
         let request = EngineRequest {
             messages: vec![
-                ChatMessage {
-                    role: Role::System,
-                    content: "把用户给的句子翻成中文，只输出译文。".into(),
-                },
-                ChatMessage {
-                    role: Role::User,
-                    content: "The quick brown fox jumps over the lazy dog.".into(),
-                },
+                ChatMessage::system("把用户给的句子翻成中文，只输出译文。"),
+                ChatMessage::user("The quick brown fox jumps over the lazy dog."),
             ],
             model,
             max_tokens: None,

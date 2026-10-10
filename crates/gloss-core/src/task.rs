@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::DEFAULT_TEXT_MODEL;
+use crate::config::DEFAULT_MODEL;
 use crate::model::{GlossError, Lang, Locale, ScreenRect};
 
 /// 任务类型：新增场景 = 加变体 + Prompt 模板 + 结构化结果变体 + UI 模板，管道不动。
@@ -38,8 +38,9 @@ pub enum TaskInput {
     Image {
         /// PNG 字节。
         png: Arc<[u8]>,
-        /// 截图区域屏幕坐标（供 UI 展示上下文）。
-        region: ScreenRect,
+        /// 截图区域屏幕坐标（供 UI 展示上下文）：框选来源带值；剪贴板等
+        /// 无锚点来源为 `None`。
+        region: Option<ScreenRect>,
     },
     /// 语音输入预留（MVP 不实现）：届时只新增取材端口与对应 TaskKind/模板。
     Audio {
@@ -62,7 +63,7 @@ pub struct TaskOptions {
     /// 回答深度档位。
     pub detail_level: Option<u8>,
     /// 本任务使用的模型 id：App 在触发时按 `Config::model` 冻结进来。
-    /// 缺省值只服务测试直构（[`DEFAULT_TEXT_MODEL`]）；App 路径恒由
+    /// 缺省值只服务测试直构（[`DEFAULT_MODEL`]）；App 路径恒由
     /// 状态机按配置快照填入。
     pub model: String,
     /// 本任务使用的 prompt 模板语言：App 在触发时按 `Config::language`
@@ -76,7 +77,7 @@ impl Default for TaskOptions {
         Self {
             target_lang: None,
             detail_level: None,
-            model: DEFAULT_TEXT_MODEL.to_owned(),
+            model: DEFAULT_MODEL.to_owned(),
             prompt_locale: None,
         }
     }
@@ -193,7 +194,7 @@ mod tests {
     #[test]
     fn task_options_default_carries_the_factory_model() {
         let options = TaskOptions::default();
-        assert_eq!(options.model, DEFAULT_TEXT_MODEL);
+        assert_eq!(options.model, DEFAULT_MODEL);
         assert_eq!(options.target_lang, None);
         assert_eq!(options.prompt_locale, None);
     }
@@ -203,24 +204,24 @@ mod tests {
         let png: Arc<[u8]> = vec![0x89, b'P', b'N', b'G'].into();
         let input = TaskInput::Image {
             png: Arc::clone(&png),
-            region: ScreenRect {
+            region: Some(ScreenRect {
                 x: 10,
                 y: 20,
                 width: 300,
                 height: 200,
-            },
+            }),
         };
         match input {
             TaskInput::Image { png: moved, region } => {
                 assert!(Arc::ptr_eq(&png, &moved));
                 assert_eq!(
                     region,
-                    ScreenRect {
+                    Some(ScreenRect {
                         x: 10,
                         y: 20,
                         width: 300,
                         height: 200
-                    }
+                    })
                 );
             }
             other => panic!("unexpected variant: {other:?}"),
@@ -267,12 +268,12 @@ mod tests {
             kind,
             input: TaskInput::Image {
                 png: Arc::from(&b"png"[..]),
-                region: ScreenRect {
+                region: Some(ScreenRect {
                     x: 0,
                     y: 0,
                     width: 1,
                     height: 1,
-                },
+                }),
             },
             options: TaskOptions::default(),
         }
@@ -351,16 +352,34 @@ mod tests {
         let png: Arc<[u8]> = vec![0x89, b'P', b'N', b'G'].into();
         let input = TaskInput::Image {
             png: Arc::clone(&png),
-            region: ScreenRect {
+            region: Some(ScreenRect {
                 x: -8,
                 y: 4,
                 width: 1920,
                 height: 1080,
-            },
+            }),
         };
         let json = serde_json::to_string(&input).expect("image input should serialize");
         let back: TaskInput = serde_json::from_str(&json).expect("image input should deserialize");
         assert_eq!(back, input, "bytes and rect must survive the roundtrip");
         assert!(!matches!(&back, TaskInput::Image { png: moved, .. } if Arc::ptr_eq(&png, moved)));
+    }
+
+    #[test]
+    fn image_input_without_region_round_trips_through_serde() {
+        let input = TaskInput::Image {
+            png: Arc::from(&b"png"[..]),
+            region: None,
+        };
+        let json = serde_json::to_string(&input).expect("image input should serialize");
+        assert!(
+            json.contains(r#""region":null"#),
+            "an absent region must stay null on the wire: {json}"
+        );
+        let back: TaskInput = serde_json::from_str(&json).expect("image input should deserialize");
+        assert_eq!(
+            back, input,
+            "None must survive the roundtrip as None, not fall back to a rect"
+        );
     }
 }
