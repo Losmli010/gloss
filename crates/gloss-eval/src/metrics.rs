@@ -122,7 +122,10 @@ fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
                 phonetic: text_field(&value, "phonetic"),
                 examples: mirror_examples(value.get("examples")),
             },
-            TaskKind::ImageOcr | TaskKind::ImageExplain => OutcomeStructured::Extracted,
+            TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
+                interpretation: mirror_examples(value.get("interpretation")),
+            },
+            TaskKind::ImageOcr => OutcomeStructured::Extracted,
             _ => OutcomeStructured::Plain {
                 examples: mirror_examples(value.get("examples")),
             },
@@ -133,7 +136,10 @@ fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
             phonetic: None,
             examples: Vec::new(),
         },
-        TaskKind::ImageOcr | TaskKind::ImageExplain => OutcomeStructured::Extracted,
+        TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
+            interpretation: Vec::new(),
+        },
+        TaskKind::ImageOcr => OutcomeStructured::Extracted,
         _ => OutcomeStructured::Plain {
             examples: Vec::new(),
         },
@@ -154,7 +160,10 @@ fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
             phonetic: text_field(&value, "phonetic"),
             examples: mirror_examples(value.get("examples")),
         },
-        TaskKind::ImageOcr | TaskKind::ImageExplain => OutcomeStructured::Extracted,
+        TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
+            interpretation: mirror_examples(value.get("interpretation")),
+        },
+        TaskKind::ImageOcr => OutcomeStructured::Extracted,
         _ => OutcomeStructured::Plain {
             examples: mirror_examples(value.get("examples")),
         },
@@ -425,5 +434,49 @@ mod tests {
             .into_iter()
             .next()
             .expect("one case")
+    }
+
+    fn image_case() -> TaskCase {
+        let jsonl = "{\"id\":\"i1\",\"kind\":\"ImageExplain\",\"text\":\"chart.png\",\"reference\":{\"interpretation\":[]}}\n";
+        load_task(jsonl)
+            .expect("case")
+            .into_iter()
+            .next()
+            .expect("one case")
+    }
+
+    #[test]
+    fn image_explain_mirror_builds_the_commentary() {
+        let case = image_case();
+        let good = TaskVerdict::for_reply(
+            &case,
+            r#"{"note":"描述","interpretation":["要点一",42,"要点二"]}"#,
+        );
+        assert!(!good.degraded(), "complete contract is not degraded");
+        assert!(
+            matches!(
+                &good.outcome,
+                OutcomeStructured::ImageCommentary { interpretation }
+                    if interpretation == &vec!["要点一".to_owned(), "要点二".to_owned()]
+            ),
+            "production outcome carries the interpretation entries: {:?}",
+            good.outcome
+        );
+
+        let bare = TaskVerdict::for_reply(&case, r#"{"note":"只有描述"}"#);
+        assert!(
+            bare.degraded(),
+            "missing interpretation degrades the verdict"
+        );
+        assert!(matches!(
+            bare.outcome,
+            OutcomeStructured::ImageCommentary { .. }
+        ));
+
+        let no_fence = TaskVerdict::for_reply(&case, "只有正文");
+        assert!(matches!(
+            no_fence.outcome,
+            OutcomeStructured::ImageCommentary { .. }
+        ));
     }
 }

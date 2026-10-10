@@ -51,7 +51,7 @@ impl ScreenPoint {
 }
 
 /// 屏幕逻辑坐标矩形。多显示器下原点可为负，坐标按手势/系统返回值原样传递。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ScreenRect {
     /// 左上角横坐标（逻辑像素）。
     pub x: i32,

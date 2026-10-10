@@ -13,7 +13,7 @@
 | 集成测试 | 10 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 32 | `just test` |
-| 单元测试 | 472 | `just test` |
+| 单元测试 | 479 | `just test` |
 
 ## 人工测试
 
@@ -402,10 +402,6 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| fence_fallback_pairs_with_the_raw_stream | 围栏 fallback 与原始流的契约配对 | 给定含围栏的原始回复，当 complete 的 fallback 层（finalize_outcome）解析，则产出 kind 正确、围栏从正文剥离、词卡结构化字段完整回填 | 2026-10-03 |
-| json_main_path_tolerates_null_and_missing_fields | JSON 主路径容忍 null 与缺字段 | 给定 "phonetic":null、examples 带坏条目或缺疏证字段的契约 JSON，当 complete，则 phonetic 为 None、坏条目跳过、缺字段落空（字段级按契约回退） | 2026-10-03 |
-| fence_fallback_keeps_the_rfind_semantics | 围栏 fallback 保留 rfind 语义 | 给定围栏后尾随文字/多围栏/坏围栏/缺 senses 的四种输入，当 parse_structured，则取最后一个围栏、尾随文字不进正文、残片无损保留、kind 兜底接住 | 2026-10-03 |
-| non_json_reply_falls_through_to_the_fence_fallback | 非 JSON 回复逐层退让 | 给定非 JSON 的原始回复，当 complete，则 JSON 主路径失败、围栏 fallback 接住（无围栏时正文原样、结构化为无标题 Plain） | 2026-10-03 |
 | engine_failures_propagate_and_earlier_chunks_are_kept | 引擎失败原样上抛 | 给定 execute 整体失败与流中 Err，当 run，则错误原样上抛（分类段失败与任务段失败同规）且失败前的增量已转发 | 2026-10-03 |
 | classified_kind_arrives_before_any_chunk | 分类先于任何增量 | 给定文本输入与两段任务流，当 run，则 on_classified 恰在首个 on_chunk 之前触发一次 | 2026-10-03 |
 | classify_failure_falls_back_and_the_task_still_runs | 分类失败兜底后任务照跑（engine） | 给定分类调用失败（一次性错误）与任务脚本，当 service.run，则落 CLASSIFY_FALLBACK、引擎共 2 次调用、fallback warn 不含选区原文 | 2026-10-03 |
@@ -414,24 +410,34 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | audio_input_is_still_rejected_before_anything | 语音输入在一切之前拒绝 | 给定 Audio 输入，当 run，则 UnsupportedModality 且引擎 0 调用（语音是预留模态，入口即拒） | 2026-10-10 |
 | image_input_skips_classification_and_lands_on_image_explain | 图像输入跳分类固定 ImageExplain | 给定 Image 输入与两段任务流，当 run，则 kind 恒为 ImageExplain、on_classified 先于任何 chunk 恰一次、引擎共 1 次调用（省去分类往返）、raw 原样返回 | 2026-10-10 |
 
-### crates/gloss-app/src/cache.rs
+### crates/gloss-app/src/runtime/cache.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | different_inputs_get_different_keys | 不同输入必不同 key | 给定不同文本与不同模态（音频对文本）的输入，当 cache_key(input, options)，则 key 互不相同 | 2026-10-03 |
 | different_options_get_different_keys | 不同选项必不同 key | 给定同一输入，当换 target_lang/prompt_locale/model（非出厂值），则 key 均不同 | 2026-10-03 |
-| key_derivation_is_stable_and_serialization_failure_falls_back | key 派生稳定、序列化失败兜底 | 给定同输入重复派生与含 NaN 的 Audio 输入（序列化失败），当 cache_key，则同值同 key、回退路径确定性且与正常值可分辨 | 2026-10-03 |
+| key_derivation_is_stable_and_non_finite_audio_hashes_by_bits | key 派生稳定、非有限时长按位形态哈希 | 给定同输入重复派生与含 NaN 的 Audio 输入，当 cache_key，则同值同 key、NaN 按位形态确定性哈希且与有限时长可分辨 | 2026-10-10 |
+| image_keys_follow_png_bytes_and_region | 图像 key 随字节与 region | 给定同/异 png 字节与 None/Some region 的 Image 输入，当 cache_key，则同字节同 region 同 key、异字节异 key、None 与 Some(region) 异 key、图像与同载荷文本异 key | 2026-10-10 |
 | entries_store_and_isolate_outcomes | 条目存取与 key 隔离 | 给定 miss→set→hit 序列，当按不同 key 查询，则命中且无关 key 互不可见 | 2026-10-03 |
 | ttl_expiry_takes_effect | TTL 过期生效 | 给定 TTL 60ms 的条目，当过 120ms 并 run_pending_tasks 后读，则 miss | 2026-10-03 |
 | factory_ttl_matches_the_config_default | 默认 TTL 单点一致 | 给定出厂 TTL（Config::cache_ttl_secs），当与 gloss_app::cache 的 DEFAULT_TTL 比对，则相等 | 2026-10-03 |
 
-### crates/gloss-app/src/finalize.rs
+### crates/gloss-app/src/runtime/finalize.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | json_main_path_builds_the_word_card | JSON 主路径出词卡 | 给定契约 JSON（phonetic/note/examples），当 complete，则 note 原样、词卡疏证字段完整回填 | 2026-10-03 |
+| json_main_path_tolerates_null_and_missing_fields | JSON 主路径容忍 null 与缺字段 | 给定 "phonetic":null、examples 带坏条目或缺疏证字段的契约 JSON，当 complete，则 phonetic 为 None、坏条目跳过、缺字段落空（字段级按契约回退） | 2026-10-03 |
 | json_main_path_covers_plain_and_extracted_kinds | JSON 主路径覆盖 Plain 与提取 | 给定句译/代码（examples/code_language）与提取（note 即经文）契约 JSON，当 complete，则疏证各按 kind 落结构化、note 保持 markdown | 2026-10-03 |
+| image_explain_json_path_builds_the_commentary | 图像解读 JSON 主路径出经注疏 | 给定契约 JSON（note/interpretation）的 ImageExplain 回复，当 complete，则 note 为描述、ImageCommentary 携带按序解读条目 | 2026-10-10 |
+| image_explain_tolerates_missing_or_bad_interpretation | 图像解读容忍缺失与坏条目 | 给定缺 interpretation 或数组带非字符串条目的契约 JSON，当 complete，则缺失落空表、坏条目跳过（字段级按契约回退） | 2026-10-10 |
+| image_explain_missing_note_degrades_to_the_kind_fallback | 图像解读缺 note 落 kind 兜底 | 给定只有 interpretation 的 JSON 回复，当 complete，则 JSON 主路径整路失败、全文落注位、疏为空表 | 2026-10-10 |
+| image_explain_falls_through_the_three_layers | 图像解读三层降级链 | 给定坏 JSON + 坏围栏的 ImageExplain 回复，当 complete，则一路退到 kind 兜底（ImageCommentary 空表）、全文无损保留 | 2026-10-10 |
+| image_explain_fence_fallback_parses_interpretation | 图像解读围栏 fallback 解析 | 给定旧契约围栏（interpretation 数组）的 ImageExplain 回复，当 finalize_outcome，则正文剥到围栏前、疏证逐条回填 | 2026-10-10 |
 | missing_note_field_hands_over_to_the_fence_fallback | 缺 note 交围栏 fallback | 给定 note 缺失但带旧围栏的回复，当 complete，则 JSON 主路径整路失败、围栏 fallback 接住旧契约输出 | 2026-10-03 |
+| non_json_reply_falls_through_to_the_fence_fallback | 非 JSON 回复逐层退让 | 给定非 JSON 的原始回复，当 complete，则 JSON 主路径失败、围栏 fallback 接住（无围栏时正文原样、结构化为无标题 Plain） | 2026-10-03 |
+| fence_fallback_pairs_with_the_raw_stream | 围栏 fallback 与原始流的契约配对 | 给定含围栏的原始回复，当 complete 的 fallback 层（finalize_outcome）解析，则产出 kind 正确、围栏从正文剥离、词卡结构化字段完整回填 | 2026-10-03 |
+| fence_fallback_keeps_the_rfind_semantics | 围栏 fallback 保留 rfind 语义 | 给定围栏后尾随文字/多围栏/坏围栏/缺 senses 的四种输入，当 parse_structured，则取最后一个围栏、尾随文字不进正文、残片无损保留、kind 兜底接住 | 2026-10-03 |
 | both_layers_agree_on_the_two_layer_handoff | 两层衔接各就各位 | 给定坏 JSON + 坏围栏的 OCR 回复，当 complete，则一路退到 kind 兜底、全文无损保留 | 2026-10-03 |
 
 ### crates/gloss-app/src/channel.rs
@@ -1007,7 +1013,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | fixtures_align_with_dataset_ids | 夹具与数据集 id 对齐 | 给定分类/任务夹具文件与数据集，当加载，则 id 无重复、deltas 非空、且每条夹具 id 都存在于对应数据集（陈旧 id 即失败） | 2026-09-26 |
 | duplicate_ids_are_rejected | 重复 id 硬错误 | 给定含重复 id 的 jsonl，当加载，则报错而非静默跳过 | 2026-09-26 |
 | bad_reference_is_rejected | 引用条目缺必需键报错 | 给定词卡条目缺疏证键（旧形态字段）的 jsonl，当加载，则报错 | 2026-10-03 |
-| required_fields_follow_the_contract | 必需键随结构化契约 | 给定各任务 kind，当查必需键，则词卡/句译/代码均要求 examples、提取与图像任务无必需键 | 2026-10-03 |
+| required_fields_follow_the_contract | 必需键随结构化契约 | 给定各任务 kind，当查必需键，则词卡/句译/代码均要求 examples、图像解读要求 interpretation、提取任务无必需键 | 2026-10-10 |
 
 ### crates/gloss-eval/src/metrics.rs
 
@@ -1017,6 +1023,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | legacy_fence_reply_falls_back_like_production | 旧围栏回复与生产同轨（eval） | 给定旧围栏与纯正文两类回复，当 TaskVerdict::for_reply，则判定为降级（未按现行契约）而 outcome 与生产 fallback 同形（词卡/Plain 兜底） | 2026-10-03 |
 | task_verdict_reads_the_four_levels | 任务契约四级判定 | 给定完整契约/无围栏/坏 JSON 三种词卡回复，当 TaskVerdict.for_reply，则四级标志与生产降级产物（Plain 兜底）符合预期 | 2026-09-26 |
 | field_completeness_requires_the_contract_keys | 字段完整性按契约键 | 给定缺 examples 的词卡回复，当判定，则 fields_complete=false 且视为降级 | 2026-10-03 |
+| image_explain_mirror_builds_the_commentary | 图像解读镜像与生产同轨（eval） | 给定 ImageExplain 数据行与完整契约/缺疏证/纯正文三种回复，当 TaskVerdict::for_reply，则完整契约不降级且 outcome 携带解读条目（坏条目跳过）、缺疏证降级、无围栏时仍出空表 ImageCommentary | 2026-10-10 |
 | latency_percentiles_interpolate | 延迟百分位线性插值 | 给定四个样本，当取 p0/p50/p95/p100，则插值结果精确；空样本返回 None | 2026-09-26 |
 
 ### crates/gloss-eval/src/judge.rs

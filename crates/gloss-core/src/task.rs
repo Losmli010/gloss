@@ -157,6 +157,12 @@ pub enum OutcomeStructured {
     },
     /// 提取任务：经文提取即 [`TaskOutcome::note`] 本身，无疏证字段。
     Extracted,
+    /// 图像解读的疏：内容解读逐条（含义/背景/意图/细节要点），注位为
+    /// 图片内容描述（[`TaskOutcome::note`]）。
+    ImageCommentary {
+        /// 解读条目（疏位逐条）。
+        interpretation: Vec<String>,
+    },
 }
 
 #[cfg(test)]
