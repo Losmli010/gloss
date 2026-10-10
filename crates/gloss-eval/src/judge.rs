@@ -4,7 +4,7 @@
 //! 调用，成本与不确定性都归入 opt-in 轨。回复解析只认分数（理由留给
 //! 人读的报告，不参与任何门禁）。
 
-use gloss_core::prompt::{ChatMessage, Role};
+use gloss_core::prompt::ChatMessage;
 
 /// judge rubric：输入 / 产出 / 参考答案三占位符。
 pub const JUDGE_PROMPT: &str = include_str!("../prompts/judge.md");
@@ -19,16 +19,7 @@ pub fn render_judge(input: &str, output: &str, reference: &str) -> Vec<ChatMessa
         .replace("{{input}}", input)
         .replace("{{output}}", output)
         .replace("{{reference}}", reference);
-    vec![
-        ChatMessage {
-            role: Role::System,
-            content: system,
-        },
-        ChatMessage {
-            role: Role::User,
-            content: input.to_owned(),
-        },
-    ]
+    vec![ChatMessage::system(system), ChatMessage::user(input)]
 }
 
 /// 从 judge 回复解析 1–5 分：先认 `{"score": n}` JSON，退到行内
@@ -59,14 +50,24 @@ fn valid_score(score: u64) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
+    use gloss_core::prompt::MessageContent;
+
     use super::{parse_judge_reply, render_judge};
+
+    fn system_text(messages: &[gloss_core::prompt::ChatMessage]) -> &str {
+        match &messages[0].content {
+            MessageContent::Text(text) => text,
+            MessageContent::Parts(_) => panic!("judge system content must be plain text"),
+        }
+    }
 
     #[test]
     fn judge_prompt_carries_all_three_sections() {
         let messages = render_judge("输入", "产出", "参考");
         assert_eq!(messages.len(), 2);
-        assert!(messages[0].content.contains("输入") && messages[0].content.contains("参考"));
-        assert!(!messages[0].content.contains("{{"));
+        let system = system_text(&messages);
+        assert!(system.contains("输入") && system.contains("参考"));
+        assert!(!system.contains("{{"));
     }
 
     #[test]

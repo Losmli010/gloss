@@ -44,12 +44,12 @@ fn text_task(kind: TaskKind, text: String) -> Task {
 fn image_input(png_bytes: usize) -> TaskInput {
     TaskInput::Image {
         png: Arc::from(vec![0x89u8; png_bytes]),
-        region: ScreenRect {
+        region: Some(ScreenRect {
             x: 0,
             y: 0,
             width: 1920,
             height: 1080,
-        },
+        }),
     }
 }
 

@@ -208,7 +208,7 @@ fn build_save(state: &mut SettingsState) -> SettingsAction {
     // 住会把用户锁进「清空 → 失败卡 → 回设置页」的死循环。
     draft.model = draft.model.trim().to_owned();
     if draft.model.is_empty() {
-        draft.model = gloss_core::config::DEFAULT_TEXT_MODEL.to_owned();
+        draft.model = gloss_core::config::DEFAULT_MODEL.to_owned();
     }
     let api_key = state.api_key.trim();
     let key = if state.clear_key {
@@ -758,7 +758,7 @@ mod tests {
         };
         assert_eq!(
             config.model,
-            gloss_core::config::DEFAULT_TEXT_MODEL,
+            gloss_core::config::DEFAULT_MODEL,
             "a blank model must not reach the disk: the frozen empty id would fail every task"
         );
     }

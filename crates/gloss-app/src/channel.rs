@@ -560,12 +560,12 @@ mod tests {
                 generation: 9,
                 input: TaskInput::Image {
                     png: Arc::from(&b"png"[..]),
-                    region: ScreenRect {
+                    region: Some(ScreenRect {
                         x: 0,
                         y: 0,
                         width: 1,
                         height: 1,
-                    },
+                    }),
                 },
             })
             .unwrap();

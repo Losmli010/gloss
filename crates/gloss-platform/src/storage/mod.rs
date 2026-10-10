@@ -449,7 +449,7 @@ mod tests {
         assert_eq!(config.base_url, gloss_core::config::DEFAULT_BASE_URL);
         assert!(config.active_provider().is_none());
         assert_eq!(config.resolved_provider().keychain_id, "gloss/deepseek");
-        assert_eq!(config.model, gloss_core::config::DEFAULT_TEXT_MODEL);
+        assert_eq!(config.model, gloss_core::config::DEFAULT_MODEL);
     }
 
     #[test]

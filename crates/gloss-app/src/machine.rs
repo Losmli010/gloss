@@ -1094,12 +1094,12 @@ mod tests {
                 1,
                 TaskInput::Image {
                     png: Arc::from(&b"png"[..]),
-                    region: ScreenRect {
+                    region: Some(ScreenRect {
                         x: 0,
                         y: 0,
                         width: 1,
                         height: 1
-                    }
+                    })
                 }
             ),
             InputOutcome::Ignored
@@ -1442,12 +1442,12 @@ mod tests {
                 1,
                 TaskInput::Image {
                     png: Arc::from(&b"png"[..]),
-                    region: ScreenRect {
+                    region: Some(ScreenRect {
                         x: 0,
                         y: 0,
                         width: 1,
                         height: 1
-                    }
+                    })
                 }
             ),
             InputOutcome::Ignored

@@ -347,14 +347,15 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | missing_target_lang_defaults_to_chinese | 目标语言缺省中文 | 给定未设 target_lang，当渲染句译，则系统指令含「中文」 | 2026-09-19 |
 | explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 Lang::Ja，当渲染，则系统指令含「日语」 | 2026-09-19 |
 | empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") / Other(" ") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且契约围栏仍在 | 2026-09-22 |
-| image_kinds_are_placeholders_until_m5 | 图像 kind 占位拒绝 | 给定图像 kind 的图像任务，当渲染，则报 UnsupportedModality | 2026-09-19 |
+| image_explain_example_is_a_single_json_object_with_note_first | 图像模板示例为单 JSON 且 note 在前 | 给定双 locale 的 image_explain 模板，当整行解析示例 JSON，则示例可解析、首字段是 note、恰含 note 与 interpretation 两字段——流式与完成态解析都按这份契约 | 2026-10-10 |
+| image_explain_renders_system_and_image_parts | 图像解读渲染系统指令与图像部件 | 给定 ImageExplain 图像任务，当渲染，则得 [System, User] 两段，用户消息是 Parts([ImagePng])（字节经 Arc 零拷贝共享），系统指令要求单个 JSON 对象且携带 note/interpretation 契约 | 2026-10-10 |
+| image_ocr_still_has_no_template | OCR 模板落地前仍拒绝 | 给定 ImageOcr 图像任务，当渲染，则 UnsupportedModality（OCR 模板随其独立特性落地） | 2026-10-10 |
 | modality_mismatch_is_rejected_before_rendering | 模态错配在渲染前拒绝 | 给定图像 kind 配文本输入，当渲染，则先被模态约束拒绝 | 2026-09-19 |
-| messages_serialize_to_openai_shape | 消息序列化为 OpenAI 形态 | 给定 ChatMessage，当序列化，则得 {"role","content"} 的 OpenAI 形态 | 2026-09-19 |
 | render_template_substitutes_placeholders | 占位符显式替换 | 给定含 {{占位符}} 的模板，当渲染，则按值替换、同名占位符可重复；未声明与未闭合的占位符原样保留（留待完整性测试抓） | 2026-09-22 |
 | render_template_drops_lines_whose_placeholders_are_empty | 占位符全空的行整行消失 | 给定提示行与指令行模板，当某行占位符值全为空，则该行连同行内静态文字与换行一并删除，其余行不受影响 | 2026-09-22 |
 | render_template_keeps_blank_lines_without_placeholders | 无占位符空行是结构 | 给定模板里的空行（不含占位符），当渲染，则原样保留 | 2026-09-22 |
 | every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 locale 的五个模板原文，当扫占位符，则括号配对且名字都在已声明集合内（未声明者若与已声明占位符同行会被整行删掉，产物断言看不见） | 2026-09-22 |
-| every_locale_renders_without_leftover_placeholders | 全 locale 无残留占位符 | 给定两个 locale × 三个文本 kind，当渲染，则所有消息不含 {{、系统指令携带 note 纯 JSON 契约且不含旧围栏 | 2026-10-03 |
+| every_locale_renders_without_leftover_placeholders | 全 locale 无残留占位符 | 给定两个 locale × 四个 kind（三个文本 + ImageExplain），当渲染，则文本消息不含 {{、系统指令携带 note 纯 JSON 契约且不含旧围栏 | 2026-10-10 |
 | english_locale_renders_english_prompts | 英文 locale 出英文指令 | 给定 En locale 的句译任务，当渲染，则系统指令为英文（含 JSON object 契约）、用户消息携带原文，且不含中文指令词 | 2026-10-03 |
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 En locale 未设目标语言、Zh locale 设 Lang::En，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含「英语」 | 2026-09-22 |
 | prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 prompt_locale 的任务，当渲染，则结果与显式 Zh 逐字一致且含「词典助手」 | 2026-09-22 |
@@ -381,12 +382,13 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | --- | --- | --- | --- |
 | task_input_carries_text_only | 输入只携带原文 | 给定文本输入，当构造 TaskInput，则只有 text——模态提示已废除（源语言/代码语言由 LLM 自行判断） | 2026-10-04 |
 | task_binds_kind_input_and_options | Task 三元正确绑定 | 给定构造参数，当建 Task，则 kind/input/options 正确绑定 | 2026-09-19 |
-| task_options_default_carries_the_factory_model | 选项缺省携带出厂模型 | 给定 TaskOptions::default()，当检查，则 model 为 DEFAULT_TEXT_MODEL、target_lang/prompt_locale 为 None（缺省只服务测试直构） | 2026-10-03 |
+| task_options_default_carries_the_factory_model | 选项缺省携带出厂模型 | 给定 TaskOptions::default()，当检查，则 model 为 DEFAULT_MODEL、target_lang/prompt_locale 为 None（缺省只服务测试直构） | 2026-10-10 |
 | image_input_shares_png_bytes_via_arc | 图像输入 Arc 共享 | 给定 PNG 字节，当构造 Image 输入，则经 Arc 共享（ptr_eq）并携带区域 | 2026-09-19 |
 | outcome_carries_code_language_and_word_card_subprov | 产物携带语言判定与词卡疏证 | 给定词卡与代码产物，当构造 TaskOutcome，则词卡 structured 为 WordCard（phonetic/examples）、代码产物携带 code_language（UI 角标与高亮使用） | 2026-10-04 |
 | modality_matrix_is_enforced_cell_by_cell | 模态矩阵逐格校验 | 给定 6 kind（含 Auto）× 3 输入全矩阵，当逐格 validate，则文本列（含 Auto）与 Image 列合法、Audio 全列非法 | 2026-09-26 |
 | task_round_trips_through_serde | Task serde 往返无损 | 给定文本任务（含目标语言与模型），当 serde 往返，则无损 | 2026-10-03 |
 | image_input_round_trips_through_serde | 图像输入 serde 往返 | 给定 Image 输入，当 serde 往返，则字节与区域不变且反序列化得到新 Arc（不与原值共享） | 2026-09-19 |
+| image_input_without_region_round_trips_through_serde | 无区域图像输入 serde 往返 | 给定 region=None 的 Image 输入，当 serde 往返，则 wire 上 region 为 null 且往返后仍为 None（不回落成矩形） | 2026-10-10 |
 
 ### crates/gloss-core/src/model.rs
 
@@ -409,7 +411,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | classify_failure_falls_back_and_the_task_still_runs | 分类失败兜底后任务照跑（engine） | 给定分类调用失败（一次性错误）与任务脚本，当 service.run，则落 CLASSIFY_FALLBACK、引擎共 2 次调用、fallback warn 不含选区原文 | 2026-10-03 |
 | raw_text_is_returned_verbatim | 原始文本原样返回 | 给定两段 JSON 流式脚本，当 run，则 RunOutput.raw 为未解析的原始拼接文本 | 2026-10-04 |
 | blank_model_is_a_config_failure_before_the_engine | 空白模型先于引擎拒绝 | 给定 model 为空白的选项，当 run，则 Config 错误且引擎 0 调用 | 2026-10-03 |
-| non_text_input_is_rejected_before_anything | 非文本输入在一切之前拒绝 | 给定 Audio/图像输入，当 run，则 UnsupportedModality 且引擎 0 调用 | 2026-10-03 |
+| audio_input_is_still_rejected_before_anything | 语音输入在一切之前拒绝 | 给定 Audio 输入，当 run，则 UnsupportedModality 且引擎 0 调用（语音是预留模态，入口即拒） | 2026-10-10 |
+| image_input_skips_classification_and_lands_on_image_explain | 图像输入跳分类固定 ImageExplain | 给定 Image 输入与两段任务流，当 run，则 kind 恒为 ImageExplain、on_classified 先于任何 chunk 恰一次、引擎共 1 次调用（省去分类往返）、raw 原样返回 | 2026-10-10 |
 
 ### crates/gloss-app/src/cache.rs
 
@@ -944,7 +947,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | keyboard_events_are_never_subscribed | 键盘事件永不订阅 | 给定生产订阅掩码与 classify，当断言，则只有左键按下/抬起两位、键盘/滚轮/flags 各位不置（回归护栏） | 2026-09-19 |
 | spawn_resolves_synchronously_and_startup_failure_stays_off_the_flag | tap 启动同步可知且失败不置运行中标志 | 给定真实 tap 启动（结果随测试机授权而异），当 spawn 返回，则立即返回且启动失败不经 degraded 标志表达（标志只属运行中失效） | 2026-10-06 |
 
-### crates/gloss-platform/src/engine/llm.rs
+### crates/gloss-core/src/engine/llm.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -962,6 +965,8 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | adapter_ends_cleanly_without_the_done_marker | 无 [DONE] 关流干净收尾 | 给定无 [DONE] 直接关流的响应，当解析，则带增量流按正常结束收尾 | 2026-09-19 |
 | adapter_reports_empty_completion_as_failure | 零增量完成报失败 | 给定零增量响应（仅 [DONE] 或 HTML 劫持页），当解析，则报 EngineResponse 错且流即止 | 2026-09-19 |
 | request_body_has_the_openai_envelope | 请求体 OpenAI 信封 | 给定未设限的 EngineRequest，当构造请求体，则 model/messages/stream 三键 wire 形态精确匹配且无 max_tokens 键 | 2026-09-26 |
+| text_content_stays_a_json_string_on_the_wire | 纯文本正文 wire 上仍是字符串 | 给定纯文本用户消息，当构造请求体，则 content 是 JSON 字符串、不升级成 content 数组 | 2026-10-10 |
+| multimodal_parts_map_to_the_openai_content_array | 多模态部件映成 OpenAI content 数组 | 给定系统文本消息 + 文本/图像两部件的用户消息（夹具 PNG），当构造请求体，则文本部件映 {"type":"text"}、图像部件映 {"type":"image_url"} 的 data:image/png;base64 data URL 且整包形状精确匹配 | 2026-10-10 |
 | max_tokens_is_carried_only_when_set | max_tokens 仅设限时上线 | 给定 max_tokens=None 与 Some(64) 两个请求，当构造请求体，则 None 无该键、Some 携带数值 64 | 2026-09-26 |
 | maps_http_status_to_error_variants | HTTP 状态映射错误变体 | 给定 401/403/429/500/400+JSON/400+HTML，当映射，则分别得 EngineAuth/EngineRateLimited/EngineNetwork/带诊断的 EngineResponse | 2026-09-19 |
 

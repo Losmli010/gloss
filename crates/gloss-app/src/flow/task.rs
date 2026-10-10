@@ -389,7 +389,7 @@ impl GlossApp {
 
 #[cfg(test)]
 mod tests {
-    use gloss_core::config::{Config, DEFAULT_TEXT_MODEL};
+    use gloss_core::config::{Config, DEFAULT_MODEL};
     use gloss_core::model::{GlossError, Lang};
 
     use crate::app::test_support::{
@@ -605,7 +605,7 @@ mod tests {
         };
         assert_eq!(options.target_lang, Some(Lang::Zh));
         assert_eq!(
-            options.model, DEFAULT_TEXT_MODEL,
+            options.model, DEFAULT_MODEL,
             "the factory model freezes into the first task"
         );
 

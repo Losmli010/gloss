@@ -13,16 +13,13 @@ use stubs::ports::{FixedRegionCapture, FixedSelectionReader, MemoryConfigStore};
 use gloss_core::config::Config;
 use gloss_core::model::GlossError;
 use gloss_core::ports::{AiEngine, ConfigStore, EngineRequest, RegionCapture, SelectionReader};
-use gloss_core::prompt::{ChatMessage, Role};
+use gloss_core::prompt::ChatMessage;
 
 mod stubs;
 
 fn sample_request() -> EngineRequest {
     EngineRequest {
-        messages: vec![ChatMessage {
-            role: Role::User,
-            content: "gloss".into(),
-        }],
+        messages: vec![ChatMessage::user("gloss")],
         model: "mock-model".into(),
         max_tokens: None,
     }

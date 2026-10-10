@@ -88,7 +88,7 @@ mod tests {
     use std::time::Duration;
 
     use super::{DEFAULT_TTL, TaskCache, cache_key};
-    use gloss_core::config::DEFAULT_TEXT_MODEL;
+    use gloss_core::config::DEFAULT_MODEL;
     use gloss_core::model::Lang;
     use gloss_core::model::Locale;
     use gloss_core::task::{OutcomeStructured, TaskInput, TaskKind, TaskOptions, TaskOutcome};
@@ -150,7 +150,7 @@ mod tests {
         };
         assert_ne!(base, cache_key(&text_input("hello"), &model), "model id");
         assert_ne!(
-            model.model, DEFAULT_TEXT_MODEL,
+            model.model, DEFAULT_MODEL,
             "the test must not alias the factory model"
         );
     }
