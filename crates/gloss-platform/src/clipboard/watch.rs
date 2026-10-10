@@ -32,7 +32,9 @@ pub struct PasteboardObserver {
 }
 
 impl PasteboardObserver {
-    fn record(&self, count: u64) {
+    /// 记一次①观察：同 crate 内测试也用它播种观察记录（`ClipboardImageReader`
+    /// 的注入单测），与生产哨兵同一条写入路径。
+    pub(crate) fn record(&self, count: u64) {
         self.count.store(count, Ordering::Relaxed);
     }
 

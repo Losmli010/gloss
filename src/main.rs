@@ -229,9 +229,10 @@ fn run_event_loop(
     let mut event_thread = None;
     // 缓存 TTL 在启动回调里读一次快照：App 按值收走主句柄，这里先拆一份。
     let cache_config = Arc::clone(&config);
-    // 剪贴板图片哨兵的开关取启动快照（运行中由设置页经共享位热切换，不在
-    // 触发时冻结）：组装点持布尔值即可，原子位在回调里与哨兵源同造。
-    let watch_clipboard_images = config.snapshot().watch_clipboard_images;
+    // 剪贴板图片哨兵的共享开关位：按启动快照初始化，一份交给 App（设置页
+    // 保存成功时置位，热切换不重启），一份随组装回调与哨兵源同造。
+    let clipboard_watch_enabled =
+        Arc::new(AtomicBool::new(config.snapshot().watch_clipboard_images));
     // tokio 消费桥与 App 共享同一份存储实例：预热读密命中引擎的同一份
     // 进程内缓存（密钥不经快照，见 gloss-app 的 Env）。
     let runtime_store = Arc::clone(&store);
@@ -243,6 +244,7 @@ fn run_event_loop(
         system_locale,
         permissions_ready,
         update,
+        Arc::clone(&clipboard_watch_enabled),
         |waker| {
             // Dock 图标在这里装：macOS 的 NSApplication 单例只允许在 EventLoop
             // 建好之后访问，而本回调是主线程上第一个满足该时机的点（app::run
@@ -288,8 +290,7 @@ fn run_event_loop(
             let sink = EventSink::new(events_tx, platform_tx, move || {
                 waker.wake();
             });
-            let clipboard_watch =
-                ClipboardWatchSource::new(Arc::new(AtomicBool::new(watch_clipboard_images)));
+            let clipboard_watch = ClipboardWatchSource::new(Arc::clone(&clipboard_watch_enabled));
             let image_reader = ClipboardImageReader::new(clipboard_watch.observer());
             event_thread = Some(gloss_platform::events::spawn(
                 acquire_rx,
@@ -447,14 +448,11 @@ fn acquire_command_handler(
                             input: TaskInput::Image { png, region: None },
                         });
                     }
-                    // ① 与②之间剪贴板被覆盖：静默丢弃不弹卡（与划词空选区
-                    // 误滑同型处置）。
-                    Ok(None) => {
-                        debug!(
-                            thread = thread::EVENT,
-                            generation, "clipboard changed since the observation, image dropped"
-                        );
-                    }
+                    // 静默丢弃不弹卡的两种落点——①与②之间剪贴板被覆盖（竞
+                    // 态）、板声明图像却交付不出数据（粘贴授权被拒等）——分
+                    // 支留痕在读取器内（竞态 debug、无数据 warn），这里不再
+                    // 复述成因。
+                    Ok(None) => {}
                     Err(err) => {
                         sink.send_event(Event::TaskFailed {
                             generation,

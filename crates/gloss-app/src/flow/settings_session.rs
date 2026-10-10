@@ -1,5 +1,7 @@
 //! 设置窗口的编辑会话生命周期：打开、保存（密钥 + 配置）、用户提示与关闭。
 
+use std::sync::atomic::Ordering;
+
 use gloss_core::config::Config;
 use gloss_core::log::{info, thread, warn};
 
@@ -33,7 +35,9 @@ impl GlossApp {
 
     /// 保存设置：密钥按 [`KeyUpdate`] 处理（失败即中止，不留下「密钥换了
     /// 配置没换」的半截状态），配置走热更新路径（先落盘再换快照）；成功即
-    /// 关闭窗口——「下一次任务即生效」由快照语义保证。
+    /// 关闭窗口——「下一次任务即生效」由快照语义保证。剪贴板图片哨兵的
+    /// 共享开关位随保存置位：事件线程的哨兵源只读这一位，热切换不重启
+    /// （落盘失败不置位，与快照同进退）。
     pub(crate) fn save_settings(&mut self, config: Config, key_update: KeyUpdate) {
         let keychain_id = config.resolved_provider().keychain_id.clone();
         let key_result = match &key_update {
@@ -55,6 +59,7 @@ impl GlossApp {
             );
         }
         let language = config.language;
+        let watch_clipboard_images = config.watch_clipboard_images;
         if let Err(err) = self.env.config.save(config) {
             // 密钥已经生效，配置没有：如实说清哪一半落下了。
             warn!(thread = thread::UI, error = %err, "failed to save settings");
@@ -66,10 +71,14 @@ impl GlossApp {
             self.report_settings(notice);
             return;
         }
+        self.env
+            .clipboard_watch_enabled
+            .store(watch_clipboard_images, Ordering::Relaxed);
         info!(
             thread = thread::UI,
             language = ?language,
-            "settings saved, effective on the next trigger"
+            watch_clipboard_images,
+            "settings saved"
         );
         self.close_settings();
     }
@@ -94,6 +103,7 @@ impl GlossApp {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::Ordering;
 
     use gloss_core::model::{GlossError, Lang};
 
@@ -157,6 +167,42 @@ mod tests {
     }
 
     #[test]
+    fn settings_save_hot_toggles_the_clipboard_watch_switch() {
+        let (mut app, config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        assert!(
+            !app.env.clipboard_watch_enabled.load(Ordering::Relaxed),
+            "the factory default starts the sentinel off"
+        );
+        pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
+        app.drain_platform_events();
+
+        let mut draft = (*app.env.config.snapshot()).clone();
+        draft.watch_clipboard_images = true;
+        app.save_settings(draft, KeyUpdate::Keep);
+
+        assert!(
+            config.snapshot().watch_clipboard_images,
+            "snapshot advanced"
+        );
+        assert!(
+            app.env.clipboard_watch_enabled.load(Ordering::Relaxed),
+            "the sentinel bit must flip on save, no restart"
+        );
+
+        pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
+        app.drain_platform_events();
+        let mut draft = (*app.env.config.snapshot()).clone();
+        draft.watch_clipboard_images = false;
+        app.save_settings(draft, KeyUpdate::Keep);
+
+        assert!(
+            !app.env.clipboard_watch_enabled.load(Ordering::Relaxed),
+            "switching off must silence the sentinel immediately"
+        );
+        assert!(app.settings.is_none(), "save closes the session");
+    }
+
+    #[test]
     fn clearing_the_key_deletes_the_secret_on_save() {
         let (mut app, config, store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         store
@@ -185,6 +231,7 @@ mod tests {
 
         let mut draft = (*config.snapshot()).clone();
         draft.target_lang = Lang::Ja;
+        draft.watch_clipboard_images = true;
         app.save_settings(draft, KeyUpdate::Keep);
 
         let state = app.settings.as_ref().expect("session must stay open");
@@ -199,6 +246,10 @@ mod tests {
             config.snapshot().target_lang,
             Lang::Zh,
             "failed save must not advance the runtime snapshot"
+        );
+        assert!(
+            !app.env.clipboard_watch_enabled.load(Ordering::Relaxed),
+            "failed save must not flip the sentinel bit"
         );
     }
 }

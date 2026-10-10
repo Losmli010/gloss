@@ -433,7 +433,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | screen_rect_compares_by_value | ScreenRect 按值比较 | 给定同值不同实例的 ScreenRect，当比较，则按值相等、异值不等 | 2026-09-19 |
-| error_display_is_diagnostic_text | 错误文案为诊断文本 | 给定各 GlossError 变体，当 to_string，则输出精确的诊断文案 | 2026-09-19 |
+| error_display_is_diagnostic_text | 错误文案为诊断文本 | 给定各 GlossError 变体，当 to_string，则输出精确的诊断文案 | 2026-10-10 |
 | error_is_std_error | 错误可作 std Error | 给定 GlossError 装箱为 std Error，当 to_string，则输出正确文案 | 2026-09-19 |
 
 ### crates/gloss-core/src/engine.rs
@@ -545,14 +545,14 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 79（条数钉住，防遍历退化） | 2026-10-10 |
+| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 83（条数钉住，防遍历退化） | 2026-10-10 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language_en）外无一与中文表逐字相同 | 2026-09-23 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 gloss_ 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
 | placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
 | catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功且两语言取值可区分 | 2026-09-22 |
 | fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数/无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |
-| error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定 GlossError 的十个变体（含两个带诊断文本的），当取失败卡文案，则各自的两种语言都非空且互不相同 | 2026-09-22 |
-| each_error_variant_maps_to_its_own_entry | 错误变体各取自己的词条 | 给定八个无诊断文本的变体，当取失败卡文案与错因细节，则各等于本变体对应的词条（两臂对调会被抓住）；带诊断的两个变体按模板填诊断 | 2026-09-22 |
+| error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定 GlossError 的十个无诊断文本变体，当取失败卡文案，则各自的两种语言都非空且互不相同；两个带诊断文本的变体按模板填出整句 | 2026-10-10 |
+| each_error_variant_maps_to_its_own_entry | 错误变体各取自己的词条 | 给定十个无诊断文本的变体，当取失败卡文案与错因细节，则各等于本变体对应的词条（两臂对调会被抓住）；带诊断的两个变体按模板填诊断 | 2026-10-10 |
 | error_detail_prefers_the_variant_diagnostic | 复合提示取诊断细节 | 给定带诊断的变体与不带诊断的变体，当取错因细节，则前者只出诊断原文、后者回落本地化整句 | 2026-09-22 |
 
 ### crates/gloss-app/src/present/windows.rs
@@ -641,8 +641,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_extract、popup_f
 | --- | --- | --- | --- |
 | open_settings_request_starts_an_edit_session | 打开设置即编辑会话 | 给定 OpenSettingsRequested，当消费，则编辑会话打开、草稿=当前快照、不占代数 | 2026-09-19 |
 | settings_save_writes_keychain_and_swaps_config | 保存写密钥串并换配置 | 给定含密钥替换的保存，当成功，则密钥进 keychain、快照换新、会话关闭，新配置随后续触发生效 | 2026-09-26 |
+| settings_save_hot_toggles_the_clipboard_watch_switch | 保存热切换剪贴板哨兵开关 | 给定出厂配置（哨兵关）的两次保存，当先开再关「监听剪贴板图片」，则运行时快照与共享开关位同步置位、复位（不重启即生效） | 2026-10-10 |
 | clearing_the_key_deletes_the_secret_on_save | 清除密钥保存即删除 | 给定 KeyUpdate::Clear，当保存，则 keychain 条目删除、会话关闭 | 2026-09-19 |
-| failed_save_keeps_the_session_open_with_a_notice | 失败保存会话不关 | 给定落盘必失败存储，当保存，则会话保持打开、错误进提示、快照不变 | 2026-09-19 |
+| failed_save_keeps_the_session_open_with_a_notice | 失败保存会话不关 | 给定落盘必失败存储，当保存，则会话保持打开、错误进提示、快照不变、哨兵开关位不动 | 2026-10-10 |
 
 ### crates/gloss-app/src/present/workspace.rs
 
@@ -1012,10 +1013,14 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | png_and_tiff_flavors_decode_to_png | TIFF/PNG 双 flavor 解码出 PNG | 给定同一 2×2 RGBA 的 PNG 与 TIFF 编码字节，当 decode_to_png，则各自产出可解码回 2×2 的 PNG | 2026-10-10 |
 | flavor_budget_rejects_bytes_over_the_limit | flavor 字节上限先于头解析 | 给定恰好上限与超一字节的输入，当判预算与解码，则边界内通过、超限整体报 ImageTooLarge（头解析从未发生） | 2026-10-10 |
 | header_dimensions_are_bounded_before_the_decode | 像素面积在整图解码前判 | 给定真实 TIFF 编码后把宽高 tag 补丁为 4097×4096 的输入，当 decode_to_png，则 ImageTooLarge（整图解码从未发生——发生了会报解码失败） | 2026-10-10 |
-| a_truncated_flavor_decodes_to_a_read_failure | flavor 截断按读取失败 | 给定 IHDR 之后截断的 PNG，当 decode_to_png，则头可读、解码失败映射读取失败 | 2026-10-10 |
+| a_truncated_flavor_decodes_to_a_read_failure | flavor 截断按读取失败 | 给定 IHDR 之后截断的 PNG，当 decode_to_png，则头可读、解码失败映射 ImageUnavailable（读取失败变体，指引重复制） | 2026-10-10 |
 | pixel_budget_rejects_area_over_the_limit | 像素面积上限边界 | 给定恰好 4096×4096 与超一像素（4097×4096）两种面积，当判预算，则前者在内、后者拒收 | 2026-10-10 |
-| a_mismatched_rgba_buffer_is_a_read_failure | RGBA 缓冲与尺寸不符按读取失败 | 给定声明 2×2 但缓冲 3 字节的输入，当 encode_png，则报读取失败（不 panic、不产残缺图） | 2026-10-10 |
-| pixel_budget_is_checked_before_the_buffer | 面积检查先于缓冲检查 | 给定面积在预算内但缓冲为空的输入，当 encode_png，则按读取失败处理（面积超限的输入不会走到缓冲检查） | 2026-10-10 |
+| a_mismatched_rgba_buffer_is_a_read_failure | RGBA 缓冲与尺寸不符按读取失败 | 给定声明 2×2 但缓冲 3 字节的输入，当 encode_png，则报 ImageUnavailable（不 panic、不产残缺图） | 2026-10-10 |
+| pixel_budget_is_checked_before_the_buffer | 面积检查先于缓冲检查 | 给定面积在预算内但缓冲为空的输入，当 encode_png，则按 ImageUnavailable 处理（面积超限的输入不会走到缓冲检查） | 2026-10-10 |
+| a_covered_board_is_dropped_without_touching_the_content | 观察比对先于内容读取 | 给定①记录 7 而②读到 8 的注入读数，当 read_with，则竞态静默丢弃（Ok(None)）且 flavor 闭包从未被调——内容读取才触发系统粘贴授权 | 2026-10-10 |
+| an_undeliverable_flavor_is_dropped_quietly | 板交付不出数据按静默丢弃 | 给定①记录与②现值一致但 flavor 缺席的注入读数，当 read_with，则 Ok(None)（macOS 15+ 粘贴授权被拒走这条，warn 留痕供 `just logs --level warn` 排查） | 2026-10-10 |
+| an_unobservable_board_is_a_read_failure | 板不可观察按读取失败 | 给定 changeCount 读不到的注入读数，当 read_with，则 Err(ImageUnavailable) 且不查 flavor | 2026-10-10 |
+| a_matching_board_still_decodes_to_png | 观察一致照常取材解码 | 给定①记录与②现值一致、flavor 为真实 TIFF 字节的注入读数，当 read_with，则产出可解码回 2×2 的 PNG | 2026-10-10 |
 | byte_budget_rejects_length_over_the_limit | PNG 字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收（20MiB 上限） | 2026-10-10 |
 
 ### crates/gloss-platform/src/events/mod.rs

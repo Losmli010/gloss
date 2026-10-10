@@ -2,6 +2,7 @@
 
 use std::error::Error;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::model::Locale;
@@ -65,6 +66,10 @@ impl Waker {
 /// `update` 是更新子系统的壳侧接线（组装点经 `update::start_once()` 建立，
 /// 见 [`UpdateWiring`]）：设置页每帧读 [`watch::Receiver`] 里的
 /// [`UpdateState`] 渲染，用户动作经出口转投模块——与主流程四通道完全隔离。
+///
+/// `clipboard_watch_enabled` 是剪贴板图片哨兵的共享开关位（组装点按启动
+/// 快照创建、与事件线程的哨兵源同份）：App 在设置页保存成功时置位，热切
+/// 换不重启（见 `Env` 的 `clipboard_watch_enabled` 字段）。
 #[allow(
     clippy::too_many_arguments,
     reason = "组装点的主入口：每项都是不同关注点的注入端点，收敛成结构体只会把清单变成字段袋"
@@ -77,6 +82,7 @@ pub fn run(
     system_locale: Locale,
     permissions_ready: bool,
     update: UpdateWiring,
+    clipboard_watch_enabled: Arc<AtomicBool>,
     on_waker: impl FnOnce(Waker),
 ) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
@@ -91,6 +97,7 @@ pub fn run(
         system_locale,
         permissions_ready,
         update,
+        clipboard_watch_enabled,
         Some(proxy),
     );
     event_loop.run_app(&mut app)?;
