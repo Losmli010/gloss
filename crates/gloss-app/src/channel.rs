@@ -27,6 +27,9 @@ pub enum PlatformEvent {
         /// 框选区域的屏幕坐标。
         rect: ScreenRect,
     },
+    /// 剪贴板哨兵观察到新图片（changeCount 前进且 types 含图像）。
+    /// 无载荷——内容在取材命令②再读，①与②之间被覆盖由取材侧竞态兜底。
+    PasteboardImageObserved,
     /// 托盘请求打开设置。
     OpenSettingsRequested,
     /// 托盘请求退出应用。
@@ -46,6 +49,13 @@ pub enum PlatformEvent {
 pub enum AcquireCommand {
     /// 读前台应用选区文本。
     AcquireText {
+        /// 请求代数，由 App 统一赋值（见模块文档）。
+        generation: u64,
+    },
+    /// 读剪贴板里的图片为 PNG（剪贴板图片任务的取材命令）：镜像
+    /// [`AcquireCommand::AcquireText`] 的形状——读取在事件线程完成，产物
+    /// 或失败经通道④按同代数回传。
+    AcquireClipboardImage {
         /// 请求代数，由 App 统一赋值（见模块文档）。
         generation: u64,
     },
@@ -283,6 +293,7 @@ mod tests {
                     height: 200,
                 },
             },
+            PlatformEvent::PasteboardImageObserved,
             PlatformEvent::OpenSettingsRequested,
             PlatformEvent::QuitRequested,
             PlatformEvent::AccessibilityGranted,
@@ -300,8 +311,9 @@ mod tests {
         let ch = CrossbeamPair::<Traced<AcquireCommand>>::new();
         let commands = vec![
             AcquireCommand::AcquireText { generation: 1 },
+            AcquireCommand::AcquireClipboardImage { generation: 2 },
             AcquireCommand::CaptureRegion {
-                generation: 2,
+                generation: 3,
                 rect: ScreenRect {
                     x: 0,
                     y: 0,

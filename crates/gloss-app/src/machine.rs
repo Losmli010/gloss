@@ -5,25 +5,37 @@
 //! 决策、不副作用，因此可被集成测试以公共 API 全时序驱动（分层测试
 //! 的 L1 层，见 tests/pipeline.rs）。
 //!
-//! 触发只有**划词手势**一条路：两段式「探测—提交」，编号共用一个单调
-//! 计数器（编号不复用，代数与探测编号永不碰撞）。[`TaskStateMachine::begin_selection_probe`]
-//! 只领一个探测编号、在状态机之外取材——不改状态、不换视图、不取消
-//! 在途任务，已显示的内容与在途推理全程无感；[`TaskStateMachine::commit_selection`]
-//! 在产物到达时才提交：探测编号提升为代数、旧任务让位、视图换流式卡。
-//! 探测失败（[`TaskStateMachine::commit_selection_failed`]）：空选区/
-//! 读不到按误滑静默丢弃（显示原样保留），权限缺失落失败卡。
+//! 触发有两条路，共用两段式「探测—提交」与一个单调编号计数器（编号
+//! 不复用，代数与探测编号永不碰撞）：**划词手势**（文本任务）与**剪贴板
+//! 图片观察**（图像解读任务）。探测段在状态机之外——
+//! [`TaskStateMachine::begin_selection_probe`] 与
+//! [`TaskStateMachine::begin_pasteboard_probe`] 只领一个探测编号、冻结
+//! 任务选项并返回取材命令，不改状态、不换视图、不取消在途任务，已显示
+//! 的内容与在途推理全程无感；两路共用同一个在途探测槽，新探测顶掉旧
+//! 探测（旧探测的迟到产物经编号过滤丢弃）。产物到达时
+//! [`TaskStateMachine::commit_probe`] 才提交：探测编号提升为代数、旧任务
+//! 让位、视图换流式卡——文本走内容闸门与原文流式卡，图像留存
+//! `attached_image`（渲染层经访问器取用，视图变体形状不变）。探测失败
+//! （[`TaskStateMachine::commit_probe_failed`]）：划词的空选区/读不到按
+//! 误滑静默丢弃（显示原样保留），其余失败（划词权限缺失、剪贴板图片超
+//! 上限等）落失败卡。
 //!
 //! **任务类型不在状态机**：划词手势不带显式意图，状态机冻结的只有配置
-//! 选项（单次快照）；kind 由 LLM 层在执行前分类（提示直通/LLM 分类/兜底
-//! 常量），经事件④的 `TaskClassified` 回传精化流式视图。失败卡的出口、
-//! 重试的重发都按「input + options」原样进行，不回读配置。
+//! 选项（单次快照）；文本任务的 kind 由 LLM 层在执行前分类（提示直通/
+//! LLM 分类/兜底常量），剪贴板图片任务在 LLM 层恒定映射 `ImageExplain`
+//! （取材动作即显式意图），两者都经事件④的 `TaskClassified` 回传精化
+//! 流式视图。失败卡的出口、重试的重发都按「input + options」原样进行，
+//! 不回读配置。
 //!
 //! 两道敏感信息闸门的落点：场景闸门在 [`trigger_decision`]（触发前，
-//! 拦下即不取材不占编号、不出浮层），内容闸门在 [`TaskStateMachine::commit_selection`]
-//! （取材后、下发前，命中即丢弃探测且当前显示保留——不下发、不出浮层）。
+//! 拦下即不取材不占编号、不出浮层），内容闸门在 [`TaskStateMachine::commit_probe`]
+//! 的文本分支（取材后、下发前，命中即丢弃探测且当前显示保留——不下发、
+//! 不出浮层；图像没有可扫描的文本内容，不设内容闸门）。
 //!
 //! 浮层露面策略（[`should_reveal`]）同样是本模块的纯决策：挂起显形请求
 //! 与「失败即弹」的按批判定；「怎么显示」在 `flow::reveal`。
+
+use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
@@ -47,8 +59,8 @@ pub enum ErrorAction {
 
 /// 应用状态机：触发 → 取材 → 推理 → 展示/失败。
 ///
-/// 转移概要：划词手势不走状态（探测段在状态机之外，产物经
-/// [`TaskStateMachine::commit_selection`] 直接进 `Translating`，取消在途
+/// 转移概要：两路触发都不走状态（探测段在状态机之外，产物经
+/// [`TaskStateMachine::commit_probe`] 直接进 `Translating`，取消在途
 /// 任务并换流式卡）；`Translating` 收 `TaskChunk` 追加展示、收 `TaskDone`
 /// 定格 `Show`、收 `TaskFailed` 落 `Error`；收起（Esc / 关闭按钮）回
 /// `Idle`。
@@ -121,7 +133,7 @@ pub enum FailureCause {
     TransportChannel,
 }
 
-/// `commit_selection` 的结果：下发 / 被内容闸门拦下 / 不采纳。三态而非 `Option`
+/// `commit_probe` 的结果：下发 / 被内容闸门拦下 / 不采纳。三态而非 `Option`
 /// ——「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者要记一行 warn，
 /// 后者只记 debug），合并成 `None` 就分不出来了。
 #[derive(Debug, Clone, PartialEq)]
@@ -148,7 +160,7 @@ pub enum FailureOutcome {
     Ignored,
 }
 
-/// `commit_selection` 采纳取材产物后的下发请求：壳把它经通道③发送。
+/// `commit_probe` 采纳取材产物后的下发请求：壳把它经通道③发送。
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunRequest {
     /// 请求代数，与触发同值。
@@ -169,28 +181,40 @@ pub struct RunRequest {
 #[derive(Debug, Clone, PartialEq)]
 struct PendingOptions(TaskOptions);
 
-/// 在途的划词探测：探测编号与触发时冻结的任务选项。探测段不进状态机
-/// ——产物到达时经 [`TaskStateMachine::commit_selection`] 才接管状态。
+/// 在途探测的取材模态：探测命令与它等待的产物同模态，提交时按它配对
+/// （模态错配不消费探测）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProbeSource {
+    /// 划词手势：等文本产物。
+    Selection,
+    /// 剪贴板图片观察：等图像产物。
+    PasteboardImage,
+}
+
+/// 在途的探测（划词或剪贴板图片）：探测编号、触发时冻结的任务选项与
+/// 取材模态。探测段不进状态机——产物到达时经
+/// [`TaskStateMachine::commit_probe`] 才接管状态。
 #[derive(Debug, Clone, PartialEq)]
 struct ProbeTask {
     /// 探测编号：与代数同一计数器分配，提交时提升为代数。
     id: u64,
     /// 探测时冻结的任务选项。
     pending: PendingOptions,
+    /// 探测的取材模态：决定提交时接受的产物形状与失败时的静默名单。
+    source: ProbeSource,
 }
 
 /// 任务状态机：纯状态 + 决策，无 IO，可全时序驱动。
 #[derive(Debug, Default)]
 pub struct TaskStateMachine {
-    /// 代数与探测编号共用的单调计数器：`begin_selection_probe` 从这里
-    /// 领号，永不复用。
+    /// 代数与探测编号共用的单调计数器：两路探测都从这里领号，永不复用。
     next_id: u64,
     /// 当前已提交会话的代数：`accept_chunk`/`accept_done`/`accept_failed`
     /// 的陈旧过滤基准。探测编号在提交时才提升为代数。
     generation: u64,
     state: AppState,
-    /// 在途的划词探测：取材在状态机之外进行，产物到达时提交或丢弃。
-    /// 新探测与收起都会替换或清掉它。
+    /// 在途的探测（划词或剪贴板图片，同一时刻至多一个）：取材在状态机
+    /// 之外进行，产物到达时提交或丢弃。新探测与收起都会替换或清掉它。
     probe: Option<ProbeTask>,
     /// 在途推理的取消令牌：提交时取消旧任务（唯一取消机制）。
     current_cancel: Option<CancellationToken>,
@@ -198,6 +222,10 @@ pub struct TaskStateMachine {
     /// 留在 Error 态供 [`TaskStateMachine::retry`] 原样重发；完成、隐藏与
     /// 不可重试失败即清。
     active_request: Option<(TaskInput, TaskOptions)>,
+    /// 当前会话附带的图像（`TaskInput::Image` 的字节 Arc，提交时零拷贝
+    /// 留存）：经注疏卡「经」位的渲染源，随新任务置定、收起清空。不进
+    /// 视图变体——图像只在图像任务存在，视图形状不随它分叉。
+    attached_image: Option<Arc<[u8]>>,
     /// 当前浮层的内容视图；`None` 时浮层显示渲染自检卡。
     overlay_view: Option<OverlayView>,
 }
@@ -213,8 +241,9 @@ impl TaskStateMachine {
         self.generation
     }
 
-    /// 在途划词探测的编号；无探测时为 `None`。壳据此把通道④的回传分流
-    /// 到探测提交段（探测编号在提交时才提升为代数，不能按代数匹配）。
+    /// 在途探测的编号（划词或剪贴板图片）；无探测时为 `None`。壳据此把
+    /// 通道④的回传分流到探测提交段（探测编号在提交时才提升为代数，不能
+    /// 按代数匹配）。
     pub fn probe_id(&self) -> Option<u64> {
         self.probe.as_ref().map(|probe| probe.id)
     }
@@ -229,6 +258,13 @@ impl TaskStateMachine {
         self.overlay_view.as_ref()
     }
 
+    /// 当前会话附带的图像（渲染「经」位用）；非图像任务或无会话时为
+    /// `None`。图像字节不进视图变体，渲染层经这里取用——经位布局开关
+    /// 就是它的有无，不依赖分类结果的到达时序。
+    pub fn attached_image(&self) -> Option<&Arc<[u8]>> {
+        self.attached_image.as_ref()
+    }
+
     /// 在途任务的取消令牌（壳据此在退出/调试时观察取消状态）。
     pub fn current_cancel(&self) -> Option<&CancellationToken> {
         self.current_cancel.as_ref()
@@ -236,8 +272,8 @@ impl TaskStateMachine {
 
     /// 划词探测的入口（探测段）：只领探测编号、冻结任务选项并返回取材
     /// 命令——**不改状态、不换视图、不取消在途任务**。取材在状态机之外
-    /// 进行：产物到达走 [`Self::commit_selection`]，失败走
-    /// [`Self::commit_selection_failed`]。已显示的内容与在途推理全程无感，
+    /// 进行：产物到达走 [`Self::commit_probe`]，失败走
+    /// [`Self::commit_probe_failed`]。已显示的内容与在途推理全程无感，
     /// 误滑（取不到内容）因此零干扰。`config` 是壳在事件起手处取的配置
     /// 快照，任务选项按它解析并随探测冻结；`system_locale` 是壳在启动期
     /// 读到的系统语言，供配置里的 `Language::System` 落定；`scene` 是壳在
@@ -265,50 +301,96 @@ impl TaskStateMachine {
         self.probe = Some(ProbeTask {
             id,
             pending: PendingOptions(task_options(config, system_locale)),
+            source: ProbeSource::Selection,
         });
         Some(AcquireCommand::AcquireText { generation: id })
     }
 
-    /// 提交划词探测（提交段）：探测编号提升为代数，旧会话让位（在途推理
-    /// 取消、请求副本作废，迟到的旧产物经代数过滤丢弃），视图整卡换成
-    /// 流式视图并进入 `Translating`。配置取探测时冻结的那份（不经参数再
-    /// 传配置）。
-    ///
-    /// 内容闸门命中时探测作废但**当前显示保留**：它属于上一个会话，误划
-    /// 与敏感内容都不该把它顶掉（壳据 [`InputOutcome::Blocked`] 记一行
-    /// warn）。**没有放行出口**——防护不交由用户控制，命中就是发送不成。
-    /// 编号不符（陈旧探测）或模态错配不消费探测：同编号的后续合法产物
-    /// 仍可提交。
-    pub fn commit_selection(&mut self, probe_id: u64, input: TaskInput) -> InputOutcome {
-        if self.probe.as_ref().is_none_or(|probe| probe.id != probe_id) {
-            return InputOutcome::Ignored;
+    /// 剪贴板图片探测的入口（探测段）：镜像 [`Self::begin_selection_probe`]
+    /// ——只领探测编号、冻结任务选项并返回读图取材命令，不改状态、不换
+    /// 视图、不取消在途任务。图像内容不在①携带，取材命令②再到事件线程
+    /// 读；①与②之间被覆盖的竞态由取材侧兜底（静默丢弃）。场景闸门照常
+    /// 生效（敏感输入态/敏感应用下不触发）；自身前台不在此列——剪贴板
+    /// 观察没有「连拖自己浮层」的误触面，Gloss 也不写剪贴板。未接线事件
+    /// 与被闸门拦下的观察返回 None 且无任何副作用。
+    pub fn begin_pasteboard_probe(
+        &mut self,
+        event: &PlatformEvent,
+        config: &Config,
+        system_locale: Locale,
+        scene: &SceneFacts,
+    ) -> Option<AcquireCommand> {
+        if !matches!(event, PlatformEvent::PasteboardImageObserved) {
+            return None;
         }
+        match trigger_decision(event, scene) {
+            TriggerDecision::Acquire => {}
+            TriggerDecision::Blocked(_)
+            | TriggerDecision::SelfSuppressed
+            | TriggerDecision::Unwired => return None,
+        }
+        let id = self.next_id + 1;
+        self.next_id += 1;
+        self.probe = Some(ProbeTask {
+            id,
+            pending: PendingOptions(task_options(config, system_locale)),
+            source: ProbeSource::PasteboardImage,
+        });
+        Some(AcquireCommand::AcquireClipboardImage { generation: id })
+    }
+
+    /// 提交探测（提交段，划词与剪贴板图片共用）：探测编号提升为代数，旧
+    /// 会话让位（在途推理取消、请求副本作废，迟到的旧产物经代数过滤丢弃），
+    /// 视图整卡换成流式视图并进入 `Translating`。配置取探测时冻结的那份
+    /// （不经参数再传配置）。
+    ///
+    /// 产物与探测的取材模态先配对再消费：划词探测只收文本，剪贴板探测只
+    /// 收图像——编号不符（陈旧探测）或模态错配都不消费探测，同编号的后续
+    /// 合法产物仍可提交。
+    ///
+    /// 文本分支的内容闸门命中时探测作废但**当前显示保留**：它属于上一个
+    /// 会话，误划与敏感内容都不该把它顶掉（壳据 [`InputOutcome::Blocked`]
+    /// 记一行 warn）。**没有放行出口**——防护不交由用户控制，命中就是发送
+    /// 不成。图像分支没有文本可扫描，不设内容闸门（敏感场景在探测入口已
+    /// 被场景闸门拦过）；图像字节以 Arc 零拷贝留存进 `attached_image`，
+    /// 流式视图的经位原文为空（「经」是图本身）。
+    pub fn commit_probe(&mut self, probe_id: u64, input: TaskInput) -> InputOutcome {
         // 先校验模态再消费探测：模态错配不吃掉待下发任务，同编号的
         // 后续合法产物仍可提交。
-        let TaskInput::Text { text } = input else {
-            return InputOutcome::Ignored;
+        let source = match self.probe.as_ref() {
+            Some(probe) if probe.id == probe_id => probe.source,
+            _ => return InputOutcome::Ignored,
+        };
+        let (view_source, attached) = match (&input, source) {
+            (TaskInput::Text { text }, ProbeSource::Selection) => {
+                if let Some(reason) = guard::detect_sensitive(text) {
+                    self.probe = None;
+                    return InputOutcome::Blocked(reason);
+                }
+                (text.clone(), None)
+            }
+            (TaskInput::Image { png, .. }, ProbeSource::PasteboardImage) => {
+                (String::new(), Some(Arc::clone(png)))
+            }
+            _ => return InputOutcome::Ignored,
         };
         let Some(ProbeTask {
             id,
             pending: PendingOptions(options),
+            ..
         }) = self.probe.take()
         else {
             return InputOutcome::Ignored;
         };
-        if let Some(reason) = guard::detect_sensitive(&text) {
-            return InputOutcome::Blocked(reason);
-        }
         // 提交即接管：旧在途任务让位，不留滞留的死数据。
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
         self.active_request = None;
         self.generation = id;
-        // 视图与任务各要一份原文；语言判定不在此做——只认产物回传的
-        // `code_language`（流式期无角标、按通用启发集着色）。
-        let input = TaskInput::Text { text: text.clone() };
+        self.attached_image = attached;
         self.overlay_view = Some(OverlayView::Streaming {
-            source: text,
+            source: view_source,
             raw: String::new(),
             classified: None,
             code_lang: None,
@@ -317,19 +399,27 @@ impl TaskStateMachine {
         InputOutcome::Dispatch(self.begin_run(input, options))
     }
 
-    /// 探测失败的处置：空选区/读不到按误滑静默丢弃（探测清掉，状态机与
-    /// 当前显示一律不动——壳只记一条带前台应用的排查日志）；其余失败
-    /// （权限缺失等）按 [`Self::commit_selection`] 同样的接管语义落失败卡
-    /// （显式反馈；真实故障不该被吞掉）。编号不符按陈旧丢弃。
-    pub fn commit_selection_failed(&mut self, probe_id: u64, error: &GlossError) -> FailureOutcome {
-        if self.probe.as_ref().is_none_or(|probe| probe.id != probe_id) {
-            return FailureOutcome::Ignored;
-        }
+    /// 探测失败的处置（划词与剪贴板图片共用）：静默名单按取材模态分——
+    /// 划词的空选区/读不到按误滑静默丢弃（探测清掉，状态机与当前显示一律
+    /// 不动——壳只记一条带前台应用的排查日志）；剪贴板图片没有误滑形态
+    /// （changeCount 前进才触发，覆盖竞态由取材侧静默兜底、不到这里），
+    /// 全部失败（超上限、读取失败等）都是真实故障，落失败卡显式反馈。
+    /// 其余失败按 [`Self::commit_probe`] 同样的接管语义处理。编号不符按
+    /// 陈旧丢弃。
+    pub fn commit_probe_failed(&mut self, probe_id: u64, error: &GlossError) -> FailureOutcome {
+        let source = match self.probe.as_ref() {
+            Some(probe) if probe.id == probe_id => probe.source,
+            _ => return FailureOutcome::Ignored,
+        };
         self.probe = None;
-        if matches!(
-            error,
-            GlossError::SelectionUnavailable | GlossError::SelectionEmpty
-        ) {
+        let silent = match source {
+            ProbeSource::Selection => matches!(
+                error,
+                GlossError::SelectionUnavailable | GlossError::SelectionEmpty
+            ),
+            ProbeSource::PasteboardImage => false,
+        };
+        if silent {
             return FailureOutcome::SilentlyDropped;
         }
         self.land_error(error);
@@ -433,7 +523,7 @@ impl TaskStateMachine {
     /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（错误
     /// 映射：可重试类带重试按钮并保留请求副本，配置/鉴权类引导去设置页）。
     /// 这是推理路径（`Translating` 收推理失败）；划词探测的失败走
-    /// [`Self::commit_selection_failed`]。其余状态不采纳——失败卡不得把
+    /// [`Self::commit_probe_failed`]。其余状态不采纳——失败卡不得把
     /// 已收起的浮层弹回。返回处置结果，壳按 [`FailureOutcome`] 区分日志
     /// 与窗口动作。
     pub fn accept_failed(&mut self, generation: u64, error: &GlossError) -> FailureOutcome {
@@ -475,16 +565,18 @@ impl TaskStateMachine {
     }
 
     /// 浮层收起（Esc / 关闭按钮）即放弃在途任务：取消令牌（唯一取消机
-    /// 制）、清空视图并回 `Idle`；在途划词探测一并作废（收起后迟到的
-    /// 探测产物不得把浮层弹回）。放弃后的迟到产物经代数或状态守卫丢弃
-    /// ——为一个不可见的浮层继续推理与渲染纯属空转；重新划词即重新开
-    /// 始，取材自当前选区（旧产物本就可能已过期）。
+    /// 制）、清空视图与随行图像并回 `Idle`；在途探测（划词或剪贴板图片）
+    /// 一并作废（收起后迟到的探测产物不得把浮层弹回）。放弃后的迟到产物
+    /// 经代数或状态守卫丢弃——为一个不可见的浮层继续推理与渲染纯属空转；
+    /// 重新触发即重新开始，取材自当下的选区/剪贴板（旧产物本就可能已过
+    /// 期）。
     pub fn hide_overlay(&mut self) {
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
         self.active_request = None;
         self.probe = None;
+        self.attached_image = None;
         self.state = AppState::Idle;
         self.overlay_view = None;
     }
@@ -519,21 +611,17 @@ fn error_action(error: &GlossError) -> Option<ErrorAction> {
     }
 }
 
-/// 一次下发请求的流式视图起点：原文照抄、正文空、未分类（LLM 层的
-/// `TaskClassified` 到达后精化）、无语言判定（语言只认产物回传的
-/// `code_language`，流式期按通用启发集着色、无角标）。重试与首次下发
-/// 共用。
+/// 一次下发请求的流式视图起点：原文照抄（图像任务无经位原文——经是图
+/// 本身，走 `attached_image`）、正文空、未分类（LLM 层的 `TaskClassified`
+/// 到达后精化）、无语言判定（语言只认产物回传的 `code_language`，流式期
+/// 按通用启发集着色、无角标）。重试与首次下发共用。
 fn streaming_view(input: &TaskInput) -> OverlayView {
-    let TaskInput::Text { text } = input else {
-        return OverlayView::Streaming {
-            source: String::new(),
-            raw: String::new(),
-            classified: None,
-            code_lang: None,
-        };
+    let source = match input {
+        TaskInput::Text { text } => text.clone(),
+        _ => String::new(),
     };
     OverlayView::Streaming {
-        source: text.clone(),
+        source,
         raw: String::new(),
         classified: None,
         code_lang: None,
@@ -555,7 +643,7 @@ fn plausible_code_language(verdict: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TriggerDecision {
     /// 放行：场景闸门放行，事件进入取材（划词不带显式意图，类型由 LLM
-    /// 层分类决定）。
+    /// 层分类决定；剪贴板图片的取材动作即显式意图，LLM 层恒定映射）。
     Acquire,
     /// 拦下：触发前场景闸门（安全输入态 / 敏感应用名单）。只拦真实触发，
     /// 设置与退出不在此列。
@@ -569,8 +657,9 @@ pub enum TriggerDecision {
 }
 
 /// 一次平台事件的去向判定：场景闸门在这里做一次（上游据此记不同级别
-/// 的日志与不同的动作）。手势分支先判自身前台（防误触，与敏感防护无关、
-/// 级别也不同）再过场景闸门。
+/// 的日志与不同的动作）。划词手势分支先判自身前台（防误触，与敏感防护
+/// 无关、级别也不同）再过场景闸门；剪贴板观察只过场景闸门（剪贴板不
+/// 是 HID 手势，无自身前台的误触面）。
 pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDecision {
     match event {
         // 划词手势不带显式意图：类型由 LLM 层在执行前分类。场景闸门照常生效。
@@ -583,6 +672,11 @@ pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDec
                 None => TriggerDecision::Acquire,
             }
         }
+        // 剪贴板图片观察：场景闸门照常生效（敏感输入态/敏感应用下不触发）。
+        PlatformEvent::PasteboardImageObserved => match guard::trigger_block(scene) {
+            Some(block) => TriggerDecision::Blocked(block),
+            None => TriggerDecision::Acquire,
+        },
         PlatformEvent::RegionGesture { .. }
         | PlatformEvent::OpenSettingsRequested
         | PlatformEvent::QuitRequested
@@ -722,6 +816,28 @@ mod tests {
         generation
     }
 
+    fn pasteboard_probe(machine: &mut TaskStateMachine, config: &Config) -> u64 {
+        let command = machine
+            .begin_pasteboard_probe(
+                &PlatformEvent::PasteboardImageObserved,
+                config,
+                Locale::Zh,
+                &SceneFacts::default(),
+            )
+            .expect("pasteboard observation must probe");
+        let AcquireCommand::AcquireClipboardImage { generation } = command else {
+            panic!("acquire clipboard image expected");
+        };
+        generation
+    }
+
+    fn image_input(png: &[u8]) -> TaskInput {
+        TaskInput::Image {
+            png: Arc::from(png),
+            region: None,
+        }
+    }
+
     fn dispatched(outcome: InputOutcome) -> RunRequest {
         match outcome {
             InputOutcome::Dispatch(request) => request,
@@ -774,6 +890,7 @@ mod tests {
                     height: 10,
                 },
             },
+            PlatformEvent::PasteboardImageObserved,
             PlatformEvent::OpenSettingsRequested,
             PlatformEvent::QuitRequested,
         ] {
@@ -808,6 +925,24 @@ mod tests {
             trigger_decision(&selection_gesture(), &open),
             TriggerDecision::Acquire,
             "a selection carries no explicit intent: the kind is the LLM layer's call"
+        );
+        assert_eq!(
+            trigger_decision(&PlatformEvent::PasteboardImageObserved, &open),
+            TriggerDecision::Acquire,
+            "a pasteboard image is an explicit image-explain intent"
+        );
+        assert_eq!(
+            trigger_decision(&PlatformEvent::PasteboardImageObserved, &blocked_by_app()),
+            TriggerDecision::Blocked(TriggerBlock::BlockedApp("com.1password.1password")),
+            "a pasteboard observation in a sensitive app is blocked by the scene gate alone"
+        );
+        assert_eq!(
+            trigger_decision(
+                &PlatformEvent::PasteboardImageObserved,
+                &frontmost_is_self()
+            ),
+            TriggerDecision::Acquire,
+            "the clipboard watch has no self-frontmost mistouch surface"
         );
         assert_eq!(
             trigger_decision(&PlatformEvent::OpenSettingsRequested, &blocked_by_app()),
@@ -946,7 +1081,7 @@ mod tests {
             "the gesture dispatches no kind; the LLM layer classifies"
         );
 
-        let request = dispatched(machine.commit_selection(1, text_input("fn main() {}")));
+        let request = dispatched(machine.commit_probe(1, text_input("fn main() {}")));
         assert_eq!(
             request.options.model, "frozen-model",
             "the model freezes from the probe-time snapshot"
@@ -966,7 +1101,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(probe(&mut explicit, &chosen), 1);
-        let request = dispatched(explicit.commit_selection(1, text_input("hello")));
+        let request = dispatched(explicit.commit_probe(1, text_input("hello")));
         assert_eq!(
             request.options.prompt_locale,
             Some(Locale::En),
@@ -977,7 +1112,7 @@ mod tests {
         let factory = Config::default();
         assert_eq!(factory.language, Language::System);
         assert_eq!(probe_using(&mut following, &factory, Locale::En), 1);
-        let request = dispatched(following.commit_selection(1, text_input("hello")));
+        let request = dispatched(following.commit_probe(1, text_input("hello")));
         assert_eq!(
             request.options.prompt_locale,
             Some(Locale::En),
@@ -1002,7 +1137,7 @@ mod tests {
         };
 
         assert_eq!(probe(&mut machine, &before), 1);
-        let request = dispatched(machine.commit_selection(1, text_input("hello")));
+        let request = dispatched(machine.commit_probe(1, text_input("hello")));
         assert_eq!(
             request.options.target_lang,
             Some(Lang::Ja),
@@ -1018,18 +1153,18 @@ mod tests {
             "the prompt locale is frozen with the rest of the options"
         );
         assert_eq!(probe(&mut machine, &after), 2);
-        let request = dispatched(machine.commit_selection(2, text_input("world")));
+        let request = dispatched(machine.commit_probe(2, text_input("world")));
         assert_eq!(request.options.target_lang, Some(Lang::Ko));
         assert_eq!(request.options.model, "after-model");
         assert_eq!(request.options.prompt_locale, Some(Locale::Zh));
     }
 
     #[test]
-    fn commit_selection_yields_run_request_and_supersedes_the_previous_session() {
+    fn commit_probe_yields_run_request_and_supersedes_the_previous_session() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
 
-        let request = dispatched(machine.commit_selection(1, text_input("hello")));
+        let request = dispatched(machine.commit_probe(1, text_input("hello")));
         assert_eq!(request.generation, 1);
         assert_eq!(machine.generation(), 1, "the probe id is promoted");
         assert_eq!(machine.state(), AppState::Translating);
@@ -1039,7 +1174,7 @@ mod tests {
         let old_cancel = request.cancel;
         assert_eq!(probe(&mut machine, &Config::default()), 2);
         assert_eq!(machine.state(), AppState::Translating, "探测不动当前会话");
-        dispatched(machine.commit_selection(2, text_input("world")));
+        dispatched(machine.commit_probe(2, text_input("world")));
         assert_eq!(machine.generation(), 2);
         assert!(
             old_cancel.is_cancelled(),
@@ -1052,7 +1187,7 @@ mod tests {
 
         assert!(
             matches!(
-                machine.commit_selection(2, text_input("again")),
+                machine.commit_probe(2, text_input("again")),
                 InputOutcome::Ignored
             ),
             "a consumed probe accepts no duplicate commit"
@@ -1063,7 +1198,7 @@ mod tests {
     fn a_probe_leaves_a_visible_session_completely_untouched() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let request = dispatched(machine.commit_selection(1, text_input("hello")));
+        let request = dispatched(machine.commit_probe(1, text_input("hello")));
         machine.accept_chunk(1, "已到达的正文".into());
         let view_before = machine.overlay_view().cloned();
         let state_before = machine.state();
@@ -1078,7 +1213,7 @@ mod tests {
             "probing must not cancel the visible session's task"
         );
 
-        let outcome = machine.commit_selection_failed(2, &GlossError::SelectionEmpty);
+        let outcome = machine.commit_probe_failed(2, &GlossError::SelectionEmpty);
         assert_eq!(outcome, FailureOutcome::SilentlyDropped);
         assert_eq!(machine.state(), state_before, "误滑连状态都不碰");
         assert_eq!(machine.overlay_view(), view_before.as_ref());
@@ -1090,7 +1225,7 @@ mod tests {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
         assert!(matches!(
-            machine.commit_selection(
+            machine.commit_probe(
                 1,
                 TaskInput::Image {
                     png: Arc::from(&b"png"[..]),
@@ -1110,7 +1245,7 @@ mod tests {
     fn classified_kind_updates_the_streaming_chip_only_once_current() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_selection(1, text_input("hello")));
+        dispatched(machine.commit_probe(1, text_input("hello")));
 
         assert!(
             !machine.accept_classified(0, TaskKind::TranslateWord),
@@ -1146,7 +1281,7 @@ mod tests {
     fn the_streaming_view_waits_unclassified_until_the_llm_layer_reports() {
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
-        dispatched(machine.commit_selection(
+        dispatched(machine.commit_probe(
             probe_id,
             TaskInput::Text {
                 text: "hello".into(),
@@ -1169,7 +1304,7 @@ mod tests {
     fn code_language_comes_only_from_the_llm_verdict() {
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
-        dispatched(machine.commit_selection(
+        dispatched(machine.commit_probe(
             probe_id,
             TaskInput::Text {
                 text: "fn main() {}".into(),
@@ -1212,7 +1347,7 @@ mod tests {
         // 判定缺失：不做本地兜底，产物卡无语言。
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
-        dispatched(machine.commit_selection(
+        dispatched(machine.commit_probe(
             probe_id,
             TaskInput::Text {
                 text: "fn main() {}".into(),
@@ -1243,7 +1378,7 @@ mod tests {
         // 占位串判定（散文/示例占位）同样不上角标。
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
-        dispatched(machine.commit_selection(
+        dispatched(machine.commit_probe(
             probe_id,
             TaskInput::Text {
                 text: "fn main() {}".into(),
@@ -1274,7 +1409,7 @@ mod tests {
         // 首尾空白先修剪再过门槛（不因空白误判成占位串）。
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
-        dispatched(machine.commit_selection(
+        dispatched(machine.commit_probe(
             probe_id,
             TaskInput::Text {
                 text: "fn main() {}".into(),
@@ -1307,7 +1442,7 @@ mod tests {
     fn hide_abandons_inflight_and_drops_late_events() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let request = dispatched(machine.commit_selection(1, text_input("hello")));
+        let request = dispatched(machine.commit_probe(1, text_input("hello")));
         let token = request.cancel;
 
         machine.hide_overlay();
@@ -1335,22 +1470,315 @@ mod tests {
         machine.hide_overlay();
         assert!(
             matches!(
-                machine.commit_selection(1, text_input("迟到的产物")),
+                machine.commit_probe(1, text_input("迟到的产物")),
                 InputOutcome::Ignored
             ),
             "a probe dropped by hide must not resurrect the overlay"
         );
         assert_eq!(
-            machine.commit_selection_failed(1, &GlossError::SelectionEmpty),
+            machine.commit_probe_failed(1, &GlossError::SelectionEmpty),
             FailureOutcome::Ignored
         );
+
+        assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 2);
+        machine.hide_overlay();
+        assert!(
+            matches!(
+                machine.commit_probe(2, image_input(b"late product")),
+                InputOutcome::Ignored
+            ),
+            "a pasteboard probe dropped by hide must not resurrect the overlay either"
+        );
+    }
+
+    #[test]
+    fn pasteboard_probe_takes_an_id_without_touching_the_session() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 1);
+        assert_eq!(
+            machine.probe_id(),
+            Some(1),
+            "the observation parks an outstanding probe"
+        );
+        assert_eq!(
+            machine.generation(),
+            0,
+            "a probe takes a probe id, not a generation"
+        );
+        assert_eq!(machine.state(), AppState::Idle);
+        assert!(machine.overlay_view().is_none());
+        assert!(machine.attached_image().is_none());
+        machine.drop_probe();
+
+        assert_eq!(probe(&mut machine, &Config::default()), 2);
+        let request = dispatched(machine.commit_probe(2, text_input("hello")));
+        machine.accept_chunk(2, "已到达的正文".into());
+        assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 3);
+        assert_eq!(machine.state(), AppState::Translating);
+        assert_eq!(
+            machine.generation(),
+            2,
+            "the probe leaves the visible session alone"
+        );
+        assert!(
+            !request.cancel.is_cancelled(),
+            "probing must not cancel the visible session's task"
+        );
+    }
+
+    #[test]
+    fn the_scene_gate_stops_the_pasteboard_probe_too() {
+        let mut machine = TaskStateMachine::new();
+        assert!(
+            machine
+                .begin_pasteboard_probe(
+                    &PlatformEvent::PasteboardImageObserved,
+                    &Config::default(),
+                    Locale::Zh,
+                    &blocked_by_app()
+                )
+                .is_none(),
+            "a listed frontmost app stops the observation"
+        );
+        let secure = SceneFacts {
+            secure_input: true,
+            front_app: None,
+        };
+        assert!(
+            machine
+                .begin_pasteboard_probe(
+                    &PlatformEvent::PasteboardImageObserved,
+                    &Config::default(),
+                    Locale::Zh,
+                    &secure
+                )
+                .is_none(),
+            "a focused password field stops the observation"
+        );
+        assert_eq!(
+            machine.probe_id(),
+            None,
+            "a suppressed observation takes no probe id"
+        );
+        assert_eq!(machine.state(), AppState::Idle);
+
+        assert_eq!(
+            pasteboard_probe(&mut machine, &Config::default()),
+            1,
+            "the observation probes once the scene clears"
+        );
+        assert_eq!(
+            machine.generation(),
+            0,
+            "the probe itself still leaves the generation alone"
+        );
+    }
+
+    #[test]
+    fn pasteboard_commit_retains_the_image_and_dispatches() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 1);
+        let png: Arc<[u8]> = Arc::from(&b"png-bytes"[..]);
+        let request = dispatched(machine.commit_probe(
+            1,
+            TaskInput::Image {
+                png: Arc::clone(&png),
+                region: None,
+            },
+        ));
+        assert_eq!(request.generation, 1);
+        assert_eq!(
+            request.input,
+            TaskInput::Image {
+                png: Arc::clone(&png),
+                region: None
+            },
+            "the dispatch carries the image input"
+        );
+        assert_eq!(machine.generation(), 1, "the probe id is promoted");
+        assert_eq!(machine.state(), AppState::Translating);
+        assert!(machine.probe_id().is_none(), "the probe is consumed");
+        assert!(
+            machine
+                .attached_image()
+                .is_some_and(|attached| Arc::ptr_eq(attached, &png)),
+            "the image is retained by Arc without copying bytes"
+        );
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Streaming { source, .. }) if source.is_empty()
+            ),
+            "the streaming card carries no source text: the image itself is the 经"
+        );
+    }
+
+    #[test]
+    fn probes_are_mutually_exclusive_across_triggers() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+        assert_eq!(
+            pasteboard_probe(&mut machine, &Config::default()),
+            2,
+            "a pasteboard probe replaces the outstanding selection probe"
+        );
+        assert!(matches!(
+            machine.commit_probe(1, text_input("旧探测的产物")),
+            InputOutcome::Ignored
+        ));
+        assert_eq!(
+            machine.commit_probe_failed(1, &GlossError::ImageTooLarge),
+            FailureOutcome::Ignored,
+            "the superseded probe's late failure is stale too"
+        );
+        assert_eq!(
+            dispatched(machine.commit_probe(2, image_input(b"png"))).generation,
+            2
+        );
+
+        assert_eq!(
+            probe(&mut machine, &Config::default()),
+            3,
+            "a selection probe replaces the outstanding pasteboard probe"
+        );
+        assert!(matches!(
+            machine.commit_probe(2, image_input(b"png")),
+            InputOutcome::Ignored
+        ));
+        assert_eq!(
+            dispatched(machine.commit_probe(3, text_input("新选区"))).generation,
+            3
+        );
+    }
+
+    #[test]
+    fn text_on_a_pasteboard_probe_is_ignored_without_consuming() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 1);
+        assert!(
+            matches!(
+                machine.commit_probe(1, text_input("剪贴板探测不收文本")),
+                InputOutcome::Ignored
+            ),
+            "a pasteboard probe only accepts image products"
+        );
+        assert_eq!(
+            dispatched(machine.commit_probe(1, image_input(b"png"))).generation,
+            1,
+            "the probe survives the mismatch and still commits"
+        );
+    }
+
+    #[test]
+    fn pasteboard_commit_supersedes_and_a_new_task_clears_the_image() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+        let old = dispatched(machine.commit_probe(1, text_input("旧任务")));
+        assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 2);
+        let png: Arc<[u8]> = Arc::from(&b"png-bytes"[..]);
+        dispatched(machine.commit_probe(
+            2,
+            TaskInput::Image {
+                png: Arc::clone(&png),
+                region: None,
+            },
+        ));
+        assert!(
+            old.cancel.is_cancelled(),
+            "the pasteboard commit supersedes the in-flight task"
+        );
+        assert!(machine.attached_image().is_some());
+
+        assert_eq!(probe(&mut machine, &Config::default()), 3);
+        dispatched(machine.commit_probe(3, text_input("回到文本")));
+        assert!(
+            machine.attached_image().is_none(),
+            "a text task clears the attached image"
+        );
+    }
+
+    #[test]
+    fn hide_overlay_clears_the_attached_image() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 1);
+        dispatched(machine.commit_probe(1, image_input(b"png")));
+        assert!(machine.attached_image().is_some());
+        machine.hide_overlay();
+        assert!(
+            machine.attached_image().is_none(),
+            "hide clears the attached image with the rest of the session"
+        );
+    }
+
+    #[test]
+    fn image_too_large_failure_lands_in_the_failure_card() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 1);
+        assert_eq!(
+            machine.commit_probe_failed(1, &GlossError::ImageTooLarge),
+            FailureOutcome::Shown,
+            "an oversized image is a real failure, not a mis-slide"
+        );
+        assert_eq!(machine.state(), AppState::Error);
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Failed { action: None, .. })
+        ));
+        assert!(
+            machine.retry().is_none(),
+            "an oversized image has no button-shaped exit"
+        );
+        assert!(machine.probe_id().is_none(), "the probe is consumed");
+        assert!(
+            machine.attached_image().is_none(),
+            "nothing was ever committed"
+        );
+    }
+
+    #[test]
+    fn retrying_a_failed_image_task_keeps_the_attached_image() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 1);
+        let png: Arc<[u8]> = Arc::from(&b"png-bytes"[..]);
+        dispatched(machine.commit_probe(
+            1,
+            TaskInput::Image {
+                png: Arc::clone(&png),
+                region: None,
+            },
+        ));
+        machine.accept_chunk(1, "{\"note\":\"描述".into());
+        assert_eq!(
+            machine.accept_failed(1, &GlossError::EngineNetwork),
+            FailureOutcome::Shown
+        );
+
+        let retried = machine.retry().expect("retry must be available");
+        assert_eq!(
+            retried.input,
+            TaskInput::Image {
+                png: Arc::clone(&png),
+                region: None
+            },
+            "the retry resends the same image input"
+        );
+        assert!(
+            machine
+                .attached_image()
+                .is_some_and(|attached| Arc::ptr_eq(attached, &png)),
+            "the image survives the retry for the streaming card"
+        );
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Streaming { source, .. }) if source.is_empty()
+        ));
     }
 
     #[test]
     fn failed_guard_matches_translating_only() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_selection(1, text_input("hello")));
+        dispatched(machine.commit_probe(1, text_input("hello")));
         assert_eq!(
             machine.accept_failed(1, &GlossError::EngineNetwork),
             FailureOutcome::Shown,
@@ -1372,7 +1800,7 @@ mod tests {
             let mut machine = TaskStateMachine::new();
             assert_eq!(probe(&mut machine, &Config::default()), 1);
             assert_eq!(
-                machine.commit_selection_failed(1, &error),
+                machine.commit_probe_failed(1, &error),
                 FailureOutcome::SilentlyDropped,
                 "{error:?} on a probe is a pure mis-drag: no card, no state change"
             );
@@ -1387,7 +1815,7 @@ mod tests {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
         assert_eq!(
-            machine.commit_selection_failed(1, &GlossError::AccessibilityDenied),
+            machine.commit_probe_failed(1, &GlossError::AccessibilityDenied),
             FailureOutcome::Shown,
             "a permission failure is actionable feedback, not a mis-drag"
         );
@@ -1402,7 +1830,7 @@ mod tests {
     fn selection_failures_outside_the_probe_still_raise_the_card() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_selection(1, text_input("hello")));
+        dispatched(machine.commit_probe(1, text_input("hello")));
         assert_eq!(
             machine.accept_failed(1, &GlossError::SelectionUnavailable),
             FailureOutcome::Shown,
@@ -1422,13 +1850,13 @@ mod tests {
         );
         assert!(
             matches!(
-                machine.commit_selection(1, text_input("旧探测的产物")),
+                machine.commit_probe(1, text_input("旧探测的产物")),
                 InputOutcome::Ignored
             ),
             "a superseded probe must not commit"
         );
         assert_eq!(
-            machine.commit_selection_failed(1, &GlossError::SelectionUnavailable),
+            machine.commit_probe_failed(1, &GlossError::SelectionUnavailable),
             FailureOutcome::Ignored
         );
     }
@@ -1438,7 +1866,7 @@ mod tests {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
         assert!(matches!(
-            machine.commit_selection(
+            machine.commit_probe(
                 1,
                 TaskInput::Image {
                     png: Arc::from(&b"png"[..]),
@@ -1454,7 +1882,7 @@ mod tests {
         ));
         assert!(
             matches!(
-                machine.commit_selection(1, text_input("第二次")),
+                machine.commit_probe(1, text_input("第二次")),
                 InputOutcome::Dispatch(_)
             ),
             "pending options must survive a modality mismatch"
@@ -1465,7 +1893,7 @@ mod tests {
     fn transport_failure_lands_in_error() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let request = dispatched(machine.commit_selection(1, text_input("x")));
+        let request = dispatched(machine.commit_probe(1, text_input("x")));
         machine.fail_transport(request.generation);
         assert_eq!(machine.state(), AppState::Error);
         assert!(machine.current_cancel().is_none());
@@ -1480,7 +1908,7 @@ mod tests {
     fn retryable_failure_keeps_request_and_retry_redispatches_it() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let original = dispatched(machine.commit_selection(1, text_input("hello")));
+        let original = dispatched(machine.commit_probe(1, text_input("hello")));
         assert_eq!(
             machine.accept_failed(1, &GlossError::EngineNetwork),
             FailureOutcome::Shown
@@ -1513,7 +1941,7 @@ mod tests {
     fn error_actions_follow_the_mapping_table() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_selection(1, text_input("x")));
+        dispatched(machine.commit_probe(1, text_input("x")));
 
         assert_eq!(
             machine.accept_failed(1, &GlossError::EngineRateLimited),
@@ -1523,7 +1951,7 @@ mod tests {
         assert!(machine.retry().is_some());
 
         assert_eq!(probe(&mut machine, &Config::default()), 2);
-        dispatched(machine.commit_selection(2, text_input("x")));
+        dispatched(machine.commit_probe(2, text_input("x")));
         assert_eq!(
             machine.accept_failed(2, &GlossError::EngineAuth),
             FailureOutcome::Shown
@@ -1541,7 +1969,7 @@ mod tests {
         );
 
         assert_eq!(probe(&mut machine, &Config::default()), 3);
-        dispatched(machine.commit_selection(3, text_input("x")));
+        dispatched(machine.commit_probe(3, text_input("x")));
         assert_eq!(
             machine.accept_failed(3, &GlossError::UnsupportedModality),
             FailureOutcome::Shown
@@ -1555,7 +1983,7 @@ mod tests {
         ));
 
         assert_eq!(probe(&mut machine, &Config::default()), 4);
-        dispatched(machine.commit_selection(4, text_input("x")));
+        dispatched(machine.commit_probe(4, text_input("x")));
         assert_eq!(
             machine.accept_failed(4, &GlossError::Config("empty model id".into())),
             FailureOutcome::Shown
@@ -1573,7 +2001,7 @@ mod tests {
     fn new_commit_and_hide_supersede_the_retry_request() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_selection(1, text_input("x")));
+        dispatched(machine.commit_probe(1, text_input("x")));
         assert_eq!(
             machine.accept_failed(1, &GlossError::EngineNetwork),
             FailureOutcome::Shown
@@ -1588,7 +2016,7 @@ mod tests {
             machine.retry().is_some(),
             "a mis-slide must not kill the retry"
         );
-        dispatched(machine.commit_selection(2, text_input("y")));
+        dispatched(machine.commit_probe(2, text_input("y")));
         assert!(
             machine.retry().is_none(),
             "the committed selection supersedes the retry offer"
@@ -1607,12 +2035,12 @@ mod tests {
     fn suspicious_input_is_dropped_while_the_visible_session_survives() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let settled = dispatched(machine.commit_selection(1, text_input("上一次的普通文本")));
+        let settled = dispatched(machine.commit_probe(1, text_input("上一次的普通文本")));
         assert!(machine.accept_done(1, plain_outcome("上一次的产物")));
         let view_before = machine.overlay_view().cloned();
 
         assert_eq!(probe(&mut machine, &Config::default()), 2);
-        let outcome = machine.commit_selection(2, text_input(&suspicious_text()));
+        let outcome = machine.commit_probe(2, text_input(&suspicious_text()));
         assert!(
             matches!(outcome, InputOutcome::Blocked(SensitiveKind::Token)),
             "a selection that looks like a token must be refused, got {outcome:?}"
@@ -1642,14 +2070,14 @@ mod tests {
     fn blocked_input_is_not_redispatched_by_any_later_path() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        machine.commit_selection(1, text_input("card 4111 1111 1111 1111"));
+        machine.commit_probe(1, text_input("card 4111 1111 1111 1111"));
 
         assert!(
             machine.retry().is_none(),
             "a refused probe is not a retryable failure"
         );
         assert!(matches!(
-            machine.commit_selection(1, text_input("second arrival")),
+            machine.commit_probe(1, text_input("second arrival")),
             InputOutcome::Ignored
         ));
         assert!(
@@ -1671,7 +2099,7 @@ mod tests {
             "the next probe starts over"
         );
         assert!(matches!(
-            machine.commit_selection(2, text_input(&suspicious_text())),
+            machine.commit_probe(2, text_input(&suspicious_text())),
             InputOutcome::Blocked(_)
         ));
         assert!(machine.probe_id().is_none());
@@ -1684,7 +2112,7 @@ mod tests {
 
         assert!(
             matches!(
-                machine.commit_selection(1, text_input("今天下午三点开会")),
+                machine.commit_probe(1, text_input("今天下午三点开会")),
                 InputOutcome::Dispatch(_)
             ),
             "the gate only fires on the high-confidence patterns"

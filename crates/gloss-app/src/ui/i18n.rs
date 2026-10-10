@@ -55,6 +55,7 @@ pub struct Text {
     pub(crate) gloss_errors_accessibility_denied: String,
     pub(crate) gloss_errors_screen_capture_denied: String,
     pub(crate) gloss_errors_region_too_large: String,
+    pub(crate) gloss_errors_image_too_large: String,
     pub(crate) gloss_errors_unsupported_modality: String,
     pub(crate) gloss_errors_engine_network: String,
     pub(crate) gloss_errors_engine_auth: String,
@@ -138,6 +139,7 @@ impl Text {
                 Cow::Borrowed(&self.gloss_errors_screen_capture_denied)
             }
             GlossError::RegionTooLarge => Cow::Borrowed(&self.gloss_errors_region_too_large),
+            GlossError::ImageTooLarge => Cow::Borrowed(&self.gloss_errors_image_too_large),
             GlossError::UnsupportedModality => {
                 Cow::Borrowed(&self.gloss_errors_unsupported_modality)
             }
@@ -211,7 +213,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            78,
+            79,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -312,6 +314,7 @@ mod tests {
             GlossError::AccessibilityDenied,
             GlossError::ScreenCaptureDenied,
             GlossError::RegionTooLarge,
+            GlossError::ImageTooLarge,
             GlossError::UnsupportedModality,
             GlossError::EngineNetwork,
             GlossError::EngineAuth,
@@ -350,6 +353,10 @@ mod tests {
             (
                 GlossError::RegionTooLarge,
                 &errors.gloss_errors_region_too_large,
+            ),
+            (
+                GlossError::ImageTooLarge,
+                &errors.gloss_errors_image_too_large,
             ),
             (
                 GlossError::UnsupportedModality,
