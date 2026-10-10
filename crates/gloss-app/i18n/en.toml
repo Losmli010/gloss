@@ -31,6 +31,7 @@ gloss_errors_selection_empty = "No text is selected. Select some text and try ag
 gloss_errors_accessibility_denied = "Accessibility permission not granted: System Settings → Privacy & Security → Accessibility"
 gloss_errors_screen_capture_denied = "Screen recording permission not granted: System Settings → Privacy & Security → Screen Recording"
 gloss_errors_region_too_large = "The selected region is outside the screen. Select it again."
+gloss_errors_image_unavailable = "Could not read the image on the clipboard. Copy it again and retry."
 gloss_errors_image_too_large = "The image is too large to process."
 gloss_errors_unsupported_modality = "The current model cannot handle this task. Configure a capable model for it in settings."
 gloss_errors_engine_network = "Network error. Check your connection and retry."

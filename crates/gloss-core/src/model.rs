@@ -77,6 +77,11 @@ pub enum GlossError {
     ScreenCaptureDenied,
     /// 框选区域超出屏幕或阈值。
     RegionTooLarge,
+    /// 剪贴板图片读不出（板上无可读图像 flavor、粘贴授权被拒、粘贴板不可
+    /// 观察）或解不了码（头不可读、解码失败、缓冲与声明尺寸不符）——与
+    /// [`GlossError::SelectionUnavailable`] 分开建档：图像任务没有可选的
+    /// 文本，失败指引是「重新复制」。
+    ImageUnavailable,
     /// 剪贴板图片超出字节总量或像素面积上限（超限报错，不截断）。
     ImageTooLarge,
     /// 任务所需模态与配置的模型能力不匹配（如图像任务未配视觉模型）。
@@ -101,6 +106,7 @@ impl std::fmt::Display for GlossError {
             Self::AccessibilityDenied => write!(f, "accessibility permission denied"),
             Self::ScreenCaptureDenied => write!(f, "screen capture permission denied"),
             Self::RegionTooLarge => write!(f, "screen region too large"),
+            Self::ImageUnavailable => write!(f, "pasteboard image unavailable"),
             Self::ImageTooLarge => write!(f, "pasteboard image too large"),
             Self::UnsupportedModality => write!(f, "model capability does not match task modality"),
             Self::EngineNetwork => write!(f, "engine network error"),
@@ -153,6 +159,10 @@ mod tests {
             "selection unavailable"
         );
         assert_eq!(GlossError::SelectionEmpty.to_string(), "selection is empty");
+        assert_eq!(
+            GlossError::ImageUnavailable.to_string(),
+            "pasteboard image unavailable"
+        );
         assert_eq!(
             GlossError::EngineResponse("bad json".into()).to_string(),
             "engine response error: bad json"

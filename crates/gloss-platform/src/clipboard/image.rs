@@ -1,8 +1,14 @@
 //! 剪贴板图片取材读取器：读 NSPasteboard 图像 flavor → 解码 → PNG（快速压缩档）。
 //!
-//! 竞态兜底：① 观察与 ② 取材之间剪贴板可能被覆盖——changeCount 再变，或
-//! 内容已不是可读图像，都按竞态返回 `Ok(None)`，调用方静默丢弃不弹卡；硬
-//! 失败返回 `Err`，由调用方上抛 `TaskFailed`。
+//! 两条静默丢弃路径分开留痕（都返回 `Ok(None)`，调用方不弹卡）：
+//! - **竞态**：① 观察与 ② 取材之间剪贴板被覆盖（changeCount 前进）——
+//!   debug 留痕，与划词空选区误滑同型处置；
+//! - **交付不出**：changeCount 未变、板上也声明了图像类型，但读不出数据
+//!   ——macOS 15+ 的「允许粘贴」授权被拒走这条（`dataForType:` 返回 nil），
+//!   warn 留痕供 `just logs --level warn` 排查。
+//!
+//! 硬失败返回 `Err`，由调用方上抛 `TaskFailed` 弹失败卡。观察比对先于内容
+//! 读取：比对不过不碰 flavor（内容读取才触发系统粘贴授权）。
 //!
 //! 设界逐级前置：flavor 字节上限 → 仅读头取尺寸过像素面积上限 → 才整图
 //! 解码 → 产物过 PNG 字节上限。pastebomb 在任何大分配发生之前被整体拒绝。
@@ -11,10 +17,12 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use gloss_core::log::{debug, thread};
+use gloss_core::log::{debug, thread, warn};
 use gloss_core::model::GlossError;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{ExtendedColorType, ImageEncoder, ImageFormat, ImageReader};
+use objc2::rc::Retained;
+use objc2_foundation::NSData;
 
 use super::{ImageFlavor, PasteboardObserver, pasteboard_change_count, pasteboard_image_flavor};
 
@@ -73,7 +81,7 @@ fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossEr
                 error = %err,
                 "pasteboard image header unreadable"
             );
-            GlossError::SelectionUnavailable
+            GlossError::ImageUnavailable
         })?;
     if !pixels_within_budget(width, height) {
         debug!(
@@ -90,7 +98,7 @@ fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossEr
                 error = %err,
                 "pasteboard image decode failed"
             );
-            GlossError::SelectionUnavailable
+            GlossError::ImageUnavailable
         })?;
     let rgba = decoded.to_rgba8();
     encode_png(rgba.width(), rgba.height(), rgba.as_raw())
@@ -107,7 +115,7 @@ fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Arc<[u8]>, GlossEr
             height,
             "RGBA buffer does not match the declared size"
         );
-        return Err(GlossError::SelectionUnavailable);
+        return Err(GlossError::ImageUnavailable);
     }
     let mut png = Vec::new();
     if let Err(err) =
@@ -115,7 +123,7 @@ fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Arc<[u8]>, GlossEr
             .write_image(rgba, width, height, ExtendedColorType::Rgba8)
     {
         debug!(thread = thread::EVENT, error = %err, "png encoding failed");
-        return Err(GlossError::SelectionUnavailable);
+        return Err(GlossError::ImageUnavailable);
     }
     if !png_within_budget(png.len()) {
         debug!(
@@ -140,23 +148,44 @@ impl ClipboardImageReader {
         Self { observer }
     }
 
-    /// 读剪贴板图片为 PNG 字节：`Ok(None)` = ①②之间被覆盖（竞态，调用方
-    /// 静默丢弃）；`Err` = 取材失败（调用方上抛 `TaskFailed`）。
+    /// 读剪贴板图片为 PNG 字节：`Ok(None)` = 静默丢弃（竞态或交付不出，
+    /// 读取器内已按分支留痕）；`Err` = 取材失败（调用方上抛 `TaskFailed`）。
     pub fn read(&mut self) -> Result<Option<Arc<[u8]>>, GlossError> {
-        let Some(current) = pasteboard_change_count() else {
+        self.read_with(pasteboard_change_count, pasteboard_image_flavor)
+    }
+
+    /// 一轮读取（系统读数注入，纯逻辑单测覆盖竞态与无数据的分岔——与
+    /// 哨兵源的 `poll_at` 同型）：
+    ///
+    /// - 板不可观察：读取失败上抛；
+    /// - changeCount 与①观察记录不一致：①②之间被覆盖，竞态静默丢弃，
+    ///   不读内容（比对先于 flavor——内容读取才触发系统粘贴授权）；
+    /// - 板仍声明图像却交付不出数据：粘贴授权被拒走这条，warn 留痕后
+    ///   静默丢弃；
+    /// - 可读：解码为 PNG。
+    fn read_with(
+        &mut self,
+        count: impl FnOnce() -> Option<u64>,
+        flavor: impl FnOnce() -> Option<(ImageFlavor, Retained<NSData>)>,
+    ) -> Result<Option<Arc<[u8]>>, GlossError> {
+        let Some(current) = count() else {
             debug!(
                 thread = thread::EVENT,
                 "pasteboard unavailable, image read declined"
             );
-            return Err(GlossError::SelectionUnavailable);
+            return Err(GlossError::ImageUnavailable);
         };
         if !self.observer.matches(current) {
-            return Ok(None);
-        }
-        let Some((flavor, data)) = pasteboard_image_flavor() else {
             debug!(
                 thread = thread::EVENT,
-                "clipboard no longer holds a readable image flavor, dropped"
+                "clipboard changed since the observation, image dropped"
+            );
+            return Ok(None);
+        }
+        let Some((flavor, data)) = flavor() else {
+            warn!(
+                thread = thread::EVENT,
+                "the pasteboard declares an image but delivers none (paste permission may be denied), image dropped"
             );
             return Ok(None);
         };
@@ -248,7 +277,7 @@ mod tests {
         let bytes = encoded_2x2(ImageFormat::Png);
         let truncated = &bytes[..40];
         let err = decode_to_png(ImageFlavor::Png, truncated).expect_err("truncated flavor");
-        assert_eq!(err, GlossError::SelectionUnavailable);
+        assert_eq!(err, GlossError::ImageUnavailable);
     }
 
     #[test]
@@ -263,7 +292,7 @@ mod tests {
     #[test]
     fn a_mismatched_rgba_buffer_is_a_read_failure() {
         let err = encode_png(2, 2, &[1, 2, 3]).expect_err("buffer mismatch");
-        assert_eq!(err, GlossError::SelectionUnavailable);
+        assert_eq!(err, GlossError::ImageUnavailable);
     }
 
     #[test]
@@ -271,9 +300,59 @@ mod tests {
         let err = encode_png(4096, 4096, &[]).expect_err("buffer mismatch");
         assert_eq!(
             err,
-            GlossError::SelectionUnavailable,
+            GlossError::ImageUnavailable,
             "within-budget dims fall through to the buffer check"
         );
+    }
+
+    #[test]
+    fn a_covered_board_is_dropped_without_touching_the_content() {
+        let observer = PasteboardObserver::default();
+        observer.record(7);
+        let mut reader = ClipboardImageReader::new(observer);
+        let read = reader.read_with(
+            || Some(8),
+            || panic!("content must not be read when the observation no longer matches"),
+        );
+        assert_eq!(read.expect("a race drops, not fails"), None);
+    }
+
+    #[test]
+    fn an_undeliverable_flavor_is_dropped_quietly() {
+        let observer = PasteboardObserver::default();
+        observer.record(7);
+        let mut reader = ClipboardImageReader::new(observer);
+        let read = reader.read_with(|| Some(7), || None);
+        assert_eq!(read.expect("undelivered drops, not fails"), None);
+    }
+
+    #[test]
+    fn an_unobservable_board_is_a_read_failure() {
+        let mut reader = ClipboardImageReader::new(PasteboardObserver::default());
+        let err = reader
+            .read_with(
+                || None,
+                || panic!("no flavor query without a readable count"),
+            )
+            .expect_err("unobservable board");
+        assert_eq!(err, GlossError::ImageUnavailable);
+    }
+
+    #[test]
+    fn a_matching_board_still_decodes_to_png() {
+        let observer = PasteboardObserver::default();
+        observer.record(7);
+        let mut reader = ClipboardImageReader::new(observer);
+        let tiff = encoded_2x2(ImageFormat::Tiff);
+        let png = reader
+            .read_with(
+                || Some(7),
+                || Some((ImageFlavor::Tiff, NSData::with_bytes(&tiff))),
+            )
+            .expect("read must succeed")
+            .expect("the observed image must decode");
+        let decoded = image::load_from_memory(&png).expect("valid png");
+        assert_eq!((decoded.width(), decoded.height()), (2, 2));
     }
 
     #[test]

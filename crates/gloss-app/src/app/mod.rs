@@ -14,6 +14,7 @@ pub use crate::flow::reveal::centered_position;
 pub use events::{UserEvent, Waker, run};
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use gloss_core::config::Theme;
 use gloss_core::config_handle::ConfigHandle;
@@ -56,6 +57,10 @@ pub(crate) struct Env {
     /// 更新子系统的壳侧接线：设置页每帧读其 receiver 渲染，用户动作经
     /// 出口转投模块（与主流程四通道隔离）。
     pub(crate) update: UpdateWiring,
+    /// 剪贴板图片哨兵的共享开关位：组装点创建、与事件线程的哨兵源同份。
+    /// 设置页保存成功时置位（热切换不重启），落盘失败不置位——与运行时
+    /// 快照同进退。
+    pub(crate) clipboard_watch_enabled: Arc<AtomicBool>,
 }
 
 impl Env {
@@ -111,6 +116,7 @@ impl GlossApp {
         system_locale: Locale,
         permissions_ready: bool,
         update: UpdateWiring,
+        clipboard_watch_enabled: Arc<AtomicBool>,
         proxy: Option<EventLoopProxy<UserEvent>>,
     ) -> Self {
         Self {
@@ -125,6 +131,7 @@ impl GlossApp {
                 system_locale,
                 permissions_ready,
                 update,
+                clipboard_watch_enabled,
             },
             settings: None,
             proxy,
@@ -207,6 +214,7 @@ impl GlossApp {
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
 
     use gloss_core::config::Config;
     use gloss_core::config_handle::ConfigHandle;
@@ -309,6 +317,7 @@ pub(crate) mod test_support {
             Locale::Zh,
             permissions_ready,
             update_wiring(),
+            Arc::new(AtomicBool::new(false)),
             None,
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
