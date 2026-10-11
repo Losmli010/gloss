@@ -23,7 +23,7 @@ use std::sync::Arc;
 use crate::classify::{CLASSIFY_FALLBACK, CLASSIFY_KINDS, classify};
 use crate::log::{thread, warn};
 use crate::model::GlossError;
-use crate::ports::{AiEngine, EngineRequest};
+use crate::ports::{AiEngine, EngineRequest, TaskChunk};
 use crate::prompt::PromptRegistry;
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 
@@ -35,6 +35,10 @@ pub struct RunOutput {
     pub kind: TaskKind,
     /// 模型回复的原始完整文本（未解析、未剥离）。
     pub raw: String,
+    /// 服务端声明的结束原因（`choices[0].finish_reason`，如 `stop` /
+    /// `length` / `content_filter`）；服务端未声明 `[DONE]`（连接关闭、
+    /// 脚本桩）为 `None`。
+    pub finish_reason: Option<String>,
 }
 
 /// 渲染、分类与转发编排：只依赖端口与模板，单测用 `tests/stubs` 的
@@ -131,16 +135,24 @@ impl AiTaskService {
         };
         let mut stream = self.engine.execute(request).await?;
         let mut body = String::new();
+        let mut finish_reason = None;
         while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
             match item {
-                Ok(delta) => {
+                Ok(TaskChunk::Delta(delta)) => {
                     body.push_str(&delta);
                     on_chunk(delta);
                 }
+                Ok(TaskChunk::Done {
+                    finish_reason: reason,
+                }) => finish_reason = reason,
                 Err(error) => return Err(error),
             }
         }
-        Ok(RunOutput { kind, raw: body })
+        Ok(RunOutput {
+            kind,
+            raw: body,
+            finish_reason,
+        })
     }
 }
 
@@ -150,6 +162,7 @@ mod tests {
 
     use super::{AiEngine, AiTaskService, RunOutput};
     use crate::model::{GlossError, Lang};
+    use crate::ports::{BoxFuture, TaskChunk, TaskStream};
     use crate::stubs::engine::MockEngine;
     use crate::task::{TaskInput, TaskKind, TaskOptions};
 
@@ -167,6 +180,29 @@ mod tests {
         TaskOptions {
             target_lang: Some(Lang::Zh),
             ..Default::default()
+        }
+    }
+
+    struct DoneScript {
+        deltas: Vec<String>,
+        finish_reason: Option<String>,
+    }
+
+    impl AiEngine for DoneScript {
+        fn execute(
+            &self,
+            _request: crate::ports::EngineRequest,
+        ) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
+            let deltas = self.deltas.clone();
+            let finish_reason = self.finish_reason.clone();
+            Box::pin(async move {
+                let items: Vec<Result<TaskChunk, GlossError>> = deltas
+                    .into_iter()
+                    .map(|delta| Ok(TaskChunk::Delta(delta)))
+                    .chain(std::iter::once(Ok(TaskChunk::Done { finish_reason })))
+                    .collect();
+                Ok(Box::pin(futures::stream::iter(items)) as TaskStream)
+            })
         }
     }
 
@@ -246,6 +282,40 @@ mod tests {
             .await
             .expect("run should succeed");
         assert_eq!(output.raw, "{\"note\":\"光泽：注释\"}");
+    }
+
+    #[tokio::test]
+    async fn run_output_carries_the_server_finish_reason() {
+        let service = AiTaskService::new(Arc::new(DoneScript {
+            deltas: vec!["{\"note\":\"光".into(), "泽\"}".into()],
+            finish_reason: Some("stop".into()),
+        }));
+        let output = service
+            .run(text_input("gloss"), options(), |_| {}, |_| {})
+            .await
+            .expect("run should succeed");
+        assert_eq!(output.raw, "{\"note\":\"光泽\"}");
+        assert_eq!(output.finish_reason.as_deref(), Some("stop"));
+
+        let service = AiTaskService::new(Arc::new(DoneScript {
+            deltas: vec!["{}".into()],
+            finish_reason: Some("length".into()),
+        }));
+        let output = service
+            .run(text_input("gloss"), options(), |_| {}, |_| {})
+            .await
+            .expect("run should succeed");
+        assert_eq!(output.finish_reason.as_deref(), Some("length"));
+    }
+
+    #[tokio::test]
+    async fn run_output_finish_reason_stays_none_without_a_done_marker() {
+        let (_, service) = make_service(&MockEngine::new().with_chunks(vec![Ok("{}".into())]));
+        let output = service
+            .run(text_input("gloss"), options(), |_| {}, |_| {})
+            .await
+            .expect("run should succeed");
+        assert_eq!(output.finish_reason, None);
     }
 
     #[tokio::test]

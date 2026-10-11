@@ -277,7 +277,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
 | snapshots_match_baseline（settings） | 设置窗渲染基线（英文浅色；正常/提示/错误三态 + 更新区五相位） | 给定默认、带保存失败提示、校验错误三个状态与更新区五个相位（UpToDate/Available/Downloading/Ready/Failed(Install)），当 wgpu 以英文文案与浅色主题渲染并 diff，则与对应基线一致且关键文本进树（沿革：2026-10-03 随热键区删除、热键校验错误移除重录；同日随职责重划删除任务开关/默认任务/每类模型三区块、新增单一模型输入行重录并移除默认任务停用态，又随「模型 ID」字段标签再录；2026-10-10 通用区新增「监听剪贴板图片」开关行与说明随录，八份基线 diff 均仅为该行插入与其下内容的既段位移，其余像素零变化；同日评审修复把初版勾选框改为自绘开关滑块（egui 0.36 无内建 Switch，按官方 demo 范式，轨 36×20 较勾选框高 ~2px）再录，diff 仍仅限该行控件本体与其下既段位移） | 2026-10-10 |
-| failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、协议异常（带诊断）、取材通道不可用、推理通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-09-22 |
+| failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、JSON 模式不支持、协议异常（带诊断）、取材通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-10-11 |
 | failure_card_follows_the_locale | 失败卡随 locale 出表 | 给定英文 locale 的网络失败卡，当渲染，则出英文文案与英文「Retry」动作 | 2026-09-22 |
 | save_failure_notice_names_the_cause | 保存失败提示出场合与诊断 | 给定带 SaveFailed(Config) 类型化提示的设置窗（中文表），当渲染，则出「保存失败：<诊断>」（前缀交代场合、诊断不重复本地化整句） | 2026-09-22 |
 | a_rendered_notice_follows_the_locale | 提示行随 locale 出表 | 给定带同一类型化提示的设置窗（英文表），当渲染，则出英文前缀与诊断（提示行不是只有中文基线可查） | 2026-09-22 |
@@ -431,7 +431,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | screen_rect_compares_by_value | ScreenRect 按值比较 | 给定同值不同实例的 ScreenRect，当比较，则按值相等、异值不等 | 2026-09-19 |
-| error_display_is_diagnostic_text | 错误文案为诊断文本 | 给定各 GlossError 变体，当 to_string，则输出精确的诊断文案 | 2026-10-10 |
+| error_display_is_diagnostic_text | 错误文案为诊断文本 | 给定各 GlossError 变体（含 JSON 模式不支持），当 to_string，则输出精确的诊断文案 | 2026-10-11 |
 | error_is_std_error | 错误可作 std Error | 给定 GlossError 装箱为 std Error，当 to_string，则输出正确文案 | 2026-09-19 |
 
 ### crates/gloss-core/src/engine.rs
@@ -442,6 +442,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | classified_kind_arrives_before_any_chunk | 分类先于任何增量 | 给定文本输入与两段任务流，当 run，则 on_classified 恰在首个 on_chunk 之前触发一次 | 2026-10-03 |
 | classify_failure_falls_back_and_the_task_still_runs | 分类失败兜底后任务照跑（engine） | 给定分类调用失败（一次性错误）与任务脚本，当 service.run，则落 CLASSIFY_FALLBACK、引擎共 2 次调用、fallback warn 不含选区原文 | 2026-10-03 |
 | raw_text_is_returned_verbatim | 原始文本原样返回 | 给定两段 JSON 流式脚本，当 run，则 RunOutput.raw 为未解析的原始拼接文本 | 2026-10-04 |
+| run_output_carries_the_server_finish_reason | RunOutput 携带服务端结束原因 | 给定声明 stop 与 length 结束的两个脚本流，当 run，则 finish_reason 原文随 RunOutput 返回、raw 不受影响（本步只采集，length/content_filter 的消费在修复轮步骤） | 2026-10-11 |
+| run_output_finish_reason_stays_none_without_a_done_marker | 无 [DONE] 时结束原因缺省 | 给定只吐增量、不声明结束的脚本流，当 run，则 finish_reason 为 None | 2026-10-11 |
 | blank_model_is_a_config_failure_before_the_engine | 空白模型先于引擎拒绝 | 给定 model 为空白的选项，当 run，则 Config 错误且引擎 0 调用 | 2026-10-03 |
 | audio_input_is_still_rejected_before_anything | 语音输入在一切之前拒绝 | 给定 Audio 输入，当 run，则 UnsupportedModality 且引擎 0 调用（语音是预留模态，入口即拒） | 2026-10-10 |
 | image_input_skips_classification_and_lands_on_image_explain | 图像输入跳分类固定 ImageExplain | 给定 Image 输入与两段任务流，当 run，则 kind 恒为 ImageExplain、on_classified 先于任何 chunk 恰一次、引擎共 1 次调用（省去分类往返）、raw 原样返回 | 2026-10-10 |
@@ -543,14 +545,14 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 83（条数钉住，防遍历退化） | 2026-10-10 |
+| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 83（条数钉住，防遍历退化） | 2026-10-11 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language_en）外无一与中文表逐字相同 | 2026-09-23 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 gloss_ 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
 | placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
 | catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功且两语言取值可区分 | 2026-09-22 |
 | fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数/无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |
-| error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定 GlossError 的十个无诊断文本变体，当取失败卡文案，则各自的两种语言都非空且互不相同；两个带诊断文本的变体按模板填出整句 | 2026-10-10 |
-| each_error_variant_maps_to_its_own_entry | 错误变体各取自己的词条 | 给定十个无诊断文本的变体，当取失败卡文案与错因细节，则各等于本变体对应的词条（两臂对调会被抓住）；带诊断的两个变体按模板填诊断 | 2026-10-10 |
+| error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定 GlossError 的十一个无诊断文本变体（含 JSON 模式不支持），当取失败卡文案，则各自的两种语言都非空且互不相同；两个带诊断文本的变体按模板填出整句 | 2026-10-11 |
+| each_error_variant_maps_to_its_own_entry | 错误变体各取自己的词条 | 给定十一个无诊断文本的变体（含 JSON 模式不支持），当取失败卡文案与错因细节，则各等于本变体对应的词条（两臂对调会被抓住）；带诊断的两个变体按模板填诊断 | 2026-10-11 |
 | error_detail_prefers_the_variant_diagnostic | 复合提示取诊断细节 | 给定带诊断的变体与不带诊断的变体，当取错因细节，则前者只出诊断原文、后者回落本地化整句 | 2026-09-22 |
 
 ### crates/gloss-app/src/present/windows.rs
@@ -751,7 +753,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | modality_mismatch_preserves_pending_options | 模态错配保留待定选项 | 给定模态错配被拒后，当同编号合法产物到达，则仍可按冻结选项提交 | 2026-10-03 |
 | transport_failure_lands_in_error | 传输失败落错误态 | 给定推理通道不可用，当 fail_transport，则落 Error、失败视图无动作按钮、retry 为 None | 2026-09-19 |
 | retryable_failure_keeps_request_and_retry_redispatches_it | 可重试失败保留请求 | 给定网络类失败，当落 Error，则失败原因按变体记录（FailureCause::Task(EngineNetwork)）、retry 同代数按原 input+options 新令牌重发且回流式视图（不回读配置） | 2026-10-03 |
-| error_actions_follow_the_mapping_table | 错误动作按映射表 | 给定限流/鉴权/模态/配置类失败，当映射，则限流可重试，其余引导打开设置且不可重试 | 2026-09-19 |
+| error_actions_follow_the_mapping_table | 错误动作按映射表 | 给定限流/鉴权/模态/配置/JSON 模式不支持类失败，当映射，则限流可重试，其余引导打开设置且不可重试（JSON 模式不支持重发同请求无益） | 2026-10-11 |
 | new_commit_and_hide_supersede_the_retry_request | 新提交与隐藏取代重试 | 给定失败卡在场时新探测，则 retry 仍在（误滑不得杀掉重试出口）；当提交产物或隐藏，则 retry 返回 None | 2026-10-03 |
 | suspicious_input_is_dropped_while_the_visible_session_survives | 可疑内容丢弃且当前显示保留 | 给定可见会话（产物卡在场）时到达带令牌的探测产物，当提交，则结果是 Blocked{Token}、探测消费、可见会话的状态与视图原样保留、已完结会话的令牌不被取消 | 2026-10-01 |
 | blocked_input_is_not_redispatched_by_any_later_path | 被拦下的取材没有旁路 | 给定已拦下的探测产物（卡号命中），当 retry、同编号重复提交、同编号 chunk/done/failed、以及同编号通道故障（fail_acquire / fail_transport）陆续到达，则全部被拒且状态机不被触碰；新探测后同一份可疑文本仍被拦下 | 2026-10-01 |
@@ -1065,20 +1067,24 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | blank_key_counts_as_missing | 空白密钥视为缺失 | 给定空白密钥，当解析，则按未配置报 EngineAuth | 2026-09-19 |
 | empty_provider_list_falls_back_to_the_factory_entry | 空 provider 回退出厂条目 | 给定显式空 provider_keys 与出厂 keychain 条目密钥，当解析，则回退出厂条目 gloss/deepseek | 2026-09-19 |
 | adapter_streams_deltas_across_chunk_boundaries | SSE 适配器跨块流式 | 给定同一段 SSE 响应按 1/2/5/整包字节分块，当经 SseStream 适配，则增量恒为「光泽」、[DONE] 终止、余字节不解析 | 2026-09-19 |
+| adapter_delivers_the_done_marker_with_its_finish_reason | 适配器交付带结束原因的终结条目 | 给定增量、声明 stop 的结束块与 [DONE] 的响应，当经 SseStream 消费，则先交增量、再交携带 stop 的 TaskChunk::Done 终结条目 | 2026-10-11 |
 | adapter_delivers_deltas_then_terminates_on_protocol_error | 协议错误先交增量再终结 | 给定增量后跟坏 JSON，当流推进，则先交付增量、随后以 EngineResponse 错误终结 | 2026-09-19 |
 | adapter_ends_cleanly_without_the_done_marker | 无 [DONE] 关流干净收尾 | 给定无 [DONE] 直接关流的响应，当解析，则带增量流按正常结束收尾 | 2026-09-19 |
-| adapter_reports_empty_completion_as_failure | 零增量完成报失败 | 给定零增量响应（仅 [DONE] 或 HTML 劫持页），当解析，则报 EngineResponse 错且流即止 | 2026-09-19 |
-| request_body_has_the_openai_envelope | 请求体 OpenAI 信封 | 给定未设限的 EngineRequest，当构造请求体，则 model/messages/stream 三键 wire 形态精确匹配且无 max_tokens 键 | 2026-09-26 |
+| adapter_reports_empty_completion_as_failure | 零增量完成报失败 | 给定零增量响应（仅 [DONE]、HTML 劫持页、或声明 stop 却零增量），当解析，则报 EngineResponse 错且流即止 | 2026-10-11 |
+| request_body_has_the_openai_envelope | 请求体 OpenAI 信封 | 给定未设限的 EngineRequest，当构造请求体，则 model/messages/stream/response_format 四键 wire 形态精确匹配且无 max_tokens 键 | 2026-10-11 |
+| json_mode_switch_is_always_on_the_wire | JSON 契约恒在请求体上 | 给定设限、不设限与多模态（图像部件）请求，当构造请求体，则 response_format 恒为 {"type":"json_object"}（EngineRequest 无开关，不做能力协商） | 2026-10-11 |
 | text_content_stays_a_json_string_on_the_wire | 纯文本正文 wire 上仍是字符串 | 给定纯文本用户消息，当构造请求体，则 content 是 JSON 字符串、不升级成 content 数组 | 2026-10-10 |
-| multimodal_parts_map_to_the_openai_content_array | 多模态部件映成 OpenAI content 数组 | 给定系统文本消息 + 文本/图像两部件的用户消息（夹具 PNG），当构造请求体，则文本部件映 {"type":"text"}、图像部件映 {"type":"image_url"} 的 data:image/png;base64 data URL 且整包形状精确匹配 | 2026-10-10 |
+| multimodal_parts_map_to_the_openai_content_array | 多模态部件映成 OpenAI content 数组 | 给定系统文本消息 + 文本/图像两部件的用户消息（夹具 PNG），当构造请求体，则文本部件映 {"type":"text"}、图像部件映 {"type":"image_url"} 的 data:image/png;base64 data URL 且整包形状精确匹配（含 response_format） | 2026-10-11 |
 | max_tokens_is_carried_only_when_set | max_tokens 仅设限时上线 | 给定 max_tokens=None 与 Some(64) 两个请求，当构造请求体，则 None 无该键、Some 携带数值 64 | 2026-09-26 |
 | maps_http_status_to_error_variants | HTTP 状态映射错误变体 | 给定 401/403/429/500/400+JSON/400+HTML，当映射，则分别得 EngineAuth/EngineRateLimited/EngineNetwork/带诊断的 EngineResponse | 2026-09-19 |
+| json_mode_and_multimodal_rejections_are_recognized_from_diagnostics | 诊断文本识别 JSON 模式与多模态不支持 | 给定 4xx 且诊断含 response_format/json_object 或 image/multimodal/vision 的错误体，当映射，则分别得 JsonModeUnsupported 与 UnsupportedModality（JSON 模式检查在前）；5xx 与 401 不做启发式（网络与鉴权优先） | 2026-10-11 |
 
-### crates/gloss-platform/src/engine/sse.rs
+### crates/gloss-core/src/engine/sse.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | decodes_a_complete_stream | 完整流解码 | 给定完整 OpenAI 兼容流，当一次喂完，则两段增量+Done（role 块不产出） | 2026-09-19 |
+| done_carries_the_server_finish_reason | Done 携带服务端结束原因 | 给定声明 stop、声明 length 与从未声明结束的三种流，当解码，则 [DONE] 条目携带最后一个内容块声明的 finish_reason（从未声明为 None，交出后清空） | 2026-10-11 |
 | decodes_identically_for_every_chunk_split | 任意切分解码一致 | 给定同一段流按 1..n 每种字节切法，当逐块喂入，则产出完全一致 | 2026-09-19 |
 | byte_by_byte_input_keeps_multibyte_characters_intact | 逐字节输入多字节字符完好 | 给定逐字节喂入，当解析，则多字节字符「光泽」完好 | 2026-09-19 |
 | ignores_crlf_heartbeats_and_other_fields | 忽略 CRLF/心跳/其它字段 | 给定 CRLF/心跳注释/其它 SSE 字段，当解析，则不产出、data 行照常出增量 | 2026-09-19 |

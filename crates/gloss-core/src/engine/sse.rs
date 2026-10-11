@@ -8,6 +8,8 @@
 //! - `:` 开头的注释/心跳行与 `event:` / `id:` 等字段一律忽略；
 //! - `choices[0].delta.content` 是文本增量；只带 role 的首块没有 content，
 //!   不产出增量；
+//! - `choices[0].finish_reason` 随块捕获，在 `[DONE]` 上随 [`SseItem::Done`]
+//!   交出（服务端没给 `[DONE]` 就关流的，结束原因未知，不产出 Done）；
 //! - 服务端在流中报错时给 `{"error": {...}}`，按错误码映射到 [`GlossError`]。
 
 use crate::model::GlossError;
@@ -24,8 +26,12 @@ const MAX_LINE_BYTES: usize = 1 << 20;
 pub enum SseItem {
     /// 文本增量。
     Delta(String),
-    /// 服务端声明的流结束（`data: [DONE]`）。
-    Done,
+    /// 服务端声明的流结束（`data: [DONE]`），携带捕获到的
+    /// `choices[0].finish_reason`（整条流从未声明则为 `None`）。
+    Done {
+        /// 结束原因原文（`stop` / `length` / `content_filter`…）。
+        finish_reason: Option<String>,
+    },
     /// 流中错误：服务端错误对象，或解析不出的协议内容。
     Failed(GlossError),
 }
@@ -37,6 +43,9 @@ pub struct SseDecoder {
     pending: Vec<u8>,
     /// 已见到 `[DONE]`：之后的字节一律忽略。
     done: bool,
+    /// 最近一次捕获的 `choices[0].finish_reason`（结束原因先于 `[DONE]`
+    /// 随最后一个内容块到达），交出后清空。
+    finish_reason: Option<String>,
 }
 
 impl SseDecoder {
@@ -60,7 +69,7 @@ impl SseDecoder {
                 line.pop();
             }
             if let Some(item) = self.decode_line(&line) {
-                let done = item == SseItem::Done;
+                let done = matches!(item, SseItem::Done { .. });
                 items.push(item);
                 if done {
                     break;
@@ -116,31 +125,41 @@ impl SseDecoder {
         }
         if payload == "[DONE]" {
             self.done = true;
-            return Some(SseItem::Done);
+            return Some(SseItem::Done {
+                finish_reason: self.finish_reason.take(),
+            });
         }
-        decode_chunk(payload)
+        self.decode_data(payload)
     }
-}
 
-/// 单个 `data:` 载荷：取增量内容、识别服务端错误；`None` = 这行不产出东西
-/// （例如只带 role 的首块）。
-fn decode_chunk(payload: &str) -> Option<SseItem> {
-    let Ok(chunk) = serde_json::from_str::<StreamChunk>(payload) else {
-        return Some(SseItem::Failed(GlossError::EngineResponse(format!(
-            "unparsable stream chunk: {}",
-            truncate(payload)
-        ))));
-    };
-    if let Some(error) = chunk.error {
-        return Some(SseItem::Failed(map_api_error(&error)));
+    /// 单个 `data:` 载荷：捕获 `choices[0].finish_reason`、取增量内容、识别
+    /// 服务端错误；`None` = 这行不产出东西（例如只带 role 的首块）。
+    fn decode_data(&mut self, payload: &str) -> Option<SseItem> {
+        let Ok(chunk) = serde_json::from_str::<StreamChunk>(payload) else {
+            return Some(SseItem::Failed(GlossError::EngineResponse(format!(
+                "unparsable stream chunk: {}",
+                truncate(payload)
+            ))));
+        };
+        if let Some(error) = chunk.error {
+            return Some(SseItem::Failed(map_api_error(&error)));
+        }
+        // 本客户端每次只发一条 user 消息，choices 恒为一条；结束原因与增量
+        // 都只认第一条 choice，增量只在 content 上。
+        if let Some(reason) = chunk
+            .choices
+            .first()
+            .and_then(|choice| choice.finish_reason.clone())
+        {
+            self.finish_reason = Some(reason);
+        }
+        chunk
+            .choices
+            .into_iter()
+            .find_map(|choice| choice.delta.and_then(|delta| delta.content))
+            .filter(|content| !content.is_empty())
+            .map(SseItem::Delta)
     }
-    // 本客户端每次只发一条 user 消息，choices 恒为一条；增量只在 content 上。
-    chunk
-        .choices
-        .into_iter()
-        .find_map(|choice| choice.delta.and_then(|delta| delta.content))
-        .filter(|content| !content.is_empty())
-        .map(SseItem::Delta)
 }
 
 /// 服务端错误对象 → [`GlossError`]：能识别的按语义分类，其余按协议错误透出
@@ -199,6 +218,10 @@ struct StreamChunk {
 struct StreamChoice {
     #[serde(default)]
     delta: Option<StreamDelta>,
+    /// 结束原因：恒为 `None`，只在最后一个内容块上非空（`stop` /
+    /// `length` / `content_filter`…）。
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 /// 增量内容。
@@ -233,6 +256,10 @@ mod tests {
         )
     }
 
+    fn decode_data_line(payload: &str) -> Option<SseItem> {
+        SseDecoder::new().decode_data(payload)
+    }
+
     #[test]
     fn decodes_a_complete_stream() {
         let mut decoder = SseDecoder::new();
@@ -242,8 +269,55 @@ mod tests {
             vec![
                 SseItem::Delta("光".into()),
                 SseItem::Delta("泽".into()),
-                SseItem::Done,
+                SseItem::Done {
+                    finish_reason: None
+                },
             ]
+        );
+    }
+
+    #[test]
+    fn done_carries_the_server_finish_reason() {
+        let stream = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"好\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let mut decoder = SseDecoder::new();
+        assert_eq!(
+            decoder.push(stream.as_bytes()),
+            vec![
+                SseItem::Delta("好".into()),
+                SseItem::Done {
+                    finish_reason: Some("stop".into())
+                },
+            ]
+        );
+
+        let truncated = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"截\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let mut decoder = SseDecoder::new();
+        assert_eq!(
+            decoder.push(truncated.as_bytes()),
+            vec![
+                SseItem::Delta("截".into()),
+                SseItem::Done {
+                    finish_reason: Some("length".into())
+                },
+            ]
+        );
+
+        let mut decoder = SseDecoder::new();
+        decoder.push("data: {\"choices\":[{\"delta\":{\"content\":\"无\"}}]}\n\n".as_bytes());
+        assert_eq!(
+            decoder.push(b"data: [DONE]\n\n"),
+            vec![SseItem::Done {
+                finish_reason: None
+            }],
+            "a stream that never declares a finish reason ends with None"
         );
     }
 
@@ -253,7 +327,9 @@ mod tests {
         let expected = vec![
             SseItem::Delta("光".into()),
             SseItem::Delta("泽".into()),
-            SseItem::Done,
+            SseItem::Done {
+                finish_reason: None,
+            },
         ];
         for chunk_size in 1..=payload.len() {
             let mut decoder = SseDecoder::new();
@@ -295,13 +371,18 @@ mod tests {
         let mut decoder = SseDecoder::new();
         assert_eq!(
             decoder.push(stream.as_bytes()),
-            vec![SseItem::Delta("好".into()), SseItem::Done]
+            vec![
+                SseItem::Delta("好".into()),
+                SseItem::Done {
+                    finish_reason: None
+                }
+            ]
         );
     }
 
     #[test]
     fn maps_server_errors_by_code() {
-        let rate_limited = decode_chunk(
+        let rate_limited = decode_data_line(
             r#"{"error":{"message":"Rate limit reached","type":"rate_limit_exceeded"}}"#,
         );
         assert_eq!(
@@ -310,11 +391,12 @@ mod tests {
             "rate limit must be retryable"
         );
 
-        let auth = decode_chunk(r#"{"error":{"message":"Invalid key","code":"invalid_api_key"}}"#);
+        let auth =
+            decode_data_line(r#"{"error":{"message":"Invalid key","code":"invalid_api_key"}}"#);
         assert_eq!(auth, Some(SseItem::Failed(GlossError::EngineAuth)));
 
         let other =
-            decode_chunk(r#"{"error":{"message":"model not found","code":"model_not_found"}}"#);
+            decode_data_line(r#"{"error":{"message":"model not found","code":"model_not_found"}}"#);
         assert_eq!(
             other,
             Some(SseItem::Failed(GlossError::EngineResponse(
@@ -325,7 +407,7 @@ mod tests {
 
     #[test]
     fn unparsable_payload_reports_bounded_diagnostic() {
-        let Some(SseItem::Failed(error)) = decode_chunk("not json") else {
+        let Some(SseItem::Failed(error)) = decode_data_line("not json") else {
             panic!("expected failure");
         };
         assert!(
@@ -334,7 +416,7 @@ mod tests {
         );
 
         let long_message = "x".repeat(MAX_DIAGNOSTIC_CHARS * 2);
-        let Some(SseItem::Failed(error)) = decode_chunk(&format!(
+        let Some(SseItem::Failed(error)) = decode_data_line(&format!(
             "{{\"error\":{{\"message\":\"{long_message}\",\"code\":\"other\"}}}}"
         )) else {
             panic!("expected failure");
@@ -354,14 +436,21 @@ mod tests {
         let mut decoder = SseDecoder::new();
         assert_eq!(
             decoder.push(b"data:\n\ndata: [DONE]\n"),
-            vec![SseItem::Done]
+            vec![SseItem::Done {
+                finish_reason: None
+            }]
         );
     }
 
     #[test]
     fn ignores_bytes_after_done() {
         let mut decoder = SseDecoder::new();
-        assert_eq!(decoder.push(b"data: [DONE]\n"), vec![SseItem::Done]);
+        assert_eq!(
+            decoder.push(b"data: [DONE]\n"),
+            vec![SseItem::Done {
+                finish_reason: None
+            }]
+        );
         assert_eq!(
             decoder.push(b"data: {\"choices\":[{\"delta\":{\"content\":\"late\"}}]}\n"),
             Vec::new()
@@ -405,7 +494,7 @@ mod tests {
     #[test]
     fn error_without_code_reports_the_message_only() {
         assert_eq!(
-            decode_chunk(r#"{"error":{"message":"boom"}}"#),
+            decode_data_line(r#"{"error":{"message":"boom"}}"#),
             Some(SseItem::Failed(GlossError::EngineResponse("boom".into())))
         );
     }
@@ -413,13 +502,13 @@ mod tests {
     #[test]
     fn error_classification_checks_code_and_type() {
         assert_eq!(
-            decode_chunk(
+            decode_data_line(
                 r#"{"error":{"message":"slow down","code":"server_error","type":"rate_limit_exceeded"}}"#
             ),
             Some(SseItem::Failed(GlossError::EngineRateLimited))
         );
         assert_eq!(
-            decode_chunk(
+            decode_data_line(
                 r#"{"error":{"message":"bad key","code":"invalid_api_key","type":"invalid_request_error"}}"#
             ),
             Some(SseItem::Failed(GlossError::EngineAuth))

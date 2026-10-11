@@ -380,13 +380,14 @@ async fn collect(
     let mut deltas = Vec::new();
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {
-            Ok(delta) => {
+            Ok(gloss_core::ports::TaskChunk::Delta(delta)) => {
                 // 预算耗尽后连增量也停止缓冲：不守约的端点不能把内存灌穿。
                 if reply.len() < gloss_core::classify::CLASSIFY_REPLY_CAP_BYTES {
                     deltas.push(delta.clone());
                 }
                 gloss_core::classify::push_capped(&mut reply, &delta);
             }
+            Ok(gloss_core::ports::TaskChunk::Done { .. }) => {}
             Err(error) => return Err(error),
         }
     }

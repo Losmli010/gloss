@@ -86,6 +86,10 @@ pub enum GlossError {
     ImageTooLarge,
     /// 任务所需模态与配置的模型能力不匹配（如图像任务未配视觉模型）。
     UnsupportedModality,
+    /// 模型服务不支持 JSON 输出模式：所有请求都恒带 `response_format`
+    /// json_object（不做能力协商），端点以 4xx 拒绝且诊断文本提到它时按
+    /// 此建档——换支持该模式的模型服务是唯一出路（环境问题，重试无益）。
+    JsonModeUnsupported,
     /// 网络错误，可重试。
     EngineNetwork,
     /// API key 无效或过期。
@@ -109,6 +113,9 @@ impl std::fmt::Display for GlossError {
             Self::ImageUnavailable => write!(f, "pasteboard image unavailable"),
             Self::ImageTooLarge => write!(f, "pasteboard image too large"),
             Self::UnsupportedModality => write!(f, "model capability does not match task modality"),
+            Self::JsonModeUnsupported => {
+                write!(f, "model service does not support the JSON output mode")
+            }
             Self::EngineNetwork => write!(f, "engine network error"),
             Self::EngineAuth => write!(f, "engine authentication failed"),
             Self::EngineRateLimited => write!(f, "engine rate limited"),
@@ -162,6 +169,10 @@ mod tests {
         assert_eq!(
             GlossError::ImageUnavailable.to_string(),
             "pasteboard image unavailable"
+        );
+        assert_eq!(
+            GlossError::JsonModeUnsupported.to_string(),
+            "model service does not support the JSON output mode"
         );
         assert_eq!(
             GlossError::EngineResponse("bad json".into()).to_string(),

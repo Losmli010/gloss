@@ -58,6 +58,7 @@ pub struct Text {
     pub(crate) gloss_errors_image_unavailable: String,
     pub(crate) gloss_errors_image_too_large: String,
     pub(crate) gloss_errors_unsupported_modality: String,
+    pub(crate) gloss_errors_json_mode_unsupported: String,
     pub(crate) gloss_errors_engine_network: String,
     pub(crate) gloss_errors_engine_auth: String,
     pub(crate) gloss_errors_engine_rate_limited: String,
@@ -147,6 +148,9 @@ impl Text {
             GlossError::UnsupportedModality => {
                 Cow::Borrowed(&self.gloss_errors_unsupported_modality)
             }
+            GlossError::JsonModeUnsupported => {
+                Cow::Borrowed(&self.gloss_errors_json_mode_unsupported)
+            }
             GlossError::EngineNetwork => Cow::Borrowed(&self.gloss_errors_engine_network),
             GlossError::EngineAuth => Cow::Borrowed(&self.gloss_errors_engine_auth),
             GlossError::EngineRateLimited => Cow::Borrowed(&self.gloss_errors_engine_rate_limited),
@@ -217,7 +221,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            82,
+            83,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -320,6 +324,7 @@ mod tests {
             GlossError::ImageUnavailable,
             GlossError::ImageTooLarge,
             GlossError::UnsupportedModality,
+            GlossError::JsonModeUnsupported,
             GlossError::EngineNetwork,
             GlossError::EngineAuth,
             GlossError::EngineRateLimited,
@@ -369,6 +374,10 @@ mod tests {
             (
                 GlossError::UnsupportedModality,
                 &errors.gloss_errors_unsupported_modality,
+            ),
+            (
+                GlossError::JsonModeUnsupported,
+                &errors.gloss_errors_json_mode_unsupported,
             ),
             (
                 GlossError::EngineNetwork,
