@@ -373,7 +373,6 @@ mod tests {
 
     #[test]
     fn task_soft_rules_fall_back_field_by_field() {
-        // structured 整体缺失/非对象：空变体，note 保留（硬约束只在 note）。
         let (_, structured) = validate_task(TaskKind::TranslateWord, r#"{"note":"只有义"}"#)
             .expect("note-only reply is contractually fine");
         assert_eq!(structured, empty_structured(TaskKind::TranslateWord));
@@ -385,7 +384,6 @@ mod tests {
         .expect("non-object structured falls back");
         assert_eq!(structured, empty_structured(TaskKind::ExplainCode));
 
-        // 变体内字段类型错当缺省、null 当缺省。
         let (_, structured) = validate_task(
             TaskKind::ExplainCode,
             r#"{"note":"义","structured":{"examples":"不是数组","code_language":null}}"#,
@@ -399,7 +397,6 @@ mod tests {
             }
         );
 
-        // kind 决定变体：清单外的疏证键就地忽略。
         let (_, structured) = validate_task(
             TaskKind::TranslateSentence,
             r#"{"note":"义","structured":{"phonetic":"/ɡ/","examples":["例句"],"code_language":"rust"}}"#,

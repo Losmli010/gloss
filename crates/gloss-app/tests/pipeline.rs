@@ -327,9 +327,6 @@ fn second_trigger_is_a_full_cache_hit_without_engine_calls() {
 
 #[test]
 fn a_contract_reply_that_violates_the_schema_degrades_without_cache() {
-    // 围栏里的 kind 标签让分类解析出代码解释；同一段违约脚本作为任务
-    // 回复时，完成态走降级分支（围栏不再是容错位），产物卡带 degraded
-    // 标记、不写缓存——同输入再触发会重新执行。
     let engine = MockEngine::new().with_chunks(vec![Ok(
         "旧契约正文\n```gloss\n{\"kind\":\"ExplainCode\",\"title\":\"旧契约摘要\"}\n```".into(),
     )]);
@@ -375,7 +372,6 @@ fn a_contract_reply_that_violates_the_schema_degrades_without_cache() {
         "the degraded card keeps the request for the retry exit"
     );
 
-    // 降级产物不进缓存：同输入再触发打到引擎（分类 + 任务各一次）。
     pipe.trigger_and_feed("gloss", Span::none());
     expect_classified(&mut pipe);
     wait_done(&mut pipe);

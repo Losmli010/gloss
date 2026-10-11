@@ -132,8 +132,8 @@ pub struct TaskOutcome {
     /// [`OutcomeStructured::Code`] 里随疏证走）。
     pub structured: OutcomeStructured,
     /// 降级标记：`true` = 契约校验失败后的兜底产物（`note` 为空串）。
-    /// 降级产物不进缓存、UI 显式提示；serde default 让旧缓存条目反序列化
-    /// 为正常产物。
+    /// 降级产物不进缓存、UI 显式提示；serde default 是防御性缺省——缺该
+    /// 字段的旧序列化工件反序列化为正常产物（没有标记 = 没降级）。
     #[serde(default)]
     pub degraded: bool,
 }
