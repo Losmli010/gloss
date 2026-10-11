@@ -172,7 +172,7 @@ impl Pipeline {
 #[test]
 fn engine_logs_carry_the_task_span() {
     let logs = gloss_core::log::capture_global();
-    let engine = MockEngine::new().with_chunks(vec![Ok("产物".into())]);
+    let engine = MockEngine::new().with_chunks(vec![Ok("{\"note\":\"产物\"}".into())]);
     let mut pipe = pipeline(&engine);
 
     pipe.trigger_and_feed("hello", Span::none());
@@ -227,13 +227,14 @@ fn full_flow_classifies_then_streams_and_settles() {
                 outcome.note, "光泽：注释",
                 "note comes from the JSON contract"
             );
+            assert!(!outcome.degraded);
             assert_eq!(
                 outcome.structured,
                 OutcomeStructured::WordCard {
                     phonetic: None,
                     examples: Vec::new(),
                 },
-                "missing word-kind fields fall back per the contract (empty subprov)"
+                "missing structured falls back per the soft rules (empty subprov)"
             );
         }
         other => panic!("expected outcome view, got {other:?}"),
@@ -245,7 +246,7 @@ fn classify_failure_falls_back_and_the_task_still_completes() {
     let logs = gloss_core::log::capture_global();
     let engine = MockEngine::new()
         .with_execute_failure_once(GlossError::EngineRateLimited)
-        .with_chunks(vec![Ok("兜底产物".into())]);
+        .with_chunks(vec![Ok("{\"note\":\"兜底产物\"}".into())]);
     let mut pipe = pipeline(&engine);
 
     pipe.trigger_and_feed("第一次划词", Span::none());
@@ -325,9 +326,7 @@ fn second_trigger_is_a_full_cache_hit_without_engine_calls() {
 }
 
 #[test]
-fn legacy_fence_contract_falls_back_to_a_complete_card() {
-    // 围栏里的 kind 标签让分类解析出代码解释；同一段旧契约脚本作为任务
-    // 回复时，完成态走围栏 fallback 出完整卡。
+fn a_contract_reply_that_violates_the_schema_degrades_without_cache() {
     let engine = MockEngine::new().with_chunks(vec![Ok(
         "旧契约正文\n```gloss\n{\"kind\":\"ExplainCode\",\"title\":\"旧契约摘要\"}\n```".into(),
     )]);
@@ -339,31 +338,55 @@ fn legacy_fence_contract_falls_back_to_a_complete_card() {
         TaskKind::ExplainCode,
         "the classify call reads the kind tag from the legacy fence"
     );
-    wait_done(&mut pipe);
 
+    loop {
+        match pipe.events_rx.recv().unwrap() {
+            Event::TaskChunk { generation, delta } => {
+                assert!(pipe.machine.accept_chunk(generation, delta));
+            }
+            Event::TaskDone {
+                generation,
+                outcome,
+            } => {
+                assert_eq!(generation, 1);
+                assert!(pipe.machine.accept_done(generation, outcome));
+                break;
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    assert_eq!(pipe.machine.state(), AppState::Show);
     match pipe.machine.overlay_view() {
         Some(OverlayView::Outcome { outcome, .. }) => {
+            assert!(outcome.degraded, "a fenced reply is a contract violation");
             assert_eq!(
-                outcome.note, "旧契约正文",
-                "the fence fallback strips the structured block from the note"
-            );
-            assert_eq!(
-                outcome.structured,
-                OutcomeStructured::Plain {
-                    examples: Vec::new()
-                },
-                "the old contract's fence still lands as a complete card"
+                outcome.note, "",
+                "the degraded card carries no reply content"
             );
         }
         other => panic!("expected outcome view, got {other:?}"),
     }
+    assert!(
+        pipe.machine.retry().is_some(),
+        "the degraded card keeps the request for the retry exit"
+    );
+
+    pipe.trigger_and_feed("gloss", Span::none());
+    expect_classified(&mut pipe);
+    wait_done(&mut pipe);
+    assert_eq!(
+        engine.call_count(),
+        4,
+        "the degraded outcome must not poison the cache: the engine runs again"
+    );
 }
 
 #[test]
-fn image_flow_classifies_before_chunks_and_settles_the_commentary() {
+fn image_flow_skips_classification_and_settles_the_plain_examples() {
     let engine = MockEngine::new().with_chunks(vec![
-        Ok("{\"note\":\"图表描述".into()),
-        Ok("\",\"interpretation\":[\"要点一\",\"要点二\"]}".into()),
+        Ok("{\"note\":\"图表描述\",".into()),
+        Ok("\"structured\":{\"examples\":[\"要点一\",\"要点二\"]}}".into()),
     ]);
     let mut pipe = pipeline(&engine);
 
@@ -388,8 +411,8 @@ fn image_flow_classifies_before_chunks_and_settles_the_commentary() {
     assert!(pipe.machine.accept_classified(generation, kind));
 
     for expected in [
-        "{\"note\":\"图表描述",
-        "\",\"interpretation\":[\"要点一\",\"要点二\"]}",
+        "{\"note\":\"图表描述\",",
+        "\"structured\":{\"examples\":[\"要点一\",\"要点二\"]}}",
     ] {
         let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
             panic!("chunk expected");
@@ -416,12 +439,13 @@ fn image_flow_classifies_before_chunks_and_settles_the_commentary() {
         Some(OverlayView::Outcome { outcome, .. }) => {
             assert_eq!(outcome.kind, TaskKind::ImageExplain);
             assert_eq!(outcome.note, "图表描述");
+            assert!(!outcome.degraded);
             assert_eq!(
                 outcome.structured,
-                OutcomeStructured::ImageCommentary {
-                    interpretation: vec!["要点一".into(), "要点二".into()],
+                OutcomeStructured::Plain {
+                    examples: vec!["要点一".into(), "要点二".into()],
                 },
-                "the interpretation array lands in the 疏 slot"
+                "the examples array lands in the 疏 slot via the plain variant"
             );
         }
         other => panic!("expected outcome view, got {other:?}"),
@@ -436,8 +460,9 @@ fn image_flow_classifies_before_chunks_and_settles_the_commentary() {
 
 #[test]
 fn repeated_image_copy_is_a_full_cache_hit() {
-    let engine =
-        MockEngine::new().with_chunks(vec![Ok("{\"note\":\"图注\",\"interpretation\":[]}".into())]);
+    let engine = MockEngine::new().with_chunks(vec![Ok(
+        "{\"note\":\"图注\",\"structured\":{\"examples\":[]}}".into(),
+    )]);
     let mut pipe = pipeline(&engine);
 
     let png: Arc<[u8]> = Arc::from(&b"same-png-bytes"[..]);
@@ -476,7 +501,7 @@ fn hide_overlay_cancels_the_image_stream_and_drops_late_events() {
         .with_chunk_delay(Duration::from_millis(150))
         .with_chunks(vec![
             Ok("{\"note\":\"一".into()),
-            Ok("\",\"interpretation\":[]}".into()),
+            Ok("\",\"structured\":{\"examples\":[]}}".into()),
         ]);
     let mut pipe = pipeline(&engine);
 
@@ -541,10 +566,10 @@ fn hide_overlay_cancels_the_stream_and_late_events_are_dropped() {
     let late_outcome = TaskOutcome {
         kind: TaskKind::TranslateWord,
         note: "迟到的产物".into(),
-        code_language: None,
         structured: OutcomeStructured::Plain {
             examples: Vec::new(),
         },
+        degraded: false,
     };
     assert!(
         !pipe.machine.accept_chunk(generation, "迟到的正文".into())
@@ -697,7 +722,7 @@ fn error_card_retry_redispatches_the_same_request() {
 
 #[test]
 fn config_change_invalidates_cache_for_the_next_task() {
-    let engine = MockEngine::new().with_chunks(vec![Ok("结果".into())]);
+    let engine = MockEngine::new().with_chunks(vec![Ok("{\"note\":\"结果\"}".into())]);
     let mut pipe = pipeline(&engine);
 
     pipe.trigger_and_feed("同一段文本", Span::none());

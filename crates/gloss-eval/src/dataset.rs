@@ -120,14 +120,10 @@ pub fn load_fixtures(jsonl: &str) -> Result<Vec<Fixture>, String> {
 /// 任务 kind 的 prompt 输出契约必需键（评测从严于生产的接受条件：生产
 /// 对缺失字段有兜底，评测按契约要求其在场；允许 null 的键——phonetic /
 /// code_language null——不算必需；`note`（义）单独由判定的 note_present
-/// 计，不与疏证字段混在一张表）。
-pub fn required_fields(kind: TaskKind) -> &'static [&'static str] {
-    match kind {
-        TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode => {
-            &["examples"]
-        }
-        TaskKind::ImageExplain => &["interpretation"],
-    }
+/// 计，不与疏证字段混在一张表）。三行同构契约下 `structured.examples`
+/// 是唯一恒在的疏证键（图像解读同形落 Plain，旧 interpretation 名退役）。
+pub fn required_fields(_kind: TaskKind) -> &'static [&'static str] {
+    &["examples"]
 }
 
 fn parse_jsonl<'a, T: Deserialize<'a>>(jsonl: &'a str) -> Result<Vec<T>, String> {
@@ -249,8 +245,17 @@ mod tests {
 
     #[test]
     fn required_fields_follow_the_contract() {
-        assert_eq!(required_fields(TaskKind::TranslateWord), &["examples"]);
-        assert_eq!(required_fields(TaskKind::TranslateSentence), &["examples"]);
-        assert_eq!(required_fields(TaskKind::ImageExplain), &["interpretation"]);
+        for kind in [
+            TaskKind::TranslateWord,
+            TaskKind::TranslateSentence,
+            TaskKind::ExplainCode,
+            TaskKind::ImageExplain,
+        ] {
+            assert_eq!(
+                required_fields(kind),
+                &["examples"],
+                "{kind:?}: examples is the only ever-present structured key"
+            );
+        }
     }
 }

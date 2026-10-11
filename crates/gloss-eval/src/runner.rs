@@ -35,7 +35,9 @@ pub struct LiveRun {
 /// 重放轨：数据集 × 夹具，经生产解析函数算指标。无网络无凭据。
 ///
 /// 只统计有夹具的条目（其余计入 skipped）——夹具是维护的受控工件，
-/// 数量决定确定性轨的覆盖面。
+/// 数量决定确定性轨的覆盖面。存量夹具仍是旧契约（扁平/围栏）录制，在
+/// 嵌套契约校验器下整体落降级轨：夹具按嵌套契约重录（并补异常夹具）之前，
+/// 任务降级率不可按面值解读。
 pub fn run_replay() -> Result<EvalReport, String> {
     let classify_cases = load_classify(assets::CLASSIFY_DATASET)?;
     let classify_fixtures = load_fixtures(assets::CLASSIFY_FIXTURES)?;

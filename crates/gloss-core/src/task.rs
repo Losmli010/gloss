@@ -23,8 +23,8 @@ pub enum TaskKind {
 /// 输入模态：取材产物的统一枚举形态，消息间 move 所有权。
 ///
 /// 不携带模态提示：源语言与代码语言都由 LLM 从原文自行判断，代码语言
-/// 经产物 JSON 的 `code_language` 回传 UI（见 [`OutcomeStructured`] 与
-/// [`TaskOutcome::code_language`]）。
+/// 经产物 JSON 的 `structured.code_language` 回传 UI（见
+/// [`OutcomeStructured::Code`]）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TaskInput {
     /// 文本输入。
@@ -126,18 +126,24 @@ pub struct TaskOutcome {
     /// 产物对应的任务类型。
     pub kind: TaskKind,
     /// markdown 注文（流式 chunk 拼接；词卡为义释，句译/讲解为主体）。
+    /// 降级产物恒为空串（原文垃圾不展示不留存）。
     pub note: String,
-    /// LLM 判定的代码语言（仅代码解释任务回传，UI 角标与高亮使用；
-    /// 不确定时为 `None`，其余任务恒 `None`）。
-    #[serde(default)]
-    pub code_language: Option<String>,
-    /// kind 专属疏证字段，见 [`OutcomeStructured`]。
+    /// kind 专属疏证字段，见 [`OutcomeStructured`]（代码语言在
+    /// [`OutcomeStructured::Code`] 里随疏证走）。
     pub structured: OutcomeStructured,
+    /// 降级标记：`true` = 契约校验失败后的兜底产物（`note` 为空串）。
+    /// 降级产物不进缓存、UI 显式提示；serde default 是防御性缺省——缺该
+    /// 字段的旧序列化工件反序列化为正常产物（没有标记 = 没降级）。
+    #[serde(default)]
+    pub degraded: bool,
 }
 
 /// 结构化结果：按 `TaskKind` 给出 UI 精排所需的**疏证**字段——义在
 /// [`TaskOutcome::note`]（注），这里只带音、例与语言判定（说文解字式
-/// 分层：字头即选区原文，音/义/例各归其位）。
+/// 分层：字头即选区原文，音/义/例各归其位）。三变体与 wire 契约的
+/// `structured` 对象同构（见 `crate::schema`）：词卡归
+/// [`OutcomeStructured::WordCard`]，代码归 [`OutcomeStructured::Code`]，
+/// 句译/讲解/图像解读同形落 [`OutcomeStructured::Plain`]。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OutcomeStructured {
     /// 词卡疏证：音标（读若，模型给出时才有）与例句（疏位逐条）。
@@ -147,16 +153,19 @@ pub enum OutcomeStructured {
         /// 例句列表（疏）。
         examples: Vec<String>,
     },
-    /// 句译/代码讲解的疏：展开讲解条目（疏位逐条）。
+    /// 句译/讲解/图像解读的疏：展开条目逐条（句译的展开讲解、图像解读
+    /// 的内容要点同形；注位为主体注文，图像另有经位附件）。
     Plain {
         /// 展开讲解列表（疏）。
         examples: Vec<String>,
     },
-    /// 图像解读的疏：内容解读逐条（含义/背景/意图/细节要点），注位为
-    /// 图片内容描述（[`TaskOutcome::note`]）。
-    ImageCommentary {
-        /// 解读条目（疏位逐条）。
-        interpretation: Vec<String>,
+    /// 代码讲解的疏：展开讲解条目 + LLM 判定的代码语言（UI 角标与高亮
+    /// 使用；不确定为 `None`）。
+    Code {
+        /// 展开讲解列表（疏）。
+        examples: Vec<String>,
+        /// LLM 判定的代码语言，不确定为 `None`。
+        code_language: Option<String>,
     },
 }
 
@@ -230,28 +239,71 @@ mod tests {
     }
 
     #[test]
-    fn outcome_carries_code_language_and_word_card_subprov() {
+    fn outcome_carries_word_card_subprov_and_the_code_verdict() {
         let card = TaskOutcome {
             kind: TaskKind::TranslateWord,
             note: "义释 markdown".into(),
-            code_language: None,
             structured: OutcomeStructured::WordCard {
                 phonetic: Some("/ɡlɒs/".into()),
                 examples: vec!["a gloss of silk".into()],
             },
+            degraded: false,
         };
         assert!(
             matches!(card.structured, OutcomeStructured::WordCard { phonetic, .. } if phonetic.as_deref() == Some("/ɡlɒs/"))
         );
-        assert_eq!(card.code_language, None);
+        assert!(!card.degraded);
 
         let code = TaskOutcome {
             kind: TaskKind::ExplainCode,
             note: "讲解".into(),
-            code_language: Some("rust".into()),
-            structured: OutcomeStructured::Plain { examples: vec![] },
+            structured: OutcomeStructured::Code {
+                examples: vec![],
+                code_language: Some("rust".into()),
+            },
+            degraded: false,
         };
-        assert_eq!(code.code_language.as_deref(), Some("rust"));
+        assert!(
+            matches!(&code.structured, OutcomeStructured::Code { code_language, .. } if code_language.as_deref() == Some("rust")),
+            "the language verdict rides the Code variant"
+        );
+    }
+
+    #[test]
+    fn degraded_defaults_to_false_on_the_wire() {
+        let outcome = TaskOutcome {
+            kind: TaskKind::TranslateWord,
+            note: "义".into(),
+            structured: OutcomeStructured::WordCard {
+                phonetic: None,
+                examples: Vec::new(),
+            },
+            degraded: false,
+        };
+        let wire = serde_json::to_string(&outcome).expect("outcome serializes");
+        let without_flag = wire.replace(r#","degraded":false"#, "");
+        assert_ne!(
+            wire, without_flag,
+            "the flag must serialize explicitly when false: {wire}"
+        );
+        let back: TaskOutcome =
+            serde_json::from_str(&without_flag).expect("an outcome without the flag parses");
+        assert!(
+            !back.degraded,
+            "serde default keeps old entries on the normal path"
+        );
+
+        let degraded = TaskOutcome {
+            degraded: true,
+            ..outcome
+        };
+        let wire = serde_json::to_string(&degraded).expect("outcome serializes");
+        assert!(
+            wire.contains(r#""degraded":true"#),
+            "the flag round-trips explicitly: {wire}"
+        );
+        let back: TaskOutcome = serde_json::from_str(&wire).expect("degraded round-trips");
+        assert!(back.degraded);
     }
 
     fn text_task(kind: TaskKind) -> Task {

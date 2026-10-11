@@ -15,7 +15,7 @@ impl GlossApp {
                     info!(
                         thread = thread::UI,
                         generation = request.generation,
-                        "error card retry, task re-dispatched to tokio"
+                        "retry accepted, task re-dispatched to tokio"
                     );
                     self.send_run(request);
                 }

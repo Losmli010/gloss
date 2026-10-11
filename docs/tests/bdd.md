@@ -12,8 +12,8 @@
 | 发版人工步骤 | 8 | 手动执行（无自动化测试源码的真机/运维步骤，bdd 门禁豁免） |
 | 集成测试 | 14 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
-| 快照测试 | 33 | `just test` |
-| 单元测试 | 504 | `just test` |
+| 快照测试 | 35 | `just test` |
+| 单元测试 | 520 | `just test` |
 
 ## 人工测试
 
@@ -220,8 +220,8 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| full_flow_classifies_then_streams_and_settles | 全链路分类+流式回流与终态 | 给定划词手势注入契约 JSON（仅 note 字段）的流式脚本，当全链路推进，则先回 TaskClassified(TranslateWord)（分类解析不出 kind 落兜底）、chunk 逐条回流、TaskDone 后定格 Show、正文取自 note 字段、词卡疏证字段缺失按契约落空卡 | 2026-10-03 |
-| classify_failure_falls_back_and_the_task_still_completes | 分类失败回退兜底且任务照常完成 | 给定分类请求注入一次性失败，当桥编排分类，则 TaskClassified 携带兜底 kind、告警无内容、重建任务照常执行完成落 Show | 2026-09-26 |
+| full_flow_classifies_then_streams_and_settles | 全链路分类+流式回流与终态 | 给定划词手势注入契约 JSON（仅 note 字段）的流式脚本，当全链路推进，则先回 TaskClassified(TranslateWord)（分类解析不出 kind 落兜底）、chunk 逐条回流、TaskDone 后定格 Show、正文取自 note 字段、structured 缺失按软约束落空词卡且不降级 | 2026-10-11 |
+| classify_failure_falls_back_and_the_task_still_completes | 分类失败回退兜底且任务照常完成 | 给定分类请求注入一次性失败、任务脚本为契约 JSON，当桥编排分类，则 TaskClassified 携带兜底 kind、告警无内容、重建任务照常执行完成落 Show | 2026-10-11 |
 | second_trigger_is_a_full_cache_hit_without_engine_calls | 二次触发全缓存命中直出 | 给定同一 input+options 的任务第二次触发，当桥按 cache_key(input, options) 查产物缓存命中，则仅回 TaskClassified+TaskDone（无 TaskChunk）、引擎调用数维持 2（首轮分类+执行）、分类 kind 随缓存产物回放、状态定格 Show | 2026-10-03 |
 | hide_overlay_cancels_the_stream_and_late_events_are_dropped | 收起浮层取消流并丢弃迟到事件 | 给定慢流中已收到分类结果与首个 chunk，当 hide_overlay 取消在途令牌，则不再有任何回传事件、机器侧拒绝该任务的迟到 chunk/产物并回 Idle | 2026-09-26 |
 | superseded_trigger_cancels_and_filters_late_events | 新触发取消旧任务并过滤迟到事件 | 给定 A 的分类流未完成时触发 B，当 B 触发，则 A 的令牌立即取消、代数 +1、A 代数的迟到事件被状态机拒绝，B 经分类回退后 chunk/done 正常回流至 Show | 2026-09-26 |
@@ -230,9 +230,9 @@
 | frozen_options_carry_the_factory_model_by_default | 冻结选项默认带出厂模型 | 给定出厂配置的划词提交，当跑一轮完整任务，则引擎恰被调用 2 次（分类+执行）且任务照常完成 | 2026-10-03 |
 | config_change_invalidates_cache_for_the_next_task | 配置变更对主缓存 key 的失效 | 给定同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎维持 2 次：分类+执行）、换模型与换目标语言各再触发一轮（各 +2，共 6 次） | 2026-10-03 |
 | engine_logs_carry_the_task_span | 桥日志经 span 带上代数 | 给定带 span 的任务命令（进程级捕获订阅者），当消费桥执行到缓存命中，则命中行同时含 cache hit 与 "generation":2 | 2026-09-26 |
-| legacy_fence_contract_falls_back_to_a_complete_card | 旧围栏契约落 fallback 出完整卡 | 给定旧契约（markdown + 末尾 gloss 围栏）的流式脚本，当跑完整桥，则分类从围栏 kind 标签判 ExplainCode、完成态走围栏 fallback：正文剥离围栏、产物落完整卡（例句空集） | 2026-10-03 |
-| image_flow_classifies_before_chunks_and_settles_the_commentary | 图像任务先分类后流式并落经注疏产物 | 给定粘贴板观察注入 JSON 契约（note + interpretation）的流式脚本，当全链路推进，则先回 TaskClassified(ImageExplain)（图像跳过 LLM 分类、恒定映射、先于任何 chunk 恰一次）、chunk 逐条回流、TaskDone 后定格 Show：note 落注位、interpretation 落 ImageCommentary 疏位、引擎恰被调用 1 次、attached_image 保持 Arc 同一性 | 2026-10-10 |
-| repeated_image_copy_is_a_full_cache_hit | 同图重复复制全缓存命中直出 | 给定同一图像字节（cache_key 摘要一致）的第二次复制，当桥查产物缓存命中，则仅回 TaskClassified(ImageExplain)+TaskDone（无 TaskChunk）、引擎调用数维持 1（首轮仅执行）、状态定格 Show | 2026-10-10 |
+| a_contract_reply_that_violates_the_schema_degrades_without_cache | 违约回复落降级且不进缓存 | 给定旧契约（markdown + 末尾 gloss 围栏）的流式脚本，当跑完整桥，则分类从围栏 kind 标签判 ExplainCode、完成态按 validate_task 判违约落降级产物（note 空串、重试出口在）、同输入再触发引擎再次执行（降级产物不投毒缓存） | 2026-10-11 |
+| image_flow_skips_classification_and_settles_the_plain_examples | 图像任务跳过分类并落 Plain 疏证 | 给定粘贴板观察注入嵌套 JSON 契约（note + structured.examples）的流式脚本，当全链路推进，则先回 TaskClassified(ImageExplain)（图像跳过 LLM 分类、恒定映射、先于任何 chunk 恰一次）、chunk 逐条回流、TaskDone 后定格 Show：note 落注位、examples 落 Plain 疏位、引擎恰被调用 1 次、attached_image 保持 Arc 同一性 | 2026-10-11 |
+| repeated_image_copy_is_a_full_cache_hit | 同图重复复制全缓存命中直出 | 给定同一图像字节（cache_key 摘要一致）的第二次复制，当桥查产物缓存命中，则仅回 TaskClassified(ImageExplain)+TaskDone（无 TaskChunk）、引擎调用数维持 1（首轮仅执行）、状态定格 Show | 2026-10-11 |
 | hide_overlay_cancels_the_image_stream_and_drops_late_events | 收起浮层取消图像流并丢弃迟到事件 | 给定慢流中的图像任务已收到分类与首个 chunk，当 hide_overlay 取消在途令牌，则不再有任何回传事件、attached_image 清空、机器侧拒绝该任务的迟到 chunk 并回 Idle | 2026-10-10 |
 
 ## 性能测试
@@ -246,7 +246,7 @@
 
 ## 快照测试
 
-popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_failed_auth、popup_selfcheck、popup_code_streaming、popup_code_outcome、popup_image_outcome、popup_image_streaming、popup_image_failed；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
+popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_failed_auth、popup_selfcheck、popup_code_streaming、popup_code_outcome、popup_image_outcome、popup_image_streaming、popup_image_failed、popup_degraded_outcome；settings 快照基线：settings_main、settings_notice、settings_invalid、settings_default_kind_disabled、settings_update_up_to_date、settings_update_available、settings_update_downloading、settings_update_ready、settings_update_failed_install。全部基线统一英文文案 + 浅色主题渲染（2026-10-01 起）：kittest 自建上下文无 CJK 字体，英文基线可读可审。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -259,11 +259,13 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | streaming_view_shows_only_the_extracted_note | 流式视图只显示提取出的义 | 给定流式视图（正文为 JSON 契约原始流），当渲染，则「已流式到达的正文」「选中的原文」可见而 JSON 残片与 ```gloss 围栏均不在树中；头部只有图标与动作区 | 2026-10-03 |
 | long_lines_never_exceed_the_window_width | 长行不超窗口可用宽 | 给定长中文段落 + 围栏代码块与长 token 代码原文两类视图，当以 380 宽渲染，则全部内容节点右缘不超窗口宽（横滚不进弹窗）；popup_long_line 基线锁定形态 | 2026-10-03 |
 | image_card_exposes_the_commentary_to_accesskit | 图像完成态卡经注疏入树且纵排 | 给定附件图像 + ImageCommentary 产物（注 + 两条解读）的完成态视图，当渲染，则注与两条解读皆可按文本定位，且疏位条目矩形在注位之下（经=图、注→疏纵向排布） | 2026-10-10 |
-| image_streaming_card_shows_the_interpretation_items_as_they_arrive | 图像流式卡双字段渐进上屏 | 给定 note 截断 + interpretation 两条（第二条中段截断）的图像流式视图，当渲染，则注前缀与两条疏条目（含在写条目的已到达前缀）可见而 JSON 残片不在树中（描述流完不静默等待） | 2026-10-10 |
+| image_streaming_card_shows_the_interpretation_items_as_they_arrive | 图像流式卡双字段渐进上屏 | 给定 note 截断 + structured.examples 两条（第二条中段截断）的图像流式视图，当渲染，则注前缀与两条疏条目（含在写条目的已到达前缀）可见而 JSON 残片不在树中（扫描器下钻 structured 渐进提取） | 2026-10-11 |
 | image_streaming_card_without_a_note_keeps_the_skeleton | 图像流式卡注未至落骨架 | 给定原始流为空的图像流式视图，当渲染，则「正在注解」页脚在（骨架态，经位图像照常回显） | 2026-10-10 |
 | image_card_degrades_to_a_placeholder_when_the_bytes_do_not_decode | 图像字节解码失败占位降级 | 给定不可解码字节的图像完成态卡，当渲染，则经位出「The image could not be displayed.」占位、注位照常（不 panic） | 2026-10-10 |
 | attached_image_texture_is_reused_across_frames | 附件图像纹理跨帧复用 | 给定同一份附件图像字节连续渲染七帧，当比对第 2 帧与第 7 帧的 egui 纹理分配数，则计数不增（同字节恒同纹理，逐帧解码即失败） | 2026-10-10 |
 | attached_image_slot_is_dropped_once_an_imageless_frame_renders | 会话离开图像卡即清纹理槽 | 给定图像帧（纹理就位）后切到无附件帧再切回同图，当逐段比对 egui 纹理分配数，则无附件帧分配数下降（源字节与纹理同帧释放，敏感数据不驻留会话外）、同图再上卡重新解码回到原驻留数 | 2026-10-10 |
+| degraded_outcome_card_shows_only_the_abnormal_notice_and_retry | 降级产物卡只出异常提示与重试 | 给定 degraded=true 的完成态卡（note 带残留内容），当渲染，则出「Abnormal output」与「Retry」按钮、点击上交 OverlayAction::Retry，而 note 残留与语言判定一概不在树上（原文垃圾不展示不留存） | 2026-10-11 |
+| degraded_outcome_card_never_takes_the_source_jing_section | 降级产物卡不保留原文经位 | 给定带原文的降级完成态卡，当渲染，则树上无原文节点（降级卡与失败卡同形：只有提示与重试） | 2026-10-11 |
 | failed_view_shows_retry_hint | 失败卡重试动作 | 给定 Retry 失败卡，当渲染并点击「重试」，则收集器收到 OverlayAction::Retry | 2026-09-21 |
 | auth_failed_view_offers_open_settings | 鉴权失败卡设置入口 | 给定鉴权失败卡，当渲染并点击「打开设置」，则收到 OverlayAction::OpenSettings（头部齿轮标签为「设置」，与正文按钮不混淆） | 2026-09-21 |
 | bare_failed_view_has_no_action_button | 无动作失败卡形态 | 给定 action=None 失败卡，当渲染，则无「重试」节点、无动作上交 | 2026-09-19 |
@@ -272,7 +274,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | header_drag_strip_is_exposed_to_accesskit | 页头拖动热区进无障碍树且与动作钮零重叠 | 给定词卡视图，当渲染，则无障碍树有「拖动浮层」热区节点、矩形与页头行同高（不小于头部图标边长）且水平区间止于最左动作钮左缘（收 DRAG_STRIP_INSET，与齿轮/× 零重叠） | 2026-10-03 |
 | header_drag_reports_cumulative_offset_and_ends_on_release | 页头拖动上交自按压点的累计位移 | 给定词卡视图与页头热区中心，当按下→两段移动→松开→再移动，则上交位移自按压点累计（按下为零、两段各 (20,10)/(30,15)，非逐帧增量）、松开后不再上交；按压点按物理像素记录（跨 DPI 显示器不混尺）；落点换算与屏幕钳制在壳侧 apply_overlay_drag（无状态：以窗口实际位置为基准，中途被动过会被下一帧落点吸收） | 2026-10-03 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/流式/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 七份基线一致，结果合并进单个 SnapshotResults（基线沿革：2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、Acquiring 骨架视图删除，popup_loading 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 popup_image_outcome / popup_image_streaming / popup_image_failed 三份基线（图像经位 + 注疏，夹具为测试内确定性编码的 120×80 渐变 PNG；英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 ImageOcr 任务类型与 Extracted 结构化变体，popup_extract 基线随其视图一并移除，余七份） | 2026-10-10 |
+| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/流式/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 七份基线一致，结果合并进单个 SnapshotResults（基线沿革：2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、Acquiring 骨架视图删除，popup_loading 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 popup_image_outcome / popup_image_streaming / popup_image_failed 三份基线（图像经位 + 注疏，夹具为测试内确定性编码的 120×80 渐变 PNG；英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 ImageOcr 任务类型与 Extracted 结构化变体，popup_extract 基线随其视图一并移除，余七份）；2026-10-11 随契约收敛新增 popup_degraded_outcome 降级产物卡基线（异常提示 + 重试，无经注疏内容），popup_code_streaming 随流式代码面板移除语言标签行重录（差异仅该行移除与其下既段位移），余十一份） | 2026-10-11 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
@@ -376,25 +378,38 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | --- | --- | --- | --- |
 | classify_prompt_carries_allowed_kinds_and_the_text | 分类提示词携带允许清单与原文 | 给定允许清单与原文，当 render_classify（双语），则用户消息为原文、系统指令含全部 kind 标识与 kind 契约、不含 Auto、无残留占位符 | 2026-09-30 |
 | classify_schema_is_a_neutral_placeholder | 分类契约为中性占位 | 给定分类输出契约（CLASSIFY_SCHEMA），当检查，则不含任何具体 kind 标识（示例值是少样本偏置，写死哪类模型就偏向哪类） | 2026-10-03 |
-| output_example_carries_the_note_field | 输出示例携带 note 字段 | 给定双 locale 三份任务模板，当整行解析示例 JSON，则示例可解析且恒带 note（义）——note 位置随 kind 而定（词卡 phonetic 领头），流式提取器按位独立扫描不依赖字段序 | 2026-10-04 |
-| output_example_values_are_neutral_placeholders | 输出示例值为中性占位 | 给定双 locale 三份任务模板，当检查示例值，则恒为「…」类占位、不含具体词条——同分类契约的少样本偏置取舍（照抄示例的比例随示例显著性上升） | 2026-10-04 |
+| output_example_carries_the_note_field | 输出示例携带 note 字段 | 给定双 locale 四份任务模板，当整行解析示例 JSON，则示例可解析且恒带 note（义，恒为首字段），流式渐进提取不受 structured 嵌套影响 | 2026-10-11 |
+| output_example_values_are_neutral_placeholders | 输出示例值为中性占位 | 给定双 locale 四份任务模板，当检查示例值，则恒为「…」类占位、不含具体词条——同分类契约的少样本偏置取舍（照抄示例的比例随示例显著性上升） | 2026-10-11 |
 | rules_follow_the_allowed_list_and_leave_no_dangling_label | 判别规则跟随允许清单 | 给定含/不含 ExplainCode、以及全无规则的清单，当 render_classify，则命令行等边界规则只在对应 kind 在清单里时出现；清单里没有带规则的 kind 时整段（含标签）消失、无残留占位符 | 2026-09-30 |
-| text_kinds_render_system_and_user_with_kind_content | 文本 kind 渲染两段消息 | 给定三个文本 kind，当渲染，则得 [System, User] 两段，系统指令含各自关键词与结构化契约围栏，用户消息为原文 | 2026-09-19 |
-| output_example_carries_the_kind_fields | 输出示例携带 kind 字段 | 给定词卡/句译/代码解释模板（自包含任务书，含输出示例），当渲染并检查系统指令，则词卡示例声明 phonetic/examples、句译示例声明 examples、代码示例声明 examples/code_language（note 恒在） | 2026-10-04 |
+| text_kinds_render_system_and_user_with_kind_content | 文本 kind 渲染两段消息 | 给定三个文本 kind，当渲染，则得 [System, User] 两段，系统指令含各自关键词与纯 JSON 输出契约，用户消息为原文 | 2026-10-11 |
+| output_example_carries_the_kind_fields | 输出示例携带 kind 字段 | 给定词卡/句译/代码解释模板（自包含任务书，含输出示例），当渲染并检查系统指令，则系统指令声明 structured 与 note，词卡示例另带 phonetic/examples、代码示例另带 examples/code_language | 2026-10-11 |
+| every_task_template_example_passes_validate_task | 模板示例过生产校验器（完整性门禁） | 给定双 locale × 四份任务模板，当取出示例对象行，则模板含 json 字样（端点 JSON 模式读它）、示例对象过对应 validate_task、structured 内键齐 per kind（词卡 phonetic+examples、句译/图像 examples、代码 examples+code_language） | 2026-10-11 |
 | missing_target_lang_defaults_to_chinese | 目标语言缺省中文 | 给定未设 target_lang，当渲染句译，则系统指令含「中文」 | 2026-09-19 |
 | explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 Lang::Ja，当渲染，则系统指令含「日语」 | 2026-09-19 |
-| empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") / Other(" ") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且契约围栏仍在 | 2026-09-22 |
-| image_explain_example_is_a_single_json_object_with_note_first | 图像模板示例为单 JSON 且 note 在前 | 给定双 locale 的 image_explain 模板，当整行解析示例 JSON，则示例可解析、首字段是 note、恰含 note 与 interpretation 两字段——流式与完成态解析都按这份契约 | 2026-10-10 |
-| image_explain_renders_system_and_image_parts | 图像解读渲染系统指令与图像部件 | 给定 ImageExplain 图像任务，当渲染，则得 [System, User] 两段，用户消息是 Parts([ImagePng])（字节经 Arc 零拷贝共享），系统指令要求单个 JSON 对象且携带 note/interpretation 契约 | 2026-10-10 |
+| empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") / Other(" ") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且纯 JSON 契约仍在 | 2026-10-11 |
+| image_explain_example_is_a_single_json_object_with_note_first | 图像模板示例为单 JSON 且 note 在前 | 给定双 locale 的 image_explain 模板，当整行解析示例 JSON，则示例可解析、键恰为 note + structured（note 在前），structured 内只有 examples（interpretation 旧名退役）——流式与完成态解析都按这份契约 | 2026-10-11 |
+| image_explain_renders_system_and_image_parts | 图像解读渲染系统指令与图像部件 | 给定 ImageExplain 图像任务，当渲染，则得 [System, User] 两段，用户消息是 Parts([ImagePng])（字节经 Arc 零拷贝共享），系统指令要求单个 JSON 对象且携带 note/structured.examples 契约 | 2026-10-11 |
 | modality_mismatch_is_rejected_before_rendering | 模态错配在渲染前拒绝 | 给定图像 kind 配文本输入，当渲染，则先被模态约束拒绝 | 2026-10-10 |
 | render_template_substitutes_placeholders | 占位符显式替换 | 给定含 {{占位符}} 的模板，当渲染，则按值替换、同名占位符可重复；未声明与未闭合的占位符原样保留（留待完整性测试抓） | 2026-09-22 |
 | render_template_drops_lines_whose_placeholders_are_empty | 占位符全空的行整行消失 | 给定提示行与指令行模板，当某行占位符值全为空，则该行连同行内静态文字与换行一并删除，其余行不受影响 | 2026-09-22 |
 | render_template_keeps_blank_lines_without_placeholders | 无占位符空行是结构 | 给定模板里的空行（不含占位符），当渲染，则原样保留 | 2026-09-22 |
-| every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 locale 的五个模板原文，当扫占位符，则括号配对且名字都在已声明集合内（未声明者若与已声明占位符同行会被整行删掉，产物断言看不见） | 2026-09-22 |
+| every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 locale 的五个模板原文，当扫占位符，则每个 {{ 都有闭合且名字都在已声明集合内（嵌套契约的示例 JSON 以 }} 收尾，闭合计数因此可多于开启——按配对判）；未声明者若与已声明占位符同行会被整行删掉，产物断言看不见 | 2026-10-11 |
 | every_locale_renders_without_leftover_placeholders | 全 locale 无残留占位符 | 给定两个 locale × 四个 kind（三个文本 + ImageExplain），当渲染，则文本消息不含 {{、系统指令携带 note 纯 JSON 契约且不含旧围栏 | 2026-10-10 |
 | english_locale_renders_english_prompts | 英文 locale 出英文指令 | 给定 En locale 的句译任务，当渲染，则系统指令为英文（含 JSON object 契约）、用户消息携带原文，且不含中文指令词 | 2026-10-03 |
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 En locale 未设目标语言、Zh locale 设 Lang::En，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含「英语」 | 2026-09-22 |
 | prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 prompt_locale 的任务，当渲染，则结果与显式 Zh 逐字一致且含「词典助手」 | 2026-09-22 |
+
+### crates/gloss-core/src/schema.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| violations_carry_fixed_wording_without_reply_content | 违约措辞固定且不带回复原文 | 给定四类 Violation，当取措辞，则非空、固定且不含选区/回复原文/密钥形态（类别进日志与降级产物，永不携带内容） | 2026-10-11 |
+| classify_violation_matrix_covers_empty_not_json_and_kind | 分类违约矩阵 | 给定空回复/纯空白/散文/截断 JSON/围栏输出/JSON 标量/缺 kind/kind 为 null/未知 kind/清单外 ImageExplain/task 契约体各类回复，当 validate_classify，则分别落 EmptyReply/NotJson/KindNotAllowed | 2026-10-11 |
+| classify_accepts_allowed_kinds_only_from_the_list | 分类按允许清单放行 | 给定清单内 kind（含首尾空白）与调用方自定义清单，当 validate_classify，则返回对应 kind（清单是调用方的决策） | 2026-10-11 |
+| task_violation_matrix_covers_empty_not_json_and_missing_note | 任务违约矩阵 | 给定四 kind × 空回复/散文/JSON 数组/截断 JSON/缺 note/note 为 null/纯空白 note/note 非字符串各回复，当 validate_task，则分别落 EmptyReply/NotJson/MissingNote（硬约束只此三条） | 2026-10-11 |
+| task_ok_builds_the_three_contract_variants | 任务契约三变体构建 | 给定词卡/代码/句译与图像的嵌套契约 JSON，当 validate_task，则 note 原样、structured 按 kind 落 WordCard/Code/Plain（坏条目跳过） | 2026-10-11 |
+| task_soft_rules_fall_back_field_by_field | 任务软约束逐级回落 | 给定 structured 缺失/非对象/变体内字段类型错/null 的回复，当 validate_task，则按空变体与缺省回落、note 保留、清单外疏证键就地忽略（kind 决定变体） | 2026-10-11 |
+| empty_structured_covers_every_kind | 空疏证变体覆盖全 kind | 给定四个 kind，当 empty_structured，则词卡空 WordCard、代码空 Code（无语言判定）、句译与图像落空 Plain | 2026-10-11 |
 
 ### crates/gloss-core/src/config_handle.rs
 
@@ -420,7 +435,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | task_binds_kind_input_and_options | Task 三元正确绑定 | 给定构造参数，当建 Task，则 kind/input/options 正确绑定 | 2026-09-19 |
 | task_options_default_carries_the_factory_model | 选项缺省携带出厂模型 | 给定 TaskOptions::default()，当检查，则 model 为 DEFAULT_MODEL、target_lang/prompt_locale 为 None（缺省只服务测试直构） | 2026-10-10 |
 | image_input_shares_png_bytes_via_arc | 图像输入 Arc 共享 | 给定 PNG 字节，当构造 Image 输入，则经 Arc 共享（ptr_eq）并携带区域 | 2026-09-19 |
-| outcome_carries_code_language_and_word_card_subprov | 产物携带语言判定与词卡疏证 | 给定词卡与代码产物，当构造 TaskOutcome，则词卡 structured 为 WordCard（phonetic/examples）、代码产物携带 code_language（UI 角标与高亮使用） | 2026-10-04 |
+| outcome_carries_word_card_subprov_and_the_code_verdict | 产物携带词卡疏证与语言判定 | 给定词卡与代码产物，当构造 TaskOutcome，则词卡 structured 为 WordCard（phonetic/examples）、代码的语言判定随 Code 变体走（structured.code_language，UI 角标与高亮使用） | 2026-10-11 |
+| degraded_defaults_to_false_on_the_wire | 降级标记 serde 缺省 false | 给定序列化后剥去 degraded 字段的产物 JSON，当反序列化，则 degraded 为 false（旧条目落在正常路径）；degraded=true 显式往返 | 2026-10-11 |
 | modality_matrix_is_enforced_cell_by_cell | 模态矩阵逐格校验 | 给定 4 kind × 3 输入全矩阵，当逐格 validate，则文本列与 Image 列（唯一合法 kind 为 ImageExplain）合法、Audio 全列非法 | 2026-10-10 |
 | task_round_trips_through_serde | Task serde 往返无损 | 给定文本任务（含目标语言与模型），当 serde 往返，则无损 | 2026-10-03 |
 | image_input_round_trips_through_serde | 图像输入 serde 往返 | 给定 Image 输入，当 serde 往返，则字节与区域不变且反序列化得到新 Arc（不与原值共享） | 2026-09-19 |
@@ -464,19 +480,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| json_main_path_builds_the_word_card | JSON 主路径出词卡 | 给定契约 JSON（phonetic/note/examples），当 complete，则 note 原样、词卡疏证字段完整回填 | 2026-10-03 |
-| json_main_path_tolerates_null_and_missing_fields | JSON 主路径容忍 null 与缺字段 | 给定 "phonetic":null、examples 带坏条目或缺疏证字段的契约 JSON，当 complete，则 phonetic 为 None、坏条目跳过、缺字段落空（字段级按契约回退） | 2026-10-03 |
-| json_main_path_covers_the_plain_kinds | JSON 主路径覆盖 Plain 侧 kind | 给定句译（examples、code_language 恒空）与代码（examples/code_language）契约 JSON，当 complete，则疏证各按 kind 落结构化、note 保持 markdown | 2026-10-10 |
-| image_explain_json_path_builds_the_commentary | 图像解读 JSON 主路径出经注疏 | 给定契约 JSON（note/interpretation）的 ImageExplain 回复，当 complete，则 note 为描述、ImageCommentary 携带按序解读条目 | 2026-10-10 |
-| image_explain_tolerates_missing_or_bad_interpretation | 图像解读容忍缺失与坏条目 | 给定缺 interpretation 或数组带非字符串条目的契约 JSON，当 complete，则缺失落空表、坏条目跳过（字段级按契约回退） | 2026-10-10 |
-| image_explain_missing_note_degrades_to_the_kind_fallback | 图像解读缺 note 落 kind 兜底 | 给定只有 interpretation 的 JSON 回复，当 complete，则 JSON 主路径整路失败、全文落注位、疏为空表 | 2026-10-10 |
-| image_explain_falls_through_the_three_layers | 图像解读三层降级链 | 给定坏 JSON + 坏围栏的 ImageExplain 回复，当 complete，则一路退到 kind 兜底（ImageCommentary 空表）、全文无损保留 | 2026-10-10 |
-| image_explain_fence_fallback_parses_interpretation | 图像解读围栏 fallback 解析 | 给定旧契约围栏（interpretation 数组）的 ImageExplain 回复，当 finalize_outcome，则正文剥到围栏前、疏证逐条回填 | 2026-10-10 |
-| missing_note_field_hands_over_to_the_fence_fallback | 缺 note 交围栏 fallback | 给定 note 缺失但带旧围栏的回复，当 complete，则 JSON 主路径整路失败、围栏 fallback 接住旧契约输出 | 2026-10-03 |
-| non_json_reply_falls_through_to_the_fence_fallback | 非 JSON 回复逐层退让 | 给定非 JSON 的原始回复，当 complete，则 JSON 主路径失败、围栏 fallback 接住（无围栏时正文原样、结构化为无标题 Plain） | 2026-10-03 |
-| fence_fallback_pairs_with_the_raw_stream | 围栏 fallback 与原始流的契约配对 | 给定含围栏的原始回复，当 complete 的 fallback 层（finalize_outcome）解析，则产出 kind 正确、围栏从正文剥离、词卡结构化字段完整回填 | 2026-10-03 |
-| fence_fallback_keeps_the_rfind_semantics | 围栏 fallback 保留 rfind 语义 | 给定围栏后尾随文字/多围栏/坏围栏/缺 senses 的四种输入，当 parse_structured，则取最后一个围栏、尾随文字不进正文、残片无损保留、kind 兜底接住 | 2026-10-03 |
-| both_layers_agree_on_the_two_layer_handoff | 两层衔接各就各位 | 给定坏 JSON + 坏围栏的词卡回复，当 complete，则一路退到 kind 兜底、全文无损保留（图像 kind 的同组合另测） | 2026-10-10 |
+| a_contract_reply_builds_the_normal_outcome | 契约回复出正常产物 | 给定词卡/代码/句译的嵌套契约 JSON，当 complete，则 note 原样、structured 按 kind 落变体（代码语言随 Code）、degraded=false | 2026-10-11 |
+| soft_field_gaps_stay_on_the_normal_path | 软字段缺口不降级 | 给定 structured 缺失与坏条目的契约 JSON（note 在场），当 complete，则字段按软规则回落（phonetic None、坏条目跳过）、degraded=false | 2026-10-11 |
+| an_image_reply_lands_on_the_plain_variant | 图像回复落 Plain 变体 | 给定嵌套契约（note + structured.examples）的 ImageExplain 回复，当 complete，则 note 为描述、examples 按序落 Plain 疏位、不降级 | 2026-10-11 |
+| contract_violations_degrade_to_an_empty_marked_outcome | 契约违约落降级产物 | 给定空回复/散文/围栏输出/缺 note/纯空白 note 五类违约回复，当 complete，则 degraded=true、note 空串、空 Code 变体（降级必有痕、原文垃圾不保留） | 2026-10-11 |
+| the_degrade_warn_carries_the_category_only | 降级告警只带违约类别 | 给定散文回复，当 complete 并捕获日志，则 warn 留痕（violated the contract）、携带固定措辞类别、不含回复原文 | 2026-10-11 |
 
 ### crates/gloss-app/src/channel.rs
 
@@ -583,15 +591,15 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| stream_fields_extracts_the_json_fields_progressively | 流式正文按 JSON note 渐进提取 | 给定完整 JSON（含转义），当 stream_fields，则 note 反转义前缀可见、interpretation 恒空 | 2026-10-10 |
-| stream_fields_walks_past_note_into_the_interpretation_array | note 闭合后游标推进进疏数组 | 给定 note 与 interpretation 双字段完整 JSON，当 stream_fields，则两字段全量提取（描述流完不等整个响应） | 2026-10-10 |
-| stream_fields_shows_the_partial_item_while_the_array_streams | 在写疏条目带上屏 | 给定 interpretation 数组截断在第二条字符串中段的原始流，当 stream_fields，则已闭合条目全量、在写条目带反转义前缀、closed 停在数组处 | 2026-10-10 |
-| stream_fields_keeps_note_only_until_its_value_closes | note 未闭合保持进度态 | 给定 note 值未闭合/刚起头/冒号后无值三类原始流，当 stream_fields，则 note 按已到达前缀或空串落进度态、interpretation 恒空 | 2026-10-10 |
-| stream_fields_note_stays_visible_while_waiting_for_the_array | 等疏数组期间注保持可见 | 给定 note 闭合、数组首条闭合后逗号截断的原始流，当 stream_fields，则 note 全量可见、疏只带已闭合条目（已到字段不因后字段未到而回退） | 2026-10-10 |
-| stream_fields_tolerates_foreign_keys_around_the_contract | 外键跳过不碍契约字段 | 给定 kind 在前/phonetic 在前（词卡）/外键字符串未闭合/examples 数组外键/tail 数值外键五类原始流，当 stream_fields，则外键整值跳过、note 与 interpretation 照常渐进 | 2026-10-10 |
-| stream_fields_decodes_escapes_in_both_fields | 双字段转义解码与残缺截断 | 给定引号/反斜杠/unicode 转义与尾部孤反斜杠的原始流，当 stream_fields，则完整转义解码、残缺序列就地截断留待下帧 | 2026-10-10 |
-| stream_fields_stays_in_progress_off_contract | 非契约输入恒进度态 | 给定空串/plain markdown/裸 {/部分键/键无冒号/旧围栏契约六类输入，当 stream_fields，则两字段恒空（完成态由 finalize 兜底） | 2026-10-10 |
-| stream_fields_stops_at_the_closing_brace | 对象闭合即收工 | 给定 note+interpretation+尾随外键的完整 JSON，当 stream_fields，则两字段提取后在 } 处返回（不误吞尾随结构） | 2026-10-10 |
+| stream_fields_extracts_the_json_fields_progressively | 流式正文按 JSON note 渐进提取 | 给定完整 JSON（含转义），当 stream_fields，则 note 反转义前缀可见、examples 恒空 | 2026-10-11 |
+| stream_fields_descends_into_structured_for_the_examples | 扫描器下钻 structured 取疏证 | 给定 note + structured.examples 的嵌套契约 JSON，当 stream_fields，则两字段全量提取（描述流完不等整个响应，疏证条目随流上屏） | 2026-10-11 |
+| stream_fields_shows_the_partial_item_while_the_array_streams | 在写疏条目带上屏 | 给定 structured.examples 数组截断在第二条字符串中段的原始流，当 stream_fields，则已闭合条目全量、在写条目带反转义前缀、closed 停在数组处 | 2026-10-11 |
+| stream_fields_keeps_note_only_until_its_value_closes | note 未闭合保持进度态 | 给定 note 值未闭合/刚起头/冒号后无值三类原始流，当 stream_fields，则 note 按已到达前缀或空串落进度态、examples 恒空 | 2026-10-11 |
+| stream_fields_note_stays_visible_while_waiting_for_the_array | 等疏数组期间注保持可见 | 给定 note 闭合、structured 内数组首条闭合后逗号截断的原始流，当 stream_fields，则 note 全量可见、疏只带已闭合条目（已到字段不因后字段未到而回退） | 2026-10-11 |
+| stream_fields_tolerates_foreign_keys_around_the_contract | 外键跳过不碍契约字段 | 给定顶层外键/structured 内字符串同胞键（code_language、phonetic）/structured 截断/examples 数组外键/tail 数值外键五类原始流，当 stream_fields，则外键整值跳过、note 与 structured.examples 照常渐进 | 2026-10-11 |
+| stream_fields_decodes_escapes_in_both_fields | 双字段转义解码与残缺截断 | 给定引号/反斜杠/unicode 转义与尾部孤反斜杠的原始流，当 stream_fields，则 note 与 structured.examples 完整转义解码、残缺序列就地截断留待下帧 | 2026-10-11 |
+| stream_fields_stays_in_progress_off_contract | 非契约输入恒进度态 | 给定空串/plain markdown/裸 {/部分键/键无冒号/旧围栏契约六类输入，当 stream_fields，则两字段恒空（完成态由降级卡兜住） | 2026-10-11 |
+| stream_fields_stops_at_the_closing_brace | 对象闭合即收工 | 给定 note+structured+尾随外键的完整 JSON，当 stream_fields，则两字段提取后在内层 } 与外层 } 处逐层收工（不误吞尾随结构） | 2026-10-11 |
 
 ### crates/gloss-app/src/ui/popup/icon.rs
 
@@ -617,7 +625,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| code_views_expose_the_language_badge_and_prose_untouched | 代码视图语言标签入树、非代码无标签 | 给定 ExplainCode 流式视图，当渲染，则无障碍树可检索语言标签 rust（面板首行左上、原样小写）；给定翻译流式视图，当渲染，则树上无标签（未知/非代码不显示） | 2026-10-02 |
+| the_language_badge_arrives_only_with_the_outcome_verdict | 语言角标只随产物判定到达 | 给定 ExplainCode 流式视图，当渲染，则树上无语言标签（流式期无判定——唯一来源是产物 structured.code_language，经 code_hl::adopt 渲染时现算）；给定带 rust 判定的代码完成态卡，当渲染，则角标 rust 入树；给定翻译流式视图，当渲染，则树上无标签 | 2026-10-11 |
 | snapshots_match_baseline（popup 代码视图随高亮再录） | 两份代码视图基线随语法着色重录 | 给定 popup_code_streaming / popup_code_outcome 的英文夹具，当 wgpu 渲染并 diff，则与基线一致（2026-10-02 随 T4 单趟正则六类着色再录：关键字/函数形/字符串着色；其余七份 popup 与 settings 基线零变化——着色只落代码分支） | 2026-10-02 |
 
 ### crates/gloss-app/src/flow/actions.rs
@@ -650,6 +658,14 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | apply_theme_elides_writes_until_the_preference_changes | 主题未变不重写 | 给定未变的偏好，当重复 apply_theme，则不写；偏好变了则跟上 | 2026-09-23 |
+
+### crates/gloss-app/src/ui/code_hl/mod.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| adopt_keeps_plausible_verdicts_and_normalizes_aliases | 语言判定采纳与别名归一 | 给定规范名/大小写混排/别名（py、objective-c、c++）判定，当 code_hl::adopt，则落规范名（门槛 + normalize_language 收敛于此） | 2026-10-11 |
+| adopt_rejects_prose_placeholders_and_missing_verdicts | 散文与占位串不上角标 | 给定 None/空串/纯空白/「…或 null」/含空白散文的判定，当 adopt，则恒 None（无角标、通用启发集着色） | 2026-10-11 |
+| adopt_trims_surrounding_whitespace_before_the_gate | 采纳前先修剪首尾空白 | 给定带首尾空白的合法判定，当 adopt，则修剪后采纳（不因空白误判成占位串） | 2026-10-11 |
 
 ### crates/gloss-app/src/ui/code_hl/palette.rs
 
@@ -709,6 +725,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | classified_chunks_and_done_flow_back_in_order | 分类、增量与完成按序回流 | 给定脚本化引擎流（脚本解析不出分类 kind，落兜底），当跑完整桥，则 TaskClassified → TaskChunk（按序携带代数）→ TaskDone（完成态解析后正文）依次回传 | 2026-10-03 |
+| a_degraded_done_never_enters_the_cache | 降级产物不进缓存 | 给定任务回复为散文（validate_task 违约），当跑完整桥两轮同输入，则 TaskDone 携带 degraded 产物（note 空）、第二轮引擎调用数 +2（分类+执行重跑——降级产物不投毒缓存） | 2026-10-11 |
 | cancel_takes_effect_mid_stream | 流中取消即时生效 | 给定慢流中紧随首 chunk 的取消，当取消，则不再有任何后续事件 | 2026-09-19 |
 | engine_failure_becomes_task_failed | 引擎失败映射 TaskFailed | 给定 execute 整体失败，当运行，则映射为带代数的 TaskFailed | 2026-09-19 |
 | background_panic_becomes_task_failed_and_the_loop_survives | 后台 panic 转失败且循环存活 | 给定注入 panic 的引擎，当任务炸掉，则转 EngineResponse 失败且循环存活、第二个任务照常完成 | 2026-09-19 |
@@ -726,7 +743,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 begin_selection_probe，则两次都 None、无探测编号、状态留 Idle；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
 | selection_options_pair_with_one_snapshot_including_the_model | 选项（含模型）出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则目标语言与模型 id 均出自快照冻结（类型不在其中——kind 由 LLM 层分类决定） | 2026-10-03 |
 | classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 accept_classified，则当前代写入判定 kind、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
-| code_language_comes_only_from_the_llm_verdict | 代码语言只认 LLM 产物判定 | 给定 rust 代码片段的划词提交，当检查流式视图，则 code_lang 为 None（本地不做内容探测）；产物到达后判定修剪首尾空白、过词元门槛并归一化采纳；判定缺失或为占位串（如「…或 null」）时不做兜底、产物卡无语言（无角标、通用集着色） | 2026-10-06 |
+| a_degraded_done_keeps_the_request_and_retry_redispatches_it | 降级产物保留请求副本且可重试 | 给定推理中任务收 degraded 产物，当 accept_done，则落 Show 定格降级卡且不清 active_request；当 retry，则同代数按原 input+options 重发、回流式视图；正常产物落 Show 即清请求（retry 返回 None） | 2026-10-11 |
 | options_freeze_at_probe_time | 选项在探测时刻冻结 | 给定探测后更换配置（目标语言与界面语言同时变），当提交产物，则任务仍带探测时快照的选项（含 prompt_locale）；第二次探测才用新值 | 2026-10-01 |
 | prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 Language::En 与出厂 System 两份配置，当探测并提交产物，则任务携带的 prompt_locale 分别为 En 与注入的系统语言 | 2026-09-22 |
 | commit_probe_yields_run_request_and_supersedes_the_previous_session | 提交探测接管会话并守卫状态 | 给定命中在途探测的合法产物，当 commit_probe，则返回下发请求、探测编号提升为代数、旧在途任务被取消、视图换流式卡；同编号重复提交被拒 | 2026-10-01 |
@@ -743,7 +760,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | hide_overlay_clears_the_attached_image | 隐藏清空随行图像 | 给定已提交图像任务的会话，当 hide_overlay，则 attached_image 清空 | 2026-10-10 |
 | image_too_large_failure_lands_in_the_failure_card | 图片超上限失败落失败卡 | 给定在途粘贴板探测，当收 ImageTooLarge，则 Shown 落 Error 弹失败卡（无动作按钮——超限没有按钮意义上的出口、retry 为 None）、探测消费、无随行图像 | 2026-10-10 |
 | retrying_a_failed_image_task_keeps_the_attached_image | 图像任务失败重试保住随行图像 | 给定图像任务流中失败落 Error，当 retry，则同代数原样重发（input 含同一图像 Arc、新令牌）、attached_image 指针不变、回流式卡（经位原文为空） | 2026-10-10 |
-| the_streaming_view_waits_unclassified_until_the_llm_layer_reports | 流式视图等 LLM 层分类精化 | 给定划词提交，当检查流式视图，则 classified 与 code_lang 创建均为 None（等 LLM 层回传） | 2026-10-03 |
+| the_streaming_view_waits_unclassified_until_the_llm_layer_reports | 流式视图等 LLM 层分类精化 | 给定划词提交，当检查流式视图，则 classified 创建为 None（等 LLM 层回传；语言不上流式视图——唯一来源是产物 structured.code_language） | 2026-10-11 |
 | failed_guard_matches_translating_only | 失败守卫只认推理在途态 | 给定推理中任务的失败、以及隐藏后的迟到失败，当采纳，则前者落 Error（Shown）、后者被拒（Ignored） | 2026-10-03 |
 | probe_no_selection_failures_are_silently_dropped | 探测空选区静默丢弃 | 给定在途划词探测，当收 SelectionUnavailable / SelectionEmpty 失败，则静默丢弃不弹卡，状态机与当前显示一律不动、探测编号消费 | 2026-10-01 |
 | probe_permission_failures_still_raise_the_card | 探测权限失败仍弹卡 | 给定在途划词探测，当收 AccessibilityDenied 失败，则接管会话落 Error 弹失败卡（真实故障需要显式反馈） | 2026-10-01 |
@@ -1117,17 +1134,17 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | fixtures_align_with_dataset_ids | 夹具与数据集 id 对齐 | 给定分类/任务夹具文件与数据集，当加载，则 id 无重复、deltas 非空、且每条夹具 id 都存在于对应数据集（陈旧 id 即失败） | 2026-09-26 |
 | duplicate_ids_are_rejected | 重复 id 硬错误 | 给定含重复 id 的 jsonl，当加载，则报错而非静默跳过 | 2026-09-26 |
 | bad_reference_is_rejected | 引用条目缺必需键报错 | 给定词卡条目缺疏证键（旧形态字段）的 jsonl，当加载，则报错 | 2026-10-03 |
-| required_fields_follow_the_contract | 必需键随结构化契约 | 给定各任务 kind，当查必需键，则词卡/句译/代码均要求 examples、图像解读要求 interpretation | 2026-10-10 |
+| required_fields_follow_the_contract | 必需键随结构化契约 | 给定全部任务 kind，当查必需键，则恒为 examples（三行同构契约下 structured.examples 唯一恒在；图像解读同形落 Plain，旧 interpretation 名退役） | 2026-10-11 |
 
 ### crates/gloss-eval/src/metrics.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | classify_verdicts_cover_the_matrix | 分类判定四分类 | 给定正确/混淆/非 JSON/未知 kind/清单外 kind 五种回复，当经生产校验器判定，则分别落 Correct/Wrong/InvalidJson/Rejected | 2026-10-10 |
-| legacy_fence_reply_falls_back_like_production | 旧围栏回复与生产同轨（eval） | 给定旧围栏与纯正文两类回复，当 TaskVerdict::for_reply，则判定为降级（未按现行契约）而 outcome 与生产 fallback 同形（词卡/Plain 兜底） | 2026-10-03 |
-| task_verdict_reads_the_four_levels | 任务契约四级判定 | 给定完整契约/无围栏/坏 JSON 三种词卡回复，当 TaskVerdict.for_reply，则四级标志与生产降级产物（Plain 兜底）符合预期 | 2026-09-26 |
-| field_completeness_requires_the_contract_keys | 字段完整性按契约键 | 给定缺 examples 的词卡回复，当判定，则 fields_complete=false 且视为降级 | 2026-10-03 |
-| image_explain_mirror_builds_the_commentary | 图像解读镜像与生产同轨（eval） | 给定 ImageExplain 数据行与完整契约/缺疏证/纯正文三种回复，当 TaskVerdict::for_reply，则完整契约不降级且 outcome 携带解读条目（坏条目跳过）、缺疏证降级、无围栏时仍出空表 ImageCommentary | 2026-10-10 |
+| legacy_flat_and_fenced_replies_degrade_like_production | 旧扁平与围栏回复与生产同轨（eval） | 给定旧扁平契约（structured 缺失）与围栏输出两类回复，当 TaskVerdict::for_reply，则前者不降级但 fields_complete=false（疏证回落空卡）、后者整体违约落降级产物（note 空）——与生产 validate_task 同源 | 2026-10-11 |
+| task_verdict_reads_the_four_levels | 任务契约四级判定 | 给定嵌套契约/纯正文/截断 JSON/仅 note 四种词卡回复，当 TaskVerdict.for_reply，则四级标志与 outcome.degraded 符合预期（structured 缺失是软缺口：不降级但字段不完整） | 2026-10-11 |
+| field_completeness_requires_the_nested_contract_keys | 字段完整性按嵌套契约键 | 给定 structured 缺 examples 的词卡回复与带 examples+code_language 的代码回复，当判定，则前者 fields_complete=false（不降级——软缺口）、后者完整不降级且语言判定随 Code 变体 | 2026-10-11 |
+| image_explain_lands_on_the_plain_variant | 图像解读落 Plain 变体（eval 同源校验器） | 给定 ImageExplain 数据行与嵌套契约/仅 note/纯正文三种回复，当 TaskVerdict::for_reply，则完整契约不降级且 outcome 携带 examples 条目（坏条目跳过）、缺 structured 软回落空表、纯正文降级（note 空） | 2026-10-11 |
 | latency_percentiles_interpolate | 延迟百分位线性插值 | 给定四个样本，当取 p0/p50/p95/p100，则插值结果精确；空样本返回 None | 2026-09-26 |
 
 ### crates/gloss-eval/src/judge.rs
@@ -1141,7 +1158,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告，当渲染，则指标表、accuracy 百分比、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-09-26 |
+| report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告（一例嵌套契约 + 一例纯正文），当渲染，则指标表、accuracy 百分比、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-10-11 |
 | latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本的报告，当渲染，则不含延迟行 | 2026-09-26 |
 
 ### crates/gloss-eval/src/runner.rs

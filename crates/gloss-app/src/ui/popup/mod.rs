@@ -22,11 +22,12 @@
 //! 划选即复制：全部文本可选中，无独立复制按钮。正文完整渲染不截断，高度
 //! 自适应内容（宽度默认 380、上限 480，高度上限按屏幕），超出部分滚动兜底。
 //! 流式视图对累积的原始流做**转义感知**的 `note`（注）渐进提取（现行输出
-//! 契约是纯 JSON 对象，见 `gloss_core::prompt`）：`note` 键未到齐时正文区
-//! 落骨架、页脚保留「正在注解」；旧契约（markdown + 围栏）不含 `note` 键，
-//! 全程进度态，完成态由 finalize 的围栏 fallback 兜住。注文一律换行排版：
-//! 代码面板等宽折行、markdown 由 egui_commonmark 按可用宽折行，横滚不进
-//! 弹窗。
+//! 契约是纯 JSON 对象，见 `gloss_core::schema`）：`note` 键未到齐时正文区
+//! 落骨架、页脚保留「正在注解」；`structured.examples` 随流下钻渐进出。
+//! 降级产物（`outcome.degraded`，契约校验失败）不出注疏——降级卡渲染
+//! 「输出异常」与重试按钮，不渲染 note 内容（原文垃圾不展示不留存）。
+//! 注文一律换行排版：代码面板等宽折行、markdown 由 egui_commonmark 按
+//! 可用宽折行，横滚不进弹窗。
 //!
 //! 页头回归品牌：只有应用图标与动作区（⚙/×），任务与状态由内容层自明，
 //! 页头不带任何标签药丸；行下发丝线与页脚上缘线呼应成卡片的上下界。
@@ -394,7 +395,7 @@ fn viewport_max(ui: &egui::Ui) -> f32 {
 /// 流式正文（注位渐进 markdown + 疏位已到达的解读条目）：两字段全空落
 /// 骨架（经已回显、注未至——无注印，还没有可注的内容）。
 fn streamed_sections(ui: &mut egui::Ui, fields: &StreamFields, state: &RenderState, text: &Text) {
-    if fields.note.is_empty() && fields.interpretation.is_empty() {
+    if fields.note.is_empty() && fields.examples.is_empty() {
         shimmer_bars(ui);
         return;
     }
@@ -404,9 +405,9 @@ fn streamed_sections(ui: &mut egui::Ui, fields: &StreamFields, state: &RenderSta
             render_markdown(ui, state, &fields.note);
         });
     }
-    if !fields.interpretation.is_empty() {
+    if !fields.examples.is_empty() {
         ui.add_space(space::PARAGRAPH);
-        shu_examples(ui, &fields.interpretation, text);
+        shu_examples(ui, &fields.examples, text);
     }
 }
 
@@ -459,7 +460,6 @@ fn render_content(
             source,
             raw,
             classified,
-            code_lang,
         }) => {
             let (action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
@@ -482,9 +482,9 @@ fn render_content(
                     record_scrolled_height(ui, content_h, &scrolled);
                 }
                 None => {
-                    jing_section(ui, text, |ui| {
-                        source_block(ui, source, code, code_lang.as_deref())
-                    });
+                    // 流式期没有语言判定（唯一来源是产物的 structured
+                    // 回传），经位代码面板按通用启发集着色、无角标。
+                    jing_section(ui, text, |ui| source_block(ui, source, code, None));
                     ui.add_space(space::PARAGRAPH);
                     // ScrollArea 内容起点 = cursor（egui 的 cursor 停在
                     // 前序内容底边加一个 item_spacing 处），从这里起算
@@ -500,11 +500,34 @@ fn render_content(
             }
             (action, drag)
         }
-        Some(OverlayView::Outcome {
-            source,
-            outcome,
-            code_lang,
-        }) => {
+        Some(OverlayView::Outcome { source, outcome }) if outcome.degraded => {
+            // 降级产物卡（契约校验失败）：渲染「输出异常」+ 复用重试按钮，
+            // 不渲染注疏内容——原文垃圾不展示不留存（缓存侧同样不收，
+            // 见 `crate::runtime::pipeline`）。
+            let (mut action, drag) = header(ui, state, text);
+            ui.add_space(space::SECTION);
+            ui.label(
+                RichText::new(&text.gloss_popup_output_abnormal)
+                    .size(font::NOTICE)
+                    .color(ui.visuals().warn_fg_color),
+            );
+            ui.add_space(space::SECTION);
+            if ui
+                .button(
+                    RichText::new(text.gloss_popup_retry.as_str())
+                        .size(font::CAPTION)
+                        .color(ui.visuals().strong_text_color()),
+                )
+                .clicked()
+            {
+                action = Some(OverlayAction::Retry);
+            }
+            ui.add_space(space::PARAGRAPH);
+            footer(ui, false, text);
+            *content_h = ui.min_rect().height();
+            (action, drag)
+        }
+        Some(OverlayView::Outcome { source, outcome }) => {
             let (action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
             let viewport_max = viewport_max(ui);
@@ -513,15 +536,7 @@ fn render_content(
                 .auto_shrink([false, true])
                 .max_height(viewport_max)
                 .show(ui, |ui| {
-                    outcome_body(
-                        ui,
-                        source,
-                        outcome,
-                        code_lang.as_deref(),
-                        attached,
-                        state,
-                        text,
-                    );
+                    outcome_body(ui, source, outcome, attached, state, text);
                 });
             ui.add_space(space::PARAGRAPH);
             footer(ui, false, text);
@@ -1145,18 +1160,29 @@ fn is_code(kind: Option<TaskKind>) -> bool {
     kind == Some(TaskKind::ExplainCode)
 }
 
+/// 产物正文的代码语言（渲染时现算）：唯一来源是产物的
+/// `structured.code_language`（LLM 判定），经 `code_hl::adopt` 过采纳
+/// 门槛与归一化；非代码变体恒无语言。
+fn outcome_code_lang(outcome: &gloss_core::task::TaskOutcome) -> Option<String> {
+    match &outcome.structured {
+        OutcomeStructured::Code { code_language, .. } => code_hl::adopt(code_language.as_deref()),
+        _ => None,
+    }
+}
+
 /// 产物正文（经注疏排布）：经（原文；图像任务为附件图像本身，缺席或
 /// 解码失败落占位）、注（markdown 注文，词卡的义/句译的译文/讲解的正文）、
-/// 疏（examples 疏证逐条，图像解读为 interpretation 逐条）。
+/// 疏（examples 疏证逐条）。代码语言按产物判定现算（见
+/// [`outcome_code_lang`]）。
 fn outcome_body(
     ui: &mut egui::Ui,
     source: &str,
     outcome: &gloss_core::task::TaskOutcome,
-    code_lang: Option<&str>,
     attached: Option<&Arc<[u8]>>,
     state: &RenderState,
     text: &Text,
 ) {
+    let code_lang = outcome_code_lang(outcome);
     match &outcome.structured {
         OutcomeStructured::WordCard { phonetic, examples } => {
             if !source.trim().is_empty() {
@@ -1172,10 +1198,38 @@ fn outcome_body(
                 shu_examples(ui, examples, text);
             }
         }
-        OutcomeStructured::Plain { examples } => {
+        OutcomeStructured::Code { examples, .. } | OutcomeStructured::Plain { examples, .. }
+            if outcome.kind == TaskKind::ImageExplain =>
+        {
+            // 图像任务（恒落 Plain 变体）：经位是图像本身（布局开关＝
+            // 附件在场，不依赖 classified 到达时序）；缺图回落原文经位
+            // （缓存命中等会话边缘），再缺落占位。
+            match attached {
+                Some(png) => jing_section(ui, text, |ui| attached_image(ui, png, state, text)),
+                None if !source.trim().is_empty() => {
+                    jing_section(ui, text, |ui| source_block(ui, source, false, None));
+                }
+                None => jing_section(ui, text, |ui| image_unavailable(ui, text)),
+            }
+            ui.add_space(space::PARAGRAPH);
+            zhu_section(ui, text, |ui| {
+                apply_zhu_typography(ui);
+                render_markdown(ui, state, &outcome.note);
+            });
+            if !examples.is_empty() {
+                ui.add_space(space::PARAGRAPH);
+                shu_examples(ui, examples, text);
+            }
+        }
+        OutcomeStructured::Plain { examples } | OutcomeStructured::Code { examples, .. } => {
             if !source.trim().is_empty() {
                 jing_section(ui, text, |ui| {
-                    source_block(ui, source, is_code(Some(outcome.kind)), code_lang)
+                    source_block(
+                        ui,
+                        source,
+                        is_code(Some(outcome.kind)),
+                        code_lang.as_deref(),
+                    )
                 });
                 ui.add_space(space::PARAGRAPH);
             }
@@ -1186,26 +1240,6 @@ fn outcome_body(
             if !examples.is_empty() {
                 ui.add_space(space::PARAGRAPH);
                 shu_examples(ui, examples, text);
-            }
-        }
-        OutcomeStructured::ImageCommentary { interpretation } => {
-            // 经位：图像本身是经（布局开关＝附件在场，不依赖 classified
-            // 到达时序）；缺图回落原文经位（缓存命中等会话边缘），再缺落占位。
-            match attached {
-                Some(png) => jing_section(ui, text, |ui| attached_image(ui, png, state, text)),
-                None if !source.trim().is_empty() => {
-                    jing_section(ui, text, |ui| source_block(ui, source, false, code_lang));
-                }
-                None => jing_section(ui, text, |ui| image_unavailable(ui, text)),
-            }
-            ui.add_space(space::PARAGRAPH);
-            zhu_section(ui, text, |ui| {
-                apply_zhu_typography(ui);
-                render_markdown(ui, state, &outcome.note);
-            });
-            if !interpretation.is_empty() {
-                ui.add_space(space::PARAGRAPH);
-                shu_examples(ui, interpretation, text);
             }
         }
     }
@@ -1297,13 +1331,12 @@ mod kittest_tests {
             outcome: TaskOutcome {
                 kind: TaskKind::TranslateWord,
                 note: "**光泽**；注释：表面的一层光亮。".into(),
-                code_language: None,
                 structured: OutcomeStructured::WordCard {
                     phonetic: Some("/ɡlɒs/".into()),
                     examples: vec!["a gloss of silk 丝绸的光泽".into()],
                 },
+                degraded: false,
             },
-            code_lang: None,
         }
     }
 
@@ -1312,7 +1345,6 @@ mod kittest_tests {
             source: "选中的原文".into(),
             raw: r#"{"note":"已流式到达的正文"}"#.into(),
             classified: Some(TaskKind::TranslateWord),
-            code_lang: None,
         }
     }
 
@@ -1351,18 +1383,32 @@ mod kittest_tests {
         }
     }
 
+    fn degraded_outcome_view_en() -> OverlayView {
+        OverlayView::Outcome {
+            source: "fn main() {}".into(),
+            outcome: TaskOutcome {
+                kind: TaskKind::ExplainCode,
+                note: "untrustworthy raw reply".into(),
+                structured: OutcomeStructured::Code {
+                    examples: Vec::new(),
+                    code_language: None,
+                },
+                degraded: true,
+            },
+        }
+    }
+
     fn long_body_view() -> OverlayView {
         OverlayView::Outcome {
             source: String::new(),
             outcome: TaskOutcome {
                 kind: TaskKind::TranslateSentence,
                 note: "很长的正文段落。".repeat(1000) + "尾部标记",
-                code_language: None,
                 structured: OutcomeStructured::Plain {
                     examples: Vec::new(),
                 },
+                degraded: false,
             },
-            code_lang: None,
         }
     }
 
@@ -1372,13 +1418,12 @@ mod kittest_tests {
             outcome: TaskOutcome {
                 kind: TaskKind::TranslateWord,
                 note: "A surface shine; luster. To add a gloss or commentary.".into(),
-                code_language: None,
                 structured: OutcomeStructured::WordCard {
                     phonetic: Some("/ɡlɒs/".into()),
                     examples: vec!["The polished wood had a deep gloss.".into()],
                 },
+                degraded: false,
             },
-            code_lang: None,
         }
     }
 
@@ -1387,7 +1432,6 @@ mod kittest_tests {
             source: "It is not that I am so smart.".into(),
             raw: r#"{"note":"Partial note already streamed.""#.into(),
             classified: Some(TaskKind::TranslateSentence),
-            code_lang: None,
         }
     }
 
@@ -1396,7 +1440,6 @@ mod kittest_tests {
             source: "fn main() {\n    let gloss = \"光\";\n    println!(\"{gloss}\");\n}".into(),
             raw: r#"{"note":"Partial explanation already streamed.""#.into(),
             classified: Some(TaskKind::ExplainCode),
-            code_lang: Some("rust".into()),
         }
     }
 
@@ -1406,12 +1449,12 @@ mod kittest_tests {
             outcome: TaskOutcome {
                 kind: TaskKind::ExplainCode,
                 note: "### What it does\n\nPrints the CJK word for *gloss*.".into(),
-                code_language: Some("rust".into()),
-                structured: OutcomeStructured::Plain {
+                structured: OutcomeStructured::Code {
                     examples: Vec::new(),
+                    code_language: Some("rust".into()),
                 },
+                degraded: false,
             },
-            code_lang: Some("rust".into()),
         }
     }
 
@@ -1426,12 +1469,11 @@ mod kittest_tests {
             outcome: TaskOutcome {
                 kind: TaskKind::TranslateSentence,
                 note: format!("{long_prose}\n\n```rust\n{long_code}```"),
-                code_language: None,
                 structured: OutcomeStructured::Plain {
                     examples: Vec::new(),
                 },
+                degraded: false,
             },
-            code_lang: None,
         }
     }
 
@@ -1443,12 +1485,12 @@ mod kittest_tests {
             outcome: TaskOutcome {
                 kind: TaskKind::ExplainCode,
                 note: "### Summary\n\nShort body.".into(),
-                code_language: Some("rust".into()),
-                structured: OutcomeStructured::Plain {
+                structured: OutcomeStructured::Code {
                     examples: Vec::new(),
+                    code_language: Some("rust".into()),
                 },
+                degraded: false,
             },
-            code_lang: Some("rust".into()),
         }
     }
 
@@ -1458,24 +1500,22 @@ mod kittest_tests {
             outcome: TaskOutcome {
                 kind: TaskKind::ImageExplain,
                 note: "A gradient panel with the caption **gloss**.".into(),
-                code_language: None,
-                structured: OutcomeStructured::ImageCommentary {
-                    interpretation: vec![
+                structured: OutcomeStructured::Plain {
+                    examples: vec![
                         "The picture is a generated placeholder, not a screenshot.".into(),
                         "Its palette suggests a dark-mode product shot.".into(),
                     ],
                 },
+                degraded: false,
             },
-            code_lang: None,
         }
     }
 
     fn image_streaming_view_en() -> OverlayView {
         OverlayView::Streaming {
             source: String::new(),
-            raw: r#"{"note":"A gradient panel with","interpretation":["The picture is a generated placeholder","Its palette suggests a dark-mo"#.into(),
+            raw: r#"{"note":"A gradient panel with","structured":{"examples":["The picture is a generated placeholder","Its palette suggests a dark-mo"#.into(),
             classified: Some(TaskKind::ImageExplain),
-            code_lang: None,
         }
     }
 
@@ -1692,9 +1732,16 @@ mod kittest_tests {
     }
 
     #[test]
-    fn code_views_expose_the_language_badge_and_prose_untouched() {
+    fn the_language_badge_arrives_only_with_the_outcome_verdict() {
         let (mut harness, _clicked) = harness_for(code_streaming_view_en());
         harness.run_steps(3);
+        assert!(
+            harness.query_all_by_label_contains("rust").next().is_none(),
+            "the streaming view carries no verdict: no badge"
+        );
+
+        let (mut harness, _clicked) = harness_for(code_outcome_view_en());
+        harness.run();
         harness.get_by_label("rust");
 
         let (mut harness, _clicked) = harness_for(streaming_view_en());
@@ -1702,6 +1749,52 @@ mod kittest_tests {
         assert!(
             harness.query_all_by_label_contains("rust").next().is_none(),
             "non-code tasks carry no language badge"
+        );
+    }
+
+    #[test]
+    fn degraded_outcome_card_shows_only_the_abnormal_notice_and_retry() {
+        let (mut harness, clicked) = harness_for_locale(degraded_outcome_view_en(), Locale::En);
+        harness.run();
+        harness.get_by_label_contains("Abnormal output");
+        harness.get_by_label("Retry");
+        for residue in ["untrustworthy", "rust"] {
+            assert!(
+                harness
+                    .query_all_by_label_contains(residue)
+                    .next()
+                    .is_none(),
+                "degraded card must not render note content: {residue}"
+            );
+        }
+        harness.get_by_label("Retry").click();
+        harness.run();
+        assert_eq!(
+            *clicked.borrow(),
+            Some(OverlayAction::Retry),
+            "the retry button reuses the failed-card action path"
+        );
+    }
+
+    #[test]
+    fn degraded_outcome_card_never_takes_the_source_jing_section() {
+        let state = RenderState::default();
+        let text = Text::get(Locale::En);
+        let installed = Cell::new(false);
+        let view = degraded_outcome_view_en();
+        let mut harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let _ = draw(ui, Some(&view), None, &state, text);
+        });
+        harness.run();
+        assert!(
+            harness
+                .query_all_by_label_contains("fn main()")
+                .next()
+                .is_none(),
+            "the degraded card keeps no source section"
         );
     }
 
@@ -1959,7 +2052,6 @@ mod kittest_tests {
             source: String::new(),
             raw: String::new(),
             classified: Some(TaskKind::ImageExplain),
-            code_lang: None,
         };
         let mut harness = Harness::new_ui(move |ui| {
             if font_first_frame(&installed, ui.ctx()) {
@@ -2106,6 +2198,11 @@ mod kittest_tests {
         let mut harness = snapshot_harness(Some(image_too_large_view()));
         harness.run();
         harness.snapshot("popup_image_failed");
+        results.extend_harness(&mut harness);
+
+        let mut harness = snapshot_harness(Some(degraded_outcome_view_en()));
+        harness.run();
+        harness.snapshot("popup_degraded_outcome");
         results.extend_harness(&mut harness);
 
         let mut harness = snapshot_harness(None);

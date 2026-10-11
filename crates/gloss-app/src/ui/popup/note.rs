@@ -3,24 +3,24 @@
 //! 纯决策函数，不依赖 egui 绘制侧；「未到齐」的部分一律留在进度态，由
 //! 下一帧整段重扫补齐。
 
-/// 流式期已到达的正文：注（`note`，反转义前缀）与疏（`interpretation`
-/// 已到齐条目 + 在写条目的反转义前缀）。
+/// 流式期已到达的正文：注（`note`，反转义前缀）与疏（`structured`
+/// 内 `examples` 已到齐条目 + 在写条目的反转义前缀）。
 #[derive(Default)]
 pub(super) struct StreamFields {
     pub(super) note: String,
-    pub(super) interpretation: Vec<String>,
+    pub(super) examples: Vec<String>,
 }
 
 /// 流式正文的可见部分：对累积的原始流做**转义感知**的顺序双字段扫描。
-/// 现行输出契约是纯 JSON 对象，字段次序固定 `note` 在前（图像任务的
-/// `interpretation` 随后；词卡的 phonetic 在 `note` 前面），扫描器逐对
-/// 处理键值：`note` 值闭合后游标继续推进，`interpretation` 数组逐条
-/// 渐进出——描述流完不用等整个响应，疏证条目随流上屏。任一字段「未到
-/// 齐」即停在该处（已到达部分照常返回），正文区全空时由调用方落骨架。
-/// 值到齐后按 JSON 字符串转义规则逐段反转义；残缺的转义序列（尾部孤
-/// 反斜杠、不足四位的 `\uXXXX`）本帧丢弃、下一帧补齐，UTF-16 代理对在
-/// 流式期暂缺（完成态以 `outcome` 为权威源）。旧契约（markdown + 围栏）
-/// 不含 `note` 键，全程进度态，由 finalize 的围栏 fallback 在完成态兜住。
+/// 现行输出契约是纯 JSON 对象（见 `gloss_core::schema`），字段次序固定
+/// `note` 在前、`structured` 随后，扫描器逐对处理键值：`note` 值闭合后
+/// 游标继续推进，遇 `structured` 下钻一层——`examples` 数组逐条渐进出，
+/// 描述流完不用等整个响应，疏证条目随流上屏。任一字段「未到齐」即停在
+/// 该处（已到达部分照常返回），正文区全空时由调用方落骨架。值到齐后按
+/// JSON 字符串转义规则逐段反转义；残缺的转义序列（尾部孤反斜杠、不足
+/// 四位的 `\uXXXX`）本帧丢弃、下一帧补齐，UTF-16 代理对在流式期暂缺
+/// （完成态以 `outcome` 为权威源）。违约输出（散文、围栏）不含 `note`
+/// 键，全程进度态，完成态落降级卡。
 pub(super) fn stream_fields(raw: &str) -> StreamFields {
     let mut fields = StreamFields::default();
     let mut cursor = Cursor {
@@ -29,51 +29,68 @@ pub(super) fn stream_fields(raw: &str) -> StreamFields {
     if !cursor.strip("{") {
         return fields;
     }
+    scan_fields(&mut cursor, &mut fields, false);
+    fields
+}
+
+/// 单层对象的键循环：顶层认 `note` 与 `structured`（下钻），`structured`
+/// 层认 `examples`；其余键跳过完整值。「未到齐」消费尽量少并停在该处
+/// （下一帧整段重扫，流式帧几十 KB 上界、无分配，无需增量缓存）。
+fn scan_fields(cursor: &mut Cursor<'_>, fields: &mut StreamFields, nested: bool) {
     loop {
         // 键：字符串字面量；未闭合则停在已提取的字段上。
         let Some((key, key_closed)) = cursor.json_string() else {
-            return fields;
+            return;
         };
         if !key_closed {
-            return fields;
+            return;
         }
         cursor.skip_ws();
         if !cursor.strip(":") {
-            return fields;
+            return;
         }
         cursor.skip_ws();
-        match key.as_str() {
-            "note" => {
+        match (nested, key.as_str()) {
+            (false, "note") => {
                 let Some((value, closed)) = cursor.json_string() else {
-                    return fields;
+                    return;
                 };
                 fields.note = value;
                 if !closed {
-                    return fields;
+                    return;
                 }
             }
-            "interpretation" => {
+            (false, "structured") => {
+                // 嵌套契约：疏证字段在 structured 对象里，下钻一层继续
+                // 键循环（它消费自己的闭合括号）；不是对象则按普通值跳过。
+                if cursor.strip("{") {
+                    scan_fields(cursor, fields, true);
+                } else if !cursor.skip_value() {
+                    return;
+                }
+            }
+            (true, "examples") => {
                 let Some((items, closed)) = cursor.string_array() else {
-                    return fields;
+                    return;
                 };
-                fields.interpretation = items;
+                fields.examples = items;
                 if !closed {
-                    return fields;
+                    return;
                 }
             }
             _ => {
                 // 其余键：跳过完整值；值未写完则停。
                 if !cursor.skip_value() {
-                    return fields;
+                    return;
                 }
             }
         }
         cursor.skip_ws();
         if cursor.strip("}") {
-            return fields;
+            return;
         }
         if !cursor.strip(",") {
-            return fields;
+            return;
         }
     }
 }
@@ -246,22 +263,24 @@ mod tests {
             fields.note, "正文一\n正文二",
             "escapes decode at the closing quote"
         );
-        assert!(fields.interpretation.is_empty());
+        assert!(fields.examples.is_empty());
     }
 
     #[test]
-    fn stream_fields_walks_past_note_into_the_interpretation_array() {
-        let fields = stream_fields(r#"{"note":"描述","interpretation":["条目一","条目二"]}"#);
+    fn stream_fields_descends_into_structured_for_the_examples() {
+        let fields =
+            stream_fields(r#"{"note":"描述","structured":{"examples":["条目一","条目二"]}}"#);
         assert_eq!(fields.note, "描述");
-        assert_eq!(fields.interpretation, ["条目一", "条目二"]);
+        assert_eq!(fields.examples, ["条目一", "条目二"]);
     }
 
     #[test]
     fn stream_fields_shows_the_partial_item_while_the_array_streams() {
-        let fields = stream_fields(r#"{"note":"描述","interpretation":["条目一","条目二仍"#);
+        let fields =
+            stream_fields(r#"{"note":"描述","structured":{"examples":["条目一","条目二仍"#);
         assert_eq!(fields.note, "描述");
         assert_eq!(
-            fields.interpretation,
+            fields.examples,
             ["条目一", "条目二仍"],
             "the item being written shows its arrived prefix"
         );
@@ -269,16 +288,16 @@ mod tests {
 
     #[test]
     fn stream_fields_note_stays_visible_while_waiting_for_the_array() {
-        let fields = stream_fields(r#"{"note":"描述","interpretation":["条目一", "#);
+        let fields = stream_fields(r#"{"note":"描述","structured":{"examples":["条目一", "#);
         assert_eq!(fields.note, "描述");
-        assert_eq!(fields.interpretation, ["条目一"]);
+        assert_eq!(fields.examples, ["条目一"]);
     }
 
     #[test]
     fn stream_fields_keeps_note_only_until_its_value_closes() {
         let fields = stream_fields(r#"{"note":"未闭合"#);
         assert_eq!(fields.note, "未闭合");
-        assert!(fields.interpretation.is_empty());
+        assert!(fields.examples.is_empty());
         assert_eq!(stream_fields(r#"{"note":"#).note, "");
         assert_eq!(stream_fields(r#"{"note":""#).note, "");
     }
@@ -286,34 +305,49 @@ mod tests {
     #[test]
     fn stream_fields_tolerates_foreign_keys_around_the_contract() {
         let fields = stream_fields(
-            r#"{"kind":"image_explain","note":"义","interpretation":["一"],"tail":42}"#,
+            r#"{"kind":"ImageExplain","note":"义","structured":{"examples":["一"]},"tail":42}"#,
         );
         assert_eq!(fields.note, "义");
-        assert_eq!(fields.interpretation, ["一"]);
+        assert_eq!(fields.examples, ["一"]);
 
-        let phonetic = stream_fields(r#"{"phonetic":"/ɡlɒs/","note":"义释"}"#);
+        let code = stream_fields(
+            r#"{"note":"义","structured":{"examples":["例句"],"code_language":"rust"}}"#,
+        );
+        assert_eq!(code.note, "义");
         assert_eq!(
-            phonetic.note, "义释",
-            "a preceding complete foreign key (word card) is skipped"
+            code.examples,
+            ["例句"],
+            "a string-valued sibling key inside structured is skipped"
         );
 
-        let open_foreign = stream_fields(r#"{"phonetic":"/ɡ"#);
-        assert_eq!(open_foreign.note, "");
-        assert!(open_foreign.interpretation.is_empty());
+        let open_structured = stream_fields(r#"{"note":"义","structured":{"phonetic":"/ɡ"#);
+        assert_eq!(open_structured.note, "义");
+        assert!(open_structured.examples.is_empty());
 
         let array_foreign = stream_fields(r#"{"examples":["一","二"],"note":"义"}"#);
         assert_eq!(
             array_foreign.note, "义",
-            "an array-valued foreign key is skipped whole"
+            "a top-level array-valued foreign key is skipped whole"
+        );
+
+        let word_card = stream_fields(
+            r#"{"note":"义释","structured":{"phonetic":"/ɡlɒs/","examples":["例句"]}}"#,
+        );
+        assert_eq!(word_card.note, "义释");
+        assert_eq!(
+            word_card.examples,
+            ["例句"],
+            "the phonetic sibling inside structured is skipped, the examples still land"
         );
     }
 
     #[test]
     fn stream_fields_decodes_escapes_in_both_fields() {
-        let fields = stream_fields(r#"{"note":"esc\"ape\\你\u4f60","interpretation":["尾\"#);
+        let fields =
+            stream_fields(r#"{"note":"esc\"ape\\你\u4f60","structured":{"examples":["尾\"#);
         assert_eq!(fields.note, "esc\"ape\\你你");
         assert_eq!(
-            fields.interpretation,
+            fields.examples,
             ["尾"],
             "a dangling backslash is dropped until it completes"
         );
@@ -332,17 +366,14 @@ mod tests {
         ] {
             let fields = stream_fields(raw);
             assert_eq!(fields.note, "", "{raw:?} must stay in progress");
-            assert!(
-                fields.interpretation.is_empty(),
-                "{raw:?} must stay in progress"
-            );
+            assert!(fields.examples.is_empty(), "{raw:?} must stay in progress");
         }
     }
 
     #[test]
     fn stream_fields_stops_at_the_closing_brace() {
-        let fields = stream_fields(r#"{"note":"义","interpretation":["一"],"tail":"x"}"#);
+        let fields = stream_fields(r#"{"note":"义","structured":{"examples":["一"]},"tail":"x"}"#);
         assert_eq!(fields.note, "义");
-        assert_eq!(fields.interpretation, ["一"]);
+        assert_eq!(fields.examples, ["一"]);
     }
 }

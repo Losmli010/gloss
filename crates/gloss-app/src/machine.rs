@@ -95,21 +95,17 @@ pub enum OverlayView {
         raw: String,
         /// 自动分类判明的任务类型（LLM 层回传后精化）。
         classified: Option<TaskKind>,
-        /// 代码语言（角标与高亮规则集共用）：流式期恒 `None`——语言
-        /// 只认产物回传的判定，流式期按通用启发集着色、无角标。
-        code_lang: Option<String>,
     },
     /// 产物卡：按 `TaskKind` 精排或展示 markdown 注文。`source` 是本次
     /// 任务的原文（从流式视图随行而来），经注疏排布的「经」位用。
-    /// `code_lang` 取产物自带的 LLM 判定（`outcome.code_language`），
-    /// 采纳门槛见 `plausible_code_language`，缺失时不兜底、为 `None`。
+    /// 代码语言与降级标记都随 `outcome` 走：语言由渲染层经
+    /// `ui::code_hl::adopt` 从 `structured.code_language` 现算（唯一
+    /// 来源是产物的 LLM 判定），`degraded == true` 时渲染降级卡。
     Outcome {
         /// 触发时选中的原文。
         source: String,
         /// 产物本体。
         outcome: TaskOutcome,
-        /// 代码语言（由产物判定现算，不经流式视图中转）。
-        code_lang: Option<String>,
     },
     /// 失败信息与动作出口：`action` 指出浮层该给用户的按钮（错误
     /// 映射），`None` 表示无可操作出口（重新划词即可）。
@@ -393,7 +389,6 @@ impl TaskStateMachine {
             source: view_source,
             raw: String::new(),
             classified: None,
-            code_lang: None,
         });
         self.state = AppState::Translating;
         InputOutcome::Dispatch(self.begin_run(input, options))
@@ -476,7 +471,9 @@ impl TaskStateMachine {
     ///
     /// `outcome.note` 直接覆盖流式视图（权威源约定见 `crate::runtime::pipeline`）；
     /// 原文从流式视图随行进产物卡（经注疏的「经」位），完成态保有原文
-    /// 对照；代码语言只认产物的 LLM 判定（唯一来源）。
+    /// 对照。**降级产物**（契约校验失败，`degraded == true`）照常上卡
+    /// （渲染层出降级卡），但**不清 `active_request`**——重试按钮据此
+    /// 原样重发，守卫见 [`Self::retry`]。
     pub fn accept_done(&mut self, generation: u64, outcome: TaskOutcome) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
@@ -485,22 +482,10 @@ impl TaskStateMachine {
             Some(OverlayView::Streaming { source, .. }) => source,
             _ => String::new(),
         };
-        // 代码语言来自 LLM 的判定（随产物到达）：修剪首尾空白后过词元
-        // 门槛，再经归一化（别名/大小写）采用。判定缺失或是散文/示例占位
-        // 串时不做任何本地兜底——产物卡无角标、按通用启发集着色，自由
-        // 文本不上角标。
-        let code_lang = outcome
-            .code_language
-            .as_deref()
-            .map(str::trim)
-            .filter(|verdict| plausible_code_language(verdict))
-            .and_then(crate::ui::code_hl::normalize_language);
-        self.active_request = None;
-        self.overlay_view = Some(OverlayView::Outcome {
-            source,
-            outcome,
-            code_lang,
-        });
+        if !outcome.degraded {
+            self.active_request = None;
+        }
+        self.overlay_view = Some(OverlayView::Outcome { source, outcome });
         self.state = AppState::Show;
         true
     }
@@ -535,11 +520,20 @@ impl TaskStateMachine {
         FailureOutcome::Shown
     }
 
-    /// 重试失败卡上的任务（Error 态）：原样重发失败的那个请求（同代数
-    /// ——旧任务的流已随首个错误终结，不会有两路同代回传），浮层回到
-    /// 流式视图。非 Error 态或无可重试请求时返回 `None`。
+    /// 重试失败卡或降级产物卡上的任务：原样重发失败/降级的那个请求（同
+    /// 代数——旧任务的流已终结，不会有两路同代回传），浮层回到流式视图。
+    /// 守卫：`Error` 态，或 `Show` 态且**当前产物是降级产物**（正常产物
+    /// 没有重试出口）；无可重试请求时返回 `None`。
     pub fn retry(&mut self) -> Option<RunRequest> {
-        if self.state != AppState::Error {
+        let retryable = match self.state {
+            AppState::Error => true,
+            AppState::Show => matches!(
+                self.overlay_view,
+                Some(OverlayView::Outcome { ref outcome, .. }) if outcome.degraded
+            ),
+            _ => false,
+        };
+        if !retryable {
             return None;
         }
         // 取走在途请求原件：`begin_run` 会把请求副本重新记回在途，这里
@@ -614,8 +608,9 @@ fn error_action(error: &GlossError) -> Option<ErrorAction> {
 
 /// 一次下发请求的流式视图起点：原文照抄（图像任务无经位原文——经是图
 /// 本身，走 `attached_image`）、正文空、未分类（LLM 层的 `TaskClassified`
-/// 到达后精化）、无语言判定（语言只认产物回传的 `code_language`，流式期
-/// 按通用启发集着色、无角标）。重试与首次下发共用。
+/// 到达后精化）。语言不上流式视图：唯一来源是产物的
+/// `structured.code_language`，渲染层经 `ui::code_hl::adopt` 现算，流式
+/// 期按通用启发集着色、无角标。重试与首次下发共用。
 fn streaming_view(input: &TaskInput) -> OverlayView {
     let source = match input {
         TaskInput::Text { text } => text.clone(),
@@ -625,19 +620,7 @@ fn streaming_view(input: &TaskInput) -> OverlayView {
         source,
         raw: String::new(),
         classified: None,
-        code_lang: None,
     }
-}
-
-/// LLM 代码语言判定的采纳门槛：语言标识应是单个 ASCII 词元（"rust"、
-/// "c++"、"objective-c" 这个形状）。内部含空白或非 ASCII 字符的判定是
-/// 散文或示例占位串（模型照抄「…或 null」），不可上角标——交由调用方
-/// 落回无语言（无角标、通用启发集着色）；首尾空白由调用方先行修剪。
-fn plausible_code_language(verdict: &str) -> bool {
-    !verdict.is_empty()
-        && verdict
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '#' | '-' | '.'))
 }
 
 /// 一次平台事件的去向：取材，或被闸门拦下。
@@ -783,10 +766,22 @@ mod tests {
         TaskOutcome {
             kind: TaskKind::TranslateWord,
             note: note.into(),
-            code_language: None,
             structured: OutcomeStructured::Plain {
                 examples: Vec::new(),
             },
+            degraded: false,
+        }
+    }
+
+    fn degraded_outcome() -> TaskOutcome {
+        TaskOutcome {
+            kind: TaskKind::ExplainCode,
+            note: String::new(),
+            structured: OutcomeStructured::Code {
+                examples: Vec::new(),
+                code_language: None,
+            },
+            degraded: true,
         }
     }
 
@@ -1261,17 +1256,7 @@ mod tests {
             })
         ));
 
-        machine.accept_done(
-            1,
-            TaskOutcome {
-                kind: TaskKind::TranslateWord,
-                note: "产物".into(),
-                code_language: None,
-                structured: OutcomeStructured::Plain {
-                    examples: Vec::new(),
-                },
-            },
-        );
+        machine.accept_done(1, plain_outcome("产物"));
         assert!(
             !machine.accept_classified(1, TaskKind::ExplainCode),
             "a late classification must not touch a settled outcome card"
@@ -1293,7 +1278,6 @@ mod tests {
                 machine.overlay_view(),
                 Some(OverlayView::Streaming {
                     classified: None,
-                    code_lang: None,
                     ..
                 })
             ),
@@ -1302,140 +1286,46 @@ mod tests {
     }
 
     #[test]
-    fn code_language_comes_only_from_the_llm_verdict() {
+    fn a_degraded_done_keeps_the_request_and_retry_redispatches_it() {
         let mut machine = TaskStateMachine::new();
-        let probe_id = probe(&mut machine, &Config::default());
-        dispatched(machine.commit_probe(
-            probe_id,
-            TaskInput::Text {
-                text: "fn main() {}".into(),
-            },
-        ));
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+        let original = dispatched(machine.commit_probe(1, text_input("hello")));
+        machine.accept_chunk(1, "{\"note\":".into());
+        assert!(machine.accept_done(1, degraded_outcome()));
+        assert_eq!(machine.state(), AppState::Show);
         assert!(
             matches!(
                 machine.overlay_view(),
-                Some(OverlayView::Streaming {
-                    code_lang: None,
-                    ..
-                })
+                Some(OverlayView::Outcome { outcome, .. }) if outcome.degraded
             ),
-            "no content probing: the streaming view carries no language"
+            "the degraded outcome settles on the outcome card"
         );
 
-        // LLM 判定随产物到达：唯一来源。
-        machine.accept_done(
-            1,
-            TaskOutcome {
-                kind: TaskKind::ExplainCode,
-                note: "产物".into(),
-                code_language: Some("python".into()),
-                structured: OutcomeStructured::Plain {
-                    examples: Vec::new(),
-                },
-            },
+        let retried = machine
+            .retry()
+            .expect("a degraded card keeps the request copy for the retry");
+        assert_eq!(retried.generation, original.generation, "same generation");
+        assert_eq!(retried.input, original.input, "same input is re-dispatched");
+        assert_eq!(
+            retried.options, original.options,
+            "same options are re-dispatched (no config re-read)"
         );
+        assert_eq!(machine.state(), AppState::Translating);
         assert!(
             matches!(
                 machine.overlay_view(),
-                Some(OverlayView::Outcome {
-                    code_lang: Some(lang),
-                    ..
-                }) if lang == "python"
+                Some(OverlayView::Streaming { source, .. }) if source == "hello"
             ),
-            "the settled outcome card carries the LLM's verdict"
+            "the retry returns to the streaming view"
         );
 
-        // 判定缺失：不做本地兜底，产物卡无语言。
-        let mut machine = TaskStateMachine::new();
-        let probe_id = probe(&mut machine, &Config::default());
-        dispatched(machine.commit_probe(
-            probe_id,
-            TaskInput::Text {
-                text: "fn main() {}".into(),
-            },
-        ));
-        machine.accept_done(
-            1,
-            TaskOutcome {
-                kind: TaskKind::ExplainCode,
-                note: "产物".into(),
-                code_language: None,
-                structured: OutcomeStructured::Plain {
-                    examples: Vec::new(),
-                },
-            },
-        );
+        assert_eq!(probe(&mut machine, &Config::default()), 2);
+        dispatched(machine.commit_probe(2, text_input("world")));
+        assert!(machine.accept_done(2, plain_outcome("正常产物")));
+        assert_eq!(machine.state(), AppState::Show);
         assert!(
-            matches!(
-                machine.overlay_view(),
-                Some(OverlayView::Outcome {
-                    code_lang: None,
-                    ..
-                })
-            ),
-            "a missing verdict leaves the outcome card without a language"
-        );
-
-        // 占位串判定（散文/示例占位）同样不上角标。
-        let mut machine = TaskStateMachine::new();
-        let probe_id = probe(&mut machine, &Config::default());
-        dispatched(machine.commit_probe(
-            probe_id,
-            TaskInput::Text {
-                text: "fn main() {}".into(),
-            },
-        ));
-        machine.accept_done(
-            1,
-            TaskOutcome {
-                kind: TaskKind::ExplainCode,
-                note: "产物".into(),
-                code_language: Some("…或 null".into()),
-                structured: OutcomeStructured::Plain {
-                    examples: Vec::new(),
-                },
-            },
-        );
-        assert!(
-            matches!(
-                machine.overlay_view(),
-                Some(OverlayView::Outcome {
-                    code_lang: None,
-                    ..
-                })
-            ),
-            "a placeholder verdict is not adopted as a language"
-        );
-
-        // 首尾空白先修剪再过门槛（不因空白误判成占位串）。
-        let mut machine = TaskStateMachine::new();
-        let probe_id = probe(&mut machine, &Config::default());
-        dispatched(machine.commit_probe(
-            probe_id,
-            TaskInput::Text {
-                text: "fn main() {}".into(),
-            },
-        ));
-        machine.accept_done(
-            1,
-            TaskOutcome {
-                kind: TaskKind::ExplainCode,
-                note: "产物".into(),
-                code_language: Some(" python\n".into()),
-                structured: OutcomeStructured::Plain {
-                    examples: Vec::new(),
-                },
-            },
-        );
-        assert!(
-            matches!(
-                machine.overlay_view(),
-                Some(OverlayView::Outcome {
-                    code_lang: Some(lang),
-                    ..
-                }) if lang == "python"
-            ),
-            "a whitespace-padded verdict is trimmed before the plausibility gate"
+            machine.retry().is_none(),
+            "a normal outcome has no retry exit"
         );
     }
 
