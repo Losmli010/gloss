@@ -1301,8 +1301,6 @@ mod tests {
             "the degraded outcome settles on the outcome card"
         );
 
-        // retry() 有副作用（取走请求原件）：这里一次取走并断言重发形状，
-        // 「请求副本被保留」由它能取到这件事本身证明。
         let retried = machine
             .retry()
             .expect("a degraded card keeps the request copy for the retry");
@@ -1321,7 +1319,6 @@ mod tests {
             "the retry returns to the streaming view"
         );
 
-        // 正常产物落 Show 即清请求副本：没有重试出口。
         assert_eq!(probe(&mut machine, &Config::default()), 2);
         dispatched(machine.commit_probe(2, text_input("world")));
         assert!(machine.accept_done(2, plain_outcome("正常产物")));

@@ -887,8 +887,6 @@ mod tests {
                 ("image_explain.md", templates.image_explain),
             ];
             for (name, text) in files {
-                // 每个占位符开括号都要有闭合（嵌套契约的示例 JSON 以 `}}`
-                // 收尾，`}}` 计数因此可以多于 `{{`——配对成立即可）。
                 for (index, _) in text.match_indices("{{") {
                     assert!(
                         text[index + 2..].contains("}}"),

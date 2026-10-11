@@ -348,8 +348,6 @@ mod tests {
     #[test]
     fn legacy_flat_and_fenced_replies_degrade_like_production() {
         let case = word_case();
-        // 旧扁平契约（无 structured 包裹）：note 在场保产物，疏证字段
-        // 按软规则回落，判定不降级。
         let flat =
             TaskVerdict::for_reply(&case, r#"{"note":"正文","phonetic":null,"examples":[]}"#);
         assert!(!flat.degraded() && !flat.fields_complete);
@@ -361,7 +359,6 @@ mod tests {
             }
         );
 
-        // 围栏输出整体违约：生产已无围栏容错，落降级产物。
         let fence = TaskVerdict::for_reply(&case, "正文\n```gloss\n{\"note\":\"旧契约\"}\n```");
         assert!(fence.degraded());
         assert_eq!(fence.outcome.note, "");

@@ -1388,8 +1388,6 @@ mod kittest_tests {
             source: "fn main() {}".into(),
             outcome: TaskOutcome {
                 kind: TaskKind::ExplainCode,
-                // finalize 恒给空 note；这里带残留内容钉住「降级卡不渲染
-                // note」的渲染侧保证（缓存命中等来源多带一秒防线）。
                 note: "untrustworthy raw reply".into(),
                 structured: OutcomeStructured::Code {
                     examples: Vec::new(),
@@ -1735,7 +1733,6 @@ mod kittest_tests {
 
     #[test]
     fn the_language_badge_arrives_only_with_the_outcome_verdict() {
-        // 流式期没有语言判定：代码任务也不上角标（通用启发集着色）。
         let (mut harness, _clicked) = harness_for(code_streaming_view_en());
         harness.run_steps(3);
         assert!(
@@ -1743,12 +1740,10 @@ mod kittest_tests {
             "the streaming view carries no verdict: no badge"
         );
 
-        // 判定随产物到达：角标按 structured.code_language 现算。
         let (mut harness, _clicked) = harness_for(code_outcome_view_en());
         harness.run();
         harness.get_by_label("rust");
 
-        // 非代码任务恒无角标。
         let (mut harness, _clicked) = harness_for(streaming_view_en());
         harness.run_steps(3);
         assert!(
@@ -1763,7 +1758,6 @@ mod kittest_tests {
         harness.run();
         harness.get_by_label_contains("Abnormal output");
         harness.get_by_label("Retry");
-        // 原文垃圾不展示：note 与疏证一概不出卡（即使产物带了残留内容）。
         for residue in ["untrustworthy", "rust"] {
             assert!(
                 harness
@@ -1784,7 +1778,6 @@ mod kittest_tests {
 
     #[test]
     fn degraded_outcome_card_never_takes_the_source_jing_section() {
-        // 经位也不出：降级卡只有提示与重试，与失败卡同形。
         let state = RenderState::default();
         let text = Text::get(Locale::En);
         let installed = Cell::new(false);

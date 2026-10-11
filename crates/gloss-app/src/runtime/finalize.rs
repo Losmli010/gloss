@@ -93,7 +93,6 @@ mod tests {
 
     #[test]
     fn soft_field_gaps_stay_on_the_normal_path() {
-        // structured 缺失与坏条目是软约束：note 在场即正常产物。
         let outcome = complete(
             TaskKind::TranslateWord,
             r#"{"note":"只有义","structured":{"phonetic":null,"examples":[null,"好例句",42]}}"#,
