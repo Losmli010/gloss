@@ -277,7 +277,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
 | snapshots_match_baseline（settings） | 设置窗渲染基线（英文浅色；正常/提示/错误三态 + 更新区五相位） | 给定默认、带保存失败提示、校验错误三个状态与更新区五个相位（UpToDate/Available/Downloading/Ready/Failed(Install)），当 wgpu 以英文文案与浅色主题渲染并 diff，则与对应基线一致且关键文本进树（沿革：2026-10-03 随热键区删除、热键校验错误移除重录；同日随职责重划删除任务开关/默认任务/每类模型三区块、新增单一模型输入行重录并移除默认任务停用态，又随「模型 ID」字段标签再录；2026-10-10 通用区新增「监听剪贴板图片」开关行与说明随录，八份基线 diff 均仅为该行插入与其下内容的既段位移，其余像素零变化；同日评审修复把初版勾选框改为自绘开关滑块（egui 0.36 无内建 Switch，按官方 demo 范式，轨 36×20 较勾选框高 ~2px）再录，diff 仍仅限该行控件本体与其下既段位移） | 2026-10-10 |
-| failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、JSON 模式不支持、协议异常（带诊断）、取材通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-10-11 |
+| failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、JSON 模式不支持、协议异常（带诊断）、推理通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-10-11 |
 | failure_card_follows_the_locale | 失败卡随 locale 出表 | 给定英文 locale 的网络失败卡，当渲染，则出英文文案与英文「Retry」动作 | 2026-09-22 |
 | save_failure_notice_names_the_cause | 保存失败提示出场合与诊断 | 给定带 SaveFailed(Config) 类型化提示的设置窗（中文表），当渲染，则出「保存失败：<诊断>」（前缀交代场合、诊断不重复本地化整句） | 2026-09-22 |
 | a_rendered_notice_follows_the_locale | 提示行随 locale 出表 | 给定带同一类型化提示的设置窗（英文表），当渲染，则出英文前缀与诊断（提示行不是只有中文基线可查） | 2026-09-22 |
