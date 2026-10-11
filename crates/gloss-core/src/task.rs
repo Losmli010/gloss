@@ -16,8 +16,6 @@ pub enum TaskKind {
     TranslateSentence,
     /// 代码解释（输入可带语言提示）。
     ExplainCode,
-    /// 框选图片 → 提取文本。
-    ImageOcr,
     /// 框选图片 → 解释内容。
     ImageExplain,
 }
@@ -110,7 +108,7 @@ pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossE
             TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode,
             TaskInput::Text { .. },
         )
-        | (TaskKind::ImageOcr | TaskKind::ImageExplain, TaskInput::Image { .. }) => true,
+        | (TaskKind::ImageExplain, TaskInput::Image { .. }) => true,
         // 语音任务未落地：任何 kind + Audio 都是非法组合。
         _ => false,
     };
@@ -127,8 +125,7 @@ pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossE
 pub struct TaskOutcome {
     /// 产物对应的任务类型。
     pub kind: TaskKind,
-    /// markdown 注文（流式 chunk 拼接；词卡为义释，句译/讲解为主体，
-    /// 提取任务即提取文本）。
+    /// markdown 注文（流式 chunk 拼接；词卡为义释，句译/讲解为主体）。
     pub note: String,
     /// LLM 判定的代码语言（仅代码解释任务回传，UI 角标与高亮使用；
     /// 不确定时为 `None`，其余任务恒 `None`）。
@@ -155,8 +152,6 @@ pub enum OutcomeStructured {
         /// 展开讲解列表（疏）。
         examples: Vec<String>,
     },
-    /// 提取任务：经文提取即 [`TaskOutcome::note`] 本身，无疏证字段。
-    Extracted,
     /// 图像解读的疏：内容解读逐条（含义/背景/意图/细节要点），注位为
     /// 图片内容描述（[`TaskOutcome::note`]）。
     ImageCommentary {
@@ -291,7 +286,6 @@ mod tests {
             TaskKind::TranslateWord,
             TaskKind::TranslateSentence,
             TaskKind::ExplainCode,
-            TaskKind::ImageOcr,
             TaskKind::ImageExplain,
         ];
         let text_legal = |kind| {
@@ -300,7 +294,7 @@ mod tests {
                 TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode
             )
         };
-        let image_legal = |kind| matches!(kind, TaskKind::ImageOcr | TaskKind::ImageExplain);
+        let image_legal = |kind| matches!(kind, TaskKind::ImageExplain);
         for kind in all_kinds {
             let (text_expect, image_expect) = (
                 text_legal(kind)

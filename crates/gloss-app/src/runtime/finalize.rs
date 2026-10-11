@@ -51,7 +51,6 @@ fn parse_json_outcome(
         TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
             interpretation: parse_examples(value.get("interpretation")),
         },
-        TaskKind::ImageOcr => OutcomeStructured::Extracted,
         _ => OutcomeStructured::Plain {
             examples: parse_examples(value.get("examples")),
         },
@@ -95,7 +94,6 @@ pub fn parse_structured(kind: TaskKind, raw: &str) -> (String, OutcomeStructured
             TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
                 interpretation: Vec::new(),
             },
-            TaskKind::ImageOcr => OutcomeStructured::Extracted,
             _ => OutcomeStructured::Plain {
                 examples: Vec::new(),
             },
@@ -123,7 +121,6 @@ pub fn parse_structured(kind: TaskKind, raw: &str) -> (String, OutcomeStructured
         TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
             interpretation: parse_examples(value.get("interpretation")),
         },
-        TaskKind::ImageOcr => OutcomeStructured::Extracted,
         _ => OutcomeStructured::Plain {
             examples: parse_examples(value.get("examples")),
         },
@@ -199,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn json_main_path_covers_plain_and_extracted_kinds() {
+    fn json_main_path_covers_the_plain_kinds() {
         let plain = complete(
             TaskKind::ExplainCode,
             r#"{"note":"讲解","examples":["展开一","展开二"],"code_language":"rust"}"#,
@@ -218,10 +215,6 @@ mod tests {
             r#"{"note":"译文","examples":[]}"#,
         );
         assert_eq!(sentence.code_language, None, "仅代码任务回传语言");
-
-        let extracted = complete(TaskKind::ImageOcr, r#"{"note":"会议纪要\n参会：产品组"}"#);
-        assert_eq!(extracted.note, "会议纪要\n参会：产品组");
-        assert_eq!(extracted.structured, OutcomeStructured::Extracted);
     }
 
     #[test]
@@ -389,12 +382,6 @@ mod tests {
             }
         );
 
-        // OCR 围栏损坏时无损保留全文。
-        let (body, structured) =
-            parse_structured(TaskKind::ImageOcr, "文本\n```gloss\n{broken\n```");
-        assert_eq!(body, "文本\n```gloss\n{broken\n```");
-        assert_eq!(structured, OutcomeStructured::Extracted);
-
         // word kind 的围栏 JSON 现行字段照常解析（无 phonetic/examples
         // 就地回退），注文剥到围栏前。
         let (body, structured) = parse_structured(
@@ -414,11 +401,16 @@ mod tests {
     #[test]
     fn both_layers_agree_on_the_two_layer_handoff() {
         // 坏 JSON → 围栏 → kind 兜底：三层各就各位。
-        let broken_json_then_bad_fence =
-            complete(TaskKind::ImageOcr, "{not json\n```gloss\n{also broken\n```");
+        let broken_json_then_bad_fence = complete(
+            TaskKind::TranslateWord,
+            "{not json\n```gloss\n{also broken\n```",
+        );
         assert_eq!(
             broken_json_then_bad_fence.structured,
-            OutcomeStructured::Extracted
+            OutcomeStructured::WordCard {
+                phonetic: None,
+                examples: Vec::new()
+            }
         );
         assert_eq!(
             broken_json_then_bad_fence.note, "{not json\n```gloss\n{also broken\n```",

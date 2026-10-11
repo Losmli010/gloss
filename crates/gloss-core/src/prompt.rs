@@ -8,9 +8,8 @@
 //! （展开讲解），代码另带 code_language（LLM 判定，UI 角标与高亮使用），
 //! 图像解读是 interpretation（逐条内容解读，`note` 在前）。
 //! 模板里的输出示例就是解析侧（`gloss_app::finalize`）所吃形状的唯一描述，
-//! 两处改一须改二；示例值恒为占位（同分类契约的少样本偏置取舍）。没有
-//! 模板的模态组合（`ImageOcr`）与预留的音频输入一律
-//! [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
+//! 两处改一须改二；示例值恒为占位（同分类契约的少样本偏置取舍）。预留的
+//! 音频输入一律 [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
 //!
 //! [`STRUCTURED_FENCE`] 是**旧契约的围栏标记**，只服务两处兼容位：分类
 //! 回复的围栏容错提取（`classify::parse_classify_reply`）与完成态解析的
@@ -185,11 +184,9 @@ impl PromptRegistry {
                     ChatMessage::user(text.to_owned()),
                 ])
             }
-            // 图像任务：模板只有 image_explain（ImageOcr 尚无模板，仍拒绝）。
+            // 图像任务：模板只有 image_explain（模态约束表已在渲染前拦截
+            // 非法组合，这里直接按唯一合法的图像 kind 取模板）。
             TaskInput::Image { png, .. } => {
-                if task.kind != TaskKind::ImageExplain {
-                    return Err(GlossError::UnsupportedModality);
-                }
                 let templates = locale.templates();
                 let system = render_template(templates.image_explain, &[("target", &target)]);
                 Ok(vec![
@@ -245,7 +242,6 @@ fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
             (TaskKind::ExplainCode, Locale::Zh) => {
                 "代码片段（含命令行、报错堆栈、配置与数据格式片段），需要解释其行为或原理"
             }
-            (TaskKind::ImageOcr, Locale::Zh) => "图片，需要提取其中文字",
             (TaskKind::ImageExplain, Locale::Zh) => "图片，需要解释其内容",
             (TaskKind::TranslateWord, Locale::En) => {
                 "a single word or phrase suited to a dictionary-style card"
@@ -257,7 +253,6 @@ fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
                 "a code snippet (including command lines, error stack traces, and config or \
                  data-format fragments) to explain"
             }
-            (TaskKind::ImageOcr, Locale::En) => "an image to extract text from",
             (TaskKind::ImageExplain, Locale::En) => "an image to explain",
         };
         lines.push(format!("{kind:?} — {description}"));
@@ -312,8 +307,8 @@ fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
         TaskKind::TranslateSentence => templates.sentence,
         TaskKind::ExplainCode => templates.code,
         // 图像 kind 走不到这里：render 只对文本输入调本函数（图像分支
-        // 直接取 image_explain），ImageOcr 无模板已被拒。
-        TaskKind::ImageOcr | TaskKind::ImageExplain => "",
+        // 直接取 image_explain）。
+        TaskKind::ImageExplain => "",
     }
 }
 
@@ -629,16 +624,6 @@ mod tests {
     }
 
     #[test]
-    fn image_ocr_still_has_no_template() {
-        let registry = PromptRegistry::new();
-        assert_eq!(
-            registry.render(&image_task(TaskKind::ImageOcr)),
-            Err(GlossError::UnsupportedModality),
-            "the OCR template lands with its own vision task"
-        );
-    }
-
-    #[test]
     fn image_explain_example_is_a_single_json_object_with_note_first() {
         for locale in [Locale::Zh, Locale::En] {
             let template = locale.templates().image_explain;
@@ -677,7 +662,7 @@ mod tests {
     #[test]
     fn modality_mismatch_is_rejected_before_rendering() {
         let registry = PromptRegistry::new();
-        let task = text_task(TaskKind::ImageOcr, "not an image");
+        let task = text_task(TaskKind::ImageExplain, "not an image");
         assert_eq!(registry.render(&task), Err(GlossError::UnsupportedModality));
     }
 

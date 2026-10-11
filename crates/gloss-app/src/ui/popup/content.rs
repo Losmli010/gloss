@@ -1,13 +1,12 @@
-//! 浮层文案整形：例句拆行、提取小记与水印等展示文案的纯函数，以及经注疏
+//! 浮层文案整形：例句拆行与水印等展示文案的纯函数，以及经注疏
 //! 的字号规格与宋楷字体助手（demo 定稿值，不进 style 阶梯）。
 //!
-//! 不依赖 egui 绘制侧：`FontId`/`RichText` 只是文本数据，不碰
+//! 不依赖 egui 绘制侧：`FontId` 只是字体数据，不碰
 //! `Ui`/`Context`。
 
-use egui::{FontId, RichText};
+use egui::FontId;
 
 use crate::ui::fonts;
-use crate::ui::i18n::{Text, fill};
 
 /// 经注疏排版的字号（demo 定稿值）：经 15.5、注 15、疏 12.5；词条 25，
 /// 音标/词性 13，印章字 12。
@@ -26,21 +25,6 @@ pub(super) fn serif_font(size: f32) -> FontId {
 /// 楷体字（注）。
 pub(super) fn kaiti_font(size: f32) -> FontId {
     FontId::new(size, fonts::zhu_family())
-}
-
-/// 提取小记（疏）：「凡 N 言 · N 行」，字数按去空白计、行数按换行计，
-/// 与 demo 定稿的口径一致。
-pub(super) fn extract_note(catalog: &Text, text: &str) -> RichText {
-    let chars = text.chars().filter(|ch| !ch.is_whitespace()).count();
-    let lines = text.lines().count().max(1);
-    let chars = chars.to_string();
-    let lines = lines.to_string();
-    RichText::new(fill(
-        &catalog.gloss_popup_seal_note,
-        &[("chars", &chars), ("lines", &lines)],
-    ))
-    .font(serif_font(SHU_FONT))
-    .weak()
 }
 
 /// 例句拆分：在首个 CJK 字形处切成「原文 / 译文」两行（demo w-ex 的

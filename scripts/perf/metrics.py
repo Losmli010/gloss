@@ -81,7 +81,7 @@ CORE_GROUPS = (
 )
 CORE_CASES = {
     "cache_key": ("text/short", "text/long", "image/1mb", "image/4mb"),
-    "complete": ("word_card/ok", "word_card/many_senses", "fence_missing", "json_broken", "ocr/ok"),
+    "complete": ("word_card/ok", "word_card/many_senses", "fence_missing", "json_broken"),
     "prompt_render": ("word/short", "code/long"),
     "task_cache": ("get/hit", "get/miss", "set/same_key", "set/new_key"),
 }

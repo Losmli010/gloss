@@ -5,4 +5,4 @@
 {"id": "ja-sent-01", "deltas": ["{\"kind\":\"ExplainCode\"}"]}
 {"id": "code-sql-01", "deltas": ["这是分类结果：{\"kind\":\""]}
 {"id": "zh-word-04", "deltas": ["我认为应该翻译成中文。"]}
-{"id": "en-sent-02", "deltas": ["{\"kind\":\"ImageOcr\"}"]}
+{"id": "en-sent-02", "deltas": ["{\"kind\":\"ImageExplain\"}"]}

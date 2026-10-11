@@ -125,7 +125,6 @@ fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
             TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
                 interpretation: mirror_examples(value.get("interpretation")),
             },
-            TaskKind::ImageOcr => OutcomeStructured::Extracted,
             _ => OutcomeStructured::Plain {
                 examples: mirror_examples(value.get("examples")),
             },
@@ -139,7 +138,6 @@ fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
         TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
             interpretation: Vec::new(),
         },
-        TaskKind::ImageOcr => OutcomeStructured::Extracted,
         _ => OutcomeStructured::Plain {
             examples: Vec::new(),
         },
@@ -163,7 +161,6 @@ fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
         TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
             interpretation: mirror_examples(value.get("interpretation")),
         },
-        TaskKind::ImageOcr => OutcomeStructured::Extracted,
         _ => OutcomeStructured::Plain {
             examples: mirror_examples(value.get("examples")),
         },
@@ -357,7 +354,7 @@ mod tests {
             ClassifyVerdict::Rejected
         );
         assert_eq!(
-            judge_classify_reply("{\"kind\":\"ImageOcr\"}", TaskKind::TranslateWord, &a),
+            judge_classify_reply("{\"kind\":\"ImageExplain\"}", TaskKind::TranslateWord, &a),
             ClassifyVerdict::Rejected,
             "kind outside the allowed list is a rejection"
         );

@@ -44,7 +44,6 @@ pub struct Text {
     pub(crate) gloss_popup_seal_jing: String,
     pub(crate) gloss_popup_seal_zhu: String,
     pub(crate) gloss_popup_seal_shu: String,
-    pub(crate) gloss_popup_seal_note: String,
     pub(crate) gloss_popup_open_settings: String,
     pub(crate) gloss_popup_close_label: String,
     pub(crate) gloss_popup_settings_label: String,
@@ -218,7 +217,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            83,
+            82,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -288,7 +287,6 @@ mod tests {
             [
                 "gloss_errors_config",
                 "gloss_errors_engine_response",
-                "gloss_popup_seal_note",
                 "gloss_settings_invalid_summary",
                 "gloss_settings_notice_key_update_failed",
                 "gloss_settings_notice_key_updated_save_failed",

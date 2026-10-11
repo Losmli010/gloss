@@ -137,11 +137,6 @@ fn bench_parse_structured(c: &mut Criterion) {
         let body = "markdown 段落\n```gloss\n{\"word\": \"gloss\", broken\n```";
         b.iter(|| black_box(parse_structured(TaskKind::ExplainCode, black_box(body))))
     });
-    group.bench_function("ocr/ok", |b| {
-        let text = "extracted ocr line ".repeat(80);
-        let body = format!("markdown 段落\n```gloss\n{{\"text\":\"{text}\"}}\n```");
-        b.iter(|| black_box(parse_structured(TaskKind::ImageOcr, black_box(&body))))
-    });
 
     group.finish();
 }

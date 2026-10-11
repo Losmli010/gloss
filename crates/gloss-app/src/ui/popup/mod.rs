@@ -51,8 +51,8 @@ mod sizing;
 use std::sync::Arc;
 
 use content::{
-    JING_FONT, PHON_FONT, SEAL_FONT, SHU_FONT, WORD_FONT, ZHU_FONT, example_lines, extract_note,
-    kaiti_font, serif_font, watermark,
+    JING_FONT, PHON_FONT, SEAL_FONT, SHU_FONT, WORD_FONT, ZHU_FONT, example_lines, kaiti_font,
+    serif_font, watermark,
 };
 use icon::app_icon_image;
 use image::decode_attached;
@@ -1145,10 +1145,9 @@ fn is_code(kind: Option<TaskKind>) -> bool {
     kind == Some(TaskKind::ExplainCode)
 }
 
-/// 产物正文（经注疏排布）：经（原文；提取任务为 note 提取文本；图像
-/// 任务为附件图像本身，缺席或解码失败落占位）、注（markdown 注文，词卡
-/// 的义/句译的译文/讲解的正文）、疏（examples 疏证逐条，图像解读为
-/// interpretation 逐条；提取任务为凡 N 言小记）。
+/// 产物正文（经注疏排布）：经（原文；图像任务为附件图像本身，缺席或
+/// 解码失败落占位）、注（markdown 注文，词卡的义/句译的译文/讲解的正文）、
+/// 疏（examples 疏证逐条，图像解读为 interpretation 逐条）。
 fn outcome_body(
     ui: &mut egui::Ui,
     source: &str,
@@ -1188,13 +1187,6 @@ fn outcome_body(
                 ui.add_space(space::PARAGRAPH);
                 shu_examples(ui, examples, text);
             }
-        }
-        OutcomeStructured::Extracted => {
-            jing_section(ui, text, |ui| plain_body(ui, &outcome.note));
-            ui.add_space(space::PARAGRAPH);
-            shu_section(ui, text, |ui| {
-                ui.label(extract_note(text, &outcome.note));
-            });
         }
         OutcomeStructured::ImageCommentary { interpretation } => {
             // 经位：图像本身是经（布局开关＝附件在场，不依赖 classified
@@ -1260,19 +1252,6 @@ fn shu_examples(ui: &mut egui::Ui, examples: &[String], text: &Text) {
             ui.add_space(space::INLINE);
         }
     });
-}
-
-/// 可选中、自动换行的纯文本正文（OCR 提取文本不按 markdown 解释）。
-fn plain_body(ui: &mut egui::Ui, text: &str) {
-    ui.add(
-        egui::Label::new(
-            RichText::new(text)
-                .font(serif_font(JING_FONT))
-                .color(ui.visuals().strong_text_color()),
-        )
-        .wrap()
-        .selectable(true),
-    );
 }
 
 /// 自检卡正文（预热与显隐自检路径）：中英混排一眼可辨字体链路健康。
@@ -1387,19 +1366,6 @@ mod kittest_tests {
         }
     }
 
-    fn extract_view() -> OverlayView {
-        OverlayView::Outcome {
-            source: String::new(),
-            outcome: TaskOutcome {
-                kind: TaskKind::ImageOcr,
-                note: "会议纪要\n参会：产品组、评测组".into(),
-                code_language: None,
-                structured: OutcomeStructured::Extracted,
-            },
-            code_lang: None,
-        }
-    }
-
     fn word_card_view_en() -> OverlayView {
         OverlayView::Outcome {
             source: "gloss".into(),
@@ -1446,19 +1412,6 @@ mod kittest_tests {
                 },
             },
             code_lang: Some("rust".into()),
-        }
-    }
-
-    fn extract_view_en() -> OverlayView {
-        OverlayView::Outcome {
-            source: String::new(),
-            outcome: TaskOutcome {
-                kind: TaskKind::ImageOcr,
-                note: "Meeting notes\nAttendees: product, client, eval".into(),
-                code_language: None,
-                structured: OutcomeStructured::Extracted,
-            },
-            code_lang: None,
         }
     }
 
@@ -1715,14 +1668,6 @@ mod kittest_tests {
         for seal in ["SRC", "NOTE", "EXP"] {
             harness.get_by_label(seal);
         }
-    }
-
-    #[test]
-    fn extract_view_notes_the_measurement() {
-        let (mut harness, _clicked) = harness_for(extract_view());
-        harness.run();
-        harness.get_by_label_contains("会议纪要");
-        harness.get_by_label_contains("凡 14 言 · 2 行");
     }
 
     #[test]
@@ -2115,11 +2060,6 @@ mod kittest_tests {
         let mut harness = snapshot_harness(Some(word_card_view_en()));
         harness.run();
         harness.snapshot("popup_word_card");
-        results.extend_harness(&mut harness);
-
-        let mut harness = snapshot_harness(Some(extract_view_en()));
-        harness.run();
-        harness.snapshot("popup_extract");
         results.extend_harness(&mut harness);
 
         let mut harness = snapshot_harness(Some(streaming_view_en()));
