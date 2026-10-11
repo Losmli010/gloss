@@ -1398,6 +1398,23 @@ mod kittest_tests {
         }
     }
 
+    fn general_outcome_view_en() -> OverlayView {
+        OverlayView::Outcome {
+            source: "any content at all".into(),
+            outcome: TaskOutcome {
+                kind: TaskKind::General,
+                note: "A direct answer to arbitrary content.".into(),
+                structured: OutcomeStructured::Plain {
+                    examples: vec![
+                        "first expansion item".into(),
+                        "second expansion item".into(),
+                    ],
+                },
+                degraded: false,
+            },
+        }
+    }
+
     fn long_body_view() -> OverlayView {
         OverlayView::Outcome {
             source: String::new(),
@@ -1796,6 +1813,16 @@ mod kittest_tests {
                 .is_none(),
             "the degraded card keeps no source section"
         );
+    }
+
+    #[test]
+    fn general_outcome_card_renders_the_plain_layout() {
+        let (mut harness, _clicked) = harness_for_locale(general_outcome_view_en(), Locale::En);
+        harness.run();
+        harness.get_by_label_contains("any content at all");
+        harness.get_by_label_contains("A direct answer to arbitrary content.");
+        harness.get_by_label("· first expansion item");
+        harness.get_by_label("· second expansion item");
     }
 
     #[test]

@@ -6,7 +6,7 @@
 //!
 //! ```json
 //! {"note":"…","structured":{"phonetic":"…或 null","examples":["…"]}}       // TranslateWord → WordCard
-//! {"note":"…","structured":{"examples":["…"]}}                              // TranslateSentence、ImageExplain → Plain
+//! {"note":"…","structured":{"examples":["…"]}}                              // TranslateSentence、ImageExplain、General → Plain
 //! {"note":"…","structured":{"examples":["…"],"code_language":"…或 null"}}  // ExplainCode → Code
 //! ```
 //!
@@ -112,9 +112,11 @@ pub fn empty_structured(kind: TaskKind) -> OutcomeStructured {
             examples: Vec::new(),
             code_language: None,
         },
-        TaskKind::TranslateSentence | TaskKind::ImageExplain => OutcomeStructured::Plain {
-            examples: Vec::new(),
-        },
+        TaskKind::TranslateSentence | TaskKind::ImageExplain | TaskKind::General => {
+            OutcomeStructured::Plain {
+                examples: Vec::new(),
+            }
+        }
     }
 }
 
@@ -131,9 +133,11 @@ fn structured_of(kind: TaskKind, value: &serde_json::Value) -> OutcomeStructured
             examples: examples_of(structured),
             code_language: text_field(structured, "code_language"),
         },
-        TaskKind::TranslateSentence | TaskKind::ImageExplain => OutcomeStructured::Plain {
-            examples: examples_of(structured),
-        },
+        TaskKind::TranslateSentence | TaskKind::ImageExplain | TaskKind::General => {
+            OutcomeStructured::Plain {
+                examples: examples_of(structured),
+            }
+        }
     }
 }
 
@@ -246,6 +250,11 @@ mod tests {
             "an image kind is outside the classify list"
         );
         assert_eq!(
+            validate_classify("{\"kind\":\"General\"}", &allowed()),
+            Err(Violation::KindNotAllowed),
+            "the general fallback kind is outside the classify list"
+        );
+        assert_eq!(
             validate_classify("{\"note\":\"正文\"}", &allowed()),
             Err(Violation::KindNotAllowed)
         );
@@ -279,6 +288,7 @@ mod tests {
             TaskKind::TranslateSentence,
             TaskKind::ExplainCode,
             TaskKind::ImageExplain,
+            TaskKind::General,
         ] {
             assert_eq!(
                 validate_task(kind, ""),
@@ -354,7 +364,11 @@ mod tests {
             }
         );
 
-        for kind in [TaskKind::TranslateSentence, TaskKind::ImageExplain] {
+        for kind in [
+            TaskKind::TranslateSentence,
+            TaskKind::ImageExplain,
+            TaskKind::General,
+        ] {
             let (note, structured) = validate_task(
                 kind,
                 r#"{"note":"义","structured":{"examples":["条目一","条目二"]}}"#,
@@ -438,6 +452,13 @@ mod tests {
                 examples: Vec::new(),
             },
             "image explain lands on the plain variant"
+        );
+        assert_eq!(
+            empty_structured(TaskKind::General),
+            OutcomeStructured::Plain {
+                examples: Vec::new(),
+            },
+            "the general kind lands on the plain variant"
         );
     }
 }

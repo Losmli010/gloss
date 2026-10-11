@@ -129,6 +129,23 @@ mod tests {
     }
 
     #[test]
+    fn a_general_reply_lands_on_the_plain_variant() {
+        let outcome = complete(
+            TaskKind::General,
+            r#"{"note":"正面回应","structured":{"examples":["展开一","展开二"]}}"#,
+        );
+        assert_eq!(outcome.kind, TaskKind::General);
+        assert_eq!(outcome.note, "正面回应");
+        assert!(!outcome.degraded);
+        assert_eq!(
+            outcome.structured,
+            OutcomeStructured::Plain {
+                examples: vec!["展开一".into(), "展开二".into()],
+            }
+        );
+    }
+
+    #[test]
     fn contract_violations_degrade_to_an_empty_marked_outcome() {
         for (raw, reason) in [
             ("", "empty"),

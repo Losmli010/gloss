@@ -1,12 +1,12 @@
 //! Prompt 模板注册表：kind + input + locale → OpenAI 兼容 messages。
 //!
-//! 任务**一个任务一份自包含模板**（词卡/句译/代码解释/图像解读）：任务
-//! 说明与纯 JSON 输出契约（含一份**中性占位**的输出示例）都在同一个文件
-//! 里，改一个任务的任务书不会牵动其它任务。契约按经注疏/说文解字的层次
-//! 组织，与 [`crate::schema`] 的三行同构表同源：`note`（义，markdown 注
-//! 文）恒为首字段，按 kind 的疏证字段收敛在 `structured` 对象里——词卡
-//! 是 structured.phonetic/examples（音/例，字头即选区原文），句译、讲解
-//! 与图像解读是 structured.examples（展开条目），代码另带
+//! 任务**一个任务一份自包含模板**（词卡/句译/代码解释/图像解读/通用）：
+//! 任务说明与纯 JSON 输出契约（含一份**中性占位**的输出示例）都在同一个
+//! 文件里，改一个任务的任务书不会牵动其它任务。契约按经注疏/说文解字的
+//! 层次组织，与 [`crate::schema`] 的三行同构表同源：`note`（义，markdown
+//! 注文）恒为首字段，按 kind 的疏证字段收敛在 `structured` 对象里——词卡
+//! 是 structured.phonetic/examples（音/例，字头即选区原文），句译、讲解、
+//! 图像解读与通用任务是 structured.examples（展开条目），代码另带
 //! structured.code_language（LLM 判定，UI 角标与高亮使用）。
 //! 模板里的输出示例就是解析侧（`crate::schema::validate_task`）所吃形状
 //! 的唯一描述，两处改一须改二（完整性门禁测试锁定：每个模板的示例对象
@@ -60,6 +60,7 @@ struct Templates {
     sentence: &'static str,
     code: &'static str,
     image_explain: &'static str,
+    general: &'static str,
     classify: &'static str,
 }
 
@@ -72,6 +73,7 @@ impl Locale {
                 sentence: include_str!("../prompts/zh/sentence.md"),
                 code: include_str!("../prompts/zh/code.md"),
                 image_explain: include_str!("../prompts/zh/image_explain.md"),
+                general: include_str!("../prompts/zh/general.md"),
                 classify: include_str!("../prompts/zh/classify.md"),
             },
             Locale::En => Templates {
@@ -79,6 +81,7 @@ impl Locale {
                 sentence: include_str!("../prompts/en/sentence.md"),
                 code: include_str!("../prompts/en/code.md"),
                 image_explain: include_str!("../prompts/en/image_explain.md"),
+                general: include_str!("../prompts/en/general.md"),
                 classify: include_str!("../prompts/en/classify.md"),
             },
         }
@@ -246,6 +249,7 @@ fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
                 "代码片段（含命令行、报错堆栈、配置与数据格式片段），需要解释其行为或原理"
             }
             (TaskKind::ImageExplain, Locale::Zh) => "图片，需要解释其内容",
+            (TaskKind::General, Locale::Zh) => "任意内容，按通用任务理解并回应",
             (TaskKind::TranslateWord, Locale::En) => {
                 "a single word or phrase suited to a dictionary-style card"
             }
@@ -257,6 +261,7 @@ fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
                  data-format fragments) to explain"
             }
             (TaskKind::ImageExplain, Locale::En) => "an image to explain",
+            (TaskKind::General, Locale::En) => "anything, to handle with the general task",
         };
         lines.push(format!("{kind:?} — {description}"));
     }
@@ -309,6 +314,7 @@ fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
         TaskKind::TranslateWord => templates.word_card,
         TaskKind::TranslateSentence => templates.sentence,
         TaskKind::ExplainCode => templates.code,
+        TaskKind::General => templates.general,
         // 图像 kind 走不到这里：render 只对文本输入调本函数（图像分支
         // 直接取 image_explain）。
         TaskKind::ImageExplain => "",
@@ -470,6 +476,7 @@ mod tests {
             (TaskKind::TranslateWord, "词典式词卡"),
             (TaskKind::TranslateSentence, "翻译"),
             (TaskKind::ExplainCode, "代码"),
+            (TaskKind::General, "通用助手"),
         ];
         for (kind, keyword) in cases {
             let task = text_task(kind, "hello world");
@@ -541,6 +548,7 @@ mod tests {
                 ("sentence.md", templates.sentence),
                 ("code.md", templates.code),
                 ("image_explain.md", templates.image_explain),
+                ("general.md", templates.general),
             ] {
                 let object = example_object(text);
                 let value: serde_json::Value = serde_json::from_str(object)
@@ -607,6 +615,12 @@ mod tests {
                     "image_explain.md",
                     TaskKind::ImageExplain,
                     templates.image_explain,
+                    &["examples"][..],
+                ),
+                (
+                    "general.md",
+                    TaskKind::General,
+                    templates.general,
                     &["examples"][..],
                 ),
             ] {
@@ -790,6 +804,20 @@ mod tests {
     }
 
     #[test]
+    fn the_general_kind_is_never_offered_to_the_classifier() {
+        let registry = PromptRegistry::new();
+        for locale in [Locale::Zh, Locale::En] {
+            let messages =
+                registry.render_classify(locale, &crate::classify::CLASSIFY_KINDS, "gloss 原文");
+            let system = text_of(&messages[0].content);
+            assert!(
+                !system.contains("General"),
+                "{locale:?}: the general fallback kind must stay off the classify list: {system}"
+            );
+        }
+    }
+
+    #[test]
     fn rules_follow_the_allowed_list_and_leave_no_dangling_label() {
         let registry = PromptRegistry::new();
         let full = [TaskKind::TranslateSentence, TaskKind::ExplainCode];
@@ -885,6 +913,7 @@ mod tests {
                 ("sentence.md", templates.sentence),
                 ("code.md", templates.code),
                 ("image_explain.md", templates.image_explain),
+                ("general.md", templates.general),
             ];
             for (name, text) in files {
                 for (index, _) in text.match_indices("{{") {
@@ -919,6 +948,7 @@ mod tests {
                 ("sentence.md", templates.sentence),
                 ("code.md", templates.code),
                 ("image_explain.md", templates.image_explain),
+                ("general.md", templates.general),
             ] {
                 assert!(
                     text.contains("\"…\""),
@@ -942,6 +972,7 @@ mod tests {
             TaskKind::TranslateSentence,
             TaskKind::ExplainCode,
             TaskKind::ImageExplain,
+            TaskKind::General,
         ];
         for locale in [Locale::Zh, Locale::En] {
             for kind in kinds {
