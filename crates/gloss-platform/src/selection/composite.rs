@@ -70,10 +70,15 @@ fn combine(
 /// 判空用修剪后的值——纯空白选区（误滑）按既有 [`GlossError::SelectionEmpty`]
 /// 语义上抛。AX 与剪贴板兜底两条通道的产物都经此收口，让渡补读与兜底
 /// 注入只服务「读不到」，不为已知纯空白的选区再花时序预算。
+///
+/// 两端本无空白时原缓冲原样归还，不复制整段（选区可达 8MB 上限）。
 fn normalize(raw: String) -> Result<String, GlossError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(GlossError::SelectionEmpty);
+    }
+    if trimmed.len() == raw.len() {
+        return Ok(raw);
     }
     Ok(trimmed.to_owned())
 }
