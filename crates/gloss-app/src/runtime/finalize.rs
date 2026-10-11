@@ -400,8 +400,7 @@ mod tests {
 
     #[test]
     fn both_layers_agree_on_the_two_layer_handoff() {
-        // 坏 JSON → 围栏 → kind 兜底：三层各就各位（图像 kind 的同一
-        // 组合见 image_explain_falls_through_the_three_layers）。
+        // 坏 JSON → 围栏 → kind 兜底：三层各就各位。
         let broken_json_then_bad_fence = complete(
             TaskKind::TranslateWord,
             "{not json\n```gloss\n{also broken\n```",
