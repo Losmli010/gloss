@@ -13,7 +13,7 @@
 
 use crate::log::debug;
 use crate::model::{GlossError, Locale};
-use crate::ports::{AiEngine, EngineRequest};
+use crate::ports::{AiEngine, EngineRequest, TaskChunk};
 use crate::prompt::{PromptRegistry, STRUCTURED_FENCE};
 use crate::task::{TaskInput, TaskKind};
 
@@ -79,7 +79,7 @@ pub async fn classify(
     let mut reply = String::new();
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {
-            Ok(delta) => {
+            Ok(TaskChunk::Delta(delta)) => {
                 push_capped(&mut reply, &delta);
                 // 增量解析提前退出：裸 JSON 到闭合括号即定型，不等流自然
                 // 结束——首个能通过校验的完整 JSON 就是判定，其后的增量
@@ -93,6 +93,9 @@ pub async fn classify(
                     return Ok(kind);
                 }
             }
+            // 结束帧对分类没有增量价值：判定要么已提前退出，要么落在循环外
+            // 的整段解析。
+            Ok(TaskChunk::Done { .. }) => {}
             Err(error) => return Err(error),
         }
     }

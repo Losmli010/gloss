@@ -17,12 +17,28 @@ use crate::prompt::ChatMessage;
 /// 装箱 future：让 trait 方法携带异步结果的同时保持对象安全（`dyn` 可用）。
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// 任务产物流：流式增量（与通道④ `Event::TaskChunk` 同载荷）。
+/// 任务产物流的单个条目：文本增量或服务端声明的流结束。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskChunk {
+    /// 文本增量。
+    Delta(String),
+    /// 服务端声明的流结束（SSE `data: [DONE]`），携带 `choices[0]` 的
+    /// `finish_reason`（`stop` / `length` / `content_filter`…；服务端未声明
+    /// 为 `None`）。终结条目：其后的增量没有契约地位，实现方不再产出。
+    Done {
+        /// 结束原因原文（不转译，消费方按需判定）。
+        finish_reason: Option<String>,
+    },
+}
+
+/// 任务产物流：文本增量与服务端声明的流结束。通道④ `Event::TaskChunk`
+/// 只转发 [`TaskChunk::Delta`]——结束条目由编排层（engine `run`）消费，
+/// 不上主线程。
 ///
 /// `Err` 是普通增量的一种，**不保证终结流**：实现方可在 Err 后继续产出，
 /// 消费方以**首个 `Err` 为终结**并丢弃半截产物（编排层的实现语义，
 /// 见 engine 模块）。
-pub type TaskStream = Pin<Box<dyn Stream<Item = Result<String, GlossError>> + Send>>;
+pub type TaskStream = Pin<Box<dyn Stream<Item = Result<TaskChunk, GlossError>> + Send>>;
 
 /// 文本取材（端口）：读前台应用的选中文本。
 ///

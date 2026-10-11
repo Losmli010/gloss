@@ -25,7 +25,7 @@ use crate::config::Config;
 use crate::config_handle::ConfigHandle;
 use crate::log::debug;
 use crate::model::GlossError;
-use crate::ports::{AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskStream};
+use crate::ports::{AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskChunk, TaskStream};
 use crate::prompt::{ChatMessage, ContentPart, MessageContent};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -48,12 +48,17 @@ const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 /// 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。消息在这里从域
 /// 形态映成 wire 形状；`max_tokens` 只在设限时携带：部分严格端点会拒绝
 /// 显式的 `null`，缺键才是「不设限」的 wire 语义。
+///
+/// `response_format` json_object **恒携带**（[`EngineRequest`] 不加开关）：
+/// 所有请求都是 JSON 契约，不做能力协商——端点不认时以 4xx 拒绝，由
+/// [`map_failure`] 的启发式映射成 [`GlossError::JsonModeUnsupported`]。
 fn chat_request_body(request: &EngineRequest) -> serde_json::Value {
     let messages: Vec<serde_json::Value> = request.messages.iter().map(message_to_value).collect();
     let mut body = serde_json::json!({
         "model": request.model,
         "messages": messages,
         "stream": true,
+        "response_format": { "type": "json_object" },
     });
     if let Some(max_tokens) = request.max_tokens {
         body["max_tokens"] = serde_json::json!(max_tokens);
@@ -243,16 +248,44 @@ fn map_transport_error(err: reqwest::Error) -> GlossError {
     }
 }
 
-/// HTTP 状态 → [`GlossError`]（错误分类表）。
+/// JSON 模式不支持的诊断标记（小写比较）：请求体恒带 `response_format`
+/// json_object，4xx 诊断文本提到它就是端点不认这个开关。
+const JSON_MODE_MARKERS: [&str; 2] = ["response_format", "json_object"];
+
+/// 图像输入不支持的诊断标记（小写比较）。
+const MULTIMODAL_MARKERS: [&str; 3] = ["image", "multimodal", "vision"];
+
+/// HTTP 状态 → [`GlossError`]（错误分类表）。其余 4xx 按服务端诊断文本做
+/// 两个**启发式**识别（环境问题，重发同请求无益，不落可重试的协议错误）：
+/// 诊断提到 JSON 模式开关 → [`GlossError::JsonModeUnsupported`]；提到图像
+/// 输入 → [`GlossError::UnsupportedModality`]。JSON 模式检查在前：它是请求
+/// 信封层的拒绝，命中时对所有任务都成立。识别不出才落
+/// [`GlossError::EngineResponse`]。
 fn map_failure(status: StatusCode, body: &str) -> GlossError {
     match status.as_u16() {
         401 | 403 => GlossError::EngineAuth,
         429 => GlossError::EngineRateLimited,
         500..=599 => GlossError::EngineNetwork,
-        _ => match server_message(body) {
-            Some(message) => GlossError::EngineResponse(format!("HTTP {status}: {message}")),
-            None => GlossError::EngineResponse(format!("HTTP {status}")),
-        },
+        _ => {
+            let message = server_message(body);
+            let lowered = message.as_deref().unwrap_or("").to_lowercase();
+            if JSON_MODE_MARKERS
+                .iter()
+                .any(|marker| lowered.contains(marker))
+            {
+                return GlossError::JsonModeUnsupported;
+            }
+            if MULTIMODAL_MARKERS
+                .iter()
+                .any(|marker| lowered.contains(marker))
+            {
+                return GlossError::UnsupportedModality;
+            }
+            match message {
+                Some(message) => GlossError::EngineResponse(format!("HTTP {status}: {message}")),
+                None => GlossError::EngineResponse(format!("HTTP {status}")),
+            }
+        }
     }
 }
 
@@ -277,7 +310,8 @@ fn server_message(body: &str) -> Option<String> {
     Some(trimmed.chars().take(200).collect())
 }
 
-/// 把响应的字节流适配成 [`TaskStream`]：SSE 逐行解码后只吐文本增量。
+/// 把响应的字节流适配成 [`TaskStream`]：SSE 逐行解码，吐文本增量，`[DONE]`
+/// 上交一条携带结束原因的终结条目（[`TaskChunk::Done`]）。
 ///
 /// 手动实现 `poll_next`（与编排层的手工轮询同一风格），不引 futures-util：
 /// 状态机只有「攒够一行 → 产出条目 → 继续拉字节」三步。首个 `Err` 即终结流
@@ -285,7 +319,7 @@ fn server_message(body: &str) -> Option<String> {
 struct SseStream {
     inner: Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
     decoder: SseDecoder,
-    ready: VecDeque<Result<String, GlossError>>,
+    ready: VecDeque<Result<TaskChunk, GlossError>>,
     /// 是否产出过增量：零增量的「成功」是坏响应（网关忽略 `stream:true` 返回
     /// 非流式 JSON、劫持页返回 200 HTML、模型只回 refusal 等），不能当成功
     /// 产物写进缓存——用户会看到空白卡片，重复触发还命同一份空白。
@@ -309,13 +343,24 @@ impl SseStream {
     /// 收下解码器产出：增量入队，`Done` / `Failed` 终直流。
     fn absorb(&mut self, items: Vec<SseItem>) {
         for item in items {
+            // 终结之后再无契约地位的字节（解码器对 [DONE] 后的输入同样沉默）。
+            if self.finished {
+                return;
+            }
             match item {
                 SseItem::Delta(delta) => {
                     self.produced = true;
-                    self.ready.push_back(Ok(delta));
+                    self.ready.push_back(Ok(TaskChunk::Delta(delta)));
                 }
-                SseItem::Done => {
-                    self.finish_without_error();
+                SseItem::Done { finish_reason } => {
+                    if self.produced {
+                        self.ready.push_back(Ok(TaskChunk::Done { finish_reason }));
+                    } else {
+                        // 零增量的「成功」是坏响应，即便服务端声明了正常结束。
+                        self.ready
+                            .push_back(Err(GlossError::EngineResponse("empty completion".into())));
+                    }
+                    self.finished = true;
                 }
                 SseItem::Failed(error) => {
                     self.ready.push_back(Err(error));
@@ -325,7 +370,8 @@ impl SseStream {
         }
     }
 
-    /// 正常收尾（`[DONE]` 或连接关闭）：一条增量都没产出过就是坏响应。
+    /// 连接关闭的收尾（服务端没给 `[DONE]`）：一条增量都没产出过就是坏
+    /// 响应；产出过则按流自然耗尽收场（结束原因未知，不产出 Done）。
     /// `ready` 先于 `finished` 被排空，所以这条 Err 一定排在已入队的增量之后。
     fn finish_without_error(&mut self) {
         if !self.produced {
@@ -337,7 +383,7 @@ impl SseStream {
 }
 
 impl Stream for SseStream {
-    type Item = Result<String, GlossError>;
+    type Item = Result<TaskChunk, GlossError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -538,10 +584,41 @@ mod tests {
             while let Some(item) =
                 std::future::poll_fn(|cx| Pin::new(&mut adapted).poll_next(cx)).await
             {
-                text.push_str(&item.expect("delta expected"));
+                match item.expect("delta expected") {
+                    TaskChunk::Delta(delta) => text.push_str(&delta),
+                    TaskChunk::Done { .. } => {}
+                }
             }
             assert_eq!(text, "光泽", "chunk_size = {chunk_size}");
         }
+    }
+
+    #[tokio::test]
+    async fn adapter_delivers_the_done_marker_with_its_finish_reason() {
+        let payload = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"半\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let mut adapted = SseStream::new(VecStream(
+            vec![Ok(bytes::Bytes::from_static(payload.as_bytes()))].into_iter(),
+        ));
+
+        let mut items = Vec::new();
+        while let Some(item) = std::future::poll_fn(|cx| Pin::new(&mut adapted).poll_next(cx)).await
+        {
+            items.push(item);
+        }
+        assert_eq!(
+            items,
+            vec![
+                Ok(TaskChunk::Delta("半".into())),
+                Ok(TaskChunk::Done {
+                    finish_reason: Some("stop".into())
+                }),
+            ],
+            "the declared end is delivered as the terminal chunk with its reason"
+        );
     }
 
     #[tokio::test]
@@ -560,7 +637,7 @@ mod tests {
             items.push(item);
         }
         assert_eq!(items.len(), 2, "delta then one error: {items:?}");
-        assert_eq!(items[0], Ok("半".into()));
+        assert_eq!(items[0], Ok(TaskChunk::Delta("半".into())));
         assert!(
             matches!(items[1], Err(GlossError::EngineResponse(_))),
             "protocol error must terminate the stream as a failure"
@@ -577,14 +654,24 @@ mod tests {
         let mut text = String::new();
         while let Some(item) = std::future::poll_fn(|cx| Pin::new(&mut adapted).poll_next(cx)).await
         {
-            text.push_str(&item.expect("delta expected"));
+            match item.expect("delta expected") {
+                TaskChunk::Delta(delta) => text.push_str(&delta),
+                TaskChunk::Done { .. } => {}
+            }
         }
         assert_eq!(text, "尾");
     }
 
     #[tokio::test]
     async fn adapter_reports_empty_completion_as_failure() {
-        for payload in ["data: [DONE]\n\n", "<html>nope</html>\n"] {
+        for payload in [
+            "data: [DONE]\n\n",
+            "<html>nope</html>\n",
+            concat!(
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+                "data: [DONE]\n\n",
+            ),
+        ] {
             let mut adapted = SseStream::new(VecStream(
                 vec![Ok(bytes::Bytes::from_static(payload.as_bytes()))].into_iter(),
             ));
@@ -617,7 +704,36 @@ mod tests {
                 "model": "deepseek-chat",
                 "messages": [{"role": "system", "content": "把用户给的词翻成中文"}],
                 "stream": true,
+                "response_format": {"type": "json_object"},
             })
+        );
+    }
+
+    #[test]
+    fn json_mode_switch_is_always_on_the_wire() {
+        let text = chat_request_body(&EngineRequest {
+            messages: vec![ChatMessage::user("hi")],
+            model: "m".into(),
+            max_tokens: Some(64),
+        });
+        assert_eq!(
+            text.get("response_format"),
+            Some(&serde_json::json!({"type": "json_object"})),
+            "every request carries the JSON contract, capped or not"
+        );
+
+        let multimodal = chat_request_body(&EngineRequest {
+            messages: vec![ChatMessage::user_parts(vec![
+                ContentPart::Text("这张图里有什么".into()),
+                ContentPart::ImagePng(FIXTURE_PNG.into()),
+            ])],
+            model: "m".into(),
+            max_tokens: None,
+        });
+        assert_eq!(
+            multimodal.get("response_format"),
+            Some(&serde_json::json!({"type": "json_object"})),
+            "image tasks are under the same JSON contract"
         );
     }
 
@@ -665,6 +781,7 @@ mod tests {
                     ]},
                 ],
                 "stream": true,
+                "response_format": {"type": "json_object"},
             })
         );
     }
@@ -732,6 +849,55 @@ mod tests {
             GlossError::EngineResponse("HTTP 400 Bad Request".into())
         );
     }
+
+    #[test]
+    fn json_mode_and_multimodal_rejections_are_recognized_from_diagnostics() {
+        assert_eq!(
+            map_failure(
+                StatusCode::BAD_REQUEST,
+                r#"{"error":{"message":"response_format is not supported by this model","type":"invalid_request_error"}}"#,
+            ),
+            GlossError::JsonModeUnsupported
+        );
+        assert_eq!(
+            map_failure(
+                StatusCode::BAD_REQUEST,
+                r#"{"error":{"message":"json_object output is unavailable on this endpoint"}}"#,
+            ),
+            GlossError::JsonModeUnsupported,
+            "either marker of the JSON-mode switch is enough"
+        );
+        assert_eq!(
+            map_failure(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                r#"{"error":{"message":"This model does not support image input (vision)."}}"#,
+            ),
+            GlossError::UnsupportedModality
+        );
+        assert_eq!(
+            map_failure(
+                StatusCode::BAD_REQUEST,
+                r#"{"error":{"message":"`messages` contains an unsupported multimodal content part"}}"#,
+            ),
+            GlossError::UnsupportedModality
+        );
+        assert_eq!(
+            map_failure(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                r#"{"error":{"message":"vision routing exploded","type":"server_error"}}"#,
+            ),
+            GlossError::EngineNetwork,
+            "the diagnostics heuristics are scoped to 4xx"
+        );
+        assert_eq!(
+            map_failure(
+                StatusCode::UNAUTHORIZED,
+                r#"{"error":{"message":"invalid response_format"}}"#,
+            ),
+            GlossError::EngineAuth,
+            "auth keeps its precedence over the diagnostics"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -790,7 +956,8 @@ mod live_tests {
         let mut text = String::new();
         while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
             match item {
-                Ok(delta) => text.push_str(&delta),
+                Ok(TaskChunk::Delta(delta)) => text.push_str(&delta),
+                Ok(TaskChunk::Done { .. }) => {}
                 Err(error) => panic!("stream failed: {error}"),
             }
             if text.chars().count() > 80 {

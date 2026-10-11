@@ -12,7 +12,9 @@ use stubs::ports::{FixedRegionCapture, FixedSelectionReader, MemoryConfigStore};
 
 use gloss_core::config::Config;
 use gloss_core::model::GlossError;
-use gloss_core::ports::{AiEngine, ConfigStore, EngineRequest, RegionCapture, SelectionReader};
+use gloss_core::ports::{
+    AiEngine, ConfigStore, EngineRequest, RegionCapture, SelectionReader, TaskChunk,
+};
 use gloss_core::prompt::ChatMessage;
 
 mod stubs;
@@ -35,7 +37,10 @@ async fn chunk_delay_paces_the_stream() {
     let start = Instant::now();
     let mut seen = Vec::new();
     while let Some(chunk) = stream.next().await {
-        seen.push(chunk.expect("chunk ok"));
+        match chunk.expect("chunk ok") {
+            TaskChunk::Delta(delta) => seen.push(delta),
+            TaskChunk::Done { .. } => {}
+        }
     }
     assert_eq!(seen, vec!["光", "泽", "注释"]);
     assert!(
@@ -66,13 +71,19 @@ async fn failures_are_injectable() {
         Ok("流继续".into()),
     ]);
     let mut stream = mid_stream.execute(sample_request()).await.expect("stream");
-    assert_eq!(stream.next().await, Some(Ok("部分".into())));
+    assert_eq!(
+        stream.next().await,
+        Some(Ok(TaskChunk::Delta("部分".into())))
+    );
     assert_eq!(
         stream.next().await,
         Some(Err(GlossError::EngineNetwork)),
         "mid-stream failure must surface in order"
     );
-    assert_eq!(stream.next().await, Some(Ok("流继续".into())));
+    assert_eq!(
+        stream.next().await,
+        Some(Ok(TaskChunk::Delta("流继续".into())))
+    );
     assert!(stream.next().await.is_none(), "stream ends at script end");
 }
 
@@ -92,7 +103,10 @@ async fn execute_failure_once_fails_exactly_once() {
     let second = engine.execute(sample_request()).await;
     assert!(second.is_ok(), "the next call must stream again");
     if let Ok(mut stream) = second {
-        assert_eq!(stream.next().await, Some(Ok("恢复".into())));
+        assert_eq!(
+            stream.next().await,
+            Some(Ok(TaskChunk::Delta("恢复".into())))
+        );
         assert!(stream.next().await.is_none());
     }
 }

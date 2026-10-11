@@ -1556,6 +1556,10 @@ mod kittest_tests {
                 errors.gloss_errors_engine_network.as_str(),
             ),
             (
+                FailureCause::Task(GlossError::JsonModeUnsupported),
+                errors.gloss_errors_json_mode_unsupported.as_str(),
+            ),
+            (
                 FailureCause::Task(GlossError::EngineResponse("HTTP 400".into())),
                 "服务返回异常：HTTP 400",
             ),

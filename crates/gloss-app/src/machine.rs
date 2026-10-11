@@ -597,16 +597,17 @@ impl TaskStateMachine {
     }
 }
 
-/// 错误 → 失败卡动作（映射表）：网络/限流可原样重试；鉴权、模态
-/// 与配置错误都要进设置页才能修（模型、密钥的修改入口在设置页）；
-/// 其余类别没有按钮意义上的出口——权限类引导已写在文案里，协议
-/// 异常重发同一个请求只会再错一次。
+/// 错误 → 失败卡动作（映射表）：网络/限流可原样重试；鉴权、模态、
+/// JSON 模式不支持与配置错误都要进设置页才能修（模型、密钥与模型服务
+/// 的修改入口在设置页）；其余类别没有按钮意义上的出口——权限类引导
+/// 已写在文案里，协议异常重发同一个请求只会再错一次。
 fn error_action(error: &GlossError) -> Option<ErrorAction> {
     match error {
         GlossError::EngineNetwork | GlossError::EngineRateLimited => Some(ErrorAction::Retry),
-        GlossError::EngineAuth | GlossError::UnsupportedModality | GlossError::Config(_) => {
-            Some(ErrorAction::OpenSettings)
-        }
+        GlossError::EngineAuth
+        | GlossError::UnsupportedModality
+        | GlossError::JsonModeUnsupported
+        | GlossError::Config(_) => Some(ErrorAction::OpenSettings),
         _ => None,
     }
 }
@@ -1995,6 +1996,24 @@ mod tests {
                 ..
             })
         ));
+
+        assert_eq!(probe(&mut machine, &Config::default()), 5);
+        dispatched(machine.commit_probe(5, text_input("x")));
+        assert_eq!(
+            machine.accept_failed(5, &GlossError::JsonModeUnsupported),
+            FailureOutcome::Shown
+        );
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Failed {
+                cause: FailureCause::Task(GlossError::JsonModeUnsupported),
+                action: Some(ErrorAction::OpenSettings),
+            })
+        ));
+        assert!(
+            machine.retry().is_none(),
+            "an unsupported endpoint cannot be fixed by resending"
+        );
     }
 
     #[test]

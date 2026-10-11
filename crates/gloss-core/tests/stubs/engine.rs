@@ -11,7 +11,7 @@ use futures::Stream;
 use tokio::time::sleep;
 
 use gloss_core::model::GlossError;
-use gloss_core::ports::{AiEngine, BoxFuture, EngineRequest, TaskStream};
+use gloss_core::ports::{AiEngine, BoxFuture, EngineRequest, TaskChunk, TaskStream};
 
 use super::lock_or_recover;
 
@@ -152,7 +152,7 @@ impl ChunkStream {
 }
 
 impl Stream for ChunkStream {
-    type Item = Result<String, GlossError>;
+    type Item = Result<TaskChunk, GlossError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = &mut *self;
@@ -172,7 +172,7 @@ impl Stream for ChunkStream {
                 if !this.chunks.as_slice().is_empty() {
                     this.pending_sleep = Some(Box::pin(sleep(this.delay)));
                 }
-                Poll::Ready(Some(item))
+                Poll::Ready(Some(item.map(TaskChunk::Delta)))
             }
             None => Poll::Ready(None),
         }
