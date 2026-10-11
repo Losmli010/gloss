@@ -6,8 +6,9 @@
 //! `cache_key(input, options)` 查 [`TaskCache`] → 命中直出（补发
 //! `TaskClassified{outcome.kind}` 再 `TaskDone`，事件序与 miss 路径同形）
 //! → miss 时接线钩子（`TaskClassified`/`TaskChunk` 逐条回传）调
-//! `service.run` → 完成态经 [`complete`]（JSON 主路径 + 围栏 fallback）
-//! 解析出 [`TaskOutcome`] → 写缓存 → `TaskDone`。引擎失败不写缓存。
+//! `service.run` → 完成态经 [`complete`]（`schema::validate_task` 两分支）
+//! 解析出 [`TaskOutcome`] → **非降级才写缓存**（降级产物不投毒）→
+//! `TaskDone`。引擎失败不写缓存。
 //! 另有 `PrewarmSecret` 一条旁路：读一次密钥进进程内缓存（启动期预热），
 //! 与任务代数无关。
 //!
@@ -185,8 +186,8 @@ async fn consume_loop(
 
 /// 单个任务的桥侧执行体（缓存站点 + 纯泵）：查缓存 → 命中直出（事件序
 /// 与 miss 同形：`TaskClassified` → `TaskDone`）→ miss 则 `service.run`
-/// 转发（增量上抛）→ 完成态解析 → 回填缓存 → `TaskDone`。`Err` 交给调用
-/// 方转 TaskFailed——失败路径不写缓存，下次触发重新执行。
+/// 转发（增量上抛）→ 完成态解析 → 非降级回填缓存 → `TaskDone`。`Err` 交
+/// 给调用方转 TaskFailed——失败路径不写缓存，下次触发重新执行。
 async fn run_task(
     service: &AiTaskService,
     cache: &TaskCache,
@@ -242,7 +243,11 @@ async fn run_task(
         .await?;
 
     let outcome = complete(output.kind, &output.raw);
-    cache.set(key, outcome.clone());
+    // 降级产物不投毒缓存：违约回复命中同 key 会把垃圾保留一个 TTL——
+    // 只缓存校验过的正常产物，降级产物随事件上卡、过期即逝。
+    if !outcome.degraded {
+        cache.set(key, outcome.clone());
+    }
     send_event(
         events,
         wake,
@@ -385,6 +390,49 @@ mod tests {
             }
             other => panic!("expected task done, got {other:?}"),
         }
+        drop(commands);
+        tokio::task::spawn_blocking(move || drop(runtime))
+            .await
+            .expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn a_degraded_done_never_enters_the_cache() {
+        let engine = MockEngine::new().with_chunks(vec![Ok("整段正文，不是 JSON".into())]);
+        let (commands, events, runtime) = start(&engine);
+
+        run(&commands, 1, text_input("违约回复"), text_options());
+        loop {
+            match events.recv().unwrap() {
+                Event::TaskClassified { generation: 1, .. } => {}
+                Event::TaskChunk { generation: 1, .. } => {}
+                Event::TaskDone {
+                    generation: 1,
+                    outcome,
+                } => {
+                    assert!(outcome.degraded, "a non-JSON reply degrades");
+                    assert_eq!(outcome.note, "");
+                    break;
+                }
+                other => panic!("unexpected event: {other:?}"),
+            }
+        }
+        assert_eq!(engine.call_count(), 2, "classify + task once");
+
+        run(&commands, 2, text_input("违约回复"), text_options());
+        loop {
+            match events.recv().unwrap() {
+                Event::TaskClassified { generation: 2, .. } => {}
+                Event::TaskChunk { generation: 2, .. } => {}
+                Event::TaskDone { generation: 2, .. } => break,
+                other => panic!("unexpected event: {other:?}"),
+            }
+        }
+        assert_eq!(
+            engine.call_count(),
+            4,
+            "the degraded outcome must not poison the cache: the retry reaches the engine again"
+        );
         drop(commands);
         tokio::task::spawn_blocking(move || drop(runtime))
             .await

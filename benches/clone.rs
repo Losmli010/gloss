@@ -159,11 +159,11 @@ fn word_outcome() -> TaskOutcome {
     TaskOutcome {
         kind: TaskKind::TranslateWord,
         note: NOTE.to_owned(),
-        code_language: None,
         structured: OutcomeStructured::WordCard {
             phonetic: Some("/ɡlɒs/".to_owned()),
             examples: vec!["a gloss of silk".to_owned()],
         },
+        degraded: false,
     }
 }
 
@@ -252,7 +252,6 @@ fn bench_popup_frame<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let view = OverlayView::Outcome {
         source: SOURCE.to_owned(),
         outcome: word_outcome(),
-        code_lang: None,
     };
 
     for i in 0..WARMUP_FRAMES {

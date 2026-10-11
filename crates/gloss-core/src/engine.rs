@@ -8,9 +8,10 @@
 //! `options.model`，本层与缓存彻底无关——查/写缓存、完成态解析与产物组
 //! 装都归调用方（app 桥）。
 //!
-//! 输出契约见 prompt 模块：模型按契约直接返回纯 JSON 对象（`note` 义 +
-//! 按 kind 疏证）；本层只搬运原始文本，不解析——解析归调用方的完成态
-//! （`gloss_app::finalize`，JSON 主路径 + 旧围栏契约 fallback）。
+//! 输出契约见 prompt 模块与 `crate::schema`：模型按契约直接返回纯 JSON
+//! 对象（`note` 义 + `structured` 疏证）；本层只搬运原始文本，不解析——
+//! 契约校验与产物组装归调用方的完成态（`gloss_app::finalize`，经
+//! `schema::validate_task` 两分支：校验过出正常产物，违约落降级产物）。
 //!
 //! 子模块 [`llm`] / [`sse`] 是 [`AiEngine`] 端口的内建传输适配：OpenAI
 //! 兼容端点的流式客户端与 SSE 增量解码。

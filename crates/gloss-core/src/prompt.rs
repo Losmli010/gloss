@@ -3,23 +3,26 @@
 //! 任务**一个任务一份自包含模板**（词卡/句译/代码解释/图像解读）：任务
 //! 说明与纯 JSON 输出契约（含一份**中性占位**的输出示例）都在同一个文件
 //! 里，改一个任务的任务书不会牵动其它任务。契约按经注疏/说文解字的层次
-//! 组织：`note`（义，markdown 注文）+ 按 kind 的疏证字段——词卡是
-//! phonetic/examples（音/例，字头即选区原文），句译与讲解是 examples
-//! （展开讲解），代码另带 code_language（LLM 判定，UI 角标与高亮使用），
-//! 图像解读是 interpretation（逐条内容解读，`note` 在前）。
-//! 模板里的输出示例就是解析侧（`gloss_app::finalize`）所吃形状的唯一描述，
-//! 两处改一须改二；示例值恒为占位（同分类契约的少样本偏置取舍）。预留的
-//! 音频输入一律 [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
+//! 组织，与 [`crate::schema`] 的三行同构表同源：`note`（义，markdown 注
+//! 文）恒为首字段，按 kind 的疏证字段收敛在 `structured` 对象里——词卡
+//! 是 structured.phonetic/examples（音/例，字头即选区原文），句译、讲解
+//! 与图像解读是 structured.examples（展开条目），代码另带
+//! structured.code_language（LLM 判定，UI 角标与高亮使用）。
+//! 模板里的输出示例就是解析侧（`crate::schema::validate_task`）所吃形状
+//! 的唯一描述，两处改一须改二（完整性门禁测试锁定：每个模板的示例对象
+//! 必须通过对应 `validate_task`）；示例值恒为占位（同分类契约的少样本
+//! 偏置取舍）。预留的音频输入一律 [`GlossError::UnsupportedModality`]，
+//! 不发出注定无效的请求。
 //!
-//! [`STRUCTURED_FENCE`] 是**旧契约的围栏标记**，只服务两处兼容位：分类
-//! 回复的围栏容错提取（`classify::parse_classify_reply`）与完成态解析的
-//! 围栏 fallback（模型跑偏输出旧契约时兜底）——现行任务 prompt 不再要求
-//! 围栏。
+//! [`STRUCTURED_FENCE`] 是**旧契约的围栏标记**，只剩一处兼容位：分类
+//! 回复的围栏容错提取（`classify::parse_classify_reply`）——现行任务
+//! prompt 不要求围栏，任务回复的围栏输出由校验器判违约。
 //!
 //! 模板文本是编译期嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，
 //! `include_str!`），渲染是显式的 `{{占位符}}` 替换（可选行语义见
 //! [`render_template`]）。不注入模态提示行：源语言与代码语言都由模型
-//! 从原文自行判断，代码语言经产物 JSON 的 `code_language` 回传 UI。
+//! 从原文自行判断，代码语言经产物 JSON 的 `structured.code_language`
+//! 回传 UI。
 //!
 //! 本模块只产**域形态**的消息（[`ChatMessage`]：role + [`MessageContent`]），
 //! 不做 wire 序列化，也不携带 base64——把部件数组映成 OpenAI 兼容
@@ -498,22 +501,28 @@ mod tests {
         let word = registry
             .render(&text_task(TaskKind::TranslateWord, "gloss"))
             .expect("render");
-        assert!(text_of(&word[0].content).contains("\"phonetic\""));
-        assert!(text_of(&word[0].content).contains("\"examples\""));
-        assert!(text_of(&word[0].content).contains("\"note\""));
+        let word_body = text_of(&word[0].content);
+        assert!(word_body.contains("\"structured\""));
+        assert!(word_body.contains("\"phonetic\""));
+        assert!(word_body.contains("\"examples\""));
+        assert!(word_body.contains("\"note\""));
 
         let plain = registry
             .render(&text_task(TaskKind::ExplainCode, "fn main() {}"))
             .expect("render");
-        assert!(text_of(&plain[0].content).contains("\"examples\""));
-        assert!(text_of(&plain[0].content).contains("\"code_language\""));
-        assert!(text_of(&plain[0].content).contains("\"note\""));
+        let plain_body = text_of(&plain[0].content);
+        assert!(plain_body.contains("\"structured\""));
+        assert!(plain_body.contains("\"examples\""));
+        assert!(plain_body.contains("\"code_language\""));
+        assert!(plain_body.contains("\"note\""));
 
         let sentence = registry
             .render(&text_task(TaskKind::TranslateSentence, "hello"))
             .expect("render");
-        assert!(text_of(&sentence[0].content).contains("\"examples\""));
-        assert!(text_of(&sentence[0].content).contains("\"note\""));
+        let sentence_body = text_of(&sentence[0].content);
+        assert!(sentence_body.contains("\"structured\""));
+        assert!(sentence_body.contains("\"examples\""));
+        assert!(sentence_body.contains("\"note\""));
     }
 
     #[test]
@@ -541,6 +550,80 @@ mod tests {
                     keys.contains_key("note"),
                     "{locale:?}/{name}: the example must carry the note field"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn every_task_template_example_passes_validate_task() {
+        use crate::schema::validate_task;
+
+        fn example_object(template: &str) -> &str {
+            template
+                .lines()
+                .find(|line| line.trim_start().starts_with('{'))
+                .expect("the output example must be a JSON object line")
+        }
+
+        fn assert_structured_keys(locale: Locale, name: &str, object: &str, keys: &[&str]) {
+            let value: serde_json::Value =
+                serde_json::from_str(object).expect("example must parse");
+            let structured = value
+                .get("structured")
+                .and_then(|value| value.as_object())
+                .unwrap_or_else(|| {
+                    panic!("{locale:?}/{name}: the contract nests fields under a structured object")
+                });
+            for key in keys {
+                assert!(
+                    structured.contains_key(*key),
+                    "{locale:?}/{name}: structured must carry {key:?}: {object}"
+                );
+            }
+        }
+
+        for locale in [Locale::Zh, Locale::En] {
+            let templates = locale.templates();
+            for (name, kind, text, keys) in [
+                (
+                    "word_card.md",
+                    TaskKind::TranslateWord,
+                    templates.word_card,
+                    &["phonetic", "examples"][..],
+                ),
+                (
+                    "sentence.md",
+                    TaskKind::TranslateSentence,
+                    templates.sentence,
+                    &["examples"][..],
+                ),
+                (
+                    "code.md",
+                    TaskKind::ExplainCode,
+                    templates.code,
+                    &["examples", "code_language"][..],
+                ),
+                (
+                    "image_explain.md",
+                    TaskKind::ImageExplain,
+                    templates.image_explain,
+                    &["examples"][..],
+                ),
+            ] {
+                assert!(
+                    text.to_lowercase().contains("json"),
+                    "{locale:?}/{name}: the prompt must mention json (the endpoint's \
+                     JSON-mode gate reads it)"
+                );
+                let object = example_object(text);
+                assert_eq!(
+                    validate_task(kind, object)
+                        .map(|(note, _)| note)
+                        .map_err(|violation| violation.to_string()),
+                    Ok("…".to_owned()),
+                    "{locale:?}/{name}: the example object must pass validate_task"
+                );
+                assert_structured_keys(locale, name, object, keys);
             }
         }
     }
@@ -619,7 +702,8 @@ mod tests {
             "the image contract must demand a single JSON object: {system}"
         );
         assert!(system.contains("\"note\""), "{system}");
-        assert!(system.contains("\"interpretation\""), "{system}");
+        assert!(system.contains("\"structured\""), "{system}");
+        assert!(system.contains("\"examples\""), "{system}");
         assert!(!system.contains("{{"), "{system}");
     }
 
@@ -635,10 +719,6 @@ mod tests {
                 object.trim_start().starts_with("{\"note\""),
                 "{locale:?}: the contract fixes note as the first field: {object}"
             );
-            assert!(
-                object.find("interpretation").is_some_and(|note| note > 0),
-                "{locale:?}: the interpretation field must follow note: {object}"
-            );
             let value: serde_json::Value = serde_json::from_str(object.trim())
                 .unwrap_or_else(|err| panic!("{locale:?}: example must parse: {err}"));
             let keys = value
@@ -648,13 +728,19 @@ mod tests {
                 .cloned()
                 .collect::<Vec<_>>();
             assert_eq!(
-                keys.len(),
-                2,
-                "{locale:?}: the contract has exactly note and interpretation: {keys:?}"
+                keys,
+                ["note".to_owned(), "structured".to_owned()],
+                "{locale:?}: the contract has exactly note and structured, in that order: {keys:?}"
             );
-            assert!(
-                keys.contains(&"note".to_owned()) && keys.contains(&"interpretation".to_owned()),
-                "{locale:?}: the contract has exactly note and interpretation: {keys:?}"
+            let structured = value
+                .get("structured")
+                .and_then(|value| value.as_object())
+                .expect("{locale:?}: structured object");
+            assert_eq!(
+                structured.keys().cloned().collect::<Vec<_>>(),
+                ["examples".to_owned()],
+                "{locale:?}: the plain image contract carries examples only (the old \
+                 interpretation name is retired): {structured:?}"
             );
         }
     }
@@ -801,11 +887,14 @@ mod tests {
                 ("image_explain.md", templates.image_explain),
             ];
             for (name, text) in files {
-                assert_eq!(
-                    text.matches("{{").count(),
-                    text.matches("}}").count(),
-                    "{locale:?}/{name}: unbalanced placeholder braces"
-                );
+                // 每个占位符开括号都要有闭合（嵌套契约的示例 JSON 以 `}}`
+                // 收尾，`}}` 计数因此可以多于 `{{`——配对成立即可）。
+                for (index, _) in text.match_indices("{{") {
+                    assert!(
+                        text[index + 2..].contains("}}"),
+                        "{locale:?}/{name}: unclosed placeholder brace"
+                    );
+                }
                 for chunk in text.split("{{").skip(1) {
                     if let Some(end) = chunk.find("}}") {
                         let key = chunk[..end].trim();

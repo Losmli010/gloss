@@ -421,11 +421,11 @@ mod tests {
                 outcome: TaskOutcome {
                     kind: TaskKind::TranslateWord,
                     note: "# gloss".into(),
-                    code_language: None,
                     structured: OutcomeStructured::WordCard {
                         phonetic: Some("/ɡlɒs/".into()),
                         examples: vec![],
                     },
+                    degraded: false,
                 },
             })
             .unwrap();
