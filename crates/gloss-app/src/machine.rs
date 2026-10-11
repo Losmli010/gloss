@@ -87,7 +87,8 @@ pub enum OverlayView {
     /// 推理中：原文 + 已到达的流式原始回复（模型的原始 JSON 流，渲染层
     /// 对 `note` 字段做渐进提取）。`classified` 是按代码排版的判定结果：
     /// LLM 层分类前为 `None`，`accept_classified` 到达后精化（代码解释
-    /// 从分类帧起按代码排版）。
+    /// 从分类帧起按代码排版）。`repairing` 是修复轮标记：页脚据此切
+    /// 「重新注解」（无横幅无计数）。
     Streaming {
         /// 触发时选中的原文。
         source: String,
@@ -95,6 +96,8 @@ pub enum OverlayView {
         raw: String,
         /// 自动分类判明的任务类型（LLM 层回传后精化）。
         classified: Option<TaskKind>,
+        /// 契约违约后的修复轮进行中（`accept_repairing` 置位）。
+        repairing: bool,
     },
     /// 产物卡：按 `TaskKind` 精排或展示 markdown 注文。`source` 是本次
     /// 任务的原文（从流式视图随行而来），经注疏排布的「经」位用。
@@ -389,6 +392,7 @@ impl TaskStateMachine {
             source: view_source,
             raw: String::new(),
             classified: None,
+            repairing: false,
         });
         self.state = AppState::Translating;
         InputOutcome::Dispatch(self.begin_run(input, options))
@@ -503,6 +507,21 @@ impl TaskStateMachine {
             return true;
         }
         false
+    }
+
+    /// 采纳修复轮开始（`TaskRepairing`）：清掉上一轮的流式累积并把视图
+    /// 置「修复中」（页脚据此切「重新注解」，无横幅无计数——轮次只在
+    /// core 日志）。守卫同 [`Self::accept_chunk`]：陈旧代数或非推理态不
+    /// 采纳，新会话的流式卡不得被旧任务的修复事件清稿。返回是否需要重绘。
+    pub fn accept_repairing(&mut self, generation: u64) -> bool {
+        if generation != self.generation || self.state != AppState::Translating {
+            return false;
+        }
+        if let Some(OverlayView::Streaming { raw, repairing, .. }) = &mut self.overlay_view {
+            raw.clear();
+            *repairing = true;
+        }
+        true
     }
 
     /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（错误
@@ -620,6 +639,7 @@ fn streaming_view(input: &TaskInput) -> OverlayView {
         source,
         raw: String::new(),
         classified: None,
+        repairing: false,
     }
 }
 
@@ -687,6 +707,8 @@ pub(crate) enum EventKind {
     InputReady,
     TaskClassified,
     TaskChunk,
+    /// 修复轮开始：与 chunk 同类，只更新已可见的流式卡，不负责露面。
+    TaskRepairing,
     TaskDone,
     TaskFailed,
     /// 密钥预热回执：与任务代数无关，露面策略恒不显示（壳层旁路留痕）。
@@ -699,6 +721,7 @@ pub(crate) fn event_kind(event: &Event) -> EventKind {
         Event::InputReady { .. } => EventKind::InputReady,
         Event::TaskClassified { .. } => EventKind::TaskClassified,
         Event::TaskChunk { .. } => EventKind::TaskChunk,
+        Event::TaskRepairing { .. } => EventKind::TaskRepairing,
         Event::TaskDone { .. } => EventKind::TaskDone,
         Event::TaskFailed { .. } => EventKind::TaskFailed,
         Event::SecretPrewarmed { .. } => EventKind::SecretPrewarmed,
@@ -719,7 +742,10 @@ fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
     match kind {
         EventKind::InputReady => false,
         EventKind::TaskFailed => accepted,
-        EventKind::TaskClassified | EventKind::TaskDone | EventKind::TaskChunk => false,
+        EventKind::TaskClassified
+        | EventKind::TaskRepairing
+        | EventKind::TaskDone
+        | EventKind::TaskChunk => false,
         // 预热回执由壳层旁路留痕，与任务浮层无关。
         EventKind::SecretPrewarmed => false,
     }
@@ -1282,6 +1308,57 @@ mod tests {
                 })
             ),
             "the streaming view stays unclassified until the LLM layer reports"
+        );
+    }
+
+    #[test]
+    fn the_repair_marker_clears_the_stream_and_refuses_stale_rounds() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+        dispatched(machine.commit_probe(1, text_input("hello")));
+        machine.accept_chunk(1, "上一轮的违约正文".into());
+
+        assert!(
+            !machine.accept_repairing(0),
+            "a stale repair marker must be dropped"
+        );
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Streaming { raw, repairing: false, .. }) if raw == "上一轮的违约正文"
+        ));
+
+        assert!(machine.accept_repairing(1));
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Streaming { raw, repairing: true, .. }) if raw.is_empty()
+            ),
+            "the violated accumulation is cleared when the repair round starts"
+        );
+
+        machine.accept_chunk(1, "新一轮的正文".into());
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Streaming {
+                    repairing: true,
+                    ..
+                })
+            ),
+            "chunks of the repair round keep the repairing footer on"
+        );
+
+        machine.accept_done(1, plain_outcome("产物"));
+        assert!(
+            !machine.accept_repairing(1),
+            "a settled outcome card must not be cleared by a late repair marker"
+        );
+
+        assert_eq!(probe(&mut machine, &Config::default()), 2);
+        dispatched(machine.commit_probe(2, text_input("新任务")));
+        assert!(
+            machine.accept_repairing(2),
+            "a fresh session accepts its own repair markers"
         );
     }
 

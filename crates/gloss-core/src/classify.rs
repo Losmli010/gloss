@@ -2,19 +2,26 @@
 //!
 //! 判定完全交给 LLM（极小 prompt + [`CLASSIFY_MAX_TOKENS`] 截断）→ JSON
 //! 校验（kind 必须在允许清单内）——源语言与代码语言同样由模型从原文
-//! 自行判断，取材不再携带模态提示。解析先认 `{"kind": "…"}` 裸 JSON，
-//! 失败退围栏提取；识别不出即 `Err`——回退到兜底 kind
-//! （[`CLASSIFY_FALLBACK`]）是编排层（engine）的决策，本模块不做静默
-//! 回退。流式循环内每次累积后即尝试解析，首个能通过校验的完整 JSON
-//! 立即定型返回（不等流自然结束，见 [`classify`]）。
+//! 自行判断，取材不再携带模态提示。校验用 [`crate::schema::validate_classify`]
+//! （严格裸 JSON，与生产/评测共用同一校验器）；流式循环内每次累积后即
+//! 尝试解析，首个能通过校验的完整 JSON 立即定型返回（不等流自然结束，
+//! 提前还流即还回 TTFT）。
+//!
+//! **异常内部消化**：契约违约（空回复 / 非 JSON / kind 越清单）走修复轮
+//! （对话形态 `[system][user 原文][assistant 上一次坏回复][user 纠错指令]`，
+//! EmptyReply 原样重发不带 assistant 轮），预算 [`CLASSIFY_REPAIRS`]；
+//! 分类阶段的请求异常不重试。两者耗尽/失败都落常量兜底
+//! [`CLASSIFY_FALLBACK`]——本函数对文本输入恒返回 `Ok(kind)`，用户无感，
+//! warn 留痕（类别 + 序号，不含内容）。
 //!
 //! 内容红线：分类输出契约只有一个 kind 标识，没有理由字段；本模块的
-//! 错误与日志（由调用方记）都不携带输入内容与模型回复原文。
+//! 错误与日志都不携带输入内容与模型回复原文。
 
-use crate::log::debug;
+use crate::log::{debug, thread, warn};
 use crate::model::{GlossError, Locale};
 use crate::ports::{AiEngine, EngineRequest, TaskChunk};
-use crate::prompt::{PromptRegistry, STRUCTURED_FENCE};
+use crate::prompt::{CLASSIFY_SCHEMA, PromptRegistry, STRUCTURED_FENCE, repair_conversation};
+use crate::schema::{self, Violation};
 use crate::task::{TaskInput, TaskKind};
 
 /// 分类的允许清单：分类只服务划词路径，答案集合就是**文本取材可执行**
@@ -25,18 +32,23 @@ pub const CLASSIFY_KINDS: [TaskKind; 3] = [
     TaskKind::ExplainCode,
 ];
 
-/// 分类失败（引擎错误、回复解析不过）时的兜底 kind：常量而非配置——
-/// 兜底必须是可渲染、可执行的具体文本 kind，词卡是划词最高频的意图。
-pub const CLASSIFY_FALLBACK: TaskKind = TaskKind::TranslateWord;
+/// 分类失败（请求异常、修复轮后仍违约）时的兜底 kind：常量而非配置——
+/// 兜底必须是可渲染、可执行的具体文本 kind。General 是清单外的通用落点
+/// （分类器仍在三个文本 kind 中选择，兜底只是失效时的执行落点）。
+pub const CLASSIFY_FALLBACK: TaskKind = TaskKind::General;
+
+/// 分类契约违约的修复轮预算：分类在 TTFT 之前，预算敏感——共
+/// `1 + CLASSIFY_REPAIRS` 次尝试。
+pub const CLASSIFY_REPAIRS: u32 = 1;
 
 /// 分类回复的 token 上限（OpenAI 兼容 `max_tokens`）：正确回复是一个
 /// 只含 kind 标识的小 JSON，截断只落在模型跑偏的长篇上——跑偏的回复
-/// 解析不过，走调用方的兜底。
+/// 解析不过，进修复轮。
 pub const CLASSIFY_MAX_TOKENS: u32 = 128;
 
 /// 回复累积上限（字节）：`max_tokens` 之外的第二道界，防止不守约的
 /// 端点把无界回复灌进内存。超限部分丢弃（按字符边界截断）——截断的
-/// JSON 解析不过，同样落到兜底。pub 供 gloss-eval 的 live 轨复用同一
+/// JSON 解析不过，同样进修复轮。pub 供 gloss-eval 的 live 轨复用同一
 /// 道界（评测与生产同源）。
 pub const CLASSIFY_REPLY_CAP_BYTES: usize = 4096;
 
@@ -55,7 +67,9 @@ pub fn push_capped(reply: &mut String, delta: &str) {
 }
 
 /// 判定一条文本输入的任务类型。`allowed` 是允许模型选择的清单（编排
-/// 传 [`CLASSIFY_KINDS`]），识别结果超出清单按未识别处理。
+/// 传 [`CLASSIFY_KINDS`]），识别结果超出清单按未识别处理。契约违约走
+/// 修复轮（预算 [`CLASSIFY_REPAIRS`]），请求异常不重试；两者最终都落
+/// [`CLASSIFY_FALLBACK`]——文本输入恒 `Ok`。
 pub async fn classify(
     engine: &dyn AiEngine,
     model: &str,
@@ -69,39 +83,89 @@ pub async fn classify(
         return Err(GlossError::UnsupportedModality);
     };
 
-    let messages = PromptRegistry::new().render_classify(locale, allowed, text);
-    let request = EngineRequest {
-        messages,
-        model: model.to_owned(),
-        max_tokens: Some(CLASSIFY_MAX_TOKENS),
-    };
-    let mut stream = engine.execute(request).await?;
+    let registry = PromptRegistry::new();
+    let base = registry.render_classify(locale, allowed, text);
+    let mut messages = base.clone();
+    let mut repairs = 0u32;
+    loop {
+        let request = EngineRequest {
+            messages: messages.clone(),
+            model: model.to_owned(),
+            max_tokens: Some(CLASSIFY_MAX_TOKENS),
+        };
+        let reply = match classify_round(engine, &request, allowed).await {
+            Ok(reply) => reply,
+            // 分类阶段的请求异常不重试（重发同请求无益），内部消化落兜底
+            // ——warn 只记错误类别，不含选区原文与模型回复。
+            Err(error) => {
+                warn!(
+                    thread = thread::TOKIO,
+                    error = %error,
+                    "classify request failed, falling back to the default kind"
+                );
+                return Ok(CLASSIFY_FALLBACK);
+            }
+        };
+        match schema::validate_classify(&reply, allowed) {
+            Ok(kind) => {
+                debug!(kind = ?kind, "classified by the model");
+                return Ok(kind);
+            }
+            Err(violation) => {
+                if repairs >= CLASSIFY_REPAIRS {
+                    warn!(
+                        thread = thread::TOKIO,
+                        reason = %violation,
+                        "classify repairs exhausted, falling back to the default kind"
+                    );
+                    return Ok(CLASSIFY_FALLBACK);
+                }
+                repairs += 1;
+                // 违约 warn 只记类别 + 轮次（第几轮违约），无内容。
+                warn!(
+                    thread = thread::TOKIO,
+                    attempt = repairs,
+                    reason = %violation,
+                    "classify reply violated the contract, preparing a repair round"
+                );
+                let instruction = registry.render_repair(locale, violation, CLASSIFY_SCHEMA, false);
+                // EmptyReply 无内容可纠：原样重发，不带 assistant 轮。
+                let bad = match violation {
+                    Violation::EmptyReply => None,
+                    _ => Some(reply.as_str()),
+                };
+                messages = repair_conversation(&base, bad, instruction);
+            }
+        }
+    }
+}
+
+/// 执行一轮分类请求并按预算累积回复：流式增量逐条累积，首个能通过校验
+/// 的完整 JSON 立即提前收卷（不等流自然结束，提前还流即还回 TTFT）；
+/// 只在 Ok 时提前退出——部分 JSON 继续等，跑偏与截断的回复照旧走完流、
+/// 落到整段校验。每次累积后的全量校验上界是回复上限（4KB）× 个位数
+/// chunk，相对 chunk 的毫秒级到达间隔可忽略。结束帧对分类没有增量价值。
+async fn classify_round(
+    engine: &dyn AiEngine,
+    request: &EngineRequest,
+    allowed: &[TaskKind],
+) -> Result<String, GlossError> {
+    let mut stream = engine.execute(request.clone()).await?;
     let mut reply = String::new();
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {
             Ok(TaskChunk::Delta(delta)) => {
                 push_capped(&mut reply, &delta);
-                // 增量解析提前退出：裸 JSON 到闭合括号即定型，不等流自然
-                // 结束——首个能通过校验的完整 JSON 就是判定，其后的增量
-                // 与结束帧作废（提前还流即还回 TTFT）。只在 Ok 时退出：
-                // 部分 JSON 继续等，跑偏与截断的回复照旧走完流、落到循环
-                // 外的同一条解析路径。每次累积后的全量 parse 上界是回复
-                // 上限（4KB）× 个位数 chunk，相对 chunk 的毫秒级到达间隔
-                // 可忽略。
-                if let Ok(kind) = parse_classify_reply(&reply, allowed) {
+                if let Ok(kind) = schema::validate_classify(&reply, allowed) {
                     debug!(kind = ?kind, "classified by the model");
-                    return Ok(kind);
+                    return Ok(reply);
                 }
             }
-            // 结束帧对分类没有增量价值：判定要么已提前退出，要么落在循环外
-            // 的整段解析。
             Ok(TaskChunk::Done { .. }) => {}
             Err(error) => return Err(error),
         }
     }
-    let kind = parse_classify_reply(&reply, allowed)?;
-    debug!(kind = ?kind, "classified by the model");
-    Ok(kind)
+    Ok(reply)
 }
 
 /// 解析模型回复：先按裸 JSON 解析，失败退到围栏提取（```gloss 或
@@ -156,8 +220,11 @@ fn fenced_json(reply: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CLASSIFY_FALLBACK, CLASSIFY_KINDS, classify, parse_classify_reply};
+    use super::{
+        CLASSIFY_FALLBACK, CLASSIFY_KINDS, CLASSIFY_REPAIRS, classify, parse_classify_reply,
+    };
     use crate::model::{GlossError, Locale};
+    use crate::ports::TaskChunk;
     use crate::stubs::engine::MockEngine;
     use crate::task::{TaskInput, TaskKind};
 
@@ -200,7 +267,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fenced_reply_is_extracted_despite_the_contract() {
+    async fn a_fenced_reply_repairs_then_falls_back() {
         let engine = MockEngine::new()
             .with_chunks(vec![Ok("```json\n{\"kind\":\"ExplainCode\"}\n```".into())]);
         let kind = classify(
@@ -211,8 +278,17 @@ mod tests {
             &text_input("select * from t"),
         )
         .await
-        .expect("a fenced reply must still parse");
-        assert_eq!(kind, TaskKind::ExplainCode);
+        .expect("a violated reply never fails the classification");
+        assert_eq!(
+            kind,
+            TaskKind::General,
+            "a fenced reply violates the bare-JSON contract: repair, then the fallback"
+        );
+        assert_eq!(
+            engine.call_count(),
+            1 + CLASSIFY_REPAIRS as usize,
+            "one first attempt plus one repair round"
+        );
     }
 
     #[tokio::test]
@@ -258,7 +334,7 @@ mod tests {
             Ok("{\"kind\":\"Transl".into()),
             Ok("ateWord\"".into()),
         ]);
-        assert!(
+        assert_eq!(
             classify(
                 &engine,
                 "m",
@@ -267,13 +343,14 @@ mod tests {
                 &text_input("gloss"),
             )
             .await
-            .is_err(),
-            "a truncated reply must not settle"
+            .expect("a truncated reply must not settle mid-stream"),
+            TaskKind::General,
+            "after the stream ends the truncated reply repairs into the fallback"
         );
     }
 
     #[tokio::test]
-    async fn engine_failure_propagates() {
+    async fn a_request_failure_is_digested_into_the_fallback_without_retry() {
         let engine = MockEngine::new().with_execute_failure(GlossError::EngineRateLimited);
         assert_eq!(
             classify(
@@ -283,9 +360,137 @@ mod tests {
                 &CLASSIFY_KINDS,
                 &text_input("gloss"),
             )
-            .await,
-            Err(GlossError::EngineRateLimited)
+            .await
+            .expect("a request failure is digested, never raised"),
+            TaskKind::General,
         );
+        assert_eq!(
+            engine.call_count(),
+            1,
+            "engine errors are never retried in the classify stage"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_violated_reply_repairs_into_a_kind() {
+        let engine = MockEngine::new().with_script_queue(vec![
+            vec![Ok(TaskChunk::Delta("MARKER-prose-reply 不是 JSON".into()))],
+            vec![Ok(TaskChunk::Delta("{\"kind\":\"ExplainCode\"}".into()))],
+        ]);
+        let kind = classify(
+            &engine,
+            "m",
+            Locale::Zh,
+            &CLASSIFY_KINDS,
+            &text_input("kubectl get pods"),
+        )
+        .await
+        .expect("the repaired reply should settle");
+        assert_eq!(kind, TaskKind::ExplainCode);
+        assert_eq!(engine.call_count(), 2);
+        let requests = engine.recorded_requests();
+        let roles: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
+        assert_eq!(
+            roles,
+            [
+                crate::prompt::Role::System,
+                crate::prompt::Role::User,
+                crate::prompt::Role::Assistant,
+                crate::prompt::Role::User
+            ],
+            "classify repair: [system][user 原文][assistant 坏回复][user 纠错指令]"
+        );
+        let instruction = match &requests[1].messages[3].content {
+            crate::prompt::MessageContent::Text(text) => text.clone(),
+            other => panic!("expected text content, got {other:?}"),
+        };
+        assert!(
+            instruction.contains("reply is not a bare JSON object"),
+            "the instruction carries the violation wording: {instruction}"
+        );
+        assert!(
+            instruction.contains(crate::prompt::CLASSIFY_SCHEMA),
+            "the instruction carries the classify contract line: {instruction}"
+        );
+        assert!(
+            !instruction.contains("MARKER-prose-reply"),
+            "the instruction must not quote the bad reply: {instruction}"
+        );
+        assert!(
+            !instruction.contains("kubectl get pods"),
+            "the instruction must not carry the selection text: {instruction}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_reply_repairs_by_resending_as_is() {
+        let engine = MockEngine::new().with_script_queue(vec![
+            Vec::new(),
+            vec![Ok(TaskChunk::Delta(
+                "{\"kind\":\"TranslateSentence\"}".into(),
+            ))],
+        ]);
+        let kind = classify(
+            &engine,
+            "m",
+            Locale::Zh,
+            &CLASSIFY_KINDS,
+            &text_input("bonjour"),
+        )
+        .await
+        .expect("the resent request should settle");
+        assert_eq!(kind, TaskKind::TranslateSentence);
+        let requests = engine.recorded_requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests[1].messages, requests[0].messages,
+            "EmptyReply has nothing to repair: the original request is resent verbatim"
+        );
+    }
+
+    #[test]
+    fn exhausted_repairs_fall_back_to_general_with_a_trace() {
+        let _serial = crate::log::test_support::lock_dispatchers();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("runtime should build");
+        let line = (0..3)
+            .find_map(|_| {
+                let engine = MockEngine::new().with_chunks(vec![Ok("MARKER-还是散文".into())]);
+                let logs = crate::log::capture(|| {
+                    let kind = rt
+                        .block_on(classify(
+                            &engine,
+                            "m",
+                            Locale::Zh,
+                            &CLASSIFY_KINDS,
+                            &text_input("一段普通选区"),
+                        ))
+                        .expect("exhausted repairs never fail the classification");
+                    assert_eq!(kind, TaskKind::General);
+                });
+                assert_eq!(
+                    engine.call_count(),
+                    1 + CLASSIFY_REPAIRS as usize,
+                    "one first attempt plus one repair round"
+                );
+                logs.lines()
+                    .find(|line| line.contains("classify repairs exhausted"))
+                    .inspect(|line| {
+                        assert!(
+                            !line.contains("MARKER") && !line.contains("一段普通选区"),
+                            "the fallback warn must not carry reply or selection content: {line}"
+                        );
+                        assert!(
+                            line.contains("reply is not a bare JSON object"),
+                            "the warn carries the fixed category: {line}"
+                        );
+                    })
+                    .map(str::to_owned)
+            })
+            .is_some();
+        assert!(line, "the exhausted fallback must leave a trace");
     }
 
     #[test]
@@ -313,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_constants_cover_the_text_kinds_with_a_concrete_fallback() {
+    fn classify_constants_cover_the_text_kinds_with_an_off_list_fallback() {
         assert_eq!(
             CLASSIFY_KINDS,
             [
@@ -322,10 +527,18 @@ mod tests {
                 TaskKind::ExplainCode
             ]
         );
-        assert!(CLASSIFY_KINDS.contains(&CLASSIFY_FALLBACK));
+        assert_eq!(
+            CLASSIFY_FALLBACK,
+            TaskKind::General,
+            "the fallback lands on the general kind"
+        );
+        assert!(
+            !CLASSIFY_KINDS.contains(&CLASSIFY_FALLBACK),
+            "the general kind is the fallback landing, never a classifier choice"
+        );
         assert!(
             !CLASSIFY_KINDS.contains(&TaskKind::General),
-            "the general kind is the fallback landing, never a classifier choice"
+            "the classifier still picks among the three text kinds only"
         );
     }
 }

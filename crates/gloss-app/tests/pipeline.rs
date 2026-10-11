@@ -5,11 +5,13 @@
 //! 边界，归 L4 opt-in 层——这里取材产物以 `machine.commit_probe`
 //! 直接注入，等价于事件线程回传的产物。
 //!
-//! 分类完全交给 LLM 层：文本任务先花一次引擎调用分类（MockEngine 脚本
-//! 通常解析不出 kind，落兜底 TranslateWord），再花一次执行；脚本里带
-//! `"kind"` 字段的围栏可让分类解析出具体 kind。剪贴板图片任务在 LLM 层
-//! 恒定映射 ImageExplain、跳过分类——只有那一次执行调用。纯流式/取消/
-//! 重试语义与缓存/兜底语义按各自的调用数记账。
+//! 分类完全交给 LLM 层：文本任务先花引擎调用分类（MockEngine 脚本通常
+//! 解析不出 kind——分类内部修复一轮后落兜底 General），再花任务执行；
+//! 脚本里带 `"kind"` 字段的裸 JSON 可让分类解析出具体 kind。任务回复的
+//! 契约违约由 LLM 层修复（至多 3 轮，事件序含 `TaskRepairing`），耗尽后
+//! 落降级产物。剪贴板图片任务在 LLM 层恒定映射 ImageExplain、跳过分类
+//! ——只有执行调用。纯流式/取消/重试语义与缓存/兜底语义按各自的调用数
+//! 记账。
 //!
 //! 驱动方式：全部经公共 API（`TaskStateMachine` / `Channels` /
 //! `start_command_runtime`），`cargo test` 直接跑。
@@ -31,7 +33,7 @@ use gloss_core::log::Span;
 use gloss_core::model::Locale;
 use gloss_core::model::ScreenPoint;
 use gloss_core::model::{GlossError, Lang};
-use gloss_core::ports::AiEngine;
+use gloss_core::ports::{AiEngine, TaskChunk};
 use gloss_core::task::{OutcomeStructured, TaskInput, TaskKind, TaskOutcome};
 
 mod stubs;
@@ -201,7 +203,7 @@ fn full_flow_classifies_then_streams_and_settles() {
 
     assert_eq!(
         expect_classified(&mut pipe),
-        TaskKind::TranslateWord,
+        TaskKind::General,
         "the classify call cannot parse a kind from the task script, the fallback applies"
     );
 
@@ -230,11 +232,10 @@ fn full_flow_classifies_then_streams_and_settles() {
             assert!(!outcome.degraded);
             assert_eq!(
                 outcome.structured,
-                OutcomeStructured::WordCard {
-                    phonetic: None,
+                OutcomeStructured::Plain {
                     examples: Vec::new(),
                 },
-                "missing structured falls back per the soft rules (empty subprov)"
+                "the fallback kind lands on the plain variant with empty subprov"
             );
         }
         other => panic!("expected outcome view, got {other:?}"),
@@ -252,7 +253,7 @@ fn classify_failure_falls_back_and_the_task_still_completes() {
     pipe.trigger_and_feed("第一次划词", Span::none());
     assert_eq!(
         expect_classified(&mut pipe),
-        TaskKind::TranslateWord,
+        TaskKind::General,
         "the failed classification must fall back to the constant default kind"
     );
     wait_done(&mut pipe);
@@ -262,7 +263,7 @@ fn classify_failure_falls_back_and_the_task_still_completes() {
     let text = logs.text();
     let fallback_line = text
         .lines()
-        .find(|line| line.contains("classification failed"))
+        .find(|line| line.contains("classify request failed"))
         .expect("the fallback must leave a trace");
     assert!(
         !fallback_line.contains("第一次划词"),
@@ -271,16 +272,20 @@ fn classify_failure_falls_back_and_the_task_still_completes() {
 }
 
 #[test]
-fn classify_reads_the_kind_from_a_kind_tagged_script() {
-    let engine =
-        MockEngine::new().with_chunks(vec![Ok("```gloss\n{\"kind\":\"ExplainCode\"}\n```".into())]);
+fn classify_reads_the_kind_from_a_bare_kind_script() {
+    let engine = MockEngine::new().with_script_queue(vec![
+        vec![Ok(TaskChunk::Delta("{\"kind\":\"ExplainCode\"}".into()))],
+        vec![Ok(TaskChunk::Delta(
+            "{\"note\":\"讲解\",\"structured\":{\"examples\":[]}}".into(),
+        ))],
+    ]);
     let mut pipe = pipeline(&engine);
 
     pipe.trigger_and_feed("fn main() {}", Span::none());
     assert_eq!(
         expect_classified(&mut pipe),
         TaskKind::ExplainCode,
-        "the classify call parses the kind tag from the fenced script"
+        "the classify call parses the kind tag from the bare JSON script"
     );
     wait_done(&mut pipe);
     assert_eq!(engine.call_count(), 2, "classify + task execution");
@@ -296,14 +301,14 @@ fn second_trigger_is_a_full_cache_hit_without_engine_calls() {
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
-        2,
-        "first run: one classify call + one task execution"
+        3,
+        "first run: classify repairs once (2 calls) + one task execution"
     );
 
     pipe.trigger_and_feed("同一段文本", Span::none());
     assert_eq!(
         expect_classified(&mut pipe),
-        TaskKind::TranslateWord,
+        TaskKind::General,
         "the cache replays the classified kind of the settled outcome"
     );
     match pipe.events_rx.recv().unwrap() {
@@ -319,36 +324,62 @@ fn second_trigger_is_a_full_cache_hit_without_engine_calls() {
     }
     assert_eq!(
         engine.call_count(),
-        2,
+        3,
         "the product cache must not reach the engine again"
     );
     assert_eq!(pipe.machine.state(), AppState::Show);
 }
 
 #[test]
-fn a_contract_reply_that_violates_the_schema_degrades_without_cache() {
-    let engine = MockEngine::new().with_chunks(vec![Ok(
-        "旧契约正文\n```gloss\n{\"kind\":\"ExplainCode\",\"title\":\"旧契约摘要\"}\n```".into(),
-    )]);
+fn violating_replies_repair_then_degrade_without_cache() {
+    let violating = "MARKER-违约正文，整段不是 JSON";
+    let script = vec![Ok(TaskChunk::Delta(violating.into()))];
+    let mut scripts = vec![vec![Ok(TaskChunk::Delta(
+        "{\"kind\":\"ExplainCode\"}".into(),
+    ))]];
+    for _ in 0..=3 {
+        scripts.push(script.clone());
+    }
+    let engine = MockEngine::new().with_script_queue(scripts);
     let mut pipe = pipeline(&engine);
 
     pipe.trigger_and_feed("gloss", Span::none());
     assert_eq!(
         expect_classified(&mut pipe),
         TaskKind::ExplainCode,
-        "the classify call reads the kind tag from the legacy fence"
+        "the classify call reads the kind tag from the bare JSON script"
     );
 
+    let mut repairs = 0u32;
     loop {
         match pipe.events_rx.recv().unwrap() {
             Event::TaskChunk { generation, delta } => {
+                assert_eq!(delta, violating, "every round replays the violating reply");
                 assert!(pipe.machine.accept_chunk(generation, delta));
+            }
+            Event::TaskRepairing { generation } => {
+                repairs += 1;
+                assert!(
+                    pipe.machine.accept_repairing(generation),
+                    "each repair marker clears the streaming view for the same generation"
+                );
+                assert!(
+                    matches!(
+                        pipe.machine.overlay_view(),
+                        Some(OverlayView::Streaming { raw, repairing: true, .. }) if raw.is_empty()
+                    ),
+                    "the violated accumulation is cleared when the repair round starts"
+                );
             }
             Event::TaskDone {
                 generation,
                 outcome,
             } => {
                 assert_eq!(generation, 1);
+                assert_eq!(
+                    repairs, 3,
+                    "the event sequence carries one repairing marker per repair round"
+                );
                 assert!(pipe.machine.accept_done(generation, outcome));
                 break;
             }
@@ -359,7 +390,10 @@ fn a_contract_reply_that_violates_the_schema_degrades_without_cache() {
     assert_eq!(pipe.machine.state(), AppState::Show);
     match pipe.machine.overlay_view() {
         Some(OverlayView::Outcome { outcome, .. }) => {
-            assert!(outcome.degraded, "a fenced reply is a contract violation");
+            assert!(
+                outcome.degraded,
+                "exhausted repairs hand the violating reply to the completion parser"
+            );
             assert_eq!(
                 outcome.note, "",
                 "the degraded card carries no reply content"
@@ -377,9 +411,65 @@ fn a_contract_reply_that_violates_the_schema_degrades_without_cache() {
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
-        4,
-        "the degraded outcome must not poison the cache: the engine runs again"
+        11,
+        "the degraded outcome must not poison the cache: the rerun reaches the engine again \
+         (5 calls with the kind script; 6 on the rerun whose queue replays the violating reply)"
     );
+}
+
+#[test]
+fn an_image_task_repairs_through_the_same_stream() {
+    let engine = MockEngine::new().with_script_queue(vec![
+        vec![Ok(TaskChunk::Delta("MARKER-违约图注".into()))],
+        vec![Ok(TaskChunk::Delta(
+            "{\"note\":\"图注\",\"structured\":{\"examples\":[]}}".into(),
+        ))],
+    ]);
+    let mut pipe = pipeline(&engine);
+
+    let png: Arc<[u8]> = Arc::from(&b"png-bytes"[..]);
+    pipe.trigger_image_feed(Arc::clone(&png), Span::none());
+    assert_eq!(
+        expect_classified(&mut pipe),
+        TaskKind::ImageExplain,
+        "the image task keeps its constant kind across the repair"
+    );
+
+    let mut repairs = 0u32;
+    loop {
+        match pipe.events_rx.recv().unwrap() {
+            Event::TaskChunk { generation, delta } => {
+                assert!(pipe.machine.accept_chunk(generation, delta));
+            }
+            Event::TaskRepairing { generation } => {
+                repairs += 1;
+                assert!(pipe.machine.accept_repairing(generation));
+            }
+            Event::TaskDone {
+                generation,
+                outcome,
+            } => {
+                assert_eq!(generation, 1);
+                assert_eq!(repairs, 1);
+                assert!(pipe.machine.accept_done(generation, outcome));
+                break;
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+    assert_eq!(
+        engine.call_count(),
+        2,
+        "one violated round + one repair round"
+    );
+    assert_eq!(pipe.machine.state(), AppState::Show);
+    match pipe.machine.overlay_view() {
+        Some(OverlayView::Outcome { outcome, .. }) => {
+            assert_eq!(outcome.note, "图注");
+            assert!(!outcome.degraded);
+        }
+        other => panic!("expected outcome view, got {other:?}"),
+    }
 }
 
 #[test]
@@ -625,15 +715,32 @@ fn superseded_trigger_cancels_and_filters_late_events() {
         assert_eq!(delta, expected);
         assert!(pipe.machine.accept_chunk(generation, delta));
     }
-    let Event::TaskDone {
-        generation,
-        outcome,
-    } = pipe.events_rx.recv().unwrap()
-    else {
-        panic!("task done expected");
+    // 任务回复 A1A2 违约：修复轮标记先于终态到达，同代的标记照常采纳。
+    let Event::TaskRepairing { generation } = pipe.events_rx.recv().unwrap() else {
+        panic!("repair marker expected");
     };
     assert_eq!(generation, gen_b);
-    assert!(pipe.machine.accept_done(generation, outcome));
+    assert!(pipe.machine.accept_repairing(generation));
+    loop {
+        match pipe.events_rx.recv().unwrap() {
+            Event::TaskChunk { generation, delta } => {
+                assert!(pipe.machine.accept_chunk(generation, delta));
+            }
+            Event::TaskRepairing { generation } => {
+                assert!(pipe.machine.accept_repairing(generation));
+            }
+            Event::TaskDone {
+                generation,
+                outcome,
+            } => {
+                assert_eq!(generation, gen_b);
+                assert!(outcome.degraded, "the replayed violating reply degrades");
+                assert!(pipe.machine.accept_done(generation, outcome));
+                break;
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
     assert_eq!(pipe.machine.state(), AppState::Show);
 }
 
@@ -727,13 +834,17 @@ fn config_change_invalidates_cache_for_the_next_task() {
 
     pipe.trigger_and_feed("同一段文本", Span::none());
     wait_done(&mut pipe);
-    assert_eq!(engine.call_count(), 2, "first run: classify + task");
+    assert_eq!(
+        engine.call_count(),
+        3,
+        "first run: classify repairs once (2 calls) + task"
+    );
 
     pipe.trigger_and_feed("同一段文本", Span::none());
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
-        2,
+        3,
         "unchanged config must hit the cache"
     );
 
@@ -748,7 +859,7 @@ fn config_change_invalidates_cache_for_the_next_task() {
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
-        4,
+        6,
         "model switch must miss the old cache entry (classify + task again)"
     );
 
@@ -764,7 +875,7 @@ fn config_change_invalidates_cache_for_the_next_task() {
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
-        6,
+        9,
         "target language switch must miss the old cache entry"
     );
     assert_eq!(outcome_note(&pipe.machine), "结果");
@@ -778,7 +889,7 @@ fn frozen_options_carry_the_factory_model_by_default() {
     let _ = pipe.trigger_and_feed("fn main() {}", Span::none());
     expect_classified(&mut pipe);
     wait_done(&mut pipe);
-    assert_eq!(engine.call_count(), 2);
+    assert_eq!(engine.call_count(), 3, "classify repairs once + task");
 }
 
 #[allow(clippy::expect_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
@@ -813,6 +924,9 @@ fn wait_done(pipe: &mut Pipeline) {
             }
             Event::TaskChunk { generation, delta } => {
                 assert!(pipe.machine.accept_chunk(generation, delta));
+            }
+            Event::TaskRepairing { generation } => {
+                assert!(pipe.machine.accept_repairing(generation));
             }
             Event::TaskDone {
                 generation,

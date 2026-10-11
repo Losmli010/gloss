@@ -45,6 +45,12 @@ const CHAT_COMPLETIONS_PATH: &str = "chat/completions";
 /// 与既有非 JSON 路径一致）。
 const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 
+/// 零增量完成的固定诊断：适配器对「成功收尾但一个增量都没有」的坏响应
+/// 统一发这个 [`GlossError::EngineResponse`] 文本。重试循环（`super`）按
+/// 它把这类坏回复识别为 [`crate::schema::Violation::EmptyReply`] 进修复
+/// 轮——单点常量让两处措辞永不漂移。
+pub(crate) const EMPTY_COMPLETION: &str = "empty completion";
+
 /// 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。消息在这里从域
 /// 形态映成 wire 形状；`max_tokens` 只在设限时携带：部分严格端点会拒绝
 /// 显式的 `null`，缺键才是「不设限」的 wire 语义。
@@ -358,7 +364,7 @@ impl SseStream {
                     } else {
                         // 零增量的「成功」是坏响应，即便服务端声明了正常结束。
                         self.ready
-                            .push_back(Err(GlossError::EngineResponse("empty completion".into())));
+                            .push_back(Err(GlossError::EngineResponse(EMPTY_COMPLETION.into())));
                     }
                     self.finished = true;
                 }
@@ -376,7 +382,7 @@ impl SseStream {
     fn finish_without_error(&mut self) {
         if !self.produced {
             self.ready
-                .push_back(Err(GlossError::EngineResponse("empty completion".into())));
+                .push_back(Err(GlossError::EngineResponse(EMPTY_COMPLETION.into())));
         }
         self.finished = true;
     }

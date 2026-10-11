@@ -125,6 +125,13 @@ pub enum Event {
         /// markdown 正文增量片段。
         delta: String,
     },
+    /// 修复轮开始（任务回复契约违约后的重发）：UI 清掉上一轮的流式正文
+    /// 并把页脚切到「重新注解」。不带轮次——界面无计数，轮次只在 core
+    /// 日志；分类阶段的修复不进通道（分类对用户无感）。
+    TaskRepairing {
+        /// 请求代数，与触发它的任务同值。
+        generation: u64,
+    },
     /// 任务完成。
     TaskDone {
         /// 请求代数，与触发它的任务同值。
@@ -449,6 +456,7 @@ mod tests {
                 delta: "光泽".into(),
             })
             .unwrap();
+        ch.tx.send(Event::TaskRepairing { generation: 3 }).unwrap();
         ch.tx
             .send(Event::TaskFailed {
                 generation: 3,
@@ -461,6 +469,11 @@ mod tests {
                 generation: 3,
                 delta: "光泽".into()
             }
+        );
+        assert_eq!(
+            ch.rx.recv().unwrap(),
+            Event::TaskRepairing { generation: 3 },
+            "the repair marker rides channel 4 without a round count"
         );
         assert_eq!(
             ch.rx.recv().unwrap(),

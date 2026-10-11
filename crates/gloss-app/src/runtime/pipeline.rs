@@ -227,8 +227,9 @@ async fn run_task(
     );
 
     // 钩子把 LLM 层的中间产物逐条泵回主线程：分类定型（LLM 判定或失败
-    // 兜底 kind）与流式增量。原始回复的完成态累积归 LLM 层（run 的返回
-    // 值），这里只泵不存——完成态解析以 output.raw 为唯一真相源。
+    // 兜底 kind）、流式增量与修复轮开始。原始回复的完成态累积归 LLM 层
+    // （run 的返回值），这里只泵不存——完成态解析以 output.raw 为唯一
+    // 真相源。分类阶段的修复不进通道：判定要等定型才有，用户无感。
     let output = service
         .run(
             input,
@@ -238,6 +239,9 @@ async fn run_task(
             },
             |delta| {
                 send_event(events, wake, Event::TaskChunk { generation, delta });
+            },
+            || {
+                send_event(events, wake, Event::TaskRepairing { generation });
             },
         )
         .await?;
@@ -369,7 +373,7 @@ mod tests {
             events.recv().unwrap(),
             Event::TaskClassified {
                 generation: 7,
-                kind: gloss_core::task::TaskKind::TranslateWord
+                kind: gloss_core::task::TaskKind::General
             }
         ));
         assert!(matches!(
@@ -406,6 +410,7 @@ mod tests {
             match events.recv().unwrap() {
                 Event::TaskClassified { generation: 1, .. } => {}
                 Event::TaskChunk { generation: 1, .. } => {}
+                Event::TaskRepairing { generation: 1 } => {}
                 Event::TaskDone {
                     generation: 1,
                     outcome,
@@ -417,20 +422,25 @@ mod tests {
                 other => panic!("unexpected event: {other:?}"),
             }
         }
-        assert_eq!(engine.call_count(), 2, "classify + task once");
+        assert_eq!(
+            engine.call_count(),
+            6,
+            "classify 2 attempts + task 4 attempts: every violated round replays"
+        );
 
         run(&commands, 2, text_input("违约回复"), text_options());
         loop {
             match events.recv().unwrap() {
                 Event::TaskClassified { generation: 2, .. } => {}
                 Event::TaskChunk { generation: 2, .. } => {}
+                Event::TaskRepairing { generation: 2 } => {}
                 Event::TaskDone { generation: 2, .. } => break,
                 other => panic!("unexpected event: {other:?}"),
             }
         }
         assert_eq!(
             engine.call_count(),
-            4,
+            12,
             "the degraded outcome must not poison the cache: the retry reaches the engine again"
         );
         drop(commands);
@@ -478,13 +488,13 @@ mod tests {
 
         run(&commands, 3, text_input("boom"), text_options());
 
-        // 分类先失败（同引擎同错误）落兜底并回传判定，任务段再失败才是
-        // TaskFailed——两条错误同变体，事件序是本断言的靶心。
+        // 分类先失败（同引擎同错误）内部消化落兜底并回传判定，任务段再
+        // 失败才是 TaskFailed——两条错误同变体，事件序是本断言的靶心。
         assert!(matches!(
             events.recv().unwrap(),
             Event::TaskClassified {
                 generation: 3,
-                kind: gloss_core::task::TaskKind::TranslateWord
+                kind: gloss_core::task::TaskKind::General
             }
         ));
         assert!(matches!(
@@ -523,6 +533,7 @@ mod tests {
             match events.recv().unwrap() {
                 // 分类解析不出 kind 落兜底：判定先于正文回传。
                 Event::TaskClassified { generation: 2, .. } => {}
+                Event::TaskRepairing { generation: 2 } => {}
                 Event::TaskChunk {
                     generation: 2,
                     delta,

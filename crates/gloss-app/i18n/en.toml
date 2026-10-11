@@ -16,6 +16,7 @@ gloss_langs_other = "Other"
 
 gloss_popup_retry = "Retry"
 gloss_popup_annotating = "Annotating"
+gloss_popup_reannotating = "Re-annotating"
 gloss_popup_seal_jing = "SRC"
 gloss_popup_seal_zhu = "NOTE"
 gloss_popup_seal_shu = "EXP"

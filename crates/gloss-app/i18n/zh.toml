@@ -15,6 +15,7 @@ gloss_langs_other = "其他"
 
 gloss_popup_retry = "重试"
 gloss_popup_annotating = "正在注解"
+gloss_popup_reannotating = "重新注解"
 gloss_popup_seal_jing = "经"
 gloss_popup_seal_zhu = "注"
 gloss_popup_seal_shu = "疏"

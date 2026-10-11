@@ -41,6 +41,7 @@ pub struct Text {
 
     pub(crate) gloss_popup_retry: String,
     pub(crate) gloss_popup_annotating: String,
+    pub(crate) gloss_popup_reannotating: String,
     pub(crate) gloss_popup_seal_jing: String,
     pub(crate) gloss_popup_seal_zhu: String,
     pub(crate) gloss_popup_seal_shu: String,
@@ -222,7 +223,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            84,
+            85,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -310,6 +311,11 @@ mod tests {
         assert_ne!(
             Text::get(Locale::Zh).gloss_popup_annotating,
             Text::get(Locale::En).gloss_popup_annotating
+        );
+        assert_eq!(Text::get(Locale::Zh).gloss_popup_reannotating, "重新注解");
+        assert_eq!(
+            Text::get(Locale::En).gloss_popup_reannotating,
+            "Re-annotating"
         );
     }
 

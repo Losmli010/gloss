@@ -33,12 +33,17 @@ struct Inner {
     /// 一次性 panic 队列：每次 execute 消费一个（驱动「后台 panic 被
     /// tokio 捕获」的验收）。
     execute_panics: std::sync::Mutex<std::collections::VecDeque<()>>,
-    /// 产出的增量序列（可含 Err 模拟流中失败）。
-    chunks: std::sync::Mutex<Vec<Result<String, GlossError>>>,
+    /// 按调用次序消费的脚本队列：第 n 次 execute 取第 n 份，耗尽后重放
+    /// 最后一份（单份脚本即 `with_chunks` 的重放语义）。
+    scripts: std::sync::Mutex<std::collections::VecDeque<Vec<Result<TaskChunk, GlossError>>>>,
+    /// 耗尽后重放的最后一份脚本。
+    last_script: std::sync::Mutex<Vec<Result<TaskChunk, GlossError>>>,
     /// 相邻 chunk 之间的延迟，模拟真实流式节奏。
     chunk_delay: std::sync::Mutex<Duration>,
     /// execute 被调用的次数。
     calls: AtomicUsize,
+    /// 收到的全部请求（修复轮对话形状的断言面）。
+    requests: std::sync::Mutex<Vec<EngineRequest>>,
 }
 
 impl MockEngine {
@@ -49,17 +54,31 @@ impl MockEngine {
                 execute_failure: std::sync::Mutex::new(None),
                 once_failures: std::sync::Mutex::new(Default::default()),
                 execute_panics: std::sync::Mutex::new(Default::default()),
-                chunks: std::sync::Mutex::new(Vec::new()),
+                scripts: std::sync::Mutex::new(Default::default()),
+                last_script: std::sync::Mutex::new(Vec::new()),
                 chunk_delay: std::sync::Mutex::new(Duration::ZERO),
                 calls: AtomicUsize::new(0),
+                requests: std::sync::Mutex::new(Vec::new()),
             }),
         }
     }
 
     /// 注入流式增量脚本（可含 `Err` 模拟流中失败）。脚本作用于共享状态，
-    /// 克隆体同样可见。
+    /// 克隆体同样可见；每次 execute 重放同一份。
     pub fn with_chunks(self, chunks: Vec<Result<String, GlossError>>) -> Self {
-        *lock_or_recover(&self.inner.chunks) = chunks;
+        let script = chunks
+            .into_iter()
+            .map(|item| item.map(TaskChunk::Delta))
+            .collect();
+        *lock_or_recover(&self.inner.scripts) = [script].into_iter().collect();
+        self
+    }
+
+    /// 注入按调用次序消费的脚本队列：每份脚本直接是 [`TaskChunk`] 流（可
+    /// 含 `Done` 结束帧与 `Err`），第 n 次 execute 取第 n 份，耗尽后重放
+    /// 最后一份。作用于共享状态，克隆体同样可见。
+    pub fn with_script_queue(self, scripts: Vec<Vec<Result<TaskChunk, GlossError>>>) -> Self {
+        *lock_or_recover(&self.inner.scripts) = scripts.into_iter().collect();
         self
     }
 
@@ -96,6 +115,11 @@ impl MockEngine {
     pub fn call_count(&self) -> usize {
         self.inner.calls.load(Ordering::Relaxed)
     }
+
+    /// 收到的全部请求快照（按到达次序；修复轮对话形状的断言面）。
+    pub fn recorded_requests(&self) -> Vec<EngineRequest> {
+        lock_or_recover(&self.inner.requests).clone()
+    }
 }
 
 impl Default for MockEngine {
@@ -107,9 +131,10 @@ impl Default for MockEngine {
 impl AiEngine for MockEngine {
     fn execute(
         &self,
-        _request: EngineRequest,
+        request: EngineRequest,
     ) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
         self.inner.calls.fetch_add(1, Ordering::Relaxed);
+        lock_or_recover(&self.inner.requests).push(request);
         let once = lock_or_recover(&self.inner.once_failures).pop_front();
         if let Some(error) = once {
             return Box::pin(async move { Err(error) });
@@ -125,23 +150,32 @@ impl AiEngine for MockEngine {
             #[allow(clippy::panic)] // 测试桩：panic 即注入语义
             return Box::pin(async move { panic!("mock engine exploded") });
         }
-        let chunks = lock_or_recover(&self.inner.chunks).clone();
+        let script = {
+            let mut queue = lock_or_recover(&self.inner.scripts);
+            match queue.pop_front() {
+                Some(script) => {
+                    *lock_or_recover(&self.inner.last_script) = script.clone();
+                    script
+                }
+                None => lock_or_recover(&self.inner.last_script).clone(),
+            }
+        };
         let delay = *lock_or_recover(&self.inner.chunk_delay);
-        Box::pin(async move { Ok(Box::pin(ChunkStream::new(chunks, delay)) as TaskStream) })
+        Box::pin(async move { Ok(Box::pin(ChunkStream::new(script, delay)) as TaskStream) })
     }
 }
 
 /// 逐 chunk 吐脚本的流：每个 chunk 之前等待 `delay`（首个 chunk 也等，
 /// 统一模拟「首 token 延迟 + 后续节奏」）。
 struct ChunkStream {
-    chunks: std::vec::IntoIter<Result<String, GlossError>>,
+    chunks: std::vec::IntoIter<Result<TaskChunk, GlossError>>,
     delay: Duration,
     pending_sleep: Option<Pin<Box<tokio::time::Sleep>>>,
     first: bool,
 }
 
 impl ChunkStream {
-    fn new(chunks: Vec<Result<String, GlossError>>, delay: Duration) -> Self {
+    fn new(chunks: Vec<Result<TaskChunk, GlossError>>, delay: Duration) -> Self {
         Self {
             chunks: chunks.into_iter(),
             delay,
@@ -172,7 +206,7 @@ impl Stream for ChunkStream {
                 if !this.chunks.as_slice().is_empty() {
                     this.pending_sleep = Some(Box::pin(sleep(this.delay)));
                 }
-                Poll::Ready(Some(item.map(TaskChunk::Delta)))
+                Poll::Ready(Some(item))
             }
             None => Poll::Ready(None),
         }
