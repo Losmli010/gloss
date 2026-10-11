@@ -13,7 +13,7 @@
 | 集成测试 | 14 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 33 | `just test` |
-| 单元测试 | 501 | `just test` |
+| 单元测试 | 504 | `just test` |
 
 ## 人工测试
 
@@ -983,6 +983,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | empty_then_ready_ax_read_adopts_the_late_selection | 补读等到迟到的选区 | 给定首次空、二次有值的 AX 读，当 combine，则采纳第二次读到的选区且不兜底 | 2026-10-01 |
 | settle_budget_is_bounded_and_positive | 让渡预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 settle_delay，则预算内返回正的让渡时长、预算用尽（含 usize::MAX）返回 None | 2026-10-01 |
 | unavailable_ax_falls_back_to_clipboard | AX 不可用落兜底 | 给定 SelectionUnavailable，当 combine，则落到兜底结果；兜底也失败则以兜底错误收口 | 2026-10-01 |
+| acquired_text_is_trimmed_at_the_boundary | 取材入口修剪两端空白 | 给定两端带空白的选中文本，当 normalize，则返回修剪后的文本；本无空白的文本原样放行 | 2026-10-11 |
+| acquired_text_keeps_interior_whitespace_verbatim | 入口修剪只动两端不动内部 | 给定内部含换行/制表/空格的选中文本，当 normalize，则内部空白逐字保留、只去两端 | 2026-10-11 |
+| pure_whitespace_selection_maps_to_selection_empty | 纯空白选区按空选区收口 | 给定纯空白（空格/换行/制表/全角空格）与空串的读取产物，当 normalize，则一律 SelectionEmpty（误滑走既有静默丢弃语义） | 2026-10-11 |
 
 ### crates/gloss-platform/src/selection/clipboard.rs
 

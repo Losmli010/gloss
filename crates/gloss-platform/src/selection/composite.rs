@@ -8,6 +8,11 @@
 //! 也如实回「空」，只有兜底的确认写入能分辨「确实没选」与「读了但拿不
 //! 到」——注入 Cmd+C 后剪贴板没有真实写入就不采纳，误滑不会把陈旧剪贴板
 //! 内容当成选区。
+//!
+//! 归一化边界：AX 与剪贴板兜底两条通道的产物都在入口（[`CompositeReader`]
+//! 的读取方法）修剪两端空白，判空用修剪后的值——纯空白选区（误滑）按既有
+//! `SelectionEmpty` 语义上抛；下游全链路（内容闸门、原文视图、prompt、
+//! 缓存 key）只见同一份已修剪文本。
 
 use std::time::Duration;
 
@@ -61,10 +66,27 @@ fn combine(
     }
 }
 
+/// 取材边界的归一化（纯逻辑，单测覆盖）：读到的文本修剪两端空白后放行，
+/// 判空用修剪后的值——纯空白选区（误滑）按既有 [`GlossError::SelectionEmpty`]
+/// 语义上抛。AX 与剪贴板兜底两条通道的产物都经此收口，让渡补读与兜底
+/// 注入只服务「读不到」，不为已知纯空白的选区再花时序预算。
+///
+/// 两端本无空白时原缓冲原样归还，不复制整段（选区可达 8MB 上限）。
+fn normalize(raw: String) -> Result<String, GlossError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(GlossError::SelectionEmpty);
+    }
+    if trimmed.len() == raw.len() {
+        return Ok(raw);
+    }
+    Ok(trimmed.to_owned())
+}
+
 mod imp {
     use gloss_core::model::GlossError;
 
-    use super::{combine, settle_delay};
+    use super::{combine, normalize, settle_delay};
     use crate::selection::accessibility::AccessibilityReader;
     use crate::selection::clipboard::ClipboardFallbackReader;
 
@@ -83,9 +105,11 @@ mod imp {
 
         /// 读取前台应用的选中文本。
         ///
-        /// 调用方保证：在平台事件线程上调用。
+        /// 返回的文本已修剪两端空白；纯空白选区按
+        /// [`GlossError::SelectionEmpty`] 报告。调用方保证：在平台事件线程
+        /// 上调用。
         pub fn read(&mut self) -> Result<String, GlossError> {
-            combine(|| self.ax.read(), || self.clipboard.read(), settle_delay)
+            combine(|| self.ax.read(), || self.clipboard.read(), settle_delay).and_then(normalize)
         }
     }
 }
@@ -98,7 +122,7 @@ mod tests {
 
     use gloss_core::model::GlossError;
 
-    use super::{EMPTY_SETTLE_BUDGET, EMPTY_SETTLE_DELAY, combine, settle_delay};
+    use super::{EMPTY_SETTLE_BUDGET, EMPTY_SETTLE_DELAY, combine, normalize, settle_delay};
 
     fn ax_ok(text: &str) -> impl FnMut() -> Result<String, GlossError> {
         let text = text.to_owned();
@@ -215,5 +239,33 @@ mod tests {
         assert_eq!(settle_delay(EMPTY_SETTLE_BUDGET), None);
         assert_eq!(settle_delay(usize::MAX), None);
         assert!(EMPTY_SETTLE_DELAY > Duration::ZERO);
+    }
+
+    #[test]
+    fn acquired_text_is_trimmed_at_the_boundary() {
+        assert_eq!(
+            normalize("  hello world \n\t".to_owned()),
+            Ok("hello world".to_owned())
+        );
+        assert_eq!(normalize("hello".to_owned()), Ok("hello".to_owned()));
+    }
+
+    #[test]
+    fn acquired_text_keeps_interior_whitespace_verbatim() {
+        assert_eq!(
+            normalize("  a\n b\tc ".to_owned()),
+            Ok("a\n b\tc".to_owned())
+        );
+    }
+
+    #[test]
+    fn pure_whitespace_selection_maps_to_selection_empty() {
+        for raw in ["   ", "\n\t \n", "\u{3000}", ""] {
+            assert_eq!(
+                normalize(raw.to_owned()),
+                Err(GlossError::SelectionEmpty),
+                "a whitespace-only selection must take the existing empty-selection semantics"
+            );
+        }
     }
 }
