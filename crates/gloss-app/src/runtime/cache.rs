@@ -126,10 +126,10 @@ mod tests {
         TaskOutcome {
             kind: TaskKind::TranslateWord,
             note: note.into(),
-            code_language: None,
             structured: OutcomeStructured::Plain {
                 examples: Vec::new(),
             },
+            degraded: false,
         }
     }
 

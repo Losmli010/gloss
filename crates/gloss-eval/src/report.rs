@@ -338,7 +338,7 @@ mod tests {
         let verdicts = [
             TaskVerdict::for_reply(
                 &cases[0],
-                r#"{"phonetic":null,"note":"正文","examples":[]}"#,
+                r#"{"note":"正文","structured":{"phonetic":null,"examples":[]}}"#,
             ),
             TaskVerdict::for_reply(&cases[1], "只有正文"),
         ];

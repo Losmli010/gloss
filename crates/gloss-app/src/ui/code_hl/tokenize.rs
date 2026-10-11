@@ -8,7 +8,8 @@
 //! 重排由 egui 的 galley 缓存兜住，本模块不自建缓存。
 //!
 //! 类别与色板在 [`super::palette`]；语言的唯一来源是任务产物的
-//! `code_language`（LLM 判定），本模块只把它归一化成规范名再选规则集。
+//! `structured.code_language`（LLM 判定，采纳见 `super::adopt`），本模块
+//! 只把它归一化成规范名再选规则集。
 
 use std::ops::Range;
 use std::sync::OnceLock;

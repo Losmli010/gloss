@@ -18,4 +18,5 @@ pub mod log;
 pub mod model;
 pub mod ports;
 pub mod prompt;
+pub mod schema;
 pub mod task;

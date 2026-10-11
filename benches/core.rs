@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use gloss_app::runtime::cache::{TaskCache, cache_key};
-use gloss_app::runtime::finalize::parse_structured;
+use gloss_app::runtime::finalize::complete;
 use gloss_core::model::ScreenRect;
 use gloss_core::prompt::PromptRegistry;
 use gloss_core::task::{OutcomeStructured, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome};
@@ -57,29 +57,25 @@ fn word_outcome() -> TaskOutcome {
     TaskOutcome {
         kind: TaskKind::TranslateWord,
         note: "# gloss\n\n/ɡlɒs/ n. 光泽".into(),
-        code_language: None,
         structured: OutcomeStructured::WordCard {
             phonetic: Some("/ɡlɒs/".into()),
             examples: vec!["a gloss of silk".into()],
         },
+        degraded: false,
     }
 }
 
-fn senses_json(count: usize) -> String {
+fn examples_json(count: usize) -> String {
     (0..count)
-        .map(|i| {
-            format!(
-                r#"{{"pos":"n.","meaning":"meaning {i}","examples":["example {i}a","example {i}b"]}}"#
-            )
-        })
+        .map(|i| format!(r#""例句 {i}：a gloss of silk example""#))
         .collect::<Vec<_>>()
         .join(",")
 }
 
-fn word_card_body(sense_count: usize) -> String {
-    let senses = senses_json(sense_count);
+fn word_card_reply(example_count: usize) -> String {
+    let examples = examples_json(example_count);
     format!(
-        "**gloss**\n\n/ɡlɒs/ n. 光泽\n\n```gloss\n{{\"word\":\"gloss\",\"phonetic\":\"/ɡlɒs/\",\"senses\":[{senses}]}}\n```\n以上内容仅供参考"
+        r#"{{"note":"**gloss** 的义释正文","structured":{{"phonetic":"/ɡlɒs/","examples":[{examples}]}}}}"#
     )
 }
 
@@ -113,29 +109,25 @@ fn bench_cache_key(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_parse_structured(c: &mut Criterion) {
+fn bench_complete(c: &mut Criterion) {
     let mut group = c.benchmark_group("complete");
 
     group.bench_function("word_card/ok", |b| {
-        let body = word_card_body(3);
-        b.iter(|| black_box(parse_structured(TaskKind::TranslateWord, black_box(&body))))
+        let reply = word_card_reply(3);
+        b.iter(|| black_box(complete(TaskKind::TranslateWord, black_box(&reply))))
     });
-    group.bench_function("word_card/many_senses", |b| {
-        let body = word_card_body(20);
-        b.iter(|| black_box(parse_structured(TaskKind::TranslateWord, black_box(&body))))
+    group.bench_function("word_card/many_examples", |b| {
+        let reply = word_card_reply(20);
+        b.iter(|| black_box(complete(TaskKind::TranslateWord, black_box(&reply))))
     });
-    group.bench_function("fence_missing", |b| {
-        let body = "plain markdown body without any structured fence. ".repeat(64);
-        b.iter(|| {
-            black_box(parse_structured(
-                TaskKind::TranslateSentence,
-                black_box(&body),
-            ))
-        })
+    group.bench_function("long_note/ok", |b| {
+        let body = "plain markdown note body without any structure. ".repeat(64);
+        let reply = format!(r#"{{"note":"{body}","structured":{{"examples":[]}}}}"#);
+        b.iter(|| black_box(complete(TaskKind::TranslateSentence, black_box(&reply))))
     });
-    group.bench_function("json_broken", |b| {
-        let body = "markdown 段落\n```gloss\n{\"word\": \"gloss\", broken\n```";
-        b.iter(|| black_box(parse_structured(TaskKind::ExplainCode, black_box(body))))
+    group.bench_function("prose/degraded", |b| {
+        let body = "plain markdown body that never was JSON. ".repeat(64);
+        b.iter(|| black_box(complete(TaskKind::ExplainCode, black_box(&body))))
     });
 
     group.finish();
@@ -197,7 +189,7 @@ fn bench_task_cache(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_cache_key,
-    bench_parse_structured,
+    bench_complete,
     bench_prompt_render,
     bench_task_cache
 );

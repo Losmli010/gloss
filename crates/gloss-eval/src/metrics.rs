@@ -1,18 +1,19 @@
 //! 评分器：把「回复原文 + 期望」折算成确定性指标。
 //!
 //! 分类轨走生产校验器（[`gloss_core::classify::parse_classify_reply`]）；
-//! 任务轨的完成态判定**镜像生产语义**（gloss-app 的 JSON 主路径 + 旧围栏
-//! fallback）——eval 受依赖方向约束不能消费 gloss-app，这里按同一条规则
-//! 重写并由测试对齐两侧语义。本模块是纯函数集，runner 与单测共用。
+//! 任务轨的完成态判定走**生产同源**的契约校验器
+//! （[`gloss_core::schema::validate_task`]）——eval 受依赖方向约束不能消费
+//! gloss-app，core 的 schema 模块就是两侧共用的那份契约。本模块是纯函数
+//! 集，runner 与单测共用。
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use gloss_core::prompt::STRUCTURED_FENCE;
-use gloss_core::task::{OutcomeStructured, TaskKind};
+use gloss_core::schema::{self};
+use gloss_core::task::{TaskKind, TaskOutcome};
 
-use crate::dataset::{TaskCase, required_fields};
+use crate::dataset::TaskCase;
 
 /// 分类判定的结果归类（比 Ok/Err 细一档：指标要区分「回复不是 JSON」
 /// 与「JSON 合法但被生产校验器拒绝」）。
@@ -65,34 +66,59 @@ impl ClassifyMetrics {
 /// 任务回复的契约达成情况（比「解析成功与否」细：四个指标各自独立）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaskVerdict {
-    /// 回复是符合现行契约的 JSON 对象（生产完成态解析的主路径命中）。
+    /// 回复是合法 JSON 对象（契约硬约束之一）。
     pub json_object: bool,
-    /// JSON 对象携带 `note`（注；主路径在场的必要项，词卡/句译/讲解）。
+    /// JSON 对象携带非空 `note`（注；硬约束之二，词卡/句译/讲解/图像）。
     pub note_present: bool,
-    /// kind 的契约必需结构化字段全部在场（JSON 对象在场才可能为真）。
+    /// `structured` 对象在场且携带 kind 契约必需的疏证键（软约束项，
+    /// 缺失只降丰富度不降产物；JSON 对象在场才可能为真）。
     pub fields_complete: bool,
-    /// 生产解析结果（与 UI 收到的产物同源，含围栏 fallback 的降级形态）。
-    pub outcome: OutcomeStructured,
+    /// 生产同源的解析产物（与 UI 收到的 [`TaskOutcome`] 同构，含降级
+    /// 标记——违约即空 note 空变体 `degraded = true`）。
+    pub outcome: TaskOutcome,
 }
 
 impl TaskVerdict {
     /// 按 [`TaskCase`] 的 kind 与回复原文逐级判定。
     ///
-    /// 判定镜像生产完成态解析（gloss-app `finalize::complete`）：整段
-    /// 回复解析为 JSON 对象且带 `note`（义）即主路径；否则退围栏 fallback
-    /// （取**最后一个**围栏，镜像生产的 rfind 语义）。
+    /// 判定与生产完成态解析同源（gloss-app `finalize::complete` 同样走
+    /// [`gloss_core::schema::validate_task`]）；`json_object` /
+    /// `note_present` / `fields_complete` 从违约类别与 `structured` 在场
+    /// 情况折算，供分档指标。
     pub fn for_reply(case: &TaskCase, reply: &str) -> Self {
-        let parsed = serde_json::from_str::<serde_json::Value>(reply.trim()).ok();
+        let parsed = serde_json::from_str::<serde_json::Value>(reply.trim())
+            .ok()
+            .filter(|value| value.is_object());
         let json_object = parsed.is_some();
-        let note_present = parsed
-            .as_ref()
-            .is_some_and(|value| value.get("note").and_then(|n| n.as_str()).is_some());
-        let fields_complete = parsed.as_ref().is_some_and(|value| {
-            required_fields(case.kind)
-                .iter()
-                .all(|key| value.get(*key).is_some())
+        let note_present = parsed.as_ref().is_some_and(|value| {
+            value
+                .get("note")
+                .and_then(|n| n.as_str())
+                .is_some_and(|note| !note.trim().is_empty())
         });
-        let outcome = mirror_complete(case.kind, reply);
+        let fields_complete = parsed
+            .as_ref()
+            .and_then(|value| value.get("structured"))
+            .filter(|value| value.is_object())
+            .is_some_and(|structured| {
+                required_structured_fields(case.kind)
+                    .iter()
+                    .all(|key| structured.get(*key).is_some())
+            });
+        let outcome = match schema::validate_task(case.kind, reply) {
+            Ok((note, structured)) => TaskOutcome {
+                kind: case.kind,
+                note,
+                structured,
+                degraded: false,
+            },
+            Err(_) => TaskOutcome {
+                kind: case.kind,
+                note: String::new(),
+                structured: schema::empty_structured(case.kind),
+                degraded: true,
+            },
+        };
         Self {
             json_object,
             note_present,
@@ -101,89 +127,19 @@ impl TaskVerdict {
         }
     }
 
-    /// 降级判定：回复不是契约 JSON 对象或缺必需字段。存量围栏夹具（旧
-    /// 契约录制）天然落降级轨——生产对它们有 fallback 兜底，指标度量的是
-    /// 「模型有没有按现行契约输出」。
+    /// 降级判定：契约校验器判违约（非 JSON / 空回复 / 缺 note）。存量
+    /// 旧契约夹具（扁平录制）天然落降级轨——生产对它们出降级卡，指标
+    /// 度量的是「模型有没有按现行嵌套契约输出」。
     pub fn degraded(&self) -> bool {
-        !(self.json_object && self.note_present && self.fields_complete)
+        self.outcome.degraded
     }
 }
 
-/// 生产完成态解析的镜像（JSON 主路径 + 围栏 fallback → 结构化字段）。
-/// 与 gloss-app `finalize` 同一条规则：`note` 缺失退围栏；坏条目跳过；
-/// 字段缺失按 kind 兜底。
-fn mirror_complete(kind: TaskKind, reply: &str) -> OutcomeStructured {
-    let main_path = serde_json::from_str::<serde_json::Value>(reply.trim())
-        .ok()
-        .filter(|value| value.get("note").and_then(|n| n.as_str()).is_some());
-    if let Some(value) = main_path {
-        return match kind {
-            TaskKind::TranslateWord => OutcomeStructured::WordCard {
-                phonetic: text_field(&value, "phonetic"),
-                examples: mirror_examples(value.get("examples")),
-            },
-            TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
-                interpretation: mirror_examples(value.get("interpretation")),
-            },
-            _ => OutcomeStructured::Plain {
-                examples: mirror_examples(value.get("examples")),
-            },
-        };
-    }
-    let fallback = || match kind {
-        TaskKind::TranslateWord => OutcomeStructured::WordCard {
-            phonetic: None,
-            examples: Vec::new(),
-        },
-        TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
-            interpretation: Vec::new(),
-        },
-        _ => OutcomeStructured::Plain {
-            examples: Vec::new(),
-        },
-    };
-    let Some(start) = reply.rfind(STRUCTURED_FENCE) else {
-        return fallback();
-    };
-    let after_marker = &reply[start + STRUCTURED_FENCE.len()..];
-    let Some(end_rel) = after_marker.find("```") else {
-        return fallback();
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(after_marker[..end_rel].trim())
-    else {
-        return fallback();
-    };
-    match kind {
-        TaskKind::TranslateWord => OutcomeStructured::WordCard {
-            phonetic: text_field(&value, "phonetic"),
-            examples: mirror_examples(value.get("examples")),
-        },
-        TaskKind::ImageExplain => OutcomeStructured::ImageCommentary {
-            interpretation: mirror_examples(value.get("interpretation")),
-        },
-        _ => OutcomeStructured::Plain {
-            examples: mirror_examples(value.get("examples")),
-        },
-    }
-}
-
-/// 例句/展开讲解数组的镜像解析：非字符串的坏条目跳过、好条目保留
-/// （与生产 `parse_examples` 同语义，缺失回退空表）。
-fn mirror_examples(value: Option<&serde_json::Value>) -> Vec<String> {
-    value
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|entry| entry.as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// 取字符串字段；JSON null 与缺失同样返回 None。
-fn text_field(value: &serde_json::Value, key: &str) -> Option<String> {
-    value.get(key).and_then(|v| v.as_str()).map(str::to_owned)
+/// kind 的 `structured` 契约必需键：三行同构表里只有 `examples` 恒在
+/// （phonetic / code_language 允许缺省或 null；`note` 单独由
+/// `note_present` 计）。
+fn required_structured_fields(_kind: TaskKind) -> &'static [&'static str] {
+    &["examples"]
 }
 
 /// 任务指标：契约 JSON 率 / note 在场率 / 字段完整率 / 降级率。
@@ -363,52 +319,75 @@ mod tests {
     #[test]
     fn task_verdict_reads_the_four_levels() {
         let case = word_case();
-        let good =
-            TaskVerdict::for_reply(&case, r#"{"phonetic":null,"note":"正文","examples":[]}"#);
+        let good = TaskVerdict::for_reply(
+            &case,
+            r#"{"note":"正文","structured":{"phonetic":null,"examples":[]}}"#,
+        );
         assert!(!good.degraded(), "complete contract is not degraded");
         assert!(good.json_object && good.note_present && good.fields_complete);
 
         let plain = TaskVerdict::for_reply(&case, "只有正文");
         assert!(plain.degraded());
         assert!(!plain.json_object);
-        assert!(
-            matches!(plain.outcome, OutcomeStructured::WordCard { .. }),
-            "production outcome is a word card (empty subprov) without any contract: \
-             outcome={:?} kind={:?} json_object={}",
-            plain.outcome,
-            case.kind,
-            plain.json_object
-        );
+        assert_eq!(plain.outcome.note, "", "a degraded verdict carries no note");
+        assert!(plain.outcome.degraded);
 
-        let bad_json = TaskVerdict::for_reply(&case, r#"{"note":"正文","phonetic""#);
+        let bad_json = TaskVerdict::for_reply(&case, r#"{"note":"正文","structured""#);
         assert!(!bad_json.json_object && bad_json.degraded());
-    }
 
-    #[test]
-    fn legacy_fence_reply_falls_back_like_production() {
-        let case = word_case();
-        let fence = TaskVerdict::for_reply(
-            &case,
-            "正文\n```gloss\n{\"word\":\"gloss\",\"senses\":[]}\n```",
-        );
-        assert!(fence.degraded(), "the old contract is a degraded reply");
+        let bare_note = TaskVerdict::for_reply(&case, r#"{"note":"只有义"}"#);
         assert!(
-            matches!(&fence.outcome, OutcomeStructured::WordCard { .. }),
-            "production still assembles a word card via the fence fallback"
-        );
-
-        let no_fence = TaskVerdict::for_reply(&case, "只有正文");
-        assert!(
-            matches!(no_fence.outcome, OutcomeStructured::WordCard { .. }),
-            "the kind fallback keeps the whole raw text as the note"
+            bare_note.json_object
+                && bare_note.note_present
+                && !bare_note.fields_complete
+                && !bare_note.degraded(),
+            "missing structured is a soft gap: the note keeps the product alive"
         );
     }
 
     #[test]
-    fn field_completeness_requires_the_contract_keys() {
+    fn legacy_flat_and_fenced_replies_degrade_like_production() {
         let case = word_case();
-        let missing_senses = TaskVerdict::for_reply(&case, r#"{"note":"正文","word":"gloss"}"#);
-        assert!(!missing_senses.fields_complete && missing_senses.degraded());
+        // 旧扁平契约（无 structured 包裹）：note 在场保产物，疏证字段
+        // 按软规则回落，判定不降级。
+        let flat =
+            TaskVerdict::for_reply(&case, r#"{"note":"正文","phonetic":null,"examples":[]}"#);
+        assert!(!flat.degraded() && !flat.fields_complete);
+        assert_eq!(
+            flat.outcome.structured,
+            OutcomeStructured::WordCard {
+                phonetic: None,
+                examples: Vec::new(),
+            }
+        );
+
+        // 围栏输出整体违约：生产已无围栏容错，落降级产物。
+        let fence = TaskVerdict::for_reply(&case, "正文\n```gloss\n{\"note\":\"旧契约\"}\n```");
+        assert!(fence.degraded());
+        assert_eq!(fence.outcome.note, "");
+    }
+
+    #[test]
+    fn field_completeness_requires_the_nested_contract_keys() {
+        let case = word_case();
+        let missing_examples =
+            TaskVerdict::for_reply(&case, r#"{"note":"正文","structured":{"phonetic":null}}"#);
+        assert!(!missing_examples.fields_complete && !missing_examples.degraded());
+
+        let code_case = code_case();
+        let code = TaskVerdict::for_reply(
+            &code_case,
+            r#"{"note":"讲解","structured":{"examples":[],"code_language":"rust"}}"#,
+        );
+        assert!(code.fields_complete && !code.degraded());
+        assert!(
+            matches!(
+                &code.outcome.structured,
+                OutcomeStructured::Code { code_language, .. }
+                    if code_language.as_deref() == Some("rust")
+            ),
+            "the language verdict rides the Code variant"
+        );
     }
 
     #[test]
@@ -424,56 +403,59 @@ mod tests {
         assert_eq!(latency.percentile(100.0), Some(40.0));
     }
 
-    fn word_case() -> TaskCase {
-        let jsonl = "{\"id\":\"w1\",\"kind\":\"TranslateWord\",\"text\":\"gloss\",\"reference\":{\"phonetic\":null,\"examples\":[]}}\n";
+    fn case(jsonl: &str) -> TaskCase {
         load_task(jsonl)
             .expect("case")
             .into_iter()
             .next()
             .expect("one case")
+    }
+
+    fn word_case() -> TaskCase {
+        case(
+            "{\"id\":\"w1\",\"kind\":\"TranslateWord\",\"text\":\"gloss\",\"reference\":{\"phonetic\":null,\"examples\":[]}}\n",
+        )
+    }
+
+    fn code_case() -> TaskCase {
+        case(
+            "{\"id\":\"c1\",\"kind\":\"ExplainCode\",\"text\":\"fn main() {}\",\"reference\":{\"examples\":[]}}\n",
+        )
     }
 
     fn image_case() -> TaskCase {
-        let jsonl = "{\"id\":\"i1\",\"kind\":\"ImageExplain\",\"text\":\"chart.png\",\"reference\":{\"interpretation\":[]}}\n";
-        load_task(jsonl)
-            .expect("case")
-            .into_iter()
-            .next()
-            .expect("one case")
+        case(
+            "{\"id\":\"i1\",\"kind\":\"ImageExplain\",\"text\":\"chart.png\",\"reference\":{\"examples\":[]}}\n",
+        )
     }
 
     #[test]
-    fn image_explain_mirror_builds_the_commentary() {
+    fn image_explain_lands_on_the_plain_variant() {
         let case = image_case();
         let good = TaskVerdict::for_reply(
             &case,
-            r#"{"note":"描述","interpretation":["要点一",42,"要点二"]}"#,
+            r#"{"note":"描述","structured":{"examples":["要点一",42,"要点二"]}}"#,
         );
         assert!(!good.degraded(), "complete contract is not degraded");
-        assert!(
-            matches!(
-                &good.outcome,
-                OutcomeStructured::ImageCommentary { interpretation }
-                    if interpretation == &vec!["要点一".to_owned(), "要点二".to_owned()]
-            ),
-            "production outcome carries the interpretation entries: {:?}",
-            good.outcome
+        assert_eq!(
+            good.outcome.structured,
+            OutcomeStructured::Plain {
+                examples: vec!["要点一".to_owned(), "要点二".to_owned()],
+            },
+            "soft rules skip bad entries; image explain shares the plain variant"
         );
 
         let bare = TaskVerdict::for_reply(&case, r#"{"note":"只有描述"}"#);
-        assert!(
-            bare.degraded(),
-            "missing interpretation degrades the verdict"
+        assert!(!bare.degraded(), "missing structured is a soft gap");
+        assert_eq!(
+            bare.outcome.structured,
+            OutcomeStructured::Plain {
+                examples: Vec::new(),
+            }
         );
-        assert!(matches!(
-            bare.outcome,
-            OutcomeStructured::ImageCommentary { .. }
-        ));
 
-        let no_fence = TaskVerdict::for_reply(&case, "只有正文");
-        assert!(matches!(
-            no_fence.outcome,
-            OutcomeStructured::ImageCommentary { .. }
-        ));
+        let prose = TaskVerdict::for_reply(&case, "只有正文");
+        assert!(prose.degraded());
+        assert_eq!(prose.outcome.note, "");
     }
 }
