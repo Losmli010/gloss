@@ -1,8 +1,9 @@
 //! gloss-eval：Prompt 评测（确定性重放轨 + LLM judge 轨）。
 //!
-//! 与生产同源：分类校验器（`gloss_core::classify::parse_classify_reply`）、
-//! 结构化解析（生产语义见 gloss-app 的 finalize：JSON 主路径 + 围栏
-//! fallback；本 crate 按依赖方向约束以本地镜像对齐同一规则）
+//! 与生产同源：分类校验器（`gloss_core::classify::parse_classify_reply`，
+//! 严格裸 JSON，内部即 `schema::validate_classify`）、任务轨完成态判定
+//! （`gloss_core::schema::validate_task`——生产 finalize 消费同一校验器，
+//! 两侧共用 core 的 schema 模块：无本地镜像，也无围栏 fallback）
 //! 与 prompt 渲染（`PromptRegistry`）直接复用，评测数字度量的是生产行为。
 //!
 //! 隔离红线：本 crate 是评测工具链，**不被任何生产 crate 依赖**——

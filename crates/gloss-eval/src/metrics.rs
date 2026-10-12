@@ -240,8 +240,8 @@ pub fn judge_classify_reply(
 }
 
 /// 回复是否「长得像 JSON」：裸 JSON 或**首个** ``` 围栏内是 JSON——
-/// 镜像生产 `parse_classify_reply` 的裸先行、首围栏兜底提取（与任务轨
-/// 的 rfind 提取不同，多围栏的退化场景下两侧各自与生产对齐）。只判
+/// 刻意比生产校验（严格裸 JSON，无围栏容错）宽一档：生产对两者同样
+/// 拒绝，本判定只把「非 JSON 形态」与「形态像但被拒」分列统计。只判
 /// 形态，不判 kind 合法性——那归生产校验器。
 fn is_json_like(reply: &str) -> bool {
     let trimmed = reply.trim();
@@ -252,7 +252,8 @@ fn is_json_like(reply: &str) -> bool {
         .is_some_and(|json| serde_json::from_str::<serde_json::Value>(json).is_ok())
 }
 
-/// 首个 ``` 围栏内 JSON（语言标识行跳过）；镜像生产分类回复的容错提取。
+/// 首个 ``` 围栏内 JSON（语言标识行跳过）：「长得像 JSON」的形态判定
+/// 专用——生产已无围栏容错，本提取不再镜像任何生产路径。
 fn first_fenced_json(reply: &str) -> Option<&str> {
     let pos = reply.find("```")?;
     let after_marker = &reply[pos + 3..];
