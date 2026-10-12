@@ -25,10 +25,12 @@
 //!   `fixtures/`，可选 `GLOSS_LIVE_JUDGE=1` 启用 judge 评分。
 
 pub mod dataset;
+pub mod history;
 pub mod judge;
 pub mod metrics;
 pub mod report;
 pub mod runner;
+pub mod svg;
 
 pub use report::EvalReport;
 
