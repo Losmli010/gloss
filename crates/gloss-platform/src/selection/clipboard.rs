@@ -4,9 +4,11 @@
 //! 注入 Cmd+C → 轮询确认目标应用写入 → 读回 → 按快照恢复。快照按条目
 //! 与 flavor 尽力保全：读不出数据的 flavor（promised 数据等）单独跳过
 //! ——读不出即无法如实恢复，整轮放弃只会让兜底在有此类 flavor 的板上
-//! 整批失效；结构读不出（板、条目、flavor 名单）才整体放弃、不注入。
-//! 未确认时重注入一轮再等一个完整超时窗口。纯时序逻辑在
-//! [`wait_for_write`]（单测覆盖），系统 API 交互归 `imp` 模块。
+//! 整批失效。两类边界仍整体放弃、不注入：结构读不出（板、条目、
+//! flavor 名单）；板上条目的 flavor 全部读不出——注入后原内容无法如实
+//! 写回，恢复轮会清空剪贴板。未确认时重注入一轮再等一个完整超时窗口。
+//! 纯时序逻辑在 [`wait_for_write`]（单测覆盖），系统 API 交互归 `imp`
+//! 模块。
 
 use std::time::{Duration, Instant};
 
@@ -254,10 +256,11 @@ mod imp {
         }
     }
 
-    /// 快照原剪贴板全部条目与 flavor 数据。结构读不出（板、条目数、条目
-    /// 标识、flavor 名单）即整体失败（调用方据此放弃注入，剪贴板保持
-    /// 原样）；单个 flavor 读不出数据（promised 等）只跳过该 flavor，读
-    /// 得出的部分照常保全（见模块注释的边界说明）。
+    /// 快照原剪贴板全部条目与 flavor 数据。两类失败整体返回 `None`（调用
+    /// 方据此放弃注入，剪贴板保持原样）：结构读不出（板、条目数、条目
+    /// 标识、flavor 名单）；板上条目的 flavor 全部读不出。单个 flavor
+    /// 读不出数据（promised 等）只跳过该 flavor，读得出的部分照常保全
+    /// （见模块注释的边界说明）。
     fn snapshot_pasteboard() -> Option<SavedContent> {
         let Some(pb) = open_pasteboard() else {
             debug!(
@@ -376,6 +379,17 @@ mod imp {
                 continue;
             }
             items.push(SavedItem { id, flavors });
+        }
+        // 板上确有条目却无一 flavor 可恢复（全部读不出）：注入后原内容
+        // 无法如实写回，恢复轮会把剪贴板清空——按整体放弃收口，剪贴板
+        // 保持原样；空 items 在这里与「原剪贴板为空」的合法空快照严格
+        // 区分（后者 count == 0）。
+        if count > 0 && items.is_empty() {
+            debug!(
+                thread = thread::EVENT,
+                "no flavor on the board is restorable, fallback declined"
+            );
+            return None;
         }
         Some(SavedContent(items))
     }
