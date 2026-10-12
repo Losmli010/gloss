@@ -15,7 +15,10 @@ mod image;
 mod watch;
 
 pub use image::ClipboardImageReader;
-pub use watch::{ClipboardWatchSource, PasteboardImageObserved, PasteboardObserver};
+pub use watch::{
+    ClipboardWatchSource, PasteboardImageObserved, PasteboardObserver, WatchRoundFlag,
+    WatchRoundGuard,
+};
 
 use objc2::rc::Retained;
 use objc2_app_kit::{NSPasteboard, NSPasteboardTypePNG, NSPasteboardTypeTIFF};
