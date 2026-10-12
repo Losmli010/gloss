@@ -1363,7 +1363,7 @@ dependencies = [
 
 [[package]]
 name = "gloss"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "criterion",
  "egui",
@@ -1376,7 +1376,7 @@ dependencies = [
 
 [[package]]
 name = "gloss-app"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "core-foundation 0.10.1",
  "core-text",
@@ -1407,7 +1407,7 @@ dependencies = [
 
 [[package]]
 name = "gloss-core"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "arc-swap",
  "base64 0.23.1",
@@ -1425,8 +1425,9 @@ dependencies = [
 
 [[package]]
 name = "gloss-eval"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
+ "futures",
  "gloss-core",
  "serde",
  "serde_json",
@@ -1435,7 +1436,7 @@ dependencies = [
 
 [[package]]
 name = "gloss-platform"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "arboard",
  "core-foundation-sys 0.8.7",
