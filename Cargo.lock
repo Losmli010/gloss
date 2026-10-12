@@ -1378,7 +1378,7 @@ dependencies = [
 name = "gloss-app"
 version = "0.2.3"
 dependencies = [
- "core-foundation 0.9.4",
+ "core-foundation 0.10.1",
  "core-text",
  "crossbeam-channel",
  "egui",
@@ -1427,7 +1427,6 @@ dependencies = [
 name = "gloss-eval"
 version = "0.2.3"
 dependencies = [
- "futures",
  "gloss-core",
  "serde",
  "serde_json",

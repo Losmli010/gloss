@@ -10,7 +10,7 @@ license.workspace = true
 # CoreText 选面；文件字节直接 fs::read 一次进 egui，面序号由文件自身
 # 解析回答。core-foundation 留 link 特性（链接 CoreFoundation 框架）。
 core-foundation = {
-  version = "0.9",
+  version = "0.10",
   default-features = false,
   features = [
     "link",
