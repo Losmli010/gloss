@@ -20,12 +20,14 @@
 use crate::log::{debug, thread, warn};
 use crate::model::{GlossError, Locale};
 use crate::ports::{AiEngine, EngineRequest, TaskChunk};
-use crate::prompt::{CLASSIFY_SCHEMA, PromptRegistry, STRUCTURED_FENCE, repair_conversation};
+use crate::prompt::{CLASSIFY_SCHEMA, PromptRegistry, repair_conversation};
 use crate::schema::{self, Violation};
 use crate::task::{TaskInput, TaskKind};
 
-/// 分类的允许清单：分类只服务划词路径，答案集合就是**文本取材可执行**
-/// 的三个 kind（图像/语音 kind 不在其中——划词到不了它们）。
+/// 分类的允许清单：分类只服务划词路径，清单 3 个就是**文本取材可执行**
+/// 的 kind（图像/语音 kind 不在其中——划词到不了它们）。文本路径的完整
+/// 落点是「清单 3 个 + 兜底 [`CLASSIFY_FALLBACK`]」：模型只在本清单内
+/// 选择，清单外一律违约进修复轮，失效时落兜底。
 pub const CLASSIFY_KINDS: [TaskKind; 3] = [
     TaskKind::TranslateWord,
     TaskKind::TranslateSentence,
@@ -33,8 +35,9 @@ pub const CLASSIFY_KINDS: [TaskKind; 3] = [
 ];
 
 /// 分类失败（请求异常、修复轮后仍违约）时的兜底 kind：常量而非配置——
-/// 兜底必须是可渲染、可执行的具体文本 kind。General 是清单外的通用落点
-/// （分类器仍在三个文本 kind 中选择，兜底只是失效时的执行落点）。
+/// 兜底必须是可渲染、可执行的具体文本 kind。「清单 3 个 + 兜底 General」
+/// 构成文本路径的完整落点：分类器只在 [`CLASSIFY_KINDS`] 内选择，清单外
+/// 的 General 只是失效时的执行落点。
 pub const CLASSIFY_FALLBACK: TaskKind = TaskKind::General;
 
 /// 分类契约违约的修复轮预算：分类在 TTFT 之前，预算敏感——共
@@ -168,54 +171,15 @@ async fn classify_round(
     Ok(reply)
 }
 
-/// 解析模型回复：先按裸 JSON 解析，失败退到围栏提取（```gloss 或
-/// ```json 围栏都收）。kind 标识必须是 [`TaskKind`] 的 serde 名且在
-/// `allowed` 清单内，否则一律 [`GlossError::EngineResponse`]——错误文本
-/// 是固定措辞，不携带回复原文。
+/// 解析模型回复：严格裸 JSON，无围栏容错——围栏输出即违约（与生产
+/// 编排的 [`crate::schema::validate_classify`] 同一条判线，本函数只把
+/// [`Violation`] 折算成 [`GlossError::EngineResponse`]，错误文本是固定
+/// 措辞，不携带回复原文）。
 ///
 /// pub 供 gloss-eval 评测重放复用：评测与生产走同一个校验器。
 pub fn parse_classify_reply(reply: &str, allowed: &[TaskKind]) -> Result<TaskKind, GlossError> {
-    let rejected = || GlossError::EngineResponse("unrecognized classify reply".into());
-    let trimmed = reply.trim();
-    let value = serde_json::from_str::<serde_json::Value>(trimmed)
-        .ok()
-        .or_else(|| fenced_json(trimmed).and_then(|json| serde_json::from_str(json).ok()));
-    let Some(value) = value else {
-        return Err(rejected());
-    };
-    let Some(kind) = value
-        .get("kind")
-        .and_then(|v| v.as_str())
-        .map(|name| serde_json::Value::String(name.to_owned()))
-        .and_then(|name| serde_json::from_value::<TaskKind>(name).ok())
-    else {
-        return Err(rejected());
-    };
-    if allowed.contains(&kind) {
-        Ok(kind)
-    } else {
-        Err(rejected())
-    }
-}
-
-/// 从回复中提取第一个代码围栏的正文（跳过 ` ``` ` 后的语言标识行，
-/// 到闭合 ` ``` ` 为止）。分类契约请模型裸输出，围栏是它不守约时的
-/// 容错位。
-fn fenced_json(reply: &str) -> Option<&str> {
-    let after_marker = match reply.strip_prefix(STRUCTURED_FENCE) {
-        Some(rest) => rest,
-        None => {
-            let start = reply.find("```")?;
-            &reply[start + 3..]
-        }
-    };
-    let content = match after_marker.find('\n') {
-        // 语言标识（如 json）独占首行，跳到行首之后。
-        Some(line_end) => &after_marker[line_end + 1..],
-        None => after_marker,
-    };
-    let end = content.find("```")?;
-    Some(content[..end].trim())
+    schema::validate_classify(reply, allowed)
+        .map_err(|_| GlossError::EngineResponse("unrecognized classify reply".into()))
 }
 
 #[cfg(test)]
@@ -507,13 +471,14 @@ mod tests {
         assert!(parse_classify_reply("{\"kind\":null}", &CLASSIFY_KINDS).is_err());
         assert!(parse_classify_reply("我觉得这是一段翻译", &CLASSIFY_KINDS).is_err());
         assert!(parse_classify_reply("", &CLASSIFY_KINDS).is_err());
-        assert_eq!(
+        assert!(
             parse_classify_reply(
                 "前置说明\n```gloss\n{\"kind\":\"TranslateWord\"}\n```",
                 &CLASSIFY_KINDS
             )
-            .expect("gloss-fenced reply parses"),
-            TaskKind::TranslateWord
+            .is_err(),
+            "the fence tolerance is gone: a gloss-fenced reply violates the \
+             bare-JSON contract even with a valid kind inside"
         );
     }
 

@@ -25,7 +25,7 @@ gloss/
 
 - **四线程**：主线程（winit 事件循环 + UI）、平台事件线程（NSRunLoop：取材命令消费，有线程亲和性要求）、鼠标监听线程（线程名 `gloss-mouse-tap`：全局事件 tap 在此收口）、tokio 后台（网络与缓存读写）。平台回调的订阅面必须最小（鼠标 tap 只订阅左键按下/释放）；回调里只做事件搬运——读事件字段、把事件投进通道（满则丢弃），不调用要求主线程的 API；panic 穿过 C 回调会 abort 进程。
 - **四通道**：① `PlatformEvent`（事件线程 → 主）② `AcquireCommand`（主 → 事件线程）③ `Command`（主 → tokio）④ `Event`（流式回传 → 主）。请求代数（字段名 `generation`）由 App 在收到 ① 后赋值，之后随 ②③④ 的消息贯穿（① `PlatformEvent` 本身不含它），主线程据此丢弃陈旧响应；取消统一走 `CancellationToken`。
-- **任务化 AI 层**：`TaskInput` + `TaskOptions`（含单次快照冻结的模型 id）→ 统一的 `AiEngine`，不按输入模态（文本/图像；语音为未实现的预留变体）拆分客户端。**分类在 LLM 层内**（提示直通 → LLM 分类 → 常量兜底），状态机与通道载荷不携带任务类型；缓存只认 `cache_key(input, options)`、恒存完成产物，站点归 gloss-app 桥。
+- **任务化 AI 层**：`TaskInput` + `TaskOptions`（含单次快照冻结的模型 id）→ 统一的 `AiEngine`，不按输入模态（文本/图像；语音为未实现的预留变体）拆分客户端。**分类在 LLM 层内**（提示直通 → LLM 分类（1 次修复）→ 常量兜底），状态机与通道载荷不携带任务类型；缓存只认 `cache_key(input, options)`、恒存完成产物，站点归 gloss-app 桥。
 
 ## 常用命令
 

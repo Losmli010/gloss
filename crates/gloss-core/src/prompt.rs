@@ -11,12 +11,9 @@
 //! 模板里的输出示例就是解析侧（`crate::schema::validate_task`）所吃形状
 //! 的唯一描述，两处改一须改二（完整性门禁测试锁定：每个模板的示例对象
 //! 必须通过对应 `validate_task`）；示例值恒为占位（同分类契约的少样本
-//! 偏置取舍）。预留的音频输入一律 [`GlossError::UnsupportedModality`]，
-//! 不发出注定无效的请求。
-//!
-//! [`STRUCTURED_FENCE`] 是**旧契约的围栏标记**，只剩一处兼容位：分类
-//! 回复的围栏容错提取（`classify::parse_classify_reply`）——现行任务
-//! prompt 不要求围栏，任务回复的围栏输出由校验器判违约。
+//! 偏置取舍）。模板与提示都不要求围栏——模型回复按严格裸 JSON 校验
+//! （`crate::schema`），围栏输出即违约进修复轮。预留的音频输入一律
+//! [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
 //!
 //! 模板文本是编译期嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，
 //! `include_str!`），渲染是显式的 `{{占位符}}` 替换（可选行语义见
@@ -42,11 +39,6 @@ use crate::task::{Task, TaskInput, TaskKind, TaskOptions, validate_modality};
 
 /// 目标语言缺省值（`TaskOptions::target_lang` 文档：缺省中文）。
 const DEFAULT_TARGET: Lang = Lang::Zh;
-
-/// 旧契约的结构化围栏标记：模型按旧契约把结构化 JSON 追加在正文之后的
-/// ` ```gloss … ``` ` 块里。现行契约是纯 JSON 对象，本标记只剩兼容位——
-/// 分类回复的容错提取与完成态的围栏 fallback 解析共用（单一事实源）。
-pub const STRUCTURED_FENCE: &str = "```gloss";
 
 /// 分类输出契约的 schema：只示范形状，值用中性占位——写死某个具体 kind
 /// 会形成少样本偏置，模型照抄示例类别的比例随示例显著性上升。
@@ -695,11 +687,6 @@ mod tests {
                     &["examples"][..],
                 ),
             ] {
-                assert!(
-                    text.to_lowercase().contains("json"),
-                    "{locale:?}/{name}: the prompt must mention json (the endpoint's \
-                     JSON-mode gate reads it)"
-                );
                 let object = example_object(text);
                 assert_eq!(
                     validate_task(kind, object)
@@ -709,6 +696,63 @@ mod tests {
                     "{locale:?}/{name}: the example object must pass validate_task"
                 );
                 assert_structured_keys(locale, name, object, keys);
+            }
+        }
+    }
+
+    #[test]
+    fn every_template_mentions_json() {
+        for locale in [Locale::Zh, Locale::En] {
+            let templates = locale.templates();
+            for (name, text) in [
+                ("word_card.md", templates.word_card),
+                ("sentence.md", templates.sentence),
+                ("code.md", templates.code),
+                ("image_explain.md", templates.image_explain),
+                ("general.md", templates.general),
+                ("classify.md", templates.classify),
+                ("repair.md", templates.repair),
+            ] {
+                assert!(
+                    text.to_lowercase().contains("json"),
+                    "{locale:?}/{name}: the prompt must mention json (the endpoint's \
+                     JSON-mode gate reads it)"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn repair_instruction_renders_without_leftover_placeholders() {
+        let registry = PromptRegistry::new();
+        let schemas = [
+            CLASSIFY_SCHEMA,
+            r#"{"note":"…","structured":{"examples":["…","…"]}}"#,
+            "",
+        ];
+        for locale in [Locale::Zh, Locale::En] {
+            for violation in [
+                crate::schema::Violation::EmptyReply,
+                crate::schema::Violation::NotJson,
+                crate::schema::Violation::MissingNote,
+                crate::schema::Violation::KindNotAllowed,
+            ] {
+                for truncated in [false, true] {
+                    for schema in schemas {
+                        let instruction =
+                            registry.render_repair(locale, violation, schema, truncated);
+                        assert!(
+                            !instruction.contains("{{"),
+                            "{locale:?} x {violation:?} x truncated={truncated} leaves a \
+                             placeholder: {instruction}"
+                        );
+                        assert!(
+                            !instruction.is_empty(),
+                            "{locale:?} x {violation:?}: the violation wording keeps the \
+                             instruction non-empty"
+                        );
+                    }
+                }
             }
         }
     }
@@ -1197,9 +1241,9 @@ mod tests {
                     "{locale:?} x {kind:?} must carry the pure-JSON contract"
                 );
                 assert!(
-                    !text_of(&messages[0].content).contains(STRUCTURED_FENCE),
-                    "{locale:?} x {kind:?}: the fence is legacy-fallback only and must not \
-                     appear in the current prompt"
+                    !text_of(&messages[0].content).contains("```gloss"),
+                    "{locale:?} x {kind:?}: the legacy fence marker must not appear in \
+                     the current prompt"
                 );
             }
         }

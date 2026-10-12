@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 37 | `just test` |
-| 单元测试 | 540 | `just test` |
+| 单元测试 | 542 | `just test` |
 
 ## 人工测试
 
@@ -342,7 +342,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | a_violated_reply_repairs_into_a_kind | 分类违约回复修复后判型 | 给定「散文回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮对话为 [system][user 原文][assistant 坏回复][user 纠错指令]，纠错指令带违约固定措辞与分类契约行、不含坏回复与选区原文，修复后返回判定的 kind | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_as_is | 分类空回复原样重发修复 | 给定「空回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮按 EmptyReply 原样重发（消息列表与首轮逐字一致，无 assistant 轮无纠错指令）、修复后判出 kind | 2026-10-12 |
 | exhausted_repairs_fall_back_to_general_with_a_trace | 分类修复耗尽落兜底且有痕 | 给定恒违约的回复脚本，当 classify，则恰用尽 1+CLASSIFY_REPAIRS 次调用后返回 Ok(General)，耗尽 warn 只记违约类别（不含回复与选区原文） | 2026-10-12 |
-| replies_outside_the_allowed_list_are_rejected | 回复越界/不可识别一律拒绝 | 给定清单外 kind、未知标识、null、纯散文、空串与 gloss 围栏六种回复，当解析，则前五者 EngineResponse、围栏内合法 kind 放行 | 2026-10-10 |
+| replies_outside_the_allowed_list_are_rejected | 回复越界/不可识别一律拒绝 | 给定清单外 kind、未知标识、null、纯散文、空串与 gloss 围栏六种回复，当解析，则全部 EngineResponse（严格裸 JSON：围栏容错已删，围栏内合法 kind 同样拒绝） | 2026-10-12 |
 | classify_constants_cover_the_text_kinds_with_an_off_list_fallback | 分类清单与清单外兜底常量 | 给定 CLASSIFY_KINDS 与 CLASSIFY_FALLBACK，当检查，则清单恰为三个文本 kind、兜底恒为 General（可渲染可执行的清单外落点）且不在清单——分类器只在三个文本 kind 中选择 | 2026-10-12 |
 
 ### crates/gloss-core/src/config.rs
@@ -390,7 +390,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | text_kinds_render_system_and_user_with_kind_content | 文本 kind 渲染两段消息 | 给定四个文本 kind（词卡/句译/代码/通用），当渲染，则得 [System, User] 两段，系统指令含各自关键词与纯 JSON 输出契约，用户消息为原文 | 2026-10-12 |
 | the_general_kind_is_never_offered_to_the_classifier | 通用兜底 kind 不进分类清单 | 给定 CLASSIFY_KINDS 的分类渲染（双语），当 render_classify，则系统指令不含 General 标识——通用任务是清单外的兜底落点，分类器只在三个文本 kind 中选择 | 2026-10-12 |
 | output_example_carries_the_kind_fields | 输出示例携带 kind 字段 | 给定词卡/句译/代码解释模板（自包含任务书，含输出示例），当渲染并检查系统指令，则系统指令声明 structured 与 note，词卡示例另带 phonetic/examples、代码示例另带 examples/code_language | 2026-10-11 |
-| every_task_template_example_passes_validate_task | 模板示例过生产校验器（完整性门禁） | 给定双 locale × 五份任务模板，当取出示例对象行，则模板含 json 字样（端点 JSON 模式读它）、示例对象过对应 validate_task、structured 内键齐 per kind（词卡 phonetic+examples、句译/图像/通用 examples、代码 examples+code_language） | 2026-10-12 |
+| every_task_template_example_passes_validate_task | 模板示例过生产校验器（完整性门禁） | 给定双 locale × 五份任务模板，当取出示例对象行，则示例对象过对应 validate_task、structured 内键齐 per kind（词卡 phonetic+examples、句译/图像/通用 examples、代码 examples+code_language） | 2026-10-12 |
+| every_template_mentions_json | 所有模板必含 json 字样（完整性门禁） | 给定两个 locale 的七份模板（五份任务模板 + classify.md + repair.md），当检查原文，则都含 json 字样（端点 JSON 模式的提示读取它） | 2026-10-12 |
 | missing_target_lang_defaults_to_chinese | 目标语言缺省中文 | 给定未设 target_lang，当渲染句译，则系统指令含「中文」 | 2026-09-19 |
 | explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 Lang::Ja，当渲染，则系统指令含「日语」 | 2026-09-19 |
 | empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") / Other(" ") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且纯 JSON 契约仍在 | 2026-10-11 |
@@ -403,6 +404,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 locale 的六份模板原文（五份任务模板 + repair.md），当扫占位符，则每个 {{ 都有闭合且名字都在已声明集合内（target/hint/reason/schema；嵌套契约的示例 JSON 以 }} 收尾，闭合计数因此可多于开启——按配对判）；未声明者若与已声明占位符同行会被整行删掉，产物断言看不见 | 2026-10-12 |
 | every_locale_renders_without_leftover_placeholders | 全 locale 无残留占位符 | 给定两个 locale × 五个 kind（四个文本 + ImageExplain），当渲染，则文本消息不含 {{、系统指令携带 note 纯 JSON 契约且不含旧围栏 | 2026-10-12 |
 | repair_instruction_carries_the_wording_schema_and_optional_truncation_hint | 修复指令承载措辞/契约行/可选截断提示 | 给定双 locale、各违约类别与 length/非 length 结束，当 render_repair，则指令含违约固定措辞与契约示例行、无残留 {{、无 length 时不带截断提示、length 时带「输出被截断」提示、en 提示随 locale，且含 json 字样 | 2026-10-12 |
+| repair_instruction_renders_without_leftover_placeholders | repair 指令渲染无残留占位符（完整性门禁） | 给定双 locale × 四类违约 × 有无截断提示 × 三种契约行（分类 schema/任务契约行/空），当 render_repair，则渲染产物不含 {{ 且非空（可选行整行消失；general.md 等任务模板的同一门禁由全 locale 渲染测试锁定） | 2026-10-12 |
 | task_contract_lines_come_from_the_kind_templates | 契约示例行取自 kind 模板 | 给定双 locale × 五个 kind，当 task_contract_line，则行与该 locale 任务模板中的示例行逐字同源（zh「…或 null」/en「…or null」方言随模板）、Plain 系 kind 同行、无残留占位符 | 2026-10-12 |
 | repair_conversation_replays_the_history_or_resends_as_is | 修复对话带回历史或原样重发 | 给定首轮 [system][user] 与坏回复/空回复两种情形，当 repair_conversation，则坏回复拼成 [system][user][assistant][user]（首两条逐字保留）、空回复原样返回首轮（无 assistant 无纠错指令） | 2026-10-12 |
 | english_locale_renders_english_prompts | 英文 locale 出英文指令 | 给定 En locale 的句译任务，当渲染，则系统指令为英文（含 JSON object 契约）、用户消息携带原文，且不含中文指令词 | 2026-10-03 |
