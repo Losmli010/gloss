@@ -18,6 +18,10 @@ pub enum TaskKind {
     ExplainCode,
     /// 框选图片 → 解释内容。
     ImageExplain,
+    /// 通用任务：理解并回应用户给出的任意内容。不在分类清单
+    /// （[`crate::classify::CLASSIFY_KINDS`]）里——分类器只在三个文本
+    /// kind 中选择，本变体是清单外的执行落点。
+    General,
 }
 
 /// 输入模态：取材产物的统一枚举形态，消息间 move 所有权。
@@ -105,7 +109,10 @@ impl Task {
 pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError> {
     let legal = match (kind, input) {
         (
-            TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode,
+            TaskKind::TranslateWord
+            | TaskKind::TranslateSentence
+            | TaskKind::ExplainCode
+            | TaskKind::General,
             TaskInput::Text { .. },
         )
         | (TaskKind::ImageExplain, TaskInput::Image { .. }) => true,
@@ -339,11 +346,15 @@ mod tests {
             TaskKind::TranslateSentence,
             TaskKind::ExplainCode,
             TaskKind::ImageExplain,
+            TaskKind::General,
         ];
         let text_legal = |kind| {
             matches!(
                 kind,
-                TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode
+                TaskKind::TranslateWord
+                    | TaskKind::TranslateSentence
+                    | TaskKind::ExplainCode
+                    | TaskKind::General
             )
         };
         let image_legal = |kind| matches!(kind, TaskKind::ImageExplain);

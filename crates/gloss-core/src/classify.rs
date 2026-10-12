@@ -323,5 +323,9 @@ mod tests {
             ]
         );
         assert!(CLASSIFY_KINDS.contains(&CLASSIFY_FALLBACK));
+        assert!(
+            !CLASSIFY_KINDS.contains(&TaskKind::General),
+            "the general kind is the fallback landing, never a classifier choice"
+        );
     }
 }
