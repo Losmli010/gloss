@@ -910,7 +910,16 @@ mod tests {
 mod live_tests {
     use super::*;
 
+    use crate::prompt::PromptRegistry;
+    use crate::schema;
     use crate::stubs::ports::MemoryConfigStore;
+    use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
+
+    const ONE_PIXEL_PNG: [u8; 70] = [
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
+        0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 218, 99, 100, 96, 248, 95, 15,
+        0, 2, 135, 1, 128, 235, 71, 186, 146, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    ];
 
     fn require_live_env() -> (String, String, String) {
         let read = |name: &str| {
@@ -973,6 +982,67 @@ mod live_tests {
         assert!(
             !text.trim().is_empty(),
             "expected streamed translation text"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "真机：需 GLOSS_LIVE_* 与支持图像输入的模型（bdd.md 人工测试有照抄步骤）"]
+    async fn live_llm_streams_an_image_contract() {
+        let (base_url, model, key) = require_live_env();
+        let store = Arc::new(MemoryConfigStore::default());
+        store
+            .set_secret("gloss/deepseek", &key)
+            .expect("stub store accepts secret");
+        let config = Config {
+            base_url,
+            model: model.clone(),
+            ..Default::default()
+        };
+        let handle = Arc::new(ConfigHandle::with_config(store.clone(), config));
+        let client = LlmClient::new(handle, store).expect("http client should build");
+
+        let task = Task {
+            kind: TaskKind::ImageExplain,
+            input: TaskInput::Image {
+                png: Arc::from(&ONE_PIXEL_PNG[..]),
+                region: None,
+            },
+            options: TaskOptions::default(),
+        };
+        let messages = PromptRegistry::new()
+            .render(&task)
+            .expect("image task passes the modality check");
+
+        let mut stream = client
+            .execute(EngineRequest {
+                messages,
+                model,
+                max_tokens: None,
+            })
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "真机图像请求失败（模型须支持图像输入与 JSON 输出模式）：{error}；\
+                     修复：把 GLOSS_LIVE_MODEL 换成支持 vision 的模型后重跑"
+                )
+            });
+        let mut text = String::new();
+        while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+            match item {
+                Ok(TaskChunk::Delta(delta)) => text.push_str(&delta),
+                Ok(TaskChunk::Done { .. }) => {}
+                Err(error) => panic!("stream failed: {error}"),
+            }
+        }
+        let (note, _) =
+            schema::validate_task(TaskKind::ImageExplain, &text).unwrap_or_else(|violation| {
+                panic!(
+                    "真机图像回复未过契约校验（{violation}）：端点未按 JSON 模式输出完整图注契约"
+                )
+            });
+        assert!(
+            !note.trim().is_empty(),
+            "the streamed note must be non-empty"
         );
     }
 }

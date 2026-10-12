@@ -8,8 +8,8 @@
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
-| 人工测试 | 12 | `cargo test -p gloss-platform -- --ignored` |
-| 发版人工步骤 | 8 | 手动执行（无自动化测试源码的真机/运维步骤，bdd 门禁豁免） |
+| 人工测试 | 13 | `cargo test -p gloss-platform -- --ignored` |
+| 发版人工步骤 | 10 | 手动执行（无自动化测试源码的真机/运维步骤，bdd 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 37 | `just test` |
@@ -81,6 +81,15 @@
   2. 运行总览中人工测试的命令
   3. 缺变量时测试当场打印可照抄的导出命令
 - 更新时间：2026-09-19
+
+### live_llm_streams_an_image_contract
+- 测试目标：验证真实端点在 JSON 输出模式下接受图像请求并流式回传图注契约（契约校验与重试方案 §11 L4：vision + `response_format` 流式真机验证）。
+- 测试场景：给定 GLOSS_LIVE 三变量与支持图像输入的模型，当经 LlmClient 发送 ImageExplain 渲染的图像任务（请求恒带 `response_format: json_object`）并消费整条流，则增量非空、整段过 `validate_task(ImageExplain)` 且 note 非空；端点不支持图像输入或 JSON 模式时分别以 UnsupportedModality / JsonModeUnsupported 诊断当场失败。
+- 测试步骤：
+  1. 导出 GLOSS_LIVE_API_KEY / GLOSS_LIVE_BASE_URL / GLOSS_LIVE_MODEL 三个环境变量（MODEL 须支持图像输入；密钥不打印）
+  2. 运行 `cargo test -p gloss-core -- --ignored live_llm`
+  3. 缺变量或模型不支持图像时测试当场打印修复指引（换 vision 模型重跑）
+- 更新时间：2026-10-12
 
 ### fallback_read_restores_original_clipboard
 - 测试目标：验证兜底读取后系统剪贴板恢复原内容。
@@ -213,6 +222,26 @@
   6. 核对：`cat /tmp/soak-rss.txt` 首尾对比无持续上漂（一次性的启动后爬升属正常）；`ls ~/.gloss/logs/gloss-*.jsonl | wc -l` ≤ 7；`just logs --no-follow --level error` 无异常堆栈（只渲染最新一份日志）
   7. 收尾采一次运行时基线归档：`just app-metrics`（趋势点随 git 走）
 - 更新时间：2026-10-06
+
+### empty_content_repair_via_fixture_replay
+- 测试目标：验证空回复异常夹具经生产校验器回放出修复轨迹（契约校验与重试方案 §11 L4：空 content 自动修复；载体为步骤 5 豁免指派的异常夹具回放，步骤 7 已铺）。
+- 测试场景：给定空回复异常夹具（task-word-03 首轮 deltas=[]、分类 en-word-02），当 `just eval-replay` 离线回放，则两轨「修复轮次」行各含 empty ×1（空轮按 EmptyReply 违约原样重发进修复轮）、末轮契约回复不降级；零增量完成的传输形态（200 收尾无增量 → `empty completion` 诊断）转 EmptyReply 的生产消费路径由 L1 测试锁定。
+- 测试步骤：
+  1. 运行 `just eval-replay`
+  2. 核对报告中「分类 修复轮次」行含 `empty ×1`、「task_translate_word 修复轮次」行含 `empty ×1`
+  3. 运行 `cargo test -p gloss-core a_zero_increment_empty_completion_enters_the_repair_path`（零增量完成不按失败上抛、转 EmptyReply 进修复）
+- 更新时间：2026-10-12
+
+### degraded_card_and_retry_manual_check
+- 测试目标：真机全链路观察降级产物卡与重试出口（契约校验与重试方案 §11 L4：降级卡与重试）。
+- 测试场景：给定应用配置指向恒不守约的 HTTPS 端点（非 LLM 的 POST 回声服务返回非 SSE 内容，零增量完成恒现），当划词触发任务，则修复轮页脚切「重新注解」（三轮）、耗尽后出「输出异常」卡（不渲染正文残留、带「重试」），点重试后流程重走并再次落降级卡（降级产物不进缓存：重试必须重新走引擎与修复轮）。
+- 测试步骤：
+  1. 前置：`curl -sS -o /dev/null -w "%{http_code}\\n" -X POST https://httpbin.org/post` 返回 200（第三方回声服务，不可达时换任一「POST 回 200 且正文无 `data:` 行」的 HTTPS 端点）
+  2. 应用设置：服务地址改 `https://httpbin.org/post`（配置层强制 HTTPS，本地 http 桩不可用——红线使然）、模型 ID 填非空占位、密钥填占位字符串，保存
+  3. 在任意含文本的前台应用选中一段文字划词：观察流式清稿与页脚「重新注解」交替出现 3 轮，之后出「输出异常」卡（无正文内容、有「重试」按钮）
+  4. 点「重试」：再次走修复轮并再次落降级卡（若直接显示缓存内容即失败）
+  5. 收尾：设置里把服务地址与密钥改回原值
+- 更新时间：2026-10-12
 
 ## 集成测试
 
