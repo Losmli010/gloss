@@ -57,6 +57,9 @@ objc2-foundation = {
     "NSData",
     "NSLocale",
     "NSString",
+    # NSRunningApplication.bundleURL 的返回类型：AX 通道激活按包路径查
+    # 内核框架形态（selection/activation.rs）。
+    "NSURL",
   ]
 }
 # 兜底复制的按键注入与真机测试的事件注入（rdev::simulate）；默认集只多出
