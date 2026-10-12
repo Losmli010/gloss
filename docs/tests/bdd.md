@@ -340,6 +340,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | partial_json_keeps_waiting_for_the_stream | 半截 JSON 继续等流 | 给定到流结束都补不齐的半截 JSON，当 classify，则流内不提前定型（增量校验不过继续等），流走完按违约进修复轮、耗尽落兜底 General | 2026-10-12 |
 | a_request_failure_is_digested_into_the_fallback_without_retry | 分类请求失败内部消化落兜底 | 给定分类请求整体失败，当 classify，则不重试、内部消化后返回 Ok(General)（引擎恰 1 次调用） | 2026-10-12 |
 | a_violated_reply_repairs_into_a_kind | 分类违约回复修复后判型 | 给定「散文回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮对话为 [system][user 原文][assistant 坏回复][user 纠错指令]，纠错指令带违约固定措辞与分类契约行、不含坏回复与选区原文，修复后返回判定的 kind | 2026-10-12 |
+| classify_traced_carries_rounds_and_repairs_for_the_trajectory | 分类全轨迹携带轮次与修复数 | 给定「散文回复 → 裸 JSON kind」与「恒散文」两个脚本队列，当 classify_traced，则前者 decision.kind 为判定的 kind、repairs 为 1、rounds 按轮序携带每轮完整回复；后者耗尽落兜底 General、repairs 为 CLASSIFY_REPAIRS、rounds 为 1+CLASSIFY_REPAIRS 轮 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_as_is | 分类空回复原样重发修复 | 给定「空回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮按 EmptyReply 原样重发（消息列表与首轮逐字一致，无 assistant 轮无纠错指令）、修复后判出 kind | 2026-10-12 |
 | exhausted_repairs_fall_back_to_general_with_a_trace | 分类修复耗尽落兜底且有痕 | 给定恒违约的回复脚本，当 classify，则恰用尽 1+CLASSIFY_REPAIRS 次调用后返回 Ok(General)，耗尽 warn 只记违约类别（不含回复与选区原文） | 2026-10-12 |
 | replies_outside_the_allowed_list_are_rejected | 回复越界/不可识别一律拒绝 | 给定清单外 kind、未知标识、null、纯散文、空串与 gloss 围栏六种回复，当解析，则全部 EngineResponse（严格裸 JSON：围栏容错已删，围栏内合法 kind 同样拒绝） | 2026-10-12 |
@@ -470,6 +471,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | classified_kind_arrives_before_any_chunk | 分类先于任何增量 | 给定文本输入与两段任务流，当 run，则 on_classified 恰在首个 on_chunk 之前触发一次（含分类修复耗尽落的兜底 General） | 2026-10-12 |
 | classify_request_failure_falls_back_without_retrying | 分类请求失败内部消化后任务照跑（engine） | 给定分类调用失败（一次性错误）与契约任务脚本，当 service.run，则分类不重试、内部消化落 CLASSIFY_FALLBACK(General)、引擎共 2 次调用（分类+任务）、fallback warn 不含选区原文 | 2026-10-12 |
 | raw_text_is_returned_verbatim | 原始文本原样返回 | 给定两段 JSON 流式脚本，当 run，则 RunOutput.raw 为未解析的原始拼接文本 | 2026-10-04 |
+| run_task_rounds_executes_a_fixed_kind_stream_without_classification | 任务段循环以给定 kind 直达执行 | 给定「违约散文 → 契约 JSON」脚本队列与预渲染的任务底座，当直接调 run_task_rounds，则 kind 恒为调用方给定值（不分类）、repairs 为 1、raw 为末轮原文、引擎恰 2 次调用（无分类调用在前） | 2026-10-12 |
 | run_output_carries_the_server_finish_reason | RunOutput 携带服务端结束原因 | 给定声明 stop 与 length 结束的两个脚本流，当 run，则 finish_reason 原文随 RunOutput 返回、raw 不受影响、契约合回复 repairs 为 0（length 只在违约修复时进指令，content_filter 直接失败卡） | 2026-10-12 |
 | run_output_finish_reason_stays_none_without_a_done_marker | 无 [DONE] 时结束原因缺省 | 给定只吐增量、不声明结束的脚本流，当 run，则 finish_reason 为 None | 2026-10-11 |
 | blank_model_is_a_config_failure_before_the_engine | 空白模型先于引擎拒绝 | 给定 model 为空白的选项，当 run，则 Config 错误且引擎 0 调用 | 2026-10-03 |

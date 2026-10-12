@@ -26,8 +26,11 @@
 use crate::task::{OutcomeStructured, TaskKind};
 
 /// 契约违约类别：措辞固定（[`Display`](std::fmt::Display)），永不携带
-/// 回复原文——类别进日志、降级产物与（后续步骤的）修复指令。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 回复原文——类别进日志、降级产物与修复指令。serde 形态是变体名本身
+/// （评测报告的违约类别计数键）；`Ord` 供按类别的计数表稳定迭代。
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Violation {
     /// 回复为空（trim 后零长度）。
     EmptyReply,

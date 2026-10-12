@@ -85,34 +85,75 @@ pub async fn classify(
         // 到不了这里。
         return Err(GlossError::UnsupportedModality);
     };
+    match classify_traced(engine, model, locale, allowed, text).await {
+        Ok(decision) => Ok(decision.kind),
+        // 分类阶段的请求异常不重试（重发同请求无益），内部消化落兜底
+        // ——warn 只记错误类别，不含选区原文与模型回复。
+        Err(error) => {
+            warn!(
+                thread = thread::TOKIO,
+                error = %error,
+                "classify request failed, falling back to the default kind"
+            );
+            Ok(CLASSIFY_FALLBACK)
+        }
+    }
+}
 
+/// 一次分类的完整轨迹：判定的任务类型、契约修复轮次数与每一轮的完整
+/// 回复（末轮是完成态判定的输入）。生产编排只消费 `kind`；评测
+/// （gloss-eval live 轨）据 `rounds`/`repairs` 把违约类别与修复轮次计入
+/// 统计——两侧消费同一份轨迹，评测数字度量的才是生产行为。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassifyDecision {
+    /// 判定的任务类型（含兜底 [`CLASSIFY_FALLBACK`]）。
+    pub kind: TaskKind,
+    /// 契约违约触发的修复轮次数（0 = 一次通过）。
+    pub repairs: u32,
+    /// 每一轮的完整回复，按轮序（修复轮由违约触发，逐轮跑
+    /// [`crate::schema::validate_classify`] 即还原违约轨迹）。
+    pub rounds: Vec<String>,
+}
+
+/// [`classify`] 的全轨迹形态：逐轮执行分类请求并记录回复，契约违约走
+/// 修复轮（对话形态 `[system][user 原文][assistant 上一次坏回复]
+/// [user 纠错指令]`，EmptyReply 原样重发不带 assistant 轮），预算
+/// [`CLASSIFY_REPAIRS`] 耗尽落 [`CLASSIFY_FALLBACK`]（恒 `Ok`）。与
+/// [`classify`] 的差别只有一处：**请求异常不消化**、原样上抛——消化
+/// （落兜底 + warn）归 [`classify`]；评测需要区分「请求失败」与「回复
+/// 违约」，故在 traced 层保持上抛。
+///
+/// `text` 是待分类的选区文本；`allowed` 是允许模型选择的清单（编排传
+/// [`CLASSIFY_KINDS`]）。pub 供 gloss-eval 的 live 轨复用同一循环（评测
+/// 与生产同源）。
+pub async fn classify_traced(
+    engine: &dyn AiEngine,
+    model: &str,
+    locale: Locale,
+    allowed: &[TaskKind],
+    text: &str,
+) -> Result<ClassifyDecision, GlossError> {
     let registry = PromptRegistry::new();
     let base = registry.render_classify(locale, allowed, text);
     let mut messages = base.clone();
     let mut repairs = 0u32;
+    let mut rounds = Vec::new();
     loop {
         let request = EngineRequest {
             messages: messages.clone(),
             model: model.to_owned(),
             max_tokens: Some(CLASSIFY_MAX_TOKENS),
         };
-        let reply = match classify_round(engine, &request, allowed).await {
-            Ok(reply) => reply,
-            // 分类阶段的请求异常不重试（重发同请求无益），内部消化落兜底
-            // ——warn 只记错误类别，不含选区原文与模型回复。
-            Err(error) => {
-                warn!(
-                    thread = thread::TOKIO,
-                    error = %error,
-                    "classify request failed, falling back to the default kind"
-                );
-                return Ok(CLASSIFY_FALLBACK);
-            }
-        };
+        let reply = classify_round(engine, &request, allowed).await?;
+        rounds.push(reply.clone());
         match schema::validate_classify(&reply, allowed) {
             Ok(kind) => {
                 debug!(kind = ?kind, "classified by the model");
-                return Ok(kind);
+                return Ok(ClassifyDecision {
+                    kind,
+                    repairs,
+                    rounds,
+                });
             }
             Err(violation) => {
                 if repairs >= CLASSIFY_REPAIRS {
@@ -121,7 +162,11 @@ pub async fn classify(
                         reason = %violation,
                         "classify repairs exhausted, falling back to the default kind"
                     );
-                    return Ok(CLASSIFY_FALLBACK);
+                    return Ok(ClassifyDecision {
+                        kind: CLASSIFY_FALLBACK,
+                        repairs,
+                        rounds,
+                    });
                 }
                 repairs += 1;
                 // 违约 warn 只记类别 + 轮次（第几轮违约），无内容。
@@ -185,7 +230,8 @@ pub fn parse_classify_reply(reply: &str, allowed: &[TaskKind]) -> Result<TaskKin
 #[cfg(test)]
 mod tests {
     use super::{
-        CLASSIFY_FALLBACK, CLASSIFY_KINDS, CLASSIFY_REPAIRS, classify, parse_classify_reply,
+        CLASSIFY_FALLBACK, CLASSIFY_KINDS, CLASSIFY_REPAIRS, classify, classify_traced,
+        parse_classify_reply,
     };
     use crate::model::{GlossError, Locale};
     use crate::ports::TaskChunk;
@@ -384,6 +430,44 @@ mod tests {
             !instruction.contains("kubectl get pods"),
             "the instruction must not carry the selection text: {instruction}"
         );
+    }
+
+    #[tokio::test]
+    async fn classify_traced_carries_rounds_and_repairs_for_the_trajectory() {
+        let engine = MockEngine::new().with_script_queue(vec![
+            vec![Ok(TaskChunk::Delta("MARKER-prose-reply 不是 JSON".into()))],
+            vec![Ok(TaskChunk::Delta("{\"kind\":\"ExplainCode\"}".into()))],
+        ]);
+        let decision = classify_traced(
+            &engine,
+            "m",
+            Locale::Zh,
+            &CLASSIFY_KINDS,
+            "kubectl get pods",
+        )
+        .await
+        .expect("the repaired reply should settle");
+        assert_eq!(decision.kind, TaskKind::ExplainCode);
+        assert_eq!(decision.repairs, 1);
+        assert_eq!(
+            decision.rounds,
+            vec![
+                "MARKER-prose-reply 不是 JSON".to_owned(),
+                "{\"kind\":\"ExplainCode\"}".to_owned(),
+            ],
+            "every round's full reply rides the decision in order"
+        );
+
+        let engine = MockEngine::new().with_script_queue(vec![
+            vec![Ok(TaskChunk::Delta("MARKER-还是散文".into()))],
+            vec![Ok(TaskChunk::Delta("MARKER-依旧散文".into()))],
+        ]);
+        let decision = classify_traced(&engine, "m", Locale::Zh, &CLASSIFY_KINDS, "一段文本")
+            .await
+            .expect("exhausted repairs never fail the classification");
+        assert_eq!(decision.kind, TaskKind::General);
+        assert_eq!(decision.repairs, CLASSIFY_REPAIRS);
+        assert_eq!(decision.rounds.len(), 1 + CLASSIFY_REPAIRS as usize);
     }
 
     #[tokio::test]
