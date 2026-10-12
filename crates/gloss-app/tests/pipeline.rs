@@ -715,7 +715,6 @@ fn superseded_trigger_cancels_and_filters_late_events() {
         assert_eq!(delta, expected);
         assert!(pipe.machine.accept_chunk(generation, delta));
     }
-    // 任务回复 A1A2 违约：修复轮标记先于终态到达，同代的标记照常采纳。
     let Event::TaskRepairing { generation } = pipe.events_rx.recv().unwrap() else {
         panic!("repair marker expected");
     };

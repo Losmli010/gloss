@@ -1352,8 +1352,6 @@ mod kittest_tests {
     }
 
     fn repairing_streaming_view() -> OverlayView {
-        // 真实时序里 accept_repairing 与清稿同帧发生：修复中的流式卡正文
-        // 恒为空，骨架条顶注位，页脚切「重新注解」。
         OverlayView::Streaming {
             source: "选中的原文".into(),
             raw: String::new(),

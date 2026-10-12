@@ -488,8 +488,6 @@ mod tests {
 
         run(&commands, 3, text_input("boom"), text_options());
 
-        // 分类先失败（同引擎同错误）内部消化落兜底并回传判定，任务段再
-        // 失败才是 TaskFailed——两条错误同变体，事件序是本断言的靶心。
         assert!(matches!(
             events.recv().unwrap(),
             Event::TaskClassified {
