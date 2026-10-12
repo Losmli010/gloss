@@ -8,12 +8,12 @@
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
-| 人工测试 | 12 | `cargo test -p gloss-platform -- --ignored` |
-| 发版人工步骤 | 8 | 手动执行（无自动化测试源码的真机/运维步骤，bdd 门禁豁免） |
+| 人工测试 | 13 | `cargo test -p gloss-platform -- --ignored`；live_llm 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 GLOSS_LIVE_*） |
+| 发版人工步骤 | 10 | 手动执行（无自动化测试源码的真机/运维步骤，bdd 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 37 | `just test` |
-| 单元测试 | 542 | `just test` |
+| 单元测试 | 553 | `just test` |
 
 ## 人工测试
 
@@ -81,6 +81,15 @@
   2. 运行总览中人工测试的命令
   3. 缺变量时测试当场打印可照抄的导出命令
 - 更新时间：2026-09-19
+
+### live_llm_streams_an_image_contract
+- 测试目标：验证真实端点在 JSON 输出模式下接受图像请求并流式回传图注契约（契约校验与重试方案 §11 L4：vision + `response_format` 流式真机验证）。
+- 测试场景：给定 GLOSS_LIVE 三变量与支持图像输入的模型，当经 LlmClient 发送 ImageExplain 渲染的图像任务（请求恒带 `response_format: json_object`）并消费整条流，则增量非空、整段过 `validate_task(ImageExplain)` 且 note 非空；端点不支持图像输入或 JSON 模式时分别以 UnsupportedModality / JsonModeUnsupported 诊断当场失败。
+- 测试步骤：
+  1. 导出 GLOSS_LIVE_API_KEY / GLOSS_LIVE_BASE_URL / GLOSS_LIVE_MODEL 三个环境变量（MODEL 须支持图像输入；密钥不打印）
+  2. 运行 `cargo test -p gloss-core -- --ignored live_llm`
+  3. 缺变量或模型不支持图像时测试当场打印修复指引（换 vision 模型重跑）
+- 更新时间：2026-10-12
 
 ### fallback_read_restores_original_clipboard
 - 测试目标：验证兜底读取后系统剪贴板恢复原内容。
@@ -214,6 +223,26 @@
   7. 收尾采一次运行时基线归档：`just app-metrics`（趋势点随 git 走）
 - 更新时间：2026-10-06
 
+### empty_content_repair_via_fixture_replay
+- 测试目标：验证空回复异常夹具经生产校验器回放出修复轨迹（契约校验与重试方案 §11 L4：空 content 自动修复；载体为步骤 5 豁免指派的异常夹具回放，步骤 7 已铺）。
+- 测试场景：给定空回复异常夹具（task-word-03 首轮 deltas=[]、分类 en-word-02），当 `just eval-replay` 离线回放，则两轨「修复轮次」行各含 empty ×1（空轮按 EmptyReply 违约原样重发进修复轮）、末轮契约回复不降级；零增量完成的传输形态（200 收尾无增量 → `empty completion` 诊断）转 EmptyReply 的生产消费路径由 L1 测试锁定。
+- 测试步骤：
+  1. 运行 `just eval-replay`
+  2. 核对报告中「分类 修复轮次」行含 `empty ×1`、「task_translate_word 修复轮次」行含 `empty ×1`
+  3. 运行 `cargo test -p gloss-core a_zero_increment_empty_completion_enters_the_repair_path`（零增量完成不按失败上抛、转 EmptyReply 进修复）
+- 更新时间：2026-10-12
+
+### degraded_card_and_retry_manual_check
+- 测试目标：真机全链路观察降级产物卡与重试出口（契约校验与重试方案 §11 L4：降级卡与重试）。
+- 测试场景：给定应用配置指向恒不守约的 HTTPS 端点（非 LLM 的 POST 回声服务返回非 SSE 内容，零增量完成恒现），当划词触发任务，则修复轮页脚切「重新注解」（三轮）、耗尽后出「输出异常」卡（不渲染正文残留、带「重试」），点重试后流程重走并再次落降级卡（降级产物不进缓存：重试必须重新走引擎与修复轮）。
+- 测试步骤：
+  1. 前置：`curl -sS -o /dev/null -w "%{http_code}\\n" -X POST https://httpbin.org/post` 返回 200（第三方回声服务，不可达时换任一「POST 回 200 且正文无 `data:` 行」的 HTTPS 端点）
+  2. 应用设置：服务地址改 `https://httpbin.org/post`（配置层强制 HTTPS，本地 http 桩不可用——红线使然）、模型 ID 填非空占位、密钥填占位字符串，保存
+  3. 在任意含文本的前台应用选中一段文字划词：观察流式清稿与页脚「重新注解」交替出现 3 轮，之后出「输出异常」卡（无正文内容、有「重试」按钮）
+  4. 点「重试」：再次走修复轮并再次落降级卡（若直接显示缓存内容即失败）
+  5. 收尾：设置里把服务地址与密钥改回原值
+- 更新时间：2026-10-12
+
 ## 集成测试
 
 文件：crates/gloss-app/tests/pipeline.rs（L1，经公共 API 与通道两端驱动状态机 + 通道③④ + tokio 桥 + mock 引擎的全时序）。
@@ -340,6 +369,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | partial_json_keeps_waiting_for_the_stream | 半截 JSON 继续等流 | 给定到流结束都补不齐的半截 JSON，当 classify，则流内不提前定型（增量校验不过继续等），流走完按违约进修复轮、耗尽落兜底 General | 2026-10-12 |
 | a_request_failure_is_digested_into_the_fallback_without_retry | 分类请求失败内部消化落兜底 | 给定分类请求整体失败，当 classify，则不重试、内部消化后返回 Ok(General)（引擎恰 1 次调用） | 2026-10-12 |
 | a_violated_reply_repairs_into_a_kind | 分类违约回复修复后判型 | 给定「散文回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮对话为 [system][user 原文][assistant 坏回复][user 纠错指令]，纠错指令带违约固定措辞与分类契约行、不含坏回复与选区原文，修复后返回判定的 kind | 2026-10-12 |
+| classify_traced_carries_rounds_and_repairs_for_the_trajectory | 分类全轨迹携带轮次与修复数 | 给定「散文回复 → 裸 JSON kind」与「恒散文」两个脚本队列，当 classify_traced，则前者 decision.kind 为判定的 kind、repairs 为 1、rounds 按轮序携带每轮完整回复；后者耗尽落兜底 General、repairs 为 CLASSIFY_REPAIRS、rounds 为 1+CLASSIFY_REPAIRS 轮 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_as_is | 分类空回复原样重发修复 | 给定「空回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮按 EmptyReply 原样重发（消息列表与首轮逐字一致，无 assistant 轮无纠错指令）、修复后判出 kind | 2026-10-12 |
 | exhausted_repairs_fall_back_to_general_with_a_trace | 分类修复耗尽落兜底且有痕 | 给定恒违约的回复脚本，当 classify，则恰用尽 1+CLASSIFY_REPAIRS 次调用后返回 Ok(General)，耗尽 warn 只记违约类别（不含回复与选区原文） | 2026-10-12 |
 | replies_outside_the_allowed_list_are_rejected | 回复越界/不可识别一律拒绝 | 给定清单外 kind、未知标识、null、纯散文、空串与 gloss 围栏六种回复，当解析，则全部 EngineResponse（严格裸 JSON：围栏容错已删，围栏内合法 kind 同样拒绝） | 2026-10-12 |
@@ -470,6 +500,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | classified_kind_arrives_before_any_chunk | 分类先于任何增量 | 给定文本输入与两段任务流，当 run，则 on_classified 恰在首个 on_chunk 之前触发一次（含分类修复耗尽落的兜底 General） | 2026-10-12 |
 | classify_request_failure_falls_back_without_retrying | 分类请求失败内部消化后任务照跑（engine） | 给定分类调用失败（一次性错误）与契约任务脚本，当 service.run，则分类不重试、内部消化落 CLASSIFY_FALLBACK(General)、引擎共 2 次调用（分类+任务）、fallback warn 不含选区原文 | 2026-10-12 |
 | raw_text_is_returned_verbatim | 原始文本原样返回 | 给定两段 JSON 流式脚本，当 run，则 RunOutput.raw 为未解析的原始拼接文本 | 2026-10-04 |
+| run_task_rounds_executes_a_fixed_kind_stream_without_classification | 任务段循环以给定 kind 直达执行 | 给定「违约散文 → 契约 JSON」脚本队列与预渲染的任务底座，当直接调 run_task_rounds，则 kind 恒为调用方给定值（不分类）、repairs 为 1、raw 为末轮原文、引擎恰 2 次调用（无分类调用在前） | 2026-10-12 |
 | run_output_carries_the_server_finish_reason | RunOutput 携带服务端结束原因 | 给定声明 stop 与 length 结束的两个脚本流，当 run，则 finish_reason 原文随 RunOutput 返回、raw 不受影响、契约合回复 repairs 为 0（length 只在违约修复时进指令，content_filter 直接失败卡） | 2026-10-12 |
 | run_output_finish_reason_stays_none_without_a_done_marker | 无 [DONE] 时结束原因缺省 | 给定只吐增量、不声明结束的脚本流，当 run，则 finish_reason 为 None | 2026-10-11 |
 | blank_model_is_a_config_failure_before_the_engine | 空白模型先于引擎拒绝 | 给定 model 为空白的选项，当 run，则 Config 错误且引擎 0 调用 | 2026-10-03 |
@@ -1156,7 +1187,8 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | classify_dataset_loads_with_unique_ids | 分类数据集加载与唯一性 | 给定内嵌 classify.jsonl，当加载，则 ≥60 条、全部为文本任务 kind、id 无重复 | 2026-09-26 |
 | task_datasets_load_and_match_required_fields | 任务数据集加载与 kind 对位 | 给定三个内嵌任务数据集，当加载，则非空且每行 kind 与其文件一致、reference 满足必需键 | 2026-09-26 |
-| fixtures_align_with_dataset_ids | 夹具与数据集 id 对齐 | 给定分类/任务夹具文件与数据集，当加载，则 id 无重复、deltas 非空、且每条夹具 id 都存在于对应数据集（陈旧 id 即失败） | 2026-09-26 |
+| fixtures_align_with_dataset_ids | 夹具与数据集 id 对齐 | 给定分类/任务夹具文件与数据集，当加载，则 id 无重复、修复轨迹非空（空回复轮是 deltas=[]，与零轮空轨迹不同）、且每条夹具 id 都存在于对应数据集（陈旧 id 即失败） | 2026-10-12 |
+| zero_round_fixtures_are_rejected | 零轮轨迹硬错误 | 给定 rounds 为空与单空轮（deltas=[]）两种夹具，当加载，则前者报错（空轨迹是坏夹具不是空回复）、后者通过（空回复是合法轮） | 2026-10-12 |
 | duplicate_ids_are_rejected | 重复 id 硬错误 | 给定含重复 id 的 jsonl，当加载，则报错而非静默跳过 | 2026-09-26 |
 | bad_reference_is_rejected | 引用条目缺必需键报错 | 给定词卡条目缺疏证键（旧形态字段）的 jsonl，当加载，则报错 | 2026-10-03 |
 | required_fields_follow_the_contract | 必需键随结构化契约 | 给定全部任务 kind，当查必需键，则恒为 examples（三行同构契约下 structured.examples 唯一恒在；图像解读同形落 Plain，旧 interpretation 名退役） | 2026-10-11 |
@@ -1168,6 +1200,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | classify_verdicts_cover_the_matrix | 分类判定四分类 | 给定正确/混淆/非 JSON/未知 kind/清单外 kind 五种回复，当经生产校验器判定，则分别落 Correct/Wrong/InvalidJson/Rejected | 2026-10-10 |
 | legacy_flat_and_fenced_replies_degrade_like_production | 旧扁平与围栏回复与生产同轨（eval） | 给定旧扁平契约（structured 缺失）与围栏输出两类回复，当 TaskVerdict::for_reply，则前者不降级但 fields_complete=false（疏证回落空卡）、后者整体违约落降级产物（note 空）——与生产 validate_task 同源 | 2026-10-11 |
 | task_verdict_reads_the_four_levels | 任务契约四级判定 | 给定嵌套契约/纯正文/截断 JSON/仅 note 四种词卡回复，当 TaskVerdict.for_reply，则四级标志与 outcome.degraded 符合预期（structured 缺失是软缺口：不降级但字段不完整） | 2026-10-11 |
+| violation_track_counts_categories_and_rounds_from_the_trajectory | 修复轨迹折算违约类别与轮次 | 给定「散文×2 → 契约」「散文×4 耗尽」「空轮 → 契约」三类词卡轨迹，当逐轮跑生产校验器折算（violation_track / for_rounds），则修复轮次恒为轮数−1、违约类别逐轮计数（耗尽轨迹的末轮违约也计入）、修复轨迹不降级而耗尽轨迹降级（note 空） | 2026-10-12 |
 | field_completeness_requires_the_nested_contract_keys | 字段完整性按嵌套契约键 | 给定 structured 缺 examples 的词卡回复与带 examples+code_language 的代码回复，当判定，则前者 fields_complete=false（不降级——软缺口）、后者完整不降级且语言判定随 Code 变体 | 2026-10-11 |
 | image_explain_lands_on_the_plain_variant | 图像解读落 Plain 变体（eval 同源校验器） | 给定 ImageExplain 数据行与嵌套契约/仅 note/纯正文三种回复，当 TaskVerdict::for_reply，则完整契约不降级且 outcome 携带 examples 条目（坏条目跳过）、缺 structured 软回落空表、纯正文降级（note 空） | 2026-10-11 |
 | latency_percentiles_interpolate | 延迟百分位线性插值 | 给定四个样本，当取 p0/p50/p95/p100，则插值结果精确；空样本返回 None | 2026-09-26 |
@@ -1183,7 +1216,8 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告（一例嵌套契约 + 一例纯正文），当渲染，则指标表、accuracy 百分比、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-10-11 |
+| report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告（一例修复轨迹 + 一例纯正文），当渲染，则指标表、accuracy 百分比、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-10-12 |
+| repair_rounds_render_with_violation_categories | 修复轮次行带违约类别计数 | 给定含违约轨迹与零违约两份报告，当渲染，则分类与各任务集的「修复轮次」行为「总数（类别 ×次数…）」，零违约时只报总数 | 2026-10-12 |
 | latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本的报告，当渲染，则不含延迟行 | 2026-09-26 |
 
 ### crates/gloss-eval/src/runner.rs
@@ -1191,3 +1225,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | replay_runs_the_full_deterministic_track_over_embedded_assets | 重放轨全链路离线跑通 | 给定内嵌数据集与夹具，当 run_replay，则有夹具条目计入（覆盖率随夹具维护增长，只设下限不设上限）、正确/无效 JSON/被拒路径均有命中、各任务集有覆盖、无延迟样本 | 2026-09-26 |
+| replay_counts_violations_and_repair_rounds_from_fixture_trajectories | 重放轨统计违约类别与修复轮次 | 给定内嵌夹具（含空回复/散文/缺 note/kind 越清单异常轨迹），当 run_replay，则分类与各任务集的 repair_rounds 与 violations 分类计数如实入账：分类轨三类违约齐全、词卡集计空回复、句译集含耗尽降级、代码集计缺 note | 2026-10-12 |
+| a_contract_valid_middle_round_rejects_the_fixture_trajectory | 轨迹中段合法轮即坏夹具 | 给定分类「合法轮 → 修复轮」与任务「散文 → 契约 → 散文」两类漂移轨迹，当轨迹体检，则按硬错误拦下（修复轮由违约触发，中段合法轮不合生产形态） | 2026-10-12 |
+| a_trajectory_beyond_the_production_budget_rejects_the_fixture | 轨迹超生产预算即坏夹具 | 给定 3 轮分类轨迹与 5 轮任务轨迹，当轨迹体检，则按硬错误拦下（轮数不得超过 1+CLASSIFY_REPAIRS / 1+TASK_REPAIRS，预算收紧时陈旧夹具即失败） | 2026-10-12 |
+| live_track_records_rounds_and_repair_metrics_through_the_production_loops | live 轨经生产循环记轮与修复指标 | 给定脚本引擎（分类违约修复、词卡违约修复、句译/代码一次通过）与 --record，当 run_live，则指标来自 classify_traced / run_task_rounds 的轮记录（修复轮次、违约类别、判定正确）、录制按轮成夹具、引擎恰 6 次调用 | 2026-10-12 |
+| a_task_engine_failure_still_counts_one_degraded_case | 任务轨引擎失败单条计降级 | 给定词卡任务脚本一次引擎失败（句译/代码正常），当 run_live（无 --record），则该条 evaluated+degraded 各 1、无修复轮次、无录制（引擎失败与模型行为分账的既有口径保持） | 2026-10-12 |
+| run_task_case_splits_rounds_on_the_repair_boundary | 任务轮记录按修复边界切轮 | 给定「双增量散文轮 → 双增量契约轮」脚本队列，当 run_task_case，则 RunOutput.repairs 为 1、轮记录恰两轮、各轮为该轮增量拼接（on_repair 是唯一轮边界信号） | 2026-10-12 |

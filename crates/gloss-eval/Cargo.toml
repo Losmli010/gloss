@@ -20,5 +20,9 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 # live 轨的运行时（replay 不触网，不用异步设施）。
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread"] }
 
+[dev-dependencies]
+# live 轨测试的脚本引擎要产出 TaskStream（core 的测试桩不出库）。
+futures = { version = "0.3", default-features = false, features = ["std"] }
+
 [lints]
 workspace = true

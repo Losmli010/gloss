@@ -33,7 +33,7 @@ use crate::classify::{CLASSIFY_FALLBACK, CLASSIFY_KINDS, classify};
 use crate::log::{thread, warn};
 use crate::model::GlossError;
 use crate::ports::{AiEngine, EngineRequest, TaskChunk};
-use crate::prompt::{PromptRegistry, repair_conversation};
+use crate::prompt::{ChatMessage, PromptRegistry, repair_conversation};
 use crate::schema::{self, Violation};
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 
@@ -93,9 +93,8 @@ impl AiTaskService {
 
     /// 执行一条任务：入口校验（模型非空、模态放行）→ 意图定型（文本走
     /// LLM 分类，异常内部消化、恒 `Ok`；图像输入恒定映射 ImageExplain、
-    /// 跳过分类，`on_classified` 恒发）→ prompt 渲染 → 引擎流式，每个
-    /// 增量经 `on_chunk` 原样转交 → 契约校验，违约进修复轮（`on_repair`
-    /// 先于每轮首个增量发出）→ 通过或预算耗尽后返回原始文本。
+    /// 跳过分类，`on_classified` 恒发）→ prompt 渲染 → [`run_task_rounds`]
+    /// 执行任务段。
     ///
     /// `input` 与 `options` 按值接收：任务在执行期间独占两者，调用方
     /// （app 桥）从通道解出后即交出所有权。
@@ -103,14 +102,7 @@ impl AiTaskService {
     /// 调用方契约（app 桥据此接线，见 `gloss_app::pipeline`）：
     /// - `on_classified` 在**任何** chunk 之前恰好调用一次（含失败兜底
     ///   kind 与图像的固定 kind）——界面的任务标签以它为准；
-    /// - `on_chunk` 收到的是**原始流**（纯 JSON 契约下就是模型的原始
-    ///   输出），流式显示的渐进提取与完成态解析都在调用方；返回值
-    ///   `raw` 是最后一轮文本的整体累积；
-    /// - `on_repair` 在每个修复轮开始前恰好调用一次（违约轮的 chunk 已
-    ///   全部送达之后）——调用方重置流式显示并切换「重新注解」；
-    /// - 返回 `Err` 时**已转发的增量不撤回**——以返回值为准丢弃半截正文
-    ///   （状态机据此让 TaskChunk 之后接 TaskFailed 的渲染路径可收敛）；
-    ///   `Err` 只来自引擎与请求构造（不重试），契约违约不产生 `Err`；
+    /// - `on_chunk` / `on_repair` 与返回值的契约见 [`run_task_rounds`]；
     /// - 取消不进本服务：调用方以 `CancellationToken` 竞速，丢弃本 future
     ///   即停止转发（修复轮也是 future 内的 await 点，竞速天然覆盖）。
     pub async fn run(
@@ -118,8 +110,8 @@ impl AiTaskService {
         input: TaskInput,
         options: TaskOptions,
         mut on_classified: impl FnMut(TaskKind),
-        mut on_chunk: impl FnMut(String),
-        mut on_repair: impl FnMut(),
+        on_chunk: impl FnMut(String),
+        on_repair: impl FnMut(),
     ) -> Result<RunOutput, GlossError> {
         // 模型随 options 冻结而来：空白 = 未配置（引擎侧同规则兜一层），
         // 在花任何一次往返之前拒绝。
@@ -159,8 +151,8 @@ impl AiTaskService {
         on_classified(kind);
 
         // 任务形成与执行：渲染含模态校验（非法组合在进引擎前拒绝），模型
-        // 恒取 options 冻结值。base 是首轮消息；修复轮以它为底座拼
-        // [assistant 坏回复][user 纠错指令]（图像部件随 base 零拷贝重发）。
+        // 恒取 options 冻结值；修复指令语言同源——prompt_locale 一次任务
+        // 只认触发时定下的那一份。
         let model = options.model.clone();
         let locale = options.prompt_locale.unwrap_or_default();
         let task = Task {
@@ -169,95 +161,147 @@ impl AiTaskService {
             options,
         };
         let base = self.prompts.render(&task)?;
-        let mut messages = base.clone();
-        let mut repairs = 0u32;
-        loop {
-            let request = EngineRequest {
-                messages,
-                model: model.clone(),
-                max_tokens: None,
-            };
-            let mut stream = self.engine.execute(request).await?;
-            let mut body = String::new();
-            let mut finish_reason = None;
-            let mut empty_completion = false;
-            while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
-                match item {
-                    Ok(TaskChunk::Delta(delta)) => {
-                        body.push_str(&delta);
-                        on_chunk(delta);
+        run_task_rounds(
+            self.engine.as_ref(),
+            &self.prompts,
+            kind,
+            base,
+            &model,
+            locale,
+            on_chunk,
+            on_repair,
+        )
+        .await
+    }
+}
+
+/// 任务段执行循环（意图定型之后的完整执行段）：流式转发（原始增量经
+/// `on_chunk` 逐条转交，同时累积）→ **任务契约校验**（`schema::validate_task`）
+/// → 违约进修复轮（对话形态
+/// `[system][user 原文/图][assistant 上一次坏回复][user 纠错指令]`，EmptyReply
+/// 原样重发），预算 [`TASK_REPAIRS`] 轮，每轮开始前经 `on_repair` 通知调
+/// 用方重置 UI → 通过即返回，耗尽则原始文本原样上交（完成态解析落降级
+/// 产物）。引擎错误（网络/鉴权/限流/JSON 模式不支持/多模态不支持/中途
+/// 协议错误）一律不重试、原样上抛。
+///
+/// 独立成 pub 供 gloss-eval 的 live 轨直达任务段：评测以数据集给定的
+/// kind 渲染底座（`PromptRegistry::render` 的产物），与生产消费同一循环，
+/// 评测数字度量的才是生产行为（`RunOutput.repairs` 即本函数的修复轮次）。
+///
+/// 调用方契约（[`AiTaskService::run`] 与评测共用）：
+/// - `on_chunk` 收到的是**原始流**（纯 JSON 契约下就是模型的原始输出），
+///   流式显示的渐进提取与完成态解析都在调用方；修复轮的增量接在违约轮
+///   之后继续到达（`on_repair` 是唯一的轮边界信号）；返回值 `raw` 是最后
+///   一轮文本的整体累积；
+/// - `on_repair` 在每个修复轮开始前恰好调用一次（违约轮的 chunk 已全部
+///   送达之后）——调用方重置流式显示并切换「重新注解」；
+/// - 返回 `Err` 时**已转发的增量不撤回**——以返回值为准丢弃半截正文
+///   （状态机据此让 TaskChunk 之后接 TaskFailed 的渲染路径可收敛）；
+///   `Err` 只来自引擎与请求构造（不重试），契约违约不产生 `Err`。
+// 豁免 too_many_arguments：九个参数各自独立且缺一不可（引擎、模板、kind、
+// 底座、模型、语言与两个回调），捆成参数结构只会把 run/评测两侧的调用点
+// 改成无谓的装拆包——与 gloss-app 事件装配处的既有豁免同理由。
+#[allow(clippy::too_many_arguments)]
+pub async fn run_task_rounds(
+    engine: &dyn AiEngine,
+    prompts: &PromptRegistry,
+    kind: TaskKind,
+    base: Vec<ChatMessage>,
+    model: &str,
+    locale: crate::model::Locale,
+    mut on_chunk: impl FnMut(String),
+    mut on_repair: impl FnMut(),
+) -> Result<RunOutput, GlossError> {
+    // base 是首轮消息；修复轮以它为底座拼 [assistant 坏回复][user 纠错
+    // 指令]（图像部件随 base 零拷贝重发）。
+    let mut messages = base.clone();
+    let mut repairs = 0u32;
+    loop {
+        let request = EngineRequest {
+            messages,
+            model: model.to_owned(),
+            max_tokens: None,
+        };
+        let mut stream = engine.execute(request).await?;
+        let mut body = String::new();
+        let mut finish_reason = None;
+        let mut empty_completion = false;
+        while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+            match item {
+                Ok(TaskChunk::Delta(delta)) => {
+                    body.push_str(&delta);
+                    on_chunk(delta);
+                }
+                Ok(TaskChunk::Done {
+                    finish_reason: reason,
+                }) => finish_reason = reason,
+                Err(error) => {
+                    // 零增量的「empty completion」是坏回复而非坏请求：
+                    // 转 EmptyReply 进修复轮；其余引擎错误（含已有增量
+                    // 后的中途协议错误）按请求异常上抛，不重试。
+                    if body.is_empty() && is_empty_completion(&error) {
+                        empty_completion = true;
+                        break;
                     }
-                    Ok(TaskChunk::Done {
-                        finish_reason: reason,
-                    }) => finish_reason = reason,
-                    Err(error) => {
-                        // 零增量的「empty completion」是坏回复而非坏请求：
-                        // 转 EmptyReply 进修复轮；其余引擎错误（含已有增量
-                        // 后的中途协议错误）按请求异常上抛，不重试。
-                        if body.is_empty() && is_empty_completion(&error) {
-                            empty_completion = true;
-                            break;
-                        }
-                        return Err(error);
-                    }
+                    return Err(error);
                 }
             }
+        }
 
-            // 内容审查：服务端拦了内容，重发无益——不重试直接失败卡。
-            if finish_reason.as_deref() == Some(FINISH_CONTENT_FILTER) {
-                return Err(GlossError::EngineResponse(CONTENT_FILTER_DIAGNOSTIC.into()));
-            }
+        // 内容审查：服务端拦了内容，重发无益——不重试直接失败卡。
+        if finish_reason.as_deref() == Some(FINISH_CONTENT_FILTER) {
+            return Err(GlossError::EngineResponse(CONTENT_FILTER_DIAGNOSTIC.into()));
+        }
 
-            let violation = if empty_completion {
-                Some(Violation::EmptyReply)
-            } else {
-                schema::validate_task(kind, &body).err()
-            };
-            let Some(violation) = violation else {
-                return Ok(RunOutput {
-                    kind,
-                    raw: body,
-                    finish_reason,
-                    repairs,
-                });
-            };
-            if repairs >= TASK_REPAIRS {
-                // 预算耗尽：违约原文原样上交，完成态解析落降级产物。
-                warn!(
-                    thread = thread::TOKIO,
-                    reason = %violation,
-                    "task repairs exhausted, handing the raw reply to the completion parser"
-                );
-                return Ok(RunOutput {
-                    kind,
-                    raw: body,
-                    finish_reason,
-                    repairs,
-                });
-            }
-            repairs += 1;
-            // 每轮违约 warn 只记类别 + 轮次，无选区与回复原文（安全红线）。
+        let violation = if empty_completion {
+            Some(Violation::EmptyReply)
+        } else {
+            schema::validate_task(kind, &body).err()
+        };
+        let Some(violation) = violation else {
+            return Ok(RunOutput {
+                kind,
+                raw: body,
+                finish_reason,
+                repairs,
+            });
+        };
+        if repairs >= TASK_REPAIRS {
+            // 预算耗尽：违约原文原样上交，完成态解析落降级产物。
             warn!(
                 thread = thread::TOKIO,
-                attempt = repairs,
                 reason = %violation,
-                "task reply violated the contract, preparing a repair round"
+                "task repairs exhausted, handing the raw reply to the completion parser"
             );
-            let instruction = self.prompts.render_repair(
-                locale,
-                violation,
-                &self.prompts.task_contract_line(kind, locale),
-                finish_reason.as_deref() == Some(FINISH_LENGTH),
-            );
-            // EmptyReply 无内容可纠：原样重发，不带 assistant 轮。
-            let bad = match violation {
-                Violation::EmptyReply => None,
-                _ => Some(body.as_str()),
-            };
-            messages = repair_conversation(&base, bad, instruction);
-            // 修复轮照常流式，开始前发事件重置 UI（清流式正文、切「重新注解」）。
-            on_repair();
+            return Ok(RunOutput {
+                kind,
+                raw: body,
+                finish_reason,
+                repairs,
+            });
         }
+        repairs += 1;
+        // 每轮违约 warn 只记类别 + 轮次，无选区与回复原文（安全红线）。
+        warn!(
+            thread = thread::TOKIO,
+            attempt = repairs,
+            reason = %violation,
+            "task reply violated the contract, preparing a repair round"
+        );
+        let instruction = prompts.render_repair(
+            locale,
+            violation,
+            &prompts.task_contract_line(kind, locale),
+            finish_reason.as_deref() == Some(FINISH_LENGTH),
+        );
+        // EmptyReply 无内容可纠：原样重发，不带 assistant 轮。
+        let bad = match violation {
+            Violation::EmptyReply => None,
+            _ => Some(body.as_str()),
+        };
+        messages = repair_conversation(&base, bad, instruction);
+        // 修复轮照常流式，开始前发事件重置 UI（清流式正文、切「重新注解」）。
+        on_repair();
     }
 }
 
@@ -272,7 +316,7 @@ mod tests {
     use crate::ports::{BoxFuture, EngineRequest, TaskChunk, TaskStream};
     use crate::prompt::{MessageContent, Role};
     use crate::stubs::engine::MockEngine;
-    use crate::task::{TaskInput, TaskKind, TaskOptions};
+    use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 
     fn make_service(engine: &MockEngine) -> (Arc<MockEngine>, AiTaskService) {
         let engine = Arc::new(engine.clone());
@@ -432,6 +476,51 @@ mod tests {
             .await
             .expect("run should succeed");
         assert_eq!(output.raw, "{\"note\":\"光泽：注释\"}");
+    }
+
+    #[tokio::test]
+    async fn run_task_rounds_executes_a_fixed_kind_stream_without_classification() {
+        let engine = Arc::new(MockEngine::new().with_script_queue(vec![
+            vec![delta("整段散文，不是 JSON")],
+            vec![delta(
+                "{\"note\":\"句译完成\",\"structured\":{\"examples\":[]}}",
+            )],
+        ]));
+        let registry = crate::prompt::PromptRegistry::new();
+        let base = registry
+            .render(&Task {
+                kind: TaskKind::TranslateSentence,
+                input: text_input("hello"),
+                options: options(),
+            })
+            .expect("render should pass the modality check");
+        let output = super::run_task_rounds(
+            engine.as_ref(),
+            &registry,
+            TaskKind::TranslateSentence,
+            base,
+            "m",
+            crate::model::Locale::Zh,
+            |_| {},
+            || {},
+        )
+        .await
+        .expect("the repaired round should converge");
+        assert_eq!(
+            output.kind,
+            TaskKind::TranslateSentence,
+            "the kind is the caller's decision, never classified"
+        );
+        assert_eq!(output.repairs, 1);
+        assert_eq!(
+            output.raw,
+            "{\"note\":\"句译完成\",\"structured\":{\"examples\":[]}}"
+        );
+        assert_eq!(
+            engine.call_count(),
+            2,
+            "two task rounds: no classify call in front"
+        );
     }
 
     #[tokio::test]

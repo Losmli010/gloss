@@ -2,8 +2,8 @@
 //! 需 `GLOSS_LIVE_*`）/ `eval report`（重渲染最近一次报告）。
 //!
 //! 报告写 `target/eval/`（`<mode>.json` + `<mode>.md`）并把 Markdown 打
-//! 到 stdout；live 轨的 `--record` 把增量按 id upsert 回 `fixtures/`。
-//! 本二进制属于评测工具链，不在应用启动路径上。
+//! 到 stdout；live 轨的 `--record` 把修复轨迹（每轮增量）按 id upsert
+//! 回 `fixtures/`。本二进制属于评测工具链，不在应用启动路径上。
 //!
 //! 日志纪律的豁免面：打印报告/错误就是本 CLI 的全部产出（无 subscriber、
 //! 无长驻进程），stdout/stderr 直写在此是有意为之，故整文件豁免
