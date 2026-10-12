@@ -532,6 +532,8 @@ fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
 const TOGGLE_TRACK: egui::Vec2 = egui::vec2(36.0, 20.0);
 const TOGGLE_KNOB_RADIUS: f32 = 7.0;
 const TOGGLE_KNOB_INSET: f32 = 3.0;
+/// 开启态滑钮色：朱砂着轨配白钮，与保存主按钮同观感（两主题通用）。
+const TOGGLE_KNOB_ON: egui::Color32 = egui::Color32::WHITE;
 
 /// 最小开关（switch）：egui 0.36 无内建 Switch（`WidgetType` 亦无 switch
 /// 档），按官方 demo 的 `toggle_switch` 范式自绘——点击整块切换，无障碍
@@ -549,7 +551,7 @@ fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
 
     let visuals = ui.visuals();
     let (track, knob) = if *on {
-        (visuals.selection.bg_fill, visuals.strong_text_color())
+        (visuals.selection.bg_fill, TOGGLE_KNOB_ON)
     } else {
         (visuals.extreme_bg_color, visuals.weak_text_color())
     };
@@ -963,6 +965,7 @@ mod tests {
                 *sink.borrow_mut() = frame_action;
             }
         });
+        crate::ui::context::apply_selection_colors(&harness.ctx);
         harness.set_size(egui::vec2(460.0, 1200.0));
         (harness, action)
     }
@@ -979,6 +982,7 @@ mod tests {
             .build_ui(move |ui| {
                 let _ = draw(ui, &mut state, &update, text);
             });
+        crate::ui::context::apply_selection_colors(&harness.ctx);
         harness.set_size(egui::vec2(460.0, 1200.0));
         harness
     }
@@ -1017,8 +1021,8 @@ mod tests {
                 .get_by_role(egui::accesskit::Role::CheckBox)
                 .accesskit_node()
                 .toggled(),
-            Some(egui::accesskit::Toggled::False),
-            "the factory default keeps clipboard watching off"
+            Some(egui::accesskit::Toggled::True),
+            "the factory default keeps clipboard watching on"
         );
         harness.get_by_role(egui::accesskit::Role::CheckBox).click();
         harness.run();
@@ -1026,7 +1030,7 @@ mod tests {
         harness.run();
         match &*action.borrow() {
             SettingsAction::Save { config, .. } => assert!(
-                config.watch_clipboard_images,
+                !config.watch_clipboard_images,
                 "the toggled checkbox must reach the saved snapshot"
             ),
             other => panic!("save action expected, got {other:?}"),

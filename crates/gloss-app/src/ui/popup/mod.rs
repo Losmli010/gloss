@@ -392,6 +392,28 @@ fn viewport_max(ui: &egui::Ui) -> f32 {
     (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT)
 }
 
+/// 方向键的单次滚动步长（约三行正文；按住由系统按键重复续推）。
+const ARROW_SCROLL_STEP: f32 = 48.0;
+
+/// 浮层聚焦时的方向键滚动：↑/↓ 平移滚动区视口，内容不溢出时到界即停。
+/// 在滚动区内容闭包的起始处调用（无修饰键参与，不与其它快捷键争抢）。
+fn arrow_key_scroll(ui: &egui::Ui) {
+    let step = ui.input(|input| {
+        if !input.modifiers.any() {
+            if input.key_pressed(egui::Key::ArrowDown) {
+                return Some(-ARROW_SCROLL_STEP);
+            }
+            if input.key_pressed(egui::Key::ArrowUp) {
+                return Some(ARROW_SCROLL_STEP);
+            }
+        }
+        None
+    });
+    if let Some(dy) = step {
+        ui.scroll_with_delta(egui::vec2(0.0, dy));
+    }
+}
+
 /// 流式正文（注位渐进 markdown + 疏位已到达的解读条目）：两字段全空落
 /// 骨架（经已回显、注未至——无注印，还没有可注的内容）。
 fn streamed_sections(ui: &mut egui::Ui, fields: &StreamFields, state: &RenderState, text: &Text) {
@@ -474,6 +496,7 @@ fn render_content(
                         .auto_shrink([false, true])
                         .max_height(viewport_max(ui))
                         .show(ui, |ui| {
+                            arrow_key_scroll(ui);
                             jing_section(ui, text, |ui| attached_image(ui, png, state, text));
                             ui.add_space(space::PARAGRAPH);
                             streamed_sections(ui, &fields, state, text);
@@ -493,7 +516,10 @@ fn render_content(
                     let scrolled = ScrollArea::new([false, true])
                         .auto_shrink([false, true])
                         .max_height(viewport_max(ui))
-                        .show(ui, |ui| streamed_sections(ui, &fields, state, text));
+                        .show(ui, |ui| {
+                            arrow_key_scroll(ui);
+                            streamed_sections(ui, &fields, state, text)
+                        });
                     ui.add_space(space::PARAGRAPH);
                     footer(ui, true, *repairing, text);
                     record_scrolled_height(ui, content_h, &scrolled);
@@ -537,6 +563,7 @@ fn render_content(
                 .auto_shrink([false, true])
                 .max_height(viewport_max)
                 .show(ui, |ui| {
+                    arrow_key_scroll(ui);
                     outcome_body(ui, source, outcome, attached, state, text);
                 });
             ui.add_space(space::PARAGRAPH);
@@ -1572,6 +1599,7 @@ mod kittest_tests {
             return false;
         }
         crate::ui::context::install_kittest_fonts(ctx);
+        crate::ui::context::apply_selection_colors(ctx);
         ctx.request_repaint();
         true
     }
@@ -1682,6 +1710,27 @@ mod kittest_tests {
                 .next()
                 .is_some(),
             "完整渲染不得截断尾部内容"
+        );
+    }
+
+    #[test]
+    fn arrow_keys_scroll_the_overflowing_body() {
+        let (mut harness, _clicked) = harness_for(long_body_view());
+        harness.run();
+        let before = harness.get_by_label_contains("很长的正文段落").rect();
+        harness.key_press(egui::Key::ArrowDown);
+        harness.run();
+        let after = harness.get_by_label_contains("很长的正文段落").rect();
+        assert!(
+            after.top() < before.top(),
+            "↓ 必须把内容往上推（视口下移）: {before:?} -> {after:?}"
+        );
+        harness.key_press(egui::Key::ArrowUp);
+        harness.run();
+        let restored = harness.get_by_label_contains("很长的正文段落").rect();
+        assert!(
+            (restored.top() - before.top()).abs() < 1.0,
+            "↑ 必须把视口推回原位: {before:?} -> {restored:?}"
         );
     }
 

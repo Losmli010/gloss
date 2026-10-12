@@ -83,6 +83,19 @@ fn install(ctx: &Context, theme: Theme) {
     };
     ctx.set_fonts(definitions);
     ctx.set_theme(theme_preference(theme));
+    apply_selection_colors(ctx);
+}
+
+/// 选中态底色（下拉选中行、开关着轨、文本圈选）取品牌强调色，浅/深两档
+/// 各写一次，随主题偏好取用，不写则落 egui 默认蓝。kittest 夹具上下文
+/// （settings/popup 测试）也走它，快照与真机同观感。
+pub(crate) fn apply_selection_colors(ctx: &Context) {
+    ctx.style_mut_of(egui::Theme::Light, |style| {
+        style.visuals.selection.bg_fill = super::style::color::ACCENT_LIGHT;
+    });
+    ctx.style_mut_of(egui::Theme::Dark, |style| {
+        style.visuals.selection.bg_fill = super::style::color::ACCENT_DARK;
+    });
 }
 
 /// kittest 自建上下文的字体绑定（测试专用）：与启动快路径同一套内置

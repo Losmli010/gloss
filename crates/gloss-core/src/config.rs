@@ -219,8 +219,7 @@ pub struct Config {
     pub language: Language,
     /// 剪贴板图片触发开关：开时事件线程的哨兵源观察系统剪贴板的新图片并
     /// 自动弹出解读卡片，关时剪贴板行为与既有版本完全一致（哨兵不查询）。
-    /// 默认关——自动触发是固有打扰面，opt-in；运行中经共享开关位热切换，
-    /// 不要求重启。
+    /// 默认开；运行中经共享开关位热切换，不要求重启。
     pub watch_clipboard_images: bool,
 }
 
@@ -236,7 +235,7 @@ impl Default for Config {
             cache_ttl_secs: 60 * 60,
             theme: Theme::System,
             language: Language::System,
-            watch_clipboard_images: false,
+            watch_clipboard_images: true,
         }
     }
 }
@@ -285,8 +284,8 @@ mod tests {
         assert_eq!(config.language, Language::System);
         assert_eq!(config.base_url, DEFAULT_BASE_URL);
         assert!(
-            !config.watch_clipboard_images,
-            "clipboard image watch must default to off"
+            config.watch_clipboard_images,
+            "clipboard image watch must default to on"
         );
 
         let provider = config.active_provider().expect("factory provider");
@@ -308,8 +307,8 @@ mod tests {
         assert_eq!(config.language, Language::System);
         assert_eq!(config.model, DEFAULT_MODEL);
         assert!(
-            !config.watch_clipboard_images,
-            "a config file without the watch key must fall back to off"
+            config.watch_clipboard_images,
+            "a config file without the watch key must fall back to on"
         );
     }
 
