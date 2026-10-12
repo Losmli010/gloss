@@ -19,7 +19,7 @@ use gloss_core::model::GlossError;
 use gloss_core::ports::{AiEngine, AppIcon, ConfigStore};
 use gloss_core::task::TaskInput;
 use gloss_platform::appearance::MacAppIcon;
-use gloss_platform::clipboard::{ClipboardImageReader, ClipboardWatchSource};
+use gloss_platform::clipboard::{ClipboardImageReader, ClipboardWatchSource, WatchRoundFlag};
 use gloss_platform::events::mouse::{MouseGesture, MouseSource};
 use gloss_platform::events::{EventSink, EventSource, EventSources};
 use gloss_platform::permissions::{self, AccessibilityWatch};
@@ -286,16 +286,18 @@ fn run_event_loop(
             }
             // 事件线程同样在拿到唤醒句柄后再启动：sink 发送产物时要靠它唤醒
             // 睡在事件循环里的主线程。剪贴板图片哨兵源与取材读取器在此同造：
-            // ① 观察记录经共享句柄交给读取器比对竞态（见 clipboard 模块）。
+            // ① 观察记录经共享句柄交给读取器比对竞态；取材轮次抑制开关经
+            // 共享句柄交给文本取材处理器（见 clipboard 模块）。
             let sink = EventSink::new(events_tx, platform_tx, move || {
                 waker.wake();
             });
             let clipboard_watch = ClipboardWatchSource::new(Arc::clone(&clipboard_watch_enabled));
+            let round_flag = clipboard_watch.round_flag();
             let image_reader = ClipboardImageReader::new(clipboard_watch.observer());
             event_thread = Some(gloss_platform::events::spawn(
                 acquire_rx,
                 sink,
-                acquire_command_handler(image_reader),
+                acquire_command_handler(image_reader, round_flag),
                 event_sources(
                     mouse_source,
                     mouse_degraded,
@@ -384,9 +386,11 @@ fn event_sources(
 
 /// 通道②消费处理器：取材命令 → 组合读取 → ④ 回传，运行在事件线程上
 /// 顺序执行。读取器提升进闭包复用：选区组合读取器（当前无状态，为将来
-/// 缓存留位）与剪贴板图片读取器（观察句柄与哨兵源在组装段共享）。
+/// 缓存留位）与剪贴板图片读取器（观察句柄与哨兵源在组装段共享）；
+/// 取材轮次抑制开关与哨兵源共享（文本兜底轮次会写剪贴板）。
 fn acquire_command_handler(
     mut image_reader: ClipboardImageReader,
+    round_flag: WatchRoundFlag,
 ) -> impl FnMut(Traced<AcquireCommand>, &EventSink<Event, PlatformEvent>) + Send {
     let mut reader = CompositeReader::new();
     move |job, sink| {
@@ -396,6 +400,10 @@ fn acquire_command_handler(
         match job.payload {
             AcquireCommand::AcquireText { generation } => {
                 info!(thread = thread::EVENT, "acquiring text");
+                // 兜底轮次会写剪贴板（注入复制与恢复写回）：轮次内抑制
+                // 哨兵——这些副产物变化不是用户的复制动作，产出观察事件
+                // 的话，恢复写回的旧图会把本次划词探测顶掉。
+                let _round = round_flag.enter();
                 match reader.read() {
                     Ok(text) => {
                         // 只记形态不记原文：选区是用户敏感内容，不落进日志文件。
