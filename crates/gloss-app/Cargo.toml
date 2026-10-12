@@ -16,7 +16,7 @@ core-foundation = {
     "link",
   ]
 }
-core-text = { version = "20.1", default-features = false }
+core-text = { version = "22.0", default-features = false }
 # 通道①②④用 crossbeam（MPMC，主线程 try_recv 非阻塞）。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 # 渲染栈整批版本：winit 0.30.13 / wgpu 30.0.1 / egui + egui-wgpu + egui-winit

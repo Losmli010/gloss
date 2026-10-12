@@ -10,7 +10,7 @@ license.workspace = true
 arc-swap = { version = "1", default-features = false }
 # 请求体组装的图像部件编码（engine::llm）：PNG 字节 → data URL 的 base64
 # 载荷；域类型只携带原始字节，编码只发生在请求体构造处。
-base64 = { version = "0.22", default-features = false, features = ["std"] }
+base64 = { version = "0.23", default-features = false, features = ["std"] }
 # SSE 流的分块字节（reqwest 的 bytes_stream 逐块交出 Bytes）。
 bytes = { version = "1", default-features = false }
 # TaskStream 的 Stream trait（no-std 最小集）；StreamExt 等工具留给使用方自选。
