@@ -876,8 +876,6 @@ mod tests {
         Ok(TaskChunk::Delta(text.to_owned()))
     }
 
-    /// 测试专用脚本引擎：每次 `execute` 按脚本序弹出一段作为流（core 的
-    /// `MockEngine` 测试桩不出库，这里本地重写一份最小实现）。
     struct ScriptEngine {
         script: Mutex<std::vec::IntoIter<Vec<Result<TaskChunk, gloss_core::model::GlossError>>>>,
         calls: Arc<AtomicUsize>,

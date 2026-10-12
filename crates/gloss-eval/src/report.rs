@@ -418,7 +418,6 @@ mod tests {
             repair_rounds: 1,
         };
         let verdicts = [
-            // 修复轨迹：违约轮 → 契约轮（末轮定完成态，违约进类别计数）。
             TaskVerdict::for_rounds(
                 &cases[0],
                 &[

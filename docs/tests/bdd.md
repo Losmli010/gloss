@@ -8,7 +8,7 @@
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
-| 人工测试 | 13 | `cargo test -p gloss-platform -- --ignored` |
+| 人工测试 | 13 | `cargo test -p gloss-platform -- --ignored`；live_llm 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 GLOSS_LIVE_*） |
 | 发版人工步骤 | 10 | 手动执行（无自动化测试源码的真机/运维步骤，bdd 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
