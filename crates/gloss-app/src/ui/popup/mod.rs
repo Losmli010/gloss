@@ -452,7 +452,7 @@ fn render_content(
             ui.add_space(space::SECTION);
             selfcheck_body(ui);
             ui.add_space(space::PARAGRAPH);
-            footer(ui, false, text);
+            footer(ui, false, false, text);
             *content_h = ui.min_rect().height();
             (action, drag)
         }
@@ -460,6 +460,7 @@ fn render_content(
             source,
             raw,
             classified,
+            repairing,
         }) => {
             let (action, drag) = header(ui, state, text);
             ui.add_space(space::SECTION);
@@ -478,7 +479,7 @@ fn render_content(
                             streamed_sections(ui, &fields, state, text);
                         });
                     ui.add_space(space::PARAGRAPH);
-                    footer(ui, true, text);
+                    footer(ui, true, *repairing, text);
                     record_scrolled_height(ui, content_h, &scrolled);
                 }
                 None => {
@@ -494,7 +495,7 @@ fn render_content(
                         .max_height(viewport_max(ui))
                         .show(ui, |ui| streamed_sections(ui, &fields, state, text));
                     ui.add_space(space::PARAGRAPH);
-                    footer(ui, true, text);
+                    footer(ui, true, *repairing, text);
                     record_scrolled_height(ui, content_h, &scrolled);
                 }
             }
@@ -523,7 +524,7 @@ fn render_content(
                 action = Some(OverlayAction::Retry);
             }
             ui.add_space(space::PARAGRAPH);
-            footer(ui, false, text);
+            footer(ui, false, false, text);
             *content_h = ui.min_rect().height();
             (action, drag)
         }
@@ -539,7 +540,7 @@ fn render_content(
                     outcome_body(ui, source, outcome, attached, state, text);
                 });
             ui.add_space(space::PARAGRAPH);
-            footer(ui, false, text);
+            footer(ui, false, false, text);
             record_scrolled_height(ui, content_h, &scrolled);
             (action, drag)
         }
@@ -568,7 +569,7 @@ fn render_content(
                 }
             }
             ui.add_space(space::PARAGRAPH);
-            footer(ui, false, text);
+            footer(ui, false, false, text);
             *content_h = ui.min_rect().height();
             (action, drag)
         }
@@ -1070,10 +1071,10 @@ fn shimmer_bars(ui: &mut egui::Ui) {
         .request_repaint_after(Duration::from_secs_f32(0.016));
 }
 
-/// 页脚带（常驻）：上缘细线，推理中左端是呼吸点 + 「正在注解」（生成指示
-/// 唯一落点，无障碍标签也在这里），右端恒为 Gloss 水印。动画与骨架同源
-/// （时间驱动 alpha + 短重绘），仅在推理中请求。
-fn footer(ui: &mut egui::Ui, streaming: bool, text: &Text) {
+/// 页脚带（常驻）：上缘细线，推理中左端是呼吸点 + 「正在注解」/「重新注解」
+/// （修复轮切换文案，生成指示唯一落点，无障碍标签也在这里），右端恒为
+/// Gloss 水印。动画与骨架同源（时间驱动 alpha + 短重绘），仅在推理中请求。
+fn footer(ui: &mut egui::Ui, streaming: bool, repairing: bool, text: &Text) {
     let (rect, response) = ui.allocate_exact_size(
         vec2(ui.available_width(), FOOTER_HEIGHT),
         egui::Sense::hover(),
@@ -1087,12 +1088,13 @@ fn footer(ui: &mut egui::Ui, streaming: bool, text: &Text) {
         hairline(ui),
     );
     if streaming {
+        let label = if repairing {
+            &text.gloss_popup_reannotating
+        } else {
+            &text.gloss_popup_annotating
+        };
         response.widget_info(|| {
-            egui::WidgetInfo::labeled(
-                egui::WidgetType::ProgressIndicator,
-                true,
-                text.gloss_popup_annotating.as_str(),
-            )
+            egui::WidgetInfo::labeled(egui::WidgetType::ProgressIndicator, true, label.as_str())
         });
         let now = ui.input(|i| i.time);
         let zhu = zhu_color(ui);
@@ -1116,7 +1118,7 @@ fn footer(ui: &mut egui::Ui, streaming: bool, text: &Text) {
         ui.painter().text(
             egui::pos2(dot_center.x + space::TIGHT, rect.center().y + stroke::CARD),
             egui::Align2::LEFT_CENTER,
-            &text.gloss_popup_annotating,
+            label.as_str(),
             FontId::proportional(font::TAG),
             dim,
         );
@@ -1345,6 +1347,16 @@ mod kittest_tests {
             source: "选中的原文".into(),
             raw: r#"{"note":"已流式到达的正文"}"#.into(),
             classified: Some(TaskKind::TranslateWord),
+            repairing: false,
+        }
+    }
+
+    fn repairing_streaming_view() -> OverlayView {
+        OverlayView::Streaming {
+            source: "选中的原文".into(),
+            raw: String::new(),
+            classified: Some(TaskKind::TranslateWord),
+            repairing: true,
         }
     }
 
@@ -1449,6 +1461,7 @@ mod kittest_tests {
             source: "It is not that I am so smart.".into(),
             raw: r#"{"note":"Partial note already streamed.""#.into(),
             classified: Some(TaskKind::TranslateSentence),
+            repairing: false,
         }
     }
 
@@ -1457,6 +1470,7 @@ mod kittest_tests {
             source: "fn main() {\n    let gloss = \"光\";\n    println!(\"{gloss}\");\n}".into(),
             raw: r#"{"note":"Partial explanation already streamed.""#.into(),
             classified: Some(TaskKind::ExplainCode),
+            repairing: false,
         }
     }
 
@@ -1533,6 +1547,7 @@ mod kittest_tests {
             source: String::new(),
             raw: r#"{"note":"A gradient panel with","structured":{"examples":["The picture is a generated placeholder","Its palette suggests a dark-mo"#.into(),
             classified: Some(TaskKind::ImageExplain),
+            repairing: false,
         }
     }
 
@@ -1683,6 +1698,23 @@ mod kittest_tests {
             seals.iter().all(|present| *present),
             "the streaming card marks the source and the body sections"
         );
+    }
+
+    #[test]
+    fn a_repairing_streaming_view_switches_the_footer_wording() {
+        let (mut harness, _clicked) = harness_for(repairing_streaming_view());
+        harness.run_steps(3);
+        harness.get_by_label_contains("重新注解");
+        assert!(
+            harness
+                .query_all_by_label_contains("正在注解")
+                .next()
+                .is_none(),
+            "the repair marker replaces the annotating label, no banner, no counter"
+        );
+        let (mut harness, _clicked) = harness_for_locale(repairing_streaming_view(), Locale::En);
+        harness.run_steps(3);
+        harness.get_by_label_contains("Re-annotating");
     }
 
     #[test]
@@ -2079,6 +2111,7 @@ mod kittest_tests {
             source: String::new(),
             raw: String::new(),
             classified: Some(TaskKind::ImageExplain),
+            repairing: false,
         };
         let mut harness = Harness::new_ui(move |ui| {
             if font_first_frame(&installed, ui.ctx()) {

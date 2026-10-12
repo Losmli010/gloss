@@ -45,6 +45,7 @@ impl GlossApp {
                     self.accept_classified(generation, kind)
                 }
                 Event::TaskChunk { generation, delta } => self.accept_chunk(generation, delta),
+                Event::TaskRepairing { generation } => self.accept_repairing(generation),
                 Event::TaskDone {
                     generation,
                     outcome,
@@ -186,6 +187,22 @@ impl GlossApp {
                 current = self.machine.generation(),
                 state = ?self.machine.state(),
                 "superseded or hidden chunk dropped"
+            );
+        }
+        accepted
+    }
+
+    /// 采纳修复轮开始：清上一轮流式正文并切「重新注解」页脚。返回是否
+    /// 需要重绘。
+    fn accept_repairing(&mut self, generation: u64) -> bool {
+        let accepted = self.machine.accept_repairing(generation);
+        if !accepted {
+            debug!(
+                thread = thread::UI,
+                generation = generation,
+                current = self.machine.generation(),
+                state = ?self.machine.state(),
+                "superseded or hidden repair marker dropped"
             );
         }
         accepted
@@ -524,6 +541,38 @@ mod tests {
             "with permission guidance still in flight the keychain read must not be pulled \
              forward to startup"
         );
+    }
+
+    #[test]
+    fn a_repair_marker_resets_the_stream_through_the_shell() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(1, text_input("hello")));
+        app.accept_chunk(1, "上一轮的违约正文".into());
+
+        assert!(
+            app.accept_repairing(1),
+            "the shell adopts the current generation's repair marker"
+        );
+        assert!(
+            matches!(
+                app.machine.overlay_view(),
+                Some(OverlayView::Streaming { raw, repairing: true, .. }) if raw.is_empty()
+            ),
+            "the shell clears the violated accumulation and flips the repairing footer"
+        );
+
+        assert!(
+            !app.accept_repairing(9),
+            "a stale repair marker is dropped without disturbing the live session"
+        );
+        assert!(matches!(
+            app.machine.overlay_view(),
+            Some(OverlayView::Streaming {
+                repairing: true,
+                ..
+            })
+        ));
     }
 
     #[test]
