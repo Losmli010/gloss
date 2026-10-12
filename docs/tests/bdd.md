@@ -284,6 +284,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | word_card_sections_stack_vertically | 词卡经→疏纵向排布 | 给定词卡视图，当渲染，则经位（字头+音）与疏位（例句）矩形纵向递增（分区显式垂直布局） | 2026-10-04 |
 | watermark_sits_inside_the_computed_window_height | 页脚水印落在期望窗口内 | 给定流式/词卡两种视图，当按内容尺寸重设渲染窗口再量水印矩形，则水印底边不超出 draw 上交的期望窗口高（页脚被内容挤出窗外即失败） | 2026-10-03 |
 | long_body_is_rendered_in_full | 长正文完整渲染不截断 | 给定超长正文（尾部带标记），当渲染，则 AccessKit 树含尾部内容——无字符截断 | 2026-09-20 |
+| arrow_keys_scroll_the_overflowing_body | 正文溢出时方向键滚动 | 给定超长正文的 Outcome 视图，当按 ↓ 再按 ↑，则内容视口先下移后回位（无修饰键参与，滚动区到界即停） | 2026-10-12 |
 | streaming_view_shows_the_annotating_footer | 流式视图页脚注解指示 | 给定流式视图，当渲染，则「正在注解」在页脚出现、经/注印章就位 | 2026-10-01 |
 | a_repairing_streaming_view_switches_the_footer_wording | 修复中流式卡页脚切重新注解 | 给定 repairing 的流式视图（正文已清稿、骨架态），当渲染，则页脚为「重新注解」/en「Re-annotating」且「正在注解」不在树中（无横幅无计数） | 2026-10-12 |
 | word_card_marks_the_three_sections_per_locale | 词卡三分区印章随 locale | 给定词卡视图（zh/en 各一），当渲染，则印章字分别为 经/注/疏 与 SRC/NOTE/EXP | 2026-09-30 |
@@ -704,7 +705,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | --- | --- | --- | --- |
 | open_settings_request_starts_an_edit_session | 打开设置即编辑会话 | 给定 OpenSettingsRequested，当消费，则编辑会话打开、草稿=当前快照、不占代数 | 2026-09-19 |
 | settings_save_writes_keychain_and_swaps_config | 保存写密钥串并换配置 | 给定含密钥替换的保存，当成功，则密钥进 keychain、快照换新、会话关闭，新配置随后续触发生效 | 2026-09-26 |
-| settings_save_hot_toggles_the_clipboard_watch_switch | 保存热切换剪贴板哨兵开关 | 给定出厂配置（哨兵关）的两次保存，当先开再关「监听剪贴板图片」，则运行时快照与共享开关位同步置位、复位（不重启即生效） | 2026-10-10 |
+| settings_save_hot_toggles_the_clipboard_watch_switch | 保存热切换剪贴板哨兵开关 | 给定出厂配置（哨兵开）的两次保存，当先关再开「监听剪贴板图片」，则运行时快照与共享开关位同步复位、置位（不重启即生效） | 2026-10-12 |
 | clearing_the_key_deletes_the_secret_on_save | 清除密钥保存即删除 | 给定 KeyUpdate::Clear，当保存，则 keychain 条目删除、会话关闭 | 2026-09-19 |
 | failed_save_keeps_the_session_open_with_a_notice | 失败保存会话不关 | 给定落盘必失败存储，当保存，则会话保持打开、错误进提示、快照不变、哨兵开关位不动 | 2026-10-10 |
 
@@ -954,7 +955,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | invalid_draft_blocks_save_and_enters_the_error_state | 非法草稿阻断保存进入错误态 | 给定非法 Base URL 草稿，当 build_save，则返回 Idle、置校验态、该字段提示含 https 规则 | 2026-09-22 |
 | fixing_the_field_restores_save | 改对字段恢复保存 | 给定被阻断的校验态，当修正 Base URL，则错误清空、再次 build_save 上交 Save | 2026-09-22 |
 | open_copies_the_snapshot_into_the_draft | 打开设置拷贝快照进草稿 | 给定打开时的快照，当建草稿并随后改原配置，则草稿不跟随、可携带提示 | 2026-09-19 |
-| clipboard_watch_toggle_travels_with_the_saved_draft | 剪贴板监听开关随草稿保存 | 给定出厂配置的设置窗（英文表），当渲染并点「Watch the clipboard for images」行的开关滑块再保存，则出厂默认 off、点击切换为 on 后随 Save 上交进落盘快照（热切换由保存路径承接）；开关以 WidgetType::Checkbox + toggled 态上报（egui 0.36 角色映射无 switch 档） | 2026-10-10 |
+| clipboard_watch_toggle_travels_with_the_saved_draft | 剪贴板监听开关随草稿保存 | 给定出厂配置的设置窗（英文表），当渲染并点「Watch the clipboard for images」行的开关滑块再保存，则出厂默认 on、点击切换为 off 后随 Save 上交进落盘快照（热切换由保存路径承接）；开关以 WidgetType::Checkbox + toggled 态上报（egui 0.36 角色映射无 switch 档） | 2026-10-12 |
 | field_errors_are_worded_per_locale | 字段错误按 locale 出措辞 | 给定全部九类字段错误（含行号与触发键回显两种模板），当按中英文表取文案，则各出对应措辞（换臂或漏译会被抓住） | 2026-09-23 |
 | every_notice_renders_its_localized_prefix_and_detail | 三类提示的中英措辞 | 给定三类壳回写提示（各带同一诊断），当按中英表取文案，则前缀与诊断都按表落地、且无残留的 {{占位符}}（两条从未渲染过的模板由此覆上） | 2026-09-22 |
 | base_url_errors_map_to_their_own_field_error | Base URL 错因映射到字段错误 | 给定五类 BaseUrlError，当映射，则空/语法与 https/内嵌凭据/查询参数各落到对应 FieldError（内嵌凭据与查询参数两臂易错） | 2026-09-22 |

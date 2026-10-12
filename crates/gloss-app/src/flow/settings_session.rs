@@ -170,34 +170,34 @@ mod tests {
     fn settings_save_hot_toggles_the_clipboard_watch_switch() {
         let (mut app, config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         assert!(
-            !app.env.clipboard_watch_enabled.load(Ordering::Relaxed),
-            "the factory default starts the sentinel off"
-        );
-        pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
-        app.drain_platform_events();
-
-        let mut draft = (*app.env.config.snapshot()).clone();
-        draft.watch_clipboard_images = true;
-        app.save_settings(draft, KeyUpdate::Keep);
-
-        assert!(
-            config.snapshot().watch_clipboard_images,
-            "snapshot advanced"
-        );
-        assert!(
             app.env.clipboard_watch_enabled.load(Ordering::Relaxed),
-            "the sentinel bit must flip on save, no restart"
+            "the factory default starts the sentinel on"
         );
-
         pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
         app.drain_platform_events();
+
         let mut draft = (*app.env.config.snapshot()).clone();
         draft.watch_clipboard_images = false;
         app.save_settings(draft, KeyUpdate::Keep);
 
         assert!(
+            !config.snapshot().watch_clipboard_images,
+            "snapshot advanced"
+        );
+        assert!(
             !app.env.clipboard_watch_enabled.load(Ordering::Relaxed),
-            "switching off must silence the sentinel immediately"
+            "switching off must silence the sentinel immediately, no restart"
+        );
+
+        pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
+        app.drain_platform_events();
+        let mut draft = (*app.env.config.snapshot()).clone();
+        draft.watch_clipboard_images = true;
+        app.save_settings(draft, KeyUpdate::Keep);
+
+        assert!(
+            app.env.clipboard_watch_enabled.load(Ordering::Relaxed),
+            "switching back on must revive the sentinel immediately"
         );
         assert!(app.settings.is_none(), "save closes the session");
     }
@@ -231,7 +231,7 @@ mod tests {
 
         let mut draft = (*config.snapshot()).clone();
         draft.target_lang = Lang::Ja;
-        draft.watch_clipboard_images = true;
+        draft.watch_clipboard_images = false;
         app.save_settings(draft, KeyUpdate::Keep);
 
         let state = app.settings.as_ref().expect("session must stay open");
@@ -248,7 +248,7 @@ mod tests {
             "failed save must not advance the runtime snapshot"
         );
         assert!(
-            !app.env.clipboard_watch_enabled.load(Ordering::Relaxed),
+            app.env.clipboard_watch_enabled.load(Ordering::Relaxed),
             "failed save must not flip the sentinel bit"
         );
     }

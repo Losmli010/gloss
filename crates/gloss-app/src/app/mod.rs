@@ -304,6 +304,10 @@ pub(crate) mod test_support {
             Arc::clone(&store),
             Config::default(),
         ));
+        // 哨兵开关位与生产装配同源：按启动快照初始化（main.rs 组装段同款），
+        // 夹具不另定初值。
+        let clipboard_watch_enabled =
+            Arc::new(AtomicBool::new(config.snapshot().watch_clipboard_images));
         let app = GlossApp::new(
             AppEndpoints {
                 platform_events: pe_rx,
@@ -317,7 +321,7 @@ pub(crate) mod test_support {
             Locale::Zh,
             permissions_ready,
             update_wiring(),
-            Arc::new(AtomicBool::new(false)),
+            clipboard_watch_enabled,
             None,
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
