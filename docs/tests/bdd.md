@@ -1276,3 +1276,11 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | x_ticks_sample_at_most_four_points | x 轴稀疏刻度 ≤4 且均匀取样 | 给定 8 点与 2 点历史，当 render_svg，则分别刻出第 0/2/5/7 点与全部两点（8 点时中间点不刻） | 2026-10-12 |
 | commit_labels_win_over_dates | x 标签 commit 优先、UTC 固定换算 | 给定带 commit 与无 commit（generated_at=unix 0）两份报告，当 render_svg，则前者标 SHA、后者标 UTC 日期+mode（01-01 replay） | 2026-10-12 |
 | a_panel_with_some_empty_series_hides_those_series | 空序列隐去、空面板跳过 | 给定只有分类轨样本的报告，当 render_svg，则分类面板照画、任务序列从图例隐去、全序列皆空的任务面板整体不出现 | 2026-10-12 |
+
+### crates/gloss-eval/src/main.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| replay_run_writes_report_and_history_files | replay 接线产出报告与历史 | 给定临时目录（GLOSS_EVAL_DIR 语义由参数表达），当 run_replay_into，则 replay.json/.md、history.jsonl（一行）与 history.svg 同点产出 | 2026-10-12 |
+| second_replay_run_appends_without_commit | 本地重跑恒追加 | 给定同一临时目录连续两次无 context 的 replay，当各自落盘，则 history.jsonl 叠两行、history.svg 仍在 | 2026-10-12 |
+| finish_run_report_writes_the_injected_context_through | 注入的 context 落进报告 | 给定带 commit/source 的 context 注入，当 finish_run_report，则写出的 replay.json 携带 context 段 | 2026-10-12 |
