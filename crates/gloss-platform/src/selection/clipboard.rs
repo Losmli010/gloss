@@ -1,9 +1,12 @@
 //! 剪贴板兜底读取（模拟复制）：`ClipboardFallbackReader`。
 //!
 //! AX 读不到选区时的兜底通道：快照剪贴板全部条目与 flavor 原始字节 →
-//! 注入 Cmd+C → 轮询确认目标应用写入 → 读回 → 按快照恢复。快照拿不全
-//! 即整体放弃、不注入；未确认时重注入一轮再等一个完整超时窗口。纯时序
-//! 逻辑在 [`wait_for_write`]（单测覆盖），系统 API 交互归 `imp` 模块。
+//! 注入 Cmd+C → 轮询确认目标应用写入 → 读回 → 按快照恢复。快照按条目
+//! 与 flavor 尽力保全：读不出数据的 flavor（promised 数据等）单独跳过
+//! ——读不出即无法如实恢复，整轮放弃只会让兜底在有此类 flavor 的板上
+//! 整批失效；结构读不出（板、条目、flavor 名单）才整体放弃、不注入。
+//! 未确认时重注入一轮再等一个完整超时窗口。纯时序逻辑在
+//! [`wait_for_write`]（单测覆盖），系统 API 交互归 `imp` 模块。
 
 use std::time::{Duration, Instant};
 
@@ -251,8 +254,10 @@ mod imp {
         }
     }
 
-    /// 快照原剪贴板全部条目与 flavor 数据；任何一步拿不全即整体失败（调用
-    /// 方据此放弃注入，剪贴板保持原样）。
+    /// 快照原剪贴板全部条目与 flavor 数据。结构读不出（板、条目数、条目
+    /// 标识、flavor 名单）即整体失败（调用方据此放弃注入，剪贴板保持
+    /// 原样）；单个 flavor 读不出数据（promised 等）只跳过该 flavor，读
+    /// 得出的部分照常保全（见模块注释的边界说明）。
     fn snapshot_pasteboard() -> Option<SavedContent> {
         let Some(pb) = open_pasteboard() else {
             debug!(
@@ -329,11 +334,16 @@ mod imp {
                 // 变量；数据未物化（promised）时返回失败。
                 let status = unsafe { PasteboardCopyItemFlavorData(pb.raw, id, flavor, &mut data) };
                 if status != 0 {
+                    // 单个 flavor 读不出（promised 数据等）跳过而非整轮
+                    // 放弃：读不出意味着我们同样无法如实恢复它，整轮放弃
+                    // 只会让兜底通道在含 promises 的板上整批失效；可读
+                    // flavor 照常保全，读不出的在恢复时缺席。
                     debug!(
                         thread = thread::EVENT,
-                        status, "flavor data unavailable (promised?), fallback declined"
+                        status,
+                        "flavor data unavailable (promised?), flavor left out of the snapshot"
                     );
-                    return None;
+                    continue;
                 }
                 let _data = CfGuard::new(data as CFTypeRef);
                 // SAFETY: `data` 是刚拷贝的有效 CFData 引用，长度与字节
@@ -355,6 +365,15 @@ mod imp {
                     bytes.to_vec()
                 };
                 flavors.push(SavedFlavor { name, data: bytes });
+            }
+            // 全部 flavor 都读不出的条目没有可恢复的内容，跳过——恢复时
+            // 写一个空条目毫无意义。
+            if flavors.is_empty() {
+                debug!(
+                    thread = thread::EVENT,
+                    "no restorable flavor on the pasteboard item, item skipped"
+                );
+                continue;
             }
             items.push(SavedItem { id, flavors });
         }
