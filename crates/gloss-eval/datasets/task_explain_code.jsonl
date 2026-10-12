@@ -1,2 +1,3 @@
 {"id": "task-code-01", "kind": "ExplainCode", "text": "print(', '.join(sorted(set(words))))", "reference": {"examples": []}}
 {"id": "task-code-02", "kind": "ExplainCode", "text": "kubectl get pods -n prod", "reference": {"examples": []}}
+{"id": "task-code-03", "kind": "ExplainCode", "text": "docker ps", "reference": {"examples": []}}

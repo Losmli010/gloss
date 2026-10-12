@@ -31,13 +31,17 @@ pub struct TaskCase {
     pub reference: serde_json::Value,
 }
 
-/// 重放夹具条目：一次真实模型回复的增量序列（按时间顺序拼接即原文）。
+/// 重放夹具条目：一次真实交互的修复轨迹——每轮一组 SSE 文本增量（按
+/// 时间顺序拼接即该轮原文），轮序与生产的修复循环一致（违约轮在前、
+/// 修复轮在后）。单轮 = 一次通过；末轮为空 = 预算耗尽的违约收尾（生产
+/// 按降级产物处理）。异常轨迹（空回复/散文/缺 note/kind 越清单）是按
+/// 生产修复形态维护的受控样例，与录制回写的轨迹同一格式。
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Fixture {
     /// 对应的数据集条目 id。
     pub id: String,
-    /// SSE 文本增量（按到达顺序）。
-    pub deltas: Vec<String>,
+    /// 每一轮的文本增量（修复轮由违约触发；轮序即生产执行序）。
+    pub rounds: Vec<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -58,7 +62,7 @@ struct RawTask {
 #[derive(Deserialize)]
 struct RawFixture {
     id: String,
-    deltas: Vec<String>,
+    rounds: Vec<Vec<String>>,
 }
 
 /// 解析分类数据集；空文件、坏行（带行号）、重复 id 都是硬错误。
@@ -103,17 +107,23 @@ pub fn load_task(jsonl: &str) -> Result<Vec<TaskCase>, String> {
     Ok(cases)
 }
 
-/// 解析重放夹具。
+/// 解析重放夹具；零轮轨迹（连首轮都没有）是硬错误——空回复轮是
+/// `deltas = []`，与「没有轨迹」不同。
 pub fn load_fixtures(jsonl: &str) -> Result<Vec<Fixture>, String> {
     let raw: Vec<RawFixture> = parse_jsonl(jsonl)?;
     let fixtures: Vec<Fixture> = raw
         .into_iter()
         .map(|raw| Fixture {
             id: raw.id,
-            deltas: raw.deltas,
+            rounds: raw.rounds,
         })
         .collect();
     require_unique_ids(fixtures.iter().map(|fixture| &fixture.id))?;
+    for fixture in &fixtures {
+        if fixture.rounds.is_empty() {
+            return Err(format!("fixture {}: zero-round trajectory", fixture.id));
+        }
+    }
     Ok(fixtures)
 }
 
@@ -200,7 +210,6 @@ mod tests {
         let classify_fixtures = load_fixtures(crate::assets::CLASSIFY_FIXTURES).expect("fixtures");
         assert!(!classify_fixtures.is_empty());
         for fixture in &classify_fixtures {
-            assert!(!fixture.deltas.is_empty(), "{}: empty deltas", fixture.id);
             assert!(
                 classify_ids.contains(&fixture.id),
                 "{}: fixture id must exist in the classify dataset",
@@ -226,6 +235,18 @@ mod tests {
                 fixture.id
             );
         }
+    }
+
+    #[test]
+    fn zero_round_fixtures_are_rejected() {
+        assert!(
+            load_fixtures("{\"id\":\"a\",\"rounds\":[]}\n").is_err(),
+            "an empty trajectory is a malformed fixture, not an empty reply"
+        );
+        assert!(
+            load_fixtures("{\"id\":\"a\",\"rounds\":[[]]}\n").is_ok(),
+            "a round with no deltas is an empty reply, which is a legal round"
+        );
     }
 
     #[test]

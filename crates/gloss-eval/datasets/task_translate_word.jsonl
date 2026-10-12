@@ -1,2 +1,3 @@
 {"id": "task-word-01", "kind": "TranslateWord", "text": "serendipity", "reference": {"phonetic": "/ˌserənˈdɪpɪti/", "examples": ["a happy serendipity"]}}
 {"id": "task-word-02", "kind": "TranslateWord", "text": "idempotent", "reference": {"phonetic": null, "examples": []}}
+{"id": "task-word-03", "kind": "TranslateWord", "text": "cache coherency", "reference": {"phonetic": null, "examples": []}}

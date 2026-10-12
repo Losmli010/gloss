@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 37 | `just test` |
-| 单元测试 | 542 | `just test` |
+| 单元测试 | 553 | `just test` |
 
 ## 人工测试
 
@@ -1158,7 +1158,8 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | classify_dataset_loads_with_unique_ids | 分类数据集加载与唯一性 | 给定内嵌 classify.jsonl，当加载，则 ≥60 条、全部为文本任务 kind、id 无重复 | 2026-09-26 |
 | task_datasets_load_and_match_required_fields | 任务数据集加载与 kind 对位 | 给定三个内嵌任务数据集，当加载，则非空且每行 kind 与其文件一致、reference 满足必需键 | 2026-09-26 |
-| fixtures_align_with_dataset_ids | 夹具与数据集 id 对齐 | 给定分类/任务夹具文件与数据集，当加载，则 id 无重复、deltas 非空、且每条夹具 id 都存在于对应数据集（陈旧 id 即失败） | 2026-09-26 |
+| fixtures_align_with_dataset_ids | 夹具与数据集 id 对齐 | 给定分类/任务夹具文件与数据集，当加载，则 id 无重复、修复轨迹非空（空回复轮是 deltas=[]，与零轮空轨迹不同）、且每条夹具 id 都存在于对应数据集（陈旧 id 即失败） | 2026-10-12 |
+| zero_round_fixtures_are_rejected | 零轮轨迹硬错误 | 给定 rounds 为空与单空轮（deltas=[]）两种夹具，当加载，则前者报错（空轨迹是坏夹具不是空回复）、后者通过（空回复是合法轮） | 2026-10-12 |
 | duplicate_ids_are_rejected | 重复 id 硬错误 | 给定含重复 id 的 jsonl，当加载，则报错而非静默跳过 | 2026-09-26 |
 | bad_reference_is_rejected | 引用条目缺必需键报错 | 给定词卡条目缺疏证键（旧形态字段）的 jsonl，当加载，则报错 | 2026-10-03 |
 | required_fields_follow_the_contract | 必需键随结构化契约 | 给定全部任务 kind，当查必需键，则恒为 examples（三行同构契约下 structured.examples 唯一恒在；图像解读同形落 Plain，旧 interpretation 名退役） | 2026-10-11 |
@@ -1170,6 +1171,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | classify_verdicts_cover_the_matrix | 分类判定四分类 | 给定正确/混淆/非 JSON/未知 kind/清单外 kind 五种回复，当经生产校验器判定，则分别落 Correct/Wrong/InvalidJson/Rejected | 2026-10-10 |
 | legacy_flat_and_fenced_replies_degrade_like_production | 旧扁平与围栏回复与生产同轨（eval） | 给定旧扁平契约（structured 缺失）与围栏输出两类回复，当 TaskVerdict::for_reply，则前者不降级但 fields_complete=false（疏证回落空卡）、后者整体违约落降级产物（note 空）——与生产 validate_task 同源 | 2026-10-11 |
 | task_verdict_reads_the_four_levels | 任务契约四级判定 | 给定嵌套契约/纯正文/截断 JSON/仅 note 四种词卡回复，当 TaskVerdict.for_reply，则四级标志与 outcome.degraded 符合预期（structured 缺失是软缺口：不降级但字段不完整） | 2026-10-11 |
+| violation_track_counts_categories_and_rounds_from_the_trajectory | 修复轨迹折算违约类别与轮次 | 给定「散文×2 → 契约」「散文×4 耗尽」「空轮 → 契约」三类词卡轨迹，当逐轮跑生产校验器折算（violation_track / for_rounds），则修复轮次恒为轮数−1、违约类别逐轮计数（耗尽轨迹的末轮违约也计入）、修复轨迹不降级而耗尽轨迹降级（note 空） | 2026-10-12 |
 | field_completeness_requires_the_nested_contract_keys | 字段完整性按嵌套契约键 | 给定 structured 缺 examples 的词卡回复与带 examples+code_language 的代码回复，当判定，则前者 fields_complete=false（不降级——软缺口）、后者完整不降级且语言判定随 Code 变体 | 2026-10-11 |
 | image_explain_lands_on_the_plain_variant | 图像解读落 Plain 变体（eval 同源校验器） | 给定 ImageExplain 数据行与嵌套契约/仅 note/纯正文三种回复，当 TaskVerdict::for_reply，则完整契约不降级且 outcome 携带 examples 条目（坏条目跳过）、缺 structured 软回落空表、纯正文降级（note 空） | 2026-10-11 |
 | latency_percentiles_interpolate | 延迟百分位线性插值 | 给定四个样本，当取 p0/p50/p95/p100，则插值结果精确；空样本返回 None | 2026-09-26 |
@@ -1185,7 +1187,8 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告（一例嵌套契约 + 一例纯正文），当渲染，则指标表、accuracy 百分比、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-10-11 |
+| report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告（一例修复轨迹 + 一例纯正文），当渲染，则指标表、accuracy 百分比、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-10-12 |
+| repair_rounds_render_with_violation_categories | 修复轮次行带违约类别计数 | 给定含违约轨迹与零违约两份报告，当渲染，则分类与各任务集的「修复轮次」行为「总数（类别 ×次数…）」，零违约时只报总数 | 2026-10-12 |
 | latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本的报告，当渲染，则不含延迟行 | 2026-09-26 |
 
 ### crates/gloss-eval/src/runner.rs
@@ -1193,3 +1196,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | replay_runs_the_full_deterministic_track_over_embedded_assets | 重放轨全链路离线跑通 | 给定内嵌数据集与夹具，当 run_replay，则有夹具条目计入（覆盖率随夹具维护增长，只设下限不设上限）、正确/无效 JSON/被拒路径均有命中、各任务集有覆盖、无延迟样本 | 2026-09-26 |
+| replay_counts_violations_and_repair_rounds_from_fixture_trajectories | 重放轨统计违约类别与修复轮次 | 给定内嵌夹具（含空回复/散文/缺 note/kind 越清单异常轨迹），当 run_replay，则分类与各任务集的 repair_rounds 与 violations 分类计数如实入账：分类轨三类违约齐全、词卡集计空回复、句译集含耗尽降级、代码集计缺 note | 2026-10-12 |
+| a_contract_valid_middle_round_rejects_the_fixture_trajectory | 轨迹中段合法轮即坏夹具 | 给定分类「合法轮 → 修复轮」与任务「散文 → 契约 → 散文」两类漂移轨迹，当轨迹体检，则按硬错误拦下（修复轮由违约触发，中段合法轮不合生产形态） | 2026-10-12 |
+| a_trajectory_beyond_the_production_budget_rejects_the_fixture | 轨迹超生产预算即坏夹具 | 给定 3 轮分类轨迹与 5 轮任务轨迹，当轨迹体检，则按硬错误拦下（轮数不得超过 1+CLASSIFY_REPAIRS / 1+TASK_REPAIRS，预算收紧时陈旧夹具即失败） | 2026-10-12 |
+| live_track_records_rounds_and_repair_metrics_through_the_production_loops | live 轨经生产循环记轮与修复指标 | 给定脚本引擎（分类违约修复、词卡违约修复、句译/代码一次通过）与 --record，当 run_live，则指标来自 classify_traced / run_task_rounds 的轮记录（修复轮次、违约类别、判定正确）、录制按轮成夹具、引擎恰 6 次调用 | 2026-10-12 |
+| a_task_engine_failure_still_counts_one_degraded_case | 任务轨引擎失败单条计降级 | 给定词卡任务脚本一次引擎失败（句译/代码正常），当 run_live（无 --record），则该条 evaluated+degraded 各 1、无修复轮次、无录制（引擎失败与模型行为分账的既有口径保持） | 2026-10-12 |
+| run_task_case_splits_rounds_on_the_repair_boundary | 任务轮记录按修复边界切轮 | 给定「双增量散文轮 → 双增量契约轮」脚本队列，当 run_task_case，则 RunOutput.repairs 为 1、轮记录恰两轮、各轮为该轮增量拼接（on_repair 是唯一轮边界信号） | 2026-10-12 |

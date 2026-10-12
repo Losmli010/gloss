@@ -3,14 +3,15 @@
 //! 分类轨走生产校验器（[`gloss_core::classify::parse_classify_reply`]）；
 //! 任务轨的完成态判定走**生产同源**的契约校验器
 //! （[`gloss_core::schema::validate_task`]）——eval 受依赖方向约束不能消费
-//! gloss-app，core 的 schema 模块就是两侧共用的那份契约。本模块是纯函数
-//! 集，runner 与单测共用。
+//! gloss-app，core 的 schema 模块就是两侧共用的那份契约。修复轨迹的违约
+//! 类别与修复轮次同样经生产校验器逐轮还原（[`violation_track`]），与生产
+//! `RunOutput.repairs` 同口径。本模块是纯函数集，runner 与单测共用。
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use gloss_core::schema::{self};
+use gloss_core::schema::{self, Violation};
 use gloss_core::task::{TaskKind, TaskOutcome};
 
 use crate::dataset::TaskCase;
@@ -29,7 +30,56 @@ pub enum ClassifyVerdict {
     Rejected,
 }
 
-/// 分类指标：accuracy / 混淆矩阵 / 无效 JSON 率 / 回退率。
+/// 修复轨迹的违约统计：每一违约轮记一次类别，修复轮次 = 轮数 − 1（与
+/// 生产 `RunOutput.repairs` / `ClassifyDecision.repairs` 同口径）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViolationTrack {
+    /// 违约类别 → 违约轮次数（含末轮违约——预算耗尽的收尾）。
+    pub violations: BTreeMap<Violation, usize>,
+    /// 修复轮次总数。
+    pub repairs: u32,
+}
+
+impl ViolationTrack {
+    /// 并入另一条轨迹的计数（逐条目汇总用）。
+    pub fn merge(&mut self, other: &Self) {
+        for (violation, count) in &other.violations {
+            *self.violations.entry(*violation).or_default() += count;
+        }
+        self.repairs += other.repairs;
+    }
+}
+
+/// 从修复轨迹（每轮完整回复）折算违约统计：逐轮跑调用方给定的生产
+/// 校验器（分类/任务同一份 `schema` 模块）。重放轨与 live 轨共用——
+/// live 的轮次来自生产循环本身，折算口径与重放完全一致。
+pub fn violation_track(
+    validate: impl Fn(&str) -> Result<(), Violation>,
+    rounds: &[String],
+) -> ViolationTrack {
+    let mut track = ViolationTrack {
+        repairs: (rounds.len().saturating_sub(1)) as u32,
+        violations: BTreeMap::new(),
+    };
+    for round in rounds {
+        if let Err(violation) = validate(round) {
+            *track.violations.entry(violation).or_default() += 1;
+        }
+    }
+    track
+}
+
+/// 违约类别的报表短名（`Display` 措辞是句子，表格单元格里用短名）。
+pub fn violation_tag(violation: &Violation) -> &'static str {
+    match violation {
+        Violation::EmptyReply => "empty",
+        Violation::NotJson => "not-json",
+        Violation::MissingNote => "missing-note",
+        Violation::KindNotAllowed => "kind-not-allowed",
+    }
+}
+
+/// 分类指标：accuracy / 混淆矩阵 / 无效 JSON 率 / 回退率 / 违约与修复轮次。
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClassifyMetrics {
     /// 进入统计的条数（无夹具的条目跳过不计）。
@@ -45,6 +95,10 @@ pub struct ClassifyMetrics {
     /// 分类请求本身失败（网络/限流）的次数——与模型行为无关，不计入
     /// 格式类指标，但计入回退率（生产编排对这类条目同样落兜底）。
     pub engine_errors: usize,
+    /// 违约类别计数（每一违约轮记一次，含修复成功与耗尽两类轨迹）。
+    pub violations: BTreeMap<Violation, usize>,
+    /// 修复轮次总数（生产 `ClassifyDecision.repairs` 同口径）。
+    pub repair_rounds: u32,
 }
 
 impl ClassifyMetrics {
@@ -63,7 +117,8 @@ impl ClassifyMetrics {
     }
 }
 
-/// 任务回复的契约达成情况（比「解析成功与否」细：四个指标各自独立）。
+/// 任务回复的契约达成情况（比「解析成功与否」细：四个指标各自独立，
+/// 修复轨迹随行）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaskVerdict {
     /// 回复是合法 JSON 对象（契约硬约束之一）。
@@ -76,10 +131,15 @@ pub struct TaskVerdict {
     /// 生产同源的解析产物（与 UI 收到的 [`TaskOutcome`] 同构，含降级
     /// 标记——违约即空 note 空变体 `degraded = true`）。
     pub outcome: TaskOutcome,
+    /// 违约类别计数（每一违约轮记一次；单轮判定最多一条）。
+    pub violations: BTreeMap<Violation, usize>,
+    /// 修复轮次（生产 `RunOutput.repairs` 同口径）。
+    pub repairs: u32,
 }
 
 impl TaskVerdict {
-    /// 按 [`TaskCase`] 的 kind 与回复原文逐级判定。
+    /// 按 [`TaskCase`] 的 kind 与回复原文逐级判定（单轮口径：该回复即
+    /// 末轮，无修复轨迹）。
     ///
     /// 判定与生产完成态解析同源（gloss-app `finalize::complete` 同样走
     /// [`gloss_core::schema::validate_task`]）；`json_object` /
@@ -124,12 +184,27 @@ impl TaskVerdict {
             note_present,
             fields_complete,
             outcome,
+            violations: BTreeMap::new(),
+            repairs: 0,
         }
     }
 
-    /// 降级判定：契约校验器判违约（非 JSON / 空回复 / 缺 note）。存量
-    /// 旧契约夹具（扁平录制）天然落降级轨——生产对它们出降级卡，指标
-    /// 度量的是「模型有没有按现行嵌套契约输出」。
+    /// 按 [`TaskCase`] 的 kind 与**修复轨迹**（每轮完整回复）判定：末轮
+    /// 定完成态，全程逐轮经生产校验器折算违约类别与修复轮次——与生产
+    /// `RunOutput.repairs` 同口径（重放轨自夹具轮次、live 轨自生产循环
+    /// 的轮记录，共用本判定）。
+    pub fn for_rounds(case: &TaskCase, rounds: &[String]) -> Self {
+        let mut verdict = Self::for_reply(case, rounds.last().map(String::as_str).unwrap_or(""));
+        let track = violation_track(
+            |raw| schema::validate_task(case.kind, raw).map(|_| ()),
+            rounds,
+        );
+        verdict.violations = track.violations;
+        verdict.repairs = track.repairs;
+        verdict
+    }
+
+    /// 降级判定：契约校验器判违约（非 JSON / 空回复 / 缺 note）。
     pub fn degraded(&self) -> bool {
         self.outcome.degraded
     }
@@ -142,8 +217,9 @@ fn required_structured_fields(_kind: TaskKind) -> &'static [&'static str] {
     &["examples"]
 }
 
-/// 任务指标：契约 JSON 率 / note 在场率 / 字段完整率 / 降级率。
-#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// 任务指标：契约 JSON 率 / note 在场率 / 字段完整率 / 降级率 / 违约与
+/// 修复轮次。
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskMetrics {
     /// 进入统计的条数。
     pub evaluated: usize,
@@ -157,6 +233,10 @@ pub struct TaskMetrics {
     /// 记入此处——降级率因此混入传输失败（与分类轨单列
     /// engine_errors 不同），读数时注意。
     pub degraded: usize,
+    /// 违约类别计数（每一违约轮记一次，含修复成功与耗尽两类轨迹）。
+    pub violations: BTreeMap<Violation, usize>,
+    /// 修复轮次总数（生产 `RunOutput.repairs` 同口径）。
+    pub repair_rounds: u32,
 }
 
 impl TaskMetrics {
@@ -167,6 +247,10 @@ impl TaskMetrics {
         self.note_present += usize::from(verdict.note_present);
         self.fields_complete += usize::from(verdict.fields_complete);
         self.degraded += usize::from(verdict.degraded());
+        for (violation, count) in &verdict.violations {
+            *self.violations.entry(*violation).or_default() += count;
+        }
+        self.repair_rounds += verdict.repairs;
     }
 
     /// 契约 JSON 率。
@@ -275,8 +359,9 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClassifyVerdict, Latency, TaskVerdict, judge_classify_reply};
+    use super::{ClassifyVerdict, Latency, TaskVerdict, judge_classify_reply, violation_track};
     use crate::dataset::{TaskCase, load_task};
+    use gloss_core::schema::Violation;
     use gloss_core::task::{OutcomeStructured, TaskKind};
 
     fn allowed() -> Vec<TaskKind> {
@@ -386,6 +471,48 @@ mod tests {
             ),
             "the language verdict rides the Code variant"
         );
+    }
+
+    #[test]
+    fn violation_track_counts_categories_and_rounds_from_the_trajectory() {
+        let case = word_case();
+        let good = r#"{"note":"义","structured":{"phonetic":null,"examples":[]}}"#.to_owned();
+        let prose = "整段散文，不是 JSON".to_owned();
+
+        let track = violation_track(
+            |raw| gloss_core::schema::validate_task(case.kind, raw).map(|_| ()),
+            &[prose.clone(), prose.clone(), good.clone()],
+        );
+        assert_eq!(track.repairs, 2);
+        assert_eq!(track.violations.get(&Violation::NotJson), Some(&2));
+
+        let repaired = TaskVerdict::for_rounds(&case, &[prose.clone(), good.clone()]);
+        assert!(!repaired.degraded(), "a repaired trajectory lands normally");
+        assert_eq!(repaired.repairs, 1);
+        assert_eq!(repaired.violations.get(&Violation::NotJson), Some(&1));
+        assert_eq!(repaired.outcome.note, "义");
+
+        let exhausted =
+            TaskVerdict::for_rounds(&case, &[prose.clone(), prose.clone(), prose.clone(), prose]);
+        assert!(
+            exhausted.degraded(),
+            "an exhausted trajectory still degrades"
+        );
+        assert_eq!(exhausted.repairs, 3);
+        assert_eq!(
+            exhausted.violations.get(&Violation::NotJson),
+            Some(&4),
+            "the exhausted final round violates too"
+        );
+        assert_eq!(exhausted.outcome.note, "");
+
+        let empty = TaskVerdict::for_rounds(&case, &[String::new(), good]);
+        assert_eq!(
+            empty.violations.get(&Violation::EmptyReply),
+            Some(&1),
+            "an empty first round is an EmptyReply violation"
+        );
+        assert!(!empty.degraded());
     }
 
     #[test]

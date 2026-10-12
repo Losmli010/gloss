@@ -1,10 +1,13 @@
 //! 评测报告：JSON 落盘 + Markdown 渲染（表格形态沿用 scripts/
 //! bench-summary.py 的模式：一指标一行，比率带百分比）。
 
+use std::collections::BTreeMap;
+
+use gloss_core::schema::Violation;
 use gloss_core::task::TaskKind;
 use serde::{Deserialize, Serialize};
 
-use crate::metrics::{ClassifyMetrics, Latency, TaskMetrics};
+use crate::metrics::{ClassifyMetrics, Latency, TaskMetrics, violation_tag};
 
 /// 一次评测运行的完整报告（`target/eval/<mode>.json` 的形状）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,6 +132,13 @@ impl EvalReport {
                 &mut out,
                 format!("| 分类 回退率 | {:.1}% |", stats.fallback_rate * 100.0),
             );
+            line(
+                &mut out,
+                format!(
+                    "| 分类 修复轮次 | {} |",
+                    repair_line(&stats.metrics.violations, stats.metrics.repair_rounds)
+                ),
+            );
         }
         for stats in &self.tasks {
             let metrics = &stats.metrics;
@@ -162,6 +172,14 @@ impl EvalReport {
                     "| {} 降级率 | {:.1}% |",
                     stats.dataset,
                     rate(metrics.degraded, metrics.evaluated)
+                ),
+            );
+            line(
+                &mut out,
+                format!(
+                    "| {} 修复轮次 | {} |",
+                    stats.dataset,
+                    repair_line(&metrics.violations, metrics.repair_rounds)
                 ),
             );
         }
@@ -210,6 +228,20 @@ fn rate(numerator: usize, denominator: usize) -> f64 {
     } else {
         numerator as f64 / denominator as f64 * 100.0
     }
+}
+
+/// 修复轮次行的内容：轮次总数加违约类别计数（BTreeMap 按类别序稳定
+/// 迭代）；无违约轮时只报轮次。
+fn repair_line(violations: &BTreeMap<Violation, usize>, repairs: u32) -> String {
+    if violations.is_empty() {
+        return format!("{repairs}");
+    }
+    let counts = violations
+        .iter()
+        .map(|(violation, count)| format!("{} ×{count}", violation_tag(violation)))
+        .collect::<Vec<_>>()
+        .join("，");
+    format!("{repairs}（{counts}）")
 }
 
 /// 把评分器的输出组装成报告（runner 与测试共用）：混淆矩阵拍平、比率
@@ -289,6 +321,8 @@ pub fn write_report(report: &EvalReport, report_dir: &std::path::Path) -> std::i
 mod tests {
     use std::collections::BTreeMap;
 
+    use gloss_core::schema::Violation;
+
     use super::{EvalReport, assemble_report};
     use crate::dataset::TaskCase;
     use crate::metrics::{ClassifyMetrics, TaskMetrics, TaskVerdict};
@@ -309,6 +343,46 @@ mod tests {
     }
 
     #[test]
+    fn repair_rounds_render_with_violation_categories() {
+        let report = fixture_report();
+        let markdown = report.render_markdown();
+        assert!(
+            markdown.contains("分类 修复轮次 | 1（not-json ×1） |"),
+            "the classify repair line carries the total and per-category counts: {markdown}"
+        );
+        assert!(
+            markdown.contains("task_translate_word 修复轮次 | 1（not-json ×1） |"),
+            "the task repair line rides the same shape: {markdown}"
+        );
+
+        let clean = ClassifyMetrics {
+            evaluated: 1,
+            correct: 1,
+            ..ClassifyMetrics::default()
+        };
+        let verdict = TaskVerdict::for_reply(
+            &word_cases()[0],
+            r#"{"note":"义","structured":{"examples":[]}}"#,
+        );
+        let mut metrics = TaskMetrics::default();
+        metrics.record(&verdict);
+        let report = assemble_report(
+            "replay",
+            Some(clean),
+            vec![("task_translate_word", metrics)],
+            None,
+            None,
+            0,
+        );
+        let markdown = report.render_markdown();
+        assert!(
+            markdown.contains("分类 修复轮次 | 0 |")
+                && markdown.contains("task_translate_word 修复轮次 | 0 |"),
+            "a track without violations reports bare round counts: {markdown}"
+        );
+    }
+
+    #[test]
     fn latency_only_shows_when_sampled() {
         let report = fixture_report();
         assert!(
@@ -317,16 +391,22 @@ mod tests {
         );
     }
 
-    fn fixture_report() -> EvalReport {
+    fn word_cases() -> Vec<TaskCase> {
         let word_jsonl = concat!(
             "{\"id\":\"w1\",\"kind\":\"TranslateWord\",\"text\":\"gloss\",\"reference\":{\"phonetic\":null,\"examples\":[]}}\n",
             "{\"id\":\"w2\",\"kind\":\"TranslateWord\",\"text\":\"idempotent\",\"reference\":{\"phonetic\":null,\"examples\":[]}}\n",
         );
-        let cases: Vec<TaskCase> = crate::dataset::load_task(word_jsonl).expect("cases");
+        crate::dataset::load_task(word_jsonl).expect("cases")
+    }
+
+    fn fixture_report() -> EvalReport {
+        let cases = word_cases();
         let confusion = BTreeMap::from([(
             TaskKind::TranslateWord,
             BTreeMap::from([(TaskKind::ExplainCode, 1)]),
         )]);
+        let mut violations = BTreeMap::new();
+        violations.insert(Violation::NotJson, 1);
         let classify = ClassifyMetrics {
             evaluated: 3,
             correct: 2,
@@ -334,11 +414,17 @@ mod tests {
             confusion,
             rejected: 0,
             engine_errors: 0,
+            violations: violations.clone(),
+            repair_rounds: 1,
         };
         let verdicts = [
-            TaskVerdict::for_reply(
+            // 修复轨迹：违约轮 → 契约轮（末轮定完成态，违约进类别计数）。
+            TaskVerdict::for_rounds(
                 &cases[0],
-                r#"{"note":"正文","structured":{"phonetic":null,"examples":[]}}"#,
+                &[
+                    "整段散文，不是 JSON".to_owned(),
+                    r#"{"note":"正文","structured":{"phonetic":null,"examples":[]}}"#.to_owned(),
+                ],
             ),
             TaskVerdict::for_reply(&cases[1], "只有正文"),
         ];

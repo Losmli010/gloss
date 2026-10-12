@@ -1398,6 +1398,7 @@ dependencies = [
 name = "gloss-eval"
 version = "0.2.3"
 dependencies = [
+ "futures",
  "gloss-core",
  "serde",
  "serde_json",
