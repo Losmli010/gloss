@@ -1040,6 +1040,14 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | adjacent_error_codes_are_told_apart | 相邻错误码区分 | 给定相邻码 -25211（APIDisabled）与 -25212（NoValue），当映射，则前者 Denied、后者 SelectionEmpty（错一位语义就反转） | 2026-09-30 |
 | other_ax_errors_map_to_unavailable | 其余 AX 错误映射不可用 | 给定 -25206/-25213/-25200，当映射，则归 SelectionUnavailable | 2026-09-19 |
 
+### crates/gloss-platform/src/selection/activation.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| chromium_family_frameworks_are_recognized | Chromium 家族框架名被识别 | 给定 Electron/Chrome/Brave/CEF 形态的框架名，当 is_chromium_family，则一律识别为 Chromium 宿主 | 2026-10-12 |
+| unrelated_frameworks_are_not_chromium | 无关框架不误判 | 给定空目录与 Mantle/Squirrel/ReactiveObjC 等第三方框架及缺「空格 + Framework」后缀的条目，当 is_chromium_family，则一律不判为 Chromium 宿主 | 2026-10-12 |
+| each_pid_is_assessed_exactly_once | 同一 pid 只评估一次 | 给定空登记表，当对同一 pid 与新 pid 依次 first_assessment，则首现 true、复现 false、新 pid 再 true | 2026-10-12 |
+
 ### crates/gloss-platform/src/permissions.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -1055,13 +1063,19 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | fallback_is_lazy_on_ax_success | AX 成功时兜底惰性求值 | 给定 AX 成功，当 combine，则采纳 AX 结果且剪贴板兜底闭包不被求值 | 2026-10-01 |
 | permission_denied_skips_fallback | 权限拒绝跳过兜底 | 给定 AccessibilityDenied，当 combine，则原样上抛且不兜底 | 2026-10-01 |
-| empty_selection_settles_then_falls_back_to_the_clipboard | 空选区让渡补读后再落兜底 | 给定持续 SelectionEmpty 的 AX 读与零让渡策略，当 combine，则补读至预算耗尽（恰 4 读）才落一次剪贴板兜底并采纳其结果（确认写入把关，陈旧剪贴板不得冒充本次选区） | 2026-10-01 |
+| empty_selection_settles_then_falls_back_to_the_clipboard | 空选区让渡补读后再落兜底 | 给定持续 SelectionEmpty 的 AX 读、零让渡策略与拒绝唤醒的激活闭包，当 combine，则补读至预算耗尽（恰 4 读）、激活问一次落空后才落一次剪贴板兜底并采纳其结果（确认写入把关，陈旧剪贴板不得冒充本次选区） | 2026-10-12 |
 | empty_then_ready_ax_read_adopts_the_late_selection | 补读等到迟到的选区 | 给定首次空、二次有值的 AX 读，当 combine，则采纳第二次读到的选区且不兜底 | 2026-10-01 |
 | settle_budget_is_bounded_and_positive | 让渡预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 settle_delay，则预算内返回正的让渡时长、预算用尽（含 usize::MAX）返回 None | 2026-10-01 |
-| unavailable_ax_falls_back_to_clipboard | AX 不可用落兜底 | 给定 SelectionUnavailable，当 combine，则落到兜底结果；兜底也失败则以兜底错误收口 | 2026-10-01 |
+| unavailable_ax_falls_back_to_clipboard | AX 不可用过激活闸门后落兜底 | 给定 SelectionUnavailable，当 combine，则激活恰被问一次、落空后落到兜底结果；兜底也失败则以兜底错误收口 | 2026-10-12 |
 | acquired_text_is_trimmed_at_the_boundary | 取材入口修剪两端空白 | 给定两端带空白的选中文本，当 normalize，则返回修剪后的文本；本无空白的文本原样放行 | 2026-10-11 |
 | acquired_text_keeps_interior_whitespace_verbatim | 入口修剪只动两端不动内部 | 给定内部含换行/制表/空格的选中文本，当 normalize，则内部空白逐字保留、只去两端 | 2026-10-11 |
 | pure_whitespace_selection_maps_to_selection_empty | 纯空白选区按空选区收口 | 给定纯空白（空格/换行/制表/全角空格）与空串的读取产物，当 normalize，则一律 SelectionEmpty（误滑走既有静默丢弃语义） | 2026-10-11 |
+| success_and_denial_never_consult_the_activator | 激活只在 AX 让步后被问及 | 给定 AX 成功与 AccessibilityDenied 两种读取，当 combine，则激活闭包一次都不被求值（成功直接采纳、拒绝原样上抛） | 2026-10-12 |
+| a_declined_wake_goes_straight_to_the_clipboard | 激活落空直接落兜底 | 给定持续 SelectionEmpty 的 AX 读、零让渡策略与拒绝唤醒的激活闭包，当 combine，则让渡预算跑满、激活问一次即落兜底并采纳 | 2026-10-12 |
+| a_fresh_wake_re_reads_and_adopts_the_late_selection | 刚激活的树补读即采纳 | 给定首次空、二次有值的 AX 读与肯定唤醒的激活闭包，当 combine，则激活后第一次补读就采纳迟到的选区且不落兜底 | 2026-10-12 |
+| a_woken_tree_that_stays_silent_falls_back_after_the_budget | 激活预算跑满仍空落兜底 | 给定持续 SelectionEmpty 的 AX 读、零让渡与零激活等待、肯定唤醒的激活闭包，当 combine，则让渡预算与激活预算各自跑满（恰 10 读）才落兜底 | 2026-10-12 |
+| a_woken_tree_that_errors_does_not_burn_the_activation_budget | 激活后读到硬错不烧预算 | 给定 SelectionUnavailable 的 AX 读与肯定唤醒的激活闭包，当 combine，则激活后只补读一次即落兜底（读不到不等建树） | 2026-10-12 |
+| activation_budget_is_bounded_and_positive | 激活预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 activation_delay，则预算内返回正的等待时长、预算用尽（含 usize::MAX）返回 None | 2026-10-12 |
 
 ### crates/gloss-platform/src/selection/clipboard.rs
 

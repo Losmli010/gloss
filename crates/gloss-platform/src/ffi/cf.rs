@@ -35,6 +35,11 @@ impl CfGuard {
         Self(reference)
     }
 
+    /// 借用为底层 CF 引用（对任意 CF 对象类型通用，类型语义由调用方保证）。
+    pub(crate) fn raw(&self) -> CFTypeRef {
+        self.0
+    }
+
     /// 借用为 CFString 引用（调用方保证该对象确实是 CFString）。
     pub(crate) fn string_ref(&self) -> CFStringRef {
         self.0 as CFStringRef
