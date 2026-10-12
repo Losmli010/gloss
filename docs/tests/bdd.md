@@ -1046,7 +1046,8 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | chromium_family_frameworks_are_recognized | Chromium 家族框架名被识别 | 给定 Electron/Chrome/Brave/CEF 形态的框架名，当 is_chromium_family，则一律识别为 Chromium 宿主 | 2026-10-12 |
 | unrelated_frameworks_are_not_chromium | 无关框架不误判 | 给定空目录与 Mantle/Squirrel/ReactiveObjC 等第三方框架及缺「空格 + Framework」后缀的条目，当 is_chromium_family，则一律不判为 Chromium 宿主 | 2026-10-12 |
-| each_pid_is_assessed_exactly_once | 同一 pid 只评估一次 | 给定空登记表，当对同一 pid 与新 pid 依次 first_assessment，则首现 true、复现 false、新 pid 再 true | 2026-10-12 |
+| the_ledger_settles_definitive_verdicts_exactly_once | 确定性结论只记账一次 | 给定默认记账表，当 settle 某 pid 后再查，则该 pid 本会话不再待评估 | 2026-10-12 |
+| an_unsettled_pid_stays_pending_for_the_next_gesture | 未记账的 pid 保持待评估 | 给定默认记账表与未曾 settle 的 pid，当反复查询 is_pending，则始终待评估（注入瞬时失败不锁门，下一手势自然重试） | 2026-10-12 |
 
 ### crates/gloss-platform/src/permissions.rs
 
@@ -1075,6 +1076,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | a_fresh_wake_re_reads_and_adopts_the_late_selection | 刚激活的树补读即采纳 | 给定首次空、二次有值的 AX 读与肯定唤醒的激活闭包，当 combine，则激活后第一次补读就采纳迟到的选区且不落兜底 | 2026-10-12 |
 | a_woken_tree_that_stays_silent_falls_back_after_the_budget | 激活预算跑满仍空落兜底 | 给定持续 SelectionEmpty 的 AX 读、零让渡与零激活等待、肯定唤醒的激活闭包，当 combine，则让渡预算与激活预算各自跑满（恰 10 读）才落兜底 | 2026-10-12 |
 | a_woken_tree_that_errors_does_not_burn_the_activation_budget | 激活后读到硬错不烧预算 | 给定 SelectionUnavailable 的 AX 读与肯定唤醒的激活闭包，当 combine，则激活后只补读一次即落兜底（读不到不等建树） | 2026-10-12 |
+| a_woken_tree_that_loses_permission_propagates_the_denial | 激活补读中权限缺失原样上抛 | 给定首次空、补读时 AccessibilityDenied 的 AX 读与肯定唤醒的激活闭包，当 combine，则拒绝原样上抛且不落兜底（注入会被系统静默忽略，兜底白等） | 2026-10-12 |
 | activation_budget_is_bounded_and_positive | 激活预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 activation_delay，则预算内返回正的等待时长、预算用尽（含 usize::MAX）返回 None | 2026-10-12 |
 
 ### crates/gloss-platform/src/selection/clipboard.rs

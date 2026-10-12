@@ -91,7 +91,8 @@ fn combine(
 /// 过、不是 Chromium 家族或注入失败）时立即落兜底，不花任何等待；刚
 /// 注入成功时按 [`activation_delay`] 的节奏补读，树一回答就采纳，预算
 /// 耗尽仍空或读不到再落兜底——补读期间宿主建树是异步的，空结果多半是
-/// 还没建好而不是没有。
+/// 还没建好而不是没有。补读中权限缺失与让渡环同款原样上抛：注入会被
+/// 系统静默忽略，兜底只会白等。
 fn wake_then(
     mut ax: impl FnMut() -> Result<String, GlossError>,
     wake: &mut impl FnMut() -> bool,
@@ -105,6 +106,7 @@ fn wake_then(
     loop {
         match ax() {
             Ok(text) => return Ok(text),
+            Err(err @ GlossError::AccessibilityDenied) => return Err(err),
             Err(GlossError::SelectionEmpty) => {
                 let Some(delay) = wake_delay_for(attempts) else {
                     info!(
@@ -437,6 +439,27 @@ mod tests {
             no_wake_delay,
         );
         assert_eq!(outcome, Ok("from clipboard".into()));
+        assert_eq!(reads, 2, "the initial read plus one activation re-read");
+    }
+
+    #[test]
+    fn a_woken_tree_that_loses_permission_propagates_the_denial() {
+        let mut reads = 0;
+        let outcome = combine(
+            || {
+                reads += 1;
+                if reads == 1 {
+                    Err(GlossError::SelectionEmpty)
+                } else {
+                    Err(GlossError::AccessibilityDenied)
+                }
+            },
+            || true,
+            || panic!("a permission loss during activation must not fall back to the clipboard"),
+            no_delay,
+            no_wake_delay,
+        );
+        assert_eq!(outcome, Err(GlossError::AccessibilityDenied));
         assert_eq!(reads, 2, "the initial read plus one activation re-read");
     }
 

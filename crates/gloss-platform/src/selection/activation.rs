@@ -14,15 +14,30 @@
 //! 识别判据是包内容证据而非 bundle id 名单：`Contents/Frameworks` 下
 //! 存在「品牌前缀 + Framework」形态的框架包即视为 Chromium 家族（见
 //! [`is_chromium_family`]），免维护名单，WebKit/Gecko 宿主天然不命中。
-//! 评估结果按 pid 记忆，整个会话对同一宿主至多注入一次——注入本身
-//! 幂等，但重复注入只会反复打扰宿主，不会让建树更快。
+//! 评估结论按 pid 记账（[`Ledger`]）：确定性结论（非 Chromium 家族、
+//! 注入成功）整个会话只此一次——注入本身幂等，重复注入只会反复打扰
+//! 宿主；注入瞬时失败（如消息超时）不记账，下一手势自然重试，不把
+//! 宿主锁在激活门外。
 
 use std::collections::HashSet;
 
-/// 会话内评估登记（纯逻辑，单测覆盖）：pid 首次出现返回 `true` 并登记，
-/// 之后对该 pid 一律 `false`——对同一宿主的评估与注入整个会话只此一次。
-fn first_assessment(seen: &mut HashSet<i32>, pid: i32) -> bool {
-    seen.insert(pid)
+/// 评估记账（纯逻辑，单测覆盖）：确定性结论按 pid 登记，未登记的 pid
+/// 待评估——瞬时失败不登记即下一手势自然重试。
+#[derive(Debug, Default)]
+struct Ledger {
+    settled: HashSet<i32>,
+}
+
+impl Ledger {
+    /// 该 pid 是否待评估。
+    fn is_pending(&self, pid: i32) -> bool {
+        !self.settled.contains(&pid)
+    }
+
+    /// 登记确定性结论：此后该 pid 本会话不再评估。
+    fn settle(&mut self, pid: i32) {
+        self.settled.insert(pid);
+    }
 }
 
 /// Chromium/Electron 家族检测（纯逻辑，单测覆盖）：框架目录条目里存在
@@ -41,7 +56,6 @@ fn is_chromium_family(names: impl IntoIterator<Item = impl AsRef<str>>) -> bool 
 }
 
 mod imp {
-    use std::collections::HashSet;
     use std::path::Path;
 
     use gloss_core::log::{debug, info, thread, warn};
@@ -51,16 +65,16 @@ mod imp {
     use crate::ffi::ax::{self, AXUIElementRef};
     use crate::ffi::cf::{self, CFTypeRef, CfGuard};
 
-    use super::{first_assessment, is_chromium_family};
+    use super::{Ledger, is_chromium_family};
 
     /// AXError.h 的 kAXErrorSuccess。
     const AX_ERROR_SUCCESS: i32 = 0;
 
-    /// AX 通道激活器：会话内按 pid 去重的 Chromium 宿主唤醒。只在平台
+    /// AX 通道激活器：会话内按 pid 记账的 Chromium 宿主唤醒。只在平台
     /// 事件线程上使用（由组合读取器持有），无锁不共享。
     #[derive(Debug, Default)]
     pub struct AxActivator {
-        assessed: HashSet<i32>,
+        ledger: Ledger,
     }
 
     impl AxActivator {
@@ -69,17 +83,18 @@ mod imp {
             Self::default()
         }
 
-        /// 唤醒前台应用的 AX 通道（评估与注入各只此一次）。
+        /// 唤醒前台应用的 AX 通道（确定性结论各只此一次）。
         ///
         /// 返回 `true` 表示刚对 Chromium 宿主成功注入开关——宿主开始异步
         /// 建树，调用方应以激活预算补读 AX；`false` 表示无需补读（该
-        /// pid 已评估过、不是 Chromium 宿主、前台应用不可识别或注入
-        /// 失败）。调用方保证：在平台事件线程上调用。
+        /// pid 已有确定性结论、不是 Chromium 宿主、前台应用不可识别或
+        /// 注入瞬时失败——最后一种下一手势自然重试）。调用方保证：在
+        /// 平台事件线程上调用。
         pub fn wake(&mut self) -> bool {
             let Some((app, pid)) = front_app() else {
                 return false;
             };
-            if !first_assessment(&mut self.assessed, pid) {
+            if !self.ledger.is_pending(pid) {
                 return false;
             }
             if !is_chromium_host(pid) {
@@ -87,6 +102,7 @@ mod imp {
                     thread = thread::EVENT,
                     pid, "front app is not a chromium host, activation skipped"
                 );
+                self.ledger.settle(pid);
                 return false;
             }
             if enable_manual_accessibility(app.raw() as AXUIElementRef) {
@@ -94,11 +110,13 @@ mod imp {
                     thread = thread::EVENT,
                     pid, "manual accessibility enabled for the chromium front app"
                 );
+                self.ledger.settle(pid);
                 true
             } else {
                 warn!(
                     thread = thread::EVENT,
-                    pid, "manual accessibility write failed, activation declined"
+                    pid,
+                    "manual accessibility write failed, activation deferred to the next gesture"
                 );
                 false
             }
@@ -192,9 +210,7 @@ pub use imp::AxActivator;
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
-    use super::{first_assessment, is_chromium_family};
+    use super::{Ledger, is_chromium_family};
 
     #[test]
     fn chromium_family_frameworks_are_recognized() {
@@ -231,10 +247,22 @@ mod tests {
     }
 
     #[test]
-    fn each_pid_is_assessed_exactly_once() {
-        let mut seen = HashSet::new();
-        assert!(first_assessment(&mut seen, 42));
-        assert!(!first_assessment(&mut seen, 42));
-        assert!(first_assessment(&mut seen, 43));
+    fn the_ledger_settles_definitive_verdicts_exactly_once() {
+        let mut ledger = Ledger::default();
+        assert!(ledger.is_pending(42));
+        ledger.settle(42);
+        assert!(
+            !ledger.is_pending(42),
+            "a settled pid must not be assessed again this session"
+        );
+    }
+
+    #[test]
+    fn an_unsettled_pid_stays_pending_for_the_next_gesture() {
+        let ledger = Ledger::default();
+        assert!(
+            ledger.is_pending(42) && ledger.is_pending(42),
+            "transient failures leave the pid pending, every gesture may retry"
+        );
     }
 }
