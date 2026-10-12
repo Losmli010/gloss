@@ -448,7 +448,7 @@ mod tests {
         let outcome = combine(
             || {
                 reads += 1;
-                if reads == 1 {
+                if reads <= EMPTY_SETTLE_BUDGET + 1 {
                     Err(GlossError::SelectionEmpty)
                 } else {
                     Err(GlossError::AccessibilityDenied)
@@ -460,7 +460,11 @@ mod tests {
             no_wake_delay,
         );
         assert_eq!(outcome, Err(GlossError::AccessibilityDenied));
-        assert_eq!(reads, 2, "the initial read plus one activation re-read");
+        assert_eq!(
+            reads,
+            EMPTY_SETTLE_BUDGET + 2,
+            "the settle budget runs out, then the activation re-read hits the denial"
+        );
     }
 
     #[test]

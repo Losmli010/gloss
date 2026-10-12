@@ -1076,7 +1076,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | a_fresh_wake_re_reads_and_adopts_the_late_selection | 刚激活的树补读即采纳 | 给定首次空、二次有值的 AX 读与肯定唤醒的激活闭包，当 combine，则激活后第一次补读就采纳迟到的选区且不落兜底 | 2026-10-12 |
 | a_woken_tree_that_stays_silent_falls_back_after_the_budget | 激活预算跑满仍空落兜底 | 给定持续 SelectionEmpty 的 AX 读、零让渡与零激活等待、肯定唤醒的激活闭包，当 combine，则让渡预算与激活预算各自跑满（恰 10 读）才落兜底 | 2026-10-12 |
 | a_woken_tree_that_errors_does_not_burn_the_activation_budget | 激活后读到硬错不烧预算 | 给定 SelectionUnavailable 的 AX 读与肯定唤醒的激活闭包，当 combine，则激活后只补读一次即落兜底（读不到不等建树） | 2026-10-12 |
-| a_woken_tree_that_loses_permission_propagates_the_denial | 激活补读中权限缺失原样上抛 | 给定首次空、补读时 AccessibilityDenied 的 AX 读与肯定唤醒的激活闭包，当 combine，则拒绝原样上抛且不落兜底（注入会被系统静默忽略，兜底白等） | 2026-10-12 |
+| a_woken_tree_that_loses_permission_propagates_the_denial | 激活补读中权限缺失原样上抛 | 给定让渡预算跑满仍空、激活补读时 AccessibilityDenied 的 AX 读与肯定唤醒的激活闭包，当 combine，则让渡环跑满进入激活补读后拒绝原样上抛且不落兜底（注入会被系统静默忽略，兜底白等） | 2026-10-12 |
 | activation_budget_is_bounded_and_positive | 激活预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 activation_delay，则预算内返回正的等待时长、预算用尽（含 usize::MAX）返回 None | 2026-10-12 |
 
 ### crates/gloss-platform/src/selection/clipboard.rs
