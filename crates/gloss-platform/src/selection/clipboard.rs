@@ -40,13 +40,13 @@ mod imp {
     use std::time::Instant;
 
     use arboard::Clipboard;
-    use rdev::{EventType, Key};
 
     use crate::ffi::cf::{
         self, CFArrayGetCount, CFArrayGetValueAtIndex, CFArrayRef, CFDataCreate, CFDataGetBytePtr,
         CFDataGetLength, CFDataRef, CFIndex, CFRelease, CFRetain, CFStringRef, CFTypeRef, CfGuard,
         kCFAllocatorDefault,
     };
+    use crate::ffi::event;
     use crate::ffi::pasteboard::{
         CLIPBOARD_NAME, K_PASTEBOARD_MODIFIED, PasteboardClear, PasteboardCopyItemFlavorData,
         PasteboardCopyItemFlavors, PasteboardCreate, PasteboardGetItemCount,
@@ -58,9 +58,6 @@ mod imp {
     use gloss_core::model::GlossError;
 
     use super::{WRITE_CONFIRM_TIMEOUT, WRITE_POLL_INTERVAL, wait_for_write};
-
-    /// 复制快捷键的修饰键：Cmd（rdev 映射 Meta）。
-    const COPY_MODIFIER: Key = Key::MetaLeft;
 
     /// 打开的系统粘贴板：引用与名称字符串一并用守卫释放。
     struct OpenPasteboard {
@@ -462,24 +459,29 @@ mod imp {
     /// 注入复制快捷键：修饰键按下 → C 按下/释放 → 修饰键释放。任何一步
     /// 失败即放弃；若修饰键已按下而后续步骤失败，补发配对释放。
     fn inject_copy_key() -> Result<(), GlossError> {
+        let Some(source) = event::new_hid_source() else {
+            debug!(
+                thread = thread::EVENT,
+                "copy key injection failed: no event source"
+            );
+            return Err(GlossError::SelectionUnavailable);
+        };
         let sequence = [
-            EventType::KeyPress(COPY_MODIFIER),
-            EventType::KeyPress(Key::KeyC),
-            EventType::KeyRelease(Key::KeyC),
-            EventType::KeyRelease(COPY_MODIFIER),
+            (event::VK_COMMAND, true),
+            (event::VK_ANSI_C, true),
+            (event::VK_ANSI_C, false),
+            (event::VK_COMMAND, false),
         ];
-        for (index, event) in sequence.iter().enumerate() {
-            if let Err(err) = rdev::simulate(event) {
+        for (index, &(virtual_key, key_down)) in sequence.iter().enumerate() {
+            if !event::post_keyboard_event(&source, virtual_key, key_down) {
                 debug!(
                     thread = thread::EVENT,
-                    error = ?err,
-                    "copy key injection failed"
+                    virtual_key, key_down, "copy key injection failed"
                 );
                 if index > 0 {
                     // 错误路径上的补发释放是尽力而为：释放失败已由紧随的
                     // SelectionUnavailable 收口，无更优处理。
-                    #[allow(clippy::let_underscore_must_use)]
-                    let _ = rdev::simulate(&EventType::KeyRelease(COPY_MODIFIER));
+                    let _ = event::post_keyboard_event(&source, event::VK_COMMAND, false);
                 }
                 return Err(GlossError::SelectionUnavailable);
             }

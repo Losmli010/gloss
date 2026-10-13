@@ -603,10 +603,12 @@ mod tests {
 mod injected_gesture_live_tests {
     use std::time::{Duration, Instant};
 
-    use rdev::{Button, EventType};
-
     use super::tap::MouseSource;
     use crate::events::EventSource;
+    use crate::ffi::event::{
+        self, CG_EVENT_LEFT_MOUSE_DOWN, CG_EVENT_LEFT_MOUSE_UP, CG_EVENT_MOUSE_MOVED,
+    };
+    use crate::ffi::eventtap::CGPoint;
 
     #[test]
     #[ignore = "注入真实全局鼠标事件：先把运行测试的终端 App 加入 系统设置→隐私与安全性→辅助功能（未授权时由 live_test_support 快速失败）"]
@@ -615,19 +617,37 @@ mod injected_gesture_live_tests {
         let (source, degraded) = MouseSource::spawn();
         let mut source = source.expect("tap must start under accessibility grant");
 
-        rdev::simulate(&EventType::MouseMove { x: 100.0, y: 100.0 }).expect("move injection");
-        rdev::simulate(&EventType::ButtonPress(Button::Left)).expect("button press injection");
+        let hid = event::new_hid_source().expect("hid event source");
+        assert!(
+            event::post_mouse_event(&hid, CG_EVENT_MOUSE_MOVED, CGPoint { x: 100.0, y: 100.0 }),
+            "move injection"
+        );
+        let press_at = event::current_position(&hid).expect("current location");
+        assert!(
+            event::post_mouse_event(&hid, CG_EVENT_LEFT_MOUSE_DOWN, press_at),
+            "button press injection"
+        );
         for step in 1..=5 {
-            rdev::simulate(&EventType::MouseMove {
-                x: 100.0 + 60.0 * f64::from(step),
-                y: 100.0 + 40.0 * f64::from(step),
-            })
-            .expect("move injection");
+            assert!(
+                event::post_mouse_event(
+                    &hid,
+                    CG_EVENT_MOUSE_MOVED,
+                    CGPoint {
+                        x: 100.0 + 60.0 * f64::from(step),
+                        y: 100.0 + 40.0 * f64::from(step),
+                    },
+                ),
+                "move injection"
+            );
         }
         // 注入的事件自带真实时间戳：释放前真实睡过最短按压时长，否则手势会
         // 被时长下限滤除（快甩滤除是本就想要的行为）。
         std::thread::sleep(Duration::from_millis(200));
-        rdev::simulate(&EventType::ButtonRelease(Button::Left)).expect("button release injection");
+        let release_at = event::current_position(&hid).expect("current location");
+        assert!(
+            event::post_mouse_event(&hid, CG_EVENT_LEFT_MOUSE_UP, release_at),
+            "button release injection"
+        );
 
         let deadline = Instant::now() + Duration::from_secs(2);
         while Instant::now() < deadline {
