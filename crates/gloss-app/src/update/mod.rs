@@ -221,6 +221,9 @@ pub(crate) type InstallHook = Arc<dyn Fn(&Path) -> Result<(), InstallError> + Se
 
 /// 在途任务：结果回包、取消令牌与任务类别一起携带——迟到回包按令牌
 /// 核对丢弃；任务自身 panic（JoinError）按类别降级成对应失败（有痕迹）。
+/// 生效边界：release 以 `panic = "abort"` 构建时 panic 的任务在事发点
+/// abort 进程，panic 类 JoinError 分支不可达，仅在 unwind 构建（dev/test）
+/// 出现。
 struct Pending {
     token: CancellationToken,
     kind: PendingKind,
@@ -431,7 +434,9 @@ fn apply_result(
 }
 
 /// 在途回包流：无在途任务时永远挂起（select 的另一半继续等消息）。
-/// 任务 panic 按 [`PendingKind`] 降级为对应的失败回包，主循环不崩。
+/// 任务 panic 按 [`PendingKind`] 降级为对应的失败回包，主循环不崩
+/// （unwind 构建下；release 以 `panic = "abort"` 构建时 panic 任务直接
+/// abort 进程，此分支不可达，见 [`Pending`] 的生效边界）。
 async fn pending_outcome(pending: &mut Option<Pending>) -> (PendingResult, CancellationToken) {
     match pending {
         Some(pending) => {

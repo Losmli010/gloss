@@ -157,6 +157,8 @@ where
 }
 
 /// 应用代码注入的回调不允许把 panic 带进事件线程；捕获后循环继续服务。
+/// 生效边界：release 以 `panic = "abort"` 构建时 panic 在事发点直接 abort
+/// 进程，`Err` 分支不可达；屏障只在 unwind 构建（dev/test 及其单测）生效。
 fn guarded<R>(what: &str, f: impl FnOnce() -> R) -> Option<R> {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(value) => Some(value),
