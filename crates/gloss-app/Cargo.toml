@@ -53,8 +53,9 @@ egui-winit = {
     "links",
   ]
 }
-# FutureExt::catch_unwind 包住 tokio 消费循环里的任务 future（后台
-# panic 被 tokio 捕获转为 TaskFailed」）。
+# FutureExt::catch_unwind 包住 tokio 消费循环里的任务 future（unwind 构建
+# 下后台 panic 转 TaskFailed；release panic=abort 下屏障不介入）——std 特性
+# 只为它开；StreamExt::next（更新子系统的流式读取）无特性门。
 futures = { version = "0.3", default-features = false, features = ["std"] }
 gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }

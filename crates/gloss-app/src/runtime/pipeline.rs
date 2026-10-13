@@ -19,9 +19,11 @@
 //! 每条 `RunTask` 的取消令牌经 `select!` 与执行竞速——取消在缓存查询与
 //! 流式读取的全部 await 点上即时生效，被取消的任务静默丢弃（App 已推
 //! 进代数，任何迟到产物都会被判 stale）。任务 future 包在 `catch_unwind`
-//! 里（后台 panic 被 tokio 捕获转为 TaskFailed）：引擎或编排层炸掉时用户
-//! 拿到失败卡而不是永悬的「推理中」，消费循环继续存活。运行时由
-//! [`start_command_runtime`] 创建并托管，进程退出时随通道③关闭自然收尾。
+//! 里（unwind 构建下后台 panic 被 tokio 捕获转为 TaskFailed，引擎或编排
+//! 层炸掉时用户拿到失败卡而不是永悬的「推理中」，消费循环继续存活；
+//! release 以 `panic = "abort"` 构建时屏障不介入，panic 直接 abort 进程）。
+//! 运行时由 [`start_command_runtime`] 创建并托管，进程退出时随通道③关闭
+//! 自然收尾。
 //!
 //! machine 侧另有显示用的流式累积，与这里的完成态解析并存：**完成态以
 //! TaskDone 的 `outcome.note` 为权威源**（accept_done 用它整卡覆盖）。
@@ -104,9 +106,11 @@ async fn consume_loop(
                 // 部 await 点。被取消的任务不发任何回传——App 取消时已
                 // gen+1，迟到产物本就该被丢弃。
                 //
-                // 执行体包在 catch_unwind 里：后台 panic 转 TaskFailed（错误
-                // 卡给用户「服务异常」而不是永悬的推理中），循环自身继续
-                // 消费。
+                // 执行体包在 catch_unwind 里：unwind 构建（dev/test）下后台
+                // panic 转 TaskFailed（错误卡给用户「服务异常」而不是永悬的
+                // 推理中），循环自身继续消费。生效边界：release 以
+                // `panic = "abort"` 构建时 panic 在事发点 abort 进程，
+                // `Err(payload)` 分支不可达——屏障仅为 unwind 构建保留。
                 async {
                     tokio::select! {
                         _ = cancel.cancelled() => {
