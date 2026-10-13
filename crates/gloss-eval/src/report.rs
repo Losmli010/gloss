@@ -26,6 +26,18 @@ pub struct EvalReport {
     pub judge: Option<JudgeSummary>,
     /// 数据集条目中无夹具覆盖、被跳过的数量。
     pub skipped: usize,
+    /// 采集上下文（历史行的 upsert 键用；旧报告 JSON 无此段照常解析）。
+    #[serde(default)]
+    pub context: Option<EvalContext>,
+}
+
+/// 采集上下文（可选；旧报告 JSON 无此段照常解析）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvalContext {
+    /// git 短 SHA（流水线经 GLOSS_EVAL_COMMIT 注入；本地运行缺省）。
+    pub commit: Option<String>,
+    /// 采集来源（GLOSS_EVAL_SOURCE 注入，如 "pipeline" / "local"）。
+    pub source: Option<String>,
 }
 
 /// 分类轨的序列化视图（混淆矩阵拍平成行）。
@@ -299,6 +311,7 @@ pub fn assemble_report(
         latency: latency_summary,
         judge,
         skipped,
+        context: None,
     }
 }
 

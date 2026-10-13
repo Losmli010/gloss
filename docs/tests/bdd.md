@@ -1249,3 +1249,38 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | live_track_records_rounds_and_repair_metrics_through_the_production_loops | live 轨经生产循环记轮与修复指标 | 给定脚本引擎（分类违约修复、词卡违约修复、句译/代码一次通过）与 --record，当 run_live，则指标来自 classify_traced / run_task_rounds 的轮记录（修复轮次、违约类别、判定正确）、录制按轮成夹具、引擎恰 6 次调用 | 2026-10-12 |
 | a_task_engine_failure_still_counts_one_degraded_case | 任务轨引擎失败单条计降级 | 给定词卡任务脚本一次引擎失败（句译/代码正常），当 run_live（无 --record），则该条 evaluated+degraded 各 1、无修复轮次、无录制（引擎失败与模型行为分账的既有口径保持） | 2026-10-12 |
 | run_task_case_splits_rounds_on_the_repair_boundary | 任务轮记录按修复边界切轮 | 给定「双增量散文轮 → 双增量契约轮」脚本队列，当 run_task_case，则 RunOutput.repairs 为 1、轮记录恰两轮、各轮为该轮增量拼接（on_repair 是唯一轮边界信号） | 2026-10-12 |
+
+### crates/gloss-eval/src/history.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| first_run_appends_one_line | 首写追加一行 | 给定空目录与一份无 context 的报告，当 record_run，则 history.jsonl 恰一行、LF 结尾、读回 mode/generated_at 一致且 context 缺省 | 2026-10-12 |
+| same_mode_and_commit_overwrites_in_place | 同键原位覆盖不叠行 | 给定同 (mode, commit) 的两份报告，当先后 record_run，则文件恒一行且新报告的时间戳胜出 | 2026-10-12 |
+| different_commit_or_mode_appends | 换 commit/换 mode 追加 | 给定同 mode 换 commit 与同 commit 换 mode 的报告，当先后 record_run，则各占一行（mode 是 upsert 键的一半） | 2026-10-12 |
+| missing_commit_always_appends | 无 commit 恒追加 | 给定两份无 context.commit 的同 mode 报告，当先后 record_run，则叠两行（本地行永不参与匹配） | 2026-10-12 |
+| blank_lines_are_skipped_on_load | 空行跳过 | 给定夹空行与尾空行的 history.jsonl，当 load_history，则空行不计、好行照常读回 | 2026-10-12 |
+| corrupt_lines_are_skipped_and_warned | 坏行跳过且有 stderr 警告 | 给定好行+坏行+好行的 history.jsonl，当 load_history，则坏行带行号警告后跳过、两侧好行无恙（进程中断的半截尾行不炸全量） | 2026-10-12 |
+| unterminated_final_line_is_readable | 无换行尾行可读 | 给定末行缺 LF 的 history.jsonl，当 load_history，则末行照常解析 | 2026-10-12 |
+| record_run_redraws_history_svg | 记录后全量重绘趋势 | 给定一次 record_run 与随后一次换 commit 的追加，当各自完成，则 history.svg 存在且标题点数随全量历史更新 | 2026-10-12 |
+| context_roundtrips_and_legacy_rows_default_to_none | context 段往返与旧行兼容 | 给定带 context 的报告行与无 context 段的旧报告 JSON，当写入读回/直接解析，则行内 context 段逐字节往返、旧行 context 为 None | 2026-10-12 |
+
+### crates/gloss-eval/src/svg.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| panel_count_follows_available_samples | 面板数随数据条件变化 | 给定空历史/仅 replay 报告/含 judge 与延迟样本的报告，当 render_svg，则分别为零面板（含空态文案）/三面板/五面板（judge 与延迟仅历史有样本才画） | 2026-10-12 |
+| panels_render_polylines_ticks_and_legends | 面板要素齐备 | 给定两份完整报告，当 render_svg，则 polyline/圆点/悬浮 title（带点位标签）/网格线/x 轴刻度/图例/frame 全部在场 | 2026-10-12 |
+| text_is_xml_escaped | 文本 XML 转义 | 给定 mode 与 commit 含 &/< 的报告，当 render_svg，则标签文本以实体出现、原字符不落进文本节点 | 2026-10-12 |
+| rendering_is_byte_deterministic | 渲染确定性 | 给定同一份历史，当 render_svg 两次，则输出逐字节一致（SVG 内无时间戳无环境读取） | 2026-10-12 |
+| beyond_max_points_only_latest_are_drawn | 超 100 点只画最近 100 点 | 给定 120 点历史，当 render_svg，则标题计 100 点、末点在场、窗口外首点不落图 | 2026-10-12 |
+| x_ticks_sample_at_most_four_points | x 轴稀疏刻度 ≤4 且均匀取样 | 给定 8 点与 2 点历史，当 render_svg，则分别刻出第 0/2/5/7 点与全部两点（8 点时中间点不刻） | 2026-10-12 |
+| commit_labels_win_over_dates | x 标签 commit 优先、UTC 固定换算 | 给定带 commit 与无 commit（generated_at=unix 0）两份报告，当 render_svg，则前者标 SHA、后者标 UTC 日期+mode（01-01 replay） | 2026-10-12 |
+| a_panel_with_some_empty_series_hides_those_series | 空序列隐去、空面板跳过 | 给定只有分类轨样本的报告，当 render_svg，则分类面板照画、任务序列从图例隐去、全序列皆空的任务面板整体不出现 | 2026-10-12 |
+
+### crates/gloss-eval/src/main.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| replay_run_writes_report_and_history_files | replay 接线产出报告与历史 | 给定临时目录（GLOSS_EVAL_DIR 语义由参数表达），当 run_replay_into，则 replay.json/.md、history.jsonl（一行）与 history.svg 同点产出 | 2026-10-12 |
+| second_replay_run_appends_without_commit | 本地重跑恒追加 | 给定同一临时目录连续两次无 context 的 replay，当各自落盘，则 history.jsonl 叠两行、history.svg 仍在 | 2026-10-12 |
+| finish_run_report_writes_the_injected_context_through | 注入的 context 落进报告 | 给定带 commit/source 的 context 注入，当 finish_run_report，则写出的 replay.json 携带 context 段 | 2026-10-12 |
