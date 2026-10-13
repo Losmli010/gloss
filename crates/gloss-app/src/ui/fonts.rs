@@ -10,7 +10,8 @@
 //! 按 demo 自己的回退链落到宋体（docs/demo/popup-redesign.html 的 --kai 栈
 //! 以 Songti SC 收尾）；等宽族按 demo 的 ui-monospace 栈依序探测系统等宽，
 //! 族绑定是「系统等宽 + CJK 后备字节」（代码内中文注释仍可读），候选全缺席
-//! 时兜底到内置字形。字体字节进程内只向系统读一次文件，浮层与设置窗两个
+//! 时兜底到内置字形。字体字节进程内只向系统读一次文件（mmap 文件背页，
+//! 映射失败回退整包拷贝），浮层与设置窗两个
 //! egui 上下文引用同一份；ttc 集合整体登记（egui 按序号取面），不做单面
 //! 解包。查找失败只降级不阻塞启动：CJK 后备缺席出 warn，比例/等宽族不接
 //! 系统字形（中文暂时不可读）；命名字体族仍恒注册、兜底到内置字形——
@@ -18,10 +19,12 @@
 //! 开源字体兜底。
 
 use std::borrow::Cow;
+use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
 
 use egui::{FontData, FontDefinitions, FontFamily, FontTweak};
 use gloss_core::log::{thread, warn};
+use memmap2::Mmap;
 
 /// CJK 字体在 egui 字体表里登记的名字。
 pub(super) const FONT_NAME: &str = "gloss-cjk";
@@ -48,22 +51,60 @@ pub(super) fn mono_family() -> FontFamily {
     FontFamily::Name(FONT_MONO_NAME.into())
 }
 
-/// 一个系统字族的解析结果：整份字体文件的字节与目标面在文件内的序号。
-/// 字节是 `fs::read` 的一次拷贝，进程内常驻（缓存于各 `OnceLock`）；
-/// ttc 集合整体交给 egui，按序号取面。
+/// 字体文件字节的进程内背衬：首选 mmap 文件背页——egui 登记的借用切片
+/// 直接指回文件页，字节不进进程私有堆，只有字形表被实际触碰的页驻留物
+/// 理内存；映射失败回退 `fs::read` 整包拷贝。两种形态对登记等价，消费
+/// 面只有只读切片（[`Deref`] 到 `[u8]`）。
+enum FontBacking {
+    Mapped(Mmap),
+    Copied(Vec<u8>),
+}
+
+impl FontBacking {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            FontBacking::Mapped(mapped) => mapped,
+            FontBacking::Copied(bytes) => bytes,
+        }
+    }
+}
+
+impl Deref for FontBacking {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+/// 一个系统字族的解析结果：整份字体文件的字节背衬与目标面在文件内的
+/// 序号。字节首选 mmap 文件背页、映射失败回退整包拷贝，进程内常驻
+/// （缓存于各 `OnceLock`）；ttc 集合整体交给 egui，按序号取面。
 struct FamilyFont {
-    bytes: Vec<u8>,
+    bytes: FontBacking,
     index: u32,
 }
 
+impl FamilyFont {
+    /// 整包字节构造：无文件来源的合成字体（测试）用的等价入口；生产路径
+    /// 的字节背衬由 `imp::load_backing` 直接给出。
+    #[cfg(test)]
+    fn from_bytes(bytes: Vec<u8>, index: u32) -> FamilyFont {
+        FamilyFont {
+            bytes: FontBacking::Copied(bytes),
+            index,
+        }
+    }
+}
+
 /// 把一张系统字面登记进字体表：字节以借用形态挂到 `name` 上。签名要求
-/// `'static` 字体——登记的字节必须进程内常驻（生产路径出自 `OnceLock`
-/// 缓存），借用的 `Cow` 才不悬垂。
+/// `'static` 字体——登记的字节背衬必须进程内常驻（生产路径出自 `OnceLock`
+/// 缓存），借用的 `Cow` 才不悬垂；切片指向映射页还是回退拷贝由背衬收敛。
 fn insert_face(font: &'static FamilyFont, definitions: &mut FontDefinitions, name: &str) {
     definitions.font_data.insert(
         name.to_owned(),
         Arc::new(FontData {
-            font: Cow::Borrowed(&font.bytes),
+            font: Cow::Borrowed(font.bytes.as_slice()),
             index: font.index,
             tweak: FontTweak::default(),
         }),
@@ -224,6 +265,9 @@ fn register_mono_family(
 }
 
 mod imp {
+    use std::fs::File;
+    use std::path::Path;
+
     use core_foundation::array::CFArray;
     use core_foundation::base::TCFType;
     use core_foundation::dictionary::CFDictionary;
@@ -234,8 +278,9 @@ mod imp {
         kCTFontExpandedTrait, kCTFontItalicTrait, new_from_attributes,
     };
     use gloss_core::log::{debug, info, thread, warn};
+    use memmap2::Mmap;
 
-    use super::{CJK_FAMILIES, FONT_NAME, FamilyFont};
+    use super::{CJK_FAMILIES, FONT_NAME, FamilyFont, FontBacking};
 
     /// 依候选顺序查系统 CJK 字体，命中第一个就返回它的文件字节与面序号。
     pub(super) fn load_cjk() -> Option<FamilyFont> {
@@ -266,15 +311,15 @@ mod imp {
                 continue;
             };
             let postscript = descriptor.font_name();
-            let bytes = match std::fs::read(&path) {
+            let bytes = match load_backing(&path) {
                 Ok(bytes) => bytes,
                 Err(err) => {
                     warn!(
                         thread = thread::FONTS,
                         family,
-                        error = %err,
+                        error = err,
                         path = %path.display(),
-                        "failed to read matched font file"
+                        "failed to load matched font file"
                     );
                     continue;
                 }
@@ -300,6 +345,33 @@ mod imp {
             "exhausted font family candidates"
         );
         None
+    }
+
+    /// 装载一个字体文件的字节背衬：mmap 文件背页优先，egui 登记的借用
+    /// 切片恒指回文件页、字节不进进程私有堆；映射失败（空文件、系统调用
+    /// 失败）留 warn 后回退 `fs::read` 整包拷贝——降级带痕迹、不阻塞启
+    /// 动。两条路都失败才报错。
+    fn load_backing(path: &Path) -> Result<FontBacking, String> {
+        let mapped = File::open(path)
+            .map_err(|err| err.to_string())
+            .and_then(|file| {
+                // SAFETY: 映射的是系统字体文件——由系统管理、本进程从不
+                // 写入，进程生命期内不被截断；映射长度即打开时的文件长度，
+                // 切片读取不会越出映射页。
+                unsafe { Mmap::map(&file) }.map_err(|err| err.to_string())
+            });
+        match mapped {
+            Ok(backing) => return Ok(FontBacking::Mapped(backing)),
+            Err(err) => warn!(
+                thread = thread::FONTS,
+                path = %path.display(),
+                error = err,
+                "font file mmap failed, falling back to full copy"
+            ),
+        }
+        std::fs::read(path)
+            .map(FontBacking::Copied)
+            .map_err(|err| err.to_string())
     }
 
     /// 家族集合里选常规面：先比风格修正位（粗斜宽窄，越少越常规），再比
@@ -446,10 +518,7 @@ mod tests {
 
     fn sample_font() -> &'static FamilyFont {
         static FONT: OnceLock<FamilyFont> = OnceLock::new();
-        FONT.get_or_init(|| FamilyFont {
-            bytes: SAMPLE_FONT.to_vec(),
-            index: 0,
-        })
+        FONT.get_or_init(|| FamilyFont::from_bytes(SAMPLE_FONT.to_vec(), 0))
     }
 
     fn registered_bytes(definitions: &FontDefinitions, name: &str) -> &'static [u8] {
