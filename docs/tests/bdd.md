@@ -1273,7 +1273,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | panel_count_follows_available_samples | 面板数随数据条件变化 | 给定空历史/单数据集 replay 报告/含 judge 与延迟样本的报告，当 render_svg，则分别为零面板（含空态文案）/三面板（分类 + 词卡 + 修复成本）/五面板；任务轨按数据集各一面板，未出现的数据集无面板，judge 与延迟仅历史有样本才画 | 2026-10-13 |
 | panels_render_polylines_ticks_and_legends | 面板要素齐备 | 给定两份完整报告，当 render_svg，则 polyline/圆点/悬浮 title（带 UTC 时间与 mode、数值两位小数）/网格线/x 轴时间刻度/图例/frame/右上角「最近一次」标注全部在场 | 2026-10-13 |
 | text_is_xml_escaped | 文本 XML 转义 | 给定 mode 与 commit 含 &/< 的报告，当 render_svg，则悬浮与「最近一次」标注中的 mode/commit 以实体出现、原字符不落进文本节点 | 2026-10-13 |
-| rendering_is_byte_deterministic | 渲染确定性 | 给定同一份历史，当 render_svg 两次，则输出逐字节一致（SVG 内无渲染时刻的时间戳无环境读取） | 2026-10-12 |
+| rendering_is_byte_deterministic | 渲染确定性 | 给定同一份历史，当 render_svg 两次，则输出逐字节一致（SVG 内无渲染时刻的时间戳无环境读取） | 2026-10-13 |
 | beyond_max_points_only_latest_are_drawn | 超 100 点只画最近 100 点 | 给定 120 点历史，当 render_svg，则标题计 100 点、末点 commit 进悬浮、窗口外首点不落图 | 2026-10-13 |
 | x_ticks_sample_at_most_four_points | x 轴稀疏刻度 ≤4 且均匀取样 | 给定 8 点（UTC 时间逐点推进）与 2 点历史，当 render_svg，则分别刻出第 0/2/5/7 点的时间刻度与全部两点（8 点时中间点不刻） | 2026-10-13 |
 | ticks_carry_timestamps_and_hover_carries_commit | 刻度即 UTC 时间、commit 进悬浮 | 给定带 commit 与无 commit 的两份报告，当 render_svg，则刻度标 MM-DD HH:MM、带 commit 点的悬浮附 SHA、本地点悬浮只带 mode，头部标注最近一次运行 | 2026-10-13 |

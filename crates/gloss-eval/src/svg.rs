@@ -317,8 +317,9 @@ fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
         ],
     );
 
-    for dataset in dataset_order(points) {
-        let title = format!("任务轨 · {}（%）", dataset_label(&dataset));
+    let datasets = dataset_order(points);
+    for dataset in &datasets {
+        let title = format!("任务轨 · {}（%）", dataset_label(dataset));
         push_panel(
             &mut panels,
             &title,
@@ -328,19 +329,19 @@ fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
                     label: "契约 JSON 率".to_owned(),
                     color: COLOR_BLUE,
                     unit: Unit::Percent,
-                    values: dataset_rate(points, &dataset, |metrics| metrics.json_object),
+                    values: dataset_rate(points, dataset, |metrics| metrics.json_object),
                 },
                 Series {
                     label: "字段完整率".to_owned(),
                     color: COLOR_GREEN,
                     unit: Unit::Percent,
-                    values: dataset_rate(points, &dataset, |metrics| metrics.fields_complete),
+                    values: dataset_rate(points, dataset, |metrics| metrics.fields_complete),
                 },
                 Series {
                     label: "降级率".to_owned(),
                     color: COLOR_PINK,
                     unit: Unit::Percent,
-                    values: dataset_rate(points, &dataset, |metrics| metrics.degraded),
+                    values: dataset_rate(points, dataset, |metrics| metrics.degraded),
                 },
             ],
         );
@@ -361,7 +362,7 @@ fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
         unit: Unit::Rounds,
         values: classify_rounds,
     }];
-    for (index, dataset) in dataset_order(points).iter().enumerate() {
+    for (index, dataset) in datasets.iter().enumerate() {
         cost.push(Series {
             label: dataset_label(dataset).to_owned(),
             color: COST_COLORS[index % COST_COLORS.len()],

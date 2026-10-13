@@ -420,6 +420,8 @@ mod tests {
             super::format_utc(1_791_763_200 + 86_399),
             "2026-10-12 23:59"
         );
+        assert_eq!(super::format_utc(-1), "1969-12-31 23:59");
+        assert_eq!(super::format_utc_short(-86_400), "12-31 00:00");
         assert_eq!(super::format_utc_short(1_000), "01-01 00:16");
     }
 
