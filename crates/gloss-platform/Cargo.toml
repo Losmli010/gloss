@@ -62,9 +62,6 @@ objc2-foundation = {
     "NSURL",
   ]
 }
-# 兜底复制的按键注入与真机测试的事件注入（rdev::simulate）；默认集只多出
-# 可选的 serde 支持，注入用不到。手势监听不走 rdev（见 events/mouse.rs 模块注释）。
-rdev = { version = "0.5", default-features = false }
 # KeychainSecret 的 Security framework 绑定（通用密码读写）。无版本门控
 # 特性需求。
 security-framework = { version = "3", default-features = false }

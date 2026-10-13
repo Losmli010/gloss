@@ -43,7 +43,7 @@ pub mod thread {
     pub const UI: &str = "ui";
     /// 平台事件线程：鼠标手势与取材命令消费。
     pub const EVENT: &str = "event";
-    /// 鼠标 tap 监听线程：rdev 全局事件流的独立宿主。
+    /// 鼠标 tap 监听线程：全局事件 tap 的独立宿主。
     pub const MOUSE_TAP: &str = "mouse_tap";
     /// 字体装载线程：系统字体延迟装载的后台宿主。
     pub const FONTS: &str = "fonts";
