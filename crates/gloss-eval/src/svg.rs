@@ -1,13 +1,16 @@
 //! 评测趋势 SVG 渲染：`render_svg` 是纯函数——入参只认报告切片，不读
-//! 环境、不落盘；输出确定性字节（无时间戳、浮点坐标固定一位小数、遍历
-//! 次序稳定），同输入两次渲染逐字节一致，入库后 PR diff 即数据 diff。
+//! 环境、不落盘；输出确定性字节（无渲染时刻的时间戳、浮点坐标固定两位
+//! 小数、遍历次序稳定），同输入两次渲染逐字节一致，入库后 PR diff 即数
+//! 据 diff。
 //!
-//! 形态基准是 `docs/plans/2026-10-12-eval-history-demo.svg`：960 宽白底、
-//! 面板纵向堆叠（标题 + 内联图例、细网格与刻度、frame、polyline + 圆点、
-//! x 轴稀疏刻度）、每点内嵌 `<title>` 悬浮数值；缺样本断线跳段不造点。
+//! 图面：960 宽白底、面板纵向堆叠（标题 + 内联图例、细网格与刻度、
+//! frame、polyline + 圆点、x 轴稀疏刻度）；x 轴刻度是各点的 UTC 时间
+//! （`MM-DD HH:MM`），mode 与 commit 进悬浮 `<title>`，右上角固定标注
+//! 最近一次运行；任务轨按数据集各一面板，修复成本逐数据集出线。缺样
+//! 本断线跳段不造点。
 
 use crate::metrics::TaskMetrics;
-use crate::report::EvalReport;
+use crate::report::{EvalReport, format_utc, format_utc_short};
 
 /// 趋势图最多绘制的点数：只画最近 100 点（JSONL 本身不裁剪）。
 pub const HISTORY_SVG_MAX_POINTS: usize = 100;
@@ -39,15 +42,22 @@ const COLOR_ORANGE: &str = "#e8862e";
 const COLOR_GREEN: &str = "#2f9e57";
 const COLOR_PINK: &str = "#d64c7f";
 
+/// 修复成本面板里各任务数据集的线色（分类轨固定蓝色）。
+const COST_COLORS: [&str; 3] = [COLOR_ORANGE, COLOR_GREEN, COLOR_PINK];
+
 const FONT_STACK: &str = "-apple-system,'Segoe UI',sans-serif";
-const FOOTNOTE: &str = "口径：replay 轨度量生产校验器对固化夹具的判定，live 轨为模型现状；数据源 history.jsonl，仅绘最近 100 点。";
+const FOOTNOTE: &str = "口径：replay 轨度量生产校验器对固化夹具的判定，live 轨为模型现状；数据源 history.jsonl，仅绘最近 100 点，时间一律 UTC。";
 const EMPTY_NOTE: &str = "暂无评测历史。";
 
 /// 确定性渲染：超 [`HISTORY_SVG_MAX_POINTS`] 只画最近 100 点；面板数随
-/// 数据条件变化（judge 与延迟仅历史有样本才画）。
+/// 数据条件变化（judge 与延迟仅历史有样本才画，任务面板随数据集出现）。
 pub fn render_svg(history: &[EvalReport]) -> String {
     let points = latest_points(history);
-    let labels: Vec<String> = points.iter().map(point_label).collect();
+    let hovers: Vec<String> = points.iter().map(hover_label).collect();
+    let ticks: Vec<String> = points
+        .iter()
+        .map(|report| format_utc_short(report.generated_at))
+        .collect();
     let xs = x_positions(points.len());
     let panels = build_panels(points);
     let height = svg_height(panels.len());
@@ -69,6 +79,15 @@ pub fn render_svg(history: &[EvalReport]) -> String {
             points.len()
         ),
     );
+    if let Some(latest) = points.last() {
+        line(
+            &mut out,
+            format!(
+                "<text x=\"946\" y=\"26\" font-size=\"11\" fill=\"{COLOR_MUTED}\" text-anchor=\"end\">{}</text>",
+                esc(&latest_note(latest))
+            ),
+        );
+    }
     line(
         &mut out,
         format!(
@@ -84,10 +103,40 @@ pub fn render_svg(history: &[EvalReport]) -> String {
         );
     }
     for (index, panel) in panels.iter().enumerate() {
-        draw_panel(&mut out, index, panel, &labels, &xs);
+        draw_panel(&mut out, index, panel, &ticks, &hovers, &xs);
     }
     line(&mut out, "</svg>".to_owned());
     out
+}
+
+/// 右上角「最近一次」标注：UTC 时间 + mode（+ commit）。
+fn latest_note(report: &EvalReport) -> String {
+    let mut note = format!(
+        "最近一次 {} UTC · {}",
+        format_utc(report.generated_at),
+        report.mode
+    );
+    if let Some(commit) = report
+        .context
+        .as_ref()
+        .and_then(|context| context.commit.as_ref())
+    {
+        note.push_str(&format!("（{commit}）"));
+    }
+    note
+}
+
+/// 悬浮标签：UTC 时间 + mode（+ commit）。
+fn hover_label(report: &EvalReport) -> String {
+    let mut label = format!("{} {}", format_utc_short(report.generated_at), report.mode);
+    if let Some(commit) = report
+        .context
+        .as_ref()
+        .and_then(|context| context.commit.as_ref())
+    {
+        label.push_str(&format!("（{commit}）"));
+    }
+    label
 }
 
 /// 面板纵轴的口径：决定值域与网格刻度的取法。
@@ -144,7 +193,7 @@ impl Axis {
                 let mid = (lo + hi) / 2.0;
                 let gridline = |value: f64| Gridline {
                     value,
-                    label: format!("{value:.1}"),
+                    label: format!("{value:.2}"),
                 };
                 (lo, hi, vec![gridline(lo), gridline(mid), gridline(hi)])
             }
@@ -195,30 +244,30 @@ struct Gridline {
 /// 序列数值在悬浮框里的单位与格式。
 #[derive(Debug, Clone, Copy)]
 enum Unit {
-    /// 百分比（一位小数 + 空格 + %）。
+    /// 百分比（两位小数 + 空格 + %）。
     Percent,
     /// 修复轮次（整数 + 轮）。
     Rounds,
-    /// judge 分（一位小数 + 分）。
+    /// judge 分（两位小数 + 分）。
     Score,
-    /// 毫秒（整数 + ms）。
+    /// 毫秒（两位小数 + ms）。
     Milliseconds,
 }
 
 impl Unit {
     fn title_value(self, value: f64) -> String {
         match self {
-            Unit::Percent => format!("{value:.1} %"),
+            Unit::Percent => format!("{value:.2} %"),
             Unit::Rounds => format!("{} 轮", fmt_value(value)),
-            Unit::Score => format!("{value:.1} 分"),
-            Unit::Milliseconds => format!("{} ms", fmt_value(value)),
+            Unit::Score => format!("{value:.2} 分"),
+            Unit::Milliseconds => format!("{value:.2} ms"),
         }
     }
 }
 
 /// 面板内的一条序列：各点取值，缺样本为 `None`（断线跳段不造点）。
 struct Series {
-    label: &'static str,
+    label: String,
     color: &'static str,
     unit: Unit,
     values: Vec<Option<f64>>,
@@ -254,13 +303,13 @@ fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
         Axis::Percent,
         vec![
             Series {
-                label: "accuracy",
+                label: "accuracy".to_owned(),
                 color: COLOR_BLUE,
                 unit: Unit::Percent,
                 values: accuracy,
             },
             Series {
-                label: "回退率",
+                label: "回退率".to_owned(),
                 color: COLOR_ORANGE,
                 unit: Unit::Percent,
                 values: fallback,
@@ -268,31 +317,35 @@ fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
         ],
     );
 
-    push_panel(
-        &mut panels,
-        "任务轨契约达成（%，全任务集聚合）",
-        Axis::Percent,
-        vec![
-            Series {
-                label: "契约 JSON 率",
-                color: COLOR_BLUE,
-                unit: Unit::Percent,
-                values: aggregate_task_rate(points, |metrics| metrics.json_object),
-            },
-            Series {
-                label: "字段完整率",
-                color: COLOR_GREEN,
-                unit: Unit::Percent,
-                values: aggregate_task_rate(points, |metrics| metrics.fields_complete),
-            },
-            Series {
-                label: "降级率",
-                color: COLOR_PINK,
-                unit: Unit::Percent,
-                values: aggregate_task_rate(points, |metrics| metrics.degraded),
-            },
-        ],
-    );
+    let datasets = dataset_order(points);
+    for dataset in &datasets {
+        let title = format!("任务轨 · {}（%）", dataset_label(dataset));
+        push_panel(
+            &mut panels,
+            &title,
+            Axis::Percent,
+            vec![
+                Series {
+                    label: "契约 JSON 率".to_owned(),
+                    color: COLOR_BLUE,
+                    unit: Unit::Percent,
+                    values: dataset_rate(points, dataset, |metrics| metrics.json_object),
+                },
+                Series {
+                    label: "字段完整率".to_owned(),
+                    color: COLOR_GREEN,
+                    unit: Unit::Percent,
+                    values: dataset_rate(points, dataset, |metrics| metrics.fields_complete),
+                },
+                Series {
+                    label: "降级率".to_owned(),
+                    color: COLOR_PINK,
+                    unit: Unit::Percent,
+                    values: dataset_rate(points, dataset, |metrics| metrics.degraded),
+                },
+            ],
+        );
+    }
 
     let classify_rounds = points
         .iter()
@@ -303,37 +356,21 @@ fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
                 .map(|stats| f64::from(stats.metrics.repair_rounds))
         })
         .collect();
-    let task_rounds = points
-        .iter()
-        .map(|report| {
-            (!report.tasks.is_empty()).then(|| {
-                report
-                    .tasks
-                    .iter()
-                    .map(|stats| f64::from(stats.metrics.repair_rounds))
-                    .sum()
-            })
-        })
-        .collect();
-    push_panel(
-        &mut panels,
-        "修复成本（轮）",
-        Axis::Rounds,
-        vec![
-            Series {
-                label: "分类轨",
-                color: COLOR_BLUE,
-                unit: Unit::Rounds,
-                values: classify_rounds,
-            },
-            Series {
-                label: "任务轨",
-                color: COLOR_ORANGE,
-                unit: Unit::Rounds,
-                values: task_rounds,
-            },
-        ],
-    );
+    let mut cost = vec![Series {
+        label: "分类轨".to_owned(),
+        color: COLOR_BLUE,
+        unit: Unit::Rounds,
+        values: classify_rounds,
+    }];
+    for (index, dataset) in datasets.iter().enumerate() {
+        cost.push(Series {
+            label: dataset_label(dataset).to_owned(),
+            color: COST_COLORS[index % COST_COLORS.len()],
+            unit: Unit::Rounds,
+            values: dataset_rounds(points, dataset),
+        });
+    }
+    push_panel(&mut panels, "修复成本（轮）", Axis::Rounds, cost);
 
     let judge = points
         .iter()
@@ -344,7 +381,7 @@ fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
         "judge 均分（1–5）",
         Axis::Judge,
         vec![Series {
-            label: "judge 均分",
+            label: "judge 均分".to_owned(),
             color: COLOR_BLUE,
             unit: Unit::Score,
             values: judge,
@@ -365,13 +402,13 @@ fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
         Axis::Latency,
         vec![
             Series {
-                label: "p50",
+                label: "p50".to_owned(),
                 color: COLOR_BLUE,
                 unit: Unit::Milliseconds,
                 values: p50,
             },
             Series {
-                label: "p95",
+                label: "p95".to_owned(),
                 color: COLOR_ORANGE,
                 unit: Unit::Milliseconds,
                 values: p95,
@@ -405,27 +442,73 @@ fn push_panel(panels: &mut Vec<Panel>, title: &str, axis: Axis, series: Vec<Seri
     });
 }
 
-/// 全任务集聚合的任务轨比率：分子跨数据集求和，分母 = 总 evaluated；
-/// 没有任何样本（分母 0）视作缺样本。
-fn aggregate_task_rate(
+/// 历史中出现过的数据集，按首次出现序排列（确定性遍历序）。
+fn dataset_order(points: &[EvalReport]) -> Vec<String> {
+    let mut seen: Vec<String> = Vec::new();
+    for report in points {
+        for stats in &report.tasks {
+            if !seen.iter().any(|name| name == &stats.dataset) {
+                seen.push(stats.dataset.clone());
+            }
+        }
+    }
+    seen
+}
+
+/// 数据集显示名（未知 id 原样展示）。
+fn dataset_label(dataset: &str) -> &str {
+    match dataset {
+        "task_translate_word" => "词卡",
+        "task_translate_sentence" => "句译",
+        "task_explain_code" => "代码",
+        other => other,
+    }
+}
+
+/// 单数据集在历史各点的比率；该点缺席数据集或分母为 0 视作缺样本。
+fn dataset_rate(
     points: &[EvalReport],
+    dataset: &str,
     pick: impl Fn(&TaskMetrics) -> usize,
 ) -> Vec<Option<f64>> {
     points
         .iter()
         .map(|report| {
-            let mut numerator = 0usize;
-            let mut denominator = 0usize;
-            for stats in &report.tasks {
-                numerator += pick(&stats.metrics);
-                denominator += stats.metrics.evaluated;
-            }
-            (denominator > 0).then(|| numerator as f64 / denominator as f64 * 100.0)
+            report
+                .tasks
+                .iter()
+                .find(|stats| stats.dataset == dataset)
+                .and_then(|stats| {
+                    (stats.metrics.evaluated > 0).then(|| {
+                        pick(&stats.metrics) as f64 / stats.metrics.evaluated as f64 * 100.0
+                    })
+                })
         })
         .collect()
 }
 
-fn draw_panel(out: &mut String, index: usize, panel: &Panel, labels: &[String], xs: &[f64]) {
+/// 单数据集在历史各点的修复轮次；该点缺席数据集视作缺样本。
+fn dataset_rounds(points: &[EvalReport], dataset: &str) -> Vec<Option<f64>> {
+    points
+        .iter()
+        .map(|report| {
+            report
+                .tasks
+                .iter()
+                .find(|stats| stats.dataset == dataset)
+                .map(|stats| f64::from(stats.metrics.repair_rounds))
+        })
+        .collect()
+}
+
+fn draw_panel(
+    out: &mut String,
+    index: usize,
+    panel: &Panel,
+    ticks: &[String],
+    hovers: &[String],
+    xs: &[f64],
+) {
     let title_y = FIRST_TITLE_Y + index * PANEL_PITCH;
     let frame_top = title_y + FRAME_TOP_OFFSET;
     let frame_bottom = frame_top + FRAME_HEIGHT;
@@ -443,7 +526,7 @@ fn draw_panel(out: &mut String, index: usize, panel: &Panel, labels: &[String], 
             out,
             format!(
                 "<rect x=\"{}\" y=\"{}\" width=\"{SWATCH_SIZE}\" height=\"{SWATCH_SIZE}\" rx=\"2\" fill=\"{}\"/>",
-                f1(swatch_x),
+                f2(swatch_x),
                 title_y - SWATCH_BASELINE_OFFSET,
                 series.color
             ),
@@ -452,11 +535,11 @@ fn draw_panel(out: &mut String, index: usize, panel: &Panel, labels: &[String], 
             out,
             format!(
                 "<text x=\"{}\" y=\"{title_y}\" font-size=\"12\" fill=\"{COLOR_MUTED}\" text-anchor=\"end\">{}</text>",
-                f1(swatch_x - SWATCH_TEXT_GAP),
-                esc(series.label)
+                f2(swatch_x - SWATCH_TEXT_GAP),
+                esc(&series.label)
             ),
         );
-        swatch_x -= SWATCH_TEXT_GAP + text_w(series.label, LEGEND_FONT_SIZE) + LEGEND_ITEM_GAP;
+        swatch_x -= SWATCH_TEXT_GAP + text_w(&series.label, LEGEND_FONT_SIZE) + LEGEND_ITEM_GAP;
     }
     let span = panel.hi - panel.lo;
     let y_of = |value: f64| frame_bottom as f64 - (value - panel.lo) / span * FRAME_HEIGHT as f64;
@@ -466,15 +549,15 @@ fn draw_panel(out: &mut String, index: usize, panel: &Panel, labels: &[String], 
             out,
             format!(
                 "<line x1=\"46\" y1=\"{}\" x2=\"946\" y2=\"{}\" stroke=\"{COLOR_GRID}\" stroke-width=\"1\"/>",
-                f1(y),
-                f1(y)
+                f2(y),
+                f2(y)
             ),
         );
         line(
             out,
             format!(
                 "<text x=\"40\" y=\"{}\" font-size=\"11\" fill=\"{COLOR_MUTED}\" text-anchor=\"end\">{}</text>",
-                f1(y + 4.0),
+                f2(y + 4.0),
                 gridline.label
             ),
         );
@@ -490,8 +573,8 @@ fn draw_panel(out: &mut String, index: usize, panel: &Panel, labels: &[String], 
             out,
             format!(
                 "<text x=\"{}\" y=\"{tick_y}\" font-size=\"11\" fill=\"{COLOR_MUTED}\" text-anchor=\"middle\">{}</text>",
-                f1(xs[tick]),
-                esc(&labels[tick])
+                f2(xs[tick]),
+                esc(&ticks[tick])
             ),
         );
     }
@@ -500,7 +583,7 @@ fn draw_panel(out: &mut String, index: usize, panel: &Panel, labels: &[String], 
             if segment.len() >= 2 {
                 let points = segment
                     .iter()
-                    .map(|(point, value)| format!("{},{}", f1(xs[*point]), f1(y_of(*value))))
+                    .map(|(point, value)| format!("{},{}", f2(xs[*point]), f2(y_of(*value))))
                     .collect::<Vec<_>>()
                     .join(" ");
                 line(
@@ -515,15 +598,15 @@ fn draw_panel(out: &mut String, index: usize, panel: &Panel, labels: &[String], 
                 let hover = format!(
                     "{} · {}：{}",
                     series.label,
-                    labels[*point],
+                    hovers[*point],
                     series.unit.title_value(*value)
                 );
                 line(
                     out,
                     format!(
                         "<circle cx=\"{}\" cy=\"{}\" r=\"2.5\" fill=\"{}\"><title>{}</title></circle>",
-                        f1(xs[*point]),
-                        f1(y_of(*value)),
+                        f2(xs[*point]),
+                        f2(y_of(*value)),
                         series.color,
                         esc(&hover)
                     ),
@@ -595,51 +678,6 @@ fn segments(values: &[Option<f64>]) -> Vec<Vec<(usize, f64)>> {
     all
 }
 
-/// 点标签：context.commit 优先，否则 generated_at 的 UTC 日期 + mode。
-fn point_label(report: &EvalReport) -> String {
-    if let Some(commit) = report
-        .context
-        .as_ref()
-        .and_then(|context| context.commit.as_ref())
-    {
-        return commit.clone();
-    }
-    format!("{} {}", utc_date(&report.generated_at), report.mode)
-}
-
-/// `generated_at`（"unix <秒>"）→ UTC 的 MM-DD；解析不出时原样返回。
-/// 一律按 UTC 固定换算——跟随本地时区会让同一时间戳在不同机器漂一天。
-fn utc_date(generated_at: &str) -> String {
-    let Some(secs) = generated_at
-        .strip_prefix("unix ")
-        .and_then(|rest| rest.trim().parse::<u64>().ok())
-    else {
-        return generated_at.to_owned();
-    };
-    let (_, month, day) = civil_from_days((secs / 86_400) as i64);
-    format!("{month:02}-{day:02}")
-}
-
-/// UNIX 天数 → UTC 民用日期（Howard Hinnant 的 civil_from_days 算法，
-/// 零时间库依赖）。
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let shifted = days + 719_468;
-    let era = if shifted >= 0 {
-        shifted
-    } else {
-        shifted - 146_096
-    } / 146_097;
-    let day_of_era = (shifted - era * 146_097) as u64;
-    let year_of_era =
-        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let year = year_of_era as i64 + era * 400;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let mp = (5 * day_of_year + 2) / 153;
-    let day = (day_of_year - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if month <= 2 { year + 1 } else { year }, month, day)
-}
-
 /// 容纳 span 的最小 1-2-5×10^k 步长。
 fn nice_step(span: f64) -> f64 {
     let magnitude = 10.0f64.powf(span.log10().floor());
@@ -652,12 +690,12 @@ fn nice_step(span: f64) -> f64 {
     10.0 * magnitude
 }
 
-/// 轴刻度数值文本：整值不带小数，其余一位小数。
+/// 轴刻度数值文本：整值不带小数，其余固定两位小数。
 fn fmt_value(value: f64) -> String {
     if (value - value.round()).abs() < 1e-9 {
         format!("{}", value.round() as i64)
     } else {
-        format!("{value:.1}")
+        format!("{value:.2}")
     }
 }
 
@@ -686,9 +724,9 @@ fn esc(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// 浮点坐标固定一位小数。
-fn f1(value: f64) -> String {
-    format!("{value:.1}")
+/// 浮点坐标固定两位小数。
+fn f2(value: f64) -> String {
+    format!("{value:.2}")
 }
 
 fn line(out: &mut String, content: String) {
@@ -699,7 +737,9 @@ fn line(out: &mut String, content: String) {
 #[cfg(test)]
 mod tests {
     use crate::metrics::{ClassifyMetrics, Latency, TaskMetrics};
-    use crate::report::{ClassifyStats, EvalContext, EvalReport, JudgeSummary, assemble_report};
+    use crate::report::{
+        ClassifyStats, EvalContext, EvalReport, JudgeSummary, TaskStats, assemble_report,
+    };
     use crate::svg::{HISTORY_SVG_MAX_POINTS, render_svg};
 
     fn classify_metrics() -> ClassifyMetrics {
@@ -735,7 +775,7 @@ mod tests {
 
     fn report_with(
         mode: &str,
-        generated_at: &str,
+        generated_at: i64,
         latency: Option<&Latency>,
         judge: Option<JudgeSummary>,
     ) -> EvalReport {
@@ -747,15 +787,15 @@ mod tests {
             judge,
             0,
         );
-        report.generated_at = generated_at.to_owned();
+        report.generated_at = generated_at;
         report
     }
 
-    fn replay_report(generated_at: &str) -> EvalReport {
+    fn replay_report(generated_at: i64) -> EvalReport {
         report_with("replay", generated_at, None, None)
     }
 
-    fn live_report(generated_at: &str) -> EvalReport {
+    fn live_report(generated_at: i64) -> EvalReport {
         let latency = latency();
         report_with(
             "live",
@@ -777,14 +817,10 @@ mod tests {
         owned
     }
 
-    fn manual_report(
-        mode: &str,
-        generated_at: &str,
-        classify: Option<ClassifyStats>,
-    ) -> EvalReport {
+    fn manual_report(mode: &str, generated_at: i64, classify: Option<ClassifyStats>) -> EvalReport {
         EvalReport {
             mode: mode.to_owned(),
-            generated_at: generated_at.to_owned(),
+            generated_at,
             classify,
             tasks: Vec::new(),
             latency: None,
@@ -799,20 +835,28 @@ mod tests {
         let empty = render_svg(&[]);
         assert!(!empty.contains("<polyline"), "no series without points");
         assert!(empty.contains("暂无评测历史"), "empty history gets a note");
+        assert!(
+            !empty.contains("最近一次"),
+            "no latest-run note without points"
+        );
 
-        let replay_only = render_svg(&[replay_report("unix 1000")]);
-        for title in ["分类轨判定质量", "任务轨契约达成", "修复成本"] {
+        let replay_only = render_svg(&[replay_report(1000)]);
+        for title in ["分类轨判定质量", "任务轨 · 词卡", "修复成本"] {
             assert!(replay_only.contains(title), "{title} panel expected");
         }
         assert!(
             !replay_only.contains("judge 均分（1–5）") && !replay_only.contains("端到端延迟（ms）"),
             "judge and latency panels stay hidden without samples"
         );
+        assert!(
+            !replay_only.contains("任务轨 · 句译"),
+            "datasets without samples get no panel"
+        );
 
-        let complete = render_svg(&[live_report("unix 2000")]);
+        let complete = render_svg(&[live_report(2000)]);
         for title in [
             "分类轨判定质量",
-            "任务轨契约达成",
+            "任务轨 · 词卡",
             "修复成本",
             "judge 均分（1–5）",
             "端到端延迟（ms）",
@@ -823,13 +867,14 @@ mod tests {
 
     #[test]
     fn panels_render_polylines_ticks_and_legends() {
-        let svg = render_svg(&[live_report("unix 1000"), live_report("unix 2000")]);
+        let svg = render_svg(&[live_report(1000), live_report(2000)]);
         assert!(svg.contains("<polyline"), "polylines drawn");
         assert!(svg.contains("<circle"), "point dots drawn");
         assert!(
-            svg.contains("<title>accuracy · 01-01 live："),
-            "hover titles carry the point label: {svg}"
+            svg.contains("<title>accuracy · 01-01 00:16 live："),
+            "hover titles carry the UTC time and mode: {svg}"
         );
+        assert!(svg.contains("86.67 %"), "hover values carry two decimals");
         assert!(svg.contains("stroke=\"#e7eaee\""), "grid lines present");
         assert!(
             svg.contains("text-anchor=\"middle\""),
@@ -840,30 +885,34 @@ mod tests {
             svg.contains("fill=\"none\" stroke=\"#cdd2da\""),
             "panel frames present"
         );
+        assert!(
+            svg.contains("最近一次 1970-01-01 00:33 UTC · live"),
+            "the header names the latest run"
+        );
     }
 
     #[test]
     fn text_is_xml_escaped() {
-        let mode_report = report_with("a<b>&c", "unix 0", None, None);
-        let committed = with_commit(&replay_report("unix 0"), "x&<y".to_owned());
+        let mode_report = report_with("a<b>&c", 0, None, None);
+        let committed = with_commit(&replay_report(0), "x&<y".to_owned());
         let svg = render_svg(&[mode_report, committed]);
         assert!(
-            svg.contains("01-01 a&lt;b&gt;&amp;c"),
+            svg.contains("a&lt;b&gt;&amp;c"),
             "mode text escapes to entities"
         );
         assert!(
-            svg.contains("&amp;&lt;y"),
+            svg.contains("（x&amp;&lt;y）"),
             "commit text escapes to entities"
         );
         assert!(
-            !svg.contains(">x&<y<"),
+            !svg.contains(">x&<y"),
             "raw angle brackets never land in text"
         );
     }
 
     #[test]
     fn rendering_is_byte_deterministic() {
-        let history = vec![live_report("unix 1000"), replay_report("unix 2000")];
+        let history = vec![live_report(1000), replay_report(2000)];
         assert_eq!(
             render_svg(&history),
             render_svg(&history),
@@ -874,16 +923,19 @@ mod tests {
     #[test]
     fn beyond_max_points_only_latest_are_drawn() {
         let history: Vec<EvalReport> = (0..HISTORY_SVG_MAX_POINTS + 20)
-            .map(|index| with_commit(&replay_report("unix 1000"), format!("c{index:03}")))
+            .map(|index| with_commit(&replay_report(1000), format!("c{index:03}")))
             .collect();
         let svg = render_svg(&history);
         assert!(
             svg.contains("（100 点）"),
             "the title counts rendered points"
         );
-        assert!(svg.contains(">c119<"), "the newest point is drawn");
         assert!(
-            !svg.contains(">c019<"),
+            svg.contains("（c119）"),
+            "the newest point is drawn in hovers"
+        );
+        assert!(
+            !svg.contains("（c019）"),
             "the oldest point falls out of the window"
         );
     }
@@ -891,33 +943,45 @@ mod tests {
     #[test]
     fn x_ticks_sample_at_most_four_points() {
         let eight: Vec<EvalReport> = (0..8)
-            .map(|index| with_commit(&replay_report("unix 1000"), format!("c{index}")))
+            .map(|index| replay_report(1000 * (index as i64 + 1)))
             .collect();
         let svg = render_svg(&eight);
-        for tick in ["c0", "c2", "c5", "c7"] {
+        for tick in ["01-01 00:16", "01-01 00:50", "01-01 01:40", "01-01 02:13"] {
             assert!(svg.contains(&format!(">{tick}<")), "tick {tick} expected");
         }
-        assert!(!svg.contains(">c1<"), "intermediate points stay unlabeled");
-
-        let two = render_svg(&[
-            with_commit(&replay_report("unix 1000"), "c0".to_owned()),
-            with_commit(&replay_report("unix 2000"), "c1".to_owned()),
-        ]);
         assert!(
-            two.contains(">c0<") && two.contains(">c1<"),
+            !svg.contains(">01-01 00:33<"),
+            "intermediate points stay unlabeled"
+        );
+
+        let two = render_svg(&[replay_report(1000), replay_report(2000)]);
+        assert!(
+            two.contains(">01-01 00:16<") && two.contains(">01-01 00:33<"),
             "short history labels all points"
         );
     }
 
     #[test]
-    fn commit_labels_win_over_dates() {
-        let committed = with_commit(&live_report("unix 0"), "ec96217".to_owned());
-        let local = replay_report("unix 0");
+    fn ticks_carry_timestamps_and_hover_carries_commit() {
+        let committed = with_commit(&live_report(0), "ec96217".to_owned());
+        let local = replay_report(0);
         let svg = render_svg(&[committed, local]);
-        assert!(svg.contains(">ec96217<"), "commit labels win");
+        assert!(svg.contains(">01-01 00:00<"), "ticks are UTC timestamps");
         assert!(
-            svg.contains(">01-01 replay<"),
-            "local points fall back to the UTC date plus mode"
+            svg.contains("01-01 00:00 live（ec96217）："),
+            "committed hovers carry the SHA"
+        );
+        assert!(
+            svg.contains("01-01 00:00 replay："),
+            "local hovers carry mode only"
+        );
+        assert!(
+            !svg.contains("replay（"),
+            "local points never fake a commit"
+        );
+        assert!(
+            svg.contains("最近一次 1970-01-01 00:00 UTC · replay"),
+            "the header names the latest run"
         );
     }
 
@@ -929,15 +993,61 @@ mod tests {
             fallback_rate: classify_metrics().fallback_rate(),
             confusion_rows: Vec::new(),
         };
-        let svg = render_svg(&[manual_report("replay", "unix 1000", Some(stats))]);
+        let svg = render_svg(&[manual_report("replay", 1000, Some(stats))]);
         assert!(svg.contains("分类轨判定质量"), "the classify panel draws");
         assert!(
             !svg.contains("契约 JSON 率"),
             "the task series hides without task samples"
         );
         assert!(
-            !svg.contains("任务轨契约达成"),
-            "a panel whose every series is empty stays hidden"
+            !svg.contains("任务轨 · "),
+            "panels whose every dataset is absent stay hidden"
+        );
+    }
+
+    #[test]
+    fn task_panels_split_per_dataset() {
+        let mut both = live_report(1000);
+        both.tasks.push(TaskStats {
+            dataset: "task_translate_sentence".to_owned(),
+            metrics: task_metrics(),
+        });
+        let mut sentence_only = live_report(2000);
+        sentence_only.tasks.clear();
+        sentence_only.tasks.push(TaskStats {
+            dataset: "task_translate_sentence".to_owned(),
+            metrics: task_metrics(),
+        });
+        let svg = render_svg(&[both, sentence_only]);
+        assert!(
+            svg.contains("任务轨 · 词卡"),
+            "the word panel rides the points that carry it"
+        );
+        assert!(svg.contains("任务轨 · 句译"), "the sentence panel appears");
+        for legend in [">分类轨<", ">词卡<", ">句译<"] {
+            assert!(
+                svg.contains(legend),
+                "the repair cost legend carries {legend}"
+            );
+        }
+        assert!(
+            !svg.contains("任务轨 · 代码"),
+            "datasets never seen get no panel"
+        );
+    }
+
+    #[test]
+    fn header_shows_latest_run_timestamp() {
+        let svg = render_svg(&[replay_report(1000), live_report(2000)]);
+        assert!(
+            svg.contains("最近一次 1970-01-01 00:33 UTC · live"),
+            "the header names the latest run"
+        );
+
+        let committed = with_commit(&live_report(1_791_763_200), "fc244bc".to_owned());
+        assert!(
+            render_svg(&[committed]).contains("最近一次 2026-10-12 00:00 UTC · live（fc244bc）"),
+            "the header carries full date and commit"
         );
     }
 }
