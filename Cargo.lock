@@ -1314,6 +1314,7 @@ dependencies = [
  "gloss-core",
  "gloss-platform",
  "image",
+ "memmap2",
  "moka",
  "pollster",
  "regex",
