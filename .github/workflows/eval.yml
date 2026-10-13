@@ -1,0 +1,116 @@
+# Prompt 评测数据流水线：手动触发（workflow_dispatch，取 main HEAD）→ replay
+# 轨采集（夹具驱动，无网络无凭据）→ 拷 history.jsonl + history.svg 推数据分支，
+# 人工开 PR 审查合入。定位是趋势数据例行生产，不是门禁：不判任何 PR 的生死；
+# live 轨需 GLOSS_LIVE_* secrets 且每次触发真实计费，保持本地 opt-in，不进本流水线。
+name: Eval data
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+# 唯一写用途：推送数据分支。
+permissions:
+  contents: write
+
+# 数据分支同 commit 覆盖式写入（upsert 键 (mode, commit)）：重复触发时取消
+# 在跑的一次，由最新一次（取最新 main）重新采集，避免并行采集互踩数据分支。
+concurrency:
+  group: eval-data
+  cancel-in-progress: true
+
+jobs:
+  collect:
+    name: Collect eval data
+    # replay 是纯 serde/JSON 逻辑，不依赖 macOS/GPU/窗口服务。
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard main-only dispatch
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "数据采集固定取 main HEAD，请在 main 上触发本 workflow（当前：${GITHUB_REF_NAME}）。" >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # 数据分支在 main HEAD 之上追加提交，浅克隆推送有边界情况，取全量历史。
+          fetch-depth: 0
+
+      - name: Record main head
+        id: head
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.1
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      # rust-cache 会把 target/ 带回本 run：清掉上次的评测报告，防陈旧的
+      # <mode>.json/.md 与 history 混进本点。
+      - name: Clean prior eval artifacts
+        run: rm -rf target/eval
+
+      # GLOSS_EVAL_COMMIT/GLOSS_EVAL_SOURCE 注入采集上下文（报告 JSON 与
+      # history.jsonl 的 context 段；同 commit 重跑覆盖不叠点，换 commit 追加）。
+      - name: Run replay eval
+        env:
+          GLOSS_EVAL_COMMIT: ${{ steps.head.outputs.sha }}
+          GLOSS_EVAL_SOURCE: pipeline
+        run: just eval-replay
+
+      # <mode>.json/.md 是 target/ 本地产物不入库：留 artifact 供事后审计
+      # （口径同 perf 流水线 handoff 的 90 天）。
+      - name: Upload eval reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eval-reports-${{ github.run_id }}
+          path: target/eval/
+          if-no-files-found: ignore
+          retention-days: 90
+
+      # 数据 PR 只入库 history.jsonl 与 history.svg 两个文件。
+      - name: Push data branch
+        env:
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+        run: |
+          set -euo pipefail
+          branch="eval/collect-${HEAD_SHA}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          mkdir -p crates/gloss-eval/baselines
+          cp target/eval/history.jsonl target/eval/history.svg crates/gloss-eval/baselines/
+          git add crates/gloss-eval/baselines/history.jsonl crates/gloss-eval/baselines/history.svg
+          git commit -m "chore(eval): 采集 ${HEAD_SHA} 评测趋势点并重绘趋势图"
+          # 数据分支是可再生数据：同 commit 重跑时以本次结果覆盖旧分支。
+          git push --force origin "$branch"
+
+          {
+            echo "数据分支 eval/collect-${HEAD_SHA} 已推送，请人工开 PR 审查合入。建议："
+            echo
+            echo '```'
+            echo "gh pr create --base main --head eval/collect-${HEAD_SHA} \\"
+            echo "  --title \"eval(data): 采集 ${HEAD_SHA} 评测趋势点\" --body ''"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attach replay report to summary
+        if: always()
+        run: |
+          if [ -f target/eval/replay.md ]; then
+            {
+              echo "## replay 报告（本次采集）"
+              echo
+              cat target/eval/replay.md
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
