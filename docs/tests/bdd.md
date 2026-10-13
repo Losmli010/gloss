@@ -1234,9 +1234,11 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告（一例修复轨迹 + 一例纯正文），当渲染，则指标表、accuracy 百分比、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-10-12 |
+| report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告（一例修复轨迹 + 一例纯正文），当渲染，则指标表、accuracy 百分比（两位小数）、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-10-13 |
 | repair_rounds_render_with_violation_categories | 修复轮次行带违约类别计数 | 给定含违约轨迹与零违约两份报告，当渲染，则分类与各任务集的「修复轮次」行为「总数（类别 ×次数…）」，零违约时只报总数 | 2026-10-12 |
 | latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本的报告，当渲染，则不含延迟行 | 2026-09-26 |
+| generated_at_is_a_numeric_unix_timestamp | generated_at 为数值纪元秒 | 给定 generated_at 为整数秒的报告，当序列化/反序列化，则 JSON 中为裸数值且往返一致（旧 "unix <秒>" 字符串格式已废弃，不兼容） | 2026-10-13 |
+| utc_formatting_is_fixed_and_timezone_free | UTC 时间格式固定换算 | 给定若干 UNIX 秒，当 format_utc / format_utc_short，则恒为 YYYY-MM-DD HH:MM / MM-DD HH:MM 的 UTC 结果，不随本地时区漂移 | 2026-10-13 |
 
 ### crates/gloss-eval/src/runner.rs
 
@@ -1262,20 +1264,22 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | corrupt_lines_are_skipped_and_warned | 坏行跳过且有 stderr 警告 | 给定好行+坏行+好行的 history.jsonl，当 load_history，则坏行带行号警告后跳过、两侧好行无恙（进程中断的半截尾行不炸全量） | 2026-10-12 |
 | unterminated_final_line_is_readable | 无换行尾行可读 | 给定末行缺 LF 的 history.jsonl，当 load_history，则末行照常解析 | 2026-10-12 |
 | record_run_redraws_history_svg | 记录后全量重绘趋势 | 给定一次 record_run 与随后一次换 commit 的追加，当各自完成，则 history.svg 存在且标题点数随全量历史更新 | 2026-10-12 |
-| context_roundtrips_and_legacy_rows_default_to_none | context 段往返与旧行兼容 | 给定带 context 的报告行与无 context 段的旧报告 JSON，当写入读回/直接解析，则行内 context 段逐字节往返、旧行 context 为 None | 2026-10-12 |
+| context_roundtrips_and_bare_rows_default_to_none | context 段往返与裸行缺省 | 给定带 context 的报告行与无 context 段的报告 JSON，当写入读回/直接解析，则行内 context 段逐字节往返、裸行 context 为 None | 2026-10-13 |
 
 ### crates/gloss-eval/src/svg.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| panel_count_follows_available_samples | 面板数随数据条件变化 | 给定空历史/仅 replay 报告/含 judge 与延迟样本的报告，当 render_svg，则分别为零面板（含空态文案）/三面板/五面板（judge 与延迟仅历史有样本才画） | 2026-10-12 |
-| panels_render_polylines_ticks_and_legends | 面板要素齐备 | 给定两份完整报告，当 render_svg，则 polyline/圆点/悬浮 title（带点位标签）/网格线/x 轴刻度/图例/frame 全部在场 | 2026-10-12 |
-| text_is_xml_escaped | 文本 XML 转义 | 给定 mode 与 commit 含 &/< 的报告，当 render_svg，则标签文本以实体出现、原字符不落进文本节点 | 2026-10-12 |
-| rendering_is_byte_deterministic | 渲染确定性 | 给定同一份历史，当 render_svg 两次，则输出逐字节一致（SVG 内无时间戳无环境读取） | 2026-10-12 |
-| beyond_max_points_only_latest_are_drawn | 超 100 点只画最近 100 点 | 给定 120 点历史，当 render_svg，则标题计 100 点、末点在场、窗口外首点不落图 | 2026-10-12 |
-| x_ticks_sample_at_most_four_points | x 轴稀疏刻度 ≤4 且均匀取样 | 给定 8 点与 2 点历史，当 render_svg，则分别刻出第 0/2/5/7 点与全部两点（8 点时中间点不刻） | 2026-10-12 |
-| commit_labels_win_over_dates | x 标签 commit 优先、UTC 固定换算 | 给定带 commit 与无 commit（generated_at=unix 0）两份报告，当 render_svg，则前者标 SHA、后者标 UTC 日期+mode（01-01 replay） | 2026-10-12 |
-| a_panel_with_some_empty_series_hides_those_series | 空序列隐去、空面板跳过 | 给定只有分类轨样本的报告，当 render_svg，则分类面板照画、任务序列从图例隐去、全序列皆空的任务面板整体不出现 | 2026-10-12 |
+| panel_count_follows_available_samples | 面板数随数据条件变化 | 给定空历史/单数据集 replay 报告/含 judge 与延迟样本的报告，当 render_svg，则分别为零面板（含空态文案）/三面板（分类 + 词卡 + 修复成本）/五面板；任务轨按数据集各一面板，未出现的数据集无面板，judge 与延迟仅历史有样本才画 | 2026-10-13 |
+| panels_render_polylines_ticks_and_legends | 面板要素齐备 | 给定两份完整报告，当 render_svg，则 polyline/圆点/悬浮 title（带 UTC 时间与 mode、数值两位小数）/网格线/x 轴时间刻度/图例/frame/右上角「最近一次」标注全部在场 | 2026-10-13 |
+| text_is_xml_escaped | 文本 XML 转义 | 给定 mode 与 commit 含 &/< 的报告，当 render_svg，则悬浮与「最近一次」标注中的 mode/commit 以实体出现、原字符不落进文本节点 | 2026-10-13 |
+| rendering_is_byte_deterministic | 渲染确定性 | 给定同一份历史，当 render_svg 两次，则输出逐字节一致（SVG 内无渲染时刻的时间戳无环境读取） | 2026-10-12 |
+| beyond_max_points_only_latest_are_drawn | 超 100 点只画最近 100 点 | 给定 120 点历史，当 render_svg，则标题计 100 点、末点 commit 进悬浮、窗口外首点不落图 | 2026-10-13 |
+| x_ticks_sample_at_most_four_points | x 轴稀疏刻度 ≤4 且均匀取样 | 给定 8 点（UTC 时间逐点推进）与 2 点历史，当 render_svg，则分别刻出第 0/2/5/7 点的时间刻度与全部两点（8 点时中间点不刻） | 2026-10-13 |
+| ticks_carry_timestamps_and_hover_carries_commit | 刻度即 UTC 时间、commit 进悬浮 | 给定带 commit 与无 commit 的两份报告，当 render_svg，则刻度标 MM-DD HH:MM、带 commit 点的悬浮附 SHA、本地点悬浮只带 mode，头部标注最近一次运行 | 2026-10-13 |
+| a_panel_with_some_empty_series_hides_those_series | 空序列隐去、空面板跳过 | 给定只有分类轨样本的报告，当 render_svg，则分类面板照画、任务序列隐去、无任务数据集时任务面板整体不出现 | 2026-10-13 |
+| task_panels_split_per_dataset | 任务轨按数据集分面板 | 给定含词卡 + 句译的历史（末点仅句译），当 render_svg，则两数据集各得契约面板、修复成本图例含分类轨/词卡/句译、未出现的数据集无面板 | 2026-10-13 |
+| header_shows_latest_run_timestamp | 头部标注最近一次运行 | 给定两份报告（末点带 commit），当 render_svg，则右上角标注末点的完整 UTC 时间、mode 与 commit | 2026-10-13 |
 
 ### crates/gloss-eval/src/main.rs
 

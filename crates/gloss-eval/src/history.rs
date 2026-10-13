@@ -125,7 +125,7 @@ mod tests {
         }
     }
 
-    fn report(mode: &str, generated_at: &str) -> EvalReport {
+    fn report(mode: &str, generated_at: i64) -> EvalReport {
         let mut report = assemble_report(
             mode,
             Some(classify_metrics()),
@@ -134,7 +134,7 @@ mod tests {
             None,
             0,
         );
-        report.generated_at = generated_at.to_owned();
+        report.generated_at = generated_at;
         report
     }
 
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn first_run_appends_one_line() {
         let dir = temp_dir("first-run");
-        record_run(&report("replay", "unix 1000"), &dir).expect("record");
+        record_run(&report("replay", 1000), &dir).expect("record");
         let path = dir.join("history.jsonl");
         let text = std::fs::read_to_string(&path).expect("history text");
         assert!(text.ends_with('\n'), "lines end with LF");
@@ -166,7 +166,7 @@ mod tests {
         let history = load_history(&path).expect("load");
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].mode, "replay");
-        assert_eq!(history[0].generated_at, "unix 1000");
+        assert_eq!(history[0].generated_at, 1000);
         assert!(history[0].context.is_none(), "local runs carry no context");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -174,21 +174,16 @@ mod tests {
     #[test]
     fn same_mode_and_commit_overwrites_in_place() {
         let dir = temp_dir("upsert-same");
-        let first = with_context(
-            &report("replay", "unix 1000"),
-            Some("ec96217"),
-            Some("pipeline"),
-        );
-        let second = with_context(
-            &report("replay", "unix 2000"),
-            Some("ec96217"),
-            Some("pipeline"),
-        );
+        let first = with_context(&report("replay", 1000), Some("ec96217"), Some("pipeline"));
+        let second = with_context(&report("replay", 2000), Some("ec96217"), Some("pipeline"));
         record_run(&first, &dir).expect("first");
         record_run(&second, &dir).expect("second");
         let text = std::fs::read_to_string(dir.join("history.jsonl")).expect("history text");
         assert_eq!(text.lines().count(), 1, "same key rewrites in place");
-        assert!(text.contains("unix 2000"), "the newer report wins");
+        assert!(
+            text.contains(r#""generated_at":2000"#),
+            "the newer report wins"
+        );
         assert_eq!(
             load_history(&dir.join("history.jsonl"))
                 .expect("load")
@@ -201,11 +196,11 @@ mod tests {
     #[test]
     fn different_commit_or_mode_appends() {
         let dir = temp_dir("upsert-diff");
-        let base = report("replay", "unix 1000");
+        let base = report("replay", 1000);
         record_run(&with_context(&base, Some("aaaaaaa"), None), &dir).expect("first");
         record_run(&with_context(&base, Some("bbbbbbb"), None), &dir).expect("second commit");
         record_run(
-            &with_context(&report("live", "unix 1000"), Some("aaaaaaa"), None),
+            &with_context(&report("live", 1000), Some("aaaaaaa"), None),
             &dir,
         )
         .expect("other mode");
@@ -217,8 +212,8 @@ mod tests {
     #[test]
     fn missing_commit_always_appends() {
         let dir = temp_dir("local-append");
-        record_run(&report("replay", "unix 1000"), &dir).expect("first");
-        record_run(&report("replay", "unix 2000"), &dir).expect("second");
+        record_run(&report("replay", 1000), &dir).expect("first");
+        record_run(&report("replay", 2000), &dir).expect("second");
         let text = std::fs::read_to_string(dir.join("history.jsonl")).expect("history text");
         assert_eq!(
             text.lines().count(),
@@ -233,7 +228,7 @@ mod tests {
         let dir = temp_dir("blank-lines");
         write_lines(
             &dir,
-            "\n{\"mode\":\"replay\",\"generated_at\":\"unix 1000\",\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n\n",
+            "\n{\"mode\":\"replay\",\"generated_at\":1000,\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n\n",
         );
         let history = load_history(&dir.join("history.jsonl")).expect("load");
         assert_eq!(history.len(), 1);
@@ -246,9 +241,9 @@ mod tests {
         write_lines(
             &dir,
             concat!(
-                "{\"mode\":\"replay\",\"generated_at\":\"unix 1000\",\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n",
+                "{\"mode\":\"replay\",\"generated_at\":1000,\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n",
                 "{broken json\n",
-                "{\"mode\":\"live\",\"generated_at\":\"unix 2000\",\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n",
+                "{\"mode\":\"live\",\"generated_at\":2000,\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n",
             ),
         );
         let history = load_history(&dir.join("history.jsonl")).expect("load");
@@ -268,7 +263,7 @@ mod tests {
         let dir = temp_dir("tail-line");
         write_lines(
             &dir,
-            "{\"mode\":\"replay\",\"generated_at\":\"unix 1000\",\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n{\"mode\":\"live\",\"generated_at\":\"unix 2000\",\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}",
+            "{\"mode\":\"replay\",\"generated_at\":1000,\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n{\"mode\":\"live\",\"generated_at\":2000,\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}",
         );
         let history = load_history(&dir.join("history.jsonl")).expect("load");
         assert_eq!(
@@ -282,11 +277,11 @@ mod tests {
     #[test]
     fn record_run_redraws_history_svg() {
         let dir = temp_dir("redraw");
-        record_run(&report("replay", "unix 1000"), &dir).expect("record");
+        record_run(&report("replay", 1000), &dir).expect("record");
         let svg = std::fs::read_to_string(dir.join("history.svg")).expect("svg text");
         assert!(svg.starts_with("<svg"), "record_run renders the trend file");
         record_run(
-            &with_context(&report("replay", "unix 2000"), Some("ec96217"), None),
+            &with_context(&report("replay", 2000), Some("ec96217"), None),
             &dir,
         )
         .expect("second");
@@ -299,13 +294,9 @@ mod tests {
     }
 
     #[test]
-    fn context_roundtrips_and_legacy_rows_default_to_none() {
+    fn context_roundtrips_and_bare_rows_default_to_none() {
         let dir = temp_dir("context-roundtrip");
-        let pipeline = with_context(
-            &report("replay", "unix 1000"),
-            Some("ec96217"),
-            Some("pipeline"),
-        );
+        let pipeline = with_context(&report("replay", 1000), Some("ec96217"), Some("pipeline"));
         record_run(&pipeline, &dir).expect("record");
         let line = std::fs::read_to_string(dir.join("history.jsonl")).expect("history text");
         assert!(
@@ -319,8 +310,8 @@ mod tests {
             "the row round-trips byte-identically"
         );
 
-        let legacy = r#"{"mode":"replay","generated_at":"unix 1000","classify":null,"tasks":[],"latency":null,"judge":null,"skipped":0}"#;
-        let parsed: EvalReport = serde_json::from_str(legacy).expect("legacy row parses");
+        let bare = r#"{"mode":"replay","generated_at":1000,"classify":null,"tasks":[],"latency":null,"judge":null,"skipped":0}"#;
+        let parsed: EvalReport = serde_json::from_str(bare).expect("bare row parses");
         assert!(
             parsed.context.is_none(),
             "old rows without the segment default to none"

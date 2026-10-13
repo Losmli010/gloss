@@ -15,7 +15,7 @@ pub struct EvalReport {
     /// 运行模式（replay / live）。
     pub mode: String,
     /// 报告生成时间（UNIX 纪元秒，不引入时间库依赖）。
-    pub generated_at: String,
+    pub generated_at: i64,
     /// 分类轨指标（replay 只统计有夹具的条目）。
     pub classify: Option<ClassifyStats>,
     /// 任务轨指标：数据集名 → 指标。
@@ -104,7 +104,11 @@ impl EvalReport {
         let mut out = String::new();
         line(
             &mut out,
-            format!("Eval 报告：{} 模式（{}）", self.mode, self.generated_at),
+            format!(
+                "Eval 报告：{} 模式（{} UTC）",
+                self.mode,
+                format_utc(self.generated_at)
+            ),
         );
         line(
             &mut out,
@@ -127,7 +131,7 @@ impl EvalReport {
             line(
                 &mut out,
                 format!(
-                    "| 分类 accuracy | {:.1}% ({}/{}) |",
+                    "| 分类 accuracy | {:.2}% ({}/{}) |",
                     stats.accuracy * 100.0,
                     stats.metrics.correct,
                     stats.metrics.evaluated
@@ -136,13 +140,13 @@ impl EvalReport {
             line(
                 &mut out,
                 format!(
-                    "| 分类 无效 JSON 率 | {:.1}% |",
+                    "| 分类 无效 JSON 率 | {:.2}% |",
                     rate(stats.metrics.invalid_json, stats.metrics.evaluated)
                 ),
             );
             line(
                 &mut out,
-                format!("| 分类 回退率 | {:.1}% |", stats.fallback_rate * 100.0),
+                format!("| 分类 回退率 | {:.2}% |", stats.fallback_rate * 100.0),
             );
             line(
                 &mut out,
@@ -157,7 +161,7 @@ impl EvalReport {
             line(
                 &mut out,
                 format!(
-                    "| {} 契约 JSON 率 | {:.1}% |",
+                    "| {} 契约 JSON 率 | {:.2}% |",
                     stats.dataset,
                     rate(metrics.json_object, metrics.evaluated)
                 ),
@@ -165,7 +169,7 @@ impl EvalReport {
             line(
                 &mut out,
                 format!(
-                    "| {} note 在场率 | {:.1}% |",
+                    "| {} note 在场率 | {:.2}% |",
                     stats.dataset,
                     rate(metrics.note_present, metrics.evaluated)
                 ),
@@ -173,7 +177,7 @@ impl EvalReport {
             line(
                 &mut out,
                 format!(
-                    "| {} 字段完整率 | {:.1}% |",
+                    "| {} 字段完整率 | {:.2}% |",
                     stats.dataset,
                     rate(metrics.fields_complete, metrics.evaluated)
                 ),
@@ -181,7 +185,7 @@ impl EvalReport {
             line(
                 &mut out,
                 format!(
-                    "| {} 降级率 | {:.1}% |",
+                    "| {} 降级率 | {:.2}% |",
                     stats.dataset,
                     rate(metrics.degraded, metrics.evaluated)
                 ),
@@ -198,11 +202,11 @@ impl EvalReport {
         if let Some(latency) = &self.latency {
             line(
                 &mut out,
-                format!("| 端到端延迟 p50 | {:.0} ms |", latency.p50),
+                format!("| 端到端延迟 p50 | {:.2} ms |", latency.p50),
             );
             line(
                 &mut out,
-                format!("| 端到端延迟 p95 | {:.0} ms |", latency.p95),
+                format!("| 端到端延迟 p95 | {:.2} ms |", latency.p95),
             );
         }
         if let Some(judge) = &self.judge {
@@ -240,6 +244,49 @@ fn rate(numerator: usize, denominator: usize) -> f64 {
     } else {
         numerator as f64 / denominator as f64 * 100.0
     }
+}
+
+/// UNIX 秒 → UTC 的 `YYYY-MM-DD HH:MM`。一律按 UTC 固定换算——跟随本地
+/// 时区会让同一时间戳在不同机器漂一天。
+pub fn format_utc(secs: i64) -> String {
+    let (date, hour, minute) = utc_parts(secs);
+    format!("{date} {hour:02}:{minute:02}")
+}
+
+/// UNIX 秒 → UTC 的 `MM-DD HH:MM`（趋势图 x 轴刻度用）。
+pub fn format_utc_short(secs: i64) -> String {
+    let (date, hour, minute) = utc_parts(secs);
+    format!("{} {hour:02}:{minute:02}", &date[5..])
+}
+
+fn utc_parts(secs: i64) -> (String, u32, u32) {
+    let (year, month, day) = civil_from_days(secs.div_euclid(86_400));
+    let day_secs = secs.rem_euclid(86_400);
+    (
+        format!("{year:04}-{month:02}-{day:02}"),
+        (day_secs / 3_600) as u32,
+        ((day_secs % 3_600) / 60) as u32,
+    )
+}
+
+/// UNIX 天数 → UTC 民用日期（Howard Hinnant 的 civil_from_days 算法，
+/// 零时间库依赖）。
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let shifted = days + 719_468;
+    let era = if shifted >= 0 {
+        shifted
+    } else {
+        shifted - 146_096
+    } / 146_097;
+    let day_of_era = (shifted - era * 146_097) as u64;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era as i64 + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let mp = (5 * day_of_year + 2) / 153;
+    let day = (day_of_year - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if month <= 2 { year + 1 } else { year }, month, day)
 }
 
 /// 修复轮次行的内容：轮次总数加违约类别计数（BTreeMap 按类别序稳定
@@ -293,13 +340,10 @@ pub fn assemble_report(
     });
     EvalReport {
         mode: mode.to_owned(),
-        generated_at: format!(
-            "unix {}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|duration| duration.as_secs())
-                .unwrap_or_default()
-        ),
+        generated_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or_default(),
         classify: classify_stats,
         tasks: tasks
             .into_iter()
@@ -346,13 +390,37 @@ mod tests {
         let report = fixture_report();
         let markdown = report.render_markdown();
         assert!(markdown.contains("| 指标 | 值 |"));
-        assert!(markdown.contains("分类 accuracy | 66.7% (2/3)"));
-        assert!(markdown.contains("分类 回退率 | 33.3%"));
+        assert!(markdown.contains("分类 accuracy | 66.67% (2/3)"));
+        assert!(markdown.contains("分类 回退率 | 33.33%"));
         assert!(markdown.contains("混淆矩阵"));
         assert!(markdown.contains("| TranslateWord | ExplainCode | 1 |"));
-        assert!(markdown.contains("task_translate_word 字段完整率 | 50.0%"));
-        assert!(markdown.contains("task_translate_word 降级率 | 50.0%"));
+        assert!(markdown.contains("task_translate_word 字段完整率 | 50.00%"));
+        assert!(markdown.contains("task_translate_word 降级率 | 50.00%"));
         assert!(markdown.contains("跳过（无夹具）1 条"));
+    }
+
+    #[test]
+    fn generated_at_is_a_numeric_unix_timestamp() {
+        let mut report = fixture_report();
+        report.generated_at = 1_791_763_200;
+        let json = serde_json::to_string(&report).expect("serialize");
+        assert!(
+            json.contains(r#""generated_at":1791763200"#),
+            "the timestamp serializes as a bare number: {json}"
+        );
+        let parsed: EvalReport = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.generated_at, 1_791_763_200);
+    }
+
+    #[test]
+    fn utc_formatting_is_fixed_and_timezone_free() {
+        assert_eq!(super::format_utc(0), "1970-01-01 00:00");
+        assert_eq!(super::format_utc(1_791_763_200), "2026-10-12 00:00");
+        assert_eq!(
+            super::format_utc(1_791_763_200 + 86_399),
+            "2026-10-12 23:59"
+        );
+        assert_eq!(super::format_utc_short(1_000), "01-01 00:16");
     }
 
     #[test]
