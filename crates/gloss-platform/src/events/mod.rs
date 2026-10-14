@@ -316,6 +316,7 @@ fn run_loop<C, E, P, F>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use crossbeam_channel::unbounded;
@@ -332,6 +333,42 @@ mod tests {
 
     fn no_sources() -> NoSources {
         Vec::new()
+    }
+
+    #[test]
+    fn tick_drains_commands_before_polling_sources() {
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let command_order = Arc::clone(&order);
+        let source_order = Arc::clone(&order);
+        let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
+        let (ev_tx, ev_rx) = unbounded::<TestEvent>();
+        let (plat_tx, _plat_rx) = unbounded::<()>();
+        let mut on_command = move |command: TestCommand, sink: &Sink| {
+            command_order
+                .lock()
+                .unwrap()
+                .push(format!("command {}", command.0));
+            sink.send_event(TestEvent(command.0));
+        };
+        let mut sources: EventSources<()> = vec![Box::new(move || {
+            source_order.lock().unwrap().push("poll".to_owned());
+            Vec::new()
+        })];
+        cmd_tx.send(TestCommand(1)).unwrap();
+        cmd_tx.send(TestCommand(2)).unwrap();
+        let sink = EventSink::new(ev_tx, plat_tx, || {});
+        assert!(matches!(
+            tick(&cmd_rx, &sink, &mut on_command, &mut sources),
+            TickOutcome::Continue
+        ));
+        assert_eq!(
+            *order.lock().unwrap(),
+            ["command 1", "command 2", "poll"],
+            "the whole command queue must drain before the first source poll"
+        );
+        assert_eq!(ev_rx.recv().unwrap().0, 1);
+        assert_eq!(ev_rx.recv().unwrap().0, 2);
+        assert!(ev_rx.try_recv().is_err(), "one event per command");
     }
 
     #[test]

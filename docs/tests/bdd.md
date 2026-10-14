@@ -1127,6 +1127,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | commands_are_consumed_in_order_then_thread_exits | 命令按序消费线程干净退出 | 给定 16 条命令，当事件线程消费，则按序产出、Sender drop 后线程退出且无多余事件 | 2026-09-19 |
 | late_commands_are_still_consumed | 晚到命令仍被消费 | 给定跨定时器周期（60ms）晚到的命令，当消费，则仍被处理 | 2026-09-19 |
 | sources_are_polled_and_forwarded | 事件源轮询转发 | 给定事件源每轮抽干，当 tick，则产出经 sink 送平台通道、命令照常消费 | 2026-09-19 |
+| tick_drains_commands_before_polling_sources | tick 内命令先全部抽干后才轮询事件源 | 给定两条已排队命令与一个记录调用顺序的事件源，当 tick 一轮，则两条命令先按序消费、事件源轮询恰在其后一次（取材轮次闩锁依赖的 tick 内顺序不变量） | 2026-10-14 |
 | panicking_handler_does_not_kill_thread | 处理器 panic 不杀线程 | 给定会 panic 的命令处理器，当处理，则 panic 被拦截、后续命令照常消费 | 2026-09-19 |
 | panicking_source_does_not_kill_thread | 事件源 panic 不杀线程 | 给定首轮 panic 的事件源，当轮次推进，则线程存活、后续轮次照常抽干 | 2026-09-19 |
 | sink_send_tolerates_closed_receivers | sink 容忍关闭的接收端 | 给定接收端已关闭的 sink，当发送，则返回 false 不 panic | 2026-09-19 |
