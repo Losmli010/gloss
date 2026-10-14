@@ -102,6 +102,10 @@ workspace = true
 opt-level = 3
 strip = true
 lto = true
+# panic 即进程 abort（不展开 unwind 栈）：release 下后台 panic 不再经各
+# 屏障降级（失败卡/线程存活），在事发点直接崩溃；dev/test profile 仍是
+# unwind，屏障照常生效（test 目标由 cargo 强制 unwind）。
+panic = "abort"
 codegen-units = 1
 
 # 剖析专用：release 同级优化，保留符号表供火焰图 / vmmap 符号化

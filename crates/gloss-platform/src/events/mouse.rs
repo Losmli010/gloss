@@ -214,7 +214,9 @@ mod tap {
             .name("gloss-mouse-tap".into())
             .spawn(move || {
                 // 事件 tap 回调是 C 回调，panic 穿过它直接 abort 进程：与事件
-                // 线程的 guarded 同一纪律，兜底后监听继续。兜底放在这里而不在
+                // 线程的 guarded 同一纪律，unwind 构建下兜底后监听继续；release
+                // 以 `panic = "abort"` 构建时本屏障不再拦截，panic 在事发点
+                // abort 进程（生效边界同 guarded）。兜底放在这里而不在
                 // tap 实现里，是模块与实现之间的分工——实现侧只需保证自己不
                 // panic（它的活只是常量查表加读一次坐标）。
                 let sink = move |event: ButtonEvent| {
