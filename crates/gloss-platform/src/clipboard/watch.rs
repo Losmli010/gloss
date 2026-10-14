@@ -5,8 +5,9 @@
 //! 复制不触发、不占代数。构造时记一次 changeCount 作基线，启动时的既有
 //! 剪贴板内容不触发；开关（共享 `AtomicBool`）关时整源不查询（零开销），
 //! 重开时重记基线——关闭期间的旧内容在重开后不触发。取材轮次
-//! （[`WatchRoundFlag`]）期间同样不观察：文本兜底取材注入复制并按快照
-//! 恢复原内容，这些写回都是本应用的副产物而非用户的复制动作。
+//! （[`WatchRoundFlag`]）置位后的下一次查询同样不观察：文本兜底取材注入
+//! 复制并按快照恢复原内容，这些写回都是本应用的副产物而非用户的复制
+//! 动作。
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -46,42 +47,32 @@ impl PasteboardObserver {
     }
 }
 
-/// 取材轮次的哨兵抑制开关：文本兜底取材（注入复制 → 确认 → 按快照恢复
+/// 取材轮次的哨兵抑制闩锁：文本兜底取材（注入复制 → 确认 → 按快照恢复
 /// 原内容）会写系统剪贴板，这些变化是本应用的副产物而不是用户的复制
 /// 动作，不得产出观察事件——否则恢复写回的旧图会在划词探测在途时顶掉
-/// 它、把旧图再触发成一次图片任务。轮次内哨兵不查询且作废基线，轮次
-/// 结束后的首轮观察只重记基线：轮次内的全部变化（目标应用的复制写入与
-/// 恢复写回）都被吞掉，轮次后用户的新复制照常触发。哨兵与取材同在事件
-/// 线程运行，开关位只为跨闭包共享（两侧各持一份句柄），无真实并发。
+/// 它、把旧图再触发成一次图片任务。轮次（命令处理器）与哨兵查询同在
+/// 事件线程顺序运行，且事件源只在命令全部抽干后轮询——查询永远不会
+/// 落在轮次中间，抑制因此不能依赖「轮次存活」：闩锁设计成置位后存活到
+/// 下一次查询，由查询消费（[`Self::take`]）并作废基线——截至该查询的
+/// 全部变化（目标应用的复制写入与恢复写回）都被吞掉，随后的首轮查询
+/// 只重记基线，再之后用户的新复制照常触发。置位与消费两侧各持一份
+/// 句柄同在事件线程运行，原子量只为跨闭包共享，无真实并发。
 #[derive(Debug, Clone, Default)]
 pub struct WatchRoundFlag {
-    active: Arc<AtomicBool>,
+    pending: Arc<AtomicBool>,
 }
 
 impl WatchRoundFlag {
-    /// 进入取材轮次：置位并返回 RAII 守卫，drop 即解除（取材失败、通道
-    /// 发送失败与 panic 展开都经守卫收口）。
-    pub fn enter(&self) -> WatchRoundGuard {
-        self.active.store(true, Ordering::Relaxed);
-        WatchRoundGuard {
-            active: Arc::clone(&self.active),
-        }
+    /// 进入取材轮次：置位闩锁，由下一次哨兵查询消费（见类型注释）。无需
+    /// 守卫收口——闩锁的寿命到下一次查询为止，不随置位方的作用域结束。
+    pub fn enter(&self) {
+        self.pending.store(true, Ordering::Relaxed);
     }
 
-    fn is_active(&self) -> bool {
-        self.active.load(Ordering::Relaxed)
-    }
-}
-
-/// 取材轮次守卫：存活即抑制哨兵观察（见 [`WatchRoundFlag`]）。
-#[derive(Debug)]
-pub struct WatchRoundGuard {
-    active: Arc<AtomicBool>,
-}
-
-impl Drop for WatchRoundGuard {
-    fn drop(&mut self) {
-        self.active.store(false, Ordering::Relaxed);
+    /// 消费闩锁：置位过即吞掉本轮查询并作废基线（返回 `true`），闩锁
+    /// 同时复位。
+    fn take(&self) -> bool {
+        self.pending.swap(false, Ordering::Relaxed)
     }
 }
 
@@ -92,8 +83,8 @@ pub struct ClipboardWatchSource {
     enabled: Arc<AtomicBool>,
     /// ① 发出时刻的 changeCount 观察记录，供②比对竞态。
     observer: PasteboardObserver,
-    /// 取材轮次抑制开关（见 [`WatchRoundFlag`]）：句柄经
-    /// [`Self::round_flag`] 交给文本取材处理器，轮次 enter/退出由守卫收口。
+    /// 取材轮次抑制闩锁（见 [`WatchRoundFlag`]）：句柄经
+    /// [`Self::round_flag`] 交给文本取材处理器置位，查询消费。
     round: WatchRoundFlag,
     /// 已记基线的 changeCount；`None` = 未武装（构造时读不到、开关刚重开
     /// 或取材轮次刚结束），下一轮到查询只记基线、不触发。
@@ -127,8 +118,8 @@ impl ClipboardWatchSource {
         self.observer.clone()
     }
 
-    /// 取材轮次抑制开关的共享句柄：交给同一次装配的文本取材处理器，
-    /// 兜底轮次进出自有守卫收口（见 [`WatchRoundFlag`]）。
+    /// 取材轮次抑制闩锁的共享句柄：交给同一次装配的文本取材处理器置位
+    /// （见 [`WatchRoundFlag`]）。
     pub fn round_flag(&self) -> WatchRoundFlag {
         self.round.clone()
     }
@@ -142,8 +133,8 @@ impl ClipboardWatchSource {
 
     /// 一轮观察（时间与系统读数注入，纯逻辑单测覆盖）：
     ///
-    /// - 取材轮次内：不查询；基线作废，轮次后的首轮重记——轮次内的变化
-    ///   是本应用写的（注入复制与恢复写回），不作观察；
+    /// - 取材轮次闩锁置位：消费之，本轮不查询、基线作废——轮次及更早
+    ///   未观察的变化是本应用写的（注入复制与恢复写回），不作观察；
     /// - 开关关：不查询（关态零开销）；基线作废，重开时重记——关闭期间的
     ///   旧内容在重开后不触发；
     /// - 未武装：只记基线，本轮不触发；
@@ -156,7 +147,7 @@ impl ClipboardWatchSource {
         mut count: impl FnMut() -> Option<u64>,
         has_image: impl FnOnce() -> bool,
     ) -> Vec<PasteboardImageObserved> {
-        if self.round.is_active() {
+        if self.round.take() {
             self.seen = None;
             return Vec::new();
         }
@@ -324,9 +315,9 @@ mod tests {
     }
 
     #[test]
-    fn an_active_acquire_round_swallows_changes_and_rearms_afterwards() {
+    fn an_acquire_round_latch_outlives_the_command_and_swallows_the_round() {
         let mut watch = source(true, 7);
-        let guard = watch.round.enter();
+        watch.round.enter();
         let events = watch.poll_at(
             t(0),
             || Some(9),
@@ -337,7 +328,6 @@ mod tests {
             "changes made by the round (copy write and restore) are not observations"
         );
 
-        drop(guard);
         let events = watch.poll_at(
             t(1),
             || Some(9),
@@ -348,6 +338,29 @@ mod tests {
             "the post-round board content must not fire"
         );
         let events = watch.poll_at(t(2), || Some(10), || true);
+        assert_eq!(events, vec![PasteboardImageObserved], "a fresh copy fires");
+    }
+
+    #[test]
+    fn a_text_round_restoring_an_image_board_must_not_refire_it() {
+        let mut watch = source(true, 7);
+        let events = watch.poll_at(t(0), || Some(8), || true);
+        assert_eq!(events, vec![PasteboardImageObserved]);
+
+        watch.round.enter();
+        let events = watch.poll_at(t(1), || Some(9), || true);
+        assert!(
+            events.is_empty(),
+            "the restored image must not be observed as a user copy"
+        );
+
+        let events = watch.poll_at(
+            t(2),
+            || Some(9),
+            || panic!("re-arming must only record the baseline"),
+        );
+        assert!(events.is_empty());
+        let events = watch.poll_at(t(3), || Some(10), || true);
         assert_eq!(events, vec![PasteboardImageObserved], "a fresh copy fires");
     }
 
