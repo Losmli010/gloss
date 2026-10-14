@@ -203,12 +203,40 @@ fn parse(raw: &str, locale: &str) -> Text {
     })
 }
 
-/// 填充 `{{name}}` 占位符：表里出现几次就替换几次。
+/// 填充 `{{name}}` 占位符：表里出现几次就替换几次。占位符模式按字面
+/// 匹配，替换值不参与再扫描（与逐参数 `str::replace` 的语义一致）——
+/// 单参数（当前全部调用点）一趟字面量拼接直接出串，模板与占位符模式
+/// 不再各自复制一份；多参数维持逐参数替换（参数值互不嵌套）。
 pub(crate) fn fill(template: &str, args: &[(&str, &str)]) -> String {
+    if let [(name, value)] = args {
+        let mut out = String::with_capacity(template.len() + value.len());
+        let mut rest = template;
+        let pattern_len = name.len() + 4;
+        while let Some(offset) = rest.find("{{") {
+            if rest.len() - offset >= pattern_len
+                && rest[offset + 2..].starts_with(name)
+                && rest[offset + 2 + name.len()..].starts_with("}}")
+            {
+                out.push_str(&rest[..offset]);
+                out.push_str(value);
+                rest = &rest[offset + pattern_len..];
+            } else {
+                // 非占位符的花括号：只前进一个字节，逐字面量比对不漏配。
+                out.push_str(&rest[..offset + 1]);
+                rest = &rest[offset + 1..];
+            }
+        }
+        out.push_str(rest);
+        return out;
+    }
     let mut out = template.to_owned();
     for (name, value) in args {
-        // format! 里 `{{` 转义成 `{`，四个花括号合起来就是占位符的 `{{`。
-        out = out.replace(&format!("{{{{{name}}}}}"), value);
+        let mut pattern = String::with_capacity(name.len() + 4);
+        // 字面量 `{{name}}`：四花括号两两成对。
+        pattern.push_str("{{");
+        pattern.push_str(name);
+        pattern.push_str("}}");
+        out = out.replace(&pattern, value);
     }
     out
 }
@@ -448,6 +476,24 @@ mod tests {
             fill("未知 {{other}}", &[("count", "2")]),
             "未知 {{other}}",
             "a placeholder without an argument stays verbatim"
+        );
+    }
+
+    #[test]
+    fn fill_replaces_multiple_distinct_placeholders() {
+        assert_eq!(
+            fill("{{a}} 和 {{b}}", &[("a", "甲"), ("b", "乙")]),
+            "甲 和 乙"
+        );
+    }
+
+    #[test]
+    fn fill_multi_arg_values_take_part_in_later_scans() {
+        assert_eq!(
+            fill("{{a}}", &[("a", "{{b}}"), ("b", "乙")]),
+            "乙",
+            "the multi-argument pass keeps the old sequential-replace semantics: \
+             later arguments rescan earlier insertions"
         );
     }
 

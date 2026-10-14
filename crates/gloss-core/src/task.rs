@@ -65,9 +65,11 @@ pub struct TaskOptions {
     /// 回答深度档位。
     pub detail_level: Option<u8>,
     /// 本任务使用的模型 id：App 在触发时按 `Config::model` 冻结进来。
-    /// 缺省值只服务测试直构（[`DEFAULT_MODEL`]）；App 路径恒由
-    /// 状态机按配置快照填入。
-    pub model: String,
+    /// `Arc<str>` 共享承载：任务在状态机在途副本与下发请求间共享同一份
+    /// id，复制只是引用计数（模型 id 一次任务至多几个字节，逐份深拷贝
+    /// 纯属浪费）。缺省值只服务测试直构（[`DEFAULT_MODEL`]）；App 路径恒
+    /// 由状态机按配置快照填入。
+    pub model: Arc<str>,
     /// 本任务使用的 prompt 模板语言：App 在触发时按 `Config::language`
     /// 解析（`System` 按启动期读到的系统语言落定）填入，缺省中文模板。
     /// locale 参与缓存 key——换了模板语言后，同输入不得命中旧语言的产物。
@@ -79,7 +81,7 @@ impl Default for TaskOptions {
         Self {
             target_lang: None,
             detail_level: None,
-            model: DEFAULT_MODEL.to_owned(),
+            model: Arc::from(DEFAULT_MODEL),
             prompt_locale: None,
         }
     }
@@ -211,7 +213,7 @@ mod tests {
     #[test]
     fn task_options_default_carries_the_factory_model() {
         let options = TaskOptions::default();
-        assert_eq!(options.model, DEFAULT_MODEL);
+        assert_eq!(options.model, DEFAULT_MODEL.into());
         assert_eq!(options.target_lang, None);
         assert_eq!(options.prompt_locale, None);
     }

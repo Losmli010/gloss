@@ -34,7 +34,9 @@ pub fn record_run(report: &EvalReport, dir: &Path) -> std::io::Result<()> {
     let mut replaced = false;
     if let Some(key) = upsert_key(report) {
         for row in &mut lines {
-            if parsed_key(row).as_ref() == Some(&key) {
+            if let Some((mode, commit)) = parsed_key(row)
+                && (mode.as_str(), commit.as_str()) == key
+            {
                 *row = line.clone();
                 replaced = true;
             }
@@ -73,19 +75,19 @@ pub fn load_history(path: &Path) -> std::io::Result<Vec<EvalReport>> {
 }
 
 /// upsert 键：`(mode, context.commit)`；`commit` 缺省即不产键——本地行
-/// 永不参与匹配，恒追加。
-fn upsert_key(report: &EvalReport) -> Option<(String, String)> {
-    let commit = report
-        .context
-        .as_ref()
-        .and_then(|context| context.commit.clone())?;
-    Some((report.mode.clone(), commit))
+/// 永不参与匹配，恒追加。借自报告本体（`report` 在整个 upsert 比对期间
+/// 存活），不复制两段文本。
+fn upsert_key(report: &EvalReport) -> Option<(&str, &str)> {
+    let commit = report.context.as_ref()?.commit.as_deref()?;
+    Some((&report.mode, commit))
 }
 
 /// 已有行的 upsert 键；解析失败或无 commit 的行返回 `None`（不参与匹配、
-/// 原样保留）。
+/// 原样保留）。行内报告是临时解析产物，键随之取自有副本。
 fn parsed_key(row: &str) -> Option<(String, String)> {
-    upsert_key(&serde_json::from_str::<EvalReport>(row).ok()?)
+    let report = serde_json::from_str::<EvalReport>(row).ok()?;
+    let (mode, commit) = upsert_key(&report)?;
+    Some((mode.to_owned(), commit.to_owned()))
 }
 
 /// 坏行警告经 stderr 直写：本模块服务于评测 CLI 的降级路径（无

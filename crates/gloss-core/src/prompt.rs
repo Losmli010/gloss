@@ -32,6 +32,7 @@
 //! 参数缺省：`options.target_lang` 缺省中文；`options.prompt_locale`
 //! 缺省中文模板。
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use crate::model::{GlossError, Lang, Locale};
@@ -390,8 +391,9 @@ fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
 /// 回落缺省。
 ///
 /// 语言名随 prompt locale——英文模板里写 "Chinese" 而不是「中文」，否则
-/// 模型拿到的是半汉半英的指令。
-fn target_display(options: &TaskOptions, locale: Locale) -> String {
+/// 模型拿到的是半汉半英的指令。`Cow` 承载：常用语种与自填名都借自
+/// 静态表或原配置，渲染不复制字符串。
+fn target_display(options: &TaskOptions, locale: Locale) -> Cow<'_, str> {
     let display = lang_display(
         options.target_lang.as_ref().unwrap_or(&DEFAULT_TARGET),
         locale,
@@ -405,23 +407,23 @@ fn target_display(options: &TaskOptions, locale: Locale) -> String {
 
 /// 语言显示名（模板面向模型，用各 locale 的语言书写；`Lang::Other` 是
 /// 用户自填的名字，原样透传）。
-fn lang_display(lang: &Lang, locale: Locale) -> String {
+fn lang_display(lang: &Lang, locale: Locale) -> Cow<'_, str> {
     match locale {
         Locale::Zh => match lang {
-            Lang::Zh => "中文".into(),
-            Lang::En => "英语".into(),
-            Lang::Ja => "日语".into(),
-            Lang::Ko => "韩语".into(),
-            Lang::Fr => "法语".into(),
-            Lang::Other(name) => name.clone(),
+            Lang::Zh => Cow::Borrowed("中文"),
+            Lang::En => Cow::Borrowed("英语"),
+            Lang::Ja => Cow::Borrowed("日语"),
+            Lang::Ko => Cow::Borrowed("韩语"),
+            Lang::Fr => Cow::Borrowed("法语"),
+            Lang::Other(name) => Cow::Borrowed(name.as_str()),
         },
         Locale::En => match lang {
-            Lang::Zh => "Chinese".into(),
-            Lang::En => "English".into(),
-            Lang::Ja => "Japanese".into(),
-            Lang::Ko => "Korean".into(),
-            Lang::Fr => "French".into(),
-            Lang::Other(name) => name.clone(),
+            Lang::Zh => Cow::Borrowed("Chinese"),
+            Lang::En => Cow::Borrowed("English"),
+            Lang::Ja => Cow::Borrowed("Japanese"),
+            Lang::Ko => Cow::Borrowed("Korean"),
+            Lang::Fr => Cow::Borrowed("French"),
+            Lang::Other(name) => Cow::Borrowed(name.as_str()),
         },
     }
 }
@@ -799,7 +801,7 @@ mod tests {
                      line: {}",
                     text_of(&messages[0].content)
                 );
-                assert!(text_of(&messages[0].content).contains(&expected));
+                assert!(text_of(&messages[0].content).contains(expected.as_ref()));
                 assert!(text_of(&messages[0].content).contains("\"note\""));
             }
         }

@@ -615,6 +615,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
 | catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功、两语言取值可区分，且「重新注解/Re-annotating」词条逐字就位 | 2026-10-12 |
 | fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数/无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |
+| fill_replaces_multiple_distinct_placeholders | 多参填充各自替换对应占位符 | 给定含 {{a}} 与 {{b}} 两类占位符的模板与两参，当填充，则各自替换对应占位符、互不串位 | 2026-10-14 |
+| fill_multi_arg_values_take_part_in_later_scans | 多参逐参替换保留旧的顺序替换语义 | 给定 a 参替换值为 {{b}}、b 参替换值为乙的模板，当填充，则后参重扫先参插入的值、结果为乙（与旧逐参 str::replace 语义一致） | 2026-10-14 |
 | error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定 GlossError 的十一个无诊断文本变体（含 JSON 模式不支持），当取失败卡文案，则各自的两种语言都非空且互不相同；两个带诊断文本的变体按模板填出整句 | 2026-10-11 |
 | each_error_variant_maps_to_its_own_entry | 错误变体各取自己的词条 | 给定十一个无诊断文本的变体（含 JSON 模式不支持），当取失败卡文案与错因细节，则各等于本变体对应的词条（两臂对调会被抓住）；带诊断的两个变体按模板填诊断 | 2026-10-11 |
 | error_detail_prefers_the_variant_diagnostic | 复合提示取诊断细节 | 给定带诊断的变体与不带诊断的变体，当取错因细节，则前者只出诊断原文、后者回落本地化整句 | 2026-09-22 |

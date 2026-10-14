@@ -103,7 +103,7 @@ fn run_live_cli(args: &[String]) -> Result<(), String> {
         }
         index += 1;
     }
-    let (config, store) = gloss_eval::runner::live_config(&env);
+    let (config, store) = gloss_eval::runner::live_config(env);
     let engine: Arc<dyn gloss_core::ports::AiEngine> = Arc::new(
         LlmClient::new(Arc::clone(&config), store).map_err(|err| format!("http client: {err}"))?,
     );

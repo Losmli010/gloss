@@ -154,6 +154,8 @@ impl AiEngine for LlmClient {
         &self,
         request: EngineRequest,
     ) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
+        // reqwest::Client 内部是 Arc 连接池：克隆只是递引用计数（零堆分配），
+        // 为满足 'static future 的所有权要求，勿改回传引用或重建客户端。
         let client = self.client.clone();
         let config = Arc::clone(&self.config);
         let store = Arc::clone(&self.store);

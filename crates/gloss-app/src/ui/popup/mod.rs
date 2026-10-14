@@ -63,6 +63,7 @@ use sizing::resolve_width;
 
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::time::Duration;
 
 use egui::{
@@ -205,6 +206,8 @@ impl RenderState {
         {
             *slot = Some(ctx.load_texture("gloss_app_icon", image, egui::TextureOptions::LINEAR));
         }
+        // TextureHandle 内部是 Arc：克隆只递引用计数（零堆分配），缓存槽
+        // 与当帧绘制各持一枚，勿改成逐帧重装纹理。
         slot.clone()
     }
 
@@ -312,7 +315,7 @@ pub fn draw(
     view: Option<&OverlayView>,
     attached: Option<&Arc<[u8]>>,
     state: &RenderState,
-    text: &Text,
+    text: &'static Text,
 ) -> PopupOutput {
     // 划选即复制路径：全部文本可选中（含跨 widget 连选）
     ui.style_mut().interaction.selectable_labels = true;
@@ -416,7 +419,12 @@ fn arrow_key_scroll(ui: &egui::Ui) {
 
 /// 流式正文（注位渐进 markdown + 疏位已到达的解读条目）：两字段全空落
 /// 骨架（经已回显、注未至——无注印，还没有可注的内容）。
-fn streamed_sections(ui: &mut egui::Ui, fields: &StreamFields, state: &RenderState, text: &Text) {
+fn streamed_sections(
+    ui: &mut egui::Ui,
+    fields: &StreamFields,
+    state: &RenderState,
+    text: &'static Text,
+) {
     if fields.note.is_empty() && fields.examples.is_empty() {
         shimmer_bars(ui);
         return;
@@ -436,7 +444,7 @@ fn streamed_sections(ui: &mut egui::Ui, fields: &StreamFields, state: &RenderSta
 /// 经位附件图像：纹理经 [`RenderState`] 跨帧复用（同字节恒同纹理，绝不
 /// 逐帧解码），宽度随卡宽等比收缩；解码失败落占位降级（字节进不了纹理
 /// 不是 panic 面）。
-fn attached_image(ui: &mut egui::Ui, png: &Arc<[u8]>, state: &RenderState, text: &Text) {
+fn attached_image(ui: &mut egui::Ui, png: &Arc<[u8]>, state: &RenderState, text: &'static Text) {
     match state.attached_texture(ui.ctx(), png) {
         Some(texture) => {
             ui.add(egui::Image::new(&texture).max_width(ui.available_width()));
@@ -447,7 +455,7 @@ fn attached_image(ui: &mut egui::Ui, png: &Arc<[u8]>, state: &RenderState, text:
 
 /// 经位图像的占位降级：图像缺席（无可渲染的字节）或解码失败时，经位落
 /// 一行弱色占位，注/疏照常。
-fn image_unavailable(ui: &mut egui::Ui, text: &Text) {
+fn image_unavailable(ui: &mut egui::Ui, text: &'static Text) {
     ui.label(
         RichText::new(&text.gloss_popup_image_unavailable)
             .font(serif_font(SHU_FONT))
@@ -466,7 +474,7 @@ fn render_content(
     attached: Option<&Arc<[u8]>>,
     state: &RenderState,
     content_h: &mut f32,
-    text: &Text,
+    text: &'static Text,
 ) -> (Option<OverlayAction>, Option<egui::Vec2>) {
     match view {
         None => {
@@ -613,7 +621,7 @@ fn failure_message<'a>(cause: &'a FailureCause, text: &'a Text) -> Cow<'a, str> 
 }
 
 /// 动作按钮的文案。
-fn action_label(action: ErrorAction, text: &Text) -> &str {
+fn action_label(action: ErrorAction, text: &'static Text) -> &'static str {
     match action {
         ErrorAction::Retry => text.gloss_popup_retry.as_str(),
         ErrorAction::OpenSettings => text.gloss_popup_open_settings.as_str(),
@@ -640,7 +648,7 @@ fn hairline(ui: &egui::Ui) -> Stroke {
 fn header(
     ui: &mut egui::Ui,
     state: &RenderState,
-    text: &Text,
+    text: &'static Text,
 ) -> (Option<OverlayAction>, Option<egui::Vec2>) {
     let weak = ui.visuals().weak_text_color();
     let strong = ui.visuals().strong_text_color();
@@ -703,7 +711,7 @@ fn drag_strip(
     ui: &mut egui::Ui,
     state: &RenderState,
     gear_left: f32,
-    text: &Text,
+    text: &'static Text,
 ) -> Option<egui::Vec2> {
     let row = ui.min_rect();
     let right = (gear_left - DRAG_STRIP_INSET).max(row.left());
@@ -747,7 +755,7 @@ fn drag_strip(
 
 /// 头部动作钮（关闭 ×）：与齿轮同尺寸的方块命中区，× 本体用两条圆头线段
 /// 绘制——内置字体里 × 字形只有 ⚙ 的四成大，靠字号拉平会撑破按钮盒。
-fn close_button(ui: &mut egui::Ui, text: &Text) -> egui::Response {
+fn close_button(ui: &mut egui::Ui, text: &'static Text) -> egui::Response {
     let (rect, response) =
         ui.allocate_exact_size(vec2(ACTION_BUTTON, ACTION_BUTTON), egui::Sense::click());
     response.widget_info(|| {
@@ -783,7 +791,7 @@ fn close_button(ui: &mut egui::Ui, text: &Text) -> egui::Response {
 
 /// 印章着色档：墨印（纸色实心 + 墨色字，经用）、朱印（朱砂实心 + 纸色字，
 /// 注用）与疏印（描边 + 弱色字，疏用）——demo 三印各成一体。
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum SealTint {
     Ink,
     Zhu,
@@ -792,7 +800,7 @@ enum SealTint {
 
 /// 经注疏印章：小圆角方块 + 单字（en 缩写按文本撑宽，方块边长是下限）。
 /// 几何与配色按 demo 定稿（21px 方块、5px 圆角、宋体字）。
-fn seal(ui: &mut egui::Ui, label: &str, tint: SealTint) {
+fn seal(ui: &mut egui::Ui, label: &'static str, tint: SealTint) {
     let (fg, fill, line) = match tint {
         SealTint::Ink => (
             paper_color(ui),
@@ -805,9 +813,19 @@ fn seal(ui: &mut egui::Ui, label: &str, tint: SealTint) {
             (dim, egui::Color32::TRANSPARENT, Stroke::new(1.0, dim))
         }
     };
-    let galley = ui
-        .painter()
-        .layout_no_wrap(label.to_owned(), serif_font(SEAL_FONT), fg);
+    let galley = cached_galley(
+        ui,
+        CachedGalley::Seal(
+            label,
+            tint,
+            ui.visuals().dark_mode,
+            ui.ctx().pixels_per_point().to_bits(),
+        ),
+        || {
+            ui.painter()
+                .layout_no_wrap(label.to_owned(), serif_font(SEAL_FONT), fg)
+        },
+    );
     let width = SEAL_SIZE.max(galley.size().x + 2.0 * SEAL_TEXT_PADDING);
     let (rect, response) = ui.allocate_exact_size(vec2(width, SEAL_SIZE), egui::Sense::hover());
     response
@@ -837,6 +855,65 @@ fn zhu_color(ui: &egui::Ui) -> egui::Color32 {
     }
 }
 
+/// 印章/水印 galley 的缓存槽位：键穷举**除字体表外**的全部布局输入
+/// （静态文本、墨色档、明暗、像素密度），取值空间有界（三印一水印 ×
+/// 文案表 × 明暗两态），不做逐出。字体表启动期会整体更换一次（内置
+/// 快路径 → 完整表），布局结果随表变化——槽位键不含它，由统一装入点
+/// （`ui::context`）在换表时调 [`clear_cached_text_galleys`] 整体失效。
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum CachedGalley {
+    /// 印章：标签（文案表字段，`'static`）+ 墨色档 + 明暗 + 像素密度位型。
+    Seal(&'static str, SealTint, bool, u32),
+    /// 页脚水印（文案恒为品牌名）+ 明暗 + 像素密度位型。
+    Watermark(bool, u32),
+}
+
+/// galley 按槽位缓存：epaint 对布局本身记忆化，但每次查询都要先构造
+/// `LayoutJob`（文本拷贝 + sections Vec）再算哈希——印章与水印每帧各一
+/// 次的这份固定开销在这里消失，稳态帧零分配。 galley 不可变，跨帧复用
+/// 渲染一致；明暗或像素密度变化换键重排，字体表变化整体失效。
+#[derive(Default)]
+struct CachedGalleys(HashMap<CachedGalley, Arc<egui::Galley>>);
+
+impl egui::cache::CacheTrait for CachedGalleys {
+    fn update(&mut self) {}
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+/// 字体表更换后清空文本 galley 缓存：槽位键不含字体代际，换表前以旧表
+/// （内置快路径字形）排出的 galley 必须整体失效重排，否则字形与量宽
+/// 滞留到下次明暗/DPI 变化。由 `ui::context` 的统一装入点在 `set_fonts`
+/// 后调用（含启动首装——空表清空是空操作）。
+pub(crate) fn clear_cached_text_galleys(ctx: &egui::Context) {
+    ctx.memory_mut(|mem| mem.caches.cache::<CachedGalleys>().0.clear());
+}
+
+/// 取槽位对应的 galley，未缓存时按 `layout` 现排一次。查与写分两步拿
+/// Context 写锁：`layout` 里的排版要走 `fonts_mut`（同一把锁），不能在
+/// `memory_mut` 闭包内重入。UI 单线程，先查后插无竞态。
+fn cached_galley(
+    ui: &egui::Ui,
+    slot: CachedGalley,
+    layout: impl FnOnce() -> Arc<egui::Galley>,
+) -> Arc<egui::Galley> {
+    let ctx = ui.ctx();
+    let cached = ctx.memory_mut(|mem| mem.caches.cache::<CachedGalleys>().0.get(&slot).cloned());
+    if let Some(galley) = cached {
+        return galley;
+    }
+    let galley = layout();
+    ctx.memory_mut(|mem| {
+        mem.caches
+            .cache::<CachedGalleys>()
+            .0
+            .insert(slot, Arc::clone(&galley));
+    });
+    galley
+}
+
 /// 朱丝栏的线色：朱砂按 demo 的 55% 透明档。
 fn zhu_line_color(ui: &egui::Ui) -> egui::Color32 {
     let zhu = zhu_color(ui);
@@ -844,9 +921,9 @@ fn zhu_line_color(ui: &egui::Ui) -> egui::Color32 {
 }
 
 /// 经区行：墨印 + 正文列（`body` 在列内绘制，显式垂直布局）。
-fn jing_section(ui: &mut egui::Ui, text: &Text, body: impl FnOnce(&mut egui::Ui)) {
+fn jing_section(ui: &mut egui::Ui, text: &'static Text, body: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal_top(|ui| {
-        seal(ui, &text.gloss_popup_seal_jing, SealTint::Ink);
+        seal(ui, text.gloss_popup_seal_jing.as_str(), SealTint::Ink);
         ui.add_space(SEAL_GAP);
         ui.with_layout(egui::Layout::top_down(Align::LEFT), body);
     });
@@ -854,9 +931,9 @@ fn jing_section(ui: &mut egui::Ui, text: &Text, body: impl FnOnce(&mut egui::Ui)
 
 /// 注区行：朱印 + 朱丝栏左线的直接解释（译文/释义/概要）。朱丝栏画在
 /// 正文列左缘，线高随正文（跨行延续，demo 的疏密语义）。
-fn zhu_section(ui: &mut egui::Ui, text: &Text, body: impl FnOnce(&mut egui::Ui)) {
+fn zhu_section(ui: &mut egui::Ui, text: &'static Text, body: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal_top(|ui| {
-        seal(ui, &text.gloss_popup_seal_zhu, SealTint::Zhu);
+        seal(ui, text.gloss_popup_seal_zhu.as_str(), SealTint::Zhu);
         ui.add_space(SEAL_GAP);
         let line_top = ui.cursor().top();
         let column = ui
@@ -883,9 +960,9 @@ fn zhu_section(ui: &mut egui::Ui, text: &Text, body: impl FnOnce(&mut egui::Ui))
 
 /// 疏区行：疏印 + 上缘虚线的小字衍说（译注/例句/小记）。虚线只横贯正文
 /// 列（demo shu-wrap 的 border-top 在文字列上，不过印章列）。
-fn shu_section(ui: &mut egui::Ui, text: &Text, body: impl FnOnce(&mut egui::Ui)) {
+fn shu_section(ui: &mut egui::Ui, text: &'static Text, body: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal_top(|ui| {
-        seal(ui, &text.gloss_popup_seal_shu, SealTint::Wei);
+        seal(ui, text.gloss_popup_seal_shu.as_str(), SealTint::Wei);
         ui.add_space(SEAL_GAP);
         let column = ui
             .with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
@@ -965,7 +1042,7 @@ fn code_job(
     let font_id = FontId::new(CODE_FONT, fonts::mono_family());
     let plain = egui::TextFormat {
         line_height: Some(CODE_LINE_HEIGHT),
-        ..egui::TextFormat::simple(font_id.clone(), strong_code_color(dark))
+        ..egui::TextFormat::simple(font_id, strong_code_color(dark))
     };
     let mut job = egui::text::LayoutJob {
         text: source.to_owned(),
@@ -1101,7 +1178,7 @@ fn shimmer_bars(ui: &mut egui::Ui) {
 /// 页脚带（常驻）：上缘细线，推理中左端是呼吸点 + 「正在注解」/「重新注解」
 /// （修复轮切换文案，生成指示唯一落点，无障碍标签也在这里），右端恒为
 /// Gloss 水印。动画与骨架同源（时间驱动 alpha + 短重绘），仅在推理中请求。
-fn footer(ui: &mut egui::Ui, streaming: bool, repairing: bool, text: &Text) {
+fn footer(ui: &mut egui::Ui, streaming: bool, repairing: bool, text: &'static Text) {
     let (rect, response) = ui.allocate_exact_size(
         vec2(ui.available_width(), FOOTER_HEIGHT),
         egui::Sense::hover(),
@@ -1153,17 +1230,35 @@ fn footer(ui: &mut egui::Ui, streaming: bool, repairing: bool, text: &Text) {
             .request_repaint_after(Duration::from_secs_f32(0.016));
     }
     // 水印走 Label 而不是 painter 文字：进无障碍树，可检索、可测。槽宽按
-    // 水印字串实测宽 + 余量（与印章同一模式），右对齐贴页脚右缘。
-    let galley =
-        ui.painter()
-            .layout_no_wrap(watermark().to_owned(), FontId::proportional(font::TAG), dim);
+    // 水印字串实测宽 + 余量（与印章同一模式），右对齐贴页脚右缘。标签
+    // 直接吃缓存槽里的同一份 galley，不再逐帧重排版、不逐帧复制字串。
+    // 缓存未命中时的排版走与 `Label` 同源的 `WidgetText::into_galley`
+    // （valign/字体/style 解析一致）；job 的 halign/justify 维持默认
+    // （LEFT/不两端对齐），落点由 `ui.put` 的居中与槽宽（=galley 宽 +
+    // 对称余量）决定——渲染一致性由 L2 快照钉住，不靠此处机制断言。
+    let galley = cached_galley(
+        ui,
+        CachedGalley::Watermark(
+            ui.visuals().dark_mode,
+            ui.ctx().pixels_per_point().to_bits(),
+        ),
+        || {
+            egui::WidgetText::from(RichText::new(watermark()).size(font::TAG).color(dim))
+                .into_galley(
+                    ui,
+                    Some(ui.wrap_mode()),
+                    ui.available_width(),
+                    egui::FontSelection::Default,
+                )
+        },
+    );
     let slot = galley.size().x + 2.0 * WATERMARK_PADDING;
     ui.put(
         egui::Rect::from_min_max(
             egui::pos2(rect.max.x - slot, rect.min.y),
             egui::pos2(rect.max.x, rect.max.y),
         ),
-        egui::Label::new(RichText::new(watermark()).size(font::TAG).color(dim))
+        egui::Label::new(egui::WidgetText::Galley(galley))
             .selectable(false)
             .halign(Align::RIGHT),
     );
@@ -1209,7 +1304,7 @@ fn outcome_body(
     outcome: &gloss_core::task::TaskOutcome,
     attached: Option<&Arc<[u8]>>,
     state: &RenderState,
-    text: &Text,
+    text: &'static Text,
 ) {
     let code_lang = outcome_code_lang(outcome);
     match &outcome.structured {
@@ -1294,7 +1389,7 @@ fn word_head(ui: &mut egui::Ui, word: &str, phonetic: Option<&str>) {
 
 /// 疏位疏证（examples 逐条）：例句/展开讲解拆行（demo w-ex 的 `.en` 行
 /// + `.zh` 块），楷体弱色。
-fn shu_examples(ui: &mut egui::Ui, examples: &[String], text: &Text) {
+fn shu_examples(ui: &mut egui::Ui, examples: &[String], text: &'static Text) {
     shu_section(ui, text, |ui| {
         let weak = ui.visuals().weak_text_color();
         for example in examples {

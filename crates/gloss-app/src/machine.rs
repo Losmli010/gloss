@@ -360,17 +360,15 @@ impl TaskStateMachine {
             Some(probe) if probe.id == probe_id => probe.source,
             _ => return InputOutcome::Ignored,
         };
-        let (view_source, attached) = match (&input, source) {
+        let attached = match (&input, source) {
             (TaskInput::Text { text }, ProbeSource::Selection) => {
                 if let Some(reason) = guard::detect_sensitive(text) {
                     self.probe = None;
                     return InputOutcome::Blocked(reason);
                 }
-                (text.clone(), None)
+                None
             }
-            (TaskInput::Image { png, .. }, ProbeSource::PasteboardImage) => {
-                (String::new(), Some(Arc::clone(png)))
-            }
+            (TaskInput::Image { png, .. }, ProbeSource::PasteboardImage) => Some(Arc::clone(png)),
             _ => return InputOutcome::Ignored,
         };
         let Some(ProbeTask {
@@ -388,12 +386,6 @@ impl TaskStateMachine {
         self.active_request = None;
         self.generation = id;
         self.attached_image = attached;
-        self.overlay_view = Some(OverlayView::Streaming {
-            source: view_source,
-            raw: String::new(),
-            classified: None,
-            repairing: false,
-        });
         self.state = AppState::Translating;
         InputOutcome::Dispatch(self.begin_run(input, options))
     }
@@ -555,19 +547,22 @@ impl TaskStateMachine {
         if !retryable {
             return None;
         }
-        // 取走在途请求原件：`begin_run` 会把请求副本重新记回在途，这里
-        // 无需先复制一份。
+        // 取走在途请求原件：`begin_run` 会把流式视图与请求副本一并重新
+        // 记回，这里只需交出状态。
         let (input, options) = self.active_request.take()?;
-        self.overlay_view = Some(streaming_view(&input));
         self.state = AppState::Translating;
         Some(self.begin_run(input, options))
     }
 
-    /// 下发一个任务的共用半边：换新取消令牌并把请求副本记在途（失败可
-    /// 重试）。视图由调用方先定好——只有调用方知道这次下发用哪个视图。
+    /// 下发一个任务的共用半边：换新取消令牌、落定流式视图（首次下发与
+    /// 重试同形——原文取自本次下发的输入）并把请求副本记在途（失败可
+    /// 重试）。
     fn begin_run(&mut self, input: TaskInput, options: TaskOptions) -> RunRequest {
         let cancel = CancellationToken::new();
+        // CancellationToken 是 Arc 共享句柄：跨线程取消与在途留存各持一枚，
+        // clone 只递引用计数，零堆分配——勿改成深拷贝或字段拆解。
         self.current_cancel = Some(cancel.clone());
+        self.overlay_view = Some(streaming_view(&input));
         self.active_request = Some((input.clone(), options.clone()));
         RunRequest {
             generation: self.generation,
@@ -689,15 +684,19 @@ pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDec
     }
 }
 
-/// 按配置快照解析任务选项：目标语言取配置默认；模型取配置的单一项；
-/// prompt 模板语言按 `Language` 落定（`System` 取系统语言）——三者都是
-/// LLM 层的输入，随任务冻结，执行途中不再回读配置。
+/// 按配置快照解析任务选项：目标语言取配置默认；模型取配置的单一项
+/// （`Arc<str>` 共享：任务选项在在途副本与下发请求间引用同一份 id，复制
+/// 只递引用计数）；prompt 模板语言按 `Language` 落定（`System` 取系统
+/// 语言）——三者都是 LLM 层的输入，随任务冻结，执行途中不再回读配置。
+/// 四个字段全量显式构造，不走 `..Default::default()`——后者会先把缺省
+/// 模型 id 分配出来再被覆盖，纯浪费一次分配（选项新增字段时编译器在此
+/// 处强制补齐，不会静默漏填）。
 fn task_options(config: &Config, system_locale: Locale) -> TaskOptions {
     TaskOptions {
         target_lang: Some(config.target_lang.clone()),
-        model: config.model.clone(),
+        detail_level: None,
+        model: Arc::from(config.model.as_str()),
         prompt_locale: Some(config.language.resolve(system_locale)),
-        ..Default::default()
     }
 }
 
@@ -1105,7 +1104,8 @@ mod tests {
 
         let request = dispatched(machine.commit_probe(1, text_input("fn main() {}")));
         assert_eq!(
-            request.options.model, "frozen-model",
+            request.options.model.as_ref(),
+            "frozen-model",
             "the model freezes from the probe-time snapshot"
         );
         assert_eq!(
@@ -1166,7 +1166,8 @@ mod tests {
             "in-flight task must keep the snapshot taken at probe time"
         );
         assert_eq!(
-            request.options.model, "before-model",
+            request.options.model.as_ref(),
+            "before-model",
             "the model is frozen with the rest of the options"
         );
         assert_eq!(
@@ -1177,7 +1178,7 @@ mod tests {
         assert_eq!(probe(&mut machine, &after), 2);
         let request = dispatched(machine.commit_probe(2, text_input("world")));
         assert_eq!(request.options.target_lang, Some(Lang::Ko));
-        assert_eq!(request.options.model, "after-model");
+        assert_eq!(request.options.model.as_ref(), "after-model");
         assert_eq!(request.options.prompt_locale, Some(Locale::Zh));
     }
 

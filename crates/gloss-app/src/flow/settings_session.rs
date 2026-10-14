@@ -39,11 +39,13 @@ impl GlossApp {
     /// 共享开关位随保存置位：事件线程的哨兵源只读这一位，热切换不重启
     /// （落盘失败不置位，与快照同进退）。
     pub(crate) fn save_settings(&mut self, config: Config, key_update: KeyUpdate) {
-        let keychain_id = config.resolved_provider().keychain_id.clone();
+        // 条目定位符借自本地 config：密钥写删在 config 落盘（move）之前
+        // 完成，借用随用随止，不必复制一份。
+        let keychain_id = config.resolved_provider().keychain_id.as_str();
         let key_result = match &key_update {
             KeyUpdate::Keep => Ok(()),
-            KeyUpdate::Replace(key) => self.env.store.set_secret(&keychain_id, key),
-            KeyUpdate::Clear => self.env.store.delete_secret(&keychain_id),
+            KeyUpdate::Replace(key) => self.env.store.set_secret(keychain_id, key),
+            KeyUpdate::Clear => self.env.store.delete_secret(keychain_id),
         };
         if let Err(err) = key_result {
             warn!(thread = thread::UI, error = %err, "failed to update the api key");
@@ -161,7 +163,8 @@ mod tests {
             panic!("expected a RunTask command, got another variant")
         };
         assert_eq!(
-            options.model, "deepseek-reasoner",
+            options.model.as_ref(),
+            "deepseek-reasoner",
             "the saved model freezes into the next task"
         );
     }

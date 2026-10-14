@@ -144,21 +144,25 @@ impl SseDecoder {
         if let Some(error) = chunk.error {
             return Some(SseItem::Failed(map_api_error(&error)));
         }
-        // 本客户端每次只发一条 user 消息，choices 恒为一条；结束原因与增量
-        // 都只认第一条 choice，增量只在 content 上。
-        if let Some(reason) = chunk
-            .choices
-            .first()
-            .and_then(|choice| choice.finish_reason.clone())
-        {
-            self.finish_reason = Some(reason);
-        }
-        chunk
+        // 本客户端每次只发一条 user 消息，choices 恒为一条；结束原因只认
+        // 第一条 choice，增量取第一条携带 content 的 choice（一并把结束
+        // 原因随 choice 所有权带出，不再复制字符串）。
+        let mut finish_reason = None;
+        let delta = chunk
             .choices
             .into_iter()
-            .find_map(|choice| choice.delta.and_then(|delta| delta.content))
-            .filter(|content| !content.is_empty())
-            .map(SseItem::Delta)
+            .enumerate()
+            .find_map(|(index, choice)| {
+                if index == 0 {
+                    finish_reason = choice.finish_reason;
+                }
+                choice.delta.and_then(|delta| delta.content)
+            })
+            .filter(|content| !content.is_empty());
+        if finish_reason.is_some() {
+            self.finish_reason = finish_reason;
+        }
+        delta.map(SseItem::Delta)
     }
 }
 

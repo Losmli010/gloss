@@ -291,18 +291,18 @@ impl Latency {
         self.samples_ms.len()
     }
 
-    /// 百分位（线性插值）；样本为空返回 `None`。
-    pub fn percentile(&self, p: f64) -> Option<f64> {
-        let mut samples = self.samples_ms.clone();
-        if samples.is_empty() {
+    /// 百分位（线性插值）；样本为空返回 `None`。就地按值排序（百分位与
+    /// 顺序无关，重复调用幂等），不再为每次查询复制整份样本。
+    pub fn percentile(&mut self, p: f64) -> Option<f64> {
+        if self.samples_ms.is_empty() {
             return None;
         }
-        samples.sort_by(|a, b| a.total_cmp(b));
-        let index = (p / 100.0) * (samples.len() - 1) as f64;
+        self.samples_ms.sort_by(|a, b| a.total_cmp(b));
+        let index = (p / 100.0) * (self.samples_ms.len() - 1) as f64;
         let lower = index.floor() as usize;
         let upper = index.ceil() as usize;
         let weight = index - lower as f64;
-        Some(samples[lower] * (1.0 - weight) + samples[upper] * weight)
+        Some(self.samples_ms[lower] * (1.0 - weight) + self.samples_ms[upper] * weight)
     }
 }
 

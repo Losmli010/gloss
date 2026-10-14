@@ -136,10 +136,11 @@ pub async fn run_live(
     };
     for case in &cases {
         let started = Instant::now();
-        let model = config.snapshot().model.clone();
+        let snapshot = config.snapshot();
+        let model = snapshot.model.as_str();
         let decision = match classify_traced(
             engine.as_ref(),
-            &model,
+            model,
             Locale::Zh,
             &CLASSIFY_KINDS,
             &case.text,
@@ -158,9 +159,6 @@ pub async fn run_live(
         };
         latency.record(started.elapsed().as_secs_f64() * 1000.0);
         let rounds = decision.rounds;
-        if options.record {
-            recordings.push(fixture_from_rounds(&case.id, &rounds));
-        }
         absorb_classify_track(
             &mut classify,
             &violation_track(
@@ -177,6 +175,11 @@ pub async fn run_live(
             }
             ClassifyVerdict::InvalidJson => classify.invalid_json += 1,
             ClassifyVerdict::Rejected => classify.rejected += 1,
+        }
+        // 夹具落盘放在轮记录的最后一次使用之后：逐轮文本 move 进夹具，
+        // 不再逐轮复制（落盘顺序与逐条顺序不变——每条至多一次 push）。
+        if options.record {
+            recordings.push(fixture_from_rounds(&case.id, rounds));
         }
     }
 
@@ -203,9 +206,6 @@ pub async fn run_live(
                 }
             };
             latency.record(started.elapsed().as_secs_f64() * 1000.0);
-            if options.record {
-                recordings.push(fixture_from_rounds(&case.id, &rounds));
-            }
             // 轮记录来自 run_task_rounds 本身：修复轮次与 RunOutput.repairs
             // 同源同值（on_repair 与修复计数器逐一对应），折算走与重放轨
             // 同一份 for_rounds。
@@ -217,11 +217,14 @@ pub async fn run_live(
             metrics.record(&verdict);
             if options.judge
                 && let Some(reply) = rounds.last()
+                && let Some(score) = judge_one(engine.as_ref(), &config, case, reply).await
             {
-                let reply = reply.clone();
-                if let Some(score) = judge_one(engine.as_ref(), &config, case, &reply).await {
-                    judge_scores.push(score);
-                }
+                judge_scores.push(score);
+            }
+            // 夹具落盘放在轮记录的最后一次使用之后：逐轮文本 move 进夹具，
+            // 不再逐轮复制（落盘顺序与逐条顺序不变——每条至多一次 push）。
+            if options.record {
+                recordings.push(fixture_from_rounds(&case.id, rounds));
             }
         }
         tasks.push((name, metrics));
@@ -244,7 +247,7 @@ pub async fn run_live(
             "live",
             Some(classify),
             tasks,
-            Some(&latency),
+            Some(&mut latency),
             judge_summary,
             0,
         ),
@@ -327,11 +330,11 @@ const TASK_DATASETS: [(&str, &str); 3] = [
 
 /// 组装 live 轨的配置句柄：端点与模型对全部 kind 生效，密钥经内存存储
 /// 直查（不落盘、不进日志）。
-pub fn live_config(env: &LiveEnv) -> (Arc<ConfigHandle>, Arc<dyn ConfigStore>) {
-    let store = Arc::new(EnvSecretStore::new(env.api_key.clone()));
+pub fn live_config(env: LiveEnv) -> (Arc<ConfigHandle>, Arc<dyn ConfigStore>) {
+    let store = Arc::new(EnvSecretStore::new(env.api_key));
     let config = Config {
-        base_url: env.base_url.clone(),
-        model: env.model.clone(),
+        base_url: env.base_url,
+        model: env.model,
         ..Config::default()
     };
     let handle = Arc::new(ConfigHandle::with_config(
@@ -351,11 +354,12 @@ fn round_texts(fixture: &Fixture) -> Vec<String> {
 }
 
 /// 轮回复 → 夹具轮次：live 的轮数据是完整回复文本，落盘按单增量成轮
-/// （重放只消费拼接结果，增量切分不进任何指标）。
-fn fixture_from_rounds(id: &str, rounds: &[String]) -> Fixture {
+/// （重放只消费拼接结果，增量切分不进任何指标）。轮文本随 `Vec` move
+/// 进夹具——调用方在轮记录的最后一次使用之后才转交所有权。
+fn fixture_from_rounds(id: &str, rounds: Vec<String>) -> Fixture {
     Fixture {
         id: id.to_owned(),
-        rounds: rounds.iter().map(|round| vec![round.clone()]).collect(),
+        rounds: rounds.into_iter().map(|round| vec![round]).collect(),
     }
 }
 
@@ -422,7 +426,8 @@ async fn run_task_case(
     config: &ConfigHandle,
     case: &TaskCase,
 ) -> Result<(RunOutput, Vec<String>), GlossError> {
-    let model = config.snapshot().model.clone();
+    let snapshot = config.snapshot();
+    let model = snapshot.model.as_str();
     let task = Task {
         kind: case.kind,
         input: TaskInput::Text {
@@ -442,7 +447,7 @@ async fn run_task_case(
         &PromptRegistry::new(),
         case.kind,
         base,
-        &model,
+        model,
         Locale::Zh,
         move |delta| {
             let mut rounds = chunks
@@ -477,7 +482,8 @@ async fn judge_one(
     case: &TaskCase,
     reply: &str,
 ) -> Option<u8> {
-    let model = config.snapshot().model.clone();
+    let snapshot = config.snapshot();
+    let model = snapshot.model.clone();
     let reference = case.reference.to_string();
     let messages = judge::render_judge(&case.text, reply, &reference);
     let judge_reply = collect(
@@ -723,7 +729,7 @@ mod tests {
             model: "m".into(),
             api_key: String::new(),
         };
-        let (config, _store) = live_config(&env);
+        let (config, _store) = live_config(env);
         let run = rt
             .block_on(run_live(
                 engine,
@@ -811,7 +817,7 @@ mod tests {
             model: "m".into(),
             api_key: String::new(),
         };
-        let (config, _store) = live_config(&env);
+        let (config, _store) = live_config(env);
         let run = rt
             .block_on(run_live(
                 engine,
@@ -855,7 +861,7 @@ mod tests {
             model: "m".into(),
             api_key: String::new(),
         };
-        let (config, _store) = live_config(&env);
+        let (config, _store) = live_config(env);
         let cases = load_task(
             "{\"id\":\"task-word-01\",\"kind\":\"TranslateWord\",\"text\":\"gloss\",\"reference\":{\"phonetic\":null,\"examples\":[]}}\n",
         )

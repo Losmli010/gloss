@@ -175,7 +175,8 @@ mod tests {
         };
         assert_ne!(base, cache_key(&text_input("hello"), &model), "model id");
         assert_ne!(
-            model.model, DEFAULT_MODEL,
+            model.model.as_ref(),
+            DEFAULT_MODEL,
             "the test must not alias the factory model"
         );
     }

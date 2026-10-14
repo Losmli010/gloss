@@ -686,7 +686,8 @@ mod tests {
         };
         assert_eq!(options.target_lang, Some(Lang::Zh));
         assert_eq!(
-            options.model, DEFAULT_MODEL,
+            options.model.as_ref(),
+            DEFAULT_MODEL,
             "the factory model freezes into the first task"
         );
 
@@ -705,7 +706,8 @@ mod tests {
         };
         assert_eq!(options.target_lang, Some(Lang::Ja));
         assert_eq!(
-            options.model, "deepseek-reasoner",
+            options.model.as_ref(),
+            "deepseek-reasoner",
             "the saved model freezes into the next task"
         );
     }

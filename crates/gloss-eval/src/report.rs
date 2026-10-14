@@ -309,7 +309,7 @@ pub fn assemble_report(
     mode: &str,
     classify: Option<ClassifyMetrics>,
     tasks: Vec<(&str, TaskMetrics)>,
-    latency: Option<&Latency>,
+    latency: Option<&mut Latency>,
     judge: Option<JudgeSummary>,
     skipped: usize,
 ) -> EvalReport {

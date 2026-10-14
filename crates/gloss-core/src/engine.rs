@@ -151,9 +151,8 @@ impl AiTaskService {
         on_classified(kind);
 
         // 任务形成与执行：渲染含模态校验（非法组合在进引擎前拒绝），模型
-        // 恒取 options 冻结值；修复指令语言同源——prompt_locale 一次任务
-        // 只认触发时定下的那一份。
-        let model = options.model.clone();
+        // 恒取 options 冻结值（借自本函数存活的 task，不再复制）；修复指
+        // 令语言同源——prompt_locale 一次任务只认触发时定下的那一份。
         let locale = options.prompt_locale.unwrap_or_default();
         let task = Task {
             kind,
@@ -166,7 +165,7 @@ impl AiTaskService {
             &self.prompts,
             kind,
             base,
-            &model,
+            &task.options.model,
             locale,
             on_chunk,
             on_repair,
