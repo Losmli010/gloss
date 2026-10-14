@@ -24,7 +24,7 @@ fn text_options(text: &str) -> (TaskInput, TaskOptions) {
             text: text.to_owned(),
         },
         TaskOptions {
-            model: MODEL.to_owned(),
+            model: MODEL.into(),
             ..TaskOptions::default()
         },
     )
@@ -35,7 +35,7 @@ fn text_task(kind: TaskKind, text: String) -> Task {
         kind,
         input: TaskInput::Text { text },
         options: TaskOptions {
-            model: MODEL.to_owned(),
+            model: MODEL.into(),
             ..TaskOptions::default()
         },
     }

@@ -259,7 +259,7 @@ impl UpdateMachine {
             return true;
         };
         self.update = Some(UpdateTarget {
-            version: manifest.version().clone(),
+            version: manifest.into_version(),
             artifact,
         });
         self.phase = UpdatePhase::UpdateAvailable;

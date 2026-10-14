@@ -42,6 +42,11 @@ impl UpdateManifest {
         &self.version
     }
 
+    /// 取走清单版本：锁定更新目标时随所有权移交，不再复制。
+    pub fn into_version(self) -> Version {
+        self.version
+    }
+
     /// 发布时间（未携带时为 `None`）。
     pub fn published_at(&self) -> Option<&str> {
         self.published_at.as_deref()

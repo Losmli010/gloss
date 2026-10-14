@@ -134,21 +134,23 @@ pub async fn classify_traced(
     text: &str,
 ) -> Result<ClassifyDecision, GlossError> {
     let registry = PromptRegistry::new();
-    let base = registry.render_classify(locale, allowed, text);
-    let mut messages = base.clone();
+    let mut messages = registry.render_classify(locale, allowed, text);
     let mut repairs = 0u32;
     let mut rounds = Vec::new();
     loop {
+        // messages 随请求 move 出去（engine 端口按值收请求）；修复轮由
+        // 底座重拼，底座按同一注册表、同一输入重渲（纯函数，逐字节同形），
+        // 无需全程持有首轮副本。
         let request = EngineRequest {
-            messages: messages.clone(),
+            messages,
             model: model.to_owned(),
             max_tokens: Some(CLASSIFY_MAX_TOKENS),
         };
-        let reply = classify_round(engine, &request, allowed).await?;
-        rounds.push(reply.clone());
+        let reply = classify_round(engine, request, allowed).await?;
         match schema::validate_classify(&reply, allowed) {
             Ok(kind) => {
                 debug!(kind = ?kind, "classified by the model");
+                rounds.push(reply);
                 return Ok(ClassifyDecision {
                     kind,
                     repairs,
@@ -162,6 +164,7 @@ pub async fn classify_traced(
                         reason = %violation,
                         "classify repairs exhausted, falling back to the default kind"
                     );
+                    rounds.push(reply);
                     return Ok(ClassifyDecision {
                         kind: CLASSIFY_FALLBACK,
                         repairs,
@@ -177,12 +180,15 @@ pub async fn classify_traced(
                     "classify reply violated the contract, preparing a repair round"
                 );
                 let instruction = registry.render_repair(locale, violation, CLASSIFY_SCHEMA, false);
-                // EmptyReply 无内容可纠：原样重发，不带 assistant 轮。
+                // EmptyReply 无内容可纠：原样重发，不带 assistant 轮。assistant
+                // 历史借本轮回复拼入修复对话，随后原 reply 入档（不复制）。
                 let bad = match violation {
                     Violation::EmptyReply => None,
                     _ => Some(reply.as_str()),
                 };
+                let base = registry.render_classify(locale, allowed, text);
                 messages = repair_conversation(&base, bad, instruction);
+                rounds.push(reply);
             }
         }
     }
@@ -193,12 +199,13 @@ pub async fn classify_traced(
 /// 只在 Ok 时提前退出——部分 JSON 继续等，跑偏与截断的回复照旧走完流、
 /// 落到整段校验。每次累积后的全量校验上界是回复上限（4KB）× 个位数
 /// chunk，相对 chunk 的毫秒级到达间隔可忽略。结束帧对分类没有增量价值。
+/// 请求按值接收（引擎端口按值收请求，消息所有权随调用 move）。
 async fn classify_round(
     engine: &dyn AiEngine,
-    request: &EngineRequest,
+    request: EngineRequest,
     allowed: &[TaskKind],
 ) -> Result<String, GlossError> {
-    let mut stream = engine.execute(request.clone()).await?;
+    let mut stream = engine.execute(request).await?;
     let mut reply = String::new();
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {

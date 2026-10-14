@@ -442,17 +442,18 @@ fn push_panel(panels: &mut Vec<Panel>, title: &str, axis: Axis, series: Vec<Seri
     });
 }
 
-/// 历史中出现过的数据集，按首次出现序排列（确定性遍历序）。
+/// 历史中出现过的数据集，按首次出现序排列（确定性遍历序）。去重期借用
+/// 各点的数据集名，末尾一次性落成有副本的 `Vec`——每份只复制一次。
 fn dataset_order(points: &[EvalReport]) -> Vec<String> {
-    let mut seen: Vec<String> = Vec::new();
+    let mut seen: Vec<&str> = Vec::new();
     for report in points {
         for stats in &report.tasks {
-            if !seen.iter().any(|name| name == &stats.dataset) {
-                seen.push(stats.dataset.clone());
+            if !seen.contains(&stats.dataset.as_str()) {
+                seen.push(stats.dataset.as_str());
             }
         }
     }
-    seen
+    seen.into_iter().map(str::to_owned).collect()
 }
 
 /// 数据集显示名（未知 id 原样展示）。
@@ -776,7 +777,7 @@ mod tests {
     fn report_with(
         mode: &str,
         generated_at: i64,
-        latency: Option<&Latency>,
+        latency: Option<&mut Latency>,
         judge: Option<JudgeSummary>,
     ) -> EvalReport {
         let mut report = assemble_report(
@@ -796,11 +797,11 @@ mod tests {
     }
 
     fn live_report(generated_at: i64) -> EvalReport {
-        let latency = latency();
+        let mut latency = latency();
         report_with(
             "live",
             generated_at,
-            Some(&latency),
+            Some(&mut latency),
             Some(JudgeSummary {
                 count: 2,
                 average: 4.1,

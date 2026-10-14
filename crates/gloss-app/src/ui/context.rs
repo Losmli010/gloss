@@ -70,6 +70,7 @@ fn install_fonts(ctx: &Context) {
         super::fonts::builtin_definitions()
     };
     ctx.set_fonts(definitions);
+    super::popup::clear_cached_text_galleys(ctx);
 }
 
 /// 施加全部「每个 egui 上下文都要有」的设置。系统字体字节就位前走内置
@@ -82,6 +83,7 @@ fn install(ctx: &Context, theme: Theme) {
         (super::fonts::builtin_definitions(), false)
     };
     ctx.set_fonts(definitions);
+    super::popup::clear_cached_text_galleys(ctx);
     ctx.set_theme(theme_preference(theme));
     apply_selection_colors(ctx);
 }
@@ -104,6 +106,7 @@ pub(crate) fn apply_selection_colors(ctx: &Context) {
 #[cfg(test)]
 pub(crate) fn install_kittest_fonts(ctx: &Context) {
     ctx.set_fonts(super::fonts::builtin_definitions());
+    super::popup::clear_cached_text_galleys(ctx);
 }
 
 /// 配置主题 → egui 主题偏好（出厂跟随系统，设置页可固定明/暗）。

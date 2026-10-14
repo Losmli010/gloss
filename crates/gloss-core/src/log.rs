@@ -84,9 +84,10 @@ pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
         let console = json_layer().with_writer(|| shaped_handle(io::stderr()));
         let subscriber = tracing_subscriber::registry().with(filter).with(console);
         let file = dir.and_then(open_file_writer);
-        let active = file.as_ref().map(|(_, _, dir)| dir.clone());
-        match file {
-            Some((writer, guard, _)) => {
+        // 目录随拆包 move 出来（writer 进日志闭包、guard 进守护槽），不再
+        // 为返回值另存一份副本。
+        let active = match file {
+            Some((writer, guard, dir)) => {
                 // init 在 INIT.call_once 内只执行一次，OnceLock::set 的已占用
                 // Err 在这里不可能发生，丢弃即可。
                 #[allow(clippy::let_underscore_must_use)]
@@ -94,9 +95,13 @@ pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
                 subscriber
                     .with(json_layer().with_writer(move || shaped_handle(writer.clone())))
                     .init();
+                Some(dir)
             }
-            None => subscriber.init(),
-        }
+            None => {
+                subscriber.init();
+                None
+            }
+        };
         // 同上：call_once 内首次 set，Err 不可能发生。
         #[allow(clippy::let_underscore_must_use)]
         let _ = FILE_DIR.set(active);

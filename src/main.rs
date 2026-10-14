@@ -420,11 +420,8 @@ fn acquire_command_handler(
                     }
                     // 失败也回传（TaskFailed），主线程与用户不至无感；日志分级：
                     // 权限缺失值得引导授权（warn），其余是日常路径（debug）。
+                    // 先记日志再回传：错误所有权随事件 move，不再复制一份。
                     Err(err) => {
-                        sink.send_event(Event::TaskFailed {
-                            generation,
-                            error: err.clone(),
-                        });
                         if err == GlossError::AccessibilityDenied {
                             warn!(
                                 thread = thread::EVENT,
@@ -437,6 +434,10 @@ fn acquire_command_handler(
                                 "text acquisition failed"
                             );
                         }
+                        sink.send_event(Event::TaskFailed {
+                            generation,
+                            error: err,
+                        });
                     }
                 }
             }
@@ -462,15 +463,15 @@ fn acquire_command_handler(
                     // 复述成因。
                     Ok(None) => {}
                     Err(err) => {
-                        sink.send_event(Event::TaskFailed {
-                            generation,
-                            error: err.clone(),
-                        });
                         debug!(
                             thread = thread::EVENT,
                             error = %err,
                             "clipboard image acquisition failed"
                         );
+                        sink.send_event(Event::TaskFailed {
+                            generation,
+                            error: err,
+                        });
                     }
                 }
             }
