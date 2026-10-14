@@ -9,6 +9,10 @@ license.workspace = true
 # 剪贴板兜底读取（模拟复制）的原文保存/恢复。不用默认集（image-data 的
 # macOS 读图只认 TIFF flavor 且无尺寸设界，剪贴板图片取材不走 arboard）。
 arboard = { version = "3", default-features = false }
+# KeychainSecret 取引用删除：security-framework 的安全搜索封装交回的是
+# SecKeychainItem 包装类型，还原裸引用要经 core_foundation::base::TCFType
+# （版本须与 security-framework 所用一致，0.10）。
+core-foundation = { version = "0.10", default-features = false }
 # 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）与选区、剪贴板
 # 兜底的 CF 类型绑定。
 core-foundation-sys = {
@@ -65,6 +69,9 @@ objc2-foundation = {
 # KeychainSecret 的 Security framework 绑定（通用密码读写）。无版本门控
 # 特性需求。
 security-framework = { version = "3", default-features = false }
+# KeychainSecret 的引用式删除：SecKeychainItemDelete（security-framework
+# 未封装删引用一条路）与 errSecItemNotFound 常量。
+security-framework-sys = { version = "2", default-features = false }
 # 配置文档的 TOML 序列化（parse 读 + display 写）。
 toml = {
   version = "0.8",
