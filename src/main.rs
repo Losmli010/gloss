@@ -286,8 +286,8 @@ fn run_event_loop(
             }
             // 事件线程同样在拿到唤醒句柄后再启动：sink 发送产物时要靠它唤醒
             // 睡在事件循环里的主线程。剪贴板图片哨兵源与取材读取器在此同造：
-            // ① 观察记录经共享句柄交给读取器比对竞态；取材轮次抑制开关经
-            // 共享句柄交给文本取材处理器（见 clipboard 模块）。
+            // ① 观察记录经共享句柄交给读取器比对竞态；取材轮次抑制闩锁经
+            // 共享句柄交给文本取材处理器置位（见 clipboard 模块）。
             let sink = EventSink::new(events_tx, platform_tx, move || {
                 waker.wake();
             });
@@ -400,10 +400,10 @@ fn acquire_command_handler(
         match job.payload {
             AcquireCommand::AcquireText { generation } => {
                 info!(thread = thread::EVENT, "acquiring text");
-                // 兜底轮次会写剪贴板（注入复制与恢复写回）：轮次内抑制
-                // 哨兵——这些副产物变化不是用户的复制动作，产出观察事件
+                // 兜底取材会写剪贴板（注入复制与恢复写回）：置位哨兵抑制
+                // 闩锁——这些副产物变化不是用户的复制动作，产出观察事件
                 // 的话，恢复写回的旧图会把本次划词探测顶掉。
-                let _round = round_flag.enter();
+                round_flag.enter();
                 match reader.read() {
                     Ok(text) => {
                         // 只记形态不记原文：选区是用户敏感内容，不落进日志文件。

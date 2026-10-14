@@ -1099,7 +1099,8 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | a_disabled_switch_never_queries_and_drops_the_baseline | 开关关零查询且基线作废 | 给定开关关的哨兵，当轮询，则 changeCount 与 types 都不被查询；重开后当轮只重记基线（关闭期间的旧内容不触发），新的前进照常触发 | 2026-10-10 |
 | an_unarmed_source_arms_without_firing | 未武装只记基线不触发 | 给定未武装（基线缺失）的哨兵，当首轮轮询，则只记基线无观察事件；下一次前进照常触发 | 2026-10-10 |
 | a_failed_count_query_stays_quiet_and_recovers | 读数失败静默且可恢复 | 给定武装哨兵，当 changeCount 读数返回 None，则本轮静默；下一轮读数正常则照常触发 | 2026-10-10 |
-| an_active_acquire_round_swallows_changes_and_rearms_afterwards | 取材轮次内变化不作观察且轮次后重记基线 | 给定武装哨兵并进入取材轮次（守卫存活），当轮询遇到 changeCount 前进，则不查询 types、无观察事件且基线作废；守卫释放后的首轮只重记基线（轮次内与轮后当轮的板内容都不触发），再下一次前进照常触发 | 2026-10-12 |
+| an_acquire_round_latch_outlives_the_command_and_swallows_the_round | 取材轮次闩锁越过置位方吞掉轮次变化并重记基线 | 给定武装哨兵且已置位取材轮次闩锁（置位方已返回），当轮询遇到 changeCount 前进，则消费闩锁、不查询 types、无观察事件且基线作废；随后的首轮只重记基线（轮次内与轮后当轮的板内容都不触发），再下一次前进照常触发 | 2026-10-14 |
+| a_text_round_restoring_an_image_board_must_not_refire_it | 划词恢复写回旧图不得再触发图片任务 | 给定武装哨兵已观察过一次图片复制（板上是图），当划词取材轮次置位闩锁且恢复写回使 changeCount 再前进，则该轮查询吞掉变化、无观察事件；随后的首轮只重记基线，新的图片复制照常触发恰一次 | 2026-10-14 |
 | observer_mismatch_flags_the_race | 观察记录比对判竞态 | 给定观察记录，当现值与记录一致则匹配；记录更新后旧值不匹配、新值匹配（①②之间被覆盖即竞态） | 2026-10-10 |
 
 ### crates/gloss-platform/src/clipboard/image.rs
