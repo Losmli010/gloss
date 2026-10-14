@@ -1364,6 +1364,7 @@ name = "gloss-platform"
 version = "0.2.5"
 dependencies = [
  "arboard",
+ "core-foundation 0.10.1",
  "core-foundation-sys",
  "crossbeam-channel",
  "directories",
@@ -1373,6 +1374,7 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "security-framework",
+ "security-framework-sys",
  "tempfile",
  "toml 0.8.23",
 ]

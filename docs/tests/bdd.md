@@ -8,7 +8,7 @@
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
-| 人工测试 | 13 | `cargo test -p gloss-platform -- --ignored`；live_llm 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 GLOSS_LIVE_*） |
+| 人工测试 | 14 | `cargo test -p gloss-platform -- --ignored`；live_llm 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 GLOSS_LIVE_*） |
 | 发版人工步骤 | 10 | 手动执行（无自动化测试源码的真机/运维步骤，bdd 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
@@ -72,6 +72,14 @@
   1. 在非受限会话的终端运行总览中人工测试的命令
   2. 沙箱或 CI 会拒绝 keychain 写入，属预期环境限制
 - 更新时间：2026-10-06
+
+### foreign_owned_entry_is_removed_by_reference_delete
+- 测试目标：验证写删路径能移除非本二进制创建的 keychain 条目（条目所有权按创建二进制的代码签名归属，dev 重编译/换构建后旧条目对当前二进制必然是外部所有者，查询式 `SecItemDelete` 对它返回 errSecInvalidOwnerEdit 拒删）。
+- 测试场景：给定经 `security` CLI 创建（外部所有者）的测试条目，当 `store.delete()`，则条目被引用式删除移除，`security find-generic-password` 不再命中。
+- 测试步骤：
+  1. 在非受限会话的终端运行总览中人工测试的命令
+  2. 沙箱或 CI 会拒绝 keychain 写入（含 CLI 预置），属预期环境限制
+- 更新时间：2026-10-14
 
 ### live_llm_streams_a_translation
 - 测试目标：验证真实 LLM 端点的流式翻译往返。

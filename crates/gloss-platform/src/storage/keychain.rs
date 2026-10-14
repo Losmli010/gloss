@@ -8,23 +8,31 @@
 //! 名都变，不在旧条目信任列表里——每次读取都会弹「允许访问钥匙串」并阻塞
 //! 到用户点击。缓存把读弹窗收敛到每进程一次，未命中缓存的首读另按 key
 //! 串行（见 [`KeychainSecret.read_gates`] 字段文档），并发首读不会各自撞
-//! 一次授权框；写路径走「删除 + 重建」（见 [`KeychainSecret::set`] 文档）
-//! 免弹窗。设置页改密钥经同一实例的 `set` 写入缓存，即时生效，无需重启。
+//! 一次授权框；写删路径走「取引用删除 + 重建」（见 [`KeychainSecret::set`]
+//! 与 [`KeychainSecret::delete_underlying`] 文档）免弹窗、也不受旧条目
+//! 所有权阻拦。设置页改密钥经同一实例的 `set` 写入缓存，即时生效，无需
+//! 重启。
 
 use std::collections::HashMap;
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
+use core_foundation::base::TCFType;
 use gloss_core::model::GlossError;
+use security_framework::base::Error as SfError;
+use security_framework::item::{ItemClass, ItemSearchOptions, Limit, Reference, SearchResult};
+use security_framework::passwords;
+use security_framework_sys::base::errSecItemNotFound;
+use security_framework_sys::keychain_item::SecKeychainItemDelete;
 
 /// keychain 条目的服务名：与打包标识一致，避免与其他应用的条目串扰。
 const SERVICE: &str = "io.github.losmli010.gloss";
 
-/// errSecItemNotFound：keychain 条目不存在。security-framework crate 未
-/// 导出该常量，本地定义——不值得为单个常量把 security-framework-sys 升
-/// 成直接依赖。
-const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
+/// errSecInvalidOwnerEdit：条目所有权按创建二进制的代码签名归属，查询式
+/// `SecItemDelete` 对非本二进制创建的条目以此拒绝删除。security-framework
+/// 系 crate 未导出该常量，本地定义。
+const ERR_SEC_INVALID_OWNER_EDIT: i32 = -25244;
 
 /// 密钥存储：以 `account`（即配置里的 `keychain_id`）定位条目，服务名
 /// 固定。仅做存取，不理解 key 语义——provider 与 key 的映射在 `Config`
@@ -127,9 +135,9 @@ impl KeychainSecret {
         #[cfg(test)]
         self.raw_reads
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let value = match security_framework::passwords::get_generic_password(&self.service, key) {
+        let value = match passwords::get_generic_password(&self.service, key) {
             Ok(password) => Some(String::from_utf8_lossy(&password).into_owned()),
-            Err(err) if err.code() == ERR_SEC_ITEM_NOT_FOUND => None,
+            Err(err) if err.code() == errSecItemNotFound => None,
             Err(err) => return Err(GlossError::Config(format!("keychain read failed: {err}"))),
         };
         let answer = self
@@ -142,33 +150,23 @@ impl KeychainSecret {
 
     /// 写入（或覆盖）密钥；成功才更新缓存：失败时缓存保持旧值。
     ///
-    /// 走「删除 + 重建」而不是原地修改：条目 ACL 按创建时的代码签名信任
-    /// 访问方（dev 构建每次重编译都换签名，旧条目不认新二进制），原地修改
-    /// 会触发系统授权弹窗，而**删除不受条目 ACL 管**、重建出的新条目 ACL
-    /// 信任当前二进制——写路径因此免弹窗。删除成功而重建失败时，尽力用
-    /// 缓存里的旧值重建原条目（重建路径不再需要授权，失败多为环境性）；
-    /// 连重建也失败则如实上报，由设置页的既有失败通知兜底。残余风险：本
-    /// 进程从未成功读过该条目（缓存为空）时回滚无源，旧值不可恢复——不
-    /// 删除前补读是为了不把读路径的授权弹窗重新引进写路径。
+    /// 走「取引用删除 + 重建」：条目 ACL 按创建时的代码签名信任访问方
+    /// （dev 构建每次重编译都换签名，旧条目不认新二进制），原地修改会触发
+    /// 系统授权弹窗；取引用删除不经过条目 ACL 与所有权（见
+    /// [`Self::delete_underlying`] 文档），重建出的新条目归当前二进制所
+    /// 有，本构建内的后续读写免弹窗。删除成功而重建失败时，尽力用缓存里
+    /// 的旧值重建原条目（重建路径不再需要授权，失败多为环境性）；连重建
+    /// 也失败则如实上报，由设置页的既有失败通知兜底。残余风险：本进程从
+    /// 未成功读过该条目（缓存为空）时回滚无源，旧值不可恢复——不删除前
+    /// 补读是为了不把读路径的授权弹窗重新引进写路径。
     pub fn set(&self, key: &str, value: &str) -> Result<(), GlossError> {
-        match security_framework::passwords::delete_generic_password(&self.service, key) {
-            Ok(()) => {}
-            Err(err) if err.code() == ERR_SEC_ITEM_NOT_FOUND => {}
-            Err(err) => return Err(GlossError::Config(format!("keychain delete failed: {err}"))),
-        }
-        if let Err(err) = security_framework::passwords::set_generic_password(
-            &self.service,
-            key,
-            value.as_bytes(),
-        ) {
+        self.delete_underlying(key)?;
+        if let Err(err) = passwords::set_generic_password(&self.service, key, value.as_bytes()) {
             // 尽力回滚旧条目（值取自进程内缓存，与写入前状态一致）；回滚
             // 自身的失败只留痕——上报以最初的写入失败为准。
             if let Some(Some(old)) = self.cached(key)
-                && let Err(rollback) = security_framework::passwords::set_generic_password(
-                    &self.service,
-                    key,
-                    old.as_bytes(),
-                )
+                && let Err(rollback) =
+                    passwords::set_generic_password(&self.service, key, old.as_bytes())
             {
                 gloss_core::log::warn!(
                     error = %rollback,
@@ -184,12 +182,54 @@ impl KeychainSecret {
 
     /// 删除密钥；条目本就不存在时视为成功（幂等，方便清理路径直调）。
     pub fn delete(&self, key: &str) -> Result<(), GlossError> {
-        match security_framework::passwords::delete_generic_password(&self.service, key) {
-            Ok(()) => {}
-            Err(err) if err.code() == ERR_SEC_ITEM_NOT_FOUND => {}
-            Err(err) => return Err(GlossError::Config(format!("keychain delete failed: {err}"))),
-        }
+        self.delete_underlying(key)?;
         self.cached_map().insert(key.to_owned(), None);
+        Ok(())
+    }
+
+    /// 删除底层 keychain 条目（含同名重复项）；条目不存在视为成功。
+    ///
+    /// 走「取引用 + `SecKeychainItemDelete`」而不是查询式 `SecItemDelete`：
+    /// keychain 条目所有权按创建二进制的代码签名归属，查询式删除对非本
+    /// 二进制创建的条目返回 errSecInvalidOwnerEdit 拒删——dev 构建每次重
+    /// 编译都换签名，旧条目对当前二进制必然是外部所有者；引用式删除不受
+    /// 条目所有权限制，同名重复项也一并清掉。取引用只按 service/account
+    /// 定位条目、不解密，不触发授权弹窗。
+    fn delete_underlying(&self, key: &str) -> Result<(), GlossError> {
+        let results = match ItemSearchOptions::new()
+            .class(ItemClass::generic_password())
+            .service(&self.service)
+            .account(key)
+            .load_refs(true)
+            .limit(Limit::All)
+            .search()
+        {
+            Ok(results) => results,
+            Err(err) if err.code() == errSecItemNotFound => return Ok(()),
+            Err(err) => return Err(GlossError::Config(format!("keychain search failed: {err}"))),
+        };
+        for result in results {
+            let SearchResult::Ref(Reference::KeychainItem(item)) = result else {
+                continue;
+            };
+            // SAFETY: item 是 SecItemCopyMatching 交出的存活 SecKeychainItem
+            // （TCFType 包装保证引用非空、Drop 前 CFRetain 持有），delete
+            // 只消费该引用本身，不读条目数据、不留存越过本语句的指针。
+            let status = unsafe { SecKeychainItemDelete(item.as_concrete_TypeRef()) };
+            if status == 0 || status == errSecItemNotFound {
+                continue;
+            }
+            if status == ERR_SEC_INVALID_OWNER_EDIT {
+                return Err(GlossError::Config(format!(
+                    "keychain delete failed: the entry is owned by another build of gloss; \
+                     remove it once in Keychain Access (login keychain, service {}, \
+                     account {key}) and save again",
+                    self.service
+                )));
+            }
+            let err = SfError::from_code(status);
+            return Err(GlossError::Config(format!("keychain delete failed: {err}")));
+        }
         Ok(())
     }
 }
@@ -273,6 +313,50 @@ mod tests {
             store.raw_reads.load(std::sync::atomic::Ordering::Relaxed),
             1,
             "racing first reads must collapse to exactly one underlying read"
+        );
+    }
+
+    #[test]
+    #[ignore = "creating a foreign-owned entry writes the real keychain via the security CLI, \
+                which needs an unrestricted session; run with --ignored"]
+    fn foreign_owned_entry_is_removed_by_reference_delete() {
+        let store = test_store();
+        let key = "test/foreign-owned-entry-reference-delete";
+
+        store.delete(key).expect("preset delete should succeed");
+        let add = std::process::Command::new("security")
+            .args([
+                "add-generic-password",
+                "-s",
+                &store.service,
+                "-a",
+                key,
+                "-w",
+                "sk-foreign-owner",
+            ])
+            .output()
+            .expect("security cli should launch");
+        assert!(add.status.success(), "cli must create the foreign entry");
+        let found = std::process::Command::new("security")
+            .args(["find-generic-password", "-s", &store.service, "-a", key])
+            .output()
+            .expect("security cli should launch");
+        assert!(
+            found.status.success(),
+            "foreign entry must exist before delete"
+        );
+
+        store
+            .delete(key)
+            .expect("reference delete should remove the foreign-owned entry");
+
+        let gone = std::process::Command::new("security")
+            .args(["find-generic-password", "-s", &store.service, "-a", key])
+            .output()
+            .expect("security cli should launch");
+        assert!(
+            !gone.status.success(),
+            "foreign entry must be gone after delete"
         );
     }
 }
