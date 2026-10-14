@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="996" viewBox="0 0 960 996" font-family="-apple-system,'Segoe UI',sans-serif">
 <rect x="0" y="0" width="960" height="996" fill="#ffffff"/>
-<text x="46" y="26" font-size="14" font-weight="600" fill="#24292f">Prompt 评测趋势（1 点）</text>
-<text x="946" y="26" font-size="11" fill="#5b6470" text-anchor="end">最近一次 2026-10-13 03:35 UTC · replay（a444aa7）</text>
+<text x="46" y="26" font-size="14" font-weight="600" fill="#24292f">Prompt 评测趋势（2 点）</text>
+<text x="946" y="26" font-size="11" fill="#5b6470" text-anchor="end">最近一次 2026-10-14 08:07 UTC · replay（0f8793d）</text>
 <text x="46" y="46" font-size="11" fill="#5b6470">口径：replay 轨度量生产校验器对固化夹具的判定，live 轨为模型现状；数据源 history.jsonl，仅绘最近 100 点，时间一律 UTC。</text>
 <text x="46" y="74" font-size="13" font-weight="600" fill="#24292f">分类轨判定质量（%）</text>
 <rect x="936.00" y="65" width="10" height="10" rx="2" fill="#e8862e"/>
@@ -19,9 +19,14 @@
 <line x1="46" y1="82.00" x2="946" y2="82.00" stroke="#e7eaee" stroke-width="1"/>
 <text x="40" y="86.00" font-size="11" fill="#5b6470" text-anchor="end">100</text>
 <rect x="46" y="82" width="900" height="132" fill="none" stroke="#cdd2da" stroke-width="1"/>
-<text x="496.00" y="230" font-size="11" fill="#5b6470" text-anchor="middle">10-13 03:35</text>
-<circle cx="496.00" cy="126.00" r="2.5" fill="#3b6fe0"><title>accuracy · 10-13 03:35 replay（a444aa7）：66.67 %</title></circle>
-<circle cx="496.00" cy="184.67" r="2.5" fill="#e8862e"><title>回退率 · 10-13 03:35 replay（a444aa7）：22.22 %</title></circle>
+<text x="60.00" y="230" font-size="11" fill="#5b6470" text-anchor="middle">10-13 03:35</text>
+<text x="932.00" y="230" font-size="11" fill="#5b6470" text-anchor="middle">10-14 08:07</text>
+<polyline points="60.00,126.00 932.00,126.00" fill="none" stroke="#3b6fe0" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="126.00" r="2.5" fill="#3b6fe0"><title>accuracy · 10-13 03:35 replay（a444aa7）：66.67 %</title></circle>
+<circle cx="932.00" cy="126.00" r="2.5" fill="#3b6fe0"><title>accuracy · 10-14 08:07 replay（0f8793d）：66.67 %</title></circle>
+<polyline points="60.00,184.67 932.00,184.67" fill="none" stroke="#e8862e" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="184.67" r="2.5" fill="#e8862e"><title>回退率 · 10-13 03:35 replay（a444aa7）：22.22 %</title></circle>
+<circle cx="932.00" cy="184.67" r="2.5" fill="#e8862e"><title>回退率 · 10-14 08:07 replay（0f8793d）：22.22 %</title></circle>
 <text x="46" y="262" font-size="13" font-weight="600" fill="#24292f">任务轨 · 词卡（%）</text>
 <rect x="936.00" y="253" width="10" height="10" rx="2" fill="#d64c7f"/>
 <text x="932.00" y="262" font-size="12" fill="#5b6470" text-anchor="end">降级率</text>
@@ -40,10 +45,17 @@
 <line x1="46" y1="270.00" x2="946" y2="270.00" stroke="#e7eaee" stroke-width="1"/>
 <text x="40" y="274.00" font-size="11" fill="#5b6470" text-anchor="end">100</text>
 <rect x="46" y="270" width="900" height="132" fill="none" stroke="#cdd2da" stroke-width="1"/>
-<text x="496.00" y="418" font-size="11" fill="#5b6470" text-anchor="middle">10-13 03:35</text>
-<circle cx="496.00" cy="270.00" r="2.5" fill="#3b6fe0"><title>契约 JSON 率 · 10-13 03:35 replay（a444aa7）：100.00 %</title></circle>
-<circle cx="496.00" cy="270.00" r="2.5" fill="#2f9e57"><title>字段完整率 · 10-13 03:35 replay（a444aa7）：100.00 %</title></circle>
-<circle cx="496.00" cy="402.00" r="2.5" fill="#d64c7f"><title>降级率 · 10-13 03:35 replay（a444aa7）：0.00 %</title></circle>
+<text x="60.00" y="418" font-size="11" fill="#5b6470" text-anchor="middle">10-13 03:35</text>
+<text x="932.00" y="418" font-size="11" fill="#5b6470" text-anchor="middle">10-14 08:07</text>
+<polyline points="60.00,270.00 932.00,270.00" fill="none" stroke="#3b6fe0" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="270.00" r="2.5" fill="#3b6fe0"><title>契约 JSON 率 · 10-13 03:35 replay（a444aa7）：100.00 %</title></circle>
+<circle cx="932.00" cy="270.00" r="2.5" fill="#3b6fe0"><title>契约 JSON 率 · 10-14 08:07 replay（0f8793d）：100.00 %</title></circle>
+<polyline points="60.00,270.00 932.00,270.00" fill="none" stroke="#2f9e57" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="270.00" r="2.5" fill="#2f9e57"><title>字段完整率 · 10-13 03:35 replay（a444aa7）：100.00 %</title></circle>
+<circle cx="932.00" cy="270.00" r="2.5" fill="#2f9e57"><title>字段完整率 · 10-14 08:07 replay（0f8793d）：100.00 %</title></circle>
+<polyline points="60.00,402.00 932.00,402.00" fill="none" stroke="#d64c7f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="402.00" r="2.5" fill="#d64c7f"><title>降级率 · 10-13 03:35 replay（a444aa7）：0.00 %</title></circle>
+<circle cx="932.00" cy="402.00" r="2.5" fill="#d64c7f"><title>降级率 · 10-14 08:07 replay（0f8793d）：0.00 %</title></circle>
 <text x="46" y="450" font-size="13" font-weight="600" fill="#24292f">任务轨 · 句译（%）</text>
 <rect x="936.00" y="441" width="10" height="10" rx="2" fill="#d64c7f"/>
 <text x="932.00" y="450" font-size="12" fill="#5b6470" text-anchor="end">降级率</text>
@@ -62,10 +74,17 @@
 <line x1="46" y1="458.00" x2="946" y2="458.00" stroke="#e7eaee" stroke-width="1"/>
 <text x="40" y="462.00" font-size="11" fill="#5b6470" text-anchor="end">100</text>
 <rect x="46" y="458" width="900" height="132" fill="none" stroke="#cdd2da" stroke-width="1"/>
-<text x="496.00" y="606" font-size="11" fill="#5b6470" text-anchor="middle">10-13 03:35</text>
-<circle cx="496.00" cy="502.00" r="2.5" fill="#3b6fe0"><title>契约 JSON 率 · 10-13 03:35 replay（a444aa7）：66.67 %</title></circle>
-<circle cx="496.00" cy="502.00" r="2.5" fill="#2f9e57"><title>字段完整率 · 10-13 03:35 replay（a444aa7）：66.67 %</title></circle>
-<circle cx="496.00" cy="546.00" r="2.5" fill="#d64c7f"><title>降级率 · 10-13 03:35 replay（a444aa7）：33.33 %</title></circle>
+<text x="60.00" y="606" font-size="11" fill="#5b6470" text-anchor="middle">10-13 03:35</text>
+<text x="932.00" y="606" font-size="11" fill="#5b6470" text-anchor="middle">10-14 08:07</text>
+<polyline points="60.00,502.00 932.00,502.00" fill="none" stroke="#3b6fe0" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="502.00" r="2.5" fill="#3b6fe0"><title>契约 JSON 率 · 10-13 03:35 replay（a444aa7）：66.67 %</title></circle>
+<circle cx="932.00" cy="502.00" r="2.5" fill="#3b6fe0"><title>契约 JSON 率 · 10-14 08:07 replay（0f8793d）：66.67 %</title></circle>
+<polyline points="60.00,502.00 932.00,502.00" fill="none" stroke="#2f9e57" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="502.00" r="2.5" fill="#2f9e57"><title>字段完整率 · 10-13 03:35 replay（a444aa7）：66.67 %</title></circle>
+<circle cx="932.00" cy="502.00" r="2.5" fill="#2f9e57"><title>字段完整率 · 10-14 08:07 replay（0f8793d）：66.67 %</title></circle>
+<polyline points="60.00,546.00 932.00,546.00" fill="none" stroke="#d64c7f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="546.00" r="2.5" fill="#d64c7f"><title>降级率 · 10-13 03:35 replay（a444aa7）：33.33 %</title></circle>
+<circle cx="932.00" cy="546.00" r="2.5" fill="#d64c7f"><title>降级率 · 10-14 08:07 replay（0f8793d）：33.33 %</title></circle>
 <text x="46" y="638" font-size="13" font-weight="600" fill="#24292f">任务轨 · 代码（%）</text>
 <rect x="936.00" y="629" width="10" height="10" rx="2" fill="#d64c7f"/>
 <text x="932.00" y="638" font-size="12" fill="#5b6470" text-anchor="end">降级率</text>
@@ -84,10 +103,17 @@
 <line x1="46" y1="646.00" x2="946" y2="646.00" stroke="#e7eaee" stroke-width="1"/>
 <text x="40" y="650.00" font-size="11" fill="#5b6470" text-anchor="end">100</text>
 <rect x="46" y="646" width="900" height="132" fill="none" stroke="#cdd2da" stroke-width="1"/>
-<text x="496.00" y="794" font-size="11" fill="#5b6470" text-anchor="middle">10-13 03:35</text>
-<circle cx="496.00" cy="646.00" r="2.5" fill="#3b6fe0"><title>契约 JSON 率 · 10-13 03:35 replay（a444aa7）：100.00 %</title></circle>
-<circle cx="496.00" cy="646.00" r="2.5" fill="#2f9e57"><title>字段完整率 · 10-13 03:35 replay（a444aa7）：100.00 %</title></circle>
-<circle cx="496.00" cy="778.00" r="2.5" fill="#d64c7f"><title>降级率 · 10-13 03:35 replay（a444aa7）：0.00 %</title></circle>
+<text x="60.00" y="794" font-size="11" fill="#5b6470" text-anchor="middle">10-13 03:35</text>
+<text x="932.00" y="794" font-size="11" fill="#5b6470" text-anchor="middle">10-14 08:07</text>
+<polyline points="60.00,646.00 932.00,646.00" fill="none" stroke="#3b6fe0" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="646.00" r="2.5" fill="#3b6fe0"><title>契约 JSON 率 · 10-13 03:35 replay（a444aa7）：100.00 %</title></circle>
+<circle cx="932.00" cy="646.00" r="2.5" fill="#3b6fe0"><title>契约 JSON 率 · 10-14 08:07 replay（0f8793d）：100.00 %</title></circle>
+<polyline points="60.00,646.00 932.00,646.00" fill="none" stroke="#2f9e57" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="646.00" r="2.5" fill="#2f9e57"><title>字段完整率 · 10-13 03:35 replay（a444aa7）：100.00 %</title></circle>
+<circle cx="932.00" cy="646.00" r="2.5" fill="#2f9e57"><title>字段完整率 · 10-14 08:07 replay（0f8793d）：100.00 %</title></circle>
+<polyline points="60.00,778.00 932.00,778.00" fill="none" stroke="#d64c7f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="778.00" r="2.5" fill="#d64c7f"><title>降级率 · 10-13 03:35 replay（a444aa7）：0.00 %</title></circle>
+<circle cx="932.00" cy="778.00" r="2.5" fill="#d64c7f"><title>降级率 · 10-14 08:07 replay（0f8793d）：0.00 %</title></circle>
 <text x="46" y="826" font-size="13" font-weight="600" fill="#24292f">修复成本（轮）</text>
 <rect x="936.00" y="817" width="10" height="10" rx="2" fill="#d64c7f"/>
 <text x="932.00" y="826" font-size="12" fill="#5b6470" text-anchor="end">代码</text>
@@ -104,9 +130,18 @@
 <line x1="46" y1="834.00" x2="946" y2="834.00" stroke="#e7eaee" stroke-width="1"/>
 <text x="40" y="838.00" font-size="11" fill="#5b6470" text-anchor="end">10</text>
 <rect x="46" y="834" width="900" height="132" fill="none" stroke="#cdd2da" stroke-width="1"/>
-<text x="496.00" y="982" font-size="11" fill="#5b6470" text-anchor="middle">10-13 03:35</text>
-<circle cx="496.00" cy="900.00" r="2.5" fill="#3b6fe0"><title>分类轨 · 10-13 03:35 replay（a444aa7）：5 轮</title></circle>
-<circle cx="496.00" cy="939.60" r="2.5" fill="#e8862e"><title>词卡 · 10-13 03:35 replay（a444aa7）：2 轮</title></circle>
-<circle cx="496.00" cy="913.20" r="2.5" fill="#2f9e57"><title>句译 · 10-13 03:35 replay（a444aa7）：4 轮</title></circle>
-<circle cx="496.00" cy="926.40" r="2.5" fill="#d64c7f"><title>代码 · 10-13 03:35 replay（a444aa7）：3 轮</title></circle>
+<text x="60.00" y="982" font-size="11" fill="#5b6470" text-anchor="middle">10-13 03:35</text>
+<text x="932.00" y="982" font-size="11" fill="#5b6470" text-anchor="middle">10-14 08:07</text>
+<polyline points="60.00,900.00 932.00,900.00" fill="none" stroke="#3b6fe0" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="900.00" r="2.5" fill="#3b6fe0"><title>分类轨 · 10-13 03:35 replay（a444aa7）：5 轮</title></circle>
+<circle cx="932.00" cy="900.00" r="2.5" fill="#3b6fe0"><title>分类轨 · 10-14 08:07 replay（0f8793d）：5 轮</title></circle>
+<polyline points="60.00,939.60 932.00,939.60" fill="none" stroke="#e8862e" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="939.60" r="2.5" fill="#e8862e"><title>词卡 · 10-13 03:35 replay（a444aa7）：2 轮</title></circle>
+<circle cx="932.00" cy="939.60" r="2.5" fill="#e8862e"><title>词卡 · 10-14 08:07 replay（0f8793d）：2 轮</title></circle>
+<polyline points="60.00,913.20 932.00,913.20" fill="none" stroke="#2f9e57" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="913.20" r="2.5" fill="#2f9e57"><title>句译 · 10-13 03:35 replay（a444aa7）：4 轮</title></circle>
+<circle cx="932.00" cy="913.20" r="2.5" fill="#2f9e57"><title>句译 · 10-14 08:07 replay（0f8793d）：4 轮</title></circle>
+<polyline points="60.00,926.40 932.00,926.40" fill="none" stroke="#d64c7f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="60.00" cy="926.40" r="2.5" fill="#d64c7f"><title>代码 · 10-13 03:35 replay（a444aa7）：3 轮</title></circle>
+<circle cx="932.00" cy="926.40" r="2.5" fill="#d64c7f"><title>代码 · 10-14 08:07 replay（0f8793d）：3 轮</title></circle>
 </svg>
