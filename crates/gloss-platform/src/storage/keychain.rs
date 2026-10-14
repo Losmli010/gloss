@@ -23,7 +23,7 @@ use gloss_core::model::GlossError;
 use security_framework::base::Error as SfError;
 use security_framework::item::{ItemClass, ItemSearchOptions, Limit, Reference, SearchResult};
 use security_framework::passwords;
-use security_framework_sys::base::errSecItemNotFound;
+use security_framework_sys::base::{errSecItemNotFound, errSecSuccess};
 use security_framework_sys::keychain_item::SecKeychainItemDelete;
 
 /// keychain 条目的服务名：与打包标识一致，避免与其他应用的条目串扰。
@@ -209,14 +209,21 @@ impl KeychainSecret {
             Err(err) => return Err(GlossError::Config(format!("keychain search failed: {err}"))),
         };
         for result in results {
+            // 该查询形态（generic_password + load_refs）上游只会交回
+            // keychain item 引用，其它形态按上游契约不可达；真发生说明
+            // 系统行为越出预期，留痕后跳过，不静默吞掉。
             let SearchResult::Ref(Reference::KeychainItem(item)) = result else {
+                gloss_core::log::warn!(
+                    service = %self.service,
+                    "keychain search returned a non-item reference; entry deletion skipped"
+                );
                 continue;
             };
             // SAFETY: item 是 SecItemCopyMatching 交出的存活 SecKeychainItem
             // （TCFType 包装保证引用非空、Drop 前 CFRetain 持有），delete
             // 只消费该引用本身，不读条目数据、不留存越过本语句的指针。
             let status = unsafe { SecKeychainItemDelete(item.as_concrete_TypeRef()) };
-            if status == 0 || status == errSecItemNotFound {
+            if status == errSecSuccess || status == errSecItemNotFound {
                 continue;
             }
             if status == ERR_SEC_INVALID_OWNER_EDIT {
