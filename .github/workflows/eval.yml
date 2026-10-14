@@ -59,6 +59,15 @@ jobs:
       - name: Clean prior eval artifacts
         run: rm -rf target/eval
 
+      # 把 baselines 里已入库的历史种回报告目录：本点在其上覆盖/追加，
+      # 重绘的 history.svg 才是全量趋势；无基线文件时从空历史起步。
+      - name: Seed baseline history
+        run: |
+          mkdir -p target/eval
+          if [ -f crates/gloss-eval/baselines/history.jsonl ]; then
+            cp crates/gloss-eval/baselines/history.jsonl target/eval/history.jsonl
+          fi
+
       # GLOSS_EVAL_COMMIT/GLOSS_EVAL_SOURCE 注入采集上下文（报告 JSON 与
       # history.jsonl 的 context 段；同 commit 重跑覆盖不叠点，换 commit 追加）。
       - name: Run replay eval
