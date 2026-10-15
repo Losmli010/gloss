@@ -387,12 +387,13 @@ fn event_sources(
 /// 通道②消费处理器：取材命令 → 组合读取 → ④ 回传，运行在事件线程上
 /// 顺序执行。读取器提升进闭包复用：选区组合读取器（激活器按 pid 记忆
 /// 会话内已评估的前台应用）与剪贴板图片读取器（观察句柄与哨兵源在组装
-/// 段共享）；取材轮次抑制开关与哨兵源共享（文本兜底轮次会写剪贴板）。
+/// 段共享）；取材轮次闩锁句柄进组合读取器——剪贴板兜底写盘的轮次由
+/// 读取器自带计数归因置位，哨兵消费时据此区分自身写盘与用户复制。
 fn acquire_command_handler(
     mut image_reader: ClipboardImageReader,
     round_flag: WatchRoundFlag,
 ) -> impl FnMut(Traced<AcquireCommand>, &EventSink<Event, PlatformEvent>) + Send {
-    let mut reader = CompositeReader::new();
+    let mut reader = CompositeReader::new(round_flag);
     move |job, sink| {
         // 进入触发点建好的任务 span：本处理器（含取材读选区、剪贴板兜底
         // 与读图）的日志自动带上 `generation`。
@@ -400,10 +401,6 @@ fn acquire_command_handler(
         match job.payload {
             AcquireCommand::AcquireText { generation } => {
                 info!(thread = thread::EVENT, "acquiring text");
-                // 兜底取材会写剪贴板（注入复制与恢复写回）：置位哨兵抑制
-                // 闩锁——这些副产物变化不是用户的复制动作，产出观察事件
-                // 的话，恢复写回的旧图会把本次划词探测顶掉。
-                round_flag.enter();
                 match reader.read() {
                     Ok(text) => {
                         // 只记形态不记原文：选区是用户敏感内容，不落进日志文件。

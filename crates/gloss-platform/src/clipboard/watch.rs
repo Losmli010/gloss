@@ -5,11 +5,12 @@
 //! 复制不触发、不占代数。构造时记一次 changeCount 作基线，启动时的既有
 //! 剪贴板内容不触发；开关（共享 `AtomicBool`）关时整源不查询（零开销），
 //! 重开时重记基线——关闭期间的旧内容在重开后不触发。取材轮次
-//! （[`WatchRoundFlag`]）置位后的下一次查询同样不观察：文本兜底取材注入
-//! 复制并按快照恢复原内容，这些写回都是本应用的副产物而非用户的复制
-//! 动作。
+//! （[`WatchRoundFlag`]）写盘后按**计数归因**消费：超出本轮自报写盘数的
+//! 变化是轮次内外来写入（用户的真实复制），照常触发；其余（注入复制与
+//! 恢复写回等本应用副产物）吞掉并重记基线。
 
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -47,32 +48,49 @@ impl PasteboardObserver {
     }
 }
 
-/// 取材轮次的哨兵抑制闩锁：文本兜底取材（注入复制 → 确认 → 按快照恢复
-/// 原内容）会写系统剪贴板，这些变化是本应用的副产物而不是用户的复制
-/// 动作，不得产出观察事件——否则恢复写回的旧图会在划词探测在途时顶掉
-/// 它、把旧图再触发成一次图片任务。轮次（命令处理器）与哨兵查询同在
-/// 事件线程顺序运行，且事件源只在命令全部抽干后轮询——查询永远不会
-/// 落在轮次中间，抑制因此不能依赖「轮次存活」：闩锁设计成置位后存活到
-/// 下一次查询，由查询消费（[`Self::take`]）并作废基线——截至该查询的
-/// 全部变化（目标应用的复制写入与恢复写回）都被吞掉，随后的首轮查询
-/// 只重记基线，再之后用户的新复制照常触发。置位与消费两侧各持一份
-/// 句柄同在事件线程运行，原子量只为跨闭包共享，无真实并发。
+/// 一轮取材自身写盘的计数归因：`pre` 是写盘前读到的 changeCount，`ours`
+/// 是本轮确定由自身引起的写盘次数（已确认的注入复制 + 已执行的恢复写回）。
+/// 哨兵消费闩锁时，超出 `pre` 的变化里减去 `ours` 还有剩余，即存在本轮
+/// 之外的外来写入（用户的真实复制），照常触发。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RoundWrites {
+    /// 写盘前的 changeCount 读数。
+    pub pre: u64,
+    /// 本轮确定由自身引起的写盘次数。
+    pub ours: u64,
+}
+
+/// 取材轮次的哨兵抑制闩锁：文本兜底取材（注入复制 → 确认 → 恢复）会写
+/// 系统剪贴板，这些变化是本应用的副产物，不得产出观察事件——否则恢复
+/// 写回的旧图会再触发成一次图片任务。但轮次窗口内也可能落进用户的真实
+/// 复制（截图工具的拖拽既触发划词探测、又把图片写进剪贴板），不能盲吞：
+/// 闩锁携带本轮写盘的计数归因（[`RoundWrites`]），消费时把超出哨兵基线
+/// 的变化数与自报写盘数相减——有剩余即外来写入，照常走前进判定。轮次
+/// （命令处理器）与哨兵查询同在事件线程顺序运行，且事件源只在命令全部
+/// 抽干后轮询——查询永远不会落在轮次中间，闩锁因此设计成置位后存活到
+/// 下一次查询，由查询消费（[`Self::take`]）。置位与消费两侧各持一份
+/// 句柄同在事件线程运行，锁只为跨闭包共享、无争用。
 #[derive(Debug, Clone, Default)]
 pub struct WatchRoundFlag {
-    pending: Arc<AtomicBool>,
+    pending: Arc<Mutex<Option<RoundWrites>>>,
 }
 
 impl WatchRoundFlag {
-    /// 进入取材轮次：置位闩锁，由下一次哨兵查询消费（见类型注释）。无需
-    /// 守卫收口——闩锁的寿命到下一次查询为止，不随置位方的作用域结束。
-    pub fn enter(&self) {
-        self.pending.store(true, Ordering::Relaxed);
+    /// 进入取材轮次：记录本轮写盘的计数归因，由下一次哨兵查询消费（见
+    /// 类型注释）。无需守卫收口——闩锁的寿命到下一次查询为止，不随置位
+    /// 方的作用域结束。
+    pub fn enter(&self, writes: RoundWrites) {
+        if let Ok(mut pending) = self.pending.lock() {
+            *pending = Some(writes);
+        }
     }
 
-    /// 消费闩锁：置位过即吞掉本轮查询并作废基线（返回 `true`），闩锁
-    /// 同时复位。
-    fn take(&self) -> bool {
-        self.pending.swap(false, Ordering::Relaxed)
+    /// 消费闩锁：置位过即取出计数归因（返回 `Some`），闩锁同时复位。
+    fn take(&self) -> Option<RoundWrites> {
+        self.pending
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.take())
     }
 }
 
@@ -133,8 +151,11 @@ impl ClipboardWatchSource {
 
     /// 一轮观察（时间与系统读数注入，纯逻辑单测覆盖）：
     ///
-    /// - 取材轮次闩锁置位：消费之，本轮不查询、基线作废——轮次及更早
-    ///   未观察的变化是本应用写的（注入复制与恢复写回），不作观察；
+    /// - 取材轮次闩锁置位：消费之并做计数归因——基线到现值的变化数超出
+    ///   本轮自报写盘数，即有轮次内的外来写入（用户的真实复制），保留
+    ///   基线、照常落入前进判定（复查出图像即触发）；否则全部变化都是
+    ///   本应用写的（注入复制与恢复写回），吞掉并就地重记基线。读数
+    ///   失败按保守处理：吞掉重记，不产出观察事件；
     /// - 开关关：不查询（关态零开销）；基线作废，重开时重记——关闭期间的
     ///   旧内容在重开后不触发；
     /// - 未武装：只记基线，本轮不触发；
@@ -147,9 +168,18 @@ impl ClipboardWatchSource {
         mut count: impl FnMut() -> Option<u64>,
         has_image: impl FnOnce() -> bool,
     ) -> Vec<PasteboardImageObserved> {
-        if self.round.take() {
-            self.seen = None;
-            return Vec::new();
+        if let Some(writes) = self.round.take() {
+            let Some(current) = count() else {
+                self.seen = None;
+                return Vec::new();
+            };
+            let baseline = self.seen.unwrap_or(writes.pre);
+            if current.saturating_sub(baseline) > writes.ours {
+                // 有外来写入：基线不动，落到下方前进判定（是图即触发）。
+            } else {
+                self.seen = Some(current);
+                return Vec::new();
+            }
         }
         if !self.enabled.load(Ordering::Relaxed) {
             self.seen = None;
@@ -317,28 +347,70 @@ mod tests {
     #[test]
     fn an_acquire_round_latch_outlives_the_command_and_swallows_the_round() {
         let mut watch = source(true, 7);
-        watch.round.enter();
+        watch.round.enter(RoundWrites { pre: 7, ours: 1 });
         let events = watch.poll_at(
             t(0),
-            || Some(9),
+            || Some(8),
             || panic!("types must not be checked during our own acquire round"),
         );
         assert!(
             events.is_empty(),
-            "changes made by the round (copy write and restore) are not observations"
+            "changes attributable to the round are not observations"
+        );
+        assert_eq!(
+            watch.seen,
+            Some(8),
+            "the baseline moves to the post-round count"
         );
 
+        let events = watch.poll_at(t(1), || Some(9), || true);
+        assert_eq!(events, vec![PasteboardImageObserved], "a fresh copy fires");
+    }
+
+    #[test]
+    fn a_foreign_write_inside_the_round_fires_after_the_round() {
+        let mut watch = source(true, 7);
+        watch.round.enter(RoundWrites { pre: 7, ours: 0 });
+        let events = watch.poll_at(t(0), || Some(8), || true);
+        assert_eq!(
+            events,
+            vec![PasteboardImageObserved],
+            "a user copy inside the round is not swallowed"
+        );
+        assert!(watch.observer.matches(8), "the observed count is recorded");
+    }
+
+    #[test]
+    fn a_foreign_write_beyond_our_own_writes_fires() {
+        let mut watch = source(true, 7);
+        watch.round.enter(RoundWrites { pre: 7, ours: 1 });
+        let events = watch.poll_at(t(0), || Some(9), || true);
+        assert_eq!(
+            events,
+            vec![PasteboardImageObserved],
+            "an advance beyond our own writes is a user copy"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_count_at_the_round_latch_stays_quiet_and_rearms() {
+        let mut watch = source(true, 7);
+        watch.round.enter(RoundWrites { pre: 7, ours: 0 });
+        let events = watch.poll_at(
+            t(0),
+            || None,
+            || panic!("types must not be checked without a count"),
+        );
+        assert!(events.is_empty());
+        assert_eq!(watch.seen, None, "an unreadable count drops the baseline");
         let events = watch.poll_at(
             t(1),
-            || Some(9),
-            || panic!("re-arming after the round must only record the baseline"),
+            || Some(8),
+            || panic!("arming must only record the baseline"),
         );
-        assert!(
-            events.is_empty(),
-            "the post-round board content must not fire"
-        );
-        let events = watch.poll_at(t(2), || Some(10), || true);
-        assert_eq!(events, vec![PasteboardImageObserved], "a fresh copy fires");
+        assert!(events.is_empty());
+        let events = watch.poll_at(t(2), || Some(9), || true);
+        assert_eq!(events, vec![PasteboardImageObserved], "recovers afterwards");
     }
 
     #[test]
@@ -347,17 +419,18 @@ mod tests {
         let events = watch.poll_at(t(0), || Some(8), || true);
         assert_eq!(events, vec![PasteboardImageObserved]);
 
-        watch.round.enter();
+        watch.round.enter(RoundWrites { pre: 8, ours: 1 });
         let events = watch.poll_at(t(1), || Some(9), || true);
         assert!(
             events.is_empty(),
             "the restored image must not be observed as a user copy"
         );
+        assert_eq!(watch.seen, Some(9), "the baseline moves past the restore");
 
         let events = watch.poll_at(
             t(2),
             || Some(9),
-            || panic!("re-arming must only record the baseline"),
+            || panic!("a consumed change must not recheck types"),
         );
         assert!(events.is_empty());
         let events = watch.poll_at(t(3), || Some(10), || true);

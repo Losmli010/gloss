@@ -16,6 +16,8 @@ use super::eventtap::{CGEventRef, K_CG_HID_EVENT_TAP};
 pub(crate) const VK_ANSI_C: u16 = 8;
 /// HID 虚拟键码：Command 修饰键。
 pub(crate) const VK_COMMAND: u16 = 55;
+/// CGEventFlags 的 kCGEventFlagMaskCommand：键事件自带 Command 修饰位。
+pub(crate) const K_CG_EVENT_FLAG_MASK_COMMAND: u64 = 1 << 20;
 
 /// CGEventType 的 kCGEventLeftMouseDown（真机测试注入用）。
 #[cfg(test)]
@@ -45,6 +47,8 @@ unsafe extern "C" {
         virtual_key: u16,
         key_down: bool,
     ) -> CGEventRef;
+    /// 改写事件的修饰位字段；应用按事件自带的修饰位识别快捷键。
+    fn CGEventSetFlags(event: CGEventRef, flags: u64);
     /// 把合成事件注入 `tap` 层，无返回状态。
     fn CGEventPost(tap: u32, event: CGEventRef);
 }
@@ -71,9 +75,15 @@ pub(crate) fn new_hid_source() -> Option<CfGuard> {
     (!source.is_null()).then(|| CfGuard::new(source as CFTypeRef))
 }
 
-/// 构造一个键盘事件（`key_down` 区分按下/释放）并注入 HID tap：事件
-/// 构造失败（分配）返回 `false`，注入本身无返回状态。
-pub(crate) fn post_keyboard_event(source: &CfGuard, virtual_key: u16, key_down: bool) -> bool {
+/// 构造一个键盘事件（`key_down` 区分按下/释放，`flags` 写入事件自带的
+/// 修饰位字段）并注入 HID tap：事件构造失败（分配）返回 `false`，注入
+/// 本身无返回状态。
+pub(crate) fn post_keyboard_event(
+    source: &CfGuard,
+    virtual_key: u16,
+    key_down: bool,
+    flags: u64,
+) -> bool {
     // SAFETY: `source` 是有效事件源引用；成功返回的 +1 事件交给守卫，
     // 注入发生在守卫存活期内。
     let event = unsafe {
@@ -83,6 +93,8 @@ pub(crate) fn post_keyboard_event(source: &CfGuard, virtual_key: u16, key_down: 
         return false;
     }
     let _event = CfGuard::new(event as CFTypeRef);
+    // SAFETY: `event` 是刚构造的有效事件引用，改写其修饰位字段。
+    unsafe { CGEventSetFlags(event, flags) };
     // SAFETY: `event` 是刚构造的有效事件引用，CGEventPost 不接管所有权。
     unsafe { CGEventPost(K_CG_HID_EVENT_TAP, event) };
     true

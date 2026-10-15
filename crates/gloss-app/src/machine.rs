@@ -312,9 +312,10 @@ impl TaskStateMachine {
     /// 生效（敏感输入态/敏感应用下不触发）；自身前台不在此列——剪贴板
     /// 观察没有「连拖自己浮层」的误触面。观察事件只来自用户的真实复制：
     /// 本应用兜底取材写下的剪贴板变化（注入复制与恢复写回）由平台侧的
-    /// 取材轮次闩锁吞掉（[`gloss_platform::clipboard::WatchRoundFlag`]），
-    /// 不产出观察事件。未接线事件与被闸门拦下的观察返回 None 且无任何
-    /// 副作用。
+    /// 取材轮次闩锁按计数归因吞掉
+    /// （[`gloss_platform::clipboard::WatchRoundFlag`]）——超出本轮自报
+    /// 写盘数的变化是用户的真实复制，照常产出观察事件。未接线事件与被
+    /// 闸门拦下的观察返回 None 且无任何副作用。
     pub fn begin_pasteboard_probe(
         &mut self,
         event: &PlatformEvent,

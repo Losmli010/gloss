@@ -144,14 +144,16 @@ mod imp {
     use gloss_core::model::GlossError;
 
     use super::{activation_delay, combine, normalize, settle_delay};
+    use crate::clipboard::WatchRoundFlag;
     use crate::selection::accessibility::AccessibilityReader;
     use crate::selection::activation::AxActivator;
     use crate::selection::clipboard::ClipboardFallbackReader;
 
     /// 选区读取的组合实现：AX 优先，读不到时先尝试激活宿主的无障碍树，
     /// 仍拿不到再降级剪贴板兜底。激活器随读取器跨手势复用（会话内按
-    /// pid 去重）。
-    #[derive(Debug, Default)]
+    /// pid 去重）；取材轮次闩锁句柄传给兜底通道——写盘轮次由它置位，
+    /// 哨兵按计数归因消费。
+    #[derive(Debug)]
     pub struct CompositeReader {
         ax: AccessibilityReader,
         clipboard: ClipboardFallbackReader,
@@ -159,9 +161,13 @@ mod imp {
     }
 
     impl CompositeReader {
-        /// 创建组合读取器。
-        pub fn new() -> Self {
-            Self::default()
+        /// 创建组合读取器：传入与哨兵源共享的取材轮次闩锁句柄。
+        pub fn new(round: WatchRoundFlag) -> Self {
+            Self {
+                ax: AccessibilityReader,
+                clipboard: ClipboardFallbackReader::new(round),
+                activator: AxActivator::default(),
+            }
         }
 
         /// 读取前台应用的选中文本。
