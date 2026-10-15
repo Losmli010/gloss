@@ -1,12 +1,15 @@
 //! 剪贴板兜底读取（模拟复制）：`ClipboardFallbackReader`。
 //!
 //! AX 读不到选区时的兜底通道：快照剪贴板全部条目与 flavor 原始字节 →
-//! 注入 Cmd+C → 轮询确认目标应用写入 → 读回 → 按快照恢复。快照按条目
-//! 与 flavor 尽力保全：读不出数据的 flavor（promised 数据等）单独跳过
-//! ——读不出即无法如实恢复，整轮放弃只会让兜底在有此类 flavor 的板上
-//! 整批失效。两类边界仍整体放弃、不注入：结构读不出（板、条目、
-//! flavor 名单）；板上条目的 flavor 全部读不出——注入后原内容无法如实
-//! 写回，恢复轮会清空剪贴板。未确认时重注入一轮再等一个完整超时窗口。
+//! 注入 Cmd+C → 轮询确认目标应用写入 → 读回 → 读回成功且现值未变才按
+//! 快照恢复（失败轮一律不恢复——板上要么未变，要么是本轮之外的新写入
+//! 或注入副产物，都不是可覆盖的内容）。快照按条目与 flavor 尽力保全：
+//! 读不出数据的 flavor（promised 数据等）单独跳过——读不出即无法如实
+//! 恢复，整轮放弃只会让兜底在有此类 flavor 的板上整批失效。两类边界仍
+//! 整体放弃、不注入：结构读不出（板、条目、flavor 名单）；板上条目的
+//! flavor 全部读不出——注入后原内容无法如实写回，恢复轮会清空剪贴板。
+//! 未确认时重注入一轮再等一个完整超时窗口。写盘轮次经取材轮次闩锁向
+//! 哨兵自报计数归因（见 clipboard 模块的 [`crate::clipboard::RoundWrites`]）。
 //! 纯时序逻辑在 [`wait_for_write`]（单测覆盖），系统 API 交互归 `imp`
 //! 模块。
 
@@ -200,6 +203,9 @@ mod imp {
                     return Err(GlossError::SelectionUnavailable);
                 }
             };
+            // 归因起点先于快照记：快照要拷贝全部 flavor 字节（大图可达数
+            // 十毫秒），其间落进的外来写入不得算进本轮自身写盘的基线。
+            let pre_count = pasteboard_change_count().unwrap_or(0);
             // 快照失败直接上抛：尚未注入，剪贴板未被触碰（无写盘即无需
             // 置位闩锁）。
             let Some(saved) = snapshot_pasteboard() else {
@@ -209,13 +215,9 @@ mod imp {
                 );
                 return Err(GlossError::SelectionUnavailable);
             };
-            let pre_count = pasteboard_change_count().unwrap_or(0);
             // 恢复收口：受控路径显式恢复或跳过，panic 展开由 Drop 兜底。
             let mut pending = PendingRestore { saved, skip: false };
-            let Attempt {
-                outcome,
-                write_confirmed,
-            } = self.attempt(&mut clipboard);
+            let outcome = self.attempt(&mut clipboard);
             let mut restored = false;
             match &outcome {
                 Ok(acquired) => {
@@ -233,31 +235,35 @@ mod imp {
                         pending.skip_restore();
                     }
                 }
-                // 失败轮一律不恢复：板上要么还是原内容（无需恢复），要么
-                // 是本轮之外的新写入（目标应用迟到的复制、用户的复制）——
-                // 都不是可覆盖的内容。
+                // 失败轮一律不恢复，板上内容三态皆不覆盖：未变（无需恢复）、
+                // 本轮之外的新写入（目标应用迟到的复制、用户的复制）、注入
+                // 副产物（确认了写入却读不出文本——前台选中的可能是图）。
+                // 第三态留在板上并按外来写入放行：它正是前台应用对注入
+                // ⌘C 的响应，是图即触发图片解释，好过静默清掉。
                 Err(_) => pending.skip_restore(),
             }
             drop(pending);
+            // 自报写盘数只计可归因的写入：文本读回成功才证明注入复制确实
+            // 发生（Ok 蕴含写入确认）；「确认了写入却读不出文本」的写入
+            // 无法与轮次内外来复制区分，一律记外来、由哨兵的 has_image
+            // 兜底判定，宁可多触发不可误吞用户复制。
             self.round.enter(RoundWrites {
                 pre: pre_count,
-                ours: u64::from(write_confirmed) + u64::from(restored),
+                ours: u64::from(outcome.is_ok()) + u64::from(restored),
             });
             outcome
         }
 
         /// 注入复制快捷键并等待写入确认，读回选中文本。不含恢复职责。
-        fn attempt(&mut self, clipboard: &mut Clipboard) -> Attempt {
+        fn attempt(&mut self, clipboard: &mut Clipboard) -> Result<String, GlossError> {
             let Some(mut monitor) = ChangeMonitor::new() else {
                 debug!(
                     thread = thread::EVENT,
                     "change monitor unavailable, fallback declined"
                 );
-                return Attempt::unconfirmed(Err(GlossError::SelectionUnavailable));
+                return Err(GlossError::SelectionUnavailable);
             };
-            if let Err(err) = inject_copy_key() {
-                return Attempt::unconfirmed(Err(err));
-            }
+            inject_copy_key()?;
             let baseline = monitor.baseline();
             let mut deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
             let mut confirmed = wait_for_write(baseline, || Some(monitor.generation()), deadline);
@@ -266,9 +272,7 @@ mod imp {
                     thread = thread::EVENT,
                     "copy write not confirmed, retrying injection once"
                 );
-                if let Err(err) = inject_copy_key() {
-                    return Attempt::unconfirmed(Err(err));
-                }
+                inject_copy_key()?;
                 deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
                 confirmed = wait_for_write(baseline, || Some(monitor.generation()), deadline);
             }
@@ -277,46 +281,23 @@ mod imp {
                     thread = thread::EVENT,
                     "copy write not confirmed within timeout"
                 );
-                return Attempt::unconfirmed(Err(GlossError::SelectionUnavailable));
+                return Err(GlossError::SelectionUnavailable);
             }
             // 读到空/读失败不等于失败，继续轮询到 deadline 再收口。
             loop {
                 if let Ok(text) = clipboard.get_text()
                     && !text.is_empty()
                 {
-                    return Attempt {
-                        outcome: Ok(text),
-                        write_confirmed: true,
-                    };
+                    return Ok(text);
                 }
                 if Instant::now() >= deadline {
                     debug!(
                         thread = thread::EVENT,
                         "copy confirmed but no text readable within timeout"
                     );
-                    return Attempt {
-                        outcome: Err(GlossError::SelectionUnavailable),
-                        write_confirmed: true,
-                    };
+                    return Err(GlossError::SelectionUnavailable);
                 }
                 std::thread::sleep(WRITE_POLL_INTERVAL);
-            }
-        }
-    }
-
-    /// 一次注入尝试的结果：读回的文本与目标应用写入是否得到确认。确认
-    /// 与否决定本轮自报写盘数（计数归因），恢复与否在读取器主流程决定。
-    struct Attempt {
-        outcome: Result<String, GlossError>,
-        write_confirmed: bool,
-    }
-
-    impl Attempt {
-        /// 写入未确认的收口：本轮除恢复外没有可归因的自身写盘。
-        fn unconfirmed(outcome: Result<String, GlossError>) -> Self {
-            Self {
-                outcome,
-                write_confirmed: false,
             }
         }
     }
@@ -524,10 +505,12 @@ mod imp {
         }
     }
 
-    /// 注入复制快捷键：修饰键按下 → C 按下/释放 → 修饰键释放；每个事件
-    /// 都自带 Command 修饰位（应用按事件自带的修饰位识别快捷键，裸 C 会
-    /// 被当成普通字符打进焦点处）。任何一步失败即放弃；若修饰键已按下
-    /// 而后续步骤失败，补发配对释放。
+    /// 注入复制快捷键：修饰键按下 → C 按下/释放 → 修饰键释放。C 的按下
+    /// 与释放自带 Command 修饰位（应用按事件自带的修饰位识别快捷键，裸 C
+    /// 会被当成普通字符打进焦点处）；修饰键按下同样带位，释放不带——
+    /// 修饰键事件的修饰位表达事件之后的状态，带位释放会向下游宣告
+    /// 「Command 仍按着」。任何一步失败即放弃；若修饰键已按下而后续
+    /// 步骤失败，补发配对释放。
     fn inject_copy_key() -> Result<(), GlossError> {
         let Some(source) = event::new_hid_source() else {
             debug!(
@@ -541,7 +524,7 @@ mod imp {
             (event::VK_COMMAND, true, cmd),
             (event::VK_ANSI_C, true, cmd),
             (event::VK_ANSI_C, false, cmd),
-            (event::VK_COMMAND, false, cmd),
+            (event::VK_COMMAND, false, 0),
         ];
         for (index, &(virtual_key, key_down, flags)) in sequence.iter().enumerate() {
             if !event::post_keyboard_event(&source, virtual_key, key_down, flags) {
@@ -552,7 +535,7 @@ mod imp {
                 if index > 0 {
                     // 错误路径上的补发释放是尽力而为：释放失败已由紧随的
                     // SelectionUnavailable 收口，无更优处理。
-                    let _ = event::post_keyboard_event(&source, event::VK_COMMAND, false, cmd);
+                    let _ = event::post_keyboard_event(&source, event::VK_COMMAND, false, 0);
                 }
                 return Err(GlossError::SelectionUnavailable);
             }
@@ -624,7 +607,7 @@ mod live_tests {
     };
 
     use super::imp::ClipboardFallbackReader;
-    use crate::clipboard::WatchRoundFlag;
+    use crate::clipboard::{WatchRoundFlag, pasteboard_change_count};
 
     static CLIPBOARD_LIVE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -637,7 +620,8 @@ mod live_tests {
         let preset = format!("gloss-restore-{}", std::process::id());
         clipboard.set_text(preset.clone()).expect("preset text");
 
-        let mut reader = ClipboardFallbackReader::new(WatchRoundFlag::default());
+        let round = WatchRoundFlag::default();
+        let mut reader = ClipboardFallbackReader::new(round.clone());
         let _ = reader.read();
 
         let restored = clipboard.get_text().expect("clipboard should be readable");
@@ -645,6 +629,18 @@ mod live_tests {
             restored == preset,
             "original clipboard content must survive (got {} bytes)",
             restored.len()
+        );
+        // 计数归因记账：文本读回成功（自身写盘=确认的注入复制+恢复）或
+        // 失败（无可归因写盘），二者居一；pre 不得超前当前计数。
+        let writes = round.peek().expect("the round must report its writes");
+        assert!(
+            matches!(writes.ours, 0 | 2),
+            "ours must be 0 (failed round) or 2 (acquired + restored), got {}",
+            writes.ours
+        );
+        assert!(
+            pasteboard_change_count().is_none_or(|current| current >= writes.pre),
+            "the round pre count must not exceed the current count"
         );
     }
 

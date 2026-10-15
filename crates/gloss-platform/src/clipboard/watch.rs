@@ -78,19 +78,39 @@ pub struct WatchRoundFlag {
 impl WatchRoundFlag {
     /// 进入取材轮次：记录本轮写盘的计数归因，由下一次哨兵查询消费（见
     /// 类型注释）。无需守卫收口——闩锁的寿命到下一次查询为止，不随置位
-    /// 方的作用域结束。
+    /// 方的作用域结束。前一轮尚未被消费时合并归因（起点取更早的计数、
+    /// 写盘数累加）：连续两轮写盘后一次消费，两轮的自身写盘都得到归属，
+    /// 不会把后一轮的写盘误判成外来复制。
     pub fn enter(&self, writes: RoundWrites) {
-        if let Ok(mut pending) = self.pending.lock() {
-            *pending = Some(writes);
-        }
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *pending = Some(match pending.take() {
+            Some(prev) => RoundWrites {
+                pre: prev.pre.min(writes.pre),
+                ours: prev.ours + writes.ours,
+            },
+            None => writes,
+        });
     }
 
     /// 消费闩锁：置位过即取出计数归因（返回 `Some`），闩锁同时复位。
     fn take(&self) -> Option<RoundWrites> {
         self.pending
             .lock()
-            .ok()
-            .and_then(|mut pending| pending.take())
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+    }
+
+    /// 读取当前挂起的计数归因（同 crate 测试观察口），不消费。
+    #[cfg(test)]
+    pub(crate) fn peek(&self) -> Option<RoundWrites> {
+        let pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *pending
     }
 }
 
@@ -390,6 +410,57 @@ mod tests {
             vec![PasteboardImageObserved],
             "an advance beyond our own writes is a user copy"
         );
+    }
+
+    #[test]
+    fn a_second_round_merges_into_the_pending_latch() {
+        let mut watch = source(true, 7);
+        watch.round.enter(RoundWrites { pre: 7, ours: 2 });
+        watch.round.enter(RoundWrites { pre: 9, ours: 2 });
+        assert_eq!(
+            watch.round.peek(),
+            Some(RoundWrites { pre: 7, ours: 4 }),
+            "the second round merges instead of overwriting"
+        );
+        let events = watch.poll_at(
+            t(0),
+            || Some(11),
+            || panic!("both rounds' own writes must not be checked as foreign"),
+        );
+        assert!(events.is_empty(), "attributed writes are swallowed");
+        assert_eq!(watch.seen, Some(11), "the baseline moves past both rounds");
+    }
+
+    #[test]
+    fn a_round_latch_on_an_unarmed_source_falls_back_to_the_round_pre_count() {
+        let mut watch = source(true, 7);
+        watch.seen = None;
+        watch.round.enter(RoundWrites { pre: 7, ours: 1 });
+        let events = watch.poll_at(
+            t(0),
+            || Some(8),
+            || panic!("attributed writes must not be checked as foreign"),
+        );
+        assert!(
+            events.is_empty(),
+            "the round pre count stands in for the missing baseline"
+        );
+        assert_eq!(
+            watch.seen,
+            Some(8),
+            "the baseline arms at the current count"
+        );
+
+        let mut watch = source(true, 7);
+        watch.seen = None;
+        watch.round.enter(RoundWrites { pre: 7, ours: 0 });
+        let events = watch.poll_at(
+            t(0),
+            || Some(9),
+            || panic!("the fall-through must arm without firing"),
+        );
+        assert!(events.is_empty(), "a foreign write arms the source quietly");
+        assert_eq!(watch.seen, Some(9));
     }
 
     #[test]
