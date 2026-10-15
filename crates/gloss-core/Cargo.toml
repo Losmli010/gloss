@@ -31,6 +31,8 @@ reqwest = {
 serde = { version = "1", default-features = false, features = ["derive", "rc", "std"] }
 # 任务/分类输出契约的 JSON 解析（评测与编排测试用）。
 serde_json = { version = "1", default-features = false, features = ["std"] }
+# 流式空闲看门狗与传输重试退避（engine::llm）：sleep/sleep_until 只要 time。
+tokio = { version = "1", default-features = false, features = ["time"] }
 # 日志三件套（统一出口的实现）。默认集先关再显式列全：tracing 留 std，
 # subscriber 列全 fmt::layer 所需特性，env-filter 供 RUST_LOG 过滤。
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
@@ -50,9 +52,10 @@ tracing-subscriber = {
 }
 
 [dev-dependencies]
-# 端口单测：流式消费用 StreamExt，异步测试跑 #[tokio::test]。
+# 端口单测：流式消费用 StreamExt，异步测试跑 #[tokio::test]；test-util 供
+# start_paused 虚拟时钟（空闲超时/重试退避的确定性测试）。
 futures = { version = "0.3", default-features = false, features = ["std"] }
-tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "test-util", "time"] }
 
 [lints]
 workspace = true

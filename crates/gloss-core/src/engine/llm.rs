@@ -12,8 +12,11 @@
 //! 条目标识**每请求直查**（不缓存，除请求头外不进任何地方——错误消息与日志里
 //! 只有状态码与服务端诊断文本；红线与措辞见 `crate::ports::ConfigStore` 的文档）。
 //!
-//! 超时：只设建连超时，流式响应不设总超时；
-//! 取消由调用方的 `CancellationToken` 竞速完成（future 被丢弃即断链）。
+//! 超时与重试（均为传输层内建行为，编排层不重试、原样上抛）：建连超时
+//! 之外，流式读取只设**空闲超时**（[`IDLE_TIMEOUT`]，连续无字节到达即断
+//! 流）——长回复合法地跑满全预算，总超时只会误杀；传输失败在**首个流条
+//! 目之前**自动重试（[`RETRY_ATTEMPTS`]，仅瞬态失败）。取消由调用方的
+//! `CancellationToken` 竞速完成（future 被丢弃即断链）。
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -23,7 +26,7 @@ use std::time::Duration;
 
 use crate::config::Config;
 use crate::config_handle::ConfigHandle;
-use crate::log::debug;
+use crate::log::{debug, thread, warn};
 use crate::model::GlossError;
 use crate::ports::{AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskChunk, TaskStream};
 use crate::prompt::{ChatMessage, ContentPart, MessageContent};
@@ -31,11 +34,31 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use futures_core::Stream;
 use reqwest::StatusCode;
+use tokio::time::{Instant as TokioInstant, Sleep, sleep, sleep_until};
 
 use super::sse::{SseDecoder, SseItem};
 
 /// 建连超时（不含响应与流式读取）。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// 流式空闲超时：连续这么久没有任何字节到达即判传输停摆，流以
+/// [`GlossError::EngineNetwork`] 终结（首个 `Err` 终结流的端口契约不变）。
+/// 取值从宽以覆盖首字节等待——推理类模型出首个字节可以远慢于普通请求
+/// ——也覆盖流中途的服务端生成间歇；只惩罚「连接还在、字节不来」的静默
+/// 悬死，对长回复没有总超时那样的合法误杀。
+const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// 传输失败自动重试预算：只重试**首个流条目之前**的瞬态失败（请求没送达、
+/// 服务端明确说稍后再来、连接初建即断）。连接阶段与首个流条目之前两个
+/// 阶段共用同一份预算——前一阶段耗尽，后一阶段不再重试。
+const RETRY_ATTEMPTS: u32 = 1;
+
+/// 无 `Retry-After` 指引时的固定退避。
+const RETRY_BACKOFF: Duration = Duration::from_millis(500);
+
+/// `Retry-After` 指引的等待上限：更长的等待不自动进行——失败卡交还用户，
+/// 重试按钮在手（状态机对网络/限流错误的既有出口）。
+const RETRY_AFTER_CAP: Duration = Duration::from_secs(1);
 
 /// 聊天补全路径（OpenAI 兼容）。
 const CHAT_COMPLETIONS_PATH: &str = "chat/completions";
@@ -178,36 +201,243 @@ impl AiEngine for LlmClient {
             }
             let snapshot = config.snapshot();
             // 端点与密钥分两条解析路径，不共用返回值。
-            let url = resolve_endpoint(&snapshot)?;
-            let key = resolve_api_key(&snapshot, store.as_ref())?;
-            let body = chat_request_body(&EngineRequest {
-                messages,
-                model: model.trim().to_owned(),
-                max_tokens,
+            let resolved = Arc::new(Resolved {
+                url: resolve_endpoint(&snapshot)?,
+                key: resolve_api_key(&snapshot, store.as_ref())?,
+                body: chat_request_body(&EngineRequest {
+                    messages,
+                    model: model.trim().to_owned(),
+                    max_tokens,
+                }),
             });
-
-            let mut response = client
-                .post(&url)
-                .bearer_auth(key)
-                .json(&body)
-                .send()
-                .await
-                .map_err(map_transport_error)?;
-
-            let status = response.status();
-            if !status.is_success() {
-                // 服务端诊断文本（可能是 JSON 错误对象）：只取 message 字段，
-                // 不转述整个响应体；密钥在请求头里，不会出现在这里。读取带上限
-                // ——错误网关/WAF 可能回几百 MB 的劫持页，不能整份吃进内存。
-                let detail = read_bounded_body(&mut response, MAX_ERROR_BODY_BYTES).await;
-                return Err(map_failure(status, &detail));
-            }
+            // 单次尝试闭包：连接阶段与首个流条目之前的重试共用同一形状，
+            // 重试即再调一次；端点、密钥与请求体都在 Arc 里，克隆只是递引
+            // 用计数。
+            let attempt = {
+                let client = client.clone();
+                let resolved = Arc::clone(&resolved);
+                move || {
+                    let client = client.clone();
+                    let resolved = Arc::clone(&resolved);
+                    Box::pin(async move { send_once(&client, &resolved).await })
+                        as BoxFuture<'static, Result<TaskStream, TransportFail>>
+                }
+            };
+            let (connected, retries_left) =
+                connect_with_retry(attempt.clone(), RETRY_ATTEMPTS).await;
+            let stream = connected?;
             debug!(
                 model = %model,
                 "llm stream established"
             );
-            Ok(Box::pin(SseStream::new(response.bytes_stream())) as TaskStream)
+            Ok(Box::pin(FirstByteStream::new(attempt, stream, retries_left)) as TaskStream)
         })
+    }
+}
+
+/// 一次请求的解析产物：端点、密钥与 wire 请求体。打包后由 [`AiEngine::execute`]
+/// 以 `Arc` 共享给连接阶段与重试闭包——克隆只是递引用计数，端点/密钥字符串
+/// 与请求体（图像任务的 base64 可达 MB 级）不随重试复制。
+struct Resolved {
+    url: String,
+    key: String,
+    body: serde_json::Value,
+}
+
+/// 一次传输尝试的失败载荷：错误分类 + 服务端的稍后重试指引（`Retry-After`
+/// 头的秒数形态）。指引不进 [`GlossError`]——它是传输层重试的内部量，
+/// 出了这层就是普通失败。
+struct TransportFail {
+    error: GlossError,
+    retry_after: Option<Duration>,
+}
+
+/// 传输失败是否值得自动重试及等待时长（纯函数）：预算未尽且错误是瞬态
+/// （网络/限流）才重试；等待取 `Retry-After` 指引与上限的较小值，无指引
+/// 用固定退避。鉴权、参数与环境类拒绝重发无益，与预算耗尽同返回 None。
+fn retry_delay(
+    error: &GlossError,
+    retry_after: Option<Duration>,
+    retries_left: u32,
+) -> Option<Duration> {
+    if retries_left == 0 {
+        return None;
+    }
+    match error {
+        GlossError::EngineNetwork | GlossError::EngineRateLimited => {
+            Some(retry_after.map_or(RETRY_BACKOFF, |wait| wait.min(RETRY_AFTER_CAP)))
+        }
+        _ => None,
+    }
+}
+
+/// `Retry-After` 头的秒数形态解析（HTTP 日期形态返回 None，回落固定退避）。
+fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(Duration::from_secs)
+}
+
+/// 空闲看门狗的到点时刻（纯函数）：`Sleep` 的初装与复位都用它给定时刻。
+fn idle_deadline(now: TokioInstant) -> TokioInstant {
+    now + IDLE_TIMEOUT
+}
+
+/// 发起一次传输尝试：端点、密钥与请求体已就绪（解析产物），发请求、查
+/// 状态、包 SSE 流。失败以 [`TransportFail`] 上交（状态失败随附
+/// `Retry-After` 指引）；重试判定归 [`connect_with_retry`] 与
+/// [`FirstByteStream`]。
+async fn send_once(
+    client: &reqwest::Client,
+    resolved: &Resolved,
+) -> Result<TaskStream, TransportFail> {
+    let mut response = client
+        .post(&resolved.url)
+        .bearer_auth(&resolved.key)
+        .json(&resolved.body)
+        .send()
+        .await
+        .map_err(|err| TransportFail {
+            error: map_transport_error(err),
+            retry_after: None,
+        })?;
+
+    let status = response.status();
+    if !status.is_success() {
+        // 服务端诊断文本（可能是 JSON 错误对象）：只取 message 字段，
+        // 不转述整个响应体；密钥在请求头里，不会出现在这里。读取带上限
+        // ——错误网关/WAF 可能回几百 MB 的劫持页，不能整份吃进内存。
+        let retry_after = parse_retry_after(response.headers());
+        let detail = read_bounded_body(&mut response, MAX_ERROR_BODY_BYTES).await;
+        return Err(TransportFail {
+            error: map_failure(status, &detail),
+            retry_after,
+        });
+    }
+    Ok(Box::pin(SseStream::new(response.bytes_stream())) as TaskStream)
+}
+
+/// 连接阶段的重试循环：逐次尝试，瞬态失败在预算内退避后重试，其余失败
+/// 与预算耗尽原样上抛。预算余额随成功返回——首个流条目之前的重试
+/// （[`FirstByteStream`]）接着用同一份预算。
+async fn connect_with_retry<T>(
+    mut attempt: impl FnMut() -> BoxFuture<'static, Result<T, TransportFail>>,
+    mut retries_left: u32,
+) -> (Result<T, GlossError>, u32) {
+    loop {
+        match attempt().await {
+            Ok(stream) => return (Ok(stream), retries_left),
+            Err(fail) => match retry_delay(&fail.error, fail.retry_after, retries_left) {
+                Some(delay) => {
+                    retries_left -= 1;
+                    warn!(
+                        thread = thread::TOKIO,
+                        error = %fail.error,
+                        delay = ?delay,
+                        "llm request hit a transient failure, retrying before the first byte"
+                    );
+                    sleep(delay).await;
+                }
+                None => return (Err(fail.error), retries_left),
+            },
+        }
+    }
+}
+
+/// 首个流条目之前的重试包装：内建流在产出**任何**条目之前的 `Err`，若是
+/// 瞬态失败且预算未尽，丢弃空流、退避后重新发起请求（消费方无感）——
+/// 此刻没有任何增量交付过，不存在半截产物要保。首个条目一旦交付（增量
+/// 或终结条目），错误一律原样放行：中途断流多半是确定性故障，重头重播
+/// 还会让已渲染的流式正文错乱。`attempt` 与连接阶段同形状，共用同一份
+/// [`RETRY_ATTEMPTS`] 预算；重连只此一次、失败原样上交，不链式重判——
+/// 现行预算下重连发出时余额必为 0，这一箭也是对失败端点的重试上限。
+struct FirstByteStream<F> {
+    attempt: F,
+    inner: Option<TaskStream>,
+    /// 进行中的重连（退避 + 重新请求）；在位时 `inner` 必为 None。
+    connecting: Option<BoxFuture<'static, Result<TaskStream, TransportFail>>>,
+    retries_left: u32,
+    handed_first: bool,
+}
+
+impl<F> FirstByteStream<F>
+where
+    F: Fn() -> BoxFuture<'static, Result<TaskStream, TransportFail>>,
+{
+    fn new(attempt: F, inner: TaskStream, retries_left: u32) -> Self {
+        Self {
+            attempt,
+            inner: Some(inner),
+            connecting: None,
+            retries_left,
+            handed_first: false,
+        }
+    }
+}
+
+impl<F> Stream for FirstByteStream<F>
+where
+    F: Fn() -> BoxFuture<'static, Result<TaskStream, TransportFail>> + Unpin,
+{
+    type Item = Result<TaskChunk, GlossError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        loop {
+            if let Some(connect) = this.connecting.as_mut() {
+                match connect.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Ok(stream)) => {
+                        this.inner = Some(stream);
+                        this.connecting = None;
+                    }
+                    Poll::Ready(Err(fail)) => {
+                        this.connecting = None;
+                        return Poll::Ready(Some(Err(fail.error)));
+                    }
+                }
+                continue;
+            }
+            let Some(stream) = this.inner.as_mut() else {
+                return Poll::Ready(None);
+            };
+            match stream.as_mut().poll_next(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Some(Ok(chunk))) => {
+                    this.handed_first = true;
+                    return Poll::Ready(Some(Ok(chunk)));
+                }
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Ready(Some(Err(error))) => {
+                    if this.handed_first {
+                        return Poll::Ready(Some(Err(error)));
+                    }
+                    match retry_delay(&error, None, this.retries_left) {
+                        Some(delay) => {
+                            this.retries_left -= 1;
+                            warn!(
+                                thread = thread::TOKIO,
+                                error = %error,
+                                delay = ?delay,
+                                "llm stream failed before the first byte, retrying"
+                            );
+                            this.inner = None;
+                            let attempt = (this.attempt)();
+                            this.connecting = Some(Box::pin(async move {
+                                sleep(delay).await;
+                                attempt.await
+                            }));
+                        }
+                        None => return Poll::Ready(Some(Err(error))),
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -333,6 +563,9 @@ struct SseStream {
     /// 产物写进缓存——用户会看到空白卡片，重复触发还命同一份空白。
     produced: bool,
     finished: bool,
+    /// 空闲看门狗：每次收到字节即复位；到点未复位说明连接悬死（连着但不
+    /// 来字节），轮询以 [`GlossError::EngineNetwork`] 终结流。
+    idle: Pin<Box<Sleep>>,
 }
 
 impl SseStream {
@@ -345,6 +578,7 @@ impl SseStream {
             ready: VecDeque::new(),
             produced: false,
             finished: false,
+            idle: Box::pin(sleep_until(idle_deadline(TokioInstant::now()))),
         }
     }
 
@@ -402,9 +636,22 @@ impl Stream for SseStream {
             if this.finished {
                 return Poll::Ready(None);
             }
+            // 看门狗先于内层轮询：连接悬死时内层恒 Pending，唯一能终结流的
+            // 就是它。已入队的增量先交付（末次字节到达时看门狗已复位，能
+            // 走到这说明静默期确实过满了）。
+            if this.idle.as_mut().poll(cx).is_ready() {
+                this.finished = true;
+                warn!(
+                    thread = thread::TOKIO,
+                    idle_secs = IDLE_TIMEOUT.as_secs(),
+                    "llm stream went silent, failing with a network error"
+                );
+                return Poll::Ready(Some(Err(GlossError::EngineNetwork)));
+            }
             match this.inner.as_mut().poll_next(cx) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Some(Ok(chunk))) => {
+                    this.idle.as_mut().reset(idle_deadline(TokioInstant::now()));
                     let items = this.decoder.push(&chunk);
                     this.absorb(items);
                 }
@@ -429,6 +676,8 @@ impl Stream for SseStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::sync::Mutex;
 
     use crate::stubs::ports::MemoryConfigStore;
 
@@ -905,6 +1154,361 @@ mod tests {
             GlossError::EngineAuth,
             "auth keeps its precedence over the diagnostics"
         );
+    }
+
+    #[test]
+    fn retry_delay_covers_only_transient_failures_within_budget() {
+        assert_eq!(
+            retry_delay(&GlossError::EngineNetwork, None, RETRY_ATTEMPTS),
+            Some(RETRY_BACKOFF)
+        );
+        assert_eq!(
+            retry_delay(&GlossError::EngineRateLimited, None, RETRY_ATTEMPTS),
+            Some(RETRY_BACKOFF)
+        );
+        assert_eq!(
+            retry_delay(&GlossError::EngineNetwork, Some(Duration::from_secs(5)), 1),
+            Some(RETRY_AFTER_CAP),
+            "guidance beyond the cap is capped"
+        );
+        assert_eq!(
+            retry_delay(
+                &GlossError::EngineNetwork,
+                Some(Duration::from_millis(100)),
+                1
+            ),
+            Some(Duration::from_millis(100)),
+            "guidance under the cap wins over the fixed backoff"
+        );
+        assert_eq!(
+            retry_delay(&GlossError::EngineNetwork, None, 0),
+            None,
+            "an exhausted budget never retries"
+        );
+        assert_eq!(retry_delay(&GlossError::EngineAuth, None, 1), None);
+        assert_eq!(
+            retry_delay(&GlossError::EngineResponse("bad reply".into()), None, 1),
+            None
+        );
+        assert_eq!(retry_delay(&GlossError::Config("x".into()), None, 1), None);
+    }
+
+    #[test]
+    fn retry_after_header_parsing_accepts_seconds_only() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        assert_eq!(parse_retry_after(&headers), None);
+
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            "2".parse().expect("header value"),
+        );
+        assert_eq!(parse_retry_after(&headers), Some(Duration::from_secs(2)));
+
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            " 1 ".parse().expect("header value"),
+        );
+        assert_eq!(
+            parse_retry_after(&headers),
+            Some(Duration::from_secs(1)),
+            "padding around the number is tolerated"
+        );
+
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            "Wed, 21 Oct 2015 07:28:00 GMT"
+                .parse()
+                .expect("header value"),
+        );
+        assert_eq!(
+            parse_retry_after(&headers),
+            None,
+            "the HTTP-date form falls back to the fixed backoff"
+        );
+
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            "soon".parse().expect("header value"),
+        );
+        assert_eq!(parse_retry_after(&headers), None);
+    }
+
+    #[tokio::test]
+    async fn connect_retries_transient_failures_within_the_budget() {
+        tokio::time::pause();
+        let (attempt, calls) = queue_attempt(vec![
+            Err(TransportFail {
+                error: GlossError::EngineNetwork,
+                retry_after: None,
+            }),
+            Ok(()),
+        ]);
+        let (result, retries_left) = connect_with_retry(attempt, RETRY_ATTEMPTS).await;
+        assert!(result.is_ok(), "the second attempt lands");
+        assert_eq!(*calls.lock().unwrap(), 2);
+        assert_eq!(retries_left, 0);
+
+        let (attempt, calls) = queue_attempt::<()>(vec![
+            Err(TransportFail {
+                error: GlossError::EngineNetwork,
+                retry_after: None,
+            }),
+            Err(TransportFail {
+                error: GlossError::EngineRateLimited,
+                retry_after: None,
+            }),
+        ]);
+        let (result, retries_left) = connect_with_retry(attempt, RETRY_ATTEMPTS).await;
+        assert!(
+            matches!(result, Err(GlossError::EngineRateLimited)),
+            "the last failure is reported as-is: {result:?}"
+        );
+        assert_eq!(*calls.lock().unwrap(), 2);
+        assert_eq!(retries_left, 0);
+
+        let (attempt, calls) = queue_attempt::<()>(vec![Err(TransportFail {
+            error: GlossError::EngineAuth,
+            retry_after: None,
+        })]);
+        let (result, retries_left) = connect_with_retry(attempt, RETRY_ATTEMPTS).await;
+        assert!(matches!(result, Err(GlossError::EngineAuth)));
+        assert_eq!(*calls.lock().unwrap(), 1);
+        assert_eq!(retries_left, RETRY_ATTEMPTS);
+    }
+
+    #[tokio::test]
+    async fn first_byte_failures_retry_within_the_shared_budget() {
+        tokio::time::pause();
+        let good = chunk_stream(vec![
+            Ok(TaskChunk::Delta("光".into())),
+            Ok(TaskChunk::Done {
+                finish_reason: Some("stop".into()),
+            }),
+        ]);
+        let (attempt, calls) = queue_attempt(vec![Ok(good)]);
+        let mut stream = FirstByteStream::new(
+            attempt,
+            chunk_stream(vec![Err(GlossError::EngineNetwork)]),
+            RETRY_ATTEMPTS,
+        );
+        assert_eq!(
+            next_item(&mut stream).await,
+            Some(Ok(TaskChunk::Delta("光".into()))),
+            "the retry is invisible to the consumer: no failure item is delivered"
+        );
+        assert_eq!(
+            next_item(&mut stream).await,
+            Some(Ok(TaskChunk::Done {
+                finish_reason: Some("stop".into())
+            }))
+        );
+        assert_eq!(next_item(&mut stream).await, None);
+        assert_eq!(*calls.lock().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn first_byte_budget_exhaustion_passes_the_error_through() {
+        tokio::time::pause();
+        let (attempt, calls) =
+            queue_attempt(vec![Ok(chunk_stream(vec![Err(GlossError::EngineNetwork)]))]);
+        let mut stream = FirstByteStream::new(
+            attempt,
+            chunk_stream(vec![Err(GlossError::EngineNetwork)]),
+            RETRY_ATTEMPTS,
+        );
+        assert_eq!(
+            next_item(&mut stream).await,
+            Some(Err(GlossError::EngineNetwork)),
+            "both attempts failed, the last error is delivered as-is"
+        );
+        assert_eq!(next_item(&mut stream).await, None);
+        assert_eq!(*calls.lock().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn non_retryable_first_byte_errors_pass_through_without_a_retry() {
+        tokio::time::pause();
+        let (attempt, calls) = queue_attempt(vec![]);
+        let mut stream = FirstByteStream::new(
+            attempt,
+            chunk_stream(vec![Err(GlossError::EngineAuth)]),
+            RETRY_ATTEMPTS,
+        );
+        assert_eq!(
+            next_item(&mut stream).await,
+            Some(Err(GlossError::EngineAuth))
+        );
+        assert_eq!(next_item(&mut stream).await, None);
+        assert_eq!(*calls.lock().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn errors_after_the_first_item_are_never_retried() {
+        tokio::time::pause();
+        let (attempt, calls) = queue_attempt(vec![]);
+        let mut stream = FirstByteStream::new(
+            attempt,
+            chunk_stream(vec![
+                Ok(TaskChunk::Delta("光".into())),
+                Err(GlossError::EngineNetwork),
+            ]),
+            RETRY_ATTEMPTS,
+        );
+        assert_eq!(
+            next_item(&mut stream).await,
+            Some(Ok(TaskChunk::Delta("光".into())))
+        );
+        assert_eq!(
+            next_item(&mut stream).await,
+            Some(Err(GlossError::EngineNetwork)),
+            "a mid-stream failure must not restart the request"
+        );
+        assert_eq!(next_item(&mut stream).await, None);
+        assert_eq!(*calls.lock().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn first_byte_retry_honors_a_zero_leftover_budget() {
+        tokio::time::pause();
+        let (attempt, calls) = queue_attempt(vec![]);
+        let mut stream = FirstByteStream::new(
+            attempt,
+            chunk_stream(vec![Err(GlossError::EngineNetwork)]),
+            0,
+        );
+        assert_eq!(
+            next_item(&mut stream).await,
+            Some(Err(GlossError::EngineNetwork)),
+            "the connect stage spent the budget, the stream stage gets none"
+        );
+        assert_eq!(*calls.lock().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn an_idle_stream_fails_after_the_silence_budget() {
+        tokio::time::pause();
+        let payload = "data: {\"choices\":[{\"delta\":{\"content\":\"光\"}}]}\n\n";
+        let mut stream = SseStream::new(StallStream::new(bytes::Bytes::from_static(
+            payload.as_bytes(),
+        )));
+        assert_eq!(
+            next_item(&mut stream).await,
+            Some(Ok(TaskChunk::Delta("光".into())))
+        );
+        assert_eq!(
+            next_item(&mut stream).await,
+            Some(Err(GlossError::EngineNetwork)),
+            "a stalled connection ends the stream as a network failure"
+        );
+        assert_eq!(next_item(&mut stream).await, None);
+    }
+
+    #[tokio::test]
+    async fn arriving_bytes_postpone_the_idle_deadline() {
+        tokio::time::pause();
+        let mut stream = SseStream::new(TimedChunks::new());
+        for step in 0..3 {
+            assert_eq!(
+                next_item(&mut stream).await,
+                Some(Ok(TaskChunk::Delta(step.to_string()))),
+                "chunk {step} lands beyond the original deadline: arrivals reset the watchdog"
+            );
+        }
+    }
+
+    fn chunk_stream(items: Vec<Result<TaskChunk, GlossError>>) -> TaskStream {
+        Box::pin(VecChunkStream(VecDeque::from(items)))
+    }
+
+    async fn next_item<S>(stream: &mut S) -> Option<Result<TaskChunk, GlossError>>
+    where
+        S: Stream<Item = Result<TaskChunk, GlossError>> + Unpin,
+    {
+        std::future::poll_fn(|cx| Pin::new(&mut *stream).poll_next(cx)).await
+    }
+
+    fn queue_attempt<T: Send + 'static>(
+        outcomes: Vec<Result<T, TransportFail>>,
+    ) -> (
+        impl Fn() -> BoxFuture<'static, Result<T, TransportFail>>,
+        Arc<Mutex<usize>>,
+    ) {
+        let queue = Arc::new(Mutex::new(VecDeque::from(outcomes)));
+        let calls = Arc::new(Mutex::new(0usize));
+        let attempt_queue = Arc::clone(&queue);
+        let attempt_calls = Arc::clone(&calls);
+        let attempt = move || {
+            *attempt_calls.lock().unwrap() += 1;
+            let outcome = attempt_queue
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("attempt outcome queued");
+            Box::pin(async move { outcome }) as BoxFuture<'static, Result<T, TransportFail>>
+        };
+        (attempt, calls)
+    }
+
+    struct VecChunkStream(VecDeque<Result<TaskChunk, GlossError>>);
+
+    impl Stream for VecChunkStream {
+        type Item = Result<TaskChunk, GlossError>;
+
+        fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            Poll::Ready(self.0.pop_front())
+        }
+    }
+
+    struct StallStream(Option<bytes::Bytes>);
+
+    impl StallStream {
+        fn new(chunk: bytes::Bytes) -> Self {
+            Self(Some(chunk))
+        }
+    }
+
+    impl Stream for StallStream {
+        type Item = Result<bytes::Bytes, reqwest::Error>;
+
+        fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            match self.0.take() {
+                Some(chunk) => Poll::Ready(Some(Ok(chunk))),
+                None => Poll::Pending,
+            }
+        }
+    }
+
+    struct TimedChunks {
+        step: u32,
+        next: Pin<Box<Sleep>>,
+    }
+
+    impl TimedChunks {
+        fn new() -> Self {
+            Self {
+                step: 0,
+                next: Box::pin(sleep(Duration::from_secs(30))),
+            }
+        }
+    }
+
+    impl Stream for TimedChunks {
+        type Item = Result<bytes::Bytes, reqwest::Error>;
+
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            if self.next.as_mut().poll(cx).is_ready() {
+                self.next
+                    .as_mut()
+                    .reset(TokioInstant::now() + Duration::from_secs(30));
+                let payload = format!(
+                    "data: {{\"choices\":[{{\"delta\":{{\"content\":\"{}\"}}}}]}}\n\n",
+                    self.step
+                );
+                self.step += 1;
+                return Poll::Ready(Some(Ok(bytes::Bytes::from(payload))));
+            }
+            Poll::Pending
+        }
     }
 }
 

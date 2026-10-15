@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 37 | `just test` |
-| 单元测试 | 553 | `just test` |
+| 单元测试 | 563 | `just test` |
 
 ## 人工测试
 
@@ -1181,6 +1181,16 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | max_tokens_is_carried_only_when_set | max_tokens 仅设限时上线 | 给定 max_tokens=None 与 Some(64) 两个请求，当构造请求体，则 None 无该键、Some 携带数值 64 | 2026-09-26 |
 | maps_http_status_to_error_variants | HTTP 状态映射错误变体 | 给定 401/403/429/500/400+JSON/400+HTML，当映射，则分别得 EngineAuth/EngineRateLimited/EngineNetwork/带诊断的 EngineResponse | 2026-09-19 |
 | json_mode_and_multimodal_rejections_are_recognized_from_diagnostics | 诊断文本识别 JSON 模式与多模态不支持 | 给定 4xx 且诊断含 response_format/json_object 或 image/multimodal/vision 的错误体，当映射，则分别得 JsonModeUnsupported 与 UnsupportedModality（JSON 模式检查在前）；5xx 与 401 不做启发式（网络与鉴权优先） | 2026-10-11 |
+| retry_delay_covers_only_transient_failures_within_budget | 重试判定只认预算内的瞬态失败 | 给定网络/限流/鉴权/协议/配置五类错误与不同预算余额，当 retry_delay，则网络与限流在预算内得固定退避（Retry-After 指引封顶生效、低于上限时指引优先），预算耗尽与瞬时之外类别一律 None | 2026-10-15 |
+| retry_after_header_parsing_accepts_seconds_only | Retry-After 只解析秒数形态 | 给定缺失/整数/带空白/HTTP 日期/非数字五种头，当 parse_retry_after，则仅整数（含首尾空白）得秒数时长，其余 None 回落固定退避 | 2026-10-15 |
+| connect_retries_transient_failures_within_the_budget | 连接阶段瞬态失败退避重试并交还余额 | 给定「网络错误后成功」「两次瞬态失败」「鉴权失败」三条尝试脚本，当 connect_with_retry，则首条两次尝试后成功、余额清零；次条交还末次错误 RateLimited、恰 2 次调用；末条不重试原样上抛 Auth、余额不减 | 2026-10-15 |
+| first_byte_failures_retry_within_the_shared_budget | 首条目之前的瞬态失败对消费方无感重试 | 给定「立即网络错误的空流 → 增量+Done 流」尝试脚本与同形首轮空流，当消费包装流，则失败条目不上交、增量与 Done 原序到达、恰 1 次重连调用 | 2026-10-15 |
+| first_byte_budget_exhaustion_passes_the_error_through | 重试预算耗尽错误原样交付 | 给定首轮与重试流都以网络错误开场，当消费包装流，则末次错误原样上交后流即止、重连恰 1 次 | 2026-10-15 |
+| non_retryable_first_byte_errors_pass_through_without_a_retry | 非瞬态失败不重试直接交付 | 给定首条目即 EngineAuth 的流，当消费包装流，则错误原样上交、零重连调用 | 2026-10-15 |
+| errors_after_the_first_item_are_never_retried | 首条目之后错误一律不再重试 | 给定「增量后网络错误」的流，当消费包装流，则增量先到、错误原样上交、零重连调用（半截产物不重头重播） | 2026-10-15 |
+| first_byte_retry_honors_a_zero_leftover_budget | 首条目重试尊重连接阶段耗尽的余额 | 给定余额为 0 与网络错误开场的首轮流，当消费包装流，则错误原样上交、零重连调用（两阶段共用同一份预算） | 2026-10-15 |
+| an_idle_stream_fails_after_the_silence_budget | 静默超时终结悬死流 | 给定交付一个增量后恒 Pending 的字节流（虚拟时钟），当静默超过空闲预算后消费，则流以 EngineNetwork 终结且不再产出 | 2026-10-15 |
+| arriving_bytes_postpone_the_idle_deadline | 字节到达即复位空闲看门狗 | 给定每 30s（虚拟时钟）到达一个增量的字节流，当连续消费三个（虚拟 90s 超出 60s 预算），则每个增量如期到达、看门狗不触发 | 2026-10-15 |
 
 ### crates/gloss-core/src/engine/sse.rs
 
