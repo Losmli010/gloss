@@ -16,7 +16,7 @@ mod watch;
 
 pub use image::ClipboardImageReader;
 pub use watch::{
-    ClipboardWatchSource, PasteboardImageObserved, PasteboardObserver, WatchRoundFlag,
+    ClipboardWatchSource, PasteboardImageObserved, PasteboardObserver, RoundWrites, WatchRoundFlag,
 };
 
 use objc2::rc::Retained;
