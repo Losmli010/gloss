@@ -6,12 +6,12 @@
 //!   ——专属底色、`gloss-mono` 等宽体、不换行横滚、左上角语言标签行）；
 //! - **注**＝译文/释义/概要（楷体，系统缺楷体时随 demo 回退链落宋体；
 //!   朱丝栏左线 + 朱印）；
-//! - **疏**＝译注/例句/小记（小号宋体、弱色、上缘虚线 + 疏印）。
+//! - **疏**＝译注/例句/小记（楷体弱色、上缘虚线 + 疏印）。
 //!
 //! 三分区的正文列都显式声明垂直布局：egui 的 Frame/子 Ui 会继承父级的
 //! 水平布局（`new_child` 不带 layout 参数），横排父级里多条目正文会从左往
 //! 右流（释义并排、溢出右缘）。分区的间距是本模块私有量，字号规格与宋楷
-//! 字体助手在 [`content`]（都是 demo 定稿值），不进 style 阶梯。
+//! 字体助手在 [`content`]（都是 demo 基准的应用定稿值），不进 style 阶梯。
 //!
 //! 决策纯函数不进绘制模板，按职责拆在子模块：[`note`]（流式 JSON 渐进
 //! 提取）、[`sizing`]（宽度滞回）、[`icon`]（图标解码裁剪）、[`content`]
@@ -1396,14 +1396,13 @@ fn shu_examples(ui: &mut egui::Ui, examples: &[String], text: &'static Text) {
             let (source, translation) = example_lines(example);
             ui.label(
                 RichText::new(format!("· {source}")) // i18n:allow 列表符号，非 locale 文案
-                    .font(serif_font(SHU_FONT))
-                    .italics()
+                    .font(kaiti_font(SHU_FONT))
                     .color(weak),
             );
             if let Some(translation) = translation {
                 ui.label(
                     RichText::new(translation)
-                        .font(serif_font(SHU_FONT))
+                        .font(kaiti_font(SHU_FONT))
                         .color(weak),
                 );
             }
