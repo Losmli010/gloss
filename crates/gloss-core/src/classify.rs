@@ -10,16 +10,24 @@
 //! **异常内部消化**：契约违约（空回复 / 非 JSON / kind 越清单）走修复轮
 //! （对话形态 `[system][user 原文][assistant 上一次坏回复][user 纠错指令]`，
 //! EmptyReply 原样重发不带 assistant 轮），预算 [`CLASSIFY_REPAIRS`]；
-//! 分类阶段的请求异常不重试。两者耗尽/失败都落常量兜底
+//! 传输停摆（建连后 [`FIRST_ITEM_DEADLINE`] 内无任何流条目）按请求异常
+//! 收卷且不重试。两者耗尽/失败都落常量兜底
 //! [`CLASSIFY_FALLBACK`]——本函数对文本输入恒返回 `Ok(kind)`，用户无感，
 //! warn 留痕（类别 + 序号，不含内容）。
 //!
 //! 内容红线：分类输出契约只有一个 kind 标识，没有理由字段；本模块的
 //! 错误与日志都不携带输入内容与模型回复原文。
 
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::Duration;
+
+use futures_core::Stream;
+use tokio::time::{Instant as TokioInstant, Sleep, sleep_until};
+
 use crate::log::{debug, thread, warn};
 use crate::model::{GlossError, Locale};
-use crate::ports::{AiEngine, EngineRequest, TaskChunk};
+use crate::ports::{AiEngine, EngineRequest, TaskChunk, TaskStream};
 use crate::prompt::{CLASSIFY_SCHEMA, PromptRegistry, repair_conversation};
 use crate::schema::{self, Violation};
 use crate::task::{TaskInput, TaskKind};
@@ -67,6 +75,63 @@ pub fn push_capped(reply: &mut String, delta: &str) {
         take -= 1;
     }
     reply.push_str(&delta[..take]);
+}
+
+/// 分类首条目截止（墙钟）：建连成功后这么久没有任何流条目（增量或终结
+/// 帧）即判传输停摆，按请求异常收卷。分类在 TTFT 之前，等一个不出字的
+/// 服务端会把主任务的开工拖在同一处；兜底 kind 恒可执行，判定损失只是
+/// 标签精度。
+const FIRST_ITEM_DEADLINE: Duration = Duration::from_secs(3);
+
+/// 首条目截止的流包装：截止只武装到首个条目交付，之后的读取节奏归还
+/// 传输层空闲看门狗——分类回复极小，不存在需要看门狗的长流。定时器
+/// 惰性创建：内层流 Pending 时才需要它，即时产出的流（脚本桩）不碰
+/// 时间驱动。
+struct FirstItemDeadline {
+    inner: TaskStream,
+    deadline: Option<Pin<Box<Sleep>>>,
+    armed: bool,
+}
+
+impl FirstItemDeadline {
+    fn new(inner: TaskStream) -> Self {
+        Self {
+            inner,
+            deadline: None,
+            armed: true,
+        }
+    }
+}
+
+impl Stream for FirstItemDeadline {
+    type Item = Result<TaskChunk, GlossError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        match this.inner.as_mut().poll_next(cx) {
+            Poll::Ready(Some(item)) => {
+                this.armed = false;
+                return Poll::Ready(Some(item));
+            }
+            Poll::Ready(None) => return Poll::Ready(None),
+            Poll::Pending => {}
+        }
+        if !this.armed {
+            return Poll::Pending;
+        }
+        let deadline = this.deadline.get_or_insert_with(|| {
+            Box::pin(sleep_until(TokioInstant::now() + FIRST_ITEM_DEADLINE))
+        });
+        if deadline.as_mut().poll(cx).is_ready() {
+            warn!(
+                thread = thread::TOKIO,
+                deadline_secs = FIRST_ITEM_DEADLINE.as_secs(),
+                "classify stream silent past the first-item deadline"
+            );
+            return Poll::Ready(Some(Err(GlossError::EngineNetwork)));
+        }
+        Poll::Pending
+    }
 }
 
 /// 判定一条文本输入的任务类型。`allowed` 是允许模型选择的清单（编排
@@ -199,13 +264,15 @@ pub async fn classify_traced(
 /// 只在 Ok 时提前退出——部分 JSON 继续等，跑偏与截断的回复照旧走完流、
 /// 落到整段校验。每次累积后的全量校验上界是回复上限（4KB）× 个位数
 /// chunk，相对 chunk 的毫秒级到达间隔可忽略。结束帧对分类没有增量价值。
+/// 建连后的首条目等待受 [`FIRST_ITEM_DEADLINE`] 约束（见模块文档）。
 /// 请求按值接收（引擎端口按值收请求，消息所有权随调用 move）。
 async fn classify_round(
     engine: &dyn AiEngine,
     request: EngineRequest,
     allowed: &[TaskKind],
 ) -> Result<String, GlossError> {
-    let mut stream = engine.execute(request).await?;
+    let stream = engine.execute(request).await?;
+    let mut stream = std::pin::pin!(FirstItemDeadline::new(stream));
     let mut reply = String::new();
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {
@@ -236,14 +303,100 @@ pub fn parse_classify_reply(reply: &str, allowed: &[TaskKind]) -> Result<TaskKin
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::pin::Pin;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::task::{Context, Poll};
+    use std::time::Duration;
+
+    use futures_core::Stream;
+    use tokio::time::{Instant as TokioInstant, Sleep, sleep_until};
+
     use super::{
         CLASSIFY_FALLBACK, CLASSIFY_KINDS, CLASSIFY_REPAIRS, classify, classify_traced,
         parse_classify_reply,
     };
     use crate::model::{GlossError, Locale};
-    use crate::ports::TaskChunk;
+    use crate::ports::{AiEngine, BoxFuture, EngineRequest, TaskChunk, TaskStream};
     use crate::stubs::engine::MockEngine;
     use crate::task::{TaskInput, TaskKind};
+
+    struct SilentStream;
+
+    impl Stream for SilentStream {
+        type Item = Result<TaskChunk, GlossError>;
+
+        fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            Poll::Pending
+        }
+    }
+
+    struct TimedStream {
+        steps: std::vec::IntoIter<(Duration, Result<TaskChunk, GlossError>)>,
+        next: Pin<Box<Sleep>>,
+    }
+
+    impl TimedStream {
+        fn new(steps: Vec<(Duration, Result<TaskChunk, GlossError>)>) -> Self {
+            let first = steps.first().map_or(Duration::ZERO, |(delay, _)| *delay);
+            Self {
+                steps: steps.into_iter(),
+                next: Box::pin(sleep_until(TokioInstant::now() + first)),
+            }
+        }
+    }
+
+    impl Stream for TimedStream {
+        type Item = Result<TaskChunk, GlossError>;
+
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            if self.next.as_mut().poll(cx).is_ready() {
+                return match self.steps.next() {
+                    Some((delay, item)) => {
+                        self.next.as_mut().reset(TokioInstant::now() + delay);
+                        Poll::Ready(Some(item))
+                    }
+                    None => Poll::Ready(None),
+                };
+            }
+            Poll::Pending
+        }
+    }
+
+    struct StreamEngine {
+        streams: Mutex<VecDeque<TaskStream>>,
+        calls: AtomicUsize,
+    }
+
+    impl StreamEngine {
+        fn new(streams: Vec<TaskStream>) -> Self {
+            Self {
+                streams: Mutex::new(VecDeque::from(streams)),
+                calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn call_count(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    impl AiEngine for StreamEngine {
+        fn execute(
+            &self,
+            _request: EngineRequest,
+        ) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let stream = self
+                .streams
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .pop_front()
+                .expect("stream script queued");
+            Box::pin(async move { Ok(stream) })
+        }
+    }
 
     fn text_input(text: &str) -> TaskInput {
         TaskInput::Text { text: text.into() }
@@ -596,5 +749,52 @@ mod tests {
             !CLASSIFY_KINDS.contains(&TaskKind::General),
             "the classifier still picks among the three text kinds only"
         );
+    }
+
+    #[tokio::test]
+    async fn a_silent_stream_is_cut_at_the_first_item_deadline() {
+        tokio::time::pause();
+        let engine = StreamEngine::new(vec![Box::pin(SilentStream) as TaskStream]);
+        let kind = classify(
+            &engine,
+            "m",
+            Locale::Zh,
+            &CLASSIFY_KINDS,
+            &text_input("gloss"),
+        )
+        .await
+        .expect("the deadline cut is digested into the fallback");
+        assert_eq!(kind, CLASSIFY_FALLBACK);
+        assert_eq!(
+            engine.call_count(),
+            1,
+            "a deadline cut is a request failure: no retry, one attempt"
+        );
+    }
+
+    #[tokio::test]
+    async fn items_after_the_first_flow_without_the_deadline() {
+        tokio::time::pause();
+        let engine = StreamEngine::new(vec![Box::pin(TimedStream::new(vec![
+            (
+                Duration::from_secs(2),
+                Ok(TaskChunk::Delta("{\"kind\":\"Translate".into())),
+            ),
+            (
+                Duration::from_secs(1_000),
+                Ok(TaskChunk::Delta("Word\"}".into())),
+            ),
+        ])) as TaskStream]);
+        let kind = classify(
+            &engine,
+            "m",
+            Locale::Zh,
+            &CLASSIFY_KINDS,
+            &text_input("gloss"),
+        )
+        .await
+        .expect("a late second item must still land: the deadline covers the first item only");
+        assert_eq!(kind, TaskKind::TranslateWord);
+        assert_eq!(engine.call_count(), 1);
     }
 }
