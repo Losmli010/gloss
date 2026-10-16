@@ -75,9 +75,6 @@ pub enum AppState {
     Show,
     /// 失败态：显示失败信息与动作出口（重试按钮或设置页引导）。
     Error,
-    /// 框选交互（占位，随框选遮罩落地；过渡期内无转移路径）。
-    #[allow(dead_code)]
-    RegionSelecting,
 }
 
 /// 浮层内容视图：状态机的可视化投影，由 `ui::popup` 按 TaskKind 分发
@@ -264,7 +261,8 @@ impl TaskStateMachine {
         self.attached_image.as_ref()
     }
 
-    /// 在途任务的取消令牌（壳据此在退出/调试时观察取消状态）。
+    /// 在途任务的取消令牌（测试观察口）。
+    #[cfg(test)]
     pub fn current_cancel(&self) -> Option<&CancellationToken> {
         self.current_cancel.as_ref()
     }
@@ -649,13 +647,13 @@ pub enum TriggerDecision {
     /// 层分类决定；剪贴板图片的取材动作即显式意图，LLM 层恒定映射）。
     Acquire,
     /// 拦下：触发前场景闸门（安全输入态 / 敏感应用名单）。只拦真实触发，
-    /// 设置与退出不在此列。
+    /// 设置不在此列。
     Blocked(TriggerBlock),
     /// 拦下：Gloss 自身是前台应用时的划词手势（防误触——HID 全局 tap 连拖
     /// Gloss 自己的浮层不该触发取材）。
     SelfSuppressed,
-    /// 不进状态机的直通事件（框选、设置、退出、授权落定——各自在 drain
-    /// 处有自己的出口）。
+    /// 不进状态机的直通事件（设置、授权落定——各自在 drain 处有自己的
+    /// 出口）。
     Unwired,
 }
 
@@ -680,9 +678,7 @@ pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDec
             Some(block) => TriggerDecision::Blocked(block),
             None => TriggerDecision::Acquire,
         },
-        PlatformEvent::RegionGesture { .. }
-        | PlatformEvent::OpenSettingsRequested
-        | PlatformEvent::QuitRequested
+        PlatformEvent::OpenSettingsRequested
         // 授权落定在 drain 处直通处理（解预热门控），不经状态机。
         | PlatformEvent::AccessibilityGranted => TriggerDecision::Unwired,
     }
@@ -692,13 +688,12 @@ pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDec
 /// （`Arc<str>` 共享：任务选项在在途副本与下发请求间引用同一份 id，复制
 /// 只递引用计数）；prompt 模板语言按 `Language` 落定（`System` 取系统
 /// 语言）——三者都是 LLM 层的输入，随任务冻结，执行途中不再回读配置。
-/// 四个字段全量显式构造，不走 `..Default::default()`——后者会先把缺省
+/// 字段全量显式构造，不走 `..Default::default()`——后者会先把缺省
 /// 模型 id 分配出来再被覆盖，纯浪费一次分配（选项新增字段时编译器在此
 /// 处强制补齐，不会静默漏填）。
 fn task_options(config: &Config, system_locale: Locale) -> TaskOptions {
     TaskOptions {
         target_lang: Some(config.target_lang.clone()),
-        detail_level: None,
         model: Arc::from(config.model.as_str()),
         prompt_locale: Some(config.language.resolve(system_locale)),
     }
@@ -780,7 +775,7 @@ mod tests {
 
     use gloss_core::config::Language;
     use gloss_core::guard::{FrontApp, SceneFacts, SensitiveKind};
-    use gloss_core::model::{GlossError, Lang, ScreenPoint, ScreenRect};
+    use gloss_core::model::{GlossError, Lang, ScreenPoint};
     use gloss_core::task::OutcomeStructured;
 
     use super::*;
@@ -859,7 +854,6 @@ mod tests {
     fn image_input(png: &[u8]) -> TaskInput {
         TaskInput::Image {
             png: Arc::from(png),
-            region: None,
         }
     }
 
@@ -907,17 +901,8 @@ mod tests {
         );
 
         for event in [
-            PlatformEvent::RegionGesture {
-                rect: ScreenRect {
-                    x: 0,
-                    y: 0,
-                    width: 10,
-                    height: 10,
-                },
-            },
             PlatformEvent::PasteboardImageObserved,
             PlatformEvent::OpenSettingsRequested,
-            PlatformEvent::QuitRequested,
         ] {
             assert!(
                 machine
@@ -978,26 +963,6 @@ mod tests {
             trigger_decision(&PlatformEvent::AccessibilityGranted, &open),
             TriggerDecision::Unwired,
             "the grant event is handled in the drain, never a gated trigger"
-        );
-        assert_eq!(
-            trigger_decision(
-                &PlatformEvent::RegionGesture {
-                    rect: ScreenRect {
-                        x: 0,
-                        y: 0,
-                        width: 10,
-                        height: 10,
-                    },
-                },
-                &open
-            ),
-            TriggerDecision::Unwired,
-            "the capture gesture has no acquisition path yet"
-        );
-        assert_eq!(
-            trigger_decision(&PlatformEvent::QuitRequested, &blocked_by_app()),
-            TriggerDecision::Unwired,
-            "quit is an exit, never a gated trigger"
         );
         assert_eq!(
             trigger_decision(&selection_gesture(), &open),
@@ -1255,13 +1220,7 @@ mod tests {
             machine.commit_probe(
                 1,
                 TaskInput::Image {
-                    png: Arc::from(&b"png"[..]),
-                    region: Some(ScreenRect {
-                        x: 0,
-                        y: 0,
-                        width: 1,
-                        height: 1
-                    })
+                    png: Arc::from(&b"png"[..])
                 }
             ),
             InputOutcome::Ignored
@@ -1556,15 +1515,13 @@ mod tests {
             1,
             TaskInput::Image {
                 png: Arc::clone(&png),
-                region: None,
             },
         ));
         assert_eq!(request.generation, 1);
         assert_eq!(
             request.input,
             TaskInput::Image {
-                png: Arc::clone(&png),
-                region: None
+                png: Arc::clone(&png)
             },
             "the dispatch carries the image input"
         );
@@ -1653,7 +1610,6 @@ mod tests {
             2,
             TaskInput::Image {
                 png: Arc::clone(&png),
-                region: None,
             },
         ));
         assert!(
@@ -1717,7 +1673,6 @@ mod tests {
             1,
             TaskInput::Image {
                 png: Arc::clone(&png),
-                region: None,
             },
         ));
         machine.accept_chunk(1, "{\"note\":\"描述".into());
@@ -1730,8 +1685,7 @@ mod tests {
         assert_eq!(
             retried.input,
             TaskInput::Image {
-                png: Arc::clone(&png),
-                region: None
+                png: Arc::clone(&png)
             },
             "the retry resends the same image input"
         );
@@ -1842,13 +1796,7 @@ mod tests {
             machine.commit_probe(
                 1,
                 TaskInput::Image {
-                    png: Arc::from(&b"png"[..]),
-                    region: Some(ScreenRect {
-                        x: 0,
-                        y: 0,
-                        width: 1,
-                        height: 1
-                    })
+                    png: Arc::from(&b"png"[..])
                 }
             ),
             InputOutcome::Ignored

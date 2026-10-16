@@ -460,7 +460,7 @@ fn acquire_command_handler(
                         );
                         sink.send_event(Event::InputReady {
                             generation,
-                            input: TaskInput::Image { png, region: None },
+                            input: TaskInput::Image { png },
                         });
                     }
                     // 静默丢弃不弹卡的两种落点——①与②之间剪贴板被覆盖（竞
@@ -480,14 +480,6 @@ fn acquire_command_handler(
                         });
                     }
                 }
-            }
-            // 框选取材的读取栈随后续步骤接入：命令先按未接线丢弃（留痕带
-            // 代数，方便排查）。
-            AcquireCommand::CaptureRegion { generation, .. } => {
-                debug!(
-                    thread = thread::EVENT,
-                    generation, "capture region command not wired yet, dropped"
-                );
             }
         }
     }

@@ -50,19 +50,6 @@ impl ScreenPoint {
     }
 }
 
-/// 屏幕逻辑坐标矩形。多显示器下原点可为负，坐标按手势/系统返回值原样传递。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ScreenRect {
-    /// 左上角横坐标（逻辑像素）。
-    pub x: i32,
-    /// 左上角纵坐标（逻辑像素）。
-    pub y: i32,
-    /// 宽（逻辑像素）。
-    pub width: u32,
-    /// 高（逻辑像素）。
-    pub height: u32,
-}
-
 /// 全链路统一错误：状态机 Error 态与重试策略都按变体分支，不允许 panic 逃出主循环。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GlossError {
@@ -73,10 +60,6 @@ pub enum GlossError {
     SelectionEmpty,
     /// 辅助功能权限缺失。
     AccessibilityDenied,
-    /// 屏幕录制权限缺失。
-    ScreenCaptureDenied,
-    /// 框选区域超出屏幕或阈值。
-    RegionTooLarge,
     /// 剪贴板图片读不出（板上无可读图像 flavor、粘贴授权被拒、粘贴板不可
     /// 观察）或解不了码（头不可读、解码失败、缓冲与声明尺寸不符）——与
     /// [`GlossError::SelectionUnavailable`] 分开建档：图像任务没有可选的
@@ -108,8 +91,6 @@ impl std::fmt::Display for GlossError {
             Self::SelectionUnavailable => write!(f, "selection unavailable"),
             Self::SelectionEmpty => write!(f, "selection is empty"),
             Self::AccessibilityDenied => write!(f, "accessibility permission denied"),
-            Self::ScreenCaptureDenied => write!(f, "screen capture permission denied"),
-            Self::RegionTooLarge => write!(f, "screen region too large"),
             Self::ImageUnavailable => write!(f, "pasteboard image unavailable"),
             Self::ImageTooLarge => write!(f, "pasteboard image too large"),
             Self::UnsupportedModality => write!(f, "model capability does not match task modality"),
@@ -130,34 +111,6 @@ impl std::error::Error for GlossError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn screen_rect_compares_by_value() {
-        let rect = ScreenRect {
-            x: -1920,
-            y: 0,
-            width: 800,
-            height: 600,
-        };
-        assert_eq!(
-            rect,
-            ScreenRect {
-                x: -1920,
-                y: 0,
-                width: 800,
-                height: 600
-            }
-        );
-        assert_ne!(
-            rect,
-            ScreenRect {
-                x: 0,
-                y: 0,
-                width: 800,
-                height: 600
-            }
-        );
-    }
 
     #[test]
     fn error_display_is_diagnostic_text() {

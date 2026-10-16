@@ -1,37 +1,13 @@
-//! 端口桩：选区读取、截图与配置存储的预置替身。
+//! 端口桩：配置存储的预置替身。
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use gloss_core::config::Config;
-use gloss_core::model::{GlossError, ScreenRect};
-use gloss_core::ports::{ConfigStore, RegionCapture, SelectionReader};
+use gloss_core::model::GlossError;
+use gloss_core::ports::ConfigStore;
 
 use super::lock_or_recover;
-
-/// 返回预置结果（成功文本或失败）的选区读取桩。
-pub struct FixedSelectionReader(
-    /// 每次 `read` 原样返回的结果。
-    pub Result<String, GlossError>,
-);
-
-impl SelectionReader for FixedSelectionReader {
-    fn read(&mut self) -> Result<String, GlossError> {
-        self.0.clone()
-    }
-}
-
-/// 返回预置 PNG 字节的截图桩。
-pub struct FixedRegionCapture(
-    /// 每次 `capture` 原样返回的结果。
-    pub Result<Arc<[u8]>, GlossError>,
-);
-
-impl RegionCapture for FixedRegionCapture {
-    fn capture(&mut self, _rect: ScreenRect) -> Result<Arc<[u8]>, GlossError> {
-        self.0.clone()
-    }
-}
 
 /// 内存版配置存储桩：密钥键值对 + 单份配置文档，可按需注入失败。
 #[derive(Default)]

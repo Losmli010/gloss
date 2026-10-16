@@ -19,9 +19,7 @@ ARTDIR="$2"
 "$SELF_DIR/check-release-tag.sh" "$TAG" >&2
 VERSION="${TAG#v}"
 
-PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 BASE_URL="https://losmli010.github.io/gloss/latest"
-NOTES_URL="https://github.com/Losmli010/gloss/releases/tag/${TAG}"
 
 # 产物缺文件在主 shell 里失败（函数只在文件齐备后拼装，避免子 shell 吞掉退出）
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
@@ -61,8 +59,6 @@ ENTRY_X64="$ENTRY_JSON"
 printf '%s\n' "{
   \"schema\": 1,
   \"version\": \"${VERSION}\",
-  \"published_at\": \"${PUBLISHED_AT}\",
-  \"notes_url\": \"${NOTES_URL}\",
   \"channels\": {
     \"stable\": {
 ${ENTRY_ARM},

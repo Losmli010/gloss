@@ -33,7 +33,7 @@ use crate::schema::{self, Violation};
 use crate::task::{TaskInput, TaskKind};
 
 /// 分类的允许清单：分类只服务划词路径，清单 3 个就是**文本取材可执行**
-/// 的 kind（图像/语音 kind 不在其中——划词到不了它们）。文本路径的完整
+/// 的 kind（图像 kind 不在其中——划词到不了它）。文本路径的完整
 /// 落点是「清单 3 个 + 兜底 [`CLASSIFY_FALLBACK`]」：模型只在本清单内
 /// 选择，清单外一律违约进修复轮，失效时落兜底。
 pub const CLASSIFY_KINDS: [TaskKind; 3] = [
@@ -146,8 +146,7 @@ pub async fn classify(
     input: &TaskInput,
 ) -> Result<TaskKind, GlossError> {
     let TaskInput::Text { text } = input else {
-        // 分类只服务划词路径；图像/音频任务带着具体 kind 进编排，
-        // 到不了这里。
+        // 分类只服务划词路径；图像任务带着具体 kind 进编排，到不了这里。
         return Err(GlossError::UnsupportedModality);
     };
     match classify_traced(engine, model, locale, allowed, text).await {
@@ -411,9 +410,8 @@ mod tests {
                 "m",
                 Locale::Zh,
                 &CLASSIFY_KINDS,
-                &TaskInput::Audio {
-                    bytes: std::sync::Arc::from(&b"au"[..]),
-                    duration_hint: None,
+                &TaskInput::Image {
+                    png: std::sync::Arc::from(&b"png"[..]),
                 },
             )
             .await,

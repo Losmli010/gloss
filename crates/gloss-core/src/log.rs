@@ -31,7 +31,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, fmt};
 
-pub use tracing::level_filters::LevelFilter;
+// 转发日志词汇（tracing 的宏与 `Level` / `Span` / `Instrument`）：下游 crate 经
+// 此入口用日志，需要的新条目也从这里加。
 pub use tracing::{
     Instrument, Level, Span, debug, debug_span, enabled, error, error_span, event, info, info_span,
     trace, trace_span, warn, warn_span,

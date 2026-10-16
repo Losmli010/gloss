@@ -1,17 +1,17 @@
 //! 端口定义：全部跨层 trait 的唯一定义点（Ports & Adapters）。
 //!
-//! core 只声明契约；实现侧在 gloss-platform（`CompositeReader` /
-//! `ScreenCapturer` / `LlmClient` / `FileConfigStore`），
-//! 核心编排只见到这些 trait，测试用各 crate tests/stubs/ 下的桩。
+//! core 只声明契约；实现侧在 gloss-platform（`CompositeConfigStore` /
+//! `SystemSceneProbe` / `MacAppIcon`），`LlmClient` 是 core 内建的传输实现，
+//! gloss-eval 的评测运行器另有不落盘的实现（`EnvSecretStore`，key 取自环境
+//! 变量），核心编排只见到这些 trait，测试用各 crate tests/stubs/ 下的桩。
 //!
 use std::pin::Pin;
-use std::sync::Arc;
 
 use futures_core::Stream;
 
 use crate::config::Config;
 use crate::guard::SceneFacts;
-use crate::model::{GlossError, ScreenRect};
+use crate::model::GlossError;
 use crate::prompt::ChatMessage;
 
 /// 装箱 future：让 trait 方法携带异步结果的同时保持对象安全（`dyn` 可用）。
@@ -39,28 +39,6 @@ pub enum TaskChunk {
 /// 消费方以**首个 `Err` 为终结**并丢弃半截产物（编排层的实现语义，
 /// 见 engine 模块）。
 pub type TaskStream = Pin<Box<dyn Stream<Item = Result<TaskChunk, GlossError>> + Send>>;
-
-/// 文本取材（端口）：读前台应用的选中文本。
-///
-/// 实现方保证：模拟复制兜底必须保存并恢复剪贴板。
-/// 调用方保证：在平台事件线程上调用（线程亲和性）。
-///
-pub trait SelectionReader: Send {
-    /// 读取前台应用当前选中文本；权限缺失返回
-    /// [`GlossError::AccessibilityDenied`]，选区为空返回
-    /// [`GlossError::SelectionEmpty`]，其余取不到的情形返回
-    /// [`GlossError::SelectionUnavailable`]。
-    fn read(&mut self) -> Result<String, GlossError>;
-}
-
-/// 图像取材（端口）：截取屏幕指定区域。
-///
-/// 实现方保证：不写剪贴板（系统截图的默认行为需显式规避）。
-/// 调用方保证：在平台事件线程上调用（线程亲和性）。
-pub trait RegionCapture: Send {
-    /// 截取 `rect` 区域，返回 PNG 字节。
-    fn capture(&mut self, rect: ScreenRect) -> Result<Arc<[u8]>, GlossError>;
-}
 
 /// 引擎请求（[`AiEngine`] 的入参）：**已渲染**的对话消息 + **已解析**的
 /// 模型 id。

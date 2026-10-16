@@ -11,7 +11,7 @@ use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 /// egui 要把整个窗口画出来，纹理边长上限按 4K 屏取（与 egui-wgpu 自身的取值一致）
-pub const MAX_TEXTURE_DIMENSION: u32 = 8192;
+const MAX_TEXTURE_DIMENSION: u32 = 8192;
 
 /// 字体图集的纹理边长上限（egui 的 `max_texture_side`）：2048 是 epaint 的
 /// 默认档——划词卡片单帧的字形量远填不满，8192 档会让图集的高度上限跟着
@@ -98,17 +98,6 @@ impl GpuContext {
     }
 }
 
-/// 一帧的呈现结果，供上层决定要不要立刻重绘。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RenderStatus {
-    /// 已提交并呈现
-    Presented,
-    /// 本帧跳过（取帧超时或窗口被遮挡），等下一次重绘
-    Skipped,
-    /// surface 配置已过期，本帧跳过并已重新配置
-    Outdated,
-}
-
 /// 一个窗口的渲染目标：surface + 配置 + egui 渲染器。
 ///
 /// egui 渲染器绑定 target format，而 format 由 surface 决定，所以渲染器随
@@ -170,12 +159,13 @@ impl GpuSurface {
     }
 
     /// 画一帧：应用 egui 的纹理增量 → 提交顶点与索引 → 渲染 → 呈现。
+    /// 取不到当帧（窗口被遮挡或取帧超时）或 surface 配置过期时静默跳过。
     pub fn render(
         &mut self,
         mut textures: egui::TexturesDelta,
         paint_jobs: &[egui::ClippedPrimitive],
         pixels_per_point: f32,
-    ) -> RenderStatus {
+    ) {
         if self.needs_configure {
             self.configure();
         }
@@ -202,16 +192,16 @@ impl GpuSurface {
             wgpu::CurrentSurfaceTexture::Outdated => {
                 self.configure();
                 self.discard_textures(textures);
-                return RenderStatus::Outdated;
+                return;
             }
             wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => {
                 self.discard_textures(textures);
-                return RenderStatus::Skipped;
+                return;
             }
             other => {
                 error!(thread = thread::UI, status = ?other, "surface is unusable, skipping frame");
                 self.discard_textures(textures);
-                return RenderStatus::Skipped;
+                return;
             }
         };
 
@@ -267,7 +257,6 @@ impl GpuSurface {
             debug!(thread = thread::UI, "surface was suboptimal, reconfiguring");
             self.configure();
         }
-        RenderStatus::Presented
     }
 
     /// 跳帧路径的增量收尾：set 已上传，free 的纹理没有在途命令，可直接释放。

@@ -241,9 +241,8 @@ impl Default for Config {
 }
 
 impl Config {
-    /// 本任务实际使用的 provider 条目：MVP 单端点，取最后一条（与
-    /// `keychain_id_for` 的「后条覆盖前条」一致）；`provider_keys` 为空时返回
-    /// `None`（纯查表）。
+    /// 本任务实际使用的 provider 条目：MVP 单端点，取最后一条；
+    /// `provider_keys` 为空时返回 `None`（纯查表）。
     pub fn active_provider(&self) -> Option<&ProviderKey> {
         self.provider_keys.last()
     }
@@ -258,15 +257,6 @@ impl Config {
     pub fn resolved_provider(&self) -> &ProviderKey {
         self.active_provider()
             .unwrap_or_else(|| FACTORY_PROVIDER.get_or_init(factory_provider))
-    }
-
-    /// 查某 provider 的 keychain 条目标识（同 provider 多条时后条覆盖前条）。
-    pub fn keychain_id_for(&self, provider: &str) -> Option<&str> {
-        self.provider_keys
-            .iter()
-            .rev()
-            .find(|entry| entry.provider == provider)
-            .map(|entry| entry.keychain_id.as_str())
     }
 }
 
@@ -460,9 +450,6 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(config.keychain_id_for("deepseek"), Some("gloss/deepseek-2"));
-        assert_eq!(config.keychain_id_for("openai"), Some("gloss/openai"));
-        assert_eq!(config.keychain_id_for("mistral"), None);
         assert_eq!(
             config.active_provider().map(|p| &p.provider),
             Some(&"openai".to_owned())

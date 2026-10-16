@@ -12,7 +12,6 @@ use std::sync::Arc;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use gloss_app::runtime::cache::{TaskCache, cache_key};
 use gloss_app::runtime::finalize::complete;
-use gloss_core::model::ScreenRect;
 use gloss_core::prompt::PromptRegistry;
 use gloss_core::task::{OutcomeStructured, Task, TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
@@ -44,12 +43,6 @@ fn text_task(kind: TaskKind, text: String) -> Task {
 fn image_input(png_bytes: usize) -> TaskInput {
     TaskInput::Image {
         png: Arc::from(vec![0x89u8; png_bytes]),
-        region: Some(ScreenRect {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        }),
     }
 }
 
