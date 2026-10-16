@@ -26,8 +26,11 @@ const AX_ERROR_API_DISABLED: i32 = -25211;
 const AX_ERROR_NO_VALUE: i32 = -25212;
 
 /// 取值缓冲区的分配上界（字节）：长度来自远端进程报告，无校验的分配
-/// 失败会直接 abort 进程而非返回错误，超限按取不到选区处理。
-const MAX_SELECTION_BYTES: usize = 8 * 1024 * 1024;
+/// 失败会直接 abort 进程而非返回错误，超限按取不到选区处理。256KB 已远
+/// 超划词翻译的选区量级；超长选区经组合通道的兜底仍可读——超限归
+/// 「取不到」（[`GlossError::SelectionUnavailable`]），激活/剪贴板兜底
+/// 照常接管。
+const MAX_SELECTION_BYTES: usize = 256 * 1024;
 
 /// 把「是否已授权 + AX 取值结果」映射为统一错误语义（纯逻辑，单测覆盖）：
 /// 未授权一律 [`GlossError::AccessibilityDenied`]（权限检查先于取值，AX

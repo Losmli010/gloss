@@ -13,6 +13,16 @@ use winit::window::Window;
 /// egui 要把整个窗口画出来，纹理边长上限按 4K 屏取（与 egui-wgpu 自身的取值一致）
 pub const MAX_TEXTURE_DIMENSION: u32 = 8192;
 
+/// 字体图集的纹理边长上限（egui 的 `max_texture_side`）：2048 是 epaint 的
+/// 默认档——划词卡片单帧的字形量远填不满，8192 档会让图集的高度上限跟着
+/// 放大 16 倍（CPU + GPU 各一份），只有理论上的极端字形量才用得上。
+pub const FONT_ATLAS_MAX_SIDE: usize = 2048;
+
+/// 每窗口允许的在途帧数（交换链深度取 wgpu 默认 2 → 1）：划词浮层是低
+/// 帧率 UI，1 帧在途足以吃满 vsync 节拍；每省一帧就少一张全窗尺寸的
+/// drawable 常驻。
+const DESIRED_MAX_FRAME_LATENCY: u32 = 1;
+
 /// 浮层卡片之外的底色留空：窗口是透明的，卡片由 egui 自己画，圆角外露见桌面
 const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -130,6 +140,7 @@ impl GpuSurface {
         config.format = format;
         config.alpha_mode = pick_alpha_mode(&caps.alpha_modes);
         config.view_formats = vec![format];
+        config.desired_maximum_frame_latency = DESIRED_MAX_FRAME_LATENCY;
 
         let renderer = Renderer::new(context.device(), format, RendererOptions::default());
         surface.configure(context.device(), &config);

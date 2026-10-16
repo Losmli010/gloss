@@ -82,6 +82,10 @@ gloss-app = { path = "crates/gloss-app" }
 # 测试桩只在 tests/stubs/，经 cfg(test) 编译进测试目标，不进发布二进制。
 gloss-core = { path = "crates/gloss-core" }
 gloss-platform = { path = "crates/gloss-platform" }
+# 全局分配器：macOS libmalloc 把峰值后的空闲页扣在 size-class magazine 里
+# 不还给系统，长驻进程的 RSS 只涨不落；mimalloc 周期性 purge 空闲页，
+# 常驻内存贴着活跃字节走。
+mimalloc = { version = "0.1", default-features = false }
 
 # 公共 API 必须有文档注释，由 missing_docs = deny 强制；文档里的示例
 # 由 cargo test --doc（just test 一部分）验证可编译可运行。

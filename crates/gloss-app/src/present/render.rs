@@ -14,7 +14,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
 use crate::machine::OverlayView;
-use crate::present::gpu::{GpuContext, GpuSurface, MAX_TEXTURE_DIMENSION};
+use crate::present::gpu::{FONT_ATLAS_MAX_SIDE, GpuContext, GpuSurface};
 use crate::present::windows::WindowManager;
 use crate::ui;
 use crate::ui::i18n::Text;
@@ -49,28 +49,30 @@ impl Frame {
     }
 }
 
-/// 建窗口栈与两个窗口的首帧渲染状态（生产 App 与自检 handler 共用）：
-/// 浮层帧在前、设置窗口帧在后。两个窗口共享同一份 `GpuContext`（设备与
-/// 队列各一份）；egui 上下文各自独立，都经 [`ui::context::new_context`]
-/// 装好字体与主题（`theme` 是建立时的主题偏好）。
+/// 建窗口栈与浮层窗口的首帧渲染状态（生产 App 与自检 handler 共用）：
+/// 浮层帧在前。设置窗口的渲染帧不在这里建——设置窗是低频入口，其
+/// surface 与渲染器惰性创建、随关闭释放（见
+/// `crate::present::workspace::ensure_settings_frame`）。两个窗口共享同一
+/// 份 `GpuContext`（设备与队列各一份），返回它供建设置帧；egui 上下文
+/// 各自独立，都经 [`ui::context::new_context`] 装好字体与主题（`theme`
+/// 是建立时的主题偏好）。
 pub fn build_window_stack(
     event_loop: &ActiveEventLoop,
     theme: Theme,
-) -> Result<(WindowManager, Frame, Frame), Box<dyn Error>> {
+) -> Result<(WindowManager, Arc<GpuContext>, Frame), Box<dyn Error>> {
     let windows = WindowManager::new(event_loop)?;
     milestone("06a_windows");
 
     let context = Arc::new(GpuContext::new()?);
     milestone("06b_gpu");
     let frame = build_frame(windows.overlay_handle(), &context, theme)?;
-    let settings_frame = build_frame(windows.settings_handle(), &context, theme)?;
     milestone("06c_frames");
 
-    Ok((windows, frame, settings_frame))
+    Ok((windows, context, frame))
 }
 
 /// 建单个窗口的 egui 渲染状态 + surface（浮层与设置窗口同构）。
-fn build_frame(
+pub(crate) fn build_frame(
     window: Arc<Window>,
     context: &Arc<GpuContext>,
     theme: Theme,
@@ -84,7 +86,7 @@ fn build_frame(
         &*window,
         Some(window.scale_factor() as f32),
         window.theme(),
-        Some(MAX_TEXTURE_DIMENSION as usize),
+        Some(FONT_ATLAS_MAX_SIDE),
     );
     Ok(Frame {
         window,

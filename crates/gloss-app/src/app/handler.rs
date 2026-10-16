@@ -76,9 +76,15 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         if matches!(event, UserEvent::FontsReady) {
             // 字体装载完成：按当前主题强制重施加（含完整字体表）并重绘
             // 浮层。主题在这里统一施加，装载窗口内的偏好变更不会被后台
-            // 快照覆盖。
+            // 快照覆盖。设置窗开着时同样要重绘：换表使排版缓存失效，
+            // 不重绘它就停在内置字形的画面上直到下一次交互。
             self.workspace.apply_theme_forced(self.env.target_theme());
             self.request_redraw();
+            if let Some(windows) = &self.workspace.windows
+                && windows.is_settings_visible()
+            {
+                windows.request_redraw_settings();
+            }
             return;
         }
         if matches!(event, UserEvent::RedrawSettings) {
@@ -119,23 +125,26 @@ impl ApplicationHandler<UserEvent> for GlossApp {
             return;
         }
 
-        // 其余事件先喂给对应窗口的 egui，它决定是否消化掉以及要不要重绘
+        // 其余事件先喂给对应窗口的 egui，它决定是否消化掉以及要不要重绘；
+        // 帧未建（设置窗首帧前）时没有可喂的对象，事件回落到下面的状态
+        // 处理（关闭请求等不依赖帧）。
         let repaint = {
             let frame = if is_settings {
                 self.workspace.settings_frame.as_mut()
             } else {
                 self.workspace.overlay_frame.as_mut()
             };
-            let Some(frame) = frame else {
-                return;
-            };
-            frame.egui.on_window_event(&frame.window, &event).repaint
+            match frame {
+                Some(frame) => frame.egui.on_window_event(&frame.window, &event).repaint,
+                None => false,
+            }
         };
         if repaint {
             if is_settings {
                 windows.request_redraw_settings();
             } else {
-                windows.request_redraw();
+                // 走带可见性门控的入口：隐藏浮层的事件驱动重绘是整帧空转。
+                self.request_redraw();
             }
         }
 

@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 37 | `just test` |
-| 单元测试 | 571 | `just test` |
+| 单元测试 | 572 | `just test` |
 
 ## 人工测试
 
@@ -520,6 +520,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | a_contract_violation_repairs_with_the_bad_reply_in_the_history | 任务违约修复轮带回坏回复 | 给定图像任务「违约散文 → 契约 JSON」脚本队列，当 run，则修复轮对话为 [system][user 图][assistant 坏回复][user 纠错指令]，纠错指令带违约固定措辞与该 kind 契约示例行、不含坏回复原文，图像部件随对话重发，on_repair 恰触发一次、RunOutput.repairs 为 1 | 2026-10-12 |
 | the_repair_round_warn_carries_the_category_and_round_only | 修复轮违约告警只记类别与轮次 | 给定违约回复触发修复，当捕获日志，则「task reply violated the contract」行含固定违约类别与 attempt=1、不含回复原文 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_without_an_assistant_turn | 任务空回复原样重发修复 | 给定图像任务「空流 → 契约 JSON」脚本队列，当 run，则修复轮请求与首轮消息逐字一致（无 assistant 轮无纠错指令）、repairs 为 1 | 2026-10-12 |
+| an_oversized_stream_fails_instead_of_accumulating_without_bound | 失控长流按预算失败不无界累积 | 给定 300 段 × 4KB（总量超 1MB 预算）的增量流，当 run，则 EngineResponse 失败上抛（不进修复轮）、已转发字节不超预算 | 2026-10-16 |
 | a_zero_increment_empty_completion_enters_the_repair_path | 零增量完成转 EmptyReply 进修复 | 给定「empty completion 错误 → 契约 JSON」脚本队列，当 run，则零增量完成不按失败上抛、转 EmptyReply 进修复轮（引擎 2 次调用、repairs 为 1） | 2026-10-12 |
 | task_repairs_are_budgeted_then_the_raw_reply_is_handed_over | 任务修复预算耗尽上交原始文本 | 给定恒违约的任务回复，当 run，则恰用尽 1+TASK_REPAIRS 次调用、on_repair 触发 TASK_REPAIRS 次、原样返回最后一轮违约原文（完成态解析落降级）且不报 Err | 2026-10-12 |
 | task_stage_engine_errors_are_never_retried | 任务段引擎错误不重试 | 给定 execute 整体失败与零增量的流中协议错误，当 run，则两者都原样上抛 Err（只有固定「empty completion」诊断转 EmptyReply）、引擎恰 1 次调用 | 2026-10-12 |
@@ -1138,8 +1139,8 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | an_unobservable_board_is_a_read_failure | 板不可观察按读取失败 | 给定 changeCount 读不到的注入读数，当 read_with，则 Err(ImageUnavailable) 且不查 flavor | 2026-10-10 |
 | a_matching_board_still_decodes_to_png | 观察一致照常取材解码 | 给定①记录与②现值一致、flavor 为真实 TIFF 字节的注入读数，当 read_with，则产出可解码回 2×2 的 PNG | 2026-10-10 |
 | byte_budget_rejects_length_over_the_limit | PNG 字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收（20MiB 上限） | 2026-10-10 |
-| downscaled_dims_preserve_aspect_and_the_cap | 降采样目标尺寸保比例收边 | 给定上限内与超限（正方/横长/竖长/极窄）的尺寸，当 downscaled_dims，则上限内返回 None 原样编码，超限按比例缩到最长边 2048、至少保留 1 像素 | 2026-10-16 |
-| oversized_products_are_downscaled_to_the_side_cap | 超长边产物降采样出图 | 给定 2100×1000 的 PNG flavor，当 decode_to_png，则产出 2048×975 的可解码 PNG（保比例收进上限，不拒收） | 2026-10-16 |
+| downscaled_dims_preserve_aspect_and_the_cap | 降采样目标尺寸保比例收边 | 给定上限内与超限（正方/横长/竖长/极窄）的尺寸，当 downscaled_dims，则上限内返回 None 原样编码，超限按比例缩到最长边 1536、至少保留 1 像素 | 2026-10-16 |
+| oversized_products_are_downscaled_to_the_side_cap | 超长边产物降采样出图 | 给定 2100×1000 的 PNG flavor，当 decode_to_png，则产出 1536×731 的可解码 PNG（保比例收进上限，不拒收） | 2026-10-16 |
 
 ### crates/gloss-platform/src/events/mod.rs
 

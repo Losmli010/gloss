@@ -26,8 +26,13 @@ use gloss_platform::permissions::{self, AccessibilityWatch};
 use gloss_platform::scene::SystemSceneProbe;
 use gloss_platform::selection::composite::CompositeReader;
 use gloss_platform::storage::CompositeConfigStore;
+use mimalloc::MiMalloc;
 
 type StartupResult = Result<(), Box<dyn Error>>;
+
+/// 全局分配器：长驻进程的常驻内存贴着活跃字节走（取舍见 Cargo.toml 依赖注）。
+#[global_allocator]
+static GLOBAL_ALLOCATOR: MiMalloc = MiMalloc;
 
 /// 开发期 Dock 图标：与打包用的 `assets/icons/Gloss.icns` 同一份设计的 PNG
 /// 版本（生成方式见 scripts/dev/build-app-icon.sh）。内嵌进二进制而非运行时

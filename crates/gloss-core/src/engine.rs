@@ -41,6 +41,12 @@ use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 /// 原始文本原样上交，完成态解析落降级产物。
 pub const TASK_REPAIRS: u32 = 3;
 
+/// 单轮流式回复的累积字节上限：任务产物是注卡片正文，远用不到这个量级；
+/// 无上限的累积会把「模型失控输出」直接放大成无界内存（流式期间逐 chunk
+/// 追加）。超限按请求异常失败——半截超长回复不可能过 JSON 契约，进修复
+/// 轮只会把同样的失控输出再跑几轮。
+const MAX_REPLY_BYTES: usize = 1024 * 1024;
+
 /// 服务端以内容审查收尾的 `finish_reason`。
 const FINISH_CONTENT_FILTER: &str = "content_filter";
 
@@ -196,7 +202,8 @@ impl AiTaskService {
 ///   送达之后）——调用方重置流式显示并切换「重新注解」；
 /// - 返回 `Err` 时**已转发的增量不撤回**——以返回值为准丢弃半截正文
 ///   （状态机据此让 TaskChunk 之后接 TaskFailed 的渲染路径可收敛）；
-///   `Err` 只来自引擎与请求构造（不重试），契约违约不产生 `Err`。
+///   `Err` 只来自引擎、请求构造与流式失控（超 [`MAX_REPLY_BYTES`] 的回复
+///   按请求异常失败，不重试），契约违约不产生 `Err`。
 // 豁免 too_many_arguments：九个参数各自独立且缺一不可（引擎、模板、kind、
 // 底座、模型、语言与两个回调），捆成参数结构只会把 run/评测两侧的调用点
 // 改成无谓的装拆包——与 gloss-app 事件装配处的既有豁免同理由。
@@ -228,6 +235,13 @@ pub async fn run_task_rounds(
         while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
             match item {
                 Ok(TaskChunk::Delta(delta)) => {
+                    if body.len().saturating_add(delta.len()) > MAX_REPLY_BYTES {
+                        // 已转发的增量不撤回（调用方契约）；超限的失败以
+                        // 返回值为准丢弃半截正文。
+                        return Err(GlossError::EngineResponse(
+                            "streamed reply exceeds the size budget".into(),
+                        ));
+                    }
                     body.push_str(&delta);
                     on_chunk(delta);
                 }
@@ -943,6 +957,31 @@ mod tests {
             .expect("fenced output repairs like any other violation");
         assert_eq!(output.repairs, 1);
         assert_eq!(engine.call_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn an_oversized_stream_fails_instead_of_accumulating_without_bound() {
+        let big = "x".repeat(4096);
+        let deltas: Vec<Result<String, GlossError>> = (0..300).map(|_| Ok(big.clone())).collect();
+        let (_, service) = make_service(&MockEngine::new().with_chunks(deltas));
+        let mut forwarded = 0usize;
+        let result = service
+            .run(
+                image_input(),
+                options(),
+                |_| {},
+                |d| forwarded += d.len(),
+                || {},
+            )
+            .await;
+        assert!(
+            matches!(result, Err(GlossError::EngineResponse(_))),
+            "a runaway stream must fail, not accumulate without bound"
+        );
+        assert!(
+            forwarded <= super::MAX_REPLY_BYTES,
+            "forwarded bytes stay within the budget"
+        );
     }
 
     #[tokio::test]

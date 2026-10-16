@@ -22,9 +22,10 @@ use gloss_core::task::{TaskInput, TaskOptions, TaskOutcome};
 /// 的注释声称与此一致，两侧都写字面量时改一边不会有人红。
 pub(crate) const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
 
-/// 容量上限（条目数）：词条卡/翻译卡体积小，256 条足够覆盖高频场景，
-/// 超出由 moka 按 LRU（TinyLFU）逐出。
-const MAX_ENTRIES: u64 = 256;
+/// 容量上限（条目数）：词条卡/翻译卡体积小，64 条覆盖近期高频场景，
+/// 超出由 moka 按 LRU（TinyLFU）逐出——缓存是进程内存的常驻项，条数
+/// 上限直接钉住它的最坏总量。
+const MAX_ENTRIES: u64 = 64;
 
 /// 派生缓存 key：输入与选项全量参与（含模型 id 与 prompt 模板语言）。
 /// 输入按变体直接喂哈希器——Text 哈希字符串；Image 流式哈希 png 字节与
@@ -69,7 +70,7 @@ pub struct TaskCache {
 }
 
 impl TaskCache {
-    /// 默认缓存：1 小时 TTL、256 条上限。
+    /// 默认缓存：1 小时 TTL、64 条上限。
     pub fn new() -> Self {
         Self::with_ttl(DEFAULT_TTL)
     }
