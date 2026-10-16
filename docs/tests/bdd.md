@@ -587,6 +587,10 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | --- | --- | --- | --- |
 | escape_press_is_the_dismiss_key | 浮层收起键判定 | 给定逻辑键与按下状态，当判定收起键，则 Escape 按下为真、释放与其它字符键为假 | 2026-09-21 |
 | sooner_picks_the_earliest_deadline | 取更早的截止时刻 | 给定两个时刻（可含 None），当取更早，则 None 让位、双 None 不唤醒 | 2026-09-19 |
+| due_deadline_with_visible_overlay_requests_the_frame | 到点截止在浮层可见时照常请求重绘 | 给定已到期的截止与可见浮层，当处置到点截止，则返回请求重绘且截止保留待新帧刷新 | 2026-10-16 |
+| due_deadline_with_hidden_overlay_is_cleared_without_a_frame_request | 到点截止在浮层隐藏时随丢弃清除 | 给定已到期的截止与隐藏浮层，当处置到点截止，则不请求重绘且截止被清为 None | 2026-10-16 |
+| pending_deadline_is_left_untouched | 未到期截止不处置 | 给定未到期的截止与可见/隐藏两种浮层，当处置到点截止，则均不请求重绘且截止原样保留 | 2026-10-16 |
+| missing_deadline_is_never_due | 无截止不触发处置 | 给定 None 截止，当处置到点截止，则可见与隐藏均不请求重绘且仍为 None | 2026-10-16 |
 
 ### crates/gloss-app/src/flow/probe.rs
 
