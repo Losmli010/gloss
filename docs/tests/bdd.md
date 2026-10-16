@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 37 | `just test` |
-| 单元测试 | 563 | `just test` |
+| 单元测试 | 571 | `just test` |
 
 ## 人工测试
 
@@ -381,6 +381,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | classify_traced_carries_rounds_and_repairs_for_the_trajectory | 分类全轨迹携带轮次与修复数 | 给定「散文回复 → 裸 JSON kind」与「恒散文」两个脚本队列，当 classify_traced，则前者 decision.kind 为判定的 kind、repairs 为 1、rounds 按轮序携带每轮完整回复；后者耗尽落兜底 General、repairs 为 CLASSIFY_REPAIRS、rounds 为 1+CLASSIFY_REPAIRS 轮 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_as_is | 分类空回复原样重发修复 | 给定「空回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮按 EmptyReply 原样重发（消息列表与首轮逐字一致，无 assistant 轮无纠错指令）、修复后判出 kind | 2026-10-12 |
 | exhausted_repairs_fall_back_to_general_with_a_trace | 分类修复耗尽落兜底且有痕 | 给定恒违约的回复脚本，当 classify，则恰用尽 1+CLASSIFY_REPAIRS 次调用后返回 Ok(General)，耗尽 warn 只记违约类别（不含回复与选区原文） | 2026-10-12 |
+| a_silent_stream_is_cut_at_the_first_item_deadline | 分类流首条目截止快速失败 | 给定建连后恒不出字的流，当 classify（暂停时钟），则首条目截止到点按请求异常收卷、内部消化落兜底 General（恰 1 次调用，不重试） | 2026-10-16 |
+| items_after_the_first_flow_without_the_deadline | 截止只武装到首条目 | 给定首条目 2s（截止内）、次条目再等 1000s 的流，当 classify（暂停时钟），则两段增量照常累积定型 TranslateWord（截止在首条目交付后退役） | 2026-10-16 |
 | replies_outside_the_allowed_list_are_rejected | 回复越界/不可识别一律拒绝 | 给定清单外 kind、未知标识、null、纯散文、空串与 gloss 围栏六种回复，当解析，则全部 EngineResponse（严格裸 JSON：围栏容错已删，围栏内合法 kind 同样拒绝） | 2026-10-12 |
 | classify_constants_cover_the_text_kinds_with_an_off_list_fallback | 分类清单与清单外兜底常量 | 给定 CLASSIFY_KINDS 与 CLASSIFY_FALLBACK，当检查，则清单恰为三个文本 kind、兜底恒为 General（可渲染可执行的清单外落点）且不在清单——分类器只在三个文本 kind 中选择 | 2026-10-12 |
 
@@ -1058,6 +1060,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | unrelated_frameworks_are_not_chromium | 无关框架不误判 | 给定空目录与 Mantle/Squirrel/ReactiveObjC 等第三方框架及缺「空格 + Framework」后缀的条目，当 is_chromium_family，则一律不判为 Chromium 宿主 | 2026-10-12 |
 | the_ledger_settles_definitive_verdicts_exactly_once | 确定性结论只记账一次 | 给定默认记账表，当 settle 某 pid 后再查，则该 pid 本会话不再待评估 | 2026-10-12 |
 | an_unsettled_pid_stays_pending_for_the_next_gesture | 未记账的 pid 保持待评估 | 给定默认记账表与未曾 settle 的 pid，当反复查询 is_pending，则始终待评估（注入瞬时失败不锁门，下一手势自然重试） | 2026-10-12 |
+| a_rescued_pid_is_marked_for_rewake | 唤醒常客按 pid 记账 | 给定默认记账表，当 settle 并 mark_rescued 某 pid，则该 pid 不再待评估且成为唤醒常客（重注入放行），其它 pid 不受影响 | 2026-10-16 |
 
 ### crates/gloss-platform/src/permissions.rs
 
@@ -1074,20 +1077,23 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | fallback_is_lazy_on_ax_success | AX 成功时兜底惰性求值 | 给定 AX 成功，当 combine，则采纳 AX 结果且剪贴板兜底闭包不被求值 | 2026-10-01 |
 | permission_denied_skips_fallback | 权限拒绝跳过兜底 | 给定 AccessibilityDenied，当 combine，则原样上抛且不兜底 | 2026-10-01 |
-| empty_selection_settles_then_falls_back_to_the_clipboard | 空选区让渡补读后再落兜底 | 给定持续 SelectionEmpty 的 AX 读、零让渡策略与拒绝唤醒的激活闭包，当 combine，则补读至预算耗尽（恰 4 读）、激活问一次落空后才落一次剪贴板兜底并采纳其结果（确认写入把关，陈旧剪贴板不得冒充本次选区） | 2026-10-12 |
+| empty_selection_settles_then_falls_back_to_the_clipboard | 空选区让渡补读后再落兜底 | 给定持续 SelectionEmpty 的 AX 读、零让渡策略与拒绝唤醒的激活闭包，当 combine，则补读至节奏表耗尽（恰 4 读）、激活问一次落空后才落一次剪贴板兜底并采纳其结果（确认写入把关，陈旧剪贴板不得冒充本次选区） | 2026-10-16 |
 | empty_then_ready_ax_read_adopts_the_late_selection | 补读等到迟到的选区 | 给定首次空、二次有值的 AX 读，当 combine，则采纳第二次读到的选区且不兜底 | 2026-10-01 |
-| settle_budget_is_bounded_and_positive | 让渡预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 settle_delay，则预算内返回正的让渡时长、预算用尽（含 usize::MAX）返回 None | 2026-10-01 |
+| settle_budget_is_bounded_and_positive | 让渡节奏表有界且为正 | 给定节奏表内的尝试序号，当 settle_delay，则逐位返回正的几何让渡时长；表耗尽（含 usize::MAX）返回 None | 2026-10-16 |
 | unavailable_ax_falls_back_to_clipboard | AX 不可用过激活闸门后落兜底 | 给定 SelectionUnavailable，当 combine，则激活恰被问一次、落空后落到兜底结果；兜底也失败则以兜底错误收口 | 2026-10-12 |
 | acquired_text_is_trimmed_at_the_boundary | 取材入口修剪两端空白 | 给定两端带空白的选中文本，当 normalize，则返回修剪后的文本；本无空白的文本原样放行 | 2026-10-11 |
 | acquired_text_keeps_interior_whitespace_verbatim | 入口修剪只动两端不动内部 | 给定内部含换行/制表/空格的选中文本，当 normalize，则内部空白逐字保留、只去两端 | 2026-10-11 |
 | pure_whitespace_selection_maps_to_selection_empty | 纯空白选区按空选区收口 | 给定纯空白（空格/换行/制表/全角空格）与空串的读取产物，当 normalize，则一律 SelectionEmpty（误滑走既有静默丢弃语义） | 2026-10-11 |
 | success_and_denial_never_consult_the_activator | 激活只在 AX 让步后被问及 | 给定 AX 成功与 AccessibilityDenied 两种读取，当 combine，则激活闭包一次都不被求值（成功直接采纳、拒绝原样上抛） | 2026-10-12 |
-| a_declined_wake_goes_straight_to_the_clipboard | 激活落空直接落兜底 | 给定持续 SelectionEmpty 的 AX 读、零让渡策略与拒绝唤醒的激活闭包，当 combine，则让渡预算跑满、激活问一次即落兜底并采纳 | 2026-10-12 |
+| a_declined_wake_goes_straight_to_the_clipboard | 激活落空直接落兜底 | 给定持续 SelectionEmpty 的 AX 读、零让渡策略与拒绝唤醒的激活闭包，当 combine，则让渡节奏表跑满、激活问一次即落兜底并采纳 | 2026-10-16 |
 | a_fresh_wake_re_reads_and_adopts_the_late_selection | 刚激活的树补读即采纳 | 给定首次空、二次有值的 AX 读与肯定唤醒的激活闭包，当 combine，则激活后第一次补读就采纳迟到的选区且不落兜底 | 2026-10-12 |
 | a_woken_tree_that_stays_silent_falls_back_after_the_budget | 激活预算跑满仍空落兜底 | 给定持续 SelectionEmpty 的 AX 读、零让渡与零激活等待、肯定唤醒的激活闭包，当 combine，则让渡预算与激活预算各自跑满（恰 10 读）才落兜底 | 2026-10-12 |
 | a_woken_tree_that_errors_does_not_burn_the_activation_budget | 激活后读到硬错不烧预算 | 给定 SelectionUnavailable 的 AX 读与肯定唤醒的激活闭包，当 combine，则激活后只补读一次即落兜底（读不到不等建树） | 2026-10-12 |
 | a_woken_tree_that_loses_permission_propagates_the_denial | 激活补读中权限缺失原样上抛 | 给定让渡预算跑满仍空、激活补读时 AccessibilityDenied 的 AX 读与肯定唤醒的激活闭包，当 combine，则让渡环跑满进入激活补读后拒绝原样上抛且不落兜底（注入会被系统静默忽略，兜底白等） | 2026-10-12 |
 | activation_budget_is_bounded_and_positive | 激活预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 activation_delay，则预算内返回正的等待时长、预算用尽（含 usize::MAX）返回 None | 2026-10-12 |
+| a_rescued_host_skips_the_settle_schedule | 唤醒常客宿主跳过让渡环 | 给定首次空、二次有值的 AX 读、唤醒常客判定为真与肯定唤醒的激活闭包，当 combine，则首次空读直接进激活补读（恰 2 读）并采纳补读产物，让渡节奏表未跑 | 2026-10-16 |
+| the_wait_budget_ends_the_settling_early | 等待预算耗尽让渡段转激活闸门 | 给定首次空、二次有值的 AX 读与已耗尽的等待预算，当 combine，则让渡环在首次等待前即止、直接进激活补读采纳（恰 2 读，不落兜底） | 2026-10-16 |
+| the_wait_budget_ends_the_activation_re_reads | 等待预算耗尽激活段落兜底 | 给定持续 SelectionEmpty 的 AX 读、零等待策略、肯定唤醒的激活闭包与已耗尽的等待预算，当 combine，则激活后首次补读即止落兜底并采纳 | 2026-10-16 |
 
 ### crates/gloss-platform/src/selection/clipboard.rs
 
@@ -1132,6 +1138,8 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | an_unobservable_board_is_a_read_failure | 板不可观察按读取失败 | 给定 changeCount 读不到的注入读数，当 read_with，则 Err(ImageUnavailable) 且不查 flavor | 2026-10-10 |
 | a_matching_board_still_decodes_to_png | 观察一致照常取材解码 | 给定①记录与②现值一致、flavor 为真实 TIFF 字节的注入读数，当 read_with，则产出可解码回 2×2 的 PNG | 2026-10-10 |
 | byte_budget_rejects_length_over_the_limit | PNG 字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收（20MiB 上限） | 2026-10-10 |
+| downscaled_dims_preserve_aspect_and_the_cap | 降采样目标尺寸保比例收边 | 给定上限内与超限（正方/横长/竖长/极窄）的尺寸，当 downscaled_dims，则上限内返回 None 原样编码，超限按比例缩到最长边 2048、至少保留 1 像素 | 2026-10-16 |
+| oversized_products_are_downscaled_to_the_side_cap | 超长边产物降采样出图 | 给定 2100×1000 的 PNG flavor，当 decode_to_png，则产出 2048×975 的可解码 PNG（保比例收进上限，不拒收） | 2026-10-16 |
 
 ### crates/gloss-platform/src/events/mod.rs
 

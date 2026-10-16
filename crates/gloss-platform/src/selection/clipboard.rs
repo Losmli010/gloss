@@ -8,15 +8,19 @@
 //! 恢复，整轮放弃只会让兜底在有此类 flavor 的板上整批失效。两类边界仍
 //! 整体放弃、不注入：结构读不出（板、条目、flavor 名单）；板上条目的
 //! flavor 全部读不出——注入后原内容无法如实写回，恢复轮会清空剪贴板。
-//! 未确认时重注入一轮再等一个完整超时窗口。写盘轮次经取材轮次闩锁向
-//! 哨兵自报计数归因（见 clipboard 模块的 [`crate::clipboard::RoundWrites`]）。
-//! 纯时序逻辑在 [`wait_for_write`]（单测覆盖），系统 API 交互归 `imp`
-//! 模块。
+//! 未确认时重注入一轮再等一个完整超时窗口。产物与收尾分离：恢复决策与
+//! 写盘归因装在 [`FallbackSettle`] 里，调用方在取材产物上抛之后收口
+//! （[`FallbackSettle::finish`]）——恢复写盘不挡在弹窗链路上。写盘轮次
+//! 经取材轮次闩锁向哨兵自报计数归因（见 clipboard 模块的
+//! [`crate::clipboard::RoundWrites`]）。纯时序逻辑在 [`wait_for_write`]
+//! （单测覆盖），系统 API 交互归 `imp` 模块。
 
 use std::time::{Duration, Instant};
 
-/// 写入确认的轮询上限：超过即认为目标应用未响应复制。
-const WRITE_CONFIRM_TIMEOUT: Duration = Duration::from_secs(2);
+/// 写入确认的轮询上限：超过即认为目标应用未响应复制。兜底是取材的末段
+/// 通道，窗口约束的只是无响应宿主上的最坏路径（两轮最坏 1.6s）；常规
+/// 确认在数十毫秒内完成。
+const WRITE_CONFIRM_TIMEOUT: Duration = Duration::from_millis(800);
 /// 写入确认的轮询节奏：远低于可感知延迟，高于常见调度抖动。
 const WRITE_POLL_INTERVAL: Duration = Duration::from_millis(30);
 
@@ -62,6 +66,75 @@ mod imp {
     use gloss_core::model::GlossError;
 
     use super::{WRITE_CONFIRM_TIMEOUT, WRITE_POLL_INTERVAL, wait_for_write};
+
+    /// 剪贴板兜底轮的收尾：恢复决策在读取时定下，[`FallbackSettle::finish`]
+    /// 在取材产物上抛之后执行恢复（或跳过）并置位写盘归因——恢复写盘不
+    /// 挡在产物交付前。finish 前的 panic 展开由内部 [`PendingRestore`] 的
+    /// Drop 兜底按快照恢复（受控路径都已显式收口，Drop 只为展开兜底）。
+    pub struct FallbackSettle {
+        /// 恢复职责：`None` = 本轮未注入（板未被触碰），收口无事可做。
+        pending: Option<PendingRestore>,
+        /// 取材轮次闩锁句柄：收口时置位写盘归因。
+        round: WatchRoundFlag,
+        /// 写盘前的 changeCount 读数（归因基线）。
+        pre: u64,
+        /// 已确认的注入复制计数（0/1，Ok 蕴含写入确认）；恢复与否在收口时补计。
+        acquired: u64,
+        /// 收口决策：成功轮且现值仍是读回文本才恢复。
+        restore: bool,
+    }
+
+    impl FallbackSettle {
+        /// 未注入轮（读板失败）：板未被触碰，无恢复亦无归因。
+        fn idle(round: WatchRoundFlag) -> Self {
+            Self {
+                pending: None,
+                round,
+                pre: 0,
+                acquired: 0,
+                restore: false,
+            }
+        }
+
+        /// 定下收口决策：`restore` 为真时收口按快照恢复原剪贴板。
+        fn planned(
+            pending: PendingRestore,
+            round: WatchRoundFlag,
+            pre: u64,
+            acquired: bool,
+            restore: bool,
+        ) -> Self {
+            Self {
+                pending: Some(pending),
+                round,
+                pre,
+                acquired: u64::from(acquired),
+                restore,
+            }
+        }
+
+        /// 收口：按读取时定下的决策恢复（或跳过）原剪贴板并置位写盘归因。
+        /// 在取材产物上抛之后、与读取同一事件线程上调用。
+        pub fn finish(mut self) {
+            let Some(pending) = self.pending.as_mut() else {
+                return;
+            };
+            // 自报写盘数只计可归因的写入：文本读回成功才证明注入复制确实
+            // 发生（Ok 蕴含写入确认）；「确认了写入却读不出文本」的写入
+            // 无法与轮次内外来复制区分，一律记外来、由哨兵的 has_image
+            // 兜底判定，宁可多触发不可误吞用户复制。
+            let restored = if self.restore {
+                pending.restore_now()
+            } else {
+                pending.skip_restore();
+                false
+            };
+            self.round.enter(RoundWrites {
+                pre: self.pre,
+                ours: self.acquired + u64::from(restored),
+            });
+        }
+    }
 
     /// 打开的系统粘贴板：引用与名称字符串一并用守卫释放。
     struct OpenPasteboard {
@@ -187,11 +260,13 @@ mod imp {
 
         /// 兜底读取前台应用的选中文本（模拟复制路径）。
         ///
-        /// 调用方保证：在平台事件线程上调用（恢复同线程）。
+        /// 产物与收尾分离：返回值第二项（[`FallbackSettle`]）持有恢复决策与
+        /// 写盘归因，调用方在产物上抛之后 `finish` 收口——恢复写盘不挡在产物
+        /// 交付前。调用方保证：在平台事件线程上调用（收尾同线程）。
         /// 阻塞语义：确认目标应用写入最长轮询两轮 [`WRITE_CONFIRM_TIMEOUT`]
         /// （首发未确认时重注入一轮），期间事件线程被占用、其余命令与事件
         /// 排队（事件源侧缓冲），调用方需自行处理在途重复触发。
-        pub fn read(&mut self) -> Result<String, GlossError> {
+        pub fn read(&mut self) -> (Result<String, GlossError>, FallbackSettle) {
             let mut clipboard = match Clipboard::new() {
                 Ok(clipboard) => clipboard,
                 Err(err) => {
@@ -200,7 +275,10 @@ mod imp {
                         error = %err,
                         "clipboard unavailable, fallback read skipped"
                     );
-                    return Err(GlossError::SelectionUnavailable);
+                    return (
+                        Err(GlossError::SelectionUnavailable),
+                        FallbackSettle::idle(self.round.clone()),
+                    );
                 }
             };
             // 归因起点先于快照记：快照要拷贝全部 flavor 字节（大图可达数
@@ -213,26 +291,29 @@ mod imp {
                     thread = thread::EVENT,
                     "original clipboard content cannot be fully preserved, fallback declined"
                 );
-                return Err(GlossError::SelectionUnavailable);
+                return (
+                    Err(GlossError::SelectionUnavailable),
+                    FallbackSettle::idle(self.round.clone()),
+                );
             };
-            // 恢复收口：受控路径显式恢复或跳过，panic 展开由 Drop 兜底。
-            let mut pending = PendingRestore { saved, skip: false };
+            // 恢复收口：受控路径经 FallbackSettle::finish 恢复或跳过，panic
+            // 展开由 PendingRestore 的 Drop 兜底。
+            let pending = PendingRestore { saved, skip: false };
             let outcome = self.attempt(&mut clipboard);
-            let mut restored = false;
-            match &outcome {
+            let settle = match &outcome {
                 Ok(acquired) => {
                     // 窗口期内剪贴板可能已被再次改动：现值仍是我们刚读到的
                     // 文本才恢复。
                     let current_is_ours =
                         matches!(clipboard.get_text(), Ok(current) if &current == acquired);
                     if current_is_ours {
-                        restored = pending.restore_now();
+                        FallbackSettle::planned(pending, self.round.clone(), pre_count, true, true)
                     } else {
                         debug!(
                             thread = thread::EVENT,
                             "clipboard changed after read, restore skipped"
                         );
-                        pending.skip_restore();
+                        FallbackSettle::planned(pending, self.round.clone(), pre_count, true, false)
                     }
                 }
                 // 失败轮一律不恢复，板上内容三态皆不覆盖：未变（无需恢复）、
@@ -240,18 +321,11 @@ mod imp {
                 // 副产物（确认了写入却读不出文本——前台选中的可能是图）。
                 // 第三态留在板上并按外来写入放行：它正是前台应用对注入
                 // ⌘C 的响应，是图即触发图片解释，好过静默清掉。
-                Err(_) => pending.skip_restore(),
-            }
-            drop(pending);
-            // 自报写盘数只计可归因的写入：文本读回成功才证明注入复制确实
-            // 发生（Ok 蕴含写入确认）；「确认了写入却读不出文本」的写入
-            // 无法与轮次内外来复制区分，一律记外来、由哨兵的 has_image
-            // 兜底判定，宁可多触发不可误吞用户复制。
-            self.round.enter(RoundWrites {
-                pre: pre_count,
-                ours: u64::from(outcome.is_ok()) + u64::from(restored),
-            });
-            outcome
+                Err(_) => {
+                    FallbackSettle::planned(pending, self.round.clone(), pre_count, false, false)
+                }
+            };
+            (outcome, settle)
         }
 
         /// 注入复制快捷键并等待写入确认，读回选中文本。不含恢复职责。
@@ -544,7 +618,7 @@ mod imp {
     }
 }
 
-pub use imp::ClipboardFallbackReader;
+pub use imp::{ClipboardFallbackReader, FallbackSettle};
 
 #[cfg(test)]
 mod tests {
@@ -622,7 +696,8 @@ mod live_tests {
 
         let round = WatchRoundFlag::default();
         let mut reader = ClipboardFallbackReader::new(round.clone());
-        let _ = reader.read();
+        let (_, settle) = reader.read();
+        settle.finish();
 
         let restored = clipboard.get_text().expect("clipboard should be readable");
         assert!(
@@ -658,7 +733,8 @@ mod live_tests {
         );
 
         let mut reader = ClipboardFallbackReader::new(WatchRoundFlag::default());
-        let _ = reader.read();
+        let (_, settle) = reader.read();
+        settle.finish();
 
         let mut clipboard = Clipboard::new().expect("clipboard should be available");
         let text = clipboard
@@ -684,7 +760,8 @@ mod live_tests {
         assert!(clear_pasteboard_for_test(), "preset clear should succeed");
 
         let mut reader = ClipboardFallbackReader::new(WatchRoundFlag::default());
-        let _ = reader.read();
+        let (_, settle) = reader.read();
+        settle.finish();
 
         let mut clipboard = Clipboard::new().expect("clipboard should be available");
         assert!(
@@ -712,7 +789,8 @@ mod live_tests {
         );
 
         let mut reader = ClipboardFallbackReader::new(WatchRoundFlag::default());
-        let _ = reader.read();
+        let (_, settle) = reader.read();
+        settle.finish();
 
         assert_eq!(
             read_flavor_data(1, c"public.utf8-plain-text").as_deref(),
@@ -863,9 +941,9 @@ mod live_tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         crate::live_test_support::require_accessibility("clipboard_simulated_copy");
         let mut reader = ClipboardFallbackReader::new(WatchRoundFlag::default());
-        let text = reader
-            .read()
-            .expect("fallback should read the live selection");
+        let (outcome, settle) = reader.read();
+        settle.finish();
+        let text = outcome.expect("fallback should read the live selection");
         println!("selected: {text}");
         assert!(!text.is_empty());
     }
@@ -886,9 +964,9 @@ mod live_tests {
         );
 
         let mut reader = ClipboardFallbackReader::new(WatchRoundFlag::default());
-        let text = reader
-            .read()
-            .expect("rich clipboard must not decline the fallback");
+        let (outcome, settle) = reader.read();
+        settle.finish();
+        let text = outcome.expect("rich clipboard must not decline the fallback");
         assert!(!text.is_empty(), "fallback should read the live selection");
 
         let mut clipboard = Clipboard::new().expect("clipboard should be available");

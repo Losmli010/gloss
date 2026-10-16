@@ -11,8 +11,8 @@
 //! 读取：比对不过不碰 flavor（内容读取才触发系统粘贴授权）。
 //!
 //! 设界逐级前置：flavor 字节上限 → 仅读头取尺寸过像素面积上限 → 才整图
-//! 解码 → 产物过 PNG 字节上限。pastebomb 在任何大分配发生之前被整体拒绝。
-//! 日志只记字节数与像素尺寸。
+//! 解码 → 超长边产物按比例降采样 → 产物过 PNG 字节上限。pastebomb 在任何
+//! 大分配发生之前被整体拒绝。日志只记字节数与像素尺寸。
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -38,6 +38,11 @@ pub const MAX_PIXELS: u64 = 4096 * 4096;
 /// 报错。
 pub const MAX_PNG_BYTES: usize = 20 * 1024 * 1024;
 
+/// 产物最长边上限：取材产物经 base64 出网并入缓存会话，超过即按比例缩到
+/// 上限内——视觉模型内部本就会把输入压到更低分辨率，上限外的像素只有
+/// 编码与传输成本。上限以内的产物原样编码（不放大、不重采样）。
+pub const MAX_PRODUCT_SIDE: u32 = 2048;
+
 /// flavor 字节是否在预算内（纯逻辑，单测覆盖边界）。
 fn flavor_within_budget(len: usize) -> bool {
     len <= MAX_FLAVOR_BYTES
@@ -53,13 +58,25 @@ fn png_within_budget(len: usize) -> bool {
     len <= MAX_PNG_BYTES
 }
 
-/// 图像 flavor 编码数据 → 解码 RGBA → PNG（快速压缩档：编码在事件线程上
-/// 执行，时长直接挂在触发到弹卡的链路上）。
+/// 超限产物按比例缩到最长边上限内的目标尺寸（纯逻辑，单测覆盖）：上限
+/// 以内返回 `None`（原样编码）；缩放按比例四舍五入、至少保留 1 像素。
+fn downscaled_dims(width: u32, height: u32) -> Option<(u32, u32)> {
+    let longest = width.max(height);
+    if longest <= MAX_PRODUCT_SIDE {
+        return None;
+    }
+    let scale = f64::from(MAX_PRODUCT_SIDE) / f64::from(longest);
+    let scaled = |side: u32| ((f64::from(side) * scale).round() as u32).max(1);
+    Some((scaled(width), scaled(height)))
+}
+
+/// 图像 flavor 编码数据 → 解码 RGBA → 超长边降采样 → PNG（快速压缩档：
+/// 编码在事件线程上执行，时长直接挂在触发到弹卡的链路上）。
 ///
 /// 设界依次执行：flavor 字节上限在头解析之前，像素面积上限以仅读头的
-/// 尺寸判定、先于整图解码，PNG 字节上限判在编码产物上。超限整体报
-/// `ImageTooLarge`（不截断）；头不可读、解码失败、缓冲与尺寸不符都按
-/// 读取失败处理。
+/// 尺寸判定、先于整图解码，超 [`MAX_PRODUCT_SIDE`] 的产物按比例降采样，
+/// PNG 字节上限判在编码产物上。超限整体报 `ImageTooLarge`（不截断）；
+/// 头不可读、解码失败、缓冲与尺寸不符都按读取失败处理。
 fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossError> {
     if !flavor_within_budget(bytes.len()) {
         debug!(
@@ -101,7 +118,27 @@ fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossEr
             GlossError::ImageUnavailable
         })?;
     let rgba = decoded.to_rgba8();
-    encode_png(rgba.width(), rgba.height(), rgba.as_raw())
+    let (width, height, rgba) = match downscaled_dims(rgba.width(), rgba.height()) {
+        Some((width, height)) => {
+            debug!(
+                thread = thread::EVENT,
+                source_width = rgba.width(),
+                source_height = rgba.height(),
+                width,
+                height,
+                "pasteboard image downscaled for the wire"
+            );
+            let resized = image::imageops::resize(
+                &rgba,
+                width,
+                height,
+                image::imageops::FilterType::Triangle,
+            );
+            (width, height, resized)
+        }
+        None => (rgba.width(), rgba.height(), rgba),
+    };
+    encode_png(width, height, rgba.as_raw())
 }
 
 /// RGBA 位图 → PNG。缓冲与声明尺寸不符按读取失败处理（校验在前，
@@ -361,6 +398,50 @@ mod tests {
         assert!(
             !png_within_budget(MAX_PNG_BYTES + 1),
             "one byte over the limit is rejected"
+        );
+    }
+
+    #[test]
+    fn downscaled_dims_preserve_aspect_and_the_cap() {
+        assert_eq!(
+            downscaled_dims(2048, 2048),
+            None,
+            "at the cap the product encodes as-is"
+        );
+        assert_eq!(
+            downscaled_dims(1024, 768),
+            None,
+            "under the cap is untouched"
+        );
+        assert_eq!(downscaled_dims(4096, 4096), Some((2048, 2048)));
+        assert_eq!(downscaled_dims(4096, 100), Some((2048, 50)));
+        assert_eq!(
+            downscaled_dims(4097, 1),
+            Some((2048, 1)),
+            "rounding never loses a dimension entirely"
+        );
+        assert_eq!(downscaled_dims(1, 4097), Some((1, 2048)));
+        let (width, height) = downscaled_dims(3000, 2049).expect("oversized product");
+        assert_eq!(width, 2048);
+        assert_eq!(height, 1399, "the short side follows the same scale");
+    }
+
+    #[test]
+    fn oversized_products_are_downscaled_to_the_side_cap() {
+        let canvas = image::RgbaImage::from_fn(2100, 1000, |x, y| {
+            [(x % 256) as u8, (y % 256) as u8, 0, 255].into()
+        });
+        let mut bytes = Cursor::new(Vec::new());
+        canvas
+            .write_to(&mut bytes, ImageFormat::Png)
+            .expect("encode");
+        let png = decode_to_png(ImageFlavor::Png, bytes.into_inner().as_slice())
+            .expect("an oversized product is downscaled, not rejected");
+        let decoded = image::load_from_memory(&png).expect("valid png");
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (2048, 975),
+            "the product lands within the side cap with the aspect preserved"
         );
     }
 }

@@ -17,15 +17,22 @@
 //! 评估结论按 pid 记账（[`Ledger`]）：确定性结论（非 Chromium 家族、
 //! 注入成功）整个会话只此一次——注入本身幂等，重复注入只会反复打扰
 //! 宿主；注入瞬时失败（如消息超时）不记账，下一手势自然重试，不把
-//! 宿主锁在激活门外。
+//! 宿主锁在激活门外。注入成功的 pid 另记「唤醒常客」（[`Ledger::mark_rescued`]）
+//! ——这类宿主的无障碍树会缺席（宿主自行收回或尚未建好），组合通道对
+//! 常客的空读跳过让渡直接来唤醒，常客的重注入也放行（幂等、是唯一
+//! 自救通道）。注入后的建树是宿主的异步行为（数百毫秒起），补读节奏
+//! 由组合通道的激活预算控制（见 `composite::activation_delay`）。
 
 use std::collections::HashSet;
 
 /// 评估记账（纯逻辑，单测覆盖）：确定性结论按 pid 登记，未登记的 pid
-/// 待评估——瞬时失败不登记即下一手势自然重试。
+/// 待评估——瞬时失败不登记即下一手势自然重试。`rescued` 另记「注入唤醒
+/// 写成功」的 pid：这类宿主的树会缺席（宿主自行收回或尚未建
+/// 好），空读等让渡等不来内容，下一手势直接唤醒才是解法。
 #[derive(Debug, Default)]
 struct Ledger {
     settled: HashSet<i32>,
+    rescued: HashSet<i32>,
 }
 
 impl Ledger {
@@ -37,6 +44,17 @@ impl Ledger {
     /// 登记确定性结论：此后该 pid 本会话不再评估。
     fn settle(&mut self, pid: i32) {
         self.settled.insert(pid);
+    }
+
+    /// 登记唤醒常客：注入写成功的 pid（乐观记账——宿主认了这个开关，
+    /// 空读时树缺席的概率远高于等让渡能等来内容），此后空读跳过让渡。
+    fn mark_rescued(&mut self, pid: i32) {
+        self.rescued.insert(pid);
+    }
+
+    /// 该 pid 是否唤醒常客。
+    fn is_rescued(&self, pid: i32) -> bool {
+        self.rescued.contains(&pid)
     }
 }
 
@@ -83,19 +101,31 @@ mod imp {
             Self::default()
         }
 
+        /// 前台应用是否为「唤醒常客」：上一手势注入唤醒写成功的 pid。
+        /// 常客的空读跳过让渡环直接进激活补读——树缺席时等再久也读不到。
+        /// 只做查询、无副作用。调用方保证：在平台事件线程上调用。
+        pub fn responds_to_wake(&self) -> bool {
+            front_app().is_some_and(|(_, pid)| self.ledger.is_rescued(pid))
+        }
+
         /// 唤醒前台应用的 AX 通道（确定性结论各只此一次）。
         ///
         /// 返回 `true` 表示刚对 Chromium 宿主成功注入开关——宿主开始异步
         /// 建树，调用方应以激活预算补读 AX；`false` 表示无需补读（该
-        /// pid 已有确定性结论、不是 Chromium 宿主、前台应用不可识别或
-        /// 注入瞬时失败——最后一种下一手势自然重试）。调用方保证：在
-        /// 平台事件线程上调用。
+        /// pid 已有确定性结论且非常客、不是 Chromium 宿主、前台应用不可
+        /// 识别或注入瞬时失败——最后一种下一手势自然重试）。注入成功
+        /// 即登记唤醒常客；常客 pid 即便已有确定性结论也允许重复注入
+        /// （注入幂等，宿主可能已自行收回树，重注入是空读后的唯一自救
+        /// 通道）。调用方保证：在平台事件线程上调用。
         pub fn wake(&mut self) -> bool {
             let Some((app, pid)) = front_app() else {
                 return false;
             };
             if !self.ledger.is_pending(pid) {
-                return false;
+                if !self.ledger.is_rescued(pid) {
+                    return false;
+                }
+                return enable_manual_accessibility(app.raw() as AXUIElementRef);
             }
             if !is_chromium_host(pid) {
                 debug!(
@@ -111,6 +141,7 @@ mod imp {
                     pid, "manual accessibility enabled for the chromium front app"
                 );
                 self.ledger.settle(pid);
+                self.ledger.mark_rescued(pid);
                 true
             } else {
                 warn!(
@@ -126,7 +157,7 @@ mod imp {
     /// 问系统要前台应用元素与其 pid：`AXFocusedApplication` 由系统 AX
     /// 运行时供给，宿主建不建树都能拿到（这正是唤醒路径可用的前提）。
     /// 任一步失败返回 `None`（调用方跳过本轮激活）。消息超时沿用读取
-    /// 路径对 systemwide 设置的全局 1s 上界，不会无限阻塞事件线程。
+    /// 路径对 systemwide 设置的全局 0.3s 上界，不会无限阻塞事件线程。
     fn front_app() -> Option<(CfGuard, i32)> {
         // SAFETY: 无前置条件；返回的 +1 引用可能为 NULL（系统异常），随后判空。
         let system_wide = unsafe { ax::create_system_wide() };
@@ -263,6 +294,22 @@ mod tests {
         assert!(
             ledger.is_pending(42) && ledger.is_pending(42),
             "transient failures leave the pid pending, every gesture may retry"
+        );
+    }
+
+    #[test]
+    fn a_rescued_pid_is_marked_for_rewake() {
+        let mut ledger = Ledger::default();
+        assert!(!ledger.is_rescued(42), "a fresh pid is no regular");
+        ledger.settle(42);
+        ledger.mark_rescued(42);
+        assert!(
+            !ledger.is_pending(42) && ledger.is_rescued(42),
+            "an injected pid becomes a wake regular: settled for assessment, rewake allowed"
+        );
+        assert!(
+            !ledger.is_rescued(43),
+            "the mark is per pid, other hosts are unaffected"
         );
     }
 }

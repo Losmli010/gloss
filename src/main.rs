@@ -401,7 +401,8 @@ fn acquire_command_handler(
         match job.payload {
             AcquireCommand::AcquireText { generation } => {
                 info!(thread = thread::EVENT, "acquiring text");
-                match reader.read() {
+                let (outcome, settle) = reader.read().into_parts();
+                match outcome {
                     Ok(text) => {
                         // 只记形态不记原文：选区是用户敏感内容，不落进日志文件。
                         debug!(
@@ -437,6 +438,9 @@ fn acquire_command_handler(
                         });
                     }
                 }
+                // 收口兜底轮（恢复写盘与归因）在产物上抛之后执行：恢复
+                // 不挡在弹窗链路上。
+                settle.finish();
             }
             AcquireCommand::AcquireClipboardImage { generation } => {
                 info!(thread = thread::EVENT, "acquiring clipboard image");
