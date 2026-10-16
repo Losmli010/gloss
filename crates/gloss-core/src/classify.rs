@@ -10,7 +10,7 @@
 //! **异常内部消化**：契约违约（空回复 / 非 JSON / kind 越清单）走修复轮
 //! （对话形态 `[system][user 原文][assistant 上一次坏回复][user 纠错指令]`，
 //! EmptyReply 原样重发不带 assistant 轮），预算 [`CLASSIFY_REPAIRS`]；
-//! 传输停摆（建连后 [`FIRST_ITEM_DEADLINE`] 内无任何流条目）按请求异常
+//! 传输停摆（建连后 `FIRST_ITEM_DEADLINE` 内无任何流条目）按请求异常
 //! 收卷且不重试。两者耗尽/失败都落常量兜底
 //! [`CLASSIFY_FALLBACK`]——本函数对文本输入恒返回 `Ok(kind)`，用户无感，
 //! warn 留痕（类别 + 序号，不含内容）。
