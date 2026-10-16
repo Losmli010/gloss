@@ -42,6 +42,19 @@ fn sooner(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
     }
 }
 
+/// 到点的重绘截止（`deadline <= now`）的处置：可见时返回 true、由调用方
+/// 请求重绘，截止留给随后的新帧刷新；隐藏时请求会被可见性门控丢弃，返回
+/// false 并把截止一并清空——过期截止不清，[`ApplicationHandler::about_to_wait`]
+/// 会一直 `WaitUntil` 过去时刻，定时器立即重触发且永远画不出那一帧，
+/// 调度层空转烧满一核。
+fn settle_due_repaint(deadline: &mut Option<Instant>, now: Instant, visible: bool) -> bool {
+    let due = deadline.is_some_and(|at| at <= now);
+    if due && !visible {
+        *deadline = None;
+    }
+    due && visible
+}
+
 /// 浮层的收起键：Escape 按下（含重复）。键盘事件只会送进持焦窗口——
 /// 浮层失焦后 Esc 天然不再生效；设置窗持焦时不收浮层。
 fn is_dismiss_key(logical_key: &Key, state: ElementState) -> bool {
@@ -184,11 +197,12 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         }
         // 到点的是 egui 要的下一帧：浮层与设置窗各自的截止时刻独立检查。
         let now = Instant::now();
-        if self
+        let overlay_visible = self
             .workspace
-            .overlay_repaint
-            .is_some_and(|deadline| deadline <= now)
-        {
+            .windows
+            .as_ref()
+            .is_some_and(|windows| windows.is_visible());
+        if settle_due_repaint(&mut self.workspace.overlay_repaint, now, overlay_visible) {
             self.request_redraw();
         }
         if self
@@ -220,7 +234,7 @@ mod tests {
     use winit::event::ElementState;
     use winit::keyboard::{Key, NamedKey};
 
-    use super::{is_dismiss_key, sooner};
+    use super::{is_dismiss_key, settle_due_repaint, sooner};
 
     #[test]
     fn escape_press_is_the_dismiss_key() {
@@ -248,5 +262,47 @@ mod tests {
         assert_eq!(sooner(Some(a), None), Some(a));
         assert_eq!(sooner(None, Some(a)), Some(a));
         assert_eq!(sooner(None, None), None);
+    }
+
+    #[test]
+    fn due_deadline_with_visible_overlay_requests_the_frame() {
+        let t0 = Instant::now();
+        let mut deadline = Some(t0);
+        assert!(settle_due_repaint(
+            &mut deadline,
+            t0 + Duration::from_millis(16),
+            true
+        ));
+        assert_eq!(deadline, Some(t0));
+    }
+
+    #[test]
+    fn due_deadline_with_hidden_overlay_is_cleared_without_a_frame_request() {
+        let t0 = Instant::now();
+        let mut deadline = Some(t0);
+        assert!(!settle_due_repaint(
+            &mut deadline,
+            t0 + Duration::from_millis(16),
+            false
+        ));
+        assert_eq!(deadline, None);
+    }
+
+    #[test]
+    fn pending_deadline_is_left_untouched() {
+        let t0 = Instant::now();
+        let future = t0 + Duration::from_secs(1);
+        let mut deadline = Some(future);
+        assert!(!settle_due_repaint(&mut deadline, t0, true));
+        assert!(!settle_due_repaint(&mut deadline, t0, false));
+        assert_eq!(deadline, Some(future));
+    }
+
+    #[test]
+    fn missing_deadline_is_never_due() {
+        let mut deadline = None;
+        assert!(!settle_due_repaint(&mut deadline, Instant::now(), true));
+        assert!(!settle_due_repaint(&mut deadline, Instant::now(), false));
+        assert_eq!(deadline, None);
     }
 }
