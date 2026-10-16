@@ -1,5 +1,5 @@
 //! 浮层文案整形：例句拆行与水印等展示文案的纯函数，以及经注疏
-//! 的字号规格与宋楷字体助手（demo 定稿值，不进 style 阶梯）。
+//! 的字号规格与宋楷字体助手（demo 基准的应用定稿值，不进 style 阶梯）。
 //!
 //! 不依赖 egui 绘制侧：`FontId` 只是字体数据，不碰
 //! `Ui`/`Context`。
@@ -8,11 +8,11 @@ use egui::FontId;
 
 use crate::ui::fonts;
 
-/// 经注疏排版的字号（demo 定稿值）：经 15.5、注 15、疏 12.5；词条 25，
-/// 音标/词性 13，印章字 12。
+/// 经注疏排版的字号（demo 基准，应用侧定稿）：经 15.5、注 15、疏 13；
+/// 词条 25，音标/词性 13，印章字 12。
 pub(super) const JING_FONT: f32 = 15.5;
 pub(super) const ZHU_FONT: f32 = 15.0;
-pub(super) const SHU_FONT: f32 = 12.5;
+pub(super) const SHU_FONT: f32 = 13.0;
 pub(super) const WORD_FONT: f32 = 25.0;
 pub(super) const PHON_FONT: f32 = 13.0;
 pub(super) const SEAL_FONT: f32 = 12.0;
