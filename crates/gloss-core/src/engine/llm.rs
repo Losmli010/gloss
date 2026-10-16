@@ -32,6 +32,7 @@ use crate::ports::{AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskChunk, T
 use crate::prompt::{ChatMessage, ContentPart, MessageContent};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use bytes::Bytes;
 use futures_core::Stream;
 use reqwest::StatusCode;
 use tokio::time::{Instant as TokioInstant, Sleep, sleep, sleep_until};
@@ -201,15 +202,15 @@ impl AiEngine for LlmClient {
             }
             let snapshot = config.snapshot();
             // 端点与密钥分两条解析路径，不共用返回值。
-            let resolved = Arc::new(Resolved {
-                url: resolve_endpoint(&snapshot)?,
-                key: resolve_api_key(&snapshot, store.as_ref())?,
-                body: chat_request_body(&EngineRequest {
+            let resolved = Arc::new(Resolved::build(
+                resolve_endpoint(&snapshot)?,
+                resolve_api_key(&snapshot, store.as_ref())?,
+                &EngineRequest {
                     messages,
                     model: model.trim().to_owned(),
                     max_tokens,
-                }),
-            });
+                },
+            )?);
             // 单次尝试闭包：连接阶段与首个流条目之前的重试共用同一形状，
             // 重试即再调一次；端点、密钥与请求体都在 Arc 里，克隆只是递引
             // 用计数。
@@ -235,13 +236,28 @@ impl AiEngine for LlmClient {
     }
 }
 
-/// 一次请求的解析产物：端点、密钥与 wire 请求体。打包后由 [`AiEngine::execute`]
-/// 以 `Arc` 共享给连接阶段与重试闭包——克隆只是递引用计数，端点/密钥字符串
-/// 与请求体（图像任务的 base64 可达 MB 级）不随重试复制。
+/// 一次请求的解析产物：端点、密钥与 wire 请求体。请求体在构造处一次性
+/// 序列化成 `Bytes`（图像任务的 base64 可达 MB 级，`.json(&Value)` 会在
+/// 每次尝试时整体重序列化一份临时缓冲）；`Bytes` 克隆只递引用计数，重试
+/// 复用零拷贝。
 struct Resolved {
     url: String,
     key: String,
-    body: serde_json::Value,
+    body: Bytes,
+}
+
+impl Resolved {
+    /// 组装并序列化请求体。序列化失败只可能是本地构造出非对象形态的
+    /// `Value`（本模块恒产出 JSON 对象），按请求异常上抛。
+    fn build(url: String, key: String, request: &EngineRequest) -> Result<Self, GlossError> {
+        let body = serde_json::to_vec(&chat_request_body(request))
+            .map_err(|err| GlossError::EngineResponse(format!("serialize request body: {err}")))?;
+        Ok(Self {
+            url,
+            key,
+            body: Bytes::from(body),
+        })
+    }
 }
 
 /// 一次传输尝试的失败载荷：错误分类 + 服务端的稍后重试指引（`Retry-After`
@@ -299,7 +315,10 @@ async fn send_once(
     let mut response = client
         .post(&resolved.url)
         .bearer_auth(&resolved.key)
-        .json(&resolved.body)
+        // 请求体已在 [`Resolved::build`] 序列化成字节，这里只补 JSON 的
+        // content-type（`.json` 的另一半职责），克隆只是递引用计数。
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(resolved.body.clone())
         .send()
         .await
         .map_err(|err| TransportFail {

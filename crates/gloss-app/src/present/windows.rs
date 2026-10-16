@@ -349,7 +349,8 @@ impl WindowManager {
         self.settings.focus_window();
     }
 
-    /// 隐藏设置窗口（关闭按钮/保存完成）；窗口与 surface 保留。
+    /// 隐藏设置窗口（关闭按钮/保存完成）；窗口本体保留，渲染帧由壳层
+    /// 随关闭释放（见 `crate::present::workspace::drop_settings_frame`）。
     pub fn hide_settings(&self) {
         self.settings.set_visible(false);
     }

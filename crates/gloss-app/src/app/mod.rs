@@ -18,7 +18,7 @@ use std::sync::atomic::AtomicBool;
 
 use gloss_core::config::Theme;
 use gloss_core::config_handle::ConfigHandle;
-use gloss_core::log::Span;
+use gloss_core::log::{Span, error, thread};
 use gloss_core::model::Locale;
 use gloss_core::ports::{ConfigStore, SceneProbe};
 use winit::dpi::LogicalSize;
@@ -182,16 +182,30 @@ impl GlossApp {
     }
 
     /// 画一帧设置窗口：草稿编辑 + 动作上交（保存/密钥变更/取消/更新动作）。
+    /// 渲染帧在这里惰性建立（首次绘制前），建帧失败即关闭设置窗——空窗
+    /// 挂着只会让用户对着一堵白墙重试。
     fn draw_settings(&mut self) {
         self.workspace.apply_theme(self.env.target_theme());
         let text = Text::get(self.env.locale());
         // watch::Receiver 是 Arc 广播端：克隆只递引用计数（零堆分配），
         // 渲染线程持最新状态的独立读取端，勿改成每帧借锁。
         let update_state = self.env.update.receiver.borrow().clone();
-        let (Some(frame), Some(state)) = (
-            self.workspace.settings_frame.as_mut(),
-            self.settings.as_mut(),
-        ) else {
+        let Some(state) = self.settings.as_mut() else {
+            return;
+        };
+        if let Err(err) = self
+            .workspace
+            .ensure_settings_frame(self.env.target_theme())
+        {
+            error!(
+                thread = thread::UI,
+                error = %err,
+                "failed to build the settings frame, closing the settings window"
+            );
+            self.close_settings();
+            return;
+        }
+        let Some(frame) = self.workspace.settings_frame.as_mut() else {
             return;
         };
         let (repaint, action) =

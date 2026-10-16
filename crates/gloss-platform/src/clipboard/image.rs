@@ -39,9 +39,11 @@ pub const MAX_PIXELS: u64 = 4096 * 4096;
 pub const MAX_PNG_BYTES: usize = 20 * 1024 * 1024;
 
 /// 产物最长边上限：取材产物经 base64 出网并入缓存会话，超过即按比例缩到
-/// 上限内——视觉模型内部本就会把输入压到更低分辨率，上限外的像素只有
-/// 编码与传输成本。上限以内的产物原样编码（不放大、不重采样）。
-pub const MAX_PRODUCT_SIDE: u32 = 2048;
+/// 上限内——视觉模型内部本就会把输入压到 ~1MP 一档，上限外的像素只有编码
+/// 与传输成本；1536 长边覆盖图表与截图文字的判读质量，同时把解码后的
+/// GPU 纹理与 base64 请求体的量级压到 ~9MB 档。上限以内的产物原样编码
+/// （不放大、不重采样）。
+pub const MAX_PRODUCT_SIDE: u32 = 1536;
 
 /// flavor 字节是否在预算内（纯逻辑，单测覆盖边界）。
 fn flavor_within_budget(len: usize) -> bool {
@@ -404,7 +406,7 @@ mod tests {
     #[test]
     fn downscaled_dims_preserve_aspect_and_the_cap() {
         assert_eq!(
-            downscaled_dims(2048, 2048),
+            downscaled_dims(1536, 1536),
             None,
             "at the cap the product encodes as-is"
         );
@@ -413,17 +415,17 @@ mod tests {
             None,
             "under the cap is untouched"
         );
-        assert_eq!(downscaled_dims(4096, 4096), Some((2048, 2048)));
-        assert_eq!(downscaled_dims(4096, 100), Some((2048, 50)));
+        assert_eq!(downscaled_dims(4096, 4096), Some((1536, 1536)));
+        assert_eq!(downscaled_dims(4096, 100), Some((1536, 38)));
         assert_eq!(
             downscaled_dims(4097, 1),
-            Some((2048, 1)),
+            Some((1536, 1)),
             "rounding never loses a dimension entirely"
         );
-        assert_eq!(downscaled_dims(1, 4097), Some((1, 2048)));
+        assert_eq!(downscaled_dims(1, 4097), Some((1, 1536)));
         let (width, height) = downscaled_dims(3000, 2049).expect("oversized product");
-        assert_eq!(width, 2048);
-        assert_eq!(height, 1399, "the short side follows the same scale");
+        assert_eq!(width, 1536);
+        assert_eq!(height, 1049, "the short side follows the same scale");
     }
 
     #[test]
@@ -440,7 +442,7 @@ mod tests {
         let decoded = image::load_from_memory(&png).expect("valid png");
         assert_eq!(
             (decoded.width(), decoded.height()),
-            (2048, 975),
+            (1536, 731),
             "the product lands within the side cap with the aspect preserved"
         );
     }

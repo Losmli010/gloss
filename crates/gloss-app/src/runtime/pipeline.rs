@@ -75,6 +75,10 @@ pub fn start_command_runtime(
     wake: impl Fn() + Send + Sync + Clone + 'static,
 ) -> std::io::Result<CommandRuntime> {
     let rt = tokio::runtime::Builder::new_multi_thread()
+        // 消费桥同时只跑一个任务（分类、修复轮与传输都在它的 await 链上，
+        // 密钥预热甩 blocking 池），两个 worker 足以覆盖并发面；默认按核数
+        // 起 worker 只多出线程栈与分配器缓存的常驻。
+        .worker_threads(2)
         .enable_all()
         .build()?;
     rt.spawn(consume_loop(service, cache, store, commands, events, wake));

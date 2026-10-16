@@ -92,10 +92,13 @@ impl GlossApp {
         }
     }
 
-    /// 关闭设置窗口：隐藏不销毁，丢弃编辑会话（未保存的草稿一并作废）。
+    /// 关闭设置窗口：隐藏不销毁（窗口本体保留），渲染帧随关闭释放
+    /// （surface 与渲染器连同字体图集一并回收，下次显示重建），并丢弃
+    /// 编辑会话（未保存的草稿一并作废）。
     pub(crate) fn close_settings(&mut self) {
         self.settings = None;
         self.workspace.settings_repaint = None;
+        self.workspace.drop_settings_frame();
         if let Some(windows) = &self.workspace.windows {
             windows.hide_settings();
         }

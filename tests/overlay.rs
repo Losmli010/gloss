@@ -250,7 +250,7 @@ impl ApplicationHandler for OverlaySelfTest {
             return;
         }
         match build_window_stack(event_loop, Theme::System) {
-            Ok((windows, frame, _settings_frame)) => {
+            Ok((windows, _context, frame)) => {
                 self.windows = Some(windows);
                 self.frame = Some(frame);
                 self.draw();
