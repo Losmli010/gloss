@@ -189,7 +189,10 @@ where
             continue;
         };
         for event in events {
-            sink.send_platform(event);
+            // send_platform 成功时经 notify() 调组装点注入的唤醒回调，panic
+            // 会穿过 C 定时器回调（fire）导致进程 abort——与命令处理、源
+            // poll 同受屏障约束。
+            let _ = guarded("platform event send", || sink.send_platform(event));
         }
     }
     TickOutcome::Continue

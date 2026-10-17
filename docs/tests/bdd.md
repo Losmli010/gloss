@@ -496,7 +496,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| error_display_is_diagnostic_text | 错误文案为诊断文本 | 给定各 GlossError 变体（含 JSON 模式不支持），当 to_string，则输出精确的诊断文案 | 2026-10-11 |
+| error_display_names_the_variant_without_the_payload | 错误文案只记变体名不含载荷 | 给定 6 个代表性 GlossError 变体，当 to_string，则输出固定类别文案（EngineResponse 与 Config 不打印载荷） | 2026-10-17 |
+| error_display_never_carries_the_payload | 带载荷变体的 Display 不泄露载荷 | 给定携带敏感载荷的 EngineResponse 与 Config，当 to_string，则输出不含载荷的固定文案 | 2026-10-17 |
 | error_is_std_error | 错误可作 std Error | 给定 GlossError 装箱为 std Error，当 to_string，则输出正确文案 | 2026-09-19 |
 
 ### crates/gloss-core/src/engine.rs

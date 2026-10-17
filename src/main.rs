@@ -14,7 +14,7 @@ use gloss_core::config::CACHE_TTL_MAX_SECS;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::engine::llm::LlmClient;
-use gloss_core::log::{self, debug, error, info, thread, warn};
+use gloss_core::log::{self, debug, info, thread, warn};
 use gloss_core::model::GlossError;
 use gloss_core::ports::{AiEngine, AppIcon, ConfigStore};
 use gloss_core::task::TaskInput;
@@ -250,7 +250,7 @@ fn run_event_loop(
         permissions_ready,
         update,
         Arc::clone(&clipboard_watch_enabled),
-        |waker| {
+        |waker| -> StartupResult {
             // Dock 图标在这里装：macOS 的 NSApplication 单例只允许在 EventLoop
             // 建好之后访问，而本回调是主线程上第一个满足该时机的点（app::run
             // 建完 EventLoop 就回调它，早于任何窗口创建）。
@@ -272,7 +272,10 @@ fn run_event_loop(
                     .min(CACHE_TTL_MAX_SECS),
             );
             let cache = Arc::new(TaskCache::with_ttl(ttl));
-            match gloss_app::runtime::pipeline::start_command_runtime(
+            // 消费桥装配失败是启动硬错误：commands_rx 随失败被 drop，通道③
+            // 没有消费者，用户触发的任务会静默石沉大海。与 build_service 同
+            // 一失败出口——`?` 上抛，报错退出而非带病运行。
+            let runtime = gloss_app::runtime::pipeline::start_command_runtime(
                 service,
                 cache,
                 runtime_store,
@@ -281,14 +284,8 @@ fn run_event_loop(
                 move || {
                     runtime_waker.wake();
                 },
-            ) {
-                Ok(runtime) => command_runtime = Some(runtime),
-                Err(err) => error!(
-                    thread = thread::UI,
-                    error = %err,
-                    "failed to start command runtime, inference disabled"
-                ),
-            }
+            )?;
+            command_runtime = Some(runtime);
             // 事件线程同样在拿到唤醒句柄后再启动：sink 发送产物时要靠它唤醒
             // 睡在事件循环里的主线程。剪贴板图片哨兵源与取材读取器在此同造：
             // ① 观察记录经共享句柄交给读取器比对竞态；取材轮次抑制闩锁经
@@ -311,6 +308,7 @@ fn run_event_loop(
                 ),
             ));
             log::milestone("05_assembly");
+            Ok(())
         },
     );
 

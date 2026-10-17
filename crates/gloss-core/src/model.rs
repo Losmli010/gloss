@@ -72,8 +72,11 @@ pub enum GlossError {
     EngineAuth,
     /// 触发限流，可退避重试。
     EngineRateLimited,
-    /// 协议或响应解析异常，携带诊断文本。
+    /// 协议或响应解析异常，携带诊断文本（可能含服务端/用户原文——见
+    /// [`Display`](std::fmt::Display) 实现的安全注释：载荷不进日志）。
     EngineResponse(String),
+    /// 配置异常，携带诊断文本（同 [`GlossError::EngineResponse`]，载荷不
+    /// 进日志）。
     Config(String),
 }
 
@@ -92,8 +95,15 @@ impl std::fmt::Display for GlossError {
             Self::EngineNetwork => write!(f, "engine network error"),
             Self::EngineAuth => write!(f, "engine authentication failed"),
             Self::EngineRateLimited => write!(f, "engine rate limited"),
-            Self::EngineResponse(s) => write!(f, "engine response error: {s}"),
-            Self::Config(s) => write!(f, "config error: {s}"),
+            // 载荷可能携带远端或用户原文（服务端 `error.message`、解析不出
+            // 的协议内容），而 `Display` 是日志出口（`error = %error` 遍布各
+            // crate），把载荷打出来就是把敏感文本写进日志——违反 AGENTS.md
+            // 「敏感文本不写进日志」的安全红线。载荷只在 `Debug`（`?error`）
+            // 与失败卡（`i18n::for_error` 显式解构变体，不走 Display）使用；
+            // `Debug` 同样不得进日志——日志宏禁止用 `?error` 打印 GlossError，
+            // 它只留给诊断与测试断言。
+            Self::EngineResponse(_) => write!(f, "engine response error"),
+            Self::Config(_) => write!(f, "config error"),
         }
     }
 }
@@ -105,7 +115,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn error_display_is_diagnostic_text() {
+    fn error_display_names_the_variant_without_the_payload() {
         assert_eq!(
             GlossError::SelectionUnavailable.to_string(),
             "selection unavailable"
@@ -121,11 +131,23 @@ mod tests {
         );
         assert_eq!(
             GlossError::EngineResponse("bad json".into()).to_string(),
-            "engine response error: bad json"
+            "engine response error"
         );
         assert_eq!(
             GlossError::Config("missing key".into()).to_string(),
-            "config error: missing key"
+            "config error"
+        );
+    }
+
+    #[test]
+    fn error_display_never_carries_the_payload() {
+        assert_eq!(
+            GlossError::EngineResponse("sk-secret-remote-echo".into()).to_string(),
+            "engine response error"
+        );
+        assert_eq!(
+            GlossError::Config("sk-secret-remote-echo".into()).to_string(),
+            "config error"
         );
     }
 
