@@ -1,20 +1,15 @@
 //! 触发前场景探针（`SceneProbe` 的 macOS 实现）：安全输入态 + 前台应用。
 //!
-//! 两个事实各有来源：安全输入态走 Carbon 的 `IsSecureEventInputEnabled`
-//! （见 `ffi::carbon`），前台应用走 AppKit 的 `NSWorkspace`（取 Bundle ID
-//! 与本地化名，供敏感应用名单匹配）。两者都是**纯查询**：不索取权限、
-//! 不改变任何状态，也读不到选区内容——探针只回答「现在该不该触发」，
-//! 不碰用户数据。
-//!
-//! 前台应用取不到（无图形会话、LaunchServices 未就绪）时返回空事实，
-//! 闸门按「无事实」放行（见 `gloss_core::ports::SceneProbe` 的契约）。
+//! 两者都是纯查询：不索取权限、不改状态、读不到选区内容——探针只回答
+//! 「现在该不该触发」，不碰用户数据。前台应用取不到（无图形会话、
+//! LaunchServices 未就绪）时返回空事实，闸门按「无事实」放行。
 
 use gloss_core::guard::{FrontApp, SceneFacts};
 use gloss_core::ports::SceneProbe;
 use objc2_app_kit::NSWorkspace;
 
-/// 系统场景探针：每次调用都现读一次（不缓存——安全输入态与前台应用
-/// 都可能在两次触发之间变化）。
+/// 每次 `facts()` 现读一次：安全输入态与前台应用都可能在两次触发之间变化，
+/// 缓存会把旧状态带进闸门判定。
 #[derive(Debug, Default)]
 pub struct SystemSceneProbe;
 
@@ -27,9 +22,9 @@ impl SceneProbe for SystemSceneProbe {
     }
 }
 
-/// 前台应用的标识：Bundle ID 与本地化名各取一次（都可能为 `None`——
-/// 无 Info.plist 的进程没有 Bundle ID）；`is_self` 按进程号与自身比对
-/// （防误触：Gloss 在前台时的划词手势不触发）。
+/// 前台应用的标识：Bundle ID 与本地化名各取一次，无 Info.plist 的进程没有
+/// Bundle ID；两项都取不到时返回 `None`。`is_self` 按进程号比对，用于让
+/// Gloss 自己在前台时不响应划词手势。
 fn frontmost_app() -> Option<FrontApp> {
     let workspace = NSWorkspace::sharedWorkspace();
     let app = workspace.frontmostApplication()?;

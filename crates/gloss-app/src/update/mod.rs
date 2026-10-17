@@ -1,23 +1,9 @@
-//! 应用内更新子系统：清单检查 → 整包下载校验 → 原位替换重启。
+//! 应用内更新子系统：清单检查 → 整包下载校验 → 原位替换并重启。
 //!
-//! 与主流程完全隔离：自持专用通道与自己的 tokio 任务（独立线程上的
-//! current-thread 运行时），不占用四通道（`Command`/`Event` 等）、不引入
-//! 代数（generation）。UI → 模块走 mpsc（[`UpdateMsg`]），模块 → UI 走
-//! `watch` 广播最新 [`UpdateState`]——设置页每帧从 receiver 读最新状态
-//! 渲染，不引入 `Arc<Mutex<…>>`。每次广播附带一次 UI 唤醒：经组装点安装
-//! 的出口（[`UpdateHandle::install_wake`]）投递壳层的
-//! `UserEvent::RedrawSettings`，由壳请求设置窗重绘。
-//!
-//! 触发入口只有两个：[`start_once`]（启动钩子，进程内幂等，只拉起模块
-//! 任务不发起检查——静默检查由 [`start_silent_check`] 在首帧就绪后补发，
-//! 客户端构建不挤占启动窗口；失败落 `Failed` 供设置页被动渲染、不弹层）
-//! 与设置页经句柄发 [`UpdateMsg::Check`]（手动检查）。两道确认（确认下载 /
-//! 确认重启替换）由设置页经句柄发对应消息；重试是设计 §4.1 迁移表的
-//! 「用户点重试」事件，比消息草案多出的 [`UpdateMsg::Retry`] 为它服务。
-//!
-//! 取消由模块内部 `CancellationToken` 自管：重复检查先取消在途任务；已
-//! 取消任务的迟到回包经令牌核对一律丢弃，不回写状态（与状态机相位守卫
-//! 互为备份）。
+//! 与主流程隔离：UI 经 mpsc 发命令、经 watch 读状态，模块自持专用线程与
+//! current-thread 运行时，不占四通道、不引入代数。
+//! 启动静默检查在首帧就绪后补发；失败只落 `Failed` 供设置页被动渲染。
+//! 取消由模块内的 `CancellationToken` 自管，迟到回包按令牌一律丢弃。
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -39,26 +25,22 @@ use self::install::InstallError;
 use self::manifest::UpdateManifest;
 use self::state::{UpdateCommand, UpdateMachine, UpdateState, UpdateTarget};
 
-/// 清单地址（GitHub Pages，设计 §4.1 的常量）。
+/// 清单地址：信任根是 GitHub Pages 的 TLS，故写死 https，且客户端不跟随
+/// 重定向（重定向会把请求交给别的宿主）。
 pub const MANIFEST_URL: &str = "https://losmli010.github.io/gloss/manifest.json";
 
-/// 清单 body 上限：清单是几百字节级的小文档，1 MiB 已远超合理尺寸，
-/// 超限按清单失败处理（无界内存禁入）。
+/// 清单是几百字节级的小文档，1 MiB 已远超合理尺寸；按块累计、超限即断，
+/// 因而 content-length 缺省时上限照样生效。
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 
 /// UI → 模块的命令（mpsc）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateMsg {
-    /// 发起一次检查（启动静默检查与手动检查同型）。
     Check,
-    /// 重试失败卡（回到记录的失败步骤）。
     Retry,
-    /// 确认下载（两道确认的第一道）。
     ConfirmDownload,
-    /// 确认重启替换（两道确认的第二道）。
     ConfirmRestart,
-    /// 取消在途下载（在途进度留在 `.partial`，下次全量下载时清除；
-    /// 仅失败重试路径会基于它续传）。
+    /// 在途进度留在 `.partial`，只有失败重试路径会基于它续传。
     Cancel,
 }
 
@@ -66,8 +48,7 @@ pub enum UpdateMsg {
 /// 循环建好后才存在）；未安装时广播只更新 watch。
 type WakeSlot = Arc<OnceLock<Arc<dyn Fn() + Send + Sync>>>;
 
-/// 模块的 UI 侧句柄：设置页经它发消息、每帧读最新状态；组装点另经
-/// [`UpdateHandle::install_wake`] 装相位迁移的唤醒出口。
+/// 模块的 UI 侧句柄：设置页经它发消息、每帧读最新状态。
 pub struct UpdateHandle {
     sender: mpsc::UnboundedSender<UpdateMsg>,
     receiver: watch::Receiver<UpdateState>,
@@ -75,7 +56,7 @@ pub struct UpdateHandle {
 }
 
 impl UpdateHandle {
-    /// 投递一条命令；模块已死（线程起来失败等）时记日志丢弃，不崩 UI。
+    /// 模块已死（线程起来失败等）时记日志丢弃，不崩 UI。
     pub fn send(&self, msg: UpdateMsg) {
         if let Err(err) = self.sender.send(msg) {
             warn!(
@@ -86,29 +67,25 @@ impl UpdateHandle {
         }
     }
 
-    /// 订阅状态广播（每帧从 receiver 读最新 [`UpdateState`]）。
     pub fn subscribe(&self) -> watch::Receiver<UpdateState> {
         self.receiver.clone()
     }
 
-    /// 安装相位迁移的 UI 唤醒出口（组装点在事件循环建好后调用；首次安装
-    /// 生效，重复调用忽略）。此后每次状态广播调用它一次。
+    /// 首次安装生效，重复调用忽略；此后每次状态广播调用它一次，用来唤醒
+    /// 睡在 `ControlFlow::Wait` 的主线程重绘设置窗。
     pub fn install_wake(&self, wake: impl Fn() + Send + Sync + 'static) {
         self.wake.get_or_init(|| Arc::new(wake));
     }
 }
 
-/// 壳侧的更新接线：状态订阅 + 命令出口。生产经 [`UpdateWiring::from_handle`]
-/// 接到全局模块；测试注桩（本地 watch + 空发送），不触碰真实网络。
+/// 壳侧的更新接线：状态订阅 + 命令出口。测试注入本地 watch 与空发送，
+/// 不触碰真实网络。
 pub struct UpdateWiring {
-    /// watch 广播的最新 [`UpdateState`]（UI 每帧读）。
     pub receiver: watch::Receiver<UpdateState>,
-    /// 命令出口（模块已死时发送侧自行记日志丢弃）。
     pub send: Arc<dyn Fn(UpdateMsg) + Send + Sync>,
 }
 
 impl UpdateWiring {
-    /// 从全局句柄接线（组装点专用）。
     pub fn from_handle(handle: &'static UpdateHandle) -> Self {
         Self {
             receiver: handle.subscribe(),
@@ -117,23 +94,22 @@ impl UpdateWiring {
     }
 }
 
-/// 启动钩子入口：进程内幂等。首次调用只拉起模块线程（停在 `Idle` 相
-/// 位），后续调用只返回既有句柄；启动静默检查由 [`start_silent_check`]
-/// 在首帧就绪后补发。
+/// 启动钩子：进程内幂等，首次调用只拉起模块线程（停在 `Idle`），不发起
+/// 检查——静默检查由 [`start_silent_check`] 在首帧就绪后补发，避免挤占
+/// 启动窗口。
 pub fn start_once() -> &'static UpdateHandle {
     static HANDLE: OnceLock<UpdateHandle> = OnceLock::new();
     HANDLE.get_or_init(spawn_module)
 }
 
-/// 启动静默检查：壳层在首帧就绪（`06_ready`）后调用一次——发现新版仅置
-/// 状态由设置页提示，失败落 `Failed` 供被动渲染，不打扰划词。模块任务
-/// 尚未拉起时先拉起。
+/// 启动静默检查：发现新版只置状态由设置页提示，失败落 `Failed` 供被动
+/// 渲染，不打扰划词。
 pub(crate) fn start_silent_check() {
     start_once().send(UpdateMsg::Check);
 }
 
-/// 模块线程：专用通道 + 独立 current-thread 运行时。线程/运行时起来
-/// 失败属降级（日志有痕，更新功能不可用，主流程不受影响）。
+/// 模块线程：专用通道 + 独立 current-thread 运行时。线程/运行时起来失败
+/// 属降级——日志有痕、更新不可用，主流程不受影响。
 fn spawn_module() -> UpdateHandle {
     let (sender, receiver) = mpsc::unbounded_channel();
     let (state_tx, state_rx) = watch::channel(UpdateState::default());
@@ -187,20 +163,15 @@ fn spawn_module() -> UpdateHandle {
 
 /// 在途任务的结果：检查或下载，二者必有其一。
 pub(crate) enum PendingResult {
-    /// 清单拉取结果（网络/解析失败收敛成 `Err`，细节只进日志）。
     Checked(Result<UpdateManifest, ()>),
-    /// 下载落位结果（成功带最终 zip 路径）。
     Downloaded(Result<PathBuf, DownloadError>),
 }
 
-/// 模块任务对外执行的动作集合：真实实现走网络与文件系统，L1 时序
-/// 测试注入桩（本地 oneshot 触发，不碰网络，同步点全走 watch）。
+/// 模块任务对外的动作集合：真实实现走网络与文件系统，L1 时序测试注入
+/// 桩（同步点全走 watch，不碰网络）。
 pub(crate) struct Hooks {
-    /// 发起一次清单拉取，回传结果。
     pub(crate) check: CheckHook,
-    /// 发起一次整包下载，回传结果。
     pub(crate) download: DownloadHook,
-    /// 执行替换（不含重启接力；成功后由调用方退出进程）。
     pub(crate) install: InstallHook,
 }
 
@@ -214,10 +185,9 @@ pub(crate) type DownloadHook = Arc<
 pub(crate) type InstallHook = Arc<dyn Fn(&Path) -> Result<(), InstallError> + Send + Sync>;
 
 /// 在途任务：结果回包、取消令牌与任务类别一起携带——迟到回包按令牌
-/// 核对丢弃；任务自身 panic（JoinError）按类别降级成对应失败（有痕迹）。
-/// 生效边界：release 以 `panic = "abort"` 构建时 panic 的任务在事发点
-/// abort 进程，panic 类 JoinError 分支不可达，仅在 unwind 构建（dev/test）
-/// 出现。
+/// 核对丢弃，任务 panic（JoinError）按类别降级成对应失败。
+/// release 以 `panic = "abort"` 构建时 panic 的任务在事发点直接 abort 进程，
+/// panic 分支只在 unwind 构建（dev/test）可达。
 struct Pending {
     token: CancellationToken,
     kind: PendingKind,
@@ -230,16 +200,14 @@ enum PendingKind {
     Download,
 }
 
-/// 模块的状态出口：watch 发送端 + 相位迁移的 UI 唤醒槽（与
-/// [`UpdateHandle`] 共享同一个槽）。
+/// 模块的状态出口：watch 发送端 + 与 [`UpdateHandle`] 共享的唤醒槽。
 pub(crate) struct Broadcaster {
     tx: watch::Sender<UpdateState>,
     wake: WakeSlot,
 }
 
 impl Broadcaster {
-    /// 广播最新快照并调用已安装的唤醒出口——主线程睡在
-    /// `ControlFlow::Wait` 时靠后者醒来重绘设置窗。
+    /// 主线程睡在 `ControlFlow::Wait` 时靠唤醒出口醒来重绘设置窗。
     fn send(&self, state: UpdateState) {
         self.tx.send_replace(state);
         if let Some(wake) = self.wake.get() {
@@ -285,8 +253,7 @@ pub(crate) async fn run(
     }
 }
 
-/// 一条用户消息的去向；确认重启替换成功替换时返回真（调用方随即退出
-/// 进程）。
+/// 一条用户消息的去向；确认重启替换成功返回真（调用方随即退出进程）。
 fn handle_msg(
     msg: UpdateMsg,
     machine: &mut UpdateMachine,
@@ -367,9 +334,8 @@ fn handle_msg(
     false
 }
 
-/// 执行替换并收尾：zip 缺失（不应发生，防御分支）或替换失败都落
-/// `Failed(Install)` 广播；成功返回真。替换失败时 zip 放回槽位——
-/// 重试回到替换步还靠它。
+/// zip 缺失（防御分支）或替换失败都落 `Failed(Install)`；失败时 zip 放回
+/// 槽位——重试回到替换步还要靠它。
 fn restart(
     machine: &mut UpdateMachine,
     zip_slot: &mut Option<PathBuf>,
@@ -427,10 +393,9 @@ fn apply_result(
     broadcast(machine, out);
 }
 
-/// 在途回包流：无在途任务时永远挂起（select 的另一半继续等消息）。
-/// 任务 panic 按 [`PendingKind`] 降级为对应的失败回包，主循环不崩
-/// （unwind 构建下；release 以 `panic = "abort"` 构建时 panic 任务直接
-/// abort 进程，此分支不可达，见 [`Pending`] 的生效边界）。
+/// 在途回包流：无在途任务时永远挂起（select 的另一半继续等消息）。任务
+/// panic 在这里降级成对应失败，主循环不崩；release 的 `panic = "abort"`
+/// 构建下该分支不可达（见 [`Pending`]）。
 async fn pending_outcome(pending: &mut Option<Pending>) -> (PendingResult, CancellationToken) {
     match pending {
         Some(pending) => {
@@ -457,7 +422,7 @@ fn broadcast(machine: &UpdateMachine, out: &Broadcaster) {
     out.send(machine.snapshot());
 }
 
-/// 真实 hooks：清单拉取与整包下载共用进程内唯一 HTTP 客户端（见
+/// 真实 hooks：清单与整包下载共用进程内唯一 HTTP 客户端（见
 /// [`shared_client`]），替换走 [`install::install`]。
 fn real_hooks() -> Hooks {
     Hooks {
@@ -499,14 +464,14 @@ fn real_hooks() -> Hooks {
     }
 }
 
-/// 下载工作目录（临时目录）：zip 的落位卷不必与 bundle 同卷——解压目标
-/// 才必须同卷（ditto 跨卷复制无碍，改名对必须同卷）。
+/// 下载工作目录（临时目录）：zip 的落位卷不必与 bundle 同卷——只有解压
+/// 目标必须同卷（ditto 跨卷复制无碍，改名对必须同卷）。
 fn download_work_dir() -> PathBuf {
     std::env::temp_dir().join("gloss-update")
 }
 
-/// 清单拉取：非 200、超限 body、UTF-8 不符、校验矩阵不符都收敛为失败
-/// （细节只进日志，状态机只认失败）。
+/// 非 200、超限 body、非 UTF-8、校验矩阵不符都收敛为 `Err(())`——细节只
+/// 进日志，状态机只认失败。
 async fn fetch_manifest(client: &reqwest::Client, url: &str) -> Result<UpdateManifest, ()> {
     let response = client.get(url).send().await.map_err(|err| {
         warn!(thread = thread::TOKIO, error = %err, "update: manifest fetch failed");
@@ -538,10 +503,9 @@ async fn fetch_manifest(client: &reqwest::Client, url: &str) -> Result<UpdateMan
     })
 }
 
-/// 进程内唯一的 HTTP 客户端：与 platform 的 LLM 客户端同一套取向——
-/// 建连/读超时、明确 UA、不跟随重定向（重定向会改写信任根的宿主）。
-/// macOS 上构建要解析整套信任设置（秒级 CPU），故只建一次常驻；构建
-/// 失败不缓存，下次任务重试自然重建。
+/// 进程内唯一的 HTTP 客户端：建连/读超时、明确 UA、不跟随重定向（重定向
+/// 会把请求交给别的宿主，破坏「清单与产物都来自 https」的假设）。
+/// macOS 上构建要解析整套信任设置（秒级 CPU），故只建一次常驻。
 static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 fn shared_client() -> Result<&'static reqwest::Client, reqwest::Error> {
@@ -549,8 +513,7 @@ fn shared_client() -> Result<&'static reqwest::Client, reqwest::Error> {
         Some(client) => client,
         None => {
             // 先构建：失败直接传播且不污染缓存，下次任务重试自然重建。
-            // get_or_init 只认胜者：并发首建时输家的这份被丢弃，复用
-            // 赢家放入的同一份。
+            // get_or_init 只认胜者：并发首建时输家的这份被丢弃。
             let client = build_client()?;
             HTTP_CLIENT.get_or_init(|| client)
         }
@@ -558,7 +521,6 @@ fn shared_client() -> Result<&'static reqwest::Client, reqwest::Error> {
     Ok(client)
 }
 
-/// 更新子系统的 HTTP 客户端，取向见 [`HTTP_CLIENT`]。
 fn build_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))

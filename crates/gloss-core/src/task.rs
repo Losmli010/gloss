@@ -1,4 +1,7 @@
 //! 任务模型：任务类型、输入模态与管道消息的载荷类型。
+//!
+//! 文本分类的清单外落点是 [`TaskKind::General`]（分类器不提供它）；任务选项
+//! 在触发时一次性冻结，执行途中不回读配置。
 
 use std::sync::Arc;
 
@@ -7,60 +10,48 @@ use serde::{Deserialize, Serialize};
 use crate::config::DEFAULT_MODEL;
 use crate::model::{GlossError, Lang, Locale};
 
-/// 任务类型：新增场景 = 加变体 + Prompt 模板 + 结构化结果变体 + UI 模板，管道不动。
+/// 任务类型。新增场景 = 加变体 + prompt 模板 + 结构化结果变体 + UI 模板；
+/// 管道只搬运载荷，不按类型分支。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum TaskKind {
-    /// 单词（词典式卡：音标/词性/释义/例句）。
+    /// 单词或短语：落词卡产物（音标与例句在 `structured`，释义在 `note`）。
     TranslateWord,
-    /// 句子/段落翻译。
     TranslateSentence,
-    /// 代码解释（输入可带语言提示）。
     ExplainCode,
-    /// 图像 → 解释内容（剪贴板图片触发）。
+    /// 图像解读：唯一接受 [`TaskInput::Image`] 的 kind（见 [`validate_modality`]）。
     ImageExplain,
-    /// 通用任务：理解并回应用户给出的任意内容。不在分类清单
-    /// （[`crate::classify::CLASSIFY_KINDS`]）里——分类器只在三个文本
-    /// kind 中选择，本变体是清单外的执行落点。
+    /// 通用任务：不在 [`crate::classify::CLASSIFY_KINDS`] 里，是分类失效时的
+    /// 执行落点。
     General,
 }
 
-/// 输入模态：取材产物的统一枚举形态，消息间 move 所有权。
+/// 输入模态：取材产物的统一形态，随消息 move 所有权。
 ///
-/// 不携带模态提示：源语言与代码语言都由 LLM 从原文自行判断，代码语言
-/// 经产物 JSON 的 `structured.code_language` 回传 UI（见
-/// [`OutcomeStructured::Code`]）。
+/// 不携带模态提示：源语言与代码语言都由模型从原文判断，代码语言经
+/// [`OutcomeStructured::Code`] 回传 UI。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TaskInput {
-    /// 文本输入。
     Text {
-        /// 待处理的文本原文。
         text: String,
     },
-    /// 图像输入。
     Image {
-        /// PNG 字节。
+        /// PNG 字节；编码成 data URL 归传输层。
         png: Arc<[u8]>,
     },
 }
 
-/// 任务选项；留空的字段按配置默认值填充。
-///
-/// 全部字段都是**单次快照冻结**的：App 在触发时按配置快照一次性解析填入，
-/// 执行途中不再回读配置。
+/// 任务选项：全部字段都是**单次快照冻结**的——App 在触发时按配置快照解析
+/// 填入，执行途中不再回读配置。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TaskOptions {
-    /// 目标语言，None = 自动检测（默认中文）。
+    /// 目标语言；`None` 走缺省中文（[`crate::prompt`] 的 `DEFAULT_TARGET`）。
     pub target_lang: Option<Lang>,
-    /// 本任务使用的模型 id：App 在触发时按 `Config::model` 冻结进来。
-    /// `Arc<str>` 共享承载：任务在状态机在途副本与下发请求间共享同一份
-    /// id，复制只是引用计数（模型 id 一次任务至多几个字节，逐份深拷贝
-    /// 纯属浪费）。缺省值只服务测试直构（[`DEFAULT_MODEL`]）；App 路径恒
-    /// 由状态机按配置快照填入。
+    /// 本任务使用的模型 id；`Arc<str>` 让在途副本与下发请求共享同一份，
+    /// 复制只是引用计数。缺省值只服务测试直构，App 路径恒按配置快照填入。
     pub model: Arc<str>,
-    /// 本任务使用的 prompt 模板语言：App 在触发时按 `Config::language`
-    /// 解析（`System` 按启动期读到的系统语言落定）填入，缺省中文模板。
-    /// locale 参与缓存 key——换了模板语言后，同输入不得命中旧语言的产物。
+    /// prompt 模板语言；缺省中文。它参与缓存 key——换模板语言后同输入
+    /// 不得命中旧语言的产物。
     pub prompt_locale: Option<Locale>,
 }
 
@@ -74,17 +65,15 @@ impl Default for TaskOptions {
     }
 }
 
-/// 一条待执行任务 = 类型 + 输入 + 选项。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Task {
     pub kind: TaskKind,
     pub input: TaskInput,
-    /// 任务选项（留空的字段按配置默认值填充）。
     pub options: TaskOptions,
 }
 
-/// 模态约束表：任务类型与输入模态的合法组合。唯一被拒的
-/// 错误是 [`GlossError::UnsupportedModality`]。
+/// 模态约束表：任务类型与输入模态的合法组合。唯一被拒的错误是
+/// [`GlossError::UnsupportedModality`]。
 pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError> {
     let legal = matches!(
         (kind, input),
@@ -103,52 +92,35 @@ pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossE
     }
 }
 
-/// 任务产物：注文统一 markdown（经注疏的「注」），另带 kind 专属结构化
-/// 字段供 UI 精排（词卡的音/例即说文解字式分层，字头即选区原文）。
+/// 任务产物：`note` 是流式拼接的 markdown 正文，`structured` 是 UI 精排字段。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskOutcome {
-    /// 产物对应的任务类型。
     pub kind: TaskKind,
-    /// markdown 注文（流式 chunk 拼接；词卡为义释，句译/讲解为主体）。
-    /// 降级产物恒为空串（原文垃圾不展示不留存）。
+    /// markdown 正文；降级产物恒为空串（原文垃圾不展示不留存）。
     pub note: String,
-    /// kind 专属疏证字段，见 [`OutcomeStructured`]（代码语言在
-    /// [`OutcomeStructured::Code`] 里随疏证走）。
+    /// 按 kind 的附加字段，见 [`OutcomeStructured`]。
     pub structured: OutcomeStructured,
-    /// 降级标记：`true` = 契约校验失败后的兜底产物（`note` 为空串）。
-    /// 降级产物不进缓存、UI 显式提示；serde default 是防御性缺省——缺该
-    /// 字段的旧序列化工件反序列化为正常产物（没有标记 = 没降级）。
+    /// 契约校验失败后的兜底产物标记（此时 `note` 为空串）：不进缓存、UI
+    /// 出降级卡。`serde(default)` 是为兼容缺该字段的旧工件——没有标记即
+    /// 视为正常产物。
     #[serde(default)]
     pub degraded: bool,
 }
 
-/// 结构化结果：按 `TaskKind` 给出 UI 精排所需的**疏证**字段——义在
-/// [`TaskOutcome::note`]（注），这里只带音、例与语言判定（说文解字式
-/// 分层：字头即选区原文，音/义/例各归其位）。三变体与 wire 契约的
-/// `structured` 对象同构（见 `crate::schema`）：词卡归
-/// [`OutcomeStructured::WordCard`]，代码归 [`OutcomeStructured::Code`]，
-/// 句译/讲解/图像解读同形落 [`OutcomeStructured::Plain`]。
+/// 按 `TaskKind` 分派的附加字段：释义在 [`TaskOutcome::note`]，这里只带音、
+/// 例与语言判定。三个变体与 `crate::schema` 的 wire 契约同构。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OutcomeStructured {
-    /// 词卡疏证：音标（读若，模型给出时才有）与例句（疏位逐条）。
+    /// 词卡：音标（模型给出时才有）与例句。
     WordCard {
-        /// 音标。
         phonetic: Option<String>,
-        /// 例句列表（疏）。
         examples: Vec<String>,
     },
-    /// 句译/讲解/图像解读的疏：展开条目逐条（句译的展开讲解、图像解读
-    /// 的内容要点同形；注位为主体注文，图像另有经位附件）。
-    Plain {
-        /// 展开讲解列表（疏）。
-        examples: Vec<String>,
-    },
-    /// 代码讲解的疏：展开讲解条目 + LLM 判定的代码语言（UI 角标与高亮
-    /// 使用；不确定为 `None`）。
+    /// 句译、讲解、图像解读与通用任务共用：展开条目列表。
+    Plain { examples: Vec<String> },
+    /// 代码讲解：展开条目 + 模型判定的语言（不确定为 `None`）。
     Code {
-        /// 展开讲解列表（疏）。
         examples: Vec<String>,
-        /// LLM 判定的代码语言，不确定为 `None`。
         code_language: Option<String>,
     },
 }

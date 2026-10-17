@@ -2,44 +2,38 @@
 
 use serde::{Deserialize, Serialize};
 
-/// 任务的语言参数；UI 固定常用 5 语种，「自动检测」由 `Option<Lang>` 留空表达。
+/// 任务的**产物**语言（译文给谁看）：变体名即 ISO 639-1 语言码，`Zh` 指
+/// 简体；`Other` 承接手填语言名，原样当显示名用（不归一化，可能带空白）。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Lang {
-    /// 简体中文。
     Zh,
-    /// 英语。
     En,
-    /// 日语。
     Ja,
-    /// 韩语。
     Ko,
-    /// 法语。
     Fr,
-    /// 以上之外的语言，携带语言代码或名称原文。
+    /// 其余语言，携带语言名原文。
     Other(String),
 }
 
-/// 应用自身的语言环境：prompt 模板与界面文案的选表依据。
+/// 应用自身的**界面**语言：prompt 模板与界面文案的选表依据。
 ///
-/// `Config::language` 的 `System` 在壳侧按系统语言落定后只剩这两个具体值
-/// （形如 `config::Theme` 的三态之下的二态）。与 [`Lang`] 分工不同：`Lang`
-/// 是**产物**语言（译文给谁看），`Locale` 是**界面**语言（应用跟用户说什么
-/// 话），两者解耦。
+/// 与 [`Lang`] 分工不同——`Lang` 决定译文语言，`Locale` 决定应用跟用户说什么
+/// 话，两者解耦。`Config::language` 的 `System` 在壳侧按系统语言落定后只剩
+/// 下面两个具体值，所以这里没有第三态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum Locale {
-    /// 中文（出厂）。
+    /// 出厂默认。
     #[default]
     Zh,
-    /// 英文。
     En,
 }
 
 /// 屏幕逻辑坐标点。多显示器下坐标可为负，按手势/系统返回值原样传递。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScreenPoint {
-    /// 横坐标（逻辑像素）。
+    /// 逻辑像素横坐标。
     pub x: i32,
-    /// 纵坐标（逻辑像素）。
+    /// 逻辑像素纵坐标。
     pub y: i32,
 }
 
@@ -54,34 +48,32 @@ impl ScreenPoint {
 pub enum GlossError {
     /// 选区读不到（应用不支持选区属性或 AX/兜底通道失败）。
     SelectionUnavailable,
-    /// 选区为空（应用支持选区属性、如实报告了空值）——与「读不到」分开
-    /// 建档：状态机对手势触发静默收回。
+    /// 选区为空（应用支持选区属性、如实报告了空值）。与「读不到」分开建档：
+    /// 状态机对手势触发静默收回。
     SelectionEmpty,
     /// 辅助功能权限缺失。
     AccessibilityDenied,
-    /// 剪贴板图片读不出（板上无可读图像 flavor、粘贴授权被拒、粘贴板不可
-    /// 观察）或解不了码（头不可读、解码失败、缓冲与声明尺寸不符）——与
-    /// [`GlossError::SelectionUnavailable`] 分开建档：图像任务没有可选的
-    /// 文本，失败指引是「重新复制」。
+    /// 剪贴板图片读不出（板上无可用 flavor、粘贴授权被拒、粘贴板不可观察）
+    /// 或解不了码。与 [`GlossError::SelectionUnavailable`] 分开建档：图像任务
+    /// 没有可选的文本，失败指引是「重新复制」。
     ImageUnavailable,
     /// 剪贴板图片超出字节总量或像素面积上限（超限报错，不截断）。
     ImageTooLarge,
     /// 任务所需模态与配置的模型能力不匹配（如图像任务未配视觉模型），
     /// 或任务类型与输入模态的组合非法（见 [`crate::task::validate_modality`]）。
     UnsupportedModality,
-    /// 模型服务不支持 JSON 输出模式：所有请求都恒带 `response_format`
-    /// json_object（不做能力协商），端点以 4xx 拒绝且诊断文本提到它时按
-    /// 此建档——换支持该模式的模型服务是唯一出路（环境问题，重试无益）。
+    /// 模型服务不支持 JSON 输出模式：请求恒带 `response_format` json_object
+    /// （不做能力协商），端点以 4xx 拒绝且诊断文本提到它时按此建档——换支持
+    /// 该模式的模型服务是唯一出路，重试无益。
     JsonModeUnsupported,
     /// 网络错误，可重试。
     EngineNetwork,
-    /// API key 无效或过期。
+    /// API key 无效或过期，不可重试。
     EngineAuth,
     /// 触发限流，可退避重试。
     EngineRateLimited,
     /// 协议或响应解析异常，携带诊断文本。
     EngineResponse(String),
-    /// 配置缺失或非法。
     Config(String),
 }
 

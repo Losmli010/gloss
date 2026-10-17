@@ -1,11 +1,8 @@
-//! 平台事件线程：鼠标手势等系统事件源的唯一宿主。
+//! 平台事件线程：系统事件源的唯一宿主，以 CFRunLoop + 周期定时器抽干各源。
 //!
-//! 事件线程以 CFRunLoop 为宿主（不是在其上跑阻塞式循环），
-//! 以周期定时器抽干各事件源；鼠标 tap 这类自带 run loop 的源在自己的监听
-//! 线程上运行、产物经通道汇入（见 events/mouse.rs）。取材命令
-//! （通道②）与系统事件在同一线程顺序消费，天然串行无锁。消息类型由组装点
-//! 注入——platform 不依赖 gloss-app 的通道类型，测试用本地桩类型即可驱动
-//! 整条循环。
+//! 取材命令（通道②）与系统事件在同一线程顺序消费，天然串行无锁；鼠标
+//! tap 这类自带 run loop 的源在自己的监听线程上运行、产物经通道汇入。
+//! 消息类型由组装点注入——platform 不依赖 gloss-app 的通道类型。
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -18,11 +15,8 @@ use gloss_core::log::{debug, error, info, thread, warn};
 
 pub mod mouse;
 
-/// 所有事件源（鼠标手势等）每轮 tick 抽干一次，产出 ① 的载荷。
-/// 组装点用闭包把 platform 本地类型映射为真实的平台事件，映射闭包与命令
-/// 处理器同等对待——panic 不允许带倒事件线程。
+/// 组装点提供的闭包与命令处理器同等对待：panic 不允许带倒事件线程。
 pub trait EventSource<P>: Send {
-    /// 抽干一轮，返回本轮产出的平台事件载荷。
     fn poll(&mut self) -> Vec<P>;
 }
 
@@ -35,19 +29,16 @@ where
     }
 }
 
-/// 事件线程挂载的事件源集合。
 pub type EventSources<P> = Vec<Box<dyn EventSource<P> + Send>>;
 
-/// 源事件的 drain 周期：run loop 无法阻塞等待 crossbeam 通道，以定时器
-/// 节奏抽干。手势到浮层的端到端延迟上界即此值，33ms 低于可感知阈值。
+/// 源事件的 drain 周期：run loop 无法阻塞等待 crossbeam 通道，只能按定时器
+/// 抽干。手势到浮层的端到端延迟上界即此值。
 const TICK: Duration = Duration::from_millis(33);
 
 /// 事件线程的产物出口：④ 回传事件与 ① 平台事件，由组装点接上真实通道。
 ///
-/// `wake` 是主线程唤醒回调：主线程可能睡在事件循环里（无消息不醒），发送
-/// 成功后必须叫醒它来消费，否则消息会滞留到下一个无关事件才被看到。回调
-/// 由组装点提供（platform 不关心唤醒机制），发送失败（接收端已消失）时
-/// 不唤醒。
+/// `wake` 是主线程唤醒回调：主线程可能睡在事件循环里，发送成功后不叫醒它，
+/// 消息要等下一个无关事件才被看到。发送失败（接收端已消失）不唤醒。
 pub struct EventSink<E, P> {
     events: Sender<E>,
     platform: Sender<P>,
@@ -55,8 +46,8 @@ pub struct EventSink<E, P> {
 }
 
 impl<E, P> EventSink<E, P> {
-    /// 创建出口：`events` 为 ④ 回传事件通道的发送端，`platform` 为 ① 平台
-    /// 事件通道的发送端，`wake` 为发送成功后的主线程唤醒回调。
+    /// `events` 是 ④ 回传通道，`platform` 是 ① 平台事件通道；`wake` 只在
+    /// 发送成功后调用。
     pub fn new(
         events: Sender<E>,
         platform: Sender<P>,
@@ -69,7 +60,7 @@ impl<E, P> EventSink<E, P> {
         }
     }
 
-    /// 发送 ④ 回传事件；返回 `false` 表示主线程已退出，消息被丢弃。
+    /// 主线程已退出时返回 `false`：消息丢弃，也不唤醒。
     pub fn send_event(&self, event: E) -> bool {
         match self.events.send(event) {
             Ok(()) => {
@@ -83,7 +74,7 @@ impl<E, P> EventSink<E, P> {
         }
     }
 
-    /// 发送 ① 平台事件；返回 `false` 表示主线程已退出，消息被丢弃。
+    /// 主线程已退出时返回 `false`：消息丢弃，也不唤醒。
     pub fn send_platform(&self, event: P) -> bool {
         match self.platform.send(event) {
             Ok(()) => {
@@ -105,13 +96,13 @@ impl<E, P> EventSink<E, P> {
     }
 }
 
-/// 平台事件线程句柄；`join` 等待线程退出。
 pub struct EventThread {
     join: Option<JoinHandle<()>>,
 }
 
 impl EventThread {
-    /// 等待事件线程退出。退出由调用方触发：drop 通道②的 Sender 即可。
+    /// 退出协议：调用方 drop 通道②的 Sender，线程抽干剩余命令后自行结束；
+    /// `join` 返回即线程已终止。
     pub fn join(mut self) {
         if let Some(join) = self.join.take()
             && join.join().is_err()
@@ -121,12 +112,8 @@ impl EventThread {
     }
 }
 
-/// 启动平台事件线程。
-///
-/// `on_command` 在事件线程上顺序消费通道②（取材接线前可先挂测试桩）；
-/// `sources` 是挂载到本线程的事件源（鼠标手势……），每个 tick 抽干
-/// 一轮。退出协议：调用方 drop 通道② Sender，线程抽干剩余命令后自行结束，
-/// `join` 返回即线程已终止。
+/// `on_command` 在事件线程上顺序消费通道②，`sources` 每个 tick 抽干一轮；
+/// 两者都不允许把 panic 带进线程。
 pub fn spawn<C, E, P, F>(
     commands: Receiver<C>,
     sink: EventSink<E, P>,
@@ -157,8 +144,8 @@ where
 }
 
 /// 应用代码注入的回调不允许把 panic 带进事件线程；捕获后循环继续服务。
-/// 生效边界：release 以 `panic = "abort"` 构建时 panic 在事发点直接 abort
-/// 进程，`Err` 分支不可达；屏障只在 unwind 构建（dev/test 及其单测）生效。
+/// release 以 `panic = "abort"` 构建时 panic 在事发点直接 abort，`Err` 分支
+/// 不可达——屏障只在 unwind 构建（dev/test 及其单测）生效。
 fn guarded<R>(what: &str, f: impl FnOnce() -> R) -> Option<R> {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(value) => Some(value),
@@ -178,8 +165,7 @@ enum TickOutcome {
 }
 
 /// 一轮消费：先抽干通道②（出现 Disconnected 即退出信号），再抽干全部
-/// 事件源。由 RunLoop 定时器驱动，保证「与系统事件同线程顺序处理」的
-/// 语义只有一份实现。
+/// 事件源——同一线程内命令总排在系统事件之前。
 fn tick<C, E, P, F>(
     commands: &Receiver<C>,
     sink: &EventSink<E, P>,
@@ -195,7 +181,6 @@ where
                 let _ = guarded("acquire command handler", || on_command(command, sink));
             }
             Err(TryRecvError::Empty) => break,
-            // 通道② Sender 全部 drop：事件线程使命结束。
             Err(TryRecvError::Disconnected) => return TickOutcome::Exit,
         }
     }
@@ -210,9 +195,8 @@ where
     TickOutcome::Continue
 }
 
-/// 事件线程的驱动：RunLoop 不能阻塞在 crossbeam 上，挂一个周期
-/// 定时器执行与 [`tick`] 相同的一轮消费；鼠标 tap 等自带 run loop 的源在
-/// 各自线程上运行，产物经通道汇入由这里抽干（见 events/mouse.rs）。
+/// 事件线程的驱动：RunLoop 不能阻塞在 crossbeam 上，挂一个周期定时器跑
+/// [`tick`]；自带 run loop 的源在各自线程上运行，产物经通道汇入这里抽干。
 fn run_loop<C, E, P, F>(
     commands: Receiver<C>,
     sink: EventSink<E, P>,
@@ -251,7 +235,7 @@ fn run_loop<C, E, P, F>(
             &mut state.on_command,
             &mut state.sources,
         ) {
-            // 通道② Sender 全部 drop：停掉 RunLoop，CFRunLoopRun 返回后线程结束。
+            // 通道② Sender 全部 drop：停掉 RunLoop 让 CFRunLoopRun 返回，线程随之结束。
             // SAFETY: `run_loop` 是本线程自己的 run loop（`CFRunLoopGetCurrent`
             // 返回 +0 引用且从不 release，始终有效）；`CFRunLoopStop` 无额外前置条件。
             unsafe { CFRunLoopStop(state.run_loop) };
@@ -302,8 +286,8 @@ fn run_loop<C, E, P, F>(
         CFRunLoopAddTimer(state.run_loop, timer, kCFRunLoopCommonModes);
         CFRunLoopRun();
     }
-    // RunLoop 已停止且不在回调中：先 invalidate 再释放定时器（CF timer 的
-    // 规范清理步骤），最后收回状态盒。
+    // RunLoop 已停止且不在回调中：CF timer 的规范清理是先 invalidate 再 release，
+    // 最后收回状态盒。
     // SAFETY: `timer` 持有 `CFRunLoopTimerCreate` 返回的 +1 引用；此刻已退出
     // RunLoop 且不在回调内，先 invalidate 再 release 符合 CF 定时器的清理顺序。
     unsafe {
