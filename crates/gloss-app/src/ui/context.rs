@@ -100,9 +100,6 @@ pub(crate) fn apply_selection_colors(ctx: &Context) {
     });
 }
 
-/// kittest 自建上下文的字体绑定（测试专用）：与启动快路径同一套内置
-/// 定义，排版字号照常生效、字形不依赖宿主字体（快照 tofu 约定）。
-/// 对 set_fonts 的调用收在本模块（统一装入点），测试也不例外。
 #[cfg(test)]
 pub(crate) fn install_kittest_fonts(ctx: &Context) {
     ctx.set_fonts(super::fonts::builtin_definitions());

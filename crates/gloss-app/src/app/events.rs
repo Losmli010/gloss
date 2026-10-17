@@ -55,7 +55,7 @@ impl Waker {
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
 ///
 /// `theme` 施加到各 egui 上下文（见
-/// `GlossApp::apply_theme`）。`system_locale` 是组装点读到的系统语言，
+/// `Workspace::apply_theme`）。`system_locale` 是组装点读到的系统语言，
 /// 供配置里的 `Language::System` 落定成 [`Locale`]（prompt 模板与界面文案共用）。
 /// `scene` 是触发前场景探针（安全输入态、前台应用），供敏感信息防护的
 /// 场景闸门判定——同样是平台适配器的事，壳只消费。`permissions_ready`
@@ -64,8 +64,9 @@ impl Waker {
 /// 热据此门控（见 `GlossApp::send_secret_prewarm`）。
 ///
 /// `update` 是更新子系统的壳侧接线（组装点经 `update::start_once()` 建立，
-/// 见 [`UpdateWiring`]）：设置页每帧读 [`watch::Receiver`] 里的
-/// [`UpdateState`] 渲染，用户动作经出口转投模块——与主流程四通道完全隔离。
+/// 见 [`UpdateWiring`]）：设置页每帧读 watch 通道里的
+/// [`crate::update::state::UpdateState`] 渲染，用户动作经出口转投模块——与
+/// 主流程四通道完全隔离。
 ///
 /// `clipboard_watch_enabled` 是剪贴板图片哨兵的共享开关位（组装点按启动
 /// 快照创建、与事件线程的哨兵源同份）：App 在设置页保存成功时置位，热切

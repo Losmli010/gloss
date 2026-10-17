@@ -1,28 +1,10 @@
-//! LLM 任务服务（编排层）：意图定型 → prompt 渲染 → 引擎流式转发（含
-//! 契约修复轮）。
+//! LLM 任务服务（编排层）：意图定型 → prompt 渲染 → 流式转发 → 契约修复轮。
 //!
-//! 一次 `run` 的完整前半程都在这里：输入校验 → 意图定型（文本走 LLM
-//! 分类——违约与请求异常在 `classify` 内部消化，修复 [`CLASSIFY_REPAIRS`]
-//! 轮后落 [`CLASSIFY_FALLBACK`]，恒 `Ok`；图像输入自带显式意图，恒定映射
-//! ImageExplain、跳过分类）→ `on_classified` 回调 → 任务形成（prompt 渲
-//! 染 + 模态校验）→ 流式执行（原始增量经 `on_chunk` 逐条转交，同时累积）
-//! → **任务契约校验**（`schema::validate_task`）→ 违约进修复轮（对话形态
-//! `[system][user 原文/图][assistant 上一次坏回复][user 纠错指令]`，EmptyReply
-//! 原样重发），预算 [`TASK_REPAIRS`] 轮，每轮开始前经 `on_repair` 通知调
-//! 用方重置 UI → 通过即返回，耗尽则原始文本原样上交（完成态解析落降级
-//! 产物）。引擎错误（网络/鉴权/限流/JSON 模式不支持/多模态不支持/中途
-//! 协议错误）一律不重试、原样上抛。**零缓存零配置**：模型取自
-//! `options.model`，本层与缓存彻底无关——查/写缓存、完成态解析与产物组
-//! 装都归调用方（app 桥）。
-//!
-//! 输出契约见 prompt 模块与 `crate::schema`：模型按契约直接返回纯 JSON
-//! 对象（`note` 义 + `structured` 疏证）；本层搬运原始文本并做**硬约束**
-//! 校验（整段合法 JSON 对象 + note 非空）——产物组装归调用方的完成态
-//! （`gloss_app::finalize`，经 `schema::validate_task` 两分支：校验过出
-//! 正常产物，违约落降级产物）。
-//!
-//! 子模块 [`llm`] / [`sse`] 是 [`AiEngine`] 端口的内建传输适配：OpenAI
-//! 兼容端点的流式客户端与 SSE 增量解码。
+//! 文本输入先走一次 LLM 分类（异常在 [`crate::classify`] 内消化，恒有 kind），
+//! 图像输入固定映射 [`TaskKind::ImageExplain`] 并跳过分类。引擎错误（网络/
+//! 鉴权/限流/JSON 模式/模态）一律不重试、原样上抛；契约违约走 [`TASK_REPAIRS`]
+//! 轮修复，耗尽后把原始文本交给调用方去降级。
+//! **零缓存零配置**：模型取自 `options.model`，查/写缓存与产物组装归调用方。
 
 pub mod llm;
 pub mod sse;
@@ -37,14 +19,13 @@ use crate::prompt::{ChatMessage, PromptRegistry, repair_conversation};
 use crate::schema::{self, Violation};
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 
-/// 任务契约违约的修复轮预算：任务共 `1 + TASK_REPAIRS` 次尝试；耗尽后
-/// 原始文本原样上交，完成态解析落降级产物。
+/// 任务契约违约的修复轮预算：任务共 `1 + TASK_REPAIRS` 次尝试；耗尽后原始
+/// 文本原样上交，由调用方落降级产物。
 pub const TASK_REPAIRS: u32 = 3;
 
-/// 单轮流式回复的累积字节上限：任务产物是注卡片正文，远用不到这个量级；
-/// 无上限的累积会把「模型失控输出」直接放大成无界内存（流式期间逐 chunk
-/// 追加）。超限按请求异常失败——半截超长回复不可能过 JSON 契约，进修复
-/// 轮只会把同样的失控输出再跑几轮。
+/// 单轮流式回复的累积字节上限：卡片正文远用不到这个量级，而无上限的累积
+/// 会把「模型失控输出」放大成无界内存（流式期间逐 chunk 追加）。超限按请求
+/// 异常失败——半截超长回复不可能过 JSON 契约，进修复轮只会重跑同样的输出。
 const MAX_REPLY_BYTES: usize = 1024 * 1024;
 
 /// 服务端以内容审查收尾的 `finish_reason`。
@@ -53,36 +34,33 @@ const FINISH_CONTENT_FILTER: &str = "content_filter";
 /// 服务端以长度截断收尾的 `finish_reason`（修复指令据此附加精确提示）。
 const FINISH_LENGTH: &str = "length";
 
-/// 内容审查的失败诊断（固定措辞，进失败卡与日志）：内容被服务端拦截，
-/// 重发同请求无益，不重试直接失败卡。
+/// 内容审查的失败诊断：内容被服务端拦截，重发同请求无益，不重试。
 const CONTENT_FILTER_DIAGNOSTIC: &str = "reply stopped by the server content filter";
 
-/// 零增量完成的识别：传输适配器（`llm::SseStream`）对「成功收尾但一个
-/// 增量都没有」的坏响应统一发这个固定诊断——它是坏**回复**而非坏请求，
-/// 重试循环据此转 [`Violation::EmptyReply`] 进修复轮。
+/// 零增量完成的识别：传输适配器（`llm::SseStream`）对「成功收尾但一个增量
+/// 都没有」的坏响应统一发这个固定诊断——它是坏**回复**而非坏请求，重试循环
+/// 据此转 [`Violation::EmptyReply`] 进修复轮。
 fn is_empty_completion(error: &GlossError) -> bool {
     matches!(error, GlossError::EngineResponse(text) if text == llm::EMPTY_COMPLETION)
 }
 
 /// 一次 `run` 的产出：判定的任务类型 + 引擎返回的**原始**完整文本。
-/// 解析成产物归调用方（完成态解析在 `gloss_app::finalize`）。
+/// 解析成产物归调用方。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOutput {
     /// 本次任务最终执行的类型（含分类兜底）。
     pub kind: TaskKind,
-    /// 模型回复的原始完整文本（未解析、未剥离）。修复轮耗尽后是最后
-    /// 一轮的违约原文——完成态解析按违约落降级产物。
+    /// 模型回复的原始完整文本（未解析、未剥离）。修复轮耗尽后是最后一轮的
+    /// 违约原文——调用方据此落降级产物。
     pub raw: String,
-    /// 服务端声明的结束原因（`choices[0].finish_reason`，如 `stop` /
-    /// `length` / `content_filter`）；服务端未声明 `[DONE]`（连接关闭、
-    /// 脚本桩）为 `None`。以最后一轮为准。
+    /// 服务端声明的结束原因（`choices[0].finish_reason`）；服务端没给
+    /// `[DONE]`（连接关闭、脚本桩）为 `None`。以最后一轮为准。
     pub finish_reason: Option<String>,
-    /// 任务契约违约触发的修复轮次数（0 = 一次通过）。
+    /// 契约违约触发的修复轮次数（0 = 一次通过）。
     pub repairs: u32,
 }
 
-/// 渲染、分类与转发编排：只依赖端口与模板，单测用 `tests/stubs` 的
-/// `MockEngine` 驱动。
+/// 渲染、分类与转发编排：只依赖端口与模板。
 pub struct AiTaskService {
     engine: Arc<dyn AiEngine>,
     prompts: PromptRegistry,
@@ -97,20 +75,18 @@ impl AiTaskService {
         }
     }
 
-    /// 执行一条任务：入口校验（模型非空、模态放行）→ 意图定型（文本走
-    /// LLM 分类，异常内部消化、恒 `Ok`；图像输入恒定映射 ImageExplain、
-    /// 跳过分类，`on_classified` 恒发）→ prompt 渲染 → [`run_task_rounds`]
-    /// 执行任务段。
+    /// 执行一条任务：入口校验（模型非空、模态放行）→ 意图定型 → prompt 渲染
+    /// → [`run_task_rounds`] 执行任务段。
     ///
-    /// `input` 与 `options` 按值接收：任务在执行期间独占两者，调用方
-    /// （app 桥）从通道解出后即交出所有权。
+    /// `input` 与 `options` 按值接收：任务在执行期间独占两者，调用方从通道
+    /// 解出后即交出所有权。
     ///
-    /// 调用方契约（app 桥据此接线，见 `gloss_app::pipeline`）：
-    /// - `on_classified` 在**任何** chunk 之前恰好调用一次（含失败兜底
-    ///   kind 与图像的固定 kind）——界面的任务标签以它为准；
+    /// 调用方契约：
+    /// - `on_classified` 在**任何** chunk 之前恰好调用一次（含兜底 kind 与
+    ///   图像的固定 kind）——界面的任务标签以它为准；
     /// - `on_chunk` / `on_repair` 与返回值的契约见 [`run_task_rounds`]；
     /// - 取消不进本服务：调用方以 `CancellationToken` 竞速，丢弃本 future
-    ///   即停止转发（修复轮也是 future 内的 await 点，竞速天然覆盖）。
+    ///   即停止转发（修复轮也在 future 内，竞速天然覆盖）。
     pub async fn run(
         &self,
         input: TaskInput,
@@ -125,11 +101,9 @@ impl AiTaskService {
             return Err(GlossError::Config("empty model id".into()));
         }
 
-        // 意图定型：文本输入没有显式意图，交给 LLM 分类（分类内部消化
-        // 违约与请求异常，恒 `Ok`；这里的 Err 臂是非文本输入的防御路径）；
-        // 图像输入的取材动作即显式意图（剪贴板图片任务就是图像解读），
-        // 恒定映射 ImageExplain、跳过分类——显式意图恒定映射与分类常量
-        // 兜底同哲学，`CLASSIFY_KINDS` 不动，引擎调用少一次往返。
+        // 意图定型：文本输入没有显式意图，交给 LLM 分类（分类恒 Ok，这里的
+        // Err 臂只是防御）；图像输入的取材动作即显式意图——剪贴板图片就是
+        // 图像解读，固定映射并跳过分类，省一次往返。
         let kind = match &input {
             TaskInput::Text { .. } => match classify(
                 self.engine.as_ref(),

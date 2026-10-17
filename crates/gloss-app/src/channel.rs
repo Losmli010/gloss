@@ -171,7 +171,6 @@ pub struct CrossbeamPair<T> {
 }
 
 impl<T> CrossbeamPair<T> {
-    /// 创建一对无界通道。
     pub fn new() -> Self {
         let (tx, rx) = unbounded();
         Self { tx, rx }
@@ -221,7 +220,6 @@ pub struct Channels {
 }
 
 impl Channels {
-    /// 创建四条通道。
     pub fn new() -> Self {
         Self {
             platform_events: CrossbeamPair::new(),

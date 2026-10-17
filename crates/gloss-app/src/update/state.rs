@@ -2,15 +2,15 @@
 //! functional core）。
 //!
 //! 触发入口（启动静默检查 / 设置页手动检查）、下载与替换都由壳执行——
-//! 本模块只决策：用户意图（[`Self::check`] / [`Self::confirm_download`] /
-//! [`Self::confirm_restart`] / [`Self::retry`] / [`Self::cancel`]）与任务
+//! 本模块只决策：用户意图（[`UpdateMachine::check`] / [`UpdateMachine::confirm_download`] /
+//! [`UpdateMachine::confirm_restart`] / [`UpdateMachine::retry`] / [`UpdateMachine::cancel`]）与任务
 //! 回包（[`UpdateMachine`] 的 `accept_*`）在此收敛成命令与状态，UI 每帧读
 //! 最新相位渲染。
 //!
 //! 状态迁移逐行对应分发设计 §4.1 的迁移表；额外说明三条表外语义：
 //! - 初始相位 [`UpdatePhase::Idle`] 只存在于首次检查发起之前（启动静默
 //!   检查在首帧就绪后补发，稳态不可达）；
-//! - [`Self::cancel`] 只对下载中有效，回到待确认下载——清单已知且校验
+//! - [`UpdateMachine::cancel`] 只对下载中有效，回到待确认下载——清单已知且校验
 //!   通过，该事实不因下载取消而消失；在途进度留在 `.partial`（下次全量
 //!   下载时清除，仅失败重试路径会续传）；检查中无处可回，不予取消
 //!   （重复检查本就会取消在途任务）；

@@ -7,7 +7,7 @@
 //! 新缓存）：keychain 的 ACL 按代码签名信任访问方，dev 构建每次重编译签
 //! 名都变，不在旧条目信任列表里——每次读取都会弹「允许访问钥匙串」并阻塞
 //! 到用户点击。缓存把读弹窗收敛到每进程一次，未命中缓存的首读另按 key
-//! 串行（见 [`KeychainSecret.read_gates`] 字段文档），并发首读不会各自撞
+//! 串行（见 `read_gates` 字段文档），并发首读不会各自撞
 //! 一次授权框；写删路径走「取引用删除 + 重建」（见 [`KeychainSecret::set`]
 //! 与 [`KeychainSecret::delete_underlying`] 文档）免弹窗、也不受旧条目
 //! 所有权阻拦。设置页改密钥经同一实例的 `set` 写入缓存，即时生效，无需
@@ -242,8 +242,6 @@ impl KeychainSecret {
     }
 }
 
-/// 真机路径：先在测试服务名下验证「未设置 = None」与删除幂等（纯
-/// keychain 行为，不写入任何密钥值）。
 #[cfg(test)]
 mod tests {
     use super::*;

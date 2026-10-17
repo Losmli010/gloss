@@ -79,7 +79,6 @@ mod imp {
     const AX_MESSAGE_TIMEOUT_SECS: f32 = 0.3;
 
     impl AccessibilityReader {
-        /// 创建读取器。
         pub fn new() -> Self {
             Self
         }

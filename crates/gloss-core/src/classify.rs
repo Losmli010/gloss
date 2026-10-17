@@ -183,7 +183,7 @@ pub struct ClassifyDecision {
 /// 修复轮（对话形态 `[system][user 原文][assistant 上一次坏回复]
 /// [user 纠错指令]`，EmptyReply 原样重发不带 assistant 轮），预算
 /// [`CLASSIFY_REPAIRS`] 耗尽落 [`CLASSIFY_FALLBACK`]（恒 `Ok`）。与
-/// [`classify`] 的差别只有一处：**请求异常不消化**、原样上抛——消化
+/// [`classify`] 在错误处理上的差别只有一处：**请求异常不消化**、原样上抛——消化
 /// （落兜底 + warn）归 [`classify`]；评测需要区分「请求失败」与「回复
 /// 违约」，故在 traced 层保持上抛。
 ///

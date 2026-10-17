@@ -26,7 +26,7 @@ use objc2_foundation::NSData;
 
 use super::{ImageFlavor, PasteboardObserver, pasteboard_change_count, pasteboard_image_flavor};
 
-/// flavor 字节上限：恰好 4096² 的未压缩 TIFF（RGB8）约 43MB，给满尺寸的
+/// flavor 字节上限：恰好 4096² 的未压缩 TIFF（RGB8）约 48MB，给满尺寸的
 /// 合法图像留量；超限在头解析之前整体拒绝。
 pub const MAX_FLAVOR_BYTES: usize = 64 * 1024 * 1024;
 
@@ -182,7 +182,7 @@ pub struct ClipboardImageReader {
 }
 
 impl ClipboardImageReader {
-    /// 创建读取器：句柄来自同一次装配的 [`ClipboardWatchSource::observer`]。
+    /// 创建读取器：句柄来自同一次装配的 [`crate::clipboard::ClipboardWatchSource::observer`]。
     pub fn new(observer: PasteboardObserver) -> Self {
         Self { observer }
     }

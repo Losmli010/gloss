@@ -230,7 +230,6 @@ pub struct TaskMetrics {
 }
 
 impl TaskMetrics {
-    /// 记入一个判定。
     pub fn record(&mut self, verdict: &TaskVerdict) {
         self.evaluated += 1;
         self.json_object += usize::from(verdict.json_object);
@@ -251,12 +250,10 @@ pub struct Latency {
 }
 
 impl Latency {
-    /// 记一个样本。
     pub fn record(&mut self, ms: f64) {
         self.samples_ms.push(ms);
     }
 
-    /// 样本数。
     pub fn count(&self) -> usize {
         self.samples_ms.len()
     }

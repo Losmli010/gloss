@@ -306,7 +306,6 @@ fn has_high_entropy_token(text: &str) -> bool {
     })
 }
 
-/// 小写、大写、数字三类字符是否齐全。
 fn has_all_three_classes(word: &str) -> bool {
     let lower = word.bytes().any(|byte| byte.is_ascii_lowercase());
     let upper = word.bytes().any(|byte| byte.is_ascii_uppercase());
@@ -367,7 +366,7 @@ fn has_card_number(text: &str) -> bool {
     luhn_ok(&digits)
 }
 
-/// Luhn 校验：从右往左，偶数位（0 基）翻倍、超 9 减 9，总和整除 10。
+/// Luhn 校验：从右数第 2、4、6… 位（0 基奇数索引）翻倍、超 9 减 9，总和整除 10。
 fn luhn_ok(digits: &str) -> bool {
     if !(MIN_CARD_DIGITS..=MAX_CARD_DIGITS).contains(&digits.len()) || distinct_digits(digits) < 2 {
         return false;

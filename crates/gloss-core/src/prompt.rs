@@ -159,13 +159,11 @@ impl ChatMessage {
 
 /// Prompt 模板注册表：内置文本任务模板，无状态可按需构造。
 ///
-/// 模板来自编译期嵌入的文件资源（见模块文档）；配置化（自定义模板）
-/// 落地时在此扩展注册机制。
+/// 模板来自编译期嵌入的文件资源（见模块文档）。
 #[derive(Debug, Default, Clone, Copy)]
 pub struct PromptRegistry;
 
 impl PromptRegistry {
-    /// 创建注册表。
     pub fn new() -> Self {
         Self
     }
@@ -1179,8 +1177,6 @@ mod tests {
 
     #[test]
     fn output_example_values_are_neutral_placeholders() {
-        // 同分类契约的少样本偏置取舍：示例值必须是占位而不是真实词条，
-        // 模型照抄示例类别的比例随示例显著性上升。
         for locale in [Locale::Zh, Locale::En] {
             let templates = locale.templates();
             for (name, text) in [

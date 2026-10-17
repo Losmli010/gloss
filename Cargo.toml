@@ -47,9 +47,6 @@ unimplemented = "deny"
 unreachable = "deny"
 unwrap_used = "deny"
 
-[workspace.lints.rust]
-missing_docs = "deny"
-
 # 唯一入口：组装依赖、分发通道 Sender、启动线程与事件循环
 [[bin]]
 name = "gloss"
@@ -87,8 +84,8 @@ gloss-platform = { path = "crates/gloss-platform" }
 # 常驻内存贴着活跃字节走。
 mimalloc = { version = "0.1", default-features = false }
 
-# 公共 API 必须有文档注释，由 missing_docs = deny 强制；文档里的示例
-# 由 cargo test --doc（just test 一部分）验证可编译可运行。
+# 文档注释里的示例由 cargo test --doc（just test 一部分）验证可编译可运行；
+# 无文档注释的公开项不受影响。
 [dev-dependencies]
 # 基准框架（benches/core）；特性只保留 cargo_bench_support。
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }

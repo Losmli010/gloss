@@ -3,7 +3,7 @@
 //! 其余 crate 不直接依赖 `tracing`，只经 `gloss_core::log` 使用宏与 [`init`]。
 //!
 //! 跨线程排查靠结构化字段而非字符串拼接，三个字段全链路携带：
-//! - `gen`：请求代数，串联一次任务的完整时序——由 [`task_span`] 的 span 字段
+//! - `generation`：请求代数，串联一次任务的完整时序——由 [`task_span`] 的 span 字段
 //!   自动带给范围内的日志，跨线程只传 span 句柄；
 //! - `kind`：`TaskKind`，按任务类型过滤；
 //! - `thread`：线程角色，取 [`thread::UI`] / [`thread::EVENT`] / [`thread::TOKIO`]。
@@ -52,12 +52,11 @@ pub mod thread {
     pub const TOKIO: &str = "tokio";
 }
 
-/// 基准级别：`RUST_LOG` 未设置或为空时生效。
+/// 基准级别：始终作为打底项，`RUST_LOG` 的模块指令在其上叠加（全局指令可压制它）。
 const DEFAULT_FILTER: &str = "info";
 
 /// 日志文件名：`gloss-<UTC 日期>.jsonl`。
 const FILE_PREFIX: &str = "gloss-";
-/// 日志文件名后缀。
 const FILE_SUFFIX: &str = ".jsonl";
 
 /// 按天保留的日志文件个数（约一周）。
@@ -264,7 +263,6 @@ impl io::Write for DailyFileWriter {
     }
 }
 
-/// 日期对应的日志文件名。
 fn log_file_name(date: &str) -> String {
     format!("{FILE_PREFIX}{date}{FILE_SUFFIX}")
 }
@@ -541,7 +539,7 @@ mod tests {
 
         writeln!(writer, "probe line").expect("write should not fail");
         drop(writer);
-        drop(guard); // 关掉后台线程，把队列里剩下的日志刷盘
+        drop(guard);
 
         let (name, content) = fs::read_dir(&dir)
             .expect("log dir should be readable")

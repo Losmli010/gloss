@@ -1,44 +1,34 @@
 //! 全局鼠标监听：左键按下/释放 → 划词手势判定。
 //!
-//! 手势策略取「拖拽释放」（按下 → 时长与位移双达标 → 释放）：最短按压时长
-//! 滤除瞬时甩动，位移阈值区分普通点击。
+//! 手势取「拖拽释放」：按压时长与位移双达标才算选择，分别滤掉瞬时甩动与
+//! 普通点击。订阅面只有左键按下与释放，键盘事件不进入本模块。
 //!
-//! **订阅面只有左键按下与释放**（见 [`SUBSCRIBED_EVENT_TYPES`]），坐标直接取自
-//! 事件自身；键盘事件不进入本模块。
-//!
-//! 线程约束：监听在**当前线程**建立事件 tap 并阻塞运行（回调跑在它自己的
-//! RunLoop 上），不能在平台事件线程内运行，也没有停止 API——监听线程随进程
-//! 退出消亡。需要辅助功能授权，未授权时 tap 建立失败 → 手势功能
-//! 整体降级：建立结果经 [`MouseSource::spawn`] **同步**可知（等创建相结果，
-//! 无须轮询），运行中失效才经标志异步置位。
+//! 线程约束：tap 在**当前线程**建立并阻塞运行（回调跑在它自己的 RunLoop
+//! 上），不能放进平台事件线程；没有停止 API，监听线程随进程退出消亡。
+//! 需要辅助功能授权，建立结果同步返回，运行中失效才经标志异步置位。
 
 use crossbeam_channel::Receiver;
 
-/// 判定为「拖拽选择」所需的最小位移，单位是系统坐标（逻辑点，不必按 DPI
-/// 折算）——远高于普通点击的抖动。
+/// 判定为拖拽所需的最小位移（系统逻辑点）：远高于点击抖动，又低于任何
+/// 有意拖拽；坐标是逻辑点，不必按 DPI 折算。
 const DRAG_THRESHOLD: f64 = 12.0;
 
-/// 判定为「拖拽选择」所需的最短按压时长（纳秒）：瞬时甩动（按下与释放几乎
-/// 同时到达）在此被滤除。取 150ms 的缘由：人手有意的拖拽选择从按下到释放
-/// 稳定在数百毫秒量级（点击本身的按压就有约 100ms，再加上拖动时间），而
-/// 甩动、HID 层连滑这类误触的按压与释放间隔趋近于零——150ms 在两者之间
-/// 两侧都留足裕量：快甩滤得掉，慢拖不受影响。
+/// 判定为拖拽所需的最短按压时长（纳秒）。有意的拖拽稳定在数百毫秒（点击
+/// 本身的按压就有约 100ms），甩动与 HID 连滑趋近于零；150ms 落在两者之间，
+/// 两侧都留裕量。
 const MIN_PRESS_NANOS: u64 = 150_000_000;
 
-/// 左键的两种动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LeftButton {
     Pressed,
     Released,
 }
 
-/// tap 层交给手势层的事件：动作 + **该事件自身**的坐标与时间戳。
+/// tap 层交给手势层的事件，坐标与时间戳都取自**该事件自身**。
 ///
-/// 坐标不做「沿用最近一次移动位置」的缓存：真实拖拽期间系统只投递「拖拽」
-/// 事件（不是「移动」），缓存下来的位置会停在按下之前，释放时算出的位移恒为
-/// 零，手势一次也判不出来。让每个事件自带坐标，判定的输入就不再依赖系统是否
-/// 恰好投递了移动事件。时间戳同理取事件自身的（纳秒，单调），按压时长的
-/// 判定因此不依赖回调投递的先后延迟。
+/// 不能缓存「最近一次移动位置」：真实拖拽期间系统只投递拖拽事件而非移动
+/// 事件，缓存会停在按下之前，释放时算出的位移恒为零，手势永远判不出来。
+/// 时间戳同理取事件自带的（纳秒，单调），按压时长不依赖回调投递延迟。
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ButtonEvent {
     action: LeftButton,
@@ -52,7 +42,6 @@ struct ButtonEvent {
 const CG_EVENT_LEFT_MOUSE_DOWN: u32 = 1;
 const CG_EVENT_LEFT_MOUSE_UP: u32 = 2;
 
-/// 必须排除的类型：键盘（10/11/12）与滚轮（22）。
 #[cfg(test)]
 const CG_EVENT_KEY_DOWN: u32 = 10;
 #[cfg(test)]
@@ -62,14 +51,14 @@ const CG_EVENT_FLAGS_CHANGED: u32 = 12;
 #[cfg(test)]
 const CG_EVENT_SCROLL_WHEEL: u32 = 22;
 
-/// 订阅清单——**唯一事实来源**：订阅掩码与回调过滤都由它推出，不要在
-/// 实现里另写第二份口径。
+/// 订阅清单是唯一事实来源：订阅掩码与回调过滤都由它推出，实现里不另写
+/// 第二份口径——否则键盘事件会从两处口径的缝隙里回来。
 const SUBSCRIBED_EVENT_TYPES: [(u32, LeftButton); 2] = [
     (CG_EVENT_LEFT_MOUSE_DOWN, LeftButton::Pressed),
     (CG_EVENT_LEFT_MOUSE_UP, LeftButton::Released),
 ];
 
-/// 原始类型码 → 左键动作；未订阅的类型一律 `None`（回调据此原样放行事件）。
+/// 未订阅的类型返回 `None`，回调据此原样放行事件。
 fn classify(raw_type: u32) -> Option<LeftButton> {
     SUBSCRIBED_EVENT_TYPES
         .iter()
@@ -77,14 +66,11 @@ fn classify(raw_type: u32) -> Option<LeftButton> {
         .map(|(_, action)| *action)
 }
 
-/// 划词手势状态机：Idle →（左键按下）→ Pressed →（时长与位移双达标后释放）
-/// → 判定一次拖拽选择。模块私有——公共面只经 [`MouseSource`] 使用它。
 #[derive(Default)]
 struct GestureDetector {
     press: Option<Press>,
 }
 
-/// 一次按下的快照：位置与事件时间戳，释放时算位移与按压时长用。
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Press {
     pos: (f64, f64),
@@ -92,7 +78,6 @@ struct Press {
 }
 
 impl GestureDetector {
-    /// 抽干事件流并驱动状态机，返回本轮判定的拖拽选择与各自的释放坐标。
     fn poll(&mut self, events: &Receiver<ButtonEvent>) -> Vec<(f64, f64)> {
         let mut fired = Vec::new();
         while let Ok(event) = events.try_recv() {
@@ -103,8 +88,6 @@ impl GestureDetector {
         fired
     }
 
-    /// 喂入单个事件，判定为一次完整的拖拽选择（释放且按压时长与位移双达标）
-    /// 时返回释放坐标——浮层跟随划词位置的输入。
     fn feed(&mut self, event: ButtonEvent) -> Option<(f64, f64)> {
         match (event.action, self.press) {
             (LeftButton::Pressed, _) => {
@@ -145,39 +128,33 @@ mod tap {
     /// 划词手势产物（platform 本地类型；组装点映射为 ① 的平台事件）。
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum MouseGesture {
-        /// 用户完成了一次典型的文本选择动作（拖拽释放），载荷是释放坐标
-        /// （系统全局坐标，逻辑点、左上原点）——浮层跟随划词位置用。
+        /// 一次完整的拖拽选择，载荷是释放坐标（系统全局坐标，逻辑点、左上
+        /// 原点）——浮层跟随划词位置用。
         Selection {
-            /// 释放坐标（整型化的逻辑点，与 [`ScreenPoint`] 同一口径）。
+            /// 整型化的逻辑点，与 [`ScreenPoint`] 同一口径。
             pos: ScreenPoint,
         },
     }
 
-    /// 监听启动失败的原因——只用于日志与降级判定（手势可降级，失败不向上
-    /// 传播错误，与「外观类功能不拦启动」同一取向）。
+    /// 监听启动失败的原因，只用于日志与降级判定：手势可降级，失败不向上
+    /// 传播错误。
     #[derive(Debug)]
     enum ListenError {
         /// 系统拒绝建立事件 tap：最常见的原因是未授予辅助功能权限。
         EventTap,
-        /// 建立 tap 所需的 run loop source 没建起来（资源耗尽等）。
         RunLoopSource,
     }
 
-    /// 事件线程侧的鼠标手势源：tap 事件通道 + 状态机。
     pub struct MouseSource {
         events: Receiver<ButtonEvent>,
         detector: GestureDetector,
     }
 
     impl MouseSource {
-        /// 启动全局鼠标监听，返回事件线程侧源与「运行中失效」标志。
-        ///
-        /// tap 的建立结果在本调用内**同步**可知（等创建相结果的有界通道，
-        /// 非计时等待）：返回 `None` 即 tap 没建起来（未授权辅助功能是最
-        /// 常见原因），组装点据此同步判定手势是否可用（失败已留 warn 日志，
-        /// 手势整体降级），无须等轮询；返回
-        /// `Some` 时 tap 已在投递事件。标志仅在 tap 中途停止投递时置位
-        /// （运行中失效的观测点），启动失败不经它表达。
+        /// 返回 `None` 即 tap 没建起来（未授权辅助功能最常见），组装点据此
+        /// 同步判定手势可用性，无须轮询。建立的等待是「创建相结果」通道事件，
+        /// 有界且无用户交互。标志只在 tap 中途停止投递时置位，启动失败不经它
+        /// 表达。
         pub fn spawn() -> (Option<Self>, Arc<AtomicBool>) {
             let degraded = Arc::new(AtomicBool::new(false));
             let events = spawn_tap(Arc::clone(&degraded));
@@ -203,10 +180,9 @@ mod tap {
         }
     }
 
-    /// 启动 tap 监听线程并**同步等待**创建相结果：成功返回事件通道；失败
-    /// 返回 `None`（原因已记日志）。创建相与阻塞相分离（见 `imp`），失败
-    /// 在进 run loop 前就确定——本等待是通道事件且有界，创建本身无用户
-    /// 交互。
+    /// 启动 tap 监听线程并**同步等待**创建相结果：成功返回事件通道，失败
+    /// 返回 `None`（原因已记日志）。创建相与阻塞相分离，失败在进 run loop
+    /// 前就确定。
     fn spawn_tap(degraded: Arc<AtomicBool>) -> Option<Receiver<ButtonEvent>> {
         let (tx, rx) = bounded(256);
         let (created_tx, created_rx) = bounded::<Result<(), ListenError>>(1);
@@ -391,7 +367,7 @@ mod tap {
         /// 一律原样放行（listen-only 的 tap 也必须返回事件本身）。
         ///
         /// 翻译只用常量查表加位置与时间戳各一次读取（不分配、不调用会 panic
-        /// 的 API），panic 兜底在 sink 侧（见 [`listen`] 的调用方保证）。
+        /// 的 API），panic 兜底在 sink 侧（见 [`create`] 的调用方保证）。
         unsafe extern "C" fn raw_callback(
             _proxy: CGEventTapProxy,
             raw_type: u32,
@@ -399,7 +375,7 @@ mod tap {
             user_info: *mut c_void,
         ) -> CGEventRef {
             if let Some(action) = classify(raw_type) {
-                // SAFETY: `user_info` 是 `listen` 传进来、有意泄漏到进程结束的
+                // SAFETY: `user_info` 是 `create` 经 `Box::into_raw` 传入、有意泄漏到进程结束的
                 // Box<dyn Fn(ButtonEvent)> 指针；C 侧不释放它。
                 let sink = unsafe { &*(user_info as *const Box<dyn Fn(ButtonEvent)>) };
                 // SAFETY: `event` 是系统在回调期间借给我们的事件引用，只读位置
@@ -441,7 +417,6 @@ mod tests {
         }
     }
 
-    /// 慢拖用的常量时刻：按下 1s，释放 1.4s——按压时长 400ms，稳过下限。
     const SLOW_PRESS: u64 = 1_000_000_000;
     const SLOW_RELEASE: u64 = 1_400_000_000;
 
@@ -642,8 +617,6 @@ mod injected_gesture_live_tests {
                 "move injection"
             );
         }
-        // 注入的事件自带真实时间戳：释放前真实睡过最短按压时长，否则手势会
-        // 被时长下限滤除（快甩滤除是本就想要的行为）。
         std::thread::sleep(Duration::from_millis(200));
         let release_at = event::current_position(&hid).expect("current location");
         assert!(

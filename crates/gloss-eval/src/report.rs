@@ -76,7 +76,6 @@ pub struct TaskStats {
 /// 延迟摘要（毫秒）。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct LatencySummary {
-    /// 样本数。
     pub count: usize,
     /// p50。
     pub p50: f64,

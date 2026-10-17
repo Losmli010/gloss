@@ -279,8 +279,6 @@ pub(crate) mod test_support {
         driven_app_wired(store, scene, true)
     }
 
-    /// 启动权限未就绪的驱动器：密钥预热在 `send_secret_prewarm` 处被门控
-    /// 跳过的行为以这条装配路径驱动。
     pub(crate) fn driven_app_without_startup_permissions() -> DrivenApp {
         driven_app_wired(
             Arc::new(MemoryConfigStore::default()),

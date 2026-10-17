@@ -1,39 +1,9 @@
-//! 任务状态机与浮层视图（functional core）：纯状态转移，不做任何 IO。
-//!
-//! 触发 → 取材 → 推理 → 展示/失败的完整转移在此收敛；通道发送、浮层
-//! 窗口操作、日志由壳（app 的 winit handler 与组装点）执行——本模块只
-//! 决策、不副作用，因此可被集成测试以公共 API 全时序驱动（分层测试
-//! 的 L1 层，见 tests/pipeline.rs）。
-//!
-//! 触发有两条路，共用两段式「探测—提交」与一个单调编号计数器（编号
-//! 不复用，代数与探测编号永不碰撞）：**划词手势**（文本任务）与**剪贴板
-//! 图片观察**（图像解读任务）。探测段在状态机之外——
-//! [`TaskStateMachine::begin_selection_probe`] 与
-//! [`TaskStateMachine::begin_pasteboard_probe`] 只领一个探测编号、冻结
-//! 任务选项并返回取材命令，不改状态、不换视图、不取消在途任务，已显示
-//! 的内容与在途推理全程无感；两路共用同一个在途探测槽，新探测顶掉旧
-//! 探测（旧探测的迟到产物经编号过滤丢弃）。产物到达时
-//! [`TaskStateMachine::commit_probe`] 才提交：探测编号提升为代数、旧任务
-//! 让位、视图换流式卡——文本走内容闸门与原文流式卡，图像留存
-//! `attached_image`（渲染层经访问器取用，视图变体形状不变）。探测失败
-//! （[`TaskStateMachine::commit_probe_failed`]）：划词的空选区/读不到按
-//! 误滑静默丢弃（显示原样保留），其余失败（划词权限缺失、剪贴板图片超
-//! 上限等）落失败卡。
-//!
-//! **任务类型不在状态机**：划词手势不带显式意图，状态机冻结的只有配置
-//! 选项（单次快照）；文本任务的 kind 由 LLM 层在执行前分类（提示直通/
-//! LLM 分类/兜底常量），剪贴板图片任务在 LLM 层恒定映射 `ImageExplain`
-//! （取材动作即显式意图），两者都经事件④的 `TaskClassified` 回传精化
-//! 流式视图。失败卡的出口、重试的重发都按「input + options」原样进行，
-//! 不回读配置。
-//!
-//! 两道敏感信息闸门的落点：场景闸门在 [`trigger_decision`]（触发前，
-//! 拦下即不取材不占编号、不出浮层），内容闸门在 [`TaskStateMachine::commit_probe`]
-//! 的文本分支（取材后、下发前，命中即丢弃探测且当前显示保留——不下发、
-//! 不出浮层；图像没有可扫描的文本内容，不设内容闸门）。
-//!
-//! 浮层露面策略（[`should_reveal`]）同样是本模块的纯决策：挂起显形请求
-//! 与「失败即弹」的按批判定；「怎么显示」在 `flow::reveal`。
+//! 任务状态机与浮层视图（functional core）：纯状态转移，不做 IO；通道②（主→事件线程）③（主→tokio）
+//! 由壳发送，①（平台→主）④（回传→主）由壳消费，浮层显隐与日志亦在壳侧。两段式「探测—提交」：
+//! 探测只领编号、冻结任务选项，不改状态也不取消在途任务；产物到达才提交——编号提升为代数、
+//! 旧任务取消让位、视图换流式卡。`generation` 只在提交路径赋值（`commit_probe` 置位，
+//! `begin_run` 随请求携带），回传按它过滤陈旧。敏感闸门两处：场景闸门在 `trigger_decision`（触发前），内容闸门在
+//! `commit_probe` 的文本分支（下发前，命中保留当前显示，图像没有可扫描文本故不设闸门）。
 
 use std::sync::Arc;
 
@@ -57,23 +27,14 @@ pub enum ErrorAction {
     OpenSettings,
 }
 
-/// 应用状态机：触发 → 取材 → 推理 → 展示/失败。
-///
-/// 转移概要：两路触发都不走状态（探测段在状态机之外，产物经
-/// [`TaskStateMachine::commit_probe`] 直接进 `Translating`，取消在途
-/// 任务并换流式卡）；`Translating` 收 `TaskChunk` 追加展示、收 `TaskDone`
-/// 定格 `Show`、收 `TaskFailed` 落 `Error`；收起（Esc / 关闭按钮）回
-/// `Idle`。
+/// 四个稳定态。探测不进本枚举（探测段在状态机之外）；提交从任意态直接进
+/// `Translating` 并取消旧任务，收起回 `Idle`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppState {
-    /// 浮层隐藏，无在途任务。
     #[default]
     Idle,
-    /// 推理中：`RunTask` 已下发 tokio，chunk 流式到达。
     Translating,
-    /// 展示产物。
     Show,
-    /// 失败态：显示失败信息与动作出口（重试按钮或设置页引导）。
     Error,
 }
 
@@ -81,76 +42,64 @@ pub enum AppState {
 /// 渲染。
 #[derive(Debug, Clone, PartialEq)]
 pub enum OverlayView {
-    /// 推理中：原文 + 已到达的流式原始回复（模型的原始 JSON 流，渲染层
-    /// 对 `note` 字段做渐进提取）。`classified` 是按代码排版的判定结果：
-    /// LLM 层分类前为 `None`，`accept_classified` 到达后精化（代码解释
-    /// 从分类帧起按代码排版）。`repairing` 是修复轮标记：页脚据此切
-    /// 「重新注解」（无横幅无计数）。
+    /// 推理中：原文 + 已到达的原始回复。`raw` 是模型原始 JSON 流（`note` 的
+    /// 渐进提取在渲染层）；`classified` 在 LLM 层分类前为 `None`，
+    /// `accept_classified` 到达后精化（代码解释从分类帧起按代码排版）；
+    /// `repairing` 置位时页脚切「重新注解」（无横幅无计数）。
     Streaming {
-        /// 触发时选中的原文。
         source: String,
-        /// 已到达的流式原始回复累积（含 JSON 结构，提取归渲染层）。
+        /// 模型原始回复的累积（含 JSON 结构，提取归渲染层）。
         raw: String,
-        /// 自动分类判明的任务类型（LLM 层回传后精化）。
+        /// LLM 层回传的任务类型；分类前为 `None`。
         classified: Option<TaskKind>,
-        /// 契约违约后的修复轮进行中（`accept_repairing` 置位）。
+        /// 修复轮进行中（`accept_repairing` 置位）。
         repairing: bool,
     },
-    /// 产物卡：按 `TaskKind` 精排或展示 markdown 注文。`source` 是本次
-    /// 任务的原文（从流式视图随行而来），经注疏排布的「经」位用。
-    /// 代码语言与降级标记都随 `outcome` 走：语言由渲染层经
-    /// `ui::code_hl::adopt` 从 `structured.code_language` 现算（唯一
-    /// 来源是产物的 LLM 判定），`degraded == true` 时渲染降级卡。
+    /// 产物卡：按 `TaskKind` 精排或展示 markdown 注文。`source` 是本次任务的
+    /// 原文，供注疏排布的「经」位；代码语言由渲染层从 `structured.code_language`
+    /// 现算（唯一来源是产物的 LLM 判定），`degraded` 时渲染降级卡。
     Outcome {
-        /// 触发时选中的原文。
         source: String,
-        /// 产物本体。
         outcome: TaskOutcome,
     },
-    /// 失败信息与动作出口：`action` 指出浮层该给用户的按钮（错误
-    /// 映射），`None` 表示无可操作出口（重新划词即可）。
+    /// 失败信息与动作出口：`action` 为 `None` 表示没有按钮可给（重新划词即可）。
     Failed {
-        /// 失败来源；面向用户的措辞由渲染层按界面语言映射。
         cause: FailureCause,
-        /// 失败卡的动作按钮；随错误类别而定。
         action: Option<ErrorAction>,
     },
 }
 
-/// 失败卡的错误来源：任务链路的 [`GlossError`]，或壳层通道故障。
-///
-/// 状态机只记来源、不记文案——文案随界面语言变，属渲染层的产物（见
-/// [`crate::ui::i18n::ErrorText`]），不随任务冻结。
+/// 失败卡的错误来源。状态机只记来源不记文案——文案随界面语言变，属渲染层
+/// （`crate::ui::i18n::Text::for_error`），不随任务冻结。
 #[derive(Debug, Clone, PartialEq)]
 pub enum FailureCause {
-    /// 任务链路返回的错误。
     Task(GlossError),
     /// 推理通道不可用（通道③发送失败）。
     TransportChannel,
 }
 
 /// `commit_probe` 的结果：下发 / 被内容闸门拦下 / 不采纳。三态而非 `Option`
-/// ——「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者要记一行 warn，
-/// 后者只记 debug），合并成 `None` 就分不出来了。
+/// ——「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者记 warn，后者
+/// 只记 debug），合并成 `None` 就分不出来了。
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputOutcome {
     /// 任务已组装，壳经通道③下发。
     Dispatch(RunRequest),
-    /// 内容疑似敏感：探测丢弃（当前显示保留，它属于上一个会话）。
+    /// 内容疑似敏感：探测丢弃，当前显示保留（它属于上一个会话）。
     Blocked(SensitiveKind),
     /// 陈旧探测编号或模态错配：不采纳，浮层与通道都不动。
     Ignored,
 }
 
 /// 失败处置的结果：弹失败卡 / 静默丢弃 / 不采纳。三态而非 bool
-/// ——「静默丢弃」与「陈旧丢弃」在壳侧要做不同的事：前者要留排查日志
-/// （划词探测失败的唯一痕迹），后者只记 debug。
+/// ——「静默丢弃」要留排查日志（划词探测失败的唯一痕迹），「陈旧丢弃」只记
+/// debug，合并后就分不出来了。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailureOutcome {
     /// 已落 `Error` 态，浮层弹失败卡（壳记 warn）。
     Shown,
-    /// 划词探测遇「无选区可读」：纯误滑——探测丢弃、不弹卡，状态机与
-    /// 当前显示一律不动（壳只记一条带前台应用的 info）。
+    /// 划词探测遇「无选区可读」：纯误滑——探测丢弃、不弹卡，状态机与当前
+    /// 显示一律不动（壳只记一条带前台应用的 info）。
     SilentlyDropped,
     /// 探测编号不符、代数陈旧或已隐藏：不采纳，浮层与状态都不动（壳记 info）。
     Ignored,
@@ -170,37 +119,31 @@ pub struct RunRequest {
     pub cancel: CancellationToken,
 }
 
-/// 探测时定下的任务选项：一次配置快照解析出全部参数，产物到达（提交）
-/// 时随请求下发——单次任务的配置从探测那一刻起就固定了（「单次任务内
-/// 配置一致」），取材途中换配置不会让同一个任务用上两个版本的参数。
-/// 任务类型不在其中：kind 由 LLM 层在执行前分类。
+/// 探测时定下的任务选项：一次配置快照解析出全部参数，产物到达（提交）时
+/// 随请求下发——单次任务的配置从探测那一刻起就固定了，取材途中换配置不会
+/// 让同一个任务用上两个版本的参数。任务类型不在其中：kind 由 LLM 层在执行
+/// 前分类。
 #[derive(Debug, Clone, PartialEq)]
 struct PendingOptions(TaskOptions);
 
-/// 在途探测的取材模态：探测命令与它等待的产物同模态，提交时按它配对
-/// （模态错配不消费探测）。
+/// 在途探测的取材模态：决定提交时接受的产物形状，也决定失败时的静默名单。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProbeSource {
-    /// 划词手势：等文本产物。
     Selection,
-    /// 剪贴板图片观察：等图像产物。
     PasteboardImage,
 }
 
-/// 在途的探测（划词或剪贴板图片）：探测编号、触发时冻结的任务选项与
-/// 取材模态。探测段不进状态机——产物到达时经
-/// [`TaskStateMachine::commit_probe`] 才接管状态。
+/// 在途的探测（划词或剪贴板图片）：同一时刻至多一个，新探测整体替换它；
+/// 产物到达时经 [`TaskStateMachine::commit_probe`] 才接管状态。
 #[derive(Debug, Clone, PartialEq)]
 struct ProbeTask {
-    /// 探测编号：与代数同一计数器分配，提交时提升为代数。
+    /// 与代数同一计数器分配，提交时提升为代数。
     id: u64,
-    /// 探测时冻结的任务选项。
     pending: PendingOptions,
-    /// 探测的取材模态：决定提交时接受的产物形状与失败时的静默名单。
+    /// 决定提交时接受的产物形状与失败时的静默名单。
     source: ProbeSource,
 }
 
-/// 任务状态机：纯状态 + 决策，无 IO，可全时序驱动。
 #[derive(Debug, Default)]
 pub struct TaskStateMachine {
     /// 代数与探测编号共用的单调计数器：两路探测都从这里领号，永不复用。
@@ -209,10 +152,10 @@ pub struct TaskStateMachine {
     /// 的陈旧过滤基准。探测编号在提交时才提升为代数。
     generation: u64,
     state: AppState,
-    /// 在途的探测（划词或剪贴板图片，同一时刻至多一个）：取材在状态机
-    /// 之外进行，产物到达时提交或丢弃。新探测与收起都会替换或清掉它。
+    /// 在途的探测（划词或剪贴板图片，同一时刻至多一个）。新探测与收起都会
+    /// 替换或清掉它。
     probe: Option<ProbeTask>,
-    /// 在途推理的取消令牌：提交时取消旧任务（唯一取消机制）。
+    /// 在途推理的取消令牌：提交与收起时取消（唯一取消机制）。
     current_cancel: Option<CancellationToken>,
     /// 当前任务的请求副本（input + options）：推理期间随行，可重试失败后
     /// 留在 Error 态供 [`TaskStateMachine::retry`] 原样重发；完成、隐藏与
@@ -227,12 +170,10 @@ pub struct TaskStateMachine {
 }
 
 impl TaskStateMachine {
-    /// 初始态：Idle、零代数、无浮层内容。
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 当前请求代数。
     pub fn generation(&self) -> u64 {
         self.generation
     }
@@ -244,12 +185,10 @@ impl TaskStateMachine {
         self.probe.as_ref().map(|probe| probe.id)
     }
 
-    /// 当前状态。
     pub fn state(&self) -> AppState {
         self.state
     }
 
-    /// 当前浮层内容视图。
     pub fn overlay_view(&self) -> Option<&OverlayView> {
         self.overlay_view.as_ref()
     }
@@ -267,16 +206,13 @@ impl TaskStateMachine {
         self.current_cancel.as_ref()
     }
 
-    /// 划词探测的入口（探测段）：只领探测编号、冻结任务选项并返回取材
-    /// 命令——**不改状态、不换视图、不取消在途任务**。取材在状态机之外
-    /// 进行：产物到达走 [`Self::commit_probe`]，失败走
-    /// [`Self::commit_probe_failed`]。已显示的内容与在途推理全程无感，
-    /// 误滑（取不到内容）因此零干扰。`config` 是壳在事件起手处取的配置
-    /// 快照，任务选项按它解析并随探测冻结；`system_locale` 是壳在启动期
-    /// 读到的系统语言，供配置里的 `Language::System` 落定；`scene` 是壳在
-    /// 触发前读到的场景事实，供敏感场景闸门判定（见 [`trigger_decision`]）。
-    /// 未接线事件与被闸门拦下的手势返回 None 且无任何副作用。新探测替换
-    /// 旧探测（旧探测的迟到产物经编号过滤丢弃）。
+    /// 划词探测入口（探测段）：领探测编号、冻结任务选项并返回取材命令——
+    /// **不改状态、不换视图、不取消在途任务**，已显示的内容与在途推理全程
+    /// 无感，误滑因此零干扰。产物到达走 [`Self::commit_probe`]，失败走
+    /// [`Self::commit_probe_failed`]；新探测替换旧探测（旧探测的迟到产物经
+    /// 编号过滤丢弃）。`config` 是壳在事件起手处取的快照，`system_locale`
+    /// 供 `Language::System` 落定，`scene` 供场景闸门判定。未接线或被闸门
+    /// 拦下的手势返回 `None` 且无副作用。
     pub fn begin_selection_probe(
         &mut self,
         event: &PlatformEvent,
@@ -303,17 +239,12 @@ impl TaskStateMachine {
         Some(AcquireCommand::AcquireText { generation: id })
     }
 
-    /// 剪贴板图片探测的入口（探测段）：镜像 [`Self::begin_selection_probe`]
-    /// ——只领探测编号、冻结任务选项并返回读图取材命令，不改状态、不换
-    /// 视图、不取消在途任务。图像内容不在①携带，取材命令②再到事件线程
-    /// 读；①与②之间被覆盖的竞态由取材侧兜底（静默丢弃）。场景闸门照常
-    /// 生效（敏感输入态/敏感应用下不触发）；自身前台不在此列——剪贴板
-    /// 观察没有「连拖自己浮层」的误触面。观察事件只来自用户的真实复制：
-    /// 本应用兜底取材写下的剪贴板变化（注入复制与恢复写回）由平台侧的
-    /// 取材轮次闩锁按计数归因吞掉
-    /// （[`gloss_platform::clipboard::WatchRoundFlag`]）——超出本轮自报
-    /// 写盘数的变化是用户的真实复制，照常产出观察事件。未接线事件与被
-    /// 闸门拦下的观察返回 None 且无任何副作用。
+    /// 剪贴板图片探测入口（探测段）：镜像 [`Self::begin_selection_probe`]，
+    /// 只领编号、冻结选项并返回读图命令。图像内容不在①携带，取材命令②再到
+    /// 事件线程读，①与②之间被覆盖的竞态由取材侧静默兜底。场景闸门照常生效，
+    /// 但不判自身前台——剪贴板观察没有「连拖自己浮层」的误触面；本应用兜底
+    /// 取材写下的剪贴板变化由平台侧按轮次计数归因吞掉
+    /// （[`gloss_platform::clipboard::WatchRoundFlag`]）。
     pub fn begin_pasteboard_probe(
         &mut self,
         event: &PlatformEvent,
@@ -340,21 +271,16 @@ impl TaskStateMachine {
         Some(AcquireCommand::AcquireClipboardImage { generation: id })
     }
 
-    /// 提交探测（提交段，划词与剪贴板图片共用）：探测编号提升为代数，旧
-    /// 会话让位（在途推理取消、请求副本作废，迟到的旧产物经代数过滤丢弃），
-    /// 视图整卡换成流式视图并进入 `Translating`。配置取探测时冻结的那份
-    /// （不经参数再传配置）。
+    /// 提交探测（划词与剪贴板图片共用）：编号提升为代数，旧会话让位（取消
+    /// 在途推理、作废请求副本，迟到的旧产物经代数过滤丢弃），视图整卡换流式
+    /// 视图并进 `Translating`。选项取探测时冻结的那份，不再读配置。
     ///
-    /// 产物与探测的取材模态先配对再消费：划词探测只收文本，剪贴板探测只
-    /// 收图像——编号不符（陈旧探测）或模态错配都不消费探测，同编号的后续
-    /// 合法产物仍可提交。
-    ///
-    /// 文本分支的内容闸门命中时探测作废但**当前显示保留**：它属于上一个
-    /// 会话，误划与敏感内容都不该把它顶掉（壳据 [`InputOutcome::Blocked`]
-    /// 记一行 warn）。**没有放行出口**——防护不交由用户控制，命中就是发送
-    /// 不成。图像分支没有文本可扫描，不设内容闸门（敏感场景在探测入口已
-    /// 被场景闸门拦过）；图像字节以 Arc 零拷贝留存进 `attached_image`，
-    /// 流式视图的经位原文为空（「经」是图本身）。
+    /// 产物与探测模态先配对再消费：编号不符（陈旧）或模态错配都不消费探测，
+    /// 同编号的后续合法产物仍可提交。文本分支命中内容闸门时探测作废但**当前
+    /// 显示保留**（它属于上一个会话，误划与敏感内容都不该把它顶掉），且没有
+    /// 放行出口——防护不交由用户控制。图像分支没有可扫描文本，不设内容闸门；
+    /// 字节以 Arc 零拷贝留存进 `attached_image`，流式视图原文为空（「经」是
+    /// 图本身）。
     pub fn commit_probe(&mut self, probe_id: u64, input: TaskInput) -> InputOutcome {
         // 先校验模态再消费探测：模态错配不吃掉待下发任务，同编号的
         // 后续合法产物仍可提交。
@@ -381,7 +307,6 @@ impl TaskStateMachine {
         else {
             return InputOutcome::Ignored;
         };
-        // 提交即接管：旧在途任务让位，不留滞留的死数据。
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
         }
@@ -392,13 +317,11 @@ impl TaskStateMachine {
         InputOutcome::Dispatch(self.begin_run(input, options))
     }
 
-    /// 探测失败的处置（划词与剪贴板图片共用）：静默名单按取材模态分——
-    /// 划词的空选区/读不到按误滑静默丢弃（探测清掉，状态机与当前显示一律
-    /// 不动——壳只记一条带前台应用的排查日志）；剪贴板图片没有误滑形态
-    /// （changeCount 前进才触发，覆盖竞态由取材侧静默兜底、不到这里），
-    /// 全部失败（超上限、读取失败等）都是真实故障，落失败卡显式反馈。
-    /// 其余失败按 [`Self::commit_probe`] 同样的接管语义处理。编号不符按
-    /// 陈旧丢弃。
+    /// 探测失败的处置（划词与剪贴板图片共用）：划词的空选区/读不到算误滑——
+    /// 静默丢弃，状态机与当前显示一律不动（壳只记一条带前台应用的排查日志）；
+    /// 剪贴板图片没有误滑形态（changeCount 前进才触发，覆盖竞态在取材侧已被
+    /// 吞掉），全部失败（超上限、读取失败等）都是真实故障，落失败卡。编号不符
+    /// 按陈旧丢弃。
     pub fn commit_probe_failed(&mut self, probe_id: u64, error: &GlossError) -> FailureOutcome {
         let source = match self.probe.as_ref() {
             Some(probe) if probe.id == probe_id => probe.source,
@@ -432,9 +355,8 @@ impl TaskStateMachine {
             cancel.cancel();
         }
         // 只有「原样重发有意义」的失败才留请求副本；其余类别（含通道级
-        // 故障的 fail_* 降级路径）一律清掉，retry() 自然无从发起。副本
-        // 缺失时（取材路径若回传可重试错误）不给 Retry 出口——别摆一颗
-        // 点了没反应的死按钮。
+        // 故障的 fail_* 降级路径）一律清掉，retry() 自然无从发起。副本缺失
+        // 时不给 Retry 出口——别摆一颗点了没反应的死按钮。
         let mut action = error_action(error);
         if action == Some(ErrorAction::Retry) {
             if self.active_request.is_none() {
@@ -450,11 +372,11 @@ impl TaskStateMachine {
         });
     }
 
-    /// 采纳流式增量：追加到流式视图的原始回复（`note` 的渐进提取在
-    /// 渲染层）。返回是否有新内容需要重绘。
+    /// 采纳流式增量：追加到流式视图的原始回复（`note` 的渐进提取在渲染层）。
+    /// 返回是否有新内容需要重绘。
     ///
-    /// 这份累积只服务**流式显示**；与桥侧完成态的并存约定及权威源
-    /// 见 `crate::runtime::pipeline` 的模块文档（done 以 outcome.note 整卡覆盖）。
+    /// 这份累积只服务**流式显示**；完成态以 `TaskDone` 的 `outcome.note` 为
+    /// 权威源，整卡覆盖（见 `crate::runtime::pipeline`）。
     pub fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
@@ -467,11 +389,10 @@ impl TaskStateMachine {
 
     /// 采纳任务产物：定格注文并进入 `Show`。返回是否需要重绘。
     ///
-    /// `outcome.note` 直接覆盖流式视图（权威源约定见 `crate::runtime::pipeline`）；
-    /// 原文从流式视图随行进产物卡（经注疏的「经」位），完成态保有原文
-    /// 对照。**降级产物**（契约校验失败，`degraded == true`）照常上卡
-    /// （渲染层出降级卡），但**不清 `active_request`**——重试按钮据此
-    /// 原样重发，守卫见 [`Self::retry`]。
+    /// `outcome.note` 直接覆盖流式累积（完成态以它为权威源）；原文从流式
+    /// 视图随行进产物卡，供注疏的「经」位对照。**降级产物**（契约校验失败）
+    /// 照常上卡，但**不清 `active_request`**——重试按钮据此原样重发，守卫见
+    /// [`Self::retry`]。
     pub fn accept_done(&mut self, generation: u64, outcome: TaskOutcome) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
@@ -488,10 +409,9 @@ impl TaskStateMachine {
         true
     }
 
-    /// 采纳自动分类结果：把判定的任务类型写进流式视图（含分类失败时
-    /// LLM 层给的兜底 kind——排版如实反映即将执行的任务）。返回是否需要
-    /// 重绘。陈旧代数、非推理态或非流式视图不采纳（迟到标签不得落在已
-    /// 定格的产物卡上）。
+    /// 采纳自动分类结果：把判定的任务类型写进流式视图（含分类失败时的兜底
+    /// kind，排版如实反映即将执行的任务）。陈旧代数、非推理态或非流式视图不
+    /// 采纳——迟到标签不得落在已定格的产物卡上。返回是否需要重绘。
     pub fn accept_classified(&mut self, generation: u64, kind: TaskKind) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
@@ -503,10 +423,10 @@ impl TaskStateMachine {
         false
     }
 
-    /// 采纳修复轮开始（`TaskRepairing`）：清掉上一轮的流式累积并把视图
-    /// 置「修复中」（页脚据此切「重新注解」，无横幅无计数——轮次只在
-    /// core 日志）。守卫同 [`Self::accept_chunk`]：陈旧代数或非推理态不
-    /// 采纳，新会话的流式卡不得被旧任务的修复事件清稿。返回是否需要重绘。
+    /// 采纳修复轮开始（`TaskRepairing`）：清掉上一轮的流式累积并把视图置
+    /// 「修复中」（页脚切「重新注解」，无横幅无计数——轮次只在 core 日志）。
+    /// 守卫同 [`Self::accept_chunk`]：新会话的流式卡不得被旧任务的修复事件
+    /// 清稿。返回是否需要重绘。
     pub fn accept_repairing(&mut self, generation: u64) -> bool {
         if generation != self.generation || self.state != AppState::Translating {
             return false;
@@ -518,12 +438,10 @@ impl TaskStateMachine {
         true
     }
 
-    /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（错误
-    /// 映射：可重试类带重试按钮并保留请求副本，配置/鉴权类引导去设置页）。
-    /// 这是推理路径（`Translating` 收推理失败）；划词探测的失败走
-    /// [`Self::commit_probe_failed`]。其余状态不采纳——失败卡不得把
-    /// 已收起的浮层弹回。返回处置结果，壳按 [`FailureOutcome`] 区分日志
-    /// 与窗口动作。
+    /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（可重试类带重试
+    /// 按钮并保留请求副本，配置/鉴权类引导去设置页）。这是推理路径的失败；
+    /// 探测失败走 [`Self::commit_probe_failed`]。其余状态不采纳——失败卡不得
+    /// 把已收起的浮层弹回。
     pub fn accept_failed(&mut self, generation: u64, error: &GlossError) -> FailureOutcome {
         if generation != self.generation || self.state != AppState::Translating {
             return FailureOutcome::Ignored;
@@ -574,12 +492,11 @@ impl TaskStateMachine {
         }
     }
 
-    /// 浮层收起（Esc / 关闭按钮）即放弃在途任务：取消令牌（唯一取消机
-    /// 制）、清空视图与随行图像并回 `Idle`；在途探测（划词或剪贴板图片）
-    /// 一并作废（收起后迟到的探测产物不得把浮层弹回）。放弃后的迟到产物
-    /// 经代数或状态守卫丢弃——为一个不可见的浮层继续推理与渲染纯属空转；
-    /// 重新触发即重新开始，取材自当下的选区/剪贴板（旧产物本就可能已过
-    /// 期）。
+    /// 浮层收起（Esc / 关闭按钮）即放弃在途任务：取消令牌（唯一取消机制）、
+    /// 清空视图与随行图像并回 `Idle`；在途探测一并作废（收起后迟到的产物
+    /// 不得把浮层弹回）。放弃后的迟到产物经代数或状态守卫丢弃——为一个不可
+    /// 见的浮层继续推理与渲染纯属空转；重新触发即重新取材（旧产物本就可能
+    /// 已过期）。
     pub fn hide_overlay(&mut self) {
         if let Some(cancel) = self.current_cancel.take() {
             cancel.cancel();
@@ -591,8 +508,8 @@ impl TaskStateMachine {
         self.overlay_view = None;
     }
 
-    /// 推理通道不可用（③发送失败）时的降级：直接落 `Error` 态。通道
-    /// 已死时重发只会再死一次，失败卡不带重试按钮。
+    /// 推理通道不可用（③发送失败）时的降级：直接落 `Error` 态。通道已死时
+    /// 重发只会再死一次，失败卡不带重试按钮。
     pub fn fail_transport(&mut self, generation: u64) {
         if generation != self.generation || self.state != AppState::Translating {
             return;
@@ -607,10 +524,10 @@ impl TaskStateMachine {
     }
 }
 
-/// 错误 → 失败卡动作（映射表）：网络/限流可原样重试；鉴权、模态、
-/// JSON 模式不支持与配置错误都要进设置页才能修（模型、密钥与模型服务
-/// 的修改入口在设置页）；其余类别没有按钮意义上的出口——权限类引导
-/// 已写在文案里，协议异常重发同一个请求只会再错一次。
+/// 错误 → 失败卡动作（映射表）：网络/限流可原样重试；鉴权、模态、JSON 模式
+/// 不支持与配置错误都要进设置页才能修（模型、密钥与模型服务的修改入口都在
+/// 那里）；其余类别给不出有意义的按钮——权限类引导已写在文案里，协议异常重发
+/// 同一个请求只会再错一次。
 fn error_action(error: &GlossError) -> Option<ErrorAction> {
     match error {
         GlossError::EngineNetwork | GlossError::EngineRateLimited => Some(ErrorAction::Retry),
@@ -622,11 +539,10 @@ fn error_action(error: &GlossError) -> Option<ErrorAction> {
     }
 }
 
-/// 一次下发请求的流式视图起点：原文照抄（图像任务无经位原文——经是图
-/// 本身，走 `attached_image`）、正文空、未分类（LLM 层的 `TaskClassified`
-/// 到达后精化）。语言不上流式视图：唯一来源是产物的
-/// `structured.code_language`，渲染层经 `ui::code_hl::adopt` 现算，流式
-/// 期按通用启发集着色、无角标。重试与首次下发共用。
+/// 一次下发请求的流式视图起点：原文照抄（图像任务无经位原文——经是图本身，
+/// 走 `attached_image`）、正文空、未分类（LLM 层的 `TaskClassified` 到达后
+/// 精化）。流式视图不带语言：唯一来源是产物的 `structured.code_language`，
+/// 渲染层现算，流式期按通用启发集着色、无角标。重试与首次下发共用。
 fn streaming_view(input: &TaskInput) -> OverlayView {
     let source = match input {
         TaskInput::Text { text } => text.clone(),
@@ -640,30 +556,27 @@ fn streaming_view(input: &TaskInput) -> OverlayView {
     }
 }
 
-/// 一次平台事件的去向：取材，或被闸门拦下。
+/// 一次平台事件的去向：取材，或被拦下。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TriggerDecision {
-    /// 放行：场景闸门放行，事件进入取材（划词不带显式意图，类型由 LLM
-    /// 层分类决定；剪贴板图片的取材动作即显式意图，LLM 层恒定映射）。
+    /// 放行：划词不带显式意图，类型由 LLM 层分类；剪贴板图片的取材动作即
+    /// 显式意图，LLM 层恒定映射。
     Acquire,
-    /// 拦下：触发前场景闸门（安全输入态 / 敏感应用名单）。只拦真实触发，
-    /// 设置不在此列。
+    /// 场景闸门拦下（安全输入态 / 敏感应用名单）。只拦真实触发，设置不在
+    /// 此列。
     Blocked(TriggerBlock),
-    /// 拦下：Gloss 自身是前台应用时的划词手势（防误触——HID 全局 tap 连拖
-    /// Gloss 自己的浮层不该触发取材）。
+    /// 拦下：Gloss 自身是前台应用时的划词手势——HID 全局 tap 连拖自己的
+    /// 浮层不该触发取材。
     SelfSuppressed,
-    /// 不进状态机的直通事件（设置、授权落定——各自在 drain 处有自己的
-    /// 出口）。
+    /// 不进状态机的直通事件（设置、授权落定——各自在 drain 处有自己的出口）。
     Unwired,
 }
 
-/// 一次平台事件的去向判定：场景闸门在这里做一次（上游据此记不同级别
-/// 的日志与不同的动作）。划词手势分支先判自身前台（防误触，与敏感防护
-/// 无关、级别也不同）再过场景闸门；剪贴板观察只过场景闸门（剪贴板不
-/// 是 HID 手势，无自身前台的误触面）。
+/// 一次平台事件的去向判定：划词手势先判自身前台（防误触，与敏感防护无关，
+/// 日志级别也不同）再过场景闸门；剪贴板观察只过场景闸门（剪贴板不是 HID
+/// 手势，无自身前台的误触面）。
 pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDecision {
     match event {
-        // 划词手势不带显式意图：类型由 LLM 层在执行前分类。场景闸门照常生效。
         PlatformEvent::SelectionGesture { .. } => {
             if scene.front_app.as_ref().is_some_and(|app| app.is_self) {
                 return TriggerDecision::SelfSuppressed;
@@ -673,24 +586,21 @@ pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDec
                 None => TriggerDecision::Acquire,
             }
         }
-        // 剪贴板图片观察：场景闸门照常生效（敏感输入态/敏感应用下不触发）。
         PlatformEvent::PasteboardImageObserved => match guard::trigger_block(scene) {
             Some(block) => TriggerDecision::Blocked(block),
             None => TriggerDecision::Acquire,
         },
-        PlatformEvent::OpenSettingsRequested
-        // 授权落定在 drain 处直通处理（解预热门控），不经状态机。
-        | PlatformEvent::AccessibilityGranted => TriggerDecision::Unwired,
+        PlatformEvent::OpenSettingsRequested | PlatformEvent::AccessibilityGranted => {
+            TriggerDecision::Unwired
+        }
     }
 }
 
-/// 按配置快照解析任务选项：目标语言取配置默认；模型取配置的单一项
-/// （`Arc<str>` 共享：任务选项在在途副本与下发请求间引用同一份 id，复制
-/// 只递引用计数）；prompt 模板语言按 `Language` 落定（`System` 取系统
-/// 语言）——三者都是 LLM 层的输入，随任务冻结，执行途中不再回读配置。
-/// 字段全量显式构造，不走 `..Default::default()`——后者会先把缺省
-/// 模型 id 分配出来再被覆盖，纯浪费一次分配（选项新增字段时编译器在此
-/// 处强制补齐，不会静默漏填）。
+/// 按配置快照解析任务选项：目标语言取配置默认，模型取配置的单一项（`Arc<str>`
+/// 共享，复制只递引用计数），prompt 模板语言按 `Language` 落定（`System` 取
+/// 系统语言）。三者随任务冻结，执行途中不再回读配置。字段全量显式构造，不走
+/// `..Default::default()`——后者会先把缺省模型 id 分配出来再被覆盖，且选项新增
+/// 字段时编译器会在此处强制补齐，不会静默漏填。
 fn task_options(config: &Config, system_locale: Locale) -> TaskOptions {
     TaskOptions {
         target_lang: Some(config.target_lang.clone()),
@@ -705,15 +615,14 @@ pub(crate) enum EventKind {
     InputReady,
     TaskClassified,
     TaskChunk,
-    /// 修复轮开始：与 chunk 同类，只更新已可见的流式卡，不负责露面。
+    /// 与 chunk 同类：只更新已可见的流式卡，不负责露面。
     TaskRepairing,
     TaskDone,
     TaskFailed,
-    /// 密钥预热回执：与任务代数无关，露面策略恒不显示（壳层旁路留痕）。
+    /// 与任务代数无关，露面策略恒不显示（壳层旁路留痕）。
     SecretPrewarmed,
 }
 
-/// 取回传事件的类别标签。
 pub(crate) fn event_kind(event: &Event) -> EventKind {
     match event {
         Event::InputReady { .. } => EventKind::InputReady,
@@ -728,14 +637,11 @@ pub(crate) fn event_kind(event: &Event) -> EventKind {
 
 /// 单个回传事件后浮层要不要自动露面。
 ///
-/// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。
-/// 露面的两个来源：挂起显形请求（经壳层 `pending_reveal`——划词提交
-/// 即显流式卡，见 [`should_reveal`]——那时还没有回传事件或产物已在批内
-/// 提交），与失败总弹（错误不该被吞掉）。
-/// 取材成功不直接负责露面：划词路径的显形随提交置位；用户若在取材中
-/// 收起浮层，机器回 Idle，陈旧的取材产物采纳不上，自然也不会把浮层弹回。
-/// 分类结果、流式增量与完成态都只在已可见的浮层上更新——三者同样不负责
-/// 露面。
+/// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。露面的来源只有
+/// 「失败即弹」；挂起显形请求在 [`should_reveal`] 里与批次合并。取材成功、
+/// 分类结果、流式增量、修复轮与完成态都只在已可见的浮层上更新，不负责露面。
+/// 取材成功不直接露面还因为：用户若在取材中收起浮层，机器回 Idle，陈旧的取材
+/// 产物采纳不上，自然也不会把浮层弹回。
 fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
     match kind {
         EventKind::InputReady => false,
@@ -744,7 +650,6 @@ fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
         | EventKind::TaskRepairing
         | EventKind::TaskDone
         | EventKind::TaskChunk => false,
-        // 预热回执由壳层旁路留痕，与任务浮层无关。
         EventKind::SecretPrewarmed => false,
     }
 }
@@ -756,11 +661,10 @@ pub(crate) fn auto_show_after(batch: impl IntoIterator<Item = (EventKind, bool)>
         .any(|(kind, accepted)| auto_show_for(kind, accepted))
 }
 
-/// 一批回传处理后浮层要不要显形：挂起显形请求（`pending`）要求机器确有
-/// 视图——视图为空时弹出的会是渲染自检卡（挂起置位与消费之间没有插入
-/// 点，两段 drain 同帧连跑，守卫只为防御）；划词提交的置位在批内
-/// `commit_probe`，同一帧消费。挂起显形不依赖回传批次，与批次内的
-/// 「失败即弹」任一成立即显示。
+/// 一批回传处理后浮层要不要显形：挂起显形请求（`pending`）要求机器确有视图
+/// ——视图为空时弹出的会是渲染自检卡（挂起置位与消费之间没有插入点，两段
+/// drain 同帧连跑，守卫只为防御）；划词提交的置位在批内 `commit_probe`，同一
+/// 帧消费。挂起显形不依赖回传批次，与批次内的「失败即弹」任一成立即显示。
 pub(crate) fn should_reveal(
     pending: bool,
     has_view: bool,

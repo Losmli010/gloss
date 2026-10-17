@@ -43,8 +43,8 @@ fn debounced_size(current: LogicalSize<f64>, requested: LogicalSize<f64>) -> Log
     LogicalSize::new(current.width, stepped)
 }
 
-/// 由显示器逻辑高度算浮层高度上限（纯逻辑，单测覆盖）：先取
-/// [`HEIGHT_CAP_FRACTION`] 的一半，再扣 [`WORK_AREA_MARGIN`]，且不低于
+/// 由显示器逻辑高度算浮层高度上限（纯逻辑，单测覆盖）：取显示器逻辑高度的
+/// [`HEIGHT_CAP_FRACTION`]（即一半），再扣 [`WORK_AREA_MARGIN`]，且不低于
 /// [`OVERLAY_HEIGHT`]（矮屏兜底）；请求不超过上限时原样返回。
 fn capped_height(screen_height: f64, requested_height: f64) -> f64 {
     let max_height = (screen_height * HEIGHT_CAP_FRACTION - WORK_AREA_MARGIN).max(OVERLAY_HEIGHT);
@@ -349,7 +349,6 @@ impl WindowManager {
         self.settings.set_visible(false);
     }
 
-    /// 设置窗口是否可见。
     pub fn is_settings_visible(&self) -> bool {
         self.settings.is_visible().unwrap_or(false)
     }

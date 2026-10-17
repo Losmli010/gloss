@@ -9,8 +9,8 @@
 //! 快照不携带凭据）。
 //!
 //! 校验时机：首次点「保存」才进入错误态（编辑中的半成品不追着标红），
-//! 之后每帧实时复检、改对即清。视觉规范见 docs/14（卡片分区、开关行、
-//! 保存主按钮）。
+//! 之后每帧实时复检、改对即清。视觉规范以设计定稿的设置页稿为准（卡片
+//! 分区、开关行、保存主按钮）。
 //!
 //! 文案与校验分家：校验只产出类型化错误（[`FieldError`]）与类型化提示
 //! （[`SettingsNotice`]），文案统一在渲染帧按当前 locale 落地——同一份草稿
@@ -41,7 +41,7 @@ enum FieldKey {
 
 /// 校验错误的类型化形态：只记「哪里错了、错成什么样」，措辞归文案表。
 ///
-/// 变体与 `[gloss_settings.error]` 的键一一对应（见 [`Self::message`]），
+/// 变体与 `gloss_settings_error_*` 的键一一对应（见 [`Self::message`]），
 /// 校验输出因此与语言无关——同一份草稿在任何 locale 下得出同一张错误表。
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum FieldError {
@@ -293,7 +293,7 @@ pub fn draw(
     action
 }
 
-/// 设置窗口内边距（窗口私有量，docs/14 定版 16）。
+/// 设置窗口内边距（窗口私有量，设计定稿 16）。
 const WINDOW_PADDING: i8 = 16;
 
 /// 品牌强调色：明暗主题各取朱砂档——浅底用压暗档、深底用提亮档，与印章
@@ -578,8 +578,6 @@ fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-/// 双列行：行标签左、控件推到卡片右缘（两端对齐）；返回控件自身的响应
-/// （字段标红要按控件的矩形画下划线）。
 /// 更新区：相位标签 + 单一动作按钮（两道确认、取消与失败重试都收敛在
 /// 这一行）。`Checking` 与 `ReadyToRestart` 无可点动作；替换步失败附
 /// 安装指引（只读卷 / 权限不足的出口，见分发设计 §4.4）。
@@ -664,6 +662,8 @@ fn update_section(
     }
 }
 
+/// 双列行：行标签左、控件推到卡片右缘（两端对齐）；返回控件自身的响应
+/// （字段标红要按控件的矩形画下划线）。
 fn choice_row<R>(ui: &mut egui::Ui, label: &str, control: impl FnOnce(&mut egui::Ui) -> R) -> R {
     ui.horizontal(|ui| {
         ui.label(label);

@@ -24,7 +24,6 @@ const MAX_LINE_BYTES: usize = 1 << 20;
 /// 一轮解码的产出。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SseItem {
-    /// 文本增量。
     Delta(String),
     /// 服务端声明的流结束（`data: [DONE]`），携带捕获到的
     /// `choices[0].finish_reason`（整条流从未声明则为 `None`）。
@@ -49,7 +48,6 @@ pub struct SseDecoder {
 }
 
 impl SseDecoder {
-    /// 新建解码器。
     pub fn new() -> Self {
         Self::default()
     }
@@ -222,20 +220,18 @@ struct StreamChunk {
 struct StreamChoice {
     #[serde(default)]
     delta: Option<StreamDelta>,
-    /// 结束原因：恒为 `None`，只在最后一个内容块上非空（`stop` /
+    /// 结束原因：通常为 `None`，只在流收尾的内容块上非空（`stop` /
     /// `length` / `content_filter`…）。
     #[serde(default)]
     finish_reason: Option<String>,
 }
 
-/// 增量内容。
 #[derive(serde::Deserialize)]
 struct StreamDelta {
     #[serde(default)]
     content: Option<String>,
 }
 
-/// 服务端错误对象。
 #[derive(serde::Deserialize)]
 struct ApiError {
     #[serde(default)]
