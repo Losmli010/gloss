@@ -23,5 +23,6 @@ pub mod log;
 pub mod model;
 pub mod ports;
 pub mod prompt;
+mod repair;
 pub mod schema;
 pub mod task;

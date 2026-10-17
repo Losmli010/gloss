@@ -476,114 +476,87 @@ fn render_content(
     text: &'static Text,
 ) -> (Option<OverlayAction>, Option<egui::Vec2>) {
     match view {
-        None => {
-            let (action, drag) = header(ui, state, text);
-            ui.add_space(space::SECTION);
-            selfcheck_body(ui);
-            ui.add_space(space::PARAGRAPH);
-            footer(ui, false, false, text);
-            *content_h = ui.min_rect().height();
-            (action, drag)
-        }
+        None => plain_card(ui, state, text, content_h, |ui, _| selfcheck_body(ui)),
         Some(OverlayView::Streaming {
             source,
             raw,
             classified,
             repairing,
         }) => {
-            let (action, drag) = header(ui, state, text);
-            ui.add_space(space::SECTION);
             let code = is_code(*classified);
             let fields = stream_fields(raw);
             match attached {
                 // 图像卡：经位图像与注/疏一起进滚动区——高图由滚动区吞
                 // 高，窗口按完整内容高申请、壳侧钳到屏，超出滚动兜底。
-                Some(png) => {
-                    let scrolled = ScrollArea::new([false, true])
-                        .auto_shrink([false, true])
-                        .max_height(viewport_max(ui))
-                        .show(ui, |ui| {
-                            arrow_key_scroll(ui);
-                            jing_section(ui, text, |ui| attached_image(ui, png, state, text));
-                            ui.add_space(space::PARAGRAPH);
-                            streamed_sections(ui, &fields, state, text);
-                        });
-                    ui.add_space(space::PARAGRAPH);
-                    footer(ui, true, *repairing, text);
-                    record_scrolled_height(ui, content_h, &scrolled);
-                }
-                None => {
+                Some(png) => scrolled_card(
+                    ui,
+                    state,
+                    text,
+                    content_h,
+                    FooterMode::Streaming {
+                        repairing: *repairing,
+                    },
+                    |_| {},
+                    |ui| {
+                        jing_section(ui, text, |ui| attached_image(ui, png, state, text));
+                        ui.add_space(space::PARAGRAPH);
+                        streamed_sections(ui, &fields, state, text);
+                    },
+                ),
+                None => scrolled_card(
+                    ui,
+                    state,
+                    text,
+                    content_h,
+                    FooterMode::Streaming {
+                        repairing: *repairing,
+                    },
                     // 流式期没有语言判定（唯一来源是产物的 structured
                     // 回传），经位代码面板按通用启发集着色、无角标。
-                    jing_section(ui, text, |ui| source_block(ui, source, code, None));
-                    ui.add_space(space::PARAGRAPH);
-                    // ScrollArea 内容起点 = cursor（egui 的 cursor 停在
-                    // 前序内容底边加一个 item_spacing 处），从这里起算
-                    // 正文完整高。
-                    let scrolled = ScrollArea::new([false, true])
-                        .auto_shrink([false, true])
-                        .max_height(viewport_max(ui))
-                        .show(ui, |ui| {
-                            arrow_key_scroll(ui);
-                            streamed_sections(ui, &fields, state, text)
-                        });
-                    ui.add_space(space::PARAGRAPH);
-                    footer(ui, true, *repairing, text);
-                    record_scrolled_height(ui, content_h, &scrolled);
-                }
+                    |ui| {
+                        jing_section(ui, text, |ui| source_block(ui, source, code, None));
+                        ui.add_space(space::PARAGRAPH);
+                    },
+                    |ui| streamed_sections(ui, &fields, state, text),
+                ),
             }
-            (action, drag)
         }
         Some(OverlayView::Outcome { source, outcome }) if outcome.degraded => {
             // 降级产物卡（契约校验失败）：渲染「输出异常」+ 复用重试按钮，
             // 不渲染注疏内容——原文垃圾不展示不留存（缓存侧同样不收，
             // 见 `crate::runtime::pipeline`）。
-            let (mut action, drag) = header(ui, state, text);
-            ui.add_space(space::SECTION);
-            ui.label(
-                RichText::new(&text.gloss_popup_output_abnormal)
-                    .size(font::NOTICE)
-                    .color(ui.visuals().warn_fg_color),
-            );
-            ui.add_space(space::SECTION);
-            if ui
-                .button(
-                    RichText::new(text.gloss_popup_retry.as_str())
-                        .size(font::CAPTION)
-                        .color(ui.visuals().strong_text_color()),
-                )
-                .clicked()
-            {
-                action = Some(OverlayAction::Retry);
-            }
-            ui.add_space(space::PARAGRAPH);
-            footer(ui, false, false, text);
-            *content_h = ui.min_rect().height();
-            (action, drag)
+            plain_card(ui, state, text, content_h, |ui, action| {
+                ui.label(
+                    RichText::new(&text.gloss_popup_output_abnormal)
+                        .size(font::NOTICE)
+                        .color(ui.visuals().warn_fg_color),
+                );
+                ui.add_space(space::SECTION);
+                if ui
+                    .button(
+                        RichText::new(text.gloss_popup_retry.as_str())
+                            .size(font::CAPTION)
+                            .color(ui.visuals().strong_text_color()),
+                    )
+                    .clicked()
+                {
+                    *action = Some(OverlayAction::Retry);
+                }
+            })
         }
-        Some(OverlayView::Outcome { source, outcome }) => {
-            let (action, drag) = header(ui, state, text);
-            ui.add_space(space::SECTION);
-            let viewport_max = viewport_max(ui);
-            // 只纵向滚动：与流式视图同规，代码正文按可用宽折行。
-            let scrolled = ScrollArea::new([false, true])
-                .auto_shrink([false, true])
-                .max_height(viewport_max)
-                .show(ui, |ui| {
-                    arrow_key_scroll(ui);
-                    outcome_body(ui, source, outcome, attached, state, text);
-                });
-            ui.add_space(space::PARAGRAPH);
-            footer(ui, false, false, text);
-            record_scrolled_height(ui, content_h, &scrolled);
-            (action, drag)
-        }
+        Some(OverlayView::Outcome { source, outcome }) => scrolled_card(
+            ui,
+            state,
+            text,
+            content_h,
+            FooterMode::Static,
+            |_| {},
+            |ui| outcome_body(ui, source, outcome, attached, state, text),
+        ),
         Some(OverlayView::Failed {
             cause,
             action: error_action,
-        }) => {
-            let (mut action, drag) = header(ui, state, text);
-            ui.add_space(space::SECTION);
+        }) => plain_card(ui, state, text, content_h, |ui, action| {
             ui.label(
                 RichText::new(failure_message(cause, text))
                     .size(font::NOTICE)
@@ -599,15 +572,69 @@ fn render_content(
                     )
                     .clicked()
                 {
-                    action = Some(error_action.into());
+                    *action = Some(error_action.into());
                 }
             }
-            ui.add_space(space::PARAGRAPH);
-            footer(ui, false, false, text);
-            *content_h = ui.min_rect().height();
-            (action, drag)
-        }
+        }),
     }
+}
+
+/// 不滚动的卡骨架：头部 + 正文 + 页脚，正文高度即内容高（自检、降级与
+/// 失败卡共用）。正文可写回卡片动作（重试/打开设置）。
+fn plain_card(
+    ui: &mut egui::Ui,
+    state: &RenderState,
+    text: &'static Text,
+    content_h: &mut f32,
+    body: impl FnOnce(&mut egui::Ui, &mut Option<OverlayAction>),
+) -> (Option<OverlayAction>, Option<egui::Vec2>) {
+    let (mut action, drag) = header(ui, state, text);
+    ui.add_space(space::SECTION);
+    body(ui, &mut action);
+    ui.add_space(space::PARAGRAPH);
+    footer(ui, false, false, text);
+    *content_h = ui.min_rect().height();
+    (action, drag)
+}
+
+/// 页脚形态：流式期显示注解状态（`repairing` 区分首轮与重新注解），
+/// 其余卡片是静态页脚。
+#[derive(Clone, Copy)]
+enum FooterMode {
+    Static,
+    Streaming { repairing: bool },
+}
+
+/// 滚动卡骨架：头部 + （固定区 `before`）+ 纵向滚动正文 + 页脚。滚动区
+/// 内容起点即 cursor，完整高按滚动区报告的内容尺寸回记（不受视口裁剪
+/// 影响）。
+fn scrolled_card(
+    ui: &mut egui::Ui,
+    state: &RenderState,
+    text: &'static Text,
+    content_h: &mut f32,
+    mode: FooterMode,
+    before: impl FnOnce(&mut egui::Ui),
+    body: impl FnOnce(&mut egui::Ui),
+) -> (Option<OverlayAction>, Option<egui::Vec2>) {
+    let (action, drag) = header(ui, state, text);
+    ui.add_space(space::SECTION);
+    before(ui);
+    // 只纵向滚动：代码正文按可用宽折行。
+    let scrolled = ScrollArea::new([false, true])
+        .auto_shrink([false, true])
+        .max_height(viewport_max(ui))
+        .show(ui, |ui| {
+            arrow_key_scroll(ui);
+            body(ui);
+        });
+    ui.add_space(space::PARAGRAPH);
+    match mode {
+        FooterMode::Static => footer(ui, false, false, text),
+        FooterMode::Streaming { repairing } => footer(ui, true, repairing, text),
+    }
+    record_scrolled_height(ui, content_h, &scrolled);
+    (action, drag)
 }
 
 /// 失败卡文案：按失败来源映射（静态词条借自常驻文案表，带占位符的
@@ -1312,14 +1339,7 @@ fn outcome_body(
                 jing_section(ui, text, |ui| word_head(ui, source, phonetic.as_deref()));
                 ui.add_space(space::PARAGRAPH);
             }
-            zhu_section(ui, text, |ui| {
-                apply_zhu_typography(ui);
-                render_markdown(ui, state, &outcome.note);
-            });
-            if !examples.is_empty() {
-                ui.add_space(space::PARAGRAPH);
-                shu_examples(ui, examples, text);
-            }
+            zhu_and_shu(ui, &outcome.note, examples, state, text);
         }
         OutcomeStructured::Code { examples, .. } | OutcomeStructured::Plain { examples, .. }
             if outcome.kind == TaskKind::ImageExplain =>
@@ -1335,14 +1355,7 @@ fn outcome_body(
                 None => jing_section(ui, text, |ui| image_unavailable(ui, text)),
             }
             ui.add_space(space::PARAGRAPH);
-            zhu_section(ui, text, |ui| {
-                apply_zhu_typography(ui);
-                render_markdown(ui, state, &outcome.note);
-            });
-            if !examples.is_empty() {
-                ui.add_space(space::PARAGRAPH);
-                shu_examples(ui, examples, text);
-            }
+            zhu_and_shu(ui, &outcome.note, examples, state, text);
         }
         OutcomeStructured::Plain { examples } | OutcomeStructured::Code { examples, .. } => {
             if !source.trim().is_empty() {
@@ -1356,15 +1369,26 @@ fn outcome_body(
                 });
                 ui.add_space(space::PARAGRAPH);
             }
-            zhu_section(ui, text, |ui| {
-                apply_zhu_typography(ui);
-                render_markdown(ui, state, &outcome.note);
-            });
-            if !examples.is_empty() {
-                ui.add_space(space::PARAGRAPH);
-                shu_examples(ui, examples, text);
-            }
+            zhu_and_shu(ui, &outcome.note, examples, state, text);
         }
+    }
+}
+
+/// 注 + 疏：三个产物变体共用（注文 markdown 与例句列表的位置固定）。
+fn zhu_and_shu(
+    ui: &mut egui::Ui,
+    note: &str,
+    examples: &[String],
+    state: &RenderState,
+    text: &'static Text,
+) {
+    zhu_section(ui, text, |ui| {
+        apply_zhu_typography(ui);
+        render_markdown(ui, state, note);
+    });
+    if !examples.is_empty() {
+        ui.add_space(space::PARAGRAPH);
+        shu_examples(ui, examples, text);
     }
 }
 

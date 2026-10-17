@@ -11,8 +11,9 @@ use winit::window::{Window, WindowId, WindowLevel};
 
 /// 应用名：浮层标题与设置窗创建期的占位标题（品牌不进文案表，不翻译）。
 const APP_NAME: &str = "Gloss";
-/// 浮层默认宽度（默认 380px，长文本自适应上限 480px，上限由 popup 模块定）
-const OVERLAY_WIDTH: f64 = 380.0;
+/// 浮层默认宽度：与绘制侧的布局宽同源（`popup::WIDTH`），这里只转成窗口
+/// 坐标的 `f64`（长文本自适应的上限由 popup 模块定）。
+const OVERLAY_WIDTH: f64 = crate::ui::popup::WIDTH as f64;
 /// 浮层默认高度：自检期只有渲染面板，按内容给一个紧凑初值
 const OVERLAY_HEIGHT: f64 = 200.0;
 /// 自适应高度的屏幕余量：winit 不提供工作区（work area），按显示器逻辑

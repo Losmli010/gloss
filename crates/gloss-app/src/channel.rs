@@ -55,6 +55,17 @@ pub enum AcquireCommand {
     },
 }
 
+impl AcquireCommand {
+    /// 请求代数：两种取材共有的唯一字段（壳侧派发与追踪都按它核对）。
+    pub fn generation(&self) -> u64 {
+        match self {
+            Self::AcquireText { generation } | Self::AcquireClipboardImage { generation } => {
+                *generation
+            }
+        }
+    }
+}
+
 /// ③ 主线程 → tokio 后台：推理任务（携带完整数据与取消令牌）与密钥预热。
 ///
 /// 用 tokio unbounded mpsc：消费端 async `recv().await`；主线程侧 `send`

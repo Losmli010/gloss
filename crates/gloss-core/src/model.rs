@@ -72,6 +72,11 @@ pub enum GlossError {
     EngineAuth,
     /// 触发限流，可退避重试。
     EngineRateLimited,
+    /// 传输层收到「成功收尾但一个增量都没有」的响应：坏**回复**而非坏
+    /// 请求，任务段据此转 `Violation::EmptyReply` 进修复轮。独立变体而非
+    /// 复用 [`GlossError::EngineResponse`] 的文本约定的原因：以错误文本
+    /// 内容作带内信号时，任何同文本路径都会被误判为坏回复。
+    EmptyCompletion,
     /// 协议或响应解析异常，携带诊断文本（可能含服务端/用户原文——见
     /// [`Display`](std::fmt::Display) 实现的安全注释：载荷不进日志）。
     EngineResponse(String),
@@ -95,6 +100,7 @@ impl std::fmt::Display for GlossError {
             Self::EngineNetwork => write!(f, "engine network error"),
             Self::EngineAuth => write!(f, "engine authentication failed"),
             Self::EngineRateLimited => write!(f, "engine rate limited"),
+            Self::EmptyCompletion => write!(f, "engine returned an empty completion"),
             // 载荷可能携带远端或用户原文（服务端 `error.message`、解析不出
             // 的协议内容），而 `Display` 是日志出口（`error = %error` 遍布各
             // crate），把载荷打出来就是把敏感文本写进日志——违反 AGENTS.md
@@ -128,6 +134,10 @@ mod tests {
         assert_eq!(
             GlossError::JsonModeUnsupported.to_string(),
             "model service does not support the JSON output mode"
+        );
+        assert_eq!(
+            GlossError::EmptyCompletion.to_string(),
+            "engine returned an empty completion"
         );
         assert_eq!(
             GlossError::EngineResponse("bad json".into()).to_string(),

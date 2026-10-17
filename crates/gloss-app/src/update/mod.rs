@@ -200,6 +200,31 @@ enum PendingKind {
     Download,
 }
 
+impl Pending {
+    /// 起一个清单检查任务：取消令牌同时握在回包侧（迟到回包凭它作废）。
+    fn check(hooks: &Hooks, cancel: CancellationToken) -> Self {
+        Self {
+            join: (hooks.check)(cancel.clone()),
+            token: cancel,
+            kind: PendingKind::Check,
+        }
+    }
+
+    /// 起一个下载任务；`zip` 槽位由调用方清空（新产物尚未落位）。
+    fn download(
+        hooks: &Hooks,
+        target: UpdateTarget,
+        resume: bool,
+        cancel: CancellationToken,
+    ) -> Self {
+        Self {
+            join: (hooks.download)(target, resume, cancel.clone()),
+            token: cancel,
+            kind: PendingKind::Download,
+        }
+    }
+}
+
 /// 模块的状态出口：watch 发送端 + 与 [`UpdateHandle`] 共享的唤醒槽。
 pub(crate) struct Broadcaster {
     tx: watch::Sender<UpdateState>,
@@ -263,75 +288,66 @@ fn handle_msg(
     out: &Broadcaster,
 ) -> bool {
     match msg {
-        UpdateMsg::Check => {
-            if let Some(UpdateCommand::CheckManifest { cancel }) = machine.check() {
-                *pending = Some(Pending {
-                    join: (hooks.check)(cancel.clone()),
-                    token: cancel,
-                    kind: PendingKind::Check,
-                });
-                broadcast(machine, out);
-            }
-        }
-        UpdateMsg::Retry => match machine.retry() {
-            Some(UpdateCommand::CheckManifest { cancel }) => {
-                *pending = Some(Pending {
-                    join: (hooks.check)(cancel.clone()),
-                    token: cancel,
-                    kind: PendingKind::Check,
-                });
-                broadcast(machine, out);
-            }
-            Some(UpdateCommand::Download {
-                target,
-                resume,
-                cancel,
-            }) => {
-                *zip = None;
-                *pending = Some(Pending {
-                    join: (hooks.download)(target, resume, cancel.clone()),
-                    token: cancel,
-                    kind: PendingKind::Download,
-                });
-                broadcast(machine, out);
-            }
-            Some(UpdateCommand::Install { .. }) => {
-                // 进入 ReadyToRestart 先广播（替换执行中），再跑替换。
-                broadcast(machine, out);
-                return restart(machine, zip, hooks, out);
-            }
-            None => {}
-        },
-        UpdateMsg::ConfirmDownload => {
-            if let Some(UpdateCommand::Download {
-                target,
-                resume,
-                cancel,
-            }) = machine.confirm_download()
-            {
-                *zip = None;
-                *pending = Some(Pending {
-                    join: (hooks.download)(target, resume, cancel.clone()),
-                    token: cancel,
-                    kind: PendingKind::Download,
-                });
-                broadcast(machine, out);
-            }
-        }
+        UpdateMsg::Check => apply_command(machine.check(), machine, pending, zip, hooks, out),
+        UpdateMsg::Retry => apply_command(machine.retry(), machine, pending, zip, hooks, out),
+        UpdateMsg::ConfirmDownload => apply_command(
+            machine.confirm_download(),
+            machine,
+            pending,
+            zip,
+            hooks,
+            out,
+        ),
         UpdateMsg::ConfirmRestart => {
-            if let Some(UpdateCommand::Install { .. }) = machine.confirm_restart() {
-                // 进入 ReadyToRestart 先广播（替换执行中），再跑替换。
-                broadcast(machine, out);
-                return restart(machine, zip, hooks, out);
-            }
+            apply_command(machine.confirm_restart(), machine, pending, zip, hooks, out)
         }
         UpdateMsg::Cancel => {
             if machine.cancel() {
                 broadcast(machine, out);
             }
+            false
         }
     }
-    false
+}
+
+/// 执行状态机给出的一条命令：起在途任务（新下载清空 zip 槽位）或跑
+/// 替换。返回真表示替换已成功（调用方随即退出进程）。
+///
+/// 入口与命令变体的配对由 [`UpdateMachine`] 的方法保证：`check` /
+/// `confirm_download` / `confirm_restart` 返回 `Some` 时恒为各自的变体
+/// （相位不符时返回 `None`），`retry` 返回三者之一——逐入口的变体匹配
+/// 原样保留在这一层契约里。
+fn apply_command(
+    command: Option<UpdateCommand>,
+    machine: &mut UpdateMachine,
+    pending: &mut Option<Pending>,
+    zip: &mut Option<PathBuf>,
+    hooks: &Hooks,
+    out: &Broadcaster,
+) -> bool {
+    match command {
+        Some(UpdateCommand::CheckManifest { cancel }) => {
+            *pending = Some(Pending::check(hooks, cancel));
+            broadcast(machine, out);
+            false
+        }
+        Some(UpdateCommand::Download {
+            target,
+            resume,
+            cancel,
+        }) => {
+            *zip = None;
+            *pending = Some(Pending::download(hooks, target, resume, cancel));
+            broadcast(machine, out);
+            false
+        }
+        Some(UpdateCommand::Install { .. }) => {
+            // 进入 ReadyToRestart 先广播（替换执行中），再跑替换。
+            broadcast(machine, out);
+            restart(machine, zip, hooks, out)
+        }
+        None => false,
+    }
 }
 
 /// zip 缺失（防御分支）或替换失败都落 `Failed(Install)`；失败时 zip 放回
