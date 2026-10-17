@@ -55,8 +55,6 @@ pub struct Text {
     pub(crate) gloss_errors_selection_unavailable: String,
     pub(crate) gloss_errors_selection_empty: String,
     pub(crate) gloss_errors_accessibility_denied: String,
-    pub(crate) gloss_errors_screen_capture_denied: String,
-    pub(crate) gloss_errors_region_too_large: String,
     pub(crate) gloss_errors_image_unavailable: String,
     pub(crate) gloss_errors_image_too_large: String,
     pub(crate) gloss_errors_unsupported_modality: String,
@@ -141,10 +139,6 @@ impl Text {
             GlossError::AccessibilityDenied => {
                 Cow::Borrowed(&self.gloss_errors_accessibility_denied)
             }
-            GlossError::ScreenCaptureDenied => {
-                Cow::Borrowed(&self.gloss_errors_screen_capture_denied)
-            }
-            GlossError::RegionTooLarge => Cow::Borrowed(&self.gloss_errors_region_too_large),
             GlossError::ImageUnavailable => Cow::Borrowed(&self.gloss_errors_image_unavailable),
             GlossError::ImageTooLarge => Cow::Borrowed(&self.gloss_errors_image_too_large),
             GlossError::UnsupportedModality => {
@@ -251,7 +245,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            85,
+            83,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -354,8 +348,6 @@ mod tests {
         for error in [
             GlossError::SelectionUnavailable,
             GlossError::AccessibilityDenied,
-            GlossError::ScreenCaptureDenied,
-            GlossError::RegionTooLarge,
             GlossError::ImageUnavailable,
             GlossError::ImageTooLarge,
             GlossError::UnsupportedModality,
@@ -389,14 +381,6 @@ mod tests {
             (
                 GlossError::AccessibilityDenied,
                 &errors.gloss_errors_accessibility_denied,
-            ),
-            (
-                GlossError::ScreenCaptureDenied,
-                &errors.gloss_errors_screen_capture_denied,
-            ),
-            (
-                GlossError::RegionTooLarge,
-                &errors.gloss_errors_region_too_large,
             ),
             (
                 GlossError::ImageUnavailable,

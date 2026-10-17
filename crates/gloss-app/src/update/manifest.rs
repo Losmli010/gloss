@@ -28,10 +28,6 @@ pub struct Artifact {
 pub struct UpdateManifest {
     /// 清单版本（已解析为 semver；相等或低于本地即无更新）。
     version: Version,
-    /// 发布时间（ISO 8601，展示用，客户端不校验格式）。
-    published_at: Option<String>,
-    /// 版本说明页（GitHub Release 页，设置页可作链接出口）。
-    notes_url: Option<String>,
     /// stable 频道的架构条目，键为 target 三元组。
     artifacts: BTreeMap<String, Artifact>,
 }
@@ -45,16 +41,6 @@ impl UpdateManifest {
     /// 取走清单版本：锁定更新目标时随所有权移交，不再复制。
     pub fn into_version(self) -> Version {
         self.version
-    }
-
-    /// 发布时间（未携带时为 `None`）。
-    pub fn published_at(&self) -> Option<&str> {
-        self.published_at.as_deref()
-    }
-
-    /// 版本说明页（未携带时为 `None`）。
-    pub fn notes_url(&self) -> Option<&str> {
-        self.notes_url.as_deref()
     }
 
     /// 按架构三元组取条目（矩阵保证双架构齐备，`None` 属防御分支）。
@@ -76,13 +62,12 @@ pub enum ManifestError {
     Invalid,
 }
 
-/// serde 视图：只声明矩阵要核对的字段，其余（含 `dmg_url`）一律忽略。
+/// serde 视图：只声明矩阵要核对的字段，其余（含 `dmg_url` 与展示用字段）
+/// 一律忽略。
 #[derive(Debug, Deserialize)]
 struct ManifestDoc {
     schema: Option<u32>,
     version: Option<String>,
-    published_at: Option<String>,
-    notes_url: Option<String>,
     channels: Option<ChannelsDoc>,
 }
 
@@ -157,12 +142,7 @@ pub fn parse(body: &str) -> Result<UpdateManifest, ManifestError> {
             return Err(ManifestError::Invalid);
         }
     }
-    Ok(UpdateManifest {
-        version,
-        published_at: doc.published_at,
-        notes_url: doc.notes_url,
-        artifacts,
-    })
+    Ok(UpdateManifest { version, artifacts })
 }
 
 /// 64 位十六进制小写（清单样例承诺的形态；混入大写或非 hex 按不符处理）。
@@ -194,26 +174,15 @@ mod tests {
         artifact("https://pages.example/arm.zip", 15_230_000, SHA_A)
     }
 
-    fn valid_body(version: &str) -> String {
-        body(
-            "1",
-            version,
-            &valid_artifact(),
-            &artifact("https://pages.example/x64.zip", 16_810_000, SHA_B),
-        )
-    }
-
     fn parsed(body_text: &str) -> UpdateManifest {
         parse(body_text).expect("test body must validate")
     }
 
     #[test]
-    fn valid_manifest_parses_with_all_fields() {
+    fn valid_manifest_parses_with_its_version_and_artifact() {
         let text = r#"{
   "schema": 1,
   "version": "0.2.0",
-  "published_at": "2026-09-23T12:00:00Z",
-  "notes_url": "https://github.com/Losmli010/gloss/releases/tag/v0.2.0",
   "channels": { "stable": {
     "aarch64-apple-darwin": { "url": "https://p/a.zip", "size": 1, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
     "x86_64-apple-darwin": { "url": "https://p/x.zip", "size": 2, "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
@@ -221,11 +190,6 @@ mod tests {
 }"#;
         let manifest = parsed(text);
         assert_eq!(manifest.version().to_string(), "0.2.0");
-        assert_eq!(manifest.published_at(), Some("2026-09-23T12:00:00Z"));
-        assert_eq!(
-            manifest.notes_url(),
-            Some("https://github.com/Losmli010/gloss/releases/tag/v0.2.0")
-        );
         let (url, size, sha) = if current_arch() == ARM_DARWIN {
             ("https://p/a.zip", 1, SHA_A)
         } else {
@@ -251,13 +215,6 @@ mod tests {
         let manifest = parse(text).expect("unknown fields must be ignored");
         assert_eq!(manifest.version().to_string(), "0.2.0");
         assert!(manifest.artifact(current_arch()).is_some());
-    }
-
-    #[test]
-    fn optional_fields_may_be_absent() {
-        let manifest = parsed(&valid_body("0.2.0"));
-        assert_eq!(manifest.published_at(), None);
-        assert_eq!(manifest.notes_url(), None);
     }
 
     #[test]

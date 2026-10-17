@@ -8,7 +8,7 @@
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use gloss_core::log::Span;
-use gloss_core::model::{GlossError, ScreenPoint, ScreenRect};
+use gloss_core::model::{GlossError, ScreenPoint};
 use gloss_core::task::{TaskInput, TaskKind, TaskOptions, TaskOutcome};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio_util::sync::CancellationToken;
@@ -22,29 +22,23 @@ pub enum PlatformEvent {
         /// 释放坐标。
         pos: ScreenPoint,
     },
-    /// 框选手势（图像任务）。
-    RegionGesture {
-        /// 框选区域的屏幕坐标。
-        rect: ScreenRect,
-    },
     /// 剪贴板哨兵观察到新图片（changeCount 前进且 types 含图像）。
     /// 无载荷——内容在取材命令②再读，①与②之间被覆盖由取材侧竞态兜底。
     PasteboardImageObserved,
     /// 托盘请求打开设置。
     OpenSettingsRequested,
-    /// 托盘请求退出应用。
-    QuitRequested,
     /// 运行中观察到取材授权（辅助功能）落定——仅启动预检未就绪的会话由
     /// 授权观察器产出一次（事件线程节流轮询，见 platform 的
-    /// `AccessibilityWatch`）；不占用代数（与设置/退出入口同为不进状态机
-    /// 的直通事件）。
+    /// `AccessibilityWatch`）；不占用代数（与设置入口同为不进状态机的
+    /// 直通事件）。
     AccessibilityGranted,
 }
 
 /// ② 主线程 → 平台事件线程：触发取材。
 ///
-/// 取材有线程亲和约束（选区/截图是同步系统调用，必须发生在事件线程），
-/// 不能与通道③合并发去 tokio；与系统事件同线程顺序消费，天然串行无锁。
+/// 取材有线程亲和约束（选区读取与剪贴板图片读取是同步系统调用，必须发生在
+/// 事件线程），不能与通道③合并发去 tokio；与系统事件同线程顺序消费，天然
+/// 串行无锁。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AcquireCommand {
     /// 读前台应用选区文本。
@@ -58,13 +52,6 @@ pub enum AcquireCommand {
     AcquireClipboardImage {
         /// 请求代数，由 App 统一赋值（见模块文档）。
         generation: u64,
-    },
-    /// 截取屏幕区域为图像。
-    CaptureRegion {
-        /// 请求代数，由 App 统一赋值（见模块文档）。
-        generation: u64,
-        /// 框选区域的屏幕坐标。
-        rect: ScreenRect,
     },
 }
 
@@ -80,7 +67,7 @@ pub enum Command {
     RunTask {
         /// 请求代数，由 App 统一赋值（见模块文档）。
         generation: u64,
-        /// 取材输入（划词文本或剪贴板图像；音频为预留变体，尚未接线）。
+        /// 取材输入（划词文本或剪贴板图片）。
         input: TaskInput,
         /// 触发时按配置快照冻结的任务选项（含模型 id）。
         options: TaskOptions,
@@ -290,17 +277,8 @@ mod tests {
             PlatformEvent::SelectionGesture {
                 pos: ScreenPoint::new(30, 40),
             },
-            PlatformEvent::RegionGesture {
-                rect: ScreenRect {
-                    x: 10,
-                    y: 20,
-                    width: 300,
-                    height: 200,
-                },
-            },
             PlatformEvent::PasteboardImageObserved,
             PlatformEvent::OpenSettingsRequested,
-            PlatformEvent::QuitRequested,
             PlatformEvent::AccessibilityGranted,
         ];
         for e in &events {
@@ -317,15 +295,6 @@ mod tests {
         let commands = vec![
             AcquireCommand::AcquireText { generation: 1 },
             AcquireCommand::AcquireClipboardImage { generation: 2 },
-            AcquireCommand::CaptureRegion {
-                generation: 3,
-                rect: ScreenRect {
-                    x: 0,
-                    y: 0,
-                    width: 1920,
-                    height: 1080,
-                },
-            },
         ];
         for c in &commands {
             ch.tx.send(Traced::untraced(c.clone())).unwrap();
@@ -583,12 +552,6 @@ mod tests {
                 generation: 9,
                 input: TaskInput::Image {
                     png: Arc::from(&b"png"[..]),
-                    region: Some(ScreenRect {
-                        x: 0,
-                        y: 0,
-                        width: 1,
-                        height: 1,
-                    }),
                 },
             })
             .unwrap();

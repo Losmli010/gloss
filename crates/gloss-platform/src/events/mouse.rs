@@ -148,7 +148,7 @@ mod tap {
         /// 用户完成了一次典型的文本选择动作（拖拽释放），载荷是释放坐标
         /// （系统全局坐标，逻辑点、左上原点）——浮层跟随划词位置用。
         Selection {
-            /// 释放坐标（整型化，与 [`gloss_core::model::ScreenRect`] 同一口径）。
+            /// 释放坐标（整型化的逻辑点，与 [`ScreenPoint`] 同一口径）。
             pos: ScreenPoint,
         },
     }

@@ -42,7 +42,7 @@ const ERR_SEC_INVALID_OWNER_EDIT: i32 = -25244;
 /// Arc 分发给引擎与设置页，读写因此天然汇合到同一缓存。
 #[derive(Debug, Clone)]
 pub struct KeychainSecret {
-    /// 以服务名定位条目，与应用条目隔离（测试与自定义部署可换名）。
+    /// 以服务名定位条目，与应用条目隔离（换名入口 `with_service` 仅测试可用）。
     service: String,
     /// 读取缓存：值含 `None`（条目不存在也被缓存），写删路径同步更新。
     cache: Arc<Mutex<HashMap<String, Option<String>>>>,
@@ -76,7 +76,8 @@ impl KeychainSecret {
         }
     }
 
-    /// 用指定服务名构造（测试隔离与自定义部署用）。
+    /// 用指定服务名构造（测试隔离用）。
+    #[cfg(test)]
     pub fn with_service(service: impl Into<String>) -> Self {
         Self {
             service: service.into(),

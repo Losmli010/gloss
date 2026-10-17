@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::config::DEFAULT_MODEL;
-use crate::model::{GlossError, Lang, Locale, ScreenRect};
+use crate::model::{GlossError, Lang, Locale};
 
 /// 任务类型：新增场景 = 加变体 + Prompt 模板 + 结构化结果变体 + UI 模板，管道不动。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -16,7 +16,7 @@ pub enum TaskKind {
     TranslateSentence,
     /// 代码解释（输入可带语言提示）。
     ExplainCode,
-    /// 框选图片 → 解释内容。
+    /// 图像 → 解释内容（剪贴板图片触发）。
     ImageExplain,
     /// 通用任务：理解并回应用户给出的任意内容。不在分类清单
     /// （[`crate::classify::CLASSIFY_KINDS`]）里——分类器只在三个文本
@@ -40,16 +40,6 @@ pub enum TaskInput {
     Image {
         /// PNG 字节。
         png: Arc<[u8]>,
-        /// 截图区域屏幕坐标（供 UI 展示上下文）：框选来源带值；剪贴板等
-        /// 无锚点来源为 `None`。
-        region: Option<ScreenRect>,
-    },
-    /// 语音输入预留（MVP 不实现）：届时只新增取材端口与对应 TaskKind/模板。
-    Audio {
-        /// 音频字节（编码格式落地时定）。
-        bytes: Arc<[u8]>,
-        /// 时长提示（秒），供 prompt 与 UI 参考。
-        duration_hint: Option<f32>,
     },
 }
 
@@ -62,8 +52,6 @@ pub enum TaskInput {
 pub struct TaskOptions {
     /// 目标语言，None = 自动检测（默认中文）。
     pub target_lang: Option<Lang>,
-    /// 回答深度档位（预留：当前不进 prompt 渲染，也不随请求下发）。
-    pub detail_level: Option<u8>,
     /// 本任务使用的模型 id：App 在触发时按 `Config::model` 冻结进来。
     /// `Arc<str>` 共享承载：任务在状态机在途副本与下发请求间共享同一份
     /// id，复制只是引用计数（模型 id 一次任务至多几个字节，逐份深拷贝
@@ -80,7 +68,6 @@ impl Default for TaskOptions {
     fn default() -> Self {
         Self {
             target_lang: None,
-            detail_level: None,
             model: Arc::from(DEFAULT_MODEL),
             prompt_locale: None,
         }
@@ -96,29 +83,19 @@ pub struct Task {
     pub options: TaskOptions,
 }
 
-impl Task {
-    /// 模态约束表校验：编排层在渲染前调用，非法组合在进 prompt 与引擎前
-    /// 拒绝。
-    pub fn validate(&self) -> Result<(), GlossError> {
-        validate_modality(self.kind, &self.input)
-    }
-}
-
 /// 模态约束表：任务类型与输入模态的合法组合。唯一被拒的
 /// 错误是 [`GlossError::UnsupportedModality`]。
 pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError> {
-    let legal = match (kind, input) {
+    let legal = matches!(
+        (kind, input),
         (
             TaskKind::TranslateWord
-            | TaskKind::TranslateSentence
-            | TaskKind::ExplainCode
-            | TaskKind::General,
+                | TaskKind::TranslateSentence
+                | TaskKind::ExplainCode
+                | TaskKind::General,
             TaskInput::Text { .. },
-        )
-        | (TaskKind::ImageExplain, TaskInput::Image { .. }) => true,
-        // 语音任务未落地：任何 kind + Audio 都是非法组合。
-        _ => false,
-    };
+        ) | (TaskKind::ImageExplain, TaskInput::Image { .. })
+    );
     if legal {
         Ok(())
     } else {
@@ -205,7 +182,6 @@ mod tests {
         };
         assert_eq!(task.kind, TaskKind::TranslateWord);
         assert_eq!(task.options.target_lang, Some(Lang::Zh));
-        assert_eq!(task.options.detail_level, None);
     }
 
     #[test]
@@ -221,25 +197,10 @@ mod tests {
         let png: Arc<[u8]> = vec![0x89, b'P', b'N', b'G'].into();
         let input = TaskInput::Image {
             png: Arc::clone(&png),
-            region: Some(ScreenRect {
-                x: 10,
-                y: 20,
-                width: 300,
-                height: 200,
-            }),
         };
         match input {
-            TaskInput::Image { png: moved, region } => {
+            TaskInput::Image { png: moved } => {
                 assert!(Arc::ptr_eq(&png, &moved));
-                assert_eq!(
-                    region,
-                    Some(ScreenRect {
-                        x: 10,
-                        y: 20,
-                        width: 300,
-                        height: 200
-                    })
-                );
             }
             other => panic!("unexpected variant: {other:?}"),
         }
@@ -328,12 +289,6 @@ mod tests {
             kind,
             input: TaskInput::Image {
                 png: Arc::from(&b"png"[..]),
-                region: Some(ScreenRect {
-                    x: 0,
-                    y: 0,
-                    width: 1,
-                    height: 1,
-                }),
             },
             options: TaskOptions::default(),
         }
@@ -358,6 +313,7 @@ mod tests {
             )
         };
         let image_legal = |kind| matches!(kind, TaskKind::ImageExplain);
+        let verdict = |task: &Task| validate_modality(task.kind, &task.input);
         for kind in all_kinds {
             let (text_expect, image_expect) = (
                 text_legal(kind)
@@ -367,28 +323,8 @@ mod tests {
                     .then_some(())
                     .ok_or(GlossError::UnsupportedModality),
             );
-            assert_eq!(text_task(kind).validate(), text_expect, "text × {kind:?}");
-            assert_eq!(
-                image_task(kind).validate(),
-                image_expect,
-                "image × {kind:?}"
-            );
-        }
-
-        let audio_task = |kind| Task {
-            kind,
-            input: TaskInput::Audio {
-                bytes: Arc::from(&b"au"[..]),
-                duration_hint: None,
-            },
-            options: TaskOptions::default(),
-        };
-        for kind in all_kinds {
-            assert_eq!(
-                audio_task(kind).validate(),
-                Err(GlossError::UnsupportedModality),
-                "audio × {kind:?} must be reserved"
-            );
+            assert_eq!(verdict(&text_task(kind)), text_expect, "text × {kind:?}");
+            assert_eq!(verdict(&image_task(kind)), image_expect, "image × {kind:?}");
         }
     }
 
@@ -415,34 +351,10 @@ mod tests {
         let png: Arc<[u8]> = vec![0x89, b'P', b'N', b'G'].into();
         let input = TaskInput::Image {
             png: Arc::clone(&png),
-            region: Some(ScreenRect {
-                x: -8,
-                y: 4,
-                width: 1920,
-                height: 1080,
-            }),
         };
         let json = serde_json::to_string(&input).expect("image input should serialize");
         let back: TaskInput = serde_json::from_str(&json).expect("image input should deserialize");
-        assert_eq!(back, input, "bytes and rect must survive the roundtrip");
-        assert!(!matches!(&back, TaskInput::Image { png: moved, .. } if Arc::ptr_eq(&png, moved)));
-    }
-
-    #[test]
-    fn image_input_without_region_round_trips_through_serde() {
-        let input = TaskInput::Image {
-            png: Arc::from(&b"png"[..]),
-            region: None,
-        };
-        let json = serde_json::to_string(&input).expect("image input should serialize");
-        assert!(
-            json.contains(r#""region":null"#),
-            "an absent region must stay null on the wire: {json}"
-        );
-        let back: TaskInput = serde_json::from_str(&json).expect("image input should deserialize");
-        assert_eq!(
-            back, input,
-            "None must survive the roundtrip as None, not fall back to a rect"
-        );
+        assert_eq!(back, input, "bytes must survive the roundtrip");
+        assert!(!matches!(&back, TaskInput::Image { png: moved } if Arc::ptr_eq(&png, moved)));
     }
 }

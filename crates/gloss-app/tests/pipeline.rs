@@ -152,7 +152,7 @@ impl Pipeline {
         };
         let InputOutcome::Dispatch(request) = self
             .machine
-            .commit_probe(*generation, TaskInput::Image { png, region: None })
+            .commit_probe(*generation, TaskInput::Image { png })
         else {
             panic!("the pasteboard product should be committed");
         };

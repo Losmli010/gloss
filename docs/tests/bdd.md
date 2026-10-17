@@ -333,8 +333,6 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| selection_reader_mock_returns_presets | 选区读取桩的两路透传 | 给定预置的成功/失败结果，当调用 SelectionReader 桩的 read，则两路都原样返回（Ok 与 AccessibilityDenied） | 2026-09-19 |
-| region_capture_mock_returns_png | 区域截图桩的字节透传 | 给定预置 PNG 字节，当 capture 一个 4×4 区域，则返回同一份 Arc 缓冲（ptr_eq 断言） | 2026-09-19 |
 | config_store_mock_round_trips_secrets | 密钥存取桩往返 | 给定密钥未设置时读为 None，当 set_secret 后再读，则读回写入值 | 2026-09-19 |
 | config_store_mock_round_trips_document | 配置文档桩往返 | 给定带非默认 language 的配置文档，当 save 与 load，则往返无损且与出厂默认可区分 | 2026-09-22 |
 | chunk_delay_paces_the_stream | chunk 延迟为流定速 | 给定 30ms chunk 间延迟的三段脚本，当消费流，则内容按序且总耗时下界为两段延迟 | 2026-09-19 |
@@ -370,7 +368,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | classify_reads_the_kind_from_a_bare_kind_script | 分类从裸 JSON kind 脚本判型 | 给定 {"kind":"ExplainCode"} 裸 JSON 脚本与契约任务脚本（脚本队列两份），当 classify，则解析出 kind（无提示直通——分类完全交给 LLM），全链路引擎恰 2 次调用 | 2026-10-12 |
-| non_text_input_is_rejected | 非文本输入拒绝分类 | 给定 Audio 输入，当 classify，则 UnsupportedModality | 2026-09-26 |
+| non_text_input_is_rejected | 非文本输入拒绝分类 | 给定 Image 输入，当 classify，则 UnsupportedModality | 2026-09-26 |
 | bare_json_reply_selects_the_kind | 裸 JSON 回复解析 kind | 给定 {"kind":"TranslateWord"} 回复，当 classify，则得 TranslateWord | 2026-09-26 |
 | a_fenced_reply_repairs_then_falls_back | 围栏回复按违约进修复轮再兜底 | 给定模型不守约输出的 ```json 围栏回复（严格裸 JSON 契约，无围栏容错），当 classify，则按 NotJson 违约进修复轮（1+CLASSIFY_REPAIRS 次调用）、仍违约落兜底 General | 2026-10-12 |
 | a_complete_json_settles_before_the_stream_ends | 完整 JSON 先于流结束定型 | 给定「半截 → 闭合 → 流内错误」的增量序列，当 classify，则返回首个完整 JSON 的判定（等流结束就会拿到那个错误） | 2026-09-30 |
@@ -487,19 +485,17 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | task_input_carries_text_only | 输入只携带原文 | 给定文本输入，当构造 TaskInput，则只有 text——模态提示已废除（源语言/代码语言由 LLM 自行判断） | 2026-10-04 |
 | task_binds_kind_input_and_options | Task 三元正确绑定 | 给定构造参数，当建 Task，则 kind/input/options 正确绑定 | 2026-09-19 |
 | task_options_default_carries_the_factory_model | 选项缺省携带出厂模型 | 给定 TaskOptions::default()，当检查，则 model 为 DEFAULT_MODEL、target_lang/prompt_locale 为 None（缺省只服务测试直构） | 2026-10-10 |
-| image_input_shares_png_bytes_via_arc | 图像输入 Arc 共享 | 给定 PNG 字节，当构造 Image 输入，则经 Arc 共享（ptr_eq）并携带区域 | 2026-09-19 |
+| image_input_shares_png_bytes_via_arc | 图像输入 Arc 共享 | 给定 PNG 字节，当构造 Image 输入，则经 Arc 共享（ptr_eq） | 2026-09-19 |
 | outcome_carries_word_card_subprov_and_the_code_verdict | 产物携带词卡疏证与语言判定 | 给定词卡与代码产物，当构造 TaskOutcome，则词卡 structured 为 WordCard（phonetic/examples）、代码的语言判定随 Code 变体走（structured.code_language，UI 角标与高亮使用） | 2026-10-11 |
 | degraded_defaults_to_false_on_the_wire | 降级标记 serde 缺省 false | 给定序列化后剥去 degraded 字段的产物 JSON，当反序列化，则 degraded 为 false（旧条目落在正常路径）；degraded=true 显式往返 | 2026-10-11 |
-| modality_matrix_is_enforced_cell_by_cell | 模态矩阵逐格校验 | 给定 5 kind × 3 输入全矩阵，当逐格 validate，则文本列（含通用 General）与 Image 列（唯一合法 kind 为 ImageExplain）合法、Audio 全列非法 | 2026-10-12 |
+| modality_matrix_is_enforced_cell_by_cell | 模态矩阵逐格校验 | 给定 5 kind × 2 输入全矩阵，当逐格 validate，则文本列（含通用 General）与 Image 列（唯一合法 kind 为 ImageExplain）逐格合规 | 2026-10-12 |
 | task_round_trips_through_serde | Task serde 往返无损 | 给定文本任务（含目标语言与模型），当 serde 往返，则无损 | 2026-10-03 |
-| image_input_round_trips_through_serde | 图像输入 serde 往返 | 给定 Image 输入，当 serde 往返，则字节与区域不变且反序列化得到新 Arc（不与原值共享） | 2026-09-19 |
-| image_input_without_region_round_trips_through_serde | 无区域图像输入 serde 往返 | 给定 region=None 的 Image 输入，当 serde 往返，则 wire 上 region 为 null 且往返后仍为 None（不回落成矩形） | 2026-10-10 |
+| image_input_round_trips_through_serde | 图像输入 serde 往返 | 给定 Image 输入，当 serde 往返，则字节不变且反序列化得到新 Arc（不与原值共享） | 2026-09-19 |
 
 ### crates/gloss-core/src/model.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| screen_rect_compares_by_value | ScreenRect 按值比较 | 给定同值不同实例的 ScreenRect，当比较，则按值相等、异值不等 | 2026-09-19 |
 | error_display_is_diagnostic_text | 错误文案为诊断文本 | 给定各 GlossError 变体（含 JSON 模式不支持），当 to_string，则输出精确的诊断文案 | 2026-10-11 |
 | error_is_std_error | 错误可作 std Error | 给定 GlossError 装箱为 std Error，当 to_string，则输出正确文案 | 2026-09-19 |
 
@@ -515,7 +511,6 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | run_output_carries_the_server_finish_reason | RunOutput 携带服务端结束原因 | 给定声明 stop 与 length 结束的两个脚本流，当 run，则 finish_reason 原文随 RunOutput 返回、raw 不受影响、契约合回复 repairs 为 0（length 只在违约修复时进指令，content_filter 直接失败卡） | 2026-10-12 |
 | run_output_finish_reason_stays_none_without_a_done_marker | 无 [DONE] 时结束原因缺省 | 给定只吐增量、不声明结束的脚本流，当 run，则 finish_reason 为 None | 2026-10-11 |
 | blank_model_is_a_config_failure_before_the_engine | 空白模型先于引擎拒绝 | 给定 model 为空白的选项，当 run，则 Config 错误且引擎 0 调用 | 2026-10-03 |
-| audio_input_is_still_rejected_before_anything | 语音输入在一切之前拒绝 | 给定 Audio 输入，当 run，则 UnsupportedModality 且引擎 0 调用（语音是预留模态，入口即拒） | 2026-10-10 |
 | image_input_skips_classification_and_lands_on_image_explain | 图像输入跳分类固定 ImageExplain | 给定 Image 输入与两段任务流，当 run，则 kind 恒为 ImageExplain、on_classified 先于任何 chunk 恰一次、引擎共 1 次调用（省去分类往返）、raw 原样返回 | 2026-10-10 |
 | a_contract_violation_repairs_with_the_bad_reply_in_the_history | 任务违约修复轮带回坏回复 | 给定图像任务「违约散文 → 契约 JSON」脚本队列，当 run，则修复轮对话为 [system][user 图][assistant 坏回复][user 纠错指令]，纠错指令带违约固定措辞与该 kind 契约示例行、不含坏回复原文，图像部件随对话重发，on_repair 恰触发一次、RunOutput.repairs 为 1 | 2026-10-12 |
 | the_repair_round_warn_carries_the_category_and_round_only | 修复轮违约告警只记类别与轮次 | 给定违约回复触发修复，当捕获日志，则「task reply violated the contract」行含固定违约类别与 attempt=1、不含回复原文 | 2026-10-12 |
@@ -533,10 +528,10 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| different_inputs_get_different_keys | 不同输入必不同 key | 给定不同文本与不同模态（音频对文本）的输入，当 cache_key(input, options)，则 key 互不相同 | 2026-10-03 |
+| different_inputs_get_different_keys | 不同输入必不同 key | 给定不同文本与不同模态（图像对同载荷文本）的输入，当 cache_key(input, options)，则 key 互不相同 | 2026-10-03 |
 | different_options_get_different_keys | 不同选项必不同 key | 给定同一输入，当换 target_lang/prompt_locale/model（非出厂值），则 key 均不同 | 2026-10-03 |
-| key_derivation_is_stable_and_non_finite_audio_hashes_by_bits | key 派生稳定、非有限时长按位形态哈希 | 给定同输入重复派生与含 NaN 的 Audio 输入，当 cache_key，则同值同 key、NaN 按位形态确定性哈希且与有限时长可分辨 | 2026-10-10 |
-| image_keys_follow_png_bytes_and_region | 图像 key 随字节与 region | 给定同/异 png 字节与 None/Some region 的 Image 输入，当 cache_key，则同字节同 region 同 key、异字节异 key、None 与 Some(region) 异 key、图像与同载荷文本异 key | 2026-10-10 |
+| key_derivation_is_stable | key 派生稳定 | 给定同一输入与选项，当重复派生 cache_key，则得同一个 key | 2026-10-10 |
+| image_keys_follow_png_bytes | 图像 key 随字节 | 给定同/异 png 字节的 Image 输入与同载荷文本输入，当 cache_key，则同字节同 key、异字节异 key、图像与同载荷文本异 key | 2026-10-10 |
 | entries_store_and_isolate_outcomes | 条目存取与 key 隔离 | 给定 miss→set→hit 序列，当按不同 key 查询，则命中且无关 key 互不可见 | 2026-10-03 |
 | ttl_expiry_takes_effect | TTL 过期生效 | 给定 TTL 60ms 的条目，当过 120ms 并 run_pending_tasks 后读，则 miss | 2026-10-03 |
 | factory_ttl_matches_the_config_default | 默认 TTL 单点一致 | 给定出厂 TTL（Config::cache_ttl_secs），当与 gloss_app::cache 的 DEFAULT_TTL 比对，则相等 | 2026-10-03 |
@@ -556,8 +551,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| platform_events_round_trip_through_crossbeam | 通道①事件往返 | 给定六种 PlatformEvent（含粘贴板图片观察与监听失效），当经通道①往返，则按序原样到达 | 2026-10-10 |
-| acquire_commands_carry_app_assigned_gen | 取材命令携带代数 | 给定带代数的三种取材命令（读文本、读剪贴板图、框选区域），当下发，则接收侧读到同一代数与各自的载荷 | 2026-10-10 |
+| platform_events_round_trip_through_crossbeam | 通道①事件往返 | 给定四种 PlatformEvent（含粘贴板图片观察与授权落定），当经通道①往返，则按序原样到达 | 2026-10-10 |
+| acquire_commands_carry_app_assigned_gen | 取材命令携带代数 | 给定带代数的两种取材命令（读文本、读剪贴板图），当下发，则接收侧读到同一代数与各自的载荷 | 2026-10-10 |
 | run_task_command_delivers_cancellable_task | 任务命令携带取消令牌 | 给定 RunTask 命令，当下发，则代数、任务、取消令牌完整到达且令牌联动 | 2026-09-19 |
 | prewarm_secret_command_carries_only_the_entry_id | 预热命令只携带条目定位符 | 给定 PrewarmSecret 命令，当下发，则到达的命令只含 keychain_id（密钥值不进通道载荷） | 2026-10-06 |
 | secret_prewarmed_receipt_round_trips_without_a_value | 预热回执成功失败两路往返 | 给定 Ok 与 Err 两条预热回执，当经通道④，则按序携带（Err 只含失败原因，不含密钥值） | 2026-10-06 |
@@ -624,7 +619,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 85（条数钉住，防遍历退化） | 2026-10-12 |
+| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 83（条数钉住，防遍历退化） | 2026-10-12 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language_en）外无一与中文表逐字相同 | 2026-09-23 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 gloss_ 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
 | placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
@@ -632,8 +627,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数/无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |
 | fill_replaces_multiple_distinct_placeholders | 多参填充各自替换对应占位符 | 给定含 {{a}} 与 {{b}} 两类占位符的模板与两参，当填充，则各自替换对应占位符、互不串位 | 2026-10-14 |
 | fill_multi_arg_values_take_part_in_later_scans | 多参逐参替换保留旧的顺序替换语义 | 给定 a 参替换值为 {{b}}、b 参替换值为乙的模板，当填充，则后参重扫先参插入的值、结果为乙（与旧逐参 str::replace 语义一致） | 2026-10-14 |
-| error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定 GlossError 的十一个无诊断文本变体（含 JSON 模式不支持），当取失败卡文案，则各自的两种语言都非空且互不相同；两个带诊断文本的变体按模板填出整句 | 2026-10-11 |
-| each_error_variant_maps_to_its_own_entry | 错误变体各取自己的词条 | 给定十一个无诊断文本的变体（含 JSON 模式不支持），当取失败卡文案与错因细节，则各等于本变体对应的词条（两臂对调会被抓住）；带诊断的两个变体按模板填诊断 | 2026-10-11 |
+| error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定九个无诊断文本变体（含 JSON 模式不支持；`SelectionEmpty` 未入本组），当取失败卡文案，则各自的两种语言都非空且互不相同；两个带诊断文本的变体按模板填出整句 | 2026-10-11 |
+| each_error_variant_maps_to_its_own_entry | 错误变体各取自己的词条 | 给定九个无诊断文本变体（含 JSON 模式不支持；`SelectionEmpty` 未入本组），当取失败卡文案与错因细节，则各等于本变体对应的词条（两臂对调会被抓住）；带诊断的两个变体按模板填诊断 | 2026-10-11 |
 | error_detail_prefers_the_variant_diagnostic | 复合提示取诊断细节 | 给定带诊断的变体与不带诊断的变体，当取错因细节，则前者只出诊断原文、后者回落本地化整句 | 2026-09-22 |
 
 ### crates/gloss-app/src/present/windows.rs
@@ -811,8 +806,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（框选、粘贴板观察、设置、退出），当 begin_selection_probe，则前者发 AcquireText（无 kind——类型归 LLM 层）且只领探测编号不动代数、后者 None 且不占代数不顶掉在途探测 | 2026-10-10 |
-| trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦/未接线 | 给定 trigger_decision，则划词恒为 Acquire（无载荷——分类是 LLM 层的事）、剪贴板观察为 Acquire（取材动作即显式意图）且只受场景闸门（名单内报 Blocked、自身前台不设防）、框选、退出与授权落定报 Unwired；出厂配置下划词为 Acquire | 2026-10-10 |
+| probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（粘贴板观察、设置），当 begin_selection_probe，则前者发 AcquireText（无 kind——类型归 LLM 层）且只领探测编号不动代数、后者 None 且不占代数不顶掉在途探测 | 2026-10-10 |
+| trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦/未接线 | 给定 trigger_decision，则划词恒为 Acquire（无载荷——分类是 LLM 层的事）、剪贴板观察为 Acquire（取材动作即显式意图）且只受场景闸门（名单内报 Blocked、自身前台不设防）、设置与授权落定报 Unwired；出厂配置下划词为 Acquire | 2026-10-10 |
 | scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 begin_selection_probe，则两次都 None、无探测编号、状态留 Idle；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
 | selection_options_pair_with_one_snapshot_including_the_model | 选项（含模型）出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则目标语言与模型 id 均出自快照冻结（类型不在其中——kind 由 LLM 层分类决定） | 2026-10-03 |
 | classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 accept_classified，则当前代写入判定 kind、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
@@ -878,9 +873,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| valid_manifest_parses_with_all_fields | 合法清单全字段解析 | 给定 schema=1 双架构齐备的清单，当 parse，则版本、发布时间、说明页与本机架构条目全部就位 | 2026-09-26 |
+| valid_manifest_parses_with_its_version_and_artifact | 合法清单解析出本机条目 | 给定 schema=1 双架构齐备的清单，当 parse，则版本与本机架构条目的 url/size/sha256 全部就位 | 2026-09-26 |
 | unknown_fields_are_ignored_for_forward_compatibility | 未知字段前向兼容 | 给定含 dmg_url 等未知字段的清单，当 parse，则照常通过 | 2026-09-26 |
-| optional_fields_may_be_absent | 可选字段缺省 | 给定无 published_at/notes_url 的清单，当 parse，则通过且对应 getter 为 None | 2026-09-26 |
 | unknown_schema_is_fail_closed | 未知 schema 拒绝 | 给定 schema 为 0/2/99 的清单，当 parse，则 UnknownSchema 拒绝且不继续解析 | 2026-09-26 |
 | unparsable_body_is_rejected | 非法 body 拒绝 | 给定空串、非 JSON、数组、schema 类型不符的 body，当 parse，则 Unparsable | 2026-09-26 |
 | version_must_be_a_semver_triple | 版本必须可解析 | 给定空串/两段/带 v/非数字的 version，当 parse，则 Invalid | 2026-09-26 |
@@ -1195,7 +1189,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | request_body_has_the_openai_envelope | 请求体 OpenAI 信封 | 给定未设限的 EngineRequest，当构造请求体，则 model/messages/stream/response_format 四键 wire 形态精确匹配且无 max_tokens 键 | 2026-10-11 |
 | json_mode_switch_is_always_on_the_wire | JSON 契约恒在请求体上 | 给定设限、不设限与多模态（图像部件）请求，当构造请求体，则 response_format 恒为 {"type":"json_object"}（EngineRequest 无开关，不做能力协商） | 2026-10-11 |
 | text_content_stays_a_json_string_on_the_wire | 纯文本正文 wire 上仍是字符串 | 给定纯文本用户消息，当构造请求体，则 content 是 JSON 字符串、不升级成 content 数组 | 2026-10-10 |
-| multimodal_parts_map_to_the_openai_content_array | 多模态部件映成 OpenAI content 数组 | 给定系统文本消息 + 文本/图像两部件的用户消息（夹具 PNG），当构造请求体，则文本部件映 {"type":"text"}、图像部件映 {"type":"image_url"} 的 data:image/png;base64 data URL 且整包形状精确匹配（含 response_format） | 2026-10-11 |
+| multimodal_parts_map_to_the_openai_content_array | 多模态部件映成 OpenAI content 数组 | 给定系统文本消息 + 仅图像部件的用户消息（夹具 PNG），当构造请求体，则图像部件映 {"type":"image_url"} 的 data:image/png;base64 data URL 且整包形状精确匹配（含 response_format） | 2026-10-11 |
 | max_tokens_is_carried_only_when_set | max_tokens 仅设限时上线 | 给定 max_tokens=None 与 Some(64) 两个请求，当构造请求体，则 None 无该键、Some 携带数值 64 | 2026-09-26 |
 | maps_http_status_to_error_variants | HTTP 状态映射错误变体 | 给定 401/403/429/500/400+JSON/400+HTML，当映射，则分别得 EngineAuth/EngineRateLimited/EngineNetwork/带诊断的 EngineResponse | 2026-09-19 |
 | json_mode_and_multimodal_rejections_are_recognized_from_diagnostics | 诊断文本识别 JSON 模式与多模态不支持 | 给定 4xx 且诊断含 response_format/json_object 或 image/multimodal/vision 的错误体，当映射，则分别得 JsonModeUnsupported 与 UnsupportedModality（JSON 模式检查在前）；5xx 与 401 不做启发式（网络与鉴权优先） | 2026-10-11 |

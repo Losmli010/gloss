@@ -444,7 +444,6 @@ mod tests {
     fn image_input() -> TaskInput {
         TaskInput::Image {
             png: Arc::from(&b"png-bytes"[..]),
-            region: None,
         }
     }
 

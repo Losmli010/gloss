@@ -11,9 +11,9 @@
 //! 触发入口只有两个：[`start_once`]（启动钩子，进程内幂等，只拉起模块
 //! 任务不发起检查——静默检查由 [`start_silent_check`] 在首帧就绪后补发，
 //! 客户端构建不挤占启动窗口；失败落 `Failed` 供设置页被动渲染、不弹层）
-//! 与 [`check_now`]（设置页手动检查）。两道确认（确认下载 / 确认重启替换）
-//! 由设置页经句柄发对应消息；重试是设计 §4.1 迁移表的「用户点重试」事件，
-//! 比消息草案多出的 [`UpdateMsg::Retry`] 为它服务。
+//! 与设置页经句柄发 [`UpdateMsg::Check`]（手动检查）。两道确认（确认下载 /
+//! 确认重启替换）由设置页经句柄发对应消息；重试是设计 §4.1 迁移表的
+//! 「用户点重试」事件，比消息草案多出的 [`UpdateMsg::Retry`] 为它服务。
 //!
 //! 取消由模块内部 `CancellationToken` 自管：重复检查先取消在途任务；已
 //! 取消任务的迟到回包经令牌核对一律丢弃，不回写状态（与状态机相位守卫
@@ -129,12 +129,6 @@ pub fn start_once() -> &'static UpdateHandle {
 /// 状态由设置页提示，失败落 `Failed` 供被动渲染，不打扰划词。模块任务
 /// 尚未拉起时先拉起。
 pub(crate) fn start_silent_check() {
-    start_once().send(UpdateMsg::Check);
-}
-
-/// 设置页手动检查：除 `ReadyToRestart`（替换执行中）外任意态可发起，
-/// 先取消在途任务（状态机负责）。
-pub fn check_now() {
     start_once().send(UpdateMsg::Check);
 }
 

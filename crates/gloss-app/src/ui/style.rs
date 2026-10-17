@@ -6,14 +6,10 @@
 //! 字形尺寸、设置窗内边距与动作行高、开关钮尺寸、错误下划线宽、按钮
 //! 圆角）留在各自模块，不进阶梯。
 
-/// 字号阶梯（px，从大到小六档）。
+/// 字号阶梯（px，从大到小四档）。
 pub mod font {
-    /// 阶梯上界（当前无生产用途；词卡首行用 popup 的 `WORD_FONT`）。
-    pub const WORD: f32 = 18.0;
     /// 标题（正文标题、自检强调行）。
     pub const TITLE: f32 = 15.0;
-    /// 正文档（当前无生产用途，仅作阶梯下界）。
-    pub const BODY: f32 = 14.0;
     /// 次要说明（流式来源、失败提示、音标、自检行）。
     pub const NOTICE: f32 = 13.0;
     /// 弱化小字（动作按钮、词性、例句、设置区块标与行内提示）。
@@ -22,12 +18,10 @@ pub mod font {
     pub const TAG: f32 = 11.0;
 }
 
-/// 间距阶梯（px，从大到小六档）。
+/// 间距阶梯（px，从大到小五档）。
 pub mod space {
     /// 分区之间：浮层标题行与正文分区之间。
     pub const SECTION: f32 = 12.0;
-    /// 区块之间：设置窗大区块之间、词卡词条行与释义区之间。
-    pub const GROUP: f32 = 10.0;
     /// 段落之间：浮层正文分区之间、设置网格列距。
     pub const PARAGRAPH: f32 = 8.0;
     /// 条目之间：释义组之间、设置网格行距、设置提示行与滚动区之间。
@@ -44,9 +38,6 @@ pub mod space {
 pub mod radius {
     /// 浮层卡片圆角。
     pub const CARD: u8 = 8;
-
-    /// 经注疏印章的圆角（小圆角方块，近方而不刺）。
-    pub const SEAL: u8 = 6;
 }
 
 /// 线宽。
@@ -97,23 +88,18 @@ mod tests {
 
     #[test]
     fn ladders_are_strictly_descending() {
-        let font_ladder = [
-            font::WORD,
-            font::TITLE,
-            font::BODY,
-            font::NOTICE,
-            font::CAPTION,
-            font::TAG,
-        ];
+        let font_ladder = [font::TITLE, font::NOTICE, font::CAPTION, font::TAG];
         let space_ladder = [
             space::SECTION,
-            space::GROUP,
             space::PARAGRAPH,
             space::ITEM,
             space::TIGHT,
             space::INLINE,
         ];
-        for (name, ladder) in [("font", font_ladder), ("space", space_ladder)] {
+        for (name, ladder) in [
+            ("font", font_ladder.as_slice()),
+            ("space", space_ladder.as_slice()),
+        ] {
             for pair in ladder.windows(2) {
                 assert!(
                     pair[0] > pair[1],

@@ -12,7 +12,7 @@
 //! 的唯一描述，两处改一须改二（完整性门禁测试锁定：每个模板的示例对象
 //! 必须通过对应 `validate_task`）；示例值恒为占位（同分类契约的少样本
 //! 偏置取舍）。模板与提示都不要求围栏——模型回复按严格裸 JSON 校验
-//! （`crate::schema`），围栏输出即违约进修复轮。预留的音频输入一律
+//! （`crate::schema`），围栏输出即违约进修复轮。模态矩阵之外的输入一律
 //! [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
 //!
 //! 模板文本是编译期嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，
@@ -110,8 +110,6 @@ pub enum MessageContent {
 /// 多模态内容部件：域形态只携带原始载荷（PNG 保持字节，不预编码）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContentPart {
-    /// 文本部件。
-    Text(String),
     /// PNG 图像字节。
     ImagePng(Arc<[u8]>),
 }
@@ -194,7 +192,7 @@ impl PromptRegistry {
             }
             // 图像任务：模板只有 image_explain（模态约束表已在渲染前拦截
             // 非法组合，这里直接按唯一合法的图像 kind 取模板）。
-            TaskInput::Image { png, .. } => {
+            TaskInput::Image { png } => {
                 let templates = locale.templates();
                 let system = render_template(templates.image_explain, &[("target", &target)]);
                 Ok(vec![
@@ -202,8 +200,6 @@ impl PromptRegistry {
                     ChatMessage::user_parts(vec![ContentPart::ImagePng(Arc::clone(png))]),
                 ])
             }
-            // 语音是预留模态：模态矩阵已拦，这里显式收口。
-            TaskInput::Audio { .. } => Err(GlossError::UnsupportedModality),
         }
     }
 
@@ -519,7 +515,6 @@ mod tests {
             kind,
             input: TaskInput::Image {
                 png: Arc::from(&b"png"[..]),
-                region: None,
             },
             options: TaskOptions::default(),
         }
@@ -813,7 +808,6 @@ mod tests {
             kind: TaskKind::ImageExplain,
             input: TaskInput::Image {
                 png: Arc::clone(&png),
-                region: None,
             },
             options: TaskOptions::default(),
         };

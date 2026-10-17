@@ -85,7 +85,6 @@ impl GlossApp {
             let generation = match &command {
                 AcquireCommand::AcquireText { generation }
                 | AcquireCommand::AcquireClipboardImage { generation } => *generation,
-                AcquireCommand::CaptureRegion { generation, .. } => *generation,
             };
             let span = task_span(generation);
             self.session.task_span = Some((generation, span.clone()));
@@ -125,7 +124,6 @@ impl GlossApp {
         let generation = match &command {
             AcquireCommand::AcquireText { generation }
             | AcquireCommand::AcquireClipboardImage { generation } => *generation,
-            AcquireCommand::CaptureRegion { generation, .. } => *generation,
         };
         let Some(endpoints) = &self.endpoints else {
             return false;
