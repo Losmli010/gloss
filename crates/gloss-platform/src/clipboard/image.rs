@@ -182,7 +182,7 @@ pub struct ClipboardImageReader {
 }
 
 impl ClipboardImageReader {
-    /// 创建读取器：句柄来自同一次装配的 [`ClipboardWatchSource::observer`]。
+    /// 创建读取器：句柄来自同一次装配的 [`crate::clipboard::ClipboardWatchSource::observer`]。
     pub fn new(observer: PasteboardObserver) -> Self {
         Self { observer }
     }

@@ -244,9 +244,9 @@ mod imp {
         /// 读取前台应用的选中文本。
         ///
         /// 产物与收尾分离：[`SelectionRead::outcome`] 先行上抛（弹窗链路
-        /// 启动），兜底轮的恢复写盘经 [`SelectionSettle::finish`] 随后执行
+        /// 启动），兜底轮的恢复写盘经 [`crate::selection::composite::SelectionSettle::finish`] 随后执行
         /// ——恢复不挡在产物交付前。产物已修剪两端空白，纯空白选区按
-        /// [`GlossError::SelectionEmpty`] 报告。调用方保证：在平台事件
+        /// [`gloss_core::model::GlossError::SelectionEmpty`] 报告。调用方保证：在平台事件
         /// 线程上调用（收尾同线程）。
         pub fn read(&mut self) -> SelectionRead {
             let started = Instant::now();

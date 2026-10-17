@@ -150,7 +150,7 @@ impl ClipboardWatchSource {
         source
     }
 
-    /// ① 观察记录的共享句柄：交给同一次装配的 [`ClipboardImageReader`]，
+    /// ① 观察记录的共享句柄：交给同一次装配的 [`crate::clipboard::ClipboardImageReader`]，
     /// ② 取材时比对现值判定竞态。
     pub fn observer(&self) -> PasteboardObserver {
         self.observer.clone()
