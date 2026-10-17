@@ -28,11 +28,10 @@ pub(crate) const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
 const MAX_ENTRIES: u64 = 64;
 
 /// 派生缓存 key：输入与选项全量参与（含模型 id 与 prompt 模板语言）。
-/// 输入按变体直接喂哈希器——Text 哈希字符串；Image 流式哈希 png 字节与
-/// region（`None` 也参与），字节不展开成临时缓冲；Audio 哈希字节与时长的
-/// 位形态（`f32` 非 `Hash`，bits 表达对同值稳定）。选项走 serde 全量
-/// 参与；其字段均为可直接序列化的标量，序列化失败分支只为 `Result` 完整
-/// 性保留（`Debug` 文本哈希对同值稳定）。
+/// 输入按变体直接喂哈希器——Text 哈希字符串；Image 流式哈希 png 字节，
+/// 字节不展开成临时缓冲。选项走 serde 全量参与；其字段均为可直接序列化
+/// 的标量，序列化失败分支只为 `Result` 完整性保留（`Debug` 文本哈希对
+/// 同值稳定）。
 pub fn cache_key(input: &TaskInput, options: &TaskOptions) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
     hash_input(input, &mut hasher);
@@ -48,17 +47,7 @@ fn hash_input(input: &TaskInput, hasher: &mut std::hash::DefaultHasher) {
     std::mem::discriminant(input).hash(hasher);
     match input {
         TaskInput::Text { text } => text.hash(hasher),
-        TaskInput::Image { png, region } => {
-            png.as_ref().hash(hasher);
-            region.hash(hasher);
-        }
-        TaskInput::Audio {
-            bytes,
-            duration_hint,
-        } => {
-            bytes.as_ref().hash(hasher);
-            duration_hint.map(f32::to_bits).hash(hasher);
-        }
+        TaskInput::Image { png } => png.as_ref().hash(hasher),
     }
 }
 
@@ -95,7 +84,8 @@ impl TaskCache {
         self.inner.insert(key, value);
     }
 
-    /// 强制处理逐出/过期（生产代码无需调用；测试用它同步过期判定）。
+    /// 强制处理逐出/过期（测试同步过期判定用）。
+    #[cfg(test)]
     pub fn run_pending_tasks(&self) {
         self.inner.run_pending_tasks();
     }
@@ -116,7 +106,6 @@ mod tests {
     use gloss_core::config::DEFAULT_MODEL;
     use gloss_core::model::Lang;
     use gloss_core::model::Locale;
-    use gloss_core::model::ScreenRect;
     use gloss_core::task::{OutcomeStructured, TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
     fn text_input(text: &str) -> TaskInput {
@@ -143,13 +132,12 @@ mod tests {
         );
         assert_ne!(
             cache_key(
-                &TaskInput::Audio {
-                    bytes: Arc::from(&b"au"[..]),
-                    duration_hint: Some(1.5),
+                &TaskInput::Image {
+                    png: Arc::from(&b"png"[..]),
                 },
                 &TaskOptions::default()
             ),
-            cache_key(&text_input("au"), &TaskOptions::default()),
+            cache_key(&text_input("png"), &TaskOptions::default()),
             "modality"
         );
     }
@@ -183,64 +171,31 @@ mod tests {
     }
 
     #[test]
-    fn key_derivation_is_stable_and_non_finite_audio_hashes_by_bits() {
+    fn key_derivation_is_stable() {
         let base = cache_key(&text_input("gloss"), &TaskOptions::default());
         assert_eq!(
             base,
             cache_key(&text_input("gloss"), &TaskOptions::default()),
             "same input and options must derive the same key"
         );
-
-        let nan = |hint: Option<f32>| TaskInput::Audio {
-            bytes: Arc::from(&b"au"[..]),
-            duration_hint: hint,
-        };
-        let nan_key = cache_key(&nan(Some(f32::NAN)), &TaskOptions::default());
-        assert_eq!(
-            nan_key,
-            cache_key(&nan(Some(f32::NAN)), &TaskOptions::default()),
-            "non-finite durations hash deterministically by bit form"
-        );
-        assert_ne!(
-            nan_key,
-            cache_key(&nan(Some(1.5)), &TaskOptions::default()),
-            "non-finite and finite durations must not alias"
-        );
     }
 
     #[test]
-    fn image_keys_follow_png_bytes_and_region() {
+    fn image_keys_follow_png_bytes() {
         let options = TaskOptions::default();
-        let image = |bytes: &[u8], region: Option<ScreenRect>| TaskInput::Image {
+        let image = |bytes: &[u8]| TaskInput::Image {
             png: Arc::from(bytes),
-            region,
         };
-        let rect = ScreenRect {
-            x: 1,
-            y: 2,
-            width: 3,
-            height: 4,
-        };
-        let base = cache_key(&image(b"png-bytes", None), &options);
+        let base = cache_key(&image(b"png-bytes"), &options);
         assert_eq!(
             base,
-            cache_key(&image(b"png-bytes", None), &options),
+            cache_key(&image(b"png-bytes"), &options),
             "identical bytes must derive the same key"
         );
         assert_ne!(
             base,
-            cache_key(&image(b"png-bytes-2", None), &options),
+            cache_key(&image(b"png-bytes-2"), &options),
             "different bytes must not alias"
-        );
-        assert_ne!(
-            base,
-            cache_key(&image(b"png-bytes", Some(rect)), &options),
-            "None and Some region must not alias"
-        );
-        assert_eq!(
-            cache_key(&image(b"png-bytes", Some(rect)), &options),
-            cache_key(&image(b"png-bytes", Some(rect)), &options),
-            "identical bytes and region must derive the same key"
         );
         assert_ne!(
             cache_key(&text_input("png-bytes"), &options),

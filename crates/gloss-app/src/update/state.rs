@@ -4,7 +4,8 @@
 //! 触发入口（启动静默检查 / 设置页手动检查）、下载与替换都由壳执行——
 //! 本模块只决策：用户意图（[`Self::check`] / [`Self::confirm_download`] /
 //! [`Self::confirm_restart`] / [`Self::retry`] / [`Self::cancel`]）与任务
-//! 回包（[`UpdateOutcome`]）在此收敛成命令与状态，UI 每帧读最新相位渲染。
+//! 回包（[`UpdateMachine`] 的 `accept_*`）在此收敛成命令与状态，UI 每帧读
+//! 最新相位渲染。
 //!
 //! 状态迁移逐行对应分发设计 §4.1 的迁移表；额外说明三条表外语义：
 //! - 初始相位 [`UpdatePhase::Idle`] 只存在于首次检查发起之前（启动静默
@@ -77,21 +78,6 @@ pub struct UpdateTarget {
     pub artifact: Artifact,
 }
 
-/// 用户意图之外的任务回包：模块任务执行完毕后交回状态机。
-#[derive(Debug, Clone, PartialEq)]
-pub enum UpdateOutcome {
-    /// 清单拉取且校验通过（体已在 [`manifest::parse`] 走完矩阵）。
-    ManifestReady(UpdateManifest),
-    /// 清单拉取失败/超时/非 200，或校验矩阵不符（[`ManifestError`] 只进日志）。
-    ManifestUnavailable,
-    /// 下载完成且 sha256/size 校验通过。
-    DownloadVerified,
-    /// 下载或校验失败。
-    DownloadFailed,
-    /// 替换或重启失败（错误指引由壳按步骤措辞，状态机只记步骤）。
-    InstallFailed,
-}
-
 /// 状态机交给壳执行的动作：壳据此发起网络任务或替换流程。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateCommand {
@@ -134,17 +120,20 @@ impl UpdateMachine {
         Self::default()
     }
 
-    /// 当前相位。
+    /// 当前相位（测试观察口）。
+    #[cfg(test)]
     pub fn phase(&self) -> UpdatePhase {
         self.phase
     }
 
-    /// 当前锁定的更新目标（`UpdateAvailable` 及其后的失败态都有值）。
+    /// 当前锁定的更新目标（测试观察口）。
+    #[cfg(test)]
     pub fn update(&self) -> Option<&UpdateTarget> {
         self.update.as_ref()
     }
 
-    /// 在途任务的取消令牌（壳据此观察取消是否生效）。
+    /// 在途任务的取消令牌（测试观察口）。
+    #[cfg(test)]
     pub fn current_cancel(&self) -> Option<&CancellationToken> {
         self.cancel.as_ref()
     }

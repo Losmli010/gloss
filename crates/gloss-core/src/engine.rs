@@ -151,8 +151,6 @@ impl AiTaskService {
                 }
             },
             TaskInput::Image { .. } => TaskKind::ImageExplain,
-            // 语音是预留模态：取材端口未落地，任何 kind 都不放行。
-            TaskInput::Audio { .. } => return Err(GlossError::UnsupportedModality),
         };
         on_classified(kind);
 
@@ -344,7 +342,6 @@ mod tests {
     fn image_input() -> TaskInput {
         TaskInput::Image {
             png: Arc::from(&b"png"[..]),
-            region: None,
         }
     }
 
@@ -573,27 +570,6 @@ mod tests {
             .await
             .expect("run should succeed");
         assert_eq!(output.finish_reason, None);
-    }
-
-    #[tokio::test]
-    async fn audio_input_is_still_rejected_before_anything() {
-        let (engine, service) = make_service(&MockEngine::new());
-        assert_eq!(
-            service
-                .run(
-                    TaskInput::Audio {
-                        bytes: std::sync::Arc::from(&b"au"[..]),
-                        duration_hint: None,
-                    },
-                    options(),
-                    |_| {},
-                    |_| {},
-                    || {}
-                )
-                .await,
-            Err(GlossError::UnsupportedModality)
-        );
-        assert_eq!(engine.call_count(), 0);
     }
 
     #[tokio::test]

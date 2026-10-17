@@ -238,6 +238,7 @@ impl CompositeConfigStore<keychain::KeychainSecret> {
 
 impl<S: SecretsHalf> CompositeConfigStore<S> {
     /// 用指定密钥半边构造（测试注入隔离服务名或内存桩用）。
+    #[cfg(test)]
     pub fn with_secrets(document: FileConfigStore, secrets: S) -> Self {
         Self { document, secrets }
     }

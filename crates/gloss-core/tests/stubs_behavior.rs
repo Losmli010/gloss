@@ -2,19 +2,16 @@
 
 #![allow(clippy::expect_used, clippy::panic)] // 桩自测沿生产桩的断言风格，失败即停
 
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 
 use stubs::engine::MockEngine;
-use stubs::ports::{FixedRegionCapture, FixedSelectionReader, MemoryConfigStore};
+use stubs::ports::MemoryConfigStore;
 
 use gloss_core::config::Config;
 use gloss_core::model::GlossError;
-use gloss_core::ports::{
-    AiEngine, ConfigStore, EngineRequest, RegionCapture, SelectionReader, TaskChunk,
-};
+use gloss_core::ports::{AiEngine, ConfigStore, EngineRequest, TaskChunk};
 use gloss_core::prompt::ChatMessage;
 
 mod stubs;
@@ -144,30 +141,6 @@ async fn empty_script_yields_empty_stream() {
     let engine = MockEngine::new();
     let mut stream = engine.execute(sample_request()).await.expect("stream");
     assert!(stream.next().await.is_none());
-}
-
-#[test]
-fn selection_reader_mock_returns_presets() {
-    let mut ok = FixedSelectionReader(Ok("selected".into()));
-    assert_eq!(ok.read(), Ok("selected".into()));
-
-    let mut denied = FixedSelectionReader(Err(GlossError::AccessibilityDenied));
-    assert_eq!(denied.read(), Err(GlossError::AccessibilityDenied));
-}
-
-#[test]
-fn region_capture_mock_returns_png() {
-    let png: Arc<[u8]> = vec![1, 2, 3].into();
-    let mut capture = FixedRegionCapture(Ok(Arc::clone(&png)));
-    let got = capture
-        .capture(gloss_core::model::ScreenRect {
-            x: 0,
-            y: 0,
-            width: 4,
-            height: 4,
-        })
-        .expect("capture should succeed");
-    assert!(Arc::ptr_eq(&png, &got));
 }
 
 #[test]

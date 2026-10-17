@@ -150,12 +150,6 @@ impl WindowManager {
         &self.overlay
     }
 
-    /// 浮层当前逻辑尺寸（内容自适应，随 [`Self::set_overlay_size`] 更新；
-    /// `centered_position` 的居中计算取它）。
-    pub fn logical_size(&self) -> LogicalSize<f64> {
-        self.overlay_size
-    }
-
     /// 记录浮层的摆放意图（每次显示前设置）；尺寸自适应变化时按它重定位
     /// ——居中者重新居中，定点者原锚点重新钳制。
     pub fn set_placement(&mut self, placement: Placement) {

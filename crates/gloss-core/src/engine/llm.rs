@@ -106,7 +106,7 @@ fn message_to_value(message: &ChatMessage) -> serde_json::Value {
 }
 
 /// 消息正文 → wire 值：纯文本即字符串，部件数组即 OpenAI 兼容 content
-/// 数组（`{"type":"text",…}` / `{"type":"image_url",…}`）。
+/// 数组（`{"type":"image_url",…}`）。
 fn content_to_value(content: &MessageContent) -> serde_json::Value {
     match content {
         MessageContent::Text(text) => serde_json::json!(text),
@@ -121,7 +121,6 @@ fn content_to_value(content: &MessageContent) -> serde_json::Value {
 /// 构造这一步。
 fn part_to_value(part: &ContentPart) -> serde_json::Value {
     match part {
-        ContentPart::Text(text) => serde_json::json!({ "type": "text", "text": text }),
         ContentPart::ImagePng(png) => serde_json::json!({
             "type": "image_url",
             "image_url": {
@@ -999,10 +998,9 @@ mod tests {
         );
 
         let multimodal = chat_request_body(&EngineRequest {
-            messages: vec![ChatMessage::user_parts(vec![
-                ContentPart::Text("这张图里有什么".into()),
-                ContentPart::ImagePng(FIXTURE_PNG.into()),
-            ])],
+            messages: vec![ChatMessage::user_parts(vec![ContentPart::ImagePng(
+                FIXTURE_PNG.into(),
+            )])],
             model: "m".into(),
             max_tokens: None,
         });
@@ -1033,10 +1031,7 @@ mod tests {
         let request = EngineRequest {
             messages: vec![
                 ChatMessage::system("解读图片"),
-                ChatMessage::user_parts(vec![
-                    ContentPart::Text("这张图里有什么".into()),
-                    ContentPart::ImagePng(FIXTURE_PNG.into()),
-                ]),
+                ChatMessage::user_parts(vec![ContentPart::ImagePng(FIXTURE_PNG.into())]),
             ],
             model: "deepseek-flash".into(),
             max_tokens: None,
@@ -1048,7 +1043,6 @@ mod tests {
                 "messages": [
                     {"role": "system", "content": "解读图片"},
                     {"role": "user", "content": [
-                        {"type": "text", "text": "这张图里有什么"},
                         {"type": "image_url", "image_url": {"url": concat!(
                             "data:image/png;base64,",
                             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAA",
@@ -1630,7 +1624,6 @@ mod live_tests {
             kind: TaskKind::ImageExplain,
             input: TaskInput::Image {
                 png: Arc::from(&ONE_PIXEL_PNG[..]),
-                region: None,
             },
             options: TaskOptions::default(),
         };

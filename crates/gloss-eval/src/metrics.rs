@@ -40,16 +40,6 @@ pub struct ViolationTrack {
     pub repairs: u32,
 }
 
-impl ViolationTrack {
-    /// 并入另一条轨迹的计数（逐条目汇总用）。
-    pub fn merge(&mut self, other: &Self) {
-        for (violation, count) in &other.violations {
-            *self.violations.entry(*violation).or_default() += count;
-        }
-        self.repairs += other.repairs;
-    }
-}
-
 /// 从修复轨迹（每轮完整回复）折算违约统计：逐轮跑调用方给定的生产
 /// 校验器（分类/任务同一份 `schema` 模块）。重放轨与 live 轨共用——
 /// live 的轮次来自生产循环本身，折算口径与重放完全一致。
@@ -251,26 +241,6 @@ impl TaskMetrics {
             *self.violations.entry(*violation).or_default() += count;
         }
         self.repair_rounds += verdict.repairs;
-    }
-
-    /// 契约 JSON 率。
-    pub fn json_rate(&self) -> f64 {
-        ratio(self.json_object, self.evaluated)
-    }
-
-    /// note 在场率。
-    pub fn note_rate(&self) -> f64 {
-        ratio(self.note_present, self.evaluated)
-    }
-
-    /// 字段完整率。
-    pub fn completeness_rate(&self) -> f64 {
-        ratio(self.fields_complete, self.evaluated)
-    }
-
-    /// 降级率（模型没按现行契约输出的比例）。
-    pub fn degraded_rate(&self) -> f64 {
-        ratio(self.degraded, self.evaluated)
     }
 }
 
