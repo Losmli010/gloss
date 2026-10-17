@@ -372,9 +372,16 @@ fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
     }
     push_panel(&mut panels, "修复成本（轮）", Axis::Rounds, cost);
 
+    // count == 0（judge 启用但全失败）不画点：average 恒为 0.0，画出来会在
+    // 1..=5 轴上被误读成「评了 0 分」——与延迟面板「无样本不画」同口径。
     let judge = points
         .iter()
-        .map(|report| report.judge.map(|summary| summary.average))
+        .map(|report| {
+            report
+                .judge
+                .filter(|summary| summary.count > 0)
+                .map(|summary| summary.average)
+        })
         .collect();
     push_panel(
         &mut panels,
@@ -804,6 +811,7 @@ mod tests {
             Some(&mut latency),
             Some(JudgeSummary {
                 count: 2,
+                attempted: 2,
                 average: 4.1,
             }),
         )

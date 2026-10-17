@@ -151,7 +151,7 @@ impl TaskVerdict {
             .and_then(|value| value.get("structured"))
             .filter(|value| value.is_object())
             .is_some_and(|structured| {
-                required_structured_fields(case.kind)
+                crate::dataset::required_fields(case.kind)
                     .iter()
                     .all(|key| structured.get(*key).is_some())
             });
@@ -198,13 +198,6 @@ impl TaskVerdict {
     pub fn degraded(&self) -> bool {
         self.outcome.degraded
     }
-}
-
-/// kind 的 `structured` 契约必需键：三行同构表里只有 `examples` 恒在
-/// （phonetic / code_language 允许缺省或 null；`note` 单独由
-/// `note_present` 计）。
-fn required_structured_fields(_kind: TaskKind) -> &'static [&'static str] {
-    &["examples"]
 }
 
 /// 任务指标：契约 JSON 率 / note 在场率 / 字段完整率 / 降级率 / 违约与

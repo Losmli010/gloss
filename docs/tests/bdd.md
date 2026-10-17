@@ -496,7 +496,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| error_display_is_diagnostic_text | 错误文案为诊断文本 | 给定各 GlossError 变体（含 JSON 模式不支持），当 to_string，则输出精确的诊断文案 | 2026-10-11 |
+| error_display_names_the_variant_without_the_payload | 错误文案只记变体名不含载荷 | 给定 6 个代表性 GlossError 变体，当 to_string，则输出固定类别文案（EngineResponse 与 Config 不打印载荷） | 2026-10-17 |
+| error_display_never_carries_the_payload | 带载荷变体的 Display 不泄露载荷 | 给定携带敏感载荷的 EngineResponse 与 Config，当 to_string，则输出不含载荷的固定文案 | 2026-10-17 |
 | error_is_std_error | 错误可作 std Error | 给定 GlossError 装箱为 std Error，当 to_string，则输出正确文案 | 2026-09-19 |
 
 ### crates/gloss-core/src/engine.rs
@@ -1269,6 +1270,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告（一例修复轨迹 + 一例纯正文），当渲染，则指标表、accuracy 百分比（两位小数）、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-10-13 |
+| judge_summary_reports_failures_when_attempted_exceeds_count | judge 失败留痕可区分未启用 | 给定 judge 全失败（count=0/attempted=3）与干净运行（count=attempted）两份摘要，当渲染，则前者报「0/3 条计入，3 条失败」，后者只报条数不带失败噪声 | 2026-10-17 |
 | repair_rounds_render_with_violation_categories | 修复轮次行带违约类别计数 | 给定含违约轨迹与零违约两份报告，当渲染，则分类与各任务集的「修复轮次」行为「总数（类别 ×次数…）」，零违约时只报总数 | 2026-10-12 |
 | latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本的报告，当渲染，则不含延迟行 | 2026-09-26 |
 | generated_at_is_a_numeric_unix_timestamp | generated_at 为数值纪元秒 | 给定 generated_at 为整数秒的报告，当序列化/反序列化，则 JSON 中为裸数值且往返一致（旧 "unix <秒>" 字符串格式已废弃，不兼容） | 2026-10-13 |

@@ -128,8 +128,10 @@ fn run_report_cli(args: &[String]) -> Result<(), String> {
     let mut rendered = 0;
     for mode in ["replay", "live"] {
         let path = dir.join(format!("{mode}.json"));
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("{}: {error}", path.display())),
         };
         let report: gloss_eval::EvalReport =
             serde_json::from_slice(&bytes).map_err(|err| format!("{}: {err}", path.display()))?;
@@ -154,7 +156,8 @@ fn run_history_cli(args: &[String]) -> Result<(), String> {
         .map_err(|err| format!("{}: {err}", path.display()))?;
     let svg = gloss_eval::svg::render_svg(&history);
     let out = dir.join("history.svg");
-    std::fs::write(&out, svg).map_err(|err| format!("write {}: {err}", out.display()))?;
+    gloss_eval::history::write_atomic(&out, &svg)
+        .map_err(|err| format!("write {}: {err}", out.display()))?;
     println!("趋势图已重绘：{}（{} 点）", out.display(), history.len());
     Ok(())
 }
@@ -216,7 +219,11 @@ fn upsert_fixtures(fixtures: &[gloss_eval::dataset::Fixture]) -> Result<usize, S
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("fixtures")
             .join(file);
-        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let existing = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(format!("read {}: {error}", path.display())),
+        };
         let mut lines: Vec<String> = existing
             .lines()
             .filter(|line| !line.trim().is_empty())
@@ -239,7 +246,7 @@ fn upsert_fixtures(fixtures: &[gloss_eval::dataset::Fixture]) -> Result<usize, S
             lines.push(line);
             written += 1;
         }
-        std::fs::write(&path, format!("{}\n", lines.join("\n")))
+        gloss_eval::history::write_atomic(&path, &format!("{}\n", lines.join("\n")))
             .map_err(|err| format!("write {}: {err}", path.display()))?;
     }
     Ok(written)

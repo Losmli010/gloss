@@ -88,6 +88,11 @@ pub struct LatencySummary {
 pub struct JudgeSummary {
     /// 计分的条数。
     pub count: usize,
+    /// 尝试评分的条数（含引擎失败与解析失败）。`attempted > count` 即
+    /// 「judge 启用但部分失败」；旧报告 JSON 无此字段，反序列化默认 0
+    /// （`attempted == 0` 时渲染回退到只报 count，不显示失败数）。
+    #[serde(default)]
+    pub attempted: usize,
     /// 均分（1..=5）。
     pub average: f64,
 }
@@ -209,13 +214,18 @@ impl EvalReport {
             );
         }
         if let Some(judge) = &self.judge {
-            line(
-                &mut out,
+            let detail = if judge.attempted > judge.count {
                 format!(
-                    "| judge 均分（1..=5） | {:.2}（{} 条计入） |",
-                    judge.average, judge.count
-                ),
-            );
+                    "{:.2}（{}/{} 条计入，{} 条失败）",
+                    judge.average,
+                    judge.count,
+                    judge.attempted,
+                    judge.attempted - judge.count
+                )
+            } else {
+                format!("{:.2}（{} 条计入）", judge.average, judge.count)
+            };
+            line(&mut out, format!("| judge 均分（1..=5） | {detail} |"));
         }
         let Some(stats) = &self.classify else {
             return out;
@@ -379,7 +389,7 @@ mod tests {
 
     use gloss_core::schema::Violation;
 
-    use super::{EvalReport, assemble_report};
+    use super::{EvalReport, JudgeSummary, assemble_report};
     use crate::dataset::TaskCase;
     use crate::metrics::{ClassifyMetrics, TaskMetrics, TaskVerdict};
     use gloss_core::task::TaskKind;
@@ -396,6 +406,32 @@ mod tests {
         assert!(markdown.contains("task_translate_word 字段完整率 | 50.00%"));
         assert!(markdown.contains("task_translate_word 降级率 | 50.00%"));
         assert!(markdown.contains("跳过（无夹具）1 条"));
+    }
+
+    #[test]
+    fn judge_summary_reports_failures_when_attempted_exceeds_count() {
+        let mut report = fixture_report();
+        report.judge = Some(JudgeSummary {
+            count: 0,
+            attempted: 3,
+            average: 0.0,
+        });
+        let markdown = report.render_markdown();
+        assert!(
+            markdown.contains("judge 均分（1..=5） | 0.00（0/3 条计入，3 条失败）"),
+            "a fully failed judge run must be distinguishable from a disabled one: {markdown}"
+        );
+
+        report.judge = Some(JudgeSummary {
+            count: 2,
+            attempted: 2,
+            average: 4.1,
+        });
+        let markdown = report.render_markdown();
+        assert!(
+            markdown.contains("judge 均分（1..=5） | 4.10（2 条计入）"),
+            "a clean judge run reports the count without failure noise: {markdown}"
+        );
     }
 
     #[test]

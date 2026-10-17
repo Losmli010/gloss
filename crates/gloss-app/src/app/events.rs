@@ -52,7 +52,9 @@ impl Waker {
 /// 也不进句柄）。
 ///
 /// `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给
-/// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
+/// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。回调返回 `Err` 时
+/// 事件循环不启动，错误原样上抛——消费运行时（通道③的消费者）装配失败
+/// 属于启动硬错误：继续带病运行会让用户触发的任务静默石沉大海。
 ///
 /// `theme` 施加到各 egui 上下文（见
 /// `Workspace::apply_theme`）。`system_locale` 是组装点读到的系统语言，
@@ -84,11 +86,11 @@ pub fn run(
     permissions_ready: bool,
     update: UpdateWiring,
     clipboard_watch_enabled: Arc<AtomicBool>,
-    on_waker: impl FnOnce(Waker),
+    on_waker: impl FnOnce(Waker) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     let waker = Waker(event_loop.create_proxy());
-    on_waker(waker);
+    on_waker(waker)?;
     let proxy = event_loop.create_proxy();
     let mut app = GlossApp::new(
         endpoints,

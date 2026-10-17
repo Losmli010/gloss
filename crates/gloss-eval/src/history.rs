@@ -12,6 +12,31 @@ const HISTORY_FILE: &str = "history.jsonl";
 /// 趋势图文件名（每次记录后全量重绘）。
 const SVG_FILE: &str = "history.svg";
 
+/// 原子写盘：写同目录临时文件再 `rename` 覆盖。`std::fs::write` 直接写
+/// 目标，进程中断会把受控工件截断成半截；临时文件 + `rename` 让中断只
+/// 丢临时文件，目标保持完整。临时文件与目标同目录，`rename` 不跨文件
+/// 系统、原子生效。
+pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
+    let dir = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("out");
+    // 临时名带进程 id：跨进程并发写同一目标（如 replay 与 live 同目录）不
+    // 竞争同一个临时文件。
+    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, contents)?;
+    // rename 失败时清理临时文件（尽力而为，清理失败无关紧要），错误原样上抛。
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            std::fs::remove_file(&tmp).ok();
+            Err(error)
+        }
+    }
+}
+
 /// 记录一次运行：upsert 一行并从全量历史重绘 `<dir>/history.svg`；失败
 /// 向上传播（趋势断更好过静默缺数）。
 ///
@@ -47,9 +72,9 @@ pub fn record_run(report: &EvalReport, dir: &Path) -> std::io::Result<()> {
     }
     let mut body = lines.join("\n");
     body.push('\n');
-    std::fs::write(&path, body)?;
+    write_atomic(&path, &body)?;
     let history = load_history(&path)?;
-    std::fs::write(dir.join(SVG_FILE), svg::render_svg(&history))?;
+    write_atomic(&dir.join(SVG_FILE), &svg::render_svg(&history))?;
     Ok(())
 }
 

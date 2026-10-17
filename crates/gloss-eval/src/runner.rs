@@ -185,6 +185,7 @@ pub async fn run_live(
 
     let mut tasks = Vec::new();
     let mut judge_scores = Vec::new();
+    let mut judge_attempted = 0usize;
     for (name, dataset) in TASK_DATASETS {
         let cases = load_task(dataset)?;
         let cases: Vec<_> = match options.limit {
@@ -217,9 +218,11 @@ pub async fn run_live(
             metrics.record(&verdict);
             if options.judge
                 && let Some(reply) = rounds.last()
-                && let Some(score) = judge_one(engine.as_ref(), &config, case, reply).await
             {
-                judge_scores.push(score);
+                judge_attempted += 1;
+                if let Some(score) = judge_one(engine.as_ref(), &config, case, reply).await {
+                    judge_scores.push(score);
+                }
             }
             // 夹具落盘放在轮记录的最后一次使用之后：逐轮文本 move 进夹具，
             // 不再逐轮复制（落盘顺序与逐条顺序不变——每条至多一次 push）。
@@ -230,16 +233,24 @@ pub async fn run_live(
         tasks.push((name, metrics));
     }
 
-    // judge 未计入任何分数时不产摘要（count=0 的「均分 0」会被读成
-    // 「评了 0 分」）。
-    let judge_summary = (options.judge && !judge_scores.is_empty()).then(|| {
+    // judge 启用即产摘要：全失败（count=0）时 `attempted` 仍记录尝试数，
+    // 与「未启用」（judge 段整体缺席）区分开——付费调用全失败不能无痕迹。
+    let judge_summary = options.judge.then(|| {
         let count = judge_scores.len();
-        let average = judge_scores
-            .iter()
-            .map(|score| f64::from(*score))
-            .sum::<f64>()
-            / count as f64;
-        crate::report::JudgeSummary { count, average }
+        let average = if count == 0 {
+            0.0
+        } else {
+            judge_scores
+                .iter()
+                .map(|score| f64::from(*score))
+                .sum::<f64>()
+                / count as f64
+        };
+        crate::report::JudgeSummary {
+            count,
+            attempted: judge_attempted,
+            average,
+        }
     });
 
     Ok(LiveRun {
