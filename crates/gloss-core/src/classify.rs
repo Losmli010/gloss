@@ -28,8 +28,9 @@ use tokio::time::{Instant as TokioInstant, Sleep, sleep_until};
 use crate::log::{debug, thread, warn};
 use crate::model::{GlossError, Locale};
 use crate::ports::{AiEngine, EngineRequest, TaskChunk, TaskStream};
-use crate::prompt::{CLASSIFY_SCHEMA, PromptRegistry, repair_conversation};
-use crate::schema::{self, Violation};
+use crate::prompt::{CLASSIFY_SCHEMA, PromptRegistry};
+use crate::repair::{RepairStage, next_round};
+use crate::schema;
 use crate::task::{TaskInput, TaskKind};
 
 /// 分类的允许清单：分类只服务划词路径，清单 3 个就是**文本取材可执行**
@@ -198,23 +199,31 @@ pub async fn classify_traced(
     text: &str,
 ) -> Result<ClassifyDecision, GlossError> {
     let registry = PromptRegistry::new();
-    let mut messages = registry.render_classify(locale, allowed, text);
+    // 底座只渲染一次：修复轮以它为底拼对话（与任务段同一形态），不再每轮
+    // 重渲。
+    let base = registry.render_classify(locale, allowed, text);
+    let mut messages = base.clone();
     let mut repairs = 0u32;
     let mut rounds = Vec::new();
     loop {
         // messages 随请求 move 出去（engine 端口按值收请求）；修复轮由
-        // 底座重拼，底座按同一注册表、同一输入重渲（纯函数，逐字节同形），
-        // 无需全程持有首轮副本。
+        // 底座重拼。
         let request = EngineRequest {
             messages,
             model: model.to_owned(),
             max_tokens: Some(CLASSIFY_MAX_TOKENS),
         };
-        let reply = classify_round(engine, request, allowed).await?;
-        match schema::validate_classify(&reply, allowed) {
+        let round = classify_round(engine, request, allowed).await?;
+        // 流内已提前定型就不用对末轮缓冲再校验一遍；流自然结束时才整段
+        // 校验一次（违约类别是修复轮与统计的输入）。
+        let verdict = match round.settled {
+            Some(kind) => Ok(kind),
+            None => schema::validate_classify(&round.reply, allowed),
+        };
+        match verdict {
             Ok(kind) => {
                 debug!(kind = ?kind, "classified by the model");
-                rounds.push(reply);
+                rounds.push(round.reply);
                 return Ok(ClassifyDecision {
                     kind,
                     repairs,
@@ -222,40 +231,34 @@ pub async fn classify_traced(
                 });
             }
             Err(violation) => {
-                if repairs >= CLASSIFY_REPAIRS {
-                    warn!(
-                        thread = thread::TOKIO,
-                        reason = %violation,
-                        "classify repairs exhausted, falling back to the default kind"
-                    );
-                    rounds.push(reply);
+                let Some(next) = next_round(
+                    RepairStage::Classify,
+                    &base,
+                    &round.reply,
+                    violation,
+                    &mut repairs,
+                    CLASSIFY_REPAIRS,
+                    |violation| registry.render_repair(locale, violation, CLASSIFY_SCHEMA, false),
+                ) else {
+                    rounds.push(round.reply);
                     return Ok(ClassifyDecision {
                         kind: CLASSIFY_FALLBACK,
                         repairs,
                         rounds,
                     });
-                }
-                repairs += 1;
-                // 违约 warn 只记类别 + 轮次（第几轮违约），无内容。
-                warn!(
-                    thread = thread::TOKIO,
-                    attempt = repairs,
-                    reason = %violation,
-                    "classify reply violated the contract, preparing a repair round"
-                );
-                let instruction = registry.render_repair(locale, violation, CLASSIFY_SCHEMA, false);
-                // EmptyReply 无内容可纠：原样重发，不带 assistant 轮。assistant
-                // 历史借本轮回复拼入修复对话，随后原 reply 入档（不复制）。
-                let bad = match violation {
-                    Violation::EmptyReply => None,
-                    _ => Some(reply.as_str()),
                 };
-                let base = registry.render_classify(locale, allowed, text);
-                messages = repair_conversation(&base, bad, instruction);
-                rounds.push(reply);
+                rounds.push(round.reply);
+                messages = next;
             }
         }
     }
+}
+
+/// 一轮分类的传输结果：累积回复与流内提前定型的 kind。
+struct ClassifyRound {
+    reply: String,
+    /// 完整 JSON 在流结束前到达时非 `None`——调用方无需对末轮缓冲再校验。
+    settled: Option<TaskKind>,
 }
 
 /// 执行一轮分类请求并按预算累积回复：流式增量逐条累积，首个能通过校验
@@ -269,24 +272,25 @@ async fn classify_round(
     engine: &dyn AiEngine,
     request: EngineRequest,
     allowed: &[TaskKind],
-) -> Result<String, GlossError> {
+) -> Result<ClassifyRound, GlossError> {
     let stream = engine.execute(request).await?;
     let mut stream = std::pin::pin!(FirstItemDeadline::new(stream));
     let mut reply = String::new();
+    let mut settled = None;
     while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
         match item {
             Ok(TaskChunk::Delta(delta)) => {
                 push_capped(&mut reply, &delta);
                 if let Ok(kind) = schema::validate_classify(&reply, allowed) {
-                    debug!(kind = ?kind, "classified by the model");
-                    return Ok(reply);
+                    settled = Some(kind);
+                    break;
                 }
             }
             Ok(TaskChunk::Done { .. }) => {}
             Err(error) => return Err(error),
         }
     }
-    Ok(reply)
+    Ok(ClassifyRound { reply, settled })
 }
 
 /// 解析模型回复：严格裸 JSON，无围栏容错——围栏输出即违约（与生产

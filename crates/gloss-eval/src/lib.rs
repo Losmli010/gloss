@@ -10,7 +10,7 @@
 //!
 //! 隔离红线：本 crate 是评测工具链，**不被任何生产 crate 依赖**——
 //! `check-constraints.sh` 的依赖方向断言强制（gloss-eval 只许依赖
-//! gloss-core 与 gloss-platform）；`datasets/`、`fixtures/`、`prompts/`
+//! gloss-core，平台侧由评测入口自行组装）；`datasets/`、`fixtures/`、`prompts/`
 //! 资产也只允许被本 crate 的 `include_str!` 嵌入。
 //!
 //! 两条轨：

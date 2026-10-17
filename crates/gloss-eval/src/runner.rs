@@ -22,7 +22,7 @@ use gloss_core::task::{Task, TaskInput, TaskKind, TaskOptions};
 
 use crate::EvalReport;
 use crate::assets;
-use crate::dataset::{Fixture, TaskCase, load_classify, load_fixtures, load_task};
+use crate::dataset::{ClassifyCase, Fixture, TaskCase, load_classify, load_fixtures, load_task};
 use crate::judge;
 use crate::metrics::{
     ClassifyMetrics, ClassifyVerdict, Latency, TaskMetrics, TaskVerdict, ViolationTrack,
@@ -63,23 +63,7 @@ pub fn run_replay() -> Result<EvalReport, String> {
         };
         let rounds = round_texts(fixture);
         check_classify_trajectory(&case.id, &rounds)?;
-        absorb_classify_track(
-            &mut classify,
-            &violation_track(
-                |raw| schema::validate_classify(raw, &allowed).map(|_| ()),
-                &rounds,
-            ),
-        );
-        classify.evaluated += 1;
-        let reply = rounds.last().map(String::as_str).unwrap_or("");
-        match judge_classify_reply(reply, case.expected, &allowed) {
-            ClassifyVerdict::Correct => classify.correct += 1,
-            ClassifyVerdict::Wrong(actual) => {
-                bump_confusion(&mut classify, case.expected, actual);
-            }
-            ClassifyVerdict::InvalidJson => classify.invalid_json += 1,
-            ClassifyVerdict::Rejected => classify.rejected += 1,
-        }
+        score_classify_case(&mut classify, case, &rounds, &allowed);
     }
 
     let task_fixtures = load_fixtures(assets::TASK_FIXTURES)?;
@@ -111,6 +95,31 @@ pub fn run_replay() -> Result<EvalReport, String> {
         None,
         skipped,
     ))
+}
+
+/// 一条分类样例的结算（重放与 live 共用同一口径）：违约轨迹并入指标、
+/// 计一条已评估，并按期望 kind 判分。
+fn score_classify_case(
+    classify: &mut ClassifyMetrics,
+    case: &ClassifyCase,
+    rounds: &[String],
+    allowed: &[TaskKind],
+) {
+    absorb_classify_track(
+        classify,
+        &violation_track(
+            |raw| schema::validate_classify(raw, allowed).map(|_| ()),
+            rounds,
+        ),
+    );
+    classify.evaluated += 1;
+    let reply = rounds.last().map(String::as_str).unwrap_or("");
+    match judge_classify_reply(reply, case.expected, allowed) {
+        ClassifyVerdict::Correct => classify.correct += 1,
+        ClassifyVerdict::Wrong(actual) => bump_confusion(classify, case.expected, actual),
+        ClassifyVerdict::InvalidJson => classify.invalid_json += 1,
+        ClassifyVerdict::Rejected => classify.rejected += 1,
+    }
 }
 
 /// live 轨：数据集逐条打真实 LLM。延迟只在这一轨采集。
@@ -159,23 +168,7 @@ pub async fn run_live(
         };
         latency.record(started.elapsed().as_secs_f64() * 1000.0);
         let rounds = decision.rounds;
-        absorb_classify_track(
-            &mut classify,
-            &violation_track(
-                |raw| schema::validate_classify(raw, &allowed).map(|_| ()),
-                &rounds,
-            ),
-        );
-        classify.evaluated += 1;
-        let reply = rounds.last().map(String::as_str).unwrap_or("");
-        match judge_classify_reply(reply, case.expected, &allowed) {
-            ClassifyVerdict::Correct => classify.correct += 1,
-            ClassifyVerdict::Wrong(actual) => {
-                bump_confusion(&mut classify, case.expected, actual);
-            }
-            ClassifyVerdict::InvalidJson => classify.invalid_json += 1,
-            ClassifyVerdict::Rejected => classify.rejected += 1,
-        }
+        score_classify_case(&mut classify, case, &rounds, &allowed);
         // 夹具落盘放在轮记录的最后一次使用之后：逐轮文本 move 进夹具，
         // 不再逐轮复制（落盘顺序与逐条顺序不变——每条至多一次 push）。
         if options.record {

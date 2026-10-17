@@ -69,12 +69,6 @@ const CHAT_COMPLETIONS_PATH: &str = "chat/completions";
 /// 与既有非 JSON 路径一致）。
 const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 
-/// 零增量完成的固定诊断：适配器对「成功收尾但一个增量都没有」的坏响应
-/// 统一发这个 [`GlossError::EngineResponse`] 文本。重试循环（`super`）按
-/// 它把这类坏回复识别为 [`crate::schema::Violation::EmptyReply`] 进修复
-/// 轮——单点常量让两处措辞永不漂移。
-pub(crate) const EMPTY_COMPLETION: &str = "empty completion";
-
 /// 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。消息在这里从域
 /// 形态映成 wire 形状；`max_tokens` 只在设限时携带：部分严格端点会拒绝
 /// 显式的 `null`，缺键才是「不设限」的 wire 语义。
@@ -131,12 +125,27 @@ fn part_to_value(part: &ContentPart) -> serde_json::Value {
 }
 
 /// 读响应体但不超过 `limit` 字节（丢失的只是诊断文本，不是业务数据）。
+/// 读取中断不当作「正常读完」静默截断：留一条 trace，错误体按已读部分
+/// 交给诊断解析（半截 JSON 会退化成「只报状态码」）。
 async fn read_bounded_body(response: &mut reqwest::Response, limit: usize) -> String {
     let mut body = Vec::new();
-    while let Ok(Some(chunk)) = response.chunk().await {
-        body.extend_from_slice(&chunk);
-        if body.len() >= limit {
-            break;
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                body.extend_from_slice(&chunk);
+                if body.len() >= limit {
+                    break;
+                }
+            }
+            Ok(None) => break,
+            Err(error) => {
+                debug!(
+                    thread = thread::TOKIO,
+                    error = %error,
+                    "error body read stopped before the limit"
+                );
+                break;
+            }
         }
     }
     String::from_utf8_lossy(&body).into_owned()
@@ -617,8 +626,7 @@ impl SseStream {
                         self.ready.push_back(Ok(TaskChunk::Done { finish_reason }));
                     } else {
                         // 零增量的「成功」是坏响应，即便服务端声明了正常结束。
-                        self.ready
-                            .push_back(Err(GlossError::EngineResponse(EMPTY_COMPLETION.into())));
+                        self.ready.push_back(Err(GlossError::EmptyCompletion));
                     }
                     self.finished = true;
                 }
@@ -635,8 +643,7 @@ impl SseStream {
     /// `ready` 先于 `finished` 被排空，所以这条 Err 一定排在已入队的增量之后。
     fn finish_without_error(&mut self) {
         if !self.produced {
-            self.ready
-                .push_back(Err(GlossError::EngineResponse(EMPTY_COMPLETION.into())));
+            self.ready.push_back(Err(GlossError::EmptyCompletion));
         }
         self.finished = true;
     }
@@ -954,7 +961,7 @@ mod tests {
                 .await
                 .expect("one item expected");
             assert!(
-                matches!(item, Err(GlossError::EngineResponse(_))),
+                matches!(item, Err(GlossError::EmptyCompletion)),
                 "payload {payload:?} must fail: {item:?}"
             );
             assert!(

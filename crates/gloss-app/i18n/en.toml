@@ -37,6 +37,7 @@ gloss_errors_json_mode_unsupported = "The model service does not support JSON ou
 gloss_errors_engine_network = "Network error. Check your connection and retry."
 gloss_errors_engine_auth = "The API key is missing or invalid. Check it in settings."
 gloss_errors_engine_rate_limited = "Rate limited. Try again later."
+gloss_errors_empty_completion = "The model returned no content."
 gloss_errors_engine_response = "Unexpected response: {{detail}}"
 gloss_errors_config = "Invalid configuration: {{detail}}"
 gloss_errors_inference_channel = "Task failed: the inference channel is unavailable"

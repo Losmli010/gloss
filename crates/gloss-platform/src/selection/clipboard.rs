@@ -579,12 +579,24 @@ mod imp {
         }
     }
 
+    /// 失败点之前已按下、需要补发释放的键（逆序）。`index` 是失败事件的
+    /// 序号：只有 `sequence[..index]` 里 `key_down` 的事件才是按下态。
+    /// 已成功释放的键可能再收一次 key-up（重复释放幂等，无副作用）。
+    pub(super) fn keys_to_release(sequence: &[(u16, bool, u64)], index: usize) -> Vec<u16> {
+        sequence[..index]
+            .iter()
+            .rev()
+            .filter(|(_, key_down, _)| *key_down)
+            .map(|(key, _, _)| *key)
+            .collect()
+    }
+
     /// 注入复制快捷键：修饰键按下 → C 按下/释放 → 修饰键释放。C 的按下
     /// 与释放自带 Command 修饰位（应用按事件自带的修饰位识别快捷键，裸 C
     /// 会被当成普通字符打进焦点处）；修饰键按下同样带位，释放不带——
     /// 修饰键事件的修饰位表达事件之后的状态，带位释放会向下游宣告
-    /// 「Command 仍按着」。任何一步失败即放弃；若修饰键已按下而后续
-    /// 步骤失败，补发配对释放。
+    /// 「Command 仍按着」。任何一步失败即放弃；失败点之前按下的键全部
+    /// 逆序补发释放（只放修饰键会在 C 键释放失败时留下按下态）。
     fn inject_copy_key() -> Result<(), GlossError> {
         let Some(source) = event::new_hid_source() else {
             debug!(
@@ -606,10 +618,10 @@ mod imp {
                     thread = thread::EVENT,
                     virtual_key, key_down, "copy key injection failed"
                 );
-                if index > 0 {
-                    // 错误路径上的补发释放是尽力而为：释放失败已由紧随的
-                    // SelectionUnavailable 收口，无更优处理。
-                    let _ = event::post_keyboard_event(&source, event::VK_COMMAND, false, 0);
+                // 错误路径上的补发是尽力而为，释放失败已由紧随的
+                // SelectionUnavailable 收口。
+                for pressed in keys_to_release(&sequence, index) {
+                    let _ = event::post_keyboard_event(&source, pressed, false, 0);
                 }
                 return Err(GlossError::SelectionUnavailable);
             }
@@ -624,6 +636,7 @@ pub use imp::{ClipboardFallbackReader, FallbackSettle};
 mod tests {
     use std::time::{Duration, Instant};
 
+    use super::imp::keys_to_release;
     use super::wait_for_write;
 
     #[test]
@@ -661,6 +674,38 @@ mod tests {
         assert!(
             start.elapsed() < Duration::from_secs(2),
             "timeout path must return promptly"
+        );
+    }
+
+    #[test]
+    fn injection_failure_releases_every_pressed_key_in_reverse() {
+        // 序列与 inject_copy_key 同形：修饰键按下 → C 按下 → C 释放 →
+        // 修饰键释放；四个失败点各验一次。
+        let sequence = [
+            (1u16, true, 0u64),
+            (2, true, 0),
+            (2, false, 0),
+            (1, false, 0),
+        ];
+        assert_eq!(
+            keys_to_release(&sequence, 0),
+            Vec::<u16>::new(),
+            "第一个事件失败时还没有键按下"
+        );
+        assert_eq!(
+            keys_to_release(&sequence, 1),
+            vec![1],
+            "C 按下失败：只需补放修饰键"
+        );
+        assert_eq!(
+            keys_to_release(&sequence, 2),
+            vec![2, 1],
+            "C 释放失败：先补 C 再补修饰键（只放修饰键会留下 C 按下态）"
+        );
+        assert_eq!(
+            keys_to_release(&sequence, 3),
+            vec![2, 1],
+            "修饰键释放失败：C 已释放，重复 key-up 幂等"
         );
     }
 }

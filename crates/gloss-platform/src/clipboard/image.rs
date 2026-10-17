@@ -79,6 +79,9 @@ fn downscaled_dims(width: u32, height: u32) -> Option<(u32, u32)> {
 /// 尺寸判定、先于整图解码，超 [`MAX_PRODUCT_SIDE`] 的产物按比例降采样，
 /// PNG 字节上限判在编码产物上。超限整体报 `ImageTooLarge`（不截断）；
 /// 头不可读、解码失败、缓冲与尺寸不符都按读取失败处理。
+///
+/// 解码器构造两次是像素预算闸门的代价：先只读头取尺寸，超限的图不进
+/// 整份解码（解压炸弹不该先吃掉内存再被拒），通过后才整份解码。
 fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossError> {
     if !flavor_within_budget(bytes.len()) {
         debug!(
@@ -119,7 +122,8 @@ fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossEr
             );
             GlossError::ImageUnavailable
         })?;
-    let rgba = decoded.to_rgba8();
+    // 已是 RGBA8 的图 `into_rgba8` 原地取出，不再整份复制。
+    let rgba = decoded.into_rgba8();
     let (width, height, rgba) = match downscaled_dims(rgba.width(), rgba.height()) {
         Some((width, height)) => {
             debug!(
