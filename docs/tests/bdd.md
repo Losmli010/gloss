@@ -1270,6 +1270,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | report_renders_the_table_shape | 报告 Markdown 表格形态 | 给定含混淆矩阵与任务指标的报告（一例修复轨迹 + 一例纯正文），当渲染，则指标表、accuracy 百分比（两位小数）、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-10-13 |
+| judge_summary_reports_failures_when_attempted_exceeds_count | judge 失败留痕可区分未启用 | 给定 judge 全失败（count=0/attempted=3）与干净运行（count=attempted）两份摘要，当渲染，则前者报「0/3 条计入，3 条失败」，后者只报条数不带失败噪声 | 2026-10-17 |
 | repair_rounds_render_with_violation_categories | 修复轮次行带违约类别计数 | 给定含违约轨迹与零违约两份报告，当渲染，则分类与各任务集的「修复轮次」行为「总数（类别 ×次数…）」，零违约时只报总数 | 2026-10-12 |
 | latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本的报告，当渲染，则不含延迟行 | 2026-09-26 |
 | generated_at_is_a_numeric_unix_timestamp | generated_at 为数值纪元秒 | 给定 generated_at 为整数秒的报告，当序列化/反序列化，则 JSON 中为裸数值且往返一致（旧 "unix <秒>" 字符串格式已废弃，不兼容） | 2026-10-13 |
