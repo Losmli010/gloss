@@ -4,7 +4,7 @@
 //! 触发入口（启动静默检查 / 设置页手动检查）、下载与替换都由壳执行——
 //! 本模块只决策：用户意图（[`Self::check`] / [`Self::confirm_download`] /
 //! [`Self::confirm_restart`] / [`Self::retry`] / [`Self::cancel`]）与任务
-//! 回包（[`UpdateOutcome`]）在此收敛成命令与状态，UI 每帧读最新相位渲染。
+//! 回包（[`PendingResult`]）在此收敛成命令与状态，UI 每帧读最新相位渲染。
 //!
 //! 状态迁移逐行对应分发设计 §4.1 的迁移表；额外说明三条表外语义：
 //! - 初始相位 [`UpdatePhase::Idle`] 只存在于首次检查发起之前（启动静默

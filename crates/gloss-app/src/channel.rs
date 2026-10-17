@@ -80,7 +80,7 @@ pub enum Command {
     RunTask {
         /// 请求代数，由 App 统一赋值（见模块文档）。
         generation: u64,
-        /// 取材输入（划词文本；图像/音频随对应取材路径接入）。
+        /// 取材输入（划词文本或剪贴板图像；音频为预留变体，尚未接线）。
         input: TaskInput,
         /// 触发时按配置快照冻结的任务选项（含模型 id）。
         options: TaskOptions,
@@ -184,7 +184,6 @@ pub struct CrossbeamPair<T> {
 }
 
 impl<T> CrossbeamPair<T> {
-    /// 创建一对无界通道。
     pub fn new() -> Self {
         let (tx, rx) = unbounded();
         Self { tx, rx }
@@ -234,7 +233,6 @@ pub struct Channels {
 }
 
 impl Channels {
-    /// 创建四条通道。
     pub fn new() -> Self {
         Self {
             platform_events: CrossbeamPair::new(),

@@ -705,8 +705,6 @@ mod live_tests {
             "original clipboard content must survive (got {} bytes)",
             restored.len()
         );
-        // 计数归因记账：文本读回成功（自身写盘=确认的注入复制+恢复）或
-        // 失败（无可归因写盘），二者居一；pre 不得超前当前计数。
         let writes = round.peek().expect("the round must report its writes");
         assert!(
             matches!(writes.ours, 0 | 2),

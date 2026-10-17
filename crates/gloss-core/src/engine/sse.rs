@@ -49,7 +49,6 @@ pub struct SseDecoder {
 }
 
 impl SseDecoder {
-    /// 新建解码器。
     pub fn new() -> Self {
         Self::default()
     }
@@ -222,7 +221,7 @@ struct StreamChunk {
 struct StreamChoice {
     #[serde(default)]
     delta: Option<StreamDelta>,
-    /// 结束原因：恒为 `None`，只在最后一个内容块上非空（`stop` /
+    /// 结束原因：通常为 `None`，只在流收尾的内容块上非空（`stop` /
     /// `length` / `content_filter`…）。
     #[serde(default)]
     finish_reason: Option<String>,

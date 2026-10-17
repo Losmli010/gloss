@@ -1,7 +1,6 @@
 //! 浮层内容：按视图分发的骨架、经注疏结果卡与流式/失败视图。
 //!
-//! 内容按「经 · 注 · 疏」三层组织，视觉定稿以 docs/demo/popup-redesign.html
-//! 为准（本地文件，不进 git）：
+//! 内容按「经 · 注 · 疏」三层组织，视觉以设计定稿的浮层稿为准：
 //! - **经**＝选区原文/词条/提取文本（宋体；代码任务为单层代码面板
 //!   ——专属底色、`gloss-mono` 等宽体、不换行横滚、左上角语言标签行）；
 //! - **注**＝译文/释义/概要（楷体，系统缺楷体时随 demo 回退链落宋体；
@@ -857,7 +856,7 @@ fn zhu_color(ui: &egui::Ui) -> egui::Color32 {
 
 /// 印章/水印 galley 的缓存槽位：键穷举**除字体表外**的全部布局输入
 /// （静态文本、墨色档、明暗、像素密度），取值空间有界（三印一水印 ×
-/// 文案表 × 明暗两态），不做逐出。字体表启动期会整体更换一次（内置
+/// 文案表 × 明暗两态 × 像素密度档），不做逐出。字体表启动期会整体更换一次（内置
 /// 快路径 → 完整表），布局结果随表变化——槽位键不含它，由统一装入点
 /// （`ui::context`）在换表时调 [`clear_cached_text_galleys`] 整体失效。
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1610,9 +1609,6 @@ mod kittest_tests {
         }
     }
 
-    /// 超长无空格行的产物夹具：markdown 段落与围栏代码块各一段长行——
-    /// 「不超出窗口可用宽度」的快照与逐节点断言共用。正文用 ASCII 无空格
-    /// 长串（快照 harness 绑内置字形，无 CJK 字面）。
     fn long_line_view() -> OverlayView {
         let long_prose = "glossary".repeat(60);
         let long_code = "let value = compute(someVeryLongIdentifierChain).expect();\n".repeat(6);
@@ -1629,7 +1625,6 @@ mod kittest_tests {
         }
     }
 
-    /// 超长代码原文夹具：经位代码面板的单 token 长行（等宽折行的断言面）。
     fn long_code_source_view() -> OverlayView {
         let long_token = "compute".repeat(40);
         OverlayView::Outcome {

@@ -96,7 +96,6 @@ mod imp {
     }
 
     impl AxActivator {
-        /// 创建激活器。
         pub fn new() -> Self {
             Self::default()
         }

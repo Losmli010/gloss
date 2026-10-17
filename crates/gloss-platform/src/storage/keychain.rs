@@ -241,8 +241,6 @@ impl KeychainSecret {
     }
 }
 
-/// 真机路径：先在测试服务名下验证「未设置 = None」与删除幂等（纯
-/// keychain 行为，不写入任何密钥值）。
 #[cfg(test)]
 mod tests {
     use super::*;

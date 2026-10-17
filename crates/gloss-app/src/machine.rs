@@ -123,7 +123,7 @@ pub enum OverlayView {
 /// 失败卡的错误来源：任务链路的 [`GlossError`]，或壳层通道故障。
 ///
 /// 状态机只记来源、不记文案——文案随界面语言变，属渲染层的产物（见
-/// [`crate::ui::i18n::ErrorText`]），不随任务冻结。
+/// [`crate::ui::i18n::Text::for_error`]），不随任务冻结。
 #[derive(Debug, Clone, PartialEq)]
 pub enum FailureCause {
     /// 任务链路返回的错误。

@@ -13,7 +13,7 @@ pub const JUDGE_PROMPT: &str = include_str!("../prompts/judge.md");
 /// （分类的 128 会截断 reason，丢掉人读的依据）。
 pub const JUDGE_MAX_TOKENS: u32 = 512;
 
-/// 渲染 judge 请求的 messages：系统指令 = rubric，用户消息 = 三段内容。
+/// 渲染 judge 请求的 messages：系统指令 = 填好三段占位符的 rubric，用户消息 = 输入。
 pub fn render_judge(input: &str, output: &str, reference: &str) -> Vec<ChatMessage> {
     let system = JUDGE_PROMPT
         .replace("{{input}}", input)

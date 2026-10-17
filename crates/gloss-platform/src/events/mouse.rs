@@ -391,7 +391,7 @@ mod tap {
         /// 一律原样放行（listen-only 的 tap 也必须返回事件本身）。
         ///
         /// 翻译只用常量查表加位置与时间戳各一次读取（不分配、不调用会 panic
-        /// 的 API），panic 兜底在 sink 侧（见 [`listen`] 的调用方保证）。
+        /// 的 API），panic 兜底在 sink 侧（见 [`create`] 的调用方保证）。
         unsafe extern "C" fn raw_callback(
             _proxy: CGEventTapProxy,
             raw_type: u32,
@@ -399,7 +399,7 @@ mod tap {
             user_info: *mut c_void,
         ) -> CGEventRef {
             if let Some(action) = classify(raw_type) {
-                // SAFETY: `user_info` 是 `listen` 传进来、有意泄漏到进程结束的
+                // SAFETY: `user_info` 是 `create` 经 `Box::into_raw` 传入、有意泄漏到进程结束的
                 // Box<dyn Fn(ButtonEvent)> 指针；C 侧不释放它。
                 let sink = unsafe { &*(user_info as *const Box<dyn Fn(ButtonEvent)>) };
                 // SAFETY: `event` 是系统在回调期间借给我们的事件引用，只读位置
@@ -441,7 +441,6 @@ mod tests {
         }
     }
 
-    /// 慢拖用的常量时刻：按下 1s，释放 1.4s——按压时长 400ms，稳过下限。
     const SLOW_PRESS: u64 = 1_000_000_000;
     const SLOW_RELEASE: u64 = 1_400_000_000;
 
@@ -642,8 +641,6 @@ mod injected_gesture_live_tests {
                 "move injection"
             );
         }
-        // 注入的事件自带真实时间戳：释放前真实睡过最短按压时长，否则手势会
-        // 被时长下限滤除（快甩滤除是本就想要的行为）。
         std::thread::sleep(Duration::from_millis(200));
         let release_at = event::current_position(&hid).expect("current location");
         assert!(

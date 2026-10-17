@@ -44,7 +44,6 @@ pub struct ScreenPoint {
 }
 
 impl ScreenPoint {
-    /// 构造一个屏幕坐标点。
     pub const fn new(x: i32, y: i32) -> Self {
         Self { x, y }
     }
@@ -69,7 +68,7 @@ pub enum GlossError {
     /// 选区读不到（应用不支持选区属性或 AX/兜底通道失败）。
     SelectionUnavailable,
     /// 选区为空（应用支持选区属性、如实报告了空值）——与「读不到」分开
-    /// 建档：组合通道对前者不落剪贴板兜底，状态机对手势触发静默收回。
+    /// 建档：状态机对手势触发静默收回。
     SelectionEmpty,
     /// 辅助功能权限缺失。
     AccessibilityDenied,
@@ -84,7 +83,8 @@ pub enum GlossError {
     ImageUnavailable,
     /// 剪贴板图片超出字节总量或像素面积上限（超限报错，不截断）。
     ImageTooLarge,
-    /// 任务所需模态与配置的模型能力不匹配（如图像任务未配视觉模型）。
+    /// 任务所需模态与配置的模型能力不匹配（如图像任务未配视觉模型），
+    /// 或任务类型与输入模态的组合非法（见 [`crate::task::validate_modality`]）。
     UnsupportedModality,
     /// 模型服务不支持 JSON 输出模式：所有请求都恒带 `response_format`
     /// json_object（不做能力协商），端点以 4xx 拒绝且诊断文本提到它时按

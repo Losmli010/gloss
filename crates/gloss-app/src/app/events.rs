@@ -55,7 +55,7 @@ impl Waker {
 /// 平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。
 ///
 /// `theme` 施加到各 egui 上下文（见
-/// `GlossApp::apply_theme`）。`system_locale` 是组装点读到的系统语言，
+/// `Workspace::apply_theme`）。`system_locale` 是组装点读到的系统语言，
 /// 供配置里的 `Language::System` 落定成 [`Locale`]（prompt 模板与界面文案共用）。
 /// `scene` 是触发前场景探针（安全输入态、前台应用），供敏感信息防护的
 /// 场景闸门判定——同样是平台适配器的事，壳只消费。`permissions_ready`

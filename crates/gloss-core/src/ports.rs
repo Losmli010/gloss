@@ -1,8 +1,9 @@
 //! 端口定义：全部跨层 trait 的唯一定义点（Ports & Adapters）。
 //!
-//! core 只声明契约；实现侧在 gloss-platform（`CompositeReader` /
-//! `ScreenCapturer` / `LlmClient` / `FileConfigStore`），
-//! 核心编排只见到这些 trait，测试用各 crate tests/stubs/ 下的桩。
+//! core 只声明契约。实现侧：`CompositeReader` 与 `FileConfigStore` 在
+//! gloss-platform；`LlmClient` 是本 crate `engine::llm` 的内建传输实现；
+//! `RegionCapture` 尚无生产实现。核心编排只见到这些 trait，测试用各 crate
+//! tests/stubs/ 下的桩。
 //!
 use std::pin::Pin;
 use std::sync::Arc;

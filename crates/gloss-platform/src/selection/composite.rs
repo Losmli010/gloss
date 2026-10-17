@@ -44,7 +44,8 @@ const EMPTY_SETTLE_SCHEDULE_MS: [u64; 3] = [25, 75, 150];
 /// 补读之间让宿主建一会儿。等待在事件线程上睡眠，与让渡的阻塞语义同款。
 const ACTIVATION_SETTLE_DELAY: Duration = Duration::from_millis(250);
 
-/// 激活补读次数上限：最多 5 次 × 250ms ≈ 1.25s 建树等待（各次 AX 往返
+/// 激活补读次数上限：最多 5 次 × 250ms ≈ 1.25s 建树等待（实际受
+/// [`AX_WAIT_BUDGET`] 的 700ms 整体截断，故最坏睡眠约 0.7s；各次 AX 往返
 /// 耗时另计，宿主不响应时受 AX 消息超时兜底）。只发生在「激活注入首次
 /// 成功」的那一个手势，换的是此后所有手势免按键注入、免剪贴板副作用。
 const ACTIVATION_SETTLE_BUDGET: usize = 5;
@@ -164,7 +165,7 @@ fn wake_then(
 /// 语义上抛。AX 与剪贴板兜底两条通道的产物都经此收口，让渡补读与兜底
 /// 注入只服务「读不到」，不为已知纯空白的选区再花时序预算。
 ///
-/// 两端本无空白时原缓冲原样归还，不复制整段（选区可达 8MB 上限）。
+/// 两端本无空白时原缓冲原样归还，不复制整段。
 fn normalize(raw: String) -> Result<String, GlossError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {

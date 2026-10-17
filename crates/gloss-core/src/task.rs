@@ -62,7 +62,7 @@ pub enum TaskInput {
 pub struct TaskOptions {
     /// 目标语言，None = 自动检测（默认中文）。
     pub target_lang: Option<Lang>,
-    /// 回答深度档位。
+    /// 回答深度档位（预留：当前不进 prompt 渲染，也不随请求下发）。
     pub detail_level: Option<u8>,
     /// 本任务使用的模型 id：App 在触发时按 `Config::model` 冻结进来。
     /// `Arc<str>` 共享承载：任务在状态机在途副本与下发请求间共享同一份
@@ -90,9 +90,7 @@ impl Default for TaskOptions {
 /// 一条待执行任务 = 类型 + 输入 + 选项。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Task {
-    /// 任务类型。
     pub kind: TaskKind,
-    /// 输入数据。
     pub input: TaskInput,
     /// 任务选项（留空的字段按配置默认值填充）。
     pub options: TaskOptions,

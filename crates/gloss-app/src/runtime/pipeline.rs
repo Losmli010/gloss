@@ -7,7 +7,7 @@
 //! `TaskClassified{outcome.kind}` 再 `TaskDone`，事件序与 miss 路径同形）
 //! → miss 时接线钩子（`TaskClassified`/`TaskChunk` 逐条回传）调
 //! `service.run` → 完成态经 [`complete`]（`schema::validate_task` 两分支）
-//! 解析出 [`TaskOutcome`] → **非降级才写缓存**（降级产物不投毒）→
+//! 解析出 [`gloss_core::task::TaskOutcome`] → **非降级才写缓存**（降级产物不投毒）→
 //! `TaskDone`。引擎失败不写缓存。
 //! 另有 `PrewarmSecret` 一条旁路：读一次密钥进进程内缓存（启动期预热），
 //! 与任务代数无关。
@@ -464,7 +464,6 @@ mod tests {
             .with_chunks(vec![Ok("一".into()), Ok("二".into()), Ok("三".into())]);
         let (commands, events, runtime) = start(&engine);
 
-        // 分类先于任何增量（LLM 层恒发判定；脚本解析不出 kind 落兜底）。
         let cancel = run(&commands, 1, text_input("slow"), text_options());
         assert!(matches!(
             events.recv().unwrap(),
@@ -537,7 +536,6 @@ mod tests {
         run(&commands, 2, text_input("again"), text_options());
         loop {
             match events.recv().unwrap() {
-                // 分类解析不出 kind 落兜底：判定先于正文回传。
                 Event::TaskClassified { generation: 2, .. } => {}
                 Event::TaskRepairing { generation: 2 } => {}
                 Event::TaskChunk {

@@ -2,7 +2,7 @@
 //! 契约修复轮）。
 //!
 //! 一次 `run` 的完整前半程都在这里：输入校验 → 意图定型（文本走 LLM
-//! 分类——违约与请求异常在 `classify` 内部消化，修复 [`CLASSIFY_REPAIRS`]
+//! 分类——违约与请求异常在 `classify` 内部消化，修复 [`crate::classify::CLASSIFY_REPAIRS`]
 //! 轮后落 [`CLASSIFY_FALLBACK`]，恒 `Ok`；图像输入自带显式意图，恒定映射
 //! ImageExplain、跳过分类）→ `on_classified` 回调 → 任务形成（prompt 渲
 //! 染 + 模态校验）→ 流式执行（原始增量经 `on_chunk` 逐条转交，同时累积）
@@ -18,7 +18,7 @@
 //! 输出契约见 prompt 模块与 `crate::schema`：模型按契约直接返回纯 JSON
 //! 对象（`note` 义 + `structured` 疏证）；本层搬运原始文本并做**硬约束**
 //! 校验（整段合法 JSON 对象 + note 非空）——产物组装归调用方的完成态
-//! （`gloss_app::finalize`，经 `schema::validate_task` 两分支：校验过出
+//! （`gloss_app::runtime::finalize`，经 `schema::validate_task` 两分支：校验过出
 //! 正常产物，违约落降级产物）。
 //!
 //! 子模块 [`llm`] / [`sse`] 是 [`AiEngine`] 端口的内建传输适配：OpenAI
@@ -65,7 +65,7 @@ fn is_empty_completion(error: &GlossError) -> bool {
 }
 
 /// 一次 `run` 的产出：判定的任务类型 + 引擎返回的**原始**完整文本。
-/// 解析成产物归调用方（完成态解析在 `gloss_app::finalize`）。
+/// 解析成产物归调用方（完成态解析在 `gloss_app::runtime::finalize`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOutput {
     /// 本次任务最终执行的类型（含分类兜底）。
@@ -105,7 +105,7 @@ impl AiTaskService {
     /// `input` 与 `options` 按值接收：任务在执行期间独占两者，调用方
     /// （app 桥）从通道解出后即交出所有权。
     ///
-    /// 调用方契约（app 桥据此接线，见 `gloss_app::pipeline`）：
+    /// 调用方契约（app 桥据此接线，见 `gloss_app::runtime::pipeline`）：
     /// - `on_classified` 在**任何** chunk 之前恰好调用一次（含失败兜底
     ///   kind 与图像的固定 kind）——界面的任务标签以它为准；
     /// - `on_chunk` / `on_repair` 与返回值的契约见 [`run_task_rounds`]；
