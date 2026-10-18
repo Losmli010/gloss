@@ -60,7 +60,7 @@ pub enum GlossError {
     /// 剪贴板图片超出字节总量或像素面积上限（超限报错，不截断）。
     ImageTooLarge,
     /// 任务所需模态与配置的模型能力不匹配（如图像任务未配视觉模型），
-    /// 或任务类型与输入模态的组合非法（见 [`crate::task::validate_modality`]）。
+    /// 或任务类型与输入模态的组合非法（见 [`crate::task::Task::new`]）。
     UnsupportedModality,
     /// 模型服务不支持 JSON 输出模式：请求恒带 `response_format` json_object
     /// （不做能力协商），端点以 4xx 拒绝且诊断文本提到它时按此建档——换支持

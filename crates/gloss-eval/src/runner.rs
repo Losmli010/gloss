@@ -432,16 +432,16 @@ async fn run_task_case(
 ) -> Result<(RunOutput, Vec<String>), GlossError> {
     let snapshot = config.snapshot();
     let model = snapshot.model.as_str();
-    let task = Task {
-        kind: case.kind,
-        input: TaskInput::Text {
+    let task = Task::new(
+        case.kind,
+        TaskInput::Text {
             text: case.text.clone(),
         },
-        options: TaskOptions {
+        TaskOptions {
             prompt_locale: Some(Locale::Zh),
             ..TaskOptions::default()
         },
-    };
+    )?;
     let base = PromptRegistry::new().render(&task)?;
     let rounds = Arc::new(Mutex::new(vec![String::new()]));
     let chunks = Arc::clone(&rounds);

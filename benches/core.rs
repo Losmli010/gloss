@@ -29,15 +29,17 @@ fn text_options(text: &str) -> (TaskInput, TaskOptions) {
     )
 }
 
+#[allow(clippy::expect_used)] // 基准夹具的 kind 恒为文本类，模态矩阵保证构造成功
 fn text_task(kind: TaskKind, text: String) -> Task {
-    Task {
+    Task::new(
         kind,
-        input: TaskInput::Text { text },
-        options: TaskOptions {
+        TaskInput::Text { text },
+        TaskOptions {
             model: MODEL.into(),
             ..TaskOptions::default()
         },
-    }
+    )
+    .expect("the benchmark task is legal")
 }
 
 fn image_input(png_bytes: usize) -> TaskInput {

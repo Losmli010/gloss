@@ -18,7 +18,7 @@ pub enum TaskKind {
     TranslateWord,
     TranslateSentence,
     ExplainCode,
-    /// 图像解读：唯一接受 [`TaskInput::Image`] 的 kind（见 [`validate_modality`]）。
+    /// 图像解读：唯一接受 [`TaskInput::Image`] 的 kind（见 [`Task::new`]）。
     ImageExplain,
     /// 通用任务：不在 [`crate::classify::CLASSIFY_KINDS`] 里，是分类失效时的
     /// 执行落点。
@@ -48,14 +48,19 @@ pub struct TaskOptions {
     /// 目标语言；`None` 走缺省中文（[`crate::prompt`] 的 `DEFAULT_TARGET`）。
     pub target_lang: Option<Lang>,
     /// 本任务使用的模型 id；`Arc<str>` 让在途副本与下发请求共享同一份，
-    /// 复制只是引用计数。缺省值只服务测试直构，App 路径恒按配置快照填入。
+    /// 复制只是引用计数。缺省值只服务反序列化兜底与测试直构，App 路径恒按
+    /// 配置快照填入。
     pub model: Arc<str>,
     /// prompt 模板语言；缺省中文。它参与缓存 key——换模板语言后同输入
     /// 不得命中旧语言的产物。
     pub prompt_locale: Option<Locale>,
 }
 
+#[doc(hidden)]
 impl Default for TaskOptions {
+    /// 只服务反序列化兜底与测试直构。生产路径必须全量显式构造（见
+    /// `gloss-app` 的 `task_options`）——`..Default::default()` 会静默带上
+    /// 工厂模型，把调用方本应自己决定的参数掩盖掉。
     fn default() -> Self {
         Self {
             target_lang: None,
@@ -66,15 +71,64 @@ impl Default for TaskOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "TaskParts")]
 pub struct Task {
-    pub kind: TaskKind,
-    pub input: TaskInput,
-    pub options: TaskOptions,
+    kind: TaskKind,
+    input: TaskInput,
+    options: TaskOptions,
+}
+
+impl Task {
+    /// 任务的唯一构造口：模态约束在这里判定，`kind` 与 `input` 的非法组合
+    /// 不可表示。[`TaskOutcome`] 的 kind 由执行路径决定，构造只认输入形状。
+    pub fn new(kind: TaskKind, input: TaskInput, options: TaskOptions) -> Result<Self, GlossError> {
+        validate_modality(kind, &input)?;
+        Ok(Self {
+            kind,
+            input,
+            options,
+        })
+    }
+
+    pub fn kind(&self) -> TaskKind {
+        self.kind
+    }
+
+    pub fn input(&self) -> &TaskInput {
+        &self.input
+    }
+
+    pub fn options(&self) -> &TaskOptions {
+        &self.options
+    }
+
+    /// 选项可在渲染前调整（目标语言、模板语言）；模态不变量只认
+    /// kind 与 input，与选项无关。
+    pub fn options_mut(&mut self) -> &mut TaskOptions {
+        &mut self.options
+    }
+}
+
+/// 反序列化的中转形态：`Task` 的字段私有，wire 入口也必须过 [`Task::new`]
+/// 的同一道模态闸门，否则夹具与持久化路径会成为绕过不变量的旁路。
+#[derive(Deserialize)]
+struct TaskParts {
+    kind: TaskKind,
+    input: TaskInput,
+    options: TaskOptions,
+}
+
+impl TryFrom<TaskParts> for Task {
+    type Error = GlossError;
+
+    fn try_from(parts: TaskParts) -> Result<Self, Self::Error> {
+        Self::new(parts.kind, parts.input, parts.options)
+    }
 }
 
 /// 模态约束表：任务类型与输入模态的合法组合。唯一被拒的错误是
 /// [`GlossError::UnsupportedModality`]。
-pub fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError> {
+fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError> {
     let legal = matches!(
         (kind, input),
         (
@@ -142,18 +196,19 @@ mod tests {
 
     #[test]
     fn task_binds_kind_input_and_options() {
-        let task = Task {
-            kind: TaskKind::TranslateWord,
-            input: TaskInput::Text {
+        let task = Task::new(
+            TaskKind::TranslateWord,
+            TaskInput::Text {
                 text: "gloss".into(),
             },
-            options: TaskOptions {
+            TaskOptions {
                 target_lang: Some(Lang::Zh),
                 ..Default::default()
             },
-        };
-        assert_eq!(task.kind, TaskKind::TranslateWord);
-        assert_eq!(task.options.target_lang, Some(Lang::Zh));
+        )
+        .expect("a text kind with text input is legal");
+        assert_eq!(task.kind(), TaskKind::TranslateWord);
+        assert_eq!(task.options().target_lang, Some(Lang::Zh));
     }
 
     #[test]
@@ -246,23 +301,15 @@ mod tests {
         assert!(back.degraded);
     }
 
-    fn text_task(kind: TaskKind) -> Task {
-        Task {
-            kind,
-            input: TaskInput::Text {
-                text: "hello".into(),
-            },
-            options: TaskOptions::default(),
+    fn text_input() -> TaskInput {
+        TaskInput::Text {
+            text: "hello".into(),
         }
     }
 
-    fn image_task(kind: TaskKind) -> Task {
-        Task {
-            kind,
-            input: TaskInput::Image {
-                png: Arc::from(&b"png"[..]),
-            },
-            options: TaskOptions::default(),
+    fn image_input() -> TaskInput {
+        TaskInput::Image {
+            png: Arc::from(&b"png"[..]),
         }
     }
 
@@ -275,44 +322,70 @@ mod tests {
             TaskKind::ImageExplain,
             TaskKind::General,
         ];
-        let text_legal = |kind| {
-            matches!(
+        let legal = |kind: TaskKind, input: &TaskInput| {
+            Task::new(kind, input.clone(), TaskOptions::default()).map(|_| ())
+        };
+        for kind in all_kinds {
+            let text_expect = matches!(
                 kind,
                 TaskKind::TranslateWord
                     | TaskKind::TranslateSentence
                     | TaskKind::ExplainCode
                     | TaskKind::General
-            )
-        };
-        let image_legal = |kind| matches!(kind, TaskKind::ImageExplain);
-        let verdict = |task: &Task| validate_modality(task.kind, &task.input);
-        for kind in all_kinds {
-            let (text_expect, image_expect) = (
-                text_legal(kind)
-                    .then_some(())
-                    .ok_or(GlossError::UnsupportedModality),
-                image_legal(kind)
-                    .then_some(())
-                    .ok_or(GlossError::UnsupportedModality),
             );
-            assert_eq!(verdict(&text_task(kind)), text_expect, "text × {kind:?}");
-            assert_eq!(verdict(&image_task(kind)), image_expect, "image × {kind:?}");
+            let image_expect = kind == TaskKind::ImageExplain;
+            assert_eq!(
+                legal(kind, &text_input()),
+                text_expect
+                    .then_some(())
+                    .ok_or(GlossError::UnsupportedModality),
+                "text × {kind:?}"
+            );
+            assert_eq!(
+                legal(kind, &image_input()),
+                image_expect
+                    .then_some(())
+                    .ok_or(GlossError::UnsupportedModality),
+                "image × {kind:?}"
+            );
         }
     }
 
     #[test]
+    fn task_deserialization_goes_through_the_modality_gate() {
+        let legal = serde_json::json!({
+            "kind": "TranslateWord",
+            "input": { "Text": { "text": "gloss" } },
+            "options": { "target_lang": null, "model": DEFAULT_MODEL, "prompt_locale": null },
+        });
+        let task: Task = serde_json::from_value(legal).expect("a legal pair deserializes");
+        assert_eq!(task.kind(), TaskKind::TranslateWord);
+
+        let illegal = serde_json::json!({
+            "kind": "ImageExplain",
+            "input": { "Text": { "text": "gloss" } },
+            "options": { "target_lang": null, "model": DEFAULT_MODEL, "prompt_locale": null },
+        });
+        assert!(
+            serde_json::from_value::<Task>(illegal).is_err(),
+            "a wire payload must not bypass the modality gate"
+        );
+    }
+
+    #[test]
     fn task_round_trips_through_serde() {
-        let task = Task {
-            kind: TaskKind::ExplainCode,
-            input: TaskInput::Text {
+        let task = Task::new(
+            TaskKind::ExplainCode,
+            TaskInput::Text {
                 text: "fn main() {}".into(),
             },
-            options: TaskOptions {
+            TaskOptions {
                 target_lang: Some(Lang::Ja),
                 model: "mock-model".into(),
-                ..Default::default()
+                prompt_locale: None,
             },
-        };
+        )
+        .expect("a text kind with text input is legal");
         let json = serde_json::to_string(&task).expect("task should serialize");
         let back: Task = serde_json::from_str(&json).expect("task should deserialize");
         assert_eq!(back, task);
