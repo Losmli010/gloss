@@ -436,7 +436,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") / Other(" ") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且纯 JSON 契约仍在 | 2026-10-11 |
 | image_explain_example_is_a_single_json_object_with_note_first | 图像模板示例为单 JSON 且 note 在前 | 给定双 locale 的 image_explain 模板，当整行解析示例 JSON，则示例可解析、键恰为 note + structured（note 在前），structured 内只有 examples（interpretation 旧名退役）——流式与完成态解析都按这份契约 | 2026-10-11 |
 | image_explain_renders_system_and_image_parts | 图像解读渲染系统指令与图像部件 | 给定 ImageExplain 图像任务，当渲染，则得 [System, User] 两段，用户消息是 Parts([ImagePng])（字节经 Arc 零拷贝共享），系统指令要求单个 JSON 对象且携带 note/structured.examples 契约 | 2026-10-11 |
-| modality_mismatch_is_rejected_before_rendering | 模态错配在渲染前拒绝 | 给定图像 kind 配文本输入，当 Task::new 构造，则返回 UnsupportedModality（拒绝点前移到构造口，渲染路径不再兜底） | 2026-10-18 |
+| modality_mismatch_is_rejected_at_construction | 模态错配在构造时拒绝 | 给定图像 kind 配文本输入，当 Task::new 构造，则返回 UnsupportedModality（拒绝点在构造口，渲染路径不再兜底） | 2026-10-18 |
 | render_template_substitutes_placeholders | 占位符显式替换 | 给定含 {{占位符}} 的模板，当渲染，则按值替换、同名占位符可重复；未声明与未闭合的占位符原样保留（留待完整性测试抓） | 2026-09-22 |
 | render_template_drops_lines_whose_placeholders_are_empty | 占位符全空的行整行消失 | 给定提示行与指令行模板，当某行占位符值全为空，则该行连同行内静态文字与换行一并删除，其余行不受影响 | 2026-09-22 |
 | render_template_keeps_blank_lines_without_placeholders | 无占位符空行是结构 | 给定模板里的空行（不含占位符），当渲染，则原样保留 | 2026-09-22 |

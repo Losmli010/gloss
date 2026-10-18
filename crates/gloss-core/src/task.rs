@@ -48,13 +48,15 @@ pub struct TaskOptions {
     /// 目标语言；`None` 走缺省中文（[`crate::prompt`] 的 `DEFAULT_TARGET`）。
     pub target_lang: Option<Lang>,
     /// 本任务使用的模型 id；`Arc<str>` 让在途副本与下发请求共享同一份，
-    /// 复制只是引用计数。缺省值只服务测试直构，App 路径恒按配置快照填入。
+    /// 复制只是引用计数。缺省值只服务反序列化兜底与测试直构，App 路径恒按
+    /// 配置快照填入。
     pub model: Arc<str>,
     /// prompt 模板语言；缺省中文。它参与缓存 key——换模板语言后同输入
     /// 不得命中旧语言的产物。
     pub prompt_locale: Option<Locale>,
 }
 
+#[doc(hidden)]
 impl Default for TaskOptions {
     /// 只服务反序列化兜底与测试直构。生产路径必须全量显式构造（见
     /// `gloss-app` 的 `task_options`）——`..Default::default()` 会静默带上

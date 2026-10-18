@@ -1256,6 +1256,10 @@ mod tests {
         assert!(machine.accept_done(1, degraded_outcome()));
         assert_eq!(machine.state(), AppState::Show);
         assert!(
+            machine.current_cancel().is_none(),
+            "a settled task drops its token: Some must imply Translating"
+        );
+        assert!(
             matches!(
                 machine.overlay_view(),
                 Some(OverlayView::Outcome { outcome, .. }) if outcome.degraded
@@ -1273,6 +1277,10 @@ mod tests {
             "same options are re-dispatched (no config re-read)"
         );
         assert_eq!(machine.state(), AppState::Translating);
+        assert!(
+            machine.current_cancel().is_some(),
+            "the retry re-enters Translating with a fresh token"
+        );
         assert!(
             matches!(
                 machine.overlay_view(),

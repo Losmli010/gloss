@@ -872,7 +872,7 @@ mod tests {
     }
 
     #[test]
-    fn modality_mismatch_is_rejected_before_rendering() {
+    fn modality_mismatch_is_rejected_at_construction() {
         let task = Task::new(
             TaskKind::ImageExplain,
             TaskInput::Text {
