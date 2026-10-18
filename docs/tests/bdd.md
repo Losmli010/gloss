@@ -12,7 +12,7 @@
 | 发版人工步骤 | 10 | 手动执行（无自动化测试源码的真机/运维步骤，bdd 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
-| 快照测试 | 37 | `just test` |
+| 快照测试 | 38 | `just test` |
 | 单元测试 | 574 | `just test` |
 
 ## 人工测试
@@ -299,6 +299,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定双释义的词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、两条释义、例句（复制按钮已移除，划选即复制） | 2026-10-01 |
 | word_card_sections_stack_vertically | 词卡经→疏纵向排布 | 给定词卡视图，当渲染，则经位（字头+音）与疏位（例句）矩形纵向递增（分区显式垂直布局） | 2026-10-04 |
 | watermark_sits_inside_the_computed_window_height | 页脚水印落在期望窗口内 | 给定流式/词卡两种视图，当按内容尺寸重设渲染窗口再量水印矩形，则水印底边不超出 draw 上交的期望窗口高（页脚被内容挤出窗外即失败） | 2026-10-03 |
+| a_long_selection_keeps_the_footer_inside_the_window | 长选区下页脚仍在窗内 | 给定原文很长的流式视图，当窗口按壳侧屏高上限钳到 420 再渲染，则「正在注解」与页脚水印的底边都不超出窗口高（经位与注疏同区滚动，生成指示不被长原文顶出窗外） | 2026-10-18 |
 | long_body_is_rendered_in_full | 长正文完整渲染不截断 | 给定超长正文（尾部带标记），当渲染，则 AccessKit 树含尾部内容——无字符截断 | 2026-09-20 |
 | arrow_keys_scroll_the_overflowing_body | 正文溢出时方向键滚动 | 给定超长正文的 Outcome 视图，当按 ↓ 再按 ↑，则内容视口先下移后回位（无修饰键参与，滚动区到界即停） | 2026-10-12 |
 | streaming_view_shows_the_annotating_footer | 流式视图页脚注解指示 | 给定流式视图，当渲染，则「正在注解」在页脚出现、经/注印章就位 | 2026-10-01 |

@@ -463,10 +463,10 @@ fn image_unavailable(ui: &mut egui::Ui, text: &'static Text) {
 }
 
 /// 浮层内容（头部 + 各视图正文），并把完整内容高记入 `content_h`：
-/// 产物与流式正文放进 ScrollArea（完整渲染、超出滚动兜底），其高度取
-/// ScrollArea 报告的内容尺寸，不受视口裁剪影响；页脚带恒在（滚动区按
-/// [`FOOTER_RESERVE`] 预留视口，页脚不被内容挤出窗外）。头部动作区与
-/// 失败卡动作按钮的点击结果、页头拖动热区的位移一并透传给调用方。
+/// 产物与流式正文（含经位）放进 ScrollArea（完整渲染、超出滚动兜底），
+/// 其高度取 ScrollArea 报告的内容尺寸，不受视口裁剪影响；页脚带恒在
+/// （滚动区按 [`FOOTER_RESERVE`] 预留视口，页脚不被内容挤出窗外）。头部
+/// 动作区与失败卡动作按钮的点击结果、页头拖动热区的位移一并透传给调用方。
 fn render_content(
     ui: &mut egui::Ui,
     view: Option<&OverlayView>,
@@ -485,40 +485,27 @@ fn render_content(
         }) => {
             let code = is_code(*classified);
             let fields = stream_fields(raw);
+            let mode = FooterMode::Streaming {
+                repairing: *repairing,
+            };
             match attached {
                 // 图像卡：经位图像与注/疏一起进滚动区——高图由滚动区吞
                 // 高，窗口按完整内容高申请、壳侧钳到屏，超出滚动兜底。
-                Some(png) => scrolled_card(
-                    ui,
-                    state,
-                    text,
-                    content_h,
-                    FooterMode::Streaming {
-                        repairing: *repairing,
-                    },
-                    |_| {},
-                    |ui| {
-                        jing_section(ui, text, |ui| attached_image(ui, png, state, text));
-                        ui.add_space(space::PARAGRAPH);
-                        streamed_sections(ui, &fields, state, text);
-                    },
-                ),
-                None => scrolled_card(
-                    ui,
-                    state,
-                    text,
-                    content_h,
-                    FooterMode::Streaming {
-                        repairing: *repairing,
-                    },
+                Some(png) => scrolled_card(ui, state, text, content_h, mode, |ui| {
+                    jing_section(ui, text, |ui| attached_image(ui, png, state, text));
+                    ui.add_space(space::PARAGRAPH);
+                    streamed_sections(ui, &fields, state, text);
+                }),
+                // 经位与注/疏同一滚动区：长选区只抬高滚动内容，页脚仍钉在
+                // 视口下方（经位若留在滚动区外，长选区会把页脚顶出窗外，
+                // 生成指示随之不可见）。
+                None => scrolled_card(ui, state, text, content_h, mode, |ui| {
                     // 流式期没有语言判定（唯一来源是产物的 structured
                     // 回传），经位代码面板按通用启发集着色、无角标。
-                    |ui| {
-                        jing_section(ui, text, |ui| source_block(ui, source, code, None));
-                        ui.add_space(space::PARAGRAPH);
-                    },
-                    |ui| streamed_sections(ui, &fields, state, text),
-                ),
+                    jing_section(ui, text, |ui| source_block(ui, source, code, None));
+                    ui.add_space(space::PARAGRAPH);
+                    streamed_sections(ui, &fields, state, text);
+                }),
             }
         }
         Some(OverlayView::Outcome { source, outcome }) if outcome.degraded => {
@@ -544,15 +531,11 @@ fn render_content(
                 }
             })
         }
-        Some(OverlayView::Outcome { source, outcome }) => scrolled_card(
-            ui,
-            state,
-            text,
-            content_h,
-            FooterMode::Static,
-            |_| {},
-            |ui| outcome_body(ui, source, outcome, attached, state, text),
-        ),
+        Some(OverlayView::Outcome { source, outcome }) => {
+            scrolled_card(ui, state, text, content_h, FooterMode::Static, |ui| {
+                outcome_body(ui, source, outcome, attached, state, text)
+            })
+        }
         Some(OverlayView::Failed {
             cause,
             action: error_action,
@@ -605,21 +588,19 @@ enum FooterMode {
     Streaming { repairing: bool },
 }
 
-/// 滚动卡骨架：头部 + （固定区 `before`）+ 纵向滚动正文 + 页脚。滚动区
-/// 内容起点即 cursor，完整高按滚动区报告的内容尺寸回记（不受视口裁剪
-/// 影响）。
+/// 滚动卡骨架：头部 + 纵向滚动正文 + 页脚。正文（经位与注/疏）整体进
+/// 滚动区，完整高按滚动区报告的内容尺寸回记（不受视口裁剪影响）；页脚
+/// 在滚动区之外，恒钉在视口下缘，不被内容顶出窗外。
 fn scrolled_card(
     ui: &mut egui::Ui,
     state: &RenderState,
     text: &'static Text,
     content_h: &mut f32,
     mode: FooterMode,
-    before: impl FnOnce(&mut egui::Ui),
     body: impl FnOnce(&mut egui::Ui),
 ) -> (Option<OverlayAction>, Option<egui::Vec2>) {
     let (action, drag) = header(ui, state, text);
     ui.add_space(space::SECTION);
-    before(ui);
     // 只纵向滚动：代码正文按可用宽折行。
     let scrolled = ScrollArea::new([false, true])
         .auto_shrink([false, true])
@@ -1035,8 +1016,8 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
                 // 内容列定到可用宽，外框连同底色一起撑满）。
                 ui.set_width(ui.available_width());
                 code_badge(ui, code_lang);
-                // 等宽折行：超宽按可用宽换行（经位在正文 ScrollArea 之外，
-                // 没有外层滚动区兜底，横滚不进弹窗）。
+                // 等宽折行：超宽按可用宽换行（滚动区只纵向滚，横滚不进
+                // 弹窗）。
                 let dark = ui.visuals().dark_mode;
                 let job = code_job(source, code_lang, dark, ui.available_width());
                 let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
@@ -1504,6 +1485,15 @@ mod kittest_tests {
         }
     }
 
+    fn long_selection_streaming_view() -> OverlayView {
+        OverlayView::Streaming {
+            source: "选中的原文很长。".repeat(120),
+            raw: r#"{"note":"已流式到达的正文"}"#.into(),
+            classified: Some(TaskKind::TranslateSentence),
+            repairing: false,
+        }
+    }
+
     fn failed_view() -> OverlayView {
         OverlayView::Failed {
             cause: FailureCause::Task(GlossError::EngineNetwork),
@@ -1906,6 +1896,24 @@ mod kittest_tests {
                  watermark_bottom={} sizing_height={}",
                 watermark.bottom(),
                 sizing.get().height
+            );
+        }
+    }
+
+    #[test]
+    fn a_long_selection_keeps_the_footer_inside_the_window() {
+        let capped = vec2(WIDTH, 420.0);
+        let (mut harness, _clicked) = harness_for(long_selection_streaming_view());
+        harness.set_size(capped);
+        harness.run_steps(3);
+        for label in ["正在注解", "Gloss"] {
+            let node = harness.get_by_label_contains(label).rect();
+            assert!(
+                node.bottom() <= capped.y + 0.5,
+                "长选区不得把页脚挤出窗外（壳侧钳高后生成指示仍须可见）: \
+                 {label} bottom={} window_height={}",
+                node.bottom(),
+                capped.y
             );
         }
     }
