@@ -813,7 +813,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定「前台应用在名单内且安全输入关闭」，当 begin_selection_probe，则两次都 None、无探测编号、状态留 Idle；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
 | selection_options_pair_with_one_snapshot_including_the_model | 选项（含模型）出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则目标语言与模型 id 均出自快照冻结（类型不在其中——kind 由 LLM 层分类决定） | 2026-10-03 |
 | classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 accept_classified，则当前代写入判定 kind、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
-| a_degraded_done_keeps_the_request_and_retry_redispatches_it | 降级产物保留请求副本且可重试 | 给定推理中任务收 degraded 产物，当 accept_done，则落 Show 定格降级卡且不清 active_request；当 retry，则同代数按原 input+options 重发、回流式视图；正常产物落 Show 即清请求（retry 返回 None） | 2026-10-11 |
+| a_degraded_done_keeps_the_request_and_retry_redispatches_it | 降级产物保留请求副本且可重试 | 给定推理中任务收 degraded 产物，当 accept_done，则落 Show 定格降级卡、清空取消令牌且不清 active_request；当 retry，则同代数按原 input+options 重发、换新令牌并回流式视图；正常产物落 Show 即清请求（retry 返回 None） | 2026-10-18 |
 | the_repair_marker_clears_the_stream_and_refuses_stale_rounds | 修复轮标记清稿并拒陈旧轮次 | 给定推理中的流式会话，当 accept_repairing，则当前代清空上一轮累积并置 repairing（修复轮内 chunk 照常追加、页脚保持修复态）；陈旧代拒绝且原稿保留、已定格产物卡拒绝、新会话接受自己的标记 | 2026-10-12 |
 | options_freeze_at_probe_time | 选项在探测时刻冻结 | 给定探测后更换配置（目标语言与界面语言同时变），当提交产物，则任务仍带探测时快照的选项（含 prompt_locale）；第二次探测才用新值 | 2026-10-01 |
 | prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 Language::En 与出厂 System 两份配置，当探测并提交产物，则任务携带的 prompt_locale 分别为 En 与注入的系统语言 | 2026-09-22 |
