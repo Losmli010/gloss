@@ -82,7 +82,15 @@ fn init_logging() {
         || "<stderr only>".to_owned(),
         |dir| dir.display().to_string(),
     );
-    info!(thread = thread::UI, log_dir = %file, "gloss starting");
+    if active.is_some() {
+        info!(thread = thread::UI, log_dir = %file, "gloss starting");
+    } else {
+        warn!(
+            thread = thread::UI,
+            log_dir = %file,
+            "gloss starting without file logging"
+        );
+    }
 }
 
 /// 装开发期 Dock 图标（非 bundle 运行时才有实际效果）。失败只降级记日志：

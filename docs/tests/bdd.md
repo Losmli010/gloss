@@ -8,7 +8,7 @@
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
-| 人工测试 | 14 | `cargo test -p gloss-platform -- --ignored`；live_llm 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 GLOSS_LIVE_*） |
+| 人工测试 | 15 | `cargo test -p gloss-platform -- --ignored`；live_llm 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 GLOSS_LIVE_*） |
 | 发版人工步骤 | 10 | 手动执行（无自动化测试源码的真机/运维步骤，bdd 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
@@ -130,6 +130,14 @@
   1. 随常规测试自动运行，无需授权与 --ignored
   2. 运行中会覆写并恢复本机剪贴板；经 CLIPBOARD_LIVE_LOCK 串行
 - 更新时间：2026-09-19
+
+### fallback_read_unwind_restores_the_clipboard_without_finish
+- 测试目标：验证兜底读取在调用方 panic 展开、未收口 finish 时经 Drop 兜底按快照恢复原剪贴板（`PendingRestore` 的 Drop 路径——受控路径都已显式收口，`skip == false` 只在展开时出现）。
+- 测试场景：给定预置文本的剪贴板，当跑一次兜底读取后、finish 前把剪贴板覆写成注入产物并 panic 展开，则 settle 随展开丢弃、Drop 按快照恢复预置文本而非覆写产物。
+- 测试步骤：
+  1. 随常规测试自动运行，无需授权与 --ignored
+  2. 运行中会覆写并恢复本机剪贴板；经 CLIPBOARD_LIVE_LOCK 串行
+- 更新时间：2026-10-18
 
 ### scene_probe_reports_the_frontmost_app
 - 测试目标：验证真机上 NSWorkspace 取前台应用这条路径（CI 里只能断「一致快照」，`Some` 分支跑不到）。
