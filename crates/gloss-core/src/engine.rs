@@ -15,7 +15,8 @@ use crate::classify::{CLASSIFY_FALLBACK, CLASSIFY_KINDS, classify};
 use crate::log::{thread, warn};
 use crate::model::GlossError;
 use crate::ports::{AiEngine, EngineRequest, TaskChunk};
-use crate::prompt::{ChatMessage, PromptRegistry, repair_conversation};
+use crate::prompt::{ChatMessage, PromptRegistry};
+use crate::repair::{RepairStage, next_round};
 use crate::schema::{self, Violation};
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 
@@ -36,13 +37,6 @@ const FINISH_LENGTH: &str = "length";
 
 /// 内容审查的失败诊断：内容被服务端拦截，重发同请求无益，不重试。
 const CONTENT_FILTER_DIAGNOSTIC: &str = "reply stopped by the server content filter";
-
-/// 零增量完成的识别：传输适配器（`llm::SseStream`）对「成功收尾但一个增量
-/// 都没有」的坏响应统一发这个固定诊断——它是坏**回复**而非坏请求，重试循环
-/// 据此转 [`Violation::EmptyReply`] 进修复轮。
-fn is_empty_completion(error: &GlossError) -> bool {
-    matches!(error, GlossError::EngineResponse(text) if text == llm::EMPTY_COMPLETION)
-}
 
 /// 一次 `run` 的产出：判定的任务类型 + 引擎返回的**原始**完整文本。
 /// 解析成产物归调用方。
@@ -152,6 +146,60 @@ impl AiTaskService {
     }
 }
 
+/// 一轮回复的传输结果：累积正文、服务端结束原因与「零增量完成」标记。
+struct RoundReply {
+    body: String,
+    finish_reason: Option<String>,
+    /// 传输层以「成功收尾但一个增量都没有」终结：坏回复而非坏请求。
+    empty_completion: bool,
+}
+
+/// 消费一轮流：增量经 `on_chunk` 逐条转交并累积，终结帧只取原因。
+/// 超预算与中途协议错误按请求异常上抛（已转发的增量不撤回）。
+async fn collect_round(
+    engine: &dyn AiEngine,
+    request: EngineRequest,
+    on_chunk: &mut impl FnMut(String),
+) -> Result<RoundReply, GlossError> {
+    let mut stream = engine.execute(request).await?;
+    let mut body = String::new();
+    let mut finish_reason = None;
+    let mut empty_completion = false;
+    while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+        match item {
+            Ok(TaskChunk::Delta(delta)) => {
+                if body.len().saturating_add(delta.len()) > MAX_REPLY_BYTES {
+                    // 已转发的增量不撤回（调用方契约）；超限的失败以返回值
+                    // 为准丢弃半截正文。
+                    return Err(GlossError::EngineResponse(
+                        "streamed reply exceeds the size budget".into(),
+                    ));
+                }
+                body.push_str(&delta);
+                on_chunk(delta);
+            }
+            Ok(TaskChunk::Done {
+                finish_reason: reason,
+            }) => finish_reason = reason,
+            Err(error) => {
+                // 零增量的「empty completion」是坏回复而非坏请求：转
+                // EmptyReply 进修复轮；其余引擎错误（含已有增量后的中途
+                // 协议错误）按请求异常上抛，不重试。
+                if body.is_empty() && matches!(error, GlossError::EmptyCompletion) {
+                    empty_completion = true;
+                    break;
+                }
+                return Err(error);
+            }
+        }
+    }
+    Ok(RoundReply {
+        body,
+        finish_reason,
+        empty_completion,
+    })
+}
+
 /// 任务段执行循环（意图定型之后的完整执行段）：流式转发（原始增量经
 /// `on_chunk` 逐条转交，同时累积）→ **任务契约校验**（`schema::validate_task`）
 /// → 违约进修复轮（对话形态
@@ -176,7 +224,7 @@ impl AiTaskService {
 ///   （状态机据此让 TaskChunk 之后接 TaskFailed 的渲染路径可收敛）；
 ///   `Err` 只来自引擎、请求构造与流式失控（超 [`MAX_REPLY_BYTES`] 的回复
 ///   按请求异常失败，不重试），契约违约不产生 `Err`。
-// 豁免 too_many_arguments：九个参数各自独立且缺一不可（引擎、模板、kind、
+// 豁免 too_many_arguments：八个参数各自独立且缺一不可（引擎、模板、kind、
 // 底座、模型、语言与两个回调），捆成参数结构只会把 run/评测两侧的调用点
 // 改成无谓的装拆包——与 gloss-app 事件装配处的既有豁免同理由。
 #[allow(clippy::too_many_arguments)]
@@ -200,91 +248,51 @@ pub async fn run_task_rounds(
             model: model.to_owned(),
             max_tokens: None,
         };
-        let mut stream = engine.execute(request).await?;
-        let mut body = String::new();
-        let mut finish_reason = None;
-        let mut empty_completion = false;
-        while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
-            match item {
-                Ok(TaskChunk::Delta(delta)) => {
-                    if body.len().saturating_add(delta.len()) > MAX_REPLY_BYTES {
-                        // 已转发的增量不撤回（调用方契约）；超限的失败以
-                        // 返回值为准丢弃半截正文。
-                        return Err(GlossError::EngineResponse(
-                            "streamed reply exceeds the size budget".into(),
-                        ));
-                    }
-                    body.push_str(&delta);
-                    on_chunk(delta);
-                }
-                Ok(TaskChunk::Done {
-                    finish_reason: reason,
-                }) => finish_reason = reason,
-                Err(error) => {
-                    // 零增量的「empty completion」是坏回复而非坏请求：
-                    // 转 EmptyReply 进修复轮；其余引擎错误（含已有增量
-                    // 后的中途协议错误）按请求异常上抛，不重试。
-                    if body.is_empty() && is_empty_completion(&error) {
-                        empty_completion = true;
-                        break;
-                    }
-                    return Err(error);
-                }
-            }
-        }
+        let reply = collect_round(engine, request, &mut on_chunk).await?;
 
         // 内容审查：服务端拦了内容，重发无益——不重试直接失败卡。
-        if finish_reason.as_deref() == Some(FINISH_CONTENT_FILTER) {
+        if reply.finish_reason.as_deref() == Some(FINISH_CONTENT_FILTER) {
             return Err(GlossError::EngineResponse(CONTENT_FILTER_DIAGNOSTIC.into()));
         }
 
-        let violation = if empty_completion {
+        let violation = if reply.empty_completion {
             Some(Violation::EmptyReply)
         } else {
-            schema::validate_task(kind, &body).err()
+            schema::validate_task(kind, &reply.body).err()
         };
         let Some(violation) = violation else {
             return Ok(RunOutput {
                 kind,
-                raw: body,
-                finish_reason,
+                raw: reply.body,
+                finish_reason: reply.finish_reason,
                 repairs,
             });
         };
-        if repairs >= TASK_REPAIRS {
+        let Some(next) = next_round(
+            RepairStage::Task,
+            &base,
+            &reply.body,
+            violation,
+            &mut repairs,
+            TASK_REPAIRS,
+            |violation| {
+                prompts.render_repair(
+                    locale,
+                    violation,
+                    &prompts.task_contract_line(kind, locale),
+                    reply.finish_reason.as_deref() == Some(FINISH_LENGTH),
+                )
+            },
+        ) else {
             // 预算耗尽：违约原文原样上交，完成态解析落降级产物。
-            warn!(
-                thread = thread::TOKIO,
-                reason = %violation,
-                "task repairs exhausted, handing the raw reply to the completion parser"
-            );
             return Ok(RunOutput {
                 kind,
-                raw: body,
-                finish_reason,
+                raw: reply.body,
+                finish_reason: reply.finish_reason,
                 repairs,
             });
-        }
-        repairs += 1;
-        // 每轮违约 warn 只记类别 + 轮次，无选区与回复原文（安全红线）。
-        warn!(
-            thread = thread::TOKIO,
-            attempt = repairs,
-            reason = %violation,
-            "task reply violated the contract, preparing a repair round"
-        );
-        let instruction = prompts.render_repair(
-            locale,
-            violation,
-            &prompts.task_contract_line(kind, locale),
-            finish_reason.as_deref() == Some(FINISH_LENGTH),
-        );
-        // EmptyReply 无内容可纠：原样重发，不带 assistant 轮。
-        let bad = match violation {
-            Violation::EmptyReply => None,
-            _ => Some(body.as_str()),
         };
-        messages = repair_conversation(&base, bad, instruction);
+        messages = next;
         // 修复轮照常流式，开始前发事件重置 UI（清流式正文、切「重新注解」）。
         on_repair();
     }
@@ -296,7 +304,6 @@ mod tests {
     use std::time::Duration;
 
     use super::{AiEngine, AiTaskService, RunOutput, TASK_REPAIRS};
-    use crate::engine::llm::EMPTY_COMPLETION;
     use crate::model::{GlossError, Lang};
     use crate::ports::{BoxFuture, EngineRequest, TaskChunk, TaskStream};
     use crate::prompt::{MessageContent, Role};
@@ -787,7 +794,7 @@ mod tests {
     #[tokio::test]
     async fn a_zero_increment_empty_completion_enters_the_repair_path() {
         let (engine, service) = make_service(&MockEngine::new().with_script_queue(vec![
-            vec![Err(GlossError::EngineResponse(EMPTY_COMPLETION.into()))],
+            vec![Err(GlossError::EmptyCompletion)],
             vec![delta("{\"note\":\"图\"}")],
         ]));
         let output = service

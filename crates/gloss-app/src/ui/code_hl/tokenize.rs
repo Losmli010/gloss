@@ -967,7 +967,6 @@ const OBJC_KW: &[&str] = &[
     "@end",
     "@class",
     "@protocol",
-    "@implementation",
     "@try",
     "@catch",
     "@finally",

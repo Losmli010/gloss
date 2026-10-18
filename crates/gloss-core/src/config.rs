@@ -95,65 +95,55 @@ impl std::fmt::Display for BaseUrlError {
 /// Base URL 的结构性校验（纯逻辑）：设置页逐字段校验与引擎请求前检查
 /// 共用这一份规则，避免两套口径漂移。规则与既有引擎检查一致：
 /// 非空、https、无内嵌凭据、无 query/fragment、结构可解析；尾斜杠宽容。
+///
+/// 结构解析交给 `reqwest::Url`（引擎发出的就是同一个解析器）：authority、
+/// IPv6 字面量、端口范围与非法字符的判定与线上请求同源，本函数只补
+/// 产品规则（https、拒绝凭据与 query/fragment，且把失败归到具体类别）。
 pub fn validate_base_url(raw: &str) -> Result<(), BaseUrlError> {
     let url = raw.trim();
     if url.is_empty() {
         return Err(BaseUrlError::Empty);
     }
+    // 空白/控制字符与 `<`/`>` 先行拒绝：URL 解析器会静默剥离制表/换行，
+    // 并把尖括号百分号转义——这些输入不该被「归一化」成合法端点。
     if url
         .chars()
         .any(|c| c.is_whitespace() || c.is_control() || c == '<' || c == '>')
     {
         return Err(BaseUrlError::Invalid);
     }
-    // scheme 以外的部分即 authority + path；query/fragment 全局拒绝。
+    // scheme 先于解析判定：非 https 的合法 URL 也要落 NotHttps（设置页的
+    // 文案按类别给指引），不能被解析错误吞成「结构非法」。
     let Some((scheme, rest)) = url.split_once("://") else {
         return Err(BaseUrlError::Invalid);
     };
     if !scheme.is_ascii() || scheme.is_empty() {
         return Err(BaseUrlError::Invalid);
     }
-    // scheme 大小写不敏感（url crate 会归一化为小写，`HTTPS://` 一直合法）。
+    // scheme 大小写不敏感（`Url` 解析时归一化为小写）。
     if !scheme.eq_ignore_ascii_case("https") {
         return Err(BaseUrlError::NotHttps);
     }
-    if rest.contains('?') || rest.contains('#') {
-        return Err(BaseUrlError::QueryOrFragment);
+    // authority 不能为空：`https:///v1` 会被解析器读成主机 `v1`（多余的
+    // 斜杠被当成空 authority 跳过），这不是用户想要的端点。
+    // query/fragment 不是 authority 的一部分：`https://host?token=a@b` 里的
+    // `@` 属于 query，不能按内嵌凭据归类（两类都拒绝，但设置页文案不同）。
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.is_empty() {
+        return Err(BaseUrlError::Invalid);
     }
-    // authority 到第一个 `/` 为止；`@` 出现在其中即内嵌凭据（须在
-    // host/port 拆分前检查——userinfo 里可能含冒号）。
-    let authority = rest.split('/').next().unwrap_or_default();
+    // authority 里出现 `@` 一律拒绝（含空 userinfo）：端点不带账号段，
+    // 否则 reqwest 会把它抽成 Basic 认证或留下歧义主机。
     if authority.contains('@') {
         return Err(BaseUrlError::EmbeddedCredentials);
     }
-    // host 与端口拆分：IPv6 字面量（[...]）自带冒号，需先剥方括号。
-    let (host, port) = if let Some(v6_part) = authority.strip_prefix('[') {
-        match v6_part.split_once(']') {
-            Some((v6, "")) => (format!("[{v6}]"), None),
-            Some((v6, port)) => {
-                let Some(port) = port.strip_prefix(':') else {
-                    return Err(BaseUrlError::Invalid);
-                };
-                (format!("[{v6}]"), Some(port.to_owned()))
-            }
-            None => return Err(BaseUrlError::Invalid),
-        }
-    } else {
-        match authority.rsplit_once(':') {
-            Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => {
-                (host.to_owned(), Some(port.to_owned()))
-            }
-            Some(_) => return Err(BaseUrlError::Invalid),
-            None => (authority.to_owned(), None),
-        }
+    // 其余结构问题（缺 host、非法 IPv6、端口越界/非数字、非法字符）由
+    // 与线上请求同一个解析器判定。
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return Err(BaseUrlError::Invalid);
     };
-    if host.is_empty() {
-        return Err(BaseUrlError::Invalid);
-    }
-    if let Some(port) = port
-        && port.parse::<u32>().map(|p| p > 65535).unwrap_or(true)
-    {
-        return Err(BaseUrlError::Invalid);
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(BaseUrlError::QueryOrFragment);
     }
     Ok(())
 }
@@ -323,6 +313,21 @@ mod tests {
         assert_eq!(
             validate_base_url("https://user:pass@api.example.com"),
             Err(BaseUrlError::EmbeddedCredentials)
+        );
+        assert_eq!(
+            validate_base_url("https://@api.example.com/v1"),
+            Err(BaseUrlError::EmbeddedCredentials),
+            "空 userinfo 的 @ 也不接受"
+        );
+        assert_eq!(
+            validate_base_url("http:///v1"),
+            Err(BaseUrlError::NotHttps),
+            "authority 缺失不改变 scheme 的判定方向"
+        );
+        assert_eq!(
+            validate_base_url("https://api.example.com?token=a@b"),
+            Err(BaseUrlError::QueryOrFragment),
+            "query 里的 @ 不是内嵌凭据"
         );
         assert_eq!(
             validate_base_url("https://api.example.com/v1?x=1"),

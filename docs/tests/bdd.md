@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 37 | `just test` |
-| 单元测试 | 572 | `just test` |
+| 单元测试 | 573 | `just test` |
 
 ## 人工测试
 
@@ -233,7 +233,7 @@
 
 ### empty_content_repair_via_fixture_replay
 - 测试目标：验证空回复异常夹具经生产校验器回放出修复轨迹（契约校验与重试方案 §11 L4：空 content 自动修复；载体为步骤 5 豁免指派的异常夹具回放，步骤 7 已铺）。
-- 测试场景：给定空回复异常夹具（task-word-03 首轮 deltas=[]、分类 en-word-02），当 `just eval-replay` 离线回放，则两轨「修复轮次」行各含 empty ×1（空轮按 EmptyReply 违约原样重发进修复轮）、末轮契约回复不降级；零增量完成的传输形态（200 收尾无增量 → `empty completion` 诊断）转 EmptyReply 的生产消费路径由 L1 测试锁定。
+- 测试场景：给定空回复异常夹具（task-word-03 首轮 deltas=[]、分类 en-word-02），当 `just eval-replay` 离线回放，则两轨「修复轮次」行各含 empty ×1（空轮按 EmptyReply 违约原样重发进修复轮）、末轮契约回复不降级；零增量完成的传输形态（200 收尾无增量 → `EmptyCompletion` 变体）转 EmptyReply 的生产消费路径由 L1 测试锁定。
 - 测试步骤：
   1. 运行 `just eval-replay`
   2. 核对报告中「分类 修复轮次」行含 `empty ×1`、「task_translate_word 修复轮次」行含 `empty ×1`
@@ -517,9 +517,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | the_repair_round_warn_carries_the_category_and_round_only | 修复轮违约告警只记类别与轮次 | 给定违约回复触发修复，当捕获日志，则「task reply violated the contract」行含固定违约类别与 attempt=1、不含回复原文 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_without_an_assistant_turn | 任务空回复原样重发修复 | 给定图像任务「空流 → 契约 JSON」脚本队列，当 run，则修复轮请求与首轮消息逐字一致（无 assistant 轮无纠错指令）、repairs 为 1 | 2026-10-12 |
 | an_oversized_stream_fails_instead_of_accumulating_without_bound | 失控长流按预算失败不无界累积 | 给定 300 段 × 4KB（总量超 1MB 预算）的增量流，当 run，则 EngineResponse 失败上抛（不进修复轮）、已转发字节不超预算 | 2026-10-16 |
-| a_zero_increment_empty_completion_enters_the_repair_path | 零增量完成转 EmptyReply 进修复 | 给定「empty completion 错误 → 契约 JSON」脚本队列，当 run，则零增量完成不按失败上抛、转 EmptyReply 进修复轮（引擎 2 次调用、repairs 为 1） | 2026-10-12 |
+| a_zero_increment_empty_completion_enters_the_repair_path | 零增量完成转 EmptyReply 进修复 | 给定「EmptyCompletion 变体 → 契约 JSON」脚本队列，当 run，则零增量完成不按失败上抛、转 EmptyReply 进修复轮（引擎 2 次调用、repairs 为 1） | 2026-10-17 |
 | task_repairs_are_budgeted_then_the_raw_reply_is_handed_over | 任务修复预算耗尽上交原始文本 | 给定恒违约的任务回复，当 run，则恰用尽 1+TASK_REPAIRS 次调用、on_repair 触发 TASK_REPAIRS 次、原样返回最后一轮违约原文（完成态解析落降级）且不报 Err | 2026-10-12 |
-| task_stage_engine_errors_are_never_retried | 任务段引擎错误不重试 | 给定 execute 整体失败与零增量的流中协议错误，当 run，则两者都原样上抛 Err（只有固定「empty completion」诊断转 EmptyReply）、引擎恰 1 次调用 | 2026-10-12 |
+| task_stage_engine_errors_are_never_retried | 任务段引擎错误不重试 | 给定 execute 整体失败与零增量的流中协议错误，当 run，则两者都原样上抛 Err（只有 EmptyCompletion 变体转 EmptyReply）、引擎恰 1 次调用 | 2026-10-17 |
 | a_content_filter_finish_fails_without_a_retry | 内容审查结束直接失败卡 | 给定 finish_reason=content_filter 的流，当 run，则 EngineResponse(固定审查诊断) 上抛（不校验正文、不进修复轮）、引擎恰 1 次调用 | 2026-10-12 |
 | a_length_finish_augments_the_repair_instruction | 截断结束精确进修复指令 | 给定「length 截断的违约流 → 契约流」脚本队列，当 run，则修复指令含「输出被截断，请重新完整输出」、修复后以新结束原因收口、repairs 为 1 | 2026-10-12 |
 | a_fenced_reply_repairs_like_any_other_violation | 围栏任务回复同权违约进修复 | 给定 ```json 围栏的任务回复与契约修复流脚本队列，当 run，则围栏按 NotJson 违约进修复轮（严格裸 JSON 契约）、repairs 为 1 | 2026-10-12 |
@@ -620,7 +620,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 83（条数钉住，防遍历退化） | 2026-10-12 |
+| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 zh.toml 与 en.toml，当递归收集叶子键路径，则两份逐条一致且整表条数为 84（条数钉住，防遍历退化） | 2026-10-17 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（gloss_ui_language_en）外无一与中文表逐字相同 | 2026-09-23 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 gloss_ 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
 | placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 {{占位符}} 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
@@ -1102,6 +1102,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | change_is_detected_when_generation_bumps | 写入确认按代数探测 | 给定基线代数 0 与第 3 轮才变化的 probe，当 wait_for_write，则确认成功且恰好轮询 3 次 | 2026-09-19 |
 | timeout_returns_false_without_hanging | 超时返回不悬挂 | 给定 probe 恒不变化，当到 deadline，则返回 false 且 2s 内返回 | 2026-09-19 |
 | unavailable_probe_keeps_polling_until_deadline | probe 恒 None 轮询到期限 | 给定 probe 恒 None，当到 deadline，则返回 false、不提前放弃也不永久等 | 2026-09-19 |
+| injection_failure_releases_every_pressed_key_in_reverse | 注入失败按已按下键逆序补放 | 给定复制快捷键序列（修饰键按下 → C 按下 → C 释放 → 修饰键释放），当分别在第 1–4 个事件失败，则补放列表依次为空 / [修饰键] / [C, 修饰键] / [C, 修饰键]（逆序；重复 key-up 幂等） | 2026-10-17 |
 
 ### crates/gloss-platform/src/clipboard/watch.rs
 

@@ -125,7 +125,7 @@ allowed_own_deps() {
     gloss-app) printf 'gloss-core gloss-platform' ;;
     gloss-platform) printf 'gloss-core' ;;
     gloss-core) printf '' ;;
-    gloss-eval) printf 'gloss-core gloss-platform' ;;
+    gloss-eval) printf 'gloss-core' ;;
     *) printf '' ;;
   esac
 }

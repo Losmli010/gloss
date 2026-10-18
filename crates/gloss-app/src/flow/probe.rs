@@ -82,10 +82,7 @@ impl GlossApp {
                 }
                 continue;
             };
-            let generation = match &command {
-                AcquireCommand::AcquireText { generation }
-                | AcquireCommand::AcquireClipboardImage { generation } => *generation,
-            };
+            let generation = command.generation();
             let span = task_span(generation);
             self.session.task_span = Some((generation, span.clone()));
             let entered_span = span.clone();
@@ -121,10 +118,7 @@ impl GlossApp {
     /// 通道②发送；返回是否发出。接收端消失（事件线程死亡/退出）时由
     /// 调用方作废探测（当前显示不动）。
     fn send_acquire(&mut self, command: AcquireCommand, span: Span) -> bool {
-        let generation = match &command {
-            AcquireCommand::AcquireText { generation }
-            | AcquireCommand::AcquireClipboardImage { generation } => *generation,
-        };
+        let generation = command.generation();
         let Some(endpoints) = &self.endpoints else {
             return false;
         };

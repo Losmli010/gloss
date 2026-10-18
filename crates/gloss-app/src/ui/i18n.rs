@@ -62,6 +62,7 @@ pub struct Text {
     pub(crate) gloss_errors_engine_network: String,
     pub(crate) gloss_errors_engine_auth: String,
     pub(crate) gloss_errors_engine_rate_limited: String,
+    pub(crate) gloss_errors_empty_completion: String,
     pub(crate) gloss_errors_engine_response: String,
     pub(crate) gloss_errors_config: String,
     pub(crate) gloss_errors_inference_channel: String,
@@ -150,6 +151,7 @@ impl Text {
             GlossError::EngineNetwork => Cow::Borrowed(&self.gloss_errors_engine_network),
             GlossError::EngineAuth => Cow::Borrowed(&self.gloss_errors_engine_auth),
             GlossError::EngineRateLimited => Cow::Borrowed(&self.gloss_errors_engine_rate_limited),
+            GlossError::EmptyCompletion => Cow::Borrowed(&self.gloss_errors_empty_completion),
             GlossError::EngineResponse(detail) => Cow::Owned(fill(
                 &self.gloss_errors_engine_response,
                 &[("detail", detail)],
@@ -245,7 +247,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            83,
+            84,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -355,6 +357,7 @@ mod tests {
             GlossError::EngineNetwork,
             GlossError::EngineAuth,
             GlossError::EngineRateLimited,
+            GlossError::EmptyCompletion,
         ] {
             let (zh_text, en_text) = (zh.for_error(&error), en.for_error(&error));
             assert!(!zh_text.is_empty() && !en_text.is_empty(), "{error:?}");
@@ -406,6 +409,10 @@ mod tests {
             (
                 GlossError::EngineRateLimited,
                 &errors.gloss_errors_engine_rate_limited,
+            ),
+            (
+                GlossError::EmptyCompletion,
+                &errors.gloss_errors_empty_completion,
             ),
         ] {
             assert_eq!(

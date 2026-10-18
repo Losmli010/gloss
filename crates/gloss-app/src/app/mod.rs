@@ -187,8 +187,9 @@ impl GlossApp {
     fn draw_settings(&mut self) {
         self.workspace.apply_theme(self.env.target_theme());
         let text = Text::get(self.env.locale());
-        // watch::Receiver 是 Arc 广播端：克隆只递引用计数（零堆分配），
-        // 渲染线程持最新状态的独立读取端，勿改成每帧借锁。
+        // 取一份快照而非在整帧渲染期间持有 watch 读锁：更新任务写状态时
+        // 不必等 GPU 帧画完。代价是每帧一次 `UpdateState` 克隆（`version`
+        // 为 `Some` 时有一次堆分配）——只在设置窗绘制帧发生。
         let update_state = self.env.update.receiver.borrow().clone();
         let Some(state) = self.settings.as_mut() else {
             return;
