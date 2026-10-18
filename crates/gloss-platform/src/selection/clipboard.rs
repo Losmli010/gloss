@@ -857,6 +857,38 @@ mod live_tests {
         );
     }
 
+    #[test]
+    fn fallback_read_unwind_restores_the_clipboard_without_finish() {
+        let _clipboard = CLIPBOARD_LIVE_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut clipboard = Clipboard::new().expect("clipboard should be available");
+        let preset = format!("gloss-unwind-restore-{}", std::process::id());
+        clipboard.set_text(preset.clone()).expect("preset text");
+
+        let mut reader = ClipboardFallbackReader::new(WatchRoundFlag::default());
+        let (_outcome, settle) = reader.read();
+
+        clipboard
+            .set_text("gloss-injected-copy".to_owned())
+            .expect("simulate the injected copy clobbering the board");
+
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _settle = settle;
+            panic!("simulated caller panic before finish");
+        }));
+        assert!(
+            unwound.is_err(),
+            "the simulated caller panic must unwind through the settle"
+        );
+
+        let restored = clipboard.get_text().expect("clipboard should be readable");
+        assert_eq!(
+            restored, preset,
+            "the unwind Drop must restore the snapshot, not the clobbered copy"
+        );
+    }
+
     fn preset_items(items: &[(&str, &CStr, &[u8])]) -> bool {
         let Some(name_ref) = cf::cf_string(CLIPBOARD_NAME) else {
             return false;
