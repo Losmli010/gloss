@@ -2,7 +2,7 @@
 //!
 //! 内容按「经 · 注 · 疏」三层组织，视觉以设计定稿的浮层稿为准：
 //! - **经**＝选区原文/词条/提取文本（宋体；代码任务为单层代码面板
-//!   ——专属底色、`gloss-mono` 等宽体、不换行横滚、左上角语言标签行）；
+//!   ——专属底色、`gloss-mono` 等宽体、按可用宽折行、左上角语言标签行）；
 //! - **注**＝译文/释义/概要（楷体，系统缺楷体时随 demo 回退链落宋体；
 //!   朱丝栏左线 + 朱印）；
 //! - **疏**＝译注/例句/小记（楷体弱色、上缘虚线 + 疏印）。
@@ -590,7 +590,8 @@ enum FooterMode {
 
 /// 滚动卡骨架：头部 + 纵向滚动正文 + 页脚。正文（经位与注/疏）整体进
 /// 滚动区，完整高按滚动区报告的内容尺寸回记（不受视口裁剪影响）；页脚
-/// 在滚动区之外，恒钉在视口下缘，不被内容顶出窗外。
+/// 在滚动区之外、随其下缘排布——正文再长也只在滚动区内部滚动，不会把
+/// 页脚顶出窗外。
 fn scrolled_card(
     ui: &mut egui::Ui,
     state: &RenderState,
@@ -998,8 +999,8 @@ fn shu_section(ui: &mut egui::Ui, text: &'static Text, body: impl FnOnce(&mut eg
 
 /// 经区块的正文：原文/词条随任务形制。代码任务为单层代码面板——代码
 /// 底色直接铺满经位区块（用户反馈定稿：无外层底色的界栏框），配等宽
-/// 体、不换行、左上角语言标签行与单趟正则的六类语法着色；其余为宋体
-/// 原文。
+/// 体、按可用宽折行、左上角语言标签行与单趟正则的六类语法着色；其余为
+/// 宋体原文。
 fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&str>) {
     let strong = ui.visuals().strong_text_color();
     if code {
@@ -1487,9 +1488,18 @@ mod kittest_tests {
 
     fn long_selection_streaming_view() -> OverlayView {
         OverlayView::Streaming {
-            source: "选中的原文很长。".repeat(120),
+            source: "The selected passage is long enough to overflow the card body. ".repeat(80),
             raw: r#"{"note":"已流式到达的正文"}"#.into(),
             classified: Some(TaskKind::TranslateSentence),
+            repairing: false,
+        }
+    }
+
+    fn long_code_streaming_view() -> OverlayView {
+        OverlayView::Streaming {
+            source: "let value = compute(someVeryLongIdentifierChain).expect();\n".repeat(60),
+            raw: r#"{"note":"已流式到达的正文"}"#.into(),
+            classified: Some(TaskKind::ExplainCode),
             repairing: false,
         }
     }
@@ -1902,18 +1912,57 @@ mod kittest_tests {
 
     #[test]
     fn a_long_selection_keeps_the_footer_inside_the_window() {
-        let capped = vec2(WIDTH, 420.0);
-        let (mut harness, _clicked) = harness_for(long_selection_streaming_view());
-        harness.set_size(capped);
-        harness.run_steps(3);
-        for label in ["正在注解", "Gloss"] {
-            let node = harness.get_by_label_contains(label).rect();
+        let capped_height = 420.0;
+        for view in [long_selection_streaming_view(), long_code_streaming_view()] {
+            let state = RenderState::default();
+            let text = Text::get(Locale::Zh);
+            let sizing: Rc<Cell<OverlaySizing>> = Rc::new(Cell::new(OverlaySizing {
+                width: 0.0,
+                height: 0.0,
+            }));
+            let sink = Rc::clone(&sizing);
+            let installed = Cell::new(false);
+            let mut harness =
+                Harness::builder()
+                    .with_size(vec2(WIDTH, 600.0))
+                    .build_ui(move |ui| {
+                        if font_first_frame(&installed, ui.ctx()) {
+                            return;
+                        }
+                        sink.set(draw(ui, Some(&view), None, &state, text).sizing);
+                    });
+            harness.run_steps(2);
             assert!(
-                node.bottom() <= capped.y + 0.5,
-                "长选区不得把页脚挤出窗外（壳侧钳高后生成指示仍须可见）: \
-                 {label} bottom={} window_height={}",
-                node.bottom(),
-                capped.y
+                sizing.get().height > 2.0 * capped_height,
+                "完整内容高必须上交壳侧钳制（只报视口高会让长选区窗口长不高）: {}",
+                sizing.get().height
+            );
+
+            harness.set_size(vec2(sizing.get().width, capped_height));
+            harness.run_steps(2);
+            for label in ["正在注解", "Gloss"] {
+                let node = harness.get_by_label_contains(label).rect();
+                assert!(
+                    node.bottom() <= capped_height + 0.5,
+                    "长选区不得把页脚挤出窗外（壳侧钳高后生成指示仍须可见）: \
+                     {label} bottom={} window_height={capped_height}",
+                    node.bottom()
+                );
+            }
+
+            let seal_before = harness.get_by_label("经").rect();
+            let footer_before = harness.get_by_label_contains("正在注解").rect();
+            harness.key_press(egui::Key::ArrowDown);
+            harness.run_steps(8);
+            let seal_after = harness.get_by_label("经").rect();
+            let footer_after = harness.get_by_label_contains("正在注解").rect();
+            assert!(
+                seal_after.top() < seal_before.top() - 1.0,
+                "经位必须随滚动区上移（长原文尾部可达）: {seal_before:?} -> {seal_after:?}"
+            );
+            assert!(
+                (footer_after.top() - footer_before.top()).abs() < 0.5,
+                "页脚不随正文滚动: {footer_before:?} -> {footer_after:?}"
             );
         }
     }
