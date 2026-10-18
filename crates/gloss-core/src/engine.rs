@@ -122,22 +122,18 @@ impl AiTaskService {
         };
         on_classified(kind);
 
-        // 任务形成与执行：渲染含模态校验（非法组合在进引擎前拒绝），模型
-        // 恒取 options 冻结值（借自本函数存活的 task，不再复制）；修复指
-        // 令语言同源——prompt_locale 一次任务只认触发时定下的那一份。
+        // 任务形成与执行：构造即过模态约束（非法组合在进引擎前拒绝），
+        // 模型恒取 options 冻结值（借自本函数存活的 task，不再复制）；
+        // 修复指令语言同源——prompt_locale 一次任务只认触发时定下的那一份。
         let locale = options.prompt_locale.unwrap_or_default();
-        let task = Task {
-            kind,
-            input,
-            options,
-        };
+        let task = Task::new(kind, input, options)?;
         let base = self.prompts.render(&task)?;
         run_task_rounds(
             self.engine.as_ref(),
             &self.prompts,
             kind,
             base,
-            &task.options.model,
+            &task.options().model,
             locale,
             on_chunk,
             on_repair,
@@ -479,11 +475,10 @@ mod tests {
         ]));
         let registry = crate::prompt::PromptRegistry::new();
         let base = registry
-            .render(&Task {
-                kind: TaskKind::TranslateSentence,
-                input: text_input("hello"),
-                options: options(),
-            })
+            .render(
+                &Task::new(TaskKind::TranslateSentence, text_input("hello"), options())
+                    .expect("the test task is legal"),
+            )
             .expect("render should pass the modality check");
         let output = super::run_task_rounds(
             engine.as_ref(),

@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 37 | `just test` |
-| 单元测试 | 573 | `just test` |
+| 单元测试 | 574 | `just test` |
 
 ## 人工测试
 
@@ -436,7 +436,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") / Other(" ") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且纯 JSON 契约仍在 | 2026-10-11 |
 | image_explain_example_is_a_single_json_object_with_note_first | 图像模板示例为单 JSON 且 note 在前 | 给定双 locale 的 image_explain 模板，当整行解析示例 JSON，则示例可解析、键恰为 note + structured（note 在前），structured 内只有 examples（interpretation 旧名退役）——流式与完成态解析都按这份契约 | 2026-10-11 |
 | image_explain_renders_system_and_image_parts | 图像解读渲染系统指令与图像部件 | 给定 ImageExplain 图像任务，当渲染，则得 [System, User] 两段，用户消息是 Parts([ImagePng])（字节经 Arc 零拷贝共享），系统指令要求单个 JSON 对象且携带 note/structured.examples 契约 | 2026-10-11 |
-| modality_mismatch_is_rejected_before_rendering | 模态错配在渲染前拒绝 | 给定图像 kind 配文本输入，当渲染，则先被模态约束拒绝 | 2026-10-10 |
+| modality_mismatch_is_rejected_before_rendering | 模态错配在渲染前拒绝 | 给定图像 kind 配文本输入，当 Task::new 构造，则返回 UnsupportedModality（拒绝点前移到构造口，渲染路径不再兜底） | 2026-10-18 |
 | render_template_substitutes_placeholders | 占位符显式替换 | 给定含 {{占位符}} 的模板，当渲染，则按值替换、同名占位符可重复；未声明与未闭合的占位符原样保留（留待完整性测试抓） | 2026-09-22 |
 | render_template_drops_lines_whose_placeholders_are_empty | 占位符全空的行整行消失 | 给定提示行与指令行模板，当某行占位符值全为空，则该行连同行内静态文字与换行一并删除，其余行不受影响 | 2026-09-22 |
 | render_template_keeps_blank_lines_without_placeholders | 无占位符空行是结构 | 给定模板里的空行（不含占位符），当渲染，则原样保留 | 2026-09-22 |
@@ -483,13 +483,14 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | task_input_carries_text_only | 输入只携带原文 | 给定文本输入，当构造 TaskInput，则只有 text——模态提示已废除（源语言/代码语言由 LLM 自行判断） | 2026-10-04 |
-| task_binds_kind_input_and_options | Task 三元正确绑定 | 给定构造参数，当建 Task，则 kind/input/options 正确绑定 | 2026-09-19 |
-| task_options_default_carries_the_factory_model | 选项缺省携带出厂模型 | 给定 TaskOptions::default()，当检查，则 model 为 DEFAULT_MODEL、target_lang/prompt_locale 为 None（缺省只服务测试直构） | 2026-10-10 |
+| task_binds_kind_input_and_options | Task 三元正确绑定 | 给定构造参数，当 Task::new，则 kind/input/options 正确绑定（构造口是唯一入口） | 2026-10-18 |
+| task_options_default_carries_the_factory_model | 选项缺省携带出厂模型 | 给定 TaskOptions::default()，当检查，则 model 为 DEFAULT_MODEL、target_lang/prompt_locale 为 None（缺省只服务反序列化与测试直构） | 2026-10-18 |
 | image_input_shares_png_bytes_via_arc | 图像输入 Arc 共享 | 给定 PNG 字节，当构造 Image 输入，则经 Arc 共享（ptr_eq） | 2026-09-19 |
 | outcome_carries_word_card_subprov_and_the_code_verdict | 产物携带词卡疏证与语言判定 | 给定词卡与代码产物，当构造 TaskOutcome，则词卡 structured 为 WordCard（phonetic/examples）、代码的语言判定随 Code 变体走（structured.code_language，UI 角标与高亮使用） | 2026-10-11 |
 | degraded_defaults_to_false_on_the_wire | 降级标记 serde 缺省 false | 给定序列化后剥去 degraded 字段的产物 JSON，当反序列化，则 degraded 为 false（旧条目落在正常路径）；degraded=true 显式往返 | 2026-10-11 |
-| modality_matrix_is_enforced_cell_by_cell | 模态矩阵逐格校验 | 给定 5 kind × 2 输入全矩阵，当逐格 validate，则文本列（含通用 General）与 Image 列（唯一合法 kind 为 ImageExplain）逐格合规 | 2026-10-12 |
-| task_round_trips_through_serde | Task serde 往返无损 | 给定文本任务（含目标语言与模型），当 serde 往返，则无损 | 2026-10-03 |
+| modality_matrix_is_enforced_cell_by_cell | 模态矩阵逐格校验 | 给定 5 kind × 2 输入全矩阵，当逐格 Task::new，则文本列（含通用 General）与 Image 列（唯一合法 kind 为 ImageExplain）逐格合规 | 2026-10-18 |
+| task_deserialization_goes_through_the_modality_gate | wire 入口同过模态闸门 | 给定合法与非法（ImageExplain × 文本）两份 Task JSON，当反序列化，则前者成功、后者被拒——反序列化不是绕过 Task::new 的旁路 | 2026-10-18 |
+| task_round_trips_through_serde | Task serde 往返无损 | 给定文本任务（含目标语言与模型），当经 Task::new 构造并 serde 往返，则无损 | 2026-10-18 |
 | image_input_round_trips_through_serde | 图像输入 serde 往返 | 给定 Image 输入，当 serde 往返，则字节不变且反序列化得到新 Arc（不与原值共享） | 2026-09-19 |
 
 ### crates/gloss-core/src/model.rs

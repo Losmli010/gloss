@@ -27,8 +27,10 @@ pub enum ErrorAction {
     OpenSettings,
 }
 
-/// 四个稳定态。探测不进本枚举（探测段在状态机之外）；提交从任意态直接进
-/// `Translating` 并取消旧任务，收起回 `Idle`。
+/// 四个稳定态：探测不进本枚举（探测段在状态机之外）；提交从任意态直接进
+/// `Translating` 并取消旧任务，收起回 `Idle`。它不是独立字段——状态由
+/// [`TaskStateMachine::overlay_view`] 唯一决定，见
+/// [`TaskStateMachine::state`]。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppState {
     #[default]
@@ -151,11 +153,11 @@ pub struct TaskStateMachine {
     /// 当前已提交会话的代数：`accept_chunk`/`accept_done`/`accept_failed`
     /// 的陈旧过滤基准。探测编号在提交时才提升为代数。
     generation: u64,
-    state: AppState,
     /// 在途的探测（划词或剪贴板图片，同一时刻至多一个）。新探测与收起都会
     /// 替换或清掉它。
     probe: Option<ProbeTask>,
-    /// 在途推理的取消令牌：提交与收起时取消（唯一取消机制）。
+    /// 在途推理的取消令牌：提交与收起时取消（唯一取消机制）。只在
+    /// `Translating` 存在——完成、失败与收起都清空，重试时换新令牌。
     current_cancel: Option<CancellationToken>,
     /// 当前任务的请求副本（input + options）：推理期间随行，可重试失败后
     /// 留在 Error 态供 [`TaskStateMachine::retry`] 原样重发；完成、隐藏与
@@ -165,7 +167,9 @@ pub struct TaskStateMachine {
     /// 留存）：经注疏卡「经」位的渲染源，随新任务置定、收起清空。不进
     /// 视图变体——图像只在图像任务存在，视图形状不随它分叉。
     attached_image: Option<Arc<[u8]>>,
-    /// 当前浮层的内容视图；`None` 时浮层显示渲染自检卡。
+    /// 当前浮层的内容视图；`None` 时浮层显示渲染自检卡，即 `Idle`。
+    /// 四个稳定态都由它唯一决定——机器不另存状态字段，「状态↔视图」
+    /// 不存在两个可以分别赋值的真值源。
     overlay_view: Option<OverlayView>,
 }
 
@@ -185,8 +189,16 @@ impl TaskStateMachine {
         self.probe.as_ref().map(|probe| probe.id)
     }
 
+    /// 当前稳定态：视图的投影。机器只存 [`Self::overlay_view`]，
+    /// `Translating ⟺ Streaming`、`Show ⟺ Outcome`、`Error ⟺ Failed`、
+    /// `Idle ⟺ None` 因此是定义而非约定——不存在两个字段对不上的中间态。
     pub fn state(&self) -> AppState {
-        self.state
+        match &self.overlay_view {
+            None => AppState::Idle,
+            Some(OverlayView::Streaming { .. }) => AppState::Translating,
+            Some(OverlayView::Outcome { .. }) => AppState::Show,
+            Some(OverlayView::Failed { .. }) => AppState::Error,
+        }
     }
 
     pub fn overlay_view(&self) -> Option<&OverlayView> {
@@ -313,7 +325,6 @@ impl TaskStateMachine {
         self.active_request = None;
         self.generation = id;
         self.attached_image = attached;
-        self.state = AppState::Translating;
         InputOutcome::Dispatch(self.begin_run(input, options))
     }
 
@@ -365,7 +376,6 @@ impl TaskStateMachine {
         } else {
             self.active_request = None;
         }
-        self.state = AppState::Error;
         self.overlay_view = Some(OverlayView::Failed {
             cause: FailureCause::Task(error.clone()),
             action,
@@ -378,13 +388,16 @@ impl TaskStateMachine {
     /// 这份累积只服务**流式显示**；完成态以 `TaskDone` 的 `outcome.note` 为
     /// 权威源，整卡覆盖（见 `crate::runtime::pipeline`）。
     pub fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
-        if generation != self.generation || self.state != AppState::Translating {
+        if generation != self.generation {
             return false;
         }
-        if let Some(OverlayView::Streaming { raw, .. }) = &mut self.overlay_view {
-            raw.push_str(&delta);
+        match &mut self.overlay_view {
+            Some(OverlayView::Streaming { raw, .. }) => {
+                raw.push_str(&delta);
+                true
+            }
+            _ => false,
         }
-        true
     }
 
     /// 采纳任务产物：定格注文并进入 `Show`。返回是否需要重绘。
@@ -394,33 +407,37 @@ impl TaskStateMachine {
     /// 照常上卡，但**不清 `active_request`**——重试按钮据此原样重发，守卫见
     /// [`Self::retry`]。
     pub fn accept_done(&mut self, generation: u64, outcome: TaskOutcome) -> bool {
-        if generation != self.generation || self.state != AppState::Translating {
+        if generation != self.generation {
             return false;
         }
-        let source = match std::mem::take(&mut self.overlay_view) {
-            Some(OverlayView::Streaming { source, .. }) => source,
-            _ => String::new(),
+        let source = match &mut self.overlay_view {
+            Some(OverlayView::Streaming { source, .. }) => std::mem::take(source),
+            _ => return false,
         };
+        // 流已终结：令牌随推理期结束而清，保持「Some ⟺ Translating」。
+        // 这里只丢弃句柄、不取消——任务已经正常完成。
+        self.current_cancel = None;
         if !outcome.degraded {
             self.active_request = None;
         }
         self.overlay_view = Some(OverlayView::Outcome { source, outcome });
-        self.state = AppState::Show;
         true
     }
 
     /// 采纳自动分类结果：把判定的任务类型写进流式视图（含分类失败时的兜底
-    /// kind，排版如实反映即将执行的任务）。陈旧代数、非推理态或非流式视图不
-    /// 采纳——迟到标签不得落在已定格的产物卡上。返回是否需要重绘。
+    /// kind，排版如实反映即将执行的任务）。陈旧代数或非流式视图不采纳——
+    /// 迟到标签不得落在已定格的产物卡上。返回是否需要重绘。
     pub fn accept_classified(&mut self, generation: u64, kind: TaskKind) -> bool {
-        if generation != self.generation || self.state != AppState::Translating {
+        if generation != self.generation {
             return false;
         }
-        if let Some(OverlayView::Streaming { classified, .. }) = &mut self.overlay_view {
-            *classified = Some(kind);
-            return true;
+        match &mut self.overlay_view {
+            Some(OverlayView::Streaming { classified, .. }) => {
+                *classified = Some(kind);
+                true
+            }
+            _ => false,
         }
-        false
     }
 
     /// 采纳修复轮开始（`TaskRepairing`）：清掉上一轮的流式累积并把视图置
@@ -428,14 +445,17 @@ impl TaskStateMachine {
     /// 守卫同 [`Self::accept_chunk`]：新会话的流式卡不得被旧任务的修复事件
     /// 清稿。返回是否需要重绘。
     pub fn accept_repairing(&mut self, generation: u64) -> bool {
-        if generation != self.generation || self.state != AppState::Translating {
+        if generation != self.generation {
             return false;
         }
-        if let Some(OverlayView::Streaming { raw, repairing, .. }) = &mut self.overlay_view {
-            raw.clear();
-            *repairing = true;
+        match &mut self.overlay_view {
+            Some(OverlayView::Streaming { raw, repairing, .. }) => {
+                raw.clear();
+                *repairing = true;
+                true
+            }
+            _ => false,
         }
-        true
     }
 
     /// 采纳任务失败：落 `Error` 态并展示失败信息与动作出口（可重试类带重试
@@ -443,7 +463,7 @@ impl TaskStateMachine {
     /// 探测失败走 [`Self::commit_probe_failed`]。其余状态不采纳——失败卡不得
     /// 把已收起的浮层弹回。
     pub fn accept_failed(&mut self, generation: u64, error: &GlossError) -> FailureOutcome {
-        if generation != self.generation || self.state != AppState::Translating {
+        if generation != self.generation || self.state() != AppState::Translating {
             return FailureOutcome::Ignored;
         }
         self.current_cancel = None;
@@ -456,21 +476,20 @@ impl TaskStateMachine {
     /// 守卫：`Error` 态，或 `Show` 态且**当前产物是降级产物**（正常产物
     /// 没有重试出口）；无可重试请求时返回 `None`。
     pub fn retry(&mut self) -> Option<RunRequest> {
-        let retryable = match self.state {
-            AppState::Error => true,
-            AppState::Show => matches!(
-                self.overlay_view,
-                Some(OverlayView::Outcome { ref outcome, .. }) if outcome.degraded
-            ),
-            _ => false,
-        };
+        let retryable = matches!(
+            self.overlay_view,
+            Some(OverlayView::Failed { .. })
+                | Some(OverlayView::Outcome {
+                    outcome: TaskOutcome { degraded: true, .. },
+                    ..
+                })
+        );
         if !retryable {
             return None;
         }
         // 取走在途请求原件：`begin_run` 会把流式视图与请求副本一并重新
         // 记回，这里只需交出状态。
         let (input, options) = self.active_request.take()?;
-        self.state = AppState::Translating;
         Some(self.begin_run(input, options))
     }
 
@@ -504,19 +523,17 @@ impl TaskStateMachine {
         self.active_request = None;
         self.probe = None;
         self.attached_image = None;
-        self.state = AppState::Idle;
         self.overlay_view = None;
     }
 
     /// 推理通道不可用（③发送失败）时的降级：直接落 `Error` 态。通道已死时
     /// 重发只会再死一次，失败卡不带重试按钮。
     pub fn fail_transport(&mut self, generation: u64) {
-        if generation != self.generation || self.state != AppState::Translating {
+        if generation != self.generation || self.state() != AppState::Translating {
             return;
         }
         self.current_cancel = None;
         self.active_request = None;
-        self.state = AppState::Error;
         self.overlay_view = Some(OverlayView::Failed {
             cause: FailureCause::TransportChannel,
             action: None,

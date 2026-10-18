@@ -1627,13 +1627,14 @@ mod live_tests {
         let handle = Arc::new(ConfigHandle::with_config(store.clone(), config));
         let client = LlmClient::new(handle, store).expect("http client should build");
 
-        let task = Task {
-            kind: TaskKind::ImageExplain,
-            input: TaskInput::Image {
+        let task = Task::new(
+            TaskKind::ImageExplain,
+            TaskInput::Image {
                 png: Arc::from(&ONE_PIXEL_PNG[..]),
             },
-            options: TaskOptions::default(),
-        };
+            TaskOptions::default(),
+        )
+        .expect("the test task is legal");
         let messages = PromptRegistry::new()
             .render(&task)
             .expect("image task passes the modality check");

@@ -36,7 +36,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use crate::model::{GlossError, Lang, Locale};
-use crate::task::{Task, TaskInput, TaskKind, TaskOptions, validate_modality};
+use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 
 /// 目标语言缺省值（`TaskOptions::target_lang` 文档：缺省中文）。
 const DEFAULT_TARGET: Lang = Lang::Zh;
@@ -168,21 +168,20 @@ impl PromptRegistry {
         Self
     }
 
-    /// 渲染任务的完整 messages：先过模态约束表，非法组合
-    /// 返回 [`GlossError::UnsupportedModality`]。模板语言取任务自带的
-    /// `options.prompt_locale`（缺省中文）——与模型、目标语言一样，一次
-    /// 任务只认触发时定下的那一份。系统指令是模板渲染结果；用户消息按
-    /// 输入模态分派：文本任务只有原文（取材不携带模态提示，语言线索由
-    /// 模型从原文判断），图像任务是图像部件（编码归传输层）。
+    /// 渲染任务的完整 messages。模态约束已在 [`Task::new`] 判定，这里只按
+    /// 输入形状分派。模板语言取任务自带的 `options.prompt_locale`（缺省
+    /// 中文）——与模型、目标语言一样，一次任务只认触发时定下的那一份。
+    /// 系统指令是模板渲染结果；用户消息按输入模态分派：文本任务只有原文
+    /// （取材不携带模态提示，语言线索由模型从原文判断），图像任务是图像
+    /// 部件（编码归传输层）。
     pub fn render(&self, task: &Task) -> Result<Vec<ChatMessage>, GlossError> {
-        validate_modality(task.kind, &task.input)?;
-        let locale = task.options.prompt_locale.unwrap_or_default();
-        let target = target_display(&task.options, locale);
-        match &task.input {
+        let locale = task.options().prompt_locale.unwrap_or_default();
+        let target = target_display(task.options(), locale);
+        match task.input() {
             TaskInput::Text { text, .. } => {
                 let templates = locale.templates();
                 let system = render_template(
-                    instruction_template(templates, task.kind),
+                    instruction_template(templates, task.kind()),
                     &[("target", &target)],
                 );
                 Ok(vec![
@@ -190,8 +189,9 @@ impl PromptRegistry {
                     ChatMessage::user(text.to_owned()),
                 ])
             }
-            // 图像任务：模板只有 image_explain（模态约束表已在渲染前拦截
-            // 非法组合，这里直接按唯一合法的图像 kind 取模板）。
+            // 图像任务：模板只有 image_explain（模态闸门在构造时已保证
+            // 图像输入只配 ImageExplain），这里直接按唯一合法的图像 kind
+            // 取模板。
             TaskInput::Image { png } => {
                 let templates = locale.templates();
                 let system = render_template(templates.image_explain, &[("target", &target)]);
@@ -497,27 +497,29 @@ mod tests {
     use super::*;
 
     fn text_task(kind: TaskKind, text: &str) -> Task {
-        Task {
+        Task::new(
             kind,
-            input: TaskInput::Text { text: text.into() },
-            options: TaskOptions::default(),
-        }
+            TaskInput::Text { text: text.into() },
+            TaskOptions::default(),
+        )
+        .expect("a text kind with text input is legal")
     }
 
     fn localized_task(kind: TaskKind, text: &str, locale: Locale) -> Task {
         let mut task = text_task(kind, text);
-        task.options.prompt_locale = Some(locale);
+        task.options_mut().prompt_locale = Some(locale);
         task
     }
 
     fn image_task(kind: TaskKind) -> Task {
-        Task {
+        Task::new(
             kind,
-            input: TaskInput::Image {
+            TaskInput::Image {
                 png: Arc::from(&b"png"[..]),
             },
-            options: TaskOptions::default(),
-        }
+            TaskOptions::default(),
+        )
+        .expect("an image kind with image input is legal")
     }
 
     fn text_of(content: &MessageContent) -> &str {
@@ -769,7 +771,7 @@ mod tests {
     fn explicit_target_lang_is_rendered() {
         let registry = PromptRegistry::new();
         let mut task = text_task(TaskKind::TranslateSentence, "hello");
-        task.options.target_lang = Some(Lang::Ja);
+        task.options_mut().target_lang = Some(Lang::Ja);
         let messages = registry.render(&task).expect("render");
         assert!(text_of(&messages[0].content).contains("日语"));
     }
@@ -780,8 +782,8 @@ mod tests {
         for locale in [Locale::Zh, Locale::En] {
             for name in ["", " "] {
                 let mut task = text_task(TaskKind::TranslateSentence, "hello");
-                task.options.target_lang = Some(Lang::Other(name.into()));
-                task.options.prompt_locale = Some(locale);
+                task.options_mut().target_lang = Some(Lang::Other(name.into()));
+                task.options_mut().prompt_locale = Some(locale);
                 let messages = registry.render(&task).expect("render");
                 let expected = lang_display(&DEFAULT_TARGET, locale);
                 let instruction = match locale {
@@ -804,13 +806,14 @@ mod tests {
     fn image_explain_renders_system_and_image_parts() {
         let registry = PromptRegistry::new();
         let png: Arc<[u8]> = Arc::from(&b"png"[..]);
-        let task = Task {
-            kind: TaskKind::ImageExplain,
-            input: TaskInput::Image {
+        let task = Task::new(
+            TaskKind::ImageExplain,
+            TaskInput::Image {
                 png: Arc::clone(&png),
             },
-            options: TaskOptions::default(),
-        };
+            TaskOptions::default(),
+        )
+        .expect("an image kind with image input is legal");
         let messages = registry.render(&task).expect("image explain should render");
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, Role::System);
@@ -870,9 +873,14 @@ mod tests {
 
     #[test]
     fn modality_mismatch_is_rejected_before_rendering() {
-        let registry = PromptRegistry::new();
-        let task = text_task(TaskKind::ImageExplain, "not an image");
-        assert_eq!(registry.render(&task), Err(GlossError::UnsupportedModality));
+        let task = Task::new(
+            TaskKind::ImageExplain,
+            TaskInput::Text {
+                text: "not an image".into(),
+            },
+            TaskOptions::default(),
+        );
+        assert_eq!(task, Err(GlossError::UnsupportedModality));
     }
 
     #[test]
@@ -1216,7 +1224,7 @@ mod tests {
                     TaskKind::ImageExplain => image_task(kind),
                     _ => text_task(kind, "gloss"),
                 };
-                task.options.prompt_locale = Some(locale);
+                task.options_mut().prompt_locale = Some(locale);
                 let messages = registry.render(&task).expect("render");
                 for message in &messages {
                     let text = match &message.content {
@@ -1276,7 +1284,7 @@ mod tests {
         );
 
         let mut chinese_prompt = localized_task(TaskKind::TranslateSentence, "hello", Locale::Zh);
-        chinese_prompt.options.target_lang = Some(Lang::En);
+        chinese_prompt.options_mut().target_lang = Some(Lang::En);
         let messages = registry.render(&chinese_prompt).expect("render");
         assert!(text_of(&messages[0].content).contains("翻译助手"));
         assert!(text_of(&messages[0].content).contains("英语"));
