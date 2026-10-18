@@ -155,6 +155,11 @@ impl GlossApp {
     /// 通道③发送；接收端不可用（tokio 桥死亡）时状态机降级落 Error。
     pub(crate) fn send_run(&mut self, request: RunRequest) {
         let Some(endpoints) = &self.endpoints else {
+            warn!(
+                thread = thread::UI,
+                generation = request.generation,
+                "endpoints missing, task dropped"
+            );
             self.machine.fail_transport(request.generation);
             return;
         };
