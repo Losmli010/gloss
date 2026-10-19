@@ -68,7 +68,7 @@ egui-winit = {
 futures = { version = "0.3", default-features = false, features = ["std"] }
 gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
-# 页头应用图标的 PNG 解码（assets/icons/gloss-dock-icon.png 同源资产）。
+# 经位附件图像（剪贴板 PNG）的解码与测试夹具编码。
 image = { version = "0.25", default-features = false, features = ["png"] }
 # 系统字体文件的只读内存映射（egui 借用登记的字节背衬）。
 memmap2 = { version = "0.9", default-features = false }
@@ -89,6 +89,10 @@ reqwest = {
     "stream",
   ]
 }
+# 页头应用图标的矢量栅格化（assets/icons/gloss-app-icon.svg，同 egui_extras
+# svg 加载器所钉的版本）：关默认特性不引文字排版与系统字体扫描（资产无
+# <text>），纯矢量路径渲染。
+resvg = { version = "0.45.1", default-features = false }
 # 更新清单的版本比较（semver 全序，构建元数据不参与优先级）。
 semver = { version = "1", default-features = false, features = ["std"] }
 # 界面文案表的强类型反序列化：键缺失或多键都算解析失败。
