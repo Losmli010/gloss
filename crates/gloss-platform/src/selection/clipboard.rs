@@ -50,7 +50,7 @@ fn wait_for_write(
 }
 
 mod imp {
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     use arboard::Clipboard;
 
@@ -131,16 +131,17 @@ mod imp {
             // 自报写盘数只计可归因的写入：文本读回成功才证明注入复制确实
             // 发生（Ok 蕴含写入确认）；「确认了写入却读不出文本」的写入
             // 无法与轮次内外来复制区分，一律记外来、由哨兵的 has_image
-            // 兜底判定，宁可多触发不可误吞用户复制。
+            // 兜底判定，宁可多触发不可误吞用户复制。恢复侧按实际清板数
+            // 归因（半程失败后的重试成功会清两次板）。
             let restored = if self.restore {
                 pending.restore_now()
             } else {
                 pending.skip_restore();
-                false
+                0
             };
             self.round.enter(RoundWrites {
                 pre: self.pre,
-                ours: self.acquired + u64::from(restored),
+                ours: self.acquired + restored,
             });
         }
     }
@@ -228,15 +229,15 @@ mod imp {
     }
 
     impl PendingRestore {
-        /// 按快照恢复原剪贴板并取消 Drop 兜底；返回是否写回成功（失败
-        /// 已留 error 痕，不影响调用方的主结果）。
-        fn restore_now(&mut self) -> bool {
+        /// 按快照恢复原剪贴板并取消 Drop 兜底；返回实际清板数（供调用方
+        /// 计入写盘归因），恢复失败已留 error 痕，不影响调用方的主结果。
+        fn restore_now(&mut self) -> u64 {
             self.skip = true;
-            let ok = restore_pasteboard(&self.saved);
-            if !ok {
+            let outcome = restore_pasteboard(&self.saved);
+            if !outcome.ok {
                 error!(thread = thread::EVENT, "failed to restore clipboard");
             }
-            ok
+            outcome.clears
         }
 
         /// 跳过恢复（Drop 兜底一并取消）。
@@ -523,28 +524,52 @@ mod imp {
         Some(SavedContent(items))
     }
 
-    /// 把快照原样写回：先为全部 flavor 预建 CFData（任一失败即整体放弃，
-    /// 此时粘贴板尚未被触碰），全部就绪后才 Clear + 逐条 Put。单次序列
-    /// 失败短退避后重试（见 [`RESTORE_ATTEMPTS`]，每次重试开全新引用，
-    /// 上一次 Clear 成功而 Put 失败的半程态由本次 Clear 重置），重试耗尽
-    /// 才返回 `false`（恢复是 best-effort，不决定主结果）。
-    fn restore_pasteboard(saved: &SavedContent) -> bool {
-        for attempt in 0..RESTORE_ATTEMPTS {
-            if restore_pasteboard_once(saved) {
-                return true;
+    /// 恢复写盘的结果：`ok` 表示快照已完整写回（失败环节由各分支留
+    /// debug 痕，重试耗尽也不影响调用方主结果）；`clears` 是实际发生的
+    /// 清板次数——Clear 是恢复序列里唯一推进 changeCount 的调用（Put
+    /// 实测不推进），哨兵的写盘归因必须按它计数，半程失败后的重试成功
+    /// 会清两次板，固定记 1 会把差额误判成用户的外来复制。
+    pub(super) struct RestoreOutcome {
+        pub(super) ok: bool,
+        pub(super) clears: u64,
+    }
+
+    /// 把快照原样写回：见 [`restore_with_retry`] 与 [`restore_pasteboard_once`]。
+    fn restore_pasteboard(saved: &SavedContent) -> RestoreOutcome {
+        restore_with_retry(RESTORE_ATTEMPTS, RESTORE_RETRY_DELAY, || {
+            restore_pasteboard_once(saved)
+        })
+    }
+
+    /// 带重试的恢复：单次序列失败短退避后重试（每次开全新粘贴板引用，
+    /// 上一次 Clear 成功而 Put 失败的半程态由本次 Clear 重置），成功即
+    /// 止；`clears` 累加全部尝试的实际清板数，含失败尝试。退避经参数
+    /// 注入以便单测零延时驱动。
+    pub(super) fn restore_with_retry(
+        attempts: usize,
+        delay: Duration,
+        mut once: impl FnMut() -> RestoreOutcome,
+    ) -> RestoreOutcome {
+        let mut clears = 0;
+        for attempt in 0..attempts {
+            let outcome = once();
+            clears += outcome.clears;
+            if outcome.ok {
+                return RestoreOutcome { ok: true, clears };
             }
-            if attempt + 1 < RESTORE_ATTEMPTS {
-                std::thread::sleep(RESTORE_RETRY_DELAY);
+            if attempt + 1 < attempts {
+                std::thread::sleep(delay);
             }
         }
-        false
+        RestoreOutcome { ok: false, clears }
     }
 
     /// 单次恢复序列；失败的具体环节由各分支留 debug 痕。
-    fn restore_pasteboard_once(saved: &SavedContent) -> bool {
+    fn restore_pasteboard_once(saved: &SavedContent) -> RestoreOutcome {
+        let fail = |clears: u64| RestoreOutcome { ok: false, clears };
         let Some(pb) = open_pasteboard() else {
             debug!(thread = thread::EVENT, "pasteboard unavailable for restore");
-            return false;
+            return fail(0);
         };
         // 阶段一：预建全部 flavor 数据；任一失败即放弃，已建引用由 staged
         // 里各守卫随 Vec 一起释放。
@@ -565,7 +590,7 @@ mod imp {
                         thread = thread::EVENT,
                         "flavor data allocation failed, restore declined"
                     );
-                    return false;
+                    return fail(0);
                 }
                 staged.push((
                     item.id,
@@ -579,7 +604,7 @@ mod imp {
         let status = unsafe { PasteboardClear(pb.raw) };
         if status != 0 {
             debug!(thread = thread::EVENT, status, "pasteboard clear failed");
-            return false;
+            return fail(0);
         }
         for (id, name, data) in &staged {
             // SAFETY: `raw`/`id`/`name`/`data` 均为阶段一备齐的有效引用；
@@ -590,15 +615,18 @@ mod imp {
                     thread = thread::EVENT,
                     status, "flavor write failed, restore incomplete"
                 );
-                return false;
+                return fail(1);
             }
         }
-        true
+        RestoreOutcome {
+            ok: true,
+            clears: 1,
+        }
     }
 
     /// 恢复原剪贴板内容；失败留痕但不影响调用方的主结果。
     fn restore_and_log(saved: &SavedContent) {
-        if !restore_pasteboard(saved) {
+        if !restore_pasteboard(saved).ok {
             error!(thread = thread::EVENT, "failed to restore clipboard");
         }
     }
@@ -660,8 +688,58 @@ pub use imp::{ClipboardFallbackReader, FallbackSettle};
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::imp::keys_to_release;
+    use super::imp::{RestoreOutcome, keys_to_release, restore_with_retry};
     use super::wait_for_write;
+
+    #[test]
+    fn retry_stops_at_the_first_success() {
+        let calls = std::cell::Cell::new(0u32);
+        let outcome = restore_with_retry(3, Duration::ZERO, || {
+            calls.set(calls.get() + 1);
+            RestoreOutcome {
+                ok: true,
+                clears: 1,
+            }
+        });
+        assert!(outcome.ok);
+        assert_eq!(outcome.clears, 1);
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn retry_counts_the_clears_of_every_attempt_until_success() {
+        let calls = std::cell::Cell::new(0u32);
+        let outcome = restore_with_retry(3, Duration::ZERO, || {
+            calls.set(calls.get() + 1);
+            match calls.get() {
+                1 => RestoreOutcome {
+                    ok: false,
+                    clears: 1,
+                },
+                2 => RestoreOutcome {
+                    ok: false,
+                    clears: 0,
+                },
+                _ => RestoreOutcome {
+                    ok: true,
+                    clears: 1,
+                },
+            }
+        });
+        assert!(outcome.ok);
+        assert_eq!(outcome.clears, 2);
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[test]
+    fn exhausted_retries_return_failure_with_the_total_clears() {
+        let outcome = restore_with_retry(2, Duration::ZERO, || RestoreOutcome {
+            ok: false,
+            clears: 1,
+        });
+        assert!(!outcome.ok);
+        assert_eq!(outcome.clears, 2);
+    }
 
     #[test]
     fn change_is_detected_when_generation_bumps() {
@@ -918,8 +996,9 @@ mod live_tests {
         assert_eq!(
             restored, preset,
             "the unwind Drop must restore the snapshot, not the clobbered copy (read took \
-             {read_ms}ms, outcome ok={outcome_ok}, board writes after clobber: \
-             {writes_after_unwind})"
+             {read_ms}ms, outcome ok={outcome_ok}, pasteboard clears after the clobber \
+             [0 = the Drop restore never landed, 1 = one clean restore, 2 = one failed \
+             halfway and the retry landed]: {writes_after_unwind})"
         );
     }
 

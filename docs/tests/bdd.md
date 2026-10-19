@@ -1113,6 +1113,9 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | timeout_returns_false_without_hanging | 超时返回不悬挂 | 给定 probe 恒不变化，当到 deadline，则返回 false 且 2s 内返回 | 2026-09-19 |
 | unavailable_probe_keeps_polling_until_deadline | probe 恒 None 轮询到期限 | 给定 probe 恒 None，当到 deadline，则返回 false、不提前放弃也不永久等 | 2026-09-19 |
 | injection_failure_releases_every_pressed_key_in_reverse | 注入失败按已按下键逆序补放 | 给定复制快捷键序列（修饰键按下 → C 按下 → C 释放 → 修饰键释放），当分别在第 1–4 个事件失败，则补放列表依次为空 / [修饰键] / [C, 修饰键] / [C, 修饰键]（逆序；重复 key-up 幂等） | 2026-10-17 |
+| retry_stops_at_the_first_success | 重试首次成功即止 | 给定第 1 次即成功的 once 与 3 次上限，当 restore_with_retry，则只调 1 次、成功返回且清板数记 1 | 2026-10-19 |
+| retry_counts_the_clears_of_every_attempt_until_success | 重试累加各次尝试的实际清板数 | 给定依次「清 1 失败、清 0 失败、清 1 成功」的 once 与 3 次上限，当 restore_with_retry，则调满 3 次、成功返回且清板数记 2 | 2026-10-19 |
+| exhausted_retries_return_failure_with_the_total_clears | 重试耗尽按失败返回并带总清板数 | 给定恒「清 1 失败」的 once 与 2 次上限，当 restore_with_retry，则失败返回且清板数记 2 | 2026-10-19 |
 
 ### crates/gloss-platform/src/clipboard/watch.rs
 
