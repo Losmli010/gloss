@@ -23,6 +23,12 @@ use std::time::{Duration, Instant};
 const WRITE_CONFIRM_TIMEOUT: Duration = Duration::from_millis(800);
 /// 写入确认的轮询节奏：远低于可感知延迟，高于常见调度抖动。
 const WRITE_POLL_INTERVAL: Duration = Duration::from_millis(30);
+/// 恢复写盘的尝试次数与退避：粘贴板服务偶发单次失败（高负载虚拟机上
+/// 观察到过：恢复失败一次，板上永久留下注入副本、用户原内容丢失）通常
+/// 毫秒级自愈，短退避后开全新引用重试即可；更长的退避在事件线程上换不
+/// 来成比例的成功率。
+const RESTORE_ATTEMPTS: usize = 3;
+const RESTORE_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 /// 轮询等待剪贴板变化（纯逻辑，单测覆盖）：probe 返回当前代数（None
 /// 表示本轮读取失败，继续等），与 baseline 不同即认为目标应用已完成写
@@ -65,7 +71,10 @@ mod imp {
     use gloss_core::log::{debug, error, thread};
     use gloss_core::model::GlossError;
 
-    use super::{WRITE_CONFIRM_TIMEOUT, WRITE_POLL_INTERVAL, wait_for_write};
+    use super::{
+        RESTORE_ATTEMPTS, RESTORE_RETRY_DELAY, WRITE_CONFIRM_TIMEOUT, WRITE_POLL_INTERVAL,
+        wait_for_write,
+    };
 
     /// 剪贴板兜底轮的收尾：恢复决策在读取时定下，[`FallbackSettle::finish`]
     /// 在取材产物上抛之后执行恢复（或跳过）并置位写盘归因——恢复写盘不
@@ -515,9 +524,24 @@ mod imp {
     }
 
     /// 把快照原样写回：先为全部 flavor 预建 CFData（任一失败即整体放弃，
-    /// 此时粘贴板尚未被触碰），全部就绪后才 Clear + 逐条 Put。失败留
-    /// debug 痕并返回 `false`（恢复是 best-effort，不决定主结果）。
+    /// 此时粘贴板尚未被触碰），全部就绪后才 Clear + 逐条 Put。单次序列
+    /// 失败短退避后重试（见 [`RESTORE_ATTEMPTS`]，每次重试开全新引用，
+    /// 上一次 Clear 成功而 Put 失败的半程态由本次 Clear 重置），重试耗尽
+    /// 才返回 `false`（恢复是 best-effort，不决定主结果）。
     fn restore_pasteboard(saved: &SavedContent) -> bool {
+        for attempt in 0..RESTORE_ATTEMPTS {
+            if restore_pasteboard_once(saved) {
+                return true;
+            }
+            if attempt + 1 < RESTORE_ATTEMPTS {
+                std::thread::sleep(RESTORE_RETRY_DELAY);
+            }
+        }
+        false
+    }
+
+    /// 单次恢复序列；失败的具体环节由各分支留 debug 痕。
+    fn restore_pasteboard_once(saved: &SavedContent) -> bool {
         let Some(pb) = open_pasteboard() else {
             debug!(thread = thread::EVENT, "pasteboard unavailable for restore");
             return false;
@@ -867,11 +891,14 @@ mod live_tests {
         clipboard.set_text(preset.clone()).expect("preset text");
 
         let mut reader = ClipboardFallbackReader::new(WatchRoundFlag::default());
-        let (_outcome, settle) = reader.read();
+        let read_started = std::time::Instant::now();
+        let (outcome, settle) = reader.read();
+        let read_ms = read_started.elapsed().as_millis();
 
         clipboard
             .set_text("gloss-injected-copy".to_owned())
             .expect("simulate the injected copy clobbering the board");
+        let board_writes_before_unwind = pasteboard_change_count();
 
         let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             let _settle = settle;
@@ -883,9 +910,16 @@ mod live_tests {
         );
 
         let restored = clipboard.get_text().expect("clipboard should be readable");
+        let writes_after_unwind = match (board_writes_before_unwind, pasteboard_change_count()) {
+            (Some(before), Some(after)) => after.saturating_sub(before),
+            _ => 0,
+        };
+        let outcome_ok = outcome.is_ok();
         assert_eq!(
             restored, preset,
-            "the unwind Drop must restore the snapshot, not the clobbered copy"
+            "the unwind Drop must restore the snapshot, not the clobbered copy (read took \
+             {read_ms}ms, outcome ok={outcome_ok}, board writes after clobber: \
+             {writes_after_unwind})"
         );
     }
 
