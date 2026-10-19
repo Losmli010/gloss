@@ -1019,8 +1019,7 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
                 code_badge(ui, code_lang);
                 // 等宽折行：超宽按可用宽换行（滚动区只纵向滚，横滚不进
                 // 弹窗）。
-                let dark = ui.visuals().dark_mode;
-                let job = code_job(source, code_lang, dark, ui.available_width());
+                let job = code_job(ui, source, code_lang, ui.available_width());
                 let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
                 ui.add(egui::Label::new(egui::WidgetText::Galley(galley)).selectable(true));
             });
@@ -1037,68 +1036,41 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
     );
 }
 
-/// 代码正文的着色排版：单趟正则切类别，逐段出 [`egui::text::LayoutJob`]
-/// （六类色 + 注释斜体，明暗随主题取 demo token）。按可用宽折行（长 token
-/// 允许任意字符处断行，保证不超面板宽）、按行断开、行高 1.65；标记间的
-/// 间隙与尾部都补平文段，正文整段可被选中复制。
+/// 代码正文的着色排版：syntect 分词 + egui_extras 出 [`egui::text::LayoutJob`]
+/// （六类色由 `code_hl` 的自定义主题注入），再补上本面板的折行与行高。
+/// 未知语言落纯文本——不猜语言，也不再外推通用启发着色。
 fn code_job(
+    ui: &egui::Ui,
     source: &str,
     code_lang: Option<&str>,
-    dark: bool,
     wrap_width: f32,
 ) -> egui::text::LayoutJob {
+    let dark = ui.visuals().dark_mode;
     let font_id = FontId::new(CODE_FONT, fonts::mono_family());
-    let plain = egui::TextFormat {
-        line_height: Some(CODE_LINE_HEIGHT),
-        ..egui::TextFormat::simple(font_id, strong_code_color(dark))
+    let Some(mut job) = code_hl::highlight(
+        ui.ctx(),
+        ui.style(),
+        dark,
+        font_id.clone(),
+        source,
+        code_lang,
+    ) else {
+        return code_hl::fallback_job(source, &font_id, dark, wrap_width, CODE_LINE_HEIGHT);
     };
-    let mut job = egui::text::LayoutJob {
-        text: source.to_owned(),
-        wrap: egui::text::TextWrapping {
-            max_width: wrap_width,
-            break_anywhere: true,
-            ..egui::text::TextWrapping::no_max_width()
-        },
-        break_on_newline: true,
-        ..egui::text::LayoutJob::default()
+    job.wrap = egui::text::TextWrapping {
+        max_width: wrap_width,
+        break_anywhere: true,
+        ..egui::text::TextWrapping::no_max_width()
     };
-    let mut cursor = 0;
-    for (range, class) in code_hl::tokenize(source, code_lang) {
-        if range.start > cursor {
-            job.sections.push(egui::text::LayoutSection {
-                leading_space: 0.0,
-                byte_range: egui::text::ByteIndex(cursor)..egui::text::ByteIndex(range.start),
-                format: plain.clone(),
-            });
-        }
-        job.sections.push(egui::text::LayoutSection {
-            leading_space: 0.0,
-            byte_range: egui::text::ByteIndex(range.start)..egui::text::ByteIndex(range.end),
-            format: egui::TextFormat {
-                color: class.color(dark),
-                italics: class.italic(),
-                ..plain.clone()
-            },
-        });
-        cursor = range.end;
-    }
-    if cursor < source.len() {
-        job.sections.push(egui::text::LayoutSection {
-            leading_space: 0.0,
-            byte_range: egui::text::ByteIndex(cursor)..egui::text::ByteIndex(source.len()),
-            format: plain,
-        });
+    job.break_on_newline = true;
+    for section in &mut job.sections {
+        section.format.font_id = font_id.clone();
+        section.format.line_height = Some(CODE_LINE_HEIGHT);
+        // egui_extras 0.36 把 ITALIC 误当 UNDERLINE 判据，斜体注释会被加
+        // 下划线；这里统一清掉，颜色与斜体仍由主题决定。
+        section.format.underline = egui::Stroke::NONE;
     }
     job
-}
-
-/// 代码平文字的底色：明暗主题下各取面板底上的主文字色。
-fn strong_code_color(dark: bool) -> egui::Color32 {
-    if dark {
-        egui::Color32::from_rgb(0xE6, 0xE6, 0xE6)
-    } else {
-        egui::Color32::from_rgb(0x24, 0x29, 0x2E)
-    }
 }
 
 /// 代码面板底色（明暗随主题，demo code-bg 双档）。
