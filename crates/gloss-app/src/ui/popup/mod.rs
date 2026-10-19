@@ -13,7 +13,7 @@
 //! 字体助手在 [`content`]（都是 demo 基准的应用定稿值），不进 style 阶梯。
 //!
 //! 决策纯函数不进绘制模板，按职责拆在子模块：[`note`]（流式 JSON 渐进
-//! 提取）、[`icon`]（图标解码裁剪）、[`content`]（文案整形）；本模块只留
+//! 提取）、[`icon`]（图标矢量栅格化）、[`content`]（文案整形）；本模块只留
 //! 绘制模板与面板编排，依赖方向恒为绘制 → 决策。
 //!
 //! 词卡精排（词条/音标落经位，释义逐行落注位，例句落疏位），其余任务正文
@@ -154,10 +154,10 @@ pub struct RenderState {
     /// 侧落点换算（`apply_overlay_drag`）同口径。清零后 egui 侧若仍有
     /// 残留拖动所有权（见 [`drag_strip`]），热区保持惰性。
     drag_press_phys: Cell<Option<egui::Pos2>>,
-    /// 页头应用图标的纹理（每个 egui 上下文一份，惰性装入）。None＝尚未
-    /// 装入或解码失败；失败时每帧重试的成本只有一次常量读取，不再单设
-    /// 失败标记。
-    icon: RefCell<Option<egui::TextureHandle>>,
+    /// 页头应用图标的纹理缓存：键是栅格化边长（物理像素）。None＝尚未
+    /// 栅格化；内层 `None`＝该边长下渲染失败（同样只试一次，占位降级）。
+    /// 换显示器（`pixels_per_point` 变化）即按新密度重栅。
+    icon: RefCell<Option<(u32, Option<egui::TextureHandle>)>>,
     /// 经位附件图像的跨帧纹理缓存槽（见 [`AttachedTexture`]）。
     attached: RefCell<Option<AttachedTexture>>,
 }
@@ -194,17 +194,24 @@ impl RenderState {
         self.drag_press_phys.set(None);
     }
 
-    /// 页头应用图标纹理；首次调用解码 PNG 并装入当前上下文。
+    /// 页头应用图标纹理：矢量源按当前 `pixels_per_point` 栅格化到物理
+    /// 像素级（纹理纹元 1:1 对应设备像素，图标锐利），装完跨帧复用；
+    /// 密度变化（跨显示器拖动）按新边长重栅，失败按边长缓存不重试。
     fn icon_texture(&self, ctx: &egui::Context) -> Option<egui::TextureHandle> {
+        let side_px = (HEADER_ICON * ctx.pixels_per_point()).round().max(1.0) as u32;
         let mut slot = self.icon.borrow_mut();
-        if slot.is_none()
-            && let Some(image) = app_icon_image()
+        if slot
+            .as_ref()
+            .is_none_or(|(rendered, _)| *rendered != side_px)
         {
-            *slot = Some(ctx.load_texture("gloss_app_icon", image, egui::TextureOptions::LINEAR));
+            let texture = app_icon_image(side_px).map(|image| {
+                ctx.load_texture("gloss_app_icon", image, egui::TextureOptions::LINEAR)
+            });
+            *slot = Some((side_px, texture));
         }
         // TextureHandle 内部是 Arc：克隆只递引用计数（零堆分配），缓存槽
         // 与当帧绘制各持一枚，勿改成逐帧重装纹理。
-        slot.clone()
+        slot.as_ref().and_then(|(_, texture)| texture.clone())
     }
 
     /// 经位附件图像的纹理；首次见到这份字节时解码并装入当前上下文，之后
