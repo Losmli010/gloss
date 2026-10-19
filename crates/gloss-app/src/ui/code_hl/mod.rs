@@ -276,8 +276,8 @@ fn gloss_theme(dark: bool) -> Theme {
             theme_item("variable.language.this", palette::Class::Keyword, dark),
             theme_item("variable.language.super", palette::Class::Keyword, dark),
             theme_item("entity.name.tag", palette::Class::Keyword, dark),
-            // YAML/TOML 的键也是 entity.name.tag，但旧实现把数据格式的键算
-            // Type。syntect 按匹配得分取最具体的一条，与规则的书写顺序无关。
+            // YAML 键旧实现算 Type；TOML 键旧实现不着色，这里一并对齐为 Type。
+            // syntect 按匹配得分取最具体的一条，与规则的书写顺序无关。
             theme_item("entity.name.tag.yaml", palette::Class::Type, dark),
             theme_item("entity.name.tag.toml", palette::Class::Type, dark),
             theme_item("entity.name.type", palette::Class::Type, dark),
@@ -519,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn data_format_and_keyword_scopes_keep_their_old_classes() {
+    fn data_format_and_keyword_scopes_keep_their_classes() {
         let ctx = crate::ui::context::new_context(gloss_core::config::Theme::Light);
         let style = egui::Style::default();
         for dark in [false, true] {
@@ -569,6 +569,12 @@ mod tests {
                     "const f = function () { return this.x; };\n",
                     "javascript",
                     "this",
+                    palette::Class::Keyword,
+                ),
+                (
+                    "class A { m() { return super.m(); } }\n",
+                    "javascript",
+                    "super",
                     palette::Class::Keyword,
                 ),
             ] {

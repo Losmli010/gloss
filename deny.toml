@@ -4,7 +4,14 @@
 [advisories]
 # RustSec 漏洞库；出现未豁免的漏洞即失败。
 # 确需豁免时把 advisory id 登记到这里，并写清豁免理由与跟踪项。
-ignore = []
+ignore = [
+  # syntect 5.3 的语法集加载链带进来的两个「已停维护」条目（并非漏洞）：
+  # yaml-rust 0.4 与 bincode 1.x。egui_extras 以 default-fancy 引入 syntect，
+  # 关不掉 yaml-load/dump-load；而这两条路径只读仓库内置的语法集 dump，不解析
+  # 外部输入。等 syntect 迁移到 yaml-rust2 / 新 bincode 后移除。
+  { id = "RUSTSEC-2024-0320", reason = "yaml-rust 0.4 来自 syntect 的语法加载器；只解析内置 dump，不读外部 YAML。跟踪 syntect 迁移到 yaml-rust2。" },
+  { id = "RUSTSEC-2025-0141", reason = "bincode 1.x 来自 syntect 的 dump 加载器；只读内置 dump。跟踪 syntect 升级 bincode。" },
+]
 
 [licenses]
 # 只收宽松许可证，copyleft（GPL/AGPL/LGPL）一律不放行。
