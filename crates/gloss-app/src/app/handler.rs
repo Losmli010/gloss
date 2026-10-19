@@ -80,6 +80,9 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         // 控：权限就绪才读——keychain 授权框不得抢在系统权限引导弹窗之前，
         // 未就绪则推迟到首次任务自然重读。
         self.send_secret_prewarm();
+        // 代码着色的语法集首次构造是百毫秒级，挪到后台线程，不占首个代码卡
+        // 的首帧。
+        crate::ui::code_hl::warm_up();
         milestone("06_ready");
         // 启动静默检查在此补发：更新客户端的信任链构建不挤占启动窗口。
         crate::update::start_silent_check();

@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 38 | `just test` |
-| 单元测试 | 570 | `just test` |
+| 单元测试 | 573 | `just test` |
 
 ## 人工测试
 
@@ -324,7 +324,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | header_drag_strip_is_exposed_to_accesskit | 页头拖动热区进无障碍树且与动作钮零重叠 | 给定词卡视图，当渲染，则无障碍树有「拖动浮层」热区节点、矩形与页头行同高（不小于头部图标边长）且水平区间止于最左动作钮左缘（收 DRAG_STRIP_INSET，与齿轮/× 零重叠） | 2026-10-03 |
 | header_drag_reports_cumulative_offset_and_ends_on_release | 页头拖动上交自按压点的累计位移 | 给定词卡视图与页头热区中心，当按下→两段移动→松开→再移动，则上交位移自按压点累计（按下为零、两段各 (20,10)/(30,15)，非逐帧增量）、松开后不再上交；按压点按物理像素记录（跨 DPI 显示器不混尺）；落点换算与屏幕钳制在壳侧 apply_overlay_drag（无状态：以窗口实际位置为基准，中途被动过会被下一帧落点吸收） | 2026-10-03 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/流式/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 七份基线一致，结果合并进单个 SnapshotResults（基线沿革：2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、Acquiring 骨架视图删除，popup_loading 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 popup_image_outcome / popup_image_streaming / popup_image_failed 三份基线（图像经位 + 注疏，夹具为测试内确定性编码的 120×80 渐变 PNG；英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 ImageOcr 任务类型与 Extracted 结构化变体，popup_extract 基线随其视图一并移除，余七份）；2026-10-11 随契约收敛新增 popup_degraded_outcome 降级产物卡基线（异常提示 + 重试，无经注疏内容），popup_code_streaming 随流式代码面板移除语言标签行重录（差异仅该行移除与其下既段位移），余十一份；2026-10-18 随文本流式经位并入滚动区重录 popup_streaming / popup_code_streaming，差异仅经位整体的亚像素抗锯齿（行高与列位置不变）；2026-10-19 随代码着色后端换 egui_extras/syntect（two-face 语法补集 + 六类色板自定义主题）重录 popup_code_outcome；popup_code_streaming 因流式期语言未定仍走通用兜底而零变化；popup_long_line 是连带变化（egui_commonmark 的围栏代码块经 feature 统一改用 syntect 默认主题）） | 2026-10-19 |
+| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/流式/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 七份基线一致，结果合并进单个 SnapshotResults（基线沿革：2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、Acquiring 骨架视图删除，popup_loading 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 popup_image_outcome / popup_image_streaming / popup_image_failed 三份基线（图像经位 + 注疏，夹具为测试内确定性编码的 120×80 渐变 PNG；英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 ImageOcr 任务类型与 Extracted 结构化变体，popup_extract 基线随其视图一并移除，余七份）；2026-10-11 随契约收敛新增 popup_degraded_outcome 降级产物卡基线（异常提示 + 重试，无经注疏内容），popup_code_streaming 随流式代码面板移除语言标签行重录（差异仅该行移除与其下既段位移），余十一份；2026-10-18 随文本流式经位并入滚动区重录 popup_streaming / popup_code_streaming，差异仅经位整体的亚像素抗锯齿（行高与列位置不变）；2026-10-19 随代码着色后端换 egui_extras/syntect（two-face 语法补集 + 六类色板自定义主题）重录 popup_code_outcome；popup_code_streaming 因流式期语言未定仍走通用兜底而零变化；popup_long_line 是连带变化（egui_commonmark 的围栏代码块经 feature 统一改用 syntect 默认主题与默认语法集，不再是六类色板；表外语言如 TOML 由简易高亮退化为纯色）） | 2026-10-19 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
@@ -705,7 +705,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | the_language_badge_arrives_only_with_the_outcome_verdict | 语言角标只随产物判定到达 | 给定 ExplainCode 流式视图，当渲染，则树上无语言标签（流式期无判定——唯一来源是产物 structured.code_language，经 code_hl::adopt 渲染时现算）；给定带 rust 判定的代码完成态卡，当渲染，则角标 rust 入树；给定翻译流式视图，当渲染，则树上无标签 | 2026-10-11 |
-| snapshots_match_baseline（popup 代码视图随高亮再录） | 两份代码视图基线随语法着色重录 | 给定 popup_code_streaming / popup_code_outcome 的英文夹具，当 wgpu 渲染并 diff，则与基线一致（2026-10-02 随 T4 单趟正则六类着色再录：关键字/函数形/字符串着色；其余七份 popup 与 settings 基线零变化——着色只落代码分支） | 2026-10-02 |
+| snapshots_match_baseline（popup 代码视图随高亮再录） | 两份代码视图基线随语法着色重录 | 给定 popup_code_streaming / popup_code_outcome 的英文夹具，当 wgpu 渲染并 diff，则与基线一致（2026-10-02 随 T4 单趟正则六类着色再录：关键字/函数形/字符串着色；其余七份 popup 与 settings 基线零变化——着色只落代码分支。单趟正则已在 2026-10-19 由 syntect 取代，最新沿革见 `snapshots_match_baseline（popup）` 一行） | 2026-10-02 |
 
 ### crates/gloss-app/src/flow/actions.rs
 
@@ -745,6 +745,14 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | adopt_keeps_plausible_verdicts_and_normalizes_aliases | 语言判定采纳与别名归一 | 给定规范名/大小写混排/别名（py、objective-c、c++）判定，当 code_hl::adopt，则落规范名（门槛 + normalize_language 收敛于此） | 2026-10-11 |
 | adopt_rejects_prose_placeholders_and_missing_verdicts | 散文与占位串不上角标 | 给定 None/空串/纯空白/「…或 null」/含空白散文的判定，当 adopt，则恒 None（无角标、通用启发集着色） | 2026-10-11 |
 | adopt_trims_surrounding_whitespace_before_the_gate | 采纳前先修剪首尾空白 | 给定带首尾空白的合法判定，当 adopt，则修剪后采纳（不因空白误判成占位串） | 2026-10-11 |
+| normalize_language_collapses_aliases_to_canonical_names | 语言名归一化收拢别名 | 给定 rs/py/TS/golang/c++ 与规范名、清单外名，当归一化，则别名折叠到规范名（rust/python/typescript/go/cpp）、规范名原样、未知名保留小写原形 | 2026-10-02 |
+| normalize_language_rejects_blank_names | 空白语言名无语言 | 给定空串与全空白名，当归一化，则恒为 None | 2026-10-02 |
+| canonical_languages_resolve_in_the_default_syntax_set | 规范语言名在语法集中可解析 | 给定规范语言表，当在 two-face 的语法集按名字/扩展名查找，则每个条目都命中（缺失时一次性列出全部） | 2026-10-19 |
+| unmapped_languages_have_no_syntect_token | 表外语言不猜语法 | 给定 None、空白与表外语言（fortran），当取语法名，则恒为 None；rs 别名落 Rust | 2026-10-19 |
+| aliases_always_resolve_through_the_syntax_whitelist | 别名与语法白名单一致 | 给定别名表逐条，当取其语法名，则每条别名都与它的规范名落到同一语法（规范名漏进白名单会在此报出） | 2026-10-19 |
+| custom_themes_sit_under_the_keys_egui_extras_indexes | 自定义主题顶替内置键 | 给定进程内 SyntectSettings，当其主题集，则含 egui_extras 按 CodeTheme 取用的两个键（base16-mocha.dark / Solarized (light)） | 2026-10-19 |
+| highlight_keeps_the_source_and_emits_sections | 着色保留原文并产出多段 | 给定 rust 片段，当经 egui_extras 着色，则 LayoutJob 文本与输入一致、sections 非空且至少一段颜色不同于首段 | 2026-10-19 |
+| theme_maps_scopes_to_the_palette_and_clears_the_italic_underline | scope 映射六类色并清斜体下划线 | 给定含关键字/注释/字符串/数字的 rust 片段，当明暗各着色一次，则四类颜色等于色板值、注释保持斜体且无下划线（绕开 egui_extras 的 ITALIC→UNDERLINE 缺陷） | 2026-10-19 |
 
 ### crates/gloss-app/src/ui/code_hl/palette.rs
 
@@ -752,19 +760,14 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | --- | --- | --- | --- |
 | every_class_has_its_own_color_per_theme | 六类色明暗两套互异 | 给定六类别与明暗两主题，当取色，则同主题内六色两两不同、注释恒斜体 | 2026-10-02 |
 
-### crates/gloss-app/src/ui/code_hl/tokenize.rs
+### crates/gloss-app/src/ui/code_hl/fallback.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| normalize_language_collapses_aliases_to_canonical_names | 语言名归一化收拢别名 | 给定 rs/py/TS/golang/c++ 与规范名、清单外名，当归一化，则别名折叠到规范名（rust/python/typescript/go/cpp）、规范名原样、未知名保留小写原形 | 2026-10-02 |
-| normalize_language_rejects_blank_names | 空白语言名无语言 | 给定空串与全空白名，当归一化，则恒为 None | 2026-10-02 |
-| canonical_languages_resolve_in_the_default_syntax_set | 规范语言名在语法集中可解析 | 给定规范语言表，当在 two-face 的语法集按名字/扩展名查找，则每个条目都命中（缺失时一次性列出全部） | 2026-10-19 |
-| unmapped_languages_have_no_syntect_token | 表外语言不猜语法 | 给定 None、空白与表外语言（fortran），当取语法名，则恒为 None；rs 别名落 Rust | 2026-10-19 |
-| custom_themes_sit_under_the_keys_egui_extras_indexes | 自定义主题顶替内置键 | 给定进程内 SyntectSettings，当其主题集，则含 egui_extras 按 CodeTheme 取用的两个键（base16-mocha.dark / Solarized (light)） | 2026-10-19 |
-| highlight_keeps_the_source_and_emits_sections | 着色保留原文并产出多段 | 给定 rust 片段，当经 egui_extras 着色，则 LayoutJob 文本与输入一致、sections 非空且至少一段颜色不同于首段 | 2026-10-19 |
 | generic_tokens_color_strings_and_line_comments | 兜底集着色字符串与行注释 | 给定含字符串与 -- 行注释的片段，当走通用兜底，则两类各出一段；空输入无 token | 2026-10-19 |
 | generic_tokens_color_block_comments_across_lines | 兜底块注释跨行 | 给定跨行 /* */ 片段，当走通用兜底，则块注释为单个跨行 token，止于闭合星斜杠 | 2026-10-19 |
 | generic_tokens_keep_hex_literals_whole | 兜底十六进制整体着色 | 给定含 0xFF_00 的片段，当走通用兜底，则十六进制字面量为单个 Number token | 2026-10-19 |
+| generic_tokens_color_type_names_and_leave_lowercase_alone | 兜底类型只认首字母大写 | 给定 let value: Widget = build()，当走通用兜底，则 Widget 为 Type、小写标识符保持平文 | 2026-10-19 |
 | generic_tokens_color_function_shapes_without_the_delimiter | 兜底函数形裁掉定界符 | 给定 compute(value)，当走通用兜底，则函数 token 止于左括号前 | 2026-10-19 |
 
 ### crates/gloss-app/src/ui/context.rs

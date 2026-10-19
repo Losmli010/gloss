@@ -999,8 +999,8 @@ fn shu_section(ui: &mut egui::Ui, text: &'static Text, body: impl FnOnce(&mut eg
 
 /// 经区块的正文：原文/词条随任务形制。代码任务为单层代码面板——代码
 /// 底色直接铺满经位区块（用户反馈定稿：无外层底色的界栏框），配等宽
-/// 体、按可用宽折行、左上角语言标签行与单趟正则的六类语法着色；其余为
-/// 宋体原文。
+/// 体、按可用宽折行、左上角语言标签行与 syntect（Sublime 语法集）的六类
+/// 语法着色；其余为宋体原文。
 fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&str>) {
     let strong = ui.visuals().strong_text_color();
     if code {
@@ -1038,7 +1038,8 @@ fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&
 
 /// 代码正文的着色排版：syntect 分词 + egui_extras 出 [`egui::text::LayoutJob`]
 /// （六类色由 `code_hl` 的自定义主题注入），再补上本面板的折行与行高。
-/// 未知语言落纯文本——不猜语言，也不再外推通用启发着色。
+/// 语言未定或表外语言落 [`code_hl::fallback_job`] 的通用启发集——不猜具体
+/// 语言，只认跨语言稳定的字符串/注释/数字/类型/函数形。
 fn code_job(
     ui: &egui::Ui,
     source: &str,
@@ -1064,11 +1065,10 @@ fn code_job(
     };
     job.break_on_newline = true;
     for section in &mut job.sections {
+        // 缓存键里的字体取自 style 而非 CodeTheme；逐段再写一遍，将来两侧
+        // 字体不一致时不会命中带旧字体的 job。
         section.format.font_id = font_id.clone();
         section.format.line_height = Some(CODE_LINE_HEIGHT);
-        // egui_extras 0.36 把 ITALIC 误当 UNDERLINE 判据，斜体注释会被加
-        // 下划线；这里统一清掉，颜色与斜体仍由主题决定。
-        section.format.underline = egui::Stroke::NONE;
     }
     job
 }

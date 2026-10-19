@@ -2,8 +2,8 @@
 //! 表外语言）。只认跨语言稳定的字符串、两类注释、数字、类型与函数形，
 //! 不做关键字表——关键字是各语言语法集的职责，兜底不做猜测。
 //!
-//! 正则按静态模式编译一次；逐帧的匹配是单趟线性扫描，流式重排由 egui
-//! 的 galley 缓存兜住。
+//! 正则按静态模式编译一次；逐帧仍要单趟线性扫描（O(n)，与旧实现一致），
+//! egui 的 galley 缓存只省重排、不跳过扫描。
 
 use std::ops::Range;
 use std::sync::OnceLock;
@@ -91,7 +91,9 @@ pub(crate) fn fallback_job(
 }
 
 /// 全类别共享的通用规则：块注释 → 行注释 → 字符串 → 数字 → 类型 →
-/// 函数形（同位起配时靠次序定优先级）。
+/// 函数形（同位起配时靠次序定优先级）。`--` 与 `%` 分别是 Lua/SQL 系与
+/// LaTeX/MATLAB 系的行注释前缀；兜底只服务表外语言，取覆盖更广的一边，
+/// 代价是自减与取模会被整行染成注释。
 fn pattern() -> String {
     [
         block_comment("/*", "*/"),
@@ -132,11 +134,11 @@ fn compile(pattern: &str) -> Option<Regex> {
     }
 }
 
-/// 定界符跟随匹配的类别（函数形的 `(`）把定界符一并吃进匹配（regex 无
-/// lookaround），着色时裁掉、只留语法本体；其余类别原样。
+/// 函数形的定界符（regex 无 lookaround）随匹配一起吃掉，着色时裁掉、只留
+/// 语法本体；其余类别原样。
 fn trimmed_range(matched: regex::Match<'_>, class: Class) -> Range<usize> {
     let mut range = matched.range();
-    if matches!(class, Class::Function | Class::Type) {
+    if matches!(class, Class::Function) {
         let trimmed = matched
             .as_str()
             .trim_end_matches(['(', '=', ':'])
@@ -229,6 +231,25 @@ mod tests {
                 .iter()
                 .any(|(range, class)| *class == Class::Number && range.start == start),
             "hex literal is one number token: {tokens:?}"
+        );
+    }
+
+    #[test]
+    fn generic_tokens_color_type_names_and_leave_lowercase_alone() {
+        let source = "let value: Widget = build();";
+        let found = tokens(source);
+        assert!(
+            found
+                .iter()
+                .any(|(range, class)| *class == Class::Type && &source[range.clone()] == "Widget"),
+            "an upper-camel name is one Type token: {found:?}"
+        );
+        assert!(
+            found
+                .iter()
+                .filter(|(_, class)| *class == Class::Type)
+                .all(|(range, _)| source[range.clone()].starts_with(|c: char| c.is_uppercase())),
+            "only upper-camel names are types: {found:?}"
         );
     }
 

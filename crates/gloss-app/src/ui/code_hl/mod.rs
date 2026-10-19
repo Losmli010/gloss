@@ -18,11 +18,56 @@ use std::sync::OnceLock;
 use egui::FontId;
 use egui::text::LayoutJob;
 use egui_extras::syntax_highlighting::{CodeTheme, SyntectSettings, highlight_with};
+use gloss_core::log::{debug, thread};
 use syntect::highlighting::{
     Color, FontStyle, ScopeSelectors, StyleModifier, Theme, ThemeItem, ThemeSet, ThemeSettings,
 };
 
 pub(crate) use fallback::fallback_job;
+
+/// 别名 → 规范名。别名只影响角标与归一化，能否着色看 [`SYNTAX_NAMES`]；
+/// 两表的规范名由测试锁住一致。
+const LANGUAGE_ALIASES: &[(&str, &str)] = &[
+    ("rs", "rust"),
+    ("py", "python"),
+    ("js", "javascript"),
+    ("node", "javascript"),
+    ("nodejs", "javascript"),
+    ("mjs", "javascript"),
+    ("cjs", "javascript"),
+    ("jsx", "javascript"),
+    ("ts", "typescript"),
+    ("tsx", "typescript"),
+    ("golang", "go"),
+    ("sh", "bash"),
+    ("shell", "bash"),
+    ("zsh", "bash"),
+    ("yml", "yaml"),
+    ("c++", "cpp"),
+    ("cxx", "cpp"),
+    ("cc", "cpp"),
+    ("hpp", "cpp"),
+    ("cs", "csharp"),
+    ("c#", "csharp"),
+    ("kt", "kotlin"),
+    ("kts", "kotlin"),
+    ("rb", "ruby"),
+    ("pl", "perl"),
+    ("pm", "perl"),
+    ("hs", "haskell"),
+    ("ex", "elixir"),
+    ("exs", "elixir"),
+    ("jl", "julia"),
+    ("clj", "clojure"),
+    ("cljs", "clojure"),
+    ("cljc", "clojure"),
+    ("edn", "clojure"),
+    ("objective-c", "objc"),
+    ("objectivec", "objc"),
+    ("mm", "objc"),
+    ("htm", "html"),
+    ("xhtml", "html"),
+];
 
 /// 把语言名归一化为规范名：别名映射收拢，未知输入原样小写返回（角标
 /// 如实显示），空白视为无语言。
@@ -31,30 +76,11 @@ pub(crate) fn normalize_language(name: &str) -> Option<String> {
     if lower.is_empty() {
         return None;
     }
-    Some(
-        match lower.as_str() {
-            "rs" => "rust",
-            "py" => "python",
-            "js" | "node" | "nodejs" | "mjs" | "cjs" | "jsx" => "javascript",
-            "ts" | "tsx" => "typescript",
-            "golang" => "go",
-            "sh" | "shell" | "zsh" => "bash",
-            "yml" => "yaml",
-            "cpp" | "c++" | "cxx" | "cc" | "hpp" => "cpp",
-            "cs" | "c#" => "csharp",
-            "kt" | "kts" => "kotlin",
-            "rb" => "ruby",
-            "pl" | "pm" => "perl",
-            "hs" => "haskell",
-            "ex" | "exs" => "elixir",
-            "jl" => "julia",
-            "clj" | "cljs" | "cljc" | "edn" => "clojure",
-            "objc" | "objective-c" | "objectivec" | "mm" => "objc",
-            "htm" | "xhtml" => "html",
-            _ => lower.as_str(),
-        }
-        .to_owned(),
-    )
+    let canonical = LANGUAGE_ALIASES
+        .iter()
+        .find_map(|(alias, canonical)| (*alias == lower).then_some(*canonical))
+        .unwrap_or(lower.as_str());
+    Some(canonical.to_owned())
 }
 
 /// 采纳产物的代码语言判定（渲染时现算）：修剪首尾空白后过词元门槛——
@@ -110,8 +136,8 @@ const SYNTAX_NAMES: &[(&str, &str)] = &[
     ("css", "CSS"),
 ];
 
-/// 规范语言名对应的 Sublime 语法名；表外语言返回 `None`——调用方落纯文本
-/// 面板，不猜语言。
+/// 规范语言名对应的 Sublime 语法名；表外语言返回 `None`，由调用方落
+/// [`fallback_job`] 的通用启发集——不猜语言。
 pub(crate) fn syntect_token(lang: Option<&str>) -> Option<&'static str> {
     let name = normalize_language(lang?)?;
     SYNTAX_NAMES
@@ -123,6 +149,10 @@ pub(crate) fn syntect_token(lang: Option<&str>) -> Option<&'static str> {
 /// 代码正文着色：syntect 分词 + egui_extras 出 `LayoutJob`；语言未定或
 /// 表外语言返回 `None`，由绘制侧落 [`fallback_job`] 的通用启发集（不猜
 /// 具体语言，只认跨语言稳定的字符串/注释/数字/类型/函数形）。
+///
+/// 语法名可解析但逐行解析失败时（fancy-regex 的回溯上限，概率极低），
+/// egui_extras 自己退回灰底纯文本且不返回错误——这里无从探测，接受该
+/// 降级。
 pub(crate) fn highlight(
     ctx: &egui::Context,
     style: &egui::Style,
@@ -138,14 +168,13 @@ pub(crate) fn highlight(
         CodeTheme::light(font_id.size)
     }
     .with_font_id(font_id);
-    Some(highlight_with(
-        ctx,
-        style,
-        &theme,
-        source,
-        token,
-        settings(),
-    ))
+    let mut job = highlight_with(ctx, style, &theme, source, token, settings());
+    // egui_extras 0.36 把 FontStyle::ITALIC 误当 UNDERLINE 判据，斜体注释会
+    // 多出一条下划线；统一清掉，颜色与斜体仍由主题决定。
+    for section in &mut job.sections {
+        section.format.underline = egui::Stroke::NONE;
+    }
+    Some(job)
 }
 
 /// egui_extras 的 `CodeTheme::dark/light` 在 `SyntectSettings.ts` 里按这两个
@@ -163,6 +192,24 @@ fn settings() -> &'static SyntectSettings {
         ps: two_face::syntax::extra_newlines(),
         ts: theme_set(),
     })
+}
+
+/// 后台预热语法集：首次构造要反序列化整套语法定义（debug 实测约 0.1s），
+/// 落在首个代码卡的首帧会让弹窗出现卡顿。启动时调一次，首个代码卡通常
+/// 已命中 `OnceLock`。
+pub(crate) fn warm_up() {
+    if std::thread::Builder::new()
+        .name("gloss-highlight-warmup".to_owned())
+        .spawn(|| {
+            let _ = settings();
+        })
+        .is_err()
+    {
+        debug!(
+            thread = thread::UI,
+            "highlight warmup thread not started, first code card pays the cost"
+        );
+    }
 }
 
 /// 只保留 egui_extras 会取用的两个键，其余内置主题不装——省掉默认主题集
@@ -194,12 +241,19 @@ fn gloss_theme(dark: bool) -> Theme {
             theme_item("constant.numeric", palette::Class::Number, dark),
             theme_item("constant.language", palette::Class::Keyword, dark),
             theme_item("keyword.control", palette::Class::Keyword, dark),
+            // and/or/not 与 self/this 在旧的关键字表里都是 Keyword；不补这两条
+            // 会掉成平文。
+            theme_item("keyword.operator.word", palette::Class::Keyword, dark),
+            theme_item("variable.language", palette::Class::Keyword, dark),
             theme_item("keyword.other", palette::Class::Keyword, dark),
             theme_item("keyword.declaration", palette::Class::Keyword, dark),
             theme_item("storage", palette::Class::Keyword, dark),
             theme_item("storage.type", palette::Class::Keyword, dark),
             theme_item("storage.modifier", palette::Class::Keyword, dark),
             theme_item("entity.name.tag", palette::Class::Keyword, dark),
+            // YAML 的键也是 entity.name.tag，但旧实现把数据格式的键算 Type；
+            // 排在关键字规则之后覆盖，HTML 标签不受影响。
+            theme_item("entity.name.tag.yaml", palette::Class::Type, dark),
             theme_item("entity.name.type", palette::Class::Type, dark),
             theme_item("entity.name.class", palette::Class::Type, dark),
             theme_item("support.type", palette::Class::Type, dark),
@@ -341,6 +395,61 @@ mod tests {
         assert_eq!(syntect_token(Some("fortran")), None);
         assert_eq!(syntect_token(Some("  ")), None);
         assert_eq!(syntect_token(Some("rs")), Some("Rust"));
+    }
+
+    #[test]
+    fn aliases_always_resolve_through_the_syntax_whitelist() {
+        for (alias, canonical) in LANGUAGE_ALIASES {
+            let token = syntect_token(Some(alias));
+            assert!(token.is_some(), "{alias} -> {canonical} must be colorable");
+            assert_eq!(
+                token,
+                syntect_token(Some(canonical)),
+                "{alias} and its canonical name must share a syntax"
+            );
+        }
+    }
+
+    #[test]
+    fn theme_maps_scopes_to_the_palette_and_clears_the_italic_underline() {
+        let ctx = crate::ui::context::new_context(gloss_core::config::Theme::Light);
+        let style = egui::Style::default();
+        let source = "fn main() {\n    // note\n    let s = \"hi\";\n    let n = 42;\n}";
+        for dark in [false, true] {
+            let job = highlight(
+                &ctx,
+                &style,
+                dark,
+                egui::FontId::monospace(12.0),
+                source,
+                Some("rust"),
+            )
+            .expect("rust is mapped");
+            for class in [
+                palette::Class::Keyword,
+                palette::Class::String,
+                palette::Class::Comment,
+                palette::Class::Number,
+            ] {
+                assert!(
+                    job.sections
+                        .iter()
+                        .any(|section| section.format.color == class.color(dark)),
+                    "{class:?} must keep its palette color (dark = {dark})"
+                );
+            }
+            let comment = job
+                .sections
+                .iter()
+                .find(|section| section.format.color == palette::Class::Comment.color(dark))
+                .expect("the fixture has a comment");
+            assert!(comment.format.italics, "comments stay italic");
+            assert_eq!(
+                comment.format.underline,
+                egui::Stroke::NONE,
+                "the upstream italic-as-underline bug is cleared"
+            );
+        }
     }
 
     #[test]
