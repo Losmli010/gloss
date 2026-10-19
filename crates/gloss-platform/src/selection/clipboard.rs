@@ -23,12 +23,13 @@ use std::time::{Duration, Instant};
 const WRITE_CONFIRM_TIMEOUT: Duration = Duration::from_millis(800);
 /// 写入确认的轮询节奏：远低于可感知延迟，高于常见调度抖动。
 const WRITE_POLL_INTERVAL: Duration = Duration::from_millis(30);
-/// 恢复写盘的尝试次数与退避：粘贴板服务偶发单次失败（高负载虚拟机上
-/// 观察到过：恢复失败一次，板上永久留下注入副本、用户原内容丢失）通常
-/// 毫秒级自愈，短退避后开全新引用重试即可；更长的退避在事件线程上换不
-/// 来成比例的成功率。
-const RESTORE_ATTEMPTS: usize = 3;
-const RESTORE_RETRY_DELAY: Duration = Duration::from_millis(50);
+/// 恢复写盘的尝试次数与退避：CI 实测高负载虚拟机上粘贴板服务会出现
+/// ≥100ms 级的持续不可用（3×50ms 重试未成功清板一次，板上永久留下注入
+/// 副本、用户原内容丢失），短窗口熬不过去；最坏退避 5×200ms ≈ 1s，低于
+/// 事件线程既有的最坏占用（写入确认两轮 1.6s），且只在已失败的路径上
+/// 付出。
+const RESTORE_ATTEMPTS: usize = 6;
+const RESTORE_RETRY_DELAY: Duration = Duration::from_millis(200);
 
 /// 轮询等待剪贴板变化（纯逻辑，单测覆盖）：probe 返回当前代数（None
 /// 表示本轮读取失败，继续等），与 baseline 不同即认为目标应用已完成写
@@ -162,15 +163,23 @@ mod imp {
 
     /// 打开系统剪贴板的本地引用。
     fn open_pasteboard() -> Option<OpenPasteboard> {
-        let name = cf::cf_string(CLIPBOARD_NAME)?;
+        open_pasteboard_reported().ok()
+    }
+
+    /// 同 [`open_pasteboard`]，但带回失败状态码（名称构造失败记 -1）：
+    /// 恢复路径的诊断消息需要真实错误码定位粘贴板服务故障。
+    fn open_pasteboard_reported() -> Result<OpenPasteboard, i32> {
+        let Some(name) = cf::cf_string(CLIPBOARD_NAME) else {
+            return Err(-1);
+        };
         let mut raw: PasteboardRef = std::ptr::null_mut();
         // SAFETY: `name` 是有效 CFString 引用，出参指向栈上变量；失败时不
         // 写入出参。
         let status = unsafe { PasteboardCreate(name.string_ref(), &mut raw) };
         if status != 0 || raw.is_null() {
-            return None;
+            return Err(status);
         }
-        Some(OpenPasteboard { raw, _name: name })
+        Ok(OpenPasteboard { raw, _name: name })
     }
 
     /// 写入确认信号源：注入前建立基线，之后轮询代数变化。
@@ -230,12 +239,19 @@ mod imp {
 
     impl PendingRestore {
         /// 按快照恢复原剪贴板并取消 Drop 兜底；返回实际清板数（供调用方
-        /// 计入写盘归因），恢复失败已留 error 痕，不影响调用方的主结果。
+        /// 计入写盘归因），恢复失败已留 error 痕（环节与状态码），不影响
+        /// 调用方的主结果。
         fn restore_now(&mut self) -> u64 {
             self.skip = true;
             let outcome = restore_pasteboard(&self.saved);
             if !outcome.ok {
-                error!(thread = thread::EVENT, "failed to restore clipboard");
+                error!(
+                    thread = thread::EVENT,
+                    stage = ?outcome.stage,
+                    status = outcome.status,
+                    clears = outcome.clears,
+                    "failed to restore clipboard"
+                );
             }
             outcome.clears
         }
@@ -524,14 +540,32 @@ mod imp {
         Some(SavedContent(items))
     }
 
-    /// 恢复写盘的结果：`ok` 表示快照已完整写回（失败环节由各分支留
-    /// debug 痕，重试耗尽也不影响调用方主结果）；`clears` 是实际发生的
-    /// 清板次数——Clear 是恢复序列里唯一推进 changeCount 的调用（Put
-    /// 实测不推进），哨兵的写盘归因必须按它计数，半程失败后的重试成功
-    /// 会清两次板，固定记 1 会把差额误判成用户的外来复制。
+    /// 恢复序列的失败环节：随 error! 进日志（生产可定位），测试二进制无
+    /// subscriber，live 测试经 [`gloss_core::log::capture`] 取同一条进断言
+    /// 消息。
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(super) enum RestoreStage {
+        /// 打不开粘贴板（名称构造失败，或 PasteboardCreate 返回非零）。
+        Open,
+        /// 预建 flavor 的 CFDataCreate 返回空。
+        Alloc,
+        /// PasteboardClear 返回非零。
+        Clear,
+        /// PasteboardPutItemFlavor 返回非零。
+        Put,
+    }
+
+    /// 恢复写盘的结果：`ok` 表示快照已完整写回（重试耗尽也不影响调用方
+    /// 主结果）；`clears` 是实际发生的清板次数——Clear 是恢复序列里唯一
+    /// 推进 changeCount 的调用（Put 实测不推进），哨兵的写盘归因必须按它
+    /// 计数，半程失败后的重试成功会清两次板，固定记 1 会把差额误判成用户
+    /// 的外来复制；`stage`/`status` 仅在 `ok` 为假时有意义（系统调用无
+    /// 状态码的场合记 0，名称构造失败记 -1）。
     pub(super) struct RestoreOutcome {
         pub(super) ok: bool,
         pub(super) clears: u64,
+        pub(super) stage: RestoreStage,
+        pub(super) status: i32,
     }
 
     /// 把快照原样写回：见 [`restore_with_retry`] 与 [`restore_pasteboard_once`]。
@@ -551,25 +585,51 @@ mod imp {
         mut once: impl FnMut() -> RestoreOutcome,
     ) -> RestoreOutcome {
         let mut clears = 0;
+        let (mut stage, mut status) = (RestoreStage::Open, 0);
         for attempt in 0..attempts {
             let outcome = once();
             clears += outcome.clears;
             if outcome.ok {
-                return RestoreOutcome { ok: true, clears };
+                return RestoreOutcome {
+                    ok: true,
+                    clears,
+                    stage: RestoreStage::Open,
+                    status: 0,
+                };
             }
+            stage = outcome.stage;
+            status = outcome.status;
             if attempt + 1 < attempts {
                 std::thread::sleep(delay);
             }
         }
-        RestoreOutcome { ok: false, clears }
+        RestoreOutcome {
+            ok: false,
+            clears,
+            stage,
+            status,
+        }
     }
 
     /// 单次恢复序列；失败的具体环节由各分支留 debug 痕。
     fn restore_pasteboard_once(saved: &SavedContent) -> RestoreOutcome {
-        let fail = |clears: u64| RestoreOutcome { ok: false, clears };
-        let Some(pb) = open_pasteboard() else {
-            debug!(thread = thread::EVENT, "pasteboard unavailable for restore");
-            return fail(0);
+        let fail = |stage: RestoreStage, status: i32, clears: u64| {
+            debug!(
+                thread = thread::EVENT,
+                ?stage,
+                status,
+                "restore attempt failed"
+            );
+            RestoreOutcome {
+                ok: false,
+                clears,
+                stage,
+                status,
+            }
+        };
+        let pb = match open_pasteboard_reported() {
+            Ok(pb) => pb,
+            Err(status) => return fail(RestoreStage::Open, status, 0),
         };
         // 阶段一：预建全部 flavor 数据；任一失败即放弃，已建引用由 staged
         // 里各守卫随 Vec 一起释放。
@@ -586,11 +646,7 @@ mod imp {
                     )
                 };
                 if data.is_null() {
-                    debug!(
-                        thread = thread::EVENT,
-                        "flavor data allocation failed, restore declined"
-                    );
-                    return fail(0);
+                    return fail(RestoreStage::Alloc, 0, 0);
                 }
                 staged.push((
                     item.id,
@@ -603,31 +659,36 @@ mod imp {
         // SAFETY: `raw` 是有效 +1 引用，存活至本结构销毁。
         let status = unsafe { PasteboardClear(pb.raw) };
         if status != 0 {
-            debug!(thread = thread::EVENT, status, "pasteboard clear failed");
-            return fail(0);
+            return fail(RestoreStage::Clear, status, 0);
         }
         for (id, name, data) in &staged {
             // SAFETY: `raw`/`id`/`name`/`data` 均为阶段一备齐的有效引用；
             // Put 不接管 `data` 引用，由 staged 的守卫释放。
             let status = unsafe { PasteboardPutItemFlavor(pb.raw, *id, *name, data.data_ref(), 0) };
             if status != 0 {
-                debug!(
-                    thread = thread::EVENT,
-                    status, "flavor write failed, restore incomplete"
-                );
-                return fail(1);
+                return fail(RestoreStage::Put, status, 1);
             }
         }
         RestoreOutcome {
             ok: true,
             clears: 1,
+            stage: RestoreStage::Open,
+            status: 0,
         }
     }
 
-    /// 恢复原剪贴板内容；失败留痕但不影响调用方的主结果。
+    /// 恢复原剪贴板内容；失败留痕（环节与状态码，供定位粘贴板服务的
+    /// 持续不可用）但不影响调用方的主结果。
     fn restore_and_log(saved: &SavedContent) {
-        if !restore_pasteboard(saved).ok {
-            error!(thread = thread::EVENT, "failed to restore clipboard");
+        let outcome = restore_pasteboard(saved);
+        if !outcome.ok {
+            error!(
+                thread = thread::EVENT,
+                stage = ?outcome.stage,
+                status = outcome.status,
+                clears = outcome.clears,
+                "failed to restore clipboard"
+            );
         }
     }
 
@@ -688,18 +749,24 @@ pub use imp::{ClipboardFallbackReader, FallbackSettle};
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::imp::{RestoreOutcome, keys_to_release, restore_with_retry};
+    use super::imp::{RestoreOutcome, RestoreStage, keys_to_release, restore_with_retry};
     use super::wait_for_write;
+
+    fn outcome(ok: bool, clears: u64) -> RestoreOutcome {
+        RestoreOutcome {
+            ok,
+            clears,
+            stage: RestoreStage::Open,
+            status: 0,
+        }
+    }
 
     #[test]
     fn retry_stops_at_the_first_success() {
         let calls = std::cell::Cell::new(0u32);
         let outcome = restore_with_retry(3, Duration::ZERO, || {
             calls.set(calls.get() + 1);
-            RestoreOutcome {
-                ok: true,
-                clears: 1,
-            }
+            outcome(true, 1)
         });
         assert!(outcome.ok);
         assert_eq!(outcome.clears, 1);
@@ -712,18 +779,9 @@ mod tests {
         let outcome = restore_with_retry(3, Duration::ZERO, || {
             calls.set(calls.get() + 1);
             match calls.get() {
-                1 => RestoreOutcome {
-                    ok: false,
-                    clears: 1,
-                },
-                2 => RestoreOutcome {
-                    ok: false,
-                    clears: 0,
-                },
-                _ => RestoreOutcome {
-                    ok: true,
-                    clears: 1,
-                },
+                1 => outcome(false, 1),
+                2 => outcome(false, 0),
+                _ => outcome(true, 1),
             }
         });
         assert!(outcome.ok);
@@ -732,13 +790,29 @@ mod tests {
     }
 
     #[test]
-    fn exhausted_retries_return_failure_with_the_total_clears() {
-        let outcome = restore_with_retry(2, Duration::ZERO, || RestoreOutcome {
-            ok: false,
-            clears: 1,
+    fn exhausted_retries_carry_the_last_attempt_stage_status_and_total_clears() {
+        let calls = std::cell::Cell::new(0u32);
+        let outcome = restore_with_retry(2, Duration::ZERO, || {
+            calls.set(calls.get() + 1);
+            match calls.get() {
+                1 => RestoreOutcome {
+                    ok: false,
+                    clears: 1,
+                    stage: RestoreStage::Alloc,
+                    status: 5,
+                },
+                _ => RestoreOutcome {
+                    ok: false,
+                    clears: 0,
+                    stage: RestoreStage::Clear,
+                    status: 42,
+                },
+            }
         });
         assert!(!outcome.ok);
-        assert_eq!(outcome.clears, 2);
+        assert_eq!(outcome.clears, 1);
+        assert_eq!(outcome.stage, RestoreStage::Clear);
+        assert_eq!(outcome.status, 42);
     }
 
     #[test]
@@ -978,10 +1052,16 @@ mod live_tests {
             .expect("simulate the injected copy clobbering the board");
         let board_writes_before_unwind = pasteboard_change_count();
 
-        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-            let _settle = settle;
-            panic!("simulated caller panic before finish");
-        }));
+        let mut unwound = None;
+        let restore_log = gloss_core::log::capture(|| {
+            unwound = Some(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                move || {
+                    let _settle = settle;
+                    panic!("simulated caller panic before finish");
+                },
+            )));
+        });
+        let unwound = unwound.expect("capture must run the closure");
         assert!(
             unwound.is_err(),
             "the simulated caller panic must unwind through the settle"
@@ -993,12 +1073,14 @@ mod live_tests {
             _ => 0,
         };
         let outcome_ok = outcome.is_ok();
+        let restore_log = restore_log.trim();
         assert_eq!(
             restored, preset,
             "the unwind Drop must restore the snapshot, not the clobbered copy (read took \
              {read_ms}ms, outcome ok={outcome_ok}, pasteboard clears after the clobber \
              [0 = the Drop restore never landed, 1 = one clean restore, 2 = one failed \
-             halfway and the retry landed]: {writes_after_unwind})"
+             halfway and the retry landed]: {writes_after_unwind}, restore error log: \
+             {restore_log})"
         );
     }
 
