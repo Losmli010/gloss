@@ -130,12 +130,13 @@ pub fn render_frame_with<R>(
     (repaint_at, result)
 }
 
-/// 一帧浮层的上交产物：头部动作、内容期望尺寸与页头拖动位移。
+/// 一帧浮层的上交产物：头部动作、内容期望高与页头拖动位移。
 #[derive(Default)]
 pub struct OverlayFrameOutput {
     /// 本帧被点击的浮层动作（失败卡与头部动作区）。
     pub action: Option<ui::popup::OverlayAction>,
-    /// 浮层内容期望的窗口尺寸（壳按显示器钳制后应用）。
+    /// 浮层内容期望的窗口高（宽度恒为 `ui::popup::WIDTH`，壳按显示器
+    /// 钳制后应用）。
     pub sizing: Option<ui::popup::OverlaySizing>,
     /// 页头拖动热区的指针位移（窗口内相对逻辑点）；`Some`＝拖动进行中。
     pub drag: Option<egui::Vec2>,

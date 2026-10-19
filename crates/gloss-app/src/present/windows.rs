@@ -11,8 +11,8 @@ use winit::window::{Window, WindowId, WindowLevel};
 
 /// 应用名：浮层标题与设置窗创建期的占位标题（品牌不进文案表，不翻译）。
 const APP_NAME: &str = "Gloss";
-/// 浮层默认宽度：与绘制侧的布局宽同源（`popup::WIDTH`），这里只转成窗口
-/// 坐标的 `f64`（长文本自适应的上限由 popup 模块定）。
+/// 浮层宽度：与绘制侧的布局宽同源（`popup::WIDTH`），这里只转成窗口坐标
+/// 的 `f64`（宽度不随内容变化，见 popup 模块）。
 const OVERLAY_WIDTH: f64 = crate::ui::popup::WIDTH as f64;
 /// 浮层默认高度：自检期只有渲染面板，按内容给一个紧凑初值
 const OVERLAY_HEIGHT: f64 = 200.0;
@@ -35,9 +35,9 @@ const DRAG_POSITION_EPSILON: f64 = 0.5;
 const SETTINGS_WIDTH: f64 = 460.0;
 const SETTINGS_HEIGHT: f64 = 640.0;
 
-/// 流式防抖尺寸：宽度保持当前档（popup 的宽度滞回到完成态
-/// 再一次应用），高度向上量化到 [`STREAM_HEIGHT_STEP`] 的倍数且相对
-/// 当前值**只增不减**——内容回缩留给完成态的精确重排。
+/// 流式防抖尺寸：宽度保持当前值（浮层宽度固定，见 `popup::WIDTH`），
+/// 高度向上量化到 [`STREAM_HEIGHT_STEP`] 的倍数且相对当前值**只增不减**
+/// ——内容回缩留给完成态的精确重排。
 fn debounced_size(current: LogicalSize<f64>, requested: LogicalSize<f64>) -> LogicalSize<f64> {
     let steps = (requested.height / STREAM_HEIGHT_STEP).ceil();
     let stepped = (steps * STREAM_HEIGHT_STEP).max(current.height);
@@ -164,7 +164,7 @@ impl WindowManager {
     /// 旧尺寸的钳制结果挤离锚点）。
     ///
     /// `debounced` 为真时走流式防抖（[`debounced_size`]）：宽度
-    /// 锁定当前档、高度按步长只增不减；为假（骨架/失败/完成态）按精确
+    /// 保持当前值、高度按步长只增不减；为假（骨架/失败/完成态）按精确
     /// 尺寸重排——TaskDone 的定型也走这一支。
     pub fn set_overlay_size(&mut self, size: LogicalSize<f64>, debounced: bool) {
         // 顺序：先防抖量化、再按屏幕钳制——反过来的话，量化取整会把已
@@ -381,7 +381,7 @@ mod tests {
     use winit::dpi::{LogicalPosition, LogicalSize};
 
     const SCREEN: LogicalSize<f64> = LogicalSize::new(1920.0, 1080.0);
-    const OVERLAY: LogicalSize<f64> = LogicalSize::new(380.0, 200.0);
+    const OVERLAY: LogicalSize<f64> = LogicalSize::new(480.0, 200.0);
 
     #[test]
     fn position_inside_the_monitor_is_untouched() {
@@ -395,8 +395,8 @@ mod tests {
         let origin = LogicalPosition::new(0.0, 0.0);
         assert_eq!(
             clamp_to_monitor(LogicalPosition::new(1900.0, 300.0), origin, SCREEN, OVERLAY),
-            LogicalPosition::new(1540.0, 300.0),
-            "右越界收到 1920-380"
+            LogicalPosition::new(1440.0, 300.0),
+            "右越界收到 1920-480"
         );
         assert_eq!(
             clamp_to_monitor(LogicalPosition::new(500.0, 2000.0), origin, SCREEN, OVERLAY),
@@ -420,8 +420,8 @@ mod tests {
         let origin = LogicalPosition::new(1440.0, 0.0);
         assert_eq!(
             clamp_to_monitor(LogicalPosition::new(3200.0, 300.0), origin, SCREEN, OVERLAY),
-            LogicalPosition::new(2980.0, 300.0),
-            "副屏右缘按 1440+1920-380 收，不是主屏的 1540"
+            LogicalPosition::new(2880.0, 300.0),
+            "副屏右缘按 1440+1920-480 收，不是主屏的 1440"
         );
     }
 
@@ -470,12 +470,15 @@ mod debounce_tests {
     use super::{STREAM_HEIGHT_STEP, debounced_size};
     use winit::dpi::LogicalSize;
 
-    const CURRENT: LogicalSize<f64> = LogicalSize::new(380.0, 200.0);
+    const CURRENT: LogicalSize<f64> = LogicalSize::new(480.0, 200.0);
 
     #[test]
-    fn width_is_locked_to_the_current_tier() {
-        let grown = debounced_size(CURRENT, LogicalSize::new(480.0, 400.0));
-        assert_eq!(grown.width, 380.0, "streaming must not switch width tiers");
+    fn width_never_changes_during_streaming() {
+        let grown = debounced_size(CURRENT, LogicalSize::new(520.0, 400.0));
+        assert_eq!(
+            grown.width, 480.0,
+            "the popup width is fixed: streaming must not widen or narrow it"
+        );
         assert_eq!(
             grown.height, 432.0,
             "height quantizes up to a step multiple"
@@ -484,7 +487,7 @@ mod debounce_tests {
 
     #[test]
     fn height_steps_up_in_quantized_increments() {
-        let grown = debounced_size(CURRENT, LogicalSize::new(380.0, 205.0));
+        let grown = debounced_size(CURRENT, LogicalSize::new(480.0, 205.0));
         assert_eq!(
             grown.height, 240.0,
             "one step past the current height is a full step"
@@ -494,7 +497,7 @@ mod debounce_tests {
 
     #[test]
     fn height_never_shrinks_during_streaming() {
-        let shrunk = debounced_size(CURRENT, LogicalSize::new(380.0, 80.0));
+        let shrunk = debounced_size(CURRENT, LogicalSize::new(480.0, 80.0));
         assert_eq!(
             shrunk.height, 200.0,
             "content shrinkage waits for the final relayout"

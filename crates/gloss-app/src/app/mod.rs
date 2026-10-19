@@ -30,6 +30,7 @@ use crate::machine::{AppState, TaskStateMachine};
 use crate::present::render::{render_frame, render_frame_with};
 use crate::present::workspace::Workspace;
 use crate::ui::i18n::Text;
+use crate::ui::popup::WIDTH;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
 use crate::update::UpdateWiring;
 
@@ -175,7 +176,7 @@ impl GlossApp {
             // 重排——TaskDone 的定型重排也走这一支。
             let streaming = self.machine.state() == AppState::Translating;
             windows.set_overlay_size(
-                LogicalSize::new(sizing.width as f64, sizing.height as f64),
+                LogicalSize::new(f64::from(WIDTH), f64::from(sizing.height)),
                 streaming,
             );
         }
