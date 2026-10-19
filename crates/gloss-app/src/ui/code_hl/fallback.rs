@@ -245,11 +245,15 @@ mod tests {
             "an upper-camel name is one Type token: {found:?}"
         );
         assert!(
-            found
-                .iter()
-                .filter(|(_, class)| *class == Class::Type)
-                .all(|(range, _)| source[range.clone()].starts_with(|c: char| c.is_uppercase())),
-            "only upper-camel names are types: {found:?}"
+            found.iter().any(
+                |(range, class)| *class == Class::Function && &source[range.clone()] == "build"
+            ),
+            "a lowercase call shape is a Function token: {found:?}"
+        );
+        assert!(
+            !found.iter().any(|(range, class)| *class == Class::Type
+                && matches!(&source[range.clone()], "let" | "value" | "build")),
+            "lowercase identifiers are never Type: {found:?}"
         );
     }
 

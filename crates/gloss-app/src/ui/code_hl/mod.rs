@@ -239,25 +239,56 @@ fn gloss_theme(dark: bool) -> Theme {
             theme_item("comment", palette::Class::Comment, dark),
             theme_item("string", palette::Class::String, dark),
             theme_item("constant.numeric", palette::Class::Number, dark),
+            // CSS 的 #fff 落 color.rgb-value，旧实现按 Number 着色。
+            theme_item("constant.other.color", palette::Class::Number, dark),
             theme_item("constant.language", palette::Class::Keyword, dark),
             theme_item("keyword.control", palette::Class::Keyword, dark),
-            // and/or/not 与 self/this 在旧的关键字表里都是 Keyword；不补这两条
-            // 会掉成平文。
+            // and/or/not 在 Python/Ruby/Lua 里是 keyword.operator.logical.*，
+            // 不能泛化到 logical（JS 的 &&/||/! 同族，旧实现不着色）。
+            theme_item(
+                "keyword.operator.logical.python",
+                palette::Class::Keyword,
+                dark,
+            ),
+            theme_item(
+                "keyword.operator.logical.ruby",
+                palette::Class::Keyword,
+                dark,
+            ),
+            theme_item(
+                "keyword.operator.logical.lua",
+                palette::Class::Keyword,
+                dark,
+            ),
+            // .word 类是词形运算符（JS 的 new 等）。
             theme_item("keyword.operator.word", palette::Class::Keyword, dark),
-            theme_item("variable.language", palette::Class::Keyword, dark),
             theme_item("keyword.other", palette::Class::Keyword, dark),
             theme_item("keyword.declaration", palette::Class::Keyword, dark),
             theme_item("storage", palette::Class::Keyword, dark),
             theme_item("storage.type", palette::Class::Keyword, dark),
             theme_item("storage.modifier", palette::Class::Keyword, dark),
+            // self/this/super 在旧关键字表里是 Keyword。按语言点名，不收
+            // variable.language 全体：Python 的 self 与 shell 的 $@/$# 在旧
+            // 实现里都不着色。Rust 的 &self 落在 variable.parameter，与普通
+            // 参数同 scope，只能保持平文。
+            theme_item("variable.language.rust", palette::Class::Keyword, dark),
+            theme_item("variable.language.ruby", palette::Class::Keyword, dark),
+            theme_item("variable.language.this", palette::Class::Keyword, dark),
+            theme_item("variable.language.super", palette::Class::Keyword, dark),
             theme_item("entity.name.tag", palette::Class::Keyword, dark),
-            // YAML 的键也是 entity.name.tag，但旧实现把数据格式的键算 Type；
-            // 排在关键字规则之后覆盖，HTML 标签不受影响。
+            // YAML 的键也是 entity.name.tag，但旧实现把数据格式的键算 Type。
+            // syntect 按匹配得分取最具体的一条，与规则的书写顺序无关。
             theme_item("entity.name.tag.yaml", palette::Class::Type, dark),
             theme_item("entity.name.type", palette::Class::Type, dark),
             theme_item("entity.name.class", palette::Class::Type, dark),
             theme_item("support.type", palette::Class::Type, dark),
             theme_item("support.type.property-name", palette::Class::Type, dark),
+            // JSON 的键与值同为 string scope，只能靠父级 mapping 区分。
+            theme_item(
+                "meta.mapping.key.json string.quoted.double.json",
+                palette::Class::Type,
+                dark,
+            ),
             theme_item("entity.name.function", palette::Class::Function, dark),
             theme_item("support.function", palette::Class::Function, dark),
             theme_item("variable.function", palette::Class::Function, dark),
@@ -267,6 +298,8 @@ fn gloss_theme(dark: bool) -> Theme {
                 dark,
             ),
             theme_item("entity.name.section", palette::Class::Function, dark),
+            // TOML 的 [section] 是 table 名，旧实现按 Function 着色。
+            theme_item("entity.name.table", palette::Class::Function, dark),
         ],
     }
 }
@@ -410,8 +443,43 @@ mod tests {
         }
     }
 
+    /// 按字节区间把 sections 回切成 `(区间, 文本, 格式)`。syntect 会把一个
+    /// token 按 scope 拆成多段（如字符串的引号与内容），断言按区间覆盖。
+    fn sections<'a>(
+        job: &'a LayoutJob,
+        source: &'a str,
+    ) -> Vec<(std::ops::Range<usize>, &'a str, &'a egui::TextFormat)> {
+        job.sections
+            .iter()
+            .map(|section| {
+                let range = section.byte_range.start.0..section.byte_range.end.0;
+                (range.clone(), &source[range], &section.format)
+            })
+            .collect()
+    }
+
+    /// `token` 在原文区间内的所有 section 颜色（token 可能被拆成多段）。
+    fn colors_of(job: &LayoutJob, source: &str, token: &str) -> Vec<egui::Color32> {
+        let start = source.find(token).expect("token is in the fixture");
+        let end = start + token.len();
+        sections(job, source)
+            .into_iter()
+            .filter(|(range, _, _)| range.start >= start && range.end <= end)
+            .map(|(_, _, format)| format.color)
+            .collect()
+    }
+
+    fn assert_token_color(job: &LayoutJob, source: &str, token: &str, expected: egui::Color32) {
+        let colors = colors_of(job, source, token);
+        assert!(!colors.is_empty(), "{token:?} has no section");
+        assert!(
+            colors.iter().all(|color| *color == expected),
+            "{token:?} must be {expected:?}, got {colors:?}"
+        );
+    }
+
     #[test]
-    fn theme_maps_scopes_to_the_palette_and_clears_the_italic_underline() {
+    fn scope_mapping_keeps_the_six_class_colors() {
         let ctx = crate::ui::context::new_context(gloss_core::config::Theme::Light);
         let style = egui::Style::default();
         let source = "fn main() {\n    // note\n    let s = \"hi\";\n    let n = 42;\n}";
@@ -425,31 +493,88 @@ mod tests {
                 Some("rust"),
             )
             .expect("rust is mapped");
-            for class in [
-                palette::Class::Keyword,
-                palette::Class::String,
-                palette::Class::Comment,
-                palette::Class::Number,
+            for (token, class) in [
+                ("fn", palette::Class::Keyword),
+                ("\"hi\"", palette::Class::String),
+                ("42", palette::Class::Number),
             ] {
-                assert!(
-                    job.sections
-                        .iter()
-                        .any(|section| section.format.color == class.color(dark)),
-                    "{class:?} must keep its palette color (dark = {dark})"
-                );
+                assert_token_color(&job, source, token, class.color(dark));
             }
-            let comment = job
-                .sections
-                .iter()
-                .find(|section| section.format.color == palette::Class::Comment.color(dark))
-                .expect("the fixture has a comment");
-            assert!(comment.format.italics, "comments stay italic");
+            let comment_start = source.find("// note").expect("the fixture has a comment");
+            let comment = sections(&job, source)
+                .into_iter()
+                .find(|(range, _, _)| range.start == comment_start)
+                .map(|(_, _, format)| format)
+                .expect("the comment has a section");
             assert_eq!(
-                comment.format.underline,
+                comment.color,
+                palette::Class::Comment.color(dark),
+                "the comment keeps its palette color"
+            );
+            assert!(comment.italics, "comments stay italic");
+            assert_eq!(
+                comment.underline,
                 egui::Stroke::NONE,
                 "the upstream italic-as-underline bug is cleared"
             );
         }
+    }
+
+    #[test]
+    fn data_format_and_keyword_scopes_keep_their_old_classes() {
+        let ctx = crate::ui::context::new_context(gloss_core::config::Theme::Light);
+        let style = egui::Style::default();
+        let plain = palette::plain_color(false);
+        for (source, lang, token, class) in [
+            ("key: value\n", "yaml", "key", palette::Class::Type),
+            (
+                "[gloss]\nkey = 1\n",
+                "toml",
+                "gloss",
+                palette::Class::Function,
+            ),
+            (
+                "a { color: #fff; }\n",
+                "css",
+                "#fff",
+                palette::Class::Number,
+            ),
+            ("{\"key\": 1}\n", "json", "\"key\"", palette::Class::Type),
+            ("x = a and b\n", "python", "and", palette::Class::Keyword),
+            (
+                "if x\n  self.y\nend\n",
+                "ruby",
+                "self",
+                palette::Class::Keyword,
+            ),
+            (
+                "fn f() { self.value }\n",
+                "rust",
+                "self",
+                palette::Class::Keyword,
+            ),
+        ] {
+            let job = highlight(
+                &ctx,
+                &style,
+                false,
+                egui::FontId::monospace(12.0),
+                source,
+                Some(lang),
+            )
+            .unwrap_or_else(|| panic!("{lang} is mapped"));
+            assert_token_color(&job, source, token, class.color(false));
+        }
+        let python_self = highlight(
+            &ctx,
+            &style,
+            false,
+            egui::FontId::monospace(12.0),
+            "x = self.value\n",
+            Some("python"),
+        )
+        .expect("python is mapped");
+        assert_token_color(&python_self, "x = self.value\n", "self", plain);
     }
 
     #[test]

@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 38 | `just test` |
-| 单元测试 | 573 | `just test` |
+| 单元测试 | 574 | `just test` |
 
 ## 人工测试
 
@@ -749,10 +749,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | normalize_language_rejects_blank_names | 空白语言名无语言 | 给定空串与全空白名，当归一化，则恒为 None | 2026-10-02 |
 | canonical_languages_resolve_in_the_default_syntax_set | 规范语言名在语法集中可解析 | 给定规范语言表，当在 two-face 的语法集按名字/扩展名查找，则每个条目都命中（缺失时一次性列出全部） | 2026-10-19 |
 | unmapped_languages_have_no_syntect_token | 表外语言不猜语法 | 给定 None、空白与表外语言（fortran），当取语法名，则恒为 None；rs 别名落 Rust | 2026-10-19 |
-| aliases_always_resolve_through_the_syntax_whitelist | 别名与语法白名单一致 | 给定别名表逐条，当取其语法名，则每条别名都与它的规范名落到同一语法（规范名漏进白名单会在此报出） | 2026-10-19 |
+| aliases_always_resolve_through_the_syntax_whitelist | 别名与语法白名单一致 | 给定别名表逐条，当取其语法名，则每条别名都与它的规范名落到同一语法（别名目标的规范名漏进白名单会在此报出；纯规范名不在覆盖内） | 2026-10-19 |
 | custom_themes_sit_under_the_keys_egui_extras_indexes | 自定义主题顶替内置键 | 给定进程内 SyntectSettings，当其主题集，则含 egui_extras 按 CodeTheme 取用的两个键（base16-mocha.dark / Solarized (light)） | 2026-10-19 |
 | highlight_keeps_the_source_and_emits_sections | 着色保留原文并产出多段 | 给定 rust 片段，当经 egui_extras 着色，则 LayoutJob 文本与输入一致、sections 非空且至少一段颜色不同于首段 | 2026-10-19 |
-| theme_maps_scopes_to_the_palette_and_clears_the_italic_underline | scope 映射六类色并清斜体下划线 | 给定含关键字/注释/字符串/数字的 rust 片段，当明暗各着色一次，则四类颜色等于色板值、注释保持斜体且无下划线（绕开 egui_extras 的 ITALIC→UNDERLINE 缺陷） | 2026-10-19 |
+| scope_mapping_keeps_the_six_class_colors | scope 映射六类色并清斜体下划线 | 给定含关键字/注释/字符串/数字的 rust 片段，当明暗各着色一次，则 fn/字符串/数字逐 token 等于色板值（token 被 scope 拆段时按区间全覆盖）、注释保持斜体且无下划线（绕开 egui_extras 的 ITALIC→UNDERLINE 缺陷） | 2026-10-19 |
+| data_format_and_keyword_scopes_keep_their_old_classes | 数据格式与关键字 scope 对齐旧类别 | 给定 yaml 键、toml 节头、css 色值、json 键、python and、ruby/rust self，当各着色一次，则依次为 Type/Function/Number/Type/Keyword/Keyword/Keyword；python 的 self 保持平文（旧关键字表未着色） | 2026-10-19 |
 
 ### crates/gloss-app/src/ui/code_hl/palette.rs
 
@@ -767,7 +768,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | generic_tokens_color_strings_and_line_comments | 兜底集着色字符串与行注释 | 给定含字符串与 -- 行注释的片段，当走通用兜底，则两类各出一段；空输入无 token | 2026-10-19 |
 | generic_tokens_color_block_comments_across_lines | 兜底块注释跨行 | 给定跨行 /* */ 片段，当走通用兜底，则块注释为单个跨行 token，止于闭合星斜杠 | 2026-10-19 |
 | generic_tokens_keep_hex_literals_whole | 兜底十六进制整体着色 | 给定含 0xFF_00 的片段，当走通用兜底，则十六进制字面量为单个 Number token | 2026-10-19 |
-| generic_tokens_color_type_names_and_leave_lowercase_alone | 兜底类型只认首字母大写 | 给定 let value: Widget = build()，当走通用兜底，则 Widget 为 Type、小写标识符保持平文 | 2026-10-19 |
+| generic_tokens_color_type_names_and_leave_lowercase_alone | 兜底类型只认首字母大写 | 给定 let value: Widget = build()，当走通用兜底，则 Widget 为 Type、build 为 Function，且 let/value/build 都不落 Type | 2026-10-19 |
 | generic_tokens_color_function_shapes_without_the_delimiter | 兜底函数形裁掉定界符 | 给定 compute(value)，当走通用兜底，则函数 token 止于左括号前 | 2026-10-19 |
 
 ### crates/gloss-app/src/ui/context.rs

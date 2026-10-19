@@ -1065,8 +1065,8 @@ fn code_job(
     };
     job.break_on_newline = true;
     for section in &mut job.sections {
-        // 缓存键里的字体取自 style 而非 CodeTheme；逐段再写一遍，将来两侧
-        // 字体不一致时不会命中带旧字体的 job。
+        // 逐段写回字体：egui_extras 在分词失败时退回的纯文本用 style 派生的
+        // 字体，不写回会丢掉 gloss-mono。
         section.format.font_id = font_id.clone();
         section.format.line_height = Some(CODE_LINE_HEIGHT);
     }
