@@ -276,9 +276,10 @@ fn gloss_theme(dark: bool) -> Theme {
             theme_item("variable.language.this", palette::Class::Keyword, dark),
             theme_item("variable.language.super", palette::Class::Keyword, dark),
             theme_item("entity.name.tag", palette::Class::Keyword, dark),
-            // YAML 的键也是 entity.name.tag，但旧实现把数据格式的键算 Type。
-            // syntect 按匹配得分取最具体的一条，与规则的书写顺序无关。
+            // YAML/TOML 的键也是 entity.name.tag，但旧实现把数据格式的键算
+            // Type。syntect 按匹配得分取最具体的一条，与规则的书写顺序无关。
             theme_item("entity.name.tag.yaml", palette::Class::Type, dark),
+            theme_item("entity.name.tag.toml", palette::Class::Type, dark),
             theme_item("entity.name.type", palette::Class::Type, dark),
             theme_item("entity.name.class", palette::Class::Type, dark),
             theme_item("support.type", palette::Class::Type, dark),
@@ -299,7 +300,7 @@ fn gloss_theme(dark: bool) -> Theme {
             ),
             theme_item("entity.name.section", palette::Class::Function, dark),
             // TOML 的 [section] 是 table 名，旧实现按 Function 着色。
-            theme_item("entity.name.table", palette::Class::Function, dark),
+            theme_item("entity.name.table.toml", palette::Class::Function, dark),
         ],
     }
 }
@@ -443,8 +444,6 @@ mod tests {
         }
     }
 
-    /// 按字节区间把 sections 回切成 `(区间, 文本, 格式)`。syntect 会把一个
-    /// token 按 scope 拆成多段（如字符串的引号与内容），断言按区间覆盖。
     fn sections<'a>(
         job: &'a LayoutJob,
         source: &'a str,
@@ -458,7 +457,6 @@ mod tests {
             .collect()
     }
 
-    /// `token` 在原文区间内的所有 section 颜色（token 可能被拆成多段）。
     fn colors_of(job: &LayoutJob, source: &str, token: &str) -> Vec<egui::Color32> {
         let start = source.find(token).expect("token is in the fixture");
         let end = start + token.len();
@@ -479,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn scope_mapping_keeps_the_six_class_colors() {
+    fn scope_mapping_keeps_keyword_string_comment_number() {
         let ctx = crate::ui::context::new_context(gloss_core::config::Theme::Light);
         let style = egui::Style::default();
         let source = "fn main() {\n    // note\n    let s = \"hi\";\n    let n = 42;\n}";
@@ -524,57 +522,84 @@ mod tests {
     fn data_format_and_keyword_scopes_keep_their_old_classes() {
         let ctx = crate::ui::context::new_context(gloss_core::config::Theme::Light);
         let style = egui::Style::default();
-        let plain = palette::plain_color(false);
-        for (source, lang, token, class) in [
-            ("key: value\n", "yaml", "key", palette::Class::Type),
-            (
-                "[gloss]\nkey = 1\n",
-                "toml",
-                "gloss",
-                palette::Class::Function,
-            ),
-            (
-                "a { color: #fff; }\n",
-                "css",
-                "#fff",
-                palette::Class::Number,
-            ),
-            ("{\"key\": 1}\n", "json", "\"key\"", palette::Class::Type),
-            ("x = a and b\n", "python", "and", palette::Class::Keyword),
-            (
-                "if x\n  self.y\nend\n",
-                "ruby",
-                "self",
-                palette::Class::Keyword,
-            ),
-            (
-                "fn f() { self.value }\n",
-                "rust",
-                "self",
-                palette::Class::Keyword,
-            ),
-        ] {
-            let job = highlight(
-                &ctx,
-                &style,
-                false,
-                egui::FontId::monospace(12.0),
-                source,
-                Some(lang),
-            )
-            .unwrap_or_else(|| panic!("{lang} is mapped"));
-            assert_token_color(&job, source, token, class.color(false));
+        for dark in [false, true] {
+            for (source, lang, token, class) in [
+                ("key: value\n", "yaml", "key", palette::Class::Type),
+                (
+                    "[gloss]\nkey = 1\n",
+                    "toml",
+                    "gloss",
+                    palette::Class::Function,
+                ),
+                ("[gloss]\nkey = 1\n", "toml", "key", palette::Class::Type),
+                (
+                    "a { color: #fff; }\n",
+                    "css",
+                    "#fff",
+                    palette::Class::Number,
+                ),
+                (
+                    "{\"key\": \"value\"}\n",
+                    "json",
+                    "\"key\"",
+                    palette::Class::Type,
+                ),
+                (
+                    "{\"key\": \"value\"}\n",
+                    "json",
+                    "\"value\"",
+                    palette::Class::String,
+                ),
+                ("x = a and b\n", "python", "and", palette::Class::Keyword),
+                ("x = a and b\n", "ruby", "and", palette::Class::Keyword),
+                ("local x = a and b\n", "lua", "and", palette::Class::Keyword),
+                (
+                    "if x\n  self.y\nend\n",
+                    "ruby",
+                    "self",
+                    palette::Class::Keyword,
+                ),
+                (
+                    "fn f() { self.value }\n",
+                    "rust",
+                    "self",
+                    palette::Class::Keyword,
+                ),
+                (
+                    "const f = function () { return this.x; };\n",
+                    "javascript",
+                    "this",
+                    palette::Class::Keyword,
+                ),
+            ] {
+                let job = highlight(
+                    &ctx,
+                    &style,
+                    dark,
+                    egui::FontId::monospace(12.0),
+                    source,
+                    Some(lang),
+                )
+                .unwrap_or_else(|| panic!("{lang} is mapped"));
+                assert_token_color(&job, source, token, class.color(dark));
+            }
+            for (source, lang, token) in [
+                ("x = self.value\n", "python", "self"),
+                ("echo $@\n", "bash", "$@"),
+                ("fn f(&self) {}\n", "rust", "self"),
+            ] {
+                let job = highlight(
+                    &ctx,
+                    &style,
+                    dark,
+                    egui::FontId::monospace(12.0),
+                    source,
+                    Some(lang),
+                )
+                .unwrap_or_else(|| panic!("{lang} is mapped"));
+                assert_token_color(&job, source, token, palette::plain_color(dark));
+            }
         }
-        let python_self = highlight(
-            &ctx,
-            &style,
-            false,
-            egui::FontId::monospace(12.0),
-            "x = self.value\n",
-            Some("python"),
-        )
-        .expect("python is mapped");
-        assert_token_color(&python_self, "x = self.value\n", "self", plain);
     }
 
     #[test]

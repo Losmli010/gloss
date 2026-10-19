@@ -752,8 +752,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | aliases_always_resolve_through_the_syntax_whitelist | 别名与语法白名单一致 | 给定别名表逐条，当取其语法名，则每条别名都与它的规范名落到同一语法（别名目标的规范名漏进白名单会在此报出；纯规范名不在覆盖内） | 2026-10-19 |
 | custom_themes_sit_under_the_keys_egui_extras_indexes | 自定义主题顶替内置键 | 给定进程内 SyntectSettings，当其主题集，则含 egui_extras 按 CodeTheme 取用的两个键（base16-mocha.dark / Solarized (light)） | 2026-10-19 |
 | highlight_keeps_the_source_and_emits_sections | 着色保留原文并产出多段 | 给定 rust 片段，当经 egui_extras 着色，则 LayoutJob 文本与输入一致、sections 非空且至少一段颜色不同于首段 | 2026-10-19 |
-| scope_mapping_keeps_the_six_class_colors | scope 映射六类色并清斜体下划线 | 给定含关键字/注释/字符串/数字的 rust 片段，当明暗各着色一次，则 fn/字符串/数字逐 token 等于色板值（token 被 scope 拆段时按区间全覆盖）、注释保持斜体且无下划线（绕开 egui_extras 的 ITALIC→UNDERLINE 缺陷） | 2026-10-19 |
-| data_format_and_keyword_scopes_keep_their_old_classes | 数据格式与关键字 scope 对齐旧类别 | 给定 yaml 键、toml 节头、css 色值、json 键、python and、ruby/rust self，当各着色一次，则依次为 Type/Function/Number/Type/Keyword/Keyword/Keyword；python 的 self 保持平文（旧关键字表未着色） | 2026-10-19 |
+| scope_mapping_keeps_keyword_string_comment_number | 关键字/字符串/注释/数字按色板着色并清斜体下划线 | 给定含关键字/注释/字符串/数字的 rust 片段，当明暗各着色一次，则 fn/字符串/数字逐 token 等于色板值（token 被 scope 拆段时按区间全覆盖）、注释保持斜体且无下划线（绕开 egui_extras 的 ITALIC→UNDERLINE 缺陷） | 2026-10-19 |
+| data_format_and_keyword_scopes_keep_their_old_classes | 数据格式与关键字 scope 对齐旧类别 | 给定 yaml 键、toml 节名与键、css 色值、json 键与字符串值、python/ruby/lua 的 and、ruby/rust self、js this，当明暗各着色一次，则依次为 Type/Function/Type/Number/Type/String/Keyword×6；负例（python self、bash $@、rust &self）保持平文 | 2026-10-19 |
 
 ### crates/gloss-app/src/ui/code_hl/palette.rs
 
