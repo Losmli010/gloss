@@ -44,6 +44,15 @@ impl Class {
     }
 }
 
+/// 代码平文字色：面板底上的主文字色（明暗两档，demo 的正文墨色）。
+pub(crate) fn plain_color(dark: bool) -> Color32 {
+    if dark {
+        Color32::from_rgb(0xE6, 0xE6, 0xE6)
+    } else {
+        Color32::from_rgb(0x24, 0x29, 0x2E)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Class;

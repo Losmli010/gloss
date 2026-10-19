@@ -37,6 +37,15 @@ egui_commonmark = {
     "pulldown_cmark",
   ]
 }
+# 代码面板的语法着色：syntect 分词（Sublime 语法集）由 egui_extras 转成
+# LayoutJob；关默认特性只取 syntect，不引图片加载器。
+egui_extras = {
+  version = "0.36.2",
+  default-features = false,
+  features = [
+    "syntect",
+  ]
+}
 # 保留 macos-window-resize-jitter-fix：真实的窗口缩放抖动修复。
 egui-wgpu = {
   version = "0.36.2",
@@ -67,8 +76,8 @@ memmap2 = { version = "0.9", default-features = false }
 moka = { version = "0.12", default-features = false, features = ["sync"] }
 # 同步等待 GPU 初始化。
 pollster = { version = "1.0.1", default-features = false }
-# 代码面板的单趟正则着色（demo 同架构）；unicode 供 \b/\w 按码点判定，
-# perf 开字面量预前缀优化。
+# 通用兜底着色（syntect 无语法名时的字符串/注释/数字/类型/函数形）；
+# unicode 供 \b/\w 按码点判定，perf 开字面量预前缀优化。
 regex = { version = "1", default-features = false, features = ["perf", "std", "unicode"] }
 # OpenAI 兼容端点的流式调用（platform 同款最小特性集）；更新子系统复用
 # 同一套 TLS 与流式配置，清单与整包都走 rustls + 系统根证书。
@@ -89,6 +98,15 @@ serde = { version = "1", default-features = false, features = ["derive", "std"] 
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # 下载体的 sha256 校验（成熟库，不手搓）。
 sha2 = { version = "0.10", default-features = false, features = ["std"] }
+# 代码面板的语法分词（Sublime 语法集）；default-fancy 走 fancy-regex，
+# 不引 onig 的 C 依赖。
+syntect = {
+  version = "5.3",
+  default-features = false,
+  features = [
+    "default-fancy",
+  ]
+}
 # 通道③用 tokio mpsc；pipeline 的消费运行时与 select! 宏。
 tokio = {
   version = "1",
@@ -110,6 +128,16 @@ toml = {
   default-features = false,
   features = [
     "parse",
+  ]
+}
+# 额外语法集（bat 的语法补集）：补 syntect 默认集缺的 Kotlin/Swift/Dart/
+# Elixir/Julia/TOML/TypeScript 等；fancy 特性与 syntect 的纯 Rust 正则
+# 后端对齐，不引 onig。
+two-face = {
+  version = "0.5",
+  default-features = false,
+  features = [
+    "syntect-fancy",
   ]
 }
 # 只留实际使用的 Metal 后端，配合 egui-wgpu 已声明的 std + wgsl。
