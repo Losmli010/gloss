@@ -13,13 +13,14 @@
 //! 字体助手在 [`content`]（都是 demo 基准的应用定稿值），不进 style 阶梯。
 //!
 //! 决策纯函数不进绘制模板，按职责拆在子模块：[`note`]（流式 JSON 渐进
-//! 提取）、[`sizing`]（宽度滞回）、[`icon`]（图标解码裁剪）、[`content`]
-//! （文案整形）；本模块只留绘制模板与面板编排，依赖方向恒为绘制 → 决策。
+//! 提取）、[`icon`]（图标解码裁剪）、[`content`]（文案整形）；本模块只留
+//! 绘制模板与面板编排，依赖方向恒为绘制 → 决策。
 //!
 //! 词卡精排（词条/音标落经位，释义逐行落注位，例句落疏位），其余任务正文
 //! 走 markdown（egui_commonmark 渲染；注区统一改写文本样式为楷体字号）。
-//! 划选即复制：全部文本可选中，无独立复制按钮。正文完整渲染不截断，高度
-//! 自适应内容（宽度默认 380、上限 480，高度上限按屏幕），超出部分滚动兜底。
+//! 划选即复制：全部文本可选中，无独立复制按钮。正文完整渲染不截断，宽度
+//! 固定 [`WIDTH`]（不随内容变化），高度自适应内容（上限按屏幕），超出部分
+//! 滚动兜底。
 //! 流式视图对累积的原始流做**转义感知**的 `note`（注）渐进提取（现行输出
 //! 契约是纯 JSON 对象，见 `gloss_core::schema`）：`note` 键未到齐时正文区
 //! 落骨架、页脚保留「正在注解」；`structured.examples` 随流下钻渐进出。
@@ -46,19 +47,16 @@ mod content;
 mod icon;
 mod image;
 mod note;
-mod sizing;
 
 use std::sync::Arc;
 
 use content::{
-    JING_FONT, PHON_FONT, SEAL_FONT, SHU_FONT, WORD_FONT, ZHU_FONT, example_lines, kaiti_font,
-    serif_font, watermark,
+    JING_FONT, PHON_FONT, SEAL_FONT, SHU_FONT, SMALL_FONT, WORD_FONT, ZHU_FONT, example_lines,
+    kaiti_font, serif_font, watermark,
 };
 use icon::app_icon_image;
 use image::decode_attached;
 use note::{StreamFields, stream_fields};
-pub use sizing::WIDTH;
-use sizing::resolve_width;
 
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
@@ -78,6 +76,8 @@ use super::style::{color, font, radius, space, stroke};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
 use crate::ui::i18n::Text;
 
+/// 浮层宽度（逻辑点）：窗口创建与每帧期望尺寸共用此值，不随内容变化。
+pub const WIDTH: f32 = 480.0;
 /// 页头应用图标的边长
 const HEADER_ICON: f32 = 20.0;
 /// 头部齿轮的字形尺寸
@@ -147,8 +147,6 @@ const MIN_BODY_VIEWPORT: f32 = 48.0;
 pub struct RenderState {
     /// markdown 渲染状态（egui_commonmark 要求跨帧持有）。
     pub cache: RefCell<CommonMarkCache>,
-    /// 上一帧应用的浮层宽度（宽度收敛的滞回状态）。
-    pub last_width: Cell<f32>,
     /// 页头拖动的按压点（**物理像素**，按压帧的窗口内逻辑坐标乘当下
     /// `pixels_per_point`）：拖动开始帧记录，结束即清。存物理口径是为
     /// 跨 DPI 显示器的拖动——逻辑坐标随新显示器的缩放比例重标定，逻辑
@@ -178,7 +176,6 @@ impl Default for RenderState {
     fn default() -> Self {
         Self {
             cache: RefCell::new(CommonMarkCache::default()),
-            last_width: Cell::new(WIDTH),
             drag_press_phys: Cell::new(None),
             icon: RefCell::new(None),
             attached: RefCell::new(None),
@@ -276,10 +273,10 @@ impl From<ErrorAction> for OverlayAction {
     }
 }
 
-/// 内容自适应的期望窗口尺寸（逻辑点，含内边距与框线）。
+/// 本帧期望的浮层尺寸（逻辑点，含内边距与框线）：宽度固定，高度随内容。
 #[derive(Clone, Copy, Debug)]
 pub struct OverlaySizing {
-    /// 期望窗口宽度。
+    /// 期望窗口宽度（恒为 [`WIDTH`]）。
     pub width: f32,
     /// 期望窗口高度（完整内容高，壳侧按显示器钳制）。
     pub height: f32,
@@ -347,7 +344,7 @@ pub fn draw(
     let mut output = PopupOutput {
         action: None,
         sizing: OverlaySizing {
-            width: state.last_width.get(),
+            width: WIDTH,
             height: 0.0,
         },
         drag: None,
@@ -365,12 +362,10 @@ pub fn draw(
             ui.set_min_size(ui.available_size());
         });
 
-    // 宽度按内容体量收敛：矮内容保持默认宽，长文本加宽到上限，滞回带
-    // 防两档间来回切换；高度取完整内容高（超出屏幕由壳侧钳制、滚动兜底）。
-    let width = resolve_width(state.last_width.get(), content_h);
-    state.last_width.set(width);
+    // 宽度固定不随内容变化；高度取完整内容高（超出屏幕由壳侧钳制、滚动
+    // 兜底）。
     output.sizing = OverlaySizing {
-        width,
+        width: WIDTH,
         height: (content_h + 2.0 * space::CARD_PADDING as f32 + stroke::CARD).round(),
     };
     output
@@ -457,7 +452,7 @@ fn attached_image(ui: &mut egui::Ui, png: &Arc<[u8]>, state: &RenderState, text:
 fn image_unavailable(ui: &mut egui::Ui, text: &'static Text) {
     ui.label(
         RichText::new(&text.gloss_popup_image_unavailable)
-            .font(serif_font(SHU_FONT))
+            .font(serif_font(SMALL_FONT))
             .weak(),
     );
 }
@@ -1113,7 +1108,7 @@ fn apply_zhu_typography(ui: &mut egui::Ui) {
     for (style, size) in [
         (TextStyle::Body, ZHU_FONT),
         (TextStyle::Button, ZHU_FONT),
-        (TextStyle::Small, SHU_FONT),
+        (TextStyle::Small, SMALL_FONT),
         (TextStyle::Heading, JING_FONT),
     ] {
         ui.style_mut().text_styles.insert(style, kaiti_font(size));

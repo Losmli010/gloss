@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 38 | `just test` |
-| 单元测试 | 574 | `just test` |
+| 单元测试 | 572 | `just test` |
 
 ## 人工测试
 
@@ -306,7 +306,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | a_repairing_streaming_view_switches_the_footer_wording | 修复中流式卡页脚切重新注解 | 给定 repairing 的流式视图（正文已清稿、骨架态），当渲染，则页脚为「重新注解」/en「Re-annotating」且「正在注解」不在树中（无横幅无计数） | 2026-10-12 |
 | word_card_marks_the_three_sections_per_locale | 词卡三分区印章随 locale | 给定词卡视图（zh/en 各一），当渲染，则印章字分别为 经/注/疏 与 SRC/NOTE/EXP | 2026-09-30 |
 | streaming_view_shows_only_the_extracted_note | 流式视图只显示提取出的义 | 给定流式视图（正文为 JSON 契约原始流），当渲染，则「已流式到达的正文」「选中的原文」可见而 JSON 残片与 ```gloss 围栏均不在树中；头部只有图标与动作区 | 2026-10-03 |
-| long_lines_never_exceed_the_window_width | 长行不超窗口可用宽 | 给定长中文段落 + 围栏代码块与长 token 代码原文两类视图，当以 380 宽渲染，则全部内容节点右缘不超窗口宽（横滚不进弹窗）；popup_long_line 基线锁定形态 | 2026-10-03 |
+| long_lines_never_exceed_the_window_width | 长行不超窗口可用宽 | 给定长中文段落 + 围栏代码块与长 token 代码原文两类视图，当以 480 宽渲染，则全部内容节点右缘不超窗口宽（横滚不进弹窗）；popup_long_line 基线锁定形态 | 2026-10-19 |
 | image_card_exposes_the_commentary_to_accesskit | 图像完成态卡经注疏入树且纵排 | 给定附件图像 + ImageCommentary 产物（注 + 两条解读）的完成态视图，当渲染，则注与两条解读皆可按文本定位，且疏位条目矩形在注位之下（经=图、注→疏纵向排布） | 2026-10-10 |
 | image_streaming_card_shows_the_interpretation_items_as_they_arrive | 图像流式卡双字段渐进上屏 | 给定 note 截断 + structured.examples 两条（第二条中段截断）的图像流式视图，当渲染，则注前缀与两条疏条目（含在写条目的已到达前缀）可见而 JSON 残片不在树中（扫描器下钻 structured 渐进提取） | 2026-10-11 |
 | image_streaming_card_without_a_note_keeps_the_skeleton | 图像流式卡注未至落骨架 | 给定原始流为空的图像流式视图，当渲染，则「正在注解」页脚在（骨架态，经位图像照常回显） | 2026-10-10 |
@@ -324,7 +324,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | header_drag_strip_is_exposed_to_accesskit | 页头拖动热区进无障碍树且与动作钮零重叠 | 给定词卡视图，当渲染，则无障碍树有「拖动浮层」热区节点、矩形与页头行同高（不小于头部图标边长）且水平区间止于最左动作钮左缘（收 DRAG_STRIP_INSET，与齿轮/× 零重叠） | 2026-10-03 |
 | header_drag_reports_cumulative_offset_and_ends_on_release | 页头拖动上交自按压点的累计位移 | 给定词卡视图与页头热区中心，当按下→两段移动→松开→再移动，则上交位移自按压点累计（按下为零、两段各 (20,10)/(30,15)，非逐帧增量）、松开后不再上交；按压点按物理像素记录（跨 DPI 显示器不混尺）；落点换算与屏幕钳制在壳侧 apply_overlay_drag（无状态：以窗口实际位置为基准，中途被动过会被下一帧落点吸收） | 2026-10-03 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/流式/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 七份基线一致，结果合并进单个 SnapshotResults（基线沿革：2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、Acquiring 骨架视图删除，popup_loading 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 popup_image_outcome / popup_image_streaming / popup_image_failed 三份基线（图像经位 + 注疏，夹具为测试内确定性编码的 120×80 渐变 PNG；英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 ImageOcr 任务类型与 Extracted 结构化变体，popup_extract 基线随其视图一并移除，余七份）；2026-10-11 随契约收敛新增 popup_degraded_outcome 降级产物卡基线（异常提示 + 重试，无经注疏内容），popup_code_streaming 随流式代码面板移除语言标签行重录（差异仅该行移除与其下既段位移），余十一份；2026-10-18 随文本流式经位并入滚动区重录 popup_streaming / popup_code_streaming，差异仅经位整体的亚像素抗锯齿（行高与列位置不变）；2026-10-19 随代码着色后端换 egui_extras/syntect（two-face 语法补集 + 六类色板自定义主题）重录 popup_code_outcome；popup_code_streaming 因流式期语言未定仍走通用兜底而零变化；popup_long_line 是连带变化（egui_commonmark 的围栏代码块经 feature 统一改用 syntect 默认主题与默认语法集，不再是六类色板；表外语言如 TOML 由简易高亮退化为纯色）） | 2026-10-19 |
+| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/流式/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 七份基线一致，结果合并进单个 SnapshotResults（基线沿革：2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、Acquiring 骨架视图删除，popup_loading 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 popup_image_outcome / popup_image_streaming / popup_image_failed 三份基线（图像经位 + 注疏，夹具为测试内确定性编码的 120×80 渐变 PNG；英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 ImageOcr 任务类型与 Extracted 结构化变体，popup_extract 基线随其视图一并移除，余七份）；2026-10-11 随契约收敛新增 popup_degraded_outcome 降级产物卡基线（异常提示 + 重试，无经注疏内容），popup_code_streaming 随流式代码面板移除语言标签行重录（差异仅该行移除与其下既段位移），余十一份；2026-10-18 随文本流式经位并入滚动区重录 popup_streaming / popup_code_streaming，差异仅经位整体的亚像素抗锯齿（行高与列位置不变）；2026-10-19 随代码着色后端换 egui_extras/syntect（two-face 语法补集 + 六类色板自定义主题）重录 popup_code_outcome；popup_code_streaming 因流式期语言未定仍走通用兜底而零变化；popup_long_line 是连带变化（egui_commonmark 的围栏代码块经 feature 统一改用 syntect 默认主题与默认语法集，不再是六类色板；表外语言如 TOML 由简易高亮退化为纯色；同日再随疏字号 13→14 重录 popup_word_card / popup_image_outcome / popup_image_streaming（快照画布固定 800×600，浮层宽度常量不参与基线）） | 2026-10-19 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
@@ -654,17 +654,10 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | height_caps_at_half_the_screen_minus_the_margin | 高度上限为半屏减余量 | 给定逻辑高 1080 的显示器与超限请求，当 capped_height，则上限取一半屏高减工作区余量（444） | 2026-10-02 |
 | smaller_requests_pass_through_untouched | 未超限的高度原样保留 | 给定远小于上限的请求，当 capped_height，则原样返回 | 2026-10-02 |
 | short_screens_bottom_out_at_the_default_height | 矮屏回落默认高度 | 给定半屏扣余量后仍低于默认高度的显示器，当 capped_height，则下限取默认高度 200 | 2026-10-02 |
-| width_is_locked_to_the_current_tier | 流式锁宽 | 给定当前档与更高宽度档的请求，当流式防抖，则宽度保持当前档、高度量化到步长倍数 | 2026-09-26 |
+| width_never_changes_during_streaming | 流式锁宽 | 给定当前宽度与更宽请求，当流式防抖，则宽度保持当前值（浮层宽度固定）、高度量化到步长倍数 | 2026-10-19 |
 | height_steps_up_in_quantized_increments | 步进增高 | 给定略高于当前档的高度请求，当流式防抖，则上升一个完整步长 | 2026-09-26 |
 | height_never_shrinks_during_streaming | 流式不回缩 | 给定明显小于当前档的请求，当流式防抖，则保持当前高度（回缩留给完成态精确重排） | 2026-09-26 |
 | current_size_quantizes_up_to_the_step_boundary | 首帧落在步长边界 | 给定与当前相等的请求，当流式防抖，则高度量化到当前之上的步长边界、宽度不变 | 2026-09-26 |
-
-### crates/gloss-app/src/ui/popup/sizing.rs
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| width_hysteresis_does_not_oscillate_between_frames | 宽度滞回不振荡 | 给定上一帧宽度与内容高，当决策宽度，则长内容加宽、带内保持原档、明显变矮才收回 | 2026-09-20 |
-| width_hysteresis_band_bounds_are_symmetric | 滞回阈值边界对称 | 给定阈值附近的内容高，当按当前档决策，则过加宽阈值才加宽、过收回阈值才收回 | 2026-09-20 |
 
 ### crates/gloss-app/src/ui/popup/note.rs
 
