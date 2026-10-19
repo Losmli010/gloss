@@ -273,11 +273,11 @@ impl From<ErrorAction> for OverlayAction {
     }
 }
 
-/// 本帧期望的浮层尺寸（逻辑点，含内边距与框线）：宽度固定，高度随内容。
+/// 本帧期望的浮层高（逻辑点，含内边距与框线）：宽度恒为 [`WIDTH`]、
+/// 不随内容变化（窗口创建与每帧期望宽同源此常量，不经此结构传递），
+/// 只有高度随内容。
 #[derive(Clone, Copy, Debug)]
 pub struct OverlaySizing {
-    /// 期望窗口宽度（恒为 [`WIDTH`]）。
-    pub width: f32,
     /// 期望窗口高度（完整内容高，壳侧按显示器钳制）。
     pub height: f32,
 }
@@ -343,10 +343,7 @@ pub fn draw(
     let window_stroke = ui.visuals().window_stroke;
     let mut output = PopupOutput {
         action: None,
-        sizing: OverlaySizing {
-            width: WIDTH,
-            height: 0.0,
-        },
+        sizing: OverlaySizing { height: 0.0 },
         drag: None,
     };
     let mut content_h = 0.0;
@@ -365,7 +362,6 @@ pub fn draw(
     // 宽度固定不随内容变化；高度取完整内容高（超出屏幕由壳侧钳制、滚动
     // 兜底）。
     output.sizing = OverlaySizing {
-        width: WIDTH,
         height: (content_h + 2.0 * space::CARD_PADDING as f32 + stroke::CARD).round(),
     };
     output
@@ -1851,10 +1847,7 @@ mod kittest_tests {
         for view in [streaming_view(), word_card_view()] {
             let state = RenderState::default();
             let text = Text::get(Locale::Zh);
-            let sizing: Rc<Cell<OverlaySizing>> = Rc::new(Cell::new(OverlaySizing {
-                width: 0.0,
-                height: 0.0,
-            }));
+            let sizing: Rc<Cell<OverlaySizing>> = Rc::new(Cell::new(OverlaySizing { height: 0.0 }));
             let sink = Rc::clone(&sizing);
             let installed = Cell::new(false);
             let mut harness = Harness::new_ui(move |ui| {
@@ -1864,7 +1857,7 @@ mod kittest_tests {
                 sink.set(draw(ui, Some(&view), None, &state, text).sizing);
             });
             harness.run_steps(2);
-            harness.set_size(vec2(sizing.get().width, sizing.get().height));
+            harness.set_size(vec2(WIDTH, sizing.get().height));
             harness.run_steps(1);
             let watermark = harness.get_by_label("Gloss").rect();
             assert!(
@@ -1883,10 +1876,7 @@ mod kittest_tests {
         for view in [long_selection_streaming_view(), long_code_streaming_view()] {
             let state = RenderState::default();
             let text = Text::get(Locale::Zh);
-            let sizing: Rc<Cell<OverlaySizing>> = Rc::new(Cell::new(OverlaySizing {
-                width: 0.0,
-                height: 0.0,
-            }));
+            let sizing: Rc<Cell<OverlaySizing>> = Rc::new(Cell::new(OverlaySizing { height: 0.0 }));
             let sink = Rc::clone(&sizing);
             let installed = Cell::new(false);
             let mut harness =
@@ -1905,7 +1895,7 @@ mod kittest_tests {
                 sizing.get().height
             );
 
-            harness.set_size(vec2(sizing.get().width, capped_height));
+            harness.set_size(vec2(WIDTH, capped_height));
             harness.run_steps(2);
             for label in ["正在注解", "Gloss"] {
                 let node = harness.get_by_label_contains(label).rect();
