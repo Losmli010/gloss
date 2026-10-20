@@ -1,6 +1,7 @@
 //! 任务模型：任务类型、输入模态与管道消息的载荷类型。
 //!
-//! 文本分类的清单外落点是 [`TaskKind::General`]（分类器不提供它）；任务选项
+//! 文本分类的清单外落点是 [`TaskKind::General`]（分类模板以 `Fallback`
+//! 类别指认它，见 [`crate::schema::validate_classify`]）；任务选项
 //! 在触发时一次性冻结，执行途中不回读配置。
 
 use std::sync::Arc;
@@ -20,8 +21,8 @@ pub enum TaskKind {
     ExplainCode,
     /// 图像解读：唯一接受 [`TaskInput::Image`] 的 kind（见 [`Task::new`]）。
     ImageExplain,
-    /// 通用任务：不在 [`crate::classify::CLASSIFY_KINDS`] 里，是分类失效时的
-    /// 执行落点。
+    /// 通用任务：不在分类模板的类别清单里，是分类 `Fallback` 类别与
+    /// 分类失效时的执行落点。
     General,
 }
 

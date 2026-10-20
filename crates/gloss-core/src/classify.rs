@@ -1,19 +1,21 @@
 //! 自动任务分类（编排前半程）：文本输入 → 具体任务类型。
 //!
 //! 判定完全交给 LLM（极小 prompt + [`CLASSIFY_MAX_TOKENS`] 截断）→ JSON
-//! 校验（kind 必须在允许清单内）——源语言与代码语言同样由模型从原文
-//! 自行判断，取材不再携带模态提示。校验用 [`crate::schema::validate_classify`]
-//! （严格裸 JSON，与生产/评测共用同一校验器）；流式循环内每次累积后即
-//! 尝试解析，首个能通过校验的完整 JSON 立即定型返回（不等流自然结束，
-//! 提前还流即还回 TTFT）。
+//! 校验（kind 取 classify 模板四个类别之一，`Fallback` 映射
+//! [`TaskKind::General`]）——源语言与代码语言同样由模型从原文自行判断，
+//! 取材不再携带模态提示。校验用 [`crate::schema::validate_classify`]（严格
+//! 裸 JSON，与生产/评测共用同一校验器）；流式循环内每次累积后即尝试解析，
+//! 首个能通过校验的完整 JSON 立即定型返回（不等流自然结束，提前还流即
+//! 还回 TTFT）。
 //!
-//! **异常内部消化**：契约违约（空回复 / 非 JSON / kind 越清单）走修复轮
+//! **异常内部消化**：契约违约（空回复 / 非 JSON / 类别越模板清单）走修复轮
 //! （对话形态 `[system][user 原文][assistant 上一次坏回复][user 纠错指令]`，
 //! EmptyReply 原样重发不带 assistant 轮），预算 [`CLASSIFY_REPAIRS`]；
 //! 传输停摆（建连后 `FIRST_ITEM_DEADLINE` 内无任何流条目）按请求异常
 //! 收卷且不重试。两者耗尽/失败都落常量兜底
 //! [`CLASSIFY_FALLBACK`]——本函数对文本输入恒返回 `Ok(kind)`，用户无感，
-//! warn 留痕（类别 + 序号，不含内容）。
+//! warn 留痕（类别 + 序号，不含内容）。模型判定的原始类别与最终执行的
+//! kind 在定型时同行落 info（[`crate::schema::ClassifyChoice`]）。
 //!
 //! 内容红线：分类输出契约只有一个 kind 标识，没有理由字段；本模块的
 //! 错误与日志都不携带输入内容与模型回复原文。
@@ -25,28 +27,18 @@ use std::time::Duration;
 use futures_core::Stream;
 use tokio::time::{Instant as TokioInstant, Sleep, sleep_until};
 
-use crate::log::{debug, thread, warn};
+use crate::log::{info, thread, warn};
 use crate::model::{GlossError, Locale};
 use crate::ports::{AiEngine, EngineRequest, TaskChunk, TaskStream};
-use crate::prompt::{CLASSIFY_SCHEMA, PromptRegistry};
+use crate::prompt::PromptRegistry;
 use crate::repair::{RepairStage, next_round};
 use crate::schema;
 use crate::task::{TaskInput, TaskKind};
 
-/// 分类的允许清单：分类只服务划词路径，清单 3 个就是**文本取材可执行**
-/// 的 kind（图像 kind 不在其中——划词到不了它）。文本路径的完整
-/// 落点是「清单 3 个 + 兜底 [`CLASSIFY_FALLBACK`]」：模型只在本清单内
-/// 选择，清单外一律违约进修复轮，失效时落兜底。
-pub const CLASSIFY_KINDS: [TaskKind; 3] = [
-    TaskKind::TranslateWord,
-    TaskKind::TranslateSentence,
-    TaskKind::ExplainCode,
-];
-
 /// 分类失败（请求异常、修复轮后仍违约）时的兜底 kind：常量而非配置——
-/// 兜底必须是可渲染、可执行的具体文本 kind。「清单 3 个 + 兜底 General」
-/// 构成文本路径的完整落点：分类器只在 [`CLASSIFY_KINDS`] 内选择，清单外
-/// 的 General 只是失效时的执行落点。
+/// 兜底必须是可渲染、可执行的具体文本 kind。classify 模板的 `Fallback`
+/// 类别在校验层映射到同一个 kind（[`crate::schema::validate_classify`]）：
+/// 「模板四类别 → 三个文本 kind + 兜底 General」构成文本路径的完整落点。
 pub const CLASSIFY_FALLBACK: TaskKind = TaskKind::General;
 
 /// 分类契约违约的修复轮预算：分类在 TTFT 之前，预算敏感——共
@@ -135,22 +127,20 @@ impl Stream for FirstItemDeadline {
     }
 }
 
-/// 判定一条文本输入的任务类型。`allowed` 是允许模型选择的清单（编排
-/// 传 [`CLASSIFY_KINDS`]），识别结果超出清单按未识别处理。契约违约走
-/// 修复轮（预算 [`CLASSIFY_REPAIRS`]），请求异常不重试；两者最终都落
+/// 判定一条文本输入的任务类型（编排入口）。契约违约走修复轮（预算
+/// [`CLASSIFY_REPAIRS`]），请求异常不重试；两者最终都落
 /// [`CLASSIFY_FALLBACK`]——文本输入恒 `Ok`。
 pub async fn classify(
     engine: &dyn AiEngine,
     model: &str,
     locale: Locale,
-    allowed: &[TaskKind],
     input: &TaskInput,
 ) -> Result<TaskKind, GlossError> {
     let TaskInput::Text { text } = input else {
         // 分类只服务划词路径；图像任务带着具体 kind 进编排，到不了这里。
         return Err(GlossError::UnsupportedModality);
     };
-    match classify_traced(engine, model, locale, allowed, text).await {
+    match classify_traced(engine, model, locale, text).await {
         Ok(decision) => Ok(decision.kind),
         // 分类阶段的请求异常不重试（重发同请求无益），内部消化落兜底
         // ——warn 只记错误类别，不含选区原文与模型回复。
@@ -188,20 +178,20 @@ pub struct ClassifyDecision {
 /// （落兜底 + warn）归 [`classify`]；评测需要区分「请求失败」与「回复
 /// 违约」，故在 traced 层保持上抛。
 ///
-/// `text` 是待分类的选区文本；`allowed` 是允许模型选择的清单（编排传
-/// [`CLASSIFY_KINDS`]）。pub 供 gloss-eval 的 live 轨复用同一循环（评测
+/// `text` 是待分类的选区文本。判定定型时把模型输出的原始类别与最终执行
+/// 的 kind 同行落 info（兜底类别 `Fallback` 映射 [`TaskKind::General`]
+/// 的落点在此可见）。pub 供 gloss-eval 的 live 轨复用同一循环（评测
 /// 与生产同源）。
 pub async fn classify_traced(
     engine: &dyn AiEngine,
     model: &str,
     locale: Locale,
-    allowed: &[TaskKind],
     text: &str,
 ) -> Result<ClassifyDecision, GlossError> {
     let registry = PromptRegistry::new();
     // 底座只渲染一次：修复轮以它为底拼对话（与任务段同一形态），不再每轮
     // 重渲。
-    let base = registry.render_classify(locale, allowed, text);
+    let base = registry.render_classify(locale, text);
     let mut messages = base.clone();
     let mut repairs = 0u32;
     let mut rounds = Vec::new();
@@ -213,19 +203,25 @@ pub async fn classify_traced(
             model: model.to_owned(),
             max_tokens: Some(CLASSIFY_MAX_TOKENS),
         };
-        let round = classify_round(engine, request, allowed).await?;
+        let round = classify_round(engine, request).await?;
         // 流内已提前定型就不用对末轮缓冲再校验一遍；流自然结束时才整段
         // 校验一次（违约类别是修复轮与统计的输入）。
         let verdict = match round.settled {
-            Some(kind) => Ok(kind),
-            None => schema::validate_classify(&round.reply, allowed),
+            Some(choice) => Ok(choice),
+            None => schema::validate_classify(&round.reply),
         };
         match verdict {
-            Ok(kind) => {
-                debug!(kind = ?kind, "classified by the model");
+            Ok(choice) => {
+                info!(
+                    thread = thread::TOKIO,
+                    model_kind = %choice.model_kind,
+                    kind = ?choice.kind,
+                    repairs = repairs,
+                    "model classification settled"
+                );
                 rounds.push(round.reply);
                 return Ok(ClassifyDecision {
-                    kind,
+                    kind: choice.kind,
                     repairs,
                     rounds,
                 });
@@ -238,7 +234,7 @@ pub async fn classify_traced(
                     violation,
                     &mut repairs,
                     CLASSIFY_REPAIRS,
-                    |violation| registry.render_repair(locale, violation, CLASSIFY_SCHEMA, false),
+                    |violation| registry.render_repair(locale, violation),
                 ) else {
                     rounds.push(round.reply);
                     return Ok(ClassifyDecision {
@@ -254,11 +250,11 @@ pub async fn classify_traced(
     }
 }
 
-/// 一轮分类的传输结果：累积回复与流内提前定型的 kind。
+/// 一轮分类的传输结果：累积回复与流内提前定型的判定。
 struct ClassifyRound {
     reply: String,
     /// 完整 JSON 在流结束前到达时非 `None`——调用方无需对末轮缓冲再校验。
-    settled: Option<TaskKind>,
+    settled: Option<schema::ClassifyChoice>,
 }
 
 /// 执行一轮分类请求并按预算累积回复：流式增量逐条累积，首个能通过校验
@@ -271,7 +267,6 @@ struct ClassifyRound {
 async fn classify_round(
     engine: &dyn AiEngine,
     request: EngineRequest,
-    allowed: &[TaskKind],
 ) -> Result<ClassifyRound, GlossError> {
     let stream = engine.execute(request).await?;
     let mut stream = std::pin::pin!(FirstItemDeadline::new(stream));
@@ -281,8 +276,8 @@ async fn classify_round(
         match item {
             Ok(TaskChunk::Delta(delta)) => {
                 push_capped(&mut reply, &delta);
-                if let Ok(kind) = schema::validate_classify(&reply, allowed) {
-                    settled = Some(kind);
+                if let Ok(choice) = schema::validate_classify(&reply) {
+                    settled = Some(choice);
                     break;
                 }
             }
@@ -299,8 +294,9 @@ async fn classify_round(
 /// 措辞，不携带回复原文）。
 ///
 /// pub 供 gloss-eval 评测重放复用：评测与生产走同一个校验器。
-pub fn parse_classify_reply(reply: &str, allowed: &[TaskKind]) -> Result<TaskKind, GlossError> {
-    schema::validate_classify(reply, allowed)
+pub fn parse_classify_reply(reply: &str) -> Result<TaskKind, GlossError> {
+    schema::validate_classify(reply)
+        .map(|choice| choice.kind)
         .map_err(|_| GlossError::EngineResponse("unrecognized classify reply".into()))
 }
 
@@ -317,8 +313,7 @@ mod tests {
     use tokio::time::{Instant as TokioInstant, Sleep, sleep_until};
 
     use super::{
-        CLASSIFY_FALLBACK, CLASSIFY_KINDS, CLASSIFY_REPAIRS, classify, classify_traced,
-        parse_classify_reply,
+        CLASSIFY_FALLBACK, CLASSIFY_REPAIRS, classify, classify_traced, parse_classify_reply,
     };
     use crate::model::{GlossError, Locale};
     use crate::ports::{AiEngine, BoxFuture, EngineRequest, TaskChunk, TaskStream};
@@ -413,7 +408,6 @@ mod tests {
                 &engine,
                 "m",
                 Locale::Zh,
-                &CLASSIFY_KINDS,
                 &TaskInput::Image {
                     png: std::sync::Arc::from(&b"png"[..]),
                 },
@@ -426,15 +420,9 @@ mod tests {
     #[tokio::test]
     async fn bare_json_reply_selects_the_kind() {
         let engine = MockEngine::new().with_chunks(vec![Ok("{\"kind\":\"TranslateWord\"}".into())]);
-        let kind = classify(
-            &engine,
-            "m",
-            Locale::Zh,
-            &CLASSIFY_KINDS,
-            &text_input("gloss"),
-        )
-        .await
-        .expect("bare JSON must parse");
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("gloss"))
+            .await
+            .expect("bare JSON must parse");
         assert_eq!(kind, TaskKind::TranslateWord);
     }
 
@@ -442,15 +430,9 @@ mod tests {
     async fn a_fenced_reply_repairs_then_falls_back() {
         let engine = MockEngine::new()
             .with_chunks(vec![Ok("```json\n{\"kind\":\"ExplainCode\"}\n```".into())]);
-        let kind = classify(
-            &engine,
-            "m",
-            Locale::En,
-            &CLASSIFY_KINDS,
-            &text_input("select * from t"),
-        )
-        .await
-        .expect("a violated reply never fails the classification");
+        let kind = classify(&engine, "m", Locale::En, &text_input("select * from t"))
+            .await
+            .expect("a violated reply never fails the classification");
         assert_eq!(
             kind,
             TaskKind::General,
@@ -470,15 +452,9 @@ mod tests {
             Ok("ateWord\"}".into()),
             Err(GlossError::EngineRateLimited),
         ]);
-        let kind = classify(
-            &engine,
-            "m",
-            Locale::Zh,
-            &CLASSIFY_KINDS,
-            &text_input("gloss"),
-        )
-        .await
-        .expect("the completed JSON must settle before the trailing failure");
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("gloss"))
+            .await
+            .expect("the completed JSON must settle before the trailing failure");
         assert_eq!(kind, TaskKind::TranslateWord);
     }
 
@@ -488,15 +464,9 @@ mod tests {
             Ok("{\"kind\":\"TranslateWord\"}".into()),
             Ok("{\"kind\":\"ExplainCode\"}".into()),
         ]);
-        let kind = classify(
-            &engine,
-            "m",
-            Locale::Zh,
-            &CLASSIFY_KINDS,
-            &text_input("gloss"),
-        )
-        .await
-        .expect("the first complete JSON must win");
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("gloss"))
+            .await
+            .expect("the first complete JSON must win");
         assert_eq!(kind, TaskKind::TranslateWord);
     }
 
@@ -507,15 +477,9 @@ mod tests {
             Ok("ateWord\"".into()),
         ]);
         assert_eq!(
-            classify(
-                &engine,
-                "m",
-                Locale::Zh,
-                &CLASSIFY_KINDS,
-                &text_input("gloss"),
-            )
-            .await
-            .expect("a truncated reply must not settle mid-stream"),
+            classify(&engine, "m", Locale::Zh, &text_input("gloss"),)
+                .await
+                .expect("a truncated reply must not settle mid-stream"),
             TaskKind::General,
             "after the stream ends the truncated reply repairs into the fallback"
         );
@@ -525,15 +489,9 @@ mod tests {
     async fn a_request_failure_is_digested_into_the_fallback_without_retry() {
         let engine = MockEngine::new().with_execute_failure(GlossError::EngineRateLimited);
         assert_eq!(
-            classify(
-                &engine,
-                "m",
-                Locale::Zh,
-                &CLASSIFY_KINDS,
-                &text_input("gloss"),
-            )
-            .await
-            .expect("a request failure is digested, never raised"),
+            classify(&engine, "m", Locale::Zh, &text_input("gloss"),)
+                .await
+                .expect("a request failure is digested, never raised"),
             TaskKind::General,
         );
         assert_eq!(
@@ -549,15 +507,9 @@ mod tests {
             vec![Ok(TaskChunk::Delta("MARKER-prose-reply 不是 JSON".into()))],
             vec![Ok(TaskChunk::Delta("{\"kind\":\"ExplainCode\"}".into()))],
         ]);
-        let kind = classify(
-            &engine,
-            "m",
-            Locale::Zh,
-            &CLASSIFY_KINDS,
-            &text_input("kubectl get pods"),
-        )
-        .await
-        .expect("the repaired reply should settle");
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("kubectl get pods"))
+            .await
+            .expect("the repaired reply should settle");
         assert_eq!(kind, TaskKind::ExplainCode);
         assert_eq!(engine.call_count(), 2);
         let requests = engine.recorded_requests();
@@ -578,11 +530,11 @@ mod tests {
         };
         assert!(
             instruction.contains("reply is not a bare JSON object"),
-            "the instruction carries the violation wording: {instruction}"
+            "the instruction carries the violation wording as the reason: {instruction}"
         );
         assert!(
-            instruction.contains(crate::prompt::CLASSIFY_SCHEMA),
-            "the instruction carries the classify contract line: {instruction}"
+            !instruction.contains("{\"kind\""),
+            "the repair template no longer carries a contract schema line: {instruction}"
         );
         assert!(
             !instruction.contains("MARKER-prose-reply"),
@@ -600,15 +552,9 @@ mod tests {
             vec![Ok(TaskChunk::Delta("MARKER-prose-reply 不是 JSON".into()))],
             vec![Ok(TaskChunk::Delta("{\"kind\":\"ExplainCode\"}".into()))],
         ]);
-        let decision = classify_traced(
-            &engine,
-            "m",
-            Locale::Zh,
-            &CLASSIFY_KINDS,
-            "kubectl get pods",
-        )
-        .await
-        .expect("the repaired reply should settle");
+        let decision = classify_traced(&engine, "m", Locale::Zh, "kubectl get pods")
+            .await
+            .expect("the repaired reply should settle");
         assert_eq!(decision.kind, TaskKind::ExplainCode);
         assert_eq!(decision.repairs, 1);
         assert_eq!(
@@ -624,7 +570,7 @@ mod tests {
             vec![Ok(TaskChunk::Delta("MARKER-还是散文".into()))],
             vec![Ok(TaskChunk::Delta("MARKER-依旧散文".into()))],
         ]);
-        let decision = classify_traced(&engine, "m", Locale::Zh, &CLASSIFY_KINDS, "一段文本")
+        let decision = classify_traced(&engine, "m", Locale::Zh, "一段文本")
             .await
             .expect("exhausted repairs never fail the classification");
         assert_eq!(decision.kind, TaskKind::General);
@@ -640,15 +586,9 @@ mod tests {
                 "{\"kind\":\"TranslateSentence\"}".into(),
             ))],
         ]);
-        let kind = classify(
-            &engine,
-            "m",
-            Locale::Zh,
-            &CLASSIFY_KINDS,
-            &text_input("bonjour"),
-        )
-        .await
-        .expect("the resent request should settle");
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("bonjour"))
+            .await
+            .expect("the resent request should settle");
         assert_eq!(kind, TaskKind::TranslateSentence);
         let requests = engine.recorded_requests();
         assert_eq!(requests.len(), 2);
@@ -674,7 +614,6 @@ mod tests {
                             &engine,
                             "m",
                             Locale::Zh,
-                            &CLASSIFY_KINDS,
                             &text_input("一段普通选区"),
                         ))
                         .expect("exhausted repairs never fail the classification");
@@ -704,68 +643,89 @@ mod tests {
     }
 
     #[test]
-    fn replies_outside_the_allowed_list_are_rejected() {
+    fn replies_outside_the_template_categories_are_rejected() {
+        assert!(parse_classify_reply("{\"kind\":\"ImageExplain\"}").is_err());
         assert!(
-            parse_classify_reply(
-                "{\"kind\":\"TranslateSentence\"}",
-                &[TaskKind::TranslateWord]
-            )
-            .is_err()
+            parse_classify_reply("{\"kind\":\"General\"}").is_err(),
+            "the general kind is the execution landing, never a model category"
         );
-        assert!(parse_classify_reply("{\"kind\":\"ImageExplain\"}", &CLASSIFY_KINDS).is_err());
-        assert!(parse_classify_reply("{\"kind\":\"Nonsense\"}", &CLASSIFY_KINDS).is_err());
-        assert!(parse_classify_reply("{\"kind\":null}", &CLASSIFY_KINDS).is_err());
-        assert!(parse_classify_reply("我觉得这是一段翻译", &CLASSIFY_KINDS).is_err());
-        assert!(parse_classify_reply("", &CLASSIFY_KINDS).is_err());
+        assert!(parse_classify_reply("{\"kind\":\"Nonsense\"}").is_err());
+        assert!(parse_classify_reply("{\"kind\":null}").is_err());
+        assert!(parse_classify_reply("我觉得这是一段翻译").is_err());
+        assert!(parse_classify_reply("").is_err());
         assert!(
-            parse_classify_reply(
-                "前置说明\n```gloss\n{\"kind\":\"TranslateWord\"}\n```",
-                &CLASSIFY_KINDS
-            )
-            .is_err(),
+            parse_classify_reply("前置说明\n```gloss\n{\"kind\":\"TranslateWord\"}\n```").is_err(),
             "the fence tolerance is gone: a gloss-fenced reply violates the \
              bare-JSON contract even with a valid kind inside"
         );
     }
 
     #[test]
-    fn classify_constants_cover_the_text_kinds_with_an_off_list_fallback() {
+    fn a_fallback_choice_lands_on_the_general_kind() {
         assert_eq!(
-            CLASSIFY_KINDS,
-            [
-                TaskKind::TranslateWord,
-                TaskKind::TranslateSentence,
-                TaskKind::ExplainCode
-            ]
+            parse_classify_reply("{\"kind\":\"Fallback\"}"),
+            Ok(TaskKind::General),
+            "the template's fallback category executes the general task"
         );
+    }
+
+    #[test]
+    fn the_fallback_kind_is_the_general_template_landing() {
         assert_eq!(
             CLASSIFY_FALLBACK,
             TaskKind::General,
             "the fallback lands on the general kind"
         );
-        assert!(
-            !CLASSIFY_KINDS.contains(&CLASSIFY_FALLBACK),
-            "the general kind is the fallback landing, never a classifier choice"
-        );
-        assert!(
-            !CLASSIFY_KINDS.contains(&TaskKind::General),
-            "the classifier still picks among the three text kinds only"
-        );
+    }
+
+    #[test]
+    fn a_fallback_reply_lands_on_the_general_task_with_both_kinds_logged() {
+        let _serial = crate::log::test_support::lock_dispatchers();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("runtime should build");
+        let line = (0..3)
+            .find_map(|_| {
+                let engine =
+                    MockEngine::new().with_chunks(vec![Ok("{\"kind\":\"Fallback\"}".into())]);
+                let logs = crate::log::capture(|| {
+                    let kind = rt
+                        .block_on(classify(
+                            &engine,
+                            "m",
+                            Locale::Zh,
+                            &text_input("一段闲聊文本"),
+                        ))
+                        .expect("the fallback category must settle");
+                    assert_eq!(kind, TaskKind::General);
+                });
+                logs.lines()
+                    .find(|line| line.contains("model classification settled"))
+                    .inspect(|line| {
+                        assert!(
+                            line.contains("\"model_kind\":\"Fallback\"")
+                                && line.contains("\"kind\":\"General\""),
+                            "the settled log carries the model category and the final kind: {line}"
+                        );
+                        assert!(
+                            !line.contains("一段闲聊文本"),
+                            "the settled log must not carry the selection content: {line}"
+                        );
+                    })
+                    .map(str::to_owned)
+            })
+            .is_some();
+        assert!(line, "the settled classification must leave a trace");
     }
 
     #[tokio::test]
     async fn a_silent_stream_is_cut_at_the_first_item_deadline() {
         tokio::time::pause();
         let engine = StreamEngine::new(vec![Box::pin(SilentStream) as TaskStream]);
-        let kind = classify(
-            &engine,
-            "m",
-            Locale::Zh,
-            &CLASSIFY_KINDS,
-            &text_input("gloss"),
-        )
-        .await
-        .expect("the deadline cut is digested into the fallback");
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("gloss"))
+            .await
+            .expect("the deadline cut is digested into the fallback");
         assert_eq!(kind, CLASSIFY_FALLBACK);
         assert_eq!(
             engine.call_count(),
@@ -787,15 +747,9 @@ mod tests {
                 Ok(TaskChunk::Delta("Word\"}".into())),
             ),
         ])) as TaskStream]);
-        let kind = classify(
-            &engine,
-            "m",
-            Locale::Zh,
-            &CLASSIFY_KINDS,
-            &text_input("gloss"),
-        )
-        .await
-        .expect("a late second item must still land: the deadline covers the first item only");
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("gloss"))
+            .await
+            .expect("a late second item must still land: the deadline covers the first item only");
         assert_eq!(kind, TaskKind::TranslateWord);
         assert_eq!(engine.call_count(), 1);
     }
