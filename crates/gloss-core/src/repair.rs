@@ -74,10 +74,6 @@ pub(crate) fn next_round(
     stage.warn_violated(*repairs, violation);
     match violation {
         Violation::EmptyReply => Some(base.to_vec()),
-        _ => Some(repair_conversation(
-            base,
-            Some(reply),
-            instruction(violation),
-        )),
+        _ => Some(repair_conversation(base, reply, instruction(violation))),
     }
 }

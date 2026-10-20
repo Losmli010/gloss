@@ -453,7 +453,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | every_locale_renders_without_leftover_placeholders | 全 locale 无残留占位符 | 给定两个 locale × 五个 kind（四个文本 + ImageExplain），当渲染，则文本消息不含 {{、系统指令携带 note 纯 JSON 契约且不含旧围栏 | 2026-10-12 |
 | repair_instruction_carries_the_violation_reason_only | 修复指令只回灌违约措辞 | 给定双 locale 与各违约类别，当 render_repair，则指令把违约固定措辞作为 reason 回灌、无残留 {{、不带契约行与截断提示、含 json 字样 | 2026-10-20 |
 | repair_instruction_renders_without_leftover_placeholders | repair 指令渲染无残留占位符（完整性门禁） | 给定双 locale × 四类违约，当 render_repair，则渲染产物不含 {{ 且非空（可选行整行消失；general.md 等任务模板的同一门禁由全 locale 渲染测试锁定） | 2026-10-12 |
-| repair_conversation_replays_the_history_or_resends_as_is | 修复对话带回历史或原样重发 | 给定首轮 [system][user] 与坏回复/空回复两种情形，当 repair_conversation，则坏回复拼成 [system][user][assistant][user]（首两条逐字保留）、空回复原样返回首轮（无 assistant 无纠错指令） | 2026-10-12 |
+| repair_conversation_replays_the_history_with_the_bad_reply | 修复对话以历史形态重拼 | 给定首轮 [system][user] 与坏回复，当 repair_conversation，则拼成 [system][user][assistant][user]（首两条逐字保留；EmptyReply 不经本函数，原样重发归 next_round） | 2026-10-20 |
 | english_locale_renders_english_prompts | 英文 locale 出英文指令 | 给定 En locale 的句译任务，当渲染，则系统指令为英文（含 JSON 契约）、用户消息携带原文，且不含中文指令词 | 2026-10-03 |
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 En locale 未设目标语言、Zh locale 设 Lang::En，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含「英语」 | 2026-09-22 |
 | prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 prompt_locale 的任务，当渲染，则结果与显式 Zh 逐字一致且含「词典专家」 | 2026-09-22 |
@@ -1244,7 +1244,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| classify_dataset_loads_with_unique_ids | 分类数据集加载与唯一性 | 给定内嵌 classify.jsonl，当加载，则 ≥60 条、全部为文本任务 kind、id 无重复 | 2026-09-26 |
+| classify_dataset_loads_with_unique_ids | 分类数据集加载与唯一性 | 给定内嵌 classify.jsonl，当加载，则 ≥60 条、期望全部为文本任务 kind 或 General（Fallback 类别的执行落点）、id 无重复 | 2026-10-20 |
 | task_datasets_load_and_match_required_fields | 任务数据集加载与 kind 对位 | 给定三个内嵌任务数据集，当加载，则非空且每行 kind 与其文件一致、reference 满足必需键 | 2026-09-26 |
 | fixtures_align_with_dataset_ids | 夹具与数据集 id 对齐 | 给定分类/任务夹具文件与数据集，当加载，则 id 无重复、修复轨迹非空（空回复轮是 deltas=[]，与零轮空轨迹不同）、且每条夹具 id 都存在于对应数据集（陈旧 id 即失败） | 2026-10-12 |
 | zero_round_fixtures_are_rejected | 零轮轨迹硬错误 | 给定 rounds 为空与单空轮（deltas=[]）两种夹具，当加载，则前者报错（空轨迹是坏夹具不是空回复）、后者通过（空回复是合法轮） | 2026-10-12 |

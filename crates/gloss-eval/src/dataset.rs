@@ -175,9 +175,13 @@ mod tests {
         assert!(
             cases.iter().all(|case| matches!(
                 case.expected,
-                TaskKind::TranslateWord | TaskKind::TranslateSentence | TaskKind::ExplainCode
+                TaskKind::TranslateWord
+                    | TaskKind::TranslateSentence
+                    | TaskKind::ExplainCode
+                    | TaskKind::General
             )),
-            "the classify dataset only covers the text task kinds"
+            "the classify dataset covers the text task kinds plus the general \
+             landing of the Fallback category"
         );
     }
 

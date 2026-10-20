@@ -224,22 +224,17 @@ impl PromptRegistry {
 }
 
 /// 修复轮对话：`[system][user 原文/图][assistant 上一次坏回复]
-/// [user 纠错指令]`。`bad` 为 `None`（EmptyReply 无内容可纠）时原样重发
-/// ——不带 assistant 轮也不带纠错指令（部分端点拒收空 assistant
-/// content，而首轮请求本身已含完整契约）。首轮消息原样在前：图像任务的
-/// 图像部件（`Arc` 字节）随 base 零拷贝重发，修复轮历史里首轮图片随完整
-/// 对话走。
+/// [user 纠错指令]`。首轮消息原样在前：图像任务的图像部件（`Arc` 字节）
+/// 随 base 零拷贝重发，修复轮历史里首轮图片随完整对话走。（EmptyReply
+/// 无内容可纠，不经本函数——原样重发的决策在 [`crate::repair::next_round`]。）
 pub(crate) fn repair_conversation(
     base: &[ChatMessage],
-    bad: Option<&str>,
+    bad: &str,
     instruction: String,
 ) -> Vec<ChatMessage> {
-    let Some(reply) = bad else {
-        return base.to_vec();
-    };
     let mut messages = Vec::with_capacity(base.len() + 2);
     messages.extend_from_slice(base);
-    messages.push(ChatMessage::assistant(reply));
+    messages.push(ChatMessage::assistant(bad));
     messages.push(ChatMessage::user(instruction));
     messages
 }
@@ -873,17 +868,17 @@ mod tests {
         let kind_not_allowed =
             registry.render_repair(Locale::Zh, crate::schema::Violation::KindNotAllowed);
         assert!(
-            kind_not_allowed.contains("reply kind is outside the allowed list"),
+            kind_not_allowed.contains("reply kind is not one of the classify categories"),
             "every violation wording maps into the instruction: {kind_not_allowed}"
         );
     }
 
     #[test]
-    fn repair_conversation_replays_the_history_or_resends_as_is() {
+    fn repair_conversation_replays_the_history_with_the_bad_reply() {
         use super::repair_conversation;
 
         let base = vec![ChatMessage::system("契约"), ChatMessage::user("gloss 原文")];
-        let repaired = repair_conversation(&base, Some("上一轮的坏回复"), "纠错指令".to_owned());
+        let repaired = repair_conversation(&base, "上一轮的坏回复", "纠错指令".to_owned());
         let roles: Vec<Role> = repaired.iter().map(|m| m.role).collect();
         assert_eq!(
             roles,
@@ -899,12 +894,6 @@ mod tests {
             repaired[2],
             ChatMessage::assistant("上一轮的坏回复"),
             "the bad reply rides as history"
-        );
-
-        let resent = repair_conversation(&base, None, "纠错指令".to_owned());
-        assert_eq!(
-            resent, base,
-            "EmptyReply has nothing to repair: the original request is resent as-is"
         );
     }
 

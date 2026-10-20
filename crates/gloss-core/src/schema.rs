@@ -40,7 +40,7 @@ pub enum Violation {
     NotJson,
     /// JSON 对象缺 `note` 或 `note` trim 后为空。
     MissingNote,
-    /// 分类回复的 kind 不在允许清单内（含缺失或不是合法 kind 标识）。
+    /// 分类回复的 kind 不是 classify 模板的类别标识（含缺失）。
     KindNotAllowed,
 }
 
@@ -50,7 +50,7 @@ impl std::fmt::Display for Violation {
             Violation::EmptyReply => "empty reply",
             Violation::NotJson => "reply is not a bare JSON object",
             Violation::MissingNote => "reply is missing a non-empty note",
-            Violation::KindNotAllowed => "reply kind is outside the allowed list",
+            Violation::KindNotAllowed => "reply kind is not one of the classify categories",
         };
         f.write_str(wording)
     }
@@ -213,7 +213,7 @@ mod tests {
         assert_eq!(Violation::EmptyReply.to_string(), "empty reply");
         assert_eq!(
             Violation::KindNotAllowed.to_string(),
-            "reply kind is outside the allowed list"
+            "reply kind is not one of the classify categories"
         );
     }
 

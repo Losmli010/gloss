@@ -695,7 +695,7 @@ mod tests {
                             &engine,
                             "m",
                             Locale::Zh,
-                            &text_input("一段闲聊文本"),
+                            &text_input("MARKER-闲聊文本"),
                         ))
                         .expect("the fallback category must settle");
                     assert_eq!(kind, TaskKind::General);
@@ -709,7 +709,7 @@ mod tests {
                             "the settled log carries the model category and the final kind: {line}"
                         );
                         assert!(
-                            !line.contains("一段闲聊文本"),
+                            !line.contains("MARKER"),
                             "the settled log must not carry the selection content: {line}"
                         );
                     })
