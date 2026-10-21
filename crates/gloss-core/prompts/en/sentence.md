@@ -13,7 +13,7 @@ Follow the traditional Chinese "commentary—subcommentary" (zhu—shu) format:
 - `examples` corresponds to the "subcommentary": cite textual evidence, sources of allusions, historical references, cross-references, variant interpretations, and critical judgments.
 
 
-Field Rules
+### Field Rules
 1. `note`
 - Type: Markdown string.
 

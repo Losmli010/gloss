@@ -11,8 +11,10 @@
 //! **异常内部消化**：契约违约（空回复 / 非 JSON / 类别越模板清单）走修复轮
 //! （对话形态 `[system][user 原文][assistant 上一次坏回复][user 纠错指令]`，
 //! EmptyReply 原样重发不带 assistant 轮），预算 [`CLASSIFY_REPAIRS`]；
-//! 传输停摆（建连后 `FIRST_ITEM_DEADLINE` 内无任何流条目）按请求异常
-//! 收卷且不重试。两者耗尽/失败都落常量兜底
+//! 端点以零增量成功收尾（`GlossError::EmptyCompletion`）与空回复同口径，
+//! 转 EmptyReply 进修复轮（与任务段 `collect_round` 对称：坏回复而非坏
+//! 请求，值得一次重发）；传输停摆（建连后 `FIRST_ITEM_DEADLINE` 内无任何
+//! 流条目）与其余流错误按请求异常收卷且不重试。两者耗尽/失败都落常量兜底
 //! [`CLASSIFY_FALLBACK`]——本函数对文本输入恒返回 `Ok(kind)`，用户无感，
 //! warn 留痕（类别 + 序号，不含内容）。模型判定的原始类别与最终执行的
 //! kind 在定型时同行落 info（[`crate::schema::ClassifyChoice`]）。
@@ -262,7 +264,9 @@ struct ClassifyRound {
 /// 只在 Ok 时提前退出——部分 JSON 继续等，跑偏与截断的回复照旧走完流、
 /// 落到整段校验。每次累积后的全量校验上界是回复上限（4KB）× 个位数
 /// chunk，相对 chunk 的毫秒级到达间隔可忽略。结束帧对分类没有增量价值。
-/// 建连后的首条目等待受 [`FIRST_ITEM_DEADLINE`] 约束（见模块文档）。
+/// 建连后的首条目等待受 [`FIRST_ITEM_DEADLINE`] 约束（见模块文档）；
+/// 零增量的空完成（`EmptyCompletion`）断流收尾、按空回复交整段校验（与
+/// 任务段同口径，见模块文档），其余流错误按请求异常上抛。
 /// 请求按值接收（引擎端口按值收请求，消息所有权随调用 move）。
 async fn classify_round(
     engine: &dyn AiEngine,
@@ -282,6 +286,7 @@ async fn classify_round(
                 }
             }
             Ok(TaskChunk::Done { .. }) => {}
+            Err(GlossError::EmptyCompletion) if reply.is_empty() => break,
             Err(error) => return Err(error),
         }
     }
@@ -596,6 +601,44 @@ mod tests {
             requests[1].messages, requests[0].messages,
             "EmptyReply has nothing to repair: the original request is resent verbatim"
         );
+    }
+
+    #[tokio::test]
+    async fn an_empty_completion_enters_the_repair_round_and_resends() {
+        let engine = MockEngine::new().with_script_queue(vec![
+            vec![Err(GlossError::EmptyCompletion)],
+            vec![Ok(TaskChunk::Delta("{\"kind\":\"TranslateWord\"}".into()))],
+        ]);
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("gloss"))
+            .await
+            .expect("the resent request should settle");
+        assert_eq!(
+            kind,
+            TaskKind::TranslateWord,
+            "a zero-increment empty completion is a bad reply, not a request failure"
+        );
+        let requests = engine.recorded_requests();
+        assert_eq!(requests.len(), 2, "one empty round plus one repair round");
+        assert_eq!(
+            requests[1].messages, requests[0].messages,
+            "the empty completion resends the original request verbatim"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_repeated_empty_completion_exhausts_into_the_fallback() {
+        let engine = MockEngine::new().with_script_queue(vec![
+            vec![Err(GlossError::EmptyCompletion)],
+            vec![Err(GlossError::EmptyCompletion)],
+        ]);
+        assert_eq!(
+            classify(&engine, "m", Locale::Zh, &text_input("gloss"))
+                .await
+                .expect("exhausted repairs never fail the classification"),
+            TaskKind::General,
+            "the empty completion burns the repair budget like any EmptyReply"
+        );
+        assert_eq!(engine.call_count(), 1 + CLASSIFY_REPAIRS as usize);
     }
 
     #[test]

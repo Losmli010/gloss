@@ -387,6 +387,8 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | a_violated_reply_repairs_into_a_kind | 分类违约回复修复后判型 | 给定「散文回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮对话为 [system][user 原文][assistant 坏回复][user 纠错指令]，纠错指令把违约固定措辞作为 reason 回灌（无契约行）、不含坏回复与选区原文，修复后返回判定的 kind | 2026-10-20 |
 | classify_traced_carries_rounds_and_repairs_for_the_trajectory | 分类全轨迹携带轮次与修复数 | 给定「散文回复 → 裸 JSON kind」与「恒散文」两个脚本队列，当 classify_traced，则前者 decision.kind 为判定的 kind、repairs 为 1、rounds 按轮序携带每轮完整回复；后者耗尽落兜底 General、repairs 为 CLASSIFY_REPAIRS、rounds 为 1+CLASSIFY_REPAIRS 轮 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_as_is | 分类空回复原样重发修复 | 给定「空回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮按 EmptyReply 原样重发（消息列表与首轮逐字一致，无 assistant 轮无纠错指令）、修复后判出 kind | 2026-10-12 |
+| an_empty_completion_enters_the_repair_round_and_resends | 分类零增量空完成进修复轮重发 | 给定「EmptyCompletion 错误 → 裸 JSON kind」脚本队列，当 classify，则空完成按 EmptyReply 违约进修复轮、原样重发（消息与首轮逐字一致）、修复后判出 kind（恰 2 次调用，与任务段同口径） | 2026-10-21 |
+| a_repeated_empty_completion_exhausts_into_the_fallback | 分类空完成重演耗尽落兜底 | 给定连续两轮 EmptyCompletion 脚本，当 classify，则修复预算（CLASSIFY_REPAIRS）耗尽、恰 1+预算次调用后落兜底 General | 2026-10-21 |
 | exhausted_repairs_fall_back_to_general_with_a_trace | 分类修复耗尽落兜底且有痕 | 给定恒违约的回复脚本，当 classify，则恰用尽 1+CLASSIFY_REPAIRS 次调用后返回 Ok(General)，耗尽 warn 只记违约类别（不含回复与选区原文） | 2026-10-12 |
 | a_silent_stream_is_cut_at_the_first_item_deadline | 分类流首条目截止快速失败 | 给定建连后恒不出字的流，当 classify（暂停时钟），则首条目截止到点按请求异常收卷、内部消化落兜底 General（恰 1 次调用，不重试） | 2026-10-16 |
 | items_after_the_first_flow_without_the_deadline | 截止只武装到首条目 | 给定首条目 2s（截止内）、次条目再等 1000s 的流，当 classify（暂停时钟），则两段增量照常累积定型 TranslateWord（截止在首条目交付后退役） | 2026-10-16 |
