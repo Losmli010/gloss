@@ -1,5 +1,5 @@
-//! 浮层文案整形：例句拆行与水印等展示文案的纯函数，以及经注疏
-//! 的字号规格与宋楷字体助手（demo 基准的应用定稿值，不进 style 阶梯）。
+//! 浮层文案整形：水印等展示文案的纯函数，以及经注疏的字号规格与宋楷
+//! 字体助手（demo 基准的应用定稿值，不进 style 阶梯）。
 //!
 //! 不依赖 egui 绘制侧：`FontId` 只是字体数据，不碰
 //! `Ui`/`Context`。
@@ -25,30 +25,9 @@ pub(super) fn serif_font(size: f32) -> FontId {
     FontId::new(size, fonts::serif_family())
 }
 
-/// 楷体字（注）。
+/// 楷体字（注/疏的 markdown 正文）。
 pub(super) fn kaiti_font(size: f32) -> FontId {
     FontId::new(size, fonts::zhu_family())
-}
-
-/// 例句拆分：在首个 CJK 字形处切成「原文 / 译文」两行（demo w-ex 的
-/// `.en` 行 + `.zh` 块）；没有 CJK 段的原样单行返回。
-pub(super) fn example_lines(example: &str) -> (&str, Option<&str>) {
-    fn is_cjk(ch: char) -> bool {
-        matches!(ch as u32,
-            0x3000..=0x303F // CJK 符号与标点
-            | 0x3400..=0x4DBF // 扩展 A
-            | 0x4E00..=0x9FFF // 基本区
-            | 0xF900..=0xFAFF // 兼容表意
-            | 0xFF00..=0xFFEF // 全角形式
-        )
-    }
-    match example.char_indices().find(|(_, ch)| is_cjk(*ch)) {
-        Some((byte, _)) if !example[..byte].trim().is_empty() => (
-            example[..byte].trim_end(),
-            Some(example[byte..].trim_start()),
-        ),
-        _ => (example, None),
-    }
 }
 
 /// 页脚水印的品牌名：应用名不翻译（与窗口标题同一原则）。
@@ -58,27 +37,7 @@ pub(super) fn watermark() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{example_lines, watermark};
-
-    #[test]
-    fn example_lines_split_at_the_first_cjk_glyph() {
-        let (en, zh) =
-            example_lines("The polished wood had a deep gloss. 那块抛光的木料泛着深沉的光泽。");
-        assert_eq!(en, "The polished wood had a deep gloss.");
-        assert_eq!(zh, Some("那块抛光的木料泛着深沉的光泽。"));
-
-        let (en, zh) = example_lines("a gloss of silk");
-        assert_eq!(en, "a gloss of silk");
-        assert_eq!(zh, None);
-
-        let (en, zh) = example_lines("光泽");
-        assert_eq!(en, "光泽");
-        assert_eq!(zh, None);
-
-        let (en, zh) = example_lines("英译。中译");
-        assert_eq!(en, "英译。中译");
-        assert_eq!(zh, None, "开头即 CJK 的例句不拆");
-    }
+    use super::watermark;
 
     #[test]
     fn watermark_is_the_untranslated_brand_name() {
