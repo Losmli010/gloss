@@ -1,9 +1,12 @@
-//! 评测 CLI：`eval replay`（离线重放，CI 安全）/ `eval live`（opt-in，
-//! 需 `GLOSS_LIVE_*`）/ `eval report`（重渲染最近一次报告）/ `eval
-//! history`（从现有 history.jsonl 重绘趋势 SVG）。
+//! 评测 CLI：`eval inspect`（离线重放 + 单文件检视页）/ `eval replay`（离线
+//! 重放，CI 安全）/ `eval live`（opt-in，需 `GLOSS_LIVE_*`）/ `eval
+//! report`（重渲染最近一次报告）/ `eval history`（从现有 history.jsonl
+//! 重绘趋势 SVG）。
 //!
 //! 报告写 `target/eval/`（`<mode>.json` + `<mode>.md`）并把 Markdown 打
 //! 到 stdout；报告落盘成功后追加 `history.jsonl` 并重绘 `history.svg`。
+//! inspect 与 live 轨额外落检视件：逐条明细 `<mode>.cases.json` 与单文件
+//! 检视页 `inspect.html`（准确率头条 + 逐条轨迹 + 趋势，供人工检视）。
 //! live 轨的 `--record` 把修复轨迹（每轮增量）按 id upsert 回 `fixtures/`。
 //! `GLOSS_EVAL_COMMIT` / `GLOSS_EVAL_SOURCE` 在此注入采集上下文（lib 层
 //! 零环境副作用）。本二进制属于评测工具链，不在应用启动路径上。
@@ -17,6 +20,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gloss_core::engine::llm::LlmClient;
+use gloss_eval::EvalReport;
+use gloss_eval::detail::CaseDetail;
 
 /// 报告目录（与 dev-plan 约定一致：报告出 target/eval/，不进仓库）。
 const REPORT_DIR: &str = "target/eval";
@@ -24,6 +29,7 @@ const REPORT_DIR: &str = "target/eval";
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let outcome = match args.first().map(String::as_str) {
+        Some("inspect") => run_inspect_cli(),
         Some("replay") => run_replay_cli(),
         Some("live") => run_live_cli(&args[1..]),
         Some("report") => run_report_cli(&args[1..]),
@@ -37,21 +43,63 @@ fn main() {
 }
 
 fn usage() -> &'static str {
-    "用法：eval <replay|live|report|history> [选项]
+    "用法：eval <inspect|replay|live|report|history> [选项]
+  inspect                离线重放 + 单文件检视页 target/eval/inspect.html
+                         （准确率头条、逐条期望 vs 实际、逐轮回复、趋势）；
+                         prompt 改动后人工检视的入口
   replay                 离线重放夹具（CI 安全，无网络无凭据）；报告落盘
                          后追加 history.jsonl 并重绘 history.svg
   live [--record] [--judge] [--limit N]
                          真实 LLM 评测（需 GLOSS_LIVE_BASE_URL/MODEL/API_KEY；
                          --record 回写夹具、--judge 启用 judge 评分轨）；
-                         报告落盘后同样追加历史并重绘趋势
+                         报告落盘后同样追加历史并重绘趋势，并落检视件
   report [--dir PATH]    把 target/eval 下最近一次报告渲染为 Markdown 表
-  history [--dir PATH]   从现有 history.jsonl 重绘 history.svg（不跑评测）"
+  history [--dir PATH]   从现有 history.jsonl 重绘 history.svg（不跑评测)"
 }
 
 fn run_replay_cli() -> Result<(), String> {
     let dir = report_dir();
     let markdown = run_replay_into(Path::new(&dir), eval_context())?;
     print!("{markdown}");
+    Ok(())
+}
+
+/// inspect 轨的完整落盘段：与 replay 同一份报告与历史，多出检视件。
+fn run_inspect_into(
+    dir: &Path,
+    context: Option<gloss_eval::report::EvalContext>,
+) -> Result<String, String> {
+    let mut run = gloss_eval::runner::run_replay_detailed()?;
+    run.report.context = context;
+    let markdown = finish_run_report(&run.report, dir)?;
+    write_inspect(dir, &run.report, &run.cases)?;
+    Ok(markdown)
+}
+
+fn run_inspect_cli() -> Result<(), String> {
+    let dir = report_dir();
+    let markdown = run_inspect_into(Path::new(&dir), eval_context())?;
+    print!("{markdown}");
+    println!("检视页：{}", Path::new(&dir).join("inspect.html").display());
+    Ok(())
+}
+
+/// 检视件落盘：逐条明细 `<mode>.cases.json`（可 diff、可再加工）与单文件
+/// 检视页 `inspect.html`。历史在 `finish_run_report` 追加之后才读——差值
+/// 基准取「上一次同 mode 运行」，趋势图含本次。
+fn write_inspect(dir: &Path, report: &EvalReport, cases: &[CaseDetail]) -> Result<(), String> {
+    let history = gloss_eval::history::load_history(&dir.join("history.jsonl"))
+        .map_err(|err| format!("load history: {err}"))?;
+    let html = gloss_eval::inspect::render_html(report, cases, &history);
+    gloss_eval::history::write_atomic(&dir.join("inspect.html"), &html)
+        .map_err(|err| format!("write inspect.html: {err}"))?;
+    let cases_json =
+        serde_json::to_string_pretty(cases).map_err(|err| format!("serialize cases: {err}"))?;
+    gloss_eval::history::write_atomic(
+        &dir.join(format!("{}.cases.json", report.mode)),
+        &cases_json,
+    )
+    .map_err(|err| format!("write cases: {err}"))?;
     Ok(())
 }
 
@@ -119,6 +167,7 @@ fn run_live_cli(args: &[String]) -> Result<(), String> {
     let dir = report_dir();
     run.report.context = eval_context();
     let markdown = finish_run_report(&run.report, Path::new(&dir))?;
+    write_inspect(Path::new(&dir), &run.report, &run.cases)?;
     print!("{markdown}");
     Ok(())
 }
@@ -258,7 +307,7 @@ mod tests {
 
     use gloss_eval::report::EvalContext;
 
-    use super::{finish_run_report, run_replay_into};
+    use super::{finish_run_report, run_inspect_into, run_replay_into};
 
     fn temp_dir(tag: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -316,6 +365,25 @@ mod tests {
         assert!(
             json.contains(r#""context": {"#) && json.contains(r#""commit": "ec96217""#),
             "the injected context lands in the written report"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn inspect_run_writes_the_inspection_files() {
+        let dir = temp_dir("inspect-files");
+        run_inspect_into(&dir, None).expect("the inspect run should succeed offline");
+        assert!(
+            dir.join("replay.json").is_file(),
+            "report rides the inspect run"
+        );
+        let html = std::fs::read_to_string(dir.join("inspect.html")).expect("inspect html");
+        assert!(html.contains("分类 accuracy"), "headline: {html}");
+        assert!(html.contains("<svg"), "trend inlined");
+        let cases = std::fs::read_to_string(dir.join("replay.cases.json")).expect("cases json");
+        assert!(
+            cases.contains("\"zh-word-01\""),
+            "per-case details are dumped for diffing"
         );
         std::fs::remove_dir_all(&dir).ok();
     }

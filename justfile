@@ -138,6 +138,12 @@ size-report bin="target/release/gloss" top="30":
 eval *args:
     cargo run -p gloss-eval --bin eval -- live {{args}}
 
+# Prompt 评估检视：离线重放 + 单文件检视页（准确率/逐条轨迹/趋势），生成后开浏览器
+# 改 prompt 后看真实准确率走 `just eval`（live）；本配方是免凭据的夹具口径
+eval-inspect:
+    cargo run -p gloss-eval --bin eval -- inspect
+    open target/eval/inspect.html
+
 # Prompt 评测离线重放：夹具驱动，无网络无凭据（CI 安全）
 eval-replay:
     cargo run -p gloss-eval --bin eval -- replay

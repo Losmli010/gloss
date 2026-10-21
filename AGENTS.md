@@ -42,6 +42,7 @@ just bench             # 跑热点基准（criterion，benches/core.rs）
 just bench-check       # 以命名基线为对照重跑基准（审计对照，不是门禁）
 just bench-summary     # 汇总最近一次基准运行为 Markdown 表
 just eval              # Prompt 评测 live 轨（需 GLOSS_LIVE_*，opt-in；--record 回写夹具、--judge 启用评分轨）
+just eval-inspect      # Prompt 评估检视页（离线重放 + 单文件 HTML：准确率/逐条轨迹/趋势，自动开浏览器）
 just eval-replay       # Prompt 评测离线重放（夹具驱动，CI 安全）
 just eval-report       # 把 target/eval 下最近一次评测报告渲染为 Markdown 表
 just precommit         # 提交前门禁（git hook 自动跑）

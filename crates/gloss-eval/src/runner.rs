@@ -23,18 +23,27 @@ use gloss_core::task::{Task, TaskInput, TaskKind, TaskOptions};
 use crate::EvalReport;
 use crate::assets;
 use crate::dataset::{ClassifyCase, Fixture, TaskCase, load_classify, load_fixtures, load_task};
+use crate::detail::{self, CaseDetail};
 use crate::judge;
-use crate::metrics::{
-    ClassifyMetrics, ClassifyVerdict, Latency, TaskMetrics, TaskVerdict, ViolationTrack,
-    judge_classify_reply, violation_track,
-};
+use crate::metrics::{ClassifyMetrics, ClassifyVerdict, Latency, TaskMetrics, ViolationTrack};
 use crate::report::assemble_report;
 
-/// live 轨的一次运行产出：报告 + 夹具录制（调用方决定是否落盘）。
+/// 重放轨的一次运行产出：报告 + 逐条明细（检视页消费）。
+#[derive(Debug, Clone)]
+pub struct ReplayRun {
+    /// 评测报告。
+    pub report: EvalReport,
+    /// 有夹具条目的逐条明细（跳过条目不留行，与报告分母一致）。
+    pub cases: Vec<CaseDetail>,
+}
+
+/// live 轨的一次运行产出：报告 + 逐条明细 + 夹具录制（调用方决定落盘哪些）。
 #[derive(Debug, Clone)]
 pub struct LiveRun {
     /// 评测报告（含延迟与可选 judge 摘要）。
     pub report: EvalReport,
+    /// 逐条明细（含引擎失败条目——它们也要被检视到）。
+    pub cases: Vec<CaseDetail>,
     /// `--record` 时的修复轨迹录制（分类 + 任务，按 id 可 upsert 回夹具）。
     pub recordings: Vec<Fixture>,
 }
@@ -46,6 +55,11 @@ pub struct LiveRun {
 /// 之前每轮都违约、修复轮数不超生产预算），漂移的夹具按硬错误拦下
 /// （[`check_classify_trajectory`] / [`check_task_trajectory`]）。
 pub fn run_replay() -> Result<EvalReport, String> {
+    run_replay_detailed().map(|run| run.report)
+}
+
+/// [`run_replay`] 的带明细版本：同样的轨迹与口径，额外逐条落行供检视页。
+pub fn run_replay_detailed() -> Result<ReplayRun, String> {
     let classify_cases = load_classify(assets::CLASSIFY_DATASET)?;
     let classify_fixtures = load_fixtures(assets::CLASSIFY_FIXTURES)?;
     let by_id: HashMap<&str, &Fixture> = classify_fixtures
@@ -54,6 +68,7 @@ pub fn run_replay() -> Result<EvalReport, String> {
         .collect();
 
     let mut classify = ClassifyMetrics::default();
+    let mut case_details = Vec::new();
     let mut skipped = 0usize;
     for case in &classify_cases {
         let Some(fixture) = by_id.get(case.id.as_str()) else {
@@ -62,7 +77,7 @@ pub fn run_replay() -> Result<EvalReport, String> {
         };
         let rounds = round_texts(fixture);
         check_classify_trajectory(&case.id, &rounds)?;
-        score_classify_case(&mut classify, case, &rounds);
+        case_details.push(score_classify_case(&mut classify, case, &rounds));
     }
 
     let task_fixtures = load_fixtures(assets::TASK_FIXTURES)?;
@@ -81,36 +96,36 @@ pub fn run_replay() -> Result<EvalReport, String> {
             };
             let rounds = round_texts(fixture);
             check_task_trajectory(&case.id, case.kind, &rounds)?;
-            metrics.record(&TaskVerdict::for_rounds(case, &rounds));
+            let (case_detail, verdict) = detail::task_parts(name, case, &rounds);
+            metrics.record(&verdict);
+            case_details.push(case_detail);
         }
         tasks.push((name, metrics));
     }
 
-    Ok(assemble_report(
-        "replay",
-        Some(classify),
-        tasks,
-        None,
-        None,
-        skipped,
-    ))
+    Ok(ReplayRun {
+        report: assemble_report("replay", Some(classify), tasks, None, None, skipped),
+        cases: case_details,
+    })
 }
 
 /// 一条分类样例的结算（重放与 live 共用同一口径）：违约轨迹并入指标、
-/// 计一条已评估，并按期望 kind 判分。
-fn score_classify_case(classify: &mut ClassifyMetrics, case: &ClassifyCase, rounds: &[String]) {
-    absorb_classify_track(
-        classify,
-        &violation_track(|raw| schema::validate_classify(raw).map(|_| ()), rounds),
-    );
+/// 计一条已评估，按期望 kind 判分，并落一行明细。
+fn score_classify_case(
+    classify: &mut ClassifyMetrics,
+    case: &ClassifyCase,
+    rounds: &[String],
+) -> CaseDetail {
+    let (case_detail, verdict, track) = detail::classify_parts(case, rounds);
+    absorb_classify_track(classify, &track);
     classify.evaluated += 1;
-    let reply = rounds.last().map(String::as_str).unwrap_or("");
-    match judge_classify_reply(reply, case.expected) {
+    match verdict {
         ClassifyVerdict::Correct => classify.correct += 1,
         ClassifyVerdict::Wrong(actual) => bump_confusion(classify, case.expected, actual),
         ClassifyVerdict::InvalidJson => classify.invalid_json += 1,
         ClassifyVerdict::Rejected => classify.rejected += 1,
     }
+    case_detail
 }
 
 /// live 轨：数据集逐条打真实 LLM。延迟只在这一轨采集。
@@ -127,6 +142,7 @@ pub async fn run_live(
     let classify_cases = load_classify(assets::CLASSIFY_DATASET)?;
     let mut classify = ClassifyMetrics::default();
     let mut latency = Latency::default();
+    let mut details = Vec::new();
     let mut recordings = Vec::new();
 
     let cases: Vec<_> = match options.limit {
@@ -145,12 +161,19 @@ pub async fn run_live(
                 // 全集而不是中途夭折。
                 classify.evaluated += 1;
                 classify.engine_errors += 1;
+                details.push(detail::engine_error_detail(
+                    detail::CLASSIFY_GROUP,
+                    &case.id,
+                    &case.text,
+                    case.expected,
+                    false,
+                ));
                 continue;
             }
         };
         latency.record(started.elapsed().as_secs_f64() * 1000.0);
         let rounds = decision.rounds;
-        score_classify_case(&mut classify, case, &rounds);
+        details.push(score_classify_case(&mut classify, case, &rounds));
         // 夹具落盘放在轮记录的最后一次使用之后：逐轮文本 move 进夹具，
         // 不再逐轮复制（落盘顺序与逐条顺序不变——每条至多一次 push）。
         if options.record {
@@ -178,19 +201,23 @@ pub async fn run_live(
                 Err(_) => {
                     metrics.evaluated += 1;
                     metrics.degraded += 1;
+                    details.push(detail::engine_error_detail(
+                        name, &case.id, &case.text, case.kind, true,
+                    ));
                     continue;
                 }
             };
             latency.record(started.elapsed().as_secs_f64() * 1000.0);
             // 轮记录来自 run_task_rounds 本身：修复轮次与 RunOutput.repairs
             // 同源同值（on_repair 与修复计数器逐一对应），折算走与重放轨
-            // 同一份 for_rounds。
-            let verdict = TaskVerdict::for_rounds(case, &rounds);
+            // 同一份明细结算（task_parts 内部即 for_reply + 逐轮轨迹）。
+            let (case_detail, verdict) = detail::task_parts(name, case, &rounds);
             debug_assert_eq!(
                 verdict.repairs, output.repairs,
                 "round records and RunOutput.repairs must agree"
             );
             metrics.record(&verdict);
+            details.push(case_detail);
             if options.judge
                 && let Some(reply) = rounds.last()
             {
@@ -237,6 +264,7 @@ pub async fn run_live(
             judge_summary,
             0,
         ),
+        cases: details,
         recordings,
     })
 }
@@ -559,8 +587,12 @@ mod tests {
     use gloss_core::ports::{AiEngine, BoxFuture, TaskChunk, TaskStream};
     use gloss_core::schema::Violation;
 
-    use super::{check_classify_trajectory, check_task_trajectory, run_replay, run_task_case};
+    use super::{
+        check_classify_trajectory, check_task_trajectory, run_replay, run_replay_detailed,
+        run_task_case,
+    };
     use crate::dataset::load_task;
+    use crate::detail::{CLASSIFY_GROUP, ClassifyOutcome};
     use crate::runner::{LiveEnv, LiveOptions, live_config, run_live};
 
     #[test]
@@ -646,6 +678,55 @@ mod tests {
             Some(&1),
             "the code dataset carries the missing-note exception fixture"
         );
+    }
+
+    #[test]
+    fn replay_details_agree_with_the_report_metrics() {
+        let run = run_replay_detailed().expect("replay must succeed offline");
+        let classify = run.report.classify.as_ref().expect("classify track");
+        let classify_rows: Vec<_> = run
+            .cases
+            .iter()
+            .filter(|case| case.group == CLASSIFY_GROUP)
+            .collect();
+        assert_eq!(
+            classify_rows.len(),
+            classify.metrics.evaluated,
+            "classify details and the report share the same denominator"
+        );
+        assert_eq!(
+            classify_rows
+                .iter()
+                .filter(|case| case.classify.as_ref() == Some(&ClassifyOutcome::Correct))
+                .count(),
+            classify.metrics.correct
+        );
+        assert_eq!(
+            classify_rows.iter().map(|case| case.repairs).sum::<u32>(),
+            classify.metrics.repair_rounds
+        );
+        for stats in &run.report.tasks {
+            let rows: Vec<_> = run
+                .cases
+                .iter()
+                .filter(|case| case.group == stats.dataset)
+                .collect();
+            assert_eq!(rows.len(), stats.metrics.evaluated, "{}", stats.dataset);
+            assert_eq!(
+                rows.iter()
+                    .filter(|case| case.task.as_ref().is_some_and(|outcome| outcome.degraded))
+                    .count(),
+                stats.metrics.degraded,
+                "{}",
+                stats.dataset
+            );
+            assert_eq!(
+                rows.iter().map(|case| case.repairs).sum::<u32>(),
+                stats.metrics.repair_rounds,
+                "{}",
+                stats.dataset
+            );
+        }
     }
 
     #[test]
@@ -757,6 +838,15 @@ mod tests {
         assert_eq!(run.report.tasks[1].metrics.repair_rounds, 0);
         assert_eq!(run.report.tasks[2].metrics.repair_rounds, 0);
 
+        assert_eq!(
+            run.cases.len(),
+            4,
+            "1 classify + 3 task details ride the same run"
+        );
+        assert_eq!(run.cases[0].id, "zh-word-01");
+        assert!(run.cases[0].classify.is_some());
+        assert!(run.cases.iter().all(|case| !case.engine_error));
+
         let by_id: std::collections::BTreeMap<_, _> = run
             .recordings
             .iter()
@@ -821,6 +911,13 @@ mod tests {
             "a task-stage engine failure counts into degraded (documented caveat)"
         );
         assert_eq!(run.report.tasks[0].metrics.repair_rounds, 0);
+        let failed = run
+            .cases
+            .iter()
+            .find(|case| case.engine_error)
+            .expect("the failed task rides the details as an engine error");
+        assert_eq!(failed.id, "task-word-01");
+        assert_eq!(failed.group, "task_translate_word");
         assert!(
             run.recordings.is_empty(),
             "nothing recorded without --record"
