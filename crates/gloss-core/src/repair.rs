@@ -54,8 +54,9 @@ impl RepairStage {
 }
 
 /// 违约后的下一轮对话：预算内留痕并返回修复对话；耗尽返回 `None`，由
-/// 调用方按本段语义上交产物。`instruction` 只在真正要发下一轮时求值
-/// （耗尽路径不做渲染）。
+/// 调用方按本段语义上交产物。EmptyReply 无内容可纠：原样重发底座，不拼
+/// assistant 轮也不渲染纠错指令（部分端点拒收空 assistant content，而
+/// 首轮请求本身已含完整契约）——`instruction` 只在真正要发修复轮时求值。
 pub(crate) fn next_round(
     stage: RepairStage,
     base: &[ChatMessage],
@@ -71,10 +72,8 @@ pub(crate) fn next_round(
     }
     *repairs += 1;
     stage.warn_violated(*repairs, violation);
-    // EmptyReply 无内容可纠：原样重发，不带 assistant 轮。
-    let bad = match violation {
-        Violation::EmptyReply => None,
-        _ => Some(reply),
-    };
-    Some(repair_conversation(base, bad, instruction(violation)))
+    match violation {
+        Violation::EmptyReply => Some(base.to_vec()),
+        _ => Some(repair_conversation(base, reply, instruction(violation))),
+    }
 }

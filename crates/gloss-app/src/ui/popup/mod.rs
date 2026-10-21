@@ -5,7 +5,7 @@
 //!   ——专属底色、`gloss-mono` 等宽体、按可用宽折行、左上角语言标签行）；
 //! - **注**＝译文/释义/概要（楷体，系统缺楷体时随 demo 回退链落宋体；
 //!   朱丝栏左线 + 朱印）；
-//! - **疏**＝译注/例句/小记（楷体弱色、上缘虚线 + 疏印）。
+//! - **疏**＝译注/例句/小记（楷体 markdown 正文色、上缘虚线 + 疏印）。
 //!
 //! 三分区的正文列都显式声明垂直布局：egui 的 Frame/子 Ui 会继承父级的
 //! 水平布局（`new_child` 不带 layout 参数），横排父级里多条目正文会从左往
@@ -51,8 +51,8 @@ mod note;
 use std::sync::Arc;
 
 use content::{
-    JING_FONT, PHON_FONT, SEAL_FONT, SHU_FONT, SMALL_FONT, WORD_FONT, ZHU_FONT, example_lines,
-    kaiti_font, serif_font, watermark,
+    JING_FONT, PHON_FONT, SEAL_FONT, SHU_FONT, SMALL_FONT, WORD_FONT, ZHU_FONT, kaiti_font,
+    serif_font, watermark,
 };
 use icon::app_icon_image;
 use image::decode_attached;
@@ -428,13 +428,13 @@ fn streamed_sections(
     }
     if !fields.note.is_empty() {
         zhu_section(ui, text, |ui| {
-            apply_zhu_typography(ui);
+            apply_markdown_typography(ui, ZHU_FONT);
             render_markdown(ui, state, &fields.note);
         });
     }
     if !fields.examples.is_empty() {
         ui.add_space(space::PARAGRAPH);
-        shu_examples(ui, &fields.examples, text);
+        shu_examples(ui, &fields.examples, state, text);
     }
 }
 
@@ -1105,12 +1105,13 @@ fn code_badge(ui: &mut egui::Ui, lang: Option<&str>) {
     ui.add_space(CODE_LINE_HEIGHT);
 }
 
-/// 注区的文本样式改写：markdown 正文与列表项落到楷体字号（egui_commonmark
+/// 注/疏区共用的文本样式改写：markdown 正文与列表项落到楷体（egui_commonmark
 /// 经 `ui.style().text_styles` 取字体，改写即生效；代码块仍走等宽族）。
-fn apply_zhu_typography(ui: &mut egui::Ui) {
+/// 注正文用注字号（[`ZHU_FONT`]），疏条目用疏字号（[`SHU_FONT`]）。
+fn apply_markdown_typography(ui: &mut egui::Ui, body_size: f32) {
     for (style, size) in [
-        (TextStyle::Body, ZHU_FONT),
-        (TextStyle::Button, ZHU_FONT),
+        (TextStyle::Body, body_size),
+        (TextStyle::Button, body_size),
         (TextStyle::Small, SMALL_FONT),
         (TextStyle::Heading, JING_FONT),
     ] {
@@ -1335,12 +1336,12 @@ fn zhu_and_shu(
     text: &'static Text,
 ) {
     zhu_section(ui, text, |ui| {
-        apply_zhu_typography(ui);
+        apply_markdown_typography(ui, ZHU_FONT);
         render_markdown(ui, state, note);
     });
     if !examples.is_empty() {
         ui.add_space(space::PARAGRAPH);
-        shu_examples(ui, examples, text);
+        shu_examples(ui, examples, state, text);
     }
 }
 
@@ -1362,26 +1363,17 @@ fn word_head(ui: &mut egui::Ui, word: &str, phonetic: Option<&str>) {
     });
 }
 
-/// 疏位疏证（examples 逐条）：例句/展开讲解拆行（demo w-ex 的 `.en` 行
-/// + `.zh` 块），楷体弱色。
-fn shu_examples(ui: &mut egui::Ui, examples: &[String], text: &'static Text) {
+/// 疏位疏证（examples 逐条）：条目在产物契约里本就是 Markdown 字符串，
+/// 走注文同一条 markdown 渲染管线（楷体疏字号、正文色）——条目的出处/
+/// 原文/按断结构由条目自身的内容承载，不再做拆行整形与列表符装饰。
+fn shu_examples(ui: &mut egui::Ui, examples: &[String], state: &RenderState, text: &'static Text) {
     shu_section(ui, text, |ui| {
-        let weak = ui.visuals().weak_text_color();
-        for example in examples {
-            let (source, translation) = example_lines(example);
-            ui.label(
-                RichText::new(format!("· {source}")) // i18n:allow 列表符号，非 locale 文案
-                    .font(kaiti_font(SHU_FONT))
-                    .color(weak),
-            );
-            if let Some(translation) = translation {
-                ui.label(
-                    RichText::new(translation)
-                        .font(kaiti_font(SHU_FONT))
-                        .color(weak),
-                );
+        apply_markdown_typography(ui, SHU_FONT);
+        for (index, example) in examples.iter().enumerate() {
+            if index > 0 {
+                ui.add_space(space::INLINE);
             }
-            ui.add_space(space::INLINE);
+            render_markdown(ui, state, example);
         }
     });
 }
@@ -1768,7 +1760,9 @@ mod kittest_tests {
         harness.run();
         harness.get_by_label("gloss");
         harness.get_by_label("/ɡlɒs/");
-        harness.get_by_label("· a gloss of silk");
+        // 疏条目经 markdown 渲染：段落文本是 TextRun 节点，精确标签查询会
+        // 被标签提供者过滤规则吞掉——沿用注文的 contains 惯例。
+        harness.get_by_label_contains("a gloss of silk");
     }
 
     #[test]
@@ -1776,7 +1770,7 @@ mod kittest_tests {
         let (mut harness, _clicked) = harness_for(word_card_view());
         harness.run();
         let head = harness.get_by_label("/ɡlɒs/").rect();
-        let example = harness.get_by_label("· a gloss of silk").rect();
+        let example = harness.get_by_label_contains("a gloss of silk").rect();
         assert!(
             example.top() > head.top(),
             "经→疏必须自上而下排（分区显式垂直布局），不能横向并排: {head:?} {example:?}"
@@ -2036,8 +2030,8 @@ mod kittest_tests {
         harness.run();
         harness.get_by_label_contains("any content at all");
         harness.get_by_label_contains("A direct answer to arbitrary content.");
-        harness.get_by_label("· first expansion item");
-        harness.get_by_label("· second expansion item");
+        harness.get_by_label_contains("first expansion item");
+        harness.get_by_label_contains("second expansion item");
     }
 
     #[test]

@@ -10,16 +10,17 @@
 //! structured.code_language（LLM 判定，UI 角标与高亮使用）。
 //! 模板里的输出示例就是解析侧（`crate::schema::validate_task`）所吃形状
 //! 的唯一描述，两处改一须改二（完整性门禁测试锁定：每个模板的示例对象
-//! 必须通过对应 `validate_task`）；示例值恒为占位（同分类契约的少样本
-//! 偏置取舍）。模板与提示都不要求围栏——模型回复按严格裸 JSON 校验
-//! （`crate::schema`），围栏输出即违约进修复轮。模态矩阵之外的输入一律
-//! [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
+//! 必须通过对应 `validate_task`）。模板与提示都不要求围栏——模型回复按
+//! 严格裸 JSON 校验（`crate::schema`），围栏输出即违约进修复轮。模态矩阵
+//! 之外的输入一律 [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
 //!
-//! 模板文本是编译期嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，
-//! `include_str!`），渲染是显式的 `{{占位符}}` 替换（可选行语义见
-//! [`render_template`]）。不注入模态提示行：源语言与代码语言都由模型
-//! 从原文自行判断，代码语言经产物 JSON 的 `structured.code_language`
-//! 回传 UI。
+//! 分类与修复的指令同样自包含：classify 模板自带类别清单与判别规则（类别
+//! `Fallback` 由 [`crate::schema::validate_classify`] 映射兜底 kind），
+//! repair 模板只携带违约固定措辞（`{{reason}}` 回灌）。模板文本是编译期
+//! 嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，`include_str!`），
+//! 渲染是显式的 `{{占位符}}` 替换（可选行语义见 [`render_template`]）。
+//! 不注入模态提示行：源语言与代码语言都由模型从原文自行判断，代码语言经
+//! 产物 JSON 的 `structured.code_language` 回传 UI。
 //!
 //! 本模块只产**域形态**的消息（[`ChatMessage`]：role + [`MessageContent`]），
 //! 不做 wire 序列化，也不携带 base64——把部件数组映成 OpenAI 兼容
@@ -41,12 +42,8 @@ use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 /// 目标语言缺省值（`TaskOptions::target_lang` 文档：缺省中文）。
 const DEFAULT_TARGET: Lang = Lang::Zh;
 
-/// 分类输出契约的 schema：只示范形状，值用中性占位——写死某个具体 kind
-/// 会形成少样本偏置，模型照抄示例类别的比例随示例显著性上升。
-pub(crate) const CLASSIFY_SCHEMA: &str = r#"{"kind":"…"}"#;
-
-/// 一个 locale 的模板文件集：各 kind 的自包含任务书（说明 + 提示行 +
-/// 输出契约与示例都在文件内）+ 分类指令 + 修复轮纠错指令。
+/// 一个 locale 的模板文件集：各 kind 的自包含任务书（说明 + 输出契约与
+/// 示例都在文件内）+ 分类指令 + 修复轮纠错指令。
 #[derive(Debug, Clone, Copy)]
 struct Templates {
     word_card: &'static str,
@@ -203,172 +200,49 @@ impl PromptRegistry {
         }
     }
 
-    /// 渲染**分类请求**的 messages：系统指令来自 classify 模板（任务说明、
-    /// 允许清单、判别规则、输出契约），用户消息只有待分类原文。与任务渲染
-    /// 的分工：分类不走 `render`（那是任务的路径），输出契约见
-    /// [`CLASSIFY_SCHEMA`]。
-    ///
-    /// `allowed` 是允许模型选择的任务类型清单（编排传
-    /// [`crate::classify::CLASSIFY_KINDS`]）。
-    pub fn render_classify(
-        &self,
-        locale: Locale,
-        allowed: &[TaskKind],
-        text: &str,
-    ) -> Vec<ChatMessage> {
+    /// 渲染**分类请求**的 messages：系统指令来自 classify 模板（类别清单、
+    /// 判别规则与输出契约都在模板内——模板是类别集的唯一事实源），用户
+    /// 消息只有待分类原文。与任务渲染的分工：分类不走 `render`（那是任务
+    /// 的路径），输出契约见 [`crate::schema::validate_classify`]。
+    pub fn render_classify(&self, locale: Locale, text: &str) -> Vec<ChatMessage> {
         let templates = locale.templates();
-        let allowed_block = classify_allowed_block(allowed, locale);
-        let rules_block = classify_rules_block(allowed, locale);
-        let system = render_template(
-            templates.classify,
-            &[
-                ("allowed", &allowed_block),
-                ("rules", &rules_block),
-                ("schema", CLASSIFY_SCHEMA),
-            ],
-        );
-        vec![ChatMessage::system(system), ChatMessage::user(text)]
+        vec![
+            ChatMessage::system(templates.classify),
+            ChatMessage::user(text),
+        ]
     }
 
     /// 渲染**修复轮**的纠错指令（修复对话里最后一条 user 消息的正文）：
     /// 违约固定措辞（[`crate::schema::Violation`]，只记类别不携带回复原文）
-    /// 加契约示例行，加可选的截断提示（`truncated` = 服务端以
-    /// `finish_reason: length` 收尾）。
-    pub fn render_repair(
-        &self,
-        locale: Locale,
-        violation: crate::schema::Violation,
-        schema: &str,
-        truncated: bool,
-    ) -> String {
-        let hint = match (truncated, locale) {
-            (true, Locale::Zh) => "输出被截断，请重新完整输出。",
-            (true, Locale::En) => "The output was truncated; reply with the complete output.",
-            (false, _) => "",
-        };
+    /// 作为 `{{reason}}` 回灌模板。
+    pub fn render_repair(&self, locale: Locale, violation: crate::schema::Violation) -> String {
         render_template(
             locale.templates().repair,
-            &[
-                ("reason", &violation.to_string()),
-                ("hint", hint),
-                ("schema", schema),
-            ],
+            &[("reason", &violation.to_string())],
         )
-    }
-
-    /// kind 的契约示例行：自本 locale 的任务模板**原样提取**——模板是
-    /// 输出契约的唯一事实源，任务书与修复指令引用同一行，措辞漂移不可
-    /// 能发生（含 zh/en 示例里「…或 null」这类随模板语言的写法）。模板
-    /// 完整性门禁保证每份任务模板都有一行 JSON 示例对象，取不到属不可
-    /// 达，回落最小契约行（仍指向带 note 的 JSON 对象）。
-    pub fn task_contract_line(&self, kind: TaskKind, locale: Locale) -> String {
-        instruction_template(locale.templates(), kind)
-            .lines()
-            .find(|line| line.trim_start().starts_with('{'))
-            .map(str::to_owned)
-            .unwrap_or_else(|| r#"{"note":"…","structured":{}}"#.to_owned())
     }
 }
 
 /// 修复轮对话：`[system][user 原文/图][assistant 上一次坏回复]
-/// [user 纠错指令]`。`bad` 为 `None`（EmptyReply 无内容可纠）时原样重发
-/// ——不带 assistant 轮也不带纠错指令（部分端点拒收空 assistant
-/// content，而首轮请求本身已含完整契约）。首轮消息原样在前：图像任务的
-/// 图像部件（`Arc` 字节）随 base 零拷贝重发，修复轮历史里首轮图片随完整
-/// 对话走。
+/// [user 纠错指令]`。首轮消息原样在前：图像任务的图像部件（`Arc` 字节）
+/// 随 base 零拷贝重发，修复轮历史里首轮图片随完整对话走。（EmptyReply
+/// 无内容可纠，不经本函数——原样重发的决策在 [`crate::repair::next_round`]。）
 pub(crate) fn repair_conversation(
     base: &[ChatMessage],
-    bad: Option<&str>,
+    bad: &str,
     instruction: String,
 ) -> Vec<ChatMessage> {
-    let Some(reply) = bad else {
-        return base.to_vec();
-    };
     let mut messages = Vec::with_capacity(base.len() + 2);
     messages.extend_from_slice(base);
-    messages.push(ChatMessage::assistant(reply));
+    messages.push(ChatMessage::assistant(bad));
     messages.push(ChatMessage::user(instruction));
     messages
 }
 
-/// 允许清单的渲染块：每个 kind 一行「serde 标识 — 一句话判据」。标识是
-/// 模型要原样输出的契约值，判据给它选择的依据；语言随 locale。
-fn classify_allowed_block(allowed: &[TaskKind], locale: Locale) -> String {
-    let mut lines = Vec::new();
-    for kind in allowed {
-        let description = match (kind, locale) {
-            (TaskKind::TranslateWord, Locale::Zh) => {
-                "单个词或短语，适合词典式查询（音标、释义、例句）"
-            }
-            (TaskKind::TranslateSentence, Locale::Zh) => {
-                "自然语言句子或段落（可夹杂术语），需要翻译成目标语言"
-            }
-            (TaskKind::ExplainCode, Locale::Zh) => {
-                "代码片段（含命令行、报错堆栈、配置与数据格式片段），需要解释其行为或原理"
-            }
-            (TaskKind::ImageExplain, Locale::Zh) => "图片，需要解释其内容",
-            (TaskKind::General, Locale::Zh) => "任意内容，按通用任务理解并回应",
-            (TaskKind::TranslateWord, Locale::En) => {
-                "a single word or phrase suited to a dictionary-style card"
-            }
-            (TaskKind::TranslateSentence, Locale::En) => {
-                "a natural-language sentence or paragraph (terms mixed in are fine) to translate"
-            }
-            (TaskKind::ExplainCode, Locale::En) => {
-                "a code snippet (including command lines, error stack traces, and config or \
-                 data-format fragments) to explain"
-            }
-            (TaskKind::ImageExplain, Locale::En) => "an image to explain",
-            (TaskKind::General, Locale::En) => "anything, to handle with the general task",
-        };
-        lines.push(format!("{kind:?} — {description}"));
-    }
-    lines.join("\n")
-}
-
-/// 易混淆簇的判别规则段（含段首标签，作为**一个可选单元**渲染）：只补
-/// 「清单判据一句话说不清」的边界（命令、报错、配置片段没有代码围栏也属
-/// 代码解释），不引入少样本示例——示例会把输出偏置到它自己的类别。规则
-/// 只对**清单里存在**的 kind 出现：规则指向一个不在清单里的答案，等于
-/// 推着模型选一个必然被拒绝的项；清单里一条规则都没有时整段为空，模板
-/// 那一行按可选行语义整行剔除（标签随之消失）。
-fn classify_rules_block(allowed: &[TaskKind], locale: Locale) -> String {
-    let mut lines = Vec::new();
-    for kind in allowed {
-        let rule = match (kind, locale) {
-            (TaskKind::ExplainCode, Locale::Zh) => Some(
-                "命令行、报错堆栈、配置与数据格式片段，即使没有代码围栏或缩进，也按代码解释处理。",
-            ),
-            (TaskKind::TranslateSentence, Locale::Zh) => {
-                Some("完整的自然语言句子或段落（即使夹杂术语），按句子翻译处理。")
-            }
-            (TaskKind::ExplainCode, Locale::En) => Some(
-                "Command lines, error stack traces, and config or data-format fragments count \
-                 as code to explain even without fences or indentation.",
-            ),
-            (TaskKind::TranslateSentence, Locale::En) => Some(
-                "A full natural-language sentence or paragraph counts as a translation task \
-                 even when terms are mixed in.",
-            ),
-            _ => None,
-        };
-        if let Some(rule) = rule {
-            lines.push(format!("- {rule}"));
-        }
-    }
-    if lines.is_empty() {
-        return String::new();
-    }
-    let label = match locale {
-        Locale::Zh => "判别规则（逐条遵守）：",
-        Locale::En => "Discrimination rules (follow each one):",
-    };
-    format!("{label}\n{}", lines.join("\n"))
-}
-
-/// 指令模板：按 kind 取本 locale 对应文件（全 kind 全覆盖：修复轮的契约
-/// 示例行提取对图像 kind 同样成立；`render` 只对文本输入调本函数——图像
-/// 分支直接取 image_explain，非法模态组合在渲染前已被约束表拦截）。
+/// 指令模板：按 kind 取本 locale 对应文件（全 kind 全覆盖；`render` 只对
+/// 文本输入调本函数——图像分支直接取 image_explain，非法模态组合在渲染前
+/// 已被约束表拦截）。兜底 kind [`TaskKind::General`] 的落点就是 general
+/// 模板——分类判 `Fallback` 时任务走这一份。
 fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
     match kind {
         TaskKind::TranslateWord => templates.word_card,
@@ -533,10 +407,10 @@ mod tests {
     fn text_kinds_render_system_and_user_with_kind_content() {
         let registry = PromptRegistry::new();
         let cases = [
-            (TaskKind::TranslateWord, "词典式词卡"),
-            (TaskKind::TranslateSentence, "翻译"),
-            (TaskKind::ExplainCode, "代码"),
-            (TaskKind::General, "通用助手"),
+            (TaskKind::TranslateWord, "词典专家"),
+            (TaskKind::TranslateSentence, "翻译专家"),
+            (TaskKind::ExplainCode, "编程专家"),
+            (TaskKind::General, "经注疏"),
         ];
         for (kind, keyword) in cases {
             let task = text_task(kind, "hello world");
@@ -689,7 +563,7 @@ mod tests {
                     validate_task(kind, object)
                         .map(|(note, _)| note)
                         .map_err(|violation| violation.to_string()),
-                    Ok("…".to_owned()),
+                    Ok("<string>".to_owned()),
                     "{locale:?}/{name}: the example object must pass validate_task"
                 );
                 assert_structured_keys(locale, name, object, keys);
@@ -722,11 +596,6 @@ mod tests {
     #[test]
     fn repair_instruction_renders_without_leftover_placeholders() {
         let registry = PromptRegistry::new();
-        let schemas = [
-            CLASSIFY_SCHEMA,
-            r#"{"note":"…","structured":{"examples":["…","…"]}}"#,
-            "",
-        ];
         for locale in [Locale::Zh, Locale::En] {
             for violation in [
                 crate::schema::Violation::EmptyReply,
@@ -734,22 +603,16 @@ mod tests {
                 crate::schema::Violation::MissingNote,
                 crate::schema::Violation::KindNotAllowed,
             ] {
-                for truncated in [false, true] {
-                    for schema in schemas {
-                        let instruction =
-                            registry.render_repair(locale, violation, schema, truncated);
-                        assert!(
-                            !instruction.contains("{{"),
-                            "{locale:?} x {violation:?} x truncated={truncated} leaves a \
-                             placeholder: {instruction}"
-                        );
-                        assert!(
-                            !instruction.is_empty(),
-                            "{locale:?} x {violation:?}: the violation wording keeps the \
-                             instruction non-empty"
-                        );
-                    }
-                }
+                let instruction = registry.render_repair(locale, violation);
+                assert!(
+                    !instruction.contains("{{"),
+                    "{locale:?} x {violation:?} leaves a placeholder: {instruction}"
+                );
+                assert!(
+                    !instruction.is_empty(),
+                    "{locale:?} x {violation:?}: the violation wording keeps the \
+                     instruction non-empty"
+                );
             }
         }
     }
@@ -787,8 +650,8 @@ mod tests {
                 let messages = registry.render(&task).expect("render");
                 let expected = lang_display(&DEFAULT_TARGET, locale);
                 let instruction = match locale {
-                    Locale::Zh => "翻译助手",
-                    Locale::En => "translation assistant",
+                    Locale::Zh => "翻译专家",
+                    Locale::En => "translation expert",
                 };
                 assert!(
                     text_of(&messages[0].content).contains(instruction),
@@ -824,8 +687,8 @@ mod tests {
         );
         let system = text_of(&messages[0].content);
         assert!(
-            system.contains("JSON 对象") || system.contains("JSON object"),
-            "the image contract must demand a single JSON object: {system}"
+            system.contains("JSON 格式") || system.contains("JSON format"),
+            "the image contract must demand JSON output: {system}"
         );
         assert!(system.contains("\"note\""), "{system}");
         assert!(system.contains("\"structured\""), "{system}");
@@ -884,87 +747,41 @@ mod tests {
     }
 
     #[test]
-    fn classify_prompt_carries_allowed_kinds_and_the_text() {
+    fn classify_prompt_carries_the_template_categories_and_the_text() {
         let registry = PromptRegistry::new();
-        let allowed = [TaskKind::TranslateWord, TaskKind::ExplainCode];
         for locale in [Locale::Zh, Locale::En] {
-            let messages = registry.render_classify(locale, &allowed, "gloss 原文");
+            let messages = registry.render_classify(locale, "gloss 原文");
             assert_eq!(messages.len(), 2);
             assert_eq!(
                 messages[1].content,
                 MessageContent::Text("gloss 原文".into())
             );
-            assert!(
-                text_of(&messages[0].content).contains("TranslateWord"),
-                "{locale:?}"
-            );
-            assert!(text_of(&messages[0].content).contains("ExplainCode"));
-            assert!(text_of(&messages[0].content).contains("\"kind\""));
-            assert!(!text_of(&messages[0].content).contains("{{"));
+            let system = text_of(&messages[0].content);
+            for category in [
+                "TranslateWord",
+                "TranslateSentence",
+                "ExplainCode",
+                "Fallback",
+            ] {
+                assert!(system.contains(category), "{locale:?}: {system}");
+            }
+            assert!(system.contains("\"kind\""));
+            assert!(!system.contains("{{"));
         }
     }
 
     #[test]
-    fn classify_schema_is_a_neutral_placeholder() {
-        for kind in [
-            TaskKind::TranslateWord,
-            TaskKind::TranslateSentence,
-            TaskKind::ExplainCode,
-        ] {
-            let serde_name = format!("{kind:?}");
-            assert!(
-                !CLASSIFY_SCHEMA.contains(&serde_name),
-                "the classify contract must not name a concrete kind ({serde_name}): \
-                 the example is a few-shot bias"
-            );
-        }
-    }
-
-    #[test]
-    fn the_general_kind_is_never_offered_to_the_classifier() {
+    fn the_general_kind_is_never_named_by_the_classify_template() {
         let registry = PromptRegistry::new();
         for locale in [Locale::Zh, Locale::En] {
-            let messages =
-                registry.render_classify(locale, &crate::classify::CLASSIFY_KINDS, "gloss 原文");
+            let messages = registry.render_classify(locale, "gloss 原文");
             let system = text_of(&messages[0].content);
             assert!(
                 !system.contains("General"),
-                "{locale:?}: the general fallback kind must stay off the classify list: {system}"
+                "{locale:?}: the general kind is the execution landing, the template \
+                 speaks in the Fallback category: {system}"
             );
         }
-    }
-
-    #[test]
-    fn rules_follow_the_allowed_list_and_leave_no_dangling_label() {
-        let registry = PromptRegistry::new();
-        let full = [TaskKind::TranslateSentence, TaskKind::ExplainCode];
-
-        let zh_messages = registry.render_classify(Locale::Zh, &full, "kubectl get pods");
-        let zh = text_of(&zh_messages[0].content);
-
-        assert!(zh.contains("命令行"));
-        assert!(zh.contains("判别规则"));
-
-        let en_messages = registry.render_classify(Locale::En, &full, "kubectl get pods");
-        let en = text_of(&en_messages[0].content);
-
-        assert!(en.contains("Command lines"));
-        assert!(en.contains("Discrimination rules"));
-
-        let without_code = [TaskKind::TranslateSentence];
-        let zh_messages = registry.render_classify(Locale::Zh, &without_code, "kubectl get pods");
-        let zh = text_of(&zh_messages[0].content);
-
-        assert!(!zh.contains("命令行"));
-        assert!(zh.contains("判别规则"), "{zh}");
-
-        let without_rules = [TaskKind::TranslateWord];
-        let zh_messages = registry.render_classify(Locale::Zh, &without_rules, "光泽");
-        let zh = text_of(&zh_messages[0].content);
-
-        assert!(!zh.contains("命令行"));
-        assert!(!zh.contains("判别规则"), "{zh}");
-        assert!(!zh.contains("{{"), "{zh}");
     }
 
     #[test]
@@ -1021,109 +838,47 @@ mod tests {
     }
 
     #[test]
-    fn repair_instruction_carries_the_wording_schema_and_optional_truncation_hint() {
+    fn repair_instruction_carries_the_violation_reason_only() {
         let registry = PromptRegistry::new();
         let violation = crate::schema::Violation::NotJson;
-        let schema_line = r#"{"note":"…","structured":{"examples":["…"]}}"#;
 
-        let zh = registry.render_repair(Locale::Zh, violation, schema_line, false);
+        let zh = registry.render_repair(Locale::Zh, violation);
         assert!(
             zh.contains("reply is not a bare JSON object"),
-            "the fixed violation wording rides the instruction: {zh}"
+            "the fixed violation wording rides the instruction as the reason: {zh}"
         );
-        assert!(zh.contains(schema_line), "the contract line rides: {zh}");
         assert!(
             !zh.contains("{{"),
             "{locale:?} renders without leftover placeholders: {zh}",
             locale = Locale::Zh
         );
         assert!(
-            !zh.contains("输出被截断"),
-            "the truncation hint is off without a length finish: {zh}"
+            !zh.contains("{\"kind\"") && !zh.contains("{\"note\""),
+            "the repair template no longer quotes a contract schema line: {zh}"
         );
 
-        let truncated = registry.render_repair(Locale::Zh, violation, schema_line, true);
-        assert!(
-            truncated.contains("输出被截断，请重新完整输出"),
-            "a length finish adds the truncation hint: {truncated}"
-        );
-
-        let en = registry.render_repair(
-            Locale::En,
-            crate::schema::Violation::EmptyReply,
-            schema_line,
-            true,
-        );
+        let en = registry.render_repair(Locale::En, crate::schema::Violation::EmptyReply);
         assert!(en.contains("empty reply"));
-        assert!(
-            en.contains("The output was truncated"),
-            "the hint follows the prompt locale: {en}"
-        );
         assert!(!en.contains("{{"), "{en}");
         assert!(
             en.to_lowercase().contains("json"),
             "the repair prompt must mention json (the endpoint's JSON-mode gate reads it)"
         );
 
-        let kind_not_allowed = registry.render_repair(
-            Locale::Zh,
-            crate::schema::Violation::KindNotAllowed,
-            "",
-            false,
-        );
+        let kind_not_allowed =
+            registry.render_repair(Locale::Zh, crate::schema::Violation::KindNotAllowed);
         assert!(
-            kind_not_allowed.contains("reply kind is outside the allowed list"),
+            kind_not_allowed.contains("reply kind is not one of the classify categories"),
             "every violation wording maps into the instruction: {kind_not_allowed}"
         );
     }
 
     #[test]
-    fn task_contract_lines_come_from_the_kind_templates() {
-        let registry = PromptRegistry::new();
-        let plain = registry.task_contract_line(TaskKind::TranslateSentence, Locale::Zh);
-        assert_eq!(
-            plain, r#"{"note":"…","structured":{"examples":["…","…"]}}"#,
-            "the plain line is shared by sentence/image/general"
-        );
-        let word = registry.task_contract_line(TaskKind::TranslateWord, Locale::Zh);
-        assert!(word.contains("phonetic"));
-        assert!(
-            word.contains("…或 null"),
-            "the line keeps the template's dialect"
-        );
-        let word_en = registry.task_contract_line(TaskKind::TranslateWord, Locale::En);
-        assert!(
-            word_en.contains("…or null"),
-            "each locale quotes its own template line: {word_en}"
-        );
-        let code = registry.task_contract_line(TaskKind::ExplainCode, Locale::En);
-        assert!(code.contains("code_language"));
-        let image = registry.task_contract_line(TaskKind::ImageExplain, Locale::Zh);
-        assert_eq!(image, plain, "the image kind quotes the plain line");
-        let general = registry.task_contract_line(TaskKind::General, Locale::En);
-        assert_eq!(general, plain);
-        for locale in [Locale::Zh, Locale::En] {
-            for kind in [
-                TaskKind::TranslateWord,
-                TaskKind::TranslateSentence,
-                TaskKind::ExplainCode,
-                TaskKind::ImageExplain,
-                TaskKind::General,
-            ] {
-                assert!(
-                    !registry.task_contract_line(kind, locale).contains("{{"),
-                    "{locale:?} x {kind:?} contract line must render clean"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn repair_conversation_replays_the_history_or_resends_as_is() {
+    fn repair_conversation_replays_the_history_with_the_bad_reply() {
         use super::repair_conversation;
 
         let base = vec![ChatMessage::system("契约"), ChatMessage::user("gloss 原文")];
-        let repaired = repair_conversation(&base, Some("上一轮的坏回复"), "纠错指令".to_owned());
+        let repaired = repair_conversation(&base, "上一轮的坏回复", "纠错指令".to_owned());
         let roles: Vec<Role> = repaired.iter().map(|m| m.role).collect();
         assert_eq!(
             roles,
@@ -1140,17 +895,11 @@ mod tests {
             ChatMessage::assistant("上一轮的坏回复"),
             "the bad reply rides as history"
         );
-
-        let resent = repair_conversation(&base, None, "纠错指令".to_owned());
-        assert_eq!(
-            resent, base,
-            "EmptyReply has nothing to repair: the original request is resent as-is"
-        );
     }
 
     #[test]
     fn every_template_placeholder_is_declared() {
-        let declared = ["target", "hint", "reason", "schema"];
+        let declared = ["target", "reason"];
         for locale in [Locale::Zh, Locale::En] {
             let templates = locale.templates();
             let files = [
@@ -1159,6 +908,7 @@ mod tests {
                 ("code.md", templates.code),
                 ("image_explain.md", templates.image_explain),
                 ("general.md", templates.general),
+                ("classify.md", templates.classify),
                 ("repair.md", templates.repair),
             ];
             for (name, text) in files {
@@ -1195,7 +945,7 @@ mod tests {
                 ("general.md", templates.general),
             ] {
                 assert!(
-                    text.contains("\"…\""),
+                    text.contains("\"<string>\""),
                     "{locale:?}/{name}: the example values must be neutral placeholders"
                 );
                 for proper_noun in ["serendipity", "glossary", "pangram"] {
@@ -1259,10 +1009,10 @@ mod tests {
                 Locale::En,
             ))
             .expect("render");
-        assert!(text_of(&messages[0].content).contains("translation assistant"));
-        assert!(text_of(&messages[0].content).contains("JSON object"));
+        assert!(text_of(&messages[0].content).contains("translation expert"));
+        assert!(text_of(&messages[0].content).contains("JSON format"));
         assert!(text_of(&messages[1].content).contains("bonjour"));
-        assert!(!text_of(&messages[0].content).contains("翻译助手"));
+        assert!(!text_of(&messages[0].content).contains("翻译专家"));
     }
 
     #[test]
@@ -1276,7 +1026,7 @@ mod tests {
                 Locale::En,
             ))
             .expect("render");
-        assert!(text_of(&english_prompt[0].content).contains("translation assistant"));
+        assert!(text_of(&english_prompt[0].content).contains("translation expert"));
         assert!(
             text_of(&english_prompt[0].content).contains("Chinese"),
             "template language must not move the default target: {}",
@@ -1286,7 +1036,7 @@ mod tests {
         let mut chinese_prompt = localized_task(TaskKind::TranslateSentence, "hello", Locale::Zh);
         chinese_prompt.options_mut().target_lang = Some(Lang::En);
         let messages = registry.render(&chinese_prompt).expect("render");
-        assert!(text_of(&messages[0].content).contains("翻译助手"));
+        assert!(text_of(&messages[0].content).contains("翻译专家"));
         assert!(text_of(&messages[0].content).contains("英语"));
     }
 
@@ -1304,7 +1054,7 @@ mod tests {
             ))
             .expect("render");
         assert_eq!(defaulted, explicit, "no locale means the Chinese templates");
-        assert!(text_of(&defaulted[0].content).contains("词典助手"));
+        assert!(text_of(&defaulted[0].content).contains("词典专家"));
         assert_eq!(Locale::default(), Locale::Zh);
     }
 }

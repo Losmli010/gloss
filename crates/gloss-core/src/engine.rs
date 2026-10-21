@@ -11,7 +11,7 @@ pub mod sse;
 
 use std::sync::Arc;
 
-use crate::classify::{CLASSIFY_FALLBACK, CLASSIFY_KINDS, classify};
+use crate::classify::{CLASSIFY_FALLBACK, classify};
 use crate::log::{thread, warn};
 use crate::model::GlossError;
 use crate::ports::{AiEngine, EngineRequest, TaskChunk};
@@ -31,9 +31,6 @@ const MAX_REPLY_BYTES: usize = 1024 * 1024;
 
 /// 服务端以内容审查收尾的 `finish_reason`。
 const FINISH_CONTENT_FILTER: &str = "content_filter";
-
-/// 服务端以长度截断收尾的 `finish_reason`（修复指令据此附加精确提示）。
-const FINISH_LENGTH: &str = "length";
 
 /// 内容审查的失败诊断：内容被服务端拦截，重发同请求无益，不重试。
 const CONTENT_FILTER_DIAGNOSTIC: &str = "reply stopped by the server content filter";
@@ -103,7 +100,6 @@ impl AiTaskService {
                 self.engine.as_ref(),
                 &options.model,
                 options.prompt_locale.unwrap_or_default(),
-                &CLASSIFY_KINDS,
                 &input,
             )
             .await
@@ -271,14 +267,7 @@ pub async fn run_task_rounds(
             violation,
             &mut repairs,
             TASK_REPAIRS,
-            |violation| {
-                prompts.render_repair(
-                    locale,
-                    violation,
-                    &prompts.task_contract_line(kind, locale),
-                    reply.finish_reason.as_deref() == Some(FINISH_LENGTH),
-                )
-            },
+            |violation| prompts.render_repair(locale, violation),
         ) else {
             // 预算耗尽：违约原文原样上交，完成态解析落降级产物。
             return Ok(RunOutput {
@@ -706,11 +695,11 @@ mod tests {
         let instruction = message_texts(&requests[1])[3].1.clone();
         assert!(
             instruction.contains("reply is not a bare JSON object"),
-            "the instruction carries the fixed violation wording: {instruction}"
+            "the instruction carries the fixed violation wording as the reason: {instruction}"
         );
         assert!(
-            instruction.contains("{\"note\":\"…\""),
-            "the instruction carries the contract example line: {instruction}"
+            !instruction.contains("{\"note\""),
+            "the repair template no longer quotes a contract schema line: {instruction}"
         );
         assert!(
             !instruction.contains("MARKER-bad-reply"),
@@ -874,7 +863,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_length_finish_augments_the_repair_instruction() {
+    async fn a_length_finish_repairs_without_a_truncation_hint() {
         let (engine, service) = make_service(&MockEngine::new().with_script_queue(vec![
             vec![delta("{\"note\":\"被截断"), done("length")],
             vec![
@@ -885,15 +874,15 @@ mod tests {
         let output = service
             .run(image_input(), options(), |_| {}, |_| {}, || {})
             .await
-            .expect("the truncation repair should converge");
+            .expect("the truncated reply should repair like any other violation");
         assert_eq!(output.repairs, 1);
         assert_eq!(output.finish_reason.as_deref(), Some("stop"));
         let requests = engine.recorded_requests();
         assert_eq!(requests.len(), 2);
         let instruction = message_texts(&requests[1])[3].1.clone();
         assert!(
-            instruction.contains("输出被截断，请重新完整输出"),
-            "a length finish adds the truncation hint: {instruction}"
+            !instruction.contains("输出被截断"),
+            "the repair template has no truncation hint anymore: {instruction}"
         );
     }
 

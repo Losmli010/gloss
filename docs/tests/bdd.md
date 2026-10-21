@@ -296,7 +296,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定双释义的词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标、两条释义、例句（复制按钮已移除，划选即复制） | 2026-10-01 |
+| word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定双释义的词卡 Outcome 视图，当渲染，则 AccessKit 树可按文本定位节点：gloss、音标（精确标签），注与疏条目（markdown 段落为 TextRun，按 contains 定位——精确标签查询会被标签提供者过滤规则吞掉） | 2026-10-21 |
 | word_card_sections_stack_vertically | 词卡经→疏纵向排布 | 给定词卡视图，当渲染，则经位（字头+音）与疏位（例句）矩形纵向递增（分区显式垂直布局） | 2026-10-04 |
 | watermark_sits_inside_the_computed_window_height | 页脚水印落在期望窗口内 | 给定流式/词卡两种视图，当按内容尺寸重设渲染窗口再量水印矩形，则水印底边不超出 draw 上交的期望窗口高（页脚被内容挤出窗外即失败） | 2026-10-03 |
 | a_long_selection_keeps_the_footer_inside_the_window | 长选区下页脚仍在窗内 | 给定原文很长的流式视图（普通原文与代码面板两态），当先确认 draw 上交的完整内容高远超钳制值，再把窗口压到 420（代表壳侧钳高后的高度）渲染，则「正在注解」与水印底边不超窗高，且 ↓ 把经位上移而页脚不动（经位与注疏同区滚动，生成指示不被长原文顶出窗外、长原文尾部可达） | 2026-10-18 |
@@ -315,7 +315,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | attached_image_slot_is_dropped_once_an_imageless_frame_renders | 会话离开图像卡即清纹理槽 | 给定图像帧（纹理就位）后切到无附件帧再切回同图，当逐段比对 egui 纹理分配数，则无附件帧分配数下降（源字节与纹理同帧释放，敏感数据不驻留会话外）、同图再上卡重新解码回到原驻留数 | 2026-10-10 |
 | degraded_outcome_card_shows_only_the_abnormal_notice_and_retry | 降级产物卡只出异常提示与重试 | 给定 degraded=true 的完成态卡（note 带残留内容），当渲染，则出「Abnormal output」与「Retry」按钮、点击上交 OverlayAction::Retry，而 note 残留与语言判定一概不在树上（原文垃圾不展示不留存） | 2026-10-11 |
 | degraded_outcome_card_never_takes_the_source_jing_section | 降级产物卡不保留原文经位 | 给定带原文的降级完成态卡，当渲染，则树上无原文节点（降级卡与失败卡同形：只有提示与重试） | 2026-10-11 |
-| general_outcome_card_renders_the_plain_layout | 通用产物卡与句译同形 | 给定 General 产物（原文经位 + markdown 注 + 两条疏条目）的完成态卡，当渲染，则原文、注文与「· 条目」疏位逐条入树（通用落 Plain 变体、按句译同形排布） | 2026-10-12 |
+| general_outcome_card_renders_the_plain_layout | 通用产物卡与句译同形 | 给定 General 产物（原文经位 + markdown 注 + 两条疏条目）的完成态卡，当渲染，则原文、注文与疏条目逐条入树（条目经 markdown 渲染按 contains 定位；通用落 Plain 变体、按句译同形排布） | 2026-10-21 |
 | failed_view_shows_retry_hint | 失败卡重试动作 | 给定 Retry 失败卡，当渲染并点击「重试」，则收集器收到 OverlayAction::Retry | 2026-09-21 |
 | auth_failed_view_offers_open_settings | 鉴权失败卡设置入口 | 给定鉴权失败卡，当渲染并点击「打开设置」，则收到 OverlayAction::OpenSettings（头部齿轮标签为「设置」，与正文按钮不混淆） | 2026-09-21 |
 | bare_failed_view_has_no_action_button | 无动作失败卡形态 | 给定 action=None 失败卡，当渲染，则无「重试」节点、无动作上交 | 2026-09-19 |
@@ -324,7 +324,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | header_drag_strip_is_exposed_to_accesskit | 页头拖动热区进无障碍树且与动作钮零重叠 | 给定词卡视图，当渲染，则无障碍树有「拖动浮层」热区节点、矩形与页头行同高（不小于头部图标边长）且水平区间止于最左动作钮左缘（收 DRAG_STRIP_INSET，与齿轮/× 零重叠） | 2026-10-03 |
 | header_drag_reports_cumulative_offset_and_ends_on_release | 页头拖动上交自按压点的累计位移 | 给定词卡视图与页头热区中心，当按下→两段移动→松开→再移动，则上交位移自按压点累计（按下为零、两段各 (20,10)/(30,15)，非逐帧增量）、松开后不再上交；按压点按物理像素记录（跨 DPI 显示器不混尺）；落点换算与屏幕钳制在壳侧 apply_overlay_drag（无状态：以窗口实际位置为基准，中途被动过会被下一帧落点吸收） | 2026-10-03 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 view=None 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/流式/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 七份基线一致，结果合并进单个 SnapshotResults（基线沿革：2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、Acquiring 骨架视图删除，popup_loading 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 popup_image_outcome / popup_image_streaming / popup_image_failed 三份基线（图像经位 + 注疏，夹具为测试内确定性编码的 120×80 渐变 PNG；英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 ImageOcr 任务类型与 Extracted 结构化变体，popup_extract 基线随其视图一并移除，余七份）；2026-10-11 随契约收敛新增 popup_degraded_outcome 降级产物卡基线（异常提示 + 重试，无经注疏内容），popup_code_streaming 随流式代码面板移除语言标签行重录（差异仅该行移除与其下既段位移），余十一份；2026-10-18 随文本流式经位并入滚动区重录 popup_streaming / popup_code_streaming，差异仅经位整体的亚像素抗锯齿（行高与列位置不变）；2026-10-19 随代码着色后端换 egui_extras/syntect（two-face 语法补集 + 六类色板自定义主题）重录 popup_code_outcome；popup_code_streaming 因流式期语言未定仍走通用兜底而零变化；popup_long_line 是连带变化（egui_commonmark 的围栏代码块经 feature 统一改用 syntect 默认主题与默认语法集，不再是六类色板；表外语言如 TOML 由简易高亮退化为纯色；同日再随疏字号 13→14 重录 popup_word_card / popup_image_outcome / popup_image_streaming（快照画布固定 800×600，浮层宽度常量不参与基线）；同日再随页头图标改矢量栅格化重录 popup_* 全部十二份基线（图标纹理由 resvg 按 pixels_per_point 从 SVG 源直栅到物理像素，不再解码 256px Dock 位图降采样，Retina 下糊化消除；逐份核对像素差异仅 (23,23)–(43,43) 的图标槽位，settings 基线不涉及）） | 2026-10-19 |
+| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡/流式/失败/鉴权失败/自检卡/代码流式/代码完成态，内容夹具为英文），当 wgpu 以英文文案与浅色主题渲染并 diff，则与 popup_word_card / popup_streaming / popup_failed / popup_failed_auth / popup_selfcheck / popup_code_streaming / popup_code_outcome 七份基线一致，结果合并进单个 SnapshotResults（基线沿革：2026-10-01 按经注疏 demo 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 ITEM 间距）、关闭 × 调小至 10×10 与页脚降高 26→20 再录；同日 popup_word_card 再随音标改 gloss-mono 等宽族重录，差异仅音标字形行——kittest 绑内置字形，缺字实测：内置 Hack 缺 14/18、Ubuntu-Light 缺 13/18、PingFang SC 缺 ɒ ʒ ʌ ˈ ˌ ː，链上无一命中；2026-10-02 新增 popup_code_streaming / popup_code_outcome 两份代码视图基线（T3：classified 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 T4；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、Acquiring 骨架视图删除，popup_loading 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 popup_image_outcome / popup_image_streaming / popup_image_failed 三份基线（图像经位 + 注疏，夹具为测试内确定性编码的 120×80 渐变 PNG；英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 ImageOcr 任务类型与 Extracted 结构化变体，popup_extract 基线随其视图一并移除，余七份）；2026-10-11 随契约收敛新增 popup_degraded_outcome 降级产物卡基线（异常提示 + 重试，无经注疏内容），popup_code_streaming 随流式代码面板移除语言标签行重录（差异仅该行移除与其下既段位移），余十一份；2026-10-18 随文本流式经位并入滚动区重录 popup_streaming / popup_code_streaming，差异仅经位整体的亚像素抗锯齿（行高与列位置不变）；2026-10-19 随代码着色后端换 egui_extras/syntect（two-face 语法补集 + 六类色板自定义主题）重录 popup_code_outcome；popup_code_streaming 因流式期语言未定仍走通用兜底而零变化；popup_long_line 是连带变化（egui_commonmark 的围栏代码块经 feature 统一改用 syntect 默认主题与默认语法集，不再是六类色板；表外语言如 TOML 由简易高亮退化为纯色；同日再随疏字号 13→14 重录 popup_word_card / popup_image_outcome / popup_image_streaming（快照画布固定 800×600，浮层宽度常量不参与基线）；同日再随页头图标改矢量栅格化重录 popup_* 全部十二份基线（图标纹理由 resvg 按 pixels_per_point 从 SVG 源直栅到物理像素，不再解码 256px Dock 位图降采样，Retina 下糊化消除；逐份核对像素差异仅 (23,23)–(43,43) 的图标槽位，settings 基线不涉及）；2026-10-21 随疏位改 markdown 渲染（去弱色改正文色、去列表符与英汉拆行，条目走注文同一条 markdown 管线）重录 popup_word_card / popup_image_outcome / popup_image_streaming 三份（差异仅疏位条目行，无疏内容的九份零变化）） | 2026-10-21 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定「取消」与「清除密钥」按钮，当分别点击，则取消上交 Close、清除只置标记（按钮变「撤销清除」）、保存时才上交 Clear | 2026-09-19 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 Base URL 的设置窗，当点保存，则不上交 Save、字段就地标红并出汇总行 | 2026-09-22 |
@@ -384,14 +384,18 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | the_first_complete_json_wins_over_later_deltas | 首个完整 JSON 胜出 | 给定两段各自完整的 JSON 增量，当 classify，则返回前者（拼接后两端都解析不过，只有提前退出才拿得到） | 2026-09-30 |
 | partial_json_keeps_waiting_for_the_stream | 半截 JSON 继续等流 | 给定到流结束都补不齐的半截 JSON，当 classify，则流内不提前定型（增量校验不过继续等），流走完按违约进修复轮、耗尽落兜底 General | 2026-10-12 |
 | a_request_failure_is_digested_into_the_fallback_without_retry | 分类请求失败内部消化落兜底 | 给定分类请求整体失败，当 classify，则不重试、内部消化后返回 Ok(General)（引擎恰 1 次调用） | 2026-10-12 |
-| a_violated_reply_repairs_into_a_kind | 分类违约回复修复后判型 | 给定「散文回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮对话为 [system][user 原文][assistant 坏回复][user 纠错指令]，纠错指令带违约固定措辞与分类契约行、不含坏回复与选区原文，修复后返回判定的 kind | 2026-10-12 |
+| a_violated_reply_repairs_into_a_kind | 分类违约回复修复后判型 | 给定「散文回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮对话为 [system][user 原文][assistant 坏回复][user 纠错指令]，纠错指令把违约固定措辞作为 reason 回灌（无契约行）、不含坏回复与选区原文，修复后返回判定的 kind | 2026-10-20 |
 | classify_traced_carries_rounds_and_repairs_for_the_trajectory | 分类全轨迹携带轮次与修复数 | 给定「散文回复 → 裸 JSON kind」与「恒散文」两个脚本队列，当 classify_traced，则前者 decision.kind 为判定的 kind、repairs 为 1、rounds 按轮序携带每轮完整回复；后者耗尽落兜底 General、repairs 为 CLASSIFY_REPAIRS、rounds 为 1+CLASSIFY_REPAIRS 轮 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_as_is | 分类空回复原样重发修复 | 给定「空回复 → 裸 JSON kind」脚本队列，当 classify，则修复轮按 EmptyReply 原样重发（消息列表与首轮逐字一致，无 assistant 轮无纠错指令）、修复后判出 kind | 2026-10-12 |
+| an_empty_completion_enters_the_repair_round_and_resends | 分类零增量空完成进修复轮重发 | 给定「EmptyCompletion 错误 → 裸 JSON kind」脚本队列，当 classify，则空完成按 EmptyReply 违约进修复轮、原样重发（消息与首轮逐字一致）、修复后判出 kind（恰 2 次调用，与任务段同口径） | 2026-10-21 |
+| a_repeated_empty_completion_exhausts_into_the_fallback | 分类空完成重演耗尽落兜底 | 给定连续两轮 EmptyCompletion 脚本，当 classify，则修复预算（CLASSIFY_REPAIRS）耗尽、恰 1+预算次调用后落兜底 General | 2026-10-21 |
 | exhausted_repairs_fall_back_to_general_with_a_trace | 分类修复耗尽落兜底且有痕 | 给定恒违约的回复脚本，当 classify，则恰用尽 1+CLASSIFY_REPAIRS 次调用后返回 Ok(General)，耗尽 warn 只记违约类别（不含回复与选区原文） | 2026-10-12 |
 | a_silent_stream_is_cut_at_the_first_item_deadline | 分类流首条目截止快速失败 | 给定建连后恒不出字的流，当 classify（暂停时钟），则首条目截止到点按请求异常收卷、内部消化落兜底 General（恰 1 次调用，不重试） | 2026-10-16 |
 | items_after_the_first_flow_without_the_deadline | 截止只武装到首条目 | 给定首条目 2s（截止内）、次条目再等 1000s 的流，当 classify（暂停时钟），则两段增量照常累积定型 TranslateWord（截止在首条目交付后退役） | 2026-10-16 |
-| replies_outside_the_allowed_list_are_rejected | 回复越界/不可识别一律拒绝 | 给定清单外 kind、未知标识、null、纯散文、空串与 gloss 围栏六种回复，当解析，则全部 EngineResponse（严格裸 JSON：围栏容错已删，围栏内合法 kind 同样拒绝） | 2026-10-12 |
-| classify_constants_cover_the_text_kinds_with_an_off_list_fallback | 分类清单与清单外兜底常量 | 给定 CLASSIFY_KINDS 与 CLASSIFY_FALLBACK，当检查，则清单恰为三个文本 kind、兜底恒为 General（可渲染可执行的清单外落点）且不在清单——分类器只在三个文本 kind 中选择 | 2026-10-12 |
+| replies_outside_the_template_categories_are_rejected | 回复越类别清单/不可识别一律拒绝 | 给定模板类别外的 ImageExplain 与 General、未知标识、null、纯散文、空串与 gloss 围栏，当解析，则全部 EngineResponse（严格裸 JSON：围栏容错已删，围栏内合法 kind 同样拒绝） | 2026-10-20 |
+| a_fallback_choice_lands_on_the_general_kind | 模板兜底类别映射 General | 给定 {"kind":"Fallback"} 回复，当解析，则得 General（classify 模板的兜底类别执行通用任务） | 2026-10-20 |
+| the_fallback_kind_is_the_general_template_landing | 兜底常量恒为 General | 给定 CLASSIFY_FALLBACK，当检查，则恒为 General（可渲染可执行的执行落点） | 2026-10-20 |
+| a_fallback_reply_lands_on_the_general_task_with_both_kinds_logged | 模型分类与最终分类同行落日志 | 给定 {"kind":"Fallback"} 回复，当 classify，则落 General，且 info 日志同行携带模型类别 model_kind=Fallback 与最终 kind=General、不含选区内容 | 2026-10-20 |
 
 ### crates/gloss-core/src/config.rs
 
@@ -430,13 +434,11 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| classify_prompt_carries_allowed_kinds_and_the_text | 分类提示词携带允许清单与原文 | 给定允许清单与原文，当 render_classify（双语），则用户消息为原文、系统指令含全部 kind 标识与 kind 契约、不含 Auto、无残留占位符 | 2026-09-30 |
-| classify_schema_is_a_neutral_placeholder | 分类契约为中性占位 | 给定分类输出契约（CLASSIFY_SCHEMA），当检查，则不含任何具体 kind 标识（示例值是少样本偏置，写死哪类模型就偏向哪类） | 2026-10-03 |
+| classify_prompt_carries_the_template_categories_and_the_text | 分类提示词携带模板类别与原文 | 给定原文，当 render_classify（双语），则用户消息为原文、系统指令含模板四个类别标识（含 Fallback）与 kind 契约、无残留占位符 | 2026-10-20 |
 | output_example_carries_the_note_field | 输出示例携带 note 字段 | 给定双 locale 五份任务模板，当整行解析示例 JSON，则示例可解析且恒带 note（义，恒为首字段），流式渐进提取不受 structured 嵌套影响 | 2026-10-12 |
-| output_example_values_are_neutral_placeholders | 输出示例值为中性占位 | 给定双 locale 五份任务模板，当检查示例值，则恒为「…」类占位、不含具体词条——同分类契约的少样本偏置取舍（照抄示例的比例随示例显著性上升） | 2026-10-12 |
-| rules_follow_the_allowed_list_and_leave_no_dangling_label | 判别规则跟随允许清单 | 给定含/不含 ExplainCode、以及全无规则的清单，当 render_classify，则命令行等边界规则只在对应 kind 在清单里时出现；清单里没有带规则的 kind 时整段（含标签）消失、无残留占位符 | 2026-09-30 |
+| output_example_values_are_neutral_placeholders | 输出示例值为中性占位 | 给定双 locale 五份任务模板，当检查示例值，则恒为「<string>」类占位、不含具体词条——同分类契约的少样本偏置取舍（照抄示例的比例随示例显著性上升） | 2026-10-12 |
 | text_kinds_render_system_and_user_with_kind_content | 文本 kind 渲染两段消息 | 给定四个文本 kind（词卡/句译/代码/通用），当渲染，则得 [System, User] 两段，系统指令含各自关键词与纯 JSON 输出契约，用户消息为原文 | 2026-10-12 |
-| the_general_kind_is_never_offered_to_the_classifier | 通用兜底 kind 不进分类清单 | 给定 CLASSIFY_KINDS 的分类渲染（双语），当 render_classify，则系统指令不含 General 标识——通用任务是清单外的兜底落点，分类器只在三个文本 kind 中选择 | 2026-10-12 |
+| the_general_kind_is_never_named_by_the_classify_template | 分类模板不含 General 标识 | 给定双语分类模板渲染，当检查，则系统指令不含 General 标识——模板以 Fallback 类别指认兜底，到 General 的映射在校验层 | 2026-10-20 |
 | output_example_carries_the_kind_fields | 输出示例携带 kind 字段 | 给定词卡/句译/代码解释模板（自包含任务书，含输出示例），当渲染并检查系统指令，则系统指令声明 structured 与 note，词卡示例另带 phonetic/examples、代码示例另带 examples/code_language | 2026-10-11 |
 | every_task_template_example_passes_validate_task | 模板示例过生产校验器（完整性门禁） | 给定双 locale × 五份任务模板，当取出示例对象行，则示例对象过对应 validate_task、structured 内键齐 per kind（词卡 phonetic+examples、句译/图像/通用 examples、代码 examples+code_language） | 2026-10-12 |
 | every_template_mentions_json | 所有模板必含 json 字样（完整性门禁） | 给定两个 locale 的七份模板（五份任务模板 + classify.md + repair.md），当检查原文，则都含 json 字样（端点 JSON 模式的提示读取它） | 2026-10-12 |
@@ -444,28 +446,27 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 Lang::Ja，当渲染，则系统指令含「日语」 | 2026-09-19 |
 | empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 target_lang = Other("") / Other(" ") 的两个 locale，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且纯 JSON 契约仍在 | 2026-10-11 |
 | image_explain_example_is_a_single_json_object_with_note_first | 图像模板示例为单 JSON 且 note 在前 | 给定双 locale 的 image_explain 模板，当整行解析示例 JSON，则示例可解析、键恰为 note + structured（note 在前），structured 内只有 examples（interpretation 旧名退役）——流式与完成态解析都按这份契约 | 2026-10-11 |
-| image_explain_renders_system_and_image_parts | 图像解读渲染系统指令与图像部件 | 给定 ImageExplain 图像任务，当渲染，则得 [System, User] 两段，用户消息是 Parts([ImagePng])（字节经 Arc 零拷贝共享），系统指令要求单个 JSON 对象且携带 note/structured.examples 契约 | 2026-10-11 |
+| image_explain_renders_system_and_image_parts | 图像解读渲染系统指令与图像部件 | 给定 ImageExplain 图像任务，当渲染，则得 [System, User] 两段，用户消息是 Parts([ImagePng])（字节经 Arc 零拷贝共享），系统指令要求按 JSON 格式输出且携带 note/structured.examples 契约 | 2026-10-11 |
 | modality_mismatch_is_rejected_at_construction | 模态错配在构造时拒绝 | 给定图像 kind 配文本输入，当 Task::new 构造，则返回 UnsupportedModality（拒绝点在构造口，渲染路径不再兜底） | 2026-10-18 |
 | render_template_substitutes_placeholders | 占位符显式替换 | 给定含 {{占位符}} 的模板，当渲染，则按值替换、同名占位符可重复；未声明与未闭合的占位符原样保留（留待完整性测试抓） | 2026-09-22 |
 | render_template_drops_lines_whose_placeholders_are_empty | 占位符全空的行整行消失 | 给定提示行与指令行模板，当某行占位符值全为空，则该行连同行内静态文字与换行一并删除，其余行不受影响 | 2026-09-22 |
 | render_template_keeps_blank_lines_without_placeholders | 无占位符空行是结构 | 给定模板里的空行（不含占位符），当渲染，则原样保留 | 2026-09-22 |
-| every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 locale 的六份模板原文（五份任务模板 + repair.md），当扫占位符，则每个 {{ 都有闭合且名字都在已声明集合内（target/hint/reason/schema；嵌套契约的示例 JSON 以 }} 收尾，闭合计数因此可多于开启——按配对判）；未声明者若与已声明占位符同行会被整行删掉，产物断言看不见 | 2026-10-12 |
+| every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 locale 的七份模板原文（五份任务模板 + classify.md + repair.md），当扫占位符，则每个 {{ 都有闭合且名字都在已声明集合内（target/reason；嵌套契约的示例 JSON 以 }} 收尾，闭合计数因此可多于开启——按配对判）；未声明者若与已声明占位符同行会被整行删掉，产物断言看不见 | 2026-10-12 |
 | every_locale_renders_without_leftover_placeholders | 全 locale 无残留占位符 | 给定两个 locale × 五个 kind（四个文本 + ImageExplain），当渲染，则文本消息不含 {{、系统指令携带 note 纯 JSON 契约且不含旧围栏 | 2026-10-12 |
-| repair_instruction_carries_the_wording_schema_and_optional_truncation_hint | 修复指令承载措辞/契约行/可选截断提示 | 给定双 locale、各违约类别与 length/非 length 结束，当 render_repair，则指令含违约固定措辞与契约示例行、无残留 {{、无 length 时不带截断提示、length 时带「输出被截断」提示、en 提示随 locale，且含 json 字样 | 2026-10-12 |
-| repair_instruction_renders_without_leftover_placeholders | repair 指令渲染无残留占位符（完整性门禁） | 给定双 locale × 四类违约 × 有无截断提示 × 三种契约行（分类 schema/任务契约行/空），当 render_repair，则渲染产物不含 {{ 且非空（可选行整行消失；general.md 等任务模板的同一门禁由全 locale 渲染测试锁定） | 2026-10-12 |
-| task_contract_lines_come_from_the_kind_templates | 契约示例行取自 kind 模板 | 给定双 locale × 五个 kind，当 task_contract_line，则行与该 locale 任务模板中的示例行逐字同源（zh「…或 null」/en「…or null」方言随模板）、Plain 系 kind 同行、无残留占位符 | 2026-10-12 |
-| repair_conversation_replays_the_history_or_resends_as_is | 修复对话带回历史或原样重发 | 给定首轮 [system][user] 与坏回复/空回复两种情形，当 repair_conversation，则坏回复拼成 [system][user][assistant][user]（首两条逐字保留）、空回复原样返回首轮（无 assistant 无纠错指令） | 2026-10-12 |
-| english_locale_renders_english_prompts | 英文 locale 出英文指令 | 给定 En locale 的句译任务，当渲染，则系统指令为英文（含 JSON object 契约）、用户消息携带原文，且不含中文指令词 | 2026-10-03 |
+| repair_instruction_carries_the_violation_reason_only | 修复指令只回灌违约措辞 | 给定双 locale 与各违约类别，当 render_repair，则指令把违约固定措辞作为 reason 回灌、无残留 {{、不带契约行与截断提示、含 json 字样 | 2026-10-20 |
+| repair_instruction_renders_without_leftover_placeholders | repair 指令渲染无残留占位符（完整性门禁） | 给定双 locale × 四类违约，当 render_repair，则渲染产物不含 {{ 且非空（可选行整行消失；general.md 等任务模板的同一门禁由全 locale 渲染测试锁定） | 2026-10-12 |
+| repair_conversation_replays_the_history_with_the_bad_reply | 修复对话以历史形态重拼 | 给定首轮 [system][user] 与坏回复，当 repair_conversation，则拼成 [system][user][assistant][user]（首两条逐字保留；EmptyReply 不经本函数，原样重发归 next_round） | 2026-10-20 |
+| english_locale_renders_english_prompts | 英文 locale 出英文指令 | 给定 En locale 的句译任务，当渲染，则系统指令为英文（含 JSON 契约）、用户消息携带原文，且不含中文指令词 | 2026-10-03 |
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 En locale 未设目标语言、Zh locale 设 Lang::En，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含「英语」 | 2026-09-22 |
-| prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 prompt_locale 的任务，当渲染，则结果与显式 Zh 逐字一致且含「词典助手」 | 2026-09-22 |
+| prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 prompt_locale 的任务，当渲染，则结果与显式 Zh 逐字一致且含「词典专家」 | 2026-09-22 |
 
 ### crates/gloss-core/src/schema.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | violations_carry_fixed_wording_without_reply_content | 违约措辞固定且不带回复原文 | 给定四类 Violation，当取措辞，则非空、固定且不含选区/回复原文/密钥形态（类别进日志与降级产物，永不携带内容） | 2026-10-11 |
-| classify_violation_matrix_covers_empty_not_json_and_kind | 分类违约矩阵 | 给定空回复/纯空白/散文/截断 JSON/围栏输出/JSON 标量/缺 kind/kind 为 null/未知 kind/清单外 ImageExplain/清单外 General/task 契约体各类回复，当 validate_classify，则分别落 EmptyReply/NotJson/KindNotAllowed | 2026-10-12 |
-| classify_accepts_allowed_kinds_only_from_the_list | 分类按允许清单放行 | 给定清单内 kind（含首尾空白）与调用方自定义清单，当 validate_classify，则返回对应 kind（清单是调用方的决策） | 2026-10-11 |
+| classify_violation_matrix_covers_empty_not_json_and_kind | 分类违约矩阵 | 给定空回复/纯空白/散文/截断 JSON/围栏输出/JSON 标量/缺 kind/kind 为 null/未知 kind/类别外的 ImageExplain 与 General/task 契约体各类回复，当 validate_classify，则分别落 EmptyReply/NotJson/KindNotAllowed | 2026-10-20 |
+| classify_accepts_the_template_categories_and_maps_fallback | 分类放行模板类别并映射 Fallback | 给定模板四个类别（含首尾空白），当 validate_classify，则返回对应 kind 且携带模型原始类别（Fallback 映射 General） | 2026-10-20 |
 | task_violation_matrix_covers_empty_not_json_and_missing_note | 任务违约矩阵 | 给定五 kind × 空回复/散文/JSON 数组/截断 JSON/缺 note/note 为 null/纯空白 note/note 非字符串各回复，当 validate_task，则分别落 EmptyReply/NotJson/MissingNote（硬约束只此三条） | 2026-10-12 |
 | task_ok_builds_the_three_contract_variants | 任务契约三变体构建 | 给定词卡/代码/句译、图像与通用的嵌套契约 JSON，当 validate_task，则 note 原样、structured 按 kind 落 WordCard/Code/Plain（坏条目跳过） | 2026-10-12 |
 | task_soft_rules_fall_back_field_by_field | 任务软约束逐级回落 | 给定 structured 缺失/非对象/变体内字段类型错/null 的回复，当 validate_task，则按空变体与缺省回落、note 保留、清单外疏证键就地忽略（kind 决定变体） | 2026-10-11 |
@@ -523,7 +524,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | run_output_finish_reason_stays_none_without_a_done_marker | 无 [DONE] 时结束原因缺省 | 给定只吐增量、不声明结束的脚本流，当 run，则 finish_reason 为 None | 2026-10-11 |
 | blank_model_is_a_config_failure_before_the_engine | 空白模型先于引擎拒绝 | 给定 model 为空白的选项，当 run，则 Config 错误且引擎 0 调用 | 2026-10-03 |
 | image_input_skips_classification_and_lands_on_image_explain | 图像输入跳分类固定 ImageExplain | 给定 Image 输入与两段任务流，当 run，则 kind 恒为 ImageExplain、on_classified 先于任何 chunk 恰一次、引擎共 1 次调用（省去分类往返）、raw 原样返回 | 2026-10-10 |
-| a_contract_violation_repairs_with_the_bad_reply_in_the_history | 任务违约修复轮带回坏回复 | 给定图像任务「违约散文 → 契约 JSON」脚本队列，当 run，则修复轮对话为 [system][user 图][assistant 坏回复][user 纠错指令]，纠错指令带违约固定措辞与该 kind 契约示例行、不含坏回复原文，图像部件随对话重发，on_repair 恰触发一次、RunOutput.repairs 为 1 | 2026-10-12 |
+| a_contract_violation_repairs_with_the_bad_reply_in_the_history | 任务违约修复轮带回坏回复 | 给定图像任务「违约散文 → 契约 JSON」脚本队列，当 run，则修复轮对话为 [system][user 图][assistant 坏回复][user 纠错指令]，纠错指令把违约固定措辞作为 reason 回灌、不带契约示例行、不含坏回复原文，图像部件随对话重发，on_repair 恰触发一次、RunOutput.repairs 为 1 | 2026-10-12 |
 | the_repair_round_warn_carries_the_category_and_round_only | 修复轮违约告警只记类别与轮次 | 给定违约回复触发修复，当捕获日志，则「task reply violated the contract」行含固定违约类别与 attempt=1、不含回复原文 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_without_an_assistant_turn | 任务空回复原样重发修复 | 给定图像任务「空流 → 契约 JSON」脚本队列，当 run，则修复轮请求与首轮消息逐字一致（无 assistant 轮无纠错指令）、repairs 为 1 | 2026-10-12 |
 | an_oversized_stream_fails_instead_of_accumulating_without_bound | 失控长流按预算失败不无界累积 | 给定 300 段 × 4KB（总量超 1MB 预算）的增量流，当 run，则 EngineResponse 失败上抛（不进修复轮）、已转发字节不超预算 | 2026-10-16 |
@@ -531,7 +532,7 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | task_repairs_are_budgeted_then_the_raw_reply_is_handed_over | 任务修复预算耗尽上交原始文本 | 给定恒违约的任务回复，当 run，则恰用尽 1+TASK_REPAIRS 次调用、on_repair 触发 TASK_REPAIRS 次、原样返回最后一轮违约原文（完成态解析落降级）且不报 Err | 2026-10-12 |
 | task_stage_engine_errors_are_never_retried | 任务段引擎错误不重试 | 给定 execute 整体失败与零增量的流中协议错误，当 run，则两者都原样上抛 Err（只有 EmptyCompletion 变体转 EmptyReply）、引擎恰 1 次调用 | 2026-10-17 |
 | a_content_filter_finish_fails_without_a_retry | 内容审查结束直接失败卡 | 给定 finish_reason=content_filter 的流，当 run，则 EngineResponse(固定审查诊断) 上抛（不校验正文、不进修复轮）、引擎恰 1 次调用 | 2026-10-12 |
-| a_length_finish_augments_the_repair_instruction | 截断结束精确进修复指令 | 给定「length 截断的违约流 → 契约流」脚本队列，当 run，则修复指令含「输出被截断，请重新完整输出」、修复后以新结束原因收口、repairs 为 1 | 2026-10-12 |
+| a_length_finish_repairs_without_a_truncation_hint | length 结束按普通违约修复 | 给定「length 截断的违约流 → 契约流」脚本队列，当 run，则修复指令不含截断提示（修复模板已无该维度）、修复后以新结束原因收口、repairs 为 1 | 2026-10-20 |
 | a_fenced_reply_repairs_like_any_other_violation | 围栏任务回复同权违约进修复 | 给定 ```json 围栏的任务回复与契约修复流脚本队列，当 run，则围栏按 NotJson 违约进修复轮（严格裸 JSON 契约）、repairs 为 1 | 2026-10-12 |
 | cancellation_cuts_through_the_repair_round | 取消打断修复轮 | 给定慢流脚本队列（首轮违约、修复轮慢流），当修复轮回调到达即从 select! 竞速取消，则取消分支获胜（修复轮是 run future 内 await 点，竞速天然覆盖） | 2026-10-12 |
 
@@ -690,7 +691,6 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| example_lines_split_at_the_first_cjk_glyph | 例句在首个 CJK 字形处拆两行 | 给定「英译+中译」/纯英文/开头即 CJK/开头即 CJK 的例句四种输入，当 example_lines，则英汉混合的拆出原文与译文两行、其余原样单行 | 2026-10-01 |
 | watermark_is_the_untranslated_brand_name | 页脚水印是品牌名 | 给定水印取值入口，当取值，则恒为 "Gloss"（品牌名不翻译） | 2026-10-01 |
 
 ### crates/gloss-app/src/ui/popup/mod.rs
@@ -1245,7 +1245,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| classify_dataset_loads_with_unique_ids | 分类数据集加载与唯一性 | 给定内嵌 classify.jsonl，当加载，则 ≥60 条、全部为文本任务 kind、id 无重复 | 2026-09-26 |
+| classify_dataset_loads_with_unique_ids | 分类数据集加载与唯一性 | 给定内嵌 classify.jsonl，当加载，则 ≥60 条、期望全部为文本任务 kind 或 General（Fallback 类别的执行落点）、id 无重复 | 2026-10-20 |
 | task_datasets_load_and_match_required_fields | 任务数据集加载与 kind 对位 | 给定三个内嵌任务数据集，当加载，则非空且每行 kind 与其文件一致、reference 满足必需键 | 2026-09-26 |
 | fixtures_align_with_dataset_ids | 夹具与数据集 id 对齐 | 给定分类/任务夹具文件与数据集，当加载，则 id 无重复、修复轨迹非空（空回复轮是 deltas=[]，与零轮空轨迹不同）、且每条夹具 id 都存在于对应数据集（陈旧 id 即失败） | 2026-10-12 |
 | zero_round_fixtures_are_rejected | 零轮轨迹硬错误 | 给定 rounds 为空与单空轮（deltas=[]）两种夹具，当加载，则前者报错（空轨迹是坏夹具不是空回复）、后者通过（空回复是合法轮） | 2026-10-12 |
@@ -1257,7 +1257,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| classify_verdicts_cover_the_matrix | 分类判定四分类 | 给定正确/混淆/非 JSON/未知 kind/清单外 kind 五种回复，当经生产校验器判定，则分别落 Correct/Wrong/InvalidJson/Rejected | 2026-10-10 |
+| classify_verdicts_cover_the_matrix | 分类判定四分类 | 给定正确/混淆/Fallback 映射 General/非 JSON/未知与类别外 kind 各回复，当经生产校验器判定，则分别落 Correct/Wrong/InvalidJson/Rejected | 2026-10-20 |
 | legacy_flat_and_fenced_replies_degrade_like_production | 旧扁平与围栏回复与生产同轨（eval） | 给定旧扁平契约（structured 缺失）与围栏输出两类回复，当 TaskVerdict::for_reply，则前者不降级但 fields_complete=false（疏证回落空卡）、后者整体违约落降级产物（note 空）——与生产 validate_task 同源 | 2026-10-11 |
 | task_verdict_reads_the_four_levels | 任务契约四级判定 | 给定嵌套契约/纯正文/截断 JSON/仅 note 四种词卡回复，当 TaskVerdict.for_reply，则四级标志与 outcome.degraded 符合预期（structured 缺失是软缺口：不降级但字段不完整） | 2026-10-11 |
 | violation_track_counts_categories_and_rounds_from_the_trajectory | 修复轨迹折算违约类别与轮次 | 给定「散文×2 → 契约」「散文×4 耗尽」「空轮 → 契约」三类词卡轨迹，当逐轮跑生产校验器折算（violation_track / for_rounds），则修复轮次恒为轮数−1、违约类别逐轮计数（耗尽轨迹的末轮违约也计入）、修复轨迹不降级而耗尽轨迹降级（note 空） | 2026-10-12 |

@@ -22,11 +22,11 @@ use crate::dataset::TaskCase;
 pub enum ClassifyVerdict {
     /// 判定正确。
     Correct,
-    /// 判定成了别的（合法 kind，但在允许清单内且 ≠ 期望）。
+    /// 判定成了别的（合法类别映射出的 kind，但 ≠ 期望）。
     Wrong(TaskKind),
     /// 回复不是合法 JSON（含围栏提取失败）。
     InvalidJson,
-    /// JSON 合法但被生产校验器拒绝（未知 kind、清单外 kind）。
+    /// JSON 合法但被生产校验器拒绝（不是 classify 模板的类别标识）。
     Rejected,
 }
 
@@ -268,15 +268,11 @@ impl Latency {
 
 /// 对一条分类回复判定：生产校验器为主，无效 JSON 由本模块单独识别
 /// （它度量模型输出格式质量，校验器对两者同样拒绝，但指标要分列）。
-pub fn judge_classify_reply(
-    reply: &str,
-    expected: TaskKind,
-    allowed: &[TaskKind],
-) -> ClassifyVerdict {
+pub fn judge_classify_reply(reply: &str, expected: TaskKind) -> ClassifyVerdict {
     if !is_json_like(reply) {
         return ClassifyVerdict::InvalidJson;
     }
-    match gloss_core::classify::parse_classify_reply(reply, allowed) {
+    match gloss_core::classify::parse_classify_reply(reply) {
         Ok(actual) if actual == expected => ClassifyVerdict::Correct,
         Ok(actual) => ClassifyVerdict::Wrong(actual),
         Err(_) => ClassifyVerdict::Rejected,
@@ -324,41 +320,33 @@ mod tests {
     use gloss_core::schema::Violation;
     use gloss_core::task::{OutcomeStructured, TaskKind};
 
-    fn allowed() -> Vec<TaskKind> {
-        vec![
-            TaskKind::TranslateWord,
-            TaskKind::TranslateSentence,
-            TaskKind::ExplainCode,
-        ]
-    }
-
     #[test]
     fn classify_verdicts_cover_the_matrix() {
-        let a = allowed();
         assert_eq!(
-            judge_classify_reply("{\"kind\":\"TranslateWord\"}", TaskKind::TranslateWord, &a),
+            judge_classify_reply("{\"kind\":\"TranslateWord\"}", TaskKind::TranslateWord),
             ClassifyVerdict::Correct
         );
         assert_eq!(
-            judge_classify_reply(
-                "{\"kind\":\"TranslateSentence\"}",
-                TaskKind::TranslateWord,
-                &a
-            ),
+            judge_classify_reply("{\"kind\":\"TranslateSentence\"}", TaskKind::TranslateWord),
             ClassifyVerdict::Wrong(TaskKind::TranslateSentence)
         );
         assert_eq!(
-            judge_classify_reply("我觉得这是一段翻译", TaskKind::TranslateWord, &a),
+            judge_classify_reply("{\"kind\":\"Fallback\"}", TaskKind::General),
+            ClassifyVerdict::Correct,
+            "the fallback category maps to the general kind before judging"
+        );
+        assert_eq!(
+            judge_classify_reply("我觉得这是一段翻译", TaskKind::TranslateWord),
             ClassifyVerdict::InvalidJson
         );
         assert_eq!(
-            judge_classify_reply("{\"kind\":\"Nonsense\"}", TaskKind::TranslateWord, &a),
+            judge_classify_reply("{\"kind\":\"Nonsense\"}", TaskKind::TranslateWord),
             ClassifyVerdict::Rejected
         );
         assert_eq!(
-            judge_classify_reply("{\"kind\":\"ImageExplain\"}", TaskKind::TranslateWord, &a),
+            judge_classify_reply("{\"kind\":\"ImageExplain\"}", TaskKind::TranslateWord),
             ClassifyVerdict::Rejected,
-            "kind outside the allowed list is a rejection"
+            "a kind outside the classify template is a rejection"
         );
     }
 

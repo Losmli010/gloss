@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use gloss_core::classify::{CLASSIFY_KINDS, CLASSIFY_REPAIRS, classify_traced};
+use gloss_core::classify::{CLASSIFY_REPAIRS, classify_traced};
 use gloss_core::config::Config;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::{RunOutput, TASK_REPAIRS, run_task_rounds};
@@ -52,7 +52,6 @@ pub fn run_replay() -> Result<EvalReport, String> {
         .iter()
         .map(|fixture| (fixture.id.as_str(), fixture))
         .collect();
-    let allowed: Vec<TaskKind> = CLASSIFY_KINDS.to_vec();
 
     let mut classify = ClassifyMetrics::default();
     let mut skipped = 0usize;
@@ -63,7 +62,7 @@ pub fn run_replay() -> Result<EvalReport, String> {
         };
         let rounds = round_texts(fixture);
         check_classify_trajectory(&case.id, &rounds)?;
-        score_classify_case(&mut classify, case, &rounds, &allowed);
+        score_classify_case(&mut classify, case, &rounds);
     }
 
     let task_fixtures = load_fixtures(assets::TASK_FIXTURES)?;
@@ -99,22 +98,14 @@ pub fn run_replay() -> Result<EvalReport, String> {
 
 /// 一条分类样例的结算（重放与 live 共用同一口径）：违约轨迹并入指标、
 /// 计一条已评估，并按期望 kind 判分。
-fn score_classify_case(
-    classify: &mut ClassifyMetrics,
-    case: &ClassifyCase,
-    rounds: &[String],
-    allowed: &[TaskKind],
-) {
+fn score_classify_case(classify: &mut ClassifyMetrics, case: &ClassifyCase, rounds: &[String]) {
     absorb_classify_track(
         classify,
-        &violation_track(
-            |raw| schema::validate_classify(raw, allowed).map(|_| ()),
-            rounds,
-        ),
+        &violation_track(|raw| schema::validate_classify(raw).map(|_| ()), rounds),
     );
     classify.evaluated += 1;
     let reply = rounds.last().map(String::as_str).unwrap_or("");
-    match judge_classify_reply(reply, case.expected, allowed) {
+    match judge_classify_reply(reply, case.expected) {
         ClassifyVerdict::Correct => classify.correct += 1,
         ClassifyVerdict::Wrong(actual) => bump_confusion(classify, case.expected, actual),
         ClassifyVerdict::InvalidJson => classify.invalid_json += 1,
@@ -133,7 +124,6 @@ pub async fn run_live(
     config: Arc<ConfigHandle>,
     options: LiveOptions,
 ) -> Result<LiveRun, String> {
-    let allowed: Vec<TaskKind> = CLASSIFY_KINDS.to_vec();
     let classify_cases = load_classify(assets::CLASSIFY_DATASET)?;
     let mut classify = ClassifyMetrics::default();
     let mut latency = Latency::default();
@@ -147,15 +137,7 @@ pub async fn run_live(
         let started = Instant::now();
         let snapshot = config.snapshot();
         let model = snapshot.model.as_str();
-        let decision = match classify_traced(
-            engine.as_ref(),
-            model,
-            Locale::Zh,
-            &CLASSIFY_KINDS,
-            &case.text,
-        )
-        .await
-        {
+        let decision = match classify_traced(engine.as_ref(), model, Locale::Zh, &case.text).await {
             Ok(decision) => decision,
             Err(_) => {
                 // 引擎失败单列（网络/限流与模型行为无关），但也计入回退率
@@ -168,7 +150,7 @@ pub async fn run_live(
         };
         latency.record(started.elapsed().as_secs_f64() * 1000.0);
         let rounds = decision.rounds;
-        score_classify_case(&mut classify, case, &rounds, &allowed);
+        score_classify_case(&mut classify, case, &rounds);
         // 夹具落盘放在轮记录的最后一次使用之后：逐轮文本 move 进夹具，
         // 不再逐轮复制（落盘顺序与逐条顺序不变——每条至多一次 push）。
         if options.record {
@@ -379,7 +361,7 @@ fn check_classify_trajectory(id: &str, rounds: &[String]) -> Result<(), String> 
         ));
     }
     for (index, round) in rounds[..rounds.len() - 1].iter().enumerate() {
-        if schema::validate_classify(round, &CLASSIFY_KINDS).is_ok() {
+        if schema::validate_classify(round).is_ok() {
             return Err(format!(
                 "classify fixture {id}: round {} is contract-valid but a \
                  repair round follows",

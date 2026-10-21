@@ -17,9 +17,11 @@
 //! 缺省、坏条目跳过。解析是严格的裸 JSON（无围栏容错：围栏输出即
 //! [`Violation::NotJson`]）；`note` 恒为首字段，流式渐进提取不受嵌套影响。
 //!
-//! [`validate_classify`] 校验分类回复：`{"kind":"…"}`，kind 必须是
-//! [`TaskKind`] 的 serde 名且在 `allowed` 清单内。所有 [`Violation`] 的
-//! 措辞固定，不携带回复原文——违约信息进日志与修复指令都只有类别。
+//! [`validate_classify`] 校验分类回复：`{"kind":"…"}`，kind 取分类模板的
+//! 四个类别标识之一（`Fallback` 是模型可选的兜底类别，映射到
+//! [`TaskKind::General`]——通用任务模板就是它的执行落点）。类别集由
+//! classify 模板固定，不再由调用方传清单。所有 [`Violation`] 的措辞固定，
+//! 不携带回复原文——违约信息进日志与修复指令都只有类别。
 //!
 //! 内容红线：本模块的错误与日志不携带输入内容与模型回复原文。
 
@@ -38,7 +40,7 @@ pub enum Violation {
     NotJson,
     /// JSON 对象缺 `note` 或 `note` trim 后为空。
     MissingNote,
-    /// 分类回复的 kind 不在允许清单内（含缺失或不是合法 kind 标识）。
+    /// 分类回复的 kind 不是 classify 模板的类别标识（含缺失）。
     KindNotAllowed,
 }
 
@@ -48,15 +50,28 @@ impl std::fmt::Display for Violation {
             Violation::EmptyReply => "empty reply",
             Violation::NotJson => "reply is not a bare JSON object",
             Violation::MissingNote => "reply is missing a non-empty note",
-            Violation::KindNotAllowed => "reply kind is outside the allowed list",
+            Violation::KindNotAllowed => "reply kind is not one of the classify categories",
         };
         f.write_str(wording)
     }
 }
 
-/// 校验分类回复：裸 JSON 对象携带 `kind`，且是 [`TaskKind`] 的 serde 名、
-/// 在 `allowed` 清单内。返回判定的 kind，失守给 [`Violation`]。
-pub fn validate_classify(raw: &str, allowed: &[TaskKind]) -> Result<TaskKind, Violation> {
+/// 分类回复的判定：模型输出的原始类别与执行落点 kind。模板类别
+/// `Fallback` 映射到 [`TaskKind::General`]（兜底类别的执行落点就是通用
+/// 任务模板），其余三个类别与 kind 同名直映。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassifyChoice {
+    /// 模型输出的原始类别标识（classify 模板四个类别之一）。
+    pub model_kind: String,
+    /// 执行落点：`Fallback` 落 [`TaskKind::General`]，其余原样。
+    pub kind: TaskKind,
+}
+
+/// 校验分类回复：裸 JSON 对象携带 `kind`，取值为 classify 模板的四个
+/// 类别标识之一（`TranslateWord` / `TranslateSentence` / `ExplainCode` /
+/// `Fallback`；`General` 不在其中——它是执行落点，不是模型可选类别）。
+/// 返回 [`ClassifyChoice`]，失守给 [`Violation`]。
+pub fn validate_classify(raw: &str) -> Result<ClassifyChoice, Violation> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(Violation::EmptyReply);
@@ -67,15 +82,20 @@ pub fn validate_classify(raw: &str, allowed: &[TaskKind]) -> Result<TaskKind, Vi
     if !value.is_object() {
         return Err(Violation::NotJson);
     }
-    let kind = value
-        .get("kind")
-        .and_then(|v| v.as_str())
-        .map(|name| serde_json::Value::String(name.to_owned()))
-        .and_then(|name| serde_json::from_value::<TaskKind>(name).ok());
-    match kind {
-        Some(kind) if allowed.contains(&kind) => Ok(kind),
-        _ => Err(Violation::KindNotAllowed),
-    }
+    let Some(name) = value.get("kind").and_then(|v| v.as_str()) else {
+        return Err(Violation::KindNotAllowed);
+    };
+    let kind = match name {
+        "TranslateWord" => TaskKind::TranslateWord,
+        "TranslateSentence" => TaskKind::TranslateSentence,
+        "ExplainCode" => TaskKind::ExplainCode,
+        "Fallback" => TaskKind::General,
+        _ => return Err(Violation::KindNotAllowed),
+    };
+    Ok(ClassifyChoice {
+        model_kind: name.to_owned(),
+        kind,
+    })
 }
 
 /// 校验任务回复：[`Violation::EmptyReply`] / [`Violation::NotJson`] /
@@ -170,16 +190,8 @@ fn examples_of(value: Option<&serde_json::Value>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Violation, empty_structured, validate_classify, validate_task};
+    use super::{ClassifyChoice, Violation, empty_structured, validate_classify, validate_task};
     use crate::task::{OutcomeStructured, TaskKind};
-
-    fn allowed() -> Vec<TaskKind> {
-        vec![
-            TaskKind::TranslateWord,
-            TaskKind::TranslateSentence,
-            TaskKind::ExplainCode,
-        ]
-    }
 
     #[test]
     fn violations_carry_fixed_wording_without_reply_content() {
@@ -201,86 +213,91 @@ mod tests {
         assert_eq!(Violation::EmptyReply.to_string(), "empty reply");
         assert_eq!(
             Violation::KindNotAllowed.to_string(),
-            "reply kind is outside the allowed list"
+            "reply kind is not one of the classify categories"
         );
     }
 
     #[test]
     fn classify_violation_matrix_covers_empty_not_json_and_kind() {
+        assert_eq!(validate_classify(""), Err(Violation::EmptyReply));
+        assert_eq!(validate_classify("   \n\t"), Err(Violation::EmptyReply));
+        assert_eq!(validate_classify("我觉得这是翻译"), Err(Violation::NotJson));
         assert_eq!(
-            validate_classify("", &allowed()),
-            Err(Violation::EmptyReply)
-        );
-        assert_eq!(
-            validate_classify("   \n\t", &allowed()),
-            Err(Violation::EmptyReply)
-        );
-        assert_eq!(
-            validate_classify("我觉得这是翻译", &allowed()),
-            Err(Violation::NotJson)
-        );
-        assert_eq!(
-            validate_classify("{\"kind\":\"TranslateWord\"", &allowed()),
+            validate_classify("{\"kind\":\"TranslateWord\""),
             Err(Violation::NotJson),
             "truncated JSON is a violation"
         );
         assert_eq!(
-            validate_classify("```json\n{\"kind\":\"ExplainCode\"}\n```", &allowed()),
+            validate_classify("```json\n{\"kind\":\"ExplainCode\"}\n```"),
             Err(Violation::NotJson),
             "fenced output violates the bare-JSON contract"
         );
         assert_eq!(
-            validate_classify("\"TranslateWord\"", &allowed()),
+            validate_classify("\"TranslateWord\""),
             Err(Violation::NotJson),
             "a bare JSON scalar is not an object"
         );
         assert_eq!(
-            validate_classify("{}", &allowed()),
+            validate_classify("{}"),
             Err(Violation::KindNotAllowed),
-            "a missing kind names no allowed kind"
+            "a missing kind names no template category"
         );
         assert_eq!(
-            validate_classify("{\"kind\":null}", &allowed()),
+            validate_classify("{\"kind\":null}"),
             Err(Violation::KindNotAllowed)
         );
         assert_eq!(
-            validate_classify("{\"kind\":\"Nonsense\"}", &allowed()),
+            validate_classify("{\"kind\":\"Nonsense\"}"),
             Err(Violation::KindNotAllowed)
         );
         assert_eq!(
-            validate_classify("{\"kind\":\"ImageExplain\"}", &allowed()),
+            validate_classify("{\"kind\":\"ImageExplain\"}"),
             Err(Violation::KindNotAllowed),
-            "an image kind is outside the classify list"
+            "an image kind is not a classify category"
         );
         assert_eq!(
-            validate_classify("{\"kind\":\"General\"}", &allowed()),
+            validate_classify("{\"kind\":\"General\"}"),
             Err(Violation::KindNotAllowed),
-            "the general fallback kind is outside the classify list"
+            "the general kind is the execution landing, never a model category"
         );
         assert_eq!(
-            validate_classify("{\"note\":\"正文\"}", &allowed()),
+            validate_classify("{\"note\":\"正文\"}"),
             Err(Violation::KindNotAllowed)
         );
     }
 
     #[test]
-    fn classify_accepts_allowed_kinds_only_from_the_list() {
+    fn classify_accepts_the_template_categories_and_maps_fallback() {
         assert_eq!(
-            validate_classify("{\"kind\":\"TranslateWord\"}", &allowed()),
-            Ok(TaskKind::TranslateWord)
+            validate_classify("{\"kind\":\"TranslateWord\"}"),
+            Ok(ClassifyChoice {
+                model_kind: "TranslateWord".into(),
+                kind: TaskKind::TranslateWord,
+            })
         );
         assert_eq!(
-            validate_classify("  {\"kind\":\"ExplainCode\"}  \n", &allowed()),
-            Ok(TaskKind::ExplainCode),
+            validate_classify("  {\"kind\":\"ExplainCode\"}  \n"),
+            Ok(ClassifyChoice {
+                model_kind: "ExplainCode".into(),
+                kind: TaskKind::ExplainCode,
+            }),
             "surrounding whitespace is trimmed"
         );
         assert_eq!(
-            validate_classify(
-                "{\"kind\":\"TranslateSentence\"}",
-                &[TaskKind::TranslateSentence]
-            ),
-            Ok(TaskKind::TranslateSentence),
-            "the allowed list is the caller's decision, not a global one"
+            validate_classify("{\"kind\":\"Fallback\"}"),
+            Ok(ClassifyChoice {
+                model_kind: "Fallback".into(),
+                kind: TaskKind::General,
+            }),
+            "the model-facing fallback category lands on the general kind"
+        );
+        assert_eq!(
+            validate_classify("{\"kind\":\"TranslateSentence\"}").unwrap(),
+            ClassifyChoice {
+                model_kind: "TranslateSentence".into(),
+                kind: TaskKind::TranslateSentence,
+            },
+            "the raw category rides the choice for the log"
         );
     }
 
