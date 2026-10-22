@@ -1,16 +1,18 @@
-{"id": "zh-word-01", "text": "光泽", "expected": "TranslateWord"}
-{"id": "zh-word-02", "text": "自惭形秽", "expected": "TranslateWord"}
-{"id": "zh-word-03", "text": "阈值", "expected": "TranslateWord"}
-{"id": "zh-word-04", "text": "词不达意", "expected": "TranslateWord"}
-{"id": "en-word-01", "text": "serendipity", "expected": "TranslateWord"}
-{"id": "en-word-02", "text": "threshold", "expected": "TranslateWord"}
-{"id": "en-word-03", "text": "idempotent", "expected": "TranslateWord"}
-{"id": "en-word-04", "text": "corner case", "expected": "TranslateWord"}
+{"id": "zh-word-01", "text": "一", "expected": "TranslateWord"}
+{"id": "zh-word-02", "text": "学", "expected": "TranslateWord"}
+{"id": "zh-word-03", "text": "思", "expected": "TranslateWord"}
+{"id": "zh-word-04", "text": "行", "expected": "TranslateWord"}
+{"id": "zh-word-05", "text": "亥", "expected": "TranslateWord"}
+{"id": "zh-word-06", "text": "生生不息", "expected": "TranslateWord"}
+{"id": "en-word-01", "text": "one", "expected": "TranslateWord"}
+{"id": "en-word-02", "text": "abandon", "expected": "TranslateWord"}
+{"id": "en-word-03", "text": "smile", "expected": "TranslateWord"}
+{"id": "en-word-04", "text": "gloss", "expected": "TranslateWord"}
 {"id": "en-word-05", "text": "to bite the bullet", "expected": "TranslateWord"}
 {"id": "en-word-06", "text": "a blessing in disguise", "expected": "TranslateWord"}
 {"id": "ja-word-01", "text": "生きがい", "expected": "TranslateWord"}
 {"id": "fr-word-01", "text": "flâner", "expected": "TranslateWord"}
-{"id": "zh-sent-01", "text": "今天下午三点在会议室开产品评审会。", "expected": "TranslateSentence"}
+{"id": "zh-sent-01", "text": "学而时习之，不亦说乎？", "expected": "TranslateSentence"}
 {"id": "zh-sent-02", "text": "这个方案的成本比预期高不少，我们需要重新评估排期。", "expected": "TranslateSentence"}
 {"id": "zh-sent-03", "text": "收到，我这边尽快同步给大家。", "expected": "TranslateSentence"}
 {"id": "zh-sent-04", "text": "由于上游服务在高峰期频繁超时，网关的重试策略反而放大了流量，导致雪崩。我们要引入指数退避和熔断，并对关键路径做降级预案。", "expected": "TranslateSentence"}
