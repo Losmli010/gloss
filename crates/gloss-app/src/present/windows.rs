@@ -37,8 +37,9 @@ const STREAM_HEIGHT_STEP: f64 = 48.0;
 /// 不做无谓的平台调用。
 const DRAG_POSITION_EPSILON: f64 = 0.5;
 /// 设置窗口尺寸：全部配置区块一屏放下的紧凑初值（可拖拽调整），
-/// 高:宽 ≈ φ。
-const SETTINGS_WIDTH: f64 = 396.0;
+/// 高:宽 ≈ φ。`pub(crate)` 供设置窗测试夹具取同一宽度，防夹具与真实
+/// 默认宽脱钩。
+pub(crate) const SETTINGS_WIDTH: f64 = 396.0;
 const SETTINGS_HEIGHT: f64 = 640.0;
 
 /// 流式防抖尺寸：宽度保持当前值（浮层宽度固定，见 `popup::WIDTH`），
@@ -51,7 +52,7 @@ fn debounced_size(current: LogicalSize<f64>, requested: LogicalSize<f64>) -> Log
 }
 
 /// 由显示器逻辑高度算浮层高度上限（纯逻辑，单测覆盖）：取显示器逻辑高度的
-/// [`HEIGHT_CAP_FRACTION`]（即 1/φ²），再扣 [`WORK_AREA_MARGIN`]，且不低于
+/// [`HEIGHT_CAP_FRACTION`]，再扣 [`WORK_AREA_MARGIN`]，且不低于
 /// [`OVERLAY_HEIGHT`]（矮屏兜底）；请求不超过上限时原样返回。
 fn capped_height(screen_height: f64, requested_height: f64) -> f64 {
     let max_height = (screen_height * HEIGHT_CAP_FRACTION - WORK_AREA_MARGIN).max(OVERLAY_HEIGHT);
