@@ -5,7 +5,7 @@ edition.workspace = true
 description = "Prompt 评测：确定性重放 + LLM judge（评测资产与工具链，不进生产）"
 license.workspace = true
 
-# 唯一入口：评测 CLI（replay / live / report 三种模式，见 src/main.rs）。
+# 唯一入口：评测 CLI（inspect / replay / live / report / history，见 src/main.rs）。
 [[bin]]
 name = "eval"
 path = "src/main.rs"

@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 38 | `just test` |
-| 单元测试 | 572 | `just test` |
+| 单元测试 | 629 | `just test` |
 
 ## 人工测试
 
@@ -1253,6 +1253,23 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | bad_reference_is_rejected | 引用条目缺必需键报错 | 给定词卡条目缺疏证键（旧形态字段）的 jsonl，当加载，则报错 | 2026-10-03 |
 | required_fields_follow_the_contract | 必需键随结构化契约 | 给定全部任务 kind，当查必需键，则恒为 examples（三行同构契约下 structured.examples 唯一恒在；图像解读同形落 Plain，旧 interpretation 名退役） | 2026-10-11 |
 
+### crates/gloss-eval/src/detail.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| classify_parts_maps_verdicts_and_tags_rounds | 分类明细与判定的单遍结算 | 给定正确/误判/非 JSON/被拒四类分类轨迹，当 classify_parts，则明细携带逐轮违约标签与可序列化判定、判定与指标侧 ClassifyVerdict 同源（一次校验三方消费：指标入账、明细落行、报告聚合） | 2026-10-21 |
+| task_parts_reads_completion_state_and_round_tags | 任务明细与完成态结算 | 给定「散文 → 契约」修复轨迹与单轮散文耗尽轨迹，当 task_parts，则明细携带逐轮标签、修复轮次与四级完成态（降级时 note 为空串），TaskVerdict 与重放/live 指标同口径 | 2026-10-21 |
+| engine_error_details_carry_the_marker_per_track | 引擎失败明细单列 | 给定分类轨与任务轨的引擎失败，当 engine_error_detail，则明细带 engine_error 标记、无轮次无判定（任务轨落降级完成态，与指标侧分账口径一致） | 2026-10-21 |
+
+### crates/gloss-eval/src/inspect.rs
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| page_renders_headline_cases_and_trend | 检视页结构与要素 | 给定含分类失败与任务好/降级明细的报告，当 render_html，则准确率头条、指标卡、状态/轨道过滤按钮、逐条 details、逐轮回复、内嵌趋势 SVG 与口径脚注齐备；无错误行时不产混淆矩阵段 | 2026-10-21 |
+| page_escapes_dataset_and_model_text | 检视页转义外来文本 | 给定数据集文本与模型回复含 script 标记的明细，当 render_html，则两者以实体出现，页面无来自数据的内联脚本与标记逃逸 | 2026-10-21 |
+| deltas_come_from_the_previous_same_mode_run | 差值只比上一次同 mode 运行 | 给定上次 replay（accuracy 100%）与一份 live 历史，当渲染本次 replay（accuracy 0%、回退率 100%），则 accuracy/回退率出 ▼/▲ 徽标且均着坏色、live 行不进差值；无同 mode 基准时无徽标 | 2026-10-21 |
+| deltas_skip_empty_denominator_runs | 空分母历史行不进差值 | 给定 classify 零 evaluated 的上次 replay（accuracy/回退率均回落 0.0），当渲染本次 replay，则不出任何差值徽标（0/0 与上次比率没有可比性，与任务卡同一口径） | 2026-10-22 |
+
 ### crates/gloss-eval/src/metrics.rs
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -1289,10 +1306,11 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | replay_runs_the_full_deterministic_track_over_embedded_assets | 重放轨全链路离线跑通 | 给定内嵌数据集与夹具，当 run_replay，则有夹具条目计入（覆盖率随夹具维护增长，只设下限不设上限）、正确/无效 JSON/被拒路径均有命中、各任务集有覆盖、无延迟样本 | 2026-09-26 |
 | replay_counts_violations_and_repair_rounds_from_fixture_trajectories | 重放轨统计违约类别与修复轮次 | 给定内嵌夹具（含空回复/散文/缺 note/kind 越清单异常轨迹），当 run_replay，则分类与各任务集的 repair_rounds 与 violations 分类计数如实入账：分类轨三类违约齐全、词卡集计空回复、句译集含耗尽降级、代码集计缺 note | 2026-10-12 |
+| replay_details_agree_with_the_report_metrics | 重放明细与报告指标同源 | 给定内嵌数据集与夹具，当 run_replay_detailed，则逐条明细按轨道分组的行数/正确数/修复轮次/降级数与报告指标逐一相等（一次校验两侧消费的汇总不变量） | 2026-10-21 |
 | a_contract_valid_middle_round_rejects_the_fixture_trajectory | 轨迹中段合法轮即坏夹具 | 给定分类「合法轮 → 修复轮」与任务「散文 → 契约 → 散文」两类漂移轨迹，当轨迹体检，则按硬错误拦下（修复轮由违约触发，中段合法轮不合生产形态） | 2026-10-12 |
 | a_trajectory_beyond_the_production_budget_rejects_the_fixture | 轨迹超生产预算即坏夹具 | 给定 3 轮分类轨迹与 5 轮任务轨迹，当轨迹体检，则按硬错误拦下（轮数不得超过 1+CLASSIFY_REPAIRS / 1+TASK_REPAIRS，预算收紧时陈旧夹具即失败） | 2026-10-12 |
-| live_track_records_rounds_and_repair_metrics_through_the_production_loops | live 轨经生产循环记轮与修复指标 | 给定脚本引擎（分类违约修复、词卡违约修复、句译/代码一次通过）与 --record，当 run_live，则指标来自 classify_traced / run_task_rounds 的轮记录（修复轮次、违约类别、判定正确）、录制按轮成夹具、引擎恰 6 次调用 | 2026-10-12 |
-| a_task_engine_failure_still_counts_one_degraded_case | 任务轨引擎失败单条计降级 | 给定词卡任务脚本一次引擎失败（句译/代码正常），当 run_live（无 --record），则该条 evaluated+degraded 各 1、无修复轮次、无录制（引擎失败与模型行为分账的既有口径保持） | 2026-10-12 |
+| live_track_records_rounds_and_repair_metrics_through_the_production_loops | live 轨经生产循环记轮与修复指标 | 给定脚本引擎（分类违约修复、词卡违约修复、句译/代码一次通过）与 --record，当 run_live，则指标来自 classify_traced / run_task_rounds 的轮记录（修复轮次、违约类别、判定正确）、录制按轮成夹具、引擎恰 6 次调用、逐条明细随行（1 分类 + 3 任务且无引擎失败标记） | 2026-10-21 |
+| a_task_engine_failure_still_counts_one_degraded_case | 任务轨引擎失败单条计降级 | 给定词卡任务脚本一次引擎失败（句译/代码正常），当 run_live（无 --record），则该条 evaluated+degraded 各 1、无修复轮次、无录制，明细带 engine_error 标记落行（引擎失败与模型行为分账的既有口径保持） | 2026-10-21 |
 | run_task_case_splits_rounds_on_the_repair_boundary | 任务轮记录按修复边界切轮 | 给定「双增量散文轮 → 双增量契约轮」脚本队列，当 run_task_case，则 RunOutput.repairs 为 1、轮记录恰两轮、各轮为该轮增量拼接（on_repair 是唯一轮边界信号） | 2026-10-12 |
 
 ### crates/gloss-eval/src/history.rs
@@ -1331,3 +1349,4 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | replay_run_writes_report_and_history_files | replay 接线产出报告与历史 | 给定临时目录（GLOSS_EVAL_DIR 语义由参数表达），当 run_replay_into，则 replay.json/.md、history.jsonl（一行）与 history.svg 同点产出 | 2026-10-12 |
 | second_replay_run_appends_without_commit | 本地重跑恒追加 | 给定同一临时目录连续两次无 context 的 replay，当各自落盘，则 history.jsonl 叠两行、history.svg 仍在 | 2026-10-12 |
 | finish_run_report_writes_the_injected_context_through | 注入的 context 落进报告 | 给定带 commit/source 的 context 注入，当 finish_run_report，则写出的 replay.json 携带 context 段 | 2026-10-12 |
+| inspect_run_writes_the_inspection_files | inspect 接线产出检视件 | 给定临时目录（GLOSS_EVAL_DIR 语义由参数表达），当 run_inspect_into，则 replay.json/.md 与 history 照常产出，另落 inspect.html（含准确率头条与内嵌趋势）与 replay.cases.json（逐条明细） | 2026-10-21 |

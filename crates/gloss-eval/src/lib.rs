@@ -23,9 +23,15 @@
 //! - **live 轨**（opt-in，需 `GLOSS_LIVE_*`）：数据集逐条打真实 LLM
 //!   （延迟 p50/p95 只在这一轨有意义），可选 `--record` 把修复轨迹回写
 //!   `fixtures/`，可选 `GLOSS_LIVE_JUDGE=1` 启用 judge 评分。
+//!
+//! 两条轨都产出逐条明细（[`detail`]）并渲染单文件检视页（[`crate::inspect`]，
+//! `target/eval/inspect.html`）：准确率头条、逐条期望 vs 实际、逐轮原始回复
+//! 与内嵌趋势图，供 prompt 改动后人工检视。
 
 pub mod dataset;
+pub mod detail;
 pub mod history;
+pub mod inspect;
 pub mod judge;
 pub mod metrics;
 pub mod report;
