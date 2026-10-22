@@ -30,4 +30,4 @@
 - 禁止使用编号、换行符和 markdown 语法。
 
 ### 目标语言
-`note` 与 `examples` 全文用 {{target}} 撰写。禁止源语言和目标语言混用。
+`note` 与 `examples` 全文用 {{target}} 撰写。禁止源语言和目标语言混用，引文原文除外。

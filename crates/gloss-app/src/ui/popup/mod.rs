@@ -1363,9 +1363,10 @@ fn word_head(ui: &mut egui::Ui, word: &str, phonetic: Option<&str>) {
     });
 }
 
-/// 疏位疏证（examples 逐条）：条目在产物契约里本就是 Markdown 字符串，
-/// 走注文同一条 markdown 渲染管线（楷体疏字号、正文色）——条目的出处/
-/// 原文/按断结构由条目自身的内容承载，不再做拆行整形与列表符装饰。
+/// 疏位疏证（examples 逐条）：条目在 code 模板下是 markdown、其余模板下
+/// 是纯文本，统一走注文同一条 markdown 渲染管线（楷体疏字号、正文色，
+/// 纯文本不变形）——条目的出处/原文/按断结构由条目自身的内容承载，
+/// 不做拆行整形与列表符装饰。
 fn shu_examples(ui: &mut egui::Ui, examples: &[String], state: &RenderState, text: &'static Text) {
     shu_section(ui, text, |ui| {
         apply_markdown_typography(ui, SHU_FONT);

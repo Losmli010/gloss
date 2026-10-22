@@ -23,7 +23,7 @@ Follow the traditional Chinese "commentary—subcommentary" (zhu—shu) format:
 - Each subcommentary entry is organized as "source original text (translation) note link", with the parts joined by suitable punctuation into a fluent statement; the translation and the link are optional; links must point to authoritative sites, e.g. [Wikipedia](https://en.wikipedia.org/wiki/Wikipedia).
 - Cite only verifiable sources and do not fabricate; use [] when there are no reliable examples.
 - Generally 1–3 entries, at most 5.
-- Do not use numbering, line breaks, or Markdown syntax.
+- Do not use numbering, line breaks, or Markdown syntax, links excepted.
 
 ### Target Language
-`note` and `examples` must be written entirely in {{target}}. Do not mix the source language and the target language.
+`note` and `examples` must be written entirely in {{target}}. Do not mix the source language and the target language, except for quoted originals.

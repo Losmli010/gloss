@@ -33,4 +33,4 @@ Follow the traditional Chinese "commentary—subcommentary" (zhu—shu) format:
 - Do not use numbering, line breaks, or Markdown syntax.
 
 ### Target Language
-`note` and `examples` must be written entirely in {{target}}. Do not mix the source language and the target language.
+`note` and `examples` must be written entirely in {{target}}. Do not mix the source language and the target language, except for quoted originals.
