@@ -968,7 +968,7 @@ mod tests {
         crate::ui::context::apply_selection_colors(&harness.ctx);
         harness.set_size(egui::vec2(
             crate::present::windows::SETTINGS_WIDTH as f32,
-            1200.0,
+            crate::present::windows::SETTINGS_HEIGHT as f32,
         ));
         (harness, action)
     }
@@ -988,7 +988,7 @@ mod tests {
         crate::ui::context::apply_selection_colors(&harness.ctx);
         harness.set_size(egui::vec2(
             crate::present::windows::SETTINGS_WIDTH as f32,
-            1200.0,
+            crate::present::windows::SETTINGS_HEIGHT as f32,
         ));
         harness
     }
