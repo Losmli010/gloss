@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` / `just startup-selftest` |
 | 快照测试 | 38 | `just test` |
-| 单元测试 | 628 | `just test` |
+| 单元测试 | 629 | `just test` |
 
 ## 人工测试
 
@@ -1267,7 +1267,7 @@ bundle 原位替换（L1，临时目录夹具 + ditto 构造 zip）。
 | --- | --- | --- | --- |
 | page_renders_headline_cases_and_trend | 检视页结构与要素 | 给定含分类失败与任务好/降级明细的报告，当 render_html，则准确率头条、指标卡、状态/轨道过滤按钮、逐条 details、逐轮回复、内嵌趋势 SVG 与口径脚注齐备；无错误行时不产混淆矩阵段 | 2026-10-21 |
 | page_escapes_dataset_and_model_text | 检视页转义外来文本 | 给定数据集文本与模型回复含 script 标记的明细，当 render_html，则两者以实体出现，页面无来自数据的内联脚本与标记逃逸 | 2026-10-21 |
-| deltas_come_from_the_previous_same_mode_run | 差值只比上一次同 mode 运行 | 给定上次 replay（accuracy 100%）与一份 live 历史，当渲染本次 replay（accuracy 0%、回退率 100%），则 accuracy/回退率出 ▼/▲ 徽标且均着坏色、live 行不进差值；无同 mode 基准时无徽标 | 2026-10-22 |
+| deltas_come_from_the_previous_same_mode_run | 差值只比上一次同 mode 运行 | 给定上次 replay（accuracy 100%）与一份 live 历史，当渲染本次 replay（accuracy 0%、回退率 100%），则 accuracy/回退率出 ▼/▲ 徽标且均着坏色、live 行不进差值；无同 mode 基准时无徽标 | 2026-10-21 |
 | deltas_skip_empty_denominator_runs | 空分母历史行不进差值 | 给定 classify 零 evaluated 的上次 replay（accuracy/回退率均回落 0.0），当渲染本次 replay，则不出任何差值徽标（0/0 与上次比率没有可比性，与任务卡同一口径） | 2026-10-22 |
 
 ### crates/gloss-eval/src/metrics.rs
