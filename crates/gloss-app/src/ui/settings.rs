@@ -966,7 +966,10 @@ mod tests {
             }
         });
         crate::ui::context::apply_selection_colors(&harness.ctx);
-        harness.set_size(egui::vec2(460.0, 1200.0));
+        harness.set_size(egui::vec2(
+            crate::present::windows::SETTINGS_WIDTH as f32,
+            crate::present::windows::SETTINGS_HEIGHT as f32,
+        ));
         (harness, action)
     }
 
@@ -983,7 +986,10 @@ mod tests {
                 let _ = draw(ui, &mut state, &update, text);
             });
         crate::ui::context::apply_selection_colors(&harness.ctx);
-        harness.set_size(egui::vec2(460.0, 1200.0));
+        harness.set_size(egui::vec2(
+            crate::present::windows::SETTINGS_WIDTH as f32,
+            crate::present::windows::SETTINGS_HEIGHT as f32,
+        ));
         harness
     }
 

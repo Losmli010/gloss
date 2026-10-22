@@ -14,14 +14,19 @@ const APP_NAME: &str = "Gloss";
 /// 浮层宽度：与绘制侧的布局宽同源（`popup::WIDTH`），这里只转成窗口坐标
 /// 的 `f64`（宽度不随内容变化，见 popup 模块）。
 const OVERLAY_WIDTH: f64 = crate::ui::popup::WIDTH as f64;
-/// 浮层默认高度：自检期只有渲染面板，按内容给一个紧凑初值
-const OVERLAY_HEIGHT: f64 = 200.0;
+/// 浮层默认高度：典型最小内容（头部 + 三四行释义 + 页脚）的自然高度，约
+/// [`OVERLAY_WIDTH`] / φ（296.6 取整）。内容结构变化导致偏离时优先跟内容
+/// 走，不回头凑比例。
+const OVERLAY_HEIGHT: f64 = 296.0;
 /// 自适应高度的屏幕余量：winit 不提供工作区（work area），按显示器逻辑
 /// 高减去该值近似（菜单栏/Dock 的保守估计）。
 const WORK_AREA_MARGIN: f64 = 96.0;
-/// 高度钳制的屏幕占比：浮层最大高度按显示器**逻辑高度的一半**为界（先
-/// 取一半再扣 [`WORK_AREA_MARGIN`]），超出部分由内容侧滚动兜底。
-const HEIGHT_CAP_FRACTION: f64 = 0.5;
+/// 高度钳制的屏幕占比：1/φ² = 0.382——弹窗是划词旁注，从属于底层应用，
+/// 最大只占屏高 38.2%（先取占比再扣 [`WORK_AREA_MARGIN`]），更长内容更早
+/// 交给内容侧滚动兜底。推论：逻辑高 ≤ 约 1026 的屏（含主流笔记本）上限
+/// 即 [`OVERLAY_HEIGHT`]，浮层零增长余量、长文立刻滚动，这是占比取值的
+/// 预期行为，不是缺陷。
+const HEIGHT_CAP_FRACTION: f64 = 0.382;
 /// 浮层尺寸变化小于该阈值不重设窗口（防 egui 布局与 winit resize 的
 /// 帧迟滞来回抖动）。
 const RESIZE_EPSILON: f64 = 0.5;
@@ -31,9 +36,11 @@ const STREAM_HEIGHT_STEP: f64 = 48.0;
 /// 拖动落点小于该阈值（逻辑点）不重设窗口：指针未动或贴边钳制的帧
 /// 不做无谓的平台调用。
 const DRAG_POSITION_EPSILON: f64 = 0.5;
-/// 设置窗口尺寸：全部配置区块一屏放下的紧凑初值（可拖拽调整）。
-const SETTINGS_WIDTH: f64 = 460.0;
-const SETTINGS_HEIGHT: f64 = 640.0;
+/// 设置窗口尺寸：全部配置区块一屏放下的紧凑初值（可拖拽调整），
+/// 高:宽 ≈ φ。`pub(crate)` 供设置窗测试夹具取同一尺寸，防夹具与真实
+/// 默认值脱钩。
+pub(crate) const SETTINGS_WIDTH: f64 = 396.0;
+pub(crate) const SETTINGS_HEIGHT: f64 = 640.0;
 
 /// 流式防抖尺寸：宽度保持当前值（浮层宽度固定，见 `popup::WIDTH`），
 /// 高度向上量化到 [`STREAM_HEIGHT_STEP`] 的倍数且相对当前值**只增不减**
@@ -45,7 +52,7 @@ fn debounced_size(current: LogicalSize<f64>, requested: LogicalSize<f64>) -> Log
 }
 
 /// 由显示器逻辑高度算浮层高度上限（纯逻辑，单测覆盖）：取显示器逻辑高度的
-/// [`HEIGHT_CAP_FRACTION`]（即一半），再扣 [`WORK_AREA_MARGIN`]，且不低于
+/// [`HEIGHT_CAP_FRACTION`]，再扣 [`WORK_AREA_MARGIN`]，且不低于
 /// [`OVERLAY_HEIGHT`]（矮屏兜底）；请求不超过上限时原样返回。
 fn capped_height(screen_height: f64, requested_height: f64) -> f64 {
     let max_height = (screen_height * HEIGHT_CAP_FRACTION - WORK_AREA_MARGIN).max(OVERLAY_HEIGHT);
@@ -292,9 +299,9 @@ impl WindowManager {
             .or_else(|| self.overlay.current_monitor())
     }
 
-    /// 高度按浮层所在显示器钳制，上限为显示器逻辑高度的一半减去工作区
-    /// 余量（见 [`capped_height`]；超出部分由内容侧滚动兜底）；拿不到
-    /// 显示器时原样返回。
+    /// 高度按浮层所在显示器钳制，上限为显示器逻辑高度乘
+    /// [`HEIGHT_CAP_FRACTION`] 再减工作区余量（见 [`capped_height`]；超出
+    /// 部分由内容侧滚动兜底）；拿不到显示器时原样返回。
     fn cap_height_to_screen(&self, size: LogicalSize<f64>) -> LogicalSize<f64> {
         let Some(monitor) = self.overlay.current_monitor() else {
             return size;
@@ -381,7 +388,7 @@ mod tests {
     use winit::dpi::{LogicalPosition, LogicalSize};
 
     const SCREEN: LogicalSize<f64> = LogicalSize::new(1920.0, 1080.0);
-    const OVERLAY: LogicalSize<f64> = LogicalSize::new(480.0, 200.0);
+    const OVERLAY: LogicalSize<f64> = LogicalSize::new(480.0, 296.0);
 
     #[test]
     fn position_inside_the_monitor_is_untouched() {
@@ -400,8 +407,8 @@ mod tests {
         );
         assert_eq!(
             clamp_to_monitor(LogicalPosition::new(500.0, 2000.0), origin, SCREEN, OVERLAY),
-            LogicalPosition::new(500.0, 880.0),
-            "下越界收到 1080-200"
+            LogicalPosition::new(500.0, 784.0),
+            "下越界收到 1080-296"
         );
     }
 
@@ -446,11 +453,11 @@ mod cap_height_tests {
     use super::{OVERLAY_HEIGHT, WORK_AREA_MARGIN, capped_height};
 
     #[test]
-    fn height_caps_at_half_the_screen_minus_the_margin() {
+    fn height_caps_at_the_golden_share_of_the_screen_minus_the_margin() {
         assert_eq!(
             capped_height(1080.0, 2000.0),
-            1080.0 * 0.5 - WORK_AREA_MARGIN,
-            "444 on a 1080-logical-point display"
+            1080.0 * 0.382 - WORK_AREA_MARGIN,
+            "316.56 on a 1080-logical-point display"
         );
     }
 
@@ -467,10 +474,10 @@ mod cap_height_tests {
 
 #[cfg(test)]
 mod debounce_tests {
-    use super::{STREAM_HEIGHT_STEP, debounced_size};
+    use super::{OVERLAY_HEIGHT, STREAM_HEIGHT_STEP, debounced_size};
     use winit::dpi::LogicalSize;
 
-    const CURRENT: LogicalSize<f64> = LogicalSize::new(480.0, 200.0);
+    const CURRENT: LogicalSize<f64> = LogicalSize::new(480.0, OVERLAY_HEIGHT);
 
     #[test]
     fn width_never_changes_during_streaming() {
@@ -487,9 +494,9 @@ mod debounce_tests {
 
     #[test]
     fn height_steps_up_in_quantized_increments() {
-        let grown = debounced_size(CURRENT, LogicalSize::new(480.0, 205.0));
+        let grown = debounced_size(CURRENT, LogicalSize::new(480.0, 310.0));
         assert_eq!(
-            grown.height, 240.0,
+            grown.height, 336.0,
             "one step past the current height is a full step"
         );
         assert_eq!(STREAM_HEIGHT_STEP, 48.0);
@@ -499,7 +506,7 @@ mod debounce_tests {
     fn height_never_shrinks_during_streaming() {
         let shrunk = debounced_size(CURRENT, LogicalSize::new(480.0, 80.0));
         assert_eq!(
-            shrunk.height, 200.0,
+            shrunk.height, OVERLAY_HEIGHT,
             "content shrinkage waits for the final relayout"
         );
     }
@@ -508,7 +515,7 @@ mod debounce_tests {
     fn current_size_quantizes_up_to_the_step_boundary() {
         let same = debounced_size(CURRENT, CURRENT);
         assert_eq!(
-            same.height, 240.0,
+            same.height, 336.0,
             "the first streaming frame lands on the step boundary above the skeleton"
         );
         assert_eq!(same.width, CURRENT.width);

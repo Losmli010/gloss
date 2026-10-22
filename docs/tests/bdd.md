@@ -652,9 +652,9 @@ popup 快照基线：popup_word_card、popup_streaming、popup_failed、popup_fa
 | position_before_the_origin_clamps_to_it | 负坐标钳到屏原点 | 给定负全局坐标（主屏左侧显示器），当钳制，则收到该显示器原点而非主屏 | 2026-09-20 |
 | clamping_respects_the_monitor_origin_on_secondary_displays | 副屏钳制按全局原点 | 给定副屏（全局原点非零）右缘位置，当钳制，则按副屏全局区间收口而非主屏 | 2026-09-20 |
 | monitor_smaller_than_the_overlay_pins_to_the_origin | 显示器小于浮层贴原点 | 给定比浮层还小的显示器与屏内位置，当钳制，则贴显示器原点（上限取 0） | 2026-09-20 |
-| height_caps_at_half_the_screen_minus_the_margin | 高度上限为半屏减余量 | 给定逻辑高 1080 的显示器与超限请求，当 capped_height，则上限取一半屏高减工作区余量（444） | 2026-10-02 |
+| height_caps_at_the_golden_share_of_the_screen_minus_the_margin | 高度上限为屏高占比减余量 | 给定逻辑高 1080 的显示器与超限请求，当 capped_height，则上限取屏高乘 HEIGHT_CAP_FRACTION（1/φ² = 0.382）再减工作区余量（316.56） | 2026-10-21 |
 | smaller_requests_pass_through_untouched | 未超限的高度原样保留 | 给定远小于上限的请求，当 capped_height，则原样返回 | 2026-10-02 |
-| short_screens_bottom_out_at_the_default_height | 矮屏回落默认高度 | 给定半屏扣余量后仍低于默认高度的显示器，当 capped_height，则下限取默认高度 200 | 2026-10-02 |
+| short_screens_bottom_out_at_the_default_height | 矮屏回落默认高度 | 给定屏高占比扣余量后仍低于默认高度的显示器，当 capped_height，则下限取默认高度 296 | 2026-10-21 |
 | width_never_changes_during_streaming | 流式锁宽 | 给定当前宽度与更宽请求，当流式防抖，则宽度保持当前值（浮层宽度固定）、高度量化到步长倍数 | 2026-10-19 |
 | height_steps_up_in_quantized_increments | 步进增高 | 给定略高于当前档的高度请求，当流式防抖，则上升一个完整步长 | 2026-09-26 |
 | height_never_shrinks_during_streaming | 流式不回缩 | 给定明显小于当前档的请求，当流式防抖，则保持当前高度（回缩留给完成态精确重排） | 2026-09-26 |
