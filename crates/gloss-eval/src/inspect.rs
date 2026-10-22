@@ -32,7 +32,8 @@ pub fn render_html(report: &EvalReport, cases: &[CaseDetail], history: &[EvalRep
     out.push_str(
         "<p class=\"footnote\">口径：replay 页度量生产校验器对固化夹具的判定——\
          改 prompt 不改变它，需 `eval live --record` 重录夹具后才反映；\
-         改 prompt 后的真实准确率看 live 页。趋势数据源 history.jsonl，时间一律 UTC。</p>\n",
+         改 prompt 后的真实准确率看 live 页（live 的任务降级率含请求失败条目，\
+         明细行以「引擎失败」徽标区分）。趋势数据源 history.jsonl，时间一律 UTC。</p>\n",
     );
     out.push_str("<script>\nlet statusFilter='all',groupFilter='all';\n");
     out.push_str(
@@ -42,11 +43,18 @@ pub fn render_html(report: &EvalReport, cases: &[CaseDetail], history: &[EvalRep
          const g=groupFilter==='all'||el.dataset.group===groupFilter;\
          el.style.display=s&&r&&g?'':'none';});}\n",
     );
+    // 过滤值只在 data-v 属性上传递、由事件委托读取：内联 onclick 的属性
+    // 实体会先于 JS 解码，等价于把数据值拼进 JS 字符串字面量。
     out.push_str(
-        "function pickStatus(v){statusFilter=v;pick('status',v);apply();}\
-         function pickGroup(v){groupFilter=v;pick('group',v);apply();}\
-         function pick(kind,v){document.querySelectorAll('button.'+kind).forEach(b=>\
+        "function pick(kind,v){document.querySelectorAll('button.'+kind).forEach(b=>\
          {b.classList.toggle('on',b.dataset.v===v);});}\n",
+    );
+    out.push_str(
+        "document.querySelector('.filters').addEventListener('click',e=>{\
+         const b=e.target.closest('button');\
+         if(!b)return;\
+         if(b.classList.contains('status')){statusFilter=b.dataset.v;pick('status',statusFilter);apply();}\
+         else if(b.classList.contains('group')){groupFilter=b.dataset.v;pick('group',groupFilter);apply();}});\n",
     );
     out.push_str("</script>\n</body>\n</html>\n");
     out
@@ -77,7 +85,7 @@ fn render_header(out: &mut String, report: &EvalReport) {
         }
     }
     meta.push_str(&format!(
-        " · 夹具覆盖 {evaluated} 条，跳过 {} 条",
+        " · 评测 {evaluated} 条，跳过 {} 条",
         report.skipped
     ));
     out.push_str(&format!(
@@ -94,24 +102,28 @@ fn render_cards(out: &mut String, report: &EvalReport, previous: Option<&EvalRep
     if let Some(stats) = &report.classify {
         let metrics = &stats.metrics;
         let prev = previous.and_then(|prev| prev.classify.as_ref());
+        let accuracy_delta = comparable(
+            metrics.evaluated,
+            prev,
+            |prev| prev.metrics.evaluated,
+            |prev| prev.accuracy * 100.0,
+        );
+        let fallback_delta = comparable(
+            metrics.evaluated,
+            prev,
+            |prev| prev.metrics.evaluated,
+            |prev| prev.fallback_rate * 100.0,
+        );
         out.push_str(&format!(
             "<div class=\"card\"><div class=\"card-title\">分类 accuracy {}</div>\
              <div class=\"card-main\">{:.2}%<span class=\"frac\">{}/{} 条</span></div>\
              <div class=\"card-sub\">回退率 {:.2}%{} · 修复 {} 轮 · 非 JSON {} · 拒绝 {}{}</div></div>",
-            delta_chip(
-                stats.accuracy * 100.0,
-                prev.map(|prev| prev.accuracy * 100.0),
-                DeltaDir::UpGood,
-            ),
+            delta_chip(stats.accuracy * 100.0, accuracy_delta, DeltaDir::UpGood),
             stats.accuracy * 100.0,
             metrics.correct,
             metrics.evaluated,
             stats.fallback_rate * 100.0,
-            delta_chip(
-                stats.fallback_rate * 100.0,
-                prev.map(|prev| prev.fallback_rate * 100.0),
-                DeltaDir::DownGood,
-            ),
+            delta_chip(stats.fallback_rate * 100.0, fallback_delta, DeltaDir::DownGood),
             metrics.repair_rounds,
             metrics.invalid_json,
             metrics.rejected,
@@ -123,13 +135,18 @@ fn render_cards(out: &mut String, report: &EvalReport, previous: Option<&EvalRep
         let prev = previous
             .and_then(|prev| prev.tasks.iter().find(|task| task.dataset == stats.dataset))
             .map(|task| &task.metrics);
-        // 空分母（无夹具/全跳过）不产差值：0/0 与上次的比率没有可比性。
-        let prev_complete = comparable(metrics.evaluated, prev, |prev| {
-            rate(prev.fields_complete, prev.evaluated)
-        });
-        let prev_degraded = comparable(metrics.evaluated, prev, |prev| {
-            rate(prev.degraded, prev.evaluated)
-        });
+        let prev_complete = comparable(
+            metrics.evaluated,
+            prev,
+            |prev| prev.evaluated,
+            |prev| rate(prev.fields_complete, prev.evaluated),
+        );
+        let prev_degraded = comparable(
+            metrics.evaluated,
+            prev,
+            |prev| prev.evaluated,
+            |prev| rate(prev.degraded, prev.evaluated),
+        );
         let complete_rate = rate(metrics.fields_complete, metrics.evaluated);
         let degraded_rate = rate(metrics.degraded, metrics.evaluated);
         out.push_str(&format!(
@@ -150,16 +167,18 @@ fn render_cards(out: &mut String, report: &EvalReport, previous: Option<&EvalRep
     out.push_str("</section>\n");
 }
 
-/// 可比的上次比率：两侧分母都非零才返回（`None` 即不出差值徽标）。
-fn comparable(
+/// 可比的上次比率：两侧分母都非零才返回（`None` 即不出差值徽标）——
+/// 空分母（无夹具/全跳过/零 evaluated）的 0/0 与上次的比率没有可比性。
+fn comparable<T: Copy>(
     evaluated: usize,
-    prev: Option<&crate::metrics::TaskMetrics>,
-    rate_of: impl Fn(&crate::metrics::TaskMetrics) -> f64,
+    prev: Option<T>,
+    denominator_of: impl Fn(T) -> usize,
+    rate_of: impl Fn(T) -> f64,
 ) -> Option<f64> {
     if evaluated == 0 {
         return None;
     }
-    prev.filter(|prev| prev.evaluated > 0).map(rate_of)
+    prev.filter(|prev| denominator_of(*prev) > 0).map(rate_of)
 }
 
 /// 混淆矩阵（仅错误路径）；无错误行整段跳过。
@@ -201,7 +220,7 @@ fn render_cases(out: &mut String, cases: &[CaseDetail]) {
     ] {
         let on = if value == "all" { " on" } else { "" };
         out.push_str(&format!(
-            "<button class=\"status{on}\" data-v=\"{value}\" onclick=\"pickStatus('{value}')\">{label}</button>"
+            "<button class=\"status{on}\" data-v=\"{value}\">{label}</button>"
         ));
     }
     let mut groups: Vec<&str> = Vec::new();
@@ -211,12 +230,11 @@ fn render_cases(out: &mut String, cases: &[CaseDetail]) {
         }
     }
     out.push_str(
-        "<span class=\"sep\"></span><button class=\"group on\" data-v=\"all\" onclick=\"pickGroup('all')\">全部轨道</button>",
+        "<span class=\"sep\"></span><button class=\"group on\" data-v=\"all\">全部轨道</button>",
     );
     for group in groups {
         out.push_str(&format!(
-            "<button class=\"group\" data-v=\"{}\" onclick=\"pickGroup('{}')\">{}</button>",
-            esc(group),
+            "<button class=\"group\" data-v=\"{}\">{}</button>",
             esc(group),
             esc(group_label(group))
         ));
@@ -623,6 +641,26 @@ mod tests {
         assert!(
             !html.contains("delta "),
             "a live-only history never feeds replay deltas: {html}"
+        );
+    }
+
+    #[test]
+    fn deltas_skip_empty_denominator_runs() {
+        let (mut report, cases) = sample();
+        report.generated_at = 2_000;
+        let mut previous = assemble_report(
+            "replay",
+            Some(ClassifyMetrics::default()),
+            vec![],
+            None,
+            None,
+            0,
+        );
+        previous.generated_at = 1_000;
+        let html = render_html(&report, &cases, &[previous, report.clone()]);
+        assert!(
+            !html.contains("delta "),
+            "a zero-evaluated previous run never feeds deltas: {html}"
         );
     }
 }
