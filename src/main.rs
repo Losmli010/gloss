@@ -176,7 +176,6 @@ mod tests {
 
     #[test]
     fn channels_bundle_is_created() {
-        // 通道创建与端点分发都在组装点完成（见 wiring::distribute_channels）。
         let channels = Channels::new();
         channels
             .acquire_commands

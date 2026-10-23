@@ -4,7 +4,7 @@
 //! 边界：**只负责把请求送出去、把响应流回来**。messages 由编排层渲染
 //! （`super::AiTaskService` → `prompt::PromptRegistry`，含模态校验），模型
 //! 也已由 App 按配置解析后随 [`EngineRequest`] 携带——本模块不渲染
-//! prompt，也不看配置里的模型。域形态的消息（[`ChatMessage`]：文本或多
+//! prompt，也不看配置里的模型。域形态的消息（[`crate::prompt::ChatMessage`]：文本或多
 //! 模态部件）在这里映成 OpenAI 兼容 wire 形状；图像部件的 base64 与
 //! data URL 前缀也只在请求体构造处编码（域类型不带 base64）。
 //!

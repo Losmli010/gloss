@@ -1,10 +1,7 @@
 //! 原剪贴板的快照：打开系统粘贴板、逐条目保全全部 flavor 的原始字节。
 //!
-//! 快照按条目与 flavor 尽力保全：读不出数据的 flavor（promised 数据等）
-//! 单独跳过——读不出即无法如实恢复，整轮放弃只会让兜底在有此类 flavor
-//! 的板上整批失效。两类边界仍整体放弃、不注入：结构读不出（板、条目、
-//! flavor 名单）；板上条目的 flavor 全部读不出——注入后原内容无法如实
-//! 写回，恢复轮会清空剪贴板。
+//! 快照的放弃边界（哪些失败整体放弃、哪些只跳过该 flavor）以
+//! [`snapshot_pasteboard`] 的文档为准。
 
 use crate::ffi::cf::{
     self, CFArrayGetCount, CFArrayGetValueAtIndex, CFArrayRef, CFDataGetBytePtr, CFDataGetLength,
@@ -217,8 +214,8 @@ fn snapshot_items(pb: &OpenPasteboard, count: CFIndex) -> Option<Vec<SavedItem>>
     Some(items)
 }
 
-/// 逐 flavor 快照：单个 flavor 读不出数据（promised 等）只跳过该
-/// flavor（见模块注释），结构失败整体 `None`。
+/// 逐 flavor 快照：单个 flavor 读不出数据只跳过该 flavor，结构失败
+/// 整体 `None`（边界见 [`snapshot_pasteboard`] 文档）。
 fn snapshot_flavors(
     pb: &OpenPasteboard,
     id: PasteboardItemID,

@@ -79,7 +79,7 @@ name = "clone"
 
 [dependencies]
 # 组装段（src/wiring）持有通道对端与 tokio 接收端，类型在此命名。
-crossbeam-channel = { version = "0.5", default-features = false }
+crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 gloss-app = { path = "crates/gloss-app" }
 # 测试桩只在 tests/stubs/，经 cfg(test) 编译进测试目标，不进发布二进制。
 gloss-core = { path = "crates/gloss-core" }

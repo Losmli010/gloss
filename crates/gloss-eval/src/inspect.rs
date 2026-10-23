@@ -495,7 +495,6 @@ mod tests {
             .expect("one case")
     }
 
-    /// 一份与明细一致的最小报告：分类 1 条（非 JSON）、词卡 2 条（一好一降级）。
     fn sample() -> (EvalReport, Vec<CaseDetail>) {
         let ccase = classify_case(
             "{\"id\":\"zh-word-01\",\"text\":\"光泽\",\"expected\":\"TranslateWord\"}\n",

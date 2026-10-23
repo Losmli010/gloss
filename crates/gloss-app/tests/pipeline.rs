@@ -370,7 +370,7 @@ fn violating_replies_repair_then_degrade_without_cache() {
     );
 }
 
-#[allow(clippy::unwrap_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+#[allow(clippy::unwrap_used, clippy::panic)]
 fn pump_repair_rounds(pipe: &mut Pipeline, violating: &str) {
     let mut repairs = 0u32;
     loop {
@@ -410,7 +410,7 @@ fn pump_repair_rounds(pipe: &mut Pipeline, violating: &str) {
     }
 }
 
-#[allow(clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+#[allow(clippy::panic)]
 fn assert_degraded_outcome(pipe: &Pipeline) {
     assert_eq!(pipe.machine.state(), AppState::Show);
     match pipe.machine.overlay_view() {
@@ -527,7 +527,7 @@ fn image_flow_skips_classification_and_settles_the_plain_examples() {
     assert_plain_image_outcome(&pipe, &png);
 }
 
-#[allow(clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+#[allow(clippy::panic)]
 fn assert_plain_image_outcome(pipe: &Pipeline, png: &Arc<[u8]>) {
     assert_eq!(pipe.machine.state(), AppState::Show);
     match pipe.machine.overlay_view() {
@@ -715,7 +715,7 @@ fn superseded_trigger_cancels_and_filters_late_events() {
     assert_eq!(pipe.machine.state(), AppState::Show);
 }
 
-#[allow(clippy::unwrap_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+#[allow(clippy::unwrap_used, clippy::panic)]
 fn wait_classified_of_generation(pipe: &mut Pipeline, current: u64) {
     loop {
         match pipe.events_rx.recv().unwrap() {
@@ -734,7 +734,7 @@ fn wait_classified_of_generation(pipe: &mut Pipeline, current: u64) {
     }
 }
 
-#[allow(clippy::unwrap_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+#[allow(clippy::unwrap_used, clippy::panic)]
 fn wait_degraded_done(pipe: &mut Pipeline, current: u64) {
     loop {
         match pipe.events_rx.recv().unwrap() {
@@ -906,7 +906,7 @@ fn frozen_options_carry_the_factory_model_by_default() {
     assert_eq!(engine.call_count(), 3, "classify repairs once + task");
 }
 
-#[allow(clippy::expect_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+#[allow(clippy::expect_used, clippy::panic)]
 fn expect_classified(pipe: &mut Pipeline) -> TaskKind {
     match pipe.events_rx.recv().expect("event channel open") {
         Event::TaskClassified { generation, kind } => {
@@ -917,7 +917,7 @@ fn expect_classified(pipe: &mut Pipeline) -> TaskKind {
     }
 }
 
-#[allow(clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+#[allow(clippy::panic)]
 fn outcome_note(machine: &TaskStateMachine) -> &str {
     match machine.overlay_view() {
         Some(OverlayView::Outcome { outcome, .. }) => &outcome.note,
@@ -925,7 +925,7 @@ fn outcome_note(machine: &TaskStateMachine) -> &str {
     }
 }
 
-#[allow(clippy::expect_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+#[allow(clippy::expect_used, clippy::panic)]
 fn wait_done(pipe: &mut Pipeline) {
     loop {
         let event = pipe

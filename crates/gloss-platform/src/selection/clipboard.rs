@@ -458,8 +458,6 @@ mod tests {
 
     #[test]
     fn injection_failure_releases_every_pressed_key_in_reverse() {
-        // 序列与 inject_copy_key 同形：修饰键按下 → C 按下 → C 释放 →
-        // 修饰键释放；四个失败点各验一次。
         let sequence = [
             (1u16, true, 0u64),
             (2, true, 0),

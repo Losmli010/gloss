@@ -42,7 +42,7 @@ pub(super) const RETRY_AFTER_CAP: Duration = Duration::from_secs(1);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// 读响应体但不超过 `limit` 字节（丢失的只是诊断文本，不是业务数据）。
-/// 读取中断不当作「正常读完」静默截断：留一条 trace，错误体按已读部分
+/// 读取中断不当作「正常读完」静默截断：留一条 debug，错误体按已读部分
 /// 交给诊断解析（半截 JSON 会退化成「只报状态码」）。
 async fn read_bounded_body(response: &mut reqwest::Response, limit: usize) -> String {
     let mut body = Vec::new();

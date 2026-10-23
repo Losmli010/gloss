@@ -91,7 +91,13 @@ fn run_selftest() -> Option<(Duration, Duration, OverlaySelfTest)> {
     if event_loop.run_app(&mut handler).is_err() {
         return None;
     }
-    let (first, max) = handler.summary()?;
+    let Some((first, max)) = handler.summary() else {
+        error!(
+            thread = gloss_core::log::thread::UI,
+            "overlay self-test recorded no frames"
+        );
+        return None;
+    };
     Some((first, max, handler))
 }
 

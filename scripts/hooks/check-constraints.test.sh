@@ -334,6 +334,20 @@ mut_inline_tests_excluded() {
     printf '}\n'
   } >"$FIX/crates/gloss-app/src/mixed.rs"
 }
+mut_lines_allow_past_header() {
+  mkdir -p "$FIX/crates/gloss-app/src"
+  { awk 'BEGIN{for(i=0;i<5;i++) print "let _x = 1;"}'
+    printf '// lines:allow 写在文件头 5 行之外不算豁免\n'
+    awk 'BEGIN{for(i=0;i<520;i++) print "let _x = 1;"}'
+  } >"$FIX/crates/gloss-app/src/late_allow.rs"
+}
+mut_indented_cfg_test_not_truncated() {
+  mkdir -p "$FIX/crates/gloss-app/src"
+  { awk 'BEGIN{for(i=0;i<19;i++) print "let _x = 1;"}'
+    printf '    #[cfg(test)]\n'
+    awk 'BEGIN{for(i=0;i<520;i++) print "let _y = 1;"}'
+  } >"$FIX/crates/gloss-app/src/indented_cfg.rs"
+}
 
 echo "== 测试 check-constraints.sh =="
 echo ""
@@ -409,6 +423,8 @@ assert_case "生产代码单文件超 500 行被拒" 1 mut_overlong_rs_file "文
 assert_case "文件头 lines:allow 放行" 0 mut_overlong_rs_file_allowed "lines:allow 豁免 1 个"
 assert_case "tests/ 超长文件不判罚" 0 mut_overlong_test_file "lines:allow 豁免 0 个"
 assert_case "文件尾内联测试模块不计入生产行数" 0 mut_inline_tests_excluded "lines:allow 豁免 0 个"
+assert_case "lines:allow 落在文件头 5 行之外不放行" 1 mut_lines_allow_past_header "文件行数上限"
+assert_case "缩进的 #[cfg(test)] 不触发截断" 1 mut_indented_cfg_test_not_truncated "文件行数上限"
 
 echo ""
 echo "-- 残留任务标记扫描（git 夹具；上方非 git 夹具用例覆盖自动跳过路径）--"

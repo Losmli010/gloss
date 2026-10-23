@@ -19,7 +19,7 @@ impl GlossApp {
     /// 只做通道发送、浮层展示与日志。
     ///
     /// 浮层「什么时候露面」抽在 [`crate::machine::should_reveal`]（内含
-    /// [`crate::machine::auto_show_after`] 的按批判定）：挂起显形请求由
+    /// `machine::policy::auto_show_after` 的按批判定）：挂起显形请求由
     /// 划词提交（内容到达才显形）置位，批处理后在同一帧消费；失败即弹
     /// （权限卡等）走批次判定。
     pub(crate) fn drain_events(&mut self, event_loop: &ActiveEventLoop) {

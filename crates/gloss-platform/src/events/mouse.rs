@@ -221,8 +221,8 @@ mod tap {
         }
     }
 
-    /// tap 监听线程的执行体：事件经 panic 屏障投递（满则丢弃），创建相
-    /// 回报后进阻塞的 run loop。
+    /// tap 监听线程的执行体：事件经 panic 屏障投递（满则丢弃），创建
+    /// 成功先回报，再进阻塞的 run loop。
     fn tap_loop(
         tx: Sender<ButtonEvent>,
         created_tx: Sender<Result<(), ListenError>>,

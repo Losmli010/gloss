@@ -158,10 +158,7 @@ fn downscale_to_budget(rgba: image::RgbaImage) -> (u32, u32, image::RgbaImage) {
             );
             (width, height, resized)
         }
-        None => {
-            let (width, height) = (rgba.width(), rgba.height());
-            (width, height, rgba)
-        }
+        None => (rgba.width(), rgba.height(), rgba),
     }
 }
 
