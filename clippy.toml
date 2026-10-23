@@ -4,3 +4,6 @@ allow-expect-in-tests = true
 allow-panic-in-tests = true
 # print_stdout / print_stderr 在测试代码中放行
 allow-print-in-tests = true
+# 体积上限：函数参数 ≤5（&self 计入）、函数体 ≤50 行
+too-many-arguments-threshold = 5
+too-many-lines-threshold = 50

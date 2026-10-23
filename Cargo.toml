@@ -41,6 +41,9 @@ print_stderr = "deny"
 # 日志唯一出口是 gloss_core::log；见 AGENTS.md 质量条目「日志统一出口」。
 print_stdout = "deny"
 todo = "deny"
+# 体积上限：参数 ≤5、函数体 ≤50 行（阈值在 clippy.toml）。
+too_many_arguments = "deny"
+too_many_lines = "deny"
 # unsafe 块必须带 `// SAFETY:` 注释说明不变量；允许有 unsafe，但不允许无据的 unsafe。
 undocumented_unsafe_blocks = "deny"
 unimplemented = "deny"

@@ -18,6 +18,8 @@
 #                          字面量只允许出现在根 [workspace.package]。
 #   依赖只开需要的特性  —— 每个第三方依赖声明必须带 default-features = false。
 #   依赖无死条目        —— 声明的第三方依赖必须在 src/tests/benches 有使用证据。
+#   文件行数上限        —— 单个生产代码 .rs 文件（根 src/ 与 crates/*/src/）≤500 行；
+#                          文件头部 lines:allow 注明缘由放行。
 #   残留任务标记        —— TODO / FIXME / HACK / TBD 大写词全字匹配，命中即失败。
 #
 # 用法：scripts/hooks/check-constraints.sh [仓库根]   # 缺省为本脚本的上一级目录
@@ -402,6 +404,29 @@ while IFS='|' read -r owner manifest sec key start text; do
 done <<<"$DEP_DUMP"
 if [ "$dead_count" -eq 0 ]; then
   ok "依赖无死条目（扫 ${dead_scanned} 条第三方声明，deps:allow ${dead_allowed} 条）"
+fi
+
+# ---- 约束「文件行数上限」 ----
+# 单个生产代码 .rs 文件 ≤500 行，超限即失败；扫描面是根 src/ 与 crates/*/src/，
+# 测试目标（tests/、benches/）不在其列。生产行数按首个列 0 的 `#[cfg(test)]`
+# 截断（测试模块按仓库惯例置于文件尾），故文件尾的内联测试模块不计入。
+# 存量确需缓冲的，文件前 5 行写 `lines:allow` 并注明缘由放行（同 secrets:allow
+# 惯例）——豁免是债，新代码一律按职责拆分，不加豁免。
+line_cap=500
+big_files=0
+big_allowed=0
+while IFS= read -r f; do
+  lines="$(awk '/^#\[cfg\(test\)\]/{exit} {n++} END{print n + 0}' "$f")"
+  [ "$lines" -le "$line_cap" ] && continue
+  if head -n 5 "$f" | grep -q 'lines:allow'; then
+    big_allowed=$((big_allowed + 1))
+    continue
+  fi
+  big_files=$((big_files + 1))
+  fail "约束「文件行数上限」：$(rel "$f") 生产代码 ${lines} 行，超 ${line_cap} 行上限 —— 按职责拆分；确需缓冲在文件前 5 行写 lines:allow 注明缘由"
+done < <(find "$ROOT/src" "$ROOT"/crates/*/src -name '*.rs' -type f 2>/dev/null)
+if [ "$big_files" -eq 0 ]; then
+  ok "文件行数上限（生产代码 ≤${line_cap} 行；lines:allow 豁免 ${big_allowed} 个）"
 fi
 
 # ---- 残留任务标记扫描 ----

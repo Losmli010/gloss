@@ -310,6 +310,30 @@ mut_platform_tests_only_evidence() {
     'serde_json = { version = "1", default-features = false }'
   printf 'use serde_json;\n' >"$FIX/crates/gloss-platform/tests/usage.rs"
 }
+mut_overlong_rs_file() {
+  mkdir -p "$FIX/crates/gloss-app/src"
+  awk 'BEGIN{for(i=0;i<520;i++) print "let _x = 1;"}' \
+    >"$FIX/crates/gloss-app/src/big.rs"
+}
+mut_overlong_rs_file_allowed() {
+  mkdir -p "$FIX/crates/gloss-app/src"
+  { printf '// lines:allow 自测阴性对照\n'
+    awk 'BEGIN{for(i=0;i<520;i++) print "let _x = 1;"}'
+  } >"$FIX/crates/gloss-app/src/big.rs"
+}
+mut_overlong_test_file() {
+  mkdir -p "$FIX/crates/gloss-app/tests"
+  awk 'BEGIN{for(i=0;i<520;i++) print "let _x = 1;"}' \
+    >"$FIX/crates/gloss-app/tests/big.rs"
+}
+mut_inline_tests_excluded() {
+  mkdir -p "$FIX/crates/gloss-app/src"
+  { awk 'BEGIN{for(i=0;i<20;i++) print "let _x = 1;"}'
+    printf '#[cfg(test)]\nmod tests {\n'
+    awk 'BEGIN{for(i=0;i<520;i++) print "let _y = 1;"}'
+    printf '}\n'
+  } >"$FIX/crates/gloss-app/src/mixed.rs"
+}
 
 echo "== 测试 check-constraints.sh =="
 echo ""
@@ -378,6 +402,13 @@ assert_case "根 manifest：src 里的证据放行" 0 mut_root_dep_used "deps:al
 assert_case "pub use / use as 形态算证据" 0 mut_platform_use_bare_forms "deps:allow 0 条"
 assert_case "宏调用形态算证据" 0 mut_platform_macro_form "deps:allow 0 条"
 assert_case "tests/ 目录里的证据算数" 0 mut_platform_tests_only_evidence "deps:allow 0 条"
+
+echo ""
+echo "-- 约束「文件行数上限」（应拒绝，退出码非 0）--"
+assert_case "生产代码单文件超 500 行被拒" 1 mut_overlong_rs_file "文件行数上限"
+assert_case "文件头 lines:allow 放行" 0 mut_overlong_rs_file_allowed "lines:allow 豁免 1 个"
+assert_case "tests/ 超长文件不判罚" 0 mut_overlong_test_file "lines:allow 豁免 0 个"
+assert_case "文件尾内联测试模块不计入生产行数" 0 mut_inline_tests_excluded "lines:allow 豁免 0 个"
 
 echo ""
 echo "-- 残留任务标记扫描（git 夹具；上方非 git 夹具用例覆盖自动跳过路径）--"
