@@ -13,22 +13,27 @@
 //! 分区、开关行、保存主按钮）。
 //!
 //! 文案与校验分家：校验只产出类型化错误（[`FieldError`]）与类型化提示
-//! （[`SettingsNotice`]），文案统一在渲染帧按当前 locale 落地——同一份草稿
-//! 换语言即换措辞，校验逻辑本身与语言无关。
+//! （[`SettingsNotice`]），文案统一在渲染帧按当前 locale 落地——同一份
+//! 草稿换语言即换措辞，校验逻辑本身与语言无关。
+//!
+//! 渲染按职责分子模块：类型与校验在这里，控件基元在 [`controls`]，
+//! 分区内容组装在 [`fields`]。
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 
-use egui::{RichText, ScrollArea, Stroke};
-use gloss_core::config::{
-    BaseUrlError, CACHE_TTL_MAX_SECS, Config, Language, Theme, validate_base_url,
-};
-use gloss_core::model::{GlossError, Lang};
+use egui::ScrollArea;
+use gloss_core::config::{BaseUrlError, Config, validate_base_url};
+use gloss_core::model::GlossError;
 
-use super::style::{color, font, radius, space};
 use crate::ui::i18n::{Text, fill};
+use crate::ui::style::space;
 use crate::update::UpdateMsg;
-use crate::update::state::{FailStep, UpdatePhase, UpdateState};
+use crate::update::state::UpdateState;
+use controls::{action_row, notices, section};
+use fields::{connection_section, general_section, update_section};
+
+mod controls;
+mod fields;
 
 /// 校验出错的字段：错误提示按字段定位到具体控件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -296,452 +301,6 @@ pub fn draw(
 /// 设置窗口内边距（窗口私有量，设计定稿 16）。
 const WINDOW_PADDING: i8 = 16;
 
-/// 品牌强调色：明暗主题各取朱砂档——浅底用压暗档、深底用提亮档，与印章
-/// 朱丝栏、品牌划线同一色源。
-fn accent(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        color::ACCENT_DARK
-    } else {
-        color::ACCENT_LIGHT
-    }
-}
-
-/// 动作行：取消（次按钮）+ 保存（朱砂主按钮），右对齐。
-fn action_row(
-    ui: &mut egui::Ui,
-    state: &mut SettingsState,
-    action: &mut SettingsAction,
-    text: &Text,
-) {
-    // 先分配固定行高再右对齐：bottom_up 里直接 with_layout(RTL) 的子区域
-    // 会撑满剩余整高，按钮被垂直居中到窗口中部，滚动区被挤剩一条。
-    ui.allocate_ui_with_layout(
-        egui::vec2(ui.available_width(), ACTION_ROW_HEIGHT),
-        egui::Layout::right_to_left(egui::Align::Center),
-        |ui| {
-            let save = ui.add(
-                egui::Button::new(
-                    RichText::new(text.gloss_settings_save.as_str()).color(egui::Color32::WHITE),
-                )
-                .fill(accent(ui))
-                .corner_radius(egui::CornerRadius::same(6)),
-            );
-            if save.clicked() {
-                *action = build_save(state);
-            }
-            if ui.button(text.gloss_settings_cancel.as_str()).clicked() {
-                *action = SettingsAction::Close;
-            }
-        },
-    );
-}
-
-/// 动作行高度（按钮高 + 上下留白）。
-const ACTION_ROW_HEIGHT: f32 = 30.0;
-
-/// 提示行：校验汇总（进入校验态且有错）与壳回写提示（保存失败等）。
-fn notices(
-    ui: &mut egui::Ui,
-    state: &SettingsState,
-    errors: &HashMap<FieldKey, FieldError>,
-    text: &Text,
-) {
-    if state.validated && !errors.is_empty() {
-        let count = errors.len().to_string();
-        ui.add_space(space::TIGHT);
-        ui.label(
-            RichText::new(fill(
-                &text.gloss_settings_invalid_summary,
-                &[("count", &count)],
-            ))
-            .size(font::CAPTION)
-            .color(color::DANGER),
-        );
-    }
-    if let Some(notice) = &state.notice {
-        ui.add_space(space::TIGHT);
-        ui.label(
-            RichText::new(notice.message(text))
-                .size(font::CAPTION)
-                .color(color::DANGER),
-        );
-    }
-}
-
-/// 分区：区块标（弱色小字）+ faint_bg 卡片。
-fn section(ui: &mut egui::Ui, title: &str, content: impl FnOnce(&mut egui::Ui)) {
-    caption(ui, title);
-    ui.add_space(space::TIGHT);
-    egui::Frame::new()
-        .fill(ui.visuals().faint_bg_color)
-        .corner_radius(egui::CornerRadius::same(radius::CARD))
-        .inner_margin(egui::Margin::same(space::CARD_PADDING))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            content(ui);
-        });
-}
-
-/// 弱色小字（区块标 / 子块标 / 说明提示共用一档）。
-fn caption(ui: &mut egui::Ui, text: &str) {
-    ui.label(
-        RichText::new(text)
-            .size(font::CAPTION)
-            .color(ui.visuals().weak_text_color()),
-    );
-}
-
-/// 设置页输入框统一入口：浅色主题下白底输入框与近白卡片几乎同色，
-/// 补一圈浅灰描边保持可见；深色主题输入框本身比卡片暗，不加描边。
-fn add_input<'t>(
-    ui: &mut egui::Ui,
-    text: &'t mut String,
-    build: impl FnOnce(egui::TextEdit<'t>) -> egui::TextEdit<'t>,
-) -> egui::Response {
-    ui.scope(|ui| {
-        if !ui.visuals().dark_mode {
-            ui.visuals_mut().widgets.inactive.bg_stroke =
-                Stroke::new(1.0, egui::Color32::from_gray(0xE2));
-        }
-        ui.add(build(egui::TextEdit::singleline(text)))
-    })
-    .inner
-}
-
-/// 字段错误态：控件底边 DANGER 下划线。
-fn underline_if_error(
-    ui: &mut egui::Ui,
-    response: &egui::Response,
-    errors: &HashMap<FieldKey, FieldError>,
-    key: FieldKey,
-) {
-    if errors.contains_key(&key) {
-        let rect = response.rect;
-        ui.painter().line_segment(
-            [
-                egui::pos2(rect.left(), rect.bottom()),
-                egui::pos2(rect.right(), rect.bottom()),
-            ],
-            Stroke::new(1.5, color::DANGER),
-        );
-    }
-}
-
-/// 就地错误提示（控件正下方，CAPTION DANGER）。
-fn error_text(
-    ui: &mut egui::Ui,
-    errors: &HashMap<FieldKey, FieldError>,
-    key: FieldKey,
-    text: &Text,
-) {
-    if let Some(error) = errors.get(&key) {
-        ui.label(
-            RichText::new(error.message(text))
-                .size(font::CAPTION)
-                .color(color::DANGER),
-        );
-    }
-}
-
-/// 模型区：Base URL → API Key（写 keychain，不进配置）→ 模型 ID。
-fn connection_section(
-    ui: &mut egui::Ui,
-    state: &mut SettingsState,
-    errors: &HashMap<FieldKey, FieldError>,
-    text: &Text,
-) {
-    ui.label("Base URL");
-    let response = add_input(ui, &mut state.draft.base_url, |e| {
-        e.hint_text(text.gloss_settings_base_url_hint.as_str())
-            .desired_width(f32::INFINITY)
-    });
-    underline_if_error(ui, &response, errors, FieldKey::BaseUrl);
-    error_text(ui, errors, FieldKey::BaseUrl, text);
-    ui.add_space(space::ITEM);
-
-    ui.label("API Key");
-    ui.horizontal(|ui| {
-        let input_width = ui.available_width() - CLEAR_BUTTON_RESERVE;
-        let typed = add_input(ui, &mut state.api_key, |e| {
-            e.password(true)
-                .hint_text(if state.clear_key {
-                    text.gloss_settings_key_clear_hint.as_str()
-                } else {
-                    text.gloss_settings_key_keep_hint.as_str()
-                })
-                .desired_width(input_width)
-        })
-        .changed();
-        if typed {
-            // 重新输入即撤销「清除」意图。
-            state.clear_key = false;
-        }
-        let label = if state.clear_key {
-            text.gloss_settings_undo_clear_key.as_str()
-        } else {
-            text.gloss_settings_clear_key.as_str()
-        };
-        if ui.button(label).clicked() {
-            state.clear_key = !state.clear_key;
-            state.api_key.clear();
-        }
-    });
-    ui.add_space(space::ITEM);
-
-    ui.label(&text.gloss_settings_model);
-    let response = add_input(ui, &mut state.draft.model, |e| {
-        e.hint_text(text.gloss_settings_model_hint.as_str())
-            .desired_width(f32::INFINITY)
-    });
-    underline_if_error(ui, &response, errors, FieldKey::Model);
-    error_text(ui, errors, FieldKey::Model, text);
-    choice_hint(ui, &text.gloss_settings_model_hint);
-}
-
-/// 清除密钥按钮的占位余量（按钮宽 + 间距；输入框占满剩余宽）。
-const CLEAR_BUTTON_RESERVE: f32 = 88.0;
-
-/// 通用区：目标语言、界面语言、界面主题、缓存有效期（上限由控件钳制）、
-/// 剪贴板图片监听开关（保存时整体上交，热切换不要求重启）。
-fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
-    choice_row(ui, &text.gloss_settings_target_lang, |ui| {
-        lang_combo(ui, &mut state.draft.target_lang, text);
-    });
-    choice_row(ui, &text.gloss_settings_ui_language, |ui| {
-        language_combo(ui, &mut state.draft.language, text);
-    });
-    choice_row(ui, &text.gloss_settings_ui_theme, |ui| {
-        theme_combo(ui, &mut state.draft.theme, text);
-    });
-    choice_row(ui, &text.gloss_settings_cache_ttl, |ui| {
-        ui.add(
-            egui::DragValue::new(&mut state.draft.cache_ttl_secs)
-                .range(0..=CACHE_TTL_MAX_SECS)
-                .suffix(text.gloss_settings_cache_ttl_suffix.as_str()),
-        );
-    });
-    choice_hint(ui, &text.gloss_settings_cache_ttl_hint);
-    choice_row(ui, &text.gloss_settings_watch_clipboard_images, |ui| {
-        toggle_switch(ui, &mut state.draft.watch_clipboard_images)
-    });
-    choice_hint(ui, &text.gloss_settings_watch_clipboard_images_hint);
-}
-
-/// 开关滑块的轨道尺寸与滑钮半径（demo 定稿比例的紧凑档：滑钮直径略小
-/// 于轨高，上下各留一线余量）。
-const TOGGLE_TRACK: egui::Vec2 = egui::vec2(36.0, 20.0);
-const TOGGLE_KNOB_RADIUS: f32 = 7.0;
-const TOGGLE_KNOB_INSET: f32 = 3.0;
-/// 开启态滑钮色：朱砂着轨配白钮，与保存主按钮同观感（两主题通用）。
-const TOGGLE_KNOB_ON: egui::Color32 = egui::Color32::WHITE;
-
-/// 最小开关（switch）：egui 0.36 无内建 Switch（`WidgetType` 亦无 switch
-/// 档），按官方 demo 的 `toggle_switch` 范式自绘——点击整块切换，无障碍
-/// 以 `WidgetType::Checkbox` + 选中态上报（0.36 的角色映射里唯一的双态
-/// 档，内建 `Checkbox` 也走它）。返回的响应供调用方感知变更。
-fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
-    let (rect, mut response) = ui.allocate_exact_size(TOGGLE_TRACK, egui::Sense::click());
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, "")
-    });
-    if response.clicked() {
-        *on = !*on;
-        response.mark_changed();
-    }
-
-    let visuals = ui.visuals();
-    let (track, knob) = if *on {
-        (visuals.selection.bg_fill, TOGGLE_KNOB_ON)
-    } else {
-        (visuals.extreme_bg_color, visuals.weak_text_color())
-    };
-    let painter = ui.painter();
-    painter.rect_filled(rect, f32::INFINITY, track);
-    if !(*on) {
-        painter.rect_stroke(
-            rect,
-            f32::INFINITY,
-            visuals.widgets.noninteractive.bg_stroke,
-            egui::StrokeKind::Inside,
-        );
-    }
-    let knob_x = if *on {
-        rect.right() - TOGGLE_KNOB_INSET - TOGGLE_KNOB_RADIUS
-    } else {
-        rect.left() + TOGGLE_KNOB_INSET + TOGGLE_KNOB_RADIUS
-    };
-    painter.circle_filled(
-        egui::pos2(knob_x, rect.center().y),
-        TOGGLE_KNOB_RADIUS,
-        knob,
-    );
-    response.on_hover_cursor(egui::CursorIcon::PointingHand)
-}
-
-/// 更新区：相位标签 + 单一动作按钮（两道确认、取消与失败重试都收敛在
-/// 这一行）。`Checking` 与 `ReadyToRestart` 无可点动作；替换步失败附
-/// 安装指引（只读卷 / 权限不足的出口，见分发设计 §4.4）。
-fn update_section(
-    ui: &mut egui::Ui,
-    update: &UpdateState,
-    action: &mut SettingsAction,
-    text: &Text,
-) {
-    let version = update.version.as_deref().unwrap_or_default();
-    // 文案借自常驻文案表，只有带占位符的相位才拼新串。
-    let (label, button): (Cow<'_, str>, Option<(Cow<'_, str>, UpdateMsg)>) = match update.phase {
-        UpdatePhase::Idle => (
-            Cow::Borrowed(&text.gloss_settings_update_idle),
-            Some((
-                Cow::Borrowed(&text.gloss_settings_update_check),
-                UpdateMsg::Check,
-            )),
-        ),
-        UpdatePhase::Checking => (Cow::Borrowed(&text.gloss_settings_update_checking), None),
-        UpdatePhase::UpToDate => (
-            Cow::Borrowed(&text.gloss_settings_update_up_to_date),
-            Some((
-                Cow::Borrowed(&text.gloss_settings_update_check),
-                UpdateMsg::Check,
-            )),
-        ),
-        UpdatePhase::UpdateAvailable => (
-            Cow::Owned(fill(
-                &text.gloss_settings_update_available,
-                &[("version", version)],
-            )),
-            Some((
-                Cow::Borrowed(&text.gloss_settings_update_download),
-                UpdateMsg::ConfirmDownload,
-            )),
-        ),
-        UpdatePhase::Downloading => (
-            Cow::Borrowed(&text.gloss_settings_update_downloading),
-            Some((
-                Cow::Borrowed(&text.gloss_settings_update_cancel),
-                UpdateMsg::Cancel,
-            )),
-        ),
-        UpdatePhase::UpdateReady => (
-            Cow::Owned(fill(
-                &text.gloss_settings_update_ready,
-                &[("version", version)],
-            )),
-            Some((
-                Cow::Borrowed(&text.gloss_settings_update_restart),
-                UpdateMsg::ConfirmRestart,
-            )),
-        ),
-        UpdatePhase::ReadyToRestart => {
-            (Cow::Borrowed(&text.gloss_settings_update_installing), None)
-        }
-        UpdatePhase::Failed(step) => {
-            let label: Cow<'_, str> = match step {
-                FailStep::Manifest => Cow::Borrowed(&text.gloss_settings_update_failed_check),
-                FailStep::Download => Cow::Borrowed(&text.gloss_settings_update_failed_download),
-                FailStep::Install => Cow::Borrowed(&text.gloss_settings_update_failed_install),
-            };
-            (
-                label,
-                Some((
-                    Cow::Borrowed(&text.gloss_settings_update_retry),
-                    UpdateMsg::Retry,
-                )),
-            )
-        }
-    };
-    choice_row(ui, &label, |ui| {
-        if let Some((label, msg)) = button
-            && ui.button(label).clicked()
-        {
-            *action = SettingsAction::Update(msg);
-        }
-    });
-    if update.phase == UpdatePhase::Failed(FailStep::Install) {
-        choice_hint(ui, &text.gloss_settings_update_install_hint);
-    }
-}
-
-/// 双列行：行标签左、控件推到卡片右缘（两端对齐）；返回控件自身的响应
-/// （字段标红要按控件的矩形画下划线）。
-fn choice_row<R>(ui: &mut egui::Ui, label: &str, control: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    ui.horizontal(|ui| {
-        ui.label(label);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), control)
-            .inner
-    })
-    .inner
-}
-
-/// 双列行的说明提示（左对齐，CAPTION 弱色）。
-fn choice_hint(ui: &mut egui::Ui, text: &str) {
-    caption(ui, text);
-}
-
-/// UI 固定可选的 5 语种（`Lang::Other` 只经配置文件到达，不在下拉里）。
-const LANG_CHOICES: fn() -> [Lang; 5] = || [Lang::Zh, Lang::En, Lang::Ja, Lang::Ko, Lang::Fr];
-
-/// 语言标签：产物语言（译文给谁看），与界面语言分属两张表。
-fn lang_label<'a>(lang: &Lang, text: &'a Text) -> &'a str {
-    match lang {
-        Lang::Zh => &text.gloss_langs_zh,
-        Lang::En => &text.gloss_langs_en,
-        Lang::Ja => &text.gloss_langs_ja,
-        Lang::Ko => &text.gloss_langs_ko,
-        Lang::Fr => &text.gloss_langs_fr,
-        Lang::Other(_) => &text.gloss_langs_other,
-    }
-}
-
-/// 目标语言下拉。
-fn lang_combo(ui: &mut egui::Ui, current: &mut Lang, text: &Text) {
-    egui::ComboBox::from_id_salt("target_lang")
-        .selected_text(lang_label(current, text))
-        .show_ui(ui, |ui| {
-            for lang in LANG_CHOICES() {
-                let label = lang_label(&lang, text);
-                ui.selectable_value(current, lang, label);
-            }
-        });
-}
-
-/// 界面语言标签（三态偏好，落定见 `Language::resolve`）。
-fn language_label<'a>(language: &Language, text: &'a Text) -> &'a str {
-    match language {
-        Language::System => &text.gloss_ui_language_system,
-        Language::Zh => &text.gloss_ui_language_zh,
-        Language::En => &text.gloss_ui_language_en,
-    }
-}
-
-/// 界面语言下拉：本项同时决定 prompt 模板语言（`Language::resolve`）与本表
-/// 的选表依据；保存后下一次触发与下一帧界面即生效。
-fn language_combo(ui: &mut egui::Ui, current: &mut Language, text: &Text) {
-    egui::ComboBox::from_id_salt("ui_language")
-        .selected_text(language_label(current, text))
-        .show_ui(ui, |ui| {
-            for language in [Language::System, Language::Zh, Language::En] {
-                ui.selectable_value(current, language, language_label(&language, text));
-            }
-        });
-}
-
-/// 主题标签与下拉（消费在壳侧，见 `app::theme`）。
-fn theme_combo(ui: &mut egui::Ui, current: &mut Theme, text: &Text) {
-    let label = |theme: &Theme| match theme {
-        Theme::System => text.gloss_theme_system.as_str(),
-        Theme::Light => text.gloss_theme_light.as_str(),
-        Theme::Dark => text.gloss_theme_dark.as_str(),
-    };
-    egui::ComboBox::from_id_salt("theme")
-        .selected_text(label(current))
-        .show_ui(ui, |ui| {
-            for theme in [Theme::System, Theme::Light, Theme::Dark] {
-                ui.selectable_value(current, theme, label(&theme));
-            }
-        });
-}
-
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -749,10 +308,12 @@ mod tests {
     use std::sync::Arc;
 
     use egui_kittest::kittest::{NodeT, Queryable};
+    use gloss_core::config::Language;
     use gloss_core::config_handle::ConfigHandle;
-    use gloss_core::model::Locale;
+    use gloss_core::model::{Lang, Locale};
 
     use crate::stubs::ports::MemoryConfigStore;
+    use crate::update::state::{FailStep, UpdatePhase};
 
     use super::*;
 
@@ -1225,6 +786,11 @@ mod tests {
         harness.snapshot("settings_invalid");
         results.extend_harness(&mut harness);
 
+        snapshot_update_phases(&mut results);
+        results.unwrap();
+    }
+
+    fn snapshot_update_phases(results: &mut egui_kittest::SnapshotResults) {
         for (name, update) in [
             (
                 "settings_update_up_to_date",
@@ -1267,7 +833,6 @@ mod tests {
             harness.snapshot(name);
             results.extend_harness(&mut harness);
         }
-        results.unwrap();
     }
 
     fn update_state_of(phase: UpdatePhase) -> UpdateState {

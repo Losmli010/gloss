@@ -6,6 +6,7 @@ use std::time::Instant;
 
 use gloss_core::log::{debug, error, milestone, thread};
 use winit::application::ApplicationHandler;
+use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, NamedKey};
@@ -123,11 +124,16 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        let Some(windows) = &self.workspace.windows else {
-            return;
+        let (is_overlay, is_settings) = match &self.workspace.windows {
+            Some(windows) => {
+                let is_overlay = windows.matches_overlay(window_id);
+                (
+                    is_overlay,
+                    !is_overlay && windows.matches_settings(window_id),
+                )
+            }
+            None => return,
         };
-        let is_overlay = windows.matches_overlay(window_id);
-        let is_settings = !is_overlay && windows.matches_settings(window_id);
         if !is_overlay && !is_settings {
             return;
         }
@@ -141,57 +147,19 @@ impl ApplicationHandler<UserEvent> for GlossApp {
             return;
         }
 
-        // 其余事件先喂给对应窗口的 egui，它决定是否消化掉以及要不要重绘；
-        // 帧未建（设置窗首帧前）时没有可喂的对象，事件回落到下面的状态
-        // 处理（关闭请求等不依赖帧）。
-        let repaint = {
-            let frame = if is_settings {
-                self.workspace.settings_frame.as_mut()
-            } else {
-                self.workspace.overlay_frame.as_mut()
-            };
-            match frame {
-                Some(frame) => frame.egui.on_window_event(&frame.window, &event).repaint,
-                None => false,
-            }
-        };
+        let repaint = self.egui_wants_repaint(is_settings, &event);
         if repaint {
             if is_settings {
-                windows.request_redraw_settings();
+                if let Some(windows) = &self.workspace.windows {
+                    windows.request_redraw_settings();
+                }
             } else {
                 // 走带可见性门控的入口：隐藏浮层的事件驱动重绘是整帧空转。
                 self.request_redraw();
             }
         }
 
-        match event {
-            WindowEvent::CloseRequested => {
-                if is_settings {
-                    // 设置窗口的关闭是「取消编辑」：隐藏丢弃草稿，进程照常
-                    self.close_settings();
-                } else {
-                    event_loop.exit();
-                }
-            }
-            WindowEvent::KeyboardInput { event: key, .. } if is_overlay => {
-                // egui_winit 已在同一事件上喂过 egui（输入框等自行消化）；
-                // 壳只观察收起键，不拦截事件。
-                if is_dismiss_key(&key.logical_key, key.state) {
-                    self.dismiss_overlay("escape key");
-                }
-            }
-            WindowEvent::Resized(size) => {
-                let frame = if is_settings {
-                    self.workspace.settings_frame.as_mut()
-                } else {
-                    self.workspace.overlay_frame.as_mut()
-                };
-                if let Some(frame) = frame {
-                    frame.surface.resize(size);
-                }
-            }
-            _ => {}
-        }
+        self.apply_window_state_event(event_loop, is_overlay, is_settings, event);
     }
 
     fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
@@ -227,6 +195,66 @@ impl ApplicationHandler<UserEvent> for GlossApp {
             )
             .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
         );
+    }
+}
+
+impl GlossApp {
+    /// 其余事件先喂给对应窗口的 egui，它决定是否消化掉以及要不要重绘；
+    /// 帧未建（设置窗首帧前）时没有可喂的对象，事件回落到调用方的状态
+    /// 处理（关闭请求等不依赖帧）。
+    fn egui_wants_repaint(&mut self, is_settings: bool, event: &WindowEvent) -> bool {
+        let frame = if is_settings {
+            self.workspace.settings_frame.as_mut()
+        } else {
+            self.workspace.overlay_frame.as_mut()
+        };
+        match frame {
+            Some(frame) => frame.egui.on_window_event(&frame.window, event).repaint,
+            None => false,
+        }
+    }
+
+    /// 依赖窗口身份的状态类事件：设置窗关闭是「取消编辑」（隐藏丢弃
+    /// 草稿，进程照常），浮层收起键只观察不拦截，尺寸变化落到对应
+    /// surface。
+    fn apply_window_state_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        is_overlay: bool,
+        is_settings: bool,
+        event: WindowEvent,
+    ) {
+        match event {
+            WindowEvent::CloseRequested => {
+                if is_settings {
+                    self.close_settings();
+                } else {
+                    event_loop.exit();
+                }
+            }
+            WindowEvent::KeyboardInput { event: key, .. } if is_overlay => {
+                // egui_winit 已在同一事件上喂过 egui（输入框等自行消化）；
+                // 壳只观察收起键，不拦截事件。
+                if is_dismiss_key(&key.logical_key, key.state) {
+                    self.dismiss_overlay("escape key");
+                }
+            }
+            WindowEvent::Resized(size) => {
+                self.resize_window_surface(is_settings, size);
+            }
+            _ => {}
+        }
+    }
+
+    fn resize_window_surface(&mut self, is_settings: bool, size: PhysicalSize<u32>) {
+        let frame = if is_settings {
+            self.workspace.settings_frame.as_mut()
+        } else {
+            self.workspace.overlay_frame.as_mut()
+        };
+        if let Some(frame) = frame {
+            frame.surface.resize(size);
+        }
     }
 }
 

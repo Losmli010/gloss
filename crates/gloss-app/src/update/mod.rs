@@ -7,9 +7,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
 
-use futures::StreamExt;
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -18,20 +16,18 @@ use gloss_core::log::{debug, error, info, thread, warn};
 pub mod download;
 pub mod install;
 pub mod manifest;
+mod net;
 pub mod state;
 
 use self::download::DownloadError;
 use self::install::InstallError;
 use self::manifest::UpdateManifest;
+use self::net::{fetch_manifest, shared_client};
 use self::state::{UpdateCommand, UpdateMachine, UpdateState, UpdateTarget};
 
 /// 清单地址：信任根是 GitHub Pages 的 TLS，故写死 https，且客户端不跟随
 /// 重定向（重定向会把请求交给别的宿主）。
 pub const MANIFEST_URL: &str = "https://losmli010.github.io/gloss/manifest.json";
-
-/// 清单是几百字节级的小文档，1 MiB 已远超合理尺寸；按块累计、超限即断，
-/// 因而 content-length 缺省时上限照样生效。
-const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 
 /// UI → 模块的命令（mpsc）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,10 +244,12 @@ pub(crate) async fn run(
     out: Broadcaster,
     hooks: Hooks,
 ) -> bool {
-    let mut machine = UpdateMachine::new();
-    let mut pending: Option<Pending> = None;
-    let mut zip: Option<PathBuf> = None;
-    out.send(machine.snapshot());
+    let mut state = RunState {
+        machine: UpdateMachine::new(),
+        pending: None,
+        zip: None,
+    };
+    out.send(state.machine.snapshot());
 
     loop {
         tokio::select! {
@@ -259,94 +257,87 @@ pub(crate) async fn run(
                 match msg {
                     None => return false,
                     Some(msg) => {
-                        if handle_msg(msg, &mut machine, &mut pending, &mut zip, &hooks, &out) {
+                        if state.handle_msg(msg, &hooks, &out) {
                             return true;
                         }
                     }
                 }
             }
-            (result, token) = pending_outcome(&mut pending) => {
+            (result, token) = pending_outcome(&mut state.pending) => {
                 // 迟到回包（令牌已被新检查/取消作废）一律丢弃，不回写状态。
                 if token.is_cancelled() {
                     debug!(thread = thread::TOKIO, "update: stale task reply dropped");
                 } else {
-                    apply_result(result, &mut machine, &mut zip, &out);
+                    apply_result(result, &mut state.machine, &mut state.zip, &out);
                 }
-                pending = None;
+                state.pending = None;
             }
         }
     }
 }
 
-/// 一条用户消息的去向；确认重启替换成功返回真（调用方随即退出进程）。
-fn handle_msg(
-    msg: UpdateMsg,
-    machine: &mut UpdateMachine,
-    pending: &mut Option<Pending>,
-    zip: &mut Option<PathBuf>,
-    hooks: &Hooks,
-    out: &Broadcaster,
-) -> bool {
-    match msg {
-        UpdateMsg::Check => apply_command(machine.check(), machine, pending, zip, hooks, out),
-        UpdateMsg::Retry => apply_command(machine.retry(), machine, pending, zip, hooks, out),
-        UpdateMsg::ConfirmDownload => apply_command(
-            machine.confirm_download(),
-            machine,
-            pending,
-            zip,
-            hooks,
-            out,
-        ),
-        UpdateMsg::ConfirmRestart => {
-            apply_command(machine.confirm_restart(), machine, pending, zip, hooks, out)
-        }
-        UpdateMsg::Cancel => {
-            if machine.cancel() {
-                broadcast(machine, out);
-            }
-            false
-        }
-    }
+/// 模块运行态：状态机与它之外的两件局量（在途任务、zip 槽位）一起走完
+/// 一次运行——消息处理与回包采纳都以它为对象，不必逐层拖一组 `&mut`。
+struct RunState {
+    machine: UpdateMachine,
+    pending: Option<Pending>,
+    zip: Option<PathBuf>,
 }
 
-/// 执行状态机给出的一条命令：起在途任务（新下载清空 zip 槽位）或跑
-/// 替换。返回真表示替换已成功（调用方随即退出进程）。
-///
-/// 入口与命令变体的配对由 [`UpdateMachine`] 的方法保证：`check` /
-/// `confirm_download` / `confirm_restart` 返回 `Some` 时恒为各自的变体
-/// （相位不符时返回 `None`），`retry` 返回三者之一——逐入口的变体匹配
-/// 原样保留在这一层契约里。
-fn apply_command(
-    command: Option<UpdateCommand>,
-    machine: &mut UpdateMachine,
-    pending: &mut Option<Pending>,
-    zip: &mut Option<PathBuf>,
-    hooks: &Hooks,
-    out: &Broadcaster,
-) -> bool {
-    match command {
-        Some(UpdateCommand::CheckManifest { cancel }) => {
-            *pending = Some(Pending::check(hooks, cancel));
-            broadcast(machine, out);
-            false
+impl RunState {
+    /// 一条用户消息的去向；确认重启替换成功返回真（调用方随即退出进程）。
+    fn handle_msg(&mut self, msg: UpdateMsg, hooks: &Hooks, out: &Broadcaster) -> bool {
+        let command = match msg {
+            UpdateMsg::Check => self.machine.check(),
+            UpdateMsg::Retry => self.machine.retry(),
+            UpdateMsg::ConfirmDownload => self.machine.confirm_download(),
+            UpdateMsg::ConfirmRestart => self.machine.confirm_restart(),
+            UpdateMsg::Cancel => {
+                if self.machine.cancel() {
+                    broadcast(&self.machine, out);
+                }
+                return false;
+            }
+        };
+        self.apply_command(command, hooks, out)
+    }
+
+    /// 执行状态机给出的一条命令：起在途任务（新下载清空 zip 槽位）或跑
+    /// 替换。返回真表示替换已成功（调用方随即退出进程）。
+    ///
+    /// 入口与命令变体的配对由 [`UpdateMachine`] 的方法保证：`check` /
+    /// `confirm_download` / `confirm_restart` 返回 `Some` 时恒为各自的变体
+    /// （相位不符时返回 `None`），`retry` 返回三者之一——逐入口的变体匹配
+    /// 原样保留在这一层契约里。
+    fn apply_command(
+        &mut self,
+        command: Option<UpdateCommand>,
+        hooks: &Hooks,
+        out: &Broadcaster,
+    ) -> bool {
+        match command {
+            Some(UpdateCommand::CheckManifest { cancel }) => {
+                self.pending = Some(Pending::check(hooks, cancel));
+                broadcast(&self.machine, out);
+                false
+            }
+            Some(UpdateCommand::Download {
+                target,
+                resume,
+                cancel,
+            }) => {
+                self.zip = None;
+                self.pending = Some(Pending::download(hooks, target, resume, cancel));
+                broadcast(&self.machine, out);
+                false
+            }
+            Some(UpdateCommand::Install { .. }) => {
+                // 进入 ReadyToRestart 先广播（替换执行中），再跑替换。
+                broadcast(&self.machine, out);
+                restart(&mut self.machine, &mut self.zip, hooks, out)
+            }
+            None => false,
         }
-        Some(UpdateCommand::Download {
-            target,
-            resume,
-            cancel,
-        }) => {
-            *zip = None;
-            *pending = Some(Pending::download(hooks, target, resume, cancel));
-            broadcast(machine, out);
-            false
-        }
-        Some(UpdateCommand::Install { .. }) => {
-            // 进入 ReadyToRestart 先广播（替换执行中），再跑替换。
-            broadcast(machine, out);
-            restart(machine, zip, hooks, out)
-        }
-        None => false,
     }
 }
 
@@ -486,66 +477,6 @@ fn download_work_dir() -> PathBuf {
     std::env::temp_dir().join("gloss-update")
 }
 
-/// 非 200、超限 body、非 UTF-8、校验矩阵不符都收敛为 `Err(())`——细节只
-/// 进日志，状态机只认失败。
-async fn fetch_manifest(client: &reqwest::Client, url: &str) -> Result<UpdateManifest, ()> {
-    let response = client.get(url).send().await.map_err(|err| {
-        warn!(thread = thread::TOKIO, error = %err, "update: manifest fetch failed");
-    })?;
-    let status = response.status();
-    if status != reqwest::StatusCode::OK {
-        warn!(thread = thread::TOKIO, status = %status, "update: manifest fetch not ok");
-        return Err(());
-    }
-    // 分块累计、超限即断：content-length 缺省（HTTP/2 常见）时上限照样
-    // 生效，不给无界缓冲留入口。
-    let mut bytes: Vec<u8> = Vec::new();
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|err| {
-            warn!(thread = thread::TOKIO, error = %err, "update: manifest body read failed");
-        })?;
-        if bytes.len() + chunk.len() > MAX_MANIFEST_BYTES as usize {
-            warn!(thread = thread::TOKIO, "update: manifest body too large");
-            return Err(());
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    let text = std::str::from_utf8(&bytes).map_err(|err| {
-        warn!(thread = thread::TOKIO, error = %err, "update: manifest body is not utf-8");
-    })?;
-    manifest::parse(text).map_err(|err| {
-        warn!(thread = thread::TOKIO, error = ?err, "update: manifest rejected");
-    })
-}
-
-/// 进程内唯一的 HTTP 客户端：建连/读超时、明确 UA、不跟随重定向（重定向
-/// 会把请求交给别的宿主，破坏「清单与产物都来自 https」的假设）。
-/// macOS 上构建要解析整套信任设置（秒级 CPU），故只建一次常驻。
-static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-
-fn shared_client() -> Result<&'static reqwest::Client, reqwest::Error> {
-    let client = match HTTP_CLIENT.get() {
-        Some(client) => client,
-        None => {
-            // 先构建：失败直接传播且不污染缓存，下次任务重试自然重建。
-            // get_or_init 只认胜者：并发首建时输家的这份被丢弃。
-            let client = build_client()?;
-            HTTP_CLIENT.get_or_init(|| client)
-        }
-    };
-    Ok(client)
-}
-
-fn build_client() -> Result<reqwest::Client, reqwest::Error> {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .read_timeout(Duration::from_secs(30))
-        .user_agent(concat!("gloss/", env!("CARGO_PKG_VERSION")))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
@@ -619,6 +550,47 @@ mod tests {
         calls: Mutex<Vec<(String, bool)>>,
     }
 
+    fn stub_hooks(
+        check: Arc<TriggerQueue<PendingResult>>,
+        download: Arc<DownloadStub>,
+        install_results: Arc<Mutex<VecDeque<Result<(), InstallError>>>>,
+        install_calls: Arc<Mutex<Vec<PathBuf>>>,
+    ) -> Hooks {
+        Hooks {
+            check: Arc::new(move |_cancel| {
+                let stub = Arc::clone(&check);
+                let (trigger, reply) = oneshot::channel();
+                stub.register(trigger);
+                tokio::spawn(async move { reply.await.unwrap_or(PendingResult::Checked(Err(()))) })
+            }),
+            download: Arc::new(move |target, resume, _cancel| {
+                let stub = Arc::clone(&download);
+                stub.calls
+                    .lock()
+                    .expect("download calls")
+                    .push((target.artifact.url, resume));
+                let (trigger, reply) = oneshot::channel();
+                stub.triggers.register(trigger);
+                tokio::spawn(async move {
+                    reply
+                        .await
+                        .unwrap_or(PendingResult::Downloaded(Err(DownloadError::Cancelled)))
+                })
+            }),
+            install: Arc::new(move |zip| {
+                install_calls
+                    .lock()
+                    .expect("install calls")
+                    .push(zip.to_path_buf());
+                install_results
+                    .lock()
+                    .expect("install results")
+                    .pop_front()
+                    .unwrap_or(Ok(()))
+            }),
+        }
+    }
+
     fn harness() -> Harness {
         let (tx, rx) = mpsc::unbounded_channel();
         let (state_tx, state_rx) = watch::channel(UpdateState::default());
@@ -637,44 +609,12 @@ mod tests {
         let download = Arc::new(DownloadStub::default());
         let install_results = Arc::new(Mutex::new(VecDeque::new()));
         let install_calls = Arc::new(Mutex::new(Vec::new()));
-
-        let check_stub = Arc::clone(&check);
-        let download_stub = Arc::clone(&download);
-        let install_results_stub = Arc::clone(&install_results);
-        let install_calls_stub = Arc::clone(&install_calls);
-        let hooks = Hooks {
-            check: Arc::new(move |_cancel| {
-                let stub = Arc::clone(&check_stub);
-                let (trigger, reply) = oneshot::channel();
-                stub.register(trigger);
-                tokio::spawn(async move { reply.await.unwrap_or(PendingResult::Checked(Err(()))) })
-            }),
-            download: Arc::new(move |target, resume, _cancel| {
-                let stub = Arc::clone(&download_stub);
-                stub.calls
-                    .lock()
-                    .expect("download calls")
-                    .push((target.artifact.url, resume));
-                let (trigger, reply) = oneshot::channel();
-                stub.triggers.register(trigger);
-                tokio::spawn(async move {
-                    reply
-                        .await
-                        .unwrap_or(PendingResult::Downloaded(Err(DownloadError::Cancelled)))
-                })
-            }),
-            install: Arc::new(move |zip| {
-                install_calls_stub
-                    .lock()
-                    .expect("install calls")
-                    .push(zip.to_path_buf());
-                install_results_stub
-                    .lock()
-                    .expect("install results")
-                    .pop_front()
-                    .unwrap_or(Ok(()))
-            }),
-        };
+        let hooks = stub_hooks(
+            Arc::clone(&check),
+            Arc::clone(&download),
+            Arc::clone(&install_results),
+            Arc::clone(&install_calls),
+        );
         let task = tokio::spawn(run(
             rx,
             Broadcaster {
@@ -698,6 +638,37 @@ mod tests {
     async fn state_after(harness: &mut Harness) -> UpdateState {
         harness.rx.changed().await.expect("watch alive");
         harness.rx.borrow().clone()
+    }
+
+    async fn reach_update_ready(harness: &mut Harness) {
+        assert_eq!(state_after(harness).await, UpdateState::default());
+        harness.tx.send(UpdateMsg::Check).expect("send");
+        assert_eq!(
+            state_after(harness).await.phase,
+            state::UpdatePhase::Checking
+        );
+        harness
+            .check
+            .complete(PendingResult::Checked(Ok(manifest_of("99.0.0"))));
+        assert_eq!(
+            state_after(harness).await.phase,
+            state::UpdatePhase::UpdateAvailable
+        );
+        harness.tx.send(UpdateMsg::ConfirmDownload).expect("send");
+        assert_eq!(
+            state_after(harness).await.phase,
+            state::UpdatePhase::Downloading
+        );
+        harness
+            .download
+            .triggers
+            .complete(PendingResult::Downloaded(Ok(PathBuf::from(
+                "/tmp/gloss.zip",
+            ))));
+        assert_eq!(
+            state_after(harness).await.phase,
+            state::UpdatePhase::UpdateReady
+        );
     }
 
     #[tokio::test]
@@ -890,35 +861,7 @@ mod tests {
     #[tokio::test]
     async fn install_failure_lands_in_failed_install_and_retry_installs() {
         let mut harness = harness();
-        assert_eq!(state_after(&mut harness).await, UpdateState::default());
-
-        harness.tx.send(UpdateMsg::Check).expect("send");
-        assert_eq!(
-            state_after(&mut harness).await.phase,
-            state::UpdatePhase::Checking
-        );
-        harness
-            .check
-            .complete(PendingResult::Checked(Ok(manifest_of("99.0.0"))));
-        assert_eq!(
-            state_after(&mut harness).await.phase,
-            state::UpdatePhase::UpdateAvailable
-        );
-        harness.tx.send(UpdateMsg::ConfirmDownload).expect("send");
-        assert_eq!(
-            state_after(&mut harness).await.phase,
-            state::UpdatePhase::Downloading
-        );
-        harness
-            .download
-            .triggers
-            .complete(PendingResult::Downloaded(Ok(PathBuf::from(
-                "/tmp/gloss.zip",
-            ))));
-        assert_eq!(
-            state_after(&mut harness).await.phase,
-            state::UpdatePhase::UpdateReady
-        );
+        reach_update_ready(&mut harness).await;
 
         harness
             .install_results

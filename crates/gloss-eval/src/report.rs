@@ -101,13 +101,17 @@ impl EvalReport {
     /// 渲染 Markdown 表格（结构沿用 bench-summary.py：总述行 + 指标表 +
     /// 混淆矩阵表）。
     pub fn render_markdown(&self) -> String {
-        fn line(out: &mut String, content: String) {
-            out.push_str(&content);
-            out.push('\n');
-        }
         let mut out = String::new();
+        self.render_summary(&mut out);
+        self.render_metric_rows(&mut out);
+        self.render_confusion(&mut out);
+        out
+    }
+
+    /// 总述行：模式、时间与覆盖面（评测/跳过条数）。
+    fn render_summary(&self, out: &mut String) {
         line(
-            &mut out,
+            out,
             format!(
                 "Eval 报告：{} 模式（{} UTC）",
                 self.mode,
@@ -115,7 +119,7 @@ impl EvalReport {
             ),
         );
         line(
-            &mut out,
+            out,
             format!(
                 "共评测 {} 条，跳过（无夹具）{} 条",
                 self.classify
@@ -130,40 +134,57 @@ impl EvalReport {
             ),
         );
         out.push('\n');
+    }
+
+    /// 指标表：分类一行组、每任务数据集一行组、延迟与 judge（在轨才出）。
+    fn render_metric_rows(&self, out: &mut String) {
         out.push_str("| 指标 | 值 |\n| --- | --- |\n");
-        if let Some(stats) = &self.classify {
-            line(
-                &mut out,
-                format!(
-                    "| 分类 accuracy | {:.2}% ({}/{}) |",
-                    stats.accuracy * 100.0,
-                    stats.metrics.correct,
-                    stats.metrics.evaluated
-                ),
-            );
-            line(
-                &mut out,
-                format!(
-                    "| 分类 无效 JSON 率 | {:.2}% |",
-                    rate(stats.metrics.invalid_json, stats.metrics.evaluated)
-                ),
-            );
-            line(
-                &mut out,
-                format!("| 分类 回退率 | {:.2}% |", stats.fallback_rate * 100.0),
-            );
-            line(
-                &mut out,
-                format!(
-                    "| 分类 修复轮次 | {} |",
-                    repair_line(&stats.metrics.violations, stats.metrics.repair_rounds)
-                ),
-            );
-        }
+        self.render_classify_rows(out);
+        self.render_task_rows(out);
+        self.render_latency_and_judge_rows(out);
+    }
+
+    /// 分类轨的指标行：accuracy、无效 JSON 率、回退率、修复轮次。
+    fn render_classify_rows(&self, out: &mut String) {
+        let Some(stats) = &self.classify else {
+            return;
+        };
+        line(
+            out,
+            format!(
+                "| 分类 accuracy | {:.2}% ({}/{}) |",
+                stats.accuracy * 100.0,
+                stats.metrics.correct,
+                stats.metrics.evaluated
+            ),
+        );
+        line(
+            out,
+            format!(
+                "| 分类 无效 JSON 率 | {:.2}% |",
+                rate(stats.metrics.invalid_json, stats.metrics.evaluated)
+            ),
+        );
+        line(
+            out,
+            format!("| 分类 回退率 | {:.2}% |", stats.fallback_rate * 100.0),
+        );
+        line(
+            out,
+            format!(
+                "| 分类 修复轮次 | {} |",
+                repair_line(&stats.metrics.violations, stats.metrics.repair_rounds)
+            ),
+        );
+    }
+
+    /// 任务轨的指标行：每个数据集五行（契约 JSON 率、note 在场率、字段
+    /// 完整率、降级率、修复轮次）。
+    fn render_task_rows(&self, out: &mut String) {
         for stats in &self.tasks {
             let metrics = &stats.metrics;
             line(
-                &mut out,
+                out,
                 format!(
                     "| {} 契约 JSON 率 | {:.2}% |",
                     stats.dataset,
@@ -171,7 +192,7 @@ impl EvalReport {
                 ),
             );
             line(
-                &mut out,
+                out,
                 format!(
                     "| {} note 在场率 | {:.2}% |",
                     stats.dataset,
@@ -179,7 +200,7 @@ impl EvalReport {
                 ),
             );
             line(
-                &mut out,
+                out,
                 format!(
                     "| {} 字段完整率 | {:.2}% |",
                     stats.dataset,
@@ -187,7 +208,7 @@ impl EvalReport {
                 ),
             );
             line(
-                &mut out,
+                out,
                 format!(
                     "| {} 降级率 | {:.2}% |",
                     stats.dataset,
@@ -195,7 +216,7 @@ impl EvalReport {
                 ),
             );
             line(
-                &mut out,
+                out,
                 format!(
                     "| {} 修复轮次 | {} |",
                     stats.dataset,
@@ -203,15 +224,13 @@ impl EvalReport {
                 ),
             );
         }
+    }
+
+    /// 延迟与 judge 的指标行：各自在轨才出。
+    fn render_latency_and_judge_rows(&self, out: &mut String) {
         if let Some(latency) = &self.latency {
-            line(
-                &mut out,
-                format!("| 端到端延迟 p50 | {:.2} ms |", latency.p50),
-            );
-            line(
-                &mut out,
-                format!("| 端到端延迟 p95 | {:.2} ms |", latency.p95),
-            );
+            line(out, format!("| 端到端延迟 p50 | {:.2} ms |", latency.p50));
+            line(out, format!("| 端到端延迟 p95 | {:.2} ms |", latency.p95));
         }
         if let Some(judge) = &self.judge {
             let detail = if judge.attempted > judge.count {
@@ -225,26 +244,34 @@ impl EvalReport {
             } else {
                 format!("{:.2}（{} 条计入）", judge.average, judge.count)
             };
-            line(&mut out, format!("| judge 均分（1..=5） | {detail} |"));
+            line(out, format!("| judge 均分（1..=5） | {detail} |"));
         }
-        let Some(stats) = &self.classify else {
-            return out;
-        };
-        {
-            if !stats.confusion_rows.is_empty() {
-                out.push('\n');
-                out.push_str("混淆矩阵（期望 → 实际，仅错误路径）：\n\n");
-                out.push_str("| 期望 | 实际 | 次数 |\n| --- | --- | --- |\n");
-                for row in &stats.confusion_rows {
-                    line(
-                        &mut out,
-                        format!("| {:?} | {:?} | {} |", row.expected, row.actual, row.count),
-                    );
-                }
-            }
-        }
-        out
     }
+
+    /// 混淆矩阵表：仅分类轨在轨且有错误路径时出。
+    fn render_confusion(&self, out: &mut String) {
+        let Some(stats) = &self.classify else {
+            return;
+        };
+        if stats.confusion_rows.is_empty() {
+            return;
+        }
+        out.push('\n');
+        out.push_str("混淆矩阵（期望 → 实际，仅错误路径）：\n\n");
+        out.push_str("| 期望 | 实际 | 次数 |\n| --- | --- | --- |\n");
+        for row in &stats.confusion_rows {
+            line(
+                out,
+                format!("| {:?} | {:?} | {} |", row.expected, row.actual, row.count),
+            );
+        }
+    }
+}
+
+/// 追加一行 Markdown。
+fn line(out: &mut String, content: String) {
+    out.push_str(&content);
+    out.push('\n');
 }
 
 fn rate(numerator: usize, denominator: usize) -> f64 {
@@ -312,16 +339,24 @@ fn repair_line(violations: &BTreeMap<Violation, usize>, repairs: u32) -> String 
     format!("{repairs}（{counts}）")
 }
 
+/// 各轨的结算产物（组装报告的全部轨道输入）：分类可选、任务按数据集，
+/// 延迟与 judge 在轨才出。
+pub struct TrackOutputs<'a> {
+    pub classify: Option<ClassifyMetrics>,
+    pub tasks: Vec<(&'a str, TaskMetrics)>,
+    pub latency: Option<&'a mut Latency>,
+    pub judge: Option<JudgeSummary>,
+}
+
 /// 把评分器的输出组装成报告（runner 与测试共用）：混淆矩阵拍平、比率
 /// 预计算、时间戳取 UNIX 纪元秒（报告不带额外的时间库依赖）。
-pub fn assemble_report(
-    mode: &str,
-    classify: Option<ClassifyMetrics>,
-    tasks: Vec<(&str, TaskMetrics)>,
-    latency: Option<&mut Latency>,
-    judge: Option<JudgeSummary>,
-    skipped: usize,
-) -> EvalReport {
+pub fn assemble_report(mode: &str, outputs: TrackOutputs<'_>, skipped: usize) -> EvalReport {
+    let TrackOutputs {
+        classify,
+        tasks,
+        latency,
+        judge,
+    } = outputs;
     let classify_stats = classify.map(|metrics| {
         let mut confusion_rows = Vec::new();
         for (expected, actuals) in &metrics.confusion {
@@ -389,7 +424,7 @@ mod tests {
 
     use gloss_core::schema::Violation;
 
-    use super::{EvalReport, JudgeSummary, assemble_report};
+    use super::{EvalReport, JudgeSummary, TrackOutputs, assemble_report};
     use crate::dataset::TaskCase;
     use crate::metrics::{ClassifyMetrics, TaskMetrics, TaskVerdict};
     use gloss_core::task::TaskKind;
@@ -486,10 +521,12 @@ mod tests {
         metrics.record(&verdict);
         let report = assemble_report(
             "replay",
-            Some(clean),
-            vec![("task_translate_word", metrics)],
-            None,
-            None,
+            TrackOutputs {
+                classify: Some(clean),
+                tasks: vec![("task_translate_word", metrics)],
+                latency: None,
+                judge: None,
+            },
             0,
         );
         let markdown = report.render_markdown();
@@ -551,10 +588,12 @@ mod tests {
         }
         assemble_report(
             "replay",
-            Some(classify),
-            vec![("task_translate_word", task_metrics)],
-            None,
-            None,
+            TrackOutputs {
+                classify: Some(classify),
+                tasks: vec![("task_translate_word", task_metrics)],
+                latency: None,
+                judge: None,
+            },
             1,
         )
     }

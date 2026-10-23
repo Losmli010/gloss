@@ -434,7 +434,7 @@ mod tests {
         driven_app, driven_app_without_startup_permissions, outcome_note, plain_outcome,
         streaming_raw, text_input, trigger_selection,
     };
-    use crate::channel::{AcquireCommand, Command, PlatformEvent};
+    use crate::channel::{AcquireCommand, Command, PlatformEvent, Traced};
     use crate::machine::{AppState, OverlayView};
 
     use crate::app::GlossApp;
@@ -450,6 +450,24 @@ mod tests {
         TaskInput::Image {
             png: Arc::from(&b"png-bytes"[..]),
         }
+    }
+
+    fn expect_idle_probe(
+        app: &mut GlossApp,
+        pe_tx: &crossbeam_channel::Sender<PlatformEvent>,
+        ac_rx: &crossbeam_channel::Receiver<Traced<AcquireCommand>>,
+    ) {
+        trigger_selection(app, pe_tx);
+        assert_eq!(
+            app.machine.state(),
+            AppState::Idle,
+            "the probe leaves the state machine alone until content arrives"
+        );
+        assert_eq!(app.machine.generation(), 0);
+        assert!(matches!(
+            ac_rx.try_recv().unwrap().payload,
+            AcquireCommand::AcquireText { generation: 1, .. }
+        ));
     }
 
     #[test]
@@ -583,17 +601,7 @@ mod tests {
     fn late_events_of_superseded_trigger_do_not_bleed() {
         let (mut app, _config, _store, pe_tx, ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 
-        trigger_selection(&mut app, &pe_tx);
-        assert_eq!(
-            app.machine.state(),
-            AppState::Idle,
-            "the probe leaves the state machine alone until content arrives"
-        );
-        assert_eq!(app.machine.generation(), 0);
-        assert!(matches!(
-            ac_rx.try_recv().unwrap().payload,
-            AcquireCommand::AcquireText { generation: 1, .. }
-        ));
+        expect_idle_probe(&mut app, &pe_tx, &ac_rx);
 
         assert!(app.accept_input(1, text_input("A")));
         assert_eq!(app.machine.generation(), 1, "commit promotes the probe id");

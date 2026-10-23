@@ -4,6 +4,7 @@
 //! tap 这类自带 run loop 的源在自己的监听线程上运行、产物经通道汇入。
 //! 消息类型由组装点注入——platform 不依赖 gloss-app 的通道类型。
 
+use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -12,6 +13,12 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 
 use gloss_core::log::{debug, error, info, thread, warn};
+
+use crate::ffi::cf::{
+    CFAbsoluteTimeGetCurrent, CFRelease, CFRunLoopAddTimer, CFRunLoopGetCurrent, CFRunLoopRef,
+    CFRunLoopRun, CFRunLoopStop, CFRunLoopTimerContext, CFRunLoopTimerCreate,
+    CFRunLoopTimerInvalidate, CFRunLoopTimerRef, kCFAllocatorDefault, kCFRunLoopCommonModes,
+};
 
 pub mod mouse;
 
@@ -198,64 +205,46 @@ where
     TickOutcome::Continue
 }
 
-/// 事件线程的驱动：RunLoop 不能阻塞在 crossbeam 上，挂一个周期定时器跑
-/// [`tick`]；自带 run loop 的源在各自线程上运行，产物经通道汇入这里抽干。
-fn run_loop<C, E, P, F>(
+/// 事件线程 run loop 的共享状态盒：`fire` 回调经 context 的裸指针取回。
+struct LoopState<C, E, P, F> {
     commands: Receiver<C>,
     sink: EventSink<E, P>,
     on_command: F,
     sources: EventSources<P>,
-) where
+    run_loop: CFRunLoopRef,
+}
+
+/// 定时器回调：抽干各源；通道② Sender 全部 drop 时停掉 run loop，让
+/// `CFRunLoopRun` 返回、线程随之结束。
+extern "C" fn fire<C, E, P, F>(_timer: CFRunLoopTimerRef, info: *mut c_void)
+where
     F: FnMut(C, &EventSink<E, P>),
 {
-    use std::ffi::c_void;
-
-    use crate::ffi::cf::{
-        CFAbsoluteTimeGetCurrent, CFRelease, CFRunLoopAddTimer, CFRunLoopGetCurrent, CFRunLoopRef,
-        CFRunLoopRun, CFRunLoopStop, CFRunLoopTimerContext, CFRunLoopTimerCreate,
-        CFRunLoopTimerInvalidate, CFRunLoopTimerRef, kCFAllocatorDefault, kCFRunLoopCommonModes,
-    };
-
-    struct LoopState<C, E, P, F> {
-        commands: Receiver<C>,
-        sink: EventSink<E, P>,
-        on_command: F,
-        sources: EventSources<P>,
-        run_loop: CFRunLoopRef,
+    // SAFETY: `info` 是创建定时器时经 `CFRunLoopTimerContext.info` 存入的
+    // `Box<LoopState>` 指针，由 CF 原样传回；该 Box 在 CFRunLoopRun 返回后才
+    // 释放，而 CFRunLoop 回调只在宿主线程串行触发，指针有效且无并发别名。
+    let state = unsafe { &mut *(info as *mut LoopState<C, E, P, F>) };
+    if let TickOutcome::Exit = tick(
+        &state.commands,
+        &state.sink,
+        &mut state.on_command,
+        &mut state.sources,
+    ) {
+        // SAFETY: `run_loop` 是本线程自己的 run loop（`CFRunLoopGetCurrent`
+        // 返回 +0 引用且从不 release，始终有效）；`CFRunLoopStop` 无额外前置条件。
+        unsafe { CFRunLoopStop(state.run_loop) };
     }
+}
 
-    extern "C" fn fire<C, E, P, F>(_timer: CFRunLoopTimerRef, info: *mut c_void)
-    where
-        F: FnMut(C, &EventSink<E, P>),
-    {
-        // SAFETY: `info` 是创建定时器时经 `CFRunLoopTimerContext.info` 存入的
-        // `Box<LoopState>` 指针，由 CF 原样传回；该 Box 在 CFRunLoopRun 返回后才
-        // 释放，而 CFRunLoop 回调只在宿主线程串行触发，指针有效且无并发别名。
-        let state = unsafe { &mut *(info as *mut LoopState<C, E, P, F>) };
-        if let TickOutcome::Exit = tick(
-            &state.commands,
-            &state.sink,
-            &mut state.on_command,
-            &mut state.sources,
-        ) {
-            // 通道② Sender 全部 drop：停掉 RunLoop 让 CFRunLoopRun 返回，线程随之结束。
-            // SAFETY: `run_loop` 是本线程自己的 run loop（`CFRunLoopGetCurrent`
-            // 返回 +0 引用且从不 release，始终有效）；`CFRunLoopStop` 无额外前置条件。
-            unsafe { CFRunLoopStop(state.run_loop) };
-        }
-    }
-
-    let mut state = Box::new(LoopState {
-        commands,
-        sink,
-        on_command,
-        sources,
-        // SAFETY: 纯查询型 FFI，无前置条件；当前线程必有 run loop，不会返回 NULL。
-        run_loop: unsafe { CFRunLoopGetCurrent() },
-    });
+/// 以 `state` 为回调上下文建周期定时器并挂进当前 run loop；创建失败返回
+/// `None`（调用方收卷事件线程）。
+fn install_timer<C, E, P, F>(state: &mut LoopState<C, E, P, F>) -> Option<CFRunLoopTimerRef>
+where
+    F: FnMut(C, &EventSink<E, P>),
+{
     let mut context = CFRunLoopTimerContext {
         version: 0,
-        info: state.as_mut() as *mut LoopState<C, E, P, F> as *mut c_void,
+        info: state as *mut LoopState<C, E, P, F> as *mut c_void,
         retain: None,
         release: None,
         copyDescription: None,
@@ -276,19 +265,42 @@ fn run_loop<C, E, P, F>(
         )
     };
     if timer.is_null() {
+        return None;
+    }
+    // SAFETY: `timer` 已判非 NULL，`run_loop` 是本线程的有效 run loop，modes
+    // 为合法常量。
+    unsafe { CFRunLoopAddTimer(state.run_loop, timer, kCFRunLoopCommonModes) };
+    Some(timer)
+}
+
+/// 事件线程的驱动：RunLoop 不能阻塞在 crossbeam 上，挂一个周期定时器跑
+/// [`tick`]；自带 run loop 的源在各自线程上运行，产物经通道汇入这里抽干。
+fn run_loop<C, E, P, F>(
+    commands: Receiver<C>,
+    sink: EventSink<E, P>,
+    on_command: F,
+    sources: EventSources<P>,
+) where
+    F: FnMut(C, &EventSink<E, P>),
+{
+    let mut state = Box::new(LoopState {
+        commands,
+        sink,
+        on_command,
+        sources,
+        // SAFETY: 纯查询型 FFI，无前置条件；当前线程必有 run loop，不会返回 NULL。
+        run_loop: unsafe { CFRunLoopGetCurrent() },
+    });
+    let Some(timer) = install_timer(&mut state) else {
         warn!(
             thread = thread::EVENT,
             "failed to create run loop timer, event thread exits"
         );
         return;
-    }
-    // SAFETY: `timer` 已判非 NULL，`run_loop` 是本线程的有效 run loop，modes 为
-    // 合法常量；`CFRunLoopRun` 返回前定时器持续触发回调，其 `info` 指向的 state
-    // 存活到函数末尾，不会悬垂。
-    unsafe {
-        CFRunLoopAddTimer(state.run_loop, timer, kCFRunLoopCommonModes);
-        CFRunLoopRun();
-    }
+    };
+    // SAFETY: `timer` 已挂进本线程 run loop；`CFRunLoopRun` 返回前定时器持续
+    // 触发回调，其 `info` 指向的 state 存活到函数末尾，不会悬垂。
+    unsafe { CFRunLoopRun() };
     // RunLoop 已停止且不在回调中：CF timer 的规范清理是先 invalidate 再 release，
     // 最后收回状态盒。
     // SAFETY: `timer` 持有 `CFRunLoopTimerCreate` 返回的 +1 引用；此刻已退出

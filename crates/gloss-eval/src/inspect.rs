@@ -12,7 +12,7 @@
 use gloss_core::task::TaskKind;
 
 use crate::detail::{CLASSIFY_GROUP, CaseDetail, ClassifyOutcome, TaskOutcome};
-use crate::report::{EvalReport, format_utc};
+use crate::report::{ClassifyStats, EvalReport, format_utc};
 use crate::svg;
 
 /// 渲染检视页。`history` 供趋势图与「对比上一次同 mode 运行」的差值。
@@ -100,36 +100,51 @@ fn render_header(out: &mut String, report: &EvalReport) {
 fn render_cards(out: &mut String, report: &EvalReport, previous: Option<&EvalReport>) {
     out.push_str("<section class=\"cards\">");
     if let Some(stats) = &report.classify {
-        let metrics = &stats.metrics;
-        let prev = previous.and_then(|prev| prev.classify.as_ref());
-        let accuracy_delta = comparable(
-            metrics.evaluated,
-            prev,
-            |prev| prev.metrics.evaluated,
-            |prev| prev.accuracy * 100.0,
-        );
-        let fallback_delta = comparable(
-            metrics.evaluated,
-            prev,
-            |prev| prev.metrics.evaluated,
-            |prev| prev.fallback_rate * 100.0,
-        );
-        out.push_str(&format!(
-            "<div class=\"card\"><div class=\"card-title\">分类 accuracy {}</div>\
-             <div class=\"card-main\">{:.2}%<span class=\"frac\">{}/{} 条</span></div>\
-             <div class=\"card-sub\">回退率 {:.2}%{} · 修复 {} 轮 · 非 JSON {} · 拒绝 {}{}</div></div>",
-            delta_chip(stats.accuracy * 100.0, accuracy_delta, DeltaDir::UpGood),
-            stats.accuracy * 100.0,
-            metrics.correct,
-            metrics.evaluated,
-            stats.fallback_rate * 100.0,
-            delta_chip(stats.fallback_rate * 100.0, fallback_delta, DeltaDir::DownGood),
-            metrics.repair_rounds,
-            metrics.invalid_json,
-            metrics.rejected,
-            engine_note(metrics.engine_errors),
-        ));
+        render_classify_card(out, stats, previous);
     }
+    render_task_cards(out, report, previous);
+    out.push_str("</section>\n");
+}
+
+/// 分类卡：accuracy 与回退率带上与上一次同 mode 运行的差值徽标。
+fn render_classify_card(out: &mut String, stats: &ClassifyStats, previous: Option<&EvalReport>) {
+    let metrics = &stats.metrics;
+    let prev = previous.and_then(|prev| prev.classify.as_ref());
+    let accuracy_delta = comparable(
+        metrics.evaluated,
+        prev,
+        |prev| prev.metrics.evaluated,
+        |prev| prev.accuracy * 100.0,
+    );
+    let fallback_delta = comparable(
+        metrics.evaluated,
+        prev,
+        |prev| prev.metrics.evaluated,
+        |prev| prev.fallback_rate * 100.0,
+    );
+    out.push_str(&format!(
+        "<div class=\"card\"><div class=\"card-title\">分类 accuracy {}</div>\
+         <div class=\"card-main\">{:.2}%<span class=\"frac\">{}/{} 条</span></div>\
+         <div class=\"card-sub\">回退率 {:.2}%{} · 修复 {} 轮 · 非 JSON {} · 拒绝 {}{}</div></div>",
+        delta_chip(stats.accuracy * 100.0, accuracy_delta, DeltaDir::UpGood),
+        stats.accuracy * 100.0,
+        metrics.correct,
+        metrics.evaluated,
+        stats.fallback_rate * 100.0,
+        delta_chip(
+            stats.fallback_rate * 100.0,
+            fallback_delta,
+            DeltaDir::DownGood
+        ),
+        metrics.repair_rounds,
+        metrics.invalid_json,
+        metrics.rejected,
+        engine_note(metrics.engine_errors),
+    ));
+}
+
+/// 任务轨卡片：每个数据集一张，字段完整率/降级率与上次比差值。
+fn render_task_cards(out: &mut String, report: &EvalReport, previous: Option<&EvalReport>) {
     for stats in &report.tasks {
         let metrics = &stats.metrics;
         let prev = previous
@@ -164,7 +179,6 @@ fn render_cards(out: &mut String, report: &EvalReport, previous: Option<&EvalRep
             metrics.repair_rounds,
         ));
     }
-    out.push_str("</section>\n");
 }
 
 /// 可比的上次比率：两侧分母都非零才返回（`None` 即不出差值徽标）——
@@ -461,7 +475,7 @@ mod tests {
     use crate::dataset::{load_classify, load_task};
     use crate::detail::{CaseDetail, classify_parts, task_parts};
     use crate::metrics::{ClassifyMetrics, TaskMetrics};
-    use crate::report::{ConfusionRow, EvalReport, assemble_report};
+    use crate::report::{ConfusionRow, EvalReport, TrackOutputs, assemble_report};
 
     use super::render_html;
 
@@ -509,14 +523,16 @@ mod tests {
         metrics.record(&good_verdict);
         metrics.record(&bad_verdict);
         (
-            assemble_report(
+            (assemble_report(
                 "replay",
-                Some(classify),
-                vec![("task_translate_word", metrics)],
-                None,
-                None,
+                TrackOutputs {
+                    classify: Some(classify),
+                    tasks: vec![("task_translate_word", metrics)],
+                    latency: None,
+                    judge: None,
+                },
                 0,
-            ),
+            )),
             vec![cdetail, good_detail, bad_detail],
         )
     }
@@ -576,6 +592,33 @@ mod tests {
         );
     }
 
+    fn previous_replay_report() -> EvalReport {
+        assemble_report(
+            "replay",
+            TrackOutputs {
+                classify: Some(ClassifyMetrics {
+                    evaluated: 1,
+                    correct: 1,
+                    ..ClassifyMetrics::default()
+                }),
+                tasks: vec![(
+                    "task_translate_word",
+                    TaskMetrics {
+                        evaluated: 2,
+                        json_object: 2,
+                        note_present: 2,
+                        fields_complete: 2,
+                        degraded: 0,
+                        ..TaskMetrics::default()
+                    },
+                )],
+                latency: None,
+                judge: None,
+            },
+            0,
+        )
+    }
+
     #[test]
     fn deltas_come_from_the_previous_same_mode_run() {
         let (mut report, cases) = sample();
@@ -585,28 +628,7 @@ mod tests {
             actual: TaskKind::ExplainCode,
             count: 1,
         }];
-        let mut previous = assemble_report(
-            "replay",
-            Some(ClassifyMetrics {
-                evaluated: 1,
-                correct: 1,
-                ..ClassifyMetrics::default()
-            }),
-            vec![(
-                "task_translate_word",
-                TaskMetrics {
-                    evaluated: 2,
-                    json_object: 2,
-                    note_present: 2,
-                    fields_complete: 2,
-                    degraded: 0,
-                    ..TaskMetrics::default()
-                },
-            )],
-            None,
-            None,
-            0,
-        );
+        let mut previous = previous_replay_report();
         previous.generated_at = 1_000;
         let mut other_mode = previous.clone();
         other_mode.mode = "live".to_owned();
@@ -650,10 +672,12 @@ mod tests {
         report.generated_at = 2_000;
         let mut previous = assemble_report(
             "replay",
-            Some(ClassifyMetrics::default()),
-            vec![],
-            None,
-            None,
+            TrackOutputs {
+                classify: Some(ClassifyMetrics::default()),
+                tasks: vec![],
+                latency: None,
+                judge: None,
+            },
             0,
         );
         previous.generated_at = 1_000;

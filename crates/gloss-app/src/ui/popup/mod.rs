@@ -9,12 +9,16 @@
 //!
 //! 三分区的正文列都显式声明垂直布局：egui 的 Frame/子 Ui 会继承父级的
 //! 水平布局（`new_child` 不带 layout 参数），横排父级里多条目正文会从左往
-//! 右流（释义并排、溢出右缘）。分区的间距是本模块私有量，字号规格与宋楷
-//! 字体助手在 [`content`]（都是 demo 基准的应用定稿值），不进 style 阶梯。
+//! 右流（释义并排、溢出右缘）。分区的间距是弹窗私有量（随
+//! [`outcome`]），字号规格与宋楷字体助手在 [`content`]（都是 demo 基准
+//! 的应用定稿值），不进 style 阶梯。
 //!
 //! 决策纯函数不进绘制模板，按职责拆在子模块：[`note`]（流式 JSON 渐进
-//! 提取）、[`icon`]（图标矢量栅格化）、[`content`]（文案整形）；本模块只留
-//! 绘制模板与面板编排，依赖方向恒为绘制 → 决策。
+//! 提取）、[`icon`]（图标矢量栅格化）、[`content`]（文案整形）；绘制模板
+//! 按职责拆在 [`card`]（页头/页脚/印章等卡片固定件）、[`views`]（视图
+//! 分发与卡骨架）、[`outcome`]（经注疏正文排布），依赖方向恒为视图 →
+//! 排布 → 固定件 → 决策；本模块留面板编排、跨帧状态与各文件共享的
+//! 常量。
 //!
 //! 词卡精排（词条/音标落经位，释义逐行落注位，例句落疏位），其余任务正文
 //! 走 markdown（egui_commonmark 渲染；注区统一改写文本样式为楷体字号）。
@@ -43,109 +47,47 @@
 //! 敏感信息防护不在这里：两条闸门都不出浮层（见 `gloss_app::machine`），
 //! 因此也没有「疑似敏感」这张卡。
 
+mod card;
 mod content;
 mod icon;
 mod image;
 mod note;
+mod outcome;
+mod views;
 
-use std::sync::Arc;
+pub(crate) use card::clear_cached_text_galleys;
 
-use content::{
-    JING_FONT, PHON_FONT, SEAL_FONT, SHU_FONT, SMALL_FONT, WORD_FONT, ZHU_FONT, kaiti_font,
-    serif_font, watermark,
-};
-use icon::app_icon_image;
-use image::decode_attached;
-use note::{StreamFields, stream_fields};
-
-use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
-use egui::{
-    Align, CornerRadius, FontFamily, FontId, Frame, Margin, RichText, ScrollArea, Shape, Stroke,
-    TextStyle, vec2,
-};
-use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
-use gloss_core::task::{OutcomeStructured, TaskKind};
+use egui::{CornerRadius, Frame, Margin, Stroke};
+use egui_commonmark::CommonMarkCache;
+use icon::app_icon_image;
+use image::decode_attached;
 
-use super::code_hl;
-use super::fonts;
-use super::style::{color, font, radius, space, stroke};
-use crate::machine::{ErrorAction, FailureCause, OverlayView};
+use super::style::{radius, space, stroke};
+use crate::machine::{ErrorAction, OverlayView};
 use crate::ui::i18n::Text;
 
 /// 浮层宽度（逻辑点）：窗口创建与每帧期望尺寸共用此值，不随内容变化。
 pub const WIDTH: f32 = 480.0;
-/// 页头应用图标的边长
-const HEADER_ICON: f32 = 20.0;
-/// 头部齿轮的字形尺寸
-const ACTION_ICON_SIZE: f32 = 16.0;
-/// 头部动作钮的方块边长：齿轮与关闭的命中区统一到这个盒子
-const ACTION_BUTTON: f32 = 20.0;
-/// 关闭 × 的半臂长与线宽：× 本体 10×10，较齿轮字形偏小
-const CLOSE_ARM: f32 = 5.0;
-const CLOSE_STROKE: f32 = 2.0;
-/// 页头拖动热区右缘与最左动作钮的间隙：热区不碰到按钮命中盒，按压
-/// 永远落在其中之一，不存在「点按钮变成拖动」的边界。
-const DRAG_STRIP_INSET: f32 = 6.0;
+/// 页头应用图标的边长（栅格化与页头行布局共用）。
+pub(super) const HEADER_ICON: f32 = 20.0;
+/// 页脚带高：水印字形（`font::TAG` 11px）加合理上下余量的下限档。
+pub(super) const FOOTER_HEIGHT: f32 = 20.0;
+/// 骨架条与页脚呼吸点的脉动周期（秒）
+pub(super) const PULSE_PERIOD_SECS: f64 = 1.2;
 /// 出现动画时长（淡入，秒）：显示/重显后的第一帧从 0 渐进到 1。
 const APPEAR_SECONDS: f32 = 0.18;
-/// 印章方块的边长与圆角（demo 定稿：21px、5px 圆角）；en 缩写按文本宽度
-/// 撑宽，方块边长是下限。
-const SEAL_SIZE: f32 = 21.0;
-const SEAL_RADIUS: u8 = 5;
-/// 印章字在方块内的水平余量（单侧）：单字居中即方块本身，缩写按文本撑宽。
-const SEAL_TEXT_PADDING: f32 = 5.0;
-/// 印章列与正文列之间的空隙（demo .sec gap 10px）。
-const SEAL_GAP: f32 = 10.0;
-/// 朱丝栏（注区左线）的线宽与不透明度（demo：2px、朱砂 55% 混透明）。
-const ZHU_LINE_WIDTH: f32 = 2.0;
-const ZHU_LINE_ALPHA: u8 = 140;
-/// 朱丝栏到注正文之间的空隙（demo padding-left 11px，含线宽）。
-const ZHU_TEXT_GAP: i8 = 11;
-/// 疏区上缘虚线到疏正文的空隙（demo padding-top 9px）。
-const SHU_TEXT_GAP: i8 = 9;
-/// 疏区虚线的段长与空隙。
-const SHU_DASH_LENGTH: f32 = 4.0;
-const SHU_GAP_LENGTH: f32 = 3.0;
-/// 代码面板的圆角、边宽与内边距（demo code 面板：radius 10、1px 边、
-/// 11px 13px）；代码底色直接铺满经位区块，无外层界栏框。
-const CODE_PANEL_RADIUS: u8 = 10;
-const CODE_PANEL_STROKE: f32 = 1.0;
-const CODE_PANEL_PADDING_V: i8 = 11;
-const CODE_PANEL_PADDING_H: i8 = 13;
-/// 代码正文的字号与行高（demo 定稿：12px、行高 1.65）。
-const CODE_FONT: f32 = 12.0;
-const CODE_LINE_HEIGHT: f32 = CODE_FONT * 1.65;
-/// 语言标签的字号（图样定稿：弱色小标，面板内独立行）。
-const CODE_BADGE_FONT: f32 = 10.0;
-/// 骨架条高（「经显注未至」的占位行）
-const SHIMMER_BAR_HEIGHT: f32 = 12.0;
-/// 骨架条圆角
-const SHIMMER_BAR_RADIUS: u8 = 4;
-/// 骨架条与页脚呼吸点的脉动周期（秒）
-const PULSE_PERIOD_SECS: f64 = 1.2;
-/// 骨架条铺底的透明度档（0-255）：脉动在这个下限与峰值之间摆动
-const SHIMMER_ALPHA_MIN: u8 = 38;
-const SHIMMER_ALPHA_MAX: u8 = 96;
-/// 页脚呼吸点的半径与个数
-const FOOTER_DOT_RADIUS: f32 = 2.0;
-const FOOTER_DOT_COUNT: usize = 3;
-/// 页脚呼吸点的透明度档（0-255）：点径只有 2px，沿用骨架条的档位在浅底
-/// 上几乎不可辨；整体上调让加载态一眼可辨，脉动在这个区间内保留呼吸感。
-const FOOTER_DOT_ALPHA_MIN: u8 = 90;
-const FOOTER_DOT_ALPHA_MAX: u8 = 180;
-/// 页脚水印字串与槽缘的余量（单侧）：槽宽按实测字宽加此余量。
-const WATERMARK_PADDING: f32 = 6.0;
-/// 页脚带高：水印字形（`font::TAG` 11px）加合理上下余量的下限档。
-const FOOTER_HEIGHT: f32 = 20.0;
-/// 页脚与正文之间的空隙；滚动区按这条带宽预留视口
-/// （auto_shrink(false) 的滚动区会吃光剩余空间，不预留页脚就被挤出窗外）。
-const FOOTER_RESERVE: f32 = FOOTER_HEIGHT + space::PARAGRAPH;
-/// 滚动区视口的下限：窗口被压得极矮时正文至少还能滚出这么多。
-const MIN_BODY_VIEWPORT: f32 = 48.0;
+
+/// 一帧内容分发的共享绘制输入：状态、文案表与本帧经位附件三件套随
+/// 视图函数整组同行，捆一个结构免得逐函数穿参。
+struct RenderCtx<'a> {
+    state: &'a RenderState,
+    text: &'static Text,
+    attached: Option<&'a Arc<[u8]>>,
+}
 
 /// 浮层的跨帧渲染状态（每窗口一份，由渲染管线持有）。
 pub struct RenderState {
@@ -156,7 +98,7 @@ pub struct RenderState {
     /// 跨 DPI 显示器的拖动——逻辑坐标随新显示器的缩放比例重标定，逻辑
     /// 按压点会混尺；物理位移按当下比例还原成当下尺度的逻辑位移，与壳
     /// 侧落点换算（`apply_overlay_drag`）同口径。清零后 egui 侧若仍有
-    /// 残留拖动所有权（见 [`drag_strip`]），热区保持惰性。
+    /// 残留拖动所有权（见 [`card::drag_strip`]），热区保持惰性。
     drag_press_phys: Cell<Option<egui::Pos2>>,
     /// 页头应用图标的纹理缓存：键是栅格化边长（物理像素）。None＝尚未
     /// 栅格化；内层 `None`＝该边长下渲染失败（同样只试一次，占位降级）。
@@ -303,6 +245,24 @@ fn appear_progress(elapsed_secs: f64) -> f32 {
     (elapsed_secs / f64::from(APPEAR_SECONDS)).clamp(0.0, 1.0) as f32
 }
 
+/// 出现淡入：起点在每次显示（壳侧清除后）的首帧重新写入；进度未满时
+/// 请求短重绘推进动画。kittest 的 animation_time=0 与固定步进让快照
+/// 恒为完成态，不受动画影响。
+fn appear_fade_in(ui: &mut egui::Ui) {
+    let now = ui.input(|i| i.time);
+    let started_at = ui
+        .ctx()
+        .memory_mut(|mem| *mem.data.get_temp_mut_or_insert_with(appear_t0_id(), || now));
+    let progress = appear_progress(now - started_at);
+    if progress < 1.0 {
+        // 请求尽快再来一帧推进淡入（生产中被预测帧时长扣减后接近立即
+        // 重绘，由呈现管道钳到 vsync 帧率）。
+        ui.ctx()
+            .request_repaint_after(Duration::from_secs_f32(0.016));
+    }
+    ui.set_opacity(progress);
+}
+
 /// 清除出现动画起点：壳在每次显示时调用，让下一帧重新从 0 淡入
 /// （隐藏期无帧运行，起点留在居内无副作用；不清除则旧起点让重显直接
 /// 落在完成态）。
@@ -326,22 +286,7 @@ pub fn draw(
 ) -> PopupOutput {
     // 划选即复制路径：全部文本可选中（含跨 widget 连选）
     ui.style_mut().interaction.selectable_labels = true;
-
-    // 出现淡入：起点在每次显示（壳侧清除后）的首帧重新写入；进度未满时
-    // 请求短重绘推进动画。kittest 的 animation_time=0 与固定步进让快照
-    // 恒为完成态，不受动画影响。
-    let now = ui.input(|i| i.time);
-    let started_at = ui
-        .ctx()
-        .memory_mut(|mem| *mem.data.get_temp_mut_or_insert_with(appear_t0_id(), || now));
-    let progress = appear_progress(now - started_at);
-    if progress < 1.0 {
-        // 请求尽快再来一帧推进淡入（生产中被预测帧时长扣减后接近立即
-        // 重绘，由呈现管道钳到 vsync 帧率）。
-        ui.ctx()
-            .request_repaint_after(Duration::from_secs_f32(0.016));
-    }
-    ui.set_opacity(progress);
+    appear_fade_in(ui);
 
     // 本帧无附件＝会话已离开图像卡（收起、换任务或失败）：立即清空纹理
     // 缓存槽——图像字节属敏感数据，源字节与解码纹理都不得驻留到会话之外
@@ -364,7 +309,12 @@ pub fn draw(
         .corner_radius(CornerRadius::same(radius::CARD))
         .inner_margin(Margin::same(space::CARD_PADDING))
         .show(ui, |ui| {
-            let (action, drag) = render_content(ui, view, attached, state, &mut content_h, text);
+            let ctx = RenderCtx {
+                state,
+                text,
+                attached,
+            };
+            let (action, drag) = views::render_content(ui, &ctx, view, &mut content_h);
             output.action = action;
             output.drag = drag;
             ui.set_min_size(ui.available_size());
@@ -378,1068 +328,20 @@ pub fn draw(
     output
 }
 
-/// 滚动视图的完整内容高：实测布局高（视口收缩到内容时即真实高度）加上
-/// 视口放不下的溢出量（内容高于视口时窗口按完整内容高申请，壳侧钳到屏）。
-/// 公式口径（body_top + content_size + 预留）与 egui 的行距累计差一个
-/// item_spacing，页脚会悬在窗外 17px——以实测为准。
-fn record_scrolled_height(
-    ui: &egui::Ui,
-    content_h: &mut f32,
-    scrolled: &egui::scroll_area::ScrollAreaOutput<()>,
-) {
-    let overflow = (scrolled.content_size.y - scrolled.inner_rect.height()).max(0.0);
-    *content_h = ui.min_rect().height() + overflow;
-}
-
-/// 滚动区视口上限：可用高扣掉页脚带预留，极矮窗口下仍有滚动下限。
-fn viewport_max(ui: &egui::Ui) -> f32 {
-    (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT)
-}
-
-/// 方向键的单次滚动步长（约三行正文；按住由系统按键重复续推）。
-const ARROW_SCROLL_STEP: f32 = 48.0;
-
-/// 浮层聚焦时的方向键滚动：↑/↓ 平移滚动区视口，内容不溢出时到界即停。
-/// 在滚动区内容闭包的起始处调用（无修饰键参与，不与其它快捷键争抢）。
-fn arrow_key_scroll(ui: &egui::Ui) {
-    let step = ui.input(|input| {
-        if !input.modifiers.any() {
-            if input.key_pressed(egui::Key::ArrowDown) {
-                return Some(-ARROW_SCROLL_STEP);
-            }
-            if input.key_pressed(egui::Key::ArrowUp) {
-                return Some(ARROW_SCROLL_STEP);
-            }
-        }
-        None
-    });
-    if let Some(dy) = step {
-        ui.scroll_with_delta(egui::vec2(0.0, dy));
-    }
-}
-
-/// 流式正文（注位渐进 markdown + 疏位已到达的解读条目）：两字段全空落
-/// 骨架（经已回显、注未至——无注印，还没有可注的内容）。
-fn streamed_sections(
-    ui: &mut egui::Ui,
-    fields: &StreamFields,
-    state: &RenderState,
-    text: &'static Text,
-) {
-    if fields.note.is_empty() && fields.examples.is_empty() {
-        shimmer_bars(ui);
-        return;
-    }
-    if !fields.note.is_empty() {
-        zhu_section(ui, text, |ui| {
-            apply_markdown_typography(ui, ZHU_FONT);
-            render_markdown(ui, state, &fields.note);
-        });
-    }
-    if !fields.examples.is_empty() {
-        ui.add_space(space::PARAGRAPH);
-        shu_examples(ui, &fields.examples, state, text);
-    }
-}
-
-/// 经位附件图像：纹理经 [`RenderState`] 跨帧复用（同字节恒同纹理，绝不
-/// 逐帧解码），宽度随卡宽等比收缩；解码失败落占位降级（字节进不了纹理
-/// 不是 panic 面）。
-fn attached_image(ui: &mut egui::Ui, png: &Arc<[u8]>, state: &RenderState, text: &'static Text) {
-    match state.attached_texture(ui.ctx(), png) {
-        Some(texture) => {
-            ui.add(egui::Image::new(&texture).max_width(ui.available_width()));
-        }
-        None => image_unavailable(ui, text),
-    }
-}
-
-/// 经位图像的占位降级：图像缺席（无可渲染的字节）或解码失败时，经位落
-/// 一行弱色占位，注/疏照常。
-fn image_unavailable(ui: &mut egui::Ui, text: &'static Text) {
-    ui.label(
-        RichText::new(&text.gloss_popup_image_unavailable)
-            .font(serif_font(SMALL_FONT))
-            .weak(),
-    );
-}
-
-/// 浮层内容（头部 + 各视图正文），并把完整内容高记入 `content_h`：
-/// 产物与流式正文（含经位）放进 ScrollArea（完整渲染、超出滚动兜底），
-/// 其高度取 ScrollArea 报告的内容尺寸，不受视口裁剪影响；页脚带恒在
-/// （滚动区按 [`FOOTER_RESERVE`] 预留视口，页脚不被内容挤出窗外）。头部
-/// 动作区与失败卡动作按钮的点击结果、页头拖动热区的位移一并透传给调用方。
-fn render_content(
-    ui: &mut egui::Ui,
-    view: Option<&OverlayView>,
-    attached: Option<&Arc<[u8]>>,
-    state: &RenderState,
-    content_h: &mut f32,
-    text: &'static Text,
-) -> (Option<OverlayAction>, Option<egui::Vec2>) {
-    match view {
-        None => plain_card(ui, state, text, content_h, |ui, _| selfcheck_body(ui)),
-        Some(OverlayView::Streaming {
-            source,
-            raw,
-            classified,
-            repairing,
-        }) => {
-            let code = is_code(*classified);
-            let fields = stream_fields(raw);
-            let mode = FooterMode::Streaming {
-                repairing: *repairing,
-            };
-            match attached {
-                // 图像卡：经位图像与注/疏一起进滚动区——高图由滚动区吞
-                // 高，窗口按完整内容高申请、壳侧钳到屏，超出滚动兜底。
-                Some(png) => scrolled_card(ui, state, text, content_h, mode, |ui| {
-                    jing_section(ui, text, |ui| attached_image(ui, png, state, text));
-                    ui.add_space(space::PARAGRAPH);
-                    streamed_sections(ui, &fields, state, text);
-                }),
-                // 经位与注/疏同一滚动区：长选区只抬高滚动内容，页脚仍钉在
-                // 视口下方（经位若留在滚动区外，长选区会把页脚顶出窗外，
-                // 生成指示随之不可见）。
-                None => scrolled_card(ui, state, text, content_h, mode, |ui| {
-                    // 流式期没有语言判定（唯一来源是产物的 structured
-                    // 回传），经位代码面板按通用启发集着色、无角标。
-                    jing_section(ui, text, |ui| source_block(ui, source, code, None));
-                    ui.add_space(space::PARAGRAPH);
-                    streamed_sections(ui, &fields, state, text);
-                }),
-            }
-        }
-        Some(OverlayView::Outcome { source, outcome }) if outcome.degraded => {
-            // 降级产物卡（契约校验失败）：渲染「输出异常」+ 复用重试按钮，
-            // 不渲染注疏内容——原文垃圾不展示不留存（缓存侧同样不收，
-            // 见 `crate::runtime::pipeline`）。
-            plain_card(ui, state, text, content_h, |ui, action| {
-                ui.label(
-                    RichText::new(&text.gloss_popup_output_abnormal)
-                        .size(font::NOTICE)
-                        .color(ui.visuals().warn_fg_color),
-                );
-                ui.add_space(space::SECTION);
-                if ui
-                    .button(
-                        RichText::new(text.gloss_popup_retry.as_str())
-                            .size(font::CAPTION)
-                            .color(ui.visuals().strong_text_color()),
-                    )
-                    .clicked()
-                {
-                    *action = Some(OverlayAction::Retry);
-                }
-            })
-        }
-        Some(OverlayView::Outcome { source, outcome }) => {
-            scrolled_card(ui, state, text, content_h, FooterMode::Static, |ui| {
-                outcome_body(ui, source, outcome, attached, state, text)
-            })
-        }
-        Some(OverlayView::Failed {
-            cause,
-            action: error_action,
-        }) => plain_card(ui, state, text, content_h, |ui, action| {
-            ui.label(
-                RichText::new(failure_message(cause, text))
-                    .size(font::NOTICE)
-                    .color(ui.visuals().warn_fg_color),
-            );
-            if let Some(error_action) = *error_action {
-                ui.add_space(space::SECTION);
-                if ui
-                    .button(
-                        RichText::new(action_label(error_action, text))
-                            .size(font::CAPTION)
-                            .color(ui.visuals().strong_text_color()),
-                    )
-                    .clicked()
-                {
-                    *action = Some(error_action.into());
-                }
-            }
-        }),
-    }
-}
-
-/// 不滚动的卡骨架：头部 + 正文 + 页脚，正文高度即内容高（自检、降级与
-/// 失败卡共用）。正文可写回卡片动作（重试/打开设置）。
-fn plain_card(
-    ui: &mut egui::Ui,
-    state: &RenderState,
-    text: &'static Text,
-    content_h: &mut f32,
-    body: impl FnOnce(&mut egui::Ui, &mut Option<OverlayAction>),
-) -> (Option<OverlayAction>, Option<egui::Vec2>) {
-    let (mut action, drag) = header(ui, state, text);
-    ui.add_space(space::SECTION);
-    body(ui, &mut action);
-    ui.add_space(space::PARAGRAPH);
-    footer(ui, false, false, text);
-    *content_h = ui.min_rect().height();
-    (action, drag)
-}
-
-/// 页脚形态：流式期显示注解状态（`repairing` 区分首轮与重新注解），
-/// 其余卡片是静态页脚。
-#[derive(Clone, Copy)]
-enum FooterMode {
-    Static,
-    Streaming { repairing: bool },
-}
-
-/// 滚动卡骨架：头部 + 纵向滚动正文 + 页脚。正文（经位与注/疏）整体进
-/// 滚动区，完整高按滚动区报告的内容尺寸回记（不受视口裁剪影响）；页脚
-/// 在滚动区之外、随其下缘排布——正文再长也只在滚动区内部滚动，不会把
-/// 页脚顶出窗外。
-fn scrolled_card(
-    ui: &mut egui::Ui,
-    state: &RenderState,
-    text: &'static Text,
-    content_h: &mut f32,
-    mode: FooterMode,
-    body: impl FnOnce(&mut egui::Ui),
-) -> (Option<OverlayAction>, Option<egui::Vec2>) {
-    let (action, drag) = header(ui, state, text);
-    ui.add_space(space::SECTION);
-    // 只纵向滚动：代码正文按可用宽折行。
-    let scrolled = ScrollArea::new([false, true])
-        .auto_shrink([false, true])
-        .max_height(viewport_max(ui))
-        .show(ui, |ui| {
-            arrow_key_scroll(ui);
-            body(ui);
-        });
-    ui.add_space(space::PARAGRAPH);
-    match mode {
-        FooterMode::Static => footer(ui, false, false, text),
-        FooterMode::Streaming { repairing } => footer(ui, true, repairing, text),
-    }
-    record_scrolled_height(ui, content_h, &scrolled);
-    (action, drag)
-}
-
-/// 失败卡文案：按失败来源映射（静态词条借自常驻文案表，带占位符的
-/// 变体才拼新串）。
-fn failure_message<'a>(cause: &'a FailureCause, text: &'a Text) -> Cow<'a, str> {
-    match cause {
-        FailureCause::Task(error) => text.for_error(error),
-        FailureCause::TransportChannel => Cow::Borrowed(&text.gloss_errors_inference_channel),
-    }
-}
-
-/// 动作按钮的文案。
-fn action_label(action: ErrorAction, text: &'static Text) -> &'static str {
-    match action {
-        ErrorAction::Retry => text.gloss_popup_retry.as_str(),
-        ErrorAction::OpenSettings => text.gloss_popup_open_settings.as_str(),
-    }
-}
-
-/// 卡片内分隔发丝线的共享规格（页头下缘与页脚上缘同一条线）：0.5 宽、
-/// noninteractive 边色。
-fn hairline(ui: &egui::Ui) -> Stroke {
-    Stroke::new(
-        stroke::CARD,
-        ui.visuals().widgets.noninteractive.bg_stroke.color,
-    )
-}
-
-/// 页头：应用图标 + 右侧动作区 `[⚙ ×]`——× 最右（最后动作）、齿轮居左，
-/// 图标默认弱色、hover/按下显色。任务与状态都由内容层自明（经注疏分区、
-/// 失败卡正文），页头不带任何标签药丸（demo 定稿：页头回归品牌，只有
-/// 图标与动作区；生成指示移交页脚，见 [`footer`]）。行内容之下隔开
-/// `space::ITEM` 画一条与页脚上缘同规格的发丝线，横贯内容宽（取容器
-/// 全宽，与图标装没装无关），线与正文之间仍由各视图的 `space::SECTION`
-/// 隔开。行身同时是拖动热区（见 [`RenderState::drag_press_phys`] 与
-/// [`drag_strip`]），返回（动作区点击，拖动热区状态）。
-fn header(
-    ui: &mut egui::Ui,
-    state: &RenderState,
-    text: &'static Text,
-) -> (Option<OverlayAction>, Option<egui::Vec2>) {
-    let weak = ui.visuals().weak_text_color();
-    let strong = ui.visuals().strong_text_color();
-    let mut action = None;
-    let mut drag = None;
-    // 最左动作钮（齿轮）的左缘：拖动热区到它为止，动作钮的点击不被
-    // 热区覆盖。
-    let mut gear_left = f32::INFINITY;
-    ui.horizontal(|ui| {
-        if let Some(icon) = state.icon_texture(ui.ctx()) {
-            ui.add(
-                egui::Image::from_texture(&icon).fit_to_exact_size(vec2(HEADER_ICON, HEADER_ICON)),
-            );
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // 图标钮的文字颜色交给 widget 状态笔刷（不写死在字形上），
-            // 才有「默认弱色、hover 显色」；只换色，线宽保持出厂值。
-            ui.visuals_mut().widgets.inactive.fg_stroke.color = weak;
-            ui.visuals_mut().widgets.hovered.fg_stroke.color = strong;
-            ui.visuals_mut().widgets.active.fg_stroke.color = strong;
-            let close = close_button(ui, text);
-            if close.clicked() {
-                action = Some(OverlayAction::Dismiss);
-            }
-            let gear = ui.add(icon_button("⚙")); // i18n:allow 图标字形，非 locale 文案
-            gear_left = gear.rect.left();
-            gear.widget_info(|| {
-                egui::WidgetInfo::labeled(
-                    egui::WidgetType::Button,
-                    true,
-                    text.gloss_popup_settings_label.as_str(),
-                )
-            });
-            if gear.clicked() {
-                action = Some(OverlayAction::OpenSettings);
-            }
-        });
-        drag = drag_strip(ui, state, gear_left, text);
-    });
-    // 发丝线与行内容（图标/动作钮）之间留一档间距，不贴着字形底边。
-    ui.add_space(space::ITEM);
-    let line_y = ui.cursor().top();
-    ui.painter()
-        .hline(ui.max_rect().x_range(), line_y, hairline(ui));
-    (action, drag)
-}
-
-/// 拖动热区的指针位移上交：按下帧确立握点（位移为零），之后每帧
-/// 上报指针自按压点起的累计位移（按压点按物理像素记录，跨 DPI 显示器
-/// 不混尺）；松开/未拖动返回 `None` 并清按压点。
-///
-/// 残留所有权保持惰性：egui 的拖动所有权只经按压事件授予（`egui`
-/// `interaction.rs` 的 `PointerEvent::Pressed` 分支），浮层隐藏期间丢失
-/// 的鼠标释放会让它跨显示残留；此时按压点已被壳在显隐边界清掉（
-/// [`RenderState::reset_drag_state`]），本函数对无按压点的拖动一概不
-/// 上交位移——窗口不会跟着无按键的指针走。残留所有权在下一个释放
-/// 事件清零，其间的第一次按压拖动整段惰性（无所有权迁移、
-/// `drag_started` 不触发），松开即自愈，之后的按压才重新握点。
-fn drag_strip(
-    ui: &mut egui::Ui,
-    state: &RenderState,
-    gear_left: f32,
-    text: &'static Text,
-) -> Option<egui::Vec2> {
-    let row = ui.min_rect();
-    let right = (gear_left - DRAG_STRIP_INSET).max(row.left());
-    let rect = egui::Rect::from_min_max(
-        egui::pos2(row.left(), row.top()),
-        egui::pos2(right, row.bottom()),
-    );
-    let response = ui.interact(
-        rect,
-        egui::Id::new("overlay_header_drag"),
-        egui::Sense::drag(),
-    );
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(
-            egui::WidgetType::Other,
-            true,
-            text.gloss_popup_drag_label.as_str(),
-        )
-    });
-    let cursor = if response.dragged() {
-        egui::CursorIcon::Grabbing
-    } else {
-        egui::CursorIcon::Grab
-    };
-    let response = response.on_hover_cursor(cursor);
-    let (pointer, pixels_per_point) = ui.input(|i| (i.pointer.interact_pos(), i.pixels_per_point));
-    if response.drag_started() {
-        state
-            .drag_press_phys
-            .set(pointer.map(|pos| pos * pixels_per_point));
-        return Some(egui::Vec2::ZERO);
-    }
-    if !response.dragged() {
-        state.drag_press_phys.set(None);
-        return None;
-    }
-    let press_phys = state.drag_press_phys.get()?;
-    let pointer_phys = pointer? * pixels_per_point;
-    Some((pointer_phys - press_phys) / pixels_per_point)
-}
-
-/// 头部动作钮（关闭 ×）：与齿轮同尺寸的方块命中区，× 本体用两条圆头线段
-/// 绘制——内置字体里 × 字形只有 ⚙ 的四成大，靠字号拉平会撑破按钮盒。
-fn close_button(ui: &mut egui::Ui, text: &'static Text) -> egui::Response {
-    let (rect, response) =
-        ui.allocate_exact_size(vec2(ACTION_BUTTON, ACTION_BUTTON), egui::Sense::click());
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(
-            egui::WidgetType::Button,
-            true,
-            text.gloss_popup_close_label.as_str(),
-        )
-    });
-    let color = if response.hovered() || response.is_pointer_button_down_on() {
-        ui.visuals().strong_text_color()
-    } else {
-        ui.visuals().weak_text_color()
-    };
-    let stroke = Stroke::new(CLOSE_STROKE, color);
-    let center = rect.center();
-    ui.painter().line_segment(
-        [
-            center - vec2(CLOSE_ARM, CLOSE_ARM),
-            center + vec2(CLOSE_ARM, CLOSE_ARM),
-        ],
-        stroke,
-    );
-    ui.painter().line_segment(
-        [
-            center - vec2(CLOSE_ARM, -CLOSE_ARM),
-            center + vec2(CLOSE_ARM, -CLOSE_ARM),
-        ],
-        stroke,
-    );
-    response
-}
-
-/// 印章着色档：墨印（纸色实心 + 墨色字，经用）、朱印（朱砂实心 + 纸色字，
-/// 注用）与疏印（描边 + 弱色字，疏用）——demo 三印各成一体。
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum SealTint {
-    Ink,
-    Zhu,
-    Wei,
-}
-
-/// 经注疏印章：小圆角方块 + 单字（en 缩写按文本撑宽，方块边长是下限）。
-/// 几何与配色按 demo 定稿（21px 方块、5px 圆角、宋体字）。
-fn seal(ui: &mut egui::Ui, label: &'static str, tint: SealTint) {
-    let (fg, fill, line) = match tint {
-        SealTint::Ink => (
-            paper_color(ui),
-            ui.visuals().strong_text_color(),
-            Stroke::NONE,
-        ),
-        SealTint::Zhu => (paper_color(ui), zhu_color(ui), Stroke::NONE),
-        SealTint::Wei => {
-            let dim = ui.visuals().weak_text_color();
-            (dim, egui::Color32::TRANSPARENT, Stroke::new(1.0, dim))
-        }
-    };
-    let galley = cached_galley(
-        ui,
-        CachedGalley::Seal(
-            label,
-            tint,
-            ui.visuals().dark_mode,
-            ui.ctx().pixels_per_point().to_bits(),
-        ),
-        || {
-            ui.painter()
-                .layout_no_wrap(label.to_owned(), serif_font(SEAL_FONT), fg)
-        },
-    );
-    let width = SEAL_SIZE.max(galley.size().x + 2.0 * SEAL_TEXT_PADDING);
-    let (rect, response) = ui.allocate_exact_size(vec2(width, SEAL_SIZE), egui::Sense::hover());
-    response
-        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, label.to_owned()));
-    ui.painter()
-        .rect(rect, SEAL_RADIUS, fill, line, egui::StrokeKind::Inside);
-    ui.painter()
-        .galley(rect.center() - galley.size() / 2.0, galley, fg);
-}
-
-/// 朱印上印章字的纸色：明暗主题各取接近卡片底的浅字色，保证与朱砂的
-/// 对比度。
-fn paper_color(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        egui::Color32::from_rgb(0xF2, 0xE9, 0xE4)
-    } else {
-        egui::Color32::from_rgb(0xFF, 0xF6, 0xF2)
-    }
-}
-
-/// 朱砂线色（朱丝栏与朱印共用色源）。
-fn zhu_color(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        color::SEAL_ZHU_DARK
-    } else {
-        color::SEAL_ZHU_LIGHT
-    }
-}
-
-/// 印章/水印 galley 的缓存槽位：键穷举**除字体表外**的全部布局输入
-/// （静态文本、墨色档、明暗、像素密度），取值空间有界（三印一水印 ×
-/// 文案表 × 明暗两态 × 像素密度档），不做逐出。字体表启动期会整体更换一次（内置
-/// 快路径 → 完整表），布局结果随表变化——槽位键不含它，由统一装入点
-/// （`ui::context`）在换表时调 [`clear_cached_text_galleys`] 整体失效。
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum CachedGalley {
-    /// 印章：标签（文案表字段，`'static`）+ 墨色档 + 明暗 + 像素密度位型。
-    Seal(&'static str, SealTint, bool, u32),
-    /// 页脚水印（文案恒为品牌名）+ 明暗 + 像素密度位型。
-    Watermark(bool, u32),
-    /// 页脚生成指示文案（正在/重新注解，文案表字段）+ 明暗 + 像素密度位型。
-    FooterLabel(&'static str, bool, u32),
-}
-
-/// galley 按槽位缓存：epaint 对布局本身记忆化，但每次查询都要先构造
-/// `LayoutJob`（文本拷贝 + sections Vec）再算哈希——印章与水印每帧各一
-/// 次的这份固定开销在这里消失，稳态帧零分配。 galley 不可变，跨帧复用
-/// 渲染一致；明暗或像素密度变化换键重排，字体表变化整体失效。
-#[derive(Default)]
-struct CachedGalleys(HashMap<CachedGalley, Arc<egui::Galley>>);
-
-impl egui::cache::CacheTrait for CachedGalleys {
-    fn update(&mut self) {}
-
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-/// 字体表更换后清空文本 galley 缓存：槽位键不含字体代际，换表前以旧表
-/// （内置快路径字形）排出的 galley 必须整体失效重排，否则字形与量宽
-/// 滞留到下次明暗/DPI 变化。由 `ui::context` 的统一装入点在 `set_fonts`
-/// 后调用（含启动首装——空表清空是空操作）。
-pub(crate) fn clear_cached_text_galleys(ctx: &egui::Context) {
-    ctx.memory_mut(|mem| mem.caches.cache::<CachedGalleys>().0.clear());
-}
-
-/// 取槽位对应的 galley，未缓存时按 `layout` 现排一次。查与写分两步拿
-/// Context 写锁：`layout` 里的排版要走 `fonts_mut`（同一把锁），不能在
-/// `memory_mut` 闭包内重入。UI 单线程，先查后插无竞态。
-fn cached_galley(
-    ui: &egui::Ui,
-    slot: CachedGalley,
-    layout: impl FnOnce() -> Arc<egui::Galley>,
-) -> Arc<egui::Galley> {
-    let ctx = ui.ctx();
-    let cached = ctx.memory_mut(|mem| mem.caches.cache::<CachedGalleys>().0.get(&slot).cloned());
-    if let Some(galley) = cached {
-        return galley;
-    }
-    let galley = layout();
-    ctx.memory_mut(|mem| {
-        mem.caches
-            .cache::<CachedGalleys>()
-            .0
-            .insert(slot, Arc::clone(&galley));
-    });
-    galley
-}
-
-/// 朱丝栏的线色：朱砂按 demo 的 55% 透明档。
-fn zhu_line_color(ui: &egui::Ui) -> egui::Color32 {
-    let zhu = zhu_color(ui);
-    egui::Color32::from_rgba_unmultiplied(zhu.r(), zhu.g(), zhu.b(), ZHU_LINE_ALPHA)
-}
-
-/// 经区行：墨印 + 正文列（`body` 在列内绘制，显式垂直布局）。
-fn jing_section(ui: &mut egui::Ui, text: &'static Text, body: impl FnOnce(&mut egui::Ui)) {
-    ui.horizontal_top(|ui| {
-        seal(ui, text.gloss_popup_seal_jing.as_str(), SealTint::Ink);
-        ui.add_space(SEAL_GAP);
-        ui.with_layout(egui::Layout::top_down(Align::LEFT), body);
-    });
-}
-
-/// 注区行：朱印 + 朱丝栏左线的直接解释（译文/释义/概要）。朱丝栏画在
-/// 正文列左缘，线高随正文（跨行延续，demo 的疏密语义）。
-fn zhu_section(ui: &mut egui::Ui, text: &'static Text, body: impl FnOnce(&mut egui::Ui)) {
-    ui.horizontal_top(|ui| {
-        seal(ui, text.gloss_popup_seal_zhu.as_str(), SealTint::Zhu);
-        ui.add_space(SEAL_GAP);
-        let line_top = ui.cursor().top();
-        let column = ui
-            .with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
-                Frame::new()
-                    .inner_margin(Margin {
-                        left: ZHU_TEXT_GAP,
-                        ..Margin::ZERO
-                    })
-                    .show(ui, body)
-                    .response
-            })
-            .response
-            .rect;
-        ui.painter().line_segment(
-            [
-                egui::pos2(column.min.x, line_top),
-                egui::pos2(column.min.x, column.max.y),
-            ],
-            Stroke::new(ZHU_LINE_WIDTH, zhu_line_color(ui)),
-        );
-    });
-}
-
-/// 疏区行：疏印 + 上缘虚线的小字衍说（译注/例句/小记）。虚线只横贯正文
-/// 列（demo shu-wrap 的 border-top 在文字列上，不过印章列）。
-fn shu_section(ui: &mut egui::Ui, text: &'static Text, body: impl FnOnce(&mut egui::Ui)) {
-    ui.horizontal_top(|ui| {
-        seal(ui, text.gloss_popup_seal_shu.as_str(), SealTint::Wei);
-        ui.add_space(SEAL_GAP);
-        let column = ui
-            .with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
-                Frame::new()
-                    .inner_margin(Margin {
-                        top: SHU_TEXT_GAP,
-                        ..Margin::ZERO
-                    })
-                    .show(ui, body)
-                    .response
-            })
-            .response
-            .rect;
-        let dashes = Shape::dashed_line(
-            &[
-                egui::pos2(column.min.x, column.min.y),
-                egui::pos2(column.max.x, column.min.y),
-            ],
-            Stroke::new(1.0, ui.visuals().weak_text_color()),
-            SHU_DASH_LENGTH,
-            SHU_GAP_LENGTH,
-        );
-        ui.painter().extend(dashes);
-    });
-}
-
-/// 经区块的正文：原文/词条随任务形制。代码任务为单层代码面板——代码
-/// 底色直接铺满经位区块（用户反馈定稿：无外层底色的界栏框），配等宽
-/// 体、按可用宽折行、左上角语言标签行与 syntect（Sublime 语法集）的六类
-/// 语法着色；其余为宋体原文。
-fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&str>) {
-    let strong = ui.visuals().strong_text_color();
-    if code {
-        Frame::new()
-            .fill(code_bg(ui))
-            .stroke(Stroke::new(CODE_PANEL_STROKE, code_border(ui)))
-            .corner_radius(CornerRadius::same(CODE_PANEL_RADIUS))
-            .inner_margin(Margin::symmetric(
-                CODE_PANEL_PADDING_H,
-                CODE_PANEL_PADDING_V,
-            ))
-            .show(ui, |ui| {
-                // 面板底色铺满弹窗可用宽（Frame 默认随内容收缩，这里把
-                // 内容列定到可用宽，外框连同底色一起撑满）。
-                ui.set_width(ui.available_width());
-                code_badge(ui, code_lang);
-                // 等宽折行：超宽按可用宽换行（滚动区只纵向滚，横滚不进
-                // 弹窗）。
-                let job = code_job(ui, source, code_lang, ui.available_width());
-                let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
-                ui.add(egui::Label::new(egui::WidgetText::Galley(galley)).selectable(true));
-            });
-        return;
-    }
-    ui.add(
-        egui::Label::new(
-            RichText::new(source)
-                .font(serif_font(JING_FONT))
-                .color(strong),
-        )
-        .wrap()
-        .selectable(true),
-    );
-}
-
-/// 代码正文的着色排版：syntect 分词 + egui_extras 出 [`egui::text::LayoutJob`]
-/// （六类色由 `code_hl` 的自定义主题注入），再补上本面板的折行与行高。
-/// 语言未定或表外语言落 [`code_hl::fallback_job`] 的通用启发集——不猜具体
-/// 语言，只认跨语言稳定的字符串/注释/数字/类型/函数形。
-fn code_job(
-    ui: &egui::Ui,
-    source: &str,
-    code_lang: Option<&str>,
-    wrap_width: f32,
-) -> egui::text::LayoutJob {
-    let dark = ui.visuals().dark_mode;
-    let font_id = FontId::new(CODE_FONT, fonts::mono_family());
-    let Some(mut job) = code_hl::highlight(
-        ui.ctx(),
-        ui.style(),
-        dark,
-        font_id.clone(),
-        source,
-        code_lang,
-    ) else {
-        return code_hl::fallback_job(source, &font_id, dark, wrap_width, CODE_LINE_HEIGHT);
-    };
-    job.wrap = egui::text::TextWrapping {
-        max_width: wrap_width,
-        break_anywhere: true,
-        ..egui::text::TextWrapping::no_max_width()
-    };
-    job.break_on_newline = true;
-    for section in &mut job.sections {
-        // 逐段写回字体：egui_extras 在分词失败时退回的纯文本用 style 派生的
-        // 字体，不写回会丢掉 gloss-mono。
-        section.format.font_id = font_id.clone();
-        section.format.line_height = Some(CODE_LINE_HEIGHT);
-    }
-    job
-}
-
-/// 代码面板底色（明暗随主题，demo code-bg 双档）。
-fn code_bg(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        color::CODE_BG_DARK
-    } else {
-        color::CODE_BG_LIGHT
-    }
-}
-
-/// 代码面板边色（明暗随主题，demo card-border 的近隐形档）。
-fn code_border(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        color::CODE_BORDER_DARK
-    } else {
-        color::CODE_BORDER_LIGHT
-    }
-}
-
-/// 语言标签：面板内首行左上的原样小写弱色小字（图样定稿：与浅色一致
-/// 的统一面板底，不做标签带；标签行与代码之间空一个代码行高），未知
-/// 语言不显示。Label 落字自带无障碍标签（语言进树可检索）。
-fn code_badge(ui: &mut egui::Ui, lang: Option<&str>) {
-    let Some(lang) = lang else {
-        return;
-    };
-    ui.label(
-        RichText::new(lang)
-            .font(FontId::new(CODE_BADGE_FONT, FontFamily::Proportional))
-            .color(ui.visuals().weak_text_color()),
-    )
-    .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, lang.to_owned()));
-    ui.add_space(CODE_LINE_HEIGHT);
-}
-
-/// 注/疏区共用的文本样式改写：markdown 正文与列表项落到楷体（egui_commonmark
-/// 经 `ui.style().text_styles` 取字体，改写即生效；代码块仍走等宽族）。
-/// 注正文用注字号（[`ZHU_FONT`]），疏条目用疏字号（[`SHU_FONT`]）。
-fn apply_markdown_typography(ui: &mut egui::Ui, body_size: f32) {
-    for (style, size) in [
-        (TextStyle::Body, body_size),
-        (TextStyle::Button, body_size),
-        (TextStyle::Small, SMALL_FONT),
-        (TextStyle::Heading, JING_FONT),
-    ] {
-        ui.style_mut().text_styles.insert(style, kaiti_font(size));
-    }
-}
-
-/// 骨架条（「经显注未至」的正文占位）：三根不同长度的圆角条随时间
-/// 脉动，无任何文字与无障碍标签——「正在注解」由页脚唯一携带，双标签
-/// 会让查询歧义。动画期间请求短重绘；kittest 的固定时间零点让快照
-/// 恒定在同一相位。
-fn shimmer_bars(ui: &mut egui::Ui) {
-    let now = ui.input(|i| i.time);
-    let ratios = [0.95, 0.78, 0.6];
-    let full = ui.available_width();
-    let gap = space::ITEM;
-    let total_h = ratios.len() as f32 * SHIMMER_BAR_HEIGHT + (ratios.len() - 1) as f32 * gap;
-    let (rect, _response) = ui.allocate_exact_size(vec2(full, total_h), egui::Sense::hover());
-    let weak = ui.visuals().weak_text_color();
-    for (index, ratio) in ratios.iter().enumerate() {
-        let phase = (index as f64) * 0.9;
-        let wave = ((now / PULSE_PERIOD_SECS + phase).sin() + 1.0) / 2.0;
-        let alpha =
-            SHIMMER_ALPHA_MIN as f64 + wave * f64::from(SHIMMER_ALPHA_MAX - SHIMMER_ALPHA_MIN);
-        let alpha = (alpha as f32).round().clamp(0.0, 255.0) as u8;
-        let bar = egui::Rect::from_min_size(
-            egui::pos2(
-                rect.min.x,
-                rect.min.y + index as f32 * (SHIMMER_BAR_HEIGHT + gap),
-            ),
-            vec2(full * ratio, SHIMMER_BAR_HEIGHT),
-        );
-        ui.painter().rect_filled(
-            bar,
-            SHIMMER_BAR_RADIUS,
-            egui::Color32::from_rgba_unmultiplied(weak.r(), weak.g(), weak.b(), alpha),
-        );
-    }
-    ui.ctx()
-        .request_repaint_after(Duration::from_secs_f32(0.016));
-}
-
-/// 页脚带（常驻）：上缘细线，推理中左端是「正在注解」/「重新注解」
-/// 文案 + 呼吸点（修复轮切换文案，生成指示唯一落点，无障碍标签也在
-/// 这里），右端恒为 Gloss 水印。动画与骨架同源（时间驱动 alpha + 短重绘），
-/// 仅在推理中请求。
-fn footer(ui: &mut egui::Ui, streaming: bool, repairing: bool, text: &'static Text) {
-    let (rect, response) = ui.allocate_exact_size(
-        vec2(ui.available_width(), FOOTER_HEIGHT),
-        egui::Sense::hover(),
-    );
-    let dim = ui.visuals().weak_text_color();
-    ui.painter().line_segment(
-        [
-            egui::pos2(rect.min.x, rect.min.y),
-            egui::pos2(rect.max.x, rect.min.y),
-        ],
-        hairline(ui),
-    );
-    if streaming {
-        let label = if repairing {
-            &text.gloss_popup_reannotating
-        } else {
-            &text.gloss_popup_annotating
-        };
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::ProgressIndicator, true, label.as_str())
-        });
-        let galley = cached_galley(
-            ui,
-            CachedGalley::FooterLabel(
-                label.as_str(),
-                ui.visuals().dark_mode,
-                ui.ctx().pixels_per_point().to_bits(),
-            ),
-            || {
-                egui::WidgetText::from(RichText::new(label.as_str()).size(font::TAG).color(dim))
-                    .into_galley(
-                        ui,
-                        Some(ui.wrap_mode()),
-                        ui.available_width(),
-                        egui::FontSelection::Default,
-                    )
-            },
-        );
-        ui.painter().galley(
-            egui::pos2(
-                rect.min.x,
-                rect.center().y + stroke::CARD - galley.size().y / 2.0,
-            ),
-            galley.clone(),
-            dim,
-        );
-        let now = ui.input(|i| i.time);
-        let zhu = zhu_color(ui);
-        let mut dot_center = egui::pos2(
-            rect.min.x + galley.size().x + space::TIGHT + FOOTER_DOT_RADIUS,
-            rect.center().y + stroke::CARD,
-        );
-        for index in 0..FOOTER_DOT_COUNT {
-            let wave = ((now / PULSE_PERIOD_SECS + index as f64 * 0.9).sin() + 1.0) / 2.0;
-            let alpha = (FOOTER_DOT_ALPHA_MIN as f64
-                + wave * f64::from(FOOTER_DOT_ALPHA_MAX - FOOTER_DOT_ALPHA_MIN))
-                as f32;
-            let alpha = alpha.round().clamp(0.0, 255.0) as u8;
-            ui.painter().circle_filled(
-                dot_center,
-                FOOTER_DOT_RADIUS,
-                egui::Color32::from_rgba_unmultiplied(zhu.r(), zhu.g(), zhu.b(), alpha),
-            );
-            dot_center.x += FOOTER_DOT_RADIUS * 3.0;
-        }
-        ui.ctx()
-            .request_repaint_after(Duration::from_secs_f32(0.016));
-    }
-    // 水印走 Label 而不是 painter 文字：进无障碍树，可检索、可测。槽宽按
-    // 水印字串实测宽 + 余量（与印章同一模式），右对齐贴页脚右缘。标签
-    // 直接吃缓存槽里的同一份 galley，不再逐帧重排版、不逐帧复制字串。
-    // 缓存未命中时的排版走与 `Label` 同源的 `WidgetText::into_galley`
-    // （valign/字体/style 解析一致）；job 的 halign/justify 维持默认
-    // （LEFT/不两端对齐），落点由 `ui.put` 的居中与槽宽（=galley 宽 +
-    // 对称余量）决定——渲染一致性由 L2 快照钉住，不靠此处机制断言。
-    let galley = cached_galley(
-        ui,
-        CachedGalley::Watermark(
-            ui.visuals().dark_mode,
-            ui.ctx().pixels_per_point().to_bits(),
-        ),
-        || {
-            egui::WidgetText::from(RichText::new(watermark()).size(font::TAG).color(dim))
-                .into_galley(
-                    ui,
-                    Some(ui.wrap_mode()),
-                    ui.available_width(),
-                    egui::FontSelection::Default,
-                )
-        },
-    );
-    let slot = galley.size().x + 2.0 * WATERMARK_PADDING;
-    ui.put(
-        egui::Rect::from_min_max(
-            egui::pos2(rect.max.x - slot, rect.min.y),
-            egui::pos2(rect.max.x, rect.max.y),
-        ),
-        egui::Label::new(egui::WidgetText::Galley(galley))
-            .selectable(false)
-            .halign(Align::RIGHT),
-    );
-}
-
-/// 无边框的动作图标钮（glyph 字形，颜色由 widget 状态笔刷决定）；方块
-/// min_size 让齿轮与关闭钮命中区等大。
-fn icon_button(glyph: &'static str) -> egui::Button<'static> {
-    egui::Button::new(RichText::new(glyph).size(ACTION_ICON_SIZE))
-        .frame(false)
-        .min_size(vec2(ACTION_BUTTON, ACTION_BUTTON))
-}
-
-/// markdown 正文：完整渲染（egui_commonmark 解析绘制），缓存跨帧持有。
-fn render_markdown(ui: &mut egui::Ui, state: &RenderState, text: &str) {
-    let mut cache = state.cache.borrow_mut();
-    CommonMarkViewer::new().show(ui, &mut cache, text);
-}
-
-/// 该任务是否按代码排版（经位走代码面板）：流式视图看自动分类的
-/// 判定，完成态看产物任务的类型。
-fn is_code(kind: Option<TaskKind>) -> bool {
-    kind == Some(TaskKind::ExplainCode)
-}
-
-/// 产物正文的代码语言（渲染时现算）：唯一来源是产物的
-/// `structured.code_language`（LLM 判定），经 `code_hl::adopt` 过采纳
-/// 门槛与归一化；非代码变体恒无语言。
-fn outcome_code_lang(outcome: &gloss_core::task::TaskOutcome) -> Option<String> {
-    match &outcome.structured {
-        OutcomeStructured::Code { code_language, .. } => code_hl::adopt(code_language.as_deref()),
-        _ => None,
-    }
-}
-
-/// 产物正文（经注疏排布）：经（原文；图像任务为附件图像本身，缺席或
-/// 解码失败落占位）、注（markdown 注文，词卡的义/句译的译文/讲解的正文）、
-/// 疏（examples 疏证逐条）。代码语言按产物判定现算（见
-/// [`outcome_code_lang`]）。
-fn outcome_body(
-    ui: &mut egui::Ui,
-    source: &str,
-    outcome: &gloss_core::task::TaskOutcome,
-    attached: Option<&Arc<[u8]>>,
-    state: &RenderState,
-    text: &'static Text,
-) {
-    let code_lang = outcome_code_lang(outcome);
-    match &outcome.structured {
-        OutcomeStructured::WordCard { phonetic, examples } => {
-            if !source.trim().is_empty() {
-                jing_section(ui, text, |ui| word_head(ui, source, phonetic.as_deref()));
-                ui.add_space(space::PARAGRAPH);
-            }
-            zhu_and_shu(ui, &outcome.note, examples, state, text);
-        }
-        OutcomeStructured::Code { examples, .. } | OutcomeStructured::Plain { examples, .. }
-            if outcome.kind == TaskKind::ImageExplain =>
-        {
-            // 图像任务（恒落 Plain 变体）：经位是图像本身（布局开关＝
-            // 附件在场，不依赖 classified 到达时序）；缺图回落原文经位
-            // （缓存命中等会话边缘），再缺落占位。
-            match attached {
-                Some(png) => jing_section(ui, text, |ui| attached_image(ui, png, state, text)),
-                None if !source.trim().is_empty() => {
-                    jing_section(ui, text, |ui| source_block(ui, source, false, None));
-                }
-                None => jing_section(ui, text, |ui| image_unavailable(ui, text)),
-            }
-            ui.add_space(space::PARAGRAPH);
-            zhu_and_shu(ui, &outcome.note, examples, state, text);
-        }
-        OutcomeStructured::Plain { examples } | OutcomeStructured::Code { examples, .. } => {
-            if !source.trim().is_empty() {
-                jing_section(ui, text, |ui| {
-                    source_block(
-                        ui,
-                        source,
-                        is_code(Some(outcome.kind)),
-                        code_lang.as_deref(),
-                    )
-                });
-                ui.add_space(space::PARAGRAPH);
-            }
-            zhu_and_shu(ui, &outcome.note, examples, state, text);
-        }
-    }
-}
-
-/// 注 + 疏：三个产物变体共用（注文 markdown 与例句列表的位置固定）。
-fn zhu_and_shu(
-    ui: &mut egui::Ui,
-    note: &str,
-    examples: &[String],
-    state: &RenderState,
-    text: &'static Text,
-) {
-    zhu_section(ui, text, |ui| {
-        apply_markdown_typography(ui, ZHU_FONT);
-        render_markdown(ui, state, note);
-    });
-    if !examples.is_empty() {
-        ui.add_space(space::PARAGRAPH);
-        shu_examples(ui, examples, state, text);
-    }
-}
-
-/// 词卡经位（说文体例的字头行）：原文（选区词条）+ 音标（读若）随行。
-fn word_head(ui: &mut egui::Ui, word: &str, phonetic: Option<&str>) {
-    ui.horizontal_wrapped(|ui| {
-        ui.label(
-            RichText::new(word)
-                .font(serif_font(WORD_FONT))
-                .color(ui.visuals().strong_text_color()),
-        );
-        if let Some(phonetic) = phonetic {
-            ui.label(
-                RichText::new(phonetic)
-                    .font(FontId::new(PHON_FONT, fonts::mono_family()))
-                    .color(ui.visuals().weak_text_color()),
-            );
-        }
-    });
-}
-
-/// 疏位疏证（examples 逐条）：条目在 code 模板下是 markdown、其余模板下
-/// 以纯文本为主（general 的链接语法除外），统一走注文同一条 markdown
-/// 渲染管线（楷体疏字号、正文色，纯文本不变形）——条目的出处/原文/
-/// 按断结构由条目自身的内容承载，不做拆行整形与列表符装饰。
-fn shu_examples(ui: &mut egui::Ui, examples: &[String], state: &RenderState, text: &'static Text) {
-    shu_section(ui, text, |ui| {
-        apply_markdown_typography(ui, SHU_FONT);
-        for (index, example) in examples.iter().enumerate() {
-            if index > 0 {
-                ui.add_space(space::INLINE);
-            }
-            render_markdown(ui, state, example);
-        }
-    });
-}
-
-/// 自检卡正文（预热与显隐自检路径）：中英混排一眼可辨字体链路健康。
-fn selfcheck_body(ui: &mut egui::Ui) {
-    let strong = ui.visuals().strong_text_color();
-    let weak = ui.visuals().weak_text_color();
-    ui.label(
-        RichText::new("The quick brown fox jumps over the lazy dog.")
-            .size(font::NOTICE)
-            .color(weak),
-    );
-    ui.add_space(space::SECTION);
-    ui.label(
-        RichText::new("敏捷的棕色狐狸从懒狗身上跳过。") // i18n:allow 自检字样，字体链路夹具
-            .size(font::TITLE)
-            .strong()
-            .color(strong),
-    );
-    ui.add_space(space::SECTION);
-    ui.label(
-        RichText::new("中文渲染自检：划词翻译、代码解释、图片识别。") // i18n:allow 自检字样，字体链路夹具
-            .size(font::NOTICE)
-            .color(weak),
-    );
-}
-
 #[cfg(test)]
 mod kittest_tests {
 
     use std::cell::RefCell;
     use std::rc::Rc;
 
+    use egui::vec2;
     use egui_kittest::{Harness, kittest::NodeT, kittest::Queryable};
 
     use super::*;
-    use crate::machine::OverlayView;
+
+    use crate::machine::{FailureCause, OverlayView};
     use gloss_core::model::{GlossError, Locale};
-    use gloss_core::task::{TaskKind, TaskOutcome};
+    use gloss_core::task::{OutcomeStructured, TaskKind, TaskOutcome};
 
     fn word_card_view() -> OverlayView {
         OverlayView::Outcome {
@@ -1725,27 +627,6 @@ mod kittest_tests {
             }
         });
         (harness, clicked)
-    }
-
-    fn snapshot_harness(view: Option<OverlayView>) -> Harness<'static> {
-        snapshot_harness_with(view, None)
-    }
-
-    fn snapshot_harness_with(
-        view: Option<OverlayView>,
-        attached: Option<Arc<[u8]>>,
-    ) -> Harness<'static> {
-        let state = RenderState::default();
-        let text = Text::get(Locale::En);
-        let installed = Cell::new(false);
-        Harness::builder()
-            .with_theme(egui::Theme::Light)
-            .build_ui(move |ui| {
-                if font_first_frame(&installed, ui.ctx()) {
-                    return;
-                }
-                let _ = draw(ui, view.as_ref(), attached.as_ref(), &state, text);
-            })
     }
 
     #[test]
@@ -2412,72 +1293,88 @@ mod kittest_tests {
         );
     }
 
+    enum Run {
+        Settle,
+        Steps(usize),
+    }
+
+    fn snapshot_case(
+        results: &mut egui_kittest::SnapshotResults,
+        name: &str,
+        view: Option<OverlayView>,
+        attached: Option<Arc<[u8]>>,
+        run: Run,
+    ) {
+        let state = RenderState::default();
+        let text = Text::get(Locale::En);
+        let installed = Cell::new(false);
+        let mut harness = Harness::builder()
+            .with_theme(egui::Theme::Light)
+            .build_ui(move |ui| {
+                if font_first_frame(&installed, ui.ctx()) {
+                    return;
+                }
+                let _ = draw(ui, view.as_ref(), attached.as_ref(), &state, text);
+            });
+        match run {
+            Run::Settle => {
+                harness.run();
+            }
+            Run::Steps(steps) => {
+                harness.run_steps(steps);
+            }
+        }
+        harness.snapshot(name);
+        results.extend_harness(&mut harness);
+    }
+
     #[test]
     fn snapshots_match_baseline() {
         let mut results = egui_kittest::SnapshotResults::new();
-
-        let mut harness = snapshot_harness(Some(word_card_view_en()));
-        harness.run();
-        harness.snapshot("popup_word_card");
-        results.extend_harness(&mut harness);
-
-        let mut harness = snapshot_harness(Some(streaming_view_en()));
-        harness.run_steps(3);
-        harness.snapshot("popup_streaming");
-        results.extend_harness(&mut harness);
-
-        let mut harness = snapshot_harness(Some(failed_view()));
-        harness.run();
-        harness.snapshot("popup_failed");
-        results.extend_harness(&mut harness);
-
-        let mut harness = snapshot_harness(Some(auth_failed_view()));
-        harness.run();
-        harness.snapshot("popup_failed_auth");
-        results.extend_harness(&mut harness);
-
-        let mut harness = snapshot_harness(Some(code_streaming_view_en()));
-        harness.run_steps(3);
-        harness.snapshot("popup_code_streaming");
-        results.extend_harness(&mut harness);
-
-        let mut harness = snapshot_harness(Some(code_outcome_view_en()));
-        harness.run();
-        harness.snapshot("popup_code_outcome");
-        results.extend_harness(&mut harness);
-
-        let mut harness =
-            snapshot_harness_with(Some(image_commentary_view_en()), Some(fixture_png()));
-        harness.run();
-        harness.snapshot("popup_image_outcome");
-        results.extend_harness(&mut harness);
-
-        let mut harness =
-            snapshot_harness_with(Some(image_streaming_view_en()), Some(fixture_png()));
-        harness.run_steps(3);
-        harness.snapshot("popup_image_streaming");
-        results.extend_harness(&mut harness);
-
-        let mut harness = snapshot_harness(Some(image_too_large_view()));
-        harness.run();
-        harness.snapshot("popup_image_failed");
-        results.extend_harness(&mut harness);
-
-        let mut harness = snapshot_harness(Some(degraded_outcome_view_en()));
-        harness.run();
-        harness.snapshot("popup_degraded_outcome");
-        results.extend_harness(&mut harness);
-
-        let mut harness = snapshot_harness(None);
-        harness.run();
-        harness.snapshot("popup_selfcheck");
-        results.extend_harness(&mut harness);
-
-        let mut harness = snapshot_harness(Some(long_line_view()));
-        harness.run();
-        harness.snapshot("popup_long_line");
-        results.extend_harness(&mut harness);
-
+        for (name, view, run) in [
+            ("popup_word_card", Some(word_card_view_en()), Run::Settle),
+            ("popup_streaming", Some(streaming_view_en()), Run::Steps(3)),
+            ("popup_failed", Some(failed_view()), Run::Settle),
+            ("popup_failed_auth", Some(auth_failed_view()), Run::Settle),
+            (
+                "popup_code_streaming",
+                Some(code_streaming_view_en()),
+                Run::Steps(3),
+            ),
+            (
+                "popup_code_outcome",
+                Some(code_outcome_view_en()),
+                Run::Settle,
+            ),
+            (
+                "popup_image_failed",
+                Some(image_too_large_view()),
+                Run::Settle,
+            ),
+            (
+                "popup_degraded_outcome",
+                Some(degraded_outcome_view_en()),
+                Run::Settle,
+            ),
+            ("popup_selfcheck", None, Run::Settle),
+            ("popup_long_line", Some(long_line_view()), Run::Settle),
+        ] {
+            snapshot_case(&mut results, name, view, None, run);
+        }
+        snapshot_case(
+            &mut results,
+            "popup_image_outcome",
+            Some(image_commentary_view_en()),
+            Some(fixture_png()),
+            Run::Settle,
+        );
+        snapshot_case(
+            &mut results,
+            "popup_image_streaming",
+            Some(image_streaming_view_en()),
+            Some(fixture_png()),
+            Run::Steps(3),
+        );
         results.unwrap();
     }
 }

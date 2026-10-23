@@ -1,6 +1,7 @@
 //! 编排用例·探测段：消费通道①（平台事件）→ 场景闸门 → 产出取材命令
 //! 发往通道②。状态机不动、不显形——产物到达才由 `task` 提交。
 
+use gloss_core::guard::SceneFacts;
 use gloss_core::log::{Span, debug, info, task_span, thread, warn};
 
 use crate::channel::{AcquireCommand, PlatformEvent, Traced};
@@ -60,58 +61,45 @@ impl GlossApp {
                 ),
                 _ => None,
             }) else {
-                // 两类拦下各有各的级别与措辞：被场景闸门拦下的是「这一次
-                // 的场景不合适」（换一个应用，或取消密码框的聚焦）；自身
-                // 前台是防误触的日常过滤（连拖 Gloss 自己的浮层），只留
-                // debug；未接线的事件同样只留在默认级别看不见的 debug 里。
-                match trigger_decision(&event, &scene) {
-                    TriggerDecision::Blocked(block) => warn!(
-                        thread = thread::UI,
-                        reason = %block,
-                        "trigger suppressed by the sensitive content guard"
-                    ),
-                    TriggerDecision::SelfSuppressed => debug!(
-                        thread = thread::UI,
-                        "selection gesture ignored: gloss itself is the frontmost app"
-                    ),
-                    _ => debug!(
-                        thread = thread::UI,
-                        event = ?event,
-                        "platform event ignored: not wired yet"
-                    ),
-                }
+                log_unwired(&event, &scene);
                 continue;
             };
-            let generation = command.generation();
-            let span = task_span(generation);
-            self.session.task_span = Some((generation, span.clone()));
-            let entered_span = span.clone();
-            let _entered = entered_span.enter();
-            // 划词探测记录释放坐标与前台应用（随探测编号）：浮层显示时跟随
-            // 选区；探测失败的排查日志带上应用标识。剪贴板观察无锚点——
-            // 浮层露面走既有居中路径。
-            match event {
-                PlatformEvent::SelectionGesture { pos } => {
-                    info!(
-                        thread = thread::UI,
-                        "selection probe dispatched as acquire command"
-                    );
-                    self.session.selection_anchor = Some((generation, pos));
-                    self.session.probe_front_app = scene.front_app;
-                }
-                PlatformEvent::PasteboardImageObserved => {
-                    info!(
-                        thread = thread::UI,
-                        "pasteboard image probe dispatched as acquire command"
-                    );
-                }
-                _ => {}
+            self.dispatch_probe(command, event, scene);
+        }
+    }
+
+    /// 命令下发段：探测编号升为任务 span、按触发类型留存锚点与前台应用，
+    /// 再发往通道②；发送失败（事件线程死亡/退出）时作废探测即可（当前
+    /// 显示不动）。
+    fn dispatch_probe(&mut self, command: AcquireCommand, event: PlatformEvent, scene: SceneFacts) {
+        let generation = command.generation();
+        let span = task_span(generation);
+        self.session.task_span = Some((generation, span.clone()));
+        let entered_span = span.clone();
+        let _entered = entered_span.enter();
+        // 划词探测记录释放坐标与前台应用（随探测编号）：浮层显示时跟随
+        // 选区；探测失败的排查日志带上应用标识。剪贴板观察无锚点——
+        // 浮层露面走既有居中路径。
+        match event {
+            PlatformEvent::SelectionGesture { pos } => {
+                info!(
+                    thread = thread::UI,
+                    "selection probe dispatched as acquire command"
+                );
+                self.session.selection_anchor = Some((generation, pos));
+                self.session.probe_front_app = scene.front_app;
             }
-            if !self.send_acquire(command, span) {
-                // 取材通道发送失败：作废探测即可（当前显示不动）。
-                self.machine.drop_probe();
-                self.session.probe_front_app = None;
+            PlatformEvent::PasteboardImageObserved => {
+                info!(
+                    thread = thread::UI,
+                    "pasteboard image probe dispatched as acquire command"
+                );
             }
+            _ => {}
+        }
+        if !self.send_acquire(command, span) {
+            self.machine.drop_probe();
+            self.session.probe_front_app = None;
         }
     }
 
@@ -134,6 +122,29 @@ impl GlossApp {
             return false;
         }
         true
+    }
+}
+
+/// 状态机拦下或未接线的事件的分级去向：两类拦下各有各的级别与措辞——
+/// 被场景闸门拦下的是「这一次的场景不合适」（换一个应用，或取消密码框
+/// 的聚焦）；自身前台是防误触的日常过滤（连拖 Gloss 自己的浮层），只留
+/// debug；未接线的事件同样只留在默认级别看不见的 debug 里。
+fn log_unwired(event: &PlatformEvent, scene: &SceneFacts) {
+    match trigger_decision(event, scene) {
+        TriggerDecision::Blocked(block) => warn!(
+            thread = thread::UI,
+            reason = %block,
+            "trigger suppressed by the sensitive content guard"
+        ),
+        TriggerDecision::SelfSuppressed => debug!(
+            thread = thread::UI,
+            "selection gesture ignored: gloss itself is the frontmost app"
+        ),
+        _ => debug!(
+            thread = thread::UI,
+            event = ?event,
+            "platform event ignored: not wired yet"
+        ),
     }
 }
 

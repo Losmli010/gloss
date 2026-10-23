@@ -268,37 +268,46 @@ fn upsert_fixtures(fixtures: &[gloss_eval::dataset::Fixture]) -> Result<usize, S
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("fixtures")
             .join(file);
-        let existing = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(error) => return Err(format!("read {}: {error}", path.display())),
-        };
-        let mut lines: Vec<String> = existing
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(str::to_owned)
-            .filter(|line| {
-                let id = serde_json::from_str::<serde_json::Value>(line)
-                    .ok()
-                    .and_then(|value| {
-                        value
-                            .get("id")
-                            .and_then(|id| id.as_str().map(str::to_owned))
-                    });
-                !entries
-                    .iter()
-                    .any(|entry| id.as_deref() == Some(entry.id.as_str()))
-            })
-            .collect();
-        for entry in &entries {
-            let line = serde_json::to_string(entry).map_err(|err| err.to_string())?;
-            lines.push(line);
-            written += 1;
-        }
-        gloss_eval::history::write_atomic(&path, &format!("{}\n", lines.join("\n")))
-            .map_err(|err| format!("write {}: {err}", path.display()))?;
+        written += merge_fixtures(&path, &entries)?;
     }
     Ok(written)
+}
+
+/// 单个夹具文件的 upsert：读原文件、剔除被录制覆盖的 id、追加录制并原子
+/// 写回，返回追加的条数。
+fn merge_fixtures(
+    path: &std::path::Path,
+    entries: &[&gloss_eval::dataset::Fixture],
+) -> Result<usize, String> {
+    let existing = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("read {}: {error}", path.display())),
+    };
+    let mut lines: Vec<String> = existing
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(str::to_owned)
+        .filter(|line| {
+            let id = serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("id")
+                        .and_then(|id| id.as_str().map(str::to_owned))
+                });
+            !entries
+                .iter()
+                .any(|entry| id.as_deref() == Some(entry.id.as_str()))
+        })
+        .collect();
+    for entry in entries {
+        let line = serde_json::to_string(entry).map_err(|err| err.to_string())?;
+        lines.push(line);
+    }
+    gloss_eval::history::write_atomic(path, &format!("{}\n", lines.join("\n")))
+        .map_err(|err| format!("write {}: {err}", path.display()))?;
+    Ok(entries.len())
 }
 
 #[cfg(test)]

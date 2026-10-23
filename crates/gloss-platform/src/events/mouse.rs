@@ -117,7 +117,7 @@ mod tap {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::JoinHandle;
 
-    use crossbeam_channel::{Receiver, bounded};
+    use crossbeam_channel::{Receiver, Sender, bounded};
 
     use gloss_core::log::{debug, info, thread, warn};
     use gloss_core::model::ScreenPoint;
@@ -188,45 +188,7 @@ mod tap {
         let (created_tx, created_rx) = bounded::<Result<(), ListenError>>(1);
         let spawned: Result<JoinHandle<()>, _> = std::thread::Builder::new()
             .name("gloss-mouse-tap".into())
-            .spawn(move || {
-                // 事件 tap 回调是 C 回调，panic 穿过它直接 abort 进程：与事件
-                // 线程的 guarded 同一纪律，unwind 构建下兜底后监听继续；release
-                // 以 `panic = "abort"` 构建时本屏障不再拦截，panic 在事发点
-                // abort 进程（生效边界同 guarded）。兜底放在这里而不在
-                // tap 实现里，是模块与实现之间的分工——实现侧只需保证自己不
-                // panic（它的活只是常量查表加读一次坐标）。
-                let sink = move |event: ButtonEvent| {
-                    // panic 屏障：闭包的结果（含 panic 信号）有意整体丢弃，
-                    // 监听循环只关心是否继续。
-                    #[allow(clippy::let_underscore_must_use)]
-                    let _ = catch_unwind(AssertUnwindSafe(|| {
-                        // 通道满时丢弃：手势判定不需要完整事件流，反压 tap 回调
-                        // 的代价远大于丢一次触发机会。
-                        if tx.try_send(event).is_err() {
-                            debug!(
-                                thread = thread::MOUSE_TAP,
-                                "mouse event queue full, event dropped"
-                            );
-                        }
-                    }));
-                };
-                match imp::create(sink) {
-                    Ok(handle) => {
-                        // 创建成功先回报再进阻塞的 run loop（回报通道只有一
-                        // 位且调用方正同步等待；即便对方已提前放弃也不影响
-                        // 监听）。此后只有「运行中停止投递」一条退出路径
-                        // （tap 没有停止 API），置位降级标志并留 info 便于
-                        // 诊断。
-                        drop(created_tx.send(Ok(())));
-                        imp::run(handle);
-                        degraded.store(true, Ordering::Relaxed);
-                        info!(thread = thread::MOUSE_TAP, "mouse listener stopped");
-                    }
-                    Err(err) => {
-                        drop(created_tx.send(Err(err)));
-                    }
-                }
-            });
+            .spawn(move || tap_loop(tx, created_tx, degraded));
         match spawned {
             Ok(_join) => match created_rx.recv() {
                 Ok(Ok(())) => Some(rx),
@@ -255,6 +217,52 @@ mod tap {
                     "failed to spawn mouse tap thread, selection gesture disabled"
                 );
                 None
+            }
+        }
+    }
+
+    /// tap 监听线程的执行体：事件经 panic 屏障投递（满则丢弃），创建相
+    /// 回报后进阻塞的 run loop。
+    fn tap_loop(
+        tx: Sender<ButtonEvent>,
+        created_tx: Sender<Result<(), ListenError>>,
+        degraded: Arc<AtomicBool>,
+    ) {
+        // 事件 tap 回调是 C 回调，panic 穿过它直接 abort 进程：与事件
+        // 线程的 guarded 同一纪律，unwind 构建下兜底后监听继续；release
+        // 以 `panic = "abort"` 构建时本屏障不再拦截，panic 在事发点
+        // abort 进程（生效边界同 guarded）。兜底放在这里而不在
+        // tap 实现里，是模块与实现之间的分工——实现侧只需保证自己不
+        // panic（它的活只是常量查表加读一次坐标）。
+        let sink = move |event: ButtonEvent| {
+            // panic 屏障：闭包的结果（含 panic 信号）有意整体丢弃，
+            // 监听循环只关心是否继续。
+            #[allow(clippy::let_underscore_must_use)]
+            let _ = catch_unwind(AssertUnwindSafe(|| {
+                // 通道满时丢弃：手势判定不需要完整事件流，反压 tap 回调
+                // 的代价远大于丢一次触发机会。
+                if tx.try_send(event).is_err() {
+                    debug!(
+                        thread = thread::MOUSE_TAP,
+                        "mouse event queue full, event dropped"
+                    );
+                }
+            }));
+        };
+        match imp::create(sink) {
+            Ok(handle) => {
+                // 创建成功先回报再进阻塞的 run loop（回报通道只有一
+                // 位且调用方正同步等待；即便对方已提前放弃也不影响
+                // 监听）。此后只有「运行中停止投递」一条退出路径
+                // （tap 没有停止 API），置位降级标志并留 info 便于
+                // 诊断。
+                drop(created_tx.send(Ok(())));
+                imp::run(handle);
+                degraded.store(true, Ordering::Relaxed);
+                info!(thread = thread::MOUSE_TAP, "mouse listener stopped");
+            }
+            Err(err) => {
+                drop(created_tx.send(Err(err)));
             }
         }
     }

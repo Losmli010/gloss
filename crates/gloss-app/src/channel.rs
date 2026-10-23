@@ -497,6 +497,32 @@ mod tests {
     #[test]
     fn channels_bundles_all_four() {
         let mut channels = Channels::new();
+        send_one_of_each(&mut channels);
+
+        assert_eq!(
+            channels.platform_events.rx.recv().unwrap(),
+            PlatformEvent::SelectionGesture {
+                pos: ScreenPoint::new(30, 40)
+            }
+        );
+        assert_eq!(
+            channels.acquire_commands.rx.recv().unwrap().payload,
+            AcquireCommand::AcquireText { generation: 1 }
+        );
+        assert!(matches!(
+            channels.commands.rx.blocking_recv().unwrap().payload,
+            Command::RunTask { generation: 1, .. }
+        ));
+        assert_eq!(
+            channels.events.rx.recv().unwrap(),
+            Event::TaskFailed {
+                generation: 1,
+                error: GlossError::SelectionUnavailable
+            }
+        );
+    }
+
+    fn send_one_of_each(channels: &mut Channels) {
         channels
             .platform_events
             .tx
@@ -529,28 +555,6 @@ mod tests {
                 error: GlossError::SelectionUnavailable,
             })
             .unwrap();
-
-        assert_eq!(
-            channels.platform_events.rx.recv().unwrap(),
-            PlatformEvent::SelectionGesture {
-                pos: ScreenPoint::new(30, 40)
-            }
-        );
-        assert_eq!(
-            channels.acquire_commands.rx.recv().unwrap().payload,
-            AcquireCommand::AcquireText { generation: 1 }
-        );
-        assert!(matches!(
-            channels.commands.rx.blocking_recv().unwrap().payload,
-            Command::RunTask { generation: 1, .. }
-        ));
-        assert_eq!(
-            channels.events.rx.recv().unwrap(),
-            Event::TaskFailed {
-                generation: 1,
-                error: GlossError::SelectionUnavailable
-            }
-        );
     }
 
     #[test]

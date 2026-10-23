@@ -131,7 +131,7 @@ mod tests {
 
     use crate::history::{load_history, record_run};
     use crate::metrics::{ClassifyMetrics, TaskMetrics};
-    use crate::report::{EvalContext, EvalReport, assemble_report};
+    use crate::report::{EvalContext, EvalReport, TrackOutputs, assemble_report};
 
     fn temp_dir(tag: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -155,10 +155,12 @@ mod tests {
     fn report(mode: &str, generated_at: i64) -> EvalReport {
         let mut report = assemble_report(
             mode,
-            Some(classify_metrics()),
-            vec![("task_translate_word", TaskMetrics::default())],
-            None,
-            None,
+            TrackOutputs {
+                classify: Some(classify_metrics()),
+                tasks: vec![("task_translate_word", TaskMetrics::default())],
+                latency: None,
+                judge: None,
+            },
             0,
         );
         report.generated_at = generated_at;

@@ -67,93 +67,106 @@ fn perf_commit() -> String {
 }
 
 fn main() -> ExitCode {
+    let Some((first, max, handler)) = run_selftest() else {
+        return ExitCode::FAILURE;
+    };
+    let (tail_growth, rss_verdict) = rss_tail_verdict(&handler);
+    eprintln!(
+        "{}",
+        collect_metrics(&handler, first, max, tail_growth, rss_verdict)
+    );
+    enforce_budgets(first, tail_growth, rss_verdict)
+}
+
+fn run_selftest() -> Option<(Duration, Duration, OverlaySelfTest)> {
     init(None);
     let event_loop = match EventLoop::builder().build() {
         Ok(loop_) => loop_,
         Err(err) => {
             error!(thread = gloss_core::log::thread::UI, error = %err, "failed to build event loop");
-            return ExitCode::FAILURE;
+            return None;
         }
     };
     let mut handler = OverlaySelfTest::default();
     if event_loop.run_app(&mut handler).is_err() {
-        return ExitCode::FAILURE;
+        return None;
     }
-    let Some((first, max)) = handler.summary() else {
-        error!(
-            thread = gloss_core::log::thread::UI,
-            "overlay self-test recorded no frames"
-        );
-        return ExitCode::FAILURE;
-    };
-    let window_handles = handler
-        .windows
-        .as_ref()
-        .map_or(0, WindowManager::handle_refcount);
+    let (first, max) = handler.summary()?;
+    Some((first, max, handler))
+}
 
-    let mut latencies_ms: Vec<f64> = handler
-        .latencies
+fn sorted_latency_ms(samples: &[Duration]) -> Vec<f64> {
+    let mut ms: Vec<f64> = samples
         .iter()
         .map(|latency| latency.as_secs_f64() * 1000.0)
         .collect();
-    latencies_ms.sort_by(f64::total_cmp);
-    let mut hide_ms: Vec<f64> = handler
-        .hide_latencies
-        .iter()
-        .map(|latency| latency.as_secs_f64() * 1000.0)
-        .collect();
-    hide_ms.sort_by(f64::total_cmp);
-    let mut frame_ms = handler.frame_intervals.clone();
-    frame_ms.sort_by(f64::total_cmp);
-    let hide_p50_ms = (!hide_ms.is_empty()).then(|| percentile(&hide_ms, 50.0));
-    let hide_max_ms = hide_ms.last().copied();
-    let frame_p95_ms = (!frame_ms.is_empty()).then(|| percentile(&frame_ms, 95.0));
+    ms.sort_by(f64::total_cmp);
+    ms
+}
 
-    let rss_growth_kb = match (handler.rss_start_kb, handler.rss_end_kb) {
-        (Some(start), Some(end)) => Some(end - start),
-        _ => None,
-    };
+fn rss_tail_verdict(handler: &OverlaySelfTest) -> (Option<i64>, &'static str) {
     let tail_growth = handler
         .rss_curve
         .iter()
         .find(|(round, _)| *round == WARMUP_ROUNDS)
         .and_then(|(_, kb)| handler.rss_end_kb.map(|end| end - kb));
-    let rss_verdict = match tail_growth {
+    let verdict = match tail_growth {
         Some(tail) if tail > RSS_TAIL_GROWTH_BUDGET_KB => "fail",
         Some(_) => "pass",
         None => "skipped",
+    };
+    (tail_growth, verdict)
+}
+
+fn collect_metrics(
+    handler: &OverlaySelfTest,
+    first: Duration,
+    max: Duration,
+    tail_growth: Option<i64>,
+    rss_verdict: &str,
+) -> serde_json::Value {
+    let latencies_ms = sorted_latency_ms(&handler.latencies);
+    let hide_ms = sorted_latency_ms(&handler.hide_latencies);
+    let mut frame_ms = handler.frame_intervals.clone();
+    frame_ms.sort_by(f64::total_cmp);
+    let hide_p50_ms = (!hide_ms.is_empty()).then(|| percentile(&hide_ms, 50.0));
+    let hide_max_ms = hide_ms.last().copied();
+    let frame_p95_ms = (!frame_ms.is_empty()).then(|| percentile(&frame_ms, 95.0));
+    let rss_growth_kb = match (handler.rss_start_kb, handler.rss_end_kb) {
+        (Some(start), Some(end)) => Some(end - start),
+        _ => None,
     };
     let verdict = if first > SHOW_BUDGET || rss_verdict == "fail" {
         "fail"
     } else {
         "pass"
     };
-    eprintln!(
-        "{}",
-        json!({
-            "kind": "overlay_perf",
-            "commit": perf_commit(),
-            "first_ms": first.as_secs_f64() * 1000.0,
-            "p50_ms": percentile(&latencies_ms, 50.0),
-            "p95_ms": percentile(&latencies_ms, 95.0),
-            "max_ms": max.as_secs_f64() * 1000.0,
-            "hide_p50_ms": hide_p50_ms,
-            "hide_max_ms": hide_max_ms,
-            "frame_p95_ms": frame_p95_ms,
-            "frame_missed": handler.frame_missed,
-            "rss_growth_kb": rss_growth_kb,
-            "rss_tail_growth_kb": tail_growth,
-            "rss_tail_budget_kb": RSS_TAIL_GROWTH_BUDGET_KB,
-            "window_handles": window_handles,
-            "budget_ms": SHOW_BUDGET.as_millis() as u64,
-            "verdict": verdict,
-            "env": {
-                "os": env::consts::OS,
-                "arch": env::consts::ARCH,
-                "gpu": handler.frame.as_ref().map(Frame::adapter_name),
-            },
-        })
-    );
+    json!({
+        "kind": "overlay_perf",
+        "commit": perf_commit(),
+        "first_ms": first.as_secs_f64() * 1000.0,
+        "p50_ms": percentile(&latencies_ms, 50.0),
+        "p95_ms": percentile(&latencies_ms, 95.0),
+        "max_ms": max.as_secs_f64() * 1000.0,
+        "hide_p50_ms": hide_p50_ms,
+        "hide_max_ms": hide_max_ms,
+        "frame_p95_ms": frame_p95_ms,
+        "frame_missed": handler.frame_missed,
+        "rss_growth_kb": rss_growth_kb,
+        "rss_tail_growth_kb": tail_growth,
+        "rss_tail_budget_kb": RSS_TAIL_GROWTH_BUDGET_KB,
+        "window_handles": handler.windows.as_ref().map_or(0, WindowManager::handle_refcount),
+        "budget_ms": SHOW_BUDGET.as_millis() as u64,
+        "verdict": verdict,
+        "env": {
+            "os": env::consts::OS,
+            "arch": env::consts::ARCH,
+            "gpu": handler.frame.as_ref().map(Frame::adapter_name),
+        },
+    })
+}
+
+fn enforce_budgets(first: Duration, tail_growth: Option<i64>, rss_verdict: &str) -> ExitCode {
     if rss_verdict == "fail" {
         error!(
             thread = gloss_core::log::thread::UI,

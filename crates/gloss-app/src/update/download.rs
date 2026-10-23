@@ -58,23 +58,61 @@ pub async fn download(
     let partial = work_dir.join(format!("{name}.partial"));
     let dest = work_dir.join(name);
 
+    let start = plan_resume_start(artifact, &partial, resume, cancel).await?;
+    let response = request_partial(artifact, client, start).await?;
+    // 服务端 206 才续传；200（含不支持 Range 的服务端）一律从头整体重下。
+    let resume_accepted = response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+    let offset = if resume_accepted { start } else { 0 };
+    let mut writer = open_partial(&partial, offset, resume_accepted).await?;
+    match stream_body(&mut writer, response, artifact, offset, cancel).await {
+        Ok(()) => {}
+        Err(DownloadError::TooLarge) => {
+            if let Err(err) = tokio::fs::remove_file(&partial).await {
+                debug!(thread = thread::TOKIO, error = %err, "update: oversize partial cleanup failed");
+            }
+            return Err(DownloadError::TooLarge);
+        }
+        Err(err) => return Err(err),
+    }
+    flush(&mut writer).await?;
+    drop(writer);
+
+    verify_and_rename(&partial, &dest, artifact).await
+}
+
+/// 续传起点：`resume` 为真且遗留 `.partial` 值得续时从残料长度续起，
+/// 否则从头并清掉残料。取消在发出任何请求前核对。
+async fn plan_resume_start(
+    artifact: &Artifact,
+    partial: &Path,
+    resume: bool,
+    cancel: &CancellationToken,
+) -> Result<u64, DownloadError> {
     let mut start = 0u64;
     if resume {
-        if let Ok(meta) = tokio::fs::metadata(&partial).await {
+        if let Ok(meta) = tokio::fs::metadata(partial).await {
             let len = meta.len();
             // 残料只有「非空且未满」才值得续；满了或空了都当损坏从头重下。
             if len > 0 && len < artifact.size {
                 start = len;
             }
         }
-    } else if let Err(err) = tokio::fs::remove_file(&partial).await {
+    } else if let Err(err) = tokio::fs::remove_file(partial).await {
         debug!(thread = thread::TOKIO, error = %err, "update: stale partial cleanup failed");
     }
-
     if cancel.is_cancelled() {
         return Err(DownloadError::Cancelled);
     }
+    Ok(start)
+}
 
+/// 发出下载请求并校验响应：非 200/206、Range 语义不符（asked 起点与
+/// Content-Range 对不上）都按传输层故障拒绝。
+async fn request_partial(
+    artifact: &Artifact,
+    client: &reqwest::Client,
+    start: u64,
+) -> Result<reqwest::Response, DownloadError> {
     let mut request = client.get(&artifact.url);
     if start > 0 {
         request = request.header(reqwest::header::RANGE, format!("bytes={start}-"));
@@ -84,14 +122,12 @@ pub async fn download(
         .await
         .map_err(|err| DownloadError::Network(format!("request: {err}")))?;
     let status = response.status();
-    // 服务端 206 才续传；200（含不支持 Range 的服务端）一律从头整体重下。
-    let resume_accepted = status == reqwest::StatusCode::PARTIAL_CONTENT;
-    if !(resume_accepted || status == reqwest::StatusCode::OK) {
+    if !(status == reqwest::StatusCode::PARTIAL_CONTENT || status == reqwest::StatusCode::OK) {
         return Err(DownloadError::Network(format!(
             "unexpected status {status}"
         )));
     }
-    if resume_accepted {
+    if status == reqwest::StatusCode::PARTIAL_CONTENT {
         let content_range = response
             .headers()
             .get(reqwest::header::CONTENT_RANGE)
@@ -103,13 +139,21 @@ pub async fn download(
             )));
         }
     }
+    Ok(response)
+}
 
-    let offset = if resume_accepted { start } else { 0 };
+/// 按 `offset` 打开 `.partial` 供写入：从头下载时清空旧内容，续传时
+/// 保留并定写到续点。
+async fn open_partial(
+    partial: &Path,
+    offset: u64,
+    resume_accepted: bool,
+) -> Result<tokio::io::BufWriter<tokio::fs::File>, DownloadError> {
     let file = tokio::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(!resume_accepted)
-        .open(&partial)
+        .open(partial)
         .await
         .map_err(|err| DownloadError::Io(format!("open partial: {err}")))?;
     file.set_len(offset)
@@ -120,29 +164,37 @@ pub async fn download(
         .seek(std::io::SeekFrom::Start(offset))
         .await
         .map_err(|err| DownloadError::Io(format!("seek partial: {err}")))?;
+    Ok(writer)
+}
 
+/// 流式落盘：取消逐块响应（在途进度留在 `.partial`），累计字节数（含续传
+/// 起点）超清单 `size` 即断，写失败的现场交调用方冲刷。
+async fn stream_body(
+    writer: &mut tokio::io::BufWriter<tokio::fs::File>,
+    response: reqwest::Response,
+    artifact: &Artifact,
+    offset: u64,
+    cancel: &CancellationToken,
+) -> Result<(), DownloadError> {
     let mut total = offset;
     let mut stream = response.bytes_stream();
     loop {
         tokio::select! {
             biased;
             _ = cancel.cancelled() => {
-                flush(&mut writer).await?;
+                flush(writer).await?;
                 return Err(DownloadError::Cancelled);
             }
             chunk = stream.next() => match chunk {
                 None => break,
                 Some(Err(err)) => {
-                    flush(&mut writer).await?;
+                    flush(writer).await?;
                     // 传输中断：在途进度留在 .partial，进程内重试可续传。
                     return Err(DownloadError::Network(format!("stream: {err}")));
                 }
                 Some(Ok(bytes)) => {
                     total += bytes.len() as u64;
                     if total > artifact.size {
-                        if let Err(err) = tokio::fs::remove_file(&partial).await {
-                            debug!(thread = thread::TOKIO, error = %err, "update: oversize partial cleanup failed");
-                        }
                         return Err(DownloadError::TooLarge);
                     }
                     writer
@@ -153,10 +205,25 @@ pub async fn download(
             }
         }
     }
-    flush(&mut writer).await?;
-    drop(writer);
+    Ok(())
+}
 
-    let actual = tokio::fs::metadata(&partial)
+async fn flush(writer: &mut tokio::io::BufWriter<tokio::fs::File>) -> Result<(), DownloadError> {
+    writer
+        .flush()
+        .await
+        .map_err(|err| DownloadError::Io(format!("flush partial: {err}")))
+}
+
+/// 传输完成后的校验与落位：先 size 后 sha256（前者流式常量时间，后者要
+/// 整读一遍文件）；size 偏小保留残料供续传，sha 不符丢弃残料，校验通过
+/// 才原子改名到最终路径。
+async fn verify_and_rename(
+    partial: &Path,
+    dest: &Path,
+    artifact: &Artifact,
+) -> Result<PathBuf, DownloadError> {
+    let actual = tokio::fs::metadata(partial)
         .await
         .map_err(|err| DownloadError::Io(format!("stat partial: {err}")))?
         .len();
@@ -167,25 +234,17 @@ pub async fn download(
             actual,
         });
     }
-    let sha = sha256_hex_file(&partial).await?;
+    let sha = sha256_hex_file(partial).await?;
     if sha != artifact.sha256 {
-        if let Err(err) = tokio::fs::remove_file(&partial).await {
+        if let Err(err) = tokio::fs::remove_file(partial).await {
             debug!(thread = thread::TOKIO, error = %err, "update: mismatched partial cleanup failed");
         }
         return Err(DownloadError::ShaMismatch);
     }
-
-    tokio::fs::rename(&partial, &dest)
+    tokio::fs::rename(partial, dest)
         .await
         .map_err(|err| DownloadError::Io(format!("rename partial: {err}")))?;
-    Ok(dest)
-}
-
-async fn flush(writer: &mut tokio::io::BufWriter<tokio::fs::File>) -> Result<(), DownloadError> {
-    writer
-        .flush()
-        .await
-        .map_err(|err| DownloadError::Io(format!("flush partial: {err}")))
+    Ok(dest.to_path_buf())
 }
 
 /// 产物文件名：取 URL 路径末段（清单 url 已过 https 校验，这里只防

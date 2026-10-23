@@ -16,7 +16,7 @@ use crate::log::{thread, warn};
 use crate::model::GlossError;
 use crate::ports::{AiEngine, EngineRequest, TaskChunk};
 use crate::prompt::{ChatMessage, PromptRegistry};
-use crate::repair::{RepairStage, next_round};
+use crate::repair::{RepairLoop, RepairStage};
 use crate::schema::{self, Violation};
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 
@@ -78,6 +78,10 @@ impl AiTaskService {
     /// - `on_chunk` / `on_repair` 与返回值的契约见 [`run_task_rounds`]；
     /// - 取消不进本服务：调用方以 `CancellationToken` 竞速，丢弃本 future
     ///   即停止转发（修复轮也在 future 内，竞速天然覆盖）。
+    // 豁免 too_many_arguments：实参各自独立且缺一不可（输入、选项与三个
+    // 回调），捆成参数结构只是把 run/评测两侧调用点改成无谓的装拆包——与
+    // [`run_task_rounds`] 的既有豁免同理由。
+    #[allow(clippy::too_many_arguments)]
     pub async fn run(
         &self,
         input: TaskInput,
@@ -125,12 +129,14 @@ impl AiTaskService {
         let task = Task::new(kind, input, options)?;
         let base = self.prompts.render(&task)?;
         run_task_rounds(
-            self.engine.as_ref(),
-            &self.prompts,
-            kind,
-            base,
-            &task.options().model,
-            locale,
+            TaskStage {
+                engine: self.engine.as_ref(),
+                prompts: &self.prompts,
+                kind,
+                base,
+                model: &task.options().model,
+                locale,
+            },
             on_chunk,
             on_repair,
         )
@@ -192,6 +198,18 @@ async fn collect_round(
     })
 }
 
+/// 任务段的静态执行输入（意图定型之后的一切）：引擎与模板注册表、判定
+/// 的 kind、首轮渲染底座、冻结的模型 id 与纠错指令语言。逐轮转交的两个
+/// 回调不在其中——它们是泵，见 [`run_task_rounds`] 的调用方契约。
+pub struct TaskStage<'a> {
+    pub engine: &'a dyn AiEngine,
+    pub prompts: &'a PromptRegistry,
+    pub kind: TaskKind,
+    pub base: Vec<ChatMessage>,
+    pub model: &'a str,
+    pub locale: crate::model::Locale,
+}
+
 /// 任务段执行循环（意图定型之后的完整执行段）：流式转发（原始增量经
 /// `on_chunk` 逐条转交，同时累积）→ **任务契约校验**（`schema::validate_task`）
 /// → 违约进修复轮（对话形态
@@ -216,24 +234,22 @@ async fn collect_round(
 ///   （状态机据此让 TaskChunk 之后接 TaskFailed 的渲染路径可收敛）；
 ///   `Err` 只来自引擎、请求构造与流式失控（超 [`MAX_REPLY_BYTES`] 的回复
 ///   按请求异常失败，不重试），契约违约不产生 `Err`。
-// 豁免 too_many_arguments：八个参数各自独立且缺一不可（引擎、模板、kind、
-// 底座、模型、语言与两个回调），捆成参数结构只会把 run/评测两侧的调用点
-// 改成无谓的装拆包——与 gloss-app 事件装配处的既有豁免同理由。
-#[allow(clippy::too_many_arguments)]
 pub async fn run_task_rounds(
-    engine: &dyn AiEngine,
-    prompts: &PromptRegistry,
-    kind: TaskKind,
-    base: Vec<ChatMessage>,
-    model: &str,
-    locale: crate::model::Locale,
+    TaskStage {
+        engine,
+        prompts,
+        kind,
+        base,
+        model,
+        locale,
+    }: TaskStage<'_>,
     mut on_chunk: impl FnMut(String),
     mut on_repair: impl FnMut(),
 ) -> Result<RunOutput, GlossError> {
     // base 是首轮消息；修复轮以它为底座拼 [assistant 坏回复][user 纠错
     // 指令]（图像部件随 base 零拷贝重发）。
     let mut messages = base.clone();
-    let mut repairs = 0u32;
+    let mut repairs = RepairLoop::new(RepairStage::Task, TASK_REPAIRS);
     loop {
         let request = EngineRequest {
             messages,
@@ -257,24 +273,18 @@ pub async fn run_task_rounds(
                 kind,
                 raw: reply.body,
                 finish_reason: reply.finish_reason,
-                repairs,
+                repairs: repairs.spent(),
             });
         };
-        let Some(next) = next_round(
-            RepairStage::Task,
-            &base,
-            &reply.body,
-            violation,
-            &mut repairs,
-            TASK_REPAIRS,
-            |violation| prompts.render_repair(locale, violation),
-        ) else {
+        let Some(next) = repairs.next_round(&base, &reply.body, violation, |violation| {
+            prompts.render_repair(locale, violation)
+        }) else {
             // 预算耗尽：违约原文原样上交，完成态解析落降级产物。
             return Ok(RunOutput {
                 kind,
                 raw: reply.body,
                 finish_reason: reply.finish_reason,
-                repairs,
+                repairs: repairs.spent(),
             });
         };
         messages = next;
@@ -340,6 +350,32 @@ mod tests {
                 (message.role, text)
             })
             .collect()
+    }
+
+    fn count_with_prefix(events: &[String], prefix: &str) -> usize {
+        events
+            .iter()
+            .filter(|event| event.starts_with(prefix))
+            .count()
+    }
+
+    fn assert_repair_instruction_wording(instruction: &str) {
+        assert!(
+            instruction.contains("reply is not a bare JSON object"),
+            "the instruction carries the fixed violation wording as the reason: {instruction}"
+        );
+        assert!(
+            !instruction.contains("{\"note\""),
+            "the repair template no longer quotes a contract schema line: {instruction}"
+        );
+        assert!(
+            !instruction.contains("MARKER-bad-reply"),
+            "the instruction must not quote the bad reply: {instruction}"
+        );
+        assert!(
+            !instruction.contains("empty reply"),
+            "the wording matches the actual violation: {instruction}"
+        );
     }
 
     struct DoneScript {
@@ -470,12 +506,14 @@ mod tests {
             )
             .expect("render should pass the modality check");
         let output = super::run_task_rounds(
-            engine.as_ref(),
-            &registry,
-            TaskKind::TranslateSentence,
-            base,
-            "m",
-            crate::model::Locale::Zh,
+            super::TaskStage {
+                engine: engine.as_ref(),
+                prompts: &registry,
+                kind: TaskKind::TranslateSentence,
+                base,
+                model: "m",
+                locale: crate::model::Locale::Zh,
+            },
             |_| {},
             || {},
         )
@@ -569,10 +607,7 @@ mod tests {
         assert_eq!(output.raw, "{\"note\":\"图\"}");
         let events = events.lock().expect("events");
         assert_eq!(
-            events
-                .iter()
-                .filter(|event| event.starts_with("classified:"))
-                .count(),
+            count_with_prefix(&events, "classified:"),
             1,
             "the fixed kind is reported exactly once: {events:?}"
         );
@@ -581,13 +616,7 @@ mod tests {
             Some("classified:ImageExplain"),
             "the fixed kind precedes every chunk: {events:?}"
         );
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| event.starts_with("chunk:"))
-                .count(),
-            2
-        );
+        assert_eq!(count_with_prefix(&events, "chunk:"), 2);
         assert_eq!(
             engine.call_count(),
             1,
@@ -693,22 +722,7 @@ mod tests {
             "the bad reply rides as the assistant history"
         );
         let instruction = message_texts(&requests[1])[3].1.clone();
-        assert!(
-            instruction.contains("reply is not a bare JSON object"),
-            "the instruction carries the fixed violation wording as the reason: {instruction}"
-        );
-        assert!(
-            !instruction.contains("{\"note\""),
-            "the repair template no longer quotes a contract schema line: {instruction}"
-        );
-        assert!(
-            !instruction.contains("MARKER-bad-reply"),
-            "the instruction must not quote the bad reply: {instruction}"
-        );
-        assert!(
-            !instruction.contains("empty reply"),
-            "the wording matches the actual violation: {instruction}"
-        );
+        assert_repair_instruction_wording(&instruction);
     }
 
     #[test]

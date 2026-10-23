@@ -64,52 +64,74 @@ pub fn current_bundle() -> Option<PathBuf> {
 /// 替换的纯机械部分（重启除外），可全量驱动：`bundle` 必须位于
 /// `dir` 下且 `dir` 可写。
 fn replace(zip: &Path, dir: &Path, bundle: &Path) -> Result<(), InstallError> {
-    // 上一次替换中断留下的旧 bundle：本轮成功替换会覆盖它，先清场。
     let old = dir.join(format!(
         "{}.old",
         bundle.file_name().unwrap_or_default().to_string_lossy()
     ));
-    if let Err(err) = std::fs::remove_dir_all(&old) {
+    clear_stale_old_bundle(&old);
+    let unpack = prepare_unpack_dir(dir)?;
+    let new_app = extract_app(zip, &unpack)?;
+
+    // 中途失败的回滚只护「改名对」：旧 bundle 改名成功而新 bundle 移入
+    // 失败时，把旧 bundle 改回原位，现场恢复到替换前。
+    swap_bundles(bundle, &old, &new_app, &unpack)?;
+
+    finish_replace(&old, &unpack);
+    Ok(())
+}
+
+/// 上一次替换中断留下的旧 bundle：本轮成功替换会覆盖它，先清场。
+fn clear_stale_old_bundle(old: &Path) {
+    if let Err(err) = std::fs::remove_dir_all(old) {
         debug!(
             thread = thread::TOKIO,
             error = %err,
             "update: stale old bundle cleanup failed, replacing anyway"
         );
     }
+}
 
+/// 备好本轮的解压目录：先清掉上次中断遗留的同名目录，再新建。
+fn prepare_unpack_dir(dir: &Path) -> Result<PathBuf, InstallError> {
     let unpack = dir.join(format!(".gloss-update-{}", std::process::id()));
     if let Err(err) = std::fs::remove_dir_all(&unpack) {
         debug!(thread = thread::TOKIO, error = %err, "update: stale unpack dir cleanup failed");
     }
     std::fs::create_dir_all(&unpack)
         .map_err(|err| InstallError::Unzip(format!("create unpack dir: {err}")))?;
+    Ok(unpack)
+}
 
-    if let Err(err) = ditto_extract(zip, &unpack) {
-        if let Err(cleanup) = std::fs::remove_dir_all(&unpack) {
-            debug!(thread = thread::TOKIO, error = %cleanup, "update: unpack dir cleanup failed");
-        }
+/// 解压并找到新 bundle：解压失败或包内没有结构完整的 `.app` 都不碰
+/// 现有安装，解压现场清理后带对应错误返回。
+fn extract_app(zip: &Path, unpack: &Path) -> Result<PathBuf, InstallError> {
+    if let Err(err) = ditto_extract(zip, unpack) {
+        remove_unpack_dir(unpack);
         return Err(err);
     }
-    let new_app = match extracted_app(&unpack) {
-        Some(found) => found,
+    match extracted_app(unpack) {
+        Some(found) => Ok(found),
         None => {
-            if let Err(cleanup) = std::fs::remove_dir_all(&unpack) {
-                debug!(thread = thread::TOKIO, error = %cleanup, "update: unpack dir cleanup failed");
-            }
-            return Err(InstallError::InvalidStructure);
+            remove_unpack_dir(unpack);
+            Err(InstallError::InvalidStructure)
         }
-    };
+    }
+}
 
-    // 中途失败的回滚只护「改名对」：旧 bundle 改名成功而新 bundle 移入
-    // 失败时，把旧 bundle 改回原位，现场恢复到替换前。
-    if let Err(err) = std::fs::rename(bundle, &old) {
-        if let Err(cleanup) = std::fs::remove_dir_all(&unpack) {
-            debug!(thread = thread::TOKIO, error = %cleanup, "update: unpack dir cleanup failed");
-        }
+/// 换名对：旧 bundle 让位为 `.app.old`，新 `.app` 移入原位；移入失败时
+/// 尽力把旧 bundle 改回原位（回滚也失败则旧 bundle 留在 `.app.old`）。
+fn swap_bundles(
+    bundle: &Path,
+    old: &Path,
+    new_app: &Path,
+    unpack: &Path,
+) -> Result<(), InstallError> {
+    if let Err(err) = std::fs::rename(bundle, old) {
+        remove_unpack_dir(unpack);
         return Err(InstallError::Replace(format!("stash old bundle: {err}")));
     }
-    if let Err(err) = std::fs::rename(&new_app, bundle) {
-        match std::fs::rename(&old, bundle) {
+    if let Err(err) = std::fs::rename(new_app, bundle) {
+        match std::fs::rename(old, bundle) {
             Ok(()) => warn!(
                 thread = thread::TOKIO,
                 error = %err,
@@ -122,15 +144,16 @@ fn replace(zip: &Path, dir: &Path, bundle: &Path) -> Result<(), InstallError> {
                 "update: install failed and rollback also failed, old bundle kept as .app.old"
             ),
         }
-        if let Err(cleanup) = std::fs::remove_dir_all(&unpack) {
-            debug!(thread = thread::TOKIO, error = %cleanup, "update: unpack dir cleanup failed");
-        }
+        remove_unpack_dir(unpack);
         return Err(InstallError::Replace(format!("move new bundle: {err}")));
     }
+    Ok(())
+}
 
-    // 旧 bundle 清理与解压现场清理都属收尾：失败不致命（旧 bundle 留
-    // 在 .app.old 不影响新 bundle 运行，下次替换先清场），记日志即可。
-    if let Err(err) = std::fs::remove_dir_all(&old) {
+/// 旧 bundle 清理与解压现场清理都属收尾：失败不致命（旧 bundle 留
+/// 在 .app.old 不影响新 bundle 运行，下次替换先清场），记日志即可。
+fn finish_replace(old: &Path, unpack: &Path) {
+    if let Err(err) = std::fs::remove_dir_all(old) {
         warn!(
             thread = thread::TOKIO,
             path = %old.display(),
@@ -138,10 +161,15 @@ fn replace(zip: &Path, dir: &Path, bundle: &Path) -> Result<(), InstallError> {
             "update: old bundle cleanup failed, kept as .app.old"
         );
     }
-    if let Err(err) = std::fs::remove_dir_all(&unpack) {
-        debug!(thread = thread::TOKIO, error = %err, "update: unpack dir cleanup failed");
+    remove_unpack_dir(unpack);
+}
+
+/// 解压现场的清理：失败只落 debug——残留目录带进程号命名，下轮替换
+/// 会先清场。
+fn remove_unpack_dir(unpack: &Path) {
+    if let Err(cleanup) = std::fs::remove_dir_all(unpack) {
+        debug!(thread = thread::TOKIO, error = %cleanup, "update: unpack dir cleanup failed");
     }
-    Ok(())
 }
 
 /// 经 detached 辅助进程拉起新 bundle：`open -n` 由 LaunchServices 接管，

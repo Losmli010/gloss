@@ -75,6 +75,8 @@ harness = false
 name = "clone"
 
 [dependencies]
+# 组装段（src/wiring）持有通道对端与 tokio 接收端，类型在此命名。
+crossbeam-channel = { version = "0.5", default-features = false }
 gloss-app = { path = "crates/gloss-app" }
 # 测试桩只在 tests/stubs/，经 cfg(test) 编译进测试目标，不进发布二进制。
 gloss-core = { path = "crates/gloss-core" }
@@ -83,6 +85,9 @@ gloss-platform = { path = "crates/gloss-platform" }
 # 不还给系统，长驻进程的 RSS 只涨不落；mimalloc 周期性 purge 空闲页，
 # 常驻内存贴着活跃字节走。
 mimalloc = { version = "0.1", default-features = false }
+# 组装段（src/wiring）的密钥预热与回传通道跑在消费桥的 tokio 上，
+# UnboundedReceiver 在此命名。
+tokio = { version = "1", default-features = false, features = ["sync"] }
 
 # 文档注释里的示例由 cargo test --doc（just test 一部分）验证可编译可运行；
 # 无文档注释的公开项不受影响。

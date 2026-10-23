@@ -5,146 +5,28 @@
 //! `begin_run` 随请求携带），回传按它过滤陈旧。敏感闸门两处：场景闸门在 `trigger_decision`（触发前），内容闸门在
 //! `commit_probe` 的文本分支（下发前，命中保留当前显示，图像没有可扫描文本故不设闸门）。
 
+mod policy;
+mod types;
+
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
 use gloss_core::config::Config;
-use gloss_core::guard::{self, SceneFacts, SensitiveKind, TriggerBlock};
+use gloss_core::guard::{self, SceneFacts};
 use gloss_core::model::GlossError;
 use gloss_core::model::Locale;
 use gloss_core::task::{TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
-use crate::channel::{AcquireCommand, Event, PlatformEvent};
+use crate::channel::{AcquireCommand, PlatformEvent};
+use policy::{error_action, streaming_view, task_options};
+use types::{PendingOptions, ProbeSource, ProbeTask};
 
-/// 失败卡的动作按钮（错误映射表）：状态机按错误变体给出该显式
-/// 给用户的出口，渲染层照画、壳执行。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ErrorAction {
-    /// 可重试类（网络/限流）：原样重发失败的那个任务。
-    Retry,
-    /// 配置/鉴权类：打开设置页（密钥、模型绑定都在那里修）。
-    OpenSettings,
-}
-
-/// 四个稳定态：探测不进本枚举（探测段在状态机之外）；提交从任意态直接进
-/// `Translating` 并取消旧任务，收起回 `Idle`。它不是独立字段——状态由
-/// [`TaskStateMachine::overlay_view`] 唯一决定，见
-/// [`TaskStateMachine::state`]。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AppState {
-    #[default]
-    Idle,
-    Translating,
-    Show,
-    Error,
-}
-
-/// 浮层内容视图：状态机的可视化投影，由 `ui::popup` 按 TaskKind 分发
-/// 渲染。
-#[derive(Debug, Clone, PartialEq)]
-pub enum OverlayView {
-    /// 推理中：原文 + 已到达的原始回复。`raw` 是模型原始 JSON 流（`note` 的
-    /// 渐进提取在渲染层）；`classified` 在 LLM 层分类前为 `None`，
-    /// `accept_classified` 到达后精化（代码解释从分类帧起按代码排版）；
-    /// `repairing` 置位时页脚切「重新注解」（无横幅无计数）。
-    Streaming {
-        source: String,
-        /// 模型原始回复的累积（含 JSON 结构，提取归渲染层）。
-        raw: String,
-        /// LLM 层回传的任务类型；分类前为 `None`。
-        classified: Option<TaskKind>,
-        /// 修复轮进行中（`accept_repairing` 置位）。
-        repairing: bool,
-    },
-    /// 产物卡：按 `TaskKind` 精排或展示 markdown 注文。`source` 是本次任务的
-    /// 原文，供注疏排布的「经」位；代码语言由渲染层从 `structured.code_language`
-    /// 现算（唯一来源是产物的 LLM 判定），`degraded` 时渲染降级卡。
-    Outcome {
-        source: String,
-        outcome: TaskOutcome,
-    },
-    /// 失败信息与动作出口：`action` 为 `None` 表示没有按钮可给（重新划词即可）。
-    Failed {
-        cause: FailureCause,
-        action: Option<ErrorAction>,
-    },
-}
-
-/// 失败卡的错误来源。状态机只记来源不记文案——文案随界面语言变，属渲染层
-/// （`crate::ui::i18n::Text::for_error`），不随任务冻结。
-#[derive(Debug, Clone, PartialEq)]
-pub enum FailureCause {
-    Task(GlossError),
-    /// 推理通道不可用（通道③发送失败）。
-    TransportChannel,
-}
-
-/// `commit_probe` 的结果：下发 / 被内容闸门拦下 / 不采纳。三态而非 `Option`
-/// ——「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者记 warn，后者
-/// 只记 debug），合并成 `None` 就分不出来了。
-#[derive(Debug, Clone, PartialEq)]
-pub enum InputOutcome {
-    /// 任务已组装，壳经通道③下发。
-    Dispatch(RunRequest),
-    /// 内容疑似敏感：探测丢弃，当前显示保留（它属于上一个会话）。
-    Blocked(SensitiveKind),
-    /// 陈旧探测编号或模态错配：不采纳，浮层与通道都不动。
-    Ignored,
-}
-
-/// 失败处置的结果：弹失败卡 / 静默丢弃 / 不采纳。三态而非 bool
-/// ——「静默丢弃」要留排查日志（划词探测失败的唯一痕迹），「陈旧丢弃」只记
-/// debug，合并后就分不出来了。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FailureOutcome {
-    /// 已落 `Error` 态，浮层弹失败卡（壳记 warn）。
-    Shown,
-    /// 划词探测遇「无选区可读」：纯误滑——探测丢弃、不弹卡，状态机与当前
-    /// 显示一律不动（壳只记一条带前台应用的 info）。
-    SilentlyDropped,
-    /// 探测编号不符、代数陈旧或已隐藏：不采纳，浮层与状态都不动（壳记 info）。
-    Ignored,
-}
-
-/// `commit_probe` 采纳取材产物后的下发请求：壳把它经通道③发送。
-#[derive(Debug, Clone, PartialEq)]
-pub struct RunRequest {
-    /// 请求代数，与触发同值。
-    pub generation: u64,
-    /// 取材输入，原样转发给 LLM 层。
-    pub input: TaskInput,
-    /// 触发时按配置快照冻结的任务选项（见 `PendingTask`），执行途中
-    /// 不再回读配置。
-    pub options: TaskOptions,
-    /// 随任务下发的取消令牌（App 侧同时留存，新触发时取消）。
-    pub cancel: CancellationToken,
-}
-
-/// 探测时定下的任务选项：一次配置快照解析出全部参数，产物到达（提交）时
-/// 随请求下发——单次任务的配置从探测那一刻起就固定了，取材途中换配置不会
-/// 让同一个任务用上两个版本的参数。任务类型不在其中：kind 由 LLM 层在执行
-/// 前分类。
-#[derive(Debug, Clone, PartialEq)]
-struct PendingOptions(TaskOptions);
-
-/// 在途探测的取材模态：决定提交时接受的产物形状，也决定失败时的静默名单。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ProbeSource {
-    Selection,
-    PasteboardImage,
-}
-
-/// 在途的探测（划词或剪贴板图片）：同一时刻至多一个，新探测整体替换它；
-/// 产物到达时经 [`TaskStateMachine::commit_probe`] 才接管状态。
-#[derive(Debug, Clone, PartialEq)]
-struct ProbeTask {
-    /// 与代数同一计数器分配，提交时提升为代数。
-    id: u64,
-    pending: PendingOptions,
-    /// 决定提交时接受的产物形状与失败时的静默名单。
-    source: ProbeSource,
-}
+pub use policy::{TriggerDecision, trigger_decision};
+pub(crate) use policy::{event_kind, should_reveal};
+pub use types::{
+    AppState, ErrorAction, FailureCause, FailureOutcome, InputOutcome, OverlayView, RunRequest,
+};
 
 #[derive(Debug, Default)]
 pub struct TaskStateMachine {
@@ -541,161 +423,12 @@ impl TaskStateMachine {
     }
 }
 
-/// 错误 → 失败卡动作（映射表）：网络/限流可原样重试；鉴权、模态、JSON 模式
-/// 不支持与配置错误都要进设置页才能修（模型、密钥与模型服务的修改入口都在
-/// 那里）；其余类别给不出有意义的按钮——权限类引导已写在文案里，协议异常重发
-/// 同一个请求只会再错一次。
-fn error_action(error: &GlossError) -> Option<ErrorAction> {
-    match error {
-        GlossError::EngineNetwork | GlossError::EngineRateLimited => Some(ErrorAction::Retry),
-        GlossError::EngineAuth
-        | GlossError::UnsupportedModality
-        | GlossError::JsonModeUnsupported
-        | GlossError::Config(_) => Some(ErrorAction::OpenSettings),
-        _ => None,
-    }
-}
-
-/// 一次下发请求的流式视图起点：原文照抄（图像任务无经位原文——经是图本身，
-/// 走 `attached_image`）、正文空、未分类（LLM 层的 `TaskClassified` 到达后
-/// 精化）。流式视图不带语言：唯一来源是产物的 `structured.code_language`，
-/// 渲染层现算，流式期按通用启发集着色、无角标。重试与首次下发共用。
-fn streaming_view(input: &TaskInput) -> OverlayView {
-    let source = match input {
-        TaskInput::Text { text } => text.clone(),
-        _ => String::new(),
-    };
-    OverlayView::Streaming {
-        source,
-        raw: String::new(),
-        classified: None,
-        repairing: false,
-    }
-}
-
-/// 一次平台事件的去向：取材，或被拦下。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TriggerDecision {
-    /// 放行：划词不带显式意图，类型由 LLM 层分类；剪贴板图片的取材动作即
-    /// 显式意图，LLM 层恒定映射。
-    Acquire,
-    /// 场景闸门拦下（安全输入态 / 敏感应用名单）。只拦真实触发，设置不在
-    /// 此列。
-    Blocked(TriggerBlock),
-    /// 拦下：Gloss 自身是前台应用时的划词手势——HID 全局 tap 连拖自己的
-    /// 浮层不该触发取材。
-    SelfSuppressed,
-    /// 不进状态机的直通事件（设置、授权落定——各自在 drain 处有自己的出口）。
-    Unwired,
-}
-
-/// 一次平台事件的去向判定：划词手势先判自身前台（防误触，与敏感防护无关，
-/// 日志级别也不同）再过场景闸门；剪贴板观察只过场景闸门（剪贴板不是 HID
-/// 手势，无自身前台的误触面）。
-pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDecision {
-    match event {
-        PlatformEvent::SelectionGesture { .. } => {
-            if scene.front_app.as_ref().is_some_and(|app| app.is_self) {
-                return TriggerDecision::SelfSuppressed;
-            }
-            match guard::trigger_block(scene) {
-                Some(block) => TriggerDecision::Blocked(block),
-                None => TriggerDecision::Acquire,
-            }
-        }
-        PlatformEvent::PasteboardImageObserved => match guard::trigger_block(scene) {
-            Some(block) => TriggerDecision::Blocked(block),
-            None => TriggerDecision::Acquire,
-        },
-        PlatformEvent::OpenSettingsRequested | PlatformEvent::AccessibilityGranted => {
-            TriggerDecision::Unwired
-        }
-    }
-}
-
-/// 按配置快照解析任务选项：目标语言取配置默认，模型取配置的单一项（`Arc<str>`
-/// 共享，复制只递引用计数），prompt 模板语言按 `Language` 落定（`System` 取
-/// 系统语言）。三者随任务冻结，执行途中不再回读配置。字段全量显式构造，不走
-/// `..Default::default()`——后者会先把缺省模型 id 分配出来再被覆盖，且选项新增
-/// 字段时编译器会在此处强制补齐，不会静默漏填。
-fn task_options(config: &Config, system_locale: Locale) -> TaskOptions {
-    TaskOptions {
-        target_lang: Some(config.target_lang.clone()),
-        model: Arc::from(config.model.as_str()),
-        prompt_locale: Some(config.language.resolve(system_locale)),
-    }
-}
-
-/// 回传事件的类别标签（露面策略只关心类别，不关心代数与载荷）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EventKind {
-    InputReady,
-    TaskClassified,
-    TaskChunk,
-    /// 与 chunk 同类：只更新已可见的流式卡，不负责露面。
-    TaskRepairing,
-    TaskDone,
-    TaskFailed,
-    /// 与任务代数无关，露面策略恒不显示（壳层旁路留痕）。
-    SecretPrewarmed,
-}
-
-pub(crate) fn event_kind(event: &Event) -> EventKind {
-    match event {
-        Event::InputReady { .. } => EventKind::InputReady,
-        Event::TaskClassified { .. } => EventKind::TaskClassified,
-        Event::TaskChunk { .. } => EventKind::TaskChunk,
-        Event::TaskRepairing { .. } => EventKind::TaskRepairing,
-        Event::TaskDone { .. } => EventKind::TaskDone,
-        Event::TaskFailed { .. } => EventKind::TaskFailed,
-        Event::SecretPrewarmed { .. } => EventKind::SecretPrewarmed,
-    }
-}
-
-/// 单个回传事件后浮层要不要自动露面。
-///
-/// `accepted` 是状态机是否采纳了该事件：陈旧事件不触发显示。露面的来源只有
-/// 「失败即弹」；挂起显形请求在 [`should_reveal`] 里与批次合并。取材成功、
-/// 分类结果、流式增量、修复轮与完成态都只在已可见的浮层上更新，不负责露面。
-/// 取材成功不直接露面还因为：用户若在取材中收起浮层，机器回 Idle，陈旧的取材
-/// 产物采纳不上，自然也不会把浮层弹回。
-fn auto_show_for(kind: EventKind, accepted: bool) -> bool {
-    match kind {
-        EventKind::InputReady => false,
-        EventKind::TaskFailed => accepted,
-        EventKind::TaskClassified
-        | EventKind::TaskRepairing
-        | EventKind::TaskDone
-        | EventKind::TaskChunk => false,
-        EventKind::SecretPrewarmed => false,
-    }
-}
-
-/// 一批回传之后浮层要不要自动露面：**任一**事件判为要显示就显示。
-pub(crate) fn auto_show_after(batch: impl IntoIterator<Item = (EventKind, bool)>) -> bool {
-    batch
-        .into_iter()
-        .any(|(kind, accepted)| auto_show_for(kind, accepted))
-}
-
-/// 一批回传处理后浮层要不要显形：挂起显形请求（`pending`）要求机器确有视图
-/// ——视图为空时弹出的会是渲染自检卡（挂起置位与消费之间没有插入点，两段
-/// drain 同帧连跑，守卫只为防御）；划词提交的置位在批内 `commit_probe`，同一
-/// 帧消费。挂起显形不依赖回传批次，与批次内的「失败即弹」任一成立即显示。
-pub(crate) fn should_reveal(
-    pending: bool,
-    has_view: bool,
-    batch: impl IntoIterator<Item = (EventKind, bool)>,
-) -> bool {
-    (pending && has_view) || auto_show_after(batch)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use gloss_core::config::Language;
-    use gloss_core::guard::{FrontApp, SceneFacts, SensitiveKind};
+    use gloss_core::guard::{FrontApp, SceneFacts, SensitiveKind, TriggerBlock};
     use gloss_core::model::{GlossError, Lang, ScreenPoint};
     use gloss_core::task::OutcomeStructured;
 
@@ -908,25 +641,11 @@ mod tests {
             }),
         };
         assert!(
-            machine
-                .begin_selection_probe(
-                    &selection_gesture(),
-                    &Config::default(),
-                    Locale::Zh,
-                    &secure
-                )
-                .is_none(),
+            begin_probe_on(&mut machine, &secure),
             "a focused password field stops the probe"
         );
         assert!(
-            machine
-                .begin_selection_probe(
-                    &selection_gesture(),
-                    &Config::default(),
-                    Locale::Zh,
-                    &blocked_by_app()
-                )
-                .is_none(),
+            begin_probe_on(&mut machine, &blocked_by_app()),
             "a listed frontmost app stops the probe"
         );
         assert_eq!(
@@ -1787,25 +1506,22 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn error_actions_follow_the_mapping_table() {
-        let mut machine = TaskStateMachine::new();
-        assert_eq!(probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_probe(1, text_input("x")));
+    fn begin_probe_on(machine: &mut TaskStateMachine, scene: &SceneFacts) -> bool {
+        machine
+            .begin_selection_probe(&selection_gesture(), &Config::default(), Locale::Zh, scene)
+            .is_none()
+    }
 
+    fn fail_with(machine: &mut TaskStateMachine, generation: u64, error: &GlossError) {
+        assert_eq!(probe(machine, &Config::default()), generation);
+        dispatched(machine.commit_probe(generation, text_input("x")));
         assert_eq!(
-            machine.accept_failed(1, &GlossError::EngineRateLimited),
-            FailureOutcome::Shown,
-            "rate limited is retryable"
-        );
-        assert!(machine.retry().is_some());
-
-        assert_eq!(probe(&mut machine, &Config::default()), 2);
-        dispatched(machine.commit_probe(2, text_input("x")));
-        assert_eq!(
-            machine.accept_failed(2, &GlossError::EngineAuth),
+            machine.accept_failed(generation, error),
             FailureOutcome::Shown
         );
+    }
+
+    fn assert_settings_card(machine: &TaskStateMachine) {
         assert!(matches!(
             machine.overlay_view(),
             Some(OverlayView::Failed {
@@ -1813,45 +1529,32 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn error_actions_follow_the_mapping_table() {
+        let mut machine = TaskStateMachine::new();
+        fail_with(&mut machine, 1, &GlossError::EngineRateLimited);
+        assert!(machine.retry().is_some());
+
+        fail_with(&mut machine, 2, &GlossError::EngineAuth);
+        assert_settings_card(&machine);
         assert!(
             machine.retry().is_none(),
             "auth failure must not offer a retry button"
         );
 
-        assert_eq!(probe(&mut machine, &Config::default()), 3);
-        dispatched(machine.commit_probe(3, text_input("x")));
-        assert_eq!(
-            machine.accept_failed(3, &GlossError::UnsupportedModality),
-            FailureOutcome::Shown
-        );
-        assert!(matches!(
-            machine.overlay_view(),
-            Some(OverlayView::Failed {
-                action: Some(ErrorAction::OpenSettings),
-                ..
-            })
-        ));
+        fail_with(&mut machine, 3, &GlossError::UnsupportedModality);
+        assert_settings_card(&machine);
 
-        assert_eq!(probe(&mut machine, &Config::default()), 4);
-        dispatched(machine.commit_probe(4, text_input("x")));
-        assert_eq!(
-            machine.accept_failed(4, &GlossError::Config("empty model id".into())),
-            FailureOutcome::Shown
+        fail_with(
+            &mut machine,
+            4,
+            &GlossError::Config("empty model id".into()),
         );
-        assert!(matches!(
-            machine.overlay_view(),
-            Some(OverlayView::Failed {
-                action: Some(ErrorAction::OpenSettings),
-                ..
-            })
-        ));
+        assert_settings_card(&machine);
 
-        assert_eq!(probe(&mut machine, &Config::default()), 5);
-        dispatched(machine.commit_probe(5, text_input("x")));
-        assert_eq!(
-            machine.accept_failed(5, &GlossError::JsonModeUnsupported),
-            FailureOutcome::Shown
-        );
+        fail_with(&mut machine, 5, &GlossError::JsonModeUnsupported);
         assert!(matches!(
             machine.overlay_view(),
             Some(OverlayView::Failed {
@@ -1991,7 +1694,8 @@ mod tests {
 
 #[cfg(test)]
 mod reveal_policy_tests {
-    use super::{EventKind, auto_show_after, auto_show_for, should_reveal};
+    use super::policy::{EventKind, auto_show_after, auto_show_for};
+    use super::should_reveal;
 
     #[test]
     fn auto_show_policy_decides_when_the_overlay_pops() {
