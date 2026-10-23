@@ -34,7 +34,7 @@
 //! 页头行同时是拖动热区：按住拖动即移动浮层（壳侧逐帧平移窗口），热区
 //! 与动作钮零重叠，按钮点击不受影响。
 //! 页脚常驻
-//! 一条窄带（带高取 [`FOOTER_HEIGHT`]）：推理中左端是呼吸点 + 「正在注解」（生成指示唯一落点），右端
+//! 一条窄带（带高取 [`FOOTER_HEIGHT`]）：推理中左端是「正在注解」+ 呼吸点（生成指示唯一落点），右端
 //! 恒为 Gloss 水印（品牌名不翻译，与窗口标题同一原则）；滚动区按页脚带宽
 //! 预留视口，页脚不被内容挤出窗外。「经显注未至」时正文区是纯骨架
 //! （脉动条），无占位文字。动作点击经 draw 返回 [`OverlayAction`] 上交壳执行；
@@ -133,6 +133,10 @@ const SHIMMER_ALPHA_MAX: u8 = 96;
 /// 页脚呼吸点的半径与个数
 const FOOTER_DOT_RADIUS: f32 = 2.0;
 const FOOTER_DOT_COUNT: usize = 3;
+/// 页脚呼吸点的透明度档（0-255）：点径只有 2px，沿用骨架条的档位在浅底
+/// 上几乎不可辨；整体上调让加载态一眼可辨，脉动在这个区间内保留呼吸感。
+const FOOTER_DOT_ALPHA_MIN: u8 = 90;
+const FOOTER_DOT_ALPHA_MAX: u8 = 180;
 /// 页脚水印字串与槽缘的余量（单侧）：槽宽按实测字宽加此余量。
 const WATERMARK_PADDING: f32 = 6.0;
 /// 页脚带高：水印字形（`font::TAG` 11px）加合理上下余量的下限档。
@@ -872,6 +876,8 @@ enum CachedGalley {
     Seal(&'static str, SealTint, bool, u32),
     /// 页脚水印（文案恒为品牌名）+ 明暗 + 像素密度位型。
     Watermark(bool, u32),
+    /// 页脚生成指示文案（正在/重新注解，文案表字段）+ 明暗 + 像素密度位型。
+    FooterLabel(&'static str, bool, u32),
 }
 
 /// galley 按槽位缓存：epaint 对布局本身记忆化，但每次查询都要先构造
@@ -1154,9 +1160,10 @@ fn shimmer_bars(ui: &mut egui::Ui) {
         .request_repaint_after(Duration::from_secs_f32(0.016));
 }
 
-/// 页脚带（常驻）：上缘细线，推理中左端是呼吸点 + 「正在注解」/「重新注解」
-/// （修复轮切换文案，生成指示唯一落点，无障碍标签也在这里），右端恒为
-/// Gloss 水印。动画与骨架同源（时间驱动 alpha + 短重绘），仅在推理中请求。
+/// 页脚带（常驻）：上缘细线，推理中左端是「正在注解」/「重新注解」
+/// 文案 + 呼吸点（修复轮切换文案，生成指示唯一落点，无障碍标签也在
+/// 这里），右端恒为 Gloss 水印。动画与骨架同源（时间驱动 alpha + 短重绘），
+/// 仅在推理中请求。
 fn footer(ui: &mut egui::Ui, streaming: bool, repairing: bool, text: &'static Text) {
     let (rect, response) = ui.allocate_exact_size(
         vec2(ui.available_width(), FOOTER_HEIGHT),
@@ -1179,16 +1186,41 @@ fn footer(ui: &mut egui::Ui, streaming: bool, repairing: bool, text: &'static Te
         response.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::ProgressIndicator, true, label.as_str())
         });
+        let galley = cached_galley(
+            ui,
+            CachedGalley::FooterLabel(
+                label.as_str(),
+                ui.visuals().dark_mode,
+                ui.ctx().pixels_per_point().to_bits(),
+            ),
+            || {
+                egui::WidgetText::from(RichText::new(label.as_str()).size(font::TAG).color(dim))
+                    .into_galley(
+                        ui,
+                        Some(ui.wrap_mode()),
+                        ui.available_width(),
+                        egui::FontSelection::Default,
+                    )
+            },
+        );
+        ui.painter().galley(
+            egui::pos2(
+                rect.min.x,
+                rect.center().y + stroke::CARD - galley.size().y / 2.0,
+            ),
+            galley.clone(),
+            dim,
+        );
         let now = ui.input(|i| i.time);
         let zhu = zhu_color(ui);
         let mut dot_center = egui::pos2(
-            rect.min.x + FOOTER_DOT_RADIUS,
+            rect.min.x + galley.size().x + space::TIGHT + FOOTER_DOT_RADIUS,
             rect.center().y + stroke::CARD,
         );
         for index in 0..FOOTER_DOT_COUNT {
             let wave = ((now / PULSE_PERIOD_SECS + index as f64 * 0.9).sin() + 1.0) / 2.0;
-            let alpha = (SHIMMER_ALPHA_MIN as f64
-                + wave * f64::from(SHIMMER_ALPHA_MAX - SHIMMER_ALPHA_MIN))
+            let alpha = (FOOTER_DOT_ALPHA_MIN as f64
+                + wave * f64::from(FOOTER_DOT_ALPHA_MAX - FOOTER_DOT_ALPHA_MIN))
                 as f32;
             let alpha = alpha.round().clamp(0.0, 255.0) as u8;
             ui.painter().circle_filled(
@@ -1198,13 +1230,6 @@ fn footer(ui: &mut egui::Ui, streaming: bool, repairing: bool, text: &'static Te
             );
             dot_center.x += FOOTER_DOT_RADIUS * 3.0;
         }
-        ui.painter().text(
-            egui::pos2(dot_center.x + space::TIGHT, rect.center().y + stroke::CARD),
-            egui::Align2::LEFT_CENTER,
-            label.as_str(),
-            FontId::proportional(font::TAG),
-            dim,
-        );
         ui.ctx()
             .request_repaint_after(Duration::from_secs_f32(0.016));
     }
