@@ -30,16 +30,20 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Run release tag checker unit tests
-        run: bash scripts/release/check-release-tag.test.sh
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest scripts/release/check_release_tag_test.py -q
 
       - name: Run manifest generator unit tests
-        run: bash scripts/release/gen-manifest.test.sh
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest scripts/release/gen_manifest_test.py -q
 
       - name: Verify version consistency
         id: version
         run: |
           # 与本地 just release-check 共用同一脚本（版本单点在根 Cargo.toml [workspace.package]）
-          ./scripts/release/check-release-tag.sh "${GITHUB_REF_NAME}"
+          ./scripts/release/check_release_tag.py "${GITHUB_REF_NAME}"
           echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust toolchain
@@ -65,14 +69,14 @@ jobs:
 
       - name: Smoke test
         if: matrix.target == 'aarch64-apple-darwin'
-        run: ./scripts/release/smoke-app.sh "$APP"
+        run: ./scripts/release/smoke_app.py "$APP"
 
       - name: Package artifacts
         run: |
           # 产物名带版本与 target 三元组，Release 页上一眼可辨。
           STEM="gloss-${{ steps.version.outputs.version }}-${{ matrix.target }}"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$STEM.zip"
-          ./scripts/release/bundle-dmg.sh "$APP" "$STEM.dmg"
+          ./scripts/release/bundle_dmg.py "$APP" "$STEM.dmg"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
@@ -143,8 +147,8 @@ jobs:
 
       - name: Generate manifest and stage binaries
         run: |
-          # gen-manifest.sh 内部先跑 check-release-tag.sh（版本单点门禁，不一致即失败）
-          ./scripts/release/gen-manifest.sh "${GITHUB_REF_NAME}" artifacts > web/manifest.json
+          # gen_manifest.py 内部先跑 check_release_tag（版本单点门禁，不一致即失败）
+          ./scripts/release/gen_manifest.py "${GITHUB_REF_NAME}" artifacts > web/manifest.json
           cp artifacts/gloss-*.zip artifacts/gloss-*.dmg web/latest/
 
       - name: Upload Pages artifact

@@ -36,7 +36,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from metrics import CATEGORY_LABELS, METRICS, fmt
+from metrics import CATEGORY_LABELS, METRICS, fmt  # noqa: E402 —— 路径引导先于导入
 
 ROOT = SCRIPT_DIR.parents[1]
 DEFAULT_HISTORY = SCRIPT_DIR / "baselines" / "history.jsonl"
@@ -93,7 +93,7 @@ def load_points(path):
         try:
             point = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise SystemExit(f"错误：{path} 存在无法解析的行：{exc}")
+            raise SystemExit(f"错误：{path} 存在无法解析的行：{exc}") from None
         if not isinstance(point, dict):
             raise SystemExit(f"错误：{path} 存在非对象行")
         points.append(point)
@@ -235,7 +235,9 @@ def render_overview(points, signals):
     latest = points[-1]
     metrics = point_metrics(latest)
     lines = ["## 总览", ""]
-    head = f"Gloss 性能总览 · {latest.get('commit', '?')}（{str(latest.get('date', ''))[:10] or '?'}）"
+    head = (
+        f"Gloss 性能总览 · {latest.get('commit', '?')}（{str(latest.get('date', ''))[:10] or '?'}）"
+    )
     env_text = env_line(latest_env(points))
     if env_text:
         head += f"· {env_text}"
@@ -278,7 +280,9 @@ def compare_verdict(metric, old, new):
 def render_compare(old_point, new_point, from_commit, to_commit):
     old_metrics, new_metrics = point_metrics(old_point), point_metrics(new_point)
     improved = regressed = flat = 0
-    nodata = sum(1 for metric_id in METRICS if (metric_id in old_metrics) != (metric_id in new_metrics))
+    nodata = sum(
+        1 for metric_id in METRICS if (metric_id in old_metrics) != (metric_id in new_metrics)
+    )
     rows = []
     for metric_id, metric in METRICS.items():
         if metric_id not in old_metrics or metric_id not in new_metrics:

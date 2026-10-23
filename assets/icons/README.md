@@ -22,7 +22,7 @@ app-icon 版、以及站点拷贝 `web/assets/logo.svg` 靠**手工同步**（�
 ## 重建
 
 ```bash
-just icons    # = scripts/dev/build-app-icon.sh
+just icons    # = scripts/dev/build_app_icon.py
 ```
 
 只用系统自带的 `sips`（SVG→PNG、缩放）与 `iconutil`（iconset→.icns）：`sips` 自

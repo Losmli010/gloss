@@ -97,7 +97,10 @@ def sample_process(pid):
     try:
         out = subprocess.run(
             ["ps", "-o", "rss=,time=", "-p", str(pid)],
-            capture_output=True, text=True, check=True, timeout=10,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return None
@@ -126,7 +129,10 @@ def sample_footprint_kb(pid):
     try:
         out = subprocess.run(
             ["vmmap", "--summary", str(pid)],
-            capture_output=True, text=True, check=True, timeout=30,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return None
@@ -137,12 +143,10 @@ def sample_footprint_kb(pid):
             if not stripped.startswith(key):
                 continue
             # 数值与单位连写（如 25.2M），正则一并吃下
-            match = FOOTPRINT_VALUE.match(stripped[len(key):].strip())
+            match = FOOTPRINT_VALUE.match(stripped[len(key) :].strip())
             if match is None:
                 continue
-            multiplier = {"": 1.0, "K": 1.0, "M": 1024.0, "G": 1024.0 * 1024.0}[
-                match.group(2)
-            ]
+            multiplier = {"": 1.0, "K": 1.0, "M": 1024.0, "G": 1024.0 * 1024.0}[match.group(2)]
             values[key] = round(float(match.group(1)) * multiplier)
     if "Physical footprint:" not in values:
         return None
@@ -167,9 +171,7 @@ def parse_milestones(log_dir):
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if isinstance(event.get("milestone"), str) and isinstance(
-                event.get("elapsed_ms"), int
-            ):
+            if isinstance(event.get("milestone"), str) and isinstance(event.get("elapsed_ms"), int):
                 milestones[event["milestone"]] = event["elapsed_ms"]
         elif '"system fonts applied"' in line:
             fonts_applied = True
@@ -242,9 +244,7 @@ def one_run(idle_secs, ready_timeout):
             print("警告：CPU 采样不足，本次运行作废。", file=sys.stderr)
             return None
         fonts_applied_ms = (
-            round((fonts_seen_mono - spawn_wall) * 1000)
-            if fonts_seen_mono is not None
-            else None
+            round((fonts_seen_mono - spawn_wall) * 1000) if fonts_seen_mono is not None else None
         )
         return {
             "wall_ms": round(ready_wall_ms),
@@ -256,8 +256,7 @@ def one_run(idle_secs, ready_timeout):
             "idle_window_ms": round(idle_wall_ms),
             "idle_cpu_ms": round((cpu_samples[-1][1] - idle_cpu_start) * 1000),
             "footprint_idle_kb": footprint and footprint.get("Physical footprint:"),
-            "footprint_peak_kb": footprint
-            and footprint.get("Physical footprint (peak):"),
+            "footprint_peak_kb": footprint and footprint.get("Physical footprint (peak):"),
         }
     finally:
         if proc.poll() is None:
@@ -275,6 +274,7 @@ def one_run(idle_secs, ready_timeout):
 
 def aggregate(runs):
     """各指标取中位数，平铺成 v2 片段字段（id 见 metrics.py 注册表；无值不造 0）。"""
+
     def med(key):
         values = [r[key] for r in runs if r.get(key) is not None]
         return round(statistics.median(values)) if values else None

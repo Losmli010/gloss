@@ -46,7 +46,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from metrics import CORE_GROUPS, METRICS
+from metrics import CORE_GROUPS, METRICS  # noqa: E402 —— 路径引导先于导入
 
 
 def _load_sibling_script(module_name, file_name):
@@ -140,7 +140,9 @@ def read_mean_ns(estimates_path):
 def read_full_id(bench_dir, fallback):
     """基准目录 → criterion full_id；benchmark.json 不可读时退回目录相对路径。"""
     try:
-        return json.loads((bench_dir / "new" / "benchmark.json").read_text(encoding="utf-8"))["full_id"]
+        return json.loads((bench_dir / "new" / "benchmark.json").read_text(encoding="utf-8"))[
+            "full_id"
+        ]
     except (OSError, KeyError, json.JSONDecodeError):
         return fallback
 

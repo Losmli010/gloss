@@ -27,7 +27,9 @@ jobs:
           tool: just
 
       - name: Run checker unit tests
-        run: bash scripts/hooks/check-secrets.test.sh
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest scripts/hooks/check_secrets_test.py -q
 
       - name: Scan for hardcoded secrets
         run: just secrets
@@ -46,7 +48,9 @@ jobs:
           tool: just
 
       - name: Run checker unit tests
-        run: bash scripts/hooks/check-agents-doc.test.sh
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest scripts/hooks/check_agents_doc_test.py -q
 
       - name: Check AGENTS.md references
         run: just agents-doc
@@ -65,7 +69,9 @@ jobs:
           tool: just
 
       - name: Run checker unit tests
-        run: bash scripts/hooks/check-constraints.test.sh
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest scripts/hooks/check_constraints_test.py -q
 
       - name: Check non-negotiable constraints
         run: just constraints
@@ -84,7 +90,9 @@ jobs:
           tool: just
 
       - name: Run checker unit tests
-        run: bash scripts/hooks/check-i18n.test.sh
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest scripts/hooks/check_i18n_test.py -q
 
       - name: Check UI copy lives in the catalog
         run: just i18n
@@ -124,10 +132,34 @@ jobs:
           tool: just
 
       - name: Run checker unit tests
-        run: bash scripts/hooks/check-test-bdd.test.sh
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest scripts/hooks/check_test_bdd_test.py -q
 
       - name: Check BDD inventory against test code
         run: just test-bdd
+
+  # Python 脚本 format 与 lint（ruff）：纯文本秒级；版本钉死保证判定一致
+  python:
+    name: Python format & lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Install ruff
+        run: python3 -m pip install ruff==0.17.2
+
+      - name: Check Python formatting
+        run: just fmt-py
+
+      - name: Lint Python scripts
+        run: just lint-py
 
   # TOML 格式与 lint（tombi）：纯文本秒级；版本钉死保证判定一致
   toml:
@@ -161,7 +193,9 @@ jobs:
           fetch-depth: 0
 
       - name: Run checker unit tests
-        run: bash scripts/hooks/check-commit-msg.test.sh
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest scripts/hooks/check_commit_msg_test.py -q
 
       - name: Validate commit messages
         env:
@@ -181,11 +215,11 @@ jobs:
           git log --no-merges --format="%H" "$BASE..$HEAD_SHA" | while read sha; do
             msg="$(git log -1 --format=%B "$sha")"
             echo "检查 commit $sha"
-            echo "$msg" | ./scripts/hooks/check-commit-msg.sh -
+            echo "$msg" | ./scripts/hooks/check_commit_msg.py -
           done
           # squash 合并产生的 commit message 取自 PR 标题（GitHub 追加 (#PR号)），
           # 按最长常见占位 (#99999) 模拟合并产物校验：标题自身合规而合并后超限同样拦下
           if [ -n "$PR_TITLE" ]; then
             echo "检查 PR 标题（含 squash 后缀模拟 (#99999)）"
-            printf '%s\n' "$PR_TITLE (#99999)" | ./scripts/hooks/check-commit-msg.sh -
+            printf '%s\n' "$PR_TITLE (#99999)" | ./scripts/hooks/check_commit_msg.py -
           fi

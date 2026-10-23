@@ -59,7 +59,9 @@ def read_perf():
             except (OSError, KeyError, json.JSONDecodeError):
                 continue
             try:
-                full_id = json.loads((bench_dir / "new" / "benchmark.json").read_text(encoding="utf-8"))["full_id"]
+                full_id = json.loads(
+                    (bench_dir / "new" / "benchmark.json").read_text(encoding="utf-8")
+                )["full_id"]
             except (OSError, KeyError, json.JSONDecodeError):
                 full_id = bench_dir.relative_to(CRIT_ROOT / group).as_posix()
             perf.setdefault(full_id, {})[field] = value
@@ -381,10 +383,7 @@ def check_baseline():
     cur_loc = sum(crate["loc"] for crate in crates.values())
     base_density = baseline.get("clone.density")
     base_density_text = f"{base_density:.1f}" if isinstance(base_density, (int, float)) else "—"
-    print(
-        f"\n密度（仅记录）：{base_density_text} → "
-        f"{density(cur_total, cur_loc):.1f}（次/千行）"
-    )
+    print(f"\n密度（仅记录）：{base_density_text} → {density(cur_total, cur_loc):.1f}（次/千行）")
 
     if perf:
         print("\n分配热点（criterion 最近一次 clone 基准，均值/迭代）：")
@@ -396,13 +395,17 @@ def check_baseline():
     if regressions:
         print("\n✗ 对照基线回退。")
         print(f"  clone 上升：{'、'.join(regressions)}。")
-        print("  如属有意，运行 just clone-bench 后采集（just perf-baseline）更新基线，并随本次改动一并审查。")
+        print(
+            "  如属有意，运行 just clone-bench 后采集（just perf-baseline）更新基线，并随本次改动一并审查。"
+        )
         sys.exit(1)
     print(f"\n✓ 对照基线持平或改善（clone 计数 {baseline['clone.total']} → {cur_total}）。")
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--check", action="store_true", help="对照 history 最新点报告变化")
     args = parser.parse_args()
     if args.check:

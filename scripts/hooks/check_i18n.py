@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
 # 界面文案统一进文案表门禁：界面词条只定义在 crates/gloss-app/i18n/*.toml，
 # 只经 crates/gloss-app/src/ui/i18n.rs 装入，代码里不内嵌文案字面量。
 # 本地 `just i18n`（pre-commit 的一部分）与 CI 的 I18n check job 共用此脚本，
@@ -17,43 +17,17 @@
 #
 # 行尾 `i18n:allow` 放行所在行（同 secrets:allow 惯例），须注明缘由。
 #
-# 用法：scripts/hooks/check-i18n.sh [仓库根]   # 缺省为本脚本的上一级目录
-set -euo pipefail
+# 用法：scripts/hooks/check_i18n.py [仓库根]   # 缺省为本脚本的上一级目录
 
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="${1:-$(cd "$SELF_DIR/../.." && pwd)}"
-
-RULE="界面文案统一进文案表"
-OWNER="crates/gloss-app/src/ui/i18n.rs"
-CATALOG_DIR="crates/gloss-app/i18n"
-SCAN_DIRS="gloss-app / 根包 / gloss-core / gloss-platform 的 src"
-ALLOW_MARKER="i18n:allow"
-
-FAILED=0
-
-fail() {
-  echo "  ✗ $1" >&2
-  FAILED=$((FAILED + 1))
-}
-
-rel() { printf '%s' "${1#"$ROOT"/}"; }
-
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "错误：本门禁需要 python3 做字面量词法分析。" >&2
-  exit 1
-fi
-
-echo "== i18n 文案表门禁（仓库根：$(rel "$ROOT")）=="
-
-# ---- 检查一：文案字面量拦截 ----
-# 词法状态机区分 代码 / 注释 / 字符串 / char / 原始字符串；#[...] 属性整体跳过
-# （reason 等元信息可中文）；#[cfg(test)] 修饰的 mod 项按花括号配对整体跳过，
-# 闭合后恢复扫描（测试断言按惯例可用中文钉文案）。命中行带 i18n:allow 则放行。
-literal_violations="$(python3 - "$ROOT" "$ALLOW_MARKER" <<'PY'
 import os
+import re
 import sys
 
-root, marker = sys.argv[1], sys.argv[2]
+RULE = "界面文案统一进文案表"
+OWNER = "crates/gloss-app/src/ui/i18n.rs"
+CATALOG_DIR = "crates/gloss-app/i18n"
+SCAN_DIRS = "gloss-app / 根包 / gloss-core / gloss-platform 的 src"
+ALLOW_MARKER = "i18n:allow"
 
 
 def rs_files(base):
@@ -334,65 +308,125 @@ def literal_lines(src):
     return hits
 
 
-for base in (
-    os.path.join(root, "crates", "gloss-app", "src"),
-    os.path.join(root, "src"),
-    os.path.join(root, "crates", "gloss-core", "src"),
-    os.path.join(root, "crates", "gloss-platform", "src"),
-):
-    for path in rs_files(base):
-        if os.path.relpath(path, root) == "crates/gloss-core/src/prompt.rs":
-            continue
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            src = fh.read()
-        lines = src.split("\n")
-        for ln in sorted(literal_lines(src)):
-            if marker in lines[ln - 1]:
+def literal_violations(root):
+    """检查一：四个扫描面的生产代码字面量，返回违规描述列表。"""
+    problems = []
+    for base in (
+        os.path.join(root, "crates", "gloss-app", "src"),
+        os.path.join(root, "src"),
+        os.path.join(root, "crates", "gloss-core", "src"),
+        os.path.join(root, "crates", "gloss-platform", "src"),
+    ):
+        for path in rs_files(base):
+            rel = os.path.relpath(path, root).replace(os.sep, "/")
+            if rel == "crates/gloss-core/src/prompt.rs":
                 continue
-            print(f"{path}:{ln}")
-PY
-)"
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                src = fh.read()
+            lines = src.split("\n")
+            for ln in sorted(literal_lines(src)):
+                if ALLOW_MARKER in lines[ln - 1]:
+                    continue
+                problems.append(
+                    "约束「%s」：%s 第 %d 行内嵌文案字面量 —— 词条进 %s/，经 %s 的 Text 取用"
+                    % (RULE, rel, ln, CATALOG_DIR, OWNER)
+                )
+    return problems
 
-if [ -n "$literal_violations" ]; then
-  while IFS= read -r hit; do
-    [ -n "$hit" ] || continue
-    fail "约束「${RULE}」：$(rel "${hit%:*}") 第 ${hit##*:} 行内嵌文案字面量 —— 词条进 ${CATALOG_DIR}/，经 ${OWNER} 的 Text 取用"
-  done <<<"$literal_violations"
-fi
 
-# ---- 检查二：装入点集中 ----
-# 文案文件是编译期资源，装入与解析只允许发生在 i18n.rs 一处；
-# 别处 include 进来就绕开了类型化 Text 表与 zh/en 键一致性测试。
-include_files=0
-while IFS= read -r f; do
-  include_files=$((include_files + 1))
-  [ "$(rel "$f")" = "$OWNER" ] && continue
-  hits="$(grep -nE 'include_(str|bytes)!\([^)]*i18n' "$f" 2>/dev/null || true)"
-  [ -n "$hits" ] || continue
-  fail "约束「${RULE}」：$(rel "$f") 在装入点之外引用了 i18n 资源 —— 只允许 ${OWNER} include"
-done < <(find "$ROOT" -name '*.rs' -type f -not -path "$ROOT/target/*" -not -path "$ROOT/.git/*" 2>/dev/null)
+def scan_all_rs(root):
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in ("target", ".git"))
+        for name in sorted(filenames):
+            if name.endswith(".rs"):
+                yield os.path.join(dirpath, name)
 
-# ---- 检查三：词条表文件唯一 ----
-# 词条键统一 gloss_<模块>_<词条> 且顶层扁平；出现第二张表就会分叉出
-# 不受键一致性测试管辖的文案面。
-toml_files=0
-while IFS= read -r f; do
-  toml_files=$((toml_files + 1))
-  case "$(rel "$f")" in
-    "$CATALOG_DIR"/*) continue ;;
-  esac
-  hits="$(grep -nE '^[[:space:]]*gloss_[A-Za-z0-9_]+[[:space:]]*=' "$f" 2>/dev/null || true)"
-  [ -n "$hits" ] || continue
-  fail "约束「${RULE}」：$(rel "$f") 在 ${CATALOG_DIR}/ 之外声明了词条键 —— 文案表只此一处"
-done < <(find "$ROOT" -name '*.toml' -type f -not -path "$ROOT/target/*" -not -path "$ROOT/.git/*" 2>/dev/null)
 
-if [ "$FAILED" -ne 0 ]; then
-  echo "" >&2
-  echo "错误：有 ${FAILED} 处违反「${RULE}」（见上）。" >&2
-  echo "  - 是界面文案：词条加进 ${CATALOG_DIR}/zh.toml 与 en.toml（键名 gloss_<模块>_<词条>），${OWNER} 的 Text 补同名字段，代码经 Text 取用；" >&2
-  echo "  - 非文案（图标字形、自检字样、列表符号等）：所在行尾加 ${ALLOW_MARKER} 并注明缘由。" >&2
-  exit 1
-fi
+def scan_all_toml(root):
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in ("target", ".git"))
+        for name in sorted(filenames):
+            if name.endswith(".toml"):
+                yield os.path.join(dirpath, name)
 
-echo "✓ ${RULE}（${SCAN_DIRS} 的生产代码字面量 + ${include_files} 个 .rs 的装入点 + ${toml_files} 个 TOML 的词条键）"
-exit 0
+
+def run(root):
+    """执行三条检查，返回 (oks, fails)。"""
+    fails = literal_violations(root)
+
+    # ---- 检查二：装入点集中 ----
+    # 文案文件是编译期资源，装入与解析只允许发生在 i18n.rs 一处；
+    # 别处 include 进来就绕开了类型化 Text 表与 zh/en 键一致性测试。
+    include_files = 0
+    include_re = re.compile(r"include_(str|bytes)!\([^)]*i18n")
+    for f in scan_all_rs(root):
+        include_files += 1
+        if os.path.relpath(f, root).replace(os.sep, "/") == OWNER:
+            continue
+        with open(f, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if include_re.search(line):
+                    fails.append(
+                        "约束「%s」：%s 在装入点之外引用了 i18n 资源 —— 只允许 %s include"
+                        % (RULE, os.path.relpath(f, root), OWNER)
+                    )
+                    break
+
+    # ---- 检查三：词条表文件唯一 ----
+    # 词条键统一 gloss_<模块>_<词条> 且顶层扁平；出现第二张表就会分叉出
+    # 不受键一致性测试管辖的文案面。
+    toml_files = 0
+    toml_key_re = re.compile(r"^\s*gloss_[A-Za-z0-9_]+\s*=")
+    for f in scan_all_toml(root):
+        toml_files += 1
+        if os.path.relpath(f, root).replace(os.sep, "/").startswith(CATALOG_DIR + "/"):
+            continue
+        with open(f, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if toml_key_re.match(line):
+                    fails.append(
+                        "约束「%s」：%s 在 %s/ 之外声明了词条键 —— 文案表只此一处"
+                        % (RULE, os.path.relpath(f, root), CATALOG_DIR)
+                    )
+                    break
+
+    oks = []
+    if not fails:
+        oks.append(
+            "%s（%s 的生产代码字面量 + %d 个 .rs 的装入点 + %d 个 TOML 的词条键）"
+            % (RULE, SCAN_DIRS, include_files, toml_files)
+        )
+    return oks, fails
+
+
+def main():
+    root = (
+        os.path.abspath(sys.argv[1])
+        if len(sys.argv) > 1
+        else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    )
+    print("== i18n 文案表门禁（仓库根：%s）==" % root)
+    oks, fails = run(root)
+    for line in oks:
+        print("  ✓ %s" % line)
+    if fails:
+        for line in fails:
+            print("  ✗ %s" % line, file=sys.stderr)
+        print("", file=sys.stderr)
+        print("错误：有 %d 处违反「%s」（见上）。" % (len(fails), RULE), file=sys.stderr)
+        print(
+            "  - 是界面文案：词条加进 %s/zh.toml 与 en.toml（键名 gloss_<模块>_<词条>），"
+            "%s 的 Text 补同名字段，代码经 Text 取用；" % (CATALOG_DIR, OWNER),
+            file=sys.stderr,
+        )
+        print(
+            "  - 非文案（图标字形、自检字样、列表符号等）：所在行尾加 %s 并注明缘由。"
+            % ALLOW_MARKER,
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

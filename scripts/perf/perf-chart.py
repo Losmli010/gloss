@@ -43,7 +43,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from metrics import BUDGET_CONSTS, CORE_CASES, CORE_GROUPS, METRICS, fmt
+from metrics import BUDGET_CONSTS, CORE_CASES, CORE_GROUPS, METRICS, fmt  # noqa: E402 —— 路径引导先于导入
 
 DEFAULT_HISTORY = SCRIPT_DIR / "baselines" / "history.jsonl"
 DEFAULT_OUT_DIR = SCRIPT_DIR / "baselines"
@@ -234,7 +234,13 @@ def hotpath_panels():
 
 FIGURES = (
     ("perf-latency.svg", "Gloss 性能趋势 · 响应性", LATENCY_PANELS, "linear", FOOTER_GUTTER),
-    ("perf-resources.svg", "Gloss 性能趋势 · 资源与体积", RESOURCES_PANELS, "linear", FOOTER_GUTTER),
+    (
+        "perf-resources.svg",
+        "Gloss 性能趋势 · 资源与体积",
+        RESOURCES_PANELS,
+        "linear",
+        FOOTER_GUTTER,
+    ),
     ("perf-hotpath.svg", "Gloss 性能趋势 · 热路径", hotpath_panels(), "log", FOOTER_HOTPATH),
 )
 
@@ -262,7 +268,9 @@ def _validate_panels():
             if budget_id is not None:
                 metric = METRICS.get(budget_id)
                 if metric is None or metric.judge != "预算门禁" or budget_id not in BUDGET_CONSTS:
-                    problems.append(f"{name}/{panel['title']}: 预算 {budget_id} 不是注册的预算门禁指标")
+                    problems.append(
+                        f"{name}/{panel['title']}: 预算 {budget_id} 不是注册的预算门禁指标"
+                    )
                 elif metric.unit not in units:
                     problems.append(f"{name}/{panel['title']}: 预算 {budget_id} 单位不在面板系列中")
     if problems:
@@ -364,7 +372,7 @@ def axis_top(peak, budget, count_floor):
     level = 0 if count_floor else -6
     while level <= 12:
         for step in NICE_STEPS:
-            cand = 4 * step * (10 ** level)
+            cand = 4 * step * (10**level)
             if cand >= peak and (budget is None or cand > budget):
                 return cand
         level += 1
@@ -508,8 +516,12 @@ class Figure:
         self.card_y = HEADER_H
 
     def _legend_marker(self, lx, baseline, color):
-        self.parts.append(line(lx, baseline - 3.5, lx + 16, baseline - 3.5, color, width=2, cap="round"))
-        self.parts.append(circle(lx + 8, baseline - 3.5, 2.6, "#ffffff", stroke=color, stroke_width=1.6))
+        self.parts.append(
+            line(lx, baseline - 3.5, lx + 16, baseline - 3.5, color, width=2, cap="round")
+        )
+        self.parts.append(
+            circle(lx + 8, baseline - 3.5, 2.6, "#ffffff", stroke=color, stroke_width=1.6)
+        )
 
     def _chips(self, y0, chip_defs):
         right = CHIP_RIGHT
@@ -521,8 +533,12 @@ class Figure:
 
     def _x_axis(self, xs, sha_dy, date_dy):
         for x, point in zip(xs, self.points):
-            self.parts.append(t(x, self.card_y + sha_dy, short_sha(point), 10, COLOR_MUTED, anchor="middle"))
-            self.parts.append(t(x, self.card_y + date_dy, short_date(point), 9, COLOR_FAINT, anchor="middle"))
+            self.parts.append(
+                t(x, self.card_y + sha_dy, short_sha(point), 10, COLOR_MUTED, anchor="middle")
+            )
+            self.parts.append(
+                t(x, self.card_y + date_dy, short_date(point), 9, COLOR_FAINT, anchor="middle")
+            )
 
     def _partial_note(self, plot_top, plot_bottom, note_x, series, xs, y_of):
         """「部分系列自 <sha> 起有数据」：默认绘图区右上，数据带相撞时避让。
@@ -560,9 +576,7 @@ class Figure:
             baseline = plot_bottom - 4.5
         else:
             baseline = plot_top + PARTIAL_NOTE_DY
-        self.parts.append(
-            t(note_x, baseline, note, 9, COLOR_MUTED, anchor="end", halo=True)
-        )
+        self.parts.append(t(note_x, baseline, note, 9, COLOR_MUTED, anchor="end", halo=True))
 
     def linear_panel(self, panel):
         y0 = self.card_y
@@ -577,7 +591,11 @@ class Figure:
         budget_id = panel.get("budget")
         budget = latest_budget(self.points, budget_id) if budget_id else None
         flat = [v for _, _, _, vals in series for v in vals if v is not None]
-        peak = max(flat + [budget] if budget is not None else flat) if flat or budget is not None else 0
+        peak = (
+            max(flat + [budget] if budget is not None else flat)
+            if flat or budget is not None
+            else 0
+        )
         if peak <= 0:
             peak = 1.0 if unit == "count" else 100.0
         mb_axis = unit == "kb" and peak >= MB_AXIS_MIN_KB
@@ -602,10 +620,16 @@ class Figure:
             inner = f"{unit_label} · {panel['suffix']}" if panel["suffix"] else unit_label
             full_title = f"{panel['title']}（{inner}）"
         else:
-            full_title = f"{panel['title']}（{panel['suffix']}）" if panel["suffix"] else panel["title"]
+            full_title = (
+                f"{panel['title']}（{panel['suffix']}）" if panel["suffix"] else panel["title"]
+            )
 
-        self.parts.append(rect(CARD_X, y0, CARD_W, CARD_H, COLOR_CARD, rx=10, stroke=COLOR_CARD_STROKE))
-        self.parts.append(t(CARD_X + 16, y0 + TITLE_DY, full_title, 12.5, COLOR_TITLE, weight="600"))
+        self.parts.append(
+            rect(CARD_X, y0, CARD_W, CARD_H, COLOR_CARD, rx=10, stroke=COLOR_CARD_STROKE)
+        )
+        self.parts.append(
+            t(CARD_X + 16, y0 + TITLE_DY, full_title, 12.5, COLOR_TITLE, weight="600")
+        )
 
         budget_series = next((vals for mid, _l, _c, vals in series if mid == budget_id), None)
         chip_defs = []
@@ -641,14 +665,20 @@ class Figure:
         for k in range(n_lines + 1):
             value = lo + k * step
             gy = plot_bottom - k * (PLOT_H / n_lines)
-            self.parts.append(line(PLOT_X0, gy, PLOT_X1, gy, COLOR_AXIS if k == n_neg else COLOR_GRID))
+            self.parts.append(
+                line(PLOT_X0, gy, PLOT_X1, gy, COLOR_AXIS if k == n_neg else COLOR_GRID)
+            )
             self.parts.append(
                 t(54, gy + 3.5, value_label(value, unit, mb_axis), 10, COLOR_MUTED, anchor="end")
             )
 
         if budget is not None:
             by = y_of(budget)
-            self.parts.append(rect(PLOT_X0, plot_top, PLOT_X1 - PLOT_X0, by - plot_top, COLOR_BUDGET, opacity=0.05))
+            self.parts.append(
+                rect(
+                    PLOT_X0, plot_top, PLOT_X1 - PLOT_X0, by - plot_top, COLOR_BUDGET, opacity=0.05
+                )
+            )
             self.parts.append(line(PLOT_X0, by, PLOT_X1, by, COLOR_BUDGET, width=1.3, dash="5 4"))
 
         visible = [s for s in series if any(v is not None for v in s[3])]
@@ -671,9 +701,7 @@ class Figure:
                 self.parts.append(polyline([(x, y_of(v)) for x, v in seg], color))
             pts = present(xs, vals)
             for x, v in pts[:-1]:
-                self.parts.append(
-                    circle(x, y_of(v), 3, "#ffffff", stroke=color, stroke_width=1.8)
-                )
+                self.parts.append(circle(x, y_of(v), 3, "#ffffff", stroke=color, stroke_width=1.8))
             if pts:
                 x, v = pts[-1]
                 y = y_of(v)
@@ -754,16 +782,21 @@ class Figure:
             (mid, label, PALETTE[i % len(PALETTE)], series_values(self.points, mid))
             for i, (mid, label) in enumerate(panel["series"])
         ]
-        self.parts.append(rect(CARD_X, y0, CARD_W, CARD_H, COLOR_CARD, rx=10, stroke=COLOR_CARD_STROKE))
-        self.parts.append(t(CARD_X + 16, y0 + TITLE_DY, panel["title"], 12.5, COLOR_TITLE, weight="600"))
+        self.parts.append(
+            rect(CARD_X, y0, CARD_W, CARD_H, COLOR_CARD, rx=10, stroke=COLOR_CARD_STROKE)
+        )
+        self.parts.append(
+            t(CARD_X + 16, y0 + TITLE_DY, panel["title"], 12.5, COLOR_TITLE, weight="600")
+        )
         self._chips(y0, [("仅记录", CHIP_NEUTRAL_BG, CHIP_RECORD_FG)])
-        self.parts.append(rect(HP_PLOT_X0 - 8, plot_top, HP_PLOT_X1 - HP_PLOT_X0 + 16, HP_PLOT_H, COLOR_TRACK, rx=4))
+        self.parts.append(
+            rect(
+                HP_PLOT_X0 - 8, plot_top, HP_PLOT_X1 - HP_PLOT_X0 + 16, HP_PLOT_H, COLOR_TRACK, rx=4
+            )
+        )
 
         logs = [
-            math.log10(v)
-            for _m, _l, _c, vals in series
-            for v in vals
-            if v is not None and v > 0
+            math.log10(v) for _m, _l, _c, vals in series for v in vals if v is not None and v > 0
         ]
         if logs:
             lo, hi = min(logs), max(logs)
@@ -782,7 +815,9 @@ class Figure:
                         self.parts.append(polyline([(x, scale(v)) for x, v in seg], color))
                 pts = present_log(xs, vals)
                 for x, v in pts[:-1]:
-                    self.parts.append(circle(x, scale(v), 3, "#ffffff", stroke=color, stroke_width=1.8))
+                    self.parts.append(
+                        circle(x, scale(v), 3, "#ffffff", stroke=color, stroke_width=1.8)
+                    )
                 if pts:
                     x, v = pts[-1]
                     y = scale(v)
@@ -793,7 +828,9 @@ class Figure:
             for i in range(1, len(labels)):
                 labels[i][1] = min(labels[i][1], labels[i - 1][1] - HP_LABEL_DE_COLLIDE)
             for x, y, color, label in labels:
-                self.parts.append(t(x, y, label, 10.5, color, weight="600", anchor="middle", halo=True))
+                self.parts.append(
+                    t(x, y, label, 10.5, color, weight="600", anchor="middle", halo=True)
+                )
             self._partial_note(plot_top, plot_bottom, HP_PLOT_X1 - 4, series, xs, scale)
         else:
             self.parts.append(
@@ -807,7 +844,9 @@ class Figure:
                 )
             )
 
-        self._x_axis(xs, HP_PLOT_TOP_DY + HP_PLOT_H + HP_X_SHA_DY, HP_PLOT_TOP_DY + HP_PLOT_H + HP_X_DATE_DY)
+        self._x_axis(
+            xs, HP_PLOT_TOP_DY + HP_PLOT_H + HP_X_SHA_DY, HP_PLOT_TOP_DY + HP_PLOT_H + HP_X_DATE_DY
+        )
         for i, (_mid, label, color, _vals) in enumerate(series):
             col, row = i % 4, i // 4
             lx = CARD_X + 16 + col * HP_LEGEND_COL_PITCH
@@ -825,7 +864,11 @@ class Figure:
         )
         lines = [head, self.parts[0]]
         if self.gradients:
-            defs = "<defs>" + "".join(self._gradient(color) for color in sorted(self.gradients)) + "</defs>"
+            defs = (
+                "<defs>"
+                + "".join(self._gradient(color) for color in sorted(self.gradients))
+                + "</defs>"
+            )
             lines.append(defs)
         lines.extend(self.parts[1:])
         lines.append("</svg>")
@@ -855,7 +898,9 @@ def build_figure(spec, points):
 def load_history(path):
     if not path.is_file():
         raise SystemExit(f"错误：缺少 {path}，先运行统一采集器生成趋势历史")
-    points = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    points = [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
     if not points:
         raise SystemExit(f"错误：{path} 为空")
     for i, point in enumerate(points):

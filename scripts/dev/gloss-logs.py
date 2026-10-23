@@ -140,8 +140,12 @@ def main() -> int:
     parser.add_argument("--generation", type=int, help="只看这条代数的任务链路")
     parser.add_argument("--level", choices=[level.lower() for level in LEVELS], help="最低级别")
     parser.add_argument("--raw", action="store_true", help="原样输出 JSONL")
-    parser.add_argument("--follow", dest="follow", action="store_true", default=True, help="跟随新行（默认）")
-    parser.add_argument("--no-follow", dest="follow", action="store_false", help="打完现有内容就退出")
+    parser.add_argument(
+        "--follow", dest="follow", action="store_true", default=True, help="跟随新行（默认）"
+    )
+    parser.add_argument(
+        "--no-follow", dest="follow", action="store_false", help="打完现有内容就退出"
+    )
     parser.add_argument("--no-color", action="store_true", help="不输出颜色")
     args = parser.parse_args()
     if args.level is not None:

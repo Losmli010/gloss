@@ -171,12 +171,14 @@ def parse_symbols(binary: Path, top: int) -> tuple[list[dict], list[dict], int]:
             if sym_end <= addr:
                 continue
             decoded = decode_rust_symbol(name)
-            entries.append({
-                "raw": name,
-                "decoded": decoded,
-                "bytes": sym_end - addr,
-                "section": f"{seg},{sect}",
-            })
+            entries.append(
+                {
+                    "raw": name,
+                    "decoded": decoded,
+                    "bytes": sym_end - addr,
+                    "section": f"{seg},{sect}",
+                }
+            )
     entries.sort(key=lambda item: item["bytes"], reverse=True)
     by_crate: dict[str, int] = {}
     for item in entries:
@@ -204,8 +206,10 @@ def main() -> None:
 
     binary = Path(args.bin)
     if not binary.is_file():
-        sys.exit(f"找不到 {binary}：先用 just build-release（节级）或"
-                 " cargo build --profile profiling（符号级）构建")
+        sys.exit(
+            f"找不到 {binary}：先用 just build-release（节级）或"
+            " cargo build --profile profiling（符号级）构建"
+        )
     file_size = binary.stat().st_size
     segments = parse_segments(binary)
     symbols: list[dict] = []
@@ -240,14 +244,20 @@ def main() -> None:
     if args.json:
         out = Path(args.json)
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps({
-            "binary": str(binary),
-            "file_size": file_size,
-            "segments": segments,
-            "symbol_total": symbol_total,
-            "top_symbols": symbols,
-            "top_crates": crates,
-        }, ensure_ascii=False, indent=2))
+        out.write_text(
+            json.dumps(
+                {
+                    "binary": str(binary),
+                    "file_size": file_size,
+                    "segments": segments,
+                    "symbol_total": symbol_total,
+                    "top_symbols": symbols,
+                    "top_crates": crates,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         print(f"\nJSON 落盘：{out}")
 
 
