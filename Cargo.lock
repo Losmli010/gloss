@@ -1350,12 +1350,14 @@ name = "gloss"
 version = "0.2.8"
 dependencies = [
  "criterion",
+ "crossbeam-channel",
  "egui",
  "gloss-app",
  "gloss-core",
  "gloss-platform",
  "mimalloc",
  "serde_json",
+ "tokio",
  "winit",
 ]
 

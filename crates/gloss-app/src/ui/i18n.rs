@@ -376,6 +376,11 @@ mod tests {
     #[test]
     fn each_error_variant_maps_to_its_own_entry() {
         let errors = Text::get(Locale::Zh);
+        assert_static_variants_use_their_own_entries(errors);
+        assert_templated_variants_fill_the_detail(errors);
+    }
+
+    fn assert_static_variants_use_their_own_entries(errors: &Text) {
         for (error, expected) in [
             (
                 GlossError::SelectionUnavailable,
@@ -426,6 +431,9 @@ mod tests {
                 "{error:?} has no diagnostic of its own"
             );
         }
+    }
+
+    fn assert_templated_variants_fill_the_detail(errors: &Text) {
         let response = GlossError::EngineResponse("HTTP 400".into());
         assert_eq!(
             errors.for_error(&response),

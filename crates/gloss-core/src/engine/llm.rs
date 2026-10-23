@@ -4,7 +4,7 @@
 //! 边界：**只负责把请求送出去、把响应流回来**。messages 由编排层渲染
 //! （`super::AiTaskService` → `prompt::PromptRegistry`，含模态校验），模型
 //! 也已由 App 按配置解析后随 [`EngineRequest`] 携带——本模块不渲染
-//! prompt，也不看配置里的模型。域形态的消息（[`ChatMessage`]：文本或多
+//! prompt，也不看配置里的模型。域形态的消息（[`crate::prompt::ChatMessage`]：文本或多
 //! 模态部件）在这里映成 OpenAI 兼容 wire 形状；图像部件的 base64 与
 //! data URL 前缀也只在请求体构造处编码（域类型不带 base64）。
 //!
@@ -13,143 +13,33 @@
 //! 只有状态码与服务端诊断文本；红线与措辞见 `crate::ports::ConfigStore` 的文档）。
 //!
 //! 超时与重试（均为传输层内建行为，编排层不重试、原样上抛）：建连超时
-//! 之外，流式读取只设**空闲超时**（[`IDLE_TIMEOUT`]，连续无字节到达即断
-//! 流）——长回复合法地跑满全预算，总超时只会误杀；传输失败在**首个流条
-//! 目之前**自动重试（[`RETRY_ATTEMPTS`]，仅瞬态失败）。取消由调用方的
-//! `CancellationToken` 竞速完成（future 被丢弃即断链）。
+//! 之外，流式读取只设**空闲超时**——长回复合法地跑满全预算，总超时只会
+//! 误杀；传输失败在**首个流条目之前**自动重试（仅瞬态失败）。两者的取值
+//! 与调度见 `transport`。取消由调用方的 `CancellationToken` 竞速完成
+//! （future 被丢弃即断链）。
 
-use std::collections::VecDeque;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
 use crate::config::Config;
 use crate::config_handle::ConfigHandle;
-use crate::log::{debug, thread, warn};
+use crate::log::debug;
 use crate::model::GlossError;
-use crate::ports::{AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskChunk, TaskStream};
-use crate::prompt::{ChatMessage, ContentPart, MessageContent};
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use bytes::Bytes;
-use futures_core::Stream;
-use reqwest::StatusCode;
-use tokio::time::{Instant as TokioInstant, Sleep, sleep, sleep_until};
+use crate::ports::{AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskStream};
 
-use super::sse::{SseDecoder, SseItem};
+use self::transport::{
+    FirstByteStream, RETRY_ATTEMPTS, Resolved, TransportFail, connect_with_retry, send_once,
+};
+
+mod failure;
+mod request_body;
+mod transport;
 
 /// 建连超时（不含响应与流式读取）。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// 流式空闲超时：连续这么久没有任何字节到达即判传输停摆，流以
-/// [`GlossError::EngineNetwork`] 终结（首个 `Err` 终结流的端口契约不变）。
-/// 取值从宽以覆盖首字节等待——推理类模型出首个字节可以远慢于普通请求
-/// ——也覆盖流中途的服务端生成间歇；只惩罚「连接还在、字节不来」的静默
-/// 悬死，对长回复没有总超时那样的合法误杀。
-const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// 传输失败自动重试预算：只重试**首个流条目之前**的瞬态失败（请求没送达、
-/// 服务端明确说稍后再来、连接初建即断）。连接阶段与首个流条目之前两个
-/// 阶段共用同一份预算——前一阶段耗尽，后一阶段不再重试。
-const RETRY_ATTEMPTS: u32 = 1;
-
-/// 无 `Retry-After` 指引时的固定退避。
-const RETRY_BACKOFF: Duration = Duration::from_millis(500);
-
-/// `Retry-After` 指引的等待上限：更长的等待不自动进行——失败卡交还用户，
-/// 重试按钮在手（状态机对网络/限流错误的既有出口）。
-const RETRY_AFTER_CAP: Duration = Duration::from_secs(1);
-
 /// 聊天补全路径（OpenAI 兼容）。
 const CHAT_COMPLETIONS_PATH: &str = "chat/completions";
-
-/// 错误响应体的读取上限：只要 `error.message`，多余字节没有价值，而错误
-/// 网关的劫持页可能极大（截断后 JSON 解析失败会退化成「只报状态码」，
-/// 与既有非 JSON 路径一致）。
-const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
-
-/// 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。消息在这里从域
-/// 形态映成 wire 形状；`max_tokens` 只在设限时携带：部分严格端点会拒绝
-/// 显式的 `null`，缺键才是「不设限」的 wire 语义。
-///
-/// `response_format` json_object **恒携带**（[`EngineRequest`] 不加开关）：
-/// 所有请求都是 JSON 契约，不做能力协商——端点不认时以 4xx 拒绝，由
-/// [`map_failure`] 的启发式映射成 [`GlossError::JsonModeUnsupported`]。
-fn chat_request_body(request: &EngineRequest) -> serde_json::Value {
-    let messages: Vec<serde_json::Value> = request.messages.iter().map(message_to_value).collect();
-    let mut body = serde_json::json!({
-        "model": request.model,
-        "messages": messages,
-        "stream": true,
-        "response_format": { "type": "json_object" },
-    });
-    if let Some(max_tokens) = request.max_tokens {
-        body["max_tokens"] = serde_json::json!(max_tokens);
-    }
-    body
-}
-
-/// 单条消息 → OpenAI 兼容 JSON：role 用小写契约名（`Role` 的 serde 拼写），
-/// 正文按域形态分派（纯文本即 JSON 字符串，部件即 content 数组）。
-fn message_to_value(message: &ChatMessage) -> serde_json::Value {
-    serde_json::json!({
-        "role": message.role,
-        "content": content_to_value(&message.content),
-    })
-}
-
-/// 消息正文 → wire 值：纯文本即字符串，部件数组即 OpenAI 兼容 content
-/// 数组（`{"type":"image_url",…}`）。
-fn content_to_value(content: &MessageContent) -> serde_json::Value {
-    match content {
-        MessageContent::Text(text) => serde_json::json!(text),
-        MessageContent::Parts(parts) => {
-            serde_json::Value::Array(parts.iter().map(part_to_value).collect())
-        }
-    }
-}
-
-/// 单个部件 → wire 值。图像字节在这里才做 base64 编码并拼 data URL 前缀
-/// （`data:image/png;base64,…`）——域类型只携带原始字节，编码不出请求体
-/// 构造这一步。
-fn part_to_value(part: &ContentPart) -> serde_json::Value {
-    match part {
-        ContentPart::ImagePng(png) => serde_json::json!({
-            "type": "image_url",
-            "image_url": {
-                "url": format!("data:image/png;base64,{}", BASE64_STANDARD.encode(png)),
-            },
-        }),
-    }
-}
-
-/// 读响应体但不超过 `limit` 字节（丢失的只是诊断文本，不是业务数据）。
-/// 读取中断不当作「正常读完」静默截断：留一条 trace，错误体按已读部分
-/// 交给诊断解析（半截 JSON 会退化成「只报状态码」）。
-async fn read_bounded_body(response: &mut reqwest::Response, limit: usize) -> String {
-    let mut body = Vec::new();
-    loop {
-        match response.chunk().await {
-            Ok(Some(chunk)) => {
-                body.extend_from_slice(&chunk);
-                if body.len() >= limit {
-                    break;
-                }
-            }
-            Ok(None) => break,
-            Err(error) => {
-                debug!(
-                    thread = thread::TOKIO,
-                    error = %error,
-                    "error body read stopped before the limit"
-                );
-                break;
-            }
-        }
-    }
-    String::from_utf8_lossy(&body).into_owned()
-}
 
 /// OpenAI 兼容流式引擎。
 pub struct LlmClient {
@@ -244,230 +134,6 @@ impl AiEngine for LlmClient {
     }
 }
 
-/// 一次请求的解析产物：端点、密钥与 wire 请求体。请求体在构造处一次性
-/// 序列化成 `Bytes`（图像任务的 base64 可达 MB 级，`.json(&Value)` 会在
-/// 每次尝试时整体重序列化一份临时缓冲）；`Bytes` 克隆只递引用计数，重试
-/// 复用零拷贝。
-struct Resolved {
-    url: String,
-    key: String,
-    body: Bytes,
-}
-
-impl Resolved {
-    /// 组装并序列化请求体。序列化失败只可能是本地构造出非对象形态的
-    /// `Value`（本模块恒产出 JSON 对象），按请求异常上抛。
-    fn build(url: String, key: String, request: &EngineRequest) -> Result<Self, GlossError> {
-        let body = serde_json::to_vec(&chat_request_body(request))
-            .map_err(|err| GlossError::EngineResponse(format!("serialize request body: {err}")))?;
-        Ok(Self {
-            url,
-            key,
-            body: Bytes::from(body),
-        })
-    }
-}
-
-/// 一次传输尝试的失败载荷：错误分类 + 服务端的稍后重试指引（`Retry-After`
-/// 头的秒数形态）。指引不进 [`GlossError`]——它是传输层重试的内部量，
-/// 出了这层就是普通失败。
-struct TransportFail {
-    error: GlossError,
-    retry_after: Option<Duration>,
-}
-
-/// 传输失败是否值得自动重试及等待时长（纯函数）：预算未尽且错误是瞬态
-/// （网络/限流）才重试；等待取 `Retry-After` 指引与上限的较小值，无指引
-/// 用固定退避。鉴权、参数与环境类拒绝重发无益，与预算耗尽同返回 None。
-fn retry_delay(
-    error: &GlossError,
-    retry_after: Option<Duration>,
-    retries_left: u32,
-) -> Option<Duration> {
-    if retries_left == 0 {
-        return None;
-    }
-    match error {
-        GlossError::EngineNetwork | GlossError::EngineRateLimited => {
-            Some(retry_after.map_or(RETRY_BACKOFF, |wait| wait.min(RETRY_AFTER_CAP)))
-        }
-        _ => None,
-    }
-}
-
-/// `Retry-After` 头的秒数形态解析（HTTP 日期形态返回 None，回落固定退避）。
-fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
-    headers
-        .get(reqwest::header::RETRY_AFTER)?
-        .to_str()
-        .ok()?
-        .trim()
-        .parse::<u64>()
-        .ok()
-        .map(Duration::from_secs)
-}
-
-/// 空闲看门狗的到点时刻（纯函数）：`Sleep` 的初装与复位都用它给定时刻。
-fn idle_deadline(now: TokioInstant) -> TokioInstant {
-    now + IDLE_TIMEOUT
-}
-
-/// 发起一次传输尝试：端点、密钥与请求体已就绪（解析产物），发请求、查
-/// 状态、包 SSE 流。失败以 [`TransportFail`] 上交（状态失败随附
-/// `Retry-After` 指引）；重试判定归 [`connect_with_retry`] 与
-/// [`FirstByteStream`]。
-async fn send_once(
-    client: &reqwest::Client,
-    resolved: &Resolved,
-) -> Result<TaskStream, TransportFail> {
-    let mut response = client
-        .post(&resolved.url)
-        .bearer_auth(&resolved.key)
-        // 请求体已在 [`Resolved::build`] 序列化成字节，这里只补 JSON 的
-        // content-type（`.json` 的另一半职责），克隆只是递引用计数。
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(resolved.body.clone())
-        .send()
-        .await
-        .map_err(|err| TransportFail {
-            error: map_transport_error(err),
-            retry_after: None,
-        })?;
-
-    let status = response.status();
-    if !status.is_success() {
-        // 服务端诊断文本（可能是 JSON 错误对象）：只取 message 字段，
-        // 不转述整个响应体；密钥在请求头里，不会出现在这里。读取带上限
-        // ——错误网关/WAF 可能回几百 MB 的劫持页，不能整份吃进内存。
-        let retry_after = parse_retry_after(response.headers());
-        let detail = read_bounded_body(&mut response, MAX_ERROR_BODY_BYTES).await;
-        return Err(TransportFail {
-            error: map_failure(status, &detail),
-            retry_after,
-        });
-    }
-    Ok(Box::pin(SseStream::new(response.bytes_stream())) as TaskStream)
-}
-
-/// 连接阶段的重试循环：逐次尝试，瞬态失败在预算内退避后重试，其余失败
-/// 与预算耗尽原样上抛。预算余额随成功返回——首个流条目之前的重试
-/// （[`FirstByteStream`]）接着用同一份预算。
-async fn connect_with_retry<T>(
-    mut attempt: impl FnMut() -> BoxFuture<'static, Result<T, TransportFail>>,
-    mut retries_left: u32,
-) -> (Result<T, GlossError>, u32) {
-    loop {
-        match attempt().await {
-            Ok(stream) => return (Ok(stream), retries_left),
-            Err(fail) => match retry_delay(&fail.error, fail.retry_after, retries_left) {
-                Some(delay) => {
-                    retries_left -= 1;
-                    warn!(
-                        thread = thread::TOKIO,
-                        error = %fail.error,
-                        delay = ?delay,
-                        "llm request hit a transient failure, retrying before the first byte"
-                    );
-                    sleep(delay).await;
-                }
-                None => return (Err(fail.error), retries_left),
-            },
-        }
-    }
-}
-
-/// 首个流条目之前的重试包装：内建流在产出**任何**条目之前的 `Err`，若是
-/// 瞬态失败且预算未尽，丢弃空流、退避后重新发起请求（消费方无感）——
-/// 此刻没有任何增量交付过，不存在半截产物要保。首个条目一旦交付（增量
-/// 或终结条目），错误一律原样放行：中途断流多半是确定性故障，重头重播
-/// 还会让已渲染的流式正文错乱。`attempt` 与连接阶段同形状，共用同一份
-/// [`RETRY_ATTEMPTS`] 预算；重连只此一次、失败原样上交，不链式重判——
-/// 现行预算下重连发出时余额必为 0，这一箭也是对失败端点的重试上限。
-struct FirstByteStream<F> {
-    attempt: F,
-    inner: Option<TaskStream>,
-    /// 进行中的重连（退避 + 重新请求）；在位时 `inner` 必为 None。
-    connecting: Option<BoxFuture<'static, Result<TaskStream, TransportFail>>>,
-    retries_left: u32,
-    handed_first: bool,
-}
-
-impl<F> FirstByteStream<F>
-where
-    F: Fn() -> BoxFuture<'static, Result<TaskStream, TransportFail>>,
-{
-    fn new(attempt: F, inner: TaskStream, retries_left: u32) -> Self {
-        Self {
-            attempt,
-            inner: Some(inner),
-            connecting: None,
-            retries_left,
-            handed_first: false,
-        }
-    }
-}
-
-impl<F> Stream for FirstByteStream<F>
-where
-    F: Fn() -> BoxFuture<'static, Result<TaskStream, TransportFail>> + Unpin,
-{
-    type Item = Result<TaskChunk, GlossError>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        loop {
-            if let Some(connect) = this.connecting.as_mut() {
-                match connect.as_mut().poll(cx) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(Ok(stream)) => {
-                        this.inner = Some(stream);
-                        this.connecting = None;
-                    }
-                    Poll::Ready(Err(fail)) => {
-                        this.connecting = None;
-                        return Poll::Ready(Some(Err(fail.error)));
-                    }
-                }
-                continue;
-            }
-            let Some(stream) = this.inner.as_mut() else {
-                return Poll::Ready(None);
-            };
-            match stream.as_mut().poll_next(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(Some(Ok(chunk))) => {
-                    this.handed_first = true;
-                    return Poll::Ready(Some(Ok(chunk)));
-                }
-                Poll::Ready(None) => return Poll::Ready(None),
-                Poll::Ready(Some(Err(error))) => {
-                    if this.handed_first {
-                        return Poll::Ready(Some(Err(error)));
-                    }
-                    match retry_delay(&error, None, this.retries_left) {
-                        Some(delay) => {
-                            this.retries_left -= 1;
-                            warn!(
-                                thread = thread::TOKIO,
-                                error = %error,
-                                delay = ?delay,
-                                "llm stream failed before the first byte, retrying"
-                            );
-                            this.inner = None;
-                            let attempt = (this.attempt)();
-                            this.connecting = Some(Box::pin(async move {
-                                sleep(delay).await;
-                                attempt.await
-                            }));
-                        }
-                        None => return Poll::Ready(Some(Err(error))),
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// 请求端点：由配置快照解析 `{base_url}/chat/completions`。
 fn resolve_endpoint(config: &Config) -> Result<String, GlossError> {
     let base_url = config.base_url.trim();
@@ -500,211 +166,27 @@ fn resolve_api_key(config: &Config, store: &dyn ConfigStore) -> Result<String, G
         .ok_or(GlossError::EngineAuth)
 }
 
-/// 传输层错误 → [`GlossError`]：连不上/超时/连接中断都可重试。
-fn map_transport_error(err: reqwest::Error) -> GlossError {
-    // builder 错是本地构造失败（非法 header 等）——重试永远不会成功，报成
-    // EngineNetwork（可重试）会把用户引到错误的方向。
-    if err.is_builder() {
-        GlossError::EngineResponse(format!("request rejected: {err}"))
-    } else if err.is_decode() {
-        GlossError::EngineResponse(format!("decode response: {err}"))
-    } else {
-        GlossError::EngineNetwork
-    }
-}
-
-/// JSON 模式不支持的诊断标记（小写比较）：请求体恒带 `response_format`
-/// json_object，4xx 诊断文本提到它就是端点不认这个开关。
-const JSON_MODE_MARKERS: [&str; 2] = ["response_format", "json_object"];
-
-/// 图像输入不支持的诊断标记（小写比较）。
-const MULTIMODAL_MARKERS: [&str; 3] = ["image", "multimodal", "vision"];
-
-/// HTTP 状态 → [`GlossError`]（错误分类表）。其余 4xx 按服务端诊断文本做
-/// 两个**启发式**识别（环境问题，重发同请求无益，不落可重试的协议错误）：
-/// 诊断提到 JSON 模式开关 → [`GlossError::JsonModeUnsupported`]；提到图像
-/// 输入 → [`GlossError::UnsupportedModality`]。JSON 模式检查在前：它是请求
-/// 信封层的拒绝，命中时对所有任务都成立。识别不出才落
-/// [`GlossError::EngineResponse`]。
-fn map_failure(status: StatusCode, body: &str) -> GlossError {
-    match status.as_u16() {
-        401 | 403 => GlossError::EngineAuth,
-        429 => GlossError::EngineRateLimited,
-        500..=599 => GlossError::EngineNetwork,
-        _ => {
-            let message = server_message(body);
-            let lowered = message.as_deref().unwrap_or("").to_lowercase();
-            if JSON_MODE_MARKERS
-                .iter()
-                .any(|marker| lowered.contains(marker))
-            {
-                return GlossError::JsonModeUnsupported;
-            }
-            if MULTIMODAL_MARKERS
-                .iter()
-                .any(|marker| lowered.contains(marker))
-            {
-                return GlossError::UnsupportedModality;
-            }
-            match message {
-                Some(message) => GlossError::EngineResponse(format!("HTTP {status}: {message}")),
-                None => GlossError::EngineResponse(format!("HTTP {status}")),
-            }
-        }
-    }
-}
-
-/// 从错误响应体里取服务端诊断文本（仅 `error.message`，OpenAI 兼容形状）。
-fn server_message(body: &str) -> Option<String> {
-    #[derive(serde::Deserialize)]
-    struct ErrorEnvelope {
-        error: ErrorBody,
-    }
-    #[derive(serde::Deserialize)]
-    struct ErrorBody {
-        message: String,
-    }
-
-    let envelope: ErrorEnvelope = serde_json::from_str(body).ok()?;
-    let message = envelope.error.message;
-    let trimmed = message.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    // 上限与 SSE 诊断一致：错误文本会进 UI 与日志。
-    Some(trimmed.chars().take(200).collect())
-}
-
-/// 把响应的字节流适配成 [`TaskStream`]：SSE 逐行解码，吐文本增量，`[DONE]`
-/// 上交一条携带结束原因的终结条目（[`TaskChunk::Done`]）。
-///
-/// 手动实现 `poll_next`（与编排层的手工轮询同一风格），不引 futures-util：
-/// 状态机只有「攒够一行 → 产出条目 → 继续拉字节」三步。首个 `Err` 即终结流
-/// （端口契约），此后不再拉取字节。
-struct SseStream {
-    inner: Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
-    decoder: SseDecoder,
-    ready: VecDeque<Result<TaskChunk, GlossError>>,
-    /// 是否产出过增量：零增量的「成功」是坏响应（网关忽略 `stream:true` 返回
-    /// 非流式 JSON、劫持页返回 200 HTML、模型只回 refusal 等），不能当成功
-    /// 产物写进缓存——用户会看到空白卡片，重复触发还命同一份空白。
-    produced: bool,
-    finished: bool,
-    /// 空闲看门狗：每次收到字节即复位；到点未复位说明连接悬死（连着但不
-    /// 来字节），轮询以 [`GlossError::EngineNetwork`] 终结流。
-    idle: Pin<Box<Sleep>>,
-}
-
-impl SseStream {
-    fn new(
-        inner: impl Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send + 'static,
-    ) -> Self {
-        Self {
-            inner: Box::pin(inner),
-            decoder: SseDecoder::new(),
-            ready: VecDeque::new(),
-            produced: false,
-            finished: false,
-            idle: Box::pin(sleep_until(idle_deadline(TokioInstant::now()))),
-        }
-    }
-
-    /// 收下解码器产出：增量入队，`Done` / `Failed` 终直流。
-    fn absorb(&mut self, items: Vec<SseItem>) {
-        for item in items {
-            // 终结之后再无契约地位的字节（解码器对 [DONE] 后的输入同样沉默）。
-            if self.finished {
-                return;
-            }
-            match item {
-                SseItem::Delta(delta) => {
-                    self.produced = true;
-                    self.ready.push_back(Ok(TaskChunk::Delta(delta)));
-                }
-                SseItem::Done { finish_reason } => {
-                    if self.produced {
-                        self.ready.push_back(Ok(TaskChunk::Done { finish_reason }));
-                    } else {
-                        // 零增量的「成功」是坏响应，即便服务端声明了正常结束。
-                        self.ready.push_back(Err(GlossError::EmptyCompletion));
-                    }
-                    self.finished = true;
-                }
-                SseItem::Failed(error) => {
-                    self.ready.push_back(Err(error));
-                    self.finished = true;
-                }
-            }
-        }
-    }
-
-    /// 连接关闭的收尾（服务端没给 `[DONE]`）：一条增量都没产出过就是坏
-    /// 响应；产出过则按流自然耗尽收场（结束原因未知，不产出 Done）。
-    /// `ready` 先于 `finished` 被排空，所以这条 Err 一定排在已入队的增量之后。
-    fn finish_without_error(&mut self) {
-        if !self.produced {
-            self.ready.push_back(Err(GlossError::EmptyCompletion));
-        }
-        self.finished = true;
-    }
-}
-
-impl Stream for SseStream {
-    type Item = Result<TaskChunk, GlossError>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        loop {
-            if let Some(item) = this.ready.pop_front() {
-                return Poll::Ready(Some(item));
-            }
-            if this.finished {
-                return Poll::Ready(None);
-            }
-            // 看门狗先于内层轮询：连接悬死时内层恒 Pending，唯一能终结流的
-            // 就是它。已入队的增量先交付（末次字节到达时看门狗已复位，能
-            // 走到这说明静默期确实过满了）。
-            if this.idle.as_mut().poll(cx).is_ready() {
-                this.finished = true;
-                warn!(
-                    thread = thread::TOKIO,
-                    idle_secs = IDLE_TIMEOUT.as_secs(),
-                    "llm stream went silent, failing with a network error"
-                );
-                return Poll::Ready(Some(Err(GlossError::EngineNetwork)));
-            }
-            match this.inner.as_mut().poll_next(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(Some(Ok(chunk))) => {
-                    this.idle.as_mut().reset(idle_deadline(TokioInstant::now()));
-                    let items = this.decoder.push(&chunk);
-                    this.absorb(items);
-                }
-                Poll::Ready(Some(Err(err))) => {
-                    // 连接断了：把错误排在已收下的增量之后（端口契约是「首个
-                    // Err 终结流」，之前到达的增量仍应交付）。
-                    this.ready.push_back(Err(map_transport_error(err)));
-                    this.finished = true;
-                }
-                Poll::Ready(None) => {
-                    // 连接关闭即流结束：服务端没给 [DONE] 也按正常收尾，
-                    // 顺便收下尾巴里那条完整但没换行终止的增量。
-                    let tail = this.decoder.finish();
-                    this.absorb(tail);
-                    this.finish_without_error();
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use std::collections::VecDeque;
+    use std::pin::Pin;
     use std::sync::Mutex;
+    use std::task::{Context, Poll};
 
+    use super::failure::map_failure;
+    use super::request_body::chat_request_body;
+    use super::transport::{
+        FirstByteStream, RETRY_AFTER_CAP, RETRY_ATTEMPTS, RETRY_BACKOFF, SseStream, TransportFail,
+        connect_with_retry, parse_retry_after, retry_delay,
+    };
+    use crate::ports::TaskChunk;
+    use crate::prompt::{ChatMessage, ContentPart};
     use crate::stubs::ports::MemoryConfigStore;
+    use futures_core::Stream;
+    use reqwest::StatusCode;
+    use tokio::time::{Instant as TokioInstant, Sleep, sleep};
 
     const FIXTURE_PNG: &[u8] = &[
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
@@ -1536,7 +1018,8 @@ mod tests {
 mod live_tests {
     use super::*;
 
-    use crate::prompt::PromptRegistry;
+    use crate::ports::TaskChunk;
+    use crate::prompt::{ChatMessage, PromptRegistry};
     use crate::schema;
     use crate::stubs::ports::MemoryConfigStore;
     use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
@@ -1568,9 +1051,7 @@ mod live_tests {
         (base_url, model, key)
     }
 
-    #[tokio::test]
-    #[ignore = "真机：需 GLOSS_LIVE_API_KEY / GLOSS_LIVE_BASE_URL / GLOSS_LIVE_MODEL（见本模块文档）"]
-    async fn live_llm_streams_a_translation() {
+    fn live_client() -> (String, LlmClient) {
         let (base_url, model, key) = require_live_env();
         let store = Arc::new(MemoryConfigStore::default());
         store
@@ -1583,6 +1064,13 @@ mod live_tests {
         };
         let handle = Arc::new(ConfigHandle::with_config(store.clone(), config));
         let client = LlmClient::new(handle, store).expect("http client should build");
+        (model, client)
+    }
+
+    #[tokio::test]
+    #[ignore = "真机：需 GLOSS_LIVE_API_KEY / GLOSS_LIVE_BASE_URL / GLOSS_LIVE_MODEL（见本模块文档）"]
+    async fn live_llm_streams_a_translation() {
+        let (model, client) = live_client();
 
         let request = EngineRequest {
             messages: vec![
@@ -1614,18 +1102,7 @@ mod live_tests {
     #[tokio::test]
     #[ignore = "真机：需 GLOSS_LIVE_* 与支持图像输入的模型（bdd.md 人工测试有照抄步骤）"]
     async fn live_llm_streams_an_image_contract() {
-        let (base_url, model, key) = require_live_env();
-        let store = Arc::new(MemoryConfigStore::default());
-        store
-            .set_secret("gloss/deepseek", &key)
-            .expect("stub store accepts secret");
-        let config = Config {
-            base_url,
-            model: model.clone(),
-            ..Default::default()
-        };
-        let handle = Arc::new(ConfigHandle::with_config(store.clone(), config));
-        let client = LlmClient::new(handle, store).expect("http client should build");
+        let (model, client) = live_client();
 
         let task = Task::new(
             TaskKind::ImageExplain,

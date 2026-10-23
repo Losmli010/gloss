@@ -95,7 +95,23 @@ fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossEr
         ImageFlavor::Tiff => ImageFormat::Tiff,
         ImageFlavor::Png => ImageFormat::Png,
     };
-    let (width, height) = ImageReader::with_format(Cursor::new(bytes), format)
+    let (width, height) = header_dimensions(bytes, format)?;
+    if !pixels_within_budget(width, height) {
+        debug!(
+            thread = thread::EVENT,
+            width, height, "pasteboard image exceeds the pixel budget"
+        );
+        return Err(GlossError::ImageTooLarge);
+    }
+    let rgba = decode_rgba(bytes, format)?;
+    let (width, height, rgba) = downscale_to_budget(rgba);
+    encode_png(width, height, rgba.as_raw())
+}
+
+/// 只读头取尺寸：超限的图在整份解码之前就被像素预算拒掉（解压炸弹不该
+/// 先吃掉内存再被拒）；头不可读按读取失败处理。
+fn header_dimensions(bytes: &[u8], format: ImageFormat) -> Result<(u32, u32), GlossError> {
+    ImageReader::with_format(Cursor::new(bytes), format)
         .into_dimensions()
         .map_err(|err| {
             debug!(
@@ -104,16 +120,14 @@ fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossEr
                 "pasteboard image header unreadable"
             );
             GlossError::ImageUnavailable
-        })?;
-    if !pixels_within_budget(width, height) {
-        debug!(
-            thread = thread::EVENT,
-            width, height, "pasteboard image exceeds the pixel budget"
-        );
-        return Err(GlossError::ImageTooLarge);
-    }
-    let decoded = ImageReader::with_format(Cursor::new(bytes), format)
+        })
+}
+
+/// 整份解码为 RGBA8：已是 RGBA8 的图 `into_rgba8` 原地取出，不再整份复制。
+fn decode_rgba(bytes: &[u8], format: ImageFormat) -> Result<image::RgbaImage, GlossError> {
+    ImageReader::with_format(Cursor::new(bytes), format)
         .decode()
+        .map(|decoded| decoded.into_rgba8())
         .map_err(|err| {
             debug!(
                 thread = thread::EVENT,
@@ -121,10 +135,12 @@ fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossEr
                 "pasteboard image decode failed"
             );
             GlossError::ImageUnavailable
-        })?;
-    // 已是 RGBA8 的图 `into_rgba8` 原地取出，不再整份复制。
-    let rgba = decoded.into_rgba8();
-    let (width, height, rgba) = match downscaled_dims(rgba.width(), rgba.height()) {
+        })
+}
+
+/// 超长边的产物按比例降采样到上限内，预算内原样归还。
+fn downscale_to_budget(rgba: image::RgbaImage) -> (u32, u32, image::RgbaImage) {
+    match downscaled_dims(rgba.width(), rgba.height()) {
         Some((width, height)) => {
             debug!(
                 thread = thread::EVENT,
@@ -143,8 +159,7 @@ fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossEr
             (width, height, resized)
         }
         None => (rgba.width(), rgba.height(), rgba),
-    };
-    encode_png(width, height, rgba.as_raw())
+    }
 }
 
 /// RGBA 位图 → PNG。缓冲与声明尺寸不符按读取失败处理（校验在前，

@@ -50,40 +50,8 @@ fn scan_fields(cursor: &mut Cursor<'_>, fields: &mut StreamFields, nested: bool)
             return;
         }
         cursor.skip_ws();
-        match (nested, key.as_str()) {
-            (false, "note") => {
-                let Some((value, closed)) = cursor.json_string() else {
-                    return;
-                };
-                fields.note = value;
-                if !closed {
-                    return;
-                }
-            }
-            (false, "structured") => {
-                // 嵌套契约：疏证字段在 structured 对象里，下钻一层继续
-                // 键循环（它消费自己的闭合括号）；不是对象则按普通值跳过。
-                if cursor.strip("{") {
-                    scan_fields(cursor, fields, true);
-                } else if !cursor.skip_value() {
-                    return;
-                }
-            }
-            (true, "examples") => {
-                let Some((items, closed)) = cursor.string_array() else {
-                    return;
-                };
-                fields.examples = items;
-                if !closed {
-                    return;
-                }
-            }
-            _ => {
-                // 其余键：跳过完整值；值未写完则停。
-                if !cursor.skip_value() {
-                    return;
-                }
-            }
+        if !consume_value(cursor, fields, nested, &key) {
+            return;
         }
         cursor.skip_ws();
         if cursor.strip("}") {
@@ -92,6 +60,44 @@ fn scan_fields(cursor: &mut Cursor<'_>, fields: &mut StreamFields, nested: bool)
         if !cursor.strip(",") {
             return;
         }
+    }
+}
+
+/// 单个键的值消费：认得的键写入 `fields`，返回键循环是否继续——值未到
+/// 齐或值非法（进度态停点）返回 `false`。
+fn consume_value(
+    cursor: &mut Cursor<'_>,
+    fields: &mut StreamFields,
+    nested: bool,
+    key: &str,
+) -> bool {
+    match (nested, key) {
+        (false, "note") => {
+            let Some((value, closed)) = cursor.json_string() else {
+                return false;
+            };
+            fields.note = value;
+            closed
+        }
+        (false, "structured") => {
+            // 嵌套契约：疏证字段在 structured 对象里，下钻一层继续
+            // 键循环（它消费自己的闭合括号）；不是对象则按普通值跳过。
+            if cursor.strip("{") {
+                scan_fields(cursor, fields, true);
+                true
+            } else {
+                cursor.skip_value()
+            }
+        }
+        (true, "examples") => {
+            let Some((items, closed)) = cursor.string_array() else {
+                return false;
+            };
+            fields.examples = items;
+            closed
+        }
+        // 其余键：跳过完整值；值未写完则停。
+        _ => cursor.skip_value(),
     }
 }
 

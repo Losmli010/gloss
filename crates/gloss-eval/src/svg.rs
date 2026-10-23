@@ -8,9 +8,16 @@
 //! （`MM-DD HH:MM`），mode 与 commit 进悬浮 `<title>`，右上角固定标注
 //! 最近一次运行；任务轨按数据集各一面板，修复成本逐数据集出线。缺样
 //! 本断线跳段不造点。
+//!
+//! 分工：本文件只留画布组装（头部、高度、点窗）与发射原语，`axis` 管
+//! 值域与网格口径，`panel` 管面板与序列的数据建模，`draw` 按图形元素
+//! 落墨。
 
-use crate::metrics::TaskMetrics;
-use crate::report::{EvalReport, format_utc, format_utc_short};
+mod axis;
+mod draw;
+mod panel;
+
+use crate::report::{EvalReport, format_utc};
 
 /// 趋势图最多绘制的点数：只画最近 100 点（JSONL 本身不裁剪）。
 pub const HISTORY_SVG_MAX_POINTS: usize = 100;
@@ -53,35 +60,52 @@ const EMPTY_NOTE: &str = "暂无评测历史。";
 /// 数据条件变化（judge 与延迟仅历史有样本才画，任务面板随数据集出现）。
 pub fn render_svg(history: &[EvalReport]) -> String {
     let points = latest_points(history);
-    let hovers: Vec<String> = points.iter().map(hover_label).collect();
-    let ticks: Vec<String> = points
-        .iter()
-        .map(|report| format_utc_short(report.generated_at))
-        .collect();
-    let xs = x_positions(points.len());
-    let panels = build_panels(points);
+    let data = draw::PointData::new(points);
+    let panels = panel::build_panels(points);
     let height = svg_height(panels.len());
     let mut out = String::new();
-    line(
+    write_header(
         &mut out,
+        height,
+        points.len(),
+        points.last(),
+        panels.is_empty(),
+    );
+    for (index, panel) in panels.iter().enumerate() {
+        draw::draw_panel(&mut out, index, panel, &data);
+    }
+    line(&mut out, "</svg>".to_owned());
+    out
+}
+
+/// 画布头部：svg 开标签、白底、标题行、右上角「最近一次」标注与口径
+/// 脚注；无面板时以占位文案替代图面。
+fn write_header(
+    out: &mut String,
+    height: usize,
+    count: usize,
+    latest: Option<&EvalReport>,
+    empty: bool,
+) {
+    line(
+        out,
         format!(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{WIDTH}\" height=\"{height}\" viewBox=\"0 0 {WIDTH} {height}\" font-family=\"{FONT_STACK}\">"
         ),
     );
     line(
-        &mut out,
+        out,
         format!("<rect x=\"0\" y=\"0\" width=\"{WIDTH}\" height=\"{height}\" fill=\"#ffffff\"/>"),
     );
     line(
-        &mut out,
+        out,
         format!(
-            "<text x=\"46\" y=\"26\" font-size=\"14\" font-weight=\"600\" fill=\"{COLOR_TEXT}\">Prompt 评测趋势（{} 点）</text>",
-            points.len()
+            "<text x=\"46\" y=\"26\" font-size=\"14\" font-weight=\"600\" fill=\"{COLOR_TEXT}\">Prompt 评测趋势（{count} 点）</text>"
         ),
     );
-    if let Some(latest) = points.last() {
+    if let Some(latest) = latest {
         line(
-            &mut out,
+            out,
             format!(
                 "<text x=\"946\" y=\"26\" font-size=\"11\" fill=\"{COLOR_MUTED}\" text-anchor=\"end\">{}</text>",
                 esc(&latest_note(latest))
@@ -89,24 +113,19 @@ pub fn render_svg(history: &[EvalReport]) -> String {
         );
     }
     line(
-        &mut out,
+        out,
         format!(
             "<text x=\"46\" y=\"46\" font-size=\"11\" fill=\"{COLOR_MUTED}\">{FOOTNOTE}</text>"
         ),
     );
-    if panels.is_empty() {
+    if empty {
         line(
-            &mut out,
+            out,
             format!(
                 "<text x=\"46\" y=\"66\" font-size=\"12\" fill=\"{COLOR_MUTED}\">{EMPTY_NOTE}</text>"
             ),
         );
     }
-    for (index, panel) in panels.iter().enumerate() {
-        draw_panel(&mut out, index, panel, &ticks, &hovers, &xs);
-    }
-    line(&mut out, "</svg>".to_owned());
-    out
 }
 
 /// 右上角「最近一次」标注：UTC 时间 + mode（+ commit）。
@@ -124,504 +143,6 @@ fn latest_note(report: &EvalReport) -> String {
         note.push_str(&format!("（{commit}）"));
     }
     note
-}
-
-/// 悬浮标签：UTC 时间 + mode（+ commit）。
-fn hover_label(report: &EvalReport) -> String {
-    let mut label = format!("{} {}", format_utc_short(report.generated_at), report.mode);
-    if let Some(commit) = report
-        .context
-        .as_ref()
-        .and_then(|context| context.commit.as_ref())
-    {
-        label.push_str(&format!("（{commit}）"));
-    }
-    label
-}
-
-/// 面板纵轴的口径：决定值域与网格刻度的取法。
-#[derive(Debug, Clone, Copy)]
-enum Axis {
-    /// 百分比轴：固定 0..=100，每 25 一条网格。
-    Percent,
-    /// 修复轮次轴：0 起，顶值 = 容纳数据的 5 的倍数（至少 10）。
-    Rounds,
-    /// judge 分轴：1..=5 内按数据跨度留白。
-    Judge,
-    /// 延迟轴：数据范围上下各留 10%，网格取 1-2-5 步长。
-    Latency,
-}
-
-impl Axis {
-    /// 值域与网格（值域上下界把网格线含在图内；上下界按构造恒不等）。
-    fn layout(&self, values: &[f64]) -> (f64, f64, Vec<Gridline>) {
-        match self {
-            Axis::Percent => (
-                0.0,
-                100.0,
-                [0.0, 25.0, 50.0, 75.0, 100.0]
-                    .into_iter()
-                    .map(|value| Gridline {
-                        value,
-                        label: fmt_value(value),
-                    })
-                    .collect(),
-            ),
-            Axis::Rounds => {
-                let data_max = values.iter().cloned().fold(0.0, f64::max);
-                let top = ((data_max / 5.0).ceil() * 5.0).max(10.0);
-                let mid = top / 2.0;
-                (
-                    0.0,
-                    top,
-                    [0.0, mid, top]
-                        .into_iter()
-                        .map(|value| Gridline {
-                            value,
-                            label: fmt_value(value),
-                        })
-                        .collect(),
-                )
-            }
-            Axis::Judge => {
-                let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
-                let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                let half = (max - min).max(0.8) / 2.0;
-                let center = (min + max) / 2.0;
-                let lo = (center - half).max(1.0);
-                let hi = (center + half).min(5.0);
-                let mid = (lo + hi) / 2.0;
-                let gridline = |value: f64| Gridline {
-                    value,
-                    label: format!("{value:.2}"),
-                };
-                (lo, hi, vec![gridline(lo), gridline(mid), gridline(hi)])
-            }
-            Axis::Latency => {
-                let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
-                let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                let mut pad = (max - min) * 0.1;
-                if pad <= 0.0 {
-                    pad = max.abs() * 0.1;
-                }
-                if pad <= 0.0 {
-                    pad = 100.0;
-                }
-                let lo = min - pad;
-                let hi = max + pad;
-                let step = nice_step((hi - lo) / 3.0);
-                let first = (lo / step).ceil() * step;
-                let count = (((hi - first) / step) + 1e-9).floor().max(0.0) as usize;
-                let mut gridlines: Vec<Gridline> = (0..=count)
-                    .map(|k| first + k as f64 * step)
-                    .filter(|value| *value <= hi + 1e-9)
-                    .map(|value| Gridline {
-                        value,
-                        label: fmt_value(value),
-                    })
-                    .collect();
-                if gridlines.is_empty() {
-                    let mid = (lo + hi) / 2.0;
-                    for value in [lo, mid, hi] {
-                        gridlines.push(Gridline {
-                            value,
-                            label: fmt_value(value),
-                        });
-                    }
-                }
-                (lo, hi, gridlines)
-            }
-        }
-    }
-}
-
-/// 网格刻度：值 + 轴标签文本。
-struct Gridline {
-    value: f64,
-    label: String,
-}
-
-/// 序列数值在悬浮框里的单位与格式。
-#[derive(Debug, Clone, Copy)]
-enum Unit {
-    /// 百分比（两位小数 + 空格 + %）。
-    Percent,
-    /// 修复轮次（整数 + 轮）。
-    Rounds,
-    /// judge 分（两位小数 + 分）。
-    Score,
-    /// 毫秒（两位小数 + ms）。
-    Milliseconds,
-}
-
-impl Unit {
-    fn title_value(self, value: f64) -> String {
-        match self {
-            Unit::Percent => format!("{value:.2} %"),
-            Unit::Rounds => format!("{} 轮", fmt_value(value)),
-            Unit::Score => format!("{value:.2} 分"),
-            Unit::Milliseconds => format!("{value:.2} ms"),
-        }
-    }
-}
-
-/// 面板内的一条序列：各点取值，缺样本为 `None`（断线跳段不造点）。
-struct Series {
-    label: String,
-    color: &'static str,
-    unit: Unit,
-    values: Vec<Option<f64>>,
-}
-
-/// 一个纵向面板：标题、值域、网格与序列组。
-struct Panel {
-    title: String,
-    lo: f64,
-    hi: f64,
-    gridlines: Vec<Gridline>,
-    series: Vec<Series>,
-}
-
-fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
-    let mut panels = Vec::new();
-    let accuracy = points
-        .iter()
-        .map(|report| report.classify.as_ref().map(|stats| stats.accuracy * 100.0))
-        .collect();
-    let fallback = points
-        .iter()
-        .map(|report| {
-            report
-                .classify
-                .as_ref()
-                .map(|stats| stats.fallback_rate * 100.0)
-        })
-        .collect();
-    push_panel(
-        &mut panels,
-        "分类轨判定质量（%）",
-        Axis::Percent,
-        vec![
-            Series {
-                label: "accuracy".to_owned(),
-                color: COLOR_BLUE,
-                unit: Unit::Percent,
-                values: accuracy,
-            },
-            Series {
-                label: "回退率".to_owned(),
-                color: COLOR_ORANGE,
-                unit: Unit::Percent,
-                values: fallback,
-            },
-        ],
-    );
-
-    let datasets = dataset_order(points);
-    for dataset in &datasets {
-        let title = format!("任务轨 · {}（%）", dataset_label(dataset));
-        push_panel(
-            &mut panels,
-            &title,
-            Axis::Percent,
-            vec![
-                Series {
-                    label: "契约 JSON 率".to_owned(),
-                    color: COLOR_BLUE,
-                    unit: Unit::Percent,
-                    values: dataset_rate(points, dataset, |metrics| metrics.json_object),
-                },
-                Series {
-                    label: "字段完整率".to_owned(),
-                    color: COLOR_GREEN,
-                    unit: Unit::Percent,
-                    values: dataset_rate(points, dataset, |metrics| metrics.fields_complete),
-                },
-                Series {
-                    label: "降级率".to_owned(),
-                    color: COLOR_PINK,
-                    unit: Unit::Percent,
-                    values: dataset_rate(points, dataset, |metrics| metrics.degraded),
-                },
-            ],
-        );
-    }
-
-    let classify_rounds = points
-        .iter()
-        .map(|report| {
-            report
-                .classify
-                .as_ref()
-                .map(|stats| f64::from(stats.metrics.repair_rounds))
-        })
-        .collect();
-    let mut cost = vec![Series {
-        label: "分类轨".to_owned(),
-        color: COLOR_BLUE,
-        unit: Unit::Rounds,
-        values: classify_rounds,
-    }];
-    for (index, dataset) in datasets.iter().enumerate() {
-        cost.push(Series {
-            label: dataset_label(dataset).to_owned(),
-            color: COST_COLORS[index % COST_COLORS.len()],
-            unit: Unit::Rounds,
-            values: dataset_rounds(points, dataset),
-        });
-    }
-    push_panel(&mut panels, "修复成本（轮）", Axis::Rounds, cost);
-
-    // count == 0（judge 启用但全失败）不画点：average 恒为 0.0，画出来会在
-    // 1..=5 轴上被误读成「评了 0 分」——与延迟面板「无样本不画」同口径。
-    let judge = points
-        .iter()
-        .map(|report| {
-            report
-                .judge
-                .filter(|summary| summary.count > 0)
-                .map(|summary| summary.average)
-        })
-        .collect();
-    push_panel(
-        &mut panels,
-        "judge 均分（1–5）",
-        Axis::Judge,
-        vec![Series {
-            label: "judge 均分".to_owned(),
-            color: COLOR_BLUE,
-            unit: Unit::Score,
-            values: judge,
-        }],
-    );
-
-    let p50 = points
-        .iter()
-        .map(|report| report.latency.map(|summary| summary.p50))
-        .collect();
-    let p95 = points
-        .iter()
-        .map(|report| report.latency.map(|summary| summary.p95))
-        .collect();
-    push_panel(
-        &mut panels,
-        "端到端延迟（ms）",
-        Axis::Latency,
-        vec![
-            Series {
-                label: "p50".to_owned(),
-                color: COLOR_BLUE,
-                unit: Unit::Milliseconds,
-                values: p50,
-            },
-            Series {
-                label: "p95".to_owned(),
-                color: COLOR_ORANGE,
-                unit: Unit::Milliseconds,
-                values: p95,
-            },
-        ],
-    );
-    panels
-}
-
-/// 收一个面板：全部序列都缺样本的面板整体跳过，部分缺样本的序列只从
-/// 图例与曲线里隐去自己。
-fn push_panel(panels: &mut Vec<Panel>, title: &str, axis: Axis, series: Vec<Series>) {
-    let series: Vec<Series> = series
-        .into_iter()
-        .filter(|series| series.values.iter().any(Option::is_some))
-        .collect();
-    if series.is_empty() {
-        return;
-    }
-    let present: Vec<f64> = series
-        .iter()
-        .flat_map(|series| series.values.iter().copied().flatten())
-        .collect();
-    let (lo, hi, gridlines) = axis.layout(&present);
-    panels.push(Panel {
-        title: title.to_owned(),
-        lo,
-        hi,
-        gridlines,
-        series,
-    });
-}
-
-/// 历史中出现过的数据集，按首次出现序排列（确定性遍历序）。去重期借用
-/// 各点的数据集名，末尾一次性落成有副本的 `Vec`——每份只复制一次。
-fn dataset_order(points: &[EvalReport]) -> Vec<String> {
-    let mut seen: Vec<&str> = Vec::new();
-    for report in points {
-        for stats in &report.tasks {
-            if !seen.contains(&stats.dataset.as_str()) {
-                seen.push(stats.dataset.as_str());
-            }
-        }
-    }
-    seen.into_iter().map(str::to_owned).collect()
-}
-
-/// 数据集显示名（未知 id 原样展示）。
-fn dataset_label(dataset: &str) -> &str {
-    match dataset {
-        "task_translate_word" => "词卡",
-        "task_translate_sentence" => "句译",
-        "task_explain_code" => "代码",
-        other => other,
-    }
-}
-
-/// 单数据集在历史各点的比率；该点缺席数据集或分母为 0 视作缺样本。
-fn dataset_rate(
-    points: &[EvalReport],
-    dataset: &str,
-    pick: impl Fn(&TaskMetrics) -> usize,
-) -> Vec<Option<f64>> {
-    points
-        .iter()
-        .map(|report| {
-            report
-                .tasks
-                .iter()
-                .find(|stats| stats.dataset == dataset)
-                .and_then(|stats| {
-                    (stats.metrics.evaluated > 0).then(|| {
-                        pick(&stats.metrics) as f64 / stats.metrics.evaluated as f64 * 100.0
-                    })
-                })
-        })
-        .collect()
-}
-
-/// 单数据集在历史各点的修复轮次；该点缺席数据集视作缺样本。
-fn dataset_rounds(points: &[EvalReport], dataset: &str) -> Vec<Option<f64>> {
-    points
-        .iter()
-        .map(|report| {
-            report
-                .tasks
-                .iter()
-                .find(|stats| stats.dataset == dataset)
-                .map(|stats| f64::from(stats.metrics.repair_rounds))
-        })
-        .collect()
-}
-
-fn draw_panel(
-    out: &mut String,
-    index: usize,
-    panel: &Panel,
-    ticks: &[String],
-    hovers: &[String],
-    xs: &[f64],
-) {
-    let title_y = FIRST_TITLE_Y + index * PANEL_PITCH;
-    let frame_top = title_y + FRAME_TOP_OFFSET;
-    let frame_bottom = frame_top + FRAME_HEIGHT;
-    let tick_y = frame_bottom + TICK_LABEL_DY;
-    line(
-        out,
-        format!(
-            "<text x=\"46\" y=\"{title_y}\" font-size=\"13\" font-weight=\"600\" fill=\"{COLOR_TEXT}\">{}</text>",
-            esc(&panel.title)
-        ),
-    );
-    let mut swatch_x = PLOT_RIGHT - SWATCH_SIZE as f64;
-    for series in panel.series.iter().rev() {
-        line(
-            out,
-            format!(
-                "<rect x=\"{}\" y=\"{}\" width=\"{SWATCH_SIZE}\" height=\"{SWATCH_SIZE}\" rx=\"2\" fill=\"{}\"/>",
-                f2(swatch_x),
-                title_y - SWATCH_BASELINE_OFFSET,
-                series.color
-            ),
-        );
-        line(
-            out,
-            format!(
-                "<text x=\"{}\" y=\"{title_y}\" font-size=\"12\" fill=\"{COLOR_MUTED}\" text-anchor=\"end\">{}</text>",
-                f2(swatch_x - SWATCH_TEXT_GAP),
-                esc(&series.label)
-            ),
-        );
-        swatch_x -= SWATCH_TEXT_GAP + text_w(&series.label, LEGEND_FONT_SIZE) + LEGEND_ITEM_GAP;
-    }
-    let span = panel.hi - panel.lo;
-    let y_of = |value: f64| frame_bottom as f64 - (value - panel.lo) / span * FRAME_HEIGHT as f64;
-    for gridline in &panel.gridlines {
-        let y = y_of(gridline.value);
-        line(
-            out,
-            format!(
-                "<line x1=\"46\" y1=\"{}\" x2=\"946\" y2=\"{}\" stroke=\"{COLOR_GRID}\" stroke-width=\"1\"/>",
-                f2(y),
-                f2(y)
-            ),
-        );
-        line(
-            out,
-            format!(
-                "<text x=\"40\" y=\"{}\" font-size=\"11\" fill=\"{COLOR_MUTED}\" text-anchor=\"end\">{}</text>",
-                f2(y + 4.0),
-                gridline.label
-            ),
-        );
-    }
-    line(
-        out,
-        format!(
-            "<rect x=\"46\" y=\"{frame_top}\" width=\"900\" height=\"{FRAME_HEIGHT}\" fill=\"none\" stroke=\"{COLOR_FRAME}\" stroke-width=\"1\"/>"
-        ),
-    );
-    for tick in tick_indices(xs.len()) {
-        line(
-            out,
-            format!(
-                "<text x=\"{}\" y=\"{tick_y}\" font-size=\"11\" fill=\"{COLOR_MUTED}\" text-anchor=\"middle\">{}</text>",
-                f2(xs[tick]),
-                esc(&ticks[tick])
-            ),
-        );
-    }
-    for series in &panel.series {
-        for segment in segments(&series.values) {
-            if segment.len() >= 2 {
-                let points = segment
-                    .iter()
-                    .map(|(point, value)| format!("{},{}", f2(xs[*point]), f2(y_of(*value))))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                line(
-                    out,
-                    format!(
-                        "<polyline points=\"{points}\" fill=\"none\" stroke=\"{}\" stroke-width=\"2\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/>",
-                        series.color
-                    ),
-                );
-            }
-            for (point, value) in &segment {
-                let hover = format!(
-                    "{} · {}：{}",
-                    series.label,
-                    hovers[*point],
-                    series.unit.title_value(*value)
-                );
-                line(
-                    out,
-                    format!(
-                        "<circle cx=\"{}\" cy=\"{}\" r=\"2.5\" fill=\"{}\"><title>{}</title></circle>",
-                        f2(xs[*point]),
-                        f2(y_of(*value)),
-                        series.color,
-                        esc(&hover)
-                    ),
-                );
-            }
-        }
-    }
 }
 
 /// 只保留最近 [`HISTORY_SVG_MAX_POINTS`] 个点。
@@ -647,84 +168,6 @@ fn svg_height(panels: usize) -> usize {
     }
 }
 
-/// x 坐标：首末点各内缩一格，中间均匀分布；单点居中。
-fn x_positions(count: usize) -> Vec<f64> {
-    if count <= 1 {
-        return vec![(PLOT_LEFT + PLOT_RIGHT) / 2.0];
-    }
-    let step = (PLOT_RIGHT - PLOT_LEFT - 2.0 * X_INSET) / (count - 1) as f64;
-    (0..count)
-        .map(|index| PLOT_LEFT + X_INSET + index as f64 * step)
-        .collect()
-}
-
-/// x 轴稀疏刻度取样：≤4 个，均匀取（四舍五入到最近点）。
-fn tick_indices(count: usize) -> Vec<usize> {
-    if count <= MAX_X_TICKS {
-        return (0..count).collect();
-    }
-    let last = (count - 1) as f64;
-    (0..MAX_X_TICKS)
-        .map(|index| (index as f64 * last / (MAX_X_TICKS - 1) as f64).round() as usize)
-        .collect()
-}
-
-/// 连续有样本的段（断线跳段不造点）。
-fn segments(values: &[Option<f64>]) -> Vec<Vec<(usize, f64)>> {
-    let mut all = Vec::new();
-    let mut current: Vec<(usize, f64)> = Vec::new();
-    for (index, value) in values.iter().enumerate() {
-        match value {
-            Some(value) => current.push((index, *value)),
-            None if !current.is_empty() => all.push(std::mem::take(&mut current)),
-            None => {}
-        }
-    }
-    if !current.is_empty() {
-        all.push(current);
-    }
-    all
-}
-
-/// 容纳 span 的最小 1-2-5×10^k 步长。
-fn nice_step(span: f64) -> f64 {
-    let magnitude = 10.0f64.powf(span.log10().floor());
-    for multiplier in [1.0, 2.0, 5.0, 10.0] {
-        let step = multiplier * magnitude;
-        if step >= span {
-            return step;
-        }
-    }
-    10.0 * magnitude
-}
-
-/// 轴刻度数值文本：整值不带小数，其余固定两位小数。
-fn fmt_value(value: f64) -> String {
-    if (value - value.round()).abs() < 1e-9 {
-        format!("{}", value.round() as i64)
-    } else {
-        format!("{value:.2}")
-    }
-}
-
-/// 按字符宽度估算文本像素宽（CJK/全角 1em、空格 0.52em、其余 0.58em），
-/// 供图例右对齐排版。
-fn text_w(text: &str, size: f64) -> f64 {
-    let em: f64 = text
-        .chars()
-        .map(|ch| {
-            if ch == ' ' {
-                0.52
-            } else if (ch as u32) >= 0x2E80 || "●▲▼—…".contains(ch) {
-                1.0
-            } else {
-                0.58
-            }
-        })
-        .sum();
-    em * size
-}
-
 fn esc(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -746,7 +189,8 @@ fn line(out: &mut String, content: String) {
 mod tests {
     use crate::metrics::{ClassifyMetrics, Latency, TaskMetrics};
     use crate::report::{
-        ClassifyStats, EvalContext, EvalReport, JudgeSummary, TaskStats, assemble_report,
+        ClassifyStats, EvalContext, EvalReport, JudgeSummary, TaskStats, TrackOutputs,
+        assemble_report,
     };
     use crate::svg::{HISTORY_SVG_MAX_POINTS, render_svg};
 
@@ -789,10 +233,12 @@ mod tests {
     ) -> EvalReport {
         let mut report = assemble_report(
             mode,
-            Some(classify_metrics()),
-            vec![("task_translate_word", task_metrics())],
-            latency,
-            judge,
+            TrackOutputs {
+                classify: Some(classify_metrics()),
+                tasks: vec![("task_translate_word", task_metrics())],
+                latency,
+                judge,
+            },
             0,
         );
         report.generated_at = generated_at;

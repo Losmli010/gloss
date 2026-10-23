@@ -4,29 +4,26 @@
 //! 的来源——重放轨取 `fixtures/` 里录制的修复轨迹（每轮增量），live 轨
 //! 经生产循环（`classify_traced` / `run_task_rounds`）打真实 LLM 并
 //! （可选）把轮次交回调用方落盘夹具、启用 judge。违约类别与修复轮次
-//! 两条轨同口径：逐轮跑生产校验器（`gloss_core::schema`）折算。
+//! 两条轨同口径：逐轮跑生产校验器（`gloss_core::schema`）折算。live 轨
+//! 的编排与端点装配在其子模块 [`live`]。
+
+mod live;
+
+pub use live::{LiveEnv, LiveOptions, LiveRun, live_config, run_live};
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
-use gloss_core::classify::{CLASSIFY_REPAIRS, classify_traced};
-use gloss_core::config::Config;
-use gloss_core::config_handle::ConfigHandle;
-use gloss_core::engine::{RunOutput, TASK_REPAIRS, run_task_rounds};
-use gloss_core::model::{GlossError, Locale};
-use gloss_core::ports::{AiEngine, ConfigStore, EngineRequest};
-use gloss_core::prompt::PromptRegistry;
+use gloss_core::classify::CLASSIFY_REPAIRS;
+use gloss_core::engine::TASK_REPAIRS;
 use gloss_core::schema;
-use gloss_core::task::{Task, TaskInput, TaskKind, TaskOptions};
+use gloss_core::task::TaskKind;
 
 use crate::EvalReport;
 use crate::assets;
-use crate::dataset::{ClassifyCase, Fixture, TaskCase, load_classify, load_fixtures, load_task};
+use crate::dataset::{ClassifyCase, Fixture, load_classify, load_fixtures, load_task};
 use crate::detail::{self, CaseDetail};
-use crate::judge;
-use crate::metrics::{ClassifyMetrics, ClassifyVerdict, Latency, TaskMetrics, ViolationTrack};
-use crate::report::assemble_report;
+use crate::metrics::{ClassifyMetrics, ClassifyVerdict, TaskMetrics, ViolationTrack};
+use crate::report::{TrackOutputs, assemble_report};
 
 /// 重放轨的一次运行产出：报告 + 逐条明细（检视页消费）。
 #[derive(Debug, Clone)]
@@ -35,17 +32,6 @@ pub struct ReplayRun {
     pub report: EvalReport,
     /// 有夹具条目的逐条明细（跳过条目不留行，与报告分母一致）。
     pub cases: Vec<CaseDetail>,
-}
-
-/// live 轨的一次运行产出：报告 + 逐条明细 + 夹具录制（调用方决定落盘哪些）。
-#[derive(Debug, Clone)]
-pub struct LiveRun {
-    /// 评测报告（含延迟与可选 judge 摘要）。
-    pub report: EvalReport,
-    /// 逐条明细（含引擎失败条目——它们也要被检视到）。
-    pub cases: Vec<CaseDetail>,
-    /// `--record` 时的修复轨迹录制（分类 + 任务，按 id 可 upsert 回夹具）。
-    pub recordings: Vec<Fixture>,
 }
 
 /// 重放轨：数据集 × 夹具，经生产解析函数算指标。无网络无凭据。
@@ -60,38 +46,69 @@ pub fn run_replay() -> Result<EvalReport, String> {
 
 /// [`run_replay`] 的带明细版本：同样的轨迹与口径，额外逐条落行供检视页。
 pub fn run_replay_detailed() -> Result<ReplayRun, String> {
+    let mut classify = ClassifyMetrics::default();
+    let mut case_details = Vec::new();
+    let mut skipped = 0usize;
+    replay_classify(&mut classify, &mut case_details, &mut skipped)?;
+    let mut tasks = Vec::new();
+    replay_tasks(&mut tasks, &mut case_details, &mut skipped)?;
+
+    Ok(ReplayRun {
+        report: assemble_report(
+            "replay",
+            TrackOutputs {
+                classify: Some(classify),
+                tasks,
+                latency: None,
+                judge: None,
+            },
+            skipped,
+        ),
+        cases: case_details,
+    })
+}
+
+/// 分类轨重放：逐样例校验轨迹并结算指标与明细，无夹具的样例计入跳过。
+fn replay_classify(
+    classify: &mut ClassifyMetrics,
+    case_details: &mut Vec<CaseDetail>,
+    skipped: &mut usize,
+) -> Result<(), String> {
     let classify_cases = load_classify(assets::CLASSIFY_DATASET)?;
     let classify_fixtures = load_fixtures(assets::CLASSIFY_FIXTURES)?;
     let by_id: HashMap<&str, &Fixture> = classify_fixtures
         .iter()
         .map(|fixture| (fixture.id.as_str(), fixture))
         .collect();
-
-    let mut classify = ClassifyMetrics::default();
-    let mut case_details = Vec::new();
-    let mut skipped = 0usize;
     for case in &classify_cases {
         let Some(fixture) = by_id.get(case.id.as_str()) else {
-            skipped += 1;
+            *skipped += 1;
             continue;
         };
         let rounds = round_texts(fixture);
         check_classify_trajectory(&case.id, &rounds)?;
-        case_details.push(score_classify_case(&mut classify, case, &rounds));
+        case_details.push(score_classify_case(classify, case, &rounds));
     }
+    Ok(())
+}
 
+/// 任务轨重放：逐数据集校验轨迹并结算指标与明细，无夹具的样例计入跳过。
+fn replay_tasks(
+    tasks: &mut Vec<(&'static str, TaskMetrics)>,
+    case_details: &mut Vec<CaseDetail>,
+    skipped: &mut usize,
+) -> Result<(), String> {
     let task_fixtures = load_fixtures(assets::TASK_FIXTURES)?;
     let task_by_id: HashMap<&str, &Fixture> = task_fixtures
         .iter()
         .map(|fixture| (fixture.id.as_str(), fixture))
         .collect();
-    let mut tasks = Vec::new();
     for (name, dataset) in TASK_DATASETS {
         let cases = load_task(dataset)?;
         let mut metrics = TaskMetrics::default();
         for case in &cases {
             let Some(fixture) = task_by_id.get(case.id.as_str()) else {
-                skipped += 1;
+                *skipped += 1;
                 continue;
             };
             let rounds = round_texts(fixture);
@@ -102,11 +119,7 @@ pub fn run_replay_detailed() -> Result<ReplayRun, String> {
         }
         tasks.push((name, metrics));
     }
-
-    Ok(ReplayRun {
-        report: assemble_report("replay", Some(classify), tasks, None, None, skipped),
-        cases: case_details,
-    })
+    Ok(())
 }
 
 /// 一条分类样例的结算（重放与 live 共用同一口径）：违约轨迹并入指标、
@@ -128,235 +141,12 @@ fn score_classify_case(
     case_detail
 }
 
-/// live 轨：数据集逐条打真实 LLM。延迟只在这一轨采集。
-///
-/// `engine` 与 `config` 由调用方组装（`main` 从环境变量构造）——runner
-/// 本身不读环境，保持可测。分类走 [`classify_traced`]、任务走
-/// [`run_task_rounds`]（生产的同一循环）：违约类别与修复轮次来自轮记录，
-/// 与重放轨同口径。
-pub async fn run_live(
-    engine: Arc<dyn AiEngine>,
-    config: Arc<ConfigHandle>,
-    options: LiveOptions,
-) -> Result<LiveRun, String> {
-    let classify_cases = load_classify(assets::CLASSIFY_DATASET)?;
-    let mut classify = ClassifyMetrics::default();
-    let mut latency = Latency::default();
-    let mut details = Vec::new();
-    let mut recordings = Vec::new();
-
-    let cases: Vec<_> = match options.limit {
-        Some(limit) => classify_cases.into_iter().take(limit).collect(),
-        None => classify_cases,
-    };
-    for case in &cases {
-        let started = Instant::now();
-        let snapshot = config.snapshot();
-        let model = snapshot.model.as_str();
-        let decision = match classify_traced(engine.as_ref(), model, Locale::Zh, &case.text).await {
-            Ok(decision) => decision,
-            Err(_) => {
-                // 引擎失败单列（网络/限流与模型行为无关），但也计入回退率
-                // （生产编排对这类条目同样落兜底）；逐条继续——评测要跑完
-                // 全集而不是中途夭折。
-                classify.evaluated += 1;
-                classify.engine_errors += 1;
-                details.push(detail::engine_error_detail(
-                    detail::CLASSIFY_GROUP,
-                    &case.id,
-                    &case.text,
-                    case.expected,
-                    false,
-                ));
-                continue;
-            }
-        };
-        latency.record(started.elapsed().as_secs_f64() * 1000.0);
-        let rounds = decision.rounds;
-        details.push(score_classify_case(&mut classify, case, &rounds));
-        // 夹具落盘放在轮记录的最后一次使用之后：逐轮文本 move 进夹具，
-        // 不再逐轮复制（落盘顺序与逐条顺序不变——每条至多一次 push）。
-        if options.record {
-            recordings.push(fixture_from_rounds(&case.id, rounds));
-        }
-    }
-
-    let mut tasks = Vec::new();
-    let mut judge_scores = Vec::new();
-    let mut judge_attempted = 0usize;
-    for (name, dataset) in TASK_DATASETS {
-        let cases = load_task(dataset)?;
-        let cases: Vec<_> = match options.limit {
-            Some(limit) => cases.into_iter().take(limit).collect(),
-            None => cases,
-        };
-        let mut metrics = TaskMetrics::default();
-        for case in &cases {
-            let started = Instant::now();
-            // 与分类轨同一「跑完全集」策略；差别在记账——分类轨把引擎
-            // 失败单列 engine_errors，任务轨并入 degraded（live 的降级
-            // 率因此混入传输失败，见 TaskMetrics 文档）。
-            let (output, rounds) = match run_task_case(engine.as_ref(), &config, case).await {
-                Ok(pair) => pair,
-                Err(_) => {
-                    metrics.evaluated += 1;
-                    metrics.degraded += 1;
-                    details.push(detail::engine_error_detail(
-                        name, &case.id, &case.text, case.kind, true,
-                    ));
-                    continue;
-                }
-            };
-            latency.record(started.elapsed().as_secs_f64() * 1000.0);
-            // 轮记录来自 run_task_rounds 本身：修复轮次与 RunOutput.repairs
-            // 同源同值（on_repair 与修复计数器逐一对应），折算走与重放轨
-            // 同一份明细结算（task_parts 内部即 for_reply + 逐轮轨迹）。
-            let (case_detail, verdict) = detail::task_parts(name, case, &rounds);
-            debug_assert_eq!(
-                verdict.repairs, output.repairs,
-                "round records and RunOutput.repairs must agree"
-            );
-            metrics.record(&verdict);
-            details.push(case_detail);
-            if options.judge
-                && let Some(reply) = rounds.last()
-            {
-                judge_attempted += 1;
-                if let Some(score) = judge_one(engine.as_ref(), &config, case, reply).await {
-                    judge_scores.push(score);
-                }
-            }
-            // 夹具落盘放在轮记录的最后一次使用之后：逐轮文本 move 进夹具，
-            // 不再逐轮复制（落盘顺序与逐条顺序不变——每条至多一次 push）。
-            if options.record {
-                recordings.push(fixture_from_rounds(&case.id, rounds));
-            }
-        }
-        tasks.push((name, metrics));
-    }
-
-    // judge 启用即产摘要：全失败（count=0）时 `attempted` 仍记录尝试数，
-    // 与「未启用」（judge 段整体缺席）区分开——付费调用全失败不能无痕迹。
-    let judge_summary = options.judge.then(|| {
-        let count = judge_scores.len();
-        let average = if count == 0 {
-            0.0
-        } else {
-            judge_scores
-                .iter()
-                .map(|score| f64::from(*score))
-                .sum::<f64>()
-                / count as f64
-        };
-        crate::report::JudgeSummary {
-            count,
-            attempted: judge_attempted,
-            average,
-        }
-    });
-
-    Ok(LiveRun {
-        report: assemble_report(
-            "live",
-            Some(classify),
-            tasks,
-            Some(&mut latency),
-            judge_summary,
-            0,
-        ),
-        cases: details,
-        recordings,
-    })
-}
-
-/// live 轨的端点配置（全部来自 `GLOSS_LIVE_*` 环境变量，缺一即失败）。
-///
-/// `Debug` 手写脱敏：key 不进任何日志面（密钥红线），排查时只能看到
-/// 「有/无 key」。
-#[derive(Clone)]
-pub struct LiveEnv {
-    /// OpenAI 兼容端点 base_url。
-    pub base_url: String,
-    /// 本次评测使用的模型 id（对全部 kind 生效，含分类）。
-    pub model: String,
-    /// API key（只进请求头；不进日志与报告）。
-    pub api_key: String,
-}
-
-impl std::fmt::Debug for LiveEnv {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LiveEnv")
-            .field("base_url", &self.base_url)
-            .field("model", &self.model)
-            .field(
-                "api_key",
-                &if self.api_key.is_empty() {
-                    "<none>"
-                } else {
-                    "<set>"
-                },
-            )
-            .finish()
-    }
-}
-
-impl LiveEnv {
-    /// 从 `GLOSS_LIVE_BASE_URL` / `GLOSS_LIVE_MODEL` / `GLOSS_LIVE_API_KEY`
-    /// 读取；缺失时带修复指引报错（与平台 live 测试同一套变量）。
-    pub fn from_env() -> Result<Self, String> {
-        let read = |name: &str| {
-            std::env::var(name)
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-                .ok_or_else(|| {
-                    format!(
-                        "missing {name}; set GLOSS_LIVE_API_KEY=sk-... \
-                         GLOSS_LIVE_BASE_URL=https://api.deepseek.com/v1 \
-                         GLOSS_LIVE_MODEL=deepseek-flash before running the live eval"
-                    )
-                })
-        };
-        Ok(Self {
-            base_url: read("GLOSS_LIVE_BASE_URL")?,
-            model: read("GLOSS_LIVE_MODEL")?,
-            api_key: read("GLOSS_LIVE_API_KEY")?,
-        })
-    }
-}
-
-/// live 轨的选项。
-#[derive(Debug, Clone, Copy, Default)]
-pub struct LiveOptions {
-    /// 把逐条修复轨迹交回调用方（main 据此 upsert `fixtures/*.jsonl`）。
-    pub record: bool,
-    /// 启用 judge 评分（额外一次模型调用/条）。
-    pub judge: bool,
-    /// 每个数据集最多评测多少条（冒烟用）。
-    pub limit: Option<usize>,
-}
-
 /// 任务数据集清单：名字 → 内嵌资产。
 const TASK_DATASETS: [(&str, &str); 3] = [
     ("task_translate_word", assets::TASK_WORD_DATASET),
     ("task_translate_sentence", assets::TASK_SENTENCE_DATASET),
     ("task_explain_code", assets::TASK_CODE_DATASET),
 ];
-
-/// 组装 live 轨的配置句柄：端点与模型对全部 kind 生效，密钥经内存存储
-/// 直查（不落盘、不进日志）。
-pub fn live_config(env: LiveEnv) -> (Arc<ConfigHandle>, Arc<dyn ConfigStore>) {
-    let store = Arc::new(EnvSecretStore::new(env.api_key));
-    let config = Config {
-        base_url: env.base_url,
-        model: env.model,
-        ..Config::default()
-    };
-    let handle = Arc::new(ConfigHandle::with_config(
-        Arc::clone(&store) as Arc<dyn ConfigStore>,
-        config,
-    ));
-    (handle, store)
-}
 
 /// 夹具轮次 → 每轮完整回复（增量按到达序拼接，与生产流式累积一致）。
 fn round_texts(fixture: &Fixture) -> Vec<String> {
@@ -365,16 +155,6 @@ fn round_texts(fixture: &Fixture) -> Vec<String> {
         .iter()
         .map(|deltas| deltas.concat())
         .collect()
-}
-
-/// 轮回复 → 夹具轮次：live 的轮数据是完整回复文本，落盘按单增量成轮
-/// （重放只消费拼接结果，增量切分不进任何指标）。轮文本随 `Vec` move
-/// 进夹具——调用方在轮记录的最后一次使用之后才转交所有权。
-fn fixture_from_rounds(id: &str, rounds: Vec<String>) -> Fixture {
-    Fixture {
-        id: id.to_owned(),
-        rounds: rounds.into_iter().map(|round| vec![round]).collect(),
-    }
 }
 
 /// 夹具轨迹体检（重放轨专用）：夹具是受控工件，分类轨迹必须与生产的
@@ -431,106 +211,6 @@ fn absorb_classify_track(metrics: &mut ClassifyMetrics, track: &ViolationTrack) 
     metrics.repair_rounds += track.repairs;
 }
 
-/// 任务请求：与生产 execute 同一条渲染路径（[`PromptRegistry`]）+ 生产的
-/// 任务段修复循环（[`run_task_rounds`]）。返回 `RunOutput` 与逐轮完整
-/// 回复——轮边界由 `on_chunk`/`on_repair` 还原，与 `RunOutput.repairs`
-/// 一致（生产循环里两者逐一对应）。
-async fn run_task_case(
-    engine: &dyn AiEngine,
-    config: &ConfigHandle,
-    case: &TaskCase,
-) -> Result<(RunOutput, Vec<String>), GlossError> {
-    let snapshot = config.snapshot();
-    let model = snapshot.model.as_str();
-    let task = Task::new(
-        case.kind,
-        TaskInput::Text {
-            text: case.text.clone(),
-        },
-        TaskOptions {
-            prompt_locale: Some(Locale::Zh),
-            ..TaskOptions::default()
-        },
-    )?;
-    let base = PromptRegistry::new().render(&task)?;
-    let rounds = Arc::new(Mutex::new(vec![String::new()]));
-    let chunks = Arc::clone(&rounds);
-    let boundary = Arc::clone(&rounds);
-    let output = run_task_rounds(
-        engine,
-        &PromptRegistry::new(),
-        case.kind,
-        base,
-        model,
-        Locale::Zh,
-        move |delta| {
-            let mut rounds = chunks
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(round) = rounds.last_mut() {
-                round.push_str(&delta);
-            }
-        },
-        move || {
-            boundary
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push(String::new());
-        },
-    )
-    .await?;
-    // 轮记录取走即用：闭包与 Arc 的存亡不再关心（数据已 take 出来）。
-    let rounds = {
-        let mut held = rounds
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        std::mem::take(&mut *held)
-    };
-    Ok((output, rounds))
-}
-
-/// judge 单条评分；judge 模型与任务模型同端点同 id。
-async fn judge_one(
-    engine: &dyn AiEngine,
-    config: &ConfigHandle,
-    case: &TaskCase,
-    reply: &str,
-) -> Option<u8> {
-    let snapshot = config.snapshot();
-    let model = snapshot.model.clone();
-    let reference = case.reference.to_string();
-    let messages = judge::render_judge(&case.text, reply, &reference);
-    let judge_reply = collect(
-        engine,
-        EngineRequest {
-            messages,
-            model,
-            max_tokens: Some(judge::JUDGE_MAX_TOKENS),
-        },
-    )
-    .await
-    .ok()?;
-    judge::parse_judge_reply(&judge_reply)
-}
-
-/// 消费一条引擎流并累积完整回复（judge 评分请求专用——评分不计修复
-/// 轨迹，单轮口径）。回复累积走生产的 `push_capped`（与分类编排同一道
-/// 4KiB 界，不守约的端点不能把内存灌穿）。
-async fn collect(engine: &dyn AiEngine, request: EngineRequest) -> Result<String, GlossError> {
-    let mut stream = engine.execute(request).await?;
-    let mut reply = String::new();
-    while let Some(item) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
-        match item {
-            Ok(gloss_core::ports::TaskChunk::Delta(delta)) => {
-                gloss_core::classify::push_capped(&mut reply, &delta);
-            }
-            Ok(gloss_core::ports::TaskChunk::Done { .. }) => {}
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(reply)
-}
-
 fn bump_confusion(metrics: &mut ClassifyMetrics, expected: TaskKind, actual: TaskKind) {
     metrics
         .confusion
@@ -541,42 +221,6 @@ fn bump_confusion(metrics: &mut ClassifyMetrics, expected: TaskKind, actual: Tas
         .or_insert(1);
 }
 
-/// live 轨用的密钥存储：key 从环境变量来，只进请求头。
-///
-/// 其余方法按 [`ConfigStore`] 契约给无害实现（评测不落盘、不读文件）。
-pub struct EnvSecretStore {
-    key: String,
-}
-
-impl EnvSecretStore {
-    /// 用环境变量里的 key 构造。
-    pub fn new(key: String) -> Self {
-        Self { key }
-    }
-}
-
-impl ConfigStore for EnvSecretStore {
-    fn load(&self) -> Result<Config, GlossError> {
-        Ok(Config::default())
-    }
-
-    fn save(&self, _config: &Config) -> Result<(), GlossError> {
-        Ok(())
-    }
-
-    fn secret(&self, _key: &str) -> Result<Option<String>, GlossError> {
-        Ok(Some(self.key.clone()))
-    }
-
-    fn set_secret(&self, _key: &str, _value: &str) -> Result<(), GlossError> {
-        Ok(())
-    }
-
-    fn delete_secret(&self, _key: &str) -> Result<(), GlossError> {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -584,16 +228,20 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::Stream;
-    use gloss_core::ports::{AiEngine, BoxFuture, TaskChunk, TaskStream};
+    use gloss_core::config_handle::ConfigHandle;
+    use gloss_core::ports::{AiEngine, BoxFuture, ConfigStore, TaskChunk, TaskStream};
     use gloss_core::schema::Violation;
 
+    use super::live::run_task_case;
     use super::{
         check_classify_trajectory, check_task_trajectory, run_replay, run_replay_detailed,
-        run_task_case,
     };
+    use crate::EvalReport;
     use crate::dataset::load_task;
     use crate::detail::{CLASSIFY_GROUP, ClassifyOutcome};
-    use crate::runner::{LiveEnv, LiveOptions, live_config, run_live};
+    use crate::metrics::{ClassifyMetrics, TaskMetrics};
+    use crate::report::TaskStats;
+    use crate::runner::{LiveEnv, LiveOptions, LiveRun, live_config, run_live};
 
     #[test]
     fn replay_runs_the_full_deterministic_track_over_embedded_assets() {
@@ -627,52 +275,20 @@ mod tests {
             classify.metrics.repair_rounds > 0,
             "the fixture set contains repaired classify trajectories"
         );
-        for violation in [
-            Violation::NotJson,
-            Violation::KindNotAllowed,
-            Violation::EmptyReply,
-        ] {
-            assert!(
-                classify.metrics.violations.contains_key(&violation),
-                "{violation:?}: the exception fixtures pin prose, off-list-kind \
-                 and empty-reply violations: {:?}",
-                classify.metrics.violations
-            );
-        }
-        for stats in &report.tasks {
-            assert!(
-                stats.metrics.repair_rounds > 0 || stats.metrics.violations.is_empty(),
-                "{}: violation counts ride repaired trajectories",
-                stats.dataset
-            );
-        }
-        let word = &report
-            .tasks
-            .iter()
-            .find(|stats| stats.dataset == "task_translate_word")
-            .expect("word dataset")
-            .metrics;
+        assert_pinned_classify_violations(&classify.metrics);
+        assert_repair_rounds_ride_violations(&report.tasks);
+        let word = dataset_metrics(&report, "task_translate_word", "word dataset");
         assert_eq!(
             word.violations.get(&Violation::EmptyReply),
             Some(&1),
             "the word dataset carries the empty-reply exception fixture"
         );
-        let sentence = &report
-            .tasks
-            .iter()
-            .find(|stats| stats.dataset == "task_translate_sentence")
-            .expect("sentence dataset")
-            .metrics;
+        let sentence = dataset_metrics(&report, "task_translate_sentence", "sentence dataset");
         assert!(
             sentence.degraded > 0,
             "the sentence dataset carries a budget-exhausted exception fixture"
         );
-        let code = &report
-            .tasks
-            .iter()
-            .find(|stats| stats.dataset == "task_explain_code")
-            .expect("code dataset")
-            .metrics;
+        let code = dataset_metrics(&report, "task_explain_code", "code dataset");
         assert_eq!(
             code.violations.get(&Violation::MissingNote),
             Some(&1),
@@ -774,7 +390,7 @@ mod tests {
             .build()
             .expect("runtime should build");
         let calls = Arc::new(AtomicUsize::new(0));
-        let engine: Arc<dyn gloss_core::ports::AiEngine> = Arc::new(ScriptEngine::new(
+        let engine = scripted_engine(
             vec![
                 vec![chunk("分类首轮散文")],
                 vec![chunk("{\"kind\":\"TranslateWord\"}")],
@@ -790,13 +406,8 @@ mod tests {
                 )],
             ],
             Arc::clone(&calls),
-        ));
-        let env = LiveEnv {
-            base_url: "http://localhost".into(),
-            model: "m".into(),
-            api_key: String::new(),
-        };
-        let (config, _store) = live_config(env);
+        );
+        let (config, _store) = live_test_config();
         let run = rt
             .block_on(run_live(
                 engine,
@@ -813,61 +424,8 @@ mod tests {
             6,
             "2 classify + 2 word + 1 sentence + 1 code rounds"
         );
-
-        let classify = run.report.classify.as_ref().expect("classify track");
-        assert_eq!(classify.metrics.evaluated, 1);
-        assert_eq!(
-            classify.metrics.correct, 1,
-            "the repaired round settles on the expected kind"
-        );
-        assert_eq!(classify.metrics.repair_rounds, 1);
-        assert_eq!(
-            classify.metrics.violations.get(&Violation::NotJson),
-            Some(&1),
-            "the violated first round counts by category, not into the final-reply rates"
-        );
-
-        assert_eq!(run.report.tasks.len(), 3);
-        let word = &run.report.tasks[0].metrics;
-        assert_eq!(word.evaluated, 1);
-        assert_eq!(
-            word.repair_rounds, 1,
-            "the violated task round repairs once"
-        );
-        assert_eq!(word.degraded, 0, "the repair converges on a contract reply");
-        assert_eq!(run.report.tasks[1].metrics.repair_rounds, 0);
-        assert_eq!(run.report.tasks[2].metrics.repair_rounds, 0);
-
-        assert_eq!(
-            run.cases.len(),
-            4,
-            "1 classify + 3 task details ride the same run"
-        );
-        assert_eq!(run.cases[0].id, "zh-word-01");
-        assert!(run.cases[0].classify.is_some());
-        assert!(run.cases.iter().all(|case| !case.engine_error));
-
-        let by_id: std::collections::BTreeMap<_, _> = run
-            .recordings
-            .iter()
-            .map(|fixture| (fixture.id.as_str(), fixture))
-            .collect();
-        let classify_fixture = by_id.get("zh-word-01").expect("classify recording");
-        assert_eq!(
-            classify_fixture.rounds.len(),
-            2,
-            "both classify rounds recorded"
-        );
-        let word_fixture = by_id.get("task-word-01").expect("word recording");
-        assert_eq!(
-            word_fixture.rounds.len(),
-            2,
-            "violation + repair rounds recorded"
-        );
-        assert_eq!(
-            word_fixture.rounds[1].concat(),
-            "{\"note\":\"词卡\",\"structured\":{\"phonetic\":null,\"examples\":[]}}"
-        );
+        assert_live_report_and_details(&run);
+        assert_live_recordings(&run);
     }
 
     #[test]
@@ -875,7 +433,7 @@ mod tests {
         let rt = tokio::runtime::Builder::new_current_thread()
             .build()
             .expect("runtime should build");
-        let engine: Arc<dyn gloss_core::ports::AiEngine> = Arc::new(ScriptEngine::new(
+        let engine = scripted_engine(
             vec![
                 vec![chunk("{\"kind\":\"TranslateWord\"}")],
                 vec![Err(gloss_core::model::GlossError::EngineNetwork)],
@@ -887,13 +445,8 @@ mod tests {
                 )],
             ],
             Arc::new(AtomicUsize::new(0)),
-        ));
-        let env = LiveEnv {
-            base_url: "http://localhost".into(),
-            model: "m".into(),
-            api_key: String::new(),
-        };
-        let (config, _store) = live_config(env);
+        );
+        let (config, _store) = live_test_config();
         let run = rt
             .block_on(run_live(
                 engine,
@@ -929,7 +482,7 @@ mod tests {
         let rt = tokio::runtime::Builder::new_current_thread()
             .build()
             .expect("runtime should build");
-        let engine: Arc<dyn gloss_core::ports::AiEngine> = Arc::new(ScriptEngine::new(
+        let engine = scripted_engine(
             vec![
                 vec![chunk("先来半截散文"), chunk("再补一段")],
                 vec![
@@ -938,13 +491,8 @@ mod tests {
                 ],
             ],
             Arc::new(AtomicUsize::new(0)),
-        ));
-        let env = LiveEnv {
-            base_url: "http://localhost".into(),
-            model: "m".into(),
-            api_key: String::new(),
-        };
-        let (config, _store) = live_config(env);
+        );
+        let (config, _store) = live_test_config();
         let cases = load_task(
             "{\"id\":\"task-word-01\",\"kind\":\"TranslateWord\",\"text\":\"gloss\",\"reference\":{\"phonetic\":null,\"examples\":[]}}\n",
         )
@@ -958,6 +506,114 @@ mod tests {
         assert_eq!(
             rounds[1],
             "{\"note\":\"义\",\"structured\":{\"examples\":[]}}"
+        );
+    }
+
+    fn dataset_metrics<'a>(report: &'a EvalReport, dataset: &str, note: &str) -> &'a TaskMetrics {
+        let stats = report
+            .tasks
+            .iter()
+            .find(|stats| stats.dataset == dataset)
+            .expect(note);
+        &stats.metrics
+    }
+
+    fn assert_pinned_classify_violations(metrics: &ClassifyMetrics) {
+        for violation in [
+            Violation::NotJson,
+            Violation::KindNotAllowed,
+            Violation::EmptyReply,
+        ] {
+            assert!(
+                metrics.violations.contains_key(&violation),
+                "{violation:?}: the exception fixtures pin prose, off-list-kind \
+                 and empty-reply violations: {:?}",
+                metrics.violations
+            );
+        }
+    }
+
+    fn assert_repair_rounds_ride_violations(tasks: &[TaskStats]) {
+        for stats in tasks {
+            assert!(
+                stats.metrics.repair_rounds > 0 || stats.metrics.violations.is_empty(),
+                "{}: violation counts ride repaired trajectories",
+                stats.dataset
+            );
+        }
+    }
+
+    fn live_test_config() -> (Arc<ConfigHandle>, Arc<dyn ConfigStore>) {
+        live_config(LiveEnv {
+            base_url: "http://localhost".into(),
+            model: "m".into(),
+            api_key: String::new(),
+        })
+    }
+
+    fn scripted_engine(
+        script: Vec<Vec<Result<TaskChunk, gloss_core::model::GlossError>>>,
+        calls: Arc<AtomicUsize>,
+    ) -> Arc<dyn AiEngine> {
+        Arc::new(ScriptEngine::new(script, calls))
+    }
+
+    fn assert_live_report_and_details(run: &LiveRun) {
+        let classify = run.report.classify.as_ref().expect("classify track");
+        assert_eq!(classify.metrics.evaluated, 1);
+        assert_eq!(
+            classify.metrics.correct, 1,
+            "the repaired round settles on the expected kind"
+        );
+        assert_eq!(classify.metrics.repair_rounds, 1);
+        assert_eq!(
+            classify.metrics.violations.get(&Violation::NotJson),
+            Some(&1),
+            "the violated first round counts by category, not into the final-reply rates"
+        );
+
+        assert_eq!(run.report.tasks.len(), 3);
+        let word = &run.report.tasks[0].metrics;
+        assert_eq!(word.evaluated, 1);
+        assert_eq!(
+            word.repair_rounds, 1,
+            "the violated task round repairs once"
+        );
+        assert_eq!(word.degraded, 0, "the repair converges on a contract reply");
+        assert_eq!(run.report.tasks[1].metrics.repair_rounds, 0);
+        assert_eq!(run.report.tasks[2].metrics.repair_rounds, 0);
+
+        assert_eq!(
+            run.cases.len(),
+            4,
+            "1 classify + 3 task details ride the same run"
+        );
+        assert_eq!(run.cases[0].id, "zh-word-01");
+        assert!(run.cases[0].classify.is_some());
+        assert!(run.cases.iter().all(|case| !case.engine_error));
+    }
+
+    fn assert_live_recordings(run: &LiveRun) {
+        let by_id: std::collections::BTreeMap<_, _> = run
+            .recordings
+            .iter()
+            .map(|fixture| (fixture.id.as_str(), fixture))
+            .collect();
+        let classify_fixture = by_id.get("zh-word-01").expect("classify recording");
+        assert_eq!(
+            classify_fixture.rounds.len(),
+            2,
+            "both classify rounds recorded"
+        );
+        let word_fixture = by_id.get("task-word-01").expect("word recording");
+        assert_eq!(
+            word_fixture.rounds.len(),
+            2,
+            "violation + repair rounds recorded"
+        );
+        assert_eq!(
+            word_fixture.rounds[1].concat(),
+            "{\"note\":\"词卡\",\"structured\":{\"phonetic\":null,\"examples\":[]}}"
         );
     }
 

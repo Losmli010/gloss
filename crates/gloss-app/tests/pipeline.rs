@@ -24,7 +24,7 @@ use gloss_app::machine::{
     AppState, ErrorAction, FailureOutcome, InputOutcome, OverlayView, TaskStateMachine,
 };
 use gloss_app::runtime::cache::TaskCache;
-use gloss_app::runtime::pipeline::start_command_runtime;
+use gloss_app::runtime::pipeline::{TaskBridge, start_command_runtime};
 use gloss_core::config::Config;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
@@ -66,12 +66,14 @@ fn pipeline(engine: &MockEngine) -> Pipeline {
         Config::default(),
     ));
     let runtime = start_command_runtime(
-        service,
-        Arc::new(TaskCache::new()),
-        Arc::new(MemoryConfigStore::default()) as Arc<dyn gloss_core::ports::ConfigStore>,
+        TaskBridge::new(
+            service,
+            Arc::new(TaskCache::new()),
+            Arc::new(MemoryConfigStore::default()) as Arc<dyn gloss_core::ports::ConfigStore>,
+            ev_tx,
+            || {},
+        ),
         cmd_rx,
-        ev_tx,
-        || {},
     )
     .expect("tokio bridge should start");
     Pipeline {
@@ -350,6 +352,26 @@ fn violating_replies_repair_then_degrade_without_cache() {
         "the classify call reads the kind tag from the bare JSON script"
     );
 
+    pump_repair_rounds(&mut pipe, violating);
+    assert_degraded_outcome(&pipe);
+    assert!(
+        pipe.machine.retry().is_some(),
+        "the degraded card keeps the request for the retry exit"
+    );
+
+    pipe.trigger_and_feed("gloss", Span::none());
+    expect_classified(&mut pipe);
+    wait_done(&mut pipe);
+    assert_eq!(
+        engine.call_count(),
+        11,
+        "the degraded outcome must not poison the cache: the rerun reaches the engine again \
+         (5 calls with the kind script; 6 on the rerun whose queue replays the violating reply)"
+    );
+}
+
+#[allow(clippy::unwrap_used, clippy::panic)]
+fn pump_repair_rounds(pipe: &mut Pipeline, violating: &str) {
     let mut repairs = 0u32;
     loop {
         match pipe.events_rx.recv().unwrap() {
@@ -386,7 +408,10 @@ fn violating_replies_repair_then_degrade_without_cache() {
             other => panic!("unexpected event: {other:?}"),
         }
     }
+}
 
+#[allow(clippy::panic)]
+fn assert_degraded_outcome(pipe: &Pipeline) {
     assert_eq!(pipe.machine.state(), AppState::Show);
     match pipe.machine.overlay_view() {
         Some(OverlayView::Outcome { outcome, .. }) => {
@@ -401,20 +426,6 @@ fn violating_replies_repair_then_degrade_without_cache() {
         }
         other => panic!("expected outcome view, got {other:?}"),
     }
-    assert!(
-        pipe.machine.retry().is_some(),
-        "the degraded card keeps the request for the retry exit"
-    );
-
-    pipe.trigger_and_feed("gloss", Span::none());
-    expect_classified(&mut pipe);
-    wait_done(&mut pipe);
-    assert_eq!(
-        engine.call_count(),
-        11,
-        "the degraded outcome must not poison the cache: the rerun reaches the engine again \
-         (5 calls with the kind script; 6 on the rerun whose queue replays the violating reply)"
-    );
 }
 
 #[test]
@@ -489,16 +500,12 @@ fn image_flow_skips_classification_and_settles_the_plain_examples() {
         "the commit retains the image for the settled card"
     );
 
-    let Event::TaskClassified { generation, kind } = pipe.events_rx.recv().unwrap() else {
-        panic!("task classified expected");
-    };
-    assert_eq!(generation, 1);
     assert_eq!(
-        kind,
+        expect_classified(&mut pipe),
         TaskKind::ImageExplain,
         "the image task's kind is a constant mapping, not a classify call"
     );
-    assert!(pipe.machine.accept_classified(generation, kind));
+    assert_eq!(pipe.machine.generation(), 1);
 
     for expected in [
         "{\"note\":\"图表描述\",",
@@ -510,20 +517,18 @@ fn image_flow_skips_classification_and_settles_the_plain_examples() {
         assert_eq!(delta, expected);
         assert!(pipe.machine.accept_chunk(generation, delta));
     }
-    let Event::TaskDone {
-        generation,
-        outcome,
-    } = pipe.events_rx.recv().unwrap()
-    else {
-        panic!("task done expected");
-    };
-    assert!(pipe.machine.accept_done(generation, outcome));
+    wait_done(&mut pipe);
 
     assert_eq!(
         engine.call_count(),
         1,
         "the image task skips the classify roundtrip entirely"
     );
+    assert_plain_image_outcome(&pipe, &png);
+}
+
+#[allow(clippy::panic)]
+fn assert_plain_image_outcome(pipe: &Pipeline, png: &Arc<[u8]>) {
     assert_eq!(pipe.machine.state(), AppState::Show);
     match pipe.machine.overlay_view() {
         Some(OverlayView::Outcome { outcome, .. }) => {
@@ -543,7 +548,7 @@ fn image_flow_skips_classification_and_settles_the_plain_examples() {
     assert!(
         pipe.machine
             .attached_image()
-            .is_some_and(|attached| Arc::ptr_eq(attached, &png)),
+            .is_some_and(|attached| Arc::ptr_eq(attached, png)),
         "the settled outcome card keeps the retained image"
     );
 }
@@ -692,21 +697,7 @@ fn superseded_trigger_cancels_and_filters_late_events() {
 
     // 每条任务各发一次 TaskClassified：先到的一条属于已被顶掉的
     // A（或竞速下的 B），按代数分流——只有当前代的判定被采纳。
-    loop {
-        match pipe.events_rx.recv().unwrap() {
-            Event::TaskClassified { generation, kind } => {
-                assert_eq!(
-                    pipe.machine.accept_classified(generation, kind),
-                    generation == gen_b,
-                    "only the current generation's classification is accepted"
-                );
-                if generation == gen_b {
-                    break;
-                }
-            }
-            other => panic!("task classified expected, got {other:?}"),
-        }
-    }
+    wait_classified_of_generation(&mut pipe, gen_b);
     for expected in ["A1", "A2"] {
         let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
             panic!("chunk expected");
@@ -720,6 +711,31 @@ fn superseded_trigger_cancels_and_filters_late_events() {
     };
     assert_eq!(generation, gen_b);
     assert!(pipe.machine.accept_repairing(generation));
+    wait_degraded_done(&mut pipe, gen_b);
+    assert_eq!(pipe.machine.state(), AppState::Show);
+}
+
+#[allow(clippy::unwrap_used, clippy::panic)]
+fn wait_classified_of_generation(pipe: &mut Pipeline, current: u64) {
+    loop {
+        match pipe.events_rx.recv().unwrap() {
+            Event::TaskClassified { generation, kind } => {
+                assert_eq!(
+                    pipe.machine.accept_classified(generation, kind),
+                    generation == current,
+                    "only the current generation's classification is accepted"
+                );
+                if generation == current {
+                    break;
+                }
+            }
+            other => panic!("task classified expected, got {other:?}"),
+        }
+    }
+}
+
+#[allow(clippy::unwrap_used, clippy::panic)]
+fn wait_degraded_done(pipe: &mut Pipeline, current: u64) {
     loop {
         match pipe.events_rx.recv().unwrap() {
             Event::TaskChunk { generation, delta } => {
@@ -732,7 +748,7 @@ fn superseded_trigger_cancels_and_filters_late_events() {
                 generation,
                 outcome,
             } => {
-                assert_eq!(generation, gen_b);
+                assert_eq!(generation, current);
                 assert!(outcome.degraded, "the replayed violating reply degrades");
                 assert!(pipe.machine.accept_done(generation, outcome));
                 break;
@@ -740,7 +756,6 @@ fn superseded_trigger_cancels_and_filters_late_events() {
             other => panic!("unexpected event: {other:?}"),
         }
     }
-    assert_eq!(pipe.machine.state(), AppState::Show);
 }
 
 #[test]
@@ -891,7 +906,7 @@ fn frozen_options_carry_the_factory_model_by_default() {
     assert_eq!(engine.call_count(), 3, "classify repairs once + task");
 }
 
-#[allow(clippy::expect_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+#[allow(clippy::expect_used, clippy::panic)]
 fn expect_classified(pipe: &mut Pipeline) -> TaskKind {
     match pipe.events_rx.recv().expect("event channel open") {
         Event::TaskClassified { generation, kind } => {
@@ -902,7 +917,7 @@ fn expect_classified(pipe: &mut Pipeline) -> TaskKind {
     }
 }
 
-#[allow(clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+#[allow(clippy::panic)]
 fn outcome_note(machine: &TaskStateMachine) -> &str {
     match machine.overlay_view() {
         Some(OverlayView::Outcome { outcome, .. }) => &outcome.note,
@@ -910,7 +925,7 @@ fn outcome_note(machine: &TaskStateMachine) -> &str {
     }
 }
 
-#[allow(clippy::expect_used, clippy::panic)] // 测试辅助：失败即 panic 是断言语义
+#[allow(clippy::expect_used, clippy::panic)]
 fn wait_done(pipe: &mut Pipeline) {
     loop {
         let event = pipe

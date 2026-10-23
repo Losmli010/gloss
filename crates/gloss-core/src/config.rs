@@ -294,69 +294,37 @@ mod tests {
 
     #[test]
     fn base_url_validation_rejects_structural_problems() {
-        assert_eq!(validate_base_url(""), Err(BaseUrlError::Empty));
-        assert_eq!(validate_base_url("   "), Err(BaseUrlError::Empty));
-        assert_eq!(
-            validate_base_url("ftp://api.example.com/v1"),
-            Err(BaseUrlError::NotHttps)
-        );
-        assert_eq!(
-            validate_base_url("api.example.com/v1"),
-            Err(BaseUrlError::Invalid)
-        );
-        assert_eq!(validate_base_url("https:///v1"), Err(BaseUrlError::Invalid));
-        assert_eq!(
-            validate_base_url("https://api.example .com/v1"),
-            Err(BaseUrlError::Invalid),
-            "trim 只作用于首尾，中部空白仍拒绝"
-        );
-        assert_eq!(
-            validate_base_url("https://user:pass@api.example.com"),
-            Err(BaseUrlError::EmbeddedCredentials)
-        );
-        assert_eq!(
-            validate_base_url("https://@api.example.com/v1"),
-            Err(BaseUrlError::EmbeddedCredentials),
-            "空 userinfo 的 @ 也不接受"
-        );
-        assert_eq!(
-            validate_base_url("http:///v1"),
-            Err(BaseUrlError::NotHttps),
-            "authority 缺失不改变 scheme 的判定方向"
-        );
-        assert_eq!(
-            validate_base_url("https://api.example.com?token=a@b"),
-            Err(BaseUrlError::QueryOrFragment),
-            "query 里的 @ 不是内嵌凭据"
-        );
-        assert_eq!(
-            validate_base_url("https://api.example.com/v1?x=1"),
-            Err(BaseUrlError::QueryOrFragment)
-        );
-        assert_eq!(
-            validate_base_url("https://api.example.com/v1?x=1"),
-            Err(BaseUrlError::QueryOrFragment)
-        );
-        assert_eq!(
-            validate_base_url("https://:8080/v1"),
-            Err(BaseUrlError::Invalid),
-            "缺 host 只带端口仍拒绝"
-        );
-        assert_eq!(
-            validate_base_url("https://api.example.com:99999"),
-            Err(BaseUrlError::Invalid),
-            "端口超出 16 位范围拒绝"
-        );
-        assert_eq!(
-            validate_base_url("https://api.example.com:abc"),
-            Err(BaseUrlError::Invalid),
-            "非数字端口拒绝"
-        );
-        assert_eq!(
-            validate_base_url("https://[::1/v1"),
-            Err(BaseUrlError::Invalid),
-            "IPv6 括号不闭合拒绝"
-        );
+        for (url, expected) in [
+            ("", BaseUrlError::Empty),
+            ("   ", BaseUrlError::Empty),
+            ("ftp://api.example.com/v1", BaseUrlError::NotHttps),
+            ("api.example.com/v1", BaseUrlError::Invalid),
+            ("https:///v1", BaseUrlError::Invalid),
+            ("https://api.example .com/v1", BaseUrlError::Invalid),
+            (
+                "https://user:pass@api.example.com",
+                BaseUrlError::EmbeddedCredentials,
+            ),
+            (
+                "https://@api.example.com/v1",
+                BaseUrlError::EmbeddedCredentials,
+            ),
+            ("http:///v1", BaseUrlError::NotHttps),
+            (
+                "https://api.example.com?token=a@b",
+                BaseUrlError::QueryOrFragment,
+            ),
+            (
+                "https://api.example.com/v1?x=1",
+                BaseUrlError::QueryOrFragment,
+            ),
+            ("https://:8080/v1", BaseUrlError::Invalid),
+            ("https://api.example.com:99999", BaseUrlError::Invalid),
+            ("https://api.example.com:abc", BaseUrlError::Invalid),
+            ("https://[::1/v1", BaseUrlError::Invalid),
+        ] {
+            assert_eq!(validate_base_url(url), Err(expected), "{url}");
+        }
     }
 
     #[test]

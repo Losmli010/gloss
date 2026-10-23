@@ -33,7 +33,7 @@ use crate::log::{info, thread, warn};
 use crate::model::{GlossError, Locale};
 use crate::ports::{AiEngine, EngineRequest, TaskChunk, TaskStream};
 use crate::prompt::PromptRegistry;
-use crate::repair::{RepairStage, next_round};
+use crate::repair::{RepairLoop, RepairStage};
 use crate::schema;
 use crate::task::{TaskInput, TaskKind};
 
@@ -195,7 +195,7 @@ pub async fn classify_traced(
     // 重渲。
     let base = registry.render_classify(locale, text);
     let mut messages = base.clone();
-    let mut repairs = 0u32;
+    let mut repairs = RepairLoop::new(RepairStage::Classify, CLASSIFY_REPAIRS);
     let mut rounds = Vec::new();
     loop {
         // messages 随请求 move 出去（engine 端口按值收请求）；修复轮由
@@ -214,34 +214,17 @@ pub async fn classify_traced(
         };
         match verdict {
             Ok(choice) => {
-                info!(
-                    thread = thread::TOKIO,
-                    model_kind = %choice.model_kind,
-                    kind = ?choice.kind,
-                    repairs = repairs,
-                    "model classification settled"
-                );
                 rounds.push(round.reply);
-                return Ok(ClassifyDecision {
-                    kind: choice.kind,
-                    repairs,
-                    rounds,
-                });
+                return Ok(settled_decision(choice, repairs.spent(), rounds));
             }
             Err(violation) => {
-                let Some(next) = next_round(
-                    RepairStage::Classify,
-                    &base,
-                    &round.reply,
-                    violation,
-                    &mut repairs,
-                    CLASSIFY_REPAIRS,
-                    |violation| registry.render_repair(locale, violation),
-                ) else {
+                let Some(next) = repairs.next_round(&base, &round.reply, violation, |violation| {
+                    registry.render_repair(locale, violation)
+                }) else {
                     rounds.push(round.reply);
                     return Ok(ClassifyDecision {
                         kind: CLASSIFY_FALLBACK,
-                        repairs,
+                        repairs: repairs.spent(),
                         rounds,
                     });
                 };
@@ -249,6 +232,27 @@ pub async fn classify_traced(
                 messages = next;
             }
         }
+    }
+}
+
+/// 定型收卷：原始类别与最终 kind 同行落 info（兜底映射的落点在此可见），
+/// 并产出全轨迹决策。
+fn settled_decision(
+    choice: schema::ClassifyChoice,
+    repairs: u32,
+    rounds: Vec<String>,
+) -> ClassifyDecision {
+    info!(
+        thread = thread::TOKIO,
+        model_kind = %choice.model_kind,
+        kind = ?choice.kind,
+        repairs = repairs,
+        "model classification settled"
+    );
+    ClassifyDecision {
+        kind: choice.kind,
+        repairs,
+        rounds,
     }
 }
 

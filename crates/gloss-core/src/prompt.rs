@@ -403,6 +403,37 @@ mod tests {
         }
     }
 
+    fn example_object(template: &str) -> &str {
+        template
+            .lines()
+            .find(|line| line.trim_start().starts_with('{'))
+            .expect("the output example must be a JSON object line")
+    }
+
+    fn assert_structured_keys(locale: Locale, name: &str, object: &str, keys: &[&str]) {
+        let value: serde_json::Value = serde_json::from_str(object).expect("example must parse");
+        let structured = value
+            .get("structured")
+            .and_then(|value| value.as_object())
+            .unwrap_or_else(|| {
+                panic!("{locale:?}/{name}: the contract nests fields under a structured object")
+            });
+        for key in keys {
+            assert!(
+                structured.contains_key(*key),
+                "{locale:?}/{name}: structured must carry {key:?}: {object}"
+            );
+        }
+    }
+
+    fn structured_keys(name: &str) -> &'static [&'static str] {
+        match name {
+            "word_card.md" => &["phonetic", "examples"],
+            "code.md" => &["examples", "code_language"],
+            _ => &["examples"],
+        }
+    }
+
     #[test]
     fn text_kinds_render_system_and_user_with_kind_content() {
         let registry = PromptRegistry::new();
@@ -468,13 +499,6 @@ mod tests {
 
     #[test]
     fn output_example_carries_the_note_field() {
-        fn example_object(template: &str) -> &str {
-            template
-                .lines()
-                .find(|line| line.trim_start().starts_with('{'))
-                .expect("the output example must be a JSON object line")
-        }
-
         for locale in [Locale::Zh, Locale::En] {
             let templates = locale.templates();
             for (name, text) in [
@@ -500,63 +524,22 @@ mod tests {
     fn every_task_template_example_passes_validate_task() {
         use crate::schema::validate_task;
 
-        fn example_object(template: &str) -> &str {
-            template
-                .lines()
-                .find(|line| line.trim_start().starts_with('{'))
-                .expect("the output example must be a JSON object line")
-        }
-
-        fn assert_structured_keys(locale: Locale, name: &str, object: &str, keys: &[&str]) {
-            let value: serde_json::Value =
-                serde_json::from_str(object).expect("example must parse");
-            let structured = value
-                .get("structured")
-                .and_then(|value| value.as_object())
-                .unwrap_or_else(|| {
-                    panic!("{locale:?}/{name}: the contract nests fields under a structured object")
-                });
-            for key in keys {
-                assert!(
-                    structured.contains_key(*key),
-                    "{locale:?}/{name}: structured must carry {key:?}: {object}"
-                );
-            }
-        }
-
         for locale in [Locale::Zh, Locale::En] {
             let templates = locale.templates();
-            for (name, kind, text, keys) in [
-                (
-                    "word_card.md",
-                    TaskKind::TranslateWord,
-                    templates.word_card,
-                    &["phonetic", "examples"][..],
-                ),
+            for (name, kind, text) in [
+                ("word_card.md", TaskKind::TranslateWord, templates.word_card),
                 (
                     "sentence.md",
                     TaskKind::TranslateSentence,
                     templates.sentence,
-                    &["examples"][..],
                 ),
-                (
-                    "code.md",
-                    TaskKind::ExplainCode,
-                    templates.code,
-                    &["examples", "code_language"][..],
-                ),
+                ("code.md", TaskKind::ExplainCode, templates.code),
                 (
                     "image_explain.md",
                     TaskKind::ImageExplain,
                     templates.image_explain,
-                    &["examples"][..],
                 ),
-                (
-                    "general.md",
-                    TaskKind::General,
-                    templates.general,
-                    &["examples"][..],
-                ),
+                ("general.md", TaskKind::General, templates.general),
             ] {
                 let object = example_object(text);
                 assert_eq!(
@@ -566,7 +549,7 @@ mod tests {
                     Ok("<string>".to_owned()),
                     "{locale:?}/{name}: the example object must pass validate_task"
                 );
-                assert_structured_keys(locale, name, object, keys);
+                assert_structured_keys(locale, name, object, structured_keys(name));
             }
         }
     }

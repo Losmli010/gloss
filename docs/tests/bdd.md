@@ -132,12 +132,12 @@
 - 更新时间：2026-09-19
 
 ### fallback_read_unwind_restores_the_clipboard_without_finish
-- 测试目标：验证兜底读取在调用方 panic 展开、未收口 finish 时经 Drop 兜底按快照恢复原剪贴板（`PendingRestore` 的 Drop 路径——受控路径都已显式收口，`skip == false` 只在展开时出现）。
-- 测试场景：给定预置文本的剪贴板，当跑一次兜底读取后、finish 前把剪贴板覆写成注入产物并 panic 展开，则 settle 随展开丢弃、Drop 按快照恢复预置文本而非覆写产物。
+- 测试目标：验证兜底读取在调用方 panic 展开、未收口 finish 时经 Drop 兜底按快照恢复原剪贴板（`PendingRestore` 的 Drop 路径——受控路径都已显式收口，`skip == false` 只在展开时出现）；粘贴板服务持续不可用使恢复重试耗尽时，退而验收契约规定的失败留痕（error 级「failed to restore clipboard」）。
+- 测试场景：给定预置文本的剪贴板，当跑一次兜底读取后、finish 前把剪贴板覆写成注入产物并 panic 展开，则 settle 随展开丢弃、Drop 按快照恢复预置文本而非覆写产物；若粘贴板服务不可用导致重试耗尽，则展开窗口内必有失败留痕（经 capture_global 捕获，避开线程局部窗口的调用点缓存竞争）。
 - 测试步骤：
   1. 随常规测试自动运行，无需授权与 --ignored
   2. 运行中会覆写并恢复本机剪贴板；经 CLIPBOARD_LIVE_LOCK 串行
-- 更新时间：2026-10-18
+- 更新时间：2026-10-23
 
 ### scene_probe_reports_the_frontmost_app
 - 测试目标：验证真机上 NSWorkspace 取前台应用这条路径（CI 里只能断「一致快照」，`Some` 分支跑不到）。

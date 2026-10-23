@@ -1,30 +1,21 @@
 //! Gloss 唯一入口：组装依赖、分发通道端点并启动，不含业务逻辑。
+//! 组装段助手（通道分发、预检、事件源与后台装配）见 `wiring`。
+
+mod wiring;
 
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::atomic::AtomicBool;
 
-use gloss_app::channel::{AcquireCommand, AppEndpoints, Channels, Event, PlatformEvent, Traced};
-use gloss_app::runtime::cache::TaskCache;
-use gloss_core::config::CACHE_TTL_MAX_SECS;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::engine::llm::LlmClient;
-use gloss_core::log::{self, debug, info, thread, warn};
-use gloss_core::model::GlossError;
-use gloss_core::ports::{AiEngine, AppIcon, ConfigStore};
-use gloss_core::task::TaskInput;
-use gloss_platform::appearance::MacAppIcon;
-use gloss_platform::clipboard::{ClipboardImageReader, ClipboardWatchSource, WatchRoundFlag};
-use gloss_platform::events::mouse::{MouseGesture, MouseSource};
-use gloss_platform::events::{EventSink, EventSource, EventSources};
-use gloss_platform::permissions::{self, AccessibilityWatch};
+use gloss_core::log::{self, info, thread, warn};
+use gloss_core::ports::{AiEngine, ConfigStore};
 use gloss_platform::scene::SystemSceneProbe;
-use gloss_platform::selection::composite::CompositeReader;
 use gloss_platform::storage::CompositeConfigStore;
 use mimalloc::MiMalloc;
 
@@ -33,11 +24,6 @@ type StartupResult = Result<(), Box<dyn Error>>;
 /// 全局分配器：长驻进程的常驻内存贴着活跃字节走（取舍见 Cargo.toml 依赖注）。
 #[global_allocator]
 static GLOBAL_ALLOCATOR: MiMalloc = MiMalloc;
-
-/// 开发期 Dock 图标：与打包用的 `assets/icons/Gloss.icns` 同一份设计的 PNG
-/// 版本（生成方式见 scripts/dev/build-app-icon.sh）。内嵌进二进制而非运行时
-/// 读盘——非 bundle 运行时没有资源目录可信（约 9 KB，值这个体积）。
-static DOCK_ICON_PNG: &[u8] = include_bytes!("../assets/icons/gloss-dock-icon.png");
 
 fn main() -> StartupResult {
     run()
@@ -54,27 +40,6 @@ fn run() -> StartupResult {
     run_event_loop(config, store, service)
 }
 
-/// 启动期权限预检（启动骨架第 1.5 步）：缺失即弹系统授权引导对话框（内
-/// 含「打开系统设置」入口）。必须在建 tap 之前调用——授权对话框非阻塞，
-/// 先弹引导再装配事件源，避免 tap 建立期的日志与事件被引导动作穿插。返回
-/// 启动时刻的授权状态（密钥预热的门控依据，见组装段）。
-fn preflight_accessibility() -> bool {
-    if permissions::preflight_accessibility() {
-        info!(
-            thread = thread::UI,
-            "accessibility permission granted for selection reading"
-        );
-        true
-    } else {
-        warn!(
-            thread = thread::UI,
-            "accessibility permission missing, triggering the system guidance dialog"
-        );
-        permissions::request_accessibility();
-        false
-    }
-}
-
 fn init_logging() {
     let dir = log_dir();
     let active = log::init(dir.as_deref());
@@ -89,18 +54,6 @@ fn init_logging() {
             thread = thread::UI,
             log_dir = %file,
             "gloss starting without file logging"
-        );
-    }
-}
-
-/// 装开发期 Dock 图标（非 bundle 运行时才有实际效果）。失败只降级记日志：
-/// 图标是外观，不该拦住启动——端口契约见 `gloss_core::ports::AppIcon`。
-fn install_app_icon() {
-    let icon: Box<dyn AppIcon> = Box::new(MacAppIcon::new());
-    if !icon.install(DOCK_ICON_PNG) {
-        warn!(
-            thread = thread::UI,
-            "dock icon not applied, keeping the system default"
         );
     }
 }
@@ -155,100 +108,44 @@ fn build_service(
     )))
 }
 
-/// 组装事件循环：拆分四通道端点、装配推理服务与消费运行时、启动应用，
-/// 并在拿到唤醒句柄后启动平台事件线程。
-///
-/// 端点分发：App 持有 ① 收 / ② 发 / ③ 发 / ④ 收；事件线程持有 ① 发 /
-/// ② 收 / ④ 发（组装进 sink）；tokio 消费循环持有 ③ 收 / ④ 发。配置侧：
-/// 句柄给 App（任务选项）与引擎（端点），存储另路给 App（设置页写
-/// keychain）与引擎（每请求直查密钥）。
+/// 组装事件循环：拆分四通道端点（见 `wiring::distribute_channels`）、做
+/// 启动期预检，随后启动应用——EventLoop 建好后的后台装配（tokio 消费桥
+/// 与事件线程）在 `wiring::Assembly` 里进行，存活句柄记回组装态，循环
+/// 结束后在这里统一收尾。
 fn run_event_loop(
     config: Arc<ConfigHandle>,
     store: Arc<dyn ConfigStore>,
     service: Arc<AiTaskService>,
 ) -> StartupResult {
-    let gloss_app::channel::Channels {
-        platform_events,
-        acquire_commands,
-        commands,
-        events,
-    } = create_channels();
-    let gloss_app::channel::CrossbeamPair {
-        tx: platform_tx,
-        rx: platform_rx,
-    } = platform_events;
-    let gloss_app::channel::CrossbeamPair {
-        tx: acquire_tx,
-        rx: acquire_rx,
-    } = acquire_commands;
-    let gloss_app::channel::CrossbeamPair {
-        tx: events_tx,
-        rx: events_rx,
-    } = events;
-    let gloss_app::channel::CommandChannel {
-        tx: commands_tx,
-        rx: commands_rx,
-    } = commands;
-    let endpoints = AppEndpoints {
-        platform_events: platform_rx,
-        acquire_commands: acquire_tx.clone(),
-        commands: commands_tx,
-        events: events_rx,
-    };
-    // 退出协议不变量：通道②的 Sender 只允许 App 经 endpoints 持有。原始
-    // 句柄若存活到 join（Rust 的 drop 发生在作用域结束而非最后使用点），
-    // 事件线程永远看不到 Disconnected，run_app 返回后会卡死在 join。
-    drop(acquire_tx);
-
-    // 系统语言只在启动期读一次（改系统语言要重启）：配置里的
-    // `Language::System` 要拿它落定成具体的 `Locale`（prompt 模板语言与
-    // 界面文案表共用）。适配器对「拿不到偏好语言」按英文兜底，因此这里
-    // 没有失败面。
-    let system_locale = gloss_platform::locale::system_locale();
-    info!(
-        thread = thread::UI,
-        locale = ?system_locale,
-        "system language resolved"
-    );
-
+    let (endpoints, halves) = wiring::distribute_channels();
+    let system_locale = wiring::resolve_system_locale();
     // 触发前场景探针：安全输入态与前台应用都由系统查询回答（纯查询、
     // 不索取新权限）。与系统语言同类——平台适配器的事，壳只消费。
     let scene = Arc::new(SystemSceneProbe);
-
     // 启动钩子：更新子系统的进程内幂等入口，只拉起模块任务——静默检查
     // 在首帧就绪后由壳补发，发现新版仅置状态由设置页提示，失败落 Failed
     // 供被动渲染，不打扰划词。
     let update_handle = gloss_app::update::start_once();
     let update = gloss_app::update::UpdateWiring::from_handle(update_handle);
-
-    // 启动期权限引导与事件源装配上移到组装段：先做辅助功能预检与引导（唯
-    // 一的取材授权项），再建 tap。tap 的建立结果同步可知（等待是通道事件
-    // 且有界，无用户交互），tap 在这里先建好，事件线程稍后才消费其产物；
-    // 等待期间的手势事件在通道里有界排队。
-    let accessibility_ready = preflight_accessibility();
-    let (mouse_source, mouse_degraded) = MouseSource::spawn();
-    if mouse_source.is_some() {
-        info!(
-            thread = thread::UI,
-            "event tap established for the selection gesture"
-        );
-    }
+    let (accessibility_ready, mouse_source, mouse_degraded) = wiring::preflight_and_tap();
     // 密钥预热据此门控：未就绪即辅助功能引导对话框在途，keychain 授权框
     // 不得抢在它之前（引导对话框无落定回调，就绪与否只能取启动时刻的
     // 静态事实），预热推迟到首次任务自然重读。
     let permissions_ready = accessibility_ready;
-
-    let mut command_runtime = None;
-    let mut event_thread = None;
-    // 缓存 TTL 在启动回调里读一次快照：App 按值收走主句柄，这里先拆一份。
-    let cache_config = Arc::clone(&config);
-    // 剪贴板图片哨兵的共享开关位：按启动快照初始化，一份交给 App（设置页
-    // 保存成功时置位，热切换不重启），一份随组装回调与哨兵源同造。
-    let clipboard_watch_enabled =
-        Arc::new(AtomicBool::new(config.snapshot().watch_clipboard_images));
-    // tokio 消费桥与 App 共享同一份存储实例：预热读密命中引擎的同一份
-    // 进程内缓存（密钥不经快照，见 gloss-app 的 Env）。
-    let runtime_store = Arc::clone(&store);
+    let mut assembly = wiring::Assembly {
+        service,
+        cache_config: Arc::clone(&config),
+        runtime_store: Arc::clone(&store),
+        update_handle,
+        accessibility_ready,
+        mouse_source,
+        mouse_degraded,
+        clipboard_watch_enabled: Arc::new(AtomicBool::new(
+            config.snapshot().watch_clipboard_images,
+        )),
+        command_runtime: None,
+        event_thread: None,
+    };
     let result = gloss_app::app::run(
         endpoints,
         config,
@@ -257,247 +154,29 @@ fn run_event_loop(
         system_locale,
         permissions_ready,
         update,
-        Arc::clone(&clipboard_watch_enabled),
-        |waker| -> StartupResult {
-            // Dock 图标在这里装：macOS 的 NSApplication 单例只允许在 EventLoop
-            // 建好之后访问，而本回调是主线程上第一个满足该时机的点（app::run
-            // 建完 EventLoop 就回调它，早于任何窗口创建）。
-            install_app_icon();
-            // 更新子系统的唤醒出口：相位迁移时请求设置窗重绘。
-            let update_waker = waker.clone();
-            update_handle.install_wake(move || {
-                update_waker.wake_settings();
-            });
-            // tokio 消费桥在拿到唤醒句柄后再启动：回传事件入队时要靠它唤醒
-            // 睡在事件循环里的主线程。任务产物缓存（缓存站点归桥）在这里
-            // 组装：TTL 取配置（手改超出上限的值按上限钳制）。运行时存活至
-            // run_event_loop 结束——App drop 关闭通道③后，消费循环自行退出。
-            let runtime_waker = waker.clone();
-            let ttl = Duration::from_secs(
-                cache_config
-                    .snapshot()
-                    .cache_ttl_secs
-                    .min(CACHE_TTL_MAX_SECS),
-            );
-            let cache = Arc::new(TaskCache::with_ttl(ttl));
-            // 消费桥装配失败是启动硬错误：commands_rx 随失败被 drop，通道③
-            // 没有消费者，用户触发的任务会静默石沉大海。与 build_service 同
-            // 一失败出口——`?` 上抛，报错退出而非带病运行。
-            let runtime = gloss_app::runtime::pipeline::start_command_runtime(
-                service,
-                cache,
-                runtime_store,
-                commands_rx,
-                events_tx.clone(),
-                move || {
-                    runtime_waker.wake();
-                },
-            )?;
-            command_runtime = Some(runtime);
-            // 事件线程同样在拿到唤醒句柄后再启动：sink 发送产物时要靠它唤醒
-            // 睡在事件循环里的主线程。剪贴板图片哨兵源与取材读取器在此同造：
-            // ① 观察记录经共享句柄交给读取器比对竞态；取材轮次抑制闩锁经
-            // 共享句柄交给文本取材处理器置位（见 clipboard 模块）。
-            let sink = EventSink::new(events_tx, platform_tx, move || {
-                waker.wake();
-            });
-            let clipboard_watch = ClipboardWatchSource::new(Arc::clone(&clipboard_watch_enabled));
-            let round_flag = clipboard_watch.round_flag();
-            let image_reader = ClipboardImageReader::new(clipboard_watch.observer());
-            event_thread = Some(gloss_platform::events::spawn(
-                acquire_rx,
-                sink,
-                acquire_command_handler(image_reader, round_flag),
-                event_sources(
-                    mouse_source,
-                    mouse_degraded,
-                    accessibility_ready,
-                    clipboard_watch,
-                ),
-            ));
-            log::milestone("05_assembly");
-            Ok(())
-        },
+        Arc::clone(&assembly.clipboard_watch_enabled),
+        |waker| assembly.on_waker(waker, halves),
     );
 
     // App 已随事件循环结束 drop：通道②仅剩的 Sender（endpoints 内）归还
     // 后事件线程看到 Disconnected 自行退出；通道③关闭后消费循环退出，
     // CommandRuntime drop 在超时内收尾 tokio。
-    if let Some(event_thread) = event_thread {
+    if let Some(event_thread) = assembly.event_thread {
         event_thread.join();
     }
-    drop(command_runtime);
+    drop(assembly.command_runtime);
     result
-}
-
-fn create_channels() -> Channels {
-    // 通道创建与端点分发都在组装点完成。
-    Channels::new()
-}
-
-/// 事件源集合：划词手势、剪贴板图片哨兵、监听降级提示与运行中授权观察。
-/// tap 的源与失效标志由组装点传入（spawn 在组装段同步完成，启动期失败已
-/// 由 [`MouseSource::spawn`] 留 warn 日志并整体降级，这里只覆盖运行中失效）；
-/// 授权观察仅在启动预检未就绪的会话武装——授权落定经 ① 通知 App 解除预
-/// 热门控并补发被推迟的密钥预热，落定只产出一次。剪贴板哨兵随组装点传入
-/// （开关位与观察记录句柄在组装段与取材读取器共享）。
-fn event_sources(
-    mouse_source: Option<MouseSource>,
-    mouse_degraded: Arc<AtomicBool>,
-    accessibility_ready: bool,
-    clipboard_watch: ClipboardWatchSource,
-) -> EventSources<PlatformEvent> {
-    let mut sources: EventSources<PlatformEvent> = Vec::new();
-
-    let mut watch = AccessibilityWatch::armed_if(!accessibility_ready);
-    sources.push(Box::new(move || {
-        watch
-            .poll()
-            .then_some(PlatformEvent::AccessibilityGranted)
-            .into_iter()
-            .collect()
-    }));
-
-    if let Some(mut source) = mouse_source {
-        sources.push(Box::new(move || {
-            source
-                .poll()
-                .into_iter()
-                .map(|gesture| match gesture {
-                    MouseGesture::Selection { pos } => PlatformEvent::SelectionGesture { pos },
-                })
-                .collect()
-        }));
-    }
-    // 剪贴板图片哨兵：源内自节流与开关位见 clipboard 模块；观察无载荷，
-    // 内容由状态机下发的取材命令②到读取器再取。
-    let mut clipboard_watch = clipboard_watch;
-    sources.push(Box::new(move || {
-        clipboard_watch
-            .poll()
-            .into_iter()
-            .map(|_| PlatformEvent::PasteboardImageObserved)
-            .collect()
-    }));
-    // 监听降级的一次性提示：标志由 tap 线程在**运行中**失效时置位（启动
-    // 期失败不经它表达），事件线程轮询到即告警一次。
-    let mut hinted = false;
-    sources.push(Box::new(move || {
-        if !hinted && mouse_degraded.load(Ordering::Relaxed) {
-            hinted = true;
-            warn!(
-                thread = thread::EVENT,
-                "mouse listener degraded mid-run, selection gesture disabled"
-            );
-        }
-        Vec::new()
-    }));
-    sources
-}
-
-/// 通道②消费处理器：取材命令 → 组合读取 → ④ 回传，运行在事件线程上
-/// 顺序执行。读取器提升进闭包复用：选区组合读取器（激活器按 pid 记忆
-/// 会话内已评估的前台应用）与剪贴板图片读取器（观察句柄与哨兵源在组装
-/// 段共享）；取材轮次闩锁句柄进组合读取器——剪贴板兜底写盘的轮次由
-/// 读取器自带计数归因置位，哨兵消费时据此区分自身写盘与用户复制。
-fn acquire_command_handler(
-    mut image_reader: ClipboardImageReader,
-    round_flag: WatchRoundFlag,
-) -> impl FnMut(Traced<AcquireCommand>, &EventSink<Event, PlatformEvent>) + Send {
-    let mut reader = CompositeReader::new(round_flag);
-    move |job, sink| {
-        // 进入触发点建好的任务 span：本处理器（含取材读选区、剪贴板兜底
-        // 与读图）的日志自动带上 `generation`。
-        let _entered = job.span.enter();
-        match job.payload {
-            AcquireCommand::AcquireText { generation } => {
-                info!(thread = thread::EVENT, "acquiring text");
-                let (outcome, settle) = reader.read().into_parts();
-                match outcome {
-                    Ok(text) => {
-                        // 只记形态不记原文：选区是用户敏感内容，不落进日志文件。
-                        debug!(
-                            thread = thread::EVENT,
-                            bytes = text.len(),
-                            chars = text.chars().count(),
-                            "text input acquired"
-                        );
-                        sink.send_event(Event::InputReady {
-                            generation,
-                            input: TaskInput::Text { text },
-                        });
-                    }
-                    // 失败也回传（TaskFailed），主线程与用户不至无感；日志分级：
-                    // 权限缺失值得引导授权（warn），其余是日常路径（debug）。
-                    // 先记日志再回传：错误所有权随事件 move，不再复制一份。
-                    Err(err) => {
-                        if err == GlossError::AccessibilityDenied {
-                            warn!(
-                                thread = thread::EVENT,
-                                "accessibility permission missing, text acquisition denied"
-                            );
-                        } else {
-                            debug!(
-                                thread = thread::EVENT,
-                                error = %err,
-                                "text acquisition failed"
-                            );
-                        }
-                        sink.send_event(Event::TaskFailed {
-                            generation,
-                            error: err,
-                        });
-                    }
-                }
-                // 收口兜底轮（恢复写盘与归因）在产物上抛之后执行：恢复
-                // 不挡在弹窗链路上。
-                settle.finish();
-            }
-            AcquireCommand::AcquireClipboardImage { generation } => {
-                info!(thread = thread::EVENT, "acquiring clipboard image");
-                match image_reader.read() {
-                    Ok(Some(png)) => {
-                        // 只记字节数不记内容：图像字节是用户敏感数据，不落
-                        // 进日志文件（像素尺寸由读取器在各自路径上留痕）。
-                        debug!(
-                            thread = thread::EVENT,
-                            bytes = png.len(),
-                            "clipboard image acquired"
-                        );
-                        sink.send_event(Event::InputReady {
-                            generation,
-                            input: TaskInput::Image { png },
-                        });
-                    }
-                    // 静默丢弃不弹卡的两种落点——①与②之间剪贴板被覆盖（竞
-                    // 态）、板声明图像却交付不出数据（粘贴授权被拒等）——分
-                    // 支留痕在读取器内（竞态 debug、无数据 warn），这里不再
-                    // 复述成因。
-                    Ok(None) => {}
-                    Err(err) => {
-                        debug!(
-                            thread = thread::EVENT,
-                            error = %err,
-                            "clipboard image acquisition failed"
-                        );
-                        sink.send_event(Event::TaskFailed {
-                            generation,
-                            error: err,
-                        });
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use gloss_app::channel::{AcquireCommand, Channels, Traced};
+
     #[test]
     fn channels_bundle_is_created() {
-        let channels = create_channels();
+        let channels = Channels::new();
         channels
             .acquire_commands
             .tx

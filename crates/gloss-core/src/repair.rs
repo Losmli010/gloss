@@ -53,27 +53,48 @@ impl RepairStage {
     }
 }
 
-/// 违约后的下一轮对话：预算内留痕并返回修复对话；耗尽返回 `None`，由
-/// 调用方按本段语义上交产物。EmptyReply 无内容可纠：原样重发底座，不拼
-/// assistant 轮也不渲染纠错指令（部分端点拒收空 assistant content，而
-/// 首轮请求本身已含完整契约）——`instruction` 只在真正要发修复轮时求值。
-pub(crate) fn next_round(
+/// 一段的修复循环状态：所属段（留痕措辞）与预算（已用/上限）——两者总是
+/// 同生共死，调用方持有它跑完本段的全部轮次。
+pub(crate) struct RepairLoop {
     stage: RepairStage,
-    base: &[ChatMessage],
-    reply: &str,
-    violation: Violation,
-    repairs: &mut u32,
-    budget: u32,
-    instruction: impl FnOnce(Violation) -> String,
-) -> Option<Vec<ChatMessage>> {
-    if *repairs >= budget {
-        stage.warn_exhausted(violation);
-        return None;
+    spent: u32,
+    cap: u32,
+}
+
+impl RepairLoop {
+    pub(crate) fn new(stage: RepairStage, cap: u32) -> Self {
+        Self {
+            stage,
+            spent: 0,
+            cap,
+        }
     }
-    *repairs += 1;
-    stage.warn_violated(*repairs, violation);
-    match violation {
-        Violation::EmptyReply => Some(base.to_vec()),
-        _ => Some(repair_conversation(base, reply, instruction(violation))),
+
+    /// 已消耗的修复轮数：进产物（`RunOutput::repairs` 等）。
+    pub(crate) fn spent(&self) -> u32 {
+        self.spent
+    }
+
+    /// 违约后的下一轮对话：预算内留痕并返回修复对话；耗尽返回 `None`，由
+    /// 调用方按本段语义上交产物。EmptyReply 无内容可纠：原样重发底座，不拼
+    /// assistant 轮也不渲染纠错指令（部分端点拒收空 assistant content，而
+    /// 首轮请求本身已含完整契约）——`instruction` 只在真正要发修复轮时求值。
+    pub(crate) fn next_round(
+        &mut self,
+        base: &[ChatMessage],
+        reply: &str,
+        violation: Violation,
+        instruction: impl FnOnce(Violation) -> String,
+    ) -> Option<Vec<ChatMessage>> {
+        if self.spent >= self.cap {
+            self.stage.warn_exhausted(violation);
+            return None;
+        }
+        self.spent += 1;
+        self.stage.warn_violated(self.spent, violation);
+        match violation {
+            Violation::EmptyReply => Some(base.to_vec()),
+            _ => Some(repair_conversation(base, reply, instruction(violation))),
+        }
     }
 }

@@ -170,50 +170,76 @@ impl GpuSurface {
             self.configure();
         }
 
-        let device = self.context.device();
-        let queue = self.context.queue();
-
         // 纹理上传不依赖当帧能否取到：字体/图标增量若被跳过，下一帧就会
         // 引用不存在的纹理；epaint 另有 Drop 断言，增量必须显式消费掉
+        self.upload_texture_deltas(&textures);
+
+        // 窗口被遮挡或取帧超时时跳过本帧：隐藏的浮层正属于前者，
+        // 这里不能报错，否则每次隐藏都会刷一条日志
+        let Some(frame) = self.take_frame() else {
+            self.discard_textures(textures);
+            return;
+        };
+
+        self.draw_and_present(frame, &mut textures, paint_jobs, pixels_per_point);
+
+        if self.needs_configure {
+            debug!(thread = thread::UI, "surface was suboptimal, reconfiguring");
+            self.configure();
+        }
+    }
+
+    /// 本帧的纹理增量上传（set 部分），跳帧与否都要做。
+    fn upload_texture_deltas(&mut self, textures: &egui::TexturesDelta) {
+        let device = self.context.device();
+        let queue = self.context.queue();
         for (id, deltas) in &textures.set {
             for delta in deltas {
                 self.renderer.update_texture(device, queue, *id, delta);
             }
         }
+    }
 
-        // 窗口被遮挡或取帧超时时跳过本帧：隐藏的浮层正属于前者，
-        // 这里不能报错，否则每次隐藏都会刷一条日志
-        let frame = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(frame) => frame,
+    /// 取当帧：正常与次优返回帧（后者标记待重配）；取不到（配置过期、
+    /// 被遮挡、超时、surface 不可用）返回 None，由调用方跳帧。
+    fn take_frame(&mut self) -> Option<wgpu::SurfaceTexture> {
+        match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(frame) => Some(frame),
             wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
                 self.needs_configure = true;
-                frame
+                Some(frame)
             }
             wgpu::CurrentSurfaceTexture::Outdated => {
                 self.configure();
-                self.discard_textures(textures);
-                return;
+                None
             }
-            wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => {
-                self.discard_textures(textures);
-                return;
-            }
+            wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => None,
             other => {
                 error!(thread = thread::UI, status = ?other, "surface is unusable, skipping frame");
-                self.discard_textures(textures);
-                return;
+                None
             }
-        };
+        }
+    }
 
+    /// 录制并呈现一帧：encoder 上登记缓冲区与 render pass，submit 后才
+    /// 释放 free 列表的纹理（这批命令可能还在用它们），最后 present。
+    fn draw_and_present(
+        &mut self,
+        frame: wgpu::SurfaceTexture,
+        textures: &mut egui::TexturesDelta,
+        paint_jobs: &[egui::ClippedPrimitive],
+        pixels_per_point: f32,
+    ) {
         let screen = ScreenDescriptor {
             size_in_pixels: [self.config.width, self.config.height],
             pixels_per_point,
         };
+        let device = self.context.device();
+        let queue = self.context.queue();
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("gloss frame"),
         });
-
         let user_buffers =
             self.renderer
                 .update_buffers(device, queue, &mut encoder, paint_jobs, &screen);
@@ -252,11 +278,6 @@ impl GpuSurface {
         }
         textures.clear();
         queue.present(frame);
-
-        if self.needs_configure {
-            debug!(thread = thread::UI, "surface was suboptimal, reconfiguring");
-            self.configure();
-        }
     }
 
     /// 跳帧路径的增量收尾：set 已上传，free 的纹理没有在途命令，可直接释放。

@@ -67,22 +67,47 @@ fn activation_delay(attempt: usize) -> Option<Duration> {
     (attempt < ACTIVATION_SETTLE_BUDGET).then_some(ACTIVATION_SETTLE_DELAY)
 }
 
+/// 让渡与激活的节奏与等待预算（纯旋钮捆包）：`settle` 是空读让渡的节奏，
+/// `activation` 是激活补读的节奏，`waits_exhausted` 是两者共享的墙钟预算
+/// ——把节奏参数化，测试零睡眠直达时序断言。
+struct Pacing<S, A, E> {
+    settle: S,
+    activation: A,
+    waits_exhausted: E,
+}
+
+impl<S, A, E> Pacing<S, A, E>
+where
+    S: Fn(usize) -> Option<Duration>,
+    A: Fn(usize) -> Option<Duration>,
+    E: Fn() -> bool,
+{
+    fn new(settle: S, activation: A, waits_exhausted: E) -> Self {
+        Self {
+            settle,
+            activation,
+            waits_exhausted,
+        }
+    }
+}
+
 /// 组合判定（纯逻辑，单测覆盖）：AX 成功直接采纳；权限缺失原样上抛且不
 /// 评估激活与兜底（见模块注释）；空选区在唤醒常客宿主（`responds_to_wake`，
 /// 读取入口现读一次）上跳过让渡直接进激活补读，其余按 [`settle_delay`]
 /// 让渡后补读，预算耗尽仍空与「其余读不到的情形」一样先过激活闸门
 /// （[`wake_then`]），激活落空才落到兜底结果。`wake` 是惰性求值——激活
 /// 含跨进程属性写入，未走到就不该有副作用；`fallback` 同理——兜底路径
-/// 含按键注入。`delay_for`/`wake_delay_for` 把让渡与激活的节奏参数化，
-/// `waits_exhausted` 把等待预算参数化，测试零睡眠直达时序断言。
+/// 含按键注入。
 fn combine(
     mut ax: impl FnMut() -> Result<String, GlossError>,
     responds_to_wake: bool,
     mut wake: impl FnMut() -> bool,
     fallback: impl FnOnce() -> Result<String, GlossError>,
-    delay_for: impl Fn(usize) -> Option<Duration>,
-    wake_delay_for: impl Fn(usize) -> Option<Duration>,
-    waits_exhausted: impl Fn() -> bool,
+    pacing: Pacing<
+        impl Fn(usize) -> Option<Duration>,
+        impl Fn(usize) -> Option<Duration>,
+        impl Fn() -> bool,
+    >,
 ) -> Result<String, GlossError> {
     let mut attempts = 0;
     loop {
@@ -91,26 +116,26 @@ fn combine(
             Err(err @ GlossError::AccessibilityDenied) => return Err(err),
             Err(GlossError::SelectionEmpty) => {
                 if attempts == 0 && responds_to_wake {
-                    return wake_then(ax, &mut wake, fallback, wake_delay_for, waits_exhausted);
+                    return wake_then(ax, &mut wake, fallback, &pacing);
                 }
-                let Some(delay) = delay_for(attempts) else {
+                let Some(delay) = (pacing.settle)(attempts) else {
                     info!(
                         thread = thread::EVENT,
                         "selection still empty after settle budget, trying to wake the accessibility tree"
                     );
-                    return wake_then(ax, &mut wake, fallback, wake_delay_for, waits_exhausted);
+                    return wake_then(ax, &mut wake, fallback, &pacing);
                 };
-                if waits_exhausted() {
+                if (pacing.waits_exhausted)() {
                     info!(
                         thread = thread::EVENT,
                         "selection wait budget exhausted, trying to wake the accessibility tree"
                     );
-                    return wake_then(ax, &mut wake, fallback, wake_delay_for, waits_exhausted);
+                    return wake_then(ax, &mut wake, fallback, &pacing);
                 }
                 attempts += 1;
                 std::thread::sleep(delay);
             }
-            Err(_) => return wake_then(ax, &mut wake, fallback, wake_delay_for, waits_exhausted),
+            Err(_) => return wake_then(ax, &mut wake, fallback, &pacing),
         }
     }
 }
@@ -119,15 +144,17 @@ fn combine(
 /// 过、不是 Chromium 家族或注入失败）时立即落兜底，不花任何等待；刚
 /// 注入成功时按 [`activation_delay`] 的节奏补读，树一回答就采纳，预算
 /// 耗尽仍空或读不到再落兜底——补读期间宿主建树是异步的，空结果多半是
-/// 还没建好而不是没有。等待预算（`waits_exhausted`）在补读之间生效，
-/// 耗尽即落兜底。补读中权限缺失与让渡环同款原样上抛：注入会被系统
-/// 静默忽略，兜底只会白等。
+/// 还没建好而不是没有。等待预算在补读之间生效，耗尽即落兜底。补读中
+/// 权限缺失与让渡环同款原样上抛：注入会被系统静默忽略，兜底只会白等。
 fn wake_then(
     mut ax: impl FnMut() -> Result<String, GlossError>,
     wake: &mut impl FnMut() -> bool,
     fallback: impl FnOnce() -> Result<String, GlossError>,
-    wake_delay_for: impl Fn(usize) -> Option<Duration>,
-    waits_exhausted: impl Fn() -> bool,
+    pacing: &Pacing<
+        impl Fn(usize) -> Option<Duration>,
+        impl Fn(usize) -> Option<Duration>,
+        impl Fn() -> bool,
+    >,
 ) -> Result<String, GlossError> {
     if !wake() {
         return fallback();
@@ -138,14 +165,14 @@ fn wake_then(
             Ok(text) => return Ok(text),
             Err(err @ GlossError::AccessibilityDenied) => return Err(err),
             Err(GlossError::SelectionEmpty) => {
-                let Some(delay) = wake_delay_for(attempts) else {
+                let Some(delay) = (pacing.activation)(attempts) else {
                     info!(
                         thread = thread::EVENT,
                         "accessibility tree still silent after activation budget, falling back to the clipboard"
                     );
                     return fallback();
                 };
-                if waits_exhausted() {
+                if (pacing.waits_exhausted)() {
                     info!(
                         thread = thread::EVENT,
                         "accessibility wait budget exhausted, falling back to the clipboard"
@@ -213,7 +240,7 @@ mod imp {
     use std::time::Instant;
 
     use super::{
-        AX_WAIT_BUDGET, SelectionRead, activation_delay, combine, normalize, settle_delay,
+        AX_WAIT_BUDGET, Pacing, SelectionRead, activation_delay, combine, normalize, settle_delay,
     };
     use crate::clipboard::WatchRoundFlag;
     use crate::selection::accessibility::AccessibilityReader;
@@ -268,9 +295,9 @@ mod imp {
                     settle = Some(round);
                     outcome
                 },
-                settle_delay,
-                activation_delay,
-                || started.elapsed() >= AX_WAIT_BUDGET,
+                Pacing::new(settle_delay, activation_delay, || {
+                    started.elapsed() >= AX_WAIT_BUDGET
+                }),
             )
             .and_then(normalize);
             SelectionRead { outcome, settle }
@@ -287,7 +314,7 @@ mod tests {
     use gloss_core::model::GlossError;
 
     use super::{
-        ACTIVATION_SETTLE_BUDGET, ACTIVATION_SETTLE_DELAY, EMPTY_SETTLE_SCHEDULE_MS,
+        ACTIVATION_SETTLE_BUDGET, ACTIVATION_SETTLE_DELAY, EMPTY_SETTLE_SCHEDULE_MS, Pacing,
         activation_delay, combine, normalize, settle_delay,
     };
 
@@ -327,9 +354,7 @@ mod tests {
                 clipboard_called = true;
                 Ok::<String, GlossError>("from clipboard".into())
             },
-            no_delay,
-            no_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Ok("from ax".into()));
         assert!(!clipboard_called, "ax success must not touch the clipboard");
@@ -346,9 +371,7 @@ mod tests {
                 clipboard_called = true;
                 Ok::<String, GlossError>("from clipboard".into())
             },
-            no_delay,
-            no_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Err(GlossError::AccessibilityDenied));
         assert!(
@@ -372,9 +395,7 @@ mod tests {
                 fallback_calls += 1;
                 Ok::<String, GlossError>("from clipboard".into())
             },
-            no_delay,
-            no_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Ok("from clipboard".into()));
         assert_eq!(
@@ -403,9 +424,7 @@ mod tests {
             false,
             never_wake,
             || panic!("a settled selection must not fall back to the clipboard"),
-            no_delay,
-            no_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Ok("the selection showed up".to_owned()));
         assert_eq!(reads, 2);
@@ -424,9 +443,7 @@ mod tests {
                     false
                 },
                 || clipboard_ok("from clipboard"),
-                no_delay,
-                no_delay,
-                budget_never_exhausted,
+                Pacing::new(no_delay, no_delay, budget_never_exhausted),
             ),
             Ok("from clipboard".into())
         );
@@ -437,9 +454,7 @@ mod tests {
                 false,
                 never_wake,
                 || Err(GlossError::SelectionUnavailable),
-                no_delay,
-                no_delay,
-                budget_never_exhausted,
+                Pacing::new(no_delay, no_delay, budget_never_exhausted),
             ),
             Err(GlossError::SelectionUnavailable)
         );
@@ -457,9 +472,7 @@ mod tests {
             false,
             &mut wake,
             || Ok::<String, GlossError>("from clipboard".into()),
-            no_delay,
-            no_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Ok("from ax".into()));
         let outcome = combine(
@@ -467,9 +480,7 @@ mod tests {
             false,
             &mut wake,
             || Ok::<String, GlossError>("from clipboard".into()),
-            no_delay,
-            no_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Err(GlossError::AccessibilityDenied));
         assert_eq!(
@@ -489,9 +500,7 @@ mod tests {
             false,
             never_wake,
             || Ok::<String, GlossError>("from clipboard".into()),
-            no_delay,
-            no_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Ok("from clipboard".into()));
         assert_eq!(
@@ -516,9 +525,7 @@ mod tests {
             false,
             || true,
             || panic!("a freshly woken tree must not fall back while it may still answer"),
-            no_delay,
-            no_wake_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_wake_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Ok("the woken tree answered".to_owned()));
         assert_eq!(reads, 2);
@@ -535,9 +542,7 @@ mod tests {
             false,
             || true,
             || Ok::<String, GlossError>("from clipboard".into()),
-            no_delay,
-            no_wake_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_wake_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Ok("from clipboard".into()));
         assert_eq!(
@@ -558,9 +563,7 @@ mod tests {
             false,
             || true,
             || Ok::<String, GlossError>("from clipboard".into()),
-            no_delay,
-            no_wake_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_wake_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Ok("from clipboard".into()));
         assert_eq!(reads, 2, "the initial read plus one activation re-read");
@@ -581,9 +584,7 @@ mod tests {
             false,
             || true,
             || panic!("a permission loss during activation must not fall back to the clipboard"),
-            no_delay,
-            no_wake_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_wake_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Err(GlossError::AccessibilityDenied));
         assert_eq!(
@@ -608,9 +609,7 @@ mod tests {
             true,
             || true,
             || panic!("a woken tree that answers must not reach the clipboard"),
-            no_delay,
-            no_wake_delay,
-            budget_never_exhausted,
+            Pacing::new(no_delay, no_wake_delay, budget_never_exhausted),
         );
         assert_eq!(outcome, Ok("rescued".into()));
         assert_eq!(
@@ -634,9 +633,7 @@ mod tests {
             false,
             || true,
             || panic!("the budget cut goes to the wake gate, not the clipboard"),
-            no_delay,
-            no_wake_delay,
-            || true,
+            Pacing::new(no_delay, no_wake_delay, || true),
         );
         assert_eq!(outcome, Ok("woken".into()));
         assert_eq!(
@@ -656,9 +653,7 @@ mod tests {
             false,
             || true,
             || Ok("from clipboard".to_owned()),
-            no_delay,
-            no_wake_delay,
-            || true,
+            Pacing::new(no_delay, no_wake_delay, || true),
         );
         assert_eq!(outcome, Ok("from clipboard".into()));
         assert_eq!(
