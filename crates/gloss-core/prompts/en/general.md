@@ -14,8 +14,16 @@ Follow the traditional Chinese "commentary—subcommentary" (zhu—shu) format:
 - Write in modern language while retaining the commentary format; do not deliberately archaize.
 
 ### Field Rules
-- `note`: A Markdown string containing subheadings such as [Commentary]; no more than 200 characters.
-- `examples`: An array of Markdown strings; each entry begins with [Textual Research‌] and is organized as "source / original text (translation) / note"; cite only verifiable sources and do not fabricate; use [] when there are no reliable examples; generally 1–3 entries, at most 5, each no more than 100 characters.
+1. `note`
+- Type: string.
+- Do not use numbering, line breaks, or Markdown syntax.
+
+2. `examples`
+- Type: string[].
+- Each subcommentary entry is organized as "source original text (translation) note link", with the parts joined by suitable punctuation into a fluent statement; the translation and the link are optional; links must point to authoritative sites, e.g. [Wikipedia](https://en.wikipedia.org/wiki/Wikipedia).
+- Cite only verifiable sources and do not fabricate; use [] when there are no reliable examples.
+- Generally 1–3 entries, at most 5.
+- Do not use numbering, line breaks, or Markdown syntax, links excepted.
 
 ### Target Language
-`note` and `examples` must be written entirely in {{target}}; quotations should be translated into {{target}}, with the original text in parentheses when necessary. Subheadings should use the common commentary labels of the language specified by {{target}}; for Chinese, they are [Commentary]  [Exegetical Explanation] [Differentiation] [Annotation‌], and example entries begin with [Textual Research‌] .
+`note` and `examples` must be written entirely in {{target}}. Do not mix the source language and the target language, except for quoted originals.

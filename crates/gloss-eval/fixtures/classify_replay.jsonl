@@ -4,7 +4,7 @@
 {"id": "code-rs-01", "rounds": [["{", "\"kind\": \"Explain", "Code", "\"}"]]}
 {"id": "ja-sent-01", "rounds": [["{\"kind\":\"ExplainCode\"}"]]}
 {"id": "code-sql-01", "rounds": [["这是分类结果：{\"kind\":\""], ["{\"kind\":\"ExplainCode\"}"]]}
-{"id": "zh-word-04", "rounds": [["我认为应该翻译成中文。"], ["这个词形容言辞不能确切表达意思。"]]}
+{"id": "zh-word-04", "rounds": [["我认为应该翻译成中文。"], ["「行」是多音字，读 xíng 指走路、行动、可以；读 háng 指行列、行业。"]]}
 {"id": "en-sent-02", "rounds": [["{\"kind\":\"ImageExplain\"}"], ["{\"kind\":\"ImageExplain\"}"]]}
 {"id": "en-word-02", "rounds": [[], ["{\"kind\":\"TranslateWord\"}"]]}
 {"id": "chat-01", "rounds": [["{\"kind\":\"Fallback\"}"]]}

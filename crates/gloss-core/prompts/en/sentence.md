@@ -15,18 +15,16 @@ Follow the traditional Chinese "commentary—subcommentary" (zhu—shu) format:
 
 ### Field Rules
 1. `note`
-- Type: Markdown string.
-
+- Type: string.
 - If the source language differs from the target language, provide only the translation in the target language.
-
 - If the source language is the same as the target language, provide only a plain-language translation or an explanatory translation; do not restate the original sentence.
+- Do not use Markdown syntax.
 
 2. `examples`
-- Type: string[]; each element is a Markdown string and must not be null.
-
-- If the source language differs from the target language, return [].
-
-- If the source language is the same as the target language, each entry begins with [Textual Research‌] and is organized as "source / original text (translation) / note"; cite only verifiable sources and do not fabricate; use [] when there are no reliable examples; generally 1–3 entries, at most 5, each no more than 100 characters.
+- Type: string[].
+- If the source language differs from the target language, use [].
+- If the source language is the same as the target language, each subcommentary entry is organized as "source original text (translation) note", with the parts joined by suitable punctuation into a fluent statement; the translation is optional; cite only verifiable sources and do not fabricate; use [] when there are no reliable examples; generally 1–3 entries, at most 5.
+- Do not use Markdown syntax.
 
 ### Target Language
-`note` and `examples` must be written entirely in {{target}}.
+`note` and `examples` must be written entirely in {{target}}. Do not mix the source language and the target language.

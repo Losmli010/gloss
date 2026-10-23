@@ -3,8 +3,8 @@
 //! 任务**一个任务一份自包含模板**（词卡/句译/代码解释/图像解读/通用）：
 //! 任务说明与纯 JSON 输出契约（含一份**中性占位**的输出示例）都在同一个
 //! 文件里，改一个任务的任务书不会牵动其它任务。契约按经注疏/说文解字的
-//! 层次组织，与 [`crate::schema`] 的三行同构表同源：`note`（义，markdown
-//! 注文）恒为首字段，按 kind 的疏证字段收敛在 `structured` 对象里——词卡
+//! 层次组织，与 [`crate::schema`] 的三行同构表同源：`note`（义）恒为首
+//! 字段，按 kind 的疏证字段收敛在 `structured` 对象里——词卡
 //! 是 structured.phonetic/examples（音/例，字头即选区原文），句译、讲解、
 //! 图像解读与通用任务是 structured.examples（展开条目），代码另带
 //! structured.code_language（LLM 判定，UI 角标与高亮使用）。
