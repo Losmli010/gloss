@@ -117,8 +117,7 @@ impl Drop for PendingRestore {
 /// 快照原剪贴板全部条目与 flavor 数据。两类失败整体返回 `None`（调用
 /// 方据此放弃注入，剪贴板保持原样）：结构读不出（板、条目数、条目
 /// 标识、flavor 名单）；板上条目的 flavor 全部读不出。单个 flavor
-/// 读不出数据（promised 等）只跳过该 flavor，读得出的部分照常保全
-/// （见模块注释的边界说明）。
+/// 读不出数据（promised 等）只跳过该 flavor，读得出的部分照常保全。
 pub(super) fn snapshot_pasteboard() -> Option<SavedContent> {
     let Some(pb) = open_pasteboard() else {
         debug!(

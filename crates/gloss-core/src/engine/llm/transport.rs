@@ -136,7 +136,7 @@ pub(super) fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<
 }
 
 /// 空闲看门狗的到点时刻（纯函数）：`Sleep` 的初装与复位都用它给定时刻。
-pub(super) fn idle_deadline(now: TokioInstant) -> TokioInstant {
+fn idle_deadline(now: TokioInstant) -> TokioInstant {
     now + IDLE_TIMEOUT
 }
 

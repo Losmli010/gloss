@@ -78,7 +78,7 @@ impl AiTaskService {
     /// - `on_chunk` / `on_repair` 与返回值的契约见 [`run_task_rounds`]；
     /// - 取消不进本服务：调用方以 `CancellationToken` 竞速，丢弃本 future
     ///   即停止转发（修复轮也在 future 内，竞速天然覆盖）。
-    // 豁免 too_many_arguments：三个回调是逐轮转交的泵，泛型各不相同，
+    // 豁免 too_many_arguments：三个回调是执行期注入的泵，泛型各不相同，
     // 捆进结构体只是把类型参数挪个位置；与 [`TaskStage`] 那类描述「执行
     // 什么」的静态输入不同形，不捆。
     #[allow(clippy::too_many_arguments)]
