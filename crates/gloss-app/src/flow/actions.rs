@@ -7,7 +7,6 @@ use crate::app::GlossApp;
 use crate::ui::popup::OverlayAction;
 
 impl GlossApp {
-    /// 执行浮层一帧上交的动作（错误映射的壳侧半边 + 头部动作区）。
     pub(crate) fn handle_overlay_action(&mut self, action: OverlayAction) {
         match action {
             OverlayAction::Retry => match self.machine.retry() {
@@ -28,7 +27,6 @@ impl GlossApp {
                     );
                 }
             },
-            // 失败卡的「打开设置」与头部齿轮、托盘走同一个入口。
             OverlayAction::OpenSettings => self.open_settings(),
             OverlayAction::Dismiss => self.dismiss_overlay("close button"),
         }

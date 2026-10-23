@@ -20,16 +20,9 @@ use std::time::{Duration, Instant};
 mod restore;
 mod snapshot;
 
-/// 写入确认的轮询上限：超过即认为目标应用未响应复制。兜底是取材的末段
-/// 通道，窗口约束的只是无响应宿主上的最坏路径（两轮最坏 1.6s）；常规
-/// 确认在数十毫秒内完成。
 const WRITE_CONFIRM_TIMEOUT: Duration = Duration::from_millis(800);
-/// 写入确认的轮询节奏：远低于可感知延迟，高于常见调度抖动。
 const WRITE_POLL_INTERVAL: Duration = Duration::from_millis(30);
 
-/// 轮询等待剪贴板变化（纯逻辑，单测覆盖）：probe 返回当前代数（None
-/// 表示本轮读取失败，继续等），与 baseline 不同即认为目标应用已完成写
-/// 入；到 deadline 仍未变化返回 `false`，调用方据此走超时恢复路径。
 fn wait_for_write(
     baseline: u64,
     mut probe: impl FnMut() -> Option<u64>,
@@ -61,25 +54,15 @@ mod imp {
     use super::snapshot::{OpenPasteboard, PendingRestore, open_pasteboard, snapshot_pasteboard};
     use super::{WRITE_CONFIRM_TIMEOUT, WRITE_POLL_INTERVAL, wait_for_write};
 
-    /// 剪贴板兜底轮的收尾：恢复决策在读取时定下，[`FallbackSettle::finish`]
-    /// 在取材产物上抛之后执行恢复（或跳过）并置位写盘归因——恢复写盘不
-    /// 挡在产物交付前。finish 前的 panic 展开由内部 [`PendingRestore`] 的
-    /// Drop 兜底按快照恢复（受控路径都已显式收口，Drop 只为展开兜底）。
     pub struct FallbackSettle {
-        /// 恢复职责：`None` = 本轮未注入（板未被触碰），收口无事可做。
         pending: Option<PendingRestore>,
-        /// 取材轮次闩锁句柄：收口时置位写盘归因。
         round: WatchRoundFlag,
-        /// 写盘前的 changeCount 读数（归因基线）。
         pre: u64,
-        /// 已确认的注入复制计数（0/1，Ok 蕴含写入确认）；恢复与否在收口时补计。
         acquired: u64,
-        /// 收口决策：成功轮且现值仍是读回文本才恢复。
         restore: bool,
     }
 
     impl FallbackSettle {
-        /// 未注入轮（读板失败）：板未被触碰，无恢复亦无归因。
         fn idle(round: WatchRoundFlag) -> Self {
             Self {
                 pending: None,
@@ -90,7 +73,6 @@ mod imp {
             }
         }
 
-        /// 定下收口决策：`restore` 为真时收口按快照恢复原剪贴板。
         fn planned(
             pending: PendingRestore,
             round: WatchRoundFlag,
@@ -107,17 +89,10 @@ mod imp {
             }
         }
 
-        /// 收口：按读取时定下的决策恢复（或跳过）原剪贴板并置位写盘归因。
-        /// 在取材产物上抛之后、与读取同一事件线程上调用。
         pub fn finish(mut self) {
             let Some(pending) = self.pending.as_mut() else {
                 return;
             };
-            // 自报写盘数只计可归因的写入：文本读回成功才证明注入复制确实
-            // 发生（Ok 蕴含写入确认）；「确认了写入却读不出文本」的写入
-            // 无法与轮次内外来复制区分，一律记外来、由哨兵的 has_image
-            // 兜底判定，宁可多触发不可误吞用户复制。恢复侧按实际清板数
-            // 归因（半程失败后的重试成功会清两次板）。
             let restored = if self.restore {
                 pending.restore_now()
             } else {
@@ -131,14 +106,12 @@ mod imp {
         }
     }
 
-    /// 写入确认信号源：注入前建立基线，之后轮询代数变化。
     struct ChangeMonitor {
         pb: OpenPasteboard,
         latched: bool,
     }
 
     impl ChangeMonitor {
-        /// 建立基线：同步一次消费既有 modified 标志。
         fn new() -> Option<Self> {
             let pb = open_pasteboard()?;
             // SAFETY: `raw` 是有效 +1 引用，存活至本结构销毁。
@@ -146,13 +119,10 @@ mod imp {
             Some(Self { pb, latched: false })
         }
 
-        /// 以闩锁后的 0/1 表达代数，基线恒为 0。
         fn baseline(&self) -> u64 {
             0
         }
 
-        /// 返回当前代数：任一次 Synchronize 报告 modified 即闩锁为 1
-        /// （标志被消费，不能依赖后续调用，见 K_PASTEBOARD_MODIFIED）。
         fn generation(&mut self) -> u64 {
             // SAFETY: `raw` 是有效 +1 引用，存活至本结构销毁。
             let flags = unsafe { PasteboardSynchronize(self.pb.raw) };
@@ -163,27 +133,16 @@ mod imp {
         }
     }
 
-    /// 剪贴板兜底读取实现：持取材轮次闩锁句柄，写盘轮次置位计数归因
-    /// （哨兵消费时据此区分自身写盘与用户的真实复制）。
     #[derive(Debug, Default, Clone)]
     pub struct ClipboardFallbackReader {
         round: WatchRoundFlag,
     }
 
     impl ClipboardFallbackReader {
-        /// 创建兜底读取器：传入与哨兵源共享的取材轮次闩锁句柄。
         pub fn new(round: WatchRoundFlag) -> Self {
             Self { round }
         }
 
-        /// 兜底读取前台应用的选中文本（模拟复制路径）。
-        ///
-        /// 产物与收尾分离：返回值第二项（[`FallbackSettle`]）持有恢复决策与
-        /// 写盘归因，调用方在产物上抛之后 `finish` 收口——恢复写盘不挡在产物
-        /// 交付前。调用方保证：在平台事件线程上调用（收尾同线程）。
-        /// 阻塞语义：确认目标应用写入最长轮询两轮 [`WRITE_CONFIRM_TIMEOUT`]
-        /// （首发未确认时重注入一轮），期间事件线程被占用、其余命令与事件
-        /// 排队（事件源侧缓冲），调用方需自行处理在途重复触发。
         pub fn read(&mut self) -> (Result<String, GlossError>, FallbackSettle) {
             let mut clipboard = match Clipboard::new() {
                 Ok(clipboard) => clipboard,
@@ -199,11 +158,7 @@ mod imp {
                     );
                 }
             };
-            // 归因起点先于快照记：快照要拷贝全部 flavor 字节（大图可达数
-            // 十毫秒），其间落进的外来写入不得算进本轮自身写盘的基线。
             let pre_count = pasteboard_change_count().unwrap_or(0);
-            // 快照失败直接上抛：尚未注入，剪贴板未被触碰（无写盘即无需
-            // 置位闩锁）。
             let Some(saved) = snapshot_pasteboard() else {
                 debug!(
                     thread = thread::EVENT,
@@ -214,14 +169,10 @@ mod imp {
                     FallbackSettle::idle(self.round.clone()),
                 );
             };
-            // 恢复收口：受控路径经 FallbackSettle::finish 恢复或跳过，panic
-            // 展开由 PendingRestore 的 Drop 兜底。
             let pending = PendingRestore::new(saved);
             let outcome = self.attempt(&mut clipboard);
             let settle = match &outcome {
                 Ok(acquired) => {
-                    // 窗口期内剪贴板可能已被再次改动：现值仍是我们刚读到的
-                    // 文本才恢复。
                     let current_is_ours =
                         matches!(clipboard.get_text(), Ok(current) if &current == acquired);
                     if current_is_ours {
@@ -234,11 +185,6 @@ mod imp {
                         FallbackSettle::planned(pending, self.round.clone(), pre_count, true, false)
                     }
                 }
-                // 失败轮一律不恢复，板上内容三态皆不覆盖：未变（无需恢复）、
-                // 本轮之外的新写入（目标应用迟到的复制、用户的复制）、注入
-                // 副产物（确认了写入却读不出文本——前台选中的可能是图）。
-                // 第三态留在板上并按外来写入放行：它正是前台应用对注入
-                // ⌘C 的响应，是图即触发图片解释，好过静默清掉。
                 Err(_) => {
                     FallbackSettle::planned(pending, self.round.clone(), pre_count, false, false)
                 }
@@ -246,7 +192,6 @@ mod imp {
             (outcome, settle)
         }
 
-        /// 注入复制快捷键并等待写入确认，读回选中文本。不含恢复职责。
         fn attempt(&mut self, clipboard: &mut Clipboard) -> Result<String, GlossError> {
             let Some(mut monitor) = ChangeMonitor::new() else {
                 debug!(
@@ -275,7 +220,6 @@ mod imp {
                 );
                 return Err(GlossError::SelectionUnavailable);
             }
-            // 读到空/读失败不等于失败，继续轮询到 deadline 再收口。
             loop {
                 if let Ok(text) = clipboard.get_text()
                     && !text.is_empty()
@@ -294,9 +238,6 @@ mod imp {
         }
     }
 
-    /// 失败点之前已按下、需要补发释放的键（逆序）。`index` 是失败事件的
-    /// 序号：只有 `sequence[..index]` 里 `key_down` 的事件才是按下态。
-    /// 已成功释放的键可能再收一次 key-up（重复释放幂等，无副作用）。
     pub(super) fn keys_to_release(sequence: &[(u16, bool, u64)], index: usize) -> Vec<u16> {
         sequence[..index]
             .iter()
@@ -306,12 +247,6 @@ mod imp {
             .collect()
     }
 
-    /// 注入复制快捷键：修饰键按下 → C 按下/释放 → 修饰键释放。C 的按下
-    /// 与释放自带 Command 修饰位（应用按事件自带的修饰位识别快捷键，裸 C
-    /// 会被当成普通字符打进焦点处）；修饰键按下同样带位，释放不带——
-    /// 修饰键事件的修饰位表达事件之后的状态，带位释放会向下游宣告
-    /// 「Command 仍按着」。任何一步失败即放弃；失败点之前按下的键全部
-    /// 逆序补发释放（只放修饰键会在 C 键释放失败时留下按下态）。
     fn inject_copy_key() -> Result<(), GlossError> {
         let Some(source) = event::new_hid_source() else {
             debug!(
@@ -333,8 +268,6 @@ mod imp {
                     thread = thread::EVENT,
                     virtual_key, key_down, "copy key injection failed"
                 );
-                // 错误路径上的补发是尽力而为，释放失败已由紧随的
-                // SelectionUnavailable 收口。
                 for pressed in keys_to_release(&sequence, index) {
                     let _ = event::post_keyboard_event(&source, pressed, false, 0);
                 }

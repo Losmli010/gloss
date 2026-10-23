@@ -33,43 +33,24 @@ use gloss_core::model::GlossError;
 
 use crate::selection::clipboard::FallbackSettle;
 
-/// 空读让渡的几何节奏（毫秒）：鼠标释放到目标应用把选区写入 AX 属性之间
-/// 有时序差（长选区、代码编辑器更慢），释放瞬间读到的「空」多半是还没写
-/// 好而不是没有；多数宿主在数十毫秒内落定，按几何间隔补读，早密晚疏。
-/// 让渡在事件线程上睡眠，与剪贴板兜底的阻塞语义同款（节奏表总睡眠
-/// 250ms，远小于兜底路径的最坏两轮确认窗口）。
 const EMPTY_SETTLE_SCHEDULE_MS: [u64; 3] = [25, 75, 150];
 
-/// 激活补读之间的等待时长：注入开关后宿主异步建无障碍树（数百毫秒起），
-/// 补读之间让宿主建一会儿。等待在事件线程上睡眠，与让渡的阻塞语义同款。
 const ACTIVATION_SETTLE_DELAY: Duration = Duration::from_millis(250);
 
-/// 激活补读次数上限：最多 5 次 × 250ms ≈ 1.25s 建树等待（实际受
-/// [`AX_WAIT_BUDGET`] 的 700ms 整体截断，故最坏睡眠约 0.7s；各次 AX 往返
-/// 耗时另计，宿主不响应时受 AX 消息超时兜底）。只发生在「激活注入首次
-/// 成功」的那一个手势，换的是此后所有手势免按键注入、免剪贴板副作用。
 const ACTIVATION_SETTLE_BUDGET: usize = 5;
 
-/// AX 等待段的总预算（墙钟，自进入读取起算）：让渡与激活补读的睡眠段
-/// 共享，预算耗尽即停睡转进——让渡段转激活闸门、激活段转兜底。兜底
-/// （剪贴板注入确认）有自己的确认窗口，不占本预算。
 const AX_WAIT_BUDGET: Duration = Duration::from_millis(700);
 
-/// 第 `attempt` 次空读后的让渡时长；节奏表耗尽返回 `None`（纯逻辑，单测覆盖）。
 fn settle_delay(attempt: usize) -> Option<Duration> {
     EMPTY_SETTLE_SCHEDULE_MS
         .get(attempt)
         .map(|ms| Duration::from_millis(*ms))
 }
 
-/// 第 `attempt` 次激活补读空结果后的等待时长；预算用尽返回 `None`（纯逻辑，单测覆盖）。
 fn activation_delay(attempt: usize) -> Option<Duration> {
     (attempt < ACTIVATION_SETTLE_BUDGET).then_some(ACTIVATION_SETTLE_DELAY)
 }
 
-/// 让渡与激活的节奏与等待预算（纯旋钮捆包）：`settle` 是空读让渡的节奏，
-/// `activation` 是激活补读的节奏，`waits_exhausted` 是两者共享的墙钟预算
-/// ——把节奏参数化，测试零睡眠直达时序断言。
 struct Pacing<S, A, E> {
     settle: S,
     activation: A,
@@ -91,13 +72,6 @@ where
     }
 }
 
-/// 组合判定（纯逻辑，单测覆盖）：AX 成功直接采纳；权限缺失原样上抛且不
-/// 评估激活与兜底（见模块注释）；空选区在唤醒常客宿主（`responds_to_wake`，
-/// 读取入口现读一次）上跳过让渡直接进激活补读，其余按 [`settle_delay`]
-/// 让渡后补读，预算耗尽仍空与「其余读不到的情形」一样先过激活闸门
-/// （[`wake_then`]），激活落空才落到兜底结果。`wake` 是惰性求值——激活
-/// 含跨进程属性写入，未走到就不该有副作用；`fallback` 同理——兜底路径
-/// 含按键注入。
 fn combine(
     mut ax: impl FnMut() -> Result<String, GlossError>,
     responds_to_wake: bool,
@@ -140,12 +114,6 @@ fn combine(
     }
 }
 
-/// 激活闸门（纯逻辑，单测覆盖）：`wake` 报「无需补读」（该宿主已评估
-/// 过、不是 Chromium 家族或注入失败）时立即落兜底，不花任何等待；刚
-/// 注入成功时按 [`activation_delay`] 的节奏补读，树一回答就采纳，预算
-/// 耗尽仍空或读不到再落兜底——补读期间宿主建树是异步的，空结果多半是
-/// 还没建好而不是没有。等待预算在补读之间生效，耗尽即落兜底。补读中
-/// 权限缺失与让渡环同款原样上抛：注入会被系统静默忽略，兜底只会白等。
 fn wake_then(
     mut ax: impl FnMut() -> Result<String, GlossError>,
     wake: &mut impl FnMut() -> bool,
@@ -187,12 +155,6 @@ fn wake_then(
     }
 }
 
-/// 取材边界的归一化（纯逻辑，单测覆盖）：读到的文本修剪两端空白后放行，
-/// 判空用修剪后的值——纯空白选区（误滑）按既有 [`GlossError::SelectionEmpty`]
-/// 语义上抛。AX 与剪贴板兜底两条通道的产物都经此收口，让渡补读与兜底
-/// 注入只服务「读不到」，不为已知纯空白的选区再花时序预算。
-///
-/// 两端本无空白时原缓冲原样归还，不复制整段。
 fn normalize(raw: String) -> Result<String, GlossError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -204,31 +166,20 @@ fn normalize(raw: String) -> Result<String, GlossError> {
     Ok(trimmed.to_owned())
 }
 
-/// 一次划词取材的产物：文本语义与兜底轮收尾分离。产物先行（`outcome`
-/// 上抛即触发弹窗链路），收尾随后——兜底轮的恢复写盘与写盘归因不挡在
-/// 弹窗前。
 pub struct SelectionRead {
-    /// 取材结果：文本或失败语义。
     pub outcome: Result<String, GlossError>,
-    /// 兜底轮收尾；AX 通道直读为 `None`。
     settle: Option<FallbackSettle>,
 }
 
 impl SelectionRead {
-    /// 拆出产物与收尾：产物交通道上抛（弹窗链路启动），收尾由调用方在
-    /// 产物上抛之后调 [`SelectionSettle::finish`] 收口。
     pub fn into_parts(self) -> (Result<String, GlossError>, SelectionSettle) {
         (self.outcome, SelectionSettle(self.settle))
     }
 }
 
-/// 兜底轮收尾的移交形态：[`SelectionRead`] 的产物被通道消费后，收尾以
-/// 本类型独立存活到调用方收口。
 pub struct SelectionSettle(Option<FallbackSettle>);
 
 impl SelectionSettle {
-    /// 收口兜底轮：按读取时定下的决策恢复（或跳过）原剪贴板并置位写盘
-    /// 归因。在取材产物上抛之后、与读取同一事件线程上调用。
     pub fn finish(self) {
         if let Some(settle) = self.0 {
             settle.finish();
@@ -247,10 +198,6 @@ mod imp {
     use crate::selection::activation::AxActivator;
     use crate::selection::clipboard::ClipboardFallbackReader;
 
-    /// 选区读取的组合实现：AX 优先，读不到时先尝试激活宿主的无障碍树，
-    /// 仍拿不到再降级剪贴板兜底。激活器随读取器跨手势复用（会话内按
-    /// pid 去重并记忆唤醒常客）；取材轮次闩锁句柄传给兜底通道——写盘
-    /// 轮次由它置位，哨兵按计数归因消费。
     #[derive(Debug)]
     pub struct CompositeReader {
         ax: AccessibilityReader,
@@ -259,7 +206,6 @@ mod imp {
     }
 
     impl CompositeReader {
-        /// 创建组合读取器：传入与哨兵源共享的取材轮次闩锁句柄。
         pub fn new(round: WatchRoundFlag) -> Self {
             Self {
                 ax: AccessibilityReader,
@@ -268,13 +214,6 @@ mod imp {
             }
         }
 
-        /// 读取前台应用的选中文本。
-        ///
-        /// 产物与收尾分离：[`SelectionRead::outcome`] 先行上抛（弹窗链路
-        /// 启动），兜底轮的恢复写盘经 [`crate::selection::composite::SelectionSettle::finish`] 随后执行
-        /// ——恢复不挡在产物交付前。产物已修剪两端空白，纯空白选区按
-        /// [`gloss_core::model::GlossError::SelectionEmpty`] 报告。调用方保证：在平台事件
-        /// 线程上调用（收尾同线程）。
         pub fn read(&mut self) -> SelectionRead {
             let started = Instant::now();
             let CompositeReader {
@@ -282,8 +221,6 @@ mod imp {
                 clipboard,
                 activator,
             } = self;
-            // 唤醒常客判定在入口现读一次：常客与否随前台应用，一次读取
-            // 期间不变；激活器的可变借用留给 wake 闭包。
             let responds_to_wake = activator.responds_to_wake();
             let mut settle = None;
             let outcome = combine(

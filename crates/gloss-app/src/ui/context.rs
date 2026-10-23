@@ -12,10 +12,6 @@ use egui::{Context, ThemePreference};
 use gloss_core::config::Theme;
 use gloss_core::log::{info, thread};
 
-/// 新建装好基础设置的 egui 上下文——全仓唯一的上下文建立入口。
-///
-/// 字体只装内置字形快路径（命名字体族恒绑定）：系统字体装载是秒级的，
-/// 不挡首帧，由 [`apply_system_fonts`] 在后台线程装载后补装。
 pub fn new_context(theme: Theme) -> Context {
     let ctx = Context::default();
     install(&ctx, theme);
@@ -26,7 +22,6 @@ pub fn new_context(theme: Theme) -> Context {
     ctx
 }
 
-/// 把每上下文设置施加到一批已存在的上下文，返回写到的个数。
 pub fn reapply<'a>(contexts: impl IntoIterator<Item = &'a Context>, theme: Theme) -> usize {
     let mut written = 0;
     for ctx in contexts {
@@ -36,16 +31,8 @@ pub fn reapply<'a>(contexts: impl IntoIterator<Item = &'a Context>, theme: Theme
     written
 }
 
-/// 装载系统字体并补装到一批上下文的字体表（阻塞调用，供启动后的后台
-/// 线程执行）。装载完成前各上下文一直用内置字形快路径；完成后逐上下文
-/// 换完整字体表。重绘不在这里请求——egui 的重绘请求没有跨线程唤醒通路
-/// （egui-winit 不注册 repaint callback），完成信号由调用方经 Waker 送到
-/// 主线程（`UserEvent::FontsReady`），主题也由主线程按当前偏好重施加，
-/// 装载窗口内的主题变更因此不会被这里的快照覆盖。
 pub fn apply_system_fonts(contexts: impl IntoIterator<Item = Context>) {
     let started = Instant::now();
-    // 先走一次完整装载把字体字节缓存填上，下面 install 的就绪判定才会
-    // 选完整定义；字节在 OnceLock 里，重复调用命中缓存。
     let (_definitions, cjk_fallback) = super::fonts::definitions();
     let mut applied = 0;
     for ctx in contexts {
@@ -61,8 +48,6 @@ pub fn apply_system_fonts(contexts: impl IntoIterator<Item = Context>) {
     );
 }
 
-/// 只换字体表：补装路径专用。主题随 `UserEvent::FontsReady` 在主线程由
-/// reapply 统一施加，这里不碰主题。
 fn install_fonts(ctx: &Context) {
     let definitions = if super::fonts::system_fonts_ready() {
         super::fonts::definitions().0
@@ -73,9 +58,6 @@ fn install_fonts(ctx: &Context) {
     super::popup::clear_cached_text_galleys(ctx);
 }
 
-/// 施加全部「每个 egui 上下文都要有」的设置。系统字体字节就位前走内置
-/// 快路径（[`fonts::builtin_definitions`]），就位后走完整定义（字节级
-/// 缓存命中，秒回）。对 egui 上下文的写入都收在这里。
 fn install(ctx: &Context, theme: Theme) {
     let (definitions, _cjk_fallback) = if super::fonts::system_fonts_ready() {
         super::fonts::definitions()
@@ -88,9 +70,6 @@ fn install(ctx: &Context, theme: Theme) {
     apply_selection_colors(ctx);
 }
 
-/// 选中态底色（下拉选中行、开关着轨、文本圈选）取品牌强调色，浅/深两档
-/// 各写一次，随主题偏好取用，不写则落 egui 默认蓝。kittest 夹具上下文
-/// （settings/popup 测试）也走它，快照与真机同观感。
 pub(crate) fn apply_selection_colors(ctx: &Context) {
     ctx.style_mut_of(egui::Theme::Light, |style| {
         style.visuals.selection.bg_fill = super::style::color::ACCENT_LIGHT;
@@ -106,7 +85,6 @@ pub(crate) fn install_kittest_fonts(ctx: &Context) {
     super::popup::clear_cached_text_galleys(ctx);
 }
 
-/// 配置主题 → egui 主题偏好（出厂跟随系统，设置页可固定明/暗）。
 fn theme_preference(theme: Theme) -> ThemePreference {
     match theme {
         Theme::System => ThemePreference::System,

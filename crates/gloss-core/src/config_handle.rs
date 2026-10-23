@@ -30,21 +30,14 @@ use crate::log::error;
 use crate::model::GlossError;
 use crate::ports::ConfigStore;
 
-/// 配置句柄：跨线程共享的当前配置快照 + 整份保存入口。
 pub struct ConfigHandle {
-    /// 当前快照；替换即换版本，读取永远拿到某个完整版本。
     current: ArcSwap<Config>,
-    /// 保存的落盘目标（文档部分）；密钥半边不经此句柄，用时直查
-    /// `ConfigStore::secret`。
     store: Arc<dyn ConfigStore>,
-    /// 保存临界区：把「落盘 + 换快照」收成一步，并发保存不会让磁盘与内存
-    /// 各留一版。只串行化写侧——`snapshot` 不碰它（读路径仍然零锁）。
     save_lock: Mutex<()>,
 }
 
 impl std::fmt::Debug for ConfigHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // store 是 trait 对象（未约束 Debug），只打印可读的快照。
         f.debug_struct("ConfigHandle")
             .field("current", &self.current)
             .finish_non_exhaustive()
@@ -52,17 +45,11 @@ impl std::fmt::Debug for ConfigHandle {
 }
 
 impl ConfigHandle {
-    /// 装配期构造：从存储加载首份快照；加载失败原样返回错误，由调用方决定
-    /// 退出还是降级（[`ConfigHandle::load_or_default`] 是降级版）。
     pub fn load(store: Arc<dyn ConfigStore>) -> Result<Self, GlossError> {
         let config = store.load()?;
         Ok(Self::with_config(store, config))
     }
 
-    /// 装配期构造（宽容版）：加载失败记 error 日志后退回出厂默认，不阻断
-    /// 启动。「退出或降级」在这里选降级——配置文件是用户手改的，
-    /// 因一份改坏的 TOML 拒绝启动会让用户连设置界面都进不去；存储里的坏文件
-    /// 保持原样，用户可自行修复（或由设置页保存覆盖）。
     pub fn load_or_default(store: Arc<dyn ConfigStore>) -> Self {
         match store.load() {
             Ok(config) => Self::with_config(store, config),
@@ -76,7 +63,6 @@ impl ConfigHandle {
         }
     }
 
-    /// 用给定快照构造（装配期降级路径与测试注入用）。
     pub fn with_config(store: Arc<dyn ConfigStore>, config: Config) -> Self {
         Self {
             current: ArcSwap::from_pointee(config),
@@ -85,18 +71,10 @@ impl ConfigHandle {
         }
     }
 
-    /// 当前快照（零锁）。调用方在任务开始时取一次，任务期间复用同一份。
     pub fn snapshot(&self) -> Arc<Config> {
         self.current.load_full()
     }
 
-    /// 保存整份配置：先落盘、成功后才原子替换快照；落盘失败时运行时视图
-    /// 保持旧版本，调用方拿到错误去提示用户（设置页保存路径）。
-    ///
-    /// 并发调用由 `save_lock` 串行化：后进入临界区的那次保存同时决定磁盘与
-    /// 内存的版本，不会出现「磁盘是 B、运行时还在 A」。锁中毒按测试基建的
-    /// 同一套做法恢复（`PoisonError::into_inner`）：临界区里只有端口调用，
-    /// 中毒不影响数据一致性。
     pub fn save(&self, config: Config) -> Result<(), GlossError> {
         let _guard = self
             .save_lock

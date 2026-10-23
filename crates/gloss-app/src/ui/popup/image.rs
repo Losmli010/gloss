@@ -7,9 +7,6 @@ use std::sync::Arc;
 
 use gloss_core::log::{thread, warn};
 
-/// 解码经位附件图像（剪贴板取材产物，平台侧已做过尺寸设界）；失败隔离
-/// 降级——记一条只含字节长度的告警（图像内容不落日志），绘制侧落占位，
-/// 不影响其余内容。参数化 PNG 来源，解码与降级分支可经 L1 测试直接驱动。
 pub(super) fn decode_attached(png: &Arc<[u8]>) -> Option<egui::ColorImage> {
     use image::GenericImageView;
     let decoded = match image::load_from_memory(png) {

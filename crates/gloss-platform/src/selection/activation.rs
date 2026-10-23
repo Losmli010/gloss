@@ -8,10 +8,10 @@
 //! 属性（`AXManualAccessibility`，老内核认 `AXEnhancedUserInterface`），
 //! 宿主收到即开始异步建树，此后 AX 读选区与原生应用无异。本模块负责
 //! 识别 Chromium 宿主、注入开关并做会话内去重；注入后的建树是宿主的
-//! 异步行为（数百毫秒起），补读节奏由组合通道的激活预算控制（见
-//! `composite::activation_delay`）。
+//! 异步行为（数百毫秒起），补读节奏由组合通道的激活预算
+//! 控制（见 `composite::activation_delay`）。
 //!
-//! 识别判据是包内容证据而非 bundle id 名单：`Contents/Frameworks` 下
+//! 识别判据是包内容证据而非 `bundle id` 名单：`Contents/Frameworks` 下
 //! 存在「品牌前缀 + Framework」形态的框架包即视为 Chromium 家族（见
 //! [`is_chromium_family`]），免维护名单，WebKit/Gecko 宿主天然不命中。
 //! 评估结论按 pid 记账（[`Ledger`]）：确定性结论（非 Chromium 家族、
@@ -20,15 +20,10 @@
 //! 宿主锁在激活门外。注入成功的 pid 另记「唤醒常客」（[`Ledger::mark_rescued`]）
 //! ——这类宿主的无障碍树会缺席（宿主自行收回或尚未建好），组合通道对
 //! 常客的空读跳过让渡直接来唤醒，常客的重注入也放行（幂等、是唯一
-//! 自救通道）。注入后的建树是宿主的异步行为（数百毫秒起），补读节奏
-//! 由组合通道的激活预算控制（见 `composite::activation_delay`）。
+//! 自救通道）。
 
 use std::collections::HashSet;
 
-/// 评估记账（纯逻辑，单测覆盖）：确定性结论按 pid 登记，未登记的 pid
-/// 待评估——瞬时失败不登记即下一手势自然重试。`rescued` 另记「注入唤醒
-/// 写成功」的 pid：这类宿主的树会缺席（宿主自行收回或尚未建
-/// 好），空读等让渡等不来内容，下一手势直接唤醒才是解法。
 #[derive(Debug, Default)]
 struct Ledger {
     settled: HashSet<i32>,
@@ -36,37 +31,23 @@ struct Ledger {
 }
 
 impl Ledger {
-    /// 该 pid 是否待评估。
     fn is_pending(&self, pid: i32) -> bool {
         !self.settled.contains(&pid)
     }
 
-    /// 登记确定性结论：此后该 pid 本会话不再评估。
     fn settle(&mut self, pid: i32) {
         self.settled.insert(pid);
     }
 
-    /// 登记唤醒常客：注入写成功的 pid（乐观记账——宿主认了这个开关，
-    /// 空读时树缺席的概率远高于等让渡能等来内容），此后空读跳过让渡。
     fn mark_rescued(&mut self, pid: i32) {
         self.rescued.insert(pid);
     }
 
-    /// 该 pid 是否唤醒常客。
     fn is_rescued(&self, pid: i32) -> bool {
         self.rescued.contains(&pid)
     }
 }
 
-/// Chromium/Electron 家族检测（纯逻辑，单测覆盖）：框架目录条目里存在
-/// 名字以「空格 + Framework.framework」结尾的框架包。Chromium 内核框架
-/// 按宿主品牌重命名（Chrome 是 `Google Chrome Framework.framework`、
-/// Brave 是 `Brave Browser Framework.framework`），Electron 系固定
-/// `Electron Framework.framework`，CEF 固定 `Chromium Embedded
-/// Framework.framework`，共同形态即「品牌前缀 + 空格 + Framework」。
-/// 误报（第三方框架恰好同名）的代价仅是一次无害的属性写入——非
-/// Chromium 宿主对未知 AX 属性返回属性不支持错误并忽略；WebKit/Gecko
-/// 宿主没有这一形态，不会被误伤。
 fn is_chromium_family(names: impl IntoIterator<Item = impl AsRef<str>>) -> bool {
     names
         .into_iter()
@@ -85,11 +66,8 @@ mod imp {
 
     use super::{Ledger, is_chromium_family};
 
-    /// AXError.h 的 kAXErrorSuccess。
     const AX_ERROR_SUCCESS: i32 = 0;
 
-    /// AX 通道激活器：会话内按 pid 记账的 Chromium 宿主唤醒。只在平台
-    /// 事件线程上使用（由组合读取器持有），无锁不共享。
     #[derive(Debug, Default)]
     pub struct AxActivator {
         ledger: Ledger,
@@ -100,22 +78,10 @@ mod imp {
             Self::default()
         }
 
-        /// 前台应用是否为「唤醒常客」：上一手势注入唤醒写成功的 pid。
-        /// 常客的空读跳过让渡环直接进激活补读——树缺席时等再久也读不到。
-        /// 只做查询、无副作用。调用方保证：在平台事件线程上调用。
         pub fn responds_to_wake(&self) -> bool {
             front_app().is_some_and(|(_, pid)| self.ledger.is_rescued(pid))
         }
 
-        /// 唤醒前台应用的 AX 通道（确定性结论各只此一次）。
-        ///
-        /// 返回 `true` 表示刚对 Chromium 宿主成功注入开关——宿主开始异步
-        /// 建树，调用方应以激活预算补读 AX；`false` 表示无需补读（该
-        /// pid 已有确定性结论且非常客、不是 Chromium 宿主、前台应用不可
-        /// 识别或注入瞬时失败——最后一种下一手势自然重试）。注入成功
-        /// 即登记唤醒常客；常客 pid 即便已有确定性结论也允许重复注入
-        /// （注入幂等，宿主可能已自行收回树，重注入是空读后的唯一自救
-        /// 通道）。调用方保证：在平台事件线程上调用。
         pub fn wake(&mut self) -> bool {
             let Some((app, pid)) = front_app() else {
                 return false;
@@ -153,10 +119,6 @@ mod imp {
         }
     }
 
-    /// 问系统要前台应用元素与其 pid：`AXFocusedApplication` 由系统 AX
-    /// 运行时供给，宿主建不建树都能拿到（这正是唤醒路径可用的前提）。
-    /// 任一步失败返回 `None`（调用方跳过本轮激活）。消息超时沿用读取
-    /// 路径对 systemwide 设置的全局 0.3s 上界，不会无限阻塞事件线程。
     fn front_app() -> Option<(CfGuard, i32)> {
         // SAFETY: 无前置条件；返回的 +1 引用可能为 NULL（系统异常），随后判空。
         let system_wide = unsafe { ax::create_system_wide() };
@@ -181,9 +143,6 @@ mod imp {
         Some((app, pid))
     }
 
-    /// 按 pid 找运行中的应用并取其包路径，查内核框架形态（判定见
-    /// [`is_chromium_family`]）。应用无包（命令行进程等）或框架目录读
-    /// 不出，都按「不是 Chromium 宿主」收口。
     fn is_chromium_host(pid: i32) -> bool {
         let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) else {
             return false;
@@ -205,10 +164,6 @@ mod imp {
         is_chromium_family(&names)
     }
 
-    /// 对宿主应用元素写入两代开关属性：现行内核认
-    /// `AXManualAccessibility`，老内核认 `AXEnhancedUserInterface`，一起
-    /// 写入覆盖两代；任一写入成功即视为注入生效。逐属性的写入失败只
-    /// 记 debug（唤醒失败另有 warn 收口）。
     fn enable_manual_accessibility(element: AXUIElementRef) -> bool {
         let attributes = [
             ax::MANUAL_ACCESSIBILITY_ATTRIBUTE,

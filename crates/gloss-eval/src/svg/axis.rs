@@ -2,21 +2,15 @@
 //! 自的布局函数保证网格线恒落在值域内（上下界按构造恒不等，画布映射
 //! 的除法不会除零）。
 
-/// 面板纵轴的口径：决定值域与网格刻度的取法。
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Axis {
-    /// 百分比轴：固定 0..=100，每 25 一条网格。
     Percent,
-    /// 修复轮次轴：0 起，顶值 = 容纳数据的 5 的倍数（至少 10）。
     Rounds,
-    /// judge 分轴：1..=5 内按数据跨度留白。
     Judge,
-    /// 延迟轴：数据范围上下各留 10%，网格取 1-2-5 步长。
     Latency,
 }
 
 impl Axis {
-    /// 值域与网格（值域上下界把网格线含在图内；上下界按构造恒不等）。
     pub(super) fn layout(&self, values: &[f64]) -> (f64, f64, Vec<Gridline>) {
         match self {
             Axis::Percent => percent_layout(),
@@ -108,22 +102,16 @@ fn latency_layout(values: &[f64]) -> (f64, f64, Vec<Gridline>) {
     (lo, hi, gridlines)
 }
 
-/// 网格刻度：值 + 轴标签文本。
 pub(super) struct Gridline {
     pub(super) value: f64,
     pub(super) label: String,
 }
 
-/// 序列数值在悬浮框里的单位与格式。
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Unit {
-    /// 百分比（两位小数 + 空格 + %）。
     Percent,
-    /// 修复轮次（整数 + 轮）。
     Rounds,
-    /// judge 分（两位小数 + 分）。
     Score,
-    /// 毫秒（两位小数 + ms）。
     Milliseconds,
 }
 
@@ -138,7 +126,6 @@ impl Unit {
     }
 }
 
-/// 容纳 span 的最小 1-2-5×10^k 步长。
 fn nice_step(span: f64) -> f64 {
     let magnitude = 10.0f64.powf(span.log10().floor());
     for multiplier in [1.0, 2.0, 5.0, 10.0] {
@@ -150,7 +137,6 @@ fn nice_step(span: f64) -> f64 {
     10.0 * magnitude
 }
 
-/// 轴刻度数值文本：整值不带小数，其余固定两位小数。
 fn fmt_value(value: f64) -> String {
     if (value - value.round()).abs() < 1e-9 {
         format!("{}", value.round() as i64)

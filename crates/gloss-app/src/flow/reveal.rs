@@ -11,11 +11,6 @@ use crate::app::GlossApp;
 use crate::present::windows::{Placement, WindowManager};
 
 impl GlossApp {
-    /// 统一显示入口：显示并重置出现动画起点，让本次显示从淡入开始；
-    /// 同时清上一轮的拖动状态，跨显示残留的拖动所有权不得带进本轮
-    /// （隐藏期丢失的鼠标释放会让 egui 侧拖动所有权残留，按压点清掉后
-    /// 热区保持惰性，见 `ui::popup::RenderState::reset_drag_state`）。
-    /// 浮层常驻——收起只认 Esc、关闭按钮与新触发的内容替换。
     pub(crate) fn show_overlay(&mut self, position: LogicalPosition<f64>) {
         let Some(windows) = &self.workspace.windows else {
             return;
@@ -27,10 +22,6 @@ impl GlossApp {
         windows.show_at(position);
     }
 
-    /// 收起浮层的统一出口（Esc / 关闭按钮）：隐藏窗口、清
-    /// 渲染截止时刻与拖动状态防空转防残留，状态机放弃在途任务回 `Idle`
-    /// （迟到产物经代数或状态守卫丢弃——为一个不可见的浮层继续推理与
-    /// 渲染纯属空转）。
     pub(crate) fn dismiss_overlay(&mut self, reason: &'static str) {
         info!(
             thread = thread::UI,
@@ -49,10 +40,6 @@ impl GlossApp {
     }
 }
 
-/// 浮层显示位置与摆放意图的决策：当前代数携带划词释放坐标时在选区
-/// 附近露面（右下偏移一点，避免浮层压在光标/选区上）并记为定点摆放
-/// ——后续内容撑高窗口时原锚点重新钳制而非被居中覆盖；否则居中
-/// （陈旧代数同样回落居中）。
 pub(super) fn show_position(
     anchor: Option<(u64, ScreenPoint)>,
     generation: u64,
@@ -70,13 +57,9 @@ pub(super) fn show_position(
     }
 }
 
-/// 浮层跟随划词位置时的偏移（逻辑点）：让卡片略偏右下，不压住光标。
 const SELECTION_OFFSET_X: f64 = 16.0;
 const SELECTION_OFFSET_Y: f64 = 20.0;
 
-/// 浮层居中于显示器（逻辑坐标）：优先窗口当前所在的显示器，其次主显示器。
-/// 定位与尺寸的算法在窗口管理器（`WindowManager::centered_position`），
-/// 这里是给壳与自检 handler 的稳定入口。
 pub fn centered_position(
     event_loop: &ActiveEventLoop,
     windows: &WindowManager,

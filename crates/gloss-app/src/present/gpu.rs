@@ -10,20 +10,12 @@ use gloss_core::log::{debug, error, info, thread, warn};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-/// egui 要把整个窗口画出来，纹理边长上限按 4K 屏取（与 egui-wgpu 自身的取值一致）
 const MAX_TEXTURE_DIMENSION: u32 = 8192;
 
-/// 字体图集的纹理边长上限（egui 的 `max_texture_side`）：2048 是 epaint 的
-/// 默认档——划词卡片单帧的字形量远填不满，8192 档会让图集的高度上限跟着
-/// 放大 16 倍（CPU + GPU 各一份），只有理论上的极端字形量才用得上。
 pub const FONT_ATLAS_MAX_SIDE: usize = 2048;
 
-/// 每窗口允许的在途帧数（交换链深度取 wgpu 默认 2 → 1）：划词浮层是低
-/// 帧率 UI，1 帧在途足以吃满 vsync 节拍；每省一帧就少一张全窗尺寸的
-/// drawable 常驻。
 const DESIRED_MAX_FRAME_LATENCY: u32 = 1;
 
-/// 浮层卡片之外的底色留空：窗口是透明的，卡片由 egui 自己画，圆角外露见桌面
 const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
     g: 0.0,
@@ -31,7 +23,6 @@ const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     a: 0.0,
 };
 
-/// 设备级资源：instance / adapter / device / queue 全进程一份，所有窗口共用。
 pub struct GpuContext {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
@@ -40,15 +31,12 @@ pub struct GpuContext {
 }
 
 impl GpuContext {
-    /// 同步等待 adapter 与 device 请求（pollster 就是为这一步引入的）。
     pub fn new() -> Result<Self, GpuError> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
-        // 不指定 compatible_surface：设备先于窗口建立。可呈现的适配器与
-        // 这里选到的是同一个。
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
             compatible_surface: None,
@@ -77,43 +65,32 @@ impl GpuContext {
         })
     }
 
-    /// wgpu 实例，全进程共享。
     pub const fn instance(&self) -> &wgpu::Instance {
         &self.instance
     }
 
-    /// 适配器，全进程共享。
     pub const fn adapter(&self) -> &wgpu::Adapter {
         &self.adapter
     }
 
-    /// 逻辑设备，全进程共享。
     pub const fn device(&self) -> &wgpu::Device {
         &self.device
     }
 
-    /// 命令队列，全进程共享。
     pub const fn queue(&self) -> &wgpu::Queue {
         &self.queue
     }
 }
 
-/// 一个窗口的渲染目标：surface + 配置 + egui 渲染器。
-///
-/// egui 渲染器绑定 target format，而 format 由 surface 决定，所以渲染器随
-/// surface 各持一份，不放在设备级；同一 adapter 下多个窗口选到的 format 相同，
-/// 重复持有的只是几块缓冲区。
 pub struct GpuSurface {
     context: Arc<GpuContext>,
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     renderer: Renderer,
-    /// 尺寸已变但还没重新配置，在下一帧取帧前补上
     needs_configure: bool,
 }
 
 impl GpuSurface {
-    /// 为窗口创建 surface 并按当前尺寸完成首次配置。
     pub fn new(context: &Arc<GpuContext>, window: Arc<Window>) -> Result<Self, GpuError> {
         let surface = context.instance().create_surface(window.clone())?;
         let size = window.inner_size();
@@ -121,7 +98,6 @@ impl GpuSurface {
 
         let format = egui_wgpu::preferred_framebuffer_format(&caps.formats)
             .map_err(|err| GpuError::Surface(err.to_string()))?;
-        // wgpu 自带的默认配置省去逐个字段填值，只覆盖我们关心的几项
         let mut config = surface
             .get_default_config(context.adapter(), size.width.max(1), size.height.max(1))
             .ok_or(GpuError::UnsupportedSurface)?;
@@ -143,7 +119,6 @@ impl GpuSurface {
         })
     }
 
-    /// 窗口尺寸变化。宽高为 0（最小化）时 wgpu 拒绝配置，等有真实尺寸再配。
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
         if size.width == 0 || size.height == 0 {
             return;
@@ -153,13 +128,10 @@ impl GpuSurface {
         self.configure();
     }
 
-    /// GPU 适配器名，供性能数据的环境记录使用。
     pub fn adapter_name(&self) -> String {
         self.context.adapter().get_info().name
     }
 
-    /// 画一帧：应用 egui 的纹理增量 → 提交顶点与索引 → 渲染 → 呈现。
-    /// 取不到当帧（窗口被遮挡或取帧超时）或 surface 配置过期时静默跳过。
     pub fn render(
         &mut self,
         mut textures: egui::TexturesDelta,
@@ -170,12 +142,8 @@ impl GpuSurface {
             self.configure();
         }
 
-        // 纹理上传不依赖当帧能否取到：字体/图标增量若被跳过，下一帧就会
-        // 引用不存在的纹理；epaint 另有 Drop 断言，增量必须显式消费掉
         self.upload_texture_deltas(&textures);
 
-        // 窗口被遮挡或取帧超时时跳过本帧：隐藏的浮层正属于前者，
-        // 这里不能报错，否则每次隐藏都会刷一条日志
         let Some(frame) = self.take_frame() else {
             self.discard_textures(textures);
             return;
@@ -189,7 +157,6 @@ impl GpuSurface {
         }
     }
 
-    /// 本帧的纹理增量上传（set 部分），跳帧与否都要做。
     fn upload_texture_deltas(&mut self, textures: &egui::TexturesDelta) {
         let device = self.context.device();
         let queue = self.context.queue();
@@ -200,8 +167,6 @@ impl GpuSurface {
         }
     }
 
-    /// 取当帧：正常与次优返回帧（后者标记待重配）；取不到（配置过期、
-    /// 被遮挡、超时、surface 不可用）返回 None，由调用方跳帧。
     fn take_frame(&mut self) -> Option<wgpu::SurfaceTexture> {
         match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => Some(frame),
@@ -221,8 +186,6 @@ impl GpuSurface {
         }
     }
 
-    /// 录制并呈现一帧：encoder 上登记缓冲区与 render pass，submit 后才
-    /// 释放 free 列表的纹理（这批命令可能还在用它们），最后 present。
     fn draw_and_present(
         &mut self,
         frame: wgpu::SurfaceTexture,
@@ -264,15 +227,12 @@ impl GpuSurface {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            // egui 的 renderer 要求 'static 生命周期的 pass；交出生命周期后
-            // 本作用域内不再碰 encoder，运行时也不会有别名操作
             self.renderer
                 .render(&mut pass.forget_lifetime(), paint_jobs, &screen);
         }
 
         let encoded = encoder.finish();
         queue.submit(user_buffers.into_iter().chain([encoded]));
-        // 释放必须排在 submit 之后：这批命令可能还在用它们
         for id in &textures.free {
             self.renderer.free_texture(id);
         }
@@ -280,12 +240,10 @@ impl GpuSurface {
         queue.present(frame);
     }
 
-    /// 跳帧路径的增量收尾：set 已上传，free 的纹理没有在途命令，可直接释放。
     fn discard_textures(&mut self, mut textures: egui::TexturesDelta) {
         for id in &textures.free {
             self.renderer.free_texture(id);
         }
-        // set 已应用，这里清空以满足 epaint 的 Drop 断言
         textures.clear();
     }
 
@@ -295,9 +253,6 @@ impl GpuSurface {
     }
 }
 
-/// 透明窗口要选一个带 alpha 的合成模式，否则圆角外会露出黑边。
-///
-/// 预乘优先：egui 输出的是预乘 alpha 的颜色。
 fn pick_alpha_mode(modes: &[wgpu::CompositeAlphaMode]) -> wgpu::CompositeAlphaMode {
     let has = |mode| modes.contains(&mode);
     if has(wgpu::CompositeAlphaMode::PreMultiplied) {
@@ -313,16 +268,11 @@ fn pick_alpha_mode(modes: &[wgpu::CompositeAlphaMode]) -> wgpu::CompositeAlphaMo
     }
 }
 
-/// GPU 初始化与 surface 失败。
 #[derive(Debug)]
 pub enum GpuError {
-    /// 没有可用的图形适配器
     NoAdapter(String),
-    /// 请求逻辑设备失败
     Device(String),
-    /// 创建 surface 或选择其格式失败
     Surface(String),
-    /// 该适配器不支持这个窗口的 surface
     UnsupportedSurface,
 }
 

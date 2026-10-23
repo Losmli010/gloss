@@ -13,50 +13,21 @@ use gloss_core::task::{TaskInput, TaskKind, TaskOptions, TaskOutcome};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio_util::sync::CancellationToken;
 
-/// ① 平台事件源 → 主线程。专用事件线程产生；不含请求代数——由 App 收到后统一赋值。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlatformEvent {
-    /// 划词手势（文本任务），载荷是释放坐标（系统全局坐标，逻辑点）——
-    /// 浮层跟随划词位置的输入。
-    SelectionGesture {
-        /// 释放坐标。
-        pos: ScreenPoint,
-    },
-    /// 剪贴板哨兵观察到新图片（changeCount 前进且 types 含图像）。
-    /// 无载荷——内容在取材命令②再读，①与②之间被覆盖由取材侧竞态兜底。
+    SelectionGesture { pos: ScreenPoint },
     PasteboardImageObserved,
-    /// 托盘请求打开设置。
     OpenSettingsRequested,
-    /// 运行中观察到取材授权（辅助功能）落定——仅启动预检未就绪的会话由
-    /// 授权观察器产出一次（事件线程节流轮询，见 platform 的
-    /// `AccessibilityWatch`）；不占用代数（与设置入口同为不进状态机的
-    /// 直通事件）。
     AccessibilityGranted,
 }
 
-/// ② 主线程 → 平台事件线程：触发取材。
-///
-/// 取材有线程亲和约束（选区读取与剪贴板图片读取是同步系统调用，必须发生在
-/// 事件线程），不能与通道③合并发去 tokio；与系统事件同线程顺序消费，天然
-/// 串行无锁。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AcquireCommand {
-    /// 读前台应用选区文本。
-    AcquireText {
-        /// 请求代数，由 App 统一赋值（见模块文档）。
-        generation: u64,
-    },
-    /// 读剪贴板里的图片为 PNG（剪贴板图片任务的取材命令）：镜像
-    /// [`AcquireCommand::AcquireText`] 的形状——读取在事件线程完成，产物
-    /// 或失败经通道④按同代数回传。
-    AcquireClipboardImage {
-        /// 请求代数，由 App 统一赋值（见模块文档）。
-        generation: u64,
-    },
+    AcquireText { generation: u64 },
+    AcquireClipboardImage { generation: u64 },
 }
 
 impl AcquireCommand {
-    /// 请求代数：两种取材共有的唯一字段（壳侧派发与追踪都按它核对）。
     pub fn generation(&self) -> u64 {
         match self {
             Self::AcquireText { generation } | Self::AcquireClipboardImage { generation } => {
@@ -66,105 +37,56 @@ impl AcquireCommand {
     }
 }
 
-/// ③ 主线程 → tokio 后台：推理任务（携带完整数据与取消令牌）与密钥预热。
-///
-/// 用 tokio unbounded mpsc：消费端 async `recv().await`；主线程侧 `send`
-/// 永不阻塞、也不需要定容量策略——命令是轻量枚举，产量受用户手势限制。
 #[derive(Debug, Clone)]
 pub enum Command {
-    /// 执行一条任务：取材输入 + 触发时冻结的选项。任务类型不在其中——
-    /// 分类是 LLM 层（`AiTaskService::run`）的职责，桥与状态机都不预设
-    /// kind；判定的类型经事件④的 `TaskClassified` 与 `TaskDone` 回传。
     RunTask {
-        /// 请求代数，由 App 统一赋值（见模块文档）。
         generation: u64,
-        /// 取材输入（划词文本或剪贴板图片）。
         input: TaskInput,
-        /// 触发时按配置快照冻结的任务选项（含模型 id）。
         options: TaskOptions,
-        /// 取消令牌：App 为每次任务创建并 clone 下发；取消 = 调 `cancel()`。
         cancel: CancellationToken,
     },
-    /// 读一次当前 provider 的密钥（启动期预热）：真实读 keychain 首次访问
-    /// 会弹系统授权框，前置到启动授权引导之后让弹窗受控出现；读到的值进
-    /// 存储的进程内缓存，首次划词不再弹。只带条目定位符——密钥值永不进
-    /// 通道载荷。
     PrewarmSecret {
-        /// 密钥条目定位符（配置的 `keychain_id`）。
         keychain_id: String,
     },
 }
 
-/// ④ 平台事件线程 / tokio → 主线程：取材与推理的回传。
-///
-/// crossbeam MPMC——事件线程与 tokio 各持一个 Sender；主线程在渲染循环里
-/// `try_recv` 非阻塞消费。
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
-    /// 取材产物，触发→取材→推理链路的枢纽。
     InputReady {
-        /// 请求代数，与触发它的命令同值。
         generation: u64,
-        /// 取材产物。
         input: TaskInput,
     },
-    /// 自动分类完成：本次任务判明的类型（含提示直通与失败兜底）。流式
-    /// 视图据此精化排版（代码解释的判定从首帧就位），执行由 LLM 层继续。
     TaskClassified {
-        /// 请求代数，与触发它的任务同值。
         generation: u64,
-        /// 判定的任务类型。
         kind: TaskKind,
     },
-    /// 流式增量（markdown 正文片段）。
     TaskChunk {
-        /// 请求代数，与触发它的任务同值。
         generation: u64,
-        /// markdown 正文增量片段。
         delta: String,
     },
-    /// 修复轮开始（任务回复契约违约后的重发）：UI 清掉上一轮的流式正文
-    /// 并把页脚切到「重新注解」。不带轮次——界面无计数，轮次只在 core
-    /// 日志；分类阶段的修复不进通道（分类对用户无感）。
     TaskRepairing {
-        /// 请求代数，与触发它的任务同值。
         generation: u64,
     },
-    /// 任务完成。
     TaskDone {
-        /// 请求代数，与触发它的任务同值。
         generation: u64,
-        /// 任务产物。
         outcome: TaskOutcome,
     },
-    /// 任务失败。
     TaskFailed {
-        /// 请求代数，与触发它的任务同值。
         generation: u64,
-        /// 失败原因，状态机据此分支重试策略。
         error: GlossError,
     },
-    /// 密钥预热完成（成功与否，不含密钥值）：失败不拦主流程——首次任务
-    /// 会自然重读并按既有失败路径兜底。
     SecretPrewarmed {
-        /// 预热结果：`Err` 只携带失败原因（如用户拒绝授权）。
         result: Result<(), GlossError>,
     },
 }
 
-/// 带任务 span 的通道载荷：span 在触发点创建（代数在那里赋值），随通道②③
-/// 下发到平台事件线程与 tokio——接收侧进入它，范围内的日志自动带上
-/// `generation`（含取材读选区、推理引擎这些拿不到代数的深层日志点）。
 #[derive(Debug, Clone)]
 pub struct Traced<T> {
-    /// 原始载荷。
     pub payload: T,
-    /// 本次任务的 span。
     pub span: Span,
 }
 
 impl<T> Traced<T> {
-    /// 不带 span 的载荷：测试与不属于任何任务的命令用（进入空 span 是空操作）。
     pub fn untraced(payload: T) -> Self {
         Self {
             payload,
@@ -173,11 +95,8 @@ impl<T> Traced<T> {
     }
 }
 
-/// crossbeam 无界通道对：①②④ 共用这一选型（MPMC + 主线程 `try_recv` 非阻塞）。
 pub struct CrossbeamPair<T> {
-    /// 发送端，可克隆（MPMC）。
     pub tx: Sender<T>,
-    /// 接收端，主线程用 `try_recv` 非阻塞消费。
     pub rx: Receiver<T>,
 }
 
@@ -194,16 +113,12 @@ impl<T> Default for CrossbeamPair<T> {
     }
 }
 
-/// 通道③的 tokio half：Receiver 移交 tokio 消费任务，Sender 留在主线程。
 pub struct CommandChannel {
-    /// 发送端，留在主线程。
     pub tx: UnboundedSender<Traced<Command>>,
-    /// 接收端，移交 tokio 消费任务。
     pub rx: UnboundedReceiver<Traced<Command>>,
 }
 
 impl CommandChannel {
-    /// 创建一对 tokio 无界 mpsc 通道。
     pub fn new() -> Self {
         let (tx, rx) = unbounded_channel();
         Self { tx, rx }
@@ -216,17 +131,10 @@ impl Default for CommandChannel {
     }
 }
 
-/// 四条通道的组装点：入口 `main.rs` 创建一次并分发——① 的 Sender 交给平台
-/// 事件源；② 的 Sender 留在 App；③ 的 Receiver 移交 tokio；④ 的 Sender
-/// 克隆给事件线程与 tokio 各一。
 pub struct Channels {
-    /// 通道①：平台事件源 → 主线程。
     pub platform_events: CrossbeamPair<PlatformEvent>,
-    /// 通道②：主线程 → 平台事件线程（取材命令 + 任务 span）。
     pub acquire_commands: CrossbeamPair<Traced<AcquireCommand>>,
-    /// 通道③：主线程 → tokio（推理任务）。
     pub commands: CommandChannel,
-    /// 通道④：事件线程 / tokio → 主线程（取材与推理回传）。
     pub events: CrossbeamPair<Event>,
 }
 
@@ -247,17 +155,10 @@ impl Default for Channels {
     }
 }
 
-/// App 侧持有的通道端点：① 收平台事件、② 发取材命令、③ 发推理任务、
-/// ④ 收回传事件。组装点创建 [`Channels`] 后拆出移交；其余端点归事件
-/// 线程与 tokio。
 pub struct AppEndpoints {
-    /// 通道①接收端：主线程在事件循环里消费平台事件。
     pub platform_events: Receiver<PlatformEvent>,
-    /// 通道②发送端：主线程向事件线程下发取材命令。
     pub acquire_commands: Sender<Traced<AcquireCommand>>,
-    /// 通道③发送端：主线程把组装好的任务随取消令牌下发 tokio。
     pub commands: UnboundedSender<Traced<Command>>,
-    /// 通道④接收端：主线程在事件循环里消费取材与推理回传。
     pub events: Receiver<Event>,
 }
 

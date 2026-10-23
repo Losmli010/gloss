@@ -1,4 +1,4 @@
-//! gloss-eval：Prompt 评测（确定性重放轨 + LLM judge 轨）。
+//! gloss-eval：Prompt 评测（确定性重放轨 + `LLM judge` 轨）。
 //!
 //! 与生产同源：分类校验器（`gloss_core::classify::parse_classify_reply`，
 //! 严格裸 JSON，内部即 `schema::validate_classify`）、任务轨完成态判定
@@ -40,19 +40,12 @@ pub mod svg;
 
 pub use report::EvalReport;
 
-/// 数据集与夹具资产：编译期嵌入，`replay` 模式与测试共用同一份。
 pub mod assets {
-    /// 分类数据集（≥60 条：中英/代码/长短句/易混边界）。
     pub const CLASSIFY_DATASET: &str = include_str!("../datasets/classify.jsonl");
-    /// 词卡任务数据集（带 reference 结构化字段）。
     pub const TASK_WORD_DATASET: &str = include_str!("../datasets/task_translate_word.jsonl");
-    /// 句译任务数据集。
     pub const TASK_SENTENCE_DATASET: &str =
         include_str!("../datasets/task_translate_sentence.jsonl");
-    /// 代码解释任务数据集。
     pub const TASK_CODE_DATASET: &str = include_str!("../datasets/task_explain_code.jsonl");
-    /// 分类重放夹具（录制/维护的真实模型回复增量）。
     pub const CLASSIFY_FIXTURES: &str = include_str!("../fixtures/classify_replay.jsonl");
-    /// 任务重放夹具。
     pub const TASK_FIXTURES: &str = include_str!("../fixtures/task_replay.jsonl");
 }

@@ -20,45 +20,28 @@ use crate::repair::{RepairLoop, RepairStage};
 use crate::schema::{self, Violation};
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 
-/// 任务契约违约的修复轮预算：任务共 `1 + TASK_REPAIRS` 次尝试；耗尽后原始
-/// 文本原样上交，由调用方落降级产物。
 pub const TASK_REPAIRS: u32 = 3;
 
-/// 单轮流式回复的累积字节上限：卡片正文远用不到这个量级，而无上限的累积
-/// 会把「模型失控输出」放大成无界内存（流式期间逐 chunk 追加）。超限按请求
-/// 异常失败——半截超长回复不可能过 JSON 契约，进修复轮只会重跑同样的输出。
 const MAX_REPLY_BYTES: usize = 1024 * 1024;
 
-/// 服务端以内容审查收尾的 `finish_reason`。
 const FINISH_CONTENT_FILTER: &str = "content_filter";
 
-/// 内容审查的失败诊断：内容被服务端拦截，重发同请求无益，不重试。
 const CONTENT_FILTER_DIAGNOSTIC: &str = "reply stopped by the server content filter";
 
-/// 一次 `run` 的产出：判定的任务类型 + 引擎返回的**原始**完整文本。
-/// 解析成产物归调用方。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOutput {
-    /// 本次任务最终执行的类型（含分类兜底）。
     pub kind: TaskKind,
-    /// 模型回复的原始完整文本（未解析、未剥离）。修复轮耗尽后是最后一轮的
-    /// 违约原文——调用方据此落降级产物。
     pub raw: String,
-    /// 服务端声明的结束原因（`choices[0].finish_reason`）；服务端没给
-    /// `[DONE]`（连接关闭、脚本桩）为 `None`。以最后一轮为准。
     pub finish_reason: Option<String>,
-    /// 契约违约触发的修复轮次数（0 = 一次通过）。
     pub repairs: u32,
 }
 
-/// 渲染、分类与转发编排：只依赖端口与模板。
 pub struct AiTaskService {
     engine: Arc<dyn AiEngine>,
     prompts: PromptRegistry,
 }
 
 impl AiTaskService {
-    /// 组装：引擎由入口注入。
     pub fn new(engine: Arc<dyn AiEngine>) -> Self {
         Self {
             engine,
@@ -66,21 +49,6 @@ impl AiTaskService {
         }
     }
 
-    /// 执行一条任务：入口校验（模型非空、模态放行）→ 意图定型 → prompt 渲染
-    /// → [`run_task_rounds`] 执行任务段。
-    ///
-    /// `input` 与 `options` 按值接收：任务在执行期间独占两者，调用方从通道
-    /// 解出后即交出所有权。
-    ///
-    /// 调用方契约：
-    /// - `on_classified` 在**任何** chunk 之前恰好调用一次（含兜底 kind 与
-    ///   图像的固定 kind）——界面的任务标签以它为准；
-    /// - `on_chunk` / `on_repair` 与返回值的契约见 [`run_task_rounds`]；
-    /// - 取消不进本服务：调用方以 `CancellationToken` 竞速，丢弃本 future
-    ///   即停止转发（修复轮也在 future 内，竞速天然覆盖）。
-    // 豁免 too_many_arguments：三个回调是执行期注入的泵，泛型各不相同，
-    // 捆进结构体只是把类型参数挪个位置；与 [`TaskStage`] 那类描述「执行
-    // 什么」的静态输入不同形，不捆。
     #[allow(clippy::too_many_arguments)]
     pub async fn run(
         &self,
@@ -90,15 +58,10 @@ impl AiTaskService {
         on_chunk: impl FnMut(String),
         on_repair: impl FnMut(),
     ) -> Result<RunOutput, GlossError> {
-        // 模型随 options 冻结而来：空白 = 未配置（引擎侧同规则兜一层），
-        // 在花任何一次往返之前拒绝。
         if options.model.trim().is_empty() {
             return Err(GlossError::Config("empty model id".into()));
         }
 
-        // 意图定型：文本输入没有显式意图，交给 LLM 分类（分类恒 Ok，这里的
-        // Err 臂只是防御）；图像输入的取材动作即显式意图——剪贴板图片就是
-        // 图像解读，固定映射并跳过分类，省一次往返。
         let kind = match &input {
             TaskInput::Text { .. } => match classify(
                 self.engine.as_ref(),
@@ -122,9 +85,6 @@ impl AiTaskService {
         };
         on_classified(kind);
 
-        // 任务形成与执行：构造即过模态约束（非法组合在进引擎前拒绝），
-        // 模型恒取 options 冻结值（借自本函数存活的 task，不再复制）；
-        // 修复指令语言同源——prompt_locale 一次任务只认触发时定下的那一份。
         let locale = options.prompt_locale.unwrap_or_default();
         let task = Task::new(kind, input, options)?;
         let base = self.prompts.render(&task)?;
@@ -144,16 +104,12 @@ impl AiTaskService {
     }
 }
 
-/// 一轮回复的传输结果：累积正文、服务端结束原因与「零增量完成」标记。
 struct RoundReply {
     body: String,
     finish_reason: Option<String>,
-    /// 传输层以「成功收尾但一个增量都没有」终结：坏回复而非坏请求。
     empty_completion: bool,
 }
 
-/// 消费一轮流：增量经 `on_chunk` 逐条转交并累积，终结帧只取原因。
-/// 超预算与中途协议错误按请求异常上抛（已转发的增量不撤回）。
 async fn collect_round(
     engine: &dyn AiEngine,
     request: EngineRequest,
@@ -167,8 +123,6 @@ async fn collect_round(
         match item {
             Ok(TaskChunk::Delta(delta)) => {
                 if body.len().saturating_add(delta.len()) > MAX_REPLY_BYTES {
-                    // 已转发的增量不撤回（调用方契约）；超限的失败以返回值
-                    // 为准丢弃半截正文。
                     return Err(GlossError::EngineResponse(
                         "streamed reply exceeds the size budget".into(),
                     ));
@@ -180,9 +134,6 @@ async fn collect_round(
                 finish_reason: reason,
             }) => finish_reason = reason,
             Err(error) => {
-                // 零增量的「empty completion」是坏回复而非坏请求：转
-                // EmptyReply 进修复轮；其余引擎错误（含已有增量后的中途
-                // 协议错误）按请求异常上抛，不重试。
                 if body.is_empty() && matches!(error, GlossError::EmptyCompletion) {
                     empty_completion = true;
                     break;
@@ -198,9 +149,6 @@ async fn collect_round(
     })
 }
 
-/// 任务段的静态执行输入（意图定型之后的一切）：引擎与模板注册表、判定
-/// 的 kind、首轮渲染底座、冻结的模型 id 与纠错指令语言。逐轮转交的两个
-/// 回调不在其中——它们是泵，见 [`run_task_rounds`] 的调用方契约。
 pub struct TaskStage<'a> {
     pub engine: &'a dyn AiEngine,
     pub prompts: &'a PromptRegistry,
@@ -210,30 +158,6 @@ pub struct TaskStage<'a> {
     pub locale: crate::model::Locale,
 }
 
-/// 任务段执行循环（意图定型之后的完整执行段）：流式转发（原始增量经
-/// `on_chunk` 逐条转交，同时累积）→ **任务契约校验**（`schema::validate_task`）
-/// → 违约进修复轮（对话形态
-/// `[system][user 原文/图][assistant 上一次坏回复][user 纠错指令]`，EmptyReply
-/// 原样重发），预算 [`TASK_REPAIRS`] 轮，每轮开始前经 `on_repair` 通知调
-/// 用方重置 UI → 通过即返回，耗尽则原始文本原样上交（完成态解析落降级
-/// 产物）。引擎错误（网络/鉴权/限流/JSON 模式不支持/多模态不支持/中途
-/// 协议错误）一律不重试、原样上抛。
-///
-/// 独立成 pub 供 gloss-eval 的 live 轨直达任务段：评测以数据集给定的
-/// kind 渲染底座（`PromptRegistry::render` 的产物），与生产消费同一循环，
-/// 评测数字度量的才是生产行为（`RunOutput.repairs` 即本函数的修复轮次）。
-///
-/// 调用方契约（[`AiTaskService::run`] 与评测共用）：
-/// - `on_chunk` 收到的是**原始流**（纯 JSON 契约下就是模型的原始输出），
-///   流式显示的渐进提取与完成态解析都在调用方；修复轮的增量接在违约轮
-///   之后继续到达（`on_repair` 是唯一的轮边界信号）；返回值 `raw` 是最后
-///   一轮文本的整体累积；
-/// - `on_repair` 在每个修复轮开始前恰好调用一次（违约轮的 chunk 已全部
-///   送达之后）——调用方重置流式显示并切换「重新注解」；
-/// - 返回 `Err` 时**已转发的增量不撤回**——以返回值为准丢弃半截正文
-///   （状态机据此让 TaskChunk 之后接 TaskFailed 的渲染路径可收敛）；
-///   `Err` 只来自引擎、请求构造与流式失控（超 [`MAX_REPLY_BYTES`] 的回复
-///   按请求异常失败，不重试），契约违约不产生 `Err`。
 pub async fn run_task_rounds(
     TaskStage {
         engine,
@@ -246,8 +170,6 @@ pub async fn run_task_rounds(
     mut on_chunk: impl FnMut(String),
     mut on_repair: impl FnMut(),
 ) -> Result<RunOutput, GlossError> {
-    // base 是首轮消息；修复轮以它为底座拼 [assistant 坏回复][user 纠错
-    // 指令]（图像部件随 base 零拷贝重发）。
     let mut messages = base.clone();
     let mut repairs = RepairLoop::new(RepairStage::Task, TASK_REPAIRS);
     loop {
@@ -258,7 +180,6 @@ pub async fn run_task_rounds(
         };
         let reply = collect_round(engine, request, &mut on_chunk).await?;
 
-        // 内容审查：服务端拦了内容，重发无益——不重试直接失败卡。
         if reply.finish_reason.as_deref() == Some(FINISH_CONTENT_FILTER) {
             return Err(GlossError::EngineResponse(CONTENT_FILTER_DIAGNOSTIC.into()));
         }
@@ -279,7 +200,6 @@ pub async fn run_task_rounds(
         let Some(next) = repairs.next_round(&base, &reply.body, violation, |violation| {
             prompts.render_repair(locale, violation)
         }) else {
-            // 预算耗尽：违约原文原样上交，完成态解析落降级产物。
             return Ok(RunOutput {
                 kind,
                 raw: reply.body,
@@ -288,7 +208,6 @@ pub async fn run_task_rounds(
             });
         };
         messages = next;
-        // 修复轮照常流式，开始前发事件重置 UI（清流式正文、切「重新注解」）。
         on_repair();
     }
 }

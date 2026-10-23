@@ -44,29 +44,20 @@ use crate::machine::RunRequest;
 use crate::runtime::cache::{TaskCache, cache_key};
 use crate::runtime::finalize::complete;
 
-/// 关停运行时的等待上限：正常退出路径里通道③已关闭、消费循环已在收尾，
-/// 只兜底极端悬挂。
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// 托管 tokio 运行时与消费任务；drop 即关停（等待上限见
-/// [`SHUTDOWN_TIMEOUT`]）。
 pub struct CommandRuntime {
     rt: Option<tokio::runtime::Runtime>,
 }
 
 impl Drop for CommandRuntime {
     fn drop(&mut self) {
-        // shutdown_timeout 消费 Runtime 所有权，Drop 里经 take 取出。
         if let Some(rt) = self.rt.take() {
             rt.shutdown_timeout(SHUTDOWN_TIMEOUT);
         }
     }
 }
 
-/// 消费桥的接线面：任务服务、缓存站点与密钥存储（资源），回传通道与
-/// 主线程唤醒回调（泵的出口）。资源以计数指针共享，每任务克隆只递引用
-/// 计数；`wake` 装箱为 trait 对象，每条回传事件一次间接调用（与
-/// `EventSink` 的 wake 同款）。
 pub struct TaskBridge {
     service: Arc<AiTaskService>,
     cache: Arc<TaskCache>,
@@ -76,9 +67,6 @@ pub struct TaskBridge {
 }
 
 impl TaskBridge {
-    /// 组装接线面：任务服务、缓存、配置存储的密钥半边（预热命令经它直查
-    /// keychain，与引擎/设置页共享同一实例与进程内缓存）、回传通道与唤醒
-    /// 回调（每条回传事件入队后调用，唤醒睡在主线程事件循环里的 UI）。
     pub fn new(
         service: Arc<AiTaskService>,
         cache: Arc<TaskCache>,
@@ -96,15 +84,11 @@ impl TaskBridge {
     }
 }
 
-/// 创建 tokio 运行时并启动消费循环。
 pub fn start_command_runtime(
     bridge: TaskBridge,
     commands: UnboundedReceiver<Traced<Command>>,
 ) -> std::io::Result<CommandRuntime> {
     let rt = tokio::runtime::Builder::new_multi_thread()
-        // 消费桥同时只跑一个任务（分类、修复轮与传输都在它的 await 链上，
-        // 密钥预热甩 blocking 池），两个 worker 足以覆盖并发面；默认按核数
-        // 起 worker 只多出线程栈与分配器缓存的常驻。
         .worker_threads(2)
         .enable_all()
         .build()?;
@@ -112,12 +96,8 @@ pub fn start_command_runtime(
     Ok(CommandRuntime { rt: Some(rt) })
 }
 
-/// 消费循环：抽干通道③，逐条执行并回传。通道③全部 Sender 关闭（App
-/// 随事件循环结束 drop）后循环结束。
 async fn consume_loop(bridge: TaskBridge, mut commands: UnboundedReceiver<Traced<Command>>) {
     while let Some(job) = commands.recv().await {
-        // span 来自触发点，进入它让缓存与引擎内部的日志自动带上代数；预热
-        // 命令不带任务 span（不属于任何任务）。
         let Traced { payload, span } = job;
         match payload {
             Command::RunTask {
@@ -143,14 +123,6 @@ async fn consume_loop(bridge: TaskBridge, mut commands: UnboundedReceiver<Traced
     );
 }
 
-/// 单条任务命令的执行体。取消与执行竞速：取消即时生效，覆盖缓存查询与
-/// 流式读取的全部 await 点；被取消的任务不发任何回传——App 取消时已
-/// gen+1，迟到产物本就该被丢弃。
-///
-/// 执行体包在 catch_unwind 里：unwind 构建（dev/test）下后台 panic 转
-/// TaskFailed（错误卡给用户「服务异常」而不是永悬的推理中），循环自身
-/// 继续消费。生效边界：release 以 `panic = "abort"` 构建时 panic 在事发
-/// 点 abort 进程，`Err(payload)` 分支不可达——屏障仅为 unwind 构建保留。
 async fn run_one(bridge: &TaskBridge, request: RunRequest, span: Span) {
     let RunRequest {
         generation,
@@ -194,13 +166,6 @@ async fn run_one(bridge: &TaskBridge, request: RunRequest, span: Span) {
     .await;
 }
 
-/// 密钥预热旁路：读一次密钥进进程内缓存（启动期预热，与任务代数无关）。
-/// 读密钥可能被系统授权框长时间阻塞：甩进 blocking 线程池，消费循环继续
-/// 接收后续任务——首条 RunTask 不能排在密码框后面。预热不占代数也不需要
-/// 取消，失败只留痕（首次任务会自然重读并按既有失败路径兜底）。任务路径
-/// 自身的同步读密撞上同一未回填首读时没有这份待遇：它嵌在 async 块里、
-/// 阻塞段不在 await 点上，select! 的取消分支对它不生效，阻塞上界是一次
-/// 授权框应答（keychain 读的按 key 闸门收敛并发首读，不会叠加成多框）。
 fn prewarm_secret(bridge: &TaskBridge, keychain_id: String) {
     let store = Arc::clone(&bridge.store);
     let events = bridge.events.clone();
@@ -222,10 +187,6 @@ fn prewarm_secret(bridge: &TaskBridge, keychain_id: String) {
     });
 }
 
-/// 单个任务的桥侧执行体（缓存站点 + 纯泵）：查缓存 → 命中直出（事件序
-/// 与 miss 同形：`TaskClassified` → `TaskDone`）→ miss 则 `service.run`
-/// 转发（增量上抛）→ 完成态解析 → 非降级回填缓存 → `TaskDone`。`Err` 交
-/// 给调用方转 TaskFailed——失败路径不写缓存，下次触发重新执行。
 async fn run_task(
     bridge: &TaskBridge,
     generation: u64,
@@ -242,10 +203,6 @@ async fn run_task(
         "cache miss, calling the engine"
     );
 
-    // 钩子把 LLM 层的中间产物逐条泵回主线程：分类定型（LLM 判定或失败
-    // 兜底 kind）、流式增量与修复轮开始。原始回复的完成态累积归 LLM 层
-    // （run 的返回值），这里只泵不存——完成态解析以 output.raw 为唯一
-    // 真相源。分类阶段的修复不进通道：判定要等定型才有，用户无感。
     let pump = |event: Event| send_event(&bridge.events, &bridge.wake, event);
     let output = bridge
         .service
@@ -259,8 +216,6 @@ async fn run_task(
         .await?;
 
     let outcome = complete(output.kind, &output.raw);
-    // 降级产物不投毒缓存：违约回复命中同 key 会把垃圾保留一个 TTL——
-    // 只缓存校验过的正常产物，降级产物随事件上卡、过期即逝。
     if !outcome.degraded {
         bridge.cache.set(key, outcome.clone());
     }
@@ -271,7 +226,6 @@ async fn run_task(
     Ok(())
 }
 
-/// 缓存命中的直出路径：补发分类事件再上产物，事件序与 miss 路径同形。
 fn deliver_cached(
     bridge: &TaskBridge,
     generation: u64,
@@ -293,8 +247,6 @@ fn deliver_cached(
     });
 }
 
-/// 从 panic payload 提取诊断文本（只认 `&str` / `String` 载体，其余没有
-/// 稳定形状）；上限与 SSE 诊断一致——这段文本会进 UI 与日志。
 fn panic_detail(payload: &Box<dyn std::any::Any + Send>) -> String {
     let detail = payload
         .downcast_ref::<&str>()
@@ -304,7 +256,6 @@ fn panic_detail(payload: &Box<dyn std::any::Any + Send>) -> String {
     detail.chars().take(200).collect()
 }
 
-/// 回传事件 + 唤醒主线程；接收端消失（应用退出）时静默丢弃。
 fn send_event(events: &Sender<Event>, wake: &Arc<dyn Fn() + Send + Sync>, event: Event) {
     if events.send(event).is_ok() {
         wake.as_ref()();

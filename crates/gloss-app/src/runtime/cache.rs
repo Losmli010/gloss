@@ -1,4 +1,4 @@
-//! 任务产物缓存：moka LRU + TTL，全部缓存逻辑的唯一落点（core 零缓存）。
+//! 任务产物缓存：`moka` LRU + TTL，全部缓存逻辑的唯一落点（core 零缓存）。
 //!
 //! key 由 [`cache_key`] 统一派生：`cache_key(input, options)`——输入与
 //! 选项共同决定产物，kind 不参与（分类在 LLM 层内完成，同一输入在
@@ -17,21 +17,10 @@ use std::time::Duration;
 
 use gloss_core::task::{TaskInput, TaskOptions, TaskOutcome};
 
-/// 缓存条目存活时长：任务产物在会话内重复触发收益明显，超过后过期腾位置。
-/// `pub(crate)` 供 gloss-core `Config` 的出厂默认用例对齐——`Config::cache_ttl_secs`
-/// 的注释声称与此一致，两侧都写字面量时改一边不会有人红。
 pub(crate) const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
 
-/// 容量上限（条目数）：词条卡/翻译卡体积小，64 条覆盖近期高频场景，
-/// 超出由 moka 按 LRU（TinyLFU）逐出——缓存是进程内存的常驻项，条数
-/// 上限直接钉住它的最坏总量。
 const MAX_ENTRIES: u64 = 64;
 
-/// 派生缓存 key：输入与选项全量参与（含模型 id 与 prompt 模板语言）。
-/// 输入按变体直接喂哈希器——Text 哈希字符串；Image 流式哈希 png 字节，
-/// 字节不展开成临时缓冲。选项走 serde 全量参与；其字段均为可直接序列化
-/// 的标量，序列化失败分支只为 `Result` 完整性保留（`Debug` 文本哈希对
-/// 同值稳定）。
 pub fn cache_key(input: &TaskInput, options: &TaskOptions) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
     hash_input(input, &mut hasher);
@@ -42,7 +31,6 @@ pub fn cache_key(input: &TaskInput, options: &TaskOptions) -> u64 {
     hasher.finish()
 }
 
-/// 输入的变体化哈希：模态以 `discriminant` 区分，载荷逐字段喂入。
 fn hash_input(input: &TaskInput, hasher: &mut std::hash::DefaultHasher) {
     std::mem::discriminant(input).hash(hasher);
     match input {
@@ -51,20 +39,16 @@ fn hash_input(input: &TaskInput, hasher: &mut std::hash::DefaultHasher) {
     }
 }
 
-/// 任务产物缓存：线程安全的 moka 内存实现，`get`/`set` 可从任意线程
-/// 调用（tokio 侧组装、主线程无需访问）。
 #[derive(Debug)]
 pub struct TaskCache {
     inner: moka::sync::Cache<u64, TaskOutcome>,
 }
 
 impl TaskCache {
-    /// 默认缓存：1 小时 TTL、64 条上限。
     pub fn new() -> Self {
         Self::with_ttl(DEFAULT_TTL)
     }
 
-    /// 自定义 TTL（生产由配置换算注入；测试用短 TTL 验证过期路径）。
     pub fn with_ttl(ttl: Duration) -> Self {
         Self {
             inner: moka::sync::Cache::builder()
@@ -74,17 +58,14 @@ impl TaskCache {
         }
     }
 
-    /// 取缓存产物。
     pub fn get(&self, key: u64) -> Option<TaskOutcome> {
         self.inner.get(&key)
     }
 
-    /// 写缓存产物。
     pub fn set(&self, key: u64, value: TaskOutcome) {
         self.inner.insert(key, value);
     }
 
-    /// 强制处理逐出/过期（测试同步过期判定用）。
     #[cfg(test)]
     pub fn run_pending_tasks(&self) {
         self.inner.run_pending_tasks();

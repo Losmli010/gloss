@@ -1,6 +1,6 @@
 //! 桩库自身的验收：预置返回、失败注入、调用计数逐条对账。
 
-#![allow(clippy::expect_used, clippy::panic)] // 桩自测沿生产桩的断言风格，失败即停
+#![allow(clippy::expect_used, clippy::panic)]
 
 use std::time::{Duration, Instant};
 

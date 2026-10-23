@@ -1,6 +1,6 @@
-//! 设置页的分区内容：连接区（Base URL / API Key / 模型）、通用区与更新区
+//! 设置页的分区内容：连接区（`Base URL` / `API Key` / 模型）、通用区与更新区
 //! 的控件组装，以及目标语言、界面语言、主题三个下拉；控件基元见
-//! [`super::controls`]。
+//! [`super::controls`] 与下文。
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -17,7 +17,6 @@ use crate::ui::style::space;
 use crate::update::UpdateMsg;
 use crate::update::state::{FailStep, UpdatePhase, UpdateState};
 
-/// 模型区：Base URL → API Key（写 keychain，不进配置）→ 模型 ID。
 pub(super) fn connection_section(
     ui: &mut egui::Ui,
     state: &mut SettingsState,
@@ -47,7 +46,6 @@ pub(super) fn connection_section(
         })
         .changed();
         if typed {
-            // 重新输入即撤销「清除」意图。
             state.clear_key = false;
         }
         let label = if state.clear_key {
@@ -72,11 +70,8 @@ pub(super) fn connection_section(
     choice_hint(ui, &text.gloss_settings_model_hint);
 }
 
-/// 清除密钥按钮的占位余量（按钮宽 + 间距；输入框占满剩余宽）。
 const CLEAR_BUTTON_RESERVE: f32 = 88.0;
 
-/// 通用区：目标语言、界面语言、界面主题、缓存有效期（上限由控件钳制）、
-/// 剪贴板图片监听开关（保存时整体上交，热切换不要求重启）。
 pub(super) fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
     choice_row(ui, &text.gloss_settings_target_lang, |ui| {
         lang_combo(ui, &mut state.draft.target_lang, text);
@@ -101,9 +96,6 @@ pub(super) fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text
     choice_hint(ui, &text.gloss_settings_watch_clipboard_images_hint);
 }
 
-/// 更新区：相位标签 + 单一动作按钮（两道确认、取消与失败重试都收敛在
-/// 这一行）。`Checking` 与 `ReadyToRestart` 无可点动作；替换步失败附
-/// 安装指引（只读卷 / 权限不足的出口，见分发设计 §4.4）。
 pub(super) fn update_section(
     ui: &mut egui::Ui,
     update: &UpdateState,
@@ -124,7 +116,6 @@ pub(super) fn update_section(
     }
 }
 
-/// 相位标签：借自常驻文案表，只有带占位符的相位才拼新串。
 fn update_label<'a>(update: &UpdateState, text: &'a Text) -> Cow<'a, str> {
     let version = update.version.as_deref().unwrap_or_default();
     match update.phase {
@@ -145,7 +136,6 @@ fn update_label<'a>(update: &UpdateState, text: &'a Text) -> Cow<'a, str> {
     }
 }
 
-/// 失败相位的标签：按失败步骤区分措辞（卡在哪一步，就重试哪一步）。
 fn failed_label(step: FailStep, text: &Text) -> Cow<'_, str> {
     match step {
         FailStep::Manifest => Cow::Borrowed(&text.gloss_settings_update_failed_check),
@@ -154,7 +144,6 @@ fn failed_label(step: FailStep, text: &Text) -> Cow<'_, str> {
     }
 }
 
-/// 相位动作：`None` 表示该相位无可点动作（忙碌中与就绪待重启）。
 fn update_button<'a>(update: &UpdateState, text: &'a Text) -> Option<(Cow<'a, str>, UpdateMsg)> {
     match update.phase {
         UpdatePhase::Idle => Some((
@@ -186,10 +175,8 @@ fn update_button<'a>(update: &UpdateState, text: &'a Text) -> Option<(Cow<'a, st
     }
 }
 
-/// UI 固定可选的 5 语种（`Lang::Other` 只经配置文件到达，不在下拉里）。
 const LANG_CHOICES: fn() -> [Lang; 5] = || [Lang::Zh, Lang::En, Lang::Ja, Lang::Ko, Lang::Fr];
 
-/// 语言标签：产物语言（译文给谁看），与界面语言分属两张表。
 fn lang_label<'a>(lang: &Lang, text: &'a Text) -> &'a str {
     match lang {
         Lang::Zh => &text.gloss_langs_zh,
@@ -201,7 +188,6 @@ fn lang_label<'a>(lang: &Lang, text: &'a Text) -> &'a str {
     }
 }
 
-/// 目标语言下拉。
 fn lang_combo(ui: &mut egui::Ui, current: &mut Lang, text: &Text) {
     egui::ComboBox::from_id_salt("target_lang")
         .selected_text(lang_label(current, text))
@@ -213,7 +199,6 @@ fn lang_combo(ui: &mut egui::Ui, current: &mut Lang, text: &Text) {
         });
 }
 
-/// 界面语言标签（三态偏好，落定见 `Language::resolve`）。
 fn language_label<'a>(language: &Language, text: &'a Text) -> &'a str {
     match language {
         Language::System => &text.gloss_ui_language_system,
@@ -222,8 +207,6 @@ fn language_label<'a>(language: &Language, text: &'a Text) -> &'a str {
     }
 }
 
-/// 界面语言下拉：本项同时决定 prompt 模板语言（`Language::resolve`）与本表
-/// 的选表依据；保存后下一次触发与下一帧界面即生效。
 fn language_combo(ui: &mut egui::Ui, current: &mut Language, text: &Text) {
     egui::ComboBox::from_id_salt("ui_language")
         .selected_text(language_label(current, text))
@@ -234,7 +217,6 @@ fn language_combo(ui: &mut egui::Ui, current: &mut Language, text: &Text) {
         });
 }
 
-/// 主题标签与下拉（消费在壳侧，见 `app::theme`）。
 fn theme_combo(ui: &mut egui::Ui, current: &mut Theme, text: &Text) {
     let label = |theme: &Theme| match theme {
         Theme::System => text.gloss_theme_system.as_str(),

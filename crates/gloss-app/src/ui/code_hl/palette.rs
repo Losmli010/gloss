@@ -2,25 +2,17 @@
 
 use egui::Color32;
 
-/// 着色类别（demo 的 tok 六分类）：注释恒斜体，其余直立。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Class {
-    /// 关键字（demo --k）。
     Keyword,
-    /// 字符串字面量（demo --s）。
     String,
-    /// 行/块注释（demo --c，恒斜体）。
     Comment,
-    /// 数字（demo --n）。
     Number,
-    /// 类型/键/标签（demo --t）。
     Type,
-    /// 函数形/属性/选择器（demo --f）。
     Function,
 }
 
 impl Class {
-    /// 类别着色（demo token 明暗两套）。
     pub(crate) fn color(self, dark: bool) -> Color32 {
         match (self, dark) {
             (Class::Keyword, true) => Color32::from_rgb(0xC7, 0x92, 0xEA),
@@ -38,13 +30,11 @@ impl Class {
         }
     }
 
-    /// 注释恒斜体（demo .tok.c 的 font-style: italic）。
     pub(crate) fn italic(self) -> bool {
         matches!(self, Class::Comment)
     }
 }
 
-/// 代码平文字色：面板底上的主文字色（明暗两档，demo 的正文墨色）。
 pub(crate) fn plain_color(dark: bool) -> Color32 {
     if dark {
         Color32::from_rgb(0xE6, 0xE6, 0xE6)

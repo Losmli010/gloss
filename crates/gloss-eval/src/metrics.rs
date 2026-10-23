@@ -16,33 +16,20 @@ use gloss_core::task::{TaskKind, TaskOutcome};
 
 use crate::dataset::TaskCase;
 
-/// 分类判定的结果归类（比 Ok/Err 细一档：指标要区分「回复不是 JSON」
-/// 与「JSON 合法但被生产校验器拒绝」）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClassifyVerdict {
-    /// 判定正确。
     Correct,
-    /// 判定成了别的（合法类别映射出的 kind，但 ≠ 期望）。
     Wrong(TaskKind),
-    /// 回复不是合法 JSON（含围栏提取失败）。
     InvalidJson,
-    /// JSON 合法但被生产校验器拒绝（不是 classify 模板的类别标识）。
     Rejected,
 }
 
-/// 修复轨迹的违约统计：每一违约轮记一次类别，修复轮次 = 轮数 − 1（与
-/// 生产 `RunOutput.repairs` / `ClassifyDecision.repairs` 同口径）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViolationTrack {
-    /// 违约类别 → 违约轮次数（含末轮违约——预算耗尽的收尾）。
     pub violations: BTreeMap<Violation, usize>,
-    /// 修复轮次总数。
     pub repairs: u32,
 }
 
-/// 从修复轨迹（每轮完整回复）折算违约统计：逐轮跑调用方给定的生产
-/// 校验器（分类/任务同一份 `schema` 模块）。重放轨与 live 轨共用——
-/// live 的轮次来自生产循环本身，折算口径与重放完全一致。
 pub fn violation_track(
     validate: impl Fn(&str) -> Result<(), Violation>,
     rounds: &[String],
@@ -59,7 +46,6 @@ pub fn violation_track(
     track
 }
 
-/// 违约类别的报表短名（`Display` 措辞是句子，表格单元格里用短名）。
 pub fn violation_tag(violation: &Violation) -> &'static str {
     match violation {
         Violation::EmptyReply => "empty",
@@ -69,36 +55,23 @@ pub fn violation_tag(violation: &Violation) -> &'static str {
     }
 }
 
-/// 分类指标：accuracy / 混淆矩阵 / 无效 JSON 率 / 回退率 / 违约与修复轮次。
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClassifyMetrics {
-    /// 进入统计的条数（无夹具的条目跳过不计）。
     pub evaluated: usize,
-    /// 判定正确数。
     pub correct: usize,
-    /// 混淆矩阵：期望 kind → 实际 kind → 次数（判定错误路径）。
     pub confusion: BTreeMap<TaskKind, BTreeMap<TaskKind, usize>>,
-    /// 回复不是合法 JSON 的次数（模型输出格式质量问题）。
     pub invalid_json: usize,
-    /// JSON 合法但被生产校验器拒绝的次数（契约问题）。
     pub rejected: usize,
-    /// 分类请求本身失败（网络/限流）的次数——与模型行为无关，不计入
-    /// 格式类指标，但计入回退率（生产编排对这类条目同样落兜底）。
     pub engine_errors: usize,
-    /// 违约类别计数（每一违约轮记一次，含修复成功与耗尽两类轨迹）。
     pub violations: BTreeMap<Violation, usize>,
-    /// 修复轮次总数（生产 `ClassifyDecision.repairs` 同口径）。
     pub repair_rounds: u32,
 }
 
 impl ClassifyMetrics {
-    /// 判定正确率（分母 = 进入统计的条数）。
     pub fn accuracy(&self) -> f64 {
         ratio(self.correct, self.evaluated)
     }
 
-    /// 回退率：生产编排会对这些条目落兜底 kind（无效 JSON + 被拒绝 +
-    /// 引擎失败）。
     pub fn fallback_rate(&self) -> f64 {
         ratio(
             self.invalid_json + self.rejected + self.engine_errors,
@@ -107,34 +80,17 @@ impl ClassifyMetrics {
     }
 }
 
-/// 任务回复的契约达成情况（比「解析成功与否」细：四个指标各自独立，
-/// 修复轨迹随行）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaskVerdict {
-    /// 回复是合法 JSON 对象（契约硬约束之一）。
     pub json_object: bool,
-    /// JSON 对象携带非空 `note`（注；硬约束之二，词卡/句译/讲解/图像）。
     pub note_present: bool,
-    /// `structured` 对象在场且携带 kind 契约必需的疏证键（软约束项，
-    /// 缺失只降丰富度不降产物；JSON 对象在场才可能为真）。
     pub fields_complete: bool,
-    /// 生产同源的解析产物（与 UI 收到的 [`TaskOutcome`] 同构，含降级
-    /// 标记——违约即空 note 空变体 `degraded = true`）。
     pub outcome: TaskOutcome,
-    /// 违约类别计数（每一违约轮记一次；单轮判定最多一条）。
     pub violations: BTreeMap<Violation, usize>,
-    /// 修复轮次（生产 `RunOutput.repairs` 同口径）。
     pub repairs: u32,
 }
 
 impl TaskVerdict {
-    /// 按 [`TaskCase`] 的 kind 与回复原文逐级判定（单轮口径：该回复即
-    /// 末轮，无修复轨迹）。
-    ///
-    /// 判定与生产完成态解析同源（gloss-app `finalize::complete` 同样走
-    /// [`gloss_core::schema::validate_task`]）；`json_object` /
-    /// `note_present` / `fields_complete` 从违约类别与 `structured` 在场
-    /// 情况折算，供分档指标。
     pub fn for_reply(case: &TaskCase, reply: &str) -> Self {
         let parsed = serde_json::from_str::<serde_json::Value>(reply.trim())
             .ok()
@@ -179,10 +135,6 @@ impl TaskVerdict {
         }
     }
 
-    /// 按 [`TaskCase`] 的 kind 与**修复轨迹**（每轮完整回复）判定：末轮
-    /// 定完成态，全程逐轮经生产校验器折算违约类别与修复轮次——与生产
-    /// `RunOutput.repairs` 同口径（重放轨自夹具轮次、live 轨自生产循环
-    /// 的轮记录，共用本判定）。
     pub fn for_rounds(case: &TaskCase, rounds: &[String]) -> Self {
         let mut verdict = Self::for_reply(case, rounds.last().map(String::as_str).unwrap_or(""));
         let track = violation_track(
@@ -194,31 +146,19 @@ impl TaskVerdict {
         verdict
     }
 
-    /// 降级判定：契约校验器判违约（非 JSON / 空回复 / 缺 note）。
     pub fn degraded(&self) -> bool {
         self.outcome.degraded
     }
 }
 
-/// 任务指标：契约 JSON 率 / note 在场率 / 字段完整率 / 降级率 / 违约与
-/// 修复轮次。
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskMetrics {
-    /// 进入统计的条数。
     pub evaluated: usize,
-    /// 回复是契约 JSON 对象的条数。
     pub json_object: usize,
-    /// JSON 对象带 `note`（注）的条数。
     pub note_present: usize,
-    /// 必需字段完整数。
     pub fields_complete: usize,
-    /// 降级数（见 [`TaskVerdict::degraded`]）。live 轨的任务请求失败也
-    /// 记入此处——降级率因此混入传输失败（与分类轨单列
-    /// engine_errors 不同），读数时注意。
     pub degraded: usize,
-    /// 违约类别计数（每一违约轮记一次，含修复成功与耗尽两类轨迹）。
     pub violations: BTreeMap<Violation, usize>,
-    /// 修复轮次总数（生产 `RunOutput.repairs` 同口径）。
     pub repair_rounds: u32,
 }
 
@@ -236,7 +176,6 @@ impl TaskMetrics {
     }
 }
 
-/// 延迟样本（毫秒）：live 轨的逐条耗时，报告取 p50/p95。
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Latency {
     samples_ms: Vec<f64>,
@@ -251,8 +190,6 @@ impl Latency {
         self.samples_ms.len()
     }
 
-    /// 百分位（线性插值）；样本为空返回 `None`。就地按值排序（百分位与
-    /// 顺序无关，重复调用幂等），不再为每次查询复制整份样本。
     pub fn percentile(&mut self, p: f64) -> Option<f64> {
         if self.samples_ms.is_empty() {
             return None;
@@ -266,8 +203,6 @@ impl Latency {
     }
 }
 
-/// 对一条分类回复判定：生产校验器为主，无效 JSON 由本模块单独识别
-/// （它度量模型输出格式质量，校验器对两者同样拒绝，但指标要分列）。
 pub fn judge_classify_reply(reply: &str, expected: TaskKind) -> ClassifyVerdict {
     if !is_json_like(reply) {
         return ClassifyVerdict::InvalidJson;
@@ -279,10 +214,6 @@ pub fn judge_classify_reply(reply: &str, expected: TaskKind) -> ClassifyVerdict 
     }
 }
 
-/// 回复是否「长得像 JSON」：裸 JSON 或**首个** ``` 围栏内是 JSON——
-/// 刻意比生产校验（严格裸 JSON，无围栏容错）宽一档：生产对两者同样
-/// 拒绝，本判定只把「非 JSON 形态」与「形态像但被拒」分列统计。只判
-/// 形态，不判 kind 合法性——那归生产校验器。
 fn is_json_like(reply: &str) -> bool {
     let trimmed = reply.trim();
     if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
@@ -292,8 +223,6 @@ fn is_json_like(reply: &str) -> bool {
         .is_some_and(|json| serde_json::from_str::<serde_json::Value>(json).is_ok())
 }
 
-/// 首个 ``` 围栏内 JSON（语言标识行跳过）：「长得像 JSON」的形态判定
-/// 专用——生产已无围栏容错，本提取不再镜像任何生产路径。
 fn first_fenced_json(reply: &str) -> Option<&str> {
     let pos = reply.find("```")?;
     let after_marker = &reply[pos + 3..];

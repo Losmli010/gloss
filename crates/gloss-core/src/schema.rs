@@ -1,14 +1,10 @@
-//! 输出契约（wire schema）与校验器：模型回复的 JSON 契约、违约类别与
+//! 输出契约（`wire schema`）与校验器：模型回复的 JSON 契约、违约类别与
 //! 校验入口，生产（完成态解析）与评测共用同一份。
 //!
 //! 任务按 kind 三行同构（`note` 恒为首字段，疏证字段收敛在 `structured`
-//! 对象里，与 [`OutcomeStructured`] 同构）：
-//!
-//! ```json
-//! {"note":"…","structured":{"phonetic":"…或 null","examples":["…"]}}       // TranslateWord → WordCard
-//! {"note":"…","structured":{"examples":["…"]}}                              // TranslateSentence、ImageExplain、General → Plain
-//! {"note":"…","structured":{"examples":["…"],"code_language":"…或 null"}}  // ExplainCode → Code
-//! ```
+//! 对象里，与 [`OutcomeStructured`] 同构）：词卡落音标加例句、句译/图像/
+//! 通用落展开条目、代码讲解另带模型判定的代码语言；输出示例以各 prompt
+//! 模板的输出契约为准（与 [`crate::prompt`] 同源）。
 //!
 //! 校验分级：**硬约束**只有两条——整段是合法 JSON 对象、`note` 非空
 //! （trim 后），任一失守即 [`Violation`] 进降级（全字段严格校验会把重试
@@ -27,20 +23,13 @@
 
 use crate::task::{OutcomeStructured, TaskKind};
 
-/// 契约违约类别：措辞固定（[`Display`](std::fmt::Display)），永不携带
-/// 回复原文——类别进日志、降级产物与修复指令。serde 形态是变体名本身
-/// （评测报告的违约类别计数键）；`Ord` 供按类别的计数表稳定迭代。
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub enum Violation {
-    /// 回复为空（trim 后零长度）。
     EmptyReply,
-    /// 回复不是合法的 JSON 对象（含围栏输出——严格裸 JSON，无围栏容错）。
     NotJson,
-    /// JSON 对象缺 `note` 或 `note` trim 后为空。
     MissingNote,
-    /// 分类回复的 kind 不是 classify 模板的类别标识（含缺失）。
     KindNotAllowed,
 }
 
@@ -56,21 +45,12 @@ impl std::fmt::Display for Violation {
     }
 }
 
-/// 分类回复的判定：模型输出的原始类别与执行落点 kind。模板类别
-/// `Fallback` 映射到 [`TaskKind::General`]（兜底类别的执行落点就是通用
-/// 任务模板），其余三个类别与 kind 同名直映。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassifyChoice {
-    /// 模型输出的原始类别标识（classify 模板四个类别之一）。
     pub model_kind: String,
-    /// 执行落点：`Fallback` 落 [`TaskKind::General`]，其余原样。
     pub kind: TaskKind,
 }
 
-/// 校验分类回复：裸 JSON 对象携带 `kind`，取值为 classify 模板的四个
-/// 类别标识之一（`TranslateWord` / `TranslateSentence` / `ExplainCode` /
-/// `Fallback`；`General` 不在其中——它是执行落点，不是模型可选类别）。
-/// 返回 [`ClassifyChoice`]，失守给 [`Violation`]。
 pub fn validate_classify(raw: &str) -> Result<ClassifyChoice, Violation> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -98,10 +78,6 @@ pub fn validate_classify(raw: &str) -> Result<ClassifyChoice, Violation> {
     })
 }
 
-/// 校验任务回复：[`Violation::EmptyReply`] / [`Violation::NotJson`] /
-/// [`Violation::MissingNote`] 之外的失守按软约束就地容错（见模块文档）。
-/// 返回 `(note, structured)`；`structured` 缺失或非对象回落
-/// [`empty_structured`]。
 pub fn validate_task(kind: TaskKind, raw: &str) -> Result<(String, OutcomeStructured), Violation> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -123,8 +99,6 @@ pub fn validate_task(kind: TaskKind, raw: &str) -> Result<(String, OutcomeStruct
     Ok((note.to_owned(), structured_of(kind, &value)))
 }
 
-/// kind 的空疏证变体：软约束（`structured` 缺失或非对象）与降级产物的
-/// 回落形态。
 pub fn empty_structured(kind: TaskKind) -> OutcomeStructured {
     match kind {
         TaskKind::TranslateWord => OutcomeStructured::WordCard {
@@ -143,8 +117,6 @@ pub fn empty_structured(kind: TaskKind) -> OutcomeStructured {
     }
 }
 
-/// 按 kind 解析 `structured` 对象的疏证字段（软约束：对象缺失或非对象
-/// 整体回落空变体；变体内字段类型错当缺省、数组坏条目跳过）。
 fn structured_of(kind: TaskKind, value: &serde_json::Value) -> OutcomeStructured {
     let structured = value.get("structured").filter(|value| value.is_object());
     match kind {
@@ -164,8 +136,6 @@ fn structured_of(kind: TaskKind, value: &serde_json::Value) -> OutcomeStructured
     }
 }
 
-/// 取字符串字段；JSON null 与缺失同样返回 `None`（phonetic/code_language
-/// 允许缺省）。
 fn text_field(value: Option<&serde_json::Value>, key: &str) -> Option<String> {
     value
         .and_then(|value| value.get(key))
@@ -173,8 +143,6 @@ fn text_field(value: Option<&serde_json::Value>, key: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// 解析字符串数组（best-effort）：非字符串的坏条目跳过、好条目保留；
-/// 字段整体缺失或非数组回落空表。
 fn examples_of(value: Option<&serde_json::Value>) -> Vec<String> {
     value
         .and_then(|value| value.get("examples"))

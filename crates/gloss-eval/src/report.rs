@@ -9,97 +9,62 @@ use serde::{Deserialize, Serialize};
 
 use crate::metrics::{ClassifyMetrics, Latency, TaskMetrics, violation_tag};
 
-/// 一次评测运行的完整报告（`target/eval/<mode>.json` 的形状）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvalReport {
-    /// 运行模式（replay / live）。
     pub mode: String,
-    /// 报告生成时间（UNIX 纪元秒，不引入时间库依赖）。
     pub generated_at: i64,
-    /// 分类轨指标（replay 只统计有夹具的条目）。
     pub classify: Option<ClassifyStats>,
-    /// 任务轨指标：数据集名 → 指标。
     pub tasks: Vec<TaskStats>,
-    /// 延迟统计（仅 live 轨有样本；replay 恒 None）。
     pub latency: Option<LatencySummary>,
-    /// judge 摘要（仅 live 轨且 `GLOSS_LIVE_JUDGE=1` 时有值）。
     pub judge: Option<JudgeSummary>,
-    /// 数据集条目中无夹具覆盖、被跳过的数量。
     pub skipped: usize,
-    /// 采集上下文（历史行的 upsert 键用；旧报告 JSON 无此段照常解析）。
     #[serde(default)]
     pub context: Option<EvalContext>,
 }
 
-/// 采集上下文（可选；旧报告 JSON 无此段照常解析）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvalContext {
-    /// git 短 SHA（流水线经 GLOSS_EVAL_COMMIT 注入；本地运行缺省）。
     pub commit: Option<String>,
-    /// 采集来源（GLOSS_EVAL_SOURCE 注入，如 "pipeline" / "local"）。
     pub source: Option<String>,
 }
 
-/// 分类轨的序列化视图（混淆矩阵拍平成行）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassifyStats {
-    /// 各指标数值。
     pub metrics: ClassifyMetrics,
-    /// 准确率（0..1）。
     pub accuracy: f64,
-    /// 回退率（0..1）。
     pub fallback_rate: f64,
-    /// 混淆矩阵行：期望 → 实际 → 次数（仅计错误路径）。
     pub confusion_rows: Vec<ConfusionRow>,
 }
 
-/// 混淆矩阵一行。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfusionRow {
-    /// 期望 kind。
     pub expected: TaskKind,
-    /// 实际 kind。
     pub actual: TaskKind,
-    /// 次数。
     pub count: usize,
 }
 
-/// 单个任务数据集的指标视图。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskStats {
-    /// 数据集名（文件名去扩展名）。
     pub dataset: String,
-    /// 指标数值。
     pub metrics: TaskMetrics,
 }
 
-/// 延迟摘要（毫秒）。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct LatencySummary {
     pub count: usize,
-    /// p50。
     pub p50: f64,
-    /// p95。
     pub p95: f64,
 }
 
-/// judge 摘要（1–5 分的逐条均值；解析不出分数的条目不计入）。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct JudgeSummary {
-    /// 计分的条数。
     pub count: usize,
-    /// 尝试评分的条数（含引擎失败与解析失败）。`attempted > count` 即
-    /// 「judge 启用但部分失败」；旧报告 JSON 无此字段，反序列化默认 0
-    /// （`attempted == 0` 时渲染回退到只报 count，不显示失败数）。
     #[serde(default)]
     pub attempted: usize,
-    /// 均分（1..=5）。
     pub average: f64,
 }
 
 impl EvalReport {
-    /// 渲染 Markdown 表格（结构沿用 bench-summary.py：总述行 + 指标表 +
-    /// 混淆矩阵表）。
     pub fn render_markdown(&self) -> String {
         let mut out = String::new();
         self.render_summary(&mut out);
@@ -108,7 +73,6 @@ impl EvalReport {
         out
     }
 
-    /// 总述行：模式、时间与覆盖面（评测/跳过条数）。
     fn render_summary(&self, out: &mut String) {
         line(
             out,
@@ -136,7 +100,6 @@ impl EvalReport {
         out.push('\n');
     }
 
-    /// 指标表：分类一行组、每任务数据集一行组、延迟与 judge（在轨才出）。
     fn render_metric_rows(&self, out: &mut String) {
         out.push_str("| 指标 | 值 |\n| --- | --- |\n");
         self.render_classify_rows(out);
@@ -144,7 +107,6 @@ impl EvalReport {
         self.render_latency_and_judge_rows(out);
     }
 
-    /// 分类轨的指标行：accuracy、无效 JSON 率、回退率、修复轮次。
     fn render_classify_rows(&self, out: &mut String) {
         let Some(stats) = &self.classify else {
             return;
@@ -178,8 +140,6 @@ impl EvalReport {
         );
     }
 
-    /// 任务轨的指标行：每个数据集五行（契约 JSON 率、note 在场率、字段
-    /// 完整率、降级率、修复轮次）。
     fn render_task_rows(&self, out: &mut String) {
         for stats in &self.tasks {
             let metrics = &stats.metrics;
@@ -226,7 +186,6 @@ impl EvalReport {
         }
     }
 
-    /// 延迟与 judge 的指标行：各自在轨才出。
     fn render_latency_and_judge_rows(&self, out: &mut String) {
         if let Some(latency) = &self.latency {
             line(out, format!("| 端到端延迟 p50 | {:.2} ms |", latency.p50));
@@ -248,7 +207,6 @@ impl EvalReport {
         }
     }
 
-    /// 混淆矩阵表：仅分类轨在轨且有错误路径时出。
     fn render_confusion(&self, out: &mut String) {
         let Some(stats) = &self.classify else {
             return;
@@ -268,7 +226,6 @@ impl EvalReport {
     }
 }
 
-/// 追加一行 Markdown。
 fn line(out: &mut String, content: String) {
     out.push_str(&content);
     out.push('\n');
@@ -282,14 +239,11 @@ fn rate(numerator: usize, denominator: usize) -> f64 {
     }
 }
 
-/// UNIX 秒 → UTC 的 `YYYY-MM-DD HH:MM`。一律按 UTC 固定换算——跟随本地
-/// 时区会让同一时间戳在不同机器漂一天。
 pub fn format_utc(secs: i64) -> String {
     let (date, hour, minute) = utc_parts(secs);
     format!("{date} {hour:02}:{minute:02}")
 }
 
-/// UNIX 秒 → UTC 的 `MM-DD HH:MM`（趋势图 x 轴刻度用）。
 pub fn format_utc_short(secs: i64) -> String {
     let (date, hour, minute) = utc_parts(secs);
     format!("{} {hour:02}:{minute:02}", &date[5..])
@@ -305,8 +259,6 @@ fn utc_parts(secs: i64) -> (String, u32, u32) {
     )
 }
 
-/// UNIX 天数 → UTC 民用日期（Howard Hinnant 的 civil_from_days 算法，
-/// 零时间库依赖）。
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let shifted = days + 719_468;
     let era = if shifted >= 0 {
@@ -325,8 +277,6 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (if month <= 2 { year + 1 } else { year }, month, day)
 }
 
-/// 修复轮次行的内容：轮次总数加违约类别计数（BTreeMap 按类别序稳定
-/// 迭代）；无违约轮时只报轮次。
 fn repair_line(violations: &BTreeMap<Violation, usize>, repairs: u32) -> String {
     if violations.is_empty() {
         return format!("{repairs}");
@@ -339,8 +289,6 @@ fn repair_line(violations: &BTreeMap<Violation, usize>, repairs: u32) -> String 
     format!("{repairs}（{counts}）")
 }
 
-/// 各轨的结算产物（组装报告的全部轨道输入）：分类可选、任务按数据集，
-/// 延迟与 judge 在轨才出。
 pub struct TrackOutputs<'a> {
     pub classify: Option<ClassifyMetrics>,
     pub tasks: Vec<(&'a str, TaskMetrics)>,
@@ -348,8 +296,6 @@ pub struct TrackOutputs<'a> {
     pub judge: Option<JudgeSummary>,
 }
 
-/// 把评分器的输出组装成报告（runner 与测试共用）：混淆矩阵拍平、比率
-/// 预计算、时间戳取 UNIX 纪元秒（报告不带额外的时间库依赖）。
 pub fn assemble_report(mode: &str, outputs: TrackOutputs<'_>, skipped: usize) -> EvalReport {
     let TrackOutputs {
         classify,
@@ -403,7 +349,6 @@ pub fn assemble_report(mode: &str, outputs: TrackOutputs<'_>, skipped: usize) ->
     }
 }
 
-/// 把报告写成 `report-dir/<mode>.json` + `<mode>.md`，返回 md 文本。
 pub fn write_report(report: &EvalReport, report_dir: &std::path::Path) -> std::io::Result<String> {
     std::fs::create_dir_all(report_dir)?;
     let markdown = report.render_markdown();

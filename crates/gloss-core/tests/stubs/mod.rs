@@ -15,7 +15,6 @@
 //! 刻意不共享（各 crate 的 tests/stubs/ 各留所需副本），一份桩的行为变化
 //! 不得静默改写另一个 crate 测试套件的语义。
 
-// 桩是按需取用的能力全集：每个编译目标只用到其中一部分，未用能力不算死代码。
 #![allow(dead_code)]
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -23,8 +22,6 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 pub mod engine;
 pub mod ports;
 
-/// 锁中毒恢复：测试基建不值得 panic，拿回守卫继续用（数据由测试自身
-/// 单线程写入，中毒不可能源于本模块逻辑）。
 fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

@@ -8,7 +8,7 @@
 //! 按**命名字体族**注册，不进后备链：只有显式点名的文字（经注疏分区正文、
 //! 词卡音标）才用它们，其余文本的字形解析完全不受影响。楷体在系统里缺席时
 //! 按设计定稿的回退链落到宋体（--kai 栈
-//! 以 Songti SC 收尾）；等宽族按 demo 的 ui-monospace 栈依序探测系统等宽，
+//! 以 `Songti SC` 收尾）；等宽族按 demo 的 ui-monospace 栈依序探测系统等宽，
 //! 族绑定是「系统等宽 + CJK 后备字节」（代码内中文注释仍可读），候选全缺席
 //! 时兜底到内置字形。字体字节进程内只向系统读一次文件（mmap 文件背页，
 //! 映射失败回退整包拷贝），浮层与设置窗两个
@@ -25,35 +25,23 @@ use egui::{FontData, FontDefinitions, FontFamily, FontTweak};
 use gloss_core::log::{thread, warn};
 use memmap2::Mmap;
 
-/// CJK 字体在 egui 字体表里登记的名字。
 pub(super) const FONT_NAME: &str = "gloss-cjk";
-/// 宋体命名字体族：经/疏正文的排版字体（demo 的 --serif 栈）。
 pub(super) const FONT_SERIF_NAME: &str = "gloss-songti";
-/// 楷体命名字体族：注正文的排版字体（demo 的 --kai 栈）。
 pub(super) const FONT_KAITI_NAME: &str = "gloss-kaiti";
-/// 等宽命名字体族：词卡音标的排版字体（demo 的 ui-monospace 栈的落地，
-/// 覆盖内置等宽缺的 IPA 音标字形）。
 pub(super) const FONT_MONO_NAME: &str = "gloss-mono";
 
-/// 注正文的字体族。
 pub(super) fn zhu_family() -> FontFamily {
     FontFamily::Name(FONT_KAITI_NAME.into())
 }
 
-/// 经/疏正文的字体族。
 pub(super) fn serif_family() -> FontFamily {
     FontFamily::Name(FONT_SERIF_NAME.into())
 }
 
-/// 音标的等宽字体族。
 pub(super) fn mono_family() -> FontFamily {
     FontFamily::Name(FONT_MONO_NAME.into())
 }
 
-/// 字体文件字节的进程内背衬：首选 mmap 文件背页——egui 登记的借用切片
-/// 直接指回文件页，字节不进进程私有堆，只有字形表被实际触碰的页驻留物
-/// 理内存；映射失败回退 `fs::read` 整包拷贝。两种形态对登记等价，消费
-/// 面只有只读切片（[`Deref`] 到 `[u8]`）。
 enum FontBacking {
     Mapped(Mmap),
     Copied(Vec<u8>),
@@ -76,17 +64,12 @@ impl Deref for FontBacking {
     }
 }
 
-/// 一个系统字族的解析结果：整份字体文件的字节背衬与目标面在文件内的
-/// 序号。字节首选 mmap 文件背页、映射失败回退整包拷贝，进程内常驻
-/// （缓存于各 `OnceLock`）；ttc 集合整体交给 egui，按序号取面。
 struct FamilyFont {
     bytes: FontBacking,
     index: u32,
 }
 
 impl FamilyFont {
-    /// 整包字节构造：无文件来源的合成字体（测试）用的等价入口；生产路径
-    /// 的字节背衬由 `imp::load_backing` 直接给出。
     #[cfg(test)]
     fn from_bytes(bytes: Vec<u8>, index: u32) -> FamilyFont {
         FamilyFont {
@@ -96,9 +79,6 @@ impl FamilyFont {
     }
 }
 
-/// 把一张系统字面登记进字体表：字节以借用形态挂到 `name` 上。签名要求
-/// `'static` 字体——登记的字节背衬必须进程内常驻（生产路径出自 `OnceLock`
-/// 缓存），借用的 `Cow` 才不悬垂；切片指向映射页还是回退拷贝由背衬收敛。
 fn insert_face(font: &'static FamilyFont, definitions: &mut FontDefinitions, name: &str) {
     definitions.font_data.insert(
         name.to_owned(),
@@ -110,36 +90,22 @@ fn insert_face(font: &'static FamilyFont, definitions: &mut FontDefinitions, nam
     );
 }
 
-/// 系统 CJK 字体——进程内唯一一份。取用失败同样缓存，不重复查找系统。
 static CJK_FONT: OnceLock<Option<FamilyFont>> = OnceLock::new();
 
-/// 宋体/楷体/等宽，各自进程内唯一一份（形态与 [`CJK_FONT`] 相同）。
 static SERIF_FONT: OnceLock<Option<FamilyFont>> = OnceLock::new();
 static KAITI_FONT: OnceLock<Option<FamilyFont>> = OnceLock::new();
 static MONO_FONT: OnceLock<Option<FamilyFont>> = OnceLock::new();
 
-/// 苹方随系统自带，历代候选按可用性排序。
 const CJK_FAMILIES: &[&str] = &["PingFang SC", "Hiragino Sans GB", "STHeiti"];
 
-/// 宋体候选（demo --serif 栈的前四项，serif 泛型族不参与精确匹配）。
 const SERIF_FAMILIES: &[&str] = &["Songti SC", "STSong", "Noto Serif SC", "SimSun"];
 
-/// 楷体候选（demo --kai 栈的实名项）。
 const KAITI_FAMILIES: &[&str] = &["Kaiti SC", "STKaiti", "Kaiti TC", "KaiTi"];
 
-/// 等宽候选（demo ui-monospace 栈的系统落地：macOS 的三代系统等宽在前，
-/// 后两项覆盖 Linux/Windows 常见等宽）。
 const MONO_FAMILIES: &[&str] = &["SF Mono", "Menlo", "Monaco", "DejaVu Sans Mono", "Consolas"];
 
-/// egui 内置字形的登记名（default_fonts 特性自带）：宋楷两族在系统与
-/// CJK 后备双双缺席时的族内兜底，排版降级为默认字形而不是 panic。
 pub(super) const BUILTIN_FALLBACK_FONT: &str = "Ubuntu-Light";
 
-/// 带 CJK 后备与宋楷字族的字体定义；bool 表示 CJK 后备是否接上（缺席时
-/// 此处出 warn，比例/等宽族中文不可读）。宋楷两族**无条件注册**——
-/// epaint 对未绑定的字体族直接 panic——兜底链为 宋/楷系统字体 → 宋体
-/// 字节 → CJK 后备字节 → 内置字形，排版逐级降级而不是崩。交给哪个上下文
-/// 由 [`super::context`] 的统一装入点决定。
 pub(in crate::ui) fn definitions() -> (FontDefinitions, bool) {
     let mut definitions = FontDefinitions::default();
     let cjk = cjk_font();
@@ -163,9 +129,6 @@ pub(in crate::ui) fn definitions() -> (FontDefinitions, bool) {
     (definitions, cjk.is_some())
 }
 
-/// 仅内置字形的字体定义：命名字体族恒绑定（绑到内置字形，epaint 对未
-/// 绑定族直接 panic），系统字体一个不装。启动首帧的快路径——系统字体
-/// 装载是秒级的，由 `context::apply_system_fonts` 延迟补装。
 pub(in crate::ui) fn builtin_definitions() -> FontDefinitions {
     let mut definitions = FontDefinitions::default();
     for name in [FONT_SERIF_NAME, FONT_KAITI_NAME, FONT_MONO_NAME] {
@@ -177,9 +140,6 @@ pub(in crate::ui) fn builtin_definitions() -> FontDefinitions {
     definitions
 }
 
-/// 系统字体是否已装载过（字节级缓存就位）。统一装入点据此选择完整定义
-/// 与内置快路径：就位前任何上下文施加都走快路径，系统字体只由延迟装载
-/// 一次性补齐。
 pub(in crate::ui) fn system_fonts_ready() -> bool {
     CJK_FONT.get().is_some()
         && SERIF_FONT.get().is_some()
@@ -187,22 +147,16 @@ pub(in crate::ui) fn system_fonts_ready() -> bool {
         && MONO_FONT.get().is_some()
 }
 
-/// 系统 CJK 字体；首次调用向系统取，之后命中缓存。
 fn cjk_font() -> Option<&'static FamilyFont> {
     CJK_FONT.get_or_init(imp::load_cjk).as_ref()
 }
 
-/// 系统等宽字体；首次调用向系统取，之后命中缓存。
 fn mono_font() -> Option<&'static FamilyFont> {
     MONO_FONT
         .get_or_init(|| imp::load_family(MONO_FAMILIES))
         .as_ref()
 }
 
-/// 把 [`FONT_NAME`] 以后备（最低优先级）追加进比例与等宽两个字体族：
-/// 内置字体先挑，挑不到的字形才轮到系统字体。字节已由 [`cjk_font`]
-/// 登记进字体表，这里只补族链。调用前提：`definitions` 里 [`FONT_NAME`]
-/// 已注册（[`definitions`] 的装入顺序保证）。
 fn append_fallback(definitions: &mut FontDefinitions) {
     for family in [FontFamily::Proportional, FontFamily::Monospace] {
         definitions
@@ -213,8 +167,6 @@ fn append_fallback(definitions: &mut FontDefinitions) {
     }
 }
 
-/// 把一个系统字面注册成命名字体族；缺失时把族绑到内置字形上——族必须
-/// 恒存在（epaint 对未绑定的族直接 panic），字形逐级降级。
 fn register_named_or_builtin(
     definitions: &mut FontDefinitions,
     name: &'static str,
@@ -236,11 +188,6 @@ fn register_named_or_builtin(
     }
 }
 
-/// 等宽命名字体族：族绑定 = 系统等宽 + CJK 后备字节（等宽系统字体不收
-/// CJK 字形，链条尾部接上才有代码内中文注释）；系统等宽缺席时绑内置
-/// 字形，不从 CJK 降级——比例字形的等宽族会让代码失去对齐，宁可用内置
-/// 等宽。`cjk` 为 `Some` 时 [`FONT_NAME`] 必已注册（`definitions` 的装入
-/// 顺序保证：后备追加先于本调用）。
 fn register_mono_family(
     definitions: &mut FontDefinitions,
     mono: Option<&'static FamilyFont>,

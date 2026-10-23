@@ -37,29 +37,14 @@ use crate::repair::{RepairLoop, RepairStage};
 use crate::schema;
 use crate::task::{TaskInput, TaskKind};
 
-/// 分类失败（请求异常、修复轮后仍违约）时的兜底 kind：常量而非配置——
-/// 兜底必须是可渲染、可执行的具体文本 kind。classify 模板的 `Fallback`
-/// 类别在校验层映射到同一个 kind（[`crate::schema::validate_classify`]）：
-/// 「模板四类别 → 三个文本 kind + 兜底 General」构成文本路径的完整落点。
 pub const CLASSIFY_FALLBACK: TaskKind = TaskKind::General;
 
-/// 分类契约违约的修复轮预算：分类在 TTFT 之前，预算敏感——共
-/// `1 + CLASSIFY_REPAIRS` 次尝试。
 pub const CLASSIFY_REPAIRS: u32 = 1;
 
-/// 分类回复的 token 上限（OpenAI 兼容 `max_tokens`）：正确回复是一个
-/// 只含 kind 标识的小 JSON，截断只落在模型跑偏的长篇上——跑偏的回复
-/// 解析不过，进修复轮。
 pub const CLASSIFY_MAX_TOKENS: u32 = 128;
 
-/// 回复累积上限（字节）：`max_tokens` 之外的第二道界，防止不守约的
-/// 端点把无界回复灌进内存。超限部分丢弃（按字符边界截断）——截断的
-/// JSON 解析不过，同样进修复轮。pub 供 gloss-eval 的 live 轨复用同一
-/// 道界（评测与生产同源）。
 pub const CLASSIFY_REPLY_CAP_BYTES: usize = 4096;
 
-/// 按预算累积回复：单条增量超预算时按字符边界截断。分类编排与评测
-/// live 轨共用。
 pub fn push_capped(reply: &mut String, delta: &str) {
     let budget = CLASSIFY_REPLY_CAP_BYTES.saturating_sub(reply.len());
     if budget == 0 {
@@ -72,16 +57,8 @@ pub fn push_capped(reply: &mut String, delta: &str) {
     reply.push_str(&delta[..take]);
 }
 
-/// 分类首条目截止（墙钟）：建连成功后这么久没有任何流条目（增量或终结
-/// 帧）即判传输停摆，按请求异常收卷。分类在 TTFT 之前，等一个不出字的
-/// 服务端会把主任务的开工拖在同一处；兜底 kind 恒可执行，判定损失只是
-/// 标签精度。
 const FIRST_ITEM_DEADLINE: Duration = Duration::from_secs(3);
 
-/// 首条目截止的流包装：截止只武装到首个条目交付，之后的读取节奏归还
-/// 传输层空闲看门狗——分类回复极小，不存在需要看门狗的长流。定时器
-/// 惰性创建：内层流 Pending 时才需要它，即时产出的流（脚本桩）不碰
-/// 时间驱动。
 struct FirstItemDeadline {
     inner: TaskStream,
     deadline: Option<Pin<Box<Sleep>>>,
@@ -129,9 +106,6 @@ impl Stream for FirstItemDeadline {
     }
 }
 
-/// 判定一条文本输入的任务类型（编排入口）。契约违约走修复轮（预算
-/// [`CLASSIFY_REPAIRS`]），请求异常不重试；两者最终都落
-/// [`CLASSIFY_FALLBACK`]——文本输入恒 `Ok`。
 pub async fn classify(
     engine: &dyn AiEngine,
     model: &str,
@@ -139,13 +113,10 @@ pub async fn classify(
     input: &TaskInput,
 ) -> Result<TaskKind, GlossError> {
     let TaskInput::Text { text } = input else {
-        // 分类只服务划词路径；图像任务带着具体 kind 进编排，到不了这里。
         return Err(GlossError::UnsupportedModality);
     };
     match classify_traced(engine, model, locale, text).await {
         Ok(decision) => Ok(decision.kind),
-        // 分类阶段的请求异常不重试（重发同请求无益），内部消化落兜底
-        // ——warn 只记错误类别，不含选区原文与模型回复。
         Err(error) => {
             warn!(
                 thread = thread::TOKIO,
@@ -157,33 +128,13 @@ pub async fn classify(
     }
 }
 
-/// 一次分类的完整轨迹：判定的任务类型、契约修复轮次数与每一轮的完整
-/// 回复（末轮是完成态判定的输入）。生产编排只消费 `kind`；评测
-/// （gloss-eval live 轨）据 `rounds`/`repairs` 把违约类别与修复轮次计入
-/// 统计——两侧消费同一份轨迹，评测数字度量的才是生产行为。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassifyDecision {
-    /// 判定的任务类型（含兜底 [`CLASSIFY_FALLBACK`]）。
     pub kind: TaskKind,
-    /// 契约违约触发的修复轮次数（0 = 一次通过）。
     pub repairs: u32,
-    /// 每一轮的完整回复，按轮序（修复轮由违约触发，逐轮跑
-    /// [`crate::schema::validate_classify`] 即还原违约轨迹）。
     pub rounds: Vec<String>,
 }
 
-/// [`classify`] 的全轨迹形态：逐轮执行分类请求并记录回复，契约违约走
-/// 修复轮（对话形态 `[system][user 原文][assistant 上一次坏回复]
-/// [user 纠错指令]`，EmptyReply 原样重发不带 assistant 轮），预算
-/// [`CLASSIFY_REPAIRS`] 耗尽落 [`CLASSIFY_FALLBACK`]（恒 `Ok`）。与
-/// [`classify`] 在错误处理上的差别只有一处：**请求异常不消化**、原样上抛——消化
-/// （落兜底 + warn）归 [`classify`]；评测需要区分「请求失败」与「回复
-/// 违约」，故在 traced 层保持上抛。
-///
-/// `text` 是待分类的选区文本。判定定型时把模型输出的原始类别与最终执行
-/// 的 kind 同行落 info（兜底类别 `Fallback` 映射 [`TaskKind::General`]
-/// 的落点在此可见）。pub 供 gloss-eval 的 live 轨复用同一循环（评测
-/// 与生产同源）。
 pub async fn classify_traced(
     engine: &dyn AiEngine,
     model: &str,
@@ -191,23 +142,17 @@ pub async fn classify_traced(
     text: &str,
 ) -> Result<ClassifyDecision, GlossError> {
     let registry = PromptRegistry::new();
-    // 底座只渲染一次：修复轮以它为底拼对话（与任务段同一形态），不再每轮
-    // 重渲。
     let base = registry.render_classify(locale, text);
     let mut messages = base.clone();
     let mut repairs = RepairLoop::new(RepairStage::Classify, CLASSIFY_REPAIRS);
     let mut rounds = Vec::new();
     loop {
-        // messages 随请求 move 出去（engine 端口按值收请求）；修复轮由
-        // 底座重拼。
         let request = EngineRequest {
             messages,
             model: model.to_owned(),
             max_tokens: Some(CLASSIFY_MAX_TOKENS),
         };
         let round = classify_round(engine, request).await?;
-        // 流内已提前定型就不用对末轮缓冲再校验一遍；流自然结束时才整段
-        // 校验一次（违约类别是修复轮与统计的输入）。
         let verdict = match round.settled {
             Some(choice) => Ok(choice),
             None => schema::validate_classify(&round.reply),
@@ -235,8 +180,6 @@ pub async fn classify_traced(
     }
 }
 
-/// 定型收卷：原始类别与最终 kind 同行落 info（兜底映射的落点在此可见），
-/// 并产出全轨迹决策。
 fn settled_decision(
     choice: schema::ClassifyChoice,
     repairs: u32,
@@ -256,22 +199,11 @@ fn settled_decision(
     }
 }
 
-/// 一轮分类的传输结果：累积回复与流内提前定型的判定。
 struct ClassifyRound {
     reply: String,
-    /// 完整 JSON 在流结束前到达时非 `None`——调用方无需对末轮缓冲再校验。
     settled: Option<schema::ClassifyChoice>,
 }
 
-/// 执行一轮分类请求并按预算累积回复：流式增量逐条累积，首个能通过校验
-/// 的完整 JSON 立即提前收卷（不等流自然结束，提前还流即还回 TTFT）；
-/// 只在 Ok 时提前退出——部分 JSON 继续等，跑偏与截断的回复照旧走完流、
-/// 落到整段校验。每次累积后的全量校验上界是回复上限（4KB）× 个位数
-/// chunk，相对 chunk 的毫秒级到达间隔可忽略。结束帧对分类没有增量价值。
-/// 建连后的首条目等待受 [`FIRST_ITEM_DEADLINE`] 约束（见模块文档）；
-/// 零增量的空完成（`EmptyCompletion`）断流收尾、按空回复交整段校验（与
-/// 任务段同口径，见模块文档），其余流错误按请求异常上抛。
-/// 请求按值接收（引擎端口按值收请求，消息所有权随调用 move）。
 async fn classify_round(
     engine: &dyn AiEngine,
     request: EngineRequest,
@@ -297,12 +229,6 @@ async fn classify_round(
     Ok(ClassifyRound { reply, settled })
 }
 
-/// 解析模型回复：严格裸 JSON，无围栏容错——围栏输出即违约（与生产
-/// 编排的 [`crate::schema::validate_classify`] 同一条判线，本函数只把
-/// [`Violation`] 折算成 [`GlossError::EngineResponse`]，错误文本是固定
-/// 措辞，不携带回复原文）。
-///
-/// pub 供 gloss-eval 评测重放复用：评测与生产走同一个校验器。
 pub fn parse_classify_reply(reply: &str) -> Result<TaskKind, GlossError> {
     schema::validate_classify(reply)
         .map(|choice| choice.kind)

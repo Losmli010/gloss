@@ -1,4 +1,4 @@
-//! 评测历史数据层：报告追加进 `history.jsonl`（一行一份 serde JSON，不包
+//! 评测历史数据层：报告追加进 `history.jsonl`（一行一份 `serde JSON`，不包
 //! 壳）并从全量历史重绘 `history.svg`。本模块是历史数据的唯一碰盘点；
 //! `svg.rs` 是被它调用的纯渲染层，不反向依赖。
 
@@ -7,15 +7,9 @@ use std::path::Path;
 use crate::report::EvalReport;
 use crate::svg;
 
-/// 历史文件名（与报告同目录）。
 const HISTORY_FILE: &str = "history.jsonl";
-/// 趋势图文件名（每次记录后全量重绘）。
 const SVG_FILE: &str = "history.svg";
 
-/// 原子写盘：写同目录临时文件再 `rename` 覆盖。`std::fs::write` 直接写
-/// 目标，进程中断会把受控工件截断成半截；临时文件 + `rename` 让中断只
-/// 丢临时文件，目标保持完整。临时文件与目标同目录，`rename` 不跨文件
-/// 系统、原子生效。
 pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
     let dir = path
         .parent()
@@ -23,11 +17,8 @@ pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
         .unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(dir)?;
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("out");
-    // 临时名带进程 id：跨进程并发写同一目标（如 replay 与 live 同目录）不
-    // 竞争同一个临时文件。
     let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
     std::fs::write(&tmp, contents)?;
-    // rename 失败时清理临时文件（尽力而为，清理失败无关紧要），错误原样上抛。
     match std::fs::rename(&tmp, path) {
         Ok(()) => Ok(()),
         Err(error) => {
@@ -37,11 +28,6 @@ pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
     }
 }
 
-/// 记录一次运行：upsert 一行并从全量历史重绘 `<dir>/history.svg`；失败
-/// 向上传播（趋势断更好过静默缺数）。
-///
-/// upsert 键 = `(mode, context.commit)`：`commit` 为 `None` 永不参与匹配
-/// （本地运行恒追加）；同键原位重写该行，其余行不动。JSONL 本身不裁剪。
 pub fn record_run(report: &EvalReport, dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let path = dir.join(HISTORY_FILE);
@@ -78,8 +64,6 @@ pub fn record_run(report: &EvalReport, dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// 容错读取 `history.jsonl`：缺文件=空历史；空行跳过；坏行 stderr 警告
-/// （带行号）后跳过——进程中断留下的半截尾行不炸整个趋势。
 pub fn load_history(path: &Path) -> std::io::Result<Vec<EvalReport>> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
@@ -99,24 +83,17 @@ pub fn load_history(path: &Path) -> std::io::Result<Vec<EvalReport>> {
     Ok(history)
 }
 
-/// upsert 键：`(mode, context.commit)`；`commit` 缺省即不产键——本地行
-/// 永不参与匹配，恒追加。借自报告本体（`report` 在整个 upsert 比对期间
-/// 存活），不复制两段文本。
 fn upsert_key(report: &EvalReport) -> Option<(&str, &str)> {
     let commit = report.context.as_ref()?.commit.as_deref()?;
     Some((&report.mode, commit))
 }
 
-/// 已有行的 upsert 键；解析失败或无 commit 的行返回 `None`（不参与匹配、
-/// 原样保留）。行内报告是临时解析产物，键随之取自有副本。
 fn parsed_key(row: &str) -> Option<(String, String)> {
     let report = serde_json::from_str::<EvalReport>(row).ok()?;
     let (mode, commit) = upsert_key(&report)?;
     Some((mode.to_owned(), commit.to_owned()))
 }
 
-/// 坏行警告经 stderr 直写：本模块服务于评测 CLI 的降级路径（无
-/// subscriber、无长驻进程），与 main.rs 同一豁免面，故就地显式豁免。
 #[allow(clippy::print_stderr)]
 fn warn_bad_row(path: &Path, line: usize, error: &serde_json::Error) {
     eprintln!(

@@ -1,7 +1,7 @@
 //! 评测趋势 SVG 渲染：`render_svg` 是纯函数——入参只认报告切片，不读
 //! 环境、不落盘；输出确定性字节（无渲染时刻的时间戳、浮点坐标固定两位
-//! 小数、遍历次序稳定），同输入两次渲染逐字节一致，入库后 PR diff 即数
-//! 据 diff。
+//! 小数、遍历次序稳定），同输入两次渲染逐字节一致，入库后 PR 的 diff 即
+//! 数据 diff。
 //!
 //! 图面：960 宽白底、面板纵向堆叠（标题 + 内联图例、细网格与刻度、
 //! frame、polyline + 圆点、x 轴稀疏刻度）；x 轴刻度是各点的 UTC 时间
@@ -19,7 +19,6 @@ mod panel;
 
 use crate::report::{EvalReport, format_utc};
 
-/// 趋势图最多绘制的点数：只画最近 100 点（JSONL 本身不裁剪）。
 pub const HISTORY_SVG_MAX_POINTS: usize = 100;
 
 const WIDTH: usize = 960;
@@ -49,15 +48,12 @@ const COLOR_ORANGE: &str = "#e8862e";
 const COLOR_GREEN: &str = "#2f9e57";
 const COLOR_PINK: &str = "#d64c7f";
 
-/// 修复成本面板里各任务数据集的线色（分类轨固定蓝色）。
 const COST_COLORS: [&str; 3] = [COLOR_ORANGE, COLOR_GREEN, COLOR_PINK];
 
 const FONT_STACK: &str = "-apple-system,'Segoe UI',sans-serif";
 const FOOTNOTE: &str = "口径：replay 轨度量生产校验器对固化夹具的判定，live 轨为模型现状；数据源 history.jsonl，仅绘最近 100 点，时间一律 UTC。";
 const EMPTY_NOTE: &str = "暂无评测历史。";
 
-/// 确定性渲染：超 [`HISTORY_SVG_MAX_POINTS`] 只画最近 100 点；面板数随
-/// 数据条件变化（judge 与延迟仅历史有样本才画，任务面板随数据集出现）。
 pub fn render_svg(history: &[EvalReport]) -> String {
     let points = latest_points(history);
     let data = draw::PointData::new(points);
@@ -78,8 +74,6 @@ pub fn render_svg(history: &[EvalReport]) -> String {
     out
 }
 
-/// 画布头部：svg 开标签、白底、标题行、右上角「最近一次」标注与口径
-/// 脚注；无面板时以占位文案替代图面。
 fn write_header(
     out: &mut String,
     height: usize,
@@ -128,7 +122,6 @@ fn write_header(
     }
 }
 
-/// 右上角「最近一次」标注：UTC 时间 + mode（+ commit）。
 fn latest_note(report: &EvalReport) -> String {
     let mut note = format!(
         "最近一次 {} UTC · {}",
@@ -145,7 +138,6 @@ fn latest_note(report: &EvalReport) -> String {
     note
 }
 
-/// 只保留最近 [`HISTORY_SVG_MAX_POINTS`] 个点。
 fn latest_points(history: &[EvalReport]) -> &[EvalReport] {
     if history.len() > HISTORY_SVG_MAX_POINTS {
         &history[history.len() - HISTORY_SVG_MAX_POINTS..]
@@ -154,7 +146,6 @@ fn latest_points(history: &[EvalReport]) -> &[EvalReport] {
     }
 }
 
-/// 面板数对应的画布高（含顶部标题区与底部刻度留白）。
 fn svg_height(panels: usize) -> usize {
     if panels == 0 {
         EMPTY_HEIGHT
@@ -175,7 +166,6 @@ fn esc(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// 浮点坐标固定两位小数。
 fn f2(value: f64) -> String {
     format!("{value:.2}")
 }

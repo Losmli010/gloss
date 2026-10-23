@@ -5,8 +5,6 @@
 //!
 //! 测试桩的源只在 `tests/stubs/`，经下方 `#[path]` 并入本 crate 单测编译。
 
-// 同一份桩文件在集成测试里以 `gloss_core::` 引用，库内单测没有这个名字；
-// 测试构建下把 crate 自身别名成 gloss_core，两种上下文才能共用一份源。
 #[cfg(test)]
 extern crate self as gloss_core;
 

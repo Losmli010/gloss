@@ -22,30 +22,20 @@ use crate::ui::fonts;
 use crate::ui::i18n::Text;
 use crate::ui::style::{color, font, space};
 
-/// 印章列与正文列之间的空隙（demo .sec gap 10px）。
 const SEAL_GAP: f32 = 10.0;
-/// 朱丝栏（注区左线）的线宽（demo：2px）。
 const ZHU_LINE_WIDTH: f32 = 2.0;
-/// 朱丝栏到注正文之间的空隙（demo padding-left 11px，含线宽）。
 const ZHU_TEXT_GAP: i8 = 11;
-/// 疏区上缘虚线到疏正文的空隙（demo padding-top 9px）。
 const SHU_TEXT_GAP: i8 = 9;
-/// 疏区虚线的段长与空隙。
 const SHU_DASH_LENGTH: f32 = 4.0;
 const SHU_GAP_LENGTH: f32 = 3.0;
-/// 代码面板的圆角、边宽与内边距（demo code 面板：radius 10、1px 边、
-/// 11px 13px）；代码底色直接铺满经位区块，无外层界栏框。
 const CODE_PANEL_RADIUS: u8 = 10;
 const CODE_PANEL_STROKE: f32 = 1.0;
 const CODE_PANEL_PADDING_V: i8 = 11;
 const CODE_PANEL_PADDING_H: i8 = 13;
-/// 代码正文的字号与行高（demo 定稿：12px、行高 1.65）。
 const CODE_FONT: f32 = 12.0;
 const CODE_LINE_HEIGHT: f32 = CODE_FONT * 1.65;
-/// 语言标签的字号（图样定稿：弱色小标，面板内独立行）。
 const CODE_BADGE_FONT: f32 = 10.0;
 
-/// 经区行：墨印 + 正文列（`body` 在列内绘制，显式垂直布局）。
 pub(super) fn jing_section(
     ui: &mut egui::Ui,
     text: &'static Text,
@@ -58,8 +48,6 @@ pub(super) fn jing_section(
     });
 }
 
-/// 注区行：朱印 + 朱丝栏左线的直接解释（译文/释义/概要）。朱丝栏画在
-/// 正文列左缘，线高随正文（跨行延续，demo 的疏密语义）。
 pub(super) fn zhu_section(
     ui: &mut egui::Ui,
     text: &'static Text,
@@ -91,8 +79,6 @@ pub(super) fn zhu_section(
     });
 }
 
-/// 疏区行：疏印 + 上缘虚线的小字衍说（译注/例句/小记）。虚线只横贯正文
-/// 列（demo shu-wrap 的 border-top 在文字列上，不过印章列）。
 pub(super) fn shu_section(
     ui: &mut egui::Ui,
     text: &'static Text,
@@ -126,9 +112,6 @@ pub(super) fn shu_section(
     });
 }
 
-/// 经位附件图像：纹理经 [`RenderState`] 跨帧复用（同字节恒同纹理，绝不
-/// 逐帧解码），宽度随卡宽等比收缩；解码失败落占位降级（字节进不了纹理
-/// 不是 panic 面）。
 pub(super) fn attached_image(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, png: &Arc<[u8]>) {
     match ctx.state.attached_texture(ui.ctx(), png) {
         Some(texture) => {
@@ -138,8 +121,6 @@ pub(super) fn attached_image(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, png: &Arc<[
     }
 }
 
-/// 经位图像的占位降级：图像缺席（无可渲染的字节）或解码失败时，经位落
-/// 一行弱色占位，注/疏照常。
 fn image_unavailable(ui: &mut egui::Ui, text: &'static Text) {
     ui.label(
         RichText::new(&text.gloss_popup_image_unavailable)
@@ -148,10 +129,6 @@ fn image_unavailable(ui: &mut egui::Ui, text: &'static Text) {
     );
 }
 
-/// 经区块的正文：原文/词条随任务形制。代码任务为单层代码面板——代码
-/// 底色直接铺满经位区块（用户反馈定稿：无外层底色的界栏框），配等宽
-/// 体、按可用宽折行、左上角语言标签行与 syntect（Sublime 语法集）的六类
-/// 语法着色；其余为宋体原文。
 pub(super) fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&str>) {
     let strong = ui.visuals().strong_text_color();
     if code {
@@ -164,12 +141,8 @@ pub(super) fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lan
                 CODE_PANEL_PADDING_V,
             ))
             .show(ui, |ui| {
-                // 面板底色铺满弹窗可用宽（Frame 默认随内容收缩，这里把
-                // 内容列定到可用宽，外框连同底色一起撑满）。
                 ui.set_width(ui.available_width());
                 code_badge(ui, code_lang);
-                // 等宽折行：超宽按可用宽换行（滚动区只纵向滚，横滚不进
-                // 弹窗）。
                 let job = code_job(ui, source, code_lang, ui.available_width());
                 let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
                 ui.add(egui::Label::new(egui::WidgetText::Galley(galley)).selectable(true));
@@ -187,10 +160,6 @@ pub(super) fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lan
     );
 }
 
-/// 代码正文的着色排版：syntect 分词 + egui_extras 出 [`egui::text::LayoutJob`]
-/// （六类色由 `code_hl` 的自定义主题注入），再补上本面板的折行与行高。
-/// 语言未定或表外语言落 [`code_hl::fallback_job`] 的通用启发集——不猜具体
-/// 语言，只认跨语言稳定的字符串/注释/数字/类型/函数形。
 fn code_job(
     ui: &egui::Ui,
     source: &str,
@@ -211,15 +180,12 @@ fn code_job(
     };
     job.break_on_newline = true;
     for section in &mut job.sections {
-        // 逐段写回字体：egui_extras 在分词失败时退回的纯文本用 style 派生的
-        // 字体，不写回会丢掉 gloss-mono。
         section.format.font_id = font_id.clone();
         section.format.line_height = Some(CODE_LINE_HEIGHT);
     }
     job
 }
 
-/// 代码面板底色（明暗随主题，demo code-bg 双档）。
 fn code_bg(ui: &egui::Ui) -> egui::Color32 {
     if ui.visuals().dark_mode {
         color::CODE_BG_DARK
@@ -228,7 +194,6 @@ fn code_bg(ui: &egui::Ui) -> egui::Color32 {
     }
 }
 
-/// 代码面板边色（明暗随主题，demo card-border 的近隐形档）。
 fn code_border(ui: &egui::Ui) -> egui::Color32 {
     if ui.visuals().dark_mode {
         color::CODE_BORDER_DARK
@@ -237,9 +202,6 @@ fn code_border(ui: &egui::Ui) -> egui::Color32 {
     }
 }
 
-/// 语言标签：面板内首行左上的原样小写弱色小字（图样定稿：与浅色一致
-/// 的统一面板底，不做标签带；标签行与代码之间空一个代码行高），未知
-/// 语言不显示。Label 落字自带无障碍标签（语言进树可检索）。
 fn code_badge(ui: &mut egui::Ui, lang: Option<&str>) {
     let Some(lang) = lang else {
         return;
@@ -253,9 +215,6 @@ fn code_badge(ui: &mut egui::Ui, lang: Option<&str>) {
     ui.add_space(CODE_LINE_HEIGHT);
 }
 
-/// 注/疏区共用的文本样式改写：markdown 正文与列表项落到楷体（egui_commonmark
-/// 经 `ui.style().text_styles` 取字体，改写即生效；代码块仍走等宽族）。
-/// 注正文用注字号（[`ZHU_FONT`]），疏条目用疏字号（[`SHU_FONT`]）。
 pub(super) fn apply_markdown_typography(ui: &mut egui::Ui, body_size: f32) {
     for (style, size) in [
         (TextStyle::Body, body_size),
@@ -267,21 +226,15 @@ pub(super) fn apply_markdown_typography(ui: &mut egui::Ui, body_size: f32) {
     }
 }
 
-/// markdown 正文：完整渲染（egui_commonmark 解析绘制），缓存跨帧持有。
 pub(super) fn render_markdown(ui: &mut egui::Ui, state: &RenderState, text: &str) {
     let mut cache = state.cache.borrow_mut();
     CommonMarkViewer::new().show(ui, &mut cache, text);
 }
 
-/// 该任务是否按代码排版（经位走代码面板）：流式视图看自动分类的
-/// 判定，完成态看产物任务的类型。
 pub(super) fn is_code(kind: Option<TaskKind>) -> bool {
     kind == Some(TaskKind::ExplainCode)
 }
 
-/// 产物正文的代码语言（渲染时现算）：唯一来源是产物的
-/// `structured.code_language`（LLM 判定），经 `code_hl::adopt` 过采纳
-/// 门槛与归一化；非代码变体恒无语言。
 fn outcome_code_lang(outcome: &gloss_core::task::TaskOutcome) -> Option<String> {
     match &outcome.structured {
         OutcomeStructured::Code { code_language, .. } => code_hl::adopt(code_language.as_deref()),
@@ -289,10 +242,6 @@ fn outcome_code_lang(outcome: &gloss_core::task::TaskOutcome) -> Option<String> 
     }
 }
 
-/// 产物正文（经注疏排布）：经（原文；图像任务为附件图像本身，缺席或
-/// 解码失败落占位）、注（markdown 注文，词卡的义/句译的译文/讲解的正文）、
-/// 疏（examples 疏证逐条）。代码语言按产物判定现算（见
-/// [`outcome_code_lang`]）。
 pub(super) fn outcome_body(
     ui: &mut egui::Ui,
     ctx: &RenderCtx<'_>,
@@ -313,9 +262,6 @@ pub(super) fn outcome_body(
         OutcomeStructured::Code { examples, .. } | OutcomeStructured::Plain { examples, .. }
             if outcome.kind == TaskKind::ImageExplain =>
         {
-            // 图像任务（恒落 Plain 变体）：经位是图像本身（布局开关＝
-            // 附件在场，不依赖 classified 到达时序）；缺图回落原文经位
-            // （缓存命中等会话边缘），再缺落占位。
             match ctx.attached {
                 Some(png) => jing_section(ui, ctx.text, |ui| attached_image(ui, ctx, png)),
                 None if !source.trim().is_empty() => {
@@ -343,7 +289,6 @@ pub(super) fn outcome_body(
     }
 }
 
-/// 注 + 疏：三个产物变体共用（注文 markdown 与例句列表的位置固定）。
 fn zhu_and_shu(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, note: &str, examples: &[String]) {
     zhu_section(ui, ctx.text, |ui| {
         apply_markdown_typography(ui, ZHU_FONT);
@@ -355,7 +300,6 @@ fn zhu_and_shu(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, note: &str, examples: &[S
     }
 }
 
-/// 词卡经位（说文体例的字头行）：原文（选区词条）+ 音标（读若）随行。
 fn word_head(ui: &mut egui::Ui, word: &str, phonetic: Option<&str>) {
     ui.horizontal_wrapped(|ui| {
         ui.label(
@@ -373,10 +317,6 @@ fn word_head(ui: &mut egui::Ui, word: &str, phonetic: Option<&str>) {
     });
 }
 
-/// 疏位疏证（examples 逐条）：条目在 code 模板下是 markdown、其余模板下
-/// 以纯文本为主（general 的链接语法除外），统一走注文同一条 markdown
-/// 渲染管线（楷体疏字号、正文色，纯文本不变形）——条目的出处/原文/
-/// 按断结构由条目自身的内容承载，不做拆行整形与列表符装饰。
 pub(super) fn shu_examples(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, examples: &[String]) {
     shu_section(ui, ctx.text, |ui| {
         apply_markdown_typography(ui, SHU_FONT);
@@ -389,7 +329,6 @@ pub(super) fn shu_examples(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, examples: &[S
     });
 }
 
-/// 自检卡正文（预热与显隐自检路径）：中英混排一眼可辨字体链路健康。
 pub(super) fn selfcheck_body(ui: &mut egui::Ui) {
     let strong = ui.visuals().strong_text_color();
     let weak = ui.visuals().weak_text_color();

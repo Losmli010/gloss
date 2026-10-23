@@ -29,7 +29,7 @@ fn text_options(text: &str) -> (TaskInput, TaskOptions) {
     )
 }
 
-#[allow(clippy::expect_used)] // 基准夹具的 kind 恒为文本类，模态矩阵保证构造成功
+#[allow(clippy::expect_used)]
 fn text_task(kind: TaskKind, text: String) -> Task {
     Task::new(
         kind,

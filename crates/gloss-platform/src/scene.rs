@@ -8,8 +8,6 @@ use gloss_core::guard::{FrontApp, SceneFacts};
 use gloss_core::ports::SceneProbe;
 use objc2_app_kit::NSWorkspace;
 
-/// 每次 `facts()` 现读一次：安全输入态与前台应用都可能在两次触发之间变化，
-/// 缓存会把旧状态带进闸门判定。
 #[derive(Debug, Default)]
 pub struct SystemSceneProbe;
 
@@ -22,9 +20,6 @@ impl SceneProbe for SystemSceneProbe {
     }
 }
 
-/// 前台应用的标识：Bundle ID 与本地化名各取一次，无 Info.plist 的进程没有
-/// Bundle ID；两项都取不到时返回 `None`。`is_self` 按进程号比对，用于让
-/// Gloss 自己在前台时不响应划词手势。
 fn frontmost_app() -> Option<FrontApp> {
     let workspace = NSWorkspace::sharedWorkspace();
     let app = workspace.frontmostApplication()?;

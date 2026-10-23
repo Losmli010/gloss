@@ -1,4 +1,4 @@
-//! 帧渲染管线：建帧（egui 状态 + GPU surface）与 egui → wgpu 的一帧呈现，
+//! 帧渲染管线：建帧（egui 状态 + `GPU` surface）与 egui → wgpu 的一帧呈现，
 //! 浮层与设置窗口共用。
 
 use std::error::Error;
@@ -19,43 +19,28 @@ use crate::present::windows::WindowManager;
 use crate::ui;
 use crate::ui::i18n::Text;
 
-/// 一帧渲染所需的全部状态；窗口建好之前为 `None`。
 pub struct Frame {
     pub(crate) window: Arc<Window>,
     pub(crate) egui_ctx: egui::Context,
     pub(crate) egui: egui_winit::State,
     pub(crate) surface: GpuSurface,
-    /// 浮层的跨帧渲染状态（markdown 缓存与尺寸收敛状态）：Rc 让它经绘制
-    /// 闭包进入 [`ui::popup::draw`]。仅浮层路径使用。
     popup_state: Rc<ui::popup::RenderState>,
 }
 
 impl Frame {
-    /// GPU 适配器名，供自检的性能数据记录运行环境。
     pub fn adapter_name(&self) -> String {
         self.surface.adapter_name()
     }
 
-    /// 清除浮层的跨帧拖动状态：壳在浮层显隐边界调用，跨显示残留的
-    /// 拖动所有权由此失效（见 `ui::popup::RenderState::reset_drag_state`）。
     pub(crate) fn reset_overlay_drag(&self) {
         self.popup_state.reset_drag_state();
     }
 
-    /// 清除浮层出现动画起点，让下一次显示从 0 淡入：生产显形入口在每次
-    /// 显示时调用，显隐自检的每轮显示也经它复现同一行为。
     pub fn reset_appear_animation(&self) {
         ui::popup::reset_appear_animation(&self.egui_ctx);
     }
 }
 
-/// 建窗口栈与浮层窗口的首帧渲染状态（生产 App 与自检 handler 共用）：
-/// 浮层帧在前。设置窗口的渲染帧不在这里建——设置窗是低频入口，其
-/// surface 与渲染器惰性创建、随关闭释放（见
-/// `crate::present::workspace::ensure_settings_frame`）。两个窗口共享同一
-/// 份 `GpuContext`（设备与队列各一份），返回它供建设置帧；egui 上下文
-/// 各自独立，都经 [`ui::context::new_context`] 装好字体与主题（`theme`
-/// 是建立时的主题偏好）。
 pub fn build_window_stack(
     event_loop: &ActiveEventLoop,
     theme: Theme,
@@ -71,7 +56,6 @@ pub fn build_window_stack(
     Ok((windows, context, frame))
 }
 
-/// 建单个窗口的 egui 渲染状态 + surface（浮层与设置窗口同构）。
 pub(crate) fn build_frame(
     window: Arc<Window>,
     context: &Arc<GpuContext>,
@@ -97,15 +81,11 @@ pub(crate) fn build_frame(
     })
 }
 
-/// 渲染一帧：egui 出绘制数据 → wgpu 呈现，返回（egui 要求的下一帧时刻，
-/// 绘制闭包的返回值）。浮层与设置窗口共用这套管线，只有绘制闭包不同。
 pub fn render_frame_with<R>(
     frame: &mut Frame,
     draw: impl FnOnce(&mut egui::Ui) -> R,
 ) -> (Option<Instant>, Option<R>) {
     let input = frame.egui.take_egui_input(&frame.window);
-    // run_ui 的闭包是 FnMut 而绘制闭包是 FnOnce：装进 Option 交出所有权，
-    // 绘制结果经这个槽带出来（闭包恰好执行一次）。
     let mut draw = Some(draw);
     let mut result = None;
     let output = frame.egui_ctx.run_ui(input, |ui| {
@@ -130,22 +110,13 @@ pub fn render_frame_with<R>(
     (repaint_at, result)
 }
 
-/// 一帧浮层的上交产物：头部动作、内容期望高与页头拖动位移。
 #[derive(Default)]
 pub struct OverlayFrameOutput {
-    /// 本帧被点击的浮层动作（失败卡与头部动作区）。
     pub action: Option<ui::popup::OverlayAction>,
-    /// 浮层内容期望的窗口高（宽度恒为 `ui::popup::WIDTH`，壳按显示器
-    /// 钳制后应用）。
     pub sizing: Option<ui::popup::OverlaySizing>,
-    /// 页头拖动热区的指针位移（窗口内相对逻辑点）；`Some`＝拖动进行中。
     pub drag: Option<egui::Vec2>,
 }
 
-/// 渲染一帧浮层（[`render_frame_with`] 的浮层特化，供 App 与自检 handler
-/// 用）：`locale` 是界面语言（文案表选表依据，本层不做探测）；`attached`
-/// 是本会话经位附件图像（图像卡的经位，状态机经访问器随行）。返回
-/// （egui 要求的下一帧时刻，本帧的浮层上交产物）。
 pub fn render_frame(
     frame: &mut Frame,
     view: Option<&OverlayView>,
@@ -157,7 +128,6 @@ pub fn render_frame(
     let (repaint_at, output) = render_frame_with(frame, |ui| {
         ui::popup::draw(ui, view, attached, &popup_state, text)
     });
-    // 内层 Option 是「闭包有没有跑」的外壳，动作本身才是浮层的返回值。
     let output = output.map_or(OverlayFrameOutput::default(), |out| OverlayFrameOutput {
         action: out.action,
         sizing: Some(out.sizing),
@@ -166,7 +136,6 @@ pub fn render_frame(
     (repaint_at, output)
 }
 
-/// egui 用 `Duration::MAX` 表示「不必重绘，等输入」；其余延迟换算成唤醒时刻。
 fn repaint_at(delay: Duration, now: Instant) -> Option<Instant> {
     (delay != Duration::MAX).then(|| now + delay)
 }

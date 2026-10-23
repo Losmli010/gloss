@@ -13,7 +13,6 @@ pub fn system_locale() -> Locale {
     locale_for(first.as_deref())
 }
 
-/// 只有 `zh*` 归中文，其余语言（含读不到偏好）一律英文——文案只有中英两套。
 fn locale_for(preferred: Option<&str>) -> Locale {
     match preferred {
         Some(code) if code.to_ascii_lowercase().starts_with("zh") => Locale::Zh,

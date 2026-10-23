@@ -2,7 +2,7 @@
 //! MockEngine + TaskCache 的全链路时序（见 AGENTS.md）。
 //!
 //! 边界：真实事件线程（通道②消费、RunLoop、CompositeReader）属于 OS
-//! 边界，归 L4 opt-in 层——这里取材产物以 `machine.commit_probe`
+//! 边界，归 L4 的 opt-in 层——这里取材产物以 `machine.commit_probe`
 //! 直接注入，等价于事件线程回传的产物。
 //!
 //! 分类完全交给 LLM 层：文本任务先花引擎调用分类（MockEngine 脚本通常
@@ -695,8 +695,6 @@ fn superseded_trigger_cancels_and_filters_late_events() {
         "stale generation must be dropped by the machine"
     );
 
-    // 每条任务各发一次 TaskClassified：先到的一条属于已被顶掉的
-    // A（或竞速下的 B），按代数分流——只有当前代的判定被采纳。
     wait_classified_of_generation(&mut pipe, gen_b);
     for expected in ["A1", "A2"] {
         let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
@@ -760,8 +758,6 @@ fn wait_degraded_done(pipe: &mut Pipeline, current: u64) {
 
 #[test]
 fn failure_lands_in_error_and_retry_succeeds() {
-    // 两次一次性失败：第一次触发里分类吃掉第一条、任务吃掉第二条，
-    // 落 Error；第二次触发时失败队列已空，照常产流。
     let engine = MockEngine::new()
         .with_execute_failure_once(GlossError::EngineRateLimited)
         .with_execute_failure_once(GlossError::EngineRateLimited)

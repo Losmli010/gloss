@@ -25,26 +25,16 @@ use crate::detail::{self, CaseDetail};
 use crate::metrics::{ClassifyMetrics, ClassifyVerdict, TaskMetrics, ViolationTrack};
 use crate::report::{TrackOutputs, assemble_report};
 
-/// 重放轨的一次运行产出：报告 + 逐条明细（检视页消费）。
 #[derive(Debug, Clone)]
 pub struct ReplayRun {
-    /// 评测报告。
     pub report: EvalReport,
-    /// 有夹具条目的逐条明细（跳过条目不留行，与报告分母一致）。
     pub cases: Vec<CaseDetail>,
 }
 
-/// 重放轨：数据集 × 夹具，经生产解析函数算指标。无网络无凭据。
-///
-/// 只统计有夹具的条目（其余计入 skipped）——夹具是维护的受控工件，
-/// 数量决定确定性轨的覆盖面。夹具轨迹必须与生产的修复循环同形（末轮
-/// 之前每轮都违约、修复轮数不超生产预算），漂移的夹具按硬错误拦下
-/// （[`check_classify_trajectory`] / [`check_task_trajectory`]）。
 pub fn run_replay() -> Result<EvalReport, String> {
     run_replay_detailed().map(|run| run.report)
 }
 
-/// [`run_replay`] 的带明细版本：同样的轨迹与口径，额外逐条落行供检视页。
 pub fn run_replay_detailed() -> Result<ReplayRun, String> {
     let mut classify = ClassifyMetrics::default();
     let mut case_details = Vec::new();
@@ -68,7 +58,6 @@ pub fn run_replay_detailed() -> Result<ReplayRun, String> {
     })
 }
 
-/// 分类轨重放：逐样例校验轨迹并结算指标与明细，无夹具的样例计入跳过。
 fn replay_classify(
     classify: &mut ClassifyMetrics,
     case_details: &mut Vec<CaseDetail>,
@@ -92,7 +81,6 @@ fn replay_classify(
     Ok(())
 }
 
-/// 任务轨重放：逐数据集校验轨迹并结算指标与明细，无夹具的样例计入跳过。
 fn replay_tasks(
     tasks: &mut Vec<(&'static str, TaskMetrics)>,
     case_details: &mut Vec<CaseDetail>,
@@ -122,8 +110,6 @@ fn replay_tasks(
     Ok(())
 }
 
-/// 一条分类样例的结算（重放与 live 共用同一口径）：违约轨迹并入指标、
-/// 计一条已评估，按期望 kind 判分，并落一行明细。
 fn score_classify_case(
     classify: &mut ClassifyMetrics,
     case: &ClassifyCase,
@@ -141,14 +127,12 @@ fn score_classify_case(
     case_detail
 }
 
-/// 任务数据集清单：名字 → 内嵌资产。
 const TASK_DATASETS: [(&str, &str); 3] = [
     ("task_translate_word", assets::TASK_WORD_DATASET),
     ("task_translate_sentence", assets::TASK_SENTENCE_DATASET),
     ("task_explain_code", assets::TASK_CODE_DATASET),
 ];
 
-/// 夹具轮次 → 每轮完整回复（增量按到达序拼接，与生产流式累积一致）。
 fn round_texts(fixture: &Fixture) -> Vec<String> {
     fixture
         .rounds
@@ -157,9 +141,6 @@ fn round_texts(fixture: &Fixture) -> Vec<String> {
         .collect()
 }
 
-/// 夹具轨迹体检（重放轨专用）：夹具是受控工件，分类轨迹必须与生产的
-/// 修复循环同形——修复轮数不超 [`CLASSIFY_REPAIRS`]，且末轮之前的每轮
-/// 都违约（修复轮由违约触发）。漂移的夹具会把指标带偏，按硬错误拦下。
 fn check_classify_trajectory(id: &str, rounds: &[String]) -> Result<(), String> {
     if rounds.len() as u32 > 1 + CLASSIFY_REPAIRS {
         return Err(format!(
@@ -180,8 +161,6 @@ fn check_classify_trajectory(id: &str, rounds: &[String]) -> Result<(), String> 
     Ok(())
 }
 
-/// 夹具轨迹体检（重放轨专用，任务版）：修复轮数不超 [`TASK_REPAIRS`]，
-/// 末轮之前的每轮都违约（[`gloss_core::schema::validate_task`]）。
 fn check_task_trajectory(id: &str, kind: TaskKind, rounds: &[String]) -> Result<(), String> {
     if rounds.len() as u32 > 1 + TASK_REPAIRS {
         return Err(format!(
@@ -202,8 +181,6 @@ fn check_task_trajectory(id: &str, kind: TaskKind, rounds: &[String]) -> Result<
     Ok(())
 }
 
-/// 把轨迹的违约计数并入分类指标（任务指标走 [`TaskMetrics::record`]，
-/// 计数逻辑在 [`TaskVerdict`] 里同源折算）。
 fn absorb_classify_track(metrics: &mut ClassifyMetrics, track: &ViolationTrack) {
     for (violation, count) in &track.violations {
         *metrics.violations.entry(*violation).or_default() += count;

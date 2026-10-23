@@ -2,8 +2,8 @@
 //!
 //! 契约校验收敛于 `gloss_core::schema`（wire 契约见该模块文档），这里只有
 //! **两分支**：
-//! 1. `validate_task` Ok → 正常产物（note + 按 kind 的疏证变体，
-//!    `degraded = false`）。
+//! 1. `validate_task` Ok → 正常产物（note + 按 kind 的疏证变体，且
+//!    降级标记为 `false`）。
 //! 2. `Err`（空回复 / 非 JSON / 缺 note）→ 降级产物：`note` 空串、该 kind
 //!    空变体、`degraded = true`，warn 留痕（只记违约类别，不携带回复原文）。
 //!    降级产物不进缓存（桥侧按 `degraded` 分流）、UI 出降级卡（原文垃圾
@@ -16,9 +16,6 @@ use gloss_core::log::{thread, warn};
 use gloss_core::schema;
 use gloss_core::task::{TaskKind, TaskOutcome};
 
-/// 完成态产物组装（契约纯函数）：校验过出正常产物，违约落降级产物。
-/// 引擎失败的任务到不了这里，因此产物恒可回填缓存——但降级产物由调用方
-/// 按 `degraded` 分流（不进缓存，见 `crate::runtime::pipeline`）。
 pub fn complete(kind: TaskKind, raw: &str) -> TaskOutcome {
     match schema::validate_task(kind, raw) {
         Ok((note, structured)) => TaskOutcome {

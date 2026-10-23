@@ -4,7 +4,7 @@
 //! - [`events`]——事件循环入口与跨线程唤醒句柄；
 //! - [`handler`]——winit 事件分发（`ApplicationHandler` 实现）。
 //!
-//! 通道消费与浮层显隐、动作执行在 `flow`（probe / task / reveal / actions），
+//! 通道消费与浮层显隐、动作执行在 `flow`（`probe`、`task`、`reveal`、`actions`），
 //! 渲染帧管线与呈现资源在 `present`，设置编辑会话在 `flow::settings_session`。
 
 mod events;
@@ -34,77 +34,37 @@ use crate::ui::popup::WIDTH;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
 use crate::update::UpdateWiring;
 
-/// 外部服务句柄聚合：配置、存储、场景探针、系统语言、取材授权门控、
-/// 更新接线。句柄本身进程内不变（配置内容经句柄热更新；授权门控按运行
-/// 中授权落定置位，见 `permissions_ready`）。
 pub(crate) struct Env {
-    /// 运行时配置句柄：每批平台事件取一份快照交给状态机，
-    /// 配置保存后无需重启即对下一次触发生效。
     pub(crate) config: Arc<ConfigHandle>,
-    /// 配置存储：设置页写 keychain 用——文档半边走句柄，密钥
-    /// 半边不进快照也不进句柄，经这里直查。
     pub(crate) store: Arc<dyn ConfigStore>,
-    /// 触发前场景探针：安全输入态与前台应用由它现读，壳只把它转交状态机
-    /// 作场景闸门判定（见 `drain_platform_events`）。
     pub(crate) scene: Arc<dyn SceneProbe>,
-    /// 启动期读到的系统语言：配置里的 `Language::System` 靠它落定成具体的
-    /// 界面语言与 prompt 模板语言（进程内不变，改系统语言要重启）。
     pub(crate) system_locale: Locale,
-    /// 取材授权（辅助功能）的门控：启动时刻取预检结论；未就绪的会话由授
-    /// 权观察器在运行中落定后置位（见 `GlossApp::on_accessibility_granted`）。
-    /// 密钥预热据此门控——未就绪意味着系统权限引导弹窗在途，预热读会让
-    /// keychain 授权框抢到它之前。
     pub(crate) permissions_ready: bool,
-    /// 更新子系统的壳侧接线：设置页每帧读其 receiver 渲染，用户动作经
-    /// 出口转投模块（与主流程四通道隔离）。
     pub(crate) update: UpdateWiring,
-    /// 剪贴板图片哨兵的共享开关位：组装点创建、与事件线程的哨兵源同份。
-    /// 设置页保存成功时置位（热切换不重启），落盘失败不置位——与运行时
-    /// 快照同进退。
     pub(crate) clipboard_watch_enabled: Arc<AtomicBool>,
 }
 
 impl Env {
-    /// 当前界面语言：配置里的三态偏好按启动期系统语言落定（与 prompt
-    /// 选表同一处取值）。逐帧从快照取——设置页保存后下一帧即换文案表。
     pub(crate) fn locale(&self) -> Locale {
         self.config.snapshot().language.resolve(self.system_locale)
     }
 
-    /// 配置快照里的主题偏好：建帧（上下文建立时装入）与逐帧施加共用这
-    /// 一处取值。
     pub(crate) fn target_theme(&self) -> Theme {
         self.config.snapshot().theme
     }
 }
 
-/// 主线程应用的组合根：每个所有者各持一类职责——任务决策在 `machine`、
-/// 管线会话状态在 `session`、呈现资源在 `workspace`、服务句柄在 `env`；
-/// 本结构体自身只剩绘制调度与设置窗编辑草稿。
 pub(crate) struct GlossApp {
-    /// 呈现资源：窗口管理器、两窗口渲染帧、各自的下一帧时刻、已施加主题。
     pub(crate) workspace: Workspace,
-    /// 组装点移交的通道端点（① 收、② 发、③ 发、④ 收）。
     pub(crate) endpoints: Option<AppEndpoints>,
-    /// 任务状态机（functional core，见 machine.rs）：纯状态转移，壳只做
-    /// 通道发送、浮层窗口操作与日志。
     pub(crate) machine: TaskStateMachine,
-    /// 触发/任务的管线会话状态（锚点、排查线索、显形挂起、任务 span）。
     pub(crate) session: Session,
-    /// 外部服务句柄（配置/存储/场景/系统语言/更新接线）。
     pub(crate) env: Env,
-    /// 设置窗口的编辑会话；窗口可见时有值，关闭/保存完成即清（草稿随
-    /// 之丢弃）。
     pub(crate) settings: Option<SettingsState>,
-    /// 自定义事件的投递端：后台线程（字体装载）向主线程发完成信号用。
-    /// 测试驱动（不经 run()）为 None——那条路径不触发字体装载。
     pub(crate) proxy: Option<EventLoopProxy<UserEvent>>,
 }
 
 impl GlossApp {
-    /// 组装点移交的通道端点与外部服务句柄；窗口与帧状态在 `resumed` 时
-    /// 建立。`system_locale` 同样来自组装点（系统语言是平台适配器的事，
-    /// 壳只消费）。
     #[allow(
         clippy::too_many_arguments,
         reason = "组装点的主入口：每项都是不同关注点的注入端点，收敛成结构体只会把清单变成字段袋"
@@ -139,16 +99,10 @@ impl GlossApp {
         }
     }
 
-    /// 指定代数的任务 span（副本，供 `enter()` 借用）；代数不符或尚无任务时
-    /// 为 `None`。
     pub(crate) fn span_for(&self, generation: u64) -> Option<Span> {
         self.session.span_for(generation)
     }
 
-    /// 画一帧：egui 出绘制数据 → wgpu 呈现，并把 egui 要求的下一帧记下
-    /// 来；浮层上交的动作（失败卡与头部动作区）就地执行；页头拖动按
-    /// 指针累计位移换算窗口落点；浮层内容的期望尺寸就地应用（内容自适
-    /// 应高度，窗口管理器按显示器钳制）。
     fn draw(&mut self) {
         self.workspace.apply_theme(self.env.target_theme());
         let locale = self.env.locale();
@@ -162,8 +116,6 @@ impl GlossApp {
         if let Some(action) = output.action {
             self.handle_overlay_action(action);
         }
-        // 页头拖动：落点以窗口当前实际位置为基准（无增量记账，见
-        // apply_overlay_drag），拖动中的每帧按需平移。
         if let Some(offset) = output.drag
             && let Some(windows) = &mut self.workspace.windows
         {
@@ -172,8 +124,6 @@ impl GlossApp {
         if let Some(sizing) = output.sizing
             && let Some(windows) = &mut self.workspace.windows
         {
-            // 流式期间走防抖尺寸（锁宽 + 步进增高），其余状态按精确尺寸
-            // 重排——TaskDone 的定型重排也走这一支。
             let streaming = self.machine.state() == AppState::Translating;
             windows.set_overlay_size(
                 LogicalSize::new(f64::from(WIDTH), f64::from(sizing.height)),
@@ -182,15 +132,9 @@ impl GlossApp {
         }
     }
 
-    /// 画一帧设置窗口：草稿编辑 + 动作上交（保存/密钥变更/取消/更新动作）。
-    /// 渲染帧在这里惰性建立（首次绘制前），建帧失败即关闭设置窗——空窗
-    /// 挂着只会让用户对着一堵白墙重试。
     fn draw_settings(&mut self) {
         self.workspace.apply_theme(self.env.target_theme());
         let text = Text::get(self.env.locale());
-        // 取一份快照而非在整帧渲染期间持有 watch 读锁：更新任务写状态时
-        // 不必等 GPU 帧画完。代价是每帧一次 `UpdateState` 克隆（`version`
-        // 为 `Some` 时有一次堆分配）——只在设置窗绘制帧发生。
         let update_state = self.env.update.receiver.borrow().clone();
         let Some(state) = self.settings.as_mut() else {
             return;

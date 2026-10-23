@@ -18,11 +18,6 @@
 
 use std::fmt;
 
-/// 触发被场景闸门拦下的前台应用名单：密码管理器与钥匙串访问——这些应用
-/// 里的划词几乎只会是凭据（主密码、生成的口令）。
-///
-/// 内建常量而非配置项：名单一旦可被编辑，防护就有了旁路出口。匹配对象是
-/// 前台应用的 Bundle ID 或应用名（不区分 ASCII 大小写），见 [`matched_entry`]。
 const SENSITIVE_APPS: [&str; 7] = [
     "com.1password.1password",
     "com.agilebits.onepassword7",
@@ -33,34 +28,22 @@ const SENSITIVE_APPS: [&str; 7] = [
     "com.apple.Passwords",
 ];
 
-/// 前台应用标识：敏感应用名单的匹配对象。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FrontApp {
-    /// `CFBundleIdentifier`，如 `com.1password.1password`。
     pub bundle_id: Option<String>,
-    /// 面向用户的本地化应用名。
     pub name: Option<String>,
-    /// 前台应用是否 Gloss 自身进程（探针按 `processIdentifier == getpid()`
-    /// 判定）。防误触用：连拖 Gloss 自己的浮层不该触发划词；名单匹配
-    /// 不消费它。
     pub is_self: bool,
 }
 
-/// 触发前的场景事实：壳在取材前取一次，交状态机判定。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SceneFacts {
-    /// 系统是否处于安全输入态（密码框聚焦）。
     pub secure_input: bool,
-    /// 前台应用；探针取不到时为 `None`，闸门按「无事实」放行。
     pub front_app: Option<FrontApp>,
 }
 
-/// 触发被场景闸门拦下的原因：只记类别与命中的名单条目，不含选区内容。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TriggerBlock {
-    /// 安全输入态（密码框聚焦）。
     SecureInput,
-    /// 前台应用命中敏感应用名单，携带命中的名单条目（原样，供日志对照）。
     BlockedApp(&'static str),
 }
 
@@ -73,10 +56,6 @@ impl fmt::Display for TriggerBlock {
     }
 }
 
-/// 触发前的场景闸门：`None` 即放行，`Some` 即不取材不触发。
-///
-/// 判定顺序与两个事实无关，只为「先判不依赖前台应用的那条」：安全输入态
-/// 与前台是谁无关，先判它才不会因为拿不到前台应用而漏掉。
 pub fn trigger_block(facts: &SceneFacts) -> Option<TriggerBlock> {
     if facts.secure_input {
         return Some(TriggerBlock::SecureInput);
@@ -85,8 +64,6 @@ pub fn trigger_block(facts: &SceneFacts) -> Option<TriggerBlock> {
     matched_entry(front).map(TriggerBlock::BlockedApp)
 }
 
-/// 名单匹配：Bundle ID 或应用名与 [`SENSITIVE_APPS`] 的条目逐字相等（ASCII
-/// 大小写不敏感）即命中，返回名单里那一条（名单目前全是 bundle id）。
 fn matched_entry(front: &FrontApp) -> Option<&'static str> {
     let identities = [front.bundle_id.as_deref(), front.name.as_deref()];
     SENSITIVE_APPS.iter().copied().find(|entry| {
@@ -97,26 +74,15 @@ fn matched_entry(front: &FrontApp) -> Option<&'static str> {
     })
 }
 
-/// 内容命中的敏感信息类别。类别进日志，命中的原文不进。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SensitiveKind {
-    /// 已知前缀的密钥/令牌（`sk-`、`ghp_`、`AKIA`…）或 `Bearer` 后接长令牌。
     Token,
-    /// PEM 私钥块。
     PrivateKey,
-    /// 高熵长随机串。
     HighEntropy,
-    /// 通过 Luhn 校验的银行卡号。
     CardNumber,
 }
 
-/// 发送前的内容闸门：命中返回类别，未命中返回 `None`。
-///
-/// 只做高置信度模式，判定顺序与命中概率无关，只为「更确定的类别先报」：
-/// 私钥块 → 密钥/令牌 → 卡号 → 高熵串（前者命中就不再往下猜）。
 pub fn detect_sensitive(text: &str) -> Option<SensitiveKind> {
-    // 网页与编辑器复制时常把不可见字符混进令牌中间，前面的词首判定会被它
-    // 挡住。只在真含有它们时才拷贝副本（选区是热路径）。
     let cleaned;
     let text = if text.contains(&INVISIBLE[..]) {
         cleaned = text.replace(&INVISIBLE[..], "");
@@ -139,48 +105,31 @@ pub fn detect_sensitive(text: &str) -> Option<SensitiveKind> {
     None
 }
 
-/// 词两端剥掉的标点：密钥常贴着引号、括号、markdown 强调符被复制走。
-/// 末三个依序是中文句号、逗号、顿号（`\u` 转义与 [`INVISIBLE`] 同构）。
 const TRIMMED: &[char] = &[
     '"', '\'', '`', '(', ')', '[', ']', '{', '}', '<', '>', ',', ';', ':', '!', '?', '*',
     '\u{3002}', '\u{ff0c}', '\u{3001}',
 ];
 
-/// 复制时会切断令牌的不可见字符：零宽空格/连接符、词连接符、BOM、软连字符。
 const INVISIBLE: [char; 6] = [
     '\u{200b}', '\u{200c}', '\u{200d}', '\u{2060}', '\u{feff}', '\u{00ad}',
 ];
 
-/// 已知密钥/令牌前缀（逐字匹配，大小写敏感——这些前缀本身区分大小写）。
-/// `sk_live_` / `sk_test_` 是 Stripe 的两档 secret key，`sk-proj-` 那一类
-/// 已被 `sk-` 覆盖。
 const TOKEN_PREFIXES: [&str; 10] = [
     "sk-", "sk_live_", "sk_test_", "ghp_", "gho_", "ghs_", "ghu_", "ghr_", "xoxb-", "xoxp-",
 ];
 
-/// 前缀之后算令牌的主体长度上限档：长过它一律算令牌。
 const MIN_TOKEN_BODY: usize = 16;
-/// 短主体档的下限：手写的假密钥（`sk-123456`、`sk-abc123`）就在这一档，
-/// 长度够了还得**含数字或大写**——普通小写复合词（`sk-learn-scikit`）不能中。
 const SHORT_TOKEN_BODY: usize = 4;
-/// `Bearer` 之后的最小令牌长度。
 const MIN_BEARER_BODY: usize = 20;
-/// AWS access key id 的主体长度（`AKIA` 后 16 位）。
 const AWS_KEY_ID_BODY: usize = 16;
-/// 高熵串的最小长度与最小香农熵（bit/字符）。
 const ENTROPY_MIN_LEN: usize = 32;
 const ENTROPY_MIN_BITS: f64 = 4.5;
-/// 卡号的位数区间（ISO/IEC 7812 的现行区间）。
 const MIN_CARD_DIGITS: usize = 13;
 const MAX_CARD_DIGITS: usize = 19;
 
-/// PEM 私钥块：`-----BEGIN` 与 `PRIVATE KEY` 同现即算（`RSA`/`EC`/
-/// `OPENSSH`/`PGP … BLOCK` 各变体都含这两段，不必逐个枚举）。
 fn has_private_key_block(text: &str) -> bool {
     text.contains("-----BEGIN") && text.contains("PRIVATE KEY")
 }
-/// 密钥/令牌：按空白切词逐词扫描前缀，同时盯住「前一个词是 `Bearer`」这一
-/// 双词形态——一趟遍历里两件事一起做，不为此把整段选区收成 `Vec`。
 fn has_token(text: &str) -> bool {
     let mut previous: Option<&str> = None;
     for raw in text.split_whitespace() {
@@ -196,23 +145,15 @@ fn has_token(text: &str) -> bool {
     false
 }
 
-/// `Bearer <token>`：前一个词是 `Bearer`（大小写不敏感，允许 `AUTH=Bearer`
-/// 这种赋值形态）且当前词够长。
 fn is_bearer_token(previous: Option<&str>, word: &str) -> bool {
     previous.is_some_and(|prev| after_assignment(prev).eq_ignore_ascii_case("bearer"))
         && is_token_body(word, MIN_BEARER_BODY)
 }
 
-/// 赋值形态（`AUTH=Bearer ...`）的取值半边：切**最后一个**等号——`Bearer`
-/// 的前面可能是 `AUTH=`，取最后一个更稳。
 fn after_assignment(word: &str) -> &str {
     word.rsplit_once('=').map_or(word, |(_, value)| value)
 }
 
-/// 词内扫描已知前缀与 `AKIA`：命中要求前缀**前面不是 ASCII 字母数字**（词首，
-/// 或前面是 `=` `:` `"` `/` 这类分隔符）——`{"key":"sk-xxx"}`、`key=sk-xxx`、
-/// `密钥是sk-xxx`、`/sk-xxx` 因此都能命中，而英文复合词（`disk-space-2024`、
-/// `risk-managed-portfolio`）不会。
 fn is_prefixed_token(candidate: &str) -> bool {
     for (at, _) in candidate.char_indices() {
         let at_token_start = at == 0
@@ -239,7 +180,6 @@ fn is_prefixed_token(candidate: &str) -> bool {
     false
 }
 
-/// 前缀令牌的主体形状：两档长度（见 [`MIN_TOKEN_BODY`] / [`SHORT_TOKEN_BODY`]）。
 fn is_prefixed_body(body: &str) -> bool {
     let len = body.chars().count();
     if len >= MIN_TOKEN_BODY {
@@ -251,8 +191,6 @@ fn is_prefixed_body(body: &str) -> bool {
             .any(|ch| ch.is_ascii_digit() || ch.is_ascii_uppercase())
 }
 
-/// 前缀之后连续的主体字符：遇到别的字符即止——`"sk-abc123"` 的收尾引号、
-/// `sk-abc123}` 的右花括号不该让前面的令牌作废。
 fn body_run(rest: &str) -> &str {
     let end = rest
         .char_indices()
@@ -261,15 +199,10 @@ fn body_run(rest: &str) -> &str {
     &rest[..end]
 }
 
-/// 前缀令牌的主体字符集：URL-safe 与标准 base64 都在内（`+` `/` `=` 常见于
-/// 手写的假密钥，`Bearer` 与高熵那两条仍用窄字符集）。
 fn is_prefixed_body_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-' | '+' | '/' | '=')
 }
 
-/// `AKIA` 之后连续的 access key id 字符（大写字母与数字）：`AKIA…EXAMPLE=`、
-/// `AKIA…EXAMPLE+1` 里的填充符与后缀属于下一个词元，不该让编号作废——判据
-/// 只要求「够长的一串大写字母与数字」。
 fn aws_body_run(rest: &str) -> &str {
     let end = rest
         .char_indices()
@@ -278,8 +211,6 @@ fn aws_body_run(rest: &str) -> &str {
     &rest[..end]
 }
 
-/// 令牌主体：长度够且字符全在 `[A-Za-z0-9._-]` 内（URL-safe base64、十六
-/// 进制、JWT 段都在此列）。
 fn is_token_body(body: &str, min_len: usize) -> bool {
     body.len() >= min_len
         && body
@@ -287,13 +218,6 @@ fn is_token_body(body: &str, min_len: usize) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
 }
 
-/// 高熵长随机串：单个无空白长词、字符全在 `[A-Za-z0-9._-]` 内、长度 ≥ 32、
-/// 小写/大写/数字三类字符齐全、香农熵 ≥ 4.5 bit/字符。
-///
-/// 「三类字符齐全」是排除伪阳性的主力：长标识符（全小写加下划线）、路径
-/// （含 `/`）、中文长句（非 ASCII）都过不了它。命中即拦截、没有旁路出口，
-/// 所以这里宁可漏报：漏报只是这一次照常发送，误报却会让用户彻底失去这条
-/// 路径的可用性。
 fn has_high_entropy_token(text: &str) -> bool {
     text.split_whitespace().any(|raw| {
         let word = raw.trim_matches(TRIMMED);
@@ -313,8 +237,6 @@ fn has_all_three_classes(word: &str) -> bool {
     lower && upper && digit
 }
 
-/// 香农熵（bit/字符）：字符分布的均匀度。随机串显著高于自然语言与命名，
-/// 是「像不像随机生成」的量化判据。
 fn shannon_bits_per_char(word: &str) -> f64 {
     let mut counts = [0usize; 128];
     let mut total = 0usize;
@@ -338,12 +260,6 @@ fn shannon_bits_per_char(word: &str) -> f64 {
         .sum()
 }
 
-/// 卡号：13–19 位数字（组间允许空格或连字符连续出现）、过 Luhn 校验、且至少
-/// 出现两种不同数字（全同数字串是填充号，不是卡号）。
-///
-/// 判定点有两类：**每个组分界**与**整段末尾**。「卡号 + 有效期/CVC」是粘贴
-/// 卡片信息最常见的形态，只在末尾判会让 `4111 1111 1111 1111 12/26` 这类
-/// 因为后段数字并进累加串而整条漏掉；组界处提前判一次就看得见那 16 位。
 fn has_card_number(text: &str) -> bool {
     let mut digits = String::new();
     for ch in text.chars() {
@@ -366,7 +282,6 @@ fn has_card_number(text: &str) -> bool {
     luhn_ok(&digits)
 }
 
-/// Luhn 校验：从右数第 2、4、6… 位（0 基奇数索引）翻倍、超 9 减 9，总和整除 10。
 fn luhn_ok(digits: &str) -> bool {
     if !(MIN_CARD_DIGITS..=MAX_CARD_DIGITS).contains(&digits.len()) || distinct_digits(digits) < 2 {
         return false;
@@ -385,7 +300,6 @@ fn luhn_ok(digits: &str) -> bool {
     sum.is_multiple_of(10)
 }
 
-/// 数字串里出现过的不同数字个数（位掩码）。
 fn distinct_digits(digits: &str) -> u32 {
     let mut mask = 0u16;
     for byte in digits.bytes() {
