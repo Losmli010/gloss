@@ -44,11 +44,14 @@ def test_english_only_header_flagged(tmp_path):
     assert any("无汉字" in p for p in problems)
 
 
-def test_adjacent_english_words_flagged(tmp_path):
-    problems = run_gate(
-        tmp_path, "//! 中文头说明 functional core 在此。\n\nfn main() {}\n"
-    )
-    assert any("相邻英文词" in p for p in problems)
+def test_bare_english_words_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头说明 functional core 在此。\n\nfn main() {}\n")
+    assert any("英文词" in p for p in problems)
+
+
+def test_single_english_word_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头借用 wgpu 渲染。\n\nfn main() {}\n")
+    assert any("英文词" in p for p in problems)
 
 
 def test_backticked_english_words_allowed(tmp_path):
@@ -58,9 +61,7 @@ def test_backticked_english_words_allowed(tmp_path):
 
 def test_url_inside_string_not_flagged(tmp_path):
     content = (
-        f"{HEADER}\n\n"
-        'const URL: &str = "https://example.com/a//b";\n'
-        "fn main() { let _ = URL; }\n"
+        f'{HEADER}\n\nconst URL: &str = "https://example.com/a//b";\nfn main() {{ let _ = URL; }}\n'
     )
     assert run_gate(tmp_path, content) == []
 
@@ -79,9 +80,7 @@ def test_inline_comment_flagged(tmp_path):
 
 
 def test_trailing_comment_flagged(tmp_path):
-    problems = run_gate(
-        tmp_path, f"{HEADER}\n\nfn main() {{ let _ = 1; // 尾注\n}}\n"
-    )
+    problems = run_gate(tmp_path, f"{HEADER}\n\nfn main() {{ let _ = 1; // 尾注\n}}\n")
     assert any("行尾注释" in p for p in problems)
 
 

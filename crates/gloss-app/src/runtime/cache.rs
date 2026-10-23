@@ -1,15 +1,15 @@
-//! 任务产物缓存：`moka` LRU + TTL，全部缓存逻辑的唯一落点（core 零缓存）。
+//! 任务产物缓存：`moka` 的 `LRU` + `TTL`，全部缓存逻辑的唯一落点（`core` 零缓存）。
 //!
-//! key 由 [`cache_key`] 统一派生：`cache_key(input, options)`——输入与
-//! 选项共同决定产物，kind 不参与（分类在 LLM 层内完成，同一输入在
-//! 同一选项下判定的 kind 唯一，无需单独去重）。模型 id 在 `options`
-//! 里——同文本换模型不得命中旧产物。摘要用 std `DefaultHasher`
-//! （SipHash）：只要求进程内稳定，不要求跨版本持久稳定。输入按变体
-//! 直接喂哈希器（图像字节流式写入，不经 serde 展开临时缓冲）；选项
-//! 仍走 serde 全量参与。
+//! `key` 由 [`cache_key`] 统一派生：`cache_key(input, options)`——输入与
+//! 选项共同决定产物，`kind` 不参与（分类在 `LLM` 层内完成，同一输入在
+//! 同一选项下判定的 `kind` 唯一，无需单独去重）。模型 `id` 在 `options`
+//! 里——同文本换模型不得命中旧产物。摘要用 `std` 的 `DefaultHasher`
+//! （`SipHash`）：只要求进程内稳定，不要求跨版本持久稳定。输入按变体
+//! 直接喂哈希器（图像字节流式写入，不经 `serde` 展开临时缓冲）；选项
+//! 仍走 `serde` 全量参与。
 //!
 //! 缓存恒存**完成产物**（[`TaskOutcome`]）：只有成功解析的整卡才写入，
-//! 半截流与失败不入缓存。TTL 来自配置（`Config::cache_ttl_secs`，组装点
+//! 半截流与失败不入缓存。`TTL` 来自配置（`Config::cache_ttl_secs`，组装点
 //! 换算成 `Duration` 注入 [`TaskCache::with_ttl`]）。
 
 use std::hash::{Hash, Hasher};

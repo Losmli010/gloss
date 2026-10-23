@@ -1,4 +1,4 @@
-//! 系统语言读取：`Config::language` 为 `System` 时的唯一输入，prompt 模板
+//! 系统语言读取：`Config::language` 为 `System` 时的唯一输入，提示词模板
 //! 与界面文案共用这一份结果。
 //!
 //! 只看 `NSLocale.preferredLanguages` 的首项（如 `"zh-Hans-CN"`）；进程内

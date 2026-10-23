@@ -1,7 +1,7 @@
-//! `LLM judge` 轨（opt-in）：按 rubric 请评审模型给 1–5 分。
+//! `LLM judge` 轨（`opt-in`）：按 `rubric` 请评审模型给 1–5 分。
 //!
-//! 只在 live 轨、`GLOSS_LIVE_JUDGE=1` 时运行——judge 是额外的一次模型
-//! 调用，成本与不确定性都归入 opt-in 轨。回复解析只认分数（理由留给
+//! 只在 `live` 轨、`GLOSS_LIVE_JUDGE=1` 时运行——`judge` 是额外的一次模型
+//! 调用，成本与不确定性都归入 `opt-in` 轨。回复解析只认分数（理由留给
 //! 人读的报告，不参与任何门禁）。
 
 use gloss_core::prompt::ChatMessage;

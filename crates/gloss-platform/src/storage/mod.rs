@@ -1,4 +1,4 @@
-//! ConfigStore 适配器：文档半边（[`FileConfigStore`]，TOML 落盘）与
+//! `ConfigStore` 适配器：文档半边（[`FileConfigStore`]，`TOML` 落盘）与
 //! 密钥半边（[`keychain::KeychainSecret`]，系统安全存储）各司其职，由
 //! [`CompositeConfigStore`] 组合成完整端口——组装点注入的就是组合体。
 

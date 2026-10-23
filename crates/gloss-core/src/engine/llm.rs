@@ -1,14 +1,14 @@
-//! LlmClient：OpenAI 兼容端点的流式引擎适配器（[`crate::ports::AiEngine`]
+//! `LlmClient`：`OpenAI` 兼容端点的流式引擎适配器（[`crate::ports::AiEngine`]
 //! 端口的内建实现）。
 //!
-//! 边界：**只负责把请求送出去、把响应流回来**。messages 由编排层渲染
+//! 边界：**只负责把请求送出去、把响应流回来**。`messages` 由编排层渲染
 //! （`super::AiTaskService` → `prompt::PromptRegistry`，含模态校验），模型
-//! 也已由 App 按配置解析后随 [`EngineRequest`] 携带——本模块不渲染
-//! prompt，也不看配置里的模型。域形态的消息（[`crate::prompt::ChatMessage`]：文本或多
-//! 模态部件）在这里映成 OpenAI 兼容 wire 形状；图像部件的 base64 与
-//! `data URL` 前缀也只在请求体构造处编码（域类型不带 base64）。
+//! 也已由 `App` 按配置解析后随 [`EngineRequest`] 携带——本模块不渲染
+//! 提示词，也不看配置里的模型。域形态的消息（[`crate::prompt::ChatMessage`]：文本或多
+//! 模态部件）在这里映成 `OpenAI` 兼容 `wire` 形状；图像部件的 `base64` 与
+//! `data URL` 前缀也只在请求体构造处编码（域类型不带 `base64`）。
 //!
-//! 端点与密钥：端点取配置快照的 `base_url`；密钥按 provider 条目的 keychain
+//! 端点与密钥：端点取配置快照的 `base_url`；密钥按 `provider` 条目的 `keychain`
 //! 条目标识**每请求直查**（不缓存，除请求头外不进任何地方——错误消息与日志里
 //! 只有状态码与服务端诊断文本；红线与措辞见 `crate::ports::ConfigStore` 的文档）。
 //!
@@ -16,7 +16,7 @@
 //! 之外，流式读取只设**空闲超时**——长回复合法地跑满全预算，总超时只会
 //! 误杀；传输失败在**首个流条目之前**自动重试（仅瞬态失败）。两者的取值
 //! 与调度见 `transport`。取消由调用方的 `CancellationToken` 竞速完成
-//! （future 被丢弃即断链）。
+//! （`future` 被丢弃即断链）。
 
 use std::sync::Arc;
 use std::time::Duration;

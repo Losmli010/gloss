@@ -1,6 +1,6 @@
-//! OpenAI 兼容 wire 请求体的构造：域形态的消息（[`ChatMessage`]：文本或
-//! 多模态部件）在这里映成 wire 形状；图像部件的 base64 与 `data URL` 前缀
-//! 只在请求体构造处编码（域类型不带 base64）。
+//! `OpenAI` 兼容 `wire` 请求体的构造：域形态的消息（[`ChatMessage`]：文本或
+//! 多模态部件）在这里映成 `wire` 形状；图像部件的 `base64` 与 `data URL` 前缀
+//! 只在请求体构造处编码（域类型不带 `base64`）。
 
 use crate::ports::EngineRequest;
 use crate::prompt::{ChatMessage, ContentPart, MessageContent};

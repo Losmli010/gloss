@@ -1,33 +1,33 @@
-//! Prompt 模板注册表：`kind` + `input` + `locale` → OpenAI 兼容 messages。
+//! `Prompt` 模板注册表：`kind` + `input` + `locale` → `OpenAI` 兼容 `messages`。
 //!
 //! 任务**一个任务一份自包含模板**（词卡/句译/代码解释/图像解读/通用）：
-//! 任务说明与纯 JSON 输出契约（含一份**中性占位**的输出示例）都在同一个
+//! 任务说明与纯 `JSON` 输出契约（含一份**中性占位**的输出示例）都在同一个
 //! 文件里，改一个任务的任务书不会牵动其它任务。契约按经注疏/说文解字的
 //! 层次组织，与 [`crate::schema`] 的三行同构表同源：`note`（义）恒为首
-//! 字段，按 kind 的疏证字段收敛在 `structured` 对象里——词卡
-//! 是 structured.phonetic/examples（音/例，字头即选区原文），句译、讲解、
-//! 图像解读与通用任务是 structured.examples（展开条目），代码另带
-//! structured.code_language（LLM 判定，UI 角标与高亮使用）。
+//! 字段，按 `kind` 的疏证字段收敛在 `structured` 对象里——词卡
+//! 是 `structured.phonetic`/`examples`（音/例，字头即选区原文），句译、讲解、
+//! 图像解读与通用任务是 `structured.examples`（展开条目），代码另带
+//! `structured.code_language`（`LLM` 判定，界面角标与高亮使用）。
 //! 模板里的输出示例就是解析侧（`crate::schema::validate_task`）所吃形状
 //! 的唯一描述，两处改一须改二（完整性门禁测试锁定：每个模板的示例对象
 //! 必须通过对应 `validate_task`）。模板与提示都不要求围栏——模型回复按
-//! 严格裸 JSON 校验（`crate::schema`），围栏输出即违约进修复轮。模态矩阵
+//! 严格裸 `JSON` 校验（`crate::schema`），围栏输出即违约进修复轮。模态矩阵
 //! 之外的输入一律 [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
 //!
-//! 分类与修复的指令同样自包含：classify 模板自带类别清单与判别规则（类别
-//! `Fallback` 由 [`crate::schema::validate_classify`] 映射兜底 kind），
-//! repair 模板只携带违约固定措辞（`{{reason}}` 回灌）。模板文本是编译期
+//! 分类与修复的指令同样自包含：`classify` 模板自带类别清单与判别规则（类别
+//! `Fallback` 由 [`crate::schema::validate_classify`] 映射兜底 `kind`），
+//! `repair` 模板只携带违约固定措辞（`{{reason}}` 回灌）。模板文本是编译期
 //! 嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，`include_str!`），
 //! 渲染是显式的 `{{占位符}}` 替换（可选行语义见 [`render_template`]）。
 //! 不注入模态提示行：源语言与代码语言都由模型从原文自行判断，代码语言经
-//! 产物 JSON 的 `structured.code_language` 回传 UI。
+//! 产物 `JSON` 的 `structured.code_language` 回传界面。
 //!
-//! 本模块只产**域形态**的消息（[`ChatMessage`]：role + [`MessageContent`]），
-//! 不做 wire 序列化，也不携带 base64——把部件数组映成 OpenAI 兼容
-//! content、把图像字节编码成 `data URL` 都归传输层（`engine::llm` 的请求体
+//! 本模块只产**域形态**的消息（[`ChatMessage`]：`role` + [`MessageContent`]），
+//! 不做 `wire` 序列化，也不携带 `base64`——把部件数组映成 `OpenAI` 兼容
+//! `content`、把图像字节编码成 `data URL` 都归传输层（`engine::llm` 的请求体
 //! 组装）。
 //!
-//! 模板内容面向模型，用各 locale 的语言书写，不受「日志一律英文」门禁约束
+//! 模板内容面向模型，用各 `locale` 的语言书写，不受「日志一律英文」门禁约束
 //! （`just constraints` 只查日志宏实参）。
 //!
 //! 参数缺省：`options.target_lang` 缺省中文；`options.prompt_locale`

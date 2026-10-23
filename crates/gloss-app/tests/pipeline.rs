@@ -1,19 +1,19 @@
-//! L1 库级集成测试：状态机（machine）+ 通道③④ + tokio 消费桥 +
-//! MockEngine + TaskCache 的全链路时序（见 AGENTS.md）。
+//! `L1` 库级集成测试：状态机（`machine`）+ 通道③④ + `tokio` 消费桥 +
+//! `MockEngine` + `TaskCache` 的全链路时序（见 `AGENTS.md`）。
 //!
-//! 边界：真实事件线程（通道②消费、RunLoop、CompositeReader）属于 OS
-//! 边界，归 L4 的 opt-in 层——这里取材产物以 `machine.commit_probe`
+//! 边界：真实事件线程（通道②消费、`RunLoop`、`CompositeReader`）属于 `OS`
+//! 边界，归 `L4` 的 `opt-in` 层——这里取材产物以 `machine.commit_probe`
 //! 直接注入，等价于事件线程回传的产物。
 //!
-//! 分类完全交给 LLM 层：文本任务先花引擎调用分类（MockEngine 脚本通常
-//! 解析不出 kind——分类内部修复一轮后落兜底 General），再花任务执行；
-//! 脚本里带 `"kind"` 字段的裸 JSON 可让分类解析出具体 kind。任务回复的
-//! 契约违约由 LLM 层修复（至多 3 轮，事件序含 `TaskRepairing`），耗尽后
-//! 落降级产物。剪贴板图片任务在 LLM 层恒定映射 ImageExplain、跳过分类
+//! 分类完全交给 `LLM` 层：文本任务先花引擎调用分类（`MockEngine` 脚本通常
+//! 解析不出 `kind`——分类内部修复一轮后落兜底 `General`），再花任务执行；
+//! 脚本里带 `"kind"` 字段的裸 `JSON` 可让分类解析出具体 `kind`。任务回复的
+//! 契约违约由 `LLM` 层修复（至多 3 轮，事件序含 `TaskRepairing`），耗尽后
+//! 落降级产物。剪贴板图片任务在 `LLM` 层恒定映射 `ImageExplain`、跳过分类
 //! ——只有执行调用。纯流式/取消/重试语义与缓存/兜底语义按各自的调用数
 //! 记账。
 //!
-//! 驱动方式：全部经公共 API（`TaskStateMachine` / `Channels` /
+//! 驱动方式：全部经公共 `API`（`TaskStateMachine` / `Channels` /
 //! `start_command_runtime`），`cargo test` 直接跑。
 
 use std::sync::Arc;

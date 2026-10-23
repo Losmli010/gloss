@@ -1,10 +1,10 @@
-//! 评测 runner：重放轨（确定性、CI 安全）与 live 轨（opt-in）的编排。
+//! 评测 `runner`：重放轨（确定性、`CI` 安全）与 `live` 轨（`opt-in`）的编排。
 //!
 //! 两条轨共享同一套评分器（[`crate::metrics`]）与数据集；差别只在回复
-//! 的来源——重放轨取 `fixtures/` 里录制的修复轨迹（每轮增量），live 轨
-//! 经生产循环（`classify_traced` / `run_task_rounds`）打真实 LLM 并
-//! （可选）把轮次交回调用方落盘夹具、启用 judge。违约类别与修复轮次
-//! 两条轨同口径：逐轮跑生产校验器（`gloss_core::schema`）折算。live 轨
+//! 的来源——重放轨取 `fixtures/` 里录制的修复轨迹（每轮增量），`live` 轨
+//! 经生产循环（`classify_traced` / `run_task_rounds`）打真实 `LLM` 并
+//! （可选）把轮次交回调用方落盘夹具、启用 `judge`。违约类别与修复轮次
+//! 两条轨同口径：逐轮跑生产校验器（`gloss_core::schema`）折算。`live` 轨
 //! 的编排与端点装配在其子模块 [`live`]。
 
 mod live;

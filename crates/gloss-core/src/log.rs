@@ -1,23 +1,23 @@
 //! 统一日志封装：全项目唯一日志出口。
 //!
-//! 其余 crate 不直接依赖 `tracing`，只经 `gloss_core::log` 使用宏与 [`init`]。
+//! 其余 `crate` 不直接依赖 `tracing`，只经 `gloss_core::log` 使用宏与 [`init`]。
 //!
 //! 跨线程排查靠结构化字段而非字符串拼接，三个字段全链路携带：
-//! - `generation`：请求代数，串联一次任务的完整时序——由 [`task_span`] 的 span 字段
-//!   自动带给范围内的日志，跨线程只传 span 句柄；
+//! - `generation`：请求代数，串联一次任务的完整时序——由 [`task_span`] 的 `span` 字段
+//!   自动带给范围内的日志，跨线程只传 `span` 句柄；
 //! - `kind`：`TaskKind`，按任务类型过滤；
 //! - `thread`：线程角色，取 [`thread::UI`] / [`thread::EVENT`] / [`thread::TOKIO`]。
 //!
 //! 宏虽经本模块转发，事件的 `target` 仍取**调用点**的模块路径，因此
-//! `RUST_LOG=gloss_platform=debug` 能精确到下游 crate。
+//! `RUST_LOG=gloss_platform=debug` 能精确到下游 `crate`。
 //!
-//! `#[instrument]` 是过程宏，无法跨 crate 转发（下游会报 `E0433`）；
-//! 下游请改用 [`info_span!`] 等 span 宏配合 [`Instrument`]。
+//! `#[instrument]` 是过程宏，无法跨 `crate` 转发（下游会报 `E0433`）；
+//! 下游请改用 [`info_span!`] 等 `span` 宏配合 [`Instrument`]。
 //!
-//! 输出两路：终端（stderr）+ 文件（[`init`] 收到目录时启用，按天滚动、只留最近 7 份）
+//! 输出两路：终端（`stderr`）+ 文件（[`init`] 收到目录时启用，按天滚动、只留最近 7 份）
 //! ——用户报障时让他们把日志目录交出来即可。两路都是 **`JSON Lines`**：一行一个
-//! JSON 对象，字段是 `timestamp` / `level` / `target` / `message` 与本次事件的
-//! 结构化字段；任务 span 的代数直接提到顶层 `generation`（不写 `span` / `spans`
+//! `JSON` 对象，字段是 `timestamp` / `level` / `target` / `message` 与本次事件的
+//! 结构化字段；任务 `span` 的代数直接提到顶层 `generation`（不写 `span` / `spans`
 //! 对象）。查询举例：`grep '"generation":2'` 或用 `just logs --generation 2`。
 
 use std::fs;

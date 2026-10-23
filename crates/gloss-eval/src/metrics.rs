@@ -2,10 +2,10 @@
 //!
 //! 分类轨走生产校验器（[`gloss_core::classify::parse_classify_reply`]）；
 //! 任务轨的完成态判定走**生产同源**的契约校验器
-//! （[`gloss_core::schema::validate_task`]）——eval 受依赖方向约束不能消费
-//! gloss-app，core 的 schema 模块就是两侧共用的那份契约。修复轨迹的违约
+//! （[`gloss_core::schema::validate_task`]）——`eval` 受依赖方向约束不能消费
+//! `gloss-app`，`core` 的 `schema` 模块就是两侧共用的那份契约。修复轨迹的违约
 //! 类别与修复轮次同样经生产校验器逐轮还原（[`violation_track`]），与生产
-//! `RunOutput.repairs` 同口径。本模块是纯函数集，runner 与单测共用。
+//! `RunOutput.repairs` 同口径。本模块是纯函数集，`runner` 与单测共用。
 
 use std::collections::BTreeMap;
 

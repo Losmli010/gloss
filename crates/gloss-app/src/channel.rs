@@ -1,10 +1,10 @@
 //! 线程间消息与通道：四条通道 + 一个取消信号。
 //!
-//! 请求代数（字段名 `generation`，文档记作 gen——`gen` 是 Rust 2024 保留字）只在
-//! App 一处赋值：`PlatformEvent` 不含它，其后所有消息携带同一个值，主线程对
-//! 不匹配的回传事件静默丢弃。下发方向（②③）的载荷还带着触发点的任务 span
+//! 请求代数（字段名 `generation`，文档记作 `gen`——`gen` 是 `Rust` 2024 保留字）只在
+//! `App` 一处赋值：`PlatformEvent` 不含它，其后所有消息携带同一个值，主线程对
+//! 不匹配的回传事件静默丢弃。下发方向（②③）的载荷还带着触发点的任务 `span`
 //! （见 [`Traced`]），接收线程的日志因此自动带上代数。取消不走通道——`CancellationToken` 随 `RunTask`
-//! 下发 clone，取消立即生效且覆盖多个 await 点。
+//! 下发 `clone`，取消立即生效且覆盖多个 `await` 点。
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use gloss_core::log::Span;

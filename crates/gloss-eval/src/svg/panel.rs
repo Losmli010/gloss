@@ -1,5 +1,5 @@
 //! 面板与序列的数据建模：从报告历史收集各序列取值（缺样本为 `None`），
-//! 按面板聚合并定值域。这里不产生任何 SVG 字节，落墨在 `super::draw`。
+//! 按面板聚合并定值域。这里不产生任何 `SVG` 字节，落墨在 `super::draw`。
 
 use crate::metrics::TaskMetrics;
 use crate::report::EvalReport;

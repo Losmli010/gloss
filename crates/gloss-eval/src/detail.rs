@@ -1,11 +1,11 @@
 //! 逐条明细：一条数据集样例的输入、期望与逐轮修复轨迹，供检视页
-//! （[`crate::inspect`]）逐条渲染。重放轨与 live 轨共用同一形状——检视体验
+//! （[`crate::inspect`]）逐条渲染。重放轨与 `live` 轨共用同一形状——检视体验
 //! 不随回复来源切换。
 //!
 //! 结算函数（[`classify_parts`] / [`task_parts`]）一次校验同时产出明细与
 //! 指标侧产物（[`ClassifyVerdict`] / [`TaskVerdict`] / [`ViolationTrack`]）：
 //! 轨迹逐轮只跑一遍生产校验器，明细与报告指标天然同源；两者的计数一致
-//! 由 runner 的汇总测试锁定。
+//! 由 `runner` 的汇总测试锁定。
 
 use std::collections::BTreeMap;
 

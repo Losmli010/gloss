@@ -1,7 +1,7 @@
-//! 端口定义：全部跨层 trait 的唯一定义点（Ports & Adapters）。
+//! 端口定义：全部跨层 `trait` 的唯一定义点（`Ports` & `Adapters`）。
 //!
-//! core 只声明契约，实现由适配器 crate 提供（本 crate 只自带 [`crate::engine::llm`]
-//! 这一份 [`AiEngine`] 实现）；各端口互不依赖，编排层只见到 trait，测试用
+//! `core` 只声明契约，实现由适配器 `crate` 提供（本 `crate` 只自带 [`crate::engine::llm`]
+//! 这一份 [`AiEngine`] 实现）；各端口互不依赖，编排层只见到 `trait`，测试用
 //! `tests/stubs/` 下的桩替换实现。
 use std::pin::Pin;
 

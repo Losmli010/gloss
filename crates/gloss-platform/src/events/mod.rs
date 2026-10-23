@@ -1,8 +1,8 @@
-//! 平台事件线程：系统事件源的唯一宿主，以 CFRunLoop + 周期定时器抽干各源。
+//! 平台事件线程：系统事件源的唯一宿主，以 `CFRunLoop` + 周期定时器抽干各源。
 //!
 //! 取材命令（通道②）与系统事件在同一线程顺序消费，天然串行无锁；鼠标
-//! tap 这类自带 `run loop` 的源在自己的监听线程上运行、产物经通道汇入。
-//! 消息类型由组装点注入——platform 不依赖 gloss-app 的通道类型。
+//! `tap` 这类自带 `run loop` 的源在自己的监听线程上运行、产物经通道汇入。
+//! 消息类型由组装点注入——`platform` 不依赖 `gloss-app` 的通道类型。
 
 use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};

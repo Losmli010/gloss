@@ -1,10 +1,10 @@
 //! 剪贴板图片的触发哨兵与取材读取：`ClipboardWatchSource` + `ClipboardImageReader`。
 //!
 //! 双栈分工：哨兵只读 `NSPasteboard.changeCount` 与 `types`（纯元数据，廉价，
-//! 不触发 macOS 15+ 的「允许粘贴」授权流程），回答「要不要触发」；内容读取
-//! 直读同一粘贴板的图像 flavor 数据（`dataForType:`，TIFF/PNG），经 image
-//! crate 解码为 RGBA，回答「是什么图」。① 观察与 ② 取材之间剪贴板可能被
-//! 覆盖：哨兵在发①时记下 changeCount，读取器比对现值——不一致即竞态，
+//! 不触发 `macOS` 15+ 的「允许粘贴」授权流程），回答「要不要触发」；内容读取
+//! 直读同一粘贴板的图像 `flavor` 数据（`dataForType:`，`TIFF`/`PNG`），经 `image` 包
+//! 解码为 `RGBA`，回答「是什么图」。① 观察与 ② 取材之间剪贴板可能被
+//! 覆盖：哨兵在发①时记下 `changeCount`，读取器比对现值——不一致即竞态，
 //! 静默丢弃。两侧同在平台事件线程上运行（同线程顺序消费，见 `events` 模块
 //! 文档），原子量只为跨闭包共享。
 //!

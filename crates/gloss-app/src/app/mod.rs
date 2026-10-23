@@ -1,8 +1,8 @@
-//! winit 事件循环：主线程的窗口生命周期与渲染驱动。
+//! `winit` 事件循环：主线程的窗口生命周期与渲染驱动。
 //!
 //! 壳层按职责拆内部子模块，[`GlossApp`] 组合根与其余壳级编排留在本模块：
 //! - [`events`]——事件循环入口与跨线程唤醒句柄；
-//! - [`handler`]——winit 事件分发（`ApplicationHandler` 实现）。
+//! - [`handler`]——`winit` 事件分发（`ApplicationHandler` 实现）。
 //!
 //! 通道消费与浮层显隐、动作执行在 `flow`（`probe`、`task`、`reveal`、`actions`），
 //! 渲染帧管线与呈现资源在 `present`，设置编辑会话在 `flow::settings_session`。

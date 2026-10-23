@@ -1,7 +1,7 @@
-//! 经位附件图像的解码：内存 PNG → egui 像素容器。
+//! 经位附件图像的解码：内存 `PNG` → `egui` 像素容器。
 //!
-//! 纯数据变换，不依赖 egui 绘制侧（`egui::ColorImage` 只是像素容器）；
-//! 纹理装入随 egui 上下文，留在绘制侧的 `RenderState::attached_texture`。
+//! 纯数据变换，不依赖 `egui` 绘制侧（`egui::ColorImage` 只是像素容器）；
+//! 纹理装入随 `egui` 上下文，留在绘制侧的 `RenderState::attached_texture`。
 
 use std::sync::Arc;
 

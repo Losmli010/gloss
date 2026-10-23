@@ -1,4 +1,4 @@
-//! Carbon（HIToolbox）：本层用到的系统输入态查询。
+//! `Carbon`（`HIToolbox`）：本层用到的系统输入态查询。
 
 use super::cf::Boolean;
 

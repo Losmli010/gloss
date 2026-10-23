@@ -1,15 +1,15 @@
-//! SSE 增量解码（OpenAI 兼容 `chat completions` 的 `stream: true` 响应）。
+//! `SSE` 增量解码（`OpenAI` 兼容 `chat completions` 的 `stream: true` 响应）。
 //!
 //! 纯逻辑、不碰网络：喂字节、吐增量。因此单测可以把同一段响应按任意字节边界
 //! 切开，钉住「跨块不丢不重、多字节字符不被切坏」这类只有分块才会暴露的问题。
 //!
-//! 只实现用得到的 SSE 子集，不做通用实现：
+//! 只实现用得到的 `SSE` 子集，不做通用实现：
 //! - `data: {json}` 一行一个事件；`data: [DONE]` 表示流结束；
 //! - `:` 开头的注释/心跳行与 `event:` / `id:` 等字段一律忽略；
-//! - `choices[0].delta.content` 是文本增量；只带 role 的首块没有 content，
+//! - `choices[0].delta.content` 是文本增量；只带 `role` 的首块没有 `content`，
 //!   不产出增量；
 //! - `choices[0].finish_reason` 随块捕获，在 `[DONE]` 上随 [`SseItem::Done`]
-//!   交出（服务端没给 `[DONE]` 就关流的，结束原因未知，不产出 Done）；
+//!   交出（服务端没给 `[DONE]` 就关流的，结束原因未知，不产出 `Done`）；
 //! - 服务端在流中报错时给 `{"error": {...}}`，按错误码映射到 [`GlossError`]。
 
 use crate::model::GlossError;

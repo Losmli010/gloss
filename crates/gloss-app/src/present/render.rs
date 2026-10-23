@@ -1,4 +1,4 @@
-//! 帧渲染管线：建帧（egui 状态 + `GPU` surface）与 egui → wgpu 的一帧呈现，
+//! 帧渲染管线：建帧（`egui` 状态 + `GPU surface`）与 `egui` → `wgpu` 的一帧呈现，
 //! 浮层与设置窗口共用。
 
 use std::error::Error;

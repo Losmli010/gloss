@@ -1,32 +1,32 @@
-//! 通道③ → [`AiTaskService`] → 通道④ 的 tokio 消费桥（推理在
-//! tokio 后台，主线程不 await）。
+//! 通道③ → [`AiTaskService`] → 通道④ 的 `tokio` 消费桥（推理在
+//! `tokio` 后台，主线程不 `await`）。
 //!
 //! 桥的职责面：**缓存站点 + 纯泵**。进桥的任务只有取材输入与触发时冻结
-//! 的选项，没有 kind——分类是 LLM 层（`service.run`）内的事。执行序：
+//! 的选项，没有 `kind`——分类是 `LLM` 层（`service.run`）内的事。执行序：
 //! `cache_key(input, options)` 查 [`TaskCache`] → 命中直出（补发
-//! `TaskClassified{outcome.kind}` 再 `TaskDone`，事件序与 miss 路径同形）
-//! → miss 时接线钩子（`TaskClassified`/`TaskChunk` 逐条回传）调
+//! `TaskClassified{outcome.kind}` 再 `TaskDone`，事件序与 `miss` 路径同形）
+//! → `miss` 时接线钩子（`TaskClassified`/`TaskChunk` 逐条回传）调
 //! `service.run` → 完成态经 [`complete`]（`schema::validate_task` 两分支）
 //! 解析出 [`gloss_core::task::TaskOutcome`] → **非降级才写缓存**（降级产物不投毒）→
 //! `TaskDone`。引擎失败不写缓存。
 //! 另有 `PrewarmSecret` 一条旁路：读一次密钥进进程内缓存（启动期预热），
 //! 与任务代数无关。
 //!
-//! 选项单次快照冻结在 machine（探测时按配置快照解析），桥与 LLM 层都不
-//! 回读配置；分类缓存已删除——同一输入在同一选项下判定的 kind 唯一，
-//! 主缓存的 key 无需 kind 参与。
+//! 选项单次快照冻结在 `machine`（探测时按配置快照解析），桥与 `LLM` 层都不
+//! 回读配置；分类缓存已删除——同一输入在同一选项下判定的 `kind` 唯一，
+//! 主缓存的 `key` 无需 `kind` 参与。
 //!
 //! 每条 `RunTask` 的取消令牌经 `select!` 与执行竞速——取消在缓存查询与
-//! 流式读取的全部 await 点上即时生效，被取消的任务静默丢弃（App 已推
-//! 进代数，任何迟到产物都会被判 stale）。任务 future 包在 `catch_unwind`
-//! 里（unwind 构建下后台 panic 被 tokio 捕获转为 TaskFailed，引擎或编排
+//! 流式读取的全部 `await` 点上即时生效，被取消的任务静默丢弃（`App` 已推
+//! 进代数，任何迟到产物都会被判 `stale`）。任务 `future` 包在 `catch_unwind`
+//! 里（`unwind` 构建下后台 `panic` 被 `tokio` 捕获转为 `TaskFailed`，引擎或编排
 //! 层炸掉时用户拿到失败卡而不是永悬的「推理中」，消费循环继续存活；
-//! release 以 `panic = "abort"` 构建时屏障不介入，panic 直接 abort 进程）。
+//! `release` 以 `panic = "abort"` 构建时屏障不介入，`panic` 直接 `abort` 进程）。
 //! 运行时由 [`start_command_runtime`] 创建并托管，进程退出时随通道③关闭
 //! 自然收尾。
 //!
-//! machine 侧另有显示用的流式累积，与这里的完成态解析并存：**完成态以
-//! TaskDone 的 `outcome.note` 为权威源**（accept_done 用它整卡覆盖）。
+//! `machine` 侧另有显示用的流式累积，与这里的完成态解析并存：**完成态以
+//! `TaskDone` 的 `outcome.note` 为权威源**（`accept_done` 用它整卡覆盖）。
 
 use std::sync::Arc;
 use std::time::Duration;

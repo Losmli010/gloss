@@ -1,10 +1,10 @@
-//! 更新清单：模型、schema 校验矩阵、版本比较与按架构选包。
+//! 更新清单：模型、`schema` 校验矩阵、版本比较与按架构选包。
 //!
-//! 校验矩阵（schema=1，见分发设计 §3.1）：`version` 必须可解析为 semver；
+//! 校验矩阵（`schema`=1，见分发设计 §3.1）：`version` 必须可解析为 `semver`；
 //! `channels.stable` 必须含双架构条目；每条目必含 `url`/`size`/`sha256`
-//! （sha256 为 64 位十六进制小写，`url` 仅接受 https——信任根是 GitHub
-//! Pages 的 TLS）。缺字段或类型不符、未知 `schema`、不可解析的 body 都按
-//! 清单失败处理；未知字段一律忽略（同 schema 内的前向兼容）。
+//! （`sha256` 为 64 位十六进制小写，`url` 仅接受 `https`——信任根是 `GitHub Pages`
+//! 的 `TLS`）。缺字段或类型不符、未知 `schema`、不可解析的 `body` 都按
+//! 清单失败处理；未知字段一律忽略（同 `schema` 内的前向兼容）。
 
 use std::collections::BTreeMap;
 

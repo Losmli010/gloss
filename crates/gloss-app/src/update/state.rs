@@ -1,10 +1,10 @@
-//! 更新子状态机：纯状态转移，不做任何 IO（与 [`crate::machine`] 同构的
+//! 更新子状态机：纯状态转移，不做任何 `IO`（与 [`crate::machine`] 同构的
 //! `functional core`，同属纯状态机部分）。
 //!
 //! 触发入口（启动静默检查 / 设置页手动检查）、下载与替换都由壳执行——
 //! 本模块只决策：用户意图（[`UpdateMachine::check`] / [`UpdateMachine::confirm_download`] /
 //! [`UpdateMachine::confirm_restart`] / [`UpdateMachine::retry`] / [`UpdateMachine::cancel`]）与任务
-//! 回包（[`UpdateMachine`] 的 `accept_*`）在此收敛成命令与状态，UI 每帧读
+//! 回包（[`UpdateMachine`] 的 `accept_*`）在此收敛成命令与状态，界面每帧读
 //! 最新相位渲染。
 //!
 //! 状态迁移逐行对应分发设计 §4.1 的迁移表；额外说明三条表外语义：

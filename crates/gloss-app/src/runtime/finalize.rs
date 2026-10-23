@@ -1,15 +1,15 @@
 //! 完成态解析：模型原始回复 → [`TaskOutcome`]（缓存站点与产物卡的唯一入口）。
 //!
-//! 契约校验收敛于 `gloss_core::schema`（wire 契约见该模块文档），这里只有
+//! 契约校验收敛于 `gloss_core::schema`（`wire` 契约见该模块文档），这里只有
 //! **两分支**：
-//! 1. `validate_task` Ok → 正常产物（note + 按 kind 的疏证变体，且
+//! 1. `validate_task` 为 `Ok` → 正常产物（`note` + 按 `kind` 的疏证变体，且
 //!    降级标记为 `false`）。
-//! 2. `Err`（空回复 / 非 JSON / 缺 note）→ 降级产物：`note` 空串、该 kind
-//!    空变体、`degraded = true`，warn 留痕（只记违约类别，不携带回复原文）。
-//!    降级产物不进缓存（桥侧按 `degraded` 分流）、UI 出降级卡（原文垃圾
+//! 2. `Err`（空回复 / 非 `JSON` / 缺 `note`）→ 降级产物：`note` 空串、该 `kind`
+//!    空变体、`degraded = true`，`warn` 留痕（只记违约类别，不携带回复原文）。
+//!    降级产物不进缓存（桥侧按 `degraded` 分流）、界面出降级卡（原文垃圾
 //!    不展示不留存）。
 //!
-//! 流式期间 UI 按纯 JSON 渐进提取 `note`（见 `crate::ui::popup`），完成态
+//! 流式期间界面按纯 `JSON` 渐进提取 `note`（见 `crate::ui::popup`），完成态
 //! 以本模块的产物为准。
 
 use gloss_core::log::{thread, warn};

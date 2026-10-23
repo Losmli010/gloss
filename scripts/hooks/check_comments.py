@@ -7,9 +7,9 @@
 #   只留文件头      —— `///` 文档注释、行内 `//`、行尾注释、块注释 `/* */` 一律
 #                      违规；`//!` 只能出现在文件头（首个代码项之前）。
 #   文件头必须存在  —— 每个被跟踪的 .rs 至少一行 `//!` 头。
-#   文件头是中文    —— 每行 `//!` 必须含汉字；反引号代码段之外不允许出现
-#                      相邻的两个英文词（专有名词单词放行，如 wgpu、LLM、
-#                      gloss-core），防止整句英文混入。
+#   文件头是中文    —— 每行 `//!` 必须含汉字；反引号代码段之外不得出现
+#                      任何英文字母——专有名词、标识符整体放进反引号（如
+#                      `wgpu`、`LLM`），能自然成中文的行文词直接写中文。
 #   SAFETY 豁免     —— `// SAFETY:` 块及其紧邻的连续注释行不判罚（clippy
 #                      undocumented_unsafe_blocks 要求不变量紧贴 unsafe 块）。
 #   行尾豁免标记    —— secrets:allow / lines:allow / i18n:allow /
@@ -36,7 +36,9 @@ def scan_files(root, explicit):
         return [p if os.path.isabs(p) else os.path.join(root, p) for p in explicit]
     out = subprocess.run(
         ["git", "-C", root, "ls-files", "*.rs"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
     return [os.path.join(root, p) for p in out.splitlines() if p]
 
@@ -52,21 +54,20 @@ def run(root, explicit):
 
         def line_of(i):
             import bisect
+
             return bisect.bisect_right(newlines, i) + 1
 
         events = []
         i, n = 0, len(src)
         seq = 0
-        code_seen = False          # 是否已越过文件头（见过代码项）
-        line_has_code = False      # 当前行注释前是否有代码
-        line_starts_blank = True   # 当前行目前只有空白
-        inner_attr_only = True     # 当前行目前只有内部属性 #![...]（不算代码项）
+        code_seen = False  # 是否已越过文件头（见过代码项）
+        line_starts_blank = True  # 当前行目前只有空白
+        inner_attr_only = True  # 当前行目前只有内部属性 #![...]（不算代码项）
 
         while i < n:
             c = src[i]
             if c == "\n":
                 i += 1
-                line_has_code = False
                 line_starts_blank = True
                 inner_attr_only = True
                 continue
@@ -87,8 +88,17 @@ def run(root, explicit):
                     kind = "doc"
                 else:
                     kind = "line"
-                events.append((seq, line_of(start), line_of(j) if j < n else line_of(n - 1),
-                               kind, indent_only, before_code, body))
+                events.append(
+                    (
+                        seq,
+                        line_of(start),
+                        line_of(j) if j < n else line_of(n - 1),
+                        kind,
+                        indent_only,
+                        before_code,
+                        body,
+                    )
+                )
                 seq += 1
                 i = j
                 continue
@@ -107,15 +117,22 @@ def run(root, explicit):
                     else:
                         i += 1
                 end = min(i, n - 1)
-                events.append((seq, line_of(start), line_of(end), "block",
-                               line_starts_blank, before_code, src[start:i]))
+                events.append(
+                    (
+                        seq,
+                        line_of(start),
+                        line_of(end),
+                        "block",
+                        line_starts_blank,
+                        before_code,
+                        src[start:i],
+                    )
+                )
                 seq += 1
-                line_has_code = False
                 line_starts_blank = True
                 inner_attr_only = True
                 continue
             if c == '"':
-                line_has_code = True
                 inner_attr_only = False
                 i += 1
                 while i < n:
@@ -137,7 +154,6 @@ def run(root, explicit):
                     hashes += 1
                     k += 1
                 if k < n and src[k] == '"':
-                    line_has_code = True
                     inner_attr_only = False
                     i = k + 1
                     while i < n:
@@ -151,15 +167,14 @@ def run(root, explicit):
                         i += 1
                     continue
             if c == "'":
-                m = re.match(r"'(\\.[^']*|[^'\\])'", src[i:i + 8])
+                m = re.match(r"'(\\.[^']*|[^'\\])'", src[i : i + 8])
                 if m:
-                    line_has_code = True
                     inner_attr_only = False
                     i += m.end()
                     continue
                 i += 1  # 生命周期标注（'a）不是字面量
                 continue
-            if c == "#" and inner_attr_only and src[i:i + 3] == "#![":
+            if c == "#" and inner_attr_only and src[i : i + 3] == "#![":
                 # 内部属性 #![...]：字符串感知地跳到配对方括号，不视为代码项
                 depth = 1
                 i += 3
@@ -177,14 +192,12 @@ def run(root, explicit):
                     i += 1
                 continue
             # 其余一概视为代码
-            line_has_code = True
             inner_attr_only = False
             line_starts_blank = False
             code_seen = True
             i += 1
 
         return events
-
 
     def header_violations(lines, rel):
         out = []
@@ -195,12 +208,11 @@ def run(root, explicit):
             if not CJK.search(body):
                 out.append(f"{rel}: 文件头含无汉字的行：{body[:60]}")
             cleaned = re.sub(r"`[^`]*`", " ", body)
-            toks = [(m.start(), m.end()) for m in WORD.finditer(cleaned)]
-            for (s1, e1), (s2, e2) in zip(toks, toks[1:]):
-                if not cleaned[e1:s2].strip():
-                    out.append(f"{rel}: 文件头出现相邻英文词："
-                               f"{cleaned[s1:e2]}（专有名词之间补中文或加反引号）")
-                    break
+            words = WORD.findall(cleaned)
+            if words:
+                out.append(
+                    f"{rel}: 文件头出现英文词：{' '.join(words[:3])}（放进反引号或改写为中文）"
+                )
         return out
 
     for path in scan_files(root, explicit):
@@ -215,7 +227,7 @@ def run(root, explicit):
         header_found = False
         safety_open = False
         prev_end = None
-        for seq, sline, eline, kind, indent_only, before_code, text in events:
+        for _seq, sline, eline, kind, indent_only, before_code, text in events:
             if prev_end is not None and sline > prev_end + 1:
                 safety_open = False  # 与上一条注释之间有代码或空行
             prev_end = eline
@@ -236,16 +248,16 @@ def run(root, explicit):
             if MARKER.search(text):
                 continue
             if not indent_only:
-                problems.append(f"{rel}:{sline}: 行尾注释 —— 迁 docs/comments/，"
-                                f"豁免标记除外")
+                problems.append(f"{rel}:{sline}: 行尾注释 —— 迁 docs/comments/，豁免标记除外")
                 continue
             stripped = text.strip()
             body = stripped.lstrip("/").strip()
             if safety_open or body.startswith("SAFETY:"):
                 safety_open = True
                 continue
-            problems.append(f"{rel}:{sline}: 行内注释 —— 迁 docs/comments/"
-                            f"（SAFETY 与 :allow 除外）")
+            problems.append(
+                f"{rel}:{sline}: 行内注释 —— 迁 docs/comments/（SAFETY 与 :allow 除外）"
+            )
         if not header_found:
             problems.append(f"{rel}: 缺文件头 //! 注释")
         problems.extend(header_violations(header_lines, rel))
@@ -253,8 +265,11 @@ def run(root, explicit):
 
 
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", ".."))
+    root = (
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    )
     explicit = sys.argv[2:]
     print(f"== 注释纪律门禁（仓库根：{root}）==")
     problems = run(root, explicit)
@@ -262,8 +277,7 @@ def main():
         for p in problems:
             print(f"  ✗ {p}", file=sys.stderr)
         print(f"✗ 注释纪律门禁：{len(problems)} 处违规", file=sys.stderr)
-        print("  规则见本脚本头注；迁移目标 docs/comments/<文件名>_comment.md",
-              file=sys.stderr)
+        print("  规则见本脚本头注；迁移目标 docs/comments/<文件名>_comment.md", file=sys.stderr)
         sys.exit(1)
     print("  ok 只留文件头：全部跟踪 .rs 通过（///、行内/行尾注释零残留，文件头均为中文）")
 

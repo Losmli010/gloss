@@ -1,4 +1,4 @@
-//! winit 事件分发：`ApplicationHandler` 实现，把窗口事件路由到渲染、
+//! `winit` 事件分发：`ApplicationHandler` 实现，把窗口事件路由到渲染、
 //! 通道消费与浮层显隐，并归并各窗口的唤醒时刻。
 
 use std::error::Error;

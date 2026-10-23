@@ -1,4 +1,4 @@
-//! CoreFoundation：本层用到的符号、CF 对象守卫与字符串/数据转换助手。
+//! `CoreFoundation`：本层用到的符号、`CF` 对象守卫与字符串/数据转换助手。
 
 use std::ffi::CStr;
 

@@ -1,4 +1,4 @@
-//! Accessibility（ApplicationServices 的 HIServices）：AX 元素读取接口。
+//! `Accessibility`（`ApplicationServices` 的 `HIServices`）：`AX` 元素读取接口。
 
 use std::ffi::{CStr, c_void};
 

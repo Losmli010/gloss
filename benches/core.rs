@@ -1,8 +1,8 @@
-//! gloss-core/gloss-app 热点基准：`cache_key` / `complete`（完成态解析）/
-//! `prompt_render` / `task_cache` 四组。criterion `harness = false` 目标，
+//! `gloss-core`/`gloss-app` 热点基准：`cache_key` / `complete`（完成态解析）/
+//! `prompt_render` / `task_cache` 四组。`criterion`（`harness = false`）目标，
 //! `just bench`（`cargo bench --bench core`）运行。
 //!
-//! 测量输入全部在测量循环外构造（字面量 / 字符串拼接，不经 serde 解析），
+//! 测量输入全部在测量循环外构造（字面量 / 字符串拼接，不经 `serde` 解析），
 //! 经 `black_box` 进出测量；`task_cache` 的 `set` 用 `iter_batched` 把产物
 //! 构造移出测量区间。
 
