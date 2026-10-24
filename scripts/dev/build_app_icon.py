@@ -38,7 +38,7 @@ def raster1024(src, dst):
     )
     if width != 1024 or height != 1024:
         print(
-            "错误：%s 光栅化后为 %d×%d，期望 1024×1024——矢量图的宽高属性不能省"
+            "错误：%s 光栅化后为 %d×%d，期望 1024×1024——SVG 的 width/height 属性不能省"
             % (os.path.basename(src), width, height),
             file=sys.stderr,
         )
