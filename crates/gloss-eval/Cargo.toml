@@ -11,17 +11,17 @@ name = "eval"
 path = "src/main.rs"
 
 [dependencies]
-# live 轨复用生产流式引擎（核心库客户端）；本 crate 只许消费，不许被
-# 生产 crate 依赖——约束检查脚本的依赖方向断言强制。
+# 实跑轨（live）复用生产流式引擎（核心库客户端）；本包（crate）只许消费，不许被
+# 生产包（crate）依赖——约束检查脚本的依赖方向断言强制。
 gloss-core = { path = "../gloss-core" }
 # 评测数据集与报告的序列化。
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
-# live 轨的运行时（重放不触网，不用异步设施）。
+# 实跑轨（live）的运行时：重放不触网，不用异步设施。
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread"] }
 
 [dev-dependencies]
-# live 轨测试的脚本引擎要产出任务流（核心库的测试桩不出库）。
+# 实跑轨（live）测试的脚本引擎要产出任务流（核心库的测试桩不出库）。
 futures = { version = "0.3", default-features = false, features = ["std"] }
 
 [lints]

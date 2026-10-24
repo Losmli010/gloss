@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# 一键环境初始化：校验 Rust 工具链与配套工具、安装仓库钩子。克隆后跑一次
+# 一键环境初始化：校验本语言（Rust）工具链与配套工具、安装仓库钩子。克隆后跑一次
 # （走初始化配方）。全部幂等，重复跑无副作用。
 
 import os
@@ -81,7 +81,7 @@ def main():
         warn_missing("cargo-audit（漏洞审计）", "cargo install cargo-audit --locked")
     if not have("cargo-deny"):
         warn_missing("cargo-deny（依赖合规）", "cargo install cargo-deny --locked")
-    # 提交前门禁依赖 TOML 与 Python 的格式化及检查工具，缺了它提交钩子会挂
+    # 提交前门禁依赖配置格式（TOML）与脚本语言（Python）的格式化及检查工具，缺了它提交钩子会挂
     if not have("tombi"):
         warn_missing(
             "tombi（TOML 格式与 lint，precommit 依赖）",

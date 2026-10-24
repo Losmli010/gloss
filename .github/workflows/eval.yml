@@ -1,6 +1,6 @@
-# Prompt 评测数据流水线：手动触发、取主分支最新提交、重放轨采集（夹具驱动，
-# 无网络无凭据）后推数据分支，人工开 PR 审查合入。定位是趋势数据例行生产，
-# 不是门禁：不判任何 PR 的生死；live 轨需专用凭据且每次触发真实计费，
+# 提示词评测数据流水线：手动触发、取主分支最新提交、重放轨采集（夹具驱动，
+# 无网络无凭据）后推数据分支，人工开拉取请求（PR）审查合入。定位是趋势数据例行生产，
+# 不是门禁：不判任何拉取请求的生死；实跑轨（live）需专用凭据且每次触发真实计费，
 # 保持本地显式参与，不进本流水线。
 name: Eval data
 
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   collect:
     name: Collect eval data
-    # 重放是纯 serde 与 JSON 逻辑，不依赖 macOS、GPU 与窗口服务。
+    # 重放是纯序列化库（serde）与数据格式（JSON）逻辑，不依赖系统（macOS）、图形硬件（GPU）与窗口服务。
     runs-on: ubuntu-latest
     steps:
       - name: Guard main-only dispatch
@@ -68,8 +68,8 @@ jobs:
             cp crates/gloss-eval/baselines/history.jsonl target/eval/history.jsonl
           fi
 
-      # 采集上下文经环境变量注入（进报告 JSON 与历史数据的上下文段；
-      # 同一提交重跑覆盖不叠点，换提交追加）。
+      # 采集上下文经环境变量注入，进报告数据（JSON）与历史数据的上下文段；
+      # 同一提交重跑覆盖不叠点，换提交追加。
       - name: Run replay eval
         env:
           GLOSS_EVAL_COMMIT: ${{ steps.head.outputs.sha }}
@@ -87,7 +87,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
-      # 数据 PR 只入库历史数据与趋势图两个文件。
+      # 数据拉取请求（PR）只入库历史数据与趋势图两个文件。
       - name: Push data branch
         env:
           HEAD_SHA: ${{ steps.head.outputs.sha }}

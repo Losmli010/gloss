@@ -48,7 +48,7 @@ from metrics import BUDGET_CONSTS, CORE_CASES, CORE_GROUPS, METRICS, fmt  # noqa
 DEFAULT_HISTORY = SCRIPT_DIR / "baselines" / "history.jsonl"
 DEFAULT_OUT_DIR = SCRIPT_DIR / "baselines"
 
-# ---- 页面骨架：960 画布，每面板一张 920×212 白卡片（统一节奏）----
+# ---- 页面骨架：960 画布，每面板一张横 920 纵 212 的白卡片（统一节奏）----
 WIDTH = 960
 CARD_X, CARD_W, CARD_H = 20, 920, 212
 CARD_PITCH = 226
@@ -67,7 +67,7 @@ GUTTER_BOTTOM_MARGIN = 2
 X_SHA_DY, X_DATE_DY = 16, 28
 FOOTER_GAP, BOTTOM_PAD = 26, 34
 
-# ---- 热路径面板（沿用旧基线图形态：组内对数轴 + 线端标值 + 4 列图例）----
+# ---- 热路径面板：沿用旧基线图形态，组内对数轴、线端标值与四列图例 ----
 HP_PLOT_TOP_DY, HP_PLOT_H = 46, 104
 HP_PLOT_X0, HP_PLOT_X1 = 62, 900
 HP_X_SHA_DY, HP_X_DATE_DY = 16, 28

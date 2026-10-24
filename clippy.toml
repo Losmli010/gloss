@@ -1,4 +1,4 @@
-# 断言式取值与 panic 在测试代码中放行
+# 断言式取值与崩溃（panic）在测试代码中放行
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true

@@ -1,4 +1,4 @@
-//! Carbon（HIToolbox）：本层用到的系统输入态查询。
+//! 系统框架（Carbon）的界面工具箱子框架（HIToolbox）：本层用到的系统输入态查询。
 
 use super::cf::Boolean;
 
@@ -8,7 +8,8 @@ unsafe extern "C" {
 }
 
 pub(crate) fn is_secure_event_input_enabled() -> bool {
-    // SAFETY: 纯查询型 FFI，无参数、无前置条件、不涉及内存所有权。
+    // SAFETY: a pure query FFI with no arguments, no preconditions, and no
+    // memory ownership involvement.
     let enabled = unsafe { IsSecureEventInputEnabled() };
     enabled != 0
 }

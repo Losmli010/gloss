@@ -45,7 +45,7 @@ DEFAULT_SELFTEST = Path("target/perf/selftest.jsonl")
 STARTUP_SIGNAL_MESSAGE = "startup self-test finished"
 OVERLAY_SIGNAL_KIND = "overlay_perf"
 
-# 预算指标编号 → 自检信号行上的（指标值字段, 预算字段）；行内字段即自检判定的
+# 预算指标编号到自检信号行上指标值字段与预算字段的映射；行内字段即自检判定的
 # 同源数据。与注册表预算门禁指标的对应关系在导入期校验，漂移当场带指引失败。
 BUDGET_SIGNAL_FIELDS = {
     "overlay.show_first_ms": ("first_ms", "budget_ms"),

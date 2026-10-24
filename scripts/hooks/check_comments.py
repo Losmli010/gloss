@@ -1,25 +1,29 @@
 #!/usr/bin/env python3
-# 注释纪律门禁：跟踪文件的注释只写纯中文表述——不混英语语句，也不写代码引用。
-# Rust 源码只保留文件头注释，其余注释一律迁往本地记录文件；非 Rust 文件的注释
-# 逐行同规。本地注释配方（提交前门禁的一部分）与持续集成的钩子工作流共用此
-# 脚本，保证本地与远端判定一致。
+# 注释纪律门禁：跟踪文件的注释主体只写中文——不混任何外文字母与半角标点，
+# 专有名词一律收进紧跟的全角括号作注记；不变量注释整段纯英文。本地注释配方
+# （提交前门禁的一部分）与持续集成的钩子工作流共用此脚本，保证本地与远端判
+# 定一致；本脚本自身注释同规。
 #
-# Rust 侧覆盖五条检查：
+# 源码（Rust）侧覆盖六条检查：
 #   只留文件头      —— 文档注释、行内、行尾与块注释一律违规；内部头注释只能
 #                      出现在文件头（首个代码项之前）。
-#   文件头必须存在  —— 每个被跟踪的 Rust 源文件至少一行头注释。
-#   文件头是中文    —— 每行必须含汉字；禁止反引号代码段与标识符——类型、函数、
-#                      字段、路径、旗标在代码里自明，细节沉记录文件；英文只允许
-#                      裸写的专有名词（技术、产品、格式、框架与包名，白名单）。
-#                      外部文档引用不进文件头——章节号随文档漂移，文档名是本地指针。
-#   安全豁免        —— 不变量注释块及其紧邻的连续注释行不判罚（Clippy 要求
-#                      不变量紧贴不安全块）。
+#   文件头必须存在  —— 每个被跟踪的源码文件至少一行头注释。
+#   文件头是中文    —— 每行必须含汉字；主体只允许汉字、中文标点、阿拉伯数字
+#                      与空白，不出现外文字母或半角标点；专有名词收进紧跟的全
+#                      角括号作注记，括号内只放白名单里的专名本身（可以空格、
+#                      半角逗号或斜杠分隔多个），括号内外都不得混入第二种语
+#                      言。外部文档引用不进文件头——章节号随文档漂移，文档名
+#                      是本地指针。
+#   注记括号成对    —— 全角括号必须成对包裹注记且不嵌套，单边或套用判罚。
+#   不变量注释纯英文 —— 不变量块及其紧邻的连续注释行紧贴不安全块、整段英文
+#                      书写（静态检查工具要求不变量紧贴不安全块）。
 #   行尾豁免标记    —— 各门禁的放行标记照旧放行所在行。
 #
-# 非 Rust 侧覆盖：脚本、配置、工作流与站点资源的注释逐行同规——必须含汉字、
-# 不含反引号代码段、不含白名单之外的英文词；路径、命令、旗标、标识符与链接
-# 都算代码引用，一并判罚。工具指令行豁免：解释器声明、格式化与静态检查指令、
-# 行尾豁免标记。井号注释、双斜线注释、块注释与页面标记注释都纳入。
+# 源码（Rust）之外的文件同规覆盖：脚本、配置、工作流与站点资源的注释逐块同
+# 规——主体全中文、专名只进括号注记、标点不混用；路径、命令、旗标、标识符与
+# 链接都算代码引用，一并判罚。相邻注释行聚成一块受检，换行的括号与表述跨行
+# 不误报。工具指令行豁免：解释器声明、格式化与静态检查指令、行尾豁免标记。
+# 井号注释、双斜线注释、块注释与页面标记注释都纳入。
 #
 # 词法层区分注释与字符串字面量：字符串内的注释符（如链接）不误报。
 #
@@ -34,11 +38,13 @@ import sys
 import tokenize
 
 CJK = re.compile(r"[\u4e00-\u9fff]")
-WORD = re.compile(r"[A-Za-z0-9_.+-]*[A-Za-z][A-Za-z0-9_.+-]*")
+LATIN = re.compile(r"[A-Za-z]")
+# 汉字、中文标点与全角形式：注记括号内出现即算混语，不变量注释出现即非纯英文
+CJKWISE = re.compile(r"[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u2018\u2019\u201c\u201d]")
 MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps):allow\b")
 
-# 注释允许的英文专有名词白名单：技术、产品、格式、协议、框架、工具与包名。
-# 新增专有名词在此登记；标识符、路径、旗标、链接与代码段一律不进注释。
+# 注记括号允许的专有名词白名单：技术、产品、格式、协议、框架、工具与包名。
+# 新增专名在此登记；标识符、路径、旗标、链接与代码段一律不进注释，沉记录文件。
 PROPER_NOUNS = frozenset(
     {
         "4xx",
@@ -209,6 +215,7 @@ PROPER_NOUNS = frozenset(
         "macOS",
         "markdown",
         "mimalloc",
+        "memmap2",
         "moka",
         "nm",
         "otool",
@@ -247,23 +254,26 @@ PROPER_NOUNS = frozenset(
     }
 )
 
+# 中文主体允许的非汉字字符：中文标点、注音序号与少数语言中立符号；阿拉伯数
+# 字与空白另行放行，其余一律判罚
+CHINESE_EXTRA = "，。；：！？、「」『』《》…—·～＝％￥→①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮"
 
-# 非 Rust 注释文件：井号系脚本与配置、钩子目录脚本、justfile 与忽略清单。
+# 源码之外的注释文件：井号系脚本与配置、钩子目录脚本、任务配方文件与忽略清单。
 HASH_SUFFIXES = {".py", ".toml", ".yml", ".yaml", ".sh"}
 HASH_NAMES = {"justfile", ".gitignore"}
 # 站点资源：脚本用双斜线与斜线星注释，样式用斜线星，页面用标记注释。
 WEB_SUFFIXES = {".js", ".css", ".html"}
 
-# 工具指令段整段豁免：解释器声明，以及格式化与静态检查指令及其 ASCII 参数。
+# 工具指令段整段豁免：解释器声明，以及格式化与静态检查指令及其外文参数。
 DIRECTIVE_SEG = re.compile(
     r"^[!—–\-\s]*#!"
     r"|^[\s—–\-]*(?:noqa|fmt|ruff|isort|pylint|type|shellcheck|yamllint"
     r"|actionlint|prettier|markdownlint)\b(?:[:\s][A-Za-z0-9_+=,.\s\-]*)?$"
 )
-# 表述按中文标点切段，指令段只认整段 ASCII 的匹配，中文与指令混写的段仍受检。
-SEGMENT_SPLIT = re.compile(r"[，。；：！？、（）「」『』《》…—]+")
-# 修饰性段内装饰字符，判罚前剥去。
-SEGMENT_TRIM = " \t─*-·"
+# 表述按中文标点切段；段两端先剥修饰字符，指令段只认整段外文的匹配，中文与
+# 指令混写的段仍受检。
+SEGMENT_SPLIT = re.compile(r"[，。；：！？、（）「」『』《》…—\n]+")
+SEGMENT_TRIM = " \t\n─*-·-"
 
 
 def is_comment_candidate(rel):
@@ -323,7 +333,7 @@ def hash_comments(src, line_start_only=False):
 
 
 def python_comments(src):
-    """Python 注释走标准词法取准确集合；语法异常时退回井号扫描。"""
+    """注释走标准词法（Python）取准确集合；语法异常时退回井号扫描。"""
     try:
         out = []
         for tok in tokenize.generate_tokens(io.StringIO(src).readline):
@@ -409,6 +419,96 @@ def web_body(text):
     return body.strip()
 
 
+def chinese_zone_problems(loc, zone, label):
+    """中文主体的字符级检查：只允许汉字、中文标点、阿拉伯数字与空白。"""
+    out = []
+    for seg in SEGMENT_SPLIT.split(zone):
+        seg = seg.strip(SEGMENT_TRIM)
+        if not seg or DIRECTIVE_SEG.match(seg):
+            continue
+        bad = []
+        for ch in seg:
+            if CJK.match(ch) or ch in CHINESE_EXTRA or "0" <= ch <= "9" or ch in " \t\n\r":
+                continue
+            if ch not in bad:
+                bad.append(ch)
+        if bad:
+            shown = " ".join(bad[:3])
+            out.append(
+                f"{loc}: {label}主体出现外文字符或半角标点（{shown}）"
+                f"——专有名词收进全角括号注记，其余改写为中文"
+            )
+    return out
+
+
+def gloss_problems(loc, gloss, label):
+    """注记括号检查：内有外文时只许白名单专名、不得混入中文；纯中文时同主体。"""
+    gloss = gloss.strip()
+    if not gloss:
+        return []
+    if LATIN.search(gloss):
+        if CJKWISE.search(gloss):
+            return [f"{loc}: {label}注记括号混入中文——括号内只放专有名词本身，中文表述留在主体"]
+        parts = [p for p in re.split(r"[\s,/]+", gloss) if p]
+        bad = [p for p in parts if p not in PROPER_NOUNS]
+        if bad:
+            shown = " ".join(bad[:3])
+            return [
+                f"{loc}: {label}注记出现白名单之外的词（{shown}）"
+                f"——只放登记过的专有名词；能改写为中文的写进主体"
+            ]
+        return []
+    return chinese_zone_problems(loc, gloss, label)
+
+
+def split_glosses(body):
+    """按栈配对全角括号，切成注记与主体：返回（注记清单，主体残文，括号问题）。"""
+    glosses = []
+    residual = []
+    depth = 0
+    buf = []
+    problems = []
+    for ch in body:
+        if ch == "（":
+            depth += 1
+            if depth == 1:
+                residual.append(" ")
+                buf = []
+            else:
+                problems.append("注记括号嵌套——括号不套括号，改写为并列或摊平表述")
+                residual.append(ch)
+        elif ch == "）":
+            if depth == 0:
+                problems.append("注记括号不配对——括号须成对包裹注记")
+                residual.append(" ")
+            else:
+                if depth == 1:
+                    glosses.append("".join(buf))
+                else:
+                    residual.append(ch)
+                depth -= 1
+        else:
+            if depth == 0 or depth > 1:
+                residual.append(ch)
+            else:
+                buf.append(ch)
+    if depth > 0:
+        problems.append("注记括号不配对——括号须成对包裹注记")
+    return glosses, "".join(residual), problems
+
+
+def body_problems(loc, body, label):
+    """整条注释的分域检查：先摘注记括号，再查主体与各注记。"""
+    out = []
+    glosses, residual, bracket_problems = split_glosses(body)
+    for message in bracket_problems:
+        out.append(f"{loc}: {label}{message}")
+    for gloss in glosses:
+        out += gloss_problems(loc, gloss, label)
+    out += chinese_zone_problems(loc, residual, label)
+    return out
+
+
 def nonrust_violations(rel, src):
     name = os.path.basename(rel)
     ext = os.path.splitext(name)[1]
@@ -424,36 +524,42 @@ def nonrust_violations(rel, src):
     else:
         pairs = web_comments(src, ext)
         kind = "web"
+
+    def flush(lineno, bodies):
+        merged = "\n".join(bodies)
+        loc = f"{rel}:{lineno}"
+        if "`" in merged:
+            return [f"{loc}: 注释出现代码段——引用与示例沉记录文件"]
+        if "§" in merged:
+            return [f"{loc}: 注释出现「§ 章节号」式外部引用——出处沉记录文件"]
+        if not CJK.search(merged):
+            return [f"{loc}: 注释须写成中文：{merged[:40]}"]
+        return body_problems(loc, merged, "注释")
+
     out = []
+    cur = None  # 相邻注释行聚成一块：换行的括号与表述跨行不误报
     for lineno, text in pairs:
-        if MARKER.search(text):
+        exempt = MARKER.search(text) or text.startswith("#!")
+        body = None
+        if not exempt:
+            body = web_body(text) if kind == "web" else text[1:].strip()
+            segs = [seg.strip(SEGMENT_TRIM) for seg in SEGMENT_SPLIT.split(body)]
+            segs = [seg for seg in segs if seg]
+            if not segs or all(DIRECTIVE_SEG.match(seg) for seg in segs):
+                exempt = True  # 纯装饰行与纯指令行不判罚，也隔断聚块
+        if exempt:
+            if cur is not None:
+                out += flush(*cur)
+                cur = None
             continue
-        if text.startswith("#!"):
-            continue
-        body = web_body(text) if kind == "web" else text[1:].strip()
-        segs = [
-            seg.strip(SEGMENT_TRIM)
-            for seg in SEGMENT_SPLIT.split(body)
-            if seg.strip(SEGMENT_TRIM) and not DIRECTIVE_SEG.match(seg.strip(SEGMENT_TRIM))
-        ]
-        if not segs:
-            continue
-        if "`" in body:
-            out.append(f"{rel}:{lineno}: 注释出现代码段——引用与示例沉记录文件")
-            continue
-        if "§" in body:
-            out.append(f"{rel}:{lineno}: 注释出现「§ 章节号」式外部引用——出处沉记录文件")
-            continue
-        if not CJK.search(body):
-            out.append(f"{rel}:{lineno}: 注释须写成中文：{body[:40]}")
-            continue
-        for seg in segs:
-            bad = [w for w in WORD.findall(seg) if w not in PROPER_NOUNS]
-            if bad:
-                out.append(
-                    f"{rel}:{lineno}: 注释出现代码引用或白名单之外的英文词：{' '.join(bad[:3])}"
-                    f"（改写为中文；专有名词登记白名单；引用沉记录文件）"
-                )
+        if cur is not None and cur[0] + len(cur[1]) == lineno:
+            cur[1].append(body)
+        else:
+            if cur is not None:
+                out += flush(*cur)
+            cur = (lineno, [body])
+    if cur is not None:
+        out += flush(*cur)
     return out
 
 
@@ -473,9 +579,7 @@ def run(root, explicit):
     problems = []
 
     def lex(src):
-        """按字符扫描，产出注释事件：
-        (seq, start_line, end_line, kind, indent_only, text)
-        kind ∈ inner/doc/line/block；indent_only 指该行注释前只有空白。"""
+        """按字符扫描，产出注释事件：序号、起止行、种类、行首空白、是否在文件头前与原文。"""
         newlines = [m.start() for m in re.finditer("\n", src)]
 
         def line_of(i):
@@ -488,7 +592,7 @@ def run(root, explicit):
         seq = 0
         code_seen = False  # 是否已越过文件头（见过代码项）
         line_starts_blank = True  # 当前行目前只有空白
-        inner_attr_only = True  # 当前行目前只有内部属性 #![...]（不算代码项）
+        inner_attr_only = True  # 当前行目前只有内部属性声明（不算代码项）
 
         while i < n:
             c = src[i]
@@ -601,7 +705,7 @@ def run(root, explicit):
                 i += 1  # 生命周期标注不是字面量
                 continue
             if c == "#" and inner_attr_only and src[i : i + 3] == "#![":
-                # 内部属性 #![...]：字符串感知地跳到配对方括号，不视为代码项
+                # 内部属性声明：字符串感知地跳到配对方括号，不视为代码项
                 depth = 1
                 i += 3
                 while i < n and depth:
@@ -627,25 +731,22 @@ def run(root, explicit):
 
     def header_violations(lines, rel):
         out = []
+        merged = []
         for text in lines:
             body = text[3:].strip() if text.startswith("//!") else text.strip()
             if not body:
                 continue
             if not CJK.search(body):
                 out.append(f"{rel}: 文件头含无汉字的行：{body[:60]}")
+            if "`" in body:
+                out.append(f"{rel}: 文件头出现反引号代码段——代码引用移出文件头，沉记录文件")
             if "§" in body:
                 out.append(
                     f"{rel}: 文件头出现「§ 章节号」式外部引用——章节号随文档漂移，出处进记录文件"
                 )
-            if "`" in body:
-                out.append(f"{rel}: 文件头出现反引号代码段——专有名词裸写，标识符与代码移出文件头")
-                continue
-            bad = [w for w in WORD.findall(body) if w not in PROPER_NOUNS]
-            if bad:
-                out.append(
-                    f"{rel}: 文件头出现专有名词之外的英文词：{' '.join(bad[:3])}"
-                    f"（改写为中文；确属专有名词则登记 PROPER_NOUNS 白名单）"
-                )
+            merged.append(body.replace("`", " ").replace("§", " "))
+        if merged:
+            out += body_problems(rel, "\n".join(merged), "文件头")
         return out
 
     for path in scan_files(root, explicit):
@@ -683,25 +784,27 @@ def run(root, explicit):
                     header_lines.append(text)
                 continue
             if kind == "doc":
-                problems.append(f"{rel}:{sline}: /// 文档注释 —— 内容迁 docs/comments/ 后删除")
+                problems.append(f"{rel}:{sline}: /// 文档注释 —— 内容迁记录文件后删除")
                 continue
             if kind == "block":
-                problems.append(f"{rel}:{sline}: 块注释 —— 内容迁 docs/comments/ 后删除")
+                problems.append(f"{rel}:{sline}: 块注释 —— 内容迁记录文件后删除")
                 continue
             # 此处余下的都是行内注释
             if MARKER.search(text):
                 continue
             if not indent_only:
-                problems.append(f"{rel}:{sline}: 行尾注释 —— 迁 docs/comments/，豁免标记除外")
+                problems.append(f"{rel}:{sline}: 行尾注释 —— 迁记录文件，豁免标记除外")
                 continue
             stripped = text.strip()
             body = stripped.lstrip("/").strip()
             if safety_open or body.startswith("SAFETY:"):
                 safety_open = True
+                if CJKWISE.search(body):
+                    problems.append(
+                        f"{rel}:{sline}: SAFETY 注释须为纯英文——不变量整段改写为英文，符号引用保留"
+                    )
                 continue
-            problems.append(
-                f"{rel}:{sline}: 行内注释 —— 迁 docs/comments/（SAFETY 与 :allow 除外）"
-            )
+            problems.append(f"{rel}:{sline}: 行内注释 —— 迁记录文件（SAFETY 与 :allow 除外）")
         if not header_found:
             problems.append(f"{rel}: 缺文件头 //! 注释")
         problems.extend(header_violations(header_lines, rel))
@@ -726,7 +829,7 @@ def main():
             file=sys.stderr,
         )
         sys.exit(1)
-    print("  ok 注释纪律：Rust 源码只留中文文件头，非 Rust 注释全部为纯中文表述")
+    print("  ok 注释纪律：源码只留中文文件头，注释主体全中文，专名只进括号注记，不变量注释纯英文")
 
 
 if __name__ == "__main__":

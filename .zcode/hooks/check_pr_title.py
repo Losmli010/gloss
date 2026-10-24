@@ -1,6 +1,6 @@
 ''''exec python3 -- "$0" "$@" # '''  # fmt: skip
 #!/usr/bin/env python3
-# ZCode 提交前钩子：拉取请求标题在提交前先过一遍提交信息规范校验。
+# 编码助手（ZCode）提交前钩子：拉取请求标题在提交前先过一遍提交信息规范校验。
 # 由客户端共享配置的提交前事件调用；手动测试时向标准输入喂入钩子载荷。
 #
 # 行为：
@@ -60,7 +60,7 @@ def extract_title(data):
             if x.startswith("--title="):
                 title = x[8:].strip()
                 break
-        # 值含 $ 或反引号：运行时才可知，静态判不了，放行
+        # 值含美元符或反引号：运行时才可知，静态判不了，放行
         if title and ("$" in title or "`" in title):
             title = ""
         return title

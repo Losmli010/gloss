@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # 发布冒烟：把打包出的应用包真正跑起来，验证「能启动、活得住、日志无崩溃」，
 # 防「发了却跑不起来」。判定三条，全部基于可观察行为：
-#   1. 进程在预算时间内起来（窗口出现、事件循环在转）；
-#   2. 再观察一段窗口后仍存活（排除启动即崩的慢炸弹）；
-#   3. 日志出现启动标记，且没有任何 panic。
+#   一、进程在预算时间内起来（窗口出现、事件循环在转）；
+#   二、再观察一段窗口后仍存活（排除启动即崩的慢炸弹）；
+#   三、日志出现启动标记，且没有任何崩溃（panic）。
 # 辅助功能未授权只会让划词手势降级，不算冒烟失败——冒烟只管「能不能跑」。
 # 用法：以解释器运行，首参为应用包路径。
 
@@ -126,7 +126,7 @@ def main():
             time.sleep(POLL_INTERVAL)
         print("✓ 观察窗口 %ds 内持续存活" % OBSERVE_SECONDS)
 
-        # ---- 判定 3：日志无 panic ----
+        # ---- 判定三：日志无崩溃（panic） ----
         if logs_contain(smoke_home, "panic", ignore_case=True):
             print("错误：日志里出现 panic：", file=sys.stderr)
             dump_logs(smoke_home, os.path.join(".gloss", "logs", "*"))

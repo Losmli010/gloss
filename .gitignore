@@ -1,11 +1,11 @@
-# Cargo 自动生成：编译产物与可执行文件
+# 构建工具（Cargo）自动生成：编译产物与可执行文件
 debug
 target
 
-# Rust 格式化工具生成的备份文件
+# 本语言（Rust）格式化工具生成的备份文件
 **/*.rs.bk
 
-# Windows 编译器生成的调试信息文件
+# 系统（Windows）编译器生成的调试信息文件
 *.pdb
 
 # 变异测试工具的产物：变异测试数据
@@ -15,12 +15,12 @@ target
 docs/*
 !docs/tests/
 
-# Python 工具的本地缓存（门禁单测与格式化工具的运行产物）
+# 脚本语言（Python）工具的本地缓存，门禁单测与格式化工具的运行产物
 __pycache__/
 .pytest_cache/
 .ruff_cache/
 .DS_Store
-# ZCode 共享配置与钩子随仓库跟踪；本地会话状态不进仓库
+# 编码助手（ZCode）共享配置与钩子随仓库跟踪；本地会话状态不进仓库
 .zcode/*
 !.zcode/config.json
 !.zcode/hooks/
@@ -31,7 +31,7 @@ __pycache__/
 **/tests/snapshots/**/*.new.png
 **/tests/snapshots/**/*.old.png
 
-# WorkBuddy 会话工具目录（本地状态，不进仓库）
+# 会话工具（WorkBuddy）目录（本地状态，不进仓库）
 .workbuddy/
 
 # 站点部署注入产物：最新版二进制与更新清单由持续集成生成，不进仓库

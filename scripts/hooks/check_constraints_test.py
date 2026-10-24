@@ -79,7 +79,7 @@ def new_fixture(root, agents_body=None):
 
     (root / "crates/gloss-core/src/log.rs").write_text('tracing::info!("ready");\n')
     # 第三方依赖的使用证据（依赖无死条目检查的基线）：
-    # gloss-core 的 serde 经派生宏使用，gloss-platform 的 TOML 解析经完整路径使用。
+    # 核心库（gloss-core）的序列化库（serde）经派生宏使用，平台适配层（gloss-platform）的配置解析经完整路径使用。
     (root / "crates/gloss-core/src/lib.rs").write_text(
         "#[derive(serde::Deserialize)]\npub struct Config;\n"
     )
@@ -283,7 +283,7 @@ def test_log_message_multiline_chinese(tmp_path):
     assert_fail(tmp_path, mutate, "日志实参含非 ASCII")
 
 
-# ---- 约束「egui 上下文统一装入点」----
+# ---- 约束「界面库（egui）上下文统一装入点」----
 
 
 def test_bare_egui_context(tmp_path):
@@ -338,7 +338,7 @@ def test_context_inside_owner_passes(tmp_path):
     assert_pass(tmp_path, mutate, "0 处绕过")
 
 
-# ---- 约束「FFI 声明集中」----
+# ---- 约束「外部函数接口（FFI）声明集中」----
 
 
 def test_ffi_declared_outside(tmp_path):
@@ -589,15 +589,14 @@ def test_indented_cfg_test_not_truncated(tmp_path):
     assert_fail(tmp_path, mutate, "文件行数上限")
 
 
-# ---- eval 资产隔离 ----
+# ---- 评测资产隔离 ----
 
 
 def test_production_crate_depends_on_eval_rejected(tmp_path):
     def mutate(root):
         add_dep(root / "crates/gloss-app/Cargo.toml", 'gloss-eval = { path = "../gloss-eval" }')
 
-    # 行号必须来自 gloss-eval 条目自身（插在依赖段标题后的第 7 行），
-    # 不是上游循环遗留的陈旧值
+    # 行号必须来自评测包（gloss-eval）条目自身（插在依赖段标题后的第 7 行），不是上游循环遗留的陈旧值
     _, fails = run_case(tmp_path, mutate)
     assert any("不得进生产依赖图" in f and "crates/gloss-app/Cargo.toml:7" in f for f in fails)
 
@@ -653,7 +652,7 @@ def test_fixme_marker_hit(tmp_path):
 
 
 def test_todo_adjacent_to_cjk_hit(tmp_path):
-    # 正则按 ASCII 语义对齐全词匹配：标记紧贴中文（汉字不算词字符）同样命中
+    # 正则按英文词界（ASCII）语义对齐全词匹配：标记紧贴中文（汉字不算词字符）同样命中
     new_fixture(tmp_path)
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
     (tmp_path / "scripts/hooks").mkdir(parents=True)
@@ -666,7 +665,7 @@ def test_todo_adjacent_to_cjk_hit(tmp_path):
 
 
 def test_unclosed_dep_entry_at_eof_still_emitted(tmp_path):
-    # 依赖条目在文件尾仍待定（花括号未闭合）时 Python 版选择补发判罚，
+    # 依赖条目在文件尾仍待定（花括号未闭合）时脚本语言（Python）版选择补发判罚，
     # 旧壳层实现缺收尾逻辑会静默丢弃——这是有意的审慎分歧，别「对齐」回去
     def mutate(root):
         with open(root / "crates/gloss-platform/Cargo.toml", "a", encoding="utf-8") as fh:

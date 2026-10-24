@@ -138,7 +138,7 @@ def test_empty_subject():
 
 
 def test_single_line_hash_not_stripped():
-    # PR 标题场景：单行 # 开头不按注释剥离，按格式错误拒绝
+    # 拉取请求（PR）标题场景：单行井号开头不按注释剥离，按格式错误拒绝
     assert_reject("#97: 新增钩子")
 
 

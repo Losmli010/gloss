@@ -1,10 +1,10 @@
-# Dependabot 配置
-# 自动跟踪依赖更新，定期开 PR，减少人工跟进成本。
+# 依赖机器人（Dependabot）配置
+# 自动跟踪依赖更新，定期开拉取请求（PR），减少人工跟进成本。
 
 version: 2
 
 updates:
-  # ---- Rust 依赖（cargo）----
+  # ---- 本语言（Rust）依赖（cargo）----
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
@@ -12,12 +12,12 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Asia/Shanghai"
-    # 同一生态的多个更新聚合成一个 PR，减少噪音
+    # 同一生态的多个更新聚合成一个拉取请求（PR），减少噪音
     groups:
       rust-dependencies:
         patterns:
           - "*"
-    # 兼容性优先：只提能自动合入的安全/补丁级更新
+    # 兼容性优先：只提能自动合入的安全与补丁级更新
     versioning-strategy: "auto"
     labels:
       - "dependencies"
@@ -26,7 +26,7 @@ updates:
       prefix: "chore(deps)"
     open-pull-requests-limit: 10
 
-  # ---- GitHub Actions（工作流中引用的动作版本）----
+  # ---- 托管平台（GitHub）的动作（Actions），工作流中引用的动作版本 ----
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

@@ -6,8 +6,8 @@ description = "Gloss 表现层与应用层：状态机 + 渲染胶水"
 license.workspace = true
 
 [dependencies]
-# 系统字体发现：已安装字体集合查询加 CoreText 选面；文件字节一次性读进
-# egui，面序号由文件自身解析回答。core-foundation 保留链接特性以链接系统框架。
+# 系统字体发现：已安装字体集合查询加文本排版框架（CoreText）选面；文件字节一次性读进
+# 界面库（egui），面序号由文件自身解析回答。系统框架绑定（core-foundation）保留链接特性以链接系统框架。
 core-foundation = {
   version = "0.10",
   default-features = false,
@@ -16,10 +16,10 @@ core-foundation = {
   ]
 }
 core-text = { version = "22.0", default-features = false }
-# 通道①②④用 crossbeam：多生产多消费队列，主线程非阻塞取用。
+# 通道①②④用并发通道（crossbeam）：多生产多消费队列，主线程非阻塞取用。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
-# 渲染栈整批同批版本：winit 0.30.13、wgpu 30.0.1、egui 0.36.2（含 egui-wgpu
-# 与 egui-winit）、pollster 1.0.1；全部关闭默认特性并显式列出所需特性。
+# 渲染栈整批同批版本：窗口库（winit）、图形后端（wgpu）、界面库（egui）与绑定包装（egui-wgpu/egui-winit）、
+# 阻塞等待库（pollster）；全部关闭默认特性并显式列出所需特性。
 egui = {
   version = "0.36.2",
   default-features = false,
@@ -27,7 +27,7 @@ egui = {
     "default_fonts",
   ]
 }
-# 结果卡 markdown 正文渲染：pulldown-cmark 解析后端；关闭取图与矢量图相关特性。
+# 结果卡的标记语言（markdown）正文渲染：解析后端（pulldown-cmark）；关闭取图与矢量图相关特性。
 egui_commonmark = {
   version = "0.25",
   default-features = false,
@@ -35,7 +35,7 @@ egui_commonmark = {
     "pulldown_cmark",
   ]
 }
-# 代码面板的语法着色：syntect 分词（Sublime 语法集）由 egui_extras 转成
+# 代码面板的语法着色：语法库（syntect）分词（Sublime）语法集由扩展库（egui_extras）转成
 # 排版任务；关闭默认特性只取语法着色，不引图片加载器。
 egui_extras = {
   version = "0.36.2",
@@ -44,7 +44,7 @@ egui_extras = {
     "syntect",
   ]
 }
-# 保留窗口缩放抖动修复特性：真实的 macOS 窗口缩放抖动修复。
+# 保留窗口缩放抖动修复特性：真实的系统（macOS）窗口缩放抖动修复。
 egui-wgpu = {
   version = "0.36.2",
   default-features = false,
@@ -60,25 +60,25 @@ egui-winit = {
     "links",
   ]
 }
-# 捕获展开的包装包住 tokio 消费循环里的任务（展开栈构建下后台 panic 转
-# 任务失败卡；发布构建的中止式 panic 下屏障不介入）——标准库特性只为它开；
+# 捕获展开的包装包住异步运行时（tokio）消费循环里的任务：展开栈构建下后台崩溃（panic）转
+# 任务失败卡，发布构建的中止式崩溃下屏障不介入——标准库特性只为它开；
 # 更新子系统的流式读取无特性门。
 futures = { version = "0.3", default-features = false, features = ["std"] }
 gloss-core = { path = "../gloss-core" }
 gloss-platform = { path = "../gloss-platform" }
-# 经位附件图像（剪贴板 PNG）的解码与测试夹具编码。
+# 剪贴板位图（PNG）附件图像的解码与测试夹具编码。
 image = { version = "0.25", default-features = false, features = ["png"] }
-# 系统字体文件的只读内存映射（egui 借用登记的字节背衬）。
+# 系统字体文件的只读内存映射（memmap2），界面库（egui）借用登记的字节背衬。
 memmap2 = { version = "0.9", default-features = false }
 # 任务产物缓存（同步接口即所需，异步面不用）。
 moka = { version = "0.12", default-features = false, features = ["sync"] }
-# 同步等待 GPU 初始化。
+# 同步等待图形硬件（GPU）初始化。
 pollster = { version = "1.0.1", default-features = false }
-# 通用兜底着色（syntect 无语法名时的字符串、注释、数字、类型、函数形）；
-# Unicode 特性供词界按码点判定，性能特性开字面量预前缀优化。
+# 通用兜底着色：语法库（syntect）无语法名时的字符串、注释、数字、类型与函数形；
+# 文种（Unicode）特性供词界按码点判定，性能特性开字面量预前缀优化。
 regex = { version = "1", default-features = false, features = ["perf", "std", "unicode"] }
-# OpenAI 兼容端点的流式调用（平台适配层同款最小特性集）；更新子系统复用
-# 同一套 TLS 与流式配置，清单与整包都走 rustls 加系统根证书。
+# 兼容端点（OpenAI）的流式调用，平台适配层同款最小特性集；更新子系统复用
+# 同一套传输安全（TLS）与流式配置，清单与整包都走安全传输库（rustls）加系统根证书。
 reqwest = {
   version = "0.12",
   default-features = false,
@@ -87,19 +87,19 @@ reqwest = {
     "stream",
   ]
 }
-# 页头应用图标的矢量栅格化（版本与 egui_extras 矢量加载器所钉的一致）：
+# 页头应用图标的矢量栅格化，版本与扩展库（egui_extras）矢量加载器所钉的一致：
 # 关闭默认特性不引文字排版与系统字体扫描（资产无文字元素），纯矢量路径渲染。
 resvg = { version = "0.45.1", default-features = false }
-# 更新清单的版本比较（semver 全序，构建元数据不参与优先级）。
+# 更新清单的版本比较：语义版本（semver）全序，构建元数据不参与优先级。
 semver = { version = "1", default-features = false, features = ["std"] }
 # 界面文案表的强类型反序列化：键缺失或多键都算解析失败。
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
-# 更新清单的 JSON 反序列化：未知字段必须忽略（前向兼容），
+# 更新清单的数据格式（JSON）反序列化：未知字段必须忽略（前向兼容），
 # 不开未知字段拒绝之类的严格面。
 serde_json = { version = "1", default-features = false, features = ["std"] }
-# 下载体的 sha256 校验（成熟库，不手搓）。
+# 下载体的散列校验（sha256），用成熟库不手搓。
 sha2 = { version = "0.10", default-features = false, features = ["std"] }
-# 代码面板的语法分词（Sublime 语法集）；正则后端用纯 Rust 实现，不引 C 依赖。
+# 代码面板的语法分词（Sublime）语法集；正则后端为纯本语言（Rust）实现，不引外来语言扩展。
 syntect = {
   version = "5.3",
   default-features = false,
@@ -107,7 +107,7 @@ syntect = {
     "default-fancy",
   ]
 }
-# 通道③用 tokio 的多生产单消费通道；流水线消费运行时与分支选择宏。
+# 通道③用异步运行时（tokio）的多生产单消费通道；流水线消费运行时与分支选择宏。
 tokio = {
   version = "1",
   default-features = false,
@@ -130,9 +130,9 @@ toml = {
     "parse",
   ]
 }
-# 额外语法集（语法补集工具的补集）：补 syntect 默认集缺的 Kotlin、Swift、
-# Dart、Elixir、Julia、TOML、TypeScript 等；纯 Rust 正则后端与 syntect
-# 对齐，不引 C 依赖。
+# 额外语法集（语法补集工具的补集）：补语法库（syntect）默认集缺的语言（Kotlin/Swift/
+# Dart/Elixir/Julia/TOML/TypeScript）等；纯本语言（Rust）正则后端与语法库（syntect）
+# 对齐，不引外来语言扩展。
 two-face = {
   version = "0.5",
   default-features = false,
@@ -140,7 +140,7 @@ two-face = {
     "syntect-fancy",
   ]
 }
-# 只留实际使用的 Metal 后端，配合渲染层已声明的标准与着色语言特性。
+# 只留实际使用的图形后端（Metal），配合渲染层已声明的标准与着色语言特性。
 wgpu = {
   version = "30.0.1",
   default-features = false,
@@ -150,7 +150,7 @@ wgpu = {
     "wgsl",
   ]
 }
-# winit 以关闭默认特性的方式被引入，特性开关由这里决定；
+# 窗口库（winit）以关闭默认特性的方式被引入，特性开关由这里决定；
 # 原生窗口句柄特性是渲染层拿原生窗口所需。
 winit = {
   version = "0.30.13",
@@ -161,7 +161,7 @@ winit = {
 }
 
 [dev-dependencies]
-# 二层浮层测试：无障碍树查询与点击 + wgpu 渲染快照。
+# 第二层浮层测试（L2）：无障碍树查询与点击，图形后端（wgpu）渲染快照。
 egui_kittest = {
   version = "0.36",
   default-features = false,

@@ -76,7 +76,7 @@ jobs:
       - name: Check non-negotiable constraints
         run: just constraints
 
-  # 界面文案统一进文案表：文案字面量 / 装入点 / 词条表唯一
+  # 界面文案统一进文案表：文案字面量、装入点、词条表唯一
   i18n:
     name: I18n check
     runs-on: ubuntu-latest
@@ -97,7 +97,7 @@ jobs:
       - name: Check UI copy lives in the catalog
         run: just i18n
 
-  # 注释纪律：Rust 源码只留中文文件头注释，非 Rust 注释纯中文且无代码引用
+  # 注释纪律：源码（Rust）只留中文文件头注释，注释主体全中文且无代码引用
   comments:
     name: Comments check
     runs-on: ubuntu-latest
@@ -118,7 +118,7 @@ jobs:
       - name: Check comment discipline
         run: just comments
 
-  # BDD 测试行为清单与测试源码双向一致
+  # 行为清单（BDD）与测试源码双向一致
   test-bdd:
     name: Test BDD check
     runs-on: ubuntu-latest
@@ -139,7 +139,7 @@ jobs:
       - name: Check BDD inventory against test code
         run: just test-bdd
 
-  # Python 脚本格式化与静态检查（ruff）：纯文本秒级；版本钉死保证判定一致
+  # 脚本语言（Python）格式化与静态检查（ruff）：纯文本秒级；版本钉死保证判定一致
   python:
     name: Python format & lint
     runs-on: ubuntu-latest
@@ -161,7 +161,7 @@ jobs:
       - name: Lint Python scripts
         run: just lint-py
 
-  # TOML 格式与结构检查（tombi）：纯文本秒级；版本钉死保证判定一致
+  # 配置格式（TOML）格式与结构检查（tombi）：纯文本秒级；版本钉死保证判定一致
   toml:
     name: TOML check
     runs-on: ubuntu-latest
@@ -201,8 +201,8 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          # 校验本次 PR 引入的所有提交信息（跳过合并提交）
-          # PR 场景：比较基线与目标分支的实际提交
+          # 校验本次拉取请求（PR）引入的所有提交信息，跳过合并提交
+          # 拉取请求场景：比较基线与目标分支的实际提交
           # 推送场景：比较推送前后
           if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
@@ -217,8 +217,8 @@ jobs:
             echo "检查 commit $sha"
             echo "$msg" | ./scripts/hooks/check_commit_msg.py -
           done
-          # squash 合并产生的提交信息取自 PR 标题（GitHub 追加 PR 号后缀），
-          # 按最长常见占位（#99999）模拟合并产物校验：标题自身合规而合并后超限同样拦下
+          # 压缩合并（squash）产生的提交信息取自拉取请求（PR）标题，托管平台（GitHub）追加编号后缀，
+          # 按最长常见占位编号模拟合并产物校验：标题自身合规而合并后超限同样拦下
           if [ -n "$PR_TITLE" ]; then
             echo "检查 PR 标题（含 squash 后缀模拟 (#99999)）"
             printf '%s\n' "$PR_TITLE (#99999)" | ./scripts/hooks/check_commit_msg.py -

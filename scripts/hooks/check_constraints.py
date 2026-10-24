@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-# 仓库自动化门禁：把可由工具判定的规则逐条落成检查
-# （依赖方向 / eval 资产隔离 / 桩副本一致 / 日志出口与语言 / egui 上下文装入点 /
-#  FFI 声明集中 / 版本单点 / 依赖特性 / 死条目 / 文件行数 / 残留任务标记）。
+# 仓库自动化门禁：把可由工具判定的规则逐条落成检查，覆盖依赖方向、评测资产隔离、
+# 桩副本一致、日志出口与语言、界面库（egui）上下文装入点、外部函数接口（FFI）声明集中、
+# 版本单点、依赖特性、死条目、文件行数与残留任务标记。
 # 本地约束配方（提交前门禁的一部分）与持续集成的同名检查作业共用此脚本，
 # 保证本地与远端判定一致。
 #
 # 覆盖：
-#   依赖方向            —— 各 crate 只能依赖允许的边；gloss-core 不得出现平台/渲染栈
-#                          （红线：winit / wgpu / 平台 API）。
-#   eval 资产隔离       —— gloss-eval 不被任何清单依赖；评测资产不被生产代码的
+#   依赖方向            —— 各包（crate）只能依赖允许的边；核心库（gloss-core）不得出现平台与渲染栈，
+#                          红线是窗口库（winit）、图形后端（wgpu）与平台接口（API）。
+#   评测资产隔离         —— 评测包（gloss-eval）不被任何清单依赖；评测资产不被生产代码的
 #                          内嵌宏引用。
-#   桩副本一致          —— 各 crate 测试桩目录的同名桩逐字一致，防跨 crate 漂移。
-#   日志统一出口        —— 除 gloss-core 外不得直接依赖 tracing 三件套。
-#   日志一律英文        —— 日志宏实参里不得出现非 ASCII 字节。
-#   egui 上下文装入点   —— 除统一装入点外不得直接建立渲染上下文。
-#   FFI 声明集中        —— 跨语言声明只允许出现在平台适配层的专用模块。
-#   版本单点维护        —— 子 crate 的版本与语言版本必须继承工作区，
+#   桩副本一致          —— 各包（crate）测试桩目录的同名桩逐字一致，防跨包漂移。
+#   日志统一出口        —— 除核心库（gloss-core）外不得直接依赖日志三件套（tracing）。
+#   日志一律英文        —— 日志宏实参里不得出现非英文字节（ASCII）。
+#   界面库（egui）上下文装入点 —— 除统一装入点外不得直接建立渲染上下文。
+#   外部函数接口（FFI）声明集中 —— 跨语言声明只允许出现在平台适配层的专用模块。
+#   版本单点维护        —— 子包（crate）的版本与语言版本必须继承工作区，
 #                          字面量只允许出现在根清单的工作区段。
 #   依赖只开需要的特性  —— 每个第三方依赖声明必须关闭默认特性。
 #   依赖无死条目        —— 声明的第三方依赖必须在源码、测试与基准里有使用证据。
@@ -32,7 +32,7 @@ import sys
 
 LINE_CAP = 500
 
-# 约束「依赖方向」的允许边表。新增 crate 必须在这里登记（并与项目文档同步），
+# 约束「依赖方向」的允许边表。新增包（crate）必须在这里登记（并与项目文档同步），
 # 漏登记即失败。
 ALLOWED_OWN_DEPS = {
     "gloss": "gloss-core gloss-platform gloss-app",
@@ -42,7 +42,7 @@ ALLOWED_OWN_DEPS = {
     "gloss-eval": "gloss-core",
 }
 
-# gloss-core 的红线：平台 / 渲染 / 系统适配栈。
+# 核心库（gloss-core）的红线：平台、渲染与系统适配栈。
 CORE_FORBIDDEN_EXACT = {
     "winit",
     "wgpu",
@@ -219,7 +219,7 @@ def stub_section(path, pat):
 def run(root):
     """逐条执行约束，返回 (oks, fails)。"""
     manifest_list = manifests(root)
-    dep_dump = []  # (属主, 清单相对路径, 节, 键, 行号, 条目全文)
+    dep_dump = []  # 条目依次是属主、清单相对路径、节、键、行号与全文
     for m in manifest_list:
         name = pkg_name(m)
         if not name:
@@ -242,7 +242,7 @@ def _checks(root, manifest_list, dep_dump):
         oks.append(msg)
 
     def rel(path):
-        # 统一归一为 / 风格，跨平台下与源码里的常量路径可比
+        # 统一归一为斜杠风格，跨平台下与源码里的常量路径可比
         return os.path.relpath(path, root).replace(os.sep, "/")
 
     agents_md = os.path.join(root, "AGENTS.md")
@@ -265,7 +265,7 @@ def _checks(root, manifest_list, dep_dump):
                 "约束「依赖方向」：gloss-core 出现平台/渲染栈依赖 %s（%s:%d）——红线禁入"
                 % (key, mrel, start)
             )
-    # crate 名必须在本文件里出现过：约束表与依赖边是两处维护，靠这条挡住单边改动
+    # 包名（crate）必须在本文件里出现过：约束表与依赖边是两处维护，靠这条挡住单边改动
     if os.path.isfile(agents_md):
         agents_text = read_text(agents_md)
         for m in manifest_list:
@@ -278,11 +278,11 @@ def _checks(root, manifest_list, dep_dump):
     ok("依赖方向（%d 条本仓库依赖边 + 各 crate 的 crate 名登记）" % edges)
 
     # ---- 约束「评测资产隔离」 ----
-    # gloss-eval 是评测工具链，依赖方向断言已保证它只消费、不被依赖；这里再钉
+    # 评测包（gloss-eval）是评测工具链，依赖方向断言已保证它只消费、不被依赖；这里再钉
     # 两条硬边界，防评测资产从旁路渗进生产：
-    #   1. 任何 gloss-eval 之外的清单不得出现对它的依赖（即使边表将来被
+    #   一、评测包（gloss-eval）之外的清单不得出现对它的依赖（即使边表将来被
     #      误放宽，这条仍然挡住）；
-    #   2. gloss-eval 之外的源码不得用内嵌宏引用评测资产。
+    #   二、评测包（gloss-eval）之外的源码不得用内嵌宏引用评测资产。
     eval_dep_violations = 0
     for owner, mrel, _sec, key, start, _text in dep_dump:
         if key == "gloss-eval" and owner != "gloss-eval":
@@ -315,8 +315,8 @@ def _checks(root, manifest_list, dep_dump):
     if eval_dep_violations == 0 and eval_asset_violations == 0:
         ok("eval 资产隔离（依赖 0 处 + include 0 处）")
 
-    # ---- 测试桩副本一致性（跨 crate 复用的同名桩逐字一致）----
-    # 桩按 crate 自持（各 crate 的测试桩目录），一份漂移会让两个 crate 的测试在
+    # ---- 测试桩副本一致性：跨包（crate）复用的同名桩逐字一致 ----
+    # 桩按包（crate）自持（各包的测试桩目录），一份漂移会让两个包的测试在
     # 语义不同的假实现上各自通过。引擎桩全文比对；端口桩按节比对。
     core_stubs = os.path.join(root, "crates", "gloss-core", "tests", "stubs")
     if os.path.isfile(os.path.join(core_stubs, "engine.rs")):
@@ -361,8 +361,7 @@ def _checks(root, manifest_list, dep_dump):
     ok("日志统一出口（%d 个 crate 的日志依赖归属）" % log_owners)
 
     # ---- 约束「日志一律英文」 ----
-    # 把源文件折成一行再抓日志宏的实参（到第一个右括号为止），实参里出现非 ASCII
-    # 字节即违规；行内反引号与注释里的中文不受影响（不在宏实参里）。
+    # 把源文件折成一行再抓日志宏的实参（到第一个右括号为止），实参里出现非英文字节即违规；行内反引号与注释里的中文不受影响（不在宏实参里）。
     rs_files = 0
     log_violations = 0
     log_macro_re = re.compile(
@@ -378,7 +377,7 @@ def _checks(root, manifest_list, dep_dump):
             fail("约束「日志一律英文」：%s 的日志实参含非 ASCII —— %s" % (rel(f), hits[0][:60]))
     ok("日志一律英文（扫 %d 个 .rs 文件，%d 处违规）" % (rs_files, log_violations))
 
-    # ---- 约束「egui 上下文统一装入点」 ----
+    # ---- 约束「界面库（egui）上下文统一装入点」 ----
     # 浮层与设置窗各持一个独立的上下文，字体与主题都要逐个上下文装上；
     # 这两件事只允许经统一装入点发生——别处直接建上下文、或直接设置字体与
     # 主题，都会得到一个少装了东西的上下文。
@@ -407,9 +406,9 @@ def _checks(root, manifest_list, dep_dump):
         )
     ok("egui 上下文统一装入点（扫 %d 个 .rs 文件，%d 处绕过）" % (ctx_files, ctx_violations))
 
-    # ---- 约束「FFI 声明集中」 ----
+    # ---- 约束「外部函数接口（FFI）声明集中」 ----
     # 平台跨语言声明只允许出现在平台适配层的专用模块（签名与不变量依据一处审计）；
-    # 业务模块从那里引用，就地再声明一份会与真签名漂移。C 声明只能写在跨语言
+    # 业务模块从那里引用，就地再声明一份会与真签名漂移。语言（C）声明只能写在跨语言
     # 块里，故按块匹配（匹配前去掉空白）；导出函数形式的回调定义不在其列：
     # 那是我们导出的函数，随各自的业务模块走。
     ffi_owner_dir = "crates/gloss-platform/src/ffi/"
@@ -471,10 +470,10 @@ def _checks(root, manifest_list, dep_dump):
     ok("依赖只开需要的特性（检查 %d 条第三方依赖声明）" % deps_checked)
 
     # ---- 约束「依赖无死条目」 ----
-    # 声明的每个第三方依赖（非本仓路径、非工作区继承）必须能在所属 crate 的
+    # 声明的每个第三方依赖（非本仓路径、非工作区继承）必须能在所属包（crate）的
     # 源码面（源码、测试、基准目录）找到使用证据：路径引用（含属性宏与派生宏
     # 内的路径）、宏调用，或导入语句（重导出与别名导入同算）。依赖键连字符按
-    # Rust 惯例转下划线后匹配；证据按文本匹配、不区分注释与代码（宽松判定防
+    # 本语言（Rust）惯例转下划线后匹配；证据按文本匹配、不区分注释与代码（宽松判定防
     # 误报优先）。条目行尾的放行标记豁免该条（同密钥扫描惯例，须注明缘由）。
     # 本仓路径依赖由「依赖方向」管辖，不在此判罚；本仓无构建脚本，若未来引入
     # 需把其纳入扫描面。
@@ -524,7 +523,7 @@ def _checks(root, manifest_list, dep_dump):
         ok("依赖无死条目（扫 %d 条第三方声明，deps:allow %d 条）" % (dead_scanned, dead_allowed))
 
     # ---- 约束「文件行数上限」 ----
-    # 单个生产源文件不超过五百行，超限即失败；扫描面是根源码目录与各 crate 的
+    # 单个生产源文件不超过五百行，超限即失败；扫描面是根源码目录与各包（crate）的
     # 源码目录，测试目标与基准不在其列。生产行数按首个列零的测试开关属性行
     # 截断（测试模块按仓库惯例置于文件尾），故文件尾的内联测试模块不计入。
     # 存量确需缓冲的，文件前五行写放行标记并注明缘由（同密钥扫描惯例）——
@@ -566,7 +565,7 @@ def _checks(root, manifest_list, dep_dump):
         ).returncode
         == 0
     ):
-        # 正则按 ASCII 词界的字节语义对齐命令行全字匹配：汉字不算词字符，
+        # 正则按英文词界（ASCII）的字节语义对齐命令行全字匹配：汉字不算词字符，
         # 任务标记紧贴中文的形态同样命中
         marker_re = re.compile(r"\b(?:TODO|FIXME|HACK|TBD)\b", re.ASCII)
         out = subprocess.run(

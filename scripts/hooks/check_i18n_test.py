@@ -181,7 +181,7 @@ def test_bracket_in_attribute_string_ok(tmp_path):
     assert_pass(tmp_path, "crates/gloss-app/src/bracket.rs", content)
 
 
-# ---- 扩展扫描面：gloss-core 与 gloss-platform ----
+# ---- 扩展扫描面：核心库（gloss-core）与平台适配层（gloss-platform） ----
 
 
 def test_core_hardcoded_chinese(tmp_path):

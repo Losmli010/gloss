@@ -1,12 +1,12 @@
-//! 克隆热点基准：criterion 自定义测量，按「分配次数 / 分配字节」两组
-//! 计量同一批热点（状态机任务周期、文案表错误映射、设置窗一帧、浮层
-//! 一帧）。分配是克隆的直接开销通道，计数比耗时稳定；耗时量化仍归
-//! 另一基准文件与 criterion 的墙钟机制。
+//! 克隆热点基准：基准框架（criterion）自定义测量，按「分配次数与分配
+//! 字节」两组计量同一批热点（状态机任务周期、文案表错误映射、设置窗
+//! 一帧、浮层一帧）。分配是克隆的直接开销通道，计数比耗时稳定；耗时
+//! 量化仍归另一基准文件与基准框架的墙钟机制。
 //!
 //! 除状态机生命周期一组（输入构造计入测量）外，测量输入全部在循环外
-//! 构造，经黑箱包装进出测量。界面帧经界面上下文装配入口
-//! 装入生产同款字体/主题后无头驱动：预热期推进时间越过淡入动画，测量
-//! 期时间冻结——时间相关的缓存淘汰不再触发，逐帧分配恒定。
+//! 构造，经黑箱包装进出测量。界面帧经界面上下文装配入口装入生产同款
+//! 字体与主题后无头驱动：预热期推进时间越过淡入动画，测量期时间冻结
+//! ——时间相关的缓存淘汰不再触发，逐帧分配恒定。
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -46,11 +46,14 @@ fn bump(size: usize) {
 
 struct CountingAlloc;
 
-// SAFETY: 分配语义原样转发 System 分配器，本实现只在成功路径旁路累加
-// 本线程计数，不改变指针、布局与对齐契约。
+// SAFETY: Allocation semantics forward verbatim to the `System`
+// allocator; this impl only accumulates thread-local counters on the
+// success path and never changes the pointer, layout, or alignment
+// contract.
 unsafe impl GlobalAlloc for CountingAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // SAFETY: 前置条件（指针有效、布局配对）与 System 契约一致，原样转发。
+        // SAFETY: The preconditions (valid pointer, layout pairing) match
+        // the `System` contract; the call is forwarded verbatim.
         let ptr = unsafe { System.alloc(layout) };
         if !ptr.is_null() {
             bump(layout.size());
@@ -59,7 +62,8 @@ unsafe impl GlobalAlloc for CountingAlloc {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // SAFETY: 指针与布局来自调用方的配对契约，原样转发 System。
+        // SAFETY: The pointer and layout come from the caller's pairing
+        // contract; forwarded verbatim to `System`.
         unsafe { System.dealloc(ptr, layout) }
     }
 }

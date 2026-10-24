@@ -8,15 +8,15 @@ license.workspace = true
 [dependencies]
 # 配置热更新的无锁快照：配置对象原子替换，读路径零锁。
 arc-swap = { version = "1", default-features = false }
-# 请求体组装的图像部件编码（内建引擎）：PNG 字节经 base64 编码为载荷；
+# 请求体组装的图像部件编码（内建引擎）：位图（PNG）字节经编码（base64）为载荷；
 # 域类型只携带原始字节，编码只发生在请求体构造处。
 base64 = { version = "0.23", default-features = false, features = ["std"] }
-# SSE 流的分块字节（HTTP 客户端逐块交出字节块）。
+# 流式事件（SSE）流的分块字节，传输协议（HTTP）客户端逐块交出字节块。
 bytes = { version = "1", default-features = false }
 # 任务流的流式最小集；流工具留给使用方自选。
 futures-core = { version = "0.3", default-features = false }
-# 内建引擎传输：OpenAI 兼容端点的流式调用。最小特性集：
-# SSE 用 HTTP/1.1 足够，TLS 走 rustls 加系统根证书。
+# 内建引擎传输：兼容端点（OpenAI）的流式调用。最小特性集：
+# 流式事件（SSE）用传输协议（HTTP）第一版足够，传输安全（TLS）走安全传输库（rustls）加系统根证书。
 reqwest = {
   version = "0.12",
   default-features = false,
@@ -29,7 +29,7 @@ reqwest = {
 # 任务模型的序列化（配置落盘、未来跨进程）；引用计数特性供图像字节按内部
 # 值序列化（反序列化会新分配，所有权语义不变）。
 serde = { version = "1", default-features = false, features = ["derive", "rc", "std"] }
-# 任务/分类输出契约的 JSON 解析（评测与编排测试用）。
+# 任务与分类输出契约的数据格式（JSON）解析（评测与编排测试用）。
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # 流式空闲看门狗与传输重试退避（内建引擎）：定时等待只要时间特性。
 tokio = { version = "1", default-features = false, features = ["time"] }

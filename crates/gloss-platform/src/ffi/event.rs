@@ -1,6 +1,6 @@
-//! CoreGraphics 事件注入：模拟复制（Cmd+C）与真机测试的合成事件。
+//! 图形核心框架（CoreGraphics）事件注入：模拟复制（Cmd+C）与真机测试的合成事件。
 //!
-//! 与监听（事件 tap 子模块）分居两个模块：这里只「造事件、发事件」。
+//! 与事件监听（tap）分居两个模块：这里只「造事件、发事件」。
 //! 事件经系统事件链入口注入，对目标应用等价于真实键鼠输入；
 //! 注入需要辅助功能授权，未授权时事件被系统静默丢弃（事件投递调用无
 //! 返回状态）——成败由调用方的写入确认窗口分辨，不在这里猜。
@@ -53,7 +53,8 @@ unsafe extern "C" {
 }
 
 pub(crate) fn new_hid_source() -> Option<CfGuard> {
-    // SAFETY: 纯构造型 FFI，无前置条件；失败返回 NULL，此处按失败处理。
+    // SAFETY: a pure construction FFI with no preconditions; failure returns
+    // NULL, which is handled as failure here.
     let source = unsafe { CGEventSourceCreate(CG_EVENT_SOURCE_HID_SYSTEM_STATE) };
     (!source.is_null()).then(|| CfGuard::new(source as CFTypeRef))
 }
@@ -64,8 +65,9 @@ pub(crate) fn post_keyboard_event(
     key_down: bool,
     flags: u64,
 ) -> bool {
-    // SAFETY: `source` 是有效事件源引用；成功返回的 +1 事件交给守卫，
-    // 注入发生在守卫存活期内。
+    // SAFETY: `source` is a valid event source reference; the +1 event returned
+    // on success is handed to the guard, and the posting happens while the guard
+    // is alive.
     let event = unsafe {
         CGEventCreateKeyboardEvent(source.raw() as CGEventSourceRef, virtual_key, key_down)
     };
@@ -73,16 +75,19 @@ pub(crate) fn post_keyboard_event(
         return false;
     }
     let _event = CfGuard::new(event as CFTypeRef);
-    // SAFETY: `event` 是刚构造的有效事件引用，改写其修饰位字段。
+    // SAFETY: `event` is a valid event reference just constructed above, whose
+    // modifier flag field is being rewritten.
     unsafe { CGEventSetFlags(event, flags) };
-    // SAFETY: `event` 是刚构造的有效事件引用，CGEventPost 不接管所有权。
+    // SAFETY: `event` is a valid event reference just constructed above;
+    // `CGEventPost` does not take ownership.
     unsafe { CGEventPost(K_CG_HID_EVENT_TAP, event) };
     true
 }
 
 #[cfg(test)]
 pub(crate) fn post_mouse_event(source: &CfGuard, kind: u32, position: CGPoint) -> bool {
-    // SAFETY: 不变量同 post_keyboard_event——source 有效、+1 事件交守卫。
+    // SAFETY: same invariants as `post_keyboard_event` — the source is valid and
+    // the +1 event is handed to the guard.
     let event = unsafe {
         CGEventCreateMouseEvent(
             source.raw() as CGEventSourceRef,
@@ -95,20 +100,22 @@ pub(crate) fn post_mouse_event(source: &CfGuard, kind: u32, position: CGPoint) -
         return false;
     }
     let _event = CfGuard::new(event as CFTypeRef);
-    // SAFETY: `event` 是刚构造的有效事件引用，CGEventPost 不接管所有权。
+    // SAFETY: `event` is a valid event reference just constructed above;
+    // `CGEventPost` does not take ownership.
     unsafe { CGEventPost(K_CG_HID_EVENT_TAP, event) };
     true
 }
 
 #[cfg(test)]
 pub(crate) fn current_position(source: &CfGuard) -> Option<CGPoint> {
-    // SAFETY: `source` 是有效事件源引用；+1 事件交给守卫，位置查询在
-    // 存活期内。
+    // SAFETY: `source` is a valid event source reference; the +1 event is handed
+    // to the guard, and the location query happens while it is alive.
     let event = unsafe { CGEventCreate(source.raw() as CGEventSourceRef) };
     if event.is_null() {
         return None;
     }
     let _event = CfGuard::new(event as CFTypeRef);
-    // SAFETY: `event` 是有效事件引用，CGEventGetLocation 为只读查询。
+    // SAFETY: `event` is a valid event reference and `CGEventGetLocation` is a
+    // read-only query.
     Some(unsafe { CGEventGetLocation(event) })
 }

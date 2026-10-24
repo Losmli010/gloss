@@ -1,5 +1,5 @@
-# 快照对比配置（L2 浮层测试）：跨平台渲染差异用分平台阈值吸收；
-# 输出路径相对各 crate 的清单目录。
+# 第二层（L2）浮层测试的快照对比配置：跨平台渲染差异用分平台阈值吸收；
+# 输出路径相对各包（crate）的清单目录。
 output_path = "tests/snapshots"
 threshold = 0.6
 max_failed_pixels = 0

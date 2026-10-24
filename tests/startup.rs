@@ -1,6 +1,7 @@
-//! L3 启动预算自检（自带进程入口的端到端测试目标）。
+//! 第三层（L3）启动预算自检（自带进程入口的端到端测试目标）。
 //!
-//! 经 gloss-app 公共 API 走生产同源的渲染栈初始化。需要窗口服务与 GPU。
+//! 经应用包（gloss-app）公共接口走生产同源的渲染栈初始化。需要窗口
+//! 服务与图形处理器（GPU）。
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};

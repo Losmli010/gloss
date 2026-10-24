@@ -3,11 +3,11 @@
 # 本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
 #
 # 校验对象为仓库的指令文档，五类引用：
-#   1. 全文任何任务配方的提及必须在配方清单里定义；
-#   2. 行内反引号里的仓库路径（含分隔符）必须存在（文件或目录）；
-#   3. 行内反引号里的裸文件名（配方清单或带常见扩展名）必须在仓库根存在；
-#   4. 全文任何测试目标的提及必须存在对应的测试源码（根包或任一分包）；
-#   5. 仓库各处对质量条目的指名引用必须真的在指令文档的「质量条目总表」段里。
+#   一、全文任何任务配方的提及必须在配方清单里定义；
+#   二、行内反引号里的仓库路径（含分隔符）必须存在（文件或目录）；
+#   三、行内反引号里的裸文件名（配方清单或带常见扩展名）必须在仓库根存在；
+#   四、全文任何测试目标的提及必须存在对应的测试源码（根包或任一分包）；
+#   五、仓库各处对质量条目的指名引用必须真的在指令文档的「质量条目总表」段里。
 #
 # 扫描逐行进行，代码块内同样算数；路径只认行内反引号包裹的仓库相对路径。
 # 占位符、仓库外路径、注释语法与链接不校验。
@@ -105,7 +105,7 @@ def run(doc_path):
     checked = 0
 
     for line_no, line in enumerate(lines, 1):
-        # ---- 1. 任务配方 ----
+        # ---- 任务配方 ----
         for recipe in RECIPE_RE.findall(line):
             checked += 1
             defined = False
@@ -118,7 +118,7 @@ def run(doc_path):
                     "%s:%d  「just %s」在 justfile 中找不到同名配方" % (doc_name, line_no, recipe)
                 )
 
-        # ---- 2/3. 行内反引号里的仓库路径与裸文件名 ----
+        # ---- 行内反引号里的仓库路径与裸文件名 ----
         for token in BACKTICK_RE.findall(line):
             if "*" in token or "<" in token or ">" in token or "//" in token:
                 continue
@@ -133,7 +133,7 @@ def run(doc_path):
                 if not os.path.exists(os.path.join(root, token)):
                     violations.append("%s:%d  「%s」在仓库根不存在" % (doc_name, line_no, token))
 
-        # ---- 4. 测试目标 ----
+        # ---- 测试目标 ----
         for target in CARGO_TEST_RE.findall(line):
             checked += 1
             if not scan_targets(root, target):
@@ -142,7 +142,7 @@ def run(doc_path):
                     % (doc_name, line_no, target, target)
                 )
 
-    # ---- 5. 仓库各处对质量条目的指名引用必须存在 ----
+    # ---- 仓库各处对质量条目的指名引用必须存在 ----
     ref_violations, ref_files, ref_count = scan_quality_refs(root, rule_names(lines))
     violations.extend(ref_violations)
     return violations, checked, ref_files, ref_count

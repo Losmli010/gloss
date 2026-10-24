@@ -1,12 +1,13 @@
-//! 剪贴板图片的触发哨兵与取材读取：触发哨兵 + 内容读取器。
+//! 剪贴板图片的触发哨兵与取材读取：触发哨兵加内容读取器。
 //!
-//! 双栈分工：哨兵只读系统粘贴板的变更计数与类型清单（纯元数据，廉价，
-//! 不触发 macOS 15+ 的「允许粘贴」授权流程），回答「要不要触发」；内容读取
-//! 直读同一粘贴板的图像 flavor 数据（按类型取数据，TIFF/PNG），经 image 包
-//! 解码为 RGBA，回答「是什么图」。① 观察与 ② 取材之间剪贴板可能被
+//! 双栈分工：哨兵只读系统粘贴板的变更计数与类型清单——纯元数据，廉价，
+//! 不触发系统（macOS）15 及以上的「允许粘贴」授权流程——回答「要不要触发」；
+//! 内容读取直读同一粘贴板的图像数据风格（flavor），按类型取数据，
+//! 类型为标记图像文件格式（TIFF）或便携式网络图形（PNG），经图像解码库（image）
+//! 解码为红绿蓝透明像素，回答「是什么图」。① 观察与 ② 取材之间剪贴板可能被
 //! 覆盖：哨兵在发①时记下变更计数，读取器比对现值——不一致即竞态，
-//! 静默丢弃。两侧同在平台事件线程上运行（同线程顺序消费，见事件线程模块
-//! 文档），原子量只为跨闭包共享。
+//! 静默丢弃。两侧同在平台事件线程上运行，同线程顺序消费，见事件线程模块
+//! 文档；原子量只为跨闭包共享。
 //!
 //! 日志红线：图像只记字节数与像素尺寸，内容与字节永不落日志、不落盘、
 //! 不进错误消息。
@@ -32,8 +33,9 @@ pub(crate) fn pasteboard_has_image() -> bool {
     let Some(types) = NSPasteboard::generalPasteboard().types() else {
         return false;
     };
-    // SAFETY: `NSPasteboardTypePNG`/`NSPasteboardTypeTIFF` 是 AppKit 导出的
-    // 常量字符串 extern static，进程启动即初始化、存活期内恒有效。
+    // SAFETY: `NSPasteboardTypePNG`/`NSPasteboardTypeTIFF` are constant string
+    // extern statics exported by AppKit, initialized at process start and valid
+    // for the entire lifetime of the process.
     types.containsObject(unsafe { NSPasteboardTypePNG })
         || types.containsObject(unsafe { NSPasteboardTypeTIFF })
 }
@@ -46,8 +48,8 @@ pub(crate) enum ImageFlavor {
 
 pub(crate) fn pasteboard_image_flavor() -> Option<(ImageFlavor, Retained<NSData>)> {
     let pasteboard = NSPasteboard::generalPasteboard();
-    // SAFETY: AppKit 导出的常量字符串 extern static，进程启动即初始化、
-    // 存活期内恒有效。
+    // SAFETY: constant string extern statics exported by AppKit, initialized at
+    // process start and valid for the entire lifetime of the process.
     let candidates = [
         (ImageFlavor::Tiff, unsafe { NSPasteboardTypeTIFF }),
         (ImageFlavor::Png, unsafe { NSPasteboardTypePNG }),

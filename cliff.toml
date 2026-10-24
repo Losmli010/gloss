@@ -1,4 +1,4 @@
-# git-cliff 配置：为 GitHub Release 页渲染发版说明（唯一来源，不落仓库文件）；
+# 发版说明工具（git-cliff）配置：为托管平台（GitHub）发布页（Release）渲染发版说明，唯一来源、不落仓库文件；
 # 持续集成在打标签后渲染当前标签的一节作发布正文。
 
 [changelog]

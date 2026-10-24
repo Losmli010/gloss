@@ -46,16 +46,61 @@ def test_english_only_header_flagged(tmp_path):
 
 def test_bare_english_words_flagged(tmp_path):
     problems = run_gate(tmp_path, "//! 中文头说明 functional core 在此。\n\nfn main() {}\n")
-    assert any("英文词" in p for p in problems)
+    assert any("外文字符" in p for p in problems)
 
 
 def test_single_english_word_flagged(tmp_path):
     problems = run_gate(tmp_path, "//! 中文头借用 helper 渲染。\n\nfn main() {}\n")
-    assert any("英文词" in p for p in problems)
+    assert any("外文字符" in p for p in problems)
 
 
-def test_proper_noun_allowed(tmp_path):
-    content = "//! 中文头借用 wgpu 渲染。\n\nfn main() {}\n"
+def test_bare_proper_noun_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头说明 wgpu 渲染。\n\nfn main() {}\n")
+    assert any("外文字符" in p for p in problems)
+
+
+def test_gloss_annotation_allowed(tmp_path):
+    content = "//! 中文头借用图形库（wgpu）渲染。\n\nfn main() {}\n"
+    assert run_gate(tmp_path, content) == []
+
+
+def test_gloss_multiple_nouns_allowed(tmp_path):
+    content = "//! 渲染栈（wgpu/egui）与窗口栈（winit）组装。\n\nfn main() {}\n"
+    assert run_gate(tmp_path, content) == []
+
+
+def test_gloss_with_spaces_allowed(tmp_path):
+    content = "//! 发布产物走发布托管（GitHub Releases）降级。\n\nfn main() {}\n"
+    assert run_gate(tmp_path, content) == []
+
+
+def test_gloss_mixed_with_chinese_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头（用 wgpu 渲染）说明。\n\nfn main() {}\n")
+    assert any("注记括号混入中文" in p for p in problems)
+
+
+def test_gloss_unknown_word_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头借用图形库（wgpu-xxx）渲染。\n\nfn main() {}\n")
+    assert any("白名单之外的词" in p for p in problems)
+
+
+def test_unbalanced_bracket_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头（缺右括号说明。\n\nfn main() {}\n")
+    assert any("括号不配对" in p for p in problems)
+
+
+def test_nested_bracket_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头（类型（范围）：主题）说明。\n\nfn main() {}\n")
+    assert any("注记括号嵌套" in p for p in problems)
+
+
+def test_halfwidth_punctuation_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头, 含半角逗号。\n\nfn main() {}\n")
+    assert any("外文字符" in p for p in problems)
+
+
+def test_fullwidth_punctuation_allowed(tmp_path):
+    content = "//! 中文头，含全角逗号；含全角句号。数字 64 与箭头 → 放行。\n\nfn main() {}\n"
     assert run_gate(tmp_path, content) == []
 
 
@@ -65,8 +110,10 @@ def test_backtick_code_segment_flagged(tmp_path):
 
 
 def test_doc_reference_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头：规则见项目说明文档。\n\nfn main() {}\n")
+    assert problems == []
     problems = run_gate(tmp_path, "//! 中文头：规则见 AGENTS.md。\n\nfn main() {}\n")
-    assert any("英文词" in p for p in problems)
+    assert any("外文字符" in p for p in problems)
 
 
 def test_section_reference_flagged(tmp_path):
@@ -109,18 +156,41 @@ def test_inner_doc_after_code_flagged(tmp_path):
     assert any("//! 出现在文件头之后" in p for p in problems)
 
 
-# ---- 豁免 ----
+# ---- 不变量注释与豁免 ----
 
 
-def test_safety_block_and_continuation_allowed(tmp_path):
+def test_safety_block_english_allowed(tmp_path):
     content = (
         f"{HEADER}\n\n"
-        "// SAFETY: 指针有效且对齐，契约见调用方。\n"
-        "// 续行说明不变量的第二段。\n"
+        "// SAFETY: pointer is valid and aligned; the caller upholds the contract.\n"
+        "// Continuation of the invariant, still pure English with symbols like Self.\n"
         "unsafe fn f() {}\n\n"
         "fn main() {}\n"
     )
     assert run_gate(tmp_path, content) == []
+
+
+def test_safety_chinese_flagged(tmp_path):
+    content = (
+        f"{HEADER}\n\n"
+        "// SAFETY: 指针有效且对齐，契约见调用方。\n"
+        "unsafe fn f() {}\n\n"
+        "fn main() {}\n"
+    )
+    problems = run_gate(tmp_path, content)
+    assert any("SAFETY 注释须为纯英文" in p for p in problems)
+
+
+def test_safety_continuation_chinese_flagged(tmp_path):
+    content = (
+        f"{HEADER}\n\n"
+        "// SAFETY: pointer is valid and aligned.\n"
+        "// 续行是中文，同样属于不变量注释。\n"
+        "unsafe fn f() {}\n\n"
+        "fn main() {}\n"
+    )
+    problems = run_gate(tmp_path, content)
+    assert any("SAFETY 注释须为纯英文" in p for p in problems)
 
 
 def test_trailing_secrets_allow_allowed(tmp_path):
@@ -140,35 +210,54 @@ def test_inline_lines_allow_allowed(tmp_path):
 def test_safety_released_after_code_gap(tmp_path):
     content = (
         f"{HEADER}\n\n"
-        "// SAFETY: 第一处\n"
+        "// SAFETY: first invariant\n"
         "unsafe fn f() {}\n\n"
         "fn g() {}\n\n"
-        "// SAFETY 之后隔了代码，这句是普通行内注释\n"
+        "// 隔了代码之后不再是续行，这句是普通行内注释\n"
         "fn main() {}\n"
     )
     problems = run_gate(tmp_path, content)
     assert any("行内注释" in p for p in problems)
 
 
-# ---- 非 Rust 文件注释 ----
+# ---- 源码之外的文件注释 ----
 
 
 def test_nonrust_mixed_language_flagged(tmp_path):
     problems = run_gate(tmp_path, "# 中文注释里夹 generic 词。\n", rel="conf.toml")
-    assert any("代码引用或白名单之外的英文词" in p for p in problems)
+    assert any("外文字符" in p for p in problems)
 
 
-def test_nonrust_proper_noun_allowed(tmp_path):
-    content = "# 中文注释说明 wgpu 渲染，cargo 打包。\n"
+def test_nonrust_gloss_annotation_allowed(tmp_path):
+    content = "# 中文注释说明图形库（wgpu）渲染，打包工具（cargo）负责打包。\n"
     assert run_gate(tmp_path, content, rel="conf.toml") == []
 
 
+def test_nonrust_pure_chinese_gloss_allowed(tmp_path):
+    content = "# 中文注释（本地与持续集成共用同一判定）说明。\n"
+    assert run_gate(tmp_path, content, rel="conf.toml") == []
+
+
+def test_nonrust_gloss_mixed_with_chinese_flagged(tmp_path):
+    problems = run_gate(tmp_path, "# 中文注释（需 wgpu 渲染）说明。\n", rel="conf.toml")
+    assert any("注记括号混入中文" in p for p in problems)
+
+
 def test_nonrust_code_reference_flagged(tmp_path):
+    problems = run_gate(tmp_path, "# 中文注释：配置见依赖合规清单。\n", rel="conf.toml")
+    assert problems == []
     problems = run_gate(tmp_path, "# 中文注释：配置见 deny.toml。\n", rel="conf.toml")
-    assert any("代码引用" in p for p in problems)
+    assert any("外文字符" in p for p in problems)
+
+
+def test_nonrust_halfwidth_punctuation_flagged(tmp_path):
+    problems = run_gate(tmp_path, "# 中文注释, 含半角逗号。\n", rel="conf.toml")
+    assert any("外文字符" in p for p in problems)
 
 
 def test_nonrust_backtick_flagged(tmp_path):
+    problems = run_gate(tmp_path, "# 中文注释用构建配方运行。\n", rel="justfile")
+    assert problems == []
     problems = run_gate(tmp_path, "# 中文注释用 `just bench` 运行。\n", rel="justfile")
     assert any("代码段" in p for p in problems)
 
@@ -204,9 +293,9 @@ def test_js_css_html_comments_flagged(tmp_path):
         tmp_path, "/* 中文注释带 generic 词。 */\nbody { color: red; }\n", rel="web/s.css"
     )
     html = run_gate(tmp_path, "<div></div>\n<!-- 中文分节 Hero -->\n", rel="web/i.html")
-    assert any("英文词" in p for p in js)
-    assert any("英文词" in p for p in css)
-    assert any("英文词" in p for p in html)
+    assert any("外文字符" in p for p in js)
+    assert any("外文字符" in p for p in css)
+    assert any("外文字符" in p for p in html)
 
 
 def test_nonrust_rust_files_unaffected(tmp_path):

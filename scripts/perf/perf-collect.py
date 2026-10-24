@@ -83,7 +83,7 @@ OVERLAY_METRIC_FIELDS = {
     "rss_tail_growth_kb": "overlay.rss_tail_growth_kb",
     "window_handles": "overlay.window_handles",
 }
-# 自检信号行的预算字段 → 预算编号（数值源头是 Rust 常量随行流出）
+# 自检信号行的预算字段到预算编号的映射，数值源头是本语言（Rust）常量随行流出
 OVERLAY_BUDGET_FIELDS = {
     "budget_ms": "overlay.show_first_ms",
     "rss_tail_budget_kb": "overlay.rss_tail_growth_kb",

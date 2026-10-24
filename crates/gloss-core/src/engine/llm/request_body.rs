@@ -1,6 +1,6 @@
-//! OpenAI 兼容传输请求体的构造：域形态的消息（文本或
-//! 多模态部件）在这里映成传输形状；图像部件的 Base64 与 Data URL 前缀
-//! 只在请求体构造处编码（域类型不带内联数据）。
+//! 开放接口（OpenAI）兼容传输请求体的构造：域形态的消息（文本或
+//! 多模态部件）在这里映成传输形状；图像部件的编码（Base64）与数据地址
+//! 前缀（Data URL）只在请求体构造处编码（域类型不带内联数据）。
 
 use crate::ports::EngineRequest;
 use crate::prompt::{ChatMessage, ContentPart, MessageContent};

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # 从图标目录的矢量源重建图标产物（换标方案或调色后跑一次）：
 #   打包用图标           —— 打包配置指向它
-#   开发期 Dock 图标     —— 非打包运行时由平台适配层内嵌交给系统
+#   开发期程序坞（Dock）图标 —— 非打包运行时由平台适配层内嵌交给系统
 #   站点标签页图标       —— 三十二像素，矢量站标的位图兜底
-#   站点触摸/收藏图标    —— 一百八十像素
-# 打包图标与 Dock 图标源自规范画布稿，站点两张位图源自满幅主标稿
-# （站点标稿拷贝仍按图标目录说明手工同步）。
+#   站点触摸与收藏图标    —— 一百八十像素
+# 打包图标与程序坞（Dock）图标源自规范画布稿，站点两张位图源自满幅主标稿，
+# 站点标稿拷贝仍按图标目录说明手工同步。
 # 只用系统自带的图像转换与图标集工具。
 
 import os
@@ -56,7 +56,7 @@ def main():
         iconset = os.path.join(work, "Gloss.iconset")
         os.makedirs(iconset)
 
-        # 一千零二十四主图：打包图标全部档位与 Dock 图标都由它降采样而来
+        # 一千零二十四主图：打包图标全部档位与程序坞（Dock）图标都由它降采样而来
         if not raster1024(
             os.path.join(ICONS, "gloss-app-icon.svg"), os.path.join(work, "icon-1024.png")
         ):
@@ -85,7 +85,7 @@ def main():
         )
         print("✓ %s" % os.path.join(ICONS, "Gloss.icns"))
 
-        # Dock 图标：视网膜屏上限为二百五十六像素。
+        # 程序坞（Dock）图标：视网膜屏上限为二百五十六像素。
         sips("-z", "256", "256", icon1024, "--out", os.path.join(ICONS, "gloss-dock-icon.png"))
         print("✓ %s" % os.path.join(ICONS, "gloss-dock-icon.png"))
 
