@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import check_comments  # noqa: E402
+import check_comments
 
 HEADER = "//! 中文文件头：负责演示。"
 
@@ -45,7 +45,9 @@ def test_english_only_header_flagged(tmp_path):
 
 
 def test_bare_english_words_flagged(tmp_path):
-    problems = run_gate(tmp_path, "//! 中文头说明 functional core 在此。\n\nfn main() {}\n")
+    problems = run_gate(
+        tmp_path, "//! 中文头说明 functional core 在此。\n\nfn main() {}\n"
+    )
     assert any("英文词" in p for p in problems)
 
 
@@ -60,14 +62,24 @@ def test_proper_noun_allowed(tmp_path):
 
 
 def test_backtick_code_segment_flagged(tmp_path):
-    problems = run_gate(tmp_path, "//! 中文头：术语 `functional core` 见记录。\n\nfn main() {}\n")
+    problems = run_gate(
+        tmp_path, "//! 中文头：术语 `functional core` 见记录。\n\nfn main() {}\n"
+    )
     assert any("反引号代码段" in p for p in problems)
 
 
+def test_doc_reference_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头：规则见 AGENTS.md。\n\nfn main() {}\n")
+    assert any("英文词" in p for p in problems)
+
+
+def test_section_reference_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头：规格见分发设计 §4.1。\n\nfn main() {}\n")
+    assert any("章节号" in p for p in problems)
+
+
 def test_url_inside_string_not_flagged(tmp_path):
-    content = (
-        f'{HEADER}\n\nconst URL: &str = "https://example.com/a//b";\nfn main() {{ let _ = URL; }}\n'
-    )
+    content = f'{HEADER}\n\nconst URL: &str = "https://example.com/a//b";\nfn main() {{ let _ = URL; }}\n'
     assert run_gate(tmp_path, content) == []
 
 
