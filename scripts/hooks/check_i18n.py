@@ -351,8 +351,17 @@ def scan_all_toml(root):
 
 
 def run(root):
-    """执行三条检查，返回 (oks, fails)。"""
-    fails = literal_violations(root)
+    """执行三条检查，返回 (oks, fails)；违规随执行流即时输出到 stderr
+    （对齐 bash 版的交错输出），列表供调用方取用。"""
+    fails = []
+
+    def fail(msg):
+        fails.append(msg)
+        print("  ✗ %s" % msg, file=sys.stderr)
+
+    # ---- 检查一：文案字面量拦截 ----
+    for violation in literal_violations(root):
+        fail(violation)
 
     # ---- 检查二：装入点集中 ----
     # 文案文件是编译期资源，装入与解析只允许发生在 i18n.rs 一处；
@@ -366,7 +375,7 @@ def run(root):
         with open(f, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 if include_re.search(line):
-                    fails.append(
+                    fail(
                         "约束「%s」：%s 在装入点之外引用了 i18n 资源 —— 只允许 %s include"
                         % (RULE, os.path.relpath(f, root), OWNER)
                     )
@@ -384,7 +393,7 @@ def run(root):
         with open(f, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 if toml_key_re.match(line):
-                    fails.append(
+                    fail(
                         "约束「%s」：%s 在 %s/ 之外声明了词条键 —— 文案表只此一处"
                         % (RULE, os.path.relpath(f, root), CATALOG_DIR)
                     )
@@ -407,11 +416,10 @@ def main():
     )
     print("== i18n 文案表门禁（仓库根：%s）==" % root)
     oks, fails = run(root)
+    # 违规已在 run 内即时输出（stderr），这里只补 ✓ 汇总与结论
     for line in oks:
         print("  ✓ %s" % line)
     if fails:
-        for line in fails:
-            print("  ✗ %s" % line, file=sys.stderr)
         print("", file=sys.stderr)
         print("错误：有 %d 处违反「%s」（见上）。" % (len(fails), RULE), file=sys.stderr)
         print(

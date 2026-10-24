@@ -115,8 +115,8 @@ def pkg_name(manifest_path):
             if stripped.startswith("["):
                 in_section = stripped == "[package]"
                 continue
-            if in_section and line.split()[:1] == ["name"] and "=" in line:
-                return line.split("=", 1)[1].strip().strip("\"'")
+            if in_section and re.match(r"name\s*=", stripped):
+                return stripped.split("=", 1)[1].strip().strip("\"'")
     return ""
 
 
@@ -178,7 +178,9 @@ def dep_entries(manifest_path):
 
 
 def walk_rs(*bases):
-    """列各 base 下的 .rs 文件（跳过 target / .git）；base 不存在则跳过。"""
+    """列各 base 下的 .rs 文件；base 不存在则跳过。任意层级剪枝 target / .git：
+    cargo 产物只应出现在仓库根，但误提交进源码树深处的同名目录同样不该进
+    扫描面（bash 版只剪根级，这里是审慎的超集）。"""
     for base in bases:
         if not os.path.isdir(base):
             continue
@@ -232,13 +234,16 @@ def _checks(root, manifest_list, dep_dump):
     fails = []
 
     def fail(msg):
+        # 违规随执行流即时输出（对齐 bash 版的 stderr 交错），列表供 run() 返回
         fails.append(msg)
+        print("  ✗ %s" % msg, file=sys.stderr)
 
     def ok(msg):
         oks.append(msg)
 
     def rel(path):
-        return os.path.relpath(path, root)
+        # 统一归一为 / 风格，跨平台下与源码里的常量路径可比
+        return os.path.relpath(path, root).replace(os.sep, "/")
 
     agents_md = os.path.join(root, "AGENTS.md")
 
@@ -280,7 +285,7 @@ def _checks(root, manifest_list, dep_dump):
     #   2. gloss-eval 之外的 .rs 不得 include_str!/include_bytes! 引用 eval
     #      资产（datasets/fixtures/prompts）。
     eval_dep_violations = 0
-    for owner, mrel, _sec, key, _start, _text in dep_dump:
+    for owner, mrel, _sec, key, start, _text in dep_dump:
         if key == "gloss-eval" and owner != "gloss-eval":
             fail(
                 "约束「eval 资产隔离」：%s 依赖了 gloss-eval（%s:%d）"
@@ -413,7 +418,7 @@ def _checks(root, manifest_list, dep_dump):
     ffi_violations = 0
     for f in walk_rs(root):
         ffi_files += 1
-        if rel(f).replace(os.sep, "/").startswith(ffi_owner_dir):
+        if rel(f).startswith(ffi_owner_dir):
             continue
         hits = [
             line
@@ -563,7 +568,9 @@ def _checks(root, manifest_list, dep_dump):
         ).returncode
         == 0
     ):
-        marker_re = re.compile(r"\b(?:TODO|FIXME|HACK|TBD)\b")
+        # re.ASCII 对齐 grep -w 的字节语义：汉字不算 word 字符，
+        # 「TODO记录」这类标记紧贴中文的形态同样命中
+        marker_re = re.compile(r"\b(?:TODO|FIXME|HACK|TBD)\b", re.ASCII)
         out = subprocess.run(
             ["git", "-C", root, "ls-files", "-z"], capture_output=True, check=True
         ).stdout
@@ -600,11 +607,10 @@ def main():
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
     oks, fails = run(root)
+    # 违规已在 _checks 内随执行流即时输出（stderr），这里只补 ✓ 汇总与结论
     for line in oks:
         print("  ✓ %s" % line)
     if fails:
-        for line in fails:
-            print("  ✗ %s" % line, file=sys.stderr)
         print("", file=sys.stderr)
         print("错误：有 %d 处未通过自动化门禁（见上）。" % len(fails), file=sys.stderr)
         print("  - 规则本身不打算改：改代码；", file=sys.stderr)

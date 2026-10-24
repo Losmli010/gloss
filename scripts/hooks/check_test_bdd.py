@@ -246,40 +246,46 @@ def run(root):
             "错误：没有从测试源码提取到任何测试（git 跟踪的 .rs 与 [[test]] 目标均为空）。"
         )
 
+    # 违规随执行流即时输出（对齐 bash 版的 stderr 交错），列表供调用方取用
     fails = []
+
+    def fail(msg):
+        fails.append(msg)
+        print("  ✗ %s" % msg, file=sys.stderr)
+
     # 两侧各自已去重，但 fn 名与 [[test]] 目标名可能同名（如 overlay 自检），
     # 合并后须再去重，否则差集把多出的那份误报成「未登记」。
     src_all = src_names | target_names
     stale = sorted(bdd_names - src_all)
     missing = sorted(src_all - bdd_names)
     if stale:
-        fails.append(
+        fail(
             "以下 bdd.md 条目在测试源码中不存在（改名或删除后未同步）：\n%s"
             % "\n".join("    %s" % s for s in stale)
         )
     if missing:
-        fails.append("以下测试未登记进 bdd.md：\n%s" % "\n".join("    %s" % s for s in missing))
+        fail("以下测试未登记进 bdd.md：\n%s" % "\n".join("    %s" % s for s in missing))
     dups = duplicate_rows(bdd_path)
     if dups:
-        fails.append(
+        fail(
             "以下 bdd.md 条目重复登记（同名条目数超过源码同名测试数，"
             "改名后旧行未删？）：\n%s" % "\n".join("    %s" % s for s in dups)
         )
     dups = duplicate_chapters(bdd_path)
     if dups:
-        fails.append(
+        fail(
             "以下 ## 章节标题重复出现（整段重复拼接的痕迹）：\n%s"
             % "\n".join("    %s" % s for s in dups)
         )
     dups = duplicate_blocks(bdd_path)
     if dups:
-        fails.append(
+        fail(
             "以下小节标题或条目行在同一章节/小节内重复出现"
             "（整段重复拼接的痕迹）：\n%s" % "\n".join("    %s" % s for s in dups)
         )
     broken = broken_tables(bdd_path)
     if broken:
-        fails.append(
+        fail(
             "以下小节的表格缺表头（或表体被空行/正文从表头切断）：\n%s"
             % "\n".join("    %s" % s for s in broken)
         )
@@ -299,11 +305,10 @@ def main():
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
     oks, fails = run(root)
+    # 违规已在 run 内即时输出（stderr），这里只补 ✓ 汇总与结论
     for line in oks:
         print("  ✓ %s" % line)
     if fails:
-        for line in fails:
-            print("  ✗ %s" % line, file=sys.stderr)
         print("", file=sys.stderr)
         print("错误：bdd.md 与测试源码不一致（见上）。", file=sys.stderr)
         print(

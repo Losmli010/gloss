@@ -596,7 +596,10 @@ def test_production_crate_depends_on_eval_rejected(tmp_path):
     def mutate(root):
         add_dep(root / "crates/gloss-app/Cargo.toml", 'gloss-eval = { path = "../gloss-eval" }')
 
-    assert_fail(tmp_path, mutate, "不得进生产依赖图")
+    # 行号必须来自 gloss-eval 条目自身（插在 [dependencies] 标题后的第 7 行），
+    # 不是上游循环遗留的陈旧值
+    _, fails = run_case(tmp_path, mutate)
+    assert any("不得进生产依赖图" in f and "crates/gloss-app/Cargo.toml:7" in f for f in fails)
 
 
 def test_production_code_includes_eval_asset_rejected(tmp_path):
@@ -647,6 +650,29 @@ def test_fixme_marker_hit(tmp_path):
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
     _, fails = check_constraints.run(str(tmp_path))
     assert any("残留任务标记：" in f for f in fails)
+
+
+def test_todo_adjacent_to_cjk_hit(tmp_path):
+    # re.ASCII 对齐 grep -w 的字节语义：标记紧贴中文（汉字不算 word 字符）同样命中
+    new_fixture(tmp_path)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / "scripts/hooks").mkdir(parents=True)
+    shutil.copyfile(CHECKER, tmp_path / "scripts/hooks/check_constraints.py")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/cjk_todo.rs").write_text("// TODO记录：待办\n")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    _, fails = check_constraints.run(str(tmp_path))
+    assert any("残留任务标记：" in f for f in fails)
+
+
+def test_unclosed_dep_entry_at_eof_still_emitted(tmp_path):
+    # 依赖条目在文件尾仍待定（花括号未闭合）时 Python 版选择补发判罚，
+    # bash awk 无 END 块会静默丢弃——这是有意的审慎分歧，别「对齐」回去
+    def mutate(root):
+        with open(root / "crates/gloss-platform/Cargo.toml", "a", encoding="utf-8") as fh:
+            fh.write('\n[dev-dependencies]\nserde_json = { version = "1"\n')
+
+    assert_fail(tmp_path, mutate, "serde_json 未写 default-features = false")
 
 
 def test_agents_md_uppercase_todo_exempt(tmp_path):

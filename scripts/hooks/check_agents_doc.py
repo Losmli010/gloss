@@ -163,12 +163,14 @@ def main():
         print("  客户端只认 AGENTS.md（没有 AGENT.md 之类的别名），别改名或挪位。", file=sys.stderr)
         return 1
     violations, checked, ref_files, ref_count = run(arg)
+    doc_name = os.path.basename(arg)
     if violations:
         for v in violations:
             print("  ✗ %s" % v, file=sys.stderr)
         print("", file=sys.stderr)
         print(
-            "错误：AGENTS.md 有 %d 处引用与其来源不符（见上）。" % len(violations), file=sys.stderr
+            "错误：%s 有 %d 处引用与其来源不符（见上）。" % (doc_name, len(violations)),
+            file=sys.stderr,
         )
         print("  - 命令或路径确实变了：改文档，别让它描述一个不存在的世界；", file=sys.stderr)
         print("  - 只是举例或占位：换个措辞，或写成含 * < > ~ 的形式跳过校验；", file=sys.stderr)
@@ -177,8 +179,8 @@ def main():
         )
         return 1
     print(
-        "✓ AGENTS.md 引用一致（校验 %d 处：just 配方 / 仓库路径 / 测试目标；"
-        "另在 %d 个文件里核对 %d 处质量条目名引用）" % (checked, ref_files, ref_count)
+        "✓ %s 引用一致（校验 %d 处：just 配方 / 仓库路径 / 测试目标；"
+        "另在 %d 个文件里核对 %d 处质量条目名引用）" % (doc_name, checked, ref_files, ref_count)
     )
     return 0
 
