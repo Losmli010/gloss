@@ -325,3 +325,84 @@ def test_js_css_html_comments_flagged(tmp_path):
 def test_nonrust_rust_files_unaffected(tmp_path):
     content = f"{HEADER}\n\nfn main() {{ let _ = 1; }}\n"
     assert run_gate(tmp_path, content) == []
+
+
+# ---- 标记语言文档同规用例 ----
+
+
+def run_md(tmp_path, content, rel="docs/tests/bdd.md"):
+    return run_gate(tmp_path, content, rel=rel)
+
+
+def test_bdd_table_first_cell_and_date_exempt(tmp_path):
+    content = (
+        "| 测试名称 | 测试目标 | 测试场景 | 更新时间 |\n"
+        "| --- | --- | --- | --- |\n"
+        "| some_test_name | 密钥存取桩往返 | 给定输入则读回写入值 | 2026-09-19 |\n"
+    )
+    assert run_md(tmp_path, content) == []
+
+
+def test_bdd_prose_bare_word_flagged(tmp_path):
+    problems = run_md(tmp_path, "| some_test_name | 中文目标 generic 场景 | 2026-09-19 |\n")
+    assert any("foreign letters" in p for p in problems)
+
+
+def test_bdd_identifier_heading_exempt(tmp_path):
+    content = "### some_test_name（2026-09-30，边界）\n- 测试目标：中文描述。\n"
+    assert run_md(tmp_path, content) == []
+
+
+def test_bdd_chinese_heading_checked(tmp_path):
+    problems = run_md(tmp_path, "### 中文小节带 generic 词\n")
+    assert any("foreign letters" in p for p in problems)
+
+
+def test_bdd_pure_command_cell_exempt(tmp_path):
+    content = "| 类别 | 数量 | 运行 |\n| --- | --- | --- |\n| 单元测试 | 629 | `just test` |\n"
+    assert run_md(tmp_path, content) == []
+
+
+def test_bdd_code_fence_exempt(tmp_path):
+    content = "### some_test_name\n- 测试步骤：\n\n```bash\njust test -- generic\n```\n"
+    assert run_md(tmp_path, content) == []
+
+
+def test_md_root_doc_gated(tmp_path):
+    problems = run_md(tmp_path, "# 应用名\n\nGloss is a tool.\n", rel="SECURITY.md")
+    assert any("must be written in Chinese" in p for p in problems)
+
+
+def test_md_comments_record_dir_exempt(tmp_path):
+    content = "# 任意记录\n\nEnglish prose with `code` and generic words.\n"
+    assert run_md(tmp_path, content, rel="docs/comments/demo_comment.md") == []
+
+
+def test_md_prompts_dir_exempt(tmp_path):
+    content = "You are a translation assistant. Reply in English.\n"
+    assert run_md(tmp_path, content, rel="crates/gloss-core/prompts/en/word_card.md") == []
+
+
+def test_md_nested_badge_link_exempt(tmp_path):
+    content = "[![CI](https://example.com/ci.svg)](https://example.com/ci)\n# 应用\n"
+    assert run_md(tmp_path, content) == []
+
+
+def test_md_task_list_marker_exempt(tmp_path):
+    content = "- [x] 已完成的条目\n- [ ] 待办条目\n"
+    assert run_md(tmp_path, content) == []
+
+
+def test_md_bold_markers_exempt(tmp_path):
+    content = "体验命门是 **克制** 与 **稳定**。\n"
+    assert run_md(tmp_path, content) == []
+
+
+def test_md_gloss_annotation_allowed(tmp_path):
+    content = "# 应用\n\n划词翻译工具，渲染走图形后端（wgpu）。\n"
+    assert run_md(tmp_path, content) == []
+
+
+def test_md_identifier_heading_exempt_at_root(tmp_path):
+    content = "## License\n\nMIT\n"
+    assert run_md(tmp_path, content, rel="README.md") == []
