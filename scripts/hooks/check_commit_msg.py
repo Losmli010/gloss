@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
-# Conventional Commits 校验：本地 commit-msg 钩子（.githooks/commit-msg）、ZCode 客户端
-# PR 标题钩子（.zcode/hooks/check_pr_title.py）与 CI 的 Commit message check job 共用此
-# 单点，保证三处判定一致。
+# 提交信息规范校验：本地提交钩子、ZCode 客户端的拉取请求标题检查与持续集成检查
+# 共用此单点，保证多处判定一致。
 #
-# 规则：header 形如 <type>(<scope>)?!: <subject>；type 白名单见 ALLOWED_TYPES；
-# header ≤81 字节（按 UTF-8 字节计，跨实现一致）；正文与 header 之间必须有空行。
-# git 忽略的 # 注释行只在多行输入时剥离——单行输入没有注释区，# 是标题本身
-# （如 issue 引用式 PR 标题），剥离会被误报为空 message。
+# 规则：标题形如「类型（可选范围）可加叹号，冒号后接主题」；类型白名单见下方常量；
+# 标题按 UTF-8 字节计不超上限（跨实现一致）；正文与标题之间必须有空行。
+# 井号起头的注释行只在多行输入时剥离——单行输入没有注释区，井号是标题本身
+# （如议题引用式拉取请求标题），剥离会被误报为空消息。
 #
-# 用法：scripts/hooks/check_commit_msg.py <commit-message-file|->
-#   - 传文件路径：读取文件内容作为 commit message（本地 hook 场景）
-#   - 传 "-" ：从 stdin 读取（CI 场景）
+# 用法：以解释器运行本脚本，首参为消息文件路径，或传单个减号表示从标准输入读取
+# （本地钩子传文件路径，持续集成传减号）。
 
 import re
 import sys

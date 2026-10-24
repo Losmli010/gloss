@@ -1,5 +1,5 @@
-# 性能数据流水线：手动触发（workflow_dispatch，取 main HEAD）→ 全量采集 → 推数据分支，人工开 PR 审查合入。
-# 定位是趋势数据例行生产，不是门禁：不判任何 PR 的生死；合入 main 不自动触发。
+# 性能数据流水线：手动触发、取主分支最新提交、全量采集后推数据分支，人工开 PR 审查合入。
+# 定位是趋势数据例行生产，不是门禁：不判任何 PR 的生死；合入主分支不自动触发。
 name: Perf data
 
 on:
@@ -12,8 +12,8 @@ env:
 permissions:
   contents: write
 
-# 数据分支基于触发时的 main HEAD、趋势点同 commit 原位覆盖：重复触发时取消
-# 在跑的一次，由最新一次（取最新 main）重新采集，避免并行采集互踩数据分支。
+# 数据分支基于触发时的主分支最新提交，趋势点按同一提交原位覆盖：重复触发时取消
+# 在跑的一次，由最新一次（取最新主分支）重新采集，避免并行采集互踩数据分支。
 concurrency:
   group: perf-data
   cancel-in-progress: true
@@ -21,7 +21,7 @@ concurrency:
 jobs:
   collect:
     name: Collect perf data
-    # 钉稳定标签不用浮动 macos-latest；镜像代际断点由趋势点 env 段显式记录。
+    # 钉稳定镜像标签不用浮动最新版；镜像代际断点由趋势点的环境段显式记录。
     runs-on: macos-26
     steps:
       - name: Guard main-only dispatch
@@ -34,7 +34,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # 数据分支在 main HEAD 之上追加提交，浅克隆推送有边界情况，取全量历史。
+          # 数据分支在主分支最新提交之上追加提交，浅克隆推送有边界情况，取全量历史。
           fetch-depth: 0
 
       - name: Record main head
@@ -54,15 +54,14 @@ jobs:
         with:
           tool: just
 
-      # rust-cache 会把 target/ 带回本 run：清掉基准与采集的本地产物，防上次
-      # 运行的陈旧 estimates（已删除用例仍被合计）与旧 eval 报告混进本点。
+      # 缓存动作会把构建产物目录带回本次运行：清掉基准与采集的本地产物，防上次
+      # 运行的陈旧耗时明细（已删除用例仍被合计）与旧评测报告混进本点。
       - name: Clean prior measurement artifacts
         run: rm -rf target/criterion target/perf target/eval
 
-      # 采集顺序按设计文档 7.2 全量：clone 计数/密度（源码文本扫描，由
-      # perf-collect 聚合时直接统计，无独立步骤）→ clone 分配 → 体积双架构
-      # → criterion 墙钟 → selftest wrapper → app-metrics → 启动火焰图
-      # → perf-collect 聚合 → perf-chart 重绘。托管 runner 独占硬件，无需负载先检。
+      # 采集顺序全量：克隆计数与密度（源码文本扫描，聚合时直接统计，无独立步骤）、
+      # 克隆分配、体积双架构、criterion 墙钟、双自检、应用度量、启动火焰图，
+      # 最后聚合与重绘。托管运行器独占硬件，无需负载先检。
 
       - name: Clone allocs benchmark
         run: just clone-bench
@@ -78,8 +77,8 @@ jobs:
       - name: Selftest wrapper (overlay & startup)
         run: just selftest-report
 
-      # 不用 just app-metrics 配方：它在聚合后直接重绘图表，而 x86_64 体积
-      # 要在聚合前补进片段（app-metrics.py 只填本机 ARM 架构的 binary_arm64_kb）。
+      # 不用应用度量配方：它在聚合后直接重绘图表，而另一架构的体积要在聚合前
+      # 补进片段（度量脚本只填本机架构的体积字段）。
       - name: App runtime metrics
         run: |
           cargo build --release
@@ -102,13 +101,13 @@ jobs:
           print(f"binary_x64_kb = {data['binary_x64_kb']}")
           PY
 
-      # 火焰图用 SIGSTOP 门闩 + BEGIN 握手：spawn 即停住进程，flamegraph.py 起
-      # dtrace 后轮询原始栈文件里的 armed（探针启用瞬间 BEGIN 写入）再放行——
-      # 二三跑实证固定等待会输给 VM 上 dtrace 的启用耗时（40/16 样本 vs 理论上万），
-      # 握手后一条指令都不会漏。门闩必须 bash -c（$$ 在 () 子壳里指向父壳，
-      # STOP 会打偏——本机冒烟实证）。应用 stdio 重定向到 /dev/null 且 TERM 补
-      # KILL：三跑实证存活的应用会拽住步骤管道把 job 拖到 6h 上限。dtrace -c
-      # 产子进程不可用（应用以 root 跑、连不上 WindowServer）；窗口 10s 防空闲稀释。
+      # 火焰图用 SIGSTOP 门闩加 BEGIN 握手：拉起即停住进程，采样脚本起 dtrace 后
+      # 轮询原始栈文件里的就绪标记（探针启用瞬间由 BEGIN 写入）再放行——
+      # 二三跑实证固定等待会输给虚拟机上 dtrace 的启用耗时（四十余样本对比理论
+      # 上万），握手后一条指令都不会漏。门闩必须经外层壳包住（子壳里进程号指向
+      # 父壳，STOP 会打偏——本机冒烟实证）。应用输出重定向到空设备且以 TERM 补
+      # KILL：三跑实证存活的应用会拽住步骤管道把作业拖到六小时上限。由采样器
+      # 直接产子进程不可用（应用以管理员跑、连不上 WindowServer）；窗口十秒防空闲稀释。
       - name: Startup flamegraph (profiling build)
         continue-on-error: true
         run: |
@@ -136,8 +135,8 @@ jobs:
       - name: Redraw trend charts
         run: ./scripts/perf/perf-chart.py
 
-      # 数据 PR 只入库 history 与三张 SVG；其余测量数据（含火焰图 SVG）是
-      # target/ 本地产物，留 artifact 供事后审计取证（口径同 ci.yml 自检信号的 90 天）。
+      # 数据 PR 只入库历史数据与三张 SVG；其余测量数据（含火焰图 SVG）是
+      # 本地产物，留作产物供事后审计取证（保留期与主工作流自检信号一致，九十天）。
       - name: Upload perf handoff
         if: always()
         uses: actions/upload-artifact@v7
@@ -161,7 +160,7 @@ jobs:
             scripts/perf/baselines/perf-resources.svg \
             scripts/perf/baselines/perf-hotpath.svg
           git commit -m "chore(perf): 采集 ${HEAD_SHA} 趋势点并重绘三张图"
-          # 数据分支是可再生数据：同 commit 重跑时以本次结果覆盖旧分支。
+          # 数据分支是可再生数据：同一提交重跑时以本次结果覆盖旧分支。
           git push --force origin "$branch"
 
           prev=$(python3 - <<'PY'

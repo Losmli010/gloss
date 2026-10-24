@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
-# 界面文案统一进文案表门禁：界面词条只定义在 crates/gloss-app/i18n/*.toml，
-# 只经 crates/gloss-app/src/ui/i18n.rs 装入，代码里不内嵌文案字面量。
-# 本地 `just i18n`（pre-commit 的一部分）与 CI 的 I18n check job 共用此脚本，
-# 保证本地与 CI 判定一致。
+# 界面文案统一进文案表门禁：界面词条只定义在应用分包的文案目录里，
+# 只经统一装入点装入，代码里不内嵌文案字面量。
+# 本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
 #
 # 覆盖三条检查：
-#   文案字面量拦截  —— gloss-app / 根包 / gloss-core / gloss-platform 的生产代码里，
-#                      字符串 / char / 原始字符串字面量出现非 ASCII 字节即违规；
-#                      #[cfg(test)] 模块、注释、#[...] 属性内部（clippy reason 等
-#                      元信息）不在判罚面。crates/gloss-core/src/prompt.rs 是模型
-#                      面向文案的统一处理点（prompts/ 模板资源 + 注入片段），整文件
-#                      豁免。纯 ASCII 的英文硬编码不可由文本判定，靠人工评审。
-#   装入点集中      —— include_str! / include_bytes! 引用 i18n 资源只允许出现在
-#                      crates/gloss-app/src/ui/i18n.rs。
-#   词条表文件唯一  —— 声明 gloss_ 前缀键的 TOML 只允许在 crates/gloss-app/i18n/ 下。
+#   文案字面量拦截  —— 各生产代码里，字符串 / 单字符 / 原始字符串字面量出现
+#                      非 ASCII 字节即违规；测试模块、注释与属性内部（静态
+#                      检查的元信息）不在判罚面。模型面向文案的统一处理点
+#                      （模板资源加注入片段）整文件豁免。纯 ASCII 的英文硬编码
+#                      不可由文本判定，靠人工评审。
+#   装入点集中      —— 编译期引用文案资源只允许出现在统一装入点一处。
+#   词条表文件唯一  —— 声明词条前缀键的配置文件只允许在文案目录下。
 #
-# 行尾 `i18n:allow` 放行所在行（同 secrets:allow 惯例），须注明缘由。
+# 行尾放行标记豁免所在行，须注明缘由。
 #
-# 用法：scripts/hooks/check_i18n.py [仓库根]   # 缺省为本脚本的上一级目录
+# 用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
 
 import os
 import re
@@ -364,8 +361,8 @@ def run(root):
         fail(violation)
 
     # ---- 检查二：装入点集中 ----
-    # 文案文件是编译期资源，装入与解析只允许发生在 i18n.rs 一处；
-    # 别处 include 进来就绕开了类型化 Text 表与 zh/en 键一致性测试。
+    # 文案文件是编译期资源，装入与解析只允许发生在统一装入点一处；
+    # 别处编译期引入就绕开了类型化文案表与双语键一致性测试。
     include_files = 0
     include_re = re.compile(r"include_(str|bytes)!\([^)]*i18n")
     for f in scan_all_rs(root):
@@ -382,7 +379,7 @@ def run(root):
                     break
 
     # ---- 检查三：词条表文件唯一 ----
-    # 词条键统一 gloss_<模块>_<词条> 且顶层扁平；出现第二张表就会分叉出
+    # 词条键统一为「模块加词条」的前缀形态且顶层扁平；出现第二张表就会分叉出
     # 不受键一致性测试管辖的文案面。
     toml_files = 0
     toml_key_re = re.compile(r"^\s*gloss_[A-Za-z0-9_]+\s*=")
@@ -416,7 +413,7 @@ def main():
     )
     print("== i18n 文案表门禁（仓库根：%s）==" % root)
     oks, fails = run(root)
-    # 违规已在 run 内即时输出（stderr），这里只补 ✓ 汇总与结论
+    # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
         print("  ✓ %s" % line)
     if fails:

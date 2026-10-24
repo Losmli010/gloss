@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-# 生成 GitHub Pages 部署用的 manifest.json（输出到 stdout，日志走 stderr）。
-# 版本单点复用 check_release_tag：tag 格式与 Cargo.toml 版本一致性校验失败即失败；
-# size 与 sha256 从产物文件实测计算，产物缺文件即失败，不得发出残缺清单。
-# 用法: gen_manifest.py <tag> <artifacts-dir>
-#   artifacts-dir 内须有 gloss-<version>-<target>.zip 与 .dmg 共 4 个文件
-#   （target = aarch64-apple-darwin / x86_64-apple-darwin）。
+# 生成站点部署用的更新清单（输出到标准输出，日志走标准错误）。
+# 版本单点复用发布校验脚本：标签格式与清单版本一致性校验失败即失败；
+# 体积与散列从产物文件实测计算，产物缺文件即失败，不得发出残缺清单。
+# 用法：以解释器运行，首参为发布标签，次参为产物目录；
+#   产物目录内须有双架构的压缩包与镜像共四个文件。
 
 import hashlib
 import json

@@ -2,8 +2,8 @@ name: Security Audit
 
 on:
   schedule:
-    # 每日 02:00 UTC（北京时间 10:00）跑一次，主动发现新披露的漏洞。
-    # PR / push 时的安全门禁在 ci.yml 的 security job（依赖 quality）。
+    # 每日两次定时中的后一档（北京时间上午十点），主动发现新披露的漏洞。
+    # PR 与推送时的安全门禁在主工作流的安全作业里。
     - cron: "0 2 * * *"
   workflow_dispatch:
 

@@ -1,11 +1,7 @@
 # Gloss 项目命令入口
-# 本地开发与 CI/CD 共用同一套命令，保证行为一致
-# 配方按 dev / ci / release / hooks 四桶组织，与 scripts/ 及 .github/workflows/ 同构：
-#   dev     本地开发与构建
-#   ci      需要编译的质量门禁（CI 的 ci.yml 用）
-#   release 发布链（CI 的 release.yml 用）
-#   hooks   pre-commit 同款的纯文本检查，秒级（CI 的 hooks.yml 用）
-# 用法：just <recipe>   查看全部：just --list
+# 本地开发与持续集成共用同一套命令，保证行为一致；配方按用途分桶组织，
+# 与脚本目录及工作流目录同构：本地开发与构建、需要编译的质量门禁、发布链、
+# 提交前同款的纯文本检查。列出全部配方看默认目标。
 
 # ---- 全局默认值 ----
 set shell := ["bash", "-uc"]
@@ -17,9 +13,9 @@ default:
 # 行覆盖率下限：低于即失败（本地与 CI 共用同一判定）
 coverage_min := "70"
 
-# ---- dev：本地开发与构建 ----
+# ---- 本地开发与构建 ----
 
-# 运行开发版（debug）
+# 运行开发版
 run:
     cargo run
 
@@ -27,27 +23,27 @@ run:
 watch:
     cargo watch -x run
 
-# 打印日志目录（~/.gloss/logs）
+# 打印日志目录
 logs-dir:
     @echo "${HOME}/.gloss/logs"
 
-# 跟随最新日志文件（Ctrl-C 退出）
+# 跟随最新日志文件（Ctrl+C 退出）
 logs *args:
     @python3 scripts/dev/gloss-logs.py {{args}}
 
-# 本地预览站点（web/，同源无 manifest.json 时页面走 GitHub Releases 降级路径）
+# 本地预览站点（同源缺更新清单时，页面走 GitHub Releases 降级路径）
 site-preview port="8137":
     python3 -m http.server {{port}} --directory web
 
-# Debug 构建整个 workspace
+# 调试构建整个工作区
 build:
     cargo build --workspace
 
-# 指定 target 三元组构建（CI 构建矩阵用）
+# 指定目标三元组构建（CI 构建矩阵用）
 build-target target:
     cargo build --workspace --target {{target}}
 
-# Release 优化构建
+# 发布优化构建
 build-release:
     cargo build --release
 
@@ -59,23 +55,23 @@ clean:
 deps:
     cargo tree
 
-# clone 后一键环境初始化：工具链校验 + 可选工具清点 + git hooks（幂等）
+# 克隆后一键环境初始化：工具链校验加可选工具清点加仓库钩子安装（幂等）
 setup:
     ./scripts/dev/setup_dev.py
 
-# 重建应用图标产物（.icns 与 Dock 图标 PNG）
+# 重建应用图标产物（图标包与 Dock 图标 PNG）
 icons:
     ./scripts/dev/build_app_icon.py
 
-# 跑 gloss-core 热点基准（criterion）：自动对照上一次运行，并把结果存为本机滚动基线 last
+# 跑 gloss-core 热点基准（criterion）：自动对照上一次运行，并把结果存为本机滚动基线
 bench:
     cargo bench --bench core -- --save-baseline last
 
-# 把结果另存为命名基线（审计锚点，如在干净 main 上存 main），数据在 target/criterion/ 各基准目录下
+# 把结果另存为命名基线（审计锚点，如在干净主分支上存同名基线），数据落在各基准目录下
 bench-save name:
     cargo bench --bench core -- --save-baseline {{name}}
 
-# 以命名基线为对照重跑基准（缺省 last；供 bench-summary 呈现对照数字，退出码不是门禁）
+# 以命名基线为对照重跑基准（缺省取上一次运行；供汇总配方呈现对照数字，退出码不是门禁）
 bench-check name="last":
     cargo bench --bench core -- --baseline {{name}}
 
@@ -83,63 +79,73 @@ bench-check name="last":
 bench-summary baseline="上一次运行":
     ./scripts/perf/bench-summary.py "{{baseline}}"
 
-# 跑 clone 热点基准（criterion 自定义测量：分配次数/字节，benches/clone.rs），结果存滚动基线 last
+# 跑克隆热点基准（criterion 自定义测量：分配次数与字节），结果存滚动基线
 clone-bench:
     cargo bench --bench clone -- --save-baseline last
 
-# 打印 clone 分布与热点分配（口径见脚本 docstring）
+# 打印克隆分布与热点分配（口径见脚本说明）
 clone-stats:
     ./scripts/perf/clone-stats.py
 
-# 采集性能趋势点并重绘趋势图：perf-collect 聚合 target/ 本地产物为 history.jsonl 一个点（clone 计数+分配需先跑 just clone-bench、core 墙钟需先跑 just bench、自检信号需先跑 just selftest-report、app 片段需先跑 just app-metrics；某源缺席对应指标跳过）→ perf-chart 重绘三张 SVG；PR 审查看 history.jsonl 数值 diff + 三张 SVG 视觉 diff
+# 采集性能趋势点并重绘趋势图：聚合脚本把本地产物折算成历史一个点（克隆计数
+# 与分配需先跑克隆基准、核心墙钟需先跑热点基准、自检信号需先跑自检报告、
+# 应用片段需先跑应用度量；某源缺席则对应指标跳过），重绘脚本出三张趋势图；
+# 检视时看历史数值与三张图的前后对照
 perf-baseline:
     ./scripts/perf/perf-collect.py
     ./scripts/perf/perf-chart.py
 
-# 仅重绘三张趋势 SVG（baselines/history.jsonl 的派生视图，不采集不判罚）
+# 仅重绘三张趋势 SVG（历史数据的派生视图，不采集不判罚）
 perf-chart:
     ./scripts/perf/perf-chart.py
 
-# 对照 history 最新点 clone 门禁基线报告变化（clone 计数或热点分配上升即失败；需先跑 just clone-bench 与 just perf-baseline；审计对照，不在 precommit）
+# 对照历史最新点的克隆门禁基线报告变化（克隆计数或热点分配上升即失败；
+# 需先跑克隆基准与趋势采集；审计对照，不在提交前门禁内）
 clone-check:
     ./scripts/perf/clone-stats.py --check
 
-# 量化应用运行时资源并采集趋势点：构建 → spawn 实例采启动里程碑/RSS/CPU/体积（建议先退出在跑的 gloss）→ target/perf/app-runtime.json 片段（不入库）；随 perf-collect 折算进 history.jsonl，三张 SVG 随 perf-chart 重绘
+# 量化应用运行时资源并采集趋势点：构建后拉起实例采启动里程碑、RSS、CPU
+# 与体积（建议先退出在跑的应用），片段不入库；随聚合脚本折算进历史，
+# 三张趋势图随重绘脚本更新
 app-metrics:
     cargo build --release
     ./scripts/perf/app-metrics.py
     ./scripts/perf/perf-collect.py
     ./scripts/perf/perf-chart.py
 
-# 性能总览/对比 Markdown 报告（stdout，判定仅参考非门禁）：缺省输出最新点总览；--from <sha> --to <sha> 输出两期对比（精确计数类上升即回归，其余按注册表噪声阈值）
+# 性能总览与对比 Markdown 报告（打到标准输出，判定仅参考非门禁）：缺省输出
+# 最新点总览，给两期锚点则输出对比（精确计数类上升即回归，其余按注册表噪声阈值）
 perf-report *args:
     ./scripts/perf/perf-report.py {{args}}
 
-# 以 profiling 配置构建并启动带符号实例（release 同级优化但保留符号表；先退出在跑的 gloss）
+# 以剖析配置构建并启动带符号实例（发布同级优化但保留符号表；先退出在跑的应用）
 profile-run:
     cargo build --profile profiling
     ./target/profiling/gloss &
 
-# 采运行中的 gloss 实例 CPU 产出火焰图 SVG（sudo dtrace 采样 + inferno 折叠渲染，dtrace 需 root；输出 target/profile/，附原始栈与栈顶自耗 Top）
+# 采运行中实例的 CPU 产出火焰图 SVG（提权 dtrace 采样加 inferno 折叠渲染，
+# 采样需管理员权限；输出到剖析目录，附原始栈与栈顶自耗排行）
 flame pid="" duration="10":
     ./scripts/perf/flamegraph.py --pid "{{pid}}" --duration {{duration}}
 
-# 从启动起采样出启动路径火焰图（--root 只让 dtrace 提权，gloss 仍以普通用户运行；采样到 gloss 退出为止，采完退出 gloss 即出图）
+# 从启动起采样出启动路径火焰图（只让采样器提权，应用仍以普通用户运行；
+# 采样到应用退出为止，采完退出应用即出图）
 flame-startup:
     mkdir -p target/profile
     cargo flamegraph --root --profile profiling --bin gloss --output target/profile/flamegraph-startup.svg
 
-# 二进制体积归因（记录性不判罚）：节级 size -m + 符号级 otool/nm 地址差分（strip 过的产物只做节级，符号级用 profiling/dev 产物）
+# 二进制体积归因（记录性不判罚）：节级尺寸统计加符号级地址差分
+# （剥过符号的产物只做节级，符号级用剖析或调试产物）
 size-report bin="target/release/gloss" top="30":
     ./scripts/perf/size_report.py --bin {{bin}} --top {{top}}
 
-# Prompt 评测 live 轨：真实 LLM（需 GLOSS_LIVE_*，opt-in）
-# --record 回写夹具；--judge 启用 judge 评分轨（额外一次模型调用/条）
+# Prompt 评测 live 轨：真实 LLM（需专用凭据，显式选择参与）
+# 录制开关回写夹具；评分开关启用评分轨（每条额外一次模型调用）
 eval *args:
     cargo run -p gloss-eval --bin eval -- live {{args}}
 
-# Prompt 评估检视：离线重放 + 单文件检视页（准确率/逐条轨迹/趋势），生成后开浏览器
-# 改 prompt 后看真实准确率走 `just eval`（live）；本配方是免凭据的夹具口径
+# Prompt 评估检视：离线重放加单文件检视页（准确率、逐条轨迹、趋势），生成后开浏览器
+# 改提示词后看真实准确率走评测配方（live 轨）；本配方是免凭据的夹具口径
 eval-inspect:
     cargo run -p gloss-eval --bin eval -- inspect
     open target/eval/inspect.html
@@ -148,11 +154,11 @@ eval-inspect:
 eval-replay:
     cargo run -p gloss-eval --bin eval -- replay
 
-# 把 target/eval 下最近一次评测报告渲染为 Markdown 表（--dir 换目录）
+# 把最近一次评测报告渲染为 Markdown 表（参数可换目录）
 eval-report *args:
     cargo run -p gloss-eval --bin eval -- report {{args}}
 
-# ---- ci：需要编译的质量门禁（本地与 CI 共用同一配方）----
+# ---- 需要编译的质量门禁（本地与 CI 共用同一配方）----
 
 # 格式化检查
 fmt:
@@ -162,7 +168,7 @@ fmt:
 fmt-fix:
     cargo fmt --all
 
-# TOML 格式检查（tombi --check，不落盘）
+# TOML 格式检查（tombi 检查模式，不落盘）
 fmt-toml:
     tombi format --check $(git ls-files '*.toml')
 
@@ -170,11 +176,11 @@ fmt-toml:
 fmt-toml-fix:
     tombi format $(git ls-files '*.toml')
 
-# TOML 语法与 schema lint（error 级仍会失败）
+# TOML 语法与结构检查（错误级仍会失败）
 lint-toml:
     tombi lint $(git ls-files '*.toml')
 
-# Python 格式化检查（ruff format，不落盘；显式传路径，点目录不被默认发现）
+# Python 格式化检查（ruff 检查模式，不落盘；显式传路径，点目录不被默认发现）
 fmt-py:
     ruff format --check scripts .githooks .zcode/hooks
 
@@ -182,7 +188,7 @@ fmt-py:
 fmt-py-fix:
     ruff format scripts .githooks .zcode/hooks
 
-# Python lint（ruff check，规则见 ruff.toml，零告警）
+# Python 静态检查（ruff，规则见检查配置，零告警）
 lint-py:
     ruff check scripts .githooks .zcode/hooks
 
@@ -202,15 +208,16 @@ test:
 selftest:
     cargo test -p gloss --test overlay
 
-# L3 启动预算自检：渲染栈初始化墙钟对 STARTUP_BUDGET（需窗口服务与 GPU）
+# L3 启动预算自检：渲染栈初始化墙钟对预算常量（需窗口服务与 GPU）
 startup-selftest:
     cargo test -p gloss --test startup
 
-# L3 双自检 wrapper：跑显隐+启动自检，从 stderr 提取结构化信号行并外部轮询完整 RSS 曲线，落 out（缺省 target/perf/selftest.jsonl，本地 handoff 不入 git）
+# L3 双自检包装：跑显隐与启动自检，从标准错误提取结构化信号行并外部轮询
+# 完整 RSS 曲线，落到指定输出（缺省在性能目录下，本地交接产物不入仓库）
 selftest-report out="target/perf/selftest.jsonl":
     ./scripts/perf/selftest_wrapper.py --out {{out}}
 
-# 测试覆盖率（摘要 + HTML 报告），低于 coverage_min 即失败
+# 测试覆盖率（摘要加 HTML 报告），低于行覆盖下限即失败
 coverage:
     cargo llvm-cov clean --workspace
     cargo llvm-cov --no-report --workspace --all-features
@@ -229,22 +236,22 @@ audit:
 deny:
     cargo deny check
 
-# Miri 未定义行为检测（nightly，只覆盖 gloss-core 纯逻辑层）
+# Miri 未定义行为检测（每夜工具链，只覆盖 gloss-core 纯逻辑层）
 miri:
     MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine:: --skip file_writer_persists_lines_into_daily_file
 
-# 完整质量门禁：precommit 的全部 + test
+# 完整质量门禁：提交前门禁的全部加全量测试
 check: constraints agents-doc test-bdd i18n comments fmt fmt-py fmt-toml lint lint-py lint-toml test secrets
     @echo "✓ 质量门禁全部通过"
 
-# 提交前门禁：约束 + 文档引用 + BDD 清单 + 文案表 + 注释纪律 + fmt + Python + TOML
-# + clippy + 密钥扫描
+# 提交前门禁：约束、文档引用、BDD 清单、文案表、注释纪律、格式化
+# （Rust、Python、TOML）、Clippy 与密钥扫描
 precommit: constraints agents-doc test-bdd i18n comments fmt fmt-py fmt-toml lint lint-py lint-toml secrets
     @echo "✓ 提交前检查通过（测试交给 CI）"
 
-# ---- release：发布链（CI 的 release.yml 用同一批脚本）----
+# ---- 发布链（CI 的发布工作流用同一批脚本）----
 
-# 发布打包：release 构建 → bundle 出 .app → ad-hoc 签名 → 压 .dmg
+# 发布打包：发布构建、打包出应用包、ad-hoc 签名、压缩为分发镜像
 package-macos: build-release
     #!/usr/bin/env bash
     set -euo pipefail
@@ -255,29 +262,29 @@ package-macos: build-release
     ./scripts/release/bundle_dmg.py "$app"
     echo "产物：$app 与 ${app%.app}.dmg"
 
-# 发布冒烟：启动 .app，验证能启动、活得住、日志无 panic
+# 发布冒烟：启动应用包，验证能启动、活得住、日志无 panic
 smoke-app app:
     ./scripts/release/smoke_app.py {{app}}
 
-# 校验发布 tag 与版本单点一致
+# 校验发布标签与版本单点一致
 release-check tag:
     ./scripts/release/check_release_tag.py {{tag}}
 
-# 本地生成站点 manifest.json 到 stdout（artifacts 目录须含双架构 zip/dmg 四个产物）
+# 本地生成站点更新清单打到标准输出（产物目录须含双架构的压缩包与镜像共四个产物）
 gen-manifest tag artifacts-dir:
     ./scripts/release/gen_manifest.py {{tag}} {{artifacts-dir}}
 
-# ---- hooks：pre-commit 同款检查（纯 Python 秒级，CI 的 hooks.yml 也跑）----
+# ---- 纯文本快速检查（提交前门禁同款，秒级；CI 的钩子工作流也跑）----
 
 # 硬编码密钥扫描（命中即失败）
 secrets:
     ./scripts/hooks/check_secrets.py
 
-# 校验 AGENTS.md 引用的配方/路径/测试目标/质量条目名真实存在
+# 校验项目文档引用的配方、路径、测试目标与质量条目名真实存在
 agents-doc:
     ./scripts/hooks/check_agents_doc.py
 
-# bdd.md 测试行为清单与测试源码双向核对（缺登记 / 失同步即失败）
+# 测试行为清单与测试源码双向核对（缺登记或失同步即失败）
 test-bdd:
     ./scripts/hooks/check_test_bdd.py
 
@@ -289,14 +296,15 @@ constraints:
 i18n:
     ./scripts/hooks/check_i18n.py
 
-# 注释纪律：.rs 只留中文文件头注释（SAFETY 与 :allow 豁免；其余迁 docs/comments/）
+# 注释纪律：Rust 源码只留中文文件头注释（不变量注释与放行标记豁免，其余迁
+# 记录文件）；非 Rust 注释纯中文且无代码引用
 comments:
     python3 scripts/hooks/check_comments.py
 
-# 校验单条 commit message 是否符合 Conventional Commits
+# 校验单条提交信息是否符合 Conventional Commits 规范
 lint-commit file:
     ./scripts/hooks/check_commit_msg.py "{{file}}"
 
-# 安装本地 git hooks（clone 后运行一次）
+# 安装本地仓库钩子（克隆后运行一次）
 install-hooks:
     ./scripts/hooks/install_hooks.py

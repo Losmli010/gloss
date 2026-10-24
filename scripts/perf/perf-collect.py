@@ -69,7 +69,7 @@ HISTORY_PATH = SCRIPT_DIR / "baselines" / "history.jsonl"
 STARTUP_SIGNAL_MESSAGE = "startup self-test finished"
 OVERLAY_SIGNAL_KIND = "overlay_perf"
 
-# overlay_perf 行字段 → 指标 id；行内字段缺席（null）即对应 id 缺席，不造 0
+# 自检信号行字段 → 指标编号；行内字段缺席（空值）即对应指标缺席，不造零
 OVERLAY_METRIC_FIELDS = {
     "first_ms": "overlay.show_first_ms",
     "p50_ms": "overlay.show_p50_ms",
@@ -83,12 +83,12 @@ OVERLAY_METRIC_FIELDS = {
     "rss_tail_growth_kb": "overlay.rss_tail_growth_kb",
     "window_handles": "overlay.window_handles",
 }
-# overlay_perf 行的预算字段 → 预算 id（数值源头是 Rust 常量随行流出）
+# 自检信号行的预算字段 → 预算编号（数值源头是 Rust 常量随行流出）
 OVERLAY_BUDGET_FIELDS = {
     "budget_ms": "overlay.show_first_ms",
     "rss_tail_budget_kb": "overlay.rss_tail_growth_kb",
 }
-# app-metrics v2 片段字段 → 指标 id
+# 应用度量片段字段 → 指标编号
 APP_METRIC_FIELDS = {
     "startup_ms": "app.startup_ms",
     "startup_cpu_ms": "app.startup_cpu_ms",
@@ -100,7 +100,7 @@ APP_METRIC_FIELDS = {
     "binary_x64_kb": "app.binary_x64_kb",
     "binary_arm64_kb": "app.binary_arm64_kb",
 }
-# v1 app 段字段 → v2 指标 id；binary_kb 是单值字段，按采集机（x86_64）折算
+# 旧版应用段字段 → 新版指标编号；体积是单值字段，按采集机架构折算
 V1_APP_FIELDS = {
     "startup_ms": "app.startup_ms",
     "startup_cpu_ms": "app.startup_cpu_ms",

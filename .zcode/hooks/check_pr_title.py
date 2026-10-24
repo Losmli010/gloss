@@ -1,17 +1,17 @@
+''''exec python3 -- "$0" "$@" # '''  # fmt: skip
 #!/usr/bin/env python3
-# ZCode PreToolUse 钩子：提交 PR 标题前用 scripts/hooks/check_commit_msg.py 校验。
-# 由 .zcode/config.json 的 hooks.events.PreToolUse 调用；也可手动测试：
-#   echo '<hook-json>' | python3 .zcode/hooks/check_pr_title.py
+# ZCode 提交前钩子：拉取请求标题在提交前先过一遍提交信息规范校验。
+# 由客户端共享配置的提交前事件调用；手动测试时向标准输入喂入钩子载荷。
 #
 # 行为：
-#   - 从 stdin 的钩子 JSON 读 tool_name 与 tool_input；
-#   - mcp__github__create_pull_request / mcp__github__update_pull_request → 校验 tool_input.title；
-#   - Bash → 按 shell 词法（shlex）分词后定位 gh pr create|edit，只在其后找 --title
-#     （--title "x" / 'x' / =x 等价）；标题取不到（--fill/--web/--title-file、无 --title、
-#     分词失败）或运行时才可知（值含 $、反引号）→ 放行；
-#   - 校验串是 squash 合并产物的模拟：GitHub 合并时给标题追加 (#PR号)，按最长常见
-#     占位 (#99999) 拼接后送校验，超限判定对齐合并后的真实形态；
-#   - 标题校验失败 → check_commit_msg 的错误输出进 stderr，退出码 2 阻断本次工具调用；
+#   - 从标准输入的钩子载荷读工具名与工具入参；
+#   - 拉取请求的新建与编辑工具 → 校验其中的标题字段；
+#   - 命令行调用 → 按外壳词法分词后定位建链或改题的命令，只在其后找标题旗标
+#     （几种传值写法等价）；标题取不到（自动填充、开网页、外部标题文件、
+#     无旗标、分词失败）或运行时才可知（值含变量展开与反引号）→ 放行；
+#   - 校验串是压缩合并产物的模拟：远端合并时给标题追加编号后缀，按最长常见
+#     占位拼接后送校验，超限判定对齐合并后的真实形态；
+#   - 标题校验失败 → 校验器的错误输出进标准错误，退出码 2 阻断本次工具调用；
 #   - 标题不存在、不适用、或钩子自身任何异常 → 退出码 0 放行，不误伤正常提交。
 
 import json
@@ -72,8 +72,8 @@ def main():
         payload = sys.stdin.read()
     except Exception:
         return 0
-    # 廉价预筛：载荷不含 PR 工具名与 gh pr 时不启动解析；宁可漏进全量解析（放行），
-    # 不做误筛
+    # 廉价预筛：载荷不含拉取请求工具名与建链命令片段时不启动解析；宁可漏进
+    # 全量解析（放行），不做误筛
     if not (
         "mcp__github__create_pull_request" in payload
         or "mcp__github__update_pull_request" in payload

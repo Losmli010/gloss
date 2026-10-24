@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-# 从 assets/icons 矢量源重建图标产物（换 Logo 方案或调色后跑一次）：
-#   assets/icons/Gloss.icns           打包用 —— cargo-bundle 的 icon 配置指向它
-#   assets/icons/gloss-dock-icon.png  开发期 Dock 图标 —— 非 bundle 运行时由
-#                                     gloss-platform 内嵌（include_bytes!）交给 NSApplication
-#   web/assets/favicon.png            浏览器标签页图标（32px），SVG favicon 的 PNG 兜底
-#   web/assets/apple-touch-icon.png   Safari 触摸/收藏图标（180px）
-# .icns 与 Dock PNG 源自 macOS 规范画布稿 gloss-app-icon.svg；web 两张 PNG 源自
-# 满幅主标稿 gloss-logo.svg（站点 logo.svg 拷贝仍按 assets/icons/README.md 手工同步）。
-# 只用系统自带的 sips（SVG→PNG、缩放）与 iconutil（iconset→.icns）。
+# 从图标目录的矢量源重建图标产物（换标方案或调色后跑一次）：
+#   打包用图标           —— 打包配置指向它
+#   开发期 Dock 图标     —— 非打包运行时由平台适配层内嵌交给系统
+#   站点标签页图标       —— 三十二像素，矢量站标的位图兜底
+#   站点触摸/收藏图标    —— 一百八十像素
+# 打包图标与 Dock 图标源自规范画布稿，站点两张位图源自满幅主标稿
+# （站点标稿拷贝仍按图标目录说明手工同步）。
+# 只用系统自带的图像转换与图标集工具。
 
 import os
 import shutil
@@ -24,7 +23,7 @@ def sips(*args):
 
 
 def raster1024(src, dst):
-    """光栅化尺寸取决于 SVG 声明的 width/height 属性：丢了它 sips 会按内嵌尺寸出小图，
+    """光栅化尺寸取决于矢量图声明的宽高属性：丢了它转换工具会按内嵌尺寸出小图，
     下面的档位会把小图上采样成模糊图标静默进仓库，这里当场拦下。"""
     sips("-s", "format", "png", src, "--out", dst)
     width = int(
@@ -39,7 +38,7 @@ def raster1024(src, dst):
     )
     if width != 1024 or height != 1024:
         print(
-            "错误：%s 光栅化后为 %d×%d，期望 1024×1024——SVG 的 width/height 属性不能省"
+            "错误：%s 光栅化后为 %d×%d，期望 1024×1024——矢量图的宽高属性不能省"
             % (os.path.basename(src), width, height),
             file=sys.stderr,
         )
@@ -57,14 +56,14 @@ def main():
         iconset = os.path.join(work, "Gloss.iconset")
         os.makedirs(iconset)
 
-        # 1024 主图：icns 全部档位与 Dock 图标都由它降采样而来
+        # 一千零二十四主图：打包图标全部档位与 Dock 图标都由它降采样而来
         if not raster1024(
             os.path.join(ICONS, "gloss-app-icon.svg"), os.path.join(work, "icon-1024.png")
         ):
             return 1
 
-        # iconset 的十个档位（基础的 1x 与 @2x 各五档，iconutil 认这套文件名）；
-        # 256 与 512 档在表里各出现两次（128@2x = 256、256@2x = 512），生成一次后复制
+        # 图标集的十个档位（一倍与二倍各五档，图标集工具认这套文件名）；
+        # 256 与 512 档在表里各出现两次（中间档的二倍值），生成一次后复制
         icon1024 = os.path.join(work, "icon-1024.png")
         sips("-z", "16", "16", icon1024, "--out", os.path.join(iconset, "icon_16x16.png"))
         sips("-z", "32", "32", icon1024, "--out", os.path.join(iconset, "icon_16x16@2x.png"))
@@ -86,11 +85,11 @@ def main():
         )
         print("✓ %s" % os.path.join(ICONS, "Gloss.icns"))
 
-        # Dock 图标：Retina 上限 128pt@2x = 256px。
+        # Dock 图标：视网膜屏上限为二百五十六像素。
         sips("-z", "256", "256", icon1024, "--out", os.path.join(ICONS, "gloss-dock-icon.png"))
         print("✓ %s" % os.path.join(ICONS, "gloss-dock-icon.png"))
 
-        # web 站点图标：主标满幅稿降采样为标签页图标与触摸图标（index.html 的 <link> 引用）
+        # 站点图标：主标满幅稿降采样为标签页图标与触摸图标（站点页面的链接引用）
         if not raster1024(
             os.path.join(ICONS, "gloss-logo.svg"), os.path.join(work, "logo-1024.png")
         ):

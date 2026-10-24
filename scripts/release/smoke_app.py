@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-# 发布冒烟：把打包出的 .app 真正跑起来，验证「能启动、活得住、日志无崩溃」，
+# 发布冒烟：把打包出的应用包真正跑起来，验证「能启动、活得住、日志无崩溃」，
 # 防「发了却跑不起来」。判定三条，全部基于可观察行为：
 #   1. 进程在预算时间内起来（窗口出现、事件循环在转）；
 #   2. 再观察一段窗口后仍存活（排除启动即崩的慢炸弹）；
 #   3. 日志出现启动标记，且没有任何 panic。
 # 辅助功能未授权只会让划词手势降级，不算冒烟失败——冒烟只管「能不能跑」。
-# 用法：./scripts/release/smoke_app.py <path/to/Gloss.app>
+# 用法：以解释器运行，首参为应用包路径。
 
 import glob
 import os
@@ -68,7 +68,7 @@ def main():
     proc = None
     t0 = time.monotonic()
     try:
-        # 日志隔离：换一个一次性 HOME，冒烟只认本次启动写出的日志，
+        # 日志隔离：换一个一次性用户目录，冒烟只认本次启动写出的日志，
         # 不碰开发机的真实日志目录。
         launch_log = os.path.join(smoke_home, "launch-stdout.log")
         env = os.environ.copy()
@@ -78,7 +78,7 @@ def main():
         print("已启动 pid=%d（日志隔离在 %s）" % (proc.pid, smoke_home))
 
         # ---- 判定 1：预算时间内进程活着，且日志写出启动标记 ----
-        # 启动标记与 src/main.rs 的 info!("gloss starting") 对应；应用把日志落盘后才有。
+        # 启动标记与入口日志宏的标记行对应；应用把日志落盘后才有。
         deadline = time.monotonic() + START_TIMEOUT
         started = False
         while time.monotonic() < deadline:

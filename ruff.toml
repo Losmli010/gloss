@@ -1,12 +1,12 @@
-# Python 脚本统一 lint 与 format 配置（ruff 单工具双职责，版本钉 0.17.2）
-# 覆盖面：scripts/ 的门禁与运维脚本、.githooks/ 的 git 钩子、.zcode/hooks/ 的客户端钩子，
-# 由 just fmt-py / lint-py 驱动（justfile 传显式路径，点目录不被默认发现）。
-# 行宽 100 与 rustfmt 对齐；target py38 对齐仓库实际下限（本机 /usr/bin/python3）。
+# Python 脚本统一的静态检查与格式化配置（ruff 单工具双职责，版本钉 0.17.2）
+# 覆盖面：脚本目录的门禁与运维脚本、仓库钩子目录、客户端钩子目录，
+# 由格式化与检查配方驱动（显式传路径，点目录不被默认发现）。
+# 行宽 100 与 Rust 格式化对齐；目标版本对齐仓库实际下限（本机系统解释器）。
 line-length = 100
 target-version = "py38"
 extend-exclude = ["target"]
 
 [lint]
-# E4/E7/E9 语法与明显错误 + F 未定义名 + I 导入排序 + B bugbear + W 空白；
-# RUF 组的全角标点告警与中文 CLI 文案约定冲突，不收。
+# 收语法与明显错误、未定义名、导入排序、常见缺陷、空白五组；
+# 全角标点告警与中文文案约定冲突，不收。
 select = ["E4", "E7", "E9", "F", "I", "B", "W"]

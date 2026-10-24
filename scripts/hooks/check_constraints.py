@@ -2,28 +2,28 @@
 # 仓库自动化门禁：把可由工具判定的规则逐条落成检查
 # （依赖方向 / eval 资产隔离 / 桩副本一致 / 日志出口与语言 / egui 上下文装入点 /
 #  FFI 声明集中 / 版本单点 / 依赖特性 / 死条目 / 文件行数 / 残留任务标记）。
-# 本地 `just constraints`（pre-commit 的一部分）与 CI 的 Constraints check job 共用此脚本，
-# 保证本地与 CI 判定一致。
+# 本地约束配方（提交前门禁的一部分）与持续集成的同名检查作业共用此脚本，
+# 保证本地与远端判定一致。
 #
 # 覆盖：
 #   依赖方向            —— 各 crate 只能依赖允许的边；gloss-core 不得出现平台/渲染栈
 #                          （红线：winit / wgpu / 平台 API）。
-#   eval 资产隔离       —— gloss-eval 不被任何 manifest 依赖；eval 资产不被生产
-#                          代码 include_str!/include_bytes! 引用。
-#   桩副本一致          —— 各 crate tests/stubs/ 的同名桩逐字一致，防跨 crate 漂移。
+#   eval 资产隔离       —— gloss-eval 不被任何清单依赖；评测资产不被生产代码的
+#                          内嵌宏引用。
+#   桩副本一致          —— 各 crate 测试桩目录的同名桩逐字一致，防跨 crate 漂移。
 #   日志统一出口        —— 除 gloss-core 外不得直接依赖 tracing 三件套。
 #   日志一律英文        —— 日志宏实参里不得出现非 ASCII 字节。
-#   egui 上下文装入点   —— 除 ui/context.rs 外不得直接建立 egui::Context。
-#   FFI 声明集中        —— extern "C" 声明只允许出现在 gloss-platform 的 ffi 模块。
-#   版本单点维护        —— 子 crate 的 version / edition 必须 *.workspace = true，
-#                          字面量只允许出现在根 [workspace.package]。
-#   依赖只开需要的特性  —— 每个第三方依赖声明必须带 default-features = false。
-#   依赖无死条目        —— 声明的第三方依赖必须在 src/tests/benches 有使用证据。
-#   文件行数上限        —— 单个生产代码 .rs 文件（根 src/ 与 crates/*/src/）≤500 行；
-#                          文件头部 lines:allow 注明缘由放行。
-#   残留任务标记        —— TODO / FIXME / HACK / TBD 大写词全字匹配，命中即失败。
+#   egui 上下文装入点   —— 除统一装入点外不得直接建立渲染上下文。
+#   FFI 声明集中        —— 跨语言声明只允许出现在平台适配层的专用模块。
+#   版本单点维护        —— 子 crate 的版本与语言版本必须继承工作区，
+#                          字面量只允许出现在根清单的工作区段。
+#   依赖只开需要的特性  —— 每个第三方依赖声明必须关闭默认特性。
+#   依赖无死条目        —— 声明的第三方依赖必须在源码、测试与基准里有使用证据。
+#   文件行数上限        —— 单个生产源文件不超过五百行；
+#                          文件头部的放行标记注明缘由后豁免。
+#   残留任务标记        —— 大写任务标记词全字匹配，命中即失败。
 #
-# 用法：scripts/hooks/check_constraints.py [仓库根]   # 缺省为本脚本的上一级目录
+# 用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
 
 import os
 import re
@@ -32,7 +32,7 @@ import sys
 
 LINE_CAP = 500
 
-# 约束「依赖方向」的允许边表。新增 crate 必须在这里登记（并与 AGENTS.md 同步），
+# 约束「依赖方向」的允许边表。新增 crate 必须在这里登记（并与项目文档同步），
 # 漏登记即失败。
 ALLOWED_OWN_DEPS = {
     "gloss": "gloss-core gloss-platform gloss-app",
@@ -73,7 +73,7 @@ CORE_FORBIDDEN_PREFIX = (
     "raw-window-handle",
 )
 
-# 残留任务标记扫描的豁免面：AGENTS.md 是规则本体；本脚本与其单测的夹具含字面量
+# 残留任务标记扫描的豁免面：项目文档是规则本体；本脚本与其单测的夹具含字面量
 SELF_FILES = (
     "AGENTS.md",
     "scripts/hooks/check_constraints.py",
@@ -89,7 +89,7 @@ def is_path_dep(text):
     return "path =" in text or "path=" in text
 
 
-# ---- manifest 解析 ----
+# ---- 清单解析 ----
 
 
 def manifests(root):
@@ -219,7 +219,7 @@ def stub_section(path, pat):
 def run(root):
     """逐条执行约束，返回 (oks, fails)。"""
     manifest_list = manifests(root)
-    dep_dump = []  # (owner, manifest 相对路径, section, key, 行号, 条目全文)
+    dep_dump = []  # (属主, 清单相对路径, 节, 键, 行号, 条目全文)
     for m in manifest_list:
         name = pkg_name(m)
         if not name:
@@ -234,7 +234,7 @@ def _checks(root, manifest_list, dep_dump):
     fails = []
 
     def fail(msg):
-        # 违规随执行流即时输出（对齐 bash 版的 stderr 交错），列表供 run() 返回
+        # 违规随执行流即时输出到标准错误，列表供调用方返回
         fails.append(msg)
         print("  ✗ %s" % msg, file=sys.stderr)
 
@@ -277,13 +277,12 @@ def _checks(root, manifest_list, dep_dump):
                 )
     ok("依赖方向（%d 条本仓库依赖边 + 各 crate 的 crate 名登记）" % edges)
 
-    # ---- 约束「eval 资产隔离」 ----
+    # ---- 约束「评测资产隔离」 ----
     # gloss-eval 是评测工具链，依赖方向断言已保证它只消费、不被依赖；这里再钉
     # 两条硬边界，防评测资产从旁路渗进生产：
-    #   1. 任何 gloss-eval 之外的 manifest 不得出现对它的依赖（即使边表将来被
+    #   1. 任何 gloss-eval 之外的清单不得出现对它的依赖（即使边表将来被
     #      误放宽，这条仍然挡住）；
-    #   2. gloss-eval 之外的 .rs 不得 include_str!/include_bytes! 引用 eval
-    #      资产（datasets/fixtures/prompts）。
+    #   2. gloss-eval 之外的源码不得用内嵌宏引用评测资产。
     eval_dep_violations = 0
     for owner, mrel, _sec, key, start, _text in dep_dump:
         if key == "gloss-eval" and owner != "gloss-eval":
@@ -316,9 +315,9 @@ def _checks(root, manifest_list, dep_dump):
     if eval_dep_violations == 0 and eval_asset_violations == 0:
         ok("eval 资产隔离（依赖 0 处 + include 0 处）")
 
-    # ---- 测试桩副本一致性（AGENTS.md「测试」节：跨 crate 复用的同名桩逐字一致）----
-    # 桩按 crate 自持（tests/stubs/），一份漂移会让两个 crate 的测试在语义不同的
-    # 假实现上各自通过。engine.rs 全文比对；端口桩按节比对。
+    # ---- 测试桩副本一致性（跨 crate 复用的同名桩逐字一致）----
+    # 桩按 crate 自持（各 crate 的测试桩目录），一份漂移会让两个 crate 的测试在
+    # 语义不同的假实现上各自通过。引擎桩全文比对；端口桩按节比对。
     core_stubs = os.path.join(root, "crates", "gloss-core", "tests", "stubs")
     if os.path.isfile(os.path.join(core_stubs, "engine.rs")):
         drifts = 0
@@ -363,7 +362,7 @@ def _checks(root, manifest_list, dep_dump):
 
     # ---- 约束「日志一律英文」 ----
     # 把源文件折成一行再抓日志宏的实参（到第一个右括号为止），实参里出现非 ASCII
-    # 字节即违规；行内反引号/注释里的中文不受影响（不在宏实参里）。
+    # 字节即违规；行内反引号与注释里的中文不受影响（不在宏实参里）。
     rs_files = 0
     log_violations = 0
     log_macro_re = re.compile(
@@ -380,11 +379,11 @@ def _checks(root, manifest_list, dep_dump):
     ok("日志一律英文（扫 %d 个 .rs 文件，%d 处违规）" % (rs_files, log_violations))
 
     # ---- 约束「egui 上下文统一装入点」 ----
-    # 浮层与设置窗各持一个独立的 egui::Context，字体与主题都要逐个上下文装上；
-    # 这两件事只允许经 ui/context.rs（new_context / reapply）发生——别处直接建上下文、
-    # 或直接调用 set_fonts / set_theme，都会得到一个少装了东西的上下文。
-    # 匹配前去掉空白，`Context :: default ()` 这类写法同样命中；确需绕过的行
-    # 注明 `constraints:allow-context` 并写明缘由（同 secrets:allow 惯例）。
+    # 浮层与设置窗各持一个独立的上下文，字体与主题都要逐个上下文装上；
+    # 这两件事只允许经统一装入点发生——别处直接建上下文、或直接设置字体与
+    # 主题，都会得到一个少装了东西的上下文。
+    # 匹配前去掉空白，带空格的写法同样命中；确需绕过的行注明放行标记并写明
+    # 缘由（同密钥扫描的豁免惯例）。
     context_owner = "crates/gloss-app/src/ui/context.rs"
     ctx_re = re.compile(r"(?:^|[^A-Za-z0-9_])Context::default\(\)|\.set_fonts\(|\.set_theme\(")
     ctx_files = 0
@@ -409,10 +408,10 @@ def _checks(root, manifest_list, dep_dump):
     ok("egui 上下文统一装入点（扫 %d 个 .rs 文件，%d 处绕过）" % (ctx_files, ctx_violations))
 
     # ---- 约束「FFI 声明集中」 ----
-    # 平台 FFI 的 extern 声明只允许出现在 gloss-platform 的 ffi 模块（签名与 SAFETY
-    # 依据一处审计）；业务模块从那里引用，就地再声明一份会与真签名漂移。C 声明只能
-    # 写在 extern 块里，故按块匹配（匹配前去掉空白）；`extern "C" fn name(...)` 形式
-    # 的回调定义不在其列：那是我们导出的函数，随各自的业务模块走。
+    # 平台跨语言声明只允许出现在平台适配层的专用模块（签名与不变量依据一处审计）；
+    # 业务模块从那里引用，就地再声明一份会与真签名漂移。C 声明只能写在跨语言
+    # 块里，故按块匹配（匹配前去掉空白）；导出函数形式的回调定义不在其列：
+    # 那是我们导出的函数，随各自的业务模块走。
     ffi_owner_dir = "crates/gloss-platform/src/ffi/"
     ffi_files = 0
     ffi_violations = 0
@@ -458,7 +457,7 @@ def _checks(root, manifest_list, dep_dump):
     # ---- 约束「依赖只开需要的特性」 ----
     deps_checked = 0
     for _owner, mrel, _sec, key, start, text in dep_dump:
-        # 本仓库 path 依赖（不带 version）与 workspace 继承项不适用这条
+        # 本仓库路径依赖（不带版本）与工作区继承项不适用这条
         if is_path_dep(text) and "version" not in text:
             continue
         if "workspace = true" in text:
@@ -472,13 +471,12 @@ def _checks(root, manifest_list, dep_dump):
     ok("依赖只开需要的特性（检查 %d 条第三方依赖声明）" % deps_checked)
 
     # ---- 约束「依赖无死条目」 ----
-    # 声明的每个第三方依赖（非本仓 path、非 workspace 继承）必须能在所属 crate 的
-    # 源码面（src / tests / benches）找到使用证据：`名::` 路径（含属性宏与 derive
-    # 内的路径，如 #[tokio::test]、#[derive(serde::Deserialize)]）、`名!` 宏调用，
-    # 或 `use 名;`（`pub use`、`use 名 as 别名` 同算）。依赖键连字符按 Rust 惯例
-    # 转下划线后匹配；证据按文本匹配、不区分注释与代码（宽松判定防误报优先）。
-    # 条目行尾 `deps:allow` 放行该条（同 secrets:allow 惯例，须注明缘由）。
-    # 本仓 path 依赖由「依赖方向」管辖，不在此判罚；本仓无 build.rs，若未来引入
+    # 声明的每个第三方依赖（非本仓路径、非工作区继承）必须能在所属 crate 的
+    # 源码面（源码、测试、基准目录）找到使用证据：路径引用（含属性宏与派生宏
+    # 内的路径）、宏调用，或导入语句（重导出与别名导入同算）。依赖键连字符按
+    # Rust 惯例转下划线后匹配；证据按文本匹配、不区分注释与代码（宽松判定防
+    # 误报优先）。条目行尾的放行标记豁免该条（同密钥扫描惯例，须注明缘由）。
+    # 本仓路径依赖由「依赖方向」管辖，不在此判罚；本仓无构建脚本，若未来引入
     # 需把其纳入扫描面。
     dead_count = 0
     dead_scanned = 0
@@ -526,11 +524,11 @@ def _checks(root, manifest_list, dep_dump):
         ok("依赖无死条目（扫 %d 条第三方声明，deps:allow %d 条）" % (dead_scanned, dead_allowed))
 
     # ---- 约束「文件行数上限」 ----
-    # 单个生产代码 .rs 文件 ≤500 行，超限即失败；扫描面是根 src/ 与 crates/*/src/，
-    # 测试目标（tests/、benches/）不在其列。生产行数按首个列 0 的 `#[cfg(test)]`
+    # 单个生产源文件不超过五百行，超限即失败；扫描面是根源码目录与各 crate 的
+    # 源码目录，测试目标与基准不在其列。生产行数按首个列零的测试开关属性行
     # 截断（测试模块按仓库惯例置于文件尾），故文件尾的内联测试模块不计入。
-    # 存量确需缓冲的，文件前 5 行写 `lines:allow` 并注明缘由放行（同 secrets:allow
-    # 惯例）——豁免是债，新代码一律按职责拆分，不加豁免。
+    # 存量确需缓冲的，文件前五行写放行标记并注明缘由（同密钥扫描惯例）——
+    # 豁免是债，新代码一律按职责拆分，不加豁免。
     big_files = 0
     big_allowed = 0
     src_bases = [os.path.join(root, "src")]
@@ -559,17 +557,17 @@ def _checks(root, manifest_list, dep_dump):
         ok("文件行数上限（生产代码 ≤%d 行；lines:allow 豁免 %d 个）" % (LINE_CAP, big_allowed))
 
     # ---- 残留任务标记扫描 ----
-    # 大写词全字匹配 TODO / FIXME / HACK / TBD，扫全部 git 跟踪文件。
-    # AGENTS.md（规则本体）与本脚本及其自测（夹具含字面量）豁免，避免自命中。
-    # 非 git 仓库（门禁自测夹具）无跟踪面可扫，整段跳过。
+    # 大写任务标记词全字匹配，扫全部仓库跟踪文件。
+    # 项目文档（规则本体）与本脚本及其自测（夹具含字面量）豁免，避免自命中。
+    # 非版本库环境（门禁自测夹具）无跟踪面可扫，整段跳过。
     if (
         subprocess.run(
             ["git", "-C", root, "rev-parse", "--is-inside-work-tree"], capture_output=True
         ).returncode
         == 0
     ):
-        # re.ASCII 对齐 grep -w 的字节语义：汉字不算 word 字符，
-        # 「TODO记录」这类标记紧贴中文的形态同样命中
+        # 正则按 ASCII 词界的字节语义对齐命令行全字匹配：汉字不算词字符，
+        # 任务标记紧贴中文的形态同样命中
         marker_re = re.compile(r"\b(?:TODO|FIXME|HACK|TBD)\b", re.ASCII)
         out = subprocess.run(
             ["git", "-C", root, "ls-files", "-z"], capture_output=True, check=True
@@ -607,7 +605,7 @@ def main():
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
     oks, fails = run(root)
-    # 违规已在 _checks 内随执行流即时输出（stderr），这里只补 ✓ 汇总与结论
+    # 违规已在检查过程内即时输出到标准错误，这里只补汇总与结论
     for line in oks:
         print("  ✓ %s" % line)
     if fails:

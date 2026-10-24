@@ -1,9 +1,9 @@
 // Gloss 站点脚本：下载直链 + 本机架构识别 + 界面微交互。
-// 首行标记 JS 可用：进场动画的隐藏态只在 html.js 下生效，脚本加载失败时内容保持可见。
+// 首行标记 JS 可用：进场动画的隐藏态只在脚本可用标记下生效，脚本加载失败时内容保持可见。
 document.documentElement.classList.add('js');
 
-// 下载契约：同源 manifest.json（CI 注入）提供 channels.stable[<triple>] 的
-// dmg_url / url / size；取不到或校验不过则整体降级到 GitHub Releases。
+// 下载契约：同源更新清单（CI 注入）提供稳定渠道各架构的镜像地址与体积；
+// 取不到或校验不过则整体降级到 GitHub Releases。
 const RELEASES_LATEST = 'https://github.com/Losmli010/gloss/releases/latest';
 const ARCHES = {
   'aarch64-apple-darwin': { label: 'Apple Silicon' },
@@ -46,7 +46,7 @@ function render() {
   $$('#hero-split .menu-item').forEach((item) => {
     item.setAttribute('aria-checked', String(item.dataset.arch === arch));
     const e = entryFor(item.dataset.arch);
-    // manifest 的 size 是 zip 包实测值，展示时必须带 zip 标注以免误当 .dmg 大小
+    // 清单里的体积是压缩包实测值，展示时必须带压缩包标注以免误当镜像大小
     item.querySelector('.mi-size').textContent =
       e && typeof e.size === 'number' && e.size > 0 ? `zip ${formatSize(e.size)}` : '';
   });
@@ -77,10 +77,9 @@ fetch('manifest.json')
     render();
   });
 
-// 本机架构识别：仅对 macOS 访客生效，WebGL 渲染器名优先（Apple Silicon 报
-// "Apple M2"/"Apple GPU"，Intel Mac 报 "Intel/AMD/NVIDIA"；该口径天然兼容
-// Rosetta 下浏览器跑在 Apple Silicon 的边界——按 GPU 而非浏览器架构选包），
-// 取不到再走 UA-CH；都取不到保持默认。
+// 本机架构识别：仅对 macOS 访客生效，WebGL 渲染器名优先（新架构报苹果芯片，
+// 旧架构报 Intel、AMD、NVIDIA 系；该口径天然兼容转译层下浏览器跑在新架构的
+// 边界——按 GPU 而非浏览器架构选包），取不到再走客户端提示；都取不到保持默认。
 async function detectArch() {
   if (!/Mac/i.test(navigator.userAgent)) return null;
   try {
@@ -103,7 +102,7 @@ async function detectArch() {
         if (ua.architecture === 'x86') return 'x86_64-apple-darwin';
       }
     }
-  } catch (err) { /* UA-CH 不可用则保持默认 */ }
+  } catch (err) { /* 客户端提示不可用则保持默认 */ }
   return null;
 }
 
@@ -114,9 +113,9 @@ detectArch().then((detected) => {
   }
 });
 
-// 架构下拉（仅 hero 一处，导航的下载按钮为跟随当前架构的直链）。
-// 键盘契约按 ARIA menu 模式：方向键循环、Home/End 跳转、Esc 关闭回焦、
-// Tab 走默认顺序并收起菜单；打开即聚焦当前选中项。
+// 架构下拉（仅首屏一处，导航的下载按钮为跟随当前架构的直链）。
+// 键盘契约按无障碍菜单模式：方向键循环、行首行尾键跳转、退出键关闭回焦、
+// 制表键走默认顺序并收起菜单；打开即聚焦当前选中项。
 const splits = ['hero-split'].map((id) => {
   const root = $(id);
   const caret = $(id === 'hero-split' ? 'hero-caret' : 'nav-caret');

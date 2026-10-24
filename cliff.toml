@@ -1,7 +1,5 @@
-# git-cliff 配置
-# 为 GitHub Release 页渲染发版说明（唯一来源，不落仓库文件）：
-# CI 在打 tag 后以 `git cliff --latest` 渲染当前 tag 的一节作 Release 正文。
-# 详见：https://git-cliff.org/docs/configuration
+# git-cliff 配置：为 GitHub Release 页渲染发版说明（唯一来源，不落仓库文件）；
+# 持续集成在打标签后渲染当前标签的一节作发布正文。
 
 [changelog]
 header = """"""

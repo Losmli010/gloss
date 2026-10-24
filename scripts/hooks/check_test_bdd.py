@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-# BDD 清单一致性门禁：docs/tests/bdd.md 与测试源码双向核对。
-#   - 测试源码侧：git 跟踪 .rs 里的 #[test] / #[tokio::test] 函数，加上
-#     Cargo.toml 声明的 [[test]] 目标（harness = false 自检），每一项都必须
-#     登记在 bdd.md；
-#   - 清单侧：bdd.md 的每个条目必须能在测试源码里找到同名测试。
-# 条目的描述文字不在校验面（描述与代码冲突时以代码为准，见 AGENTS.md「测试」节）。
-# 本地 `just test-bdd`（pre-commit 的一部分）与 CI 的 Test BDD check job 共用此脚本。
+# 测试行为清单一致性门禁：登记文档与测试源码双向核对。
+#   - 测试源码侧：版本库跟踪的 Rust 源码里的测试函数，加上清单声明的
+#     自管测试目标（自带运行器的自检目标），每一项都必须登记进清单；
+#   - 清单侧：清单的每个条目必须能在测试源码里找到同名测试。
+# 条目的描述文字不在校验面（描述与代码冲突时以代码为准，见指令文档的测试节）。
+# 本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
 #
-# 用法：scripts/hooks/check_test_bdd.py [仓库根]   # 缺省为本脚本的上一级目录
+# 用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
 
 import os
 import re
@@ -253,7 +252,7 @@ def run(root):
         fails.append(msg)
         print("  ✗ %s" % msg, file=sys.stderr)
 
-    # 两侧各自已去重，但 fn 名与 [[test]] 目标名可能同名（如 overlay 自检），
+    # 两侧各自已去重，但测试函数名与测试目标名可能同名（如浮层自检），
     # 合并后须再去重，否则差集把多出的那份误报成「未登记」。
     src_all = src_names | target_names
     stale = sorted(bdd_names - src_all)
@@ -305,7 +304,7 @@ def main():
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
     oks, fails = run(root)
-    # 违规已在 run 内即时输出（stderr），这里只补 ✓ 汇总与结论
+    # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
         print("  ✓ %s" % line)
     if fails:

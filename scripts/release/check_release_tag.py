@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-# 校验发布 tag 与版本单点一致：tag 必须是 v<主>.<次>.<补丁>，且去掉 v 后等于
-# 根 Cargo.toml [workspace.package] 的 version。防止 tag 与产物版本错位地发出去。
-# 本地打 tag 前手动跑（just release-check vX.Y.Z）；release workflow 构建产物前
-# 跑同一条脚本。
+# 校验发布标签与版本单点一致：标签必须带版本前缀加三段数字，去掉前缀后等于
+# 根清单工作区段的版本。防止标签与产物版本错位地发出去。
+# 本地打标签前手动跑（走校验配方）；发布工作流构建产物前跑同一条脚本。
 
 import os
 import re
@@ -33,7 +32,7 @@ def run(tag, root):
     """校验 tag 与 root 的版本单点一致，返回 (tag 版本, cargo 版本, 错误串或 None)。"""
     if not tag.startswith("v"):
         return None, None, '错误：tag "%s" 缺 v 前缀（例：v0.1.0）' % tag
-    # tag 格式收紧为 v + 恰好三段纯数字（挡住 v1.2 / v1.2.3.4 / v1.2.x / 漏 v）。
+    # 标签格式收紧为前缀加恰好三段纯数字（挡住段数不对、带通配、漏前缀）。
     version = tag[1:]
     parts = version.split(".")
     if len(parts) != 3 or not all(re.fullmatch(r"[0-9]+", p) for p in parts):

@@ -30,7 +30,7 @@ from pathlib import Path
 
 TOP_LIMIT = 10
 
-# dtrace 对无符号帧输出「模块`0x偏移」，有符号帧输出「模块`符号+0x偏移」
+# 采样器对无符号帧输出「模块加十六进制偏移」，有符号帧输出「模块加符号加偏移」
 UNSIZED_FRAME_RE = re.compile(r"`0x[0-9a-fA-F]+$")
 
 
@@ -64,8 +64,8 @@ def require_alive(pid: int) -> None:
 
 
 def run_dtrace(pid: int, duration: int, rate: int, out: Path) -> None:
-    # BEGIN 在探针启用瞬间往输出文件写 armed：SIGSTOP 门闩类调用方轮询到它
-    # 再放行被采进程，启动第一条指令都不会漏（固定等待会输给 dtrace 启用耗时）。
+    # 探针启用瞬间往输出文件写就绪标记：停启门闩类调用方轮询到它
+    # 再放行被采进程，启动第一条指令都不会漏（固定等待会输给采样器启用耗时）。
     program = (
         'BEGIN { printf("armed\\n"); }\n'
         f"profile-{rate} /pid == {pid} && arg1/ {{ @[ustack(100)] = count(); }}\n"

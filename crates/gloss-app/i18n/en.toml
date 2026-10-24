@@ -1,9 +1,7 @@
-# Interface text (English). Keys must match zh.toml exactly — a missing or
-# extra key fails parsing (see crates/gloss-app/src/i18n.rs).
-# Entries are underscore-joined fully qualified names, gloss_<module>_<entry>,
-# with the prefix on every line (there are no section headers); the Rust fields
-# carry the same names verbatim, so there is no rename layer.
-# Placeholders are written {{name}} and filled by i18n::fill.
+# 界面文案（英文）。键必须与中文表完全一致——多键或少键都会让解析失败。
+# 词条一律写成下划线连接的全限定名，前缀落在每一行（文件里没有节头）；
+# Rust 侧字段与这里逐字同名，没有改名层。
+# 占位符写双花括号名，由填充函数替换。
 
 gloss_app_settings_title = "Gloss Settings"
 

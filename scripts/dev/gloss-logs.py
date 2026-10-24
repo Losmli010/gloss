@@ -65,7 +65,7 @@ def format_line(line: str, color: bool) -> str | None:
     level = str(record.pop("level", ""))
     target = str(record.pop("target", ""))
     message = str(record.pop("message", ""))
-    # 短模块名（`gloss_app::app::channels` → `app::channels`）省横向空间。
+    # 短模块名（去掉顶层包前缀）省横向空间。
     short_target = target.split("::", 1)[1] if "::" in target else target
 
     fields = " ".join(f"{key}={value}" for key, value in record.items())
@@ -165,6 +165,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    # 管道下游（head/less）提前关闭时安静退出，不要在刷屏里抛栈。
+    # 管道下游提前关闭时安静退出，不要在刷屏里抛栈。
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     sys.exit(main())
