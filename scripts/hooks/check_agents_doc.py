@@ -23,8 +23,8 @@ RECIPE_RE = re.compile(r"(?:^|[^A-Za-z0-9_-])just ([a-z][a-z0-9-]*)")
 BACKTICK_RE = re.compile(r"`([^`]+)`")
 CARGO_TEST_RE = re.compile(r"--test ([A-Za-z0-9_-]+)")
 RULE_NAME_RE = re.compile(r"\*\*([^*]+)\*\*")
-REF_LINE_RE = re.compile(r"AGENTS\.md.*质量条目「")
-REF_NAME_RE = re.compile(r"质量条目「([^」]+)」")
+REF_LINE_RE = re.compile(r"AGENTS\.md.*质量条目“")
+REF_NAME_RE = re.compile(r"质量条目“([^”]+)”")
 BARE_SUFFIXES = (".md", ".toml", ".py", ".rs", ".yml", ".json")
 
 # 本脚本与其单测按构造就含质量条目引用模式，跳过自命中

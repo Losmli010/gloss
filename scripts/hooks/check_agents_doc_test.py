@@ -160,17 +160,17 @@ def test_bad_recipe_in_code_block(tmp_path):
 
 
 def test_named_rule_reference_hits_real_entry(tmp_path):
-    ref = "//! 见 AGENTS.md 质量条目「日志统一出口」。"
+    ref = "//! 见 AGENTS.md 质量条目“日志统一出口”。"
     assert_pass(tmp_path, RULE_DOC, ref)
 
 
 def test_named_rule_reference_unknown_entry(tmp_path):
-    ref = "//! 见 AGENTS.md 质量条目「日志英文」。"
+    ref = "//! 见 AGENTS.md 质量条目“日志英文”。"
     assert_fail(tmp_path, RULE_DOC, "日志英文", ref)
 
 
 def test_named_rule_reference_stale_after_rename(tmp_path):
-    ref = "//! 见 AGENTS.md 质量条目「日志统一出口」。"
+    ref = "//! 见 AGENTS.md 质量条目“日志统一出口”。"
     assert_fail(tmp_path, RULE_DOC_RENAMED, "日志统一出口", ref)
 
 
