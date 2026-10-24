@@ -131,7 +131,7 @@ def test_plain_text_recipe_checked(tmp_path):
 
 
 def test_justfile_variable_not_a_recipe(tmp_path):
-    # 配方名不含下划线：`just coverage_min` 被提取为 coverage，按不存在的配方拒绝
+    # 配方名提取不含下划线：带下划线的配方名被截断提取，按不存在的配方拒绝
     assert_fail(tmp_path, "阈值见 `just coverage_min`", "「just coverage」")
 
 

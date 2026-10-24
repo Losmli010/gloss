@@ -1,7 +1,7 @@
-# Prompt 评测数据流水线：手动触发（workflow_dispatch，取 main HEAD）→ replay
-# 轨采集（夹具驱动，无网络无凭据）→ 拷 history.jsonl + history.svg 推数据分支，
-# 人工开 PR 审查合入。定位是趋势数据例行生产，不是门禁：不判任何 PR 的生死；
-# live 轨需 GLOSS_LIVE_* secrets 且每次触发真实计费，保持本地 opt-in，不进本流水线。
+# Prompt 评测数据流水线：手动触发、取主分支最新提交、重放轨采集（夹具驱动，
+# 无网络无凭据）后推数据分支，人工开 PR 审查合入。定位是趋势数据例行生产，
+# 不是门禁：不判任何 PR 的生死；live 轨需专用凭据且每次触发真实计费，
+# 保持本地显式参与，不进本流水线。
 name: Eval data
 
 on:
@@ -14,8 +14,8 @@ env:
 permissions:
   contents: write
 
-# 数据分支同 commit 覆盖式写入（upsert 键 (mode, commit)）：重复触发时取消
-# 在跑的一次，由最新一次（取最新 main）重新采集，避免并行采集互踩数据分支。
+# 数据分支按覆盖式写入（键为评测模式加提交）：重复触发时取消
+# 在跑的一次，由最新一次（取最新主分支）重新采集，避免并行采集互踩数据分支。
 concurrency:
   group: eval-data
   cancel-in-progress: true
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   collect:
     name: Collect eval data
-    # replay 是纯 serde/JSON 逻辑，不依赖 macOS/GPU/窗口服务。
+    # 重放是纯 serde 与 JSON 逻辑，不依赖 macOS、GPU 与窗口服务。
     runs-on: ubuntu-latest
     steps:
       - name: Guard main-only dispatch
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # 数据分支在 main HEAD 之上追加提交，浅克隆推送有边界情况，取全量历史。
+          # 数据分支在主分支最新提交之上追加提交，浅克隆推送有边界情况，取全量历史。
           fetch-depth: 0
 
       - name: Record main head
@@ -54,13 +54,13 @@ jobs:
         with:
           tool: just
 
-      # rust-cache 会把 target/ 带回本 run：清掉上次的评测报告，防陈旧的
-      # <mode>.json/.md 与 history 混进本点。
+      # 缓存动作会把构建产物目录带回本次运行：清掉上次的评测报告，防陈旧的
+      # 各模式报告与历史数据混进本点。
       - name: Clean prior eval artifacts
         run: rm -rf target/eval
 
-      # 把 baselines 里已入库的历史种回报告目录：本点在其上覆盖/追加，
-      # 重绘的 history.svg 才是全量趋势；无基线文件时从空历史起步。
+      # 把已入库的历史种回报告目录：本点在其上覆盖或追加，
+      # 重绘的趋势图才是全量趋势；无基线文件时从空历史起步。
       - name: Seed baseline history
         run: |
           mkdir -p target/eval
@@ -68,16 +68,16 @@ jobs:
             cp crates/gloss-eval/baselines/history.jsonl target/eval/history.jsonl
           fi
 
-      # GLOSS_EVAL_COMMIT/GLOSS_EVAL_SOURCE 注入采集上下文（报告 JSON 与
-      # history.jsonl 的 context 段；同 commit 重跑覆盖不叠点，换 commit 追加）。
+      # 采集上下文经环境变量注入（进报告 JSON 与历史数据的上下文段；
+      # 同一提交重跑覆盖不叠点，换提交追加）。
       - name: Run replay eval
         env:
           GLOSS_EVAL_COMMIT: ${{ steps.head.outputs.sha }}
           GLOSS_EVAL_SOURCE: pipeline
         run: just eval-replay
 
-      # <mode>.json/.md 是 target/ 本地产物不入库：留 artifact 供事后审计
-      # （口径同 perf 流水线 handoff 的 90 天）。
+      # 各模式报告是本地产物不入库：留作产物供事后审计
+      # （保留期与性能流水线的交接产物一致，九十天）。
       - name: Upload eval reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -87,7 +87,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
-      # 数据 PR 只入库 history.jsonl 与 history.svg 两个文件。
+      # 数据 PR 只入库历史数据与趋势图两个文件。
       - name: Push data branch
         env:
           HEAD_SHA: ${{ steps.head.outputs.sha }}
@@ -101,7 +101,7 @@ jobs:
           cp target/eval/history.jsonl target/eval/history.svg crates/gloss-eval/baselines/
           git add crates/gloss-eval/baselines/history.jsonl crates/gloss-eval/baselines/history.svg
           git commit -m "chore(eval): 采集 ${HEAD_SHA} 评测趋势点并重绘趋势图"
-          # 数据分支是可再生数据：同 commit 重跑时以本次结果覆盖旧分支。
+          # 数据分支是可再生数据：同一提交重跑时以本次结果覆盖旧分支。
           git push --force origin "$branch"
 
           {

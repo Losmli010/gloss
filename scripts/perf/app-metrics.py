@@ -47,10 +47,10 @@ OUT_PATH = ROOT / "target" / "perf" / "app-runtime.json"
 
 READY_MILESTONE = "06_ready"
 
-# 本机构建架构 → 体积指标 id（id 按双架构分列，见 metrics.py 注册表）
+# 本机构建架构 → 体积指标编号（编号按双架构分列，见指标注册表）
 ARCH_BINARY_FIELDS = {"x86_64": "binary_x64_kb", "arm64": "binary_arm64_kb"}
 
-# 平台 → 趋势点 env 的 os 值（与自检信号行 env::consts::OS 同词表）
+# 平台 → 趋势点环境段的系统值（与自检信号行的系统常量同词表）
 OS_NAMES = {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}
 
 
@@ -142,7 +142,7 @@ def sample_footprint_kb(pid):
         for key in ("Physical footprint:", "Physical footprint (peak):"):
             if not stripped.startswith(key):
                 continue
-            # 数值与单位连写（如 25.2M），正则一并吃下
+            # 数值与单位连写，正则一并吃下
             match = FOOTPRINT_VALUE.match(stripped[len(key) :].strip())
             if match is None:
                 continue

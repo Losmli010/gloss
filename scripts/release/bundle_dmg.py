@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# 把打包好的 .app 压成 .dmg（UDZO 压缩镜像，Finder 打开即拖装）。
-# 用法：./scripts/release/bundle_dmg.py <path/to/Gloss.app> [输出.dmg 路径]
+# 把打包好的应用包压成分发镜像（只读压缩格式，访达打开即拖装）。
+# 用法：以解释器运行，首参为应用包路径，次参可选为输出镜像路径。
 
 import os
 import subprocess
@@ -20,7 +20,7 @@ def main():
         )
         return 1
 
-    # 默认与 .app 同目录同名
+    # 默认与应用包同目录同名
     out = (
         sys.argv[2]
         if len(sys.argv) > 2
@@ -31,7 +31,7 @@ def main():
     )
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
 
-    # -ov 覆盖同名旧镜像；UDZO 是只读压缩格式，发布产物的标准选择
+    # 覆盖同名旧镜像；只读压缩是发布产物的标准选择
     subprocess.run(
         [
             "hdiutil",

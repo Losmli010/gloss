@@ -1,6 +1,5 @@
 # Dependabot 配置
 # 自动跟踪依赖更新，定期开 PR，减少人工跟进成本。
-# 详见：https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
 version: 2
 
@@ -27,7 +26,7 @@ updates:
       prefix: "chore(deps)"
     open-pull-requests-limit: 10
 
-  # ---- GitHub Actions（workflow 中的 actions 版本）----
+  # ---- GitHub Actions（工作流中引用的动作版本）----
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

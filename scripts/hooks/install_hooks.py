@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# 安装本地 git hooks：把 core.hooksPath 指向 .githooks 目录，并给脚本加执行权限。
-# 团队成员 clone 后只需运行一次：./scripts/hooks/install_hooks.py
+# 安装本地版本库钩子：把钩子目录配置指向仓内的钩子目录，并给脚本加执行权限。
+# 团队成员取得仓库副本后只需运行一次本脚本。
 
 import os
 import stat
@@ -28,7 +28,7 @@ EXEC_FILES = [
 
 
 def main():
-    # 1. 给 hook 脚本加执行权限（一并覆盖 checker、发布脚本与二分测量驱动）
+    # 一、给钩子脚本加执行权限（一并覆盖各检查脚本、发布脚本与二分测量驱动）
     for rel in EXEC_FILES:
         path = os.path.join(ROOT, rel)
         if not os.path.isfile(path):
@@ -36,7 +36,7 @@ def main():
             return 1
         os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-    # 2. 设置 hooksPath 指向 .githooks
+    # 二、把钩子目录配置指向仓内的钩子目录
     subprocess.run(["git", "-C", ROOT, "config", "core.hooksPath", ".githooks"], check=True)
 
     print("✓ git hooks 已启用")

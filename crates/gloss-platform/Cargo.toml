@@ -6,15 +6,13 @@ description = "Gloss 适配器层：实现 gloss-core 端口 + 平台事件源"
 license.workspace = true
 
 [dependencies]
-# 剪贴板兜底读取（模拟复制）的原文保存/恢复。不用默认集（image-data 的
-# macOS 读图只认 TIFF flavor 且无尺寸设界，剪贴板图片取材不走 arboard）。
+# 剪贴板兜底读取（模拟复制）的原文保存与恢复。不用默认集：其 macOS 读图
+# 只认 TIFF 格式且无尺寸设界，剪贴板图片取材不走本库。
 arboard = { version = "3", default-features = false }
-# KeychainSecret 取引用删除：security-framework 的安全搜索封装交回的是
-# SecKeychainItem 包装类型，还原裸引用要经 core_foundation::base::TCFType
-# （版本须与 security-framework 所用一致，0.10）。
+# 密钥项取引用再删除：安全框架的安全搜索封装交回的是包装类型，还原裸引用
+# 要经本库的基础类型转换（版本须与安全框架所用一致）。
 core-foundation = { version = "0.10", default-features = false }
-# 平台事件线程的 RunLoop 宿主（CFRunLoopRun / 定时器 drain）与选区、剪贴板
-# 兜底的 CF 类型绑定。
+# 平台事件线程的 RunLoop 宿主与定时器取空，及选区、剪贴板兜底的 CF 类型绑定。
 core-foundation-sys = {
   version = "0.8",
   default-features = false,
@@ -24,14 +22,13 @@ core-foundation-sys = {
 }
 # 事件线程消费通道②、转发①④。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
-# FileConfigStore 的配置目录定位（日志目录例外，不走 directories）。
+# 配置存储的目录定位（日志目录例外，不走本库）。
 directories = { version = "6", default-features = false }
 gloss-core = { path = "../gloss-core" }
-# 剪贴板图片取材：TIFF/PNG flavor 数据解码（仅读头取尺寸设界）+ RGBA →
-# PNG 编码（快速压缩档，事件线程上执行）。
+# 剪贴板图片取材：TIFF 与 PNG 数据解码（仅读头取尺寸设界），RGBA 重编码为
+# PNG（快速压缩档，事件线程上执行）。
 image = { version = "0.25", default-features = false, features = ["png", "tiff"] }
-# Dock 图标：非 bundle 运行（just run）时经 `NSApplication.setApplicationIconImage`
-# 装上品牌图标，bundle 运行走 .icns（同设计，视觉无差）。
+# Dock 图标：非打包运行时装上品牌图标，打包运行走图标包（同设计，视觉无差）。
 objc2 = {
   version = "0.6.4",
   default-features = false,
@@ -49,7 +46,7 @@ objc2-app-kit = {
     "NSResponder",
     "NSRunningApplication",
     "NSWorkspace",
-    # NSRunningApplication 的 processIdentifier（is_self 判定）被 libc 特性门控。
+    # 进程标识与自身判定被 libc 特性门控。
     "libc",
   ]
 }
@@ -61,18 +58,16 @@ objc2-foundation = {
     "NSData",
     "NSLocale",
     "NSString",
-    # NSRunningApplication.bundleURL 的返回类型：AX 通道激活按包路径查
-    # 内核框架形态（selection/activation.rs）。
+    # 应用包地址的返回类型：无障碍通道激活按包路径查内核框架形态。
     "NSURL",
   ]
 }
-# KeychainSecret 的 Security framework 绑定（通用密码读写）。无版本门控
-# 特性需求。
+# 密钥存储的系统安全框架绑定（通用密码读写），无版本门控特性需求。
 security-framework = { version = "3", default-features = false }
-# KeychainSecret 的引用式删除：SecKeychainItemDelete（security-framework
-# 未封装删引用一条路）与 errSecItemNotFound 常量。
+# 密钥的引用式删除：上层未封装删引用一条路，取系统层的删除函数与
+# 条目未找到常量。
 security-framework-sys = { version = "2", default-features = false }
-# 配置文档的 TOML 序列化（parse 读 + display 写）。
+# 配置文档的 TOML 序列化（读解析加写格式化）。
 toml = {
   version = "0.8",
   default-features = false,
@@ -83,7 +78,7 @@ toml = {
 }
 
 [dev-dependencies]
-# storage 单测的临时目录。
+# 存储单测的临时目录。
 tempfile = { version = "3", default-features = false }
 
 [lints]

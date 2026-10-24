@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
-# AGENTS.md 引用一致性门禁：校验指令文件里提到的仓库事实确实存在。
-# 本地 `just agents-doc`（pre-commit 的一部分）与 CI 的 Docs check job 共用此脚本，
-# 保证本地与 CI 判定一致。
+# 指令文档引用一致性门禁：校验指令文档里提到的仓库事实确实存在。
+# 本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
 #
-# 校验对象以 AGENTS.md 为准，五类引用：
-#   1. 全文任何 `just <recipe>` 提到的配方必须在 justfile 中定义；
-#   2. 行内反引号里的仓库路径（含 `/`）必须存在（文件或目录）；
-#   3. 行内反引号里的裸文件名（justfile 或带 .md/.toml/.py/.rs/.yml/.json 扩展名）
-#      必须在仓库根存在；
-#   4. 全文任何 `cargo test --test <name>` 提到的测试目标必须存在对应的
-#      tests/<name>.rs（根包或任一 crate）；
-#   5. 仓库各处（*.rs / *.toml / *.py / *.yml / justfile）对质量条目的指名
-#      引用 `质量条目「名字」` 必须真的在文档的「质量条目总表」段里（带 **名字** 的条目）。
+# 校验对象为仓库的指令文档，五类引用：
+#   1. 全文任何任务配方的提及必须在配方清单里定义；
+#   2. 行内反引号里的仓库路径（含分隔符）必须存在（文件或目录）；
+#   3. 行内反引号里的裸文件名（配方清单或带常见扩展名）必须在仓库根存在；
+#   4. 全文任何测试目标的提及必须存在对应的测试源码（根包或任一分包）；
+#   5. 仓库各处对质量条目的指名引用必须真的在指令文档的「质量条目总表」段里。
 #
-# 扫描范围：`just <recipe>` 与 `cargo test --test` 逐行扫描，代码块内同样算数。
-# 路径只认行内反引号包裹的仓库相对路径。
-# 占位符（含 `*`、`<`、`>`）、仓库外路径（含 `~`）、注释语法与 URL（含 `//`）不校验。
+# 扫描逐行进行，代码块内同样算数；路径只认行内反引号包裹的仓库相对路径。
+# 占位符、仓库外路径、注释语法与链接不校验。
 #
-# 用法：scripts/hooks/check_agents_doc.py [AGENTS.md 路径]   # 缺省为仓库根 AGENTS.md
+# 用法：以解释器运行本脚本，首参为指令文档路径，缺省为仓库根的指令文档。
 
 import os
 import re
@@ -110,7 +105,7 @@ def run(doc_path):
     checked = 0
 
     for line_no, line in enumerate(lines, 1):
-        # ---- 1. just 配方 ----
+        # ---- 1. 任务配方 ----
         for recipe in RECIPE_RE.findall(line):
             checked += 1
             defined = False
@@ -138,7 +133,7 @@ def run(doc_path):
                 if not os.path.exists(os.path.join(root, token)):
                     violations.append("%s:%d  「%s」在仓库根不存在" % (doc_name, line_no, token))
 
-        # ---- 4. cargo test 目标 ----
+        # ---- 4. 测试目标 ----
         for target in CARGO_TEST_RE.findall(line):
             checked += 1
             if not scan_targets(root, target):

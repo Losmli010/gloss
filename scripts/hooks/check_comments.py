@@ -1,157 +1,467 @@
 #!/usr/bin/env python3
-# 注释纪律门禁：生产与测试 .rs 源码只保留文件头注释（`//!`），其余注释一律
-# 迁往 docs/comments/<文件名>_comment.md。本地 `just comments`（pre-commit 的
-# 一部分）与 CI 的 hooks.yml 共用此脚本，保证本地与 CI 判定一致。
+# 注释纪律门禁：跟踪文件的注释只写纯中文表述——不混英语语句，也不写代码引用。
+# Rust 源码只保留文件头注释，其余注释一律迁往本地记录文件；非 Rust 文件的注释
+# 逐行同规。本地注释配方（提交前门禁的一部分）与持续集成的钩子工作流共用此
+# 脚本，保证本地与远端判定一致。
 #
-# 覆盖五条检查：
-#   只留文件头      —— `///` 文档注释、行内 `//`、行尾注释、块注释 `/* */` 一律
-#                      违规；`//!` 只能出现在文件头（首个代码项之前）。
-#   文件头必须存在  —— 每个被跟踪的 .rs 至少一行 `//!` 头。
-#   文件头是中文    —— 每行 `//!` 必须含汉字；头注释禁止反引号代码段与
-#                      标识符——类型、函数、字段、路径、旗标在代码里自明，
-#                      细节沉 docs/comments 记录；英文只允许裸写的专有名词
-#                      （技术/产品/格式/框架/crate 名，PROPER_NOUNS 白名单）。
+# Rust 侧覆盖五条检查：
+#   只留文件头      —— 文档注释、行内、行尾与块注释一律违规；内部头注释只能
+#                      出现在文件头（首个代码项之前）。
+#   文件头必须存在  —— 每个被跟踪的 Rust 源文件至少一行头注释。
+#   文件头是中文    —— 每行必须含汉字；禁止反引号代码段与标识符——类型、函数、
+#                      字段、路径、旗标在代码里自明，细节沉记录文件；英文只允许
+#                      裸写的专有名词（技术、产品、格式、框架与包名，白名单）。
 #                      外部文档引用不进文件头——章节号随文档漂移，文档名是本地指针。
-#   SAFETY 豁免     —— `// SAFETY:` 块及其紧邻的连续注释行不判罚（clippy
-#                      undocumented_unsafe_blocks 要求不变量紧贴 unsafe 块）。
-#   行尾豁免标记    —— secrets:allow / lines:allow / i18n:allow /
-#                      constraints:allow-context 放行所在行（同各门禁惯例）。
+#   安全豁免        —— 不变量注释块及其紧邻的连续注释行不判罚（Clippy 要求
+#                      不变量紧贴不安全块）。
+#   行尾豁免标记    —— 各门禁的放行标记照旧放行所在行。
 #
-# 词法状态机区分 代码 / 注释 / 字符串 / char / 原始字符串 / 块注释（可嵌套），
-# 字符串与属性内的 "//"（如 URL）不误报。
+# 非 Rust 侧覆盖：脚本、配置、工作流与站点资源的注释逐行同规——必须含汉字、
+# 不含反引号代码段、不含白名单之外的英文词；路径、命令、旗标、标识符与链接
+# 都算代码引用，一并判罚。工具指令行豁免：解释器声明、格式化与静态检查指令、
+# 行尾豁免标记。井号注释、双斜线注释、块注释与页面标记注释都纳入。
 #
-# 用法：python3 scripts/hooks/check_comments.py [仓库根] [文件...]
-#       文件参数供单测传入临时样本；缺省扫全部被跟踪的 .rs
+# 词法层区分注释与字符串字面量：字符串内的注释符（如链接）不误报。
+#
+# 用法：以解释器运行本脚本，首参为仓库根，其余参数为可选的文件清单（供单测
+# 传入临时样本）；缺省扫全部被跟踪文件。
 
+import io
 import os
 import re
 import subprocess
 import sys
+import tokenize
 
 CJK = re.compile(r"[\u4e00-\u9fff]")
 WORD = re.compile(r"[A-Za-z0-9_.+-]*[A-Za-z][A-Za-z0-9_.+-]*")
 MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps):allow\b")
 
-# 文件头允许的英文专有名词白名单：技术、产品、格式、协议、框架与 crate 名。
-# 新增专有名词在此登记；标识符、路径、旗标与代码段一律不进文件头。
+# 注释允许的英文专有名词白名单：技术、产品、格式、协议、框架、工具与包名。
+# 新增专有名词在此登记；标识符、路径、旗标、链接与代码段一律不进注释。
 PROPER_NOUNS = frozenset(
     {
         "4xx",
+        "AGPL",
         "AI",
+        "AMD",
         "API",
-        "AppKit",
-        "ApplicationServices",
+        "ASCII",
         "AX",
+        "Actions",
+        "AppKit",
+        "Apple",
+        "ApplicationServices",
+        "BDD",
+        "BEGIN",
         "Base64",
         "C",
+        "CD",
         "CEF",
         "CF",
         "CFRunLoop",
         "CI",
         "CJK",
         "CLI",
-        "Cmd",
-        "Cmd+C",
+        "CPU",
         "CVC",
         "Carbon",
+        "Cargo",
         "Chrome",
         "Chromium",
+        "Clippy",
+        "Cmd",
+        "Cmd+C",
+        "Commits",
+        "Conventional",
         "CoreFoundation",
         "CoreGraphics",
         "CoreText",
+        "Ctrl+C",
         "DMG",
+        "Dart",
         "Data",
+        "Dependabot",
+        "Dock",
         "Electron",
+        "Elixir",
         "FFI",
         "FT",
-        "Gecko",
-        "Gloss",
-        "GitHub",
+        "GPL",
         "GPU",
+        "GUI",
+        "Gecko",
+        "GitHub",
+        "Gloss",
+        "HEAD",
         "HIServices",
         "HIToolbox",
+        "HTML",
         "HTTP",
         "HTTPS",
-        "HTML",
         "IO",
+        "Intel",
+        "JS",
         "JSON",
         "JavaScript",
+        "Julia",
+        "KILL",
+        "Kotlin",
         "L1",
         "L2",
         "L3",
         "L4",
+        "LGPL",
         "LLM",
         "LRU",
         "LaunchServices",
         "Luhn",
+        "MPMC",
         "Markdown",
+        "Metal",
+        "Miri",
+        "NVIDIA",
         "OpenAI",
         "PEM",
         "PNG",
         "PR",
         "Pages",
         "Pasteboard",
+        "Prompt",
+        "Python",
         "RGBA",
         "RSS",
+        "Release",
+        "Releases",
         "RunLoop",
         "Rust",
+        "RustSec",
         "SAFETY",
         "SC",
+        "SIGKILL",
+        "SIGSTOP",
         "SSE",
+        "STOP",
         "SVG",
         "SipHash",
         "Songti",
         "Sublime",
+        "Swift",
+        "TERM",
+        "TIFF",
         "TLS",
         "TOML",
-        "TTL",
         "TTFT",
-        "TIFF",
+        "TTL",
+        "TypeScript",
+        "URL",
         "UTC",
         "UTF-8",
-        "URL",
+        "Unicode",
+        "VM",
         "VoiceOver",
+        "WebGL",
         "WebKit",
+        "WindowServer",
+        "Windows",
+        "WorkBuddy",
+        "ZCode",
+        "aarch64",
+        "abort",
+        "ad-hoc",
+        "base64",
+        "bash",
+        "bincode",
+        "cargo",
+        "cargo-bundle",
+        "cargo-deny",
+        "cargo-llvm-cov",
+        "cargo-watch",
+        "clippy",
+        "core-foundation",
+        "crate",
+        "crates.io",
         "criterion",
+        "crossbeam",
+        "dtrace",
         "egui",
+        "egui-wgpu",
+        "egui-winit",
         "egui_commonmark",
         "egui_extras",
+        "egui_kittest",
         "epaint",
+        "eval",
         "flavor",
+        "git-cliff",
         "gloss-app",
         "gloss-core",
         "gloss-eval",
         "gloss-mono",
         "gloss-platform",
         "image",
+        "inferno",
+        "justfile",
+        "kittest",
+        "libc",
+        "libmalloc",
         "live",
-        "moka",
         "macOS",
+        "markdown",
+        "mimalloc",
+        "moka",
+        "nm",
+        "otool",
         "p50",
         "p95",
         "panic",
+        "pollster",
+        "pulldown-cmark",
+        "pytest",
+        "ruff",
+        "rustls",
         "semver",
         "serde",
+        "sha256",
         "span",
+        "squash",
+        "stderr",
+        "stdin",
+        "stdout",
         "syntect",
         "tap",
         "tokio",
+        "tombi",
         "tracing",
         "ttc",
         "ui-monospace",
         "unsafe",
+        "valgrind",
+        "vmmap",
         "wgpu",
         "winit",
+        "x86_64",
+        "yaml-rust",
+        "yaml-rust2",
         "zh-Hans-CN",
     }
 )
+
+
+# 非 Rust 注释文件：井号系脚本与配置、钩子目录脚本、justfile 与忽略清单。
+HASH_SUFFIXES = {".py", ".toml", ".yml", ".yaml", ".sh"}
+HASH_NAMES = {"justfile", ".gitignore"}
+# 站点资源：脚本用双斜线与斜线星注释，样式用斜线星，页面用标记注释。
+WEB_SUFFIXES = {".js", ".css", ".html"}
+
+# 工具指令段整段豁免：解释器声明，以及格式化与静态检查指令及其 ASCII 参数。
+DIRECTIVE_SEG = re.compile(
+    r"^[!—–\-\s]*#!"
+    r"|^[\s—–\-]*(?:noqa|fmt|ruff|isort|pylint|type|shellcheck|yamllint"
+    r"|actionlint|prettier|markdownlint)\b(?:[:\s][A-Za-z0-9_+=,.\s\-]*)?$"
+)
+# 表述按中文标点切段，指令段只认整段 ASCII 的匹配，中文与指令混写的段仍受检。
+SEGMENT_SPLIT = re.compile(r"[，。；：！？、（）「」『』《》…—]+")
+# 修饰性段内装饰字符，判罚前剥去。
+SEGMENT_TRIM = " \t─*-·"
+
+
+def is_comment_candidate(rel):
+    name = os.path.basename(rel)
+    ext = os.path.splitext(name)[1]
+    return (
+        ext in HASH_SUFFIXES
+        or name in HASH_NAMES
+        or rel.startswith(".githooks/")
+        or ext in WEB_SUFFIXES
+    )
+
+
+def hash_comments(src, line_start_only=False):
+    """井号系注释抽取：引号感知；井号须在行首或空白之后；多行字符串整段跳过。"""
+    out = []
+    in_ml = None
+    for lineno, line in enumerate(src.splitlines(), 1):
+        j, n = 0, len(line)
+        in_str = None
+        comment_at = None
+        while j < n:
+            if in_ml:
+                k = line.find(in_ml, j)
+                if k == -1:
+                    j = n
+                else:
+                    in_ml = None
+                    j = k + 3
+                continue
+            c = line[j]
+            if in_str:
+                if c == "\\" and in_str == '"':
+                    j += 2
+                    continue
+                if c == in_str:
+                    in_str = None
+                j += 1
+                continue
+            if c in "\"'":
+                if line.startswith(c * 3, j):
+                    in_ml = c * 3
+                    j += 3
+                    continue
+                in_str = c
+                j += 1
+                continue
+            if c == "#" and (j == 0 or line[j - 1] in " \t"):
+                if line_start_only and j != 0:
+                    break
+                comment_at = j
+                break
+            j += 1
+        if comment_at is not None:
+            out.append((lineno, line[comment_at:]))
+    return out
+
+
+def python_comments(src):
+    """Python 注释走标准词法取准确集合；语法异常时退回井号扫描。"""
+    try:
+        out = []
+        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+            if tok.type == tokenize.COMMENT:
+                out.append((tok.start[0], tok.string))
+        return out
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return hash_comments(src)
+
+
+def web_comments(src, suffix):
+    """站点资源注释抽取：页面认标记注释，脚本与样式认双斜线与斜线星注释。"""
+    out = []
+    closer = None
+    for lineno, line in enumerate(src.splitlines(), 1):
+        j, n = 0, len(line)
+        in_str = None
+        while j < n:
+            if closer:
+                k = line.find(closer, j)
+                if k == -1:
+                    out.append((lineno, line))
+                    break
+                out.append((lineno, line[: k + len(closer)]))
+                j = k + len(closer)
+                closer = None
+                continue
+            c = line[j]
+            if suffix == ".html":
+                if line.startswith("<!--", j):
+                    k = line.find("-->", j + 4)
+                    if k == -1:
+                        out.append((lineno, line[j:]))
+                        closer = "-->"
+                        break
+                    out.append((lineno, line[j : k + 3]))
+                    j = k + 3
+                    continue
+                j += 1
+                continue
+            if in_str:
+                if c == "\\" and in_str in '"`':
+                    j += 2
+                    continue
+                if c == in_str:
+                    in_str = None
+                j += 1
+                continue
+            if c in "\"'`":
+                in_str = c
+                j += 1
+                continue
+            if c == "/" and j + 1 < n:
+                nxt = line[j + 1]
+                if nxt == "/" and suffix != ".css":
+                    out.append((lineno, line[j:]))
+                    break
+                if nxt == "*":
+                    k = line.find("*/", j + 2)
+                    if k == -1:
+                        out.append((lineno, line[j:]))
+                        closer = "*/"
+                        break
+                    out.append((lineno, line[j : k + 2]))
+                    j = k + 2
+                    continue
+            j += 1
+    return out
+
+
+def web_body(text):
+    """剥去站点注释的包裹符，取纯表述。"""
+    body = text.strip()
+    for lead in ("<!--", "/*", "//"):
+        if body.startswith(lead):
+            body = body[len(lead) :]
+            break
+    body = body.lstrip("*").strip()
+    for tail in ("-->", "*/"):
+        if body.endswith(tail):
+            body = body[: -len(tail)]
+            break
+    return body.strip()
+
+
+def nonrust_violations(rel, src):
+    name = os.path.basename(rel)
+    ext = os.path.splitext(name)[1]
+    if name in HASH_NAMES:
+        pairs = hash_comments(src, line_start_only=(name == ".gitignore"))
+        kind = "hash"
+    elif ext == ".py" or rel.startswith(".githooks/"):
+        pairs = python_comments(src)
+        kind = "hash"
+    elif ext in HASH_SUFFIXES:
+        pairs = hash_comments(src)
+        kind = "hash"
+    else:
+        pairs = web_comments(src, ext)
+        kind = "web"
+    out = []
+    for lineno, text in pairs:
+        if MARKER.search(text):
+            continue
+        if text.startswith("#!"):
+            continue
+        body = web_body(text) if kind == "web" else text[1:].strip()
+        segs = [
+            seg.strip(SEGMENT_TRIM)
+            for seg in SEGMENT_SPLIT.split(body)
+            if seg.strip(SEGMENT_TRIM) and not DIRECTIVE_SEG.match(seg.strip(SEGMENT_TRIM))
+        ]
+        if not segs:
+            continue
+        if "`" in body:
+            out.append(f"{rel}:{lineno}: 注释出现代码段——引用与示例沉记录文件")
+            continue
+        if "§" in body:
+            out.append(f"{rel}:{lineno}: 注释出现「§ 章节号」式外部引用——出处沉记录文件")
+            continue
+        if not CJK.search(body):
+            out.append(f"{rel}:{lineno}: 注释须写成中文：{body[:40]}")
+            continue
+        for seg in segs:
+            bad = [w for w in WORD.findall(seg) if w not in PROPER_NOUNS]
+            if bad:
+                out.append(
+                    f"{rel}:{lineno}: 注释出现代码引用或白名单之外的英文词：{' '.join(bad[:3])}"
+                    f"（改写为中文；专有名词登记白名单；引用沉记录文件）"
+                )
+    return out
 
 
 def scan_files(root, explicit):
     if explicit:
         return [p if os.path.isabs(p) else os.path.join(root, p) for p in explicit]
     out = subprocess.run(
-        ["git", "-C", root, "ls-files", "*.rs"],
+        ["git", "-C", root, "ls-files"],
         capture_output=True,
         text=True,
         check=True,
@@ -261,7 +571,7 @@ def run(root, explicit):
                         i += 1
                 continue
             if c in "rb" and (i == 0 or not (src[i - 1].isalnum() or src[i - 1] == "_")):
-                # 原始字符串 r"..." / r#"..."#（含 b 前缀字节串）
+                # 原始字符串与字节串前缀按井号界配对跳过
                 k = i + 1
                 if c == "b" and k < n and src[k] == "r":
                     k += 1
@@ -288,7 +598,7 @@ def run(root, explicit):
                     inner_attr_only = False
                     i += m.end()
                     continue
-                i += 1  # 生命周期标注（'a）不是字面量
+                i += 1  # 生命周期标注不是字面量
                 continue
             if c == "#" and inner_attr_only and src[i : i + 3] == "#![":
                 # 内部属性 #![...]：字符串感知地跳到配对方括号，不视为代码项
@@ -340,6 +650,16 @@ def run(root, explicit):
 
     for path in scan_files(root, explicit):
         rel = os.path.relpath(path, root)
+        if not rel.endswith(".rs"):
+            if is_comment_candidate(rel):
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        plain = fh.read()
+                except (OSError, UnicodeDecodeError) as exc:
+                    problems.append(f"{rel}: 无法读取（{exc}）")
+                    continue
+                problems.extend(nonrust_violations(rel, plain))
+            continue
         try:
             with open(path, encoding="utf-8") as fh:
                 src = fh.read()
@@ -368,7 +688,7 @@ def run(root, explicit):
             if kind == "block":
                 problems.append(f"{rel}:{sline}: 块注释 —— 内容迁 docs/comments/ 后删除")
                 continue
-            # kind == "line"
+            # 此处余下的都是行内注释
             if MARKER.search(text):
                 continue
             if not indent_only:
@@ -406,7 +726,7 @@ def main():
             file=sys.stderr,
         )
         sys.exit(1)
-    print("  ok 只留文件头：全部跟踪 .rs 通过（///、行内/行尾注释零残留，文件头均为中文）")
+    print("  ok 注释纪律：Rust 源码只留中文文件头，非 Rust 注释全部为纯中文表述")
 
 
 if __name__ == "__main__":

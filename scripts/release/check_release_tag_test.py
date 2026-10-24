@@ -17,8 +17,8 @@ MANIFEST_OK = (
     '\n[workspace.package]\nversion = "0.1.0"\nedition = "2024"'
 )
 
-# version.workspace = true（根包继承行）与依赖段的 version 都不得被当成单点版本：
-# 单点行故意放在 [workspace.package]，值与继承行、依赖行都不同。
+# 根包继承行与依赖段的版本行都不得被当成单点版本：
+# 单点行故意放在工作区段，值与继承行、依赖行都不同。
 MANIFEST_TRAPS = (
     '[package]\nname = "gloss"\nversion.workspace = true\n'
     "\n[dependencies]\n"

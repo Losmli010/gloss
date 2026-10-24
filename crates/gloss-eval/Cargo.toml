@@ -5,23 +5,23 @@ edition.workspace = true
 description = "Prompt 评测：确定性重放 + LLM judge（评测资产与工具链，不进生产）"
 license.workspace = true
 
-# 唯一入口：评测 CLI（inspect / replay / live / report / history，见 src/main.rs）。
+# 唯一入口：评测命令行。
 [[bin]]
 name = "eval"
 path = "src/main.rs"
 
 [dependencies]
-# live 轨复用生产 SSE 引擎（core 的 LlmClient）；本 crate 只许消费，不许被
-# 生产 crate 依赖——check_constraints.py 的依赖方向断言强制。
+# live 轨复用生产流式引擎（核心库客户端）；本 crate 只许消费，不许被
+# 生产 crate 依赖——约束检查脚本的依赖方向断言强制。
 gloss-core = { path = "../gloss-core" }
 # 评测数据集与报告的序列化。
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
-# live 轨的运行时（replay 不触网，不用异步设施）。
+# live 轨的运行时（重放不触网，不用异步设施）。
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread"] }
 
 [dev-dependencies]
-# live 轨测试的脚本引擎要产出 TaskStream（core 的测试桩不出库）。
+# live 轨测试的脚本引擎要产出任务流（核心库的测试桩不出库）。
 futures = { version = "0.3", default-features = false, features = ["std"] }
 
 [lints]

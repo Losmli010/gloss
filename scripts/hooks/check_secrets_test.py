@@ -61,7 +61,7 @@ def test_short_unquoted_value_passes(tmp_path):
     assert scan(tmp_path, "short-unquoted.env", "API_KEY=abc123") == []
 
 
-# ---- provider 密钥格式（拦截）----
+# ---- 服务商密钥格式（拦截）----
 
 
 def test_openai_key(tmp_path):

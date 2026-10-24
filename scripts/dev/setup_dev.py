@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# 一键环境初始化：校验 Rust 工具链与配套工具、安装 git hooks。clone 后跑一次：
-#   ./scripts/dev/setup_dev.py   （或 just setup）
-# 全部幂等，重复跑无副作用。
+# 一键环境初始化：校验 Rust 工具链与配套工具、安装仓库钩子。克隆后跑一次
+# （走初始化配方）。全部幂等，重复跑无副作用。
 
 import os
 import shutil
@@ -64,7 +63,7 @@ def main():
         print("  ⚠ 缺组件 clippy，安装：rustup component add clippy", file=sys.stderr)
 
     print("== 2/4 just 命令入口 ==")
-    # 仓库所有配方（门禁 / 测试 / 打包）都经 just，没有它后面寸步难行
+    # 仓库所有配方（门禁、测试、打包）都经命令入口，没有它后面寸步难行
     if have("just"):
         version = subprocess.run(
             ["just", "--version"], capture_output=True, text=True, check=True
@@ -82,7 +81,7 @@ def main():
         warn_missing("cargo-audit（漏洞审计）", "cargo install cargo-audit --locked")
     if not have("cargo-deny"):
         warn_missing("cargo-deny（依赖合规）", "cargo install cargo-deny --locked")
-    # just precommit 依赖 fmt-toml / lint-toml / fmt-py / lint-py，缺了它提交钩子会挂
+    # 提交前门禁依赖 TOML 与 Python 的格式化及检查工具，缺了它提交钩子会挂
     if not have("tombi"):
         warn_missing(
             "tombi（TOML 格式与 lint，precommit 依赖）",
@@ -97,7 +96,7 @@ def main():
         warn_missing(
             "pytest（checker 单测，CI 的 hooks job 同款）", "python3 -m pip install pytest"
         )
-    # just flame / flame-startup 的采样与渲染后端
+    # 火焰图配方的采样与渲染后端
     if not have("inferno-flamegraph"):
         warn_missing(
             "cargo-flamegraph/inferno（火焰图剖析，just flame 与 flame-startup 依赖）",

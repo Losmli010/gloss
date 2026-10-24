@@ -1,9 +1,9 @@
-# unwrap_used / expect_used / panic 在测试代码（#[test] 与 #[cfg(test)]）中放行
+# 断言式取值与 panic 在测试代码中放行
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
-# print_stdout / print_stderr 在测试代码中放行
+# 标准输出与标准错误打印在测试代码中放行
 allow-print-in-tests = true
-# 体积上限：函数参数 ≤5（&self 计入）、函数体 ≤50 行
+# 体积上限：函数参数不超过五（自身引用计入）、函数体不超过五十行
 too-many-arguments-threshold = 5
 too-many-lines-threshold = 50

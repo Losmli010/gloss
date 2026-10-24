@@ -5,7 +5,7 @@ on:
     tags:
       - "v*"
 
-# 最小权限：顶层只读；仅 release job 创建 GitHub Release 需要写（见其 job 级 permissions）。
+# 最小权限：顶层只读；仅发布作业创建 GitHub Release 需要写（见其作业级权限）。
 permissions:
   contents: read
 
@@ -42,7 +42,7 @@ jobs:
       - name: Verify version consistency
         id: version
         run: |
-          # 与本地 just release-check 共用同一脚本（版本单点在根 Cargo.toml [workspace.package]）
+          # 与本地校验配方共用同一脚本（版本单点在根包清单的工作区段）
           ./scripts/release/check_release_tag.py "${GITHUB_REF_NAME}"
           echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
@@ -73,7 +73,7 @@ jobs:
 
       - name: Package artifacts
         run: |
-          # 产物名带版本与 target 三元组，Release 页上一眼可辨。
+          # 产物名带版本与目标三元组，Release 页上一眼可辨。
           STEM="gloss-${{ steps.version.outputs.version }}-${{ matrix.target }}"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$STEM.zip"
           ./scripts/release/bundle_dmg.py "$APP" "$STEM.dmg"
@@ -91,7 +91,7 @@ jobs:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    # 唯一需要写权限的 job：发布产物到 GitHub Release。
+    # 唯一需要写权限的作业：发布产物到 GitHub Release。
     permissions:
       contents: write
     steps:
@@ -121,9 +121,9 @@ jobs:
           body_path: release-notes.md
           generate_release_notes: false
 
-  # 站点部署：release 成功后把 web/ + 本 tag 二进制 + manifest.json 发上 GitHub Pages。
-  # Pages 部署失败不回滚 Release，job 显式失败可见；补救：重跑本 job（消费同
-  # run artifacts）；artifact 超保留期则重跑整个 workflow。
+  # 站点部署：发布成功后把站点资源、本标签的二进制与更新清单发上 GitHub Pages。
+  # Pages 部署失败不回滚发布，作业显式失败可见；补救是重跑本作业（消费同一次
+  # 运行的产物）；产物超保留期则重跑整个工作流。
   deploy-web:
     name: Deploy web to GitHub Pages
     needs: release
@@ -147,7 +147,7 @@ jobs:
 
       - name: Generate manifest and stage binaries
         run: |
-          # gen_manifest.py 内部先跑 check_release_tag（版本单点门禁，不一致即失败）
+          # 清单生成脚本内部先跑版本一致性校验（版本单点门禁，不一致即失败）
           ./scripts/release/gen_manifest.py "${GITHUB_REF_NAME}" artifacts > web/manifest.json
           cp artifacts/gloss-*.zip artifacts/gloss-*.dmg web/latest/
 

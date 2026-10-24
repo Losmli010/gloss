@@ -71,8 +71,8 @@ BUDGET_CONSTS = {
     "overlay.rss_tail_growth_kb": BudgetConst("tests/overlay.rs", "RSS_TAIL_GROWTH_BUDGET_KB"),
 }
 
-# 四组×用例与 benches/core.rs 一一对应，benches 增删用例时同步这里；
-# id 取 criterion full_id 前缀 core.，即 core.<group>/<case>。
+# 四组用例与基准文件一一对应，基准增删用例时同步这里；
+# 编号取基准框架的全名前缀，即组名点用例名。
 CORE_GROUPS = (
     ("cache_key", "缓存键"),
     ("complete", "结构化解析"),
@@ -97,7 +97,7 @@ def _core_metrics():
 
 
 METRICS = {
-    # ---- latency 响应性 ----
+    # ---- 响应性 ----
     "app.startup_ms": Metric(
         "latency", "启动总时长 spawn→就绪里程碑", "ms", "仅记录", "app-metrics"
     ),
@@ -122,7 +122,7 @@ METRICS = {
     "overlay.frame_missed": Metric(
         "latency", "动画期 >32 ms 帧数", "count", "仅记录", "overlay-selftest", note="仅报告呈现"
     ),
-    # ---- memory 内存 ----
+    # ---- 内存 ----
     "app.rss_idle_kb": Metric(
         "memory", "稳态 RSS（30s 空闲窗口末段）", "kb", "仅记录", "app-metrics"
     ),
@@ -142,22 +142,22 @@ METRICS = {
     "overlay.window_handles": Metric(
         "memory", "窗口句柄数（泄漏哨兵）", "count", "仅记录", "overlay-selftest"
     ),
-    # ---- cpu 处理器 ----
+    # ---- 处理器 ----
     "app.startup_cpu_ms": Metric("cpu", "启动 CPU 时间", "ms", "仅记录", "app-metrics"),
     "app.cpu_idle_ms": Metric("cpu", "空闲窗口 CPU（30s）", "ms", "仅记录", "app-metrics"),
-    # ---- size 体积 ----
+    # ---- 体积 ----
     "app.binary_x64_kb": Metric("size", "二进制体积 x64（release）", "kb", "仅记录", "app-metrics"),
     "app.binary_arm64_kb": Metric(
         "size", "二进制体积 arm64（release）", "kb", "仅记录", "app-metrics"
     ),
-    # ---- hotpath 热路径 ----
+    # ---- 热路径 ----
     **_core_metrics(),
     "clone.allocs": Metric("hotpath", "热点分配合计（次数）", "count", "精确计数门禁", "criterion"),
     "clone.bytes": Metric("hotpath", "热点分配合计（字节）", "bytes", "精确计数门禁", "criterion"),
-    # ---- code 代码健康 ----
+    # ---- 代码健康 ----
     "clone.total": Metric("code", ".clone() 总数", "count", "精确计数门禁", "clone-stats"),
     "clone.density": Metric("code", ".clone() 密度（次/千行）", "count", "仅记录", "clone-stats"),
-    # ---- external 外部依赖 ----
+    # ---- 外部依赖 ----
     "eval.task_latency_p50_ms": Metric(
         "external",
         "LLM 任务端到端延迟 p50",
@@ -179,7 +179,7 @@ METRICS = {
 }
 
 _KB_PER_MB = 1024
-_KB_MB_SWITCH = 10 * _KB_PER_MB  # kb 值达到 10 MB 才换 MB 显示，以下保持 KB
+_KB_MB_SWITCH = 10 * _KB_PER_MB  # 千字节值过万才换兆显示，以下保持千字节
 
 
 def fmt(value, unit):

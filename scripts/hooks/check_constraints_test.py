@@ -79,7 +79,7 @@ def new_fixture(root, agents_body=None):
 
     (root / "crates/gloss-core/src/log.rs").write_text('tracing::info!("ready");\n')
     # 第三方依赖的使用证据（依赖无死条目检查的基线）：
-    # core 的 serde 经 derive 路径使用，platform 的 toml 经完整路径使用。
+    # gloss-core 的 serde 经派生宏使用，gloss-platform 的 TOML 解析经完整路径使用。
     (root / "crates/gloss-core/src/lib.rs").write_text(
         "#[derive(serde::Deserialize)]\npub struct Config;\n"
     )
@@ -88,7 +88,7 @@ def new_fixture(root, agents_body=None):
         'let _v: String = toml::from_str("k = 1").unwrap();\n'
     )
 
-    # tests/stubs/ 桩副本夹具：让「桩副本一致」检查有可比对象
+    # 桩副本目录夹具：让「桩副本一致」检查有可比对象
     for crate in ("gloss-core", "gloss-app", "gloss-platform"):
         (root / "crates" / crate / "tests/stubs").mkdir(parents=True)
     engine = root / "crates/gloss-core/tests/stubs/engine.rs"
@@ -149,7 +149,7 @@ def test_default_features_on_next_line(tmp_path):
             root / "crates/gloss-app/Cargo.toml",
             'tokio = { version = "1", features = [\n    "sync",\n], default-features = false }',
         )
-        # 跨行条目本身带使用证据：本用例只钉「features 检查不误报跨行」，
+        # 跨行条目本身带使用证据：本用例只钉「特性字段检查不误报跨行」，
         # 不让依赖无死条目检查分叉结论。
         (root / "crates/gloss-app/src").mkdir(exist_ok=True)
         (root / "crates/gloss-app/src/tokio_probe.rs").write_text(
@@ -596,7 +596,7 @@ def test_production_crate_depends_on_eval_rejected(tmp_path):
     def mutate(root):
         add_dep(root / "crates/gloss-app/Cargo.toml", 'gloss-eval = { path = "../gloss-eval" }')
 
-    # 行号必须来自 gloss-eval 条目自身（插在 [dependencies] 标题后的第 7 行），
+    # 行号必须来自 gloss-eval 条目自身（插在依赖段标题后的第 7 行），
     # 不是上游循环遗留的陈旧值
     _, fails = run_case(tmp_path, mutate)
     assert any("不得进生产依赖图" in f and "crates/gloss-app/Cargo.toml:7" in f for f in fails)
@@ -611,9 +611,9 @@ def test_production_code_includes_eval_asset_rejected(tmp_path):
     assert_fail(tmp_path, mutate, "eval 资产嵌进了生产代码")
 
 
-# ---- 残留任务标记扫描（git 夹具；上方非 git 夹具用例覆盖自动跳过路径）----
-# checker 自身豁免：脚本副本（含 TODO|FIXME|HACK|TBD 字面量）被 git add 跟踪，
-# 「干净 git 仓库通过」用例退出 0 即证明其未被自命中。
+# ---- 残留任务标记扫描（版本库夹具；上方非版本库夹具用例覆盖自动跳过路径）----
+# 约束脚本自身豁免：脚本副本（含各类任务标记字面量）被版本库跟踪，
+# 「干净版本库通过」用例正常退出即证明其未被自命中。
 
 
 def test_clean_git_repo_passes(tmp_path):
@@ -653,7 +653,7 @@ def test_fixme_marker_hit(tmp_path):
 
 
 def test_todo_adjacent_to_cjk_hit(tmp_path):
-    # re.ASCII 对齐 grep -w 的字节语义：标记紧贴中文（汉字不算 word 字符）同样命中
+    # 正则按 ASCII 语义对齐全词匹配：标记紧贴中文（汉字不算词字符）同样命中
     new_fixture(tmp_path)
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
     (tmp_path / "scripts/hooks").mkdir(parents=True)
@@ -667,7 +667,7 @@ def test_todo_adjacent_to_cjk_hit(tmp_path):
 
 def test_unclosed_dep_entry_at_eof_still_emitted(tmp_path):
     # 依赖条目在文件尾仍待定（花括号未闭合）时 Python 版选择补发判罚，
-    # bash awk 无 END 块会静默丢弃——这是有意的审慎分歧，别「对齐」回去
+    # 旧壳层实现缺收尾逻辑会静默丢弃——这是有意的审慎分歧，别「对齐」回去
     def mutate(root):
         with open(root / "crates/gloss-platform/Cargo.toml", "a", encoding="utf-8") as fh:
             fh.write('\n[dev-dependencies]\nserde_json = { version = "1"\n')

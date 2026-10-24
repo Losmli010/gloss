@@ -48,7 +48,7 @@ from metrics import BUDGET_CONSTS, CORE_CASES, CORE_GROUPS, METRICS, fmt  # noqa
 DEFAULT_HISTORY = SCRIPT_DIR / "baselines" / "history.jsonl"
 DEFAULT_OUT_DIR = SCRIPT_DIR / "baselines"
 
-# ---- 页面骨架：960px 画布，每面板一张 920×212 白卡片（统一节奏）----
+# ---- 页面骨架：960 画布，每面板一张 920×212 白卡片（统一节奏）----
 WIDTH = 960
 CARD_X, CARD_W, CARD_H = 20, 920, 212
 CARD_PITCH = 226
@@ -67,7 +67,7 @@ GUTTER_BOTTOM_MARGIN = 2
 X_SHA_DY, X_DATE_DY = 16, 28
 FOOTER_GAP, BOTTOM_PAD = 26, 34
 
-# ---- 热路径面板（沿用旧 core-baseline 形态：组内对数轴 + 线端标值 + 4 列图例）----
+# ---- 热路径面板（沿用旧基线图形态：组内对数轴 + 线端标值 + 4 列图例）----
 HP_PLOT_TOP_DY, HP_PLOT_H = 46, 104
 HP_PLOT_X0, HP_PLOT_X1 = 62, 900
 HP_X_SHA_DY, HP_X_DATE_DY = 16, 28
@@ -117,7 +117,7 @@ FOOTER_HOTPATH = (
     "由 perf-chart.py 生成"
 )
 
-# ---- 面板清单：类别视图的固定结构，逐 id 对照 metrics.py 注册表（import 期校验）----
+# ---- 面板清单：类别视图的固定结构，逐项对照指标注册表（导入期校验）----
 LATENCY_PANELS = (
     {
         "title": "启动耗时",
@@ -602,8 +602,8 @@ class Figure:
         disp = (lambda v: v / KB_PER_MB) if mb_axis else (lambda v: v)
         top = axis_top(disp(peak), disp(budget) if budget is not None else None, unit == "count")
 
-        # 负值扩展：净增长类指标可为负，轴向下按同 step 整数倍延伸，0 轴保持在
-        # 网格线上（无负值时 lo=0，映射与网格布局退化为原 0 基轴形态）。
+        # 负值扩展：净增长类指标可为负，轴向下按同档距整数倍延伸，0 轴保持在
+        # 网格线上（无负值时下界为零，映射与网格布局退化为原零基轴形态）。
         step = top / GRID_DIV
         n_neg = 0
         if flat and min(flat) < 0:
