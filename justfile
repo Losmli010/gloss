@@ -299,7 +299,7 @@ i18n:
 # 注释纪律：源码（Rust）只留中文文件头注释（不变量注释与放行标记豁免，其余迁
 # 记录文件）；注释主体全中文，专名只进全角括号注记，不变量注释纯英文
 comments:
-    python3 scripts/hooks/check_comments.py
+    python3 scripts/hooks/comments/check_comments.py
 
 # 校验单条提交信息是否符合提交规范（Conventional Commits）
 lint-commit file:

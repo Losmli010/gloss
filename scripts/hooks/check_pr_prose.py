@@ -17,7 +17,7 @@ import re
 import sys
 
 import check_commit_msg
-from prose_rules import markdown_problems
+from language_spec.coderef import markdown_problems
 
 # 模板必需小节清单的来源；小节指二级标题
 TEMPLATE_REL = os.path.join(".github", "pull_request_template.md")
