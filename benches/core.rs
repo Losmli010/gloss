@@ -1,10 +1,8 @@
-//! gloss-core/gloss-app 热点基准：`cache_key` / `complete`（完成态解析）/
-//! `prompt_render` / `task_cache` 四组。criterion `harness = false` 目标，
-//! `just bench`（`cargo bench --bench core`）运行。
+//! gloss-core/gloss-app 热点基准：缓存键派生、完成态解析、提示词渲染、
+//! 任务缓存写入四组。criterion 独立目标（自带进程入口），经基准配方运行。
 //!
 //! 测量输入全部在测量循环外构造（字面量 / 字符串拼接，不经 serde 解析），
-//! 经 `black_box` 进出测量；`task_cache` 的 `set` 用 `iter_batched` 把产物
-//! 构造移出测量区间。
+//! 经黑箱包装进出测量；任务缓存一组的产物构造用批处理助手移出测量区间。
 
 use std::hint::black_box;
 use std::sync::Arc;
@@ -29,7 +27,7 @@ fn text_options(text: &str) -> (TaskInput, TaskOptions) {
     )
 }
 
-#[allow(clippy::expect_used)] // 基准夹具的 kind 恒为文本类，模态矩阵保证构造成功
+#[allow(clippy::expect_used)]
 fn text_task(kind: TaskKind, text: String) -> Task {
     Task::new(
         kind,

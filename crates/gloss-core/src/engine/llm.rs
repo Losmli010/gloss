@@ -1,22 +1,22 @@
-//! LlmClient：OpenAI 兼容端点的流式引擎适配器（[`crate::ports::AiEngine`]
+//! LLM 客户端：OpenAI 兼容端点的流式引擎适配器（引擎
 //! 端口的内建实现）。
 //!
-//! 边界：**只负责把请求送出去、把响应流回来**。messages 由编排层渲染
-//! （`super::AiTaskService` → `prompt::PromptRegistry`，含模态校验），模型
-//! 也已由 App 按配置解析后随 [`EngineRequest`] 携带——本模块不渲染
-//! prompt，也不看配置里的模型。域形态的消息（[`crate::prompt::ChatMessage`]：文本或多
-//! 模态部件）在这里映成 OpenAI 兼容 wire 形状；图像部件的 base64 与
-//! data URL 前缀也只在请求体构造处编码（域类型不带 base64）。
+//! 边界：**只负责把请求送出去、把响应流回来**。消息序列由编排层渲染
+//! （经任务服务与提示词注册表，含模态校验），模型
+//! 也已由应用按配置解析后随请求携带——本模块不渲染
+//! 提示词，也不看配置里的模型。域形态的消息（文本或多
+//! 模态部件）在这里映成 OpenAI 兼容传输形状；图像部件的 Base64 与
+//! Data URL 前缀也只在请求体构造处编码（域类型不带内联数据）。
 //!
-//! 端点与密钥：端点取配置快照的 `base_url`；密钥按 provider 条目的 keychain
+//! 端点与密钥：端点取配置快照的端点地址；密钥按提供方条目的钥匙串
 //! 条目标识**每请求直查**（不缓存，除请求头外不进任何地方——错误消息与日志里
-//! 只有状态码与服务端诊断文本；红线与措辞见 `crate::ports::ConfigStore` 的文档）。
+//! 只有状态码与服务端诊断文本；红线与措辞见端口层配置存储的契约文档）。
 //!
 //! 超时与重试（均为传输层内建行为，编排层不重试、原样上抛）：建连超时
 //! 之外，流式读取只设**空闲超时**——长回复合法地跑满全预算，总超时只会
 //! 误杀；传输失败在**首个流条目之前**自动重试（仅瞬态失败）。两者的取值
-//! 与调度见 `transport`。取消由调用方的 `CancellationToken` 竞速完成
-//! （future 被丢弃即断链）。
+//! 与调度见传输子模块。取消由调用方的取消令牌竞速完成
+//! （异步体被丢弃即断链）。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,31 +35,21 @@ mod failure;
 mod request_body;
 mod transport;
 
-/// 建连超时（不含响应与流式读取）。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// 聊天补全路径（OpenAI 兼容）。
 const CHAT_COMPLETIONS_PATH: &str = "chat/completions";
 
-/// OpenAI 兼容流式引擎。
 pub struct LlmClient {
-    /// 复用连接池的 HTTP 客户端（建连超时在这里定）。
     client: reqwest::Client,
-    /// 端点等配置快照（模型不经这里）。
     config: Arc<ConfigHandle>,
-    /// 密钥直查（keychain）。
     store: Arc<dyn ConfigStore>,
 }
 
 impl LlmClient {
-    /// 组装：配置句柄与存储都由组装点注入（句柄给端点，存储给密钥）。
     pub fn new(config: Arc<ConfigHandle>, store: Arc<dyn ConfigStore>) -> Result<Self, GlossError> {
         let client = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
-            // 带一个明确的 UA：部分前置 CDN 对空 UA 返回 403，而 403 在这里
-            // 会被映射成 EngineAuth，用户会被引去重填密钥——方向完全错了。
             .user_agent(concat!("gloss/", env!("CARGO_PKG_VERSION")))
-            // 不跟随重定向。
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|err| GlossError::EngineResponse(format!("build http client: {err}")))?;
@@ -76,8 +66,6 @@ impl AiEngine for LlmClient {
         &self,
         request: EngineRequest,
     ) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
-        // reqwest::Client 内部是 Arc 连接池：克隆只是递引用计数（零堆分配），
-        // 为满足 'static future 的所有权要求，勿改回传引用或重建客户端。
         let client = self.client.clone();
         let config = Arc::clone(&self.config);
         let store = Arc::clone(&self.store);
@@ -89,17 +77,12 @@ impl AiEngine for LlmClient {
 
         Box::pin(async move {
             if messages.is_empty() {
-                // 渲染层（core 编排）保证至少一条 user 消息；空请求是接线错误，
-                // 不该把一个空 body 发给付费端点。
                 return Err(GlossError::EngineResponse("empty request".into()));
             }
-            // 空白模型同样是配置问题：发了也是必然 400 的请求，还会把病因
-            // 藏进服务端的错误文案里（手改配置或设置页存了空串）。
             if model.trim().is_empty() {
                 return Err(GlossError::Config("empty model id".into()));
             }
             let snapshot = config.snapshot();
-            // 端点与密钥分两条解析路径，不共用返回值。
             let resolved = Arc::new(Resolved::build(
                 resolve_endpoint(&snapshot)?,
                 resolve_api_key(&snapshot, store.as_ref())?,
@@ -109,9 +92,6 @@ impl AiEngine for LlmClient {
                     max_tokens,
                 },
             )?);
-            // 单次尝试闭包：连接阶段与首个流条目之前的重试共用同一形状，
-            // 重试即再调一次；端点、密钥与请求体都在 Arc 里，克隆只是递引
-            // 用计数。
             let attempt = {
                 let client = client.clone();
                 let resolved = Arc::clone(&resolved);
@@ -134,16 +114,12 @@ impl AiEngine for LlmClient {
     }
 }
 
-/// 请求端点：由配置快照解析 `{base_url}/chat/completions`。
 fn resolve_endpoint(config: &Config) -> Result<String, GlossError> {
     let base_url = config.base_url.trim();
-    // 结构性规则（非空/https/无凭据/无 query·fragment）与设置页逐字段
-    // 校验共源：`crate::config::validate_base_url`。
     crate::config::validate_base_url(base_url)
         .map_err(|err| GlossError::Config(err.to_string()))?;
     let mut endpoint = reqwest::Url::parse(base_url)
         .map_err(|err| GlossError::Config(format!("invalid provider endpoint: {err}")))?;
-    // 用 Url 设路径而不是字符串拼接：手改配置的尾斜杠写没写都得到同一结果。
     let path = format!(
         "{}/{CHAT_COMPLETIONS_PATH}",
         endpoint.path().trim_end_matches('/')
@@ -152,13 +128,8 @@ fn resolve_endpoint(config: &Config) -> Result<String, GlossError> {
     Ok(endpoint.to_string())
 }
 
-/// API 密钥：按 provider 条目的 keychain 标识**每请求直查**（不缓存，只进
-/// 请求头）。未配置时返回 [`GlossError::EngineAuth`]，由 UI 引导去设置页。
 fn resolve_api_key(config: &Config, store: &dyn ConfigStore) -> Result<String, GlossError> {
     let provider = config.resolved_provider();
-    // trim 后再返回：从终端/文件复制粘贴进来的尾随换行会让 Authorization
-    // 头非法（reqwest 报 builder 错 → 被当成网络问题的永久失败），尾随空格
-    // 则变成服务端 401。
     store
         .secret(&provider.keychain_id)?
         .map(|key| key.trim().to_owned())

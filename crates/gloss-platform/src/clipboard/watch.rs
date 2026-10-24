@@ -1,11 +1,11 @@
-//! 剪贴板图片哨兵源：只读 `NSPasteboard.changeCount` 的廉价监听。
+//! 剪贴板图片哨兵源：只读系统粘贴板变更计数的廉价监听。
 //!
-//! 随平台事件线程的 tick 轮询（`EventSource`），源内自节流：changeCount 是
-//! 纯元数据查询，前进后再查一次 `types` 是否含图像才产出观察事件——纯文本
-//! 复制不触发、不占代数。构造时记一次 changeCount 作基线，启动时的既有
-//! 剪贴板内容不触发；开关（共享 `AtomicBool`）关时整源不查询（零开销），
+//! 随平台事件线程的节拍轮询（事件源契约），源内自节流：变更计数是
+//! 纯元数据查询，前进后再查一次类型清单是否含图像才产出观察事件——纯文本
+//! 复制不触发、不占代数。构造时记一次变更计数作基线，启动时的既有
+//! 剪贴板内容不触发；开关（共享原子布尔）关时整源不查询（零开销），
 //! 重开时重记基线——关闭期间的旧内容在重开后不触发。取材轮次
-//! （[`WatchRoundFlag`]）写盘后按**计数归因**消费：超出本轮自报写盘数的
+//! （轮次写入标记）写盘后按**计数归因**消费：超出本轮自报写盘数的
 //! 变化是轮次内外来写入（用户的真实复制），照常触发；其余（注入复制与
 //! 恢复写回等本应用副产物）吞掉并重记基线。
 
@@ -17,70 +17,38 @@ use std::time::{Duration, Instant};
 use super::{pasteboard_change_count, pasteboard_has_image};
 use crate::events::EventSource;
 
-/// 哨兵的自节流节奏：观察延迟远低于复制到弹卡的端到端预期，节流省下的是
-/// 事件线程每轮 tick 的查询。
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-/// 哨兵本轮的观察产物：剪贴板出现了新图片（无载荷——内容在取材命令②再
-/// 读）。组装点把它映射为 `PlatformEvent::PasteboardImageObserved`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PasteboardImageObserved;
 
-/// ① 发出时刻的 changeCount 观察记录：哨兵写入、取材读取器比对——②到达
-/// 时现值与记录不一致即剪贴板在①②之间被覆盖（竞态），取材静默丢弃。
-/// 两侧同在事件线程上运行，原子量只为跨闭包共享；初始值 0（changeCount
-/// 恒非负）与任何真实读数不匹配，未经哨兵的取材一律按竞态丢弃。
 #[derive(Debug, Clone, Default)]
 pub struct PasteboardObserver {
     count: Arc<AtomicU64>,
 }
 
 impl PasteboardObserver {
-    /// 记一次①观察：同 crate 内测试也用它播种观察记录（`ClipboardImageReader`
-    /// 的注入单测），与生产哨兵同一条写入路径。
     pub(crate) fn record(&self, count: u64) {
         self.count.store(count, Ordering::Relaxed);
     }
 
-    /// ② 取材时刻的现值是否仍是①观察记录的那次变化。
     pub fn matches(&self, current: u64) -> bool {
         self.count.load(Ordering::Relaxed) == current
     }
 }
 
-/// 一轮取材自身写盘的计数归因：`pre` 是写盘前读到的 changeCount，`ours`
-/// 是本轮确定由自身引起的写盘次数（已确认的注入复制 + 已执行的恢复写回）。
-/// 哨兵消费闩锁时，超出 `pre` 的变化里减去 `ours` 还有剩余，即存在本轮
-/// 之外的外来写入（用户的真实复制），照常触发。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoundWrites {
-    /// 写盘前的 changeCount 读数。
     pub pre: u64,
-    /// 本轮确定由自身引起的写盘次数。
     pub ours: u64,
 }
 
-/// 取材轮次的哨兵抑制闩锁：文本兜底取材（注入复制 → 确认 → 恢复）会写
-/// 系统剪贴板，这些变化是本应用的副产物，不得产出观察事件——否则恢复
-/// 写回的旧图会再触发成一次图片任务。但轮次窗口内也可能落进用户的真实
-/// 复制（截图工具的拖拽既触发划词探测、又把图片写进剪贴板），不能盲吞：
-/// 闩锁携带本轮写盘的计数归因（[`RoundWrites`]），消费时把超出哨兵基线
-/// 的变化数与自报写盘数相减——有剩余即外来写入，照常走前进判定。轮次
-/// （命令处理器）与哨兵查询同在事件线程顺序运行，且事件源只在命令全部
-/// 抽干后轮询——查询永远不会落在轮次中间，闩锁因此设计成置位后存活到
-/// 下一次查询，由查询消费（[`Self::take`]）。置位与消费两侧各持一份
-/// 句柄同在事件线程运行，锁只为跨闭包共享、无争用。
 #[derive(Debug, Clone, Default)]
 pub struct WatchRoundFlag {
     pending: Arc<Mutex<Option<RoundWrites>>>,
 }
 
 impl WatchRoundFlag {
-    /// 进入取材轮次：记录本轮写盘的计数归因，由下一次哨兵查询消费（见
-    /// 类型注释）。无需守卫收口——闩锁的寿命到下一次查询为止，不随置位
-    /// 方的作用域结束。前一轮尚未被消费时合并归因（起点取更早的计数、
-    /// 写盘数累加）：连续两轮写盘后一次消费，两轮的自身写盘都得到归属，
-    /// 不会把后一轮的写盘误判成外来复制。
     pub fn enter(&self, writes: RoundWrites) {
         let mut pending = self
             .pending
@@ -95,7 +63,6 @@ impl WatchRoundFlag {
         });
     }
 
-    /// 消费闩锁：置位过即取出计数归因（返回 `Some`），闩锁同时复位。
     fn take(&self) -> Option<RoundWrites> {
         self.pending
             .lock()
@@ -103,7 +70,6 @@ impl WatchRoundFlag {
             .take()
     }
 
-    /// 读取当前挂起的计数归因（同 crate 测试观察口），不消费。
     #[cfg(test)]
     pub(crate) fn peek(&self) -> Option<RoundWrites> {
         let pending = self
@@ -114,29 +80,16 @@ impl WatchRoundFlag {
     }
 }
 
-/// 剪贴板图片哨兵源：事件线程每轮 tick 抽干一次（[`EventSource::poll`]），
-/// 源内按 [`POLL_INTERVAL`] 节流查询；开关关时只读共享位、不碰系统 API。
 pub struct ClipboardWatchSource {
-    /// 触发开关（配置快照初始化、设置页热切换）；关态不查询。
     enabled: Arc<AtomicBool>,
-    /// ① 发出时刻的 changeCount 观察记录，供②比对竞态。
     observer: PasteboardObserver,
-    /// 取材轮次抑制闩锁（见 [`WatchRoundFlag`]）：句柄经
-    /// [`Self::round_flag`] 交给文本取材处理器置位，查询消费。
     round: WatchRoundFlag,
-    /// 已记基线的 changeCount；`None` = 未武装（构造时读不到、开关刚重开
-    /// 或取材轮次刚结束），下一轮到查询只记基线、不触发。
     seen: Option<u64>,
-    /// 下一次允许查询 changeCount 的时刻（节流闸门）。
     next_query: Option<Instant>,
-    /// 查询节奏（注入测试驱动时序断言）。
     interval: Duration,
 }
 
 impl ClipboardWatchSource {
-    /// 生产构造：构造时读一次 changeCount 记基线（启动时的既有剪贴板内容
-    /// 不触发）；读不到保持未武装，首轮 poll 懒记。开关位按启动配置快照
-    /// 初始化，运行中由设置页置位热切换。
     pub fn new(enabled: Arc<AtomicBool>) -> Self {
         let mut source = Self {
             enabled,
@@ -150,38 +103,20 @@ impl ClipboardWatchSource {
         source
     }
 
-    /// ① 观察记录的共享句柄：交给同一次装配的 [`crate::clipboard::ClipboardImageReader`]，
-    /// ② 取材时比对现值判定竞态。
     pub fn observer(&self) -> PasteboardObserver {
         self.observer.clone()
     }
 
-    /// 取材轮次抑制闩锁的共享句柄：交给同一次装配的文本取材处理器置位
-    /// （见 [`WatchRoundFlag`]）。
     pub fn round_flag(&self) -> WatchRoundFlag {
         self.round.clone()
     }
 
-    /// 记基线：读到值即武装（构造时的既有内容不触发）；读不到保持未武装。
     fn rebaseline(&mut self, count: impl FnOnce() -> Option<u64>) {
         if let Some(count) = count() {
             self.seen = Some(count);
         }
     }
 
-    /// 一轮观察（时间与系统读数注入，纯逻辑单测覆盖）：
-    ///
-    /// - 取材轮次闩锁置位：消费之并做计数归因——基线到现值的变化数超出
-    ///   本轮自报写盘数，即有轮次内的外来写入（用户的真实复制），保留
-    ///   基线、照常落入前进判定（复查出图像即触发）；否则全部变化都是
-    ///   本应用写的（注入复制与恢复写回），吞掉并就地重记基线。读数
-    ///   失败按保守处理：吞掉重记，不产出观察事件；
-    /// - 开关关：不查询（关态零开销）；基线作废，重开时重记——关闭期间的
-    ///   旧内容在重开后不触发；
-    /// - 未武装：只记基线，本轮不触发；
-    /// - 到节奏才查 changeCount：没前进不动作；前进即消费基线（文本复制
-    ///   不复查 types），复查出图像才产出观察事件，并记下该次变化的
-    ///   changeCount 供②比对竞态。
     fn poll_at(
         &mut self,
         now: Instant,
@@ -195,7 +130,6 @@ impl ClipboardWatchSource {
             };
             let baseline = self.seen.unwrap_or(writes.pre);
             if current.saturating_sub(baseline) > writes.ours {
-                // 有外来写入：基线不动，落到下方前进判定（是图即触发）。
             } else {
                 self.seen = Some(current);
                 return Vec::new();

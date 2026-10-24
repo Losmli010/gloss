@@ -1,23 +1,23 @@
 //! 设置窗口内容：全部配置项的编辑、逐字段校验与保存入口。
 //!
 //! 边界：本模块只做「草稿编辑 + 校验 + 动作上交」——编辑发生在
-//! [`SettingsState`] 的草稿上，校验是纯函数（规则下沉 gloss-core：
-//! Base URL 与引擎请求前检查共源），保存/
-//! 清除密钥/关闭以 [`SettingsAction`] 交还壳执行（落盘走
-//! `ConfigHandle::save` 热更新路径、密钥走 `ConfigStore`，都在壳侧）。
-//! API key 只存在于输入框字符串里，永不进 `Config` 草稿（配置红线：
+//! 设置状态的草稿上，校验是纯函数（规则下沉 gloss-core：
+//! 端点地址与引擎请求前检查共源），保存/
+//! 清除密钥/关闭以类型化动作交还壳执行（落盘走
+//! 配置句柄的热更新路径、密钥走配置存储，都在壳侧）。
+//! 密钥明文只存在于输入框字符串里，永不进配置草稿（配置红线：
 //! 快照不携带凭据）。
 //!
 //! 校验时机：首次点「保存」才进入错误态（编辑中的半成品不追着标红），
 //! 之后每帧实时复检、改对即清。视觉规范以设计定稿的设置页稿为准（卡片
 //! 分区、开关行、保存主按钮）。
 //!
-//! 文案与校验分家：校验只产出类型化错误（[`FieldError`]）与类型化提示
-//! （[`SettingsNotice`]），文案统一在渲染帧按当前 locale 落地——同一份
+//! 文案与校验分家：校验只产出类型化错误与类型化提示
+//! ，文案统一在渲染帧按当前语言环境落地——同一份
 //! 草稿换语言即换措辞，校验逻辑本身与语言无关。
 //!
-//! 渲染按职责分子模块：类型与校验在这里，控件基元在 [`controls`]，
-//! 分区内容组装在 [`fields`]。
+//! 渲染按职责分子模块：类型与校验在这里，控件基元在控件模块，
+//! 分区内容组装在分区内容模块。
 
 use std::collections::HashMap;
 
@@ -35,35 +35,22 @@ use fields::{connection_section, general_section, update_section};
 mod controls;
 mod fields;
 
-/// 校验出错的字段：错误提示按字段定位到具体控件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum FieldKey {
-    /// Base URL（结构性校验）。
     BaseUrl,
-    /// 模型 id（禁换行）。
     Model,
 }
 
-/// 校验错误的类型化形态：只记「哪里错了、错成什么样」，措辞归文案表。
-///
-/// 变体与 `gloss_settings_error_*` 的键一一对应（见 [`Self::message`]），
-/// 校验输出因此与语言无关——同一份草稿在任何 locale 下得出同一张错误表。
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum FieldError {
-    /// 模型名含换行。
     NewlineInModel,
-    /// Base URL 为空。
     BaseUrlEmpty,
-    /// Base URL 不是合法地址（语法不合法或非 https）。
     BaseUrlNotHttps,
-    /// Base URL 内嵌账号密码。
     BaseUrlCredentials,
-    /// Base URL 携带查询参数或锚点。
     BaseUrlQuery,
 }
 
 impl FieldError {
-    /// 就地提示文案：借自传入的文案表，不复制。
     fn message<'a>(&'a self, text: &'a Text) -> &'a str {
         match self {
             Self::NewlineInModel => &text.gloss_settings_error_newline_in_model,
@@ -75,72 +62,37 @@ impl FieldError {
     }
 }
 
-/// 设置窗口的一个编辑会话：打开时以当前快照建草稿，保存/关闭由壳销毁。
 pub struct SettingsState {
-    /// 编辑中的整份配置；「保存」时整体上交（整份快照语义）。
     draft: Config,
-    /// API key 输入框；只在保存时交给壳写 keychain，永不进 `draft`。
     api_key: String,
-    /// 是否已标记「清除密钥」（保存时才真正删除；重新输入即撤销）。
     clear_key: bool,
-    /// 壳回写的提示（保存失败等）；文案在渲染帧落地。
     notice: Option<SettingsNotice>,
-    /// 是否已进入校验态：首次点「保存」置位，此后每帧就地标注错误；
-    /// 置位前编辑不打扰。
     validated: bool,
 }
 
-/// 密钥的保存语义。
-///
-/// 删除不可逆，所以「清除密钥」不立即生效：它先标记，再随保存一起上交
-/// ——否则点「取消」也留着一条删掉的密钥，与撤销语义矛盾。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyUpdate {
-    /// 密钥保持不变。
     Keep,
-    /// 用这个密钥覆盖（已 trim，非空）。
     Replace(String),
-    /// 删除当前 provider 的密钥。
     Clear,
 }
 
-/// 设置窗口上交的动作：浮层只渲染，落盘/密钥/关窗都在壳。
-///
-/// `Save` 的配置装箱：`Config` 是快照的大小头（每加一组字段就长一截），而
-/// 这个枚举每帧都当返回值传，不装箱迟早把 `Idle`/`Close` 一起撑大——
-/// 装箱后枚举本体只剩指针，代价是每次保存多一次分配，而保存是人手按下
-/// 的路径，不在热路径上。
 #[derive(Debug, PartialEq)]
 pub enum SettingsAction {
-    /// 普通编辑帧，无需壳动作。
     Idle,
-    /// 保存整份配置并应用密钥变更。
-    Save {
-        /// 保存的整份配置。
-        config: Box<Config>,
-        /// 密钥变更（保持 / 覆盖 / 清除）。
-        key: KeyUpdate,
-    },
-    /// 关闭窗口并丢弃草稿。
+    Save { config: Box<Config>, key: KeyUpdate },
     Close,
-    /// 更新区的用户动作（检查/下载/重启/取消/重试），壳转投更新模块。
     Update(UpdateMsg),
 }
 
-/// 壳回写的用户提示：三种失败各有各的措辞，具体错因按 [`GlossError`] 变体
-/// 带进来（不预拼英文 `Display` 字符串——那是诊断文本，改它不该改界面）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum SettingsNotice {
-    /// 密钥写入失败，配置因此没有保存。
     KeyUpdateFailed(GlossError),
-    /// 配置落盘失败（密钥未改动）。
     SaveFailed(GlossError),
-    /// 密钥已生效，但配置落盘失败。
     KeyUpdatedSaveFailed(GlossError),
 }
 
 impl SettingsNotice {
-    /// 提示文案：前缀说明场合，`{{detail}}` 填错因的本地化措辞。
     fn message(&self, text: &Text) -> String {
         let (template, error) = match self {
             Self::KeyUpdateFailed(err) => (&text.gloss_settings_notice_key_update_failed, err),
@@ -156,8 +108,6 @@ impl SettingsNotice {
     }
 }
 
-/// 打开一个编辑会话：草稿取自当前快照（打开后的配置变更不跟读，保存即
-/// 整份覆盖——与「单次任务内配置一致」同一取舍）。
 pub fn open(config: &Config) -> SettingsState {
     SettingsState {
         draft: config.clone(),
@@ -169,23 +119,18 @@ pub fn open(config: &Config) -> SettingsState {
 }
 
 impl SettingsState {
-    /// 壳回写提示（保存失败等）；在下一次渲染帧按当前 locale 展示。
     pub fn report(&mut self, notice: SettingsNotice) {
         self.notice = Some(notice);
     }
 
-    /// 当前草稿（壳只读：未保存变更提示等）。
     pub fn draft(&self) -> &Config {
         &self.draft
     }
 
-    /// 最近一条壳回写的提示。
     pub fn notice(&self) -> Option<&SettingsNotice> {
         self.notice.as_ref()
     }
 
-    /// 逐字段校验结果：每帧从草稿重算，不存陈旧错误。未进入校验态时
-    /// 返回空表（编辑中不标注）。
     fn errors(&self) -> HashMap<FieldKey, FieldError> {
         if self.validated {
             validate_draft(&self.draft)
@@ -195,12 +140,7 @@ impl SettingsState {
     }
 }
 
-/// 「保存」的上交物：草稿先全量校验——有错则不落盘、就地标注并汇总统
-/// 计；无错才走整份快照 + 密钥变更（清除标记优先，其次输入框内容，都
-/// 为空则保持原密钥）。
 fn build_save(state: &mut SettingsState) -> SettingsAction {
-    // 保存尝试即进入校验态并保持：壳侧落盘失败保留会话时，后续编辑仍
-    // 实时复检，不会退出错误模式。
     state.validated = true;
     let errors = validate_draft(&state.draft);
     if !errors.is_empty() {
@@ -208,9 +148,6 @@ fn build_save(state: &mut SettingsState) -> SettingsAction {
     }
     let mut draft = state.draft.clone();
     draft.base_url = draft.base_url.trim().to_owned();
-    // 模型名保存时 trim；空白折叠回出厂默认——输入框 hint 承诺「留空使用
-    // 内置默认」，而下游（任务冻结 → LLM 层校验）对空串是明确失败，不接
-    // 住会把用户锁进「清空 → 失败卡 → 回设置页」的死循环。
     draft.model = draft.model.trim().to_owned();
     if draft.model.is_empty() {
         draft.model = gloss_core::config::DEFAULT_MODEL.to_owned();
@@ -229,21 +166,17 @@ fn build_save(state: &mut SettingsState) -> SettingsAction {
     }
 }
 
-/// 逐字段校验（纯逻辑）：规则单点下沉 gloss-core，这里只做组合与
-/// [`FieldError`] 映射（文案留给渲染帧）。
 fn validate_draft(draft: &Config) -> HashMap<FieldKey, FieldError> {
     let mut errors = HashMap::new();
     if let Err(err) = validate_base_url(&draft.base_url) {
         errors.insert(FieldKey::BaseUrl, base_url_error(&err));
     }
-    // 模型名：保存时 trim，禁换行（粘贴事故防护）；空 = 用内置默认，合法。
     if draft.model.trim().contains('\n') {
         errors.insert(FieldKey::Model, FieldError::NewlineInModel);
     }
     errors
 }
 
-/// Base URL 校验错误 → 字段错误（规则与提示的分界在这里）。
 fn base_url_error(err: &BaseUrlError) -> FieldError {
     match err {
         BaseUrlError::Empty => FieldError::BaseUrlEmpty,
@@ -253,14 +186,6 @@ fn base_url_error(err: &BaseUrlError) -> FieldError {
     }
 }
 
-/// 画一帧设置窗口，返回本帧用户上交的动作。`text` 是当前 locale 的文案表
-/// （由壳按帧给），本函数不探测语言。
-///
-/// 自下而上布局：动作行钉在窗口底部（保存主按钮右对齐），提示在其上，
-/// 其余全部区块进滚动区——内容再长也不会把「保存」推出视口。
-/// 窗口内边距由 [`WINDOW_PADDING`] 统一给出；整幅先铺 `window_fill`
-/// 底色（设置窗不透明，清屏色不随主题，底色必须由 egui 自己画，
-/// 深浅主题切换才连同文字一起翻转）。
 pub fn draw(
     ui: &mut egui::Ui,
     state: &mut SettingsState,
@@ -274,8 +199,6 @@ pub fn draw(
         .inner_margin(egui::Margin::same(WINDOW_PADDING))
         .show(ui, |ui| {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                // bottom_up 会渗进子 Ui：滚动内容显式转回 top_down，区块才
-                // 从顶部开始排列。
                 action_row(ui, state, &mut action, text);
                 notices(ui, state, &errors, text);
                 ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
@@ -298,7 +221,6 @@ pub fn draw(
     action
 }
 
-/// 设置窗口内边距（窗口私有量，设计定稿 16）。
 const WINDOW_PADDING: i8 = 16;
 
 #[cfg(test)]

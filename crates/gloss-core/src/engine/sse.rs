@@ -1,49 +1,34 @@
-//! SSE 增量解码（OpenAI 兼容 chat completions 的 `stream: true` 响应）。
+//! SSE 增量解码（OpenAI 兼容对话补全的流式响应）。
 //!
 //! 纯逻辑、不碰网络：喂字节、吐增量。因此单测可以把同一段响应按任意字节边界
 //! 切开，钉住「跨块不丢不重、多字节字符不被切坏」这类只有分块才会暴露的问题。
 //!
 //! 只实现用得到的 SSE 子集，不做通用实现：
-//! - `data: {json}` 一行一个事件；`data: [DONE]` 表示流结束；
-//! - `:` 开头的注释/心跳行与 `event:` / `id:` 等字段一律忽略；
-//! - `choices[0].delta.content` 是文本增量；只带 role 的首块没有 content，
+//! - 数据行一行一个事件；约定的完成哨兵行表示流结束；
+//! - 注释/心跳行与事件名、编号等字段一律忽略；
+//! - 正文增量字段是文本增量；只带角色信息的首块没有正文，
 //!   不产出增量；
-//! - `choices[0].finish_reason` 随块捕获，在 `[DONE]` 上随 [`SseItem::Done`]
-//!   交出（服务端没给 `[DONE]` 就关流的，结束原因未知，不产出 Done）；
-//! - 服务端在流中报错时给 `{"error": {...}}`，按错误码映射到 [`GlossError`]。
+//! - 结束原因字段随块捕获，在完成哨兵上随完成事件
+//!   交出（服务端没给完成哨兵就关流的，结束原因未知，不产出完成事件）；
+//! - 服务端在流中报错时给错误对象，按错误码映射到领域错误。
 
 use crate::model::GlossError;
 
-/// 诊断文本上限：错误消息会进 UI 与日志，服务端给的长文本没有价值。
 const MAX_DIAGNOSTIC_CHARS: usize = 200;
 
-/// 单行上限：OpenAI 兼容载荷恒为单行 JSON，超限即协议异常。没有这条，一个
-/// 只发字节不发 `\n` 的服务端（或坏网关）就能让 `pending` 无界增长。
 const MAX_LINE_BYTES: usize = 1 << 20;
 
-/// 一轮解码的产出。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SseItem {
     Delta(String),
-    /// 服务端声明的流结束（`data: [DONE]`），携带捕获到的
-    /// `choices[0].finish_reason`（整条流从未声明则为 `None`）。
-    Done {
-        /// 结束原因原文（`stop` / `length` / `content_filter`…）。
-        finish_reason: Option<String>,
-    },
-    /// 流中错误：服务端错误对象，或解析不出的协议内容。
+    Done { finish_reason: Option<String> },
     Failed(GlossError),
 }
 
-/// 行缓冲解码器：`push` 喂入任意切分的字节，返回本次可确定产出的条目。
 #[derive(Debug, Default)]
 pub struct SseDecoder {
-    /// 尚未凑成完整行的尾巴（跨网络分块）。
     pending: Vec<u8>,
-    /// 已见到 `[DONE]`：之后的字节一律忽略。
     done: bool,
-    /// 最近一次捕获的 `choices[0].finish_reason`（结束原因先于 `[DONE]`
-    /// 随最后一个内容块到达），交出后清空。
     finish_reason: Option<String>,
 }
 
@@ -52,14 +37,12 @@ impl SseDecoder {
         Self::default()
     }
 
-    /// 喂入一段字节（分块边界任意），返回可产出的条目（顺序即流序）。
     pub fn push(&mut self, bytes: &[u8]) -> Vec<SseItem> {
         if self.done {
             return Vec::new();
         }
         self.pending.extend_from_slice(bytes);
         let mut items = Vec::new();
-        // 只处理完整行，剩下的尾巴留给下一块——这也是跨块 UTF-8 不碎的保证。
         while let Some(pos) = self.pending.iter().position(|byte| *byte == b'\n') {
             let mut line: Vec<u8> = self.pending.drain(..=pos).collect();
             line.pop();
@@ -74,7 +57,6 @@ impl SseDecoder {
                 }
             }
         }
-        // 攒下的尾巴超限就是协议异常：终结流，别继续为它占内存。
         if !self.done && self.pending.len() > MAX_LINE_BYTES {
             self.pending.clear();
             self.done = true;
@@ -85,12 +67,6 @@ impl SseDecoder {
         items
     }
 
-    /// 连接关闭时收尾，返回尾巴里还能交出去的增量。
-    ///
-    /// 服务端没给 `[DONE]` 就关流是兼容端点上的常见收尾方式（不算错误）。尾巴
-    /// 里可能是「完整但没被换行终止的最后一行」——端点 flush 完最后一块数据行
-    /// 直接关连接时就是这种形态，丢了就是一个真实增量；解析不出来的一律忽略
-    /// （截断不该升级成任务失败）。
     pub fn finish(&mut self) -> Vec<SseItem> {
         let mut items = Vec::new();
         if !self.done && !self.pending.is_empty() {
@@ -104,8 +80,6 @@ impl SseDecoder {
         items
     }
 
-    /// 解一行：返回 None 表示这行不产出任何东西（分隔空行、心跳、其它字段、
-    /// 以及只带 role 的块）。
     fn decode_line(&mut self, line: &[u8]) -> Option<SseItem> {
         let Ok(text) = std::str::from_utf8(line) else {
             return Some(SseItem::Failed(GlossError::EngineResponse(
@@ -118,7 +92,6 @@ impl SseDecoder {
         }
         let payload = trimmed.strip_prefix("data:")?.trim();
         if payload.is_empty() {
-            // 无载荷的 `data:` 行（个别兼容实现拿它当心跳）不产出东西。
             return None;
         }
         if payload == "[DONE]" {
@@ -130,8 +103,6 @@ impl SseDecoder {
         self.decode_data(payload)
     }
 
-    /// 单个 `data:` 载荷：捕获 `choices[0].finish_reason`、取增量内容、识别
-    /// 服务端错误；`None` = 这行不产出东西（例如只带 role 的首块）。
     fn decode_data(&mut self, payload: &str) -> Option<SseItem> {
         let Ok(chunk) = serde_json::from_str::<StreamChunk>(payload) else {
             return Some(SseItem::Failed(GlossError::EngineResponse(format!(
@@ -142,9 +113,6 @@ impl SseDecoder {
         if let Some(error) = chunk.error {
             return Some(SseItem::Failed(map_api_error(&error)));
         }
-        // 本客户端每次只发一条 user 消息，choices 恒为一条；结束原因只认
-        // 第一条 choice，增量取第一条携带 content 的 choice（一并把结束
-        // 原因随 choice 所有权带出，不再复制字符串）。
         let mut finish_reason = None;
         let delta = chunk
             .choices
@@ -164,11 +132,7 @@ impl SseDecoder {
     }
 }
 
-/// 服务端错误对象 → [`GlossError`]：能识别的按语义分类，其余按协议错误透出
-/// 服务端给的诊断文本（只取 `error.message`，不转述整个响应体）。
 fn map_api_error(error: &ApiError) -> GlossError {
-    // `code` 与 `type` 分别匹配：OpenAI 用 type、DeepSeek 等用 code，兼容实现
-    // 可能只填其中一个，或 code 是通用值而细分类在 type 里。
     let codes: Vec<&str> = [error.code.as_deref(), error.kind.as_deref()]
         .into_iter()
         .flatten()
@@ -190,14 +154,12 @@ fn map_api_error(error: &ApiError) -> GlossError {
         .message
         .as_deref()
         .map_or_else(|| "unspecified".to_owned(), truncate);
-    // 服务端只给 message 时别造出 「: message」这种带前导冒号的文案。
     match codes.first() {
         Some(code) => GlossError::EngineResponse(format!("{code}: {message}")),
         None => GlossError::EngineResponse(message),
     }
 }
 
-/// 诊断文本上限（按字符截断，避免切坏多字节字符）。
 fn truncate(text: &str) -> String {
     if text.chars().count() <= MAX_DIAGNOSTIC_CHARS {
         return text.to_owned();
@@ -206,7 +168,6 @@ fn truncate(text: &str) -> String {
     format!("{head}…") // i18n:allow 诊断截断的省略号，非 locale 文案
 }
 
-/// 流式响应的一块：OpenAI 兼容 `chat.completion.chunk`。
 #[derive(serde::Deserialize)]
 struct StreamChunk {
     #[serde(default)]
@@ -215,13 +176,10 @@ struct StreamChunk {
     error: Option<ApiError>,
 }
 
-/// 一条候选回复（本客户端只用第一条）。
 #[derive(serde::Deserialize)]
 struct StreamChoice {
     #[serde(default)]
     delta: Option<StreamDelta>,
-    /// 结束原因：通常为 `None`，只在流收尾的内容块上非空（`stop` /
-    /// `length` / `content_filter`…）。
     #[serde(default)]
     finish_reason: Option<String>,
 }
@@ -238,7 +196,6 @@ struct ApiError {
     message: Option<String>,
     #[serde(default)]
     code: Option<String>,
-    /// OpenAI 用 `type` 字段，DeepSeek 等兼容实现两者都给。
     #[serde(default, rename = "type")]
     kind: Option<String>,
 }

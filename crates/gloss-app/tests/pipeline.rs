@@ -1,20 +1,19 @@
-//! L1 库级集成测试：状态机（machine）+ 通道③④ + tokio 消费桥 +
-//! MockEngine + TaskCache 的全链路时序（见 AGENTS.md）。
+//! L1 库级集成测试：状态机 + 通道③④ + tokio 消费桥 +
+//! 脚本引擎桩 + 任务缓存的全链路时序。
 //!
-//! 边界：真实事件线程（通道②消费、RunLoop、CompositeReader）属于 OS
-//! 边界，归 L4 opt-in 层——这里取材产物以 `machine.commit_probe`
-//! 直接注入，等价于事件线程回传的产物。
+//! 边界：真实事件线程（通道②消费、运行循环、组合读取器）属于操作系统
+//! 边界，归 L4 的按需启用层——这里取材产物以状态机提交注入，
+//! 等价于事件线程回传的产物。
 //!
-//! 分类完全交给 LLM 层：文本任务先花引擎调用分类（MockEngine 脚本通常
-//! 解析不出 kind——分类内部修复一轮后落兜底 General），再花任务执行；
-//! 脚本里带 `"kind"` 字段的裸 JSON 可让分类解析出具体 kind。任务回复的
-//! 契约违约由 LLM 层修复（至多 3 轮，事件序含 `TaskRepairing`），耗尽后
-//! 落降级产物。剪贴板图片任务在 LLM 层恒定映射 ImageExplain、跳过分类
+//! 分类完全交给 LLM 层：文本任务先花引擎调用分类（脚本桩通常
+//! 解析不出类别——分类内部修复一轮后落兜底的通用类别），再花任务执行；
+//! 脚本里带类别字段的裸 JSON 可让分类解析出具体类别。任务回复的
+//! 契约违约由 LLM 层修复（至多 3 轮，事件序含修复中事件），耗尽后
+//! 落降级产物。剪贴板图片任务在 LLM 层恒定映射图像解读、跳过分类
 //! ——只有执行调用。纯流式/取消/重试语义与缓存/兜底语义按各自的调用数
 //! 记账。
 //!
-//! 驱动方式：全部经公共 API（`TaskStateMachine` / `Channels` /
-//! `start_command_runtime`），`cargo test` 直接跑。
+//! 驱动方式：全部经公共 API（状态机、通道组与启动入口），包内测试直接跑。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -695,8 +694,6 @@ fn superseded_trigger_cancels_and_filters_late_events() {
         "stale generation must be dropped by the machine"
     );
 
-    // 每条任务各发一次 TaskClassified：先到的一条属于已被顶掉的
-    // A（或竞速下的 B），按代数分流——只有当前代的判定被采纳。
     wait_classified_of_generation(&mut pipe, gen_b);
     for expected in ["A1", "A2"] {
         let Event::TaskChunk { generation, delta } = pipe.events_rx.recv().unwrap() else {
@@ -760,8 +757,6 @@ fn wait_degraded_done(pipe: &mut Pipeline, current: u64) {
 
 #[test]
 fn failure_lands_in_error_and_retry_succeeds() {
-    // 两次一次性失败：第一次触发里分类吃掉第一条、任务吃掉第二条，
-    // 落 Error；第二次触发时失败队列已空，照常产流。
     let engine = MockEngine::new()
         .with_execute_failure_once(GlossError::EngineRateLimited)
         .with_execute_failure_once(GlossError::EngineRateLimited)

@@ -1,6 +1,6 @@
 //! 编排用例·任务段：消费通道④（取材产物与任务回传）→ 状态机转移 →
-//! 通道③下发 → 批后露面决策与重绘。显形「要不要」的策略在
-//! `machine::should_reveal`，「怎么显示」在 `reveal`。
+//! 通道③下发 → 批后露面决策与重绘。显形「要不要」的策略归状态机，
+//! 「怎么显示」在显隐段。
 
 use gloss_core::log::{Span, debug, info, thread, warn};
 use gloss_core::model::GlossError;
@@ -14,28 +14,15 @@ use super::reveal::{centered_position, show_position};
 use crate::app::GlossApp;
 
 impl GlossApp {
-    /// 消费通道④：回传事件按代数/探测编号采纳——连续快速触发时旧代的
-    /// 产物被丢弃，浮层只显示最后一次请求的结果。状态决策在 machine，壳
-    /// 只做通道发送、浮层展示与日志。
-    ///
-    /// 浮层「什么时候露面」抽在 [`crate::machine::should_reveal`]（内含
-    /// `machine::policy::auto_show_after` 的按批判定）：挂起显形请求由
-    /// 划词提交（内容到达才显形）置位，批处理后在同一帧消费；失败即弹
-    /// （权限卡等）走批次判定。
     pub(crate) fn drain_events(&mut self, event_loop: &ActiveEventLoop) {
         let events: Vec<Event> = self
             .endpoints
             .as_ref()
             .map_or(Vec::new(), |e| e.events.try_iter().collect());
-        // 先按批推进状态机、收集每条的采纳结果，再一次性决定这一批要不要
-        // 露面：逐条 `|=` 等价于按批取或，抽出来是为了这条语义可测。
         let mut batch = Vec::with_capacity(events.len());
         for event in events {
-            // 策略只关心「哪一类回传」，事件本身在下一行被消费掉。
             let kind = event_kind(&event);
             let accepted = match event {
-                // 预热回执与任务代数无关（不占代数，与浮层无关）：旁路
-                // 处理后不进露面批次。
                 Event::SecretPrewarmed { result } => {
                     self.on_secret_prewarmed(&result);
                     continue;
@@ -54,17 +41,10 @@ impl GlossApp {
             };
             batch.push((kind, accepted));
         }
-        // 挂起显形在批处理**之后**消费：划词提交的置位点就在本批的
-        // commit_probe 里——取前会把它拖到下一帧，取后同帧即显。
         let pending_reveal = std::mem::take(&mut self.session.pending_reveal);
-        // 显形决策（守卫与「显形或失败即弹」的取舍）在 should_reveal：
-        // 这里只递交挂起请求、机器当前视图与本批回传。
         if should_reveal(pending_reveal, self.machine.overlay_view().is_some(), batch)
             && let Some(windows) = &mut self.workspace.windows
         {
-            // 划词触发的浮层跟随选区（代数对得上时），否则居中；屏幕
-            // 边缘钳制后显示，并按摆放意图记录——后续内容撑高窗口时
-            // 才能按同一意图重定位。
             let centered = centered_position(event_loop, windows);
             let (position, placement) = show_position(
                 self.session.selection_anchor,
@@ -78,11 +58,7 @@ impl GlossApp {
         self.request_redraw();
     }
 
-    /// 采纳取材产物：探测命中走提交段（内容到达才显形），其余按陈旧产物
-    /// 丢弃（收起后的取材、被顶掉的旧探测）。返回是否进入了需要展示浮层
-    /// 的新任务。
     pub(crate) fn accept_input(&mut self, generation: u64, input: TaskInput) -> bool {
-        // 探测编号在提交时才提升为代数，陈旧过滤按编号而不是代数。
         if self.machine.probe_id() == Some(generation) {
             return self.commit_probe(generation, input);
         }
@@ -95,15 +71,9 @@ impl GlossApp {
         false
     }
 
-    /// 提交探测（取材产物到达，划词与剪贴板图片共用）：状态机接管（旧会话
-    /// 让位、代数提升、视图整卡换流式卡），置挂起显形——出窗与重定位由
-    /// drain_events 在同帧统一执行（那里才有 ActiveEventLoop）。内容闸门
-    /// 命中时探测作废但**当前显示保留**（它属于上一个会话），只记一行
-    /// warn。
     fn commit_probe(&mut self, generation: u64, input: TaskInput) -> bool {
         match self.machine.commit_probe(generation, input) {
             InputOutcome::Dispatch(request) => {
-                // 只记字节量不记内容：图像字节是用户敏感内容，不落日志。
                 match &request.input {
                     TaskInput::Image { png, .. } => info!(
                         thread = thread::UI,
@@ -125,8 +95,6 @@ impl GlossApp {
                 }
                 self.session.probe_front_app = None;
                 self.send_run(request);
-                // 内容到达才显形：从 Idle 出窗、从已显示改锚点重定位，
-                // 误滑（探测失败）永远走不到这里。
                 self.session.pending_reveal = true;
                 true
             }
@@ -152,7 +120,6 @@ impl GlossApp {
         }
     }
 
-    /// 通道③发送；接收端不可用（tokio 桥死亡）时状态机降级落 Error。
     pub(crate) fn send_run(&mut self, request: RunRequest) {
         let Some(endpoints) = &self.endpoints else {
             warn!(
@@ -182,7 +149,6 @@ impl GlossApp {
         }
     }
 
-    /// 采纳流式增量。返回是否有新内容需要重绘。
     fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
         let accepted = self.machine.accept_chunk(generation, delta);
         if !accepted {
@@ -197,8 +163,6 @@ impl GlossApp {
         accepted
     }
 
-    /// 采纳修复轮开始：清上一轮流式正文并切「重新注解」页脚。返回是否
-    /// 需要重绘。
     fn accept_repairing(&mut self, generation: u64) -> bool {
         let accepted = self.machine.accept_repairing(generation);
         if !accepted {
@@ -213,7 +177,6 @@ impl GlossApp {
         accepted
     }
 
-    /// 采纳自动分类结果（头部任务标签的更新点）。返回是否需要重绘。
     fn accept_classified(&mut self, generation: u64, kind: gloss_core::task::TaskKind) -> bool {
         let accepted = self.machine.accept_classified(generation, kind);
         if !accepted {
@@ -228,7 +191,6 @@ impl GlossApp {
         accepted
     }
 
-    /// 采纳任务产物：定格正文并进入 `Show`。返回是否需要重绘。
     pub(crate) fn accept_done(
         &mut self,
         generation: u64,
@@ -253,10 +215,6 @@ impl GlossApp {
         accepted
     }
 
-    /// 采纳任务失败：划词探测命中走探测失败处置（误滑静默丢弃 / 权限卡
-    /// 显式反馈），其余按推理失败处置（落 `Error` 态弹失败卡，文案与动作
-    /// 出口由 machine 按错误类别给出，见 `machine::error_action`）。返回
-    /// 是否需要展示浮层。
     pub(crate) fn accept_failed(
         &mut self,
         generation: u64,
@@ -276,8 +234,6 @@ impl GlossApp {
                 true
             }
             FailureOutcome::SilentlyDropped => {
-                // 不可达：静默丢弃只发生在划词探测段（上方已分流）。
-                // 防御性兜底——照陈旧语义丢弃，不碰窗口。
                 debug!(
                     thread = thread::UI,
                     generation = generation,
@@ -287,8 +243,6 @@ impl GlossApp {
                 false
             }
             FailureOutcome::Ignored => {
-                // 陈旧失败的丢弃是竞速语义（新划词覆盖旧划词），但这条线正是
-                // 「划了没弹窗」的排查盲区——升为 info 保证默认日志可见。
                 info!(
                     thread = thread::UI,
                     generation = generation,
@@ -300,11 +254,6 @@ impl GlossApp {
         }
     }
 
-    /// 探测失败（划词或剪贴板图片）：划词的空选区/读不到按误滑静默丢弃
-    /// ——不留窗口动作、不留弹窗（若浮层正在显示，当前内容原样保留），
-    /// 只留一条带前台应用的排查痕迹，那是「划了没反应」的唯一日志线索；
-    /// 其余失败（划词权限缺失、剪贴板图片超上限等）落失败卡，经「失败即
-    /// 弹」显形（从 Idle 出窗或顶替已显示内容——真实故障不该被吞掉）。
     fn fail_probe(&mut self, generation: u64, error: &gloss_core::model::GlossError) -> bool {
         match self.machine.commit_probe_failed(generation, error) {
             FailureOutcome::SilentlyDropped => {
@@ -353,12 +302,6 @@ impl GlossApp {
 }
 
 impl GlossApp {
-    /// 运行中取材授权（辅助功能）落定：解除预热门控并补发启动期被推迟的
-    /// 密钥预热。仅启动预检未就绪的会话会收到本事件（授权观察器由组装点
-    /// 按预检结论武装，落定只产出一次）；就绪即无系统权限引导弹窗在途，
-    /// keychain 授权框此刻出现符合引导顺序（辅助功能 → 密钥），用户无须
-    /// 重启或撞上首次任务。重复事件（理论不可达：观察器一次性）按已就绪
-    /// 静默忽略。
     pub(crate) fn on_accessibility_granted(&mut self) {
         if self.env.permissions_ready {
             debug!(
@@ -375,16 +318,6 @@ impl GlossApp {
         self.send_secret_prewarm();
     }
 
-    /// 发密钥预热命令（通道③，不带任务 span——预热不属于任何任务）。仅在
-    /// 预热门控就绪时发送——就绪即没有系统权限引导弹窗在途（启动预检通过，
-    /// 或运行中授权落定后），keychain 授权框（仅旧签名条目存在时出现）独占
-    /// 出现且晚于一切权限引导，读到的值进存储的进程内缓存，首次划词不再
-    /// 弹；未就绪时系统的授权引导弹窗异步在途且无落定回调，预热读的同步
-    /// 授权框会抢到它们之前，故跳过启动期预热（由授权落定事件补发），否则
-    /// 首次任务自然重读——两种路径下授权框都必然晚于权限引导。推迟路径下
-    /// 任务自身的读密是同步阻塞（撞上未回填首读时卡在闸门/授权框上，取消
-    /// 不生效，见消费桥与 keychain 读的文档）。发送失败（通道已关，应用正
-    /// 在退出）只留痕。
     pub(crate) fn send_secret_prewarm(&mut self) {
         if !self.env.permissions_ready {
             debug!(
@@ -413,8 +346,6 @@ impl GlossApp {
         }
     }
 
-    /// 密钥预热回执（`SecretPrewarmed`）：只留痕——预热失败不拦主流程，
-    /// 首次任务会自然重读并按既有失败路径兜底。
     pub(crate) fn on_secret_prewarmed(&mut self, result: &Result<(), GlossError>) {
         if let Err(err) = result {
             debug!(thread = thread::UI, error = %err, "secret prewarm reported failure");

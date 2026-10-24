@@ -2,35 +2,35 @@
 //!
 //! 内容按「经 · 注 · 疏」三层组织，视觉以设计定稿的浮层稿为准：
 //! - **经**＝选区原文/词条/提取文本（宋体；代码任务为单层代码面板
-//!   ——专属底色、`gloss-mono` 等宽体、按可用宽折行、左上角语言标签行）；
-//! - **注**＝译文/释义/概要（楷体，系统缺楷体时随 demo 回退链落宋体；
+//!   ——专属底色、gloss-mono 等宽体、按可用宽折行、左上角语言标签行）；
+//! - **注**＝译文/释义/概要（楷体，系统缺楷体时随设计稿回退链落宋体；
 //!   朱丝栏左线 + 朱印）；
-//! - **疏**＝译注/例句/小记（楷体 markdown 正文色、上缘虚线 + 疏印）。
+//! - **疏**＝译注/例句/小记（楷体 Markdown 正文色、上缘虚线 + 疏印）。
 //!
-//! 三分区的正文列都显式声明垂直布局：egui 的 Frame/子 Ui 会继承父级的
-//! 水平布局（`new_child` 不带 layout 参数），横排父级里多条目正文会从左往
+//! 三分区的正文列都显式声明垂直布局：egui 的分区容器会继承父级的
+//! 水平布局（新建子区域默认继承父方向），横排父级里多条目正文会从左往
 //! 右流（释义并排、溢出右缘）。分区的间距是弹窗私有量（随
-//! [`outcome`]），字号规格与宋楷字体助手在 [`content`]（都是 demo 基准
-//! 的应用定稿值），不进 style 阶梯。
+//! 经注疏排布模块存放），字号规格与宋楷字体助手在文案整形模块（都是设计稿基准
+//! 的应用定稿值），不进样式阶梯。
 //!
-//! 决策纯函数不进绘制模板，按职责拆在子模块：[`note`]（流式 JSON 渐进
-//! 提取）、[`icon`]（图标矢量栅格化）、[`content`]（文案整形）；绘制模板
-//! 按职责拆在 [`card`]（页头/页脚/印章等卡片固定件）、[`views`]（视图
-//! 分发与卡骨架）、[`outcome`]（经注疏正文排布），依赖方向恒为视图 →
+//! 决策纯函数不进绘制模板，按职责拆在子模块：流式注渐进
+//! 提取、图标矢量栅格化、文案整形；绘制模板
+//! 按职责拆在页头/页脚/印章等卡片固定件、视图
+//! 分发与卡骨架、经注疏正文排布，依赖方向恒为视图 →
 //! 排布 → 固定件 → 决策；本模块留面板编排、跨帧状态与各文件共享的
 //! 常量。
 //!
 //! 词卡精排（词条/音标落经位，释义逐行落注位，例句落疏位），其余任务正文
-//! 走 markdown（egui_commonmark 渲染；注区统一改写文本样式为楷体字号）。
+//! 走 Markdown（egui_commonmark 渲染；注区统一改写文本样式为楷体字号）。
 //! 划选即复制：全部文本可选中，无独立复制按钮。正文完整渲染不截断，宽度
-//! 固定 [`WIDTH`]（不随内容变化），高度自适应内容（上限按屏幕），超出部分
+//! 固定（浮层宽度常量，不随内容变化），高度自适应内容（上限按屏幕），超出部分
 //! 滚动兜底。
-//! 流式视图对累积的原始流做**转义感知**的 `note`（注）渐进提取（现行输出
-//! 契约是纯 JSON 对象，见 `gloss_core::schema`）：`note` 键未到齐时正文区
-//! 落骨架、页脚保留「正在注解」；`structured.examples` 随流下钻渐进出。
-//! 降级产物（`outcome.degraded`，契约校验失败）不出注疏——降级卡渲染
-//! 「输出异常」与重试按钮，不渲染 note 内容（原文垃圾不展示不留存）。
-//! 注文一律换行排版：代码面板等宽折行、markdown 由 egui_commonmark 按
+//! 流式视图对累积的原始流做**转义感知**的注渐进提取（现行输出
+//! 契约是纯 JSON 对象，见核心层契约模块）：注键未到齐时正文区
+//! 落骨架、页脚保留「正在注解」；疏证例句字段随流下钻渐进出。
+//! 降级产物（契约校验失败）不出注疏——降级卡渲染
+//! 「输出异常」与重试按钮，不渲染注内容（原文垃圾不展示不留存）。
+//! 注文一律换行排版：代码面板等宽折行、Markdown 由 egui_commonmark 按
 //! 可用宽折行，横滚不进弹窗。
 //!
 //! 页头回归品牌：只有应用图标与动作区（⚙/×），任务与状态由内容层自明，
@@ -38,13 +38,13 @@
 //! 页头行同时是拖动热区：按住拖动即移动浮层（壳侧逐帧平移窗口），热区
 //! 与动作钮零重叠，按钮点击不受影响。
 //! 页脚常驻
-//! 一条窄带（带高取 [`FOOTER_HEIGHT`]）：推理中左端是「正在注解」+ 呼吸点（生成指示唯一落点），右端
+//! 一条窄带（带高取页脚高度常量）：推理中左端是「正在注解」+ 呼吸点（生成指示唯一落点），右端
 //! 恒为 Gloss 水印（品牌名不翻译，与窗口标题同一原则）；滚动区按页脚带宽
 //! 预留视口，页脚不被内容挤出窗外。「经显注未至」时正文区是纯骨架
-//! （脉动条），无占位文字。动作点击经 draw 返回 [`OverlayAction`] 上交壳执行；
-//! 拖动热区的指针位移经 [`PopupOutput::drag`] 上交壳换算。
+//! （脉动条），无占位文字。动作点击在绘制帧折成动作上交壳执行；
+//! 拖动热区的指针位移经拖动出口上交壳换算。
 //!
-//! 敏感信息防护不在这里：两条闸门都不出浮层（见 `gloss_app::machine`），
+//! 敏感信息防护不在这里：两条闸门都不出浮层（见应用层状态机），
 //! 因此也没有「疑似敏感」这张卡。
 
 mod card;
@@ -70,49 +70,25 @@ use super::style::{radius, space, stroke};
 use crate::machine::{ErrorAction, OverlayView};
 use crate::ui::i18n::Text;
 
-/// 浮层宽度（逻辑点）：窗口创建与每帧期望尺寸共用此值，不随内容变化。
 pub const WIDTH: f32 = 480.0;
-/// 页头应用图标的边长（栅格化与页头行布局共用）。
 pub(super) const HEADER_ICON: f32 = 20.0;
-/// 页脚带高：水印字形（`font::TAG` 11px）加合理上下余量的下限档。
 pub(super) const FOOTER_HEIGHT: f32 = 20.0;
-/// 骨架条与页脚呼吸点的脉动周期（秒）
 pub(super) const PULSE_PERIOD_SECS: f64 = 1.2;
-/// 出现动画时长（淡入，秒）：显示/重显后的第一帧从 0 渐进到 1。
 const APPEAR_SECONDS: f32 = 0.18;
 
-/// 一帧内容分发的共享绘制输入：状态、文案表与本帧经位附件三件套随
-/// 视图函数整组同行，捆一个结构免得逐函数穿参。
 struct RenderCtx<'a> {
     state: &'a RenderState,
     text: &'static Text,
     attached: Option<&'a Arc<[u8]>>,
 }
 
-/// 浮层的跨帧渲染状态（每窗口一份，由渲染管线持有）。
 pub struct RenderState {
-    /// markdown 渲染状态（egui_commonmark 要求跨帧持有）。
     pub cache: RefCell<CommonMarkCache>,
-    /// 页头拖动的按压点（**物理像素**，按压帧的窗口内逻辑坐标乘当下
-    /// `pixels_per_point`）：拖动开始帧记录，结束即清。存物理口径是为
-    /// 跨 DPI 显示器的拖动——逻辑坐标随新显示器的缩放比例重标定，逻辑
-    /// 按压点会混尺；物理位移按当下比例还原成当下尺度的逻辑位移，与壳
-    /// 侧落点换算（`apply_overlay_drag`）同口径。清零后 egui 侧若仍有
-    /// 残留拖动所有权（见 [`card::drag_strip`]），热区保持惰性。
     drag_press_phys: Cell<Option<egui::Pos2>>,
-    /// 页头应用图标的纹理缓存：键是栅格化边长（物理像素）。None＝尚未
-    /// 栅格化；内层 `None`＝该边长下渲染失败（同样只试一次，占位降级）。
-    /// 换显示器（`pixels_per_point` 变化）即按新密度重栅。
     icon: RefCell<Option<(u32, Option<egui::TextureHandle>)>>,
-    /// 经位附件图像的跨帧纹理缓存槽（见 [`AttachedTexture`]）。
     attached: RefCell<Option<AttachedTexture>>,
 }
 
-/// 经位附件图像的纹理缓存：键是源字节的 `Arc` 指针身份——同图跨帧与
-/// 重试恒复用同一纹理，绝不逐帧解码；纹理 `None`＝这份字节解码失败
-/// （同样只试一次，占位降级），换图（指针不同）即重新解码。同时至多
-/// 驻留一份图像纹理（新图即替换；会话离开图像卡即清空，见
-/// `RenderState::drop_attached`）。
 struct AttachedTexture {
     source: Arc<[u8]>,
     texture: Option<egui::TextureHandle>,
@@ -130,19 +106,10 @@ impl Default for RenderState {
 }
 
 impl RenderState {
-    /// 清除页头拖动的按压点：壳在收起/显示浮层的边界调用（见
-    /// `app::overlay`）。跨显示残留的拖动状态由此失效——egui 的拖动
-    /// 所有权可能因隐藏期丢失的鼠标释放而残留（按压点已清，热区保持
-    /// 惰性）；残留所有权要到下一次释放事件才清零，其间的第一次按压
-    /// 拖动不产生 `drag_started`（所有权无 None→Some 迁移），整段惰性，
-    /// 松开即自愈——之后（所有权已清）的按压才重新握点。
     pub(crate) fn reset_drag_state(&self) {
         self.drag_press_phys.set(None);
     }
 
-    /// 页头应用图标纹理：矢量源按当前 `pixels_per_point` 栅格化到物理
-    /// 像素级（纹理纹元 1:1 对应设备像素，图标锐利），装完跨帧复用；
-    /// 密度变化（跨显示器拖动）按新边长重栅，失败按边长缓存不重试。
     fn icon_texture(&self, ctx: &egui::Context) -> Option<egui::TextureHandle> {
         let side_px = (HEADER_ICON * ctx.pixels_per_point()).round().max(1.0) as u32;
         let mut slot = self.icon.borrow_mut();
@@ -155,13 +122,9 @@ impl RenderState {
             });
             *slot = Some((side_px, texture));
         }
-        // TextureHandle 内部是 Arc：克隆只递引用计数（零堆分配），缓存槽
-        // 与当帧绘制各持一枚，勿改成逐帧重装纹理。
         slot.as_ref().and_then(|(_, texture)| texture.clone())
     }
 
-    /// 经位附件图像的纹理；首次见到这份字节时解码并装入当前上下文，之后
-    /// 跨帧复用（解码失败按 `None` 缓存，同字节不重试；换字节即重解码）。
     fn attached_texture(
         &self,
         ctx: &egui::Context,
@@ -183,37 +146,21 @@ impl RenderState {
         texture
     }
 
-    /// 清空经位附件图像的缓存槽：源字节 `Arc` 与解码纹理一并释放。壳在
-    /// 无附件的帧调用（图像会话已被收起/替换/失败）——图像字节属敏感数
-    /// 据，生命周期不得长于会话；同图下一帧重新解码即回（一次解码，不
-    /// 在会话内重复发生）。
     fn drop_attached(&self) {
         *self.attached.borrow_mut() = None;
     }
 }
 
-/// 一帧浮层绘制的产物：动作上交 + 内容期望的窗口尺寸（逻辑点）。
 pub struct PopupOutput {
-    /// 本帧上交壳执行的动作；`None`＝无动作。
     pub action: Option<OverlayAction>,
-    /// 本帧内容期望的浮层尺寸（壳据此调整窗口）。
     pub sizing: OverlaySizing,
-    /// 页头拖动热区的状态：`Some(offset)`＝拖动进行中，offset 是指针自
-    /// 按压点起的**累计**位移（窗口内相对坐标，逻辑点；按下帧为零），
-    /// `None`＝本帧不在拖动。壳以它换算窗口落点（见
-    /// `WindowManager::apply_overlay_drag`）。
     pub drag: Option<egui::Vec2>,
 }
 
-/// 浮层上交壳执行的动作：失败卡动作（重试/打开设置）与头部动作区
-/// （齿轮=打开设置、×=收起）。浮层只渲染、不副作用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayAction {
-    /// 失败卡「重试」：同代数同任务重发通道③。
     Retry,
-    /// 设置入口（失败卡按钮或头部齿轮）：走壳层统一 `open_settings`。
     OpenSettings,
-    /// 头部「×」：收起浮层（壳层放弃在途任务回 Idle）。
     Dismiss,
 }
 
@@ -226,28 +173,19 @@ impl From<ErrorAction> for OverlayAction {
     }
 }
 
-/// 本帧期望的浮层高（逻辑点，含内边距与框线）：宽度恒为 [`WIDTH`]、
-/// 不随内容变化（窗口创建与每帧期望宽同源此常量，不经此结构传递），
-/// 只有高度随内容。
 #[derive(Clone, Copy, Debug)]
 pub struct OverlaySizing {
-    /// 期望窗口高度（完整内容高，壳侧按显示器钳制）。
     pub height: f32,
 }
 
-/// 出现动画起点在 egui memory 里的键。
 fn appear_t0_id() -> egui::Id {
     egui::Id::new("overlay_appear_t0")
 }
 
-/// 淡入进度：给定居内已流逝秒数，返回 0..=1 的不透明度。
 fn appear_progress(elapsed_secs: f64) -> f32 {
     (elapsed_secs / f64::from(APPEAR_SECONDS)).clamp(0.0, 1.0) as f32
 }
 
-/// 出现淡入：起点在每次显示（壳侧清除后）的首帧重新写入；进度未满时
-/// 请求短重绘推进动画。kittest 的 animation_time=0 与固定步进让快照
-/// 恒为完成态，不受动画影响。
 fn appear_fade_in(ui: &mut egui::Ui) {
     let now = ui.input(|i| i.time);
     let started_at = ui
@@ -255,28 +193,16 @@ fn appear_fade_in(ui: &mut egui::Ui) {
         .memory_mut(|mem| *mem.data.get_temp_mut_or_insert_with(appear_t0_id(), || now));
     let progress = appear_progress(now - started_at);
     if progress < 1.0 {
-        // 请求尽快再来一帧推进淡入（生产中被预测帧时长扣减后接近立即
-        // 重绘，由呈现管道钳到 vsync 帧率）。
         ui.ctx()
             .request_repaint_after(Duration::from_secs_f32(0.016));
     }
     ui.set_opacity(progress);
 }
 
-/// 清除出现动画起点：壳在每次显示时调用，让下一帧重新从 0 淡入
-/// （隐藏期无帧运行，起点留在居内无副作用；不清除则旧起点让重显直接
-/// 落在完成态）。
 pub(crate) fn reset_appear_animation(ctx: &egui::Context) {
     ctx.memory_mut(|mem| mem.data.remove_temp::<f64>(appear_t0_id()));
 }
 
-/// 画一帧浮层。根 `Ui` 覆盖整个窗口，卡片铺满它，圆角之外由透明窗口露出桌面。
-///
-/// `view` 为 `None` 时显示渲染自检卡（预热与自检路径）。`attached` 是
-/// 本会话经位附件图像（图像任务的原文，状态机留存，经访问器随行——
-/// 不进 [`OverlayView`] 变体形状），仅图像卡渲染它。返回本帧绘制的
-/// 产物——失败卡动作与头部动作区（齿轮/×）上交壳执行——浮层只渲染、不
-/// 副作用；期望尺寸由壳经窗口管理器应用（内容自适应高度，超出屏幕滚动兜底）。
 pub fn draw(
     ui: &mut egui::Ui,
     view: Option<&OverlayView>,
@@ -284,13 +210,9 @@ pub fn draw(
     state: &RenderState,
     text: &'static Text,
 ) -> PopupOutput {
-    // 划选即复制路径：全部文本可选中（含跨 widget 连选）
     ui.style_mut().interaction.selectable_labels = true;
     appear_fade_in(ui);
 
-    // 本帧无附件＝会话已离开图像卡（收起、换任务或失败）：立即清空纹理
-    // 缓存槽——图像字节属敏感数据，源字节与解码纹理都不得驻留到会话之外
-    // （机器侧清 attached_image 的渲染侧镜像，见 `RenderState::drop_attached`）。
     if attached.is_none() {
         state.drop_attached();
     }
@@ -320,8 +242,6 @@ pub fn draw(
             ui.set_min_size(ui.available_size());
         });
 
-    // 宽度固定不随内容变化；高度取完整内容高（超出屏幕由壳侧钳制、滚动
-    // 兜底）。
     output.sizing = OverlaySizing {
         height: (content_h + 2.0 * space::CARD_PADDING as f32 + stroke::CARD).round(),
     };
@@ -667,8 +587,6 @@ mod kittest_tests {
         harness.run();
         harness.get_by_label("gloss");
         harness.get_by_label("/ɡlɒs/");
-        // 疏条目经 markdown 渲染：段落文本是 TextRun 节点，精确标签查询会
-        // 被标签提供者过滤规则吞掉——沿用注文的 contains 惯例。
         harness.get_by_label_contains("a gloss of silk");
     }
 

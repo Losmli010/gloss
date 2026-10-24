@@ -1,5 +1,5 @@
-//! 面板落墨：按图形元素分步——标题与内联图例、网格与 y 轴标签、frame
-//! 与 x 轴稀疏刻度、序列折线与圆点。发射顺序即字节顺序，改动任何一步
+//! 面板落墨：按图形元素分步——标题与内联图例、网格与纵轴标签、外框
+//! 与横轴稀疏刻度、序列折线与圆点。发射顺序即字节顺序，改动任何一步
 //! 都会改写渲染产物。
 
 use crate::report::{EvalReport, format_utc_short};
@@ -12,8 +12,6 @@ use super::{
     f2, line,
 };
 
-/// 各点的横向呈现数据：x 坐标、x 轴刻度文本与悬浮标签——三条平行数组，
-/// 下标即点序，全部面板共享同一份。
 pub(super) struct PointData {
     xs: Vec<f64>,
     ticks: Vec<String>,
@@ -98,7 +96,6 @@ fn draw_grid(out: &mut String, panel: &Panel, frame_bottom: usize) {
     }
 }
 
-/// 值 → 画布 y：值域线性映射到 frame 内（上下界按构造恒不等，无除零）。
 fn y_of(value: f64, panel: &Panel, frame_bottom: usize) -> f64 {
     frame_bottom as f64 - (value - panel.lo) / (panel.hi - panel.lo) * FRAME_HEIGHT as f64
 }
@@ -180,7 +177,6 @@ fn draw_point(out: &mut String, color: &str, hover: &str, x: String, y: String) 
     );
 }
 
-/// 悬浮标签：UTC 时间 + mode（+ commit）。
 fn hover_label(report: &EvalReport) -> String {
     let mut label = format!("{} {}", format_utc_short(report.generated_at), report.mode);
     if let Some(commit) = report
@@ -193,7 +189,6 @@ fn hover_label(report: &EvalReport) -> String {
     label
 }
 
-/// x 坐标：首末点各内缩一格，中间均匀分布；单点居中。
 fn x_positions(count: usize) -> Vec<f64> {
     if count <= 1 {
         return vec![(PLOT_LEFT + PLOT_RIGHT) / 2.0];
@@ -204,7 +199,6 @@ fn x_positions(count: usize) -> Vec<f64> {
         .collect()
 }
 
-/// x 轴稀疏刻度取样：≤4 个，均匀取（四舍五入到最近点）。
 fn tick_indices(count: usize) -> Vec<usize> {
     if count <= MAX_X_TICKS {
         return (0..count).collect();
@@ -215,7 +209,6 @@ fn tick_indices(count: usize) -> Vec<usize> {
         .collect()
 }
 
-/// 连续有样本的段（断线跳段不造点）。
 fn segments(values: &[Option<f64>]) -> Vec<Vec<(usize, f64)>> {
     let mut all = Vec::new();
     let mut current: Vec<(usize, f64)> = Vec::new();
@@ -232,8 +225,6 @@ fn segments(values: &[Option<f64>]) -> Vec<Vec<(usize, f64)>> {
     all
 }
 
-/// 按字符宽度估算文本像素宽（CJK/全角 1em、空格 0.52em、其余 0.58em），
-/// 供图例右对齐排版。
 fn text_w(text: &str, size: f64) -> f64 {
     let em: f64 = text
         .chars()

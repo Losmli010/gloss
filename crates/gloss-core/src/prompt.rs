@@ -1,36 +1,36 @@
-//! Prompt 模板注册表：kind + input + locale → OpenAI 兼容 messages。
+//! 提示词模板注册表：任务类别 + 输入 + 语言环境 → OpenAI 兼容消息序列。
 //!
 //! 任务**一个任务一份自包含模板**（词卡/句译/代码解释/图像解读/通用）：
 //! 任务说明与纯 JSON 输出契约（含一份**中性占位**的输出示例）都在同一个
 //! 文件里，改一个任务的任务书不会牵动其它任务。契约按经注疏/说文解字的
-//! 层次组织，与 [`crate::schema`] 的三行同构表同源：`note`（义）恒为首
-//! 字段，按 kind 的疏证字段收敛在 `structured` 对象里——词卡
-//! 是 structured.phonetic/examples（音/例，字头即选区原文），句译、讲解、
-//! 图像解读与通用任务是 structured.examples（展开条目），代码另带
-//! structured.code_language（LLM 判定，UI 角标与高亮使用）。
-//! 模板里的输出示例就是解析侧（`crate::schema::validate_task`）所吃形状
+//! 层次组织，与核心层契约模块的三行同构表同源：注（义）恒为首
+//! 字段，按类别的疏证字段收敛在疏证对象里——词卡
+//! 是音标与例句（音/例，字头即选区原文），句译、讲解、
+//! 图像解读与通用任务是展开条目，代码另带
+//! 代码语言（LLM 判定，界面角标与高亮使用）。
+//! 模板里的输出示例就是解析侧（任务校验器）所吃形状
 //! 的唯一描述，两处改一须改二（完整性门禁测试锁定：每个模板的示例对象
-//! 必须通过对应 `validate_task`）。模板与提示都不要求围栏——模型回复按
-//! 严格裸 JSON 校验（`crate::schema`），围栏输出即违约进修复轮。模态矩阵
-//! 之外的输入一律 [`GlossError::UnsupportedModality`]，不发出注定无效的请求。
+//! 必须通过对应校验）。模板与提示都不要求围栏——模型回复按
+//! 严格裸 JSON 校验（契约模块），围栏输出即违约进修复轮。模态矩阵
+//! 之外的输入一律以模态不支持错误上抛，不发出注定无效的请求。
 //!
-//! 分类与修复的指令同样自包含：classify 模板自带类别清单与判别规则（类别
-//! `Fallback` 由 [`crate::schema::validate_classify`] 映射兜底 kind），
-//! repair 模板只携带违约固定措辞（`{{reason}}` 回灌）。模板文本是编译期
-//! 嵌入的文件资源（`crates/gloss-core/prompts/{locale}/*.md`，`include_str!`），
-//! 渲染是显式的 `{{占位符}}` 替换（可选行语义见 [`render_template`]）。
+//! 分类与修复的指令同样自包含：分类模板自带类别清单与判别规则（兜底
+//! 类别由分类校验器映射兜底），
+//! 修复模板只携带违约固定措辞（违约原因占位符回灌）。模板文本是编译期
+//! 嵌入的文件资源（核心层内嵌的各语言模板文件），
+//! 渲染是显式的双花括号占位符替换（可选行语义见渲染助手）。
 //! 不注入模态提示行：源语言与代码语言都由模型从原文自行判断，代码语言经
-//! 产物 JSON 的 `structured.code_language` 回传 UI。
+//! 产物 JSON 的代码语言字段回传界面。
 //!
-//! 本模块只产**域形态**的消息（[`ChatMessage`]：role + [`MessageContent`]），
-//! 不做 wire 序列化，也不携带 base64——把部件数组映成 OpenAI 兼容
-//! content、把图像字节编码成 data URL 都归传输层（`engine::llm` 的请求体
+//! 本模块只产**域形态**的消息（角色 + 消息部件），
+//! 不做传输序列化，也不携带内联数据——把部件数组映成 OpenAI 兼容
+//! 内容、把图像字节编码成 Data URL 都归传输层（LLM 客户端的请求体
 //! 组装）。
 //!
-//! 模板内容面向模型，用各 locale 的语言书写，不受「日志一律英文」门禁约束
-//! （`just constraints` 只查日志宏实参）。
+//! 模板内容面向模型，用各语言环境的语言书写，不受「日志一律英文」门禁约束
+//! （约束门禁只查日志宏实参）。
 //!
-//! 参数缺省：`options.target_lang` 缺省中文；`options.prompt_locale`
+//! 参数缺省：目标语言缺省中文；提示词语言
 //! 缺省中文模板。
 
 use std::borrow::Cow;
@@ -39,11 +39,8 @@ use std::sync::Arc;
 use crate::model::{GlossError, Lang, Locale};
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 
-/// 目标语言缺省值（`TaskOptions::target_lang` 文档：缺省中文）。
 const DEFAULT_TARGET: Lang = Lang::Zh;
 
-/// 一个 locale 的模板文件集：各 kind 的自包含任务书（说明 + 输出契约与
-/// 示例都在文件内）+ 分类指令 + 修复轮纠错指令。
 #[derive(Debug, Clone, Copy)]
 struct Templates {
     word_card: &'static str,
@@ -56,7 +53,6 @@ struct Templates {
 }
 
 impl Locale {
-    /// 本 locale 的模板文件集（编译期嵌入，无 IO）。
     fn templates(self) -> Templates {
         match self {
             Locale::Zh => Templates {
@@ -81,47 +77,32 @@ impl Locale {
     }
 }
 
-/// OpenAI 兼容消息角色。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
-    /// 系统指令。
     System,
-    /// 用户输入。
     User,
-    /// 模型回复（修复轮带回上一次的坏回复）。
     Assistant,
 }
 
-/// 消息正文的域形态：纯文本，或多模态部件数组。**不携带 base64**——
-/// 部件数组映成 OpenAI 兼容 content、图像字节编码成 data URL 都归传输层
-/// （`engine::llm` 的请求体组装），本枚举只搬原始载荷。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MessageContent {
-    /// 纯文本正文。
     Text(String),
-    /// 多模态部件数组（图像任务的用户消息）。
     Parts(Vec<ContentPart>),
 }
 
-/// 多模态内容部件：域形态只携带原始载荷（PNG 保持字节，不预编码）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContentPart {
-    /// PNG 图像字节。
     ImagePng(Arc<[u8]>),
 }
 
-/// OpenAI 兼容消息的域形态：`role` + `content`（wire 形状由传输层组装）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatMessage {
-    /// 消息角色。
     pub role: Role,
-    /// 消息正文。
     pub content: MessageContent,
 }
 
 impl ChatMessage {
-    /// 系统指令消息（纯文本正文）。
     pub fn system(content: impl Into<String>) -> Self {
         Self {
             role: Role::System,
@@ -129,7 +110,6 @@ impl ChatMessage {
         }
     }
 
-    /// 用户消息（纯文本正文）。
     pub fn user(content: impl Into<String>) -> Self {
         Self {
             role: Role::User,
@@ -137,7 +117,6 @@ impl ChatMessage {
         }
     }
 
-    /// 用户消息（多模态部件数组，如图像任务）。
     pub fn user_parts(parts: Vec<ContentPart>) -> Self {
         Self {
             role: Role::User,
@@ -145,7 +124,6 @@ impl ChatMessage {
         }
     }
 
-    /// 模型回复消息（纯文本正文）：修复轮用它带回上一次的坏回复。
     pub fn assistant(content: impl Into<String>) -> Self {
         Self {
             role: Role::Assistant,
@@ -154,9 +132,6 @@ impl ChatMessage {
     }
 }
 
-/// Prompt 模板注册表：内置文本任务模板，无状态可按需构造。
-///
-/// 模板来自编译期嵌入的文件资源（见模块文档）。
 #[derive(Debug, Default, Clone, Copy)]
 pub struct PromptRegistry;
 
@@ -165,12 +140,6 @@ impl PromptRegistry {
         Self
     }
 
-    /// 渲染任务的完整 messages。模态约束已在 [`Task::new`] 判定，这里只按
-    /// 输入形状分派。模板语言取任务自带的 `options.prompt_locale`（缺省
-    /// 中文）——与模型、目标语言一样，一次任务只认触发时定下的那一份。
-    /// 系统指令是模板渲染结果；用户消息按输入模态分派：文本任务只有原文
-    /// （取材不携带模态提示，语言线索由模型从原文判断），图像任务是图像
-    /// 部件（编码归传输层）。
     pub fn render(&self, task: &Task) -> Result<Vec<ChatMessage>, GlossError> {
         let locale = task.options().prompt_locale.unwrap_or_default();
         let target = target_display(task.options(), locale);
@@ -186,9 +155,6 @@ impl PromptRegistry {
                     ChatMessage::user(text.to_owned()),
                 ])
             }
-            // 图像任务：模板只有 image_explain（模态闸门在构造时已保证
-            // 图像输入只配 ImageExplain），这里直接按唯一合法的图像 kind
-            // 取模板。
             TaskInput::Image { png } => {
                 let templates = locale.templates();
                 let system = render_template(templates.image_explain, &[("target", &target)]);
@@ -200,10 +166,6 @@ impl PromptRegistry {
         }
     }
 
-    /// 渲染**分类请求**的 messages：系统指令来自 classify 模板（类别清单、
-    /// 判别规则与输出契约都在模板内——模板是类别集的唯一事实源），用户
-    /// 消息只有待分类原文。与任务渲染的分工：分类不走 `render`（那是任务
-    /// 的路径），输出契约见 [`crate::schema::validate_classify`]。
     pub fn render_classify(&self, locale: Locale, text: &str) -> Vec<ChatMessage> {
         let templates = locale.templates();
         vec![
@@ -212,9 +174,6 @@ impl PromptRegistry {
         ]
     }
 
-    /// 渲染**修复轮**的纠错指令（修复对话里最后一条 user 消息的正文）：
-    /// 违约固定措辞（[`crate::schema::Violation`]，只记类别不携带回复原文）
-    /// 作为 `{{reason}}` 回灌模板。
     pub fn render_repair(&self, locale: Locale, violation: crate::schema::Violation) -> String {
         render_template(
             locale.templates().repair,
@@ -223,10 +182,6 @@ impl PromptRegistry {
     }
 }
 
-/// 修复轮对话：`[system][user 原文/图][assistant 上一次坏回复]
-/// [user 纠错指令]`。首轮消息原样在前：图像任务的图像部件（`Arc` 字节）
-/// 随 base 零拷贝重发，修复轮历史里首轮图片随完整对话走。（EmptyReply
-/// 无内容可纠，不经本函数——原样重发的决策在 [`crate::repair::next_round`]。）
 pub(crate) fn repair_conversation(
     base: &[ChatMessage],
     bad: &str,
@@ -239,10 +194,6 @@ pub(crate) fn repair_conversation(
     messages
 }
 
-/// 指令模板：按 kind 取本 locale 对应文件（全 kind 全覆盖；`render` 只对
-/// 文本输入调本函数——图像分支直接取 image_explain，非法模态组合在渲染前
-/// 已被约束表拦截）。兜底 kind [`TaskKind::General`] 的落点就是 general
-/// 模板——分类判 `Fallback` 时任务走这一份。
 fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
     match kind {
         TaskKind::TranslateWord => templates.word_card,
@@ -253,14 +204,6 @@ fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
     }
 }
 
-/// 目标语言显示名：缺省中文，且**显示名不得为空**——指令模板里 `{{target}}`
-/// 独占一行语义、周围全是静态文字，空值会让整条指令被当作可选行删掉，
-/// 只剩契约。空名或纯空白名（`Lang::Other` 由配置文件手填得来，可能带空白）
-/// 回落缺省。
-///
-/// 语言名随 prompt locale——英文模板里写 "Chinese" 而不是「中文」，否则
-/// 模型拿到的是半汉半英的指令。`Cow` 承载：常用语种与自填名都借自
-/// 静态表或原配置，渲染不复制字符串。
 fn target_display(options: &TaskOptions, locale: Locale) -> Cow<'_, str> {
     let display = lang_display(
         options.target_lang.as_ref().unwrap_or(&DEFAULT_TARGET),
@@ -273,8 +216,6 @@ fn target_display(options: &TaskOptions, locale: Locale) -> Cow<'_, str> {
     }
 }
 
-/// 语言显示名（模板面向模型，用各 locale 的语言书写；`Lang::Other` 是
-/// 用户自填的名字，原样透传）。
 fn lang_display(lang: &Lang, locale: Locale) -> Cow<'_, str> {
     match locale {
         Locale::Zh => match lang {
@@ -296,13 +237,6 @@ fn lang_display(lang: &Lang, locale: Locale) -> Cow<'_, str> {
     }
 }
 
-/// `{{占位符}}` 渲染：逐行替换全部已声明占位符；**一行里的占位符全部
-/// 替换为空**时整行（含行内的静态文字与换行）删除——「可选行」因此在模板
-/// 里就是一行，代码不必为可选片段做条件拼接（提示行就是这么写的：标签在
-/// 模板里，值为空时整行消失）。
-///
-/// 未声明的占位符与未闭合的 `{{` 原样保留：模板打错字不会静默吞内容，
-/// 由完整性测试（`just test`）抓出来。
 fn render_template(template: &str, values: &[(&str, &str)]) -> String {
     let mut out = String::with_capacity(template.len());
     let mut first = true;
@@ -320,17 +254,11 @@ fn render_template(template: &str, values: &[(&str, &str)]) -> String {
     out
 }
 
-/// 单行渲染结果。
 struct RenderedLine {
-    /// 替换后的文本。
     text: String,
-    /// 该行有已声明占位符、且它们的值全是空串（该行是可选行）。
-    /// 没有已声明占位符的行恒为 `false`：不带占位符的空行是模板的结构。
     all_empty: bool,
 }
 
-/// 单行替换：声明的占位符按值替换，未声明的原样保留（连同一处未闭合的
-/// `{{`，其后内容照原样跟在后面）。
 fn substitute_line(line: &str, values: &[(&str, &str)]) -> RenderedLine {
     let mut text = String::with_capacity(line.len());
     let mut rest = line;

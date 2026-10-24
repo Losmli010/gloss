@@ -89,6 +89,27 @@ jobs:
       - name: Check UI copy lives in the catalog
         run: just i18n
 
+  # 注释纪律：.rs 只留中文文件头注释，其余注释迁 docs/comments/
+  comments:
+    name: Comments check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Run checker unit tests
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest scripts/hooks/check_comments_test.py -q
+
+      - name: Check comment discipline
+        run: just comments
+
   # BDD 测试行为清单与测试源码双向一致
   test-bdd:
     name: Test BDD check

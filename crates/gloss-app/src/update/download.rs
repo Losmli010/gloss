@@ -1,10 +1,10 @@
-//! 整包下载：流式落盘、响应体上限、size/sha256 校验与原子改名落位。
+//! 整包下载：流式落盘、响应体上限、字节数与哈希校验、原子改名落位。
 //!
-//! 只信任清单给的三件事：https 直链、字节数、sha256——传输层不提供签名。
-//! 先按累计字节数挡超长（写入前即拒），再比对最终 size，最后算 sha256；
-//! 先 size 后 hash 是因为前者是流式常量时间，hash 要整读一遍文件。
-//! 续传仅限进程内重试：206 才续、200 一律从头；size 偏小与取消保留
-//! `.partial` 供续传，超长与 sha 不符则丢弃重下，校验通过才原子改名。
+//! 只信任清单给的三件事：HTTPS 直链、字节数、内容哈希——传输层不提供签名。
+//! 先按累计字节数挡超长（写入前即拒），再比对最终字节数，最后算哈希；
+//! 先查字节数后算哈希是因为前者是流式常量时间，哈希要整读一遍文件。
+//! 续传仅限进程内重试：206 才续、200 一律从头；字节数偏小与取消保留
+//! 半成品文件供续传，超长与哈希不符则丢弃重下，校验通过才原子改名。
 
 use std::path::{Path, PathBuf};
 
@@ -15,35 +15,16 @@ use tokio_util::sync::CancellationToken;
 
 use super::manifest::Artifact;
 
-/// 下载失败形态：后果一致（落下载步失败、错误卡可重试），分形变体供
-/// 日志与文案各说各话。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadError {
-    /// 请求发出失败、非 200/206 状态、Range 语义不符等传输层故障。
     Network(String),
-    /// 响应体累计超过清单 `size`（无界磁盘占用禁入）。
     TooLarge,
-    /// 传输提前结束：到手的字节少于清单 `size`（`.partial` 保留可续传）。
-    SizeMismatch {
-        /// 清单声明的整包字节数。
-        expected: u64,
-        /// 实际到手的字节数。
-        actual: u64,
-    },
-    /// 全量传输完成但 sha256 与清单不符（`.partial` 已丢弃）。
+    SizeMismatch { expected: u64, actual: u64 },
     ShaMismatch,
-    /// 本地文件系统故障。
     Io(String),
-    /// 下载被取消（`.partial` 保留，进程内重试可续传）。
     Cancelled,
 }
 
-/// 下载并校验一个整包：成功返回最终 zip 路径（`.partial` 已原子改名）。
-///
-/// `work_dir` 是下载工作目录（`.partial` 与最终文件同卷，改名才是原子
-/// 的）；`resume` 为真时基于遗留 `.partial` 续传，为假时先清除遗留
-/// `.partial` 全量重下。取消令牌在流式循环内逐块响应，取消后
-/// `.partial` 保留在途进度。
 pub async fn download(
     client: &reqwest::Client,
     artifact: &Artifact,
@@ -60,7 +41,6 @@ pub async fn download(
 
     let start = plan_resume_start(artifact, &partial, resume, cancel).await?;
     let response = request_partial(artifact, client, start).await?;
-    // 服务端 206 才续传；200（含不支持 Range 的服务端）一律从头整体重下。
     let resume_accepted = response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
     let offset = if resume_accepted { start } else { 0 };
     let mut writer = open_partial(&partial, offset, resume_accepted).await?;
@@ -80,8 +60,6 @@ pub async fn download(
     verify_and_rename(&partial, &dest, artifact).await
 }
 
-/// 续传起点：`resume` 为真且遗留 `.partial` 值得续时从残料长度续起，
-/// 否则从头并清掉残料。取消在发出任何请求前核对。
 async fn plan_resume_start(
     artifact: &Artifact,
     partial: &Path,
@@ -92,7 +70,6 @@ async fn plan_resume_start(
     if resume {
         if let Ok(meta) = tokio::fs::metadata(partial).await {
             let len = meta.len();
-            // 残料只有「非空且未满」才值得续；满了或空了都当损坏从头重下。
             if len > 0 && len < artifact.size {
                 start = len;
             }
@@ -106,8 +83,6 @@ async fn plan_resume_start(
     Ok(start)
 }
 
-/// 发出下载请求并校验响应：非 200/206、Range 语义不符（asked 起点与
-/// Content-Range 对不上）都按传输层故障拒绝。
 async fn request_partial(
     artifact: &Artifact,
     client: &reqwest::Client,
@@ -142,8 +117,6 @@ async fn request_partial(
     Ok(response)
 }
 
-/// 按 `offset` 打开 `.partial` 供写入：从头下载时清空旧内容，续传时
-/// 保留并定写到续点。
 async fn open_partial(
     partial: &Path,
     offset: u64,
@@ -167,8 +140,6 @@ async fn open_partial(
     Ok(writer)
 }
 
-/// 流式落盘：取消逐块响应（在途进度留在 `.partial`），累计字节数（含续传
-/// 起点）超清单 `size` 即断，写失败的现场交调用方冲刷。
 async fn stream_body(
     writer: &mut tokio::io::BufWriter<tokio::fs::File>,
     response: reqwest::Response,
@@ -189,7 +160,6 @@ async fn stream_body(
                 None => break,
                 Some(Err(err)) => {
                     flush(writer).await?;
-                    // 传输中断：在途进度留在 .partial，进程内重试可续传。
                     return Err(DownloadError::Network(format!("stream: {err}")));
                 }
                 Some(Ok(bytes)) => {
@@ -215,9 +185,6 @@ async fn flush(writer: &mut tokio::io::BufWriter<tokio::fs::File>) -> Result<(),
         .map_err(|err| DownloadError::Io(format!("flush partial: {err}")))
 }
 
-/// 传输完成后的校验与落位：先 size 后 sha256（前者流式常量时间，后者要
-/// 整读一遍文件）；size 偏小保留残料供续传，sha 不符丢弃残料，校验通过
-/// 才原子改名到最终路径。
 async fn verify_and_rename(
     partial: &Path,
     dest: &Path,
@@ -228,7 +195,6 @@ async fn verify_and_rename(
         .map_err(|err| DownloadError::Io(format!("stat partial: {err}")))?
         .len();
     if actual != artifact.size {
-        // 少于清单 size 是传输提前收尾，等同中断：残料保留供续传。
         return Err(DownloadError::SizeMismatch {
             expected: artifact.size,
             actual,
@@ -247,8 +213,6 @@ async fn verify_and_rename(
     Ok(dest.to_path_buf())
 }
 
-/// 产物文件名：取 URL 路径末段（清单 url 已过 https 校验，这里只防
-/// 形态异常的段名进文件系统）。
 fn artifact_file_name(url: &str) -> Result<String, DownloadError> {
     let name = reqwest::Url::parse(url)
         .ok()
@@ -263,7 +227,6 @@ fn artifact_file_name(url: &str) -> Result<String, DownloadError> {
     Ok(name)
 }
 
-/// 文件的 sha256（64 位十六进制小写）：分块读入，不整文件进内存。
 async fn sha256_hex_file(path: &Path) -> Result<String, DownloadError> {
     use sha2::Digest;
     let mut file = tokio::fs::File::open(path)

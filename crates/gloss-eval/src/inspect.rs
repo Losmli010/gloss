@@ -1,12 +1,12 @@
-//! 检视页渲染：报告 + 逐条明细 + 历史 → 单文件 HTML（`target/eval/inspect.html`）。
+//! 检视页渲染：报告 + 逐条明细 + 历史 → 单文件 HTML 检视页。
 //!
-//! [`render_html`] 是纯函数，不读环境、不落盘；数据集文本与模型回复等
+//! 渲染入口是纯函数，不读环境、不落盘；数据集文本与模型回复等
 //! 外来内容一律经 HTML 转义落进静态标记，交互（过滤）只用内联的十几行
-//! vanilla JS——产物零外部资源，离线双击可开，也可直接分发给无终端的
+//! 原生 JavaScript——产物零外部资源，离线双击可开，也可直接分发给无终端的
 //! 评审者。
 //!
-//! 口径脚注必须随页走：replay 页的准确率是生产校验器对**固化夹具**的
-//! 判定，改 prompt 并不会动它（需 `--record` 重录夹具）；改 prompt 后的
+//! 口径脚注必须随页走：重放页的准确率是生产校验器对**固化夹具**的
+//! 判定，改提示词并不会动它（需重录夹具）；改提示词后的
 //! 真实准确率看 live 页。这条不写清，检视页会把人引向错误结论。
 
 use gloss_core::task::TaskKind;
@@ -15,7 +15,6 @@ use crate::detail::{CLASSIFY_GROUP, CaseDetail, ClassifyOutcome, TaskOutcome};
 use crate::report::{ClassifyStats, EvalReport, format_utc};
 use crate::svg;
 
-/// 渲染检视页。`history` 供趋势图与「对比上一次同 mode 运行」的差值。
 pub fn render_html(report: &EvalReport, cases: &[CaseDetail], history: &[EvalReport]) -> String {
     let mut out = String::new();
     out.push_str("<!doctype html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n");
@@ -43,8 +42,6 @@ pub fn render_html(report: &EvalReport, cases: &[CaseDetail], history: &[EvalRep
          const g=groupFilter==='all'||el.dataset.group===groupFilter;\
          el.style.display=s&&r&&g?'':'none';});}\n",
     );
-    // 过滤值只在 data-v 属性上传递、由事件委托读取：内联 onclick 的属性
-    // 实体会先于 JS 解码，等价于把数据值拼进 JS 字符串字面量。
     out.push_str(
         "function pick(kind,v){document.querySelectorAll('button.'+kind).forEach(b=>\
          {b.classList.toggle('on',b.dataset.v===v);});}\n",
@@ -60,7 +57,6 @@ pub fn render_html(report: &EvalReport, cases: &[CaseDetail], history: &[EvalRep
     out
 }
 
-/// 头部：标题 + mode 徽标 + 运行上下文与覆盖面。
 fn render_header(out: &mut String, report: &EvalReport) {
     let evaluated = report
         .classify
@@ -96,7 +92,6 @@ fn render_header(out: &mut String, report: &EvalReport) {
     ));
 }
 
-/// 指标卡：分类一张、任务轨每数据集一张；与上一次同 mode 运行比出差值。
 fn render_cards(out: &mut String, report: &EvalReport, previous: Option<&EvalReport>) {
     out.push_str("<section class=\"cards\">");
     if let Some(stats) = &report.classify {
@@ -106,7 +101,6 @@ fn render_cards(out: &mut String, report: &EvalReport, previous: Option<&EvalRep
     out.push_str("</section>\n");
 }
 
-/// 分类卡：accuracy 与回退率带上与上一次同 mode 运行的差值徽标。
 fn render_classify_card(out: &mut String, stats: &ClassifyStats, previous: Option<&EvalReport>) {
     let metrics = &stats.metrics;
     let prev = previous.and_then(|prev| prev.classify.as_ref());
@@ -143,7 +137,6 @@ fn render_classify_card(out: &mut String, stats: &ClassifyStats, previous: Optio
     ));
 }
 
-/// 任务轨卡片：每个数据集一张，字段完整率/降级率与上次比差值。
 fn render_task_cards(out: &mut String, report: &EvalReport, previous: Option<&EvalReport>) {
     for stats in &report.tasks {
         let metrics = &stats.metrics;
@@ -181,8 +174,6 @@ fn render_task_cards(out: &mut String, report: &EvalReport, previous: Option<&Ev
     }
 }
 
-/// 可比的上次比率：两侧分母都非零才返回（`None` 即不出差值徽标）——
-/// 空分母（无夹具/全跳过/零 evaluated）的 0/0 与上次的比率没有可比性。
 fn comparable<T: Copy>(
     evaluated: usize,
     prev: Option<T>,
@@ -195,7 +186,6 @@ fn comparable<T: Copy>(
     prev.filter(|prev| denominator_of(*prev) > 0).map(rate_of)
 }
 
-/// 混淆矩阵（仅错误路径）；无错误行整段跳过。
 fn render_confusion(out: &mut String, report: &EvalReport) {
     let Some(stats) = &report.classify else {
         return;
@@ -222,8 +212,6 @@ fn render_trend(out: &mut String, history: &[EvalReport]) {
     ));
 }
 
-/// 逐条明细：状态过滤 + 轨道过滤（内联 JS），每条一个原生 `<details>`
-/// 展开逐轮原始回复。
 fn render_cases(out: &mut String, cases: &[CaseDetail]) {
     out.push_str("<section><h2>逐条明细</h2><div class=\"filters\">");
     for (value, label) in [
@@ -305,8 +293,6 @@ fn render_case(out: &mut String, case: &CaseDetail) {
     out.push_str("</div></details>\n");
 }
 
-/// 状态归档（过滤键 + 徽标）：引擎失败独立于模型行为，误判/格式错/拒绝
-/// 同为硬错误，缺疏证是软缺口（不降级）。
 fn case_badge(case: &CaseDetail) -> (&'static str, &'static str, &'static str) {
     if case.engine_error {
         return ("engine", "gray", "引擎失败");
@@ -330,8 +316,6 @@ fn case_badge(case: &CaseDetail) -> (&'static str, &'static str, &'static str) {
     }
 }
 
-/// 判定列文本：误判给实际落点、降级给产物状态（末轮 note 预览在展开区；
-/// 期望列已示期望 kind，不再重复）。
 fn case_verdict_text(case: &CaseDetail) -> String {
     if let Some(ClassifyOutcome::Wrong { actual }) = &case.classify {
         return format!("判成{}", kind_label(*actual));
@@ -342,7 +326,6 @@ fn case_verdict_text(case: &CaseDetail) -> String {
     String::new()
 }
 
-/// 上一次同 mode 运行（差值基准）：时间戳相同视为本次本身，不再向前比。
 fn previous_run<'a>(report: &EvalReport, history: &'a [EvalReport]) -> Option<&'a EvalReport> {
     history
         .iter()
@@ -350,14 +333,12 @@ fn previous_run<'a>(report: &EvalReport, history: &'a [EvalReport]) -> Option<&'
         .find(|row| row.mode == report.mode && row.generated_at != report.generated_at)
 }
 
-/// 差值方向语义：accuracy/完整率涨是好，回退/降级率涨是坏。
 #[derive(Debug, Clone, Copy)]
 enum DeltaDir {
     UpGood,
     DownGood,
 }
 
-/// 差值徽标：无基准（首次运行或分母为 0）不显示；四舍五入后为零不发声。
 fn delta_chip(now: f64, previous: Option<f64>, dir: DeltaDir) -> String {
     let Some(previous) = previous else {
         return String::new();
@@ -403,7 +384,6 @@ fn dataset_label(dataset: &str) -> &str {
     }
 }
 
-/// 分组的展示名：任务数据集名 → 数据集简称；其余（分类）原样。
 fn group_label(group: &str) -> &str {
     match group {
         CLASSIFY_GROUP => CLASSIFY_GROUP,

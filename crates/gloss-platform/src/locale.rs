@@ -1,7 +1,7 @@
-//! 系统语言读取：`Config::language` 为 `System` 时的唯一输入，prompt 模板
+//! 系统语言读取：配置选「跟随系统」时的唯一输入，提示词模板
 //! 与界面文案共用这一份结果。
 //!
-//! 只看 `NSLocale.preferredLanguages` 的首项（如 `"zh-Hans-CN"`）；进程内
+//! 只看系统首选语言列表的首项（如 zh-Hans-CN）；进程内
 //! 启动期读一次，系统语言变了需重启应用。
 
 use gloss_core::model::Locale;
@@ -13,7 +13,6 @@ pub fn system_locale() -> Locale {
     locale_for(first.as_deref())
 }
 
-/// 只有 `zh*` 归中文，其余语言（含读不到偏好）一律英文——文案只有中英两套。
 fn locale_for(preferred: Option<&str>) -> Locale {
     match preferred {
         Some(code) if code.to_ascii_lowercase().starts_with("zh") => Locale::Zh,

@@ -1,6 +1,6 @@
-//! 浮层视图分发与卡骨架：按 [`OverlayView`] 变体选卡（自检、流式、降级
+//! 浮层视图分发与卡骨架：按视图变体选卡（自检、流式、降级
 //! 产物、产物、失败），平铺/滚动骨架在此拼装；经位与注疏的正文排布委托
-//! [`super::outcome`]，页头页脚印章等固定件委托 [`super::card`]。
+//! 经注疏排布模块，页头页脚印章等固定件委托卡片固定件模块。
 //!
 //! 骨架条（「经显注未至」的占位脉动条）也在这里：它是流式正文的占位
 //! 形态，与页脚呼吸点同源脉动。
@@ -22,25 +22,14 @@ use crate::machine::{ErrorAction, FailureCause, OverlayView};
 use crate::ui::i18n::Text;
 use crate::ui::style::{font, space};
 
-/// 滚动区视口的下限：窗口被压得极矮时正文至少还能滚出这么多。
 const MIN_BODY_VIEWPORT: f32 = 48.0;
-/// 页脚与正文之间的空隙；滚动区按这条带宽预留视口
-/// （auto_shrink(false) 的滚动区会吃光剩余空间，不预留页脚就被挤出窗外）。
 const FOOTER_RESERVE: f32 = super::FOOTER_HEIGHT + space::PARAGRAPH;
-/// 方向键的单次滚动步长（约三行正文；按住由系统按键重复续推）。
 const ARROW_SCROLL_STEP: f32 = 48.0;
-/// 骨架条高（「经显注未至」的占位行）
 const SHIMMER_BAR_HEIGHT: f32 = 12.0;
-/// 骨架条圆角
 const SHIMMER_BAR_RADIUS: u8 = 4;
-/// 骨架条铺底的透明度档（0-255）：脉动在这个下限与峰值之间摆动
 const SHIMMER_ALPHA_MIN: u8 = 38;
 const SHIMMER_ALPHA_MAX: u8 = 96;
 
-/// 滚动视图的完整内容高：实测布局高（视口收缩到内容时即真实高度）加上
-/// 视口放不下的溢出量（内容高于视口时窗口按完整内容高申请，壳侧钳到屏）。
-/// 公式口径（body_top + content_size + 预留）与 egui 的行距累计差一个
-/// item_spacing，页脚会悬在窗外 17px——以实测为准。
 fn record_scrolled_height(
     ui: &egui::Ui,
     content_h: &mut f32,
@@ -50,13 +39,10 @@ fn record_scrolled_height(
     *content_h = ui.min_rect().height() + overflow;
 }
 
-/// 滚动区视口上限：可用高扣掉页脚带预留，极矮窗口下仍有滚动下限。
 fn viewport_max(ui: &egui::Ui) -> f32 {
     (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT)
 }
 
-/// 浮层聚焦时的方向键滚动：↑/↓ 平移滚动区视口，内容不溢出时到界即停。
-/// 在滚动区内容闭包的起始处调用（无修饰键参与，不与其它快捷键争抢）。
 fn arrow_key_scroll(ui: &egui::Ui) {
     let step = ui.input(|input| {
         if !input.modifiers.any() {
@@ -74,10 +60,6 @@ fn arrow_key_scroll(ui: &egui::Ui) {
     }
 }
 
-/// 骨架条（「经显注未至」的正文占位）：三根不同长度的圆角条随时间
-/// 脉动，无任何文字与无障碍标签——「正在注解」由页脚唯一携带，双标签
-/// 会让查询歧义。动画期间请求短重绘；kittest 的固定时间零点让快照
-/// 恒定在同一相位。
 fn shimmer_bars(ui: &mut egui::Ui) {
     let now = ui.input(|i| i.time);
     let ratios = [0.95, 0.78, 0.6];
@@ -109,8 +91,6 @@ fn shimmer_bars(ui: &mut egui::Ui) {
         .request_repaint_after(Duration::from_secs_f32(0.016));
 }
 
-/// 流式正文（注位渐进 markdown + 疏位已到达的解读条目）：两字段全空落
-/// 骨架（经已回显、注未至——无注印，还没有可注的内容）。
 fn streamed_sections(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, fields: &StreamFields) {
     if fields.note.is_empty() && fields.examples.is_empty() {
         shimmer_bars(ui);
@@ -128,8 +108,6 @@ fn streamed_sections(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, fields: &StreamFiel
     }
 }
 
-/// 流式卡的滚动区正文：经位由调用方定形制（附件图像或原文块），注/疏
-/// 两区由 [`streamed_sections`] 固定跟进。
 fn streamed_body(
     ui: &mut egui::Ui,
     ctx: &RenderCtx<'_>,
@@ -141,11 +119,6 @@ fn streamed_body(
     streamed_sections(ui, ctx, fields);
 }
 
-/// 浮层内容（头部 + 各视图正文），并把完整内容高记入 `content_h`：
-/// 产物与流式正文（含经位）放进 ScrollArea（完整渲染、超出滚动兜底），
-/// 其高度取 ScrollArea 报告的内容尺寸，不受视口裁剪影响；页脚带恒在
-/// （滚动区按 [`FOOTER_RESERVE`] 预留视口，页脚不被内容挤出窗外）。头部
-/// 动作区与失败卡动作按钮的点击结果、页头拖动热区的位移一并透传给调用方。
 pub(super) fn render_content(
     ui: &mut egui::Ui,
     ctx: &RenderCtx<'_>,
@@ -166,17 +139,10 @@ pub(super) fn render_content(
                 repairing: *repairing,
             };
             match ctx.attached {
-                // 图像卡：经位图像与注/疏一起进滚动区——高图由滚动区吞
-                // 高，窗口按完整内容高申请、壳侧钳到屏，超出滚动兜底。
                 Some(png) => scrolled_card(ui, ctx, content_h, mode, |ui| {
                     streamed_body(ui, ctx, &fields, |ui| attached_image(ui, ctx, png));
                 }),
-                // 经位与注/疏同一滚动区：长选区只抬高滚动内容，页脚仍钉在
-                // 视口下方（经位若留在滚动区外，长选区会把页脚顶出窗外，
-                // 生成指示随之不可见）。
                 None => scrolled_card(ui, ctx, content_h, mode, |ui| {
-                    // 流式期没有语言判定（唯一来源是产物的 structured
-                    // 回传），经位代码面板按通用启发集着色、无角标。
                     streamed_body(ui, ctx, &fields, |ui| source_block(ui, source, code, None));
                 }),
             }
@@ -196,8 +162,6 @@ pub(super) fn render_content(
     }
 }
 
-/// 不滚动的卡骨架：头部 + 正文 + 页脚，正文高度即内容高（自检、降级与
-/// 失败卡共用）。正文可写回卡片动作（重试/打开设置）。
 fn plain_card(
     ui: &mut egui::Ui,
     ctx: &RenderCtx<'_>,
@@ -213,18 +177,12 @@ fn plain_card(
     (action, drag)
 }
 
-/// 页脚形态：流式期显示注解状态（`repairing` 区分首轮与重新注解），
-/// 其余卡片是静态页脚。
 #[derive(Clone, Copy)]
 enum FooterMode {
     Static,
     Streaming { repairing: bool },
 }
 
-/// 滚动卡骨架：头部 + 纵向滚动正文 + 页脚。正文（经位与注/疏）整体进
-/// 滚动区，完整高按滚动区报告的内容尺寸回记（不受视口裁剪影响）；页脚
-/// 在滚动区之外、随其下缘排布——正文再长也只在滚动区内部滚动，不会把
-/// 页脚顶出窗外。
 fn scrolled_card(
     ui: &mut egui::Ui,
     ctx: &RenderCtx<'_>,
@@ -234,7 +192,6 @@ fn scrolled_card(
 ) -> (Option<OverlayAction>, Option<egui::Vec2>) {
     let (action, drag) = header(ui, ctx.state, ctx.text);
     ui.add_space(space::SECTION);
-    // 只纵向滚动：代码正文按可用宽折行。
     let scrolled = ScrollArea::new([false, true])
         .auto_shrink([false, true])
         .max_height(viewport_max(ui))
@@ -251,9 +208,6 @@ fn scrolled_card(
     (action, drag)
 }
 
-/// 降级产物卡（契约校验失败）：渲染「输出异常」+ 复用重试按钮，
-/// 不渲染注疏内容——原文垃圾不展示不留存（缓存侧同样不收，
-/// 见 `crate::runtime::pipeline`）。
 fn degraded_card(
     ui: &mut egui::Ui,
     ctx: &RenderCtx<'_>,
@@ -279,8 +233,6 @@ fn degraded_card(
     })
 }
 
-/// 失败卡：按失败来源的文案（含占位符变体）+ 可选动作按钮（重试/打开
-/// 设置）。
 fn failed_card(
     ui: &mut egui::Ui,
     ctx: &RenderCtx<'_>,
@@ -310,8 +262,6 @@ fn failed_card(
     })
 }
 
-/// 失败卡文案：按失败来源映射（静态词条借自常驻文案表，带占位符的
-/// 变体才拼新串）。
 fn failure_message<'a>(cause: &'a FailureCause, text: &'a Text) -> Cow<'a, str> {
     match cause {
         FailureCause::Task(error) => text.for_error(error),
@@ -319,7 +269,6 @@ fn failure_message<'a>(cause: &'a FailureCause, text: &'a Text) -> Cow<'a, str> 
     }
 }
 
-/// 动作按钮的文案。
 fn action_label(action: ErrorAction, text: &'static Text) -> &'static str {
     match action {
         ErrorAction::Retry => text.gloss_popup_retry.as_str(),

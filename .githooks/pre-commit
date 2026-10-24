@@ -56,7 +56,7 @@ if [ -z "$STAGED_RS" ]; then
   exit 0
 fi
 
-echo "→ pre-commit: 运行静态检查（just precommit 全套：约束 + 文档引用 + BDD 清单 + 文案表 + fmt + clippy + secrets）..."
+echo "→ pre-commit: 运行静态检查（just precommit 全套：约束 + 文档引用 + BDD 清单 + 文案表 + 注释纪律 + fmt + clippy + secrets）..."
 if ! just precommit; then
   echo "" >&2
   echo "✗ 静态检查未通过，已阻止提交" >&2

@@ -1,24 +1,20 @@
-//! 完成态解析：模型原始回复 → [`TaskOutcome`]（缓存站点与产物卡的唯一入口）。
+//! 完成态解析：模型原始回复 → 产物（缓存站点与产物卡的唯一入口）。
 //!
-//! 契约校验收敛于 `gloss_core::schema`（wire 契约见该模块文档），这里只有
+//! 契约校验收敛于 gloss-core 的契约模块（传输契约见该模块文档），这里只有
 //! **两分支**：
-//! 1. `validate_task` Ok → 正常产物（note + 按 kind 的疏证变体，
-//!    `degraded = false`）。
-//! 2. `Err`（空回复 / 非 JSON / 缺 note）→ 降级产物：`note` 空串、该 kind
-//!    空变体、`degraded = true`，warn 留痕（只记违约类别，不携带回复原文）。
-//!    降级产物不进缓存（桥侧按 `degraded` 分流）、UI 出降级卡（原文垃圾
+//! 1. 校验通过 → 正常产物（注 + 按类别的疏证变体，且不降级）。
+//! 2. 校验失败（空回复 / 非 JSON / 缺注）→ 降级产物：注为空串、该类别
+//!    空变体、降级标记置位，留警告痕（只记违约类别，不携带回复原文）。
+//!    降级产物不进缓存（桥侧按降级标记分流）、界面出降级卡（原文垃圾
 //!    不展示不留存）。
 //!
-//! 流式期间 UI 按纯 JSON 渐进提取 `note`（见 `crate::ui::popup`），完成态
+//! 流式期间界面按纯 JSON 渐进提取注（见浮层模块），完成态
 //! 以本模块的产物为准。
 
 use gloss_core::log::{thread, warn};
 use gloss_core::schema;
 use gloss_core::task::{TaskKind, TaskOutcome};
 
-/// 完成态产物组装（契约纯函数）：校验过出正常产物，违约落降级产物。
-/// 引擎失败的任务到不了这里，因此产物恒可回填缓存——但降级产物由调用方
-/// 按 `degraded` 分流（不进缓存，见 `crate::runtime::pipeline`）。
 pub fn complete(kind: TaskKind, raw: &str) -> TaskOutcome {
     match schema::validate_task(kind, raw) {
         Ok((note, structured)) => TaskOutcome {

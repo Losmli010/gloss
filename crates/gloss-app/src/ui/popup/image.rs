@@ -1,15 +1,12 @@
 //! 经位附件图像的解码：内存 PNG → egui 像素容器。
 //!
-//! 纯数据变换，不依赖 egui 绘制侧（`egui::ColorImage` 只是像素容器）；
-//! 纹理装入随 egui 上下文，留在绘制侧的 `RenderState::attached_texture`。
+//! 纯数据变换，不依赖 egui 绘制侧（像素容器只是数据载体）；
+//! 纹理装入随 egui 上下文，留在绘制侧的附件纹理装入点。
 
 use std::sync::Arc;
 
 use gloss_core::log::{thread, warn};
 
-/// 解码经位附件图像（剪贴板取材产物，平台侧已做过尺寸设界）；失败隔离
-/// 降级——记一条只含字节长度的告警（图像内容不落日志），绘制侧落占位，
-/// 不影响其余内容。参数化 PNG 来源，解码与降级分支可经 L1 测试直接驱动。
 pub(super) fn decode_attached(png: &Arc<[u8]>) -> Option<egui::ColorImage> {
     use image::GenericImageView;
     let decoded = match image::load_from_memory(png) {

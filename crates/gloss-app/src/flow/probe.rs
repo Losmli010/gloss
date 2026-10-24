@@ -1,5 +1,5 @@
 //! 编排用例·探测段：消费通道①（平台事件）→ 场景闸门 → 产出取材命令
-//! 发往通道②。状态机不动、不显形——产物到达才由 `task` 提交。
+//! 发往通道②。状态机不动、不显形——产物到达才由任务段提交。
 
 use gloss_core::guard::SceneFacts;
 use gloss_core::log::{Span, debug, info, task_span, thread, warn};
@@ -10,41 +10,22 @@ use crate::machine::{TriggerDecision, trigger_decision};
 use crate::app::GlossApp;
 
 impl GlossApp {
-    /// 消费通道①：平台事件 → 取材命令。只有真实下发的命令才占用编号
-    /// （未接线事件不作废在途回传）。划词手势与剪贴板图片观察各走各的
-    /// 探测段入口（状态机不动、不显形，产物到达才提交）。
-    ///
-    /// 触发前读一次场景事实（安全输入态、前台应用）：闸门拦下的触发与
-    /// 未接线事件一样不进状态机，但记 warn——用户会想知道「为什么划了没
-    /// 反应」，而这是他能自己修的（换一个应用，或取消密码框的聚焦）。
-    /// 前台应用随划词探测留存（`probe_front_app`），探测失败的排查日志
-    /// 带上它——那是「划了没反应」的唯一线索。
     pub(crate) fn drain_platform_events(&mut self) {
-        // 配置快照在本批事件的起手处取一次（零锁读）：本批触发的任务都用
-        // 同一份配置解析类型与选项——任务一旦触发，其配置就固定了。
         let config = self.env.config.snapshot();
-        // 先收集再处理：endpoints 的借用与 &mut self 互斥，收进 Vec 后即
-        // 归还，后续可用正常的方法调用。
         let events: Vec<PlatformEvent> = self
             .endpoints
             .as_ref()
             .map_or(Vec::new(), |e| e.platform_events.try_iter().collect());
         for event in events {
-            // 设置入口：托盘与浮层失败卡共用同一条路；不占
-            // 用代数（与未接线事件一样不进状态机）。
             if matches!(event, PlatformEvent::OpenSettingsRequested) {
                 info!(thread = thread::UI, "settings open requested");
                 self.open_settings();
                 continue;
             }
-            // 授权落定：启动预检未就绪的会话里运行中补齐了辅助功能授权，
-            // 解预热门控并补发被推迟的密钥预热；不占用代数（不进状态机）。
             if matches!(event, PlatformEvent::AccessibilityGranted) {
                 self.on_accessibility_granted();
                 continue;
             }
-            // 逐事件现读场景事实：安全输入态与前台应用都可能在两次触发
-            // 之间变化，探针也就两次纯查询。
             let scene = self.env.scene.facts();
             let Some(command) = (match &event {
                 PlatformEvent::SelectionGesture { .. } => self.machine.begin_selection_probe(
@@ -68,18 +49,12 @@ impl GlossApp {
         }
     }
 
-    /// 命令下发段：探测编号升为任务 span、按触发类型留存锚点与前台应用，
-    /// 再发往通道②；发送失败（事件线程死亡/退出）时作废探测即可（当前
-    /// 显示不动）。
     fn dispatch_probe(&mut self, command: AcquireCommand, event: PlatformEvent, scene: SceneFacts) {
         let generation = command.generation();
         let span = task_span(generation);
         self.session.task_span = Some((generation, span.clone()));
         let entered_span = span.clone();
         let _entered = entered_span.enter();
-        // 划词探测记录释放坐标与前台应用（随探测编号）：浮层显示时跟随
-        // 选区；探测失败的排查日志带上应用标识。剪贴板观察无锚点——
-        // 浮层露面走既有居中路径。
         match event {
             PlatformEvent::SelectionGesture { pos } => {
                 info!(
@@ -103,8 +78,6 @@ impl GlossApp {
         }
     }
 
-    /// 通道②发送；返回是否发出。接收端消失（事件线程死亡/退出）时由
-    /// 调用方作废探测（当前显示不动）。
     fn send_acquire(&mut self, command: AcquireCommand, span: Span) -> bool {
         let generation = command.generation();
         let Some(endpoints) = &self.endpoints else {
@@ -125,10 +98,6 @@ impl GlossApp {
     }
 }
 
-/// 状态机拦下或未接线的事件的分级去向：两类拦下各有各的级别与措辞——
-/// 被场景闸门拦下的是「这一次的场景不合适」（换一个应用，或取消密码框
-/// 的聚焦）；自身前台是防误触的日常过滤（连拖 Gloss 自己的浮层），只留
-/// debug；未接线的事件同样只留在默认级别看不见的 debug 里。
 fn log_unwired(event: &PlatformEvent, scene: &SceneFacts) {
     match trigger_decision(event, scene) {
         TriggerDecision::Blocked(block) => warn!(

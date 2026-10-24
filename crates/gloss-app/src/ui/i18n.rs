@@ -1,14 +1,14 @@
-//! 界面文案表：locale → 类型化文案，编译期嵌入的文件资源。
+//! 界面文案表：语言环境 → 类型化文案，编译期嵌入的文件资源。
 //!
-//! 与 core 的 prompt 模板同构（文件资源 + `include_str!`），分工不同：
-//! prompt 面向模型（长文 markdown），这里面向用户（短标签键值表）。
+//! 与核心层的提示词模板同构（同为编译期嵌入的文件资源），分工不同：
+//! 提示词面向模型（长文 Markdown），这里面向用户（短标签键值表）。
 //!
 //! 键完整性由类型与 serde 共同保证：字段与两份文件一一对应，
-//! `deny_unknown_fields` 拦多键、字段无缺省拦少键——「拼错键静默回退」在
-//! 类型层不存在。解析在首次取用时做一次并常驻，失败回落空表并记 error：
+//! 未知键拒绝解析、字段无缺省拦少键——「拼错键静默回退」在
+//! 类型层不存在。解析在首次取用时做一次并常驻，失败回落空表并记错误日志：
 //! 文件是编译期常量，解析测试保证那条分支不可达。
 //!
-//! 语言由调用方给（`Config::language` 落定成的 `Locale`），本模块不做探测。
+//! 语言由调用方给（配置的语言档位落定结果），本模块不做探测。
 
 use std::borrow::Cow;
 use std::sync::OnceLock;
@@ -17,16 +17,9 @@ use gloss_core::log::error;
 use gloss_core::model::{GlossError, Locale};
 use serde::Deserialize;
 
-/// 中文文案（出厂 locale）。
 const ZH: &str = include_str!("../../i18n/zh.toml");
-/// 英文文案。
 const EN: &str = include_str!("../../i18n/en.toml");
 
-/// 一个 locale 的全部界面文案：一张扁平表，字段名就是 TOML 里的键。
-///
-/// 键一律是全限定名 `gloss_<模块>_<词条>`（下划线连接，见 `i18n/*.toml`）；
-/// 字段与文件逐字同名，因此既没有 rename 层也没有嵌套结构体——文件与代码读到的
-/// 是同一个名字。改词条名要连着改 TOML 里的那一行，名字对不上即解析失败。
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Text {
@@ -126,11 +119,6 @@ pub struct Text {
 }
 
 impl Text {
-    /// 失败卡文案：按 [`GlossError`] 变体映射，不按英文 `Display` 反查
-    /// ——后者是日志用的诊断文本，措辞与它无关（改 `Display` 不该改界面）。
-    ///
-    /// 静态词条借自常驻文案表（`Text::get` 返回 `&'static`，表与进程同寿），
-    /// 只有带占位符的变体才拼新串。
     pub fn for_error<'a>(&'a self, error: &GlossError) -> Cow<'a, str> {
         match error {
             GlossError::SelectionUnavailable => {
@@ -162,11 +150,6 @@ impl Text {
         }
     }
 
-    /// 错因细节：变体自带诊断文本的取它，其余整句照搬。
-    ///
-    /// 供**复合**提示用（如设置页的「保存失败：{{detail}}」）：复合提示的
-    /// 前缀已经交代了场合，再拼一遍本地化整句会读成
-    /// 「保存失败：配置有误：…」——落盘失败与配置本身非法是两回事。
     pub fn for_error_detail<'a>(&'a self, error: &'a GlossError) -> Cow<'a, str> {
         match error {
             GlossError::EngineResponse(detail) | GlossError::Config(detail) => {
@@ -176,7 +159,6 @@ impl Text {
         }
     }
 
-    /// 取某 locale 的文案表。首次调用时解析两份文件并常驻，之后零锁读取。
     pub fn get(locale: Locale) -> &'static Self {
         static CATALOGS: OnceLock<[Text; 2]> = OnceLock::new();
         let catalogs = CATALOGS.get_or_init(|| [parse(ZH, "zh"), parse(EN, "en")]);
@@ -187,7 +169,6 @@ impl Text {
     }
 }
 
-/// 解析一份文案文件；失败回落空表并记 error（有痕迹的降级）。
 fn parse(raw: &str, locale: &str) -> Text {
     toml::from_str(raw).unwrap_or_else(|err| {
         error!(
@@ -199,10 +180,6 @@ fn parse(raw: &str, locale: &str) -> Text {
     })
 }
 
-/// 填充 `{{name}}` 占位符：表里出现几次就替换几次。占位符模式按字面
-/// 匹配，替换值不参与再扫描（与逐参数 `str::replace` 的语义一致）——
-/// 单参数（当前全部调用点）一趟字面量拼接直接出串，模板与占位符模式
-/// 不再各自复制一份；多参数维持逐参数替换（参数值互不嵌套）。
 pub(crate) fn fill(template: &str, args: &[(&str, &str)]) -> String {
     if let [(name, value)] = args {
         let mut out = String::with_capacity(template.len() + value.len());
@@ -217,7 +194,6 @@ pub(crate) fn fill(template: &str, args: &[(&str, &str)]) -> String {
                 out.push_str(value);
                 rest = &rest[offset + pattern_len..];
             } else {
-                // 非占位符的花括号：只前进一个字节，逐字面量比对不漏配。
                 out.push_str(&rest[..offset + 1]);
                 rest = &rest[offset + 1..];
             }
@@ -228,7 +204,6 @@ pub(crate) fn fill(template: &str, args: &[(&str, &str)]) -> String {
     let mut out = template.to_owned();
     for (name, value) in args {
         let mut pattern = String::with_capacity(name.len() + 4);
-        // 字面量 `{{name}}`：四花括号两两成对。
         pattern.push_str("{{");
         pattern.push_str(name);
         pattern.push_str("}}");

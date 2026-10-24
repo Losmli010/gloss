@@ -1,44 +1,25 @@
-//! AX 读选区：`AccessibilityReader`。
+//! AX 读选区：辅助功能读取器。
 //!
-//! 经 Accessibility API（HIServices）向系统问询「systemwide 焦点元素 →
+//! 经辅助功能接口（HIServices）向系统问询「系统级焦点元素 →
 //! 选中文本」，是向目标应用发起的同步跨进程调用，按线程模型约束
 //! 必须运行在平台事件线程（调用方保证亲和性）。权限缺失返回
-//! [`GlossError::AccessibilityDenied`]；「属性可读但选区为空」（空串，含
-//! kAXErrorNoValue 的「属性存在但无值」）返回 [`GlossError::SelectionEmpty`]
+//! 权限拒绝错误；「属性可读但选区为空」（空串，含
+//! 「属性存在但无值」系统错误）返回空选区错误
 //! ——组合通道先让渡补读，预算耗尽仍空与「读不到」一样落剪贴板兜底；
-//! 应用不支持选区属性或系统调用失败返回 [`GlossError::SelectionUnavailable`]
-//! ——一律经 `Result` 传播，不允许 panic 逃出。授权引导属设置页/权限引导
+//! 应用不支持选区属性或系统调用失败返回读取不可用错误
+//! ——一律以错误传播，不允许 panic 逃出。授权引导属设置页/权限引导
 //! 路径，读取侧只如实报告，不代为弹窗。
 //!
-//! 策略取最简一条路径：只读 `kAXSelectedTextAttribute`。
+//! 策略取最简一条路径：只读选中文本属性。
 
 use gloss_core::model::GlossError;
 
-/// AXError.h 中「辅助功能 API 未对当前进程启用」的返回码（kAXErrorAPIDisabled）。
-/// 注意相邻码：-25212 是 kAXErrorNoValue（属性存在但无值，即「无选区」
-/// 的常见返回），二者错一位语义就反转，见 tests 的相邻码对账测试。
 const AX_ERROR_API_DISABLED: i32 = -25211;
 
-/// AXError.h 的 kAXErrorNoValue：属性存在但无值——「选区为空」的 AX 侧
-/// 说法，与「取不到」（[`GlossError::SelectionUnavailable`]）分开归档：
-/// 前者让渡补读后与后者一样落剪贴板兜底（见 `composite::combine`），
-/// 由确认写入分辨「确实没选」与「读了但拿不到」。
 const AX_ERROR_NO_VALUE: i32 = -25212;
 
-/// 取值缓冲区的分配上界（字节）：长度来自远端进程报告，无校验的分配
-/// 失败会直接 abort 进程而非返回错误，超限按取不到选区处理。256KB 已远
-/// 超划词翻译的选区量级；超长选区经组合通道的兜底仍可读——超限归
-/// 「取不到」（[`GlossError::SelectionUnavailable`]），激活/剪贴板兜底
-/// 照常接管。
 const MAX_SELECTION_BYTES: usize = 256 * 1024;
 
-/// 把「是否已授权 + AX 取值结果」映射为统一错误语义（纯逻辑，单测覆盖）：
-/// 未授权一律 [`GlossError::AccessibilityDenied`]（权限检查先于取值，AX
-/// 返回同一码时以更明确的权限语义收口）；空串与 `kAXErrorNoValue` 归
-/// [`GlossError::SelectionEmpty`]——属性在而选区空，是「没选东西」不是
-/// 「读不到」；`Ok(None)`（超长度上限、非字符串值）与其余取不到的情形
-/// （应用不支持属性、系统调用失败）归 [`GlossError::SelectionUnavailable`]
-/// ——它们可能是「选了但读不动」，兜底通道（剪贴板）仍值得一试。
 fn interpret(trusted: bool, outcome: Result<Option<String>, i32>) -> Result<String, GlossError> {
     if !trusted {
         return Err(GlossError::AccessibilityDenied);
@@ -62,20 +43,12 @@ mod imp {
 
     use super::{MAX_SELECTION_BYTES, interpret};
 
-    /// AXError.h 的 kAXErrorFailure：无具体语义的失败兜底。
     const AX_ERROR_FAILURE: i32 = -25200;
-    /// AXError.h 的 kAXErrorSuccess。
     const AX_ERROR_SUCCESS: i32 = 0;
 
-    /// AX 读选区实现：无状态，可按需构造。
     #[derive(Debug, Default, Clone, Copy)]
     pub struct AccessibilityReader;
 
-    /// AX 跨进程调用的消息超时（秒）：目标应用不响应 AX 轮询时
-    /// （Electron/自绘控件常见），同步调用会阻塞到系统默认超时（数秒），
-    /// 把事件线程整个占住、后续手势只能排队——收紧到 0.3 秒，超时即返回
-    /// 错误并交由组合通道的激活补读与剪贴板兜底接管。对 systemwide 元素
-    /// 设置即对本进程全局生效，覆盖此后所有元素的取值调用。
     const AX_MESSAGE_TIMEOUT_SECS: f32 = 0.3;
 
     impl AccessibilityReader {
@@ -83,11 +56,7 @@ mod imp {
             Self
         }
 
-        /// 读取前台应用的选中文本。
-        ///
-        /// 调用方保证：在平台事件线程上调用。
         pub fn read(&mut self) -> Result<String, GlossError> {
-            // 未授权时不发起跨进程取值，直接按权限语义收口。
             let trusted = ax::is_process_trusted();
             if !trusted {
                 debug!(
@@ -117,10 +86,6 @@ mod imp {
         }
     }
 
-    /// 读选区的 FFI 薄壳：systemwide → 焦点元素 → 选中文本。任何一步失败
-    /// 都以 AX 原始错误码返回，语义映射交给 [`interpret`]。取值前对
-    /// systemwide 设一次消息超时即对本进程全局生效（见
-    /// [`AX_MESSAGE_TIMEOUT_SECS`]）。
     fn copy_selected_text() -> Result<Option<String>, i32> {
         // SAFETY: 无前置条件；返回的 +1 引用可能为 NULL（系统异常），随后判空。
         let system_wide = unsafe { ax::create_system_wide() };
@@ -131,7 +96,6 @@ mod imp {
         // SAFETY: `system_wide` 是刚创建的有效引用。
         unsafe { ax::set_messaging_timeout(system_wide, AX_MESSAGE_TIMEOUT_SECS) };
 
-        // 属性名按需构造、用毕即释放；分配失败视为本次读取失败。
         let Some(focused_attr) = cf::cf_string(ax::FOCUSED_UI_ELEMENT_ATTRIBUTE) else {
             return Err(AX_ERROR_FAILURE);
         };
@@ -139,7 +103,6 @@ mod imp {
             return Err(AX_ERROR_FAILURE);
         };
 
-        // 出参在失败时不写入，成功时由守卫接管 +1 引用。
         let mut focused: CFTypeRef = std::ptr::null();
         // SAFETY: 元素与属性名均为有效 +1 引用，出参指向刚声明的栈上变量。
         let err =

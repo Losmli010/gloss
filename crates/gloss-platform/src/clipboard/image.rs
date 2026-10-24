@@ -1,17 +1,17 @@
-//! 剪贴板图片取材读取器：读 NSPasteboard 图像 flavor → 解码 → PNG（快速压缩档）。
+//! 剪贴板图片取材读取器：读系统粘贴板的图像 flavor → 解码 → PNG（快速压缩档）。
 //!
-//! 两条静默丢弃路径分开留痕（都返回 `Ok(None)`，调用方不弹卡）：
-//! - **竞态**：① 观察与 ② 取材之间剪贴板被覆盖（changeCount 前进）——
-//!   debug 留痕，与划词空选区误滑同型处置；
-//! - **交付不出**：changeCount 未变、板上也声明了图像类型，但读不出数据
-//!   ——macOS 15+ 的「允许粘贴」授权被拒走这条（`dataForType:` 返回 nil），
-//!   warn 留痕供 `just logs --level warn` 排查。
+//! 两条静默丢弃路径分开留痕（都返回空读取，调用方不弹卡）：
+//! - **竞态**：① 观察与 ② 取材之间剪贴板被覆盖（变更计数前进）——
+//!   留调试痕，与划词空选区误滑同型处置；
+//! - **交付不出**：变更计数未变、板上也声明了图像类型，但读不出数据
+//!   ——macOS 15+ 的「允许粘贴」授权被拒走这条（内容读取返回空），
+//!   留警告痕供日志检视按级筛排查。
 //!
-//! 硬失败返回 `Err`，由调用方上抛 `TaskFailed` 弹失败卡。观察比对先于内容
+//! 硬失败按错误上抛，由调用方弹失败卡。观察比对先于内容
 //! 读取：比对不过不碰 flavor（内容读取才触发系统粘贴授权）。
 //!
 //! 设界逐级前置：flavor 字节上限 → 仅读头取尺寸过像素面积上限 → 才整图
-//! 解码 → 超长边产物按比例降采样 → 产物过 PNG 字节上限。pastebomb 在任何
+//! 解码 → 超长边产物按比例降采样 → 产物过 PNG 字节上限。恶意粘贴内容在任何
 //! 大分配发生之前被整体拒绝。日志只记字节数与像素尺寸。
 
 use std::io::Cursor;
@@ -26,42 +26,26 @@ use objc2_foundation::NSData;
 
 use super::{ImageFlavor, PasteboardObserver, pasteboard_change_count, pasteboard_image_flavor};
 
-/// flavor 字节上限：恰好 4096² 的未压缩 TIFF（RGB8）约 48MB，给满尺寸的
-/// 合法图像留量；超限在头解析之前整体拒绝。
 pub const MAX_FLAVOR_BYTES: usize = 64 * 1024 * 1024;
 
-/// 像素面积上限：4096×4096 ≈ 16MP（4K 截图 8.3MP 在内）；面积在上限处的
-/// RGBA 位图即 64MB，超出即视为 pastebomb。
 pub const MAX_PIXELS: u64 = 4096 * 4096;
 
-/// PNG 字节上限：取材产物进 `TaskInput`、缓存会话与出网请求体，超限整体
-/// 报错。
 pub const MAX_PNG_BYTES: usize = 20 * 1024 * 1024;
 
-/// 产物最长边上限：取材产物经 base64 出网并入缓存会话，超过即按比例缩到
-/// 上限内——视觉模型内部本就会把输入压到 ~1MP 一档，上限外的像素只有编码
-/// 与传输成本；1536 长边覆盖图表与截图文字的判读质量，同时把解码后的
-/// GPU 纹理与 base64 请求体的量级压到 ~9MB 档。上限以内的产物原样编码
-/// （不放大、不重采样）。
 pub const MAX_PRODUCT_SIDE: u32 = 1536;
 
-/// flavor 字节是否在预算内（纯逻辑，单测覆盖边界）。
 fn flavor_within_budget(len: usize) -> bool {
     len <= MAX_FLAVOR_BYTES
 }
 
-/// 像素面积是否在预算内（纯逻辑，单测覆盖边界）。
 fn pixels_within_budget(width: u32, height: u32) -> bool {
     u64::from(width) * u64::from(height) <= MAX_PIXELS
 }
 
-/// PNG 字节是否在预算内（纯逻辑，单测覆盖边界）。
 fn png_within_budget(len: usize) -> bool {
     len <= MAX_PNG_BYTES
 }
 
-/// 超限产物按比例缩到最长边上限内的目标尺寸（纯逻辑，单测覆盖）：上限
-/// 以内返回 `None`（原样编码）；缩放按比例四舍五入、至少保留 1 像素。
 fn downscaled_dims(width: u32, height: u32) -> Option<(u32, u32)> {
     let longest = width.max(height);
     if longest <= MAX_PRODUCT_SIDE {
@@ -72,16 +56,6 @@ fn downscaled_dims(width: u32, height: u32) -> Option<(u32, u32)> {
     Some((scaled(width), scaled(height)))
 }
 
-/// 图像 flavor 编码数据 → 解码 RGBA → 超长边降采样 → PNG（快速压缩档：
-/// 编码在事件线程上执行，时长直接挂在触发到弹卡的链路上）。
-///
-/// 设界依次执行：flavor 字节上限在头解析之前，像素面积上限以仅读头的
-/// 尺寸判定、先于整图解码，超 [`MAX_PRODUCT_SIDE`] 的产物按比例降采样，
-/// PNG 字节上限判在编码产物上。超限整体报 `ImageTooLarge`（不截断）；
-/// 头不可读、解码失败、缓冲与尺寸不符都按读取失败处理。
-///
-/// 解码器构造两次是像素预算闸门的代价：先只读头取尺寸，超限的图不进
-/// 整份解码（解压炸弹不该先吃掉内存再被拒），通过后才整份解码。
 fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossError> {
     if !flavor_within_budget(bytes.len()) {
         debug!(
@@ -108,8 +82,6 @@ fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossEr
     encode_png(width, height, rgba.as_raw())
 }
 
-/// 只读头取尺寸：超限的图在整份解码之前就被像素预算拒掉（解压炸弹不该
-/// 先吃掉内存再被拒）；头不可读按读取失败处理。
 fn header_dimensions(bytes: &[u8], format: ImageFormat) -> Result<(u32, u32), GlossError> {
     ImageReader::with_format(Cursor::new(bytes), format)
         .into_dimensions()
@@ -123,7 +95,6 @@ fn header_dimensions(bytes: &[u8], format: ImageFormat) -> Result<(u32, u32), Gl
         })
 }
 
-/// 整份解码为 RGBA8：已是 RGBA8 的图 `into_rgba8` 原地取出，不再整份复制。
 fn decode_rgba(bytes: &[u8], format: ImageFormat) -> Result<image::RgbaImage, GlossError> {
     ImageReader::with_format(Cursor::new(bytes), format)
         .decode()
@@ -138,7 +109,6 @@ fn decode_rgba(bytes: &[u8], format: ImageFormat) -> Result<image::RgbaImage, Gl
         })
 }
 
-/// 超长边的产物按比例降采样到上限内，预算内原样归还。
 fn downscale_to_budget(rgba: image::RgbaImage) -> (u32, u32, image::RgbaImage) {
     match downscaled_dims(rgba.width(), rgba.height()) {
         Some((width, height)) => {
@@ -162,8 +132,6 @@ fn downscale_to_budget(rgba: image::RgbaImage) -> (u32, u32, image::RgbaImage) {
     }
 }
 
-/// RGBA 位图 → PNG。缓冲与声明尺寸不符按读取失败处理（校验在前，
-/// `write_image` 的内部校验兜底）。
 fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Arc<[u8]>, GlossError> {
     if rgba.len() != width as usize * height as usize * 4 {
         debug!(
@@ -194,33 +162,19 @@ fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Arc<[u8]>, GlossEr
     Ok(Arc::from(png))
 }
 
-/// 剪贴板图片读取器：通道②的取材实现（事件线程上顺序调用）。
 pub struct ClipboardImageReader {
-    /// ① 观察记录的句柄：取材时比对现值判定①②之间的覆盖竞态。
     observer: PasteboardObserver,
 }
 
 impl ClipboardImageReader {
-    /// 创建读取器：句柄来自同一次装配的 [`crate::clipboard::ClipboardWatchSource::observer`]。
     pub fn new(observer: PasteboardObserver) -> Self {
         Self { observer }
     }
 
-    /// 读剪贴板图片为 PNG 字节：`Ok(None)` = 静默丢弃（竞态或交付不出，
-    /// 读取器内已按分支留痕）；`Err` = 取材失败（调用方上抛 `TaskFailed`）。
     pub fn read(&mut self) -> Result<Option<Arc<[u8]>>, GlossError> {
         self.read_with(pasteboard_change_count, pasteboard_image_flavor)
     }
 
-    /// 一轮读取（系统读数注入，纯逻辑单测覆盖竞态与无数据的分岔——与
-    /// 哨兵源的 `poll_at` 同型）：
-    ///
-    /// - 板不可观察：读取失败上抛；
-    /// - changeCount 与①观察记录不一致：①②之间被覆盖，竞态静默丢弃，
-    ///   不读内容（比对先于 flavor——内容读取才触发系统粘贴授权）；
-    /// - 板仍声明图像却交付不出数据：粘贴授权被拒走这条，warn 留痕后
-    ///   静默丢弃；
-    /// - 可读：解码为 PNG。
     fn read_with(
         &mut self,
         count: impl FnOnce() -> Option<u64>,

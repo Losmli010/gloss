@@ -1,19 +1,19 @@
-//! 评测 CLI：`eval inspect`（离线重放 + 单文件检视页）/ `eval replay`（离线
-//! 重放，CI 安全）/ `eval live`（opt-in，需 `GLOSS_LIVE_*`）/ `eval
-//! report`（重渲染最近一次报告）/ `eval history`（从现有 history.jsonl
-//! 重绘趋势 SVG）。
+//! 评测 CLI：检视子命令（离线重放 + 单文件检视页）/ 重放子命令
+//! （离线重放，CI 安全）/ live 子命令（按需启用，需评测凭据环境变量）/
+//! 报告子命令（重渲染最近一次报告）/ 历史子命令（从现有
+//! 历史记录文件重绘趋势 SVG）。
 //!
-//! 报告写 `target/eval/`（`<mode>.json` + `<mode>.md`）并把 Markdown 打
-//! 到 stdout；报告落盘成功后追加 `history.jsonl` 并重绘 `history.svg`。
-//! inspect 与 live 轨额外落检视件：逐条明细 `<mode>.cases.json` 与单文件
-//! 检视页 `inspect.html`（准确率头条 + 逐条轨迹 + 趋势，供人工检视）。
-//! live 轨的 `--record` 把修复轨迹（每轮增量）按 id upsert 回 `fixtures/`。
-//! `GLOSS_EVAL_COMMIT` / `GLOSS_EVAL_SOURCE` 在此注入采集上下文（lib 层
+//! 报告写评测产物目录（按模式命名的 JSON 与 Markdown 报告）并把
+//! Markdown 打到标准输出；报告落盘成功后追加历史记录文件并重绘趋势图。
+//! 检视与 live 轨额外落检视件：逐条明细文件与单文件
+//! 检视页（准确率头条 + 逐条轨迹 + 趋势，供人工检视）。
+//! live 轨的回写把修复轨迹（每轮增量）按条目标识逐条覆盖写回夹具目录。
+//! 采集上下文环境变量在此注入（库层
 //! 零环境副作用）。本二进制属于评测工具链，不在应用启动路径上。
 //!
-//! 日志纪律的豁免面：打印报告/错误就是本 CLI 的全部产出（无 subscriber、
-//! 无长驻进程），stdout/stderr 直写在此是有意为之，故整文件豁免
-//! print_stdout / print_stderr（缘由见上）。
+//! 日志纪律的豁免面：打印报告/错误就是本 CLI 的全部产出（无日志订阅者、
+//! 无长驻进程），标准输出/标准错误直写在此是有意为之，故整文件豁免
+//! 打印类告警（缘由见上）。
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 use std::path::{Path, PathBuf};
@@ -23,7 +23,6 @@ use gloss_core::engine::llm::LlmClient;
 use gloss_eval::EvalReport;
 use gloss_eval::detail::CaseDetail;
 
-/// 报告目录（与 dev-plan 约定一致：报告出 target/eval/，不进仓库）。
 const REPORT_DIR: &str = "target/eval";
 
 fn main() {
@@ -64,7 +63,6 @@ fn run_replay_cli() -> Result<(), String> {
     Ok(())
 }
 
-/// inspect 轨的完整落盘段：与 replay 同一份报告与历史，多出检视件。
 fn run_inspect_into(
     dir: &Path,
     context: Option<gloss_eval::report::EvalContext>,
@@ -84,9 +82,6 @@ fn run_inspect_cli() -> Result<(), String> {
     Ok(())
 }
 
-/// 检视件落盘：逐条明细 `<mode>.cases.json`（可 diff、可再加工）与单文件
-/// 检视页 `inspect.html`。历史在 `finish_run_report` 追加之后才读——差值
-/// 基准取「上一次同 mode 运行」，趋势图含本次。
 fn write_inspect(dir: &Path, report: &EvalReport, cases: &[CaseDetail]) -> Result<(), String> {
     let history = gloss_eval::history::load_history(&dir.join("history.jsonl"))
         .map_err(|err| format!("load history: {err}"))?;
@@ -103,8 +98,6 @@ fn write_inspect(dir: &Path, report: &EvalReport, cases: &[CaseDetail]) -> Resul
     Ok(())
 }
 
-/// 重放轨的完整落盘段：目录由参数表达 `GLOSS_EVAL_DIR` 的语义，context
-/// 由调用方注入（环境读取只在 CLI 薄壳），测试直驱临时目录。
 fn run_replay_into(
     dir: &Path,
     context: Option<gloss_eval::report::EvalContext>,
@@ -114,8 +107,6 @@ fn run_replay_into(
     finish_run_report(&report, dir)
 }
 
-/// 报告与趋势的统一落盘：先写 `<mode>.json`/`.md`，成功后追加
-/// `history.jsonl` 并重绘 `history.svg`（任一步失败向上传播，不静默）。
 fn finish_run_report(report: &gloss_eval::EvalReport, dir: &Path) -> Result<String, String> {
     let markdown = gloss_eval::report::write_report(report, dir)
         .map_err(|err| format!("write report: {err}"))?;
@@ -196,8 +187,6 @@ fn run_report_cli(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// 从现有 `history.jsonl` 重绘 `<dir>/history.svg`（流水线重绘与本地补绘
-/// 共用；不跑评测）。
 fn run_history_cli(args: &[String]) -> Result<(), String> {
     let dir = dir_option(args)?;
     let path = dir.join("history.jsonl");
@@ -211,7 +200,6 @@ fn run_history_cli(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// `--dir PATH` 选项：缺省回落报告目录（GLOSS_EVAL_DIR / target/eval）。
 fn dir_option(args: &[String]) -> Result<PathBuf, String> {
     if let Some(pair) = args.iter().position(|arg| arg == "--dir") {
         let Some(value) = args.get(pair + 1) else {
@@ -222,8 +210,6 @@ fn dir_option(args: &[String]) -> Result<PathBuf, String> {
     Ok(PathBuf::from(report_dir()))
 }
 
-/// 采集上下文注入：GLOSS_EVAL_COMMIT / GLOSS_EVAL_SOURCE 只在本 CLI 读取
-/// （lib 层零环境副作用）；两者皆缺省时不产 context 段。
 fn eval_context() -> Option<gloss_eval::report::EvalContext> {
     let commit = env_option("GLOSS_EVAL_COMMIT");
     let source = env_option("GLOSS_EVAL_SOURCE");
@@ -241,7 +227,6 @@ fn report_dir() -> String {
     std::env::var("GLOSS_EVAL_DIR").unwrap_or_else(|_| REPORT_DIR.to_owned())
 }
 
-/// 把录制按 id upsert 进夹具文件（分类/任务各自归位）。
 fn upsert_fixtures(fixtures: &[gloss_eval::dataset::Fixture]) -> Result<usize, String> {
     let mut by_file: Vec<(&str, Vec<&gloss_eval::dataset::Fixture>)> = vec![
         ("classify_replay.jsonl", Vec::new()),
@@ -273,8 +258,6 @@ fn upsert_fixtures(fixtures: &[gloss_eval::dataset::Fixture]) -> Result<usize, S
     Ok(written)
 }
 
-/// 单个夹具文件的 upsert：读原文件、剔除被录制覆盖的 id、追加录制并原子
-/// 写回，返回追加的条数。
 fn merge_fixtures(
     path: &std::path::Path,
     entries: &[&gloss_eval::dataset::Fixture],

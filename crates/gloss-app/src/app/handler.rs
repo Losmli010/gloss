@@ -1,4 +1,4 @@
-//! winit 事件分发：`ApplicationHandler` 实现，把窗口事件路由到渲染、
+//! winit 事件分发：实现 winit 的事件分发协议，把窗口事件路由到渲染、
 //! 通道消费与浮层显隐，并归并各窗口的唤醒时刻。
 
 use std::error::Error;
@@ -15,8 +15,6 @@ use winit::window::WindowId;
 use super::{GlossApp, UserEvent};
 
 impl GlossApp {
-    /// 建窗口栈与两个窗口的帧状态，一次做完（呈现资源收进 workspace）。
-    /// 字体装载完成经 `UserEvent::FontsReady` 回主线程换表重绘。
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
         let theme = self.env.target_theme();
         let proxy = self.proxy.clone();
@@ -35,7 +33,6 @@ impl GlossApp {
     }
 }
 
-/// 两个唤醒时刻里更早的那个；都没有则不用定时唤醒。
 fn sooner(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
     match (a, b) {
         (Some(a), Some(b)) => Some(a.min(b)),
@@ -43,11 +40,6 @@ fn sooner(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
     }
 }
 
-/// 到点的重绘截止（`deadline <= now`）的处置：可见时返回 true、由调用方
-/// 请求重绘，截止留给随后的新帧刷新；隐藏时请求会被可见性门控丢弃，返回
-/// false 并把截止一并清空——过期截止不清，[`ApplicationHandler::about_to_wait`]
-/// 会一直 `WaitUntil` 过去时刻，定时器立即重触发且永远画不出那一帧，
-/// 调度层空转烧满一核。
 fn settle_due_repaint(deadline: &mut Option<Instant>, now: Instant, visible: bool) -> bool {
     let due = deadline.is_some_and(|at| at <= now);
     if due && !visible {
@@ -56,45 +48,29 @@ fn settle_due_repaint(deadline: &mut Option<Instant>, now: Instant, visible: boo
     due && visible
 }
 
-/// 浮层的收起键：Escape 按下（含重复）。键盘事件只会送进持焦窗口——
-/// 浮层失焦后 Esc 天然不再生效；设置窗持焦时不收浮层。
 fn is_dismiss_key(logical_key: &Key, state: ElementState) -> bool {
     state == ElementState::Pressed && *logical_key == Key::Named(NamedKey::Escape)
 }
 
 impl ApplicationHandler<UserEvent> for GlossApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        // resumed 可能连续投递，渲染栈只起一次
         if self.workspace.is_ready() {
             return;
         }
         if let Err(err) = self.init(event_loop) {
-            // 没有窗口与渲染栈就没有可做的事，带病进主循环只会静默空转
             error!(thread = thread::UI, error = %err, "failed to start window and render stack");
             event_loop.exit();
             return;
         }
-        // 浮层预创建即隐藏（Idle 态）；先在隐藏状态画一帧预热——egui 图集构建、
-        // Metal 管线编译与纹理上传都发生在首帧，不预热的话首次显示会超预算
         self.draw();
-        // 密钥预热是否此刻发送由 send_secret_prewarm 按启动权限预检结论门
-        // 控：权限就绪才读——keychain 授权框不得抢在系统权限引导弹窗之前，
-        // 未就绪则推迟到首次任务自然重读。
         self.send_secret_prewarm();
-        // 代码着色的语法集首次构造是百毫秒级，挪到后台线程，不占首个代码卡
-        // 的首帧。
         crate::ui::code_hl::warm_up();
         milestone("06_ready");
-        // 启动静默检查在此补发：更新客户端的信任链构建不挤占启动窗口。
         crate::update::start_silent_check();
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         if matches!(event, UserEvent::FontsReady) {
-            // 字体装载完成：按当前主题强制重施加（含完整字体表）并重绘
-            // 浮层。主题在这里统一施加，装载窗口内的偏好变更不会被后台
-            // 快照覆盖。设置窗开着时同样要重绘：换表使排版缓存失效，
-            // 不重绘它就停在内置字形的画面上直到下一次交互。
             self.workspace.apply_theme_forced(self.env.target_theme());
             self.request_redraw();
             if let Some(windows) = &self.workspace.windows
@@ -105,7 +81,6 @@ impl ApplicationHandler<UserEvent> for GlossApp {
             return;
         }
         if matches!(event, UserEvent::RedrawSettings) {
-            // 相位迁移只牵动设置窗：窗口可见才请求重绘，不抽干主流程通道。
             if let Some(windows) = &self.workspace.windows
                 && windows.is_settings_visible()
             {
@@ -154,7 +129,6 @@ impl ApplicationHandler<UserEvent> for GlossApp {
                     windows.request_redraw_settings();
                 }
             } else {
-                // 走带可见性门控的入口：隐藏浮层的事件驱动重绘是整帧空转。
                 self.request_redraw();
             }
         }
@@ -166,7 +140,6 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         if !matches!(cause, StartCause::ResumeTimeReached { .. }) {
             return;
         }
-        // 到点的是 egui 要的下一帧：浮层与设置窗各自的截止时刻独立检查。
         let now = Instant::now();
         let overlay_visible = self
             .workspace
@@ -187,7 +160,6 @@ impl ApplicationHandler<UserEvent> for GlossApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // 没有待处理的唤醒时刻就彻底睡下，等窗口事件或唤醒句柄把自己叫醒
         event_loop.set_control_flow(
             sooner(
                 self.workspace.overlay_repaint,
@@ -199,9 +171,6 @@ impl ApplicationHandler<UserEvent> for GlossApp {
 }
 
 impl GlossApp {
-    /// 其余事件先喂给对应窗口的 egui，它决定是否消化掉以及要不要重绘；
-    /// 帧未建（设置窗首帧前）时没有可喂的对象，事件回落到调用方的状态
-    /// 处理（关闭请求等不依赖帧）。
     fn egui_wants_repaint(&mut self, is_settings: bool, event: &WindowEvent) -> bool {
         let frame = if is_settings {
             self.workspace.settings_frame.as_mut()
@@ -214,9 +183,6 @@ impl GlossApp {
         }
     }
 
-    /// 依赖窗口身份的状态类事件：设置窗关闭是「取消编辑」（隐藏丢弃
-    /// 草稿，进程照常），浮层收起键只观察不拦截，尺寸变化落到对应
-    /// surface。
     fn apply_window_state_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -233,8 +199,6 @@ impl GlossApp {
                 }
             }
             WindowEvent::KeyboardInput { event: key, .. } if is_overlay => {
-                // egui_winit 已在同一事件上喂过 egui（输入框等自行消化）；
-                // 壳只观察收起键，不拦截事件。
                 if is_dismiss_key(&key.logical_key, key.state) {
                     self.dismiss_overlay("escape key");
                 }

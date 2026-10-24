@@ -1,24 +1,24 @@
 //! 统一日志封装：全项目唯一日志出口。
 //!
-//! 其余 crate 不直接依赖 `tracing`，只经 `gloss_core::log` 使用宏与 [`init`]。
+//! 其余包不直接依赖 tracing，只经核心库日志模块使用宏与初始化入口。
 //!
 //! 跨线程排查靠结构化字段而非字符串拼接，三个字段全链路携带：
-//! - `generation`：请求代数，串联一次任务的完整时序——由 [`task_span`] 的 span 字段
-//!   自动带给范围内的日志，跨线程只传 span 句柄；
-//! - `kind`：`TaskKind`，按任务类型过滤；
-//! - `thread`：线程角色，取 [`thread::UI`] / [`thread::EVENT`] / [`thread::TOKIO`]。
+//! - 请求代数：串联一次任务的完整时序——由任务 span 自动带给
+//!   范围内的日志，跨线程只传 span 句柄；
+//! - 任务类别：按任务类型过滤；
+//! - 线程角色：界面、事件、后台三种。
 //!
-//! 宏虽经本模块转发，事件的 `target` 仍取**调用点**的模块路径，因此
-//! `RUST_LOG=gloss_platform=debug` 能精确到下游 crate。
+//! 宏虽经本模块转发，事件的日志目标仍取**调用点**的模块路径，因此
+//! 日志过滤环境变量能精确到下游包。
 //!
-//! `#[instrument]` 是过程宏，无法跨 crate 转发（下游会报 `E0433`）；
-//! 下游请改用 [`info_span!`] 等 span 宏配合 [`Instrument`]。
+//! 插桩属性宏无法跨包转发（下游会报编译错误）；
+//! 下游请改用 span 宏并显式进入 span 范围。
 //!
-//! 输出两路：终端（stderr）+ 文件（[`init`] 收到目录时启用，按天滚动、只留最近 7 份）
-//! ——用户报障时让他们把日志目录交出来即可。两路都是 **JSON Lines**：一行一个
-//! JSON 对象，字段是 `timestamp` / `level` / `target` / `message` 与本次事件的
-//! 结构化字段；任务 span 的代数直接提到顶层 `generation`（不写 `span` / `spans`
-//! 对象）。查询举例：`grep '"generation":2'` 或用 `just logs --generation 2`。
+//! 输出两路：终端（标准错误）+ 文件（初始化入口收到目录时启用，按天滚动、只留最近 7 份）
+//! ——用户报障时让他们把日志目录交出来即可。两路都是 **JSON 行**：一行一个
+//! JSON 对象，字段是时间戳、级别、目标、消息与本次事件的
+//! 结构化字段；任务 span 的代数直接提到顶层（不写嵌套
+//! 对象）。查询举例：用日志检视配方按代数筛选。
 
 use std::fs;
 use std::io;
@@ -31,65 +31,38 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, fmt};
 
-// 转发日志词汇（tracing 的宏与 `Level` / `Span` / `Instrument`）：下游 crate 经
-// 此入口用日志，需要的新条目也从这里加。
 pub use tracing::{
     Instrument, Level, Span, debug, debug_span, enabled, error, error_span, event, info, info_span,
     trace, trace_span, warn, warn_span,
 };
 
-/// 线程角色标签，供 `thread` 字段使用。
 pub mod thread {
-    /// 主线程：winit 事件循环 + UI。
     pub const UI: &str = "ui";
-    /// 平台事件线程：鼠标手势与取材命令消费。
     pub const EVENT: &str = "event";
-    /// 鼠标 tap 监听线程：全局事件 tap 的独立宿主。
     pub const MOUSE_TAP: &str = "mouse_tap";
-    /// 字体装载线程：系统字体延迟装载的后台宿主。
     pub const FONTS: &str = "fonts";
-    /// tokio 后台：网络请求与缓存。
     pub const TOKIO: &str = "tokio";
 }
 
-/// 基准级别：始终作为打底项，`RUST_LOG` 的模块指令在其上叠加（全局指令可压制它）。
 const DEFAULT_FILTER: &str = "info";
 
-/// 日志文件名：`gloss-<UTC 日期>.jsonl`。
 const FILE_PREFIX: &str = "gloss-";
 const FILE_SUFFIX: &str = ".jsonl";
 
-/// 按天保留的日志文件个数（约一周）。
 const MAX_LOG_FILES: usize = 7;
 
 static INIT: Once = Once::new();
 static FILE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
-/// 非阻塞写盘的 guard：必须活到进程结束。
 static FILE_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
-/// 初始化全局日志：`info` 打底，`RUST_LOG` 在其之上追加或覆盖。
-///
-/// 例如 `RUST_LOG=gloss_platform=debug` 让该模块更详细、其余保持 `info`；
-/// `RUST_LOG=off` / `warn` 等全局指令仍可整体压制。
-///
-/// `dir` 给出日志目录时终端与文件双写（按天滚动，只留最近 7 份）；目录建不出来
-/// 则退回 stderr 单路——日志不可用不应该拖垮启动。返回实际启用的目录，供入口
-/// 打印出来方便定位。
-///
-/// 全进程只调用一次（入口 `src/main.rs` 启动第 1 步）；重复调用为空操作，
-/// 库 crate 永不调用。
 pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
     INIT.call_once(|| {
         let filter = build_filter(std::env::var("RUST_LOG").ok().as_deref());
         let console = json_layer().with_writer(|| shaped_handle(io::stderr()));
         let subscriber = tracing_subscriber::registry().with(filter).with(console);
         let file = dir.and_then(open_file_writer);
-        // 目录随拆包 move 出来（writer 进日志闭包、guard 进守护槽），不再
-        // 为返回值另存一份副本。
         let active = match file {
             Some((writer, guard, dir)) => {
-                // init 在 INIT.call_once 内只执行一次，OnceLock::set 的已占用
-                // Err 在这里不可能发生，丢弃即可。
                 #[allow(clippy::let_underscore_must_use)]
                 let _ = FILE_GUARD.set(guard);
                 subscriber
@@ -102,36 +75,18 @@ pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
                 None
             }
         };
-        // 同上：call_once 内首次 set，Err 不可能发生。
         #[allow(clippy::let_underscore_must_use)]
         let _ = FILE_DIR.set(active);
     });
     FILE_DIR.get().cloned().flatten()
 }
 
-/// 任务 span：以 `generation` 字段承载请求代数，范围内所有日志自动带上它。
-///
-/// 在触发点创建（代数在那里赋值），句柄随通道下发到平台事件线程与 tokio——
-/// 深层的日志点（取材读选区、推理引擎）因此不必自己携带代数。无订阅者的
-/// 进程里是禁用 span，进入它是空操作。
-///
-/// 级别取 `WARN` 而不是 `INFO`：span 被级别压掉时**字段也不会出现**，而任务
-/// 作用域里要留住的恰是 warn 及以上那几行（拒绝授权、后台 panic）——排障时
-/// 最需要它们。作用域内没有 error 级日志，故 warn 覆盖了「任何可能打印的
-/// 级别」；`RUST_LOG=error` 时这些行同样被压掉，不丢信息。
 pub fn task_span(generation: u64) -> Span {
     warn_span!("task", generation)
 }
 
-/// 启动里程碑计时原点：首次 [`milestone`] 调用即进程入口，其后各里程碑的
-/// `elapsed_ms` 都相对它累计。
 static MILESTONE_START: OnceLock<Instant> = OnceLock::new();
 
-/// 记一条启动里程碑：`milestone`（id）与 `elapsed_ms`（相对进程入口累计，
-/// 单调时钟）两个顶层字段。埋点位置按启动序列定：进程入口、日志/配置/引擎
-/// 就绪、事件循环装配完成、渲染栈建立（再分窗口/设备/帧三段，06a–06c）与
-/// 预热帧后就绪（06_ready）——量化脚本按 id 分段归因启动耗时（消费方见
-/// `scripts/perf/app-metrics.py`）。
 pub fn milestone(id: &str) {
     let start = MILESTONE_START.get_or_init(Instant::now);
     let elapsed_ms = start.elapsed().as_millis() as u64;
@@ -143,9 +98,6 @@ pub fn milestone(id: &str) {
     );
 }
 
-/// 日志行格式（两路共用）：JSON Lines，一行一个对象——`timestamp` / `level` /
-/// `target` 固定，事件字段与任务代数摊在顶层（见 [`shaped`]）。JSON 本身不带颜色
-/// 转义，无需 ANSI 开关。
 fn json_layer<S>() -> fmt::Layer<S, fmt::format::JsonFields, fmt::format::Format<fmt::format::Json>>
 {
     fmt::layer()
@@ -154,9 +106,6 @@ fn json_layer<S>() -> fmt::Layer<S, fmt::format::JsonFields, fmt::format::Format
         .with_span_list(false)
 }
 
-/// 日志行整形：内建 JSON 形态把 span 字段嵌在 `span` 对象里，本仓只要代数——把它
-/// 提到顶层（与事件字段同层），并去掉 `span` / `spans`。解析失败的行原样写出，
-/// 整形不会吞日志。
 fn shaped(line: &[u8]) -> Vec<u8> {
     let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(line) else {
         return line.to_vec();
@@ -176,7 +125,6 @@ fn shaped(line: &[u8]) -> Vec<u8> {
     shaped
 }
 
-/// 按行缓冲、整行到手再整形的写入句柄；交给 `with_writer` 的闭包构造。
 fn shaped_handle<W: io::Write>(inner: W) -> ShapedHandle<W> {
     ShapedHandle {
         inner,
@@ -204,17 +152,12 @@ impl<W: io::Write> io::Write for ShapedHandle<W> {
     }
 }
 
-/// 按天滚动的文件写入器；目录不可用时返回 `None`，让日志退回 stderr 单路。
 fn open_file_writer(dir: &Path) -> Option<(NonBlocking, WorkerGuard, PathBuf)> {
     fs::create_dir_all(dir).ok()?;
     let (writer, guard) = tracing_appender::non_blocking(DailyFileWriter::new(dir.to_path_buf()));
     Some((writer, guard, dir.to_path_buf()))
 }
 
-/// 按天滚动的 JSONL 写入器：当前文件是 `gloss-<UTC 日期>.jsonl`，写入时跨天即换
-/// 文件并清理超出 [`MAX_LOG_FILES`] 的旧档。日期取 UTC——与 tracing-appender 的日
-/// 轮换同一口径，换掉它的原因是文件名要 `gloss-<日期>.jsonl`（它固定拼成
-/// `前缀.日期.后缀`）。
 struct DailyFileWriter {
     dir: PathBuf,
     current: Option<(String, fs::File)>,
@@ -225,7 +168,6 @@ impl DailyFileWriter {
         Self { dir, current: None }
     }
 
-    /// 打开今天的文件；跨天时才换文件、顺带清理旧档。
     fn open_today(&mut self) -> io::Result<()> {
         let today = today_utc();
         if self
@@ -267,7 +209,6 @@ fn log_file_name(date: &str) -> String {
     format!("{FILE_PREFIX}{date}{FILE_SUFFIX}")
 }
 
-/// 今天（UTC）的 `YYYY-MM-DD`：只做日历分解，不涉时区与闰秒。
 fn today_utc() -> String {
     let days = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -277,7 +218,6 @@ fn today_utc() -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
-/// 自 1970-01-01 起的天数 → 公历年月日（Howard Hinnant 的 `civil_from_days`）。
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let shifted = days + 719_468;
     let era = shifted.div_euclid(146_097);
@@ -292,7 +232,6 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (year + i64::from(month <= 2), month, day)
 }
 
-/// 只保留最近 [`MAX_LOG_FILES`] 份日志——名字里的日期可按字典序比较。
 fn prune_old_logs(dir: &Path) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -310,24 +249,6 @@ fn prune_old_logs(dir: &Path) {
     }
 }
 
-/// 在捕获订阅者下运行 `f`，返回这段时间里格式化后的日志文本（含 span 字段）。
-///
-/// 订阅者是**线程局部**的：与全局 [`init`] 互不影响，多个线程可各自并发使用，
-/// 各自捕获各自线程上产生的日志。但**并发不等于不干扰**：tracing 的调用点
-/// 兴趣缓存是进程级单份，未被捕获窗口覆盖的线程打日志时会把调用点缓存成
-/// `never`（无订阅者语境的注册结果），此后任何捕获窗口都整条收不到该调用点
-/// ——因此本函数在窗口内先重建一次兴趣缓存（按捕获订阅者重新注册全部调用
-/// 点），把窗口外的污染冲洗掉。并发窗口之间仍有残留竞争：断言共享调用点或
-/// 跨线程一律用 [`capture_global`]（全局订阅者常驻，缓存按它计算后不再被
-/// 无订阅者语境改写）。
-///
-/// 过滤器取 [`init`] 的同一档基准级别，所以断言同时钉住了「这条日志在生产
-/// 默认级别下也打得出来」。
-///
-/// 两个坑：**span 必须在 `f` 里创建**——tracing 在创建时就按当时订阅者的兴趣
-/// 定启用与否，没有订阅者时创建出来的 span 永远是禁用态，事后再捕获也补不
-/// 回来；以及 `f` 内新起的线程不在此订阅者覆盖范围内（跨线程断言用
-/// [`capture_global`]）。
 pub fn capture<F: FnOnce()>(f: F) -> String {
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let subscriber = tracing_subscriber::registry()
@@ -337,10 +258,6 @@ pub fn capture<F: FnOnce()>(f: F) -> String {
             move || shaped_handle(CaptureHandle(Arc::clone(&buffer)))
         }));
     tracing::subscriber::with_default(subscriber, || {
-        // 缓存是进程级单份而兴趣按订阅者计算：窗口外的无订阅者求值会把调用点
-        // 缓存成 never（NoSubscriber::register_callsite 的返回值），macro 层对
-        // never 短路、根本不进 get_default，线程局部订阅者无从生效——在窗口内
-        // 重建，让全部已注册调用点按捕获订阅者重新计算。
         tracing::callsite::rebuild_interest_cache();
         f();
     });
@@ -351,10 +268,6 @@ pub fn capture<F: FnOnce()>(f: F) -> String {
     String::from_utf8(bytes).unwrap_or_default()
 }
 
-/// 装上**进程级**捕获订阅者，返回读取端；日志来自别的线程时用它。
-///
-/// 与 [`init`] 互斥（一个进程只有一个全局订阅者）：测试进程里没人调用 [`init`]，
-/// 同一进程重复调用本函数拿到同一个读取端（只装一次）。
 pub fn capture_global() -> CaptureReader {
     static GLOBAL: OnceLock<Arc<Mutex<Vec<u8>>>> = OnceLock::new();
     let buffer = Arc::clone(GLOBAL.get_or_init(|| {
@@ -365,8 +278,6 @@ pub fn capture_global() -> CaptureReader {
                 let buffer = Arc::clone(&buffer);
                 move || shaped_handle(CaptureHandle(Arc::clone(&buffer)))
             }));
-        // 测试进程里没有别的全局订阅者；万一已有，说明调用方用错了工具，
-        // 这里按「捕获不可用」继续，断言会如实失败。
         #[allow(clippy::let_underscore_must_use)]
         let _ = tracing::subscriber::set_global_default(subscriber);
         buffer
@@ -374,11 +285,9 @@ pub fn capture_global() -> CaptureReader {
     CaptureReader(buffer)
 }
 
-/// [`capture_global`] 的读取端：按需取走累积到此刻的日志文本。
 pub struct CaptureReader(Arc<Mutex<Vec<u8>>>);
 
 impl CaptureReader {
-    /// 已捕获的日志文本（每次调用取一份快照，不清空缓冲）。
     pub fn text(&self) -> String {
         let bytes = self
             .0
@@ -405,8 +314,6 @@ impl io::Write for CaptureHandle {
     }
 }
 
-/// 基准级别打底 + `raw` 追加：全局指令后写者胜，故 `off` / `warn` 仍能压制打底级别，
-/// 而模块指令只影响自己的 target。非法指令由 `EnvFilter` 丢弃并打印原因。
 fn build_filter(raw: Option<&str>) -> EnvFilter {
     EnvFilter::new(format!("{DEFAULT_FILTER},{}", raw.unwrap_or_default()))
 }

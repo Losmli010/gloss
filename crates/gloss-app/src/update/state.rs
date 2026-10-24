@@ -1,24 +1,23 @@
-//! 更新子状态机：纯状态转移，不做任何 IO（与 [`crate::machine`] 同构的
-//! functional core）。
+//! 更新子状态机：纯状态转移，不做任何 IO（与应用层状态机同构的
+//! 函数式内核，同属纯状态机部分）。
 //!
 //! 触发入口（启动静默检查 / 设置页手动检查）、下载与替换都由壳执行——
-//! 本模块只决策：用户意图（[`UpdateMachine::check`] / [`UpdateMachine::confirm_download`] /
-//! [`UpdateMachine::confirm_restart`] / [`UpdateMachine::retry`] / [`UpdateMachine::cancel`]）与任务
-//! 回包（[`UpdateMachine`] 的 `accept_*`）在此收敛成命令与状态，UI 每帧读
+//! 本模块只决策：用户意图（检查、确认下载、确认重启、重试、取消）与任务
+//! 回包（各类回执）在此收敛成命令与状态，界面每帧读
 //! 最新相位渲染。
 //!
-//! 状态迁移逐行对应分发设计 §4.1 的迁移表；额外说明三条表外语义：
-//! - 初始相位 [`UpdatePhase::Idle`] 只存在于首次检查发起之前（启动静默
+//! 状态迁移逐行对应迁移表；额外说明三条表外语义：
+//! - 初始相位只存在于首次检查发起之前（启动静默
 //!   检查在首帧就绪后补发，稳态不可达）；
-//! - [`UpdateMachine::cancel`] 只对下载中有效，回到待确认下载——清单已知且校验
-//!   通过，该事实不因下载取消而消失；在途进度留在 `.partial`（下次全量
+//! - 取消只对下载中有效，回到待确认下载——清单已知且校验
+//!   通过，该事实不因下载取消而消失；在途进度留在半成品文件（下次全量
 //!   下载时清除，仅失败重试路径会续传）；检查中无处可回，不予取消
 //!   （重复检查本就会取消在途任务）；
 //! - 迟到回包由守卫拒绝（相位不符一律不采纳），已取消任务的回包在模块
 //!   任务侧经取消令牌过滤后才进本机，两道防线互为备份。
 //!
-//! `Failed` 记录失败步骤，重试回到该步骤：清单步 → 重新检查、下载步 →
-//! 基于 `.partial` 续传、替换步 → 回到待确认重启替换（用户点重试即再次
+//! 失败相位记录失败步骤，重试回到该步骤：清单步 → 重新检查、下载步 →
+//! 基于半成品文件续传、替换步 → 回到待确认重启替换（用户点重试即再次
 //! 确认，安装直接重跑）。
 
 use semver::Version;
@@ -26,119 +25,80 @@ use tokio_util::sync::CancellationToken;
 
 use super::manifest::{self, Artifact, UpdateManifest};
 
-/// 子状态机七相位（另加初始相位 `Idle`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UpdatePhase {
-    /// 尚未发起过检查（仅首次静默检查之前存在）。
     #[default]
     Idle,
-    /// 清单拉取与校验进行中。
     Checking,
-    /// 发现新版，待用户确认下载。
     UpdateAvailable,
-    /// 整包下载（含校验）进行中。
     Downloading,
-    /// 下载校验通过，待用户确认重启替换。
     UpdateReady,
-    /// 用户已确认，替换执行中（终结前最后一个相位）。
     ReadyToRestart,
-    /// 已是最新。
     UpToDate,
-    /// 失败：记录失败步骤，重试回到该步。
     Failed(FailStep),
 }
 
-/// 失败步骤（[`UpdatePhase::Failed`] 的载荷）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailStep {
-    /// 清单拉取/校验失败。
     Manifest,
-    /// 下载或 sha256/size 校验失败。
     Download,
-    /// 替换或重启失败。
     Install,
 }
 
-/// watch 频道广播的最新状态快照（UI 每帧读，不引入锁）。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UpdateState {
-    /// 当前相位。
     pub phase: UpdatePhase,
-    /// 已锁定的更新目标版本（`UpdateAvailable` 及其后的失败态有值）。
     pub version: Option<String>,
 }
 
-/// 检查通过后锁定的更新目标：目标版本与本机架构的产物快照（下载与
-/// 替换命令的载荷，从清单复制——清单本体用完即弃）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateTarget {
-    /// 清单声明的目标版本。
     pub version: Version,
-    /// 本机架构条目。
     pub artifact: Artifact,
 }
 
-/// 状态机交给壳执行的动作：壳据此发起网络任务或替换流程。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateCommand {
-    /// 拉取清单（启动静默检查与手动检查同一命令）。
     CheckManifest {
-        /// 本次检查的取消令牌（重复检查由状态机先取消旧令牌）。
         cancel: CancellationToken,
     },
-    /// 下载目标产物；`resume` 为真时基于 `.partial` 续传（重试路径），
-    /// 为假时先清除 `.partial` 全量重下（首次确认路径）。
     Download {
-        /// 检查通过时锁定的更新目标。
         target: UpdateTarget,
-        /// 真为基于 `.partial` 续传（重试路径），假为先清除 `.partial` 全量重下。
         resume: bool,
-        /// 本次下载的取消令牌（重复检查由状态机先取消旧令牌）。
         cancel: CancellationToken,
     },
-    /// 执行替换并重启（调用前已完成两道确认的第二道）。
     Install {
-        /// 检查通过时锁定的更新目标。
         target: UpdateTarget,
     },
 }
 
-/// 更新子状态机：纯状态 + 决策，无 IO。
 #[derive(Debug, Default)]
 pub struct UpdateMachine {
     phase: UpdatePhase,
-    /// 检查通过后锁定的更新目标；「无更新」「清单失败」后的重试会重新
-    /// 检查并覆盖，下载/替换失败的重试依赖它续跑，故随 Failed 保留。
     update: Option<UpdateTarget>,
-    /// 在途任务的取消令牌（检查与下载各一任；替换不可取消）。
     cancel: Option<CancellationToken>,
 }
 
 impl UpdateMachine {
-    /// 初始相位 `Idle`、无在途任务。
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 当前相位（测试观察口）。
     #[cfg(test)]
     pub fn phase(&self) -> UpdatePhase {
         self.phase
     }
 
-    /// 当前锁定的更新目标（测试观察口）。
     #[cfg(test)]
     pub fn update(&self) -> Option<&UpdateTarget> {
         self.update.as_ref()
     }
 
-    /// 在途任务的取消令牌（测试观察口）。
     #[cfg(test)]
     pub fn current_cancel(&self) -> Option<&CancellationToken> {
         self.cancel.as_ref()
     }
 
-    /// 当前状态快照（watch 频道广播的载荷）。
     pub fn snapshot(&self) -> UpdateState {
         UpdateState {
             phase: self.phase,
@@ -149,9 +109,6 @@ impl UpdateMachine {
         }
     }
 
-    /// 发起一次检查（启动静默检查 / 设置页检查共用入口）：`ReadyToRestart`
-    /// 之外任意相位可发起，先取消在途任务（下载中断保留 `.partial`），
-    /// 落 `Checking` 并交出清单拉取命令。清单步重试同走此处。
     pub fn check(&mut self) -> Option<UpdateCommand> {
         if self.phase == UpdatePhase::ReadyToRestart {
             return None;
@@ -165,8 +122,6 @@ impl UpdateMachine {
         })
     }
 
-    /// 确认下载（两道确认的第一道）：仅 `UpdateAvailable` 可发起，
-    /// 落 `Downloading` 并交出全量下载命令（`.partial` 先清除）。
     pub fn confirm_download(&mut self) -> Option<UpdateCommand> {
         let target = self.update.clone()?;
         if self.phase != UpdatePhase::UpdateAvailable {
@@ -180,8 +135,6 @@ impl UpdateMachine {
         })
     }
 
-    /// 确认重启替换（两道确认的第二道）：仅 `UpdateReady` 可发起，
-    /// 落 `ReadyToRestart` 并交出替换命令；替换不可取消。
     pub fn confirm_restart(&mut self) -> Option<UpdateCommand> {
         let target = self.update.clone()?;
         if self.phase != UpdatePhase::UpdateReady {
@@ -191,7 +144,6 @@ impl UpdateMachine {
         Some(UpdateCommand::Install { target })
     }
 
-    /// 重试失败卡：回到记录的失败步骤（见模块注释）。
     pub fn retry(&mut self) -> Option<UpdateCommand> {
         let step = match self.phase {
             UpdatePhase::Failed(step) => step,
@@ -216,8 +168,6 @@ impl UpdateMachine {
         }
     }
 
-    /// 取消在途下载：中断保留 `.partial`，回 `UpdateAvailable`。
-    /// 仅下载中有效；其余相位无事可做，返回 `false`。
     pub fn cancel(&mut self) -> bool {
         if self.phase != UpdatePhase::Downloading {
             return false;
@@ -229,8 +179,6 @@ impl UpdateMachine {
         true
     }
 
-    /// 采纳清单回包：守卫 `Checking`（迟到回包一律拒绝）。版本高于本地
-    /// 才置 `UpdateAvailable` 并锁定目标；相等或更低一律 `UpToDate`。
     pub fn accept_manifest(&mut self, manifest: UpdateManifest, current: &Version) -> bool {
         if self.phase != UpdatePhase::Checking {
             return false;
@@ -255,7 +203,6 @@ impl UpdateMachine {
         true
     }
 
-    /// 采纳「清单不可用」：守卫 `Checking`，落清单步失败。
     pub fn accept_manifest_unavailable(&mut self) -> bool {
         if self.phase != UpdatePhase::Checking {
             return false;
@@ -265,7 +212,6 @@ impl UpdateMachine {
         true
     }
 
-    /// 采纳下载完成：守卫 `Downloading`，落 `UpdateReady`。
     pub fn accept_download_verified(&mut self) -> bool {
         if self.phase != UpdatePhase::Downloading {
             return false;
@@ -275,7 +221,6 @@ impl UpdateMachine {
         true
     }
 
-    /// 采纳下载失败：守卫 `Downloading`，落下载步失败。
     pub fn accept_download_failed(&mut self) -> bool {
         if self.phase != UpdatePhase::Downloading {
             return false;
@@ -285,7 +230,6 @@ impl UpdateMachine {
         true
     }
 
-    /// 采纳替换失败：守卫 `ReadyToRestart`，落替换步失败。
     pub fn accept_install_failed(&mut self) -> bool {
         if self.phase != UpdatePhase::ReadyToRestart {
             return false;
@@ -294,7 +238,6 @@ impl UpdateMachine {
         true
     }
 
-    /// 换一枚新取消令牌并记为在途。
     fn fresh_token(&mut self) -> CancellationToken {
         let token = CancellationToken::new();
         self.cancel = Some(token.clone());

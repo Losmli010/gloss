@@ -1,13 +1,12 @@
 //! 代码语言采纳与语法着色适配：语言名归一化、syntect 语法映射与六类色板
 //! 主题。
 //!
-//! 语言的唯一来源是任务产物的 `structured.code_language`（LLM 判定，采纳
-//! 见 [`adopt`]）；[`syntect_token`] 把它映射到 Sublime 语法名，[`highlight`]
-//! 经 egui_extras 出 [`LayoutJob`]。着色类别与色板在 [`palette`]。
+//! 语言的唯一来源是任务产物的疏证代码语言（LLM 判定，经采纳入口归一）；
+//! 归一后的名字映射到 Sublime 语法名，着色输出交 egui_extras 渲染。
+//! 着色类别与色板在色板模块。
 //!
-//! egui_extras 的 `CodeTheme` 只暴露内置主题、字段私有，自定义六类色板
-//! 只能顶替 `SyntectSettings.ts` 里它按名字索引的两个主题条目（见
-//! [`theme_set`]）。
+//! egui_extras 的代码主题只暴露内置主题、字段私有，自定义六类色板
+//! 只能顶替其中按名字索引的两个主题条目（见本模块的主题装配）。
 
 mod fallback;
 mod palette;
@@ -25,8 +24,6 @@ use syntect::highlighting::{
 
 pub(crate) use fallback::fallback_job;
 
-/// 别名 → 规范名。别名只影响角标与归一化，能否着色看 [`SYNTAX_NAMES`]；
-/// 两表的规范名由测试锁住一致。
 const LANGUAGE_ALIASES: &[(&str, &str)] = &[
     ("rs", "rust"),
     ("py", "python"),
@@ -69,8 +66,6 @@ const LANGUAGE_ALIASES: &[(&str, &str)] = &[
     ("xhtml", "html"),
 ];
 
-/// 把语言名归一化为规范名：别名映射收拢，未知输入原样小写返回（角标
-/// 如实显示），空白视为无语言。
 pub(crate) fn normalize_language(name: &str) -> Option<String> {
     let lower = name.trim().to_ascii_lowercase();
     if lower.is_empty() {
@@ -83,11 +78,6 @@ pub(crate) fn normalize_language(name: &str) -> Option<String> {
     Some(canonical.to_owned())
 }
 
-/// 采纳产物的代码语言判定（渲染时现算）：修剪首尾空白后过词元门槛——
-/// 语言标识应是单个 ASCII 词元（"rust"、"c++"、"objective-c" 这个形状，
-/// 内部含空白或非 ASCII 字符的判定是散文或示例占位串）——再经归一化
-/// （别名/大小写）落规范名。判定缺失或不可采纳时为 `None`：无角标、按
-/// 通用启发集着色，自由文本不上角标。
 pub(crate) fn adopt(verdict: Option<&str>) -> Option<String> {
     verdict
         .map(str::trim)
@@ -100,8 +90,6 @@ pub(crate) fn adopt(verdict: Option<&str>) -> Option<String> {
         .and_then(normalize_language)
 }
 
-/// 规范语言名 → Sublime 语法名。syntect 按名字精确匹配（大小写敏感），
-/// 这里用语法集的实名而不是扩展名，避免 `.m` 之类多语言共用扩展名的歧义。
 const SYNTAX_NAMES: &[(&str, &str)] = &[
     ("rust", "Rust"),
     ("c", "C"),
@@ -136,8 +124,6 @@ const SYNTAX_NAMES: &[(&str, &str)] = &[
     ("css", "CSS"),
 ];
 
-/// 规范语言名对应的 Sublime 语法名；表外语言返回 `None`，由调用方落
-/// [`fallback_job`] 的通用启发集——不猜语言。
 pub(crate) fn syntect_token(lang: Option<&str>) -> Option<&'static str> {
     let name = normalize_language(lang?)?;
     SYNTAX_NAMES
@@ -146,13 +132,6 @@ pub(crate) fn syntect_token(lang: Option<&str>) -> Option<&'static str> {
         .map(|(_, token)| *token)
 }
 
-/// 代码正文着色：syntect 分词 + egui_extras 出 `LayoutJob`；语言未定或
-/// 表外语言返回 `None`，由绘制侧落 [`fallback_job`] 的通用启发集（不猜
-/// 具体语言，只认跨语言稳定的字符串/注释/数字/类型/函数形）。
-///
-/// 语法名可解析但逐行解析失败时（fancy-regex 的回溯上限，概率极低），
-/// egui_extras 自己退回灰底纯文本且不返回错误——这里无从探测，接受该
-/// 降级。
 pub(crate) fn highlight(
     ctx: &egui::Context,
     style: &egui::Style,
@@ -169,23 +148,15 @@ pub(crate) fn highlight(
     }
     .with_font_id(font_id);
     let mut job = highlight_with(ctx, style, &theme, source, token, settings());
-    // egui_extras 0.36 把 FontStyle::ITALIC 误当 UNDERLINE 判据，斜体注释会
-    // 多出一条下划线；统一清掉，颜色与斜体仍由主题决定。
     for section in &mut job.sections {
         section.format.underline = egui::Stroke::NONE;
     }
     Some(job)
 }
 
-/// egui_extras 的 `CodeTheme::dark/light` 在 `SyntectSettings.ts` 里按这两个
-/// 键取主题；自定义色板只能顶替这两个内置条目（`CodeTheme` 字段私有，
-/// 没有注入自定义 tmTheme 的公开入口）。
 const DARK_THEME_KEY: &str = "base16-mocha.dark";
 const LIGHT_THEME_KEY: &str = "Solarized (light)";
 
-/// 进程内唯一的语法集与主题集。语法集用 two-face 的 bat 补集（syntect
-/// 默认集缺 Kotlin/Swift/Dart/Elixir/Julia/TOML/TypeScript）。`highlight_with`
-/// 的缓存按这个引用的地址作键，必须取 `OnceLock` 里的同一份，不能逐帧新建。
 fn settings() -> &'static SyntectSettings {
     static SETTINGS: OnceLock<SyntectSettings> = OnceLock::new();
     SETTINGS.get_or_init(|| SyntectSettings {
@@ -194,9 +165,6 @@ fn settings() -> &'static SyntectSettings {
     })
 }
 
-/// 后台预热语法集：首次构造要反序列化整套语法定义（debug 实测约 0.1s），
-/// 落在首个代码卡的首帧会让弹窗出现卡顿。启动时调一次，首个代码卡通常
-/// 已命中 `OnceLock`。
 pub(crate) fn warm_up() {
     if std::thread::Builder::new()
         .name("gloss-highlight-warmup".to_owned())
@@ -212,8 +180,6 @@ pub(crate) fn warm_up() {
     }
 }
 
-/// 只保留 egui_extras 会取用的两个键，其余内置主题不装——省掉默认主题集
-/// 的解析，也让「自定义色板顶替内置条目」这件事在类型上只有一处。
 fn theme_set() -> ThemeSet {
     let mut themes = ThemeSet::new();
     themes
@@ -225,46 +191,33 @@ fn theme_set() -> ThemeSet {
     themes
 }
 
-/// scope 选择器 → 语法角色类别：只做「语法角色 → 类别」的映射，颜色仍由
-/// [`palette::Class`] 单点决定。syntect 按匹配得分取最具体的一条，与规则
-/// 的书写顺序无关。
 const SCOPE_CLASSES: &[(&str, palette::Class)] = &[
     ("comment", palette::Class::Comment),
     ("string", palette::Class::String),
     ("constant.numeric", palette::Class::Number),
-    // CSS 的 #fff 落 color.rgb-value，旧实现按 Number 着色。
     ("constant.other.color", palette::Class::Number),
     ("constant.language", palette::Class::Keyword),
     ("keyword.control", palette::Class::Keyword),
-    // and/or/not 在 Python/Ruby/Lua 里是 keyword.operator.logical.*，
-    // 不能泛化到 logical（JS 的 &&/||/! 同族，旧实现不着色）。
     ("keyword.operator.logical.python", palette::Class::Keyword),
     ("keyword.operator.logical.ruby", palette::Class::Keyword),
     ("keyword.operator.logical.lua", palette::Class::Keyword),
-    // .word 类是词形运算符（JS 的 new 等）。
     ("keyword.operator.word", palette::Class::Keyword),
     ("keyword.other", palette::Class::Keyword),
     ("keyword.declaration", palette::Class::Keyword),
     ("storage", palette::Class::Keyword),
     ("storage.type", palette::Class::Keyword),
     ("storage.modifier", palette::Class::Keyword),
-    // self/this/super 在旧关键字表里是 Keyword。按语言点名，不收
-    // variable.language 全体：Python 的 self 与 shell 的 $@/$# 在旧
-    // 实现里都不着色。Rust 的 &self 落在 variable.parameter，与普通
-    // 参数同 scope，只能保持平文。
     ("variable.language.rust", palette::Class::Keyword),
     ("variable.language.ruby", palette::Class::Keyword),
     ("variable.language.this", palette::Class::Keyword),
     ("variable.language.super", palette::Class::Keyword),
     ("entity.name.tag", palette::Class::Keyword),
-    // YAML 键旧实现算 Type；TOML 键旧实现不着色，这里一并对齐为 Type。
     ("entity.name.tag.yaml", palette::Class::Type),
     ("entity.name.tag.toml", palette::Class::Type),
     ("entity.name.type", palette::Class::Type),
     ("entity.name.class", palette::Class::Type),
     ("support.type", palette::Class::Type),
     ("support.type.property-name", palette::Class::Type),
-    // JSON 的键与值同为 string scope，只能靠父级 mapping 区分。
     (
         "meta.mapping.key.json string.quoted.double.json",
         palette::Class::Type,
@@ -274,11 +227,9 @@ const SCOPE_CLASSES: &[(&str, palette::Class)] = &[
     ("variable.function", palette::Class::Function),
     ("entity.other.attribute-name", palette::Class::Function),
     ("entity.name.section", palette::Class::Function),
-    // TOML 的 [section] 是 table 名，旧实现按 Function 着色。
     ("entity.name.table.toml", palette::Class::Function),
 ];
 
-/// 把六类色板包成 syntect 主题（scope 映射表见 [`SCOPE_CLASSES`]）。
 fn gloss_theme(dark: bool) -> Theme {
     Theme {
         name: Some("gloss".to_owned()),
@@ -294,8 +245,6 @@ fn gloss_theme(dark: bool) -> Theme {
     }
 }
 
-/// 一条主题规则。scope 全是静态字面量：解析失败只在开发期断言，release
-/// 落空选择器（该条规则不生效），不让静态表的笔误把绘制路径打崩。
 fn theme_item(scope: &str, class: palette::Class, dark: bool) -> ThemeItem {
     let scope = ScopeSelectors::from_str(scope).unwrap_or_else(|error| {
         debug_assert!(false, "static theme scope failed: {error:?}");
@@ -311,8 +260,6 @@ fn theme_item(scope: &str, class: palette::Class, dark: bool) -> ThemeItem {
     }
 }
 
-/// egui 的 Color32 是预乘 alpha；色板里的类别色都是不透明色，逐通道搬运
-/// 即可。
 fn syntect_color(color: egui::Color32) -> Color {
     Color {
         r: color.r(),

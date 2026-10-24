@@ -26,26 +26,21 @@ pub(crate) use core_foundation_sys::string::{
     CFStringGetMaximumSizeForEncoding, CFStringGetTypeID, CFStringRef, kCFStringEncodingUTF8,
 };
 
-/// CF 对象（+1 引用）的所有权守卫：出作用域即 CFRelease。
 pub(crate) struct CfGuard(CFTypeRef);
 
 impl CfGuard {
-    /// 接管一个 +1 引用；`NULL` 合法（Drop 时判空跳过）。
     pub(crate) fn new(reference: CFTypeRef) -> Self {
         Self(reference)
     }
 
-    /// 借用为底层 CF 引用（对任意 CF 对象类型通用，类型语义由调用方保证）。
     pub(crate) fn raw(&self) -> CFTypeRef {
         self.0
     }
 
-    /// 借用为 CFString 引用（调用方保证该对象确实是 CFString）。
     pub(crate) fn string_ref(&self) -> CFStringRef {
         self.0 as CFStringRef
     }
 
-    /// 借用为 CFData 引用（调用方保证该对象确实是 CFData）。
     pub(crate) fn data_ref(&self) -> CFDataRef {
         self.0 as CFDataRef
     }
@@ -61,7 +56,6 @@ impl Drop for CfGuard {
     }
 }
 
-/// 按 C 字符串构造 CFString（+1 引用，由守卫释放）；分配失败返回 `None`。
 pub(crate) fn cf_string(name: &CStr) -> Option<CfGuard> {
     // SAFETY: `name` 是 NUL 结尾的有效 C 字符串，编码为受支持的 UTF-8；
     // 分配失败返回 NULL，此处按失败处理。
@@ -71,7 +65,6 @@ pub(crate) fn cf_string(name: &CStr) -> Option<CfGuard> {
     (!s.is_null()).then(|| CfGuard::new(s as CFTypeRef))
 }
 
-/// 按字节构造 CFData（+1 引用，由守卫释放）；分配失败返回 `None`。
 #[cfg(test)]
 pub(crate) fn cf_data(bytes: &[u8]) -> Option<CfGuard> {
     // SAFETY: `bytes` 在本次调用内存活且非悬空，长度即缓冲长度；
@@ -80,12 +73,6 @@ pub(crate) fn cf_data(bytes: &[u8]) -> Option<CfGuard> {
     (!data.is_null()).then(|| CfGuard::new(data as CFTypeRef))
 }
 
-/// 把 CF 对象转成 Rust 字符串：非 CFString、编码失败或 UTF-8 字节数超过
-/// `max_bytes` 都返回 `None`（上界在分配缓冲之前判定）。
-///
-/// # Safety
-///
-/// `value` 是有效的 CF 对象引用或 NULL（内部先验类型）；+1 引用仍由调用方持有。
 pub(crate) unsafe fn string_from(value: CFTypeRef, max_bytes: usize) -> Option<String> {
     let s = value as CFStringRef;
     if s.is_null() {

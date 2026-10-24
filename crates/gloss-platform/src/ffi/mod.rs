@@ -1,9 +1,9 @@
-//! 平台 FFI 的唯一落点：框架声明、不透明类型、`unsafe` 助手与所有权守卫。
+//! 平台 FFI 的唯一落点：框架声明、不透明类型、unsafe 助手与所有权守卫。
 //!
 //! 本模块集中平台适配层用到的全部 C 接口声明与 SAFETY 依据，按框架分文件：
-//! [`cf`]（CoreFoundation 符号与守卫）、[`ax`]（Accessibility）、
-//! [`pasteboard`]（粘贴板）、[`eventtap`]（CoreGraphics 事件 tap）、
-//! [`event`]（CoreGraphics 事件注入）、[`carbon`]（系统输入态查询）。
+//! CoreFoundation 符号与守卫、AX 辅助功能、
+//! 粘贴板、CoreGraphics 事件 tap、
+//! CoreGraphics 事件注入、Carbon 系统输入态查询。
 //! 业务模块从这里引用，不再各自声明——签名与内存管理规则因此只有一处
 //! 需要审计。
 //!

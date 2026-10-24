@@ -1,7 +1,7 @@
 //! 任务模型：任务类型、输入模态与管道消息的载荷类型。
 //!
-//! 文本分类的清单外落点是 [`TaskKind::General`]（分类模板以 `Fallback`
-//! 类别指认它，见 [`crate::schema::validate_classify`]）；任务选项
+//! 文本分类的清单外落点是通用任务（分类模板以兜底
+//! 类别指认它，见分类校验器）；任务选项
 //! 在触发时一次性冻结，执行途中不回读配置。
 
 use std::sync::Arc;
@@ -11,57 +11,31 @@ use serde::{Deserialize, Serialize};
 use crate::config::DEFAULT_MODEL;
 use crate::model::{GlossError, Lang, Locale};
 
-/// 任务类型。新增场景 = 加变体 + prompt 模板 + 结构化结果变体 + UI 模板；
-/// 管道只搬运载荷，不按类型分支。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum TaskKind {
-    /// 单词或短语：落词卡产物（音标与例句在 `structured`，释义在 `note`）。
     TranslateWord,
     TranslateSentence,
     ExplainCode,
-    /// 图像解读：唯一接受 [`TaskInput::Image`] 的 kind（见 [`Task::new`]）。
     ImageExplain,
-    /// 通用任务：不在分类模板的类别清单里，是分类 `Fallback` 类别与
-    /// 分类失效时的执行落点。
     General,
 }
 
-/// 输入模态：取材产物的统一形态，随消息 move 所有权。
-///
-/// 不携带模态提示：源语言与代码语言都由模型从原文判断，代码语言经
-/// [`OutcomeStructured::Code`] 回传 UI。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TaskInput {
-    Text {
-        text: String,
-    },
-    Image {
-        /// PNG 字节；编码成 data URL 归传输层。
-        png: Arc<[u8]>,
-    },
+    Text { text: String },
+    Image { png: Arc<[u8]> },
 }
 
-/// 任务选项：全部字段都是**单次快照冻结**的——App 在触发时按配置快照解析
-/// 填入，执行途中不再回读配置。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TaskOptions {
-    /// 目标语言；`None` 走缺省中文（[`crate::prompt`] 的 `DEFAULT_TARGET`）。
     pub target_lang: Option<Lang>,
-    /// 本任务使用的模型 id；`Arc<str>` 让在途副本与下发请求共享同一份，
-    /// 复制只是引用计数。缺省值只服务反序列化兜底与测试直构，App 路径恒按
-    /// 配置快照填入。
     pub model: Arc<str>,
-    /// prompt 模板语言；缺省中文。它参与缓存 key——换模板语言后同输入
-    /// 不得命中旧语言的产物。
     pub prompt_locale: Option<Locale>,
 }
 
 #[doc(hidden)]
 impl Default for TaskOptions {
-    /// 只服务反序列化兜底与测试直构。生产路径必须全量显式构造（见
-    /// `gloss-app` 的 `task_options`）——`..Default::default()` 会静默带上
-    /// 工厂模型，把调用方本应自己决定的参数掩盖掉。
     fn default() -> Self {
         Self {
             target_lang: None,
@@ -80,8 +54,6 @@ pub struct Task {
 }
 
 impl Task {
-    /// 任务的唯一构造口：模态约束在这里判定，`kind` 与 `input` 的非法组合
-    /// 不可表示。[`TaskOutcome`] 的 kind 由执行路径决定，构造只认输入形状。
     pub fn new(kind: TaskKind, input: TaskInput, options: TaskOptions) -> Result<Self, GlossError> {
         validate_modality(kind, &input)?;
         Ok(Self {
@@ -103,15 +75,11 @@ impl Task {
         &self.options
     }
 
-    /// 选项可在渲染前调整（目标语言、模板语言）；模态不变量只认
-    /// kind 与 input，与选项无关。
     pub fn options_mut(&mut self) -> &mut TaskOptions {
         &mut self.options
     }
 }
 
-/// 反序列化的中转形态：`Task` 的字段私有，wire 入口也必须过 [`Task::new`]
-/// 的同一道模态闸门，否则夹具与持久化路径会成为绕过不变量的旁路。
 #[derive(Deserialize)]
 struct TaskParts {
     kind: TaskKind,
@@ -127,8 +95,6 @@ impl TryFrom<TaskParts> for Task {
     }
 }
 
-/// 模态约束表：任务类型与输入模态的合法组合。唯一被拒的错误是
-/// [`GlossError::UnsupportedModality`]。
 fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError> {
     let legal = matches!(
         (kind, input),
@@ -147,33 +113,24 @@ fn validate_modality(kind: TaskKind, input: &TaskInput) -> Result<(), GlossError
     }
 }
 
-/// 任务产物：`note` 是流式拼接的 markdown 正文，`structured` 是 UI 精排字段。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskOutcome {
     pub kind: TaskKind,
-    /// markdown 正文；降级产物恒为空串（原文垃圾不展示不留存）。
     pub note: String,
-    /// 按 kind 的附加字段，见 [`OutcomeStructured`]。
     pub structured: OutcomeStructured,
-    /// 契约校验失败后的兜底产物标记（此时 `note` 为空串）：不进缓存、UI
-    /// 出降级卡。`serde(default)` 是为兼容缺该字段的旧工件——没有标记即
-    /// 视为正常产物。
     #[serde(default)]
     pub degraded: bool,
 }
 
-/// 按 `TaskKind` 分派的附加字段：释义在 [`TaskOutcome::note`]，这里只带音、
-/// 例与语言判定。三个变体与 `crate::schema` 的 wire 契约同构。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OutcomeStructured {
-    /// 词卡：音标（模型给出时才有）与例句。
     WordCard {
         phonetic: Option<String>,
         examples: Vec<String>,
     },
-    /// 句译、讲解、图像解读与通用任务共用：展开条目列表。
-    Plain { examples: Vec<String> },
-    /// 代码讲解：展开条目 + 模型判定的语言（不确定为 `None`）。
+    Plain {
+        examples: Vec<String>,
+    },
     Code {
         examples: Vec<String>,
         code_language: Option<String>,

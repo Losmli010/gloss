@@ -3,19 +3,14 @@
 //! 手势取「拖拽释放」：按压时长与位移双达标才算选择，分别滤掉瞬时甩动与
 //! 普通点击。订阅面只有左键按下与释放，键盘事件不进入本模块。
 //!
-//! 线程约束：tap 在**当前线程**建立并阻塞运行（回调跑在它自己的 RunLoop
-//! 上），不能放进平台事件线程；没有停止 API，监听线程随进程退出消亡。
+//! 线程约束：事件 tap 在**当前线程**建立并阻塞运行（回调跑在它自己的
+//! RunLoop 上），不能放进平台事件线程；没有停止 API，监听线程随进程退出消亡。
 //! 需要辅助功能授权，建立结果同步返回，运行中失效才经标志异步置位。
 
 use crossbeam_channel::Receiver;
 
-/// 判定为拖拽所需的最小位移（系统逻辑点）：远高于点击抖动，又低于任何
-/// 有意拖拽；坐标是逻辑点，不必按 DPI 折算。
 const DRAG_THRESHOLD: f64 = 12.0;
 
-/// 判定为拖拽所需的最短按压时长（纳秒）。有意的拖拽稳定在数百毫秒（点击
-/// 本身的按压就有约 100ms），甩动与 HID 连滑趋近于零；150ms 落在两者之间，
-/// 两侧都留裕量。
 const MIN_PRESS_NANOS: u64 = 150_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,21 +19,13 @@ enum LeftButton {
     Released,
 }
 
-/// tap 层交给手势层的事件，坐标与时间戳都取自**该事件自身**。
-///
-/// 不能缓存「最近一次移动位置」：真实拖拽期间系统只投递拖拽事件而非移动
-/// 事件，缓存会停在按下之前，释放时算出的位移恒为零，手势永远判不出来。
-/// 时间戳同理取事件自带的（纳秒，单调），按压时长不依赖回调投递延迟。
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ButtonEvent {
     action: LeftButton,
     pos: (f64, f64),
-    /// 事件自身的时间戳（纳秒，自系统启动起）。
     time: u64,
 }
 
-/// CGEventTypes.h 的事件类型原始值。用原始数字而不是 core-graphics 的
-/// `CGEventType`：订阅规则（尤其「键盘绝不订阅」）不依赖系统头文件即可单测。
 const CG_EVENT_LEFT_MOUSE_DOWN: u32 = 1;
 const CG_EVENT_LEFT_MOUSE_UP: u32 = 2;
 
@@ -51,14 +38,11 @@ const CG_EVENT_FLAGS_CHANGED: u32 = 12;
 #[cfg(test)]
 const CG_EVENT_SCROLL_WHEEL: u32 = 22;
 
-/// 订阅清单是唯一事实来源：订阅掩码与回调过滤都由它推出，实现里不另写
-/// 第二份口径——否则键盘事件会从两处口径的缝隙里回来。
 const SUBSCRIBED_EVENT_TYPES: [(u32, LeftButton); 2] = [
     (CG_EVENT_LEFT_MOUSE_DOWN, LeftButton::Pressed),
     (CG_EVENT_LEFT_MOUSE_UP, LeftButton::Released),
 ];
 
-/// 未订阅的类型返回 `None`，回调据此原样放行事件。
 fn classify(raw_type: u32) -> Option<LeftButton> {
     SUBSCRIBED_EVENT_TYPES
         .iter()
@@ -105,7 +89,6 @@ impl GestureDetector {
                 (held >= MIN_PRESS_NANOS && dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD)
                     .then_some(event.pos)
             }
-            // 无按下记录的释放（如监听启动前就按下的拖拽），静默忽略。
             (LeftButton::Released, None) => None,
         }
     }
@@ -125,22 +108,13 @@ mod tap {
     use super::{ButtonEvent, GestureDetector};
     use crate::events::EventSource;
 
-    /// 划词手势产物（platform 本地类型；组装点映射为 ① 的平台事件）。
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum MouseGesture {
-        /// 一次完整的拖拽选择，载荷是释放坐标（系统全局坐标，逻辑点、左上
-        /// 原点）——浮层跟随划词位置用。
-        Selection {
-            /// 整型化的逻辑点，与 [`ScreenPoint`] 同一口径。
-            pos: ScreenPoint,
-        },
+        Selection { pos: ScreenPoint },
     }
 
-    /// 监听启动失败的原因，只用于日志与降级判定：手势可降级，失败不向上
-    /// 传播错误。
     #[derive(Debug)]
     enum ListenError {
-        /// 系统拒绝建立事件 tap：最常见的原因是未授予辅助功能权限。
         EventTap,
         RunLoopSource,
     }
@@ -151,10 +125,6 @@ mod tap {
     }
 
     impl MouseSource {
-        /// 返回 `None` 即 tap 没建起来（未授权辅助功能最常见），组装点据此
-        /// 同步判定手势可用性，无须轮询。建立的等待是「创建相结果」通道事件，
-        /// 有界且无用户交互。标志只在 tap 中途停止投递时置位，启动失败不经它
-        /// 表达。
         pub fn spawn() -> (Option<Self>, Arc<AtomicBool>) {
             let degraded = Arc::new(AtomicBool::new(false));
             let events = spawn_tap(Arc::clone(&degraded));
@@ -180,9 +150,6 @@ mod tap {
         }
     }
 
-    /// 启动 tap 监听线程并**同步等待**创建相结果：成功返回事件通道，失败
-    /// 返回 `None`（原因已记日志）。创建相与阻塞相分离，失败在进 run loop
-    /// 前就确定。
     fn spawn_tap(degraded: Arc<AtomicBool>) -> Option<Receiver<ButtonEvent>> {
         let (tx, rx) = bounded(256);
         let (created_tx, created_rx) = bounded::<Result<(), ListenError>>(1);
@@ -200,8 +167,6 @@ mod tap {
                     );
                     None
                 }
-                // 创建相在回报前就消亡（panic 于纯 FFI 与装箱路径，理论不可
-                // 达）：按缺失降级，与创建失败同一出口。
                 Err(_) => {
                     warn!(
                         thread = thread::MOUSE_TAP,
@@ -221,26 +186,14 @@ mod tap {
         }
     }
 
-    /// tap 监听线程的执行体：事件经 panic 屏障投递（满则丢弃），创建
-    /// 成功先回报，再进阻塞的 run loop。
     fn tap_loop(
         tx: Sender<ButtonEvent>,
         created_tx: Sender<Result<(), ListenError>>,
         degraded: Arc<AtomicBool>,
     ) {
-        // 事件 tap 回调是 C 回调，panic 穿过它直接 abort 进程：与事件
-        // 线程的 guarded 同一纪律，unwind 构建下兜底后监听继续；release
-        // 以 `panic = "abort"` 构建时本屏障不再拦截，panic 在事发点
-        // abort 进程（生效边界同 guarded）。兜底放在这里而不在
-        // tap 实现里，是模块与实现之间的分工——实现侧只需保证自己不
-        // panic（它的活只是常量查表加读一次坐标）。
         let sink = move |event: ButtonEvent| {
-            // panic 屏障：闭包的结果（含 panic 信号）有意整体丢弃，
-            // 监听循环只关心是否继续。
             #[allow(clippy::let_underscore_must_use)]
             let _ = catch_unwind(AssertUnwindSafe(|| {
-                // 通道满时丢弃：手势判定不需要完整事件流，反压 tap 回调
-                // 的代价远大于丢一次触发机会。
                 if tx.try_send(event).is_err() {
                     debug!(
                         thread = thread::MOUSE_TAP,
@@ -251,11 +204,6 @@ mod tap {
         };
         match imp::create(sink) {
             Ok(handle) => {
-                // 创建成功先回报再进阻塞的 run loop（回报通道只有一
-                // 位且调用方正同步等待；即便对方已提前放弃也不影响
-                // 监听）。此后只有「运行中停止投递」一条退出路径
-                // （tap 没有停止 API），置位降级标志并留 info 便于
-                // 诊断。
                 drop(created_tx.send(Ok(())));
                 imp::run(handle);
                 degraded.store(true, Ordering::Relaxed);
@@ -272,8 +220,6 @@ mod tap {
         imp::subscribed_mask()
     }
 
-    /// 自建只订阅左键的 CGEventTap。
-    ///
     mod imp {
         use std::ffi::c_void;
 
@@ -290,32 +236,15 @@ mod tap {
         use super::super::{ButtonEvent, SUBSCRIBED_EVENT_TYPES, classify};
         use super::ListenError;
 
-        /// 订阅掩码：由共享的 [`SUBSCRIBED_EVENT_TYPES`] 推出——掩码不另写一份，
-        /// 否则键盘事件会从两处口径的缝隙里回来（代价见模块注释）。
         pub(super) fn subscribed_mask() -> u64 {
             SUBSCRIBED_EVENT_TYPES
                 .iter()
                 .fold(0, |mask, (raw, _)| mask | (1_u64 << raw))
         }
 
-        /// 已建成待运行的 tap：`create` 与 `run` 两相的交接凭证。tap 与其
-        /// run loop source 已挂上当前线程的 run loop，句柄本身无状态——
-        /// 它让「没建成就不能运行」成为类型层面的约束。
         pub struct TapHandle;
 
-        /// 在**当前线程**建立只订阅左键按下/释放的 tap（创建相）：建 tap、
-        /// 建 run loop source、挂上当前线程 run loop 并启用。不阻塞运行——
-        /// 那是 [`run`]（阻塞相）的事，两相之间创建结果才得以同步发回调用
-        /// 方（组装点据此判定手势可用性，见 `spawn_tap`）。
-        ///
-        /// 调用方保证：`sink` 不向外抛 panic——它由 C 回调调用，panic 穿过
-        /// C 边界会 abort 进程（兜底在 `spawn_tap`）。
         pub fn create(sink: impl Fn(ButtonEvent) + 'static) -> Result<TapHandle, ListenError> {
-            // 回调上下文必须活到进程结束：tap 没有停止 API，本线程的 run loop
-            // 一直跑到进程退出。故 **tap 建成后**有意泄漏这份 Box（每进程至多
-            // 一份）——注意它是「泄漏」而非 `mem::forget` 式不可达：tap 的
-            // user_info 一直指着它。两条失败路径都会把它收回（见下）。二次装箱
-            // 是为了给 `user_info` 一个瘦指针。
             let ctx: *mut Box<dyn Fn(ButtonEvent)> = Box::into_raw(Box::new(Box::new(sink)));
 
             // SAFETY: 参数都是常量或本进程内的有效指针；`raw_callback` 的签名与
@@ -331,7 +260,6 @@ mod tap {
                 )
             };
             if tap.is_null() {
-                // 没建成 tap：回调永远不会来，把上下文收回，别白泄漏一份。
                 // SAFETY: `ctx` 来自上面的 Box::into_raw，此刻仍是唯一引用。
                 drop(unsafe { Box::from_raw(ctx) });
                 return Err(ListenError::EventTap);
@@ -341,8 +269,6 @@ mod tap {
             // 返回 +1 引用，下面交给 run loop 后归还。
             let source = unsafe { CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) };
             if source.is_null() {
-                // 没建起 run loop source：tap 与上下文都不会有人用，一并收回——
-                // 这条路径之后手势就永久降级了，没有「活到进程结束」的理由。
                 // SAFETY: `tap` 是上面 CGEventTapCreate 的 +1 引用，归我们归还；
                 // `ctx` 仍是 Box::into_raw 得到的唯一引用。
                 unsafe {
@@ -362,20 +288,12 @@ mod tap {
             Ok(TapHandle)
         }
 
-        /// 阻塞运行当前线程的 run loop（阻塞相）：订阅的事件从这里投递进
-        /// [`raw_callback`]。只在系统层面停止投递时返回（如 tap 失效），
-        /// 没有停止 API——返回即手势失效，调用方按降级处理。
         pub fn run(_handle: TapHandle) {
             // SAFETY: `create` 已把 source 挂到当前线程的 run loop 上，这里
             // 只是进入阻塞运行。参数只承载两相顺序约束，进入运行即完成使命。
             unsafe { CFRunLoopRun() };
         }
 
-        /// tap 回调：把订阅到的事件翻译成 [`ButtonEvent`] 交给 sink，未订阅的
-        /// 一律原样放行（listen-only 的 tap 也必须返回事件本身）。
-        ///
-        /// 翻译只用常量查表加位置与时间戳各一次读取（不分配、不调用会 panic
-        /// 的 API），panic 兜底在 sink 侧（见 [`create`] 的调用方保证）。
         unsafe extern "C" fn raw_callback(
             _proxy: CGEventTapProxy,
             raw_type: u32,

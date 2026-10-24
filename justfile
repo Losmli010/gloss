@@ -222,11 +222,11 @@ miri:
     MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine:: --skip file_writer_persists_lines_into_daily_file
 
 # 完整质量门禁：precommit 的全部 + test
-check: constraints agents-doc test-bdd i18n fmt fmt-toml lint lint-toml test secrets
+check: constraints agents-doc test-bdd i18n comments fmt fmt-toml lint lint-toml test secrets
     @echo "✓ 质量门禁全部通过"
 
-# 提交前门禁：约束 + 文档引用 + BDD 清单 + 文案表 + fmt + TOML + clippy + 密钥扫描
-precommit: constraints agents-doc test-bdd i18n fmt fmt-toml lint lint-toml secrets
+# 提交前门禁：约束 + 文档引用 + BDD 清单 + 文案表 + 注释纪律 + fmt + TOML + clippy + 密钥扫描
+precommit: constraints agents-doc test-bdd i18n comments fmt fmt-toml lint lint-toml secrets
     @echo "✓ 提交前检查通过（测试交给 CI）"
 
 # ---- release：发布链（CI 的 release.yml 用同一批脚本）----
@@ -275,6 +275,10 @@ constraints:
 # 界面文案统一进文案表（文案字面量 / 装入点 / 词条表唯一）
 i18n:
     ./scripts/hooks/check-i18n.sh
+
+# 注释纪律：.rs 只留中文文件头注释（SAFETY 与 :allow 豁免；其余迁 docs/comments/）
+comments:
+    python3 scripts/hooks/check_comments.py
 
 # 校验单条 commit message 是否符合 Conventional Commits
 lint-commit file:

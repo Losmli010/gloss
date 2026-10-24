@@ -2,8 +2,8 @@
 //! 表外语言）。只认跨语言稳定的字符串、两类注释、数字、类型与函数形，
 //! 不做关键字表——关键字是各语言语法集的职责，兜底不做猜测。
 //!
-//! 正则按静态模式编译一次；逐帧仍要单趟线性扫描（O(n)，与旧实现一致），
-//! egui 的 galley 缓存只省重排、不跳过扫描。
+//! 正则按静态模式编译一次；逐帧仍要单趟线性扫描（与旧实现一致），
+//! egui 的排版产物缓存只省重排、不跳过扫描。
 
 use std::ops::Range;
 use std::sync::OnceLock;
@@ -15,7 +15,6 @@ use regex::Regex;
 
 use super::palette::{Class, plain_color};
 
-/// 通用启发集的着色区间（互不重叠、按出现顺序）。
 pub(super) fn tokens(text: &str) -> Vec<(Range<usize>, Class)> {
     let Some(re) = compiled() else {
         return Vec::new();
@@ -37,8 +36,6 @@ pub(super) fn tokens(text: &str) -> Vec<(Range<usize>, Class)> {
     tokens
 }
 
-/// 兜底正文的排版：字符串/注释/数字/类型/函数形按六类色板着色，其余
-/// 平文；折行与行高与 syntect 路径一致。
 pub(crate) fn fallback_job(
     source: &str,
     font_id: &FontId,
@@ -90,10 +87,6 @@ pub(crate) fn fallback_job(
     job
 }
 
-/// 全类别共享的通用规则：块注释 → 行注释 → 字符串 → 数字 → 类型 →
-/// 函数形（同位起配时靠次序定优先级）。`--` 与 `%` 分别是 Lua/SQL 系与
-/// LaTeX/MATLAB 系的行注释前缀；兜底只服务表外语言，取覆盖更广的一边，
-/// 代价是自减与取模会被整行染成注释。
 fn pattern() -> String {
     [
         block_comment("/*", "*/"),
@@ -111,14 +104,11 @@ fn pattern() -> String {
     .join("|")
 }
 
-/// 规则集正则：进程内编译一次，之后查表零成本。
 fn compiled() -> Option<&'static Regex> {
     static REGEX: OnceLock<Option<Regex>> = OnceLock::new();
     REGEX.get_or_init(|| compile(&pattern())).as_ref()
 }
 
-/// 编译静态模式。失败只可能是模式笔误：整体失去着色（隔离降级），debug
-/// 构建里第一时间显形，release 留一条告警痕。
 fn compile(pattern: &str) -> Option<Regex> {
     match Regex::new(pattern) {
         Ok(re) => Some(re),
@@ -134,8 +124,6 @@ fn compile(pattern: &str) -> Option<Regex> {
     }
 }
 
-/// 函数形的定界符（regex 无 lookaround）随匹配一起吃掉，着色时裁掉、只留
-/// 语法本体；其余类别原样。
 fn trimmed_range(matched: regex::Match<'_>, class: Class) -> Range<usize> {
     let mut range = matched.range();
     if matches!(class, Class::Function) {

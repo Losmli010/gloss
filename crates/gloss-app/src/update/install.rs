@@ -1,42 +1,30 @@
-//! 校验通过的整包 → 原位替换当前 bundle 并重启。
+//! 校验通过的整包 → 原位替换当前应用包并重启。
 //!
-//! 替换规格（分发设计 §4.1，仅原位替换当前 bundle，不做安装器迁移）：
-//! 解压 zip 到目标目录同卷的临时目录并检查包内 `.app` 结构 → 当前
-//! bundle 同卷改名保留为 `.app.old` → 新 `.app` 移入原位 → 删除
-//! `.app.old`，中途失败回滚改名。重启经 detached 辅助进程拉起新
-//! bundle 后当前进程退出。
+//! 替换规格（仅原位替换当前应用包，不做安装器迁移）：
+//! 解压压缩包到目标目录同卷的临时目录并检查包内应用结构 → 当前
+//! 应用包同卷改名保留为回滚副本 → 新应用包移入原位 → 删除
+//! 回滚副本，中途失败回滚改名。重启经脱离父进程的辅助进程拉起新
+//! 应用包后当前进程退出。
 //!
-//! bundle 位于只读卷（直接从 DMG 运行）或目录无写权限时不尝试替换，
-//! 带指引失败；当前进程不在 `.app` 内（开发期 `cargo run`）同样带指引
-//! 失败——自更新只服务正式安装的 bundle。
+//! 应用包位于只读卷（直接从 DMG 运行）或目录无写权限时不尝试替换，
+//! 带指引失败；当前进程不在应用包内（开发期直接运行）同样带指引
+//! 失败——自更新只服务正式安装的应用包。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use gloss_core::log::{debug, thread, warn};
 
-/// 替换或重启失败的形态：错误卡按变体给针对性指引。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallError {
-    /// 当前进程不在 `.app` 内（开发期裸二进制）：无 bundle 可替换。
     NotABundle,
-    /// bundle 所在卷只读或目录无写权限：替换无从下手。
-    Unwritable {
-        /// bundle 所在目录（指引里点名它）。
-        dir: PathBuf,
-    },
-    /// 解压失败（ditto 非零退出或未产出内容）。
+    Unwritable { dir: PathBuf },
     Unzip(String),
-    /// 解压产物里找不到结构完整的 `.app`（`Contents/MacOS` 缺失）。
     InvalidStructure,
-    /// 改名/移入失败；已尽力回滚，错误串带两步的现场。
     Replace(String),
-    /// 重启接力失败（`open` 不可用或报错）：新 bundle 已就位，指引手动重启。
     Relaunch(String),
 }
 
-/// 替换当前 bundle 并经 `open -n` 拉起新 bundle：成功返回后调用方进程
-/// 退出（模块任务负责）。
 pub fn install(zip: &Path) -> Result<(), InstallError> {
     let bundle = current_bundle().ok_or(InstallError::NotABundle)?;
     let dir = bundle
@@ -52,8 +40,6 @@ pub fn install(zip: &Path) -> Result<(), InstallError> {
     relaunch(&bundle)
 }
 
-/// 当前进程所属的 bundle：从可执行路径向上找第一个 `.app` 目录。
-/// 开发期裸二进制不在任何 `.app` 内，返回 `None`。
 pub fn current_bundle() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     exe.ancestors()
@@ -61,8 +47,6 @@ pub fn current_bundle() -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-/// 替换的纯机械部分（重启除外），可全量驱动：`bundle` 必须位于
-/// `dir` 下且 `dir` 可写。
 fn replace(zip: &Path, dir: &Path, bundle: &Path) -> Result<(), InstallError> {
     let old = dir.join(format!(
         "{}.old",
@@ -72,15 +56,12 @@ fn replace(zip: &Path, dir: &Path, bundle: &Path) -> Result<(), InstallError> {
     let unpack = prepare_unpack_dir(dir)?;
     let new_app = extract_app(zip, &unpack)?;
 
-    // 中途失败的回滚只护「改名对」：旧 bundle 改名成功而新 bundle 移入
-    // 失败时，把旧 bundle 改回原位，现场恢复到替换前。
     swap_bundles(bundle, &old, &new_app, &unpack)?;
 
     finish_replace(&old, &unpack);
     Ok(())
 }
 
-/// 上一次替换中断留下的旧 bundle：本轮成功替换会覆盖它，先清场。
 fn clear_stale_old_bundle(old: &Path) {
     if let Err(err) = std::fs::remove_dir_all(old) {
         debug!(
@@ -91,7 +72,6 @@ fn clear_stale_old_bundle(old: &Path) {
     }
 }
 
-/// 备好本轮的解压目录：先清掉上次中断遗留的同名目录，再新建。
 fn prepare_unpack_dir(dir: &Path) -> Result<PathBuf, InstallError> {
     let unpack = dir.join(format!(".gloss-update-{}", std::process::id()));
     if let Err(err) = std::fs::remove_dir_all(&unpack) {
@@ -102,8 +82,6 @@ fn prepare_unpack_dir(dir: &Path) -> Result<PathBuf, InstallError> {
     Ok(unpack)
 }
 
-/// 解压并找到新 bundle：解压失败或包内没有结构完整的 `.app` 都不碰
-/// 现有安装，解压现场清理后带对应错误返回。
 fn extract_app(zip: &Path, unpack: &Path) -> Result<PathBuf, InstallError> {
     if let Err(err) = ditto_extract(zip, unpack) {
         remove_unpack_dir(unpack);
@@ -118,8 +96,6 @@ fn extract_app(zip: &Path, unpack: &Path) -> Result<PathBuf, InstallError> {
     }
 }
 
-/// 换名对：旧 bundle 让位为 `.app.old`，新 `.app` 移入原位；移入失败时
-/// 尽力把旧 bundle 改回原位（回滚也失败则旧 bundle 留在 `.app.old`）。
 fn swap_bundles(
     bundle: &Path,
     old: &Path,
@@ -150,8 +126,6 @@ fn swap_bundles(
     Ok(())
 }
 
-/// 旧 bundle 清理与解压现场清理都属收尾：失败不致命（旧 bundle 留
-/// 在 .app.old 不影响新 bundle 运行，下次替换先清场），记日志即可。
 fn finish_replace(old: &Path, unpack: &Path) {
     if let Err(err) = std::fs::remove_dir_all(old) {
         warn!(
@@ -164,16 +138,12 @@ fn finish_replace(old: &Path, unpack: &Path) {
     remove_unpack_dir(unpack);
 }
 
-/// 解压现场的清理：失败只落 debug——残留目录带进程号命名，下轮替换
-/// 会先清场。
 fn remove_unpack_dir(unpack: &Path) {
     if let Err(cleanup) = std::fs::remove_dir_all(unpack) {
         debug!(thread = thread::TOKIO, error = %cleanup, "update: unpack dir cleanup failed");
     }
 }
 
-/// 经 detached 辅助进程拉起新 bundle：`open -n` 由 LaunchServices 接管，
-/// 本进程随后退出。接力失败带指引返回（新 bundle 已就位，手动重启即可）。
 fn relaunch(bundle: &Path) -> Result<(), InstallError> {
     let status = Command::new("/usr/bin/open")
         .arg("-n")
@@ -186,7 +156,6 @@ fn relaunch(bundle: &Path) -> Result<(), InstallError> {
     Ok(())
 }
 
-/// `ditto -x -k`：macOS 自带的 zip 解压（打包链路 bundle-dmg.sh 同源工具）。
 fn ditto_extract(zip: &Path, unpack: &Path) -> Result<(), InstallError> {
     let status = Command::new("/usr/bin/ditto")
         .arg("-x")
@@ -201,8 +170,6 @@ fn ditto_extract(zip: &Path, unpack: &Path) -> Result<(), InstallError> {
     Ok(())
 }
 
-/// 解压产物里结构完整的 `.app`：zip 由打包链路产出（单 bundle），取第一
-/// 个带 `Contents/MacOS` 的；没有即结构不符。
 fn extracted_app(unpack: &Path) -> Option<PathBuf> {
     std::fs::read_dir(unpack).ok()?.find_map(|entry| {
         let Ok(entry) = entry else { return None };
@@ -215,7 +182,6 @@ fn extracted_app(unpack: &Path) -> Option<PathBuf> {
     })
 }
 
-/// 目录可写性探测：真实建删一个探针文件（只读卷上 create 直接失败）。
 fn dir_writable(dir: &Path) -> bool {
     let probe = dir.join(".gloss-update-probe");
     match std::fs::write(&probe, b"") {
