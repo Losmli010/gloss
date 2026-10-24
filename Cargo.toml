@@ -37,7 +37,7 @@ let_underscore_must_use = "deny"
 mem_forget = "deny"
 panic = "deny"
 print_stderr = "deny"
-# 日志唯一出口是核心库的日志宏；见质量条目「日志统一出口」。
+# 日志唯一出口是核心库的日志宏；见质量条目“日志统一出口”。
 print_stdout = "deny"
 todo = "deny"
 # 体积上限：参数不超过五、函数体不超过五十行，阈值在静态检查（Clippy）配置。

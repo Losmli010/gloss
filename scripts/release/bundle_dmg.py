@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# 把打包好的应用包压成分发镜像（只读压缩格式，访达打开即拖装）。
-# 用法：以解释器运行，首参为应用包路径，次参可选为输出镜像路径。
+"""把打包好的应用包压成分发镜像（只读压缩格式，访达打开即拖装）。
+用法：以解释器运行，首参为应用包路径，次参可选为输出镜像路径。
+"""
 
 import os
 import subprocess
@@ -9,13 +10,13 @@ import sys
 
 def main():
     if len(sys.argv) < 2:
-        print("用法: %s <path/to/Gloss.app> [输出.dmg 路径]" % sys.argv[0], file=sys.stderr)
+        print("usage: %s <path/to/Gloss.app> [output.dmg path]" % sys.argv[0], file=sys.stderr)
         return 2
 
     app = sys.argv[1]
     if not os.path.isdir(app):
         print(
-            "错误：找不到 .app：%s（先跑 cargo bundle --release --format osx）" % app,
+            "error: .app not found: %s (run cargo bundle --release --format osx first)" % app,
             file=sys.stderr,
         )
         return 1
@@ -47,7 +48,7 @@ def main():
         ],
         check=True,
     )
-    print("✓ 已生成 %s" % out)
+    print("ok: generated %s" % out)
     return 0
 
 

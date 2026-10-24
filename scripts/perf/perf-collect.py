@@ -1,26 +1,27 @@
 #!/usr/bin/env python3
-# 统一采集器：聚合全部本地测量源为一个趋势历史点，写回基线目录下的历史文
-# 件。
-#
-# 数据源全部是构建产物目录下的本地产物，某源缺席则对应指标整体缺席，不造
-# 零。核心基准墙钟：基准产物里各用例的均值点估计折成核心指标，只收注册表
-# 核心分组内且已登记的编号，陈旧基准目录不入档。克隆分配基准：逐基准均值
-# 取整后合计成克隆分配次数与字节数，与原门禁链同口径，基线数值可跨管线衔
-# 接。克隆静态计数：复用统计脚本的计数函数得克隆总量与密度。显隐与启动自
-# 检信号：自检信号文件取各源最后一条信号行（包装器产物），得显隐延迟的
-# （p50）与（p95）分位、帧时间、尾段、句柄数与启动耗时；行内预算字段折算
-# 进该点预算段。应用运行时片段：应用度量脚本的产物得应用各项指标（含环境
-# 的处理器信息）。评测实时报告：仅实时模式且字段在场时并入任务延迟分位。
-#
-# 点模型由提交号、日期、环境、可选预算段与指标段组成。环境各源尽力合并
-# （缺失留空对象）；预算段仅在该点折算了自检信号行时写入，数值随行流出，
-# 源头是（Rust）常量，注册表只记常量名；同一提交原位覆盖（位置即时序，不
-# 因重跑挪位），新点按日期升序插入（手动补采历史区间不打乱时序）。全部源
-# 都缺席时拒绝写出空指标点。
-#
-# 写回时把旧版嵌套点（按分组键分段的点）就地规范化为现行扁平点——首次运
-# 行即完成一次性迁移，保序，迁移点环境为空对象；旧点的应用二进制体积按其
-# 采集机架构（x86_64）折算为对应架构栏位。
+"""统一采集器：聚合全部本地测量源为一个趋势历史点，写回基线目录下的历史文
+件。
+
+数据源全部是构建产物目录下的本地产物，某源缺席则对应指标整体缺席，不造
+零。核心基准墙钟：基准产物里各用例的均值点估计折成核心指标，只收注册表
+核心分组内且已登记的编号，陈旧基准目录不入档。克隆分配基准：逐基准均值
+取整后合计成克隆分配次数与字节数，与原门禁链同口径，基线数值可跨管线衔
+接。克隆静态计数：复用统计脚本的计数函数得克隆总量与密度。显隐与启动自
+检信号：自检信号文件取各源最后一条信号行（包装器产物），得显隐延迟的
+（p50）与（p95）分位、帧时间、尾段、句柄数与启动耗时；行内预算字段折算
+进该点预算段。应用运行时片段：应用度量脚本的产物得应用各项指标（含环境
+的处理器信息）。评测实时报告：仅实时模式且字段在场时并入任务延迟分位。
+
+点模型由提交号、日期、环境、可选预算段与指标段组成。环境各源尽力合并
+（缺失留空对象）；预算段仅在该点折算了自检信号行时写入，数值随行流出，
+源头是（Rust）常量，注册表只记常量名；同一提交原位覆盖（位置即时序，不
+因重跑挪位），新点按日期升序插入（手动补采历史区间不打乱时序）。全部源
+都缺席时拒绝写出空指标点。
+
+写回时把旧版嵌套点（按分组键分段的点）就地规范化为现行扁平点——首次运
+行即完成一次性迁移，保序，迁移点环境为空对象；旧点的应用二进制体积按其
+采集机架构（x86_64）折算为对应架构栏位。
+"""
 
 from __future__ import annotations
 
@@ -99,7 +100,7 @@ V1_APP_FIELDS = {
 
 
 def fail(message):
-    sys.exit(f"错误：{message}")
+    sys.exit(f"error: {message}")
 
 
 def load_json_file(path):
@@ -109,7 +110,7 @@ def load_json_file(path):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        fail(f"{path} 无法解析：{exc}")
+        fail(f"{path} unparseable: {exc}")
 
 
 def read_mean_ns(estimates_path):
@@ -122,7 +123,9 @@ def read_mean_ns(estimates_path):
         mean = json.loads(estimates_path.read_text(encoding="utf-8"))["mean"]
         return round(mean["point_estimate"])
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-        print(f"警告：跳过 {estimates_path}（mean.point_estimate 不可读）", file=sys.stderr)
+        print(
+            f"warning: skipping {estimates_path} (mean.point_estimate unreadable)", file=sys.stderr
+        )
         return None
 
 
@@ -146,7 +149,7 @@ def collect_core():
             metric_id = f"core.{full_id}"
             if metric_id not in METRICS:
                 print(
-                    f"警告：跳过未登记的基准 {metric_id}（benches 与 metrics.py 注册表失同步？）",
+                    f"warning: skipping unregistered benchmark {metric_id} (benches out of sync with the metrics.py registry?)",
                     file=sys.stderr,
                 )
                 continue
@@ -198,7 +201,7 @@ def load_selftest_signals(path):
         try:
             record = json.loads(line)
         except json.JSONDecodeError as exc:
-            fail(f"{path} 存在无法解析的行：{exc}")
+            fail(f"{path} has an unparseable line: {exc}")
         if not isinstance(record, dict):
             continue
         if record.get("kind") == OVERLAY_SIGNAL_KIND:
@@ -241,7 +244,7 @@ def collect_app():
     if data is None:
         return {}, {}
     if not isinstance(data, dict):
-        fail(f"{APP_PATH} 不是 JSON 对象")
+        fail(f"{APP_PATH} is not a JSON object")
     metrics = {}
     for field, metric_id in APP_METRIC_FIELDS.items():
         value = data.get(field)
@@ -291,7 +294,7 @@ def parse_date(raw):
     try:
         return datetime.fromisoformat(raw)
     except (TypeError, ValueError):
-        fail(f"history 中存在无法解析的 date：{raw!r}")
+        fail(f"history has an unparseable date: {raw!r}")
 
 
 def insert_point(points, entry):
@@ -326,9 +329,9 @@ def load_history(path):
         try:
             point = json.loads(line)
         except json.JSONDecodeError as exc:
-            fail(f"{path} 存在无法解析的行：{exc}")
+            fail(f"{path} has an unparseable line: {exc}")
         if not isinstance(point, dict):
-            fail(f"{path} 存在非对象行")
+            fail(f"{path} has a non-object line")
         points.append(migrate_point(point))
     return points
 
@@ -338,7 +341,7 @@ def current_commit():
         ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True
     )
     if proc.returncode != 0:
-        fail(f"无法取得 HEAD 短 sha：{proc.stderr.strip()}")
+        fail(f"cannot get the HEAD short sha: {proc.stderr.strip()}")
     return proc.stdout.strip()
 
 
@@ -349,7 +352,7 @@ def main():
     parser.add_argument(
         "--history",
         metavar="PATH",
-        help=f"history.jsonl 路径（缺省 {HISTORY_PATH}，相对路径按仓库根解析）",
+        help=f"history.jsonl path (default {HISTORY_PATH}, relative paths resolve against the repo root)",
     )
     args = parser.parse_args()
     history_path = Path(args.history) if args.history else HISTORY_PATH
@@ -370,8 +373,8 @@ def main():
     metrics.update(collect_eval())
     if not metrics:
         fail(
-            "全部数据源缺席，拒绝写出空指标点；先采集至少一个源"
-            "（just bench / just clone-bench / just selftest-report / just app-metrics / just eval）"
+            "all data sources absent, refusing to write an empty metrics point; collect at least one source first "
+            "(just bench / just clone-bench / just selftest-report / just app-metrics / just eval)"
         )
 
     entry = {
@@ -394,8 +397,8 @@ def main():
     except ValueError:
         rel = history_path
     print(
-        f"历史点已写回：{rel}（共 {len(points)} 点，HEAD {entry['commit']}，"
-        f"本点 {len(metrics)} 项指标、{len(budgets)} 项预算）"
+        f"history point written: {rel} ({len(points)} points total, HEAD {entry['commit']}, "
+        f"this point {len(metrics)} metrics, {len(budgets)} budgets)"
     )
 
 

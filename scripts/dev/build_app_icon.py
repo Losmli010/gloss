@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-# 从图标目录的矢量源重建图标产物（换标方案或调色后跑一次）：
-#   打包用图标           —— 打包配置指向它
-#   开发期程序坞（Dock）图标 —— 非打包运行时由平台适配层内嵌交给系统
-#   站点标签页图标       —— 三十二像素，矢量站标的位图兜底
-#   站点触摸与收藏图标    —— 一百八十像素
-# 打包图标与程序坞（Dock）图标源自规范画布稿，站点两张位图源自满幅主标稿，
-# 站点标稿拷贝仍按图标目录说明手工同步。
-# 只用系统自带的图像转换与图标集工具。
+"""从图标目录的矢量源重建图标产物（换标方案或调色后跑一次）：
+  打包用图标           —— 打包配置指向它
+  开发期程序坞（Dock）图标 —— 非打包运行时由平台适配层内嵌交给系统
+  站点标签页图标       —— 三十二像素，矢量站标的位图兜底
+  站点触摸与收藏图标    —— 一百八十像素
+打包图标与程序坞（Dock）图标源自规范画布稿，站点两张位图源自满幅主标稿，
+站点标稿拷贝仍按图标目录说明手工同步。
+只用系统自带的图像转换与图标集工具。
+"""
 
 import os
 import shutil
@@ -38,7 +39,7 @@ def raster1024(src, dst):
     )
     if width != 1024 or height != 1024:
         print(
-            "错误：%s 光栅化后为 %d×%d，期望 1024×1024——SVG 的 width/height 属性不能省"
+            "error: %s rasterized to %dx%d, expected 1024x1024 — SVG width/height attributes must not be omitted"
             % (os.path.basename(src), width, height),
             file=sys.stderr,
         )
@@ -49,7 +50,11 @@ def raster1024(src, dst):
 def main():
     for tool in ("sips", "iconutil"):
         if not shutil.which(tool):
-            print("错误：缺少系统工具 %s（图标产物只能在 macOS 上重建）" % tool, file=sys.stderr)
+            print(
+                "error: missing system tool %s (icon artifacts can only be rebuilt on macOS)"
+                % tool,
+                file=sys.stderr,
+            )
             return 1
 
     with tempfile.TemporaryDirectory() as work:
@@ -83,11 +88,11 @@ def main():
         subprocess.run(
             ["iconutil", "-c", "icns", iconset, "-o", os.path.join(ICONS, "Gloss.icns")], check=True
         )
-        print("✓ %s" % os.path.join(ICONS, "Gloss.icns"))
+        print("ok: %s" % os.path.join(ICONS, "Gloss.icns"))
 
         # 程序坞（Dock）图标：视网膜屏上限为二百五十六像素。
         sips("-z", "256", "256", icon1024, "--out", os.path.join(ICONS, "gloss-dock-icon.png"))
-        print("✓ %s" % os.path.join(ICONS, "gloss-dock-icon.png"))
+        print("ok: %s" % os.path.join(ICONS, "gloss-dock-icon.png"))
 
         # 站点图标：主标满幅稿降采样为标签页图标与触摸图标（站点页面的链接引用）
         if not raster1024(
@@ -106,8 +111,8 @@ def main():
             "--out",
             os.path.join(ROOT, "web", "assets", "apple-touch-icon.png"),
         )
-        print("✓ %s" % os.path.join(ROOT, "web", "assets", "favicon.png"))
-        print("✓ %s" % os.path.join(ROOT, "web", "assets", "apple-touch-icon.png"))
+        print("ok: %s" % os.path.join(ROOT, "web", "assets", "favicon.png"))
+        print("ok: %s" % os.path.join(ROOT, "web", "assets", "apple-touch-icon.png"))
     return 0
 
 

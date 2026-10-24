@@ -1,7 +1,8 @@
-# 文案表门禁的单测：逐条覆盖字面量词法状态机、装入点集中与词条表唯一。
-#
-# 被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
-# 的临时目录，不落版本库（扫描面走目录遍历）；用法见持续集成的钩子工作流。
+"""文案表门禁的单测：逐条覆盖字面量词法状态机、装入点集中与词条表唯一。
+
+被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
+的临时目录，不落版本库（扫描面走目录遍历）；用法见持续集成的钩子工作流。
+"""
 
 import sys
 from pathlib import Path
@@ -169,9 +170,7 @@ def test_url_in_string_not_eaten_as_comment(tmp_path):
 
 def test_string_continuation_keeps_line_numbers(tmp_path):
     content = 'let a = "no chinese \\\nstill ascii";\n\nlet s = "打开设置";'
-    assert_fail(
-        tmp_path, "crates/gloss-app/src/continuation.rs", content, "continuation.rs 第 4 行"
-    )
+    assert_fail(tmp_path, "crates/gloss-app/src/continuation.rs", content, "continuation.rs line 4")
 
 
 def test_bracket_in_attribute_string_ok(tmp_path):

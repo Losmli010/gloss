@@ -1,9 +1,10 @@
-# 发布清单生成脚本的单测：正常生成、缺产物拒绝、版本单点复用；体积与摘要
-# 哈希（sha256）实测自产物文件。
-#
-# 被测入口吃标签、产物目录与仓库根三个参数，成功返回清单字典，失败以系统
-# 退出异常终止；夹具在（pytest）临时目录里放已知内容的产物文件。运行方式
-# 沉记录文件。
+"""发布清单生成脚本的单测：正常生成、缺产物拒绝、版本单点复用；体积与摘要
+哈希（sha256）实测自产物文件。
+
+被测入口吃标签、产物目录与仓库根三个参数，成功返回清单字典，失败以系统
+退出异常终止；夹具在（pytest）临时目录里放已知内容的产物文件。运行方式
+沉记录文件。
+"""
 
 import hashlib
 import json
@@ -102,22 +103,22 @@ def test_json_output_is_valid(tmp_path):
 
 
 def test_missing_zip_rejected(tmp_path):
-    with pytest.raises(SystemExit, match="缺产物文件"):
+    with pytest.raises(SystemExit, match="missing artifact file"):
         run_ok(tmp_path, drop="gloss-0.1.0-aarch64-apple-darwin.zip")
 
 
 def test_missing_dmg_rejected(tmp_path):
-    with pytest.raises(SystemExit, match="缺产物文件"):
+    with pytest.raises(SystemExit, match="missing artifact file"):
         run_ok(tmp_path, drop="gloss-0.1.0-x86_64-apple-darwin.dmg")
 
 
 def test_version_mismatch_rejected(tmp_path):
-    with pytest.raises(SystemExit, match="版本号不一致"):
+    with pytest.raises(SystemExit, match="version mismatch"):
         run_ok(tmp_path, tag="v0.2.0")
 
 
 def test_missing_v_prefix_rejected(tmp_path):
-    with pytest.raises(SystemExit, match="缺 v 前缀"):
+    with pytest.raises(SystemExit, match="lacks the v prefix"):
         run_ok(tmp_path, tag="0.1.0")
 
 
@@ -125,4 +126,4 @@ def test_missing_arguments_usage_exit_2(tmp_path):
     build_fixture(tmp_path)
     rc, _, err = run_cli(tmp_path, tmp_path / "artifacts")
     assert rc == 2
-    assert "用法" in err
+    assert "usage" in err

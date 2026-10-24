@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
-# 量化应用运行时资源：启动里程碑分段、常驻内存（RSS）与处理器占用（CPU）
-# 采样、二进制体积。
-#
-# 每次运行把日志目录指向独立临时目录后拉起发行版二进制，轮询日志解析启动
-# 里程碑行，并行按固定间隔采样进程的常驻内存与累计处理器时间；窗口、图形
-# （GPU）与预热帧就绪之后再采一段空闲窗口——空闲起点取就绪里程碑与后台
-# 字体补装完成信号两者较晚者，保证空闲是真空闲；以终止信号收尾。共跑指定
-# 轮数，各指标取中位数，连同环境快照写入本地产物片段（不入版本库，由统一
-# 采集器折算进趋势点）。
-#
-# 启动总时长取拉起到就绪的观测墙钟（含进程加载，精度受轮询粒度限制），进
-# 程内分段归因看生产日志里的启动里程碑。内存双口径：常驻内存按进程表采样
-# （压缩内存与交换区不计，低估真实占用），物理足迹按内存映像工具（vmmap）
-# 采样（活动监视器口径，空闲窗口末采样一次并带进程生命期峰值），稳态与峰
-# 值都进片段。空闲处理器占用是空闲窗口内的处理器时间增量，长驻进程预算口
-# 径趋近于零——界面循环（winit）阻塞、监听线程（tap）睡在（CFRunLoop）、
-# 后台运行时（tokio）空闲，任何子系统空转都在这里显形。体积按本机构建架
-# 构分两栏登记（零新增采集）。墙钟与常驻内存跨机器不可比：片段只作趋势折
-# 算，不做成败判定（趋势只认同机同环境历史）。
-#
-# 前置：发行版二进制已构建（对应配方先构建）。已有应用实例在跑时建议先退
-# 出——测量会与第二实例短暂共存，采样按进程号隔离不受影响，但划词手势会
-# 弹两张卡。
+"""量化应用运行时资源：启动里程碑分段、常驻内存（RSS）与处理器占用（CPU）
+采样、二进制体积。
+
+每次运行把日志目录指向独立临时目录后拉起发行版二进制，轮询日志解析启动
+里程碑行，并行按固定间隔采样进程的常驻内存与累计处理器时间；窗口、图形
+（GPU）与预热帧就绪之后再采一段空闲窗口——空闲起点取就绪里程碑与后台
+字体补装完成信号两者较晚者，保证空闲是真空闲；以终止信号收尾。共跑指定
+轮数，各指标取中位数，连同环境快照写入本地产物片段（不入版本库，由统一
+采集器折算进趋势点）。
+
+启动总时长取拉起到就绪的观测墙钟（含进程加载，精度受轮询粒度限制），进
+程内分段归因看生产日志里的启动里程碑。内存双口径：常驻内存按进程表采样
+（压缩内存与交换区不计，低估真实占用），物理足迹按内存映像工具（vmmap）
+采样（活动监视器口径，空闲窗口末采样一次并带进程生命期峰值），稳态与峰
+值都进片段。空闲处理器占用是空闲窗口内的处理器时间增量，长驻进程预算口
+径趋近于零——界面循环（winit）阻塞、监听线程（tap）睡在（CFRunLoop）、
+后台运行时（tokio）空闲，任何子系统空转都在这里显形。体积按本机构建架
+构分两栏登记（零新增采集）。墙钟与常驻内存跨机器不可比：片段只作趋势折
+算，不做成败判定（趋势只认同机同环境历史）。
+
+前置：发行版二进制已构建（对应配方先构建）。已有应用实例在跑时建议先退
+出——测量会与第二实例短暂共存，采样按进程号隔离不受影响，但划词手势会
+弹两张卡。
+"""
 
 import argparse
 import json
@@ -221,23 +222,23 @@ def one_run(idle_secs, ready_timeout):
                     idle_cpu_start = cpu_samples[-1][1]
             if idle_start is not None and now - idle_start >= idle_secs:
                 if proc.poll() is not None:
-                    print("警告：应用提前退出，本次运行作废。", file=sys.stderr)
+                    print("warning: app exited early, run discarded.", file=sys.stderr)
                     return None
                 idle_wall_ms = (now - idle_start) * 1000
                 footprint = sample_footprint_kb(proc.pid)
                 break
             if ready_wall_ms is None and now > deadline:
                 print(
-                    f"警告：{READY_MILESTONE} 在 {ready_timeout}s 内未出现，本次运行作废。",
+                    f"warning: {READY_MILESTONE} not seen within {ready_timeout}s, run discarded.",
                     file=sys.stderr,
                 )
                 return None
             if proc.poll() is not None:
-                print("警告：应用提前退出，本次运行作废。", file=sys.stderr)
+                print("warning: app exited early, run discarded.", file=sys.stderr)
                 return None
             time.sleep(0.05 if ready_wall_ms is None else 1.0)
         if ready_cpu is None or idle_cpu_start is None or len(cpu_samples) < 2:
-            print("警告：CPU 采样不足，本次运行作废。", file=sys.stderr)
+            print("warning: insufficient CPU samples, run discarded.", file=sys.stderr)
             return None
         fonts_applied_ms = (
             round((fonts_seen_mono - spawn_wall) * 1000) if fonts_seen_mono is not None else None
@@ -306,37 +307,44 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--runs", type=int, default=3, help="运行次数，各指标取中位数")
-    parser.add_argument("--idle-secs", type=int, default=30, help="就绪后的空闲采样窗口秒数")
-    parser.add_argument("--ready-timeout", type=int, default=60, help="等待 06_ready 的超时秒数")
+    parser.add_argument("--runs", type=int, default=3, help="number of runs, median per metric")
+    parser.add_argument(
+        "--idle-secs", type=int, default=30, help="idle sampling window seconds after ready"
+    )
+    parser.add_argument(
+        "--ready-timeout", type=int, default=60, help="timeout seconds waiting for 06_ready"
+    )
     args = parser.parse_args()
 
     if not BINARY.is_file():
         sys.exit(
-            f"错误：找不到 {BINARY.relative_to(ROOT)}，先构建 release 产物"
-            "（just app-metrics 配方会先跑 cargo build --release）。"
+            f"error: {BINARY.relative_to(ROOT)} not found, build the release binary first"
+            " (the just app-metrics recipe runs cargo build --release first)."
         )
     if subprocess.run(["pgrep", "-x", "gloss"], capture_output=True).returncode == 0:
         print(
-            "提示：已有 gloss 实例在运行；测量实例会短暂共存（采样按 pid 隔离），建议先退出再测。",
+            "note: a gloss instance is already running; the measured instance will coexist briefly"
+            " (sampling is pid-isolated), quit it before measuring.",
             file=sys.stderr,
         )
 
     runs = []
     for i in range(args.runs):
-        print(f"运行 {i + 1}/{args.runs}（就绪后空闲采样 {args.idle_secs}s）…")
+        print(f"run {i + 1}/{args.runs} (idle sampling {args.idle_secs}s after ready) ...")
         result = one_run(args.idle_secs, args.ready_timeout)
         if result is not None:
             runs.append(result)
     if not runs:
-        sys.exit("错误：没有一次运行成功，无法写基线（见上方各次警告定位原因）。")
+        sys.exit(
+            "error: no run succeeded, cannot write the fragment (see the warnings above for causes)."
+        )
 
     logs_bytes, logs_files = dir_usage(Path.home() / ".gloss" / "logs")
     arch_field = ARCH_BINARY_FIELDS.get(platform.machine())
     if arch_field is None:
         sys.exit(
-            f"错误：无法识别本机构建架构 {platform.machine()!r}，"
-            f"不知道该填 {'/'.join(ARCH_BINARY_FIELDS.values())} 中的哪一个"
+            f"error: unrecognized host build arch {platform.machine()!r}, "
+            f"cannot pick one of {'/'.join(ARCH_BINARY_FIELDS.values())}"
         )
     payload = aggregate(runs)
     payload[arch_field] = BINARY.stat().st_size // 1024
@@ -348,10 +356,10 @@ def main():
     )
     rel = OUT_PATH.relative_to(ROOT)
     print(
-        f"应用运行时片段已写入：{rel}（{len(runs)}/{args.runs} 次成功，"
-        f"启动 {payload['startup_ms']} ms，稳态 RSS {payload['rss_idle_kb']} kb，"
-        f"空闲 CPU {payload['cpu_idle_ms']} ms；{logs_files} 份日志共 {logs_bytes} B，"
-        f"待 perf-collect.py 折算进趋势点）"
+        f"app runtime fragment written: {rel} ({len(runs)}/{args.runs} runs succeeded, "
+        f"startup {payload['startup_ms']} ms, steady-state RSS {payload['rss_idle_kb']} kb, "
+        f"idle CPU {payload['cpu_idle_ms']} ms; {logs_files} log files, {logs_bytes} B total, "
+        f"to be folded into trend points by perf-collect.py)"
     )
 
 

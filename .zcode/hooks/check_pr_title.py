@@ -1,23 +1,25 @@
 ''''exec python3 -- "$0" "$@" # '''  # fmt: skip
-#!/usr/bin/env python3
-# 编码助手（ZCode）提交前钩子：拉取请求标题在提交前先过一遍提交信息规范校验。
-# 由客户端共享配置的提交前事件调用；手动测试时向标准输入喂入钩子载荷。
-#
-# 行为：
-#   - 从标准输入的钩子载荷读工具名与工具入参；
-#   - 拉取请求的新建与编辑工具 → 校验其中的标题字段；
-#   - 命令行调用 → 按外壳词法分词后定位建链或改题的命令，只在其后找标题旗标
-#     （几种传值写法等价）；标题取不到（自动填充、开网页、外部标题文件、
-#     无旗标、分词失败）或运行时才可知（值含变量展开与反引号）→ 放行；
-#   - 校验串是压缩合并产物的模拟：远端合并时给标题追加编号后缀，按最长常见
-#     占位拼接后送校验，超限判定对齐合并后的真实形态；
-#   - 标题校验失败 → 校验器的错误输出进标准错误，退出码 2 阻断本次工具调用；
-#   - 标题不存在、不适用、或钩子自身任何异常 → 退出码 0 放行，不误伤正常提交。
 
-import json
-import os
-import shlex
-import sys
+#!/usr/bin/env python3
+"""编码助手（ZCode）提交前钩子：拉取请求标题在提交前先过一遍提交信息规范校验。
+由客户端共享配置的提交前事件调用；手动测试时向标准输入喂入钩子载荷。
+
+行为：
+  - 从标准输入的钩子载荷读工具名与工具入参；
+  - 拉取请求的新建与编辑工具 → 校验其中的标题字段；
+  - 命令行调用 → 按外壳词法分词后定位建链或改题的命令，只在其后找标题旗标
+    （几种传值写法等价）；标题取不到（自动填充、开网页、外部标题文件、
+    无旗标、分词失败）或运行时才可知（值含变量展开与反引号）→ 放行；
+  - 校验串是压缩合并产物的模拟：远端合并时给标题追加编号后缀，按最长常见
+    占位拼接后送校验，超限判定对齐合并后的真实形态；
+  - 标题校验失败 → 校验器的错误输出进标准错误，退出码 2 阻断本次工具调用；
+  - 标题不存在、不适用、或钩子自身任何异常 → 退出码 0 放行，不误伤正常提交。
+"""
+
+import json  # noqa: E402 —— 跨壳引导串占了文档字符串位
+import os  # noqa: E402
+import shlex  # noqa: E402
+import sys  # noqa: E402
 
 PROJ_DIR = os.environ.get("ZCODE_PROJECT_DIR") or os.environ.get("CLAUDE_PROJECT_DIR") or "."
 CHECKER_DIR = os.path.join(PROJ_DIR, "scripts", "hooks")
@@ -100,10 +102,11 @@ def main():
     if problem:
         print(problem, file=sys.stderr)
         print(
-            'PR 标题按 squash 合并产物（标题 + " (#99999)"）模拟校验未通过，已拦截本次提交：',
+            'PR title failed the squash-merge simulation check (title + " (#99999)");'
+            " blocking this submission:",
             file=sys.stderr,
         )
-        print("  你提交的标题是: %s" % title, file=sys.stderr)
+        print("  your title: %s" % title, file=sys.stderr)
         return 2
     return 0
 
