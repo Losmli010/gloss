@@ -168,7 +168,7 @@ fmt:
 fmt-fix:
     cargo fmt --all
 
-# 配置格式（TOML）格式检查，检查工具（tombi）只检查不落盘
+# 配置格式（TOML）检查，检查工具（tombi）只检查不落盘
 fmt-toml:
     tombi format --check $(git ls-files '*.toml')
 

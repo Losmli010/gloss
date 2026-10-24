@@ -10,13 +10,16 @@
   五、仓库各处对质量条目的指名引用必须真的在指令文档的“质量条目总表”段里。
 
 扫描逐行进行，代码块内同样算数；路径只认行内反引号包裹的仓库相对路径。
-占位符、仓库外路径、注释语法与链接不校验。
+占位符、仓库外路径、注释语法与链接不校验。路径、受检文件与测试目标都以
+版本库跟踪清单为准：工作区里未跟踪的临时目录与本地记录不参与判定，本地
+与持续集成才看同一批文件。
 
 用法：以解释器运行本脚本，首参为指令文档路径，缺省为仓库根的指令文档。
 """
 
 import os
 import re
+import subprocess
 import sys
 
 RECIPE_RE = re.compile(r"(?:^|[^A-Za-z0-9_-])just ([a-z][a-z0-9-]*)")
@@ -51,7 +54,14 @@ def rule_names(lines):
     return names
 
 
-def scan_targets(root, target):
+def scan_targets(root, target, tracked):
+    """测试目标是否有对应源码：有跟踪清单时按清单，否则按工作区。"""
+    if tracked:
+        leaf = ["tests", "%s.rs" % target]
+        return any(
+            p == "tests/%s.rs" % target or (p.startswith("crates/") and p.split("/")[2:4] == leaf)
+            for p in tracked
+        )
     candidates = [os.path.join(root, "tests", "%s.rs" % target)]
     crates = os.path.join(root, "crates")
     if os.path.isdir(crates):
@@ -60,34 +70,74 @@ def scan_targets(root, target):
     return any(os.path.isfile(c) for c in candidates)
 
 
-def scan_quality_refs(root, names):
+def tracked_files(root):
+    """版本库跟踪清单；不是仓库根时返回空表，调用方退回工作区遍历。"""
+    try:
+        top = subprocess.run(
+            ["git", "-C", root, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        if os.path.realpath(top) != os.path.realpath(root):
+            return []
+        out = subprocess.run(
+            ["git", "-C", root, "ls-files"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        return [p for p in out.splitlines() if p]
+    except (OSError, subprocess.CalledProcessError):
+        return []
+
+
+def repo_path_exists(token, tracked):
+    """路径是否在跟踪清单里：目录按前缀、文件按全名。"""
+    if token.endswith("/"):
+        return any(p.startswith(token) for p in tracked)
+    return token in tracked or any(p.startswith(token + "/") for p in tracked)
+
+
+def ref_file(p):
+    """是否参与质量条目引用核对：源码、清单、脚本与工作流，另加任务配方。"""
+    name = os.path.basename(p)
+    return name.endswith((".rs", ".toml", ".py", ".yml")) or name == "justfile"
+
+
+def scan_quality_refs(root, names, tracked):
     """仓库各处（*.rs / *.toml / *.py / *.yml / justfile）对质量条目的指名引用核对。
 
-    返回 (violations, ref_files, ref_count)。"""
+    有跟踪清单时只读清单里的文件：工作区里未跟踪的临时目录与本地记录不能
+    左右判定，本地与持续集成才看同一批文件。返回 (violations, ref_files, ref_count)。"""
     violations = []
     ref_files = 0
     ref_count = 0
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in ("target", ".git"))
-        for name in sorted(filenames):
-            if not (name.endswith((".rs", ".toml", ".py", ".yml")) or name == "justfile"):
-                continue
-            if name in SELF_EXEMPT:
-                continue
-            ref_files += 1
-            path = os.path.join(dirpath, name)
-            rel = os.path.relpath(path, root)
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                for line in fh:
-                    if not REF_LINE_RE.search(line):
-                        continue
-                    for cited in REF_NAME_RE.findall(line):
-                        ref_count += 1
-                        if cited not in names:
-                            violations.append(
-                                '%s: cites quality entry "%s" — no entry with this name'
-                                " in the AGENTS.md quality entry table" % (rel, cited)
-                            )
+    if tracked:
+        paths = [(os.path.join(root, p), p) for p in tracked if ref_file(p)]
+    else:
+        paths = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(d for d in dirnames if d not in ("target", ".git"))
+            for name in sorted(filenames):
+                if ref_file(name):
+                    path = os.path.join(dirpath, name)
+                    paths.append((path, os.path.relpath(path, root)))
+    for path, rel in paths:
+        if os.path.basename(path) in SELF_EXEMPT:
+            continue
+        ref_files += 1
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if not REF_LINE_RE.search(line):
+                    continue
+                for cited in REF_NAME_RE.findall(line):
+                    ref_count += 1
+                    if cited not in names:
+                        violations.append(
+                            '%s: cites quality entry "%s" — no entry with this name'
+                            " in the AGENTS.md quality entry table" % (rel, cited)
+                        )
     return violations, ref_files, ref_count
 
 
@@ -95,6 +145,7 @@ def run(doc_path):
     """按五类引用核对 doc_path，返回 (violations, checked, ref_files, ref_count)。"""
     root = os.path.dirname(os.path.abspath(doc_path))
     doc_name = os.path.basename(doc_path)
+    tracked = tracked_files(root)
     lines = scan_lines(doc_path)
     justfile_lines = None
     justfile_path = os.path.join(root, "justfile")
@@ -127,13 +178,23 @@ def run(doc_path):
                 continue
             if "/" in token:
                 checked += 1
-                if not os.path.exists(os.path.join(root, token)):
+                exists = (
+                    repo_path_exists(token, tracked)
+                    if tracked
+                    else os.path.exists(os.path.join(root, token))
+                )
+                if not exists:
                     violations.append(
                         '%s:%d  path "%s" does not exist in the repo' % (doc_name, line_no, token)
                     )
             elif token == "justfile" or token.endswith(BARE_SUFFIXES):
                 checked += 1
-                if not os.path.exists(os.path.join(root, token)):
+                exists = (
+                    repo_path_exists(token, tracked)
+                    if tracked
+                    else os.path.exists(os.path.join(root, token))
+                )
+                if not exists:
                     violations.append(
                         '%s:%d  file "%s" does not exist at the repo root'
                         % (doc_name, line_no, token)
@@ -142,14 +203,14 @@ def run(doc_path):
         # ---- 测试目标 ----
         for target in CARGO_TEST_RE.findall(line):
             checked += 1
-            if not scan_targets(root, target):
+            if not scan_targets(root, target, tracked):
                 violations.append(
                     "%s:%d  cargo test --test %s: no tests/%s.rs found"
                     % (doc_name, line_no, target, target)
                 )
 
     # ---- 仓库各处对质量条目的指名引用必须存在 ----
-    ref_violations, ref_files, ref_count = scan_quality_refs(root, rule_names(lines))
+    ref_violations, ref_files, ref_count = scan_quality_refs(root, rule_names(lines), tracked)
     violations.extend(ref_violations)
     return violations, checked, ref_files, ref_count
 
@@ -196,7 +257,7 @@ def main():
     print(
         "✓ %s references consistent (%d checked: just recipes / repo paths / test targets;"
         " plus %d named quality-entry citations across %d files)"
-        % (doc_name, checked, ref_files, ref_count)
+        % (doc_name, checked, ref_count, ref_files)
     )
     return 0
 

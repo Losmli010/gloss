@@ -161,7 +161,7 @@ jobs:
       - name: Lint Python scripts
         run: just lint-py
 
-  # 配置格式（TOML）格式与结构检查（tombi）：纯文本秒级；版本钉死保证判定一致
+  # 配置格式（TOML）与结构检查（tombi）：纯文本秒级；版本钉死保证判定一致
   toml:
     name: TOML check
     runs-on: ubuntu-latest

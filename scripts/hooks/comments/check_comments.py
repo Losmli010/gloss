@@ -20,6 +20,9 @@ import check_docs
 import check_rust_comments
 import check_script_comments
 
+# 门禁脚本在钩子目录下再下一层，仓库根要回溯三级；退回两级会把受检面缩到脚本目录
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
 
 def scan_files(root, explicit):
     if explicit:
@@ -53,11 +56,7 @@ def run(root, explicit):
 
 
 def main():
-    root = (
-        sys.argv[1]
-        if len(sys.argv) > 1
-        else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    )
+    root = sys.argv[1] if len(sys.argv) > 1 else REPO_ROOT
     explicit = sys.argv[2:]
     print(f"== comment discipline gate (repo root: {root}) ==")
     problems = run(root, explicit)

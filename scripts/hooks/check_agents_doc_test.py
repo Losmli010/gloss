@@ -4,6 +4,7 @@
 临时目录，互不串扰；用法见持续集成的钩子工作流（逐文件执行单测）。
 """
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -140,6 +141,24 @@ def test_missing_path(tmp_path):
 
 def test_missing_bare_filename(tmp_path):
     assert_fail(tmp_path, "配置见 `nonexistent.toml`", "does not exist at the repo root")
+
+
+def test_untracked_path_flagged_inside_repo(tmp_path):
+    build_fixture(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("见 `docs/note.md`\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "AGENTS.md"], check=True)
+    violations, _, _, _ = check_agents_doc.run(str(tmp_path / "AGENTS.md"))
+    assert any("does not exist" in v for v in violations)
+
+
+def test_tracked_path_accepted_inside_repo(tmp_path):
+    build_fixture(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("见 `docs/note.md`\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    violations, _, _, _ = check_agents_doc.run(str(tmp_path / "AGENTS.md"))
+    assert violations == []
 
 
 def test_missing_test_target(tmp_path):

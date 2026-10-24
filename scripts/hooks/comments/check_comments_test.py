@@ -406,3 +406,7 @@ def test_md_gloss_annotation_allowed(tmp_path):
 def test_md_identifier_heading_exempt_at_root(tmp_path):
     content = "## License\n\nMIT\n"
     assert run_md(tmp_path, content, rel="README.md") == []
+
+
+def test_default_root_is_repo_root():
+    assert (Path(check_comments.REPO_ROOT) / "justfile").is_file()
