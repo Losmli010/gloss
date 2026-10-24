@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <title>Gloss 应用图标 — 划·译（macOS 规范画布）</title>
-  <desc>gloss-logo.svg 的 macOS 版：图形画布收敛为 824×824 居中、圆角 185.4，四周留 100px 透明边距（Big Sur 之后的应用图标规范，满幅方形在 Dock 里会显得比其它图标大一圈）。渲染命令见 scripts/dev/build-app-icon.sh（just icons）。</desc>
+  <desc>gloss-logo.svg 的 macOS 版：图形画布收敛为 824×824 居中、圆角 185.4，四周留 100px 透明边距（Big Sur 之后的应用图标规范，满幅方形在 Dock 里会显得比其它图标大一圈）。渲染命令见 scripts/dev/build_app_icon.py（just icons）。</desc>
   <rect x="100" y="100" width="824" height="824" rx="185.4" fill="#F5F1E8"/>
   <rect x="104" y="104" width="816" height="816" rx="181.4" fill="none" stroke="#16181D" stroke-opacity="0.14" stroke-width="7.2"/>
   <!-- 内容沿用设计稿的 1024 坐标系，整体等比缩到 824 画布（0.8046875 = 824/1024） -->

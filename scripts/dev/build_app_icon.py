@@ -20,9 +20,7 @@ ICONS = os.path.join(ROOT, "assets", "icons")
 
 
 def sips(*args):
-    subprocess.run(
-        ["sips", *args], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
+    subprocess.run(["sips", *args], check=True, stdout=subprocess.DEVNULL)
 
 
 def raster1024(src, dst):

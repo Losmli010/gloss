@@ -135,7 +135,7 @@ def main():
     finally:
         if proc is not None:
             try:
-                proc.kill()
+                proc.terminate()
             except OSError:
                 pass
             proc.wait()
