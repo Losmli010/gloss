@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# 提交信息钩子：提交信息落定后、提交完成前校验提交规范（Conventional Commits）：
-# 类型（可选范围）加冒号接主题，标题按编码（UTF-8）字节计不超上限，把持续集成的消息返工挡在本地。
-# 校验逻辑与持续集成检查共用同一校验脚本单点。
+"""提交信息钩子：提交信息落定后、提交完成前校验提交规范（Conventional Commits）：
+类型（可选范围）加冒号接主题，标题按编码（UTF-8）字节计不超上限，把持续集成的消息返工挡在本地。
+校验逻辑与持续集成检查共用同一校验脚本单点。
+"""
 
 import os
 import subprocess
@@ -20,17 +21,23 @@ def main():
                       capture_output=True).returncode == 0:
         return 0
     if len(sys.argv) < 2:
-        print("✗ commit-msg 钩子缺少消息文件参数", file=sys.stderr)
+        print("✗ commit-msg hook: missing message file argument", file=sys.stderr)
         return 1
     with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
         problem = check_commit_msg.run(fh.read())
     if problem:
         print("", file=sys.stderr)
-        print("✗ commit message 不符合规范，已阻止提交（CI 同款校验，修消息不返工）",
-              file=sys.stderr)
+        print(
+            "✗ commit message violates the convention; commit blocked"
+            " (same check as CI — fix the message now, avoid the CI rework)",
+            file=sys.stderr,
+        )
         print(problem, file=sys.stderr)
-        print("  补救：git commit --amend 后重提；规范说明见 scripts/hooks/check_commit_msg.py",
-              file=sys.stderr)
+        print(
+            "  remedy: amend with git commit --amend and recommit;"
+            " see scripts/hooks/check_commit_msg.py for the convention",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

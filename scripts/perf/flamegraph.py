@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-# 对运行中的（Gloss）实例做处理器（CPU）采样并产出（inferno）火焰图（SVG）。
-#
-# 链路：定位应用进程（或按进程号指定）→ 经提权运行（dtrace）性能探针，按
-# 指定频率采用户态调用栈指定时长 → 折叠工具折叠调用栈，装了符号还原工具
-# 则就地解（Rust）名字改编 → 火焰图工具渲染成（SVG）。折叠与渲染交给
-# （inferno）工具箱，本脚本只做采集编排、栈顶自耗汇总与失败指引；从启动
-# 采到退出的整段模式走专用配方，其底层是（cargo）的火焰图插件。
-#
-# 采样需要根权限：脚本经提权运行采样器，非交互环境拿不到密码会当场失败并
-# 给出指引。发行版二进制经剥离没有符号表，无符号帧显示为「二进制名加十六
-# 进制偏移」；函数级归因请先用性能剖析配置启动带符号实例再采。
+"""对运行中的（Gloss）实例做处理器（CPU）采样并产出（inferno）火焰图（SVG）。
+
+链路：定位应用进程（或按进程号指定）→ 经提权运行（dtrace）性能探针，按
+指定频率采用户态调用栈指定时长 → 折叠工具折叠调用栈，装了符号还原工具
+则就地解（Rust）名字改编 → 火焰图工具渲染成（SVG）。折叠与渲染交给
+（inferno）工具箱，本脚本只做采集编排、栈顶自耗汇总与失败指引；从启动
+采到退出的整段模式走专用配方，其底层是（cargo）的火焰图插件。
+
+采样需要根权限：脚本经提权运行采样器，非交互环境拿不到密码会当场失败并
+给出指引。发行版二进制经剥离没有符号表，无符号帧显示为“二进制名加十六
+进制偏移”；函数级归因请先用性能剖析配置启动带符号实例再采。
+"""
 
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ from pathlib import Path
 
 TOP_LIMIT = 10
 
-# 采样器对无符号帧输出「模块加十六进制偏移」，有符号帧输出「模块加符号加偏移」
+# 采样器对无符号帧输出“模块加十六进制偏移”，有符号帧输出“模块加符号加偏移”
 UNSIZED_FRAME_RE = re.compile(r"`0x[0-9a-fA-F]+$")
 
 
@@ -33,27 +34,29 @@ def pid_arg(value: str) -> int:
     try:
         return int(value)
     except ValueError:
-        raise argparse.ArgumentTypeError("pid 必须是整数") from None
+        raise argparse.ArgumentTypeError("pid must be an integer") from None
 
 
 def default_pid() -> int:
     out = subprocess.run(["pgrep", "-x", "gloss"], capture_output=True, text=True).stdout.split()
     if not out:
-        sys.exit("没有找到运行中的 gloss 实例：先启动应用，或用 --pid 指定进程")
+        sys.exit("no running gloss instance found: start the app first, or pass --pid")
     if len(out) > 1:
-        sys.exit(f"发现多个 gloss 实例（{', '.join(out)}），用 --pid 指定其一")
+        sys.exit(f"multiple gloss instances found ({', '.join(out)}), pick one with --pid")
     return int(out[0])
 
 
 def require_tool(name: str) -> None:
     if shutil.which(name) is None:
-        sys.exit(f"缺 {name} —— 安装：cargo install flamegraph inferno rustfilt --locked")
+        sys.exit(f"missing {name} — install: cargo install flamegraph inferno rustfilt --locked")
 
 
 def require_alive(pid: int) -> None:
     proc = subprocess.run(["ps", "-p", str(pid)], capture_output=True, text=True)
     if proc.returncode != 0:
-        sys.exit(f"pid {pid} 不存在或已退出：确认实例在跑，或用 pgrep -x gloss 查当前 pid")
+        sys.exit(
+            f"pid {pid} does not exist or has exited: confirm the instance is running, or check the current pid with pgrep -x gloss"
+        )
 
 
 def run_dtrace(pid: int, duration: int, rate: int, out: Path) -> None:
@@ -73,23 +76,23 @@ def run_dtrace(pid: int, duration: int, rate: int, out: Path) -> None:
         err = proc.stderr.strip()
         if "password is required" in err or "additional privileges" in err:
             sys.exit(
-                "dtrace 采样需要 root，当前环境没有交互 sudo——"
-                "请在自己的终端里运行本命令（sudo 会提示输密码）"
+                "dtrace sampling needs root, no interactive sudo in this environment — "
+                "run this command in your own terminal (sudo will prompt for the password)"
             )
-        sys.exit(f"dtrace 失败（exit {proc.returncode}）：{err}")
+        sys.exit(f"dtrace failed (exit {proc.returncode}): {err}")
 
 
 def demangle_inplace(folded: Path) -> None:
     if shutil.which("rustfilt") is None:
         print(
-            "提示：缺 rustfilt，帧名保留 Rust mangled 原样——安装：cargo install rustfilt --locked"
+            "note: rustfilt missing, frame names kept as Rust mangled — install: cargo install rustfilt --locked"
         )
         return
     proc = subprocess.run(["rustfilt"], input=folded.read_text(), capture_output=True, text=True)
     if proc.returncode != 0:
         print(
-            f"警告：rustfilt 失败（exit {proc.returncode}）：{proc.stderr.strip()}——"
-            "保留 mangled 帧名继续"
+            f"warning: rustfilt failed (exit {proc.returncode}): {proc.stderr.strip()} — "
+            "continuing with mangled frame names"
         )
         return
     folded.write_text(proc.stdout)
@@ -104,9 +107,11 @@ def collapse(raw: Path, folded: Path) -> None:
             text=True,
         )
     if proc.returncode != 0:
-        sys.exit(f"inferno-collapse-dtrace 失败（exit {proc.returncode}）：{proc.stderr.strip()}")
+        sys.exit(f"inferno-collapse-dtrace failed (exit {proc.returncode}): {proc.stderr.strip()}")
     if not folded.read_text().strip():
-        sys.exit("采样窗口内没有用户态 CPU 样本：进程可能全程空闲（或不在 CPU 上）")
+        sys.exit(
+            "no user-space CPU samples in the sampling window: the process was likely idle throughout (or off CPU)"
+        )
 
 
 def render(folded: Path, svg: Path) -> None:
@@ -118,7 +123,7 @@ def render(folded: Path, svg: Path) -> None:
             text=True,
         )
     if proc.returncode != 0:
-        sys.exit(f"inferno-flamegraph 失败（exit {proc.returncode}）：{proc.stderr.strip()}")
+        sys.exit(f"inferno-flamegraph failed (exit {proc.returncode}): {proc.stderr.strip()}")
 
 
 def top_of_stack(folded: Path) -> tuple[list[tuple[str, int]], int]:
@@ -138,11 +143,13 @@ def top_of_stack(folded: Path) -> tuple[list[tuple[str, int]], int]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="dtrace + inferno 火焰图（attach 采集）")
-    parser.add_argument("--pid", type=pid_arg, default=0, help="目标进程（缺省自动找 gloss）")
-    parser.add_argument("--duration", type=int, default=10, help="采样时长秒")
-    parser.add_argument("--rate", type=int, default=997, help="采样频率 Hz")
-    parser.add_argument("--out", default="", help="SVG 输出路径")
+    parser = argparse.ArgumentParser(description="dtrace + inferno flamegraph (attach sampling)")
+    parser.add_argument(
+        "--pid", type=pid_arg, default=0, help="target pid (default: auto-find gloss)"
+    )
+    parser.add_argument("--duration", type=int, default=10, help="sampling duration seconds")
+    parser.add_argument("--rate", type=int, default=997, help="sampling rate Hz")
+    parser.add_argument("--out", default="", help="SVG output path")
     args = parser.parse_args()
 
     require_tool("inferno-collapse-dtrace")
@@ -157,7 +164,7 @@ def main() -> None:
     folded = svg.with_suffix(".folded.txt")
 
     print(
-        f"采集中：pid {pid}，{args.duration}s @ {args.rate}Hz（dtrace 经 sudo 运行，可能提示输密码）"
+        f"sampling: pid {pid}, {args.duration}s @ {args.rate}Hz (dtrace runs via sudo, may prompt for the password)"
     )
     run_dtrace(pid, args.duration, args.rate, raw)
     collapse(raw, folded)
@@ -165,10 +172,10 @@ def main() -> None:
     render(folded, svg)
 
     top, total = top_of_stack(folded)
-    print(f"火焰图：{svg}")
-    print(f"原始栈：{raw}")
-    print(f"折叠数据：{folded}")
-    print(f"\n栈顶自耗 Top {len(top)}（共 {total} samples）：")
+    print(f"flamegraph: {svg}")
+    print(f"raw stacks: {raw}")
+    print(f"folded data: {folded}")
+    print(f"\ntop-of-stack self time, top {len(top)} ({total} samples total):")
     for name, count in top:
         print(f"  {100.0 * count / max(total, 1):5.1f}%  {name}")
 
@@ -182,8 +189,8 @@ def main() -> None:
         unsized = sum(1 for frame in frames if UNSIZED_FRAME_RE.search(frame))
         if unsized / len(frames) > 0.6:
             print(
-                "\n提示：多数帧未符号化（模块`0x偏移）——实例二进制被 strip；"
-                "用 `just profile-run` 以 profiling 配置启动带符号实例后再采"
+                "\nnote: most frames unsymbolized (module`0xoffset) — the instance binary is stripped; "
+                "start a symbolized instance with the profiling profile via just profile-run and sample again"
             )
 
 

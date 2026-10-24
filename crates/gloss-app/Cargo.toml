@@ -16,7 +16,7 @@ core-foundation = {
   ]
 }
 core-text = { version = "22.0", default-features = false }
-# 通道①②④用并发通道（crossbeam）：多生产多消费队列，主线程非阻塞取用。
+# 通道124用并发通道（crossbeam）：多生产多消费队列，主线程非阻塞取用。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 # 渲染栈整批同批版本：窗口库（winit）、图形后端（wgpu）、界面库（egui）与绑定包装（egui-wgpu/egui-winit）、
 # 阻塞等待库（pollster）；全部关闭默认特性并显式列出所需特性。
@@ -107,7 +107,7 @@ syntect = {
     "default-fancy",
   ]
 }
-# 通道③用异步运行时（tokio）的多生产单消费通道；流水线消费运行时与分支选择宏。
+# 通道3用异步运行时（tokio）的多生产单消费通道；流水线消费运行时与分支选择宏。
 tokio = {
   version = "1",
   default-features = false,

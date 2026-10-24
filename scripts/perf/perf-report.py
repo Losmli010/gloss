@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-# 性能总览与对比的（Markdown）报告，输出到标准输出：趋势数据的人读静态视
-# 图。
-#
-# 数据来自基线历史文件（现行扁平点）与（L3）自检信号交接文件。两个视图：
-# 总览视图（缺省）呈现最新点的全部注册指标——最新值、相对上一点与相对首
-# 点的变化、判定；预算门禁指标转述自检信号（预算数值与通过与否），其余行
-# 呈现注册表的判定语义（判定档位与补充说明括注）。对比视图把两期点按指标
-# 编号对齐，给出改善、回归、持平与无数据的摘要加明细表；精确计数门禁类新
-# 值上升即回归（与克隆校验同向），其余按注册表噪声阈值启发式判定；判定只
-# 作参考，表头与摘要均标注「非门禁」。
-#
-# 预算判定转述口径：自检信号行携带的该指标值不大于行内携带的预算字段即通
-# 过（与自检退出码的判定是同一比较），信号文件、信号行或任一字段缺失即留
-# 空占位；门禁判定权始终在（L3）自检退出码，本报告不判罚。
-#
-# 指标编号、中文类别、单位格式化与噪声阈值全部取自注册表，点里不在注册表
-# 的编号不呈现。缺源即缺行：最新点（或对比两点任一）缺某编号时不出行也不
-# 造零；对比摘要的无数据数即注册表编号在两点恰缺其一的个数。旧版点无指标
-# 段按缺源处理，就地迁移是统一采集器的职责。
+"""性能总览与对比的（Markdown）报告，输出到标准输出：趋势数据的人读静态视
+图。
+
+数据来自基线历史文件（现行扁平点）与（L3）自检信号交接文件。两个视图：
+总览视图（缺省）呈现最新点的全部注册指标——最新值、相对上一点与相对首
+点的变化、判定；预算门禁指标转述自检信号（预算数值与通过与否），其余行
+呈现注册表的判定语义（判定档位与补充说明括注）。对比视图把两期点按指标
+编号对齐，给出改善、回归、持平与无数据的摘要加明细表；精确计数门禁类新
+值上升即回归（与克隆校验同向），其余按注册表噪声阈值启发式判定；判定只
+作参考，表头与摘要均标注“非门禁”。
+
+预算判定转述口径：自检信号行携带的该指标值不大于行内携带的预算字段即通
+过（与自检退出码的判定是同一比较），信号文件、信号行或任一字段缺失即留
+空占位；门禁判定权始终在（L3）自检退出码，本报告不判罚。
+
+指标编号、中文类别、单位格式化与噪声阈值全部取自注册表，点里不在注册表
+的编号不呈现。缺源即缺行：最新点（或对比两点任一）缺某编号时不出行也不
+造零；对比摘要的无数据数即注册表编号在两点恰缺其一的个数。旧版点无指标
+段按缺源处理，就地迁移是统一采集器的职责。
+"""
 
 import argparse
 import json
@@ -51,15 +52,15 @@ def _validate_budget_signal_fields():
     登记项漂移当场失败（与 metrics.py 的 import 期自检同模式），不留到带
     信号文件的运行才以裸 KeyError 暴露。
     """
-    budget_ids = {mid for mid, metric in METRICS.items() if metric.judge == "预算门禁"}
+    budget_ids = {mid for mid, metric in METRICS.items() if metric.judge == "budget gate"}
     mapped = set(BUDGET_SIGNAL_FIELDS)
     if budget_ids != mapped:
-        missing = "、".join(sorted(budget_ids - mapped)) or "无"
-        extra = "、".join(sorted(mapped - budget_ids)) or "无"
+        missing = ", ".join(sorted(budget_ids - mapped)) or "none"
+        extra = ", ".join(sorted(mapped - budget_ids)) or "none"
         raise SystemExit(
-            "错误：BUDGET_SIGNAL_FIELDS 与注册表预算门禁指标不一致"
-            f"（缺映射：{missing}；多余映射：{extra}）；"
-            "新增预算指标时同步此映射（对照 metrics.py 的 BUDGET_CONSTS）"
+            "error: BUDGET_SIGNAL_FIELDS inconsistent with the registry budget-gate metrics "
+            f"(missing mappings: {missing}; extra mappings: {extra}); "
+            "update this mapping when adding budget metrics (see metrics.py BUDGET_CONSTS)"
         )
 
 
@@ -74,7 +75,9 @@ def resolve_path(raw):
 def load_points(path):
     """读 history.jsonl 为点列表，保文件序（collector 按 date 排序写入即时间序）。"""
     if not path.is_file():
-        raise SystemExit(f"错误：历史文件不存在：{path}（先运行采集，如 just perf-baseline）")
+        raise SystemExit(
+            f"error: history file missing: {path} (run the collector first, e.g. just perf-baseline)"
+        )
     points = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -83,12 +86,12 @@ def load_points(path):
         try:
             point = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise SystemExit(f"错误：{path} 存在无法解析的行：{exc}") from None
+            raise SystemExit(f"error: {path} has an unparseable line: {exc}") from None
         if not isinstance(point, dict):
-            raise SystemExit(f"错误：{path} 存在非对象行")
+            raise SystemExit(f"error: {path} has a non-object line")
         points.append(point)
     if not points:
-        raise SystemExit(f"错误：{path} 没有数据点")
+        raise SystemExit(f"error: {path} has no data points")
     return points
 
 
@@ -102,8 +105,8 @@ def find_point(points, commit):
     for point in points:
         if point.get("commit") == commit:
             return point
-    known = "、".join(str(point.get("commit", "?")) for point in points)
-    raise SystemExit(f"错误：历史中没有提交 {commit}（可用：{known}）")
+    known = ", ".join(str(point.get("commit", "?")) for point in points)
+    raise SystemExit(f"error: commit {commit} not in history (available: {known})")
 
 
 def earlier_value(points, metric_id, latest_first):
@@ -202,7 +205,7 @@ def judge_cell(metric):
     这类行没有可转述的判定信号（判定权在 clone-check 与自检退出码），只
     呈现判定语义本身，note 单源在注册表。
     """
-    return f"{metric.judge}（{metric.note}）" if metric.note else metric.judge
+    return f"{metric.judge} ({metric.note})" if metric.note else metric.judge
 
 
 def verdict_cell(points, metric_id, metric, signals):
@@ -211,29 +214,27 @@ def verdict_cell(points, metric_id, metric, signals):
     预算数值取最新携带预算的历史点；预算与判定单独缺席时只展示在场的部分，
     都不缺才组合成完整判定。
     """
-    if metric.judge != "预算门禁":
+    if metric.judge != "budget gate":
         return judge_cell(metric)
     verdict = signal_verdict(metric_id, metric, signals)
     budget = latest_budget(points, metric_id)
     if budget is None:
         return verdict if verdict is not None else "—"
-    cell = f"预算 {fmt(budget, metric.unit)}"
+    cell = f"budget {fmt(budget, metric.unit)}"
     return f"{cell} · {verdict}" if verdict is not None else cell
 
 
 def render_overview(points, signals):
     latest = points[-1]
     metrics = point_metrics(latest)
-    lines = ["## 总览", ""]
-    head = (
-        f"Gloss 性能总览 · {latest.get('commit', '?')}（{str(latest.get('date', ''))[:10] or '?'}）"
-    )
+    lines = ["## overview", ""]
+    head = f"Gloss perf overview · {latest.get('commit', '?')} ({str(latest.get('date', ''))[:10] or '?'})"
     env_text = env_line(latest_env(points))
     if env_text:
         head += f"· {env_text}"
     lines += [head, ""]
     lines += [
-        "| 类别 | 指标 | 最新 | vs 上一点 | vs 首点 | 判定 |",
+        "| category | metric | latest | vs previous | vs first | verdict |",
         "| --- | --- | ---: | ---: | ---: | --- |",
     ]
     for metric_id, metric in METRICS.items():
@@ -253,18 +254,18 @@ def render_overview(points, signals):
 
 def compare_verdict(metric, old, new):
     """对比参考列：精确计数类整数对照（与 clone-check 同向），其余按 noise 阈值。"""
-    if metric.judge == "精确计数门禁":
+    if metric.judge == "exact count gate":
         if new > old:
-            return "回归"
+            return "regressed"
         if new < old:
-            return "改善"
-        return "持平（精确计数）"
+            return "improved"
+        return "flat (exact count)"
     if old == 0:
-        return "持平" if new == 0 else "回归"
+        return "flat" if new == 0 else "regressed"
     relative = (new - old) / old
     if abs(relative) <= metric.noise:
-        return "持平"
-    return "回归" if relative > 0 else "改善"
+        return "flat"
+    return "regressed" if relative > 0 else "improved"
 
 
 def render_compare(old_point, new_point, from_commit, to_commit):
@@ -279,9 +280,9 @@ def render_compare(old_point, new_point, from_commit, to_commit):
             continue
         old, new = old_metrics[metric_id], new_metrics[metric_id]
         verdict = compare_verdict(metric, old, new)
-        if verdict == "改善":
+        if verdict == "improved":
             improved += 1
-        elif verdict == "回归":
+        elif verdict == "regressed":
             regressed += 1
         else:
             flat += 1
@@ -291,11 +292,11 @@ def render_compare(old_point, new_point, from_commit, to_commit):
             f"| {change_cell(new, old)} | {verdict} |"
         )
     lines = [
-        f"## 对比（--from {from_commit} --to {to_commit}，判定为启发式参考，非门禁）",
+        f"## compare (--from {from_commit} --to {to_commit}, verdicts are heuristic reference, not gates)",
         "",
-        f"改善 {improved} · 回归 {regressed} · 持平 {flat} · 无数据 {nodata}（非门禁，仅参考）",
+        f"improved {improved} · regressed {regressed} · flat {flat} · no data {nodata} (not a gate, reference only)",
         "",
-        "| 类别 | 指标 | 旧 | 新 | Δ | Δ% | 参考 |",
+        "| category | metric | old | new | delta | delta% | reference |",
         "| --- | --- | ---: | ---: | ---: | ---: | --- |",
         *rows,
     ]
@@ -304,23 +305,25 @@ def render_compare(old_point, new_point, from_commit, to_commit):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="性能总览与对比的 Markdown 报告（stdout，判定仅参考非门禁）"
+        description="perf overview and compare Markdown report (stdout, verdicts are reference only, not gates)"
     )
-    parser.add_argument("--from", dest="from_commit", metavar="SHA", help="对比起点提交短 sha")
-    parser.add_argument("--to", dest="to_commit", metavar="SHA", help="对比终点提交短 sha")
+    parser.add_argument(
+        "--from", dest="from_commit", metavar="SHA", help="compare-from commit short sha"
+    )
+    parser.add_argument("--to", dest="to_commit", metavar="SHA", help="compare-to commit short sha")
     parser.add_argument(
         "--history",
         metavar="PATH",
-        help=f"history.jsonl 路径（缺省 {DEFAULT_HISTORY}）",
+        help=f"history.jsonl path (default {DEFAULT_HISTORY})",
     )
     parser.add_argument(
         "--selftest",
         metavar="PATH",
-        help=f"自检信号文件路径（缺省 {DEFAULT_SELFTEST}，相对路径按仓库根解析）",
+        help=f"selftest signal file path (default {DEFAULT_SELFTEST}, relative paths resolve against the repo root)",
     )
     args = parser.parse_args()
     if (args.from_commit is None) != (args.to_commit is None):
-        parser.error("对比模式需要 --from 与 --to 成对提供")
+        parser.error("compare mode needs --from and --to together")
 
     points = load_points(resolve_path(args.history) if args.history else DEFAULT_HISTORY)
     if args.from_commit:

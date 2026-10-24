@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-# 硬编码密钥扫描门禁：扫描版本库跟踪的全部文件，命中任一模式即失败。
-# 本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
-#
-# 规则取向：只收高信号格式（服务商密钥前缀、私钥块、带引号的凭据赋值）。
-# 确属合法字面量（文档示例、测试夹具）时，在该行尾加放行标记并注明缘由。
+"""硬编码密钥扫描门禁：扫描版本库跟踪的全部文件，命中任一模式即失败。
+本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
+
+规则取向：只收高信号格式（服务商密钥前缀、私钥块、带引号的凭据赋值）。
+确属合法字面量（文档示例、测试夹具）时，在该行尾加放行标记并注明缘由。
+"""
 
 import os
 import re
@@ -89,8 +90,8 @@ def run(root):
     for rel in tracked_files(root):
         path = os.path.join(root, rel)
         for kind, patterns in (
-            ("疑似硬编码密钥", CASE_SENSITIVE_PATTERNS),
-            ("疑似硬编码凭据", CASE_INSENSITIVE_PATTERNS),
+            ("suspected hardcoded secret", CASE_SENSITIVE_PATTERNS),
+            ("suspected hardcoded credential", CASE_INSENSITIVE_PATTERNS),
         ):
             for pattern in patterns:
                 hits = hit_lines(path, pattern)
@@ -111,14 +112,21 @@ def main():
         for p in problems:
             print(p, file=sys.stderr)
         print("", file=sys.stderr)
-        print("错误：检出疑似硬编码密钥/凭据（见上）。", file=sys.stderr)
-        print("  - 真实泄漏：立即吊销并轮换该密钥，改从配置存储读取；", file=sys.stderr)
         print(
-            "  - 合法字面量（文档示例 / 测试夹具）：在该行尾加 %s 并注明缘由。" % ALLOW_MARKER,
+            "error: suspected hardcoded secrets/credentials detected (see above).", file=sys.stderr
+        )
+        print(
+            "  - real leak: revoke and rotate the secret immediately;"
+            " read it from the config store instead;",
+            file=sys.stderr,
+        )
+        print(
+            "  - legitimate literal (doc example / test fixture): add %s at the end of"
+            " the line with a reason." % ALLOW_MARKER,
             file=sys.stderr,
         )
         return 1
-    print("✓ 密钥扫描通过（无硬编码密钥/凭据）")
+    print("✓ secrets scan passed (no hardcoded secrets/credentials)")
     return 0
 
 

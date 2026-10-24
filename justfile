@@ -76,7 +76,7 @@ bench-check name="last":
     cargo bench --bench core -- --baseline {{name}}
 
 # 汇总最近一次基准运行为标记语言（Markdown）表格（均值、95％区间、对照变化），标签仅用于展示
-bench-summary baseline="上一次运行":
+bench-summary baseline="last run":
     ./scripts/perf/bench-summary.py "{{baseline}}"
 
 # 跑克隆热点基准，基准框架（criterion）自定义测量：分配次数与字节，结果存滚动基线
@@ -242,12 +242,12 @@ miri:
 
 # 完整质量门禁：提交前门禁的全部加全量测试
 check: constraints agents-doc test-bdd i18n comments fmt fmt-py fmt-toml lint lint-py lint-toml test secrets
-    @echo "✓ 质量门禁全部通过"
+    @echo "ok: all quality gates passed"
 
 # 提交前门禁：约束、文档引用、行为清单（BDD）、文案表、注释纪律、格式化（Rust/Python/TOML）、
 # 静态检查（Clippy）与密钥扫描
 precommit: constraints agents-doc test-bdd i18n comments fmt fmt-py fmt-toml lint lint-py lint-toml secrets
-    @echo "✓ 提交前检查通过（测试交给 CI）"
+    @echo "ok: precommit checks passed (tests left to CI)"
 
 # ---- 发布链：持续集成（CI）的发布工作流用同一批脚本 ----
 
@@ -260,7 +260,7 @@ package-macos: build-release
     codesign --force --deep --sign - "$app"
     codesign --verify --deep --strict "$app"
     ./scripts/release/bundle_dmg.py "$app"
-    echo "产物：$app 与 ${app%.app}.dmg"
+    echo "artifacts: $app and ${app%.app}.dmg"
 
 # 发布冒烟：启动应用包，验证能启动、活得住、日志无崩溃（panic）
 smoke-app app:

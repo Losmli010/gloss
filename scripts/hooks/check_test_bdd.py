@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-# 测试行为清单一致性门禁：登记文档与测试源码双向核对。
-#   - 测试源码侧：版本库跟踪的本语言（Rust）源码里的测试函数，加上清单声明的
-#     自管测试目标（自带运行器的自检目标），每一项都必须登记进清单；
-#   - 清单侧：清单的每个条目必须能在测试源码里找到同名测试。
-# 条目的描述文字不在校验面（描述与代码冲突时以代码为准，见指令文档的测试节）。
-# 本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
-#
-# 用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
+"""测试行为清单一致性门禁：登记文档与测试源码双向核对。
+  - 测试源码侧：版本库跟踪的本语言（Rust）源码里的测试函数，加上清单声明的
+    自管测试目标（自带运行器的自检目标），每一项都必须登记进清单；
+  - 清单侧：清单的每个条目必须能在测试源码里找到同名测试。
+条目的描述文字不在校验面（描述与代码冲突时以代码为准，见指令文档的测试节）。
+本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
+
+用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
+"""
 
 import os
 import re
@@ -232,8 +233,9 @@ def run(root):
     bdd_path = os.path.join(root, BDD_REL)
     if not os.path.isfile(bdd_path):
         raise SystemExit(
-            "错误：找不到 %s\n  测试行为清单是 git 追踪文件，别删除或改名；"
-            "目录被 gitignore 例外放行。" % BDD_REL
+            "error: %s not found\n"
+            "  the test behavior inventory is a git-tracked file; do not delete or"
+            " rename it; the directory is allowed via a gitignore exception." % BDD_REL
         )
 
     src_names = src_test_names(root)
@@ -242,7 +244,8 @@ def run(root):
 
     if not src_names and not target_names:
         raise SystemExit(
-            "错误：没有从测试源码提取到任何测试（git 跟踪的 .rs 与 [[test]] 目标均为空）。"
+            "error: no tests extracted from test sources"
+            " (git-tracked .rs and [[test]] targets are both empty)."
         )
 
     # 违规随执行流即时输出，对齐壳脚本（bash）版的标准错误交错，列表供调用方取用
@@ -253,46 +256,52 @@ def run(root):
         print("  ✗ %s" % msg, file=sys.stderr)
 
     # 两侧各自已去重，但测试函数名与测试目标名可能同名（如浮层自检），
-    # 合并后须再去重，否则差集把多出的那份误报成「未登记」。
+    # 合并后须再去重，否则差集把多出的那份误报成“未登记”。
     src_all = src_names | target_names
     stale = sorted(bdd_names - src_all)
     missing = sorted(src_all - bdd_names)
     if stale:
         fail(
-            "以下 bdd.md 条目在测试源码中不存在（改名或删除后未同步）：\n%s"
-            % "\n".join("    %s" % s for s in stale)
+            "these bdd.md entries no longer exist in test sources"
+            " (renamed or removed without syncing):\n%s" % "\n".join("    %s" % s for s in stale)
         )
     if missing:
-        fail("以下测试未登记进 bdd.md：\n%s" % "\n".join("    %s" % s for s in missing))
+        fail(
+            "these tests are not registered in bdd.md:\n%s"
+            % "\n".join("    %s" % s for s in missing)
+        )
     dups = duplicate_rows(bdd_path)
     if dups:
         fail(
-            "以下 bdd.md 条目重复登记（同名条目数超过源码同名测试数，"
-            "改名后旧行未删？）：\n%s" % "\n".join("    %s" % s for s in dups)
+            "these bdd.md entries are registered multiple times (entry count exceeds"
+            " same-name tests in sources; old rows left after a rename?):\n%s"
+            % "\n".join("    %s" % s for s in dups)
         )
     dups = duplicate_chapters(bdd_path)
     if dups:
         fail(
-            "以下 ## 章节标题重复出现（整段重复拼接的痕迹）：\n%s"
-            % "\n".join("    %s" % s for s in dups)
+            "these ## chapter headings appear more than once"
+            " (sign of duplicated blocks):\n%s" % "\n".join("    %s" % s for s in dups)
         )
     dups = duplicate_blocks(bdd_path)
     if dups:
         fail(
-            "以下小节标题或条目行在同一章节/小节内重复出现"
-            "（整段重复拼接的痕迹）：\n%s" % "\n".join("    %s" % s for s in dups)
+            "these section headings or bullet lines repeat within the same"
+            " chapter/section (sign of duplicated blocks):\n%s"
+            % "\n".join("    %s" % s for s in dups)
         )
     broken = broken_tables(bdd_path)
     if broken:
         fail(
-            "以下小节的表格缺表头（或表体被空行/正文从表头切断）：\n%s"
-            % "\n".join("    %s" % s for s in broken)
+            "these sections have tables missing a header row (or the body is cut from"
+            " the header by a blank line/prose):\n%s" % "\n".join("    %s" % s for s in broken)
         )
 
     oks = []
     if not fails:
         oks.append(
-            "bdd.md 与测试源码一致（源码 %d 项 / 清单 %d 项）" % (len(src_all), len(bdd_names))
+            "ok bdd.md matches test sources (%d in sources / %d in inventory)"
+            % (len(src_all), len(bdd_names))
         )
     return oks, fails
 
@@ -309,12 +318,16 @@ def main():
         print("  ✓ %s" % line)
     if fails:
         print("", file=sys.stderr)
-        print("错误：bdd.md 与测试源码不一致（见上）。", file=sys.stderr)
+        print("error: bdd.md and test sources disagree (see above).", file=sys.stderr)
         print(
-            "  - 新增 / 改名 / 删除测试：在同一 PR 内同步登记 bdd.md 并刷新该条目更新时间；",
+            "  - added/renamed/removed tests: register them in bdd.md within the same PR"
+            " and refresh the entry's update time;",
             file=sys.stderr,
         )
-        print("  - 描述与代码冲突：以代码为准，立即修正 bdd.md。", file=sys.stderr)
+        print(
+            "  - description conflicts with code: code wins; fix bdd.md immediately.",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

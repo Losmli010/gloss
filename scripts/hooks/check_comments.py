@@ -1,35 +1,36 @@
 #!/usr/bin/env python3
-# 注释纪律门禁：跟踪文件的注释主体只写中文——不混任何外文字母与半角标点，
-# 专有名词一律收进紧跟的全角括号作注记；不变量注释整段纯英文。本地注释配方
-# （提交前门禁的一部分）与持续集成的钩子工作流共用此脚本，保证本地与远端判
-# 定一致；本脚本自身注释同规。
-#
-# 源码（Rust）侧覆盖六条检查：
-#   只留文件头      —— 文档注释、行内、行尾与块注释一律违规；内部头注释只能
-#                      出现在文件头（首个代码项之前）。
-#   文件头必须存在  —— 每个被跟踪的源码文件至少一行头注释。
-#   文件头是中文    —— 每行必须含汉字；主体只允许汉字、中文标点、阿拉伯数字
-#                      与空白，不出现外文字母或半角标点；专有名词收进紧跟的全
-#                      角括号作注记，括号内只放白名单里的专名本身（可以空格、
-#                      半角逗号或斜杠分隔多个），括号内外都不得混入第二种语
-#                      言。外部文档引用不进文件头——章节号随文档漂移，文档名
-#                      是本地指针。
-#   注记括号成对    —— 全角括号必须成对包裹注记且不嵌套，单边或套用判罚。
-#   不变量注释纯英文 —— 不变量块及其紧邻的连续注释行紧贴不安全块、整段英文
-#                      书写（静态检查工具要求不变量紧贴不安全块）。
-#   行尾豁免标记    —— 各门禁的放行标记照旧放行所在行。
-#
-# 源码（Rust）之外的文件同规覆盖：脚本、配置、工作流与站点资源的注释逐块同
-# 规——主体全中文、专名只进括号注记、标点不混用；路径、命令、旗标、标识符与
-# 链接都算代码引用，一并判罚。相邻注释行聚成一块受检，换行的括号与表述跨行
-# 不误报。工具指令行豁免：解释器声明、格式化与静态检查指令、行尾豁免标记。
-# 井号注释、双斜线注释、块注释与页面标记注释都纳入；脚本的模块级文档字符串
-# 按文件头同规（解释器引导串豁免），文件头不得借字符串形态逃出纪律。
-#
-# 词法层区分注释与字符串字面量：字符串内的注释符（如链接）不误报。
-#
-# 用法：以解释器运行本脚本，首参为仓库根，其余参数为可选的文件清单（供单测
-# 传入临时样本）；缺省扫全部被跟踪文件。
+"""注释纪律门禁：跟踪文件的注释主体只写中文——不混任何外文字母与半角标点，
+专有名词一律收进紧跟的全角括号作注记；不变量注释整段纯英文。本地注释配方
+（提交前门禁的一部分）与持续集成的钩子工作流共用此脚本，保证本地与远端判
+定一致；本脚本自身注释同规。
+
+源码（Rust）侧覆盖六条检查：
+  只留文件头      —— 文档注释、行内、行尾与块注释一律违规；内部头注释只能
+                     出现在文件头（首个代码项之前）。
+  文件头必须存在  —— 每个被跟踪的源码文件至少一行头注释。
+  文件头是中文    —— 每行必须含汉字；主体只允许汉字、中文标点、阿拉伯数字
+                     与空白，不出现外文字母或半角标点；专有名词收进紧跟的全
+                     角括号作注记，括号内只放白名单里的专名本身（可以空格、
+                     半角逗号或斜杠分隔多个），括号内外都不得混入第二种语
+                     言。外部文档引用不进文件头——章节号随文档漂移，文档名
+                     是本地指针。
+  注记括号成对    —— 全角括号必须成对包裹注记且不嵌套，单边或套用判罚。
+  不变量注释纯英文 —— 不变量块及其紧邻的连续注释行紧贴不安全块、整段英文
+                     书写（静态检查工具要求不变量紧贴不安全块）。
+  行尾豁免标记    —— 各门禁的放行标记照旧放行所在行。
+
+源码（Rust）之外的文件同规覆盖：脚本、配置、工作流与站点资源的注释逐块同
+规——主体全中文、专名只进括号注记、标点不混用；路径、命令、旗标、标识符与
+链接都算代码引用，一并判罚。相邻注释行聚成一块受检，换行的括号与表述跨行
+不误报。工具指令行豁免：解释器声明、格式化与静态检查指令、行尾豁免标记。
+井号注释、双斜线注释、块注释与页面标记注释都纳入；脚本文件头统一写成
+模块级文档字符串，判罚与注释同规（解释器引导串豁免）。
+
+词法层区分注释与字符串字面量：字符串内的注释符（如链接）不误报。
+
+用法：以解释器运行本脚本，首参为仓库根，其余参数为可选的文件清单（供单测
+传入临时样本）；缺省扫全部被跟踪文件。
+"""
 
 import ast
 import io
@@ -259,7 +260,7 @@ PROPER_NOUNS = frozenset(
 
 # 中文主体允许的非汉字字符：中文标点、注音序号与少数语言中立符号；阿拉伯数
 # 字与空白另行放行，其余一律判罚
-CHINESE_EXTRA = "，。；：！？、「」『』《》…—·～＝％￥→①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮"
+CHINESE_EXTRA = "，。；：！？《》…—·～＝％￥→\u201c\u201d\u2018\u2019"
 
 # 源码之外的注释文件：井号系脚本与配置、钩子目录脚本、任务配方文件与忽略清单。
 HASH_SUFFIXES = {".py", ".toml", ".yml", ".yaml", ".sh"}
@@ -275,7 +276,7 @@ DIRECTIVE_SEG = re.compile(
 )
 # 表述按中文标点切段；段两端先剥修饰字符，指令段只认整段外文的匹配，中文与
 # 指令混写的段仍受检。
-SEGMENT_SPLIT = re.compile(r"[，。；：！？、（）「」『』《》…—\n]+")
+SEGMENT_SPLIT = re.compile(r"[，。；：！？、（）《》…—\n]+")
 SEGMENT_TRIM = " \t\n─*-·-"
 
 
@@ -438,8 +439,9 @@ def chinese_zone_problems(loc, zone, label):
         if bad:
             shown = " ".join(bad[:3])
             out.append(
-                f"{loc}: {label}主体出现外文字符或半角标点（{shown}）"
-                f"——专有名词收进全角括号注记，其余改写为中文"
+                f"{loc}: {label} body contains foreign letters or halfwidth punctuation"
+                f" ({shown}) — put proper nouns in fullwidth bracket annotations,"
+                f" rewrite the rest in Chinese"
             )
     return out
 
@@ -451,14 +453,17 @@ def gloss_problems(loc, gloss, label):
         return []
     if LATIN.search(gloss):
         if CJKWISE.search(gloss):
-            return [f"{loc}: {label}注记括号混入中文——括号内只放专有名词本身，中文表述留在主体"]
+            return [
+                f"{loc}: {label} annotation bracket mixes Chinese"
+                " — brackets hold proper nouns only; keep Chinese prose in the body"
+            ]
         parts = [p for p in re.split(r"[\s,/]+", gloss) if p]
         bad = [p for p in parts if p not in PROPER_NOUNS]
         if bad:
             shown = " ".join(bad[:3])
             return [
-                f"{loc}: {label}注记出现白名单之外的词（{shown}）"
-                f"——只放登记过的专有名词；能改写为中文的写进主体"
+                f"{loc}: {label} annotation has words outside the allowlist ({shown})"
+                " — registered proper nouns only; rewrite anything else as Chinese in the body"
             ]
         return []
     return chinese_zone_problems(loc, gloss, label)
@@ -478,11 +483,17 @@ def split_glosses(body):
                 residual.append(" ")
                 buf = []
             else:
-                problems.append("注记括号嵌套——括号不套括号，改写为并列或摊平表述")
+                problems.append(
+                    " annotation brackets must not nest — brackets do not nest brackets;"
+                    " flatten or reword as parallel clauses"
+                )
                 residual.append(ch)
         elif ch == "）":
             if depth == 0:
-                problems.append("注记括号不配对——括号须成对包裹注记")
+                problems.append(
+                    " annotation brackets are unpaired — brackets must wrap annotations"
+                    " in matched pairs"
+                )
                 residual.append(" ")
             else:
                 if depth == 1:
@@ -496,7 +507,9 @@ def split_glosses(body):
             else:
                 buf.append(ch)
     if depth > 0:
-        problems.append("注记括号不配对——括号须成对包裹注记")
+        problems.append(
+            " annotation brackets are unpaired — brackets must wrap annotations in matched pairs"
+        )
     return glosses, "".join(residual), problems
 
 
@@ -516,33 +529,42 @@ def module_docstring_problems(rel, src):
     """模块级文档字符串按文件头同规：内容走注释同款判罚，解释器引导串豁免。
 
     文档字符串是字面量不是注释，词法抽取收不到它；这里按语法树补一刀，
-    防止文件头换一种写法就逃出纪律。语法异常的退回路径本就只管井号注释，
-    此处一并跳过。
+    防止文件头换一种写法就逃出纪律。文件头取开头连续的字符串语句：跨壳
+    脚本先有解释器引导串（豁免、跳过），其后紧跟真正的文件头；遇到首个
+    非字符串语句即止。语法异常的退回路径本就只管井号注释，此处一并跳过。
     """
     try:
         tree = ast.parse(src)
     except SyntaxError:
         return []
-    if not tree.body:
-        return []
-    first = tree.body[0]
-    if not (
-        isinstance(first, ast.Expr)
-        and isinstance(first.value, ast.Constant)
-        and isinstance(first.value.value, str)
-    ):
-        return []
-    text = first.value.value
-    if re.search(r"exec\s+python", text):
-        return []  # 解释器引导串：跨壳脚本的井号叹号替身，同解释器声明豁免
-    loc = f"{rel}:{first.lineno}"
-    if "`" in text:
-        return [f"{loc}: 文件头出现代码段——引用与示例沉记录文件"]
-    if "§" in text:
-        return [f"{loc}: 文件头出现「§ 章节号」式外部引用——出处沉记录文件"]
-    if not CJK.search(text):
-        return [f"{loc}: 文件头须写成中文：{text[:40]}"]
-    return body_problems(loc, text, "文件头")
+    out = []
+    for node in tree.body:
+        if not (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            break
+        text = node.value.value
+        if re.search(r"exec\s+python", text):
+            continue  # 解释器引导串：跨壳脚本的井号叹号替身，同解释器声明豁免
+        loc = f"{rel}:{node.lineno}"
+        if "`" in text:
+            out.append(
+                f"{loc}: file header contains a code segment"
+                " — move references and examples to the record file"
+            )
+        elif "§" in text:
+            out.append(
+                f'{loc}: file header contains a "§ section number" style external reference'
+                " — move sources to the record file"
+            )
+        elif not CJK.search(text):
+            out.append(f"{loc}: file header must be written in Chinese: {text[:40]}")
+        else:
+            out += body_problems(loc, text, "file header")
+        break  # 只看文件头：首个非豁免字符串语句之后不再看
+    return out
 
 
 def nonrust_violations(rel, src):
@@ -566,12 +588,18 @@ def nonrust_violations(rel, src):
         merged = "\n".join(bodies)
         loc = f"{rel}:{lineno}"
         if "`" in merged:
-            return [f"{loc}: 注释出现代码段——引用与示例沉记录文件"]
+            return [
+                f"{loc}: comment contains a code segment"
+                " — move references and examples to the record file"
+            ]
         if "§" in merged:
-            return [f"{loc}: 注释出现「§ 章节号」式外部引用——出处沉记录文件"]
+            return [
+                f'{loc}: comment contains a "§ section number" style external reference'
+                " — move sources to the record file"
+            ]
         if not CJK.search(merged):
-            return [f"{loc}: 注释须写成中文：{merged[:40]}"]
-        return body_problems(loc, merged, "注释")
+            return [f"{loc}: comment must be written in Chinese: {merged[:40]}"]
+        return body_problems(loc, merged, "comment")
 
     out = []
     cur = None  # 相邻注释行聚成一块：换行的括号与表述跨行不误报
@@ -776,16 +804,21 @@ def run(root, explicit):
             if not body:
                 continue
             if not CJK.search(body):
-                out.append(f"{rel}: 文件头含无汉字的行：{body[:60]}")
+                out.append(f"{rel}: file header line without Chinese characters: {body[:60]}")
             if "`" in body:
-                out.append(f"{rel}: 文件头出现反引号代码段——代码引用移出文件头，沉记录文件")
+                out.append(
+                    f"{rel}: file header contains a backtick code segment"
+                    " — move code references out of the header into the record file"
+                )
             if "§" in body:
                 out.append(
-                    f"{rel}: 文件头出现「§ 章节号」式外部引用——章节号随文档漂移，出处进记录文件"
+                    f'{rel}: file header contains a "§ section number" style external'
+                    " reference — section numbers drift with documents;"
+                    " move sources to the record file"
                 )
             merged.append(body.replace("`", " ").replace("§", " "))
         if merged:
-            out += body_problems(rel, "\n".join(merged), "文件头")
+            out += body_problems(rel, "\n".join(merged), "file header")
         return out
 
     for path in scan_files(root, explicit):
@@ -796,7 +829,7 @@ def run(root, explicit):
                     with open(path, encoding="utf-8") as fh:
                         plain = fh.read()
                 except (OSError, UnicodeDecodeError) as exc:
-                    problems.append(f"{rel}: 无法读取（{exc}）")
+                    problems.append(f"{rel}: unreadable ({exc})")
                     continue
                 problems.extend(nonrust_violations(rel, plain))
             continue
@@ -804,7 +837,7 @@ def run(root, explicit):
             with open(path, encoding="utf-8") as fh:
                 src = fh.read()
         except (OSError, UnicodeDecodeError) as exc:
-            problems.append(f"{rel}: 无法读取（{exc}）")
+            problems.append(f"{rel}: unreadable ({exc})")
             continue
         events = lex(src)
         header_lines = []
@@ -817,22 +850,33 @@ def run(root, explicit):
             prev_end = eline
             if kind == "inner":
                 if before_code:
-                    problems.append(f"{rel}:{sline}: //! 出现在文件头之后，只能作文件头")
+                    problems.append(
+                        f"{rel}:{sline}: //! after the file header — only the header may use //!"
+                    )
                 else:
                     header_found = True
                     header_lines.append(text)
                 continue
             if kind == "doc":
-                problems.append(f"{rel}:{sline}: /// 文档注释 —— 内容迁记录文件后删除")
+                problems.append(
+                    f"{rel}:{sline}: /// doc comment"
+                    " — move the content to the record file, then delete"
+                )
                 continue
             if kind == "block":
-                problems.append(f"{rel}:{sline}: 块注释 —— 内容迁记录文件后删除")
+                problems.append(
+                    f"{rel}:{sline}: block comment"
+                    " — move the content to the record file, then delete"
+                )
                 continue
             # 此处余下的都是行内注释
             if MARKER.search(text):
                 continue
             if not indent_only:
-                problems.append(f"{rel}:{sline}: 行尾注释 —— 迁记录文件，豁免标记除外")
+                problems.append(
+                    f"{rel}:{sline}: trailing comment — move to the record file;"
+                    " allow markers exempt"
+                )
                 continue
             stripped = text.strip()
             body = stripped.lstrip("/").strip()
@@ -840,12 +884,17 @@ def run(root, explicit):
                 safety_open = True
                 if CJKWISE.search(body):
                     problems.append(
-                        f"{rel}:{sline}: SAFETY 注释须为纯英文——不变量整段改写为英文，符号引用保留"
+                        f"{rel}:{sline}: SAFETY comment must be pure English"
+                        " — rewrite the whole invariant block in English,"
+                        " keep symbol references"
                     )
                 continue
-            problems.append(f"{rel}:{sline}: 行内注释 —— 迁记录文件（SAFETY 与 :allow 除外）")
+            problems.append(
+                f"{rel}:{sline}: inline comment — move to the record file"
+                " (SAFETY and :allow exempt)"
+            )
         if not header_found:
-            problems.append(f"{rel}: 缺文件头 //! 注释")
+            problems.append(f"{rel}: missing file header //! comment")
         problems.extend(header_violations(header_lines, rel))
     return problems
 
@@ -857,18 +906,22 @@ def main():
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
     explicit = sys.argv[2:]
-    print(f"== 注释纪律门禁（仓库根：{root}）==")
+    print(f"== comment discipline gate (repo root: {root}) ==")
     problems = run(root, explicit)
     if problems:
         for p in problems:
             print(f"  ✗ {p}", file=sys.stderr)
-        print(f"✗ 注释纪律门禁：{len(problems)} 处违规", file=sys.stderr)
+        print(f"✗ comment discipline gate: {len(problems)} violations", file=sys.stderr)
         print(
-            "  规则见本脚本头注；迁移目标 docs/comments/<文件名>_comment.md",
+            "  rules: see this script's header; move target docs/comments/<file>_comment.md",
             file=sys.stderr,
         )
         sys.exit(1)
-    print("  ok 注释纪律：源码只留中文文件头，注释主体全中文，专名只进括号注记，不变量注释纯英文")
+    print(
+        "  ok comment discipline: sources keep only Chinese file headers, comment"
+        " bodies fully Chinese, proper nouns only in bracket annotations, invariant"
+        " comments pure English"
+    )
 
 
 if __name__ == "__main__":

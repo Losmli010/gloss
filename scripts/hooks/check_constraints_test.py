@@ -1,7 +1,8 @@
-# 约束门禁的单测：最小工作区夹具加变异函数，逐条覆盖各约束。
-#
-# 被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
-# 的临时目录，残留标记用例另建一次性版本库；用法见持续集成的钩子工作流。
+"""约束门禁的单测：最小工作区夹具加变异函数，逐条覆盖各约束。
+
+被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
+的临时目录，残留标记用例另建一次性版本库；用法见持续集成的钩子工作流。
+"""
 
 import shutil
 import subprocess
@@ -86,7 +87,7 @@ def new_fixture(root, agents_body=None):
         'let _v: String = toml::from_str("k = 1").unwrap();\n'
     )
 
-    # 桩副本目录夹具：让「桩副本一致」检查有可比对象
+    # 桩副本目录夹具：让“桩副本一致”检查有可比对象
     for crate in ("gloss-core", "gloss-app", "gloss-platform"):
         (root / "crates" / crate / "tests/stubs").mkdir(parents=True)
     engine = root / "crates/gloss-core/tests/stubs/engine.rs"
@@ -138,7 +139,7 @@ def add_dep(path, text):
 
 
 def test_baseline_workspace_all_green(tmp_path):
-    assert_pass(tmp_path, needle="检查 3 条第三方依赖声明")
+    assert_pass(tmp_path, needle="3 third-party dependency declarations checked")
 
 
 def test_default_features_on_next_line(tmp_path):
@@ -147,25 +148,25 @@ def test_default_features_on_next_line(tmp_path):
             root / "crates/gloss-app/Cargo.toml",
             'tokio = { version = "1", features = [\n    "sync",\n], default-features = false }',
         )
-        # 跨行条目本身带使用证据：本用例只钉「特性字段检查不误报跨行」，
+        # 跨行条目本身带使用证据：本用例只钉“特性字段检查不误报跨行”，
         # 不让依赖无死条目检查分叉结论。
         (root / "crates/gloss-app/src").mkdir(exist_ok=True)
         (root / "crates/gloss-app/src/tokio_probe.rs").write_text(
             "let _rt = tokio::runtime::Builder::new_current_thread();\n"
         )
 
-    assert_pass(tmp_path, mutate, "检查 4 条第三方依赖声明")
+    assert_pass(tmp_path, mutate, "4 third-party dependency declarations checked")
 
 
 def test_log_arguments_english_with_chinese_comments(tmp_path):
-    assert_pass(tmp_path, needle="0 处违规")
+    assert_pass(tmp_path, needle="0 violations")
 
 
 def test_core_tracing_is_the_only_log_exit(tmp_path):
     assert_pass(tmp_path)
 
 
-# ---- 约束「依赖方向」----
+# ---- 约束“依赖方向”----
 
 
 def test_core_depends_on_platform_rejected(tmp_path):
@@ -174,7 +175,7 @@ def test_core_depends_on_platform_rejected(tmp_path):
             root / "crates/gloss-core/Cargo.toml", 'gloss-platform = { path = "../gloss-platform" }'
         )
 
-    assert_fail(tmp_path, mutate, "不得依赖 gloss-platform")
+    assert_fail(tmp_path, mutate, "must not depend on gloss-platform")
 
 
 def test_core_depends_on_winit_redline(tmp_path):
@@ -184,7 +185,7 @@ def test_core_depends_on_winit_redline(tmp_path):
             'winit = { version = "0.30", default-features = false }',
         )
 
-    assert_fail(tmp_path, mutate, "红线禁入")
+    assert_fail(tmp_path, mutate, "red-line, forbidden")
 
 
 def test_core_depends_on_wgpu_core_prefix_match(tmp_path):
@@ -194,14 +195,14 @@ def test_core_depends_on_wgpu_core_prefix_match(tmp_path):
             'wgpu-core = { version = "30", default-features = false }',
         )
 
-    assert_fail(tmp_path, mutate, "红线禁入")
+    assert_fail(tmp_path, mutate, "red-line, forbidden")
 
 
 def test_platform_depends_on_app_rejected(tmp_path):
     def mutate(root):
         add_dep(root / "crates/gloss-platform/Cargo.toml", 'gloss-app = { path = "../gloss-app" }')
 
-    assert_fail(tmp_path, mutate, "不得依赖 gloss-app")
+    assert_fail(tmp_path, mutate, "must not depend on gloss-app")
 
 
 def test_depends_on_unregistered_crate(tmp_path):
@@ -210,14 +211,14 @@ def test_depends_on_unregistered_crate(tmp_path):
         write_manifest(root / "crates/gloss-util/Cargo.toml", "gloss-util")
         add_dep(root / "crates/gloss-app/Cargo.toml", 'gloss-util = { path = "../gloss-util" }')
 
-    assert_fail(tmp_path, mutate, "不得依赖 gloss-util")
+    assert_fail(tmp_path, mutate, "must not depend on gloss-util")
 
 
 def test_crate_missing_from_agents_md(tmp_path):
     def mutate(root):
         (root / "AGENTS.md").write_text("gloss 与 gloss-core 的依赖方向见下。\n", encoding="utf-8")
 
-    assert_fail(tmp_path, mutate, "未出现在")
+    assert_fail(tmp_path, mutate, "missing from")
 
 
 def test_engine_stub_drift(tmp_path):
@@ -225,7 +226,7 @@ def test_engine_stub_drift(tmp_path):
         with open(root / "crates/gloss-app/tests/stubs/engine.rs", "a") as fh:
             fh.write("\n// drift\n")
 
-    assert_fail(tmp_path, mutate, "桩副本漂移")
+    assert_fail(tmp_path, mutate, "stub copy drift")
 
 
 def test_ports_stub_section_drift(tmp_path):
@@ -236,10 +237,10 @@ def test_ports_stub_section_drift(tmp_path):
             "pub struct MemoryConfigStore drift;",
         )
 
-    assert_fail(tmp_path, mutate, "桩副本漂移")
+    assert_fail(tmp_path, mutate, "stub copy drift")
 
 
-# ---- 约束「日志统一出口」----
+# ---- 约束“日志统一出口”----
 
 
 def test_app_depends_on_tracing(tmp_path):
@@ -249,7 +250,7 @@ def test_app_depends_on_tracing(tmp_path):
             'tracing = { version = "0.1", default-features = false }',
         )
 
-    assert_fail(tmp_path, mutate, "只经 gloss_core::log")
+    assert_fail(tmp_path, mutate, "use gloss_core::log only")
 
 
 def test_platform_depends_on_tracing_subscriber(tmp_path):
@@ -259,17 +260,17 @@ def test_platform_depends_on_tracing_subscriber(tmp_path):
             'tracing-subscriber = { version = "0.3", default-features = false }',
         )
 
-    assert_fail(tmp_path, mutate, "只经 gloss_core::log")
+    assert_fail(tmp_path, mutate, "use gloss_core::log only")
 
 
-# ---- 约束「日志一律英文」----
+# ---- 约束“日志一律英文”----
 
 
 def test_log_message_in_chinese(tmp_path):
     def mutate(root):
         (root / "crates/gloss-core/src/log.rs").write_text('info!("找不到配置文件");\n')
 
-    assert_fail(tmp_path, mutate, "日志实参含非 ASCII")
+    assert_fail(tmp_path, mutate, "log macro argument with non-ASCII")
 
 
 def test_log_message_multiline_chinese(tmp_path):
@@ -278,10 +279,10 @@ def test_log_message_multiline_chinese(tmp_path):
             'info!(\n    gen = 1,\n    "读取失败"\n);\n'
         )
 
-    assert_fail(tmp_path, mutate, "日志实参含非 ASCII")
+    assert_fail(tmp_path, mutate, "log macro argument with non-ASCII")
 
 
-# ---- 约束「界面库（egui）上下文统一装入点」----
+# ---- 约束“界面库（egui）上下文统一装入点”----
 
 
 def test_bare_egui_context(tmp_path):
@@ -289,7 +290,7 @@ def test_bare_egui_context(tmp_path):
         (root / "crates/gloss-app/src").mkdir(exist_ok=True)
         (root / "crates/gloss-app/src/bare.rs").write_text("let ctx = egui::Context::default();\n")
 
-    assert_fail(tmp_path, mutate, "egui 上下文统一装入点")
+    assert_fail(tmp_path, mutate, "egui context unified load point")
 
 
 def test_context_with_spaces(tmp_path):
@@ -297,7 +298,7 @@ def test_context_with_spaces(tmp_path):
         (root / "crates/gloss-app/src").mkdir(exist_ok=True)
         (root / "crates/gloss-app/src/spaced.rs").write_text("let ctx = Context :: default ();\n")
 
-    assert_fail(tmp_path, mutate, "egui 上下文统一装入点")
+    assert_fail(tmp_path, mutate, "egui context unified load point")
 
 
 def test_fonts_written_outside(tmp_path):
@@ -307,7 +308,7 @@ def test_fonts_written_outside(tmp_path):
             "config.set_fonts(definitions);\n"
         )
 
-    assert_fail(tmp_path, mutate, "egui 上下文统一装入点")
+    assert_fail(tmp_path, mutate, "egui context unified load point")
 
 
 def test_theme_written_outside(tmp_path):
@@ -315,7 +316,7 @@ def test_theme_written_outside(tmp_path):
         (root / "crates/gloss-app/src").mkdir(exist_ok=True)
         (root / "crates/gloss-app/src/sneaky_theme.rs").write_text("ctx.set_theme(preference);\n")
 
-    assert_fail(tmp_path, mutate, "egui 上下文统一装入点")
+    assert_fail(tmp_path, mutate, "egui context unified load point")
 
 
 def test_allow_context_marker_passes(tmp_path):
@@ -325,7 +326,7 @@ def test_allow_context_marker_passes(tmp_path):
             "let ctx = Context::default(); // constraints:allow-context 阴性对照\n"
         )
 
-    assert_pass(tmp_path, mutate, "0 处绕过")
+    assert_pass(tmp_path, mutate, "0 bypasses")
 
 
 def test_context_inside_owner_passes(tmp_path):
@@ -333,10 +334,10 @@ def test_context_inside_owner_passes(tmp_path):
         (root / "crates/gloss-app/src/ui").mkdir(parents=True)
         (root / "crates/gloss-app/src/ui/context.rs").write_text("let ctx = Context::default();\n")
 
-    assert_pass(tmp_path, mutate, "0 处绕过")
+    assert_pass(tmp_path, mutate, "0 bypasses")
 
 
-# ---- 约束「外部函数接口（FFI）声明集中」----
+# ---- 约束“外部函数接口（FFI）声明集中”----
 
 
 def test_ffi_declared_outside(tmp_path):
@@ -347,7 +348,7 @@ def test_ffi_declared_outside(tmp_path):
             'unsafe extern "C" {\n    fn CGWarpMouseCursorPosition(p: u32) -> i32;\n}\n'
         )
 
-    assert_fail(tmp_path, mutate, "FFI 声明集中")
+    assert_fail(tmp_path, mutate, "FFI declarations centralized")
 
 
 def test_ffi_declared_in_owner_passes(tmp_path):
@@ -358,7 +359,7 @@ def test_ffi_declared_in_owner_passes(tmp_path):
             'unsafe extern "C" {\n    pub(crate) fn CGWarpMouseCursorPosition(p: u32) -> i32;\n}\n'
         )
 
-    assert_pass(tmp_path, mutate, "0 处就地声明")
+    assert_pass(tmp_path, mutate, "0 inline declarations")
 
 
 def test_ffi_callback_definition_not_a_declaration(tmp_path):
@@ -368,10 +369,10 @@ def test_ffi_callback_definition_not_a_declaration(tmp_path):
             'extern "C" fn fire(info: *mut c_void) {\n    let _ = info;\n}\n'
         )
 
-    assert_pass(tmp_path, mutate, "0 处就地声明")
+    assert_pass(tmp_path, mutate, "0 inline declarations")
 
 
-# ---- 约束「版本单点维护」----
+# ---- 约束“版本单点维护”----
 
 
 def test_crate_version_literal(tmp_path):
@@ -380,7 +381,7 @@ def test_crate_version_literal(tmp_path):
             root / "crates/gloss-app/Cargo.toml", "version.workspace = true", 'version = "0.1.0"'
         )
 
-    assert_fail(tmp_path, mutate, "缺少 version.workspace")
+    assert_fail(tmp_path, mutate, "misses version.workspace")
 
 
 def test_edition_literal(tmp_path):
@@ -391,27 +392,27 @@ def test_edition_literal(tmp_path):
             'edition = "2024"',
         )
 
-    assert_fail(tmp_path, mutate, "缺少 edition.workspace")
+    assert_fail(tmp_path, mutate, "misses edition.workspace")
 
 
 def test_root_missing_workspace_package(tmp_path):
     def mutate(root):
         replace_line(root / "Cargo.toml", 'version = "0.1.0"', "# 版本字面量被挪走了")
 
-    assert_fail(tmp_path, mutate, "没有 version 字面量")
+    assert_fail(tmp_path, mutate, "has no version literal")
 
 
-# ---- 约束「依赖只开需要的特性」----
+# ---- 约束“依赖只开需要的特性”----
 
 
 def test_dep_without_default_features(tmp_path):
     def mutate(root):
         add_dep(root / "crates/gloss-app/Cargo.toml", 'pollster = "1.0.1"')
 
-    assert_fail(tmp_path, mutate, "pollster 未写 default-features = false")
+    assert_fail(tmp_path, mutate, "pollster lacks default-features = false")
 
 
-# ---- 约束「依赖无死条目」----
+# ---- 约束“依赖无死条目”----
 
 
 def test_unused_dep_rejected(tmp_path):
@@ -421,7 +422,7 @@ def test_unused_dep_rejected(tmp_path):
             'serde_json = { version = "1", default-features = false }',
         )
 
-    assert_fail(tmp_path, mutate, "依赖无死条目")
+    assert_fail(tmp_path, mutate, "no dead dependencies")
 
 
 def test_deps_allow_marker_passes(tmp_path):
@@ -431,7 +432,7 @@ def test_deps_allow_marker_passes(tmp_path):
             'serde_json = { version = "1", default-features = false } # deps:allow 自测阴性对照',
         )
 
-    assert_pass(tmp_path, mutate, "依赖无死条目（扫")
+    assert_pass(tmp_path, mutate, "no dead dependencies (")
 
 
 def test_dash_key_unused(tmp_path):
@@ -441,7 +442,7 @@ def test_dash_key_unused(tmp_path):
             'crossbeam-channel = { version = "0.5", default-features = false }',
         )
 
-    assert_fail(tmp_path, mutate, "依赖无死条目")
+    assert_fail(tmp_path, mutate, "no dead dependencies")
 
 
 def test_dash_key_used_after_underscore(tmp_path):
@@ -454,7 +455,7 @@ def test_dash_key_used_after_underscore(tmp_path):
             "let (tx, _rx) = crossbeam_channel::unbounded();\n"
         )
 
-    assert_pass(tmp_path, mutate, "deps:allow 0 条")
+    assert_pass(tmp_path, mutate, "0 deps:allow")
 
 
 def test_dev_dep_unused_rejected(tmp_path):
@@ -465,18 +466,18 @@ def test_dev_dep_unused_rejected(tmp_path):
                 '\n[dev-dependencies]\nserde_json = { version = "1", default-features = false }\n'
             )
 
-    assert_fail(tmp_path, mutate, "依赖无死条目")
+    assert_fail(tmp_path, mutate, "no dead dependencies")
 
 
 def test_path_dep_unused_not_punished(tmp_path):
-    assert_pass(tmp_path, needle="deps:allow 0 条")
+    assert_pass(tmp_path, needle="0 deps:allow")
 
 
 def test_root_manifest_unused_dep_rejected(tmp_path):
     def mutate(root):
         add_dep(root / "Cargo.toml", 'serde_json = { version = "1", default-features = false }')
 
-    assert_fail(tmp_path, mutate, "依赖无死条目")
+    assert_fail(tmp_path, mutate, "no dead dependencies")
 
 
 def test_root_manifest_src_evidence_passes(tmp_path):
@@ -487,7 +488,7 @@ def test_root_manifest_src_evidence_passes(tmp_path):
             'fn main() {\n    let _: u64 = serde_json::from_str("1").unwrap();\n}\n'
         )
 
-    assert_pass(tmp_path, mutate, "deps:allow 0 条")
+    assert_pass(tmp_path, mutate, "0 deps:allow")
 
 
 def test_use_and_reexport_forms_count_as_evidence(tmp_path):
@@ -500,7 +501,7 @@ def test_use_and_reexport_forms_count_as_evidence(tmp_path):
             "pub use serde_json;\nuse serde_json as json;\n"
         )
 
-    assert_pass(tmp_path, mutate, "deps:allow 0 条")
+    assert_pass(tmp_path, mutate, "0 deps:allow")
 
 
 def test_macro_form_counts_as_evidence(tmp_path):
@@ -511,7 +512,7 @@ def test_macro_form_counts_as_evidence(tmp_path):
         )
         (root / "crates/gloss-platform/src/macro_use.rs").write_text("let _v = serde_json!(1);\n")
 
-    assert_pass(tmp_path, mutate, "deps:allow 0 条")
+    assert_pass(tmp_path, mutate, "0 deps:allow")
 
 
 def test_tests_dir_evidence_counts(tmp_path):
@@ -523,10 +524,10 @@ def test_tests_dir_evidence_counts(tmp_path):
         (root / "crates/gloss-platform/tests").mkdir(exist_ok=True)
         (root / "crates/gloss-platform/tests/usage.rs").write_text("use serde_json;\n")
 
-    assert_pass(tmp_path, mutate, "deps:allow 0 条")
+    assert_pass(tmp_path, mutate, "0 deps:allow")
 
 
-# ---- 约束「文件行数上限」----
+# ---- 约束“文件行数上限”----
 
 
 def test_overlong_rs_file_rejected(tmp_path):
@@ -534,7 +535,7 @@ def test_overlong_rs_file_rejected(tmp_path):
         (root / "crates/gloss-app/src").mkdir(exist_ok=True)
         (root / "crates/gloss-app/src/big.rs").write_text("let _x = 1;\n" * 520)
 
-    assert_fail(tmp_path, mutate, "文件行数上限")
+    assert_fail(tmp_path, mutate, "line cap")
 
 
 def test_lines_allow_in_first_five_lines_passes(tmp_path):
@@ -544,7 +545,7 @@ def test_lines_allow_in_first_five_lines_passes(tmp_path):
             "// lines:allow 自测阴性对照\n" + "let _x = 1;\n" * 520
         )
 
-    assert_pass(tmp_path, mutate, "lines:allow 豁免 1 个")
+    assert_pass(tmp_path, mutate, "1 lines:allow exemptions")
 
 
 def test_overlong_test_file_not_punished(tmp_path):
@@ -552,7 +553,7 @@ def test_overlong_test_file_not_punished(tmp_path):
         (root / "crates/gloss-app/tests").mkdir(exist_ok=True)
         (root / "crates/gloss-app/tests/big.rs").write_text("let _x = 1;\n" * 520)
 
-    assert_pass(tmp_path, mutate, "lines:allow 豁免 0 个")
+    assert_pass(tmp_path, mutate, "0 lines:allow exemptions")
 
 
 def test_inline_tests_excluded_from_production_lines(tmp_path):
@@ -562,7 +563,7 @@ def test_inline_tests_excluded_from_production_lines(tmp_path):
             "let _x = 1;\n" * 20 + "#[cfg(test)]\nmod tests {\n" + "let _y = 1;\n" * 520 + "}\n"
         )
 
-    assert_pass(tmp_path, mutate, "lines:allow 豁免 0 个")
+    assert_pass(tmp_path, mutate, "0 lines:allow exemptions")
 
 
 def test_lines_allow_past_header_rejected(tmp_path):
@@ -574,7 +575,7 @@ def test_lines_allow_past_header_rejected(tmp_path):
             + "let _x = 1;\n" * 520
         )
 
-    assert_fail(tmp_path, mutate, "文件行数上限")
+    assert_fail(tmp_path, mutate, "line cap")
 
 
 def test_indented_cfg_test_not_truncated(tmp_path):
@@ -584,7 +585,7 @@ def test_indented_cfg_test_not_truncated(tmp_path):
             "let _x = 1;\n" * 19 + "    #[cfg(test)]\n" + "let _y = 1;\n" * 520
         )
 
-    assert_fail(tmp_path, mutate, "文件行数上限")
+    assert_fail(tmp_path, mutate, "line cap")
 
 
 # ---- 评测资产隔离 ----
@@ -596,7 +597,11 @@ def test_production_crate_depends_on_eval_rejected(tmp_path):
 
     # 行号必须来自评测包（gloss-eval）条目自身（插在依赖段标题后的第 7 行），不是上游循环遗留的陈旧值
     _, fails = run_case(tmp_path, mutate)
-    assert any("不得进生产依赖图" in f and "crates/gloss-app/Cargo.toml:7" in f for f in fails)
+    assert any(
+        "must stay out of the production dependency graph" in f
+        and "crates/gloss-app/Cargo.toml:7" in f
+        for f in fails
+    )
 
 
 def test_production_code_includes_eval_asset_rejected(tmp_path):
@@ -605,12 +610,12 @@ def test_production_code_includes_eval_asset_rejected(tmp_path):
             'const X: &str = include_str!("../../gloss-eval/datasets/classify.jsonl");\n'
         )
 
-    assert_fail(tmp_path, mutate, "eval 资产嵌进了生产代码")
+    assert_fail(tmp_path, mutate, "embeds a gloss-eval asset into production code")
 
 
 # ---- 残留任务标记扫描（版本库夹具；上方非版本库夹具用例覆盖自动跳过路径）----
 # 约束脚本自身豁免：脚本副本（含各类任务标记字面量）被版本库跟踪，
-# 「干净版本库通过」用例正常退出即证明其未被自命中。
+# “干净版本库通过”用例正常退出即证明其未被自命中。
 
 
 def test_clean_git_repo_passes(tmp_path):
@@ -634,7 +639,7 @@ def test_todo_marker_hit(tmp_path):
     (tmp_path / "src/has_todo.rs").write_text("// TODO: 待办\n")
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
     _, fails = check_constraints.run(str(tmp_path))
-    assert any("残留任务标记：" in f for f in fails)
+    assert any("leftover task marker:" in f for f in fails)
 
 
 def test_fixme_marker_hit(tmp_path):
@@ -646,7 +651,7 @@ def test_fixme_marker_hit(tmp_path):
     (tmp_path / "src/has_fixme.rs").write_text("fixme_marker(); // FIXME\n")
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
     _, fails = check_constraints.run(str(tmp_path))
-    assert any("残留任务标记：" in f for f in fails)
+    assert any("leftover task marker:" in f for f in fails)
 
 
 def test_todo_adjacent_to_cjk_hit(tmp_path):
@@ -659,17 +664,17 @@ def test_todo_adjacent_to_cjk_hit(tmp_path):
     (tmp_path / "src/cjk_todo.rs").write_text("// TODO记录：待办\n")
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
     _, fails = check_constraints.run(str(tmp_path))
-    assert any("残留任务标记：" in f for f in fails)
+    assert any("leftover task marker:" in f for f in fails)
 
 
 def test_unclosed_dep_entry_at_eof_still_emitted(tmp_path):
     # 依赖条目在文件尾仍待定（花括号未闭合）时脚本语言（Python）版选择补发判罚，
-    # 旧壳层实现缺收尾逻辑会静默丢弃——这是有意的审慎分歧，别「对齐」回去
+    # 旧壳层实现缺收尾逻辑会静默丢弃——这是有意的审慎分歧，别“对齐”回去
     def mutate(root):
         with open(root / "crates/gloss-platform/Cargo.toml", "a", encoding="utf-8") as fh:
             fh.write('\n[dev-dependencies]\nserde_json = { version = "1"\n')
 
-    assert_fail(tmp_path, mutate, "serde_json 未写 default-features = false")
+    assert_fail(tmp_path, mutate, "serde_json lacks default-features = false")
 
 
 def test_agents_md_uppercase_todo_exempt(tmp_path):
