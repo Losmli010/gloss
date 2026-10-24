@@ -1,4 +1,4 @@
-//! `macOS` 应用图标适配器（[`AppIcon`] 端口的实现）。
+//! macOS 应用图标适配器（图标端口的实现）。
 
 use gloss_core::ports::AppIcon;
 use objc2::MainThreadMarker;

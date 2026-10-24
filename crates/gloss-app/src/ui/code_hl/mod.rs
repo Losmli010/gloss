@@ -1,12 +1,12 @@
-//! 代码语言采纳与语法着色适配：语言名归一化、`syntect` 语法映射与六类色板
+//! 代码语言采纳与语法着色适配：语言名归一化、syntect 语法映射与六类色板
 //! 主题。
 //!
-//! 语言的唯一来源是任务产物的 `structured.code_language`（`LLM` 判定，采纳
-//! 见 [`adopt`]）；[`syntect_token`] 把它映射到 `Sublime` 语法名，[`highlight`]
-//! 经 `egui_extras` 出 [`LayoutJob`]。着色类别与色板在 [`palette`]。
+//! 语言的唯一来源是任务产物的疏证代码语言（LLM 判定，经采纳入口归一）；
+//! 归一后的名字映射到 Sublime 语法名，着色输出交 egui_extras 渲染。
+//! 着色类别与色板在色板模块。
 //!
-//! `egui_extras` 的 `CodeTheme` 只暴露内置主题、字段私有，自定义六类色板
-//! 只能顶替 `SyntectSettings.ts` 里它按名字索引的两个主题条目（见 [`theme_set`]）。
+//! egui_extras 的代码主题只暴露内置主题、字段私有，自定义六类色板
+//! 只能顶替其中按名字索引的两个主题条目（见本模块的主题装配）。
 
 mod fallback;
 mod palette;

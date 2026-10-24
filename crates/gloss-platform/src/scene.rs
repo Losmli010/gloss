@@ -1,8 +1,8 @@
-//! 触发前场景探针（`SceneProbe` 的 `macOS` 实现）：安全输入态 + 前台应用。
+//! 触发前场景探针（场景探针端口的 macOS 实现）：安全输入态 + 前台应用。
 //!
 //! 两者都是纯查询：不索取权限、不改状态、读不到选区内容——探针只回答
 //! 「现在该不该触发」，不碰用户数据。前台应用取不到（无图形会话、
-//! `LaunchServices` 未就绪）时返回空事实，闸门按「无事实」放行。
+//! LaunchServices 未就绪）时返回空事实，闸门按「无事实」放行。
 
 use gloss_core::guard::{FrontApp, SceneFacts};
 use gloss_core::ports::SceneProbe;

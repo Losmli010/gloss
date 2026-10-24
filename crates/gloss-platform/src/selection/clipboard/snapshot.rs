@@ -1,7 +1,7 @@
-//! 原剪贴板的快照：打开系统粘贴板、逐条目保全全部 `flavor` 的原始字节。
+//! 原剪贴板的快照：打开系统粘贴板、逐条目保全全部 flavor 的原始字节。
 //!
-//! 快照的放弃边界（哪些失败整体放弃、哪些只跳过该 `flavor`）以
-//! [`snapshot_pasteboard`] 的文档为准。
+//! 快照的放弃边界（哪些失败整体放弃、哪些只跳过该 flavor）以
+//! 快照函数的文档为准。
 
 use crate::ffi::cf::{
     self, CFArrayGetCount, CFArrayGetValueAtIndex, CFArrayRef, CFDataGetBytePtr, CFDataGetLength,

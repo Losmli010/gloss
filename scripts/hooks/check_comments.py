@@ -7,9 +7,10 @@
 #   只留文件头      —— `///` 文档注释、行内 `//`、行尾注释、块注释 `/* */` 一律
 #                      违规；`//!` 只能出现在文件头（首个代码项之前）。
 #   文件头必须存在  —— 每个被跟踪的 .rs 至少一行 `//!` 头。
-#   文件头是中文    —— 每行 `//!` 必须含汉字；反引号代码段之外不得出现
-#                      任何英文字母——专有名词、标识符整体放进反引号（如
-#                      `wgpu`、`LLM`），能自然成中文的行文词直接写中文。
+#   文件头是中文    —— 每行 `//!` 必须含汉字；头注释禁止反引号代码段与
+#                      标识符——类型、函数、字段、路径、旗标在代码里自明，
+#                      细节沉 docs/comments 记录；英文只允许裸写的专有名词
+#                      （技术/产品/格式/框架/crate 名，PROPER_NOUNS 白名单）。
 #   SAFETY 豁免     —— `// SAFETY:` 块及其紧邻的连续注释行不判罚（clippy
 #                      undocumented_unsafe_blocks 要求不变量紧贴 unsafe 块）。
 #   行尾豁免标记    —— secrets:allow / lines:allow / i18n:allow /
@@ -27,8 +28,123 @@ import subprocess
 import sys
 
 CJK = re.compile(r"[\u4e00-\u9fff]")
-WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+WORD = re.compile(r"[A-Za-z0-9_.+-]*[A-Za-z][A-Za-z0-9_.+-]*")
 MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps):allow\b")
+
+# 文件头允许的英文专有名词白名单：技术、产品、格式、协议、框架与 crate 名。
+# 新增专有名词在此登记；标识符、路径、旗标与代码段一律不进文件头。
+PROPER_NOUNS = frozenset(
+    {
+        "4xx",
+        "AGENTS.md",
+        "AI",
+        "API",
+        "AppKit",
+        "ApplicationServices",
+        "AX",
+        "Base64",
+        "C",
+        "CEF",
+        "CF",
+        "CFRunLoop",
+        "CI",
+        "CJK",
+        "CLI",
+        "Cmd",
+        "Cmd+C",
+        "CVC",
+        "Carbon",
+        "Chrome",
+        "Chromium",
+        "CoreFoundation",
+        "CoreGraphics",
+        "CoreText",
+        "DMG",
+        "Data",
+        "Electron",
+        "FFI",
+        "FT",
+        "Gecko",
+        "Gloss",
+        "GitHub",
+        "GPU",
+        "HIServices",
+        "HIToolbox",
+        "HTTP",
+        "HTTPS",
+        "HTML",
+        "IO",
+        "JSON",
+        "JavaScript",
+        "L1",
+        "L2",
+        "L3",
+        "L4",
+        "LLM",
+        "LRU",
+        "LaunchServices",
+        "Luhn",
+        "Markdown",
+        "OpenAI",
+        "PEM",
+        "PNG",
+        "PR",
+        "Pages",
+        "Pasteboard",
+        "RGBA",
+        "RSS",
+        "RunLoop",
+        "Rust",
+        "SAFETY",
+        "SC",
+        "SSE",
+        "SVG",
+        "SipHash",
+        "Songti",
+        "Sublime",
+        "TLS",
+        "TOML",
+        "TTL",
+        "TTFT",
+        "TIFF",
+        "UTC",
+        "UTF-8",
+        "URL",
+        "VoiceOver",
+        "WebKit",
+        "criterion",
+        "egui",
+        "egui_commonmark",
+        "egui_extras",
+        "epaint",
+        "flavor",
+        "gloss-app",
+        "gloss-core",
+        "gloss-eval",
+        "gloss-mono",
+        "gloss-platform",
+        "image",
+        "live",
+        "moka",
+        "macOS",
+        "p50",
+        "p95",
+        "panic",
+        "semver",
+        "serde",
+        "span",
+        "syntect",
+        "tap",
+        "tokio",
+        "tracing",
+        "ttc",
+        "ui-monospace",
+        "unsafe",
+        "wgpu",
+        "winit",
+        "zh-Hans-CN",
+    }
+)
 
 
 def scan_files(root, explicit):
@@ -207,11 +323,14 @@ def run(root, explicit):
                 continue
             if not CJK.search(body):
                 out.append(f"{rel}: 文件头含无汉字的行：{body[:60]}")
-            cleaned = re.sub(r"`[^`]*`", " ", body)
-            words = WORD.findall(cleaned)
-            if words:
+            if "`" in body:
+                out.append(f"{rel}: 文件头出现反引号代码段——专有名词裸写，标识符与代码移出文件头")
+                continue
+            bad = [w for w in WORD.findall(body) if w not in PROPER_NOUNS]
+            if bad:
                 out.append(
-                    f"{rel}: 文件头出现英文词：{' '.join(words[:3])}（放进反引号或改写为中文）"
+                    f"{rel}: 文件头出现专有名词之外的英文词：{' '.join(bad[:3])}"
+                    f"（改写为中文；确属专有名词则登记 PROPER_NOUNS 白名单）"
                 )
         return out
 

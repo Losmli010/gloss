@@ -1,4 +1,4 @@
-//! 评测报告：`JSON` 落盘 + `Markdown` 渲染（表格形态沿用 `scripts/bench-summary.py`
+//! 评测报告：JSON 落盘 + Markdown 渲染（表格形态沿用基准汇总脚本
 //! 的模式：一指标一行，比率带百分比）。
 
 use std::collections::BTreeMap;
