@@ -50,13 +50,18 @@ def test_bare_english_words_flagged(tmp_path):
 
 
 def test_single_english_word_flagged(tmp_path):
-    problems = run_gate(tmp_path, "//! 中文头借用 wgpu 渲染。\n\nfn main() {}\n")
+    problems = run_gate(tmp_path, "//! 中文头借用 helper 渲染。\n\nfn main() {}\n")
     assert any("英文词" in p for p in problems)
 
 
-def test_backticked_english_words_allowed(tmp_path):
-    content = "//! 中文头：术语 `functional core` 见记录。\n\nfn main() {}\n"
+def test_proper_noun_allowed(tmp_path):
+    content = "//! 中文头借用 wgpu 渲染。\n\nfn main() {}\n"
     assert run_gate(tmp_path, content) == []
+
+
+def test_backtick_code_segment_flagged(tmp_path):
+    problems = run_gate(tmp_path, "//! 中文头：术语 `functional core` 见记录。\n\nfn main() {}\n")
+    assert any("反引号代码段" in p for p in problems)
 
 
 def test_url_inside_string_not_flagged(tmp_path):

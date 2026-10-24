@@ -1,4 +1,4 @@
-//! 系统字体发现：`CoreText` 家族定位与字体文件字节解析（`ttc` 面序号）。
+//! 系统字体发现：CoreText 家族定位与字体文件字节解析（ttc 面序号）。
 
 use std::fs::File;
 use std::path::Path;

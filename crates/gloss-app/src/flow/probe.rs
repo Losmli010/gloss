@@ -1,5 +1,5 @@
 //! 编排用例·探测段：消费通道①（平台事件）→ 场景闸门 → 产出取材命令
-//! 发往通道②。状态机不动、不显形——产物到达才由 `task` 提交。
+//! 发往通道②。状态机不动、不显形——产物到达才由任务段提交。
 
 use gloss_core::guard::SceneFacts;
 use gloss_core::log::{Span, debug, info, task_span, thread, warn};

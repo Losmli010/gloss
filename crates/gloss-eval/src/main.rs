@@ -1,19 +1,19 @@
-//! 评测 `CLI`：`eval inspect`（离线重放 + 单文件检视页）/ `eval replay`
-//! （离线重放，`CI` 安全）/ `eval live`（`opt-in`，需 `GLOSS_LIVE_*`）/
-//! `eval report`（重渲染最近一次报告）/ `eval history`（从现有
-//! `history.jsonl` 重绘趋势 `SVG`）。
+//! 评测 CLI：检视子命令（离线重放 + 单文件检视页）/ 重放子命令
+//! （离线重放，CI 安全）/ live 子命令（按需启用，需评测凭据环境变量）/
+//! 报告子命令（重渲染最近一次报告）/ 历史子命令（从现有
+//! 历史记录文件重绘趋势 SVG）。
 //!
-//! 报告写 `target/eval/`（`<mode>.json` + `<mode>.md`）并把 `Markdown` 打
-//! 到 `stdout`；报告落盘成功后追加 `history.jsonl` 并重绘 `history.svg`。
-//! `inspect` 与 `live` 轨额外落检视件：逐条明细 `<mode>.cases.json` 与单文件
-//! 检视页 `inspect.html`（准确率头条 + 逐条轨迹 + 趋势，供人工检视）。
-//! `live` 轨的 `--record` 把修复轨迹（每轮增量）按 `id` 逐条 `upsert` 回 `fixtures/`。
-//! `GLOSS_EVAL_COMMIT` / `GLOSS_EVAL_SOURCE` 在此注入采集上下文（`lib` 层
+//! 报告写评测产物目录（按模式命名的 JSON 与 Markdown 报告）并把
+//! Markdown 打到标准输出；报告落盘成功后追加历史记录文件并重绘趋势图。
+//! 检视与 live 轨额外落检视件：逐条明细文件与单文件
+//! 检视页（准确率头条 + 逐条轨迹 + 趋势，供人工检视）。
+//! live 轨的回写把修复轨迹（每轮增量）按条目标识逐条覆盖写回夹具目录。
+//! 采集上下文环境变量在此注入（库层
 //! 零环境副作用）。本二进制属于评测工具链，不在应用启动路径上。
 //!
-//! 日志纪律的豁免面：打印报告/错误就是本 `CLI` 的全部产出（无 `subscriber`、
-//! 无长驻进程），`stdout`/`stderr` 直写在此是有意为之，故整文件豁免
-//! `print_stdout` / `print_stderr`（缘由见上）。
+//! 日志纪律的豁免面：打印报告/错误就是本 CLI 的全部产出（无日志订阅者、
+//! 无长驻进程），标准输出/标准错误直写在此是有意为之，故整文件豁免
+//! 打印类告警（缘由见上）。
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 use std::path::{Path, PathBuf};

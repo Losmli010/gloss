@@ -1,6 +1,6 @@
 //! 编排用例·任务段：消费通道④（取材产物与任务回传）→ 状态机转移 →
-//! 通道③下发 → 批后露面决策与重绘。显形「要不要」的策略在
-//! `machine::should_reveal`，「怎么显示」在 `reveal`。
+//! 通道③下发 → 批后露面决策与重绘。显形「要不要」的策略归状态机，
+//! 「怎么显示」在显隐段。
 
 use gloss_core::log::{Span, debug, info, thread, warn};
 use gloss_core::model::GlossError;

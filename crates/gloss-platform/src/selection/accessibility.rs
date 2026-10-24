@@ -1,16 +1,16 @@
-//! `AX` 读选区：`AccessibilityReader`。
+//! AX 读选区：辅助功能读取器。
 //!
-//! 经 `Accessibility API`（`HIServices`）向系统问询「`systemwide` 焦点元素 →
+//! 经辅助功能接口（HIServices）向系统问询「系统级焦点元素 →
 //! 选中文本」，是向目标应用发起的同步跨进程调用，按线程模型约束
 //! 必须运行在平台事件线程（调用方保证亲和性）。权限缺失返回
-//! [`GlossError::AccessibilityDenied`]；「属性可读但选区为空」（空串，含
-//! `kAXErrorNoValue` 的「属性存在但无值」）返回 [`GlossError::SelectionEmpty`]
+//! 权限拒绝错误；「属性可读但选区为空」（空串，含
+//! 「属性存在但无值」系统错误）返回空选区错误
 //! ——组合通道先让渡补读，预算耗尽仍空与「读不到」一样落剪贴板兜底；
-//! 应用不支持选区属性或系统调用失败返回 [`GlossError::SelectionUnavailable`]
-//! ——一律经 `Result` 传播，不允许 `panic` 逃出。授权引导属设置页/权限引导
+//! 应用不支持选区属性或系统调用失败返回读取不可用错误
+//! ——一律以错误传播，不允许 panic 逃出。授权引导属设置页/权限引导
 //! 路径，读取侧只如实报告，不代为弹窗。
 //!
-//! 策略取最简一条路径：只读 `kAXSelectedTextAttribute`。
+//! 策略取最简一条路径：只读选中文本属性。
 
 use gloss_core::model::GlossError;
 

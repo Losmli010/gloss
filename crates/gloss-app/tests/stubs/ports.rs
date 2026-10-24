@@ -1,4 +1,4 @@
-//! 端口桩：本 `crate` 测试用到的配置存储与场景探针预置替身。
+//! 端口桩：本包测试用到的配置存储与场景探针预置替身。
 
 use std::collections::HashMap;
 use std::sync::Mutex;

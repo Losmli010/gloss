@@ -1,4 +1,4 @@
-//! `wgpu` 设备与渲染目标：设备全进程一份，每个窗口一份 `surface`。
+//! wgpu 设备与渲染目标：设备全进程一份，每个窗口一份绘制表面。
 
 use std::error::Error;
 use std::fmt;
