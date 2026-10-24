@@ -1,9 +1,7 @@
-"""check_i18n.py 的单测：逐条覆盖字面量词法状态机、装入点集中与词条表唯一。
-
-被测函数是 check_i18n.run(root)（返回 (oks, fails)），夹具建在 pytest 的
-tmp_path，不落 git（扫描面走目录遍历）。用法：
-    python3 -m pytest scripts/hooks/check_i18n_test.py
-"""
+# 文案表门禁的单测：逐条覆盖字面量词法状态机、装入点集中与词条表唯一。
+#
+# 被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
+# 的临时目录，不落版本库（扫描面走目录遍历）；用法见持续集成的钩子工作流。
 
 import sys
 from pathlib import Path

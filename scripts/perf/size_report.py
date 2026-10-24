@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
-"""二进制体积归因：段/节构成 + 符号级 Top N，只记录不判罚。
-
-节级：`size -m` 读 Mach-O 段/节（不依赖符号表，strip 过的 release 产物
-可用；数值是虚拟地址空间占用，__PAGEZERO 等非文件映射段会偏大，文件大小
-以 stat 为准）。符号级：`otool -l` 取节地址区间、`nm -n` 取符号地址，
-同节内相邻符号地址差即符号大小（macOS 的 nm -S 对 Mach-O 恒报 0），
-Rust 旧式 `_ZN` 串解码成 `crate::模块::函数` 并按顶层 crate 聚合——需要
-未 strip 的二进制（release 产物 strip=true 无符号表，用
-`cargo build --profile profiling` 的 target/profiling/gloss，或 dev 产物）。
-
-纯记录工具：数字落 JSON（--json 指定路径）或仅打印；趋势对照按 AGENTS.md
-口径只认同机同环境历史，不做成败判定。
-
-用法：
-  scripts/perf/size_report.py                            # release 产物节级
-  scripts/perf/size_report.py --bin target/profiling/gloss --top 40
-  scripts/perf/size_report.py --json target/size/report.json
-"""
+# 二进制体积归因：段与节构成加符号级用量前几名，只记录不判罚。
+#
+# 节级：用节尺寸清单工具读可执行镜像的段与节（不依赖符号表，剥离过的发行
+# 产物可用；数值是虚拟地址空间占用，零页等非文件映射段会偏大，文件大小以
+# 文件系统为准）。符号级：节清单工具（otool）取节地址区间，符号表工具
+# （nm）取符号地址，同节内相邻符号地址差即符号大小；系统符号工具的尺寸字
+# 段在（macOS）上对可执行镜像恒报零，故不采用；旧式（Rust）改编名解码
+# 为「包、模块与函数」路径并按顶层包聚合——需要未剥离符号表的二进制（发
+# 行产物已剥离，用性能剖析配置的构建产物或开发产物）。
+#
+# 纯记录工具：数字可落（JSON）文件（路径用旗标指定）或仅打印；趋势对照按
+# 仓库约定口径只认同机同环境历史，不做成败判定。
 
 from __future__ import annotations
 

@@ -1,9 +1,7 @@
-"""check_constraints.py 的单测：最小工作区夹具 + 变异函数逐条覆盖各约束。
-
-被测函数是 check_constraints.run(root)（返回 (oks, fails)）；夹具建在 pytest 的
-tmp_path，残留标记用例另建一次性 git 仓库。用法：
-    python3 -m pytest scripts/hooks/check_constraints_test.py
-"""
+# 约束门禁的单测：最小工作区夹具加变异函数，逐条覆盖各约束。
+#
+# 被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
+# 的临时目录，残留标记用例另建一次性版本库；用法见持续集成的钩子工作流。
 
 import shutil
 import subprocess

@@ -141,7 +141,7 @@ fn draw_series(out: &mut String, panel: &Panel, points: &PointData, frame_bottom
             }
             for (point, value) in &segment {
                 let hover = format!(
-                    "{} · {}：{}",
+                    "{} · {}: {}",
                     series.label,
                     points.hovers[*point],
                     series.unit.title_value(*value)
@@ -184,7 +184,7 @@ fn hover_label(report: &EvalReport) -> String {
         .as_ref()
         .and_then(|context| context.commit.as_ref())
     {
-        label.push_str(&format!("（{commit}）"));
+        label.push_str(&format!(" ({commit})"));
     }
     label
 }

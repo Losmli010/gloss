@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
-"""对运行中的 gloss 实例做 CPU 采样并产出 inferno 火焰图 SVG。
-
-链路：定位 gloss 进程（或用 --pid）→ sudo dtrace profile 探针按 --rate Hz
-采用户态调用栈 --duration 秒 → inferno-collapse-dtrace 折叠 →（装了 rustfilt
-则就地解 Rust mangling）→ inferno-flamegraph 渲染 SVG。折叠与渲染交给
-inferno，本脚本只做采集编排、栈顶自耗汇总与失败指引；从启动采到退出的
-launch 模式走 `just flame-startup`（cargo-flamegraph）。
-
-dtrace 采样需要 root：脚本经 sudo 运行 dtrace，非交互环境拿不到密码会当
-场失败并给出指引。release 二进制 strip=true 无符号表，帧显示为
-「二进制名`0x偏移」；函数级归因请先 `just profile-run` 以 profiling 配置
-启动带符号实例再采。
-
-用法：
-  scripts/perf/flamegraph.py                     # 采 gloss 进程 10 秒
-  scripts/perf/flamegraph.py --pid 1234 --duration 30
-  scripts/perf/flamegraph.py --out /tmp/flame.svg
-"""
+# 对运行中的（Gloss）实例做处理器（CPU）采样并产出（inferno）火焰图（SVG）。
+#
+# 链路：定位应用进程（或按进程号指定）→ 经提权运行（dtrace）性能探针，按
+# 指定频率采用户态调用栈指定时长 → 折叠工具折叠调用栈，装了符号还原工具
+# 则就地解（Rust）名字改编 → 火焰图工具渲染成（SVG）。折叠与渲染交给
+# （inferno）工具箱，本脚本只做采集编排、栈顶自耗汇总与失败指引；从启动
+# 采到退出的整段模式走专用配方，其底层是（cargo）的火焰图插件。
+#
+# 采样需要根权限：脚本经提权运行采样器，非交互环境拿不到密码会当场失败并
+# 给出指引。发行版二进制经剥离没有符号表，无符号帧显示为「二进制名加十六
+# 进制偏移」；函数级归因请先用性能剖析配置启动带符号实例再采。
 
 from __future__ import annotations
 

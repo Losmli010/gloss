@@ -1,17 +1,10 @@
 #!/usr/bin/env python3
-"""把 JSONL 日志渲染成人读形态：`时间 级别 目标 消息 (字段…)`。
-
-日志落盘是 `~/.gloss/logs/gloss-<UTC 日期>.jsonl`（一行一个 JSON 对象），
-本脚本是它的读侧：默认跟随最新一份文件（等价 tail -f），可只挑一条任务
-链路（`--generation`）或只看某一档以上（`--level`）。
-
-用法：
-  scripts/dev/gloss-logs.py                  # 跟随最新日志
-  scripts/dev/gloss-logs.py --generation 2   # 只看代数 2 的链路
-  scripts/dev/gloss-logs.py --level warn     # 只看 warn 及以上
-  scripts/dev/gloss-logs.py --raw            # 原样输出 JSONL（给 jq/别的工具）
-  scripts/dev/gloss-logs.py --no-follow      # 打完现有内容就退出
-"""
+# 日志渲染工具：把结构化日志（JSONL）渲染成人类可读形态，一段依次是时间、
+# 级别、目标、消息与附属字段。
+#
+# 日志落盘在用户日志目录下按日期滚动的文件里，一行一个数据格式（JSON）对象；
+# 本脚本是它的读侧：默认跟随最新一份文件，可只挑一条任务链路（按代数）或只看
+# 某一档以上的级别，也支持原样输出与打完即退；旗标明细见脚本的参数解析段。
 
 from __future__ import annotations
 

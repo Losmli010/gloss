@@ -1,10 +1,8 @@
-"""check_secrets.py 的单测：逐条覆盖 provider 模式、通用凭据赋值与放行标记。
-
-被测函数是 check_secrets.run(root)（返回违规列表），在 pytest 的 tmp_path 里
-建一次性 git 仓库作扫描面。夹具里的疑似密钥一律由片段拼接生成，不让字面量
-出现在本文件（否则门禁自命中）。用法：
-    python3 -m pytest scripts/hooks/check_secrets_test.py
-"""
+# 密钥扫描门禁的单测：逐条覆盖服务商模式、通用凭据赋值与放行标记。
+#
+# 被测入口是门禁的运行函数，返回违规列表；在测试框架（pytest）的临时目录里建
+# 一次性版本库作扫描面。夹具里的疑似密钥一律由片段拼接生成，不让字面量出现在
+# 本文件（否则门禁自命中）；用法见持续集成的钩子工作流。
 
 import subprocess
 import sys

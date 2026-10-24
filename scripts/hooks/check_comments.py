@@ -23,13 +23,15 @@
 # 规——主体全中文、专名只进括号注记、标点不混用；路径、命令、旗标、标识符与
 # 链接都算代码引用，一并判罚。相邻注释行聚成一块受检，换行的括号与表述跨行
 # 不误报。工具指令行豁免：解释器声明、格式化与静态检查指令、行尾豁免标记。
-# 井号注释、双斜线注释、块注释与页面标记注释都纳入。
+# 井号注释、双斜线注释、块注释与页面标记注释都纳入；脚本的模块级文档字符串
+# 按文件头同规（解释器引导串豁免），文件头不得借字符串形态逃出纪律。
 #
 # 词法层区分注释与字符串字面量：字符串内的注释符（如链接）不误报。
 #
 # 用法：以解释器运行本脚本，首参为仓库根，其余参数为可选的文件清单（供单测
 # 传入临时样本）；缺省扫全部被跟踪文件。
 
+import ast
 import io
 import os
 import re
@@ -109,6 +111,7 @@ PROPER_NOUNS = frozenset(
         "Intel",
         "JS",
         "JSON",
+        "JSONL",
         "JavaScript",
         "Julia",
         "KILL",
@@ -509,13 +512,47 @@ def body_problems(loc, body, label):
     return out
 
 
+def module_docstring_problems(rel, src):
+    """模块级文档字符串按文件头同规：内容走注释同款判罚，解释器引导串豁免。
+
+    文档字符串是字面量不是注释，词法抽取收不到它；这里按语法树补一刀，
+    防止文件头换一种写法就逃出纪律。语法异常的退回路径本就只管井号注释，
+    此处一并跳过。
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return []
+    if not tree.body:
+        return []
+    first = tree.body[0]
+    if not (
+        isinstance(first, ast.Expr)
+        and isinstance(first.value, ast.Constant)
+        and isinstance(first.value.value, str)
+    ):
+        return []
+    text = first.value.value
+    if re.search(r"exec\s+python", text):
+        return []  # 解释器引导串：跨壳脚本的井号叹号替身，同解释器声明豁免
+    loc = f"{rel}:{first.lineno}"
+    if "`" in text:
+        return [f"{loc}: 文件头出现代码段——引用与示例沉记录文件"]
+    if "§" in text:
+        return [f"{loc}: 文件头出现「§ 章节号」式外部引用——出处沉记录文件"]
+    if not CJK.search(text):
+        return [f"{loc}: 文件头须写成中文：{text[:40]}"]
+    return body_problems(loc, text, "文件头")
+
+
 def nonrust_violations(rel, src):
     name = os.path.basename(rel)
     ext = os.path.splitext(name)[1]
+    python_kind = ext == ".py" or rel.startswith(".githooks/")
     if name in HASH_NAMES:
         pairs = hash_comments(src, line_start_only=(name == ".gitignore"))
         kind = "hash"
-    elif ext == ".py" or rel.startswith(".githooks/"):
+    elif python_kind:
         pairs = python_comments(src)
         kind = "hash"
     elif ext in HASH_SUFFIXES:
@@ -560,6 +597,8 @@ def nonrust_violations(rel, src):
             cur = (lineno, [body])
     if cur is not None:
         out += flush(*cur)
+    if python_kind:
+        out += module_docstring_problems(rel, src)
     return out
 
 

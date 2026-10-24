@@ -51,8 +51,8 @@ const COLOR_PINK: &str = "#d64c7f";
 const COST_COLORS: [&str; 3] = [COLOR_ORANGE, COLOR_GREEN, COLOR_PINK];
 
 const FONT_STACK: &str = "-apple-system,'Segoe UI',sans-serif";
-const FOOTNOTE: &str = "口径：replay 轨度量生产校验器对固化夹具的判定，live 轨为模型现状；数据源 history.jsonl，仅绘最近 100 点，时间一律 UTC。";
-const EMPTY_NOTE: &str = "暂无评测历史。";
+const FOOTNOTE: &str = "Scope: the replay track measures the production validator on pinned fixtures; the live track reflects current model behavior. Data source: history.jsonl, last 100 points only, timestamps in UTC.";
+const EMPTY_NOTE: &str = "No eval history yet.";
 
 pub fn render_svg(history: &[EvalReport]) -> String {
     let points = latest_points(history);
@@ -94,7 +94,7 @@ fn write_header(
     line(
         out,
         format!(
-            "<text x=\"46\" y=\"26\" font-size=\"14\" font-weight=\"600\" fill=\"{COLOR_TEXT}\">Prompt 评测趋势（{count} 点）</text>"
+            "<text x=\"46\" y=\"26\" font-size=\"14\" font-weight=\"600\" fill=\"{COLOR_TEXT}\">Prompt eval trend ({count} points)</text>"
         ),
     );
     if let Some(latest) = latest {
@@ -124,7 +124,7 @@ fn write_header(
 
 fn latest_note(report: &EvalReport) -> String {
     let mut note = format!(
-        "最近一次 {} UTC · {}",
+        "latest {} UTC · {}",
         format_utc(report.generated_at),
         report.mode
     );
@@ -133,7 +133,7 @@ fn latest_note(report: &EvalReport) -> String {
         .as_ref()
         .and_then(|context| context.commit.as_ref())
     {
-        note.push_str(&format!("（{commit}）"));
+        note.push_str(&format!(" ({commit})"));
     }
     note
 }
@@ -279,32 +279,36 @@ mod tests {
     fn panel_count_follows_available_samples() {
         let empty = render_svg(&[]);
         assert!(!empty.contains("<polyline"), "no series without points");
-        assert!(empty.contains("暂无评测历史"), "empty history gets a note");
         assert!(
-            !empty.contains("最近一次"),
+            empty.contains("No eval history yet"),
+            "empty history gets a note"
+        );
+        assert!(
+            !empty.contains("latest"),
             "no latest-run note without points"
         );
 
         let replay_only = render_svg(&[replay_report(1000)]);
-        for title in ["分类轨判定质量", "任务轨 · 词卡", "修复成本"] {
+        for title in ["Classify quality", "Task · word", "repair cost"] {
             assert!(replay_only.contains(title), "{title} panel expected");
         }
         assert!(
-            !replay_only.contains("judge 均分（1–5）") && !replay_only.contains("端到端延迟（ms）"),
+            !replay_only.contains("judge average (1–5)")
+                && !replay_only.contains("end-to-end latency (ms)"),
             "judge and latency panels stay hidden without samples"
         );
         assert!(
-            !replay_only.contains("任务轨 · 句译"),
+            !replay_only.contains("Task · sentence"),
             "datasets without samples get no panel"
         );
 
         let complete = render_svg(&[live_report(2000)]);
         for title in [
-            "分类轨判定质量",
-            "任务轨 · 词卡",
-            "修复成本",
-            "judge 均分（1–5）",
-            "端到端延迟（ms）",
+            "Classify quality",
+            "Task · word",
+            "repair cost",
+            "judge average (1–5)",
+            "end-to-end latency (ms)",
         ] {
             assert!(complete.contains(title), "{title} panel expected");
         }
@@ -316,7 +320,7 @@ mod tests {
         assert!(svg.contains("<polyline"), "polylines drawn");
         assert!(svg.contains("<circle"), "point dots drawn");
         assert!(
-            svg.contains("<title>accuracy · 01-01 00:16 live："),
+            svg.contains("<title>accuracy · 01-01 00:16 live: "),
             "hover titles carry the UTC time and mode: {svg}"
         );
         assert!(svg.contains("86.67 %"), "hover values carry two decimals");
@@ -331,7 +335,7 @@ mod tests {
             "panel frames present"
         );
         assert!(
-            svg.contains("最近一次 1970-01-01 00:33 UTC · live"),
+            svg.contains("latest 1970-01-01 00:33 UTC · live"),
             "the header names the latest run"
         );
     }
@@ -346,7 +350,7 @@ mod tests {
             "mode text escapes to entities"
         );
         assert!(
-            svg.contains("（x&amp;&lt;y）"),
+            svg.contains(" (x&amp;&lt;y)"),
             "commit text escapes to entities"
         );
         assert!(
@@ -372,15 +376,15 @@ mod tests {
             .collect();
         let svg = render_svg(&history);
         assert!(
-            svg.contains("（100 点）"),
+            svg.contains("(100 points)"),
             "the title counts rendered points"
         );
         assert!(
-            svg.contains("（c119）"),
+            svg.contains(" (c119)"),
             "the newest point is drawn in hovers"
         );
         assert!(
-            !svg.contains("（c019）"),
+            !svg.contains(" (c019)"),
             "the oldest point falls out of the window"
         );
     }
@@ -413,19 +417,19 @@ mod tests {
         let svg = render_svg(&[committed, local]);
         assert!(svg.contains(">01-01 00:00<"), "ticks are UTC timestamps");
         assert!(
-            svg.contains("01-01 00:00 live（ec96217）："),
+            svg.contains("01-01 00:00 live (ec96217):"),
             "committed hovers carry the SHA"
         );
         assert!(
-            svg.contains("01-01 00:00 replay："),
+            svg.contains("01-01 00:00 replay:"),
             "local hovers carry mode only"
         );
         assert!(
-            !svg.contains("replay（"),
+            !svg.contains("replay ("),
             "local points never fake a commit"
         );
         assert!(
-            svg.contains("最近一次 1970-01-01 00:00 UTC · replay"),
+            svg.contains("latest 1970-01-01 00:00 UTC · replay"),
             "the header names the latest run"
         );
     }
@@ -439,13 +443,13 @@ mod tests {
             confusion_rows: Vec::new(),
         };
         let svg = render_svg(&[manual_report("replay", 1000, Some(stats))]);
-        assert!(svg.contains("分类轨判定质量"), "the classify panel draws");
+        assert!(svg.contains("Classify quality"), "the classify panel draws");
         assert!(
-            !svg.contains("契约 JSON 率"),
+            !svg.contains("contract JSON"),
             "the task series hides without task samples"
         );
         assert!(
-            !svg.contains("任务轨 · "),
+            !svg.contains("Task · "),
             "panels whose every dataset is absent stay hidden"
         );
     }
@@ -465,18 +469,21 @@ mod tests {
         });
         let svg = render_svg(&[both, sentence_only]);
         assert!(
-            svg.contains("任务轨 · 词卡"),
+            svg.contains("Task · word"),
             "the word panel rides the points that carry it"
         );
-        assert!(svg.contains("任务轨 · 句译"), "the sentence panel appears");
-        for legend in [">分类轨<", ">词卡<", ">句译<"] {
+        assert!(
+            svg.contains("Task · sentence"),
+            "the sentence panel appears"
+        );
+        for legend in [">classify<", ">word<", ">sentence<"] {
             assert!(
                 svg.contains(legend),
                 "the repair cost legend carries {legend}"
             );
         }
         assert!(
-            !svg.contains("任务轨 · 代码"),
+            !svg.contains("Task · code"),
             "datasets never seen get no panel"
         );
     }
@@ -485,13 +492,13 @@ mod tests {
     fn header_shows_latest_run_timestamp() {
         let svg = render_svg(&[replay_report(1000), live_report(2000)]);
         assert!(
-            svg.contains("最近一次 1970-01-01 00:33 UTC · live"),
+            svg.contains("latest 1970-01-01 00:33 UTC · live"),
             "the header names the latest run"
         );
 
         let committed = with_commit(&live_report(1_791_763_200), "fc244bc".to_owned());
         assert!(
-            render_svg(&[committed]).contains("最近一次 2026-10-12 00:00 UTC · live（fc244bc）"),
+            render_svg(&[committed]).contains("latest 2026-10-12 00:00 UTC · live (fc244bc)"),
             "the header carries full date and commit"
         );
     }

@@ -1,9 +1,7 @@
-"""check_test_bdd.py 的单测：双向核对、重复登记与表格结构校验逐条覆盖。
-
-被测函数是 check_test_bdd.run(root)（返回 (oks, fails)），夹具建在 pytest 的
-tmp_path（一次性 git 仓库，扫描面走 git ls-files）。用法：
-    python3 -m pytest scripts/hooks/check_test_bdd_test.py
-"""
+# 测试清单门禁的单测：双向核对、重复登记与表格结构校验逐条覆盖。
+#
+# 被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
+# 的临时目录（一次性版本库，扫描面走版本库清单）；用法见持续集成的钩子工作流。
 
 import subprocess
 import sys

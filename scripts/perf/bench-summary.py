@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""汇总最近一次 criterion 基准运行为 Markdown 表。
-
-每个基准一行：本次均值、95% 置信区间、相对对照的变化与判定。对照对象由
-最近一次的运行方式决定（just bench 对照上一次运行，just bench-check 对照
-命名基线），本脚本只读取数据，不运行基准。
-
-用法：scripts/perf/bench-summary.py [对照标签] [criterion 目录]
-"""
+# 把最近一次（criterion）基准运行汇总为（Markdown）对照表。
+#
+# 每个基准一行：本次均值、95％ 置信区间、相对对照的变化与判定。对照对象由
+# 最近一次的运行方式决定（常规配方对照上一次运行，对照配方对照命名基
+# 线），本脚本只读取数据，不运行基准。
 
 import json
 import sys
