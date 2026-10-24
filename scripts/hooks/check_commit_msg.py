@@ -18,7 +18,7 @@
 import re
 import sys
 
-from prose_rules import prose_line_problems
+from language_spec.coderef import prose_line_problems
 
 ALLOWED_TYPES = "feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert"
 HEADER_RE = re.compile(r"^(%s)(\([a-zA-Z0-9._-]+\))?!?: " % ALLOWED_TYPES)

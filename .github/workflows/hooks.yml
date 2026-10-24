@@ -113,7 +113,7 @@ jobs:
       - name: Run checker unit tests
         run: |
           python3 -m pip install --quiet pytest
-          python3 -m pytest scripts/hooks/check_comments_test.py -q
+          python3 -m pytest scripts/hooks/comments scripts/hooks/language_spec -q
 
       - name: Check comment discipline
         run: just comments
