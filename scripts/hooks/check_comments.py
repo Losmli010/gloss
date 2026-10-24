@@ -11,6 +11,7 @@
 #                      标识符——类型、函数、字段、路径、旗标在代码里自明，
 #                      细节沉 docs/comments 记录；英文只允许裸写的专有名词
 #                      （技术/产品/格式/框架/crate 名，PROPER_NOUNS 白名单）。
+#                      外部文档引用不进文件头——章节号随文档漂移，文档名是本地指针。
 #   SAFETY 豁免     —— `// SAFETY:` 块及其紧邻的连续注释行不判罚（clippy
 #                      undocumented_unsafe_blocks 要求不变量紧贴 unsafe 块）。
 #   行尾豁免标记    —— secrets:allow / lines:allow / i18n:allow /
@@ -36,7 +37,6 @@ MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps):allow\b")
 PROPER_NOUNS = frozenset(
     {
         "4xx",
-        "AGENTS.md",
         "AI",
         "API",
         "AppKit",
@@ -260,7 +260,9 @@ def run(root, explicit):
                     else:
                         i += 1
                 continue
-            if c in "rb" and (i == 0 or not (src[i - 1].isalnum() or src[i - 1] == "_")):
+            if c in "rb" and (
+                i == 0 or not (src[i - 1].isalnum() or src[i - 1] == "_")
+            ):
                 # 原始字符串 r"..." / r#"..."#（含 b 前缀字节串）
                 k = i + 1
                 if c == "b" and k < n and src[k] == "r":
@@ -275,7 +277,9 @@ def run(root, explicit):
                     while i < n:
                         if src[i] == '"':
                             m = 0
-                            while m < hashes and i + 1 + m < n and src[i + 1 + m] == "#":
+                            while (
+                                m < hashes and i + 1 + m < n and src[i + 1 + m] == "#"
+                            ):
                                 m += 1
                             if m == hashes:
                                 i += 1 + hashes
@@ -323,8 +327,14 @@ def run(root, explicit):
                 continue
             if not CJK.search(body):
                 out.append(f"{rel}: 文件头含无汉字的行：{body[:60]}")
+            if "§" in body:
+                out.append(
+                    f"{rel}: 文件头出现「§ 章节号」式外部引用——章节号随文档漂移，出处进记录文件"
+                )
             if "`" in body:
-                out.append(f"{rel}: 文件头出现反引号代码段——专有名词裸写，标识符与代码移出文件头")
+                out.append(
+                    f"{rel}: 文件头出现反引号代码段——专有名词裸写，标识符与代码移出文件头"
+                )
                 continue
             bad = [w for w in WORD.findall(body) if w not in PROPER_NOUNS]
             if bad:
@@ -337,7 +347,8 @@ def run(root, explicit):
     for path in scan_files(root, explicit):
         rel = os.path.relpath(path, root)
         try:
-            src = open(path, encoding="utf-8").read()
+            with open(path, encoding="utf-8") as fh:
+                src = fh.read()
         except (OSError, UnicodeDecodeError) as exc:
             problems.append(f"{rel}: 无法读取（{exc}）")
             continue
@@ -352,22 +363,30 @@ def run(root, explicit):
             prev_end = eline
             if kind == "inner":
                 if before_code:
-                    problems.append(f"{rel}:{sline}: //! 出现在文件头之后，只能作文件头")
+                    problems.append(
+                        f"{rel}:{sline}: //! 出现在文件头之后，只能作文件头"
+                    )
                 else:
                     header_found = True
                     header_lines.append(text)
                 continue
             if kind == "doc":
-                problems.append(f"{rel}:{sline}: /// 文档注释 —— 内容迁 docs/comments/ 后删除")
+                problems.append(
+                    f"{rel}:{sline}: /// 文档注释 —— 内容迁 docs/comments/ 后删除"
+                )
                 continue
             if kind == "block":
-                problems.append(f"{rel}:{sline}: 块注释 —— 内容迁 docs/comments/ 后删除")
+                problems.append(
+                    f"{rel}:{sline}: 块注释 —— 内容迁 docs/comments/ 后删除"
+                )
                 continue
             # kind == "line"
             if MARKER.search(text):
                 continue
             if not indent_only:
-                problems.append(f"{rel}:{sline}: 行尾注释 —— 迁 docs/comments/，豁免标记除外")
+                problems.append(
+                    f"{rel}:{sline}: 行尾注释 —— 迁 docs/comments/，豁免标记除外"
+                )
                 continue
             stripped = text.strip()
             body = stripped.lstrip("/").strip()
@@ -396,9 +415,14 @@ def main():
         for p in problems:
             print(f"  ✗ {p}", file=sys.stderr)
         print(f"✗ 注释纪律门禁：{len(problems)} 处违规", file=sys.stderr)
-        print("  规则见本脚本头注；迁移目标 docs/comments/<文件名>_comment.md", file=sys.stderr)
+        print(
+            "  规则见本脚本头注；迁移目标 docs/comments/<文件名>_comment.md",
+            file=sys.stderr,
+        )
         sys.exit(1)
-    print("  ok 只留文件头：全部跟踪 .rs 通过（///、行内/行尾注释零残留，文件头均为中文）")
+    print(
+        "  ok 只留文件头：全部跟踪 .rs 通过（///、行内/行尾注释零残留，文件头均为中文）"
+    )
 
 
 if __name__ == "__main__":

@@ -91,7 +91,7 @@
 - 更新时间：2026-09-19
 
 ### live_llm_streams_an_image_contract
-- 测试目标：验证真实端点在 JSON 输出模式下接受图像请求并流式回传图注契约（契约校验与重试方案 §11 L4：vision + `response_format` 流式真机验证）。
+- 测试目标：验证真实端点在 JSON 输出模式下接受图像请求并流式回传图注契约（契约校验与重试方案 L4：vision + `response_format` 流式真机验证）。
 - 测试场景：给定 GLOSS_LIVE 三变量与支持图像输入的模型，当经 LlmClient 发送 ImageExplain 渲染的图像任务（请求恒带 `response_format: json_object`）并消费整条流，则增量非空、整段过 `validate_task(ImageExplain)` 且 note 非空；端点不支持图像输入或 JSON 模式时分别以 UnsupportedModality / JsonModeUnsupported 诊断当场失败。
 - 测试步骤：
   1. 导出 GLOSS_LIVE_API_KEY / GLOSS_LIVE_BASE_URL / GLOSS_LIVE_MODEL 三个环境变量（MODEL 须支持图像输入；密钥不打印）
@@ -240,7 +240,7 @@
 - 更新时间：2026-10-06
 
 ### empty_content_repair_via_fixture_replay
-- 测试目标：验证空回复异常夹具经生产校验器回放出修复轨迹（契约校验与重试方案 §11 L4：空 content 自动修复；载体为步骤 5 豁免指派的异常夹具回放，步骤 7 已铺）。
+- 测试目标：验证空回复异常夹具经生产校验器回放出修复轨迹（契约校验与重试方案 L4：空 content 自动修复；载体为步骤 5 豁免指派的异常夹具回放，步骤 7 已铺）。
 - 测试场景：给定空回复异常夹具（task-word-03 首轮 deltas=[]、分类 en-word-02），当 `just eval-replay` 离线回放，则两轨「修复轮次」行各含 empty ×1（空轮按 EmptyReply 违约原样重发进修复轮）、末轮契约回复不降级；零增量完成的传输形态（200 收尾无增量 → `EmptyCompletion` 变体）转 EmptyReply 的生产消费路径由 L1 测试锁定。
 - 测试步骤：
   1. 运行 `just eval-replay`
@@ -249,7 +249,7 @@
 - 更新时间：2026-10-12
 
 ### degraded_card_and_retry_manual_check
-- 测试目标：真机全链路观察降级产物卡与重试出口（契约校验与重试方案 §11 L4：降级卡与重试）。
+- 测试目标：真机全链路观察降级产物卡与重试出口（契约校验与重试方案 L4：降级卡与重试）。
 - 测试场景：给定应用配置指向恒不守约的 HTTPS 端点（非 LLM 的 POST 回声服务返回非 SSE 内容，零增量完成恒现），当划词触发任务，则修复轮页脚切「重新注解」（三轮）、耗尽后出「输出异常」卡（不渲染正文残留、带「重试」），点重试后流程重走并再次落降级卡（降级产物不进缓存：重试必须重新走引擎与修复轮）。
 - 测试步骤：
   1. 前置：`curl -sS -o /dev/null -w "%{http_code}\\n" -X POST https://httpbin.org/post` 返回 200（第三方回声服务，不可达时换任一「POST 回 200 且正文无 `data:` 行」的 HTTPS 端点）
