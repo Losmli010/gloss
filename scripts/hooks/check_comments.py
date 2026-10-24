@@ -4,6 +4,9 @@
 （提交前门禁的一部分）与持续集成的钩子工作流共用此脚本，保证本地与远端判
 定一致；本脚本自身注释同规。
 
+书写判罚的公共实现沉淀为独立的书写规则模块，提交信息与拉取请求内容门禁
+同源共用；本脚本只负责各文件形态的注释抽取与文件面策略。
+
 源码（Rust）侧覆盖六条检查：
   只留文件头      —— 文档注释、行内、行尾与块注释一律违规；内部头注释只能
                      出现在文件头（首个代码项之前）。
@@ -24,7 +27,11 @@
 链接都算代码引用，一并判罚。相邻注释行聚成一块受检，换行的括号与表述跨行
 不误报。工具指令行豁免：解释器声明、格式化与静态检查指令、行尾豁免标记。
 井号注释、双斜线注释、块注释与页面标记注释都纳入；脚本文件头统一写成
-模块级文档字符串，判罚与注释同规（解释器引导串豁免）。
+模块级文档字符串，判罚与注释同规（解释器引导串豁免）。标记语言（Markdown）
+文档逐行受检——自述、说明与测试清单同一套豁免：代码围栏、行内反引号与链
+接、表格首列与纯标识符小节标题（双向核对的键）以及日期；注释记录目录与
+提示词目录不在受检面——前者是注释的住处，后者是模型功能资产（同数据集
+夹具）。
 
 词法层区分注释与字符串字面量：字符串内的注释符（如链接）不误报。
 
@@ -40,244 +47,22 @@ import subprocess
 import sys
 import tokenize
 
-CJK = re.compile(r"[\u4e00-\u9fff]")
-LATIN = re.compile(r"[A-Za-z]")
-# 汉字、中文标点与全角形式：注记括号内出现即算混语，不变量注释出现即非纯英文
-CJKWISE = re.compile(r"[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u2018\u2019\u201c\u201d]")
-MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps):allow\b")
-
-# 注记括号允许的专有名词白名单：技术、产品、格式、协议、框架、工具与包名。
-# 新增专名在此登记；标识符、路径、旗标、链接与代码段一律不进注释，沉记录文件。
-PROPER_NOUNS = frozenset(
-    {
-        "4xx",
-        "AGPL",
-        "AI",
-        "AMD",
-        "API",
-        "ASCII",
-        "AX",
-        "Actions",
-        "AppKit",
-        "Apple",
-        "ApplicationServices",
-        "BDD",
-        "BEGIN",
-        "Base64",
-        "C",
-        "CD",
-        "CEF",
-        "CF",
-        "CFRunLoop",
-        "CI",
-        "CJK",
-        "CLI",
-        "CPU",
-        "CVC",
-        "Carbon",
-        "Cargo",
-        "Chrome",
-        "Chromium",
-        "Clippy",
-        "Cmd",
-        "Cmd+C",
-        "Commits",
-        "Conventional",
-        "CoreFoundation",
-        "CoreGraphics",
-        "CoreText",
-        "Ctrl+C",
-        "DMG",
-        "Dart",
-        "Data",
-        "Dependabot",
-        "Dock",
-        "Electron",
-        "Elixir",
-        "FFI",
-        "FT",
-        "GPL",
-        "GPU",
-        "GUI",
-        "Gecko",
-        "GitHub",
-        "Gloss",
-        "HEAD",
-        "HIServices",
-        "HIToolbox",
-        "HTML",
-        "HTTP",
-        "HTTPS",
-        "IO",
-        "Intel",
-        "JS",
-        "JSON",
-        "JSONL",
-        "JavaScript",
-        "Julia",
-        "KILL",
-        "Kotlin",
-        "L1",
-        "L2",
-        "L3",
-        "L4",
-        "LGPL",
-        "LLM",
-        "LRU",
-        "LaunchServices",
-        "Luhn",
-        "MPMC",
-        "Markdown",
-        "Metal",
-        "Miri",
-        "NVIDIA",
-        "OpenAI",
-        "PEM",
-        "PNG",
-        "PR",
-        "Pages",
-        "Pasteboard",
-        "Prompt",
-        "Python",
-        "RGBA",
-        "RSS",
-        "Release",
-        "Releases",
-        "RunLoop",
-        "Rust",
-        "RustSec",
-        "SAFETY",
-        "SC",
-        "SIGKILL",
-        "SIGSTOP",
-        "SSE",
-        "STOP",
-        "SVG",
-        "SipHash",
-        "Songti",
-        "Sublime",
-        "Swift",
-        "TERM",
-        "TIFF",
-        "TLS",
-        "TOML",
-        "TTFT",
-        "TTL",
-        "TypeScript",
-        "URL",
-        "UTC",
-        "UTF-8",
-        "Unicode",
-        "VM",
-        "VoiceOver",
-        "WebGL",
-        "WebKit",
-        "WindowServer",
-        "Windows",
-        "WorkBuddy",
-        "ZCode",
-        "aarch64",
-        "abort",
-        "ad-hoc",
-        "base64",
-        "bash",
-        "bincode",
-        "cargo",
-        "cargo-bundle",
-        "cargo-deny",
-        "cargo-llvm-cov",
-        "cargo-watch",
-        "clippy",
-        "core-foundation",
-        "crate",
-        "crates.io",
-        "criterion",
-        "crossbeam",
-        "dtrace",
-        "egui",
-        "egui-wgpu",
-        "egui-winit",
-        "egui_commonmark",
-        "egui_extras",
-        "egui_kittest",
-        "epaint",
-        "eval",
-        "flavor",
-        "git-cliff",
-        "gloss-app",
-        "gloss-core",
-        "gloss-eval",
-        "gloss-mono",
-        "gloss-platform",
-        "image",
-        "inferno",
-        "justfile",
-        "kittest",
-        "libc",
-        "libmalloc",
-        "live",
-        "macOS",
-        "markdown",
-        "mimalloc",
-        "memmap2",
-        "moka",
-        "nm",
-        "otool",
-        "p50",
-        "p95",
-        "panic",
-        "pollster",
-        "pulldown-cmark",
-        "pytest",
-        "ruff",
-        "rustls",
-        "semver",
-        "serde",
-        "sha256",
-        "span",
-        "squash",
-        "stderr",
-        "stdin",
-        "stdout",
-        "syntect",
-        "tap",
-        "tokio",
-        "tombi",
-        "tracing",
-        "ttc",
-        "ui-monospace",
-        "unsafe",
-        "valgrind",
-        "vmmap",
-        "wgpu",
-        "winit",
-        "x86_64",
-        "yaml-rust",
-        "yaml-rust2",
-        "zh-Hans-CN",
-    }
+from prose_rules import (
+    CJK,
+    CJKWISE,
+    DIRECTIVE_SEG,
+    MARKER,
+    SEGMENT_SPLIT,
+    SEGMENT_TRIM,
+    body_problems,
+    markdown_problems,
 )
-
-# 中文主体允许的非汉字字符：中文标点、注音序号与少数语言中立符号；阿拉伯数
-# 字与空白另行放行，其余一律判罚
-CHINESE_EXTRA = "，。；：！？《》…—·～＝％￥→\u201c\u201d\u2018\u2019"
 
 # 源码之外的注释文件：井号系脚本与配置、钩子目录脚本、任务配方文件与忽略清单。
 HASH_SUFFIXES = {".py", ".toml", ".yml", ".yaml", ".sh"}
 HASH_NAMES = {"justfile", ".gitignore"}
 # 站点资源：脚本用双斜线与斜线星注释，样式用斜线星，页面用标记注释。
 WEB_SUFFIXES = {".js", ".css", ".html"}
-
-# 工具指令段整段豁免：解释器声明，以及格式化与静态检查指令及其外文参数。
-DIRECTIVE_SEG = re.compile(
-    r"^[!—–\-\s]*#!"
-    r"|^[\s—–\-]*(?:noqa|fmt|ruff|isort|pylint|type|shellcheck|yamllint"
-    r"|actionlint|prettier|markdownlint)\b(?:[:\s][A-Za-z0-9_+=,.\s\-]*)?$"
-)
-# 表述按中文标点切段；段两端先剥修饰字符，指令段只认整段外文的匹配，中文与
-# 指令混写的段仍受检。
-SEGMENT_SPLIT = re.compile(r"[，。；：！？、（）《》…—\n]+")
-SEGMENT_TRIM = " \t\n─*-·-"
 
 
 def is_comment_candidate(rel):
@@ -288,7 +73,22 @@ def is_comment_candidate(rel):
         or name in HASH_NAMES
         or rel.startswith(".githooks/")
         or ext in WEB_SUFFIXES
+        or is_md_doc(rel)
     )
+
+
+def is_md_doc(rel):
+    """标记语言（Markdown）文档逐行受检，核对键豁免；注释记录目录与提示
+    词目录除外——前者是注释的住处，后者是模型功能资产。"""
+    if ext_of(rel) != ".md":
+        return False
+    if rel.startswith("docs" + os.sep + "comments" + os.sep):
+        return False
+    return "prompts" not in rel.split(os.sep)
+
+
+def ext_of(rel):
+    return os.path.splitext(os.path.basename(rel))[1]
 
 
 def hash_comments(src, line_start_only=False):
@@ -423,108 +223,6 @@ def web_body(text):
     return body.strip()
 
 
-def chinese_zone_problems(loc, zone, label):
-    """中文主体的字符级检查：只允许汉字、中文标点、阿拉伯数字与空白。"""
-    out = []
-    for seg in SEGMENT_SPLIT.split(zone):
-        seg = seg.strip(SEGMENT_TRIM)
-        if not seg or DIRECTIVE_SEG.match(seg):
-            continue
-        bad = []
-        for ch in seg:
-            if CJK.match(ch) or ch in CHINESE_EXTRA or "0" <= ch <= "9" or ch in " \t\n\r":
-                continue
-            if ch not in bad:
-                bad.append(ch)
-        if bad:
-            shown = " ".join(bad[:3])
-            out.append(
-                f"{loc}: {label} body contains foreign letters or halfwidth punctuation"
-                f" ({shown}) — put proper nouns in fullwidth bracket annotations,"
-                f" rewrite the rest in Chinese"
-            )
-    return out
-
-
-def gloss_problems(loc, gloss, label):
-    """注记括号检查：内有外文时只许白名单专名、不得混入中文；纯中文时同主体。"""
-    gloss = gloss.strip()
-    if not gloss:
-        return []
-    if LATIN.search(gloss):
-        if CJKWISE.search(gloss):
-            return [
-                f"{loc}: {label} annotation bracket mixes Chinese"
-                " — brackets hold proper nouns only; keep Chinese prose in the body"
-            ]
-        parts = [p for p in re.split(r"[\s,/]+", gloss) if p]
-        bad = [p for p in parts if p not in PROPER_NOUNS]
-        if bad:
-            shown = " ".join(bad[:3])
-            return [
-                f"{loc}: {label} annotation has words outside the allowlist ({shown})"
-                " — registered proper nouns only; rewrite anything else as Chinese in the body"
-            ]
-        return []
-    return chinese_zone_problems(loc, gloss, label)
-
-
-def split_glosses(body):
-    """按栈配对全角括号，切成注记与主体：返回（注记清单，主体残文，括号问题）。"""
-    glosses = []
-    residual = []
-    depth = 0
-    buf = []
-    problems = []
-    for ch in body:
-        if ch == "（":
-            depth += 1
-            if depth == 1:
-                residual.append(" ")
-                buf = []
-            else:
-                problems.append(
-                    " annotation brackets must not nest — brackets do not nest brackets;"
-                    " flatten or reword as parallel clauses"
-                )
-                residual.append(ch)
-        elif ch == "）":
-            if depth == 0:
-                problems.append(
-                    " annotation brackets are unpaired — brackets must wrap annotations"
-                    " in matched pairs"
-                )
-                residual.append(" ")
-            else:
-                if depth == 1:
-                    glosses.append("".join(buf))
-                else:
-                    residual.append(ch)
-                depth -= 1
-        else:
-            if depth == 0 or depth > 1:
-                residual.append(ch)
-            else:
-                buf.append(ch)
-    if depth > 0:
-        problems.append(
-            " annotation brackets are unpaired — brackets must wrap annotations in matched pairs"
-        )
-    return glosses, "".join(residual), problems
-
-
-def body_problems(loc, body, label):
-    """整条注释的分域检查：先摘注记括号，再查主体与各注记。"""
-    out = []
-    glosses, residual, bracket_problems = split_glosses(body)
-    for message in bracket_problems:
-        out.append(f"{loc}: {label}{message}")
-    for gloss in glosses:
-        out += gloss_problems(loc, gloss, label)
-    out += chinese_zone_problems(loc, residual, label)
-    return out
-
-
 def module_docstring_problems(rel, src):
     """模块级文档字符串按文件头同规：内容走注释同款判罚，解释器引导串豁免。
 
@@ -571,6 +269,8 @@ def nonrust_violations(rel, src):
     name = os.path.basename(rel)
     ext = os.path.splitext(name)[1]
     python_kind = ext == ".py" or rel.startswith(".githooks/")
+    if is_md_doc(rel):
+        return markdown_problems(rel, src)
     if name in HASH_NAMES:
         pairs = hash_comments(src, line_start_only=(name == ".gitignore"))
         kind = "hash"

@@ -200,10 +200,12 @@ jobs:
       - name: Validate commit messages
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR_IS_BOT: ${{ endsWith(github.event.pull_request.user.login, '[bot]') }}
         run: |
           # 校验本次拉取请求（PR）引入的所有提交信息，跳过合并提交
           # 拉取请求场景：比较基线与目标分支的实际提交
           # 推送场景：比较推送前后
+          # 机器人提交（依赖机器人）不按中文书写规则判罚，按作者名整段跳过
           if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
@@ -212,14 +214,39 @@ jobs:
             HEAD_SHA="${{ github.event.after }}"
           fi
           git fetch origin "$BASE" "$HEAD_SHA" --depth=100 2>/dev/null || true
-          git log --no-merges --format="%H" "$BASE..$HEAD_SHA" | while read sha; do
+          git log --no-merges --format="%H %an" "$BASE..$HEAD_SHA" | while read sha author; do
+            case "$author" in *"[bot]") continue;; esac
             msg="$(git log -1 --format=%B "$sha")"
             echo "检查 commit $sha"
             echo "$msg" | ./scripts/hooks/check_commit_msg.py -
           done
           # 压缩合并（squash）产生的提交信息取自拉取请求（PR）标题，托管平台（GitHub）追加编号后缀，
           # 按最长常见占位编号模拟合并产物校验：标题自身合规而合并后超限同样拦下
-          if [ -n "$PR_TITLE" ]; then
+          if [ "$PR_AUTHOR_IS_BOT" != "true" ] && [ -n "$PR_TITLE" ]; then
             echo "检查 PR 标题（含 squash 后缀模拟 (#99999)）"
             printf '%s\n' "$PR_TITLE (#99999)" | ./scripts/hooks/check_commit_msg.py -
           fi
+
+  # 拉取请求（PR）内容检查：标题与正文过书写规则，正文核对模板必需小节
+  pr-template:
+    name: PR content check
+    # 推送与机器人（Dependabot）提交不套用模板，跳过
+    if: github.event_name == 'pull_request' && !endsWith(github.event.pull_request.user.login, '[bot]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run checker unit tests
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest scripts/hooks/check_pr_prose_test.py -q
+
+      - name: Check PR title and body follow the prose rules
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 标题与正文取自接口：标题做合并模拟校验，正文过书写规则并核对模板必需小节
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq .title > "$RUNNER_TEMP/pr_title"
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq .body > "$RUNNER_TEMP/pr_body"
+          python3 scripts/hooks/check_pr_prose.py "$RUNNER_TEMP/pr_body" "$RUNNER_TEMP/pr_title"
