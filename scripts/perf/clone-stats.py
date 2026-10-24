@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
-"""统计生产代码中 .clone() 调用的分布，并支持对照趋势基线。
-
-生产代码口径：根包 src/main.rs 与各包 src/，先剥离注释与字符串字面量，
-再剔除 #[cfg(test)] 标注的项后计数；tests/、benches/ 与测试桩不计。
-计数对象是 `.clone(` 方法调用；`X::clone(`（如 Arc::clone）与 derive(Clone)
-只入库展示，不参与基线成败判定。
-
-性能口径：benches/clone.rs 的分配计数（次数/字节，criterion 自定义测量），
---check 读取 target/criterion 下最近一次 `just clone-bench` 的结果，对照
-baselines/history.jsonl 最新点的 clone 门禁基线（total/allocs/bytes，由
-perf-collect.py 随采集自然前移）；最新点缺分配值即带指引失败——拒绝以 0
-为基线放行分配回退。计时不进判罚，归 criterion 自身的基线机制（just
-bench-check / bench-summary）。
-
-用法：
-  scripts/perf/clone-stats.py            打印当前分布
-  scripts/perf/clone-stats.py --check    对照 history 最新点报告变化；clone
-                                         计数或热点分配上升即退出码 1
-"""
+# 统计生产代码里克隆方法调用的分布，并支持对照趋势基线。
+#
+# 生产代码口径：根包入口与各包源码目录，先剥离注释与字符串字面量，再剔除
+# 测试条件标注的项后计数；测试目录、基准目录与测试桩不计。计数对象是实例
+# 方法形态的克隆调用；静态路径形态的克隆调用与派生声明只入库展示，不参与
+# 基线成败判定；静态形态如共享智能指针的克隆。
+#
+# 性能口径：克隆基准的分配计数（次数与字节数）由（criterion）自定义测
+# 量。校验模式读取基准产物目录下最近一次克隆基准的结果，对照趋势历史最
+# 新点的克隆门禁基线（总量、分配次数与字节数，由统一采集器随采集自然前
+# 移）；最新点缺分配值即带指引失败——拒绝以零为基线放行分配回退。计时不
+# 进判罚，归（criterion）自身的基线机制。
 
 import argparse
 import json

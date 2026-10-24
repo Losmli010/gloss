@@ -1,9 +1,7 @@
-"""check_comments.py 门禁的单测：逐条覆盖判罚规则与豁免路径。
-
-被测函数是 check_comments.run(root, explicit)（返回违规列表），不落进程；
-样本文件写入 pytest 的 tmp_path，互不串扰。用法：
-    python3 -m pytest scripts/hooks/check_comments_test.py
-"""
+# 注释纪律门禁的单测：逐条覆盖判罚规则与豁免路径。
+#
+# 被测入口是门禁的运行函数，返回违规列表，不落进程；样本文件写入测试框架
+# （pytest）的临时目录，互不串扰；用法见持续集成的钩子工作流（逐文件执行单测）。
 
 import sys
 from pathlib import Path
@@ -269,6 +267,31 @@ def test_nonrust_pure_english_flagged(tmp_path):
 
 def test_nonrust_directive_lines_exempt(tmp_path):
     content = "#!/usr/bin/env python3\nx = 1  # fmt: skip\ny = 2  # noqa: E402 —— 中文补充说明\n"
+    assert run_gate(tmp_path, content, rel="sample.py") == []
+
+
+def test_python_module_docstring_gated(tmp_path):
+    problems = run_gate(tmp_path, '"""中文说明带 generic 词。"""\n', rel="sample.py")
+    assert any("外文字符" in p for p in problems)
+
+
+def test_python_module_docstring_backtick_flagged(tmp_path):
+    problems = run_gate(tmp_path, '"""中文说明：形态是 `a b` 三段。"""\n', rel="sample.py")
+    assert any("代码段" in p for p in problems)
+
+
+def test_python_module_docstring_pure_english_flagged(tmp_path):
+    problems = run_gate(tmp_path, '"""Unit tests for the gate module."""\n', rel="sample.py")
+    assert any("文件头须写成中文" in p for p in problems)
+
+
+def test_python_interpreter_polyglot_string_exempt(tmp_path):
+    content = "'''exec python3 -- \"$0\" \"$@\" # '''  # fmt: skip\n# 中文头\nx = 1\n"
+    assert run_gate(tmp_path, content, rel="sample.py") == []
+
+
+def test_python_function_docstring_not_gated(tmp_path):
+    content = '# 中文头\n\ndef f():\n    """函数说明带 generic 词，不属于文件头。"""\n'
     assert run_gate(tmp_path, content, rel="sample.py") == []
 
 

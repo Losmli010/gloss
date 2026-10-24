@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
-"""L3 双自检 wrapper：跑显隐+启动自检，收集 stderr 结构化信号行与完整 RSS 曲线。
-
-流程：cargo test --no-run 构建两个自检二进制 → 依次直接运行 overlay 与
-startup（自检只读 GLOSS_PERF_COMMIT 环境变量，wrapper 负责注入短 commit）
-→ overlay 运行期间按固定间隔轮询 ps 采本进程 RSS（完整曲线，趋势用）
-→ 从 stderr 提取结构化信号行：kind=overlay_round / kind=overlay_perf 的
-JSON 行原样保留；startup 提取 message=startup self-test finished 的 JSON 行；
-非信号 stderr 原样回显到本脚本 stderr（error! 诊断随退出码一起可见）
-→ 按采集顺序落 out（缺省 target/perf/selftest.jsonl，本地 handoff，不入
-git），RSS 曲线补一条 kind=rss_curve 行（samples 为 [自进程启动的毫秒,
-RSS kb] 数组）。
-
-退出码：任一自检失败、构建失败、或自检退出 0 但预期信号行缺失，退出 1
-（数据先落盘再判失败）；自检自身的预算门禁判定（首帧/RSS 尾段/启动预算）
-不经 wrapper 改写。
-
-用法：
-  scripts/perf/selftest_wrapper.py
-  scripts/perf/selftest_wrapper.py --out /tmp/selftest.jsonl --poll-ms 50
-"""
+# 显隐与启动双自检（L3）的包装器：跑两个自检目标，收集标准错误上的结构化
+# 信号行与完整常驻内存（RSS）曲线。
+#
+# 流程：先以测试构建模式编译两个自检二进制 → 依次直接运行显隐与启动自检
+# （自检只读提交号环境变量，包装器负责注入短提交号）→ 显隐自检运行期间按
+# 固定间隔轮询进程表采本进程常驻内存（完整曲线，趋势用）→ 从标准错误提取
+# 结构化（JSON）信号行：显隐轮次与显隐汇总两类信号行原样保留，启动自检提
+# 取完成信号行；非信号的标准错误原样回显（错误诊断随退出码一起可见）→ 按
+# 采集顺序落输出文件（缺省在构建产物目录下，本地交接产物，不入版本库），
+# 常驻内存曲线补一条曲线信号行（样本是自进程启动起的毫秒数与千字节值数
+# 组）。
+#
+# 退出码：任一自检失败、构建失败、或自检退出码为零但预期信号行缺失，退出
+# 码为一（数据先落盘再判失败）；自检自身的预算门禁判定（首帧、常驻内存尾
+# 段与启动预算）不经包装器改写。
 
 from __future__ import annotations
 

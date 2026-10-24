@@ -1,8 +1,6 @@
-"""check_commit_msg.py 的单测：逐条覆盖 Conventional Commits 判定与边界。
-
-被测函数是 check_commit_msg.run(text)（返回错误串或 None），不落进程。
-用法：python3 -m pytest scripts/hooks/check_commit_msg_test.py
-"""
+# 提交信息门禁的单测：逐条覆盖提交规范（Conventional Commits）判定与边界。
+#
+# 被测入口是门禁的校验函数，返回错误串或空，不落进程；用法见持续集成的钩子工作流。
 
 import sys
 from pathlib import Path

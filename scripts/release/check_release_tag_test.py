@@ -1,9 +1,7 @@
-"""check_release_tag.py 的单测：版本一致、tag 格式、[workspace.package] 段定位。
-
-被测函数是 check_release_tag.run(tag, root)（返回 (tag 版本, cargo 版本, 错误串)），
-夹具在 pytest 的 tmp_path 里放定制的 Cargo.toml。用法：
-    python3 -m pytest scripts/release/check_release_tag_test.py
-"""
+# 发行标签校验脚本的单测：版本一致、标签格式与工作区版本段的定位。
+#
+# 被测入口吃标签与仓库根两个参数，返回标签版本、清单版本与错误串三元组；
+# 夹具在（pytest）临时目录里放定制的工作区清单文件。运行方式沉记录文件。
 
 import sys
 from pathlib import Path

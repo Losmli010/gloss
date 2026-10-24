@@ -145,7 +145,7 @@ pub fn engine_error_detail(
     }
 }
 
-pub const CLASSIFY_GROUP: &str = "分类";
+pub const CLASSIFY_GROUP: &str = "classify";
 
 fn rounds_with_track(
     validate: impl Fn(&str) -> Result<(), Violation>,

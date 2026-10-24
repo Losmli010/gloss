@@ -36,24 +36,24 @@ fn main() {
         _ => Err(usage().into()),
     };
     if let Err(error) = outcome {
-        eprintln!("错误：{error}");
+        eprintln!("error: {error}");
         std::process::exit(1);
     }
 }
 
 fn usage() -> &'static str {
-    "用法：eval <inspect|replay|live|report|history> [选项]
-  inspect                离线重放 + 单文件检视页 target/eval/inspect.html
-                         （准确率头条、逐条期望 vs 实际、逐轮回复、趋势）；
-                         prompt 改动后人工检视的入口
-  replay                 离线重放夹具（CI 安全，无网络无凭据）；报告落盘
-                         后追加 history.jsonl 并重绘 history.svg
+    "usage: eval <inspect|replay|live|report|history> [options]
+  inspect                offline replay + single-file inspection page target/eval/inspect.html
+                         (accuracy headline, per-case expected vs actual, per-round replies, trend);
+                         entry point for manual inspection after prompt changes
+  replay                 offline replay of fixtures (CI-safe, no network or credentials); writes the
+                         report, appends history.jsonl and redraws history.svg
   live [--record] [--judge] [--limit N]
-                         真实 LLM 评测（需 GLOSS_LIVE_BASE_URL/MODEL/API_KEY；
-                         --record 回写夹具、--judge 启用 judge 评分轨）；
-                         报告落盘后同样追加历史并重绘趋势，并落检视件
-  report [--dir PATH]    把 target/eval 下最近一次报告渲染为 Markdown 表
-  history [--dir PATH]   从现有 history.jsonl 重绘 history.svg（不跑评测)"
+                         real LLM evaluation (needs GLOSS_LIVE_BASE_URL/MODEL/API_KEY;
+                         --record writes fixtures back, --judge enables the judge scoring track);
+                         same history append and trend redraw, plus inspection files
+  report [--dir PATH]    render the latest reports under target/eval as a Markdown table
+  history [--dir PATH]   redraw history.svg from the existing history.jsonl (no evaluation run)"
 }
 
 fn run_replay_cli() -> Result<(), String> {
@@ -78,7 +78,10 @@ fn run_inspect_cli() -> Result<(), String> {
     let dir = report_dir();
     let markdown = run_inspect_into(Path::new(&dir), eval_context())?;
     print!("{markdown}");
-    println!("检视页：{}", Path::new(&dir).join("inspect.html").display());
+    println!(
+        "inspect page: {}",
+        Path::new(&dir).join("inspect.html").display()
+    );
     Ok(())
 }
 
@@ -153,7 +156,7 @@ fn run_live_cli(args: &[String]) -> Result<(), String> {
     let mut run = runtime.block_on(gloss_eval::runner::run_live(engine, config, options))?;
     if options.record {
         let recorded = upsert_fixtures(&run.recordings)?;
-        println!("夹具已更新 {recorded} 条（fixtures/）。");
+        println!("updated {recorded} fixtures (fixtures/).");
     }
     let dir = report_dir();
     run.report.context = eval_context();
@@ -180,7 +183,7 @@ fn run_report_cli(args: &[String]) -> Result<(), String> {
     }
     if rendered == 0 {
         return Err(format!(
-            "{} 下没有可渲染的报告——先跑 eval replay 或 eval live",
+            "no renderable reports under {} — run eval replay or eval live first",
             dir.display()
         ));
     }
@@ -196,7 +199,11 @@ fn run_history_cli(args: &[String]) -> Result<(), String> {
     let out = dir.join("history.svg");
     gloss_eval::history::write_atomic(&out, &svg)
         .map_err(|err| format!("write {}: {err}", out.display()))?;
-    println!("趋势图已重绘：{}（{} 点）", out.display(), history.len());
+    println!(
+        "trend redrawn: {} ({} points)",
+        out.display(),
+        history.len()
+    );
     Ok(())
 }
 
@@ -370,7 +377,7 @@ mod tests {
             "report rides the inspect run"
         );
         let html = std::fs::read_to_string(dir.join("inspect.html")).expect("inspect html");
-        assert!(html.contains("分类 accuracy"), "headline: {html}");
+        assert!(html.contains("classify accuracy"), "headline: {html}");
         assert!(html.contains("<svg"), "trend inlined");
         let cases = std::fs::read_to_string(dir.join("replay.cases.json")).expect("cases json");
         assert!(

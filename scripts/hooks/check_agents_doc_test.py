@@ -1,9 +1,7 @@
-"""check_agents_doc.py 的单测：逐条覆盖五类引用校验与跳过规则。
-
-被测函数是 check_agents_doc.run(doc)（返回 (violations, checked, ref_files,
-ref_count)），夹具建在 pytest 的 tmp_path。用法：
-    python3 -m pytest scripts/hooks/check_agents_doc_test.py
-"""
+# 文档引用门禁的单测：逐条覆盖五类引用校验与跳过规则。
+#
+# 被测入口是门禁的运行函数，返回违规与计数元组；夹具建在测试框架（pytest）的
+# 临时目录，互不串扰；用法见持续集成的钩子工作流（逐文件执行单测）。
 
 import sys
 from pathlib import Path
