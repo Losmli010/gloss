@@ -96,6 +96,7 @@ just --list            # 全部配方与说明
 | 可维护性 | LOW | **注释纪律**：代码注释只保留中文文件头（`//!`），其余注释一律迁 `docs/comments/<文件名>_comment.md`；SAFETY 与 `:allow` 豁免紧贴代码，重述型注释直接删除 | `just comments` + 人工评审 |
 | 可维护性 | LOW | **代码清晰**：命名、控制流与抽象直白自明，整洁优先于聪明 | 人工评审 |
 | 可维护性 | LOW | **依赖无死条目**：声明的第三方依赖必须在 src/tests/benches 有使用证据（`deps:allow` 单条放行并注明缘由）；本仓 path 依赖归依赖方向管 | `just constraints` |
+| 可维护性 | LOW | **Python 脚本静态检查**：scripts/.githooks/.zcode 的 Python 统一经 ruff format 与 ruff check（规则见 ruff.toml），零告警零重排 | `just fmt-py` + `just lint-py` |
 | 高效性 | LOW | 跨 `Arc`、大缓冲区（图像字节）不冗余克隆 | 人工评审 |
 
 ## 注释纪律
@@ -108,7 +109,7 @@ just --list            # 全部配方与说明
 - **豁免标记照旧**：行尾 `secrets:allow` / `lines:allow` / `i18n:allow` / `constraints:allow-context`（各门禁的放行机制，须注明缘由）不判罚，紧贴所在行。
 - **重述型内容连记录都不进**：只把标识符或下一行代码读一遍的注释（如构造函数的「创建 X」、字段的「X」）不降低任何未来维护成本，删除，不留占位、不搬家。公开项没有「必须有文档注释」的强制。
 - **不留会过期的表述**：不写「暂时」「待重构」「日后改成…」这类指向未落地计划的句子；TODO/FIXME 解决即删。
-- **其它文件同一原则**：justfile、Cargo.toml 与其余 TOML/YAML 配置、shell 脚本、workflow 等非 Rust 文件的注释同样只写行为、用法与理由；决策/历史/取舍记入 `docs/comments/<文件名>_comment.md`，命名与锚定规则同上。
+- **其它文件同一原则**：justfile、Cargo.toml 与其余 TOML/YAML 配置、Python 脚本、workflow 等非 Rust 文件的注释同样只写行为、用法与理由；决策/历史/取舍记入 `docs/comments/<文件名>_comment.md`，命名与锚定规则同上。
 - **测试代码禁止注释**：`#[cfg(test)]` 模块与 `tests/` 目录里一律不写注释。例外只有两种，且都必须紧贴代码：`// SAFETY:`（同上），以及测试目标的 crate 级 `//!` 头——后者只写「这个测试目标是什么」，层标签记在里面（与「测试」节同源）；验收标准、形态说明与辅助契约仍记入 `docs/comments/<文件名>_tests_comment.md`（只留缘由与形态说明）。各 crate 的 tests/stubs/ 测试桩模块按生产代码对待，不在此列。
 
 ## 测试

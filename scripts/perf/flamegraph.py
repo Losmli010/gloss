@@ -40,13 +40,11 @@ def pid_arg(value: str) -> int:
     try:
         return int(value)
     except ValueError:
-        raise argparse.ArgumentTypeError("pid 必须是整数")
+        raise argparse.ArgumentTypeError("pid 必须是整数") from None
 
 
 def default_pid() -> int:
-    out = subprocess.run(
-        ["pgrep", "-x", "gloss"], capture_output=True, text=True
-    ).stdout.split()
+    out = subprocess.run(["pgrep", "-x", "gloss"], capture_output=True, text=True).stdout.split()
     if not out:
         sys.exit("没有找到运行中的 gloss 实例：先启动应用，或用 --pid 指定进程")
     if len(out) > 1:
@@ -90,11 +88,11 @@ def run_dtrace(pid: int, duration: int, rate: int, out: Path) -> None:
 
 def demangle_inplace(folded: Path) -> None:
     if shutil.which("rustfilt") is None:
-        print("提示：缺 rustfilt，帧名保留 Rust mangled 原样——安装：cargo install rustfilt --locked")
+        print(
+            "提示：缺 rustfilt，帧名保留 Rust mangled 原样——安装：cargo install rustfilt --locked"
+        )
         return
-    proc = subprocess.run(
-        ["rustfilt"], input=folded.read_text(), capture_output=True, text=True
-    )
+    proc = subprocess.run(["rustfilt"], input=folded.read_text(), capture_output=True, text=True)
     if proc.returncode != 0:
         print(
             f"警告：rustfilt 失败（exit {proc.returncode}）：{proc.stderr.strip()}——"
@@ -165,7 +163,9 @@ def main() -> None:
     raw = svg.with_suffix(".svg.dtrace.txt")
     folded = svg.with_suffix(".folded.txt")
 
-    print(f"采集中：pid {pid}，{args.duration}s @ {args.rate}Hz（dtrace 经 sudo 运行，可能提示输密码）")
+    print(
+        f"采集中：pid {pid}，{args.duration}s @ {args.rate}Hz（dtrace 经 sudo 运行，可能提示输密码）"
+    )
     run_dtrace(pid, args.duration, args.rate, raw)
     collapse(raw, folded)
     demangle_inplace(folded)

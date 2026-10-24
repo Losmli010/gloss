@@ -107,9 +107,11 @@ def run_overlay(binary: Path, env: dict, poll_ms: int) -> tuple[int, list[str], 
     for line in raw_lines:
         if signal_kind(line) not in OVERLAY_SIGNAL_KINDS:
             print(line, file=sys.stderr)
-    return proc.returncode, [
-        line for line in raw_lines if signal_kind(line) in OVERLAY_SIGNAL_KINDS
-    ], samples
+    return (
+        proc.returncode,
+        [line for line in raw_lines if signal_kind(line) in OVERLAY_SIGNAL_KINDS],
+        samples,
+    )
 
 
 def run_startup(binary: Path, env: dict) -> tuple[int, list[str]]:
@@ -149,18 +151,26 @@ def main() -> int:
     args = parser.parse_args()
 
     env = selftest_env()
-    overlay_rc, overlay_lines, samples = run_overlay(build_test_binary("overlay"), env, args.poll_ms)
+    overlay_rc, overlay_lines, samples = run_overlay(
+        build_test_binary("overlay"), env, args.poll_ms
+    )
     startup_rc, startup_lines = run_startup(build_test_binary("startup"), env)
 
     commit = env["GLOSS_PERF_COMMIT"]
-    records = overlay_lines + [json.dumps({"kind": "rss_curve", "commit": commit, "samples": samples})] + startup_lines
+    records = (
+        overlay_lines
+        + [json.dumps({"kind": "rss_curve", "commit": commit, "samples": samples})]
+        + startup_lines
+    )
     out = Path(args.out)
     if not out.is_absolute():
         out = ROOT / out
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(records) + "\n" if records else "")
 
-    print(f"overlay: exit {overlay_rc}，信号 {sum(1 for line in overlay_lines if signal_kind(line) == 'overlay_perf')} 条 / round 标记 {sum(1 for line in overlay_lines if signal_kind(line) == 'overlay_round')} 条 / RSS 采样 {len(samples)} 点")
+    print(
+        f"overlay: exit {overlay_rc}，信号 {sum(1 for line in overlay_lines if signal_kind(line) == 'overlay_perf')} 条 / round 标记 {sum(1 for line in overlay_lines if signal_kind(line) == 'overlay_round')} 条 / RSS 采样 {len(samples)} 点"
+    )
     print(f"startup: exit {startup_rc}，信号 {len(startup_lines)} 条")
     print(f"已写 {len(records)} 行 → {out}")
 

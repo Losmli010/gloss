@@ -98,22 +98,34 @@ def _core_metrics():
 
 METRICS = {
     # ---- latency 响应性 ----
-    "app.startup_ms": Metric("latency", "启动总时长 spawn→就绪里程碑", "ms", "仅记录", "app-metrics"),
+    "app.startup_ms": Metric(
+        "latency", "启动总时长 spawn→就绪里程碑", "ms", "仅记录", "app-metrics"
+    ),
     "startup.elapsed_ms": Metric(
         "latency", "启动自检墙钟（起点→预热帧完成）", "ms", "预算门禁", "startup-selftest"
     ),
-    "overlay.show_first_ms": Metric("latency", "划词→首帧（最差）", "ms", "预算门禁", "overlay-selftest"),
+    "overlay.show_first_ms": Metric(
+        "latency", "划词→首帧（最差）", "ms", "预算门禁", "overlay-selftest"
+    ),
     "overlay.show_p50_ms": Metric("latency", "显隐延迟 p50", "ms", "仅记录", "overlay-selftest"),
     "overlay.show_p95_ms": Metric("latency", "显隐延迟 p95", "ms", "仅记录", "overlay-selftest"),
     "overlay.show_max_ms": Metric("latency", "显隐延迟最差", "ms", "仅记录", "overlay-selftest"),
-    "overlay.hide_p50_ms": Metric("latency", "浮窗隐藏延迟 p50", "ms", "仅记录", "overlay-selftest"),
-    "overlay.hide_max_ms": Metric("latency", "浮窗隐藏延迟最差", "ms", "仅记录", "overlay-selftest"),
-    "overlay.frame_p95_ms": Metric("latency", "显隐动画帧时间 p95", "ms", "仅记录", "overlay-selftest"),
+    "overlay.hide_p50_ms": Metric(
+        "latency", "浮窗隐藏延迟 p50", "ms", "仅记录", "overlay-selftest"
+    ),
+    "overlay.hide_max_ms": Metric(
+        "latency", "浮窗隐藏延迟最差", "ms", "仅记录", "overlay-selftest"
+    ),
+    "overlay.frame_p95_ms": Metric(
+        "latency", "显隐动画帧时间 p95", "ms", "仅记录", "overlay-selftest"
+    ),
     "overlay.frame_missed": Metric(
         "latency", "动画期 >32 ms 帧数", "count", "仅记录", "overlay-selftest", note="仅报告呈现"
     ),
     # ---- memory 内存 ----
-    "app.rss_idle_kb": Metric("memory", "稳态 RSS（30s 空闲窗口末段）", "kb", "仅记录", "app-metrics"),
+    "app.rss_idle_kb": Metric(
+        "memory", "稳态 RSS（30s 空闲窗口末段）", "kb", "仅记录", "app-metrics"
+    ),
     "app.rss_peak_kb": Metric("memory", "启动峰值 RSS", "kb", "仅记录", "app-metrics"),
     "app.footprint_idle_kb": Metric(
         "memory", "phys_footprint 稳态（活动监视器口径）", "kb", "仅记录", "app-metrics"
@@ -121,17 +133,23 @@ METRICS = {
     "app.footprint_peak_kb": Metric(
         "memory", "phys_footprint 峰值（活动监视器口径）", "kb", "仅记录", "app-metrics"
     ),
-    "overlay.rss_growth_kb": Metric("memory", "显隐 RSS 净增长（全程）", "kb", "仅记录", "overlay-selftest"),
+    "overlay.rss_growth_kb": Metric(
+        "memory", "显隐 RSS 净增长（全程）", "kb", "仅记录", "overlay-selftest"
+    ),
     "overlay.rss_tail_growth_kb": Metric(
         "memory", "显隐 RSS 净增长（尾段）", "kb", "预算门禁", "overlay-selftest"
     ),
-    "overlay.window_handles": Metric("memory", "窗口句柄数（泄漏哨兵）", "count", "仅记录", "overlay-selftest"),
+    "overlay.window_handles": Metric(
+        "memory", "窗口句柄数（泄漏哨兵）", "count", "仅记录", "overlay-selftest"
+    ),
     # ---- cpu 处理器 ----
     "app.startup_cpu_ms": Metric("cpu", "启动 CPU 时间", "ms", "仅记录", "app-metrics"),
     "app.cpu_idle_ms": Metric("cpu", "空闲窗口 CPU（30s）", "ms", "仅记录", "app-metrics"),
     # ---- size 体积 ----
     "app.binary_x64_kb": Metric("size", "二进制体积 x64（release）", "kb", "仅记录", "app-metrics"),
-    "app.binary_arm64_kb": Metric("size", "二进制体积 arm64（release）", "kb", "仅记录", "app-metrics"),
+    "app.binary_arm64_kb": Metric(
+        "size", "二进制体积 arm64（release）", "kb", "仅记录", "app-metrics"
+    ),
     # ---- hotpath 热路径 ----
     **_core_metrics(),
     "clone.allocs": Metric("hotpath", "热点分配合计（次数）", "count", "精确计数门禁", "criterion"),
@@ -141,10 +159,22 @@ METRICS = {
     "clone.density": Metric("code", ".clone() 密度（次/千行）", "count", "仅记录", "clone-stats"),
     # ---- external 外部依赖 ----
     "eval.task_latency_p50_ms": Metric(
-        "external", "LLM 任务端到端延迟 p50", "ms", "仅记录", "eval-live", noise=0.20, note="外部服务波动"
+        "external",
+        "LLM 任务端到端延迟 p50",
+        "ms",
+        "仅记录",
+        "eval-live",
+        noise=0.20,
+        note="外部服务波动",
     ),
     "eval.task_latency_p95_ms": Metric(
-        "external", "LLM 任务端到端延迟 p95", "ms", "仅记录", "eval-live", noise=0.20, note="外部服务波动"
+        "external",
+        "LLM 任务端到端延迟 p95",
+        "ms",
+        "仅记录",
+        "eval-live",
+        noise=0.20,
+        note="外部服务波动",
     ),
 }
 
@@ -177,10 +207,10 @@ def fmt(value, unit):
             return f"{value / 1_000:,.1f} µs"
         return f"{value:,.0f} ns"
     if unit == "bytes":
-        if value >= _KB_PER_MB ** 3:
-            return f"{value / _KB_PER_MB ** 3:.1f} GB"
-        if value >= _KB_PER_MB ** 2:
-            return f"{value / _KB_PER_MB ** 2:.1f} MB"
+        if value >= _KB_PER_MB**3:
+            return f"{value / _KB_PER_MB**3:.1f} GB"
+        if value >= _KB_PER_MB**2:
+            return f"{value / _KB_PER_MB**2:.1f} MB"
         if value >= _KB_PER_MB:
             return f"{value / _KB_PER_MB:.1f} KB"
         return f"{value:,.0f} B"

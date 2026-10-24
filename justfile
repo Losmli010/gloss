@@ -61,11 +61,11 @@ deps:
 
 # clone 后一键环境初始化：工具链校验 + 可选工具清点 + git hooks（幂等）
 setup:
-    ./scripts/dev/setup-dev.sh
+    ./scripts/dev/setup_dev.py
 
 # 重建应用图标产物（.icns 与 Dock 图标 PNG）
 icons:
-    ./scripts/dev/build-app-icon.sh
+    ./scripts/dev/build_app_icon.py
 
 # 跑 gloss-core 热点基准（criterion）：自动对照上一次运行，并把结果存为本机滚动基线 last
 bench:
@@ -174,6 +174,18 @@ fmt-toml-fix:
 lint-toml:
     tombi lint $(git ls-files '*.toml')
 
+# Python 格式化检查（ruff format，不落盘；显式传路径，点目录不被默认发现）
+fmt-py:
+    ruff format --check scripts .githooks .zcode/hooks
+
+# Python 自动格式化（落盘）
+fmt-py-fix:
+    ruff format scripts .githooks .zcode/hooks
+
+# Python lint（ruff check，规则见 ruff.toml，零告警）
+lint-py:
+    ruff check scripts .githooks .zcode/hooks
+
 # Clippy 严格检查（警告即失败）
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -222,11 +234,12 @@ miri:
     MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine:: --skip file_writer_persists_lines_into_daily_file
 
 # 完整质量门禁：precommit 的全部 + test
-check: constraints agents-doc test-bdd i18n comments fmt fmt-toml lint lint-toml test secrets
+check: constraints agents-doc test-bdd i18n comments fmt fmt-py fmt-toml lint lint-py lint-toml test secrets
     @echo "✓ 质量门禁全部通过"
 
-# 提交前门禁：约束 + 文档引用 + BDD 清单 + 文案表 + 注释纪律 + fmt + TOML + clippy + 密钥扫描
-precommit: constraints agents-doc test-bdd i18n comments fmt fmt-toml lint lint-toml secrets
+# 提交前门禁：约束 + 文档引用 + BDD 清单 + 文案表 + 注释纪律 + fmt + Python + TOML
+# + clippy + 密钥扫描
+precommit: constraints agents-doc test-bdd i18n comments fmt fmt-py fmt-toml lint lint-py lint-toml secrets
     @echo "✓ 提交前检查通过（测试交给 CI）"
 
 # ---- release：发布链（CI 的 release.yml 用同一批脚本）----
@@ -239,42 +252,42 @@ package-macos: build-release
     app="target/release/bundle/osx/Gloss.app"
     codesign --force --deep --sign - "$app"
     codesign --verify --deep --strict "$app"
-    ./scripts/release/bundle-dmg.sh "$app"
+    ./scripts/release/bundle_dmg.py "$app"
     echo "产物：$app 与 ${app%.app}.dmg"
 
 # 发布冒烟：启动 .app，验证能启动、活得住、日志无 panic
 smoke-app app:
-    ./scripts/release/smoke-app.sh {{app}}
+    ./scripts/release/smoke_app.py {{app}}
 
 # 校验发布 tag 与版本单点一致
 release-check tag:
-    ./scripts/release/check-release-tag.sh {{tag}}
+    ./scripts/release/check_release_tag.py {{tag}}
 
 # 本地生成站点 manifest.json 到 stdout（artifacts 目录须含双架构 zip/dmg 四个产物）
 gen-manifest tag artifacts-dir:
-    ./scripts/release/gen-manifest.sh {{tag}} {{artifacts-dir}}
+    ./scripts/release/gen_manifest.py {{tag}} {{artifacts-dir}}
 
-# ---- hooks：pre-commit 同款检查（纯 bash 秒级，CI 的 hooks.yml 也跑）----
+# ---- hooks：pre-commit 同款检查（纯 Python 秒级，CI 的 hooks.yml 也跑）----
 
 # 硬编码密钥扫描（命中即失败）
 secrets:
-    ./scripts/hooks/check-secrets.sh
+    ./scripts/hooks/check_secrets.py
 
 # 校验 AGENTS.md 引用的配方/路径/测试目标/质量条目名真实存在
 agents-doc:
-    ./scripts/hooks/check-agents-doc.sh
+    ./scripts/hooks/check_agents_doc.py
 
 # bdd.md 测试行为清单与测试源码双向核对（缺登记 / 失同步即失败）
 test-bdd:
-    ./scripts/hooks/check-test-bdd.sh
+    ./scripts/hooks/check_test_bdd.py
 
 # 自动化门禁（依赖方向 / 日志 / egui 上下文装入点 / 版本单点 / 依赖特性 / 残留标记）
 constraints:
-    ./scripts/hooks/check-constraints.sh
+    ./scripts/hooks/check_constraints.py
 
 # 界面文案统一进文案表（文案字面量 / 装入点 / 词条表唯一）
 i18n:
-    ./scripts/hooks/check-i18n.sh
+    ./scripts/hooks/check_i18n.py
 
 # 注释纪律：.rs 只留中文文件头注释（SAFETY 与 :allow 豁免；其余迁 docs/comments/）
 comments:
@@ -282,8 +295,8 @@ comments:
 
 # 校验单条 commit message 是否符合 Conventional Commits
 lint-commit file:
-    ./scripts/hooks/check-commit-msg.sh "{{file}}"
+    ./scripts/hooks/check_commit_msg.py "{{file}}"
 
 # 安装本地 git hooks（clone 后运行一次）
 install-hooks:
-    ./scripts/hooks/install-hooks.sh
+    ./scripts/hooks/install_hooks.py

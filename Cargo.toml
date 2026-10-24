@@ -6,12 +6,12 @@ description = "划词翻译工具 - 纯 Rust + egui + WebGPU"
 license.workspace = true
 
 # cargo-bundle 打包配置（GUI 应用分发包）
-# 用法：just package-macos（bundle 出 .app，ad-hoc 签名后由 scripts/release/bundle-dmg.sh 压 .dmg）
+# 用法：just package-macos（bundle 出 .app，ad-hoc 签名后由 scripts/release/bundle_dmg.py 压 .dmg）
 [package.metadata.bundle]
 name = "Gloss"
 identifier = "io.github.losmli010.gloss"
 # 应用图标。产物进仓库，重建用 just icons
-# （矢量源与生成脚本见 assets/icons/README.md 与 scripts/dev/build-app-icon.sh）。
+# （矢量源与生成脚本见 assets/icons/README.md 与 scripts/dev/build_app_icon.py）。
 icon = ["assets/icons/Gloss.icns"]
 category = "Utility"
 short_description = "划词翻译工具"

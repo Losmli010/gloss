@@ -23,6 +23,11 @@ target
 # 本地决策记录不进仓库；docs/tests/ 的 BDD 测试行为清单例外，随仓库跟踪
 docs/*
 !docs/tests/
+
+# Python 工具的本地缓存（checker 单测与 ruff 的运行产物）
+__pycache__/
+.pytest_cache/
+.ruff_cache/
 .DS_Store
 # ZCode 共享配置与钩子随仓库跟踪；本地会话状态（plans、workflow-drafts、workflow-runs）不进 git
 .zcode/*
