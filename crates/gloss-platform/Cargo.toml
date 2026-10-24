@@ -6,13 +6,13 @@ description = "Gloss 适配器层：实现 gloss-core 端口 + 平台事件源"
 license.workspace = true
 
 [dependencies]
-# 剪贴板兜底读取（模拟复制）的原文保存与恢复。不用默认集：其 macOS 读图
-# 只认 TIFF 格式且无尺寸设界，剪贴板图片取材不走本库。
+# 剪贴板兜底读取（模拟复制）的原文保存与恢复。不用默认集：其系统（macOS）读图
+# 只认图像格式（TIFF）且无尺寸设界，剪贴板图片取材不走本库。
 arboard = { version = "3", default-features = false }
 # 密钥项取引用再删除：安全框架的安全搜索封装交回的是包装类型，还原裸引用
 # 要经本库的基础类型转换（版本须与安全框架所用一致）。
 core-foundation = { version = "0.10", default-features = false }
-# 平台事件线程的 RunLoop 宿主与定时器取空，及选区、剪贴板兜底的 CF 类型绑定。
+# 平台事件线程的运行循环（RunLoop）宿主与定时器取空，及选区、剪贴板兜底的系统框架（CF）类型绑定。
 core-foundation-sys = {
   version = "0.8",
   default-features = false,
@@ -20,15 +20,15 @@ core-foundation-sys = {
     "link",
   ]
 }
-# 事件线程消费通道②、转发①④。
+# 事件线程消费通道2、转发14。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 # 配置存储的目录定位（日志目录例外，不走本库）。
 directories = { version = "6", default-features = false }
 gloss-core = { path = "../gloss-core" }
-# 剪贴板图片取材：TIFF 与 PNG 数据解码（仅读头取尺寸设界），RGBA 重编码为
-# PNG（快速压缩档，事件线程上执行）。
+# 剪贴板图片取材：图像格式（TIFF/PNG）数据解码（仅读头取尺寸设界），像素格式（RGBA）重编码为
+# 位图（PNG），快速压缩档在事件线程上执行。
 image = { version = "0.25", default-features = false, features = ["png", "tiff"] }
-# Dock 图标：非打包运行时装上品牌图标，打包运行走图标包（同设计，视觉无差）。
+# 程序坞（Dock）图标：非打包运行时装上品牌图标，打包运行走图标包（同设计，视觉无差）。
 objc2 = {
   version = "0.6.4",
   default-features = false,
@@ -46,7 +46,7 @@ objc2-app-kit = {
     "NSResponder",
     "NSRunningApplication",
     "NSWorkspace",
-    # 进程标识与自身判定被 libc 特性门控。
+    # 进程标识与自身判定被系统库（libc）特性门控。
     "libc",
   ]
 }
@@ -67,7 +67,7 @@ security-framework = { version = "3", default-features = false }
 # 密钥的引用式删除：上层未封装删引用一条路，取系统层的删除函数与
 # 条目未找到常量。
 security-framework-sys = { version = "2", default-features = false }
-# 配置文档的 TOML 序列化（读解析加写格式化）。
+# 配置文档的配置格式（TOML）序列化，读解析加写格式化。
 toml = {
   version = "0.8",
   default-features = false,

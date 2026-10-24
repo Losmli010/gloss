@@ -1,4 +1,4 @@
-//! 辅助功能（ApplicationServices 的 HIServices）：AX 元素读取接口。
+//! 辅助功能（AX）元素读取接口，来自应用服务框架（ApplicationServices）的界面服务子框架（HIServices）。
 
 use std::ffi::{CStr, c_void};
 
@@ -37,7 +37,7 @@ unsafe extern "C" {
 }
 
 pub(crate) fn is_process_trusted() -> bool {
-    // SAFETY: 纯查询型 FFI，无前置条件。
+    // SAFETY: a pure query FFI with no preconditions.
     let trusted = unsafe { AXIsProcessTrusted() };
     trusted != 0
 }
@@ -47,10 +47,12 @@ pub(crate) fn is_process_trusted_prompting() -> bool {
         return is_process_trusted();
     };
     let key_ref = key.string_ref() as CFTypeRef;
-    // SAFETY: 读 extern static 的地址值——kCFBooleanTrue 是系统框架导出的
-    // 常量指针，地址本身稳定，取地址不存在数据竞争。
+    // SAFETY: reading the address of an extern static — `kCFBooleanTrue` is a
+    // constant pointer exported by the system framework, its address is stable
+    // in itself, and taking the address involves no data race.
     let value_ref: CFTypeRef = unsafe { kCFBooleanTrue as CFTypeRef };
-    // SAFETY: 键值均为有效 CF 引用，类型回调负责 retain/release。
+    // SAFETY: both the key and the value are valid CF references, and the type
+    // callbacks take care of retaining and releasing.
     let options = unsafe {
         CFDictionaryCreate(
             kCFAllocatorDefault,
@@ -65,13 +67,13 @@ pub(crate) fn is_process_trusted_prompting() -> bool {
         return is_process_trusted();
     }
     let _options = CfGuard::new(options as CFTypeRef);
-    // SAFETY: `options` 是刚构造的有效字典引用。
+    // SAFETY: `options` is a valid dictionary reference just constructed above.
     let trusted = unsafe { AXIsProcessTrustedWithOptions(options) };
     trusted != 0
 }
 
 pub(crate) unsafe fn create_system_wide() -> AXUIElementRef {
-    // SAFETY: 无前置条件。
+    // SAFETY: no preconditions.
     unsafe { AXUIElementCreateSystemWide() }
 }
 
@@ -80,22 +82,23 @@ pub(crate) unsafe fn copy_attribute(
     attribute: CFStringRef,
     out: *mut CFTypeRef,
 ) -> i32 {
-    // SAFETY: 前置条件由调用方保证。
+    // SAFETY: the preconditions are upheld by the caller.
     unsafe { AXUIElementCopyAttributeValue(element, attribute, out) }
 }
 
 pub(crate) unsafe fn set_bool_attribute(element: AXUIElementRef, attribute: CFStringRef) -> i32 {
-    // SAFETY: 前置条件由调用方保证；读 extern static 的地址值与
-    // is_process_trusted_prompting 同款——常量指针地址本身稳定。
+    // SAFETY: the preconditions are upheld by the caller; reading the address of
+    // an extern static is the same pattern as `is_process_trusted_prompting` —
+    // the constant pointer's address is stable in itself.
     unsafe { AXUIElementSetAttributeValue(element, attribute, kCFBooleanTrue as CFTypeRef) }
 }
 
 pub(crate) unsafe fn pid_of(element: AXUIElementRef, out: *mut i32) -> i32 {
-    // SAFETY: 前置条件由调用方保证。
+    // SAFETY: the preconditions are upheld by the caller.
     unsafe { AXUIElementGetPid(element, out) }
 }
 
 pub(crate) unsafe fn set_messaging_timeout(element: AXUIElementRef, timeout: f32) -> i32 {
-    // SAFETY: 前置条件由调用方保证。
+    // SAFETY: the preconditions are upheld by the caller.
     unsafe { AXUIElementSetMessagingTimeout(element, timeout) }
 }

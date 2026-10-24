@@ -1,19 +1,19 @@
 # 依赖安全与合规检查（本地配方、持续集成的安全作业与每日定时任务共用）
 
 [advisories]
-# RustSec 漏洞库；出现未豁免的漏洞即失败。
+# 已知漏洞库（RustSec）；出现未豁免的漏洞即失败。
 # 确需豁免时把漏洞编号登记到这里，并写清豁免理由与跟踪项。
 ignore = [
-  # syntect 5.3 的语法集加载链带进来的两个「已停维护」条目（并非漏洞）：
-  # yaml-rust 0.4 与旧主版本的 bincode。egui_extras 引入的是 syntect 的纯 Rust
+  # 语法库（syntect）的语法集加载链带进来的两个“已停维护”条目（并非漏洞）：
+  # 旧配置解析库（yaml-rust）与旧主版本的编码库（bincode）。扩展库（egui_extras）引入的是语法库（syntect）的纯本语言（Rust）
   # 正则形态，语法加载特性关不掉；而这两条路径只读仓库内置的语法集转储，
-  # 不解析外部输入。等 syntect 迁移到 yaml-rust2 与新主版本的 bincode 后移除。
+  # 不解析外部输入。等语法库（syntect）迁移到后继配置解析库（yaml-rust2）与新主版本的编码库（bincode）后移除。
   { id = "RUSTSEC-2024-0320", reason = "yaml-rust 0.4 来自 syntect 的语法加载器；只解析内置 dump，不读外部 YAML。跟踪 syntect 迁移到 yaml-rust2。" },
   { id = "RUSTSEC-2025-0141", reason = "bincode 1.x 来自 syntect 的 dump 加载器；只读内置 dump。跟踪 syntect 升级 bincode。" },
 ]
 
 [licenses]
-# 只收宽松许可证，著佐权（GPL、AGPL、LGPL 系）一律不放行。
+# 只收宽松许可证，著佐权（GPL/AGPL/LGPL）系一律不放行。
 allow = [
   "MIT",
   "Apache-2.0",
@@ -36,6 +36,6 @@ multiple-versions = "warn"
 wildcards = "allow"
 
 [sources]
-# 只信任 crates.io，杜绝来路不明的注册表与版本库源。
+# 只信任包仓库（crates.io），杜绝来路不明的注册表与版本库源。
 unknown-registry = "deny"
 unknown-git = "deny"

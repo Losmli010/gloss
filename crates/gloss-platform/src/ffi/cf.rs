@@ -1,4 +1,4 @@
-//! CoreFoundation：本层用到的符号、CF 对象守卫与字符串/数据转换助手。
+//! 核心基础框架（CoreFoundation）：本层用到的符号、核心基础对象守卫与字符串及数据转换助手。
 
 use std::ffi::CStr;
 
@@ -49,16 +49,18 @@ impl CfGuard {
 impl Drop for CfGuard {
     fn drop(&mut self) {
         if !self.0.is_null() {
-            // SAFETY: 构造处只接管创建/拷贝/Retain 返回的 +1 引用（或 NULL），
-            // 守卫是唯一释放点，恰好归还一次。
+            // SAFETY: construction only takes over the +1 reference (or NULL)
+            // returned by create/copy/Retain, the guard is the sole release
+            // point, and it gives the reference back exactly once.
             unsafe { CFRelease(self.0) };
         }
     }
 }
 
 pub(crate) fn cf_string(name: &CStr) -> Option<CfGuard> {
-    // SAFETY: `name` 是 NUL 结尾的有效 C 字符串，编码为受支持的 UTF-8；
-    // 分配失败返回 NULL，此处按失败处理。
+    // SAFETY: `name` is a valid NUL-terminated C string with the supported
+    // UTF-8 encoding; allocation failure returns NULL, which is handled as
+    // failure here.
     let s = unsafe {
         CFStringCreateWithCString(kCFAllocatorDefault, name.as_ptr(), kCFStringEncodingUTF8)
     };
@@ -67,8 +69,9 @@ pub(crate) fn cf_string(name: &CStr) -> Option<CfGuard> {
 
 #[cfg(test)]
 pub(crate) fn cf_data(bytes: &[u8]) -> Option<CfGuard> {
-    // SAFETY: `bytes` 在本次调用内存活且非悬空，长度即缓冲长度；
-    // 分配失败返回 NULL，此处按失败处理。
+    // SAFETY: `bytes` stays alive for the duration of this call and is not
+    // dangling, with the length matching the buffer; allocation failure returns
+    // NULL, which is handled as failure here.
     let data = unsafe { CFDataCreate(kCFAllocatorDefault, bytes.as_ptr(), bytes.len() as CFIndex) };
     (!data.is_null()).then(|| CfGuard::new(data as CFTypeRef))
 }
@@ -78,17 +81,20 @@ pub(crate) unsafe fn string_from(value: CFTypeRef, max_bytes: usize) -> Option<S
     if s.is_null() {
         return None;
     }
-    // SAFETY: `s` 非空且为有效 CF 对象；GetTypeID 对任意 CF 对象安全，
-    // 确认类型后才调用 CFString 专属 API。
+    // SAFETY: `s` is non-null and a valid CF object; `GetTypeID` is safe on any
+    // CF object, and the CFString-specific API is only called after the type is
+    // confirmed.
     if unsafe { CFGetTypeID(s as CFTypeRef) } != unsafe { CFStringGetTypeID() } {
         return None;
     }
-    // SAFETY: `s` 已确认为 CFString，长度查询无前置条件。
+    // SAFETY: `s` has been confirmed to be a CFString; the length query has no
+    // preconditions.
     let len = unsafe { CFStringGetLength(s) };
     if len == 0 {
         return Some(String::new());
     }
-    // SAFETY: UTF-8 为受支持编码，返回非负的编码字节数上界。
+    // SAFETY: UTF-8 is a supported encoding, and the call returns a non-negative
+    // upper bound of the encoded byte count.
     let max = unsafe { CFStringGetMaximumSizeForEncoding(len, kCFStringEncodingUTF8) };
     let Ok(max) = usize::try_from(max) else {
         return None;
@@ -98,8 +104,9 @@ pub(crate) unsafe fn string_from(value: CFTypeRef, max_bytes: usize) -> Option<S
     }
     let mut buf = vec![0u8; max];
     let mut used: CFIndex = 0;
-    // SAFETY: `s` 是有效 CFString；缓冲区容量恰为上界 `max`，GetBytes 不越界写；
-    // lossByte=0 表示无法完整转换时返回值小于请求长度。
+    // SAFETY: `s` is a valid CFString; the buffer capacity is exactly the bound
+    // `max`, so `GetBytes` writes in bounds; lossByte=0 means the return value is
+    // smaller than the requested length when the string cannot be fully converted.
     let converted = unsafe {
         CFStringGetBytes(
             s,
@@ -134,7 +141,8 @@ mod tests {
     fn cf_string_round_trips_back_to_utf8() {
         let guard = cf_string(c"gloss 往返回环").expect("cf string");
 
-        // SAFETY: 守卫持有有效 +1 引用；上界给足以容纳整串。
+        // SAFETY: the guard holds a valid +1 reference; the bound is generous
+        // enough to hold the whole string.
         let text = unsafe { string_from(guard.string_ref() as CFTypeRef, 1024) };
         assert_eq!(text.as_deref(), Some("gloss 往返回环"));
     }
@@ -143,8 +151,8 @@ mod tests {
     fn string_from_rejects_non_string_objects() {
         let guard = cf_data(b"not a string").expect("cf data");
 
-        // SAFETY: 守卫持有有效 +1 引用；上界刻意放到最大，让类型检查成为唯一
-        // 可能的拒绝原因。
+        // SAFETY: the guard holds a valid +1 reference; the bound is deliberately
+        // maximal so the type check is the only possible reason for rejection.
         let text = unsafe { string_from(guard.data_ref() as CFTypeRef, usize::MAX) };
         assert_eq!(text, None);
     }
@@ -153,7 +161,8 @@ mod tests {
     fn string_from_respects_the_byte_ceiling() {
         let guard = cf_string(c"gloss").expect("cf string");
 
-        // SAFETY: 守卫持有有效 +1 引用；上界刻意小于实际需要。
+        // SAFETY: the guard holds a valid +1 reference; the bound is deliberately
+        // smaller than actually needed.
         let text = unsafe { string_from(guard.string_ref() as CFTypeRef, 2) };
         assert_eq!(text, None);
     }
@@ -162,7 +171,8 @@ mod tests {
     fn empty_cf_string_converts_to_empty_rust_string() {
         let guard = cf_string(c"").expect("cf string");
 
-        // SAFETY: 守卫持有有效 +1 引用；空串无需缓冲。
+        // SAFETY: the guard holds a valid +1 reference; an empty string needs no
+        // buffer.
         let text = unsafe { string_from(guard.string_ref() as CFTypeRef, 8) };
         assert_eq!(text.as_deref(), Some(""));
     }

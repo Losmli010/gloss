@@ -1,5 +1,5 @@
-//! 评测报告：JSON 落盘 + Markdown 渲染（表格形态沿用基准汇总脚本
-//! 的模式：一指标一行，比率带百分比）。
+//! 评测报告：以（JSON）落盘、以（Markdown）渲染（表格形态沿用基准
+//! 汇总脚本的模式：一指标一行，比率带百分比）。
 
 use std::collections::BTreeMap;
 
@@ -77,7 +77,7 @@ impl EvalReport {
         line(
             out,
             format!(
-                "Eval 报告：{} 模式（{} UTC）",
+                "Eval report: {} mode ({} UTC)",
                 self.mode,
                 format_utc(self.generated_at)
             ),
@@ -85,7 +85,7 @@ impl EvalReport {
         line(
             out,
             format!(
-                "共评测 {} 条，跳过（无夹具）{} 条",
+                "evaluated {} cases, skipped (no fixtures) {}",
                 self.classify
                     .as_ref()
                     .map_or(0, |stats| stats.metrics.evaluated)
@@ -101,7 +101,7 @@ impl EvalReport {
     }
 
     fn render_metric_rows(&self, out: &mut String) {
-        out.push_str("| 指标 | 值 |\n| --- | --- |\n");
+        out.push_str("| Metric | Value |\n| --- | --- |\n");
         self.render_classify_rows(out);
         self.render_task_rows(out);
         self.render_latency_and_judge_rows(out);
@@ -114,7 +114,7 @@ impl EvalReport {
         line(
             out,
             format!(
-                "| 分类 accuracy | {:.2}% ({}/{}) |",
+                "| classify accuracy | {:.2}% ({}/{}) |",
                 stats.accuracy * 100.0,
                 stats.metrics.correct,
                 stats.metrics.evaluated
@@ -123,18 +123,21 @@ impl EvalReport {
         line(
             out,
             format!(
-                "| 分类 无效 JSON 率 | {:.2}% |",
+                "| classify invalid JSON rate | {:.2}% |",
                 rate(stats.metrics.invalid_json, stats.metrics.evaluated)
             ),
         );
         line(
             out,
-            format!("| 分类 回退率 | {:.2}% |", stats.fallback_rate * 100.0),
+            format!(
+                "| classify fallback rate | {:.2}% |",
+                stats.fallback_rate * 100.0
+            ),
         );
         line(
             out,
             format!(
-                "| 分类 修复轮次 | {} |",
+                "| classify repair rounds | {} |",
                 repair_line(&stats.metrics.violations, stats.metrics.repair_rounds)
             ),
         );
@@ -146,7 +149,7 @@ impl EvalReport {
             line(
                 out,
                 format!(
-                    "| {} 契约 JSON 率 | {:.2}% |",
+                    "| {} contract JSON rate | {:.2}% |",
                     stats.dataset,
                     rate(metrics.json_object, metrics.evaluated)
                 ),
@@ -154,7 +157,7 @@ impl EvalReport {
             line(
                 out,
                 format!(
-                    "| {} note 在场率 | {:.2}% |",
+                    "| {} note presence rate | {:.2}% |",
                     stats.dataset,
                     rate(metrics.note_present, metrics.evaluated)
                 ),
@@ -162,7 +165,7 @@ impl EvalReport {
             line(
                 out,
                 format!(
-                    "| {} 字段完整率 | {:.2}% |",
+                    "| {} fields-complete rate | {:.2}% |",
                     stats.dataset,
                     rate(metrics.fields_complete, metrics.evaluated)
                 ),
@@ -170,7 +173,7 @@ impl EvalReport {
             line(
                 out,
                 format!(
-                    "| {} 降级率 | {:.2}% |",
+                    "| {} degraded rate | {:.2}% |",
                     stats.dataset,
                     rate(metrics.degraded, metrics.evaluated)
                 ),
@@ -178,7 +181,7 @@ impl EvalReport {
             line(
                 out,
                 format!(
-                    "| {} 修复轮次 | {} |",
+                    "| {} repair rounds | {} |",
                     stats.dataset,
                     repair_line(&metrics.violations, metrics.repair_rounds)
                 ),
@@ -188,22 +191,28 @@ impl EvalReport {
 
     fn render_latency_and_judge_rows(&self, out: &mut String) {
         if let Some(latency) = &self.latency {
-            line(out, format!("| 端到端延迟 p50 | {:.2} ms |", latency.p50));
-            line(out, format!("| 端到端延迟 p95 | {:.2} ms |", latency.p95));
+            line(
+                out,
+                format!("| end-to-end latency p50 | {:.2} ms |", latency.p50),
+            );
+            line(
+                out,
+                format!("| end-to-end latency p95 | {:.2} ms |", latency.p95),
+            );
         }
         if let Some(judge) = &self.judge {
             let detail = if judge.attempted > judge.count {
                 format!(
-                    "{:.2}（{}/{} 条计入，{} 条失败）",
+                    "{:.2} ({}/{} counted, {} failed)",
                     judge.average,
                     judge.count,
                     judge.attempted,
                     judge.attempted - judge.count
                 )
             } else {
-                format!("{:.2}（{} 条计入）", judge.average, judge.count)
+                format!("{:.2} ({} counted)", judge.average, judge.count)
             };
-            line(out, format!("| judge 均分（1..=5） | {detail} |"));
+            line(out, format!("| judge average (1..=5) | {detail} |"));
         }
     }
 
@@ -215,8 +224,8 @@ impl EvalReport {
             return;
         }
         out.push('\n');
-        out.push_str("混淆矩阵（期望 → 实际，仅错误路径）：\n\n");
-        out.push_str("| 期望 | 实际 | 次数 |\n| --- | --- | --- |\n");
+        out.push_str("Confusion matrix (expected → actual, errors only):\n\n");
+        out.push_str("| Expected | Actual | Count |\n| --- | --- | --- |\n");
         for row in &stats.confusion_rows {
             line(
                 out,
@@ -285,8 +294,8 @@ fn repair_line(violations: &BTreeMap<Violation, usize>, repairs: u32) -> String 
         .iter()
         .map(|(violation, count)| format!("{} ×{count}", violation_tag(violation)))
         .collect::<Vec<_>>()
-        .join("，");
-    format!("{repairs}（{counts}）")
+        .join(", ");
+    format!("{repairs} ({counts})")
 }
 
 pub struct TrackOutputs<'a> {
@@ -378,14 +387,14 @@ mod tests {
     fn report_renders_the_table_shape() {
         let report = fixture_report();
         let markdown = report.render_markdown();
-        assert!(markdown.contains("| 指标 | 值 |"));
-        assert!(markdown.contains("分类 accuracy | 66.67% (2/3)"));
-        assert!(markdown.contains("分类 回退率 | 33.33%"));
-        assert!(markdown.contains("混淆矩阵"));
+        assert!(markdown.contains("| Metric | Value |"));
+        assert!(markdown.contains("classify accuracy | 66.67% (2/3)"));
+        assert!(markdown.contains("classify fallback rate | 33.33%"));
+        assert!(markdown.contains("Confusion matrix"));
         assert!(markdown.contains("| TranslateWord | ExplainCode | 1 |"));
-        assert!(markdown.contains("task_translate_word 字段完整率 | 50.00%"));
-        assert!(markdown.contains("task_translate_word 降级率 | 50.00%"));
-        assert!(markdown.contains("跳过（无夹具）1 条"));
+        assert!(markdown.contains("task_translate_word fields-complete rate | 50.00%"));
+        assert!(markdown.contains("task_translate_word degraded rate | 50.00%"));
+        assert!(markdown.contains("skipped (no fixtures) 1"));
     }
 
     #[test]
@@ -398,7 +407,7 @@ mod tests {
         });
         let markdown = report.render_markdown();
         assert!(
-            markdown.contains("judge 均分（1..=5） | 0.00（0/3 条计入，3 条失败）"),
+            markdown.contains("judge average (1..=5) | 0.00 (0/3 counted, 3 failed)"),
             "a fully failed judge run must be distinguishable from a disabled one: {markdown}"
         );
 
@@ -409,7 +418,7 @@ mod tests {
         });
         let markdown = report.render_markdown();
         assert!(
-            markdown.contains("judge 均分（1..=5） | 4.10（2 条计入）"),
+            markdown.contains("judge average (1..=5) | 4.10 (2 counted)"),
             "a clean judge run reports the count without failure noise: {markdown}"
         );
     }
@@ -445,11 +454,11 @@ mod tests {
         let report = fixture_report();
         let markdown = report.render_markdown();
         assert!(
-            markdown.contains("分类 修复轮次 | 1（not-json ×1） |"),
+            markdown.contains("classify repair rounds | 1 (not-json ×1) |"),
             "the classify repair line carries the total and per-category counts: {markdown}"
         );
         assert!(
-            markdown.contains("task_translate_word 修复轮次 | 1（not-json ×1） |"),
+            markdown.contains("task_translate_word repair rounds | 1 (not-json ×1) |"),
             "the task repair line rides the same shape: {markdown}"
         );
 
@@ -476,8 +485,8 @@ mod tests {
         );
         let markdown = report.render_markdown();
         assert!(
-            markdown.contains("分类 修复轮次 | 0 |")
-                && markdown.contains("task_translate_word 修复轮次 | 0 |"),
+            markdown.contains("classify repair rounds | 0 |")
+                && markdown.contains("task_translate_word repair rounds | 0 |"),
             "a track without violations reports bare round counts: {markdown}"
         );
     }
@@ -486,7 +495,7 @@ mod tests {
     fn latency_only_shows_when_sampled() {
         let report = fixture_report();
         assert!(
-            !report.render_markdown().contains("延迟"),
+            !report.render_markdown().contains("latency"),
             "replay has no latency samples"
         );
     }

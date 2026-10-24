@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-# 生成站点部署用的更新清单（输出到标准输出，日志走标准错误）。
-# 版本单点复用发布校验脚本：标签格式与清单版本一致性校验失败即失败；
-# 体积与散列从产物文件实测计算，产物缺文件即失败，不得发出残缺清单。
-# 用法：以解释器运行，首参为发布标签，次参为产物目录；
-#   产物目录内须有双架构的压缩包与镜像共四个文件。
+"""生成站点部署用的更新清单（输出到标准输出，日志走标准错误）。
+版本单点复用发布校验脚本：标签格式与清单版本一致性校验失败即失败；
+体积与散列从产物文件实测计算，产物缺文件即失败，不得发出残缺清单。
+用法：以解释器运行，首参为发布标签，次参为产物目录；
+  产物目录内须有双架构的压缩包与镜像共四个文件。
+"""
 
 import hashlib
 import json
@@ -28,7 +29,7 @@ def entry_for(artdir, version, target):
     with open(zip_path, "rb") as fh:
         sha = hashlib.sha256(fh.read()).hexdigest()
     if not re.fullmatch(r"[0-9a-f]{64}", sha):
-        raise SystemExit("错误：sha256 计算结果异常：%s" % sha)
+        raise SystemExit("error: unexpected sha256 result: %s" % sha)
     return {
         "url": "%s/%s.zip" % (BASE_URL, stem),
         "dmg_url": "%s/%s.dmg" % (BASE_URL, stem),
@@ -40,19 +41,19 @@ def entry_for(artdir, version, target):
 def run(tag, artdir, root):
     """返回 manifest dict；版本校验与产物齐备性失败时抛 SystemExit（消息进 stderr）。"""
     version, cargo_version, error = check_release_tag.run(tag, root)
-    # 版本单点校验的判定输出走 stderr，保持 stdout 只含 JSON
+    # 版本单点校验的判定输出走标准错误，保持标准输出只含数据格式（JSON）
     if error:
         raise SystemExit(error)
     print("tag version:   %s" % version, file=sys.stderr)
     print("cargo version: %s" % cargo_version, file=sys.stderr)
-    print("✓ 版本号一致", file=sys.stderr)
+    print("ok: versions match", file=sys.stderr)
 
     # 产物缺文件当场失败，不得发出残缺清单
     for target in TARGETS:
         for ext in ("zip", "dmg"):
             path = os.path.join(artdir, "gloss-%s-%s.%s" % (version, target, ext))
             if not os.path.isfile(path):
-                raise SystemExit("错误：缺产物文件 %s" % path)
+                raise SystemExit("error: missing artifact file %s" % path)
 
     return {
         "schema": 1,
@@ -64,7 +65,7 @@ def run(tag, artdir, root):
 def main():
     if len(sys.argv) != 3:
         print(
-            "用法: %s <tag> <artifacts-dir>（例：%s v0.1.0 artifacts）"
+            "usage: %s <tag> <artifacts-dir> (e.g. %s v0.1.0 artifacts)"
             % (sys.argv[0], sys.argv[0]),
             file=sys.stderr,
         )

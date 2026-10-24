@@ -1,7 +1,7 @@
-//! 平台事件线程：系统事件源的唯一宿主，以 CFRunLoop + 周期定时器抽干各源。
+//! 平台事件线程：系统事件源的唯一宿主，以运行循环（CFRunLoop）加周期定时器抽干各源。
 //!
-//! 取材命令（通道②）与系统事件在同一线程顺序消费，天然串行无锁；鼠标
-//! 事件 tap 这类自带运行循环的源在自己的监听线程上运行、产物经通道汇入。
+//! 取材命令（通道2）与系统事件在同一线程顺序消费，天然串行无锁；鼠标
+//! 事件监听（tap）这类自带运行循环的源在自己的监听线程上运行、产物经通道汇入。
 //! 消息类型由组装点注入——平台层不依赖应用层的通道类型。
 
 use std::ffi::c_void;
@@ -193,9 +193,11 @@ extern "C" fn fire<C, E, P, F>(_timer: CFRunLoopTimerRef, info: *mut c_void)
 where
     F: FnMut(C, &EventSink<E, P>),
 {
-    // SAFETY: `info` 是创建定时器时经 `CFRunLoopTimerContext.info` 存入的
-    // `Box<LoopState>` 指针，由 CF 原样传回；该 Box 在 CFRunLoopRun 返回后才
-    // 释放，而 CFRunLoop 回调只在宿主线程串行触发，指针有效且无并发别名。
+    // SAFETY: `info` is the `Box<LoopState>` pointer stored via
+    // `CFRunLoopTimerContext.info` when the timer was created, passed back
+    // verbatim by CF; the box is released only after `CFRunLoopRun` returns,
+    // and CFRunLoop callbacks fire only serially on the host thread, so the
+    // pointer is valid and has no concurrent aliasing.
     let state = unsafe { &mut *(info as *mut LoopState<C, E, P, F>) };
     if let TickOutcome::Exit = tick(
         &state.commands,
@@ -203,8 +205,9 @@ where
         &mut state.on_command,
         &mut state.sources,
     ) {
-        // SAFETY: `run_loop` 是本线程自己的 run loop（`CFRunLoopGetCurrent`
-        // 返回 +0 引用且从不 release，始终有效）；`CFRunLoopStop` 无额外前置条件。
+        // SAFETY: `run_loop` is this thread's own run loop (`CFRunLoopGetCurrent`
+        // returns a +0 reference that is never released and stays valid forever);
+        // `CFRunLoopStop` has no additional preconditions.
         unsafe { CFRunLoopStop(state.run_loop) };
     }
 }
@@ -221,9 +224,11 @@ where
         copyDescription: None,
     };
     let interval = TICK.as_secs_f64();
-    // SAFETY: 各参数均合法——allocator 为默认分配器，`fire` 匹配 C 回调签名，
-    // `context` 指向本栈上的有效 `CFRunLoopTimerContext`，其 `info` 指向的
-    // `Box<LoopState>` 在定时器 invalidate + release 之前保持存活。
+    // SAFETY: all arguments are valid — the allocator is the default allocator,
+    // `fire` matches the C callback signature, and `context` points to a valid
+    // `CFRunLoopTimerContext` on this stack whose `info` points to a
+    // `Box<LoopState>` that stays alive until the timer is invalidated and
+    // released.
     let timer = unsafe {
         CFRunLoopTimerCreate(
             kCFAllocatorDefault,
@@ -238,8 +243,8 @@ where
     if timer.is_null() {
         return None;
     }
-    // SAFETY: `timer` 已判非 NULL，`run_loop` 是本线程的有效 run loop，modes
-    // 为合法常量。
+    // SAFETY: `timer` has been checked non-null, `run_loop` is a valid run loop
+    // for this thread, and the modes argument is a valid constant.
     unsafe { CFRunLoopAddTimer(state.run_loop, timer, kCFRunLoopCommonModes) };
     Some(timer)
 }
@@ -257,7 +262,8 @@ fn run_loop<C, E, P, F>(
         sink,
         on_command,
         sources,
-        // SAFETY: 纯查询型 FFI，无前置条件；当前线程必有 run loop，不会返回 NULL。
+        // SAFETY: a pure query FFI with no preconditions; the current thread
+        // always has a run loop, so this never returns NULL.
         run_loop: unsafe { CFRunLoopGetCurrent() },
     });
     let Some(timer) = install_timer(&mut state) else {
@@ -267,11 +273,14 @@ fn run_loop<C, E, P, F>(
         );
         return;
     };
-    // SAFETY: `timer` 已挂进本线程 run loop；`CFRunLoopRun` 返回前定时器持续
-    // 触发回调，其 `info` 指向的 state 存活到函数末尾，不会悬垂。
+    // SAFETY: `timer` has been added to this thread's run loop; the timer keeps
+    // firing callbacks until `CFRunLoopRun` returns, and the state its `info`
+    // points to stays alive until the end of this function, so it never dangles.
     unsafe { CFRunLoopRun() };
-    // SAFETY: `timer` 持有 `CFRunLoopTimerCreate` 返回的 +1 引用；此刻已退出
-    // RunLoop 且不在回调内，先 invalidate 再 release 符合 CF 定时器的清理顺序。
+    // SAFETY: `timer` holds the +1 reference returned by `CFRunLoopTimerCreate`;
+    // at this point the run loop has been exited and we are not inside a
+    // callback, so invalidating before releasing follows the CF timer cleanup
+    // order.
     unsafe {
         CFRunLoopTimerInvalidate(timer);
         CFRelease(timer as *const c_void);

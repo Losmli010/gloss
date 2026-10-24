@@ -1,14 +1,14 @@
-//! AX 读选区：辅助功能读取器。
+//! 辅助功能（AX）读选区：辅助功能读取器。
 //!
-//! 经辅助功能接口（HIServices）向系统问询「系统级焦点元素 →
-//! 选中文本」，是向目标应用发起的同步跨进程调用，按线程模型约束
+//! 经辅助功能接口（HIServices）向系统问询“系统级焦点元素 →
+//! 选中文本”，是向目标应用发起的同步跨进程调用，按线程模型约束
 //! 必须运行在平台事件线程（调用方保证亲和性）。权限缺失返回
-//! 权限拒绝错误；「属性可读但选区为空」（空串，含
-//! 「属性存在但无值」系统错误）返回空选区错误
-//! ——组合通道先让渡补读，预算耗尽仍空与「读不到」一样落剪贴板兜底；
+//! 权限拒绝错误；“属性可读但选区为空”（空串，含
+//! “属性存在但无值”系统错误）返回空选区错误
+//! ——组合通道先让渡补读，预算耗尽仍空与“读不到”一样落剪贴板兜底；
 //! 应用不支持选区属性或系统调用失败返回读取不可用错误
-//! ——一律以错误传播，不允许 panic 逃出。授权引导属设置页/权限引导
-//! 路径，读取侧只如实报告，不代为弹窗。
+//! ——一律以错误传播，不允许程序崩溃（panic）逃出。授权引导属设置页与
+//! 权限引导路径，读取侧只如实报告，不代为弹窗。
 //!
 //! 策略取最简一条路径：只读选中文本属性。
 
@@ -87,13 +87,14 @@ mod imp {
     }
 
     fn copy_selected_text() -> Result<Option<String>, i32> {
-        // SAFETY: 无前置条件；返回的 +1 引用可能为 NULL（系统异常），随后判空。
+        // SAFETY: no preconditions; the returned +1 reference may be NULL (a
+        // system anomaly) and is null-checked right after.
         let system_wide = unsafe { ax::create_system_wide() };
         if system_wide.is_null() {
             return Err(AX_ERROR_FAILURE);
         }
         let _system_wide = CfGuard::new(system_wide as CFTypeRef);
-        // SAFETY: `system_wide` 是刚创建的有效引用。
+        // SAFETY: `system_wide` is a valid reference just created above.
         unsafe { ax::set_messaging_timeout(system_wide, AX_MESSAGE_TIMEOUT_SECS) };
 
         let Some(focused_attr) = cf::cf_string(ax::FOCUSED_UI_ELEMENT_ATTRIBUTE) else {
@@ -104,7 +105,9 @@ mod imp {
         };
 
         let mut focused: CFTypeRef = std::ptr::null();
-        // SAFETY: 元素与属性名均为有效 +1 引用，出参指向刚声明的栈上变量。
+        // SAFETY: both the element and the attribute name are valid +1
+        // references, and the out parameter points to the stack variable just
+        // declared.
         let err =
             unsafe { ax::copy_attribute(system_wide, focused_attr.string_ref(), &mut focused) };
         if err != AX_ERROR_SUCCESS {
@@ -113,7 +116,8 @@ mod imp {
         let _focused = CfGuard::new(focused);
 
         let mut value: CFTypeRef = std::ptr::null();
-        // SAFETY: `focused` 是上一步成功拷贝的元素引用，其余不变量同上。
+        // SAFETY: `focused` is the element reference successfully copied in the
+        // previous step; the remaining invariants are the same as above.
         let err = unsafe {
             ax::copy_attribute(
                 focused as AXUIElementRef,
@@ -126,8 +130,9 @@ mod imp {
         }
         let _value = CfGuard::new(value);
 
-        // SAFETY: `value` 持有 kAXSelectedTextAttribute 拷贝出的有效 CF 对象，
-        // string_from 内部先验类型再解引用。
+        // SAFETY: `value` holds a valid CF object copied out for
+        // `kAXSelectedTextAttribute`, and `string_from` verifies the type before
+        // dereferencing.
         Ok(unsafe { cf::string_from(value, MAX_SELECTION_BYTES) })
     }
 }

@@ -1,11 +1,12 @@
-//! 全局鼠标监听：左键按下/释放 → 划词手势判定。
+//! 全局鼠标监听：左键按下与释放 → 划词手势判定。
 //!
-//! 手势取「拖拽释放」：按压时长与位移双达标才算选择，分别滤掉瞬时甩动与
+//! 手势取“拖拽释放”：按压时长与位移双达标才算选择，分别滤掉瞬时甩动与
 //! 普通点击。订阅面只有左键按下与释放，键盘事件不进入本模块。
 //!
-//! 线程约束：事件 tap 在**当前线程**建立并阻塞运行（回调跑在它自己的
-//! RunLoop 上），不能放进平台事件线程；没有停止 API，监听线程随进程退出消亡。
-//! 需要辅助功能授权，建立结果同步返回，运行中失效才经标志异步置位。
+//! 线程约束：事件监听（tap）在当前线程建立并阻塞运行，回调跑在它自己的
+//! 运行循环（RunLoop）上，不能放进平台事件线程；没有停止接口，监听线程随
+//! 进程退出消亡。需要辅助功能授权，建立结果同步返回，运行中失效才经标志
+//! 异步置位。
 
 use crossbeam_channel::Receiver;
 
@@ -247,8 +248,10 @@ mod tap {
         pub fn create(sink: impl Fn(ButtonEvent) + 'static) -> Result<TapHandle, ListenError> {
             let ctx: *mut Box<dyn Fn(ButtonEvent)> = Box::into_raw(Box::new(Box::new(sink)));
 
-            // SAFETY: 参数都是常量或本进程内的有效指针；`raw_callback` 的签名与
-            // CGEventTapCallback 一致；`ctx` 刚由 Box::into_raw 得到，与 tap 同寿。
+            // SAFETY: all arguments are constants or valid pointers within this
+            // process; the `raw_callback` signature matches `CGEventTapCallback`;
+            // `ctx` was just obtained from `Box::into_raw` and lives as long as
+            // the tap.
             let tap = unsafe {
                 CGEventTapCreate(
                     K_CG_HID_EVENT_TAP,
@@ -260,25 +263,30 @@ mod tap {
                 )
             };
             if tap.is_null() {
-                // SAFETY: `ctx` 来自上面的 Box::into_raw，此刻仍是唯一引用。
+                // SAFETY: `ctx` comes from `Box::into_raw` above and is still the
+                // only reference at this point.
                 drop(unsafe { Box::from_raw(ctx) });
                 return Err(ListenError::EventTap);
             }
 
-            // SAFETY: `tap` 非空（上面判过）；NULL allocator 表示默认分配器；
-            // 返回 +1 引用，下面交给 run loop 后归还。
+            // SAFETY: `tap` is non-null (checked above); a NULL allocator means
+            // the default allocator; the call returns a +1 reference, which is
+            // handed to the run loop below and then given back.
             let source = unsafe { CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) };
             if source.is_null() {
-                // SAFETY: `tap` 是上面 CGEventTapCreate 的 +1 引用，归我们归还；
-                // `ctx` 仍是 Box::into_raw 得到的唯一引用。
+                // SAFETY: `tap` is the +1 reference returned by `CGEventTapCreate`
+                // above, owned by us to release; `ctx` is still the only reference
+                // obtained from `Box::into_raw`.
                 unsafe {
                     CFRelease(tap.cast::<c_void>());
                     drop(Box::from_raw(ctx));
                 }
                 return Err(ListenError::RunLoopSource);
             }
-            // SAFETY: 取当前线程的 run loop（不转移所有权）；`source` 有效，加入
-            // 后 run loop 自己持有一份，故随后释放我们这份 +1 引用。
+            // SAFETY: this fetches the current thread's run loop without
+            // transferring ownership; `source` is valid, and after it is added
+            // the run loop holds its own copy, so our +1 reference is released
+            // right after.
             unsafe {
                 let run_loop = CFRunLoopGetCurrent();
                 CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
@@ -289,8 +297,10 @@ mod tap {
         }
 
         pub fn run(_handle: TapHandle) {
-            // SAFETY: `create` 已把 source 挂到当前线程的 run loop 上，这里
-            // 只是进入阻塞运行。参数只承载两相顺序约束，进入运行即完成使命。
+            // SAFETY: `create` has already attached the source to the current
+            // thread's run loop; this only enters the blocking run. The argument
+            // carries only a two-phase ordering constraint and is spent once the
+            // run begins.
             unsafe { CFRunLoopRun() };
         }
 
@@ -301,13 +311,16 @@ mod tap {
             user_info: *mut c_void,
         ) -> CGEventRef {
             if let Some(action) = classify(raw_type) {
-                // SAFETY: `user_info` 是 `create` 经 `Box::into_raw` 传入、有意泄漏到进程结束的
-                // Box<dyn Fn(ButtonEvent)> 指针；C 侧不释放它。
+                // SAFETY: `user_info` is the `Box<dyn Fn(ButtonEvent)>` pointer
+                // passed in by `create` via `Box::into_raw`, intentionally leaked
+                // until process exit; the C side never releases it.
                 let sink = unsafe { &*(user_info as *const Box<dyn Fn(ButtonEvent)>) };
-                // SAFETY: `event` 是系统在回调期间借给我们的事件引用，只读位置
-                // 与时间戳，不转移所有权。
+                // SAFETY: `event` is an event reference lent to us by the system
+                // for the duration of the callback; we only read the location and
+                // timestamp, without taking ownership.
                 let CGPoint { x, y } = unsafe { CGEventGetLocation(event) };
-                // SAFETY: 同上，`event` 在回调期间有效；时间戳是纯读取。
+                // SAFETY: same as above, `event` is valid for the duration of the
+                // callback; reading the timestamp is a pure read.
                 let time = unsafe { CGEventGetTimestamp(event) };
                 sink(ButtonEvent {
                     action,

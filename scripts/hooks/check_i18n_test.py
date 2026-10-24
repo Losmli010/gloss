@@ -1,8 +1,7 @@
-"""check_i18n.py 的单测：逐条覆盖字面量词法状态机、装入点集中与词条表唯一。
+"""文案表门禁的单测：逐条覆盖字面量词法状态机、装入点集中与词条表唯一。
 
-被测函数是 check_i18n.run(root)（返回 (oks, fails)），夹具建在 pytest 的
-tmp_path，不落 git（扫描面走目录遍历）。用法：
-    python3 -m pytest scripts/hooks/check_i18n_test.py
+被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
+的临时目录，不落版本库（扫描面走目录遍历）；用法见持续集成的钩子工作流。
 """
 
 import sys
@@ -171,9 +170,7 @@ def test_url_in_string_not_eaten_as_comment(tmp_path):
 
 def test_string_continuation_keeps_line_numbers(tmp_path):
     content = 'let a = "no chinese \\\nstill ascii";\n\nlet s = "打开设置";'
-    assert_fail(
-        tmp_path, "crates/gloss-app/src/continuation.rs", content, "continuation.rs 第 4 行"
-    )
+    assert_fail(tmp_path, "crates/gloss-app/src/continuation.rs", content, "continuation.rs line 4")
 
 
 def test_bracket_in_attribute_string_ok(tmp_path):
@@ -181,7 +178,7 @@ def test_bracket_in_attribute_string_ok(tmp_path):
     assert_pass(tmp_path, "crates/gloss-app/src/bracket.rs", content)
 
 
-# ---- 扩展扫描面：gloss-core 与 gloss-platform ----
+# ---- 扩展扫描面：核心库（gloss-core）与平台适配层（gloss-platform） ----
 
 
 def test_core_hardcoded_chinese(tmp_path):

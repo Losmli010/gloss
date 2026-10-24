@@ -1,8 +1,7 @@
-"""check_agents_doc.py 的单测：逐条覆盖五类引用校验与跳过规则。
+"""文档引用门禁的单测：逐条覆盖五类引用校验与跳过规则。
 
-被测函数是 check_agents_doc.run(doc)（返回 (violations, checked, ref_files,
-ref_count)），夹具建在 pytest 的 tmp_path。用法：
-    python3 -m pytest scripts/hooks/check_agents_doc_test.py
+被测入口是门禁的运行函数，返回违规与计数元组；夹具建在测试框架（pytest）的
+临时目录，互不串扰；用法见持续集成的钩子工作流（逐文件执行单测）。
 """
 
 import sys
@@ -123,7 +122,7 @@ def test_recipe_in_code_block_checked(tmp_path):
 
 
 def test_missing_recipe(tmp_path):
-    assert_fail(tmp_path, "跑 `just deploy` 发布", "「just deploy」")
+    assert_fail(tmp_path, "跑 `just deploy` 发布", 'recipe "just deploy" not found')
 
 
 def test_plain_text_recipe_checked(tmp_path):
@@ -132,46 +131,46 @@ def test_plain_text_recipe_checked(tmp_path):
 
 def test_justfile_variable_not_a_recipe(tmp_path):
     # 配方名提取不含下划线：带下划线的配方名被截断提取，按不存在的配方拒绝
-    assert_fail(tmp_path, "阈值见 `just coverage_min`", "「just coverage」")
+    assert_fail(tmp_path, "阈值见 `just coverage_min`", 'recipe "just coverage" not found')
 
 
 def test_missing_path(tmp_path):
-    assert_fail(tmp_path, "实现见 `crates/demo/src/store.rs`", "在仓库里不存在")
+    assert_fail(tmp_path, "实现见 `crates/demo/src/store.rs`", "does not exist in the repo")
 
 
 def test_missing_bare_filename(tmp_path):
-    assert_fail(tmp_path, "配置见 `nonexistent.toml`", "在仓库根不存在")
+    assert_fail(tmp_path, "配置见 `nonexistent.toml`", "does not exist at the repo root")
 
 
 def test_missing_test_target(tmp_path):
-    assert_fail(tmp_path, "跑 `cargo test --test smoke`", "找不到 tests/smoke.rs")
+    assert_fail(tmp_path, "跑 `cargo test --test smoke`", "no tests/smoke.rs found")
 
 
 def test_wrong_directory_level(tmp_path):
     body = "见 `crates/demo/tests/overlay_selftest.rs`"
-    assert_fail(tmp_path, body, "在仓库里不存在")
+    assert_fail(tmp_path, body, "does not exist in the repo")
 
 
 def test_bad_recipe_in_code_block(tmp_path):
     body = "命令清单：\n\n    just run\n    just deploy"
-    assert_fail(tmp_path, body, "「just deploy」")
+    assert_fail(tmp_path, body, 'recipe "just deploy" not found')
 
 
-# ---- 质量条目名指名引用（仓库各处的 质量条目「名字」）----
+# ---- 质量条目名指名引用（仓库各处的 质量条目“名字”）----
 
 
 def test_named_rule_reference_hits_real_entry(tmp_path):
-    ref = "//! 见 AGENTS.md 质量条目「日志统一出口」。"
+    ref = "//! 见 AGENTS.md 质量条目“日志统一出口”。"
     assert_pass(tmp_path, RULE_DOC, ref)
 
 
 def test_named_rule_reference_unknown_entry(tmp_path):
-    ref = "//! 见 AGENTS.md 质量条目「日志英文」。"
+    ref = "//! 见 AGENTS.md 质量条目“日志英文”。"
     assert_fail(tmp_path, RULE_DOC, "日志英文", ref)
 
 
 def test_named_rule_reference_stale_after_rename(tmp_path):
-    ref = "//! 见 AGENTS.md 质量条目「日志统一出口」。"
+    ref = "//! 见 AGENTS.md 质量条目“日志统一出口”。"
     assert_fail(tmp_path, RULE_DOC_RENAMED, "日志统一出口", ref)
 
 

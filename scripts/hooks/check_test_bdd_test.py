@@ -1,8 +1,7 @@
-"""check_test_bdd.py 的单测：双向核对、重复登记与表格结构校验逐条覆盖。
+"""测试清单门禁的单测：双向核对、重复登记与表格结构校验逐条覆盖。
 
-被测函数是 check_test_bdd.run(root)（返回 (oks, fails)），夹具建在 pytest 的
-tmp_path（一次性 git 仓库，扫描面走 git ls-files）。用法：
-    python3 -m pytest scripts/hooks/check_test_bdd_test.py
+被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
+的临时目录（一次性版本库，扫描面走版本库清单）；用法见持续集成的钩子工作流。
 """
 
 import subprocess
@@ -193,7 +192,7 @@ def test_bdd_file_missing(tmp_path):
     def mutate(root):
         (root / "docs/tests/bdd.md").unlink()
 
-    with pytest.raises(SystemExit, match="找不到"):
+    with pytest.raises(SystemExit, match="not found"):
         check(tmp_path, mutate)
 
 
@@ -202,7 +201,7 @@ def test_exact_duplicate_row(tmp_path):
         with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
             fh.write("| registered_plain | 目标 | 给定…当…则… | 2026-09-19 |\n")
 
-    assert_fail(tmp_path, mutate, "重复登记")
+    assert_fail(tmp_path, mutate, "registered multiple times")
 
 
 def test_section_header_row_dropped(tmp_path):
@@ -215,7 +214,7 @@ def test_section_header_row_dropped(tmp_path):
         ]
         p.write_text("\n".join(lines), encoding="utf-8")
 
-    assert_fail(tmp_path, mutate, "缺表头")
+    assert_fail(tmp_path, mutate, "missing a header row")
 
 
 def test_duplicate_chapter(tmp_path):
@@ -223,7 +222,7 @@ def test_duplicate_chapter(tmp_path):
         with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
             fh.write("\n## 性能测试\n")
 
-    assert_fail(tmp_path, mutate, "重复出现")
+    assert_fail(tmp_path, mutate, "appear more than once")
 
 
 def test_blank_line_splits_table(tmp_path):
@@ -239,7 +238,7 @@ def test_blank_line_splits_table(tmp_path):
                 done = True
         p.write_text("\n".join(out), encoding="utf-8")
 
-    assert_fail(tmp_path, mutate, "缺表头")
+    assert_fail(tmp_path, mutate, "missing a header row")
 
 
 def test_paragraph_splits_table(tmp_path):
@@ -255,7 +254,7 @@ def test_paragraph_splits_table(tmp_path):
                 done = True
         p.write_text("\n".join(out), encoding="utf-8")
 
-    assert_fail(tmp_path, mutate, "缺表头")
+    assert_fail(tmp_path, mutate, "missing a header row")
 
 
 def test_table_header_dropped_body_only(tmp_path):
@@ -274,7 +273,7 @@ def test_table_header_dropped_body_only(tmp_path):
             out.append(line)
         p.write_text("\n".join(out), encoding="utf-8")
 
-    assert_fail(tmp_path, mutate, "缺表头")
+    assert_fail(tmp_path, mutate, "missing a header row")
 
 
 def test_duplicate_bullet_lines(tmp_path):
@@ -282,7 +281,7 @@ def test_duplicate_bullet_lines(tmp_path):
         with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
             fh.write("- 测试目标：重复块探针。\n- 测试目标：重复块探针。\n")
 
-    assert_fail(tmp_path, mutate, "重复出现")
+    assert_fail(tmp_path, mutate, "repeat within the same")
 
 
 def test_duplicate_h3_in_same_chapter(tmp_path):
@@ -291,4 +290,4 @@ def test_duplicate_h3_in_same_chapter(tmp_path):
             fh.write("\n### crates/demo.rs\n")
             fh.write("\n### crates/demo.rs\n")
 
-    assert_fail(tmp_path, mutate, "重复出现")
+    assert_fail(tmp_path, mutate, "repeat within the same")

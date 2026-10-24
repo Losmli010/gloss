@@ -1,29 +1,30 @@
 #!/usr/bin/env python3
-# 界面文案统一进文案表门禁：界面词条只定义在应用分包的文案目录里，
-# 只经统一装入点装入，代码里不内嵌文案字面量。
-# 本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
-#
-# 覆盖三条检查：
-#   文案字面量拦截  —— 各生产代码里，字符串 / 单字符 / 原始字符串字面量出现
-#                      非 ASCII 字节即违规；测试模块、注释与属性内部（静态
-#                      检查的元信息）不在判罚面。模型面向文案的统一处理点
-#                      （模板资源加注入片段）整文件豁免。纯 ASCII 的英文硬编码
-#                      不可由文本判定，靠人工评审。
-#   装入点集中      —— 编译期引用文案资源只允许出现在统一装入点一处。
-#   词条表文件唯一  —— 声明词条前缀键的配置文件只允许在文案目录下。
-#
-# 行尾放行标记豁免所在行，须注明缘由。
-#
-# 用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
+"""界面文案统一进文案表门禁：界面词条只定义在应用分包的文案目录里，
+只经统一装入点装入，代码里不内嵌文案字面量。
+本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
+
+覆盖三条检查：
+  文案字面量拦截  —— 各生产代码里，字符串、单字符与原始字符串字面量出现
+                     非英文字节（ASCII）即违规；测试模块、注释与属性内部（静态
+                     检查的元信息）不在判罚面。模型面向文案的统一处理点
+                     （模板资源加注入片段）整文件豁免。纯英文字节的硬编码
+                     不可由文本判定，靠人工评审。
+  装入点集中      —— 编译期引用文案资源只允许出现在统一装入点一处。
+  词条表文件唯一  —— 声明词条前缀键的配置文件只允许在文案目录下。
+
+行尾放行标记豁免所在行，须注明缘由。
+
+用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
+"""
 
 import os
 import re
 import sys
 
-RULE = "界面文案统一进文案表"
+RULE = "ui copy lives in the i18n catalog"
 OWNER = "crates/gloss-app/src/ui/i18n.rs"
 CATALOG_DIR = "crates/gloss-app/i18n"
-SCAN_DIRS = "gloss-app / 根包 / gloss-core / gloss-platform 的 src"
+SCAN_DIRS = "gloss-app / root crate / gloss-core / gloss-platform src"
 ALLOW_MARKER = "i18n:allow"
 
 
@@ -325,7 +326,8 @@ def literal_violations(root):
                 if ALLOW_MARKER in lines[ln - 1]:
                     continue
                 problems.append(
-                    "约束「%s」：%s 第 %d 行内嵌文案字面量 —— 词条进 %s/，经 %s 的 Text 取用"
+                    "constraint violation (%s): %s line %d embeds a copy literal"
+                    " — add the entry to %s/ and read it via Text in %s"
                     % (RULE, rel, ln, CATALOG_DIR, OWNER)
                 )
     return problems
@@ -373,13 +375,14 @@ def run(root):
             for line in fh:
                 if include_re.search(line):
                     fail(
-                        "约束「%s」：%s 在装入点之外引用了 i18n 资源 —— 只允许 %s include"
+                        "constraint violation (%s): %s references the i18n resource"
+                        " outside the load point — only %s may include it"
                         % (RULE, os.path.relpath(f, root), OWNER)
                     )
                     break
 
     # ---- 检查三：词条表文件唯一 ----
-    # 词条键统一为「模块加词条」的前缀形态且顶层扁平；出现第二张表就会分叉出
+    # 词条键统一为“模块加词条”的前缀形态且顶层扁平；出现第二张表就会分叉出
     # 不受键一致性测试管辖的文案面。
     toml_files = 0
     toml_key_re = re.compile(r"^\s*gloss_[A-Za-z0-9_]+\s*=")
@@ -391,7 +394,8 @@ def run(root):
             for line in fh:
                 if toml_key_re.match(line):
                     fail(
-                        "约束「%s」：%s 在 %s/ 之外声明了词条键 —— 文案表只此一处"
+                        "constraint violation (%s): %s declares an entry key outside %s/"
+                        " — the catalog lives in one place only"
                         % (RULE, os.path.relpath(f, root), CATALOG_DIR)
                     )
                     break
@@ -399,7 +403,7 @@ def run(root):
     oks = []
     if not fails:
         oks.append(
-            "%s（%s 的生产代码字面量 + %d 个 .rs 的装入点 + %d 个 TOML 的词条键）"
+            "ok %s (%s production literals + %d .rs include sites + %d TOML entry-key files)"
             % (RULE, SCAN_DIRS, include_files, toml_files)
         )
     return oks, fails
@@ -411,22 +415,22 @@ def main():
         if len(sys.argv) > 1
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
-    print("== i18n 文案表门禁（仓库根：%s）==" % root)
+    print("== i18n catalog gate (repo root: %s) ==" % root)
     oks, fails = run(root)
     # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
         print("  ✓ %s" % line)
     if fails:
         print("", file=sys.stderr)
-        print("错误：有 %d 处违反「%s」（见上）。" % (len(fails), RULE), file=sys.stderr)
+        print('error: %d violations of "%s" (see above).' % (len(fails), RULE), file=sys.stderr)
         print(
-            "  - 是界面文案：词条加进 %s/zh.toml 与 en.toml（键名 gloss_<模块>_<词条>），"
-            "%s 的 Text 补同名字段，代码经 Text 取用；" % (CATALOG_DIR, OWNER),
+            "  - ui copy: add the entry to %s/zh.toml and en.toml (key gloss_<module>_<item>),"
+            " add the matching field to Text in %s, and read it via Text;" % (CATALOG_DIR, OWNER),
             file=sys.stderr,
         )
         print(
-            "  - 非文案（图标字形、自检字样、列表符号等）：所在行尾加 %s 并注明缘由。"
-            % ALLOW_MARKER,
+            "  - not copy (icon glyphs, selftest strings, list bullets, etc.): add %s at"
+            " the end of the line with a reason." % ALLOW_MARKER,
             file=sys.stderr,
         )
         return 1

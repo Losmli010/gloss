@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""汇总最近一次 criterion 基准运行为 Markdown 表。
+"""把最近一次（criterion）基准运行汇总为（Markdown）对照表。
 
-每个基准一行：本次均值、95% 置信区间、相对对照的变化与判定。对照对象由
-最近一次的运行方式决定（just bench 对照上一次运行，just bench-check 对照
-命名基线），本脚本只读取数据，不运行基准。
-
-用法：scripts/perf/bench-summary.py [对照标签] [criterion 目录]
+每个基准一行：本次均值、95％ 置信区间、相对对照的变化与判定。对照对象由
+最近一次的运行方式决定（常规配方对照上一次运行，对照配方对照命名基
+线），本脚本只读取数据，不运行基准。
 """
 
 import json
@@ -48,10 +46,10 @@ def display_name(bench_dir, dir_name):
 
 
 def main():
-    label = sys.argv[1] if len(sys.argv) > 1 else "上一次运行"
+    label = sys.argv[1] if len(sys.argv) > 1 else "last run"
     crit_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("target/criterion")
     if not crit_dir.is_dir():
-        sys.exit(f"错误：找不到 {crit_dir}——先跑 just bench 生成数据。")
+        sys.exit(f"error: {crit_dir} not found — run just bench to generate data first.")
 
     rows = []
     for estimates in sorted(crit_dir.rglob("new/estimates.json")):
@@ -64,15 +62,15 @@ def main():
                 delta, ci_lo, ci_hi = load_mean(change_path)
                 change = f"{human_ratio(delta)} [{human_ratio(ci_lo)}, {human_ratio(ci_hi)}]"
                 if ci_lo > 0:
-                    state = "回归"
+                    state = "regressed"
                 elif ci_hi < 0:
-                    state = "改善"
+                    state = "improved"
                 else:
-                    state = "无显著变化"
+                    state = "no significant change"
             else:
                 change = state = "—"
         except (OSError, KeyError, json.JSONDecodeError) as err:
-            print(f"警告：跳过 {dir_name}（{err}）", file=sys.stderr)
+            print(f"warning: skipping {dir_name} ({err})", file=sys.stderr)
             continue
         bench = display_name(bench_dir, dir_name)
         rows.append(
@@ -81,11 +79,11 @@ def main():
         )
 
     if not rows:
-        sys.exit(f"错误：{crit_dir} 下没有可读取的基准数据（new/estimates.json）。")
+        sys.exit(f"error: no readable benchmark data under {crit_dir} (new/estimates.json).")
 
-    print(f"对照：{label}，共 {len(rows)} 个基准")
+    print(f"baseline: {label}, {len(rows)} benchmarks")
     print()
-    print("| 基准 | 均值 | 95% 区间 | 相对变化 | 判定 |")
+    print("| benchmark | mean | 95% CI | change | verdict |")
     print("| --- | --- | --- | --- | --- |")
     for row in rows:
         print(row)

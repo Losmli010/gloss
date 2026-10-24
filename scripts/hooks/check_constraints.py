@@ -1,29 +1,30 @@
 #!/usr/bin/env python3
-# 仓库自动化门禁：把可由工具判定的规则逐条落成检查
-# （依赖方向 / eval 资产隔离 / 桩副本一致 / 日志出口与语言 / egui 上下文装入点 /
-#  FFI 声明集中 / 版本单点 / 依赖特性 / 死条目 / 文件行数 / 残留任务标记）。
-# 本地约束配方（提交前门禁的一部分）与持续集成的同名检查作业共用此脚本，
-# 保证本地与远端判定一致。
-#
-# 覆盖：
-#   依赖方向            —— 各 crate 只能依赖允许的边；gloss-core 不得出现平台/渲染栈
-#                          （红线：winit / wgpu / 平台 API）。
-#   eval 资产隔离       —— gloss-eval 不被任何清单依赖；评测资产不被生产代码的
-#                          内嵌宏引用。
-#   桩副本一致          —— 各 crate 测试桩目录的同名桩逐字一致，防跨 crate 漂移。
-#   日志统一出口        —— 除 gloss-core 外不得直接依赖 tracing 三件套。
-#   日志一律英文        —— 日志宏实参里不得出现非 ASCII 字节。
-#   egui 上下文装入点   —— 除统一装入点外不得直接建立渲染上下文。
-#   FFI 声明集中        —— 跨语言声明只允许出现在平台适配层的专用模块。
-#   版本单点维护        —— 子 crate 的版本与语言版本必须继承工作区，
-#                          字面量只允许出现在根清单的工作区段。
-#   依赖只开需要的特性  —— 每个第三方依赖声明必须关闭默认特性。
-#   依赖无死条目        —— 声明的第三方依赖必须在源码、测试与基准里有使用证据。
-#   文件行数上限        —— 单个生产源文件不超过五百行；
-#                          文件头部的放行标记注明缘由后豁免。
-#   残留任务标记        —— 大写任务标记词全字匹配，命中即失败。
-#
-# 用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
+"""仓库自动化门禁：把可由工具判定的规则逐条落成检查，覆盖依赖方向、评测资产隔离、
+桩副本一致、日志出口与语言、界面库（egui）上下文装入点、外部函数接口（FFI）声明集中、
+版本单点、依赖特性、死条目、文件行数与残留任务标记。
+本地约束配方（提交前门禁的一部分）与持续集成的同名检查作业共用此脚本，
+保证本地与远端判定一致。
+
+覆盖：
+  依赖方向            —— 各包（crate）只能依赖允许的边；核心库（gloss-core）不得出现平台与渲染栈，
+                         红线是窗口库（winit）、图形后端（wgpu）与平台接口（API）。
+  评测资产隔离         —— 评测包（gloss-eval）不被任何清单依赖；评测资产不被生产代码的
+                         内嵌宏引用。
+  桩副本一致          —— 各包（crate）测试桩目录的同名桩逐字一致，防跨包漂移。
+  日志统一出口        —— 除核心库（gloss-core）外不得直接依赖日志三件套（tracing）。
+  日志一律英文        —— 日志宏实参里不得出现非英文字节（ASCII）。
+  界面库（egui）上下文装入点 —— 除统一装入点外不得直接建立渲染上下文。
+  外部函数接口（FFI）声明集中 —— 跨语言声明只允许出现在平台适配层的专用模块。
+  版本单点维护        —— 子包（crate）的版本与语言版本必须继承工作区，
+                         字面量只允许出现在根清单的工作区段。
+  依赖只开需要的特性  —— 每个第三方依赖声明必须关闭默认特性。
+  依赖无死条目        —— 声明的第三方依赖必须在源码、测试与基准里有使用证据。
+  文件行数上限        —— 单个生产源文件不超过五百行；
+                         文件头部的放行标记注明缘由后豁免。
+  残留任务标记        —— 大写任务标记词全字匹配，命中即失败。
+
+用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
+"""
 
 import os
 import re
@@ -32,7 +33,7 @@ import sys
 
 LINE_CAP = 500
 
-# 约束「依赖方向」的允许边表。新增 crate 必须在这里登记（并与项目文档同步），
+# 约束“依赖方向”的允许边表。新增包（crate）必须在这里登记（并与项目文档同步），
 # 漏登记即失败。
 ALLOWED_OWN_DEPS = {
     "gloss": "gloss-core gloss-platform gloss-app",
@@ -42,7 +43,7 @@ ALLOWED_OWN_DEPS = {
     "gloss-eval": "gloss-core",
 }
 
-# gloss-core 的红线：平台 / 渲染 / 系统适配栈。
+# 核心库（gloss-core）的红线：平台、渲染与系统适配栈。
 CORE_FORBIDDEN_EXACT = {
     "winit",
     "wgpu",
@@ -197,7 +198,7 @@ def read_text(path):
 
 
 def stub_section(path, pat):
-    """端口桩按节比对：节以「列 0 的 ///」切分（桩的条目文档都在列 0，
+    """端口桩按节比对：节以“列 0 的 ///”切分（桩的条目文档都在列 0，
     结构体字段文档有缩进，不会误切）。文件缺失按空节处理（对齐 cmp 空对空）。"""
     if not os.path.isfile(path):
         return ""
@@ -219,7 +220,7 @@ def stub_section(path, pat):
 def run(root):
     """逐条执行约束，返回 (oks, fails)。"""
     manifest_list = manifests(root)
-    dep_dump = []  # (属主, 清单相对路径, 节, 键, 行号, 条目全文)
+    dep_dump = []  # 条目依次是属主、清单相对路径、节、键、行号与全文
     for m in manifest_list:
         name = pkg_name(m)
         if not name:
@@ -242,14 +243,14 @@ def _checks(root, manifest_list, dep_dump):
         oks.append(msg)
 
     def rel(path):
-        # 统一归一为 / 风格，跨平台下与源码里的常量路径可比
+        # 统一归一为斜杠风格，跨平台下与源码里的常量路径可比
         return os.path.relpath(path, root).replace(os.sep, "/")
 
     agents_md = os.path.join(root, "AGENTS.md")
 
-    print("== 约束检查（仓库根：%s）==" % root)
+    print("== constraint checks (repo root: %s) ==" % root)
 
-    # ---- 约束「依赖方向」 ----
+    # ---- 约束“依赖方向” ----
     edges = 0
     for owner, mrel, _sec, key, start, text in dep_dump:
         if is_path_dep(text):
@@ -257,38 +258,41 @@ def _checks(root, manifest_list, dep_dump):
             allowed = ALLOWED_OWN_DEPS.get(owner, "")
             if key not in allowed.split():
                 fail(
-                    "约束「依赖方向」：%s 不得依赖 %s（%s:%d）；允许的边：%s"
-                    % (os.path.basename(owner), key, mrel, start, allowed or "无")
+                    "constraint violation (dependency direction): %s must not depend on"
+                    " %s (%s:%d); allowed edges: %s"
+                    % (os.path.basename(owner), key, mrel, start, allowed or "none")
                 )
         elif owner == "gloss-core" and core_forbidden(key):
             fail(
-                "约束「依赖方向」：gloss-core 出现平台/渲染栈依赖 %s（%s:%d）——红线禁入"
+                "constraint violation (dependency direction): gloss-core has a"
+                " platform/render stack dependency %s (%s:%d) — red-line, forbidden"
                 % (key, mrel, start)
             )
-    # crate 名必须在本文件里出现过：约束表与依赖边是两处维护，靠这条挡住单边改动
+    # 包名（crate）必须在本文件里出现过：约束表与依赖边是两处维护，靠这条挡住单边改动
     if os.path.isfile(agents_md):
         agents_text = read_text(agents_md)
         for m in manifest_list:
             name = pkg_name(m)
             if name and name not in agents_text:
                 fail(
-                    "约束「依赖方向」：crate %s 未出现在 %s 的依赖方向说明里"
-                    % (name, rel(agents_md))
+                    "constraint violation (dependency direction): crate %s missing from"
+                    " the dependency direction notes in %s" % (name, rel(agents_md))
                 )
-    ok("依赖方向（%d 条本仓库依赖边 + 各 crate 的 crate 名登记）" % edges)
+    ok("ok dependency direction (%d in-repo dependency edges + crate names registered)" % edges)
 
-    # ---- 约束「评测资产隔离」 ----
-    # gloss-eval 是评测工具链，依赖方向断言已保证它只消费、不被依赖；这里再钉
+    # ---- 约束“评测资产隔离” ----
+    # 评测包（gloss-eval）是评测工具链，依赖方向断言已保证它只消费、不被依赖；这里再钉
     # 两条硬边界，防评测资产从旁路渗进生产：
-    #   1. 任何 gloss-eval 之外的清单不得出现对它的依赖（即使边表将来被
+    #   一、评测包（gloss-eval）之外的清单不得出现对它的依赖（即使边表将来被
     #      误放宽，这条仍然挡住）；
-    #   2. gloss-eval 之外的源码不得用内嵌宏引用评测资产。
+    #   二、评测包（gloss-eval）之外的源码不得用内嵌宏引用评测资产。
     eval_dep_violations = 0
     for owner, mrel, _sec, key, start, _text in dep_dump:
         if key == "gloss-eval" and owner != "gloss-eval":
             fail(
-                "约束「eval 资产隔离」：%s 依赖了 gloss-eval（%s:%d）"
-                "——评测工具链不得进生产依赖图" % (owner, mrel, start)
+                "constraint violation (eval asset isolation): %s depends on gloss-eval"
+                " (%s:%d) — the eval toolchain must stay out of the production"
+                " dependency graph" % (owner, mrel, start)
             )
             eval_dep_violations += 1
     eval_asset_violations = 0
@@ -309,14 +313,14 @@ def _checks(root, manifest_list, dep_dump):
             continue
         eval_asset_violations += 1
         fail(
-            "约束「eval 资产隔离」：%s 把 gloss-eval 资产嵌进了生产代码（%s）"
-            % (rel(f), hits[0][:60])
+            "constraint violation (eval asset isolation): %s embeds a gloss-eval asset"
+            " into production code (%s)" % (rel(f), hits[0][:60])
         )
     if eval_dep_violations == 0 and eval_asset_violations == 0:
-        ok("eval 资产隔离（依赖 0 处 + include 0 处）")
+        ok("ok eval asset isolation (0 dependency refs + 0 include refs)")
 
-    # ---- 测试桩副本一致性（跨 crate 复用的同名桩逐字一致）----
-    # 桩按 crate 自持（各 crate 的测试桩目录），一份漂移会让两个 crate 的测试在
+    # ---- 测试桩副本一致性：跨包（crate）复用的同名桩逐字一致 ----
+    # 桩按包（crate）自持（各包的测试桩目录），一份漂移会让两个包的测试在
     # 语义不同的假实现上各自通过。引擎桩全文比对；端口桩按节比对。
     core_stubs = os.path.join(root, "crates", "gloss-core", "tests", "stubs")
     if os.path.isfile(os.path.join(core_stubs, "engine.rs")):
@@ -325,20 +329,23 @@ def _checks(root, manifest_list, dep_dump):
         def assert_same(desc, text_a, text_b):
             nonlocal drifts
             if text_a != text_b:
-                fail("桩副本漂移：%s —— 同名桩必须逐字一致，改注入语义时跨 crate 同步" % desc)
+                fail(
+                    "stub copy drift: %s — same-name stubs must be identical;"
+                    " sync across crates when changing injected semantics" % desc
+                )
                 drifts += 1
 
         def text_of(path):
             return read_text(path) if os.path.isfile(path) else ""
 
         assert_same(
-            "engine.rs（core ↔ app）",
+            "engine.rs (core <-> app)",
             text_of(os.path.join(core_stubs, "engine.rs")),
             text_of(os.path.join(root, "crates", "gloss-app", "tests", "stubs", "engine.rs")),
         )
         for crate in ("gloss-app", "gloss-platform"):
             assert_same(
-                "内存版配置存储桩（core ↔ %s）" % crate,
+                "memory config store stub (core <-> %s)" % crate,
                 stub_section(os.path.join(core_stubs, "ports.rs"), "内存版配置存储桩"),
                 stub_section(
                     os.path.join(root, "crates", crate, "tests", "stubs", "ports.rs"),
@@ -346,23 +353,22 @@ def _checks(root, manifest_list, dep_dump):
                 ),
             )
         if drifts == 0:
-            ok("桩副本逐字一致（engine.rs 全文 + 共享端口桩逐节比对）")
+            ok("ok stub copies identical (engine.rs full text + shared port stubs per section)")
     else:
-        ok("桩副本逐字一致（无 tests/stubs/，跳过）")
+        ok("ok stub copies identical (no tests/stubs/, skipped)")
 
-    # ---- 约束「日志统一出口」 ----
+    # ---- 约束“日志统一出口” ----
     for owner, mrel, _sec, key, start, _text in dep_dump:
         if key in ("tracing", "tracing-appender", "tracing-subscriber") and owner != "gloss-core":
             fail(
-                "约束「日志统一出口」：%s 直接依赖了 %s（%s:%d）——只经 gloss_core::log 使用"
-                % (os.path.basename(owner), key, mrel, start)
+                "constraint violation (unified log exit): %s directly depends on %s"
+                " (%s:%d) — use gloss_core::log only" % (os.path.basename(owner), key, mrel, start)
             )
     log_owners = len({owner for owner, _, _, _, _, _ in dep_dump})
-    ok("日志统一出口（%d 个 crate 的日志依赖归属）" % log_owners)
+    ok("ok unified log exit (log dependency ownership across %d crates)" % log_owners)
 
-    # ---- 约束「日志一律英文」 ----
-    # 把源文件折成一行再抓日志宏的实参（到第一个右括号为止），实参里出现非 ASCII
-    # 字节即违规；行内反引号与注释里的中文不受影响（不在宏实参里）。
+    # ---- 约束“日志一律英文” ----
+    # 把源文件折成一行再抓日志宏的实参（到第一个右括号为止），实参里出现非英文字节即违规；行内反引号与注释里的中文不受影响（不在宏实参里）。
     rs_files = 0
     log_violations = 0
     log_macro_re = re.compile(
@@ -375,10 +381,16 @@ def _checks(root, manifest_list, dep_dump):
         hits = [m.group(0) for m in log_macro_re.finditer(flat) if re.search(r"[^ -~]", m.group(0))]
         if hits:
             log_violations += 1
-            fail("约束「日志一律英文」：%s 的日志实参含非 ASCII —— %s" % (rel(f), hits[0][:60]))
-    ok("日志一律英文（扫 %d 个 .rs 文件，%d 处违规）" % (rs_files, log_violations))
+            fail(
+                "constraint violation (log messages English-only): %s has a log macro"
+                " argument with non-ASCII — %s" % (rel(f), hits[0][:60])
+            )
+    ok(
+        "ok log messages English-only (%d .rs files scanned, %d violations)"
+        % (rs_files, log_violations)
+    )
 
-    # ---- 约束「egui 上下文统一装入点」 ----
+    # ---- 约束“界面库（egui）上下文统一装入点” ----
     # 浮层与设置窗各持一个独立的上下文，字体与主题都要逐个上下文装上；
     # 这两件事只允许经统一装入点发生——别处直接建上下文、或直接设置字体与
     # 主题，都会得到一个少装了东西的上下文。
@@ -402,14 +414,18 @@ def _checks(root, manifest_list, dep_dump):
             continue
         ctx_violations += 1
         fail(
-            "约束「egui 上下文统一装入点」：%s 绕过统一装入点 —— 走 ui/context.rs 的 "
-            "new_context / reapply（%s）" % (rel(f), hits[0][:40])
+            "constraint violation (egui context unified load point): %s bypasses the"
+            " unified load point — go through new_context / reapply in ui/context.rs"
+            " (%s)" % (rel(f), hits[0][:40])
         )
-    ok("egui 上下文统一装入点（扫 %d 个 .rs 文件，%d 处绕过）" % (ctx_files, ctx_violations))
+    ok(
+        "ok egui context unified load point (%d .rs files scanned, %d bypasses)"
+        % (ctx_files, ctx_violations)
+    )
 
-    # ---- 约束「FFI 声明集中」 ----
+    # ---- 约束“外部函数接口（FFI）声明集中” ----
     # 平台跨语言声明只允许出现在平台适配层的专用模块（签名与不变量依据一处审计）；
-    # 业务模块从那里引用，就地再声明一份会与真签名漂移。C 声明只能写在跨语言
+    # 业务模块从那里引用，就地再声明一份会与真签名漂移。语言（C）声明只能写在跨语言
     # 块里，故按块匹配（匹配前去掉空白）；导出函数形式的回调定义不在其列：
     # 那是我们导出的函数，随各自的业务模块走。
     ffi_owner_dir = "crates/gloss-platform/src/ffi/"
@@ -428,12 +444,16 @@ def _checks(root, manifest_list, dep_dump):
             continue
         ffi_violations += 1
         fail(
-            "约束「FFI 声明集中」：%s 就地声明了 C 接口 —— 收进 gloss-platform 的 ffi 模块（%s）"
+            "constraint violation (FFI declarations centralized): %s declares a C"
+            " interface inline — move it into the ffi module of gloss-platform (%s)"
             % (rel(f), hits[0][:40])
         )
-    ok("FFI 声明集中（扫 %d 个 .rs 文件，%d 处就地声明）" % (ffi_files, ffi_violations))
+    ok(
+        "ok FFI declarations centralized (%d .rs files scanned, %d inline declarations)"
+        % (ffi_files, ffi_violations)
+    )
 
-    # ---- 约束「版本单点维护」 ----
+    # ---- 约束“版本单点维护” ----
     root_manifest = os.path.join(root, "Cargo.toml")
     ws_body = (
         section_body(root_manifest, "[workspace.package]") if os.path.isfile(root_manifest) else []
@@ -441,20 +461,20 @@ def _checks(root, manifest_list, dep_dump):
     for field in ("version", "edition"):
         if not any(re.match(r"^%s\s*=\s*\"" % field, line) for line in ws_body):
             fail(
-                "约束「版本单点维护」：%s 的 [workspace.package] 没有 %s 字面量"
-                "（版本单点就在这里）" % (rel(root_manifest), field)
+                "constraint violation (single version source): %s [workspace.package]"
+                " has no %s literal (the single source lives here)" % (rel(root_manifest), field)
             )
     for m in manifest_list:
         pkg = section_body(m, "[package]")
         for field in ("version", "edition"):
             if not any(re.match(r"^%s\.workspace\s*=\s*true" % field, line) for line in pkg):
                 fail(
-                    "约束「版本单点维护」：%s 的 [package] 缺少 %s.workspace = true"
-                    "（不要硬写字面量）" % (rel(m), field)
+                    "constraint violation (single version source): %s [package] misses"
+                    " %s.workspace = true (do not hardcode the literal)" % (rel(m), field)
                 )
-    ok("版本单点维护（根 [workspace.package] + 各 crate 的 *.workspace = true）")
+    ok("ok single version source (root [workspace.package] + per-crate *.workspace = true)")
 
-    # ---- 约束「依赖只开需要的特性」 ----
+    # ---- 约束“依赖只开需要的特性” ----
     deps_checked = 0
     for _owner, mrel, _sec, key, start, text in dep_dump:
         # 本仓库路径依赖（不带版本）与工作区继承项不适用这条
@@ -465,18 +485,18 @@ def _checks(root, manifest_list, dep_dump):
         deps_checked += 1
         if "default-features = false" not in text:
             fail(
-                "约束「依赖只开需要的特性」：%s:%d 的 %s 未写 default-features = false"
-                % (mrel, start, key)
+                "constraint violation (default features off): %s:%d %s lacks"
+                " default-features = false" % (mrel, start, key)
             )
-    ok("依赖只开需要的特性（检查 %d 条第三方依赖声明）" % deps_checked)
+    ok("ok default features off (%d third-party dependency declarations checked)" % deps_checked)
 
-    # ---- 约束「依赖无死条目」 ----
-    # 声明的每个第三方依赖（非本仓路径、非工作区继承）必须能在所属 crate 的
+    # ---- 约束“依赖无死条目” ----
+    # 声明的每个第三方依赖（非本仓路径、非工作区继承）必须能在所属包（crate）的
     # 源码面（源码、测试、基准目录）找到使用证据：路径引用（含属性宏与派生宏
     # 内的路径）、宏调用，或导入语句（重导出与别名导入同算）。依赖键连字符按
-    # Rust 惯例转下划线后匹配；证据按文本匹配、不区分注释与代码（宽松判定防
+    # 本语言（Rust）惯例转下划线后匹配；证据按文本匹配、不区分注释与代码（宽松判定防
     # 误报优先）。条目行尾的放行标记豁免该条（同密钥扫描惯例，须注明缘由）。
-    # 本仓路径依赖由「依赖方向」管辖，不在此判罚；本仓无构建脚本，若未来引入
+    # 本仓路径依赖由“依赖方向”管辖，不在此判罚；本仓无构建脚本，若未来引入
     # 需把其纳入扫描面。
     dead_count = 0
     dead_scanned = 0
@@ -516,15 +536,19 @@ def _checks(root, manifest_list, dep_dump):
             continue
         dead_count += 1
         fail(
-            "约束「依赖无死条目」：%s 声明了 %s（%s:%d）但 src/tests/benches 无使用证据"
-            " —— 用起来、删掉，或条目行尾 deps:allow 注明缘由"
+            "constraint violation (no dead dependencies): %s declares %s (%s:%d) with no"
+            " usage evidence in src/tests/benches — use it, drop it, or add a deps:allow"
+            " marker with a reason at the end of the entry line"
             % (os.path.basename(owner), key, mrel, start)
         )
     if dead_count == 0:
-        ok("依赖无死条目（扫 %d 条第三方声明，deps:allow %d 条）" % (dead_scanned, dead_allowed))
+        ok(
+            "ok no dead dependencies (%d third-party declarations scanned, %d deps:allow)"
+            % (dead_scanned, dead_allowed)
+        )
 
-    # ---- 约束「文件行数上限」 ----
-    # 单个生产源文件不超过五百行，超限即失败；扫描面是根源码目录与各 crate 的
+    # ---- 约束“文件行数上限” ----
+    # 单个生产源文件不超过五百行，超限即失败；扫描面是根源码目录与各包（crate）的
     # 源码目录，测试目标与基准不在其列。生产行数按首个列零的测试开关属性行
     # 截断（测试模块按仓库惯例置于文件尾），故文件尾的内联测试模块不计入。
     # 存量确需缓冲的，文件前五行写放行标记并注明缘由（同密钥扫描惯例）——
@@ -550,11 +574,15 @@ def _checks(root, manifest_list, dep_dump):
             continue
         big_files += 1
         fail(
-            "约束「文件行数上限」：%s 生产代码 %d 行，超 %d 行上限 —— 按职责拆分；"
-            "确需缓冲在文件前 5 行写 lines:allow 注明缘由" % (rel(f), production, LINE_CAP)
+            "constraint violation (line cap): %s has %d production lines, over the %d-line"
+            " cap — split by responsibility; if a buffer is truly needed, add lines:allow"
+            " with a reason in the first 5 lines" % (rel(f), production, LINE_CAP)
         )
     if big_files == 0:
-        ok("文件行数上限（生产代码 ≤%d 行；lines:allow 豁免 %d 个）" % (LINE_CAP, big_allowed))
+        ok(
+            "ok line cap (production code <=%d lines; %d lines:allow exemptions)"
+            % (LINE_CAP, big_allowed)
+        )
 
     # ---- 残留任务标记扫描 ----
     # 大写任务标记词全字匹配，扫全部仓库跟踪文件。
@@ -566,7 +594,7 @@ def _checks(root, manifest_list, dep_dump):
         ).returncode
         == 0
     ):
-        # 正则按 ASCII 词界的字节语义对齐命令行全字匹配：汉字不算词字符，
+        # 正则按英文词界（ASCII）的字节语义对齐命令行全字匹配：汉字不算词字符，
         # 任务标记紧贴中文的形态同样命中
         marker_re = re.compile(r"\b(?:TODO|FIXME|HACK|TBD)\b", re.ASCII)
         out = subprocess.run(
@@ -592,8 +620,8 @@ def _checks(root, manifest_list, dep_dump):
                 if marker_re.search(line)
             ]
             if hits:
-                fail("残留任务标记：%s —— %s" % (f, hits[0][:60]))
-        ok("无残留任务标记（git 跟踪文件全字扫描）")
+                fail("leftover task marker: %s — %s" % (f, hits[0][:60]))
+        ok("ok no leftover task markers (whole-word scan of git-tracked files)")
 
     return oks, fails
 
@@ -610,13 +638,17 @@ def main():
         print("  ✓ %s" % line)
     if fails:
         print("", file=sys.stderr)
-        print("错误：有 %d 处未通过自动化门禁（见上）。" % len(fails), file=sys.stderr)
-        print("  - 规则本身不打算改：改代码；", file=sys.stderr)
         print(
-            "  - 规则确实要改：先改 AGENTS.md 与相关配置，再改本脚本，别只改一处。", file=sys.stderr
+            "error: %d checks failed the automated gates (see above)." % len(fails), file=sys.stderr
+        )
+        print("  - rule stays: fix the code;", file=sys.stderr)
+        print(
+            "  - rule really changed: update AGENTS.md and related configs first, then"
+            " this script; never just one side.",
+            file=sys.stderr,
         )
         return 1
-    print("✓ 约束检查通过（%d 项）" % len(oks))
+    print("✓ constraint checks passed (%d checks)" % len(oks))
     return 0
 
 

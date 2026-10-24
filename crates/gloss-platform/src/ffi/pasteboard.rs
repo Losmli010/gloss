@@ -1,4 +1,4 @@
-//! 粘贴板（ApplicationServices 的 Pasteboard 接口，Carbon 时代沿用的 C API）。
+//! 粘贴板接口（Pasteboard），来自应用服务框架（ApplicationServices），沿用系统框架（Carbon）时代的语言层接口（C API）。
 
 use std::ffi::{CStr, c_void};
 

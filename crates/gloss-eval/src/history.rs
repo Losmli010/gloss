@@ -1,5 +1,5 @@
-//! 评测历史数据层：报告追加进历史记录文件（一行一份 JSON 文本，不包
-//! 壳）并从全量历史重绘趋势图。本模块是历史数据的唯一碰盘点；
+//! 评测历史数据层：报告追加进历史记录文件——一行一份（JSON）文本，
+//! 不包壳——并从全量历史重绘趋势图。本模块是历史数据的唯一碰盘点；
 //! 趋势渲染是被它调用的纯渲染层，不反向依赖。
 
 use std::path::Path;
@@ -97,7 +97,7 @@ fn parsed_key(row: &str) -> Option<(String, String)> {
 #[allow(clippy::print_stderr)]
 fn warn_bad_row(path: &Path, line: usize, error: &serde_json::Error) {
     eprintln!(
-        "警告：{} 第 {line} 行无法解析，已跳过（{error}）",
+        "warning: {} line {line} failed to parse, skipped ({error})",
         path.display()
     );
 }
@@ -293,7 +293,7 @@ mod tests {
         .expect("second");
         let redrawn = std::fs::read_to_string(dir.join("history.svg")).expect("svg text");
         assert!(
-            redrawn.contains("（2 点）"),
+            redrawn.contains("(2 points)"),
             "the redraw sees the full history"
         );
         std::fs::remove_dir_all(&dir).ok();

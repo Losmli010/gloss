@@ -1,19 +1,20 @@
 //! 剪贴板兜底读取（模拟复制）：兜底读取器。
 //!
-//! AX 读不到选区时的兜底通道：快照剪贴板全部条目与 flavor 原始字节 →
-//! 注入 Cmd+C → 轮询确认目标应用写入 → 读回 → 读回成功且现值未变才按
+//! 辅助功能（AX）读不到选区时的兜底通道：快照剪贴板全部条目与数据风格（flavor）
+//! 原始字节 → 注入复制快捷键（Cmd+C） → 轮询确认目标应用写入 → 读回 →
+//! 读回成功且现值未变才按
 //! 快照恢复（失败轮一律不恢复——板上要么未变，要么是本轮之外的新写入
-//! 或注入副产物，都不是可覆盖的内容）。快照按条目与 flavor 尽力保全：
-//! 读不出数据的 flavor（承诺式数据等）单独跳过——读不出即无法如实
-//! 恢复，整轮放弃只会让兜底在有此类 flavor 的板上整批失效。两类边界仍
-//! 整体放弃、不注入：结构读不出（板、条目、flavor 名单）；板上条目的
-//! flavor 全部读不出——注入后原内容无法如实写回，恢复轮会清空剪贴板。
+//! 或注入副产物，都不是可覆盖的内容）。快照按条目与风格尽力保全：
+//! 读不出数据的风格（承诺式数据等）单独跳过——读不出即无法如实
+//! 恢复，整轮放弃只会让兜底在有此类风格的板上整批失效。两类边界仍
+//! 整体放弃、不注入：结构读不出（板、条目、风格名单）；板上条目的
+//! 风格全部读不出——注入后原内容无法如实写回，恢复轮会清空剪贴板。
 //! 未确认时重注入一轮再等一个完整超时窗口。产物与收尾分离：恢复决策与
 //! 写盘归因装在恢复收尾结构里，调用方在取材产物上抛之后收口
 //! ——恢复写盘不挡在弹窗链路上。写盘轮次
 //! 经取材轮次闩锁向哨兵自报计数归因（见剪贴板模块的
 //! 轮次写入闩锁）。纯时序逻辑独立成函数
-//! （单测覆盖），系统 API 交互归实现子模块。
+//! （单测覆盖），系统接口交互归实现子模块。
 
 use std::time::{Duration, Instant};
 
@@ -114,7 +115,8 @@ mod imp {
     impl ChangeMonitor {
         fn new() -> Option<Self> {
             let pb = open_pasteboard()?;
-            // SAFETY: `raw` 是有效 +1 引用，存活至本结构销毁。
+            // SAFETY: `raw` is a valid +1 reference that stays alive until this
+            // struct is destroyed.
             unsafe { PasteboardSynchronize(pb.raw) };
             Some(Self { pb, latched: false })
         }
@@ -124,7 +126,8 @@ mod imp {
         }
 
         fn generation(&mut self) -> u64 {
-            // SAFETY: `raw` 是有效 +1 引用，存活至本结构销毁。
+            // SAFETY: `raw` is a valid +1 reference that stays alive until this
+            // struct is destroyed.
             let flags = unsafe { PasteboardSynchronize(self.pb.raw) };
             if flags & K_PASTEBOARD_MODIFIED != 0 {
                 self.latched = true;
@@ -620,15 +623,17 @@ mod live_tests {
             return false;
         };
         let mut pb: PasteboardRef = std::ptr::null_mut();
-        // SAFETY: `name_ref` 是有效 CFString 引用，出参指向栈上变量。
+        // SAFETY: `name_ref` is a valid CFString reference, and the out parameter
+        // points to a stack variable.
         let status = unsafe { PasteboardCreate(name_ref.string_ref(), &mut pb) };
         if status != 0 || pb.is_null() {
             return false;
         }
-        // SAFETY: `pb` 是 PasteboardCreate 返回的 +1 引用，交给守卫释放。
+        // SAFETY: `pb` is the +1 reference returned by `PasteboardCreate`, handed
+        // to the guard for release.
         let _pb = CfGuard::new(pb as *const c_void);
 
-        // SAFETY: `pb` 是有效 +1 引用。
+        // SAFETY: `pb` is a valid +1 reference.
         let status = unsafe { PasteboardClear(pb) };
         if status != 0 {
             return false;
@@ -657,14 +662,16 @@ mod live_tests {
         ) else {
             return false;
         };
-        // SAFETY: `pb` 与四个引用的守卫均存活到函数末尾，Put 不接管引用。
+        // SAFETY: the guards for `pb` and the four references all stay alive until
+        // the end of the function, and `Put` does not take ownership of the
+        // references.
         let status = unsafe {
             PasteboardPutItemFlavor(pb, item_id, text_ref.string_ref(), text_data.data_ref(), 0)
         };
         if status != 0 {
             return false;
         }
-        // SAFETY: 同上，引用仍由守卫持有。
+        // SAFETY: same as above, the references are still held by their guards.
         let status = unsafe {
             PasteboardPutItemFlavor(
                 pb,
@@ -682,14 +689,16 @@ mod live_tests {
             return false;
         };
         let mut pb: PasteboardRef = std::ptr::null_mut();
-        // SAFETY: `name_ref` 是有效 CFString 引用，出参指向栈上变量。
+        // SAFETY: `name_ref` is a valid CFString reference, and the out parameter
+        // points to a stack variable.
         let status = unsafe { PasteboardCreate(name_ref.string_ref(), &mut pb) };
         if status != 0 || pb.is_null() {
             return false;
         }
-        // SAFETY: `pb` 是 PasteboardCreate 返回的 +1 引用，交给守卫释放。
+        // SAFETY: `pb` is the +1 reference returned by `PasteboardCreate`, handed
+        // to the guard for release.
         let _pb = CfGuard::new(pb as *const _);
-        // SAFETY: `pb` 是有效 +1 引用。
+        // SAFETY: `pb` is a valid +1 reference.
         let status = unsafe { PasteboardClear(pb) };
         status == 0
     }
@@ -697,30 +706,36 @@ mod live_tests {
     fn read_flavor_data(item_index: CFIndex, flavor: &CStr) -> Option<Vec<u8>> {
         let name_ref = cf::cf_string(CLIPBOARD_NAME)?;
         let mut pb: PasteboardRef = std::ptr::null_mut();
-        // SAFETY: `name_ref` 是有效 CFString 引用，出参指向栈上变量。
+        // SAFETY: `name_ref` is a valid CFString reference, and the out parameter
+        // points to a stack variable.
         let status = unsafe { PasteboardCreate(name_ref.string_ref(), &mut pb) };
         if status != 0 || pb.is_null() {
             return None;
         }
-        // SAFETY: `pb` 是 PasteboardCreate 返回的 +1 引用，交给守卫释放。
+        // SAFETY: `pb` is the +1 reference returned by `PasteboardCreate`, handed
+        // to the guard for release.
         let _pb = CfGuard::new(pb as *const _);
-        // SAFETY: `pb` 是有效 +1 引用；本地引用可能滞后于全局板，先同步。
+        // SAFETY: `pb` is a valid +1 reference; the local reference may lag behind
+        // the global board, so synchronize first.
         unsafe { PasteboardSynchronize(pb) };
         let mut id: PasteboardItemID = std::ptr::null_mut();
-        // SAFETY: `pb` 是有效 +1 引用，出参指向栈上变量。
+        // SAFETY: `pb` is a valid +1 reference, and the out parameter points to a
+        // stack variable.
         let status = unsafe { PasteboardGetItemIdentifier(pb, item_index, &mut id) };
         if status != 0 {
             return None;
         }
         let flavor_ref = cf::cf_string(flavor)?;
         let mut data: CFDataRef = std::ptr::null();
-        // SAFETY: `pb`/`id` 与 `flavor_ref` 均为有效引用，出参指向栈上变量。
+        // SAFETY: `pb`/`id` and `flavor_ref` are all valid references, and the out
+        // parameter points to a stack variable.
         let status =
             unsafe { PasteboardCopyItemFlavorData(pb, id, flavor_ref.string_ref(), &mut data) };
         if status != 0 || data.is_null() {
             return None;
         }
-        // SAFETY: `data` 是刚拷贝的有效 CFData 引用，长度与指针来自同一对象。
+        // SAFETY: `data` is a valid CFData reference just copied, with the length
+        // and the pointer coming from the same object.
         let (len, bytes_ptr) = unsafe { (CFDataGetLength(data), CFDataGetBytePtr(data)) };
         let Ok(len) = usize::try_from(len) else {
             return None;
@@ -728,8 +743,8 @@ mod live_tests {
         if len == 0 {
             return Some(Vec::new());
         }
-        // SAFETY: `bytes_ptr` 非 NULL（长度非零的 CFData 保证），可读字节
-        // 数恰为 `len`。
+        // SAFETY: `bytes_ptr` is non-NULL (guaranteed by CFData with a non-zero
+        // length), and the readable byte count is exactly `len`.
         let bytes = unsafe { std::slice::from_raw_parts(bytes_ptr, len) };
         Some(bytes.to_vec())
     }

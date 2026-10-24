@@ -5,10 +5,10 @@
 //!
 //! 带进程内读取缓存（读未命中才访问钥匙串，写删同步更
 //! 新缓存）：钥匙串的访问控制按代码签名信任访问方，调试构建每次重编译签
-//! 名都变，不在旧条目信任列表里——每次读取都会弹「允许访问钥匙串」并阻塞
+//! 名都变，不在旧条目信任列表里——每次读取都会弹“允许访问钥匙串”并阻塞
 //! 到用户点击。缓存把读弹窗收敛到每进程一次，未命中缓存的首读另按条目
 //! 键串行（见读入门禁的文档），并发首读不会各自撞
-//! 一次授权框；写删路径走「取引用删除 + 重建」（见写入与底层删除的
+//! 一次授权框；写删路径走“取引用删除加重建”（见写入与底层删除的
 //! 文档）免弹窗、也不受旧条目
 //! 所有权阻拦。设置页改密钥经同一实例写入缓存，即时生效，无需
 //! 重启。
@@ -160,9 +160,11 @@ impl KeychainSecret {
                 );
                 continue;
             };
-            // SAFETY: item 是 SecItemCopyMatching 交出的存活 SecKeychainItem
-            // （TCFType 包装保证引用非空、Drop 前 CFRetain 持有），delete
-            // 只消费该引用本身，不读条目数据、不留存越过本语句的指针。
+            // SAFETY: `item` is a live `SecKeychainItem` handed over by
+            // `SecItemCopyMatching` (the `TCFType` wrapper guarantees a non-null
+            // reference retained via `CFRetain` before `Drop`); the delete call
+            // only consumes the reference itself, reads no item data, and keeps no
+            // pointer past this statement.
             let status = unsafe { SecKeychainItemDelete(item.as_concrete_TypeRef()) };
             if status == errSecSuccess || status == errSecItemNotFound {
                 continue;

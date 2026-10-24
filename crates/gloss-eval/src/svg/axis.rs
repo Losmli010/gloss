@@ -119,8 +119,8 @@ impl Unit {
     pub(super) fn title_value(self, value: f64) -> String {
         match self {
             Unit::Percent => format!("{value:.2} %"),
-            Unit::Rounds => format!("{} 轮", fmt_value(value)),
-            Unit::Score => format!("{value:.2} 分"),
+            Unit::Rounds => format!("{} rounds", fmt_value(value)),
+            Unit::Score => format!("{value:.2} pts"),
             Unit::Milliseconds => format!("{value:.2} ms"),
         }
     }

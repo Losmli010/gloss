@@ -1,39 +1,34 @@
 #!/usr/bin/env python3
-"""性能指标注册表：全部趋势指标的唯一登记处（id / 类别 / 单位 / 判定 / 数据源）。
+"""性能指标注册表：全部趋势指标的唯一登记处，编号、类别、单位、判定与数据
+源都在这里。
 
-perf-collect / perf-chart / perf-report 共用本模块：指标 id、中文标签、单位
-与格式化、判定语义、对比噪声阈值都从这里取，不在消费方各存一份。预算门禁
-指标只登记 Rust 常量名与所在文件，预算数值不走注册表——Rust 常量随自检
-stderr 结构化行流出，collector 折算进历史点 budgets 段，图表与报告取最新
-携带预算的点画参考线，任何环节都不手写数值。
+统一采集器、趋势图表与趋势报告三个消费方共用本模块：指标编号、中文标
+签、单位与格式化、判定语义、对比噪声阈值都从这里取，不在消费方各存一
+份。预算门禁指标只登记（Rust）常量名与所在文件，预算数值不走注册表
+——常量随自检标准错误上的结构化行流出，采集器折算进历史点的预算段，图
+表与报告取最新携带预算的点画参考线，任何环节都不手写数值。
 
-单位词表固定五种：ms / kb / count / ns / bytes（kb 渲染时按 1024 进制换算
-MB）。判定语义三档：预算门禁（L3 自检判退出码）、精确计数门禁（对照历史
-最新点，整数上升即失败）、仅记录（趋势对照 + 噪声阈值启发式参考，输出须
-标注「非门禁，仅参考」）。
-
-用法：
-  python3 scripts/perf/metrics.py    打印全部注册项与 fmt 示例（核对清单）
-  from metrics import METRICS, BUDGET_CONSTS, fmt
-  fmt(1498, "ms")      # "1,498 ms"
-  fmt(104212, "kb")    # "101.8 MB"
+单位词表固定五种：毫秒、千字节、计数、纳秒与字节数（千字节渲染时按
+1024 进制换算兆字节）。判定语义三档：预算门禁由（L3）自检判退出码；精
+确计数门禁对照历史最新点，整数上升即失败；仅记录作趋势对照加噪声阈值启
+发式参考，输出须标注“非门禁，仅参考”。
 """
 
 from dataclasses import dataclass
 
 CATEGORIES = (
-    ("latency", "响应性"),
-    ("memory", "内存"),
-    ("cpu", "处理器"),
-    ("size", "体积"),
-    ("hotpath", "热路径"),
-    ("code", "代码健康"),
-    ("external", "外部依赖"),
+    ("latency", "latency"),
+    ("memory", "memory"),
+    ("cpu", "cpu"),
+    ("size", "size"),
+    ("hotpath", "hotpath"),
+    ("code", "code health"),
+    ("external", "external"),
 )
 CATEGORY_LABELS = dict(CATEGORIES)
 
 UNITS = frozenset({"ms", "kb", "count", "ns", "bytes"})
-JUDGES = ("预算门禁", "精确计数门禁", "仅记录")
+JUDGES = ("budget gate", "exact count gate", "record only")
 SOURCES = frozenset(
     {"app-metrics", "overlay-selftest", "startup-selftest", "clone-stats", "criterion", "eval-live"}
 )
@@ -74,10 +69,10 @@ BUDGET_CONSTS = {
 # 四组用例与基准文件一一对应，基准增删用例时同步这里；
 # 编号取基准框架的全名前缀，即组名点用例名。
 CORE_GROUPS = (
-    ("cache_key", "缓存键"),
-    ("complete", "结构化解析"),
-    ("prompt_render", "提示词渲染"),
-    ("task_cache", "任务缓存"),
+    ("cache_key", "cache key"),
+    ("complete", "structured parse"),
+    ("prompt_render", "prompt render"),
+    ("task_cache", "task cache"),
 )
 CORE_CASES = {
     "cache_key": ("text/short", "text/long", "image/1mb", "image/4mb"),
@@ -90,7 +85,9 @@ CORE_CASES = {
 def _core_metrics():
     """展开 criterion 热点墙钟指标（bench 墙钟随机器波动，恒为仅记录）。"""
     return {
-        f"core.{group}/{case}": Metric("hotpath", f"{label} {case}", "ns", "仅记录", "criterion")
+        f"core.{group}/{case}": Metric(
+            "hotpath", f"{label} {case}", "ns", "record only", "criterion"
+        )
         for group, label in CORE_GROUPS
         for case in CORE_CASES[group]
     }
@@ -99,82 +96,109 @@ def _core_metrics():
 METRICS = {
     # ---- 响应性 ----
     "app.startup_ms": Metric(
-        "latency", "启动总时长 spawn→就绪里程碑", "ms", "仅记录", "app-metrics"
+        "latency", "startup total spawn→ready milestone", "ms", "record only", "app-metrics"
     ),
     "startup.elapsed_ms": Metric(
-        "latency", "启动自检墙钟（起点→预热帧完成）", "ms", "预算门禁", "startup-selftest"
+        "latency",
+        "startup selftest wall clock (start→warmup frame done)",
+        "ms",
+        "budget gate",
+        "startup-selftest",
     ),
     "overlay.show_first_ms": Metric(
-        "latency", "划词→首帧（最差）", "ms", "预算门禁", "overlay-selftest"
+        "latency", "selection→first frame (worst)", "ms", "budget gate", "overlay-selftest"
     ),
-    "overlay.show_p50_ms": Metric("latency", "显隐延迟 p50", "ms", "仅记录", "overlay-selftest"),
-    "overlay.show_p95_ms": Metric("latency", "显隐延迟 p95", "ms", "仅记录", "overlay-selftest"),
-    "overlay.show_max_ms": Metric("latency", "显隐延迟最差", "ms", "仅记录", "overlay-selftest"),
+    "overlay.show_p50_ms": Metric(
+        "latency", "show/hide latency p50", "ms", "record only", "overlay-selftest"
+    ),
+    "overlay.show_p95_ms": Metric(
+        "latency", "show/hide latency p95", "ms", "record only", "overlay-selftest"
+    ),
+    "overlay.show_max_ms": Metric(
+        "latency", "show/hide latency worst", "ms", "record only", "overlay-selftest"
+    ),
     "overlay.hide_p50_ms": Metric(
-        "latency", "浮窗隐藏延迟 p50", "ms", "仅记录", "overlay-selftest"
+        "latency", "overlay hide latency p50", "ms", "record only", "overlay-selftest"
     ),
     "overlay.hide_max_ms": Metric(
-        "latency", "浮窗隐藏延迟最差", "ms", "仅记录", "overlay-selftest"
+        "latency", "overlay hide latency worst", "ms", "record only", "overlay-selftest"
     ),
     "overlay.frame_p95_ms": Metric(
-        "latency", "显隐动画帧时间 p95", "ms", "仅记录", "overlay-selftest"
+        "latency", "show/hide animation frame time p95", "ms", "record only", "overlay-selftest"
     ),
     "overlay.frame_missed": Metric(
-        "latency", "动画期 >32 ms 帧数", "count", "仅记录", "overlay-selftest", note="仅报告呈现"
+        "latency",
+        "frames >32 ms during animation",
+        "count",
+        "record only",
+        "overlay-selftest",
+        note="report only",
     ),
     # ---- 内存 ----
     "app.rss_idle_kb": Metric(
-        "memory", "稳态 RSS（30s 空闲窗口末段）", "kb", "仅记录", "app-metrics"
+        "memory", "steady-state RSS (30s idle window tail)", "kb", "record only", "app-metrics"
     ),
-    "app.rss_peak_kb": Metric("memory", "启动峰值 RSS", "kb", "仅记录", "app-metrics"),
+    "app.rss_peak_kb": Metric("memory", "startup peak RSS", "kb", "record only", "app-metrics"),
     "app.footprint_idle_kb": Metric(
-        "memory", "phys_footprint 稳态（活动监视器口径）", "kb", "仅记录", "app-metrics"
+        "memory",
+        "phys_footprint steady (activity monitor basis)",
+        "kb",
+        "record only",
+        "app-metrics",
     ),
     "app.footprint_peak_kb": Metric(
-        "memory", "phys_footprint 峰值（活动监视器口径）", "kb", "仅记录", "app-metrics"
+        "memory", "phys_footprint peak (activity monitor basis)", "kb", "record only", "app-metrics"
     ),
     "overlay.rss_growth_kb": Metric(
-        "memory", "显隐 RSS 净增长（全程）", "kb", "仅记录", "overlay-selftest"
+        "memory", "show/hide RSS net growth (full run)", "kb", "record only", "overlay-selftest"
     ),
     "overlay.rss_tail_growth_kb": Metric(
-        "memory", "显隐 RSS 净增长（尾段）", "kb", "预算门禁", "overlay-selftest"
+        "memory", "show/hide RSS net growth (tail)", "kb", "budget gate", "overlay-selftest"
     ),
     "overlay.window_handles": Metric(
-        "memory", "窗口句柄数（泄漏哨兵）", "count", "仅记录", "overlay-selftest"
+        "memory", "window handles (leak sentinel)", "count", "record only", "overlay-selftest"
     ),
     # ---- 处理器 ----
-    "app.startup_cpu_ms": Metric("cpu", "启动 CPU 时间", "ms", "仅记录", "app-metrics"),
-    "app.cpu_idle_ms": Metric("cpu", "空闲窗口 CPU（30s）", "ms", "仅记录", "app-metrics"),
+    "app.startup_cpu_ms": Metric("cpu", "startup CPU time", "ms", "record only", "app-metrics"),
+    "app.cpu_idle_ms": Metric("cpu", "idle window CPU (30s)", "ms", "record only", "app-metrics"),
     # ---- 体积 ----
-    "app.binary_x64_kb": Metric("size", "二进制体积 x64（release）", "kb", "仅记录", "app-metrics"),
+    "app.binary_x64_kb": Metric(
+        "size", "binary size x64 (release)", "kb", "record only", "app-metrics"
+    ),
     "app.binary_arm64_kb": Metric(
-        "size", "二进制体积 arm64（release）", "kb", "仅记录", "app-metrics"
+        "size", "binary size arm64 (release)", "kb", "record only", "app-metrics"
     ),
     # ---- 热路径 ----
     **_core_metrics(),
-    "clone.allocs": Metric("hotpath", "热点分配合计（次数）", "count", "精确计数门禁", "criterion"),
-    "clone.bytes": Metric("hotpath", "热点分配合计（字节）", "bytes", "精确计数门禁", "criterion"),
+    "clone.allocs": Metric(
+        "hotpath", "hotpath allocs total (count)", "count", "exact count gate", "criterion"
+    ),
+    "clone.bytes": Metric(
+        "hotpath", "hotpath allocs total (bytes)", "bytes", "exact count gate", "criterion"
+    ),
     # ---- 代码健康 ----
-    "clone.total": Metric("code", ".clone() 总数", "count", "精确计数门禁", "clone-stats"),
-    "clone.density": Metric("code", ".clone() 密度（次/千行）", "count", "仅记录", "clone-stats"),
+    "clone.total": Metric("code", ".clone() total", "count", "exact count gate", "clone-stats"),
+    "clone.density": Metric(
+        "code", ".clone() density (/kloc)", "count", "record only", "clone-stats"
+    ),
     # ---- 外部依赖 ----
     "eval.task_latency_p50_ms": Metric(
         "external",
-        "LLM 任务端到端延迟 p50",
+        "LLM task end-to-end latency p50",
         "ms",
-        "仅记录",
+        "record only",
         "eval-live",
         noise=0.20,
-        note="外部服务波动",
+        note="external service variance",
     ),
     "eval.task_latency_p95_ms": Metric(
         "external",
-        "LLM 任务端到端延迟 p95",
+        "LLM task end-to-end latency p95",
         "ms",
-        "仅记录",
+        "record only",
         "eval-live",
         noise=0.20,
-        note="外部服务波动",
+        note="external service variance",
     ),
 }
 
@@ -214,7 +238,7 @@ def fmt(value, unit):
         if value >= _KB_PER_MB:
             return f"{value / _KB_PER_MB:.1f} KB"
         return f"{value:,.0f} B"
-    raise ValueError(f"未知单位 {unit!r}（词表：ms/kb/count/ns/bytes）")
+    raise ValueError(f"unknown unit {unit!r} (vocabulary: ms/kb/count/ns/bytes)")
 
 
 def _validate():
@@ -222,21 +246,21 @@ def _validate():
     problems = []
     for mid, metric in METRICS.items():
         if metric.category not in CATEGORY_LABELS:
-            problems.append(f"{mid}: 未知类别 {metric.category!r}")
+            problems.append(f"{mid}: unknown category {metric.category!r}")
         if metric.unit not in UNITS:
-            problems.append(f"{mid}: 未知单位 {metric.unit!r}")
+            problems.append(f"{mid}: unknown unit {metric.unit!r}")
         if metric.judge not in JUDGES:
-            problems.append(f"{mid}: 未知判定 {metric.judge!r}")
+            problems.append(f"{mid}: unknown judge {metric.judge!r}")
         if metric.source not in SOURCES:
-            problems.append(f"{mid}: 未知数据源 {metric.source!r}")
-        if metric.judge == "预算门禁" and mid not in BUDGET_CONSTS:
-            problems.append(f"{mid}: 预算门禁指标缺 BUDGET_CONSTS 登记")
+            problems.append(f"{mid}: unknown source {metric.source!r}")
+        if metric.judge == "budget gate" and mid not in BUDGET_CONSTS:
+            problems.append(f"{mid}: budget gate metric missing a BUDGET_CONSTS entry")
     for mid in BUDGET_CONSTS:
         metric = METRICS.get(mid)
-        if metric is None or metric.judge != "预算门禁":
-            problems.append(f"{mid}: BUDGET_CONSTS 指向非预算门禁指标")
+        if metric is None or metric.judge != "budget gate":
+            problems.append(f"{mid}: BUDGET_CONSTS points to a non-budget-gate metric")
     if problems:
-        raise RuntimeError("指标注册表自检失败：\n" + "\n".join(problems))
+        raise RuntimeError("metric registry self-check failed:\n" + "\n".join(problems))
 
 
 _validate()
@@ -244,7 +268,7 @@ _validate()
 
 if __name__ == "__main__":
     for category_id, category_label in CATEGORIES:
-        print(f"## {category_label}（{category_id}）")
+        print(f"## {category_label} ({category_id})")
         for mid, metric in METRICS.items():
             if metric.category != category_id:
                 continue
@@ -262,8 +286,8 @@ if __name__ == "__main__":
             print(f"  {mid:<30} {metric.label}  " + "  ".join(fields))
         print()
     core_count = sum(1 for mid in METRICS if mid.startswith("core."))
-    print(f"共 {len(METRICS)} 项（core.* {core_count} 项）")
-    print("fmt 示例：")
+    print(f"{len(METRICS)} metrics total (core.* {core_count})")
+    print("fmt examples:")
     for value, unit in [
         (1498, "ms"),
         (38.2, "ms"),
