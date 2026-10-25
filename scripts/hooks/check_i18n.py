@@ -12,7 +12,9 @@
   装入点集中      —— 编译期引用文案资源只允许出现在统一装入点一处。
   词条表文件唯一  —— 声明词条前缀键的配置文件只允许在文案目录下。
 
-行尾放行标记豁免所在行，须注明缘由。
+行尾放行标记豁免所在行，须注明缘由。违规报告经统一诊断出口打印：每条带规
+则标识、位置、证据行与修复指引，违规随执行流即时输出；字面量扫描面的四个
+源码目录任一缺失按失败关闭退出。退出码按全脚本统一约定。
 
 用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
 """
@@ -25,11 +27,47 @@ import sys
 from collections.abc import Iterator
 from typing import Any
 
+import gate_report
+
 RULE = "ui copy lives in the i18n catalog"
 OWNER = "crates/gloss-app/src/ui/i18n.rs"
 CATALOG_DIR = "crates/gloss-app/i18n"
 SCAN_DIRS = "gloss-app / root crate / gloss-core / gloss-platform src"
 ALLOW_MARKER = "i18n:allow"
+
+RULE_I18N_LITERAL = "I18N-LITERAL"
+RULE_I18N_LOADPOINT = "I18N-LOADPOINT"
+RULE_I18N_CATALOG = "I18N-CATALOG"
+
+LITERAL_REMEDY = (
+    "add the entry to the catalog (zh.toml and en.toml, key gloss_<module>_<item>)"
+    " and read it via Text; not copy (icon glyphs, selftest strings, list bullets,"
+    " etc.): add i18n:allow at the end of the line with a reason"
+)
+LOADPOINT_REMEDY = (
+    "move the include into the single load point; read the copy via Text at the use site"
+)
+CATALOG_REMEDY = "move the entry table into %s/" % CATALOG_DIR
+
+SCAN_BASES = (
+    os.path.join("crates", "gloss-app", "src"),
+    "src",
+    os.path.join("crates", "gloss-core", "src"),
+    os.path.join("crates", "gloss-platform", "src"),
+)
+
+EXEMPT_FILE = "crates/gloss-core/src/prompt.rs"
+
+EMPTY_SURFACE_MESSAGE = "the copy scan surface is incomplete: missing source directories: %s"
+
+EMPTY_SURFACE_REMEDY = (
+    "run the gate from the workspace root; a missing source directory means the"
+    " literal scan cannot complete"
+)
+
+INCLUDE_RE = re.compile(r"include_(str|bytes)!\([^)]*i18n")
+
+CATALOG_KEY_RE = re.compile(r"^\s*gloss_[A-Za-z0-9_]+\s*=")
 
 
 def rs_files(base: str) -> Iterator[str]:
@@ -310,34 +348,58 @@ def literal_lines(src: str) -> set[int]:
     return hits
 
 
-def literal_violations(root: str, loader: Any = None) -> list[str]:
-    """检查一：四个扫描面的生产代码字面量，返回违规描述列表。"""
-    problems = []
-    for base in (
-        os.path.join(root, "crates", "gloss-app", "src"),
-        os.path.join(root, "src"),
-        os.path.join(root, "crates", "gloss-core", "src"),
-        os.path.join(root, "crates", "gloss-platform", "src"),
-    ):
-        for path in rs_files(base):
+def read_lines(path: str, loader: Any = None) -> list[str]:
+    if loader is not None:
+        return loader.read_text(path, errors="replace").split("\n")
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return fh.read().split("\n")
+
+
+def guard_scan_dirs(root: str) -> None:
+    """字面量扫描面守卫：四个源码目录任一缺失即失败关闭退出——目录缺席若静默
+    跳过，对应扫描面悄然缩水，等于没检查到却放行。"""
+    missing = [
+        base.replace(os.sep, "/")
+        for base in SCAN_BASES
+        if not os.path.isdir(os.path.join(root, base))
+    ]
+    if not missing:
+        return
+    gate_report.fail(
+        gate_report.Finding(
+            rule=gate_report.RULE_EMPTY_SURFACE,
+            path="",
+            line=0,
+            message=EMPTY_SURFACE_MESSAGE % ", ".join(missing),
+            remedy=EMPTY_SURFACE_REMEDY,
+        )
+    )
+    sys.exit(gate_report.EXIT_INFRA)
+
+
+def literal_findings(root: str, loader: Any = None) -> list[gate_report.Finding]:
+    """检查一：四个扫描面的生产代码字面量，逐行全量返回违规条目。"""
+    out = []
+    for base in SCAN_BASES:
+        for path in rs_files(os.path.join(root, base)):
             rel = os.path.relpath(path, root).replace(os.sep, "/")
-            if rel == "crates/gloss-core/src/prompt.rs":
+            if rel == EXEMPT_FILE:
                 continue
-            if loader is not None:
-                src = loader.read_text(path, errors="replace")
-            else:
-                with open(path, encoding="utf-8", errors="replace") as fh:
-                    src = fh.read()
-            lines = src.split("\n")
-            for ln in sorted(literal_lines(src)):
+            lines = read_lines(path, loader)
+            for ln in sorted(literal_lines("\n".join(lines))):
                 if ALLOW_MARKER in lines[ln - 1]:
                     continue
-                problems.append(
-                    "constraint violation (%s): %s line %d embeds a copy literal"
-                    " — add the entry to %s/ and read it via Text in %s"
-                    % (RULE, rel, ln, CATALOG_DIR, OWNER)
+                out.append(
+                    gate_report.Finding(
+                        rule=RULE_I18N_LITERAL,
+                        path=rel,
+                        line=ln,
+                        message="%s line %d embeds a copy literal" % (rel, ln),
+                        evidence=lines[ln - 1],
+                        remedy=LITERAL_REMEDY,
+                    )
                 )
-    return problems
+    return out
 
 
 def scan_all_rs(root: str) -> Iterator[str]:
@@ -356,101 +418,131 @@ def scan_all_toml(root: str) -> Iterator[str]:
                 yield os.path.join(dirpath, name)
 
 
-def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
-    """执行三条检查，返回 (oks, fails)；违规随执行流即时输出到 stderr
-    （对齐 bash 版的交错输出），列表供调用方取用；装入器在场时文件读取走
-    共享缓存，缺省自行读取。"""
-    fails = []
+def loadpoint_findings(root: str, loader: Any = None) -> tuple[int, list[gate_report.Finding]]:
+    """检查二：装入点集中——文案文件是编译期资源，装入与解析只允许发生在统
+    一装入点一处，别处编译期引入就绕开了类型化文案表与双语键一致性测试；
+    逐行全量报告，返回扫描的 rs 文件数与违规条目。"""
+    out = []
+    scanned = 0
+    for f in scan_all_rs(root):
+        scanned += 1
+        rel = os.path.relpath(f, root).replace(os.sep, "/")
+        if rel == OWNER:
+            continue
+        for no, line in enumerate(read_lines(f, loader), 1):
+            if INCLUDE_RE.search(line):
+                out.append(
+                    gate_report.Finding(
+                        rule=RULE_I18N_LOADPOINT,
+                        path=rel,
+                        line=no,
+                        message="%s line %d references the i18n resource outside the load"
+                        " point — only %s may include it" % (rel, no, OWNER),
+                        evidence=line,
+                        remedy=LOADPOINT_REMEDY,
+                    )
+                )
+    return scanned, out
 
-    def fail(msg: str) -> None:
-        fails.append(msg)
-        print("  ✗ %s" % msg, file=sys.stderr)
+
+def catalog_findings(root: str, loader: Any = None) -> tuple[int, list[gate_report.Finding]]:
+    """检查三：词条表文件唯一——词条键统一为「模块加词条」的前缀形态且顶层扁
+    平，出现第二张表就会分叉出不受键一致性测试管辖的文案面；逐行全量报告，
+    返回扫描的 TOML 文件数与违规条目。"""
+    out = []
+    scanned = 0
+    for f in scan_all_toml(root):
+        scanned += 1
+        rel = os.path.relpath(f, root).replace(os.sep, "/")
+        if rel.startswith(CATALOG_DIR + "/"):
+            continue
+        for no, line in enumerate(read_lines(f, loader), 1):
+            if CATALOG_KEY_RE.match(line):
+                out.append(
+                    gate_report.Finding(
+                        rule=RULE_I18N_CATALOG,
+                        path=rel,
+                        line=no,
+                        message="%s line %d declares an entry key outside %s/"
+                        " — the catalog lives in one place only" % (rel, no, CATALOG_DIR),
+                        evidence=line,
+                        remedy=CATALOG_REMEDY,
+                    )
+                )
+    return scanned, out
+
+
+def render(finding: gate_report.Finding) -> str:
+    """违规渲染行：消息加位置，作为运行函数返回清单里的条目。"""
+    loc = gate_report.location(finding)
+    return "%s (%s)" % (finding.message, loc) if loc else finding.message
+
+
+def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.Finding]]:
+    """执行三条检查，违规随执行流即时经统一诊断出口打到标准错误，返回通过与
+    违规条目两个清单；装入器在场时文件读取走共享缓存，缺省自行读取。"""
+    guard_scan_dirs(root)
+    found: list[gate_report.Finding] = []
 
     # ---- 检查一：文案字面量拦截 ----
-    for violation in literal_violations(root, loader):
-        fail(violation)
+    for finding in literal_findings(root, loader):
+        found.append(finding)
+        gate_report.fail(finding)
 
     # ---- 检查二：装入点集中 ----
-    # 文案文件是编译期资源，装入与解析只允许发生在统一装入点一处；
-    # 别处编译期引入就绕开了类型化文案表与双语键一致性测试。
-    include_files = 0
-    include_re = re.compile(r"include_(str|bytes)!\([^)]*i18n")
-    for f in scan_all_rs(root):
-        include_files += 1
-        if os.path.relpath(f, root).replace(os.sep, "/") == OWNER:
-            continue
-        if loader is not None:
-            lines = loader.read_text(f, errors="replace").split("\n")
-        else:
-            with open(f, encoding="utf-8", errors="replace") as fh:
-                lines = fh.read().split("\n")
-        for line in lines:
-            if include_re.search(line):
-                fail(
-                    "constraint violation (%s): %s references the i18n resource"
-                    " outside the load point — only %s may include it"
-                    % (RULE, os.path.relpath(f, root), OWNER)
-                )
-                break
+    include_files, loadpoint = loadpoint_findings(root, loader)
+    for finding in loadpoint:
+        found.append(finding)
+        gate_report.fail(finding)
 
     # ---- 检查三：词条表文件唯一 ----
-    # 词条键统一为“模块加词条”的前缀形态且顶层扁平；出现第二张表就会分叉出
-    # 不受键一致性测试管辖的文案面。
-    toml_files = 0
-    toml_key_re = re.compile(r"^\s*gloss_[A-Za-z0-9_]+\s*=")
-    for f in scan_all_toml(root):
-        toml_files += 1
-        if os.path.relpath(f, root).replace(os.sep, "/").startswith(CATALOG_DIR + "/"):
-            continue
-        if loader is not None:
-            lines = loader.read_text(f, errors="replace").split("\n")
-        else:
-            with open(f, encoding="utf-8", errors="replace") as fh:
-                lines = fh.read().split("\n")
-        for line in lines:
-            if toml_key_re.match(line):
-                fail(
-                    "constraint violation (%s): %s declares an entry key outside %s/"
-                    " — the catalog lives in one place only"
-                    % (RULE, os.path.relpath(f, root), CATALOG_DIR)
-                )
-                break
+    toml_files, catalog = catalog_findings(root, loader)
+    for finding in catalog:
+        found.append(finding)
+        gate_report.fail(finding)
 
     oks = []
-    if not fails:
+    if not found:
         oks.append(
             "ok %s (%s production literals + %d .rs include sites + %d TOML entry-key files)"
             % (RULE, SCAN_DIRS, include_files, toml_files)
         )
-    return oks, fails
+    return oks, found
+
+
+def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
+    """执行三条检查，返回通过与失败两个清单；失败清单收渲染行（消息加位置）
+    供调用方取用，装入器在场时文件读取走共享缓存，缺省自行读取。"""
+    oks, found = collect(root, loader)
+    return oks, [render(finding) for finding in found]
+
+
+def usage_failure(detail: str) -> int:
+    print("usage: check_i18n.py [repo-root]", file=sys.stderr)
+    print("  %s" % detail, file=sys.stderr)
+    return gate_report.EXIT_USAGE
 
 
 def main(loader: Any = None) -> int:
+    if len(sys.argv) > 2:
+        return usage_failure("too many arguments: expected at most one repo-root")
     root = (
         os.path.abspath(sys.argv[1])
         if len(sys.argv) > 1
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
+    if len(sys.argv) > 1 and not os.path.isdir(root):
+        return usage_failure("repo-root is not a directory: %s" % root)
     print("== i18n catalog gate (repo root: %s) ==" % root)
-    oks, fails = run(root, loader)
+    oks, found = collect(root, loader)
     # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
         print("  ✓ %s" % line)
-    if fails:
+    if found:
         print("", file=sys.stderr)
-        print('error: %d violations of "%s" (see above).' % (len(fails), RULE), file=sys.stderr)
-        print(
-            "  - ui copy: add the entry to %s/zh.toml and en.toml (key gloss_<module>_<item>),"
-            " add the matching field to Text in %s, and read it via Text;" % (CATALOG_DIR, OWNER),
-            file=sys.stderr,
-        )
-        print(
-            "  - not copy (icon glyphs, selftest strings, list bullets, etc.): add %s at"
-            " the end of the line with a reason." % ALLOW_MARKER,
-            file=sys.stderr,
-        )
-        return 1
-    return 0
+        gate_report.summary(found)
+        return gate_report.EXIT_VIOLATION
+    return gate_report.EXIT_PASS
 
 
 if __name__ == "__main__":

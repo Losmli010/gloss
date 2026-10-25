@@ -2,18 +2,40 @@
 
 被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
 的临时目录，不落版本库（扫描面走目录遍历）；用法见持续集成的钩子工作流。
+字面量扫描面的四个源码目录是守卫基线，缺席即失败关闭退出。另含反馈契约
+三件套：报告格式断言、汇总计数与确定性，经子进程跑脚本端到端锁输出与退出码。
 """
 
 from __future__ import annotations
 
+import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 import check_i18n  # noqa: E402
+import gate_report  # noqa: E402
 
 MARKER = "i18n:allow"
+
+GUARD_BASES = ("src", "crates/gloss-core/src", "crates/gloss-platform/src")
+
+
+def make_baseline(tmp_path: Path) -> None:
+    """重建守卫基线：四个源码目录加统一装入点与词条表。"""
+    for d in GUARD_BASES:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    base = tmp_path / "crates/gloss-app/src/ui"
+    catalog = tmp_path / "crates/gloss-app/i18n"
+    base.mkdir(parents=True, exist_ok=True)
+    catalog.mkdir(parents=True, exist_ok=True)
+    (base / "i18n.rs").write_text('const ZH: &str = include_str!("../../i18n/zh.toml");\n')
+    (catalog / "zh.toml").write_text('gloss_app_title = "Gloss"\n')
 
 
 def scan(
@@ -21,13 +43,8 @@ def scan(
 ) -> tuple[list[str], list[str]]:
     """写入夹具文件并运行门禁；expect 为期望出现在输出里的片段（可选）。
 
-    返回 (oks, fails)。基线（owner 装入点与词条表）每次重建。"""
-    base = tmp_path / "crates/gloss-app/src/ui"
-    catalog = tmp_path / "crates/gloss-app/i18n"
-    base.mkdir(parents=True, exist_ok=True)
-    catalog.mkdir(parents=True, exist_ok=True)
-    (base / "i18n.rs").write_text('const ZH: &str = include_str!("../../i18n/zh.toml");\n')
-    (catalog / "zh.toml").write_text('gloss_app_title = "Gloss"\n')
+    返回 (oks, fails)。基线（四个源码目录、owner 装入点与词条表）每次重建。"""
+    make_baseline(tmp_path)
 
     p = tmp_path / rel
     if rel:
@@ -224,3 +241,98 @@ def test_catalog_key_outside_catalog_dir(tmp_path: Path) -> None:
 
 def test_plain_toml_key_allowed(tmp_path: Path) -> None:
     assert_pass(tmp_path, "plain.toml", 'app_title = "Gloss"')
+
+
+# ---- 目录缺失守卫（失败关闭）----
+
+
+def test_missing_scan_dir_fails_closed(tmp_path: Path) -> None:
+    base = tmp_path / "crates/gloss-app/src/ui"
+    catalog = tmp_path / "crates/gloss-app/i18n"
+    base.mkdir(parents=True)
+    catalog.mkdir(parents=True)
+    (base / "i18n.rs").write_text('const ZH: &str = include_str!("../../i18n/zh.toml");\n')
+    (catalog / "zh.toml").write_text('gloss_app_title = "Gloss"\n')
+    with pytest.raises(SystemExit) as exc:
+        check_i18n.run(str(tmp_path))
+    assert exc.value.code == gate_report.EXIT_INFRA
+
+
+# ---- 反馈契约：报告格式、汇总计数、确定性与退出码（子进程端到端）----
+
+GATE = str(Path(__file__).with_name("check_i18n.py"))
+
+
+def run_gate(
+    tmp_path: Path, files: dict[str, str], *extra: str
+) -> subprocess.CompletedProcess[bytes]:
+    make_baseline(tmp_path)
+    for name, text in files.items():
+        p = tmp_path / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text + "\n", encoding="utf-8")
+    return subprocess.run([sys.executable, GATE, str(tmp_path)] + list(extra), capture_output=True)
+
+
+def violation_fixture() -> dict[str, str]:
+    return {
+        "crates/gloss-app/src/hardcoded.rs": 'fn label() -> String {\n    "打开设置".to_owned()\n}',
+        "crates/gloss-core/src/alias.rs": 'const P: &str = include_str!("../i18n/zh.toml");',
+        "extra.toml": 'gloss_extra_foo = "x"',
+    }
+
+
+def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, violation_fixture())
+    assert proc.returncode == 1
+    text = proc.stderr.decode("utf-8")
+    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
+    ids = {re.match(r"^✗ error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
+    assert ids == {"I18N-LITERAL", "I18N-LOADPOINT", "I18N-CATALOG"}
+    for line in heads:
+        assert re.match(r"^✗ error\[[A-Z0-9-]+\]: .+ \(.+:\d+\)$", line)
+    assert "    证据: " in text
+    assert "    help: " in text
+
+
+def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, violation_fixture())
+    text = proc.stderr.decode("utf-8")
+    details = sum(1 for line in text.splitlines() if line.startswith("✗ error["))
+    match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
+    assert match
+    assert int(match.group(1)) == details == 3
+
+
+def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
+    first = run_gate(tmp_path, violation_fixture())
+    second = subprocess.run([sys.executable, GATE, str(tmp_path)], capture_output=True)
+    assert first.returncode == second.returncode == 1
+    assert first.stderr == second.stderr
+    assert first.stdout == second.stdout
+
+
+def test_gate_clean_fixture_passes_with_exit_zero(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, {"crates/gloss-app/src/clean.rs": "let x = compute(input);"})
+    assert proc.returncode == 0
+    assert "  ✓ ok " in proc.stdout.decode("utf-8")
+
+
+def test_gate_missing_scan_dir_fails_closed_with_exit_three(tmp_path: Path) -> None:
+    make_baseline(tmp_path)
+    shutil.rmtree(tmp_path / "crates/gloss-platform/src")
+    proc = subprocess.run([sys.executable, GATE, str(tmp_path)], capture_output=True)
+    assert proc.returncode == 3
+    assert "✗ error[EMPTY-SURFACE]:" in proc.stderr.decode("utf-8")
+
+
+def test_gate_extra_argument_is_a_usage_error(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, {}, "extra-arg")
+    assert proc.returncode == 2
+    assert b"usage:" in proc.stderr
+
+
+def test_gate_missing_root_is_a_usage_error(tmp_path: Path) -> None:
+    proc = subprocess.run([sys.executable, GATE, str(tmp_path / "nowhere")], capture_output=True)
+    assert proc.returncode == 2
+    assert b"usage:" in proc.stderr
