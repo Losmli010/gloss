@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 jobs:
-  # 硬编码密钥：规则单测先行，再扫全部仓库跟踪文件
+  # 硬编码密钥：匹配引擎（ripgrep）按版本清单安装，规则单测先行，再扫全部仓库跟踪文件
   secrets:
     name: Secrets check
     runs-on: ubuntu-latest
@@ -25,6 +25,14 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: just
+
+      - name: Resolve ripgrep version
+        run: echo "RG_PIN=ripgrep@$(python3 scripts/dev/tool_version.py ripgrep)" >> "$GITHUB_ENV"
+
+      - name: Install ripgrep
+        uses: taiki-e/install-action@v2
+        with:
+          tool: ${{ env.RG_PIN }}
 
       - name: Run checker unit tests
         run: |

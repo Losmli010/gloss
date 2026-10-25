@@ -179,6 +179,7 @@ PROPER_NOUNS = frozenset(
         "pulldown-cmark",
         "pytest",
         "reqwest",
+        "ripgrep",
         "ruff",
         "rustls",
         "semver",
