@@ -1,10 +1,13 @@
 """密钥扫描门禁的单测：逐条覆盖服务商模式、通用凭据赋值与放行标记。
 
 被测入口是门禁的运行函数，返回违规列表；在测试框架（pytest）的临时目录里建
-一次性版本库作扫描面。夹具里的疑似密钥一律由片段拼接生成，不让字面量出现在
+一次性版本库作扫描面，端到端等价靠种子违规样本，匹配引擎要求正则检索工具
+（ripgrep）在场。夹具里的疑似密钥一律由片段拼接生成，不让字面量出现在
 本文件（否则门禁自命中）；用法见持续集成的钩子工作流。
 """
 
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -151,3 +154,172 @@ def test_marker_only_covers_own_line(tmp_path):
 
 def test_marker_on_clean_line_harmless(tmp_path):
     assert scan(tmp_path, "allow-noise.txt", "let x = 1; # %s" % MARKER) == []
+
+
+# ---- 模式清单与引擎参数（直接覆盖）----
+
+
+def test_pattern_sources_unique():
+    sources = [
+        p.pattern
+        for p in check_secrets.CASE_SENSITIVE_PATTERNS + check_secrets.CASE_INSENSITIVE_PATTERNS
+    ]
+    assert len(sources) == len(set(sources))
+
+
+def test_case_groups_declare_flags():
+    for p in check_secrets.CASE_SENSITIVE_PATTERNS:
+        assert not p.flags & re.IGNORECASE
+    for p in check_secrets.CASE_INSENSITIVE_PATTERNS:
+        assert p.flags & re.IGNORECASE
+
+
+def test_engine_expressions_carry_inline_flags():
+    expressions = check_secrets.engine_expressions()
+    sensitive = [p.pattern for p in check_secrets.CASE_SENSITIVE_PATTERNS]
+    insensitive = [p.pattern for p in check_secrets.CASE_INSENSITIVE_PATTERNS]
+    expanded = [s.replace("\\s", check_secrets.SPACE_SUPERSET) for s in insensitive]
+    assert expressions[: len(sensitive)] == sensitive
+    assert expressions[len(sensitive) :] == ["(?i)" + s for s in expanded]
+
+
+def test_space_superset_covers_interpreter_whitespace():
+    interpreter_space = re.compile(r"\s")
+    superset = re.compile(check_secrets.SPACE_SUPERSET)
+    for code in (0x1C, 0x1D, 0x1E, 0x1F, 0x09, 0x20):
+        assert interpreter_space.search(chr(code))
+        assert superset.search(chr(code))
+
+
+def test_pattern_hits_drops_marker_lines():
+    pattern = check_secrets.CASE_INSENSITIVE_PATTERNS[0]
+    file_hits = {
+        2: 'api_key = "%s"' % TAIL16,
+        1: 'password = "%s"' % TAIL16,
+        3: 'api_key = "%s" # %s' % (TAIL16, MARKER),
+        4: "let x = compute(input);",
+    }
+    assert check_secrets.pattern_hits(pattern, file_hits) == [
+        (1, 'password = "%s"' % TAIL16),
+        (2, 'api_key = "%s"' % TAIL16),
+    ]
+
+
+# ---- 二进制与异常编码（引擎差异面）----
+
+
+def test_binary_asset_file_skipped(tmp_path):
+    content = ('api_key = "%s"\n' % TAIL16).encode() + b"\x00\x01tail"
+    p = tmp_path / "binary-asset.bin"
+    p.write_bytes(content)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    assert check_secrets.run(str(tmp_path)) == []
+
+
+def test_utf16_bom_file_scanned(tmp_path):
+    content = b"\xff\xfe junk\n" + ('api_key = "%s"\n' % TAIL16).encode()
+    p = tmp_path / "bom-leak.txt"
+    p.write_bytes(content)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    problems = check_secrets.run(str(tmp_path))
+    assert any("suspected hardcoded credential" in q for q in problems)
+
+
+def test_utf8_bom_file_scanned(tmp_path):
+    content = b"\xef\xbb\xbf" + ('api_key = "%s"\n' % TAIL16).encode()
+    p = tmp_path / "utf8-bom-leak.txt"
+    p.write_bytes(content)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    problems = check_secrets.run(str(tmp_path))
+    assert any("suspected hardcoded credential" in q for q in problems)
+
+
+def test_invalid_utf8_elsewhere_still_reported(tmp_path):
+    content = b"\x80 junk\n" + ('api_key = "%s"\n' % TAIL16).encode()
+    p = tmp_path / "mixed-bad-utf8.txt"
+    p.write_bytes(content)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    problems = check_secrets.run(str(tmp_path))
+    assert any("suspected hardcoded credential" in q for q in problems)
+
+
+def test_invalid_utf8_on_hit_line_reported(tmp_path):
+    content = ('api_key = "aa\xffa%s"\n' % TAIL16).encode("utf-8", "surrogateescape")
+    p = tmp_path / "bad-utf8-hit.txt"
+    p.write_bytes(content)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    problems = check_secrets.run(str(tmp_path))
+    assert any("suspected hardcoded credential" in q for q in problems)
+
+
+def test_crlf_line_reported(tmp_path):
+    problems = scan(tmp_path, "crlf-leak.toml", 'api_key = "%s"\r' % TAIL16)
+    assert any("suspected hardcoded credential" in q for q in problems)
+
+
+# ---- 受检面边界（工作区缺失与被忽略但已跟踪）----
+
+
+def test_worktree_missing_file_skipped(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    p = tmp_path / "removed-leak.toml"
+    p.write_text('api_key = "%s"\n' % TAIL16, encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    os.remove(p)
+    assert check_secrets.run(str(tmp_path)) == []
+
+
+def test_ignored_but_tracked_file_scanned(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / ".gitignore").write_text("forced-leak.txt\n", encoding="utf-8")
+    p = tmp_path / "forced-leak.txt"
+    p.write_text('api_key = "%s"\n' % TAIL16, encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", ".gitignore"], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", "-f", "forced-leak.txt"],
+        check=True,
+        capture_output=True,
+    )
+    problems = check_secrets.run(str(tmp_path))
+    assert any("suspected hardcoded credential" in q for q in problems)
+
+
+# ---- 评审差异面：异常换行符与控制分隔符 ----
+
+
+def seed_repo(tmp_path, files):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    for name, text in files.items():
+        (tmp_path / name).write_text(text + "\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    return check_secrets.run(str(tmp_path))
+
+
+def test_exotic_line_break_in_value_reported(tmp_path):
+    files = {
+        "leak-nel.txt": 'api_key = "%s"' % ("aaaabbbb" + chr(0x85) + TAIL16),
+        "leak-ls.txt": 'api_key = "%s"' % ("aaaabbbb" + chr(0x2028) + TAIL16),
+        "leak-ps.txt": 'api_key = "%s"' % ("aaaabbbb" + chr(0x2029) + TAIL16),
+    }
+    problems = seed_repo(tmp_path, files)
+    flagged = {q.splitlines()[0].rsplit(": ", 1)[1] for q in problems}
+    assert flagged == set(files)
+
+
+def test_control_separator_assignment_reported(tmp_path):
+    files = {
+        "leak-fs.txt": 'api_key%s=%s"aaaabbbbccccdddd"' % (chr(0x1C), chr(0x1C)),
+        "leak-gs.txt": 'api_key%s=%s"aaaabbbbccccdddd"' % (chr(0x1D), chr(0x1D)),
+        "leak-rs.txt": 'api_key%s=%s"aaaabbbbccccdddd"' % (chr(0x1E), chr(0x1E)),
+        "leak-us.txt": 'api_key%s=%s"aaaabbbbccccdddd"' % (chr(0x1F), chr(0x1F)),
+    }
+    problems = seed_repo(tmp_path, files)
+    flagged = {q.splitlines()[0].rsplit(": ", 1)[1] for q in problems}
+    assert flagged == set(files)

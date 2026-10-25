@@ -89,7 +89,7 @@ def main():
     os.chdir(ROOT)
     tools = tool_version.parse_sections(tool_version.TOOLS_PATH)
 
-    print("== 1/5 Rust toolchain ==")
+    print("== 1/6 Rust toolchain ==")
     if not have("cargo"):
         print("error: no cargo, nothing can compile. install rustup first:", file=sys.stderr)
         print("  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh", file=sys.stderr)
@@ -122,7 +122,7 @@ def main():
     else:
         print("  ⚠ missing component clippy, install: rustup component add clippy", file=sys.stderr)
 
-    print("== 2/5 gate interpreter ==")
+    print("== 2/6 gate interpreter ==")
     bound = tools.get("python", {}).get("min")
     bound_tuple = version_tuple(bound)
     if bound_tuple is None:
@@ -137,7 +137,7 @@ def main():
                 "install Python %s or newer from python.org or your package manager" % bound,
             )
 
-    print("== 3/5 just command runner ==")
+    print("== 3/6 just command runner ==")
     # 仓库所有配方（门禁、测试、打包）都经命令入口，没有它后面寸步难行
     if have("just"):
         version = subprocess.run(
@@ -147,7 +147,7 @@ def main():
     else:
         warn_missing("just", "brew install just (or cargo install just --locked)")
 
-    print("== 4/5 quality / release extras (optional, install as needed) ==")
+    print("== 4/6 quality / release extras (optional, install as needed) ==")
     if not have("cargo-bundle"):
         warn_missing("cargo-bundle (release packaging)", "cargo install cargo-bundle --locked")
     if not have("cargo-llvm-cov"):
@@ -180,7 +180,30 @@ def main():
             "cargo install flamegraph inferno rustfilt --locked",
         )
 
-    print("== 5/5 git hooks ==")
+    print("== 5/6 secrets gate engine ==")
+    # 密钥门禁每提交必跑：引擎缺失当场失败而非静默跳过，版本不一致给对齐建议
+    rg_pin = tools.get("ripgrep", {}).get("version")
+    if not have("rg"):
+        hint = (
+            "cargo install ripgrep --version %s --locked" % rg_pin
+            if rg_pin
+            else "install ripgrep and pin its version in the tool list"
+        )
+        print(
+            "error: ripgrep missing — the secrets gate runs on every commit"
+            " and cannot scan without it.",
+            file=sys.stderr,
+        )
+        print("  install: %s" % hint, file=sys.stderr)
+        return 1
+    check_pinned(
+        "rg",
+        "ripgrep (secrets gate engine, needed by every commit)",
+        rg_pin,
+        "cargo install ripgrep --version {pin} --locked",
+    )
+
+    print("== 6/6 git hooks ==")
     subprocess.run(["just", "install-hooks"], check=True)
 
     print()

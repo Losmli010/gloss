@@ -29,6 +29,14 @@ jobs:
           tool: just
 
       # 版本钉死在仓库根版本清单，安装与本地校验同读
+      - name: Resolve ripgrep version
+        run: echo "RG_PIN=ripgrep@$(python3 scripts/dev/tool_version.py ripgrep)" >> "$GITHUB_ENV"
+
+      - name: Install ripgrep
+        uses: taiki-e/install-action@v2
+        with:
+          tool: ${{ env.RG_PIN }}
+
       - name: Install pytest, ruff and tombi
         run: |
           python3 -m pip install --quiet pytest
