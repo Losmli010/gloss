@@ -6,7 +6,8 @@
 确属合法字面量（文档示例、测试夹具）时，在该行尾加放行标记并注明缘由。
 匹配引擎委托正则检索工具（ripgrep）：模式清单在本文件单点定义，运行时拼装
 参数一次子进程跑全部模式；二进制文件与放行标记行由本文件前后滤除，判定
-口径与既有逐行实现一致，缘由见记录文件。
+口径与既有逐行实现一致，缘由见记录文件。违规报告经统一诊断出口打印：每
+条带规则标识、完整证据行与修复指引，退出码按全脚本统一约定。
 """
 
 import base64
@@ -15,6 +16,8 @@ import os
 import re
 import subprocess
 import sys
+
+import gate_report
 
 # 服务商专属格式，区分大小写（这些前缀本身就有大小写语义）
 CASE_SENSITIVE_PATTERNS = [
@@ -38,9 +41,8 @@ CASE_SENSITIVE_PATTERNS = [
 # 通用凭据赋值，大小写不敏感：
 # 其一，带引号的值（各类配置文件的常见形态），十二字符起；
 # 其二，不带引号的值（环境变量导出形态），二十字符起压误报；
-# 其三，请求头携带的持票人凭据。
 # 不含裸令牌关键字——真实令牌泄漏由服务商前缀模式兜底。
-CASE_INSENSITIVE_PATTERNS = [
+CREDENTIAL_PATTERNS = [
     re.compile(
         r'(api[_-]?key|secret|password|passwd|credential|access[_-]?key)["\']?'
         r"\s*[:=]\s*[\"'][^\"']{12,}[\"']",
@@ -51,13 +53,41 @@ CASE_INSENSITIVE_PATTERNS = [
         r"\s*[:=]\s*[A-Za-z0-9+/_-]{20,}",
         re.IGNORECASE,
     ),
+]
+
+# 授权头携带的持票人凭据，与通用赋值分属不同规则标识
+AUTH_PATTERNS = [
     re.compile(
         r'authorization["\']?\s*[:=]\s*["\']?bearer\s+[A-Za-z0-9._-]{16,}',
         re.IGNORECASE,
     ),
 ]
 
+# 大小写不敏感组合：引擎参数与既有单测都按此清单序消费
+CASE_INSENSITIVE_PATTERNS = CREDENTIAL_PATTERNS + AUTH_PATTERNS
+
 ALLOW_MARKER = "secrets:allow"
+
+RULE_SECRET_VENDOR = "SECRET-VENDOR"
+RULE_SECRET_CREDENTIAL = "SECRET-CREDENTIAL"  # secrets:allow 规则标识常量是登记名不是凭据
+RULE_SECRET_AUTH = "SECRET-AUTH"
+
+VENDOR_MESSAGE = "suspected vendor-specific hardcoded secret"
+CREDENTIAL_MESSAGE = "suspected hardcoded credential assignment"
+AUTH_MESSAGE = "suspected bearer token in authorization header"
+
+REMEDIY = (
+    "real leak: revoke and rotate the secret immediately, then read it from the"
+    " config store; legitimate literal (doc example / test fixture): add"
+    " secrets:allow at the end of the line with a reason"
+)
+
+# 规则分组：模式清单到标识与消息的固定映射，报告顺序即此序
+RULE_GROUPS = (
+    (RULE_SECRET_VENDOR, VENDOR_MESSAGE, CASE_SENSITIVE_PATTERNS),
+    (RULE_SECRET_CREDENTIAL, CREDENTIAL_MESSAGE, CREDENTIAL_PATTERNS),
+    (RULE_SECRET_AUTH, AUTH_MESSAGE, AUTH_PATTERNS),
+)
 
 # 字节序标记前缀：引擎会剥除或据此整文件转码，与既有的容错解码口径对不齐
 BOM_PREFIXES = (b"\xff\xfe", b"\xfe\xff", b"\xef\xbb\xbf")
@@ -69,11 +99,7 @@ SPACE_SUPERSET = r"[\s\x1c-\x1f]"
 
 def tracked_files(root):
     # 只看版本库跟踪的文件：被忽略规则排除的本地文件不扫（也不该进仓库）
-    out = subprocess.run(
-        ["git", "-C", root, "ls-files", "-z"],
-        capture_output=True,
-        check=True,
-    ).stdout
+    out = gate_report.run_git(["ls-files", "-z"], cwd=root).stdout
     return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
 
 
@@ -195,15 +221,21 @@ def fallback_hits(path, loader=None):
     return hits
 
 
-def run(root, loader=None):
-    """扫描 root 下全部 git 跟踪文件，返回违规条目（每条含文件与命中行）；
-    装入器在场时清单与内容走共享缓存，缺省自行读取。"""
+def scan_hits(root, loader=None):
+    """单次扫描的可复用结果：可扫清单序与逐文件命中映射，两种报告形态共用。"""
     files, fallback = scannable_files(root, loader)
     hits_by_file = collect_hits(root, [rel for rel in files if rel not in fallback])
     for rel in fallback:
         line_hits = fallback_hits(os.path.join(root, rel), loader)
         if line_hits:
             hits_by_file[rel] = line_hits
+    return files, hits_by_file
+
+
+def run(root, loader=None):
+    """扫描 root 下全部 git 跟踪文件，返回违规条目（每条含文件与命中行）；
+    装入器在场时清单与内容走共享缓存，缺省自行读取。"""
+    files, hits_by_file = scan_hits(root, loader)
     problems = []
     for rel in files:
         file_hits = hits_by_file.get(rel)
@@ -221,37 +253,62 @@ def run(root, loader=None):
     return problems
 
 
+def findings(root, loader=None):
+    """结构化违规条目：每条带规则标识、位置、消息、完整证据行与补救，按
+    文件序、规则序、行号序输出；判定面与运行函数同源同扫描。"""
+    files, hits_by_file = scan_hits(root, loader)
+    out = []
+    for rel in files:
+        file_hits = hits_by_file.get(rel)
+        if not file_hits:
+            continue
+        for rule, message, patterns in RULE_GROUPS:
+            lines = {}
+            for pattern in patterns:
+                for lineno, line in pattern_hits(pattern, file_hits):
+                    lines[lineno] = line
+            for lineno in sorted(lines):
+                out.append(
+                    gate_report.Finding(
+                        rule=rule,
+                        path=rel,
+                        line=lineno,
+                        message=message,
+                        evidence=lines[lineno],
+                        remedy=REMEDIY,
+                    )
+                )
+    return out
+
+
+def usage_failure(detail):
+    print("usage: check_secrets.py [repo-root]", file=sys.stderr)
+    print("  %s" % detail, file=sys.stderr)
+    return gate_report.EXIT_USAGE
+
+
 def main(loader=None):
+    if len(sys.argv) > 2:
+        return usage_failure("too many arguments: expected at most one repo-root")
     root = (
         sys.argv[1]
         if len(sys.argv) > 1
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
+    if len(sys.argv) > 1 and not os.path.isdir(root):
+        return usage_failure("repo-root is not a directory: %s" % root)
     try:
-        problems = run(root, loader)
+        found = findings(root, loader)
     except RuntimeError as exc:
-        print("error: %s" % exc, file=sys.stderr)
-        return 1
-    if problems:
-        for p in problems:
-            print(p, file=sys.stderr)
-        print("", file=sys.stderr)
-        print(
-            "error: suspected hardcoded secrets/credentials detected (see above).", file=sys.stderr
-        )
-        print(
-            "  - real leak: revoke and rotate the secret immediately;"
-            " read it from the config store instead;",
-            file=sys.stderr,
-        )
-        print(
-            "  - legitimate literal (doc example / test fixture): add %s at the end of"
-            " the line with a reason." % ALLOW_MARKER,
-            file=sys.stderr,
-        )
-        return 1
+        gate_report.fail(gate_report.infra_failure("cannot complete the secrets scan: %s" % exc))
+        return gate_report.EXIT_INFRA
+    for finding in found:
+        gate_report.fail(finding)
+    if found:
+        gate_report.summary(found)
+        return gate_report.EXIT_VIOLATION
     print("✓ secrets scan passed (no hardcoded secrets/credentials)")
-    return 0
+    return gate_report.EXIT_PASS
 
 
 if __name__ == "__main__":
