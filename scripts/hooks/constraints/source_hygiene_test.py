@@ -1,6 +1,6 @@
 """约束门禁·源码卫生域的单测：桩副本一致、文件行数上限与残留任务标记逐条
-覆盖；任务标记用例在一次性版本库夹具上驱动，非版本库夹具用例覆盖整段跳过
-路径。
+覆盖；任务标记用例在一次性版本库夹具上驱动，非版本库夹具用例覆盖响亮跳过
+路径；另含源码扫描面为空的失败关闭与版本库可执行文件缺失的基础设施退出。
 """
 
 from __future__ import annotations
@@ -10,7 +10,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import gate_report  # noqa: E402
 
 from constraints import fixtures, source_hygiene  # noqa: E402
 
@@ -94,7 +98,7 @@ def test_indented_cfg_test_not_truncated(tmp_path: Path) -> None:
     fixtures.assert_fail(source_hygiene, tmp_path, mutate, "line cap")
 
 
-# ---- 残留任务标记扫描（版本库夹具；上方非版本库夹具用例覆盖自动跳过路径）----
+# ---- 残留任务标记扫描（版本库夹具；上方非版本库夹具用例覆盖响亮跳过路径）----
 # 约束脚本自身豁免：模块副本（含各类任务标记字面量）被版本库跟踪，
 # “干净版本库通过”用例正常退出即证明其未被自命中。
 
@@ -172,3 +176,38 @@ def test_lowercase_and_word_boundary_no_false_positive(tmp_path: Path) -> None:
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
     _, fails = source_hygiene.run(str(tmp_path))
     assert fails == []
+
+
+def test_non_repo_run_loud_skips_task_marker_scan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fixtures.new_fixture(tmp_path)
+    oks, fails = source_hygiene.run(str(tmp_path))
+    assert fails == []
+    assert all(not ok.startswith("ok no leftover task markers") for ok in oks)
+    assert "task-marker scan skipped" in capsys.readouterr().err
+
+
+def test_empty_source_surface_fails_closed(tmp_path: Path) -> None:
+    (tmp_path / "Cargo.toml").write_text(
+        '[package]\nname = "gloss"\nversion.workspace = true\nedition.workspace = true\n'
+        '\n[dependencies]\n\n[workspace.package]\nversion = "0.1.0"\nedition = "2024"',
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit) as exc:
+        source_hygiene.run(str(tmp_path))
+    assert exc.value.code == gate_report.EXIT_INFRA
+
+
+def test_missing_git_executable_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixtures.new_fixture(tmp_path)
+
+    def raise_missing(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(source_hygiene.subprocess, "run", raise_missing)
+    with pytest.raises(SystemExit) as exc:
+        source_hygiene.run(str(tmp_path))
+    assert exc.value.code == gate_report.EXIT_INFRA

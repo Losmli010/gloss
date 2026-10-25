@@ -1,12 +1,13 @@
-"""约束门禁·共享层内容缓存的单测：缓存语义（同一文件一次扫描只打开一次、
-清单枚举与跟踪清单共享同一结果、字节与解码文本分层且容错口径分开）与读取
-口径（文本模式读取语义、缺文件照常报错）逐条覆盖——读不到即报违规的路径
-不因缓存变形。
+"""约束门禁·共享层的单测：内容缓存语义（同一文件一次扫描只打开一次、清单
+枚举与跟踪清单共享同一结果、字节与解码文本分层且容错口径分开）与读取口径
+（文本模式读取语义、缺文件照常报错）逐条覆盖——读不到即报违规的路径不因
+缓存变形；另含清单扫描面为空的失败关闭与违规报告器的单文件上限语义。
 """
 
 from __future__ import annotations
 
 import builtins
+import io
 import os
 import subprocess
 import sys
@@ -16,6 +17,8 @@ from typing import Any
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import gate_report  # noqa: E402
 
 from constraints import manifests  # noqa: E402
 
@@ -104,3 +107,55 @@ def test_tracked_enumerated_once_and_shared(tmp_path: Path) -> None:
     cache = make_cache_with_repo(tmp_path, {"b.txt": b"1\n", "a/c.rs": b"2\n"})
     assert cache.tracked() == ["a/c.rs", "b.txt"]
     assert cache.tracked() is cache.tracked()
+
+
+def test_empty_manifest_surface_fails_closed(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as exc:
+        manifests.manifests(str(tmp_path))
+    assert exc.value.code == gate_report.EXIT_INFRA
+
+
+def finding(rule: str, path: str, line: int) -> gate_report.Finding:
+    return gate_report.Finding(rule=rule, path=path, line=line, message="m %s" % path)
+
+
+def test_reporter_keeps_full_line_list_under_cap() -> None:
+    rep = manifests.Reporter()
+    for i in range(25):
+        rep.note(finding("DEAD-DEP", "Cargo.toml", i + 1), file=io.StringIO())
+    assert len(rep.lines) == 25
+    assert len(rep.findings) == manifests.REPORT_CAP
+    assert len({f.rule for f in rep.findings}) == 1
+
+
+def test_reporter_counts_per_file_across_rules() -> None:
+    rep = manifests.Reporter()
+    sink = io.StringIO()
+    rep.note(finding("DEAD-DEP", "Cargo.toml", 1), file=sink)
+    for i in range(manifests.REPORT_CAP):
+        rep.note(finding("DEFAULT-FEATURES", "Cargo.toml", i + 2), file=sink)
+    rep.note(finding("VERSION-SINGLE", "Cargo.toml", 0), file=sink)
+    assert len(rep.lines) == manifests.REPORT_CAP + 2
+    assert len(rep.findings) == manifests.REPORT_CAP
+    cap = io.StringIO()
+    rep.declare_capped(file=cap)
+    assert "2 more violations in Cargo.toml" in cap.getvalue()
+
+
+def test_reporter_without_location_never_capped() -> None:
+    rep = manifests.Reporter()
+    sink = io.StringIO()
+    for i in range(manifests.REPORT_CAP + 5):
+        rep.note(finding("STUB-DRIFT", "", i), file=sink)
+    assert len(rep.findings) == manifests.REPORT_CAP + 5
+    cap = io.StringIO()
+    rep.declare_capped(file=cap)
+    assert cap.getvalue() == ""
+
+
+def test_render_line_carries_message_and_location() -> None:
+    assert (
+        manifests.render_line(finding("LINE-CAP", "crates/big.rs", 3))
+        == "m crates/big.rs (crates/big.rs:3)"
+    )
+    assert manifests.render_line(finding("STUB-DRIFT", "", 0)) == "m "
