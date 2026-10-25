@@ -1,0 +1,5 @@
+# 文档评审人：以下路径变更需其评审，文档变更与代码变更同等对待
+/AGENTS.md                         @Losmli010
+/README.md                         @Losmli010
+/docs/tests/bdd.md                 @Losmli010
+/.github/pull_request_template.md  @Losmli010
