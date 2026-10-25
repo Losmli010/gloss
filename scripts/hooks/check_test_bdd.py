@@ -9,11 +9,14 @@
 用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
 """
 
+from __future__ import annotations
+
 import os
 import re
 import subprocess
 import sys
 from collections import Counter
+from typing import Any
 
 BDD_REL = os.path.join("docs", "tests", "bdd.md")
 FN_RE = re.compile(r"fn\s+([A-Za-z0-9_]+)")
@@ -21,7 +24,7 @@ TEST_ATTR_RE = re.compile(r"^\s*#\[(?:tokio::)?test\]")
 MANUAL_CHAPTER = "## 发版人工步骤"
 
 
-def tracked_rs_files(root, loader=None):
+def tracked_rs_files(root: str, loader: Any = None) -> list[str]:
     if loader is not None:
         return [p for p in loader.tracked() if p.endswith(".rs")]
     out = subprocess.run(
@@ -32,7 +35,7 @@ def tracked_rs_files(root, loader=None):
     return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
 
 
-def src_test_names(root, loader=None):
+def src_test_names(root: str, loader: Any = None) -> set[str]:
     """git 跟踪 .rs 里的 #[test] / #[tokio::test] 函数名。
 
     属性行触发 pending；跳过中间的其它属性行（如 #[ignore = \"...\"]）取最近的
@@ -65,7 +68,7 @@ def src_test_names(root, loader=None):
     return names
 
 
-def manifest_files(root):
+def manifest_files(root: str) -> list[str]:
     out = [os.path.join(root, "Cargo.toml")]
     crates = os.path.join(root, "crates")
     if os.path.isdir(crates):
@@ -76,7 +79,7 @@ def manifest_files(root):
     return out
 
 
-def target_test_names(root, loader=None):
+def target_test_names(root: str, loader: Any = None) -> set[str]:
     """[[test]] 声明的测试目标名（harness = false 自检二进制没有 #[test] 函数）。"""
     names = set()
     for manifest in manifest_files(root):
@@ -98,7 +101,7 @@ def target_test_names(root, loader=None):
     return names
 
 
-def bdd_lines(bdd_path, loader=None):
+def bdd_lines(bdd_path: str, loader: Any = None) -> list[str]:
     """行为清单按行读取：装入器在场时走共享缓存，行集合与逐行读取一致。"""
     if loader is not None:
         return loader.read_text(bdd_path).split("\n")
@@ -106,7 +109,7 @@ def bdd_lines(bdd_path, loader=None):
         return fh.read().split("\n")
 
 
-def bdd_entries(bdd_path, loader=None):
+def bdd_entries(bdd_path: str, loader: Any = None) -> set[str]:
     """清单侧条目名：表格取首列，人工测试取 ### 小节标题；剥掉快照重名的
     （popup）/（settings）限定后缀；表头、分隔行与 crates/... 文件标题经标识符
     过滤自然排除。「## 发版人工步骤」节登记无自动化测试源码的发版链路运维步骤，
@@ -134,7 +137,7 @@ def bdd_entries(bdd_path, loader=None):
     return cleaned
 
 
-def duplicate_rows(bdd_path, loader=None):
+def duplicate_rows(bdd_path: str, loader: Any = None) -> list[str]:
     """整行精确重复（同名同目标同场景同时间）＝改名后旧行未删的真实特征。
     同名不同描述的沿革行（历史重录记录）是有意保留，不拦。"""
     rows = []
@@ -154,7 +157,7 @@ def duplicate_rows(bdd_path, loader=None):
     return sorted(k for k, c in Counter(rows).items() if c > 1)
 
 
-def duplicate_chapters(bdd_path, loader=None):
+def duplicate_chapters(bdd_path: str, loader: Any = None) -> list[str]:
     chapters = []
     for line in bdd_lines(bdd_path, loader):
         if line.startswith("## "):
@@ -162,7 +165,7 @@ def duplicate_chapters(bdd_path, loader=None):
     return sorted(k for k, c in Counter(chapters).items() if c > 1)
 
 
-def duplicate_blocks(bdd_path, loader=None):
+def duplicate_blocks(bdd_path: str, loader: Any = None) -> list[str]:
     """同一 ## 章节内重复的 ### 小节标题，或同一小节内逐字重复的「- 」条目行
     ——人工测试条目整段重复拼接的痕迹（表格行的重复由整行精确重复检查覆盖）。"""
     dups = set()
@@ -198,7 +201,7 @@ def duplicate_blocks(bdd_path, loader=None):
     return sorted(dups)
 
 
-def broken_tables(bdd_path, loader=None):
+def broken_tables(bdd_path: str, loader: Any = None) -> list[str]:
     """结构校验：非豁免小节里的每个表格必须是良构 GFM 表——表行连成一个块，
     且块的第二行是分隔行。空行或正文混在表头与表体之间会把表体从表头上
     切断（渲染退化为纯文本），一律按缺表头列出。"""
@@ -207,7 +210,7 @@ def broken_tables(bdd_path, loader=None):
     exempt = False
     state = {"in_run": False, "run_len": 0, "run_ok": False}
 
-    def end_run():
+    def end_run() -> None:
         if state["in_run"] and not state["run_ok"] and not exempt and section != "":
             broken[section] = True
         state["in_run"] = False
@@ -241,7 +244,7 @@ def broken_tables(bdd_path, loader=None):
     return sorted(broken)
 
 
-def run(root, loader=None):
+def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """双向核对，返回 (oks, fails)；装入器在场时清单与文件读取走共享缓存，
     缺省自行读取。"""
     bdd_path = os.path.join(root, BDD_REL)
@@ -265,7 +268,7 @@ def run(root, loader=None):
     # 违规随执行流即时输出，对齐壳脚本（bash）版的标准错误交错，列表供调用方取用
     fails = []
 
-    def fail(msg):
+    def fail(msg: str) -> None:
         fails.append(msg)
         print("  ✗ %s" % msg, file=sys.stderr)
 
@@ -320,7 +323,7 @@ def run(root, loader=None):
     return oks, fails
 
 
-def main(loader=None):
+def main(loader: Any = None) -> int:
     root = (
         os.path.abspath(sys.argv[1])
         if len(sys.argv) > 1

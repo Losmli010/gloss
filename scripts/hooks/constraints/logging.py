@@ -3,13 +3,16 @@
 口径与取舍见记录文件。
 """
 
+from __future__ import annotations
+
 import os
 import re
+from typing import Any
 
 from . import manifests
 
 
-def run(root, loader=None):
+def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """执行日志出口与日志语言约束，返回通过与失败两个清单。"""
     dump = manifests.dep_dump(root, loader)
     oks = []

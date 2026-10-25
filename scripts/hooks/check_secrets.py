@@ -10,12 +10,15 @@
 条带规则标识、完整证据行与修复指引，退出码按全脚本统一约定。
 """
 
+from __future__ import annotations
+
 import base64
 import json
 import os
 import re
 import subprocess
 import sys
+from typing import Any
 
 import gate_report
 
@@ -97,13 +100,13 @@ BOM_PREFIXES = (b"\xff\xfe", b"\xfe\xff", b"\xef\xbb\xbf")
 SPACE_SUPERSET = r"[\s\x1c-\x1f]"
 
 
-def tracked_files(root):
+def tracked_files(root: str) -> list[str]:
     # 只看版本库跟踪的文件：被忽略规则排除的本地文件不扫（也不该进仓库）
     out = gate_report.run_git(["ls-files", "-z"], cwd=root).stdout
     return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
 
 
-def scannable_files(root, loader=None):
+def scannable_files(root: str, loader: Any = None) -> tuple[list[str], set[str]]:
     """跟踪文件分流：工作区不在场或含空字节的整文件跳过，带字节序标记的改逐行兜底。
 
     返回可扫路径的清单序与其中需兜底子集，其余路径交引擎；装入器在场时
@@ -128,7 +131,7 @@ def scannable_files(root, loader=None):
     return out, fallback
 
 
-def engine_expressions():
+def engine_expressions() -> list[str]:
     """把模式清单翻成引擎参数序列：不敏感组加内联旗标前缀并把空白类放大成超集。
 
     正则本体不复制第二份——超集只作用在候选预筛上，归类判定仍跑清单原模式；
@@ -141,14 +144,14 @@ def engine_expressions():
     return out
 
 
-def json_field(blob):
+def json_field(blob: dict[str, Any]) -> str:
     """引擎输出的取值字段：文本直取，字节按编码还原后容错解码。"""
     if "text" in blob:
         return blob["text"]
     return base64.b64decode(blob["bytes"]).decode("utf-8", "replace")
 
 
-def collect_hits(root, files):
+def collect_hits(root: str, files: list[str]) -> dict[str, dict[int, str]]:
     """一次子进程跑全部模式，命中整理成「路径到行号与行文」的嵌套映射。"""
     if not files:
         return {}
@@ -194,7 +197,7 @@ def collect_hits(root, files):
     return hits
 
 
-def pattern_hits(pattern, file_hits):
+def pattern_hits(pattern: re.Pattern[str], file_hits: dict[int, str]) -> list[tuple[int, str]]:
     """单模式的可见命中：放行标记行先滤掉，其余命中行按本模式逐条归类。"""
     return [
         (lineno, line)
@@ -203,7 +206,7 @@ def pattern_hits(pattern, file_hits):
     ]
 
 
-def fallback_hits(path, loader=None):
+def fallback_hits(path: str, loader: Any = None) -> dict[int, str]:
     """字节序标记文件的逐行命中：任一模式即收，归类与放行过滤与引擎命中同路。"""
     try:
         if loader is not None:
@@ -221,7 +224,7 @@ def fallback_hits(path, loader=None):
     return hits
 
 
-def scan_hits(root, loader=None):
+def scan_hits(root: str, loader: Any = None) -> tuple[list[str], dict[str, dict[int, str]]]:
     """单次扫描的可复用结果：可扫清单序与逐文件命中映射，两种报告形态共用。"""
     files, fallback = scannable_files(root, loader)
     hits_by_file = collect_hits(root, [rel for rel in files if rel not in fallback])
@@ -232,7 +235,7 @@ def scan_hits(root, loader=None):
     return files, hits_by_file
 
 
-def run(root, loader=None):
+def run(root: str, loader: Any = None) -> list[str]:
     """扫描 root 下全部 git 跟踪文件，返回违规条目（每条含文件与命中行）；
     装入器在场时清单与内容走共享缓存，缺省自行读取。"""
     files, hits_by_file = scan_hits(root, loader)
@@ -253,7 +256,7 @@ def run(root, loader=None):
     return problems
 
 
-def findings(root, loader=None):
+def findings(root: str, loader: Any = None) -> list[gate_report.Finding]:
     """结构化违规条目：每条带规则标识、位置、消息、完整证据行与补救，按
     文件序、规则序、行号序输出；判定面与运行函数同源同扫描。"""
     files, hits_by_file = scan_hits(root, loader)
@@ -281,13 +284,13 @@ def findings(root, loader=None):
     return out
 
 
-def usage_failure(detail):
+def usage_failure(detail: str) -> int:
     print("usage: check_secrets.py [repo-root]", file=sys.stderr)
     print("  %s" % detail, file=sys.stderr)
     return gate_report.EXIT_USAGE
 
 
-def main(loader=None):
+def main(loader: Any = None) -> int:
     if len(sys.argv) > 2:
         return usage_failure("too many arguments: expected at most one repo-root")
     root = (

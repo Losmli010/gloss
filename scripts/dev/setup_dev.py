@@ -5,6 +5,8 @@
 显式浮动的只看在场。
 """
 
+from __future__ import annotations
+
 import os
 import shutil
 import subprocess
@@ -17,24 +19,24 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 missing_optional = 0
 
 
-def warn_missing(name, install_cmd):
+def warn_missing(name: str, install_cmd: str) -> None:
     global missing_optional
     missing_optional += 1
     print("  ✗ missing %s — install: %s" % (name, install_cmd))
 
 
-def have(cmd):
+def have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
-def have_python_module(module):
+def have_python_module(module: str) -> bool:
     return (
         subprocess.run([sys.executable, "-m", module, "--version"], capture_output=True).returncode
         == 0
     )
 
 
-def command_version(cmd):
+def command_version(cmd: str) -> str | None:
     result = subprocess.run([cmd, "--version"], capture_output=True, text=True)
     if result.returncode != 0:
         return None
@@ -42,19 +44,19 @@ def command_version(cmd):
     return fields[1] if len(fields) > 1 else None
 
 
-def version_tuple(text):
+def version_tuple(text: str | None) -> tuple[int, ...] | None:
     parts = text.split(".") if text else []
     if not parts or not all(part.isdigit() for part in parts):
         return None
     return tuple(int(part) for part in parts)
 
 
-def toolchain_channel():
+def toolchain_channel() -> str | None:
     sections = tool_version.parse_sections(os.path.join(ROOT, "rust-toolchain.toml"))
     return sections.get("toolchain", {}).get("channel")
 
 
-def check_pinned(cmd, label, pin, install_hint):
+def check_pinned(cmd: str, label: str, pin: str | None, install_hint: str) -> None:
     if pin is None:
         print("  ⚠ %s not pinned in the tool list, skipping version check" % cmd, file=sys.stderr)
     elif not have(cmd):
@@ -71,7 +73,7 @@ def check_pinned(cmd, label, pin, install_hint):
             )
 
 
-def main():
+def main() -> int:
     os.chdir(ROOT)
     tools = tool_version.parse_sections(tool_version.TOOLS_PATH)
 

@@ -4,10 +4,15 @@
 次性版本库。
 """
 
+from __future__ import annotations
+
 import shutil
+from collections.abc import Callable
+from pathlib import Path
+from types import ModuleType
 
 
-def insert_after_section(path, section, text):
+def insert_after_section(path: Path, section: str, text: str) -> None:
     lines = path.read_text(encoding="utf-8").split("\n")
     out = []
     for line in lines:
@@ -17,13 +22,13 @@ def insert_after_section(path, section, text):
     path.write_text("\n".join(out), encoding="utf-8")
 
 
-def replace_line(path, old, new):
+def replace_line(path: Path, old: str, new: str) -> None:
     lines = path.read_text(encoding="utf-8").split("\n")
     lines = [new if line == old else line for line in lines]
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def write_manifest(path, name, deps=""):
+def write_manifest(path: Path, name: str, deps: str = "") -> None:
     content = (
         '[package]\nname = "%s"\nversion.workspace = true\n'
         "edition.workspace = true\n\n[dependencies]\n\n[lints]\nworkspace = true" % name
@@ -33,7 +38,7 @@ def write_manifest(path, name, deps=""):
         insert_after_section(path, "[dependencies]", deps)
 
 
-def new_fixture(root, agents_body=None):
+def new_fixture(root: Path, agents_body: str | None = None) -> None:
     (root / "crates/gloss-core/src").mkdir(parents=True)
     (root / "crates/gloss-platform").mkdir()
     (root / "crates/gloss-app").mkdir()
@@ -100,25 +105,37 @@ def new_fixture(root, agents_body=None):
         )
 
 
-def add_dep(path, text):
+def add_dep(path: Path, text: str) -> None:
     insert_after_section(path, "[dependencies]", text)
 
 
-def run_case(module, tmp_path, mutate=None):
+def run_case(
+    module: ModuleType, tmp_path: Path, mutate: Callable[[Path], None] | None = None
+) -> tuple[list[str], list[str]]:
     new_fixture(tmp_path)
     if mutate is not None:
         mutate(tmp_path)
     return module.run(str(tmp_path))
 
 
-def assert_pass(module, tmp_path, mutate=None, needle=None):
+def assert_pass(
+    module: ModuleType,
+    tmp_path: Path,
+    mutate: Callable[[Path], None] | None = None,
+    needle: str | None = None,
+) -> None:
     oks, fails = run_case(module, tmp_path, mutate)
     assert fails == []
     if needle is not None:
         assert any(needle in o for o in oks)
 
 
-def assert_fail(module, tmp_path, mutate=None, needle=None):
+def assert_fail(
+    module: ModuleType,
+    tmp_path: Path,
+    mutate: Callable[[Path], None] | None = None,
+    needle: str | None = None,
+) -> None:
     oks, fails = run_case(module, tmp_path, mutate)
     assert fails
     if needle is not None:

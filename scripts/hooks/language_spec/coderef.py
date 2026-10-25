@@ -8,6 +8,8 @@
 模块名避开解释器标准库的交互解释器模块。
 """
 
+from __future__ import annotations
+
 import re
 
 from language_spec.chinese import CJK, body_problems
@@ -18,7 +20,7 @@ MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps):allow\b")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-def strip_links(text):
+def strip_links(text: str) -> str:
     """链接与图片逐层剥除：徽章是套着图片的嵌套链接，先剥内层图片再剥外层。"""
     for pattern in (r"!\[[^\]]*\]\([^)]*\)", r"\[[^\]]*\]\([^)]*\)"):
         while True:
@@ -29,7 +31,7 @@ def strip_links(text):
     return text
 
 
-def prose_line_problems(loc, text):
+def prose_line_problems(loc: str, text: str) -> list[str]:
     """单行表述判定：结构性记号豁免后落中文区判定，主体必须中文。"""
     text = text.strip()
     if not text:
@@ -57,7 +59,7 @@ def prose_line_problems(loc, text):
     return body_problems(loc, text, "text")
 
 
-def markdown_problems(rel, src):
+def markdown_problems(rel: str, src: str) -> list[str]:
     """标记语言文档逐行受检：代码围栏、行内反引号与链接豁免；表格首列与纯
     标识符小节标题是双向核对的键，豁免；日期是语言中立数据格式，放行。"""
     out = []
@@ -72,7 +74,7 @@ def markdown_problems(rel, src):
     return out
 
 
-def markdown_line_problems(rel, lineno, line):
+def markdown_line_problems(rel: str, lineno: int, line: str) -> list[str]:
     stripped = line.strip()
     if not stripped:
         return []

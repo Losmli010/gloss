@@ -3,6 +3,8 @@
 对应的条件通过行随之缺席。
 """
 
+from __future__ import annotations
+
 import subprocess
 import sys
 from pathlib import Path
@@ -28,7 +30,7 @@ OK_STEMS = (
 )
 
 
-def test_baseline_aggregate_reports_every_domain(tmp_path):
+def test_baseline_aggregate_reports_every_domain(tmp_path: Path) -> None:
     fixtures.new_fixture(tmp_path)
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
@@ -37,8 +39,8 @@ def test_baseline_aggregate_reports_every_domain(tmp_path):
     assert [ok.split(" (", 1)[0] for ok in oks] == list(OK_STEMS)
 
 
-def test_aggregate_surfaces_domain_violations(tmp_path):
-    def mutate(root):
+def test_aggregate_surfaces_domain_violations(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         fixtures.add_dep(
             root / "crates/gloss-app/Cargo.toml", 'gloss-eval = { path = "../gloss-eval" }'
         )

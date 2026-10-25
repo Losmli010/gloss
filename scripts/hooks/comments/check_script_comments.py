@@ -9,12 +9,15 @@
 本模块自身注释同规。
 """
 
+from __future__ import annotations
+
 import ast
 import io
 import os
 import re
 import sys
 import tokenize
+from typing import AbstractSet
 
 _HOOKS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _HOOKS not in sys.path:
@@ -30,7 +33,7 @@ HASH_NAMES = {"justfile", ".gitignore"}
 WEB_SUFFIXES = {".js", ".css", ".html"}
 
 
-def handles(rel):
+def handles(rel: str) -> bool:
     """文件类型是否归本门禁：井号系脚本与配置、钩子目录脚本与站点资源。"""
     name = os.path.basename(rel)
     ext = os.path.splitext(name)[1]
@@ -42,7 +45,9 @@ def handles(rel):
     )
 
 
-def hash_comments(src, line_start_only=False, skip=frozenset()):
+def hash_comments(
+    src: str, line_start_only: bool = False, skip: AbstractSet[int] = frozenset()
+) -> list[tuple[int, str]]:
     """井号系注释抽取：引号感知；井号须在行首或空白之后；多行字符串整段跳过。
 
     skip 里的行整行豁免——块标量正文与 heredoc 正文是字面数据，井号不是注释。"""
@@ -92,7 +97,7 @@ def hash_comments(src, line_start_only=False, skip=frozenset()):
     return out
 
 
-def python_comments(src, skip=frozenset()):
+def python_comments(src: str, skip: AbstractSet[int] = frozenset()) -> list[tuple[int, str]]:
     """注释走标准词法（Python）取准确集合；语法异常时退回井号扫描。"""
     try:
         out = []
@@ -108,7 +113,7 @@ def python_comments(src, skip=frozenset()):
 YAML_BLOCK_RE = re.compile(r"^(\s*)([\w.-]+):\s*[|>][0-9+-]*\s*(?:#.*)?$")
 
 
-def yaml_scalar_skip(src):
+def yaml_scalar_skip(src: str) -> set[int]:
     """配置（YAML）块标量正文行清单：除运行键（承载壳层脚本的键）外，正
     文的井号是字面内容不是注释。
 
@@ -134,7 +139,7 @@ def yaml_scalar_skip(src):
     return skip
 
 
-def heredoc_skip(src):
+def heredoc_skip(src: str) -> set[int]:
     """壳层脚本就地文档正文行清单：定界符收口之前的行是字面数据。
 
     定界符须真的出现才生效——未收口的疑似起始不豁免，宁误报不漏检。"""
@@ -173,7 +178,7 @@ def heredoc_skip(src):
     return skip
 
 
-def web_comments(src, suffix):
+def web_comments(src: str, suffix: str) -> list[tuple[int, str]]:
     """站点资源注释抽取：页面认标记注释（引号感知），脚本与样式认双斜线与
     斜线星注释；脚本的反引号模板字面量可跨行，串状态随行保留。"""
     out = []
@@ -245,7 +250,7 @@ def web_comments(src, suffix):
     return out
 
 
-def web_body(text):
+def web_body(text: str) -> str:
     """剥去站点注释的包裹符，取纯表述。"""
     body = text.strip()
     for lead in ("<!--", "/*", "//"):
@@ -260,7 +265,7 @@ def web_body(text):
     return body.strip()
 
 
-def module_docstring_problems(rel, src):
+def module_docstring_problems(rel: str, src: str) -> list[str]:
     """模块级文档字符串按文件头同规：内容走注释同款判罚，解释器引导串豁免。
 
     文档字符串是字面量不是注释，词法抽取收不到它；这里按语法树补一刀，
@@ -302,7 +307,7 @@ def module_docstring_problems(rel, src):
     return out
 
 
-def check(rel, src):
+def check(rel: str, src: str) -> list[str]:
     """注释逐块受检：相邻注释行聚成一块，模块级文档字符串按文件头同规。"""
     name = os.path.basename(rel)
     ext = os.path.splitext(name)[1]
@@ -328,7 +333,7 @@ def check(rel, src):
         pairs = web_comments(src, ext)
         kind = "web"
 
-    def flush(lineno, bodies):
+    def flush(lineno: int, bodies: list[str]) -> list[str]:
         merged = "\n".join(bodies)
         loc = f"{rel}:{lineno}"
         if "`" in merged:

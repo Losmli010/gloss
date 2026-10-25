@@ -20,15 +20,18 @@
 段按缺源处理，就地迁移是统一采集器的职责。
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from metrics import CATEGORY_LABELS, METRICS, fmt  # noqa: E402 —— 路径引导先于导入
+from metrics import CATEGORY_LABELS, METRICS, Metric, fmt  # noqa: E402 —— 路径引导先于导入
 
 ROOT = SCRIPT_DIR.parents[1]
 DEFAULT_HISTORY = SCRIPT_DIR / "baselines" / "history.jsonl"
@@ -46,7 +49,7 @@ BUDGET_SIGNAL_FIELDS = {
 }
 
 
-def _validate_budget_signal_fields():
+def _validate_budget_signal_fields() -> None:
     """import 期校验：信号字段映射与注册表预算门禁指标一一对应。
 
     登记项漂移当场失败（与 metrics.py 的 import 期自检同模式），不留到带
@@ -67,12 +70,12 @@ def _validate_budget_signal_fields():
 _validate_budget_signal_fields()
 
 
-def resolve_path(raw):
+def resolve_path(raw: str) -> Path:
     path = Path(raw)
     return path if path.is_absolute() else ROOT / path
 
 
-def load_points(path):
+def load_points(path: Path) -> list[dict[str, Any]]:
     """读 history.jsonl 为点列表，保文件序（collector 按 date 排序写入即时间序）。"""
     if not path.is_file():
         raise SystemExit(
@@ -95,13 +98,13 @@ def load_points(path):
     return points
 
 
-def point_metrics(point):
+def point_metrics(point: dict[str, Any]) -> dict[str, Any]:
     """取点的 metrics 段；缺段（v1 旧点）按缺源返回空。"""
     metrics = point.get("metrics")
     return metrics if isinstance(metrics, dict) else {}
 
 
-def find_point(points, commit):
+def find_point(points: list[dict[str, Any]], commit: str) -> dict[str, Any]:
     for point in points:
         if point.get("commit") == commit:
             return point
@@ -109,7 +112,9 @@ def find_point(points, commit):
     raise SystemExit(f"error: commit {commit} not in history (available: {known})")
 
 
-def earlier_value(points, metric_id, latest_first):
+def earlier_value(
+    points: list[dict[str, Any]], metric_id: str, latest_first: bool
+) -> int | float | None:
     """最新点之前该指标最近/最早的点值；之前无点携带该 id 则 None（vs 列标「—」）。
 
     对比锚点是该 id 自身的上一/首个数据点（与图表数值槽同口径），不是文件里
@@ -123,7 +128,7 @@ def earlier_value(points, metric_id, latest_first):
     return None
 
 
-def latest_budget(points, metric_id):
+def latest_budget(points: list[dict[str, Any]], metric_id: str) -> int | float | None:
     """「当前预算」＝历史里最新携带该预算的点上的数值（预算变更自然形成时间线）。"""
     for point in reversed(points):
         budgets = point.get("budgets")
@@ -132,7 +137,7 @@ def latest_budget(points, metric_id):
     return None
 
 
-def latest_env(points):
+def latest_env(points: list[dict[str, Any]]) -> dict[str, Any]:
     """页头环境行取最新点的 env；最新点为空（v1 迁移点）回退最新非空 env。"""
     for point in reversed(points):
         env = point.get("env")
@@ -141,7 +146,7 @@ def latest_env(points):
     return {}
 
 
-def env_line(env):
+def env_line(env: dict[str, Any]) -> str:
     left = " ".join(part for part in (env.get("os"), env.get("arch")) if part)
     cpu = env.get("cpu", "")
     if cpu and left:
@@ -149,14 +154,14 @@ def env_line(env):
     return left or cpu
 
 
-def change_cell(new, old):
+def change_cell(new: int | float, old: int | float) -> str:
     """相对变化百分比单元格；旧值为 0 无法定义百分比，标「—」。"""
     if old == 0:
         return "—"
     return f"{(new - old) / old * 100:.1f}%"
 
 
-def load_selftest_signals(path):
+def load_selftest_signals(path: Path) -> dict[str, Any]:
     """提取自检信号文件里各源最新的一条信号行，缺文件/坏行容忍（总览判「—」）。
 
     wrapper 按采集顺序整文件覆写落盘；这里对同源信号取最后一条，兼容将来
@@ -183,7 +188,7 @@ def load_selftest_signals(path):
     return signals
 
 
-def signal_verdict(metric_id, metric, signals):
+def signal_verdict(metric_id: str, metric: Metric, signals: dict[str, Any]) -> str | None:
     """从自检信号行转述单指标 PASS/FAIL（行内值 ≤ 行内预算字段）。
 
     信号行未携带该指标的值或预算字段（含整个信号文件缺席）即 None，总览标
@@ -199,7 +204,7 @@ def signal_verdict(metric_id, metric, signals):
     return "PASS" if value <= budget else "FAIL"
 
 
-def judge_cell(metric):
+def judge_cell(metric: Metric) -> str:
     """总览判定列的非预算行：注册表的 judge + note 括注（与设计 4.4 样例一致）。
 
     这类行没有可转述的判定信号（判定权在 clone-check 与自检退出码），只
@@ -208,7 +213,9 @@ def judge_cell(metric):
     return f"{metric.judge} ({metric.note})" if metric.note else metric.judge
 
 
-def verdict_cell(points, metric_id, metric, signals):
+def verdict_cell(
+    points: list[dict[str, Any]], metric_id: str, metric: Metric, signals: dict[str, Any]
+) -> str:
     """总览判定列：预算指标转述 PASS/FAIL 并标注预算数值，其余行呈现 judge+note。
 
     预算数值取最新携带预算的历史点；预算与判定单独缺席时只展示在场的部分，
@@ -224,7 +231,7 @@ def verdict_cell(points, metric_id, metric, signals):
     return f"{cell} · {verdict}" if verdict is not None else cell
 
 
-def render_overview(points, signals):
+def render_overview(points: list[dict[str, Any]], signals: dict[str, Any]) -> str:
     latest = points[-1]
     metrics = point_metrics(latest)
     lines = ["## overview", ""]
@@ -252,7 +259,7 @@ def render_overview(points, signals):
     return "\n".join(lines)
 
 
-def compare_verdict(metric, old, new):
+def compare_verdict(metric: Metric, old: int | float, new: int | float) -> str:
     """对比参考列：精确计数类整数对照（与 clone-check 同向），其余按 noise 阈值。"""
     if metric.judge == "exact count gate":
         if new > old:
@@ -268,7 +275,12 @@ def compare_verdict(metric, old, new):
     return "regressed" if relative > 0 else "improved"
 
 
-def render_compare(old_point, new_point, from_commit, to_commit):
+def render_compare(
+    old_point: dict[str, Any],
+    new_point: dict[str, Any],
+    from_commit: str,
+    to_commit: str,
+) -> str:
     old_metrics, new_metrics = point_metrics(old_point), point_metrics(new_point)
     improved = regressed = flat = 0
     nodata = sum(
@@ -303,7 +315,7 @@ def render_compare(old_point, new_point, from_commit, to_commit):
     return "\n".join(lines)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="perf overview and compare Markdown report (stdout, verdicts are reference only, not gates)"
     )

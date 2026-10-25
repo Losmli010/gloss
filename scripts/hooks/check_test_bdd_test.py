@@ -4,8 +4,11 @@
 的临时目录（一次性版本库，扫描面走版本库清单）；用法见持续集成的钩子工作流。
 """
 
+from __future__ import annotations
+
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -66,7 +69,7 @@ BDD_MD = """\
 """
 
 
-def build_fixture(tmp_path):
+def build_fixture(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
     (tmp_path / "src").mkdir()
     (tmp_path / "docs/tests").mkdir(parents=True)
@@ -76,21 +79,30 @@ def build_fixture(tmp_path):
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
 
 
-def check(tmp_path, mutate=None):
+def check(
+    tmp_path: Path, mutate: Callable[[Path], None] | None = None
+) -> tuple[list[str], list[str]]:
     build_fixture(tmp_path)
     if mutate is not None:
         mutate(tmp_path)
     return check_test_bdd.run(str(tmp_path))
 
 
-def assert_pass(tmp_path, mutate=None, needle=None):
+def assert_pass(
+    tmp_path: Path, mutate: Callable[[Path], None] | None = None, needle: str | None = None
+) -> None:
     oks, fails = check(tmp_path, mutate)
     assert fails == []
     if needle is not None:
         assert any(needle in o for o in oks)
 
 
-def assert_fail(tmp_path, mutate=None, needle=None, absent=None):
+def assert_fail(
+    tmp_path: Path,
+    mutate: Callable[[Path], None] | None = None,
+    needle: str | None = None,
+    absent: str | None = None,
+) -> None:
     oks, fails = check(tmp_path, mutate)
     out = "\n".join(fails)
     assert fails
@@ -103,12 +115,12 @@ def assert_fail(tmp_path, mutate=None, needle=None, absent=None):
 # ---- 一致（通过）----
 
 
-def test_full_inventory_consistent(tmp_path):
+def test_full_inventory_consistent(tmp_path: Path) -> None:
     assert_pass(tmp_path)
 
 
-def test_section_file_heading_rename_irrelevant(tmp_path):
-    def mutate(root):
+def test_section_file_heading_rename_irrelevant(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         p = root / "docs/tests/bdd.md"
         p.write_text(
             p.read_text(encoding="utf-8").replace("### crates/demo.rs", "### crates/renamed.rs"),
@@ -118,12 +130,12 @@ def test_section_file_heading_rename_irrelevant(tmp_path):
     assert_pass(tmp_path, mutate)
 
 
-def test_table_header_and_separator_not_entries(tmp_path):
+def test_table_header_and_separator_not_entries(tmp_path: Path) -> None:
     assert_pass(tmp_path)
 
 
-def test_history_row_same_name_not_duplicate(tmp_path):
-    def mutate(root):
+def test_history_row_same_name_not_duplicate(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         p = root / "docs/tests/bdd.md"
         with open(p, "a", encoding="utf-8") as fh:
             fh.write("| registered_plain | 旧目标 | 旧场景措辞 | 2026-09-01 |\n")
@@ -131,8 +143,8 @@ def test_history_row_same_name_not_duplicate(tmp_path):
     assert_pass(tmp_path, mutate)
 
 
-def test_fn_name_colliding_with_target_deduped(tmp_path):
-    def mutate(root):
+def test_fn_name_colliding_with_target_deduped(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         with open(root / "Cargo.toml", "a", encoding="utf-8") as fh:
             fh.write('\n[[test]]\nname = "collide_target"\nharness = false\n')
         with open(root / "src/lib.rs", "a", encoding="utf-8") as fh:
@@ -143,8 +155,8 @@ def test_fn_name_colliding_with_target_deduped(tmp_path):
     assert_pass(tmp_path, mutate)
 
 
-def test_manual_entry_registered_once(tmp_path):
-    def mutate(root):
+def test_manual_entry_registered_once(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         with open(root / "src/lib.rs", "a", encoding="utf-8") as fh:
             fh.write('\n#[test]\n#[ignore = "needs device"]\nfn live_manual_thing() {}\n')
         with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
@@ -159,24 +171,24 @@ def test_manual_entry_registered_once(tmp_path):
 # ---- 不一致（拒绝）----
 
 
-def test_unregistered_test(tmp_path):
-    def mutate(root):
+def test_unregistered_test(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         with open(root / "src/lib.rs", "a", encoding="utf-8") as fh:
             fh.write("\n#[test]\nfn unregistered_thing() {}\n")
 
     assert_fail(tmp_path, mutate, "unregistered_thing")
 
 
-def test_stale_bdd_entry(tmp_path):
-    def mutate(root):
+def test_stale_bdd_entry(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
             fh.write("| ghost_entry | 目标 | 场景 | 2026-09-19 |\n")
 
     assert_fail(tmp_path, mutate, "ghost_entry")
 
 
-def test_rename_in_code_only(tmp_path):
-    def mutate(root):
+def test_rename_in_code_only(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         p = root / "src/lib.rs"
         p.write_text(
             p.read_text(encoding="utf-8").replace(
@@ -188,24 +200,24 @@ def test_rename_in_code_only(tmp_path):
     assert_fail(tmp_path, mutate, "registered_plain_renamed")
 
 
-def test_bdd_file_missing(tmp_path):
-    def mutate(root):
+def test_bdd_file_missing(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         (root / "docs/tests/bdd.md").unlink()
 
     with pytest.raises(SystemExit, match="not found"):
         check(tmp_path, mutate)
 
 
-def test_exact_duplicate_row(tmp_path):
-    def mutate(root):
+def test_exact_duplicate_row(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
             fh.write("| registered_plain | 目标 | 给定…当…则… | 2026-09-19 |\n")
 
     assert_fail(tmp_path, mutate, "registered multiple times")
 
 
-def test_section_header_row_dropped(tmp_path):
-    def mutate(root):
+def test_section_header_row_dropped(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         p = root / "docs/tests/bdd.md"
         lines = [
             line
@@ -217,16 +229,16 @@ def test_section_header_row_dropped(tmp_path):
     assert_fail(tmp_path, mutate, "missing a header row")
 
 
-def test_duplicate_chapter(tmp_path):
-    def mutate(root):
+def test_duplicate_chapter(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
             fh.write("\n## 性能测试\n")
 
     assert_fail(tmp_path, mutate, "appear more than once")
 
 
-def test_blank_line_splits_table(tmp_path):
-    def mutate(root):
+def test_blank_line_splits_table(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         p = root / "docs/tests/bdd.md"
         lines = p.read_text(encoding="utf-8").split("\n")
         out = []
@@ -241,8 +253,8 @@ def test_blank_line_splits_table(tmp_path):
     assert_fail(tmp_path, mutate, "missing a header row")
 
 
-def test_paragraph_splits_table(tmp_path):
-    def mutate(root):
+def test_paragraph_splits_table(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         p = root / "docs/tests/bdd.md"
         lines = p.read_text(encoding="utf-8").split("\n")
         out = []
@@ -257,8 +269,8 @@ def test_paragraph_splits_table(tmp_path):
     assert_fail(tmp_path, mutate, "missing a header row")
 
 
-def test_table_header_dropped_body_only(tmp_path):
-    def mutate(root):
+def test_table_header_dropped_body_only(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         p = root / "docs/tests/bdd.md"
         lines = p.read_text(encoding="utf-8").split("\n")
         out = []
@@ -276,16 +288,16 @@ def test_table_header_dropped_body_only(tmp_path):
     assert_fail(tmp_path, mutate, "missing a header row")
 
 
-def test_duplicate_bullet_lines(tmp_path):
-    def mutate(root):
+def test_duplicate_bullet_lines(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
             fh.write("- 测试目标：重复块探针。\n- 测试目标：重复块探针。\n")
 
     assert_fail(tmp_path, mutate, "repeat within the same")
 
 
-def test_duplicate_h3_in_same_chapter(tmp_path):
-    def mutate(root):
+def test_duplicate_h3_in_same_chapter(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
         with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
             fh.write("\n### crates/demo.rs\n")
             fh.write("\n### crates/demo.rs\n")

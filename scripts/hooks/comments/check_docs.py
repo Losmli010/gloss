@@ -5,6 +5,8 @@
 路由调用，与语言规范库同源共用；本模块自身注释同规。
 """
 
+from __future__ import annotations
+
 import os
 import sys
 
@@ -15,7 +17,7 @@ if _HOOKS not in sys.path:
 from language_spec.coderef import markdown_problems  # noqa: E402
 
 
-def handles(rel):
+def handles(rel: str) -> bool:
     """文件类型是否归本门禁：标记语言文档，记录目录与提示词目录除外。"""
     if os.path.splitext(os.path.basename(rel))[1] != ".md":
         return False
@@ -24,6 +26,6 @@ def handles(rel):
     return "prompts" not in rel.split(os.sep)
 
 
-def check(rel, src):
+def check(rel: str, src: str) -> list[str]:
     """文档逐行受检，判定走语言规范库的标记语言遍历。"""
     return markdown_problems(rel, src)

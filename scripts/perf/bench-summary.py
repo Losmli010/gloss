@@ -6,15 +6,18 @@
 线），本脚本只读取数据，不运行基准。
 """
 
+from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 NS_PER_MS = 1_000_000
 NS_PER_US = 1_000
 
 
-def human_ns(ns):
+def human_ns(ns: float) -> str:
     if ns >= NS_PER_MS:
         return f"{ns / NS_PER_MS:.3f} ms"
     if ns >= NS_PER_US:
@@ -22,22 +25,22 @@ def human_ns(ns):
     return f"{ns:.1f} ns"
 
 
-def human_ratio(frac):
+def human_ratio(frac: float) -> str:
     return f"{frac * 100:+.2f}%"
 
 
-def load_json(path):
+def load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def load_mean(path):
+def load_mean(path: Path) -> tuple[float, float, float]:
     """读取 estimates.json，返回（均值点估计，区间下界，区间上界）。"""
     mean = load_json(path)["mean"]
     ci = mean["confidence_interval"]
     return mean["point_estimate"], ci["lower_bound"], ci["upper_bound"]
 
 
-def display_name(bench_dir, dir_name):
+def display_name(bench_dir: Path, dir_name: str) -> str:
     """优先取 benchmark.json 里的 full_id（含原始 / 分隔），退回目录名。"""
     try:
         return load_json(bench_dir / "new" / "benchmark.json")["full_id"]
@@ -45,7 +48,7 @@ def display_name(bench_dir, dir_name):
         return dir_name
 
 
-def main():
+def main() -> None:
     label = sys.argv[1] if len(sys.argv) > 1 else "last run"
     crit_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("target/criterion")
     if not crit_dir.is_dir():

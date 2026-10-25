@@ -12,9 +12,12 @@
 传入临时样本）；缺省扫全部被跟踪文件。
 """
 
+from __future__ import annotations
+
 import os
 import subprocess
 import sys
+from typing import Any
 
 import check_docs
 import check_rust_comments
@@ -24,7 +27,7 @@ import check_script_comments
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 
-def scan_files(root, explicit, loader=None):
+def scan_files(root: str, explicit: list[str], loader: Any = None) -> list[str]:
     """枚举受检文件：显式清单优先（供单测传样本），否则取版本库跟踪清单。
 
     跟踪清单走空字节分隔取原始字节再容错解码——非空分隔形态对非英文字
@@ -42,7 +45,7 @@ def scan_files(root, explicit, loader=None):
     return [os.path.join(root, p.decode("utf-8", "replace")) for p in out.split(b"\0") if p]
 
 
-def run(root, explicit, loader=None):
+def run(root: str, explicit: list[str], loader: Any = None) -> list[str]:
     """遍历跟踪文件，按文件类型分派并聚合违规；装入器在场时清单枚举与文件
     读取走共享缓存，缺省自行读取。"""
     gates = (check_rust_comments, check_script_comments, check_docs)
@@ -65,7 +68,7 @@ def run(root, explicit, loader=None):
     return problems
 
 
-def main(loader=None):
+def main(loader: Any = None) -> int:
     root = sys.argv[1] if len(sys.argv) > 1 else REPO_ROOT
     explicit = sys.argv[2:]
     print(f"== comment discipline gate (repo root: {root}) ==")

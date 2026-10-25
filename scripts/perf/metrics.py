@@ -14,6 +14,8 @@
 发式参考，输出须标注“非门禁，仅参考”。
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 CATEGORIES = (
@@ -82,7 +84,7 @@ CORE_CASES = {
 }
 
 
-def _core_metrics():
+def _core_metrics() -> dict[str, Metric]:
     """展开 criterion 热点墙钟指标（bench 墙钟随机器波动，恒为仅记录）。"""
     return {
         f"core.{group}/{case}": Metric(
@@ -206,7 +208,7 @@ _KB_PER_MB = 1024
 _KB_MB_SWITCH = 10 * _KB_PER_MB  # 千字节值过万才换兆显示，以下保持千字节
 
 
-def fmt(value, unit):
+def fmt(value: float, unit: str) -> str:
     """把指标数值格式化为人读字符串（图表数值槽与报告表格共用同一出口）。
 
     ms 取整数千位分隔；kb ≥10 MB 换算 MB 一位小数（1024 进制），以下 KB
@@ -241,7 +243,7 @@ def fmt(value, unit):
     raise ValueError(f"unknown unit {unit!r} (vocabulary: ms/kb/count/ns/bytes)")
 
 
-def _validate():
+def _validate() -> None:
     """注册表一致性自检，import 时执行：登记项漂移当场失败，不留到消费方。"""
     problems = []
     for mid, metric in METRICS.items():

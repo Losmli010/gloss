@@ -4,13 +4,16 @@
 缘由。判定口径与取舍见记录文件。
 """
 
+from __future__ import annotations
+
 import os
 import re
+from typing import Any
 
 from . import manifests
 
 
-def run(root, loader=None):
+def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """执行版本单点、依赖特性与死条目约束，返回通过与失败两个清单。"""
     dump = manifests.dep_dump(root, loader)
     oks = []

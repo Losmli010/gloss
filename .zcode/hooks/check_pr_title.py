@@ -1,6 +1,8 @@
 ''''exec python3 -- "$0" "$@" # '''  # fmt: skip
 
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """编码助手（ZCode）提交前钩子：拉取请求的标题与正文在提交前先过一遍提交
 信息规范与书写规则校验。由客户端共享配置的提交前事件调用；手动测试时向
 标准输入喂入钩子载荷。
@@ -23,13 +25,14 @@ import json  # noqa: E402 —— 跨壳引导串占了文档字符串位
 import os  # noqa: E402
 import shlex  # noqa: E402
 import sys  # noqa: E402
+from typing import Any  # noqa: E402
 
 PROJ_DIR = os.environ.get("ZCODE_PROJECT_DIR") or os.environ.get("CLAUDE_PROJECT_DIR") or "."
 CHECKER_DIR = os.path.join(PROJ_DIR, "scripts", "hooks")
 PR_TOOLS = ("mcp__github__create_pull_request", "mcp__github__update_pull_request")
 
 
-def extract_field(data, field):
+def extract_field(data: dict[str, Any], field: str) -> str:
     """从钩子载荷抽指定字段：接口工具取字段值，命令行按旗标定位。"""
     tool = data.get("tool_name") or ""
     tool_input = data.get("tool_input") or {}
@@ -76,7 +79,7 @@ def extract_field(data, field):
     return ""
 
 
-def main():
+def main() -> int:
     try:
         payload = sys.stdin.read()
     except Exception:

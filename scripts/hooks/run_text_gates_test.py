@@ -5,10 +5,14 @@
 违规样本端到端双跑，不入单测。
 """
 
+from __future__ import annotations
+
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -17,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import run_text_gates  # noqa: E402
 
 
-def make_repo(tmp_path, files):
+def make_repo(tmp_path: Path, files: dict[str, bytes]) -> run_text_gates.ContentLoader:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
     for name, data in files.items():
         p = tmp_path / name
@@ -27,38 +31,38 @@ def make_repo(tmp_path, files):
     return run_text_gates.ContentLoader(str(tmp_path))
 
 
-def test_tracked_enumerated_once_and_shared(tmp_path):
+def test_tracked_enumerated_once_and_shared(tmp_path: Path) -> None:
     src = make_repo(tmp_path, {"b.txt": b"1\n", "a/c.rs": b"2\n"})
     assert src.tracked() == ["a/c.rs", "b.txt"]
     assert src.tracked() is src.tracked()
 
 
-def test_read_bytes_cached_across_calls(tmp_path):
+def test_read_bytes_cached_across_calls(tmp_path: Path) -> None:
     src = make_repo(tmp_path, {"x.bin": b"ab\r\x00"})
     assert src.read_bytes("x.bin") == b"ab\r\x00"
     assert src.read_bytes("x.bin") is src.read_bytes("x.bin")
 
 
-def test_read_text_matches_text_mode_semantics(tmp_path):
+def test_read_text_matches_text_mode_semantics(tmp_path: Path) -> None:
     src = make_repo(tmp_path, {"crlf.txt": b"a\r\nb\rc\n", "plain.txt": b"a\nb"})
     assert src.read_text("crlf.txt") == "a\nb\nc\n"
     assert src.read_text("plain.txt") == "a\nb"
 
 
-def test_read_text_decodes_by_requested_errors_mode(tmp_path):
+def test_read_text_decodes_by_requested_errors_mode(tmp_path: Path) -> None:
     src = make_repo(tmp_path, {"bad.txt": b"a\x80b\n"})
     with pytest.raises(UnicodeDecodeError):
         src.read_text("bad.txt")
     assert src.read_text("bad.txt", errors="replace") == "a\ufffdb\n"
 
 
-def test_read_text_cached_per_errors_mode(tmp_path):
+def test_read_text_cached_per_errors_mode(tmp_path: Path) -> None:
     src = make_repo(tmp_path, {"ok.txt": b"a\n"})
     assert src.read_text("ok.txt") is src.read_text("ok.txt")
     assert src.read_text("ok.txt") is not src.read_text("ok.txt", errors="replace")
 
 
-def test_missing_file_raises_os_error(tmp_path):
+def test_missing_file_raises_os_error(tmp_path: Path) -> None:
     src = make_repo(tmp_path, {"here.txt": b"x"})
     with pytest.raises(OSError):
         src.read_bytes("gone.txt")
@@ -66,13 +70,13 @@ def test_missing_file_raises_os_error(tmp_path):
         src.read_text("gone.txt")
 
 
-def test_relative_and_absolute_paths_share_byte_cache(tmp_path):
+def test_relative_and_absolute_paths_share_byte_cache(tmp_path: Path) -> None:
     src = make_repo(tmp_path, {"x.txt": b"data"})
     absolute = os.path.join(str(tmp_path), "x.txt")
     assert src.read_bytes(absolute) is src.read_bytes("x.txt")
 
 
-def test_gate_registry_order():
+def test_gate_registry_order() -> None:
     assert [name for name, _module in run_text_gates.GATES] == [
         "secrets",
         "agents-doc",
@@ -84,20 +88,20 @@ def test_gate_registry_order():
 
 
 class _Stub:
-    def __init__(self, behavior):
+    def __init__(self, behavior: Callable[[], int]) -> None:
         self.behavior = behavior
 
-    def main(self, loader=None):
+    def main(self, loader: Any = None) -> int:
         return self.behavior()
 
 
-def test_run_gate_returns_module_exit_code():
+def test_run_gate_returns_module_exit_code() -> None:
     assert run_text_gates.run_gate(_Stub(lambda: 0), None) == 0
     assert run_text_gates.run_gate(_Stub(lambda: 1), None) == 1
 
 
-def test_run_gate_converts_preflight_system_exit(capsys):
-    def boom():
+def test_run_gate_converts_preflight_system_exit(capsys: pytest.CaptureFixture[str]) -> None:
+    def boom() -> None:
         raise SystemExit("error: inventory missing")
 
     assert run_text_gates.run_gate(_Stub(boom), None) == 1

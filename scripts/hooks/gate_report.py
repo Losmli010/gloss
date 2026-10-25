@@ -5,9 +5,12 @@
 同源定义，各标识的含义、判罚口径与豁免方式住登记表记录文件。
 """
 
+from __future__ import annotations
+
 import subprocess
 import sys
 from dataclasses import dataclass
+from typing import TextIO
 
 EXIT_PASS = 0
 EXIT_VIOLATION = 1
@@ -84,7 +87,7 @@ class Finding:
     column: int = 0
 
 
-def location(finding):
+def location(finding: Finding) -> str:
     """位置的文本形态：相对路径加行号，列号在场则追加，路径为空则无位置。"""
     if not finding.path:
         return ""
@@ -94,7 +97,7 @@ def location(finding):
     return loc
 
 
-def fail(finding, file=sys.stderr):
+def fail(finding: Finding, file: TextIO = sys.stderr) -> Finding:
     """即时打印单条违规到标准错误，返回同一条目供调用方汇集计数。"""
     head = "✗ error[%s]: %s" % (finding.rule, finding.message)
     loc = location(finding)
@@ -108,14 +111,14 @@ def fail(finding, file=sys.stderr):
     return finding
 
 
-def summary(findings, file=sys.stderr):
+def summary(findings: list[Finding], file: TextIO = sys.stderr) -> None:
     """末尾汇总行：计数必须等于已打印明细数。"""
     count = len(findings)
     unit = "violation" if count == 1 else "violations"
     print("error: %d %s found (see above)" % (count, unit), file=file)
 
 
-def infra_failure(message, evidence=""):
+def infra_failure(message: str, evidence: str = "") -> Finding:
     """门禁自身故障的条目：无法完成判定，按失败关闭处置。"""
     return Finding(
         rule=RULE_INFRA,
@@ -127,7 +130,9 @@ def infra_failure(message, evidence=""):
     )
 
 
-def run_git(args, cwd=None, file=sys.stderr):
+def run_git(
+    args: list[str], cwd: str | None = None, file: TextIO = sys.stderr
+) -> subprocess.CompletedProcess[bytes]:
     """统一包装版本库调用：成功返回完成态子进程，失败打基础设施条目并退出。"""
     cmd = ["git"] + list(args)
     try:

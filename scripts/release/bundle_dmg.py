@@ -3,12 +3,14 @@
 用法：以解释器运行，首参为应用包路径，次参可选为输出镜像路径。
 """
 
+from __future__ import annotations
+
 import os
 import subprocess
 import sys
 
 
-def main():
+def main() -> int:
     if len(sys.argv) < 2:
         print("usage: %s <path/to/Gloss.app> [output.dmg path]" % sys.argv[0], file=sys.stderr)
         return 2

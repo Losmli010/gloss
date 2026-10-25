@@ -4,6 +4,8 @@
 的单测入口。
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
@@ -12,15 +14,15 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 from language_spec import english  # noqa: E402
 
 
-def test_pure_english_ok():
+def test_pure_english_ok() -> None:
     assert english.english_zone_problems("t:1", "guard field access", "SAFETY comment") == []
 
 
-def test_cjk_flagged():
+def test_cjk_flagged() -> None:
     problems = english.english_zone_problems("t:1", "guard 字段访问", "SAFETY comment")
     assert any("pure English" in p for p in problems)
 
 
-def test_fullwidth_and_curly_flagged():
+def test_fullwidth_and_curly_flagged() -> None:
     assert english.english_zone_problems("t:1", "return （x）", "SAFETY comment")
     assert english.english_zone_problems("t:1", "say “hi”", "SAFETY comment")

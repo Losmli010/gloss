@@ -4,8 +4,11 @@
 改动。允许边表与红线的取舍见记录文件。
 """
 
+from __future__ import annotations
+
 import os
 import re
+from typing import Any
 
 from . import manifests
 
@@ -48,11 +51,11 @@ CORE_FORBIDDEN_PREFIX = (
 )
 
 
-def core_forbidden(key):
+def core_forbidden(key: str) -> bool:
     return key in CORE_FORBIDDEN_EXACT or key.startswith(CORE_FORBIDDEN_PREFIX)
 
 
-def run(root, loader=None):
+def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """执行依赖方向与评测资产隔离约束，返回通过与失败两个清单。"""
     manifest_list = manifests.manifests(root)
     dump = manifests.dep_dump(root, loader)

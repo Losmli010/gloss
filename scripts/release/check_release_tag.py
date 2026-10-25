@@ -4,6 +4,8 @@
 本地打标签前手动跑（走校验配方）；发布工作流构建产物前跑同一条脚本。
 """
 
+from __future__ import annotations
+
 import os
 import re
 import sys
@@ -11,7 +13,7 @@ import sys
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
-def workspace_version(root):
+def workspace_version(root: str) -> str | None:
     """版本只认 [workspace.package] 段里的 version 赋值（约束“版本单点维护”）；
     继承行 version.workspace 与依赖段的 version 都不误读。"""
     path = os.path.join(root, "Cargo.toml")
@@ -29,7 +31,7 @@ def workspace_version(root):
     return None
 
 
-def run(tag, root):
+def run(tag: str, root: str) -> tuple[str | None, str | None, str | None]:
     """校验 tag 与 root 的版本单点一致，返回 (tag 版本, cargo 版本, 错误串或 None)。"""
     if not tag.startswith("v"):
         return None, None, 'error: tag "%s" lacks the v prefix (e.g. v0.1.0)' % tag
@@ -66,7 +68,7 @@ def run(tag, root):
     return version, cargo_version, None
 
 
-def main():
+def main() -> int:
     if len(sys.argv) != 2:
         print("usage: %s <tag> (e.g. v0.1.0)" % sys.argv[0], file=sys.stderr)
         return 2
