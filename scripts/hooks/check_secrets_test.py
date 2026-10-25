@@ -3,7 +3,8 @@
 被测入口是门禁的运行函数，返回违规列表；在测试框架（pytest）的临时目录里建
 一次性版本库作扫描面，端到端等价靠种子违规样本，匹配引擎要求正则检索工具
 （ripgrep）在场。夹具里的疑似密钥一律由片段拼接生成，不让字面量出现在
-本文件（否则门禁自命中）；用法见持续集成的钩子工作流。
+本文件（否则门禁自命中）；用法见持续集成的钩子工作流。另含反馈契约三件套：
+报告格式断言、汇总计数与确定性，经子进程跑脚本端到端锁输出与退出码。
 """
 
 import os
@@ -323,3 +324,82 @@ def test_control_separator_assignment_reported(tmp_path):
     problems = seed_repo(tmp_path, files)
     flagged = {q.splitlines()[0].rsplit(": ", 1)[1] for q in problems}
     assert flagged == set(files)
+
+
+# ---- 反馈契约：报告格式、汇总计数、确定性与退出码（子进程端到端）----
+
+GATE = str(Path(__file__).with_name("check_secrets.py"))
+
+
+def run_gate(tmp_path, files, *extra):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    for name, text in files.items():
+        p = tmp_path / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text + "\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    return subprocess.run([sys.executable, GATE, str(tmp_path)] + list(extra), capture_output=True)
+
+
+def violation_fixture():
+    return {
+        "leak-vendor.txt": 'key = "sk-%s"' % TAIL40,
+        "leak-credential.toml": 'api_key = "%s"' % TAIL16,
+        "leak-auth.txt": "authorization: Bearer %s" % TAIL20,
+    }
+
+
+def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path):
+    proc = run_gate(tmp_path, violation_fixture())
+    assert proc.returncode == 1
+    text = proc.stderr.decode("utf-8")
+    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
+    ids = {re.match(r"^✗ error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
+    assert ids == {"SECRET-VENDOR", "SECRET-CREDENTIAL", "SECRET-AUTH"}
+    for line in heads:
+        assert re.match(r"^✗ error\[[A-Z0-9-]+\]: .+ \(.+:\d+\)$", line)
+    assert "    证据: " in text
+    assert "    help: " in text
+
+
+def test_gate_summary_count_matches_printed_details(tmp_path):
+    proc = run_gate(tmp_path, violation_fixture())
+    text = proc.stderr.decode("utf-8")
+    details = sum(1 for line in text.splitlines() if line.startswith("✗ error["))
+    match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
+    assert match
+    assert int(match.group(1)) == details == 3
+
+
+def test_gate_output_deterministic_across_runs(tmp_path):
+    first = run_gate(tmp_path, violation_fixture())
+    second = subprocess.run([sys.executable, GATE, str(tmp_path)], capture_output=True)
+    assert first.returncode == second.returncode == 1
+    assert first.stderr == second.stderr
+    assert first.stdout == second.stdout
+
+
+def test_gate_clean_repo_passes_with_exit_zero(tmp_path):
+    proc = run_gate(tmp_path, {"clean.rs": "let x = compute(input);"})
+    assert proc.returncode == 0
+    assert proc.stdout.decode("utf-8").startswith("✓")
+
+
+def test_gate_extra_argument_is_a_usage_error(tmp_path):
+    proc = run_gate(tmp_path, {"clean.rs": "let x = 1;"}, "extra-arg")
+    assert proc.returncode == 2
+    assert b"usage:" in proc.stderr
+
+
+def test_gate_missing_root_is_a_usage_error(tmp_path):
+    proc = subprocess.run([sys.executable, GATE, str(tmp_path / "nowhere")], capture_output=True)
+    assert proc.returncode == 2
+    assert b"usage:" in proc.stderr
+
+
+def test_gate_git_failure_is_infra_and_fail_closed(tmp_path):
+    bare = tmp_path / "not-a-repo"
+    bare.mkdir()
+    proc = subprocess.run([sys.executable, GATE, str(bare)], capture_output=True)
+    assert proc.returncode == 3
+    assert "✗ error[INFRA]:" in proc.stderr.decode("utf-8")
