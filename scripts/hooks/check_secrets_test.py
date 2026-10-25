@@ -178,8 +178,17 @@ def test_engine_expressions_carry_inline_flags():
     expressions = check_secrets.engine_expressions()
     sensitive = [p.pattern for p in check_secrets.CASE_SENSITIVE_PATTERNS]
     insensitive = [p.pattern for p in check_secrets.CASE_INSENSITIVE_PATTERNS]
+    expanded = [s.replace("\\s", check_secrets.SPACE_SUPERSET) for s in insensitive]
     assert expressions[: len(sensitive)] == sensitive
-    assert expressions[len(sensitive) :] == ["(?i)" + s for s in insensitive]
+    assert expressions[len(sensitive) :] == ["(?i)" + s for s in expanded]
+
+
+def test_space_superset_covers_interpreter_whitespace():
+    interpreter_space = re.compile(r"\s")
+    superset = re.compile(check_secrets.SPACE_SUPERSET)
+    for code in (0x1C, 0x1D, 0x1E, 0x1F, 0x09, 0x20):
+        assert interpreter_space.search(chr(code))
+        assert superset.search(chr(code))
 
 
 def test_pattern_hits_drops_marker_lines():
@@ -280,3 +289,37 @@ def test_ignored_but_tracked_file_scanned(tmp_path):
     )
     problems = check_secrets.run(str(tmp_path))
     assert any("suspected hardcoded credential" in q for q in problems)
+
+
+# ---- 评审差异面：异常换行符与控制分隔符 ----
+
+
+def seed_repo(tmp_path, files):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    for name, text in files.items():
+        (tmp_path / name).write_text(text + "\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    return check_secrets.run(str(tmp_path))
+
+
+def test_exotic_line_break_in_value_reported(tmp_path):
+    files = {
+        "leak-nel.txt": 'api_key = "%s"' % ("aaaabbbb" + chr(0x85) + TAIL16),
+        "leak-ls.txt": 'api_key = "%s"' % ("aaaabbbb" + chr(0x2028) + TAIL16),
+        "leak-ps.txt": 'api_key = "%s"' % ("aaaabbbb" + chr(0x2029) + TAIL16),
+    }
+    problems = seed_repo(tmp_path, files)
+    flagged = {q.splitlines()[0].rsplit(": ", 1)[1] for q in problems}
+    assert flagged == set(files)
+
+
+def test_control_separator_assignment_reported(tmp_path):
+    files = {
+        "leak-fs.txt": 'api_key%s=%s"aaaabbbbccccdddd"' % (chr(0x1C), chr(0x1C)),
+        "leak-gs.txt": 'api_key%s=%s"aaaabbbbccccdddd"' % (chr(0x1D), chr(0x1D)),
+        "leak-rs.txt": 'api_key%s=%s"aaaabbbbccccdddd"' % (chr(0x1E), chr(0x1E)),
+        "leak-us.txt": 'api_key%s=%s"aaaabbbbccccdddd"' % (chr(0x1F), chr(0x1F)),
+    }
+    problems = seed_repo(tmp_path, files)
+    flagged = {q.splitlines()[0].rsplit(": ", 1)[1] for q in problems}
+    assert flagged == set(files)

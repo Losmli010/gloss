@@ -62,6 +62,10 @@ ALLOW_MARKER = "secrets:allow"
 # 字节序标记前缀：引擎会剥除或据此整文件转码，与既有的容错解码口径对不齐
 BOM_PREFIXES = (b"\xff\xfe", b"\xfe\xff", b"\xef\xbb\xbf")
 
+# 空白类超集：解释器的空白类比引擎多四个控制分隔符，候选面按超集展开后
+# 引擎筛出的行必不漏解释器可判的行，判定仍由解释器侧模式收口
+SPACE_SUPERSET = r"[\s\x1c-\x1f]"
+
 
 def tracked_files(root):
     # 只看版本库跟踪的文件：被忽略规则排除的本地文件不扫（也不该进仓库）
@@ -94,12 +98,15 @@ def scannable_files(root):
 
 
 def engine_expressions():
-    """把模式清单翻成引擎参数序列：不敏感组加内联旗标前缀，正则本体不复制第二份。"""
+    """把模式清单翻成引擎参数序列：不敏感组加内联旗标前缀并把空白类放大成超集。
+
+    正则本体不复制第二份——超集只作用在候选预筛上，归类判定仍跑清单原模式；
+    引擎的方括号类支持嵌套，空白类出现在类内时替换也成活。"""
     out = []
     for pattern in CASE_SENSITIVE_PATTERNS:
         out.append(pattern.pattern)
     for pattern in CASE_INSENSITIVE_PATTERNS:
-        out.append("(?i)" + pattern.pattern)
+        out.append("(?i)" + pattern.pattern.replace("\\s", SPACE_SUPERSET))
     return out
 
 
@@ -114,7 +121,7 @@ def collect_hits(root, files):
     """一次子进程跑全部模式，命中整理成「路径到行号与行文」的嵌套映射。"""
     if not files:
         return {}
-    cmd = ["rg", "--json"]
+    cmd = ["rg", "--json", "--no-config"]
     for expression in engine_expressions():
         cmd += ["-e", expression]
     cmd += ["--"]
@@ -134,17 +141,24 @@ def collect_hits(root, files):
             "ripgrep engine exited unexpectedly (%d): %s" % (proc.returncode, stderr)
         )
     hits = {}
-    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+    # 事件流按换行符逐字切：通用换行语义会把行文里未转义的同类字符当切点撕裂事件
+    for line in proc.stdout.decode("utf-8", "replace").split("\n"):
         if not line:
             continue
-        event = json.loads(line)
-        if event.get("type") != "match":
-            continue
-        data = event["data"]
-        rel = json_field(data["path"])
-        text = json_field(data["lines"])
-        if text.endswith("\n"):
-            text = text[:-1]
+        try:
+            event = json.loads(line)
+            if event.get("type") != "match":
+                continue
+            data = event["data"]
+            rel = json_field(data["path"])
+            text = json_field(data["lines"])
+            if text.endswith("\n"):
+                text = text[:-1]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise RuntimeError(
+                "ripgrep produced an unparsable event stream (%r); refusing to"
+                " continue — report this as a gate failure" % exc
+            ) from None
         hits.setdefault(rel, {})[data["line_number"]] = text
     return hits
 
