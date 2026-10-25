@@ -44,7 +44,8 @@ jobs:
         run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.96.1
+        # 工具链文件是唯一权威：按其钉住的频道与组件安装，工作流不再抄版本
+        run: rustup toolchain install
 
       - name: Cache Cargo dependencies
         uses: swatinem/rust-cache@v2
