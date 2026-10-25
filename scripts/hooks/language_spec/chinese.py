@@ -1,14 +1,35 @@
 #!/usr/bin/env python3
 """语言规范·中文区：中文表述怎么写。中文主体只允许汉字、中文标点、阿拉伯
 数字与空白；专有名词一律收进紧跟的全角括号作注记，括号内只放白名单里的
-专名本身，括号不嵌套、不成单边；工具指令段整段豁免。被注释、提交信息与
-拉取请求内容门禁复用；本模块自身注释同规。
+专名本身，括号不嵌套、不成单边；工具指令段整段豁免。判罚以带规则标识的违
+规条目返回，位置由调用方按路径与行号传入，标识登记于统一登记表。被注释、
+提交信息与拉取请求内容门禁复用；本模块自身注释同规。
 
 """
 
 from __future__ import annotations
 
+import os
 import re
+import sys
+
+_HOOKS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _HOOKS not in sys.path:
+    sys.path.insert(0, _HOOKS)
+
+import gate_report  # noqa: E402
+
+RULE_PROSE_FOREIGN = "PROSE-FOREIGN"
+RULE_PROSE_GLOSS_MIXED = "PROSE-GLOSS-MIXED"
+RULE_PROSE_GLOSS_UNKNOWN = "PROSE-GLOSS-UNKNOWN"
+RULE_PROSE_GLOSS_NESTED = "PROSE-GLOSS-NESTED"
+RULE_PROSE_GLOSS_UNPAIRED = "PROSE-GLOSS-UNPAIRED"
+
+FOREIGN_REMEDY = "put proper nouns in fullwidth bracket annotations and write the rest in Chinese"
+GLOSS_MIXED_REMEDY = "brackets hold proper nouns only; move Chinese prose back into the body"
+GLOSS_UNKNOWN_REMEDY = "register the term in the allowlist or rewrite it in Chinese in the body"
+GLOSS_NESTED_REMEDY = "flatten nested brackets or reword as parallel clauses"
+GLOSS_UNPAIRED_REMEDY = "complete or remove the unpaired bracket"
 
 CJK = re.compile(r"[\u4e00-\u9fff]")
 LATIN = re.compile(r"[A-Za-z]")
@@ -219,7 +240,7 @@ SEGMENT_SPLIT = re.compile(r"[，。；：！？、（）《》…—\n]+")
 SEGMENT_TRIM = " \t\n─*-·-"
 
 
-def chinese_zone_problems(loc: str, zone: str, label: str) -> list[str]:
+def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[gate_report.Finding]:
     """中文主体的字符级检查：只允许汉字、中文标点、阿拉伯数字与空白。
 
     数字之间的小数点随数字放行——它是数字写法的一部分，不是句读标点。"""
@@ -245,14 +266,21 @@ def chinese_zone_problems(loc: str, zone: str, label: str) -> list[str]:
         if bad:
             shown = " ".join(bad[:3])
             out.append(
-                f"{loc}: {label} body contains foreign letters or halfwidth punctuation"
-                f" ({shown}) — put proper nouns in fullwidth bracket annotations,"
-                f" rewrite the rest in Chinese"
+                gate_report.Finding(
+                    rule=RULE_PROSE_FOREIGN,
+                    path=path,
+                    line=line,
+                    message="%s body contains foreign letters or halfwidth punctuation"
+                    " (%s) — put proper nouns in fullwidth bracket annotations,"
+                    " rewrite the rest in Chinese" % (label, shown),
+                    evidence=seg,
+                    remedy=FOREIGN_REMEDY,
+                )
             )
     return out
 
 
-def gloss_problems(loc: str, gloss: str, label: str) -> list[str]:
+def gloss_problems(path: str, line: int, gloss: str, label: str) -> list[gate_report.Finding]:
     """注记括号检查：内有外文时只许白名单专名、不得混入中文；纯中文时同主体。"""
     gloss = gloss.strip()
     if not gloss:
@@ -260,23 +288,39 @@ def gloss_problems(loc: str, gloss: str, label: str) -> list[str]:
     if LATIN.search(gloss):
         if CJKWISE.search(gloss):
             return [
-                f"{loc}: {label} annotation bracket mixes Chinese"
-                " — brackets hold proper nouns only; keep Chinese prose in the body"
+                gate_report.Finding(
+                    rule=RULE_PROSE_GLOSS_MIXED,
+                    path=path,
+                    line=line,
+                    message="%s annotation bracket mixes Chinese"
+                    " — brackets hold proper nouns only; keep Chinese prose in the body" % label,
+                    evidence=gloss,
+                    remedy=GLOSS_MIXED_REMEDY,
+                )
             ]
         parts = [p for p in re.split(r"[\s,/]+", gloss) if p]
         bad = [p for p in parts if p not in PROPER_NOUNS]
         if bad:
             shown = " ".join(bad[:3])
             return [
-                f"{loc}: {label} annotation has words outside the allowlist ({shown})"
-                " — registered proper nouns only; rewrite anything else as Chinese in the body"
+                gate_report.Finding(
+                    rule=RULE_PROSE_GLOSS_UNKNOWN,
+                    path=path,
+                    line=line,
+                    message="%s annotation has words outside the allowlist (%s)"
+                    " — registered proper nouns only; rewrite anything else as Chinese"
+                    " in the body" % (label, shown),
+                    evidence=gloss,
+                    remedy=GLOSS_UNKNOWN_REMEDY,
+                )
             ]
         return []
-    return chinese_zone_problems(loc, gloss, label)
+    return chinese_zone_problems(path, line, gloss, label)
 
 
-def split_glosses(body: str) -> tuple[list[str], str, list[str]]:
-    """按栈配对全角括号，切成注记与主体：返回（注记清单，主体残文，括号问题）。"""
+def split_glosses(body: str) -> tuple[list[str], str, list[tuple[str, str]]]:
+    """按栈配对全角括号，切成注记与主体：返回（注记清单，主体残文，括号问题）；
+    括号问题收规则标识与消息尾段，消息头由调用方按标签补齐。"""
     glosses = []
     residual = []
     depth = 0
@@ -290,15 +334,21 @@ def split_glosses(body: str) -> tuple[list[str], str, list[str]]:
                 buf = []
             else:
                 problems.append(
-                    " annotation brackets must not nest — brackets do not nest brackets;"
-                    " flatten or reword as parallel clauses"
+                    (
+                        RULE_PROSE_GLOSS_NESTED,
+                        " annotation brackets must not nest — brackets do not nest brackets;"
+                        " flatten or reword as parallel clauses",
+                    )
                 )
                 residual.append(ch)
         elif ch == "）":
             if depth == 0:
                 problems.append(
-                    " annotation brackets are unpaired — brackets must wrap annotations"
-                    " in matched pairs"
+                    (
+                        RULE_PROSE_GLOSS_UNPAIRED,
+                        " annotation brackets are unpaired — brackets must wrap annotations"
+                        " in matched pairs",
+                    )
                 )
                 residual.append(" ")
             else:
@@ -314,18 +364,33 @@ def split_glosses(body: str) -> tuple[list[str], str, list[str]]:
                 buf.append(ch)
     if depth > 0:
         problems.append(
-            " annotation brackets are unpaired — brackets must wrap annotations in matched pairs"
+            (
+                RULE_PROSE_GLOSS_UNPAIRED,
+                " annotation brackets are unpaired — brackets must wrap annotations"
+                " in matched pairs",
+            )
         )
     return glosses, "".join(residual), problems
 
 
-def body_problems(loc: str, body: str, label: str) -> list[str]:
+def body_problems(path: str, line: int, body: str, label: str) -> list[gate_report.Finding]:
     """整条表述的分域检查：先摘注记括号，再查主体与各注记。"""
     out = []
     glosses, residual, bracket_problems = split_glosses(body)
-    for message in bracket_problems:
-        out.append(f"{loc}: {label}{message}")
+    evidence = body.replace("\n", " ")
+    for rule, tail in bracket_problems:
+        remedy = GLOSS_NESTED_REMEDY if rule == RULE_PROSE_GLOSS_NESTED else GLOSS_UNPAIRED_REMEDY
+        out.append(
+            gate_report.Finding(
+                rule=rule,
+                path=path,
+                line=line,
+                message="%s%s" % (label, tail),
+                evidence=evidence,
+                remedy=remedy,
+            )
+        )
     for gloss in glosses:
-        out += gloss_problems(loc, gloss, label)
-    out += chinese_zone_problems(loc, residual, label)
+        out += gloss_problems(path, line, gloss, label)
+    out += chinese_zone_problems(path, line, residual, label)
     return out

@@ -19,6 +19,7 @@ import re
 import sys
 
 import check_commit_msg
+import gate_report
 from language_spec.coderef import markdown_problems
 
 # 模板必需小节清单的来源；小节指二级标题
@@ -52,7 +53,7 @@ def run(root: str, body: str, title: str | None = None) -> list[str]:
     """正文书写规则、模板小节与标题合并模拟三合一，返回违规列表。"""
     problems = []
     problems += section_problems(template_sections(root), body)
-    problems += markdown_problems("pull request body", body)
+    problems += [gate_report.render(f) for f in markdown_problems("pull request body", body)]
     if title:
         simulated = check_commit_msg.run("%s (#99999)" % title.strip())
         if simulated:

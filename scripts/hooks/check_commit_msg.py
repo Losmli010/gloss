@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 import sys
 
+import gate_report
 from language_spec.coderef import prose_line_problems
 
 ALLOWED_TYPES = "feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert"
@@ -53,14 +54,14 @@ def prose_problems(lines: list[str]) -> list[str]:
     压缩合并清单条目的类型前缀。"""
     problems = []
     subject = ISSUE_SUFFIX_RE.sub("", SUBJECT_RE.sub("", lines[0], count=1))
-    problems += prose_line_problems("commit subject", subject)
+    problems += prose_line_problems("commit subject", 0, subject)
     for index, line in enumerate(lines[1:], 2):
         stripped = line.strip()
         if not stripped or TRAILER_RE.match(stripped):
             continue
         entry = LIST_ENTRY_RE.sub("", stripped, count=1)
-        problems += prose_line_problems("commit body line %d" % index, entry)
-    return problems
+        problems += prose_line_problems("commit body line %d" % index, 0, entry)
+    return [gate_report.render(problem) for problem in problems]
 
 
 def run(msg: str) -> str | None:

@@ -67,6 +67,31 @@ REGISTERED_RULES = frozenset(
         "PR-SECTION",
         "PR-PROSE",
         "PR-TITLE-SIM",
+        "COMMENT-RUST-HEADER-MISSING",
+        "COMMENT-RUST-HEADER-LANGUAGE",
+        "COMMENT-RUST-HEADER-CODEREF",
+        "COMMENT-RUST-HEADER-SECTION-REF",
+        "COMMENT-RUST-HEADER-LATE",
+        "COMMENT-RUST-DOC",
+        "COMMENT-RUST-BLOCK",
+        "COMMENT-RUST-TRAILING",
+        "COMMENT-RUST-INLINE",
+        "COMMENT-RUST-SAFETY-ADJACENCY",
+        "COMMENT-SCRIPT-CODEREF",
+        "COMMENT-SCRIPT-SECTION-REF",
+        "COMMENT-SCRIPT-LANGUAGE",
+        "COMMENT-SCRIPT-HEADER-CODEREF",
+        "COMMENT-SCRIPT-HEADER-SECTION-REF",
+        "COMMENT-SCRIPT-HEADER-LANGUAGE",
+        "PROSE-FOREIGN",
+        "PROSE-GLOSS-MIXED",
+        "PROSE-GLOSS-UNKNOWN",
+        "PROSE-GLOSS-NESTED",
+        "PROSE-GLOSS-UNPAIRED",
+        "PROSE-CODEREF",
+        "PROSE-SECTION-REF",
+        "PROSE-LANGUAGE",
+        "PROSE-ENGLISH",
         "ALLOW-REASON",
         "EMPTY-SURFACE",
         "INFRA",
@@ -97,25 +122,33 @@ def location(finding: Finding) -> str:
     return loc
 
 
-def fail(finding: Finding, file: TextIO = sys.stderr) -> Finding:
+def render(finding: Finding) -> str:
+    """违规渲染行：消息加位置，作为运行函数返回清单里的条目。"""
+    loc = location(finding)
+    return "%s (%s)" % (finding.message, loc) if loc else finding.message
+
+
+def fail(finding: Finding, file: TextIO | None = None) -> Finding:
     """即时打印单条违规到标准错误，返回同一条目供调用方汇集计数。"""
+    out = file if file is not None else sys.stderr
     head = "✗ error[%s]: %s" % (finding.rule, finding.message)
     loc = location(finding)
     if loc:
         head = "%s (%s)" % (head, loc)
-    print(head, file=file)
+    print(head, file=out)
     if finding.evidence:
-        print("    证据: %s" % finding.evidence, file=file)
+        print("    证据: %s" % finding.evidence, file=out)
     if finding.remedy:
-        print("    help: %s" % finding.remedy, file=file)
+        print("    help: %s" % finding.remedy, file=out)
     return finding
 
 
-def summary(findings: list[Finding], file: TextIO = sys.stderr) -> None:
+def summary(findings: list[Finding], file: TextIO | None = None) -> None:
     """末尾汇总行：计数必须等于已打印明细数。"""
+    out = file if file is not None else sys.stderr
     count = len(findings)
     unit = "violation" if count == 1 else "violations"
-    print("error: %d %s found (see above)" % (count, unit), file=file)
+    print("error: %d %s found (see above)" % (count, unit), file=out)
 
 
 def infra_failure(message: str, evidence: str = "") -> Finding:
@@ -131,14 +164,15 @@ def infra_failure(message: str, evidence: str = "") -> Finding:
 
 
 def run_git(
-    args: list[str], cwd: str | None = None, file: TextIO = sys.stderr
+    args: list[str], cwd: str | None = None, file: TextIO | None = None
 ) -> subprocess.CompletedProcess[bytes]:
     """统一包装版本库调用：成功返回完成态子进程，失败打基础设施条目并退出。"""
+    out = file if file is not None else sys.stderr
     cmd = ["git"] + list(args)
     try:
         proc = subprocess.run(cmd, cwd=cwd, capture_output=True)
     except FileNotFoundError:
-        fail(infra_failure("git executable not found: git %s" % " ".join(args)), file=file)
+        fail(infra_failure("git executable not found: git %s" % " ".join(args)), file=out)
         sys.exit(EXIT_INFRA)
     if proc.returncode != 0:
         detail = " ".join(proc.stderr.decode("utf-8", "replace").split())
@@ -147,7 +181,7 @@ def run_git(
                 "git command failed (exit %d): git %s" % (proc.returncode, " ".join(args)),
                 evidence=detail,
             ),
-            file=file,
+            file=out,
         )
         sys.exit(EXIT_INFRA)
     return proc

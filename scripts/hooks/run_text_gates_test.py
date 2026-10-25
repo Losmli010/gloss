@@ -1,8 +1,8 @@
 """纯文本门禁并轨入口的单测：覆盖共享内容装入器的清单枚举、两层惰性缓存
 与解码口径（容错模式分开缓存、通用换行翻译、缺文件报错），以及门禁清单的
-注册顺序与前置失败不中断后续门禁的编排行为。在测试框架（pytest）的临时目
-录里建一次性版本库作扫描面；并轨聚合输出与各门禁单跑输出的等价比对靠种子
-违规样本端到端双跑，不入单测。
+注册顺序、前置失败不中断后续门禁的编排行为与注释段经装入器聚合的统一输出。
+在测试框架（pytest）的临时目录里建一次性版本库作扫描面；并轨聚合输出与各
+门禁单跑输出的等价比对靠种子违规样本端到端双跑，不入单测。
 """
 
 from __future__ import annotations
@@ -17,7 +17,9 @@ from typing import Any
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent / "comments"))
 
+import check_comments  # noqa: E402
 import run_text_gates  # noqa: E402
 
 
@@ -106,3 +108,34 @@ def test_run_gate_converts_preflight_system_exit(capsys: pytest.CaptureFixture[s
 
     assert run_text_gates.run_gate(_Stub(boom), None) == 1
     assert "error: inventory missing" in capsys.readouterr().err
+
+
+def test_comments_gate_via_loader_reports_rule_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """注释段经并轨装入器聚合：统一诊断出口输出、汇总行与违规退出码在位。"""
+    make_repo(tmp_path, {"crates/demo/src/bad.rs": b"fn main() {}\n"})
+    loader = run_text_gates.ContentLoader(str(tmp_path))
+    monkeypatch.setattr(sys, "argv", ["check_comments.py", str(tmp_path)])
+    assert check_comments.main(loader=loader) == 1
+    err = capfd.readouterr().err
+    assert "✗ error[COMMENT-RUST-HEADER-MISSING]:" in err
+    assert "error: 1 violation found (see above)" in err
+    assert "    help: " in err
+
+
+def test_comments_gate_via_loader_clean_repo_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
+    make_repo(
+        tmp_path,
+        {
+            "crates/demo/src/ok.rs": "//! 中文文件头：演示用。\n\nfn main() { let _ = 1; }\n".encode(
+                "utf-8"
+            )
+        },
+    )
+    loader = run_text_gates.ContentLoader(str(tmp_path))
+    monkeypatch.setattr(sys, "argv", ["check_comments.py", str(tmp_path)])
+    assert check_comments.main(loader=loader) == 0
+    assert "  ✓ ok " in capfd.readouterr().out
