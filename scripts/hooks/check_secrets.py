@@ -77,16 +77,21 @@ def tracked_files(root):
     return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
 
 
-def scannable_files(root):
+def scannable_files(root, loader=None):
     """跟踪文件分流：工作区不在场或含空字节的整文件跳过，带字节序标记的改逐行兜底。
 
-    返回可扫路径的清单序与其中需兜底子集，其余路径交引擎。"""
+    返回可扫路径的清单序与其中需兜底子集，其余路径交引擎；装入器在场时
+    清单枚举与字节读取走共享缓存。"""
     out = []
     fallback = set()
-    for rel in tracked_files(root):
+    tracked = loader.tracked() if loader is not None else tracked_files(root)
+    for rel in tracked:
         try:
-            with open(os.path.join(root, rel), "rb") as fh:
-                data = fh.read()
+            if loader is not None:
+                data = loader.read_bytes(rel)
+            else:
+                with open(os.path.join(root, rel), "rb") as fh:
+                    data = fh.read()
         except OSError:
             continue
         if b"\0" in data:
@@ -172,11 +177,14 @@ def pattern_hits(pattern, file_hits):
     ]
 
 
-def fallback_hits(path):
+def fallback_hits(path, loader=None):
     """字节序标记文件的逐行命中：任一模式即收，归类与放行过滤与引擎命中同路。"""
     try:
-        with open(path, "rb") as fh:
-            text = fh.read().decode("utf-8", "replace")
+        if loader is not None:
+            text = loader.read_bytes(path).decode("utf-8", "replace")
+        else:
+            with open(path, "rb") as fh:
+                text = fh.read().decode("utf-8", "replace")
     except OSError:
         return {}
     all_patterns = CASE_SENSITIVE_PATTERNS + CASE_INSENSITIVE_PATTERNS
@@ -187,12 +195,13 @@ def fallback_hits(path):
     return hits
 
 
-def run(root):
-    """扫描 root 下全部 git 跟踪文件，返回违规条目（每条含文件与命中行）。"""
-    files, fallback = scannable_files(root)
+def run(root, loader=None):
+    """扫描 root 下全部 git 跟踪文件，返回违规条目（每条含文件与命中行）；
+    装入器在场时清单与内容走共享缓存，缺省自行读取。"""
+    files, fallback = scannable_files(root, loader)
     hits_by_file = collect_hits(root, [rel for rel in files if rel not in fallback])
     for rel in fallback:
-        line_hits = fallback_hits(os.path.join(root, rel))
+        line_hits = fallback_hits(os.path.join(root, rel), loader)
         if line_hits:
             hits_by_file[rel] = line_hits
     problems = []
@@ -212,14 +221,14 @@ def run(root):
     return problems
 
 
-def main():
+def main(loader=None):
     root = (
         sys.argv[1]
         if len(sys.argv) > 1
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
     try:
-        problems = run(root)
+        problems = run(root, loader)
     except RuntimeError as exc:
         print("error: %s" % exc, file=sys.stderr)
         return 1

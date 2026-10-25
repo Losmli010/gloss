@@ -21,7 +21,9 @@ TEST_ATTR_RE = re.compile(r"^\s*#\[(?:tokio::)?test\]")
 MANUAL_CHAPTER = "## 发版人工步骤"
 
 
-def tracked_rs_files(root):
+def tracked_rs_files(root, loader=None):
+    if loader is not None:
+        return [p for p in loader.tracked() if p.endswith(".rs")]
     out = subprocess.run(
         ["git", "-C", root, "ls-files", "-z", "--", "*.rs"],
         capture_output=True,
@@ -30,31 +32,36 @@ def tracked_rs_files(root):
     return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
 
 
-def src_test_names(root):
+def src_test_names(root, loader=None):
     """git 跟踪 .rs 里的 #[test] / #[tokio::test] 函数名。
 
     属性行触发 pending；跳过中间的其它属性行（如 #[ignore = \"...\"]）取最近的
     fn 名；属性与 fn 同行也支持。"""
     names = set()
-    for rel in tracked_rs_files(root):
+    for rel in tracked_rs_files(root, loader):
         pending = False
-        with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                line = line.rstrip("\n")
-                if TEST_ATTR_RE.match(line):
-                    m = FN_RE.search(line)
-                    if m:
-                        names.add(m.group(1))
-                    else:
-                        pending = True
+        path = os.path.join(root, rel)
+        if loader is not None:
+            lines = loader.read_text(path, errors="replace").split("\n")
+        else:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().split("\n")
+        for line in lines:
+            line = line.rstrip("\n")
+            if TEST_ATTR_RE.match(line):
+                m = FN_RE.search(line)
+                if m:
+                    names.add(m.group(1))
+                else:
+                    pending = True
+                continue
+            if pending:
+                if re.match(r"^\s*#", line):
                     continue
-                if pending:
-                    if re.match(r"^\s*#", line):
-                        continue
-                    m = FN_RE.search(line)
-                    if m:
-                        names.add(m.group(1))
-                        pending = False
+                m = FN_RE.search(line)
+                if m:
+                    names.add(m.group(1))
+                    pending = False
     return names
 
 
@@ -69,14 +76,17 @@ def manifest_files(root):
     return out
 
 
-def target_test_names(root):
+def target_test_names(root, loader=None):
     """[[test]] 声明的测试目标名（harness = false 自检二进制没有 #[test] 函数）。"""
     names = set()
     for manifest in manifest_files(root):
         if not os.path.isfile(manifest):
             continue
-        with open(manifest, encoding="utf-8", errors="replace") as fh:
-            lines = fh.read().split("\n")
+        if loader is not None:
+            lines = loader.read_text(manifest, errors="replace").split("\n")
+        else:
+            with open(manifest, encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().split("\n")
         for i, line in enumerate(lines):
             if line.strip() != "[[test]]":
                 continue
@@ -88,27 +98,34 @@ def target_test_names(root):
     return names
 
 
-def bdd_entries(bdd_path):
+def bdd_lines(bdd_path, loader=None):
+    """行为清单按行读取：装入器在场时走共享缓存，行集合与逐行读取一致。"""
+    if loader is not None:
+        return loader.read_text(bdd_path).split("\n")
+    with open(bdd_path, encoding="utf-8") as fh:
+        return fh.read().split("\n")
+
+
+def bdd_entries(bdd_path, loader=None):
     """清单侧条目名：表格取首列，人工测试取 ### 小节标题；剥掉快照重名的
     （popup）/（settings）限定后缀；表头、分隔行与 crates/... 文件标题经标识符
     过滤自然排除。「## 发版人工步骤」节登记无自动化测试源码的发版链路运维步骤，
     整节豁免双向核对。"""
     names = []
     exempt = False
-    with open(bdd_path, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.rstrip("\n")
-            if line.startswith("## "):
-                exempt = line == MANUAL_CHAPTER
-                continue
-            if exempt:
-                continue
-            if line.startswith("### "):
-                names.append(re.sub(r"^#+\s*", "", line))
-            elif line.startswith("|"):
-                cell = re.sub(r"^\|\s*", "", line)
-                cell = re.sub(r"\s*\|.*$", "", cell)
-                names.append(cell)
+    for line in bdd_lines(bdd_path, loader):
+        line = line.rstrip("\n")
+        if line.startswith("## "):
+            exempt = line == MANUAL_CHAPTER
+            continue
+        if exempt:
+            continue
+        if line.startswith("### "):
+            names.append(re.sub(r"^#+\s*", "", line))
+        elif line.startswith("|"):
+            cell = re.sub(r"^\|\s*", "", line)
+            cell = re.sub(r"\s*\|.*$", "", cell)
+            names.append(cell)
     cleaned = set()
     for name in names:
         name = re.sub(r"（[^）]*）\s*$", "", name)
@@ -117,37 +134,35 @@ def bdd_entries(bdd_path):
     return cleaned
 
 
-def duplicate_rows(bdd_path):
+def duplicate_rows(bdd_path, loader=None):
     """整行精确重复（同名同目标同场景同时间）＝改名后旧行未删的真实特征。
     同名不同描述的沿革行（历史重录记录）是有意保留，不拦。"""
     rows = []
     exempt = False
-    with open(bdd_path, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.rstrip("\n")
-            if line.startswith("## "):
-                exempt = line == MANUAL_CHAPTER
-                continue
-            if not line.startswith("|") or exempt:
-                continue
-            if re.match(r"^\s*\|\s*测试名称", line):
-                continue
-            if re.match(r"^\s*\|\s*---", line):
-                continue
-            rows.append(line)
+    for line in bdd_lines(bdd_path, loader):
+        line = line.rstrip("\n")
+        if line.startswith("## "):
+            exempt = line == MANUAL_CHAPTER
+            continue
+        if not line.startswith("|") or exempt:
+            continue
+        if re.match(r"^\s*\|\s*测试名称", line):
+            continue
+        if re.match(r"^\s*\|\s*---", line):
+            continue
+        rows.append(line)
     return sorted(k for k, c in Counter(rows).items() if c > 1)
 
 
-def duplicate_chapters(bdd_path):
+def duplicate_chapters(bdd_path, loader=None):
     chapters = []
-    with open(bdd_path, encoding="utf-8") as fh:
-        for line in fh:
-            if line.startswith("## "):
-                chapters.append(line.rstrip("\n"))
+    for line in bdd_lines(bdd_path, loader):
+        if line.startswith("## "):
+            chapters.append(line.rstrip("\n"))
     return sorted(k for k, c in Counter(chapters).items() if c > 1)
 
 
-def duplicate_blocks(bdd_path):
+def duplicate_blocks(bdd_path, loader=None):
     """同一 ## 章节内重复的 ### 小节标题，或同一小节内逐字重复的「- 」条目行
     ——人工测试条目整段重复拼接的痕迹（表格行的重复由整行精确重复检查覆盖）。"""
     dups = set()
@@ -156,35 +171,34 @@ def duplicate_blocks(bdd_path):
     exempt = False
     h3 = set()
     bullets = set()
-    with open(bdd_path, encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.rstrip("\n")
-            if line.startswith("## "):
-                chapter = line
-                exempt = line == MANUAL_CHAPTER
-                section = "" if exempt else line
-                h3 = set()
-                bullets = set()
+    for raw in bdd_lines(bdd_path, loader):
+        line = raw.rstrip("\n")
+        if line.startswith("## "):
+            chapter = line
+            exempt = line == MANUAL_CHAPTER
+            section = "" if exempt else line
+            h3 = set()
+            bullets = set()
+            continue
+        if line.startswith("### "):
+            if exempt or chapter == "":
                 continue
-            if line.startswith("### "):
-                if exempt or chapter == "":
-                    continue
-                if line in h3:
-                    dups.add(line)
-                h3.add(line)
-                section = line
-                bullets = set()
+            if line in h3:
+                dups.add(line)
+            h3.add(line)
+            section = line
+            bullets = set()
+            continue
+        if line.startswith("- "):
+            if exempt or section == "":
                 continue
-            if line.startswith("- "):
-                if exempt or section == "":
-                    continue
-                if line in bullets:
-                    dups.add(line)
-                bullets.add(line)
+            if line in bullets:
+                dups.add(line)
+            bullets.add(line)
     return sorted(dups)
 
 
-def broken_tables(bdd_path):
+def broken_tables(bdd_path, loader=None):
     """结构校验：非豁免小节里的每个表格必须是良构 GFM 表——表行连成一个块，
     且块的第二行是分隔行。空行或正文混在表头与表体之间会把表体从表头上
     切断（渲染退化为纯文本），一律按缺表头列出。"""
@@ -198,38 +212,38 @@ def broken_tables(bdd_path):
             broken[section] = True
         state["in_run"] = False
 
-    with open(bdd_path, encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.rstrip("\n")
-            if line.startswith("## "):
-                end_run()
-                exempt = line == MANUAL_CHAPTER
-                section = "" if exempt else line
-                continue
-            if line.startswith("### "):
-                if exempt:
-                    continue
-                end_run()
-                section = line
-                continue
-            if line.startswith("|"):
-                if exempt or section == "":
-                    continue
-                if not state["in_run"]:
-                    state["in_run"] = True
-                    state["run_len"] = 0
-                    state["run_ok"] = False
-                state["run_len"] += 1
-                if state["run_len"] == 2 and re.match(r"^\s*\|\s*---", line):
-                    state["run_ok"] = True
+    for raw in bdd_lines(bdd_path, loader):
+        line = raw.rstrip("\n")
+        if line.startswith("## "):
+            end_run()
+            exempt = line == MANUAL_CHAPTER
+            section = "" if exempt else line
+            continue
+        if line.startswith("### "):
+            if exempt:
                 continue
             end_run()
+            section = line
+            continue
+        if line.startswith("|"):
+            if exempt or section == "":
+                continue
+            if not state["in_run"]:
+                state["in_run"] = True
+                state["run_len"] = 0
+                state["run_ok"] = False
+            state["run_len"] += 1
+            if state["run_len"] == 2 and re.match(r"^\s*\|\s*---", line):
+                state["run_ok"] = True
+            continue
         end_run()
+    end_run()
     return sorted(broken)
 
 
-def run(root):
-    """双向核对，返回 (oks, fails)。"""
+def run(root, loader=None):
+    """双向核对，返回 (oks, fails)；装入器在场时清单与文件读取走共享缓存，
+    缺省自行读取。"""
     bdd_path = os.path.join(root, BDD_REL)
     if not os.path.isfile(bdd_path):
         raise SystemExit(
@@ -238,9 +252,9 @@ def run(root):
             " rename it; the directory is allowed via a gitignore exception." % BDD_REL
         )
 
-    src_names = src_test_names(root)
-    target_names = target_test_names(root)
-    bdd_names = bdd_entries(bdd_path)
+    src_names = src_test_names(root, loader)
+    target_names = target_test_names(root, loader)
+    bdd_names = bdd_entries(bdd_path, loader)
 
     if not src_names and not target_names:
         raise SystemExit(
@@ -270,27 +284,27 @@ def run(root):
             "these tests are not registered in bdd.md:\n%s"
             % "\n".join("    %s" % s for s in missing)
         )
-    dups = duplicate_rows(bdd_path)
+    dups = duplicate_rows(bdd_path, loader)
     if dups:
         fail(
             "these bdd.md entries are registered multiple times (entry count exceeds"
             " same-name tests in sources; old rows left after a rename?):\n%s"
             % "\n".join("    %s" % s for s in dups)
         )
-    dups = duplicate_chapters(bdd_path)
+    dups = duplicate_chapters(bdd_path, loader)
     if dups:
         fail(
             "these ## chapter headings appear more than once"
             " (sign of duplicated blocks):\n%s" % "\n".join("    %s" % s for s in dups)
         )
-    dups = duplicate_blocks(bdd_path)
+    dups = duplicate_blocks(bdd_path, loader)
     if dups:
         fail(
             "these section headings or bullet lines repeat within the same"
             " chapter/section (sign of duplicated blocks):\n%s"
             % "\n".join("    %s" % s for s in dups)
         )
-    broken = broken_tables(bdd_path)
+    broken = broken_tables(bdd_path, loader)
     if broken:
         fail(
             "these sections have tables missing a header row (or the body is cut from"
@@ -306,13 +320,13 @@ def run(root):
     return oks, fails
 
 
-def main():
+def main(loader=None):
     root = (
         os.path.abspath(sys.argv[1])
         if len(sys.argv) > 1
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
-    oks, fails = run(root)
+    oks, fails = run(root, loader)
     # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
         print("  ✓ %s" % line)

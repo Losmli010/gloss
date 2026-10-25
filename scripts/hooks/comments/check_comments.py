@@ -24,9 +24,11 @@ import check_script_comments
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 
-def scan_files(root, explicit):
+def scan_files(root, explicit, loader=None):
     if explicit:
         return [p if os.path.isabs(p) else os.path.join(root, p) for p in explicit]
+    if loader is not None:
+        return [os.path.join(root, p) for p in loader.tracked()]
     out = subprocess.run(
         ["git", "-C", root, "ls-files"],
         capture_output=True,
@@ -36,18 +38,22 @@ def scan_files(root, explicit):
     return [os.path.join(root, p) for p in out.splitlines() if p]
 
 
-def run(root, explicit):
-    """遍历跟踪文件，按文件类型分派并聚合违规。"""
+def run(root, explicit, loader=None):
+    """遍历跟踪文件，按文件类型分派并聚合违规；装入器在场时清单枚举与文件
+    读取走共享缓存，缺省自行读取。"""
     gates = (check_rust_comments, check_script_comments, check_docs)
     problems = []
-    for path in scan_files(root, explicit):
+    for path in scan_files(root, explicit, loader):
         rel = os.path.relpath(path, root)
         gate = next((gate for gate in gates if gate.handles(rel)), None)
         if gate is None:
             continue
         try:
-            with open(path, encoding="utf-8") as fh:
-                src = fh.read()
+            if loader is not None:
+                src = loader.read_text(path)
+            else:
+                with open(path, encoding="utf-8") as fh:
+                    src = fh.read()
         except (OSError, UnicodeDecodeError) as exc:
             problems.append(f"{rel}: unreadable ({exc})")
             continue
@@ -55,11 +61,11 @@ def run(root, explicit):
     return problems
 
 
-def main():
+def main(loader=None):
     root = sys.argv[1] if len(sys.argv) > 1 else REPO_ROOT
     explicit = sys.argv[2:]
     print(f"== comment discipline gate (repo root: {root}) ==")
-    problems = run(root, explicit)
+    problems = run(root, explicit, loader)
     if problems:
         for p in problems:
             print(f"  ✗ {p}", file=sys.stderr)
@@ -74,6 +80,7 @@ def main():
         " bodies fully Chinese, proper nouns only in bracket annotations, invariant"
         " comments pure English"
     )
+    return 0
 
 
 if __name__ == "__main__":

@@ -306,7 +306,7 @@ def literal_lines(src):
     return hits
 
 
-def literal_violations(root):
+def literal_violations(root, loader=None):
     """检查一：四个扫描面的生产代码字面量，返回违规描述列表。"""
     problems = []
     for base in (
@@ -319,8 +319,11 @@ def literal_violations(root):
             rel = os.path.relpath(path, root).replace(os.sep, "/")
             if rel == "crates/gloss-core/src/prompt.rs":
                 continue
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                src = fh.read()
+            if loader is not None:
+                src = loader.read_text(path, errors="replace")
+            else:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    src = fh.read()
             lines = src.split("\n")
             for ln in sorted(literal_lines(src)):
                 if ALLOW_MARKER in lines[ln - 1]:
@@ -349,9 +352,10 @@ def scan_all_toml(root):
                 yield os.path.join(dirpath, name)
 
 
-def run(root):
+def run(root, loader=None):
     """执行三条检查，返回 (oks, fails)；违规随执行流即时输出到 stderr
-    （对齐 bash 版的交错输出），列表供调用方取用。"""
+    （对齐 bash 版的交错输出），列表供调用方取用；装入器在场时文件读取走
+    共享缓存，缺省自行读取。"""
     fails = []
 
     def fail(msg):
@@ -359,7 +363,7 @@ def run(root):
         print("  ✗ %s" % msg, file=sys.stderr)
 
     # ---- 检查一：文案字面量拦截 ----
-    for violation in literal_violations(root):
+    for violation in literal_violations(root, loader):
         fail(violation)
 
     # ---- 检查二：装入点集中 ----
@@ -371,15 +375,19 @@ def run(root):
         include_files += 1
         if os.path.relpath(f, root).replace(os.sep, "/") == OWNER:
             continue
-        with open(f, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if include_re.search(line):
-                    fail(
-                        "constraint violation (%s): %s references the i18n resource"
-                        " outside the load point — only %s may include it"
-                        % (RULE, os.path.relpath(f, root), OWNER)
-                    )
-                    break
+        if loader is not None:
+            lines = loader.read_text(f, errors="replace").split("\n")
+        else:
+            with open(f, encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().split("\n")
+        for line in lines:
+            if include_re.search(line):
+                fail(
+                    "constraint violation (%s): %s references the i18n resource"
+                    " outside the load point — only %s may include it"
+                    % (RULE, os.path.relpath(f, root), OWNER)
+                )
+                break
 
     # ---- 检查三：词条表文件唯一 ----
     # 词条键统一为“模块加词条”的前缀形态且顶层扁平；出现第二张表就会分叉出
@@ -390,15 +398,19 @@ def run(root):
         toml_files += 1
         if os.path.relpath(f, root).replace(os.sep, "/").startswith(CATALOG_DIR + "/"):
             continue
-        with open(f, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if toml_key_re.match(line):
-                    fail(
-                        "constraint violation (%s): %s declares an entry key outside %s/"
-                        " — the catalog lives in one place only"
-                        % (RULE, os.path.relpath(f, root), CATALOG_DIR)
-                    )
-                    break
+        if loader is not None:
+            lines = loader.read_text(f, errors="replace").split("\n")
+        else:
+            with open(f, encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().split("\n")
+        for line in lines:
+            if toml_key_re.match(line):
+                fail(
+                    "constraint violation (%s): %s declares an entry key outside %s/"
+                    " — the catalog lives in one place only"
+                    % (RULE, os.path.relpath(f, root), CATALOG_DIR)
+                )
+                break
 
     oks = []
     if not fails:
@@ -409,14 +421,14 @@ def run(root):
     return oks, fails
 
 
-def main():
+def main(loader=None):
     root = (
         os.path.abspath(sys.argv[1])
         if len(sys.argv) > 1
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
     print("== i18n catalog gate (repo root: %s) ==" % root)
-    oks, fails = run(root)
+    oks, fails = run(root, loader)
     # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
         print("  ✓ %s" % line)
