@@ -139,7 +139,7 @@ jobs:
       - name: Check BDD inventory against test code
         run: just test-bdd
 
-  # 脚本语言（Python）格式化与静态检查（ruff）：纯文本秒级；版本钉死保证判定一致
+  # 脚本语言（Python）格式化与静态检查（ruff）：纯文本秒级；版本钉死在仓库根版本清单，安装与本地校验同读
   python:
     name: Python format & lint
     runs-on: ubuntu-latest
@@ -153,7 +153,7 @@ jobs:
           tool: just
 
       - name: Install ruff
-        run: python3 -m pip install ruff==0.17.2
+        run: python3 -m pip install ruff==$(python3 scripts/dev/tool_version.py ruff)
 
       - name: Check Python formatting
         run: just fmt-py
@@ -161,7 +161,7 @@ jobs:
       - name: Lint Python scripts
         run: just lint-py
 
-  # 配置格式（TOML）与结构检查（tombi）：纯文本秒级；版本钉死保证判定一致
+  # 配置格式（TOML）与结构检查（tombi）：纯文本秒级；版本钉死在仓库根版本清单，安装与本地校验同读
   toml:
     name: TOML check
     runs-on: ubuntu-latest
@@ -175,7 +175,7 @@ jobs:
           tool: just
 
       - name: Install tombi
-        run: npm install -g tombi@1.5.5
+        run: npm install -g tombi@$(python3 scripts/dev/tool_version.py tombi)
 
       - name: Check TOML formatting
         run: just fmt-toml
