@@ -11,8 +11,9 @@
 行内反引号豁免；合并编号后缀、版本库尾注与压缩合并正文清单条目的类型
 前缀等结构性要素豁免，判定与注释门禁、拉取请求内容门禁同源。
 
-用法：以解释器运行本脚本，首参为消息文件路径，或传单个减号表示从标准输入读取
-（本地钩子传文件路径，持续集成传减号）。
+用法：以解释器运行本脚本，参数为一个或多个消息文件路径，或传单个减号表示从
+标准输入读取；持续集成把一次推送或拉取请求（PR）的全部消息各落一个文件后
+一次进程吃进，免逐条提交起解释器。
 """
 
 import re
@@ -113,22 +114,26 @@ def run(msg):
     return None
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("usage: %s <commit-message-file|->" % sys.argv[0], file=sys.stderr)
+def main(argv):
+    """命令行入口：逐条校验参数里的全部消息，任一违规即整体退出非零。"""
+    if len(argv) < 2:
+        print("usage: %s <commit-message-file|-> ..." % argv[0], file=sys.stderr)
         return 2
-    if sys.argv[1] == "-":
-        msg = sys.stdin.read()
-    else:
-        with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
-            msg = fh.read()
-    problem = run(msg)
-    if problem:
-        print(problem, file=sys.stderr)
-        return 1
-    print("✓ commit message ok: %s" % split_message(msg)[0])
-    return 0
+    failed = False
+    for path in argv[1:]:
+        if path == "-":
+            msg = sys.stdin.read()
+        else:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                msg = fh.read()
+        problem = run(msg)
+        if problem:
+            failed = True
+            print(problem, file=sys.stderr)
+        else:
+            print("✓ commit message ok: %s" % split_message(msg)[0])
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv))
