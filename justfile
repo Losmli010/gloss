@@ -204,15 +204,15 @@ lint-fix:
 test:
     cargo test --workspace --all-features
 
-# 第三层显隐自检：一百轮浮层显隐与首帧预算，需窗口服务与图形硬件（GPU）
+# 第三层显隐自检（L3）：一百轮浮层显隐与首帧预算，需窗口服务与图形硬件（GPU）
 selftest:
     cargo test -p gloss --test overlay
 
-# 第三层启动预算自检：渲染栈初始化墙钟对预算常量，需窗口服务与图形硬件（GPU）
+# 第三层启动预算自检（L3）：渲染栈初始化墙钟对预算常量，需窗口服务与图形硬件（GPU）
 startup-selftest:
     cargo test -p gloss --test startup
 
-# 第三层双自检包装：跑显隐与启动自检，从标准错误提取结构化信号行并外部轮询
+# 第三层双自检包装（L3）：跑显隐与启动自检，从标准错误提取结构化信号行并外部轮询
 # 完整常驻内存（RSS）曲线，落到指定输出（缺省在性能目录下，本地交接产物不入仓库）
 selftest-report out="target/perf/selftest.jsonl":
     ./scripts/perf/selftest_wrapper.py --out {{out}}

@@ -241,7 +241,7 @@
 
 ### empty_content_repair_via_fixture_replay
 - 测试目标：验证空回复异常夹具经生产校验器回放出修复轨迹（契约校验与重试方案 `L4`：空 `content` 自动修复；载体为步骤 5 豁免指派的异常夹具回放，步骤 7 已铺）。
-- 测试场景：给定空回复异常夹具（`task-word-03` 首轮 `deltas=[]`、分类 `en-word-02`），当 `just eval-replay` 离线回放，则两轨“修复轮次”行各含 `empty` 一次（空轮按 `EmptyReply` 违约原样重发进修复轮）、末轮契约回复不降级；零增量完成的传输形态（200 收尾无增量 → `EmptyCompletion` 变体）转 `EmptyReply` 的生产消费路径由第一层测试锁定。
+- 测试场景：给定空回复异常夹具（`task-word-03` 首轮 `deltas=[]`、分类 `en-word-02`），当 `just eval-replay` 离线回放，则两轨“修复轮次”行各含 `empty` 一次（空轮按 `EmptyReply` 违约原样重发进修复轮）、末轮契约回复不降级；零增量完成的传输形态（200 收尾无增量 → `EmptyCompletion` 变体）转 `EmptyReply` 的生产消费路径由（L1）测试锁定。
 - 测试步骤：
 1. 运行 `just eval-replay`
 2. 核对报告中“分类 修复轮次”行含 `empty ×1`、“`task_translate_word` 修复轮次”行含 `empty ×1`
@@ -855,7 +855,7 @@
 
 ### `crates/gloss-app/src/update/mod.rs`
 
-模块接线与集成时序：经公共（API）（消息通道加 `watch` 广播）驱动，桩 `hooks` 用本地 `oneshot` 触发回包，同步点全走 `watch`，不碰网络。
+模块接线与集成时序（L1）：经公共（API）（消息通道加 `watch` 广播）驱动，桩 `hooks` 用本地 `oneshot` 触发回包，同步点全走 `watch`，不碰网络。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -873,7 +873,7 @@
 
 ### `crates/gloss-app/src/update/manifest.rs`
 
-清单校验矩阵与版本比较。
+清单校验矩阵与版本比较（L1）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -892,7 +892,7 @@
 
 ### `crates/gloss-app/src/update/state.rs`
 
-更新子状态机迁移表逐行。
+更新子状态机迁移表逐行（L1）。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |

@@ -161,7 +161,7 @@ winit = {
 }
 
 [dev-dependencies]
-# 第二层浮层测试：无障碍树查询与点击，图形后端（wgpu）渲染快照。
+# 第二层浮层测试（L2）：无障碍树查询与点击，图形后端（wgpu）渲染快照。
 egui_kittest = {
   version = "0.36",
   default-features = false,
