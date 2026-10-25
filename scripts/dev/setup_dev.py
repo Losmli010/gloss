@@ -71,20 +71,6 @@ def check_pinned(cmd, label, pin, install_hint):
             )
 
 
-def find_interpreter(bound, bound_tuple):
-    found = None
-    # 主名解释器可能低于下限：按下限取同名解释器作后备候选
-    for cmd in ("python3", "python%s" % bound):
-        if not have(cmd):
-            continue
-        actual_text = command_version(cmd)
-        actual = version_tuple(actual_text)
-        if actual is not None and actual >= bound_tuple:
-            found = (cmd, actual_text)
-            break
-    return found
-
-
 def main():
     os.chdir(ROOT)
     tools = tool_version.parse_sections(tool_version.TOOLS_PATH)
@@ -128,14 +114,24 @@ def main():
     if bound_tuple is None:
         print("  ⚠ interpreter bound missing from the tool list", file=sys.stderr)
     else:
-        found = find_interpreter(bound, bound_tuple)
-        if found is not None:
-            print("  ✓ %s %s (>= %s)" % (found[0], found[1], bound))
+        # 解释器入口与下限同名：任务配方经同名入口调用，校验落在实际调用的解释器上
+        entry = "python%s" % bound
+        actual_text = command_version(entry) if have(entry) else None
+        actual = version_tuple(actual_text)
+        if actual is not None and actual >= bound_tuple:
+            print("  ✓ %s %s (>= %s)" % (entry, actual_text, bound))
         else:
-            warn_missing(
-                "python >= %s" % bound,
-                "install Python %s or newer from python.org or your package manager" % bound,
+            print(
+                "error: gate interpreter %s not found or below the pinned floor %s —"
+                " every recipe runs on it." % (entry, bound),
+                file=sys.stderr,
             )
+            print(
+                "  install: install Python %s or newer from python.org or your package manager"
+                % bound,
+                file=sys.stderr,
+            )
+            return 1
 
     print("== 3/6 just command runner ==")
     # 仓库所有配方（门禁、测试、打包）都经命令入口，没有它后面寸步难行
@@ -171,7 +167,8 @@ def main():
     )
     if not have_python_module("pytest"):
         warn_missing(
-            "pytest (checker unit tests, same as the CI hooks job)", "python3 -m pip install pytest"
+            "pytest (checker unit tests, same as the CI hooks job)",
+            "%s -m pip install pytest" % sys.executable,
         )
     # 火焰图配方的采样与渲染后端
     if not have("inferno-flamegraph"):
