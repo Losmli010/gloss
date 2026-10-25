@@ -8,8 +8,8 @@
 （如议题引用式拉取请求标题），剥离会被误报为空消息。
 
 主题与正文逐行过书写纪律公共规则——主体全中文、专名只进全角括号注记、
-行内反引号豁免；合并编号后缀与版本库尾注等结构性要素豁免，判定与注释
-门禁、拉取请求内容门禁同源。
+行内反引号豁免；合并编号后缀、版本库尾注与压缩合并正文清单条目的类型
+前缀等结构性要素豁免，判定与注释门禁、拉取请求内容门禁同源。
 
 用法：以解释器运行本脚本，首参为消息文件路径，或传单个减号表示从标准输入读取
 （本地钩子传文件路径，持续集成传减号）。
@@ -26,6 +26,9 @@ SUBJECT_RE = re.compile(r"^[a-z]+(\([a-zA-Z0-9._-]+\))?!?: ")
 MAX_HEADER_BYTES = 81
 # 版本库尾注（合作者、签署等结构性行）不按表述判罚
 TRAILER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*:\s")
+# 压缩合并把拉取请求内各提交的主题列成清单写进正文，条目自带类型前缀；
+# 清单是托管平台生成的结构，条目前缀按主题行同规剥掉再判罚
+LIST_ENTRY_RE = re.compile(r"^(?:[-*+]\s+)?(?:%s)(?:\([a-zA-Z0-9._-]+\))?!?: " % ALLOWED_TYPES)
 # 压缩合并把拉取请求编号追加到主题尾，判定前剥掉
 ISSUE_SUFFIX_RE = re.compile(r"\s*\(#\d+\)\s*$")
 
@@ -43,7 +46,8 @@ def split_message(msg):
 
 
 def prose_problems(lines):
-    """主题与正文逐行过书写规则；结构性要素豁免——编号后缀与版本库尾注。"""
+    """主题与正文逐行过书写规则；结构性要素豁免——编号后缀、版本库尾注与
+    压缩合并清单条目的类型前缀。"""
     problems = []
     subject = ISSUE_SUFFIX_RE.sub("", SUBJECT_RE.sub("", lines[0], count=1))
     problems += prose_line_problems("commit subject", subject)
@@ -51,7 +55,8 @@ def prose_problems(lines):
         stripped = line.strip()
         if not stripped or TRAILER_RE.match(stripped):
             continue
-        problems += prose_line_problems("commit body line %d" % index, stripped)
+        entry = LIST_ENTRY_RE.sub("", stripped, count=1)
+        problems += prose_line_problems("commit body line %d" % index, entry)
     return problems
 
 
