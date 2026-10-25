@@ -125,9 +125,10 @@ jobs:
             git log -1 --format=%B "$sha" > "$msgdir/$sha"
           done
           # 压缩合并产生的提交信息取自拉取请求（PR）标题，托管平台（GitHub）追加编号后缀，
-          # 按最长常见占位编号模拟合并产物校验：标题自身合规而合并后超限同样拦下
+          # 按最长常见占位编号模拟合并产物校验：标题自身合规而合并后超限同样拦下；
+          # 模拟消息的拼装经校验脚本的合并模拟单点，落盘后与其余消息同一进程吃进
           if [ "$PR_AUTHOR_IS_BOT" != "true" ] && [ -n "$PR_TITLE" ]; then
-            printf '%s\n' "$PR_TITLE (#99999)" > "$msgdir/pr-title"
+            ./scripts/hooks/check_commit_msg.py --simulate-squash "$PR_TITLE" > "$msgdir/pr-title"
           fi
           shopt -s nullglob
           files=("$msgdir"/*)

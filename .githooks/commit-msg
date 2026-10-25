@@ -8,31 +8,39 @@ import os
 import subprocess
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "..", "scripts", "hooks"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "hooks")
+)
 
 import check_commit_msg  # noqa: E402 —— 路径引导先于导入
+import gate_report  # noqa: E402
 
 
 def main():
     # 合并提交的自动消息不在规范内，跳过——与持续集成校验忽略合并提交的口径
     # 一致；压缩合并后的正式提交仍会走拉取请求（PR）标题校验。
-    if subprocess.run(["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"],
-                      capture_output=True).returncode == 0:
+    if (
+        subprocess.run(
+            ["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"], capture_output=True
+        ).returncode
+        == 0
+    ):
         return 0
     if len(sys.argv) < 2:
         print("✗ commit-msg hook: missing message file argument", file=sys.stderr)
         return 1
     with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
-        problem = check_commit_msg.run(fh.read())
-    if problem:
+        found = check_commit_msg.findings(fh.read())
+    if found:
         print("", file=sys.stderr)
         print(
             "✗ commit message violates the convention; commit blocked"
             " (same check as CI — fix the message now, avoid the CI rework)",
             file=sys.stderr,
         )
-        print(problem, file=sys.stderr)
+        for finding in found:
+            gate_report.fail(finding)
+        gate_report.summary(found)
         print(
             "  remedy: amend with git commit --amend and recommit;"
             " see scripts/hooks/check_commit_msg.py for the convention",

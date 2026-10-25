@@ -11,15 +11,24 @@
 行内反引号豁免；合并编号后缀、版本库尾注与压缩合并正文清单条目的类型
 前缀等结构性要素豁免，判定与注释门禁、拉取请求内容门禁同源。
 
+压缩合并的提交主题取自拉取请求标题并追加编号后缀，合并模拟的拼装在本
+模块单点收口，拉取请求内容门禁、客户端标题钩子与持续集成的提交信息作
+业都经它取模拟消息，标题自身合规而合并后超限同样拦下。
+
+校验结果以带规则标识的违规条目列表返回，报告经统一诊断出口打印；退出
+码按全脚本统一约定：零为通过、一为发现违规、二为用法错误。
+
 用法：以解释器运行本脚本，参数为一个或多个消息文件路径，或传单个减号表示从
 标准输入读取；持续集成把一次推送或拉取请求（PR）的全部消息各落一个文件后
-一次进程吃进，免逐条提交起解释器。
+一次进程吃进，免逐条提交起解释器。合并模拟形态以旗标传入标题、打印模拟
+消息供落盘。
 """
 
 from __future__ import annotations
 
 import re
 import sys
+from dataclasses import replace
 
 import gate_report
 from language_spec.coderef import prose_line_problems
@@ -33,8 +42,25 @@ TRAILER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*:\s")
 # 压缩合并把拉取请求内各提交的主题列成清单写进正文，条目自带类型前缀；
 # 清单是托管平台生成的结构，条目前缀按主题行同规剥掉再判罚
 LIST_ENTRY_RE = re.compile(r"^(?:[-*+]\s+)?(?:%s)(?:\([a-zA-Z0-9._-]+\))?!?: " % ALLOWED_TYPES)
-# 压缩合并把拉取请求编号追加到主题尾，判定前剥掉
+# 压缩合并把拉取请求编号追加到主题尾，判定前剥掉；五位编号是常见的最长形态
 ISSUE_SUFFIX_RE = re.compile(r"\s*\(#\d+\)\s*$")
+
+RULE_COMMIT_EMPTY = "COMMIT-EMPTY"
+RULE_COMMIT_FORMAT = "COMMIT-FORMAT"
+RULE_COMMIT_SUBJECT = "COMMIT-SUBJECT"
+RULE_COMMIT_LENGTH = "COMMIT-LENGTH"
+RULE_COMMIT_BLANK_LINE = "COMMIT-BLANK-LINE"
+RULE_COMMIT_PROSE = "COMMIT-PROSE"
+
+EMPTY_REMEDY = "write a conventional commit message: <type>[optional scope]: <subject>"
+FORMAT_REMEDY = (
+    "use <type>[optional scope]!: <subject>; allowed types:"
+    " feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert;"
+    " e.g. feat: 新增翻译浮层"
+)
+SUBJECT_REMEDY = "write the subject content right after the colon"
+LENGTH_REMEDY = "trim the header and move details into the body"
+BLANK_LINE_REMEDY = "separate the header and the body with a blank line"
 
 
 def split_message(msg: str) -> list[str]:
@@ -49,93 +75,133 @@ def split_message(msg: str) -> list[str]:
     return lines[first:]
 
 
-def prose_problems(lines: list[str]) -> list[str]:
+def simulate_squash(title: str) -> str:
+    """压缩合并模拟消息：标题剥首尾空白后追加编号后缀，即托管平台合并产物
+    的最坏形态；拼装单点在本模块，四处调用方不再各抄一份占位。"""
+    return "%s (#99999)" % title.strip()
+
+
+def prose_findings(lines: list[str]) -> list[gate_report.Finding]:
     """主题与正文逐行过书写规则；结构性要素豁免——编号后缀、版本库尾注与
-    压缩合并清单条目的类型前缀。"""
-    problems = []
+    压缩合并清单条目的类型前缀；书写规则条目统一归入书写纪律标识。"""
+    found = []
     subject = ISSUE_SUFFIX_RE.sub("", SUBJECT_RE.sub("", lines[0], count=1))
-    problems += prose_line_problems("commit subject", 0, subject)
+    found += prose_line_problems("commit subject", 0, subject)
     for index, line in enumerate(lines[1:], 2):
         stripped = line.strip()
         if not stripped or TRAILER_RE.match(stripped):
             continue
         entry = LIST_ENTRY_RE.sub("", stripped, count=1)
-        problems += prose_line_problems("commit body line %d" % index, 0, entry)
-    return [gate_report.render(problem) for problem in problems]
+        found += prose_line_problems("commit body line %d" % index, 0, entry)
+    return [replace(f, rule=RULE_COMMIT_PROSE) for f in found]
 
 
-def run(msg: str) -> str | None:
-    """校验一条 commit message，返回多行错误串；通过返回 None。"""
+def findings(msg: str) -> list[gate_report.Finding]:
+    """校验一条提交信息，返回带规则标识的违规条目；判定顺序即规范本体——
+    空、格式、主题、长度、空行逐关放行，书写规则殿后收全部条目。"""
     lines = split_message(msg)
     if not lines:
-        return "error: commit message is empty"
+        return [
+            gate_report.Finding(
+                rule=RULE_COMMIT_EMPTY,
+                path="",
+                line=0,
+                message="commit message is empty",
+                remedy=EMPTY_REMEDY,
+            )
+        ]
 
     header = lines[0]
     if not HEADER_RE.match(header):
-        return (
-            "error: commit message does not follow Conventional Commits\n"
-            "\n"
-            "  required format: <type>[optional scope]: <subject>\n"
-            "  allowed types: %s\n"
-            "  examples:\n"
-            "    feat: 新增翻译浮层\n"
-            "    fix(core): 修复选区读取崩溃\n"
-            "    chore(deps): 升级 `egui` 到 0.31\n"
-            "    docs: 扩充使用说明\n"
-            "\n"
-            "  you submitted: %s" % (ALLOWED_TYPES, header)
-        )
+        return [
+            gate_report.Finding(
+                rule=RULE_COMMIT_FORMAT,
+                path="commit subject",
+                line=0,
+                message="commit message does not follow Conventional Commits",
+                evidence=header,
+                remedy=FORMAT_REMEDY,
+            )
+        ]
 
     subject = SUBJECT_RE.sub("", header, count=1)
     if not subject:
-        return (
-            "error: commit header is missing a subject (content expected after the colon)\n"
-            "  you submitted: %s" % header
-        )
+        return [
+            gate_report.Finding(
+                rule=RULE_COMMIT_SUBJECT,
+                path="commit subject",
+                line=0,
+                message="commit header is missing a subject (content expected after the colon)",
+                evidence=header,
+                remedy=SUBJECT_REMEDY,
+            )
+        ]
 
     header_bytes = len(header.encode("utf-8"))
     if header_bytes > MAX_HEADER_BYTES:
-        return (
-            "error: commit header too long (%d bytes, limit %d)\n"
-            "  trim it and move details into the body\n"
-            "  you submitted: %s" % (header_bytes, MAX_HEADER_BYTES, header)
-        )
+        return [
+            gate_report.Finding(
+                rule=RULE_COMMIT_LENGTH,
+                path="commit subject",
+                line=0,
+                message="commit header too long (%d bytes, limit %d)"
+                % (header_bytes, MAX_HEADER_BYTES),
+                evidence=header,
+                remedy=LENGTH_REMEDY,
+            )
+        ]
 
     if len(lines) > 1 and lines[1] != "":
-        return (
-            "error: commit header must be followed by a blank line before the body\n"
-            "  line 2 should be empty; you wrote: %s" % lines[1]
-        )
+        return [
+            gate_report.Finding(
+                rule=RULE_COMMIT_BLANK_LINE,
+                path="commit body line 2",
+                line=0,
+                message="commit header must be followed by a blank line before the body",
+                evidence=lines[1],
+                remedy=BLANK_LINE_REMEDY,
+            )
+        ]
 
-    problems = prose_problems(lines)
-    if problems:
-        return (
-            "error: commit message violates the shared Chinese prose rules\n"
-            "  proper nouns go in fullwidth bracket annotations; inline code stays in backticks\n"
-            + "\n".join("  %s" % p for p in problems)
-        )
-    return None
+    return prose_findings(lines)
+
+
+def run(msg: str) -> list[str]:
+    """校验一条 commit message，返回违规列表（渲染行，消息带位置）；通过返回
+    空列表。"""
+    return [gate_report.render(f) for f in findings(msg)]
 
 
 def main(argv: list[str]) -> int:
-    """命令行入口：逐条校验参数里的全部消息，任一违规即整体退出非零。"""
+    """命令行入口：逐条校验参数里的全部消息，任一违规即整体退出非零；合并
+    模拟形态打印标题的压缩合并模拟消息。"""
+    if len(argv) >= 2 and argv[1] == "--simulate-squash":
+        if len(argv) != 3:
+            print("usage: %s --simulate-squash <title>" % argv[0], file=sys.stderr)
+            return gate_report.EXIT_USAGE
+        print(simulate_squash(argv[2]))
+        return gate_report.EXIT_PASS
     if len(argv) < 2:
         print("usage: %s <commit-message-file|-> ..." % argv[0], file=sys.stderr)
-        return 2
-    failed = False
+        return gate_report.EXIT_USAGE
+    all_findings = []
     for path in argv[1:]:
         if path == "-":
             msg = sys.stdin.read()
         else:
             with open(path, encoding="utf-8", errors="replace") as fh:
                 msg = fh.read()
-        problem = run(msg)
-        if problem:
-            failed = True
-            print(problem, file=sys.stderr)
+        found = findings(msg)
+        if found:
+            for finding in found:
+                gate_report.fail(finding)
+            all_findings += found
         else:
             print("✓ commit message ok: %s" % split_message(msg)[0])
-    return 1 if failed else 0
+    if all_findings:
+        gate_report.summary(all_findings)
+        return gate_report.EXIT_VIOLATION
+    return gate_report.EXIT_PASS
 
 
 if __name__ == "__main__":
