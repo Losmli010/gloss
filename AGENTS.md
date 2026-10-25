@@ -46,7 +46,7 @@ just eval-inspect      # 提示词评估检视页（离线重放加单文件网�
 just eval-replay       # 提示词评测离线重放（夹具驱动，持续集成安全）
 just eval-report       # 把评测产物目录下最近一次报告渲染为标记语言（Markdown）表
 just precommit         # 提交前门禁（版本库钩子自动跑）
-just check             # 完整质量门禁（提交前门禁加全量测试）
+just check             # 完整质量门禁（提交前门禁加检查器单测与全量测试）
 just --list            # 全部配方与说明
 ```
 

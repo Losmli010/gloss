@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""提交前钩子：提交前的静态检查，含格式化、静态检查（Clippy）与硬编码密钥扫描等，
-全套清单见配方清单里的提交前检查配方。
-需要本地全量验证时手动运行根配方的全量检查配方（格式化、静态检查与测试）。
+"""提交前钩子：按暂存面派生门禁组合——暂存含本语言（Rust）源码、构建清单或
+工具链清单变更时视为编译型变更，走提交前门禁配方；其余（脚本、文档、配置）
+走纯文本门禁配方。组合清单由配方层单点维护，本钩子只做选择、不手抄清单。
 """
 
 import os
 import shutil
 import subprocess
 import sys
+
+COMPILE_SUFFIXES = (".rs",)
+COMPILE_MANIFESTS = ("Cargo.toml", "rust-toolchain.toml")
 
 
 def run_recipe(recipe):
@@ -21,13 +24,19 @@ def reject(message, hint):
     return 1
 
 
+def needs_compile_gates(staged):
+    return any(
+        f.endswith(COMPILE_SUFFIXES) or os.path.basename(f) in COMPILE_MANIFESTS
+        for f in staged
+    )
+
+
 def main():
     root = subprocess.run(["git", "rev-parse", "--show-toplevel"],
                           capture_output=True, text=True)
     if root.returncode != 0:
         print("✗ not inside a git repository; cannot run pre-commit checks", file=sys.stderr)
         return 1
-    # 定位项目根目录（钩子可能从任何子目录触发）
     os.chdir(root.stdout.strip())
 
     cargo_bin = os.path.expanduser("~/.cargo/bin")
@@ -46,38 +55,22 @@ def main():
         print("→ pre-commit: no staged changes, skipping checks")
         return 0
 
-    # 有本语言（Rust）源码变更才跑格式化与静态检查（全量经提交前检查配方）；密钥扫描、
-    # 指令文档引用校验与约束检查语言无关，任何提交都跑。
-    if not any(f.endswith(".rs") for f in staged):
-        print(
-            "→ pre-commit: no .rs changes, skipping fmt/clippy;"
-            " running secrets / doc references / constraints..."
-        )
-        gates = [
-            ("secrets", "✗ suspected hardcoded secret detected; commit blocked",
-             "  false positive: allow it with a trailing secrets:allow"
-             " (rules in scripts/hooks/check_secrets.py)"),
-            ("agents-doc",
-             "✗ AGENTS.md references recipes/paths that do not exist; commit blocked (see above)",
-             ""),
-            ("test-bdd", "✗ bdd.md and test sources disagree; commit blocked (see above)", ""),
-            ("constraints", "✗ non-negotiable constraints violated; commit blocked (see above)", ""),
-            ("i18n", "✗ ui copy must live in the i18n catalog; commit blocked (see above)", ""),
-        ]
-        for recipe, message, hint in gates:
-            if run_recipe(recipe) != 0:
-                return reject(message, hint)
+    if needs_compile_gates(staged):
+        print("→ pre-commit: compile-affecting changes, running full precommit set...")
+        if run_recipe("precommit") != 0:
+            return reject(
+                "✗ static checks failed; commit blocked",
+                "  fix formatting with 'just fmt-fix'; fix and recommit"
+                " — do not bypass with --no-verify",
+            )
         return 0
 
-    print(
-        "→ pre-commit: running static checks (just precommit full set: constraints"
-        " + doc references + BDD inventory + i18n catalog + comment discipline"
-        " + fmt + clippy + secrets)..."
-    )
-    if run_recipe("precommit") != 0:
+    print("→ pre-commit: no compile-affecting changes, running text gates...")
+    if run_recipe("text-gates") != 0:
         return reject(
-            "✗ static checks failed; commit blocked",
-            "  fix formatting with 'just fmt-fix'; fix and recommit"
+            "✗ text gates failed; commit blocked (see above)",
+            "  suspected secret false positive: allow it with a trailing secrets:allow"
+            " (rules in scripts/hooks/check_secrets.py); fix and recommit"
             " — do not bypass with --no-verify",
         )
     return 0
