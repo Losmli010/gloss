@@ -408,5 +408,108 @@ def test_md_identifier_heading_exempt_at_root(tmp_path):
     assert run_md(tmp_path, content, rel="README.md") == []
 
 
+# ---- 不变量注释邻接与词法边界 ----
+
+
+def test_safety_not_adjacent_flagged(tmp_path):
+    content = f"{HEADER}\n\n// SAFETY: documents nothing adjacent\nlet ok = 1;\n"
+    problems = run_gate(tmp_path, content)
+    assert any("not adjacent to an unsafe block" in p for p in problems)
+
+
+def test_safety_separated_by_statement_flagged(tmp_path):
+    content = (
+        f"{HEADER}\n\n// SAFETY: separated by a full statement\n"
+        "let step = 1;\nunsafe { boom(); }\n"
+    )
+    problems = run_gate(tmp_path, content)
+    assert any("not adjacent to an unsafe block" in p for p in problems)
+
+
+def test_safety_adjacent_multiline_block_allowed(tmp_path):
+    content = (
+        f"{HEADER}\n\n// SAFETY: the pointer outlives the call\n"
+        "// and the call only reads it.\nlet v = unsafe { read(ptr) };\n"
+    )
+    assert run_gate(tmp_path, content) == []
+
+
+def test_safety_adjacent_unsafe_fn_allowed(tmp_path):
+    content = f"{HEADER}\n\n// SAFETY: the caller upholds the invariant.\npub unsafe fn raw() -> i32 {{ 0 }}\n"
+    assert run_gate(tmp_path, content) == []
+
+
+def test_safety_unsafe_word_in_string_not_counted(tmp_path):
+    content = f'{HEADER}\n\n// SAFETY: mentions unsafe in a string only\nlet s = "unsafe";\n'
+    problems = run_gate(tmp_path, content)
+    assert any("not adjacent to an unsafe block" in p for p in problems)
+
+
+def test_safety_unsafe_in_long_identifier_not_counted(tmp_path):
+    content = f"{HEADER}\n\n// SAFETY: long identifier is not the keyword\nlet unsafe_mode = 1;\n"
+    problems = run_gate(tmp_path, content)
+    assert any("not adjacent to an unsafe block" in p for p in problems)
+
+
+def test_long_unicode_char_literal_keeps_lexer_honest(tmp_path):
+    content = (
+        f"{HEADER}\n\nfn emoji() {{ let e = '\\u{{1F600}}'; let s = \"a//b\"; let _ = (e, s); }}\n"
+    )
+    assert run_gate(tmp_path, content) == []
+
+
+def test_block_comment_preserves_trailing_classification(tmp_path):
+    content = f"{HEADER}\n\nlet a = 1; /* 块 */ // 尾注\n"
+    problems = run_gate(tmp_path, content)
+    assert any("trailing comment" in p for p in problems)
+    assert not any("inline comment" in p for p in problems)
+
+
+# ---- 字面数据与引号边界 ----
+
+
+def test_js_multiline_template_literal_not_comment(tmp_path):
+    content = (
+        "const tpl = `first line\n"
+        "// not a comment inside the template\n"
+        "third ${x}`;\n"
+        "// 中文注释收尾。\n"
+    )
+    assert run_gate(tmp_path, content, rel="web/main.js") == []
+
+
+def test_js_comment_after_template_still_checked(tmp_path):
+    content = "const tpl = `a\nb`;\n// english tail\n"
+    problems = run_gate(tmp_path, content, rel="web/main.js")
+    assert any("must be written in Chinese" in p for p in problems)
+
+
+def test_html_attribute_comment_marker_ignored(tmp_path):
+    content = '<a title="<!-- not a comment">链接</a>\n<!-- 中文注释 -->\n'
+    assert run_gate(tmp_path, content, rel="web/i.html") == []
+
+
+def test_yaml_block_scalar_literal_content_exempt(tmp_path):
+    content = "desc: |\n  # literal heading in the scalar\n  正文文本\nkey: 值\n"
+    assert run_gate(tmp_path, content, rel="wf.yml") == []
+
+
+def test_yaml_run_block_comments_still_checked(tmp_path):
+    content = "run: |\n  # english shell comment\n"
+    problems = run_gate(tmp_path, content, rel="wf.yml")
+    assert any("must be written in Chinese" in p for p in problems)
+
+
+def test_sh_heredoc_content_exempt(tmp_path):
+    content = "cat <<EOF\n# literal heredoc line\nEOF\n# 中文注释。\n"
+    assert run_gate(tmp_path, content, rel="run.sh") == []
+
+
+def test_sh_unterminated_heredoc_still_checked(tmp_path):
+    content = "cat <<EOF\n# english line without terminator\n"
+    problems = run_gate(tmp_path, content, rel="run.sh")
+    assert any("must be written in Chinese" in p for p in problems)
+
+
 def test_default_root_is_repo_root():
     assert (Path(check_comments.REPO_ROOT) / "justfile").is_file()

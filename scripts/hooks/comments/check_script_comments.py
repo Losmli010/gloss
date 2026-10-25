@@ -2,9 +2,11 @@
 """注释纪律门禁·脚本与配置：井号系脚本与配置、钩子目录脚本、任务配方文
 件、忽略清单与站点资源的注释判罚——主体全中文，专名只进括号注记，路径、
 命令、旗标、标识符与链接都算代码引用一并判罚；相邻注释行聚成一块受检，
-换行的括号与表述跨行不误报；工具指令行、解释器声明与放行标记豁免；脚本
-文件头统一写成模块级文档字符串，判罚与注释同规。由注释门禁路由调用，与
-语言规范库同源共用；本模块自身注释同规。
+换行的括号与表述跨行不误报；工具指令行、解释器声明与放行标记豁免，脚本
+文件头统一写成模块级文档字符串，判罚与注释同规。字面数据不误报：壳层脚
+本的就地文档正文、配置（YAML）里非运行键的块标量正文整行豁免，脚本资源
+里跨行的模板字面量按串跳过。由注释门禁路由调用，与语言规范库同源共用；
+本模块自身注释同规。
 """
 
 import ast
@@ -40,11 +42,16 @@ def handles(rel):
     )
 
 
-def hash_comments(src, line_start_only=False):
-    """井号系注释抽取：引号感知；井号须在行首或空白之后；多行字符串整段跳过。"""
+def hash_comments(src, line_start_only=False, skip=frozenset()):
+    """井号系注释抽取：引号感知；井号须在行首或空白之后；多行字符串整段跳过。
+
+    skip 里的行整行豁免——块标量正文与 heredoc 正文是字面数据，井号不是注释。"""
     out = []
     in_ml = None
     for lineno, line in enumerate(src.splitlines(), 1):
+        if lineno in skip:
+            in_ml = None  # 字面数据行不延续串状态
+            continue
         j, n = 0, len(line)
         in_str = None
         comment_at = None
@@ -85,7 +92,7 @@ def hash_comments(src, line_start_only=False):
     return out
 
 
-def python_comments(src):
+def python_comments(src, skip=frozenset()):
     """注释走标准词法（Python）取准确集合；语法异常时退回井号扫描。"""
     try:
         out = []
@@ -94,16 +101,87 @@ def python_comments(src):
                 out.append((tok.start[0], tok.string))
         return out
     except (tokenize.TokenError, IndentationError, SyntaxError):
-        return hash_comments(src)
+        return hash_comments(src, skip=skip)
+
+
+# 块标量头：键、竖线或折行号与缩进指示；运行键的正文是壳层脚本，注释照查
+YAML_BLOCK_RE = re.compile(r"^(\s*)([\w.-]+):\s*[|>][0-9+-]*\s*(?:#.*)?$")
+
+
+def yaml_scalar_skip(src):
+    """配置（YAML）块标量正文行清单：除运行键（承载壳层脚本的键）外，正
+    文的井号是字面内容不是注释。
+
+    块必须有收口（更浅缩进的实质行）才生效——未收口的疑似块头不豁免，宁误
+    报不漏检。"""
+    skip = set()
+    lines = src.splitlines()
+    i = 0
+    while i < len(lines):
+        m = YAML_BLOCK_RE.match(lines[i])
+        if not m or m.group(2) == "run":
+            i += 1
+            continue
+        key_indent = len(m.group(1))
+        k = i + 1
+        while k < len(lines):
+            if lines[k].strip() and len(lines[k]) - len(lines[k].lstrip(" ")) <= key_indent:
+                break
+            k += 1
+        if k < len(lines):
+            skip.update(range(i + 2, k + 1))
+        i = max(k, i + 1)
+    return skip
+
+
+def heredoc_skip(src):
+    """壳层脚本就地文档正文行清单：定界符收口之前的行是字面数据。
+
+    定界符须真的出现才生效——未收口的疑似起始不豁免，宁误报不漏检。"""
+    skip = set()
+    lines = src.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        j, n = 0, len(line)
+        in_str = None
+        tag = None
+        while j < n:
+            c = line[j]
+            if in_str:
+                if c == in_str:
+                    in_str = None
+                j += 1
+                continue
+            if c in "\"'":
+                in_str = c
+                j += 1
+                continue
+            m = re.match(r"<<-?\s*([A-Za-z_][A-Za-z0-9_]*)", line[j:])
+            if m:
+                tag = m.group(1)
+                break
+            j += 1
+        if tag:
+            k = i + 1
+            while k < len(lines) and lines[k].strip() != tag:
+                k += 1
+            if k < len(lines):
+                skip.update(range(i + 2, k + 1))
+            i = k
+        i += 1
+    return skip
 
 
 def web_comments(src, suffix):
-    """站点资源注释抽取：页面认标记注释，脚本与样式认双斜线与斜线星注释。"""
+    """站点资源注释抽取：页面认标记注释（引号感知），脚本与样式认双斜线与
+    斜线星注释；脚本的反引号模板字面量可跨行，串状态随行保留。"""
     out = []
     closer = None
+    in_tpl = False  # 模板字面量未闭：后续行整行仍在串内
     for lineno, line in enumerate(src.splitlines(), 1):
         j, n = 0, len(line)
-        in_str = None
+        in_str = "`" if in_tpl else None
         while j < n:
             if closer:
                 k = line.find(closer, j)
@@ -116,6 +194,15 @@ def web_comments(src, suffix):
                 continue
             c = line[j]
             if suffix == ".html":
+                if in_str:
+                    if c == in_str:
+                        in_str = None
+                    j += 1
+                    continue
+                if c in "\"'":
+                    in_str = c
+                    j += 1
+                    continue
                 if line.startswith("<!--", j):
                     k = line.find("-->", j + 4)
                     if k == -1:
@@ -154,6 +241,7 @@ def web_comments(src, suffix):
                     j = k + 2
                     continue
             j += 1
+        in_tpl = suffix == ".js" and in_str == "`"
     return out
 
 
@@ -220,13 +308,21 @@ def check(rel, src):
     ext = os.path.splitext(name)[1]
     python_kind = ext == ".py" or rel.startswith(".githooks/")
     if name in HASH_NAMES:
-        pairs = hash_comments(src, line_start_only=(name == ".gitignore"))
+        skip = heredoc_skip(src) if name == "justfile" else frozenset()
+        pairs = hash_comments(src, line_start_only=(name == ".gitignore"), skip=skip)
         kind = "hash"
     elif python_kind:
-        pairs = python_comments(src)
+        skip = frozenset() if ext == ".py" else heredoc_skip(src)
+        pairs = python_comments(src, skip)
         kind = "hash"
     elif ext in HASH_SUFFIXES:
-        pairs = hash_comments(src)
+        if ext in {".yml", ".yaml"}:
+            skip = yaml_scalar_skip(src)
+        elif ext == ".sh":
+            skip = heredoc_skip(src)
+        else:
+            skip = frozenset()
+        pairs = hash_comments(src, skip=skip)
         kind = "hash"
     else:
         pairs = web_comments(src, ext)

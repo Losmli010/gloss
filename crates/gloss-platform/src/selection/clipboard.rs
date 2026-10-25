@@ -629,8 +629,6 @@ mod live_tests {
         if status != 0 || pb.is_null() {
             return false;
         }
-        // SAFETY: `pb` is the +1 reference returned by `PasteboardCreate`, handed
-        // to the guard for release.
         let _pb = CfGuard::new(pb as *const c_void);
 
         // SAFETY: `pb` is a valid +1 reference.
@@ -695,8 +693,6 @@ mod live_tests {
         if status != 0 || pb.is_null() {
             return false;
         }
-        // SAFETY: `pb` is the +1 reference returned by `PasteboardCreate`, handed
-        // to the guard for release.
         let _pb = CfGuard::new(pb as *const _);
         // SAFETY: `pb` is a valid +1 reference.
         let status = unsafe { PasteboardClear(pb) };
@@ -712,8 +708,6 @@ mod live_tests {
         if status != 0 || pb.is_null() {
             return None;
         }
-        // SAFETY: `pb` is the +1 reference returned by `PasteboardCreate`, handed
-        // to the guard for release.
         let _pb = CfGuard::new(pb as *const _);
         // SAFETY: `pb` is a valid +1 reference; the local reference may lag behind
         // the global board, so synchronize first.

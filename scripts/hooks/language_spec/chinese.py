@@ -14,8 +14,8 @@ LATIN = re.compile(r"[A-Za-z]")
 CJKWISE = re.compile(r"[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u2018\u2019\u201c\u201d]")
 
 # 注记括号允许的白名单：专有名词限技术、产品、格式、协议、框架、工具与包名，
-# 外加通用概念缩写——正文中文已自明、缩写只作首现注记的那类。新增词条在此
-# 登记；标识符、路径、旗标、链接与代码段一律不进注释，沉记录文件。
+# 外加通用概念缩写与测试分层标签——正文中文已自明、注记只作对照锚点。新增
+# 词条在此登记；标识符、路径、旗标、链接与代码段一律不进注释，沉记录文件。
 PROPER_NOUNS = frozenset(
     {
         ".rs",
@@ -78,6 +78,10 @@ PROPER_NOUNS = frozenset(
         "Julia",
         "Keychain",
         "Kotlin",
+        "L1",
+        "L2",
+        "L3",
+        "L4",
         "LGPL",
         "LLM",
         "LRU",
@@ -126,6 +130,7 @@ PROPER_NOUNS = frozenset(
         "WindowServer",
         "Windows",
         "WorkBuddy",
+        "YAML",
         "ZCode",
         "aarch64",
         "base64",
@@ -209,8 +214,6 @@ DIRECTIVE_SEG = re.compile(
 # 指令混写的段仍受检。
 SEGMENT_SPLIT = re.compile(r"[，。；：！？、（）《》…—\n]+")
 SEGMENT_TRIM = " \t\n─*-·-"
-
-DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def chinese_zone_problems(loc, zone, label):
@@ -323,79 +326,3 @@ def body_problems(loc, body, label):
         out += gloss_problems(loc, gloss, label)
     out += chinese_zone_problems(loc, residual, label)
     return out
-
-
-def strip_links(text):
-    """链接与图片逐层剥除：徽章是套着图片的嵌套链接，先剥内层图片再剥外层。"""
-    for pattern in (r"!\[[^\]]*\]\([^)]*\)", r"\[[^\]]*\]\([^)]*\)"):
-        while True:
-            stripped = re.sub(pattern, " ", text)
-            if stripped == text:
-                break
-            text = stripped
-    return text
-
-
-def prose_line_problems(loc, text):
-    """单行表述判定：结构性记号豁免后落正文判定，主体必须中文。"""
-    text = text.strip()
-    if not text:
-        return []
-    text = re.sub(r"^(?:[-*+]|\d+[.、]|>)\s+", "", text)  # 列表与引用记号非表述
-    text = re.sub(r"^\[[ xX]\]\s+", "", text)  # 任务列表记号：勾选框非表述
-    text = re.sub(r"`[^`]*`", " ", text)  # 行内代码：命令、路径与标识符豁免
-    text = strip_links(text)
-    text = text.replace("**", " ")  # 强调记号：包裹的仍是中文表述，记号非内容
-    text = DATE_RE.sub(" ", text)
-    if re.fullmatch(r"[A-Za-z0-9_]+", text.strip()):
-        return []  # 整段标识符（如类别键）豁免
-    if not re.search(r"[A-Za-z\u4e00-\u9fff]", text):
-        return []  # 剥去代码与日期后只剩数字符号（纯命令格、分隔符）无可判语言
-    if "`" in text:
-        return [
-            f"{loc}: text contains a code segment — move references and samples to the record files"
-        ]
-    if "§" in text:
-        return [
-            f'{loc}: text contains a "§ section number" style external reference — cite it in the record files'
-        ]
-    if not CJK.search(text):
-        return [f"{loc}: text must be written in Chinese: {text[:40]}"]
-    return body_problems(loc, text, "text")
-
-
-def markdown_problems(rel, src):
-    """标记语言文档逐行受检：代码围栏、行内反引号与链接豁免；表格首列与纯
-    标识符小节标题是双向核对的键，豁免；日期是语言中立数据格式，放行。"""
-    out = []
-    in_fence = False
-    for lineno, line in enumerate(src.splitlines(), 1):
-        if line.strip().startswith("```"):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        out += markdown_line_problems(rel, lineno, line)
-    return out
-
-
-def markdown_line_problems(rel, lineno, line):
-    stripped = line.strip()
-    if not stripped:
-        return []
-    loc = f"{rel}:{lineno}"
-    heading = re.match(r"^#+\s*(.*)$", stripped)
-    if heading:
-        key = re.sub(r"（[^）]*）\s*$", "", heading.group(1)).strip()
-        if re.fullmatch(r"[A-Za-z0-9_]+", key):
-            return []  # 小节标题即测试名，双向核对的键
-        stripped = heading.group(1)
-    if stripped.startswith("|"):
-        cells = stripped.strip("|").split("|")
-        if all(re.fullmatch(r"[-: ]*", cell) for cell in cells):
-            return []  # 表格分隔行
-        out = []
-        for cell in cells[1:]:
-            out += prose_line_problems(loc, cell)
-        return out
-    return prose_line_problems(loc, stripped)
