@@ -2,10 +2,13 @@
 
 被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
 的临时目录（一次性版本库，扫描面走版本库清单）；用法见持续集成的钩子工作流。
+清单文件缺失与测试源码扫描面为空是失败关闭的前置故障。另含反馈契约三件套：
+报告格式断言、汇总计数与确定性，经子进程跑脚本端到端锁输出与退出码。
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -16,6 +19,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 
 import check_test_bdd  # noqa: E402
+import gate_report  # noqa: E402
 
 CARGO_TOML = """\
 [package]
@@ -204,8 +208,20 @@ def test_bdd_file_missing(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         (root / "docs/tests/bdd.md").unlink()
 
-    with pytest.raises(SystemExit, match="not found"):
+    with pytest.raises(SystemExit) as exc:
         check(tmp_path, mutate)
+    assert exc.value.code == gate_report.EXIT_INFRA
+
+
+def test_empty_scan_surface_fails_closed(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / "docs/tests").mkdir(parents=True)
+    (tmp_path / "docs/tests/bdd.md").write_text(BDD_MD, encoding="utf-8")
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "gloss"\n', encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    with pytest.raises(SystemExit) as exc:
+        check_test_bdd.run(str(tmp_path))
+    assert exc.value.code == gate_report.EXIT_INFRA
 
 
 def test_exact_duplicate_row(tmp_path: Path) -> None:
@@ -303,3 +319,110 @@ def test_duplicate_h3_in_same_chapter(tmp_path: Path) -> None:
             fh.write("\n### crates/demo.rs\n")
 
     assert_fail(tmp_path, mutate, "repeat within the same")
+
+
+# ---- 反馈契约：报告格式、汇总计数、确定性与退出码（子进程端到端）----
+
+GATE = str(Path(__file__).with_name("check_test_bdd.py"))
+
+
+def run_gate(
+    tmp_path: Path, mutate: Callable[[Path], None] | None = None, *extra: str
+) -> subprocess.CompletedProcess[bytes]:
+    build_fixture(tmp_path)
+    if mutate is not None:
+        mutate(tmp_path)
+    return subprocess.run([sys.executable, GATE, str(tmp_path)] + list(extra), capture_output=True)
+
+
+def violation_fixture(root: Path) -> None:
+    def mutate_src(path: Path) -> None:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("\n#[test]\nfn unregistered_thing() {}\n")
+
+    mutate_src(root / "src/lib.rs")
+    with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
+        fh.write(
+            "\n## 性能测试\n"
+            "| 测试名称 | 测试目标 | 测试场景 | 更新时间 |\n"
+            "| --- | --- | --- | --- |\n"
+            "\n"
+            "| ghost_entry | 目标 | 场景 | 2026-09-19 |\n"
+            "| registered_plain | 目标 | 给定…当…则… | 2026-09-19 |\n"
+            "- 测试目标：重复块探针。\n"
+            "- 测试目标：重复块探针。\n"
+        )
+
+
+def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, violation_fixture)
+    assert proc.returncode == 1
+    text = proc.stderr.decode("utf-8")
+    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
+    ids = {re.match(r"^✗ error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
+    assert ids == {
+        "BDD-STALE",
+        "BDD-MISSING",
+        "BDD-DUP-ROW",
+        "BDD-DUP-CHAPTER",
+        "BDD-DUP-BLOCK",
+        "BDD-TABLE",
+    }
+    for line in heads:
+        assert re.match(r"^✗ error\[[A-Z0-9-]+\]: .+ \(.+\)$", line)
+    assert "    证据: " in text
+    assert "    help: " in text
+
+
+def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, violation_fixture)
+    text = proc.stderr.decode("utf-8")
+    details = sum(1 for line in text.splitlines() if line.startswith("✗ error["))
+    match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
+    assert match
+    assert int(match.group(1)) == details == 6
+
+
+def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
+    first = run_gate(tmp_path, violation_fixture)
+    second = subprocess.run([sys.executable, GATE, str(tmp_path)], capture_output=True)
+    assert first.returncode == second.returncode == 1
+    assert first.stderr == second.stderr
+    assert first.stdout == second.stdout
+
+
+def test_gate_clean_fixture_passes_with_exit_zero(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path)
+    assert proc.returncode == 0
+    assert "  ✓ ok " in proc.stdout.decode("utf-8")
+
+
+def test_gate_missing_inventory_fails_closed_with_exit_three(tmp_path: Path) -> None:
+    run_gate(tmp_path)
+    (tmp_path / "docs/tests/bdd.md").unlink()
+    proc = subprocess.run([sys.executable, GATE, str(tmp_path)], capture_output=True)
+    assert proc.returncode == 3
+    assert "✗ error[INFRA]:" in proc.stderr.decode("utf-8")
+
+
+def test_gate_empty_scan_surface_fails_closed_with_exit_three(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / "docs/tests").mkdir(parents=True)
+    (tmp_path / "docs/tests/bdd.md").write_text(BDD_MD, encoding="utf-8")
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "gloss"\n', encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    proc = subprocess.run([sys.executable, GATE, str(tmp_path)], capture_output=True)
+    assert proc.returncode == 3
+    assert "✗ error[EMPTY-SURFACE]:" in proc.stderr.decode("utf-8")
+
+
+def test_gate_extra_argument_is_a_usage_error(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, None, "extra-arg")
+    assert proc.returncode == 2
+    assert b"usage:" in proc.stderr
+
+
+def test_gate_missing_root_is_a_usage_error(tmp_path: Path) -> None:
+    proc = subprocess.run([sys.executable, GATE, str(tmp_path / "nowhere")], capture_output=True)
+    assert proc.returncode == 2
+    assert b"usage:" in proc.stderr
