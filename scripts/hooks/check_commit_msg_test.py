@@ -178,3 +178,40 @@ def test_body_trailer_allowed():
 
 def test_body_bullet_lines_allowed():
     assert_ok("feat: 标题\n\n- 第一点\n- 第二点")
+
+
+def test_body_squash_list_entry_allowed():
+    assert_ok("feat: 标题\n\n* fix(core): 修复选区读取崩溃\n* docs: 补充说明")
+
+
+def test_body_squash_entry_without_bullet_allowed():
+    assert_ok("feat: 标题\n\nfix(core): 修复选区读取崩溃")
+
+
+def test_body_squash_entry_with_bang_allowed():
+    assert_ok("feat: 标题\n\n* feat!: 破坏性变更说明")
+
+
+def test_body_squash_merge_shape_allowed():
+    assert_ok(
+        "refactor(comments): 专有名词只进括号注记，主体全中文 (#229)\n"
+        "\n"
+        "* refactor(comments): 专有名词只进括号注记，主体全中文\n"
+        "\n"
+        "注释纪律收紧为三层，正文段照旧受检。\n"
+        "\n"
+        "* fix(comments): 词法边界收口\n"
+        "* docs(readme): 项目描述同规注释纪律"
+    )
+
+
+def test_body_squash_entry_rest_still_checked():
+    assert_reject("feat: 标题\n\n* fix: add english text")
+
+
+def test_body_squash_entry_unknown_type_rejected():
+    assert_reject("feat: 标题\n\n* update: 更新依赖")
+
+
+def test_body_squash_entry_scope_prose_still_checked():
+    assert_reject("feat: 标题\n\n* fix(login page): 登录页改动")
