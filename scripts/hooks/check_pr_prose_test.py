@@ -72,6 +72,14 @@ def test_body_english_line_flagged(tmp_path: Path) -> None:
     assert any("must be written in Chinese" in p for p in problems)
 
 
+def test_body_structure_penalties_not_applied(tmp_path: Path) -> None:
+    body = (
+        "## 测试（必填）\n\n#### 跳级小节\n\n## 测试（必填）\n\n```sh\njust test\n"
+        "## 安全与隐私（必填）\n\n无\n"
+    )
+    assert check_pr_prose.run(make_root(tmp_path), body) == []
+
+
 # ---- 标题合并模拟 ----
 
 
