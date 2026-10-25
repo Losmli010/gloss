@@ -220,7 +220,7 @@ jobs:
             echo "检查 commit $sha"
             echo "$msg" | ./scripts/hooks/check_commit_msg.py -
           done
-          # 压缩合并（squash）产生的提交信息取自拉取请求（PR）标题，托管平台（GitHub）追加编号后缀，
+          # 压缩合并产生的提交信息取自拉取请求（PR）标题，托管平台（GitHub）追加编号后缀，
           # 按最长常见占位编号模拟合并产物校验：标题自身合规而合并后超限同样拦下
           if [ "$PR_AUTHOR_IS_BOT" != "true" ] && [ -n "$PR_TITLE" ]; then
             echo "检查 PR 标题（含 squash 后缀模拟 (#99999)）"

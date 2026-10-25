@@ -27,11 +27,11 @@ watch:
 logs-dir:
     @echo "${HOME}/.gloss/logs"
 
-# 跟随最新日志文件，按键退出（Ctrl+C）
+# 跟随最新日志文件，按键退出
 logs *args:
     @python3 scripts/dev/gloss-logs.py {{args}}
 
-# 本地预览站点；同源缺更新清单时，页面走发布托管（GitHub Releases）降级路径
+# 本地预览站点；同源缺更新清单时，页面走发布托管降级路径
 site-preview port="8137":
     python3 -m http.server {{port}} --directory web
 
@@ -139,13 +139,13 @@ flame-startup:
 size-report bin="target/release/gloss" top="30":
     ./scripts/perf/size_report.py --bin {{bin}} --top {{top}}
 
-# 提示词评测实跑轨（live）：真实大语言模型（LLM），需专用凭据且显式选择参与
+# 提示词评测实跑轨：真实大语言模型（LLM），需专用凭据且显式选择参与
 # 录制开关回写夹具；评分开关启用评分轨（每条额外一次模型调用）
 eval *args:
     cargo run -p gloss-eval --bin eval -- live {{args}}
 
 # 提示词评估检视：离线重放加单文件检视页（准确率、逐条轨迹、趋势），生成后开浏览器
-# 改提示词后看真实准确率走实跑轨（live）评测配方；本配方是免凭据的夹具口径
+# 改提示词后看真实准确率走实跑轨评测配方；本配方是免凭据的夹具口径
 eval-inspect:
     cargo run -p gloss-eval --bin eval -- inspect
     open target/eval/inspect.html
@@ -204,15 +204,15 @@ lint-fix:
 test:
     cargo test --workspace --all-features
 
-# 第三层显隐自检（L3）：一百轮浮层显隐与首帧预算，需窗口服务与图形硬件（GPU）
+# 第三层显隐自检：一百轮浮层显隐与首帧预算，需窗口服务与图形硬件（GPU）
 selftest:
     cargo test -p gloss --test overlay
 
-# 第三层启动预算自检（L3）：渲染栈初始化墙钟对预算常量，需窗口服务与图形硬件（GPU）
+# 第三层启动预算自检：渲染栈初始化墙钟对预算常量，需窗口服务与图形硬件（GPU）
 startup-selftest:
     cargo test -p gloss --test startup
 
-# 第三层双自检包装（L3）：跑显隐与启动自检，从标准错误提取结构化信号行并外部轮询
+# 第三层双自检包装：跑显隐与启动自检，从标准错误提取结构化信号行并外部轮询
 # 完整常驻内存（RSS）曲线，落到指定输出（缺省在性能目录下，本地交接产物不入仓库）
 selftest-report out="target/perf/selftest.jsonl":
     ./scripts/perf/selftest_wrapper.py --out {{out}}
@@ -251,7 +251,7 @@ precommit: constraints agents-doc test-bdd i18n comments fmt fmt-py fmt-toml lin
 
 # ---- 发布链：持续集成（CI）的发布工作流用同一批脚本 ----
 
-# 发布打包：发布构建、打包出应用包、临时签名（ad-hoc）、压缩为分发镜像
+# 发布打包：发布构建、打包出应用包、临时签名、压缩为分发镜像
 package-macos: build-release
     #!/usr/bin/env bash
     set -euo pipefail
@@ -262,7 +262,7 @@ package-macos: build-release
     ./scripts/release/bundle_dmg.py "$app"
     echo "artifacts: $app and ${app%.app}.dmg"
 
-# 发布冒烟：启动应用包，验证能启动、活得住、日志无崩溃（panic）
+# 发布冒烟：启动应用包，验证能启动、活得住、日志无崩溃
 smoke-app app:
     ./scripts/release/smoke_app.py {{app}}
 
@@ -301,7 +301,7 @@ i18n:
 comments:
     python3 scripts/hooks/comments/check_comments.py
 
-# 校验单条提交信息是否符合提交规范（Conventional Commits）
+# 校验单条提交信息是否符合提交规范
 lint-commit file:
     ./scripts/hooks/check_commit_msg.py "{{file}}"
 

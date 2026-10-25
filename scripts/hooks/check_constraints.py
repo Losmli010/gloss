@@ -6,16 +6,16 @@
 保证本地与远端判定一致。
 
 覆盖：
-  依赖方向            —— 各包（crate）只能依赖允许的边；核心库（gloss-core）不得出现平台与渲染栈，
+  依赖方向            —— 各包只能依赖允许的边；核心库（gloss-core）不得出现平台与渲染栈，
                          红线是窗口库（winit）、图形后端（wgpu）与平台接口（API）。
   评测资产隔离         —— 评测包（gloss-eval）不被任何清单依赖；评测资产不被生产代码的
                          内嵌宏引用。
-  桩副本一致          —— 各包（crate）测试桩目录的同名桩逐字一致，防跨包漂移。
+  桩副本一致          —— 各包测试桩目录的同名桩逐字一致，防跨包漂移。
   日志统一出口        —— 除核心库（gloss-core）外不得直接依赖日志三件套（tracing）。
   日志一律英文        —— 日志宏实参里不得出现非英文字节（ASCII）。
   界面库（egui）上下文装入点 —— 除统一装入点外不得直接建立渲染上下文。
   外部函数接口（FFI）声明集中 —— 跨语言声明只允许出现在平台适配层的专用模块。
-  版本单点维护        —— 子包（crate）的版本与语言版本必须继承工作区，
+  版本单点维护        —— 子包的版本与语言版本必须继承工作区，
                          字面量只允许出现在根清单的工作区段。
   依赖只开需要的特性  —— 每个第三方依赖声明必须关闭默认特性。
   依赖无死条目        —— 声明的第三方依赖必须在源码、测试与基准里有使用证据。
@@ -33,7 +33,7 @@ import sys
 
 LINE_CAP = 500
 
-# 约束“依赖方向”的允许边表。新增包（crate）必须在这里登记（并与项目文档同步），
+# 约束“依赖方向”的允许边表。新增包必须在这里登记（并与项目文档同步），
 # 漏登记即失败。
 ALLOWED_OWN_DEPS = {
     "gloss": "gloss-core gloss-platform gloss-app",
@@ -268,7 +268,7 @@ def _checks(root, manifest_list, dep_dump):
                 " platform/render stack dependency %s (%s:%d) — red-line, forbidden"
                 % (key, mrel, start)
             )
-    # 包名（crate）必须在本文件里出现过：约束表与依赖边是两处维护，靠这条挡住单边改动
+    # 包名必须在本文件里出现过：约束表与依赖边是两处维护，靠这条挡住单边改动
     if os.path.isfile(agents_md):
         agents_text = read_text(agents_md)
         for m in manifest_list:
@@ -319,8 +319,8 @@ def _checks(root, manifest_list, dep_dump):
     if eval_dep_violations == 0 and eval_asset_violations == 0:
         ok("ok eval asset isolation (0 dependency refs + 0 include refs)")
 
-    # ---- 测试桩副本一致性：跨包（crate）复用的同名桩逐字一致 ----
-    # 桩按包（crate）自持（各包的测试桩目录），一份漂移会让两个包的测试在
+    # ---- 测试桩副本一致性：跨包复用的同名桩逐字一致 ----
+    # 桩按包自持（各包的测试桩目录），一份漂移会让两个包的测试在
     # 语义不同的假实现上各自通过。引擎桩全文比对；端口桩按节比对。
     core_stubs = os.path.join(root, "crates", "gloss-core", "tests", "stubs")
     if os.path.isfile(os.path.join(core_stubs, "engine.rs")):
@@ -491,7 +491,7 @@ def _checks(root, manifest_list, dep_dump):
     ok("ok default features off (%d third-party dependency declarations checked)" % deps_checked)
 
     # ---- 约束“依赖无死条目” ----
-    # 声明的每个第三方依赖（非本仓路径、非工作区继承）必须能在所属包（crate）的
+    # 声明的每个第三方依赖（非本仓路径、非工作区继承）必须能在所属包的
     # 源码面（源码、测试、基准目录）找到使用证据：路径引用（含属性宏与派生宏
     # 内的路径）、宏调用，或导入语句（重导出与别名导入同算）。依赖键连字符按
     # 本语言（Rust）惯例转下划线后匹配；证据按文本匹配、不区分注释与代码（宽松判定防
@@ -548,7 +548,7 @@ def _checks(root, manifest_list, dep_dump):
         )
 
     # ---- 约束“文件行数上限” ----
-    # 单个生产源文件不超过五百行，超限即失败；扫描面是根源码目录与各包（crate）的
+    # 单个生产源文件不超过五百行，超限即失败；扫描面是根源码目录与各包的
     # 源码目录，测试目标与基准不在其列。生产行数按首个列零的测试开关属性行
     # 截断（测试模块按仓库惯例置于文件尾），故文件尾的内联测试模块不计入。
     # 存量确需缓冲的，文件前五行写放行标记并注明缘由（同密钥扫描惯例）——

@@ -3,7 +3,7 @@
 document.documentElement.classList.add('js');
 
 // 下载契约：同源更新清单由持续集成（CI）注入，提供稳定渠道各架构的镜像地址与体积；
-// 取不到或校验不过则整体降级到发布托管（GitHub Releases）。
+// 取不到或校验不过则整体降级到发布托管。
 const RELEASES_LATEST = 'https://github.com/Losmli010/gloss/releases/latest';
 const ARCHES = {
   'aarch64-apple-darwin': { label: 'Apple Silicon' },

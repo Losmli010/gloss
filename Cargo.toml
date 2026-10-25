@@ -6,7 +6,7 @@ description = "划词翻译工具 - 纯 Rust + egui + WebGPU"
 license.workspace = true
 
 # 打包工具（cargo-bundle）的配置节：图形界面（GUI）应用分发包
-# 打包配方生成应用包，临时签名（ad-hoc）后压缩为分发镜像，细节在打包脚本。
+# 打包配方生成应用包，临时签名后压缩为分发镜像，细节在打包脚本。
 [package.metadata.bundle]
 name = "Gloss"
 identifier = "io.github.losmli010.gloss"
@@ -20,15 +20,15 @@ long_description = "鼠标选中文字，即弹出 LLM 翻译结果。纯 Rust +
 resolver = "3"
 members = ["crates/gloss-app", "crates/gloss-core", "crates/gloss-eval", "crates/gloss-platform"]
 
-# 版本与语言版本单点维护，各包（crate）继承
+# 版本与语言版本单点维护，各包继承
 [workspace.package]
 version = "0.2.8"
 edition = "2024"
 license = "MIT"
 
-# 生产路径必须传播错误：断言式取值仅在注释写明不变量、且崩溃（panic）不可能发生时
+# 生产路径必须传播错误：断言式取值仅在注释写明不变量、且崩溃不可能发生时
 # 允许；立即中止、不可达与未实现分支一律禁止。测试代码不受限，放行面在
-# 静态检查（Clippy）配置。各包（crate）继承工作区检查面。
+# 静态检查（Clippy）配置。各包继承工作区检查面。
 [workspace.lints.clippy]
 expect_used = "deny"
 # 标记为必须使用的返回值不得静默丢弃；确需丢弃的必须在放行标记旁注明缘由。
@@ -43,7 +43,7 @@ todo = "deny"
 # 体积上限：参数不超过五、函数体不超过五十行，阈值在静态检查（Clippy）配置。
 too_many_arguments = "deny"
 too_many_lines = "deny"
-# 不安全块（unsafe）必须紧邻不变量注释说明安全性；允许使用，不允许无据使用。
+# 不安全块必须紧邻不变量注释说明安全性；允许使用，不允许无据使用。
 undocumented_unsafe_blocks = "deny"
 unimplemented = "deny"
 unreachable = "deny"
@@ -107,7 +107,7 @@ workspace = true
 opt-level = 3
 strip = true
 lto = true
-# 崩溃（panic）即进程立即中止、不展开栈：发布构建下后台崩溃不再经各屏障降级
+# 崩溃即进程立即中止、不展开栈：发布构建下后台崩溃不再经各屏障降级
 # （失败卡、线程存活），在事发点直接崩溃；开发与测试构建仍展开栈，屏障照常
 # 生效，测试目标由构建工具（cargo）强制展开。
 panic = "abort"

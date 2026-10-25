@@ -69,7 +69,7 @@ def test_gloss_multiple_nouns_allowed(tmp_path):
 
 
 def test_gloss_with_spaces_allowed(tmp_path):
-    content = "//! 发布产物走发布托管（GitHub Releases）降级。\n\nfn main() {}\n"
+    content = "//! 图形栈走界面库（egui winit）与图形后端（wgpu）。\n\nfn main() {}\n"
     assert run_gate(tmp_path, content) == []
 
 

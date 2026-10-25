@@ -26,7 +26,7 @@ SUBJECT_RE = re.compile(r"^[a-z]+(\([a-zA-Z0-9._-]+\))?!?: ")
 MAX_HEADER_BYTES = 81
 # 版本库尾注（合作者、签署等结构性行）不按表述判罚
 TRAILER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*:\s")
-# 压缩合并（squash）把拉取请求编号追加到主题尾，判定前剥掉
+# 压缩合并把拉取请求编号追加到主题尾，判定前剥掉
 ISSUE_SUFFIX_RE = re.compile(r"\s*\(#\d+\)\s*$")
 
 
