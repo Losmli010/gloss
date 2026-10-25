@@ -11,19 +11,20 @@ import os
 import sys
 from typing import Any
 
-from . import architecture, logging, manifest_hygiene, source_hygiene, ui_boundary
+from . import architecture, logging, manifest_hygiene, manifests, source_hygiene, ui_boundary
 
 MODULES = (architecture, logging, ui_boundary, manifest_hygiene, source_hygiene)
 
 
 def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
-    """逐模块聚合判定，返回通过与失败两个清单；装入器在场时清单与文件读取
-    走共享缓存，缺省自行读取。"""
+    """逐模块聚合判定，返回通过与失败两个清单；缺省自建单次扫描的内容缓存
+    （清单与文件各只读一次），装入器在场时共享其缓存。"""
     print("== constraint checks (repo root: %s) ==" % root)
+    scan = loader if loader is not None else manifests.ContentCache(root)
     oks = []
     fails = []
     for module in MODULES:
-        module_oks, module_fails = module.run(root, loader)
+        module_oks, module_fails = module.run(root, scan)
         oks.extend(module_oks)
         fails.extend(module_fails)
     return oks, fails

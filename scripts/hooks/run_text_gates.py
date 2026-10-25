@@ -3,7 +3,8 @@
 行为清单、约束、文案、注释），门禁顺序与组合配方的清单序一致，聚合输出即
 六条门禁各自单跑输出的拼接，任一门禁违规时整体退出非零且后续门禁照常执
 行、报告保持完整。六门禁共享一次版本库跟踪清单的枚举结果与两层（字节、
-解码）惰性内容缓存：清单只枚举一次、文件内容只读一次，经缓存读取的解码
+解码）惰性内容缓存：跟踪清单与约束门禁的工作区清单各只枚举一次、文件内
+容只读一次，经缓存读取的解码
 容错口径与通用换行翻译逐点对齐各门禁自行打开文件的语义。各门禁的运行入
 口带可选内容装入器参数，缺省自行读取，单条配方与既有单测行为不变。取舍
 见记录文件。
@@ -49,11 +50,13 @@ class ContentLoader:
     """并轨内容装入器：跟踪清单一次枚举，字节与解码文本两层按需缓存。
 
     解码层逐点对齐文本模式打开文件的读取语义：统一码容错口径由调用方指
-    定并分开缓存，通用换行翻译照常发生，读取失败按原样抛出。"""
+    定并分开缓存，通用换行翻译照常发生，读取失败按原样抛出。约束门禁的
+    工作区清单枚举同样经本装入器缓存（枚举逻辑住在约束共享层）。"""
 
     def __init__(self, root: str) -> None:
         self.root = root
         self._tracked = None
+        self._manifests = None
         self._bytes = {}
         self._text = {}
 
@@ -70,6 +73,12 @@ class ContentLoader:
             ).stdout
             self._tracked = [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
         return self._tracked
+
+    def manifests(self, root: str) -> list[str]:
+        """工作区清单枚举：经约束共享层的枚举逻辑取一次，此后共享同一结果。"""
+        if self._manifests is None:
+            self._manifests = constraints.manifests.manifests(root)
+        return self._manifests
 
     def read_bytes(self, path: str) -> bytes:
         """字节层：按需读取并缓存，供逐字节数据与手工解码的消费方共用。"""

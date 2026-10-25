@@ -21,6 +21,8 @@ SELF_FILES = (
     "scripts/hooks/constraints/source_hygiene_test.py",
 )
 
+MARKER_RE = re.compile(r"\b(?:TODO|FIXME|HACK|TBD)\b", re.ASCII)
+
 
 def stub_section(path: str, pat: str, loader: Any = None) -> str:
     """端口桩按节比对：节以“列 0 的 ///”切分（桩的条目文档都在列 0，
@@ -124,7 +126,6 @@ def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
         ).returncode
         == 0
     ):
-        marker_re = re.compile(r"\b(?:TODO|FIXME|HACK|TBD)\b", re.ASCII)
         if loader is not None:
             tracked = loader.tracked()
         else:
@@ -149,7 +150,7 @@ def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
             hits = [
                 "%d:%s" % (no, line)
                 for no, line in enumerate(data.decode("utf-8", "replace").split("\n"), 1)
-                if marker_re.search(line)
+                if MARKER_RE.search(line)
             ]
             if hits:
                 manifests.note_violation(fails, "leftover task marker: %s — %s" % (f, hits[0][:60]))

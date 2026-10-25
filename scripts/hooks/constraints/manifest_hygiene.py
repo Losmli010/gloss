@@ -12,6 +12,14 @@ from typing import Any
 
 from . import manifests
 
+INHERITED_FIELDS = ("version", "edition")
+
+FIELD_LITERAL_RES = {field: re.compile(r"^%s\s*=\s*\"" % field) for field in INHERITED_FIELDS}
+
+FIELD_INHERIT_RES = {
+    field: re.compile(r"^%s\.workspace\s*=\s*true" % field) for field in INHERITED_FIELDS
+}
+
 
 def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """执行版本单点、依赖特性与死条目约束，返回通过与失败两个清单。"""
@@ -25,18 +33,18 @@ def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
         if os.path.isfile(root_manifest)
         else []
     )
-    for field in ("version", "edition"):
-        if not any(re.match(r"^%s\s*=\s*\"" % field, line) for line in ws_body):
+    for field in INHERITED_FIELDS:
+        if not any(FIELD_LITERAL_RES[field].match(line) for line in ws_body):
             manifests.note_violation(
                 fails,
                 "constraint violation (single version source): %s [workspace.package]"
                 " has no %s literal (the single source lives here)"
                 % (manifests.rel(root, root_manifest), field),
             )
-    for m in manifests.manifests(root):
+    for m in manifests.manifests(root, loader):
         pkg = manifests.section_body(m, "[package]", loader)
-        for field in ("version", "edition"):
-            if not any(re.match(r"^%s\.workspace\s*=\s*true" % field, line) for line in pkg):
+        for field in INHERITED_FIELDS:
+            if not any(FIELD_INHERIT_RES[field].match(line) for line in pkg):
                 manifests.note_violation(
                     fails,
                     "constraint violation (single version source): %s [package] misses"

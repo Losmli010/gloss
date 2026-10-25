@@ -11,6 +11,13 @@ from typing import Any
 
 from . import manifests
 
+LOG_MACRO_RE = re.compile(
+    r"(info|warn|error|debug|trace|event|info_span|warn_span|error_span"
+    r"|debug_span|trace_span)!\(([^)]*)\)"
+)
+
+NON_ASCII_RE = re.compile(r"[^ -~]")
+
 
 def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """执行日志出口与日志语言约束，返回通过与失败两个清单。"""
@@ -29,14 +36,10 @@ def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
 
     rs_files = 0
     log_violations = 0
-    log_macro_re = re.compile(
-        r"(info|warn|error|debug|trace|event|info_span|warn_span|error_span"
-        r"|debug_span|trace_span)!\(([^)]*)\)"
-    )
     for f in manifests.walk_rs(root):
         rs_files += 1
         flat = manifests.read_text(f, loader).replace("\n", " ")
-        hits = [m.group(0) for m in log_macro_re.finditer(flat) if re.search(r"[^ -~]", m.group(0))]
+        hits = [m.group(0) for m in LOG_MACRO_RE.finditer(flat) if NON_ASCII_RE.search(m.group(0))]
         if hits:
             log_violations += 1
             manifests.note_violation(

@@ -50,6 +50,8 @@ CORE_FORBIDDEN_PREFIX = (
     "raw-window-handle",
 )
 
+EVAL_ASSET_RE = re.compile(r"include_str!\(.*gloss-eval|include_bytes!\(.*gloss-eval")
+
 
 def core_forbidden(key: str) -> bool:
     return key in CORE_FORBIDDEN_EXACT or key.startswith(CORE_FORBIDDEN_PREFIX)
@@ -57,7 +59,7 @@ def core_forbidden(key: str) -> bool:
 
 def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """执行依赖方向与评测资产隔离约束，返回通过与失败两个清单。"""
-    manifest_list = manifests.manifests(root)
+    manifest_list = manifests.manifests(root, loader)
     dump = manifests.dep_dump(root, loader)
     oks = []
     fails = []
@@ -118,7 +120,7 @@ def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
         hits = [
             line
             for line in manifests.read_text(f, loader).split("\n")
-            if re.search(r"include_str!\(.*gloss-eval|include_bytes!\(.*gloss-eval", line)
+            if EVAL_ASSET_RE.search(line)
         ]
         if not hits:
             continue

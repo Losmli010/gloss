@@ -1,19 +1,71 @@
 """约束门禁·共享清单扫描：各领域模块共用的工具——工作区清单枚举、包名与
 节正文提取、依赖条目抽取与汇总、本语言（Rust）源码树遍历、文本读取与违规
-即时报告；装入器在场时清单与文件读取走共享缓存，缺省自行读取。条目跨行
-拼接与各助手的取舍见记录文件。
+即时报告；另提供单次扫描的内容缓存：清单枚举与文件内容按路径缓进字典，
+同一文件一次扫描只打开一次，聚合入口缺省自建缓存，装入器在场时共享其缓
+存，单模块直跑仍各自读取；读取失败照常抛出，读不到即报违规的现行路径不
+变形。条目跨行拼接与各助手的取舍见记录文件。
 """
 
 from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Iterator
 from typing import Any
 
+PKG_NAME_RE = re.compile(r"name\s*=")
 
-def manifests(root: str) -> list[str]:
+DEP_KEY_RE = re.compile(r"[A-Za-z0-9_-]+\s*=")
+
+
+class ContentCache:
+    """单次约束扫描的内容缓存：绑定扫描根，工作区清单枚举、版本库跟踪
+    清单与文件内容的字节、解码文本各按路径（文本连带容错口径）缓进字典；
+    读取失败照常抛出，不因缓存吞掉报错路径。"""
+
+    def __init__(self, root: str) -> None:
+        self.root = root
+        self._manifests = None
+        self._tracked = None
+        self._bytes = {}
+        self._text = {}
+
+    def manifests(self, root: str) -> list[str]:
+        """工作区清单枚举：首次调用枚举一次，此后整段扫描共享同一结果。"""
+        if self._manifests is None:
+            self._manifests = manifests(root)
+        return self._manifests
+
+    def tracked(self) -> list[str]:
+        """版本库跟踪清单：枚举一次，供残留任务标记扫描消费。"""
+        if self._tracked is None:
+            out = subprocess.run(
+                ["git", "-C", self.root, "ls-files", "-z"], capture_output=True, check=True
+            ).stdout
+            self._tracked = [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
+        return self._tracked
+
+    def read_bytes(self, path: str) -> bytes:
+        """字节层：按路径缓存，读取失败照常抛出。"""
+        if path not in self._bytes:
+            with open(path, "rb") as fh:
+                self._bytes[path] = fh.read()
+        return self._bytes[path]
+
+    def read_text(self, path: str, errors: str = "strict") -> str:
+        """解码层：文本模式读取语义（通用换行翻译在内），按路径与容错口径缓存。"""
+        key = (path, errors)
+        if key not in self._text:
+            with open(path, encoding="utf-8", errors=errors) as fh:
+                self._text[key] = fh.read()
+        return self._text[key]
+
+
+def manifests(root: str, loader: Any = None) -> list[str]:
+    if loader is not None:
+        return loader.manifests(root)
     out = []
     root_manifest = os.path.join(root, "Cargo.toml")
     if os.path.isfile(root_manifest):
@@ -35,7 +87,7 @@ def pkg_name(manifest_path: str, loader: Any = None) -> str:
         if stripped.startswith("["):
             in_section = stripped == "[package]"
             continue
-        if in_section and re.match(r"name\s*=", stripped):
+        if in_section and PKG_NAME_RE.match(stripped):
             return stripped.split("=", 1)[1].strip().strip("\"'")
     return ""
 
@@ -71,7 +123,7 @@ def dep_entries(manifest_path: str, loader: Any = None) -> list[tuple[str, str, 
             continue
         if not in_deps:
             continue
-        if re.match(r"[A-Za-z0-9_-]+\s*=", line):
+        if DEP_KEY_RE.match(line):
             if pending:
                 entries.append((sec, key, start, text))
                 pending = False
@@ -100,7 +152,7 @@ def dep_dump(root: str, loader: Any = None) -> list[tuple[str, str, str, str, in
 
     属主取清单里的包名，取不到时回退清单所在目录名（根清单即包目录）。"""
     out = []
-    for m in manifests(root):
+    for m in manifests(root, loader):
         name = pkg_name(m, loader)
         if not name:
             name = os.path.basename(os.path.dirname(m))

@@ -11,13 +11,14 @@ from typing import Any
 
 from . import manifests
 
+CTX_RE = re.compile(r"(?:^|[^A-Za-z0-9_])Context::default\(\)|\.set_fonts\(|\.set_theme\(")
+
 
 def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """执行上下文装入点与声明集中约束，返回通过与失败两个清单。"""
     oks = []
     fails = []
     context_owner = "crates/gloss-app/src/ui/context.rs"
-    ctx_re = re.compile(r"(?:^|[^A-Za-z0-9_])Context::default\(\)|\.set_fonts\(|\.set_theme\(")
     ctx_files = 0
     ctx_violations = 0
     for f in manifests.walk_rs(root):
@@ -28,7 +29,7 @@ def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
             line
             for line in manifests.read_text(f, loader).split("\n")
             if "constraints:allow-context" not in line
-            and ctx_re.search(line.replace(" ", "").replace("\t", ""))
+            and CTX_RE.search(line.replace(" ", "").replace("\t", ""))
         ]
         if not hits:
             continue
