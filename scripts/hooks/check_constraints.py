@@ -107,35 +107,33 @@ def manifests(root):
     return out
 
 
-def pkg_name(manifest_path):
+def pkg_name(manifest_path, loader=None):
     """取 [package] 里的 crate 名。"""
     in_section = False
-    with open(manifest_path, encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            stripped = line.strip()
-            if stripped.startswith("["):
-                in_section = stripped == "[package]"
-                continue
-            if in_section and re.match(r"name\s*=", stripped):
-                return stripped.split("=", 1)[1].strip().strip("\"'")
+    for line in read_text(manifest_path, loader).split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_section = stripped == "[package]"
+            continue
+        if in_section and re.match(r"name\s*=", stripped):
+            return stripped.split("=", 1)[1].strip().strip("\"'")
     return ""
 
 
-def section_body(manifest_path, want):
+def section_body(manifest_path, want, loader=None):
     """取某个 section 的正文（到下一个 section 头为止）。"""
     out = []
     in_section = False
-    with open(manifest_path, encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            if line.startswith("["):
-                in_section = line.rstrip() == want
-                continue
-            if in_section:
-                out.append(line.rstrip("\n"))
+    for line in read_text(manifest_path, loader).split("\n"):
+        if line.startswith("["):
+            in_section = line.rstrip() == want
+            continue
+        if in_section:
+            out.append(line.rstrip("\n"))
     return out
 
 
-def dep_entries(manifest_path):
+def dep_entries(manifest_path, loader=None):
     """抽取依赖条目，输出 (section, key, 行号, 条目全文（跨行拼接）)。
 
     依赖表含 [dependencies] / [dev-dependencies] / [build-dependencies]，以及
@@ -145,34 +143,33 @@ def dep_entries(manifest_path):
     in_deps = False
     pending = False
     key = start = text = None
-    with open(manifest_path, encoding="utf-8", errors="replace") as fh:
-        for lineno, line in enumerate(fh, 1):
-            line = line.rstrip("\n")
-            if line.startswith("["):
-                sec = line
-                in_deps = sec.endswith("dependencies]")
-                continue
-            if not in_deps:
-                continue
-            if re.match(r"[A-Za-z0-9_-]+\s*=", line):
-                if pending:
-                    entries.append((sec, key, start, text))
-                    pending = False
-                key = line.split("=", 1)[0].strip()
-                start = lineno
-                text = line
-                depth = line.count("{") - line.count("}")
-                if depth <= 0:
-                    entries.append((sec, key, start, text))
-                else:
-                    pending = True
-                continue
+    for lineno, line in enumerate(read_text(manifest_path, loader).split("\n"), 1):
+        line = line.rstrip("\n")
+        if line.startswith("["):
+            sec = line
+            in_deps = sec.endswith("dependencies]")
+            continue
+        if not in_deps:
+            continue
+        if re.match(r"[A-Za-z0-9_-]+\s*=", line):
             if pending:
-                text = text + " " + line
-                depth += line.count("{") - line.count("}")
-                if depth <= 0:
-                    pending = False
-                    entries.append((sec, key, start, text))
+                entries.append((sec, key, start, text))
+                pending = False
+            key = line.split("=", 1)[0].strip()
+            start = lineno
+            text = line
+            depth = line.count("{") - line.count("}")
+            if depth <= 0:
+                entries.append((sec, key, start, text))
+            else:
+                pending = True
+            continue
+        if pending:
+            text = text + " " + line
+            depth += line.count("{") - line.count("}")
+            if depth <= 0:
+                pending = False
+                entries.append((sec, key, start, text))
     if pending:
         entries.append((sec, key, start, text))
     return entries
@@ -192,19 +189,21 @@ def walk_rs(*bases):
                     yield os.path.join(dirpath, name)
 
 
-def read_text(path):
+def read_text(path, loader=None):
+    if loader is not None:
+        return loader.read_text(path, errors="replace")
     with open(path, encoding="utf-8", errors="replace") as fh:
         return fh.read()
 
 
-def stub_section(path, pat):
+def stub_section(path, pat, loader=None):
     """端口桩按节比对：节以“列 0 的 ///”切分（桩的条目文档都在列 0，
     结构体字段文档有缩进，不会误切）。文件缺失按空节处理（对齐 cmp 空对空）。"""
     if not os.path.isfile(path):
         return ""
     out = []
     found = False
-    for line in read_text(path).split("\n"):
+    for line in read_text(path, loader).split("\n"):
         if found:
             if line.startswith("///"):
                 break
@@ -217,20 +216,21 @@ def stub_section(path, pat):
     return "\n".join(out)
 
 
-def run(root):
-    """逐条执行约束，返回 (oks, fails)。"""
+def run(root, loader=None):
+    """逐条执行约束，返回 (oks, fails)；装入器在场时清单与文件读取走共享
+    缓存，缺省自行读取。"""
     manifest_list = manifests(root)
     dep_dump = []  # 条目依次是属主、清单相对路径、节、键、行号与全文
     for m in manifest_list:
-        name = pkg_name(m)
+        name = pkg_name(m, loader)
         if not name:
             name = os.path.basename(os.path.dirname(m))
-        for sec, key, start, text in dep_entries(m):
+        for sec, key, start, text in dep_entries(m, loader):
             dep_dump.append((name, os.path.relpath(m, root), sec, key, start, text))
-    return _checks(root, manifest_list, dep_dump)
+    return _checks(root, manifest_list, dep_dump, loader)
 
 
-def _checks(root, manifest_list, dep_dump):
+def _checks(root, manifest_list, dep_dump, loader=None):
     oks = []
     fails = []
 
@@ -270,9 +270,9 @@ def _checks(root, manifest_list, dep_dump):
             )
     # 包名必须在本文件里出现过：约束表与依赖边是两处维护，靠这条挡住单边改动
     if os.path.isfile(agents_md):
-        agents_text = read_text(agents_md)
+        agents_text = read_text(agents_md, loader)
         for m in manifest_list:
-            name = pkg_name(m)
+            name = pkg_name(m, loader)
             if name and name not in agents_text:
                 fail(
                     "constraint violation (dependency direction): crate %s missing from"
@@ -306,7 +306,7 @@ def _checks(root, manifest_list, dep_dump):
             continue
         hits = [
             line
-            for line in read_text(f).split("\n")
+            for line in read_text(f, loader).split("\n")
             if re.search(r"include_str!\(.*gloss-eval|include_bytes!\(.*gloss-eval", line)
         ]
         if not hits:
@@ -336,7 +336,7 @@ def _checks(root, manifest_list, dep_dump):
                 drifts += 1
 
         def text_of(path):
-            return read_text(path) if os.path.isfile(path) else ""
+            return read_text(path, loader) if os.path.isfile(path) else ""
 
         assert_same(
             "engine.rs (core <-> app)",
@@ -346,10 +346,11 @@ def _checks(root, manifest_list, dep_dump):
         for crate in ("gloss-app", "gloss-platform"):
             assert_same(
                 "memory config store stub (core <-> %s)" % crate,
-                stub_section(os.path.join(core_stubs, "ports.rs"), "内存版配置存储桩"),
+                stub_section(os.path.join(core_stubs, "ports.rs"), "内存版配置存储桩", loader),
                 stub_section(
                     os.path.join(root, "crates", crate, "tests", "stubs", "ports.rs"),
                     "内存版配置存储桩",
+                    loader,
                 ),
             )
         if drifts == 0:
@@ -377,7 +378,7 @@ def _checks(root, manifest_list, dep_dump):
     )
     for f in walk_rs(root):
         rs_files += 1
-        flat = read_text(f).replace("\n", " ")
+        flat = read_text(f, loader).replace("\n", " ")
         hits = [m.group(0) for m in log_macro_re.finditer(flat) if re.search(r"[^ -~]", m.group(0))]
         if hits:
             log_violations += 1
@@ -406,7 +407,7 @@ def _checks(root, manifest_list, dep_dump):
             continue
         hits = [
             line
-            for line in read_text(f).split("\n")
+            for line in read_text(f, loader).split("\n")
             if "constraints:allow-context" not in line
             and ctx_re.search(line.replace(" ", "").replace("\t", ""))
         ]
@@ -437,7 +438,7 @@ def _checks(root, manifest_list, dep_dump):
             continue
         hits = [
             line
-            for line in read_text(f).split("\n")
+            for line in read_text(f, loader).split("\n")
             if 'extern"C"{' in line.replace(" ", "").replace("\t", "")
         ]
         if not hits:
@@ -456,7 +457,9 @@ def _checks(root, manifest_list, dep_dump):
     # ---- 约束“版本单点维护” ----
     root_manifest = os.path.join(root, "Cargo.toml")
     ws_body = (
-        section_body(root_manifest, "[workspace.package]") if os.path.isfile(root_manifest) else []
+        section_body(root_manifest, "[workspace.package]", loader)
+        if os.path.isfile(root_manifest)
+        else []
     )
     for field in ("version", "edition"):
         if not any(re.match(r"^%s\s*=\s*\"" % field, line) for line in ws_body):
@@ -465,7 +468,7 @@ def _checks(root, manifest_list, dep_dump):
                 " has no %s literal (the single source lives here)" % (rel(root_manifest), field)
             )
     for m in manifest_list:
-        pkg = section_body(m, "[package]")
+        pkg = section_body(m, "[package]", loader)
         for field in ("version", "edition"):
             if not any(re.match(r"^%s\.workspace\s*=\s*true" % field, line) for line in pkg):
                 fail(
@@ -522,7 +525,7 @@ def _checks(root, manifest_list, dep_dump):
             for dirpath, _, filenames in os.walk(base_dir):
                 for name in filenames:
                     path = os.path.join(dirpath, name)
-                    for line in read_text(path).split("\n"):
+                    for line in read_text(path, loader).split("\n"):
                         if evidence.search(line):
                             found = True
                             break
@@ -561,7 +564,7 @@ def _checks(root, manifest_list, dep_dump):
         for name in sorted(os.listdir(crates_dir)):
             src_bases.append(os.path.join(crates_dir, name, "src"))
     for f in walk_rs(*src_bases):
-        lines = read_text(f).split("\n")
+        lines = read_text(f, loader).split("\n")
         production = 0
         for line in lines:
             if line.startswith("#[cfg(test)]"):
@@ -597,19 +600,23 @@ def _checks(root, manifest_list, dep_dump):
         # 正则按英文词界（ASCII）的字节语义对齐命令行全字匹配：汉字不算词字符，
         # 任务标记紧贴中文的形态同样命中
         marker_re = re.compile(r"\b(?:TODO|FIXME|HACK|TBD)\b", re.ASCII)
-        out = subprocess.run(
-            ["git", "-C", root, "ls-files", "-z"], capture_output=True, check=True
-        ).stdout
-        for raw in out.split(b"\0"):
-            if not raw:
-                continue
-            f = raw.decode("utf-8", "replace")
+        if loader is not None:
+            tracked = loader.tracked()
+        else:
+            out = subprocess.run(
+                ["git", "-C", root, "ls-files", "-z"], capture_output=True, check=True
+            ).stdout
+            tracked = [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
+        for f in tracked:
             if f in SELF_FILES:
                 continue
             path = os.path.join(root, f)
             try:
-                with open(path, "rb") as fh:
-                    data = fh.read()
+                if loader is not None:
+                    data = loader.read_bytes(path)
+                else:
+                    with open(path, "rb") as fh:
+                        data = fh.read()
             except OSError:
                 continue
             if b"\0" in data:
@@ -626,13 +633,13 @@ def _checks(root, manifest_list, dep_dump):
     return oks, fails
 
 
-def main():
+def main(loader=None):
     root = (
         os.path.abspath(sys.argv[1])
         if len(sys.argv) > 1
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
-    oks, fails = run(root)
+    oks, fails = run(root, loader)
     # 违规已在检查过程内即时输出到标准错误，这里只补汇总与结论
     for line in oks:
         print("  ✓ %s" % line)

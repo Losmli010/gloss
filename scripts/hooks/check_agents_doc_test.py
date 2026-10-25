@@ -161,6 +161,16 @@ def test_tracked_path_accepted_inside_repo(tmp_path):
     assert violations == []
 
 
+def test_non_ascii_tracked_name_enumerated_raw(tmp_path):
+    build_fixture(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("见 `文档.md`\n", encoding="utf-8")
+    (tmp_path / "文档.md").write_text("正文\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    violations, _, _, _ = check_agents_doc.run(str(tmp_path / "AGENTS.md"))
+    assert violations == []
+
+
 def test_missing_test_target(tmp_path):
     assert_fail(tmp_path, "跑 `cargo test --test smoke`", "no tests/smoke.rs found")
 

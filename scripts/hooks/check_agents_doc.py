@@ -34,7 +34,9 @@ BARE_SUFFIXES = (".md", ".toml", ".py", ".rs", ".yml", ".json")
 SELF_EXEMPT = {"check_agents_doc.py", "check_agents_doc_test.py"}
 
 
-def scan_lines(doc_path):
+def scan_lines(doc_path, loader=None):
+    if loader is not None:
+        return loader.read_text(doc_path).split("\n")
     with open(doc_path, encoding="utf-8") as fh:
         return fh.read().split("\n")
 
@@ -71,7 +73,11 @@ def scan_targets(root, target, tracked):
 
 
 def tracked_files(root):
-    """版本库跟踪清单；不是仓库根时返回空表，调用方退回工作区遍历。"""
+    """版本库跟踪清单；不是仓库根时返回空表，调用方退回工作区遍历。
+
+    空字节分隔取原始字节再容错解码：非空分隔形态对非英文字节（ASCII）文
+    件名做引号八进制转义，拿到的是打引号的假路径（引用核对误报、受检文件
+    静默漏检）。"""
     try:
         top = subprocess.run(
             ["git", "-C", root, "rev-parse", "--show-toplevel"],
@@ -82,12 +88,11 @@ def tracked_files(root):
         if os.path.realpath(top) != os.path.realpath(root):
             return []
         out = subprocess.run(
-            ["git", "-C", root, "ls-files"],
+            ["git", "-C", root, "ls-files", "-z"],
             capture_output=True,
-            text=True,
             check=True,
         ).stdout
-        return [p for p in out.splitlines() if p]
+        return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
     except (OSError, subprocess.CalledProcessError):
         return []
 
@@ -105,11 +110,12 @@ def ref_file(p):
     return name.endswith((".rs", ".toml", ".py", ".yml")) or name == "justfile"
 
 
-def scan_quality_refs(root, names, tracked):
+def scan_quality_refs(root, names, tracked, loader=None):
     """仓库各处（*.rs / *.toml / *.py / *.yml / justfile）对质量条目的指名引用核对。
 
     有跟踪清单时只读清单里的文件：工作区里未跟踪的临时目录与本地记录不能
-    左右判定，本地与持续集成才看同一批文件。返回 (violations, ref_files, ref_count)。"""
+    左右判定，本地与持续集成才看同一批文件；装入器在场时文件读取走共享缓
+    存。返回 (violations, ref_files, ref_count)。"""
     violations = []
     ref_files = 0
     ref_count = 0
@@ -127,31 +133,39 @@ def scan_quality_refs(root, names, tracked):
         if os.path.basename(path) in SELF_EXEMPT:
             continue
         ref_files += 1
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if not REF_LINE_RE.search(line):
-                    continue
-                for cited in REF_NAME_RE.findall(line):
-                    ref_count += 1
-                    if cited not in names:
-                        violations.append(
-                            '%s: cites quality entry "%s" — no entry with this name'
-                            " in the AGENTS.md quality entry table" % (rel, cited)
-                        )
+        if loader is not None:
+            lines = loader.read_text(path, errors="replace").split("\n")
+        else:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().split("\n")
+        for line in lines:
+            if not REF_LINE_RE.search(line):
+                continue
+            for cited in REF_NAME_RE.findall(line):
+                ref_count += 1
+                if cited not in names:
+                    violations.append(
+                        '%s: cites quality entry "%s" — no entry with this name'
+                        " in the AGENTS.md quality entry table" % (rel, cited)
+                    )
     return violations, ref_files, ref_count
 
 
-def run(doc_path):
-    """按五类引用核对 doc_path，返回 (violations, checked, ref_files, ref_count)。"""
+def run(doc_path, loader=None):
+    """按五类引用核对 doc_path，返回 (violations, checked, ref_files, ref_count)；
+    装入器在场时清单枚举与文件读取走共享缓存，缺省自行读取。"""
     root = os.path.dirname(os.path.abspath(doc_path))
     doc_name = os.path.basename(doc_path)
-    tracked = tracked_files(root)
-    lines = scan_lines(doc_path)
+    tracked = loader.tracked() if loader is not None else tracked_files(root)
+    lines = scan_lines(doc_path, loader)
     justfile_lines = None
     justfile_path = os.path.join(root, "justfile")
     if os.path.isfile(justfile_path):
-        with open(justfile_path, encoding="utf-8") as fh:
-            justfile_lines = fh.read().split("\n")
+        if loader is not None:
+            justfile_lines = loader.read_text(justfile_path).split("\n")
+        else:
+            with open(justfile_path, encoding="utf-8") as fh:
+                justfile_lines = fh.read().split("\n")
 
     violations = []
     checked = 0
@@ -210,12 +224,14 @@ def run(doc_path):
                 )
 
     # ---- 仓库各处对质量条目的指名引用必须存在 ----
-    ref_violations, ref_files, ref_count = scan_quality_refs(root, rule_names(lines), tracked)
+    ref_violations, ref_files, ref_count = scan_quality_refs(
+        root, rule_names(lines), tracked, loader
+    )
     violations.extend(ref_violations)
     return violations, checked, ref_files, ref_count
 
 
-def main():
+def main(loader=None):
     if len(sys.argv) >= 2:
         arg = os.path.abspath(sys.argv[1])
     else:
@@ -228,7 +244,7 @@ def main():
             file=sys.stderr,
         )
         return 1
-    violations, checked, ref_files, ref_count = run(arg)
+    violations, checked, ref_files, ref_count = run(arg, loader)
     doc_name = os.path.basename(arg)
     if violations:
         for v in violations:

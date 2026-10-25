@@ -282,9 +282,15 @@ gen-manifest tag artifacts-dir:
 
 # ---- 纯文本快速检查（提交前门禁同款，秒级；持续集成的钩子工作流也跑）----
 
-# 纯文本门禁组合：密钥扫描前置，再跑文档引用、行为清单（BDD）、约束、文案表、注释纪律
-# 与五条工具格式检查；本语言格式化只解析不编译，归文本层
-text-gates: secrets agents-doc test-bdd constraints i18n comments fmt fmt-py lint-py fmt-toml lint-toml
+# 纯文本门禁组合：六条纯文本门禁并轨单进程执行（共享一次文件清单枚举与内
+# 容缓存），再跑五条工具格式检查；本语言格式化只解析不编译，归文本层
+text-gates: text-gates-merged fmt fmt-py lint-py fmt-toml lint-toml
+
+# 六条纯文本门禁（密钥、文档引用、行为清单、约束、文案、注释）的并轨入口：
+# 单进程依序执行，顺序即上面的清单序，聚合输出与各门禁单跑输出的拼接一致，
+# 任一违规整体非零且报告保持完整
+text-gates-merged:
+    {{py}} scripts/hooks/run_text_gates.py
 
 # 硬编码密钥扫描（命中即失败）
 secrets:
