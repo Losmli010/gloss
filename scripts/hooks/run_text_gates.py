@@ -24,10 +24,10 @@ for _entry in (_COMMENTS, _HOOKS):
 
 import check_agents_doc  # noqa: E402
 import check_comments  # noqa: E402
-import check_constraints  # noqa: E402
 import check_i18n  # noqa: E402
 import check_secrets  # noqa: E402
 import check_test_bdd  # noqa: E402
+import constraints  # noqa: E402
 
 REPO_ROOT = os.path.abspath(os.path.join(_HOOKS, "..", ".."))
 
@@ -35,7 +35,7 @@ GATES = (
     ("secrets", check_secrets),
     ("agents-doc", check_agents_doc),
     ("test-bdd", check_test_bdd),
-    ("constraints", check_constraints),
+    ("constraints", constraints),
     ("i18n", check_i18n),
     ("comments", check_comments),
 )
