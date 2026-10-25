@@ -1,8 +1,8 @@
 """约束门禁·清单卫生：版本单点维护、依赖只开需要的特性、依赖无死条目——
 子包的版本与语言版本继承工作区，字面量只在根清单的工作区段；第三方依赖声明
 必须关闭默认特性，且必须在源码面有使用证据；条目行尾放行标记豁免并须注明
-缘由。违规经统一诊断出口带规则标识报告，证据为完整条目不截断。判定口径与
-取舍见记录文件。
+缘由，缺失即判罚。违规经统一诊断出口带规则标识报告，证据为完整条目不截断。
+判定口径与取舍见记录文件。
 """
 
 from __future__ import annotations
@@ -110,6 +110,8 @@ def run(
         dead_scanned += 1
         if "deps:allow" in text:
             dead_allowed += 1
+            if gate_report.allow_reason_missing("deps:allow", text):
+                rep.note(gate_report.allow_reason_finding("deps:allow", mrel, start, text))
             continue
         crate_dir = root if mrel == "Cargo.toml" else os.path.join(root, os.path.dirname(mrel))
         import_name = key.replace("-", "_")

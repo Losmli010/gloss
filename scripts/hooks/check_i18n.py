@@ -12,7 +12,7 @@
   装入点集中      —— 编译期引用文案资源只允许出现在统一装入点一处。
   词条表文件唯一  —— 声明词条前缀键的配置文件只允许在文案目录下。
 
-行尾放行标记豁免所在行，须注明缘由。违规报告经统一诊断出口打印：每条带规
+行尾放行标记豁免所在行，须注明缘由、缺失即判罚。违规报告经统一诊断出口打印：每条带规
 则标识、位置、证据行与修复指引，违规随执行流即时输出；字面量扫描面的四个
 源码目录任一缺失按失败关闭退出。退出码按全脚本统一约定。
 
@@ -387,7 +387,10 @@ def literal_findings(root: str, loader: Any = None) -> list[gate_report.Finding]
                 continue
             lines = read_lines(path, loader)
             for ln in sorted(literal_lines("\n".join(lines))):
-                if ALLOW_MARKER in lines[ln - 1]:
+                line = lines[ln - 1]
+                if ALLOW_MARKER in line:
+                    if gate_report.allow_reason_missing(ALLOW_MARKER, line):
+                        out.append(gate_report.allow_reason_finding(ALLOW_MARKER, rel, ln, line))
                     continue
                 out.append(
                     gate_report.Finding(
@@ -395,7 +398,7 @@ def literal_findings(root: str, loader: Any = None) -> list[gate_report.Finding]
                         path=rel,
                         line=ln,
                         message="%s line %d embeds a copy literal" % (rel, ln),
-                        evidence=lines[ln - 1],
+                        evidence=line,
                         remedy=LITERAL_REMEDY,
                     )
                 )

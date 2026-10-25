@@ -5,8 +5,9 @@
 规则取向：只收高信号格式（服务商密钥前缀、私钥块、带引号的凭据赋值）。
 确属合法字面量（文档示例、测试夹具）时，在该行尾加放行标记并注明缘由。
 匹配引擎委托正则检索工具（ripgrep）：模式清单在本文件单点定义，运行时拼装
-参数一次子进程跑全部模式；二进制文件与放行标记行由本文件前后滤除，判定
-口径与既有逐行实现一致，缘由见记录文件。违规报告经统一诊断出口打印：每
+参数一次子进程跑全部模式；二进制文件与放行标记行由本文件前后滤除，放行标
+记须带非空缘由、缺失即判罚，判定口径与既有逐行实现一致，缘由见记录文件。
+违规报告经统一诊断出口打印：每
 条带规则标识、完整证据行与修复指引，退出码按全脚本统一约定。
 """
 
@@ -206,6 +207,16 @@ def pattern_hits(pattern: re.Pattern[str], file_hits: dict[int, str]) -> list[tu
     ]
 
 
+def allow_reason_findings(rel: str, file_hits: dict[int, str]) -> list[gate_report.Finding]:
+    """放行标记缺缘由的条目：标记行只有在命中扫描模式时才构成豁免现场，
+    缺同行非空缘由即报告；豁免语义不变，标记行照旧放行。"""
+    return [
+        gate_report.allow_reason_finding(ALLOW_MARKER, rel, lineno, line)
+        for lineno, line in sorted(file_hits.items())
+        if ALLOW_MARKER in line and gate_report.allow_reason_missing(ALLOW_MARKER, line)
+    ]
+
+
 def fallback_hits(path: str, loader: Any = None) -> dict[int, str]:
     """字节序标记文件的逐行命中：任一模式即收，归类与放行过滤与引擎命中同路。"""
     try:
@@ -253,6 +264,10 @@ def run(root: str, loader: Any = None) -> list[str]:
                 if hits:
                     detail = "\n".join("  %d:%s" % hit for hit in hits)
                     problems.append("%s: %s\n%s" % (kind, rel, detail))
+        bare = allow_reason_findings(rel, file_hits)
+        if bare:
+            detail = "\n".join("  %d:%s" % (f.line, f.evidence) for f in bare)
+            problems.append("allow marker without reason: %s\n%s" % (rel, detail))
     return problems
 
 
@@ -281,6 +296,7 @@ def findings(root: str, loader: Any = None) -> list[gate_report.Finding]:
                         remedy=REMEDIY,
                     )
                 )
+        out += allow_reason_findings(rel, file_hits)
     return out
 
 

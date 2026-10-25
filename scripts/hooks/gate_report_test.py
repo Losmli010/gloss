@@ -122,6 +122,35 @@ def test_infra_failure_carries_the_shared_remedy() -> None:
     assert "    证据: boom" in out.getvalue()
 
 
+def test_allow_reason_missing_requires_text_after_marker() -> None:
+    assert gate_report.allow_reason_missing("secrets:allow", "key = 1 # secrets:allow")
+    assert gate_report.allow_reason_missing("secrets:allow", "key = 1 # secrets:allow   ")
+    assert not gate_report.allow_reason_missing("secrets:allow", "key = 1 # secrets:allow 夹具")
+    assert not gate_report.allow_reason_missing("secrets:allow", "secrets:allow\t缘由")
+
+
+def test_allow_reason_missing_handles_context_marker() -> None:
+    assert gate_report.allow_reason_missing(
+        "constraints:allow-context", "x // constraints:allow-context"
+    )
+    assert not gate_report.allow_reason_missing(
+        "constraints:allow-context", "x // constraints:allow-context 阴性对照"
+    )
+
+
+def test_allow_reason_finding_carries_rule_marker_and_remedy() -> None:
+    finding = gate_report.allow_reason_finding("deps:allow", "Cargo.toml", 12, "x # deps:allow")
+    assert finding.rule == gate_report.RULE_ALLOW_REASON
+    assert "deps:allow" in finding.message
+    assert finding.path == "Cargo.toml"
+    assert finding.line == 12
+    assert finding.evidence == "x # deps:allow"
+    assert finding.remedy == gate_report.ALLOW_REASON_REMEDY
+    out = io.StringIO()
+    gate_report.fail(finding, file=out)
+    assert out.getvalue().startswith("✗ error[ALLOW-REASON]: deps:allow marker without a reason")
+
+
 def test_rule_constants_are_registered() -> None:
     for name, value in rule_constants().items():
         assert value in gate_report.REGISTERED_RULES, "unregistered constant %s=%s" % (name, value)

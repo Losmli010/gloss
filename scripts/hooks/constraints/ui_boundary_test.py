@@ -57,6 +57,28 @@ def test_allow_context_marker_passes(tmp_path: Path) -> None:
     fixtures.assert_pass(ui_boundary, tmp_path, mutate, "0 bypasses")
 
 
+def test_allow_context_marker_without_reason_flagged(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        (root / "crates/gloss-app/src").mkdir(exist_ok=True)
+        (root / "crates/gloss-app/src/bare_ctx.rs").write_text(
+            "let ctx = Context::default(); // constraints:allow-context\n"
+        )
+
+    _, fails = fixtures.run_case(ui_boundary, tmp_path, mutate)
+    assert any("marker without a reason" in f for f in fails)
+    assert not any("egui context unified load point" in f for f in fails)
+
+
+def test_allow_context_marker_without_hit_not_flagged(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        (root / "crates/gloss-app/src").mkdir(exist_ok=True)
+        (root / "crates/gloss-app/src/inert_ctx.rs").write_text(
+            "// constraints:allow-context\nlet x = 1;\n"
+        )
+
+    fixtures.assert_pass(ui_boundary, tmp_path, mutate)
+
+
 def test_context_inside_owner_passes(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         (root / "crates/gloss-app/src/ui").mkdir(parents=True)

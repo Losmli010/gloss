@@ -1,8 +1,8 @@
 """约束门禁·界面边界：界面库（egui）上下文统一装入点与外部函数接口（FFI）
 声明集中——浮层与设置窗的上下文只允许经统一装入点建立并装上字体与主题，
 跨语言声明只允许出现在平台适配层的专用模块；确需绕过的行尾放行标记并注明
-缘由。违规经统一诊断出口带规则标识报告，证据行完整不截断。已知盲区与匹配
-取舍见记录文件。
+缘由、缺失即判罚。违规经统一诊断出口带规则标识报告，证据行完整不截断。已
+知盲区与匹配取舍见记录文件。
 """
 
 from __future__ import annotations
@@ -27,6 +27,8 @@ CTX_RE = re.compile(r"(?:^|[^A-Za-z0-9_])Context::default\(\)|\.set_fonts\(|\.se
 
 FFI_RE = re.compile(re.escape('extern"C"{'))
 
+ALLOW_CONTEXT_MARKER = "constraints:allow-context"
+
 
 def first_hit(
     path: str, loader: Any, skip_marker: str | None, pattern: re.Pattern[str]
@@ -38,6 +40,19 @@ def first_hit(
         if pattern.search(line.replace(" ", "").replace("\t", "")):
             return lineno, line
     return 0, ""
+
+
+def bare_allow_lines(
+    path: str, loader: Any, marker: str, pattern: re.Pattern[str]
+) -> list[tuple[int, str]]:
+    """放行标记缺缘由的行：标记行同时命中本检查的判罚模式才构成豁免现场，
+    缺同行非空缘由即收进结果；不命中模式的标记行是惰性提及，不判罚。"""
+    out = []
+    for lineno, line in enumerate(manifests.read_text(path, loader).split("\n"), 1):
+        if marker in line and pattern.search(line.replace(" ", "").replace("\t", "")):
+            if gate_report.allow_reason_missing(marker, line):
+                out.append((lineno, line))
+    return out
 
 
 def run(
@@ -53,21 +68,26 @@ def run(
         ctx_files += 1
         if manifests.rel(root, f) == context_owner:
             continue
-        hit_line, hit_text = first_hit(f, loader, "constraints:allow-context", CTX_RE)
-        if not hit_line:
-            continue
-        ctx_violations += 1
-        rep.note(
-            gate_report.Finding(
-                rule=RULE_EGUI_CTX,
-                path=manifests.rel(root, f),
-                line=hit_line,
-                message="bypasses the egui context unified load point — go through"
-                " new_context / reapply in ui/context.rs",
-                evidence=hit_text,
-                remedy=EGUI_CTX_REMEDY,
+        hit_line, hit_text = first_hit(f, loader, ALLOW_CONTEXT_MARKER, CTX_RE)
+        if hit_line:
+            ctx_violations += 1
+            rep.note(
+                gate_report.Finding(
+                    rule=RULE_EGUI_CTX,
+                    path=manifests.rel(root, f),
+                    line=hit_line,
+                    message="bypasses the egui context unified load point — go through"
+                    " new_context / reapply in ui/context.rs",
+                    evidence=hit_text,
+                    remedy=EGUI_CTX_REMEDY,
+                )
             )
-        )
+        for bare_line, bare_text in bare_allow_lines(f, loader, ALLOW_CONTEXT_MARKER, CTX_RE):
+            rep.note(
+                gate_report.allow_reason_finding(
+                    ALLOW_CONTEXT_MARKER, manifests.rel(root, f), bare_line, bare_text
+                )
+            )
     oks.append(
         "ok egui context unified load point (%d .rs files scanned, %d bypasses)"
         % (ctx_files, ctx_violations)

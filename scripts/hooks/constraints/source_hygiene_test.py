@@ -58,6 +58,26 @@ def test_lines_allow_in_first_five_lines_passes(tmp_path: Path) -> None:
     fixtures.assert_pass(source_hygiene, tmp_path, mutate, "1 lines:allow exemptions")
 
 
+def test_lines_allow_without_reason_flagged(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        (root / "crates/gloss-app/src").mkdir(exist_ok=True)
+        (root / "crates/gloss-app/src/bare_allow.rs").write_text(
+            "// lines:allow\n" + "let _x = 1;\n" * 520
+        )
+
+    _, fails = fixtures.run_case(source_hygiene, tmp_path, mutate)
+    assert any("marker without a reason" in f for f in fails)
+    assert not any("line cap" in f for f in fails)
+
+
+def test_bare_lines_allow_in_small_file_not_flagged(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        (root / "crates/gloss-app/src").mkdir(exist_ok=True)
+        (root / "crates/gloss-app/src/small.rs").write_text("// lines:allow\nlet _x = 1;\n")
+
+    fixtures.assert_pass(source_hygiene, tmp_path, mutate)
+
+
 def test_overlong_test_file_not_punished(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         (root / "crates/gloss-app/tests").mkdir(exist_ok=True)
