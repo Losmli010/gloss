@@ -1,18 +1,24 @@
 """文档引用门禁的单测：逐条覆盖五类引用校验与跳过规则。
 
 被测入口是门禁的运行函数，返回违规与计数元组；夹具建在测试框架（pytest）的
-临时目录，互不串扰；用法见持续集成的钩子工作流（逐文件执行单测）。
+临时目录，互不串扰；用法见持续集成的钩子工作流（逐文件执行单测）。受检文档
+文件缺失是失败关闭的前置故障。另含反馈契约三件套：报告格式断言、汇总计数与
+确定性，经子进程跑脚本端到端锁输出与退出码。
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 import check_agents_doc  # noqa: E402
+import gate_report  # noqa: E402
 
 JUSTFILE = """\
 coverage_min := "70"
@@ -209,3 +215,84 @@ def test_named_rule_reference_stale_after_rename(tmp_path: Path) -> None:
 
 def test_no_named_reference_no_false_positive(tmp_path: Path) -> None:
     assert_pass(tmp_path, RULE_DOC)
+
+
+# ---- 受检文档缺失守卫（失败关闭）----
+
+
+def test_missing_doc_fails_closed(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as exc:
+        check_agents_doc.run(str(tmp_path / "AGENTS.md"))
+    assert exc.value.code == gate_report.EXIT_INFRA
+
+
+# ---- 反馈契约：报告格式、汇总计数、确定性与退出码（子进程端到端）----
+
+GATE = str(Path(__file__).with_name("check_agents_doc.py"))
+
+VIOLATION_BODY = (
+    "跑 `just deploy` 发布，实现见 `crates/demo/src/store.rs`，"
+    "配置见 `nonexistent.toml`，跑 `cargo test --test smoke`"
+)
+
+
+def run_gate(
+    tmp_path: Path, body: str, ref_body: str | None = None, *extra: str
+) -> subprocess.CompletedProcess[bytes]:
+    build_fixture(tmp_path)
+    (tmp_path / "AGENTS.md").write_text(body + "\n", encoding="utf-8")
+    if ref_body is not None:
+        (tmp_path / "crates/demo/src/lib.rs").write_text(ref_body + "\n", encoding="utf-8")
+    return subprocess.run(
+        [sys.executable, GATE, str(tmp_path / "AGENTS.md")] + list(extra), capture_output=True
+    )
+
+
+def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, VIOLATION_BODY, "//! 见 AGENTS.md 质量条目“日志英文”。")
+    assert proc.returncode == 1
+    text = proc.stderr.decode("utf-8")
+    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
+    ids = {re.match(r"^✗ error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
+    assert ids == {"DOC-RECIPE", "DOC-PATH", "DOC-FILE", "DOC-TEST", "DOC-RULE-REF"}
+    for line in heads:
+        assert re.match(r"^✗ error\[[A-Z0-9-]+\]: .+ \(.+:\d+\)$", line)
+    assert "    证据: " in text
+    assert "    help: " in text
+
+
+def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, VIOLATION_BODY, "//! 见 AGENTS.md 质量条目“日志英文”。")
+    text = proc.stderr.decode("utf-8")
+    details = sum(1 for line in text.splitlines() if line.startswith("✗ error["))
+    match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
+    assert match
+    assert int(match.group(1)) == details == 5
+
+
+def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
+    first = run_gate(tmp_path, VIOLATION_BODY, "//! 见 AGENTS.md 质量条目“日志英文”。")
+    second = subprocess.run(
+        [sys.executable, GATE, str(tmp_path / "AGENTS.md")], capture_output=True
+    )
+    assert first.returncode == second.returncode == 1
+    assert first.stderr == second.stderr
+    assert first.stdout == second.stdout
+
+
+def test_gate_clean_fixture_passes_with_exit_zero(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, "见 `just test`、`docs/note.md`")
+    assert proc.returncode == 0
+    assert proc.stdout.decode("utf-8").startswith("✓")
+
+
+def test_gate_missing_doc_fails_closed_with_exit_three(tmp_path: Path) -> None:
+    proc = subprocess.run([sys.executable, GATE, str(tmp_path / "AGENTS.md")], capture_output=True)
+    assert proc.returncode == 3
+    assert "✗ error[DOC-INPUT]:" in proc.stderr.decode("utf-8")
+
+
+def test_gate_extra_argument_is_a_usage_error(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, "见 `just test`", None, "extra-arg")
+    assert proc.returncode == 2
+    assert b"usage:" in proc.stderr

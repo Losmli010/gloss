@@ -4,7 +4,10 @@
     自管测试目标（自带运行器的自检目标），每一项都必须登记进清单；
   - 清单侧：清单的每个条目必须能在测试源码里找到同名测试。
 条目的描述文字不在校验面（描述与代码冲突时以代码为准，见指令文档的测试节）。
-本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
+本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。违规报告
+经统一诊断出口打印：每条带规则标识、位置、条目清单与修复指引；清单文件缺
+失与测试源码扫描面为空两处前置故障按无法完成判定失败关闭退出。退出码按全
+脚本统一约定。
 
 用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
 """
@@ -13,25 +16,48 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import sys
 from collections import Counter
 from typing import Any
+
+import gate_report
 
 BDD_REL = os.path.join("docs", "tests", "bdd.md")
 FN_RE = re.compile(r"fn\s+([A-Za-z0-9_]+)")
 TEST_ATTR_RE = re.compile(r"^\s*#\[(?:tokio::)?test\]")
 MANUAL_CHAPTER = "## 发版人工步骤"
 
+RULE_BDD_STALE = "BDD-STALE"
+RULE_BDD_MISSING = "BDD-MISSING"
+RULE_BDD_DUP_ROW = "BDD-DUP-ROW"
+RULE_BDD_DUP_CHAPTER = "BDD-DUP-CHAPTER"
+RULE_BDD_DUP_BLOCK = "BDD-DUP-BLOCK"
+RULE_BDD_TABLE = "BDD-TABLE"
+
+SYNC_REMEDY = (
+    "added/renamed/removed tests: register them in bdd.md within the same PR and"
+    " refresh the entry's update time; description conflicts with code: code wins"
+)
+DUP_REMEDY = (
+    "keep one registration per test: delete the duplicated row, heading or block;"
+    " old rows left after a rename go too"
+)
+TABLE_REMEDY = "repair the table: keep header, separator and body rows contiguous"
+
+INVENTORY_REMEDY = (
+    "the test behavior inventory is a git-tracked file; do not delete or rename"
+    " it; the directory is allowed via a gitignore exception"
+)
+EMPTY_SURFACE_REMEDY = (
+    "run the gate from the workspace root; an empty scan surface means the"
+    " bidirectional cross-check cannot complete"
+)
+
 
 def tracked_rs_files(root: str, loader: Any = None) -> list[str]:
     if loader is not None:
         return [p for p in loader.tracked() if p.endswith(".rs")]
-    out = subprocess.run(
-        ["git", "-C", root, "ls-files", "-z", "--", "*.rs"],
-        capture_output=True,
-        check=True,
-    ).stdout
+    out = gate_report.run_git(["ls-files", "-z", "--", "*.rs"], cwd=root).stdout
     return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
 
 
@@ -244,109 +270,186 @@ def broken_tables(bdd_path: str, loader: Any = None) -> list[str]:
     return sorted(broken)
 
 
-def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
-    """双向核对，返回 (oks, fails)；装入器在场时清单与文件读取走共享缓存，
-    缺省自行读取。"""
-    bdd_path = os.path.join(root, BDD_REL)
-    if not os.path.isfile(bdd_path):
-        raise SystemExit(
-            "error: %s not found\n"
-            "  the test behavior inventory is a git-tracked file; do not delete or"
-            " rename it; the directory is allowed via a gitignore exception." % BDD_REL
+def require_inventory(bdd_path: str) -> None:
+    """清单文件在场守卫：缺失即输入不可读，无法完成判定，失败关闭退出。"""
+    if os.path.isfile(bdd_path):
+        return
+    gate_report.fail(
+        gate_report.Finding(
+            rule=gate_report.RULE_INFRA,
+            path=BDD_REL,
+            line=0,
+            message="the test behavior inventory is missing",
+            remedy=INVENTORY_REMEDY,
         )
+    )
+    sys.exit(gate_report.EXIT_INFRA)
+
+
+def require_sources(src_names: set[str], target_names: set[str]) -> None:
+    """测试源码扫描面守卫：两侧都提取不到即扫描面意外为空，失败关闭退出。"""
+    if src_names or target_names:
+        return
+    gate_report.fail(
+        gate_report.Finding(
+            rule=gate_report.RULE_EMPTY_SURFACE,
+            path="",
+            line=0,
+            message="no tests extracted from test sources"
+            " (git-tracked .rs and [[test]] targets are both empty)",
+            remedy=EMPTY_SURFACE_REMEDY,
+        )
+    )
+    sys.exit(gate_report.EXIT_INFRA)
+
+
+def entry_finding(rule: str, message: str, remedy: str, entries: list[str]) -> gate_report.Finding:
+    """单类违规的条目：清单文件为位置，条目清单并成一行证据。"""
+    return gate_report.Finding(
+        rule=rule,
+        path=BDD_REL,
+        line=0,
+        message=message,
+        evidence=", ".join(entries),
+        remedy=remedy,
+    )
+
+
+def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.Finding]]:
+    """双向核对，违规随执行流即时经统一诊断出口打到标准错误，返回通过与违规
+    条目两个清单；装入器在场时清单与文件读取走共享缓存，缺省自行读取。"""
+    bdd_path = os.path.join(root, BDD_REL)
+    require_inventory(bdd_path)
 
     src_names = src_test_names(root, loader)
     target_names = target_test_names(root, loader)
+    require_sources(src_names, target_names)
     bdd_names = bdd_entries(bdd_path, loader)
 
-    if not src_names and not target_names:
-        raise SystemExit(
-            "error: no tests extracted from test sources"
-            " (git-tracked .rs and [[test]] targets are both empty)."
-        )
+    found: list[gate_report.Finding] = []
 
-    # 违规随执行流即时输出，对齐壳脚本（bash）版的标准错误交错，列表供调用方取用
-    fails = []
-
-    def fail(msg: str) -> None:
-        fails.append(msg)
-        print("  ✗ %s" % msg, file=sys.stderr)
+    def emit(finding: gate_report.Finding) -> None:
+        found.append(finding)
+        gate_report.fail(finding)
 
     # 两侧各自已去重，但测试函数名与测试目标名可能同名（如浮层自检），
     # 合并后须再去重，否则差集把多出的那份误报成“未登记”。
     src_all = src_names | target_names
     stale = sorted(bdd_names - src_all)
-    missing = sorted(src_all - bdd_names)
     if stale:
-        fail(
-            "these bdd.md entries no longer exist in test sources"
-            " (renamed or removed without syncing):\n%s" % "\n".join("    %s" % s for s in stale)
+        emit(
+            entry_finding(
+                RULE_BDD_STALE,
+                "these bdd.md entries no longer exist in test sources"
+                " (renamed or removed without syncing)",
+                SYNC_REMEDY,
+                stale,
+            )
         )
+    missing = sorted(src_all - bdd_names)
     if missing:
-        fail(
-            "these tests are not registered in bdd.md:\n%s"
-            % "\n".join("    %s" % s for s in missing)
+        emit(
+            entry_finding(
+                RULE_BDD_MISSING,
+                "these tests are not registered in bdd.md",
+                SYNC_REMEDY,
+                missing,
+            )
         )
     dups = duplicate_rows(bdd_path, loader)
     if dups:
-        fail(
-            "these bdd.md entries are registered multiple times (entry count exceeds"
-            " same-name tests in sources; old rows left after a rename?):\n%s"
-            % "\n".join("    %s" % s for s in dups)
+        emit(
+            entry_finding(
+                RULE_BDD_DUP_ROW,
+                "these bdd.md entries are registered multiple times (entry count exceeds"
+                " same-name tests in sources; old rows left after a rename?)",
+                DUP_REMEDY,
+                dups,
+            )
         )
     dups = duplicate_chapters(bdd_path, loader)
     if dups:
-        fail(
-            "these ## chapter headings appear more than once"
-            " (sign of duplicated blocks):\n%s" % "\n".join("    %s" % s for s in dups)
+        emit(
+            entry_finding(
+                RULE_BDD_DUP_CHAPTER,
+                "these ## chapter headings appear more than once (sign of duplicated blocks)",
+                DUP_REMEDY,
+                dups,
+            )
         )
     dups = duplicate_blocks(bdd_path, loader)
     if dups:
-        fail(
-            "these section headings or bullet lines repeat within the same"
-            " chapter/section (sign of duplicated blocks):\n%s"
-            % "\n".join("    %s" % s for s in dups)
+        emit(
+            entry_finding(
+                RULE_BDD_DUP_BLOCK,
+                "these section headings or bullet lines repeat within the same"
+                " chapter/section (sign of duplicated blocks)",
+                DUP_REMEDY,
+                dups,
+            )
         )
     broken = broken_tables(bdd_path, loader)
     if broken:
-        fail(
-            "these sections have tables missing a header row (or the body is cut from"
-            " the header by a blank line/prose):\n%s" % "\n".join("    %s" % s for s in broken)
+        emit(
+            entry_finding(
+                RULE_BDD_TABLE,
+                "these sections have tables missing a header row (or the body is cut from"
+                " the header by a blank line/prose)",
+                TABLE_REMEDY,
+                broken,
+            )
         )
 
     oks = []
-    if not fails:
+    if not found:
         oks.append(
             "ok bdd.md matches test sources (%d in sources / %d in inventory)"
             % (len(src_all), len(bdd_names))
         )
-    return oks, fails
+    return oks, found
+
+
+def render(finding: gate_report.Finding) -> str:
+    """违规渲染行：消息加位置，条目证据附在尾部，作为运行函数返回清单里的条目。"""
+    loc = gate_report.location(finding)
+    base = "%s (%s)" % (finding.message, loc) if loc else finding.message
+    if finding.evidence:
+        base = "%s — %s" % (base, finding.evidence)
+    return base
+
+
+def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
+    """双向核对，返回 (oks, fails)；失败清单收渲染行（消息、位置与条目证据）
+    供调用方取用，装入器在场时清单与文件读取走共享缓存，缺省自行读取。"""
+    oks, found = collect(root, loader)
+    return oks, [render(finding) for finding in found]
+
+
+def usage_failure(detail: str) -> int:
+    print("usage: check_test_bdd.py [repo-root]", file=sys.stderr)
+    print("  %s" % detail, file=sys.stderr)
+    return gate_report.EXIT_USAGE
 
 
 def main(loader: Any = None) -> int:
+    if len(sys.argv) > 2:
+        return usage_failure("too many arguments: expected at most one repo-root")
     root = (
         os.path.abspath(sys.argv[1])
         if len(sys.argv) > 1
         else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     )
-    oks, fails = run(root, loader)
+    if len(sys.argv) > 1 and not os.path.isdir(root):
+        return usage_failure("repo-root is not a directory: %s" % root)
+    oks, found = collect(root, loader)
     # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
         print("  ✓ %s" % line)
-    if fails:
+    if found:
         print("", file=sys.stderr)
-        print("error: bdd.md and test sources disagree (see above).", file=sys.stderr)
-        print(
-            "  - added/renamed/removed tests: register them in bdd.md within the same PR"
-            " and refresh the entry's update time;",
-            file=sys.stderr,
-        )
-        print(
-            "  - description conflicts with code: code wins; fix bdd.md immediately.",
-            file=sys.stderr,
-        )
-        return 1
-    return 0
+        gate_report.summary(found)
+        return gate_report.EXIT_VIOLATION
+    return gate_report.EXIT_PASS
 
 
 if __name__ == "__main__":

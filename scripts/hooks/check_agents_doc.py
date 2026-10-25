@@ -12,7 +12,9 @@
 扫描逐行进行，代码块内同样算数；路径只认行内反引号包裹的仓库相对路径。
 占位符、仓库外路径、注释语法与链接不校验。路径、受检文件与测试目标都以
 版本库跟踪清单为准：工作区里未跟踪的临时目录与本地记录不参与判定，本地
-与持续集成才看同一批文件。
+与持续集成才看同一批文件。违规报告经统一诊断出口打印：每条带规则标识、
+位置、违规行原文与修复指引；受检的指令文档文件本身缺失按无法完成判定失
+败关闭退出。退出码按全脚本统一约定。
 
 用法：以解释器运行本脚本，首参为指令文档路径，缺省为仓库根的指令文档。
 """
@@ -24,6 +26,30 @@ import re
 import subprocess
 import sys
 from typing import Any
+
+import gate_report
+
+RULE_DOC_RECIPE = "DOC-RECIPE"
+RULE_DOC_PATH = "DOC-PATH"
+RULE_DOC_FILE = "DOC-FILE"
+RULE_DOC_TEST = "DOC-TEST"
+RULE_DOC_RULE_REF = "DOC-RULE-REF"
+RULE_DOC_INPUT = "DOC-INPUT"
+
+DOC_INPUT_REMEDY = (
+    "the client only accepts AGENTS.md (no AGENT.md-style aliases); do not rename"
+    " or move it — restore the file, then rerun the gate"
+)
+CHANGED_REMEDY = (
+    "command or path really changed: fix the doc; do not let it describe a world"
+    " that no longer exists"
+)
+PLACEHOLDER_REMEDY = (
+    "example or placeholder only: reword it, or wrap it in * < > ~ to skip validation"
+)
+RENAMED_REMEDY = (
+    "entry renamed: update every citation site (cite by name in the AGENTS.md named-entry form)"
+)
 
 RECIPE_RE = re.compile(r"(?:^|[^A-Za-z0-9_-])just ([a-z][a-z0-9-]*)")
 BACKTICK_RE = re.compile(r"`([^`]+)`")
@@ -115,7 +141,7 @@ def ref_file(p: str) -> bool:
 
 def scan_quality_refs(
     root: str, names: list[str], tracked: list[str], loader: Any = None
-) -> tuple[list[str], int, int]:
+) -> tuple[list[gate_report.Finding], int, int]:
     """仓库各处（*.rs / *.toml / *.py / *.yml / justfile）对质量条目的指名引用核对。
 
     有跟踪清单时只读清单里的文件：工作区里未跟踪的临时目录与本地记录不能
@@ -143,22 +169,47 @@ def scan_quality_refs(
         else:
             with open(path, encoding="utf-8", errors="replace") as fh:
                 lines = fh.read().split("\n")
-        for line in lines:
+        for line_no, line in enumerate(lines, 1):
             if not REF_LINE_RE.search(line):
                 continue
             for cited in REF_NAME_RE.findall(line):
                 ref_count += 1
                 if cited not in names:
                     violations.append(
-                        '%s: cites quality entry "%s" — no entry with this name'
-                        " in the AGENTS.md quality entry table" % (rel, cited)
+                        gate_report.Finding(
+                            rule=RULE_DOC_RULE_REF,
+                            path=rel,
+                            line=line_no,
+                            message='cites quality entry "%s" — no entry with this name'
+                            " in the AGENTS.md quality entry table" % cited,
+                            evidence=line.strip(),
+                            remedy=RENAMED_REMEDY,
+                        )
                     )
     return violations, ref_files, ref_count
 
 
-def run(doc_path: str, loader: Any = None) -> tuple[list[str], int, int, int]:
-    """按五类引用核对 doc_path，返回 (violations, checked, ref_files, ref_count)；
-    装入器在场时清单枚举与文件读取走共享缓存，缺省自行读取。"""
+def require_doc(doc_path: str) -> None:
+    """受检文档在场守卫：文件缺失即无法完成判定，失败关闭退出。"""
+    if os.path.isfile(doc_path):
+        return
+    gate_report.fail(
+        gate_report.Finding(
+            rule=RULE_DOC_INPUT,
+            path=doc_path,
+            line=0,
+            message="instruction file not found",
+            remedy=DOC_INPUT_REMEDY,
+        )
+    )
+    sys.exit(gate_report.EXIT_INFRA)
+
+
+def collect(doc_path: str, loader: Any = None) -> tuple[list[gate_report.Finding], int, int, int]:
+    """按五类引用核对 doc_path，违规随执行流即时经统一诊断出口打到标准错误，
+    返回 (violations, checked, ref_files, ref_count)；装入器在场时清单枚举与
+    文件读取走共享缓存，缺省自行读取。"""
+    require_doc(doc_path)
     root = os.path.dirname(os.path.abspath(doc_path))
     doc_name = os.path.basename(doc_path)
     tracked = loader.tracked() if loader is not None else tracked_files(root)
@@ -172,8 +223,12 @@ def run(doc_path: str, loader: Any = None) -> tuple[list[str], int, int, int]:
             with open(justfile_path, encoding="utf-8") as fh:
                 justfile_lines = fh.read().split("\n")
 
-    violations = []
+    found: list[gate_report.Finding] = []
     checked = 0
+
+    def emit(finding: gate_report.Finding) -> None:
+        found.append(finding)
+        gate_report.fail(finding)
 
     for line_no, line in enumerate(lines, 1):
         # ---- 任务配方 ----
@@ -185,8 +240,15 @@ def run(doc_path: str, loader: Any = None) -> tuple[list[str], int, int, int]:
                     defined = True
                     break
             if not defined:
-                violations.append(
-                    '%s:%d  recipe "just %s" not found in justfile' % (doc_name, line_no, recipe)
+                emit(
+                    gate_report.Finding(
+                        rule=RULE_DOC_RECIPE,
+                        path=doc_name,
+                        line=line_no,
+                        message='recipe "just %s" not found in justfile' % recipe,
+                        evidence=line.strip(),
+                        remedy=CHANGED_REMEDY,
+                    )
                 )
 
         # ---- 行内反引号里的仓库路径与裸文件名 ----
@@ -203,8 +265,15 @@ def run(doc_path: str, loader: Any = None) -> tuple[list[str], int, int, int]:
                     else os.path.exists(os.path.join(root, token))
                 )
                 if not exists:
-                    violations.append(
-                        '%s:%d  path "%s" does not exist in the repo' % (doc_name, line_no, token)
+                    emit(
+                        gate_report.Finding(
+                            rule=RULE_DOC_PATH,
+                            path=doc_name,
+                            line=line_no,
+                            message='path "%s" does not exist in the repo' % token,
+                            evidence=line.strip(),
+                            remedy=PLACEHOLDER_REMEDY,
+                        )
                     )
             elif token == "justfile" or token.endswith(BARE_SUFFIXES):
                 checked += 1
@@ -214,73 +283,80 @@ def run(doc_path: str, loader: Any = None) -> tuple[list[str], int, int, int]:
                     else os.path.exists(os.path.join(root, token))
                 )
                 if not exists:
-                    violations.append(
-                        '%s:%d  file "%s" does not exist at the repo root'
-                        % (doc_name, line_no, token)
+                    emit(
+                        gate_report.Finding(
+                            rule=RULE_DOC_FILE,
+                            path=doc_name,
+                            line=line_no,
+                            message='file "%s" does not exist at the repo root' % token,
+                            evidence=line.strip(),
+                            remedy=PLACEHOLDER_REMEDY,
+                        )
                     )
 
         # ---- 测试目标 ----
         for target in CARGO_TEST_RE.findall(line):
             checked += 1
             if not scan_targets(root, target, tracked):
-                violations.append(
-                    "%s:%d  cargo test --test %s: no tests/%s.rs found"
-                    % (doc_name, line_no, target, target)
+                emit(
+                    gate_report.Finding(
+                        rule=RULE_DOC_TEST,
+                        path=doc_name,
+                        line=line_no,
+                        message="cargo test --test %s: no tests/%s.rs found" % (target, target),
+                        evidence=line.strip(),
+                        remedy=CHANGED_REMEDY,
+                    )
                 )
 
     # ---- 仓库各处对质量条目的指名引用必须存在 ----
     ref_violations, ref_files, ref_count = scan_quality_refs(
         root, rule_names(lines), tracked, loader
     )
-    violations.extend(ref_violations)
-    return violations, checked, ref_files, ref_count
+    for finding in ref_violations:
+        emit(finding)
+    return found, checked, ref_files, ref_count
+
+
+def render(finding: gate_report.Finding) -> str:
+    """违规渲染行：消息加位置，作为运行函数返回清单里的条目。"""
+    loc = gate_report.location(finding)
+    return "%s (%s)" % (finding.message, loc) if loc else finding.message
+
+
+def run(doc_path: str, loader: Any = None) -> tuple[list[str], int, int, int]:
+    """按五类引用核对 doc_path，返回 (violations, checked, ref_files, ref_count)；
+    违规清单收渲染行（消息加位置）供调用方取用，装入器在场时清单枚举与文件
+    读取走共享缓存，缺省自行读取。"""
+    found, checked, ref_files, ref_count = collect(doc_path, loader)
+    return [render(finding) for finding in found], checked, ref_files, ref_count
+
+
+def usage_failure(detail: str) -> int:
+    print("usage: check_agents_doc.py [instruction-doc]", file=sys.stderr)
+    print("  %s" % detail, file=sys.stderr)
+    return gate_report.EXIT_USAGE
 
 
 def main(loader: Any = None) -> int:
+    if len(sys.argv) > 2:
+        return usage_failure("too many arguments: expected at most one instruction-doc path")
     if len(sys.argv) >= 2:
         arg = os.path.abspath(sys.argv[1])
     else:
         arg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "AGENTS.md")
-    if not os.path.isfile(arg):
-        print("error: instruction file not found: %s" % arg, file=sys.stderr)
-        print(
-            "  the client only accepts AGENTS.md (no AGENT.md-style aliases);"
-            " do not rename or move it.",
-            file=sys.stderr,
-        )
-        return 1
-    violations, checked, ref_files, ref_count = run(arg, loader)
+    found, checked, ref_files, ref_count = collect(arg, loader)
     doc_name = os.path.basename(arg)
-    if violations:
-        for v in violations:
-            print("  ✗ %s" % v, file=sys.stderr)
+    if found:
         print("", file=sys.stderr)
-        print(
-            "error: %s has %d references that do not match their sources (see above)."
-            % (doc_name, len(violations)),
-            file=sys.stderr,
-        )
-        print(
-            "  - command or path really changed: fix the doc;"
-            " do not let it describe a world that no longer exists;",
-            file=sys.stderr,
-        )
-        print(
-            "  - example or placeholder only: reword it, or wrap it in * < > ~ to skip validation;",
-            file=sys.stderr,
-        )
-        print(
-            "  - entry renamed: update every citation site"
-            " (cite by name in the AGENTS.md named-entry form).",
-            file=sys.stderr,
-        )
-        return 1
+        gate_report.summary(found)
+        return gate_report.EXIT_VIOLATION
     print(
         "✓ %s references consistent (%d checked: just recipes / repo paths / test targets;"
         " plus %d named quality-entry citations across %d files)"
         % (doc_name, checked, ref_count, ref_files)
     )
-    return 0
+    return gate_report.EXIT_PASS
 
 
 if __name__ == "__main__":
