@@ -5,8 +5,9 @@
 换行的括号与表述跨行不误报；工具指令行、解释器声明与放行标记豁免，脚本
 文件头统一写成模块级文档字符串，判罚与注释同规。字面数据不误报：壳层脚
 本的就地文档正文、配置（YAML）里非运行键的块标量正文整行豁免，脚本资源
-里跨行的模板字面量按串跳过。由注释门禁路由调用，与语言规范库同源共用；
-本模块自身注释同规。
+里跨行的模板字面量按串跳过。判罚以带规则标识的违规条目返回，位置按路径与
+行号承载，书写规则共享项落语言规范库的标识。由注释门禁路由调用，与语言规
+范库同源共用；本模块自身注释同规。
 """
 
 from __future__ import annotations
@@ -23,8 +24,20 @@ _HOOKS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _HOOKS not in sys.path:
     sys.path.insert(0, _HOOKS)
 
+import gate_report  # noqa: E402
 from language_spec.chinese import CJK, DIRECTIVE_SEG, SEGMENT_SPLIT, SEGMENT_TRIM, body_problems  # noqa: E402
 from language_spec.coderef import MARKER  # noqa: E402
+
+RULE_CODEREF = "COMMENT-SCRIPT-CODEREF"
+RULE_SECTION_REF = "COMMENT-SCRIPT-SECTION-REF"
+RULE_LANGUAGE = "COMMENT-SCRIPT-LANGUAGE"
+RULE_HEADER_CODEREF = "COMMENT-SCRIPT-HEADER-CODEREF"
+RULE_HEADER_SECTION_REF = "COMMENT-SCRIPT-HEADER-SECTION-REF"
+RULE_HEADER_LANGUAGE = "COMMENT-SCRIPT-HEADER-LANGUAGE"
+
+CODEREF_REMEDY = "move references and examples to the record file"
+SECTION_REF_REMEDY = "move the section citation to the record file"
+LANGUAGE_REMEDY = "rewrite the comment in Chinese, proper nouns in bracket annotations"
 
 # 源码之外的注释文件：井号系脚本与配置、钩子目录脚本、任务配方文件与忽略清单。
 HASH_SUFFIXES = {".py", ".toml", ".yml", ".yaml", ".sh"}
@@ -265,7 +278,7 @@ def web_body(text: str) -> str:
     return body.strip()
 
 
-def module_docstring_problems(rel: str, src: str) -> list[str]:
+def module_docstring_problems(rel: str, src: str) -> list[gate_report.Finding]:
     """模块级文档字符串按文件头同规：内容走注释同款判罚，解释器引导串豁免。
 
     文档字符串是字面量不是注释，词法抽取收不到它；这里按语法树补一刀，
@@ -288,26 +301,49 @@ def module_docstring_problems(rel: str, src: str) -> list[str]:
         text = node.value.value
         if re.search(r"exec\s+python", text):
             continue  # 解释器引导串：跨壳脚本的井号叹号替身，同解释器声明豁免
-        loc = f"{rel}:{node.lineno}"
+        evidence = text.replace("\n", " ")
         if "`" in text:
             out.append(
-                f"{loc}: file header contains a code segment"
-                " — move references and examples to the record file"
+                gate_report.Finding(
+                    rule=RULE_HEADER_CODEREF,
+                    path=rel,
+                    line=node.lineno,
+                    message="file header contains a code segment"
+                    " — move references and examples to the record file",
+                    evidence=evidence,
+                    remedy=CODEREF_REMEDY,
+                )
             )
         elif "§" in text:
             out.append(
-                f'{loc}: file header contains a "§ section number" style external reference'
-                " — move sources to the record file"
+                gate_report.Finding(
+                    rule=RULE_HEADER_SECTION_REF,
+                    path=rel,
+                    line=node.lineno,
+                    message='file header contains a "§ section number" style external reference'
+                    " — move sources to the record file",
+                    evidence=evidence,
+                    remedy=SECTION_REF_REMEDY,
+                )
             )
         elif not CJK.search(text):
-            out.append(f"{loc}: file header must be written in Chinese: {text[:40]}")
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_HEADER_LANGUAGE,
+                    path=rel,
+                    line=node.lineno,
+                    message="file header must be written in Chinese: %s" % text[:40],
+                    evidence=evidence,
+                    remedy=LANGUAGE_REMEDY,
+                )
+            )
         else:
-            out += body_problems(loc, text, "file header")
+            out += body_problems(rel, node.lineno, text, "file header")
         break  # 只看文件头：首个非豁免字符串语句之后不再看
     return out
 
 
-def check(rel: str, src: str) -> list[str]:
+def check(rel: str, src: str) -> list[gate_report.Finding]:
     """注释逐块受检：相邻注释行聚成一块，模块级文档字符串按文件头同规。"""
     name = os.path.basename(rel)
     ext = os.path.splitext(name)[1]
@@ -333,22 +369,45 @@ def check(rel: str, src: str) -> list[str]:
         pairs = web_comments(src, ext)
         kind = "web"
 
-    def flush(lineno: int, bodies: list[str]) -> list[str]:
+    def flush(lineno: int, bodies: list[str]) -> list[gate_report.Finding]:
         merged = "\n".join(bodies)
-        loc = f"{rel}:{lineno}"
+        evidence = merged.replace("\n", " ")
         if "`" in merged:
             return [
-                f"{loc}: comment contains a code segment"
-                " — move references and examples to the record file"
+                gate_report.Finding(
+                    rule=RULE_CODEREF,
+                    path=rel,
+                    line=lineno,
+                    message="comment contains a code segment"
+                    " — move references and examples to the record file",
+                    evidence=evidence,
+                    remedy=CODEREF_REMEDY,
+                )
             ]
         if "§" in merged:
             return [
-                f'{loc}: comment contains a "§ section number" style external reference'
-                " — move sources to the record file"
+                gate_report.Finding(
+                    rule=RULE_SECTION_REF,
+                    path=rel,
+                    line=lineno,
+                    message='comment contains a "§ section number" style external reference'
+                    " — move sources to the record file",
+                    evidence=evidence,
+                    remedy=SECTION_REF_REMEDY,
+                )
             ]
         if not CJK.search(merged):
-            return [f"{loc}: comment must be written in Chinese: {merged[:40]}"]
-        return body_problems(loc, merged, "comment")
+            return [
+                gate_report.Finding(
+                    rule=RULE_LANGUAGE,
+                    path=rel,
+                    line=lineno,
+                    message="comment must be written in Chinese: %s" % merged[:40],
+                    evidence=evidence,
+                    remedy=LANGUAGE_REMEDY,
+                )
+            ]
+        return body_problems(rel, lineno, merged, "comment")
 
     out = []
     cur = None  # 相邻注释行聚成一块：换行的括号与表述跨行不误报

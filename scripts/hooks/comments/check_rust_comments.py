@@ -3,8 +3,9 @@
 档注释、行内注释、行尾注释与块注释一律不进源码；文件头必须存在、逐行含汉
 字、主体全中文，不写代码引用与外部文档指引；不变量注释整段纯英文且须紧邻
 不安全块（门禁校验邻接），放行标记豁免。词法层区分注释与字符串字面量，字
-符串内的注释符不误报。由注释门禁路由调用，与语言规范库同源共用；本模块自
-身注释同规。
+符串内的注释符不误报。判罚以带规则标识的违规条目返回，位置按路径与行号承
+载，书写规则共享项落语言规范库的标识。由注释门禁路由调用，与语言规范库同
+源共用；本模块自身注释同规。
 """
 
 from __future__ import annotations
@@ -17,9 +18,31 @@ _HOOKS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _HOOKS not in sys.path:
     sys.path.insert(0, _HOOKS)
 
+import gate_report  # noqa: E402
 from language_spec.chinese import CJK, body_problems  # noqa: E402
 from language_spec.coderef import MARKER  # noqa: E402
 from language_spec.english import english_zone_problems  # noqa: E402
+
+RULE_HEADER_MISSING = "COMMENT-RUST-HEADER-MISSING"
+RULE_HEADER_LANGUAGE = "COMMENT-RUST-HEADER-LANGUAGE"
+RULE_HEADER_CODEREF = "COMMENT-RUST-HEADER-CODEREF"
+RULE_HEADER_SECTION_REF = "COMMENT-RUST-HEADER-SECTION-REF"
+RULE_HEADER_LATE = "COMMENT-RUST-HEADER-LATE"
+RULE_DOC_COMMENT = "COMMENT-RUST-DOC"
+RULE_BLOCK_COMMENT = "COMMENT-RUST-BLOCK"
+RULE_TRAILING = "COMMENT-RUST-TRAILING"
+RULE_INLINE = "COMMENT-RUST-INLINE"
+RULE_SAFETY_ADJACENCY = "COMMENT-RUST-SAFETY-ADJACENCY"
+
+HEADER_MISSING_REMEDY = "add a Chinese module-level doc comment at the top of the file"
+HEADER_LANGUAGE_REMEDY = "rewrite the header line in Chinese, proper nouns in bracket annotations"
+HEADER_CODEREF_REMEDY = "move code references out of the header into the record file"
+HEADER_SECTION_REF_REMEDY = "move the section citation to the record file"
+HEADER_LATE_REMEDY = "merge the content into the header at the top of the file, or delete it"
+MOVE_TO_RECORD_REMEDY = "move the content to the record file, then delete the comment"
+TRAILING_REMEDY = "move the comment to the record file; allow markers at line end are exempt"
+INLINE_REMEDY = "move the comment to the record file; SAFETY and allow-marker lines are exempt"
+SAFETY_ADJACENCY_REMEDY = "place the SAFETY comment directly above the unsafe block it documents"
 
 
 def handles(rel: str) -> bool:
@@ -241,7 +264,7 @@ def lex(src: str) -> list[tuple[int, int, int, str, bool, bool, bool, str]]:
     return events
 
 
-def header_violations(lines: list[str], rel: str) -> list[str]:
+def header_violations(lines: list[str], rel: str) -> list[gate_report.Finding]:
     out = []
     merged = []
     for text in lines:
@@ -249,21 +272,44 @@ def header_violations(lines: list[str], rel: str) -> list[str]:
         if not body:
             continue
         if not CJK.search(body):
-            out.append(f"{rel}: file header line without Chinese characters: {body[:60]}")
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_HEADER_LANGUAGE,
+                    path=rel,
+                    line=0,
+                    message="file header line without Chinese characters: %s" % body[:60],
+                    evidence=text.replace("\n", " "),
+                    remedy=HEADER_LANGUAGE_REMEDY,
+                )
+            )
         if "`" in body:
             out.append(
-                f"{rel}: file header contains a backtick code segment"
-                " — move code references out of the header into the record file"
+                gate_report.Finding(
+                    rule=RULE_HEADER_CODEREF,
+                    path=rel,
+                    line=0,
+                    message="file header contains a backtick code segment"
+                    " — move code references out of the header into the record file",
+                    evidence=text.replace("\n", " "),
+                    remedy=HEADER_CODEREF_REMEDY,
+                )
             )
         if "§" in body:
             out.append(
-                f'{rel}: file header contains a "§ section number" style external'
-                " reference — section numbers drift with documents;"
-                " move sources to the record file"
+                gate_report.Finding(
+                    rule=RULE_HEADER_SECTION_REF,
+                    path=rel,
+                    line=0,
+                    message='file header contains a "§ section number" style external'
+                    " reference — section numbers drift with documents;"
+                    " move sources to the record file",
+                    evidence=text.replace("\n", " "),
+                    remedy=HEADER_SECTION_REF_REMEDY,
+                )
             )
         merged.append(body.replace("`", " ").replace("§", " "))
     if merged:
-        out += body_problems(rel, "\n".join(merged), "file header")
+        out += body_problems(rel, 0, "\n".join(merged), "file header")
     return out
 
 
@@ -286,7 +332,7 @@ def block_tail_unsafe(events: list[tuple[int, int, int, str, bool, bool, bool, s
     return tail
 
 
-def check(rel: str, src: str) -> list[str]:
+def check(rel: str, src: str) -> list[gate_report.Finding]:
     problems = []
     events = lex(src)
     tail = block_tail_unsafe(events)
@@ -302,7 +348,14 @@ def check(rel: str, src: str) -> list[str]:
         if kind == "inner":
             if before_code:
                 problems.append(
-                    f"{rel}:{sline}: //! after the file header — only the header may use //!"
+                    gate_report.Finding(
+                        rule=RULE_HEADER_LATE,
+                        path=rel,
+                        line=sline,
+                        message="//! after the file header — only the header may use //!",
+                        evidence=text,
+                        remedy=HEADER_LATE_REMEDY,
+                    )
                 )
             else:
                 header_found = True
@@ -310,12 +363,26 @@ def check(rel: str, src: str) -> list[str]:
             continue
         if kind == "doc":
             problems.append(
-                f"{rel}:{sline}: /// doc comment — move the content to the record file, then delete"
+                gate_report.Finding(
+                    rule=RULE_DOC_COMMENT,
+                    path=rel,
+                    line=sline,
+                    message="/// doc comment — move the content to the record file, then delete",
+                    evidence=text,
+                    remedy=MOVE_TO_RECORD_REMEDY,
+                )
             )
             continue
         if kind == "block":
             problems.append(
-                f"{rel}:{sline}: block comment — move the content to the record file, then delete"
+                gate_report.Finding(
+                    rule=RULE_BLOCK_COMMENT,
+                    path=rel,
+                    line=sline,
+                    message="block comment — move the content to the record file, then delete",
+                    evidence=text.replace("\n", " "),
+                    remedy=MOVE_TO_RECORD_REMEDY,
+                )
             )
             continue
         # 此处余下的都是行内注释
@@ -323,7 +390,14 @@ def check(rel: str, src: str) -> list[str]:
             continue
         if not indent_only:
             problems.append(
-                f"{rel}:{sline}: trailing comment — move to the record file; allow markers exempt"
+                gate_report.Finding(
+                    rule=RULE_TRAILING,
+                    path=rel,
+                    line=sline,
+                    message="trailing comment — move to the record file; allow markers exempt",
+                    evidence=text,
+                    remedy=TRAILING_REMEDY,
+                )
             )
             continue
         stripped = text.strip()
@@ -331,17 +405,39 @@ def check(rel: str, src: str) -> list[str]:
         if safety_open or body.startswith("SAFETY:"):
             if body.startswith("SAFETY:") and not tail[idx]:
                 problems.append(
-                    f"{rel}:{sline}: SAFETY comment not adjacent to an unsafe block"
-                    " — the exemption holds only directly above one"
+                    gate_report.Finding(
+                        rule=RULE_SAFETY_ADJACENCY,
+                        path=rel,
+                        line=sline,
+                        message="SAFETY comment not adjacent to an unsafe block"
+                        " — the exemption holds only directly above one",
+                        evidence=text,
+                        remedy=SAFETY_ADJACENCY_REMEDY,
+                    )
                 )
                 continue
             safety_open = True
-            problems += english_zone_problems(f"{rel}:{sline}", body, "SAFETY comment")
+            problems += english_zone_problems(rel, sline, body, "SAFETY comment")
             continue
         problems.append(
-            f"{rel}:{sline}: inline comment — move to the record file (SAFETY and :allow exempt)"
+            gate_report.Finding(
+                rule=RULE_INLINE,
+                path=rel,
+                line=sline,
+                message="inline comment — move to the record file (SAFETY and :allow exempt)",
+                evidence=text,
+                remedy=INLINE_REMEDY,
+            )
         )
     if not header_found:
-        problems.append(f"{rel}: missing file header //! comment")
-    problems.extend(header_violations(header_lines, rel))
+        problems.append(
+            gate_report.Finding(
+                rule=RULE_HEADER_MISSING,
+                path=rel,
+                line=0,
+                message="missing file header //! comment",
+                remedy=HEADER_MISSING_REMEDY,
+            )
+        )
+    problems += header_violations(header_lines, rel)
     return problems
