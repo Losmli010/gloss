@@ -73,7 +73,11 @@ def scan_targets(root, target, tracked):
 
 
 def tracked_files(root):
-    """版本库跟踪清单；不是仓库根时返回空表，调用方退回工作区遍历。"""
+    """版本库跟踪清单；不是仓库根时返回空表，调用方退回工作区遍历。
+
+    空字节分隔取原始字节再容错解码：非空分隔形态对非英文字节（ASCII）文
+    件名做引号八进制转义，拿到的是打引号的假路径（引用核对误报、受检文件
+    静默漏检）。"""
     try:
         top = subprocess.run(
             ["git", "-C", root, "rev-parse", "--show-toplevel"],
@@ -84,12 +88,11 @@ def tracked_files(root):
         if os.path.realpath(top) != os.path.realpath(root):
             return []
         out = subprocess.run(
-            ["git", "-C", root, "ls-files"],
+            ["git", "-C", root, "ls-files", "-z"],
             capture_output=True,
-            text=True,
             check=True,
         ).stdout
-        return [p for p in out.splitlines() if p]
+        return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
     except (OSError, subprocess.CalledProcessError):
         return []
 

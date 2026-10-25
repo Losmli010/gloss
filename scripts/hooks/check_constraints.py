@@ -272,7 +272,7 @@ def _checks(root, manifest_list, dep_dump, loader=None):
     if os.path.isfile(agents_md):
         agents_text = read_text(agents_md, loader)
         for m in manifest_list:
-            name = pkg_name(m)
+            name = pkg_name(m, loader)
             if name and name not in agents_text:
                 fail(
                     "constraint violation (dependency direction): crate %s missing from"

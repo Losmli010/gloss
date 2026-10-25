@@ -25,17 +25,21 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 
 
 def scan_files(root, explicit, loader=None):
+    """枚举受检文件：显式清单优先（供单测传样本），否则取版本库跟踪清单。
+
+    跟踪清单走空字节分隔取原始字节再容错解码——非空分隔形态对非英文字
+    节（ASCII）文件名做引号八进制转义，假路径过不了类型分派，文件被静默
+    漏检。"""
     if explicit:
         return [p if os.path.isabs(p) else os.path.join(root, p) for p in explicit]
     if loader is not None:
         return [os.path.join(root, p) for p in loader.tracked()]
     out = subprocess.run(
-        ["git", "-C", root, "ls-files"],
+        ["git", "-C", root, "ls-files", "-z"],
         capture_output=True,
-        text=True,
         check=True,
     ).stdout
-    return [os.path.join(root, p) for p in out.splitlines() if p]
+    return [os.path.join(root, p.decode("utf-8", "replace")) for p in out.split(b"\0") if p]
 
 
 def run(root, explicit, loader=None):

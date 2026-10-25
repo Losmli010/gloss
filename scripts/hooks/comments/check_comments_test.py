@@ -1,9 +1,11 @@
-"""注释纪律门禁的单测：逐条覆盖判罚规则与豁免路径。
+"""注释纪律门禁的单测：逐条覆盖判罚规则、豁免路径与跟踪清单枚举。
 
 被测入口是门禁的运行函数，返回违规列表，不落进程；样本文件写入测试框架
-（pytest）的临时目录，互不串扰；用法见持续集成的钩子工作流（逐文件执行单测）。
+（pytest）的临时目录，互不串扰；枚举测试在临时目录建一次性版本库，用法见
+持续集成的钩子工作流（逐文件执行单测）。
 """
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -513,3 +515,11 @@ def test_sh_unterminated_heredoc_still_checked(tmp_path):
 
 def test_default_root_is_repo_root():
     assert (Path(check_comments.REPO_ROOT) / "justfile").is_file()
+
+
+def test_non_ascii_tracked_name_still_scanned(tmp_path):
+    (tmp_path / "源码.rs").write_text("fn main() {}\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    problems = check_comments.run(str(tmp_path), [])
+    assert any("missing file header" in p for p in problems)

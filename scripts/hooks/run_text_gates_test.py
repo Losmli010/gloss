@@ -68,8 +68,8 @@ def test_missing_file_raises_os_error(tmp_path):
 
 def test_relative_and_absolute_paths_share_byte_cache(tmp_path):
     src = make_repo(tmp_path, {"x.txt": b"data"})
-    assert src.read_bytes(os.path.join(str(tmp_path), "x.txt")) == src.read_bytes("x.txt")
-    assert len(src._bytes) == 1
+    absolute = os.path.join(str(tmp_path), "x.txt")
+    assert src.read_bytes(absolute) is src.read_bytes("x.txt")
 
 
 def test_gate_registry_order():
