@@ -5,7 +5,7 @@
 //! 复制不触发、不占代数。构造时记一次变更计数作基线，启动时的既有
 //! 剪贴板内容不触发；开关（共享原子布尔）关时整源不查询（零开销），
 //! 重开时重记基线——关闭期间的旧内容在重开后不触发。取材轮次
-//! （轮次写入标记）写盘后按**计数归因**消费：超出本轮自报写盘数的
+//! （轮次写入标记）写盘后按“计数归因”消费：超出本轮自报写盘数的
 //! 变化是轮次内外来写入（用户的真实复制），照常触发；其余（注入复制与
 //! 恢复写回等本应用副产物）吞掉并重记基线。
 
@@ -547,7 +547,8 @@ mod live_tests {
 
         let (flavor, flavor_type, format) = (
             crate::clipboard::ImageFlavor::Tiff,
-            // SAFETY: AppKit 导出的常量字符串 extern static，进程存活期内恒有效。
+            // SAFETY: constant string extern static exported by AppKit, valid
+            // for the entire lifetime of the process.
             unsafe { NSPasteboardTypeTIFF },
             image::ImageFormat::Tiff,
         );
@@ -569,7 +570,8 @@ mod live_tests {
 
         let (flavor, flavor_type, format) = (
             crate::clipboard::ImageFlavor::Png,
-            // SAFETY: AppKit 导出的常量字符串 extern static，进程存活期内恒有效。
+            // SAFETY: constant string extern static exported by AppKit, valid
+            // for the entire lifetime of the process.
             unsafe { NSPasteboardTypePNG },
             image::ImageFormat::Png,
         );

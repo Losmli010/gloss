@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
-"""二进制体积归因：段/节构成 + 符号级 Top N，只记录不判罚。
+"""二进制体积归因：段与节构成加符号级用量前几名，只记录不判罚。
 
-节级：`size -m` 读 Mach-O 段/节（不依赖符号表，strip 过的 release 产物
-可用；数值是虚拟地址空间占用，__PAGEZERO 等非文件映射段会偏大，文件大小
-以 stat 为准）。符号级：`otool -l` 取节地址区间、`nm -n` 取符号地址，
-同节内相邻符号地址差即符号大小（macOS 的 nm -S 对 Mach-O 恒报 0），
-Rust 旧式 `_ZN` 串解码成 `crate::模块::函数` 并按顶层 crate 聚合——需要
-未 strip 的二进制（release 产物 strip=true 无符号表，用
-`cargo build --profile profiling` 的 target/profiling/gloss，或 dev 产物）。
+节级：用节尺寸清单工具读可执行镜像的段与节（不依赖符号表，剥离过的发行
+产物可用；数值是虚拟地址空间占用，零页等非文件映射段会偏大，文件大小以
+文件系统为准）。符号级：节清单工具（otool）取节地址区间，符号表工具
+（nm）取符号地址，同节内相邻符号地址差即符号大小；系统符号工具的尺寸字
+段在（macOS）上对可执行镜像恒报零，故不采用；旧式（Rust）改编名解码
+为“包、模块与函数”路径并按顶层包聚合——需要未剥离符号表的二进制（发
+行产物已剥离，用性能剖析配置的构建产物或开发产物）。
 
-纯记录工具：数字落 JSON（--json 指定路径）或仅打印；趋势对照按 AGENTS.md
-口径只认同机同环境历史，不做成败判定。
-
-用法：
-  scripts/perf/size_report.py                            # release 产物节级
-  scripts/perf/size_report.py --bin target/profiling/gloss --top 40
-  scripts/perf/size_report.py --json target/size/report.json
+纯记录工具：数字可落（JSON）文件（路径用旗标指定）或仅打印；趋势对照按
+仓库约定口径只认同机同环境历史，不做成败判定。
 """
 
 from __future__ import annotations
@@ -35,7 +30,7 @@ SEGROW_RE = re.compile(r"^(?P<kind>Segment|Section)\s+(?P<name>\S+?):\s+(?P<size
 def run(argv: list[str]) -> str:
     proc = subprocess.run(argv, capture_output=True, text=True)
     if proc.returncode != 0:
-        sys.exit(f"{argv[0]} 失败（exit {proc.returncode}）：{proc.stderr.strip()}")
+        sys.exit(f"{argv[0]} failed (exit {proc.returncode}): {proc.stderr.strip()}")
     return proc.stdout
 
 
@@ -130,7 +125,7 @@ def crate_of(decoded: str | None, raw: str) -> str:
         if name.startswith("_"):
             name = name[1:]
         return name[:length] if length else "std"
-    return "<未解码>"
+    return "<undecoded>"
 
 
 def section_ranges(binary: Path) -> list[tuple[str, str, int, int]]:
@@ -198,17 +193,19 @@ def human(n: float) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="二进制体积归因（记录性）")
-    parser.add_argument("--bin", default=DEFAULT_BIN, help="目标 Mach-O 路径")
-    parser.add_argument("--top", type=int, default=30, help="符号与 crate 各列前 N")
-    parser.add_argument("--json", default="", help="结果落 JSON 的路径（缺省只打印）")
+    parser = argparse.ArgumentParser(description="binary size attribution (record only)")
+    parser.add_argument("--bin", default=DEFAULT_BIN, help="target Mach-O path")
+    parser.add_argument("--top", type=int, default=30, help="top N symbols and crates each")
+    parser.add_argument(
+        "--json", default="", help="path to write JSON results (default: print only)"
+    )
     args = parser.parse_args()
 
     binary = Path(args.bin)
     if not binary.is_file():
         sys.exit(
-            f"找不到 {binary}：先用 just build-release（节级）或"
-            " cargo build --profile profiling（符号级）构建"
+            f"{binary} not found: build first with just build-release (section level) or"
+            " cargo build --profile profiling (symbol level)"
         )
     file_size = binary.stat().st_size
     segments = parse_segments(binary)
@@ -221,23 +218,25 @@ def main() -> None:
         symbol_total = None
     if symbol_total == 0:
         symbols, crates, symbol_total = [], [], None
-        print("（无符号表——strip 过的产物只做节级；符号级用 profiling/dev 产物重跑）")
+        print(
+            "(no symbol table — stripped artifacts do section level only; rerun symbol level on profiling/dev artifacts)"
+        )
 
-    print(f"{binary}  文件大小 {human(file_size)}")
+    print(f"{binary}  file size {human(file_size)}")
     if symbol_total is not None:
-        print(f"符号映射合计 {human(symbol_total)}（nm 可见符号的体积和）\n")
-    print("段/节构成（≥8KB 或全部段）：")
+        print(f"symbol-mapped total {human(symbol_total)} (sum of nm-visible symbol sizes)\n")
+    print("segments/sections (>=8KB or all segments):")
     for row in segments:
         if row["level"] == "segment" or row["bytes"] >= 8192:
             indent = "  " if row["level"] == "section" else ""
             note = f"  [{row['segment']}]" if row.get("segment") else ""
             print(f"  {indent}{row['name']:<28} {human(row['bytes']):>12}{note}")
     if symbols:
-        print(f"\n符号 Top {len(symbols)}：")
+        print(f"\ntop {len(symbols)} symbols:")
         for item in symbols:
             path = item["decoded"] or item["raw"]
             print(f"  {human(item['bytes']):>12}  {path[:100]}")
-        print(f"\ncrate 聚合 Top {len(crates)}：")
+        print(f"\ntop {len(crates)} crates by bytes:")
         for item in crates:
             print(f"  {human(item['bytes']):>12}  {item['crate']}")
 
@@ -258,7 +257,7 @@ def main() -> None:
                 indent=2,
             )
         )
-        print(f"\nJSON 落盘：{out}")
+        print(f"\nJSON written: {out}")
 
 
 if __name__ == "__main__":

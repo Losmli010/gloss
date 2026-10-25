@@ -1,9 +1,8 @@
-"""check_secrets.py 的单测：逐条覆盖 provider 模式、通用凭据赋值与放行标记。
+"""密钥扫描门禁的单测：逐条覆盖服务商模式、通用凭据赋值与放行标记。
 
-被测函数是 check_secrets.run(root)（返回违规列表），在 pytest 的 tmp_path 里
-建一次性 git 仓库作扫描面。夹具里的疑似密钥一律由片段拼接生成，不让字面量
-出现在本文件（否则门禁自命中）。用法：
-    python3 -m pytest scripts/hooks/check_secrets_test.py
+被测入口是门禁的运行函数，返回违规列表；在测试框架（pytest）的临时目录里建
+一次性版本库作扫描面。夹具里的疑似密钥一律由片段拼接生成，不让字面量出现在
+本文件（否则门禁自命中）；用法见持续集成的钩子工作流。
 """
 
 import subprocess
@@ -66,42 +65,42 @@ def test_short_unquoted_value_passes(tmp_path):
 
 def test_openai_key(tmp_path):
     problems = scan(tmp_path, "leak-openai.txt", 'key = "sk-%s"' % TAIL40)
-    assert any("疑似硬编码密钥" in p for p in problems)
+    assert any("suspected hardcoded secret" in p for p in problems)
 
 
 def test_anthropic_key(tmp_path):
     problems = scan(tmp_path, "leak-anthropic.txt", 'key = "sk-ant-%s"' % TAIL40)
-    assert any("疑似硬编码密钥" in p for p in problems)
+    assert any("suspected hardcoded secret" in p for p in problems)
 
 
 def test_aws_akia(tmp_path):
     problems = scan(tmp_path, "leak-aws.txt", 'key = "AKIA%s"' % AWS_TAIL16)
-    assert any("疑似硬编码密钥" in p for p in problems)
+    assert any("suspected hardcoded secret" in p for p in problems)
 
 
 def test_github_classic_pat(tmp_path):
     problems = scan(tmp_path, "leak-github.txt", 'key = "ghp_%s"' % TAIL36)
-    assert any("疑似硬编码密钥" in p for p in problems)
+    assert any("suspected hardcoded secret" in p for p in problems)
 
 
 def test_github_fine_grained_pat(tmp_path):
     problems = scan(tmp_path, "leak-github-pat.txt", 'key = "github_pat_%s"' % TAIL20)
-    assert any("疑似硬编码密钥" in p for p in problems)
+    assert any("suspected hardcoded secret" in p for p in problems)
 
 
 def test_gitlab_pat(tmp_path):
     problems = scan(tmp_path, "leak-gitlab.txt", 'key = "glpat-%s"' % TAIL20)
-    assert any("疑似硬编码密钥" in p for p in problems)
+    assert any("suspected hardcoded secret" in p for p in problems)
 
 
 def test_slack_token(tmp_path):
     problems = scan(tmp_path, "leak-slack.txt", 'key = "xoxb-%s"' % TAIL20)
-    assert any("疑似硬编码密钥" in p for p in problems)
+    assert any("suspected hardcoded secret" in p for p in problems)
 
 
 def test_google_api_key(tmp_path):
     problems = scan(tmp_path, "leak-google.txt", 'key = "AIza%s"' % TAIL35)
-    assert any("疑似硬编码密钥" in p for p in problems)
+    assert any("suspected hardcoded secret" in p for p in problems)
 
 
 def test_private_key_block(tmp_path):
@@ -110,7 +109,7 @@ def test_private_key_block(tmp_path):
     footer = "-----END %s-----" % "RSA PRIVATE KEY"
     content = header + "\nabcdef\n" + footer
     problems = scan(tmp_path, "leak-key.pem", content)
-    assert any("疑似硬编码密钥" in p for p in problems)
+    assert any("suspected hardcoded secret" in p for p in problems)
 
 
 # ---- 通用凭据赋值（拦截）----
@@ -118,22 +117,22 @@ def test_private_key_block(tmp_path):
 
 def test_quoted_api_key(tmp_path):
     problems = scan(tmp_path, "leak-generic.toml", 'api_key = "%s"' % TAIL16)
-    assert any("疑似硬编码凭据" in p for p in problems)
+    assert any("suspected hardcoded credential" in p for p in problems)
 
 
 def test_unquoted_api_key(tmp_path):
     problems = scan(tmp_path, "leak-generic.env", "API_KEY=%s" % TAIL20)
-    assert any("疑似硬编码凭据" in p for p in problems)
+    assert any("suspected hardcoded credential" in p for p in problems)
 
 
 def test_credential_colon_json(tmp_path):
     problems = scan(tmp_path, "leak-generic.json", '"credential": "%s"' % TAIL16)
-    assert any("疑似硬编码凭据" in p for p in problems)
+    assert any("suspected hardcoded credential" in p for p in problems)
 
 
 def test_authorization_bearer(tmp_path):
     problems = scan(tmp_path, "leak-bearer.txt", "authorization: Bearer %s" % TAIL20)
-    assert any("疑似硬编码凭据" in p for p in problems)
+    assert any("suspected hardcoded credential" in p for p in problems)
 
 
 # ---- secrets:allow 放行标记 ----
@@ -147,7 +146,7 @@ def test_marker_on_hit_line_passes(tmp_path):
 def test_marker_only_covers_own_line(tmp_path):
     content = 'api_key = "%s" # %s\napi_key = "%s"' % (TAIL16, MARKER, TAIL20)
     problems = scan(tmp_path, "allow-partial.toml", content)
-    assert any("疑似硬编码凭据" in p for p in problems)
+    assert any("suspected hardcoded credential" in p for p in problems)
 
 
 def test_marker_on_clean_line_harmless(tmp_path):

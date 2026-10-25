@@ -1,4 +1,4 @@
-//! 快照写回（恢复序列）：预建全部 flavor 数据 → 清板 → 逐条写回，单次
+//! 快照写回（恢复序列）：预建全部数据风格数据 → 清板 → 逐条写回，单次
 //! 序列失败短退避后重试（每次开全新粘贴板引用）。
 
 use std::time::Duration;
@@ -101,14 +101,16 @@ fn restore_pasteboard_once(saved: &SavedContent) -> RestoreOutcome {
     let Some(staged) = stage_flavor_data(saved) else {
         return fail(RestoreStage::Alloc, 0, 0);
     };
-    // SAFETY: `raw` 是有效 +1 引用，存活至本结构销毁。
+    // SAFETY: `raw` is a valid +1 reference that stays alive until this struct
+    // is destroyed.
     let status = unsafe { PasteboardClear(pb.raw) };
     if status != 0 {
         return fail(RestoreStage::Clear, status, 0);
     }
     for (id, name, data) in &staged {
-        // SAFETY: `raw`/`id`/`name`/`data` 均为阶段一备齐的有效引用；
-        // Put 不接管 `data` 引用，由 staged 的守卫释放。
+        // SAFETY: `raw`/`id`/`name`/`data` are all valid references staged in
+        // phase one; `Put` does not take ownership of the `data` reference, which
+        // is released by the guard in `staged`.
         let status = unsafe { PasteboardPutItemFlavor(pb.raw, *id, *name, data.data_ref(), 0) };
         if status != 0 {
             return fail(RestoreStage::Put, status, 1);
@@ -128,8 +130,9 @@ fn stage_flavor_data(
     let mut staged = Vec::new();
     for item in &saved.0 {
         for flavor in &item.flavors {
-            // SAFETY: `data` 字节缓冲在本次调用内存活且非悬空，长度即
-            // 缓冲长度；分配失败返回 NULL，随后判别。
+            // SAFETY: the `data` byte buffer stays alive for the duration of this
+            // call and is not dangling, with the length matching the buffer;
+            // allocation failure returns NULL and is checked right after.
             let data = unsafe {
                 CFDataCreate(
                     kCFAllocatorDefault,

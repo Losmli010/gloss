@@ -1,4 +1,4 @@
-//! macOS 应用图标适配器（图标端口的实现）。
+//! 应用图标适配器（macOS），实现图标端口。
 
 use gloss_core::ports::AppIcon;
 use objc2::MainThreadMarker;
@@ -28,9 +28,10 @@ impl AppIcon for MacAppIcon {
             };
 
             let app = NSApplication::sharedApplication(mtm);
-            // SAFETY: 主线程已由上面的 MainThreadMarker 证明（sharedApplication
-            // 也以它为入参）；image 是本闭包内仍存活的 Retained<NSImage>，调用
-            // 期间不会被释放，AppKit 只读它。
+            // SAFETY: the main thread is already proven by the `MainThreadMarker`
+            // above (`sharedApplication` takes it as an argument); `image` is a
+            // `Retained<NSImage>` that stays alive within this closure and is not
+            // released during the call, and AppKit only reads it.
             unsafe { app.setApplicationIconImage(Some(&image)) };
             true
         })

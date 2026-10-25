@@ -6,7 +6,7 @@ on:
     - cron: "30 1 * * *"
   workflow_dispatch:
 
-# 最小权限：顶层只读；仅过期清理作业需要给议题与 PR 打标与评论（见其作业级权限）。
+# 最小权限：顶层只读；仅过期清理作业需要给议题与拉取请求（PR）打标与评论（见其作业级权限）。
 permissions:
   contents: read
 
@@ -35,6 +35,6 @@ jobs:
           stale-pr-label: stale
           exempt-issue-labels: pinned,roadmap,keep
           exempt-pr-labels: pinned,keep
-          # 草稿 PR 与已排期的项不算无人认领
+          # 草稿拉取请求（PR）与已排期的项不算无人认领
           exempt-pr-assignees: true
           exempt-issue-assignees: true

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# 安装本地版本库钩子：把钩子目录配置指向仓内的钩子目录，并给脚本加执行权限。
-# 团队成员取得仓库副本后只需运行一次本脚本。
+"""安装本地版本库钩子：把钩子目录配置指向仓内的钩子目录，并给脚本加执行权限。
+团队成员取得仓库副本后只需运行一次本脚本。
+"""
 
 import os
 import stat
@@ -32,14 +33,14 @@ def main():
     for rel in EXEC_FILES:
         path = os.path.join(ROOT, rel)
         if not os.path.isfile(path):
-            print("✗ 缺少脚本 %s（仓库不完整？）" % rel, file=sys.stderr)
+            print("✗ missing script %s (incomplete checkout?)" % rel, file=sys.stderr)
             return 1
         os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     # 二、把钩子目录配置指向仓内的钩子目录
     subprocess.run(["git", "-C", ROOT, "config", "core.hooksPath", ".githooks"], check=True)
 
-    print("✓ git hooks 已启用")
+    print("✓ git hooks enabled")
     print(
         "  hooksPath: %s"
         % subprocess.run(
@@ -50,11 +51,11 @@ def main():
         ).stdout.strip()
     )
     print(
-        "  生效的钩子: pre-commit（约束检查 + 文档引用校验 + BDD 清单 + 文案表 "
-        "+ fmt + clippy + 密钥扫描，经 just precommit）"
+        "  active hooks: pre-commit (constraints + doc references + BDD inventory"
+        " + i18n catalog + fmt + clippy + secrets scan, via just precommit)"
     )
     print(
-        "             commit-msg（Conventional Commits 校验，与 CI 的 Commit message check 同款）"
+        "             commit-msg (Conventional Commits check, same as the CI commit message check)"
     )
     return 0
 

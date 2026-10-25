@@ -5,8 +5,8 @@ edition.workspace = true
 description = "划词翻译工具 - 纯 Rust + egui + WebGPU"
 license.workspace = true
 
-# cargo-bundle 打包配置（GUI 应用分发包）
-# 打包配方生成应用包，ad-hoc 签名后压缩为分发镜像，细节在打包脚本。
+# 打包工具（cargo-bundle）的配置节：图形界面（GUI）应用分发包
+# 打包配方生成应用包，临时签名后压缩为分发镜像，细节在打包脚本。
 [package.metadata.bundle]
 name = "Gloss"
 identifier = "io.github.losmli010.gloss"
@@ -20,15 +20,15 @@ long_description = "鼠标选中文字，即弹出 LLM 翻译结果。纯 Rust +
 resolver = "3"
 members = ["crates/gloss-app", "crates/gloss-core", "crates/gloss-eval", "crates/gloss-platform"]
 
-# 版本与语言版本单点维护，各 crate 继承
+# 版本与语言版本单点维护，各包继承
 [workspace.package]
 version = "0.2.8"
 edition = "2024"
 license = "MIT"
 
-# 生产路径必须传播错误：断言式取值仅在注释写明不变量（panic 不可能发生）时
-# 允许；立即中止、不可达与未实现分支一律禁止。测试代码不受限（放行面在
-# Clippy 配置）。各 crate 继承工作区检查面。
+# 生产路径必须传播错误：断言式取值仅在注释写明不变量、且崩溃不可能发生时
+# 允许；立即中止、不可达与未实现分支一律禁止。测试代码不受限，放行面在
+# 静态检查（Clippy）配置。各包继承工作区检查面。
 [workspace.lints.clippy]
 expect_used = "deny"
 # 标记为必须使用的返回值不得静默丢弃；确需丢弃的必须在放行标记旁注明缘由。
@@ -37,13 +37,13 @@ let_underscore_must_use = "deny"
 mem_forget = "deny"
 panic = "deny"
 print_stderr = "deny"
-# 日志唯一出口是核心库的日志宏；见质量条目「日志统一出口」。
+# 日志唯一出口是核心库的日志宏；见质量条目“日志统一出口”。
 print_stdout = "deny"
 todo = "deny"
-# 体积上限：参数不超过五、函数体不超过五十行（阈值在 Clippy 配置）。
+# 体积上限：参数不超过五、函数体不超过五十行，阈值在静态检查（Clippy）配置。
 too_many_arguments = "deny"
 too_many_lines = "deny"
-# unsafe 块必须紧邻不变量注释说明安全性；允许有 unsafe，不允许无据的 unsafe。
+# 不安全块必须紧邻不变量注释说明安全性；允许使用，不允许无据使用。
 undocumented_unsafe_blocks = "deny"
 unimplemented = "deny"
 unreachable = "deny"
@@ -64,40 +64,40 @@ name = "overlay"
 harness = false
 name = "startup"
 
-# 热点基准：criterion 框架四组，分别对应缓存键、结果完成、提示渲染与任务缓存
+# 热点基准：基准框架（criterion）四组，分别对应缓存键、结果完成、提示渲染与任务缓存
 [[bench]]
 harness = false
 name = "core"
 
-# 克隆热点基准：criterion 自定义测量，两组分别计分配次数与分配字节
+# 克隆热点基准：基准框架（criterion）自定义测量，两组分别计分配次数与分配字节
 [[bench]]
 harness = false
 name = "clone"
 
 [dependencies]
-# 组装段持有通道对端与 tokio 接收端，类型在此命名。
+# 组装段持有通道对端与异步运行时（tokio）接收端，类型在此命名。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 gloss-app = { path = "crates/gloss-app" }
 # 测试桩只在集成测试的桩目录里，按测试配置编译进测试目标，不进发布二进制。
 gloss-core = { path = "crates/gloss-core" }
 gloss-platform = { path = "crates/gloss-platform" }
-# 全局分配器：macOS 的 libmalloc 把峰值后的空闲页扣在分级缓存池里不还给
-# 系统，长驻进程的 RSS 只涨不落；mimalloc 周期性清退空闲页，常驻内存贴着
+# 全局分配器：系统（macOS）的内存分配器（libmalloc）把峰值后的空闲页扣在分级缓存池里不还给
+# 系统，长驻进程的常驻内存（RSS）只涨不落；替代分配器（mimalloc）周期性清退空闲页，常驻内存贴着
 # 活跃字节走。
 mimalloc = { version = "0.1", default-features = false }
-# 组装段的密钥预热与回传通道跑在消费桥的 tokio 上，无界接收端在此命名。
+# 组装段的密钥预热与回传通道跑在消费桥的异步运行时（tokio）上，无界接收端在此命名。
 tokio = { version = "1", default-features = false, features = ["sync"] }
 
-# 文档注释里的示例由 cargo 的文档测试验证可编译可运行，属完整测试的一部分；
+# 文档注释里的示例由构建工具（cargo）的文档测试验证可编译可运行，属完整测试的一部分；
 # 无文档注释的公开项不受影响。
 [dev-dependencies]
 # 基准框架；特性只保留基准支持面。
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
-# 克隆基准的无头帧驱动；版本与 gloss-app 同批。
+# 克隆基准的无头帧驱动；版本与应用包（gloss-app）同批。
 egui = { version = "0.36.2", default-features = false, features = ["default_fonts"] }
-# 自检标准错误结构化信号行的 JSON 序列化。
+# 自检标准错误结构化信号行的数据格式（JSON）序列化。
 serde_json = { version = "1", default-features = false, features = ["std"] }
-# 三层显隐自检直接驱动 winit 窗口栈。
+# 三层显隐自检直接驱动窗口库（winit）窗口栈。
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
 
 [lints]
@@ -107,13 +107,13 @@ workspace = true
 opt-level = 3
 strip = true
 lto = true
-# panic 即进程立即中止（不展开栈）：发布构建下后台 panic 不再经各屏障降级
+# 崩溃即进程立即中止、不展开栈：发布构建下后台崩溃不再经各屏障降级
 # （失败卡、线程存活），在事发点直接崩溃；开发与测试构建仍展开栈，屏障照常
-# 生效（测试目标由 cargo 强制展开）。
+# 生效，测试目标由构建工具（cargo）强制展开。
 panic = "abort"
 codegen-units = 1
 
-# 剖析专用：发布同级优化，保留符号表供火焰图与 vmmap 符号化
+# 剖析专用：发布同级优化，保留符号表供火焰图与内存分析（vmmap）符号化
 [profile.profiling]
 inherits = "release"
 strip = "debuginfo"

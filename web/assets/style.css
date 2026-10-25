@@ -1,4 +1,4 @@
-/* Gloss 站点样式 — 浅色主题。品牌色沿用应用图标：宣纸底、墨条、朱砂划线。 */
+/* 应用（Gloss）站点样式——浅色主题。品牌色沿用应用图标：宣纸底、墨条、朱砂划线。 */
 :root {
   --bg: #F6F3EC;
   --bg-2: #EFEBE1;
@@ -169,7 +169,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #16181D 0%, #B84
 @media (max-width: 820px) { .principles { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 480px) { .principles { grid-template-columns: 1fr; } }
 
-/* ── 首屏视觉：深色编辑器窗口 + 白色翻译浮层 ── */
+/* ── 首屏视觉：深色编辑器窗口与白色翻译浮层 ── */
 .hero-visual { position: relative; min-height: 420px; display: flex; align-items: center; }
 .mock-window {
   position: relative; border-radius: 14px; overflow: hidden;

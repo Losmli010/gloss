@@ -9,7 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-# 最小权限：CI 只需读代码。
+# 最小权限：持续集成（CI）只需读代码。
 permissions:
   contents: read
 
@@ -95,7 +95,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
-  # 覆盖率：macOS 单平台统计（全部代码在该平台编译），摘要写进作业摘要，HTML 存档。
+  # 覆盖率：系统（macOS）单平台统计，全部代码在该平台编译，摘要写进作业摘要，网页（HTML）存档。
   coverage:
     name: Coverage (LLVM)
     needs: [fmt, lint]
@@ -123,7 +123,7 @@ jobs:
           tool: just
 
       - name: Run coverage
-        # 行覆盖率阈值（70%，即提交前门禁里的行覆盖下限）在配方最后一步判定，
+        # 行覆盖率阈值在配方最后一步判定，数值即提交前门禁里的行覆盖下限，
         # 不达标时本步骤直接失败。
         shell: bash
         env:

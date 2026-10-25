@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
-"""统计生产代码中 .clone() 调用的分布，并支持对照趋势基线。
+"""统计生产代码里克隆方法调用的分布，并支持对照趋势基线。
 
-生产代码口径：根包 src/main.rs 与各包 src/，先剥离注释与字符串字面量，
-再剔除 #[cfg(test)] 标注的项后计数；tests/、benches/ 与测试桩不计。
-计数对象是 `.clone(` 方法调用；`X::clone(`（如 Arc::clone）与 derive(Clone)
-只入库展示，不参与基线成败判定。
+生产代码口径：根包入口与各包源码目录，先剥离注释与字符串字面量，再剔除
+测试条件标注的项后计数；测试目录、基准目录与测试桩不计。计数对象是实例
+方法形态的克隆调用；静态路径形态的克隆调用与派生声明只入库展示，不参与
+基线成败判定；静态形态如共享智能指针的克隆。
 
-性能口径：benches/clone.rs 的分配计数（次数/字节，criterion 自定义测量），
---check 读取 target/criterion 下最近一次 `just clone-bench` 的结果，对照
-baselines/history.jsonl 最新点的 clone 门禁基线（total/allocs/bytes，由
-perf-collect.py 随采集自然前移）；最新点缺分配值即带指引失败——拒绝以 0
-为基线放行分配回退。计时不进判罚，归 criterion 自身的基线机制（just
-bench-check / bench-summary）。
-
-用法：
-  scripts/perf/clone-stats.py            打印当前分布
-  scripts/perf/clone-stats.py --check    对照 history 最新点报告变化；clone
-                                         计数或热点分配上升即退出码 1
+性能口径：克隆基准的分配计数（次数与字节数）由（criterion）自定义测
+量。校验模式读取基准产物目录下最近一次克隆基准的结果，对照趋势历史最
+新点的克隆门禁基线（总量、分配次数与字节数，由统一采集器随采集自然前
+移）；最新点缺分配值即带指引失败——拒绝以零为基线放行分配回退。计时不
+进判罚，归（criterion）自身的基线机制。
 """
 
 import argparse
@@ -262,7 +256,7 @@ def collect():
     for crate, rel in CRATES:
         root = ROOT / rel
         if not root.exists():
-            sys.exit(f"错误：路径不存在 {root}")
+            sys.exit(f"error: path does not exist {root}")
         paths = [root] if root.is_file() else sorted(root.rglob("*.rs"))
         agg = {"files": 0, "loc": 0, "clone": 0, "path_clone": 0, "derive_clone": 0}
         for p in paths:
@@ -283,7 +277,7 @@ def density(clone, loc):
 def print_stats(crates, files):
     total = sum(c["clone"] for c in crates.values())
     total_loc = sum(c["loc"] for c in crates.values())
-    print("| crate | 生产 LOC | .clone() | 密度(/千行) | 占比 | ::clone | derive(Clone) |")
+    print("| crate | prod LOC | .clone() | density(/kloc) | share | ::clone | derive(Clone) |")
     print("|---|---:|---:|---:|---:|---:|---:|")
     for crate, agg in crates.items():
         share = f"{agg['clone'] / total * 100:.1f}%" if total else "-"
@@ -291,20 +285,20 @@ def print_stats(crates, files):
             f"| {crate} | {agg['loc']} | {agg['clone']} | {density(agg['clone'], agg['loc']):.1f} "
             f"| {share} | {agg['path_clone']} | {agg['derive_clone']} |"
         )
-    print(f"| 合计 | {total_loc} | {total} | {density(total, total_loc):.1f} | 100% |  |  |")
+    print(f"| total | {total_loc} | {total} | {density(total, total_loc):.1f} | 100% |  |  |")
 
     ranked = sorted(files.items(), key=lambda kv: (-kv[1], kv[0]))
     if ranked:
-        print("\n热点文件：")
+        print("\nhot files:")
         for path, count in ranked[:15]:
             print(f"  {count:>4}  {path}")
         rest = ranked[15:]
         if rest:
-            print(f"  （其余 {len(rest)} 个文件共 {sum(c for _, c in rest)} 次）")
+            print(f"  (remaining {len(rest)} files, {sum(c for _, c in rest)} total)")
 
     perf = read_perf()
     if perf:
-        print("\n分配热点（criterion 最近一次 clone 基准，均值/迭代）：")
+        print("\nalloc hotspots (latest criterion clone bench, mean/iter):")
         for bench_id in sorted(perf):
             entry = perf[bench_id]
             parts = " / ".join(f"{entry[f]} {f}" for f in ("allocs", "bytes") if f in entry)
@@ -319,7 +313,9 @@ def latest_clone_baseline():
     perf 段缺失时一致，不依赖上游采集侧。
     """
     if not HISTORY_PATH.is_file():
-        sys.exit(f"错误：趋势历史不存在 {HISTORY_PATH}，先运行采集（just perf-baseline）建立基线")
+        sys.exit(
+            f"error: trend history missing {HISTORY_PATH}, run the collector first (just perf-baseline) to establish a baseline"
+        )
     points = []
     for line in HISTORY_PATH.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -328,21 +324,23 @@ def latest_clone_baseline():
         try:
             points.append(json.loads(line))
         except json.JSONDecodeError as exc:
-            sys.exit(f"错误：{HISTORY_PATH} 存在无法解析的行：{exc}")
+            sys.exit(f"error: {HISTORY_PATH} has an unparseable line: {exc}")
     if not points:
-        sys.exit(f"错误：{HISTORY_PATH} 没有数据点，先运行采集建立基线")
+        sys.exit(
+            f"error: {HISTORY_PATH} has no data points, run the collector to establish a baseline"
+        )
     latest = points[-1]
     metrics = latest.get("metrics")
     if not isinstance(metrics, dict) or "clone.total" not in metrics:
         sys.exit(
-            f"错误：history 最新点缺 clone.total（{HISTORY_PATH} 最后一行），"
-            "先运行采集（just perf-baseline）更新基线"
+            f"error: history latest point lacks clone.total (last line of {HISTORY_PATH}), "
+            "run the collector first (just perf-baseline) to update the baseline"
         )
     if "clone.allocs" not in metrics or "clone.bytes" not in metrics:
         sys.exit(
-            "错误：history 最新点缺 clone 分配值（clone.allocs/clone.bytes），"
-            "拒绝以 0 为基线放行分配回退；先运行 just clone-bench，"
-            "再运行采集（just perf-baseline）更新基线。"
+            "error: history latest point lacks clone alloc values (clone.allocs/clone.bytes), "
+            "refusing to pass alloc regressions against a 0 baseline; run just clone-bench first, "
+            "then the collector (just perf-baseline) to update the baseline."
         )
     return latest, metrics
 
@@ -360,10 +358,10 @@ def check_baseline():
     perf = read_perf()
 
     print(
-        f"== clone 门禁对照：history 最新点 {latest.get('commit', '?')}"
-        f"（{str(latest.get('date', ''))[:10]}）==\n"
+        f"== clone gate check: history latest point {latest.get('commit', '?')}"
+        f" ({str(latest.get('date', ''))[:10]}) ==\n"
     )
-    print("| 指标 | 基线 | 当前 | 变化 |")
+    print("| metric | baseline | current | change |")
     print("|---|---:|---:|---|")
     rows = [("clone.total", baseline["clone.total"], cur_total)]
     for field in ("allocs", "bytes"):
@@ -373,40 +371,47 @@ def check_baseline():
     regressions = []
     for metric_id, base, current in rows:
         if current is None:
-            print(f"| {metric_id} | {base} | — | 当前无数据 |")
+            print(f"| {metric_id} | {base} | — | no current data |")
             continue
         delta = current - base
-        mark = {0: "持平", 1: "↑", -1: "↓"}.get((delta > 0) - (delta < 0), "")
+        mark = {0: "flat", 1: "↑", -1: "↓"}.get((delta > 0) - (delta < 0), "")
         print(f"| {metric_id} | {base} | {current} | {delta:+d} {mark} |")
         if delta > 0:
             regressions.append(f"{metric_id} {delta:+d}")
     cur_loc = sum(crate["loc"] for crate in crates.values())
     base_density = baseline.get("clone.density")
     base_density_text = f"{base_density:.1f}" if isinstance(base_density, (int, float)) else "—"
-    print(f"\n密度（仅记录）：{base_density_text} → {density(cur_total, cur_loc):.1f}（次/千行）")
+    print(
+        f"\ndensity (record only): {base_density_text} -> {density(cur_total, cur_loc):.1f} (/kloc)"
+    )
 
     if perf:
-        print("\n分配热点（criterion 最近一次 clone 基准，均值/迭代）：")
+        print("\nalloc hotspots (latest criterion clone bench, mean/iter):")
         for bench_id in sorted(perf):
             entry = perf[bench_id]
             parts = " / ".join(f"{entry[f]} {f}" for f in ("allocs", "bytes") if f in entry)
             print(f"  {bench_id}: {parts}")
 
     if regressions:
-        print("\n✗ 对照基线回退。")
-        print(f"  clone 上升：{'、'.join(regressions)}。")
+        print("\nfailed: regression against the baseline.")
+        print(f"  clone increases: {', '.join(regressions)}.")
         print(
-            "  如属有意，运行 just clone-bench 后采集（just perf-baseline）更新基线，并随本次改动一并审查。"
+            "  if intentional, run just clone-bench then the collector (just perf-baseline)"
+            " to update the baseline, and review it together with this change."
         )
         sys.exit(1)
-    print(f"\n✓ 对照基线持平或改善（clone 计数 {baseline['clone.total']} → {cur_total}）。")
+    print(
+        f"\nok: baseline flat or improved (clone count {baseline['clone.total']} -> {cur_total})."
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--check", action="store_true", help="对照 history 最新点报告变化")
+    parser.add_argument(
+        "--check", action="store_true", help="report changes against the latest history point"
+    )
     args = parser.parse_args()
     if args.check:
         check_baseline()

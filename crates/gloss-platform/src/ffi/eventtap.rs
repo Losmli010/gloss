@@ -1,4 +1,4 @@
-//! CoreGraphics 事件 tap：只订阅、只读取事件的监听接口。
+//! 图形核心框架（CoreGraphics）的事件监听：只订阅、只读取事件的接口。
 
 use std::ffi::c_void;
 

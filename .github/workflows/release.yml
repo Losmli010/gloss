@@ -5,7 +5,7 @@ on:
     tags:
       - "v*"
 
-# 最小权限：顶层只读；仅发布作业创建 GitHub Release 需要写（见其作业级权限）。
+# 最小权限：顶层只读；仅发布作业在托管平台（GitHub）创建发布页需要写，见其作业级权限。
 permissions:
   contents: read
 
@@ -73,7 +73,7 @@ jobs:
 
       - name: Package artifacts
         run: |
-          # 产物名带版本与目标三元组，Release 页上一眼可辨。
+          # 产物名带版本与目标三元组，发布页上一眼可辨。
           STEM="gloss-${{ steps.version.outputs.version }}-${{ matrix.target }}"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$STEM.zip"
           ./scripts/release/bundle_dmg.py "$APP" "$STEM.dmg"
@@ -91,7 +91,7 @@ jobs:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    # 唯一需要写权限的作业：发布产物到 GitHub Release。
+    # 唯一需要写权限的作业：发布产物到托管平台（GitHub）发布页。
     permissions:
       contents: write
     steps:
@@ -121,14 +121,14 @@ jobs:
           body_path: release-notes.md
           generate_release_notes: false
 
-  # 站点部署：发布成功后把站点资源、本标签的二进制与更新清单发上 GitHub Pages。
-  # Pages 部署失败不回滚发布，作业显式失败可见；补救是重跑本作业（消费同一次
-  # 运行的产物）；产物超保留期则重跑整个工作流。
+  # 站点部署：发布成功后把站点资源、本标签的二进制与更新清单发上托管平台（GitHub）页面托管。
+  # 页面托管部署失败不回滚发布，作业显式失败可见；补救是重跑本作业，消费同一次
+  # 运行的产物；产物超保留期则重跑整个工作流。
   deploy-web:
     name: Deploy web to GitHub Pages
     needs: release
     runs-on: ubuntu-latest
-    # Pages 部署需要的最小写权限（顶层仍为只读）。
+    # 页面托管部署需要的最小写权限，顶层仍为只读。
     permissions:
       pages: write
       id-token: write

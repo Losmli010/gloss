@@ -1,5 +1,6 @@
 //! 面板与序列的数据建模：从报告历史收集各序列取值（缺样本为无值），
-//! 按面板聚合并定值域。这里不产生任何 SVG 字节，落墨在落墨子模块。
+//! 按面板聚合并定值域。这里不产生任何矢量图（SVG）字节，落墨在落墨
+//! 子模块。
 
 use crate::metrics::TaskMetrics;
 use crate::report::EvalReport;
@@ -49,7 +50,7 @@ fn push_classify_panel(panels: &mut Vec<Panel>, points: &[EvalReport]) {
         .collect();
     push_panel(
         panels,
-        "分类轨判定质量（%）",
+        "Classify quality (%)",
         Axis::Percent,
         vec![
             Series {
@@ -59,7 +60,7 @@ fn push_classify_panel(panels: &mut Vec<Panel>, points: &[EvalReport]) {
                 values: accuracy,
             },
             Series {
-                label: "回退率".to_owned(),
+                label: "fallback".to_owned(),
                 color: COLOR_ORANGE,
                 unit: Unit::Percent,
                 values: fallback,
@@ -70,26 +71,26 @@ fn push_classify_panel(panels: &mut Vec<Panel>, points: &[EvalReport]) {
 
 fn push_task_panels(panels: &mut Vec<Panel>, points: &[EvalReport], datasets: &[String]) {
     for dataset in datasets {
-        let title = format!("任务轨 · {}（%）", dataset_label(dataset));
+        let title = format!("Task · {} (%)", dataset_label(dataset));
         push_panel(
             panels,
             &title,
             Axis::Percent,
             vec![
                 Series {
-                    label: "契约 JSON 率".to_owned(),
+                    label: "contract JSON".to_owned(),
                     color: COLOR_BLUE,
                     unit: Unit::Percent,
                     values: dataset_rate(points, dataset, |metrics| metrics.json_object),
                 },
                 Series {
-                    label: "字段完整率".to_owned(),
+                    label: "fields complete".to_owned(),
                     color: COLOR_GREEN,
                     unit: Unit::Percent,
                     values: dataset_rate(points, dataset, |metrics| metrics.fields_complete),
                 },
                 Series {
-                    label: "降级率".to_owned(),
+                    label: "degraded".to_owned(),
                     color: COLOR_PINK,
                     unit: Unit::Percent,
                     values: dataset_rate(points, dataset, |metrics| metrics.degraded),
@@ -110,7 +111,7 @@ fn push_cost_panel(panels: &mut Vec<Panel>, points: &[EvalReport], datasets: &[S
         })
         .collect();
     let mut cost = vec![Series {
-        label: "分类轨".to_owned(),
+        label: "classify".to_owned(),
         color: COLOR_BLUE,
         unit: Unit::Rounds,
         values: classify_rounds,
@@ -123,7 +124,7 @@ fn push_cost_panel(panels: &mut Vec<Panel>, points: &[EvalReport], datasets: &[S
             values: dataset_rounds(points, dataset),
         });
     }
-    push_panel(panels, "修复成本（轮）", Axis::Rounds, cost);
+    push_panel(panels, "repair cost (rounds)", Axis::Rounds, cost);
 }
 
 fn push_judge_panel(panels: &mut Vec<Panel>, points: &[EvalReport]) {
@@ -138,10 +139,10 @@ fn push_judge_panel(panels: &mut Vec<Panel>, points: &[EvalReport]) {
         .collect();
     push_panel(
         panels,
-        "judge 均分（1–5）",
+        "judge average (1–5)",
         Axis::Judge,
         vec![Series {
-            label: "judge 均分".to_owned(),
+            label: "judge average".to_owned(),
             color: COLOR_BLUE,
             unit: Unit::Score,
             values: judge,
@@ -160,7 +161,7 @@ fn push_latency_panel(panels: &mut Vec<Panel>, points: &[EvalReport]) {
         .collect();
     push_panel(
         panels,
-        "端到端延迟（ms）",
+        "end-to-end latency (ms)",
         Axis::Latency,
         vec![
             Series {
@@ -215,9 +216,9 @@ fn dataset_order(points: &[EvalReport]) -> Vec<String> {
 
 fn dataset_label(dataset: &str) -> &str {
     match dataset {
-        "task_translate_word" => "词卡",
-        "task_translate_sentence" => "句译",
-        "task_explain_code" => "代码",
+        "task_translate_word" => "word",
+        "task_translate_sentence" => "sentence",
+        "task_explain_code" => "code",
         other => other,
     }
 }

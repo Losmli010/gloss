@@ -9,11 +9,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-# 最小权限：CI 只需读代码。
+# 最小权限：持续集成（CI）只需读代码。
 permissions:
   contents: read
 
-# 内存安全与未定义行为深检，只覆盖 gloss-core（纯逻辑层）。
+# 内存安全与未定义行为深检，只覆盖核心库（gloss-core）纯逻辑层。
 jobs:
   miri:
     name: Miri (gloss-core)

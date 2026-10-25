@@ -1,13 +1,13 @@
-//! 检视页渲染：报告 + 逐条明细 + 历史 → 单文件 HTML 检视页。
+//! 检视页渲染：报告、逐条明细与历史 → 单文件检视页（HTML）。
 //!
-//! 渲染入口是纯函数，不读环境、不落盘；数据集文本与模型回复等
-//! 外来内容一律经 HTML 转义落进静态标记，交互（过滤）只用内联的十几行
-//! 原生 JavaScript——产物零外部资源，离线双击可开，也可直接分发给无终端的
-//! 评审者。
+//! 渲染入口是纯函数，不读环境、不落盘；数据集文本与模型回复等外来
+//! 内容一律经（HTML）转义落进静态标记，交互只用内联的十几行原生
+//! 脚本（JavaScript）——产物零外部资源，离线双击可开，也可直接分发
+//! 给无终端的评审者。
 //!
-//! 口径脚注必须随页走：重放页的准确率是生产校验器对**固化夹具**的
-//! 判定，改提示词并不会动它（需重录夹具）；改提示词后的
-//! 真实准确率看 live 页。这条不写清，检视页会把人引向错误结论。
+//! 口径脚注必须随页走：重放页的准确率是生产校验器对“固化夹具”的
+//! 判定，改提示词并不会动它，需重录夹具；改提示词后的真实准确率看
+//! 实跑页。这条不写清，检视页会把人引向错误结论。
 
 use gloss_core::task::TaskKind;
 
@@ -17,9 +17,9 @@ use crate::svg;
 
 pub fn render_html(report: &EvalReport, cases: &[CaseDetail], history: &[EvalReport]) -> String {
     let mut out = String::new();
-    out.push_str("<!doctype html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n");
+    out.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
     out.push_str(&format!(
-        "<title>Gloss Prompt 评估 · {}</title>\n",
+        "<title>Gloss prompt eval · {}</title>\n",
         esc(&report.mode)
     ));
     out.push_str(&format!("<style>{CSS}</style>\n</head>\n<body>\n"));
@@ -29,10 +29,11 @@ pub fn render_html(report: &EvalReport, cases: &[CaseDetail], history: &[EvalRep
     render_trend(&mut out, history);
     render_cases(&mut out, cases);
     out.push_str(
-        "<p class=\"footnote\">口径：replay 页度量生产校验器对固化夹具的判定——\
-         改 prompt 不改变它，需 `eval live --record` 重录夹具后才反映；\
-         改 prompt 后的真实准确率看 live 页（live 的任务降级率含请求失败条目，\
-         明细行以「引擎失败」徽标区分）。趋势数据源 history.jsonl，时间一律 UTC。</p>\n",
+        "<p class=\"footnote\">Scope: the replay page measures the production validator on pinned \
+         fixtures — prompt changes do not move it until fixtures are re-recorded with \
+         `eval live --record`; true accuracy after prompt changes lives on the live page \
+         (the live degraded rate includes request failures, marked with the engine-failure \
+         badge in case rows). Trend data source: history.jsonl, timestamps in UTC.</p>\n",
     );
     out.push_str("<script>\nlet statusFilter='all',groupFilter='all';\n");
     out.push_str(
@@ -77,15 +78,15 @@ fn render_header(out: &mut String, report: &EvalReport) {
             meta.push_str(&format!(" · commit {}", esc(commit)));
         }
         if let Some(source) = &context.source {
-            meta.push_str(&format!(" · 来源 {}", esc(source)));
+            meta.push_str(&format!(" · source {}", esc(source)));
         }
     }
     meta.push_str(&format!(
-        " · 评测 {evaluated} 条，跳过 {} 条",
+        " · evaluated {evaluated}, skipped {}",
         report.skipped
     ));
     out.push_str(&format!(
-        "<header><h1>Gloss Prompt 评估检视 <span class=\"mode\">{}</span></h1>\
+        "<header><h1>Gloss prompt eval inspector <span class=\"mode\">{}</span></h1>\
          <p class=\"meta\">{}</p></header>\n",
         esc(&report.mode),
         meta
@@ -117,9 +118,9 @@ fn render_classify_card(out: &mut String, stats: &ClassifyStats, previous: Optio
         |prev| prev.fallback_rate * 100.0,
     );
     out.push_str(&format!(
-        "<div class=\"card\"><div class=\"card-title\">分类 accuracy {}</div>\
-         <div class=\"card-main\">{:.2}%<span class=\"frac\">{}/{} 条</span></div>\
-         <div class=\"card-sub\">回退率 {:.2}%{} · 修复 {} 轮 · 非 JSON {} · 拒绝 {}{}</div></div>",
+        "<div class=\"card\"><div class=\"card-title\">classify accuracy {}</div>\
+         <div class=\"card-main\">{:.2}%<span class=\"frac\">{}/{} cases</span></div>\
+         <div class=\"card-sub\">fallback {:.2}%{} · repair rounds {} · invalid JSON {} · rejected {}{}</div></div>",
         delta_chip(stats.accuracy * 100.0, accuracy_delta, DeltaDir::UpGood),
         stats.accuracy * 100.0,
         metrics.correct,
@@ -158,9 +159,9 @@ fn render_task_cards(out: &mut String, report: &EvalReport, previous: Option<&Ev
         let complete_rate = rate(metrics.fields_complete, metrics.evaluated);
         let degraded_rate = rate(metrics.degraded, metrics.evaluated);
         out.push_str(&format!(
-            "<div class=\"card\"><div class=\"card-title\">{} · 字段完整率 {}</div>\
-             <div class=\"card-main\">{complete_rate:.2}%<span class=\"frac\">{}/{} 条</span></div>\
-             <div class=\"card-sub\">契约 JSON 率 {:.2}% · note 在场率 {:.2}% · <span class=\"{}\">降级率 {degraded_rate:.2}%{}</span> · 修复 {} 轮</div></div>",
+            "<div class=\"card\"><div class=\"card-title\">{} · fields-complete {}</div>\
+             <div class=\"card-main\">{complete_rate:.2}%<span class=\"frac\">{}/{} cases</span></div>\
+             <div class=\"card-sub\">contract JSON {:.2}% · note presence {:.2}% · <span class=\"{}\">degraded {degraded_rate:.2}%{}</span> · repair rounds {}</div></div>",
             esc(dataset_label(&stats.dataset)),
             delta_chip(complete_rate, prev_complete, DeltaDir::UpGood),
             metrics.fields_complete,
@@ -193,7 +194,7 @@ fn render_confusion(out: &mut String, report: &EvalReport) {
     if stats.confusion_rows.is_empty() {
         return;
     }
-    out.push_str("<section><h2>混淆矩阵（期望 → 实际）</h2><table class=\"confusion\"><thead><tr><th>期望</th><th>实际</th><th>次数</th></tr></thead><tbody>");
+    out.push_str("<section><h2>Confusion matrix (expected → actual)</h2><table class=\"confusion\"><thead><tr><th>Expected</th><th>Actual</th><th>Count</th></tr></thead><tbody>");
     for row in &stats.confusion_rows {
         out.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td>{}</td></tr>",
@@ -207,18 +208,18 @@ fn render_confusion(out: &mut String, report: &EvalReport) {
 
 fn render_trend(out: &mut String, history: &[EvalReport]) {
     out.push_str(&format!(
-        "<section><h2>趋势</h2>{}</section>\n",
+        "<section><h2>Trend</h2>{}</section>\n",
         svg::render_svg(history)
     ));
 }
 
 fn render_cases(out: &mut String, cases: &[CaseDetail]) {
-    out.push_str("<section><h2>逐条明细</h2><div class=\"filters\">");
+    out.push_str("<section><h2>Case details</h2><div class=\"filters\">");
     for (value, label) in [
-        ("all", "全部"),
-        ("fail", "仅错误"),
-        ("warn", "仅软缺口"),
-        ("repairs", "仅修复轨迹"),
+        ("all", "All"),
+        ("fail", "Failures"),
+        ("warn", "Soft gaps"),
+        ("repairs", "Repairs"),
     ] {
         let on = if value == "all" { " on" } else { "" };
         out.push_str(&format!(
@@ -232,7 +233,7 @@ fn render_cases(out: &mut String, cases: &[CaseDetail]) {
         }
     }
     out.push_str(
-        "<span class=\"sep\"></span><button class=\"group on\" data-v=\"all\">全部轨道</button>",
+        "<span class=\"sep\"></span><button class=\"group on\" data-v=\"all\">All tracks</button>",
     );
     for group in groups {
         out.push_str(&format!(
@@ -256,7 +257,7 @@ fn render_case(out: &mut String, case: &CaseDetail) {
          <summary><span class=\"badge {badge_class}\">{badge}</span>\
          <span class=\"cid\">{}</span><span class=\"ctext\">{}</span>\
          <span class=\"ckind\">{}</span><span class=\"cverdict\">{}</span>\
-         <span class=\"crounds\">{} 轮</span></summary><div class=\"case-body\">",
+         <span class=\"crounds\">{} rounds</span></summary><div class=\"case-body\">",
         esc(&case.group),
         case.repairs,
         esc(&case.id),
@@ -267,14 +268,14 @@ fn render_case(out: &mut String, case: &CaseDetail) {
     ));
     if case.engine_error {
         out.push_str(
-            "<p class=\"muted\">请求本身失败（网络/限流），无回复轨迹——与模型行为无关。</p>",
+            "<p class=\"muted\">The request itself failed (network or rate limit); no reply trajectory — unrelated to model behavior.</p>",
         );
     }
     if let Some(outcome) = &case.task {
         let note = if outcome.note.is_empty() {
-            "（降级：无 note）".to_owned()
+            "(degraded: no note)".to_owned()
         } else {
-            format!("末轮 note：{}", outcome.note)
+            format!("final note: {}", outcome.note)
         };
         out.push_str(&format!("<p class=\"muted\">{}</p>\n", esc(&note)));
     }
@@ -285,7 +286,7 @@ fn render_case(out: &mut String, case: &CaseDetail) {
             .map(|tag| format!("<span class=\"tag\">{tag}</span>"))
             .unwrap_or_default();
         out.push_str(&format!(
-            "<div class=\"round\"><div class=\"round-head\">第 {} 轮 {tag}</div><pre>{}</pre></div>\n",
+            "<div class=\"round\"><div class=\"round-head\">round {} {tag}</div><pre>{}</pre></div>\n",
             index + 1,
             esc(&round.text)
         ));
@@ -295,33 +296,33 @@ fn render_case(out: &mut String, case: &CaseDetail) {
 
 fn case_badge(case: &CaseDetail) -> (&'static str, &'static str, &'static str) {
     if case.engine_error {
-        return ("engine", "gray", "引擎失败");
+        return ("engine", "gray", "engine failed");
     }
     if let Some(outcome) = &case.classify {
         return match outcome {
-            ClassifyOutcome::Correct => ("ok", "green", "判定正确"),
-            ClassifyOutcome::Wrong { .. } => ("fail", "red", "误判"),
-            ClassifyOutcome::InvalidJson => ("fail", "red", "非 JSON"),
-            ClassifyOutcome::Rejected => ("fail", "red", "校验拒绝"),
+            ClassifyOutcome::Correct => ("ok", "green", "correct"),
+            ClassifyOutcome::Wrong { .. } => ("fail", "red", "misclassified"),
+            ClassifyOutcome::InvalidJson => ("fail", "red", "invalid JSON"),
+            ClassifyOutcome::Rejected => ("fail", "red", "rejected"),
         };
     }
     match &case.task {
-        Some(TaskOutcome { degraded: true, .. }) => ("fail", "red", "降级"),
+        Some(TaskOutcome { degraded: true, .. }) => ("fail", "red", "degraded"),
         Some(TaskOutcome {
             fields_complete: false,
             ..
-        }) => ("warn", "amber", "缺疏证"),
-        Some(_) => ("ok", "green", "契约达成"),
-        None => ("warn", "amber", "无判定"),
+        }) => ("warn", "amber", "incomplete"),
+        Some(_) => ("ok", "green", "contract met"),
+        None => ("warn", "amber", "no verdict"),
     }
 }
 
 fn case_verdict_text(case: &CaseDetail) -> String {
     if let Some(ClassifyOutcome::Wrong { actual }) = &case.classify {
-        return format!("判成{}", kind_label(*actual));
+        return format!("misclassified as {}", kind_label(*actual));
     }
     if case.task.as_ref().is_some_and(|outcome| outcome.degraded) && !case.engine_error {
-        return "落降级产物".to_owned();
+        return "degraded output".to_owned();
     }
     String::new()
 }
@@ -353,7 +354,7 @@ fn delta_chip(now: f64, previous: Option<f64>, dir: DeltaDir) -> String {
         DeltaDir::DownGood => !up,
     };
     format!(
-        "<span class=\"delta {}\" title=\"对比上一次同模式运行\">{}{:.2}</span>",
+        "<span class=\"delta {}\" title=\"vs the previous run of the same mode\">{}{:.2}</span>",
         if good { "good" } else { "bad" },
         if up { "▲" } else { "▼" },
         delta.abs()
@@ -364,7 +365,7 @@ fn engine_note(errors: usize) -> String {
     if errors == 0 {
         return String::new();
     }
-    format!(" · 引擎失败 {errors}")
+    format!(" · engine failures {errors}")
 }
 
 fn rate(numerator: usize, denominator: usize) -> f64 {
@@ -377,9 +378,9 @@ fn rate(numerator: usize, denominator: usize) -> f64 {
 
 fn dataset_label(dataset: &str) -> &str {
     match dataset {
-        "task_translate_word" => "词卡",
-        "task_translate_sentence" => "句译",
-        "task_explain_code" => "代码",
+        "task_translate_word" => "word",
+        "task_translate_sentence" => "sentence",
+        "task_explain_code" => "code",
         other => other,
     }
 }
@@ -393,11 +394,11 @@ fn group_label(group: &str) -> &str {
 
 fn kind_label(kind: TaskKind) -> &'static str {
     match kind {
-        TaskKind::TranslateWord => "词卡",
-        TaskKind::TranslateSentence => "句译",
-        TaskKind::ExplainCode => "代码",
-        TaskKind::ImageExplain => "图像",
-        TaskKind::General => "通用",
+        TaskKind::TranslateWord => "word",
+        TaskKind::TranslateSentence => "sentence",
+        TaskKind::ExplainCode => "code",
+        TaskKind::ImageExplain => "image",
+        TaskKind::General => "general",
     }
 }
 
@@ -527,23 +528,23 @@ mod tests {
     fn page_renders_headline_cases_and_trend() {
         let (report, cases) = sample();
         let html = render_html(&report, &cases, std::slice::from_ref(&report));
-        assert!(html.contains("分类 accuracy"), "headline card: {html}");
+        assert!(html.contains("classify accuracy"), "headline card: {html}");
         assert!(html.contains("0.00%"), "the failing classify shows 0/1");
-        assert!(html.contains("词卡 · 字段完整率"));
+        assert!(html.contains("word · fields-complete"));
         assert!(
-            html.contains("仅错误") && html.contains("仅修复轨迹"),
+            html.contains("Failures") && html.contains("Repairs"),
             "filters"
         );
         assert!(html.contains("data-status=\"fail\"") && html.contains("data-status=\"ok\""));
         assert!(html.contains("<svg"), "the trend chart is inlined");
-        assert!(html.contains("逐条明细") && html.contains("<details class=\"case\""));
-        assert!(html.contains("第 1 轮"), "per-round replies are listed");
+        assert!(html.contains("Case details") && html.contains("<details class=\"case\""));
+        assert!(html.contains("round 1"), "per-round replies are listed");
         assert!(
-            html.contains("口径：replay"),
+            html.contains("Scope: the replay page"),
             "the calibration footnote rides the page"
         );
         assert!(
-            !html.contains("混淆矩阵"),
+            !html.contains("Confusion matrix"),
             "no confusion section without error rows"
         );
     }
@@ -618,7 +619,7 @@ mod tests {
             &[other_mode.clone(), previous.clone(), report.clone()],
         );
         assert!(
-            html.contains("混淆矩阵"),
+            html.contains("Confusion matrix"),
             "confusion section with error rows"
         );
         assert!(

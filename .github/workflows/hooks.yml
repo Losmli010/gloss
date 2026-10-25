@@ -76,7 +76,7 @@ jobs:
       - name: Check non-negotiable constraints
         run: just constraints
 
-  # 界面文案统一进文案表：文案字面量 / 装入点 / 词条表唯一
+  # 界面文案统一进文案表：文案字面量、装入点、词条表唯一
   i18n:
     name: I18n check
     runs-on: ubuntu-latest
@@ -97,7 +97,7 @@ jobs:
       - name: Check UI copy lives in the catalog
         run: just i18n
 
-  # 注释纪律：Rust 源码只留中文文件头注释，非 Rust 注释纯中文且无代码引用
+  # 注释纪律：源码（Rust）只留中文文件头注释，注释主体全中文且无代码引用
   comments:
     name: Comments check
     runs-on: ubuntu-latest
@@ -113,12 +113,12 @@ jobs:
       - name: Run checker unit tests
         run: |
           python3 -m pip install --quiet pytest
-          python3 -m pytest scripts/hooks/check_comments_test.py -q
+          python3 -m pytest scripts/hooks/comments scripts/hooks/language_spec -q
 
       - name: Check comment discipline
         run: just comments
 
-  # BDD 测试行为清单与测试源码双向一致
+  # 行为清单（BDD）与测试源码双向一致
   test-bdd:
     name: Test BDD check
     runs-on: ubuntu-latest
@@ -139,7 +139,7 @@ jobs:
       - name: Check BDD inventory against test code
         run: just test-bdd
 
-  # Python 脚本格式化与静态检查（ruff）：纯文本秒级；版本钉死保证判定一致
+  # 脚本语言（Python）格式化与静态检查（ruff）：纯文本秒级；版本钉死保证判定一致
   python:
     name: Python format & lint
     runs-on: ubuntu-latest
@@ -161,7 +161,7 @@ jobs:
       - name: Lint Python scripts
         run: just lint-py
 
-  # TOML 格式与结构检查（tombi）：纯文本秒级；版本钉死保证判定一致
+  # 配置格式（TOML）与结构检查（tombi）：纯文本秒级；版本钉死保证判定一致
   toml:
     name: TOML check
     runs-on: ubuntu-latest
@@ -200,10 +200,12 @@ jobs:
       - name: Validate commit messages
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR_IS_BOT: ${{ endsWith(github.event.pull_request.user.login, '[bot]') }}
         run: |
-          # 校验本次 PR 引入的所有提交信息（跳过合并提交）
-          # PR 场景：比较基线与目标分支的实际提交
+          # 校验本次拉取请求（PR）引入的所有提交信息，跳过合并提交
+          # 拉取请求场景：比较基线与目标分支的实际提交
           # 推送场景：比较推送前后
+          # 机器人提交（依赖机器人）不按中文书写规则判罚，按作者名整段跳过
           if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
@@ -212,14 +214,39 @@ jobs:
             HEAD_SHA="${{ github.event.after }}"
           fi
           git fetch origin "$BASE" "$HEAD_SHA" --depth=100 2>/dev/null || true
-          git log --no-merges --format="%H" "$BASE..$HEAD_SHA" | while read sha; do
+          git log --no-merges --format="%H %an" "$BASE..$HEAD_SHA" | while read sha author; do
+            case "$author" in *"[bot]") continue;; esac
             msg="$(git log -1 --format=%B "$sha")"
             echo "检查 commit $sha"
             echo "$msg" | ./scripts/hooks/check_commit_msg.py -
           done
-          # squash 合并产生的提交信息取自 PR 标题（GitHub 追加 PR 号后缀），
-          # 按最长常见占位（#99999）模拟合并产物校验：标题自身合规而合并后超限同样拦下
-          if [ -n "$PR_TITLE" ]; then
+          # 压缩合并产生的提交信息取自拉取请求（PR）标题，托管平台（GitHub）追加编号后缀，
+          # 按最长常见占位编号模拟合并产物校验：标题自身合规而合并后超限同样拦下
+          if [ "$PR_AUTHOR_IS_BOT" != "true" ] && [ -n "$PR_TITLE" ]; then
             echo "检查 PR 标题（含 squash 后缀模拟 (#99999)）"
             printf '%s\n' "$PR_TITLE (#99999)" | ./scripts/hooks/check_commit_msg.py -
           fi
+
+  # 拉取请求（PR）内容检查：标题与正文过书写规则，正文核对模板必需小节
+  pr-template:
+    name: PR content check
+    # 推送与机器人（Dependabot）提交不套用模板，跳过
+    if: github.event_name == 'pull_request' && !endsWith(github.event.pull_request.user.login, '[bot]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run checker unit tests
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest scripts/hooks/check_pr_prose_test.py -q
+
+      - name: Check PR title and body follow the prose rules
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 标题与正文取自接口：标题做合并模拟校验，正文过书写规则并核对模板必需小节
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq .title > "$RUNNER_TEMP/pr_title"
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq .body > "$RUNNER_TEMP/pr_body"
+          python3 scripts/hooks/check_pr_prose.py "$RUNNER_TEMP/pr_body" "$RUNNER_TEMP/pr_title"

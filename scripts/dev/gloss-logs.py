@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""把 JSONL 日志渲染成人读形态：`时间 级别 目标 消息 (字段…)`。
+"""日志渲染工具：把结构化日志（JSONL）渲染成人类可读形态，一段依次是时间、
+级别、目标、消息与附属字段。
 
-日志落盘是 `~/.gloss/logs/gloss-<UTC 日期>.jsonl`（一行一个 JSON 对象），
-本脚本是它的读侧：默认跟随最新一份文件（等价 tail -f），可只挑一条任务
-链路（`--generation`）或只看某一档以上（`--level`）。
-
-用法：
-  scripts/dev/gloss-logs.py                  # 跟随最新日志
-  scripts/dev/gloss-logs.py --generation 2   # 只看代数 2 的链路
-  scripts/dev/gloss-logs.py --level warn     # 只看 warn 及以上
-  scripts/dev/gloss-logs.py --raw            # 原样输出 JSONL（给 jq/别的工具）
-  scripts/dev/gloss-logs.py --no-follow      # 打完现有内容就退出
+日志落盘在用户日志目录下按日期滚动的文件里，一行一个数据格式（JSON）对象；
+本脚本是它的读侧：默认跟随最新一份文件，可只挑一条任务链路（按代数）或只看
+某一档以上的级别，也支持原样输出与打完即退；旗标明细见脚本的参数解析段。
 """
 
 from __future__ import annotations
@@ -134,19 +128,25 @@ def follow(path: Path, args: argparse.Namespace, color: bool) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="渲染 gloss 的 JSONL 日志")
-    parser.add_argument("--dir", type=Path, default=DEFAULT_DIR, help="日志目录")
-    parser.add_argument("--file", type=Path, help="指定日志文件（默认取最新一份）")
-    parser.add_argument("--generation", type=int, help="只看这条代数的任务链路")
-    parser.add_argument("--level", choices=[level.lower() for level in LEVELS], help="最低级别")
-    parser.add_argument("--raw", action="store_true", help="原样输出 JSONL")
+    parser = argparse.ArgumentParser(description="render gloss JSONL logs")
+    parser.add_argument("--dir", type=Path, default=DEFAULT_DIR, help="log directory")
+    parser.add_argument("--file", type=Path, help="log file (default: the newest one)")
+    parser.add_argument("--generation", type=int, help="only this generation's task chain")
     parser.add_argument(
-        "--follow", dest="follow", action="store_true", default=True, help="跟随新行（默认）"
+        "--level", choices=[level.lower() for level in LEVELS], help="minimum level"
+    )
+    parser.add_argument("--raw", action="store_true", help="print raw JSONL")
+    parser.add_argument(
+        "--follow",
+        dest="follow",
+        action="store_true",
+        default=True,
+        help="follow new lines (default)",
     )
     parser.add_argument(
-        "--no-follow", dest="follow", action="store_false", help="打完现有内容就退出"
+        "--no-follow", dest="follow", action="store_false", help="print existing content and exit"
     )
-    parser.add_argument("--no-color", action="store_true", help="不输出颜色")
+    parser.add_argument("--no-color", action="store_true", help="disable color")
     args = parser.parse_args()
     if args.level is not None:
         args.level = args.level.upper()

@@ -1,9 +1,9 @@
-// Gloss 站点脚本：下载直链 + 本机架构识别 + 界面微交互。
-// 首行标记 JS 可用：进场动画的隐藏态只在脚本可用标记下生效，脚本加载失败时内容保持可见。
+// 应用（Gloss）站点脚本：下载直链、本机架构识别与界面微交互。
+// 首行标记脚本语言（JS）可用：进场动画的隐藏态只在脚本可用标记下生效，脚本加载失败时内容保持可见。
 document.documentElement.classList.add('js');
 
-// 下载契约：同源更新清单（CI 注入）提供稳定渠道各架构的镜像地址与体积；
-// 取不到或校验不过则整体降级到 GitHub Releases。
+// 下载契约：同源更新清单由持续集成（CI）注入，提供稳定渠道各架构的镜像地址与体积；
+// 取不到或校验不过则整体降级到发布托管。
 const RELEASES_LATEST = 'https://github.com/Losmli010/gloss/releases/latest';
 const ARCHES = {
   'aarch64-apple-darwin': { label: 'Apple Silicon' },
@@ -77,9 +77,9 @@ fetch('manifest.json')
     render();
   });
 
-// 本机架构识别：仅对 macOS 访客生效，WebGL 渲染器名优先（新架构报苹果芯片，
-// 旧架构报 Intel、AMD、NVIDIA 系；该口径天然兼容转译层下浏览器跑在新架构的
-// 边界——按 GPU 而非浏览器架构选包），取不到再走客户端提示；都取不到保持默认。
+// 本机架构识别：仅对系统（macOS）访客生效，网页图形（WebGL）渲染器名优先：新架构报苹果芯片，
+// 旧架构报芯片厂商（Intel/AMD/NVIDIA）系；该口径天然兼容转译层下浏览器跑在新架构的
+// 边界——按图形硬件（GPU）而非浏览器架构选包，取不到再走客户端提示；都取不到保持默认。
 async function detectArch() {
   if (!/Mac/i.test(navigator.userAgent)) return null;
   try {
@@ -93,7 +93,7 @@ async function detectArch() {
       if (/apple\s*(m\d|gpu)/i.test(renderer)) return 'aarch64-apple-darwin';
       if (/intel|nvidia|amd|radeon/i.test(renderer)) return 'x86_64-apple-darwin';
     }
-  } catch (err) { /* WebGL 不可用则走下一路 */ }
+  } catch (err) { /* 网页图形（WebGL）不可用则走下一路 */ }
   try {
     if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
       const ua = await navigator.userAgentData.getHighEntropyValues(['architecture', 'platform']);

@@ -1,4 +1,4 @@
-//! 系统字体发现：CoreText 家族定位与字体文件字节解析（ttc 面序号）。
+//! 系统字体发现：字体家族定位（CoreText）与字体文件字节解析，含字体集合（ttc）的面序号。
 
 use std::fs::File;
 use std::path::Path;
@@ -83,9 +83,11 @@ fn load_backing(path: &Path) -> Result<FontBacking, String> {
     let mapped = File::open(path)
         .map_err(|err| err.to_string())
         .and_then(|file| {
-            // SAFETY: 映射的是系统字体文件——由系统管理、本进程从不
-            // 写入，进程生命期内不被截断；映射长度即打开时的文件长度，
-            // 切片读取不会越出映射页。
+            // SAFETY: The file being mapped is a system font file: it is managed
+            // by the system, never written to by this process, and never
+            // truncated during the lifetime of the process; the mapping length
+            // equals the file length at open time, so slice reads cannot run
+            // past the mapped pages.
             unsafe { Mmap::map(&file) }.map_err(|err| err.to_string())
         });
     match mapped {

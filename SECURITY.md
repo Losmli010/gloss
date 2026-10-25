@@ -1,21 +1,11 @@
-# Security Policy
+# 安全政策
 
-## Supported Versions
+## 支持的版本
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+安全修复只落在最新发布版本与主分支 `main`；更早的版本不再补丁，复现前请先升级。
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+## 报告漏洞
 
-## Reporting a Vulnerability
+安全问题不要走公开的缺陷单，请改走私密渠道，给修复留出窗口：入口在代码托管平台（GitHub）仓库页的“安全”标签。
 
-Use this section to tell people how to report a vulnerability.
-
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+报告请附：版本或提交、复现步骤、影响评估。确认后会同步处理进展，修复发布前细节不公开。
