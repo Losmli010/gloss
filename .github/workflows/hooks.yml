@@ -13,9 +13,11 @@ permissions:
   contents: read
 
 jobs:
-  # 硬编码密钥：匹配引擎（ripgrep）按版本清单安装，规则单测先行，再扫全部仓库跟踪文件
-  secrets:
-    name: Secrets check
+  # 纯文本门禁并轨作业：一次检出与装环境，检查器单测先跑，再按步骤依序跑各配方；
+  # 步骤名与原独立作业同源，失败可按步骤名定位。本语言（Rust）格式化归主工作流
+  # 的格式作业执行，不在此重复，迁移前后持续集成执行的门禁集合不变。
+  text-gates:
+    name: Text gates
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,6 +28,7 @@ jobs:
         with:
           tool: just
 
+      # 版本钉死在仓库根版本清单，安装与本地校验同读
       - name: Resolve ripgrep version
         run: echo "RG_PIN=ripgrep@$(python3 scripts/dev/tool_version.py ripgrep)" >> "$GITHUB_ENV"
 
@@ -34,157 +37,48 @@ jobs:
         with:
           tool: ${{ env.RG_PIN }}
 
-      - name: Run checker unit tests
+      - name: Install pytest, ruff and tombi
         run: |
           python3 -m pip install --quiet pytest
-          python3 -m pytest scripts/hooks/check_secrets_test.py -q
+          python3 -m pip install ruff==$(python3 scripts/dev/tool_version.py ruff)
+          npm install -g tombi@$(python3 scripts/dev/tool_version.py tombi)
 
-      - name: Scan for hardcoded secrets
+      # 检查器单测目录发现跑法与本地同款，覆盖全部门禁脚本与客户端钩子
+      - name: Run checker unit tests
+        run: just hooks-test
+
+      # 硬编码密钥：扫全部仓库跟踪文件
+      - name: Secrets check
         run: just secrets
 
-  # 项目文档引用一致性
-  docs:
-    name: Docs check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just
-
-      - name: Run checker unit tests
-        run: |
-          python3 -m pip install --quiet pytest
-          python3 -m pytest scripts/hooks/check_agents_doc_test.py -q
-
-      - name: Check AGENTS.md references
+      # 项目文档引用一致性
+      - name: Docs check
         run: just agents-doc
 
-  # 自动化门禁：可由工具判定的部分
-  constraints:
-    name: Constraints check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just
-
-      - name: Run checker unit tests
-        run: |
-          python3 -m pip install --quiet pytest
-          python3 -m pytest scripts/hooks/check_constraints_test.py -q
-
-      - name: Check non-negotiable constraints
+      # 自动化门禁：可由工具判定的部分
+      - name: Constraints check
         run: just constraints
 
-  # 界面文案统一进文案表：文案字面量、装入点、词条表唯一
-  i18n:
-    name: I18n check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just
-
-      - name: Run checker unit tests
-        run: |
-          python3 -m pip install --quiet pytest
-          python3 -m pytest scripts/hooks/check_i18n_test.py -q
-
-      - name: Check UI copy lives in the catalog
+      # 界面文案统一进文案表：文案字面量、装入点、词条表唯一
+      - name: I18n check
         run: just i18n
 
-  # 注释纪律：源码（Rust）只留中文文件头注释，注释主体全中文且无代码引用
-  comments:
-    name: Comments check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just
-
-      - name: Run checker unit tests
-        run: |
-          python3 -m pip install --quiet pytest
-          python3 -m pytest scripts/hooks/comments scripts/hooks/language_spec -q
-
-      - name: Check comment discipline
+      # 注释纪律：源码（Rust）只留中文文件头注释，注释主体全中文且无代码引用
+      - name: Comments check
         run: just comments
 
-  # 行为清单（BDD）与测试源码双向一致
-  test-bdd:
-    name: Test BDD check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just
-
-      - name: Run checker unit tests
-        run: |
-          python3 -m pip install --quiet pytest
-          python3 -m pytest scripts/hooks/check_test_bdd_test.py -q
-
-      - name: Check BDD inventory against test code
+      # 行为清单（BDD）与测试源码双向一致
+      - name: Test BDD check
         run: just test-bdd
 
-  # 脚本语言（Python）格式化与静态检查（ruff）：纯文本秒级；版本钉死在仓库根版本清单，安装与本地校验同读
-  python:
-    name: Python format & lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just
-
-      - name: Install ruff
-        run: python3 -m pip install ruff==$(python3 scripts/dev/tool_version.py ruff)
-
+      # 脚本语言（Python）格式化与静态检查（ruff）：纯文本秒级
       - name: Check Python formatting
         run: just fmt-py
 
       - name: Lint Python scripts
         run: just lint-py
 
-  # 配置格式（TOML）与结构检查（tombi）：纯文本秒级；版本钉死在仓库根版本清单，安装与本地校验同读
-  toml:
-    name: TOML check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just
-
-      - name: Install tombi
-        run: npm install -g tombi@$(python3 scripts/dev/tool_version.py tombi)
-
+      # 配置格式（TOML）与结构检查（tombi）：纯文本秒级
       - name: Check TOML formatting
         run: just fmt-toml
 
@@ -214,6 +108,7 @@ jobs:
           # 拉取请求场景：比较基线与目标分支的实际提交
           # 推送场景：比较推送前后
           # 机器人提交（依赖机器人）不按中文书写规则判罚，按作者名整段跳过
+          # 全部消息落临时目录后一次进程吃进，免逐提交起解释器
           if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
@@ -222,18 +117,25 @@ jobs:
             HEAD_SHA="${{ github.event.after }}"
           fi
           git fetch origin "$BASE" "$HEAD_SHA" --depth=100 2>/dev/null || true
+          msgdir="$RUNNER_TEMP/commit-msgs"
+          rm -rf "$msgdir"
+          mkdir -p "$msgdir"
           git log --no-merges --format="%H %an" "$BASE..$HEAD_SHA" | while read sha author; do
             case "$author" in *"[bot]") continue;; esac
-            msg="$(git log -1 --format=%B "$sha")"
-            echo "检查 commit $sha"
-            echo "$msg" | ./scripts/hooks/check_commit_msg.py -
+            git log -1 --format=%B "$sha" > "$msgdir/$sha"
           done
           # 压缩合并产生的提交信息取自拉取请求（PR）标题，托管平台（GitHub）追加编号后缀，
           # 按最长常见占位编号模拟合并产物校验：标题自身合规而合并后超限同样拦下
           if [ "$PR_AUTHOR_IS_BOT" != "true" ] && [ -n "$PR_TITLE" ]; then
-            echo "检查 PR 标题（含 squash 后缀模拟 (#99999)）"
-            printf '%s\n' "$PR_TITLE (#99999)" | ./scripts/hooks/check_commit_msg.py -
+            printf '%s\n' "$PR_TITLE (#99999)" > "$msgdir/pr-title"
           fi
+          shopt -s nullglob
+          files=("$msgdir"/*)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "无提交信息需要校验"
+            exit 0
+          fi
+          ./scripts/hooks/check_commit_msg.py "${files[@]}"
 
   # 拉取请求（PR）内容检查：标题与正文过书写规则，正文核对模板必需小节
   pr-template:

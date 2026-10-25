@@ -1,4 +1,5 @@
-"""提交信息门禁的单测：逐条覆盖提交规范判定与边界。
+"""提交信息门禁的单测：逐条覆盖提交规范判定与边界，含一次进程吃进多条消息的
+命令行入口。
 
 被测入口是门禁的校验函数，返回错误串或空，不落进程；用法见持续集成的钩子工作流。
 """
@@ -215,3 +216,42 @@ def test_body_squash_entry_unknown_type_rejected():
 
 def test_body_squash_entry_scope_prose_still_checked():
     assert_reject("feat: 标题\n\n* fix(login page): 登录页改动")
+
+
+# ---- 命令行多文件入口（持续集成一次进程吃进全部消息）----
+
+
+def test_cli_single_file_ok(tmp_path, capsys):
+    path = tmp_path / "msg"
+    path.write_text("feat: 单条消息标题\n", encoding="utf-8")
+    assert check_commit_msg.main(["check_commit_msg.py", str(path)]) == 0
+    assert "单条消息标题" in capsys.readouterr().out
+
+
+def test_cli_multiple_files_all_ok(tmp_path, capsys):
+    first = tmp_path / "one"
+    first.write_text("feat: 第一条标题\n\n正文一\n", encoding="utf-8")
+    second = tmp_path / "two"
+    second.write_text("fix(core): 第二条标题\n", encoding="utf-8")
+    assert check_commit_msg.main(["check_commit_msg.py", str(first), str(second)]) == 0
+    out = capsys.readouterr().out
+    assert "第一条标题" in out
+    assert "第二条标题" in out
+
+
+def test_cli_multiple_files_any_failure_fails(tmp_path, capsys):
+    first = tmp_path / "one"
+    first.write_text("feat: 第一条标题\n", encoding="utf-8")
+    second = tmp_path / "two"
+    second.write_text("bad message\n", encoding="utf-8")
+    third = tmp_path / "three"
+    third.write_text("docs: 第三条标题\n", encoding="utf-8")
+    assert check_commit_msg.main(["check_commit_msg.py", str(first), str(second), str(third)]) == 1
+    captured = capsys.readouterr()
+    assert "第一条标题" in captured.out
+    assert "第三条标题" in captured.out
+    assert "bad message" in captured.err
+
+
+def test_cli_no_arguments_prints_usage():
+    assert check_commit_msg.main(["check_commit_msg.py"]) == 2
