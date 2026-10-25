@@ -306,7 +306,7 @@ test-bdd:
 
 # 自动化门禁：依赖方向、日志、界面库（egui）上下文装入点、版本单点、依赖特性、残留标记
 constraints:
-    {{py}} scripts/hooks/check_constraints.py
+    {{py}} scripts/hooks/constraints/__main__.py
 
 # 界面文案统一进文案表（文案字面量、装入点、词条表唯一）
 i18n:
