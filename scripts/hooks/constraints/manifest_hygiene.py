@@ -1,7 +1,8 @@
 """约束门禁·清单卫生：版本单点维护、依赖只开需要的特性、依赖无死条目——
 子包的版本与语言版本继承工作区，字面量只在根清单的工作区段；第三方依赖声明
 必须关闭默认特性，且必须在源码面有使用证据；条目行尾放行标记豁免并须注明
-缘由。判定口径与取舍见记录文件。
+缘由。违规经统一诊断出口带规则标识报告，证据为完整条目不截断。判定口径与
+取舍见记录文件。
 """
 
 from __future__ import annotations
@@ -10,7 +11,22 @@ import os
 import re
 from typing import Any
 
+import gate_report
+
 from . import manifests
+
+RULE_VERSION_SINGLE = "VERSION-SINGLE"
+RULE_DEFAULT_FEATURES = "DEFAULT-FEATURES"
+RULE_DEAD_DEP = "DEAD-DEP"
+
+VERSION_SINGLE_REMEDY = (
+    "keep the version and edition literals only in the root [workspace.package] section"
+    " and inherit them everywhere else"
+)
+DEFAULT_FEATURES_REMEDY = "add default-features = false to the dependency declaration"
+DEAD_DEP_REMEDY = (
+    "use it, drop it, or add a deps:allow marker with a reason at the end of the entry line"
+)
 
 INHERITED_FIELDS = ("version", "edition")
 
@@ -21,11 +37,13 @@ FIELD_INHERIT_RES = {
 }
 
 
-def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
+def run(
+    root: str, loader: Any = None, report: manifests.Reporter | None = None
+) -> tuple[list[str], list[str]]:
     """执行版本单点、依赖特性与死条目约束，返回通过与失败两个清单。"""
+    rep = report if report is not None else manifests.Reporter()
     dump = manifests.dep_dump(root, loader)
     oks = []
-    fails = []
 
     root_manifest = os.path.join(root, "Cargo.toml")
     ws_body = (
@@ -35,21 +53,29 @@ def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     )
     for field in INHERITED_FIELDS:
         if not any(FIELD_LITERAL_RES[field].match(line) for line in ws_body):
-            manifests.note_violation(
-                fails,
-                "constraint violation (single version source): %s [workspace.package]"
-                " has no %s literal (the single source lives here)"
-                % (manifests.rel(root, root_manifest), field),
+            rep.note(
+                gate_report.Finding(
+                    rule=RULE_VERSION_SINGLE,
+                    path=manifests.rel(root, root_manifest),
+                    line=0,
+                    message="single version source: [workspace.package] has no %s literal"
+                    " (the single source lives here)" % field,
+                    remedy=VERSION_SINGLE_REMEDY,
+                )
             )
     for m in manifests.manifests(root, loader):
         pkg = manifests.section_body(m, "[package]", loader)
         for field in INHERITED_FIELDS:
             if not any(FIELD_INHERIT_RES[field].match(line) for line in pkg):
-                manifests.note_violation(
-                    fails,
-                    "constraint violation (single version source): %s [package] misses"
-                    " %s.workspace = true (do not hardcode the literal)"
-                    % (manifests.rel(root, m), field),
+                rep.note(
+                    gate_report.Finding(
+                        rule=RULE_VERSION_SINGLE,
+                        path=manifests.rel(root, m),
+                        line=0,
+                        message="single version source: [package] misses %s.workspace ="
+                        " true (do not hardcode the literal)" % field,
+                        remedy=VERSION_SINGLE_REMEDY,
+                    )
                 )
     oks.append("ok single version source (root [workspace.package] + per-crate *.workspace = true)")
 
@@ -61,10 +87,15 @@ def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
             continue
         deps_checked += 1
         if "default-features = false" not in text:
-            manifests.note_violation(
-                fails,
-                "constraint violation (default features off): %s:%d %s lacks"
-                " default-features = false" % (mrel, start, key),
+            rep.note(
+                gate_report.Finding(
+                    rule=RULE_DEFAULT_FEATURES,
+                    path=mrel,
+                    line=start,
+                    message="default features off: %s lacks default-features = false" % key,
+                    evidence=text,
+                    remedy=DEFAULT_FEATURES_REMEDY,
+                )
             )
     oks.append(
         "ok default features off (%d third-party dependency declarations checked)" % deps_checked
@@ -107,16 +138,20 @@ def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
         if found:
             continue
         dead_count += 1
-        manifests.note_violation(
-            fails,
-            "constraint violation (no dead dependencies): %s declares %s (%s:%d) with no"
-            " usage evidence in src/tests/benches — use it, drop it, or add a deps:allow"
-            " marker with a reason at the end of the entry line"
-            % (os.path.basename(owner), key, mrel, start),
+        rep.note(
+            gate_report.Finding(
+                rule=RULE_DEAD_DEP,
+                path=mrel,
+                line=start,
+                message="no dead dependencies: %s declares %s with no usage evidence in"
+                " src/tests/benches" % (os.path.basename(owner), key),
+                evidence=text,
+                remedy=DEAD_DEP_REMEDY,
+            )
         )
     if dead_count == 0:
         oks.append(
             "ok no dead dependencies (%d third-party declarations scanned, %d deps:allow)"
             % (dead_scanned, dead_allowed)
         )
-    return oks, fails
+    return oks, rep.lines
