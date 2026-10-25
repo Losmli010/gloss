@@ -6,6 +6,8 @@
 
 """
 
+from __future__ import annotations
+
 import re
 
 CJK = re.compile(r"[\u4e00-\u9fff]")
@@ -217,7 +219,7 @@ SEGMENT_SPLIT = re.compile(r"[，。；：！？、（）《》…—\n]+")
 SEGMENT_TRIM = " \t\n─*-·-"
 
 
-def chinese_zone_problems(loc, zone, label):
+def chinese_zone_problems(loc: str, zone: str, label: str) -> list[str]:
     """中文主体的字符级检查：只允许汉字、中文标点、阿拉伯数字与空白。
 
     数字之间的小数点随数字放行——它是数字写法的一部分，不是句读标点。"""
@@ -250,7 +252,7 @@ def chinese_zone_problems(loc, zone, label):
     return out
 
 
-def gloss_problems(loc, gloss, label):
+def gloss_problems(loc: str, gloss: str, label: str) -> list[str]:
     """注记括号检查：内有外文时只许白名单专名、不得混入中文；纯中文时同主体。"""
     gloss = gloss.strip()
     if not gloss:
@@ -273,7 +275,7 @@ def gloss_problems(loc, gloss, label):
     return chinese_zone_problems(loc, gloss, label)
 
 
-def split_glosses(body):
+def split_glosses(body: str) -> tuple[list[str], str, list[str]]:
     """按栈配对全角括号，切成注记与主体：返回（注记清单，主体残文，括号问题）。"""
     glosses = []
     residual = []
@@ -317,7 +319,7 @@ def split_glosses(body):
     return glosses, "".join(residual), problems
 
 
-def body_problems(loc, body, label):
+def body_problems(loc: str, body: str, label: str) -> list[str]:
     """整条表述的分域检查：先摘注记括号，再查主体与各注记。"""
     out = []
     glosses, residual, bracket_problems = split_glosses(body)

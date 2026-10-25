@@ -26,6 +26,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parents[1]
@@ -57,7 +58,7 @@ def build_test_binary(test: str) -> Path:
     return Path(executables[-1])
 
 
-def _parse_json(line: str):
+def _parse_json(line: str) -> Any:
     try:
         return json.loads(line)
     except json.JSONDecodeError:
@@ -74,7 +75,7 @@ def selftest_env() -> dict:
     return env
 
 
-def signal_kind(line: str):
+def signal_kind(line: str) -> Any:
     message = _parse_json(line)
     if not isinstance(message, dict):
         return None

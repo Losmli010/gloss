@@ -5,15 +5,18 @@
 一致。领域划分与聚合序的取舍见记录文件。
 """
 
+from __future__ import annotations
+
 import os
 import sys
+from typing import Any
 
 from . import architecture, logging, manifest_hygiene, source_hygiene, ui_boundary
 
 MODULES = (architecture, logging, ui_boundary, manifest_hygiene, source_hygiene)
 
 
-def run(root, loader=None):
+def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """逐模块聚合判定，返回通过与失败两个清单；装入器在场时清单与文件读取
     走共享缓存，缺省自行读取。"""
     print("== constraint checks (repo root: %s) ==" % root)
@@ -26,7 +29,7 @@ def run(root, loader=None):
     return oks, fails
 
 
-def main(loader=None):
+def main(loader: Any = None) -> int:
     root = (
         os.path.abspath(sys.argv[1])
         if len(sys.argv) > 1

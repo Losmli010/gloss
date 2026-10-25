@@ -4,6 +4,8 @@
 团队成员取得仓库副本后只需运行一次本脚本。
 """
 
+from __future__ import annotations
+
 import os
 import stat
 import subprocess
@@ -27,7 +29,7 @@ EXEC_FILES = [
 ]
 
 
-def main():
+def main() -> int:
     for rel in EXEC_FILES:
         path = os.path.join(ROOT, rel)
         if not os.path.isfile(path):

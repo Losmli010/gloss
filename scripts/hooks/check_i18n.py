@@ -17,9 +17,13 @@
 用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
 """
 
+from __future__ import annotations
+
 import os
 import re
 import sys
+from collections.abc import Iterator
+from typing import Any
 
 RULE = "ui copy lives in the i18n catalog"
 OWNER = "crates/gloss-app/src/ui/i18n.rs"
@@ -28,7 +32,7 @@ SCAN_DIRS = "gloss-app / root crate / gloss-core / gloss-platform src"
 ALLOW_MARKER = "i18n:allow"
 
 
-def rs_files(base):
+def rs_files(base: str) -> Iterator[str]:
     if not os.path.isdir(base):
         return
     for dirpath, dirnames, filenames in os.walk(base):
@@ -38,7 +42,7 @@ def rs_files(base):
                 yield os.path.join(dirpath, name)
 
 
-def skip_blanks(src, i):
+def skip_blanks(src: str, i: int) -> int:
     n = len(src)
     while i < n:
         c = src[i]
@@ -64,14 +68,14 @@ def skip_blanks(src, i):
     return i
 
 
-def read_word(src, i):
+def read_word(src: str, i: int) -> tuple[str, int]:
     j = i
     while j < len(src) and (src[j].isalnum() or src[j] == "_"):
         j += 1
     return src[i:j], j
 
 
-def attribute_span(src, i):
+def attribute_span(src: str, i: int) -> tuple[int, str]:
     """i 指向 '#'。是属性（#[..] 或 #![..]）时返回 (结束下标, 方括号内文本)，
     否则返回 (i, "")。方括号内的字符串 / char / 原始字符串按字面量整体跳过，
     其中的 ']' 不参与配对。"""
@@ -133,7 +137,7 @@ def attribute_span(src, i):
     return n, src[inner_start:n]
 
 
-def test_mod_brace(src, i):
+def test_mod_brace(src: str, i: int) -> int | None:
     """#[cfg(test)] 属性结束后，若紧跟一个带 body 的 mod 项（可带其他属性与
     pub 修饰），返回其 body '{' 的下标；否则返回 None（无 body 的 mod 声明、
     其他项均不算）。"""
@@ -172,7 +176,7 @@ def test_mod_brace(src, i):
         return None
 
 
-def literal_lines(src):
+def literal_lines(src: str) -> set[int]:
     """生产代码（注释、属性、#[cfg(test)] mod 项之外）里含非 ASCII 字面量的行号。"""
     hits = set()
     i, n, line = 0, len(src), 1
@@ -306,7 +310,7 @@ def literal_lines(src):
     return hits
 
 
-def literal_violations(root, loader=None):
+def literal_violations(root: str, loader: Any = None) -> list[str]:
     """检查一：四个扫描面的生产代码字面量，返回违规描述列表。"""
     problems = []
     for base in (
@@ -336,7 +340,7 @@ def literal_violations(root, loader=None):
     return problems
 
 
-def scan_all_rs(root):
+def scan_all_rs(root: str) -> Iterator[str]:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in ("target", ".git"))
         for name in sorted(filenames):
@@ -344,7 +348,7 @@ def scan_all_rs(root):
                 yield os.path.join(dirpath, name)
 
 
-def scan_all_toml(root):
+def scan_all_toml(root: str) -> Iterator[str]:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in ("target", ".git"))
         for name in sorted(filenames):
@@ -352,13 +356,13 @@ def scan_all_toml(root):
                 yield os.path.join(dirpath, name)
 
 
-def run(root, loader=None):
+def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """执行三条检查，返回 (oks, fails)；违规随执行流即时输出到 stderr
     （对齐 bash 版的交错输出），列表供调用方取用；装入器在场时文件读取走
     共享缓存，缺省自行读取。"""
     fails = []
 
-    def fail(msg):
+    def fail(msg: str) -> None:
         fails.append(msg)
         print("  ✗ %s" % msg, file=sys.stderr)
 
@@ -421,7 +425,7 @@ def run(root, loader=None):
     return oks, fails
 
 
-def main(loader=None):
+def main(loader: Any = None) -> int:
     root = (
         os.path.abspath(sys.argv[1])
         if len(sys.argv) > 1

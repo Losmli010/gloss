@@ -17,10 +17,13 @@
 用法：以解释器运行本脚本，首参为指令文档路径，缺省为仓库根的指令文档。
 """
 
+from __future__ import annotations
+
 import os
 import re
 import subprocess
 import sys
+from typing import Any
 
 RECIPE_RE = re.compile(r"(?:^|[^A-Za-z0-9_-])just ([a-z][a-z0-9-]*)")
 BACKTICK_RE = re.compile(r"`([^`]+)`")
@@ -34,14 +37,14 @@ BARE_SUFFIXES = (".md", ".toml", ".py", ".rs", ".yml", ".json")
 SELF_EXEMPT = {"check_agents_doc.py", "check_agents_doc_test.py"}
 
 
-def scan_lines(doc_path, loader=None):
+def scan_lines(doc_path: str, loader: Any = None) -> list[str]:
     if loader is not None:
         return loader.read_text(doc_path).split("\n")
     with open(doc_path, encoding="utf-8") as fh:
         return fh.read().split("\n")
 
 
-def rule_names(lines):
+def rule_names(lines: list[str]) -> list[str]:
     """“质量条目总表”段里以 **名字** 起头的条目名。"""
     names = []
     in_section = False
@@ -56,7 +59,7 @@ def rule_names(lines):
     return names
 
 
-def scan_targets(root, target, tracked):
+def scan_targets(root: str, target: str, tracked: list[str]) -> bool:
     """测试目标是否有对应源码：有跟踪清单时按清单，否则按工作区。"""
     if tracked:
         leaf = ["tests", "%s.rs" % target]
@@ -72,7 +75,7 @@ def scan_targets(root, target, tracked):
     return any(os.path.isfile(c) for c in candidates)
 
 
-def tracked_files(root):
+def tracked_files(root: str) -> list[str]:
     """版本库跟踪清单；不是仓库根时返回空表，调用方退回工作区遍历。
 
     空字节分隔取原始字节再容错解码：非空分隔形态对非英文字节（ASCII）文
@@ -97,20 +100,22 @@ def tracked_files(root):
         return []
 
 
-def repo_path_exists(token, tracked):
+def repo_path_exists(token: str, tracked: list[str]) -> bool:
     """路径是否在跟踪清单里：目录按前缀、文件按全名。"""
     if token.endswith("/"):
         return any(p.startswith(token) for p in tracked)
     return token in tracked or any(p.startswith(token + "/") for p in tracked)
 
 
-def ref_file(p):
+def ref_file(p: str) -> bool:
     """是否参与质量条目引用核对：源码、清单、脚本与工作流，另加任务配方。"""
     name = os.path.basename(p)
     return name.endswith((".rs", ".toml", ".py", ".yml")) or name == "justfile"
 
 
-def scan_quality_refs(root, names, tracked, loader=None):
+def scan_quality_refs(
+    root: str, names: list[str], tracked: list[str], loader: Any = None
+) -> tuple[list[str], int, int]:
     """仓库各处（*.rs / *.toml / *.py / *.yml / justfile）对质量条目的指名引用核对。
 
     有跟踪清单时只读清单里的文件：工作区里未跟踪的临时目录与本地记录不能
@@ -151,7 +156,7 @@ def scan_quality_refs(root, names, tracked, loader=None):
     return violations, ref_files, ref_count
 
 
-def run(doc_path, loader=None):
+def run(doc_path: str, loader: Any = None) -> tuple[list[str], int, int, int]:
     """按五类引用核对 doc_path，返回 (violations, checked, ref_files, ref_count)；
     装入器在场时清单枚举与文件读取走共享缓存，缺省自行读取。"""
     root = os.path.dirname(os.path.abspath(doc_path))
@@ -231,7 +236,7 @@ def run(doc_path, loader=None):
     return violations, checked, ref_files, ref_count
 
 
-def main(loader=None):
+def main(loader: Any = None) -> int:
     if len(sys.argv) >= 2:
         arg = os.path.abspath(sys.argv[1])
     else:

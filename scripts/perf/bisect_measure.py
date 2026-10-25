@@ -11,6 +11,8 @@
 判成坏，放宽会掩盖既有回归——二分区间起点选在口径变更之前，或临时对齐两端口径。
 """
 
+from __future__ import annotations
+
 import subprocess
 import sys
 
@@ -21,7 +23,7 @@ GATES = {
 }
 
 
-def main():
+def main() -> int:
     gate = sys.argv[1] if len(sys.argv) > 1 else ""
     if gate not in GATES:
         print("usage: bisect_measure.py <startup|show|clone>", file=sys.stderr)

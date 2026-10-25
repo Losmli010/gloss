@@ -4,6 +4,8 @@
 与显式浮动的条目没有可打印的全版本，按非零退出拒绝。
 """
 
+from __future__ import annotations
+
 import os
 import sys
 
@@ -11,7 +13,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TOOLS_PATH = os.path.join(ROOT, "tools.toml")
 
 
-def parse_sections(path):
+def parse_sections(path: str) -> dict[str, dict[str, str]]:
     """把清单文件解析成「段名到键值表」的映射；只认段头与单行赋值两种结构。"""
     sections = {}
     current = None
@@ -30,7 +32,7 @@ def parse_sections(path):
     return sections
 
 
-def pinned_version(name, path=TOOLS_PATH):
+def pinned_version(name: str, path: str = TOOLS_PATH) -> str | None:
     """返回某工具钉的全版本；清单里没有该工具或未钉全版本时返回空值。"""
     entry = parse_sections(path).get(name)
     if not entry:
@@ -38,7 +40,7 @@ def pinned_version(name, path=TOOLS_PATH):
     return entry.get("version")
 
 
-def main(argv):
+def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: %s <tool>" % argv[0], file=sys.stderr)
         return 2

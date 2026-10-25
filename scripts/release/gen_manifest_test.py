@@ -6,12 +6,15 @@
 沉记录文件。
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -30,7 +33,7 @@ ARTIFACT_PAYLOADS = {
 }
 
 
-def build_fixture(tmp_path, manifest=MANIFEST_OK, drop=None):
+def build_fixture(tmp_path: Path, manifest: str = MANIFEST_OK, drop: str | None = None) -> Path:
     (tmp_path / "Cargo.toml").write_text(manifest + "\n", encoding="utf-8")
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
@@ -40,19 +43,19 @@ def build_fixture(tmp_path, manifest=MANIFEST_OK, drop=None):
     return artifacts
 
 
-def run_ok(tmp_path, tag="v0.1.0", drop=None):
+def run_ok(tmp_path: Path, tag: str = "v0.1.0", drop: str | None = None) -> dict[str, Any]:
     artifacts = build_fixture(tmp_path, drop=drop)
     return gen_manifest.run(tag, str(artifacts), str(tmp_path))
 
 
-def test_manifest_generated(tmp_path):
+def test_manifest_generated(tmp_path: Path) -> None:
     manifest = run_ok(tmp_path)
     assert manifest["schema"] == 1
     assert manifest["version"] == "0.1.0"
     assert set(manifest["channels"]["stable"]) == {"aarch64-apple-darwin", "x86_64-apple-darwin"}
 
 
-def test_zip_url(tmp_path):
+def test_zip_url(tmp_path: Path) -> None:
     manifest = run_ok(tmp_path)
     entry = manifest["channels"]["stable"]["aarch64-apple-darwin"]
     assert entry["url"] == (
@@ -60,7 +63,7 @@ def test_zip_url(tmp_path):
     )
 
 
-def test_dmg_url(tmp_path):
+def test_dmg_url(tmp_path: Path) -> None:
     manifest = run_ok(tmp_path)
     entry = manifest["channels"]["stable"]["x86_64-apple-darwin"]
     assert entry["dmg_url"] == (
@@ -68,7 +71,7 @@ def test_dmg_url(tmp_path):
     )
 
 
-def test_size_and_sha256_measured_from_artifacts(tmp_path):
+def test_size_and_sha256_measured_from_artifacts(tmp_path: Path) -> None:
     artifacts = build_fixture(tmp_path)
     zip_path = artifacts / "gloss-0.1.0-aarch64-apple-darwin.zip"
     expected_size = zip_path.stat().st_size
@@ -79,7 +82,7 @@ def test_size_and_sha256_measured_from_artifacts(tmp_path):
     assert entry["sha256"] == expected_sha
 
 
-def run_cli(tmp_path, artifacts, *args):
+def run_cli(tmp_path: Path, artifacts: Path, *args: str) -> tuple[int, str, str]:
     """把被测脚本与版本单点校验脚本拷进夹具再跑 CLI（脚本按自身位置定位仓库根），
     返回 (returncode, stdout, stderr)。"""
     cli_dir = tmp_path / "scripts" / "release"
@@ -95,34 +98,34 @@ def run_cli(tmp_path, artifacts, *args):
     return proc.returncode, proc.stdout, proc.stderr
 
 
-def test_json_output_is_valid(tmp_path):
+def test_json_output_is_valid(tmp_path: Path) -> None:
     build_fixture(tmp_path)
     rc, out, err = run_cli(tmp_path, tmp_path / "artifacts", "v0.1.0", "artifacts")
     assert rc == 0, err
     assert json.loads(out)["version"] == "0.1.0"
 
 
-def test_missing_zip_rejected(tmp_path):
+def test_missing_zip_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="missing artifact file"):
         run_ok(tmp_path, drop="gloss-0.1.0-aarch64-apple-darwin.zip")
 
 
-def test_missing_dmg_rejected(tmp_path):
+def test_missing_dmg_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="missing artifact file"):
         run_ok(tmp_path, drop="gloss-0.1.0-x86_64-apple-darwin.dmg")
 
 
-def test_version_mismatch_rejected(tmp_path):
+def test_version_mismatch_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="version mismatch"):
         run_ok(tmp_path, tag="v0.2.0")
 
 
-def test_missing_v_prefix_rejected(tmp_path):
+def test_missing_v_prefix_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="lacks the v prefix"):
         run_ok(tmp_path, tag="0.1.0")
 
 
-def test_missing_arguments_usage_exit_2(tmp_path):
+def test_missing_arguments_usage_exit_2(tmp_path: Path) -> None:
     build_fixture(tmp_path)
     rc, _, err = run_cli(tmp_path, tmp_path / "artifacts")
     assert rc == 2

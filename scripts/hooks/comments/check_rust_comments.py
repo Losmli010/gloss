@@ -7,6 +7,8 @@
 身注释同规。
 """
 
+from __future__ import annotations
+
 import os
 import re
 import sys
@@ -20,18 +22,18 @@ from language_spec.coderef import MARKER  # noqa: E402
 from language_spec.english import english_zone_problems  # noqa: E402
 
 
-def handles(rel):
+def handles(rel: str) -> bool:
     """文件类型是否归本门禁：本语言（Rust）源文件。"""
     return rel.endswith(".rs")
 
 
-def lex(src):
+def lex(src: str) -> list[tuple[int, int, int, str, bool, bool, bool, str]]:
     """按字符扫描，产出注释事件：序号、起止行、种类、行首空白、是否在文件头
     前、紧随代码是否含不安全块与原文。紧随代码指注释后到空行、下一注释或文
     件尾之间的代码——不变量注释的邻接判定以它为准。"""
     newlines = [m.start() for m in re.finditer("\n", src)]
 
-    def line_of(i):
+    def line_of(i: int) -> int:
         import bisect
 
         return bisect.bisect_right(newlines, i) + 1
@@ -47,7 +49,7 @@ def lex(src):
     run_unsafe = False  # 紧随上一条注释的代码段是否含不安全块
     pending = None  # 等待邻接判定的注释事件下标
 
-    def settle():
+    def settle() -> None:
         """把已积累的代码段判给等待中的注释；无等待者时弃段。"""
         nonlocal pending, run_unsafe
         if pending is not None:
@@ -56,7 +58,7 @@ def lex(src):
             pending = None
         run_unsafe = False
 
-    def take_word():
+    def take_word() -> None:
         """收一个代码词符：是不安全块则记入当前代码段。"""
         nonlocal run_unsafe
         if word and "".join(word) == "unsafe":
@@ -239,7 +241,7 @@ def lex(src):
     return events
 
 
-def header_violations(lines, rel):
+def header_violations(lines: list[str], rel: str) -> list[str]:
     out = []
     merged = []
     for text in lines:
@@ -265,7 +267,7 @@ def header_violations(lines, rel):
     return out
 
 
-def block_tail_unsafe(events):
+def block_tail_unsafe(events: list[tuple[int, int, int, str, bool, bool, bool, str]]) -> list[bool]:
     """每条行注释取所在连续块最后一条的紧随判定：不变量注释的豁免看块尾。"""
     tail = [e[6] for e in events]
     block = []
@@ -284,7 +286,7 @@ def block_tail_unsafe(events):
     return tail
 
 
-def check(rel, src):
+def check(rel: str, src: str) -> list[str]:
     problems = []
     events = lex(src)
     tail = block_tail_unsafe(events)

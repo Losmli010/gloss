@@ -4,12 +4,16 @@
 拼接与各助手的取舍见记录文件。
 """
 
+from __future__ import annotations
+
 import os
 import re
 import sys
+from collections.abc import Iterator
+from typing import Any
 
 
-def manifests(root):
+def manifests(root: str) -> list[str]:
     out = []
     root_manifest = os.path.join(root, "Cargo.toml")
     if os.path.isfile(root_manifest):
@@ -23,7 +27,7 @@ def manifests(root):
     return out
 
 
-def pkg_name(manifest_path, loader=None):
+def pkg_name(manifest_path: str, loader: Any = None) -> str:
     """取 [package] 里的 crate 名。"""
     in_section = False
     for line in read_text(manifest_path, loader).split("\n"):
@@ -36,7 +40,7 @@ def pkg_name(manifest_path, loader=None):
     return ""
 
 
-def section_body(manifest_path, want, loader=None):
+def section_body(manifest_path: str, want: str, loader: Any = None) -> list[str]:
     """取某个 section 的正文（到下一个 section 头为止）。"""
     out = []
     in_section = False
@@ -49,7 +53,7 @@ def section_body(manifest_path, want, loader=None):
     return out
 
 
-def dep_entries(manifest_path, loader=None):
+def dep_entries(manifest_path: str, loader: Any = None) -> list[tuple[str, str, int, str]]:
     """抽取依赖条目，输出 (section, key, 行号, 条目全文（跨行拼接）)。
 
     依赖表含 [dependencies] / [dev-dependencies] / [build-dependencies]，以及
@@ -91,7 +95,7 @@ def dep_entries(manifest_path, loader=None):
     return entries
 
 
-def dep_dump(root, loader=None):
+def dep_dump(root: str, loader: Any = None) -> list[tuple[str, str, str, str, int, str]]:
     """全仓依赖条目汇总：条目依次是属主、清单相对路径、节、键、行号与全文。
 
     属主取清单里的包名，取不到时回退清单所在目录名（根清单即包目录）。"""
@@ -105,7 +109,7 @@ def dep_dump(root, loader=None):
     return out
 
 
-def walk_rs(*bases):
+def walk_rs(*bases: str) -> Iterator[str]:
     """列各 base 下的 .rs 文件；base 不存在则跳过。任意层级剪枝 target / .git：
     cargo 产物只应出现在仓库根，但误提交进源码树深处的同名目录同样不该进
     扫描面（bash 版只剪根级，这里是审慎的超集）。"""
@@ -119,23 +123,23 @@ def walk_rs(*bases):
                     yield os.path.join(dirpath, name)
 
 
-def read_text(path, loader=None):
+def read_text(path: str, loader: Any = None) -> str:
     if loader is not None:
         return loader.read_text(path, errors="replace")
     with open(path, encoding="utf-8", errors="replace") as fh:
         return fh.read()
 
 
-def rel(root, path):
+def rel(root: str, path: str) -> str:
     """统一归一为斜杠风格的仓库相对路径，跨平台下与源码里的常量路径可比。"""
     return os.path.relpath(path, root).replace(os.sep, "/")
 
 
-def is_path_dep(text):
+def is_path_dep(text: str) -> bool:
     return "path =" in text or "path=" in text
 
 
-def note_violation(fails, msg):
+def note_violation(fails: list[str], msg: str) -> None:
     """违规随执行流即时打到标准错误并进清单，供调用方汇总返回。"""
     fails.append(msg)
     print("  ✗ %s" % msg, file=sys.stderr)

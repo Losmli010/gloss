@@ -24,6 +24,8 @@
 弹两张卡。
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -36,6 +38,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parents[1]
@@ -51,7 +54,7 @@ ARCH_BINARY_FIELDS = {"x86_64": "binary_x64_kb", "arm64": "binary_arm64_kb"}
 OS_NAMES = {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}
 
 
-def run_text(cmd):
+def run_text(cmd: list[str]) -> str:
     try:
         return subprocess.run(
             cmd, capture_output=True, text=True, check=True, timeout=10
@@ -60,7 +63,7 @@ def run_text(cmd):
         return "unknown"
 
 
-def collect_env():
+def collect_env() -> dict[str, str]:
     cpu = "unknown"
     if sys.platform == "darwin":
         cpu = run_text(["sysctl", "-n", "machdep.cpu.brand_string"])
@@ -77,7 +80,7 @@ def collect_env():
     }
 
 
-def parse_cpu_seconds(text):
+def parse_cpu_seconds(text: str) -> float | None:
     """ps 的 time 列（MM:SS.ss / HH:MM:SS.ss）→ 秒。"""
     parts = text.strip().split(":")
     try:
@@ -89,7 +92,7 @@ def parse_cpu_seconds(text):
     return hours * 3600 + minutes * 60 + seconds
 
 
-def sample_process(pid):
+def sample_process(pid: int) -> tuple[int, float] | None:
     """ps 采样一个进程：RSS(kb) 与累计 CPU 秒；进程已退出返回 None。"""
     try:
         out = subprocess.run(
@@ -117,7 +120,7 @@ def sample_process(pid):
 FOOTPRINT_VALUE = re.compile(r"^(\d+(?:\.\d+)?)([KMG]?)$")
 
 
-def sample_footprint_kb(pid):
+def sample_footprint_kb(pid: int) -> dict[str, int] | None:
     """vmmap 采活动监视器口径的物理占用：空闲值与进程生命期峰值（kb）。
 
     进程已退出或 vmmap 不可用返回 None；只在空闲窗口末调用一次（vmmap
@@ -150,12 +153,12 @@ def sample_footprint_kb(pid):
     return values
 
 
-def find_log_file(log_dir):
+def find_log_file(log_dir: Path) -> Path | None:
     files = sorted(log_dir.glob("gloss-*.jsonl"))
     return files[-1] if files else None
 
 
-def parse_milestones(log_dir):
+def parse_milestones(log_dir: Path) -> tuple[dict[str, int], bool]:
     """解析日志：里程碑 id → elapsed_ms，外加系统字体补装是否完成。"""
     log_file = find_log_file(log_dir)
     if log_file is None:
@@ -175,7 +178,7 @@ def parse_milestones(log_dir):
     return milestones, fonts_applied
 
 
-def one_run(idle_secs, ready_timeout):
+def one_run(idle_secs: int, ready_timeout: int) -> dict[str, Any] | None:
     """spawn 一次并采到空闲窗口结束；失败返回 None（应用侧异常不外泄）。"""
     log_dir = Path(tempfile.mkdtemp(prefix="gloss-metrics-"))
     env = dict(os.environ, GLOSS_LOG_DIR=str(log_dir))
@@ -269,10 +272,10 @@ def one_run(idle_secs, ready_timeout):
             shutil.rmtree(log_dir, ignore_errors=True)
 
 
-def aggregate(runs):
+def aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
     """各指标取中位数，平铺成 v2 片段字段（id 见 metrics.py 注册表；无值不造 0）。"""
 
-    def med(key):
+    def med(key: str) -> int | None:
         values = [r[key] for r in runs if r.get(key) is not None]
         return round(statistics.median(values)) if values else None
 
@@ -292,7 +295,7 @@ def aggregate(runs):
     return fragment
 
 
-def dir_usage(path):
+def dir_usage(path: Path) -> tuple[int, int]:
     """目录总字节与文件数；目录不存在返回 (0, 0)。"""
     total, count = 0, 0
     if path.is_dir():
@@ -303,7 +306,7 @@ def dir_usage(path):
     return total, count
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )

@@ -8,6 +8,8 @@
 用法：以解释器运行，首参为应用包路径。
 """
 
+from __future__ import annotations
+
 import glob
 import os
 import shutil
@@ -23,11 +25,11 @@ OBSERVE_SECONDS = int(os.environ.get("SMOKE_OBSERVE_SECONDS", "5"))  # 起来后
 POLL_INTERVAL = 0.5
 
 
-def alive(proc):
+def alive(proc: subprocess.Popen[bytes]) -> bool:
     return proc.poll() is None
 
 
-def logs_contain(smoke_home, needle, ignore_case=False):
+def logs_contain(smoke_home: str, needle: str, ignore_case: bool = False) -> bool:
     logs_dir = os.path.join(smoke_home, ".gloss", "logs")
     if not os.path.isdir(logs_dir):
         return False
@@ -44,18 +46,18 @@ def logs_contain(smoke_home, needle, ignore_case=False):
     return False
 
 
-def dump_logs(smoke_home, pattern):
+def dump_logs(smoke_home: str, pattern: str) -> None:
     for path in sorted(glob.glob(os.path.join(smoke_home, pattern))):
         with open(path, encoding="utf-8", errors="replace") as fh:
             sys.stderr.write(fh.read())
 
 
-def fail(msg):
+def fail(msg: str) -> int:
     print(msg, file=sys.stderr)
     return 1
 
 
-def main():
+def main() -> int:
     if len(sys.argv) != 2:
         print("usage: %s <path/to/Gloss.app>" % sys.argv[0], file=sys.stderr)
         return 2

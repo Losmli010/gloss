@@ -4,9 +4,12 @@
 单测的夹具豁免任务标记自命中。判定口径与取舍见记录文件。
 """
 
+from __future__ import annotations
+
 import os
 import re
 import subprocess
+from typing import Any
 
 from . import manifests
 
@@ -19,7 +22,7 @@ SELF_FILES = (
 )
 
 
-def stub_section(path, pat, loader=None):
+def stub_section(path: str, pat: str, loader: Any = None) -> str:
     """端口桩按节比对：节以“列 0 的 ///”切分（桩的条目文档都在列 0，
     结构体字段文档有缩进，不会误切）。文件缺失按空节处理（对齐 cmp 空对空）。"""
     if not os.path.isfile(path):
@@ -39,7 +42,7 @@ def stub_section(path, pat, loader=None):
     return "\n".join(out)
 
 
-def run(root, loader=None):
+def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """执行桩副本一致、行数上限与任务标记约束，返回通过与失败两个清单。"""
     oks = []
     fails = []
@@ -48,7 +51,7 @@ def run(root, loader=None):
     if os.path.isfile(os.path.join(core_stubs, "engine.rs")):
         drifts = 0
 
-        def assert_same(desc, text_a, text_b):
+        def assert_same(desc: str, text_a: str, text_b: str) -> None:
             nonlocal drifts
             if text_a != text_b:
                 manifests.note_violation(
@@ -58,7 +61,7 @@ def run(root, loader=None):
                 )
                 drifts += 1
 
-        def text_of(path):
+        def text_of(path: str) -> str:
             return manifests.read_text(path, loader) if os.path.isfile(path) else ""
 
         assert_same(

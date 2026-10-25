@@ -4,12 +4,15 @@
 缘由。已知盲区与匹配取舍见记录文件。
 """
 
+from __future__ import annotations
+
 import re
+from typing import Any
 
 from . import manifests
 
 
-def run(root, loader=None):
+def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
     """执行上下文装入点与声明集中约束，返回通过与失败两个清单。"""
     oks = []
     fails = []

@@ -11,10 +11,14 @@
 用法：以解释器运行本脚本，无参数；仓库根取本脚本位置向上回溯。
 """
 
+from __future__ import annotations
+
 import io
 import os
 import subprocess
 import sys
+from types import ModuleType
+from typing import Any
 
 _HOOKS = os.path.dirname(os.path.abspath(__file__))
 _COMMENTS = os.path.join(_HOOKS, "comments")
@@ -47,16 +51,16 @@ class ContentLoader:
     解码层逐点对齐文本模式打开文件的读取语义：统一码容错口径由调用方指
     定并分开缓存，通用换行翻译照常发生，读取失败按原样抛出。"""
 
-    def __init__(self, root):
+    def __init__(self, root: str) -> None:
         self.root = root
         self._tracked = None
         self._bytes = {}
         self._text = {}
 
-    def _resolve(self, path):
+    def _resolve(self, path: str) -> str:
         return path if os.path.isabs(path) else os.path.join(self.root, path)
 
-    def tracked(self):
+    def tracked(self) -> list[str]:
         """版本库跟踪清单：全部消费方共享同一次枚举结果。"""
         if self._tracked is None:
             out = subprocess.run(
@@ -67,7 +71,7 @@ class ContentLoader:
             self._tracked = [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
         return self._tracked
 
-    def read_bytes(self, path):
+    def read_bytes(self, path: str) -> bytes:
         """字节层：按需读取并缓存，供逐字节数据与手工解码的消费方共用。"""
         key = self._resolve(path)
         if key not in self._bytes:
@@ -75,7 +79,7 @@ class ContentLoader:
                 self._bytes[key] = fh.read()
         return self._bytes[key]
 
-    def read_text(self, path, errors="strict"):
+    def read_text(self, path: str, errors: str = "strict") -> str:
         """解码层：按容错口径分别缓存，返回内容与文本模式读取逐字节一致。"""
         key = (self._resolve(path), errors)
         if key not in self._text:
@@ -86,7 +90,7 @@ class ContentLoader:
         return self._text[key]
 
 
-def run_gate(module, loader):
+def run_gate(module: ModuleType, loader: Any) -> int:
     """执行单个门禁并返回其退出码；前置失败按该门禁失败计，不中断后续门禁。"""
     try:
         return module.main(loader=loader)
@@ -96,7 +100,7 @@ def run_gate(module, loader):
         return 0 if exc.code in (None, 0) else 1
 
 
-def main():
+def main() -> int:
     if len(sys.argv) > 1:
         print("error: the merged text-gates entry takes no arguments", file=sys.stderr)
         print("  it always scans the repository it lives in;", file=sys.stderr)

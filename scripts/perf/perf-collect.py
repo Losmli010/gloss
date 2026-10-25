@@ -31,6 +31,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from types import ModuleType
+from typing import Any, NoReturn
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -38,7 +40,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from metrics import CORE_GROUPS, METRICS  # noqa: E402 —— 路径引导先于导入
 
 
-def _load_sibling_script(module_name, file_name):
+def _load_sibling_script(module_name: str, file_name: str) -> ModuleType:
     """按路径加载同目录脚本（文件名含连字符，import 语句加载不了）。"""
     spec = importlib.util.spec_from_file_location(module_name, SCRIPT_DIR / file_name)
     module = importlib.util.module_from_spec(spec)
@@ -98,11 +100,11 @@ V1_APP_FIELDS = {
 }
 
 
-def fail(message):
+def fail(message: str) -> NoReturn:
     sys.exit(f"error: {message}")
 
 
-def load_json_file(path):
+def load_json_file(path: Path) -> Any:
     """读 JSON 文件为对象；文件缺席返回 None（源缺席），在场但坏行当场失败。"""
     if not path.is_file():
         return None
@@ -112,7 +114,7 @@ def load_json_file(path):
         fail(f"{path} unparseable: {exc}")
 
 
-def read_mean_ns(estimates_path):
+def read_mean_ns(estimates_path: Path) -> int | None:
     """estimates.json → mean.point_estimate（ns，取整）；不可读警告后跳过。
 
     target/criterion 是滚动状态，个别目录残缺不应挡住整点采集；跳过留
@@ -128,7 +130,7 @@ def read_mean_ns(estimates_path):
         return None
 
 
-def read_full_id(bench_dir, fallback):
+def read_full_id(bench_dir: Path, fallback: str) -> str:
     """基准目录 → criterion full_id；benchmark.json 不可读时退回目录相对路径。"""
     try:
         return json.loads((bench_dir / "new" / "benchmark.json").read_text(encoding="utf-8"))[
@@ -138,7 +140,7 @@ def read_full_id(bench_dir, fallback):
         return fallback
 
 
-def collect_core():
+def collect_core() -> dict[str, int]:
     """criterion core 墙钟 → {core.<full_id>: mean_ns}，只收注册表已登记 id。"""
     metrics = {}
     for group, _label in CORE_GROUPS:
@@ -158,7 +160,7 @@ def collect_core():
     return metrics
 
 
-def collect_clone_allocs():
+def collect_clone_allocs() -> dict[str, int]:
     """clone_allocs/clone_bytes 两组 → 分配次数/字节合计（无数据即 id 缺席）。"""
     metrics = {}
     for group, metric_id in (("clone_allocs", "clone.allocs"), ("clone_bytes", "clone.bytes")):
@@ -172,7 +174,7 @@ def collect_clone_allocs():
     return metrics
 
 
-def collect_clone_static():
+def collect_clone_static() -> dict[str, int | float]:
     """clone-stats 静态计数 → clone.total / clone.density（聚合口径同原管线）。"""
     crates, _files = clone_stats.collect()
     total = sum(crate["clone"] for crate in crates.values())
@@ -183,7 +185,7 @@ def collect_clone_static():
     }
 
 
-def load_selftest_signals(path):
+def load_selftest_signals(path: Path) -> dict[str, Any]:
     """selftest.jsonl → 各源最后一条信号行（wrapper 每次整文件覆写落盘）。
 
     overlay 信号按 kind 识别，startup 信号按日志行 message 识别（verdict 由
@@ -210,7 +212,9 @@ def load_selftest_signals(path):
     return signals
 
 
-def collect_selftest(signals):
+def collect_selftest(
+    signals: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """自检信号行 → (metrics, budgets, env)；行内字段缺席即对应 id 缺席。"""
     metrics, budgets, env = {}, {}, {}
     overlay = signals.get("overlay")
@@ -237,7 +241,7 @@ def collect_selftest(signals):
     return metrics, budgets, env
 
 
-def collect_app():
+def collect_app() -> tuple[dict[str, Any], dict[str, Any]]:
     """app-metrics v2 片段 → (metrics, env)；片段缺席或字段 null 即 id 缺席。"""
     data = load_json_file(APP_PATH)
     if data is None:
@@ -253,7 +257,7 @@ def collect_app():
     return metrics, (env if isinstance(env, dict) else {})
 
 
-def collect_eval():
+def collect_eval() -> dict[str, Any]:
     """eval live 报告 → 端到端延迟分位；非 live 模式或字段缺席即 id 缺席。"""
     data = load_json_file(EVAL_PATH)
     if data is None or data.get("mode") != "live":
@@ -270,7 +274,7 @@ def collect_eval():
     return metrics
 
 
-def migrate_point(point):
+def migrate_point(point: dict[str, Any]) -> dict[str, Any]:
     """v1 嵌套点 → v2 扁平点（就地规范化）；已带 metrics 段的 v2 点原样返回。"""
     if "metrics" in point:
         return point
@@ -289,14 +293,14 @@ def migrate_point(point):
     return {"commit": point.get("commit"), "date": point.get("date"), "env": {}, "metrics": metrics}
 
 
-def parse_date(raw):
+def parse_date(raw: str) -> datetime:
     try:
         return datetime.fromisoformat(raw)
     except (TypeError, ValueError):
         fail(f"history has an unparseable date: {raw!r}")
 
 
-def insert_point(points, entry):
+def insert_point(points: list[dict[str, Any]], entry: dict[str, Any]) -> list[dict[str, Any]]:
     """同 commit 原位覆盖（位置即时序）；新点按 date 升序插入，不打乱既有顺序。"""
     replaced = False
     merged = []
@@ -317,7 +321,7 @@ def insert_point(points, entry):
     return merged[:index] + [entry] + merged[index:]
 
 
-def load_history(path):
+def load_history(path: Path) -> list[dict[str, Any]]:
     points = []
     if not path.is_file():
         return points
@@ -335,7 +339,7 @@ def load_history(path):
     return points
 
 
-def current_commit():
+def current_commit() -> str:
     proc = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True
     )
@@ -344,7 +348,7 @@ def current_commit():
     return proc.stdout.strip()
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )

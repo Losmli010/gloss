@@ -9,6 +9,8 @@
 只用系统自带的图像转换与图标集工具。
 """
 
+from __future__ import annotations
+
 import os
 import shutil
 import subprocess
@@ -19,11 +21,11 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ICONS = os.path.join(ROOT, "assets", "icons")
 
 
-def sips(*args):
+def sips(*args: str) -> None:
     subprocess.run(["sips", *args], check=True, stdout=subprocess.DEVNULL)
 
 
-def raster1024(src, dst):
+def raster1024(src: str, dst: str) -> bool:
     """光栅化尺寸取决于矢量图声明的宽高属性：丢了它转换工具会按内嵌尺寸出小图，
     下面的档位会把小图上采样成模糊图标静默进仓库，这里当场拦下。"""
     sips("-s", "format", "png", src, "--out", dst)
@@ -47,7 +49,7 @@ def raster1024(src, dst):
     return True
 
 
-def main():
+def main() -> int:
     for tool in ("sips", "iconutil"):
         if not shutil.which(tool):
             print(

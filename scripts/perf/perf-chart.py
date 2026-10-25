@@ -25,11 +25,15 @@
 一位小数——同一历史两次渲染逐字节一致，评审差异即数据差异。
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import math
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -198,7 +202,7 @@ RESOURCES_PANELS = (
 )
 
 
-def hotpath_panels():
+def hotpath_panels() -> tuple[dict[str, Any], ...]:
     """core 四组 + clone 两面板；id 与用例全部取自注册表（benches 增删同步 metrics.py）。"""
     panels = [
         {
@@ -237,7 +241,7 @@ FIGURES = (
 )
 
 
-def _validate_panels():
+def _validate_panels() -> None:
     """import 期校验：面板 id 未注册、预算语义漂移、同面板单位混装当场失败。
 
     三张图的面板（含 hotpath_panels() 派生的热路径面板）全部过检；标记
@@ -280,7 +284,7 @@ def _validate_panels():
 _validate_panels()
 
 
-def esc(text):
+def esc(text: str) -> str:
     return (
         str(text)
         .replace("&", "&amp;")
@@ -290,16 +294,16 @@ def esc(text):
     )
 
 
-def f1(value):
+def f1(value: float) -> str:
     return f"{value:.1f}"
 
 
-def fh(value):
+def fh(value: float) -> str:
     """长度类坐标：整数值不带小数（卡片 212 / chip 18），浮点一位小数（渐晕区高度）。"""
     return str(int(value)) if float(value).is_integer() else f1(value)
 
 
-def text_w(text, size):
+def text_w(text: str, size: float) -> float:
     """按字符宽度估算文本像素宽（CJK/全角 1em、空格 0.52em、其余 0.58em），防溢出。"""
     total = 0.0
     for ch in str(text):
@@ -312,7 +316,16 @@ def text_w(text, size):
     return total * size
 
 
-def t(x, y, content, size, color, weight="400", anchor="start", halo=False):
+def t(
+    x: float,
+    y: float,
+    content: str,
+    size: float,
+    color: str,
+    weight: str = "400",
+    anchor: str = "start",
+    halo: bool = False,
+) -> str:
     halo_attr = ' stroke="#ffffff" stroke-width="2.5" paint-order="stroke"' if halo else ""
     return (
         f'<text x="{f1(x)}" y="{f1(y)}" font-size="{size}" fill="{color}" '
@@ -320,7 +333,16 @@ def t(x, y, content, size, color, weight="400", anchor="start", halo=False):
     )
 
 
-def rect(x, y, w, h, fill, rx=0, opacity=None, stroke=None):
+def rect(
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    fill: str,
+    rx: float = 0,
+    opacity: float | None = None,
+    stroke: str | None = None,
+) -> str:
     opacity_attr = f' fill-opacity="{opacity}"' if opacity is not None else ""
     stroke_attr = f' stroke="{stroke}"' if stroke else ""
     return (
@@ -329,7 +351,16 @@ def rect(x, y, w, h, fill, rx=0, opacity=None, stroke=None):
     )
 
 
-def line(x1, y1, x2, y2, color, width=1, dash=None, cap=None):
+def line(
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    color: str,
+    width: float = 1,
+    dash: str | None = None,
+    cap: str | None = None,
+) -> str:
     dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
     cap_attr = f' stroke-linecap="{cap}"' if cap else ""
     return (
@@ -338,7 +369,15 @@ def line(x1, y1, x2, y2, color, width=1, dash=None, cap=None):
     )
 
 
-def circle(cx, cy, radius, fill, stroke=None, stroke_width=None, opacity=None):
+def circle(
+    cx: float,
+    cy: float,
+    radius: float,
+    fill: str,
+    stroke: str | None = None,
+    stroke_width: float | None = None,
+    opacity: float | None = None,
+) -> str:
     opacity_attr = f' opacity="{opacity}"' if opacity is not None else ""
     if stroke:
         return (
@@ -348,7 +387,7 @@ def circle(cx, cy, radius, fill, stroke=None, stroke_width=None, opacity=None):
     return f'<circle cx="{f1(cx)}" cy="{f1(cy)}" r="{radius}" fill="{fill}"{opacity_attr}/>'
 
 
-def polyline(pts, color):
+def polyline(pts: list[tuple[float, float]], color: str) -> str:
     points = " ".join(f"{f1(x)},{f1(y)}" for x, y in pts)
     return (
         f'<polyline points="{points}" fill="none" stroke="{color}" stroke-width="2" '
@@ -356,14 +395,14 @@ def polyline(pts, color):
     )
 
 
-def x_positions(count, x0, x1):
+def x_positions(count: int, x0: float, x1: float) -> list[float]:
     if count == 1:
         return [(x0 + x1) / 2.0]
     step = (x1 - x0) / (count - 1)
     return [x0 + i * step for i in range(count)]
 
 
-def axis_top(peak, budget, count_floor):
+def axis_top(peak: float, budget: float | None, count_floor: bool) -> float:
     """线性轴顶值 = 容纳 peak 的最小 4×nice 档（档位 1/1.2/1.5/2/2.5/3/4/5/6/8/10×10^k）。
 
     预算计入比较：预算恰落在顶值上时自动升一档，防渐晕区高度归零、红线压轴。
@@ -379,7 +418,7 @@ def axis_top(peak, budget, count_floor):
     raise SystemExit(f"error: axis top computation out of range (peak={peak}, budget={budget})")
 
 
-def value_label(value, unit, mb_axis):
+def value_label(value: float, unit: str, mb_axis: bool) -> str:
     """轴刻度与数值槽共用的显示值格式（value 已是轴显示单位，单位在面板标题不带出）。"""
     if mb_axis:
         return f"{value:.1f}"
@@ -388,7 +427,7 @@ def value_label(value, unit, mb_axis):
     return f"{round(value):,}"
 
 
-def change_text(cur, prev):
+def change_text(cur: int | float, prev: int | float | None) -> tuple[str, str] | None:
     """较上一点变化：▼ 绿=改善 / ▲ 红=回归 / — 灰=持平（全部指标越低越好）。
 
     方向按数值本身比较（负值基线下 (cur-prev)/prev 会翻转符号——净增长从
@@ -409,11 +448,11 @@ def change_text(cur, prev):
     return (f"▲ {rounded:.1f}%", COLOR_UP)
 
 
-def series_values(points, mid):
+def series_values(points: list[dict[str, Any]], mid: str) -> list[int | float | None]:
     return [point["metrics"].get(mid) for point in points]
 
 
-def latest_budget(points, mid):
+def latest_budget(points: list[dict[str, Any]], mid: str) -> int | float | None:
     for point in reversed(points):
         budgets = point.get("budgets")
         if isinstance(budgets, dict) and mid in budgets:
@@ -421,7 +460,7 @@ def latest_budget(points, mid):
     return None
 
 
-def latest_env(points):
+def latest_env(points: list[dict[str, Any]]) -> dict[str, Any]:
     for point in reversed(points):
         env = point.get("env")
         if isinstance(env, dict) and env:
@@ -429,7 +468,7 @@ def latest_env(points):
     return {}
 
 
-def env_display(points):
+def env_display(points: list[dict[str, Any]]) -> str:
     env = latest_env(points)
     os_name = env.get("os")
     left = " ".join(
@@ -442,25 +481,29 @@ def env_display(points):
     return f"env: {body} · {ENV_TAIL}"
 
 
-def short_sha(point):
+def short_sha(point: dict[str, Any]) -> str:
     return str(point.get("commit", "?"))[:7]
 
 
-def short_date(point):
+def short_date(point: dict[str, Any]) -> str:
     raw = str(point.get("date", ""))
     return raw[5:10] if len(raw) >= 10 else "?"
 
 
-def present(xs, values):
+def present(xs: list[float], values: list[int | float | None]) -> list[tuple[float, int | float]]:
     return [(x, v) for x, v in zip(xs, values) if v is not None]
 
 
-def present_log(xs, values):
+def present_log(
+    xs: list[float], values: list[int | float | None]
+) -> list[tuple[float, int | float]]:
     """对数轴的可画点：非正值无对数坐标，按缺源跳段处理（不进线、不标值）。"""
     return [(x, v) for x, v in zip(xs, values) if v is not None and v > 0]
 
 
-def segments(xs, values):
+def segments(
+    xs: list[float], values: list[int | float | None]
+) -> list[list[tuple[float, int | float]]]:
     """连续在场点连成段（缺源跳段不造点，段内至少两点才画线）。"""
     out, cur = [], []
     for x, v in zip(xs, values):
@@ -475,14 +518,14 @@ def segments(xs, values):
     return out
 
 
-def latest_index(values):
+def latest_index(values: list[int | float | None]) -> int | None:
     for i in range(len(values) - 1, -1, -1):
         if values[i] is not None:
             return i
     return None
 
 
-def prev_present(values, index):
+def prev_present(values: list[int | float | None], index: int) -> int | float | None:
     for i in range(index - 1, -1, -1):
         if values[i] is not None:
             return values[i]
@@ -492,7 +535,9 @@ def prev_present(values, index):
 class Figure:
     """单张图：页头 + 面板卡片序列 + 页脚；画布高度按面板数先算后画（旧版教训）。"""
 
-    def __init__(self, page_title, points, footer, panel_count):
+    def __init__(
+        self, page_title: str, points: list[dict[str, Any]], footer: str, panel_count: int
+    ) -> None:
         self.points = points
         self.footer = footer
         self.gradients = set()
@@ -515,7 +560,7 @@ class Figure:
         ]
         self.card_y = HEADER_H
 
-    def _legend_marker(self, lx, baseline, color):
+    def _legend_marker(self, lx: float, baseline: float, color: str) -> None:
         self.parts.append(
             line(lx, baseline - 3.5, lx + 16, baseline - 3.5, color, width=2, cap="round")
         )
@@ -523,7 +568,7 @@ class Figure:
             circle(lx + 8, baseline - 3.5, 2.6, "#ffffff", stroke=color, stroke_width=1.6)
         )
 
-    def _chips(self, y0, chip_defs):
+    def _chips(self, y0: float, chip_defs: list[tuple[str, str, str]]) -> None:
         right = CHIP_RIGHT
         for label, bg, fg in chip_defs:
             w = text_w(label, 10) + 14
@@ -531,7 +576,7 @@ class Figure:
             self.parts.append(t(right - w / 2, y0 + CHIP_DY + 14.5, label, 10, fg, anchor="middle"))
             right -= w + 8
 
-    def _x_axis(self, xs, sha_dy, date_dy):
+    def _x_axis(self, xs: list[float], sha_dy: float, date_dy: float) -> None:
         for x, point in zip(xs, self.points):
             self.parts.append(
                 t(x, self.card_y + sha_dy, short_sha(point), 10, COLOR_MUTED, anchor="middle")
@@ -540,7 +585,15 @@ class Figure:
                 t(x, self.card_y + date_dy, short_date(point), 9, COLOR_FAINT, anchor="middle")
             )
 
-    def _partial_note(self, plot_top, plot_bottom, note_x, series, xs, y_of):
+    def _partial_note(
+        self,
+        plot_top: float,
+        plot_bottom: float,
+        note_x: float,
+        series: list[tuple[str, str, str, list[int | float | None]]],
+        xs: list[float],
+        y_of: Callable[[int | float], float],
+    ) -> None:
         """「部分系列自 <sha> 起有数据」：默认绘图区右上，数据带相撞时避让。
 
         轴顶恒贴系列峰值（top ≥ peak 且同量级），线在右侧高位时注释必压线
@@ -559,7 +612,7 @@ class Figure:
         note = PARTIAL_MESSAGE.format(sha=short_sha(self.points[max(firsts)]))
         note_left = note_x - text_w(note, 9)
 
-        def collides(band_top, band_bottom):
+        def collides(band_top: float, band_bottom: float) -> bool:
             ys = [
                 y_of(v)
                 for _mid, _label, _color, vals in series
@@ -578,7 +631,7 @@ class Figure:
             baseline = plot_top + PARTIAL_NOTE_DY
         self.parts.append(t(note_x, baseline, note, 9, COLOR_MUTED, anchor="end", halo=True))
 
-    def linear_panel(self, panel):
+    def linear_panel(self, panel: dict[str, Any]) -> None:
         y0 = self.card_y
         plot_top, plot_bottom = y0 + PLOT_TOP_DY, y0 + PLOT_TOP_DY + PLOT_H
         xs = x_positions(len(self.points), PLOT_X0, PLOT_X1)
@@ -612,7 +665,7 @@ class Figure:
         else:
             lo = 0.0
 
-        def y_of(v):
+        def y_of(v: int | float) -> float:
             return plot_bottom - (disp(v) - lo) / (top - lo) * PLOT_H
 
         if panel.get("unit", True):
@@ -774,7 +827,7 @@ class Figure:
         self._x_axis(xs, PLOT_TOP_DY + PLOT_H + X_SHA_DY, PLOT_TOP_DY + PLOT_H + X_DATE_DY)
         self.card_y += CARD_PITCH
 
-    def log_panel(self, panel):
+    def log_panel(self, panel: dict[str, Any]) -> None:
         y0 = self.card_y
         plot_top, plot_bottom = y0 + HP_PLOT_TOP_DY, y0 + HP_PLOT_TOP_DY + HP_PLOT_H
         xs = x_positions(len(self.points), HP_PLOT_X0, HP_PLOT_X1)
@@ -804,7 +857,7 @@ class Figure:
                 lo, hi = lo - 1, hi + 1
             pad = (hi - lo) * LOG_PAD
 
-            def scale(v):
+            def scale(v: int | float) -> float:
                 return plot_bottom - (math.log10(v) - lo) / (hi + pad - lo) * HP_PLOT_H
 
             labels = []
@@ -855,7 +908,7 @@ class Figure:
             self.parts.append(t(lx + 21, baseline, label, 10.5, COLOR_BODY))
         self.card_y += CARD_PITCH
 
-    def render(self):
+    def render(self) -> str:
         self.parts.append(t(32, self.last_bottom + FOOTER_GAP, self.footer, 9.5, COLOR_MUTED))
         height = self.last_bottom + BOTTOM_PAD
         head = (
@@ -875,7 +928,7 @@ class Figure:
         return "\n".join(lines) + "\n"
 
     @staticmethod
-    def _gradient(color):
+    def _gradient(color: str) -> str:
         key = color.lstrip("#")
         return (
             f'<linearGradient id="g-{key}" x1="0" y1="0" x2="0" y2="1">'
@@ -884,7 +937,9 @@ class Figure:
         )
 
 
-def build_figure(spec, points):
+def build_figure(
+    spec: tuple[str, str, tuple[dict[str, Any], ...], str, str], points: list[dict[str, Any]]
+) -> tuple[str, str]:
     file_name, page_title, panels, kind, footer = spec
     fig = Figure(page_title, points, footer, len(panels))
     for panel in panels:
@@ -895,7 +950,7 @@ def build_figure(spec, points):
     return file_name, fig.render()
 
 
-def load_history(path):
+def load_history(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         raise SystemExit(
             f"error: missing {path}, run the collector first to build the trend history"
@@ -914,7 +969,7 @@ def load_history(path):
     return points
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="perf trend charts (deterministic SVG)")
     parser.add_argument("--history", default=str(DEFAULT_HISTORY), help="history.jsonl path")
     parser.add_argument("--out", default=str(DEFAULT_OUT_DIR), help="output directory")

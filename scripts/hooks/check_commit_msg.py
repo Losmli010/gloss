@@ -16,6 +16,8 @@
 一次进程吃进，免逐条提交起解释器。
 """
 
+from __future__ import annotations
+
 import re
 import sys
 
@@ -34,7 +36,7 @@ LIST_ENTRY_RE = re.compile(r"^(?:[-*+]\s+)?(?:%s)(?:\([a-zA-Z0-9._-]+\))?!?: " %
 ISSUE_SUFFIX_RE = re.compile(r"\s*\(#\d+\)\s*$")
 
 
-def split_message(msg):
+def split_message(msg: str) -> list[str]:
     """预处理出待校验的行序列：剥注释行、去掉开头的空白行。"""
     msg = msg.rstrip("\n")
     if "\n" in msg:
@@ -46,7 +48,7 @@ def split_message(msg):
     return lines[first:]
 
 
-def prose_problems(lines):
+def prose_problems(lines: list[str]) -> list[str]:
     """主题与正文逐行过书写规则；结构性要素豁免——编号后缀、版本库尾注与
     压缩合并清单条目的类型前缀。"""
     problems = []
@@ -61,7 +63,7 @@ def prose_problems(lines):
     return problems
 
 
-def run(msg):
+def run(msg: str) -> str | None:
     """校验一条 commit message，返回多行错误串；通过返回 None。"""
     lines = split_message(msg)
     if not lines:
@@ -114,7 +116,7 @@ def run(msg):
     return None
 
 
-def main(argv):
+def main(argv: list[str]) -> int:
     """命令行入口：逐条校验参数里的全部消息，任一违规即整体退出非零。"""
     if len(argv) < 2:
         print("usage: %s <commit-message-file|-> ..." % argv[0], file=sys.stderr)

@@ -13,11 +13,14 @@
 进判罚，归（criterion）自身的基线机制。
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 HISTORY_PATH = Path(__file__).resolve().parent / "baselines" / "history.jsonl"
@@ -39,7 +42,7 @@ CRIT_ROOT = ROOT / "target" / "criterion"
 PERF_GROUPS = {"clone_allocs": "allocs", "clone_bytes": "bytes"}
 
 
-def read_perf():
+def read_perf() -> dict[str, dict[str, int]]:
     """读 criterion 最近一次 clone 基准结果：基准 id → {allocs, bytes}（均值四舍五入）。"""
     perf = {}
     if not CRIT_ROOT.is_dir():
@@ -62,7 +65,7 @@ def read_perf():
     return perf
 
 
-def _consume_str(src, i):
+def _consume_str(src: str, i: int) -> int:
     """从开引号处消费一个转义字符串，返回结束下标（不含）。"""
     n = len(src)
     j = i + 1
@@ -76,7 +79,7 @@ def _consume_str(src, i):
     return n
 
 
-def _consume_raw(src, i):
+def _consume_raw(src: str, i: int) -> int | None:
     """i 处为 r 时尝试消费 r#"..."# 原始字符串；不是原始字符串返回 None。"""
     n = len(src)
     j = i + 1
@@ -91,13 +94,13 @@ def _consume_raw(src, i):
     return n if k == -1 else k + len(terminator)
 
 
-def tokenize_segments(src):
+def tokenize_segments(src: str) -> list[tuple[str, int, int]]:
     """把源码切分为 (kind, start, end)，kind ∈ code / comment / string。"""
     segs = []
     i, n = 0, len(src)
     code_start = 0
 
-    def flush(end):
+    def flush(end: int) -> None:
         if end > code_start:
             segs.append(("code", code_start, end))
 
@@ -160,7 +163,7 @@ def tokenize_segments(src):
     return segs
 
 
-def blank_non_code(src):
+def blank_non_code(src: str) -> str:
     """返回注释与字符串置空后的源码，偏移保持不变。"""
     view = list(src)
     for kind, s, e in tokenize_segments(src):
@@ -171,7 +174,7 @@ def blank_non_code(src):
     return "".join(view)
 
 
-def _match_brace(src, open_idx):
+def _match_brace(src: str, open_idx: int) -> int:
     depth = 0
     for i in range(open_idx, len(src)):
         if src[i] == "{":
@@ -183,7 +186,7 @@ def _match_brace(src, open_idx):
     return len(src) - 1
 
 
-def _skip_group(src, open_idx, open_ch, close_ch):
+def _skip_group(src: str, open_idx: int, open_ch: str, close_ch: str) -> int:
     depth = 0
     for i in range(open_idx, len(src)):
         if src[i] == open_ch:
@@ -195,7 +198,7 @@ def _skip_group(src, open_idx, open_ch, close_ch):
     return len(src)
 
 
-def strip_cfg_test(codeview):
+def strip_cfg_test(codeview: str) -> str:
     """把 #[cfg(test)] 标注的项（含项体）整体置空，换行保留。"""
     src = codeview
     regions = []
@@ -238,7 +241,7 @@ def strip_cfg_test(codeview):
     return "".join(out)
 
 
-def analyze_file(path):
+def analyze_file(path: Path) -> dict[str, int]:
     """返回单文件计数：clone / path_clone / derive_clone / loc。"""
     src = path.read_text(encoding="utf-8")
     stripped = strip_cfg_test(blank_non_code(src))
@@ -250,7 +253,7 @@ def analyze_file(path):
     }
 
 
-def collect():
+def collect() -> tuple[dict[str, dict[str, int]], dict[str, int]]:
     """返回（各 crate 聚合计数，文件 → clone 数）。"""
     crates, files = {}, {}
     for crate, rel in CRATES:
@@ -270,11 +273,11 @@ def collect():
     return crates, files
 
 
-def density(clone, loc):
+def density(clone: int, loc: int) -> float:
     return clone / loc * 1000 if loc else 0.0
 
 
-def print_stats(crates, files):
+def print_stats(crates: dict[str, dict[str, int]], files: dict[str, int]) -> None:
     total = sum(c["clone"] for c in crates.values())
     total_loc = sum(c["loc"] for c in crates.values())
     print("| crate | prod LOC | .clone() | density(/kloc) | share | ::clone | derive(Clone) |")
@@ -305,7 +308,7 @@ def print_stats(crates, files):
             print(f"  {bench_id}: {parts}")
 
 
-def latest_clone_baseline():
+def latest_clone_baseline() -> tuple[dict[str, Any], dict[str, Any]]:
     """history 最新点 → clone 门禁基线（total/allocs/bytes 整数 + density 展示）。
 
     基线随采集自然前移（perf-collect.py 写入最新点）；缺行或缺分配值即带指
@@ -345,13 +348,13 @@ def latest_clone_baseline():
     return latest, metrics
 
 
-def aggregate_perf(perf, field):
+def aggregate_perf(perf: dict[str, dict[str, int]], field: str) -> int | None:
     """当前 criterion 数据单字段合计（次数/字节）；无任何基准携带该字段返回 None。"""
     values = [entry[field] for entry in perf.values() if field in entry]
     return sum(values) if values else None
 
 
-def check_baseline():
+def check_baseline() -> None:
     latest, baseline = latest_clone_baseline()
     crates, _files = collect()
     cur_total = sum(crate["clone"] for crate in crates.values())
@@ -405,7 +408,7 @@ def check_baseline():
     )
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )

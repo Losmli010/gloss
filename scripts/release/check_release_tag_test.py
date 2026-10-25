@@ -4,6 +4,8 @@
 夹具在（pytest）临时目录里放定制的工作区清单文件。运行方式沉记录文件。
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
@@ -26,58 +28,58 @@ MANIFEST_TRAPS = (
 )
 
 
-def run(tag, manifest, tmp_path):
+def run(tag: str, manifest: str, tmp_path: Path) -> tuple[str | None, str | None, str | None]:
     (tmp_path / "Cargo.toml").write_text(manifest + "\n", encoding="utf-8")
     return check_release_tag.run(tag, str(tmp_path))
 
 
-def assert_ok(tag, manifest, tmp_path):
+def assert_ok(tag: str, manifest: str, tmp_path: Path) -> None:
     version, cargo_version, error = run(tag, manifest, tmp_path)
     assert error is None
     assert version == tag[1:]
 
 
-def assert_reject(tag, manifest, tmp_path, needle):
+def assert_reject(tag: str, manifest: str, tmp_path: Path, needle: str) -> None:
     _, _, error = run(tag, manifest, tmp_path)
     assert error is not None and needle in error
 
 
-def test_tag_matches_version(tmp_path):
+def test_tag_matches_version(tmp_path: Path) -> None:
     assert_ok("v0.1.0", MANIFEST_OK, tmp_path)
 
 
-def test_multi_digit_version(tmp_path):
+def test_multi_digit_version(tmp_path: Path) -> None:
     manifest = MANIFEST_OK.replace("0.1.0", "10.20.30")
     assert_ok("v10.20.30", manifest, tmp_path)
 
 
-def test_tag_mismatch_rejected(tmp_path):
+def test_tag_mismatch_rejected(tmp_path: Path) -> None:
     assert_reject("v0.2.0", MANIFEST_OK, tmp_path, "version mismatch")
 
 
-def test_missing_v_prefix(tmp_path):
+def test_missing_v_prefix(tmp_path: Path) -> None:
     assert_reject("0.1.0", MANIFEST_OK, tmp_path, "lacks the v prefix")
 
 
-def test_two_segment_version(tmp_path):
+def test_two_segment_version(tmp_path: Path) -> None:
     assert_reject("v0.1", MANIFEST_OK, tmp_path, "does not match")
 
 
-def test_four_segment_version(tmp_path):
+def test_four_segment_version(tmp_path: Path) -> None:
     assert_reject("v0.1.0.1", MANIFEST_OK, tmp_path, "does not match")
 
 
-def test_inherited_and_dep_versions_not_misread(tmp_path):
+def test_inherited_and_dep_versions_not_misread(tmp_path: Path) -> None:
     assert_ok("v1.2.3", MANIFEST_TRAPS, tmp_path)
 
 
-def test_workspace_package_missing_version(tmp_path):
+def test_workspace_package_missing_version(tmp_path: Path) -> None:
     assert_reject(
         "v0.1.0", '[workspace.package]\nedition = "2024"', tmp_path, "failed to read the version"
     )
 
 
-def test_missing_argument_usage_exit_2():
+def test_missing_argument_usage_exit_2() -> None:
     import subprocess
 
     proc = subprocess.run(

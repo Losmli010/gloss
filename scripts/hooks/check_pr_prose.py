@@ -12,6 +12,8 @@
 为标题文件路径；本地手动测试时向文件或标准输入喂入内容。
 """
 
+from __future__ import annotations
+
 import os
 import re
 import sys
@@ -24,7 +26,7 @@ TEMPLATE_REL = os.path.join(".github", "pull_request_template.md")
 SECTION_RE = re.compile(r"^## (.+)$")
 
 
-def template_sections(root):
+def template_sections(root: str) -> list[str]:
     """从模板文件提取必需小节标题；模板缺失返回空表，跳过小节核对。"""
     path = os.path.join(root, TEMPLATE_REL)
     if not os.path.isfile(path):
@@ -38,7 +40,7 @@ def template_sections(root):
     return out
 
 
-def section_problems(sections, body):
+def section_problems(sections: list[str], body: str) -> list[str]:
     return [
         "pull request body misses required template section: %s" % s
         for s in sections
@@ -46,7 +48,7 @@ def section_problems(sections, body):
     ]
 
 
-def run(root, body, title=None):
+def run(root: str, body: str, title: str | None = None) -> list[str]:
     """正文书写规则、模板小节与标题合并模拟三合一，返回违规列表。"""
     problems = []
     problems += section_problems(template_sections(root), body)
@@ -58,13 +60,13 @@ def run(root, body, title=None):
     return problems
 
 
-def main():
+def main() -> int:
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     if len(sys.argv) < 2:
         print("usage: %s <body-file|-> [title-file]" % sys.argv[0], file=sys.stderr)
         return 2
 
-    def read(path):
+    def read(path: str) -> str:
         if path == "-":
             return sys.stdin.read()
         with open(path, encoding="utf-8", errors="replace") as fh:

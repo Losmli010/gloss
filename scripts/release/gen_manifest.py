@@ -6,11 +6,14 @@
   产物目录内须有双架构的压缩包与镜像共四个文件。
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import os
 import re
 import sys
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # noqa: E402 —— 同目录版本单点
 
@@ -21,7 +24,7 @@ BASE_URL = "https://losmli010.github.io/gloss/latest"
 TARGETS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
 
 
-def entry_for(artdir, version, target):
+def entry_for(artdir: str, version: str, target: str) -> dict[str, int | str]:
     """单架构条目：zip 取 size/sha256（客户端校验对象），dmg 只出直链供站点使用。"""
     stem = "gloss-%s-%s" % (version, target)
     zip_path = os.path.join(artdir, "%s.zip" % stem)
@@ -38,7 +41,7 @@ def entry_for(artdir, version, target):
     }
 
 
-def run(tag, artdir, root):
+def run(tag: str, artdir: str, root: str) -> dict[str, Any]:
     """返回 manifest dict；版本校验与产物齐备性失败时抛 SystemExit（消息进 stderr）。"""
     version, cargo_version, error = check_release_tag.run(tag, root)
     # 版本单点校验的判定输出走标准错误，保持标准输出只含数据格式（JSON）
@@ -62,7 +65,7 @@ def run(tag, artdir, root):
     }
 
 
-def main():
+def main() -> int:
     if len(sys.argv) != 3:
         print(
             "usage: %s <tag> <artifacts-dir> (e.g. %s v0.1.0 artifacts)"
