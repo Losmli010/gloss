@@ -1,11 +1,15 @@
 """提交信息门禁的单测：逐条覆盖提交规范判定与边界，含一次进程吃进多条消息的
-命令行入口。
+命令行入口与合并模拟单点。
 
-被测入口是门禁的校验函数，返回错误串或空，不落进程；用法见持续集成的钩子工作流。
+被测入口是门禁的校验函数，返回违规列表，通过为空列表，不落进程；合并模拟
+单点与旗标形态直接覆盖；用法见持续集成的钩子工作流。另含反馈契约三件套：
+报告格式断言、汇总计数与确定性，经子进程跑脚本端到端锁输出与退出码。
 """
 
 from __future__ import annotations
 
+import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -17,11 +21,11 @@ import check_commit_msg  # noqa: E402
 
 
 def assert_ok(msg: str) -> None:
-    assert check_commit_msg.run(msg) is None
+    assert check_commit_msg.run(msg) == []
 
 
 def assert_reject(msg: str) -> None:
-    assert check_commit_msg.run(msg) is not None
+    assert check_commit_msg.run(msg) != []
 
 
 # ---- 合法用例 ----
@@ -261,3 +265,107 @@ def test_cli_multiple_files_any_failure_fails(
 
 def test_cli_no_arguments_prints_usage() -> None:
     assert check_commit_msg.main(["check_commit_msg.py"]) == 2
+
+
+# ---- 合并模拟单点（四处调用方的唯一拼装处）----
+
+
+def test_simulate_squash_appends_issue_suffix() -> None:
+    assert check_commit_msg.simulate_squash("feat: 新增翻译浮层") == "feat: 新增翻译浮层 (#99999)"
+
+
+def test_simulate_squash_strips_surrounding_whitespace() -> None:
+    assert check_commit_msg.simulate_squash("  feat: 标题\n") == "feat: 标题 (#99999)"
+
+
+def test_cli_simulate_squash_prints_simulated_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert check_commit_msg.main(["check_commit_msg.py", "--simulate-squash", "feat: 标题"]) == 0
+    assert capsys.readouterr().out == "feat: 标题 (#99999)\n"
+
+
+def test_cli_simulate_squash_without_title_is_usage_error() -> None:
+    assert check_commit_msg.main(["check_commit_msg.py", "--simulate-squash"]) == 2
+
+
+# ---- 规则标识：六判罚各归其位，判定顺序逐关放行 ----
+
+
+def test_findings_carry_rule_ids_per_category() -> None:
+    assert [f.rule for f in check_commit_msg.findings("")] == ["COMMIT-EMPTY"]
+    assert [f.rule for f in check_commit_msg.findings("bad message")] == ["COMMIT-FORMAT"]
+    assert [f.rule for f in check_commit_msg.findings("feat: ")] == ["COMMIT-SUBJECT"]
+    assert [f.rule for f in check_commit_msg.findings("feat: " + "字" * 26)] == ["COMMIT-LENGTH"]
+    assert [f.rule for f in check_commit_msg.findings("feat: 标题\n直接正文无空行")] == [
+        "COMMIT-BLANK-LINE"
+    ]
+    prose = check_commit_msg.findings("feat: 添加 login 重试")
+    assert prose and {f.rule for f in prose} == {"COMMIT-PROSE"}
+
+
+def test_findings_keep_prose_details_under_commit_rule() -> None:
+    found = check_commit_msg.findings("feat: 标题\n\n改动见 docs/tests/bdd.md")
+    assert len(found) == 1
+    assert found[0].rule == "COMMIT-PROSE"
+    assert "docs/tests/bdd.md" in found[0].evidence
+
+
+# ---- 反馈契约：报告格式、汇总计数、确定性与退出码（子进程端到端）----
+
+GATE = str(Path(__file__).with_name("check_commit_msg.py"))
+
+
+def write_msg(tmp_path: Path, name: str, text: str) -> str:
+    path = tmp_path / name
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+def run_gate(tmp_path: Path, messages: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
+    paths = [write_msg(tmp_path, name, text) for name, text in messages.items()]
+    return subprocess.run([sys.executable, GATE] + paths, capture_output=True)
+
+
+def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
+    proc = run_gate(
+        tmp_path,
+        {
+            "one": "bad message\n",
+            "two": "feat: 标题\n直接正文无空行\n",
+            "three": "feat: 添加 login 重试\n",
+        },
+    )
+    assert proc.returncode == 1
+    text = proc.stderr.decode("utf-8")
+    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
+    ids = {re.match(r"^✗ error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
+    assert ids == {"COMMIT-FORMAT", "COMMIT-BLANK-LINE", "COMMIT-PROSE"}
+    for line in heads:
+        assert re.match(r"^✗ error\[[A-Z0-9-]+\]: .+ \(.+\)$", line)
+    assert "    证据: " in text
+    assert "    help: " in text
+
+
+def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, {"one": "bad message\n", "two": "feat: 标题\n直接正文无空行\n"})
+    text = proc.stderr.decode("utf-8")
+    details = sum(1 for line in text.splitlines() if line.startswith("✗ error["))
+    match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
+    assert match
+    assert int(match.group(1)) == details == 2
+
+
+def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
+    messages = {"one": "bad message\n", "two": "feat: 添加 login 重试\n"}
+    first = run_gate(tmp_path, messages)
+    second = run_gate(tmp_path, messages)
+    assert first.returncode == second.returncode == 1
+    assert first.stderr == second.stderr
+    assert first.stdout == second.stdout
+
+
+def test_gate_clean_messages_pass_with_exit_zero(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, {"one": "feat: 标题\n\n正文\n", "two": "fix(core): 修复\n"})
+    assert proc.returncode == 0
+    assert proc.stdout.decode("utf-8").startswith("✓")

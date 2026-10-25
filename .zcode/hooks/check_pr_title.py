@@ -110,9 +110,9 @@ def main() -> int:
         if title:
             import check_commit_msg
 
-            simulated = check_commit_msg.run("%s (#99999)" % title)
+            simulated = check_commit_msg.run(check_commit_msg.simulate_squash(title))
             if simulated:
-                problems.append(simulated)
+                problems.append("\n".join(simulated))
         if body:
             import check_pr_prose
 
