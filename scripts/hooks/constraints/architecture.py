@@ -90,7 +90,7 @@ def run(
     oks = []
     edges = 0
     for owner, mrel, _sec, key, start, text in dump:
-        if manifests.is_path_dep(text):
+        if manifests.is_path_dep(manifests.flat_text(text)):
             edges += 1
             allowed = ALLOWED_OWN_DEPS.get(owner, "")
             if key not in allowed.split():

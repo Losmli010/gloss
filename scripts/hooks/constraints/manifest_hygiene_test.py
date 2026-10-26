@@ -37,6 +37,19 @@ def test_default_features_on_next_line(tmp_path: Path) -> None:
     )
 
 
+def test_value_broken_across_lines_still_passes(tmp_path: Path) -> None:
+    # 键值被换行断开的窄角落：子串判定在单行形态上做，断行不把放行翻成误报
+    def mutate(root: Path) -> None:
+        fixtures.add_dep(
+            root / "crates/gloss-platform/Cargo.toml",
+            'foo = { version = "1", default-features =\nfalse }',
+        )
+        (root / "crates/gloss-platform/src").mkdir(exist_ok=True)
+        (root / "crates/gloss-platform/src/foo_probe.rs").write_text("let _v = foo::thing();\n")
+
+    fixtures.assert_pass(manifest_hygiene, tmp_path, mutate, "4 third-party")
+
+
 def test_dep_without_default_features(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         fixtures.add_dep(root / "crates/gloss-app/Cargo.toml", 'pollster = "1.0.1"')

@@ -81,19 +81,20 @@ def run(
 
     deps_checked = 0
     for _owner, mrel, _sec, key, start, text in dump:
-        if manifests.is_path_dep(text) and "version" not in text:
+        flat = manifests.flat_text(text)
+        if manifests.is_path_dep(flat) and "version" not in flat:
             continue
-        if "workspace = true" in text:
+        if "workspace = true" in flat:
             continue
         deps_checked += 1
-        if "default-features = false" not in text:
+        if "default-features = false" not in flat:
             rep.note(
                 gate_report.Finding(
                     rule=RULE_DEFAULT_FEATURES,
                     path=mrel,
                     line=start,
                     message="default features off: %s lacks default-features = false" % key,
-                    evidence=manifests.flat_text(text),
+                    evidence=flat,
                     remedy=DEFAULT_FEATURES_REMEDY,
                 )
             )
@@ -105,10 +106,11 @@ def run(
     dead_scanned = 0
     dead_allowed = 0
     for owner, mrel, _sec, key, start, text in dump:
-        if manifests.is_path_dep(text) or "workspace = true" in text:
+        flat = manifests.flat_text(text)
+        if manifests.is_path_dep(flat) or "workspace = true" in flat:
             continue
         dead_scanned += 1
-        if "deps:allow" in text:
+        if "deps:allow" in flat:
             dead_allowed += 1
             for offset, entry_line in enumerate(text.split("\n")):
                 if "deps:allow" in entry_line and gate_report.allow_reason_missing(
