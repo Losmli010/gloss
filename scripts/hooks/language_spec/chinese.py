@@ -193,6 +193,9 @@ PROPER_NOUNS = frozenset(
         "libmalloc",
         "macOS",
         "markdown",
+        "markdown-it",
+        "markdown-it-py",
+        "mdit-py-plugins",
         "mimalloc",
         "memmap2",
         "moka",
@@ -228,6 +231,17 @@ PROPER_NOUNS = frozenset(
 # 中文主体允许的非汉字字符：中文标点、注音序号与少数语言中立符号；阿拉伯数
 # 字与空白另行放行，其余一律判罚
 CHINESE_EXTRA = "，。；：！？《》…—·～＝％￥→\u201c\u201d\u2018\u2019"
+
+# 数学记号符号：语言中立的数学、逻辑与计量记号，随箭头一族放行——中文主体
+# 与英文区共用此面（英文区本只罚汉字与全角，天然放行，测试锁定）；基本四则
+# 的半角记号只收无标点歧义的等号、加号、比较号与幂指号，减号、星号、斜杠、
+# 竖线与反斜杠让给标记语言语法与路径形态，不放行
+MATH_CHARS = frozenset(
+    "=+<>^±×÷≤≥≠≈≡≅∝∼∽∞∑∏∫∮∬√∂∇∠⊥∥∧∨∈∉∋∌∪∩⊂⊃⊆⊇⊕⊖⊗"
+    "°′″‵‰℃℉Åµμ"
+    "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ"
+    "αβγδεζηθικλμνξπρστυφχψω"
+)
 
 # 工具指令段整段豁免：解释器声明，以及格式化与静态检查指令及其外文参数。
 DIRECTIVE_SEG = re.compile(
@@ -269,7 +283,13 @@ def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[g
             continue
         bad = []
         for index, ch in enumerate(seg):
-            if CJK.match(ch) or ch in CHINESE_EXTRA or "0" <= ch <= "9" or ch in " \t\n\r":
+            if (
+                CJK.match(ch)
+                or ch in CHINESE_EXTRA
+                or ch in MATH_CHARS
+                or "0" <= ch <= "9"
+                or ch in " \t\n\r"
+            ):
                 continue
             if (
                 ch == "."

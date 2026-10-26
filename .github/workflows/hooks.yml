@@ -37,11 +37,13 @@ jobs:
         with:
           tool: ${{ env.RG_PIN }}
 
-      - name: Install pytest, ruff, tombi and rumdl
+      - name: Install pytest, ruff, tombi, rumdl and markdown parsers
         run: |
           python3 -m pip install --quiet pytest
           python3 -m pip install ruff==$(python3 scripts/dev/tool_version.py ruff)
           python3 -m pip install rumdl==$(python3 scripts/dev/tool_version.py rumdl)
+          python3 -m pip install markdown-it-py==$(python3 scripts/dev/tool_version.py markdown-it-py)
+          python3 -m pip install mdit-py-plugins==$(python3 scripts/dev/tool_version.py mdit-py-plugins)
           npm install -g tombi@$(python3 scripts/dev/tool_version.py tombi)
 
       # 检查器单测目录发现跑法与本地同款，覆盖全部门禁脚本与客户端钩子

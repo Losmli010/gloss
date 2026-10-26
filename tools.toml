@@ -17,6 +17,14 @@ version = "1.5.5"
 [rumdl]
 version = "0.3.0"
 
+# 文档门禁的解析树底座（markdown-it-py），解析行为影响判定，钉全版本保证本地与远端判定一致
+[markdown-it-py]
+version = "4.2.0"
+
+# 解析器插件（mdit-py-plugins）：表格、任务列表与数学记号，随上条同源钉版本
+[mdit-py-plugins]
+version = "0.6.1"
+
 # 密钥门禁的匹配引擎，每提交必跑，钉全版本保证本地与远端判定一致
 [ripgrep]
 version = "14.1.1"

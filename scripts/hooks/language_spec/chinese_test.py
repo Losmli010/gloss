@@ -97,3 +97,26 @@ def test_english_prose_without_structural_char_flagged() -> None:
 def test_english_sentence_with_period_flagged() -> None:
     problems = chinese.chinese_zone_problems("t", 1, "make sure it works.", "text")
     assert any("foreign letters" in m for m in messages(problems))
+
+
+def test_math_symbols_allowed_in_chinese_body() -> None:
+    assert (
+        chinese.body_problems(
+            "t", 1, "误差 ≤ 0.5，温度 25℃，夹角 45°，比例系数 α 与角频率 ω。", "text"
+        )
+        == []
+    )
+
+
+def test_math_operators_allowed_in_chinese_body() -> None:
+    assert chinese.body_problems("t", 1, "满足 3 + 4 = 7 且 5 ≠ 6，收敛于 ∞。", "text") == []
+
+
+def test_latin_variable_still_flagged_without_markup() -> None:
+    problems = chinese.body_problems("t", 1, "当 x = 1 时成立。", "text")
+    assert any("foreign letters" in p for p in messages(problems))
+
+
+def test_markdown_collision_signs_still_flagged() -> None:
+    problems = chinese.body_problems("t", 1, "斜杠 / 与竖线 | 不放行。", "text")
+    assert any("foreign letters" in p for p in messages(problems))

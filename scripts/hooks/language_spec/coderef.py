@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """语言规范·代码引用：正文与代码混用的记号规则。结构性记号先豁免——行内
-反引号、链接、强调、围栏、表格、列表与勾选框、日期、行尾放行标记——剥净
-后无可判语言的纯记号段放行；残留代码段判罚，主体落中文区判定。判罚以带规
-则标识的违规条目返回，位置由调用方按路径与行号传入，标识登记于统一登记表。
-行级复合判定与标记语言文档逐行遍历是两个入口，被注释、提交信息与拉取请求
-内容门禁复用；文档的结构判罚（标题层级、重名标题、围栏闭合）移交排版门禁
-工具（rumdl），不再属语言规范库；围栏内的整行注释按注释纪律受检（文档检查
-子项），围栏内其余内容是字面代码不判罚；未登记注释语言的围栏（含双横线注
-释形态的查询语言）不受检，章节号引用在围栏注释面不查——已知盲区与取舍见
-记录文件；本模块自身注释同规。
+反引号、链接、强调、围栏、表格、列表与勾选框、日期、数学记号段、行尾放
+行标记——剥净后无可判语言的纯记号段放行；残留代码段判罚，主体落中文区判
+定。判罚以带规则标识的违规条目返回，位置由调用方按路径与行号传入，标识
+登记于统一登记表。行级复合判定与标记语言文档逐行遍历是两个入口，被注释、
+提交信息与拉取请求内容门禁复用；文档遍历的块级边界取自解析树（markdown-it），
+代码块（含缩进块与波浪围栏）、数学块与超文本标记块整段豁免，文档的结构判
+罚（标题层级、重名标题、围栏闭合）移交排版门禁工具（rumdl）；围栏内的整
+行注释按注释纪律受检（文档检查子项），围栏内其余内容是字面代码不判罚；未
+登记注释语言的围栏（含双横线注释形态的查询语言）不受检，章节号引用在围栏
+注释面不查——已知盲区与取舍见记录文件；本模块自身注释同规。
 
 模块名避开解释器标准库的交互解释器模块。
 """
@@ -98,10 +99,17 @@ SLASH_FENCE_LANGS = frozenset(
 )
 TAG_FENCE_LANGS = frozenset({"html", "xml", "svg"})
 
+# 围栏注释语言的并集：整行注释子项只对这些语言的围栏开启
+FENCE_COMMENT_LANGS = HASH_FENCE_LANGS | SLASH_FENCE_LANGS | TAG_FENCE_LANGS
+
 # 各门禁共用的行尾放行标记：紧贴所在行并注明缘由即豁免
 MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps):allow\b")
 
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+# 数学记号段豁免：美元号包裹的算式段，内容限算式字符、不含汉字与美元号；
+# 单美元号的普通文本（金额等）构不成段，不豁免
+MATH_SPAN = re.compile(r"\$\$[^\n$]+\$\$|\$[A-Za-z0-9\s\\{}()\[\]^_+=*/<>,.;:|\-]+\$")
 
 
 def strip_links(text: str) -> str:
@@ -123,6 +131,7 @@ def prose_line_problems(path: str, line: int, text: str) -> list[gate_report.Fin
     text = re.sub(r"^(?:[-*+]|\d+[.、]|>)\s+", "", text)  # 列表与引用记号非表述
     text = re.sub(r"^\[[ xX]\]\s+", "", text)  # 任务列表记号：勾选框非表述
     text = re.sub(r"`[^`]*`", " ", text)  # 行内代码：命令、路径与标识符豁免
+    text = MATH_SPAN.sub(" ", text)  # 数学记号段：算式是语言中立记号，豁免
     text = strip_links(text)
     text = text.replace("**", " ")  # 强调记号：包裹的仍是中文表述，记号非内容
     text = DATE_RE.sub(" ", text)
@@ -234,23 +243,62 @@ def fence_comment_problems(path: str, lineno: int, line: str, lang: str) -> list
     return findings + body_problems(path, lineno, body, "code block comment")
 
 
+_PARSER = None
+
+
+def markdown_parser():
+    """标记语言解析器单点：解析器（markdown-it）按通用标记规范解析，开表格
+    装任务列表与数学记号插件；块级边界供遍历分类，解释器库缺席属门禁底座
+    缺失，由环境初始化校验在场、运行时按异常失败关闭。"""
+    global _PARSER
+    if _PARSER is None:
+        from markdown_it import MarkdownIt
+        from mdit_py_plugins.dollarmath import dollarmath_plugin
+        from mdit_py_plugins.tasklists import tasklists_plugin
+
+        parser = MarkdownIt("commonmark", {"html": True}).enable("table")
+        dollarmath_plugin(parser)
+        tasklists_plugin(parser)
+        _PARSER = parser
+    return _PARSER
+
+
 def markdown_problems(path: str, src: str) -> list[gate_report.Finding]:
-    """标记语言文档逐行受检：围栏外正文按行判定；围栏内整行注释作为文档检
-    查子项照注释纪律判定，其余内容是字面代码放行；行内反引号与链接豁免；
-    表格首列与纯标识符小节标题是双向核对的键，豁免；日期是语言中立数据格
-    式，放行。"""
-    out = []
-    in_fence = False
-    lang = ""
-    for lineno, line in enumerate(src.splitlines(), 1):
-        if line.strip().startswith("```"):
-            lang = "" if in_fence else fence_language(line.strip()[3:])
-            in_fence = not in_fence
+    """标记语言文档逐行受检：块级边界取自解析树——代码块（含缩进块与波浪
+    围栏）、数学块与超文本标记块整段豁免；围栏内已登记语言的整行注释作为
+    文档检查子项照注释纪律判定，其余内容是字面代码放行；其余行照原文逐行
+    判，行内豁免（反引号、链接、数学记号段等）由行级判定承载。"""
+    lines = src.splitlines()
+    exempt = [False] * len(lines)
+    fence_lang_by_line: dict[int, str] = {}
+    for token in markdown_parser().parse(src):
+        if token.map is None:
             continue
-        if in_fence:
-            out += fence_comment_problems(path, lineno, line, lang)
+        start, end = token.map
+        if token.type in ("fence", "code_block"):
+            lang = fence_language(token.info)
+            if token.type == "fence" and lang in FENCE_COMMENT_LANGS:
+                # 围栏开行与闭行豁免，内容行交注释子项；未闭合时闭行不存在，
+                # 末行按内容行受检
+                exempt[start] = True
+                closed = len(token.content.splitlines()) == end - start - 2
+                if closed:
+                    exempt[end - 1] = True
+                for offset in range(start + 1, end - 1 if closed else end):
+                    fence_lang_by_line[offset] = lang
+            else:
+                exempt[start:end] = [True] * (end - start)
+        elif token.type in ("math_block", "html_block"):
+            exempt[start:end] = [True] * (end - start)
+    out: list[gate_report.Finding] = []
+    for offset, line in enumerate(lines):
+        if exempt[offset]:
             continue
-        out += markdown_line_problems(path, lineno, line)
+        lang = fence_lang_by_line.get(offset)
+        if lang is not None:
+            out += fence_comment_problems(path, offset + 1, line, lang)
+        else:
+            out += markdown_line_problems(path, offset + 1, line)
     return out
 
 
@@ -258,6 +306,8 @@ def markdown_line_problems(path: str, lineno: int, line: str) -> list[gate_repor
     stripped = line.strip()
     if not stripped:
         return []
+    if re.match(r" {0,3}\[[^\]]+\]:", line):
+        return []  # 引用定义：行内链接的块级同族记号，结构性豁免
     heading = re.match(r"^#+\s*(.*)$", stripped)
     if heading:
         key = re.sub(r"（[^）]*）\s*$", "", heading.group(1)).strip()
