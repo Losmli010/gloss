@@ -316,6 +316,10 @@ i18n:
 comments:
     {{py}} scripts/hooks/comments/check_comments.py
 
+# 注释纪律规则速查：按类别打印脚本路径与文件头（规则唯一出处），不另存副本
+comments-rules *args:
+    {{py}} scripts/dev/comment_rules.py {{args}}
+
 # 校验单条提交信息是否符合提交规范
 lint-commit file:
     {{py}} scripts/hooks/check_commit_msg.py "{{file}}"
