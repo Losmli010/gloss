@@ -447,19 +447,6 @@ def test_md_identifier_heading_exempt_at_root(tmp_path: Path) -> None:
     assert run_md(tmp_path, content, rel="README.md") == []
 
 
-def test_md_structure_penalties_enforced(tmp_path: Path) -> None:
-    problems = run_md(tmp_path, "## 小节\n\n#### 跳级\n\n## 小节\n")
-    assert any("heading level jumps" in p for p in problems)
-    assert any("repeats an earlier heading" in p for p in problems)
-    problems = run_md(tmp_path, "## 小节\n\n```sh\njust test\n")
-    assert any("never closed" in p for p in problems)
-
-
-def test_md_structure_clean_doc_passes(tmp_path: Path) -> None:
-    content = "# 标题\n\n## 小节\n\n### 次节\n\n```sh\njust test\n```\n"
-    assert run_md(tmp_path, content) == []
-
-
 # ---- 不变量注释邻接与词法边界 ----
 
 

@@ -4,11 +4,11 @@
 后无可判语言的纯记号段放行；残留代码段判罚，主体落中文区判定。判罚以带规
 则标识的违规条目返回，位置由调用方按路径与行号传入，标识登记于统一登记表。
 行级复合判定与标记语言文档逐行遍历是两个入口，被注释、提交信息与拉取请求
-内容门禁复用；文档结构遍历只服务文档子门禁，判标题跳级、同文档重名标题与
-结尾围栏不闭合三罚；围栏内的整行注释按注释纪律受检（文档检查子项），围栏
-内其余内容是字面代码不判罚；未登记注释语言的围栏（含双横线注释形态的查询
-语言）不受检，章节号引用在围栏注释面不查——已知盲区与取舍见记录文件；本
-模块自身注释同规。
+内容门禁复用；文档的结构判罚（标题层级、重名标题、围栏闭合）移交排版门禁
+工具（rumdl），不再属语言规范库；围栏内的整行注释按注释纪律受检（文档检查
+子项），围栏内其余内容是字面代码不判罚；未登记注释语言的围栏（含双横线注
+释形态的查询语言）不受检，章节号引用在围栏注释面不查——已知盲区与取舍见
+记录文件；本模块自身注释同规。
 
 模块名避开解释器标准库的交互解释器模块。
 """
@@ -37,9 +37,6 @@ from language_spec.chinese import (  # noqa: E402
 RULE_PROSE_CODEREF = "PROSE-CODEREF"
 RULE_PROSE_SECTION_REF = "PROSE-SECTION-REF"
 RULE_PROSE_LANGUAGE = "PROSE-LANGUAGE"
-RULE_DOC_HEADING_JUMP = "COMMENT-DOC-HEADING-JUMP"
-RULE_DOC_HEADING_DUP = "COMMENT-DOC-HEADING-DUP"
-RULE_DOC_FENCE_UNCLOSED = "COMMENT-DOC-FENCE-UNCLOSED"
 RULE_DOC_CODE_LANGUAGE = "COMMENT-DOC-CODE-LANGUAGE"
 RULE_DOC_CODE_CODEREF = "COMMENT-DOC-CODE-CODEREF"
 
@@ -48,9 +45,6 @@ CODEREF_REMEDY = (
 )
 SECTION_REF_REMEDY = "move the section-number citation to the record file"
 LANGUAGE_REMEDY = "rewrite the text in Chinese, keeping proper nouns in bracket annotations"
-HEADING_JUMP_REMEDY = "insert the missing intermediate heading or step this one down"
-HEADING_DUP_REMEDY = "rename one of the repeated headings so document anchors stay unique"
-FENCE_UNCLOSED_REMEDY = "close the code fence with a matching fence line before the end"
 CODE_LANGUAGE_REMEDY = (
     "rewrite the code block comment in Chinese, keeping proper nouns in bracket annotations"
 )
@@ -257,65 +251,6 @@ def markdown_problems(path: str, src: str) -> list[gate_report.Finding]:
             out += fence_comment_problems(path, lineno, line, lang)
             continue
         out += markdown_line_problems(path, lineno, line)
-    return out
-
-
-def markdown_structure_problems(path: str, src: str) -> list[gate_report.Finding]:
-    """标记语言文档结构受检：标题层级较上一个标题一次只加深一级，标题文本
-    全文档不重名，代码围栏到文末必须闭合；围栏开合翻位与逐行遍历同一口径，
-    不闭合按开启行判罚。"""
-    out: list[gate_report.Finding] = []
-    fence_line = 0
-    prev_level = 0
-    seen: dict[str, int] = {}
-    for lineno, line in enumerate(src.splitlines(), 1):
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            fence_line = 0 if fence_line else lineno
-            continue
-        if fence_line:
-            continue
-        heading = re.match(r"^(#+)\s*(.*)$", stripped)
-        if not heading:
-            continue
-        level = len(heading.group(1))
-        title = heading.group(2).strip()
-        if prev_level and level > prev_level + 1:
-            out.append(
-                gate_report.Finding(
-                    rule=RULE_DOC_HEADING_JUMP,
-                    path=path,
-                    line=lineno,
-                    message="heading level jumps from %d to %d" % (prev_level, level),
-                    evidence=stripped,
-                    remedy=HEADING_JUMP_REMEDY,
-                )
-            )
-        if title:
-            first = seen.setdefault(title, lineno)
-            if first != lineno:
-                out.append(
-                    gate_report.Finding(
-                        rule=RULE_DOC_HEADING_DUP,
-                        path=path,
-                        line=lineno,
-                        message="heading repeats an earlier heading in the same document",
-                        evidence=title,
-                        remedy=HEADING_DUP_REMEDY,
-                    )
-                )
-        prev_level = level
-    if fence_line:
-        out.append(
-            gate_report.Finding(
-                rule=RULE_DOC_FENCE_UNCLOSED,
-                path=path,
-                line=fence_line,
-                message="code fence opened here is never closed by the end of the document",
-                evidence=src.splitlines()[fence_line - 1].strip(),
-                remedy=FENCE_UNCLOSED_REMEDY,
-            )
-        )
     return out
 
 

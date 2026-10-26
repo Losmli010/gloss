@@ -204,6 +204,7 @@ PROPER_NOUNS = frozenset(
         "reqwest",
         "ripgrep",
         "ruff",
+        "rumdl",
         "rustls",
         "semver",
         "serde",

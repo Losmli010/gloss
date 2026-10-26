@@ -173,6 +173,12 @@ def main() -> int:
         tools.get("ruff", {}).get("version"),
         "uv tool install ruff@{pin} (or pip install ruff=={pin})",
     )
+    check_pinned(
+        "rumdl",
+        "rumdl (Markdown format and lint, needed by precommit)",
+        tools.get("rumdl", {}).get("version"),
+        "uv tool install rumdl@{pin} (or pip install rumdl=={pin})",
+    )
     if not have_python_module("pytest"):
         warn_missing(
             "pytest (checker unit tests, same as the CI hooks job)",
