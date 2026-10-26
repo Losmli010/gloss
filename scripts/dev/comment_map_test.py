@@ -50,6 +50,9 @@ def test_residue_stem_needs_same_extension_source() -> None:
     assert comment_map.residue_stem("foo_rs", comment_map.build_index(["src/foo_rs.py"])) is None
     # 剥掉后解析到不同扩展名：不算残留
     assert comment_map.residue_stem("clone_py", index) is None
+    # 同主干双扩展名源并存：后者唯一的规范名是合法名字，不做剥除
+    both = comment_map.build_index(["src/clone.rs", "src/clone_rs.py"])
+    assert comment_map.residue_stem("clone_rs", both) is None
 
 
 def test_carries_records_excludes_prompts_and_records() -> None:

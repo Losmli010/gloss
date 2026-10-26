@@ -236,6 +236,19 @@ def test_qualifier_binds_mod_files_by_parent_dir() -> None:
     assert not check_test_bdd.qualifier_binds("popup", "src/ui/settings.rs")
 
 
+def test_history_marker_in_qualifier_does_not_exempt(tmp_path: Path) -> None:
+    """沿革指针写进限定符不构成豁免：该行仍按普通登记行判罚。"""
+
+    def mutate(root: Path) -> None:
+        p = root / "docs/tests/bdd.md"
+        text = p.read_text(encoding="utf-8").replace(
+            "snapshots_match_baseline（lib）", "snapshots_match_baseline（最新沿革见）"
+        )
+        p.write_text(text, encoding="utf-8")
+
+    assert_fail(tmp_path, mutate, "is not a plain file-name token")
+
+
 def test_qualifier_matching_no_file_fails_binding(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         p = root / "docs/tests/bdd.md"

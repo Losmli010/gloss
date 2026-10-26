@@ -170,8 +170,12 @@ DISGUISED_SUFFIXES = {
 
 
 def residue_stem(bare: str, index: dict[str, list[str]]) -> str | None:
-    """伪装后缀残留的判定：剥掉疑似后缀后解析得到同扩展名源文件即残留，
-    返回剥掉后的主干；否则视为合法名字本身。"""
+    """伪装后缀残留的判定：裸名本身解析得到源文件即合法名字，不做剥除——
+    残留只对解析不回任何源的名字有意义（同主干双扩展名源并存时，后者的规
+    范名不受前者牵连）。剥掉疑似后缀后解析到同扩展名源文件才算残留，返回
+    剥掉后的主干；否则视为合法名字本身。"""
+    if bare in index:
+        return None
     for suffix, ext in DISGUISED_SUFFIXES.items():
         if not bare.endswith(suffix):
             continue
