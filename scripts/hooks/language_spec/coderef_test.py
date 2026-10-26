@@ -165,3 +165,117 @@ def test_markdown_fence_info_with_title_parses_language() -> None:
 def test_markdown_braced_fence_info_is_unregistered_language() -> None:
     # 花括号信息串取不到语言名，落进未登记语言盲区，围栏内容不检
     assert markdown_problems("d.md", "```{rust}\n// 中文围栏注释说明。\n```\n") == []
+
+
+# ---- 解析树遍历的块级豁免 ----
+
+
+def test_markdown_indented_code_block_exempt() -> None:
+    src = "中文正文。\n\n    generic word in code\n    another line\n"
+    assert markdown_problems("d.md", src) == []
+
+
+def test_markdown_tilde_fence_exempt() -> None:
+    src = "中文正文。\n\n~~~\ngeneric word\n~~~\n"
+    assert markdown_problems("d.md", src) == []
+
+
+def test_markdown_tilde_fence_comment_checked() -> None:
+    problems = markdown_problems("d.md", "~~~sh\n# pick by change surface\n~~~\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-LANGUAGE"]
+    assert problems[0].line == 2
+
+
+def test_markdown_reference_definition_exempt() -> None:
+    assert markdown_problems("d.md", "[引用定义]: https://example.com\n") == []
+
+
+def test_markdown_html_block_exempt() -> None:
+    src = "中文正文。\n\n<div>\nenglish note inside html\n</div>\n"
+    assert markdown_problems("d.md", src) == []
+
+
+def test_markdown_math_block_and_span_exempt() -> None:
+    src = "中文正文。\n\n$$\nE = mc^2\n$$\n\n能耗按 $E = mc^2$ 折算。\n"
+    assert markdown_problems("d.md", src) == []
+
+
+def test_markdown_single_dollar_text_not_exempt() -> None:
+    problems = markdown_problems("d.md", "价格 $5 与 $8 不等。\n")
+    assert any("foreign letters" in m for m in messages(problems))
+
+
+def test_markdown_setext_heading_judged() -> None:
+    problems = markdown_problems("d.md", "中文标题\n===\n\n正文带 generic 词。\n")
+    assert problems[0].line == 4
+
+
+def test_markdown_softbreak_paragraph_judged_per_line() -> None:
+    problems = markdown_problems("d.md", "第一行中文。\n第二行 generic 词。\n")
+    assert problems[0].line == 2
+
+
+def test_markdown_unclosed_registered_fence_still_checked() -> None:
+    problems = markdown_problems("d.md", "```sh\n# pick by change surface\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-LANGUAGE"]
+
+
+def test_markdown_math_span_in_prose_exempt() -> None:
+    assert prose_line_problems("t", 1, "满足 $a^2 + b^2 = c^2$ 即勾股定理。") == []
+
+
+def test_markdown_unicode_line_separator_keeps_line_model() -> None:
+    src = "中文。\u2028\n正文段有 generic 词。\n```\nencoded\n```\n"
+    problems = markdown_problems("d.md", src)
+    assert {p.line for p in problems} == {2}
+
+
+def test_markdown_blockquote_fence_comment_checked() -> None:
+    problems = markdown_problems("d.md", "> ```sh\n> # pick by change surface\n> ```\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-LANGUAGE"]
+
+
+def test_markdown_bash_fence_math_span_allowed() -> None:
+    assert markdown_problems("d.md", "```bash\n# 满足 $r^2 >= 0$ 即通过。\n```\n") == []
+
+
+def test_math_double_dollar_with_chinese_not_exempt() -> None:
+    problems = prose_line_problems("t", 1, "记作 $$中文混排$$ 即散文。")
+    assert any("foreign letters" in m for m in messages(problems))
+
+
+# ---- 行内反引号内容只许英文 ----
+
+
+def test_markdown_inline_code_chinese_flagged() -> None:
+    problems = markdown_problems("d.md", "使用 `快速取词` 功能。\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
+    assert problems[0].line == 1
+
+
+def test_markdown_inline_code_fullwidth_flagged() -> None:
+    problems = markdown_problems("d.md", "键 `（注）` 与 `allowed` 同行。\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
+
+
+def test_markdown_inline_code_english_allowed() -> None:
+    assert markdown_problems("d.md", "运行 `just fmt` 与 `cargo test --workspace`。\n") == []
+
+
+def test_commit_message_backtick_chinese_still_exempt() -> None:
+    assert prose_line_problems("t", 1, "见 ` 说明段 ` 一处。") == []
+
+
+def test_markdown_table_first_column_chinese_code_flagged() -> None:
+    problems = markdown_problems("d.md", "| `中文键` | 场景 |\n| --- | --- |\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
+
+
+def test_markdown_table_later_column_chinese_code_flagged() -> None:
+    problems = markdown_problems("d.md", "| 参数 | `中文值` |\n| --- | --- |\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
+
+
+def test_markdown_reference_definition_backtick_still_checked() -> None:
+    problems = markdown_problems("d.md", "[键]: `中文值` 备注\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]

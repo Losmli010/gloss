@@ -75,6 +75,32 @@ def check_pinned(cmd: str, label: str, pin: str | None, install_hint: str) -> No
             )
 
 
+def check_python_package(package: str, pin: str | None) -> None:
+    """钉版本解释器包校验：缺席给按清单拼装的安装指引，未钉版本与在场未对
+    齐给告警，与命令行工具的同名校验同口径。"""
+    from importlib import metadata
+
+    try:
+        actual = metadata.version(package)
+    except metadata.PackageNotFoundError:
+        actual = None
+    hint = ("%s -m pip install %s=={pin}" % (sys.executable, package)).format(pin=pin or "latest")
+    if pin is None:
+        print(
+            "  warn: %s not pinned in the tool list, skipping version check" % package,
+            file=sys.stderr,
+        )
+    elif actual is None:
+        warn_missing(package, hint)
+    elif actual != pin:
+        print(
+            "  warn: %s %s != pinned %s, realign recommended: %s" % (package, actual, pin, hint),
+            file=sys.stderr,
+        )
+    else:
+        print("  ok: %s %s (pinned)" % (package, actual))
+
+
 def main() -> int:
     os.chdir(ROOT)
     tools = tool_version.parse_sections(tool_version.TOOLS_PATH)
@@ -179,6 +205,10 @@ def main() -> int:
         tools.get("rumdl", {}).get("version"),
         "uv tool install rumdl@{pin} (or pip install rumdl=={pin})",
     )
+    # 注释门禁每次提交都解析标记语言文档，解析库不在场时门禁异常失败，
+    # 清点把安装指引提前一步；判定一致性靠钉全版本
+    for package in ("markdown-it-py", "mdit-py-plugins"):
+        check_python_package(package, tools.get(package, {}).get("version"))
     if not have_python_module("pytest"):
         warn_missing(
             "pytest (checker unit tests, same as the CI hooks job)",

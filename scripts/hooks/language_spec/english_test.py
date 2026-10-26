@@ -26,3 +26,8 @@ def test_cjk_flagged() -> None:
 def test_fullwidth_and_curly_flagged() -> None:
     assert english.english_zone_problems("t", 1, "return （x）", "SAFETY comment")
     assert english.english_zone_problems("t", 1, "say “hi”", "SAFETY comment")
+
+
+def test_math_symbols_allowed() -> None:
+    text = "the bound holds for all x ∈ S: n^2 ≤ n^3 when x ≠ 0 and ε > 0"
+    assert english.english_zone_problems("t", 1, text, "SAFETY comment") == []
