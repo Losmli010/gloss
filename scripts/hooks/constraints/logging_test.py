@@ -55,3 +55,13 @@ def test_log_message_multiline_chinese(tmp_path: Path) -> None:
         )
 
     fixtures.assert_fail(logging, tmp_path, mutate, "log macro argument with non-ASCII")
+
+
+def test_log_macro_multiline_crlf_ascii_passes(tmp_path: Path) -> None:
+    # 通用换行翻译把回车换行折成换行：纯英文字节的跨行宏在回车换行检出下不判罚
+    def mutate(root: Path) -> None:
+        (root / "crates/gloss-core/src/log.rs").write_bytes(
+            b'info!(\r\n    gen = 1,\r\n    "ready"\r\n);\r\n'
+        )
+
+    fixtures.assert_pass(logging, tmp_path, mutate)

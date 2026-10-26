@@ -27,7 +27,8 @@ FFI_CENTRAL_REMEDY = "move the extern block into the ffi module of gloss-platfor
 
 # 逐行判罚先剥空白再匹配；引擎表达式以空白容忍形态书写，两者口径对齐
 CTX_EXPRESSION = (
-    r"(?:^|[^A-Za-z0-9_])Context\s*::\s*default\s*\(\s*\)|\.set_fonts\s*\(|\.set_theme\s*\("
+    r"(?:^|[^A-Za-z0-9_])Context\s*::\s*default\s*\(\s*\)"
+    r"|\.\s*set_fonts\s*\(|\.\s*set_theme\s*\("
 )
 
 FFI_EXPRESSION = r'extern\s*"C"\s*\{'

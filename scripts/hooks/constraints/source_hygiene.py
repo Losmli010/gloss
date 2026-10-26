@@ -203,7 +203,22 @@ def run(
         else:
             out = gate_report.run_git(["ls-files", "-z"], cwd=root).stdout
             tracked = [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
-        scannable = [f for f in tracked if f not in SELF_FILES]
+        scannable = []
+        for f in tracked:
+            if f in SELF_FILES:
+                continue
+            path = os.path.join(root, f)
+            try:
+                if loader is not None:
+                    data = loader.read_bytes(path)
+                else:
+                    with open(path, "rb") as fh:
+                        data = fh.read()
+            except OSError:
+                continue
+            if b"\0" in data:
+                continue  # 二进制资产不进判罚面：压缩字节的随机序列命中即不可执行的违规
+            scannable.append(f)
         try:
             hits = rg_engine.run(root, [MARKER_EXPRESSION], scannable)
         except RuntimeError as exc:

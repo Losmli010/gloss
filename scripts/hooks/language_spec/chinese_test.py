@@ -88,6 +88,12 @@ def test_command_mixed_with_chinese_still_flagged() -> None:
     assert any("foreign letters" in m for m in messages(problems))
 
 
-def test_english_prose_not_starting_with_tool_name_flagged() -> None:
+def test_english_prose_without_structural_char_flagged() -> None:
+    # 以工具词开头、无命令形态结构性记号的英文散文句不豁免
     problems = chinese.chinese_zone_problems("t", 1, "just run the tests here", "text")
     assert problems
+
+
+def test_english_sentence_with_period_flagged() -> None:
+    problems = chinese.chinese_zone_problems("t", 1, "make sure it works.", "text")
+    assert any("foreign letters" in m for m in messages(problems))

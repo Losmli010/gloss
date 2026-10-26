@@ -184,3 +184,21 @@ def test_markdown_fence_bare_marker_flagged() -> None:
 
 def test_markdown_fence_shebang_line_not_comment() -> None:
     assert markdown_problems("d.md", "```python\n#!/usr/bin/env python3\n```\n") == []
+
+
+def test_markdown_rust_doc_comment_allowed() -> None:
+    src = "```rust\n/// 中文文档示例说明。\n//! 中文内部文档示例。\nlet _ = 1;\n```\n"
+    assert markdown_problems("d.md", src) == []
+
+
+def test_markdown_html_fence_comment_checked() -> None:
+    problems = markdown_problems("d.md", "```html\n<!-- english note -->\n<div></div>\n```\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-LANGUAGE"]
+    assert markdown_problems("d.md", "```html\n<!-- 中文注释 -->\n```\n") == []
+    assert markdown_problems("d.md", "```html\n<!-- 跨行未闭合的注释\n```\n") == []
+
+
+def test_markdown_fence_info_variants_language_parsed() -> None:
+    src = '```bash title="demo"\n# english note\n```\n'
+    assert any(p.rule == "COMMENT-DOC-CODE-LANGUAGE" for p in markdown_problems("d.md", src))
+    assert markdown_problems("d.md", "```{rust}\n// 中文围栏注释说明。\n```\n") == []

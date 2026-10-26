@@ -236,12 +236,13 @@ DIRECTIVE_SEG = re.compile(
 )
 # 可直接运行的命令段整段豁免：解释器或仓库工具名开头、全外文参数的段——
 # 脚本用法行写可复制的命令本体，混入中文即失去可复制性，故整段放行；参数
-# 区须含结构性字符（路径分隔、旗标、占位括号），纯英文词串不算命令。
+# 区须含命令形态的结构性记号（双横旗标、路径分隔、占位与选项括号、选项冒
+# 号），句点之类的散文标点不算，以工具词开头的英文散文句不豁免。
 COMMAND_SEG = re.compile(
     r"^(?:python3(?:\.\d+)?|python|cargo|just|git|rg|bash|sh|make|curl)"
     r"(?:[ \t]+[-A-Za-z0-9_+=,./:@%<>[\]*?|]+)+$"
 )
-COMMAND_ARG_HINT = re.compile(r"[-./=<>:\[\]]")
+COMMAND_ARG_HINT = re.compile(r"--|/|<|\[|:")
 
 
 def is_command_seg(seg: str) -> bool:

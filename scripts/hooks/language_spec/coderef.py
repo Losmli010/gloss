@@ -6,7 +6,9 @@
 行级复合判定与标记语言文档逐行遍历是两个入口，被注释、提交信息与拉取请求
 内容门禁复用；文档结构遍历只服务文档子门禁，判标题跳级、同文档重名标题与
 结尾围栏不闭合三罚；围栏内的整行注释按注释纪律受检（文档检查子项），围栏
-内其余内容是字面代码不判罚；本模块自身注释同规。
+内其余内容是字面代码不判罚；未登记注释语言的围栏（含双横线注释形态的查询
+语言）不受检，章节号引用在围栏注释面不查——已知盲区与取舍见记录文件；本
+模块自身注释同规。
 
 模块名避开解释器标准库的交互解释器模块。
 """
@@ -180,15 +182,16 @@ def fence_language(info: str) -> str:
 
 def fence_comment_body(line: str, lang: str) -> str | None:
     """围栏行按语言取整行注释的表述体：非注释行返回空表值（None），空注释
-    返回空串。井号系认行首井号（解释器声明除外），双斜线系认行首双斜线，
-    标记注释族只收单行成对的标记注释。"""
+    返回空串。井号系认行首井号（解释器声明除外），双斜线系认行首双斜线并
+    归一化文档注释前缀（三斜线与斜线叹号），标记注释族只收单行成对的标记
+    注释。"""
     stripped = line.strip()
     if lang in HASH_FENCE_LANGS:
         if stripped.startswith("#") and not stripped.startswith("#!"):
             return stripped.lstrip("#").strip()
     elif lang in SLASH_FENCE_LANGS:
         if stripped.startswith("//"):
-            return stripped[2:].strip()
+            return stripped[2:].lstrip("/!").strip()
     elif lang in TAG_FENCE_LANGS:
         if stripped.startswith("<!--") and stripped.endswith("-->") and len(stripped) > 7:
             return stripped[4:-3].strip()

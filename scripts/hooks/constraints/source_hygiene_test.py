@@ -231,3 +231,17 @@ def test_missing_git_executable_fails_closed(
     with pytest.raises(SystemExit) as exc:
         source_hygiene.run(str(tmp_path))
     assert exc.value.code == gate_report.EXIT_INFRA
+
+
+def test_binary_asset_with_marker_skipped(tmp_path: Path) -> None:
+    # 二进制资产不进任务标记判罚面：压缩字节的随机序列命中即不可执行的违规
+    fixtures.new_fixture(tmp_path)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / "scripts/hooks/constraints").mkdir(parents=True)
+    shutil.copyfile(CHECKER, tmp_path / "scripts/hooks/constraints/source_hygiene.py")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets/logo.png").write_bytes(b"PNG\r\n\x1a\n\0\0\0TODO inside bytes\0\0")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    oks, fails = source_hygiene.run(str(tmp_path))
+    assert fails == []
+    assert any("no leftover task markers" in ok for ok in oks)
