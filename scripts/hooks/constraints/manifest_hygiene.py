@@ -93,7 +93,7 @@ def run(
                     path=mrel,
                     line=start,
                     message="default features off: %s lacks default-features = false" % key,
-                    evidence=text,
+                    evidence=manifests.flat_text(text),
                     remedy=DEFAULT_FEATURES_REMEDY,
                 )
             )
@@ -110,8 +110,15 @@ def run(
         dead_scanned += 1
         if "deps:allow" in text:
             dead_allowed += 1
-            if gate_report.allow_reason_missing("deps:allow", text):
-                rep.note(gate_report.allow_reason_finding("deps:allow", mrel, start, text))
+            for offset, entry_line in enumerate(text.split("\n")):
+                if "deps:allow" in entry_line and gate_report.allow_reason_missing(
+                    "deps:allow", entry_line
+                ):
+                    rep.note(
+                        gate_report.allow_reason_finding(
+                            "deps:allow", mrel, start + offset, entry_line
+                        )
+                    )
             continue
         crate_dir = root if mrel == "Cargo.toml" else os.path.join(root, os.path.dirname(mrel))
         import_name = key.replace("-", "_")
@@ -147,7 +154,7 @@ def run(
                 line=start,
                 message="no dead dependencies: %s declares %s with no usage evidence in"
                 " src/tests/benches" % (os.path.basename(owner), key),
-                evidence=text,
+                evidence=manifests.flat_text(text),
                 remedy=DEAD_DEP_REMEDY,
             )
         )

@@ -105,6 +105,29 @@ def test_deps_allow_marker_without_reason_flagged(tmp_path: Path) -> None:
     assert not any("no dead dependencies" in f for f in fails)
 
 
+def test_multiline_dep_bare_marker_mid_entry_flagged(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        fixtures.add_dep(
+            root / "crates/gloss-platform/Cargo.toml",
+            'serde_json = {\n    version = "1", default-features = false, # deps:allow\n}',
+        )
+
+    _, fails = fixtures.run_case(manifest_hygiene, tmp_path, mutate)
+    assert any("marker without a reason" in f for f in fails)
+    assert not any("no dead dependencies" in f for f in fails)
+    assert not any("lacks default-features" in f for f in fails)
+
+
+def test_multiline_dep_marker_with_reason_passes(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        fixtures.add_dep(
+            root / "crates/gloss-platform/Cargo.toml",
+            'serde_json = {\n    version = "1", default-features = false, # deps:allow 阴性对照\n}',
+        )
+
+    fixtures.assert_pass(manifest_hygiene, tmp_path, mutate, "1 deps:allow")
+
+
 def test_dash_key_unused(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         fixtures.add_dep(
