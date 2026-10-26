@@ -281,8 +281,8 @@ gen-manifest tag artifacts-dir:
 
 # ---- 纯文本快速检查（提交前门禁同款，秒级；持续集成的钩子工作流也跑）----
 
-# 纯文本门禁组合：六条纯文本门禁并轨单进程执行，再跑七条工具格式检查；本语言格式化只解析不编译，归文本层
-text-gates: text-gates-merged fmt fmt-py lint-py fmt-toml lint-toml fmt-md lint-md
+# 纯文本门禁组合：六条纯文本门禁并轨单进程执行，评审结果模板核对，再跑七条工具格式检查；本语言格式化只解析不编译，归文本层
+text-gates: text-gates-merged review-template fmt fmt-py lint-py fmt-toml lint-toml fmt-md lint-md
 
 # 六条纯文本门禁（密钥、文档引用、行为清单、约束、文案、注释）的并轨入口：单进程依序执行，任一违规整体非零且报告保持完整
 text-gates-merged:
@@ -295,6 +295,10 @@ secrets:
 # 校验项目文档引用的配方、路径、测试目标与质量条目名真实存在
 agents-doc:
     {{py}} scripts/hooks/check_agents_doc.py
+
+# 评审结果模板门禁：五段骨架在场，声明核对与正文模板必需小节同源
+review-template:
+    {{py}} scripts/hooks/check_review_template.py
 
 # 测试行为清单与测试源码双向核对（缺登记或失同步即失败）
 test-bdd:
@@ -311,6 +315,10 @@ i18n:
 # 注释纪律：源码（Rust）只留中文文件头注释，注释主体全中文，专名只进全角括号注记，不变量注释纯英文
 comments:
     {{py}} scripts/hooks/comments/check_comments.py
+
+# 注释纪律规则速查：按类别打印脚本路径与文件头（规则唯一出处），不另存副本
+comments-rules *args:
+    {{py}} scripts/dev/comment_rules.py {{args}}
 
 # 校验单条提交信息是否符合提交规范
 lint-commit file:

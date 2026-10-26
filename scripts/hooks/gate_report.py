@@ -70,6 +70,8 @@ REGISTERED_RULES = frozenset(
         "PR-SECTION",
         "PR-PROSE",
         "PR-TITLE-SIM",
+        "REVIEW-SECTION",
+        "REVIEW-DECL",
         "COMMENT-RUST-HEADER-MISSING",
         "COMMENT-RUST-HEADER-LANGUAGE",
         "COMMENT-RUST-HEADER-CODEREF",

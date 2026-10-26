@@ -74,6 +74,10 @@ jobs:
       - name: Test BDD check
         run: just test-bdd
 
+      # 评审结果模板：五段骨架在场，声明核对与正文模板必需小节同源
+      - name: Review template check
+        run: just review-template
+
       # 脚本语言（Python）格式化与静态检查（ruff）：纯文本秒级
       - name: Check Python formatting
         run: just fmt-py
