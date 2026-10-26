@@ -28,6 +28,7 @@ import gate_report  # noqa: E402
 
 from language_spec.chinese import (  # noqa: E402
     CJK,
+    CJKWISE,
     DIRECTIVE_SEG,
     SEGMENT_SPLIT,
     SEGMENT_TRIM,
@@ -40,6 +41,7 @@ RULE_PROSE_SECTION_REF = "PROSE-SECTION-REF"
 RULE_PROSE_LANGUAGE = "PROSE-LANGUAGE"
 RULE_DOC_CODE_LANGUAGE = "COMMENT-DOC-CODE-LANGUAGE"
 RULE_DOC_CODE_CODEREF = "COMMENT-DOC-CODE-CODEREF"
+RULE_DOC_CODE_ENGLISH = "COMMENT-DOC-CODE-ENGLISH"
 
 CODEREF_REMEDY = (
     "wrap the reference in backticks (exempt on prose surfaces) or move it to the record file"
@@ -50,6 +52,7 @@ CODE_LANGUAGE_REMEDY = (
     "rewrite the code block comment in Chinese, keeping proper nouns in bracket annotations"
 )
 CODE_CODEREF_REMEDY = "drop the reference or move the sample to the record file"
+CODE_ENGLISH_REMEDY = "keep inline code English-only; write the Chinese wording in the prose"
 
 # 围栏语言到注释形态：井号系、双斜线系与标记注释三族；围栏语言不在清单内
 # （纯文本、数据格式、空白信息串）不收注释——井号或双斜线在这些语言里不是
@@ -106,6 +109,9 @@ FENCE_COMMENT_LANGS = HASH_FENCE_LANGS | SLASH_FENCE_LANGS | TAG_FENCE_LANGS
 MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps):allow\b")
 
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+# 行内反引号的内容只许英文：中文属表述，写进正文——反引号豁免面以英文为前提
+CODE_SPAN = re.compile(r"`([^`]*)`")
 
 # 数学记号段豁免：美元号包裹的算式段，内容限算式字符、不含汉字与美元号；
 # 单美元号的普通文本（金额等）构不成段，不豁免；双美元号与单美元号同一字
@@ -317,11 +323,25 @@ def markdown_line_problems(path: str, lineno: int, line: str) -> list[gate_repor
         return []
     if re.match(r" {0,3}\[[^\]]+\]:", line):
         return []  # 引用定义：行内链接的块级同族记号，结构性豁免
+    out = []
+    for span in CODE_SPAN.findall(line):
+        if CJKWISE.search(span):
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_DOC_CODE_ENGLISH,
+                    path=path,
+                    line=lineno,
+                    message="inline code contains Chinese — backticks hold English-only code;"
+                    " write the Chinese in the prose",
+                    evidence=span,
+                    remedy=CODE_ENGLISH_REMEDY,
+                )
+            )
     heading = re.match(r"^#+\s*(.*)$", stripped)
     if heading:
         key = re.sub(r"（[^）]*）\s*$", "", heading.group(1)).strip()
         if re.fullmatch(r"[A-Za-z0-9_]+", key):
-            return []  # 小节标题即测试名，双向核对的键
+            return out  # 小节标题即测试名，双向核对的键
         stripped = heading.group(1)
     if stripped.startswith("|"):
         cells = stripped.strip("|").split("|")
@@ -331,4 +351,4 @@ def markdown_line_problems(path: str, lineno: int, line: str) -> list[gate_repor
         for cell in cells[1:]:
             out += prose_line_problems(path, lineno, cell)
         return out
-    return prose_line_problems(path, lineno, stripped)
+    return out + prose_line_problems(path, lineno, stripped)

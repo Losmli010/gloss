@@ -242,3 +242,25 @@ def test_markdown_bash_fence_math_span_allowed() -> None:
 def test_math_double_dollar_with_chinese_not_exempt() -> None:
     problems = prose_line_problems("t", 1, "记作 $$中文混排$$ 即散文。")
     assert any("foreign letters" in m for m in messages(problems))
+
+
+# ---- 行内反引号内容只许英文 ----
+
+
+def test_markdown_inline_code_chinese_flagged() -> None:
+    problems = markdown_problems("d.md", "使用 `快速取词` 功能。\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
+    assert problems[0].line == 1
+
+
+def test_markdown_inline_code_fullwidth_flagged() -> None:
+    problems = markdown_problems("d.md", "键 `（注）` 与 `allowed` 同行。\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
+
+
+def test_markdown_inline_code_english_allowed() -> None:
+    assert markdown_problems("d.md", "运行 `just fmt` 与 `cargo test --workspace`。\n") == []
+
+
+def test_commit_message_backtick_chinese_still_exempt() -> None:
+    assert prose_line_problems("t", 1, "见 ` 说明段 ` 一处。") == []
