@@ -37,9 +37,19 @@ def test_family_stems_override_the_default_stem() -> None:
 
 def test_bare_name_legality() -> None:
     assert comment_map.is_legal_bare_name("main")
+    assert comment_map.is_legal_bare_name("clone_rs")
     assert not comment_map.is_legal_bare_name("main.rs")
-    assert not comment_map.is_legal_bare_name("clone_rs")
     assert not comment_map.is_legal_bare_name("")
+
+
+def test_residue_stem_needs_same_extension_source() -> None:
+    index = comment_map.build_index(["benches/clone.rs", "scripts/perf/metrics.py"])
+    assert comment_map.residue_stem("clone_rs", index) == "clone"
+    assert comment_map.residue_stem("metrics_py", index) == "metrics"
+    # 主干真以下划线扩展名形态结尾且无同名同扩展名源文件：合法名字，不是残留
+    assert comment_map.residue_stem("foo_rs", comment_map.build_index(["src/foo_rs.py"])) is None
+    # 剥掉后解析到不同扩展名：不算残留
+    assert comment_map.residue_stem("clone_py", index) is None
 
 
 def test_carries_records_excludes_prompts_and_records() -> None:
@@ -72,6 +82,16 @@ def test_unregistered_collisions_flag_and_registration_silences() -> None:
         ("style", ["src/style.rs", "web/style.css"])
     ]
     tracked = ["src/style.rs", "web/assets/style.css"]
+    assert comment_map.unregistered_collisions(tracked) == []
+
+
+def test_partially_registered_collision_flagged() -> None:
+    """撞名组只登记部分成员：未登记成员的规范名与已登记成员相同，整组判罚。"""
+    tracked = ["src/main.rs", "tools/main.py"]
+    assert comment_map.unregistered_collisions(tracked) == [
+        ("main", ["src/main.rs", "tools/main.py"])
+    ]
+    tracked = ["src/main.rs", "crates/gloss-eval/src/main.rs", "web/assets/main.js"]
     assert comment_map.unregistered_collisions(tracked) == []
 
 

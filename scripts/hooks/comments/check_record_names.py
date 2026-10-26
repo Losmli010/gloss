@@ -42,9 +42,15 @@ COLLISION_REMEDY = (
 )
 
 
-def name_findings(rel: str, bare: str | None) -> list[gate_report.Finding]:
-    """单条记录的名字判定：非规范形态与陈旧各出一类条目。"""
-    if bare is None or not comment_map.is_legal_bare_name(bare):
+def name_findings(
+    rel: str, bare: str | None, index: dict[str, list[str]]
+) -> list[gate_report.Finding]:
+    """单条记录的名字判定：非规范形态与伪装后缀残留各出一类条目。"""
+    if (
+        bare is None
+        or not comment_map.is_legal_bare_name(bare)
+        or comment_map.residue_stem(bare, index)
+    ):
         return [
             gate_report.Finding(
                 rule=RULE_RECORD_NAME,
@@ -63,10 +69,12 @@ def check_all(tracked: list[str]) -> list[gate_report.Finding]:
     index = comment_map.build_index(tracked)
     for rel in comment_map.record_paths(tracked):
         bare = comment_map.split_record_name(os.path.basename(rel))
-        found.extend(name_findings(rel, bare))
+        name_problems = name_findings(rel, bare, index)
+        found.extend(name_problems)
+        # 名字判罚在场时陈旧判定跳过：同一条记录不双报
         if (
-            bare is not None
-            and comment_map.is_legal_bare_name(bare)
+            not name_problems
+            and bare is not None
             and bare not in index
             and bare not in comment_map.FREE_STANDING_RECORDS
         ):

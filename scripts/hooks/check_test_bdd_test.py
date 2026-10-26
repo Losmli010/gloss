@@ -217,6 +217,25 @@ def test_cross_file_same_name_without_qualifier_fails_binding(tmp_path: Path) ->
     assert_fail(tmp_path, mutate, "needs a file-bound qualifier")
 
 
+def test_qualifier_with_free_text_fails_binding(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        p = root / "docs/tests/bdd.md"
+        text = p.read_text(encoding="utf-8").replace(
+            "snapshots_match_baseline（lib）", "snapshots_match_baseline（lib 旧措辞）"
+        )
+        p.write_text(text, encoding="utf-8")
+
+    assert_fail(tmp_path, mutate, "is not a plain file-name token")
+
+
+def test_qualifier_binds_mod_files_by_parent_dir() -> None:
+    """mod 文件的限定符绑定是父目录名，直接锁定绑定函数的分支。"""
+    assert check_test_bdd.qualifier_binds("popup", "src/ui/popup/mod.rs")
+    assert not check_test_bdd.qualifier_binds("mod", "src/ui/popup/mod.rs")
+    assert check_test_bdd.qualifier_binds("settings", "src/ui/settings.rs")
+    assert not check_test_bdd.qualifier_binds("popup", "src/ui/settings.rs")
+
+
 def test_qualifier_matching_no_file_fails_binding(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         p = root / "docs/tests/bdd.md"
@@ -432,6 +451,11 @@ def violation_fixture(root: Path) -> None:
             fh.write("\n#[test]\nfn unregistered_thing() {}\n")
 
     mutate_src(root / "src/lib.rs")
+    # 同名测试的第二个定义文件 + 两行同限定行：触发文件绑定与限定名重复
+    mod = root / "src/ui/popup"
+    mod.mkdir(parents=True)
+    (mod / "mod.rs").write_text("#[test]\nfn snapshots_match_baseline() {}\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
     with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
         fh.write(
             "\n## 性能测试\n"
@@ -440,6 +464,9 @@ def violation_fixture(root: Path) -> None:
             "\n"
             "| ghost_entry | 目标 | 场景 | 2026-09-19 |\n"
             "| registered_plain | 目标 | 给定…当…则… | 2026-09-19 |\n"
+            "| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |\n"
+            "| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |\n"
+            "| snapshots_match_baseline | 目标 | 给定…当…则… | 2026-09-19 |\n"
             "- 测试目标：重复块探针。\n"
             "- 测试目标：重复块探针。\n"
         )
@@ -459,6 +486,8 @@ def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
         "BDD-DUP-BLOCK",
         "BDD-TABLE",
         "BDD-INSTANCE",
+        "BDD-BINDING",
+        "BDD-DUP-QUALIFIER",
     }
     for line in heads:
         assert re.match(r"^error\[[A-Z0-9-]+\]: .+ \(.+\)$", line)
@@ -472,7 +501,7 @@ def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
     details = sum(1 for line in text.splitlines() if line.startswith("error["))
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
-    assert int(match.group(1)) == details == 7
+    assert int(match.group(1)) == details == 9
 
 
 def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:

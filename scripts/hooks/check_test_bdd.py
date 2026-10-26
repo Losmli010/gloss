@@ -147,10 +147,14 @@ def target_test_names(root: str, loader: Any = None) -> set[str]:
 
 
 def target_test_instances(
-    root: str, tracked: list[str] | None = None, loader: Any = None
+    root: str,
+    tracked: list[str] | None = None,
+    loader: Any = None,
+    declared: set[str] | None = None,
 ) -> dict[str, set[str]]:
     """[[test]] 测试目标名到目标源文件集合：按「tests/ 目录下同名 .rs」在跟踪
-    清单里解析，解析不到的声明不计实例（限定符文件绑定无从谈起）。"""
+    清单里解析（目录形态 tests/<名>/main.rs 按目录名归位），解析不到的声明
+    不计实例（限定符文件绑定无从谈起）。声明清单可由调用方传入复用。"""
     rels = tracked if tracked is not None else tracked_rs_files(root, loader)
     by_tests_stem: dict[str, set[str]] = {}
     for rel in rels:
@@ -158,8 +162,10 @@ def target_test_instances(
         if "tests" in parts[:-1] and parts[-1].endswith(".rs"):
             stem = parts[-1][: -len(".rs")]
             by_tests_stem.setdefault(stem, set()).add(rel)
+            if stem == "main" and parts[-2] != "tests":
+                by_tests_stem.setdefault(parts[-2], set()).add(rel)
     instances: dict[str, set[str]] = {}
-    for name in target_test_names(root, loader):
+    for name in declared if declared is not None else target_test_names(root, loader):
         files = by_tests_stem.get(name)
         if files:
             instances[name] = set(files)
@@ -220,12 +226,17 @@ def bdd_registrations(bdd_path: str, loader: Any = None) -> list[dict[str, Any]]
         if exempt:
             continue
         entry: dict[str, Any] | None = None
+        history_zone = line
         if line.startswith("### "):
             entry = {"kind": "heading", "cell": re.sub(r"^#+\s*", "", line), "line": line}
         elif line.startswith("|") and not re.match(r"^\s*\|\s*(测试名称|---)", line):
             cell = re.sub(r"^\|\s*", "", line)
             cell = re.sub(r"\s*\|.*$", "", cell)
             entry = {"kind": "row", "cell": cell, "line": line}
+            # 沿革指针锚定到描述列（第三列）：标记出现在名称或限定符里不构成豁免
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if len(cells) >= 3:
+                history_zone = cells[2]
         if entry is None:
             continue
         bare, qualifier = entry["cell"], ""
@@ -238,7 +249,7 @@ def bdd_registrations(bdd_path: str, loader: Any = None) -> list[dict[str, Any]]
                 "section": section,
                 "bare": bare,
                 "qualifier": qualifier,
-                "history": HISTORY_MARKER in line,
+                "history": HISTORY_MARKER in history_zone,
                 "cell": entry["cell"],
                 "raw": line,
             }
@@ -507,13 +518,14 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
     require_inventory(bdd_path)
 
     src_instances = src_test_instances(root, loader=loader)
-    target_instances = target_test_instances(root, loader=loader)
+    declared_targets = target_test_names(root, loader=loader)
+    target_instances = target_test_instances(root, loader=loader, declared=declared_targets)
     instances: dict[str, set[str]] = {}
     for source in (src_instances, target_instances):
         for name, rels in source.items():
             instances.setdefault(name, set()).update(rels)
     # 双向核对按名字集合：测试目标声明即登记面；限定符检查按文件实例
-    src_all = set(instances) | target_test_names(root, loader=loader)
+    src_all = set(instances) | declared_targets
     require_sources(src_all)
     bdd_names = bdd_entries(bdd_path, loader)
     registrations = bdd_registrations(bdd_path, loader)

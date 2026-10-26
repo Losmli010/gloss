@@ -34,11 +34,17 @@ def test_free_standing_record_passes() -> None:
 
 def test_suffix_residue_and_disguise_flagged() -> None:
     tracked = CLEAN_REPO + [
+        "benches/clone.rs",
         "docs/comments/main.rs_comment.md",
         "docs/comments/clone_rs_comment.md",
     ]
-    found = rules(tracked)
-    assert found == {"COMMENT-RECORD-NAME"}
+    assert rules(tracked) == {"COMMENT-RECORD-NAME"}
+
+
+def test_disguise_suffix_without_matching_source_is_stale_only() -> None:
+    """剥掉疑似后缀解析不到同扩展名源文件：不算残留，落陈旧判罚兜底。"""
+    tracked = CLEAN_REPO + ["docs/comments/cache_py_comment.md"]
+    assert rules(tracked) == {"COMMENT-RECORD-STALE"}
 
 
 def test_non_canonical_suffix_flagged() -> None:

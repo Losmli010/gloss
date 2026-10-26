@@ -147,8 +147,38 @@ def split_record_name(file_name: str) -> str | None:
 
 
 def is_legal_bare_name(bare: str) -> bool:
-    """裸名合法性：不含点（后缀残留），不以 _rs 结尾（伪装后缀），非空。"""
-    return bool(bare) and "." not in bare and not bare.endswith("_rs")
+    """裸名合法性：非空且不含点（后缀残留）。伪装后缀（主干后缀化，如源
+    文件扩展名被抄进名字）由 residue_stem 对照反向索引判定，主干本身合法
+    地以下划线扩展名形态结尾的源文件不受牵连。"""
+    return bool(bare) and "." not in bare
+
+
+# 伪装后缀对照表：下划线形态到源文件扩展名，残留在反向索引里须解析到同扩
+# 展名的源文件才算（主干真以该形态结尾的合法名字不判）。
+DISGUISED_SUFFIXES = {
+    "_rs": ".rs",
+    "_py": ".py",
+    "_js": ".js",
+    "_css": ".css",
+    "_html": ".html",
+    "_toml": ".toml",
+    "_yml": ".yml",
+    "_yaml": ".yaml",
+    "_md": ".md",
+    "_json": ".json",
+}
+
+
+def residue_stem(bare: str, index: dict[str, list[str]]) -> str | None:
+    """伪装后缀残留的判定：剥掉疑似后缀后解析得到同扩展名源文件即残留，
+    返回剥掉后的主干；否则视为合法名字本身。"""
+    for suffix, ext in DISGUISED_SUFFIXES.items():
+        if not bare.endswith(suffix):
+            continue
+        stem = bare[: -len(suffix)]
+        if any(rel.endswith(ext) for rel in index.get(stem, ())):
+            return stem
+    return None
 
 
 def base_stem(rel: str) -> str:
@@ -205,12 +235,14 @@ def stem_groups(tracked: list[str]) -> dict[str, list[str]]:
 
 
 def unregistered_collisions(tracked: list[str]) -> list[tuple[str, list[str]]]:
-    """未登记的裸名撞名组：同 stem 多成员且无一成员在家族前缀表登记。"""
+    """未登记的裸名撞名组：同 stem 多成员且存在未登记成员。登记表的不变量
+    是撞名组每个成员都须登记——部分登记的组里，未登记成员的规范记录名与
+    已登记成员相同，映射与判罚都会落错文件，同样判罚。"""
     out = []
     for stem, members in sorted(stem_groups(tracked).items()):
         if len(members) < 2:
             continue
-        if any(rel.replace(os.sep, "/") in FAMILY_STEMS for rel in members):
+        if all(rel.replace(os.sep, "/") in FAMILY_STEMS for rel in members):
             continue
         out.append((stem, sorted(members)))
     return out
@@ -255,7 +287,7 @@ def doctor(tracked: list[str], root: str | None = None) -> tuple[list[str], list
     index = build_index(tracked)
     for rel in record_paths(tracked, root):
         bare = split_record_name(os.path.basename(rel))
-        if bare is None or not is_legal_bare_name(bare):
+        if bare is None or not is_legal_bare_name(bare) or residue_stem(bare, index):
             illegal.append(rel)
             continue
         if bare not in index and bare not in FREE_STANDING_RECORDS:
@@ -335,10 +367,10 @@ def run_reverse(tracked: list[str], record_name: str) -> int:
     bare = split_record_name(os.path.basename(record_name))
     if bare is None:
         bare = record_name
-    if not is_legal_bare_name(bare):
+    index = build_index(tracked)
+    if not is_legal_bare_name(bare) or residue_stem(bare, index):
         print("illegal record name: %s" % record_name, file=sys.stderr)
         return EXIT_FINDINGS
-    index = build_index(tracked)
     sources = index.get(bare, [])
     if not sources:
         hint = " (free-standing topic record)" if bare in FREE_STANDING_RECORDS else ""
