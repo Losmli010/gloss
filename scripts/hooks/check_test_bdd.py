@@ -403,7 +403,7 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
     oks = []
     if not found:
         oks.append(
-            "ok bdd.md matches test sources (%d in sources / %d in inventory)"
+            "bdd.md matches test sources (%d in sources / %d in inventory)"
             % (len(src_all), len(bdd_names))
         )
     return oks, found
@@ -444,7 +444,7 @@ def main(loader: Any = None) -> int:
     oks, found = collect(root, loader)
     # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
-        print("  ok %s" % line)
+        print("  ok: %s" % line)
     if found:
         print("", file=sys.stderr)
         gate_report.summary(found)

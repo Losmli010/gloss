@@ -56,7 +56,7 @@ def run(
                 )
             )
     log_owners = len({owner for owner, _, _, _, _, _ in dump})
-    oks.append("ok unified log exit (log dependency ownership across %d crates)" % log_owners)
+    oks.append("unified log exit (log dependency ownership across %d crates)" % log_owners)
 
     rs_files = [manifests.rel(root, f) for f in manifests.walk_rs(root)]
     try:
@@ -84,7 +84,7 @@ def run(
             )
         )
     oks.append(
-        "ok log messages English-only (%d .rs files scanned, %d violations)"
+        "log messages English-only (%d .rs files scanned, %d violations)"
         % (len(rs_files), log_violations)
     )
     return oks, rep.lines

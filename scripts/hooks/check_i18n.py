@@ -512,7 +512,7 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
     oks = []
     if not found:
         oks.append(
-            "ok %s (%s production literals + %d .rs include sites + %d TOML entry-key files)"
+            "%s (%s production literals + %d .rs include sites + %d TOML entry-key files)"
             % (RULE, SCAN_DIRS, include_files, toml_files)
         )
     return oks, found
@@ -545,7 +545,7 @@ def main(loader: Any = None) -> int:
     oks, found = collect(root, loader)
     # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
-        print("  ok %s" % line)
+        print("  ok: %s" % line)
     if found:
         print("", file=sys.stderr)
         gate_report.summary(found)

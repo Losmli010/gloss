@@ -66,7 +66,7 @@ def check_pinned(cmd: str, label: str, pin: str | None, install_hint: str) -> No
     else:
         actual = command_version(cmd)
         if actual == pin:
-            print("  ok %s %s (pinned)" % (cmd, actual))
+            print("  ok: %s %s (pinned)" % (cmd, actual))
         else:
             print(
                 "  warn: %s %s != pinned %s, realign recommended: %s"
@@ -91,7 +91,7 @@ def main() -> int:
     if channel is None:
         print("  warn: cannot read the pinned channel from the toolchain file", file=sys.stderr)
     elif rustc_version == channel:
-        print("  ok rustc %s (matches the pinned toolchain file)" % rustc_version)
+        print("  ok: rustc %s (matches the pinned toolchain file)" % rustc_version)
     else:
         print(
             "  warn: rustc %s != pinned %s, aligning recommended:" % (rustc_version, channel),
@@ -102,14 +102,14 @@ def main() -> int:
             file=sys.stderr,
         )
     if subprocess.run(["cargo", "fmt", "--version"], capture_output=True).returncode == 0:
-        print("  ok component rustfmt installed")
+        print("  ok: component rustfmt installed")
     else:
         print(
             "  warn: missing component rustfmt, install: rustup component add rustfmt",
             file=sys.stderr,
         )
     if subprocess.run(["cargo", "clippy", "--version"], capture_output=True).returncode == 0:
-        print("  ok component clippy installed")
+        print("  ok: component clippy installed")
     else:
         print(
             "  warn: missing component clippy, install: rustup component add clippy",
@@ -127,7 +127,7 @@ def main() -> int:
         actual_text = command_version(entry) if have(entry) else None
         actual = version_tuple(actual_text)
         if actual is not None and actual >= bound_tuple:
-            print("  ok %s %s (>= %s)" % (entry, actual_text, bound))
+            print("  ok: %s %s (>= %s)" % (entry, actual_text, bound))
         else:
             print(
                 "error: gate interpreter %s not found or below the pinned floor %s —"
@@ -147,7 +147,7 @@ def main() -> int:
         version = subprocess.run(
             ["just", "--version"], capture_output=True, text=True, check=True
         ).stdout.split()[1]
-        print("  ok just %s" % version)
+        print("  ok: just %s" % version)
     else:
         warn_missing("just", "brew install just (or cargo install just --locked)")
 
@@ -213,10 +213,10 @@ def main() -> int:
 
     print()
     if missing_optional == 0:
-        print("ok environment ready; run just check for full verification")
+        print("ok: environment ready; run just check for full verification")
     else:
         print(
-            "ok environment mostly ready; %d optional items missing above, install them to use the related recipes"
+            "ok: environment mostly ready; %d optional items missing above, install them to use the related recipes"
             % missing_optional
         )
     return 0

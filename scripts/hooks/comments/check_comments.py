@@ -36,7 +36,7 @@ EMPTY_SURFACE_REMEDY = (
 )
 
 OK_LINE = (
-    "ok comment discipline: sources keep only Chinese file headers, comment"
+    "comment discipline: sources keep only Chinese file headers, comment"
     " bodies fully Chinese, proper nouns only in bracket annotations, invariant"
     " comments pure English"
 )
@@ -124,7 +124,7 @@ def main(loader: Any = None) -> int:
     print(f"== comment discipline gate (repo root: {root}) ==")
     oks, found = collect(root, explicit, loader)
     for line in oks:
-        print(f"  ok {line}")
+        print(f"  ok: {line}")
     if found:
         print("", file=sys.stderr)
         gate_report.summary(found)

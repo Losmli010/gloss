@@ -197,7 +197,7 @@ def main(argv: list[str]) -> int:
                 gate_report.fail(finding)
             all_findings += found
         else:
-            print("ok commit message: %s" % split_message(msg)[0])
+            print("ok: commit message: %s" % split_message(msg)[0])
     if all_findings:
         gate_report.summary(all_findings)
         return gate_report.EXIT_VIOLATION

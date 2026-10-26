@@ -39,7 +39,7 @@ def main() -> int:
 
     subprocess.run(["git", "-C", ROOT, "config", "core.hooksPath", ".githooks"], check=True)
 
-    print("ok git hooks enabled")
+    print("ok: git hooks enabled")
     print(
         "  hooksPath: %s"
         % subprocess.run(

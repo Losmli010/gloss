@@ -138,4 +138,4 @@ def test_comments_gate_via_loader_clean_repo_passes(
     loader = run_text_gates.ContentLoader(str(tmp_path))
     monkeypatch.setattr(sys, "argv", ["check_comments.py", str(tmp_path)])
     assert check_comments.main(loader=loader) == 0
-    assert "  ok " in capfd.readouterr().out
+    assert "  ok: " in capfd.readouterr().out

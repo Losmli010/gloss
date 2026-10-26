@@ -179,7 +179,7 @@ def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
 def test_gate_clean_content_passes_with_exit_zero(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, full_section_body("无\n"), "feat: 新增翻译浮层")
     assert proc.returncode == 0
-    assert "ok pull request content" in proc.stdout.decode("utf-8")
+    assert "ok: pull request content" in proc.stdout.decode("utf-8")
 
 
 def test_gate_no_arguments_is_usage_error() -> None:

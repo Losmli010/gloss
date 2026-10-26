@@ -354,7 +354,7 @@ def main(loader: Any = None) -> int:
         gate_report.summary(found)
         return gate_report.EXIT_VIOLATION
     print(
-        "ok %s references consistent (%d checked: just recipes / repo paths / test targets;"
+        "ok: %s references consistent (%d checked: just recipes / repo paths / test targets;"
         " plus %d named quality-entry citations across %d files)"
         % (doc_name, checked, ref_count, ref_files)
     )

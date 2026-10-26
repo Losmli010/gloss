@@ -19,18 +19,18 @@ import constraints  # noqa: E402
 from constraints import fixtures  # noqa: E402
 
 OK_STEMS = (
-    "ok dependency direction",
-    "ok eval asset isolation",
-    "ok unified log exit",
-    "ok log messages English-only",
-    "ok egui context unified load point",
-    "ok FFI declarations centralized",
-    "ok single version source",
-    "ok default features off",
-    "ok no dead dependencies",
-    "ok stub copies identical",
-    "ok line cap",
-    "ok no leftover task markers",
+    "dependency direction",
+    "eval asset isolation",
+    "unified log exit",
+    "log messages English-only",
+    "egui context unified load point",
+    "FFI declarations centralized",
+    "single version source",
+    "default features off",
+    "no dead dependencies",
+    "stub copies identical",
+    "line cap",
+    "no leftover task markers",
 )
 
 
@@ -51,7 +51,7 @@ def test_aggregate_surfaces_domain_violations(tmp_path: Path) -> None:
 
     oks, fails = fixtures.run_case(constraints, tmp_path, mutate)
     assert any("must stay out of the production dependency graph" in f for f in fails)
-    assert not any(ok.startswith("ok eval asset isolation") for ok in oks)
+    assert not any(ok.startswith("eval asset isolation") for ok in oks)
 
 
 GATE = str(Path(__file__).parent / "__main__.py")

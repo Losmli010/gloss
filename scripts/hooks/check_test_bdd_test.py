@@ -394,7 +394,7 @@ def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
 def test_gate_clean_fixture_passes_with_exit_zero(tmp_path: Path) -> None:
     proc = run_gate(tmp_path)
     assert proc.returncode == 0
-    assert "  ok " in proc.stdout.decode("utf-8")
+    assert "  ok: " in proc.stdout.decode("utf-8")
 
 
 def test_gate_missing_inventory_fails_closed_with_exit_three(tmp_path: Path) -> None:

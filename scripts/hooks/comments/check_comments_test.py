@@ -648,7 +648,7 @@ def test_gate_clean_fixture_passes_with_exit_zero(tmp_path: Path) -> None:
     )
     proc = run_gate_script(tmp_path)
     assert proc.returncode == 0
-    assert "  ok " in proc.stdout.decode("utf-8")
+    assert "  ok: " in proc.stdout.decode("utf-8")
 
 
 def test_gate_empty_tracked_surface_fails_closed_with_exit_three(tmp_path: Path) -> None:

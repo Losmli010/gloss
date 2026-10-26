@@ -277,7 +277,7 @@ def main(loader: Any = None) -> int:
     if found:
         gate_report.summary(found)
         return gate_report.EXIT_VIOLATION
-    print("ok secrets scan passed (no hardcoded secrets/credentials)")
+    print("ok: secrets scan passed (no hardcoded secrets/credentials)")
     return gate_report.EXIT_PASS
 
 

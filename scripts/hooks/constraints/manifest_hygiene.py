@@ -77,7 +77,7 @@ def run(
                         remedy=VERSION_SINGLE_REMEDY,
                     )
                 )
-    oks.append("ok single version source (root [workspace.package] + per-crate *.workspace = true)")
+    oks.append("single version source (root [workspace.package] + per-crate *.workspace = true)")
 
     deps_checked = 0
     for _owner, mrel, _sec, key, start, text in dump:
@@ -99,7 +99,7 @@ def run(
                 )
             )
     oks.append(
-        "ok default features off (%d third-party dependency declarations checked)" % deps_checked
+        "default features off (%d third-party dependency declarations checked)" % deps_checked
     )
 
     dead_count = 0
@@ -162,7 +162,7 @@ def run(
         )
     if dead_count == 0:
         oks.append(
-            "ok no dead dependencies (%d third-party declarations scanned, %d deps:allow)"
+            "no dead dependencies (%d third-party declarations scanned, %d deps:allow)"
             % (dead_scanned, dead_allowed)
         )
     return oks, rep.lines

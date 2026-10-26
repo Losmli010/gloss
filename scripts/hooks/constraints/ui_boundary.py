@@ -82,7 +82,7 @@ def run(
             if gate_report.allow_reason_missing(ALLOW_CONTEXT_MARKER, marked[no]):
                 rep.note(gate_report.allow_reason_finding(ALLOW_CONTEXT_MARKER, f, no, marked[no]))
     oks.append(
-        "ok egui context unified load point (%d .rs files scanned, %d bypasses)"
+        "egui context unified load point (%d .rs files scanned, %d bypasses)"
         % (len(rs_files), ctx_violations)
     )
 
@@ -107,7 +107,7 @@ def run(
             )
         )
     oks.append(
-        "ok FFI declarations centralized (%d .rs files scanned, %d inline declarations)"
+        "FFI declarations centralized (%d .rs files scanned, %d inline declarations)"
         % (len(rs_files), ffi_violations)
     )
     return oks, rep.lines

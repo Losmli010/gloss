@@ -134,7 +134,7 @@ def run(
                     )
                 )
     oks.append(
-        "ok dependency direction (%d in-repo dependency edges + crate names registered)" % edges
+        "dependency direction (%d in-repo dependency edges + crate names registered)" % edges
     )
 
     eval_dep_violations = 0
@@ -183,5 +183,5 @@ def run(
             )
         )
     if eval_dep_violations == 0 and eval_asset_violations == 0:
-        oks.append("ok eval asset isolation (0 dependency refs + 0 include refs)")
+        oks.append("eval asset isolation (0 dependency refs + 0 include refs)")
     return oks, rep.lines

@@ -134,10 +134,10 @@ def run(
             )
         if drifts == 0:
             oks.append(
-                "ok stub copies identical (engine.rs full text + shared port stubs per section)"
+                "stub copies identical (engine.rs full text + shared port stubs per section)"
             )
     else:
-        oks.append("ok stub copies identical (no tests/stubs/, skipped)")
+        oks.append("stub copies identical (no tests/stubs/, skipped)")
 
     big_files = 0
     big_allowed = 0
@@ -192,7 +192,7 @@ def run(
         sys.exit(gate_report.EXIT_INFRA)
     if big_files == 0:
         oks.append(
-            "ok line cap (production code <=%d lines; %d lines:allow exemptions)"
+            "line cap (production code <=%d lines; %d lines:allow exemptions)"
             % (LINE_CAP, big_allowed)
         )
 
@@ -226,7 +226,7 @@ def run(
                     remedy=TASK_MARKER_REMEDY,
                 )
             )
-        oks.append("ok no leftover task markers (whole-word scan of git-tracked files)")
+        oks.append("no leftover task markers (whole-word scan of git-tracked files)")
     else:
         print(SKIP_LINE % skip_reason, file=sys.stderr)
 

@@ -204,7 +204,7 @@ def test_non_repo_run_loud_skips_task_marker_scan(
     fixtures.new_fixture(tmp_path)
     oks, fails = source_hygiene.run(str(tmp_path))
     assert fails == []
-    assert all(not ok.startswith("ok no leftover task markers") for ok in oks)
+    assert all(not ok.startswith("no leftover task markers") for ok in oks)
     assert "task-marker scan skipped" in capsys.readouterr().err
 
 

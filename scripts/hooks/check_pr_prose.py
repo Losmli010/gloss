@@ -120,7 +120,7 @@ def main() -> int:
     if found:
         gate_report.summary(found)
         return gate_report.EXIT_VIOLATION
-    print("  ok pull request content: prose rules and template sections")
+    print("  ok: pull request content: prose rules and template sections")
     return gate_report.EXIT_PASS
 
 

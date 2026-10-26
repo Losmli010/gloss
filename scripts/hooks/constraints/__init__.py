@@ -54,7 +54,7 @@ def main(loader: Any = None) -> int:
     report = manifests.Reporter()
     oks, fails = run(root, loader, report)
     for line in oks:
-        print("  ok %s" % line)
+        print("  ok: %s" % line)
     if fails:
         print("", file=sys.stderr)
         report.declare_capped()
@@ -66,5 +66,5 @@ def main(loader: Any = None) -> int:
             file=sys.stderr,
         )
         return gate_report.EXIT_VIOLATION
-    print("ok constraint checks passed (%d checks)" % len(oks))
+    print("ok: constraint checks passed (%d checks)" % len(oks))
     return gate_report.EXIT_PASS
