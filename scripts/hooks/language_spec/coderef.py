@@ -321,8 +321,6 @@ def markdown_line_problems(path: str, lineno: int, line: str) -> list[gate_repor
     stripped = line.strip()
     if not stripped:
         return []
-    if re.match(r" {0,3}\[[^\]]+\]:", line):
-        return []  # 引用定义：行内链接的块级同族记号，结构性豁免
     out = []
     for span in CODE_SPAN.findall(line):
         if CJKWISE.search(span):
@@ -337,6 +335,8 @@ def markdown_line_problems(path: str, lineno: int, line: str) -> list[gate_repor
                     remedy=CODE_ENGLISH_REMEDY,
                 )
             )
+    if re.match(r" {0,3}\[[^\]]+\]:", line):
+        return out  # 引用定义：行内链接的块级同族记号，结构性豁免，反引号判罚先于豁免
     heading = re.match(r"^#+\s*(.*)$", stripped)
     if heading:
         key = re.sub(r"（[^）]*）\s*$", "", heading.group(1)).strip()
@@ -346,9 +346,9 @@ def markdown_line_problems(path: str, lineno: int, line: str) -> list[gate_repor
     if stripped.startswith("|"):
         cells = stripped.strip("|").split("|")
         if all(re.fullmatch(r"[-: ]*", cell) for cell in cells):
-            return []  # 表格分隔行
-        out = []
+            return out  # 表格分隔行
+        cells_problems = []
         for cell in cells[1:]:
-            out += prose_line_problems(path, lineno, cell)
-        return out
+            cells_problems += prose_line_problems(path, lineno, cell)
+        return out + cells_problems
     return out + prose_line_problems(path, lineno, stripped)

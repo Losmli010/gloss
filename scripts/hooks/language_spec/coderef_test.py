@@ -264,3 +264,18 @@ def test_markdown_inline_code_english_allowed() -> None:
 
 def test_commit_message_backtick_chinese_still_exempt() -> None:
     assert prose_line_problems("t", 1, "见 ` 说明段 ` 一处。") == []
+
+
+def test_markdown_table_first_column_chinese_code_flagged() -> None:
+    problems = markdown_problems("d.md", "| `中文键` | 场景 |\n| --- | --- |\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
+
+
+def test_markdown_table_later_column_chinese_code_flagged() -> None:
+    problems = markdown_problems("d.md", "| 参数 | `中文值` |\n| --- | --- |\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
+
+
+def test_markdown_reference_definition_backtick_still_checked() -> None:
+    problems = markdown_problems("d.md", "[键]: `中文值` 备注\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
