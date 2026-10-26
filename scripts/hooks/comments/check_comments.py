@@ -10,8 +10,8 @@
 口带规则标识即时打印，退出码按全脚本统一约定；跟踪清单为空按失败关闭退
 出，文件不可读属无法完成判定，同样失败关闭。
 
-用法：以解释器运行本脚本，首参为仓库根，其余参数为可选的文件清单（供单测
-传入临时样本）；缺省扫全部被跟踪文件。
+用法：python3 scripts/hooks/comments/check_comments.py <repo-root> [file ...]，其余
+参数为可选的文件清单（供单测传入临时样本）；缺省扫全部被跟踪文件。
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def main(loader: Any = None) -> int:
     print(f"== comment discipline gate (repo root: {root}) ==")
     oks, found = collect(root, explicit, loader)
     for line in oks:
-        print(f"  ✓ {line}")
+        print(f"  ok {line}")
     if found:
         print("", file=sys.stderr)
         gate_report.summary(found)

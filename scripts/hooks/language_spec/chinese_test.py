@@ -66,3 +66,28 @@ def test_directive_segment_exempt() -> None:
 
 def test_chinese_punct_allowed() -> None:
     assert chinese.chinese_zone_problems("t", 1, "快、清、小、稳——“克制”。", "doc") == []
+
+
+# ---- 可运行命令段豁免 ----
+
+
+def test_runnable_command_segment_exempt() -> None:
+    line = "python3 scripts/hooks/check_demo.py <repo-root>，缺省为本脚本的上一级目录。"
+    assert chinese.chinese_zone_problems("t", 1, line, "text") == []
+
+
+def test_command_with_flags_and_placeholders_exempt() -> None:
+    line = "cargo run -p gloss-eval --bin eval -- live [args ...]"
+    assert chinese.chinese_zone_problems("t", 1, line, "text") == []
+
+
+def test_command_mixed_with_chinese_still_flagged() -> None:
+    problems = chinese.chinese_zone_problems(
+        "t", 1, "python3 scripts/hooks/check_demo.py 仓库根", "text"
+    )
+    assert any("foreign letters" in m for m in messages(problems))
+
+
+def test_english_prose_not_starting_with_tool_name_flagged() -> None:
+    problems = chinese.chinese_zone_problems("t", 1, "just run the tests here", "text")
+    assert problems

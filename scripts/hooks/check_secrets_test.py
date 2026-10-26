@@ -370,19 +370,19 @@ def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, violation_fixture())
     assert proc.returncode == 1
     text = proc.stderr.decode("utf-8")
-    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
-    ids = {re.match(r"^✗ error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
+    heads = [line for line in text.splitlines() if line.startswith("error[")]
+    ids = {re.match(r"^error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
     assert ids == {"SECRET-VENDOR", "SECRET-CREDENTIAL", "SECRET-AUTH"}
     for line in heads:
-        assert re.match(r"^✗ error\[[A-Z0-9-]+\]: .+ \(.+:\d+\)$", line)
-    assert "    证据: " in text
+        assert re.match(r"^error\[[A-Z0-9-]+\]: .+ \(.+:\d+\)$", line)
+    assert "    evidence: " in text
     assert "    help: " in text
 
 
 def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, violation_fixture())
     text = proc.stderr.decode("utf-8")
-    details = sum(1 for line in text.splitlines() if line.startswith("✗ error["))
+    details = sum(1 for line in text.splitlines() if line.startswith("error["))
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
     assert int(match.group(1)) == details == 3
@@ -392,10 +392,10 @@ def test_gate_allow_reason_rule_id_and_exit_code(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, {"bare-allow.toml": 'api_key = "%s" # %s' % (TAIL16, MARKER)})
     assert proc.returncode == 1
     text = proc.stderr.decode("utf-8")
-    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
+    heads = [line for line in text.splitlines() if line.startswith("error[")]
     assert len(heads) == 1
-    assert re.match(r"^✗ error\[ALLOW-REASON\]: .+ \(.+:\d+\)$", heads[0])
-    assert "    证据: " in text
+    assert re.match(r"^error\[ALLOW-REASON\]: .+ \(.+:\d+\)$", heads[0])
+    assert "    evidence: " in text
     assert "    help: " in text
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
@@ -413,7 +413,7 @@ def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
 def test_gate_clean_repo_passes_with_exit_zero(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, {"clean.rs": "let x = compute(input);"})
     assert proc.returncode == 0
-    assert proc.stdout.decode("utf-8").startswith("✓")
+    assert proc.stdout.decode("utf-8").startswith("ok")
 
 
 def test_gate_extra_argument_is_a_usage_error(tmp_path: Path) -> None:
@@ -433,4 +433,4 @@ def test_gate_git_failure_is_infra_and_fail_closed(tmp_path: Path) -> None:
     bare.mkdir()
     proc = subprocess.run([sys.executable, GATE, str(bare)], capture_output=True)
     assert proc.returncode == 3
-    assert "✗ error[INFRA]:" in proc.stderr.decode("utf-8")
+    assert "error[INFRA]:" in proc.stderr.decode("utf-8")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """把打包好的应用包压成分发镜像（只读压缩格式，访达打开即拖装）。
-用法：以解释器运行，首参为应用包路径，次参可选为输出镜像路径。
+用法：python3 scripts/release/bundle_dmg.py <app-bundle> [output-dmg]
 """
 
 from __future__ import annotations

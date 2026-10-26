@@ -27,14 +27,14 @@ def main():
     ):
         return 0
     if len(sys.argv) < 2:
-        print("✗ commit-msg hook: missing message file argument", file=sys.stderr)
+        print("error: commit-msg hook: missing message file argument", file=sys.stderr)
         return 1
     with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
         found = check_commit_msg.findings(fh.read())
     if found:
         print("", file=sys.stderr)
         print(
-            "✗ commit message violates the convention; commit blocked"
+            "error: commit message violates the convention; commit blocked"
             " (same check as CI — fix the message now, avoid the CI rework)",
             file=sys.stderr,
         )

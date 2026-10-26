@@ -90,10 +90,7 @@ clone-bench:
 clone-stats:
     {{py}} scripts/perf/clone-stats.py
 
-# 采集性能趋势点并重绘趋势图：聚合脚本把本地产物折算成历史一个点（克隆计数
-# 与分配需先跑克隆基准、核心墙钟需先跑热点基准、自检信号需先跑自检报告、
-# 应用片段需先跑应用度量；某源缺席则对应指标跳过），重绘脚本出三张趋势图；
-# 检视时看历史数值与三张图的前后对照
+# 采集性能趋势点并重绘趋势图：聚合脚本折算本地产物为历史点（源缺席则对应指标跳过），重绘脚本出三张趋势图
 perf-baseline:
     {{py}} scripts/perf/perf-collect.py
     {{py}} scripts/perf/perf-chart.py
@@ -102,22 +99,18 @@ perf-baseline:
 perf-chart:
     {{py}} scripts/perf/perf-chart.py
 
-# 对照历史最新点的克隆门禁基线报告变化（克隆计数或热点分配上升即失败；
-# 需先跑克隆基准与趋势采集；审计对照，不在提交前门禁内）
+# 对照历史最新点的克隆门禁基线报告变化（克隆计数或热点分配上升即失败），需先跑克隆基准与趋势采集
 clone-check:
     {{py}} scripts/perf/clone-stats.py --check
 
-# 量化应用运行时资源并采集趋势点：构建后拉起实例采启动里程碑、常驻内存（RSS）、处理器（CPU）
-# 与体积（建议先退出在跑的应用），片段不入库；随聚合脚本折算进历史，
-# 三张趋势图随重绘脚本更新
+# 量化应用运行时资源并采集趋势点：构建后拉起实例采启动里程碑、常驻内存（RSS）、处理器（CPU）与体积，三张趋势图随之更新
 app-metrics:
     cargo build --release
     {{py}} scripts/perf/app-metrics.py
     {{py}} scripts/perf/perf-collect.py
     {{py}} scripts/perf/perf-chart.py
 
-# 性能总览与对比报告，格式为标记语言（Markdown），打到标准输出、判定仅参考非门禁：缺省输出
-# 最新点总览，给两期锚点则输出对比（精确计数类上升即回归，其余按注册表噪声阈值）
+# 性能总览与对比报告（标记语言，打到标准输出，判定仅参考非门禁）：缺省输出最新点总览，给两期锚点则输出对比
 perf-report *args:
     {{py}} scripts/perf/perf-report.py {{args}}
 
@@ -126,29 +119,24 @@ profile-run:
     cargo build --profile profiling
     ./target/profiling/gloss &
 
-# 采运行中实例的处理器（CPU）火焰图（SVG）：提权跟踪采样（dtrace）加折叠渲染（inferno），
-# 采样需管理员权限；输出到剖析目录，附原始栈与栈顶自耗排行
+# 采运行中实例的处理器（CPU）火焰图（SVG）：提权跟踪采样（dtrace）加折叠渲染（inferno），采样需管理员权限
 flame pid="" duration="10":
     {{py}} scripts/perf/flamegraph.py --pid "{{pid}}" --duration {{duration}}
 
-# 从启动起采样出启动路径火焰图（只让采样器提权，应用仍以普通用户运行；
-# 采样到应用退出为止，采完退出应用即出图）
+# 从启动起采样出启动路径火焰图（只让采样器提权，采样到应用退出为止，采完退出应用即出图）
 flame-startup:
     mkdir -p target/profile
     cargo flamegraph --root --profile profiling --bin gloss --output target/profile/flamegraph-startup.svg
 
-# 二进制体积归因（记录性不判罚）：节级尺寸统计加符号级地址差分
-# （剥过符号的产物只做节级，符号级用剖析或调试产物）
+# 二进制体积归因（记录性不判罚）：节级尺寸统计加符号级地址差分，剥过符号的产物只做节级
 size-report bin="target/release/gloss" top="30":
     {{py}} scripts/perf/size_report.py --bin {{bin}} --top {{top}}
 
-# 提示词评测实跑轨：真实大语言模型（LLM），需专用凭据且显式选择参与
-# 录制开关回写夹具；评分开关启用评分轨（每条额外一次模型调用）
+# 提示词评测实跑轨：真实大语言模型（LLM），需专用凭据且显式选择参与；录制开关回写夹具，评分开关启用评分轨
 eval *args:
     cargo run -p gloss-eval --bin eval -- live {{args}}
 
-# 提示词评估检视：离线重放加单文件检视页（准确率、逐条轨迹、趋势），生成后开浏览器
-# 改提示词后看真实准确率走实跑轨评测配方；本配方是免凭据的夹具口径
+# 提示词评估检视：离线重放加单文件检视页（准确率、逐条轨迹、趋势），生成后开浏览器，免凭据走夹具口径
 eval-inspect:
     cargo run -p gloss-eval --bin eval -- inspect
     open target/eval/inspect.html
@@ -219,8 +207,7 @@ selftest:
 startup-selftest:
     cargo test -p gloss --test startup
 
-# 第三层双自检包装（L3）：跑显隐与启动自检，从标准错误提取结构化信号行并外部轮询
-# 完整常驻内存（RSS）曲线，落到指定输出（缺省在性能目录下，本地交接产物不入仓库）
+# 第三层双自检包装（L3）：跑显隐与启动自检，提取结构化信号行并外部轮询完整常驻内存（RSS）曲线落到指定输出
 selftest-report out="target/perf/selftest.jsonl":
     {{py}} scripts/perf/selftest_wrapper.py --out {{out}}
 
@@ -282,13 +269,10 @@ gen-manifest tag artifacts-dir:
 
 # ---- 纯文本快速检查（提交前门禁同款，秒级；持续集成的钩子工作流也跑）----
 
-# 纯文本门禁组合：六条纯文本门禁并轨单进程执行（共享一次文件清单枚举与内
-# 容缓存），再跑五条工具格式检查；本语言格式化只解析不编译，归文本层
+# 纯文本门禁组合：六条纯文本门禁并轨单进程执行，再跑五条工具格式检查；本语言格式化只解析不编译，归文本层
 text-gates: text-gates-merged fmt fmt-py lint-py fmt-toml lint-toml
 
-# 六条纯文本门禁（密钥、文档引用、行为清单、约束、文案、注释）的并轨入口：
-# 单进程依序执行，顺序即上面的清单序，聚合输出与各门禁单跑输出的拼接一致，
-# 任一违规整体非零且报告保持完整
+# 六条纯文本门禁（密钥、文档引用、行为清单、约束、文案、注释）的并轨入口：单进程依序执行，任一违规整体非零且报告保持完整
 text-gates-merged:
     {{py}} scripts/hooks/run_text_gates.py
 
@@ -312,8 +296,7 @@ constraints:
 i18n:
     {{py}} scripts/hooks/check_i18n.py
 
-# 注释纪律：源码（Rust）只留中文文件头注释（不变量注释与放行标记豁免，其余迁
-# 记录文件）；注释主体全中文，专名只进全角括号注记，不变量注释纯英文
+# 注释纪律：源码（Rust）只留中文文件头注释，注释主体全中文，专名只进全角括号注记，不变量注释纯英文
 comments:
     {{py}} scripts/hooks/comments/check_comments.py
 

@@ -89,6 +89,9 @@ REGISTERED_RULES = frozenset(
         "COMMENT-DOC-HEADING-JUMP",
         "COMMENT-DOC-HEADING-DUP",
         "COMMENT-DOC-FENCE-UNCLOSED",
+        "COMMENT-DOC-CODE-LANGUAGE",
+        "COMMENT-DOC-CODE-CODEREF",
+        "COMMENT-JUST-ONE-LINE",
         "PROSE-FOREIGN",
         "PROSE-GLOSS-MIXED",
         "PROSE-GLOSS-UNKNOWN",
@@ -137,13 +140,13 @@ def render(finding: Finding) -> str:
 def fail(finding: Finding, file: TextIO | None = None) -> Finding:
     """即时打印单条违规到标准错误，返回同一条目供调用方汇集计数。"""
     out = file if file is not None else sys.stderr
-    head = "✗ error[%s]: %s" % (finding.rule, finding.message)
+    head = "error[%s]: %s" % (finding.rule, finding.message)
     loc = location(finding)
     if loc:
         head = "%s (%s)" % (head, loc)
     print(head, file=out)
     if finding.evidence:
-        print("    证据: %s" % finding.evidence, file=out)
+        print("    evidence: %s" % finding.evidence, file=out)
     if finding.remedy:
         print("    help: %s" % finding.remedy, file=out)
     return finding

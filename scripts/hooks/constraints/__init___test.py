@@ -102,15 +102,15 @@ def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
     proc = run_gate(tmp_path)
     assert proc.returncode == 1
     text = proc.stderr.decode("utf-8")
-    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
-    ids = {re.match(r"^✗ error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
+    heads = [line for line in text.splitlines() if line.startswith("error[")]
+    ids = {re.match(r"^error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
     assert ids == VIOLATION_RULES
     assert len(heads) == 8
     for line in heads:
-        assert re.match(r"^✗ error\[[A-Z0-9-]+\]: .+ \([^)]+\)$", line)
-    assert "    证据: " in text
+        assert re.match(r"^error\[[A-Z0-9-]+\]: .+ \([^)]+\)$", line)
+    assert "    evidence: " in text
     assert "    help: " in text
-    assert '证据: unsafe extern "C" {' in text
+    assert 'evidence: unsafe extern "C" {' in text
     assert "tail over forty characters kept as evidence" in text
 
 
@@ -118,7 +118,7 @@ def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
     git_repo(tmp_path, violation_mutate)
     proc = run_gate(tmp_path)
     text = proc.stderr.decode("utf-8")
-    details = sum(1 for line in text.splitlines() if line.startswith("✗ error["))
+    details = sum(1 for line in text.splitlines() if line.startswith("error["))
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
     assert int(match.group(1)) == details == 8
@@ -156,7 +156,7 @@ def test_gate_missing_root_is_a_usage_error(tmp_path: Path) -> None:
 def test_gate_empty_manifest_surface_exits_three(tmp_path: Path) -> None:
     proc = run_gate(tmp_path)
     assert proc.returncode == 3
-    assert "✗ error[EMPTY-SURFACE]:" in proc.stderr.decode("utf-8")
+    assert "error[EMPTY-SURFACE]:" in proc.stderr.decode("utf-8")
 
 
 def manifest_only_fixture(tmp_path: Path) -> None:
@@ -171,7 +171,7 @@ def test_gate_empty_source_surface_exits_three(tmp_path: Path) -> None:
     manifest_only_fixture(tmp_path)
     proc = run_gate(tmp_path)
     assert proc.returncode == 3
-    assert "✗ error[EMPTY-SURFACE]:" in proc.stderr.decode("utf-8")
+    assert "error[EMPTY-SURFACE]:" in proc.stderr.decode("utf-8")
 
 
 def test_gate_non_repo_environment_loud_skips(tmp_path: Path) -> None:
@@ -200,9 +200,9 @@ def test_gate_caps_report_per_file_and_declares_rest(tmp_path: Path) -> None:
     proc = run_gate(tmp_path)
     assert proc.returncode == 1
     text = proc.stderr.decode("utf-8")
-    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
+    heads = [line for line in text.splitlines() if line.startswith("error[")]
     assert len(heads) == 20
-    assert all(re.match(r"^✗ error\[DEAD-DEP\]:", line) for line in heads)
+    assert all(re.match(r"^error\[DEAD-DEP\]:", line) for line in heads)
     assert "… 5 more violations in crates/gloss-core/Cargo.toml not shown" in text
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match

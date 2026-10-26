@@ -149,18 +149,18 @@ def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, "缺少全部小节的正文\n\nJust run the tests.\n", "Bump deps")
     assert proc.returncode == 1
     text = proc.stderr.decode("utf-8")
-    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
-    ids = {re.match(r"^✗ error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
+    heads = [line for line in text.splitlines() if line.startswith("error[")]
+    ids = {re.match(r"^error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
     assert ids == {"PR-SECTION", "PR-PROSE", "PR-TITLE-SIM"}
     for line in heads:
-        assert re.match(r"^✗ error\[[A-Z0-9-]+\]: .+$", line)
+        assert re.match(r"^error\[[A-Z0-9-]+\]: .+$", line)
     assert "    help: " in text
 
 
 def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, "缺少全部小节的正文\n\nJust run the tests.\n", "Bump deps")
     text = proc.stderr.decode("utf-8")
-    details = sum(1 for line in text.splitlines() if line.startswith("✗ error["))
+    details = sum(1 for line in text.splitlines() if line.startswith("error["))
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
     assert int(match.group(1)) == details

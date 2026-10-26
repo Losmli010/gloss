@@ -16,7 +16,7 @@
 则标识、位置、证据行与修复指引，违规随执行流即时输出；字面量扫描面的四个
 源码目录任一缺失按失败关闭退出。退出码按全脚本统一约定。
 
-用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
+用法：python3 scripts/hooks/check_i18n.py <repo-root>，缺省为本脚本的上一级目录。
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import gate_report
+import rg_engine
 
 RULE = "ui copy lives in the i18n catalog"
 OWNER = "crates/gloss-app/src/ui/i18n.rs"
@@ -65,7 +66,7 @@ EMPTY_SURFACE_REMEDY = (
     " literal scan cannot complete"
 )
 
-INCLUDE_RE = re.compile(r"include_(str|bytes)!\([^)]*i18n")
+INCLUDE_EXPRESSION = r"include_(str|bytes)!\([^)]*i18n"
 
 CATALOG_KEY_RE = re.compile(r"^\s*gloss_[A-Za-z0-9_]+\s*=")
 
@@ -424,28 +425,32 @@ def scan_all_toml(root: str) -> Iterator[str]:
 def loadpoint_findings(root: str, loader: Any = None) -> tuple[int, list[gate_report.Finding]]:
     """检查二：装入点集中——文案文件是编译期资源，装入与解析只允许发生在统
     一装入点一处，别处编译期引入就绕开了类型化文案表与双语键一致性测试；
-    逐行全量报告，返回扫描的 rs 文件数与违规条目。"""
+    内容检索委托共享引擎，逐行全量报告，返回扫描的 rs 文件数与违规条目。"""
+    all_rs = [os.path.relpath(f, root).replace(os.sep, "/") for f in scan_all_rs(root)]
+    targets = [f for f in all_rs if f != OWNER]
+    try:
+        hits = rg_engine.run(root, [INCLUDE_EXPRESSION], targets)
+    except RuntimeError as exc:
+        gate_report.fail(
+            gate_report.infra_failure("cannot complete the i18n load point scan: %s" % exc)
+        )
+        sys.exit(gate_report.EXIT_INFRA)
     out = []
-    scanned = 0
-    for f in scan_all_rs(root):
-        scanned += 1
-        rel = os.path.relpath(f, root).replace(os.sep, "/")
-        if rel == OWNER:
-            continue
-        for no, line in enumerate(read_lines(f, loader), 1):
-            if INCLUDE_RE.search(line):
-                out.append(
-                    gate_report.Finding(
-                        rule=RULE_I18N_LOADPOINT,
-                        path=rel,
-                        line=no,
-                        message="%s line %d references the i18n resource outside the load"
-                        " point — only %s may include it" % (rel, no, OWNER),
-                        evidence=line,
-                        remedy=LOADPOINT_REMEDY,
-                    )
+    for rel in targets:
+        file_hits = hits.get(rel, {})
+        for no in sorted(file_hits):
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_I18N_LOADPOINT,
+                    path=rel,
+                    line=no,
+                    message="%s line %d references the i18n resource outside the load"
+                    " point — only %s may include it" % (rel, no, OWNER),
+                    evidence=file_hits[no],
+                    remedy=LOADPOINT_REMEDY,
                 )
-    return scanned, out
+            )
+    return len(all_rs), out
 
 
 def catalog_findings(root: str, loader: Any = None) -> tuple[int, list[gate_report.Finding]]:
@@ -540,7 +545,7 @@ def main(loader: Any = None) -> int:
     oks, found = collect(root, loader)
     # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
-        print("  ✓ %s" % line)
+        print("  ok %s" % line)
     if found:
         print("", file=sys.stderr)
         gate_report.summary(found)

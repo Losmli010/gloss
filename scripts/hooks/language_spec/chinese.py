@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """语言规范·中文区：中文表述怎么写。中文主体只允许汉字、中文标点、阿拉伯
 数字与空白；专有名词一律收进紧跟的全角括号作注记，括号内只放白名单里的
-专名本身，括号不嵌套、不成单边；工具指令段整段豁免。判罚以带规则标识的违
-规条目返回，位置由调用方按路径与行号传入，标识登记于统一登记表。被注释、
-提交信息与拉取请求内容门禁复用；本模块自身注释同规。
+专名本身，括号不嵌套、不成单边；工具指令段与可直接运行的命令段整段豁免。
+判罚以带规则标识的违规条目返回，位置由调用方按路径与行号传入，标识登记
+于统一登记表。被注释、提交信息与拉取请求内容门禁复用；本模块自身注释同规。
 
 """
 
@@ -234,6 +234,21 @@ DIRECTIVE_SEG = re.compile(
     r"|^[\s—–\-]*(?:noqa|fmt|ruff|isort|pylint|type|shellcheck|yamllint"
     r"|actionlint|prettier|markdownlint)\b(?:[:\s][A-Za-z0-9_+=,.\s\-]*)?$"
 )
+# 可直接运行的命令段整段豁免：解释器或仓库工具名开头、全外文参数的段——
+# 脚本用法行写可复制的命令本体，混入中文即失去可复制性，故整段放行；参数
+# 区须含结构性字符（路径分隔、旗标、占位括号），纯英文词串不算命令。
+COMMAND_SEG = re.compile(
+    r"^(?:python3(?:\.\d+)?|python|cargo|just|git|rg|bash|sh|make|curl)"
+    r"(?:[ \t]+[-A-Za-z0-9_+=,./:@%<>[\]*?|]+)+$"
+)
+COMMAND_ARG_HINT = re.compile(r"[-./=<>:\[\]]")
+
+
+def is_command_seg(seg: str) -> bool:
+    """段是否为可直接运行的命令：命令形态全配，且参数区带结构性字符。"""
+    return COMMAND_SEG.match(seg) is not None and COMMAND_ARG_HINT.search(seg) is not None
+
+
 # 表述按中文标点切段；段两端先剥修饰字符，指令段只认整段外文的匹配，中文与
 # 指令混写的段仍受检。
 SEGMENT_SPLIT = re.compile(r"[，。；：！？、（）《》…—\n]+")
@@ -247,7 +262,7 @@ def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[g
     out = []
     for seg in SEGMENT_SPLIT.split(zone):
         seg = seg.strip(SEGMENT_TRIM)
-        if not seg or DIRECTIVE_SEG.match(seg):
+        if not seg or DIRECTIVE_SEG.match(seg) or is_command_seg(seg):
             continue
         bad = []
         for index, ch in enumerate(seg):

@@ -338,19 +338,19 @@ def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
     )
     assert proc.returncode == 1
     text = proc.stderr.decode("utf-8")
-    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
-    ids = {re.match(r"^✗ error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
+    heads = [line for line in text.splitlines() if line.startswith("error[")]
+    ids = {re.match(r"^error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
     assert ids == {"COMMIT-FORMAT", "COMMIT-BLANK-LINE", "COMMIT-PROSE"}
     for line in heads:
-        assert re.match(r"^✗ error\[[A-Z0-9-]+\]: .+ \(.+\)$", line)
-    assert "    证据: " in text
+        assert re.match(r"^error\[[A-Z0-9-]+\]: .+ \(.+\)$", line)
+    assert "    evidence: " in text
     assert "    help: " in text
 
 
 def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, {"one": "bad message\n", "two": "feat: 标题\n直接正文无空行\n"})
     text = proc.stderr.decode("utf-8")
-    details = sum(1 for line in text.splitlines() if line.startswith("✗ error["))
+    details = sum(1 for line in text.splitlines() if line.startswith("error["))
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
     assert int(match.group(1)) == details == 2
@@ -368,4 +368,4 @@ def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
 def test_gate_clean_messages_pass_with_exit_zero(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, {"one": "feat: 标题\n\n正文\n", "two": "fix(core): 修复\n"})
     assert proc.returncode == 0
-    assert proc.stdout.decode("utf-8").startswith("✓")
+    assert proc.stdout.decode("utf-8").startswith("ok")
