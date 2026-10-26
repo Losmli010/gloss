@@ -120,3 +120,11 @@ def test_latin_variable_still_flagged_without_markup() -> None:
 def test_markdown_collision_signs_still_flagged() -> None:
     problems = chinese.body_problems("t", 1, "斜杠 / 与竖线 | 不放行。", "text")
     assert any("foreign letters" in p for p in messages(problems))
+
+
+def test_nbsp_and_ideographic_space_allowed() -> None:
+    assert chinese.chinese_zone_problems("t", 1, "列\u00a0宽\u3000撑住", "doc") == []
+
+
+def test_control_character_still_flagged() -> None:
+    assert chinese.chinese_zone_problems("t", 1, "混入\u0007响铃控制符", "doc")

@@ -96,3 +96,31 @@ def test_missing_pull_request_template_is_infra(tmp_path: Path) -> None:
     build_fixture(tmp_path)
     (tmp_path / ".github" / "pull_request_template.md").unlink()
     assert rules(tmp_path) == ["INFRA"]
+
+
+def test_unreadable_review_template_is_infra(tmp_path: Path) -> None:
+    build_fixture(tmp_path)
+    path = tmp_path / ".github" / "review_result_template.md"
+    path.chmod(0o000)
+    try:
+        assert rules(tmp_path) == ["INFRA"]
+    finally:
+        path.chmod(0o644)
+
+
+def test_unreadable_pull_request_template_is_infra(tmp_path: Path) -> None:
+    build_fixture(tmp_path)
+    path = tmp_path / ".github" / "pull_request_template.md"
+    path.chmod(0o000)
+    try:
+        assert rules(tmp_path) == ["INFRA"]
+    finally:
+        path.chmod(0o644)
+
+
+def test_non_utf8_template_does_not_crash(tmp_path: Path) -> None:
+    build_fixture(tmp_path)
+    (tmp_path / ".github" / "review_result_template.md").write_bytes(b"\xa3\xa3")
+    found = check_review_template.findings(str(tmp_path))
+    assert {f.rule for f in found} <= {"REVIEW-SECTION", "REVIEW-DECL"}
+    assert found

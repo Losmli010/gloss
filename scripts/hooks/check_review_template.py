@@ -5,7 +5,7 @@
 故由门禁锁定同源。评审结果模板缺失按失败关闭处置，绝不因没检查到而放行。
 
 校验结果以带规则标识的违规条目列表承载，报告经统一诊断出口打印；退出码
-按全脚本统一约定：零为通过、一为发现违规、二为用法错误。
+按全脚本统一约定：零为通过、一为发现违规、二为用法错误、三为无法完成判定。
 
 用法：python3 scripts/hooks/check_review_template.py，无参数；仓库根取本脚本位置向上回溯。
 """
@@ -45,7 +45,7 @@ def read_template(root: str, rel: str) -> str | None:
     path = os.path.join(root, rel)
     if not os.path.isfile(path):
         return None
-    with open(path, encoding="utf-8") as fh:
+    with open(path, encoding="utf-8", errors="replace") as fh:
         return fh.read()
 
 
@@ -72,6 +72,14 @@ def declaration_lines(text: str) -> list[str]:
 
 
 def findings(root: str) -> list[gate_report.Finding]:
+    """五段骨架与声明同源的全部违规条目；模板不可读按无法完成判定处置。"""
+    try:
+        return _findings(root)
+    except OSError as exc:
+        return [gate_report.infra_failure("template unreadable: %s" % exc)]
+
+
+def _findings(root: str) -> list[gate_report.Finding]:
     review = read_template(root, REVIEW_TEMPLATE_REL)
     if review is None:
         return [
@@ -137,6 +145,8 @@ def main() -> int:
         gate_report.fail(finding)
     if found:
         gate_report.summary(found)
+        if any(finding.rule == gate_report.RULE_INFRA for finding in found):
+            return gate_report.EXIT_INFRA
         return gate_report.EXIT_VIOLATION
     print("  ok: review result template: skeleton and declaration sync")
     return gate_report.EXIT_PASS
