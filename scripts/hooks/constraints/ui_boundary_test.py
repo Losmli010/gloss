@@ -117,3 +117,14 @@ def test_ffi_callback_definition_not_a_declaration(tmp_path: Path) -> None:
         )
 
     fixtures.assert_pass(ui_boundary, tmp_path, mutate, "0 inline declarations")
+
+
+def test_fonts_with_spaced_dot_hit(tmp_path: Path) -> None:
+    # 去空白口径：点号与方法名之间的空白同样要被空白容忍表达式命中
+    def mutate(root: Path) -> None:
+        (root / "crates/gloss-app/src").mkdir(exist_ok=True)
+        (root / "crates/gloss-app/src/spaced_dot.rs").write_text(
+            "config . set_fonts(definitions);\nctx . set_theme(preference);\n"
+        )
+
+    fixtures.assert_fail(ui_boundary, tmp_path, mutate, "egui context unified load point")

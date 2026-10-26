@@ -198,7 +198,11 @@ def test_markdown_html_fence_comment_checked() -> None:
     assert markdown_problems("d.md", "```html\n<!-- 跨行未闭合的注释\n```\n") == []
 
 
-def test_markdown_fence_info_variants_language_parsed() -> None:
+def test_markdown_fence_info_with_title_parses_language() -> None:
     src = '```bash title="demo"\n# english note\n```\n'
     assert any(p.rule == "COMMENT-DOC-CODE-LANGUAGE" for p in markdown_problems("d.md", src))
+
+
+def test_markdown_braced_fence_info_is_unregistered_language() -> None:
+    # 花括号信息串取不到语言名，落进未登记语言盲区，围栏内容不检
     assert markdown_problems("d.md", "```{rust}\n// 中文围栏注释说明。\n```\n") == []
