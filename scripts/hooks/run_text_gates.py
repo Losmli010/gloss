@@ -9,7 +9,7 @@
 口带可选内容装入器参数，缺省自行读取，单条配方与既有单测行为不变。取舍
 见记录文件。
 
-用法：以解释器运行本脚本，无参数；仓库根取本脚本位置向上回溯。
+用法：python3 scripts/hooks/run_text_gates.py，无参数；仓库根取本脚本位置向上回溯。
 """
 
 from __future__ import annotations

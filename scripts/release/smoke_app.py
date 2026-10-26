@@ -5,7 +5,7 @@
   二、再观察一段窗口后仍存活（排除启动即崩的慢炸弹）；
   三、日志出现启动标记，且没有任何崩溃。
 辅助功能未授权只会让划词手势降级，不算冒烟失败——冒烟只管“能不能跑”。
-用法：以解释器运行，首参为应用包路径。
+用法：python3 scripts/release/smoke_app.py <app-bundle>
 """
 
 from __future__ import annotations

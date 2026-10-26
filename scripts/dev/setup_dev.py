@@ -22,7 +22,7 @@ missing_optional = 0
 def warn_missing(name: str, install_cmd: str) -> None:
     global missing_optional
     missing_optional += 1
-    print("  ✗ missing %s — install: %s" % (name, install_cmd))
+    print("  error: missing %s — install: %s" % (name, install_cmd))
 
 
 def have(cmd: str) -> bool:
@@ -58,16 +58,18 @@ def toolchain_channel() -> str | None:
 
 def check_pinned(cmd: str, label: str, pin: str | None, install_hint: str) -> None:
     if pin is None:
-        print("  ⚠ %s not pinned in the tool list, skipping version check" % cmd, file=sys.stderr)
+        print(
+            "  warn: %s not pinned in the tool list, skipping version check" % cmd, file=sys.stderr
+        )
     elif not have(cmd):
         warn_missing(label, install_hint.format(pin=pin))
     else:
         actual = command_version(cmd)
         if actual == pin:
-            print("  ✓ %s %s (pinned)" % (cmd, actual))
+            print("  ok: %s %s (pinned)" % (cmd, actual))
         else:
             print(
-                "  ⚠ %s %s != pinned %s, realign recommended: %s"
+                "  warn: %s %s != pinned %s, realign recommended: %s"
                 % (cmd, actual, pin, install_hint.format(pin=pin)),
                 file=sys.stderr,
             )
@@ -87,12 +89,12 @@ def main() -> int:
         ["rustc", "--version"], capture_output=True, text=True, check=True
     ).stdout.split()[1]
     if channel is None:
-        print("  ⚠ cannot read the pinned channel from the toolchain file", file=sys.stderr)
+        print("  warn: cannot read the pinned channel from the toolchain file", file=sys.stderr)
     elif rustc_version == channel:
-        print("  ✓ rustc %s (matches the pinned toolchain file)" % rustc_version)
+        print("  ok: rustc %s (matches the pinned toolchain file)" % rustc_version)
     else:
         print(
-            "  ⚠ rustc %s != pinned %s, aligning recommended:" % (rustc_version, channel),
+            "  warn: rustc %s != pinned %s, aligning recommended:" % (rustc_version, channel),
             file=sys.stderr,
         )
         print(
@@ -100,28 +102,32 @@ def main() -> int:
             file=sys.stderr,
         )
     if subprocess.run(["cargo", "fmt", "--version"], capture_output=True).returncode == 0:
-        print("  ✓ component rustfmt installed")
+        print("  ok: component rustfmt installed")
     else:
         print(
-            "  ⚠ missing component rustfmt, install: rustup component add rustfmt", file=sys.stderr
+            "  warn: missing component rustfmt, install: rustup component add rustfmt",
+            file=sys.stderr,
         )
     if subprocess.run(["cargo", "clippy", "--version"], capture_output=True).returncode == 0:
-        print("  ✓ component clippy installed")
+        print("  ok: component clippy installed")
     else:
-        print("  ⚠ missing component clippy, install: rustup component add clippy", file=sys.stderr)
+        print(
+            "  warn: missing component clippy, install: rustup component add clippy",
+            file=sys.stderr,
+        )
 
     print("== 2/6 gate interpreter ==")
     bound = tools.get("python", {}).get("min")
     bound_tuple = version_tuple(bound)
     if bound_tuple is None:
-        print("  ⚠ interpreter bound missing from the tool list", file=sys.stderr)
+        print("  warn: interpreter bound missing from the tool list", file=sys.stderr)
     else:
         # 解释器入口与下限同名：任务配方经同名入口调用，校验落在实际调用的解释器上
         entry = "python%s" % bound
         actual_text = command_version(entry) if have(entry) else None
         actual = version_tuple(actual_text)
         if actual is not None and actual >= bound_tuple:
-            print("  ✓ %s %s (>= %s)" % (entry, actual_text, bound))
+            print("  ok: %s %s (>= %s)" % (entry, actual_text, bound))
         else:
             print(
                 "error: gate interpreter %s not found or below the pinned floor %s —"
@@ -141,7 +147,7 @@ def main() -> int:
         version = subprocess.run(
             ["just", "--version"], capture_output=True, text=True, check=True
         ).stdout.split()[1]
-        print("  ✓ just %s" % version)
+        print("  ok: just %s" % version)
     else:
         warn_missing("just", "brew install just (or cargo install just --locked)")
 
@@ -207,10 +213,10 @@ def main() -> int:
 
     print()
     if missing_optional == 0:
-        print("✓ environment ready; run just check for full verification")
+        print("ok: environment ready; run just check for full verification")
     else:
         print(
-            "✓ environment mostly ready; %d optional items missing above, install them to use the related recipes"
+            "ok: environment mostly ready; %d optional items missing above, install them to use the related recipes"
             % missing_optional
         )
     return 0

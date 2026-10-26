@@ -1,16 +1,21 @@
 """约束门禁·日志：统一出口与一律英文——除核心库（gloss-core）外不得直接
-依赖日志三件套（tracing），日志宏实参里不得出现非英文字节（ASCII）。违规经
-统一诊断出口带规则标识报告，证据为完整宏实参不截断。判定口径与取舍见记录
-文件。
+依赖日志三件套（tracing），日志宏实参里不得出现非英文字节（ASCII）。宏实
+参可跨行，内容匹配委托共享检索引擎（ripgrep）的多行模式，表达式与逐文件
+折单行的既有口径对齐：实参类排除换行与回车——通用换行翻译会把回车换行折
+成换行，回车本身不构成非英文字节命中，制表符仍在判罚面。已知盲区：非统一
+码（UTF-8）编码的字节序列在引擎的统一码匹配下整文件逃出本检查（旧实现的
+容错解码可判），仓库源码约定统一码编码，实害有限。违规经统一诊断出口带规
+则标识报告，证据为命中跨住的完整行不截断。判定口径与取舍见记录文件。
 """
 
 from __future__ import annotations
 
 import os
-import re
+import sys
 from typing import Any
 
 import gate_report
+import rg_engine
 
 from . import manifests
 
@@ -24,12 +29,12 @@ LOG_ENGLISH_REMEDY = (
     "keep log macro arguments in English (ASCII); localize in the UI catalog instead"
 )
 
-LOG_MACRO_RE = re.compile(
-    r"(info|warn|error|debug|trace|event|info_span|warn_span|error_span"
-    r"|debug_span|trace_span)!\(([^)]*)\)"
+# 宏名先长后短排布，跨行模式里实参类排除换行与回车：通用换行翻译会把回车
+# 换行折成换行，回车本身不构成非英文字节命中，制表符仍在判罚面
+LOG_MACRO_EXPRESSION = (
+    r"(?:info_span|warn_span|error_span|debug_span|trace_span"
+    r"|info|warn|error|debug|trace|event)!\([^)]*[^ -~\n\r][^)]*\)"
 )
-
-NON_ASCII_RE = re.compile(r"[^ -~]")
 
 
 def run(
@@ -53,28 +58,35 @@ def run(
                 )
             )
     log_owners = len({owner for owner, _, _, _, _, _ in dump})
-    oks.append("ok unified log exit (log dependency ownership across %d crates)" % log_owners)
+    oks.append("unified log exit (log dependency ownership across %d crates)" % log_owners)
 
-    rs_files = 0
+    rs_files = [manifests.rel(root, f) for f in manifests.walk_rs(root)]
+    try:
+        hits = rg_engine.run(root, [LOG_MACRO_EXPRESSION], rs_files, multiline=True)
+    except RuntimeError as exc:
+        gate_report.fail(
+            gate_report.infra_failure("cannot complete the log language scan: %s" % exc)
+        )
+        sys.exit(gate_report.EXIT_INFRA)
     log_violations = 0
-    for f in manifests.walk_rs(root):
-        rs_files += 1
-        flat = manifests.read_text(f, loader).replace("\n", " ")
-        hits = [m.group(0) for m in LOG_MACRO_RE.finditer(flat) if NON_ASCII_RE.search(m.group(0))]
-        if hits:
-            log_violations += 1
-            rep.note(
-                gate_report.Finding(
-                    rule=RULE_LOG_ENGLISH,
-                    path=manifests.rel(root, f),
-                    line=0,
-                    message="log messages English-only: has a log macro argument with non-ASCII",
-                    evidence=hits[0],
-                    remedy=LOG_ENGLISH_REMEDY,
-                )
+    for f in rs_files:
+        file_hits = hits.get(f)
+        if not file_hits:
+            continue
+        log_violations += 1
+        no = min(file_hits)
+        rep.note(
+            gate_report.Finding(
+                rule=RULE_LOG_ENGLISH,
+                path=f,
+                line=no,
+                message="log messages English-only: has a log macro argument with non-ASCII",
+                evidence=file_hits[no].replace("\n", " "),
+                remedy=LOG_ENGLISH_REMEDY,
             )
+        )
     oks.append(
-        "ok log messages English-only (%d .rs files scanned, %d violations)"
-        % (rs_files, log_violations)
+        "log messages English-only (%d .rs files scanned, %d violations)"
+        % (len(rs_files), log_violations)
     )
     return oks, rep.lines

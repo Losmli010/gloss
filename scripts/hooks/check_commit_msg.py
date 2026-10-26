@@ -18,10 +18,10 @@
 校验结果以带规则标识的违规条目列表返回，报告经统一诊断出口打印；退出
 码按全脚本统一约定：零为通过、一为发现违规、二为用法错误。
 
-用法：以解释器运行本脚本，参数为一个或多个消息文件路径，或传单个减号表示从
-标准输入读取；持续集成把一次推送或拉取请求（PR）的全部消息各落一个文件后
-一次进程吃进，免逐条提交起解释器。合并模拟形态以旗标传入标题、打印模拟
-消息供落盘。
+用法：python3 scripts/hooks/check_commit_msg.py <msg-file> ...，或传单个减号表
+示从标准输入读取；持续集成把一次推送或拉取请求（PR）的全部消息各落一个文件后一次
+进程吃进，免逐条提交起解释器。合并模拟形态以旗标传入标题、打印模拟消息
+供落盘。
 """
 
 from __future__ import annotations
@@ -197,7 +197,7 @@ def main(argv: list[str]) -> int:
                 gate_report.fail(finding)
             all_findings += found
         else:
-            print("✓ commit message ok: %s" % split_message(msg)[0])
+            print("ok: commit message: %s" % split_message(msg)[0])
     if all_findings:
         gate_report.summary(all_findings)
         return gate_report.EXIT_VIOLATION

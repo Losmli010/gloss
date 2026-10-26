@@ -123,3 +123,86 @@ def test_markdown_unclosed_fence_flagged_at_opening_line() -> None:
     problems = markdown_structure_problems("d.md", "## 小节\n\n```sh\njust test\n")
     assert rules(problems) == ["COMMENT-DOC-FENCE-UNCLOSED"]
     assert problems[0].line == 3
+
+
+# ---- 围栏内整行注释（文档检查子项）----
+
+
+def test_markdown_bash_fence_chinese_comment_allowed() -> None:
+    src = "```bash\n# 按改动面挑选，完整清单看任务配方文件（justfile）。\njust fmt\n```\n"
+    assert markdown_problems("d.md", src) == []
+
+
+def test_markdown_bash_fence_english_comment_flagged() -> None:
+    problems = markdown_problems("d.md", "```sh\n# pick by change surface\njust fmt\n```\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-LANGUAGE"]
+    assert problems[0].line == 2
+
+
+def test_markdown_rust_fence_english_comment_flagged() -> None:
+    problems = markdown_problems("d.md", "```rust\n// english tail comment\nlet x = 1;\n```\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-LANGUAGE"]
+
+
+def test_markdown_fence_foreign_word_flagged() -> None:
+    src = "```bash\n# 按改动面挑选，完整配方见 justfile。\n```\n"
+    problems = markdown_problems("d.md", src)
+    assert any("foreign letters" in m for m in messages(problems))
+
+
+def test_markdown_fence_backtick_comment_flagged() -> None:
+    problems = markdown_problems("d.md", "```bash\n# 参考 `just fmt` 运行。\n```\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-CODEREF"]
+
+
+def test_markdown_unknown_fence_language_not_checked() -> None:
+    src = "```\n# english line in plain fence\n```\n\n```text\n# another english line\n```\n"
+    assert markdown_problems("d.md", src) == []
+
+
+def test_markdown_fence_trailing_comment_not_checked() -> None:
+    assert markdown_problems("d.md", "```sh\njust test -- core # 尾注不收\n```\n") == []
+
+
+def test_markdown_fence_command_comment_allowed() -> None:
+    assert (
+        markdown_problems("d.md", "```sh\n# python3 scripts/hooks/check.py <repo-root>\n```\n")
+        == []
+    )
+
+
+def test_markdown_fence_safety_comment_allowed() -> None:
+    assert (
+        markdown_problems("d.md", "```rust\n// SAFETY: the pointer outlives the call\n```\n") == []
+    )
+
+
+def test_markdown_fence_bare_marker_flagged() -> None:
+    problems = markdown_problems("d.md", "```sh\n# secrets:allow\n```\n")
+    assert rules(problems) == ["ALLOW-REASON"]
+
+
+def test_markdown_fence_shebang_line_not_comment() -> None:
+    assert markdown_problems("d.md", "```python\n#!/usr/bin/env python3\n```\n") == []
+
+
+def test_markdown_rust_doc_comment_allowed() -> None:
+    src = "```rust\n/// 中文文档示例说明。\n//! 中文内部文档示例。\nlet _ = 1;\n```\n"
+    assert markdown_problems("d.md", src) == []
+
+
+def test_markdown_html_fence_comment_checked() -> None:
+    problems = markdown_problems("d.md", "```html\n<!-- english note -->\n<div></div>\n```\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-LANGUAGE"]
+    assert markdown_problems("d.md", "```html\n<!-- 中文注释 -->\n```\n") == []
+    assert markdown_problems("d.md", "```html\n<!-- 跨行未闭合的注释\n```\n") == []
+
+
+def test_markdown_fence_info_with_title_parses_language() -> None:
+    src = '```bash title="demo"\n# english note\n```\n'
+    assert any(p.rule == "COMMENT-DOC-CODE-LANGUAGE" for p in markdown_problems("d.md", src))
+
+
+def test_markdown_braced_fence_info_is_unregistered_language() -> None:
+    # 花括号信息串取不到语言名，落进未登记语言盲区，围栏内容不检
+    assert markdown_problems("d.md", "```{rust}\n// 中文围栏注释说明。\n```\n") == []

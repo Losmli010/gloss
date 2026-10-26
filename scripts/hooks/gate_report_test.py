@@ -56,8 +56,8 @@ def test_fail_template_with_location_evidence_and_help() -> None:
         file=out,
     )
     assert out.getvalue() == (
-        "✗ error[SECRET-VENDOR]: suspected leak (crates/leak.toml:3)\n"
-        '    证据: api_key = "..."\n'
+        "error[SECRET-VENDOR]: suspected leak (crates/leak.toml:3)\n"
+        '    evidence: api_key = "..."\n'
         "    help: rotate it\n"
     )
 
@@ -70,7 +70,7 @@ def test_fail_template_appends_column_when_present() -> None:
         ),
         file=out,
     )
-    assert out.getvalue() == "✗ error[SECRET-CREDENTIAL]: hit (a.toml:2:9)\n"
+    assert out.getvalue() == "error[SECRET-CREDENTIAL]: hit (a.toml:2:9)\n"
 
 
 def test_fail_template_without_location_and_optional_lines() -> None:
@@ -79,7 +79,7 @@ def test_fail_template_without_location_and_optional_lines() -> None:
         gate_report.Finding(rule="INFRA", path="", line=0, message="tool broke"),
         file=out,
     )
-    assert out.getvalue() == "✗ error[INFRA]: tool broke\n"
+    assert out.getvalue() == "error[INFRA]: tool broke\n"
 
 
 def test_fail_returns_the_same_finding_for_collection() -> None:
@@ -109,7 +109,7 @@ def test_run_git_failure_reports_infra_and_exits_three(tmp_path: Path) -> None:
         gate_report.run_git(["ls-files", "-z"], cwd=str(tmp_path), file=out)
     assert exc.value.code == gate_report.EXIT_INFRA
     text = out.getvalue()
-    assert text.startswith("✗ error[INFRA]: git command failed")
+    assert text.startswith("error[INFRA]: git command failed")
     assert "help: " in text
 
 
@@ -119,7 +119,7 @@ def test_infra_failure_carries_the_shared_remedy() -> None:
     assert finding.remedy == gate_report.INFRA_REMEDY
     out = io.StringIO()
     gate_report.fail(finding, file=out)
-    assert "    证据: boom" in out.getvalue()
+    assert "    evidence: boom" in out.getvalue()
 
 
 def test_allow_reason_missing_requires_text_after_marker() -> None:
@@ -148,7 +148,7 @@ def test_allow_reason_finding_carries_rule_marker_and_remedy() -> None:
     assert finding.remedy == gate_report.ALLOW_REASON_REMEDY
     out = io.StringIO()
     gate_report.fail(finding, file=out)
-    assert out.getvalue().startswith("✗ error[ALLOW-REASON]: deps:allow marker without a reason")
+    assert out.getvalue().startswith("error[ALLOW-REASON]: deps:allow marker without a reason")
 
 
 def test_allow_reason_line_scan_reports_bare_markers_only() -> None:

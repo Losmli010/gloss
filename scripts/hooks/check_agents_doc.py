@@ -16,7 +16,7 @@
 位置、违规行原文与修复指引；受检的指令文档文件本身缺失按无法完成判定失
 败关闭退出。退出码按全脚本统一约定。
 
-用法：以解释器运行本脚本，首参为指令文档路径，缺省为仓库根的指令文档。
+用法：python3 scripts/hooks/check_agents_doc.py <instruction-doc>，缺省为仓库根的指令文档。
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ import sys
 from typing import Any
 
 import gate_report
+import rg_engine
 
 RULE_DOC_RECIPE = "DOC-RECIPE"
 RULE_DOC_PATH = "DOC-PATH"
@@ -55,7 +56,8 @@ RECIPE_RE = re.compile(r"(?:^|[^A-Za-z0-9_-])just ([a-z][a-z0-9-]*)")
 BACKTICK_RE = re.compile(r"`([^`]+)`")
 CARGO_TEST_RE = re.compile(r"--test ([A-Za-z0-9_-]+)")
 RULE_NAME_RE = re.compile(r"\*\*([^*]+)\*\*")
-REF_LINE_RE = re.compile(r"AGENTS\.md.*质量条目“")
+# 引用行先经共享检索引擎（ripgrep）筛出，条目名再在命中行上摘取
+REF_LINE_EXPRESSION = r"AGENTS\.md.*质量条目“"
 REF_NAME_RE = re.compile(r"质量条目“([^”]+)”")
 BARE_SUFFIXES = (".md", ".toml", ".py", ".rs", ".yml", ".json")
 
@@ -144,34 +146,34 @@ def scan_quality_refs(
 ) -> tuple[list[gate_report.Finding], int, int]:
     """仓库各处（*.rs / *.toml / *.py / *.yml / justfile）对质量条目的指名引用核对。
 
-    有跟踪清单时只读清单里的文件：工作区里未跟踪的临时目录与本地记录不能
-    左右判定，本地与持续集成才看同一批文件；装入器在场时文件读取走共享缓
-    存。返回 (violations, ref_files, ref_count)。"""
+    有跟踪清单时只扫清单里的文件：工作区里未跟踪的临时目录与本地记录不能
+    左右判定，本地与持续集成才看同一批文件；行筛选委托共享检索引擎，命中
+    行上摘取条目名核对。返回 (violations, ref_files, ref_count)。"""
     violations = []
     ref_files = 0
     ref_count = 0
     if tracked:
-        paths = [(os.path.join(root, p), p) for p in tracked if ref_file(p)]
+        targets = [p for p in tracked if ref_file(p)]
     else:
-        paths = []
+        targets = []
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = sorted(d for d in dirnames if d not in ("target", ".git"))
             for name in sorted(filenames):
                 if ref_file(name):
-                    path = os.path.join(dirpath, name)
-                    paths.append((path, os.path.relpath(path, root)))
-    for path, rel in paths:
-        if os.path.basename(path) in SELF_EXEMPT:
-            continue
-        ref_files += 1
-        if loader is not None:
-            lines = loader.read_text(path, errors="replace").split("\n")
-        else:
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                lines = fh.read().split("\n")
-        for line_no, line in enumerate(lines, 1):
-            if not REF_LINE_RE.search(line):
-                continue
+                    targets.append(os.path.relpath(os.path.join(dirpath, name), root))
+    targets = [rel for rel in targets if os.path.basename(rel) not in SELF_EXEMPT]
+    ref_files = len(targets)
+    try:
+        hits = rg_engine.run(root, [REF_LINE_EXPRESSION], targets)
+    except RuntimeError as exc:
+        gate_report.fail(
+            gate_report.infra_failure("cannot complete the quality-entry citation scan: %s" % exc)
+        )
+        sys.exit(gate_report.EXIT_INFRA)
+    for rel in targets:
+        file_hits = hits.get(rel, {})
+        for line_no in sorted(file_hits):
+            line = file_hits[line_no]
             for cited in REF_NAME_RE.findall(line):
                 ref_count += 1
                 if cited not in names:
@@ -352,7 +354,7 @@ def main(loader: Any = None) -> int:
         gate_report.summary(found)
         return gate_report.EXIT_VIOLATION
     print(
-        "✓ %s references consistent (%d checked: just recipes / repo paths / test targets;"
+        "ok: %s references consistent (%d checked: just recipes / repo paths / test targets;"
         " plus %d named quality-entry citations across %d files)"
         % (doc_name, checked, ref_count, ref_files)
     )

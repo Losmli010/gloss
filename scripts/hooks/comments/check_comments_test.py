@@ -607,23 +607,23 @@ def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
     proc = run_gate_script(tmp_path)
     assert proc.returncode == 1
     text = proc.stderr.decode("utf-8")
-    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
-    ids = {re.match(r"^✗ error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
+    heads = [line for line in text.splitlines() if line.startswith("error[")]
+    ids = {re.match(r"^error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
     assert ids == {
         "COMMENT-RUST-HEADER-MISSING",
         "COMMENT-SCRIPT-LANGUAGE",
         "PROSE-LANGUAGE",
     }
     for line in heads:
-        assert re.match(r"^✗ error\[[A-Z0-9-]+\]: .+ \(.+(:\d+)?\)$", line)
-    assert "    证据: " in text
+        assert re.match(r"^error\[[A-Z0-9-]+\]: .+ \(.+(:\d+)?\)$", line)
+    assert "    evidence: " in text
     assert "    help: " in text
 
 
 def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
     make_repo(tmp_path, violation_fixture())
     text = run_gate_script(tmp_path).stderr.decode("utf-8")
-    details = sum(1 for line in text.splitlines() if line.startswith("✗ error["))
+    details = sum(1 for line in text.splitlines() if line.startswith("error["))
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
     assert int(match.group(1)) == details == 3
@@ -648,17 +648,66 @@ def test_gate_clean_fixture_passes_with_exit_zero(tmp_path: Path) -> None:
     )
     proc = run_gate_script(tmp_path)
     assert proc.returncode == 0
-    assert "  ✓ ok " in proc.stdout.decode("utf-8")
+    assert "  ok: " in proc.stdout.decode("utf-8")
 
 
 def test_gate_empty_tracked_surface_fails_closed_with_exit_three(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
     proc = run_gate_script(tmp_path)
     assert proc.returncode == 3
-    assert "✗ error[EMPTY-SURFACE]:" in proc.stderr.decode("utf-8")
+    assert "error[EMPTY-SURFACE]:" in proc.stderr.decode("utf-8")
 
 
 def test_gate_non_directory_root_is_a_usage_error(tmp_path: Path) -> None:
     proc = subprocess.run([sys.executable, GATE, str(tmp_path / "nowhere")], capture_output=True)
     assert proc.returncode == 2
     assert b"usage:" in proc.stderr
+
+
+# ---- 用法行命令与任务配方单行注释 ----
+
+
+def test_python_module_docstring_usage_command_allowed(tmp_path: Path) -> None:
+    content = (
+        '"""中文说明。\n\n'
+        "用法：python3 scripts/hooks/demo.py <repo-root>，缺省为本脚本的上一级目录。\n"
+        '"""\n'
+    )
+    assert run_gate(tmp_path, content, rel="sample.py") == []
+
+
+def test_justfile_multiline_recipe_comment_flagged(tmp_path: Path) -> None:
+    content = "# 中文说明第一行\n# 中文说明第二行\nrun:\n    echo hi\n"
+    problems = run_gate(tmp_path, content, rel="justfile")
+    assert any("recipe comment spans 2 lines" in p for p in problems)
+
+
+def test_justfile_single_line_recipe_comment_allowed(tmp_path: Path) -> None:
+    content = "# 中文说明\nrun:\n    echo hi\n"
+    assert run_gate(tmp_path, content, rel="justfile") == []
+
+
+def test_justfile_header_block_not_flagged(tmp_path: Path) -> None:
+    content = "# 中文文件头第一行\n# 中文文件头第二行\n\nrun:\n    echo hi\n"
+    assert run_gate(tmp_path, content, rel="justfile") == []
+
+
+def test_justfile_assignment_colon_not_recipe(tmp_path: Path) -> None:
+    content = '# 中文说明第一行\n# 中文说明第二行\npy := "python3.12"\n'
+    assert run_gate(tmp_path, content, rel="justfile") == []
+
+
+def test_justfile_string_colon_in_recipe_body_not_recipe(tmp_path: Path) -> None:
+    content = '# 中文说明\nrun:\n    echo "a: b"\n'
+    assert run_gate(tmp_path, content, rel="justfile") == []
+
+
+def test_md_fence_english_comment_flagged(tmp_path: Path) -> None:
+    content = "# 说明\n\n```sh\n# english fence comment\n```\n"
+    problems = run_md(tmp_path, content)
+    assert any("code block comment must be written in Chinese" in p for p in problems)
+
+
+def test_md_fence_chinese_comment_allowed(tmp_path: Path) -> None:
+    content = "# 说明\n\n```bash\n# 中文围栏注释（ripgrep）检索。\n```\n"
+    assert run_md(tmp_path, content) == []

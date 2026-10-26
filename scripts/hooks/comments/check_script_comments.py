@@ -2,9 +2,11 @@
 """注释纪律门禁·脚本与配置：井号系脚本与配置、钩子目录脚本、任务配方文
 件、忽略清单与站点资源的注释判罚——主体全中文，专名只进括号注记，路径、
 命令、旗标、标识符与链接都算代码引用一并判罚；相邻注释行聚成一块受检，
-换行的括号与表述跨行不误报；工具指令行、解释器声明与放行标记豁免，放行
-标记缺同行缘由即判罚，脚本文件头统一写成模块级文档字符串，判罚与注释同
-规。字面数据不误报：壳层脚
+换行的括号与表述跨行不误报；工具指令行、可运行命令段、解释器声明与放行
+标记豁免，放行标记缺同行缘由即判罚，脚本文件头统一写成模块级文档字符串，
+判罚与注释同规。任务配方（justfile）的配方注释另受结构判罚——紧贴配方行
+的注释块只写一行，配方注释是配方清单的展示面，多行会把清单撕碎。字面数据
+不误报：壳层脚
 本的就地文档正文、配置（YAML）里非运行键的块标量正文整行豁免，脚本资源
 里跨行的模板字面量按串跳过。判罚以带规则标识的违规条目返回，位置按路径与
 行号承载，书写规则共享项落语言规范库的标识。由注释门禁路由调用，与语言规
@@ -35,10 +37,14 @@ RULE_LANGUAGE = "COMMENT-SCRIPT-LANGUAGE"
 RULE_HEADER_CODEREF = "COMMENT-SCRIPT-HEADER-CODEREF"
 RULE_HEADER_SECTION_REF = "COMMENT-SCRIPT-HEADER-SECTION-REF"
 RULE_HEADER_LANGUAGE = "COMMENT-SCRIPT-HEADER-LANGUAGE"
+RULE_JUST_ONE_LINE = "COMMENT-JUST-ONE-LINE"
 
 CODEREF_REMEDY = "move references and examples to the record file"
 SECTION_REF_REMEDY = "move the section citation to the record file"
 LANGUAGE_REMEDY = "rewrite the comment in Chinese, proper nouns in bracket annotations"
+JUST_ONE_LINE_REMEDY = (
+    "write the recipe comment as one line; longer rationale lives in the record file"
+)
 
 # 源码之外的注释文件：井号系脚本与配置、钩子目录脚本、任务配方文件与忽略清单。
 HASH_SUFFIXES = {".py", ".toml", ".yml", ".yaml", ".sh"}
@@ -279,6 +285,43 @@ def web_body(text: str) -> str:
     return body.strip()
 
 
+def recipe_line(line: str) -> bool:
+    """任务配方行判定：名字加可选参数后接单冒号，冒号不是赋值符（冒号等号
+    排除），名字与参数段的引号成对（配方体内的字符串冒号不成配方）。"""
+    head, sep, tail = line.partition(":")
+    if not sep or tail.startswith("="):
+        return False
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*(?:[ \t][^:]*)?", head):
+        return False
+    return head.count('"') % 2 == 0 and (tail == "" or tail[0] in " \t#")
+
+
+def justfile_recipe_comment_problems(rel: str, src: str) -> list[gate_report.Finding]:
+    """任务配方（justfile）配方注释只写一行：紧贴配方行的相邻注释块必须单
+    行——配方注释是配方清单的展示面，多行把清单撕碎；长缘由迁记录文件。
+    文件头与分节线不贴配方行，不在判罚面。"""
+    lines = src.splitlines()
+    out = []
+    run: list[int] = []
+    for lineno, line in enumerate(lines, 1):
+        if line.strip().startswith("#"):
+            run.append(lineno)
+            continue
+        if len(run) > 1 and recipe_line(line):
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_JUST_ONE_LINE,
+                    path=rel,
+                    line=run[0],
+                    message="recipe comment spans %d lines — write it as one line" % len(run),
+                    evidence=lines[run[0] - 1].strip(),
+                    remedy=JUST_ONE_LINE_REMEDY,
+                )
+            )
+        run = []
+    return out
+
+
 def module_docstring_problems(rel: str, src: str) -> list[gate_report.Finding]:
     """模块级文档字符串按文件头同规：内容走注释同款判罚，解释器引导串豁免。
 
@@ -438,4 +481,6 @@ def check(rel: str, src: str) -> list[gate_report.Finding]:
         out += flush(*cur)
     if python_kind:
         out += module_docstring_problems(rel, src)
+    if name == "justfile":
+        out += justfile_recipe_comment_problems(rel, src)
     return out

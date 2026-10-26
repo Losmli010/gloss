@@ -9,7 +9,7 @@
 失与测试源码扫描面为空两处前置故障按无法完成判定失败关闭退出。退出码按全
 脚本统一约定。
 
-用法：以解释器运行本脚本，首参为仓库根，缺省为本脚本的上一级目录。
+用法：python3 scripts/hooks/check_test_bdd.py <repo-root>，缺省为本脚本的上一级目录。
 """
 
 from __future__ import annotations
@@ -403,7 +403,7 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
     oks = []
     if not found:
         oks.append(
-            "ok bdd.md matches test sources (%d in sources / %d in inventory)"
+            "bdd.md matches test sources (%d in sources / %d in inventory)"
             % (len(src_all), len(bdd_names))
         )
     return oks, found
@@ -444,7 +444,7 @@ def main(loader: Any = None) -> int:
     oks, found = collect(root, loader)
     # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
-        print("  ✓ %s" % line)
+        print("  ok: %s" % line)
     if found:
         print("", file=sys.stderr)
         gate_report.summary(found)

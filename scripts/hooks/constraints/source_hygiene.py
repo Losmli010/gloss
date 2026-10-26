@@ -9,12 +9,12 @@
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import sys
 from typing import Any
 
 import gate_report
+import rg_engine
 
 from . import manifests
 
@@ -37,7 +37,9 @@ SELF_FILES = (
     "scripts/hooks/constraints/source_hygiene_test.py",
 )
 
-MARKER_RE = re.compile(r"\b(?:TODO|FIXME|HACK|TBD)\b", re.ASCII)
+# 大写任务标记的引擎表达式：字边界按本语言（Rust）源码的字面口径收口，
+# 关掉统一码字语义，汉字紧邻的标记同样成命中
+MARKER_EXPRESSION = r"(?-u:\b(?:TODO|FIXME|HACK|TBD)\b)"
 
 EMPTY_SOURCE_MESSAGE = "the source scan surface is empty: no .rs files found under the source trees"
 
@@ -46,7 +48,7 @@ EMPTY_SOURCE_REMEDY = (
     " checks cannot complete"
 )
 
-SKIP_LINE = "  ⚠ task-marker scan skipped, not a git work tree: %s"
+SKIP_LINE = "  warn: task-marker scan skipped, not a git work tree: %s"
 
 
 def work_tree_status(root: str) -> str:
@@ -132,10 +134,10 @@ def run(
             )
         if drifts == 0:
             oks.append(
-                "ok stub copies identical (engine.rs full text + shared port stubs per section)"
+                "stub copies identical (engine.rs full text + shared port stubs per section)"
             )
     else:
-        oks.append("ok stub copies identical (no tests/stubs/, skipped)")
+        oks.append("stub copies identical (no tests/stubs/, skipped)")
 
     big_files = 0
     big_allowed = 0
@@ -190,7 +192,7 @@ def run(
         sys.exit(gate_report.EXIT_INFRA)
     if big_files == 0:
         oks.append(
-            "ok line cap (production code <=%d lines; %d lines:allow exemptions)"
+            "line cap (production code <=%d lines; %d lines:allow exemptions)"
             % (LINE_CAP, big_allowed)
         )
 
@@ -201,6 +203,7 @@ def run(
         else:
             out = gate_report.run_git(["ls-files", "-z"], cwd=root).stdout
             tracked = [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
+        scannable = []
         for f in tracked:
             if f in SELF_FILES:
                 continue
@@ -214,26 +217,31 @@ def run(
             except OSError:
                 continue
             if b"\0" in data:
+                continue  # 二进制资产不进判罚面：压缩字节的随机序列命中即不可执行的违规
+            scannable.append(f)
+        try:
+            hits = rg_engine.run(root, [MARKER_EXPRESSION], scannable)
+        except RuntimeError as exc:
+            gate_report.fail(
+                gate_report.infra_failure("cannot complete the task-marker scan: %s" % exc)
+            )
+            sys.exit(gate_report.EXIT_INFRA)
+        for f in scannable:
+            file_hits = hits.get(f)
+            if not file_hits:
                 continue
-            hit_line = 0
-            hit_text = ""
-            for no, line in enumerate(data.decode("utf-8", "replace").split("\n"), 1):
-                if MARKER_RE.search(line):
-                    hit_line = no
-                    hit_text = line
-                    break
-            if hit_line:
-                rep.note(
-                    gate_report.Finding(
-                        rule=RULE_TASK_MARKER,
-                        path=f,
-                        line=hit_line,
-                        message="leftover task marker: whole-word match in a git-tracked file",
-                        evidence=hit_text,
-                        remedy=TASK_MARKER_REMEDY,
-                    )
+            hit_line = min(file_hits)
+            rep.note(
+                gate_report.Finding(
+                    rule=RULE_TASK_MARKER,
+                    path=f,
+                    line=hit_line,
+                    message="leftover task marker: whole-word match in a git-tracked file",
+                    evidence=file_hits[hit_line],
+                    remedy=TASK_MARKER_REMEDY,
                 )
-        oks.append("ok no leftover task markers (whole-word scan of git-tracked files)")
+            )
+        oks.append("no leftover task markers (whole-word scan of git-tracked files)")
     else:
         print(SKIP_LINE % skip_reason, file=sys.stderr)
 

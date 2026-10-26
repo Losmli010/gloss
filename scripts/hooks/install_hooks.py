@@ -33,13 +33,13 @@ def main() -> int:
     for rel in EXEC_FILES:
         path = os.path.join(ROOT, rel)
         if not os.path.isfile(path):
-            print("✗ missing script %s (incomplete checkout?)" % rel, file=sys.stderr)
+            print("error: missing script %s (incomplete checkout?)" % rel, file=sys.stderr)
             return 1
         os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     subprocess.run(["git", "-C", ROOT, "config", "core.hooksPath", ".githooks"], check=True)
 
-    print("✓ git hooks enabled")
+    print("ok: git hooks enabled")
     print(
         "  hooksPath: %s"
         % subprocess.run(

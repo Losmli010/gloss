@@ -36,7 +36,7 @@
 纯文档改动（`README.md`、`AGENTS.md`）换跑 `just comments`；测试清单改动加 `just test-bdd`。
 
 ```sh
-# 按改动面挑选；完整配方见 justfile：
+# 按改动面挑选，完整清单看任务配方文件（justfile）。
 just fmt          # 格式检查
 just lint         # 静态检查（Clippy 严格模式）
 just test         # 全部测试（含第三层自检，需窗口服务与图形硬件）

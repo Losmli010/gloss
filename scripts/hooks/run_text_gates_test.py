@@ -119,7 +119,7 @@ def test_comments_gate_via_loader_reports_rule_ids(
     monkeypatch.setattr(sys, "argv", ["check_comments.py", str(tmp_path)])
     assert check_comments.main(loader=loader) == 1
     err = capfd.readouterr().err
-    assert "✗ error[COMMENT-RUST-HEADER-MISSING]:" in err
+    assert "error[COMMENT-RUST-HEADER-MISSING]:" in err
     assert "error: 1 violation found (see above)" in err
     assert "    help: " in err
 
@@ -138,4 +138,4 @@ def test_comments_gate_via_loader_clean_repo_passes(
     loader = run_text_gates.ContentLoader(str(tmp_path))
     monkeypatch.setattr(sys, "argv", ["check_comments.py", str(tmp_path)])
     assert check_comments.main(loader=loader) == 0
-    assert "  ✓ ok " in capfd.readouterr().out
+    assert "  ok: " in capfd.readouterr().out

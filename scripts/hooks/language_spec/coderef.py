@@ -5,7 +5,10 @@
 则标识的违规条目返回，位置由调用方按路径与行号传入，标识登记于统一登记表。
 行级复合判定与标记语言文档逐行遍历是两个入口，被注释、提交信息与拉取请求
 内容门禁复用；文档结构遍历只服务文档子门禁，判标题跳级、同文档重名标题与
-结尾围栏不闭合三罚；本模块自身注释同规。
+结尾围栏不闭合三罚；围栏内的整行注释按注释纪律受检（文档检查子项），围栏
+内其余内容是字面代码不判罚；未登记注释语言的围栏（含双横线注释形态的查询
+语言）不受检，章节号引用在围栏注释面不查——已知盲区与取舍见记录文件；本
+模块自身注释同规。
 
 模块名避开解释器标准库的交互解释器模块。
 """
@@ -22,7 +25,14 @@ if _HOOKS not in sys.path:
 
 import gate_report  # noqa: E402
 
-from language_spec.chinese import CJK, body_problems  # noqa: E402
+from language_spec.chinese import (  # noqa: E402
+    CJK,
+    DIRECTIVE_SEG,
+    SEGMENT_SPLIT,
+    SEGMENT_TRIM,
+    body_problems,
+    is_command_seg,
+)
 
 RULE_PROSE_CODEREF = "PROSE-CODEREF"
 RULE_PROSE_SECTION_REF = "PROSE-SECTION-REF"
@@ -30,6 +40,8 @@ RULE_PROSE_LANGUAGE = "PROSE-LANGUAGE"
 RULE_DOC_HEADING_JUMP = "COMMENT-DOC-HEADING-JUMP"
 RULE_DOC_HEADING_DUP = "COMMENT-DOC-HEADING-DUP"
 RULE_DOC_FENCE_UNCLOSED = "COMMENT-DOC-FENCE-UNCLOSED"
+RULE_DOC_CODE_LANGUAGE = "COMMENT-DOC-CODE-LANGUAGE"
+RULE_DOC_CODE_CODEREF = "COMMENT-DOC-CODE-CODEREF"
 
 CODEREF_REMEDY = (
     "wrap the reference in backticks (exempt on prose surfaces) or move it to the record file"
@@ -39,6 +51,58 @@ LANGUAGE_REMEDY = "rewrite the text in Chinese, keeping proper nouns in bracket 
 HEADING_JUMP_REMEDY = "insert the missing intermediate heading or step this one down"
 HEADING_DUP_REMEDY = "rename one of the repeated headings so document anchors stay unique"
 FENCE_UNCLOSED_REMEDY = "close the code fence with a matching fence line before the end"
+CODE_LANGUAGE_REMEDY = (
+    "rewrite the code block comment in Chinese, keeping proper nouns in bracket annotations"
+)
+CODE_CODEREF_REMEDY = "drop the reference or move the sample to the record file"
+
+# 围栏语言到注释形态：井号系、双斜线系与标记注释三族；围栏语言不在清单内
+# （纯文本、数据格式、空白信息串）不收注释——井号或双斜线在这些语言里不是
+# 注记。只收整行注释：行尾注释混在字面代码里，字面量误报面大，留给人工评审。
+HASH_FENCE_LANGS = frozenset(
+    {
+        "bash",
+        "sh",
+        "shell",
+        "zsh",
+        "console",
+        "python",
+        "py",
+        "toml",
+        "yaml",
+        "yml",
+        "ini",
+        "conf",
+        "ruby",
+        "perl",
+    }
+)
+SLASH_FENCE_LANGS = frozenset(
+    {
+        "rust",
+        "rs",
+        "c",
+        "cpp",
+        "h",
+        "hpp",
+        "java",
+        "js",
+        "jsx",
+        "javascript",
+        "ts",
+        "tsx",
+        "typescript",
+        "go",
+        "swift",
+        "kt",
+        "kotlin",
+        "scala",
+        "php",
+        "dart",
+        "zig",
+    }
+)
+TAG_FENCE_LANGS = frozenset({"html", "xml", "svg"})
 
 # 各门禁共用的行尾放行标记：紧贴所在行并注明缘由即豁免
 MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps):allow\b")
@@ -110,16 +174,87 @@ def prose_line_problems(path: str, line: int, text: str) -> list[gate_report.Fin
     return body_problems(path, line, text, "text")
 
 
+def fence_language(info: str) -> str:
+    """围栏信息串取语言名：首段小写，花括号属性与标题参数剥除。"""
+    first = re.split(r"[\s,{]", info.strip())
+    return first[0].lower() if first and first[0] else ""
+
+
+def fence_comment_body(line: str, lang: str) -> str | None:
+    """围栏行按语言取整行注释的表述体：非注释行返回空表值（None），空注释
+    返回空串。井号系认行首井号（解释器声明除外），双斜线系认行首双斜线并
+    归一化文档注释前缀（三斜线与斜线叹号），标记注释族只收单行成对的标记
+    注释。"""
+    stripped = line.strip()
+    if lang in HASH_FENCE_LANGS:
+        if stripped.startswith("#") and not stripped.startswith("#!"):
+            return stripped.lstrip("#").strip()
+    elif lang in SLASH_FENCE_LANGS:
+        if stripped.startswith("//"):
+            return stripped[2:].lstrip("/!").strip()
+    elif lang in TAG_FENCE_LANGS:
+        if stripped.startswith("<!--") and stripped.endswith("-->") and len(stripped) > 7:
+            return stripped[4:-3].strip()
+    return None
+
+
+def fence_comment_problems(path: str, lineno: int, line: str, lang: str) -> list:
+    """围栏内整行注释按注释纪律受检：放行标记与不变量注释豁免，纯指令段与
+    可运行命令段放行，其余落中文区判定。"""
+    body = fence_comment_body(line, lang)
+    if body is None:
+        return []
+    findings = gate_report.allow_reason_findings_for_line(path, lineno, body)
+    if MARKER.search(body) or body.startswith("SAFETY:"):
+        return findings
+    segs = [seg.strip(SEGMENT_TRIM) for seg in SEGMENT_SPLIT.split(body)]
+    segs = [seg for seg in segs if seg]
+    if not segs or all(DIRECTIVE_SEG.match(seg) or is_command_seg(seg) for seg in segs):
+        return findings
+    evidence = body
+    if "`" in body:
+        findings.append(
+            gate_report.Finding(
+                rule=RULE_DOC_CODE_CODEREF,
+                path=path,
+                line=lineno,
+                message="code block comment contains a code segment — move references and"
+                " samples to the record files",
+                evidence=evidence,
+                remedy=CODE_CODEREF_REMEDY,
+            )
+        )
+        return findings
+    if not CJK.search(body):
+        findings.append(
+            gate_report.Finding(
+                rule=RULE_DOC_CODE_LANGUAGE,
+                path=path,
+                line=lineno,
+                message="code block comment must be written in Chinese: %s" % body[:40],
+                evidence=evidence,
+                remedy=CODE_LANGUAGE_REMEDY,
+            )
+        )
+        return findings
+    return findings + body_problems(path, lineno, body, "code block comment")
+
+
 def markdown_problems(path: str, src: str) -> list[gate_report.Finding]:
-    """标记语言文档逐行受检：代码围栏、行内反引号与链接豁免；表格首列与纯
-    标识符小节标题是双向核对的键，豁免；日期是语言中立数据格式，放行。"""
+    """标记语言文档逐行受检：围栏外正文按行判定；围栏内整行注释作为文档检
+    查子项照注释纪律判定，其余内容是字面代码放行；行内反引号与链接豁免；
+    表格首列与纯标识符小节标题是双向核对的键，豁免；日期是语言中立数据格
+    式，放行。"""
     out = []
     in_fence = False
+    lang = ""
     for lineno, line in enumerate(src.splitlines(), 1):
         if line.strip().startswith("```"):
+            lang = "" if in_fence else fence_language(line.strip()[3:])
             in_fence = not in_fence
             continue
         if in_fence:
+            out += fence_comment_problems(path, lineno, line, lang)
             continue
         out += markdown_line_problems(path, lineno, line)
     return out

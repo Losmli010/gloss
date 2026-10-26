@@ -4,24 +4,23 @@
 
 规则取向：只收高信号格式（服务商密钥前缀、私钥块、带引号的凭据赋值）。
 确属合法字面量（文档示例、测试夹具）时，在该行尾加放行标记并注明缘由。
-匹配引擎委托正则检索工具（ripgrep）：模式清单在本文件单点定义，运行时拼装
-参数一次子进程跑全部模式；二进制文件与放行标记行由本文件前后滤除，放行标
-记须带非空缘由、缺失即判罚，判定口径与既有逐行实现一致，缘由见记录文件。
+匹配委托共享检索引擎（ripgrep）：引擎入口住检索引擎模块单点收口，模式清
+单在本文件单点定义，运行时拼装参数一次子进程跑全部模式；二进制文件与放
+行标记行由本文件前后滤除，放行标记须带非空缘由、缺失即判罚，判定口径与
+既有逐行实现一致，缘由见记录文件。
 违规报告经统一诊断出口打印：每
 条带规则标识、完整证据行与修复指引，退出码按全脚本统一约定。
 """
 
 from __future__ import annotations
 
-import base64
-import json
 import os
 import re
-import subprocess
 import sys
 from typing import Any
 
 import gate_report
+import rg_engine
 
 # 服务商专属格式，区分大小写（这些前缀本身就有大小写语义）
 CASE_SENSITIVE_PATTERNS = [
@@ -145,57 +144,9 @@ def engine_expressions() -> list[str]:
     return out
 
 
-def json_field(blob: dict[str, Any]) -> str:
-    """引擎输出的取值字段：文本直取，字节按编码还原后容错解码。"""
-    if "text" in blob:
-        return blob["text"]
-    return base64.b64decode(blob["bytes"]).decode("utf-8", "replace")
-
-
 def collect_hits(root: str, files: list[str]) -> dict[str, dict[int, str]]:
-    """一次子进程跑全部模式，命中整理成「路径到行号与行文」的嵌套映射。"""
-    if not files:
-        return {}
-    cmd = ["rg", "--json", "--no-config"]
-    for expression in engine_expressions():
-        cmd += ["-e", expression]
-    cmd += ["--"]
-    cmd += files
-    try:
-        proc = subprocess.run(cmd, cwd=root, capture_output=True)
-    except FileNotFoundError:
-        raise RuntimeError(
-            "ripgrep not found: the secrets gate depends on it on every commit —"
-            " install the pinned version from the repo tool list (just setup verifies it)"
-        ) from None
-    stderr = proc.stderr.decode("utf-8", "replace").strip()
-    if proc.returncode == 2:
-        raise RuntimeError("ripgrep engine failed (exit 2): %s" % stderr)
-    if proc.returncode not in (0, 1):
-        raise RuntimeError(
-            "ripgrep engine exited unexpectedly (%d): %s" % (proc.returncode, stderr)
-        )
-    hits = {}
-    # 事件流按换行符逐字切：通用换行语义会把行文里未转义的同类字符当切点撕裂事件
-    for line in proc.stdout.decode("utf-8", "replace").split("\n"):
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-            if event.get("type") != "match":
-                continue
-            data = event["data"]
-            rel = json_field(data["path"])
-            text = json_field(data["lines"])
-            if text.endswith("\n"):
-                text = text[:-1]
-        except (ValueError, KeyError, TypeError) as exc:
-            raise RuntimeError(
-                "ripgrep produced an unparsable event stream (%r); refusing to"
-                " continue — report this as a gate failure" % exc
-            ) from None
-        hits.setdefault(rel, {})[data["line_number"]] = text
-    return hits
+    """一次子进程跑全部模式（共享检索引擎），命中整理成「路径到行号与行文」的嵌套映射。"""
+    return rg_engine.run(root, engine_expressions(), files)
 
 
 def pattern_hits(pattern: re.Pattern[str], file_hits: dict[int, str]) -> list[tuple[int, str]]:
@@ -326,7 +277,7 @@ def main(loader: Any = None) -> int:
     if found:
         gate_report.summary(found)
         return gate_report.EXIT_VIOLATION
-    print("✓ secrets scan passed (no hardcoded secrets/credentials)")
+    print("ok: secrets scan passed (no hardcoded secrets/credentials)")
     return gate_report.EXIT_PASS
 
 
