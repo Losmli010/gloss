@@ -151,6 +151,22 @@ def test_allow_reason_finding_carries_rule_marker_and_remedy() -> None:
     assert out.getvalue().startswith("✗ error[ALLOW-REASON]: deps:allow marker without a reason")
 
 
+def test_allow_reason_line_scan_reports_bare_markers_only() -> None:
+    findings = gate_report.allow_reason_findings_for_line("a.rs", 3, "x(); // secrets:allow")
+    assert [f.message for f in findings] == ["secrets:allow marker without a reason"]
+    assert findings[0].line == 3 and findings[0].path == "a.rs"
+
+
+def test_allow_reason_line_scan_ignores_reasoned_and_inert_lines() -> None:
+    assert (
+        gate_report.allow_reason_findings_for_line(
+            "a.rs", 1, 'let g = icon("⚙"); // constraints:allow-context 阴性对照'
+        )
+        == []
+    )
+    assert gate_report.allow_reason_findings_for_line("a.rs", 2, "let x = compute(input);") == []
+
+
 def test_rule_constants_are_registered() -> None:
     for name, value in rule_constants().items():
         assert value in gate_report.REGISTERED_RULES, "unregistered constant %s=%s" % (name, value)

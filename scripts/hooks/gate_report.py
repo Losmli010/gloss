@@ -186,6 +186,25 @@ def allow_reason_finding(marker: str, path: str, line: int, evidence: str) -> Fi
     )
 
 
+ALLOW_REASON_MARKERS = (
+    "constraints:allow-context",
+    "secrets:allow",
+    "lines:allow",
+    "i18n:allow",
+    "deps:allow",
+)
+
+
+def allow_reason_findings_for_line(path: str, line: int, text: str) -> list[Finding]:
+    """一行文本里全部缺缘由放行标记的条目：五类标记全名逐个核对同行缘由，
+    供标记类别不定与全名形态（界面边界上下文标记）不误报的消费方使用。"""
+    return [
+        allow_reason_finding(marker, path, line, text)
+        for marker in ALLOW_REASON_MARKERS
+        if marker in text and allow_reason_missing(marker, text)
+    ]
+
+
 def run_git(
     args: list[str], cwd: str | None = None, file: TextIO | None = None
 ) -> subprocess.CompletedProcess[bytes]:
