@@ -300,11 +300,15 @@
 1. 前置：辅助功能已授权（人工划词出卡依赖取材授权）；系统负载低（建议夜间）；磁盘余量 不低于 `2GB`
 2. 构建 `release` 并启动：`cargo build --release` 然后 `./target/release/gloss`
 3. 另开终端起驻留集（RSS）采样循环（每 30 分钟一次，照抄）：
-`while true; do echo "$(date +%H:%M) rss=$(ps -o rss= -p $(pgrep -x gloss)) kb" >> /tmp/soak-rss.txt; sleep 1800; done`
-  1. 每隔约 2 小时在任意含文本的应用做数次真实拖选划词，确认出卡正常（人工执行）
-4. 8 小时后 `Ctrl-C` 结束采样循环，正常退出应用（菜单、设置页退出）
-5. 核对：`cat /tmp/soak-rss.txt` 首尾对比无持续上漂（一次性的启动后爬升属正常）；`ls ~/.gloss/logs/gloss-*.jsonl | wc -l` 不超过 7；`just logs --no-follow --level error` 无异常堆栈（只渲染最新一份日志）
-6. 收尾采一次运行时基线归档：`just app-metrics`（趋势点随 `git` 走）
+
+   ```sh
+   while true; do echo "$(date +%H:%M) rss=$(ps -o rss= -p $(pgrep -x gloss)) kb" >> /tmp/soak-rss.txt; sleep 1800; done
+   ```
+
+4. 每隔约 2 小时在任意含文本的应用做数次真实拖选划词，确认出卡正常（人工执行）
+5. 8 小时后 `Ctrl-C` 结束采样循环，正常退出应用（菜单、设置页退出）
+6. 核对：`cat /tmp/soak-rss.txt` 首尾对比无持续上漂（一次性的启动后爬升属正常）；`ls ~/.gloss/logs/gloss-*.jsonl | wc -l` 不超过 7；`just logs --no-follow --level error` 无异常堆栈（只渲染最新一份日志）
+7. 收尾采一次运行时基线归档：`just app-metrics`（趋势点随 `git` 走）
 
 - 更新时间：2026-10-06
 
