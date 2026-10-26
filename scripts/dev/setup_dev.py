@@ -76,7 +76,8 @@ def check_pinned(cmd: str, label: str, pin: str | None, install_hint: str) -> No
 
 
 def check_python_package(package: str, pin: str | None) -> None:
-    """钉版本解释器包校验：在场加版本全等，缺席给按清单拼装的安装指引。"""
+    """钉版本解释器包校验：缺席给按清单拼装的安装指引，未钉版本与在场未对
+    齐给告警，与命令行工具的同名校验同口径。"""
     from importlib import metadata
 
     try:
@@ -84,9 +85,14 @@ def check_python_package(package: str, pin: str | None) -> None:
     except metadata.PackageNotFoundError:
         actual = None
     hint = ("%s -m pip install %s=={pin}" % (sys.executable, package)).format(pin=pin or "latest")
-    if actual is None:
+    if pin is None:
+        print(
+            "  warn: %s not pinned in the tool list, skipping version check" % package,
+            file=sys.stderr,
+        )
+    elif actual is None:
         warn_missing(package, hint)
-    elif pin and actual != pin:
+    elif actual != pin:
         print(
             "  warn: %s %s != pinned %s, realign recommended: %s" % (package, actual, pin, hint),
             file=sys.stderr,

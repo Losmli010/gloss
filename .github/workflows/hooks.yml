@@ -161,6 +161,8 @@ jobs:
       - name: Run checker unit tests
         run: |
           python3 -m pip install --quiet pytest
+          python3 -m pip install markdown-it-py==$(python3 scripts/dev/tool_version.py markdown-it-py)
+          python3 -m pip install mdit-py-plugins==$(python3 scripts/dev/tool_version.py mdit-py-plugins)
           python3 -m pytest scripts/hooks/check_pr_prose_test.py -q
 
       - name: Check PR title and body follow the prose rules

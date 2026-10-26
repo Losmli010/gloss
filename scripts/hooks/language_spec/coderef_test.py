@@ -222,3 +222,23 @@ def test_markdown_unclosed_registered_fence_still_checked() -> None:
 
 def test_markdown_math_span_in_prose_exempt() -> None:
     assert prose_line_problems("t", 1, "满足 $a^2 + b^2 = c^2$ 即勾股定理。") == []
+
+
+def test_markdown_unicode_line_separator_keeps_line_model() -> None:
+    src = "中文。\u2028\n正文段有 generic 词。\n```\nencoded\n```\n"
+    problems = markdown_problems("d.md", src)
+    assert {p.line for p in problems} == {2}
+
+
+def test_markdown_blockquote_fence_comment_checked() -> None:
+    problems = markdown_problems("d.md", "> ```sh\n> # pick by change surface\n> ```\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-LANGUAGE"]
+
+
+def test_markdown_bash_fence_math_span_allowed() -> None:
+    assert markdown_problems("d.md", "```bash\n# 满足 $r^2 >= 0$ 即通过。\n```\n") == []
+
+
+def test_math_double_dollar_with_chinese_not_exempt() -> None:
+    problems = prose_line_problems("t", 1, "记作 $$中文混排$$ 即散文。")
+    assert any("foreign letters" in m for m in messages(problems))

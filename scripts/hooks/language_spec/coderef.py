@@ -108,8 +108,13 @@ MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps):allow\b")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 # 数学记号段豁免：美元号包裹的算式段，内容限算式字符、不含汉字与美元号；
-# 单美元号的普通文本（金额等）构不成段，不豁免
-MATH_SPAN = re.compile(r"\$\$[^\n$]+\$\$|\$[A-Za-z0-9\s\\{}()\[\]^_+=*/<>,.;:|\-]+\$")
+# 单美元号的普通文本（金额等）构不成段，不豁免；双美元号与单美元号同一字
+# 符类——行内的双美元号按解析器本不算数学块，放宽会把散文整段吞进豁免
+MATH_SPAN_BODY = r"[A-Za-z0-9\s\\{}()\[\]^_+=*/<>,.;:|\-]+"
+MATH_SPAN = re.compile(r"\$\$%(b)s\$\$|\$%(b)s\$" % {"b": MATH_SPAN_BODY})
+
+# 引用记号前缀：块引用内的围栏内容行带着引用记号落地，剥后再认注释形态
+QUOTE_PREFIX = re.compile(r"^(?:\s*>[ \t]?)+")
 
 
 def strip_links(text: str) -> str:
@@ -210,6 +215,7 @@ def fence_comment_problems(path: str, lineno: int, line: str, lang: str) -> list
     findings = gate_report.allow_reason_findings_for_line(path, lineno, body)
     if MARKER.search(body) or body.startswith("SAFETY:"):
         return findings
+    body = MATH_SPAN.sub(" ", body)  # 数学记号段：算式是语言中立记号，豁免
     segs = [seg.strip(SEGMENT_TRIM) for seg in SEGMENT_SPLIT.split(body)]
     segs = [seg for seg in segs if seg]
     if not segs or all(DIRECTIVE_SEG.match(seg) or is_command_seg(seg) for seg in segs):
@@ -268,7 +274,10 @@ def markdown_problems(path: str, src: str) -> list[gate_report.Finding]:
     围栏）、数学块与超文本标记块整段豁免；围栏内已登记语言的整行注释作为
     文档检查子项照注释纪律判定，其余内容是字面代码放行；其余行照原文逐行
     判，行内豁免（反引号、链接、数学记号段等）由行级判定承载。"""
-    lines = src.splitlines()
+    # 行模型以解析器为单点：先做与解析器相同的换行归一化再按换行切分——
+    # 通用的按行切分另认纵向制表与统一码行分隔符等边界，两种行模型错位
+    # 会让豁免窗口整体偏移
+    lines = src.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     exempt = [False] * len(lines)
     fence_lang_by_line: dict[int, str] = {}
     for token in markdown_parser().parse(src):
@@ -296,7 +305,7 @@ def markdown_problems(path: str, src: str) -> list[gate_report.Finding]:
             continue
         lang = fence_lang_by_line.get(offset)
         if lang is not None:
-            out += fence_comment_problems(path, offset + 1, line, lang)
+            out += fence_comment_problems(path, offset + 1, QUOTE_PREFIX.sub("", line), lang)
         else:
             out += markdown_line_problems(path, offset + 1, line)
     return out
