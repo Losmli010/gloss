@@ -17,7 +17,6 @@ import gate_report  # noqa: E402
 from language_spec.coderef import (  # noqa: E402
     MARKER,
     markdown_problems,
-    markdown_structure_problems,
     prose_line_problems,
 )
 
@@ -81,51 +80,11 @@ def test_markdown_table_first_cell_exempt() -> None:
     assert any("foreign letters" in p for p in messages(problems))
 
 
-# ---- 文档结构遍历 ----
+# ---- 围栏内整行注释（文档检查子项）----
 
 
 def rules(findings: list[gate_report.Finding]) -> list[str]:
     return [finding.rule for finding in findings]
-
-
-def test_markdown_structure_clean_doc_passes() -> None:
-    src = "# 标题\n\n## 小节\n\n### 次节\n\n```sh\njust test\n```\n\n## 回到上级\n"
-    assert markdown_structure_problems("d.md", src) == []
-
-
-def test_markdown_first_heading_any_level_allowed() -> None:
-    assert markdown_structure_problems("d.md", "## 直接小节\n") == []
-
-
-def test_markdown_level_decrease_then_increase_allowed() -> None:
-    src = "# 标题\n\n## 小节\n\n### 次节\n\n## 回到上级\n\n### 再进一级\n"
-    assert markdown_structure_problems("d.md", src) == []
-
-
-def test_markdown_heading_jump_flagged_at_line() -> None:
-    problems = markdown_structure_problems("d.md", "# 标题\n\n### 跳级小节\n")
-    assert rules(problems) == ["COMMENT-DOC-HEADING-JUMP"]
-    assert problems[0].line == 3
-
-
-def test_markdown_duplicate_heading_flagged_at_later_line() -> None:
-    problems = markdown_structure_problems("d.md", "## 小节\n\n正文一。\n\n## 小节\n")
-    assert rules(problems) == ["COMMENT-DOC-HEADING-DUP"]
-    assert problems[0].line == 5
-
-
-def test_markdown_headings_inside_fence_not_counted() -> None:
-    src = "## 小节\n\n```sh\n## 小节\n```\n\n## 另一节\n"
-    assert markdown_structure_problems("d.md", src) == []
-
-
-def test_markdown_unclosed_fence_flagged_at_opening_line() -> None:
-    problems = markdown_structure_problems("d.md", "## 小节\n\n```sh\njust test\n")
-    assert rules(problems) == ["COMMENT-DOC-FENCE-UNCLOSED"]
-    assert problems[0].line == 3
-
-
-# ---- 围栏内整行注释（文档检查子项）----
 
 
 def test_markdown_bash_fence_chinese_comment_allowed() -> None:

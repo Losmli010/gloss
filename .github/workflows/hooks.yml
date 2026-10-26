@@ -37,10 +37,11 @@ jobs:
         with:
           tool: ${{ env.RG_PIN }}
 
-      - name: Install pytest, ruff and tombi
+      - name: Install pytest, ruff, tombi and rumdl
         run: |
           python3 -m pip install --quiet pytest
           python3 -m pip install ruff==$(python3 scripts/dev/tool_version.py ruff)
+          python3 -m pip install rumdl==$(python3 scripts/dev/tool_version.py rumdl)
           npm install -g tombi@$(python3 scripts/dev/tool_version.py tombi)
 
       # 检查器单测目录发现跑法与本地同款，覆盖全部门禁脚本与客户端钩子
@@ -84,6 +85,13 @@ jobs:
 
       - name: Lint TOML files
         run: just lint-toml
+
+      # 标记语言（Markdown）格式化与排版检查（rumdl）：纯文本秒级
+      - name: Check Markdown formatting
+        run: just fmt-md
+
+      - name: Lint Markdown files
+        run: just lint-md
 
   commit-msg:
     name: Commit message check

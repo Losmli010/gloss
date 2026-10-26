@@ -171,6 +171,18 @@ fmt-toml-fix:
 lint-toml:
     tombi lint $(git ls-files '*.toml')
 
+# 标记语言（Markdown）格式化检查，排版工具（rumdl）只检查不落盘
+fmt-md:
+    rumdl fmt --check $(git ls-files '*.md')
+
+# 标记语言（Markdown）自动格式化，落盘
+fmt-md-fix:
+    rumdl fmt $(git ls-files '*.md')
+
+# 标记语言（Markdown）排版检查（rumdl），规则见配置文件，零违规
+lint-md:
+    rumdl check $(git ls-files '*.md')
+
 # 脚本语言（Python）格式化检查，检查工具（ruff）只检查不落盘；显式传路径，点目录不被默认发现
 fmt-py:
     ruff format --check scripts .githooks .zcode/hooks
@@ -269,8 +281,8 @@ gen-manifest tag artifacts-dir:
 
 # ---- 纯文本快速检查（提交前门禁同款，秒级；持续集成的钩子工作流也跑）----
 
-# 纯文本门禁组合：六条纯文本门禁并轨单进程执行，再跑五条工具格式检查；本语言格式化只解析不编译，归文本层
-text-gates: text-gates-merged fmt fmt-py lint-py fmt-toml lint-toml
+# 纯文本门禁组合：六条纯文本门禁并轨单进程执行，再跑七条工具格式检查；本语言格式化只解析不编译，归文本层
+text-gates: text-gates-merged fmt fmt-py lint-py fmt-toml lint-toml fmt-md lint-md
 
 # 六条纯文本门禁（密钥、文档引用、行为清单、约束、文案、注释）的并轨入口：单进程依序执行，任一违规整体非零且报告保持完整
 text-gates-merged:
