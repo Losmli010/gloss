@@ -289,7 +289,8 @@ def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[g
                 or ch in CHINESE_EXTRA
                 or ch in MATH_CHARS
                 or "0" <= ch <= "9"
-                or ch in " \t\n\r"
+                # 不换行空格与全角空格是空白——表格列加宽靠不可断行的空白撑住
+                or ch in " \t\n\r\u00a0\u3000"
             ):
                 continue
             if (
