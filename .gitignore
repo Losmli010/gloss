@@ -38,3 +38,6 @@ __pycache__/
 web/manifest.json
 web/latest/*
 !web/latest/.gitkeep
+
+# 编辑器工作区配置不进仓库，样式注入随本地环境
+.vscode/

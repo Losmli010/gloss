@@ -1,7 +1,0 @@
-/* 预览表格前两列不折行：布局层禁断行，压住正文继承的溢出折行行为 */
-th:nth-child(1),
-td:nth-child(1),
-th:nth-child(2),
-td:nth-child(2) {
-	white-space: nowrap;
-}
