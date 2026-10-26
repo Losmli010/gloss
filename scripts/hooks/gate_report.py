@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -22,6 +23,8 @@ RULE_EMPTY_SURFACE = "EMPTY-SURFACE"
 RULE_ALLOW_REASON = "ALLOW-REASON"
 
 INFRA_REMEDY = "fix the reported tool or repository problem, then rerun the gate"
+
+ALLOW_REASON_REMEDY = "add a non-empty reason right after the marker on the same line"
 
 REGISTERED_RULES = frozenset(
     {
@@ -164,6 +167,42 @@ def infra_failure(message: str, evidence: str = "") -> Finding:
         evidence=evidence,
         remedy=INFRA_REMEDY,
     )
+
+
+def allow_reason_missing(marker: str, text: str) -> bool:
+    """放行标记缺缘由的判定：标记之后未紧跟空白与非空白字符即算缺失。"""
+    return re.search(re.escape(marker) + r"\s+\S", text) is None
+
+
+def allow_reason_finding(marker: str, path: str, line: int, evidence: str) -> Finding:
+    """放行标记缺缘由的违规条目：位置与证据由各门禁的豁免现场给定。"""
+    return Finding(
+        rule=RULE_ALLOW_REASON,
+        path=path,
+        line=line,
+        message="%s marker without a reason" % marker,
+        evidence=evidence,
+        remedy=ALLOW_REASON_REMEDY,
+    )
+
+
+ALLOW_REASON_MARKERS = (
+    "constraints:allow-context",
+    "secrets:allow",
+    "lines:allow",
+    "i18n:allow",
+    "deps:allow",
+)
+
+
+def allow_reason_findings_for_line(path: str, line: int, text: str) -> list[Finding]:
+    """一行文本里全部缺缘由放行标记的条目：五类标记全名逐个核对同行缘由，
+    供标记类别不定与全名形态（界面边界上下文标记）不误报的消费方使用。"""
+    return [
+        allow_reason_finding(marker, path, line, text)
+        for marker in ALLOW_REASON_MARKERS
+        if marker in text and allow_reason_missing(marker, text)
+    ]
 
 
 def run_git(

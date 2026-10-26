@@ -3,7 +3,7 @@
 历、文本读取、单次扫描的内容缓存与违规报告器（违规即时经统一诊断出口打
 印，单文件报告设上限、超限声明剩余数）；聚合入口缺省自建缓存与报告器，装
 入器与报告器在场时共享，单模块直跑仍各自构造；读取失败照常抛出，读不到即
-报违规的现行路径不变形。条目跨行拼接与各助手的取舍见记录文件。
+报违规的现行路径不变形。条目跨行的行界保留与各助手的取舍见记录文件。
 """
 
 from __future__ import annotations
@@ -168,7 +168,7 @@ def section_body(manifest_path: str, want: str, loader: Any = None) -> list[str]
 
 
 def dep_entries(manifest_path: str, loader: Any = None) -> list[tuple[str, str, int, str]]:
-    """抽取依赖条目，输出 (section, key, 行号, 条目全文（跨行拼接）)。
+    """抽取依赖条目，输出 (section, key, 行号, 条目全文（跨行保留行界）)。
 
     依赖表含 [dependencies] / [dev-dependencies] / [build-dependencies]，以及
     [target.'cfg(...)'.dev-dependencies] 这类门控形式（均以 dependencies] 结尾）。"""
@@ -199,7 +199,7 @@ def dep_entries(manifest_path: str, loader: Any = None) -> list[tuple[str, str, 
                 pending = True
             continue
         if pending:
-            text = text + " " + line
+            text = text + "\n" + line
             depth += line.count("{") - line.count("}")
             if depth <= 0:
                 pending = False
@@ -207,6 +207,11 @@ def dep_entries(manifest_path: str, loader: Any = None) -> list[tuple[str, str, 
     if pending:
         entries.append((sec, key, start, text))
     return entries
+
+
+def flat_text(text: str) -> str:
+    """条目全文的单行形态：跨行保留行界的全文折回空格拼接，供证据行使用。"""
+    return text.replace("\n", " ")
 
 
 def dep_dump(root: str, loader: Any = None) -> list[tuple[str, str, str, str, int, str]]:

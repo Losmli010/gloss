@@ -147,6 +147,15 @@ def test_allow_marker_on_hit_line(tmp_path: Path) -> None:
     assert_pass(tmp_path, "crates/gloss-app/src/allow_ok.rs", content)
 
 
+def test_bare_marker_on_hit_line_reports_allow_reason(tmp_path: Path) -> None:
+    _, fails = scan(
+        tmp_path, "crates/gloss-app/src/bare_allow.rs", 'let s = "打开"; // %s' % MARKER
+    )
+    out = "\n".join(fails)
+    assert "marker without a reason" in out
+    assert "embeds a copy literal" not in out
+
+
 # ---- 文案字面量（拦截）----
 
 
@@ -302,6 +311,18 @@ def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
     assert int(match.group(1)) == details == 3
+
+
+def test_gate_allow_reason_rule_id_and_exit_code(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, {"crates/gloss-app/src/bare.rs": 'let s = "打开"; // %s' % MARKER})
+    assert proc.returncode == 1
+    text = proc.stderr.decode("utf-8")
+    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
+    assert len(heads) == 1
+    assert re.match(r"^✗ error\[ALLOW-REASON\]: .+ \(.+:\d+\)$", heads[0])
+    match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
+    assert match
+    assert int(match.group(1)) == 1
 
 
 def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:

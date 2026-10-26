@@ -1,9 +1,9 @@
 """约束门禁·源码卫生：桩副本一致、文件行数上限与残留任务标记——跨包复用
 的同名测试桩逐字一致，单个生产源文件不超过五百行（文件头部放行标记注明
-缘由后豁免），大写任务标记词全字匹配、命中即失败；项目文档与本模块及其
-单测的夹具豁免任务标记自命中。源码扫描面为空按失败关闭退出；非版本库环境
-响亮跳过任务标记段。违规经统一诊断出口带规则标识报告，证据行完整不截断。
-判定口径与取舍见记录文件。
+缘由后豁免，缺失即判罚），大写任务标记词全字匹配、命中即失败；项目文档与
+本模块及其单测的夹具豁免任务标记自命中。源码扫描面为空按失败关闭退出；非
+版本库环境响亮跳过任务标记段。违规经统一诊断出口带规则标识报告，证据行完
+整不截断。判定口径与取舍见记录文件。
 """
 
 from __future__ import annotations
@@ -155,8 +155,16 @@ def run(
             production += 1
         if production <= LINE_CAP:
             continue
-        if any("lines:allow" in line for line in lines[:5]):
+        allowed = [(no, line) for no, line in enumerate(lines[:5], 1) if "lines:allow" in line]
+        if allowed:
             big_allowed += 1
+            for no, line in allowed:
+                if gate_report.allow_reason_missing("lines:allow", line):
+                    rep.note(
+                        gate_report.allow_reason_finding(
+                            "lines:allow", manifests.rel(root, f), no, line
+                        )
+                    )
             continue
         big_files += 1
         rep.note(

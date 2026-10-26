@@ -212,6 +212,39 @@ def test_inline_lines_allow_allowed(tmp_path: Path) -> None:
     assert run_gate(tmp_path, content) == []
 
 
+def test_bare_marker_in_trailing_comment_flagged(tmp_path: Path) -> None:
+    content = (
+        f'{HEADER}\n\nconst TOKEN: &str = "abc"; // secrets:allow\nfn main() {{ let _ = TOKEN; }}\n'
+    )
+    problems = run_gate(tmp_path, content)
+    assert any("marker without a reason" in p for p in problems)
+    assert not any("trailing comment" in p for p in problems)
+
+
+def test_bare_marker_in_inline_comment_flagged(tmp_path: Path) -> None:
+    problems = run_gate(tmp_path, f"{HEADER}\n\n// deps:allow\nfn main() {{}}\n")
+    assert any("marker without a reason" in p for p in problems)
+    assert not any("inline comment" in p for p in problems)
+
+
+def test_full_form_context_marker_with_reason_allowed(tmp_path: Path) -> None:
+    content = (
+        f"{HEADER}\n\n"
+        'let gear = icon_button("⚙"); // constraints:allow-context 阴性对照\n'
+        "fn main() {}\n"
+    )
+    assert run_gate(tmp_path, content) == []
+
+
+def test_bare_marker_in_script_comment_flagged(tmp_path: Path) -> None:
+    problems = run_gate(tmp_path, "# lines:allow\n", rel="conf.toml")
+    assert any("marker without a reason" in p for p in problems)
+
+
+def test_marker_with_reason_in_script_comment_allowed(tmp_path: Path) -> None:
+    assert run_gate(tmp_path, "# i18n:allow 图标字形对照\n", rel="conf.toml") == []
+
+
 def test_safety_released_after_code_gap(tmp_path: Path) -> None:
     content = (
         f"{HEADER}\n\n"

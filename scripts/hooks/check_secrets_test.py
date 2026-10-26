@@ -145,18 +145,31 @@ def test_authorization_bearer(tmp_path: Path) -> None:
 
 
 def test_marker_on_hit_line_passes(tmp_path: Path) -> None:
-    content = 'api_key = "%s" # %s' % (TAIL16, MARKER)
+    content = 'api_key = "%s" # %s 测试夹具' % (TAIL16, MARKER)
     assert scan(tmp_path, "allow-ok.toml", content) == []
 
 
 def test_marker_only_covers_own_line(tmp_path: Path) -> None:
-    content = 'api_key = "%s" # %s\napi_key = "%s"' % (TAIL16, MARKER, TAIL20)
+    content = 'api_key = "%s" # %s 只放行本行\napi_key = "%s"' % (TAIL16, MARKER, TAIL20)
     problems = scan(tmp_path, "allow-partial.toml", content)
     assert any("suspected hardcoded credential" in p for p in problems)
 
 
 def test_marker_on_clean_line_harmless(tmp_path: Path) -> None:
     assert scan(tmp_path, "allow-noise.txt", "let x = 1; # %s" % MARKER) == []
+
+
+def test_bare_marker_on_hit_line_reports_allow_reason(tmp_path: Path) -> None:
+    problems = scan(tmp_path, "bare-allow.toml", 'api_key = "%s" # %s' % (TAIL16, MARKER))
+    assert any("allow marker without reason" in p for p in problems)
+    assert not any("suspected hardcoded" in p for p in problems)
+
+
+def test_bare_marker_elsewhere_than_own_line_still_flags_own_line(tmp_path: Path) -> None:
+    content = 'api_key = "%s" # %s\napi_key = "%s"' % (TAIL16, MARKER, TAIL20)
+    problems = scan(tmp_path, "bare-partial.toml", content)
+    assert any("allow marker without reason" in p for p in problems)
+    assert any("suspected hardcoded credential" in p for p in problems)
 
 
 # ---- 模式清单与引擎参数（直接覆盖）----
@@ -373,6 +386,20 @@ def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
     assert int(match.group(1)) == details == 3
+
+
+def test_gate_allow_reason_rule_id_and_exit_code(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, {"bare-allow.toml": 'api_key = "%s" # %s' % (TAIL16, MARKER)})
+    assert proc.returncode == 1
+    text = proc.stderr.decode("utf-8")
+    heads = [line for line in text.splitlines() if line.startswith("✗ error[")]
+    assert len(heads) == 1
+    assert re.match(r"^✗ error\[ALLOW-REASON\]: .+ \(.+:\d+\)$", heads[0])
+    assert "    证据: " in text
+    assert "    help: " in text
+    match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
+    assert match
+    assert int(match.group(1)) == 1
 
 
 def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:

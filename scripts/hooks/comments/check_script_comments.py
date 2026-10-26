@@ -2,8 +2,9 @@
 """注释纪律门禁·脚本与配置：井号系脚本与配置、钩子目录脚本、任务配方文
 件、忽略清单与站点资源的注释判罚——主体全中文，专名只进括号注记，路径、
 命令、旗标、标识符与链接都算代码引用一并判罚；相邻注释行聚成一块受检，
-换行的括号与表述跨行不误报；工具指令行、解释器声明与放行标记豁免，脚本
-文件头统一写成模块级文档字符串，判罚与注释同规。字面数据不误报：壳层脚
+换行的括号与表述跨行不误报；工具指令行、解释器声明与放行标记豁免，放行
+标记缺同行缘由即判罚，脚本文件头统一写成模块级文档字符串，判罚与注释同
+规。字面数据不误报：壳层脚
 本的就地文档正文、配置（YAML）里非运行键的块标量正文整行豁免，脚本资源
 里跨行的模板字面量按串跳过。判罚以带规则标识的违规条目返回，位置按路径与
 行号承载，书写规则共享项落语言规范库的标识。由注释门禁路由调用，与语言规
@@ -421,6 +422,8 @@ def check(rel: str, src: str) -> list[gate_report.Finding]:
             if not segs or all(DIRECTIVE_SEG.match(seg) for seg in segs):
                 exempt = True  # 纯装饰行与纯指令行不判罚，也隔断聚块
         if exempt:
+            if MARKER.search(text):
+                out += gate_report.allow_reason_findings_for_line(rel, lineno, text)
             if cur is not None:
                 out += flush(*cur)
                 cur = None

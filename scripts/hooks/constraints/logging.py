@@ -48,7 +48,7 @@ def run(
                     line=start,
                     message="unified log exit: %s directly depends on %s — use"
                     " gloss_core::log only" % (os.path.basename(owner), key),
-                    evidence=text,
+                    evidence=manifests.flat_text(text),
                     remedy=LOG_EXIT_REMEDY,
                 )
             )

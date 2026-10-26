@@ -1,8 +1,8 @@
 """约束门禁·清单卫生：版本单点维护、依赖只开需要的特性、依赖无死条目——
 子包的版本与语言版本继承工作区，字面量只在根清单的工作区段；第三方依赖声明
 必须关闭默认特性，且必须在源码面有使用证据；条目行尾放行标记豁免并须注明
-缘由。违规经统一诊断出口带规则标识报告，证据为完整条目不截断。判定口径与
-取舍见记录文件。
+缘由，缺失即判罚。违规经统一诊断出口带规则标识报告，证据为完整条目不截断。
+判定口径与取舍见记录文件。
 """
 
 from __future__ import annotations
@@ -81,19 +81,20 @@ def run(
 
     deps_checked = 0
     for _owner, mrel, _sec, key, start, text in dump:
-        if manifests.is_path_dep(text) and "version" not in text:
+        flat = manifests.flat_text(text)
+        if manifests.is_path_dep(flat) and "version" not in flat:
             continue
-        if "workspace = true" in text:
+        if "workspace = true" in flat:
             continue
         deps_checked += 1
-        if "default-features = false" not in text:
+        if "default-features = false" not in flat:
             rep.note(
                 gate_report.Finding(
                     rule=RULE_DEFAULT_FEATURES,
                     path=mrel,
                     line=start,
                     message="default features off: %s lacks default-features = false" % key,
-                    evidence=text,
+                    evidence=flat,
                     remedy=DEFAULT_FEATURES_REMEDY,
                 )
             )
@@ -105,11 +106,21 @@ def run(
     dead_scanned = 0
     dead_allowed = 0
     for owner, mrel, _sec, key, start, text in dump:
-        if manifests.is_path_dep(text) or "workspace = true" in text:
+        flat = manifests.flat_text(text)
+        if manifests.is_path_dep(flat) or "workspace = true" in flat:
             continue
         dead_scanned += 1
-        if "deps:allow" in text:
+        if "deps:allow" in flat:
             dead_allowed += 1
+            for offset, entry_line in enumerate(text.split("\n")):
+                if "deps:allow" in entry_line and gate_report.allow_reason_missing(
+                    "deps:allow", entry_line
+                ):
+                    rep.note(
+                        gate_report.allow_reason_finding(
+                            "deps:allow", mrel, start + offset, entry_line
+                        )
+                    )
             continue
         crate_dir = root if mrel == "Cargo.toml" else os.path.join(root, os.path.dirname(mrel))
         import_name = key.replace("-", "_")
@@ -145,7 +156,7 @@ def run(
                 line=start,
                 message="no dead dependencies: %s declares %s with no usage evidence in"
                 " src/tests/benches" % (os.path.basename(owner), key),
-                evidence=text,
+                evidence=manifests.flat_text(text),
                 remedy=DEAD_DEP_REMEDY,
             )
         )

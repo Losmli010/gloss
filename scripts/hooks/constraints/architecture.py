@@ -90,7 +90,7 @@ def run(
     oks = []
     edges = 0
     for owner, mrel, _sec, key, start, text in dump:
-        if manifests.is_path_dep(text):
+        if manifests.is_path_dep(manifests.flat_text(text)):
             edges += 1
             allowed = ALLOWED_OWN_DEPS.get(owner, "")
             if key not in allowed.split():
@@ -101,7 +101,7 @@ def run(
                         line=start,
                         message="dependency direction: %s must not depend on %s; allowed"
                         " edges: %s" % (os.path.basename(owner), key, allowed or "none"),
-                        evidence=text,
+                        evidence=manifests.flat_text(text),
                         remedy=DEP_DIRECTION_REMEDY,
                     )
                 )
@@ -113,7 +113,7 @@ def run(
                     line=start,
                     message="dependency direction: gloss-core has a platform/render stack"
                     " dependency %s — red-line, forbidden" % key,
-                    evidence=text,
+                    evidence=manifests.flat_text(text),
                     remedy=CORE_REDLINE_REMEDY,
                 )
             )
@@ -147,7 +147,7 @@ def run(
                     line=start,
                     message="eval asset isolation: %s depends on gloss-eval — the eval"
                     " toolchain must stay out of the production dependency graph" % owner,
-                    evidence=text,
+                    evidence=manifests.flat_text(text),
                     remedy=EVAL_DEP_REMEDY,
                 )
             )
