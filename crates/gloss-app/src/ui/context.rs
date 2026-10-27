@@ -74,15 +74,30 @@ fn install(ctx: &Context, theme: Theme) {
 
 pub(crate) fn apply_visuals(ctx: &Context) {
     ctx.style_mut_of(egui::Theme::Light, |style| {
-        fill_visuals(&mut style.visuals, &super::style::LIGHT);
+        fill_style(style, &super::style::LIGHT);
     });
     ctx.style_mut_of(egui::Theme::Dark, |style| {
-        fill_visuals(&mut style.visuals, &super::style::DARK);
+        fill_style(style, &super::style::DARK);
     });
+}
+
+fn fill_style(style: &mut egui::Style, colors: &super::style::Palette) {
+    fill_visuals(&mut style.visuals, colors);
+    fill_spacing(&mut style.spacing);
+    style.animation_time = super::style::motion::APPEAR;
 }
 
 fn fill_visuals(visuals: &mut egui::Visuals, colors: &super::style::Palette) {
     visuals.selection.bg_fill = colors.accent;
+}
+
+fn fill_spacing(spacing: &mut egui::Spacing) {
+    use super::style::space;
+    spacing.item_spacing = egui::vec2(space::ITEM, space::ITEM);
+    spacing.button_padding = egui::vec2(space::TIGHT, space::TIGHT);
+    let card_margin = egui::Margin::same(space::CARD_PADDING.round() as i8);
+    spacing.menu_margin = card_margin;
+    spacing.window_margin = card_margin;
 }
 
 #[cfg(test)]

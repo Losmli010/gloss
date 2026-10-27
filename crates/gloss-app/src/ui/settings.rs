@@ -801,6 +801,8 @@ mod tests {
                 Locale::Zh,
             );
             harness.run();
+            harness.get_by_label(label).scroll_to_me();
+            harness.run();
             harness.get_by_label(label).click();
             harness.run();
             assert_eq!(
