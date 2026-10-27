@@ -150,19 +150,15 @@ fn footer_copy(
 }
 
 fn paint_copy_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
-    let stroke = Stroke::new(stroke::THICK, color);
+    let stroke = Stroke::new(stroke::LINE, color);
     let arm = geometry::action::ICON_ARM;
     let offset = 2.0 * space::INLINE;
-    let back = egui::Rect::from_center_size(
-        rect.center() + egui::vec2(offset, -offset),
-        vec2(2.0 * arm, 2.0 * arm),
-    );
+    let bounds =
+        egui::Rect::from_center_size(rect.center(), vec2(2.0 * arm + offset, 2.0 * arm + offset));
+    let back = egui::Rect::from_min_max(bounds.min + egui::vec2(offset, offset), bounds.max);
     ui.painter()
         .rect_stroke(back, radius::ICON, stroke, egui::StrokeKind::Inside);
-    let front = egui::Rect::from_min_max(
-        back.min - egui::vec2(offset, offset),
-        back.max - egui::vec2(offset, offset),
-    );
+    let front = egui::Rect::from_min_max(bounds.min, bounds.max - egui::vec2(offset, offset));
     ui.painter().rect(
         front,
         radius::ICON,
@@ -225,10 +221,7 @@ fn footer_status(
         },
     );
     ui.painter().galley(
-        egui::pos2(
-            rect.min.x,
-            rect.center().y + stroke::HAIRLINE - galley.size().y / 2.0,
-        ),
+        egui::pos2(rect.min.x, rect.center().y - galley.size().y / 2.0),
         galley.clone(),
         dim,
     );
@@ -240,7 +233,7 @@ fn footer_dots(ui: &egui::Ui, rect: &egui::Rect, label_width: f32) {
     let zhu = palette(ui).seal;
     let mut dot_center = egui::pos2(
         rect.min.x + label_width + space::TIGHT + geometry::overlay::FOOTER_DOT_RADIUS,
-        rect.center().y + stroke::HAIRLINE,
+        rect.center().y,
     );
     for index in 0..geometry::overlay::FOOTER_DOT_COUNT {
         let wave = ((now / motion::PULSE_PERIOD + index as f64 * motion::PULSE_PHASE_STEP).sin()
@@ -273,10 +266,12 @@ fn footer_watermark(ui: &mut egui::Ui, rect: &egui::Rect) {
         },
     );
     let slot = galley.size().x + 2.0 * geometry::overlay::WATERMARK_PADDING;
+    let text_height = galley.size().y;
+    let text_top = rect.center().y - text_height / 2.0;
     ui.put(
         egui::Rect::from_min_max(
-            egui::pos2(rect.max.x - slot, rect.min.y),
-            egui::pos2(rect.max.x, rect.max.y),
+            egui::pos2(rect.max.x - slot, text_top),
+            egui::pos2(rect.max.x, text_top + text_height),
         ),
         egui::Label::new(egui::WidgetText::Galley(galley))
             .selectable(false)
