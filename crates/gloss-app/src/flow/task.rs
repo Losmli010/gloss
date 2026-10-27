@@ -72,29 +72,23 @@ impl GlossApp {
     }
 
     fn commit_probe(&mut self, generation: u64, input: TaskInput) -> bool {
+        let image_bytes = match &input {
+            TaskInput::Image { png, .. } => Some(png.len()),
+            _ => None,
+        };
         match self.machine.commit_probe(generation, input) {
-            InputOutcome::Dispatch(request) => {
-                match &request.input {
-                    TaskInput::Image { png, .. } => info!(
+            InputOutcome::Pending => {
+                match image_bytes {
+                    Some(bytes) => info!(
                         thread = thread::UI,
-                        generation = request.generation,
-                        bytes = png.len(),
-                        model = %request.options.model,
-                        target_lang = ?request.options.target_lang,
-                        prompt_locale = ?request.options.prompt_locale,
-                        "pasteboard image committed, task dispatched to tokio"
+                        generation, bytes, "pasteboard image committed, pending user confirmation"
                     ),
-                    _ => info!(
+                    None => info!(
                         thread = thread::UI,
-                        generation = request.generation,
-                        model = %request.options.model,
-                        target_lang = ?request.options.target_lang,
-                        prompt_locale = ?request.options.prompt_locale,
-                        "selection committed, task dispatched to tokio"
+                        generation, "selection committed, pending user confirmation"
                     ),
                 }
                 self.session.probe_front_app = None;
-                self.send_run(request);
                 self.session.pending_reveal = true;
                 true
             }
@@ -367,8 +361,13 @@ mod tests {
     };
     use crate::channel::{AcquireCommand, Command, PlatformEvent, Traced};
     use crate::machine::{AppState, OverlayView};
+    use crate::ui::popup::OverlayAction;
 
     use crate::app::GlossApp;
+
+    fn confirm(app: &mut GlossApp) {
+        app.handle_overlay_action(OverlayAction::Confirm);
+    }
 
     fn pasteboard_probe(app: &mut GlossApp, pe_tx: &crossbeam_channel::Sender<PlatformEvent>) {
         pe_tx
@@ -501,6 +500,7 @@ mod tests {
         let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("hello")));
+        confirm(&mut app);
         app.accept_chunk(1, "上一轮的违约正文".into());
 
         assert!(
@@ -535,6 +535,12 @@ mod tests {
         expect_idle_probe(&mut app, &pe_tx, &ac_rx);
 
         assert!(app.accept_input(1, text_input("A")));
+        assert!(
+            matches!(app.machine.state(), AppState::PendingConfirm),
+            "the commit parks the pending card; channel 3 stays silent until the confirm"
+        );
+        assert!(cmd_rx.try_recv().is_err());
+        confirm(&mut app);
         assert_eq!(app.machine.generation(), 1, "commit promotes the probe id");
         assert_eq!(app.machine.state(), AppState::Translating);
         let Command::RunTask {
@@ -569,6 +575,7 @@ mod tests {
 
         assert!(app.accept_input(2, text_input("B")));
         assert!(token_a.is_cancelled(), "the commit supersedes task A");
+        confirm(&mut app);
         assert!(matches!(
             cmd_rx.try_recv().unwrap().payload,
             Command::RunTask { generation: 2, .. }
@@ -585,6 +592,7 @@ mod tests {
         let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
+        confirm(&mut app);
 
         assert!(!app.accept_failed(0, &GlossError::EngineNetwork));
         assert_eq!(app.machine.state(), AppState::Translating);
@@ -624,6 +632,7 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
+        confirm(&mut app);
         let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
             panic!("expected a RunTask command, got another variant")
         };
@@ -644,6 +653,7 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
+        confirm(&mut app);
         let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
             panic!("expected a RunTask command, got another variant")
         };
@@ -667,6 +677,7 @@ mod tests {
             })
             .expect("save should succeed");
         assert!(app.accept_input(1, text_input("A")));
+        confirm(&mut app);
 
         let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
             panic!("expected a RunTask command, got another variant")
@@ -679,6 +690,7 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("B")));
+        confirm(&mut app);
         let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
             panic!("expected a RunTask command, got another variant")
         };
@@ -712,6 +724,7 @@ mod tests {
         let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("正常选区")));
+        confirm(&mut app);
         let Command::RunTask { cancel: token, .. } = cmd_rx.try_recv().unwrap().payload else {
             panic!("expected a RunTask command, got another variant")
         };
@@ -753,7 +766,32 @@ mod tests {
             app.session.pending_reveal,
             "the commit flags the reveal; drain_events consumes it the same frame"
         );
-        assert_eq!(app.machine.state(), AppState::Translating);
+        assert_eq!(app.machine.state(), AppState::PendingConfirm);
+    }
+
+    #[test]
+    fn the_pending_card_cancel_path_sends_no_channel3_message() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(1, text_input("待确认的选区")));
+        assert!(app.session.pending_reveal);
+        app.session.pending_reveal = false;
+
+        app.dismiss_overlay("cancel button");
+        assert_eq!(app.machine.state(), AppState::Idle);
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "Esc/×/取消 all collapse the pending card: tokio never hears about it"
+        );
+        assert!(
+            !app.accept_done(1, plain_outcome("迟到的产物")),
+            "a pending card holds no generation session to adopt late events"
+        );
+        confirm(&mut app);
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "a stale confirmation after dismissal must not redispatch"
+        );
     }
 
     #[test]
@@ -778,6 +816,7 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(2, text_input("普通的文本")));
+        confirm(&mut app);
         assert!(matches!(
             cmd_rx.try_recv().unwrap().payload,
             Command::RunTask { generation: 2, .. }
@@ -793,7 +832,7 @@ mod tests {
             app.accept_input(1, image_input()),
             "the pasteboard product enters a task that needs the overlay"
         );
-        assert_eq!(app.machine.state(), AppState::Translating);
+        assert_eq!(app.machine.state(), AppState::PendingConfirm);
         assert!(app.machine.attached_image().is_some());
         assert!(
             app.session.pending_reveal,
@@ -805,6 +844,11 @@ mod tests {
                 .is_none_or(|(generation, _)| generation != app.machine.generation()),
             "no anchor matches a pasteboard generation: the reveal centers"
         );
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "no channel 3 message before the confirmation click"
+        );
+        confirm(&mut app);
         assert!(matches!(
             cmd_rx.try_recv().unwrap().payload,
             Command::RunTask {

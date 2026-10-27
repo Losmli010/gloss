@@ -23,12 +23,14 @@
 //!
 //! 词卡精排（词条与音标落经位，释义逐行落注位，例句落疏位），其余任务正文
 //! 走标记文档渲染（egui_commonmark），注区统一改写文本样式为楷体字号。
-//! 划选即复制：全部文本可选中，无独立复制按钮。正文完整渲染不截断，宽度
-//! 固定（浮层宽度常量，不随内容变化），高度自适应内容（上限按屏幕），超出部分
-//! 滚动兜底。
+//! 完成卡页脚左端有复制钮——复制完整注疏（注 + 疏，见注疏组装纯函数），
+//! 这是对早期“划选即复制、不设独立复制按钮”原则的显式偏离：选中复制
+//! 仍然全域可用，复制钮只是给了完成卡一个一步到位的出口。正文完整渲染不截断，
+//! 宽度固定（浮层宽度常量，不随内容变化），高度自适应内容（上限按屏幕），
+//! 超出部分滚动兜底。
 //! 流式视图对累积的原始流做“转义感知”的注渐进提取——现行输出
 //! 契约是纯对象数据（JSON），见核心层契约模块：注键未到齐时正文区
-//! 落骨架、页脚保留“正在注解”；疏证例句字段随流下钻渐进出。
+//! 落骨架、页脚保留“正在注疏”；疏证例句字段随流下钻渐进出。
 //! 降级产物（契约校验失败）不出注疏——降级卡渲染
 //! “输出异常”与重试按钮，不渲染注内容（原文垃圾不展示不留存）。
 //! 注文一律换行排版：代码面板等宽折行、标记文档由通用标记渲染库（egui_commonmark）按
@@ -39,7 +41,9 @@
 //! 页头行同时是拖动热区：按住拖动即移动浮层（壳侧逐帧平移窗口），热区
 //! 与动作钮零重叠，按钮点击不受影响。
 //! 页脚常驻
-//! 一条窄带（带高取页脚高度常量）：推理中左端是“正在注解”与呼吸点（生成指示唯一落点），右端
+//! 一条窄带（带高取页脚高度常量）：推理中左端是“正在注疏”与呼吸点（生成指示唯一落点），
+//! 待确认卡左端是确认主按钮与取消次按钮（发送前把关的唯一出口），
+//! 完成卡左端是复制钮（点击后短暂显示已复制反馈），右端
 //! 恒为本品牌（Gloss）水印——品牌名不翻译，与窗口标题同一原则；滚动区按页脚带宽
 //! 预留视口，页脚不被内容挤出窗外。“经显注未至”时正文区是纯骨架
 //! （脉动条），无占位文字。动作点击在绘制帧折成动作上交壳执行；
@@ -50,6 +54,7 @@
 
 mod card;
 mod content;
+mod footer;
 mod icon;
 mod image;
 mod note;
@@ -57,6 +62,7 @@ mod outcome;
 mod views;
 
 pub(crate) use card::clear_cached_text_galleys;
+pub(crate) use outcome::annotation_text;
 
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
@@ -81,6 +87,8 @@ pub struct RenderState {
     drag_press_phys: Cell<Option<egui::Pos2>>,
     icon: RefCell<Option<(u32, Option<egui::TextureHandle>)>>,
     attached: RefCell<Option<AttachedTexture>>,
+    copied_at: Cell<Option<f64>>,
+    copied_source: Cell<Option<String>>,
 }
 
 struct AttachedTexture {
@@ -95,6 +103,8 @@ impl Default for RenderState {
             drag_press_phys: Cell::new(None),
             icon: RefCell::new(None),
             attached: RefCell::new(None),
+            copied_at: Cell::new(None),
+            copied_source: Cell::new(None),
         }
     }
 }
@@ -155,6 +165,8 @@ pub struct PopupOutput {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayAction {
+    Confirm,
+    CopyAnnotation,
     Retry,
     OpenSettings,
     Dismiss,
@@ -211,6 +223,18 @@ pub fn draw(
     if attached.is_none() {
         state.drop_attached();
     }
+    let prev_copied_source = state.copied_source.take();
+    match view {
+        Some(OverlayView::Outcome { source, .. }) => {
+            if prev_copied_source.as_deref() == Some(source.as_str()) {
+                state.copied_source.set(prev_copied_source);
+            } else {
+                state.copied_at.set(None);
+                state.copied_source.set(Some(source.clone()));
+            }
+        }
+        _ => state.copied_at.set(None),
+    }
 
     let fill = ui.visuals().window_fill;
     let window_stroke = ui.visuals().window_stroke;
@@ -258,7 +282,7 @@ mod kittest_tests {
 
     use crate::machine::{FailureCause, OverlayView};
     use gloss_core::model::{GlossError, Locale};
-    use gloss_core::task::{OutcomeStructured, TaskKind, TaskOutcome};
+    use gloss_core::task::{OutcomeStructured, TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
     fn word_card_view() -> OverlayView {
         OverlayView::Outcome {
@@ -281,6 +305,33 @@ mod kittest_tests {
             raw: r#"{"note":"已流式到达的正文"}"#.into(),
             classified: Some(TaskKind::TranslateWord),
             repairing: false,
+        }
+    }
+
+    fn pending_text_view() -> OverlayView {
+        OverlayView::Pending {
+            input: TaskInput::Text {
+                text: "选中的原文".into(),
+            },
+            options: TaskOptions::default(),
+        }
+    }
+
+    fn pending_text_view_en() -> OverlayView {
+        OverlayView::Pending {
+            input: TaskInput::Text {
+                text: "The selected source text.".into(),
+            },
+            options: TaskOptions::default(),
+        }
+    }
+
+    fn pending_image_view() -> OverlayView {
+        OverlayView::Pending {
+            input: TaskInput::Image {
+                png: Arc::from(&b"png"[..]),
+            },
+            options: TaskOptions::default(),
         }
     }
 
@@ -512,6 +563,105 @@ mod kittest_tests {
         bytes.into()
     }
 
+    #[test]
+    fn pending_card_exposes_the_source_and_its_two_exits() {
+        let (mut harness, clicked) = harness_for(pending_text_view());
+        harness.run();
+        harness.get_by_label_contains("选中的原文");
+        harness.get_by_label("经");
+        harness.get_by_label("注疏");
+        harness.get_by_label("取消");
+        harness.get_by_label("注疏").click();
+        harness.run();
+        assert_eq!(
+            *clicked.borrow(),
+            Some(OverlayAction::Confirm),
+            "the primary button confirms the dispatch"
+        );
+
+        let (mut harness, clicked) = harness_for(pending_text_view());
+        harness.run();
+        harness.get_by_label("取消").click();
+        harness.run();
+        assert_eq!(
+            *clicked.borrow(),
+            Some(OverlayAction::Dismiss),
+            "取消 collapses the pending card via the shared dismiss path"
+        );
+    }
+
+    #[test]
+    fn the_done_card_copy_button_submits_copy_annotation_then_flips_to_copied() {
+        let (mut harness, clicked) = harness_for(word_card_view());
+        harness.run();
+        harness.get_by_label("复制注疏").click();
+        harness.run_steps(2);
+        assert_eq!(
+            *clicked.borrow(),
+            Some(OverlayAction::CopyAnnotation),
+            "the footer copy button surfaces the copy action"
+        );
+        harness.get_by_label_contains("已复制");
+    }
+
+    #[test]
+    fn a_card_with_a_different_source_clears_the_copied_feedback() {
+        let view = Rc::new(RefCell::new(word_card_view()));
+        let (mut harness, _clicked) = harness_for_switchable(Rc::clone(&view));
+        harness.run();
+        harness.get_by_label("复制注疏").click();
+        harness.run_steps(2);
+        harness.get_by_label_contains("已复制");
+
+        *view.borrow_mut() = OverlayView::Outcome {
+            source: "silk".into(),
+            outcome: TaskOutcome {
+                kind: TaskKind::TranslateWord,
+                note: "A surface shine; luster. To add a gloss or commentary.".into(),
+                structured: OutcomeStructured::WordCard {
+                    phonetic: Some("/ɡlɒs/".into()),
+                    examples: vec!["The polished wood had a deep gloss.".into()],
+                },
+                degraded: false,
+            },
+        };
+        harness.run();
+        assert!(
+            harness
+                .query_all_by_label_contains("已复制")
+                .next()
+                .is_none(),
+            "the copied feedback must not leak onto a card with a different source"
+        );
+        harness.get_by_label("复制注疏");
+    }
+
+    #[test]
+    fn a_rerender_of_the_same_source_keeps_the_copied_feedback() {
+        let view = Rc::new(RefCell::new(word_card_view()));
+        let (mut harness, _clicked) = harness_for_switchable(Rc::clone(&view));
+        harness.run();
+        harness.get_by_label("复制注疏").click();
+        harness.run_steps(2);
+        harness.get_by_label_contains("已复制");
+
+        *view.borrow_mut() = word_card_view();
+        harness.run_steps(2);
+        harness.get_by_label_contains("已复制");
+    }
+
+    #[test]
+    fn degraded_and_streaming_cards_take_no_copy_button() {
+        for view in [degraded_outcome_view_en(), streaming_view()] {
+            let (mut harness, _clicked) = harness_for(view);
+            harness.run_steps(3);
+            assert!(
+                harness.query_all_by_label("复制注疏").next().is_none(),
+                "only the settled outcome card carries the copy button"
+            );
+        }
+    }
+
     type Clicked = Rc<RefCell<Option<OverlayAction>>>;
 
     fn font_first_frame(installed: &Cell<bool>, ctx: &egui::Context) -> bool {
@@ -539,6 +689,24 @@ mod kittest_tests {
                 return;
             }
             let output = draw(ui, Some(&view), None, &state, text);
+            if let Some(action) = output.action {
+                *sink.borrow_mut() = Some(action);
+            }
+        });
+        (harness, clicked)
+    }
+
+    fn harness_for_switchable(view: Rc<RefCell<OverlayView>>) -> (Harness<'static>, Clicked) {
+        let clicked: Clicked = Rc::new(RefCell::new(None));
+        let sink = Rc::clone(&clicked);
+        let state = RenderState::default();
+        let text = Text::get(Locale::Zh);
+        let installed = Cell::new(false);
+        let harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let output = draw(ui, Some(&view.borrow()), None, &state, text);
             if let Some(action) = output.action {
                 *sink.borrow_mut() = Some(action);
             }
@@ -637,7 +805,7 @@ mod kittest_tests {
     fn streaming_view_shows_the_annotating_footer() {
         let (mut harness, _clicked) = harness_for(streaming_view());
         harness.run_steps(3);
-        harness.get_by_label_contains("正在注解");
+        harness.get_by_label_contains("正在注疏");
         let seals = [
             harness.query_all_by_label_contains("经").next().is_some(),
             harness.query_all_by_label_contains("注").next().is_some(),
@@ -652,10 +820,10 @@ mod kittest_tests {
     fn a_repairing_streaming_view_switches_the_footer_wording() {
         let (mut harness, _clicked) = harness_for(repairing_streaming_view());
         harness.run_steps(3);
-        harness.get_by_label_contains("重新注解");
+        harness.get_by_label_contains("重新注疏");
         assert!(
             harness
-                .query_all_by_label_contains("正在注解")
+                .query_all_by_label_contains("正在注疏")
                 .next()
                 .is_none(),
             "the repair marker replaces the annotating label, no banner, no counter"
@@ -720,7 +888,7 @@ mod kittest_tests {
 
             harness.set_size(vec2(WIDTH, capped_height));
             harness.run_steps(2);
-            for label in ["正在注解", "Gloss"] {
+            for label in ["正在注疏", "Gloss"] {
                 let node = harness.get_by_label_contains(label).rect();
                 assert!(
                     node.bottom() <= capped_height + 0.5,
@@ -731,11 +899,11 @@ mod kittest_tests {
             }
 
             let seal_before = harness.get_by_label("经").rect();
-            let footer_before = harness.get_by_label_contains("正在注解").rect();
+            let footer_before = harness.get_by_label_contains("正在注疏").rect();
             harness.key_press(egui::Key::ArrowDown);
             harness.run_steps(8);
             let seal_after = harness.get_by_label("经").rect();
-            let footer_after = harness.get_by_label_contains("正在注解").rect();
+            let footer_after = harness.get_by_label_contains("正在注疏").rect();
             assert!(
                 seal_after.top() < seal_before.top() - 1.0,
                 "经位必须随滚动区上移（长原文尾部可达）: {seal_before:?} -> {seal_after:?}"
@@ -1119,7 +1287,7 @@ mod kittest_tests {
             let _ = draw(ui, Some(&view), Some(&png), &state, text);
         });
         harness.run_steps(3);
-        harness.get_by_label_contains("正在注解");
+        harness.get_by_label_contains("正在注疏");
     }
 
     #[test]
@@ -1213,15 +1381,24 @@ mod kittest_tests {
         Steps(usize),
     }
 
-    fn snapshot_case(
-        results: &mut egui_kittest::SnapshotResults,
-        name: &str,
+    struct SnapshotCase {
+        name: &'static str,
         view: Option<OverlayView>,
         attached: Option<Arc<[u8]>>,
+        locale: Locale,
         run: Run,
-    ) {
+    }
+
+    fn snapshot_case(results: &mut egui_kittest::SnapshotResults, case: SnapshotCase) {
+        let SnapshotCase {
+            name,
+            view,
+            attached,
+            locale,
+            run,
+        } = case;
         let state = RenderState::default();
-        let text = Text::get(Locale::En);
+        let text = Text::get(locale);
         let installed = Cell::new(false);
         let mut harness = Harness::builder()
             .with_theme(egui::Theme::Light)
@@ -1243,53 +1420,137 @@ mod kittest_tests {
         results.extend_harness(&mut harness);
     }
 
-    #[test]
-    fn snapshots_match_baseline() {
-        let mut results = egui_kittest::SnapshotResults::new();
-        for (name, view, run) in [
-            ("popup_word_card", Some(word_card_view_en()), Run::Settle),
-            ("popup_streaming", Some(streaming_view_en()), Run::Steps(3)),
-            ("popup_failed", Some(failed_view()), Run::Settle),
-            ("popup_failed_auth", Some(auth_failed_view()), Run::Settle),
-            (
-                "popup_code_streaming",
-                Some(code_streaming_view_en()),
+    fn case(
+        name: &'static str,
+        view: Option<OverlayView>,
+        locale: Locale,
+        run: Run,
+    ) -> SnapshotCase {
+        SnapshotCase {
+            name,
+            view,
+            attached: None,
+            locale,
+            run,
+        }
+    }
+
+    fn core_cases() -> Vec<SnapshotCase> {
+        vec![
+            case(
+                "popup_word_card",
+                Some(word_card_view_en()),
+                Locale::En,
+                Run::Settle,
+            ),
+            case(
+                "popup_streaming",
+                Some(streaming_view_en()),
+                Locale::En,
                 Run::Steps(3),
             ),
-            (
-                "popup_code_outcome",
-                Some(code_outcome_view_en()),
+            case("popup_failed", Some(failed_view()), Locale::En, Run::Settle),
+            case(
+                "popup_failed_auth",
+                Some(auth_failed_view()),
+                Locale::En,
                 Run::Settle,
             ),
-            (
+            case(
+                "popup_code_streaming",
+                Some(code_streaming_view_en()),
+                Locale::En,
+                Run::Steps(3),
+            ),
+            case(
                 "popup_image_failed",
                 Some(image_too_large_view()),
+                Locale::En,
                 Run::Settle,
             ),
-            (
+            case(
                 "popup_degraded_outcome",
                 Some(degraded_outcome_view_en()),
+                Locale::En,
                 Run::Settle,
             ),
-            ("popup_selfcheck", None, Run::Settle),
-            ("popup_long_line", Some(long_line_view()), Run::Settle),
-        ] {
-            snapshot_case(&mut results, name, view, None, run);
+            case("popup_selfcheck", None, Locale::En, Run::Settle),
+            case(
+                "popup_long_line",
+                Some(long_line_view()),
+                Locale::En,
+                Run::Settle,
+            ),
+        ]
+    }
+
+    fn image_and_pending_cases() -> Vec<SnapshotCase> {
+        vec![
+            case(
+                "popup_code_outcome",
+                Some(code_outcome_view_en()),
+                Locale::En,
+                Run::Settle,
+            ),
+            case(
+                "popup_image_outcome",
+                Some(image_commentary_view_en()),
+                Locale::En,
+                Run::Settle,
+            ),
+            case(
+                "popup_image_streaming",
+                Some(image_streaming_view_en()),
+                Locale::En,
+                Run::Steps(3),
+            ),
+            case(
+                "popup_pending_text_zh",
+                Some(pending_text_view()),
+                Locale::Zh,
+                Run::Settle,
+            ),
+            case(
+                "popup_pending_text_en",
+                Some(pending_text_view_en()),
+                Locale::En,
+                Run::Settle,
+            ),
+            case(
+                "popup_pending_image_zh",
+                Some(pending_image_view()),
+                Locale::Zh,
+                Run::Settle,
+            ),
+            case(
+                "popup_pending_image_en",
+                Some(pending_image_view()),
+                Locale::En,
+                Run::Settle,
+            ),
+        ]
+    }
+
+    #[test]
+    fn snapshots_match_baseline() {
+        let mut cases = core_cases();
+        cases.extend(image_and_pending_cases());
+        for c in &mut cases {
+            if [
+                "popup_image_outcome",
+                "popup_image_streaming",
+                "popup_pending_image_zh",
+                "popup_pending_image_en",
+            ]
+            .contains(&c.name)
+            {
+                c.attached = Some(fixture_png());
+            }
         }
-        snapshot_case(
-            &mut results,
-            "popup_image_outcome",
-            Some(image_commentary_view_en()),
-            Some(fixture_png()),
-            Run::Settle,
-        );
-        snapshot_case(
-            &mut results,
-            "popup_image_streaming",
-            Some(image_streaming_view_en()),
-            Some(fixture_png()),
-            Run::Steps(3),
-        );
+        let mut results = egui_kittest::SnapshotResults::new();
+        for c in cases {
+            snapshot_case(&mut results, c);
+        }
         results.unwrap();
     }
 }

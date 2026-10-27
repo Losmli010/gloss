@@ -21,6 +21,7 @@ pub mod space {
 pub mod radius {
     use super::rem;
 
+    pub const ICON: f32 = rem(0.125);
     pub const SEAL: f32 = rem(0.375);
     pub const SHIMMER: f32 = rem(0.375);
     pub const CARD: f32 = rem(0.625);

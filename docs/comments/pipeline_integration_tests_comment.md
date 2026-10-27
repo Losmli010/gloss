@@ -16,7 +16,9 @@
 
 - pipeline：接好 tokio 桥的完整管线，返回驱动所需全部端点。测试辅助函数不在 `#[test]` 内，clippy 的 test 豁免探测不到——显式豁免并沿用「失败即 panic」的测试断言语义（缘由按约束 9 记入本文件）。
 - PipelineEndpoints（驱动端点集合）：运行时配置句柄（触发时取快照，可 `save` 模拟设置页保存）；通道②发送端（真实消费者在事件线程 L4 层，L1 不接）；tokio 运行时保活句柄（drop 即关停，消费循环随通道③关闭退出）。
-- trigger_then_acquire：触发（划词手势）→ 模拟取材产物回传 → 下发通道③。
+- trigger_then_acquire：触发（划词手势）→ 模拟取材产物回传 → 待确认卡
+  → 确认（2026-10-27 起多这一步：提交只落卡不下发，测试点一次「注疏」
+  才见通道③的 `RunTask`）→ 下发通道③。
 - outcome_body：从状态机取当前产物正文。
 - wait_done：收事件直到本任务完成（缓存命中时没有 chunk，只有 TaskDone）。5 秒只是故障兜底：正常路径的同步点是 TaskDone 本身而不是时间；任务被静默丢弃时应当场失败并说明在等什么，而不是挂到 CI 作业超时。
 - config_change_invalidates_cache_for_the_next_task 的可观察面：目标语言在管线里的效果就是缓存未命中（TaskOptions 整体进 key）；prompt 文本不外露（execute 渲染完即丢），故不从 prompt 断言。该层能证伪的正是「配置只改在 UI、没进管道」：配置经快照解析进任务选项（machine），再由桥送进 AiTaskService 参与 key（pipeline）。分步：配置未动时同文本同模型命中缓存、引擎不再被调用；保存新模型（与出厂默认不同的 id）后重新请求；再改目标语言同样重新请求。

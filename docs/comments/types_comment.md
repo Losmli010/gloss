@@ -8,14 +8,16 @@
 - `Retry`：可重试类（网络/限流）：原样重发失败的那个任务。
 - `OpenSettings`：配置/鉴权类：打开设置页（密钥、模型绑定都在那里修）。
 
-## AppState（四个稳定态）
+## AppState（五个稳定态）
 
-- 探测不进本枚举（探测段在状态机之外）；提交从任意态直接进 `Translating` 并取消旧任务，收起回 `Idle`。它不是独立字段——状态由 `TaskStateMachine::overlay_view` 唯一决定，见 `TaskStateMachine::state`。
+- 探测不进本枚举（探测段在状态机之外）；提交落待确认卡进 `PendingConfirm`（2026-10-27 前直接进 `Translating`），确认从 `PendingConfirm` 进 `Translating` 并取消旧任务，收起回 `Idle`。它不是独立字段——状态由 `TaskStateMachine::overlay_view` 唯一决定，见 `TaskStateMachine::state`。
+- `PendingConfirm`：待确认卡在场（探测产物已到、推理未下发）。与 `Idle` 同为无令牌的态——待确认阶段没有在途推理，通道三零流量。
 
 ## OverlayView（浮层内容视图）
 
 - 状态机的可视化投影，由 `ui::popup` 按 TaskKind 分发渲染。
-- `Streaming`：推理中：原文 + 已到达的原始回复。`raw` 是模型原始 JSON 流（`note` 的渐进提取在渲染层）；`classified` 在 LLM 层分类前为 `None`，`accept_classified` 到达后精化（代码解释从分类帧起按代码排版）；`repairing` 置位时页脚切「重新注解」（无横幅无计数）。字段：`raw` 是模型原始回复的累积（含 JSON 结构，提取归渲染层）；`classified` 是 LLM 层回传的任务类型，分类前为 `None`；`repairing` 表示修复轮进行中（`accept_repairing` 置位）。
+- `Pending`：待确认卡（2026-10-27，发送前确认方案）：探测产物已到、等用户拍板。持有 `input + options` 的冻结快照——确认时原样组装下发请求，不回读配置；取消则整卡丢弃。取材产物与确认之间因此有一道用户闸门。
+- `Streaming`：推理中：原文 + 已到达的原始回复。`raw` 是模型原始 JSON 流（`note` 的渐进提取在渲染层）；`classified` 在 LLM 层分类前为 `None`，`accept_classified` 到达后精化（代码解释从分类帧起按代码排版）；`repairing` 置位时页脚切「重新注疏」（无横幅无计数）。字段：`raw` 是模型原始回复的累积（含 JSON 结构，提取归渲染层）；`classified` 是 LLM 层回传的任务类型，分类前为 `None`；`repairing` 表示修复轮进行中（`accept_repairing` 置位）。
 - `Outcome`：产物卡：按 `TaskKind` 精排或展示 markdown 注文。`source` 是本次任务的原文，供注疏排布的「经」位；代码语言由渲染层从 `structured.code_language` 现算（唯一来源是产物的 LLM 判定），`degraded` 时渲染降级卡。
 - `Failed`：失败信息与动作出口：`action` 为 `None` 表示没有按钮可给（重新划词即可）。
 
@@ -27,7 +29,7 @@
 ## InputOutcome（commit_probe 的结果）
 
 - 三态而非 `Option`——「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者记 warn，后者只记 debug），合并成 `None` 就分不出来了。
-- `Dispatch`：任务已组装，壳经通道③下发。
+- `Pending`：待确认卡已落定（单元变体，2026-10-27 前的 `Dispatch` 变体随发送前确认删除——提交不再直接下发，壳无需携带 `RunRequest`，确认时由 `confirm_pending` 现组装）。壳据此置挂起显形（出的是待确认卡）。
 - `Blocked`：内容疑似敏感：探测丢弃，当前显示保留（它属于上一个会话）。
 - `Ignored`：陈旧探测编号或模态错配：不采纳，浮层与通道都不动。
 
@@ -40,7 +42,7 @@
 
 ## RunRequest（下发请求）
 
-- `commit_probe` 采纳取材产物后的下发请求：壳把它经通道③发送。
+- 确认（`confirm_pending`）或重试（`retry`）组装的下发请求：壳把它经通道③发送（2026-10-27 前由 `commit_probe` 直接产出）。
 - `generation`：请求代数，与触发同值。
 - `input`：取材输入，原样转发给 LLM 层。
 - `options`：触发时按配置快照冻结的任务选项（见 `PendingTask`），执行途中不再回读配置。

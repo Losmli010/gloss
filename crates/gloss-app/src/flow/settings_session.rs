@@ -145,6 +145,7 @@ mod tests {
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
+        app.handle_overlay_action(crate::ui::popup::OverlayAction::Confirm);
         let crate::channel::Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload
         else {
             panic!("expected a RunTask command, got another variant")

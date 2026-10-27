@@ -7,6 +7,9 @@ on:
     branches: [main]
     # 标题编辑后也重跑，标题校验不漏掉合并前的改名
     types: [opened, synchronize, reopened, edited]
+  pull_request_review:
+    # 评审结果提交与编辑后即核，正文模板门禁与评审模板门禁成对
+    types: [submitted, edited]
 
 # 最小权限：只读代码与提交历史即可完成全部检查。
 permissions:
@@ -18,6 +21,8 @@ jobs:
   # 的格式作业执行，不在此重复，迁移前后持续集成执行的门禁集合不变。
   text-gates:
     name: Text gates
+    # 评审事件只跑评审结果检查，纯文本门禁不随评审重跑
+    if: github.event_name != 'pull_request_review'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -101,6 +106,8 @@ jobs:
 
   commit-msg:
     name: Commit message check
+    # 评审事件不引入提交，提交信息校验不随评审重跑
+    if: github.event_name != 'pull_request_review'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -177,3 +184,32 @@ jobs:
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq .title > "$RUNNER_TEMP/pr_title"
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq .body > "$RUNNER_TEMP/pr_body"
           python3 scripts/hooks/check_pr_prose.py "$RUNNER_TEMP/pr_body" "$RUNNER_TEMP/pr_title"
+
+  # 评审结果检查：评审人对拉取请求（PR）提交的评审结果过评审模板骨架、声明
+  # 核对与书写规则；空正文与机器人评审没有评审结果产物，跳过
+  review-result:
+    name: Review result check
+    if: >-
+      github.event_name == 'pull_request_review' &&
+      github.event.action != 'dismissed' &&
+      github.event.review.body != '' &&
+      !endsWith(github.event.review.user.login, '[bot]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run checker unit tests
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pip install markdown-it-py==$(python3 scripts/dev/tool_version.py markdown-it-py)
+          python3 -m pip install mdit-py-plugins==$(python3 scripts/dev/tool_version.py mdit-py-plugins)
+          python3 -m pytest scripts/hooks/check_review_result_test.py -q
+
+      - name: Check review result follows the review template
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 评审结果正文取自接口：五段骨架、声明核对与书写规则三重判定
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews/${{ github.event.review.id }}" --jq .body > "$RUNNER_TEMP/review_body"
+          python3 scripts/hooks/check_review_result.py "$RUNNER_TEMP/review_body"

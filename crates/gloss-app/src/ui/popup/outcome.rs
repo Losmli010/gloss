@@ -20,13 +20,29 @@ use crate::ui::style::{
 
 const CODE_LINE_HEIGHT: f32 = size::CODE * line_height::CODE;
 
+pub(crate) fn annotation_text(outcome: &gloss_core::task::TaskOutcome) -> String {
+    let examples = match &outcome.structured {
+        OutcomeStructured::WordCard { examples, .. }
+        | OutcomeStructured::Code { examples, .. }
+        | OutcomeStructured::Plain { examples } => examples,
+    };
+    let mut text = outcome.note.clone();
+    for example in examples {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(example);
+    }
+    text
+}
+
 pub(super) fn jing_section(
     ui: &mut egui::Ui,
     text: &'static Text,
     body: impl FnOnce(&mut egui::Ui),
 ) {
     ui.horizontal_top(|ui| {
-        seal(ui, text.gloss_popup_seal_jing.as_str(), SealTint::Ink);
+        seal(ui, text, text.gloss_popup_seal_jing.as_str(), SealTint::Ink);
         ui.add_space(geometry::seal::GAP);
         ui.with_layout(egui::Layout::top_down(Align::LEFT), body);
     });
@@ -38,7 +54,7 @@ pub(super) fn zhu_section(
     body: impl FnOnce(&mut egui::Ui),
 ) {
     ui.horizontal_top(|ui| {
-        seal(ui, text.gloss_popup_seal_zhu.as_str(), SealTint::Zhu);
+        seal(ui, text, text.gloss_popup_seal_zhu.as_str(), SealTint::Zhu);
         ui.add_space(geometry::seal::GAP);
         let line_top = ui.cursor().top();
         let column = ui
@@ -69,7 +85,7 @@ pub(super) fn shu_section(
     body: impl FnOnce(&mut egui::Ui),
 ) {
     ui.horizontal_top(|ui| {
-        seal(ui, text.gloss_popup_seal_shu.as_str(), SealTint::Wei);
+        seal(ui, text, text.gloss_popup_seal_shu.as_str(), SealTint::Wei);
         ui.add_space(geometry::seal::GAP);
         let column = ui
             .with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
@@ -105,7 +121,7 @@ pub(super) fn attached_image(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, png: &Arc<[
     }
 }
 
-fn image_unavailable(ui: &mut egui::Ui, text: &'static Text) {
+pub(super) fn image_unavailable(ui: &mut egui::Ui, text: &'static Text) {
     ui.label(
         RichText::new(&text.gloss_popup_image_unavailable)
             .font(serif(size::NOTICE))
@@ -307,4 +323,51 @@ pub(super) fn selfcheck_body(ui: &mut egui::Ui) {
             .size(size::NOTICE)
             .color(weak),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use gloss_core::task::{OutcomeStructured, TaskKind, TaskOutcome};
+
+    use super::annotation_text;
+
+    fn outcome(structured: OutcomeStructured) -> TaskOutcome {
+        TaskOutcome {
+            kind: TaskKind::TranslateWord,
+            note: "注疏正文".into(),
+            structured,
+            degraded: false,
+        }
+    }
+
+    #[test]
+    fn annotation_text_joins_the_note_and_the_examples() {
+        let full = outcome(OutcomeStructured::Plain {
+            examples: vec!["例句一".into(), "例句二".into()],
+        });
+        assert_eq!(
+            annotation_text(&full),
+            "注疏正文\n例句一\n例句二",
+            "疏以换行拼在注后"
+        );
+    }
+
+    #[test]
+    fn annotation_text_without_examples_carries_no_trailing_newline() {
+        let bare = outcome(OutcomeStructured::Plain {
+            examples: Vec::new(),
+        });
+        assert_eq!(annotation_text(&bare), "注疏正文");
+    }
+
+    #[test]
+    fn annotation_text_keeps_the_source_out_of_the_copy() {
+        let card = outcome(OutcomeStructured::WordCard {
+            phonetic: Some("/ɡlɒs/".into()),
+            examples: vec!["例句".into()],
+        });
+        let text = annotation_text(&card);
+        assert!(!text.contains("/ɡlɒs/"), "音标不进复制内容");
+        assert_eq!(text, "注疏正文\n例句");
+    }
 }
