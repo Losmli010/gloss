@@ -98,10 +98,7 @@ pub(super) fn add_input<'t>(
     build: impl FnOnce(egui::TextEdit<'t>) -> egui::TextEdit<'t>,
 ) -> egui::Response {
     ui.scope(|ui| {
-        if !ui.visuals().dark_mode {
-            ui.visuals_mut().widgets.inactive.bg_stroke =
-                Stroke::new(1.0, egui::Color32::from_gray(0xE2));
-        }
+        ui.visuals_mut().widgets.inactive.bg_stroke = palette(ui).input_border;
         ui.add(build(egui::TextEdit::singleline(text)))
     })
     .inner

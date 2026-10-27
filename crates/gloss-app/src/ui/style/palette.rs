@@ -4,7 +4,7 @@
 //! 使用点分支，语义色清单在此一份。取档走出口模块的解析点（全仓唯一
 //! 读取明暗态的地方），视图层只认数据不认明暗。
 
-use egui::Color32;
+use egui::{Color32, Stroke};
 
 pub(crate) struct Palette {
     pub is_dark: bool,
@@ -14,6 +14,7 @@ pub(crate) struct Palette {
     pub code_bg: Color32,
     pub code_border: Color32,
     pub danger: Color32,
+    pub input_border: Stroke,
     pub syntax: SyntaxPalette,
 }
 
@@ -35,6 +36,10 @@ pub(crate) const LIGHT: Palette = Palette {
     code_bg: Color32::from_rgb(0xF5, 0xF7, 0xF9),
     code_border: Color32::from_rgba_premultiplied(2, 2, 3, 26),
     danger: DANGER,
+    input_border: Stroke {
+        width: 1.0,
+        color: Color32::from_gray(0xE2),
+    },
     syntax: SyntaxPalette {
         plain: Color32::from_rgb(0x24, 0x29, 0x2E),
         keyword: Color32::from_rgb(0x8E, 0x44, 0xAD),
@@ -54,6 +59,7 @@ pub(crate) const DARK: Palette = Palette {
     code_bg: Color32::from_rgb(0x16, 0x18, 0x1E),
     code_border: Color32::from_rgba_premultiplied(23, 23, 23, 23),
     danger: DANGER,
+    input_border: Stroke::NONE,
     syntax: SyntaxPalette {
         plain: Color32::from_rgb(0xE6, 0xE6, 0xE6),
         keyword: Color32::from_rgb(0xC7, 0x92, 0xEA),

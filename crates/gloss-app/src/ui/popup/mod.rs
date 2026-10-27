@@ -523,7 +523,7 @@ mod kittest_tests {
             return false;
         }
         crate::ui::context::install_kittest_fonts(ctx);
-        crate::ui::context::apply_selection_colors(ctx);
+        crate::ui::context::apply_visuals(ctx);
         ctx.request_repaint();
         true
     }

@@ -447,7 +447,7 @@ mod tests {
                 *sink.borrow_mut() = frame_action;
             }
         });
-        crate::ui::context::apply_selection_colors(&harness.ctx);
+        crate::ui::context::apply_visuals(&harness.ctx);
         harness.set_size(egui::vec2(
             crate::present::windows::SETTINGS_WIDTH as f32,
             crate::present::windows::SETTINGS_HEIGHT as f32,
@@ -467,7 +467,7 @@ mod tests {
             .build_ui(move |ui| {
                 let _ = draw(ui, &mut state, &update, text);
             });
-        crate::ui::context::apply_selection_colors(&harness.ctx);
+        crate::ui::context::apply_visuals(&harness.ctx);
         harness.set_size(egui::vec2(
             crate::present::windows::SETTINGS_WIDTH as f32,
             crate::present::windows::SETTINGS_HEIGHT as f32,
