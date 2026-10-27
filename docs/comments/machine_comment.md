@@ -28,7 +28,7 @@
   流式中、产物卡上、空白机器与已收起的卡上一律 `None`。确认恒作用于
   屏上当前卡（守卫读视图这一唯一事实源，不按卡记身份）：新提交顶掉旧卡
   后确认自然落在新卡，同一张卡只可确认一次（
-  `a_new_commit_supersedes_the_pending_card_and_the_stale_confirm_is_refused`
+  `a_new_commit_supersedes_the_pending_card_and_confirm_acts_on_the_current_card`
   钉住）。
 - **代数语义不变**：探测编号仍在提交时提升为代数，确认**不动**代数——
   回传过滤、陈旧判定与两段式完全一致。

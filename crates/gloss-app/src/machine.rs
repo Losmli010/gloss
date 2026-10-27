@@ -824,7 +824,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_commit_supersedes_the_pending_card_and_the_stale_confirm_is_refused() {
+    fn a_new_commit_supersedes_the_pending_card_and_confirm_acts_on_the_current_card() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
         committed(machine.commit_probe(1, text_input("旧待确认")));
@@ -842,7 +842,7 @@ mod tests {
         assert_eq!(request.generation, 2);
         assert!(
             machine.confirm_pending().is_none(),
-            "the superseded card's confirmation is stale and refused"
+            "a consumed pending card must not confirm twice"
         );
     }
 

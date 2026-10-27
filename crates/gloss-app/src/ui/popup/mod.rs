@@ -605,6 +605,52 @@ mod kittest_tests {
     }
 
     #[test]
+    fn a_card_with_a_different_source_clears_the_copied_feedback() {
+        let view = Rc::new(RefCell::new(word_card_view()));
+        let (mut harness, _clicked) = harness_for_switchable(Rc::clone(&view));
+        harness.run();
+        harness.get_by_label("复制注疏").click();
+        harness.run_steps(2);
+        harness.get_by_label_contains("已复制");
+
+        *view.borrow_mut() = OverlayView::Outcome {
+            source: "silk".into(),
+            outcome: TaskOutcome {
+                kind: TaskKind::TranslateWord,
+                note: "A surface shine; luster. To add a gloss or commentary.".into(),
+                structured: OutcomeStructured::WordCard {
+                    phonetic: Some("/ɡlɒs/".into()),
+                    examples: vec!["The polished wood had a deep gloss.".into()],
+                },
+                degraded: false,
+            },
+        };
+        harness.run();
+        assert!(
+            harness
+                .query_all_by_label_contains("已复制")
+                .next()
+                .is_none(),
+            "the copied feedback must not leak onto a card with a different source"
+        );
+        harness.get_by_label("复制注疏");
+    }
+
+    #[test]
+    fn a_rerender_of_the_same_source_keeps_the_copied_feedback() {
+        let view = Rc::new(RefCell::new(word_card_view()));
+        let (mut harness, _clicked) = harness_for_switchable(Rc::clone(&view));
+        harness.run();
+        harness.get_by_label("复制注疏").click();
+        harness.run_steps(2);
+        harness.get_by_label_contains("已复制");
+
+        *view.borrow_mut() = word_card_view();
+        harness.run_steps(2);
+        harness.get_by_label_contains("已复制");
+    }
+
+    #[test]
     fn degraded_and_streaming_cards_take_no_copy_button() {
         for view in [degraded_outcome_view_en(), streaming_view()] {
             let (mut harness, _clicked) = harness_for(view);
@@ -643,6 +689,24 @@ mod kittest_tests {
                 return;
             }
             let output = draw(ui, Some(&view), None, &state, text);
+            if let Some(action) = output.action {
+                *sink.borrow_mut() = Some(action);
+            }
+        });
+        (harness, clicked)
+    }
+
+    fn harness_for_switchable(view: Rc<RefCell<OverlayView>>) -> (Harness<'static>, Clicked) {
+        let clicked: Clicked = Rc::new(RefCell::new(None));
+        let sink = Rc::clone(&clicked);
+        let state = RenderState::default();
+        let text = Text::get(Locale::Zh);
+        let installed = Cell::new(false);
+        let harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let output = draw(ui, Some(&view.borrow()), None, &state, text);
             if let Some(action) = output.action {
                 *sink.borrow_mut() = Some(action);
             }

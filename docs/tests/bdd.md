@@ -790,6 +790,8 @@
 | pending_card_exposes_the_source_and_its_two_exits | 待确认卡的原文与两个出口 | 给定文本待确认卡视图，当渲染，则“选中的原文”与经印章在树、主按钮标签“注疏”与“取消”钮就位；点击主钮上交 `Confirm`，点击取消钮走共用收起路径上交 `Dismiss` | 2026-10-27 |
 | the_done_card_copy_button_submits_copy_annotation_then_flips_to_copied | 完成态卡复制钮上交并翻面已复制 | 给定词卡完成态视图，当点击“复制注疏”，则上交 `CopyAnnotation`、随后页脚翻出“已复制”反馈（反馈有时限，不常驻） | 2026-10-27 |
 | degraded_and_streaming_cards_take_no_copy_button | 降级与流式卡无复制钮 | 给定降级完成态与流式两种视图，当渲染，则树上无“复制注疏”节点（复制钮只属于定格完成态卡） | 2026-10-27 |
+| a_card_with_a_different_source_clears_the_copied_feedback | 换不同原文的卡即清复制反馈 | 给定词卡完成态上已点复制翻出“已复制”，当同一段渲染态换到原文不同的另一张完成态卡，则反馈消失、新卡页脚回到“复制注疏”（反馈不串卡） | 2026-10-27 |
+| a_rerender_of_the_same_source_keeps_the_copied_feedback | 同原文重渲染保留复制反馈 | 给定词卡完成态上已点复制翻出“已复制”，当视图以相同原文重渲染一帧，则“已复制”反馈原样保留（原文相同即视为同一张卡） | 2026-10-27 |
 | snapshots_match_baseline（popup 代码视图随高亮再录） | 两份代码视图基线随语法着色重录 | 给定 `popup_code_streaming`、`popup_code_outcome` 的英文夹具，当 `wgpu` 渲染并 `diff`，则与基线一致（2026-10-02 随 `T4` 单趟正则六类着色再录：关键字、函数形、字符串着色；其余七份 `popup` 与 `settings` 基线零变化——着色只落代码分支。单趟正则已在 2026-10-19 由 `syntect` 取代，最新沿革见浮层基线 `snapshots_match_baseline` 一行） | 2026-10-02 |
 
 ### `crates/gloss-app/src/flow/actions.rs`
@@ -918,7 +920,7 @@
 | confirm_pending_carries_the_frozen_options_snapshot | 确认下发携带探测时冻结选项 | 给定自定义配置的探测产物提交，当 `confirm_pending`，则下发请求的模型与目标语言均为探测时刻快照值（确认不回读配置；下一次探测才用新值） | 2026-10-27 |
 | confirm_pending_is_refused_outside_the_pending_card | 确认守卫只认待确认卡 | 给定空白机器、流式中的会话、已定格产物卡三种非待确认状态，当 `confirm_pending`，则一律 `None`（无卡无确认出口；已定格代数的迟到失败一并被拒） | 2026-10-27 |
 | hide_drops_the_pending_card_without_a_token_to_cancel | 隐藏丢弃待确认卡且无需取消 | 给定待确认卡在场，当 `hide_overlay`，则回 `Idle`、视图清空、确认出口一并失效（收起后的确认不能复活成下发） | 2026-10-27 |
-| a_new_commit_supersedes_the_pending_card_and_the_stale_confirm_is_refused | 新提交顶掉待确认卡且确认只认当前卡 | 给定待确认卡在场时新探测提交，则新卡接管；当确认，则恒作用于屏上当前卡——下发新卡的输入与代数，同一张卡只可确认一次（已消费卡的再次确认被拒） | 2026-10-27 |
+| a_new_commit_supersedes_the_pending_card_and_confirm_acts_on_the_current_card | 新提交顶掉待确认卡且确认只认当前卡 | 给定待确认卡在场时新探测提交，则新卡接管；当确认，则恒作用于屏上当前卡——下发新卡的输入与代数，同一张卡只可确认一次（已消费卡的再次确认被拒）。沿革：原名“陈旧确认被拒”，2026-10-27 随确认语义核实修订——被顶掉卡的确认从未被尝试，第二次拒绝的真实守卫是卡已消费、视图不再是待确认卡 | 2026-10-27 |
 | a_probe_leaves_a_visible_session_completely_untouched | 探测与误滑不扰动可见会话 | 给定推理中的可见会话，当新划词探测、再当探测以空选区失败收场，则状态、视图、取消令牌全程原样，流式正文照常追加 | 2026-10-01 |
 | image_input_for_text_kind_is_rejected | 划词探测拒收图像输入 | 给定在途划词探测收图像产物，当提交，则 `Ignored`（模态按探测的取材来源配对） | 2026-10-10 |
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 `Translating` 态隐藏，当收起，则令牌取消、视图清空回 `Idle`，迟到同代数产物、失败被拒 | 2026-09-19 |

@@ -194,7 +194,7 @@ pub(super) fn seal(ui: &mut egui::Ui, text: &'static Text, label: &'static str, 
 }
 
 fn shared_seal_width(ui: &egui::Ui, text: &'static Text) -> f32 {
-    let key = (
+    let key: SealWidthKey = (
         (
             text.gloss_popup_seal_jing.as_str(),
             text.gloss_popup_seal_zhu.as_str(),
