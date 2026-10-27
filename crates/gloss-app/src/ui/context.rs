@@ -95,7 +95,7 @@ fn fill_spacing(spacing: &mut egui::Spacing) {
     use super::style::space;
     spacing.item_spacing = egui::vec2(space::ITEM, space::ITEM);
     spacing.button_padding = egui::vec2(space::TIGHT, space::TIGHT);
-    let card_margin = egui::Margin::same(space::CARD_PADDING.round() as i8);
+    let card_margin = egui::Margin::from(space::CARD_PADDING);
     spacing.menu_margin = card_margin;
     spacing.window_margin = card_margin;
 }
