@@ -34,7 +34,7 @@ fn clamped_user_size(
     requested: LogicalSize<f64>,
 ) -> LogicalSize<f64> {
     let max_height = (screen_height * HEIGHT_CAP_FRACTION - window::WORK_AREA_MARGIN)
-        .max(window::OVERLAY_MIN_HEIGHT);
+        .max(window::OVERLAY_HEIGHT);
     let max_width = window::OVERLAY_MAX_WIDTH
         .min((screen_width - 2.0 * window::WORK_AREA_MARGIN).max(window::OVERLAY_MIN_WIDTH));
     LogicalSize::new(
@@ -421,7 +421,7 @@ mod cap_height_tests {
 mod user_size_tests {
     use super::clamped_user_size;
     use crate::ui::style::geometry::window::{
-        OVERLAY_MAX_WIDTH, OVERLAY_MIN_HEIGHT, OVERLAY_MIN_WIDTH,
+        OVERLAY_HEIGHT, OVERLAY_MAX_WIDTH, OVERLAY_MIN_HEIGHT, OVERLAY_MIN_WIDTH,
     };
     use winit::dpi::LogicalSize;
 
@@ -455,6 +455,15 @@ mod user_size_tests {
             clamped_user_size(SCREEN.0, SCREEN.1, LogicalSize::new(480.0, 4000.0)).height,
             1080.0 * 0.382 - 96.0,
             "user resize shares the streaming cap: golden share of the screen minus margin"
+        );
+    }
+
+    #[test]
+    fn height_cap_bottoms_out_at_the_default_like_the_content_cap() {
+        assert_eq!(
+            clamped_user_size(1920.0, 700.0, LogicalSize::new(480.0, 4000.0)).height,
+            OVERLAY_HEIGHT,
+            "a short screen floors the user cap at the default height, never below it"
         );
     }
 
