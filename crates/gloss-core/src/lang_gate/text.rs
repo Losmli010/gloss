@@ -76,6 +76,7 @@ impl ParseState {
             Event::End(tag_end) => match tag_end {
                 TagEnd::CodeBlock => self.in_code_block = false,
                 TagEnd::Link => self.in_autolink = false,
+                TagEnd::Paragraph => self.node += 1,
                 _ => {}
             },
             Event::Code(_)

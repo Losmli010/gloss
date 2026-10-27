@@ -622,6 +622,18 @@ mod tests {
             !has(&violations, LangCategory::PunctuationMismatch),
             "a formula wrapping a soft break still pairs: {violations:?}"
         );
+
+        let violations = categories(
+            TaskKind::General,
+            Lang::Zh,
+            "gloss",
+            "单价为 $x\n\n第二段 テスト$y$ 混排。",
+            plain(&[]),
+        );
+        assert!(
+            has(&violations, LangCategory::ForeignRun),
+            "a dollar in one paragraph never pairs across the blank line: {violations:?}"
+        );
     }
 
     #[test]
