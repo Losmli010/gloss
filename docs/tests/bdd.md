@@ -1058,7 +1058,7 @@
 | update_busy_phases_offer_no_action_and_show_the_target_version | 忙碌相位无动作、显示目标版本 | 给定 `Checking/ReadyToRestart`，当渲染，则无任何更新动作上交；`UpdateAvailable` 的行标签含目标版本号 | 2026-09-27 |
 | failed_install_shows_the_install_hint | 替换失败附安装指引 | 给定 `Failed(Install)`，当渲染，则指引行可见（`DMG` 装入、权限出口）且无副作用动作 | 2026-09-27 |
 
-### `crates/gloss-app/src/ui/style.rs`
+### `crates/gloss-app/src/ui/style/tokens.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |

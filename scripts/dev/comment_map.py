@@ -45,8 +45,7 @@ FAMILY_STEMS: dict[str, str] = {
     "src/main.rs": "main",
     "crates/gloss-eval/src/main.rs": "eval_main",
     "web/assets/main.js": "web_main",
-    # 应用样式与站点样式撞名；站点页面按家族前缀登记
-    "crates/gloss-app/src/ui/style.rs": "style",
+    # 站点样式与站点页面按家族前缀登记（应用样式目录化后无撞名）
     "web/assets/style.css": "web_style",
     "web/index.html": "web_index",
     # 性能脚本与评测指标模块撞名
