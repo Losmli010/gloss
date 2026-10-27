@@ -7,8 +7,9 @@
   mcp__github__submit_pending_pull_request_review 校验 tool_input.body；Bash 经
   shlex 分词后定位 `gh pr create|edit|review`，只在其后找标题与正文旗标
   （--title/-t、--body/-b，空间、等号、连写三形态等价）。
-- 取不到的情形：--fill/-f、--web/-w、--title-file/-T、--body-file/-F、无旗标、
-  分词失败；旗标值含美元符或反引号属运行时才可知，放行。
+- 取不到的情形：--fill/-f、--web/-w、--body-file/-F、无旗标、分词失败；旗标值含
+  美元符或反引号属运行时才可知，放行。标题无外部文件取值形态（gh 的 -T 是模板
+  文件旗标），标题照常受检。
 - 评审路由：`gh pr review` 与评审接口工具的正文走评审结果模板（骨架、声明核对、
   书写规则），建链改链的正文走正文模板（必需小节、书写规则）；普通评论
   （`gh pr comment`、`gh issue comment`、add_issue_comment）不是评审结果产物，

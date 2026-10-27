@@ -74,9 +74,8 @@ def fields_after_subcommand(rest: list[str], sub: str) -> tuple[str, str, str]:
             if marker in rest:
                 return "", "", ""
         return "", "", pull_flag(rest, "--body", "-b")
-    title = ""
-    if "--title-file" not in rest and "-T" not in rest:
-        title = pull_flag(rest, "--title", "-t")
+    # 标题不存在外部文件取值形态，直接取旗标；正文遇外部文件旗标即整体放行
+    title = pull_flag(rest, "--title", "-t")
     body = ""
     if "--body-file" not in rest and "-F" not in rest:
         body = pull_flag(rest, "--body", "-b")

@@ -131,18 +131,17 @@ def test_run_returns_rendered_strings(tmp_path: Path) -> None:
     assert "misses required section" in problems[0]
 
 
+# 命令行用例对照仓库根的真实正文模板判定（被测脚本的仓库根取自脚本位置），
+# 兼作夹具与真实模板的同源哨兵
 def test_cli_exit_codes(tmp_path: Path) -> None:
-    root = make_root(tmp_path)
     good = tmp_path / "good.md"
     good.write_text(CONFORMING, encoding="utf-8")
-    passed = subprocess.run([sys.executable, str(SCRIPT), str(good)], capture_output=True, cwd=root)
+    passed = subprocess.run([sys.executable, str(SCRIPT), str(good)], capture_output=True)
     assert passed.returncode == 0
 
     bad = tmp_path / "bad.md"
     bad.write_text("## 摘要\n\n缺少骨架的正文\n", encoding="utf-8")
-    violated = subprocess.run(
-        [sys.executable, str(SCRIPT), str(bad)], capture_output=True, cwd=root
-    )
+    violated = subprocess.run([sys.executable, str(SCRIPT), str(bad)], capture_output=True)
     assert violated.returncode == 1
     assert b"REVIEW-SECTION" in violated.stderr
 

@@ -2,8 +2,8 @@
 
 被测入口是抽取函数与主入口：接口工具直接取入参字段，命令行按外壳词法分词
 后定位子命令与旗标；主入口从标准输入读钩子载荷，校验失败退出码二阻断，取
-不到字段或载荷不相关放行。模板判定读仓库根的两份真实模板，工程目录环境变
-量在导入前钉到仓库根。
+不到字段或载荷不相关放行。模板判定读仓库根的真实正文模板，评审骨架随门禁
+常量；工程目录环境变量在导入前钉到仓库根。
 """
 
 from __future__ import annotations
@@ -90,8 +90,25 @@ def test_review_tool_yields_review_body() -> None:
     assert check_pr_title.extract(data) == ("", "", "评审")
 
 
+def test_review_tool_pending_submit_yields_review_body() -> None:
+    data = json.loads(
+        mcp_payload("mcp__github__submit_pending_pull_request_review", {"body": "评审"})
+    )
+    assert check_pr_title.extract(data) == ("", "", "评审")
+
+
 def test_bash_create_yields_title_and_body() -> None:
     data = json.loads(bash_payload('gh pr create --title "fix: 修好" --body "正文"'))
+    assert check_pr_title.extract(data) == ("fix: 修好", "正文", "")
+
+
+def test_bash_edit_yields_title_and_body() -> None:
+    data = json.loads(bash_payload('gh pr edit 257 --title "fix: 修好" --body "正文"'))
+    assert check_pr_title.extract(data) == ("fix: 修好", "正文", "")
+
+
+def test_bash_template_flag_keeps_title_checked() -> None:
+    data = json.loads(bash_payload('gh pr create -T my-template.md -t "fix: 修好" -b "正文"'))
     assert check_pr_title.extract(data) == ("fix: 修好", "正文", "")
 
 
