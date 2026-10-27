@@ -63,7 +63,7 @@ fn footer_confirm(
     let mut action = None;
     let mut left = ui.new_child(
         egui::UiBuilder::new()
-            .max_rect(rect.translate(vec2(0.0, space::ITEM)))
+            .max_rect(rect.translate(vec2(0.0, space::TIGHT)))
             .id_salt("footer_confirm"),
     );
     left.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -74,7 +74,6 @@ fn footer_confirm(
         )
         .fill(colors.seal)
         .corner_radius(radius::SEAL)
-        .small()
         .min_size(vec2(0.0, button_height));
         if ui.add(send).clicked() {
             action = Some(OverlayAction::Confirm);
@@ -86,7 +85,6 @@ fn footer_confirm(
                 .color(ui.visuals().strong_text_color()),
         )
         .corner_radius(radius::SEAL)
-        .small()
         .min_size(vec2(0.0, button_height));
         if ui.add(cancel).clicked() {
             action = Some(OverlayAction::Dismiss);
@@ -109,7 +107,7 @@ fn footer_copy(
     let mut action = None;
     let mut left = ui.new_child(
         egui::UiBuilder::new()
-            .max_rect(rect.translate(vec2(0.0, space::ITEM)))
+            .max_rect(rect.translate(vec2(0.0, space::TIGHT)))
             .id_salt("footer_copy"),
     );
     left.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
