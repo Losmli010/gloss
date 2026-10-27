@@ -20,7 +20,7 @@ use super::{RenderCtx, RenderState};
 use crate::ui::code_hl;
 use crate::ui::fonts;
 use crate::ui::i18n::Text;
-use crate::ui::style::{color, font, space};
+use crate::ui::style::{font, palette, space};
 
 const SEAL_GAP: f32 = 10.0;
 const ZHU_LINE_WIDTH: f32 = 2.0;
@@ -132,9 +132,10 @@ fn image_unavailable(ui: &mut egui::Ui, text: &'static Text) {
 pub(super) fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&str>) {
     let strong = ui.visuals().strong_text_color();
     if code {
+        let colors = palette(ui);
         Frame::new()
-            .fill(code_bg(ui))
-            .stroke(Stroke::new(CODE_PANEL_STROKE, code_border(ui)))
+            .fill(colors.code_bg)
+            .stroke(Stroke::new(CODE_PANEL_STROKE, colors.code_border))
             .corner_radius(CornerRadius::same(CODE_PANEL_RADIUS))
             .inner_margin(Margin::symmetric(
                 CODE_PANEL_PADDING_H,
@@ -166,12 +167,15 @@ fn code_job(
     code_lang: Option<&str>,
     wrap_width: f32,
 ) -> egui::text::LayoutJob {
-    let dark = ui.visuals().dark_mode;
     let font_id = FontId::new(CODE_FONT, fonts::mono_family());
-    let Some(mut job) =
-        code_hl::highlight(ui.ctx(), ui.style(), font_id.clone(), source, code_lang)
-    else {
-        return code_hl::fallback_job(source, &font_id, dark, wrap_width, CODE_LINE_HEIGHT);
+    let Some(mut job) = code_hl::highlight(ui, font_id.clone(), source, code_lang) else {
+        return code_hl::fallback_job(
+            source,
+            &font_id,
+            &palette(ui).syntax,
+            wrap_width,
+            CODE_LINE_HEIGHT,
+        );
     };
     job.wrap = egui::text::TextWrapping {
         max_width: wrap_width,
@@ -184,22 +188,6 @@ fn code_job(
         section.format.line_height = Some(CODE_LINE_HEIGHT);
     }
     job
-}
-
-fn code_bg(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        color::CODE_BG_DARK
-    } else {
-        color::CODE_BG_LIGHT
-    }
-}
-
-fn code_border(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        color::CODE_BORDER_DARK
-    } else {
-        color::CODE_BORDER_LIGHT
-    }
 }
 
 fn code_badge(ui: &mut egui::Ui, lang: Option<&str>) {

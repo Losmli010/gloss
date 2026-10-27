@@ -1,28 +1,19 @@
-//! 样式统一出口：浮层与设置窗共用的设计档位——颜色语义在此定稿，
-//! 字号、间距、圆角与线宽阶梯在档位模块汇出。
+//! 样式统一出口与解析点：浮层与设置窗共用的设计档位——颜色在此按明暗
+//! 解析成两份数据（全仓唯一读取明暗态的地方），字号、间距、圆角与线宽
+//! 阶梯在档位模块汇出。
 
+mod palette;
 mod tokens;
 
+pub(crate) use palette::{
+    DARK, LIGHT, Palette, SYNTAX_THEME_DARK, SYNTAX_THEME_LIGHT, SyntaxPalette, alpha, with_alpha,
+};
 pub(crate) use tokens::{font, radius, space, stroke};
 
-pub mod color {
-    use egui::Color32;
-
-    pub const ACCENT_LIGHT: Color32 = SEAL_ZHU_LIGHT;
-
-    pub const ACCENT_DARK: Color32 = SEAL_ZHU_DARK;
-
-    pub const DANGER: Color32 = Color32::from_rgb(0xC6, 0x28, 0x28);
-
-    pub const SEAL_ZHU_LIGHT: Color32 = Color32::from_rgb(0xB8, 0x43, 0x2F);
-
-    pub const SEAL_ZHU_DARK: Color32 = Color32::from_rgb(0xE0, 0x6A, 0x52);
-
-    pub const CODE_BG_LIGHT: Color32 = Color32::from_rgb(0xF5, 0xF7, 0xF9);
-
-    pub const CODE_BG_DARK: Color32 = Color32::from_rgb(0x16, 0x18, 0x1E);
-
-    pub const CODE_BORDER_LIGHT: Color32 = Color32::from_rgba_premultiplied(2, 2, 3, 26);
-
-    pub const CODE_BORDER_DARK: Color32 = Color32::from_rgba_premultiplied(23, 23, 23, 23);
+pub(crate) fn palette(ui: &egui::Ui) -> &'static Palette {
+    if ui.visuals().dark_mode {
+        &palette::DARK
+    } else {
+        &palette::LIGHT
+    }
 }

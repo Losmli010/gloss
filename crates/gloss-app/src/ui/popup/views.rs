@@ -20,15 +20,13 @@ use super::outcome::{
 use super::{OverlayAction, PULSE_PERIOD_SECS, RenderCtx};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
 use crate::ui::i18n::Text;
-use crate::ui::style::{font, space};
+use crate::ui::style::{alpha, font, space, with_alpha};
 
 const MIN_BODY_VIEWPORT: f32 = 48.0;
 const FOOTER_RESERVE: f32 = super::FOOTER_HEIGHT + space::PARAGRAPH;
 const ARROW_SCROLL_STEP: f32 = 48.0;
 const SHIMMER_BAR_HEIGHT: f32 = 12.0;
 const SHIMMER_BAR_RADIUS: u8 = 4;
-const SHIMMER_ALPHA_MIN: u8 = 38;
-const SHIMMER_ALPHA_MAX: u8 = 96;
 
 fn record_scrolled_height(
     ui: &egui::Ui,
@@ -71,9 +69,7 @@ fn shimmer_bars(ui: &mut egui::Ui) {
     for (index, ratio) in ratios.iter().enumerate() {
         let phase = (index as f64) * 0.9;
         let wave = ((now / PULSE_PERIOD_SECS + phase).sin() + 1.0) / 2.0;
-        let alpha =
-            SHIMMER_ALPHA_MIN as f64 + wave * f64::from(SHIMMER_ALPHA_MAX - SHIMMER_ALPHA_MIN);
-        let alpha = (alpha as f32).round().clamp(0.0, 255.0) as u8;
+        let alpha01 = alpha::SHIMMER_MIN + wave as f32 * (alpha::SHIMMER_MAX - alpha::SHIMMER_MIN);
         let bar = egui::Rect::from_min_size(
             egui::pos2(
                 rect.min.x,
@@ -81,11 +77,8 @@ fn shimmer_bars(ui: &mut egui::Ui) {
             ),
             vec2(full * ratio, SHIMMER_BAR_HEIGHT),
         );
-        ui.painter().rect_filled(
-            bar,
-            SHIMMER_BAR_RADIUS,
-            egui::Color32::from_rgba_unmultiplied(weak.r(), weak.g(), weak.b(), alpha),
-        );
+        ui.painter()
+            .rect_filled(bar, SHIMMER_BAR_RADIUS, with_alpha(weak, alpha01));
     }
     ui.ctx()
         .request_repaint_after(Duration::from_secs_f32(0.016));

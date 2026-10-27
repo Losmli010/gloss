@@ -8,14 +8,10 @@ use egui::{RichText, Stroke};
 
 use super::{FieldError, FieldKey, SettingsAction, SettingsState, build_save};
 use crate::ui::i18n::{Text, fill};
-use crate::ui::style::{color, font, radius, space};
+use crate::ui::style::{font, palette, radius, space};
 
 fn accent(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        color::ACCENT_DARK
-    } else {
-        color::ACCENT_LIGHT
-    }
+    palette(ui).accent
 }
 
 pub(super) fn action_row(
@@ -62,7 +58,7 @@ pub(super) fn notices(
                 &[("count", &count)],
             ))
             .size(font::CAPTION)
-            .color(color::DANGER),
+            .color(palette(ui).danger),
         );
     }
     if let Some(notice) = &state.notice {
@@ -70,7 +66,7 @@ pub(super) fn notices(
         ui.label(
             RichText::new(notice.message(text))
                 .size(font::CAPTION)
-                .color(color::DANGER),
+                .color(palette(ui).danger),
         );
     }
 }
@@ -124,7 +120,7 @@ pub(super) fn underline_if_error(
                 egui::pos2(rect.left(), rect.bottom()),
                 egui::pos2(rect.right(), rect.bottom()),
             ],
-            Stroke::new(1.5, color::DANGER),
+            Stroke::new(1.5, palette(ui).danger),
         );
     }
 }
@@ -139,7 +135,7 @@ pub(super) fn error_text(
         ui.label(
             RichText::new(error.message(text))
                 .size(font::CAPTION)
-                .color(color::DANGER),
+                .color(palette(ui).danger),
         );
     }
 }

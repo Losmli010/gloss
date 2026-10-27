@@ -22,6 +22,8 @@ use syntect::highlighting::{
     Color, FontStyle, ScopeSelectors, StyleModifier, Theme, ThemeItem, ThemeSet, ThemeSettings,
 };
 
+use crate::ui::style::{DARK, LIGHT, SYNTAX_THEME_DARK, SYNTAX_THEME_LIGHT, SyntaxPalette};
+
 pub(crate) use fallback::fallback_job;
 
 const LANGUAGE_ALIASES: &[(&str, &str)] = &[
@@ -133,29 +135,25 @@ pub(crate) fn syntect_token(lang: Option<&str>) -> Option<&'static str> {
 }
 
 pub(crate) fn highlight(
-    ctx: &egui::Context,
-    style: &egui::Style,
+    ui: &egui::Ui,
     font_id: FontId,
     source: &str,
     lang: Option<&str>,
 ) -> Option<LayoutJob> {
-    let dark = style.visuals.dark_mode;
+    let colors = crate::ui::style::palette(ui);
     let token = syntect_token(lang)?;
-    let theme = if dark {
+    let theme = if colors.is_dark {
         CodeTheme::dark(font_id.size)
     } else {
         CodeTheme::light(font_id.size)
     }
     .with_font_id(font_id);
-    let mut job = highlight_with(ctx, style, &theme, source, token, settings());
+    let mut job = highlight_with(ui.ctx(), ui.style(), &theme, source, token, settings());
     for section in &mut job.sections {
         section.format.underline = egui::Stroke::NONE;
     }
     Some(job)
 }
-
-const DARK_THEME_KEY: &str = "base16-mocha.dark";
-const LIGHT_THEME_KEY: &str = "Solarized (light)";
 
 fn settings() -> &'static SyntectSettings {
     static SETTINGS: OnceLock<SyntectSettings> = OnceLock::new();
@@ -184,10 +182,10 @@ fn theme_set() -> ThemeSet {
     let mut themes = ThemeSet::new();
     themes
         .themes
-        .insert(DARK_THEME_KEY.to_owned(), gloss_theme(true));
+        .insert(SYNTAX_THEME_DARK.to_owned(), gloss_theme(&DARK.syntax));
     themes
         .themes
-        .insert(LIGHT_THEME_KEY.to_owned(), gloss_theme(false));
+        .insert(SYNTAX_THEME_LIGHT.to_owned(), gloss_theme(&LIGHT.syntax));
     themes
 }
 
@@ -230,22 +228,22 @@ const SCOPE_CLASSES: &[(&str, palette::Class)] = &[
     ("entity.name.table.toml", palette::Class::Function),
 ];
 
-fn gloss_theme(dark: bool) -> Theme {
+fn gloss_theme(syntax: &SyntaxPalette) -> Theme {
     Theme {
         name: Some("gloss".to_owned()),
         author: None,
         settings: ThemeSettings {
-            foreground: Some(syntect_color(palette::plain_color(dark))),
+            foreground: Some(syntect_color(syntax.plain)),
             ..ThemeSettings::default()
         },
         scopes: SCOPE_CLASSES
             .iter()
-            .map(|&(scope, class)| theme_item(scope, class, dark))
+            .map(|&(scope, class)| theme_item(scope, class, syntax))
             .collect(),
     }
 }
 
-fn theme_item(scope: &str, class: palette::Class, dark: bool) -> ThemeItem {
+fn theme_item(scope: &str, class: palette::Class, syntax: &SyntaxPalette) -> ThemeItem {
     let scope = ScopeSelectors::from_str(scope).unwrap_or_else(|error| {
         debug_assert!(false, "static theme scope failed: {error:?}");
         ScopeSelectors::default()
@@ -253,7 +251,7 @@ fn theme_item(scope: &str, class: palette::Class, dark: bool) -> ThemeItem {
     ThemeItem {
         scope,
         style: StyleModifier {
-            foreground: Some(syntect_color(class.color(dark))),
+            foreground: Some(syntect_color(class.pick(syntax))),
             font_style: class.italic().then_some(FontStyle::ITALIC),
             ..StyleModifier::default()
         },
@@ -412,26 +410,37 @@ mod tests {
         );
     }
 
+    fn syntax_of(dark: bool) -> &'static SyntaxPalette {
+        if dark { &DARK.syntax } else { &LIGHT.syntax }
+    }
+
+    fn highlight_in_theme(dark: bool, source: &str, lang: Option<&str>) -> Option<LayoutJob> {
+        let theme = if dark {
+            gloss_core::config::Theme::Dark
+        } else {
+            gloss_core::config::Theme::Light
+        };
+        let ctx = crate::ui::context::new_context(theme);
+        let mut job = None;
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            job = highlight(ui, egui::FontId::monospace(12.0), source, lang);
+        });
+        output.drop_without_applying_deltas();
+        job
+    }
+
     #[test]
     fn scope_mapping_keeps_keyword_string_comment_number() {
-        let ctx = crate::ui::context::new_context(gloss_core::config::Theme::Light);
         let source = "fn main() {\n    // note\n    let s = \"hi\";\n    let n = 42;\n}";
         for dark in [false, true] {
-            let style = styled(dark);
-            let job = highlight(
-                &ctx,
-                &style,
-                egui::FontId::monospace(12.0),
-                source,
-                Some("rust"),
-            )
-            .expect("rust is mapped");
+            let syntax = syntax_of(dark);
+            let job = highlight_in_theme(dark, source, Some("rust")).expect("rust is mapped");
             for (token, class) in [
                 ("fn", palette::Class::Keyword),
                 ("\"hi\"", palette::Class::String),
                 ("42", palette::Class::Number),
             ] {
-                assert_token_color(&job, source, token, class.color(dark));
+                assert_token_color(&job, source, token, class.pick(syntax));
             }
             let comment_start = source.find("// note").expect("the fixture has a comment");
             let comment = sections(&job, source)
@@ -441,7 +450,7 @@ mod tests {
                 .expect("the comment has a section");
             assert_eq!(
                 comment.color,
-                palette::Class::Comment.color(dark),
+                palette::Class::Comment.pick(syntax),
                 "the comment keeps its palette color"
             );
             assert!(comment.italics, "comments stay italic");
@@ -515,68 +524,33 @@ mod tests {
         ("fn f(&self) {}\n", "rust", "self"),
     ];
 
-    fn styled(dark: bool) -> egui::Style {
-        egui::Style {
-            visuals: if dark {
-                egui::Visuals::dark()
-            } else {
-                egui::Visuals::light()
-            },
-            ..egui::Style::default()
-        }
-    }
-
-    fn highlight_fixture(
-        ctx: &egui::Context,
-        style: &egui::Style,
-        source: &str,
-        lang: &str,
-    ) -> LayoutJob {
-        highlight(
-            ctx,
-            style,
-            egui::FontId::monospace(12.0),
-            source,
-            Some(lang),
-        )
-        .unwrap_or_else(|| panic!("{lang} is mapped"))
-    }
-
     #[test]
     fn data_format_and_keyword_scopes_keep_their_classes() {
-        let ctx = crate::ui::context::new_context(gloss_core::config::Theme::Light);
         for dark in [false, true] {
-            let style = styled(dark);
+            let syntax = syntax_of(dark);
             for &(source, lang, token, class) in SCOPED_FIXTURES {
-                let job = highlight_fixture(&ctx, &style, source, lang);
-                assert_token_color(&job, source, token, class.color(dark));
+                let job = highlight_in_theme(dark, source, Some(lang))
+                    .unwrap_or_else(|| panic!("{lang} is mapped"));
+                assert_token_color(&job, source, token, class.pick(syntax));
             }
             for &(source, lang, token) in UNSCOPED_FIXTURES {
-                let job = highlight_fixture(&ctx, &style, source, lang);
-                assert_token_color(&job, source, token, palette::plain_color(dark));
+                let job = highlight_in_theme(dark, source, Some(lang))
+                    .unwrap_or_else(|| panic!("{lang} is mapped"));
+                assert_token_color(&job, source, token, syntax.plain);
             }
         }
     }
-
     #[test]
     fn custom_themes_sit_under_the_keys_egui_extras_indexes() {
         let settings = settings();
-        assert!(settings.ts.themes.contains_key(DARK_THEME_KEY));
-        assert!(settings.ts.themes.contains_key(LIGHT_THEME_KEY));
+        assert!(settings.ts.themes.contains_key(SYNTAX_THEME_DARK));
+        assert!(settings.ts.themes.contains_key(SYNTAX_THEME_LIGHT));
     }
 
     #[test]
     fn highlight_keeps_the_source_and_emits_sections() {
-        let ctx = crate::ui::context::new_context(gloss_core::config::Theme::Light);
-        let style = egui::Style::default();
-        let job = highlight(
-            &ctx,
-            &style,
-            egui::FontId::monospace(12.0),
-            "fn main() { let value = 1; }",
-            Some("rs"),
-        )
-        .expect("rust is mapped");
+        let job = highlight_in_theme(false, "fn main() { let value = 1; }", Some("rs"))
+            .expect("rust is mapped");
         assert_eq!(job.text, "fn main() { let value = 1; }");
         assert!(!job.sections.is_empty());
         assert!(

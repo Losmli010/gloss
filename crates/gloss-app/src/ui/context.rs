@@ -72,10 +72,10 @@ fn install(ctx: &Context, theme: Theme) {
 
 pub(crate) fn apply_selection_colors(ctx: &Context) {
     ctx.style_mut_of(egui::Theme::Light, |style| {
-        style.visuals.selection.bg_fill = super::style::color::ACCENT_LIGHT;
+        style.visuals.selection.bg_fill = super::style::LIGHT.accent;
     });
     ctx.style_mut_of(egui::Theme::Dark, |style| {
-        style.visuals.selection.bg_fill = super::style::color::ACCENT_DARK;
+        style.visuals.selection.bg_fill = super::style::DARK.accent;
     });
 }
 

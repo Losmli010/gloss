@@ -1,5 +1,12 @@
 # ui/style/mod.rs 设计取舍
 
+## 为什么取档是「解析点」而不是各处判断
+
+深浅色与字体排印是装配时解析一次的事，不是组件渲染时反复判断的事。
+`palette(ui)` 是全仓唯一读取界面库明暗态的地方：解析成 `LIGHT`/`DARK`
+两份数据（数据定稿在 `style/palette.rs`），视图层只认数据不认明暗。
+排版产物缓存需要判别本身时读 `Palette.is_dark`，不再触碰界面库。
+
 ## 为什么设置提示文案与浮层圆点共用 ACCENT
 
 settings.rs 的 notice 颜色与 popup.rs 的 BRAND_DOT 是同一个值 `#D85A30`（品牌珊瑚橙的两次独立硬编码）。集中化把它们合成一个语义 token。若将来提示文案想换更刺眼的警示色，应新开 token（如 WARN）而不是直接改 ACCENT。
@@ -33,9 +40,11 @@ owner 拍板错误色与品牌色分离：新增 `color::DANGER`（#C62828，与
   10% 墨色（预乘 rgb(2,2,3)），近隐形的定界，不与卡片框线争抢；
   `CODE_BORDER_DARK`（深色）——demo card-border 的 9% 白（预乘）。
 
-## 拆分沿革（2026-10-27 样式统一阶段 1）
+## 拆分沿革（2026-10-27 样式统一阶段 1–2）
 
-原 `ui/style.rs` 拆为 `ui/style/{mod, tokens}.rs`：本文件承接颜色语义决策
-（color 模块），字号、间距、圆角与线宽阶梯的决策迁往 tokens 记录；样式
-统一后续阶段将把成对常量改为明暗两份解析完毕的调色板数据（Palette），
-届时本文件随之更新。
+原 `ui/style.rs` 拆为 `ui/style/{mod, tokens, palette}.rs`：阶梯（font/space/radius/stroke）
+住 tokens 记录（tokens_comment.md），颜色语义连明暗取档住本文件与
+`style_palette_comment.md`——成对常量已改为明暗两份解析完毕的调色板
+数据，本文件的用途注记节描述的语义 token 均以 `Palette` 字段形态落地
+（`ACCENT_*`→`accent`、`SEAL_ZHU_*`→`seal`、`CODE_BG_*`→`code_bg`、
+`CODE_BORDER_*`→`code_border`、`DANGER`→`danger`）。

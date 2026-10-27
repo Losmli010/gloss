@@ -14,7 +14,7 @@ use egui::{Align, RichText, Stroke, vec2};
 use super::content::{SEAL_FONT, serif_font, watermark};
 use super::{FOOTER_HEIGHT, HEADER_ICON, OverlayAction, PULSE_PERIOD_SECS, RenderState};
 use crate::ui::i18n::Text;
-use crate::ui::style::{color, font, space, stroke};
+use crate::ui::style::{alpha, font, palette, space, stroke, with_alpha};
 
 const ACTION_ICON_SIZE: f32 = 16.0;
 const ACTION_BUTTON: f32 = 20.0;
@@ -24,11 +24,8 @@ const DRAG_STRIP_INSET: f32 = 6.0;
 const SEAL_SIZE: f32 = 21.0;
 const SEAL_RADIUS: u8 = 5;
 const SEAL_TEXT_PADDING: f32 = 5.0;
-const ZHU_LINE_ALPHA: u8 = 140;
 const FOOTER_DOT_RADIUS: f32 = 2.0;
 const FOOTER_DOT_COUNT: usize = 3;
-const FOOTER_DOT_ALPHA_MIN: u8 = 90;
-const FOOTER_DOT_ALPHA_MAX: u8 = 180;
 const WATERMARK_PADDING: f32 = 6.0;
 
 fn hairline(ui: &egui::Ui) -> Stroke {
@@ -172,13 +169,10 @@ pub(super) enum SealTint {
 }
 
 pub(super) fn seal(ui: &mut egui::Ui, label: &'static str, tint: SealTint) {
+    let colors = palette(ui);
     let (fg, fill, line) = match tint {
-        SealTint::Ink => (
-            paper_color(ui),
-            ui.visuals().strong_text_color(),
-            Stroke::NONE,
-        ),
-        SealTint::Zhu => (paper_color(ui), zhu_color(ui), Stroke::NONE),
+        SealTint::Ink => (colors.paper, ui.visuals().strong_text_color(), Stroke::NONE),
+        SealTint::Zhu => (colors.paper, colors.seal, Stroke::NONE),
         SealTint::Wei => {
             let dim = ui.visuals().weak_text_color();
             (dim, egui::Color32::TRANSPARENT, Stroke::new(1.0, dim))
@@ -189,7 +183,7 @@ pub(super) fn seal(ui: &mut egui::Ui, label: &'static str, tint: SealTint) {
         CachedGalley::Seal(
             label,
             tint,
-            ui.visuals().dark_mode,
+            colors.is_dark,
             ui.ctx().pixels_per_point().to_bits(),
         ),
         || {
@@ -205,22 +199,6 @@ pub(super) fn seal(ui: &mut egui::Ui, label: &'static str, tint: SealTint) {
         .rect(rect, SEAL_RADIUS, fill, line, egui::StrokeKind::Inside);
     ui.painter()
         .galley(rect.center() - galley.size() / 2.0, galley, fg);
-}
-
-fn paper_color(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        egui::Color32::from_rgb(0xF2, 0xE9, 0xE4)
-    } else {
-        egui::Color32::from_rgb(0xFF, 0xF6, 0xF2)
-    }
-}
-
-fn zhu_color(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        color::SEAL_ZHU_DARK
-    } else {
-        color::SEAL_ZHU_LIGHT
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -266,8 +244,7 @@ fn cached_galley(
 }
 
 pub(super) fn zhu_line_color(ui: &egui::Ui) -> egui::Color32 {
-    let zhu = zhu_color(ui);
-    egui::Color32::from_rgba_unmultiplied(zhu.r(), zhu.g(), zhu.b(), ZHU_LINE_ALPHA)
+    with_alpha(palette(ui).seal, alpha::SEAL_LINE)
 }
 
 pub(super) fn footer(ui: &mut egui::Ui, streaming: bool, repairing: bool, text: &'static Text) {
@@ -309,7 +286,7 @@ fn footer_status(
         ui,
         CachedGalley::FooterLabel(
             label.as_str(),
-            ui.visuals().dark_mode,
+            palette(ui).is_dark,
             ui.ctx().pixels_per_point().to_bits(),
         ),
         || {
@@ -335,22 +312,16 @@ fn footer_status(
 
 fn footer_dots(ui: &egui::Ui, rect: &egui::Rect, label_width: f32) {
     let now = ui.input(|i| i.time);
-    let zhu = zhu_color(ui);
+    let zhu = palette(ui).seal;
     let mut dot_center = egui::pos2(
         rect.min.x + label_width + space::TIGHT + FOOTER_DOT_RADIUS,
         rect.center().y + stroke::CARD,
     );
     for index in 0..FOOTER_DOT_COUNT {
         let wave = ((now / PULSE_PERIOD_SECS + index as f64 * 0.9).sin() + 1.0) / 2.0;
-        let alpha = (FOOTER_DOT_ALPHA_MIN as f64
-            + wave * f64::from(FOOTER_DOT_ALPHA_MAX - FOOTER_DOT_ALPHA_MIN))
-            as f32;
-        let alpha = alpha.round().clamp(0.0, 255.0) as u8;
-        ui.painter().circle_filled(
-            dot_center,
-            FOOTER_DOT_RADIUS,
-            egui::Color32::from_rgba_unmultiplied(zhu.r(), zhu.g(), zhu.b(), alpha),
-        );
+        let alpha01 = alpha::DOT_MIN + wave as f32 * (alpha::DOT_MAX - alpha::DOT_MIN);
+        ui.painter()
+            .circle_filled(dot_center, FOOTER_DOT_RADIUS, with_alpha(zhu, alpha01));
         dot_center.x += FOOTER_DOT_RADIUS * 3.0;
     }
     ui.ctx()
@@ -361,10 +332,7 @@ fn footer_watermark(ui: &mut egui::Ui, rect: &egui::Rect) {
     let dim = ui.visuals().weak_text_color();
     let galley = cached_galley(
         ui,
-        CachedGalley::Watermark(
-            ui.visuals().dark_mode,
-            ui.ctx().pixels_per_point().to_bits(),
-        ),
+        CachedGalley::Watermark(palette(ui).is_dark, ui.ctx().pixels_per_point().to_bits()),
         || {
             egui::WidgetText::from(RichText::new(watermark()).size(font::TAG).color(dim))
                 .into_galley(
