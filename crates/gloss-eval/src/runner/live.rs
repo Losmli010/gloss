@@ -12,7 +12,7 @@ use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::{RunOutput, TaskStage, run_task_rounds};
 use gloss_core::model::{GlossError, Locale};
 use gloss_core::ports::{AiEngine, ConfigStore, EngineRequest};
-use gloss_core::prompt::PromptRegistry;
+use gloss_core::prompt::{ChatMessage, PromptRegistry};
 use gloss_core::task::{Task, TaskInput, TaskOptions};
 
 use crate::EvalReport;
@@ -279,6 +279,49 @@ async fn live_task_dataset(
     metrics
 }
 
+async fn drive_task_rounds(
+    engine: &dyn AiEngine,
+    task: Task,
+    base: Vec<ChatMessage>,
+    model: &str,
+    rounds: Arc<Mutex<Vec<String>>>,
+) -> Result<RunOutput, GlossError> {
+    let chunks = Arc::clone(&rounds);
+    let boundary = Arc::clone(&rounds);
+    let stage = TaskStage {
+        engine,
+        prompts: &PromptRegistry::new(),
+        kind: task.kind(),
+        base,
+        model,
+        locale: Locale::Zh,
+        input: task.input(),
+        target: task
+            .options()
+            .target_lang
+            .clone()
+            .unwrap_or(gloss_core::model::Lang::Zh),
+    };
+    run_task_rounds(
+        stage,
+        move |delta| {
+            let mut rounds = chunks
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(round) = rounds.last_mut() {
+                round.push_str(&delta);
+            }
+        },
+        move || {
+            boundary
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(String::new());
+        },
+    )
+    .await
+}
+
 pub(super) async fn run_task_case(
     engine: &dyn AiEngine,
     config: &ConfigHandle,
@@ -298,33 +341,7 @@ pub(super) async fn run_task_case(
     )?;
     let base = PromptRegistry::new().render(&task)?;
     let rounds = Arc::new(Mutex::new(vec![String::new()]));
-    let chunks = Arc::clone(&rounds);
-    let boundary = Arc::clone(&rounds);
-    let output = run_task_rounds(
-        TaskStage {
-            engine,
-            prompts: &PromptRegistry::new(),
-            kind: case.kind,
-            base,
-            model,
-            locale: Locale::Zh,
-        },
-        move |delta| {
-            let mut rounds = chunks
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(round) = rounds.last_mut() {
-                round.push_str(&delta);
-            }
-        },
-        move || {
-            boundary
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push(String::new());
-        },
-    )
-    .await?;
+    let output = drive_task_rounds(engine, task, base, model, Arc::clone(&rounds)).await?;
     let rounds = {
         let mut held = rounds
             .lock()

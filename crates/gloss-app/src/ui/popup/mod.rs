@@ -402,10 +402,25 @@ mod kittest_tests {
             source: "fn main() {}".into(),
             outcome: TaskOutcome {
                 kind: TaskKind::ExplainCode,
-                note: "untrustworthy raw reply".into(),
+                note: String::new(),
                 structured: OutcomeStructured::Code {
                     examples: Vec::new(),
                     code_language: None,
+                },
+                degraded: true,
+            },
+        }
+    }
+
+    fn lang_degraded_outcome_view_en() -> OverlayView {
+        OverlayView::Outcome {
+            source: "fn main() {}".into(),
+            outcome: TaskOutcome {
+                kind: TaskKind::ExplainCode,
+                note: "The code prints a greeting to standard output.".into(),
+                structured: OutcomeStructured::Code {
+                    examples: Vec::new(),
+                    code_language: Some("rust".into()),
                 },
                 degraded: true,
             },
@@ -1015,6 +1030,20 @@ mod kittest_tests {
     }
 
     #[test]
+    fn lang_degraded_outcome_card_keeps_content_with_the_generalized_notice() {
+        let (mut harness, _clicked) =
+            harness_for_locale(lang_degraded_outcome_view_en(), Locale::En);
+        harness.run();
+        harness.get_by_label_contains("Result not fully verified");
+        harness.get_by_label_contains("prints a greeting");
+        harness.get_by_label("Copy annotation");
+        assert!(
+            harness.query_all_by_label("Retry").next().is_none(),
+            "the badge card is an outcome card: the footer carries copy, not retry"
+        );
+    }
+
+    #[test]
     fn general_outcome_card_renders_the_plain_layout() {
         let (mut harness, _clicked) = harness_for_locale(general_outcome_view_en(), Locale::En);
         harness.run();
@@ -1468,9 +1497,20 @@ mod kittest_tests {
                 Locale::En,
                 Run::Settle,
             ),
+        ]
+    }
+
+    fn outcome_cards() -> Vec<SnapshotCase> {
+        vec![
             case(
                 "popup_degraded_outcome",
                 Some(degraded_outcome_view_en()),
+                Locale::En,
+                Run::Settle,
+            ),
+            case(
+                "popup_unverified_outcome",
+                Some(lang_degraded_outcome_view_en()),
                 Locale::En,
                 Run::Settle,
             ),
@@ -1534,6 +1574,7 @@ mod kittest_tests {
     #[test]
     fn snapshots_match_baseline() {
         let mut cases = core_cases();
+        cases.extend(outcome_cards());
         cases.extend(image_and_pending_cases());
         for c in &mut cases {
             if [

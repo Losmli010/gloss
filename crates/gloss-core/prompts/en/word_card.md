@@ -23,22 +23,19 @@ Follow the traditional Chinese "commentary—subcommentary" (zhu—shu) format:
 1. `note`
 
 - Type: string.
+- Gloss in {{target}}; a foreign headword appears only inside the parentheses that follow its translated name, as in: glossed term（original word）; double quotes are reserved for subcommentary citations and never appear in this field.
 - Do not use numbering, line breaks, or Markdown syntax.
 
 2. `phonetic`
 
 - Type: string | null.
-- Annotated according to the language of the entry itself.
-- Use null if it cannot be determined.
+- Annotate according to the language of the entry itself: for a Western entry use the International Phonetic Alphabet inside half-width slashes, as in /ɡlɒs/; for a Chinese entry use pinyin with tone marks.
+- Use only Latin letters, IPA symbols, and diacritics; no other scripts may appear; use null if it cannot be determined.
 
 3. `examples`
 
 - Type: string[].
-- Each subcommentary entry is organized as "source original text (translation) note", with the parts joined by suitable punctuation into a fluent statement; the translation is optional.
+- Each subcommentary entry consists of four parts in order: the source, the original text wrapped in double quotes, the translation wrapped in parentheses (optional), and the remark; separate the parts with spaces and join them into one fluent sentence. The source and the remark use {{target}}; the original keeps its form (including its punctuation); the translation uses {{target}}.
 - Cite only verifiable sources and do not fabricate; use [] when there are no reliable examples.
 - Generally 1–3 entries, at most 5.
 - Do not use numbering, line breaks, or Markdown syntax.
-
-### Target Language
-
-`note` and `examples` must be written entirely in {{target}}. Do not mix the source language and the target language, except for quoted originals.

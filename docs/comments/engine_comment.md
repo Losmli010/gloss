@@ -158,3 +158,12 @@ core 保持无日志面，避免同一事实在两层各记一条。
 - 内容审查：服务端拦了内容，重发无益——不重试直接失败卡。
 - 预算耗尽：违约原文原样上交，完成态解析落降级产物。
 - 修复轮照常流式，开始前发事件重置 UI（清流式正文、切「重新注解」）。
+
+### 语言体例门阶段（2026-10-28，输出语言体例门禁设计 §6）
+
+- 挂点在 `run_task_rounds` 的契约收敛臂：格式契约通过后进 `run_lang_rounds`（`LangStage` 静态输入 + 两个泵回调，与 `TaskStage` 同形），任务段修复轮计数原样透传（`RunOutput.repairs` 语义不变，语言修复另算）。预算 `LANG_REPAIRS = 1`，与任务段 3 轮互不挤占（设计「独立一轮」）。
+- `RunOutput` 新增 `lang_degraded`：格式降级与语言降级在调用方合流（桥侧把两者并进 `TaskOutcome.degraded`），core 层保持「格式违约 = 交付原文」与「语言违约 = 交付合格原文 + 标志」两条可区分的路径。
+- 修复轮采纳守卫：语言修复轮的回复只有再次通过格式契约才替换当前回复——修复轮退化成散文时交付上一份契约合格回复并置 `lang_degraded`（宁交付可解析的违约产物，不交付不可解析文本；跨段预算纠缠由此避免）。该分支首轮不可达（进入即契约合格），防御臂按耗尽同型处理。
+- 语言段的 `finish_reason == content_filter` 与任务段同判同败（服务端拦截重发无益）；`empty_completion` 不采纳（保持旧回复），引擎错误照旧上抛。
+- `lang_violations` 用 `Option` 而非 `expect`：工作区 lint 禁 `expect_used`，且循环不变量「reply 恒契约合格」由采纳守卫维持，`None` 臂按耗尽降级处理是安全的兜底而非吞错（留痕：语言修复轮的 violated/exhausted warn 已在 RepairLoop 打过）。
+- 为什么语言修复指令由 `PromptRegistry::render_language_repair` 渲染：违约行清单是判定器的产物，模板只给骨架（§7.6），与格式修复的 `render_repair` 对称。

@@ -15,6 +15,8 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 bytes = { version = "1", default-features = false }
 # 任务流的流式最小集；流工具留给使用方自选。
 futures-core = { version = "0.3", default-features = false }
+# 输出语言体例门禁的结构节点判定：纯解析形态，关闭默认特性。
+pulldown-cmark = { version = "0.13", default-features = false }
 # 内建引擎传输：兼容端点（OpenAI）的流式调用。最小特性集：
 # 流式事件（SSE）用传输协议（HTTP）第一版足够，传输安全（TLS）走安全传输库（rustls）加系统根证书。
 reqwest = {

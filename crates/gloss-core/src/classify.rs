@@ -163,7 +163,9 @@ pub async fn classify_traced(
                 return Ok(settled_decision(choice, repairs.spent(), rounds));
             }
             Err(violation) => {
-                let Some(next) = repairs.next_round(&base, &round.reply, violation, |violation| {
+                let resend = (!matches!(violation, crate::schema::Violation::EmptyReply))
+                    .then_some(round.reply.as_str());
+                let Some(next) = repairs.next_round(&base, resend, violation, || {
                     registry.render_repair(locale, violation)
                 }) else {
                     rounds.push(round.reply);

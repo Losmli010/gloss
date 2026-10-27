@@ -7,7 +7,9 @@
 //! 分类事件与任务完成事件，事件序与未命中路径同形）
 //! → 未命中时接线钩子（分类与增量块事件逐条回传）调
 //! 服务执行 → 完成态经契约校验两分支
-//! 解析出产物 → “非降级才写缓存”（降级产物不投毒）→
+//! 解析出产物（并带上语言门的降级标志）→ “格式合格才写缓存”
+//! （空注的格式降级产物不投毒；语言降级产物内容完整，照常入缓存，
+//! 缓存命中不重放修复轮）→
 //! 任务完成事件。引擎失败不写缓存。
 //! 另有密钥预热一条旁路：读一次密钥进进程内缓存（启动期预热），
 //! 与任务代数无关。
@@ -215,8 +217,11 @@ async fn run_task(
         )
         .await?;
 
-    let outcome = complete(output.kind, &output.raw);
-    if !outcome.degraded {
+    let mut outcome = complete(output.kind, &output.raw);
+    if output.lang_degraded {
+        outcome.degraded = true;
+    }
+    if !outcome.note.is_empty() {
         bridge.cache.set(key, outcome.clone());
     }
     pump(Event::TaskDone {
@@ -271,6 +276,7 @@ mod tests {
     use crossbeam_channel::Receiver;
     use gloss_core::engine::AiTaskService;
     use gloss_core::model::GlossError;
+    use gloss_core::ports::TaskChunk;
     use gloss_core::task::{TaskInput, TaskOptions};
     use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
@@ -421,6 +427,70 @@ mod tests {
         tokio::task::spawn_blocking(move || drop(runtime))
             .await
             .expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn a_lang_degraded_done_caches_the_full_outcome_for_replay() {
+        let lang_violating = r#"{"note":"中文word混在译文里。","structured":{"examples":[]}}"#;
+        let engine = MockEngine::new().with_script_queue(vec![
+            vec![Ok(TaskChunk::Delta(
+                r#"{"kind":"TranslateSentence"}"#.into(),
+            ))],
+            vec![Ok(TaskChunk::Delta(lang_violating.into()))],
+            vec![Ok(TaskChunk::Delta(lang_violating.into()))],
+        ]);
+        let (commands, events, runtime) = start(&engine);
+
+        run(&commands, 1, text_input("hello there"), text_options());
+        let outcome = drain_until_done(&events, 1);
+        assert!(
+            outcome.degraded,
+            "the language budget exhausted: the outcome rides degraded"
+        );
+        assert!(
+            !outcome.note.is_empty(),
+            "a language-degraded outcome keeps the full content"
+        );
+        assert_eq!(
+            engine.call_count(),
+            3,
+            "classify + task round + language repair round"
+        );
+
+        run(&commands, 2, text_input("hello there"), text_options());
+        let replayed = drain_until_done(&events, 2);
+        assert!(replayed.degraded && !replayed.note.is_empty());
+        assert_eq!(
+            engine.call_count(),
+            3,
+            "the cached replay never reaches the engine again"
+        );
+        drop(commands);
+        tokio::task::spawn_blocking(move || drop(runtime))
+            .await
+            .expect("shutdown");
+    }
+
+    fn drain_until_done(
+        events: &Receiver<Event>,
+        generation: u64,
+    ) -> gloss_core::task::TaskOutcome {
+        loop {
+            match events.recv().unwrap() {
+                Event::TaskClassified {
+                    generation: seen, ..
+                } if seen == generation => {}
+                Event::TaskChunk {
+                    generation: seen, ..
+                } if seen == generation => {}
+                Event::TaskRepairing { generation: seen } if seen == generation => {}
+                Event::TaskDone {
+                    generation: seen,
+                    outcome,
+                } if seen == generation => return outcome,
+                other => panic!("unexpected event: {other:?}"),
+            }
+        }
     }
 
     #[tokio::test]

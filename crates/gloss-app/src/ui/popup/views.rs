@@ -142,11 +142,18 @@ pub(super) fn render_content(
                 }),
             }
         }
-        Some(OverlayView::Outcome { source: _, outcome }) if outcome.degraded => {
+        Some(OverlayView::Outcome { source: _, outcome })
+            if outcome.degraded && outcome.note.is_empty() =>
+        {
             degraded_card(ui, ctx, content_h)
         }
         Some(OverlayView::Outcome { source, outcome }) => {
+            let unverified = outcome.degraded;
             scrolled_card(ui, ctx, content_h, FooterMode::Done, |ui| {
+                if unverified {
+                    unverified_notice(ui, ctx);
+                    ui.add_space(space::SECTION);
+                }
                 outcome_body(ui, ctx, source, outcome)
             })
         }
@@ -214,6 +221,14 @@ fn scrolled_card(
     let footer_action = footer(ui, ctx.state, mode, ctx.text);
     record_scrolled_height(ui, content_h, &scrolled);
     (action.or(footer_action), drag)
+}
+
+fn unverified_notice(ui: &mut egui::Ui, ctx: &RenderCtx<'_>) {
+    ui.label(
+        RichText::new(&ctx.text.gloss_popup_output_unverified)
+            .size(size::NOTICE)
+            .color(ui.visuals().warn_fg_color),
+    );
 }
 
 fn degraded_card(

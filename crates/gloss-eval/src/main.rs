@@ -33,6 +33,7 @@ fn main() {
         Some("live") => run_live_cli(&args[1..]),
         Some("report") => run_report_cli(&args[1..]),
         Some("history") => run_history_cli(&args[1..]),
+        Some("gate") => run_gate_cli(&args[1..]),
         _ => Err(usage().into()),
     };
     if let Err(error) = outcome {
@@ -42,7 +43,7 @@ fn main() {
 }
 
 fn usage() -> &'static str {
-    "usage: eval <inspect|replay|live|report|history> [options]
+    "usage: eval <inspect|replay|live|report|history|gate> [options]
   inspect                offline replay + single-file inspection page target/eval/inspect.html
                          (accuracy headline, per-case expected vs actual, per-round replies, trend);
                          entry point for manual inspection after prompt changes
@@ -52,6 +53,11 @@ fn usage() -> &'static str {
                          real LLM evaluation (needs GLOSS_LIVE_BASE_URL/MODEL/API_KEY;
                          --record writes fixtures back, --judge enables the judge scoring track);
                          same history append and trend redraw, plus inspection files
+  gate [--judge] [--limit N]
+                         offline language-gate verdicts over the gate dataset (precision/recall);
+                         --judge additionally samples cases for an LLM second opinion
+                         (needs GLOSS_LIVE_* credentials and GLOSS_LIVE_JUDGE=1); writes
+                         target/eval/gate.md
   report [--dir PATH]    render the latest reports under target/eval as a Markdown table
   history [--dir PATH]   redraw history.svg from the existing history.jsonl (no evaluation run)"
 }
@@ -162,6 +168,55 @@ fn run_live_cli(args: &[String]) -> Result<(), String> {
     run.report.context = eval_context();
     let markdown = finish_run_report(&run.report, Path::new(&dir))?;
     write_inspect(Path::new(&dir), &run.report, &run.cases)?;
+    print!("{markdown}");
+    Ok(())
+}
+
+fn run_gate_cli(args: &[String]) -> Result<(), String> {
+    let mut judge = false;
+    let mut limit = 8usize;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--judge" => judge = true,
+            "--limit" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--limit needs a number".into());
+                };
+                limit = value.parse().map_err(|_| "--limit needs a number")?;
+                index += 1;
+            }
+            other => return Err(format!("unknown option {other:?}\n{}", usage())),
+        }
+        index += 1;
+    }
+    let cases = gloss_eval::gate::load_gate_cases(gloss_eval::assets::LANG_GATE_DATASET)
+        .map_err(|error| format!("load gate dataset: {error}"))?;
+    let mut markdown = gloss_eval::gate::run_gate(&cases).render_markdown();
+    if judge {
+        let env = gloss_eval::runner::LiveEnv::from_env()?;
+        let (config, store) = gloss_eval::runner::live_config(env);
+        let engine: Arc<dyn gloss_core::ports::AiEngine> = Arc::new(
+            LlmClient::new(Arc::clone(&config), store)
+                .map_err(|err| format!("http client: {err}"))?,
+        );
+        let model = config.snapshot().model.clone();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|err| format!("tokio runtime: {err}"))?;
+        let report = runtime.block_on(gloss_eval::gate::run_gate_judge(
+            engine.as_ref(),
+            model.as_ref(),
+            &cases,
+            limit,
+        ));
+        markdown.push_str(&report.render_markdown());
+    }
+    let dir = report_dir();
+    let path = Path::new(&dir).join("gate.md");
+    gloss_eval::history::write_atomic(&path, &markdown)
+        .map_err(|err| format!("write {}: {err}", path.display()))?;
     print!("{markdown}");
     Ok(())
 }
