@@ -77,10 +77,11 @@
   `SRC/NOTE/EXP` 宽窄不一，各自撑宽会让三个方块参差，观感即「没对齐」。
   中文表单字宽恒等于方块下限，行为不变；宽度仍是「方块边长下限、缩写按
   文本撑宽」，只是三印共享同一份结果。
-- 结果按（明暗、像素密度位型）缓存进 `CachedSealWidths`（egui
+- 结果按（三印章标签、明暗、像素密度位型）缓存进 `CachedSealWidths`（egui
   `Memory::caches`，键空间有界恒不逐出）——量宽要走 painter 布局，逐帧
-  三次 `layout_no_wrap` 是纯浪费；键口径与文本 galley 缓存一致（字体表
-  变化经 [`clear_cached_text_galleys`] 整体失效，见下）。
+  三次 `layout_no_wrap` 是纯浪费；标签进键使运行时切换界面语言自然换键
+  重算（与文本 galley 缓存的 `'static` 标签键同一口径），字体表变化经
+  [`clear_cached_text_galleys`] 整体失效（见下）。
 
 ## `paper_color` / `zhu_color`（已迁出）
 

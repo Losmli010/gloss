@@ -3,8 +3,9 @@
 //!
 //! 颜色经语义调色板解析，几何引用样式几何档；视图骨架与经注疏排布
 //! 从这里取页头与印章，页脚带在页脚模块。印章宽度由当前文案表的三个印章
-//! 标签共享——取最宽者统一，正文列起点不随标签长短错开；宽度随文案表在
-//! 启动期一次算定并跨帧缓存，字体表更换时随缓存清理出口一并失效。
+//! 标签共享——取最宽者统一，正文列起点不随标签长短错开；宽度按（三标签、
+//! 明暗、像素密度）跨帧缓存，运行时切换界面语言即自然换键重算，字体表
+//! 更换时随缓存清理出口一并失效。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -193,25 +194,30 @@ pub(super) fn seal(ui: &mut egui::Ui, text: &'static Text, label: &'static str, 
 }
 
 fn shared_seal_width(ui: &egui::Ui, text: &'static Text) -> f32 {
-    let key = (palette(ui).is_dark, ui.ctx().pixels_per_point().to_bits());
+    let key = (
+        (
+            text.gloss_popup_seal_jing.as_str(),
+            text.gloss_popup_seal_zhu.as_str(),
+            text.gloss_popup_seal_shu.as_str(),
+        ),
+        palette(ui).is_dark,
+        ui.ctx().pixels_per_point().to_bits(),
+    );
     let ctx = ui.ctx();
     let cached = ctx.memory_mut(|mem| mem.caches.cache::<CachedSealWidths>().0.get(&key).copied());
     if let Some(width) = cached {
         return width;
     }
-    let widest = [
-        text.gloss_popup_seal_jing.as_str(),
-        text.gloss_popup_seal_zhu.as_str(),
-        text.gloss_popup_seal_shu.as_str(),
-    ]
-    .into_iter()
-    .map(|label| {
-        ui.painter()
-            .layout_no_wrap(label.to_owned(), serif(size::SEAL), egui::Color32::WHITE)
-            .size()
-            .x
-    })
-    .fold(0.0_f32, f32::max);
+    let ((jing, zhu, shu), _, _) = key;
+    let widest = [jing, zhu, shu]
+        .into_iter()
+        .map(|label| {
+            ui.painter()
+                .layout_no_wrap(label.to_owned(), serif(size::SEAL), egui::Color32::WHITE)
+                .size()
+                .x
+        })
+        .fold(0.0_f32, f32::max);
     let width = geometry::seal::SIZE.max(widest + 2.0 * geometry::seal::TEXT_PADDING);
     ctx.memory_mut(|mem| {
         mem.caches.cache::<CachedSealWidths>().0.insert(key, width);
@@ -219,8 +225,10 @@ fn shared_seal_width(ui: &egui::Ui, text: &'static Text) -> f32 {
     width
 }
 
+type SealWidthKey = ((&'static str, &'static str, &'static str), bool, u32);
+
 #[derive(Default)]
-struct CachedSealWidths(HashMap<(bool, u32), f32>);
+struct CachedSealWidths(HashMap<SealWidthKey, f32>);
 
 impl egui::cache::CacheTrait for CachedSealWidths {
     fn update(&mut self) {}

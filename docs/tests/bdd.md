@@ -918,7 +918,7 @@
 | confirm_pending_carries_the_frozen_options_snapshot | 确认下发携带探测时冻结选项 | 给定自定义配置的探测产物提交，当 `confirm_pending`，则下发请求的模型与目标语言均为探测时刻快照值（确认不回读配置；下一次探测才用新值） | 2026-10-27 |
 | confirm_pending_is_refused_outside_the_pending_card | 确认守卫只认待确认卡 | 给定空白机器、流式中的会话、已定格产物卡三种非待确认状态，当 `confirm_pending`，则一律 `None`（无卡无确认出口；已定格代数的迟到失败一并被拒） | 2026-10-27 |
 | hide_drops_the_pending_card_without_a_token_to_cancel | 隐藏丢弃待确认卡且无需取消 | 给定待确认卡在场，当 `hide_overlay`，则回 `Idle`、视图清空、确认出口一并失效（收起后的确认不能复活成下发） | 2026-10-27 |
-| a_new_commit_supersedes_the_pending_card_and_the_stale_confirm_is_refused | 新提交顶掉待确认卡且陈旧确认被拒 | 给定待确认卡在场时新探测提交，则新卡接管；当确认，则只下发屏上新卡的输入与代数；被顶掉的旧卡确认已陈旧、整体拒绝 | 2026-10-27 |
+| a_new_commit_supersedes_the_pending_card_and_the_stale_confirm_is_refused | 新提交顶掉待确认卡且确认只认当前卡 | 给定待确认卡在场时新探测提交，则新卡接管；当确认，则恒作用于屏上当前卡——下发新卡的输入与代数，同一张卡只可确认一次（已消费卡的再次确认被拒） | 2026-10-27 |
 | a_probe_leaves_a_visible_session_completely_untouched | 探测与误滑不扰动可见会话 | 给定推理中的可见会话，当新划词探测、再当探测以空选区失败收场，则状态、视图、取消令牌全程原样，流式正文照常追加 | 2026-10-01 |
 | image_input_for_text_kind_is_rejected | 划词探测拒收图像输入 | 给定在途划词探测收图像产物，当提交，则 `Ignored`（模态按探测的取材来源配对） | 2026-10-10 |
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 `Translating` 态隐藏，当收起，则令牌取消、视图清空回 `Idle`，迟到同代数产物、失败被拒 | 2026-09-19 |

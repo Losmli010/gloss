@@ -88,6 +88,7 @@ pub struct RenderState {
     icon: RefCell<Option<(u32, Option<egui::TextureHandle>)>>,
     attached: RefCell<Option<AttachedTexture>>,
     copied_at: Cell<Option<f64>>,
+    copied_source: Cell<Option<String>>,
 }
 
 struct AttachedTexture {
@@ -103,6 +104,7 @@ impl Default for RenderState {
             icon: RefCell::new(None),
             attached: RefCell::new(None),
             copied_at: Cell::new(None),
+            copied_source: Cell::new(None),
         }
     }
 }
@@ -220,6 +222,18 @@ pub fn draw(
 
     if attached.is_none() {
         state.drop_attached();
+    }
+    let prev_copied_source = state.copied_source.take();
+    match view {
+        Some(OverlayView::Outcome { source, .. }) => {
+            if prev_copied_source.as_deref() == Some(source.as_str()) {
+                state.copied_source.set(prev_copied_source);
+            } else {
+                state.copied_at.set(None);
+                state.copied_source.set(Some(source.clone()));
+            }
+        }
+        _ => state.copied_at.set(None),
     }
 
     let fill = ui.visuals().window_fill;
