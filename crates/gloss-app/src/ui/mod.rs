@@ -7,3 +7,7 @@ pub mod i18n;
 pub mod popup;
 pub mod settings;
 pub mod style;
+
+pub(crate) fn pointing_hand(response: egui::Response) -> egui::Response {
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}

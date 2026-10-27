@@ -23,6 +23,7 @@ use super::outcome::{
 use super::{OverlayAction, RenderCtx};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
 use crate::ui::i18n::Text;
+use crate::ui::pointing_hand;
 use crate::ui::style::{alpha, apply_kaiti, geometry, motion, radius, size, space, with_alpha};
 
 const MIN_BODY_VIEWPORT: f32 = geometry::overlay::MIN_BODY_VIEWPORT;
@@ -228,13 +229,14 @@ fn degraded_card(
                 .color(ui.visuals().warn_fg_color),
         );
         ui.add_space(space::SECTION);
-        if ui
-            .button(
+        if pointing_hand(
+            ui.button(
                 RichText::new(ctx.text.gloss_popup_retry.as_str())
                     .size(size::CAPTION)
                     .color(ui.visuals().strong_text_color()),
-            )
-            .clicked()
+            ),
+        )
+        .clicked()
         {
             *action = Some(OverlayAction::Retry);
         }
@@ -256,13 +258,14 @@ fn failed_card(
         );
         if let Some(error_action) = *error_action {
             ui.add_space(space::SECTION);
-            if ui
-                .button(
+            if pointing_hand(
+                ui.button(
                     RichText::new(action_label(error_action, ctx.text))
                         .size(size::CAPTION)
                         .color(ui.visuals().strong_text_color()),
-                )
-                .clicked()
+                ),
+            )
+            .clicked()
             {
                 *action = Some(error_action.into());
             }

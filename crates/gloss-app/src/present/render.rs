@@ -115,6 +115,7 @@ pub struct OverlayFrameOutput {
     pub action: Option<ui::popup::OverlayAction>,
     pub sizing: Option<ui::popup::OverlaySizing>,
     pub drag: Option<egui::Vec2>,
+    pub resize: Option<egui::Vec2>,
 }
 
 pub fn render_frame(
@@ -132,6 +133,7 @@ pub fn render_frame(
         action: out.action,
         sizing: Some(out.sizing),
         drag: out.drag,
+        resize: out.resize,
     });
     (repaint_at, output)
 }

@@ -89,6 +89,7 @@ fn fill_style(style: &mut egui::Style, colors: &super::style::Palette) {
 
 fn fill_visuals(visuals: &mut egui::Visuals, colors: &super::style::Palette) {
     visuals.selection.bg_fill = colors.accent;
+    visuals.text_cursor.stroke = egui::Stroke::new(super::style::stroke::THICK, colors.caret);
 }
 
 fn fill_spacing(spacing: &mut egui::Spacing) {
@@ -119,6 +120,26 @@ mod tests {
     use crate::ui::fonts;
 
     use super::*;
+
+    #[test]
+    fn text_cursor_stroke_follows_the_palette_per_theme() {
+        let ctx = new_context(Theme::System);
+        for (theme, colors) in [
+            (egui::Theme::Light, super::super::style::LIGHT),
+            (egui::Theme::Dark, super::super::style::DARK),
+        ] {
+            let stroke = ctx.style_of(theme).visuals.text_cursor.stroke;
+            assert_eq!(
+                stroke.color, colors.caret,
+                "{theme:?} 的插入符取调色板同源色，缺省淡色不可见"
+            );
+            assert_eq!(
+                stroke.width,
+                super::super::style::stroke::THICK,
+                "插入符走加粗档，细线在输入框底色上不可辨"
+            );
+        }
+    }
 
     #[test]
     fn theme_preference_covers_every_variant() {

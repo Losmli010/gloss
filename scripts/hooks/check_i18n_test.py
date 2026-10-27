@@ -1,4 +1,5 @@
-"""文案表门禁的单测：逐条覆盖字面量词法状态机、装入点集中与词条表唯一。
+"""文案表门禁的单测：逐条覆盖字面量词法状态机、装入点集中、词条表唯一与
+词条语言规范。
 
 被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
 的临时目录，不落版本库（扫描面走目录遍历）；用法见持续集成的钩子工作流。
@@ -27,7 +28,7 @@ GUARD_BASES = ("src", "crates/gloss-core/src", "crates/gloss-platform/src")
 
 
 def make_baseline(tmp_path: Path) -> None:
-    """重建守卫基线：四个源码目录加统一装入点与词条表。"""
+    """重建守卫基线：四个源码目录加统一装入点与中英两份词条表。"""
     for d in GUARD_BASES:
         (tmp_path / d).mkdir(parents=True, exist_ok=True)
     base = tmp_path / "crates/gloss-app/src/ui"
@@ -35,7 +36,8 @@ def make_baseline(tmp_path: Path) -> None:
     base.mkdir(parents=True, exist_ok=True)
     catalog.mkdir(parents=True, exist_ok=True)
     (base / "i18n.rs").write_text('const ZH: &str = include_str!("../../i18n/zh.toml");\n')
-    (catalog / "zh.toml").write_text('gloss_app_title = "Gloss"\n')
+    (catalog / "zh.toml").write_text('gloss_app_title = "词汇"\n')
+    (catalog / "en.toml").write_text('gloss_app_title = "Gloss"\n')
 
 
 def scan(
@@ -250,6 +252,60 @@ def test_catalog_key_outside_catalog_dir(tmp_path: Path) -> None:
 
 def test_plain_toml_key_allowed(tmp_path: Path) -> None:
     assert_pass(tmp_path, "plain.toml", 'app_title = "Gloss"')
+
+
+# ---- 词条语言规范（拦截与豁免）----
+
+
+def test_zh_entry_written_in_english_is_flagged(tmp_path: Path) -> None:
+    assert_fail(
+        tmp_path,
+        "crates/gloss-app/i18n/zh.toml",
+        'gloss_popup_retry = "Retry"',
+        "the zh entry must be written in Chinese",
+    )
+
+
+def test_en_entry_with_chinese_is_flagged(tmp_path: Path) -> None:
+    assert_fail(
+        tmp_path,
+        "crates/gloss-app/i18n/en.toml",
+        'gloss_popup_retry = "重试"',
+        "the en entry must be pure English",
+    )
+
+
+def test_en_entry_with_fullwidth_or_curly_is_flagged(tmp_path: Path) -> None:
+    assert_fail(
+        tmp_path,
+        "crates/gloss-app/i18n/en.toml",
+        'gloss_hint = "pick “Save” here"',
+        "the en entry must be pure English",
+    )
+
+
+def test_self_named_language_entry_is_exempt_in_zh(tmp_path: Path) -> None:
+    content = 'gloss_app_title = "词汇"\ngloss_ui_language_en = "English"\n'
+    assert_pass(tmp_path, "crates/gloss-app/i18n/zh.toml", content)
+
+
+def test_catalog_comments_and_blanks_are_not_entries(tmp_path: Path) -> None:
+    content = '# 词条说明\n\ngloss_app_title = "词汇"\n'
+    assert_pass(tmp_path, "crates/gloss-app/i18n/zh.toml", content)
+
+
+def test_language_rule_reports_clean_ok_line_with_entry_count(tmp_path: Path) -> None:
+    oks, fails = scan(tmp_path, "", "")
+    assert fails == []
+    assert "entries language-checked" in "\n".join(oks)
+
+
+def test_missing_catalog_file_fails_closed(tmp_path: Path) -> None:
+    make_baseline(tmp_path)
+    (tmp_path / "crates/gloss-app/i18n/en.toml").unlink()
+    with pytest.raises(SystemExit) as exc:
+        check_i18n.run(str(tmp_path))
+    assert exc.value.code == gate_report.EXIT_INFRA
 
 
 # ---- 目录缺失守卫（失败关闭）----

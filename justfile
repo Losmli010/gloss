@@ -308,7 +308,7 @@ test-bdd:
 constraints:
     {{py}} scripts/hooks/constraints/__main__.py
 
-# 界面文案统一进文案表（文案字面量、装入点、词条表唯一）
+# 界面文案统一进文案表（文案字面量、装入点、词条表唯一、词条语言规范）
 i18n:
     {{py}} scripts/hooks/check_i18n.py
 
