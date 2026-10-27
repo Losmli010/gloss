@@ -110,6 +110,10 @@ REGISTERED_RULES = frozenset(
         "ALLOW-REASON",
         "EMPTY-SURFACE",
         "INFRA",
+        "UI-STYLE-COLOR",
+        "UI-STYLE-DARK",
+        "UI-STYLE-FONT",
+        "UI-STYLE-CONST",
     }
 )
 
@@ -201,12 +205,13 @@ ALLOW_REASON_MARKERS = (
     "lines:allow",
     "i18n:allow",
     "deps:allow",
+    "style:allow",
 )
 
 
 def allow_reason_findings_for_line(path: str, line: int, text: str) -> list[Finding]:
-    """一行文本里全部缺缘由放行标记的条目：五类标记全名逐个核对同行缘由，
-    供标记类别不定与全名形态（界面边界上下文标记）不误报的消费方使用。"""
+    """一行文本里全部缺缘由放行标记的条目：登记表内标记全名逐个核对同行
+    缘由，供标记类别不定与全名形态（界面边界上下文标记）不误报的消费方使用。"""
     return [
         allow_reason_finding(marker, path, line, text)
         for marker in ALLOW_REASON_MARKERS

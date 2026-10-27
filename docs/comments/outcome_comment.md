@@ -4,15 +4,24 @@
 
 ## 面板规格常量（`SEAL_GAP` 等）
 
-- 印章列与正文列之间的空隙（demo .sec gap 10px）。
-- 朱丝栏（注区左线）的线宽（demo：2px）。
-- 朱丝栏到注正文之间的空隙（demo padding-left 11px，含线宽）。
-- 疏区上缘虚线到疏正文的空隙（demo padding-top 9px）。
-- 疏区虚线的段长与空隙。
+- 印章列与正文列之间的空隙（demo .sec gap 10px）：样式统一阶段 5 起取
+  `geometry::seal::GAP`（10.5px）。
+- 朱丝栏（注区左线）的线宽（demo：2px）：阶段 5 起取 `stroke::THICK`。
+- 朱丝栏到注正文之间的空隙（demo padding-left 11px，含线宽）：阶段 5 起
+  取 `geometry::seal::ZHU_TEXT_GAP`（10.5px）。
+- 疏区上缘虚线到疏正文的空隙（demo padding-top 9px）：阶段 5 起取
+  `geometry::seal::SHU_TEXT_GAP`。
+- 疏区虚线的段长与空隙：阶段 5 起取 `geometry::seal::SHU_DASH_LENGTH`
+  与 `SHU_GAP_LENGTH`，虚线线宽取 `stroke::LINE`。
 - 代码面板的圆角、边宽与内边距（demo code 面板：radius 10、1px 边、
-  11px 13px）；代码底色直接铺满经位区块，无外层界栏框。
-- 代码正文的字号与行高（demo 定稿：12px、行高 1.65）。
-- 语言标签的字号（图样定稿：弱色小标，面板内独立行）。
+  11px 13px）；圆角与边宽样式统一阶段 4 起取 `radius::CODE_PANEL`（10.5px）
+  与 `stroke::LINE`，内边距阶段 5 起取 `geometry::code_panel`。
+  代码底色直接铺满经位区块，无外层界栏框。
+- 代码正文的字号与行高（demo 定稿：12px、行高 1.65）：样式统一阶段 4
+  起字号取 `size::CODE`、行高比率取 `line_height::CODE`，角色构造器
+  （`mono`）与楷体改排（`apply_kaiti`）住排印模块。
+- 语言标签的字号（图样定稿：弱色小标，面板内独立行）：阶段 4 起取
+  `size::CODE_BADGE` 与 `sans` 构造器。
 
 ## `jing_section`
 

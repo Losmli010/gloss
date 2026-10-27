@@ -1058,11 +1058,17 @@
 | update_busy_phases_offer_no_action_and_show_the_target_version | 忙碌相位无动作、显示目标版本 | 给定 `Checking/ReadyToRestart`，当渲染，则无任何更新动作上交；`UpdateAvailable` 的行标签含目标版本号 | 2026-09-27 |
 | failed_install_shows_the_install_hint | 替换失败附安装指引 | 给定 `Failed(Install)`，当渲染，则指引行可见（`DMG` 装入、权限出口）且无副作用动作 | 2026-09-27 |
 
-### `crates/gloss-app/src/ui/style.rs`
+### `crates/gloss-app/src/ui/style/tokens.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| ladders_are_strictly_descending | 字号与间距阶梯严格递减 | 给定字号与间距两条阶梯，当逐档比较，则每档严格大于下一档（档位语义不塌缩） | 2026-09-21 |
+| space_ladder_is_strictly_descending | 间距阶梯严格递减 | 给定间距阶梯（分区、段落、条目、紧邻、行内），当逐档比较，则每档严格大于下一档（档位语义不塌缩） | 2026-10-27 |
+
+### `crates/gloss-app/src/ui/style/typography.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| size_ladder_is_strictly_descending | 字号档位严格递减 | 给定字号档位（词头、标题、疏注、小字、标签五档），当逐档比较，则每档严格大于下一档（档位语义不塌缩） | 2026-10-27 |
 
 ### `crates/gloss-platform/src/appearance/icon.rs`
 

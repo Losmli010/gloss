@@ -6,35 +6,19 @@
 
 use std::sync::Arc;
 
-use egui::{
-    Align, CornerRadius, FontFamily, FontId, Frame, Margin, RichText, Shape, Stroke, TextStyle,
-};
+use egui::{Align, Frame, Margin, RichText, Shape, Stroke};
 use egui_commonmark::CommonMarkViewer;
 use gloss_core::task::{OutcomeStructured, TaskKind};
 
 use super::card::{SealTint, seal, zhu_line_color};
-use super::content::{
-    JING_FONT, PHON_FONT, SHU_FONT, SMALL_FONT, WORD_FONT, ZHU_FONT, kaiti_font, serif_font,
-};
 use super::{RenderCtx, RenderState};
 use crate::ui::code_hl;
-use crate::ui::fonts;
 use crate::ui::i18n::Text;
-use crate::ui::style::{color, font, space};
+use crate::ui::style::{
+    apply_kaiti, geometry, line_height, mono, palette, radius, sans, serif, size, space, stroke,
+};
 
-const SEAL_GAP: f32 = 10.0;
-const ZHU_LINE_WIDTH: f32 = 2.0;
-const ZHU_TEXT_GAP: i8 = 11;
-const SHU_TEXT_GAP: i8 = 9;
-const SHU_DASH_LENGTH: f32 = 4.0;
-const SHU_GAP_LENGTH: f32 = 3.0;
-const CODE_PANEL_RADIUS: u8 = 10;
-const CODE_PANEL_STROKE: f32 = 1.0;
-const CODE_PANEL_PADDING_V: i8 = 11;
-const CODE_PANEL_PADDING_H: i8 = 13;
-const CODE_FONT: f32 = 12.0;
-const CODE_LINE_HEIGHT: f32 = CODE_FONT * 1.65;
-const CODE_BADGE_FONT: f32 = 10.0;
+const CODE_LINE_HEIGHT: f32 = size::CODE * line_height::CODE;
 
 pub(super) fn jing_section(
     ui: &mut egui::Ui,
@@ -43,7 +27,7 @@ pub(super) fn jing_section(
 ) {
     ui.horizontal_top(|ui| {
         seal(ui, text.gloss_popup_seal_jing.as_str(), SealTint::Ink);
-        ui.add_space(SEAL_GAP);
+        ui.add_space(geometry::seal::GAP);
         ui.with_layout(egui::Layout::top_down(Align::LEFT), body);
     });
 }
@@ -55,13 +39,13 @@ pub(super) fn zhu_section(
 ) {
     ui.horizontal_top(|ui| {
         seal(ui, text.gloss_popup_seal_zhu.as_str(), SealTint::Zhu);
-        ui.add_space(SEAL_GAP);
+        ui.add_space(geometry::seal::GAP);
         let line_top = ui.cursor().top();
         let column = ui
             .with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
                 Frame::new()
                     .inner_margin(Margin {
-                        left: ZHU_TEXT_GAP,
+                        left: geometry::seal::ZHU_TEXT_GAP.round() as i8,
                         ..Margin::ZERO
                     })
                     .show(ui, body)
@@ -74,7 +58,7 @@ pub(super) fn zhu_section(
                 egui::pos2(column.min.x, line_top),
                 egui::pos2(column.min.x, column.max.y),
             ],
-            Stroke::new(ZHU_LINE_WIDTH, zhu_line_color(ui)),
+            Stroke::new(stroke::THICK, zhu_line_color(ui)),
         );
     });
 }
@@ -86,12 +70,12 @@ pub(super) fn shu_section(
 ) {
     ui.horizontal_top(|ui| {
         seal(ui, text.gloss_popup_seal_shu.as_str(), SealTint::Wei);
-        ui.add_space(SEAL_GAP);
+        ui.add_space(geometry::seal::GAP);
         let column = ui
             .with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
                 Frame::new()
                     .inner_margin(Margin {
-                        top: SHU_TEXT_GAP,
+                        top: geometry::seal::SHU_TEXT_GAP.round() as i8,
                         ..Margin::ZERO
                     })
                     .show(ui, body)
@@ -104,9 +88,9 @@ pub(super) fn shu_section(
                 egui::pos2(column.min.x, column.min.y),
                 egui::pos2(column.max.x, column.min.y),
             ],
-            Stroke::new(1.0, ui.visuals().weak_text_color()),
-            SHU_DASH_LENGTH,
-            SHU_GAP_LENGTH,
+            Stroke::new(stroke::LINE, ui.visuals().weak_text_color()),
+            geometry::seal::SHU_DASH_LENGTH,
+            geometry::seal::SHU_GAP_LENGTH,
         );
         ui.painter().extend(dashes);
     });
@@ -124,7 +108,7 @@ pub(super) fn attached_image(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, png: &Arc<[
 fn image_unavailable(ui: &mut egui::Ui, text: &'static Text) {
     ui.label(
         RichText::new(&text.gloss_popup_image_unavailable)
-            .font(serif_font(SMALL_FONT))
+            .font(serif(size::NOTICE))
             .weak(),
     );
 }
@@ -132,13 +116,14 @@ fn image_unavailable(ui: &mut egui::Ui, text: &'static Text) {
 pub(super) fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lang: Option<&str>) {
     let strong = ui.visuals().strong_text_color();
     if code {
+        let colors = palette(ui);
         Frame::new()
-            .fill(code_bg(ui))
-            .stroke(Stroke::new(CODE_PANEL_STROKE, code_border(ui)))
-            .corner_radius(CornerRadius::same(CODE_PANEL_RADIUS))
-            .inner_margin(Margin::symmetric(
-                CODE_PANEL_PADDING_H,
-                CODE_PANEL_PADDING_V,
+            .fill(colors.code_bg)
+            .stroke(Stroke::new(stroke::LINE, colors.code_border))
+            .corner_radius(radius::CODE_PANEL)
+            .inner_margin(egui::vec2(
+                geometry::code_panel::PADDING_H,
+                geometry::code_panel::PADDING_V,
             ))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -150,13 +135,9 @@ pub(super) fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lan
         return;
     }
     ui.add(
-        egui::Label::new(
-            RichText::new(source)
-                .font(serif_font(JING_FONT))
-                .color(strong),
-        )
-        .wrap()
-        .selectable(true),
+        egui::Label::new(RichText::new(source).font(serif(size::JING)).color(strong))
+            .wrap()
+            .selectable(true),
     );
 }
 
@@ -166,12 +147,15 @@ fn code_job(
     code_lang: Option<&str>,
     wrap_width: f32,
 ) -> egui::text::LayoutJob {
-    let dark = ui.visuals().dark_mode;
-    let font_id = FontId::new(CODE_FONT, fonts::mono_family());
-    let Some(mut job) =
-        code_hl::highlight(ui.ctx(), ui.style(), font_id.clone(), source, code_lang)
-    else {
-        return code_hl::fallback_job(source, &font_id, dark, wrap_width, CODE_LINE_HEIGHT);
+    let font_id = mono(size::CODE);
+    let Some(mut job) = code_hl::highlight(ui, font_id.clone(), source, code_lang) else {
+        return code_hl::fallback_job(
+            source,
+            &font_id,
+            &palette(ui).syntax,
+            wrap_width,
+            CODE_LINE_HEIGHT,
+        );
     };
     job.wrap = egui::text::TextWrapping {
         max_width: wrap_width,
@@ -186,44 +170,17 @@ fn code_job(
     job
 }
 
-fn code_bg(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        color::CODE_BG_DARK
-    } else {
-        color::CODE_BG_LIGHT
-    }
-}
-
-fn code_border(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        color::CODE_BORDER_DARK
-    } else {
-        color::CODE_BORDER_LIGHT
-    }
-}
-
 fn code_badge(ui: &mut egui::Ui, lang: Option<&str>) {
     let Some(lang) = lang else {
         return;
     };
     ui.label(
         RichText::new(lang)
-            .font(FontId::new(CODE_BADGE_FONT, FontFamily::Proportional))
+            .font(sans(size::CODE_BADGE))
             .color(ui.visuals().weak_text_color()),
     )
     .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, lang.to_owned()));
     ui.add_space(CODE_LINE_HEIGHT);
-}
-
-pub(super) fn apply_markdown_typography(ui: &mut egui::Ui, body_size: f32) {
-    for (style, size) in [
-        (TextStyle::Body, body_size),
-        (TextStyle::Button, body_size),
-        (TextStyle::Small, SMALL_FONT),
-        (TextStyle::Heading, JING_FONT),
-    ] {
-        ui.style_mut().text_styles.insert(style, kaiti_font(size));
-    }
 }
 
 pub(super) fn render_markdown(ui: &mut egui::Ui, state: &RenderState, text: &str) {
@@ -291,7 +248,7 @@ pub(super) fn outcome_body(
 
 fn zhu_and_shu(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, note: &str, examples: &[String]) {
     zhu_section(ui, ctx.text, |ui| {
-        apply_markdown_typography(ui, ZHU_FONT);
+        apply_kaiti(ui, size::ZHU);
         render_markdown(ui, ctx.state, note);
     });
     if !examples.is_empty() {
@@ -304,13 +261,13 @@ fn word_head(ui: &mut egui::Ui, word: &str, phonetic: Option<&str>) {
     ui.horizontal_wrapped(|ui| {
         ui.label(
             RichText::new(word)
-                .font(serif_font(WORD_FONT))
+                .font(serif(size::WORD))
                 .color(ui.visuals().strong_text_color()),
         );
         if let Some(phonetic) = phonetic {
             ui.label(
                 RichText::new(phonetic)
-                    .font(FontId::new(PHON_FONT, fonts::mono_family()))
+                    .font(mono(size::PHON))
                     .color(ui.visuals().weak_text_color()),
             );
         }
@@ -319,7 +276,7 @@ fn word_head(ui: &mut egui::Ui, word: &str, phonetic: Option<&str>) {
 
 pub(super) fn shu_examples(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, examples: &[String]) {
     shu_section(ui, ctx.text, |ui| {
-        apply_markdown_typography(ui, SHU_FONT);
+        apply_kaiti(ui, size::SHU);
         for (index, example) in examples.iter().enumerate() {
             if index > 0 {
                 ui.add_space(space::INLINE);
@@ -334,20 +291,20 @@ pub(super) fn selfcheck_body(ui: &mut egui::Ui) {
     let weak = ui.visuals().weak_text_color();
     ui.label(
         RichText::new("The quick brown fox jumps over the lazy dog.")
-            .size(font::NOTICE)
+            .size(size::NOTICE)
             .color(weak),
     );
     ui.add_space(space::SECTION);
     ui.label(
         RichText::new("敏捷的棕色狐狸从懒狗身上跳过。") // i18n:allow 自检字样，字体链路夹具
-            .size(font::TITLE)
+            .size(size::TITLE)
             .strong()
             .color(strong),
     );
     ui.add_space(space::SECTION);
     ui.label(
         RichText::new("中文渲染自检：划词翻译、代码解释、图片识别。") // i18n:allow 自检字样，字体链路夹具
-            .size(font::NOTICE)
+            .size(size::NOTICE)
             .color(weak),
     );
 }

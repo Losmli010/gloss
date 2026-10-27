@@ -6,29 +6,24 @@
 //! 形态，与页脚呼吸点同源脉动。
 
 use std::borrow::Cow;
-use std::time::Duration;
 
 use egui::{RichText, ScrollArea, vec2};
 
 use super::card::{footer, header};
-use super::content::ZHU_FONT;
 use super::note::{StreamFields, stream_fields};
 use super::outcome::{
-    apply_markdown_typography, attached_image, is_code, jing_section, outcome_body,
-    render_markdown, selfcheck_body, shu_examples, source_block, zhu_section,
+    attached_image, is_code, jing_section, outcome_body, render_markdown, selfcheck_body,
+    shu_examples, source_block, zhu_section,
 };
-use super::{OverlayAction, PULSE_PERIOD_SECS, RenderCtx};
+use super::{OverlayAction, RenderCtx};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
 use crate::ui::i18n::Text;
-use crate::ui::style::{font, space};
+use crate::ui::style::{alpha, apply_kaiti, geometry, motion, radius, size, space, with_alpha};
 
-const MIN_BODY_VIEWPORT: f32 = 48.0;
-const FOOTER_RESERVE: f32 = super::FOOTER_HEIGHT + space::PARAGRAPH;
-const ARROW_SCROLL_STEP: f32 = 48.0;
-const SHIMMER_BAR_HEIGHT: f32 = 12.0;
-const SHIMMER_BAR_RADIUS: u8 = 4;
-const SHIMMER_ALPHA_MIN: u8 = 38;
-const SHIMMER_ALPHA_MAX: u8 = 96;
+const MIN_BODY_VIEWPORT: f32 = geometry::overlay::MIN_BODY_VIEWPORT;
+const FOOTER_RESERVE: f32 = geometry::overlay::FOOTER_HEIGHT + space::PARAGRAPH;
+const ARROW_SCROLL_STEP: f32 = geometry::overlay::ARROW_SCROLL_STEP;
+const SHIMMER_BAR_HEIGHT: f32 = geometry::overlay::SHIMMER_BAR_HEIGHT;
 
 fn record_scrolled_height(
     ui: &egui::Ui,
@@ -62,18 +57,16 @@ fn arrow_key_scroll(ui: &egui::Ui) {
 
 fn shimmer_bars(ui: &mut egui::Ui) {
     let now = ui.input(|i| i.time);
-    let ratios = [0.95, 0.78, 0.6];
+    let ratios = geometry::overlay::SHIMMER_BAR_RATIOS;
     let full = ui.available_width();
     let gap = space::ITEM;
     let total_h = ratios.len() as f32 * SHIMMER_BAR_HEIGHT + (ratios.len() - 1) as f32 * gap;
     let (rect, _response) = ui.allocate_exact_size(vec2(full, total_h), egui::Sense::hover());
     let weak = ui.visuals().weak_text_color();
     for (index, ratio) in ratios.iter().enumerate() {
-        let phase = (index as f64) * 0.9;
-        let wave = ((now / PULSE_PERIOD_SECS + phase).sin() + 1.0) / 2.0;
-        let alpha =
-            SHIMMER_ALPHA_MIN as f64 + wave * f64::from(SHIMMER_ALPHA_MAX - SHIMMER_ALPHA_MIN);
-        let alpha = (alpha as f32).round().clamp(0.0, 255.0) as u8;
+        let phase = (index as f64) * motion::PULSE_PHASE_STEP;
+        let wave = ((now / motion::PULSE_PERIOD + phase).sin() + 1.0) / 2.0;
+        let alpha01 = alpha::SHIMMER_MIN + wave as f32 * (alpha::SHIMMER_MAX - alpha::SHIMMER_MIN);
         let bar = egui::Rect::from_min_size(
             egui::pos2(
                 rect.min.x,
@@ -81,14 +74,10 @@ fn shimmer_bars(ui: &mut egui::Ui) {
             ),
             vec2(full * ratio, SHIMMER_BAR_HEIGHT),
         );
-        ui.painter().rect_filled(
-            bar,
-            SHIMMER_BAR_RADIUS,
-            egui::Color32::from_rgba_unmultiplied(weak.r(), weak.g(), weak.b(), alpha),
-        );
+        ui.painter()
+            .rect_filled(bar, radius::SHIMMER, with_alpha(weak, alpha01));
     }
-    ui.ctx()
-        .request_repaint_after(Duration::from_secs_f32(0.016));
+    ui.ctx().request_repaint_after(motion::FRAME_BEAT);
 }
 
 fn streamed_sections(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, fields: &StreamFields) {
@@ -98,7 +87,7 @@ fn streamed_sections(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, fields: &StreamFiel
     }
     if !fields.note.is_empty() {
         zhu_section(ui, ctx.text, |ui| {
-            apply_markdown_typography(ui, ZHU_FONT);
+            apply_kaiti(ui, size::ZHU);
             render_markdown(ui, ctx.state, &fields.note);
         });
     }
@@ -216,14 +205,14 @@ fn degraded_card(
     plain_card(ui, ctx, content_h, |ui, action| {
         ui.label(
             RichText::new(&ctx.text.gloss_popup_output_abnormal)
-                .size(font::NOTICE)
+                .size(size::NOTICE)
                 .color(ui.visuals().warn_fg_color),
         );
         ui.add_space(space::SECTION);
         if ui
             .button(
                 RichText::new(ctx.text.gloss_popup_retry.as_str())
-                    .size(font::CAPTION)
+                    .size(size::CAPTION)
                     .color(ui.visuals().strong_text_color()),
             )
             .clicked()
@@ -243,7 +232,7 @@ fn failed_card(
     plain_card(ui, ctx, content_h, |ui, action| {
         ui.label(
             RichText::new(failure_message(cause, ctx.text))
-                .size(font::NOTICE)
+                .size(size::NOTICE)
                 .color(ui.visuals().warn_fg_color),
         );
         if let Some(error_action) = *error_action {
@@ -251,7 +240,7 @@ fn failed_card(
             if ui
                 .button(
                     RichText::new(action_label(error_action, ctx.text))
-                        .size(font::CAPTION)
+                        .size(size::CAPTION)
                         .color(ui.visuals().strong_text_color()),
                 )
                 .clicked()

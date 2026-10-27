@@ -1,5 +1,5 @@
-"""约束门禁（路由）：聚合五个领域模块的判定，领域按数据源聚批划分——架构
-与评测隔离、日志出口与语言、界面边界、清单卫生、源码卫生。聚合保持既有形
+"""约束门禁（路由）：聚合六个领域模块的判定，领域按数据源聚批划分——架构
+与评测隔离、日志出口与语言、界面边界、界面样式、清单卫生、源码卫生。聚合保持既有形
 态：违规随执行流即时经统一诊断出口打到标准错误，通过项由命令入口汇总打印，
 退出码按全脚本统一约定（零为通过、一为发现违规、二为用法错误、三为无法完成
 判定）；本地约束配方与持续集成的同名检查作业共用此包，保证本地与远端判定
@@ -14,9 +14,17 @@ from typing import Any
 
 import gate_report
 
-from . import architecture, logging, manifest_hygiene, manifests, source_hygiene, ui_boundary
+from . import (
+    architecture,
+    logging,
+    manifest_hygiene,
+    manifests,
+    source_hygiene,
+    ui_boundary,
+    ui_style,
+)
 
-MODULES = (architecture, logging, ui_boundary, manifest_hygiene, source_hygiene)
+MODULES = (architecture, logging, ui_boundary, ui_style, manifest_hygiene, source_hygiene)
 
 
 def run(

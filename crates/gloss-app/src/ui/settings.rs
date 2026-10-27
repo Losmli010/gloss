@@ -25,7 +25,7 @@ use gloss_core::config::{BaseUrlError, Config, validate_base_url};
 use gloss_core::model::GlossError;
 
 use crate::ui::i18n::{Text, fill};
-use crate::ui::style::space;
+use crate::ui::style::{geometry, space};
 use crate::update::UpdateMsg;
 use crate::update::state::UpdateState;
 use controls::{action_row, notices, section};
@@ -195,7 +195,7 @@ pub fn draw(
     let errors = state.errors();
     egui::Frame::new()
         .fill(ui.visuals().window_fill)
-        .inner_margin(egui::Margin::same(WINDOW_PADDING))
+        .inner_margin(geometry::settings::WINDOW_PADDING)
         .show(ui, |ui| {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                 action_row(ui, state, &mut action, text);
@@ -219,8 +219,6 @@ pub fn draw(
         });
     action
 }
-
-const WINDOW_PADDING: i8 = 16;
 
 #[cfg(test)]
 mod tests {
@@ -447,10 +445,10 @@ mod tests {
                 *sink.borrow_mut() = frame_action;
             }
         });
-        crate::ui::context::apply_selection_colors(&harness.ctx);
+        crate::ui::context::apply_visuals(&harness.ctx);
         harness.set_size(egui::vec2(
-            crate::present::windows::SETTINGS_WIDTH as f32,
-            crate::present::windows::SETTINGS_HEIGHT as f32,
+            crate::ui::style::geometry::window::SETTINGS_WIDTH as f32,
+            crate::ui::style::geometry::window::SETTINGS_HEIGHT as f32,
         ));
         (harness, action)
     }
@@ -467,10 +465,10 @@ mod tests {
             .build_ui(move |ui| {
                 let _ = draw(ui, &mut state, &update, text);
             });
-        crate::ui::context::apply_selection_colors(&harness.ctx);
+        crate::ui::context::apply_visuals(&harness.ctx);
         harness.set_size(egui::vec2(
-            crate::present::windows::SETTINGS_WIDTH as f32,
-            crate::present::windows::SETTINGS_HEIGHT as f32,
+            crate::ui::style::geometry::window::SETTINGS_WIDTH as f32,
+            crate::ui::style::geometry::window::SETTINGS_HEIGHT as f32,
         ));
         harness
     }
@@ -800,6 +798,8 @@ mod tests {
                 &update_state_of(phase),
                 Locale::Zh,
             );
+            harness.run();
+            harness.get_by_label(label).scroll_to_me();
             harness.run();
             harness.get_by_label(label).click();
             harness.run();

@@ -102,9 +102,13 @@
   egui_extras 自己退回灰底纯文本且不返回错误——这里无从探测，接受该
   降级。逐段清 `underline`：egui_extras 0.36 把 `FontStyle::ITALIC` 误当
   UNDERLINE 判据，斜体注释会多出一条下划线；统一清掉，颜色与斜体仍由
-  主题决定。
-- `DARK_THEME_KEY` / `LIGHT_THEME_KEY`：egui_extras 的 `CodeTheme::dark/light`
-  在 `SyntectSettings.ts` 里按这两个键取主题；自定义色板只能顶替这两个内置
+  主题决定。样式统一阶段 2 起改收界面单元（`Ui`）：明暗判别经语义调色板
+  的解析点取（`Palette.is_dark`），本模块不再触碰界面库的明暗态；
+  测试经 `run_ui` 驱动（主题偏好由统一装入点的上下文携带）。
+- 语法主题键（原 `DARK_THEME_KEY` / `LIGHT_THEME_KEY`）：样式统一阶段 2
+  迁往 `style/palette.rs`（`SYNTAX_THEME_DARK`/`SYNTAX_THEME_LIGHT`）——
+  配色真相（语法色板）与索引键同住一处；egui_extras 的 `CodeTheme::dark/light`
+  仍按这两个键在 `SyntectSettings.ts` 里取主题，自定义色板只能顶替这两个内置
   条目（`CodeTheme` 字段私有，没有注入自定义 tmTheme 的公开入口）。
 - `settings`：进程内唯一的语法集与主题集。语法集用 two-face 的 bat 补集
   （syntect 默认集缺 Kotlin/Swift/Dart/Elixir/Julia/TOML/TypeScript）。

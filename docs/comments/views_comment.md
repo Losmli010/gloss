@@ -15,10 +15,12 @@
 
 - 方向键的单次滚动步长（约三行正文；按住由系统按键重复续推）。
 
-## `SHIMMER_BAR_HEIGHT` / `SHIMMER_BAR_RADIUS` / `SHIMMER_ALPHA_MIN` / `SHIMMER_ALPHA_MAX`
+## `SHIMMER_BAR_HEIGHT`（圆角与透明度档已迁出）
 
-- 骨架条高（「经显注未至」的占位行）；骨架条圆角。
-- 骨架条铺底的透明度档（0-255）：脉动在这个下限与峰值之间摆动。
+- 骨架条高（「经显注未至」的占位行）；圆角样式统一阶段 4 起取
+  `radius::SHIMMER`（4.5px，原就地 4）。
+- 骨架条铺底的透明度档：样式统一阶段 2 起住 `style/palette.rs` 的
+  `alpha::SHIMMER_MIN/MAX`（0..1 小数），脉动在这个下限与峰值之间摆动。
 
 ## `record_scrolled_height`
 

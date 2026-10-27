@@ -23,3 +23,10 @@
 ## `watermark`
 
 - 页脚水印的品牌名：应用名不翻译（与窗口标题同一原则）。
+
+## 字号规格与宋楷字体助手（已迁出，2026-10-27 样式统一阶段 4）
+
+原 `JING_FONT`/`ZHU_FONT`/`SHU_FONT`/`WORD_FONT`/`PHON_FONT`/`SEAL_FONT`/
+`SMALL_FONT` 七个字号常量与 `serif_font`/`kaiti_font` 两个构造器迁往
+`style/typography.rs`（`size` 角色档与 `serif`/`kai` 等角色构造器），
+对照值见排印记录。本文件只剩水印等展示文案的纯函数。

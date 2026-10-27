@@ -8,14 +8,10 @@ use egui::{RichText, Stroke};
 
 use super::{FieldError, FieldKey, SettingsAction, SettingsState, build_save};
 use crate::ui::i18n::{Text, fill};
-use crate::ui::style::{color, font, radius, space};
+use crate::ui::style::{geometry, palette, radius, size, space, stroke};
 
 fn accent(ui: &egui::Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        color::ACCENT_DARK
-    } else {
-        color::ACCENT_LIGHT
-    }
+    palette(ui).accent
 }
 
 pub(super) fn action_row(
@@ -25,15 +21,15 @@ pub(super) fn action_row(
     text: &Text,
 ) {
     ui.allocate_ui_with_layout(
-        egui::vec2(ui.available_width(), ACTION_ROW_HEIGHT),
+        egui::vec2(ui.available_width(), geometry::action::ROW_HEIGHT),
         egui::Layout::right_to_left(egui::Align::Center),
         |ui| {
             let save = ui.add(
                 egui::Button::new(
-                    RichText::new(text.gloss_settings_save.as_str()).color(egui::Color32::WHITE),
+                    RichText::new(text.gloss_settings_save.as_str()).color(palette(ui).on_accent),
                 )
                 .fill(accent(ui))
-                .corner_radius(egui::CornerRadius::same(6)),
+                .corner_radius(geometry::action::BUTTON_RADIUS),
             );
             if save.clicked() {
                 *action = build_save(state);
@@ -44,8 +40,6 @@ pub(super) fn action_row(
         },
     );
 }
-
-const ACTION_ROW_HEIGHT: f32 = 30.0;
 
 pub(super) fn notices(
     ui: &mut egui::Ui,
@@ -61,16 +55,16 @@ pub(super) fn notices(
                 &text.gloss_settings_invalid_summary,
                 &[("count", &count)],
             ))
-            .size(font::CAPTION)
-            .color(color::DANGER),
+            .size(size::CAPTION)
+            .color(palette(ui).danger),
         );
     }
     if let Some(notice) = &state.notice {
         ui.add_space(space::TIGHT);
         ui.label(
             RichText::new(notice.message(text))
-                .size(font::CAPTION)
-                .color(color::DANGER),
+                .size(size::CAPTION)
+                .color(palette(ui).danger),
         );
     }
 }
@@ -80,8 +74,8 @@ pub(super) fn section(ui: &mut egui::Ui, title: &str, content: impl FnOnce(&mut 
     ui.add_space(space::TIGHT);
     egui::Frame::new()
         .fill(ui.visuals().faint_bg_color)
-        .corner_radius(egui::CornerRadius::same(radius::CARD))
-        .inner_margin(egui::Margin::same(space::CARD_PADDING))
+        .corner_radius(radius::CARD)
+        .inner_margin(space::CARD_PADDING)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             content(ui);
@@ -91,7 +85,7 @@ pub(super) fn section(ui: &mut egui::Ui, title: &str, content: impl FnOnce(&mut 
 fn caption(ui: &mut egui::Ui, text: &str) {
     ui.label(
         RichText::new(text)
-            .size(font::CAPTION)
+            .size(size::CAPTION)
             .color(ui.visuals().weak_text_color()),
     );
 }
@@ -102,10 +96,7 @@ pub(super) fn add_input<'t>(
     build: impl FnOnce(egui::TextEdit<'t>) -> egui::TextEdit<'t>,
 ) -> egui::Response {
     ui.scope(|ui| {
-        if !ui.visuals().dark_mode {
-            ui.visuals_mut().widgets.inactive.bg_stroke =
-                Stroke::new(1.0, egui::Color32::from_gray(0xE2));
-        }
+        ui.visuals_mut().widgets.inactive.bg_stroke = palette(ui).input_border;
         ui.add(build(egui::TextEdit::singleline(text)))
     })
     .inner
@@ -124,7 +115,7 @@ pub(super) fn underline_if_error(
                 egui::pos2(rect.left(), rect.bottom()),
                 egui::pos2(rect.right(), rect.bottom()),
             ],
-            Stroke::new(1.5, color::DANGER),
+            Stroke::new(stroke::UNDERLINE, palette(ui).danger),
         );
     }
 }
@@ -138,19 +129,15 @@ pub(super) fn error_text(
     if let Some(error) = errors.get(&key) {
         ui.label(
             RichText::new(error.message(text))
-                .size(font::CAPTION)
-                .color(color::DANGER),
+                .size(size::CAPTION)
+                .color(palette(ui).danger),
         );
     }
 }
 
-const TOGGLE_TRACK: egui::Vec2 = egui::vec2(36.0, 20.0);
-const TOGGLE_KNOB_RADIUS: f32 = 7.0;
-const TOGGLE_KNOB_INSET: f32 = 3.0;
-const TOGGLE_KNOB_ON: egui::Color32 = egui::Color32::WHITE;
-
 pub(super) fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
-    let (rect, mut response) = ui.allocate_exact_size(TOGGLE_TRACK, egui::Sense::click());
+    let (rect, mut response) =
+        ui.allocate_exact_size(geometry::toggle::TRACK, egui::Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, "")
     });
@@ -159,9 +146,10 @@ pub(super) fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response 
         response.mark_changed();
     }
 
+    let colors = palette(ui);
     let visuals = ui.visuals();
     let (track, knob) = if *on {
-        (visuals.selection.bg_fill, TOGGLE_KNOB_ON)
+        (colors.accent, colors.on_accent)
     } else {
         (visuals.extreme_bg_color, visuals.weak_text_color())
     };
@@ -176,13 +164,13 @@ pub(super) fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response 
         );
     }
     let knob_x = if *on {
-        rect.right() - TOGGLE_KNOB_INSET - TOGGLE_KNOB_RADIUS
+        rect.right() - geometry::toggle::KNOB_INSET - geometry::toggle::KNOB_RADIUS
     } else {
-        rect.left() + TOGGLE_KNOB_INSET + TOGGLE_KNOB_RADIUS
+        rect.left() + geometry::toggle::KNOB_INSET + geometry::toggle::KNOB_RADIUS
     };
     painter.circle_filled(
         egui::pos2(knob_x, rect.center().y),
-        TOGGLE_KNOB_RADIUS,
+        geometry::toggle::KNOB_RADIUS,
         knob,
     );
     response.on_hover_cursor(egui::CursorIcon::PointingHand)

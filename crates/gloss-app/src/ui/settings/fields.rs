@@ -13,7 +13,7 @@ use super::controls::{
 };
 use super::{FieldError, FieldKey, SettingsAction, SettingsState};
 use crate::ui::i18n::{Text, fill};
-use crate::ui::style::space;
+use crate::ui::style::{geometry, space};
 use crate::update::UpdateMsg;
 use crate::update::state::{FailStep, UpdatePhase, UpdateState};
 
@@ -34,7 +34,7 @@ pub(super) fn connection_section(
 
     ui.label("API Key");
     ui.horizontal(|ui| {
-        let input_width = ui.available_width() - CLEAR_BUTTON_RESERVE;
+        let input_width = ui.available_width() - geometry::settings::CLEAR_BUTTON_RESERVE;
         let typed = add_input(ui, &mut state.api_key, |e| {
             e.password(true)
                 .hint_text(if state.clear_key {
@@ -69,8 +69,6 @@ pub(super) fn connection_section(
     error_text(ui, errors, FieldKey::Model, text);
     choice_hint(ui, &text.gloss_settings_model_hint);
 }
-
-const CLEAR_BUTTON_RESERVE: f32 = 88.0;
 
 pub(super) fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text: &Text) {
     choice_row(ui, &text.gloss_settings_target_lang, |ui| {

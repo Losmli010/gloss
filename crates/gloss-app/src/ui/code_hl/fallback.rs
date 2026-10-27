@@ -13,7 +13,8 @@ use egui::text::{ByteIndex, LayoutJob, LayoutSection, TextFormat, TextWrapping};
 use gloss_core::log::{thread, warn};
 use regex::Regex;
 
-use super::palette::{Class, plain_color};
+use super::palette::Class;
+use crate::ui::style::SyntaxPalette;
 
 pub(super) fn tokens(text: &str) -> Vec<(Range<usize>, Class)> {
     let Some(re) = compiled() else {
@@ -39,13 +40,13 @@ pub(super) fn tokens(text: &str) -> Vec<(Range<usize>, Class)> {
 pub(crate) fn fallback_job(
     source: &str,
     font_id: &FontId,
-    dark: bool,
+    syntax: &SyntaxPalette,
     wrap_width: f32,
     line_height: f32,
 ) -> LayoutJob {
     let plain = TextFormat {
         line_height: Some(line_height),
-        ..TextFormat::simple(font_id.clone(), plain_color(dark))
+        ..TextFormat::simple(font_id.clone(), syntax.plain)
     };
     let mut job = LayoutJob {
         text: source.to_owned(),
@@ -70,7 +71,7 @@ pub(crate) fn fallback_job(
             leading_space: 0.0,
             byte_range: ByteIndex(range.start)..ByteIndex(range.end),
             format: TextFormat {
-                color: class.color(dark),
+                color: class.pick(syntax),
                 italics: class.italic(),
                 ..plain.clone()
             },

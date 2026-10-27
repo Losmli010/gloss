@@ -60,22 +60,15 @@ pub(crate) use card::clear_cached_text_galleys;
 
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
-use std::time::Duration;
 
-use egui::{CornerRadius, Frame, Margin, Stroke};
+use egui::{Frame, Stroke};
 use egui_commonmark::CommonMarkCache;
 use icon::app_icon_image;
 use image::decode_attached;
 
-use super::style::{radius, space, stroke};
+use super::style::{geometry, motion, radius, space, stroke};
 use crate::machine::{ErrorAction, OverlayView};
 use crate::ui::i18n::Text;
-
-pub const WIDTH: f32 = 480.0;
-pub(super) const HEADER_ICON: f32 = 20.0;
-pub(super) const FOOTER_HEIGHT: f32 = 20.0;
-pub(super) const PULSE_PERIOD_SECS: f64 = 1.2;
-const APPEAR_SECONDS: f32 = 0.18;
 
 struct RenderCtx<'a> {
     state: &'a RenderState,
@@ -112,7 +105,9 @@ impl RenderState {
     }
 
     fn icon_texture(&self, ctx: &egui::Context) -> Option<egui::TextureHandle> {
-        let side_px = (HEADER_ICON * ctx.pixels_per_point()).round().max(1.0) as u32;
+        let side_px = (geometry::overlay::HEADER_ICON * ctx.pixels_per_point())
+            .round()
+            .max(1.0) as u32;
         let mut slot = self.icon.borrow_mut();
         if slot
             .as_ref()
@@ -184,7 +179,7 @@ fn appear_t0_id() -> egui::Id {
 }
 
 fn appear_progress(elapsed_secs: f64) -> f32 {
-    (elapsed_secs / f64::from(APPEAR_SECONDS)).clamp(0.0, 1.0) as f32
+    (elapsed_secs / f64::from(motion::APPEAR)).clamp(0.0, 1.0) as f32
 }
 
 fn appear_fade_in(ui: &mut egui::Ui) {
@@ -194,8 +189,7 @@ fn appear_fade_in(ui: &mut egui::Ui) {
         .memory_mut(|mem| *mem.data.get_temp_mut_or_insert_with(appear_t0_id(), || now));
     let progress = appear_progress(now - started_at);
     if progress < 1.0 {
-        ui.ctx()
-            .request_repaint_after(Duration::from_secs_f32(0.016));
+        ui.ctx().request_repaint_after(motion::FRAME_BEAT);
     }
     ui.set_opacity(progress);
 }
@@ -228,9 +222,9 @@ pub fn draw(
     let mut content_h = 0.0;
     Frame::new()
         .fill(fill)
-        .stroke(Stroke::new(stroke::CARD, window_stroke.color))
-        .corner_radius(CornerRadius::same(radius::CARD))
-        .inner_margin(Margin::same(space::CARD_PADDING))
+        .stroke(Stroke::new(stroke::HAIRLINE, window_stroke.color))
+        .corner_radius(radius::CARD)
+        .inner_margin(space::CARD_PADDING)
         .show(ui, |ui| {
             let ctx = RenderCtx {
                 state,
@@ -244,7 +238,7 @@ pub fn draw(
         });
 
     output.sizing = OverlaySizing {
-        height: (content_h + 2.0 * space::CARD_PADDING as f32 + stroke::CARD).round(),
+        height: (content_h + 2.0 * space::CARD_PADDING + stroke::HAIRLINE).round(),
     };
     output
 }
@@ -254,6 +248,8 @@ mod kittest_tests {
 
     use std::cell::RefCell;
     use std::rc::Rc;
+
+    const WIDTH: f32 = crate::ui::style::geometry::window::OVERLAY_WIDTH as f32;
 
     use egui::vec2;
     use egui_kittest::{Harness, kittest::NodeT, kittest::Queryable};
@@ -523,7 +519,7 @@ mod kittest_tests {
             return false;
         }
         crate::ui::context::install_kittest_fonts(ctx);
-        crate::ui::context::apply_selection_colors(ctx);
+        crate::ui::context::apply_visuals(ctx);
         ctx.request_repaint();
         true
     }
@@ -940,7 +936,7 @@ mod kittest_tests {
         harness.run();
         let strip = harness.get_by_label("拖动浮层").rect();
         assert!(
-            strip.height() >= HEADER_ICON,
+            strip.height() >= geometry::overlay::HEADER_ICON,
             "热区与页头行同高，覆盖图标与动作区之间的整段行身: {strip:?}"
         );
         let gear = harness.get_by_label("设置").rect();

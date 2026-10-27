@@ -1,10 +1,12 @@
-//! 界面库（egui）上下文的统一装入点：字体与主题在此一次装好。
+//! 界面库（egui）上下文的统一装入点：字体、主题与界面样式在此一次装好。
 //!
 //! 浮层与设置窗各持一个独立的界面库上下文（字体表与选项都不共享），
 //! 任何“每个窗口都要有”的设置都必须逐个上下文施加。本模块是唯一的施加入口：
 //! 建立上下文、运行中的偏好重套、系统字体的
 //! 延迟补装三条路径共用同一个装入助手——新增这类设置项
 //! 时只改该助手，各条路径自动跟上。
+//! 界面样式的灌装是语义调色板到界面库两棵样式树的一次性写入：
+//! 明暗两棵树都灌满品牌语义，控件随主题自动跟随，视图层不再有取色分支。
 
 use std::time::Instant;
 
@@ -67,16 +69,35 @@ fn install(ctx: &Context, theme: Theme) {
     ctx.set_fonts(definitions);
     super::popup::clear_cached_text_galleys(ctx);
     ctx.set_theme(theme_preference(theme));
-    apply_selection_colors(ctx);
+    apply_visuals(ctx);
 }
 
-pub(crate) fn apply_selection_colors(ctx: &Context) {
+pub(crate) fn apply_visuals(ctx: &Context) {
     ctx.style_mut_of(egui::Theme::Light, |style| {
-        style.visuals.selection.bg_fill = super::style::color::ACCENT_LIGHT;
+        fill_style(style, &super::style::LIGHT);
     });
     ctx.style_mut_of(egui::Theme::Dark, |style| {
-        style.visuals.selection.bg_fill = super::style::color::ACCENT_DARK;
+        fill_style(style, &super::style::DARK);
     });
+}
+
+fn fill_style(style: &mut egui::Style, colors: &super::style::Palette) {
+    fill_visuals(&mut style.visuals, colors);
+    fill_spacing(&mut style.spacing);
+    style.animation_time = super::style::motion::APPEAR;
+}
+
+fn fill_visuals(visuals: &mut egui::Visuals, colors: &super::style::Palette) {
+    visuals.selection.bg_fill = colors.accent;
+}
+
+fn fill_spacing(spacing: &mut egui::Spacing) {
+    use super::style::space;
+    spacing.item_spacing = egui::vec2(space::ITEM, space::ITEM);
+    spacing.button_padding = egui::vec2(space::TIGHT, space::TIGHT);
+    let card_margin = egui::Margin::from(space::CARD_PADDING);
+    spacing.menu_margin = card_margin;
+    spacing.window_margin = card_margin;
 }
 
 #[cfg(test)]
@@ -136,7 +157,7 @@ mod tests {
                     fonts
                         .definitions()
                         .families
-                        .get(&egui::FontFamily::Name(fonts::FONT_SERIF_NAME.into()))
+                        .get(&fonts::serif_family())
                         .is_some_and(|chain| !chain.is_empty())
                 });
             });
