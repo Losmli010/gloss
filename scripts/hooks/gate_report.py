@@ -110,6 +110,10 @@ REGISTERED_RULES = frozenset(
         "ALLOW-REASON",
         "EMPTY-SURFACE",
         "INFRA",
+        "UI-STYLE-COLOR",
+        "UI-STYLE-DARK",
+        "UI-STYLE-FONT",
+        "UI-STYLE-CONST",
     }
 )
 
@@ -201,6 +205,7 @@ ALLOW_REASON_MARKERS = (
     "lines:allow",
     "i18n:allow",
     "deps:allow",
+    "style:allow",
 )
 
 

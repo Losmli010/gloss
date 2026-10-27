@@ -157,7 +157,7 @@ mod tests {
                     fonts
                         .definitions()
                         .families
-                        .get(&egui::FontFamily::Name(fonts::FONT_SERIF_NAME.into()))
+                        .get(&fonts::serif_family())
                         .is_some_and(|chain| !chain.is_empty())
                 });
             });
