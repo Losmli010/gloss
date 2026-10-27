@@ -11,4 +11,6 @@ pub const PULSE_PERIOD: f64 = 1.2;
 
 pub const PULSE_PHASE_STEP: f64 = 0.9;
 
+pub const COPY_FEEDBACK: f64 = 1.6;
+
 pub const FRAME_BEAT: Duration = Duration::from_millis(16);

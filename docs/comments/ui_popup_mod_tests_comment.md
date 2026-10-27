@@ -34,3 +34,22 @@
 
 - 疏条目经 markdown 渲染：段落文本是 TextRun 节点，精确标签查询会
   被标签提供者过滤规则吞掉——沿用注文的 contains 惯例。
+
+## 待确认卡与复制钮家族（2026-10-27，发送前确认方案）
+
+- `pending_card_exposes_the_source_and_its_two_exits`：待确认卡的无障碍
+  面与两个出口一次跑两遍 harness——主钮「注疏」上交 `Confirm`、取消钮
+  走共用收起路径上交 `Dismiss`；两遍而不是一遍，是因为动作上交一次即
+  消费，两个出口没法在同一次渲染里先后验证。
+- `the_done_card_copy_button_submits_copy_annotation_then_flips_to_copied`：
+  点击后用 `run_steps(2)` 而非 `run()`——「已复制」反馈期内页脚按帧节拍
+  请求重绘，`run()` 会撞 kittest 默认 max_steps 上限 panic（与长选区
+  测试的教训同源）；反馈出现本身即断言（`get_by_label_contains`）。
+- `degraded_and_streaming_cards_take_no_copy_button`：负向断言用
+  `query_all_by_label(...).next().is_none()` 而不是精确 get——要证的是
+  「不存在」，存在才红。
+- 中文夹具入 kittest：待确认卡夹具走 zh 文案（确认卡是用户手按的关键
+  界面，中文形态要在 L2 层可查可断）；kittest 上下文经
+  `install_kittest_fonts` 装 CJK 字体后中文不再是豆腐块——此前「夹具
+  一律英文」的口径自此只为**量宽敏感**的用例保留（长选区测试仍用英文，
+  见上节）。

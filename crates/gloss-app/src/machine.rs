@@ -1,10 +1,13 @@
 //! 任务状态机与浮层视图（函数式内核）：纯状态转移，不做输入输出（IO）。
 //! 通道23由壳发送——去向分别是平台事件线程与后台运行时（tokio）；通道14由壳
-//! 消费——来源分别是平台事件与回传事件；浮层显隐与日志亦在壳侧。两段式“探测—提交”：
-//! 探测只领编号、冻结任务选项，不改状态也不取消在途任务；产物到达才提交——编号提升为代数、
-//! 旧任务取消让位、视图换流式卡。代数只在提交路径赋值，
-//! 回传按它过滤陈旧。敏感闸门两处：场景闸门在触发决策（触发前），内容闸门在
-//! 提交的文本分支（下发前，命中保留当前显示，图像没有可扫描文本故不设闸门）。
+//! 消费——来源分别是平台事件与回传事件；浮层显隐与日志亦在壳侧。三段式
+//! “探测—确认—提交”：探测只领编号、冻结任务选项，不改状态也不取消在途任务；
+//! 产物到达先落待确认卡（视图换待确认形态，代数提升、旧任务让位，但不取消
+//! 令牌、不下发通道3）——用户点确认后才走确认入口下发推理；确认前浮层里
+//! 没有在途推理，取消零成本。代数只在提交路径赋值，回传按它过滤陈旧。
+//! 敏感闸门两处：场景闸门在触发决策（触发前），内容闸门在提交的文本分支
+//! （待确认卡出现之前，命中保留当前显示，图像没有可扫描文本故不设闸门）
+//! ——确认不是闸门的放行出口。
 
 mod policy;
 mod types;
@@ -56,6 +59,7 @@ impl TaskStateMachine {
     pub fn state(&self) -> AppState {
         match &self.overlay_view {
             None => AppState::Idle,
+            Some(OverlayView::Pending { .. }) => AppState::PendingConfirm,
             Some(OverlayView::Streaming { .. }) => AppState::Translating,
             Some(OverlayView::Outcome { .. }) => AppState::Show,
             Some(OverlayView::Failed { .. }) => AppState::Error,
@@ -157,7 +161,8 @@ impl TaskStateMachine {
         self.active_request = None;
         self.generation = id;
         self.attached_image = attached;
-        InputOutcome::Dispatch(self.begin_run(input, options))
+        self.overlay_view = Some(OverlayView::Pending { input, options });
+        InputOutcome::Pending
     }
 
     pub fn commit_probe_failed(&mut self, probe_id: u64, error: &GlossError) -> FailureOutcome {
@@ -280,6 +285,16 @@ impl TaskStateMachine {
             return None;
         }
         let (input, options) = self.active_request.take()?;
+        Some(self.begin_run(input, options))
+    }
+
+    pub fn confirm_pending(&mut self) -> Option<RunRequest> {
+        if !matches!(self.overlay_view, Some(OverlayView::Pending { .. })) {
+            return None;
+        }
+        let Some(OverlayView::Pending { input, options }) = self.overlay_view.take() else {
+            return None;
+        };
         Some(self.begin_run(input, options))
     }
 
@@ -407,11 +422,26 @@ mod tests {
         }
     }
 
-    fn dispatched(outcome: InputOutcome) -> RunRequest {
-        match outcome {
-            InputOutcome::Dispatch(request) => request,
-            other => panic!("expected a dispatch, got {other:?}"),
-        }
+    fn committed(outcome: InputOutcome) {
+        assert!(
+            matches!(outcome, InputOutcome::Pending),
+            "expected a pending confirmation card, got {outcome:?}"
+        );
+    }
+
+    fn confirmed(machine: &mut TaskStateMachine) -> RunRequest {
+        machine
+            .confirm_pending()
+            .expect("the pending card must confirm into a dispatch")
+    }
+
+    fn commit_confirmed(
+        machine: &mut TaskStateMachine,
+        probe_id: u64,
+        input: TaskInput,
+    ) -> RunRequest {
+        committed(machine.commit_probe(probe_id, input));
+        confirmed(machine)
     }
 
     fn blocked_by_app() -> SceneFacts {
@@ -607,7 +637,7 @@ mod tests {
             "the gesture dispatches no kind; the LLM layer classifies"
         );
 
-        let request = dispatched(machine.commit_probe(1, text_input("fn main() {}")));
+        let request = commit_confirmed(&mut machine, 1, text_input("fn main() {}"));
         assert_eq!(
             request.options.model.as_ref(),
             "frozen-model",
@@ -628,7 +658,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(probe(&mut explicit, &chosen), 1);
-        let request = dispatched(explicit.commit_probe(1, text_input("hello")));
+        let request = commit_confirmed(&mut explicit, 1, text_input("hello"));
         assert_eq!(
             request.options.prompt_locale,
             Some(Locale::En),
@@ -639,7 +669,7 @@ mod tests {
         let factory = Config::default();
         assert_eq!(factory.language, Language::System);
         assert_eq!(probe_using(&mut following, &factory, Locale::En), 1);
-        let request = dispatched(following.commit_probe(1, text_input("hello")));
+        let request = commit_confirmed(&mut following, 1, text_input("hello"));
         assert_eq!(
             request.options.prompt_locale,
             Some(Locale::En),
@@ -664,7 +694,7 @@ mod tests {
         };
 
         assert_eq!(probe(&mut machine, &before), 1);
-        let request = dispatched(machine.commit_probe(1, text_input("hello")));
+        let request = commit_confirmed(&mut machine, 1, text_input("hello"));
         assert_eq!(
             request.options.target_lang,
             Some(Lang::Ja),
@@ -681,18 +711,147 @@ mod tests {
             "the prompt locale is frozen with the rest of the options"
         );
         assert_eq!(probe(&mut machine, &after), 2);
-        let request = dispatched(machine.commit_probe(2, text_input("world")));
+        let request = commit_confirmed(&mut machine, 2, text_input("world"));
         assert_eq!(request.options.target_lang, Some(Lang::Ko));
         assert_eq!(request.options.model.as_ref(), "after-model");
         assert_eq!(request.options.prompt_locale, Some(Locale::Zh));
     }
 
     #[test]
-    fn commit_probe_yields_run_request_and_supersedes_the_previous_session() {
+    fn commit_lands_the_pending_card_and_confirm_dispatches_the_task() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
 
-        let request = dispatched(machine.commit_probe(1, text_input("hello")));
+        committed(machine.commit_probe(1, text_input("hello")));
+        assert_eq!(machine.generation(), 1, "the probe id is promoted");
+        assert_eq!(machine.state(), AppState::PendingConfirm);
+        assert!(
+            machine.current_cancel().is_none(),
+            "the pending stage holds no in-flight task: no token, no channel 3"
+        );
+        assert!(machine.probe_id().is_none(), "the probe is consumed");
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Pending {
+                input: TaskInput::Text { text },
+                ..
+            }) if text == "hello"
+        ));
+
+        let request = confirmed(&mut machine);
+        assert_eq!(request.generation, 1);
+        assert_eq!(machine.state(), AppState::Translating);
+        assert!(machine.current_cancel().is_some());
+        assert!(matches!(
+            machine.overlay_view(),
+            Some(OverlayView::Streaming { source, .. }) if source == "hello"
+        ));
+
+        assert!(
+            machine.confirm_pending().is_none(),
+            "a consumed pending card accepts no duplicate confirmation"
+        );
+        assert_eq!(
+            machine.generation(),
+            1,
+            "confirmation never bumps the generation"
+        );
+    }
+
+    #[test]
+    fn confirm_pending_carries_the_frozen_options_snapshot() {
+        let mut machine = TaskStateMachine::new();
+        let config = Config {
+            target_lang: Lang::Ja,
+            model: "frozen-model".into(),
+            ..Default::default()
+        };
+        assert_eq!(probe(&mut machine, &config), 1);
+        committed(machine.commit_probe(1, text_input("hello")));
+
+        let request = confirmed(&mut machine);
+        assert_eq!(
+            request.options.model.as_ref(),
+            "frozen-model",
+            "the model freezes from the probe-time snapshot across the confirmation"
+        );
+        assert_eq!(
+            request.options.target_lang,
+            Some(Lang::Ja),
+            "target language still freezes from the probe-time snapshot"
+        );
+    }
+
+    #[test]
+    fn confirm_pending_is_refused_outside_the_pending_card() {
+        let mut machine = TaskStateMachine::new();
+        assert!(
+            machine.confirm_pending().is_none(),
+            "no card, no confirmation"
+        );
+
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+        commit_confirmed(&mut machine, 1, text_input("hello"));
+        assert!(
+            machine.confirm_pending().is_none(),
+            "a streaming session has nothing to confirm"
+        );
+        assert!(machine.accept_done(1, plain_outcome("产物")));
+        assert!(
+            machine.confirm_pending().is_none(),
+            "a settled outcome card has nothing to confirm"
+        );
+        assert_eq!(
+            machine.accept_failed(1, &GlossError::EngineNetwork),
+            FailureOutcome::Ignored,
+            "the outcome already settled this generation"
+        );
+        machine.hide_overlay();
+    }
+
+    #[test]
+    fn hide_drops_the_pending_card_without_a_token_to_cancel() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+        committed(machine.commit_probe(1, text_input("hello")));
+        machine.hide_overlay();
+        assert_eq!(machine.state(), AppState::Idle);
+        assert!(machine.overlay_view().is_none());
+        assert!(
+            machine.confirm_pending().is_none(),
+            "a dismissed pending card must not resurrect into a dispatch"
+        );
+    }
+
+    #[test]
+    fn a_new_commit_supersedes_the_pending_card_and_the_stale_confirm_is_refused() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+        committed(machine.commit_probe(1, text_input("旧待确认")));
+
+        assert_eq!(probe(&mut machine, &Config::default()), 2);
+        committed(machine.commit_probe(2, text_input("新待确认")));
+        let request = confirmed(&mut machine);
+        assert!(
+            matches!(
+                request.input,
+                TaskInput::Text { ref text } if text == "新待确认"
+            ),
+            "the confirmation dispatches only the card that is on screen"
+        );
+        assert_eq!(request.generation, 2);
+        assert!(
+            machine.confirm_pending().is_none(),
+            "the superseded card's confirmation is stale and refused"
+        );
+    }
+
+    #[test]
+    fn commit_probe_promotes_the_generation_and_supersedes_the_previous_session() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+
+        let request = commit_confirmed(&mut machine, 1, text_input("hello"));
         assert_eq!(request.generation, 1);
         assert_eq!(machine.generation(), 1, "the probe id is promoted");
         assert_eq!(machine.state(), AppState::Translating);
@@ -702,15 +861,19 @@ mod tests {
         let old_cancel = request.cancel;
         assert_eq!(probe(&mut machine, &Config::default()), 2);
         assert_eq!(machine.state(), AppState::Translating, "探测不动当前会话");
-        dispatched(machine.commit_probe(2, text_input("world")));
+        committed(machine.commit_probe(2, text_input("world")));
         assert_eq!(machine.generation(), 2);
+        assert_eq!(machine.state(), AppState::PendingConfirm, "提交落待确认卡");
         assert!(
             old_cancel.is_cancelled(),
             "commit must cancel the superseded in-flight task"
         );
         assert!(matches!(
             machine.overlay_view(),
-            Some(OverlayView::Streaming { source, .. }) if source == "world"
+            Some(OverlayView::Pending {
+                input: TaskInput::Text { text },
+                ..
+            }) if text == "world"
         ));
 
         assert!(
@@ -726,7 +889,7 @@ mod tests {
     fn a_probe_leaves_a_visible_session_completely_untouched() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let request = dispatched(machine.commit_probe(1, text_input("hello")));
+        let request = commit_confirmed(&mut machine, 1, text_input("hello"));
         machine.accept_chunk(1, "已到达的正文".into());
         let view_before = machine.overlay_view().cloned();
         let state_before = machine.state();
@@ -767,7 +930,7 @@ mod tests {
     fn classified_kind_updates_the_streaming_chip_only_once_current() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_probe(1, text_input("hello")));
+        commit_confirmed(&mut machine, 1, text_input("hello"));
 
         assert!(
             !machine.accept_classified(0, TaskKind::TranslateWord),
@@ -793,12 +956,13 @@ mod tests {
     fn the_streaming_view_waits_unclassified_until_the_llm_layer_reports() {
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
-        dispatched(machine.commit_probe(
+        commit_confirmed(
+            &mut machine,
             probe_id,
             TaskInput::Text {
                 text: "hello".into(),
             },
-        ));
+        );
         assert!(
             matches!(
                 machine.overlay_view(),
@@ -815,7 +979,7 @@ mod tests {
     fn the_repair_marker_clears_the_stream_and_refuses_stale_rounds() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_probe(1, text_input("hello")));
+        commit_confirmed(&mut machine, 1, text_input("hello"));
         machine.accept_chunk(1, "上一轮的违约正文".into());
 
         assert!(
@@ -855,7 +1019,7 @@ mod tests {
         );
 
         assert_eq!(probe(&mut machine, &Config::default()), 2);
-        dispatched(machine.commit_probe(2, text_input("新任务")));
+        commit_confirmed(&mut machine, 2, text_input("新任务"));
         assert!(
             machine.accept_repairing(2),
             "a fresh session accepts its own repair markers"
@@ -866,7 +1030,7 @@ mod tests {
     fn a_degraded_done_keeps_the_request_and_retry_redispatches_it() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let original = dispatched(machine.commit_probe(1, text_input("hello")));
+        let original = commit_confirmed(&mut machine, 1, text_input("hello"));
         machine.accept_chunk(1, "{\"note\":".into());
         assert!(machine.accept_done(1, degraded_outcome()));
         assert_eq!(machine.state(), AppState::Show);
@@ -905,7 +1069,7 @@ mod tests {
         );
 
         assert_eq!(probe(&mut machine, &Config::default()), 2);
-        dispatched(machine.commit_probe(2, text_input("world")));
+        commit_confirmed(&mut machine, 2, text_input("world"));
         assert!(machine.accept_done(2, plain_outcome("正常产物")));
         assert_eq!(machine.state(), AppState::Show);
         assert!(
@@ -918,7 +1082,7 @@ mod tests {
     fn hide_abandons_inflight_and_drops_late_events() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let request = dispatched(machine.commit_probe(1, text_input("hello")));
+        let request = commit_confirmed(&mut machine, 1, text_input("hello"));
         let token = request.cancel;
 
         machine.hide_overlay();
@@ -987,7 +1151,7 @@ mod tests {
         machine.drop_probe();
 
         assert_eq!(probe(&mut machine, &Config::default()), 2);
-        let request = dispatched(machine.commit_probe(2, text_input("hello")));
+        let request = commit_confirmed(&mut machine, 2, text_input("hello"));
         machine.accept_chunk(2, "已到达的正文".into());
         assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 3);
         assert_eq!(machine.state(), AppState::Translating);
@@ -1051,26 +1215,18 @@ mod tests {
     }
 
     #[test]
-    fn pasteboard_commit_retains_the_image_and_dispatches() {
+    fn pasteboard_commit_retains_the_image_and_parks_the_pending_card() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 1);
         let png: Arc<[u8]> = Arc::from(&b"png-bytes"[..]);
-        let request = dispatched(machine.commit_probe(
+        committed(machine.commit_probe(
             1,
             TaskInput::Image {
                 png: Arc::clone(&png),
             },
         ));
-        assert_eq!(request.generation, 1);
-        assert_eq!(
-            request.input,
-            TaskInput::Image {
-                png: Arc::clone(&png)
-            },
-            "the dispatch carries the image input"
-        );
         assert_eq!(machine.generation(), 1, "the probe id is promoted");
-        assert_eq!(machine.state(), AppState::Translating);
+        assert_eq!(machine.state(), AppState::PendingConfirm);
         assert!(machine.probe_id().is_none(), "the probe is consumed");
         assert!(
             machine
@@ -1078,6 +1234,18 @@ mod tests {
                 .is_some_and(|attached| Arc::ptr_eq(attached, &png)),
             "the image is retained by Arc without copying bytes"
         );
+        assert!(machine.current_cancel().is_none());
+
+        let request = confirmed(&mut machine);
+        assert_eq!(request.generation, 1);
+        assert_eq!(
+            request.input,
+            TaskInput::Image {
+                png: Arc::clone(&png)
+            },
+            "the confirmation dispatch carries the image input"
+        );
+        assert_eq!(machine.state(), AppState::Translating);
         assert!(
             matches!(
                 machine.overlay_view(),
@@ -1106,7 +1274,7 @@ mod tests {
             "the superseded probe's late failure is stale too"
         );
         assert_eq!(
-            dispatched(machine.commit_probe(2, image_input(b"png"))).generation,
+            commit_confirmed(&mut machine, 2, image_input(b"png")).generation,
             2
         );
 
@@ -1120,7 +1288,7 @@ mod tests {
             InputOutcome::Ignored
         ));
         assert_eq!(
-            dispatched(machine.commit_probe(3, text_input("新选区"))).generation,
+            commit_confirmed(&mut machine, 3, text_input("新选区")).generation,
             3
         );
     }
@@ -1137,7 +1305,7 @@ mod tests {
             "a pasteboard probe only accepts image products"
         );
         assert_eq!(
-            dispatched(machine.commit_probe(1, image_input(b"png"))).generation,
+            commit_confirmed(&mut machine, 1, image_input(b"png")).generation,
             1,
             "the probe survives the mismatch and still commits"
         );
@@ -1147,10 +1315,10 @@ mod tests {
     fn pasteboard_commit_supersedes_and_a_new_task_clears_the_image() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let old = dispatched(machine.commit_probe(1, text_input("旧任务")));
+        let old = commit_confirmed(&mut machine, 1, text_input("旧任务"));
         assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 2);
         let png: Arc<[u8]> = Arc::from(&b"png-bytes"[..]);
-        dispatched(machine.commit_probe(
+        committed(machine.commit_probe(
             2,
             TaskInput::Image {
                 png: Arc::clone(&png),
@@ -1163,7 +1331,7 @@ mod tests {
         assert!(machine.attached_image().is_some());
 
         assert_eq!(probe(&mut machine, &Config::default()), 3);
-        dispatched(machine.commit_probe(3, text_input("回到文本")));
+        committed(machine.commit_probe(3, text_input("回到文本")));
         assert!(
             machine.attached_image().is_none(),
             "a text task clears the attached image"
@@ -1174,7 +1342,7 @@ mod tests {
     fn hide_overlay_clears_the_attached_image() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_probe(1, image_input(b"png")));
+        committed(machine.commit_probe(1, image_input(b"png")));
         assert!(machine.attached_image().is_some());
         machine.hide_overlay();
         assert!(
@@ -1213,12 +1381,13 @@ mod tests {
         let mut machine = TaskStateMachine::new();
         assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 1);
         let png: Arc<[u8]> = Arc::from(&b"png-bytes"[..]);
-        dispatched(machine.commit_probe(
+        commit_confirmed(
+            &mut machine,
             1,
             TaskInput::Image {
                 png: Arc::clone(&png),
             },
-        ));
+        );
         machine.accept_chunk(1, "{\"note\":\"描述".into());
         assert_eq!(
             machine.accept_failed(1, &GlossError::EngineNetwork),
@@ -1249,7 +1418,7 @@ mod tests {
     fn failed_guard_matches_translating_only() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_probe(1, text_input("hello")));
+        commit_confirmed(&mut machine, 1, text_input("hello"));
         assert_eq!(
             machine.accept_failed(1, &GlossError::EngineNetwork),
             FailureOutcome::Shown,
@@ -1301,7 +1470,7 @@ mod tests {
     fn selection_failures_outside_the_probe_still_raise_the_card() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_probe(1, text_input("hello")));
+        commit_confirmed(&mut machine, 1, text_input("hello"));
         assert_eq!(
             machine.accept_failed(1, &GlossError::SelectionUnavailable),
             FailureOutcome::Shown,
@@ -1348,7 +1517,7 @@ mod tests {
         assert!(
             matches!(
                 machine.commit_probe(1, text_input("第二次")),
-                InputOutcome::Dispatch(_)
+                InputOutcome::Pending
             ),
             "pending options must survive a modality mismatch"
         );
@@ -1358,7 +1527,7 @@ mod tests {
     fn transport_failure_lands_in_error() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let request = dispatched(machine.commit_probe(1, text_input("x")));
+        let request = commit_confirmed(&mut machine, 1, text_input("x"));
         machine.fail_transport(request.generation);
         assert_eq!(machine.state(), AppState::Error);
         assert!(machine.current_cancel().is_none());
@@ -1373,7 +1542,7 @@ mod tests {
     fn retryable_failure_keeps_request_and_retry_redispatches_it() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let original = dispatched(machine.commit_probe(1, text_input("hello")));
+        let original = commit_confirmed(&mut machine, 1, text_input("hello"));
         assert_eq!(
             machine.accept_failed(1, &GlossError::EngineNetwork),
             FailureOutcome::Shown
@@ -1410,7 +1579,7 @@ mod tests {
 
     fn fail_with(machine: &mut TaskStateMachine, generation: u64, error: &GlossError) {
         assert_eq!(probe(machine, &Config::default()), generation);
-        dispatched(machine.commit_probe(generation, text_input("x")));
+        commit_confirmed(machine, generation, text_input("x"));
         assert_eq!(
             machine.accept_failed(generation, error),
             FailureOutcome::Shown
@@ -1468,7 +1637,7 @@ mod tests {
     fn new_commit_and_hide_supersede_the_retry_request() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        dispatched(machine.commit_probe(1, text_input("x")));
+        commit_confirmed(&mut machine, 1, text_input("x"));
         assert_eq!(
             machine.accept_failed(1, &GlossError::EngineNetwork),
             FailureOutcome::Shown
@@ -1483,7 +1652,7 @@ mod tests {
             machine.retry().is_some(),
             "a mis-slide must not kill the retry"
         );
-        dispatched(machine.commit_probe(2, text_input("y")));
+        commit_confirmed(&mut machine, 2, text_input("y"));
         assert!(
             machine.retry().is_none(),
             "the committed selection supersedes the retry offer"
@@ -1502,7 +1671,7 @@ mod tests {
     fn suspicious_input_is_dropped_while_the_visible_session_survives() {
         let mut machine = TaskStateMachine::new();
         assert_eq!(probe(&mut machine, &Config::default()), 1);
-        let settled = dispatched(machine.commit_probe(1, text_input("上一次的普通文本")));
+        let settled = commit_confirmed(&mut machine, 1, text_input("上一次的普通文本"));
         assert!(machine.accept_done(1, plain_outcome("上一次的产物")));
         let view_before = machine.overlay_view().cloned();
 
@@ -1580,11 +1749,11 @@ mod tests {
         assert!(
             matches!(
                 machine.commit_probe(1, text_input("今天下午三点开会")),
-                InputOutcome::Dispatch(_)
+                InputOutcome::Pending
             ),
             "the gate only fires on the high-confidence patterns"
         );
-        assert_eq!(machine.state(), AppState::Translating);
+        assert_eq!(machine.state(), AppState::PendingConfirm);
     }
 }
 

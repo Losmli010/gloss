@@ -99,11 +99,16 @@ impl Pipeline {
         let AcquireCommand::AcquireText { generation } = &command else {
             panic!("acquire text expected");
         };
-        let InputOutcome::Dispatch(request) = self
-            .machine
-            .commit_probe(*generation, TaskInput::Text { text: text.into() })
-        else {
-            panic!("the probe product should be committed");
+        assert!(
+            matches!(
+                self.machine
+                    .commit_probe(*generation, TaskInput::Text { text: text.into() }),
+                InputOutcome::Pending
+            ),
+            "the probe product parks a pending card"
+        );
+        let Some(request) = self.machine.confirm_pending() else {
+            panic!("the pending card should confirm");
         };
         self.commands_tx
             .send(Traced {
@@ -137,11 +142,16 @@ impl Pipeline {
         let AcquireCommand::AcquireClipboardImage { generation } = &command else {
             panic!("acquire clipboard image expected");
         };
-        let InputOutcome::Dispatch(request) = self
-            .machine
-            .commit_probe(*generation, TaskInput::Image { png })
-        else {
-            panic!("the pasteboard product should be committed");
+        assert!(
+            matches!(
+                self.machine
+                    .commit_probe(*generation, TaskInput::Image { png }),
+                InputOutcome::Pending
+            ),
+            "the pasteboard product parks a pending card"
+        );
+        let Some(request) = self.machine.confirm_pending() else {
+            panic!("the pending card should confirm");
         };
         self.commands_tx
             .send(Traced {

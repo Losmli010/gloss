@@ -1,22 +1,21 @@
-//! 卡片固定件：页头（应用图标与动作区、拖动热区）、页脚带（状态文案、
-//! 呼吸点与水印）、经注疏印章，以及印章与水印排版产物的跨帧缓存。
+//! 卡片固定件：页头（应用图标与动作区、拖动热区）与经注疏印章，以及
+//! 印章、页脚与水印排版产物的跨帧缓存。
 //!
 //! 颜色经语义调色板解析，几何引用样式几何档；视图骨架与经注疏排布
-//! 从这里取页头、页脚与印章。
+//! 从这里取页头与印章，页脚带在页脚模块。印章宽度由当前文案表的三个印章
+//! 标签共享——取最宽者统一，正文列起点不随标签长短错开；宽度随文案表在
+//! 启动期一次算定并跨帧缓存，字体表更换时随缓存清理出口一并失效。
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use egui::{Align, RichText, Stroke, vec2};
+use egui::{RichText, Stroke, vec2};
 
-use super::content::watermark;
 use super::{OverlayAction, RenderState};
 use crate::ui::i18n::Text;
-use crate::ui::style::{
-    alpha, geometry, motion, palette, radius, serif, size, space, stroke, with_alpha,
-};
+use crate::ui::style::{alpha, geometry, palette, radius, serif, size, space, stroke, with_alpha};
 
-fn hairline(ui: &egui::Ui) -> Stroke {
+pub(super) fn hairline(ui: &egui::Ui) -> Stroke {
     Stroke::new(
         stroke::HAIRLINE,
         ui.visuals().widgets.noninteractive.bg_stroke.color,
@@ -159,7 +158,7 @@ pub(super) enum SealTint {
     Wei,
 }
 
-pub(super) fn seal(ui: &mut egui::Ui, label: &'static str, tint: SealTint) {
+pub(super) fn seal(ui: &mut egui::Ui, text: &'static Text, label: &'static str, tint: SealTint) {
     let colors = palette(ui);
     let (fg, fill, line) = match tint {
         SealTint::Ink => (colors.paper, ui.visuals().strong_text_color(), Stroke::NONE),
@@ -182,7 +181,7 @@ pub(super) fn seal(ui: &mut egui::Ui, label: &'static str, tint: SealTint) {
                 .layout_no_wrap(label.to_owned(), serif(size::SEAL), fg)
         },
     );
-    let width = geometry::seal::SIZE.max(galley.size().x + 2.0 * geometry::seal::TEXT_PADDING);
+    let width = shared_seal_width(ui, text);
     let (rect, response) =
         ui.allocate_exact_size(vec2(width, geometry::seal::SIZE), egui::Sense::hover());
     response
@@ -193,8 +192,46 @@ pub(super) fn seal(ui: &mut egui::Ui, label: &'static str, tint: SealTint) {
         .galley(rect.center() - galley.size() / 2.0, galley, fg);
 }
 
+fn shared_seal_width(ui: &egui::Ui, text: &'static Text) -> f32 {
+    let key = (palette(ui).is_dark, ui.ctx().pixels_per_point().to_bits());
+    let ctx = ui.ctx();
+    let cached = ctx.memory_mut(|mem| mem.caches.cache::<CachedSealWidths>().0.get(&key).copied());
+    if let Some(width) = cached {
+        return width;
+    }
+    let widest = [
+        text.gloss_popup_seal_jing.as_str(),
+        text.gloss_popup_seal_zhu.as_str(),
+        text.gloss_popup_seal_shu.as_str(),
+    ]
+    .into_iter()
+    .map(|label| {
+        ui.painter()
+            .layout_no_wrap(label.to_owned(), serif(size::SEAL), egui::Color32::WHITE)
+            .size()
+            .x
+    })
+    .fold(0.0_f32, f32::max);
+    let width = geometry::seal::SIZE.max(widest + 2.0 * geometry::seal::TEXT_PADDING);
+    ctx.memory_mut(|mem| {
+        mem.caches.cache::<CachedSealWidths>().0.insert(key, width);
+    });
+    width
+}
+
+#[derive(Default)]
+struct CachedSealWidths(HashMap<(bool, u32), f32>);
+
+impl egui::cache::CacheTrait for CachedSealWidths {
+    fn update(&mut self) {}
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum CachedGalley {
+pub(super) enum CachedGalley {
     Seal(&'static str, SealTint, bool, u32),
     Watermark(bool, u32),
     FooterLabel(&'static str, bool, u32),
@@ -212,10 +249,13 @@ impl egui::cache::CacheTrait for CachedGalleys {
 }
 
 pub(crate) fn clear_cached_text_galleys(ctx: &egui::Context) {
-    ctx.memory_mut(|mem| mem.caches.cache::<CachedGalleys>().0.clear());
+    ctx.memory_mut(|mem| {
+        mem.caches.cache::<CachedGalleys>().0.clear();
+        mem.caches.cache::<CachedSealWidths>().0.clear();
+    });
 }
 
-fn cached_galley(
+pub(super) fn cached_galley(
     ui: &egui::Ui,
     slot: CachedGalley,
     layout: impl FnOnce() -> Arc<egui::Galley>,
@@ -239,119 +279,7 @@ pub(super) fn zhu_line_color(ui: &egui::Ui) -> egui::Color32 {
     with_alpha(palette(ui).seal, alpha::SEAL_LINE)
 }
 
-pub(super) fn footer(ui: &mut egui::Ui, streaming: bool, repairing: bool, text: &'static Text) {
-    let (rect, response) = ui.allocate_exact_size(
-        vec2(ui.available_width(), geometry::overlay::FOOTER_HEIGHT),
-        egui::Sense::hover(),
-    );
-    ui.painter().line_segment(
-        [
-            egui::pos2(rect.min.x, rect.min.y),
-            egui::pos2(rect.max.x, rect.min.y),
-        ],
-        hairline(ui),
-    );
-    if streaming {
-        let label_width = footer_status(ui, &rect, &response, repairing, text);
-        footer_dots(ui, &rect, label_width);
-    }
-    footer_watermark(ui, &rect);
-}
-
-fn footer_status(
-    ui: &egui::Ui,
-    rect: &egui::Rect,
-    response: &egui::Response,
-    repairing: bool,
-    text: &'static Text,
-) -> f32 {
-    let label = if repairing {
-        &text.gloss_popup_reannotating
-    } else {
-        &text.gloss_popup_annotating
-    };
-    let dim = ui.visuals().weak_text_color();
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::ProgressIndicator, true, label.as_str())
-    });
-    let galley = cached_galley(
-        ui,
-        CachedGalley::FooterLabel(
-            label.as_str(),
-            palette(ui).is_dark,
-            ui.ctx().pixels_per_point().to_bits(),
-        ),
-        || {
-            egui::WidgetText::from(RichText::new(label.as_str()).size(size::TAG).color(dim))
-                .into_galley(
-                    ui,
-                    Some(ui.wrap_mode()),
-                    ui.available_width(),
-                    egui::FontSelection::Default,
-                )
-        },
-    );
-    ui.painter().galley(
-        egui::pos2(
-            rect.min.x,
-            rect.center().y + stroke::HAIRLINE - galley.size().y / 2.0,
-        ),
-        galley.clone(),
-        dim,
-    );
-    galley.size().x
-}
-
-fn footer_dots(ui: &egui::Ui, rect: &egui::Rect, label_width: f32) {
-    let now = ui.input(|i| i.time);
-    let zhu = palette(ui).seal;
-    let mut dot_center = egui::pos2(
-        rect.min.x + label_width + space::TIGHT + geometry::overlay::FOOTER_DOT_RADIUS,
-        rect.center().y + stroke::HAIRLINE,
-    );
-    for index in 0..geometry::overlay::FOOTER_DOT_COUNT {
-        let wave = ((now / motion::PULSE_PERIOD + index as f64 * motion::PULSE_PHASE_STEP).sin()
-            + 1.0)
-            / 2.0;
-        let alpha01 = alpha::DOT_MIN + wave as f32 * (alpha::DOT_MAX - alpha::DOT_MIN);
-        ui.painter().circle_filled(
-            dot_center,
-            geometry::overlay::FOOTER_DOT_RADIUS,
-            with_alpha(zhu, alpha01),
-        );
-        dot_center.x += geometry::overlay::FOOTER_DOT_RADIUS * 3.0;
-    }
-    ui.ctx().request_repaint_after(motion::FRAME_BEAT);
-}
-
-fn footer_watermark(ui: &mut egui::Ui, rect: &egui::Rect) {
-    let dim = ui.visuals().weak_text_color();
-    let galley = cached_galley(
-        ui,
-        CachedGalley::Watermark(palette(ui).is_dark, ui.ctx().pixels_per_point().to_bits()),
-        || {
-            egui::WidgetText::from(RichText::new(watermark()).size(size::TAG).color(dim))
-                .into_galley(
-                    ui,
-                    Some(ui.wrap_mode()),
-                    ui.available_width(),
-                    egui::FontSelection::Default,
-                )
-        },
-    );
-    let slot = galley.size().x + 2.0 * geometry::overlay::WATERMARK_PADDING;
-    ui.put(
-        egui::Rect::from_min_max(
-            egui::pos2(rect.max.x - slot, rect.min.y),
-            egui::pos2(rect.max.x, rect.max.y),
-        ),
-        egui::Label::new(egui::WidgetText::Galley(galley))
-            .selectable(false)
-            .halign(Align::RIGHT),
-    );
-}
-
-fn icon_button(glyph: &'static str) -> egui::Button<'static> {
+pub(super) fn icon_button(glyph: &'static str) -> egui::Button<'static> {
     egui::Button::new(RichText::new(glyph).size(geometry::action::ICON_SIZE))
         .frame(false)
         .min_size(vec2(geometry::action::BUTTON, geometry::action::BUTTON))

@@ -1,19 +1,24 @@
-//! 浮层视图分发与卡骨架：按视图变体选卡（自检、流式、降级
+//! 浮层视图分发与卡骨架：按视图变体选卡（自检、待确认、流式、降级
 //! 产物、产物、失败），平铺与滚动骨架在此拼装；经位与注疏的正文排布委托
 //! 经注疏排布模块，页头页脚印章等固定件委托卡片固定件模块。
 //!
 //! 骨架条（“经显注未至”的占位脉动条）也在这里：它是流式正文的占位
-//! 形态，与页脚呼吸点同源脉动。
+//! 形态，与页脚呼吸点同源脉动。待确认卡的正文区只有经位（文本任务渲染
+//! 完整原文，图像任务渲染缩略图，渲染源与流式产物卡同路），页脚左端是
+//! 确认与取消两个出口——发送前把关就落在这两枚按钮上。
 
 use std::borrow::Cow;
 
 use egui::{RichText, ScrollArea, vec2};
 
-use super::card::{footer, header};
+use gloss_core::task::TaskInput;
+
+use super::card::header;
+use super::footer::{FooterMode, footer};
 use super::note::{StreamFields, stream_fields};
 use super::outcome::{
-    attached_image, is_code, jing_section, outcome_body, render_markdown, selfcheck_body,
-    shu_examples, source_block, zhu_section,
+    attached_image, image_unavailable, is_code, jing_section, outcome_body, render_markdown,
+    selfcheck_body, shu_examples, source_block, zhu_section,
 };
 use super::{OverlayAction, RenderCtx};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
@@ -116,6 +121,7 @@ pub(super) fn render_content(
 ) -> (Option<OverlayAction>, Option<egui::Vec2>) {
     match view {
         None => plain_card(ui, ctx, content_h, |ui, _| selfcheck_body(ui)),
+        Some(OverlayView::Pending { input, .. }) => pending_card(ui, ctx, content_h, input),
         Some(OverlayView::Streaming {
             source,
             raw,
@@ -140,7 +146,7 @@ pub(super) fn render_content(
             degraded_card(ui, ctx, content_h)
         }
         Some(OverlayView::Outcome { source, outcome }) => {
-            scrolled_card(ui, ctx, content_h, FooterMode::Static, |ui| {
+            scrolled_card(ui, ctx, content_h, FooterMode::Done, |ui| {
                 outcome_body(ui, ctx, source, outcome)
             })
         }
@@ -148,6 +154,26 @@ pub(super) fn render_content(
             cause,
             action: error_action,
         }) => failed_card(ui, ctx, content_h, cause, error_action),
+    }
+}
+
+fn pending_card(
+    ui: &mut egui::Ui,
+    ctx: &RenderCtx<'_>,
+    content_h: &mut f32,
+    input: &TaskInput,
+) -> (Option<OverlayAction>, Option<egui::Vec2>) {
+    let mode = FooterMode::Pending;
+    match (input, ctx.attached) {
+        (TaskInput::Text { text }, _) => scrolled_card(ui, ctx, content_h, mode, |ui| {
+            jing_section(ui, ctx.text, |ui| source_block(ui, text, false, None));
+        }),
+        (_, Some(png)) => scrolled_card(ui, ctx, content_h, mode, |ui| {
+            jing_section(ui, ctx.text, |ui| attached_image(ui, ctx, png));
+        }),
+        (_, None) => scrolled_card(ui, ctx, content_h, mode, |ui| {
+            jing_section(ui, ctx.text, |ui| image_unavailable(ui, ctx.text));
+        }),
     }
 }
 
@@ -161,15 +187,11 @@ fn plain_card(
     ui.add_space(space::SECTION);
     body(ui, &mut action);
     ui.add_space(space::PARAGRAPH);
-    footer(ui, false, false, ctx.text);
+    if let Some(footer_action) = footer(ui, ctx.state, FooterMode::Static, ctx.text) {
+        action = Some(footer_action);
+    }
     *content_h = ui.min_rect().height();
     (action, drag)
-}
-
-#[derive(Clone, Copy)]
-enum FooterMode {
-    Static,
-    Streaming { repairing: bool },
 }
 
 fn scrolled_card(
@@ -189,12 +211,9 @@ fn scrolled_card(
             body(ui);
         });
     ui.add_space(space::PARAGRAPH);
-    match mode {
-        FooterMode::Static => footer(ui, false, false, ctx.text),
-        FooterMode::Streaming { repairing } => footer(ui, true, repairing, ctx.text),
-    }
+    let footer_action = footer(ui, ctx.state, mode, ctx.text);
     record_scrolled_height(ui, content_h, &scrolled);
-    (action, drag)
+    (action.or(footer_action), drag)
 }
 
 fn degraded_card(

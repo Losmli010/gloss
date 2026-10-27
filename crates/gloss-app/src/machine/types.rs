@@ -17,6 +17,7 @@ pub enum ErrorAction {
 pub enum AppState {
     #[default]
     Idle,
+    PendingConfirm,
     Translating,
     Show,
     Error,
@@ -24,6 +25,10 @@ pub enum AppState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OverlayView {
+    Pending {
+        input: TaskInput,
+        options: TaskOptions,
+    },
     Streaming {
         source: String,
         raw: String,
@@ -46,9 +51,9 @@ pub enum FailureCause {
     TransportChannel,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputOutcome {
-    Dispatch(RunRequest),
+    Pending,
     Blocked(SensitiveKind),
     Ignored,
 }

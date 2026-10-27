@@ -98,6 +98,25 @@
 - 为什么只加一个词条：方案定稿「加载动画复用、不加横幅不加计数」——修复轮的全部用户可见差异是页脚一个词；条数钉死测试（85）随之 +1，防遍历退化的机制照旧。
 - zh「重新注解」/ en「Re-annotating」：与「正在注解/Annotating」同词根，语义是同一件事的第二轮，不引入新概念词（「重试」「修复」都会与失败卡的重试按钮混淆）。
 
+## 发送前确认与复制钮四键（2026-10-27，方案落地）
+
+- 新键四条：`gloss_popup_confirm_send`（注疏/Annotate）、
+  `gloss_popup_confirm_cancel`（取消/Cancel）、`gloss_popup_copy`
+  （复制注疏/Copy annotation）、`gloss_popup_copied`（已复制/Copied）。
+  条数钉死测试随增至 88（`both_locale_files_declare_the_same_keys`）。
+- 主按钮词条「注疏」：待确认卡把「送出去做什么」写进按钮——按钮就是
+  动作文案，与卡片标题解耦（卡片没有标题，原文即主题）；en 用
+  `Annotate` 与页脚生成指示（`Annotating`）同词根，不引入新概念词。
+- `gloss_popup_copy` 带宾语（复制**注疏**）而 `gloss_popup_copied` 不带
+  （已复制）：按钮文案要交代动作对象，反馈文案贴着图标出现、对象自明。
+
+## 注疏改名（同日）
+
+- 「正在注解/Annotating」→「正在注疏/Annotating」、「重新注解」→
+  「重新注疏」（zh 侧措辞统一为经注疏语汇；en 不动）。缓存键是
+  `'static` 标签本体，改名自动换键重排；含页脚的七份快照基线随录
+  （沿革见 bdd.md）。
+
 ## fill 单参数一趟拼接（本地门禁第 2 轮，2026-10-13）
 
 - `fill` 原实现对模板先整份复制、再用 `format!` 造占位符模式串、最后

@@ -23,6 +23,18 @@
   串 extern static，进程启动即初始化、存活期内恒有效；读取 extern static
   在 Rust 里是 unsafe 操作，事实上的前提只有「常量恒有效」一条。
 
+## `copy_text`（2026-10-27）
+
+- 写文本进系统剪贴板（arboard）：完成态卡「复制注疏」的平台触点（壳层
+  经 `OverlayAction::CopyAnnotation` 调用）。返回 `Result<(), String>` 而
+  不是 panic/日志内部消化：写剪贴板可能失败（板被占用等环境态），调用方
+  （壳）按失败记 warn 降级——浮层不弹错，复制是顺手功能不是任务出口。
+- 与取材侧（`watch`/`image`）分属两个方向：取材读板、这条写板；本应用
+  兜底取材「只读不写」的红线不受影响——写板只发生在用户显式点击复制
+  的会话内，且写入的是注疏产物（非用户原文）。写板推进 changeCount 会
+  被哨兵观察到一次板变更，但纯文本写不含图像 flavor，`pasteboard_has_image`
+  不命中，哨兵不会为它触发取材——两条通路在类型判定处天然互斥。
+
 ## 符号契约（自代码注释迁入）
 
 - `pasteboard_change_count`：读系统剪贴板的 changeCount（纯元数据查询，不触碰内容）；读不到返回 `None`（generalPasteboard 恒返回有效板，负值不合法——两者都按不可观察处理，调用方保持静默）。

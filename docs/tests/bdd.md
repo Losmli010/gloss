@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 38 | `just test` |
-| 单元测试 | 629 | `just test` |
+| 单元测试 | 643 | `just test` |
 
 ## 人工测试
 
@@ -371,24 +371,24 @@
 
 ## 快照测试
 
-`popup` 快照基线：`popup_word_card`、`popup_streaming`、`popup_failed`、`popup_failed_auth`、`popup_selfcheck`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_image_failed`、`popup_degraded_outcome`；`settings` 快照基线：`settings_main`、`settings_notice`、`settings_invalid`、`settings_default_kind_disabled`、`settings_update_up_to_date`、`settings_update_available`、`settings_update_downloading`、`settings_update_ready`、`settings_update_failed_install`。全部基线统一英文文案加浅色主题渲染（2026-10-01 起）：`kittest` 自建上下文无（CJK）字体，英文基线可读可审。
+`popup` 快照基线：`popup_word_card`、`popup_streaming`、`popup_failed`、`popup_failed_auth`、`popup_selfcheck`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_image_failed`、`popup_degraded_outcome`、`popup_long_line`；`popup` 待确认卡基线中英双份：`popup_pending_text_zh/en`、`popup_pending_image_zh/en`（发送前确认是用户手按的关键界面，中文形态一并锁定）；`settings` 快照基线：`settings_main`、`settings_notice`、`settings_invalid`、`settings_default_kind_disabled`、`settings_update_up_to_date`、`settings_update_available`、`settings_update_downloading`、`settings_update_ready`、`settings_update_failed_install`。其余基线统一英文文案加浅色主题渲染（2026-10-01 起）：`kittest` 自建上下文无（CJK）字体，英文基线可读可审；待确认卡基线（2026-10-27 起）经测试内安装（CJK）字体后中英各录一份，浅色主题同规。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | word_card_exposes_entries_to_accesskit | 词卡视图的无障碍树结构 | 给定双释义的词卡 `Outcome` 视图，当渲染，则 `AccessKit` 树可按文本定位节点：`gloss`、音标（精确标签），注与疏条目（`markdown` 段落为 `TextRun`，按 `contains` 定位——精确标签查询会被标签提供者过滤规则吞掉） | 2026-10-21 |
 | word_card_sections_stack_vertically | 词卡经→疏纵向排布 | 给定词卡视图，当渲染，则经位（字头加音）与疏位（例句）矩形纵向递增（分区显式垂直布局） | 2026-10-04 |
 | watermark_sits_inside_the_computed_window_height | 页脚水印落在期望窗口内 | 给定流式、词卡两种视图，当按内容尺寸重设渲染窗口再量水印矩形，则水印底边不超出 `draw` 上交的期望窗口高（页脚被内容挤出窗外即失败） | 2026-10-03 |
-| a_long_selection_keeps_the_footer_inside_the_window | 长选区下页脚仍在窗内 | 给定原文很长的流式视图（普通原文与代码面板两态），当先确认 `draw` 上交的完整内容高远超钳制值，再把窗口压到 420（代表壳侧钳高后的高度）渲染，则“正在注解”与水印底边不超窗高，且下方向键把经位上移而页脚不动（经位与注疏同区滚动，生成指示不被长原文顶出窗外、长原文尾部可达） | 2026-10-18 |
+| a_long_selection_keeps_the_footer_inside_the_window | 长选区下页脚仍在窗内 | 给定原文很长的流式视图（普通原文与代码面板两态），当先确认 `draw` 上交的完整内容高远超钳制值，再把窗口压到 420（代表壳侧钳高后的高度）渲染，则“正在注疏”与水印底边不超窗高，且下方向键把经位上移而页脚不动（经位与注疏同区滚动，生成指示不被长原文顶出窗外、长原文尾部可达） | 2026-10-27 |
 | long_body_is_rendered_in_full | 长正文完整渲染不截断 | 给定超长正文（尾部带标记），当渲染，则 `AccessKit` 树含尾部内容——无字符截断 | 2026-09-20 |
 | arrow_keys_scroll_the_overflowing_body | 正文溢出时方向键滚动 | 给定超长正文的 `Outcome` 视图，当按下方向键再按上方向键，则内容视口先下移后回位（无修饰键参与，滚动区到界即停） | 2026-10-12 |
-| streaming_view_shows_the_annotating_footer | 流式视图页脚注解指示 | 给定流式视图，当渲染，则“正在注解”在页脚出现、经、注印章就位 | 2026-10-01 |
-| a_repairing_streaming_view_switches_the_footer_wording | 修复中流式卡页脚切重新注解 | 给定 `repairing` 的流式视图（正文已清稿、骨架态），当渲染，则页脚为“重新注解”，英文语境为“`Re-annotating`”且“正在注解”不在树中（无横幅无计数） | 2026-10-12 |
+| streaming_view_shows_the_annotating_footer | 流式视图页脚注疏指示 | 给定流式视图，当渲染，则“正在注疏”在页脚出现、经、注印章就位 | 2026-10-27 |
+| a_repairing_streaming_view_switches_the_footer_wording | 修复中流式卡页脚切重新注疏 | 给定 `repairing` 的流式视图（正文已清稿、骨架态），当渲染，则页脚为“重新注疏”，英文语境为“`Re-annotating`”且“正在注疏”不在树中（无横幅无计数） | 2026-10-27 |
 | word_card_marks_the_three_sections_per_locale | 词卡三分区印章随 `locale` | 给定词卡视图（`zh/en` 各一），当渲染，则印章字分别为 经、注、疏 与 `SRC/NOTE/EXP` | 2026-09-30 |
 | streaming_view_shows_only_the_extracted_note | 流式视图只显示提取出的义 | 给定流式视图（正文为 `JSON` 契约原始流），当渲染，则“已流式到达的正文”“选中的原文”可见而（JSON）残片与 `gloss` 围栏均不在树中；头部只有图标与动作区 | 2026-10-03 |
 | long_lines_never_exceed_the_window_width | 长行不超窗口可用宽 | 给定长中文段落加围栏代码块与长 `token` 代码原文两类视图，当以 480 宽渲染，则全部内容节点右缘不超窗口宽（横滚不进弹窗）；`popup_long_line` 基线锁定形态 | 2026-10-19 |
 | image_card_exposes_the_commentary_to_accesskit | 图像完成态卡经注疏入树且纵排 | 给定附件图像加 `ImageCommentary` 产物（注加两条解读）的完成态视图，当渲染，则注与两条解读皆可按文本定位，且疏位条目矩形在注位之下（经为图、注→疏纵向排布） | 2026-10-10 |
 | image_streaming_card_shows_the_interpretation_items_as_they_arrive | 图像流式卡双字段渐进上屏 | 给定 `note` 截断加 `structured.examples` 两条（第二条中段截断）的图像流式视图，当渲染，则注前缀与两条疏条目（含在写条目的已到达前缀）可见而（JSON）残片不在树中（扫描器下钻 `structured` 渐进提取） | 2026-10-11 |
-| image_streaming_card_without_a_note_keeps_the_skeleton | 图像流式卡注未至落骨架 | 给定原始流为空的图像流式视图，当渲染，则“正在注解”页脚在（骨架态，经位图像照常回显） | 2026-10-10 |
+| image_streaming_card_without_a_note_keeps_the_skeleton | 图像流式卡注未至落骨架 | 给定原始流为空的图像流式视图，当渲染，则“正在注疏”页脚在（骨架态，经位图像照常回显） | 2026-10-27 |
 | image_card_degrades_to_a_placeholder_when_the_bytes_do_not_decode | 图像字节解码失败占位降级 | 给定不可解码字节的图像完成态卡，当渲染，则经位出“`The image could not be displayed.`”占位、注位照常（不 `panic`） | 2026-10-10 |
 | attached_image_texture_is_reused_across_frames | 附件图像纹理跨帧复用 | 给定同一份附件图像字节连续渲染七帧，当比对第 2 帧与第 7 帧的界面库（egui）纹理分配数，则计数不增（同字节恒同纹理，逐帧解码即失败） | 2026-10-10 |
 | attached_image_slot_is_dropped_once_an_imageless_frame_renders | 会话离开图像卡即清纹理槽 | 给定图像帧（纹理就位）后切到无附件帧再切回同图，当逐段比对界面库（egui）纹理分配数，则无附件帧分配数下降（源字节与纹理同帧释放，敏感数据不驻留会话外）、同图再上卡重新解码回到原驻留数 | 2026-10-10 |
@@ -403,7 +403,7 @@
 | header_drag_strip_is_exposed_to_accesskit | 页头拖动热区进无障碍树且与动作钮零重叠 | 给定词卡视图，当渲染，则无障碍树有“拖动浮层”热区节点、矩形与页头行同高（不小于头部图标边长）且水平区间止于最左动作钮左缘（收 `DRAG_STRIP_INSET`，与齿轮、关闭钮零重叠） | 2026-10-03 |
 | header_drag_reports_cumulative_offset_and_ends_on_release | 页头拖动上交自按压点的累计位移 | 给定词卡视图与页头热区中心，当按下→两段移动→松开→再移动，则上交位移自按压点累计（按下为零、两段各 `(20,10)/(30,15)`，非逐帧增量）、松开后不再上交；按压点按物理像素记录（跨 `DPI` 显示器不混尺）；落点换算与屏幕钳制在壳侧 `apply_overlay_drag`（无状态：以窗口实际位置为基准，中途被动过会被下一帧落点吸收） | 2026-10-03 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 `view=None` 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层七视图渲染基线（英文浅色） | 给定七个视图（词卡、流式、失败、鉴权失败、自检卡、代码流式、代码完成态，内容夹具为英文），当 `wgpu` 以英文文案与浅色主题渲染并 `diff`，则与 `popup_word_card`、`popup_streaming`、`popup_failed`、`popup_failed_auth`、`popup_selfcheck`、`popup_code_streaming`、`popup_code_outcome` 七份基线一致，结果合并进单个 `SnapshotResults`。基线沿革：2026-10-01 按经注疏 `demo` 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 `ITEM` 间距）、关闭钮调小至 10 像素见方与页脚降高 26→20 再录；同日 `popup_word_card` 再随音标改 `gloss-mono` 等宽族重录，差异仅音标字形行——`kittest` 绑内置字形，缺字实测：内置 `Hack` 十八个音标字形缺十四个、`Ubuntu-Light` 缺十三个、`PingFang SC` 缺 `ɒ ʒ ʌ ˈ ˌ ː`，链上无一命中；2026-10-02 新增 `popup_code_streaming`、`popup_code_outcome` 两份代码视图基线（`T3`：`classified` 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 `T4`；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、`Acquiring` 骨架视图删除，`popup_loading` 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 `popup_image_outcome`、`popup_image_streaming`、`popup_image_failed` 三份基线（图像经位加注疏，夹具为测试内确定性编码的宽 120 高 80 像素渐变位图，英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 `ImageOcr` 任务类型与 `Extracted` 结构化变体，`popup_extract` 基线随其视图一并移除，余七份；2026-10-11 随契约收敛新增 `popup_degraded_outcome` 降级产物卡基线（异常提示加重试，无经注疏内容），`popup_code_streaming` 随流式代码面板移除语言标签行重录（差异仅该行移除与其下既段位移），余十一份；2026-10-18 随文本流式经位并入滚动区重录 `popup_streaming`、`popup_code_streaming`，差异仅经位整体的亚像素抗锯齿（行高与列位置不变）；2026-10-19 随代码着色后端换 `egui_extras` 与 `syntect`（`two-face` 语法补集加六类色板自定义主题）重录 `popup_code_outcome`；`popup_code_streaming` 因流式期语言未定仍走通用兜底而零变化；`popup_long_line` 是连带变化——`egui_commonmark` 的围栏代码块经 `feature` 统一改用 `syntect` 默认主题与默认语法集，不再是六类色板，表外语言如（TOML）由简易高亮退化为纯色；同日再随疏字号 13→14 重录 `popup_word_card`、`popup_image_outcome`、`popup_image_streaming`（快照画布固定宽 800 高 600，浮层宽度常量不参与基线）；同日再随页头图标改矢量栅格化重录 `popup_*` 全部十二份基线（图标纹理由 `resvg` 按 `pixels_per_point` 从 `SVG` 源直栅到物理像素，不再解码 256 像素 `Dock` 位图降采样，`Retina` 下糊化消除；逐份核对像素差异仅落在 `(23,23)` 至 `(43,43)` 的图标槽位，`settings` 基线不涉及）；2026-10-21 随疏位改 `markdown` 渲染（去弱色改正文色、去列表符与英汉拆行，条目走注文同一条 `markdown` 管线）重录 `popup_word_card`、`popup_image_outcome`、`popup_image_streaming` 三份（差异仅疏位条目行，无疏内容的九份零变化） | 2026-10-21 |
+| snapshots_match_baseline（popup） | 浮层十六视图渲染基线（英文浅色为主） | 给定十六个视图夹具（词卡、流式、失败、鉴权失败、自检卡、代码流式、代码完成态、图像完成态、图像流式、图像失败、降级完成态、长行，内容夹具为英文；另文本与图像待确认卡中英双份），当 `wgpu` 以对应文案与浅色主题渲染并 `diff`，则与 `popup_word_card`、`popup_streaming`、`popup_failed`、`popup_failed_auth`、`popup_selfcheck`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_image_failed`、`popup_degraded_outcome`、`popup_long_line` 十二份英文基线与 `popup_pending_text_zh/en`、`popup_pending_image_zh/en` 四份待确认卡基线一致，结果合并进单个 `SnapshotResults`。基线沿革：2026-10-01 按经注疏 `demo` 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 `ITEM` 间距）、关闭钮调小至 10 像素见方与页脚降高 26→20 再录；同日 `popup_word_card` 再随音标改 `gloss-mono` 等宽族重录，差异仅音标字形行——`kittest` 绑内置字形，缺字实测：内置 `Hack` 十八个音标字形缺十四个、`Ubuntu-Light` 缺十三个、`PingFang SC` 缺 `ɒ ʒ ʌ ˈ ˌ ː`，链上无一命中；2026-10-02 新增 `popup_code_streaming`、`popup_code_outcome` 两份代码视图基线（`T3`：`classified` 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 `T4`；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、`Acquiring` 骨架视图删除，`popup_loading` 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 `popup_image_outcome`、`popup_image_streaming`、`popup_image_failed` 三份基线（图像经位加注疏，夹具为测试内确定性编码的宽 120 高 80 像素渐变位图，英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 `ImageOcr` 任务类型与 `Extracted` 结构化变体，`popup_extract` 基线随其视图一并移除，余七份；2026-10-11 随契约收敛新增 `popup_degraded_outcome` 降级产物卡基线（异常提示加重试，无经注疏内容），`popup_code_streaming` 随流式代码面板移除语言标签行重录（差异仅该行移除与其下既段位移），余十一份；2026-10-18 随文本流式经位并入滚动区重录 `popup_streaming`、`popup_code_streaming`，差异仅经位整体的亚像素抗锯齿（行高与列位置不变）；2026-10-19 随代码着色后端换 `egui_extras` 与 `syntect`（`two-face` 语法补集加六类色板自定义主题）重录 `popup_code_outcome`；`popup_code_streaming` 因流式期语言未定仍走通用兜底而零变化；`popup_long_line` 是连带变化——`egui_commonmark` 的围栏代码块经 `feature` 统一改用 `syntect` 默认主题与默认语法集，不再是六类色板，表外语言如（TOML）由简易高亮退化为纯色；同日再随疏字号 13→14 重录 `popup_word_card`、`popup_image_outcome`、`popup_image_streaming`（快照画布固定宽 800 高 600，浮层宽度常量不参与基线）；同日再随页头图标改矢量栅格化重录 `popup_*` 全部十二份基线（图标纹理由 `resvg` 按 `pixels_per_point` 从 `SVG` 源直栅到物理像素，不再解码 256 像素 `Dock` 位图降采样，`Retina` 下糊化消除；逐份核对像素差异仅落在 `(23,23)` 至 `(43,43)` 的图标槽位，`settings` 基线不涉及）；2026-10-21 随疏位改 `markdown` 渲染（去弱色改正文色、去列表符与英汉拆行，条目走注文同一条 `markdown` 管线）重录 `popup_word_card`、`popup_image_outcome`、`popup_image_streaming` 三份（差异仅疏位条目行，无疏内容的九份零变化）；2026-10-27 随发送前确认改动：页脚文案“正在注解”改名“正在注疏”、“重新注解”改名“重新注疏”，完成态卡页脚新增“复制注疏”钮（点击后短时翻“已复制”），三印章宽取最宽标签统一，重录七份含页脚或印章的基线（`popup_word_card`、`popup_streaming`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_long_line`），其余五份英文基线零变化；同日新增 `popup_pending_text_zh/en`、`popup_pending_image_zh/en` 四份待确认卡基线——页脚为“注疏”主按钮加“取消”，中文形态首次入基线，`kittest` 上下文经测试内安装（CJK）字体后可渲染中文 | 2026-10-27 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定“取消”与“清除密钥”按钮，当分别点击，则取消上交 `Close`、清除只置标记（按钮变“撤销清除”）、保存时才上交 `Clear` | 2026-09-19 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 `Base URL` 的设置窗，当点保存，则不上交 `Save`、字段就地标红并出汇总行 | 2026-09-22 |
@@ -700,8 +700,9 @@
 | saved_config_does_not_leak_into_the_inflight_task | 在途任务用触发时快照 | 给定探测后、产物到达前保存新配置，当产物提交下发，则仍用探测时快照 | 2026-09-19 |
 | suspicious_input_is_suppressed_and_shows_nothing | 可疑内容被拦下且什么都不出 | 给定嵌在（JSON）里的短令牌取材产物，当采纳，则通道三一条都没有、可见会话不被触碰（没有卡片、没有可点的出口）；下一次普通取材照常下发 | 2026-10-01 |
 | a_mis_slide_over_a_visible_session_preserves_it_entirely | 已显示会话对误滑零感知 | 给定推理中的可见会话，当新划词探测以空选区失败收场，则令牌未取消、状态与视图原样、无显形挂起、流式正文照常追加 | 2026-10-01 |
-| committing_the_probe_flags_the_reveal_for_the_same_frame | 提交即挂起显形 | 给定在途划词探测，当产物提交，则置位显形挂起（`drain_events` 同帧消费）、进入 `Translating` | 2026-10-01 |
-| pasteboard_commit_retains_the_image_and_flags_the_reveal | 粘贴板提交留图并挂起显形 | 给定在途粘贴板探测，当图像产物提交，则置 `Translating`、图像以 `Arc` 留存进 `attached_image`、置位显形挂起（无匹配代数的锚点——露面走居中）、通道三收到携带 `TaskInput::Image` 的 `RunTask`、视图换流式卡 | 2026-10-10 |
+| committing_the_probe_flags_the_reveal_for_the_same_frame | 提交即挂起显形 | 给定在途划词探测，当产物提交，则置位显形挂起（`drain_events` 同帧消费）、落 `PendingConfirm` 待确认卡 | 2026-10-27 |
+| pasteboard_commit_retains_the_image_and_flags_the_reveal | 粘贴板提交留图落卡并挂起显形 | 给定在途粘贴板探测，当图像产物提交，则落 `PendingConfirm`、图像以 `Arc` 留存进 `attached_image`、置位显形挂起（无匹配代数的锚点——露面走居中）、通道三零流量；当确认点击，则通道三收到携带 `TaskInput::Image` 的 `RunTask`、视图换流式卡 | 2026-10-27 |
+| the_pending_card_cancel_path_sends_no_channel3_message | 待确认卡取消路径零通道三消息 | 给定落定待确认卡的会话，当经取消按钮路径收起浮层，则回 `Idle`、通道三一条命令都没有（收起不惊动推理侧）、迟到的同编号产物无人采纳 | 2026-10-27 |
 | a_pasteboard_product_without_a_matching_probe_is_dropped | 无匹配探测的图像产物整体丢弃 | 给定陈旧编号的图像 `InputReady`（无在途探测），当采纳，则整体丢弃、不下发通道三、不留随行图像 | 2026-10-10 |
 | pasteboard_oversized_failure_lands_in_the_error_card | 图片超上限失败落错误卡 | 给定在途粘贴板探测，当收 `ImageTooLarge` 失败，则落 `Error` 弹失败卡（显式可观察）、探测消费 | 2026-10-10 |
 | a_repair_marker_resets_the_stream_through_the_shell | 壳层采纳修复轮开始标记 | 给定推理中的流式会话（已有违约累积），当壳 `accept_repairing`，则当前代清空累积并置修复态、陈旧代拒绝且不扰动在途会话 | 2026-10-12 |
@@ -710,11 +711,11 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 `zh.toml` 与 `en.toml`，当递归收集叶子键路径，则两份逐条一致且整表条数为 84（条数钉住，防遍历退化） | 2026-10-17 |
+| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 `zh.toml` 与 `en.toml`，当递归收集叶子键路径，则两份逐条一致且整表条数为 88（条数钉住，防遍历退化） | 2026-10-27 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（`gloss_ui_language_en`）外无一与中文表逐字相同 | 2026-09-23 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 `gloss_` 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
 | placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 `{{`占位符`}}` 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
-| catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功、两语言取值可区分，且“重新注解”与“`Re-annotating`”词条逐字就位 | 2026-10-12 |
+| catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功、两语言取值可区分，且“正在注疏”与“`Re-annotating`”词条逐字就位 | 2026-10-27 |
 | fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数、无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |
 | fill_replaces_multiple_distinct_placeholders | 多参填充各自替换对应占位符 | 给定含 `{{a}}` 与 `{{b}}` 两类占位符的模板与两参，当填充，则各自替换对应占位符、互不串位 | 2026-10-14 |
 | fill_multi_arg_values_take_part_in_later_scans | 多参逐参替换保留旧的顺序替换语义 | 给定 `a` 参替换值为 `{{b}}`、`b` 参替换值为乙的模板，当填充，则后参重扫先参插入的值、结果为乙（与旧逐参 `str::replace` 语义一致） | 2026-10-14 |
@@ -773,11 +774,22 @@
 | --- | --- | --- | --- |
 | watermark_is_the_untranslated_brand_name | 页脚水印是品牌名 | 给定水印取值入口，当取值，则恒为 `Gloss`（品牌名不翻译） | 2026-10-01 |
 
+### `crates/gloss-app/src/ui/popup/outcome.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| annotation_text_joins_the_note_and_the_examples | 复制文本以换行拼接注与疏 | 给定带两条疏条目的产物，当取 `annotation_text`，则疏条目逐条换行拼在注后 | 2026-10-27 |
+| annotation_text_without_examples_carries_no_trailing_newline | 无疏条目不带尾随换行 | 给定无疏条目的产物，当取 `annotation_text`，则恰为注文本身（无尾随换行） | 2026-10-27 |
+| annotation_text_keeps_the_source_out_of_the_copy | 复制文本不含原文侧信息 | 给定词卡产物（音标加疏条目），当取 `annotation_text`，则音标不在文本中（进剪贴板的只有注与疏） | 2026-10-27 |
+
 ### `crates/gloss-app/src/ui/popup/mod.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | the_language_badge_arrives_only_with_the_outcome_verdict | 语言角标只随产物判定到达 | 给定 `ExplainCode` 流式视图，当渲染，则树上无语言标签（流式期无判定——唯一来源是产物 `structured.code_language`，经 `code_hl::adopt` 渲染时现算）；给定带 `rust` 判定的代码完成态卡，当渲染，则角标 `rust` 入树；给定翻译流式视图，当渲染，则树上无标签 | 2026-10-11 |
+| pending_card_exposes_the_source_and_its_two_exits | 待确认卡的原文与两个出口 | 给定文本待确认卡视图，当渲染，则“选中的原文”与经印章在树、主按钮标签“注疏”与“取消”钮就位；点击主钮上交 `Confirm`，点击取消钮走共用收起路径上交 `Dismiss` | 2026-10-27 |
+| the_done_card_copy_button_submits_copy_annotation_then_flips_to_copied | 完成态卡复制钮上交并翻面已复制 | 给定词卡完成态视图，当点击“复制注疏”，则上交 `CopyAnnotation`、随后页脚翻出“已复制”反馈（反馈有时限，不常驻） | 2026-10-27 |
+| degraded_and_streaming_cards_take_no_copy_button | 降级与流式卡无复制钮 | 给定降级完成态与流式两种视图，当渲染，则树上无“复制注疏”节点（复制钮只属于定格完成态卡） | 2026-10-27 |
 | snapshots_match_baseline（popup 代码视图随高亮再录） | 两份代码视图基线随语法着色重录 | 给定 `popup_code_streaming`、`popup_code_outcome` 的英文夹具，当 `wgpu` 渲染并 `diff`，则与基线一致（2026-10-02 随 `T4` 单趟正则六类着色再录：关键字、函数形、字符串着色；其余七份 `popup` 与 `settings` 基线零变化——着色只落代码分支。单趟正则已在 2026-10-19 由 `syntect` 取代，最新沿革见浮层基线 `snapshots_match_baseline` 一行） | 2026-10-02 |
 
 ### `crates/gloss-app/src/flow/actions.rs`
@@ -786,6 +798,8 @@
 | --- | --- | --- | --- |
 | retry_action_redispatches_the_failed_task | `Retry` 动作重发失败任务 | 给定失败卡 `Retry` 动作，当执行，则同代数同任务新令牌重发通道三，重试产物照常采纳 | 2026-09-21 |
 | open_settings_action_keeps_the_error_card | 打开设置保留错误卡 | 给定鉴权失败卡，当执行 `OpenSettings` 动作，则停在 `Error`、通道三无流量、编辑会话就位 | 2026-09-21 |
+| confirm_action_dispatches_the_pending_card | 确认动作下发待确认卡 | 给定落定待确认卡的会话，当执行 `Confirm` 动作，则进 `Translating`、通道三收到当代数的 `RunTask`（确认点击前通道三零流量） | 2026-10-27 |
+| stale_confirm_clicks_dispatch_nothing | 陈旧确认点击不下发 | 给定无卡时的 `Confirm` 点击与已消费卡上的第二次确认，则前者无卡不下发、后者被拒（通道三只收到第一次的 `RunTask`） | 2026-10-27 |
 
 ### `crates/gloss-app/src/flow/reveal.rs`
 
@@ -899,14 +913,19 @@
 | the_repair_marker_clears_the_stream_and_refuses_stale_rounds | 修复轮标记清稿并拒陈旧轮次 | 给定推理中的流式会话，当 `accept_repairing`，则当前代清空上一轮累积并置 `repairing`（修复轮内 `chunk` 照常追加、页脚保持修复态）；陈旧代拒绝且原稿保留、已定格产物卡拒绝、新会话接受自己的标记 | 2026-10-12 |
 | options_freeze_at_probe_time | 选项在探测时刻冻结 | 给定探测后更换配置（目标语言与界面语言同时变），当提交产物，则任务仍带探测时快照的选项（含 `prompt_locale`）；第二次探测才用新值 | 2026-10-01 |
 | prompt_locale_follows_config_language_and_the_system | 任务选项落定模板语言 | 给定显式 `Language::En` 与出厂 `System` 两份配置，当探测并提交产物，则任务携带的 `prompt_locale` 分别为 `En` 与注入的系统语言 | 2026-09-22 |
-| commit_probe_yields_run_request_and_supersedes_the_previous_session | 提交探测接管会话并守卫状态 | 给定命中在途探测的合法产物，当 `commit_probe`，则返回下发请求、探测编号提升为代数、旧在途任务被取消、视图换流式卡；同编号重复提交被拒 | 2026-10-01 |
+| commit_probe_promotes_the_generation_and_supersedes_the_previous_session | 提交探测接管会话并守卫状态 | 给定命中在途探测的合法产物，当确认后 `commit_probe`，则探测编号提升为代数、进 `Translating`、领到取消令牌、探测消费；再给新探测并提交，则落 `PendingConfirm` 待确认卡、旧在途任务令牌被取消（让位语义不变）、视图换持冻结输入的待确认卡；同编号重复提交被拒 | 2026-10-27 |
+| commit_lands_the_pending_card_and_confirm_dispatches_the_task | 提交落待确认卡且确认下发 | 给定命中在途探测的合法产物，当 `commit_probe`，则落 `PendingConfirm` 待确认卡、编号提升为代数、无取消令牌（待确认阶段无在途推理、通道三零流量）、探测消费、视图持冻结输入；当 `confirm_pending`，则返回下发请求进 `Translating`、领到新令牌、视图换流式卡、代数不因确认而动；已消费的待确认卡拒收重复确认 | 2026-10-27 |
+| confirm_pending_carries_the_frozen_options_snapshot | 确认下发携带探测时冻结选项 | 给定自定义配置的探测产物提交，当 `confirm_pending`，则下发请求的模型与目标语言均为探测时刻快照值（确认不回读配置；下一次探测才用新值） | 2026-10-27 |
+| confirm_pending_is_refused_outside_the_pending_card | 确认守卫只认待确认卡 | 给定空白机器、流式中的会话、已定格产物卡三种非待确认状态，当 `confirm_pending`，则一律 `None`（无卡无确认出口；已定格代数的迟到失败一并被拒） | 2026-10-27 |
+| hide_drops_the_pending_card_without_a_token_to_cancel | 隐藏丢弃待确认卡且无需取消 | 给定待确认卡在场，当 `hide_overlay`，则回 `Idle`、视图清空、确认出口一并失效（收起后的确认不能复活成下发） | 2026-10-27 |
+| a_new_commit_supersedes_the_pending_card_and_the_stale_confirm_is_refused | 新提交顶掉待确认卡且陈旧确认被拒 | 给定待确认卡在场时新探测提交，则新卡接管；当确认，则只下发屏上新卡的输入与代数；被顶掉的旧卡确认已陈旧、整体拒绝 | 2026-10-27 |
 | a_probe_leaves_a_visible_session_completely_untouched | 探测与误滑不扰动可见会话 | 给定推理中的可见会话，当新划词探测、再当探测以空选区失败收场，则状态、视图、取消令牌全程原样，流式正文照常追加 | 2026-10-01 |
 | image_input_for_text_kind_is_rejected | 划词探测拒收图像输入 | 给定在途划词探测收图像产物，当提交，则 `Ignored`（模态按探测的取材来源配对） | 2026-10-10 |
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 `Translating` 态隐藏，当收起，则令牌取消、视图清空回 `Idle`，迟到同代数产物、失败被拒 | 2026-09-19 |
 | hide_overlay_drops_the_outstanding_probe | 隐藏作废在途探测 | 给定在途探测（划词与粘贴板各验一遍），当收起浮层，则迟到的探测产物与失败均被拒（不得把浮层弹回） | 2026-10-10 |
 | pasteboard_probe_takes_an_id_without_touching_the_session | 粘贴板探测只领编号不动会话 | 给定空白机器与推理中的可见会话，当 `begin_pasteboard_probe`，则发 `AcquireClipboardImage`、只领探测编号不动代数、状态与视图原样、在途任务不被取消、无随行图像 | 2026-10-10 |
 | the_scene_gate_stops_the_pasteboard_probe_too | 场景闸门同样停住粘贴板探测 | 给定安全输入开启与前台应用在名单内两种场景，当 `begin_pasteboard_probe`，则两次都 `None`、无探测编号、状态留 `Idle`；场景恢复后同一观察照常探测（仍不动代数） | 2026-10-10 |
-| pasteboard_commit_retains_the_image_and_dispatches | 粘贴板提交留图并下发 | 给定在途粘贴板探测的图像产物，当 `commit_probe`，则返回下发请求、探测编号提升为代数、图像以 `Arc` 零拷贝留存进 `attached_image`、流式卡经位原文为空（经是图本身）、探测消费 | 2026-10-10 |
+| pasteboard_commit_retains_the_image_and_parks_the_pending_card | 粘贴板提交留图落待确认卡 | 给定在途粘贴板探测的图像产物，当 `commit_probe`，则落 `PendingConfirm`、探测编号提升为代数、图像以 `Arc` 零拷贝留存进 `attached_image`、无取消令牌（待确认阶段无在途推理）；当确认，则下发请求携带同一图像输入、进 `Translating`、流式卡经位原文为空（经是图本身） | 2026-10-27 |
 | probes_are_mutually_exclusive_across_triggers | 两路探测互斥（同一探测槽） | 给定划词探测在途时来粘贴板观察（反向亦然），当新探测到达，则顶掉旧探测；旧编号的产物与失败一律 `Ignored`、新编号照常提交 | 2026-10-10 |
 | text_on_a_pasteboard_probe_is_ignored_without_consuming | 粘贴板探测拒收文本不消费探测 | 给定在途粘贴板探测收文本产物，当 `commit_probe`，则 `Ignored`；同编号的合法图像产物随后仍可提交 | 2026-10-10 |
 | pasteboard_commit_supersedes_and_a_new_task_clears_the_image | 粘贴板提交接管且新任务清图 | 给定推理中的文本任务，当粘贴板提交，则旧任务取消、随行图像就位；随后新文本任务提交，则 `attached_image` 清空 | 2026-10-10 |
