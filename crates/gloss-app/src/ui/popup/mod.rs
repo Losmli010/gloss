@@ -248,7 +248,10 @@ pub fn draw(
         .fill(fill)
         .stroke(Stroke::new(stroke::HAIRLINE, window_stroke.color))
         .corner_radius(radius::CARD)
-        .inner_margin(space::CARD_PADDING)
+        .inner_margin(egui::Margin {
+            bottom: 0,
+            ..egui::Margin::from(space::CARD_PADDING)
+        })
         .show(ui, |ui| {
             let ctx = RenderCtx {
                 state,
@@ -262,7 +265,7 @@ pub fn draw(
         });
 
     output.sizing = OverlaySizing {
-        height: (content_h + 2.0 * space::CARD_PADDING + stroke::HAIRLINE).round(),
+        height: (content_h + space::CARD_PADDING + 2.0 * stroke::HAIRLINE).round(),
     };
     output
 }
@@ -840,11 +843,14 @@ mod kittest_tests {
             let text = Text::get(Locale::Zh);
             let sizing: Rc<Cell<OverlaySizing>> = Rc::new(Cell::new(OverlaySizing { height: 0.0 }));
             let sink = Rc::clone(&sizing);
+            let root_bottom: Rc<Cell<f32>> = Rc::new(Cell::new(0.0));
+            let bottom_sink = Rc::clone(&root_bottom);
             let installed = Cell::new(false);
             let mut harness = Harness::new_ui(move |ui| {
                 if font_first_frame(&installed, ui.ctx()) {
                     return;
                 }
+                bottom_sink.set(ui.max_rect().top());
                 sink.set(draw(ui, Some(&view), None, &state, text).sizing);
             });
             harness.run_steps(2);
@@ -852,10 +858,11 @@ mod kittest_tests {
             harness.run_steps(1);
             let watermark = harness.get_by_label("Gloss").rect();
             assert!(
-                watermark.bottom() <= sizing.get().height + 0.5,
+                watermark.bottom() <= root_bottom.get() + sizing.get().height + 0.5,
                 "页脚水印必须落在期望窗口高度之内（页脚被内容挤出窗外即此断言失败）: \
-                 watermark_bottom={} sizing_height={}",
+                 watermark_bottom={} root_top={} sizing_height={}",
                 watermark.bottom(),
+                root_bottom.get(),
                 sizing.get().height
             );
         }
