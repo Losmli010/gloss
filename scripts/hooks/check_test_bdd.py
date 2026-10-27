@@ -2,7 +2,10 @@
 """测试行为清单一致性门禁：登记文档与测试源码双向核对。
   - 测试源码侧：版本库跟踪的本语言（Rust）源码里的测试函数，加上清单声明的
     自管测试目标（自带运行器的自检目标），每一项都必须登记进清单；
-  - 清单侧：清单的每个条目必须能在测试源码里找到同名测试。
+  - 清单侧：清单的每个条目必须能在测试源码里找到同名测试；
+  - 唯一性三道检查：登记行数对账源码跨文件实例数、跨文件同名必须带文件绑
+    定限定符（限定符取定义文件名主干，汇编模块文件取父目录名）、同条目两
+    行不得绑到同一文件；描述带“最新沿革见”指针的沿革行豁免三道检查。
 条目的描述文字不在校验面（描述与代码冲突时以代码为准，见指令文档的测试节）。
 本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。违规报告
 经统一诊断出口打印：每条带规则标识、位置、条目清单与修复指引；清单文件缺
@@ -33,6 +36,13 @@ RULE_BDD_DUP_ROW = "BDD-DUP-ROW"
 RULE_BDD_DUP_CHAPTER = "BDD-DUP-CHAPTER"
 RULE_BDD_DUP_BLOCK = "BDD-DUP-BLOCK"
 RULE_BDD_TABLE = "BDD-TABLE"
+RULE_BDD_DUP_QUALIFIER = "BDD-DUP-QUALIFIER"
+RULE_BDD_INSTANCE = "BDD-INSTANCE"
+RULE_BDD_BINDING = "BDD-BINDING"
+
+HISTORY_MARKER = "最新沿革见"
+NAME_RE = re.compile(r"[A-Za-z0-9_]+")
+QUALIFIED_RE = re.compile(r"^(.*)（([^（）]*)）\s*$")
 
 SYNC_REMEDY = (
     "added/renamed/removed tests: register them in bdd.md within the same PR and"
@@ -41,6 +51,10 @@ SYNC_REMEDY = (
 DUP_REMEDY = (
     "keep one registration per test: delete the duplicated row, heading or block;"
     " old rows left after a rename go too"
+)
+QUALIFIER_REMEDY = (
+    "append a full-width parenthesized qualifier holding the defining file's name"
+    " (parent dir for mod files) to the entry name"
 )
 TABLE_REMEDY = "repair the table: keep header, separator and body rows contiguous"
 
@@ -61,13 +75,17 @@ def tracked_rs_files(root: str, loader: Any = None) -> list[str]:
     return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
 
 
-def src_test_names(root: str, loader: Any = None) -> set[str]:
-    """git 跟踪 .rs 里的 #[test] / #[tokio::test] 函数名。
+def src_test_instances(
+    root: str, tracked: list[str] | None = None, loader: Any = None
+) -> dict[str, set[str]]:
+    """#[test] / #[tokio::test] 函数名到定义文件（仓库相对路径）集合。
 
     属性行触发 pending；跳过中间的其它属性行（如 #[ignore = \"...\"]）取最近的
-    fn 名；属性与 fn 同行也支持。"""
-    names = set()
-    for rel in tracked_rs_files(root, loader):
+    fn 名；属性与 fn 同行也支持。实例按文件计：同名测试落在几个文件就是几个
+    实例，供限定行数对账与限定符文件绑定用。"""
+    instances: dict[str, set[str]] = {}
+    rels = tracked if tracked is not None else tracked_rs_files(root, loader)
+    for rel in rels:
         pending = False
         path = os.path.join(root, rel)
         if loader is not None:
@@ -80,7 +98,7 @@ def src_test_names(root: str, loader: Any = None) -> set[str]:
             if TEST_ATTR_RE.match(line):
                 m = FN_RE.search(line)
                 if m:
-                    names.add(m.group(1))
+                    instances.setdefault(m.group(1), set()).add(rel)
                 else:
                     pending = True
                 continue
@@ -89,9 +107,9 @@ def src_test_names(root: str, loader: Any = None) -> set[str]:
                     continue
                 m = FN_RE.search(line)
                 if m:
-                    names.add(m.group(1))
+                    instances.setdefault(m.group(1), set()).add(rel)
                     pending = False
-    return names
+    return instances
 
 
 def manifest_files(root: str) -> list[str]:
@@ -106,7 +124,8 @@ def manifest_files(root: str) -> list[str]:
 
 
 def target_test_names(root: str, loader: Any = None) -> set[str]:
-    """[[test]] 声明的测试目标名（harness = false 自检二进制没有 #[test] 函数）。"""
+    """[[test]] 声明的测试目标名（harness = false 自检二进制没有 #[test] 函数）。
+    声明本身即登记面，目标源文件缺席不影响双向核对（缺文件的构建不成立）。"""
     names = set()
     for manifest in manifest_files(root):
         if not os.path.isfile(manifest):
@@ -125,6 +144,32 @@ def target_test_names(root: str, loader: Any = None) -> set[str]:
                     names.add(m.group(1))
                     break
     return names
+
+
+def target_test_instances(
+    root: str,
+    tracked: list[str] | None = None,
+    loader: Any = None,
+    declared: set[str] | None = None,
+) -> dict[str, set[str]]:
+    """[[test]] 测试目标名到目标源文件集合：按「tests/ 目录下同名 .rs」在跟踪
+    清单里解析（目录形态 tests/<名>/main.rs 按目录名归位），解析不到的声明
+    不计实例（限定符文件绑定无从谈起）。声明清单可由调用方传入复用。"""
+    rels = tracked if tracked is not None else tracked_rs_files(root, loader)
+    by_tests_stem: dict[str, set[str]] = {}
+    for rel in rels:
+        parts = rel.replace(os.sep, "/").split("/")
+        if "tests" in parts[:-1] and parts[-1].endswith(".rs"):
+            stem = parts[-1][: -len(".rs")]
+            by_tests_stem.setdefault(stem, set()).add(rel)
+            if stem == "main" and parts[-2] != "tests":
+                by_tests_stem.setdefault(parts[-2], set()).add(rel)
+    instances: dict[str, set[str]] = {}
+    for name in declared if declared is not None else target_test_names(root, loader):
+        files = by_tests_stem.get(name)
+        if files:
+            instances[name] = set(files)
+    return instances
 
 
 def bdd_lines(bdd_path: str, loader: Any = None) -> list[str]:
@@ -161,6 +206,157 @@ def bdd_entries(bdd_path: str, loader: Any = None) -> set[str]:
         if re.fullmatch(r"[A-Za-z0-9_]+", name):
             cleaned.add(name)
     return cleaned
+
+
+def bdd_registrations(bdd_path: str, loader: Any = None) -> list[dict[str, Any]]:
+    """清单登记行的结构化提取：每条带裸名、限定符、小节、行号与沿革标记。
+
+    裸名按「尾部全角括号」剥限定符；沿革行按描述里的「最新沿革见」指针机器
+    识别，豁免限定名唯一、实例数对账与文件绑定三道检查（同名不同描述的
+    历史重录是有意保留）。人工测试豁免节不计。"""
+    out: list[dict[str, Any]] = []
+    exempt = False
+    section = ""
+    for line in bdd_lines(bdd_path, loader):
+        line = line.rstrip("\n")
+        if line.startswith("## "):
+            exempt = line == MANUAL_CHAPTER
+            section = "" if exempt else line
+            continue
+        if exempt:
+            continue
+        entry: dict[str, Any] | None = None
+        history_zone = line
+        if line.startswith("### "):
+            entry = {"kind": "heading", "cell": re.sub(r"^#+\s*", "", line), "line": line}
+        elif line.startswith("|") and not re.match(r"^\s*\|\s*(测试名称|---)", line):
+            cell = re.sub(r"^\|\s*", "", line)
+            cell = re.sub(r"\s*\|.*$", "", cell)
+            entry = {"kind": "row", "cell": cell, "line": line}
+            # 沿革指针锚定到描述列（第三列）：标记出现在名称或限定符里不构成豁免
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if len(cells) >= 3:
+                history_zone = cells[2]
+        if entry is None:
+            continue
+        bare, qualifier = entry["cell"], ""
+        m = QUALIFIED_RE.match(entry["cell"])
+        if m:
+            bare, qualifier = m.group(1), m.group(2)
+        out.append(
+            {
+                "kind": entry["kind"],
+                "section": section,
+                "bare": bare,
+                "qualifier": qualifier,
+                "history": HISTORY_MARKER in history_zone,
+                "cell": entry["cell"],
+                "raw": line,
+            }
+        )
+    return out
+
+
+def qualifier_binds(qualifier: str, rel: str) -> bool:
+    """限定符是否绑定源文件：等于文件名主干，mod 文件取父目录名。"""
+    stem = os.path.splitext(os.path.basename(rel))[0]
+    if stem == "mod":
+        return os.path.basename(os.path.dirname(rel)) == qualifier
+    return stem == qualifier
+
+
+def qualifier_findings(
+    registrations: list[dict[str, Any]], instances: dict[str, set[str]]
+) -> list[gate_report.Finding]:
+    """限定名唯一、实例数对账与限定符文件绑定三道检查。
+
+    按裸名分组（仅标识符裸名，沿革行豁免）：登记行数不等于源码跨文件实例
+    数判实例数对账；跨文件同名的限定行缺限定符、限定符非纯文件名、绑定不
+    到任何定义文件、定义文件无限定符覆盖判文件绑定；两行绑到同一文件判限
+    定名唯一（同文件被登记两遍）。源码无实例的裸名由双向核对判陈旧，此处
+    跳过避免双报。"""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for reg in registrations:
+        if reg["history"] or not NAME_RE.fullmatch(reg["bare"]):
+            continue
+        grouped.setdefault(reg["bare"], []).append(reg)
+
+    instance_rows: list[str] = []
+    binding_rows: list[str] = []
+    dup_rows: list[str] = []
+    for name in sorted(grouped):
+        regs = grouped[name]
+        files = instances.get(name)
+        if not files:
+            continue
+        if len(regs) != len(files):
+            instance_rows.append(
+                "%s (%d inventory rows vs %d source instances)" % (name, len(regs), len(files))
+            )
+        owner: dict[str, str] = {}
+        covered: set[str] = set()
+        for reg in regs:
+            qualifier = reg["qualifier"]
+            if not qualifier:
+                if len(files) > 1:
+                    binding_rows.append(
+                        "%s: cross-file same-name test needs a file-bound qualifier (%s)"
+                        % (name, reg["cell"])
+                    )
+                continue
+            if not NAME_RE.fullmatch(qualifier):
+                binding_rows.append(
+                    "%s: qualifier %r is not a plain file-name token" % (name, qualifier)
+                )
+                continue
+            matches = sorted(rel for rel in files if qualifier_binds(qualifier, rel))
+            if not matches:
+                binding_rows.append(
+                    "%s: qualifier %r matches none of: %s"
+                    % (name, qualifier, ", ".join(sorted(files)))
+                )
+                continue
+            covered.update(matches)
+            for rel in matches:
+                if rel in owner:
+                    dup_rows.append(
+                        "%s: %s is bound by two rows (%s / %s)"
+                        % (name, os.path.basename(rel), owner[rel], reg["cell"])
+                    )
+                owner[rel] = reg["cell"]
+        if len(files) > 1:
+            for rel in sorted(files - covered):
+                binding_rows.append("%s: no qualifier bound to %s" % (name, rel))
+    findings = []
+    if instance_rows:
+        findings.append(
+            entry_finding(
+                RULE_BDD_INSTANCE,
+                "inventory row counts do not match cross-file source instance counts"
+                " (history rows excluded)",
+                "qualify each instance with its defining file's name, or drop stale rows",
+                instance_rows,
+            )
+        )
+    if binding_rows:
+        findings.append(
+            entry_finding(
+                RULE_BDD_BINDING,
+                "qualifiers must bind to defining files (file stem, parent dir for mod files)",
+                QUALIFIER_REMEDY,
+                binding_rows,
+            )
+        )
+    if dup_rows:
+        findings.append(
+            entry_finding(
+                RULE_BDD_DUP_QUALIFIER,
+                "two rows of the same entry bind the same defining file",
+                "distinct instances need distinct file-bound qualifiers; old rows go",
+                dup_rows,
+            )
+        )
+    return findings
 
 
 def duplicate_rows(bdd_path: str, loader: Any = None) -> list[str]:
@@ -286,9 +482,9 @@ def require_inventory(bdd_path: str) -> None:
     sys.exit(gate_report.EXIT_INFRA)
 
 
-def require_sources(src_names: set[str], target_names: set[str]) -> None:
+def require_sources(src_all: set[str]) -> None:
     """测试源码扫描面守卫：两侧都提取不到即扫描面意外为空，失败关闭退出。"""
-    if src_names or target_names:
+    if src_all:
         return
     gate_report.fail(
         gate_report.Finding(
@@ -321,10 +517,18 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
     bdd_path = os.path.join(root, BDD_REL)
     require_inventory(bdd_path)
 
-    src_names = src_test_names(root, loader)
-    target_names = target_test_names(root, loader)
-    require_sources(src_names, target_names)
+    src_instances = src_test_instances(root, loader=loader)
+    declared_targets = target_test_names(root, loader=loader)
+    target_instances = target_test_instances(root, loader=loader, declared=declared_targets)
+    instances: dict[str, set[str]] = {}
+    for source in (src_instances, target_instances):
+        for name, rels in source.items():
+            instances.setdefault(name, set()).update(rels)
+    # 双向核对按名字集合：测试目标声明即登记面；限定符检查按文件实例
+    src_all = set(instances) | declared_targets
+    require_sources(src_all)
     bdd_names = bdd_entries(bdd_path, loader)
+    registrations = bdd_registrations(bdd_path, loader)
 
     found: list[gate_report.Finding] = []
 
@@ -332,9 +536,6 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
         found.append(finding)
         gate_report.fail(finding)
 
-    # 两侧各自已去重，但测试函数名与测试目标名可能同名（如浮层自检），
-    # 合并后须再去重，否则差集把多出的那份误报成“未登记”。
-    src_all = src_names | target_names
     stale = sorted(bdd_names - src_all)
     if stale:
         emit(
@@ -399,6 +600,8 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
                 broken,
             )
         )
+    for finding in qualifier_findings(registrations, instances):
+        emit(finding)
 
     oks = []
     if not found:

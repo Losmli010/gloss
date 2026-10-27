@@ -207,9 +207,9 @@ lint-fix:
 test:
     cargo test --workspace --all-features
 
-# 检查器单测：目录发现跑门禁脚本与客户端钩子目录的测试
+# 检查器单测：目录发现跑门禁脚本、命名助手与客户端钩子目录的测试
 hooks-test:
-    {{py}} -m pytest scripts/hooks .zcode/hooks -q
+    {{py}} -m pytest scripts/hooks scripts/dev .zcode/hooks -q
 
 # 第三层显隐自检（L3）：一百轮浮层显隐与首帧预算，需窗口服务与图形硬件（GPU）
 selftest:
@@ -319,6 +319,14 @@ comments:
 # 注释纪律规则速查：按类别打印脚本路径与文件头（规则唯一出处），不另存副本
 comments-rules *args:
     {{py}} scripts/dev/comment_rules.py {{args}}
+
+# 记录命名助手：源文件路径到规范记录路径，缺档可按标准前言建档，也能反查源文件
+comment-name *args:
+    {{py}} scripts/dev/comment_map.py {{args}}
+
+# 注释记录体检：非法名、撞名与陈旧记录全量扫描，缺省只报告不落盘，显式传参才删除陈旧记录
+comments-doctor *args:
+    {{py}} scripts/dev/comment_map.py --doctor {{args}}
 
 # 校验单条提交信息是否符合提交规范
 lint-commit file:

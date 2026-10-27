@@ -21,6 +21,7 @@ import sys
 from typing import Any
 
 import check_docs
+import check_record_names
 import check_rust_comments
 import check_script_comments
 import gate_report
@@ -96,6 +97,13 @@ def collect(
             )
             sys.exit(gate_report.EXIT_INFRA)
         for finding in gate.check(rel, src):
+            found.append(finding)
+            gate_report.fail(finding)
+    # 记录目录的命名判定是目录级全量核对（反向解析需要整个跟踪清单），
+    # 不逐文件分派；显式清单模式（单测传样本）跳过
+    if not explicit:
+        tracked_rels = [os.path.relpath(path, root) for path in paths]
+        for finding in check_record_names.check_all(tracked_rels):
             found.append(finding)
             gate_report.fail(finding)
     oks = [OK_LINE] if not found else []

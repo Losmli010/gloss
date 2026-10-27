@@ -64,7 +64,7 @@ BDD_MD = """\
 | registered_tokio | 目标 | 给定…当…则… | 2026-09-19 |
 | registered_ignored | 目标 | 给定…当…则… | 2026-09-19 |
 | same_line_registered | 目标 | 给定…当…则… | 2026-09-19 |
-| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |
+| snapshots_match_baseline（lib） | 目标 | 给定…当…则… | 2026-09-19 |
 
 ## 性能测试
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -138,13 +138,26 @@ def test_table_header_and_separator_not_entries(tmp_path: Path) -> None:
     assert_pass(tmp_path)
 
 
-def test_history_row_same_name_not_duplicate(tmp_path: Path) -> None:
+def test_history_row_same_name_needs_history_marker(tmp_path: Path) -> None:
+    """同名旧行带「最新沿革见」指针＝沿革行，豁免实例数对账。"""
+
+    def mutate(root: Path) -> None:
+        p = root / "docs/tests/bdd.md"
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write("| registered_plain | 旧目标 | 旧场景措辞（最新沿革见首行） | 2026-09-01 |\n")
+
+    assert_pass(tmp_path, mutate)
+
+
+def test_second_row_without_history_marker_fails_instance_count(tmp_path: Path) -> None:
+    """同名两行都没有沿革指针：清单行数超过源码实例数，实例数对账拦下。"""
+
     def mutate(root: Path) -> None:
         p = root / "docs/tests/bdd.md"
         with open(p, "a", encoding="utf-8") as fh:
             fh.write("| registered_plain | 旧目标 | 旧场景措辞 | 2026-09-01 |\n")
 
-    assert_pass(tmp_path, mutate)
+    assert_fail(tmp_path, mutate, "registered_plain (2 inventory rows vs 1 source instances)")
 
 
 def test_fn_name_colliding_with_target_deduped(tmp_path: Path) -> None:
@@ -167,6 +180,116 @@ def test_manual_entry_registered_once(tmp_path: Path) -> None:
             fh.write(
                 "\n### live_manual_thing\n- 测试目标：探针。\n- 测试步骤：\n"
                 "  1. 跑一次\n- 更新时间：2026-09-19\n"
+            )
+
+    assert_pass(tmp_path, mutate)
+
+
+# ---- 唯一性三道检查：限定名唯一、实例数对账、限定符文件绑定 ----
+
+
+def add_second_instance(root: Path) -> None:
+    """同名测试的第二个定义文件与两条文件绑定限定行（新文件须入库才进扫描面）。"""
+    mod = root / "src/ui/popup"
+    mod.mkdir(parents=True)
+    (mod / "mod.rs").write_text("#[test]\nfn snapshots_match_baseline() {}\n", encoding="utf-8")
+    with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
+        fh.write("| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |\n")
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+
+
+def test_cross_file_same_name_with_bound_qualifiers_passes(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        add_second_instance(root)
+
+    assert_pass(tmp_path, mutate)
+
+
+def test_cross_file_same_name_without_qualifier_fails_binding(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        add_second_instance(root)
+        p = root / "docs/tests/bdd.md"
+        text = p.read_text(encoding="utf-8").replace(
+            "snapshots_match_baseline（popup）", "snapshots_match_baseline"
+        )
+        p.write_text(text, encoding="utf-8")
+
+    assert_fail(tmp_path, mutate, "needs a file-bound qualifier")
+
+
+def test_qualifier_with_free_text_fails_binding(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        p = root / "docs/tests/bdd.md"
+        text = p.read_text(encoding="utf-8").replace(
+            "snapshots_match_baseline（lib）", "snapshots_match_baseline（lib 旧措辞）"
+        )
+        p.write_text(text, encoding="utf-8")
+
+    assert_fail(tmp_path, mutate, "is not a plain file-name token")
+
+
+def test_qualifier_binds_mod_files_by_parent_dir() -> None:
+    """mod 文件的限定符绑定是父目录名，直接锁定绑定函数的分支。"""
+    assert check_test_bdd.qualifier_binds("popup", "src/ui/popup/mod.rs")
+    assert not check_test_bdd.qualifier_binds("mod", "src/ui/popup/mod.rs")
+    assert check_test_bdd.qualifier_binds("settings", "src/ui/settings.rs")
+    assert not check_test_bdd.qualifier_binds("popup", "src/ui/settings.rs")
+
+
+def test_history_marker_in_qualifier_does_not_exempt(tmp_path: Path) -> None:
+    """沿革指针写进限定符不构成豁免：该行仍按普通登记行判罚。"""
+
+    def mutate(root: Path) -> None:
+        p = root / "docs/tests/bdd.md"
+        text = p.read_text(encoding="utf-8").replace(
+            "snapshots_match_baseline（lib）", "snapshots_match_baseline（最新沿革见）"
+        )
+        p.write_text(text, encoding="utf-8")
+
+    assert_fail(tmp_path, mutate, "is not a plain file-name token")
+
+
+def test_qualifier_matching_no_file_fails_binding(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        p = root / "docs/tests/bdd.md"
+        text = p.read_text(encoding="utf-8").replace(
+            "snapshots_match_baseline（lib）", "snapshots_match_baseline（nowhere）"
+        )
+        p.write_text(text, encoding="utf-8")
+
+    assert_fail(tmp_path, mutate, "matches none of")
+
+
+def test_two_rows_binding_same_file_fail_dup_qualifier(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        add_second_instance(root)
+        p = root / "docs/tests/bdd.md"
+        text = p.read_text(encoding="utf-8").replace(
+            "snapshots_match_baseline（lib）", "snapshots_match_baseline（popup）"
+        )
+        p.write_text(text, encoding="utf-8")
+
+    assert_fail(tmp_path, mutate, "bound by two rows")
+
+
+def test_uncovered_instance_fails_binding(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        add_second_instance(root)
+        p = root / "docs/tests/bdd.md"
+        text = p.read_text(encoding="utf-8").replace(
+            "snapshots_match_baseline（lib）", "snapshots_match_baseline（popup）"
+        )
+        p.write_text(text, encoding="utf-8")
+
+    assert_fail(tmp_path, mutate, "no qualifier bound to")
+
+
+def test_history_row_exempt_from_qualifier_checks(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        add_second_instance(root)
+        with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
+            fh.write(
+                "| snapshots_match_baseline | 旧目标 | 旧场景（最新沿革见限定行） | 2026-09-01 |\n"
             )
 
     assert_pass(tmp_path, mutate)
@@ -341,6 +464,11 @@ def violation_fixture(root: Path) -> None:
             fh.write("\n#[test]\nfn unregistered_thing() {}\n")
 
     mutate_src(root / "src/lib.rs")
+    # 同名测试的第二个定义文件 + 两行同限定行：触发文件绑定与限定名重复
+    mod = root / "src/ui/popup"
+    mod.mkdir(parents=True)
+    (mod / "mod.rs").write_text("#[test]\nfn snapshots_match_baseline() {}\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
     with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
         fh.write(
             "\n## 性能测试\n"
@@ -349,6 +477,9 @@ def violation_fixture(root: Path) -> None:
             "\n"
             "| ghost_entry | 目标 | 场景 | 2026-09-19 |\n"
             "| registered_plain | 目标 | 给定…当…则… | 2026-09-19 |\n"
+            "| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |\n"
+            "| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |\n"
+            "| snapshots_match_baseline | 目标 | 给定…当…则… | 2026-09-19 |\n"
             "- 测试目标：重复块探针。\n"
             "- 测试目标：重复块探针。\n"
         )
@@ -367,6 +498,9 @@ def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
         "BDD-DUP-CHAPTER",
         "BDD-DUP-BLOCK",
         "BDD-TABLE",
+        "BDD-INSTANCE",
+        "BDD-BINDING",
+        "BDD-DUP-QUALIFIER",
     }
     for line in heads:
         assert re.match(r"^error\[[A-Z0-9-]+\]: .+ \(.+\)$", line)
@@ -380,7 +514,7 @@ def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
     details = sum(1 for line in text.splitlines() if line.startswith("error["))
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
-    assert int(match.group(1)) == details == 6
+    assert int(match.group(1)) == details == 9
 
 
 def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
