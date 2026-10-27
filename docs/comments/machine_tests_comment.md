@@ -32,7 +32,7 @@
   「已消费的卡拒收重复确认」。
 - `confirm_pending_is_refused_outside_the_pending_card`：守卫用空白机器、
   流式中、产物卡上三种非待确认形态逐个证伪，不依赖单一路径。
-- `a_new_commit_supersedes_the_pending_card_and_the_stale_confirm_is_refused`：
+- `a_new_commit_supersedes_the_pending_card_and_confirm_acts_on_the_current_card`：
   确认恒作用于屏上当前卡——守卫读视图而非按卡记身份，测试钉的正是这个
   事实源选择：新卡接管后确认下发的是新卡，同一张卡只可确认一次。
 
