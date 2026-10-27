@@ -167,3 +167,7 @@ core 保持无日志面，避免同一事实在两层各记一条。
 - 语言段的 `finish_reason == content_filter` 与任务段同判同败（服务端拦截重发无益）；`empty_completion` 不采纳（保持旧回复），引擎错误照旧上抛。
 - `lang_violations` 用 `Option` 而非 `expect`：工作区 lint 禁 `expect_used`，且循环不变量「reply 恒契约合格」由采纳守卫维持，`None` 臂按耗尽降级处理是安全的兜底而非吞错（留痕：语言修复轮的 violated/exhausted warn 已在 RepairLoop 打过）。
 - 为什么语言修复指令由 `PromptRegistry::render_language_repair` 渲染：违约行清单是判定器的产物，模板只给骨架（§7.6），与格式修复的 `render_repair` 对称。
+
+### 评审修复（2026-10-28，PR #259 评审 P2-7）
+
+- `lang_violations` 的防御 `None` 臂补 `warn`（「language gate saw a contract-invalid reply, delivering degraded」）：采纳守卫使该臂不可达，但「降级必有痕」的形态统一要求它真被触发时留痕（对照 `finalize.rs` 降级纪律）。

@@ -10,6 +10,9 @@ use super::violation::{LangCategory, LangField, LangViolation};
 const PERCENT_SIGNS: [char; 3] = ['%', '‰', '°']; // i18n:allow 判定常量
 const CURRENCY_SIGNS: [char; 5] = ['€', '£', '¥', '￥', '₩']; // i18n:allow 判定常量
 const DASH_FAMILY: [char; 4] = ['—', '–', '‥', '…']; // i18n:allow 判定常量
+const BARE_EMOJI: [char; 6] = [
+    '\u{2705}', '\u{2728}', '\u{274C}', '\u{2764}', '\u{26A1}', '\u{2B50}',
+]; // i18n:allow 判定常量
 
 pub(crate) struct BodyCheck<'a> {
     pub lang: &'a LangPolicy,
@@ -118,9 +121,9 @@ impl BodyCheck<'_> {
 
     fn check_emoji(&self, violations: &mut Vec<LangViolation>) {
         let flagged = self.ranges.iter().any(|&(start, end)| {
-            self.chars[start..end]
-                .iter()
-                .any(|&c| is_emoji(c) || matches!(c, '\u{FE0E}' | '\u{FE0F}'))
+            self.chars[start..end].iter().any(|&c| {
+                is_emoji(c) || BARE_EMOJI.contains(&c) || matches!(c, '\u{FE0E}' | '\u{FE0F}')
+            })
         });
         if flagged {
             violations.push(LangViolation::new(self.field, LangCategory::EmojiForbidden));

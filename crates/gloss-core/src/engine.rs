@@ -260,6 +260,10 @@ async fn run_lang_rounds(
     let mut repairs = RepairLoop::new(RepairStage::Lang, LANG_REPAIRS);
     loop {
         let Some(violations) = lang_violations(&stage, &reply.body) else {
+            warn!(
+                thread = thread::TOKIO,
+                "language gate saw a contract-invalid reply, delivering degraded"
+            );
             return Ok(lang_output(&stage, reply, task_repairs, true));
         };
         if violations.is_empty() {

@@ -117,6 +117,7 @@ fn scan_field(
                 .filter(|container| !container.is_quote)
                 .map(|container| (container.open + 1, container.close - 1)),
         );
+        let han_ranges = containers::subtract_math(&han_ranges, &math);
         simplified::check_simplified(field, &joined.chars, &han_ranges, violations);
     }
     let container = containers::ContainerCheck {
@@ -124,6 +125,7 @@ fn scan_field(
         policy: lang,
         field,
         chars: &joined.chars,
+        math: &math,
     };
     scan.check(&container, violations);
     let overlap = overlap_body(lang, task, &joined.chars, &ranges);
@@ -439,6 +441,15 @@ mod tests {
             word_card(None, &[]),
         );
         assert!(has(&violations, LangCategory::EmojiForbidden));
+
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "裸红心❤不带变体符也判。",
+            word_card(None, &[]),
+        );
+        assert!(has(&violations, LangCategory::EmojiForbidden));
     }
 
     #[test]
@@ -568,6 +579,48 @@ mod tests {
         assert!(
             !has(&violations, LangCategory::UnclosedContainer),
             "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn math_inside_containers_stays_exempt() {
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "参见（详见 $O(n \\log n)$ 一节）。",
+            word_card(None, &[]),
+        );
+        assert!(
+            !has(&violations, LangCategory::ContainerMixing),
+            "a formula inside a paren is container content: {violations:?}"
+        );
+
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "引文“复杂度为 $O(n)$ 的情形”成立。",
+            word_card(None, &[]),
+        );
+        assert!(
+            !has(&violations, LangCategory::ContainerMixing),
+            "a formula inside a quote is container content: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn line_wrapped_formulas_stay_math_containers() {
+        let violations = categories(
+            TaskKind::General,
+            Lang::Zh,
+            "gloss",
+            "计算满足 $a +\nb > 0$ 的情形。",
+            plain(&[]),
+        );
+        assert!(
+            !has(&violations, LangCategory::PunctuationMismatch),
+            "a formula wrapping a soft break still pairs: {violations:?}"
         );
     }
 

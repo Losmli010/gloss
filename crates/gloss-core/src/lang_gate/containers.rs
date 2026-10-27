@@ -127,19 +127,44 @@ pub(crate) struct ContainerCheck<'a> {
     pub policy: &'a LangPolicy,
     pub field: LangField,
     pub chars: &'a [char],
+    pub math: &'a [(usize, usize)],
 }
 
 impl Scan {
     pub(crate) fn check(&self, ctx: &ContainerCheck<'_>, violations: &mut Vec<LangViolation>) {
         for index in 0..self.containers.len() {
             let is_quote = self.containers[index].is_quote;
-            let direct = direct_ranges(&self.containers, index);
+            let direct = subtract_math(&direct_ranges(&self.containers, index), ctx.math);
             check_mixing(ctx.policy, ctx.field, ctx.chars, &direct, violations);
             if !is_quote && ctx.kind == TaskKind::TranslateSentence {
                 check_sentence_parens(ctx.field, ctx.chars, &direct, violations);
             }
         }
     }
+}
+
+pub(crate) fn subtract_math(
+    ranges: &[(usize, usize)],
+    math: &[(usize, usize)],
+) -> Vec<(usize, usize)> {
+    let mut out = Vec::with_capacity(ranges.len());
+    for &(start, end) in ranges {
+        let mut cursor = start;
+        for &(m_start, m_end) in math {
+            let (m_start, m_end) = (m_start.max(start), m_end.min(end));
+            if m_start >= m_end {
+                continue;
+            }
+            if m_start > cursor {
+                out.push((cursor, m_start));
+            }
+            cursor = cursor.max(m_end);
+        }
+        if end > cursor {
+            out.push((cursor, end));
+        }
+    }
+    out
 }
 
 fn check_mixing(

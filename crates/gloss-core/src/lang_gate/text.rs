@@ -65,7 +65,10 @@ impl ParseState {
                     self.text.push(&t, self.node);
                 }
             }
-            Event::SoftBreak | Event::HardBreak => {
+            Event::SoftBreak => {
+                self.text.push("\n", self.node);
+            }
+            Event::HardBreak => {
                 self.node += 1;
                 self.text.push("\n", self.node);
             }
