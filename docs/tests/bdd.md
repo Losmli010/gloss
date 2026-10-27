@@ -1062,7 +1062,13 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| ladders_are_strictly_descending | 字号与间距阶梯严格递减 | 给定字号与间距两条阶梯，当逐档比较，则每档严格大于下一档（档位语义不塌缩） | 2026-09-21 |
+| space_ladder_is_strictly_descending | 间距阶梯严格递减 | 给定间距阶梯（分区、段落、条目、紧邻、行内），当逐档比较，则每档严格大于下一档（档位语义不塌缩） | 2026-10-27 |
+
+### `crates/gloss-app/src/ui/style/typography.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| size_ladder_is_strictly_descending | 字号档位严格递减 | 给定字号档位（词头、标题、疏注、小字、标签五档），当逐档比较，则每档严格大于下一档（档位语义不塌缩） | 2026-10-27 |
 
 ### `crates/gloss-platform/src/appearance/icon.rs`
 

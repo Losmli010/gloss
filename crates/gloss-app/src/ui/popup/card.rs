@@ -11,18 +11,16 @@ use std::time::Duration;
 
 use egui::{Align, RichText, Stroke, vec2};
 
-use super::content::{SEAL_FONT, serif_font, watermark};
+use super::content::watermark;
 use super::{FOOTER_HEIGHT, HEADER_ICON, OverlayAction, PULSE_PERIOD_SECS, RenderState};
 use crate::ui::i18n::Text;
-use crate::ui::style::{alpha, font, palette, space, stroke, with_alpha};
+use crate::ui::style::{alpha, palette, radius, serif, size, space, stroke, with_alpha};
 
 const ACTION_ICON_SIZE: f32 = 16.0;
 const ACTION_BUTTON: f32 = 20.0;
 const CLOSE_ARM: f32 = 5.0;
-const CLOSE_STROKE: f32 = 2.0;
 const DRAG_STRIP_INSET: f32 = 6.0;
 const SEAL_SIZE: f32 = 21.0;
-const SEAL_RADIUS: u8 = 5;
 const SEAL_TEXT_PADDING: f32 = 5.0;
 const FOOTER_DOT_RADIUS: f32 = 2.0;
 const FOOTER_DOT_COUNT: usize = 3;
@@ -30,7 +28,7 @@ const WATERMARK_PADDING: f32 = 6.0;
 
 fn hairline(ui: &egui::Ui) -> Stroke {
     Stroke::new(
-        stroke::CARD,
+        stroke::HAIRLINE,
         ui.visuals().widgets.noninteractive.bg_stroke.color,
     )
 }
@@ -142,7 +140,7 @@ fn close_button(ui: &mut egui::Ui, text: &'static Text) -> egui::Response {
     } else {
         ui.visuals().weak_text_color()
     };
-    let stroke = Stroke::new(CLOSE_STROKE, color);
+    let stroke = Stroke::new(stroke::THICK, color);
     let center = rect.center();
     ui.painter().line_segment(
         [
@@ -188,15 +186,20 @@ pub(super) fn seal(ui: &mut egui::Ui, label: &'static str, tint: SealTint) {
         ),
         || {
             ui.painter()
-                .layout_no_wrap(label.to_owned(), serif_font(SEAL_FONT), fg)
+                .layout_no_wrap(label.to_owned(), serif(size::SEAL), fg)
         },
     );
     let width = SEAL_SIZE.max(galley.size().x + 2.0 * SEAL_TEXT_PADDING);
     let (rect, response) = ui.allocate_exact_size(vec2(width, SEAL_SIZE), egui::Sense::hover());
     response
         .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, label.to_owned()));
-    ui.painter()
-        .rect(rect, SEAL_RADIUS, fill, line, egui::StrokeKind::Inside);
+    ui.painter().rect(
+        rect,
+        radius::SEAL.round() as u8,
+        fill,
+        line,
+        egui::StrokeKind::Inside,
+    );
     ui.painter()
         .galley(rect.center() - galley.size() / 2.0, galley, fg);
 }
@@ -290,7 +293,7 @@ fn footer_status(
             ui.ctx().pixels_per_point().to_bits(),
         ),
         || {
-            egui::WidgetText::from(RichText::new(label.as_str()).size(font::TAG).color(dim))
+            egui::WidgetText::from(RichText::new(label.as_str()).size(size::TAG).color(dim))
                 .into_galley(
                     ui,
                     Some(ui.wrap_mode()),
@@ -302,7 +305,7 @@ fn footer_status(
     ui.painter().galley(
         egui::pos2(
             rect.min.x,
-            rect.center().y + stroke::CARD - galley.size().y / 2.0,
+            rect.center().y + stroke::HAIRLINE - galley.size().y / 2.0,
         ),
         galley.clone(),
         dim,
@@ -315,7 +318,7 @@ fn footer_dots(ui: &egui::Ui, rect: &egui::Rect, label_width: f32) {
     let zhu = palette(ui).seal;
     let mut dot_center = egui::pos2(
         rect.min.x + label_width + space::TIGHT + FOOTER_DOT_RADIUS,
-        rect.center().y + stroke::CARD,
+        rect.center().y + stroke::HAIRLINE,
     );
     for index in 0..FOOTER_DOT_COUNT {
         let wave = ((now / PULSE_PERIOD_SECS + index as f64 * 0.9).sin() + 1.0) / 2.0;
@@ -334,7 +337,7 @@ fn footer_watermark(ui: &mut egui::Ui, rect: &egui::Rect) {
         ui,
         CachedGalley::Watermark(palette(ui).is_dark, ui.ctx().pixels_per_point().to_bits()),
         || {
-            egui::WidgetText::from(RichText::new(watermark()).size(font::TAG).color(dim))
+            egui::WidgetText::from(RichText::new(watermark()).size(size::TAG).color(dim))
                 .into_galley(
                     ui,
                     Some(ui.wrap_mode()),

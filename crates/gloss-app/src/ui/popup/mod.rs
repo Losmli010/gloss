@@ -228,9 +228,9 @@ pub fn draw(
     let mut content_h = 0.0;
     Frame::new()
         .fill(fill)
-        .stroke(Stroke::new(stroke::CARD, window_stroke.color))
-        .corner_radius(CornerRadius::same(radius::CARD))
-        .inner_margin(Margin::same(space::CARD_PADDING))
+        .stroke(Stroke::new(stroke::HAIRLINE, window_stroke.color))
+        .corner_radius(CornerRadius::same(radius::CARD.round() as u8))
+        .inner_margin(Margin::same(space::CARD_PADDING.round() as i8))
         .show(ui, |ui| {
             let ctx = RenderCtx {
                 state,
@@ -244,7 +244,7 @@ pub fn draw(
         });
 
     output.sizing = OverlaySizing {
-        height: (content_h + 2.0 * space::CARD_PADDING as f32 + stroke::CARD).round(),
+        height: (content_h + 2.0 * space::CARD_PADDING + stroke::HAIRLINE).round(),
     };
     output
 }

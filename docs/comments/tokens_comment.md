@@ -48,3 +48,15 @@ TIGHT 落点（提示行上方）的认定即因此读反，整改时一并纠�
 ## 拆分沿革（2026-10-27 样式统一阶段 1）
 
 原 `ui/style.rs` 拆为 `ui/style/{mod, tokens}.rs`：阶梯（font/space/radius/stroke）原样搬入 tokens.rs，颜色语义留在 style/mod.rs；阶梯单测随迁，快照基线不动。上述「范围裁决」是拆分前的窗口私有量政策，按样式统一设计（docs/plans/style-unification-design.md）该政策废止，控件几何与动效将在后续阶段收编进 style/，届时逐条更新。
+
+## rem 再定稿（2026-10-27 样式统一阶段 4）
+
+空间尺寸的唯一设计单位改为根相对字号（rem，0.125 网格），解析根住样式
+出口（初值 12px，接用户字号或缩放时是唯一改动点）。间距与圆角档位按
+设计对照表再定稿：SECTION 12（12）、CARD_PADDING 13.5（14）、PARAGRAPH
+7.5（8）、ITEM 6（6）、TIGHT 4.5（4）、INLINE 1.5（2）；radius::SEAL 4.5
+（5）、SHIMMER 4.5（4）、CARD 7.5（8）、CODE_PANEL 10.5（10）。描边与
+发丝线是像素例外（渲染意图，不随字号缩放），三档收编登记：HAIRLINE
+0.5（原 stroke::CARD）、LINE 1（代码面板边）、THICK 2（关闭叉与朱丝栏）。
+类型统一为 f32（原 i8/u8）；界面库的整型口径（Margin i8、CornerRadius
+u8）在消费点就近取整，是渲染边界的实现细节。

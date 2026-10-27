@@ -1,27 +1,7 @@
-//! 浮层文案整形：水印等展示文案的纯函数，以及经注疏的字号规格与宋楷
-//! 字体助手（设计稿基准的应用定稿值，不进样式阶梯）。
+//! 浮层文案整形：水印等展示文案的纯函数。
 //!
 //! 不依赖界面库（egui）绘制侧：字体句柄只是字体数据，不碰界面状态与上下文。
-
-use egui::FontId;
-
-use crate::ui::fonts;
-
-pub(super) const JING_FONT: f32 = 15.5;
-pub(super) const ZHU_FONT: f32 = 15.0;
-pub(super) const SHU_FONT: f32 = 14.0;
-pub(super) const WORD_FONT: f32 = 25.0;
-pub(super) const PHON_FONT: f32 = 13.0;
-pub(super) const SEAL_FONT: f32 = 12.0;
-pub(super) const SMALL_FONT: f32 = 13.0;
-
-pub(super) fn serif_font(size: f32) -> FontId {
-    FontId::new(size, fonts::serif_family())
-}
-
-pub(super) fn kaiti_font(size: f32) -> FontId {
-    FontId::new(size, fonts::zhu_family())
-}
+//! 经注疏的字号规格与宋楷字体助手已收编进样式排印模块（样式统一阶段 4）。
 
 pub(super) fn watermark() -> &'static str {
     "Gloss"

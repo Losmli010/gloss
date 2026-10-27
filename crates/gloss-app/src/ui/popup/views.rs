@@ -11,22 +11,20 @@ use std::time::Duration;
 use egui::{RichText, ScrollArea, vec2};
 
 use super::card::{footer, header};
-use super::content::ZHU_FONT;
 use super::note::{StreamFields, stream_fields};
 use super::outcome::{
-    apply_markdown_typography, attached_image, is_code, jing_section, outcome_body,
-    render_markdown, selfcheck_body, shu_examples, source_block, zhu_section,
+    attached_image, is_code, jing_section, outcome_body, render_markdown, selfcheck_body,
+    shu_examples, source_block, zhu_section,
 };
 use super::{OverlayAction, PULSE_PERIOD_SECS, RenderCtx};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
 use crate::ui::i18n::Text;
-use crate::ui::style::{alpha, font, space, with_alpha};
+use crate::ui::style::{alpha, apply_kaiti, radius, size, space, with_alpha};
 
 const MIN_BODY_VIEWPORT: f32 = 48.0;
 const FOOTER_RESERVE: f32 = super::FOOTER_HEIGHT + space::PARAGRAPH;
 const ARROW_SCROLL_STEP: f32 = 48.0;
 const SHIMMER_BAR_HEIGHT: f32 = 12.0;
-const SHIMMER_BAR_RADIUS: u8 = 4;
 
 fn record_scrolled_height(
     ui: &egui::Ui,
@@ -77,8 +75,11 @@ fn shimmer_bars(ui: &mut egui::Ui) {
             ),
             vec2(full * ratio, SHIMMER_BAR_HEIGHT),
         );
-        ui.painter()
-            .rect_filled(bar, SHIMMER_BAR_RADIUS, with_alpha(weak, alpha01));
+        ui.painter().rect_filled(
+            bar,
+            radius::SHIMMER.round() as u8,
+            with_alpha(weak, alpha01),
+        );
     }
     ui.ctx()
         .request_repaint_after(Duration::from_secs_f32(0.016));
@@ -91,7 +92,7 @@ fn streamed_sections(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, fields: &StreamFiel
     }
     if !fields.note.is_empty() {
         zhu_section(ui, ctx.text, |ui| {
-            apply_markdown_typography(ui, ZHU_FONT);
+            apply_kaiti(ui, size::ZHU);
             render_markdown(ui, ctx.state, &fields.note);
         });
     }
@@ -209,14 +210,14 @@ fn degraded_card(
     plain_card(ui, ctx, content_h, |ui, action| {
         ui.label(
             RichText::new(&ctx.text.gloss_popup_output_abnormal)
-                .size(font::NOTICE)
+                .size(size::NOTICE)
                 .color(ui.visuals().warn_fg_color),
         );
         ui.add_space(space::SECTION);
         if ui
             .button(
                 RichText::new(ctx.text.gloss_popup_retry.as_str())
-                    .size(font::CAPTION)
+                    .size(size::CAPTION)
                     .color(ui.visuals().strong_text_color()),
             )
             .clicked()
@@ -236,7 +237,7 @@ fn failed_card(
     plain_card(ui, ctx, content_h, |ui, action| {
         ui.label(
             RichText::new(failure_message(cause, ctx.text))
-                .size(font::NOTICE)
+                .size(size::NOTICE)
                 .color(ui.visuals().warn_fg_color),
         );
         if let Some(error_action) = *error_action {
@@ -244,7 +245,7 @@ fn failed_card(
             if ui
                 .button(
                     RichText::new(action_label(error_action, ctx.text))
-                        .size(font::CAPTION)
+                        .size(size::CAPTION)
                         .color(ui.visuals().strong_text_color()),
                 )
                 .clicked()

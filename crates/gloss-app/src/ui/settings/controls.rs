@@ -8,7 +8,7 @@ use egui::{RichText, Stroke};
 
 use super::{FieldError, FieldKey, SettingsAction, SettingsState, build_save};
 use crate::ui::i18n::{Text, fill};
-use crate::ui::style::{font, palette, radius, space};
+use crate::ui::style::{palette, radius, size, space};
 
 fn accent(ui: &egui::Ui) -> egui::Color32 {
     palette(ui).accent
@@ -57,7 +57,7 @@ pub(super) fn notices(
                 &text.gloss_settings_invalid_summary,
                 &[("count", &count)],
             ))
-            .size(font::CAPTION)
+            .size(size::CAPTION)
             .color(palette(ui).danger),
         );
     }
@@ -65,7 +65,7 @@ pub(super) fn notices(
         ui.add_space(space::TIGHT);
         ui.label(
             RichText::new(notice.message(text))
-                .size(font::CAPTION)
+                .size(size::CAPTION)
                 .color(palette(ui).danger),
         );
     }
@@ -76,8 +76,8 @@ pub(super) fn section(ui: &mut egui::Ui, title: &str, content: impl FnOnce(&mut 
     ui.add_space(space::TIGHT);
     egui::Frame::new()
         .fill(ui.visuals().faint_bg_color)
-        .corner_radius(egui::CornerRadius::same(radius::CARD))
-        .inner_margin(egui::Margin::same(space::CARD_PADDING))
+        .corner_radius(egui::CornerRadius::same(radius::CARD.round() as u8))
+        .inner_margin(egui::Margin::same(space::CARD_PADDING.round() as i8))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             content(ui);
@@ -87,7 +87,7 @@ pub(super) fn section(ui: &mut egui::Ui, title: &str, content: impl FnOnce(&mut 
 fn caption(ui: &mut egui::Ui, text: &str) {
     ui.label(
         RichText::new(text)
-            .size(font::CAPTION)
+            .size(size::CAPTION)
             .color(ui.visuals().weak_text_color()),
     );
 }
@@ -131,7 +131,7 @@ pub(super) fn error_text(
     if let Some(error) = errors.get(&key) {
         ui.label(
             RichText::new(error.message(text))
-                .size(font::CAPTION)
+                .size(size::CAPTION)
                 .color(palette(ui).danger),
         );
     }
