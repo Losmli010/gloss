@@ -26,7 +26,7 @@ pub mod action {
     pub const ICON_SIZE: f32 = rem(1.375);
     pub const BUTTON: f32 = rem(1.625);
     pub const BUTTON_RADIUS: f32 = rem(0.5);
-    pub const CLOSE_ARM: f32 = rem(0.375);
+    pub const ICON_ARM: f32 = rem(0.375);
     pub const DRAG_STRIP_INSET: f32 = rem(0.5);
     pub const ROW_HEIGHT: f32 = rem(2.5);
 }

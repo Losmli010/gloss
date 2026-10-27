@@ -3,7 +3,7 @@
 //!
 //! 待确认卡的确认与取消、完成卡的复制是页脚仅有的两处交互出口，动作在
 //! 绘制帧折成动作上交视图分发；复制钮点击后短暂显示已复制反馈（驻留时长
-//! 取动效档位），图标以矢量线段现画不依赖字形。颜色经语义调色板解析，
+//! 取动效档位），图标矢量现画不依赖字形。颜色经语义调色板解析，
 //! 几何引用样式几何档；排版产物的跨帧缓存借卡片固定件的缓存基建。
 
 use egui::{Align, RichText, Stroke, vec2};
@@ -74,6 +74,7 @@ fn footer_confirm(
         )
         .fill(colors.seal)
         .corner_radius(radius::SEAL)
+        .small()
         .min_size(vec2(0.0, button_height));
         if ui.add(send).clicked() {
             action = Some(OverlayAction::Confirm);
@@ -85,6 +86,7 @@ fn footer_confirm(
                 .color(ui.visuals().strong_text_color()),
         )
         .corner_radius(radius::SEAL)
+        .small()
         .min_size(vec2(0.0, button_height));
         if ui.add(cancel).clicked() {
             action = Some(OverlayAction::Dismiss);
@@ -111,7 +113,7 @@ fn footer_copy(
             .id_salt("footer_copy"),
     );
     left.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-        let side = geometry::overlay::FOOTER_HEIGHT - 2.0 * space::TIGHT;
+        let side = geometry::overlay::FOOTER_HEIGHT - 2.0 * space::INLINE;
         let (button, response) = ui.allocate_exact_size(vec2(side, side), egui::Sense::click());
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
@@ -148,26 +150,30 @@ fn footer_copy(
 }
 
 fn paint_copy_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
-    let stroke = Stroke::new(stroke::LINE, color);
-    let arm = geometry::action::CLOSE_ARM;
-    let offset = space::INLINE;
+    let stroke = Stroke::new(stroke::THICK, color);
+    let arm = geometry::action::ICON_ARM;
+    let offset = 2.0 * space::INLINE;
     let back = egui::Rect::from_center_size(
         rect.center() + egui::vec2(offset, -offset),
         vec2(2.0 * arm, 2.0 * arm),
     );
     ui.painter()
-        .rect_stroke(back, radius::SEAL, stroke, egui::StrokeKind::Inside);
+        .rect_stroke(back, radius::ICON, stroke, egui::StrokeKind::Inside);
     let front = egui::Rect::from_min_max(
         back.min - egui::vec2(offset, offset),
         back.max - egui::vec2(offset, offset),
     );
-    let paper = egui::Color32::TRANSPARENT;
-    ui.painter()
-        .rect(front, radius::SEAL, paper, stroke, egui::StrokeKind::Inside);
+    ui.painter().rect(
+        front,
+        radius::ICON,
+        ui.visuals().window_fill,
+        stroke,
+        egui::StrokeKind::Inside,
+    );
 }
 
 fn paint_check_mark(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
-    let arm = geometry::action::CLOSE_ARM;
+    let arm = geometry::action::ICON_ARM;
     let c = rect.center();
     ui.painter().line_segment(
         [

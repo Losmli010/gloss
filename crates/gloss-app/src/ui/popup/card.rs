@@ -137,15 +137,15 @@ fn close_button(ui: &mut egui::Ui, text: &'static Text) -> egui::Response {
     let center = rect.center();
     ui.painter().line_segment(
         [
-            center - vec2(geometry::action::CLOSE_ARM, geometry::action::CLOSE_ARM),
-            center + vec2(geometry::action::CLOSE_ARM, geometry::action::CLOSE_ARM),
+            center - vec2(geometry::action::ICON_ARM, geometry::action::ICON_ARM),
+            center + vec2(geometry::action::ICON_ARM, geometry::action::ICON_ARM),
         ],
         stroke,
     );
     ui.painter().line_segment(
         [
-            center - vec2(geometry::action::CLOSE_ARM, -geometry::action::CLOSE_ARM),
-            center + vec2(geometry::action::CLOSE_ARM, -geometry::action::CLOSE_ARM),
+            center - vec2(geometry::action::ICON_ARM, -geometry::action::ICON_ARM),
+            center + vec2(geometry::action::ICON_ARM, -geometry::action::ICON_ARM),
         ],
         stroke,
     );
