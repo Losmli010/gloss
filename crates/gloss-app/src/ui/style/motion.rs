@@ -9,4 +9,6 @@ pub const APPEAR: f32 = 0.18;
 
 pub const PULSE_PERIOD: f64 = 1.2;
 
+pub const PULSE_PHASE_STEP: f64 = 0.9;
+
 pub const FRAME_BEAT: Duration = Duration::from_millis(16);

@@ -195,9 +195,7 @@ pub fn draw(
     let errors = state.errors();
     egui::Frame::new()
         .fill(ui.visuals().window_fill)
-        .inner_margin(egui::Margin::same(
-            geometry::settings::WINDOW_PADDING.round() as i8,
-        ))
+        .inner_margin(geometry::settings::WINDOW_PADDING)
         .show(ui, |ui| {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                 action_row(ui, state, &mut action, text);

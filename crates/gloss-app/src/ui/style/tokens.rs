@@ -30,6 +30,7 @@ pub mod radius {
 pub mod stroke {
     pub const HAIRLINE: f32 = 0.5;
     pub const LINE: f32 = 1.0;
+    pub const UNDERLINE: f32 = 1.5;
     pub const THICK: f32 = 2.0;
 }
 

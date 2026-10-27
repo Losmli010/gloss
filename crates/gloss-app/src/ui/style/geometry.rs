@@ -57,6 +57,7 @@ pub mod overlay {
     pub const MIN_BODY_VIEWPORT: f32 = rem(4.0);
     pub const ARROW_SCROLL_STEP: f32 = rem(4.0);
     pub const SHIMMER_BAR_HEIGHT: f32 = rem(1.0);
+    pub const SHIMMER_BAR_RATIOS: [f32; 3] = [0.95, 0.78, 0.6];
 }
 
 pub mod settings {

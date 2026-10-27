@@ -187,13 +187,8 @@ pub(super) fn seal(ui: &mut egui::Ui, label: &'static str, tint: SealTint) {
         ui.allocate_exact_size(vec2(width, geometry::seal::SIZE), egui::Sense::hover());
     response
         .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, label.to_owned()));
-    ui.painter().rect(
-        rect,
-        radius::SEAL.round() as u8,
-        fill,
-        line,
-        egui::StrokeKind::Inside,
-    );
+    ui.painter()
+        .rect(rect, radius::SEAL, fill, line, egui::StrokeKind::Inside);
     ui.painter()
         .galley(rect.center() - galley.size() / 2.0, galley, fg);
 }
@@ -315,7 +310,9 @@ fn footer_dots(ui: &egui::Ui, rect: &egui::Rect, label_width: f32) {
         rect.center().y + stroke::HAIRLINE,
     );
     for index in 0..geometry::overlay::FOOTER_DOT_COUNT {
-        let wave = ((now / motion::PULSE_PERIOD + index as f64 * 0.9).sin() + 1.0) / 2.0;
+        let wave = ((now / motion::PULSE_PERIOD + index as f64 * motion::PULSE_PHASE_STEP).sin()
+            + 1.0)
+            / 2.0;
         let alpha01 = alpha::DOT_MIN + wave as f32 * (alpha::DOT_MAX - alpha::DOT_MIN);
         ui.painter().circle_filled(
             dot_center,

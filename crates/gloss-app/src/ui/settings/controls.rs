@@ -8,7 +8,7 @@ use egui::{RichText, Stroke};
 
 use super::{FieldError, FieldKey, SettingsAction, SettingsState, build_save};
 use crate::ui::i18n::{Text, fill};
-use crate::ui::style::{geometry, palette, radius, size, space};
+use crate::ui::style::{geometry, palette, radius, size, space, stroke};
 
 fn accent(ui: &egui::Ui) -> egui::Color32 {
     palette(ui).accent
@@ -26,12 +26,10 @@ pub(super) fn action_row(
         |ui| {
             let save = ui.add(
                 egui::Button::new(
-                    RichText::new(text.gloss_settings_save.as_str()).color(egui::Color32::WHITE),
+                    RichText::new(text.gloss_settings_save.as_str()).color(palette(ui).on_accent),
                 )
                 .fill(accent(ui))
-                .corner_radius(egui::CornerRadius::same(
-                    geometry::action::BUTTON_RADIUS.round() as u8,
-                )),
+                .corner_radius(geometry::action::BUTTON_RADIUS),
             );
             if save.clicked() {
                 *action = build_save(state);
@@ -76,8 +74,8 @@ pub(super) fn section(ui: &mut egui::Ui, title: &str, content: impl FnOnce(&mut 
     ui.add_space(space::TIGHT);
     egui::Frame::new()
         .fill(ui.visuals().faint_bg_color)
-        .corner_radius(egui::CornerRadius::same(radius::CARD.round() as u8))
-        .inner_margin(egui::Margin::same(space::CARD_PADDING.round() as i8))
+        .corner_radius(radius::CARD)
+        .inner_margin(space::CARD_PADDING)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             content(ui);
@@ -117,7 +115,7 @@ pub(super) fn underline_if_error(
                 egui::pos2(rect.left(), rect.bottom()),
                 egui::pos2(rect.right(), rect.bottom()),
             ],
-            Stroke::new(1.5, palette(ui).danger),
+            Stroke::new(stroke::UNDERLINE, palette(ui).danger),
         );
     }
 }
@@ -137,8 +135,6 @@ pub(super) fn error_text(
     }
 }
 
-const TOGGLE_KNOB_ON: egui::Color32 = egui::Color32::WHITE;
-
 pub(super) fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     let (rect, mut response) =
         ui.allocate_exact_size(geometry::toggle::TRACK, egui::Sense::click());
@@ -150,9 +146,10 @@ pub(super) fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response 
         response.mark_changed();
     }
 
+    let colors = palette(ui);
     let visuals = ui.visuals();
     let (track, knob) = if *on {
-        (visuals.selection.bg_fill, TOGGLE_KNOB_ON)
+        (colors.accent, colors.on_accent)
     } else {
         (visuals.extreme_bg_color, visuals.weak_text_color())
     };

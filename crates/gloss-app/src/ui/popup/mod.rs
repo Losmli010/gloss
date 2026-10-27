@@ -61,7 +61,7 @@ pub(crate) use card::clear_cached_text_galleys;
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 
-use egui::{CornerRadius, Frame, Margin, Stroke};
+use egui::{Frame, Stroke};
 use egui_commonmark::CommonMarkCache;
 use icon::app_icon_image;
 use image::decode_attached;
@@ -223,8 +223,8 @@ pub fn draw(
     Frame::new()
         .fill(fill)
         .stroke(Stroke::new(stroke::HAIRLINE, window_stroke.color))
-        .corner_radius(CornerRadius::same(radius::CARD.round() as u8))
-        .inner_margin(Margin::same(space::CARD_PADDING.round() as i8))
+        .corner_radius(radius::CARD)
+        .inner_margin(space::CARD_PADDING)
         .show(ui, |ui| {
             let ctx = RenderCtx {
                 state,

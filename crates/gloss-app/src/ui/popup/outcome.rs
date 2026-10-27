@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use egui::{Align, CornerRadius, Frame, Margin, RichText, Shape, Stroke};
+use egui::{Align, Frame, Margin, RichText, Shape, Stroke};
 use egui_commonmark::CommonMarkViewer;
 use gloss_core::task::{OutcomeStructured, TaskKind};
 
@@ -120,10 +120,10 @@ pub(super) fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lan
         Frame::new()
             .fill(colors.code_bg)
             .stroke(Stroke::new(stroke::LINE, colors.code_border))
-            .corner_radius(CornerRadius::same(radius::CODE_PANEL.round() as u8))
-            .inner_margin(Margin::symmetric(
-                geometry::code_panel::PADDING_H.round() as i8,
-                geometry::code_panel::PADDING_V.round() as i8,
+            .corner_radius(radius::CODE_PANEL)
+            .inner_margin(egui::vec2(
+                geometry::code_panel::PADDING_H,
+                geometry::code_panel::PADDING_V,
             ))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());

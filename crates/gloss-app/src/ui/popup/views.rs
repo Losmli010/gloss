@@ -57,14 +57,14 @@ fn arrow_key_scroll(ui: &egui::Ui) {
 
 fn shimmer_bars(ui: &mut egui::Ui) {
     let now = ui.input(|i| i.time);
-    let ratios = [0.95, 0.78, 0.6];
+    let ratios = geometry::overlay::SHIMMER_BAR_RATIOS;
     let full = ui.available_width();
     let gap = space::ITEM;
     let total_h = ratios.len() as f32 * SHIMMER_BAR_HEIGHT + (ratios.len() - 1) as f32 * gap;
     let (rect, _response) = ui.allocate_exact_size(vec2(full, total_h), egui::Sense::hover());
     let weak = ui.visuals().weak_text_color();
     for (index, ratio) in ratios.iter().enumerate() {
-        let phase = (index as f64) * 0.9;
+        let phase = (index as f64) * motion::PULSE_PHASE_STEP;
         let wave = ((now / motion::PULSE_PERIOD + phase).sin() + 1.0) / 2.0;
         let alpha01 = alpha::SHIMMER_MIN + wave as f32 * (alpha::SHIMMER_MAX - alpha::SHIMMER_MIN);
         let bar = egui::Rect::from_min_size(
@@ -74,11 +74,8 @@ fn shimmer_bars(ui: &mut egui::Ui) {
             ),
             vec2(full * ratio, SHIMMER_BAR_HEIGHT),
         );
-        ui.painter().rect_filled(
-            bar,
-            radius::SHIMMER.round() as u8,
-            with_alpha(weak, alpha01),
-        );
+        ui.painter()
+            .rect_filled(bar, radius::SHIMMER, with_alpha(weak, alpha01));
     }
     ui.ctx().request_repaint_after(motion::FRAME_BEAT);
 }

@@ -75,3 +75,7 @@
 （`geometry::toggle`/`geometry::action`），对照值见几何记录；保存钮
 圆角原是内联字面量，按「视图零设计常数」政策一并收编为
 `action::BUTTON_RADIUS`。
+
+保存钮文字与开关 ON 态滑钮的白色取调色板的 `on_accent` 档，错误下划线
+宽取 `stroke::UNDERLINE`（2026-10-27 评审整改，具名色与内联字面量不再
+绕过样式层）。
