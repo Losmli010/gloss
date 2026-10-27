@@ -63,7 +63,7 @@ fn footer_confirm(
     let mut action = None;
     let mut left = ui.new_child(
         egui::UiBuilder::new()
-            .max_rect(*rect)
+            .max_rect(rect.translate(vec2(0.0, space::ITEM)))
             .id_salt("footer_confirm"),
     );
     left.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -109,7 +109,7 @@ fn footer_copy(
     let mut action = None;
     let mut left = ui.new_child(
         egui::UiBuilder::new()
-            .max_rect(*rect)
+            .max_rect(rect.translate(vec2(0.0, space::ITEM)))
             .id_salt("footer_copy"),
     );
     left.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
