@@ -25,7 +25,7 @@ use gloss_core::config::{BaseUrlError, Config, validate_base_url};
 use gloss_core::model::GlossError;
 
 use crate::ui::i18n::{Text, fill};
-use crate::ui::style::space;
+use crate::ui::style::{geometry, space};
 use crate::update::UpdateMsg;
 use crate::update::state::UpdateState;
 use controls::{action_row, notices, section};
@@ -195,7 +195,9 @@ pub fn draw(
     let errors = state.errors();
     egui::Frame::new()
         .fill(ui.visuals().window_fill)
-        .inner_margin(egui::Margin::same(WINDOW_PADDING))
+        .inner_margin(egui::Margin::same(
+            geometry::settings::WINDOW_PADDING.round() as i8,
+        ))
         .show(ui, |ui| {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                 action_row(ui, state, &mut action, text);
@@ -219,8 +221,6 @@ pub fn draw(
         });
     action
 }
-
-const WINDOW_PADDING: i8 = 16;
 
 #[cfg(test)]
 mod tests {
@@ -449,8 +449,8 @@ mod tests {
         });
         crate::ui::context::apply_visuals(&harness.ctx);
         harness.set_size(egui::vec2(
-            crate::present::windows::SETTINGS_WIDTH as f32,
-            crate::present::windows::SETTINGS_HEIGHT as f32,
+            crate::ui::style::geometry::window::SETTINGS_WIDTH as f32,
+            crate::ui::style::geometry::window::SETTINGS_HEIGHT as f32,
         ));
         (harness, action)
     }
@@ -469,8 +469,8 @@ mod tests {
             });
         crate::ui::context::apply_visuals(&harness.ctx);
         harness.set_size(egui::vec2(
-            crate::present::windows::SETTINGS_WIDTH as f32,
-            crate::present::windows::SETTINGS_HEIGHT as f32,
+            crate::ui::style::geometry::window::SETTINGS_WIDTH as f32,
+            crate::ui::style::geometry::window::SETTINGS_HEIGHT as f32,
         ));
         harness
     }

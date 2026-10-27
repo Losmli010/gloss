@@ -1,30 +1,20 @@
 //! 卡片固定件：页头（应用图标与动作区、拖动热区）、页脚带（状态文案、
 //! 呼吸点与水印）、经注疏印章，以及印章与水印排版产物的跨帧缓存。
 //!
-//! 几何与配色常量是设计稿定稿值，随实现就近存放；字号规格与宋楷字体
-//! 助手在文案整形模块。视图骨架与经注疏排布
+//! 颜色经语义调色板解析，几何引用样式几何档；视图骨架与经注疏排布
 //! 从这里取页头、页脚与印章。
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use egui::{Align, RichText, Stroke, vec2};
 
 use super::content::watermark;
-use super::{FOOTER_HEIGHT, HEADER_ICON, OverlayAction, PULSE_PERIOD_SECS, RenderState};
+use super::{OverlayAction, RenderState};
 use crate::ui::i18n::Text;
-use crate::ui::style::{alpha, palette, radius, serif, size, space, stroke, with_alpha};
-
-const ACTION_ICON_SIZE: f32 = 16.0;
-const ACTION_BUTTON: f32 = 20.0;
-const CLOSE_ARM: f32 = 5.0;
-const DRAG_STRIP_INSET: f32 = 6.0;
-const SEAL_SIZE: f32 = 21.0;
-const SEAL_TEXT_PADDING: f32 = 5.0;
-const FOOTER_DOT_RADIUS: f32 = 2.0;
-const FOOTER_DOT_COUNT: usize = 3;
-const WATERMARK_PADDING: f32 = 6.0;
+use crate::ui::style::{
+    alpha, geometry, motion, palette, radius, serif, size, space, stroke, with_alpha,
+};
 
 fn hairline(ui: &egui::Ui) -> Stroke {
     Stroke::new(
@@ -45,9 +35,10 @@ pub(super) fn header(
     let mut gear_left = f32::INFINITY;
     ui.horizontal(|ui| {
         if let Some(icon) = state.icon_texture(ui.ctx()) {
-            ui.add(
-                egui::Image::from_texture(&icon).fit_to_exact_size(vec2(HEADER_ICON, HEADER_ICON)),
-            );
+            ui.add(egui::Image::from_texture(&icon).fit_to_exact_size(vec2(
+                geometry::overlay::HEADER_ICON,
+                geometry::overlay::HEADER_ICON,
+            )));
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.visuals_mut().widgets.inactive.fg_stroke.color = weak;
@@ -86,7 +77,7 @@ fn drag_strip(
     text: &'static Text,
 ) -> Option<egui::Vec2> {
     let row = ui.min_rect();
-    let right = (gear_left - DRAG_STRIP_INSET).max(row.left());
+    let right = (gear_left - geometry::action::DRAG_STRIP_INSET).max(row.left());
     let rect = egui::Rect::from_min_max(
         egui::pos2(row.left(), row.top()),
         egui::pos2(right, row.bottom()),
@@ -126,8 +117,10 @@ fn drag_strip(
 }
 
 fn close_button(ui: &mut egui::Ui, text: &'static Text) -> egui::Response {
-    let (rect, response) =
-        ui.allocate_exact_size(vec2(ACTION_BUTTON, ACTION_BUTTON), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(
+        vec2(geometry::action::BUTTON, geometry::action::BUTTON),
+        egui::Sense::click(),
+    );
     response.widget_info(|| {
         egui::WidgetInfo::labeled(
             egui::WidgetType::Button,
@@ -144,15 +137,15 @@ fn close_button(ui: &mut egui::Ui, text: &'static Text) -> egui::Response {
     let center = rect.center();
     ui.painter().line_segment(
         [
-            center - vec2(CLOSE_ARM, CLOSE_ARM),
-            center + vec2(CLOSE_ARM, CLOSE_ARM),
+            center - vec2(geometry::action::CLOSE_ARM, geometry::action::CLOSE_ARM),
+            center + vec2(geometry::action::CLOSE_ARM, geometry::action::CLOSE_ARM),
         ],
         stroke,
     );
     ui.painter().line_segment(
         [
-            center - vec2(CLOSE_ARM, -CLOSE_ARM),
-            center + vec2(CLOSE_ARM, -CLOSE_ARM),
+            center - vec2(geometry::action::CLOSE_ARM, -geometry::action::CLOSE_ARM),
+            center + vec2(geometry::action::CLOSE_ARM, -geometry::action::CLOSE_ARM),
         ],
         stroke,
     );
@@ -189,8 +182,9 @@ pub(super) fn seal(ui: &mut egui::Ui, label: &'static str, tint: SealTint) {
                 .layout_no_wrap(label.to_owned(), serif(size::SEAL), fg)
         },
     );
-    let width = SEAL_SIZE.max(galley.size().x + 2.0 * SEAL_TEXT_PADDING);
-    let (rect, response) = ui.allocate_exact_size(vec2(width, SEAL_SIZE), egui::Sense::hover());
+    let width = geometry::seal::SIZE.max(galley.size().x + 2.0 * geometry::seal::TEXT_PADDING);
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(width, geometry::seal::SIZE), egui::Sense::hover());
     response
         .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, label.to_owned()));
     ui.painter().rect(
@@ -252,7 +246,7 @@ pub(super) fn zhu_line_color(ui: &egui::Ui) -> egui::Color32 {
 
 pub(super) fn footer(ui: &mut egui::Ui, streaming: bool, repairing: bool, text: &'static Text) {
     let (rect, response) = ui.allocate_exact_size(
-        vec2(ui.available_width(), FOOTER_HEIGHT),
+        vec2(ui.available_width(), geometry::overlay::FOOTER_HEIGHT),
         egui::Sense::hover(),
     );
     ui.painter().line_segment(
@@ -317,18 +311,20 @@ fn footer_dots(ui: &egui::Ui, rect: &egui::Rect, label_width: f32) {
     let now = ui.input(|i| i.time);
     let zhu = palette(ui).seal;
     let mut dot_center = egui::pos2(
-        rect.min.x + label_width + space::TIGHT + FOOTER_DOT_RADIUS,
+        rect.min.x + label_width + space::TIGHT + geometry::overlay::FOOTER_DOT_RADIUS,
         rect.center().y + stroke::HAIRLINE,
     );
-    for index in 0..FOOTER_DOT_COUNT {
-        let wave = ((now / PULSE_PERIOD_SECS + index as f64 * 0.9).sin() + 1.0) / 2.0;
+    for index in 0..geometry::overlay::FOOTER_DOT_COUNT {
+        let wave = ((now / motion::PULSE_PERIOD + index as f64 * 0.9).sin() + 1.0) / 2.0;
         let alpha01 = alpha::DOT_MIN + wave as f32 * (alpha::DOT_MAX - alpha::DOT_MIN);
-        ui.painter()
-            .circle_filled(dot_center, FOOTER_DOT_RADIUS, with_alpha(zhu, alpha01));
-        dot_center.x += FOOTER_DOT_RADIUS * 3.0;
+        ui.painter().circle_filled(
+            dot_center,
+            geometry::overlay::FOOTER_DOT_RADIUS,
+            with_alpha(zhu, alpha01),
+        );
+        dot_center.x += geometry::overlay::FOOTER_DOT_RADIUS * 3.0;
     }
-    ui.ctx()
-        .request_repaint_after(Duration::from_secs_f32(0.016));
+    ui.ctx().request_repaint_after(motion::FRAME_BEAT);
 }
 
 fn footer_watermark(ui: &mut egui::Ui, rect: &egui::Rect) {
@@ -346,7 +342,7 @@ fn footer_watermark(ui: &mut egui::Ui, rect: &egui::Rect) {
                 )
         },
     );
-    let slot = galley.size().x + 2.0 * WATERMARK_PADDING;
+    let slot = galley.size().x + 2.0 * geometry::overlay::WATERMARK_PADDING;
     ui.put(
         egui::Rect::from_min_max(
             egui::pos2(rect.max.x - slot, rect.min.y),
@@ -359,7 +355,7 @@ fn footer_watermark(ui: &mut egui::Ui, rect: &egui::Rect) {
 }
 
 fn icon_button(glyph: &'static str) -> egui::Button<'static> {
-    egui::Button::new(RichText::new(glyph).size(ACTION_ICON_SIZE))
+    egui::Button::new(RichText::new(glyph).size(geometry::action::ICON_SIZE))
         .frame(false)
-        .min_size(vec2(ACTION_BUTTON, ACTION_BUTTON))
+        .min_size(vec2(geometry::action::BUTTON, geometry::action::BUTTON))
 }

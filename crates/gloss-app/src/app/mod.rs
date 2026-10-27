@@ -30,8 +30,8 @@ use crate::machine::{AppState, TaskStateMachine};
 use crate::present::render::{render_frame, render_frame_with};
 use crate::present::workspace::Workspace;
 use crate::ui::i18n::Text;
-use crate::ui::popup::WIDTH;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
+use crate::ui::style::geometry::window::OVERLAY_WIDTH;
 use crate::update::UpdateWiring;
 
 pub(crate) struct Env {
@@ -126,7 +126,7 @@ impl GlossApp {
         {
             let streaming = self.machine.state() == AppState::Translating;
             windows.set_overlay_size(
-                LogicalSize::new(f64::from(WIDTH), f64::from(sizing.height)),
+                LogicalSize::new(OVERLAY_WIDTH, f64::from(sizing.height)),
                 streaming,
             );
         }

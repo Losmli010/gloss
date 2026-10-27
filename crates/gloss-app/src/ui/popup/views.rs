@@ -6,7 +6,6 @@
 //! 形态，与页脚呼吸点同源脉动。
 
 use std::borrow::Cow;
-use std::time::Duration;
 
 use egui::{RichText, ScrollArea, vec2};
 
@@ -16,15 +15,15 @@ use super::outcome::{
     attached_image, is_code, jing_section, outcome_body, render_markdown, selfcheck_body,
     shu_examples, source_block, zhu_section,
 };
-use super::{OverlayAction, PULSE_PERIOD_SECS, RenderCtx};
+use super::{OverlayAction, RenderCtx};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
 use crate::ui::i18n::Text;
-use crate::ui::style::{alpha, apply_kaiti, radius, size, space, with_alpha};
+use crate::ui::style::{alpha, apply_kaiti, geometry, motion, radius, size, space, with_alpha};
 
-const MIN_BODY_VIEWPORT: f32 = 48.0;
-const FOOTER_RESERVE: f32 = super::FOOTER_HEIGHT + space::PARAGRAPH;
-const ARROW_SCROLL_STEP: f32 = 48.0;
-const SHIMMER_BAR_HEIGHT: f32 = 12.0;
+const MIN_BODY_VIEWPORT: f32 = geometry::overlay::MIN_BODY_VIEWPORT;
+const FOOTER_RESERVE: f32 = geometry::overlay::FOOTER_HEIGHT + space::PARAGRAPH;
+const ARROW_SCROLL_STEP: f32 = geometry::overlay::ARROW_SCROLL_STEP;
+const SHIMMER_BAR_HEIGHT: f32 = geometry::overlay::SHIMMER_BAR_HEIGHT;
 
 fn record_scrolled_height(
     ui: &egui::Ui,
@@ -66,7 +65,7 @@ fn shimmer_bars(ui: &mut egui::Ui) {
     let weak = ui.visuals().weak_text_color();
     for (index, ratio) in ratios.iter().enumerate() {
         let phase = (index as f64) * 0.9;
-        let wave = ((now / PULSE_PERIOD_SECS + phase).sin() + 1.0) / 2.0;
+        let wave = ((now / motion::PULSE_PERIOD + phase).sin() + 1.0) / 2.0;
         let alpha01 = alpha::SHIMMER_MIN + wave as f32 * (alpha::SHIMMER_MAX - alpha::SHIMMER_MIN);
         let bar = egui::Rect::from_min_size(
             egui::pos2(
@@ -81,8 +80,7 @@ fn shimmer_bars(ui: &mut egui::Ui) {
             with_alpha(weak, alpha01),
         );
     }
-    ui.ctx()
-        .request_repaint_after(Duration::from_secs_f32(0.016));
+    ui.ctx().request_repaint_after(motion::FRAME_BEAT);
 }
 
 fn streamed_sections(ui: &mut egui::Ui, ctx: &RenderCtx<'_>, fields: &StreamFields) {

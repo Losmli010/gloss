@@ -15,16 +15,9 @@ use super::{RenderCtx, RenderState};
 use crate::ui::code_hl;
 use crate::ui::i18n::Text;
 use crate::ui::style::{
-    apply_kaiti, line_height, mono, palette, radius, sans, serif, size, space, stroke,
+    apply_kaiti, geometry, line_height, mono, palette, radius, sans, serif, size, space, stroke,
 };
 
-const SEAL_GAP: f32 = 10.0;
-const ZHU_TEXT_GAP: i8 = 11;
-const SHU_TEXT_GAP: i8 = 9;
-const SHU_DASH_LENGTH: f32 = 4.0;
-const SHU_GAP_LENGTH: f32 = 3.0;
-const CODE_PANEL_PADDING_V: i8 = 11;
-const CODE_PANEL_PADDING_H: i8 = 13;
 const CODE_LINE_HEIGHT: f32 = size::CODE * line_height::CODE;
 
 pub(super) fn jing_section(
@@ -34,7 +27,7 @@ pub(super) fn jing_section(
 ) {
     ui.horizontal_top(|ui| {
         seal(ui, text.gloss_popup_seal_jing.as_str(), SealTint::Ink);
-        ui.add_space(SEAL_GAP);
+        ui.add_space(geometry::seal::GAP);
         ui.with_layout(egui::Layout::top_down(Align::LEFT), body);
     });
 }
@@ -46,13 +39,13 @@ pub(super) fn zhu_section(
 ) {
     ui.horizontal_top(|ui| {
         seal(ui, text.gloss_popup_seal_zhu.as_str(), SealTint::Zhu);
-        ui.add_space(SEAL_GAP);
+        ui.add_space(geometry::seal::GAP);
         let line_top = ui.cursor().top();
         let column = ui
             .with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
                 Frame::new()
                     .inner_margin(Margin {
-                        left: ZHU_TEXT_GAP,
+                        left: geometry::seal::ZHU_TEXT_GAP.round() as i8,
                         ..Margin::ZERO
                     })
                     .show(ui, body)
@@ -77,12 +70,12 @@ pub(super) fn shu_section(
 ) {
     ui.horizontal_top(|ui| {
         seal(ui, text.gloss_popup_seal_shu.as_str(), SealTint::Wei);
-        ui.add_space(SEAL_GAP);
+        ui.add_space(geometry::seal::GAP);
         let column = ui
             .with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
                 Frame::new()
                     .inner_margin(Margin {
-                        top: SHU_TEXT_GAP,
+                        top: geometry::seal::SHU_TEXT_GAP.round() as i8,
                         ..Margin::ZERO
                     })
                     .show(ui, body)
@@ -95,9 +88,9 @@ pub(super) fn shu_section(
                 egui::pos2(column.min.x, column.min.y),
                 egui::pos2(column.max.x, column.min.y),
             ],
-            Stroke::new(1.0, ui.visuals().weak_text_color()),
-            SHU_DASH_LENGTH,
-            SHU_GAP_LENGTH,
+            Stroke::new(stroke::LINE, ui.visuals().weak_text_color()),
+            geometry::seal::SHU_DASH_LENGTH,
+            geometry::seal::SHU_GAP_LENGTH,
         );
         ui.painter().extend(dashes);
     });
@@ -129,8 +122,8 @@ pub(super) fn source_block(ui: &mut egui::Ui, source: &str, code: bool, code_lan
             .stroke(Stroke::new(stroke::LINE, colors.code_border))
             .corner_radius(CornerRadius::same(radius::CODE_PANEL.round() as u8))
             .inner_margin(Margin::symmetric(
-                CODE_PANEL_PADDING_H,
-                CODE_PANEL_PADDING_V,
+                geometry::code_panel::PADDING_H.round() as i8,
+                geometry::code_panel::PADDING_V.round() as i8,
             ))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());

@@ -9,25 +9,22 @@ use winit::error::OsError;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId, WindowLevel};
 
+use crate::ui::style::geometry::window;
+
 const APP_NAME: &str = "Gloss";
-const OVERLAY_WIDTH: f64 = crate::ui::popup::WIDTH as f64;
-const OVERLAY_HEIGHT: f64 = 296.0;
-const WORK_AREA_MARGIN: f64 = 96.0;
 const HEIGHT_CAP_FRACTION: f64 = 0.382;
 const RESIZE_EPSILON: f64 = 0.5;
-const STREAM_HEIGHT_STEP: f64 = 48.0;
 const DRAG_POSITION_EPSILON: f64 = 0.5;
-pub(crate) const SETTINGS_WIDTH: f64 = 396.0;
-pub(crate) const SETTINGS_HEIGHT: f64 = 640.0;
 
 fn debounced_size(current: LogicalSize<f64>, requested: LogicalSize<f64>) -> LogicalSize<f64> {
-    let steps = (requested.height / STREAM_HEIGHT_STEP).ceil();
-    let stepped = (steps * STREAM_HEIGHT_STEP).max(current.height);
+    let steps = (requested.height / window::STREAM_HEIGHT_STEP).ceil();
+    let stepped = (steps * window::STREAM_HEIGHT_STEP).max(current.height);
     LogicalSize::new(current.width, stepped)
 }
 
 fn capped_height(screen_height: f64, requested_height: f64) -> f64 {
-    let max_height = (screen_height * HEIGHT_CAP_FRACTION - WORK_AREA_MARGIN).max(OVERLAY_HEIGHT);
+    let max_height = (screen_height * HEIGHT_CAP_FRACTION - window::WORK_AREA_MARGIN)
+        .max(window::OVERLAY_HEIGHT);
     requested_height.min(max_height)
 }
 
@@ -76,7 +73,10 @@ impl WindowManager {
         let overlay = event_loop.create_window(
             Window::default_attributes()
                 .with_title(APP_NAME)
-                .with_inner_size(LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT))
+                .with_inner_size(LogicalSize::new(
+                    window::OVERLAY_WIDTH,
+                    window::OVERLAY_HEIGHT,
+                ))
                 .with_decorations(false)
                 .with_window_level(WindowLevel::AlwaysOnTop)
                 .with_resizable(false)
@@ -87,7 +87,10 @@ impl WindowManager {
         let settings = event_loop.create_window(
             Window::default_attributes()
                 .with_title(APP_NAME)
-                .with_inner_size(LogicalSize::new(SETTINGS_WIDTH, SETTINGS_HEIGHT))
+                .with_inner_size(LogicalSize::new(
+                    window::SETTINGS_WIDTH,
+                    window::SETTINGS_HEIGHT,
+                ))
                 .with_window_level(WindowLevel::AlwaysOnTop)
                 .with_resizable(true)
                 .with_min_inner_size(LogicalSize::new(380.0, 420.0)),
@@ -96,7 +99,7 @@ impl WindowManager {
 
         Ok(Self {
             overlay: Arc::new(overlay),
-            overlay_size: LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT),
+            overlay_size: LogicalSize::new(window::OVERLAY_WIDTH, window::OVERLAY_HEIGHT),
             placement: Placement::Centered,
             settings: Arc::new(settings),
         })
@@ -347,7 +350,8 @@ mod tests {
 
 #[cfg(test)]
 mod cap_height_tests {
-    use super::{OVERLAY_HEIGHT, WORK_AREA_MARGIN, capped_height};
+    use super::capped_height;
+    use crate::ui::style::geometry::window::{OVERLAY_HEIGHT, WORK_AREA_MARGIN};
 
     #[test]
     fn height_caps_at_the_golden_share_of_the_screen_minus_the_margin() {
@@ -371,7 +375,9 @@ mod cap_height_tests {
 
 #[cfg(test)]
 mod debounce_tests {
-    use super::{OVERLAY_HEIGHT, STREAM_HEIGHT_STEP, debounced_size};
+    use crate::ui::style::geometry::window::{OVERLAY_HEIGHT, STREAM_HEIGHT_STEP};
+
+    use super::debounced_size;
     use winit::dpi::LogicalSize;
 
     const CURRENT: LogicalSize<f64> = LogicalSize::new(480.0, OVERLAY_HEIGHT);

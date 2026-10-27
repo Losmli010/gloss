@@ -5,6 +5,8 @@
 //! 空间尺寸的唯一设计单位是根相对字号（下称空间单位），解析根在此一处
 //! 落成像素：将来接用户字号或缩放设置时，这里 是唯一改动点。
 
+pub(crate) mod geometry;
+pub(crate) mod motion;
 mod palette;
 mod tokens;
 mod typography;

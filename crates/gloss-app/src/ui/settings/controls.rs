@@ -8,7 +8,7 @@ use egui::{RichText, Stroke};
 
 use super::{FieldError, FieldKey, SettingsAction, SettingsState, build_save};
 use crate::ui::i18n::{Text, fill};
-use crate::ui::style::{palette, radius, size, space};
+use crate::ui::style::{geometry, palette, radius, size, space};
 
 fn accent(ui: &egui::Ui) -> egui::Color32 {
     palette(ui).accent
@@ -21,7 +21,7 @@ pub(super) fn action_row(
     text: &Text,
 ) {
     ui.allocate_ui_with_layout(
-        egui::vec2(ui.available_width(), ACTION_ROW_HEIGHT),
+        egui::vec2(ui.available_width(), geometry::action::ROW_HEIGHT),
         egui::Layout::right_to_left(egui::Align::Center),
         |ui| {
             let save = ui.add(
@@ -29,7 +29,9 @@ pub(super) fn action_row(
                     RichText::new(text.gloss_settings_save.as_str()).color(egui::Color32::WHITE),
                 )
                 .fill(accent(ui))
-                .corner_radius(egui::CornerRadius::same(6)),
+                .corner_radius(egui::CornerRadius::same(
+                    geometry::action::BUTTON_RADIUS.round() as u8,
+                )),
             );
             if save.clicked() {
                 *action = build_save(state);
@@ -40,8 +42,6 @@ pub(super) fn action_row(
         },
     );
 }
-
-const ACTION_ROW_HEIGHT: f32 = 30.0;
 
 pub(super) fn notices(
     ui: &mut egui::Ui,
@@ -137,13 +137,11 @@ pub(super) fn error_text(
     }
 }
 
-const TOGGLE_TRACK: egui::Vec2 = egui::vec2(36.0, 20.0);
-const TOGGLE_KNOB_RADIUS: f32 = 7.0;
-const TOGGLE_KNOB_INSET: f32 = 3.0;
 const TOGGLE_KNOB_ON: egui::Color32 = egui::Color32::WHITE;
 
 pub(super) fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
-    let (rect, mut response) = ui.allocate_exact_size(TOGGLE_TRACK, egui::Sense::click());
+    let (rect, mut response) =
+        ui.allocate_exact_size(geometry::toggle::TRACK, egui::Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, "")
     });
@@ -169,13 +167,13 @@ pub(super) fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response 
         );
     }
     let knob_x = if *on {
-        rect.right() - TOGGLE_KNOB_INSET - TOGGLE_KNOB_RADIUS
+        rect.right() - geometry::toggle::KNOB_INSET - geometry::toggle::KNOB_RADIUS
     } else {
-        rect.left() + TOGGLE_KNOB_INSET + TOGGLE_KNOB_RADIUS
+        rect.left() + geometry::toggle::KNOB_INSET + geometry::toggle::KNOB_RADIUS
     };
     painter.circle_filled(
         egui::pos2(knob_x, rect.center().y),
-        TOGGLE_KNOB_RADIUS,
+        geometry::toggle::KNOB_RADIUS,
         knob,
     );
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
