@@ -4,7 +4,7 @@
 //! 不判）、盘古之白（仅中文）与表情符号。
 
 use super::containers::script_runs;
-use super::tables::{LangPolicy, ScriptClass, TaskPolicy};
+use super::tables::{LangPolicy, ScriptClass, TaskPolicy, quotes_enabled};
 use super::violation::{LangCategory, LangField, LangViolation};
 
 const PERCENT_SIGNS: [char; 3] = ['%', '‰', '°']; // i18n:allow 判定常量
@@ -101,8 +101,7 @@ impl BodyCheck<'_> {
                 .paren_pairs
                 .iter()
                 .any(|&(open, close)| c == open || c == close)
-            || (self.task.quote_container
-                && self.lang.quote_container
+            || (quotes_enabled(self.lang, self.task)
                 && matches!(c, '“' | '”' | '"')) // i18n:allow 判定常量
             || (self.task.markdown_allowed && c == '`')
     }

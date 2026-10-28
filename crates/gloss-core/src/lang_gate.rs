@@ -91,7 +91,7 @@ fn scan_field(
     let joined = &parsed.text;
     let math = text::math_ranges(joined);
     let math_mask = span_mask(joined.len(), &math, &[]);
-    let quotes = task.quote_container && lang.quote_container;
+    let quotes = tables::quotes_enabled(lang, task);
     let scan = containers::scan_containers(&joined.chars, &math_mask, lang, quotes);
     if scan.unclosed || odd_markdown_pairs(task.markdown_allowed, raw) {
         violations.push(LangViolation::new(field, LangCategory::UnclosedContainer));
@@ -378,12 +378,40 @@ mod tests {
             TaskKind::TranslateSentence,
             Lang::En,
             "hello",
+            "He said \"hello out loud.",
+            plain(&[]),
+        );
+        assert!(
+            has(&violations, LangCategory::PunctuationMismatch)
+                && !has(&violations, LangCategory::UnclosedContainer),
+            "a lone straight quote is punctuation now, not an unclosed container: {violations:?}"
+        );
+
+        let violations = categories(
+            TaskKind::TranslateSentence,
+            Lang::En,
+            "hello",
             "don't stop, it's fine; a lone ' stays legal.",
             plain(&[]),
         );
         assert!(
             violations.is_empty(),
             "apostrophes and single quotes stay legal: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn french_target_flags_quotes_like_english() {
+        let violations = categories(
+            TaskKind::TranslateSentence,
+            Lang::Fr,
+            "bonjour",
+            "The “quoted” pair flags the same way.",
+            plain(&[]),
+        );
+        assert!(
+            has(&violations, LangCategory::PunctuationMismatch),
+            "{violations:?}"
         );
     }
 

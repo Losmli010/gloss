@@ -96,6 +96,10 @@ pub(crate) fn lang_policy(target: &Lang) -> LangPolicy {
     }
 }
 
+pub(crate) fn quotes_enabled(lang: &LangPolicy, task: &TaskPolicy) -> bool {
+    task.quote_container && lang.quote_container
+}
+
 pub(crate) fn task_policy(kind: TaskKind) -> TaskPolicy {
     match kind {
         TaskKind::ExplainCode => TaskPolicy {
