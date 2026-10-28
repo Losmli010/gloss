@@ -114,6 +114,7 @@ PROPER_NOUNS = frozenset(
         "Markdown",
         "Metal",
         "Miri",
+        "MIT",
         "NVIDIA",
         "NSRunLoop",
         "OpenAI",
