@@ -101,7 +101,9 @@ impl BodyCheck<'_> {
                 .paren_pairs
                 .iter()
                 .any(|&(open, close)| c == open || c == close)
-            || (self.task.quote_container && matches!(c, '“' | '”' | '"')) // i18n:allow 判定常量
+            || (self.task.quote_container
+                && self.lang.quote_container
+                && matches!(c, '“' | '”' | '"')) // i18n:allow 判定常量
             || (self.task.markdown_allowed && c == '`')
     }
 

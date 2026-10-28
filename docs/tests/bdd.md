@@ -629,7 +629,8 @@
 | --- | --- | --- | --- |
 | foreign_runs_flag_bare_latin_and_kana_but_parenthesized_terms_pass | 外文段抓裸用放括注 | 给定中文目标与裸用外文词、`API`、`iPhone`、日语残段的注，当判定，则逐条 `ForeignRun`；括号内的外文术语（容器内容）不判 | 2026-10-28 |
 | single_latin_letter_passes_as_variable_and_n_dot_flags | 单字母变量豁免缩写判罚 | 给定“变量 `x` 与 `y`”式单字母，当判定，则放行；词性缩写 `n.`（单字母紧跟句点）判 `ForeignRun` | 2026-10-28 |
-| punctuation_set_catches_wrong_script_and_passes_cjk_brackets | 标点集抓串味放角引号 | 给定中文正文里的半角逗号与角引号对，当判定，则前者 `PunctuationMismatch`、后者放行；英文正文合法标点全放行 | 2026-10-28 |
+| punctuation_set_catches_wrong_script_and_corner_brackets | 标点集抓串味与角引号 | 给定中文正文里的半角逗号与成对、嵌套、落单角引号，当判定，则前者与角引号各形态均 `PunctuationMismatch`；容器内的引文原文照旧豁免；英文正文合法标点全放行 | 2026-10-28 |
+| english_quotes_flag_but_apostrophe_contractions_pass | 英文引号判罚撇号放行 | 给定英文正文里的成对直引号与弯引号，当判定，则 `PunctuationMismatch`（引文容器对英文目标不启用，落单直引号同判）；撇号与落单单引号随缩写所有格放行且整条注零违约 | 2026-10-28 |
 | dash_and_ellipsis_families_stay_style_items_not_violations | 破折号省略号与数字附随不判 | 给定破折号、省略号、双连字符、小数、区间、百分与货币金额各形态的注，当判定，则全部不判标点（风格项留给评测） | 2026-10-28 |
 | traditional_chars_flag_outside_and_pass_inside_quotes | 繁体正文判罚引文豁免 | 给定正文繁体字形与引文容器内的古籍繁体，当判定，则前者 `TraditionalChar`、后者放行 | 2026-10-28 |
 | pangu_space_flags_adjacency_only_for_chinese_target | 盘古之白仅中文目标判定 | 给定中文目标“中文`word`”直连与标点隔开、日语目标直连三种注，当判定，则直连判 `MissingSpace`、标点隔开与日语目标放行 | 2026-10-28 |

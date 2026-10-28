@@ -3,7 +3,8 @@
 //! 文字系统的区段归类。全部为模块内常量，无运行时配置。
 //!
 //! 日语、韩语与自定义目标语言的标点集按宁漏勿误口径取中西并集（第一版
-//! 只判串味重灾的中西标点互串），文字系统判定照常收口。
+//! 只判串味重灾的中西标点互串），文字系统判定照常收口。中文标点集不收
+//! 角引号，英文标点集不收引号且引文容器对英文目标不启用。
 
 use crate::model::Lang;
 use crate::task::TaskKind;
@@ -13,9 +14,9 @@ use crate::task::TaskKind;
 // i18n:allow 判定常量
 
 #[rustfmt::skip]
-pub(crate) const ZH_PUNCT: &[char] = &['，', '。', '、', '；', '：', '？', '！', '“', '”', '‘', '’', '《', '》', '（', '）', '「', '」', '『', '』', '·']; // i18n:allow 判定常量
+pub(crate) const ZH_PUNCT: &[char] = &['，', '。', '、', '；', '：', '？', '！', '“', '”', '‘', '’', '《', '》', '（', '）', '·']; // i18n:allow 判定常量
 #[rustfmt::skip]
-pub(crate) const EN_PUNCT: &[char] = &[',', '.', ';', ':', '!', '?', '"', '\'', '(', ')', '-'];
+pub(crate) const EN_PUNCT: &[char] = &[',', '.', ';', ':', '!', '?', '\'', '(', ')', '-'];
 #[rustfmt::skip]
 const JA_PUNCT: &[char] = &['，', '。', '、', '；', '：', '？', '！', '“', '”', '‘', '’', '《', '》', '（', '）', '「', '」', '『', '』', '·', 'ー', '・', '～', ',', '.', ';', ':', '!', '?', '"', '\'', '(', ')', '-']; // i18n:allow 判定常量
 #[rustfmt::skip]
@@ -40,6 +41,7 @@ pub(crate) struct LangPolicy {
     pub(crate) scripts: &'static [ScriptClass],
     pub(crate) punctuation: &'static [char],
     pub(crate) paren_pairs: &'static [(char, char)],
+    pub(crate) quote_container: bool,
     pub(crate) pangu: bool,
     pub(crate) simplified: bool,
 }
@@ -55,6 +57,7 @@ pub(crate) fn lang_policy(target: &Lang) -> LangPolicy {
             scripts: &[ScriptClass::Han],
             punctuation: ZH_PUNCT,
             paren_pairs: PARENS_ZH,
+            quote_container: true,
             pangu: true,
             simplified: true,
         },
@@ -62,6 +65,7 @@ pub(crate) fn lang_policy(target: &Lang) -> LangPolicy {
             scripts: &[ScriptClass::Latin],
             punctuation: EN_PUNCT,
             paren_pairs: PARENS_EN,
+            quote_container: false,
             pangu: false,
             simplified: false,
         },
@@ -69,6 +73,7 @@ pub(crate) fn lang_policy(target: &Lang) -> LangPolicy {
             scripts: &[ScriptClass::Kana, ScriptClass::Han],
             punctuation: JA_PUNCT,
             paren_pairs: PARENS_BOTH,
+            quote_container: true,
             pangu: false,
             simplified: false,
         },
@@ -76,6 +81,7 @@ pub(crate) fn lang_policy(target: &Lang) -> LangPolicy {
             scripts: &[ScriptClass::Hangul],
             punctuation: KO_PUNCT,
             paren_pairs: PARENS_BOTH,
+            quote_container: true,
             pangu: false,
             simplified: false,
         },
@@ -83,6 +89,7 @@ pub(crate) fn lang_policy(target: &Lang) -> LangPolicy {
             scripts: &[],
             punctuation: KO_PUNCT,
             paren_pairs: PARENS_BOTH,
+            quote_container: true,
             pangu: false,
             simplified: false,
         },

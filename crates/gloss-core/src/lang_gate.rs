@@ -91,7 +91,8 @@ fn scan_field(
     let joined = &parsed.text;
     let math = text::math_ranges(joined);
     let math_mask = span_mask(joined.len(), &math, &[]);
-    let scan = containers::scan_containers(&joined.chars, &math_mask, lang, task.quote_container);
+    let quotes = task.quote_container && lang.quote_container;
+    let scan = containers::scan_containers(&joined.chars, &math_mask, lang, quotes);
     if scan.unclosed || odd_markdown_pairs(task.markdown_allowed, raw) {
         violations.push(LangViolation::new(field, LangCategory::UnclosedContainer));
     }
@@ -307,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn punctuation_set_catches_wrong_script_and_passes_cjk_brackets() {
+    fn punctuation_set_catches_wrong_script_and_corner_brackets() {
         let violations = categories(
             TaskKind::TranslateWord,
             Lang::Zh,
@@ -317,16 +318,31 @@ mod tests {
         );
         assert!(has(&violations, LangCategory::PunctuationMismatch));
 
+        for note in ["「成对」与『嵌套』角引号都判罚。", "落单的」闭合符也判罚。"]
+        {
+            let violations = categories(
+                TaskKind::TranslateWord,
+                Lang::Zh,
+                "gloss",
+                note,
+                word_card(None, &[]),
+            );
+            assert!(
+                has(&violations, LangCategory::PunctuationMismatch),
+                "{note}"
+            );
+        }
+
         let violations = categories(
             TaskKind::TranslateWord,
             Lang::Zh,
-            "gloss",
-            "「」在中文集内是合法标点。",
+            "protected",
+            "受保护的（「protected」）的释义。",
             word_card(None, &[]),
         );
         assert!(
             !has(&violations, LangCategory::PunctuationMismatch),
-            "{violations:?}"
+            "corner brackets inside a container keep the quoted original: {violations:?}"
         );
 
         let violations = categories(
@@ -339,6 +355,35 @@ mod tests {
         assert!(
             !has(&violations, LangCategory::PunctuationMismatch),
             "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn english_quotes_flag_but_apostrophe_contractions_pass() {
+        for note in ["He said \"hello\" out loud.", "The “curly pair” flags too."] {
+            let violations = categories(
+                TaskKind::TranslateSentence,
+                Lang::En,
+                "hello",
+                note,
+                plain(&[]),
+            );
+            assert!(
+                has(&violations, LangCategory::PunctuationMismatch),
+                "{note}"
+            );
+        }
+
+        let violations = categories(
+            TaskKind::TranslateSentence,
+            Lang::En,
+            "hello",
+            "don't stop, it's fine; a lone ' stays legal.",
+            plain(&[]),
+        );
+        assert!(
+            violations.is_empty(),
+            "apostrophes and single quotes stay legal: {violations:?}"
         );
     }
 
