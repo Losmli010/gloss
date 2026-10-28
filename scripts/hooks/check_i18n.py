@@ -11,11 +11,11 @@
                      不可由文本判定，靠人工评审。
   装入点集中      —— 编译期引用文案资源只允许出现在统一装入点一处。
   词条表文件唯一  —— 声明词条前缀键的配置文件只允许在文案目录下。
-  词条语言规范    —— 中文表词条必须写成中文（语言自称词条豁免），英文表
-                     词条必须纯英文；字符面取语言规范库同源定义（汉字面与
-                     全角面）。词条是用户可见短文案，不套注释的中文主体
-                     全规——专名、快捷键符号与占位地址是文案本分，判罚
-                     口径只锁最低必要规范：中文表是中文，英文表是英文。
+  词条语言规范    —— 中文表词条必须含汉字，英文表词条必须纯英文；字符面
+                     取语言规范库同源定义（汉字面与全角面）。词条是用户可见
+                     短文案，不套注释的中文主体全规——专名、快捷键符号与
+                     占位地址是文案本分，判罚口径只锁最低必要规范：中文表
+                     是中文，英文表是英文，无任何词条豁免。
 
 行尾放行标记豁免所在行，须注明缘由、缺失即判罚。违规报告经统一诊断出口打印：每条带规
 则标识、位置、证据行与修复指引，违规随执行流即时输出；字面量扫描面的四个
@@ -58,19 +58,13 @@ LOADPOINT_REMEDY = (
 )
 CATALOG_REMEDY = "move the entry table into %s/" % CATALOG_DIR
 
-ZH_LANGUAGE_REMEDY = (
-    "write the zh entry in Chinese; a language's own name goes through the"
-    " self-named exemption list"
-)
+ZH_LANGUAGE_REMEDY = "write the zh entry in Chinese, keeping placeholders and symbol references"
 EN_LANGUAGE_REMEDY = "rewrite the en entry in English, keeping placeholders and symbol references"
 
 LANGUAGE_MESSAGE_ZH = "the zh entry must be written in Chinese"
 LANGUAGE_MESSAGE_EN = "the en entry must be pure English"
 
 ENTRY_LINE_RE = re.compile(r'^\s*(gloss_[A-Za-z0-9_]+)\s*=\s*"(.*)"\s*$')
-
-# 语言自称词条豁免：语言名以自身书写（界面的界面语言选项），中文表保留原样
-SELF_NAMED_ENTRIES = frozenset({"gloss_ui_language_en"})
 
 SCAN_BASES = (
     os.path.join("crates", "gloss-app", "src"),
@@ -525,9 +519,9 @@ def guard_catalog_files(root: str) -> None:
 
 
 def language_findings(root: str, loader: Any = None) -> tuple[int, list[gate_report.Finding]]:
-    """检查四：词条语言规范——中文表词条必须写成中文（语言自称词条豁免），
-    英文表词条必须纯英文；字符面取语言规范库同源定义，逐行全量报告，返回
-    扫描的词条数与违规条目。"""
+    """检查四：词条语言规范——中文表词条必须含汉字，英文表词条必须纯英文，
+    无任何词条豁免；字符面取语言规范库同源定义，逐行全量报告，返回扫描的
+    词条数与违规条目。"""
     out: list[gate_report.Finding] = []
     scanned = 0
     for name in CATALOG_FILES:
@@ -538,10 +532,10 @@ def language_findings(root: str, loader: Any = None) -> tuple[int, list[gate_rep
             match = ENTRY_LINE_RE.match(line)
             if match is None:
                 continue
-            key, value = match.group(1), match.group(2)
+            value = match.group(2)
             scanned += 1
             if zh:
-                if CJK.search(value) or key in SELF_NAMED_ENTRIES:
+                if CJK.search(value):
                     continue
                 out.append(
                     gate_report.Finding(

@@ -95,7 +95,7 @@ gloss_settings_error_base_url_query = "不能携带查询参数或锚点"
 
 gloss_ui_language_system = "跟随系统"
 gloss_ui_language_zh = "中文"
-gloss_ui_language_en = "English"
+gloss_ui_language_en = "英语（English）"
 
 gloss_theme_system = "跟随系统"
 gloss_theme_light = "浅色"

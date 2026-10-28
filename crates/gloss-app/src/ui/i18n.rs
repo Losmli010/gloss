@@ -262,13 +262,6 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(zh.len(), en.len());
         for ((key, zh_value), (_, en_value)) in zh.iter().zip(&en) {
-            if key == "gloss_ui_language_en" {
-                assert_eq!(
-                    en_value, "English",
-                    "a language's own name is not translated"
-                );
-                continue;
-            }
             assert_ne!(
                 zh_value, en_value,
                 "{key} is copied from zh.toml instead of translated"

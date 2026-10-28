@@ -714,7 +714,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 `zh.toml` 与 `en.toml`，当递归收集叶子键路径，则两份逐条一致且整表条数为 88（条数钉住，防遍历退化） | 2026-10-27 |
-| every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则除语言自身名（`gloss_ui_language_en`）外无一与中文表逐字相同 | 2026-09-23 |
+| every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则无一与中文表逐字相同。沿革：原对语言自称词条（`gloss_ui_language_en`）留同键特例，2026-10-28 随词条语言门禁去豁免删除——中文表该词条改写“英语（`English`）”后两表必不同，特例失去存在理由 | 2026-10-28 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 `gloss_` 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
 | placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 `{{`占位符`}}` 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
 | catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功、两语言取值可区分，且“正在注疏”与“`Re-annotating`”词条逐字就位 | 2026-10-27 |

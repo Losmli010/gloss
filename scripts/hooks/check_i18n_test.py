@@ -254,7 +254,7 @@ def test_plain_toml_key_allowed(tmp_path: Path) -> None:
     assert_pass(tmp_path, "plain.toml", 'app_title = "Gloss"')
 
 
-# ---- 词条语言规范（拦截与豁免）----
+# ---- 词条语言规范（拦截）----
 
 
 def test_zh_entry_written_in_english_is_flagged(tmp_path: Path) -> None:
@@ -284,8 +284,17 @@ def test_en_entry_with_fullwidth_or_curly_is_flagged(tmp_path: Path) -> None:
     )
 
 
-def test_self_named_language_entry_is_exempt_in_zh(tmp_path: Path) -> None:
-    content = 'gloss_app_title = "词汇"\ngloss_ui_language_en = "English"\n'
+def test_self_named_language_entry_in_zh_is_flagged(tmp_path: Path) -> None:
+    assert_fail(
+        tmp_path,
+        "crates/gloss-app/i18n/zh.toml",
+        'gloss_app_title = "词汇"\ngloss_ui_language_en = "English"\n',
+        "the zh entry must be written in Chinese",
+    )
+
+
+def test_zh_entry_with_latin_self_name_in_parentheses_passes(tmp_path: Path) -> None:
+    content = 'gloss_app_title = "词汇"\ngloss_ui_language_en = "英语（English）"\n'
     assert_pass(tmp_path, "crates/gloss-app/i18n/zh.toml", content)
 
 
