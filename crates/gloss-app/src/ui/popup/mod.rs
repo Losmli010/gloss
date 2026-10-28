@@ -1150,7 +1150,7 @@ mod kittest_tests {
     fn auth_failed_view_offers_open_settings() {
         let (mut harness, clicked) = harness_for(auth_failed_view());
         harness.run();
-        harness.get_by_label_contains("API Key");
+        harness.get_by_label_contains("密钥无效");
         harness.get_by_label("打开设置").click();
         harness.run();
         assert_eq!(

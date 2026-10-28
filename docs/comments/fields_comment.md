@@ -4,7 +4,7 @@
 
 ## `connection_section`
 
-- 模型区：Base URL → API Key（写 keychain，不进配置）→ 模型 ID。
+- 模型区：Base URL → API Key（写 keychain，不进配置）→ 模型标识（2026-10-28 词条去英文，原「模型 ID」）。
 - 重新输入即撤销「清除」意图。
 
 ## `CLEAR_BUTTON_RESERVE`

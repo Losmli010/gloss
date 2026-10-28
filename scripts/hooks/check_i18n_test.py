@@ -262,7 +262,7 @@ def test_zh_entry_written_in_english_is_flagged(tmp_path: Path) -> None:
         tmp_path,
         "crates/gloss-app/i18n/zh.toml",
         'gloss_popup_retry = "Retry"',
-        "the zh entry must be written in Chinese",
+        "the zh entry must be pure Chinese",
     )
 
 
@@ -289,12 +289,32 @@ def test_self_named_language_entry_in_zh_is_flagged(tmp_path: Path) -> None:
         tmp_path,
         "crates/gloss-app/i18n/zh.toml",
         'gloss_app_title = "词汇"\ngloss_ui_language_en = "English"\n',
-        "the zh entry must be written in Chinese",
+        "the zh entry must be pure Chinese",
     )
 
 
-def test_zh_entry_with_latin_self_name_in_parentheses_passes(tmp_path: Path) -> None:
-    content = 'gloss_app_title = "词汇"\ngloss_ui_language_en = "英语（English）"\n'
+def test_zh_entry_with_latin_self_name_in_parentheses_is_flagged(tmp_path: Path) -> None:
+    assert_fail(
+        tmp_path,
+        "crates/gloss-app/i18n/zh.toml",
+        'gloss_app_title = "词汇"\ngloss_ui_language_en = "英语（English）"\n',
+        "the zh entry must be pure Chinese",
+    )
+
+
+def test_zh_entry_placeholder_token_passes(tmp_path: Path) -> None:
+    content = (
+        'gloss_app_title = "词汇"\n'
+        'gloss_settings_invalid_summary = "有 {{count}} 处输入未通过校验，已就地标红"\n'
+    )
+    assert_pass(tmp_path, "crates/gloss-app/i18n/zh.toml", content)
+
+
+def test_zh_entry_address_scheme_passes(tmp_path: Path) -> None:
+    content = (
+        'gloss_app_title = "词汇"\n'
+        'gloss_settings_error_base_url_invalid = "不是合法地址：应以 https:// 开头"\n'
+    )
     assert_pass(tmp_path, "crates/gloss-app/i18n/zh.toml", content)
 
 

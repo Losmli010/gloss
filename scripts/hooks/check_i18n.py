@@ -11,11 +11,11 @@
                      不可由文本判定，靠人工评审。
   装入点集中      —— 编译期引用文案资源只允许出现在统一装入点一处。
   词条表文件唯一  —— 声明词条前缀键的配置文件只允许在文案目录下。
-  词条语言规范    —— 中文表词条必须含汉字，英文表词条必须纯英文；字符面
-                     取语言规范库同源定义（汉字面与全角面）。词条是用户可见
-                     短文案，不套注释的中文主体全规——专名、快捷键符号与
-                     占位地址是文案本分，判罚口径只锁最低必要规范：中文表
-                     是中文，英文表是英文，无任何词条豁免。
+  词条语言规范    —— 中文表词条必须纯中文，英文表词条必须纯英文；字符面
+                     取语言规范库同源定义（拉丁面与全角面）。模板占位符、
+                     地址方案符与快捷键符号是记号不是外文，不判罚；判罚
+                     口径只锁最低必要规范：中文表是中文，英文表是英文，
+                     无任何词条豁免。
 
 行尾放行标记豁免所在行，须注明缘由、缺失即判罚。违规报告经统一诊断出口打印：每条带规
 则标识、位置、证据行与修复指引，违规随执行流即时输出；字面量扫描面的四个
@@ -34,7 +34,7 @@ from typing import Any
 
 import gate_report
 import rg_engine
-from language_spec.chinese import CJK, CJKWISE
+from language_spec.chinese import CJKWISE, LATIN
 
 RULE = "ui copy lives in the i18n catalog"
 OWNER = "crates/gloss-app/src/ui/i18n.rs"
@@ -58,13 +58,16 @@ LOADPOINT_REMEDY = (
 )
 CATALOG_REMEDY = "move the entry table into %s/" % CATALOG_DIR
 
-ZH_LANGUAGE_REMEDY = "write the zh entry in Chinese, keeping placeholders and symbol references"
+ZH_LANGUAGE_REMEDY = "rewrite the zh entry in Chinese, keeping placeholders and address schemes"
 EN_LANGUAGE_REMEDY = "rewrite the en entry in English, keeping placeholders and symbol references"
 
-LANGUAGE_MESSAGE_ZH = "the zh entry must be written in Chinese"
+LANGUAGE_MESSAGE_ZH = "the zh entry must be pure Chinese"
 LANGUAGE_MESSAGE_EN = "the en entry must be pure English"
 
 ENTRY_LINE_RE = re.compile(r'^\s*(gloss_[A-Za-z0-9_]+)\s*=\s*"(.*)"\s*$')
+
+TEMPLATE_RE = re.compile(r"\{\{[^}]*\}\}")
+ADDRESS_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
 
 SCAN_BASES = (
     os.path.join("crates", "gloss-app", "src"),
@@ -519,9 +522,10 @@ def guard_catalog_files(root: str) -> None:
 
 
 def language_findings(root: str, loader: Any = None) -> tuple[int, list[gate_report.Finding]]:
-    """检查四：词条语言规范——中文表词条必须含汉字，英文表词条必须纯英文，
-    无任何词条豁免；字符面取语言规范库同源定义，逐行全量报告，返回扫描的
-    词条数与违规条目。"""
+    """检查四：词条语言规范——中文表词条必须纯中文（剔模板占位符与地址方
+    案符两类记号后不得残留英文字母），英文表词条必须纯英文，无任何词条豁
+    免；字符面取语言规范库同源定义，逐行全量报告，返回扫描的词条数与违
+    规条目。"""
     out: list[gate_report.Finding] = []
     scanned = 0
     for name in CATALOG_FILES:
@@ -535,7 +539,9 @@ def language_findings(root: str, loader: Any = None) -> tuple[int, list[gate_rep
             value = match.group(2)
             scanned += 1
             if zh:
-                if CJK.search(value):
+                stripped = TEMPLATE_RE.sub("", value)
+                stripped = ADDRESS_SCHEME_RE.sub("", stripped)
+                if not LATIN.search(stripped):
                     continue
                 out.append(
                     gate_report.Finding(
