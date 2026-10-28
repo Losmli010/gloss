@@ -29,6 +29,7 @@
 
 pub mod dataset;
 pub mod detail;
+pub mod gate;
 pub mod history;
 pub mod inspect;
 pub mod judge;
@@ -45,6 +46,7 @@ pub mod assets {
     pub const TASK_SENTENCE_DATASET: &str =
         include_str!("../datasets/task_translate_sentence.jsonl");
     pub const TASK_CODE_DATASET: &str = include_str!("../datasets/task_explain_code.jsonl");
+    pub const LANG_GATE_DATASET: &str = include_str!("../datasets/lang_gate.jsonl");
     pub const CLASSIFY_FIXTURES: &str = include_str!("../fixtures/classify_replay.jsonl");
     pub const TASK_FIXTURES: &str = include_str!("../fixtures/task_replay.jsonl");
 }

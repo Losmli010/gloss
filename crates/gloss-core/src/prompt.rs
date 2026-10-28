@@ -40,7 +40,7 @@ use std::sync::Arc;
 use crate::model::{GlossError, Lang, Locale};
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 
-const DEFAULT_TARGET: Lang = Lang::Zh;
+pub(crate) const DEFAULT_TARGET: Lang = Lang::Zh;
 
 #[derive(Debug, Clone, Copy)]
 struct Templates {
@@ -49,8 +49,10 @@ struct Templates {
     code: &'static str,
     image_explain: &'static str,
     general: &'static str,
+    target_lang: &'static str,
     classify: &'static str,
     repair: &'static str,
+    repair_language: &'static str,
 }
 
 impl Locale {
@@ -62,8 +64,10 @@ impl Locale {
                 code: include_str!("../prompts/zh/code.md"),
                 image_explain: include_str!("../prompts/zh/image_explain.md"),
                 general: include_str!("../prompts/zh/general.md"),
+                target_lang: include_str!("../prompts/zh/target_lang.md"),
                 classify: include_str!("../prompts/zh/classify.md"),
                 repair: include_str!("../prompts/zh/repair.md"),
+                repair_language: include_str!("../prompts/zh/repair_language.md"),
             },
             Locale::En => Templates {
                 word_card: include_str!("../prompts/en/word_card.md"),
@@ -71,8 +75,10 @@ impl Locale {
                 code: include_str!("../prompts/en/code.md"),
                 image_explain: include_str!("../prompts/en/image_explain.md"),
                 general: include_str!("../prompts/en/general.md"),
+                target_lang: include_str!("../prompts/en/target_lang.md"),
                 classify: include_str!("../prompts/en/classify.md"),
                 repair: include_str!("../prompts/en/repair.md"),
+                repair_language: include_str!("../prompts/en/repair_language.md"),
             },
         }
     }
@@ -147,10 +153,7 @@ impl PromptRegistry {
         match task.input() {
             TaskInput::Text { text, .. } => {
                 let templates = locale.templates();
-                let system = render_template(
-                    instruction_template(templates, task.kind()),
-                    &[("target", &target)],
-                );
+                let system = render_task_system(templates, task.kind(), &target);
                 Ok(vec![
                     ChatMessage::system(system),
                     ChatMessage::user(text.to_owned()),
@@ -158,7 +161,7 @@ impl PromptRegistry {
             }
             TaskInput::Image { png } => {
                 let templates = locale.templates();
-                let system = render_template(templates.image_explain, &[("target", &target)]);
+                let system = render_task_system(templates, task.kind(), &target);
                 Ok(vec![
                     ChatMessage::system(system),
                     ChatMessage::user_parts(vec![ContentPart::ImagePng(Arc::clone(png))]),
@@ -180,6 +183,19 @@ impl PromptRegistry {
             locale.templates().repair,
             &[("reason", &violation.to_string())],
         )
+    }
+
+    pub fn render_language_repair(
+        &self,
+        locale: Locale,
+        violations: &[crate::lang_gate::LangViolation],
+    ) -> String {
+        let list = violations
+            .iter()
+            .map(|violation| violation.line(locale))
+            .collect::<Vec<_>>()
+            .join("\n");
+        render_template(locale.templates().repair_language, &[("violations", &list)])
     }
 }
 
@@ -203,6 +219,14 @@ fn instruction_template(templates: Templates, kind: TaskKind) -> &'static str {
         TaskKind::ImageExplain => templates.image_explain,
         TaskKind::General => templates.general,
     }
+}
+
+fn render_task_system(templates: Templates, kind: TaskKind, target: &str) -> String {
+    let values = [("target", target)];
+    let mut system = render_template(instruction_template(templates, kind), &values);
+    system.push_str("\n\n");
+    system.push_str(&render_template(templates.target_lang, &values));
+    system
 }
 
 fn target_display(options: &TaskOptions, locale: Locale) -> Cow<'_, str> {
@@ -530,6 +554,89 @@ mod tests {
     }
 
     #[test]
+    fn language_repair_instruction_carries_the_row_list_only() {
+        use crate::lang_gate::{LangCategory, LangField, LangViolation};
+
+        let registry = PromptRegistry::new();
+        let violations = [
+            LangViolation::new(LangField::Note, LangCategory::MissingSpace),
+            LangViolation::new(LangField::Example(1), LangCategory::ForeignRun),
+        ];
+        for locale in [Locale::Zh, Locale::En] {
+            let instruction = registry.render_language_repair(locale, &violations);
+            assert!(
+                !instruction.contains("{{"),
+                "{locale:?} leaves a placeholder: {instruction}"
+            );
+            assert!(
+                instruction.contains("ForeignRun") && instruction.contains("MissingSpace"),
+                "every rule id rides the list: {instruction}"
+            );
+            assert!(
+                !instruction.contains("中文word"),
+                "the instruction carries positions and rule ids, never reply text: {instruction}"
+            );
+            assert!(
+                instruction.to_lowercase().contains("json"),
+                "the language repair prompt must mention json (the endpoint's JSON-mode gate \
+                 reads it): {instruction}"
+            );
+        }
+        let zh = registry.render_language_repair(Locale::Zh, &violations);
+        assert!(
+            zh.contains("examples 第 2 条：ForeignRun——"),
+            "the row format is field position, rule id, action: {zh}"
+        );
+        let en = registry.render_language_repair(Locale::En, &violations);
+        assert!(en.contains("examples item 2: ForeignRun — "), "{en}");
+    }
+
+    #[test]
+    fn every_task_system_prompt_ends_with_the_shared_clause() {
+        let registry = PromptRegistry::new();
+        for locale in [Locale::Zh, Locale::En] {
+            let templates = locale.templates();
+            let clause = super::render_template(
+                templates.target_lang,
+                &[("target", lang_display(&DEFAULT_TARGET, locale).as_ref())],
+            );
+            for kind in [
+                TaskKind::TranslateWord,
+                TaskKind::TranslateSentence,
+                TaskKind::ExplainCode,
+                TaskKind::General,
+            ] {
+                let mut task = text_task(kind, "gloss");
+                task.options_mut().prompt_locale = Some(locale);
+                let messages = registry.render(&task).expect("render");
+                let system = text_of(&messages[0].content);
+                assert!(
+                    system.trim_end().ends_with(clause.trim_end()),
+                    "{locale:?} x {kind:?}: the shared clause rides verbatim at the end; tail: \
+                     {:?} vs clause {:?}",
+                    &system[system.len().saturating_sub(120)..],
+                    &clause[clause.len().saturating_sub(120)..]
+                );
+            }
+            let mut image = Task::new(
+                TaskKind::ImageExplain,
+                TaskInput::Image {
+                    png: Arc::from(&b"png"[..]),
+                },
+                TaskOptions::default(),
+            )
+            .expect("image task is legal");
+            image.options_mut().prompt_locale = Some(locale);
+            let messages = registry.render(&image).expect("render");
+            let system = text_of(&messages[0].content);
+            assert!(
+                system.trim_end().ends_with(clause.trim_end()),
+                "{locale:?}: the image system prompt carries the shared clause"
+            );
+        }
+    }
+
+    #[test]
     fn missing_target_lang_defaults_to_chinese() {
         let registry = PromptRegistry::new();
         let messages = registry
@@ -811,7 +918,7 @@ mod tests {
 
     #[test]
     fn every_template_placeholder_is_declared() {
-        let declared = ["target", "reason"];
+        let declared = ["target", "reason", "violations"];
         for locale in [Locale::Zh, Locale::En] {
             let templates = locale.templates();
             let files = [
@@ -820,8 +927,10 @@ mod tests {
                 ("code.md", templates.code),
                 ("image_explain.md", templates.image_explain),
                 ("general.md", templates.general),
+                ("target_lang.md", templates.target_lang),
                 ("classify.md", templates.classify),
                 ("repair.md", templates.repair),
+                ("repair_language.md", templates.repair_language),
             ];
             for (name, text) in files {
                 for (index, _) in text.match_indices("{{") {

@@ -14,6 +14,7 @@ pub(crate) struct Palette {
     pub code_bg: Color32,
     pub code_border: Color32,
     pub danger: Color32,
+    pub warn: Color32,
     pub on_accent: Color32,
     pub input_border: Stroke,
     pub caret: Color32,
@@ -38,6 +39,7 @@ pub(crate) const LIGHT: Palette = Palette {
     code_bg: Color32::from_rgb(0xF5, 0xF7, 0xF9),
     code_border: Color32::from_rgba_premultiplied(2, 2, 3, 26),
     danger: DANGER,
+    warn: WARN_LIGHT,
     on_accent: Color32::WHITE,
     input_border: Stroke {
         width: 1.0,
@@ -63,6 +65,7 @@ pub(crate) const DARK: Palette = Palette {
     code_bg: Color32::from_rgb(0x16, 0x18, 0x1E),
     code_border: Color32::from_rgba_premultiplied(23, 23, 23, 23),
     danger: DANGER,
+    warn: WARN_DARK,
     on_accent: Color32::WHITE,
     input_border: Stroke::NONE,
     caret: Color32::from_rgb(0xE6, 0xE6, 0xE6),
@@ -82,6 +85,10 @@ const SEAL_ZHU_LIGHT: Color32 = Color32::from_rgb(0xB8, 0x43, 0x2F);
 const SEAL_ZHU_DARK: Color32 = Color32::from_rgb(0xE0, 0x6A, 0x52);
 
 const DANGER: Color32 = Color32::from_rgb(0xC6, 0x28, 0x28);
+
+const WARN_LIGHT: Color32 = Color32::from_rgb(0xC7, 0x6B, 0x1D);
+
+const WARN_DARK: Color32 = Color32::from_rgb(0xE0, 0x9A, 0x4A);
 
 pub(crate) mod alpha {
     pub const SEAL_LINE: f32 = 0.55;

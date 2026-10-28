@@ -24,7 +24,9 @@ use super::{OverlayAction, RenderCtx};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
 use crate::ui::i18n::Text;
 use crate::ui::pointing_hand;
-use crate::ui::style::{alpha, apply_kaiti, geometry, motion, radius, size, space, with_alpha};
+use crate::ui::style::{
+    alpha, apply_kaiti, geometry, motion, palette, radius, size, space, with_alpha,
+};
 
 const MIN_BODY_VIEWPORT: f32 = geometry::overlay::MIN_BODY_VIEWPORT;
 const FOOTER_RESERVE: f32 = geometry::overlay::FOOTER_HEIGHT + space::PARAGRAPH;
@@ -143,11 +145,16 @@ pub(super) fn render_content(
                 }),
             }
         }
-        Some(OverlayView::Outcome { source: _, outcome }) if outcome.degraded => {
+        Some(OverlayView::Outcome { source: _, outcome })
+            if outcome.degraded && outcome.note.is_empty() =>
+        {
             degraded_card(ui, ctx, content_h)
         }
         Some(OverlayView::Outcome { source, outcome }) => {
-            scrolled_card(ui, ctx, content_h, FooterMode::Done, |ui| {
+            let mode = FooterMode::Done {
+                unverified: outcome.degraded,
+            };
+            scrolled_card(ui, ctx, content_h, mode, |ui| {
                 outcome_body(ui, ctx, source, outcome)
             })
         }
@@ -226,7 +233,7 @@ fn degraded_card(
         ui.label(
             RichText::new(&ctx.text.gloss_popup_output_abnormal)
                 .size(size::NOTICE)
-                .color(ui.visuals().warn_fg_color),
+                .color(palette(ui).warn),
         );
         ui.add_space(space::SECTION);
         if pointing_hand(
@@ -254,7 +261,7 @@ fn failed_card(
         ui.label(
             RichText::new(failure_message(cause, ctx.text))
                 .size(size::NOTICE)
-                .color(ui.visuals().warn_fg_color),
+                .color(palette(ui).warn),
         );
         if let Some(error_action) = *error_action {
             ui.add_space(space::SECTION);

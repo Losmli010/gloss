@@ -12,8 +12,8 @@
 | 发版人工步骤 | 10 | 手动执行（无自动化测试源码的真机、运维步骤，`bdd` 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
-| 快照测试 | 40 | `just test` |
-| 单元测试 | 649 | `just test` |
+| 快照测试 | 41 | `just test` |
+| 单元测试 | 680 | `just test` |
 
 ## 人工测试
 
@@ -392,7 +392,8 @@
 | image_card_degrades_to_a_placeholder_when_the_bytes_do_not_decode | 图像字节解码失败占位降级 | 给定不可解码字节的图像完成态卡，当渲染，则经位出“`The image could not be displayed.`”占位、注位照常（不 `panic`） | 2026-10-10 |
 | attached_image_texture_is_reused_across_frames | 附件图像纹理跨帧复用 | 给定同一份附件图像字节连续渲染七帧，当比对第 2 帧与第 7 帧的界面库（egui）纹理分配数，则计数不增（同字节恒同纹理，逐帧解码即失败） | 2026-10-10 |
 | attached_image_slot_is_dropped_once_an_imageless_frame_renders | 会话离开图像卡即清纹理槽 | 给定图像帧（纹理就位）后切到无附件帧再切回同图，当逐段比对界面库（egui）纹理分配数，则无附件帧分配数下降（源字节与纹理同帧释放，敏感数据不驻留会话外）、同图再上卡重新解码回到原驻留数 | 2026-10-10 |
-| degraded_outcome_card_shows_only_the_abnormal_notice_and_retry | 降级产物卡只出异常提示与重试 | 给定 `degraded=true` 的完成态卡（`note` 带残留内容），当渲染，则出“`Abnormal output`”与“`Retry`”按钮、点击上交 `OverlayAction::Retry`，而 `note` 残留与语言判定一概不在树上（原文垃圾不展示不留存） | 2026-10-11 |
+| degraded_outcome_card_shows_only_the_abnormal_notice_and_retry | 降级产物卡只出异常提示与重试 | 给定 `degraded=true` 且 `note` 为空的完成态卡（格式降级的真实形态），当渲染，则出“`Abnormal output`”与“`Retry`”按钮、点击上交 `OverlayAction::Retry`，而注与疏一概不在树上（原文垃圾不展示不留存） | 2026-10-28 |
+| lang_degraded_outcome_card_keeps_content_with_the_footer_badge | 语言降级卡保内容出页脚徽章 | 给定 `degraded=true` 且内容完整的完成态卡（语言降级路径），当渲染，则页脚左端出“`For reference only`”校对徽章、注与角标照常入树、页脚为复制钮而非重试钮（混用语言的译文对用户仍有价值，徽章不占正文首行） | 2026-10-28 |
 | degraded_outcome_card_never_takes_the_source_jing_section | 降级产物卡不保留原文经位 | 给定带原文的降级完成态卡，当渲染，则树上无原文节点（降级卡与失败卡同形：只有提示与重试） | 2026-10-11 |
 | general_outcome_card_renders_the_plain_layout | 通用产物卡与句译同形 | 给定 `General` 产物（原文经位加 `markdown` 注加两条疏条目）的完成态卡，当渲染，则原文、注文与疏条目逐条入树（条目经 `markdown` 渲染按 `contains` 定位；通用落 `Plain` 变体、按句译同形排布） | 2026-10-21 |
 | failed_view_shows_retry_hint | 失败卡重试动作 | 给定 `Retry` 失败卡，当渲染并点击“重试”，则收集器收到 `OverlayAction::Retry` | 2026-09-21 |
@@ -405,7 +406,7 @@
 | resize_zones_are_exposed_to_accesskit | 缩放热区进无障碍树 | 给定词卡视图，当渲染，则无障碍树有“调整浮层大小”热区节点三段（下缘、右缘与右下角） | 2026-10-28 |
 | corner_drag_reports_window_size_grown_from_the_press | 右下角拖拽上交自按压点累计的期望宽高 | 给定词卡视图与右下角热区中心，当按下→两段移动→松开→再移动，则上交期望尺寸自按压帧的窗口尺寸累计（按下即原尺寸、两段各 `+60/+40` 与 `+100/+80`，非逐帧增量）、松开后粘性保持最后一次期望尺寸（壳侧接管宽高，内容自适应退位）；期望尺寸换算与钳制落窗在壳侧 `resize_overlay_by_user` | 2026-10-28 |
 | selfcheck_view_exposes_texts_to_accesskit | 自检卡无障碍树 | 给定 `view=None` 的自检渲染，当渲染，则中英文自检文本均可定位 | 2026-09-21 |
-| snapshots_match_baseline（popup） | 浮层十六视图渲染基线（英文浅色为主） | 给定十六个视图夹具（词卡、流式、失败、鉴权失败、自检卡、代码流式、代码完成态、图像完成态、图像流式、图像失败、降级完成态、长行，内容夹具为英文；另文本与图像待确认卡中英双份），当 `wgpu` 以对应文案与浅色主题渲染并 `diff`，则与 `popup_word_card`、`popup_streaming`、`popup_failed`、`popup_failed_auth`、`popup_selfcheck`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_image_failed`、`popup_degraded_outcome`、`popup_long_line` 十二份英文基线与 `popup_pending_text_zh/en`、`popup_pending_image_zh/en` 四份待确认卡基线一致，结果合并进单个 `SnapshotResults`。基线沿革：2026-10-01 按经注疏 `demo` 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 `ITEM` 间距）、关闭钮调小至 10 像素见方与页脚降高 26→20 再录；同日 `popup_word_card` 再随音标改 `gloss-mono` 等宽族重录，差异仅音标字形行——`kittest` 绑内置字形，缺字实测：内置 `Hack` 十八个音标字形缺十四个、`Ubuntu-Light` 缺十三个、`PingFang SC` 缺 `ɒ ʒ ʌ ˈ ˌ ː`，链上无一命中；2026-10-02 新增 `popup_code_streaming`、`popup_code_outcome` 两份代码视图基线（`T3`：`classified` 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 `T4`；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、`Acquiring` 骨架视图删除，`popup_loading` 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 `popup_image_outcome`、`popup_image_streaming`、`popup_image_failed` 三份基线（图像经位加注疏，夹具为测试内确定性编码的宽 120 高 80 像素渐变位图，英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 `ImageOcr` 任务类型与 `Extracted` 结构化变体，`popup_extract` 基线随其视图一并移除，余七份；2026-10-11 随契约收敛新增 `popup_degraded_outcome` 降级产物卡基线（异常提示加重试，无经注疏内容），`popup_code_streaming` 随流式代码面板移除语言标签行重录（差异仅该行移除与其下既段位移），余十一份；2026-10-18 随文本流式经位并入滚动区重录 `popup_streaming`、`popup_code_streaming`，差异仅经位整体的亚像素抗锯齿（行高与列位置不变）；2026-10-19 随代码着色后端换 `egui_extras` 与 `syntect`（`two-face` 语法补集加六类色板自定义主题）重录 `popup_code_outcome`；`popup_code_streaming` 因流式期语言未定仍走通用兜底而零变化；`popup_long_line` 是连带变化——`egui_commonmark` 的围栏代码块经 `feature` 统一改用 `syntect` 默认主题与默认语法集，不再是六类色板，表外语言如（TOML）由简易高亮退化为纯色；同日再随疏字号 13→14 重录 `popup_word_card`、`popup_image_outcome`、`popup_image_streaming`（快照画布固定宽 800 高 600，浮层宽度常量不参与基线）；同日再随页头图标改矢量栅格化重录 `popup_*` 全部十二份基线（图标纹理由 `resvg` 按 `pixels_per_point` 从 `SVG` 源直栅到物理像素，不再解码 256 像素 `Dock` 位图降采样，`Retina` 下糊化消除；逐份核对像素差异仅落在 `(23,23)` 至 `(43,43)` 的图标槽位，`settings` 基线不涉及）；2026-10-21 随疏位改 `markdown` 渲染（去弱色改正文色、去列表符与英汉拆行，条目走注文同一条 `markdown` 管线）重录 `popup_word_card`、`popup_image_outcome`、`popup_image_streaming` 三份（差异仅疏位条目行，无疏内容的九份零变化）；2026-10-27 随发送前确认改动：页脚文案“正在注解”改名“正在注疏”、“重新注解”改名“重新注疏”，完成态卡页脚新增“复制注疏”钮（点击后短时翻“已复制”），三印章宽取最宽标签统一，重录七份含页脚或印章的基线（`popup_word_card`、`popup_streaming`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_long_line`），其余五份英文基线零变化；同日新增 `popup_pending_text_zh/en`、`popup_pending_image_zh/en` 四份待确认卡基线——页脚为“注疏”主按钮加“取消”，中文形态首次入基线，`kittest` 上下文经测试内安装（CJK）字体后可渲染中文；同日页脚订正后重录八份——待确认四份随确认与取消按钮收回带内垂直居中，按钮原被界面库默认内边距顶出窄带；完成态四份（词卡、代码、图像、长行）随复制图标重画重录，印章圆角恰为方块边长一半、图标被吃成双圆，改专用小圆角档、粗描边与前片遮底；同日按钮组与复制钮相对分割线下移一档再录同八份，随后按钮去窄形态改常规内边距、下移档定为 4.5 像素又再录同八份；2026-10-28 随缩放握把（右下角三道斜纹示意）重录全部十六份基线，逐份核对像素差异仅落在右下角握把区；另三份流式基线（`popup_streaming`、`popup_code_streaming`、`popup_image_streaming`）连带页脚呼吸点的亚像素抗锯齿漂移（每份 36 像素块，幅度低于判容差、肉眼不可辨；成因是调色板结构体增字段的连锁渲染微移，重录实验确认逐字节确定性复现） | 2026-10-28 |
+| snapshots_match_baseline（popup） | 浮层十七视图渲染基线（英文浅色为主） | 给定十七个视图夹具（词卡、流式、失败、鉴权失败、自检卡、代码流式、代码完成态、图像完成态、图像流式、图像失败、降级完成态、长行，内容夹具为英文；另文本与图像待确认卡中英双份），当 `wgpu` 以对应文案与浅色主题渲染并 `diff`，则与 `popup_word_card`、`popup_streaming`、`popup_failed`、`popup_failed_auth`、`popup_selfcheck`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_image_failed`、`popup_degraded_outcome`、`popup_long_line`、`popup_unverified_outcome` 十三份英文基线与 `popup_pending_text_zh/en`、`popup_pending_image_zh/en` 四份待确认卡基线一致，结果合并进单个 `SnapshotResults`。基线沿革：2026-10-01 按经注疏 `demo` 定稿重录：宋楷命名字体族、三印、疏区虚线、常驻页脚带水印；同日随水印槽改实测宽再录，差异仅水印字形位置；2026-10-02 随页头底缘发丝线（与行内容隔 `ITEM` 间距）、关闭钮调小至 10 像素见方与页脚降高 26→20 再录；同日 `popup_word_card` 再随音标改 `gloss-mono` 等宽族重录，差异仅音标字形行——`kittest` 绑内置字形，缺字实测：内置 `Hack` 十八个音标字形缺十四个、`Ubuntu-Light` 缺十三个、`PingFang SC` 缺 `ɒ ʒ ʌ ˈ ˌ ː`，链上无一命中；2026-10-02 新增 `popup_code_streaming`、`popup_code_outcome` 两份代码视图基线（`T3`：`classified` 首帧即代码排版、单层代码面板——代码底色直接覆盖经位、左上语言标签行；无高亮的纯色等宽，高亮属 `T4`；面板样式随用户反馈图样定稿同日再录）；2026-10-03 随热键支持移除、`Acquiring` 骨架视图删除，`popup_loading` 基线一并移除，余八份；2026-10-10 随剪贴板图像卡新增 `popup_image_outcome`、`popup_image_streaming`、`popup_image_failed` 三份基线（图像经位加注疏，夹具为测试内确定性编码的宽 120 高 80 像素渐变位图，英文浅色同规），文本卡八份零变化（图像分支独立、文本流式经位仍在滚动区外）；同日删除 `ImageOcr` 任务类型与 `Extracted` 结构化变体，`popup_extract` 基线随其视图一并移除，余七份；2026-10-11 随契约收敛新增 `popup_degraded_outcome` 降级产物卡基线（异常提示加重试，无经注疏内容），`popup_code_streaming` 随流式代码面板移除语言标签行重录（差异仅该行移除与其下既段位移），余十一份；2026-10-18 随文本流式经位并入滚动区重录 `popup_streaming`、`popup_code_streaming`，差异仅经位整体的亚像素抗锯齿（行高与列位置不变）；2026-10-19 随代码着色后端换 `egui_extras` 与 `syntect`（`two-face` 语法补集加六类色板自定义主题）重录 `popup_code_outcome`；`popup_code_streaming` 因流式期语言未定仍走通用兜底而零变化；`popup_long_line` 是连带变化——`egui_commonmark` 的围栏代码块经 `feature` 统一改用 `syntect` 默认主题与默认语法集，不再是六类色板，表外语言如（TOML）由简易高亮退化为纯色；同日再随疏字号 13→14 重录 `popup_word_card`、`popup_image_outcome`、`popup_image_streaming`（快照画布固定宽 800 高 600，浮层宽度常量不参与基线）；同日再随页头图标改矢量栅格化重录 `popup_*` 全部十二份基线（图标纹理由 `resvg` 按 `pixels_per_point` 从 `SVG` 源直栅到物理像素，不再解码 256 像素 `Dock` 位图降采样，`Retina` 下糊化消除；逐份核对像素差异仅落在 `(23,23)` 至 `(43,43)` 的图标槽位，`settings` 基线不涉及）；2026-10-21 随疏位改 `markdown` 渲染（去弱色改正文色、去列表符与英汉拆行，条目走注文同一条 `markdown` 管线）重录 `popup_word_card`、`popup_image_outcome`、`popup_image_streaming` 三份（差异仅疏位条目行，无疏内容的九份零变化）；2026-10-27 随发送前确认改动：页脚文案“正在注解”改名“正在注疏”、“重新注解”改名“重新注疏”，完成态卡页脚新增“复制注疏”钮（点击后短时翻“已复制”），三印章宽取最宽标签统一，重录七份含页脚或印章的基线（`popup_word_card`、`popup_streaming`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_long_line`），其余五份英文基线零变化；同日新增 `popup_pending_text_zh/en`、`popup_pending_image_zh/en` 四份待确认卡基线——页脚为“注疏”主按钮加“取消”，中文形态首次入基线，`kittest` 上下文经测试内安装（CJK）字体后可渲染中文；同日页脚订正后重录八份——待确认四份随确认与取消按钮收回带内垂直居中，按钮原被界面库默认内边距顶出窄带；完成态四份（词卡、代码、图像、长行）随复制图标重画重录，印章圆角恰为方块边长一半、图标被吃成双圆，改专用小圆角档、粗描边与前片遮底；同日按钮组与复制钮相对分割线下移一档再录同八份，随后按钮去窄形态改常规内边距、下移档定为 4.5 像素又再录同八份；2026-10-28 随缩放握把（右下角三道斜纹示意）重录全部十六份基线，逐份核对像素差异仅落在右下角握把区；另三份流式基线（`popup_streaming`、`popup_code_streaming`、`popup_image_streaming`）连带页脚呼吸点的亚像素抗锯齿漂移（每份 36 像素块，幅度低于判容差、肉眼不可辨；成因是调色板结构体增字段的连锁渲染微移，重录实验确认逐字节确定性复现）；2026-10-28 随语言体例门新增 `popup_unverified_outcome` 一份语言降级产物卡基线（泛化“结果未通过校对”徽标加完整注疏内容与复制钮），`popup_degraded_outcome` 随降级夹具改为空注真实形态核对后重录（像素零变化）；同日合入 `main` 随缩放握把重录 `popup_unverified_outcome`（本分支基线录制早于握把改动，`diff` 逐份核对像素差异仅右下角握把区 96 像素）；同日语言降级标记改页脚徽章再录 `popup_unverified_outcome`（正文顶部警示行撤出、页脚左端新增琥珀三角徽章，像素差异落在正文首行与页脚左端）；同日警示提示行文字色收编调色板 `warn` 档再录 `popup_failed`、`popup_failed_auth`、`popup_degraded_outcome`、`popup_image_failed` 四份（像素差异仅提示行文字色） | 2026-10-28 |
 | all_sections_render_and_save_submits_the_draft | 设置窗渲染与保存提交 | 给定默认配置的设置窗口，当渲染并点保存，则各区块控件可定位且上交未改动的出厂快照 | 2026-09-19 |
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定“取消”与“清除密钥”按钮，当分别点击，则取消上交 `Close`、清除只置标记（按钮变“撤销清除”）、保存时才上交 `Clear` | 2026-09-19 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 `Base URL` 的设置窗，当点保存，则不上交 `Save`、字段就地标红并出汇总行 | 2026-09-22 |
@@ -540,6 +541,8 @@
 | english_locale_renders_english_prompts | 英文 `locale` 出英文指令 | 给定 `En` `locale` 的句译任务，当渲染，则系统指令为英文（含 `JSON` 契约）、用户消息携带原文，且不含中文指令词 | 2026-10-03 |
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 `En` `locale` 未设目标语言、`Zh` `locale` 设 `Lang::En`，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含“英语” | 2026-09-22 |
 | prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 `prompt_locale` 的任务，当渲染，则结果与显式 `Zh` 逐字一致且含“词典专家” | 2026-09-22 |
+| language_repair_instruction_carries_the_row_list_only | 语言修复指令只帧行式清单 | 给定两条违约条目与中英两语言，当 `render_language_repair`，则无残留占位符、行含规则标识与字段位置、不含回复原文、提及 `JSON`（端点 `JSON` 模式门读取） | 2026-10-28 |
+| every_task_system_prompt_ends_with_the_shared_clause | 共同条款逐字随每份任务书 | 给定五任务两语言的渲染，当比对系统提示尾部，则与共享目标语言条款逐字一致（条款单点维护，拼接自渲染入口） | 2026-10-28 |
 
 ### `crates/gloss-core/src/schema.rs`
 
@@ -616,6 +619,35 @@
 | a_length_finish_repairs_without_a_truncation_hint | `length` 结束按普通违约修复 | 给定“`length` 截断的违约流 → 契约流”脚本队列，当 `run`，则修复指令不含截断提示（修复模板已无该维度）、修复后以新结束原因收口、`repairs` 为 1 | 2026-10-20 |
 | a_fenced_reply_repairs_like_any_other_violation | 围栏任务回复同权违约进修复 | 给定 `json` 围栏的任务回复与契约修复流脚本队列，当 `run`，则围栏按 `NotJson` 违约进修复轮（严格裸 `JSON` 契约）、`repairs` 为 1 | 2026-10-12 |
 | cancellation_cuts_through_the_repair_round | 取消打断修复轮 | 给定慢流脚本队列（首轮违约、修复轮慢流），当修复轮回调到达即从 `select!` 竞速取消，则取消分支获胜（修复轮是 `run` `future` 内 `await` 点，竞速天然覆盖） | 2026-10-12 |
+| language_violations_repair_with_a_row_list_instruction | 语言违约进行式清单修复轮 | 给定语言违约但契约合格的回复与契约修复流脚本队列，当 `run`，则任务段零修复、语言段 1 轮、指令行含每条规则标识与字段位置、不含回复原文、对话形态 `[system][user][assistant][user]`、`lang_degraded` 为假 | 2026-10-28 |
+| language_repairs_exhaust_and_deliver_the_reply_degraded | 语言修复预算耗尽带降级交付 | 给定连续两条契约合格但语言违约的回复，当 `run`，则恰 1 轮语言修复（`LANG_REPAIRS`）后 `lang_degraded` 为真、`raw` 为末条契约合格回复、不报 `Err` | 2026-10-28 |
+| a_contract_broken_language_repair_keeps_the_last_valid_reply | 修复轮契约退化保末份合格回复 | 给定契约合格的语言违约回复与修复轮散文（契约坏回复），当 `run`，则坏回复不被采纳、`raw` 保持末份契约合格回复且 `lang_degraded` 为真 | 2026-10-28 |
+
+### `crates/gloss-core/src/lang_gate.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| foreign_runs_flag_bare_latin_and_kana_but_parenthesized_terms_pass | 外文段抓裸用放括注 | 给定中文目标与裸用外文词、`API`、`iPhone`、日语残段的注，当判定，则逐条 `ForeignRun`；括号内的外文术语（容器内容）不判 | 2026-10-28 |
+| single_latin_letter_passes_as_variable_and_n_dot_flags | 单字母变量豁免缩写判罚 | 给定“变量 `x` 与 `y`”式单字母，当判定，则放行；词性缩写 `n.`（单字母紧跟句点）判 `ForeignRun` | 2026-10-28 |
+| punctuation_set_catches_wrong_script_and_passes_cjk_brackets | 标点集抓串味放角引号 | 给定中文正文里的半角逗号与角引号对，当判定，则前者 `PunctuationMismatch`、后者放行；英文正文合法标点全放行 | 2026-10-28 |
+| dash_and_ellipsis_families_stay_style_items_not_violations | 破折号省略号与数字附随不判 | 给定破折号、省略号、双连字符、小数、区间、百分与货币金额各形态的注，当判定，则全部不判标点（风格项留给评测） | 2026-10-28 |
+| traditional_chars_flag_outside_and_pass_inside_quotes | 繁体正文判罚引文豁免 | 给定正文繁体字形与引文容器内的古籍繁体，当判定，则前者 `TraditionalChar`、后者放行 | 2026-10-28 |
+| pangu_space_flags_adjacency_only_for_chinese_target | 盘古之白仅中文目标判定 | 给定中文目标“中文`word`”直连与标点隔开、日语目标直连三种注，当判定，则直连判 `MissingSpace`、标点隔开与日语目标放行 | 2026-10-28 |
+| emoji_and_variation_selectors_flag_in_body_only | 表情符号与变体选择符判罚 | 给定正文含表情符号与变体选择符的注，当判定，则 `EmojiForbidden` | 2026-10-28 |
+| markdown_structure_flags_on_forbidden_kinds_and_passes_on_full_kinds | 结构节点按任务能力判定 | 给定禁 `markdown` 三任务（词卡、句译、图像）的着重号、行内码、链接注，当判定，则 `MarkdownForbidden`；代码与通用任务全量放行 | 2026-10-28 |
+| unclosed_containers_flag_stray_parens_quotes_fences_and_backticks | 残缺容器判罚 | 给定未闭合括号、未闭合弯引号、未闭合围栏与落单反引号，当判定，则 `UnclosedContainer`；成对围栏与行内码放行 | 2026-10-28 |
+| isolated_dollar_and_currency_amounts_stay_legal | 落单美元符号双义放行 | 给定孤立 `$` 与 `$5` 的注，当判定，则既不判标点也不判容器（货币符号双义，宁漏勿误） | 2026-10-28 |
+| math_containers_exempt_their_content | 数学容器内容豁免 | 给定成对 `$...$` 内的外文与记号、落单 `$`，当判定，则容器内容不判语言标点、落单不判残缺 | 2026-10-28 |
+| container_mixing_flags_mixed_groups_only | 组内混语判罚 | 给定括号组内同时出现目标文字段与非目标文字段，当判定，则 `ContainerMixing` | 2026-10-28 |
+| container_mixing_passes_single_language_and_excluded_tokens | 组内单一语言放行 | 给定“引文（译）”串行、嵌套内层括号、数字与单字母括注、代码任务无引文容器四种形态，当判定，则全部放行 | 2026-10-28 |
+| sentence_parens_flag_final_punctuation_only | 句译括注末位句末标点判罚 | 给定句译任务括号组末字符为句末标点与组中部缩略语句点，当判定，则前者 `SentenceInParens`、后者放行；短语级括注放行 | 2026-10-28 |
+| source_overlap_flags_copied_passages_and_folds_whitespace | 原文重合抓整段照搬 | 给定整段照抄与空白差异折叠后仍比中的产物，当判定，则 `SourceOverlap`；低于阈值（12 字符或 6 西文词）的术语回标放行 | 2026-10-28 |
+| phonetic_charset_limits_word_card_phonetics | 音标字符集限定 | 给定国际音标与拼音声调、越界汉字的音标字段，当判定，则前者放行、后者 `PhoneticCharset`；非词卡任务不判 | 2026-10-28 |
+| other_target_skips_script_and_mixing_checks | 自定义目标语言跳过文字判定 | 给定 `Other` 目标语言的中西混排注，当判定，则不判 `ForeignRun` 与 `ContainerMixing`（合法集未知，宁漏勿误） | 2026-10-28 |
+| image_input_skips_overlap_but_runs_the_rest | 图像输入跳重合照跑其余 | 给定图像输入与照抄式注，当判定，则无 `SourceOverlap`（无文本输入）；表情符号照常判罚 | 2026-10-28 |
+| violation_lines_carry_field_category_and_action_only | 违约行式渲染三段齐备 | 给定违约条目，当中英渲染与摘要，则行为“字段位置：规则标识——动作”、摘要只含去重类别、显示形态不带回复原文 | 2026-10-28 |
+| math_inside_containers_stays_exempt | 容器内公式豁免 | 给定括注与引文内含成对公式的注，当判定，则无 `ContainerMixing`——数学容器内容不判语言（`R8`） | 2026-10-28 |
+| line_wrapped_formulas_stay_math_containers | 换行公式仍成数学容器 | 给定公式跨段内软换行的注，当判定，则无 `PunctuationMismatch`（软换行不拆数学配对，段界仍拆） | 2026-10-28 |
 
 ### `crates/gloss-app/src/runtime/cache.rs`
 
@@ -909,6 +941,7 @@
 | prewarm_secret_reads_the_store_and_reports_success | 预热读密成功回执 | 给定已预置密钥的存储，当发 `PrewarmSecret`，则回执 `Ok`（值留在存储进程内缓存，不进事件） | 2026-10-06 |
 | prewarm_failure_surfaces_as_err_without_the_secret | 预热失败回执只带原因 | 给定读取必失败的存储，当发 `PrewarmSecret`，则回执 `Err(Config)`（不含密钥值，不拦主流程） | 2026-10-06 |
 | prewarm_receipt_never_carries_a_secret_value | 预热回执永不携带密钥值 | 给定 `SecretPrewarmed` 回执，当 `Debug` 格式化，则不含密钥值形态（`sk-` 前缀不存在） | 2026-10-06 |
+| a_lang_degraded_done_caches_the_full_outcome_for_replay | 语言降级产物入缓存可重放 | 给定语言违约的契约合格脚本队列，当跑完首轮任务（引擎 3 次调用：分类、任务、语言修复）得到降级且内容完整的产物，再以同输入同选项触发第二次，则缓存直出、引擎调用数不再增长（语言降级产物不重放修复轮） | 2026-10-28 |
 
 ### `crates/gloss-app/src/machine.rs`
 
@@ -1404,7 +1437,16 @@
 | judge_prompt_carries_all_three_sections | `judge` `rubric` 三段齐备 | 给定输入、产出、参考，当渲染 `judge` `messages`，则系统指令含三段且无残留占位符 | 2026-09-26 |
 | judge_reply_parsing_accepts_json_and_score_line | `judge` 回复分数解析 | 给定（JSON）与 `SCORE:` 行两种回复，当解析，则得 1 至 5 分；越界与缺失为 `None` | 2026-09-26 |
 
-### `crates/gloss-eval/src/report.rs`
+### `crates/gloss-eval/src/gate.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| gate_reply_parsing_accepts_json_verdict_only | 评委复核回复解析 | 给定合法裁决（JSON）、越界类别与非（JSON）回复，当 `parse_gate_reply`，则合法者出裁决与类别、其余为 `None` | 2026-10-28 |
+| gate_metrics_compute_precision_and_recall | 门禁指标算式对账 | 给定确定的命中、漏报（引文繁体豁免是内生漏报）与放行三类条目，当 `run_gate`，则条目级精确率与召回率按算式得出、类别级对账区分期望与命中 | 2026-10-28 |
+| gate_loader_rejects_bad_expect_duplicate_ids_and_category_mismatch | 门禁数据集加载期校验 | 给定合法条目、非法期望值、重复标识、违约无类别、放行带类别与坏形状行，当 `load_gate_cases`，则合法者载入、其余带行号报错 | 2026-10-28 |
+| gate_dataset_agrees_with_the_gate_offline | 门禁数据集与判定器离线全一致 | 给定内嵌门禁数据集（违约与放行各一批），当 `run_gate`，则条目级精确率与召回率均为 1、各类别期望与命中对账相等、标点类判定数钉在已知过报（`1`，`3`）——未来加码过报先红（数据集是受控工件，规则演进须同步改判例） | 2026-10-28 |
+
+### `crates/gloss-eval/src/report.rs`### `crates/gloss-eval/src/report.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |

@@ -137,6 +137,16 @@ pub enum OutcomeStructured {
     },
 }
 
+impl OutcomeStructured {
+    pub fn examples(&self) -> &[String] {
+        match self {
+            Self::WordCard { examples, .. }
+            | Self::Plain { examples }
+            | Self::Code { examples, .. } => examples,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -29,6 +29,8 @@ gloss_popup_drag_label = "Drag overlay"
 gloss_popup_resize_label = "Resize the popup"
 gloss_popup_image_unavailable = "The image could not be displayed."
 gloss_popup_output_abnormal = "Abnormal output"
+gloss_popup_output_unverified = "Not fully proofread; may contain mixed languages or punctuation. For reference only."
+gloss_popup_output_unverified_label = "For reference only"
 
 gloss_errors_selection_unavailable = "Could not read the selected text. Select it again and retry."
 gloss_errors_selection_empty = "No text is selected. Select some text and try again."
