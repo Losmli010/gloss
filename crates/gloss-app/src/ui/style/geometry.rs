@@ -70,10 +70,6 @@ pub mod settings {
 pub mod resize {
     pub const HOTSPOT: f32 = 4.0;
     pub const CORNER: f32 = 14.0;
-    pub const GRIP_INSET: f32 = 4.0;
-    pub const GRIP_LENGTH: f32 = 10.0;
-    pub const GRIP_GAP: f32 = 3.0;
-    pub const GRIP_COUNT: usize = 3;
 }
 
 pub mod window {

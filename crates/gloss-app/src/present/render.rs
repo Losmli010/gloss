@@ -85,6 +85,7 @@ pub fn render_frame_with<R>(
     frame: &mut Frame,
     draw: impl FnOnce(&mut egui::Ui) -> R,
 ) -> (Option<Instant>, Option<R>) {
+    frame.egui.egui_input_mut().focused = frame.window.has_focus();
     let input = frame.egui.take_egui_input(&frame.window);
     let mut draw = Some(draw);
     let mut result = None;
@@ -115,7 +116,7 @@ pub struct OverlayFrameOutput {
     pub action: Option<ui::popup::OverlayAction>,
     pub sizing: Option<ui::popup::OverlaySizing>,
     pub drag: Option<egui::Vec2>,
-    pub resize: Option<egui::Vec2>,
+    pub resize: Option<ui::popup::OverlayResize>,
 }
 
 pub fn render_frame(

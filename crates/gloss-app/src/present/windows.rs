@@ -9,6 +9,7 @@ use winit::error::OsError;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId, WindowLevel};
 
+use crate::ui::popup::ResizeEdges;
 use crate::ui::style::geometry::window;
 
 const APP_NAME: &str = "Gloss";
@@ -43,6 +44,57 @@ fn clamped_user_size(
             .height
             .clamp(window::OVERLAY_MIN_HEIGHT, max_height),
     )
+}
+
+fn anchored_user_resize(
+    edges: ResizeEdges,
+    anchor: &UserResizeAnchor,
+    pointer: LogicalPosition<f64>,
+    screen: LogicalSize<f64>,
+) -> (LogicalSize<f64>, LogicalPosition<f64>) {
+    let (press_position, press_size, press_pointer) = (
+        anchor.press_position,
+        anchor.press_size,
+        anchor.press_pointer,
+    );
+    let east_anchor = press_position.x + press_size.width;
+    let south_anchor = press_position.y + press_size.height;
+    let x = if edges.west {
+        pointer.x - (press_pointer.x - press_position.x)
+    } else {
+        press_position.x
+    };
+    let width = if edges.west {
+        east_anchor - x
+    } else if edges.east {
+        pointer.x + (east_anchor - press_pointer.x) - press_position.x
+    } else {
+        press_size.width
+    };
+    let y = if edges.north {
+        pointer.y - (press_pointer.y - press_position.y)
+    } else {
+        press_position.y
+    };
+    let height = if edges.north {
+        south_anchor - y
+    } else if edges.south {
+        pointer.y + (south_anchor - press_pointer.y) - press_position.y
+    } else {
+        press_size.height
+    };
+    let size = clamped_user_size(screen.width, screen.height, LogicalSize::new(width, height));
+    let x = if edges.west {
+        east_anchor - size.width
+    } else {
+        press_position.x
+    };
+    let y = if edges.north {
+        south_anchor - size.height
+    } else {
+        press_position.y
+    };
+    (size, LogicalPosition::new(x, y))
 }
 
 fn centered_on_monitor(
@@ -83,6 +135,13 @@ pub struct WindowManager {
     overlay_size: LogicalSize<f64>,
     placement: Placement,
     settings: Arc<Window>,
+    user_resize: Option<UserResizeAnchor>,
+}
+
+struct UserResizeAnchor {
+    press_position: LogicalPosition<f64>,
+    press_size: LogicalSize<f64>,
+    press_pointer: LogicalPosition<f64>,
 }
 
 impl WindowManager {
@@ -119,6 +178,7 @@ impl WindowManager {
             overlay_size: LogicalSize::new(window::OVERLAY_WIDTH, window::OVERLAY_HEIGHT),
             placement: Placement::Centered,
             settings: Arc::new(settings),
+            user_resize: None,
         })
     }
 
@@ -162,31 +222,79 @@ impl WindowManager {
         }
     }
 
-    pub fn resize_overlay_by_user(&mut self, size: LogicalSize<f64>) {
-        let Some(monitor) = self.overlay.current_monitor() else {
+    pub fn begin_user_resize(
+        &mut self,
+        edges: ResizeEdges,
+        window: (f32, f32),
+        pointer: (f32, f32),
+    ) {
+        let Ok(position) = self.overlay.outer_position() else {
+            warn!(
+                thread = thread::UI,
+                "overlay position unavailable, user resize session skipped"
+            );
             return;
         };
-        let scale = monitor.scale_factor();
+        let scale = self.overlay.scale_factor();
+        let press_position = position.to_logical::<f64>(scale);
+        self.user_resize = Some(UserResizeAnchor {
+            press_position,
+            press_size: LogicalSize::new(f64::from(window.0), f64::from(window.1)),
+            press_pointer: LogicalPosition::new(
+                press_position.x + f64::from(pointer.0),
+                press_position.y + f64::from(pointer.1),
+            ),
+        });
+        self.apply_user_resize(edges, pointer);
+    }
+
+    pub fn apply_user_resize(&mut self, edges: ResizeEdges, pointer: (f32, f32)) {
+        let Some(anchor) = self.user_resize.as_ref() else {
+            return;
+        };
+        let Some(monitor) = self.overlay.current_monitor() else {
+            warn!(
+                thread = thread::UI,
+                "overlay monitor unavailable, user resize frame skipped"
+            );
+            return;
+        };
+        let Ok(physical) = self.overlay.outer_position() else {
+            warn!(
+                thread = thread::UI,
+                "overlay position unavailable, user resize frame skipped"
+            );
+            return;
+        };
+        let scale = self.overlay.scale_factor();
+        let origin = physical.to_logical::<f64>(scale);
+        let pointer = LogicalPosition::new(
+            origin.x + f64::from(pointer.0),
+            origin.y + f64::from(pointer.1),
+        );
         let screen = monitor.size().to_logical::<f64>(scale);
-        let target = clamped_user_size(screen.width, screen.height, size);
+        let (target, position) = anchored_user_resize(edges, anchor, pointer, screen);
         if (target.width - self.overlay_size.width).abs() < RESIZE_EPSILON
             && (target.height - self.overlay_size.height).abs() < RESIZE_EPSILON
         {
             return;
         }
         if let Some(applied) = self.overlay.request_inner_size(target) {
-            let scale = self.overlay.scale_factor();
-            self.overlay_size = applied.to_logical::<f64>(scale);
+            self.overlay_size = applied.to_logical::<f64>(self.overlay.scale_factor());
         } else {
             self.overlay_size = target;
         }
-        if let Ok(physical) = self.overlay.outer_position() {
-            let scale = self.overlay.scale_factor();
-            let current = physical.to_logical::<f64>(scale);
-            let clamped = self.clamp_position(current);
-            self.overlay.set_outer_position(clamped);
-            self.placement = Placement::At(clamped);
-        }
+        let clamped = self.clamp_position(position);
+        self.overlay.set_outer_position(clamped);
+        self.placement = Placement::At(clamped);
+    }
+
+    pub fn settle_user_resize(&mut self) {
+        self.user_resize = None;
+    }
+
+    pub fn reset_user_resize(&mut self) {
+        self.user_resize = None;
     }
 
     pub fn apply_overlay_drag(&mut self, offset: (f64, f64)) {
@@ -270,13 +378,14 @@ impl WindowManager {
         LogicalSize::new(size.width, capped_height(screen_height, size.height))
     }
 
-    pub fn show_at(&self, position: LogicalPosition<f64>) {
+    pub fn show_at(&mut self, position: LogicalPosition<f64>) {
         self.overlay.set_outer_position(position);
         self.overlay.set_visible(true);
     }
 
-    pub fn hide(&self) {
+    pub fn hide(&mut self) {
         self.overlay.set_visible(false);
+        self.reset_user_resize();
     }
 
     pub fn is_visible(&self) -> bool {
@@ -389,6 +498,147 @@ mod tests {
             LogicalPosition::new(1440.0, 0.0),
             "显示器比浮层还小时贴原点（max 取 0）"
         );
+    }
+}
+
+#[cfg(test)]
+mod anchored_resize_tests {
+    use super::anchored_user_resize;
+    use crate::ui::popup::ResizeEdges;
+    use winit::dpi::{LogicalPosition, LogicalSize};
+
+    const SCREEN: LogicalSize<f64> = LogicalSize::new(1920.0, 1080.0);
+    const PRESS_POS: LogicalPosition<f64> = LogicalPosition::new(600.0, 400.0);
+    const PRESS_SIZE: LogicalSize<f64> = LogicalSize::new(480.0, 260.0);
+    const EAST: f64 = 600.0 + 480.0;
+    const SOUTH: f64 = 400.0 + 260.0;
+
+    fn edges(north: bool, south: bool, east: bool, west: bool) -> ResizeEdges {
+        ResizeEdges {
+            north,
+            south,
+            east,
+            west,
+        }
+    }
+
+    fn anchor_at(offset: (f64, f64)) -> super::UserResizeAnchor {
+        super::UserResizeAnchor {
+            press_position: PRESS_POS,
+            press_size: PRESS_SIZE,
+            press_pointer: LogicalPosition::new(600.0 + offset.0, 400.0 + offset.1),
+        }
+    }
+
+    fn pointer_from_press(offset: (f64, f64), delta: (f64, f64)) -> LogicalPosition<f64> {
+        LogicalPosition::new(600.0 + offset.0 + delta.0, 400.0 + offset.1 + delta.1)
+    }
+
+    #[test]
+    fn west_edge_pulls_the_left_edge_and_pins_the_east_edge() {
+        let pointer = pointer_from_press((3.0, 150.0), (-60.0, 0.0));
+        let (size, position) = anchored_user_resize(
+            edges(false, false, false, true),
+            &anchor_at((3.0, 150.0)),
+            pointer,
+            SCREEN,
+        );
+        assert_eq!(size, LogicalSize::new(540.0, 260.0));
+        assert_eq!(position, LogicalPosition::new(EAST - 540.0, 400.0));
+    }
+
+    #[test]
+    fn north_edge_anchors_the_south_edge() {
+        let pointer = pointer_from_press((240.0, 4.0), (0.0, -40.0));
+        let (size, position) = anchored_user_resize(
+            edges(true, false, false, false),
+            &anchor_at((240.0, 4.0)),
+            pointer,
+            SCREEN,
+        );
+        assert_eq!(size, LogicalSize::new(480.0, 300.0));
+        assert_eq!(position, LogicalPosition::new(600.0, SOUTH - 300.0));
+    }
+
+    #[test]
+    fn east_edge_keeps_the_window_origin() {
+        let pointer = pointer_from_press((476.0, 150.0), (80.0, 0.0));
+        let (size, position) = anchored_user_resize(
+            edges(false, false, true, false),
+            &anchor_at((476.0, 150.0)),
+            pointer,
+            SCREEN,
+        );
+        assert_eq!(size, LogicalSize::new(560.0, 260.0));
+        assert_eq!(position, PRESS_POS, "东缘拖动窗口原点不动");
+    }
+
+    #[test]
+    fn north_west_corner_combines_both_anchors() {
+        let pointer = pointer_from_press((10.0, 12.0), (-50.0, -30.0));
+        let (size, position) = anchored_user_resize(
+            edges(true, false, false, true),
+            &anchor_at((10.0, 12.0)),
+            pointer,
+            SCREEN,
+        );
+        assert_eq!(size, LogicalSize::new(530.0, 290.0));
+        assert_eq!(position, LogicalPosition::new(EAST - 530.0, SOUTH - 290.0));
+    }
+
+    #[test]
+    fn north_east_corner_combines_both_anchors() {
+        let pointer = pointer_from_press((470.0, 6.0), (40.0, -20.0));
+        let (size, position) = anchored_user_resize(
+            edges(true, false, true, false),
+            &anchor_at((470.0, 6.0)),
+            pointer,
+            SCREEN,
+        );
+        assert_eq!(size, LogicalSize::new(520.0, 280.0));
+        assert_eq!(position, LogicalPosition::new(600.0, SOUTH - 280.0));
+    }
+
+    #[test]
+    fn south_west_corner_combines_both_anchors() {
+        let pointer = pointer_from_press((8.0, 254.0), (-30.0, 36.0));
+        let (size, position) = anchored_user_resize(
+            edges(false, true, false, true),
+            &anchor_at((8.0, 254.0)),
+            pointer,
+            SCREEN,
+        );
+        assert_eq!(size, LogicalSize::new(510.0, 296.0));
+        assert_eq!(position, LogicalPosition::new(EAST - 510.0, 400.0));
+    }
+
+    #[test]
+    fn clamping_pins_the_dragged_edge_at_the_design_envelope() {
+        let pointer = pointer_from_press((3.0, 150.0), (400.0, 0.0));
+        let (size, position) = anchored_user_resize(
+            edges(false, false, false, true),
+            &anchor_at((3.0, 150.0)),
+            pointer,
+            SCREEN,
+        );
+        let min_width = crate::ui::style::geometry::window::OVERLAY_MIN_WIDTH;
+        assert_eq!(size.width, min_width);
+        assert_eq!(position, LogicalPosition::new(EAST - min_width, 400.0));
+    }
+
+    #[test]
+    fn press_frame_solves_to_the_current_window() {
+        let press = pointer_from_press((2.0, 2.0), (0.0, 0.0));
+        for grabbed in [
+            edges(false, true, true, false),
+            edges(true, false, false, true),
+            edges(false, false, false, true),
+        ] {
+            let (size, position) =
+                anchored_user_resize(grabbed, &anchor_at((2.0, 2.0)), press, SCREEN);
+            assert_eq!(size, PRESS_SIZE, "按下帧指针未动，尺寸不跳变");
+            assert_eq!(position, PRESS_POS, "按下帧位置不跳变");
+        }
     }
 }
 
