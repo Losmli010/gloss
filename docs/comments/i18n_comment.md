@@ -166,3 +166,4 @@
 
 - 2026-10-28 新增 `gloss_popup_resize_label`（弹窗缩放热区的无障碍标签，中英各一条），词条数钉子 88→89：钉子锁的是遍历器不提前收工，加词条即抬钉。
 - 2026-10-28 合入 main：设置页词条 `gloss_settings_base_url`、`gloss_settings_api_key` 与上述词条并存，条目总数钉值落 92（`both_locale_files_declare_the_same_keys`）。
+- 2026-10-28 语言降级提示改页脚徽章：`gloss_popup_output_unverified` 文案改徽章悬停提示（zh「此篇未及校正，或有错杂，谨供参考。」/ en "Not fully proofread; may contain mixed languages or punctuation. For reference only."），新增 `gloss_popup_output_unverified_label`（徽章无障碍标签：zh「结果仅供参考」/ en "For reference only"），条目总数钉值 92 → 93。

@@ -1138,11 +1138,11 @@ mod kittest_tests {
     }
 
     #[test]
-    fn lang_degraded_outcome_card_keeps_content_with_the_generalized_notice() {
+    fn lang_degraded_outcome_card_keeps_content_with_the_footer_badge() {
         let (mut harness, _clicked) =
             harness_for_locale(lang_degraded_outcome_view_en(), Locale::En);
         harness.run();
-        harness.get_by_label_contains("Result not fully verified");
+        harness.get_by_label("For reference only");
         harness.get_by_label_contains("prints a greeting");
         harness.get_by_label("Copy annotation");
         assert!(

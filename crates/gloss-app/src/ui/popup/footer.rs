@@ -1,5 +1,5 @@
 //! 页脚带：一条常驻窄带，左端随视图变体变化（流式生成指示、待确认按钮、
-//! 完成卡复制钮），右端恒为本品牌（Gloss）水印。
+//! 完成卡校对徽章与复制钮），右端恒为本品牌（Gloss）水印。
 //!
 //! 待确认卡的确认与取消、完成卡的复制是页脚仅有的两处交互出口，动作在
 //! 绘制帧折成动作上交视图分发；复制钮点击后短暂显示已复制反馈（驻留时长
@@ -20,7 +20,7 @@ pub(super) enum FooterMode {
     Static,
     Streaming { repairing: bool },
     Pending,
-    Done,
+    Done { unverified: bool },
 }
 
 pub(super) fn footer(
@@ -48,7 +48,7 @@ pub(super) fn footer(
             None
         }
         FooterMode::Pending => footer_confirm(ui, &rect, text),
-        FooterMode::Done => footer_copy(ui, state, &rect, text),
+        FooterMode::Done { unverified } => footer_copy(ui, state, &rect, unverified, text),
     };
     footer_watermark(ui, &rect);
     action
@@ -98,6 +98,7 @@ fn footer_copy(
     ui: &mut egui::Ui,
     state: &RenderState,
     rect: &egui::Rect,
+    unverified: bool,
     text: &'static Text,
 ) -> Option<OverlayAction> {
     let now = ui.input(|i| i.time);
@@ -112,6 +113,10 @@ fn footer_copy(
             .id_salt("footer_copy"),
     );
     left.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        if unverified {
+            footer_unverified(ui, text);
+            ui.add_space(space::TIGHT);
+        }
         let side = geometry::overlay::FOOTER_HEIGHT - 2.0 * space::INLINE;
         let (button, response) = ui.allocate_exact_size(vec2(side, side), egui::Sense::click());
         let response = pointing_hand(response);
@@ -137,16 +142,56 @@ fn footer_copy(
             action = Some(OverlayAction::CopyAnnotation);
         }
         if copied {
-            ui.add_space(space::TIGHT);
-            ui.label(
-                RichText::new(text.gloss_popup_copied.as_str())
-                    .size(size::TAG)
-                    .color(palette(ui).seal),
-            );
-            ui.ctx().request_repaint_after(motion::FRAME_BEAT);
+            footer_copied_feedback(ui, text);
         }
     });
     action
+}
+
+fn footer_copied_feedback(ui: &mut egui::Ui, text: &'static Text) {
+    ui.add_space(space::TIGHT);
+    ui.label(
+        RichText::new(text.gloss_popup_copied.as_str())
+            .size(size::TAG)
+            .color(palette(ui).seal),
+    );
+    ui.ctx().request_repaint_after(motion::FRAME_BEAT);
+}
+
+fn footer_unverified(ui: &mut egui::Ui, text: &'static Text) {
+    let side = geometry::overlay::FOOTER_HEIGHT - 2.0 * space::INLINE;
+    let (rect, response) = ui.allocate_exact_size(vec2(side, side), egui::Sense::hover());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Other,
+            true,
+            text.gloss_popup_output_unverified_label.as_str(),
+        )
+    });
+    let _ = response.on_hover_text(text.gloss_popup_output_unverified.as_str());
+    paint_alert_icon(ui, rect, palette(ui).warn);
+}
+
+fn paint_alert_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
+    let stroke = Stroke::new(stroke::LINE, color);
+    let arm = geometry::action::ICON_ARM;
+    let c = rect.center();
+    let apex = c + egui::vec2(0.0, -arm);
+    let bottom_right = c + egui::vec2(arm * 1.1, arm * 0.8);
+    let bottom_left = c + egui::vec2(-arm * 1.1, arm * 0.8);
+    ui.painter().add(egui::Shape::line(
+        vec![apex, bottom_right, bottom_left, apex],
+        stroke,
+    ));
+    ui.painter().line_segment(
+        [
+            c + egui::vec2(0.0, -arm * 0.45),
+            c + egui::vec2(0.0, arm * 0.15),
+        ],
+        Stroke::new(stroke::THICK, color),
+    );
+    ui.painter()
+        .circle_filled(c + egui::vec2(0.0, arm * 0.55), stroke::THICK * 0.5, color);
 }
 
 fn paint_copy_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {

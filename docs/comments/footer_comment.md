@@ -14,8 +14,9 @@
 
 - 页脚形态：`Static`（自检/降级/失败卡等静态带）、`Streaming { repairing }`
   （生成指示 + 呼吸点，`repairing` 区分「正在注疏/重新注疏」）、`Pending`
-  （确认/取消按钮组）、`Done`（复制钮）。形态枚举由视图层（views.rs）按
-  卡片变体选定，页脚内部不再读视图——选词与选形态两件事分属两层。
+  （确认/取消按钮组）、`Done { unverified }`（复制钮，语言降级加校对徽章）。
+  形态枚举由视图层（views.rs）按卡片变体选定，页脚内部不再读视图——选词
+  与选形态两件事分属两层。
 - 为什么是枚举而不是 `Option<Action>` 式回调：页脚的交互出口只有两处且
   各自的绘制形态完全不同（按钮组 vs 图标钮），枚举让 `match` 穷尽每一
   形态的绘制分支，新增形态时编译器强制补齐。
@@ -69,6 +70,20 @@
   命中区取带高扣 `INLINE` 边距（22 像素方）：图标本体 16 像素上下，细带
   里给点击与悬停留足余量；命中区与按钮组同规，相对页脚带整体下移一档
   `space::TIGHT`，两处交互出口相对分割线的空隙一致。
+
+## `footer_unverified` / `paint_alert_icon`（完成态卡校对徽章，2026-10-28）
+
+- 语言降级（`degraded` 且内容完整）时页脚左端出琥珀三角徽章，标记由
+  `FooterMode::Done { unverified }` 承载、视图层传 `outcome.degraded`：
+  提示落在状态带而不在正文——修复轮的进行时叙事（「重新注疏」）本就住
+  页脚，修复失败的结局落回同一处；正文首行让给内容。
+- 徽章是纯信息件：`Sense::hover` 不可点击，悬停出提示词条
+  （`gloss_popup_output_unverified`，随语言整句交付）；无障碍标签取
+  短词条（`gloss_popup_output_unverified_label`）。不挂重试：与失败卡
+  不同，重试会丢掉已有的可用内容，重新划词就是天然出口。
+- 图标矢量现画（三角轮廓加感叹，闭合折线带圆角连接），与复制方块同一
+  `ICON_ARM` 臂长档、`stroke::LINE` 细线档；琥珀色走新语义档
+  `Palette.warn`（明暗两份数据，语义色只在调色板定稿）。
 
 ## `footer_status` / `footer_dots` / `footer_watermark`（自 card.rs 迁入）
 
