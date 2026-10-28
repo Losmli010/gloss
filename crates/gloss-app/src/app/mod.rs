@@ -108,7 +108,8 @@ impl GlossApp {
         let Some(proxy) = self.proxy.clone() else {
             warn!(
                 thread = thread::UI,
-                "no user event proxy, app menu settings entry unavailable"
+                "no user event proxy, app menu not installed; \
+                 the process runs without a menu bar"
             );
             return;
         };
@@ -129,7 +130,8 @@ impl GlossApp {
         } else {
             warn!(
                 thread = thread::UI,
-                "app menu not installed, keeping the platform default"
+                "app menu not installed and the default menu is disabled; \
+                 the process runs without a menu bar"
             );
         }
     }

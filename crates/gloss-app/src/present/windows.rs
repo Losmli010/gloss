@@ -229,6 +229,10 @@ impl WindowManager {
         pointer: (f32, f32),
     ) {
         let Ok(position) = self.overlay.outer_position() else {
+            warn!(
+                thread = thread::UI,
+                "overlay position unavailable, user resize session skipped"
+            );
             return;
         };
         let scale = self.overlay.scale_factor();
@@ -249,9 +253,17 @@ impl WindowManager {
             return;
         };
         let Some(monitor) = self.overlay.current_monitor() else {
+            warn!(
+                thread = thread::UI,
+                "overlay monitor unavailable, user resize frame skipped"
+            );
             return;
         };
         let Ok(physical) = self.overlay.outer_position() else {
+            warn!(
+                thread = thread::UI,
+                "overlay position unavailable, user resize frame skipped"
+            );
             return;
         };
         let scale = self.overlay.scale_factor();
@@ -277,7 +289,9 @@ impl WindowManager {
         self.placement = Placement::At(clamped);
     }
 
-    pub fn settle_user_resize(&mut self) {}
+    pub fn settle_user_resize(&mut self) {
+        self.user_resize = None;
+    }
 
     pub fn reset_user_resize(&mut self) {
         self.user_resize = None;
@@ -570,6 +584,32 @@ mod anchored_resize_tests {
         );
         assert_eq!(size, LogicalSize::new(530.0, 290.0));
         assert_eq!(position, LogicalPosition::new(EAST - 530.0, SOUTH - 290.0));
+    }
+
+    #[test]
+    fn north_east_corner_combines_both_anchors() {
+        let pointer = pointer_from_press((470.0, 6.0), (40.0, -20.0));
+        let (size, position) = anchored_user_resize(
+            edges(true, false, true, false),
+            &anchor_at((470.0, 6.0)),
+            pointer,
+            SCREEN,
+        );
+        assert_eq!(size, LogicalSize::new(520.0, 280.0));
+        assert_eq!(position, LogicalPosition::new(600.0, SOUTH - 280.0));
+    }
+
+    #[test]
+    fn south_west_corner_combines_both_anchors() {
+        let pointer = pointer_from_press((8.0, 254.0), (-30.0, 36.0));
+        let (size, position) = anchored_user_resize(
+            edges(false, true, false, true),
+            &anchor_at((8.0, 254.0)),
+            pointer,
+            SCREEN,
+        );
+        assert_eq!(size, LogicalSize::new(510.0, 296.0));
+        assert_eq!(position, LogicalPosition::new(EAST - 510.0, 400.0));
     }
 
     #[test]

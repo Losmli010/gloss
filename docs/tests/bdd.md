@@ -784,6 +784,8 @@
 | north_edge_anchors_the_south_edge | 北缘拖拽锚定南缘 | 给定北缘内 4 点按压，当指针上移 40，则高加 40、窗口原点上移同量、南锚不动 | 2026-10-29 |
 | east_edge_keeps_the_window_origin | 东缘拖拽窗口原点不动 | 给定东缘按压，当指针右移 80，则宽加 80、位置与按下帧相同 | 2026-10-29 |
 | north_west_corner_combines_both_anchors | 西北角双锚合解 | 给定西北角按压，当指针左移 50、上移 30，则宽高各加同量、原点按两向反推、东南锚不动 | 2026-10-29 |
+| north_east_corner_combines_both_anchors | 东北角双锚合解 | 给定东北角按压，当指针右移 40、上移 20，则宽加 40 高加 20、原点按北向反推、西南锚不动 | 2026-10-29 |
+| south_west_corner_combines_both_anchors | 西南角双锚合解 | 给定西南角按压，当指针左移 30、下移 36，则宽加 30 高加 36、原点按西向反推、东北锚不动 | 2026-10-29 |
 | clamping_pins_the_dragged_edge_at_the_design_envelope | 钳制钉住被拖边 | 给定西缘按压，当指针右移远超最小宽，则宽钳到 `OVERLAY_MIN_WIDTH`、原点钉在东锚减最小宽（钳制不拽离对侧边） | 2026-10-29 |
 | press_frame_solves_to_the_current_window | 按下帧求解不跳变 | 给定三组边界组合，当指针未动求解，则尺寸与位置恒等于按下窗口（抓取偏移吸收按压点与边的偏差） | 2026-10-29 |
 
