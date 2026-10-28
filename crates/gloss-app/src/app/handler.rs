@@ -28,6 +28,7 @@ impl GlossApp {
                 );
             }
         })?;
+        self.install_app_menu();
         self.draw();
         Ok(())
     }
@@ -86,6 +87,10 @@ impl ApplicationHandler<UserEvent> for GlossApp {
             {
                 windows.request_redraw_settings();
             }
+            return;
+        }
+        if matches!(event, UserEvent::OpenSettings) {
+            self.open_settings();
             return;
         }
         self.drain_platform_events();

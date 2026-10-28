@@ -8,6 +8,7 @@ use gloss_core::config_handle::ConfigHandle;
 use gloss_core::model::Locale;
 use gloss_core::ports::{ConfigStore, SceneProbe};
 use winit::event_loop::{EventLoop, EventLoopProxy};
+use winit::platform::macos::EventLoopBuilderExtMacOS;
 
 use crate::channel::AppEndpoints;
 use crate::update::UpdateWiring;
@@ -19,6 +20,7 @@ pub enum UserEvent {
     Wake,
     RedrawSettings,
     FontsReady,
+    OpenSettings,
 }
 
 #[derive(Clone, Debug)]
@@ -49,7 +51,9 @@ pub fn run(
     clipboard_watch_enabled: Arc<AtomicBool>,
     on_waker: impl FnOnce(Waker) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
-    let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
+    let event_loop = EventLoop::<UserEvent>::with_user_event()
+        .with_default_menu(false)
+        .build()?;
     let waker = Waker(event_loop.create_proxy());
     on_waker(waker)?;
     let proxy = event_loop.create_proxy();

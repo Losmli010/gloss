@@ -18,7 +18,7 @@ use std::sync::atomic::AtomicBool;
 
 use gloss_core::config::Theme;
 use gloss_core::config_handle::ConfigHandle;
-use gloss_core::log::{Span, error, thread};
+use gloss_core::log::{Span, debug, error, info, thread, warn};
 use gloss_core::model::Locale;
 use gloss_core::ports::{ConfigStore, SceneProbe};
 use winit::dpi::LogicalSize;
@@ -30,6 +30,7 @@ use crate::machine::{AppState, TaskStateMachine};
 use crate::present::render::{render_frame, render_frame_with};
 use crate::present::workspace::Workspace;
 use crate::ui::i18n::Text;
+use crate::ui::popup::OverlayResize;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
 use crate::ui::style::geometry::window::OVERLAY_WIDTH;
 use crate::update::UpdateWiring;
@@ -103,6 +104,36 @@ impl GlossApp {
         self.session.span_for(generation)
     }
 
+    fn install_app_menu(&mut self) {
+        let Some(proxy) = self.proxy.clone() else {
+            warn!(
+                thread = thread::UI,
+                "no user event proxy, app menu settings entry unavailable"
+            );
+            return;
+        };
+        let installed = gloss_platform::menu::install(self.env.system_locale, move || {
+            if proxy.send_event(UserEvent::OpenSettings).is_err() {
+                debug!(
+                    thread = thread::UI,
+                    "event loop gone, menu settings click dropped"
+                );
+            }
+        });
+        if installed {
+            info!(
+                thread = thread::UI,
+                locale = ?self.env.system_locale,
+                "app menu installed with a localized settings entry"
+            );
+        } else {
+            warn!(
+                thread = thread::UI,
+                "app menu not installed, keeping the platform default"
+            );
+        }
+    }
+
     fn draw(&mut self) {
         self.workspace.apply_theme(self.env.target_theme());
         let locale = self.env.locale();
@@ -121,18 +152,37 @@ impl GlossApp {
         {
             windows.apply_overlay_drag((f64::from(offset.x), f64::from(offset.y)));
         }
-        if let Some(size) = output.resize
-            && let Some(windows) = &mut self.workspace.windows
-        {
-            windows.resize_overlay_by_user(LogicalSize::new(f64::from(size.x), f64::from(size.y)));
-        } else if let Some(sizing) = output.sizing
-            && let Some(windows) = &mut self.workspace.windows
-        {
-            let streaming = self.machine.state() == AppState::Translating;
-            windows.set_overlay_size(
-                LogicalSize::new(OVERLAY_WIDTH, f64::from(sizing.height)),
-                streaming,
-            );
+        match output.resize {
+            Some(OverlayResize::Press {
+                edges,
+                window,
+                pointer,
+            }) => {
+                if let Some(windows) = &mut self.workspace.windows {
+                    windows.begin_user_resize(edges, (window.x, window.y), (pointer.x, pointer.y));
+                }
+            }
+            Some(OverlayResize::Drag { edges, pointer }) => {
+                if let Some(windows) = &mut self.workspace.windows {
+                    windows.apply_user_resize(edges, (pointer.x, pointer.y));
+                }
+            }
+            Some(OverlayResize::Settle) => {
+                if let Some(windows) = &mut self.workspace.windows {
+                    windows.settle_user_resize();
+                }
+            }
+            None => {
+                if let Some(sizing) = output.sizing
+                    && let Some(windows) = &mut self.workspace.windows
+                {
+                    let streaming = self.machine.state() == AppState::Translating;
+                    windows.set_overlay_size(
+                        LogicalSize::new(OVERLAY_WIDTH, f64::from(sizing.height)),
+                        streaming,
+                    );
+                }
+            }
         }
     }
 

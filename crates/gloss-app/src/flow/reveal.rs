@@ -12,14 +12,13 @@ use crate::present::windows::{Placement, WindowManager};
 
 impl GlossApp {
     pub(crate) fn show_overlay(&mut self, position: LogicalPosition<f64>) {
-        let Some(windows) = &self.workspace.windows else {
-            return;
-        };
         if let Some(frame) = self.workspace.overlay_frame.as_ref() {
             frame.reset_appear_animation();
             frame.reset_overlay_drag();
         }
-        windows.show_at(position);
+        if let Some(windows) = &mut self.workspace.windows {
+            windows.show_at(position);
+        }
     }
 
     pub(crate) fn dismiss_overlay(&mut self, reason: &'static str) {
@@ -33,7 +32,7 @@ impl GlossApp {
         if let Some(frame) = self.workspace.overlay_frame.as_ref() {
             frame.reset_overlay_drag();
         }
-        if let Some(windows) = &self.workspace.windows {
+        if let Some(windows) = &mut self.workspace.windows {
             windows.hide();
         }
         self.machine.hide_overlay();

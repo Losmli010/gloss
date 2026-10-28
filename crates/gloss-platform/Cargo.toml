@@ -41,7 +41,10 @@ objc2-app-kit = {
   default-features = false,
   features = [
     "NSApplication",
+    "NSEvent",
     "NSImage",
+    "NSMenu",
+    "NSMenuItem",
     "NSPasteboard",
     "NSResponder",
     "NSRunningApplication",
