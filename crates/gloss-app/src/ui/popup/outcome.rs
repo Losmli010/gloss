@@ -306,7 +306,7 @@ pub(super) fn selfcheck_body(ui: &mut egui::Ui) {
     let strong = ui.visuals().strong_text_color();
     let weak = ui.visuals().weak_text_color();
     ui.label(
-        RichText::new("The quick brown fox jumps over the lazy dog.")
+        RichText::new("The quick brown fox jumps over the lazy dog.") // i18n:allow 自检样张，字体链路夹具
             .size(size::NOTICE)
             .color(weak),
     );

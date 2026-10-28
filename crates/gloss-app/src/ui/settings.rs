@@ -614,7 +614,7 @@ mod tests {
     fn all_sections_render_and_save_submits_the_draft() {
         let (mut harness, action) = harness_for(open(&Config::default()), Locale::Zh);
         harness.run();
-        for label in ["模型", "Base URL", "API Key", "目标语言", "通用", "保存"] {
+        for label in ["模型", "服务地址", "密钥", "目标语言", "通用", "保存"] {
             harness.get_by_label(label);
         }
         harness.get_by_label("保存").click();

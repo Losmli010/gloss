@@ -64,6 +64,7 @@ REGISTERED_RULES = frozenset(
         "I18N-LITERAL",
         "I18N-LOADPOINT",
         "I18N-CATALOG",
+        "I18N-LANGUAGE",
         "COMMIT-EMPTY",
         "COMMIT-FORMAT",
         "COMMIT-SUBJECT",

@@ -14,6 +14,7 @@ use egui::{RichText, Stroke, vec2};
 
 use super::{OverlayAction, RenderState};
 use crate::ui::i18n::Text;
+use crate::ui::pointing_hand;
 use crate::ui::style::{alpha, geometry, palette, radius, serif, size, space, stroke, with_alpha};
 
 pub(super) fn hairline(ui: &egui::Ui) -> Stroke {
@@ -44,11 +45,11 @@ pub(super) fn header(
             ui.visuals_mut().widgets.inactive.fg_stroke.color = weak;
             ui.visuals_mut().widgets.hovered.fg_stroke.color = strong;
             ui.visuals_mut().widgets.active.fg_stroke.color = strong;
-            let close = close_button(ui, text);
+            let close = pointing_hand(close_button(ui, text));
             if close.clicked() {
                 action = Some(OverlayAction::Dismiss);
             }
-            let gear = ui.add(icon_button("⚙")); // i18n:allow 图标字形，非 locale 文案
+            let gear = pointing_hand(ui.add(icon_button("⚙"))); // i18n:allow 图标字形，非 locale 文案
             gear_left = gear.rect.left();
             gear.widget_info(|| {
                 egui::WidgetInfo::labeled(

@@ -8,6 +8,7 @@ use egui::{RichText, Stroke};
 
 use super::{FieldError, FieldKey, SettingsAction, SettingsState, build_save};
 use crate::ui::i18n::{Text, fill};
+use crate::ui::pointing_hand;
 use crate::ui::style::{geometry, palette, radius, size, space, stroke};
 
 fn accent(ui: &egui::Ui) -> egui::Color32 {
@@ -24,17 +25,20 @@ pub(super) fn action_row(
         egui::vec2(ui.available_width(), geometry::action::ROW_HEIGHT),
         egui::Layout::right_to_left(egui::Align::Center),
         |ui| {
-            let save = ui.add(
-                egui::Button::new(
-                    RichText::new(text.gloss_settings_save.as_str()).color(palette(ui).on_accent),
-                )
-                .fill(accent(ui))
-                .corner_radius(geometry::action::BUTTON_RADIUS),
+            let save = pointing_hand(
+                ui.add(
+                    egui::Button::new(
+                        RichText::new(text.gloss_settings_save.as_str())
+                            .color(palette(ui).on_accent),
+                    )
+                    .fill(accent(ui))
+                    .corner_radius(geometry::action::BUTTON_RADIUS),
+                ),
             );
             if save.clicked() {
                 *action = build_save(state);
             }
-            if ui.button(text.gloss_settings_cancel.as_str()).clicked() {
+            if pointing_hand(ui.button(text.gloss_settings_cancel.as_str())).clicked() {
                 *action = SettingsAction::Close;
             }
         },

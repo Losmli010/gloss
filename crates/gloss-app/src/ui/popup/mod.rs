@@ -40,6 +40,9 @@
 //! 页头不带任何标签药丸；行下发丝线与页脚上缘线呼应成卡片的上下界。
 //! 页头行同时是拖动热区：按住拖动即移动浮层（壳侧逐帧平移窗口），热区
 //! 与动作钮零重叠，按钮点击不受影响。
+//! 卡片下缘、右缘与右下角是缩放热区（斜纹握把示意）：按住拖动即向壳侧
+//! 逐帧上交期望宽高，壳侧钳制落窗；拖过一次即本段会话接管浮层宽高——
+//! 内容高度自适应退位，显隐重置后回到默认尺寸。
 //! 页脚常驻
 //! 一条窄带（带高取页脚高度常量）：推理中左端是“正在注疏”与呼吸点（生成指示唯一落点），
 //! 待确认卡左端是确认主按钮与取消次按钮（发送前把关的唯一出口），
@@ -85,6 +88,8 @@ struct RenderCtx<'a> {
 pub struct RenderState {
     pub cache: RefCell<CommonMarkCache>,
     drag_press_phys: Cell<Option<egui::Pos2>>,
+    resize_press: Cell<Option<(egui::Pos2, egui::Vec2)>>,
+    user_size: Cell<Option<egui::Vec2>>,
     icon: RefCell<Option<(u32, Option<egui::TextureHandle>)>>,
     attached: RefCell<Option<AttachedTexture>>,
     copied_at: Cell<Option<f64>>,
@@ -101,6 +106,8 @@ impl Default for RenderState {
         Self {
             cache: RefCell::new(CommonMarkCache::default()),
             drag_press_phys: Cell::new(None),
+            resize_press: Cell::new(None),
+            user_size: Cell::new(None),
             icon: RefCell::new(None),
             attached: RefCell::new(None),
             copied_at: Cell::new(None),
@@ -112,6 +119,8 @@ impl Default for RenderState {
 impl RenderState {
     pub(crate) fn reset_drag_state(&self) {
         self.drag_press_phys.set(None);
+        self.resize_press.set(None);
+        self.user_size.set(None);
     }
 
     fn icon_texture(&self, ctx: &egui::Context) -> Option<egui::TextureHandle> {
@@ -161,6 +170,7 @@ pub struct PopupOutput {
     pub action: Option<OverlayAction>,
     pub sizing: OverlaySizing,
     pub drag: Option<egui::Vec2>,
+    pub resize: Option<egui::Vec2>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -242,6 +252,7 @@ pub fn draw(
         action: None,
         sizing: OverlaySizing { height: 0.0 },
         drag: None,
+        resize: None,
     };
     let mut content_h = 0.0;
     Frame::new()
@@ -264,7 +275,104 @@ pub fn draw(
     output.sizing = OverlaySizing {
         height: (content_h + 2.0 * space::CARD_PADDING + stroke::HAIRLINE).round(),
     };
+    output.resize = resize_handle(ui, state, text);
     output
+}
+
+type ResizeZone = (&'static str, egui::Rect, egui::CursorIcon);
+
+fn resize_zones(card: egui::Rect) -> [ResizeZone; 3] {
+    let hot = geometry::resize::HOTSPOT;
+    let corner = geometry::resize::CORNER;
+    [
+        (
+            "overlay_resize_south",
+            egui::Rect::from_min_max(
+                egui::pos2(card.left() + corner, card.bottom() - hot),
+                egui::pos2(card.right(), card.bottom()),
+            ),
+            egui::CursorIcon::ResizeSouth,
+        ),
+        (
+            "overlay_resize_east",
+            egui::Rect::from_min_max(
+                egui::pos2(card.right() - hot, card.top() + corner),
+                egui::pos2(card.right(), card.bottom() - corner),
+            ),
+            egui::CursorIcon::ResizeEast,
+        ),
+        (
+            "overlay_resize_corner",
+            egui::Rect::from_min_max(
+                egui::pos2(card.right() - corner, card.bottom() - corner),
+                egui::pos2(card.right(), card.bottom()),
+            ),
+            egui::CursorIcon::ResizeSouthEast,
+        ),
+    ]
+}
+
+fn resize_handle(
+    ui: &mut egui::Ui,
+    state: &RenderState,
+    text: &'static Text,
+) -> Option<egui::Vec2> {
+    let card = ui.min_rect();
+    paint_resize_grip(ui, card);
+    let (pointer, pixels_per_point, window) = ui.input(|i| {
+        (
+            i.pointer.interact_pos(),
+            i.pixels_per_point,
+            i.viewport_rect().size(),
+        )
+    });
+    let mut dragging = false;
+    for (id, rect, icon) in resize_zones(card) {
+        let response = ui.interact(rect, egui::Id::new(id), egui::Sense::drag());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Other,
+                true,
+                text.gloss_popup_resize_label.as_str(),
+            )
+        });
+        let response = response.on_hover_cursor(icon);
+        if response.drag_started() {
+            state
+                .resize_press
+                .set(pointer.map(|pos| (pos * pixels_per_point, window)));
+            state.user_size.set(Some(window));
+        }
+        if !response.dragged() {
+            continue;
+        }
+        dragging = true;
+        if let (Some(pos), Some((press, base))) = (pointer, state.resize_press.get()) {
+            let pointer_phys = pos * pixels_per_point;
+            state
+                .user_size
+                .set(Some(base + (pointer_phys - press) / pixels_per_point));
+        }
+    }
+    if !dragging {
+        state.resize_press.set(None);
+    }
+    state.user_size.get()
+}
+
+fn paint_resize_grip(ui: &egui::Ui, card: egui::Rect) {
+    let stroke = Stroke::new(stroke::LINE, ui.visuals().weak_text_color());
+    let corner = egui::pos2(card.right(), card.bottom());
+    for index in 0..geometry::resize::GRIP_COUNT {
+        let offset = geometry::resize::GRIP_INSET + index as f32 * geometry::resize::GRIP_GAP;
+        ui.painter().line_segment(
+            [
+                corner - egui::vec2(offset + geometry::resize::GRIP_LENGTH, offset),
+                corner - egui::vec2(offset, offset + geometry::resize::GRIP_LENGTH),
+            ],
+            stroke,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1071,7 +1179,7 @@ mod kittest_tests {
     fn auth_failed_view_offers_open_settings() {
         let (mut harness, clicked) = harness_for(auth_failed_view());
         harness.run();
-        harness.get_by_label_contains("API Key");
+        harness.get_by_label_contains("密钥无效");
         harness.get_by_label("打开设置").click();
         harness.run();
         assert_eq!(
@@ -1186,6 +1294,80 @@ mod kittest_tests {
             drags.borrow().len(),
             length_before_release,
             "松开后不再上交拖动状态（释放帧与后续移动帧都是 None）"
+        );
+    }
+
+    type ResizeLog = Rc<RefCell<Vec<egui::Vec2>>>;
+
+    fn resize_harness(view: OverlayView) -> (Harness<'static>, ResizeLog) {
+        let resizes: ResizeLog = Rc::new(RefCell::new(Vec::new()));
+        let sink = Rc::clone(&resizes);
+        let state = RenderState::default();
+        let text = Text::get(Locale::Zh);
+        let installed = Cell::new(false);
+        let harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            let output = draw(ui, Some(&view), None, &state, text);
+            if let Some(size) = output.resize {
+                sink.borrow_mut().push(size);
+            }
+        });
+        (harness, resizes)
+    }
+
+    #[test]
+    fn resize_zones_are_exposed_to_accesskit() {
+        let (mut harness, _resizes) = resize_harness(word_card_view());
+        harness.run();
+        let zones: Vec<_> = harness
+            .query_all_by_label_contains("调整浮层大小")
+            .collect();
+        assert_eq!(zones.len(), 3, "下缘、右缘与右下角三段热区");
+    }
+
+    #[test]
+    fn corner_drag_reports_window_size_grown_from_the_press() {
+        let (mut harness, resizes) = resize_harness(word_card_view());
+        harness.set_size(vec2(WIDTH, 400.0));
+        harness.run();
+        let corner = harness
+            .query_all_by_label_contains("调整浮层大小")
+            .map(|node| node.rect())
+            .max_by(|a, b| {
+                a.right()
+                    .total_cmp(&b.right())
+                    .then(a.bottom().total_cmp(&b.bottom()))
+            })
+            .expect("corner resize zone");
+
+        harness.drag_at(corner.center());
+        harness.run();
+        assert_eq!(
+            resizes.borrow().last(),
+            Some(&vec2(WIDTH, 400.0)),
+            "按下帧确立基点，期望尺寸从当前窗口起算"
+        );
+
+        harness.hover_at(corner.center() + vec2(60.0, 40.0));
+        harness.run();
+        harness.hover_at(corner.center() + vec2(100.0, 80.0));
+        harness.run();
+        assert_eq!(
+            resizes.borrow().last(),
+            Some(&vec2(WIDTH + 100.0, 480.0)),
+            "期望尺寸按按压点累计（而非逐帧增量）"
+        );
+
+        harness.drop_at(corner.center() + vec2(100.0, 80.0));
+        harness.run();
+        harness.hover_at(corner.center() + vec2(140.0, 100.0));
+        harness.run();
+        assert_eq!(
+            resizes.borrow().last(),
+            Some(&vec2(WIDTH + 100.0, 480.0)),
+            "松开后粘性保持：壳侧按最后一次期望尺寸接管宽高"
         );
     }
 

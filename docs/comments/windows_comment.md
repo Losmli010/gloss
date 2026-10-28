@@ -82,3 +82,10 @@
 「流式防抖」条目。dev-plan 不在仓内、README 的 M4 指另一里程碑，标记无法
 解析；行为描述（逐 chunk 增高量化成台阶避免逐增量 resize；防抖锁宽 +
 步进只增不减，完成态精确重排）保留。
+
+## 用户拖拽缩放（resize_overlay_by_user 与 clamped_user_size）
+
+- 2026-10-28 浮层新增用户拖拽缩放宽高：缩放热区在浮层界面侧逐帧上交期望尺寸（逻辑点），壳侧 `resize_overlay_by_user` 钳制后落窗。钳制是纯函数 `clamped_user_size`（单测覆盖）：宽收到 `OVERLAY_MIN_WIDTH` 与 `OVERLAY_MAX_WIDTH`（再按显示器工作区宽收窄，比最小档还窄的屏保最小档），高收到 `OVERLAY_MIN_HEIGHT` 与黄金占比减余量——高度上限与内容自适应的 `capped_height` 同源：同为 `HEIGHT_CAP_FRACTION`，矮屏同样回落默认高度（首版上限回落取了最小档，短笔记本屏上占比减余量低于默认高会让用户上限低于内容上限，按住握把不动就把已到默认高的卡片往回缩——评审抓出后改回落 `OVERLAY_HEIGHT`，与内容路径逐字同源）；最小档才取 `OVERLAY_MIN_HEIGHT`——用户主动缩放允许比默认矮，滚动区兜底。
+- 落窗后左上缘锚定：以当前外置位置重钳并切到 `Placement::At`——拖右下角时窗口贴着手势方向生长，不回中。位置不变且目标尺寸与当前差在 `RESIZE_EPSILON` 内的帧早退，不做无谓平台调用。
+- 尺寸接管语义：期望尺寸由界面侧跨帧粘性保持（`RenderState::user_size`），拖过一次即整段会话由用户接管宽高——若仍逐帧套内容自适应高度，用户缩矮的窗口会被内容高立刻顶回去。显隐时随 `reset_drag_state` 清空，新会话回默认尺寸；尺寸随会话（不落盘）是有意为之——划词弹窗是从属旁注，持久尺寸反而让下一次弹窗带着上一次的形状。
+- `request_inner_size` 的同步返回值写回 `overlay_size`（平台可能钳成别的值），与 `set_overlay_size` 同口径，后续位置钳制与拖动换算都以此为准。

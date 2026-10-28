@@ -121,7 +121,11 @@ impl GlossApp {
         {
             windows.apply_overlay_drag((f64::from(offset.x), f64::from(offset.y)));
         }
-        if let Some(sizing) = output.sizing
+        if let Some(size) = output.resize
+            && let Some(windows) = &mut self.workspace.windows
+        {
+            windows.resize_overlay_by_user(LogicalSize::new(f64::from(size.x), f64::from(size.y)));
+        } else if let Some(sizing) = output.sizing
             && let Some(windows) = &mut self.workspace.windows
         {
             let streaming = self.machine.state() == AppState::Translating;

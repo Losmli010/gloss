@@ -81,7 +81,7 @@
 
 ## 新键 gloss_errors_json_mode_unsupported（2026-10-11，契约校验与重试方案 §7）
 
-- zh 用方案 §2 定稿短句「当前模型服务不支持 JSON 输出模式」：行动指引由失败卡的「打开设置」按钮承担（同因由同出口）；en 附一句换服务的指引，保持失败卡文案「说清现状 + 给出路」的分工。
+- zh 用方案 §2 定稿短句「当前模型服务不支持结构化输出模式」（2026-10-28 随词条纯中文口径由「JSON 输出模式」改写）：行动指引由失败卡的「打开设置」按钮承担（同因由同出口）；en 附一句换服务的指引，保持失败卡文案「说清现状 + 给出路」的分工。
 - 条数钉住值随新键增至 83（`both_locale_files_declare_the_same_keys`，本步骤时点 82 → 83）。
 
 ## gloss_popup_output_abnormal（契约校验步骤 3，2026-10-11）
@@ -161,3 +161,8 @@
   - 非占位符的花括号：只前进一个字节，逐字面量比对不漏配。
   - 字面量 `{{name}}`：四花括号两两成对。
 - 2026-10-28 新词条 `gloss_popup_output_unverified`（语言降级产物卡的泛化提示）：zh「结果未通过校对」/ en "Result not fully verified"，设计 §6 定稿文案。条目总数钉值 88 → 89。
+
+## 词条钉子与缩放标签
+
+- 2026-10-28 新增 `gloss_popup_resize_label`（弹窗缩放热区的无障碍标签，中英各一条），词条数钉子 88→89：钉子锁的是遍历器不提前收工，加词条即抬钉。
+- 2026-10-28 合入 main：设置页词条 `gloss_settings_base_url`、`gloss_settings_api_key` 与上述词条并存，条目总数钉值落 92（`both_locale_files_declare_the_same_keys`）。

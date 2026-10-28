@@ -46,6 +46,7 @@ pub struct Text {
     pub(crate) gloss_popup_close_label: String,
     pub(crate) gloss_popup_settings_label: String,
     pub(crate) gloss_popup_drag_label: String,
+    pub(crate) gloss_popup_resize_label: String,
     pub(crate) gloss_popup_image_unavailable: String,
     pub(crate) gloss_popup_output_abnormal: String,
     pub(crate) gloss_popup_output_unverified: String,
@@ -71,7 +72,9 @@ pub struct Text {
     pub(crate) gloss_settings_save: String,
     pub(crate) gloss_settings_cancel: String,
     pub(crate) gloss_settings_invalid_summary: String,
+    pub(crate) gloss_settings_base_url: String,
     pub(crate) gloss_settings_base_url_hint: String,
+    pub(crate) gloss_settings_api_key: String,
     pub(crate) gloss_settings_model: String,
     pub(crate) gloss_settings_model_hint: String,
     pub(crate) gloss_settings_key_keep_hint: String,
@@ -227,7 +230,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            89,
+            92,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -262,13 +265,6 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(zh.len(), en.len());
         for ((key, zh_value), (_, en_value)) in zh.iter().zip(&en) {
-            if key == "gloss_ui_language_en" {
-                assert_eq!(
-                    en_value, "English",
-                    "a language's own name is not translated"
-                );
-                continue;
-            }
             assert_ne!(
                 zh_value, en_value,
                 "{key} is copied from zh.toml instead of translated"
