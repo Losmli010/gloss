@@ -67,9 +67,21 @@ pub mod settings {
     pub const CLEAR_BUTTON_RESERVE: f32 = rem(7.375);
 }
 
+pub mod resize {
+    pub const HOTSPOT: f32 = 4.0;
+    pub const CORNER: f32 = 14.0;
+    pub const GRIP_INSET: f32 = 4.0;
+    pub const GRIP_LENGTH: f32 = 10.0;
+    pub const GRIP_GAP: f32 = 3.0;
+    pub const GRIP_COUNT: usize = 3;
+}
+
 pub mod window {
     pub const OVERLAY_WIDTH: f64 = 480.0;
     pub const OVERLAY_HEIGHT: f64 = 296.0;
+    pub const OVERLAY_MIN_WIDTH: f64 = 320.0;
+    pub const OVERLAY_MAX_WIDTH: f64 = 960.0;
+    pub const OVERLAY_MIN_HEIGHT: f64 = 160.0;
     pub const SETTINGS_WIDTH: f64 = 396.0;
     pub const SETTINGS_HEIGHT: f64 = 640.0;
     pub const WORK_AREA_MARGIN: f64 = 96.0;

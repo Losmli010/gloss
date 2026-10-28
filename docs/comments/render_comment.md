@@ -38,3 +38,7 @@
 ## repaint_at
 
 - egui 用 `Duration::MAX` 表示「不必重绘，等输入」；其余延迟换算成唤醒时刻。
+
+## OverlayFrameOutput 的缩放通道
+
+- 2026-10-28 帧输出随浮层新增 `resize` 通道（期望窗口尺寸，逻辑点）：浮层绘制产物的直通字段，壳侧装配点消费（见 app 与 windows 记录）。

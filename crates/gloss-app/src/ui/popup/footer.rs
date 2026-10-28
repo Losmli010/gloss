@@ -12,6 +12,7 @@ use super::card::{CachedGalley, cached_galley, hairline};
 use super::content::watermark;
 use super::{OverlayAction, RenderState};
 use crate::ui::i18n::Text;
+use crate::ui::pointing_hand;
 use crate::ui::style::{alpha, geometry, motion, palette, radius, size, space, stroke, with_alpha};
 
 #[derive(Clone, Copy)]
@@ -75,7 +76,7 @@ fn footer_confirm(
         .fill(colors.seal)
         .corner_radius(radius::SEAL)
         .min_size(vec2(0.0, button_height));
-        if ui.add(send).clicked() {
+        if pointing_hand(ui.add(send)).clicked() {
             action = Some(OverlayAction::Confirm);
         }
         ui.add_space(space::TIGHT);
@@ -86,7 +87,7 @@ fn footer_confirm(
         )
         .corner_radius(radius::SEAL)
         .min_size(vec2(0.0, button_height));
-        if ui.add(cancel).clicked() {
+        if pointing_hand(ui.add(cancel)).clicked() {
             action = Some(OverlayAction::Dismiss);
         }
     });
@@ -113,6 +114,7 @@ fn footer_copy(
     left.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
         let side = geometry::overlay::FOOTER_HEIGHT - 2.0 * space::INLINE;
         let (button, response) = ui.allocate_exact_size(vec2(side, side), egui::Sense::click());
+        let response = pointing_hand(response);
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Button,

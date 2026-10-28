@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 """界面文案统一进文案表门禁：界面词条只定义在应用分包的文案目录里，
-只经统一装入点装入，代码里不内嵌文案字面量。
+只经统一装入点装入，代码里不内嵌文案字面量，词条本身守语言规范。
 本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
 
-覆盖三条检查：
+覆盖四条检查：
   文案字面量拦截  —— 各生产代码里，字符串、单字符与原始字符串字面量出现
-                     非英文字节（ASCII）即违规；测试模块、注释与属性内部（静态
-                     检查的元信息）不在判罚面。模型面向文案的统一处理点
-                     （模板资源加注入片段）整文件豁免。纯英文字节的硬编码
+                     非英文字节（ASCII）即违规；字符串字面量落在界面渲染
+                     入口（显示调用点）上即便纯英文也违规——界面文案只许
+                     出自文案表；测试模块、注释与属性内部（静态检查的
+                     元信息）不在判罚面。模型面向文案的统一处理点（模板
+                     资源加注入片段）整文件豁免；非文案字形与自检样张用
+                     行尾放行标记豁免，显示调用点之外的纯英文硬编码
                      不可由文本判定，靠人工评审。
   装入点集中      —— 编译期引用文案资源只允许出现在统一装入点一处。
   词条表文件唯一  —— 声明词条前缀键的配置文件只允许在文案目录下。
+  词条语言规范    —— 中文表词条必须纯中文，英文表词条必须纯英文；字符面
+                     取语言规范库同源定义（拉丁面与全角面）。模板占位符、
+                     地址方案符与快捷键符号是记号不是外文，不判罚；判罚
+                     口径只锁最低必要规范：中文表是中文，英文表是英文，
+                     无任何词条豁免。
 
 行尾放行标记豁免所在行，须注明缘由、缺失即判罚。违规报告经统一诊断出口打印：每条带规
 则标识、位置、证据行与修复指引，违规随执行流即时输出；字面量扫描面的四个
-源码目录任一缺失按失败关闭退出。退出码按全脚本统一约定。
+源码目录与文案目录两份词条表任一缺失按失败关闭退出。退出码按全脚本统一约定。
 
 用法：python3 scripts/hooks/check_i18n.py <repo-root>，缺省为本脚本的上一级目录。
 """
@@ -29,16 +37,19 @@ from typing import Any
 
 import gate_report
 import rg_engine
+from language_spec.chinese import CJKWISE, LATIN
 
 RULE = "ui copy lives in the i18n catalog"
 OWNER = "crates/gloss-app/src/ui/i18n.rs"
 CATALOG_DIR = "crates/gloss-app/i18n"
+CATALOG_FILES = ("zh.toml", "en.toml")
 SCAN_DIRS = "gloss-app / root crate / gloss-core / gloss-platform src"
 ALLOW_MARKER = "i18n:allow"
 
 RULE_I18N_LITERAL = "I18N-LITERAL"
 RULE_I18N_LOADPOINT = "I18N-LOADPOINT"
 RULE_I18N_CATALOG = "I18N-CATALOG"
+RULE_I18N_LANGUAGE = "I18N-LANGUAGE"
 
 LITERAL_REMEDY = (
     "add the entry to the catalog (zh.toml and en.toml, key gloss_<module>_<item>)"
@@ -49,6 +60,22 @@ LOADPOINT_REMEDY = (
     "move the include into the single load point; read the copy via Text at the use site"
 )
 CATALOG_REMEDY = "move the entry table into %s/" % CATALOG_DIR
+
+ZH_LANGUAGE_REMEDY = "rewrite the zh entry in Chinese, keeping placeholders and address schemes"
+EN_LANGUAGE_REMEDY = "rewrite the en entry in English, keeping placeholders and symbol references"
+
+LANGUAGE_MESSAGE_ZH = "the zh entry must be pure Chinese"
+LANGUAGE_MESSAGE_EN = "the en entry must be pure English"
+
+ENTRY_LINE_RE = re.compile(r'^\s*(gloss_[A-Za-z0-9_]+)\s*=\s*"(.*)"\s*$')
+
+TEMPLATE_RE = re.compile(r"\{\{[^}]*\}\}")
+ADDRESS_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+
+DISPLAY_SITE_RE = re.compile(
+    r'\b(?:ui\.label|ui\.button|RichText::new|selected_text|on_hover_text|hint_text)\(\s*"'
+    r'|[^_\w]\.text\(\s*"'
+)
 
 SCAN_BASES = (
     os.path.join("crates", "gloss-app", "src"),
@@ -215,9 +242,12 @@ def test_mod_brace(src: str, i: int) -> int | None:
         return None
 
 
-def literal_lines(src: str) -> set[int]:
-    """生产代码（注释、属性、#[cfg(test)] mod 项之外）里含非 ASCII 字面量的行号。"""
+def literal_lines(src: str) -> tuple[set[int], set[int]]:
+    """生产代码（注释、属性、#[cfg(test)] mod 项之外）里的字面量行号，返回
+    （非 ASCII 字面量行号，字符串字面量行号）两个集合；前者是任意位置的
+    判罚面，后者供显示调用点检查用——纯英文的界面文案只能靠调用点形状判定。"""
     hits = set()
+    sites = set()
     i, n, line = 0, len(src), 1
     state = "code"
     hashes = 0
@@ -268,8 +298,10 @@ def literal_lines(src: str) -> set[int]:
                     state = "code"
                     i += 1 + hashes
                     continue
-            if ord(c) > 127 and test_depth == 0 and not test_pending:
-                hits.add(line)
+            if test_depth == 0 and not test_pending:
+                if ord(c) > 127:
+                    hits.add(line)
+                sites.add(line)
             i += 1
             continue
         if state == "char":
@@ -346,7 +378,7 @@ def literal_lines(src: str) -> set[int]:
             elif c == "}":
                 test_depth -= 1
         i += 1
-    return hits
+    return hits, sites
 
 
 def read_lines(path: str, loader: Any = None) -> list[str]:
@@ -379,7 +411,9 @@ def guard_scan_dirs(root: str) -> None:
 
 
 def literal_findings(root: str, loader: Any = None) -> list[gate_report.Finding]:
-    """检查一：四个扫描面的生产代码字面量，逐行全量返回违规条目。"""
+    """检查一：四个扫描面的生产代码字面量，逐行全量返回违规条目——非 ASCII
+    字面量任意位置即拦，字符串字面量落在显示调用点（界面渲染入口）上即便
+    纯英文也拦，界面文案只许出自文案表。"""
     out = []
     for base in SCAN_BASES:
         for path in rs_files(os.path.join(root, base)):
@@ -387,18 +421,22 @@ def literal_findings(root: str, loader: Any = None) -> list[gate_report.Finding]
             if rel == EXEMPT_FILE:
                 continue
             lines = read_lines(path, loader)
-            for ln in sorted(literal_lines("\n".join(lines))):
+            hits, sites = literal_lines("\n".join(lines))
+            for ln in sorted(hits | sites):
+                if ln not in hits and not DISPLAY_SITE_RE.search(lines[ln - 1]):
+                    continue
                 line = lines[ln - 1]
                 if ALLOW_MARKER in line:
                     if gate_report.allow_reason_missing(ALLOW_MARKER, line):
                         out.append(gate_report.allow_reason_finding(ALLOW_MARKER, rel, ln, line))
                     continue
+                message = "embeds a copy literal" if ln in hits else "embeds a display literal"
                 out.append(
                     gate_report.Finding(
                         rule=RULE_I18N_LITERAL,
                         path=rel,
                         line=ln,
-                        message="%s line %d embeds a copy literal" % (rel, ln),
+                        message="%s line %d %s" % (rel, ln, message),
                         evidence=line,
                         remedy=LITERAL_REMEDY,
                     )
@@ -480,6 +518,74 @@ def catalog_findings(root: str, loader: Any = None) -> tuple[int, list[gate_repo
     return scanned, out
 
 
+def guard_catalog_files(root: str) -> None:
+    """词条表守卫：文案目录两份词条表任一缺失即失败关闭退出——词条表缺席
+    若静默跳过，语言规范检查悄然落空，等于没检查到却放行。"""
+    missing = [
+        name for name in CATALOG_FILES if not os.path.isfile(os.path.join(root, CATALOG_DIR, name))
+    ]
+    if not missing:
+        return
+    gate_report.fail(
+        gate_report.Finding(
+            rule=gate_report.RULE_EMPTY_SURFACE,
+            path="",
+            line=0,
+            message="the language scan surface is incomplete: missing catalog files: %s"
+            % ", ".join(missing),
+            remedy="restore %s/%s; a missing catalog file means the entry language"
+            " scan cannot complete" % (CATALOG_DIR, ", ".join(missing)),
+        )
+    )
+    sys.exit(gate_report.EXIT_INFRA)
+
+
+def language_findings(root: str, loader: Any = None) -> tuple[int, list[gate_report.Finding]]:
+    """检查四：词条语言规范——中文表词条必须纯中文（剔模板占位符与地址方
+    案符两类记号后不得残留英文字母），英文表词条必须纯英文，无任何词条豁
+    免；字符面取语言规范库同源定义，逐行全量报告，返回扫描的词条数与违
+    规条目。"""
+    out: list[gate_report.Finding] = []
+    scanned = 0
+    for name in CATALOG_FILES:
+        path = os.path.join(root, CATALOG_DIR, name)
+        rel = "%s/%s" % (CATALOG_DIR, name)
+        zh = name.startswith("zh")
+        for no, line in enumerate(read_lines(path, loader), 1):
+            match = ENTRY_LINE_RE.match(line)
+            if match is None:
+                continue
+            value = match.group(2)
+            scanned += 1
+            if zh:
+                stripped = TEMPLATE_RE.sub("", value)
+                stripped = ADDRESS_SCHEME_RE.sub("", stripped)
+                if not LATIN.search(stripped):
+                    continue
+                out.append(
+                    gate_report.Finding(
+                        rule=RULE_I18N_LANGUAGE,
+                        path=rel,
+                        line=no,
+                        message="%s line %d: %s" % (rel, no, LANGUAGE_MESSAGE_ZH),
+                        evidence=value,
+                        remedy=ZH_LANGUAGE_REMEDY,
+                    )
+                )
+            elif CJKWISE.search(value):
+                out.append(
+                    gate_report.Finding(
+                        rule=RULE_I18N_LANGUAGE,
+                        path=rel,
+                        line=no,
+                        message="%s line %d: %s" % (rel, no, LANGUAGE_MESSAGE_EN),
+                        evidence=value,
+                        remedy=EN_LANGUAGE_REMEDY,
+                    )
+                )
+    return scanned, out
+
+
 def render(finding: gate_report.Finding) -> str:
     """违规渲染行：消息加位置，作为运行函数返回清单里的条目。"""
     loc = gate_report.location(finding)
@@ -487,7 +593,7 @@ def render(finding: gate_report.Finding) -> str:
 
 
 def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.Finding]]:
-    """执行三条检查，违规随执行流即时经统一诊断出口打到标准错误，返回通过与
+    """执行四条检查，违规随执行流即时经统一诊断出口打到标准错误，返回通过与
     违规条目两个清单；装入器在场时文件读取走共享缓存，缺省自行读取。"""
     guard_scan_dirs(root)
     found: list[gate_report.Finding] = []
@@ -509,17 +615,25 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
         found.append(finding)
         gate_report.fail(finding)
 
+    # ---- 检查四：词条语言规范 ----
+    guard_catalog_files(root)
+    entries, language = language_findings(root, loader)
+    for finding in language:
+        found.append(finding)
+        gate_report.fail(finding)
+
     oks = []
     if not found:
         oks.append(
-            "%s (%s production literals + %d .rs include sites + %d TOML entry-key files)"
-            % (RULE, SCAN_DIRS, include_files, toml_files)
+            "%s (%s production literals + %d .rs include sites + %d TOML entry-key files"
+            " + %d entries language-checked)"
+            % (RULE, SCAN_DIRS, include_files, toml_files, entries)
         )
     return oks, found
 
 
 def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
-    """执行三条检查，返回通过与失败两个清单；失败清单收渲染行（消息加位置）
+    """执行四条检查，返回通过与失败两个清单；失败清单收渲染行（消息加位置）
     供调用方取用，装入器在场时文件读取走共享缓存，缺省自行读取。"""
     oks, found = collect(root, loader)
     return oks, [render(finding) for finding in found]

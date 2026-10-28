@@ -13,6 +13,7 @@ use super::controls::{
 };
 use super::{FieldError, FieldKey, SettingsAction, SettingsState};
 use crate::ui::i18n::{Text, fill};
+use crate::ui::pointing_hand;
 use crate::ui::style::{geometry, space};
 use crate::update::UpdateMsg;
 use crate::update::state::{FailStep, UpdatePhase, UpdateState};
@@ -23,7 +24,7 @@ pub(super) fn connection_section(
     errors: &HashMap<FieldKey, FieldError>,
     text: &Text,
 ) {
-    ui.label("Base URL");
+    ui.label(text.gloss_settings_base_url.as_str());
     let response = add_input(ui, &mut state.draft.base_url, |e| {
         e.hint_text(text.gloss_settings_base_url_hint.as_str())
             .desired_width(f32::INFINITY)
@@ -32,7 +33,7 @@ pub(super) fn connection_section(
     error_text(ui, errors, FieldKey::BaseUrl, text);
     ui.add_space(space::ITEM);
 
-    ui.label("API Key");
+    ui.label(text.gloss_settings_api_key.as_str());
     ui.horizontal(|ui| {
         let input_width = ui.available_width() - geometry::settings::CLEAR_BUTTON_RESERVE;
         let typed = add_input(ui, &mut state.api_key, |e| {
@@ -53,7 +54,7 @@ pub(super) fn connection_section(
         } else {
             text.gloss_settings_clear_key.as_str()
         };
-        if ui.button(label).clicked() {
+        if pointing_hand(ui.button(label)).clicked() {
             state.clear_key = !state.clear_key;
             state.api_key.clear();
         }
@@ -104,7 +105,7 @@ pub(super) fn update_section(
     let button = update_button(update, text);
     choice_row(ui, &label, |ui| {
         if let Some((label, msg)) = button
-            && ui.button(label).clicked()
+            && pointing_hand(ui.button(label)).clicked()
         {
             *action = SettingsAction::Update(msg);
         }
@@ -187,7 +188,7 @@ fn lang_label<'a>(lang: &Lang, text: &'a Text) -> &'a str {
 }
 
 fn lang_combo(ui: &mut egui::Ui, current: &mut Lang, text: &Text) {
-    egui::ComboBox::from_id_salt("target_lang")
+    let combo = egui::ComboBox::from_id_salt("target_lang")
         .selected_text(lang_label(current, text))
         .show_ui(ui, |ui| {
             for lang in LANG_CHOICES() {
@@ -195,6 +196,7 @@ fn lang_combo(ui: &mut egui::Ui, current: &mut Lang, text: &Text) {
                 ui.selectable_value(current, lang, label);
             }
         });
+    pointing_hand(combo.response);
 }
 
 fn language_label<'a>(language: &Language, text: &'a Text) -> &'a str {
@@ -206,13 +208,14 @@ fn language_label<'a>(language: &Language, text: &'a Text) -> &'a str {
 }
 
 fn language_combo(ui: &mut egui::Ui, current: &mut Language, text: &Text) {
-    egui::ComboBox::from_id_salt("ui_language")
+    let combo = egui::ComboBox::from_id_salt("ui_language")
         .selected_text(language_label(current, text))
         .show_ui(ui, |ui| {
             for language in [Language::System, Language::Zh, Language::En] {
                 ui.selectable_value(current, language, language_label(&language, text));
             }
         });
+    pointing_hand(combo.response);
 }
 
 fn theme_combo(ui: &mut egui::Ui, current: &mut Theme, text: &Text) {
@@ -221,11 +224,12 @@ fn theme_combo(ui: &mut egui::Ui, current: &mut Theme, text: &Text) {
         Theme::Light => text.gloss_theme_light.as_str(),
         Theme::Dark => text.gloss_theme_dark.as_str(),
     };
-    egui::ComboBox::from_id_salt("theme")
+    let combo = egui::ComboBox::from_id_salt("theme")
         .selected_text(label(current))
         .show_ui(ui, |ui| {
             for theme in [Theme::System, Theme::Light, Theme::Dark] {
                 ui.selectable_value(current, theme, label(&theme));
             }
         });
+    pointing_hand(combo.response);
 }

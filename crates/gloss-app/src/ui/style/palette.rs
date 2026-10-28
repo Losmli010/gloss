@@ -16,6 +16,7 @@ pub(crate) struct Palette {
     pub danger: Color32,
     pub on_accent: Color32,
     pub input_border: Stroke,
+    pub caret: Color32,
     pub syntax: SyntaxPalette,
 }
 
@@ -42,6 +43,7 @@ pub(crate) const LIGHT: Palette = Palette {
         width: 1.0,
         color: Color32::from_gray(0xE2),
     },
+    caret: Color32::from_rgb(0x24, 0x29, 0x2E),
     syntax: SyntaxPalette {
         plain: Color32::from_rgb(0x24, 0x29, 0x2E),
         keyword: Color32::from_rgb(0x8E, 0x44, 0xAD),
@@ -63,6 +65,7 @@ pub(crate) const DARK: Palette = Palette {
     danger: DANGER,
     on_accent: Color32::WHITE,
     input_border: Stroke::NONE,
+    caret: Color32::from_rgb(0xE6, 0xE6, 0xE6),
     syntax: SyntaxPalette {
         plain: Color32::from_rgb(0xE6, 0xE6, 0xE6),
         keyword: Color32::from_rgb(0xC7, 0x92, 0xEA),
