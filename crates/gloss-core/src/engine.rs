@@ -216,8 +216,9 @@ pub async fn run_task_rounds(
             return run_lang_rounds(stage, reply, repairs.spent(), on_chunk, on_repair).await;
         };
         let resend = (!matches!(violation, Violation::EmptyReply)).then_some(reply.body.as_str());
+        let detail = schema::format_detail(violation, &reply.body);
         let Some(next) = repairs.next_round(&base, resend, violation, || {
-            prompts.render_repair(locale, violation)
+            prompts.render_repair(locale, violation, detail)
         }) else {
             return Ok(RunOutput {
                 kind,
@@ -392,12 +393,17 @@ mod tests {
 
     fn assert_repair_instruction_wording(instruction: &str) {
         assert!(
-            instruction.contains("reply is not a bare JSON object"),
-            "the instruction carries the fixed violation wording as the reason: {instruction}"
+            instruction.contains("回复不是裸（JSON）对象：NotJson——"),
+            "the instruction rides the violation-level registry row (this prose reply has \
+             no detail): {instruction}"
+        );
+        assert!(
+            instruction.contains("违约清单如下") && instruction.contains("请逐条修正后"),
+            "the shared skeleton (header and closing) frames the row: {instruction}"
         );
         assert!(
             !instruction.contains("{\"note\""),
-            "the repair template no longer quotes a contract schema line: {instruction}"
+            "the repair instruction no longer quotes a contract schema line: {instruction}"
         );
         assert!(
             !instruction.contains("MARKER-bad-reply"),

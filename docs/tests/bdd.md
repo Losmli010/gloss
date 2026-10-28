@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 41 | `just test` |
-| 单元测试 | 680 | `just test` |
+| 单元测试 | 695 | `just test` |
 
 ## 人工测试
 
@@ -524,7 +524,7 @@
 | the_general_kind_is_never_named_by_the_classify_template | 分类模板不含 `General` 标识 | 给定双语分类模板渲染，当检查，则系统指令不含 `General` 标识——模板以 `Fallback` 类别指认兜底，到 `General` 的映射在校验层 | 2026-10-20 |
 | output_example_carries_the_kind_fields | 输出示例携带 `kind` 字段 | 给定词卡、句译、代码解释模板（自包含任务书，含输出示例），当渲染并检查系统指令，则系统指令声明 `structured` 与 `note`，词卡示例另带 `phonetic/examples`、代码示例另带 `examples/code_language` | 2026-10-11 |
 | every_task_template_example_passes_validate_task | 模板示例过生产校验器（完整性门禁） | 给定 `locale` 双语与五份任务模板的全组合，当取出示例对象行，则示例对象过对应 `validate_task`、`structured` 内键齐每个 `kind`（词卡 `phonetic` 加 `examples`、句译、图像、通用 `examples`、代码 `examples` 加 `code_language`） | 2026-10-12 |
-| every_template_mentions_json | 所有模板必含 `json` 字样（完整性门禁） | 给定两个 `locale` 的八份模板（五份任务模板加 `classify.md`、`repair.md` 与 `discipline.md`），当检查原文，则都含 `json` 字样（端点 `JSON` 模式的提示读取它） | 2026-10-29 |
+| every_template_mentions_json | 所有模板必含 `json` 字样（完整性门禁） | 给定两个 `locale` 的七份模板（五份任务模板加 `classify.md` 与 `discipline.md`），当检查原文，则都含 `json` 字样（端点 `JSON` 模式的提示读取它）；修复指令的 `json` 字样由组合产物测试逐违约锁定 | 2026-10-29 |
 | missing_target_lang_defaults_to_chinese | 目标语言缺省中文 | 给定未设 `target_lang`，当渲染句译，则系统指令含“中文” | 2026-09-19 |
 | explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 `Lang::Ja`，当渲染，则系统指令含“日语” | 2026-09-19 |
 | empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 `target_lang` 为 `Other("")` 与 `Other(" ")` 的两个 `locale`，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且纯（JSON）契约仍在 | 2026-10-11 |
@@ -534,17 +534,24 @@
 | render_template_substitutes_placeholders | 占位符显式替换 | 给定含 `{{`占位符`}}` 的模板，当渲染，则按值替换、同名占位符可重复；未声明与未闭合的占位符原样保留（留待完整性测试抓） | 2026-09-22 |
 | render_template_drops_lines_whose_placeholders_are_empty | 占位符全空的行整行消失 | 给定提示行与指令行模板，当某行占位符值全为空，则该行连同行内静态文字与换行一并删除，其余行不受影响 | 2026-09-22 |
 | render_template_keeps_blank_lines_without_placeholders | 无占位符空行是结构 | 给定模板里的空行（不含占位符），当渲染，则原样保留 | 2026-09-22 |
-| every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 `locale` 的十份模板原文（五份任务模板加 `target_lang.md`、`discipline.md`、`classify.md`、`repair.md` 与 `repair_language.md`），当扫占位符，则每个 `{{` 都有闭合且名字都在已声明集合内（`target/reason`；嵌套契约的示例 `JSON` 以 `}}` 收尾，闭合计数因此可多于开启——按配对判）；未声明者若与已声明占位符同行会被整行删掉，产物断言看不见 | 2026-10-29 |
+| every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 `locale` 的八份模板原文（五份任务模板加 `target_lang.md`、`discipline.md` 与 `classify.md`；修复骨架已迁入措辞注册表），当扫占位符，则每个 `{{` 都有闭合且名字都在已声明集合内（`target`；嵌套契约的示例 `JSON` 以 `}}` 收尾，闭合计数因此可多于开启——按配对判）；未声明者若与已声明占位符同行会被整行删掉，产物断言看不见 | 2026-10-29 |
 | every_locale_renders_without_leftover_placeholders | 全 `locale` 无残留占位符 | 给定 `locale` 中英两份与五个 `kind` 的全组合（四个文本任务加 `ImageExplain`），当渲染，则文本消息不含 `{{`、系统指令携带 `note` 纯（JSON）契约且不含旧围栏 | 2026-10-12 |
-| repair_instruction_carries_the_violation_reason_only | 修复指令只回灌违约措辞 | 给定双 `locale` 与各违约类别，当 `render_repair`，则指令把违约固定措辞作为 `reason` 回灌、无残留 `{{`、不带契约行与截断提示、含 `json` 字样 | 2026-10-20 |
-| repair_instruction_renders_without_leftover_placeholders | `repair` 指令渲染无残留占位符（完整性门禁） | 给定 `locale` 双语与四类违约的全组合，当 `render_repair`，则渲染产物不含 `{{` 且非空（可选行整行消失；`general.md` 等任务模板的同一门禁由全 `locale` 渲染测试锁定） | 2026-10-12 |
+| repair_instruction_renders_without_leftover_placeholders | `repair` 指令渲染无残留占位符（完整性门禁） | 给定 `locale` 双语、四类违约与无细节加五个细节的全组合，当 `render_repair`，则渲染产物不含 `{{`、非空且含 `json` 字样（注册表骨架的键归注册表完整性测试管，不进本白名单） | 2026-10-29 |
 | repair_conversation_replays_the_history_with_the_bad_reply | 修复对话以历史形态重拼 | 给定首轮 `[system][user]` 与坏回复，当 `repair_conversation`，则拼成 `[system][user][assistant][user]`（首两条逐字保留；`EmptyReply` 不经本函数，原样重发归 `next_round`） | 2026-10-20 |
 | english_locale_renders_english_prompts | 英文 `locale` 出英文指令 | 给定 `En` `locale` 的句译任务，当渲染，则系统指令为英文（含 `JSON` 契约）、用户消息携带原文，且不含中文指令词 | 2026-10-03 |
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 `En` `locale` 未设目标语言、`Zh` `locale` 设 `Lang::En`，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含“英语” | 2026-09-22 |
 | prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 `prompt_locale` 的任务，当渲染，则结果与显式 `Zh` 逐字一致且含“词典专家” | 2026-09-22 |
-| language_repair_instruction_carries_the_row_list_only | 语言修复指令只帧行式清单 | 给定两条违约条目与中英两语言，当 `render_language_repair`，则无残留占位符、行含规则标识与字段位置、不含回复原文、提及 `JSON`（端点 `JSON` 模式门读取） | 2026-10-28 |
+| language_repair_instruction_carries_the_row_list_only | 语言修复指令只帧行式清单 | 给定两条违约条目与中英两语言，当 `render_language_repair`，则指令以回指句起头（只指称上一条回复的身份）、无残留占位符、行含规则标识与字段位置、不含回复原文、提及 `JSON`（端点 `JSON` 模式门读取） | 2026-10-29 |
 | every_task_system_prompt_ends_with_the_discipline_after_the_shared_clause | 纪律块垫底且共享条款在其前 | 给定五任务两语言的渲染，当比对系统提示尾部，则与共享输出纪律块逐字一致、其前紧接共享目标语言条款（两段单点维护，拼接自渲染入口） | 2026-10-29 |
 | task_templates_avoid_forbidden_legacy_markers | 任务模板不回传统框架措辞 | 给定中英两份禁用标记清单（中文十二条为框架模式加训诂词簇，英文十二条为传统框架短语），当扫描双 `locale` 五份任务模板正文，则零命中（界面印章与字段名是产品语言，不在受检面） | 2026-10-29 |
+| repair_instruction_composes_the_detail_wording_onto_the_skeleton | 细节措辞上修复指令 | 给定双 `locale` 与五个细节的全组合，当 `render_repair` 带细节，则指令行含细节位置与动作措辞、带违约规则标识、骨架（头、行、尾）齐备，且只携带结构事实（不含回复内容标记） | 2026-10-29 |
+| repair_instruction_without_detail_rides_the_violation_level_row | 无细节回落违约级行 | 给定散文类 `NotJson` 与无细节违约（`EmptyReply`、`KindNotAllowed`），当 `render_repair` 不带细节，则指令行为违约级措辞行（位置、规则标识、动作），无残留占位符、不带契约行 | 2026-10-29 |
+| repair_row_falls_back_to_the_display_wording_when_the_registry_is_missing | 注册表缺席回落固定措辞 | 给定骨架缺席或查键未中的组合，当渲染违约行，则整行回落违约固定措辞（`Display`），警告已在查找层留痕 | 2026-10-29 |
+| language_repair_aggregates_same_field_and_category_and_sorts_by_field_order | 语言清单聚合并按字段序排序 | 给定乱序跨字段同类违约（注、音标、例句），当 `render_language_repair`，则同字段同类并一行（例句序号升序合并，如“第 2、5、7 条”），行序按产物字段序（注 → 音标 → 例句），中英位置单复数形态各自成立 | 2026-10-29 |
+| language_repair_caps_rows_and_appends_the_truncated_note | 语言清单封顶并附截断注 | 给定聚合后 13 组违约，当渲染，则清单恰 12 行、截断注一行在场、第 13 组丢弃不溢出 | 2026-10-29 |
+| language_repair_within_the_cap_carries_no_truncated_note | 清单未超限无截断注 | 给定聚合后 12 组违约，当渲染，则无截断注（清单不挤占修复轮上下文的口径只在超限时生效） | 2026-10-29 |
+| language_repair_degrades_to_position_and_rule_id_lines_without_the_registry | 注册表缺席降级为位置与规则标识行 | 给定骨架缺席的语言清单，当聚合渲染，则每组回落为字段键、半角冒号加规则标识的行（语言中立，警告留痕） | 2026-10-29 |
+| classify_prompt_composes_the_skeleton_and_the_registry_category_section | 分类提示词骨架加类别段两段拼装 | 给定双 `locale`，当 `render_classify`，则系统指令以骨架（引言与输出形状）逐字起头、其后为注册表渲染的类别段（四类别逐条带定义），无残留占位符 | 2026-10-29 |
 
 ### `crates/gloss-core/src/schema.rs`
 
@@ -557,6 +564,10 @@
 | task_ok_builds_the_three_contract_variants | 任务契约三变体构建 | 给定词卡、代码、句译、图像与通用的嵌套契约（JSON），当 `validate_task`，则 `note` 原样、`structured` 按 `kind` 落 `WordCard/Code/Plain`（坏条目跳过） | 2026-10-12 |
 | task_soft_rules_fall_back_field_by_field | 任务软约束逐级回落 | 给定 `structured` 缺失、非对象、变体内字段类型错、`null` 的回复，当 `validate_task`，则按空变体与缺省回落、`note` 保留、清单外疏证键就地忽略（`kind` 决定变体） | 2026-10-11 |
 | empty_structured_covers_every_kind | 空疏证变体覆盖全 `kind` | 给定五个 `kind`，当 `empty_structured`，则词卡空 `WordCard`、代码空 `Code`（无语言判定）、句译、图像与通用落空 `Plain` | 2026-10-12 |
+| format_detail_maps_fence_truncation_and_non_object_shapes | 格式细节矩阵：围栏、截断与非对象 | 给定围栏包裹、合法非对象（JSON）、中途截断与首字节语法错各原始回复，当 `format_detail`，则分别落 `Fenced`、`NotAnObject`、`Truncated` 与无细节（细节是纯结构事实，围栏内原文不随行） | 2026-10-29 |
+| format_detail_maps_missing_note_shapes_to_key_or_string_details | 格式细节矩阵：注键缺失与非字符串 | 给定缺 `note` 键、`note` 为 `null`、非字符串与纯空白、不可解析的各回复，当 `format_detail`，则分别落 `NoteKeyMissing`、`NoteNotString` 与无细节 | 2026-10-29 |
+| format_detail_returns_none_for_undetailed_violations_and_legal_input | 无细节违约与合法输入无细节 | 给定 `EmptyReply`、`KindNotAllowed` 与契约合法回复，当 `format_detail`，则恒返回无细节（细分只补格式违约的位置，不改硬约束数量与降级语义） | 2026-10-29 |
+| classify_category_names_match_the_validator_exactly | 类别标识集与校验器同源 | 给定类别常量四标识，当逐个过 `validate_classify`，则全部放行且模型原始类别与常量一致（类别段渲染与校验共用同一集合） | 2026-10-29 |
 
 ### `crates/gloss-core/src/config_handle.rs`
 
@@ -647,9 +658,20 @@
 | phonetic_charset_limits_word_card_phonetics | 音标字符集限定 | 给定国际音标与拼音声调、越界汉字的音标字段，当判定，则前者放行、后者 `PhoneticCharset`；非词卡任务不判 | 2026-10-28 |
 | other_target_skips_script_and_mixing_checks | 自定义目标语言跳过文字判定 | 给定 `Other` 目标语言的中西混排注，当判定，则不判 `ForeignRun` 与 `ContainerMixing`（合法集未知，宁漏勿误） | 2026-10-28 |
 | image_input_skips_overlap_but_runs_the_rest | 图像输入跳重合照跑其余 | 给定图像输入与照抄式注，当判定，则无 `SourceOverlap`（无文本输入）；表情符号照常判罚 | 2026-10-28 |
-| violation_lines_carry_field_category_and_action_only | 违约行式渲染三段齐备 | 给定违约条目，当中英渲染与摘要，则行为“字段位置：规则标识——动作”、摘要只含去重类别、显示形态不带回复原文 | 2026-10-28 |
+| violation_lines_carry_position_and_rule_id_only | 违约行只带位置与规则标识 | 给定违约条目，当渲染行式与显示形态并摘要，则行为字段键、半角冒号与规则标识三段相连（语言中立，动作措辞住措辞注册表）、显示形态只含规则标识与字段键、摘要只含去重类别，都不带回复原文 | 2026-10-29 |
 | math_inside_containers_stays_exempt | 容器内公式豁免 | 给定括注与引文内含成对公式的注，当判定，则无 `ContainerMixing`——数学容器内容不判语言（`R8`） | 2026-10-28 |
 | line_wrapped_formulas_stay_math_containers | 换行公式仍成数学容器 | 给定公式跨段内软换行的注，当判定，则无 `PunctuationMismatch`（软换行不拆数学配对，段界仍拆） | 2026-10-28 |
+
+### `crates/gloss-core/src/wordings.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| registry_frame_wording_is_present_for_both_locales | 注册表骨架词两语言齐备 | 给定中英两份注册表，当装骨架区，则头、行、尾、截断注与回指句全部非空（嵌入数据可解析由各测试的装载入口前置锁定） | 2026-10-29 |
+| registry_covers_every_format_key_with_worded_rows | 注册表格式区键全覆盖 | 给定四类违约级键与五个细节键的双 `locale` 全组合，当查格式区，则键齐且位置与动作措辞非空 | 2026-10-29 |
+| registry_covers_every_language_action_and_classify_definition | 注册表语言动作与分类定义全覆盖 | 给定十一个语言违约类别与四个分类类别的双 `locale` 全组合，当查对应区，则动作与定义全部在场且非空 | 2026-10-29 |
+| registry_keys_match_the_enums_exactly_in_both_directions | 注册表键与枚举双向集合相等 | 给定注册表三个枚举键区，当把每键反解回枚举变体并对账键数，则无多键无缺键（键空间锁死，扩枚举须同步两份表数据） | 2026-10-29 |
+| registry_carries_identical_key_sets_across_locales | 注册表键集中英对齐 | 给定中英两份注册表，当对比三区键集合，则逐键一致（措辞随语言分表，键空间不分语言） | 2026-10-29 |
+| missing_keys_and_broken_sources_degrade_to_none_with_a_trace | 注册表缺键与坏源有痕降级 | 给定未登记键与非法（TOML）源，当查键与装载，则返回空且警告留痕（无 `panic` 路径，组合层据此回落固定措辞） | 2026-10-29 |
 
 ### `crates/gloss-app/src/runtime/cache.rs`
 

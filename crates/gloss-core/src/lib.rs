@@ -26,3 +26,4 @@ pub mod prompt;
 mod repair;
 pub mod schema;
 pub mod task;
+mod wordings;

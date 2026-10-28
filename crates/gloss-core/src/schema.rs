@@ -17,7 +17,9 @@
 //! 四个类别标识之一（兜底类别是模型可选的兜底类别，映射到
 //! 通用任务——通用任务模板就是它的执行落点）。类别集由
 //! 分类模板固定，不再由调用方传清单。所有违约的措辞固定，
-//! 不携带回复原文——违约信息进日志与修复指令都只有类别。
+//! 不携带回复原文——违约信息进日志与修复指令都只有类别；
+//! 格式违约的细分细节也只携带结构事实
+//! （围栏、截断、键缺失），由修复指令通道单独取用。
 //!
 //! 内容红线：本模块的错误与日志不携带输入内容与模型回复原文。
 
@@ -44,6 +46,77 @@ impl std::fmt::Display for Violation {
         f.write_str(wording)
     }
 }
+
+impl Violation {
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Self::EmptyReply => "EmptyReply",
+            Self::NotJson => "NotJson",
+            Self::MissingNote => "MissingNote",
+            Self::KindNotAllowed => "KindNotAllowed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FormatDetail {
+    Fenced,
+    NotAnObject,
+    Truncated,
+    NoteKeyMissing,
+    NoteNotString,
+}
+
+impl FormatDetail {
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Self::Fenced => "fenced",
+            Self::NotAnObject => "not_an_object",
+            Self::Truncated => "truncated",
+            Self::NoteKeyMissing => "note_key_missing",
+            Self::NoteNotString => "note_not_string",
+        }
+    }
+}
+
+const FENCE_MARKER: &str = "```";
+
+pub fn format_detail(violation: Violation, raw: &str) -> Option<FormatDetail> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    match violation {
+        Violation::EmptyReply | Violation::KindNotAllowed => None,
+        Violation::NotJson => {
+            if trimmed.starts_with(FENCE_MARKER) {
+                return Some(FormatDetail::Fenced);
+            }
+            match serde_json::from_str::<serde_json::Value>(trimmed) {
+                Ok(value) => (!value.is_object()).then_some(FormatDetail::NotAnObject),
+                Err(error) => error.is_eof().then_some(FormatDetail::Truncated),
+            }
+        }
+        Violation::MissingNote => {
+            let value = serde_json::from_str::<serde_json::Value>(trimmed).ok()?;
+            match value.get("note") {
+                None => Some(FormatDetail::NoteKeyMissing),
+                Some(note) => note
+                    .as_str()
+                    .is_none_or(|text| text.trim().is_empty())
+                    .then_some(FormatDetail::NoteNotString),
+            }
+        }
+    }
+}
+
+pub const CLASSIFY_CATEGORY_NAMES: [&str; 4] = [
+    "TranslateWord",
+    "TranslateSentence",
+    "ExplainCode",
+    "Fallback",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassifyChoice {
@@ -160,6 +233,109 @@ fn examples_of(value: Option<&serde_json::Value>) -> Vec<String> {
 mod tests {
     use super::{ClassifyChoice, Violation, empty_structured, validate_classify, validate_task};
     use crate::task::{OutcomeStructured, TaskKind};
+
+    #[test]
+    fn format_detail_maps_fence_truncation_and_non_object_shapes() {
+        use super::{FormatDetail, format_detail};
+
+        for raw in ["```json\n{\"note\":\"义\"}\n```", "  ```\n散行\n```  "] {
+            assert_eq!(
+                format_detail(Violation::NotJson, raw),
+                Some(FormatDetail::Fenced),
+                "{raw}: a trimmed fence prefix is the fenced detail"
+            );
+        }
+        for raw in ["\"TranslateWord\"", "[\"数组也不是对象\"]", "null", "42"] {
+            assert_eq!(
+                format_detail(Violation::NotJson, raw),
+                Some(FormatDetail::NotAnObject),
+                "{raw}: valid JSON that is not an object"
+            );
+        }
+        for raw in ["{\"note\":\"义", "{\"kind\":\"TranslateWord\""] {
+            assert_eq!(
+                format_detail(Violation::NotJson, raw),
+                Some(FormatDetail::Truncated),
+                "{raw}: an end-of-input parse error is truncation"
+            );
+        }
+        assert_eq!(
+            format_detail(Violation::NotJson, "整段散文，不是 JSON"),
+            None,
+            "a syntax error at the first byte is no truncation"
+        );
+        assert_eq!(
+            format_detail(Violation::NotJson, "```\nMARKER-回复原文\n```"),
+            Some(FormatDetail::Fenced),
+            "the detail carries the structural fact only, never the fenced content"
+        );
+    }
+
+    #[test]
+    fn format_detail_maps_missing_note_shapes_to_key_or_string_details() {
+        use super::{FormatDetail, format_detail};
+
+        for raw in ["{}", "{\"structured\":{\"examples\":[]}}"] {
+            assert_eq!(
+                format_detail(Violation::MissingNote, raw),
+                Some(FormatDetail::NoteKeyMissing),
+                "{raw}: an object without the note key"
+            );
+        }
+        for raw in ["{\"note\":null}", "{\"note\":42}", "{\"note\":\"   \"}"] {
+            assert_eq!(
+                format_detail(Violation::MissingNote, raw),
+                Some(FormatDetail::NoteNotString),
+                "{raw}: a non-string or blank note"
+            );
+        }
+        assert_eq!(
+            format_detail(Violation::MissingNote, "整段散文"),
+            None,
+            "an unparsable raw carries no note detail"
+        );
+    }
+
+    #[test]
+    fn format_detail_returns_none_for_undetailed_violations_and_legal_input() {
+        use super::format_detail;
+
+        for raw in ["", "   ", "{\"note\":\"义\",\"structured\":{}}"] {
+            for violation in [Violation::EmptyReply, Violation::KindNotAllowed] {
+                assert_eq!(
+                    format_detail(violation, raw),
+                    None,
+                    "{violation:?} x {raw:?}: violations without details never detail"
+                );
+            }
+        }
+        assert_eq!(
+            format_detail(Violation::NotJson, "{\"note\":\"义\"}"),
+            None,
+            "a legal object is no NotJson detail"
+        );
+        assert_eq!(
+            format_detail(Violation::MissingNote, "{\"note\":\"义\"}"),
+            None,
+            "a legal note is no MissingNote detail"
+        );
+    }
+
+    #[test]
+    fn classify_category_names_match_the_validator_exactly() {
+        use super::CLASSIFY_CATEGORY_NAMES;
+
+        assert_eq!(CLASSIFY_CATEGORY_NAMES.len(), 4);
+        for name in CLASSIFY_CATEGORY_NAMES {
+            let choice = validate_classify(&format!("{{\"kind\":\"{name}\"}}"))
+                .unwrap_or_else(|violation| panic!("{name} must validate: {violation}"));
+            assert_eq!(choice.model_kind, name);
+        }
+        assert!(
+            CLASSIFY_CATEGORY_NAMES.contains(&"Fallback"),
+            "the model-facing fallback category is part of the fixed category set"
+        );
+    }
 
     #[test]
     fn violations_carry_fixed_wording_without_reply_content() {

@@ -17,10 +17,15 @@
 //! 严格裸格式（JSON）校验（契约模块），围栏输出即违约进修复轮。模态矩阵
 //! 之外的输入一律以模态不支持错误上抛，不发出注定无效的请求。
 //!
-//! 分类与修复的指令同样自包含：分类模板自带类别清单与判别规则（兜底
-//! 类别由分类校验器映射兜底），
-//! 修复模板只携带违约固定措辞（违约原因占位符回灌）。模板文本是编译期
-//! 嵌入的文件资源（核心层内嵌的各语言模板文件），
+//! 分类与修复的指令同样自包含：分类系统提示由骨架（分类模板，只留引言
+//! 与输出形状）加类别段（措辞注册表按类别渲染）两段拼装，兜底类别由
+//! 分类校验器映射兜底；修复指令全部由措辞注册表组合渲染——三段修复轮
+//! （任务、分类、语言）共用一份骨架（头、行、尾），任务与分类段的行是
+//! 违约级或细节措辞行，语言段的行由聚合、排序与封顶在组合层落成
+//! （同字段同类违约合并为一行、按字段序排序、封顶附截断注），回指句只
+//! 指称上一条回复的身份。注册表的键与枚举变体的双向集合相等由完整性
+//! 测试锁定；运行时缺键有痕降级，回落固定措辞，不中断运行。模板文本
+//! 是编译期嵌入的文件资源（核心层内嵌的各语言模板文件与措辞注册表），
 //! 渲染是显式的双花括号占位符替换（可选行语义见渲染助手）。
 //! 不注入模态提示行：源语言与代码语言都由模型从原文自行判断，代码语言经
 //! 产物对象的代码语言字段回传界面。
@@ -39,10 +44,15 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use crate::lang_gate::{LangCategory, LangField, LangViolation};
 use crate::model::{GlossError, Lang, Locale};
+use crate::schema::{FormatDetail, Violation};
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
+use crate::wordings;
 
 pub(crate) const DEFAULT_TARGET: Lang = Lang::Zh;
+
+const LANG_REPAIR_ROW_CAP: usize = 12;
 
 #[derive(Debug, Clone, Copy)]
 struct Templates {
@@ -54,8 +64,6 @@ struct Templates {
     target_lang: &'static str,
     discipline: &'static str,
     classify: &'static str,
-    repair: &'static str,
-    repair_language: &'static str,
 }
 
 impl Locale {
@@ -70,8 +78,6 @@ impl Locale {
                 target_lang: include_str!("../prompts/zh/target_lang.md"),
                 discipline: include_str!("../prompts/zh/discipline.md"),
                 classify: include_str!("../prompts/zh/classify.md"),
-                repair: include_str!("../prompts/zh/repair.md"),
-                repair_language: include_str!("../prompts/zh/repair_language.md"),
             },
             Locale::En => Templates {
                 word_card: include_str!("../prompts/en/word_card.md"),
@@ -82,8 +88,6 @@ impl Locale {
                 target_lang: include_str!("../prompts/en/target_lang.md"),
                 discipline: include_str!("../prompts/en/discipline.md"),
                 classify: include_str!("../prompts/en/classify.md"),
-                repair: include_str!("../prompts/en/repair.md"),
-                repair_language: include_str!("../prompts/en/repair_language.md"),
             },
         }
     }
@@ -177,31 +181,199 @@ impl PromptRegistry {
 
     pub fn render_classify(&self, locale: Locale, text: &str) -> Vec<ChatMessage> {
         let templates = locale.templates();
-        vec![
-            ChatMessage::system(templates.classify),
-            ChatMessage::user(text),
-        ]
+        let system = format!(
+            "{}\n\n{}",
+            render_template(templates.classify, &[]),
+            classify_category_section(locale),
+        );
+        vec![ChatMessage::system(system), ChatMessage::user(text)]
     }
 
-    pub fn render_repair(&self, locale: Locale, violation: crate::schema::Violation) -> String {
-        render_template(
-            locale.templates().repair,
-            &[("reason", &violation.to_string())],
-        )
-    }
-
-    pub fn render_language_repair(
+    pub fn render_repair(
         &self,
         locale: Locale,
-        violations: &[crate::lang_gate::LangViolation],
+        violation: Violation,
+        detail: Option<FormatDetail>,
     ) -> String {
-        let list = violations
-            .iter()
-            .map(|violation| violation.line(locale))
-            .collect::<Vec<_>>()
-            .join("\n");
-        render_template(locale.templates().repair_language, &[("violations", &list)])
+        let key = detail
+            .map(FormatDetail::key)
+            .unwrap_or_else(|| violation.key());
+        let frame = wordings::frame(locale);
+        let row = repair_row(frame, wordings::format_row(locale, key), violation);
+        match frame {
+            Some(frame) => repair_instruction(frame, &[row], false),
+            None => row,
+        }
     }
+
+    pub fn render_language_repair(&self, locale: Locale, violations: &[LangViolation]) -> String {
+        let frame = wordings::frame(locale);
+        let (rows, truncated) = language_repair_rows(locale, frame, violations);
+        let Some(frame) = frame else {
+            return rows.join("\n");
+        };
+        let mut instruction = String::new();
+        instruction.push_str(frame.back_reference.trim_end());
+        instruction.push('\n');
+        instruction.push_str(&repair_instruction(frame, &rows, truncated));
+        instruction
+    }
+}
+
+fn classify_category_section(locale: Locale) -> String {
+    let (header, separator) = match locale {
+        Locale::Zh => ("### 类别", "："),
+        Locale::En => ("### Categories", ": "),
+    };
+    let entries = crate::schema::CLASSIFY_CATEGORY_NAMES.map(|name| {
+        match wordings::classify_definition(locale, name) {
+            Some(definition) => format!("- {name}{separator}{definition}"),
+            None => format!("- {name}"),
+        }
+    });
+    format!("{header}\n\n{}", entries.join("\n\n"))
+}
+
+fn repair_instruction(frame: &wordings::FrameWording, rows: &[String], truncated: bool) -> String {
+    let mut out = String::new();
+    out.push_str(frame.header.trim_end());
+    for row in rows {
+        out.push('\n');
+        out.push_str(row);
+    }
+    if truncated {
+        out.push('\n');
+        out.push_str(frame.truncated_note.trim_end());
+    }
+    out.push('\n');
+    out.push_str(frame.closing.trim_end());
+    out
+}
+
+fn repair_row(
+    frame: Option<&wordings::FrameWording>,
+    wording: Option<&wordings::RowWording>,
+    violation: Violation,
+) -> String {
+    let Some((frame, wording)) = frame.zip(wording) else {
+        return violation.to_string();
+    };
+    render_template(
+        &frame.row,
+        &[
+            ("position", wording.position.as_str()),
+            ("rule", violation.key()),
+            ("action", wording.action.as_str()),
+        ],
+    )
+}
+
+struct LangGroup<'a> {
+    field: LangField,
+    category: LangCategory,
+    example_indices: Vec<usize>,
+    first: &'a LangViolation,
+}
+
+impl LangGroup<'_> {
+    fn push(&mut self, violation: &LangViolation) {
+        if let LangField::Example(index) = violation.field {
+            self.example_indices.push(index);
+        }
+    }
+}
+
+fn aggregate_groups(violations: &[LangViolation]) -> Vec<LangGroup<'_>> {
+    let mut sorted: Vec<&LangViolation> = violations.iter().collect();
+    sorted.sort_unstable();
+    let mut groups: Vec<LangGroup<'_>> = Vec::new();
+    for violation in sorted {
+        match groups.last_mut() {
+            Some(group)
+                if group.category == violation.category
+                    && same_field_family(group.field, violation.field) =>
+            {
+                group.push(violation);
+            }
+            _ => groups.push(LangGroup {
+                field: violation.field,
+                category: violation.category,
+                example_indices: match violation.field {
+                    LangField::Example(index) => vec![index],
+                    _ => Vec::new(),
+                },
+                first: violation,
+            }),
+        }
+    }
+    groups
+}
+
+fn same_field_family(left: LangField, right: LangField) -> bool {
+    matches!(
+        (left, right),
+        (LangField::Note, LangField::Note)
+            | (LangField::Phonetic, LangField::Phonetic)
+            | (LangField::Example(_), LangField::Example(_))
+    )
+}
+
+fn lang_position(locale: Locale, group: &LangGroup<'_>) -> String {
+    match group.field {
+        LangField::Note => "note".to_owned(),
+        LangField::Phonetic => "phonetic".to_owned(),
+        LangField::Example(_) => {
+            let mut indices: Vec<usize> = group.example_indices.clone();
+            indices.sort_unstable();
+            let joiner = if locale == Locale::Zh { "、" } else { ", " };
+            let joined = indices
+                .iter()
+                .map(|index| (index + 1).to_string())
+                .collect::<Vec<_>>()
+                .join(joiner);
+            match locale {
+                Locale::Zh => format!("examples 第 {joined} 条"),
+                Locale::En if indices.len() == 1 => format!("examples item {joined}"),
+                Locale::En => format!("examples items {joined}"),
+            }
+        }
+    }
+}
+
+fn group_row(
+    locale: Locale,
+    frame: Option<&wordings::FrameWording>,
+    group: &LangGroup<'_>,
+) -> String {
+    let rule = group.category.rule_id();
+    let Some((frame, action)) = frame.zip(wordings::lang_action(locale, rule)) else {
+        return group.first.line();
+    };
+    render_template(
+        &frame.row,
+        &[
+            ("position", lang_position(locale, group).as_str()),
+            ("rule", rule),
+            ("action", action),
+        ],
+    )
+}
+
+fn language_repair_rows(
+    locale: Locale,
+    frame: Option<&wordings::FrameWording>,
+    violations: &[LangViolation],
+) -> (Vec<String>, bool) {
+    let mut rows = Vec::new();
+    let mut truncated = false;
+    for group in aggregate_groups(violations) {
+        if rows.len() == LANG_REPAIR_ROW_CAP {
+            truncated = true;
+            break;
+        }
+        rows.push(group_row(locale, frame, &group));
+    }
+    (rows, truncated)
 }
 
 pub(crate) fn repair_conversation(
@@ -329,6 +501,21 @@ fn substitute_line(line: &str, values: &[(&str, &str)]) -> RenderedLine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lang_gate::LangCategory;
+
+    const ALL_LANG_CATEGORIES: [LangCategory; 11] = [
+        LangCategory::ForeignRun,
+        LangCategory::TraditionalChar,
+        LangCategory::PunctuationMismatch,
+        LangCategory::MissingSpace,
+        LangCategory::EmojiForbidden,
+        LangCategory::MarkdownForbidden,
+        LangCategory::UnclosedContainer,
+        LangCategory::ContainerMixing,
+        LangCategory::SentenceInParens,
+        LangCategory::SourceOverlap,
+        LangCategory::PhoneticCharset,
+    ];
 
     fn text_task(kind: TaskKind, text: &str) -> Task {
         Task::new(
@@ -525,7 +712,6 @@ mod tests {
                 ("image_explain.md", templates.image_explain),
                 ("general.md", templates.general),
                 ("classify.md", templates.classify),
-                ("repair.md", templates.repair),
                 ("discipline.md", templates.discipline),
             ] {
                 assert!(
@@ -540,30 +726,165 @@ mod tests {
     #[test]
     fn repair_instruction_renders_without_leftover_placeholders() {
         let registry = PromptRegistry::new();
+        let details = [
+            None,
+            Some(FormatDetail::Fenced),
+            Some(FormatDetail::NotAnObject),
+            Some(FormatDetail::Truncated),
+            Some(FormatDetail::NoteKeyMissing),
+            Some(FormatDetail::NoteNotString),
+        ];
         for locale in [Locale::Zh, Locale::En] {
             for violation in [
-                crate::schema::Violation::EmptyReply,
-                crate::schema::Violation::NotJson,
-                crate::schema::Violation::MissingNote,
-                crate::schema::Violation::KindNotAllowed,
+                Violation::EmptyReply,
+                Violation::NotJson,
+                Violation::MissingNote,
+                Violation::KindNotAllowed,
             ] {
-                let instruction = registry.render_repair(locale, violation);
+                for detail in details {
+                    let instruction = registry.render_repair(locale, violation, detail);
+                    assert!(
+                        !instruction.contains("{{"),
+                        "{locale:?} x {violation:?} x {detail:?} leaves a placeholder: \
+                         {instruction}"
+                    );
+                    assert!(
+                        !instruction.is_empty(),
+                        "{locale:?} x {violation:?} x {detail:?}: the wording keeps the \
+                         instruction non-empty"
+                    );
+                    assert!(
+                        instruction.to_lowercase().contains("json"),
+                        "{locale:?} x {violation:?} x {detail:?}: the repair prompt must \
+                         mention json (the endpoint's JSON-mode gate reads it): {instruction}"
+                    );
+                }
+            }
+        }
+    }
+
+    const DETAIL_WORDING_CASES: [(FormatDetail, &str, &str, &str, &str); 5] = [
+        (
+            FormatDetail::Fenced,
+            "回复被代码围栏包裹",
+            "去掉围栏",
+            "wrapped in a code fence",
+            "Remove the fence",
+        ),
+        (
+            FormatDetail::NotAnObject,
+            "不是对象",
+            "改为以花括号开头结尾的单个对象",
+            "not an object",
+            "single object",
+        ),
+        (
+            FormatDetail::Truncated,
+            "对象未闭合",
+            "精简内容后完整输出",
+            "not closed",
+            "Trim the content",
+        ),
+        (
+            FormatDetail::NoteKeyMissing,
+            "缺少 `note` 键",
+            "补上 `note` 键",
+            "missing the `note` key",
+            "Add the `note` key",
+        ),
+        (
+            FormatDetail::NoteNotString,
+            "不是非空字符串",
+            "改为非空字符串",
+            "non-empty string",
+            "non-empty string",
+        ),
+    ];
+
+    #[test]
+    fn repair_instruction_composes_the_detail_wording_onto_the_skeleton() {
+        let registry = PromptRegistry::new();
+        for locale in [Locale::Zh, Locale::En] {
+            for (detail, zh_position, zh_action, en_position, en_action) in DETAIL_WORDING_CASES {
+                let instruction = registry.render_repair(locale, Violation::NotJson, Some(detail));
+                let (needle, action) = match locale {
+                    Locale::Zh => (zh_position, zh_action),
+                    Locale::En => (en_position, en_action),
+                };
                 assert!(
-                    !instruction.contains("{{"),
-                    "{locale:?} x {violation:?} leaves a placeholder: {instruction}"
+                    instruction.contains(needle) && instruction.contains(action),
+                    "{locale:?} x {detail:?}: the detail position and action ride the \
+                     instruction: {instruction}"
                 );
                 assert!(
-                    !instruction.is_empty(),
-                    "{locale:?} x {violation:?}: the violation wording keeps the \
-                     instruction non-empty"
+                    instruction.contains("NotJson"),
+                    "{locale:?} x {detail:?}: the row names the violated rule id: \
+                     {instruction}"
                 );
+                for marker in ["MARKER", "{\"note\":\"", "选区原文"] {
+                    assert!(
+                        !instruction.contains(marker),
+                        "{locale:?} x {detail:?}: the detail wording carries structural \
+                         facts only, never reply content ({marker}): {instruction}"
+                    );
+                }
             }
         }
     }
 
     #[test]
+    fn repair_instruction_without_detail_rides_the_violation_level_row() {
+        let registry = PromptRegistry::new();
+        for locale in [Locale::Zh, Locale::En] {
+            let prose = registry.render_repair(Locale::Zh, Violation::NotJson, None);
+            assert!(
+                prose.contains("回复不是裸（JSON）对象：NotJson——"),
+                "the violation-level row carries position, rule id and action: {prose}"
+            );
+            let en = registry.render_repair(Locale::En, Violation::NotJson, None);
+            assert!(
+                en.contains("not a bare JSON object: NotJson — "),
+                "the violation-level row carries position, rule id and action: {en}"
+            );
+            for violation in [Violation::EmptyReply, Violation::KindNotAllowed] {
+                let instruction = registry.render_repair(locale, violation, None);
+                assert!(
+                    instruction.contains(violation.key()),
+                    "{locale:?} x {violation:?}: every violation maps into the instruction: \
+                     {instruction}"
+                );
+                assert!(
+                    !instruction.contains("{{"),
+                    "{locale:?} x {violation:?}: no leftover placeholders: {instruction}"
+                );
+            }
+        }
+        let zh = registry.render_repair(Locale::Zh, Violation::KindNotAllowed, None);
+        assert!(
+            !zh.contains("{\"kind\"") && !zh.contains("{\"note\""),
+            "the repair instruction no longer quotes a contract schema line: {zh}"
+        );
+    }
+
+    #[test]
+    fn repair_row_falls_back_to_the_display_wording_when_the_registry_is_missing() {
+        let violation = Violation::NotJson;
+        assert_eq!(
+            repair_row(None, None, violation),
+            violation.to_string(),
+            "without the frame the row degrades to the fixed violation wording"
+        );
+        let frame = crate::wordings::frame(Locale::Zh).expect("the embedded registry parses");
+        assert_eq!(
+            repair_row(Some(frame), None, violation),
+            violation.to_string(),
+            "a missing wording key degrades to the fixed violation wording"
+        );
+    }
+
+    #[test]
     fn language_repair_instruction_carries_the_row_list_only() {
-        use crate::lang_gate::{LangCategory, LangField, LangViolation};
+        use crate::lang_gate::{LangField, LangViolation};
 
         let registry = PromptRegistry::new();
         let violations = [
@@ -592,11 +913,146 @@ mod tests {
         }
         let zh = registry.render_language_repair(Locale::Zh, &violations);
         assert!(
+            zh.starts_with("你在上一条回复中的输出即反例。"),
+            "the back reference names the previous reply's identity only: {zh}"
+        );
+        assert!(
+            zh.contains("note：MissingSpace——"),
+            "the row format is field position, rule id, action: {zh}"
+        );
+        assert!(
             zh.contains("examples 第 2 条：ForeignRun——"),
             "the row format is field position, rule id, action: {zh}"
         );
         let en = registry.render_language_repair(Locale::En, &violations);
+        assert!(
+            en.starts_with("The output in your previous reply is the counterexample."),
+            "the back reference names the previous reply's identity only: {en}"
+        );
         assert!(en.contains("examples item 2: ForeignRun — "), "{en}");
+    }
+
+    #[test]
+    fn language_repair_aggregates_same_field_and_category_and_sorts_by_field_order() {
+        use crate::lang_gate::{LangField, LangViolation};
+
+        let registry = PromptRegistry::new();
+        let violations = [
+            LangViolation::new(LangField::Example(4), LangCategory::ForeignRun),
+            LangViolation::new(LangField::Note, LangCategory::MissingSpace),
+            LangViolation::new(LangField::Example(1), LangCategory::ForeignRun),
+            LangViolation::new(LangField::Phonetic, LangCategory::PhoneticCharset),
+            LangViolation::new(LangField::Example(6), LangCategory::ForeignRun),
+            LangViolation::new(LangField::Note, LangCategory::ForeignRun),
+        ];
+        let zh = registry.render_language_repair(Locale::Zh, &violations);
+        let examples_row = zh
+            .find("examples 第 2、5、7 条：ForeignRun")
+            .unwrap_or_else(|| {
+                panic!(
+                    "same-field same-category rows merge with sorted \
+                                       indices: {zh}"
+                )
+            });
+        let phonetic_row = zh
+            .find("phonetic：PhoneticCharset")
+            .unwrap_or_else(|| panic!("every rule id survives the aggregation: {zh}"));
+        let note_foreign_row = zh
+            .find("note：ForeignRun——")
+            .unwrap_or_else(|| panic!("the note field keeps its own row: {zh}"));
+        let note_missing_row = zh
+            .find("note：MissingSpace——")
+            .unwrap_or_else(|| panic!("the note field keeps its own row: {zh}"));
+        assert!(
+            note_foreign_row < phonetic_row
+                && phonetic_row < examples_row
+                && note_missing_row < phonetic_row,
+            "rows follow the schema field order (note, phonetic, examples): {zh}"
+        );
+        let en = registry.render_language_repair(Locale::En, &violations);
+        assert!(
+            en.contains("examples items 2, 5, 7: ForeignRun — "),
+            "merged indices ride the localized position: {en}"
+        );
+    }
+
+    #[test]
+    fn language_repair_caps_rows_and_appends_the_truncated_note() {
+        use crate::lang_gate::{LangField, LangViolation};
+
+        let registry = PromptRegistry::new();
+        let mut over: Vec<LangViolation> = ALL_LANG_CATEGORIES
+            .map(|category| LangViolation::new(LangField::Note, category))
+            .into_iter()
+            .collect();
+        over.push(LangViolation::new(
+            LangField::Phonetic,
+            LangCategory::PhoneticCharset,
+        ));
+        over.push(LangViolation::new(
+            LangField::Example(0),
+            LangCategory::ForeignRun,
+        ));
+        let zh = registry.render_language_repair(Locale::Zh, &over);
+        let rows = zh
+            .lines()
+            .skip_while(|line| !line.contains("违约清单如下"))
+            .skip(1)
+            .take_while(|line| !line.contains("请逐条修正后") && !line.contains("其余为同类违约"))
+            .count();
+        assert_eq!(
+            rows,
+            super::LANG_REPAIR_ROW_CAP,
+            "the list caps at the budget after aggregation: {zh}"
+        );
+        assert!(
+            zh.contains("其余为同类违约，一并修正。"),
+            "the truncated note rides the capped list: {zh}"
+        );
+        assert!(
+            !zh.contains("examples 第 1 条：ForeignRun"),
+            "the capped-off group is dropped, not silently overflowed: {zh}"
+        );
+    }
+
+    #[test]
+    fn language_repair_within_the_cap_carries_no_truncated_note() {
+        use crate::lang_gate::{LangField, LangViolation};
+
+        let registry = PromptRegistry::new();
+        let mut within: Vec<LangViolation> = ALL_LANG_CATEGORIES
+            .map(|category| LangViolation::new(LangField::Note, category))
+            .into_iter()
+            .collect();
+        within.push(LangViolation::new(
+            LangField::Phonetic,
+            LangCategory::PhoneticCharset,
+        ));
+        let zh = registry.render_language_repair(Locale::Zh, &within);
+        assert!(
+            !zh.contains("其余为同类违约"),
+            "a list within the cap carries no truncated note: {zh}"
+        );
+    }
+
+    #[test]
+    fn language_repair_degrades_to_position_and_rule_id_lines_without_the_registry() {
+        use crate::lang_gate::{LangField, LangViolation};
+
+        let violations = [
+            LangViolation::new(LangField::Example(0), LangCategory::ForeignRun),
+            LangViolation::new(LangField::Note, LangCategory::MissingSpace),
+        ];
+        let (rows, truncated) = super::language_repair_rows(Locale::Zh, None, &violations);
+        assert!(!truncated);
+        assert_eq!(
+            rows,
+            vec![
+                "note: MissingSpace".to_owned(),
+                "examples[0]: ForeignRun".to_owned(),
+            ],
+            "without the frame each group degrades to the position and rule id line"
+        );
     }
 
     fn assert_clause_then_discipline_tail(
@@ -876,6 +1332,52 @@ mod tests {
     }
 
     #[test]
+    fn classify_prompt_composes_the_skeleton_and_the_registry_category_section() {
+        let registry = PromptRegistry::new();
+        for locale in [Locale::Zh, Locale::En] {
+            let messages = registry.render_classify(locale, "gloss 原文");
+            let system = text_of(&messages[0].content);
+            let skeleton = locale.templates().classify;
+            assert!(
+                system.starts_with(skeleton.trim_end()),
+                "{locale:?}: the skeleton (intro and output shape) rides verbatim first: \
+                 {system}"
+            );
+            let section = match locale {
+                Locale::Zh => "### 类别",
+                Locale::En => "### Categories",
+            };
+            assert!(
+                system.contains(section),
+                "{locale:?}: the category section follows the skeleton: {system}"
+            );
+            for name in crate::schema::CLASSIFY_CATEGORY_NAMES {
+                assert!(
+                    system.contains(&format!("- {name}")),
+                    "{locale:?}: every template category carries a registry definition: \
+                     {system}"
+                );
+            }
+            assert!(!system.contains("{{"), "{locale:?}: {system}");
+        }
+        let zh_messages = registry.render_classify(Locale::Zh, "原文");
+        assert!(
+            text_of(&zh_messages[0].content).contains("- TranslateWord：翻译单个词汇项"),
+            "the zh section renders the migrated definition: {}",
+            text_of(&zh_messages[0].content)
+        );
+        let en_messages = registry.render_classify(Locale::En, "text");
+        assert!(
+            text_of(&en_messages[0].content).contains(
+                "- TranslateWord: Translate a single \
+                                                      lexical item"
+            ),
+            "the en section renders the migrated definition: {}",
+            text_of(&en_messages[0].content)
+        );
+    }
+
+    #[test]
     fn the_general_kind_is_never_named_by_the_classify_template() {
         let registry = PromptRegistry::new();
         for locale in [Locale::Zh, Locale::En] {
@@ -943,42 +1445,6 @@ mod tests {
     }
 
     #[test]
-    fn repair_instruction_carries_the_violation_reason_only() {
-        let registry = PromptRegistry::new();
-        let violation = crate::schema::Violation::NotJson;
-
-        let zh = registry.render_repair(Locale::Zh, violation);
-        assert!(
-            zh.contains("reply is not a bare JSON object"),
-            "the fixed violation wording rides the instruction as the reason: {zh}"
-        );
-        assert!(
-            !zh.contains("{{"),
-            "{locale:?} renders without leftover placeholders: {zh}",
-            locale = Locale::Zh
-        );
-        assert!(
-            !zh.contains("{\"kind\"") && !zh.contains("{\"note\""),
-            "the repair template no longer quotes a contract schema line: {zh}"
-        );
-
-        let en = registry.render_repair(Locale::En, crate::schema::Violation::EmptyReply);
-        assert!(en.contains("empty reply"));
-        assert!(!en.contains("{{"), "{en}");
-        assert!(
-            en.to_lowercase().contains("json"),
-            "the repair prompt must mention json (the endpoint's JSON-mode gate reads it)"
-        );
-
-        let kind_not_allowed =
-            registry.render_repair(Locale::Zh, crate::schema::Violation::KindNotAllowed);
-        assert!(
-            kind_not_allowed.contains("reply kind is not one of the classify categories"),
-            "every violation wording maps into the instruction: {kind_not_allowed}"
-        );
-    }
-
-    #[test]
     fn repair_conversation_replays_the_history_with_the_bad_reply() {
         use super::repair_conversation;
 
@@ -1004,7 +1470,7 @@ mod tests {
 
     #[test]
     fn every_template_placeholder_is_declared() {
-        let declared = ["target", "reason", "violations"];
+        let declared = ["target"];
         for locale in [Locale::Zh, Locale::En] {
             let templates = locale.templates();
             let files = [
@@ -1016,8 +1482,6 @@ mod tests {
                 ("target_lang.md", templates.target_lang),
                 ("discipline.md", templates.discipline),
                 ("classify.md", templates.classify),
-                ("repair.md", templates.repair),
-                ("repair_language.md", templates.repair_language),
             ];
             for (name, text) in files {
                 for (index, _) in text.match_indices("{{") {

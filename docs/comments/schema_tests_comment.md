@@ -11,3 +11,17 @@
   任务——就地忽略）。
 - 语义依据见 schema.rs_comment.md（校验分级）与 docs/tests/bdd.md 对应行
   （测试名称与场景的一览面）。
+
+## format_detail 矩阵（期三，2026-10-29）
+
+- format_detail_maps_fence_truncation_and_non_object_shapes：围栏（含前后
+  空白与围栏内原文不随行的红线断言）、合法非对象（标量、数组、`null`）、
+  输入耗尽判截断、首字节语法错不判截断，四形态各归其键。
+- format_detail_maps_missing_note_shapes_to_key_or_string_details：缺键与
+  非字符串或空白分落两细节，不可解析原文无细节（校验器先于细节，细节函数
+  自身防御）。
+- format_detail_returns_none_for_undetailed_violations_and_legal_input：
+  无细节违约与契约合法输入恒无细节——合法输入返回无细节是矩阵的收尾格。
+- classify_category_names_match_the_validator_exactly：类别常量逐个过
+  `validate_classify`，类别段渲染与校验器共用同一集合（一致性测试的
+  分类一份）。

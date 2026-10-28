@@ -171,3 +171,9 @@ core 保持无日志面，避免同一事实在两层各记一条。
 ### 评审修复（2026-10-28，PR #259 评审 P2-7）
 
 - `lang_violations` 的防御 `None` 臂补 `warn`（「language gate saw a contract-invalid reply, delivering degraded」）：采纳守卫使该臂不可达，但「降级必有痕」的形态统一要求它真被触发时留痕（对照 `finalize.rs` 降级纪律）。
+
+## 修复调用点传细节（提示词模板重设计方案 §4.2，期三，2026-10-29）
+
+- 任务段违约修复在每轮判定后取 `format_detail(violation, reply)`，随
+  render_repair 传入细节；空回复重发路径不经指令渲染，预算常量
+  （任务三轮、语言一轮）不动（方案 §6 决策 17）。
