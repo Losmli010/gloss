@@ -14,6 +14,7 @@ pub mod clipboard;
 pub mod events;
 mod ffi;
 pub mod locale;
+pub mod menu;
 pub mod permissions;
 pub mod scene;
 pub mod selection;

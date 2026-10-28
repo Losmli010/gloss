@@ -38,3 +38,8 @@
 - `theme` 施加到各 egui 上下文（见 `Workspace::apply_theme`）。`system_locale` 是组装点读到的系统语言，供配置里的 `Language::System` 落定成 [`Locale`]（prompt 模板与界面文案共用）。`scene` 是触发前场景探针（安全输入态、前台应用），供敏感信息防护的场景闸门判定——同样是平台适配器的事，壳只消费。`permissions_ready` 是取材授权「辅助功能」的门控：启动时刻取预检结论，未就绪的会话在运行中授权落定后置位（见 `GlossApp::on_accessibility_granted`），密钥预热据此门控（见 `GlossApp::send_secret_prewarm`）。
 - `update` 是更新子系统的壳侧接线（组装点经 `update::start_once()` 建立，见 [`UpdateWiring`]）：设置页每帧读 watch 通道里的 [`crate::update::state::UpdateState`] 渲染，用户动作经出口转投模块——与主流程四通道完全隔离。
 - `clipboard_watch_enabled` 是剪贴板图片哨兵的共享开关位（组装点按启动快照创建、与事件线程的哨兵源同份）：App 在设置页保存成功时置位，热切换不重启（见 `Env` 的 `clipboard_watch_enabled` 字段）。
+
+## UserEvent::OpenSettings 与缺省菜单关闭（2026-10-29）
+
+- 新变体 `OpenSettings`：应用菜单设置项的唯一回程。菜单回调在窗口库事件循环内触发（主线程动作），直接 `send_event` 进用户事件通道，不走平台事件通道——后者是为事件线程装配的回程，菜单安装点手里只有代理。
+- 事件循环构建加 `with_default_menu(false)`：窗口库的缺省菜单词条硬编码英文，先关掉再由应用菜单模块整体装配本地化菜单，免得「英文菜单闪一帧再换」。

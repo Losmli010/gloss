@@ -22,3 +22,7 @@
 ## centered_position（浮层居中）
 
 - 浮层居中于显示器（逻辑坐标）：优先窗口当前所在的显示器，其次主显示器。定位与尺寸的算法在窗口管理器（`WindowManager::centered_position`），这里是给壳与自检 handler 的稳定入口。
+
+## 显隐出口的用户缩放会话清理（2026-10-29）
+
+- `show_overlay` / `dismiss_overlay` 改以 `&mut` 持窗口管理器：`hide` 现在顺带清用户缩放锚点（八向缩放会话的壳侧状态），显隐边界即会话边界——下一会话的浮层回默认尺寸，与界面侧 `reset_drag_state` 的清空对称。`show_overlay` 原先的空管理器早退随之并入条件分支（帧重置与管理器访问同批做）。

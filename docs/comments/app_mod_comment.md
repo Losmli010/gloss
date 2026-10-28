@@ -110,3 +110,8 @@ M4 指「配置与设置」里程碑，子编号 ①/② 仓内无定义，标�
 ## 浮层尺寸的双源仲裁
 
 - 2026-10-28 浮层尺寸出现两个来源：内容自适应高（原有）与用户拖拽缩放期望尺寸（新增）。装配点按「用户优先」仲裁——`resize` 在场即走 `resize_overlay_by_user`，否则回落内容自适应路径。粘性保证（缩放后逐帧都有 `resize`）让内容自适应在用户接管期间彻底退位，两条路径不叠写。
+
+## 应用菜单的装配与缩放意图分派（2026-10-29）
+
+- `GlossApp::install_app_menu`（`init` 末尾调用）：装配随系统语言的本地化应用菜单（平台层 `menu::install`，见 menu 记录），设置项回调经 `EventLoopProxy` 送入新增的 `UserEvent::OpenSettings`。装在 `init` 而非组装段 `on_waker`：窗口库的缺省菜单在事件循环启动时安装（晚于 `on_waker`），后装的会盖掉先装的；`init` 在其后运行，装完即成。代理缺失或装配失败只告警降级，不阻塞启动——缺省菜单已显式关闭，降级的实况是进程没有菜单栏，告警文案如实陈述。
+- `GlossApp::draw` 的缩放通道从「期望尺寸 `Vec2`」改为按意图分派：`Press → begin_user_resize`（建锚点）、`Drag → apply_user_resize`（逐帧求解落窗）、`Settle → settle_user_resize`（粘性帧，不落窗）；`None`（无用户缩放会话）才走内容自适应的 `set_overlay_size`——粘性接管语义由意图协议承载，壳侧不再各自记「用户已接管」状态。

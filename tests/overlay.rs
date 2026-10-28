@@ -218,7 +218,7 @@ impl OverlaySelfTest {
         self.shown_at = Some(now);
         self.auto_hide = Some(now + SELFTEST_VISIBLE);
         self.last_frame_at = None;
-        if let Some((windows, frame)) = self.windows.as_ref().zip(self.frame.as_ref()) {
+        if let Some((windows, frame)) = self.windows.as_mut().zip(self.frame.as_ref()) {
             frame.reset_appear_animation();
             let position = centered_position(event_loop, windows);
             windows.show_at(position);
@@ -296,7 +296,7 @@ impl ApplicationHandler for OverlaySelfTest {
         if self.auto_hide.is_some_and(|deadline| deadline <= now) {
             self.auto_hide = None;
             let hide_started = Instant::now();
-            if let Some(windows) = &self.windows {
+            if let Some(windows) = &mut self.windows {
                 windows.hide();
             }
             self.hide_latencies.push(hide_started.elapsed());
