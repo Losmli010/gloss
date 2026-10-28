@@ -24,7 +24,7 @@ pub(super) fn connection_section(
     errors: &HashMap<FieldKey, FieldError>,
     text: &Text,
 ) {
-    ui.label("Base URL");
+    ui.label(text.gloss_settings_base_url.as_str());
     let response = add_input(ui, &mut state.draft.base_url, |e| {
         e.hint_text(text.gloss_settings_base_url_hint.as_str())
             .desired_width(f32::INFINITY)
@@ -33,7 +33,7 @@ pub(super) fn connection_section(
     error_text(ui, errors, FieldKey::BaseUrl, text);
     ui.add_space(space::ITEM);
 
-    ui.label("API Key");
+    ui.label(text.gloss_settings_api_key.as_str());
     ui.horizontal(|ui| {
         let input_width = ui.available_width() - geometry::settings::CLEAR_BUTTON_RESERVE;
         let typed = add_input(ui, &mut state.api_key, |e| {

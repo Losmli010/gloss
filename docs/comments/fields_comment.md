@@ -4,7 +4,7 @@
 
 ## `connection_section`
 
-- 模型区：Base URL → API Key（写 keychain，不进配置）→ 模型标识（2026-10-28 词条去英文，原「模型 ID」）。
+- 模型区：服务地址 → 密钥（写 keychain，不进配置）→ 模型标识。三个字段标签 2026-10-28 全部出自文案表（Base URL / API Key 两标签原硬编码在字段行，随显示调用点门禁入表；「模型 ID」同日去英文）。
 - 重新输入即撤销「清除」意图。
 
 ## `CLEAR_BUTTON_RESERVE`

@@ -179,6 +179,29 @@ def test_marker_only_covers_own_line(tmp_path: Path) -> None:
     assert_fail(tmp_path, "crates/gloss-app/src/allow_partial.rs", content)
 
 
+def test_display_site_ascii_literal_is_flagged(tmp_path: Path) -> None:
+    assert_fail(
+        tmp_path,
+        "crates/gloss-app/src/label.rs",
+        'fn render(ui: &mut egui::Ui) {\n    ui.label("Base URL");\n}',
+        "embeds a display literal",
+    )
+
+
+def test_display_site_marker_with_reason_passes(tmp_path: Path) -> None:
+    content = 'fn render(ui: &mut egui::Ui) {\n    ui.label("Base URL"); // %s 自检样张\n}' % MARKER
+    assert_pass(tmp_path, "crates/gloss-app/src/label.rs", content)
+
+
+def test_display_site_catalog_value_passes(tmp_path: Path) -> None:
+    content = (
+        "fn render(ui: &mut egui::Ui, text: &Text) {\n"
+        "    ui.label(text.gloss_settings_base_url.as_str());\n"
+        "}"
+    )
+    assert_pass(tmp_path, "crates/gloss-app/src/label.rs", content)
+
+
 def test_root_src_also_scanned(tmp_path: Path) -> None:
     assert_fail(tmp_path, "src/main.rs", 'fn main() {\n    let _ = "入口文案";\n}')
 

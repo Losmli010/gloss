@@ -5,9 +5,12 @@
 
 覆盖四条检查：
   文案字面量拦截  —— 各生产代码里，字符串、单字符与原始字符串字面量出现
-                     非英文字节（ASCII）即违规；测试模块、注释与属性内部（静态
-                     检查的元信息）不在判罚面。模型面向文案的统一处理点
-                     （模板资源加注入片段）整文件豁免。纯英文字节的硬编码
+                     非英文字节（ASCII）即违规；字符串字面量落在界面渲染
+                     入口（显示调用点）上即便纯英文也违规——界面文案只许
+                     出自文案表；测试模块、注释与属性内部（静态检查的
+                     元信息）不在判罚面。模型面向文案的统一处理点（模板
+                     资源加注入片段）整文件豁免；非文案字形与自检样张用
+                     行尾放行标记豁免，显示调用点之外的纯英文硬编码
                      不可由文本判定，靠人工评审。
   装入点集中      —— 编译期引用文案资源只允许出现在统一装入点一处。
   词条表文件唯一  —— 声明词条前缀键的配置文件只允许在文案目录下。
@@ -68,6 +71,11 @@ ENTRY_LINE_RE = re.compile(r'^\s*(gloss_[A-Za-z0-9_]+)\s*=\s*"(.*)"\s*$')
 
 TEMPLATE_RE = re.compile(r"\{\{[^}]*\}\}")
 ADDRESS_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+
+DISPLAY_SITE_RE = re.compile(
+    r'\b(?:ui\.label|ui\.button|RichText::new|selected_text|on_hover_text|hint_text)\(\s*"'
+    r'|[^_\w]\.text\(\s*"'
+)
 
 SCAN_BASES = (
     os.path.join("crates", "gloss-app", "src"),
@@ -234,9 +242,12 @@ def test_mod_brace(src: str, i: int) -> int | None:
         return None
 
 
-def literal_lines(src: str) -> set[int]:
-    """生产代码（注释、属性、#[cfg(test)] mod 项之外）里含非 ASCII 字面量的行号。"""
+def literal_lines(src: str) -> tuple[set[int], set[int]]:
+    """生产代码（注释、属性、#[cfg(test)] mod 项之外）里的字面量行号，返回
+    （非 ASCII 字面量行号，字符串字面量行号）两个集合；前者是任意位置的
+    判罚面，后者供显示调用点检查用——纯英文的界面文案只能靠调用点形状判定。"""
     hits = set()
+    sites = set()
     i, n, line = 0, len(src), 1
     state = "code"
     hashes = 0
@@ -287,8 +298,10 @@ def literal_lines(src: str) -> set[int]:
                     state = "code"
                     i += 1 + hashes
                     continue
-            if ord(c) > 127 and test_depth == 0 and not test_pending:
-                hits.add(line)
+            if test_depth == 0 and not test_pending:
+                if ord(c) > 127:
+                    hits.add(line)
+                sites.add(line)
             i += 1
             continue
         if state == "char":
@@ -365,7 +378,7 @@ def literal_lines(src: str) -> set[int]:
             elif c == "}":
                 test_depth -= 1
         i += 1
-    return hits
+    return hits, sites
 
 
 def read_lines(path: str, loader: Any = None) -> list[str]:
@@ -398,7 +411,9 @@ def guard_scan_dirs(root: str) -> None:
 
 
 def literal_findings(root: str, loader: Any = None) -> list[gate_report.Finding]:
-    """检查一：四个扫描面的生产代码字面量，逐行全量返回违规条目。"""
+    """检查一：四个扫描面的生产代码字面量，逐行全量返回违规条目——非 ASCII
+    字面量任意位置即拦，字符串字面量落在显示调用点（界面渲染入口）上即便
+    纯英文也拦，界面文案只许出自文案表。"""
     out = []
     for base in SCAN_BASES:
         for path in rs_files(os.path.join(root, base)):
@@ -406,18 +421,22 @@ def literal_findings(root: str, loader: Any = None) -> list[gate_report.Finding]
             if rel == EXEMPT_FILE:
                 continue
             lines = read_lines(path, loader)
-            for ln in sorted(literal_lines("\n".join(lines))):
+            hits, sites = literal_lines("\n".join(lines))
+            for ln in sorted(hits | sites):
+                if ln not in hits and not DISPLAY_SITE_RE.search(lines[ln - 1]):
+                    continue
                 line = lines[ln - 1]
                 if ALLOW_MARKER in line:
                     if gate_report.allow_reason_missing(ALLOW_MARKER, line):
                         out.append(gate_report.allow_reason_finding(ALLOW_MARKER, rel, ln, line))
                     continue
+                message = "embeds a copy literal" if ln in hits else "embeds a display literal"
                 out.append(
                     gate_report.Finding(
                         rule=RULE_I18N_LITERAL,
                         path=rel,
                         line=ln,
-                        message="%s line %d embeds a copy literal" % (rel, ln),
+                        message="%s line %d %s" % (rel, ln, message),
                         evidence=line,
                         remedy=LITERAL_REMEDY,
                     )

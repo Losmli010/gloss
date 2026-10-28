@@ -71,7 +71,9 @@ pub struct Text {
     pub(crate) gloss_settings_save: String,
     pub(crate) gloss_settings_cancel: String,
     pub(crate) gloss_settings_invalid_summary: String,
+    pub(crate) gloss_settings_base_url: String,
     pub(crate) gloss_settings_base_url_hint: String,
+    pub(crate) gloss_settings_api_key: String,
     pub(crate) gloss_settings_model: String,
     pub(crate) gloss_settings_model_hint: String,
     pub(crate) gloss_settings_key_keep_hint: String,
@@ -227,7 +229,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            89,
+            91,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
