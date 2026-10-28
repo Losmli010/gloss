@@ -519,21 +519,21 @@
 | classify_prompt_carries_the_template_categories_and_the_text | 分类提示词携带模板类别与原文 | 给定原文，当 `render_classify`（双语），则用户消息为原文、系统指令含模板四个类别标识（含 `Fallback`）与 `kind` 契约、无残留占位符 | 2026-10-20 |
 | output_example_carries_the_note_field | 输出示例携带 `note` 字段 | 给定双 `locale` 五份任务模板，当整行解析示例（JSON），则示例可解析且恒带 `note`（义，恒为首字段），流式渐进提取不受 `structured` 嵌套影响 | 2026-10-12 |
 | output_example_values_are_neutral_placeholders | 输出示例值为中性占位 | 给定双 `locale` 五份任务模板，当检查示例值，则恒为`<string>` 类占位、不含具体词条——同分类契约的少样本偏置取舍（照抄示例的比例随示例显著性上升） | 2026-10-12 |
-| text_kinds_render_system_and_user_with_kind_content | 文本 `kind` 渲染两段消息 | 给定四个文本 `kind`（词卡、句译、代码、通用），当渲染，则得 `[System, User]` 两段，系统指令含各自关键词与纯（JSON）输出契约，用户消息为原文 | 2026-10-12 |
+| text_kinds_render_system_and_user_with_kind_content | 文本 `kind` 渲染两段消息 | 给定四个文本 `kind`（词卡、句译、代码、通用），当渲染，则得 `[System, User]` 两段，系统指令含各自关键词（通用落“研究专家”，不带传统名号）与纯（JSON）输出契约，用户消息为原文 | 2026-10-29 |
 | the_general_kind_is_never_named_by_the_classify_template | 分类模板不含 `General` 标识 | 给定双语分类模板渲染，当检查，则系统指令不含 `General` 标识——模板以 `Fallback` 类别指认兜底，到 `General` 的映射在校验层 | 2026-10-20 |
 | output_example_carries_the_kind_fields | 输出示例携带 `kind` 字段 | 给定词卡、句译、代码解释模板（自包含任务书，含输出示例），当渲染并检查系统指令，则系统指令声明 `structured` 与 `note`，词卡示例另带 `phonetic/examples`、代码示例另带 `examples/code_language` | 2026-10-11 |
 | every_task_template_example_passes_validate_task | 模板示例过生产校验器（完整性门禁） | 给定 `locale` 双语与五份任务模板的全组合，当取出示例对象行，则示例对象过对应 `validate_task`、`structured` 内键齐每个 `kind`（词卡 `phonetic` 加 `examples`、句译、图像、通用 `examples`、代码 `examples` 加 `code_language`） | 2026-10-12 |
-| every_template_mentions_json | 所有模板必含 `json` 字样（完整性门禁） | 给定两个 `locale` 的七份模板（五份任务模板加 `classify.md` 与 `repair.md`），当检查原文，则都含 `json` 字样（端点 `JSON` 模式的提示读取它） | 2026-10-12 |
+| every_template_mentions_json | 所有模板必含 `json` 字样（完整性门禁） | 给定两个 `locale` 的八份模板（五份任务模板加 `classify.md`、`repair.md` 与 `discipline.md`），当检查原文，则都含 `json` 字样（端点 `JSON` 模式的提示读取它） | 2026-10-29 |
 | missing_target_lang_defaults_to_chinese | 目标语言缺省中文 | 给定未设 `target_lang`，当渲染句译，则系统指令含“中文” | 2026-09-19 |
 | explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 `Lang::Ja`，当渲染，则系统指令含“日语” | 2026-09-19 |
 | empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 `target_lang` 为 `Other("")` 与 `Other(" ")` 的两个 `locale`，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且纯（JSON）契约仍在 | 2026-10-11 |
 | image_explain_example_is_a_single_json_object_with_note_first | 图像模板示例为单（JSON）且 `note` 在前 | 给定双 `locale` 的 `image_explain` 模板，当整行解析示例（JSON），则示例可解析、键恰为 `note` 与 `structured`（`note` 在前），`structured` 内只有 `examples`（`interpretation` 旧名退役）——流式与完成态解析都按这份契约 | 2026-10-11 |
-| image_explain_renders_system_and_image_parts | 图像解读渲染系统指令与图像部件 | 给定 `ImageExplain` 图像任务，当渲染，则得 `[System, User]` 两段，用户消息是 `Parts([ImagePng])`（字节经 `Arc` 零拷贝共享），系统指令要求按（JSON）格式输出且携带 `note/structured.examples` 契约 | 2026-10-11 |
+| image_explain_renders_system_and_image_parts | 图像解读渲染系统指令与图像部件 | 给定 `ImageExplain` 图像任务，当渲染，则得 `[System, User]` 两段，用户消息是 `Parts([ImagePng])`（字节经 `Arc` 零拷贝共享），系统指令要求按（JSON）格式输出且携带 `note/structured.examples` 契约 | 2026-10-29 |
 | modality_mismatch_is_rejected_at_construction | 模态错配在构造时拒绝 | 给定图像 `kind` 配文本输入，当 `Task::new` 构造，则返回 `UnsupportedModality`（拒绝点在构造口，渲染路径不再兜底） | 2026-10-18 |
 | render_template_substitutes_placeholders | 占位符显式替换 | 给定含 `{{`占位符`}}` 的模板，当渲染，则按值替换、同名占位符可重复；未声明与未闭合的占位符原样保留（留待完整性测试抓） | 2026-09-22 |
 | render_template_drops_lines_whose_placeholders_are_empty | 占位符全空的行整行消失 | 给定提示行与指令行模板，当某行占位符值全为空，则该行连同行内静态文字与换行一并删除，其余行不受影响 | 2026-09-22 |
 | render_template_keeps_blank_lines_without_placeholders | 无占位符空行是结构 | 给定模板里的空行（不含占位符），当渲染，则原样保留 | 2026-09-22 |
-| every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 `locale` 的七份模板原文（五份任务模板加 `classify.md` 与 `repair.md`），当扫占位符，则每个 `{{` 都有闭合且名字都在已声明集合内（`target/reason`；嵌套契约的示例 `JSON` 以 `}}` 收尾，闭合计数因此可多于开启——按配对判）；未声明者若与已声明占位符同行会被整行删掉，产物断言看不见 | 2026-10-12 |
+| every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 `locale` 的十份模板原文（五份任务模板加 `target_lang.md`、`discipline.md`、`classify.md`、`repair.md` 与 `repair_language.md`），当扫占位符，则每个 `{{` 都有闭合且名字都在已声明集合内（`target/reason`；嵌套契约的示例 `JSON` 以 `}}` 收尾，闭合计数因此可多于开启——按配对判）；未声明者若与已声明占位符同行会被整行删掉，产物断言看不见 | 2026-10-29 |
 | every_locale_renders_without_leftover_placeholders | 全 `locale` 无残留占位符 | 给定 `locale` 中英两份与五个 `kind` 的全组合（四个文本任务加 `ImageExplain`），当渲染，则文本消息不含 `{{`、系统指令携带 `note` 纯（JSON）契约且不含旧围栏 | 2026-10-12 |
 | repair_instruction_carries_the_violation_reason_only | 修复指令只回灌违约措辞 | 给定双 `locale` 与各违约类别，当 `render_repair`，则指令把违约固定措辞作为 `reason` 回灌、无残留 `{{`、不带契约行与截断提示、含 `json` 字样 | 2026-10-20 |
 | repair_instruction_renders_without_leftover_placeholders | `repair` 指令渲染无残留占位符（完整性门禁） | 给定 `locale` 双语与四类违约的全组合，当 `render_repair`，则渲染产物不含 `{{` 且非空（可选行整行消失；`general.md` 等任务模板的同一门禁由全 `locale` 渲染测试锁定） | 2026-10-12 |
@@ -542,7 +542,8 @@
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 `En` `locale` 未设目标语言、`Zh` `locale` 设 `Lang::En`，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含“英语” | 2026-09-22 |
 | prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 `prompt_locale` 的任务，当渲染，则结果与显式 `Zh` 逐字一致且含“词典专家” | 2026-09-22 |
 | language_repair_instruction_carries_the_row_list_only | 语言修复指令只帧行式清单 | 给定两条违约条目与中英两语言，当 `render_language_repair`，则无残留占位符、行含规则标识与字段位置、不含回复原文、提及 `JSON`（端点 `JSON` 模式门读取） | 2026-10-28 |
-| every_task_system_prompt_ends_with_the_shared_clause | 共同条款逐字随每份任务书 | 给定五任务两语言的渲染，当比对系统提示尾部，则与共享目标语言条款逐字一致（条款单点维护，拼接自渲染入口） | 2026-10-28 |
+| every_task_system_prompt_ends_with_the_discipline_after_the_shared_clause | 纪律块垫底且共享条款在其前 | 给定五任务两语言的渲染，当比对系统提示尾部，则与共享输出纪律块逐字一致、其前紧接共享目标语言条款（两段单点维护，拼接自渲染入口） | 2026-10-29 |
+| task_templates_avoid_forbidden_legacy_markers | 任务模板不回传统框架措辞 | 给定中英两份禁用标记清单（中文十二条为框架模式加训诂词簇，英文十二条为传统框架短语），当扫描双 `locale` 五份任务模板正文，则零命中（界面印章与字段名是产品语言，不在受检面） | 2026-10-29 |
 
 ### `crates/gloss-core/src/schema.rs`
 

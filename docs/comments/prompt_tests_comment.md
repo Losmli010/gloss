@@ -25,3 +25,23 @@
   计数」改为「每个 {{ 之后存在 }}」（配对判据）：嵌套契约的模板示例 JSON
   以 `}}` 收尾，`}}` 计数天然可以多于 `{{`，计数相等从此是错误判据；未声明
   占位符的白名单检查不变。
+
+## 模板重设计期一的锁点迁移（2026-10-29，prompt-template-redesign-plan §3、§8、§9 期一）
+
+- `every_task_system_prompt_ends_with_the_shared_clause` 更名为
+  `every_task_system_prompt_ends_with_the_discipline_after_the_shared_clause`：
+  拼装从「任务书 + 目标语言条款」变为「任务书 + 目标语言条款 + 纪律块」，
+  锁点从「条款垫底」改为「纪律块垫底、条款在其前」，两段各自 strip_suffix
+  逐字锁定；覆盖四文本 kind 与图像任务，与旧行为同覆盖面。
+- 新增 `task_templates_avoid_forbidden_legacy_markers`：§3.6 禁用标记清单落
+  成单元测试——中文十二条（框架模式加训诂词簇）对 zh 五份、英文十二条
+  （传统框架短语，前置试跑定稿）对 en 五份，比对统一转小写。放行边界：
+  界面印章（经、注、疏）与字段名是产品语言不在受检面；「时间轴」等新造
+  现代语汇不在清单——禁的是行话回潮，不禁新造语汇。
+- 关键词锁点随体例现代转写调整：`text_kinds_render_system_and_user_with_
+  kind_content` 的 General 关键词从「经注疏」改「研究专家」（角色按任务
+  功能命名，不携带传统名号）；`image_explain_renders_system_and_image_parts`
+  的格式断言随 §3.8 全角括注改「（JSON）格式」。
+- `every_template_mentions_json` 与 `every_template_placeholder_is_declared`
+  扩到 `discipline.md`：纪律块同为模板资产，端点 JSON 字样要求与占位符
+  白名单同样适用。
