@@ -843,23 +843,25 @@ mod tests {
     }
 
     #[test]
-    fn violation_lines_carry_field_category_and_action_only() {
-        let zh = LangViolation::new(LangField::Example(1), LangCategory::ForeignRun);
+    fn violation_lines_carry_position_and_rule_id_only() {
+        let violation = LangViolation::new(LangField::Example(1), LangCategory::ForeignRun);
         assert_eq!(
-            zh.line(crate::model::Locale::Zh),
-            "examples 第 2 条：ForeignRun——将外文词移入括号并补目标语译名，或直接译出"
+            violation.line(),
+            "examples[1]: ForeignRun",
+            "the line is the field key plus the rule id, language-neutral"
         );
-        assert_eq!(
-            zh.line(crate::model::Locale::En),
-            "examples item 2: ForeignRun — Move the foreign words into parentheses with a \
-             target-language gloss, or translate them outright"
-        );
+        assert_eq!(violation.to_string(), "ForeignRun at examples[1]");
         let summary = LangViolation::summary(&[
-            zh,
+            violation,
             LangViolation::new(LangField::Note, LangCategory::ForeignRun),
             LangViolation::new(LangField::Note, LangCategory::MissingSpace),
         ]);
         assert_eq!(summary, "2 violation kind(s): ForeignRun, MissingSpace");
-        assert_eq!(zh.to_string(), "ForeignRun at examples[1]");
+        for marker in ["选区", "回复原文", "MARKER", "中文word"] {
+            assert!(
+                !violation.line().contains(marker) && !violation.to_string().contains(marker),
+                "violation renderings never quote reply content: {marker}"
+            );
+        }
     }
 }

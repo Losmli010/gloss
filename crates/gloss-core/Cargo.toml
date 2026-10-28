@@ -35,6 +35,9 @@ serde = { version = "1", default-features = false, features = ["derive", "rc", "
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # 流式空闲看门狗与传输重试退避（内建引擎）：定时等待只要时间特性。
 tokio = { version = "1", default-features = false, features = ["time"] }
+# 措辞注册表（修复轮与分类类别段）的配置格式（TOML）解析；版本与平台适配层、
+# 主线程应用层保持一致。
+toml = { version = "0.8", default-features = false, features = ["parse"] }
 # 日志三件套（统一出口的实现）。默认集先关再显式列全：核心留标准特性，
 # 订阅层列全格式化所需特性，环境过滤供日志等级过滤。
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }

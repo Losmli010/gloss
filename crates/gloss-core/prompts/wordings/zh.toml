@@ -1,0 +1,87 @@
+[repair.frame]
+header = "输出不符合要求，违约清单如下："
+row = "{{position}}：{{rule}}——{{action}}"
+closing = "请逐条修正后，重新输出完整（JSON）对象：保持字段结构不变，只修正清单所列问题，不要改写其余内容。"
+truncated_note = "其余为同类违约，一并修正。"
+back_reference = "你在上一条回复中的输出即反例。"
+
+[repair.format.EmptyReply]
+position = "回复为空"
+action = "重新输出完整（JSON）对象"
+
+[repair.format.NotJson]
+position = "回复不是裸（JSON）对象"
+action = "只输出一个以花括号开头结尾的（JSON）对象"
+
+[repair.format.MissingNote]
+position = "缺少非空的 `note` 字段"
+action = "补上 `note` 字段并写入非空内容"
+
+[repair.format.KindNotAllowed]
+position = "类别不在清单内"
+action = "只输出类别清单里的一个类别标识"
+
+[repair.format.fenced]
+position = "回复被代码围栏包裹"
+action = "去掉围栏，只输出围栏内的（JSON）对象"
+
+[repair.format.not_an_object]
+position = "回复是（JSON）值但不是对象"
+action = "改为以花括号开头结尾的单个对象"
+
+[repair.format.truncated]
+position = "对象未闭合"
+action = "精简内容后完整输出"
+
+[repair.format.note_key_missing]
+position = "对象缺少 `note` 键"
+action = "补上 `note` 键与非空内容"
+
+[repair.format.note_not_string]
+position = "`note` 不是非空字符串"
+action = "把 `note` 改为非空字符串"
+
+[repair.lang.ForeignRun]
+action = "将外文词移入括号并补目标语译名，或直接译出"
+
+[repair.lang.TraditionalChar]
+action = "转为简体字"
+
+[repair.lang.PunctuationMismatch]
+action = "换成目标语言的标点"
+
+[repair.lang.MissingSpace]
+action = "在中文与西文、数字之间补一个半角空格"
+
+[repair.lang.EmojiForbidden]
+action = "删除表情符号"
+
+[repair.lang.MarkdownForbidden]
+action = "去掉（markdown）记号，改为平实文字"
+
+[repair.lang.UnclosedContainer]
+action = "补全配对，或删除残缺记号"
+
+[repair.lang.ContainerMixing]
+action = "容器内只保留单一语言，译文移入内层括号"
+
+[repair.lang.SentenceInParens]
+action = "译出后括号内只留短语级原文"
+
+[repair.lang.SourceOverlap]
+action = "该段未翻译，重译为目标语言"
+
+[repair.lang.PhoneticCharset]
+action = "音标改用拉丁字母与国际音标符号"
+
+[classify.category.TranslateWord]
+definition = "翻译单个词汇项，或以词汇项为主的列表。词汇项包括字、词、固定搭配、习语、谚语、专名、术语。习语、谚语、固定表达即使含主谓结构，也按词汇项整体处理，本专门规则优先于“可独立成句”的一般判断。"
+
+[classify.category.TranslateSentence]
+definition = "翻译语义完整的句子或成段文本。句子以“可独立成句”为准，不要求显式主语，省略句、祈使句等均算；段落按整体语义完整性判断。"
+
+[classify.category.ExplainCode]
+definition = "理解、解释、分析、调试代码。须满足：输入含代码，或含代码运行产物（如报错、日志、堆栈）。"
+
+[classify.category.Fallback]
+definition = "无翻译、代码解释等明确任务意图的输入，如闲聊、写作、总结、通识问答等。"

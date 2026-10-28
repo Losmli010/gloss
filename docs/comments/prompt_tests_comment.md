@@ -45,3 +45,23 @@
 - `every_template_mentions_json` 与 `every_template_placeholder_is_declared`
   扩到 `discipline.md`：纪律块同为模板资产，端点 JSON 字样要求与占位符
   白名单同样适用。
+
+## 期三组合与红线（提示词模板重设计方案 §8，2026-10-29）
+
+- repair_instruction_composes_the_detail_wording_onto_the_skeleton：细节
+  位置与动作上指令、行带违约规则标识、骨架齐备，红线断言扩到细节措辞
+  （不含回复内容标记）。
+- repair_instruction_without_detail_rides_the_violation_level_row：散文类
+  `NotJson` 与无细节违约走违约级措辞行（本地化注册表行，不再是英文
+  `Display` 直灌）。
+- repair_row_falls_back_to_the_display_wording_when_the_registry_is_missing：
+  骨架缺席与查键未中两分支都以纯函数驱动（生产数据触发不了，完整性测试
+  在前）。
+- language_repair_aggregates… / language_repair_caps_rows… /
+  language_repair_within_the_cap… / language_repair_degrades…：聚合排序
+  封顶矩阵与降级行，输入故意乱序以钉排序职责在组合层。
+- classify_prompt_composes_the_skeleton_and_the_registry_category_section：
+  骨架逐字起头、类别段随后，类别定义迁出模板后的拼装锁点。
+- every_template_mentions_json / every_template_placeholder_is_declared /
+  repair_instruction_renders_without_leftover_placeholders：模板清单缩至
+  七份与八份，修复指令的 `json` 字样与占位符判定扩到细节全组合。

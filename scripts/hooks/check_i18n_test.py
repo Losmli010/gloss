@@ -1,5 +1,5 @@
-"""文案表门禁的单测：逐条覆盖字面量词法状态机、装入点集中、词条表唯一与
-词条语言规范。
+"""文案表门禁的单测：逐条覆盖字面量词法状态机、装入点集中、词条表唯一、
+词条语言规范与措辞注册表（键完整性与逐条语言规范）。
 
 被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
 的临时目录，不落版本库（扫描面走目录遍历）；用法见持续集成的钩子工作流。
@@ -26,18 +26,41 @@ MARKER = "i18n:allow"
 
 GUARD_BASES = ("src", "crates/gloss-core/src", "crates/gloss-platform/src")
 
+REGISTRY_DIR = "crates/gloss-core/prompts/wordings"
+
+# 注册表基线：键对齐的中英两份最小语言表，键值形态与判罚面无涉
+REGISTRY_ZH_BASELINE = (
+    "[repair.frame]\n"
+    'header = "输出不符合要求，违约清单如下："\n'
+    'row = "{{position}}：{{rule}}——{{action}}"\n'
+    "[repair.lang.ForeignRun]\n"
+    'action = "将外文词移入括号并补译名"\n'
+)
+REGISTRY_EN_BASELINE = (
+    "[repair.frame]\n"
+    'header = "The output does not meet the requirements. Violations:"\n'
+    'row = "{{position}}: {{rule}} — {{action}}"\n'
+    "[repair.lang.ForeignRun]\n"
+    'action = "Move the words into parentheses with a gloss"\n'
+)
+
 
 def make_baseline(tmp_path: Path) -> None:
-    """重建守卫基线：四个源码目录加统一装入点与中英两份词条表。"""
+    """重建守卫基线：四个源码目录加统一装入点、中英两份词条表与注册表
+    两份语言表。"""
     for d in GUARD_BASES:
         (tmp_path / d).mkdir(parents=True, exist_ok=True)
     base = tmp_path / "crates/gloss-app/src/ui"
     catalog = tmp_path / "crates/gloss-app/i18n"
+    registry = tmp_path / REGISTRY_DIR
     base.mkdir(parents=True, exist_ok=True)
     catalog.mkdir(parents=True, exist_ok=True)
+    registry.mkdir(parents=True, exist_ok=True)
     (base / "i18n.rs").write_text('const ZH: &str = include_str!("../../i18n/zh.toml");\n')
     (catalog / "zh.toml").write_text('gloss_app_title = "词汇"\n')
     (catalog / "en.toml").write_text('gloss_app_title = "Gloss"\n')
+    (registry / "zh.toml").write_text(REGISTRY_ZH_BASELINE, encoding="utf-8")
+    (registry / "en.toml").write_text(REGISTRY_EN_BASELINE, encoding="utf-8")
 
 
 def scan(
@@ -355,6 +378,75 @@ def test_language_rule_reports_clean_ok_line_with_entry_count(tmp_path: Path) ->
 def test_missing_catalog_file_fails_closed(tmp_path: Path) -> None:
     make_baseline(tmp_path)
     (tmp_path / "crates/gloss-app/i18n/en.toml").unlink()
+    with pytest.raises(SystemExit) as exc:
+        check_i18n.run(str(tmp_path))
+    assert exc.value.code == gate_report.EXIT_INFRA
+
+
+# ---- 检查五：措辞注册表（键完整性与逐条语言规范）----
+
+
+def run_with_registry(
+    tmp_path: Path, zh: str, en: str
+) -> tuple[list[str], list[gate_report.Finding]]:
+    """写入注册表两份语言表后运行门禁，返回（通过与违规条目）。"""
+    make_baseline(tmp_path)
+    registry = tmp_path / REGISTRY_DIR
+    (registry / "zh.toml").write_text(zh, encoding="utf-8")
+    (registry / "en.toml").write_text(en, encoding="utf-8")
+    return check_i18n.collect(str(tmp_path))
+
+
+def test_registry_clean_pair_passes_with_entry_count(tmp_path: Path) -> None:
+    oks, findings = scan(tmp_path, "", "")
+    assert findings == []
+    assert "registry entries key-and-language-checked" in "\n".join(oks)
+
+
+def test_registry_key_mismatch_is_reported_per_side(tmp_path: Path) -> None:
+    zh = '[repair.frame]\nheader = "违约清单："\n[repair.lang.ForeignRun]\naction = "移入括号"\n'
+    en = (
+        '[repair.frame]\nheader = "Violations:"\n'
+        '[repair.lang.TraditionalChar]\naction = "Convert to simplified"\n'
+    )
+    _, findings = run_with_registry(tmp_path, zh, en)
+    rules = {finding.rule for finding in findings}
+    assert rules == {"I18N-REGISTRY"}, findings
+    joined = "\n".join(finding.message for finding in findings)
+    assert "only in the zh table" in joined, joined
+    assert "only in the en table" in joined, joined
+
+
+def test_registry_language_violation_rides_the_zone_judgment(tmp_path: Path) -> None:
+    zh = '[repair.frame]\nheader = "出现 bare 英文词要拦"\n'
+    en = '[repair.frame]\nheader = "汉字混进 the en table"\n'
+    _, findings = run_with_registry(tmp_path, zh, en)
+    rules = {finding.rule for finding in findings}
+    assert "PROSE-FOREIGN" in rules, findings
+    assert "PROSE-ENGLISH" in rules, findings
+
+
+def test_registry_non_plain_value_is_reported(tmp_path: Path) -> None:
+    zh = "[repair.frame]\nheader = '违约清单：'\n"
+    en = '[repair.frame]\nheader = "Violations:"\n'
+    _, findings = run_with_registry(tmp_path, zh, en)
+    assert all(finding.rule == "I18N-REGISTRY" for finding in findings), findings
+    joined = "\n".join(finding.message for finding in findings)
+    assert "not a single-line double-quoted string" in joined, joined
+
+
+def test_registry_broken_toml_is_reported(tmp_path: Path) -> None:
+    zh = "not [ valid toml\n"
+    en = REGISTRY_EN_BASELINE
+    _, findings = run_with_registry(tmp_path, zh, en)
+    assert all(finding.rule == "I18N-REGISTRY" for finding in findings), findings
+    joined = "\n".join(finding.message for finding in findings)
+    assert "does not parse" in joined, joined
+
+
+def test_registry_missing_file_fails_closed(tmp_path: Path) -> None:
+    make_baseline(tmp_path)
+    (tmp_path / REGISTRY_DIR / "en.toml").unlink()
     with pytest.raises(SystemExit) as exc:
         check_i18n.run(str(tmp_path))
     assert exc.value.code == gate_report.EXIT_INFRA

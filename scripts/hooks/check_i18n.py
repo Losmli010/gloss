@@ -3,7 +3,7 @@
 只经统一装入点装入，代码里不内嵌文案字面量，词条本身守语言规范。
 本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。
 
-覆盖四条检查：
+覆盖五条检查：
   文案字面量拦截  —— 各生产代码里，字符串、单字符与原始字符串字面量出现
                      非英文字节（ASCII）即违规；字符串字面量落在界面渲染
                      入口（显示调用点）上即便纯英文也违规——界面文案只许
@@ -19,6 +19,13 @@
                      地址方案符与快捷键符号是记号不是外文，不判罚；判罚
                      口径只锁最低必要规范：中文表是中文，英文表是英文，
                      无任何词条豁免。
+  措辞注册表      —— 提示词措辞注册表（修复轮与分类类别段）两份语言表
+                     键集合一致（条目键完整性），逐条值守语言规范：中文
+                     表条目按中文区判据、英文表条目按英文区判据，判据取
+                     语言规范库与文档门禁同源的表述判定入口；结构以解析
+                     器为准，行扫描定位行号，解析器有而行扫描定位不到的
+                     键（非单行双引号字符串的值）判罚，防止值逃过语言
+                     检查。代码引用与模板占位符段随表述判定豁免。
 
 行尾放行标记豁免所在行，须注明缘由、缺失即判罚。违规报告经统一诊断出口打印：每条带规
 则标识、位置、证据行与修复指引，违规随执行流即时输出；字面量扫描面的四个
@@ -37,12 +44,16 @@ from typing import Any
 
 import gate_report
 import rg_engine
+import tomllib
 from language_spec.chinese import CJKWISE, LATIN
+from language_spec.coderef import ZONE_CHINESE, ZONE_ENGLISH, prose_line_problems
 
 RULE = "ui copy lives in the i18n catalog"
 OWNER = "crates/gloss-app/src/ui/i18n.rs"
 CATALOG_DIR = "crates/gloss-app/i18n"
 CATALOG_FILES = ("zh.toml", "en.toml")
+REGISTRY_DIR = "crates/gloss-core/prompts/wordings"
+REGISTRY_FILES = ("zh.toml", "en.toml")
 SCAN_DIRS = "gloss-app / root crate / gloss-core / gloss-platform src"
 ALLOW_MARKER = "i18n:allow"
 
@@ -50,6 +61,7 @@ RULE_I18N_LITERAL = "I18N-LITERAL"
 RULE_I18N_LOADPOINT = "I18N-LOADPOINT"
 RULE_I18N_CATALOG = "I18N-CATALOG"
 RULE_I18N_LANGUAGE = "I18N-LANGUAGE"
+RULE_I18N_REGISTRY = "I18N-REGISTRY"
 
 LITERAL_REMEDY = (
     "add the entry to the catalog (zh.toml and en.toml, key gloss_<module>_<item>)"
@@ -66,6 +78,17 @@ EN_LANGUAGE_REMEDY = "rewrite the en entry in English, keeping placeholders and 
 
 LANGUAGE_MESSAGE_ZH = "the zh entry must be pure Chinese"
 LANGUAGE_MESSAGE_EN = "the en entry must be pure English"
+
+REGISTRY_REMEDY = (
+    "keep the two locale tables key-identical: give the entry the same qualified key in both tables"
+)
+REGISTRY_PLAIN_REMEDY = (
+    "write the value as a single-line double-quoted string so the language scan can locate it"
+)
+REGISTRY_STRUCTURE_MESSAGE = "the registry value is not a single-line double-quoted string"
+REGISTRY_TYPE_MESSAGE = "the registry value is not a string"
+REGISTRY_KEY_MESSAGE_ZH = "the registry entry exists only in the zh table"
+REGISTRY_KEY_MESSAGE_EN = "the registry entry exists only in the en table"
 
 ENTRY_LINE_RE = re.compile(r'^\s*(gloss_[A-Za-z0-9_]+)\s*=\s*"(.*)"\s*$')
 
@@ -586,6 +609,159 @@ def language_findings(root: str, loader: Any = None) -> tuple[int, list[gate_rep
     return scanned, out
 
 
+def guard_registry_files(root: str) -> None:
+    """注册表守卫：提示词措辞注册表两份语言表任一缺失即失败关闭退出——
+    注册表缺席若静默跳过，键完整性与语言检查悄然落空，等于没检查到却放行。"""
+    missing = [
+        name
+        for name in REGISTRY_FILES
+        if not os.path.isfile(os.path.join(root, REGISTRY_DIR, name))
+    ]
+    if not missing:
+        return
+    gate_report.fail(
+        gate_report.Finding(
+            rule=gate_report.RULE_EMPTY_SURFACE,
+            path="",
+            line=0,
+            message="the wording registry scan is incomplete: missing registry files: %s"
+            % ", ".join(missing),
+            remedy="restore %s/%s; a missing registry file means the entry key and"
+            " language scans cannot complete" % (REGISTRY_DIR, ", ".join(missing)),
+        )
+    )
+    sys.exit(gate_report.EXIT_INFRA)
+
+
+def registry_leaf_keys(table: dict[str, Any], prefix: str = "") -> tuple[set[str], list[str]]:
+    """嵌套表展平成点号键：返回（字符串叶子的键集合，非字符串叶子的键）。
+    中间表递归下钻，数组等其余类型一律按非字符串叶子记名。"""
+    keys: set[str] = set()
+    bad: list[str] = []
+    for key, value in table.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            nested, nested_bad = registry_leaf_keys(value, path)
+            keys |= nested
+            bad.extend(nested_bad)
+        elif isinstance(value, str):
+            keys.add(path)
+        else:
+            bad.append(path)
+    return keys, bad
+
+
+def registry_line_entries(lines: list[str]) -> dict[str, tuple[int, str]]:
+    """行扫描注册表：区头与键值行定位每个条目的行号与值，返回
+    （点号键 → (行号, 值)）。多行字符串、单引号串等形态不匹配键值行，
+    留给解析器与行扫描的键差集判罚。"""
+    section_re = re.compile(r"^\[([^[\]]+)\]$")
+    entry_re = re.compile(r'^([A-Za-z0-9_-]+)\s*=\s*"(.*)"$')
+    entries: dict[str, tuple[int, str]] = {}
+    section = ""
+    for no, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        section_match = section_re.match(stripped)
+        if section_match:
+            section = section_match.group(1).strip()
+            continue
+        entry_match = entry_re.match(stripped)
+        if entry_match:
+            key = f"{section}.{entry_match.group(1)}" if section else entry_match.group(1)
+            entries[key] = (no, entry_match.group(2))
+    return entries
+
+
+def registry_findings(root: str, loader: Any = None) -> tuple[int, list[gate_report.Finding]]:
+    """检查五：措辞注册表——两份语言表键集合一致（条目键完整性），逐条
+    值守语言规范（中文表条目走中文区判据、英文表条目走英文区判据，判据
+    取语言规范库与文档门禁同源的表述判定入口）；结构以解析器为准，行扫
+    描定位行号，解析器有而行扫描定位不到的键判罚（非单行双引号字符串的
+    值无法定位行号，等于逃过语言检查）。返回语言检查的条目数与违规条目。"""
+    out: list[gate_report.Finding] = []
+    tables: dict[str, dict[str, Any] | None] = {}
+    located: dict[str, dict[str, tuple[int, str]]] = {}
+    for name in REGISTRY_FILES:
+        rel = "%s/%s" % (REGISTRY_DIR, name)
+        lines = read_lines(os.path.join(root, REGISTRY_DIR, name), loader)
+        located[name] = registry_line_entries(lines)
+        try:
+            tables[name] = tomllib.loads("\n".join(lines))
+        except tomllib.TOMLDecodeError as exc:
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_I18N_REGISTRY,
+                    path=rel,
+                    line=0,
+                    message="%s: the registry does not parse (%s)" % (rel, exc),
+                    evidence=str(exc)[:160],
+                    remedy=REGISTRY_PLAIN_REMEDY,
+                )
+            )
+            tables[name] = None
+    for name, table in tables.items():
+        rel = "%s/%s" % (REGISTRY_DIR, name)
+        if table is None:
+            continue
+        keys, bad_types = registry_leaf_keys(table)
+        for key in bad_types:
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_I18N_REGISTRY,
+                    path=rel,
+                    line=0,
+                    message="%s: %s (%s)" % (rel, REGISTRY_TYPE_MESSAGE, key),
+                    evidence=key,
+                    remedy=REGISTRY_PLAIN_REMEDY,
+                )
+            )
+        for key in sorted(keys - located[name].keys()):
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_I18N_REGISTRY,
+                    path=rel,
+                    line=0,
+                    message="%s: %s (%s)" % (rel, REGISTRY_STRUCTURE_MESSAGE, key),
+                    evidence=key,
+                    remedy=REGISTRY_PLAIN_REMEDY,
+                )
+            )
+    if all(isinstance(table, dict) for table in tables.values()):
+        zh_keys, en_keys = (registry_leaf_keys(table)[0] for table in tables.values())
+        for key in sorted(zh_keys - en_keys):
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_I18N_REGISTRY,
+                    path="%s/%s" % (REGISTRY_DIR, REGISTRY_FILES[0]),
+                    line=0,
+                    message="%s: %s (%s)" % (REGISTRY_DIR, REGISTRY_KEY_MESSAGE_ZH, key),
+                    evidence=key,
+                    remedy=REGISTRY_REMEDY,
+                )
+            )
+        for key in sorted(en_keys - zh_keys):
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_I18N_REGISTRY,
+                    path="%s/%s" % (REGISTRY_DIR, REGISTRY_FILES[1]),
+                    line=0,
+                    message="%s: %s (%s)" % (REGISTRY_DIR, REGISTRY_KEY_MESSAGE_EN, key),
+                    evidence=key,
+                    remedy=REGISTRY_REMEDY,
+                )
+            )
+    scanned = 0
+    for name, zone in ((REGISTRY_FILES[0], ZONE_CHINESE), (REGISTRY_FILES[1], ZONE_ENGLISH)):
+        rel = "%s/%s" % (REGISTRY_DIR, name)
+        entries = located[name]
+        scanned += len(entries)
+        for _key, (no, value) in sorted(entries.items(), key=lambda item: item[1][0]):
+            out.extend(prose_line_problems(rel, no, value, zone))
+    return scanned, out
+
+
 def render(finding: gate_report.Finding) -> str:
     """违规渲染行：消息加位置，作为运行函数返回清单里的条目。"""
     loc = gate_report.location(finding)
@@ -593,7 +769,7 @@ def render(finding: gate_report.Finding) -> str:
 
 
 def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.Finding]]:
-    """执行四条检查，违规随执行流即时经统一诊断出口打到标准错误，返回通过与
+    """执行五条检查，违规随执行流即时经统一诊断出口打到标准错误，返回通过与
     违规条目两个清单；装入器在场时文件读取走共享缓存，缺省自行读取。"""
     guard_scan_dirs(root)
     found: list[gate_report.Finding] = []
@@ -622,18 +798,25 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
         found.append(finding)
         gate_report.fail(finding)
 
+    # ---- 检查五：措辞注册表（键完整性与逐条语言规范）----
+    guard_registry_files(root)
+    registry_entries, registry = registry_findings(root, loader)
+    for finding in registry:
+        found.append(finding)
+        gate_report.fail(finding)
+
     oks = []
     if not found:
         oks.append(
             "%s (%s production literals + %d .rs include sites + %d TOML entry-key files"
-            " + %d entries language-checked)"
-            % (RULE, SCAN_DIRS, include_files, toml_files, entries)
+            " + %d entries language-checked + %d registry entries key-and-language-checked)"
+            % (RULE, SCAN_DIRS, include_files, toml_files, entries, registry_entries)
         )
     return oks, found
 
 
 def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
-    """执行四条检查，返回通过与失败两个清单；失败清单收渲染行（消息加位置）
+    """执行五条检查，返回通过与失败两个清单；失败清单收渲染行（消息加位置）
     供调用方取用，装入器在场时文件读取走共享缓存，缺省自行读取。"""
     oks, found = collect(root, loader)
     return oks, [render(finding) for finding in found]

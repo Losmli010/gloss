@@ -166,7 +166,7 @@ pub async fn classify_traced(
                 let resend = (!matches!(violation, crate::schema::Violation::EmptyReply))
                     .then_some(round.reply.as_str());
                 let Some(next) = repairs.next_round(&base, resend, violation, || {
-                    registry.render_repair(locale, violation)
+                    registry.render_repair(locale, violation, None)
                 }) else {
                     rounds.push(round.reply);
                     return Ok(ClassifyDecision {
@@ -466,8 +466,9 @@ mod tests {
             other => panic!("expected text content, got {other:?}"),
         };
         assert!(
-            instruction.contains("reply is not a bare JSON object"),
-            "the instruction carries the violation wording as the reason: {instruction}"
+            instruction.contains("回复不是裸（JSON）对象：NotJson——"),
+            "the instruction rides the violation-level registry row (the classify stage \
+             speaks in violation-level rows): {instruction}"
         );
         assert!(
             !instruction.contains("{\"kind\""),

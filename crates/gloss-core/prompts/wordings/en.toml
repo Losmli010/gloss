@@ -1,0 +1,87 @@
+[repair.frame]
+header = "The output does not meet the requirements. Violations:"
+row = "{{position}}: {{rule}} — {{action}}"
+closing = "Fix each item, then output the complete JSON object again: keep the field structure unchanged, correct only the listed problems, and do not rewrite anything else."
+truncated_note = "The rest are violations of the same kind; fix them as well."
+back_reference = "The output in your previous reply is the counterexample."
+
+[repair.format.EmptyReply]
+position = "The reply is empty"
+action = "Output the complete JSON object again"
+
+[repair.format.NotJson]
+position = "The reply is not a bare JSON object"
+action = "Output a single JSON object starting and ending with braces"
+
+[repair.format.MissingNote]
+position = "The non-empty `note` field is missing"
+action = "Add the `note` field with non-empty content"
+
+[repair.format.KindNotAllowed]
+position = "The category is not in the list"
+action = "Output exactly one category identifier from the category list"
+
+[repair.format.fenced]
+position = "The reply is wrapped in a code fence"
+action = "Remove the fence and output only the JSON object inside it"
+
+[repair.format.not_an_object]
+position = "The reply is a JSON value but not an object"
+action = "Change it to a single object starting and ending with braces"
+
+[repair.format.truncated]
+position = "The object is not closed"
+action = "Trim the content and output it completely"
+
+[repair.format.note_key_missing]
+position = "The object is missing the `note` key"
+action = "Add the `note` key with non-empty content"
+
+[repair.format.note_not_string]
+position = "`note` is not a non-empty string"
+action = "Change `note` to a non-empty string"
+
+[repair.lang.ForeignRun]
+action = "Move the foreign words into parentheses with a target-language gloss, or translate them outright"
+
+[repair.lang.TraditionalChar]
+action = "Convert to simplified characters"
+
+[repair.lang.PunctuationMismatch]
+action = "Replace with the target language's punctuation"
+
+[repair.lang.MissingSpace]
+action = "Insert a half-width space between Chinese and Latin words or digits"
+
+[repair.lang.EmojiForbidden]
+action = "Delete the emoji"
+
+[repair.lang.MarkdownForbidden]
+action = "Remove the markdown markers and use plain text"
+
+[repair.lang.UnclosedContainer]
+action = "Complete the pairing, or delete the broken marker"
+
+[repair.lang.ContainerMixing]
+action = "Keep a single language inside the container; move the translation into an inner parenthesis"
+
+[repair.lang.SentenceInParens]
+action = "Translate it and keep only a phrase-level quotation inside the parentheses"
+
+[repair.lang.SourceOverlap]
+action = "This passage is untranslated; retranslate it into the target language"
+
+[repair.lang.PhoneticCharset]
+action = "Rewrite the phonetics with Latin letters and IPA symbols"
+
+[classify.category.TranslateWord]
+definition = "Translate a single lexical item, or a list consisting mainly of lexical items. Lexical items include characters, words, fixed collocations, idioms, proverbs, proper nouns, and terminology. Idioms, proverbs, and fixed expressions are treated as a whole lexical item even if they contain a subject-predicate structure; this specific rule takes precedence over the general judgment of \"can stand alone as a sentence.\""
+
+[classify.category.TranslateSentence]
+definition = "Translate a semantically complete sentence or a passage of text. For sentences, the criterion is \"can stand alone as a sentence\"; an explicit subject is not required, and elliptical sentences, imperative sentences, etc. all count; for paragraphs, judge by overall semantic completeness."
+
+[classify.category.ExplainCode]
+definition = "Understand, explain, analyze, or debug code. The following condition must be met: the input contains code, or contains the runtime output of code (such as errors, logs, stack traces)."
+
+[classify.category.Fallback]
+definition = "Input without a clear task intent such as translation or code explanation, e.g., casual chat, writing, summarization, general knowledge Q&A, etc."

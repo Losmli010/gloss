@@ -17,3 +17,9 @@
 - 2026-09-18 不留 attributes：项目不用 `#[instrument]`（过程宏无法跨 crate 转发，见 log.rs 模块文档），顺带省掉 tracing-attributes 一支编译。
 - 2026-09-18 tracing-appender 无特性可关，照写 `default-features = false` 保持「关默认集」写法统一。
 - 2026-09-18 tracing-subscriber 的 tracing-log 必须留：GUI 栈（egui / wgpu / naga / font-kit）都经 log 门面记录，去掉它这些三方诊断就不再进终端与日志文件。
+
+## dependencies.toml（提示词模板重设计方案 §7，期三，2026-10-29）
+
+- 新增措辞注册表的配置格式（TOML）解析依赖，版本与平台适配层、主线程应用
+  层保持一致（0.8，随锁文件），默认特性关闭、只开解析特性——核心库不写
+  格式化（TOML），只读注册表。

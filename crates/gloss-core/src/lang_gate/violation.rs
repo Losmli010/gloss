@@ -1,8 +1,7 @@
 //! 语言体例违约的类别、字段位置与行式渲染：判定器、修复指令与日志的
-//! 共同词汇表。类别标识是稳定字符串（进日志与修复清单），动作措辞按
-//! 提示词语言本地化；违约信息只带字段位置与规则标识，不带回复原文。
-
-use crate::model::Locale;
+//! 共同词汇表。类别标识是稳定字符串（进日志与修复清单）；动作措辞住
+//! 提示词库的措辞注册表，本模块只产结构事实——违约行只带字段位置与
+//! 规则标识，显示形态只带规则标识与字段键，都不带回复原文。
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -37,53 +36,6 @@ impl LangCategory {
             Self::PhoneticCharset => "PhoneticCharset",
         }
     }
-
-    pub fn action(self, locale: Locale) -> &'static str {
-        match (self, locale) {
-            (Self::ForeignRun, Locale::Zh) => "将外文词移入括号并补目标语译名，或直接译出", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::ForeignRun, Locale::En) => {
-                "Move the foreign words into parentheses with a target-language gloss, or \
-                 translate them outright"
-            }
-            (Self::TraditionalChar, Locale::Zh) => "转为简体字", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::TraditionalChar, Locale::En) => "Convert to simplified characters",
-            (Self::PunctuationMismatch, Locale::Zh) => "换成目标语言的标点", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::PunctuationMismatch, Locale::En) => {
-                "Replace with the target language's punctuation"
-            }
-            (Self::MissingSpace, Locale::Zh) => "在中文与西文、数字之间补一个半角空格", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::MissingSpace, Locale::En) => {
-                "Insert a half-width space between Chinese and Latin words or digits"
-            }
-            (Self::EmojiForbidden, Locale::Zh) => "删除表情符号", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::EmojiForbidden, Locale::En) => "Delete the emoji",
-            (Self::MarkdownForbidden, Locale::Zh) => "去掉 markdown 记号，改为平实文字", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::MarkdownForbidden, Locale::En) => {
-                "Remove the markdown markers and use plain text"
-            }
-            (Self::UnclosedContainer, Locale::Zh) => "补全配对，或删除残缺记号", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::UnclosedContainer, Locale::En) => {
-                "Complete the pairing, or delete the broken marker"
-            }
-            (Self::ContainerMixing, Locale::Zh) => "容器内只保留单一语言，译文移入内层括号", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::ContainerMixing, Locale::En) => {
-                "Keep a single language inside the container; move the translation into an inner \
-                 parenthesis"
-            }
-            (Self::SentenceInParens, Locale::Zh) => "译出后括号内只留短语级原文", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::SentenceInParens, Locale::En) => {
-                "Translate it and keep only a phrase-level quotation inside the parentheses"
-            }
-            (Self::SourceOverlap, Locale::Zh) => "该段未翻译，重译为目标语言", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::SourceOverlap, Locale::En) => {
-                "This passage is untranslated; retranslate it into the target language"
-            }
-            (Self::PhoneticCharset, Locale::Zh) => "音标改用拉丁字母与国际音标符号", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::PhoneticCharset, Locale::En) => {
-                "Rewrite the phonetics with Latin letters and IPA symbols"
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -94,16 +46,7 @@ pub enum LangField {
 }
 
 impl LangField {
-    fn label(self, locale: Locale) -> String {
-        match (self, locale) {
-            (Self::Note, _) => "note".to_owned(),
-            (Self::Phonetic, _) => "phonetic".to_owned(),
-            (Self::Example(index), Locale::Zh) => format!("examples 第 {} 条", index + 1), // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-            (Self::Example(index), Locale::En) => format!("examples item {}", index + 1),
-        }
-    }
-
-    fn key(self) -> String {
+    pub(crate) fn key(self) -> String {
         match self {
             Self::Note => "note".to_owned(),
             Self::Phonetic => "phonetic".to_owned(),
@@ -123,21 +66,8 @@ impl LangViolation {
         Self { field, category }
     }
 
-    pub fn line(self, locale: Locale) -> String {
-        match locale {
-            Locale::Zh => format!(
-                "{}：{}——{}", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-                self.field.label(locale),
-                self.category.rule_id(),
-                self.category.action(locale)
-            ),
-            Locale::En => format!(
-                "{}: {} — {}", // i18n:allow 修复动作措辞，面向模型的指令行，非界面文案
-                self.field.label(locale),
-                self.category.rule_id(),
-                self.category.action(locale)
-            ),
-        }
+    pub fn line(self) -> String {
+        format!("{}: {}", self.field.key(), self.category.rule_id())
     }
 
     pub fn summary(violations: &[LangViolation]) -> String {
