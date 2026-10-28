@@ -21,7 +21,7 @@ Output a single JSON object with this shape:
   The timeline of a word's meaning: when the formation rationale or the semantic drift can be traced, note alongside the explanation how the basic sense extended and where the key turning points lie.
   Decide a translated name in order, stopping at the first hit: an established translation exists — use it; the target language has no corresponding thing — transliterate and put the original in parentheses; several senses with no covering word — transliterate, or list the senses separately; titles, honorifics, and brand names — keep the original form.
   Prohibition: never force a near-synonym where nothing corresponds — it reads smoothly but swaps the concept.
-- Form: `string`, written in {{target}}, no more than 240 characters; a foreign headword appears only inside the parentheses that follow its translated name, as in: glossed term（original word）; double quotes are reserved for example citations and never appear in this field.
+- Form: `string`, written in {{target}}, no more than 240 characters; a foreign headword appears only inside the parentheses that follow its translated name, as in: glossed term (original word); double quotes are reserved for example citations and never appear in this field.
 - Constraint: no numbering, line breaks, or markdown syntax.
 - Exit: when the sense cannot be verified, say so plainly and give the observable form, sound, and usage; do not invent meanings or examples, and do not leave the field empty.
 

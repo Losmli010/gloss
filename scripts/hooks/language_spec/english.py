@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """语言规范·英文区：纯英文区域怎么写。区域内部出现汉字或全角字符即整段
 违规；判罚以带规则标识的违规条目返回，位置由调用方按路径与行号传入，标识
-登记于统一登记表。区域归属与写明不变量的要求由使用方把关。当前用于源码的
-不变量注释，未来其它英文区复用；本模块自身注释同规。"""
+登记于统一登记表。区域归属与写明不变量的要求由使用方把关，修复指引随区
+域面传入（消息行复用同一指引），缺省是源码不变量注释的指引。当前用于源码
+的不变量注释与文档门禁的英文模板区；本模块自身注释同规。"""
 
 from __future__ import annotations
 
@@ -22,7 +23,9 @@ RULE_PROSE_ENGLISH = "PROSE-ENGLISH"
 ENGLISH_REMEDY = "rewrite the whole invariant block in English, keeping symbol references"
 
 
-def english_zone_problems(path: str, line: int, text: str, label: str) -> list[gate_report.Finding]:
+def english_zone_problems(
+    path: str, line: int, text: str, label: str, remedy: str = ENGLISH_REMEDY
+) -> list[gate_report.Finding]:
     """纯英文区判罚：出现汉字或全角字符即违规，其余交回调用方。"""
     if CJKWISE.search(text):
         return [
@@ -30,11 +33,9 @@ def english_zone_problems(path: str, line: int, text: str, label: str) -> list[g
                 rule=RULE_PROSE_ENGLISH,
                 path=path,
                 line=line,
-                message="%s must be pure English"
-                " — rewrite the whole invariant block in English,"
-                " keep symbol references" % label,
+                message="%s must be pure English — %s" % (label, remedy),
                 evidence=text,
-                remedy=ENGLISH_REMEDY,
+                remedy=remedy,
             )
         ]
     return []

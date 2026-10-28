@@ -417,9 +417,35 @@ def test_md_comments_record_dir_exempt(tmp_path: Path) -> None:
     assert run_md(tmp_path, content, rel="docs/comments/demo_comment.md") == []
 
 
-def test_md_prompts_dir_exempt(tmp_path: Path) -> None:
-    content = "You are a translation assistant. Reply in English.\n"
-    assert run_md(tmp_path, content, rel="crates/gloss-core/prompts/en/word_card.md") == []
+def test_md_prompts_en_zone_routed_to_english_zone(tmp_path: Path) -> None:
+    rel = "crates/gloss-core/prompts/en/word_card.md"
+    assert run_md(tmp_path, "You are a translation assistant. Reply in English.\n", rel=rel) == []
+    problems = run_md(tmp_path, "Reply in 英文 only.\n", rel=rel)
+    assert any("pure English" in p for p in problems)
+
+
+def test_md_prompts_zh_zone_checked_as_chinese(tmp_path: Path) -> None:
+    rel = "crates/gloss-core/prompts/zh/word_card.md"
+    assert run_md(tmp_path, "你是翻译助手。界面走界面库（egui）渲染。\n", rel=rel) == []
+    problems = run_md(tmp_path, "You are a translation assistant.\n", rel=rel)
+    assert any("must be written in Chinese" in p for p in problems)
+
+
+def test_md_prompts_placeholder_spans_exempt(tmp_path: Path) -> None:
+    rel = "crates/gloss-core/prompts/zh/repair.md"
+    assert run_md(tmp_path, "正文用{{target}}书写，逐条修正 {{violations}} 清单。\n", rel=rel) == []
+    assert run_md(tmp_path, "{{violations}}\n", rel=rel) == []
+    problems = run_md(tmp_path, "正文用{{target}}书写带 generic 词。\n", rel=rel)
+    assert any("foreign letters" in p for p in problems)
+
+
+def test_md_prompts_braced_prose_not_placeholder(tmp_path: Path) -> None:
+    problems = run_md(
+        tmp_path,
+        "正文用 {{ some value }} 书写。\n",
+        rel="crates/gloss-core/prompts/zh/repair.md",
+    )
+    assert any("foreign letters" in p for p in problems)
 
 
 def test_md_nested_badge_link_exempt(tmp_path: Path) -> None:

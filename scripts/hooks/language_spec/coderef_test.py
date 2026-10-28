@@ -244,6 +244,48 @@ def test_math_double_dollar_with_chinese_not_exempt() -> None:
     assert any("foreign letters" in m for m in messages(problems))
 
 
+# ---- 模板占位符段豁免 ----
+
+
+def test_placeholder_span_exempt_in_prose() -> None:
+    assert prose_line_problems("t", 1, "正文用{{target}}书写，逐条修正 {{violations}} 清单。") == []
+
+
+def test_whole_line_placeholder_exempt() -> None:
+    assert prose_line_problems("t", 1, "{{violations}}") == []
+
+
+def test_placeholder_with_prose_still_checked() -> None:
+    problems = prose_line_problems("t", 1, "正文用{{target}}书写带 generic 词。")
+    assert any("foreign letters" in m for m in messages(problems))
+
+
+def test_placeholder_with_spaces_not_exempt() -> None:
+    problems = prose_line_problems("t", 1, "正文用 {{ some value }} 书写。")
+    assert any("foreign letters" in m for m in messages(problems))
+
+
+# ---- 表述区路由：英文区判据由使用方按路径分派 ----
+
+
+def test_english_zone_prose_checked_as_english() -> None:
+    assert prose_line_problems("t", 1, "Reply in English only.", zone="english") == []
+    problems = prose_line_problems("t", 1, "Reply in 英文 only.", zone="english")
+    assert any("pure English" in m for m in messages(problems))
+
+
+def test_english_zone_keeps_structural_rules() -> None:
+    problems = prose_line_problems("t", 1, "use ` note here", zone="english")
+    assert any("code segment" in m for m in messages(problems))
+
+
+def test_markdown_english_zone_routes_lines() -> None:
+    src = "### Output Shape\n\nOutput a single JSON object.\n"
+    assert markdown_problems("d.md", src, zone="english") == []
+    problems = markdown_problems("d.md", "Output a 英文 object.\n", zone="english")
+    assert any("pure English" in m for m in messages(problems))
+
+
 # ---- 行内反引号内容只许英文 ----
 
 
