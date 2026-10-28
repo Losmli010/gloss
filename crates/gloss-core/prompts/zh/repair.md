@@ -1,1 +1,1 @@
-输出格式不符合JSON Schema，请基于 {{reason}} 修复。
+输出格式不符合（JSON）对象形状，请基于 {{reason}} 修复。

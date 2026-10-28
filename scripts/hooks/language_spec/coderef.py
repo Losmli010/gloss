@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """语言规范·代码引用：正文与代码混用的记号规则。结构性记号先豁免——行内
-反引号、链接、强调、围栏、表格、列表与勾选框、日期、数学记号段、行尾放
-行标记——剥净后无可判语言的纯记号段放行；残留代码段判罚，主体落中文区判
-定。判罚以带规则标识的违规条目返回，位置由调用方按路径与行号传入，标识
-登记于统一登记表。行级复合判定与标记语言文档逐行遍历是两个入口，被注释、
-提交信息与拉取请求内容门禁复用；文档遍历的块级边界取自解析树（markdown-it），
+反引号、链接、强调、围栏、表格、列表与勾选框、日期、数学记号段、模板占
+位符段、行尾放行标记——剥净后无可判语言的纯记号段放行；残留代码段判罚，
+主体按区参数落中文区或英文区判定，区归属由使用方按文档路径把关。判罚以
+带规则标识的违规条目返回，位置由调用方按路径与行号传入，标识登记于统一
+登记表。行级复合判定与标记语言文档逐行遍历是两个入口，被注释、提交信息
+与拉取请求内容门禁复用；文档遍历的块级边界取自解析树（markdown-it），
 代码块（含缩进块与波浪围栏）、数学块与超文本标记块整段豁免，文档的结构判
 罚（标题层级、重名标题、围栏闭合）移交排版门禁工具（rumdl）；围栏内的整
 行注释按注释纪律受检（文档检查子项），围栏内其余内容是字面代码不判罚；未
 登记注释语言的围栏（含双横线注释形态的查询语言）不受检，章节号引用在围栏
-注释面不查——已知盲区与取舍见记录文件；本模块自身注释同规。
+注释面不查，围栏注释子项不随区参数分派——已知盲区与取舍见记录文件；本模
+块自身注释同规。
 
 模块名避开解释器标准库的交互解释器模块。
 """
@@ -35,6 +37,7 @@ from language_spec.chinese import (  # noqa: E402
     body_problems,
     is_command_seg,
 )
+from language_spec.english import english_zone_problems  # noqa: E402
 
 RULE_PROSE_CODEREF = "PROSE-CODEREF"
 RULE_PROSE_SECTION_REF = "PROSE-SECTION-REF"
@@ -43,11 +46,17 @@ RULE_DOC_CODE_LANGUAGE = "COMMENT-DOC-CODE-LANGUAGE"
 RULE_DOC_CODE_CODEREF = "COMMENT-DOC-CODE-CODEREF"
 RULE_DOC_CODE_ENGLISH = "COMMENT-DOC-CODE-ENGLISH"
 
+# 表述区归属的两个取值：中文区主体判定是缺省，英文区判据由使用方按文档路
+# 径分派（提示词英文模板目录）；区只决定主体判定，结构性判罚与豁免面两区共用
+ZONE_CHINESE = "chinese"
+ZONE_ENGLISH = "english"
+
 CODEREF_REMEDY = (
     "wrap the reference in backticks (exempt on prose surfaces) or move it to the record file"
 )
 SECTION_REF_REMEDY = "move the section-number citation to the record file"
 LANGUAGE_REMEDY = "rewrite the text in Chinese, keeping proper nouns in bracket annotations"
+ENGLISH_DOC_REMEDY = "rewrite the whole line in English"
 CODE_LANGUAGE_REMEDY = (
     "rewrite the code block comment in Chinese, keeping proper nouns in bracket annotations"
 )
@@ -119,6 +128,11 @@ CODE_SPAN = re.compile(r"`([^`]*)`")
 MATH_SPAN_BODY = r"[A-Za-z0-9\s\\{}()\[\]^_+=*/<>,.;:|\-]+"
 MATH_SPAN = re.compile(r"\$\$%(b)s\$\$|\$%(b)s\$" % {"b": MATH_SPAN_BODY})
 
+# 模板占位符段豁免：双花括号包裹的占位符名是模板语法记号，语言中立，裸形
+# 态与行内代码形态同豁；名限标识符字符，与渲染端的占位符替换语法同形，内
+# 嵌空白或汉字的写法构不成段，不豁免
+PLACEHOLDER_SPAN = re.compile(r"\{\{[A-Za-z0-9_.-]+\}\}")
+
 # 引用记号前缀：块引用内的围栏内容行带着引用记号落地，剥后再认注释形态
 QUOTE_PREFIX = re.compile(r"^(?:\s*>[ \t]?)+")
 
@@ -134,14 +148,18 @@ def strip_links(text: str) -> str:
     return text
 
 
-def prose_line_problems(path: str, line: int, text: str) -> list[gate_report.Finding]:
-    """单行表述判定：结构性记号豁免后落中文区判定，主体必须中文。"""
+def prose_line_problems(
+    path: str, line: int, text: str, zone: str = ZONE_CHINESE
+) -> list[gate_report.Finding]:
+    """单行表述判定：结构性记号豁免后按区落主体判定——中文区主体必须中文，
+    英文区主体必须纯英文。"""
     text = text.strip()
     if not text:
         return []
     text = re.sub(r"^(?:[-*+]|\d+[.、]|>)\s+", "", text)  # 列表与引用记号非表述
     text = re.sub(r"^\[[ xX]\]\s+", "", text)  # 任务列表记号：勾选框非表述
     text = re.sub(r"`[^`]*`", " ", text)  # 行内代码：命令、路径与标识符豁免
+    text = PLACEHOLDER_SPAN.sub(" ", text)  # 模板占位符段：双花括号占位符是模板语法记号，豁免
     text = MATH_SPAN.sub(" ", text)  # 数学记号段：算式是语言中立记号，豁免
     text = strip_links(text)
     text = text.replace("**", " ")  # 强调记号：包裹的仍是中文表述，记号非内容
@@ -174,6 +192,8 @@ def prose_line_problems(path: str, line: int, text: str) -> list[gate_report.Fin
                 remedy=SECTION_REF_REMEDY,
             )
         ]
+    if zone == ZONE_ENGLISH:
+        return english_zone_problems(path, line, text, "text", ENGLISH_DOC_REMEDY)
     if not CJK.search(text):
         return [
             gate_report.Finding(
@@ -275,11 +295,12 @@ def markdown_parser():
     return _PARSER
 
 
-def markdown_problems(path: str, src: str) -> list[gate_report.Finding]:
+def markdown_problems(path: str, src: str, zone: str = ZONE_CHINESE) -> list[gate_report.Finding]:
     """标记语言文档逐行受检：块级边界取自解析树——代码块（含缩进块与波浪
     围栏）、数学块与超文本标记块整段豁免；围栏内已登记语言的整行注释作为
     文档检查子项照注释纪律判定，其余内容是字面代码放行；其余行照原文逐行
-    判，行内豁免（反引号、链接、数学记号段等）由行级判定承载。"""
+    判，行内豁免（反引号、链接、数学记号段等）由行级判定承载，表述区归属
+    由调用方按文档路径传入。"""
     # 行模型以解析器为单点：先做与解析器相同的换行归一化再按换行切分——
     # 通用的按行切分另认纵向制表与统一码行分隔符等边界，两种行模型错位
     # 会让豁免窗口整体偏移
@@ -313,11 +334,13 @@ def markdown_problems(path: str, src: str) -> list[gate_report.Finding]:
         if lang is not None:
             out += fence_comment_problems(path, offset + 1, QUOTE_PREFIX.sub("", line), lang)
         else:
-            out += markdown_line_problems(path, offset + 1, line)
+            out += markdown_line_problems(path, offset + 1, line, zone)
     return out
 
 
-def markdown_line_problems(path: str, lineno: int, line: str) -> list[gate_report.Finding]:
+def markdown_line_problems(
+    path: str, lineno: int, line: str, zone: str = ZONE_CHINESE
+) -> list[gate_report.Finding]:
     stripped = line.strip()
     if not stripped:
         return []
@@ -349,6 +372,6 @@ def markdown_line_problems(path: str, lineno: int, line: str) -> list[gate_repor
             return out  # 表格分隔行
         cells_problems = []
         for cell in cells[1:]:
-            cells_problems += prose_line_problems(path, lineno, cell)
+            cells_problems += prose_line_problems(path, lineno, cell, zone)
         return out + cells_problems
-    return out + prose_line_problems(path, lineno, stripped)
+    return out + prose_line_problems(path, lineno, stripped, zone)
