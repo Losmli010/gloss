@@ -550,5 +550,16 @@ mod tests {
                 metrics.category
             );
         }
+        let punctuation = report
+            .category_metrics
+            .iter()
+            .find(|metrics| metrics.category == "PunctuationMismatch")
+            .expect("the punctuation category is tallied");
+        assert_eq!(
+            (punctuation.expected, punctuation.predicted),
+            (1, 3),
+            "known over-report: punctuation is flagged inside entries already \
+             failing other categories; moving the count needs an explicit call",
+        );
     }
 }

@@ -84,6 +84,8 @@
 - 图标矢量现画（三角轮廓加感叹，闭合折线带圆角连接），与复制方块同一
   `ICON_ARM` 臂长档、`stroke::LINE` 细线档；琥珀色走新语义档
   `Palette.warn`（明暗两份数据，语义色只在调色板定稿）。
+- 平台限制记录：完整提示句只产视觉悬停层，该版本界面库的 tooltip 不入
+  `WidgetInfo`——读屏用户只拿到短标签，非遗漏。
 
 ## `footer_status` / `footer_dots` / `footer_watermark`（自 card.rs 迁入）
 
