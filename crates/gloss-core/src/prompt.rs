@@ -3,7 +3,9 @@
 //!
 //! 任务侧一个任务一份自包含模板（词卡、句译、代码解释、图像解读、通用）：
 //! 任务说明与纯格式（JSON）输出契约（含一份“中性占位”的输出示例）都在
-//! 同一个文件里，改一个任务的任务书不会牵动其它任务。契约按经注疏与
+//! 同一个文件里，改一个任务的任务书不会牵动其它任务。任务书按五段骨架
+//! 组织（角色与任务、输出形状、字段规则、任务约定）；渲染拼装为任务书、
+//! 共享目标语言条款、共享输出纪律块三段顺接，纪律块垫底。契约按经注疏与
 //! 说文解字的层次组织，与核心层契约模块的三行同构表同源：注（义）恒为
 //! 首字段，按类别的疏证字段收敛在疏证对象里——词卡
 //! 是音标与例句（音、例，字头即选区原文），句译、讲解、
@@ -50,6 +52,7 @@ struct Templates {
     image_explain: &'static str,
     general: &'static str,
     target_lang: &'static str,
+    discipline: &'static str,
     classify: &'static str,
     repair: &'static str,
     repair_language: &'static str,
@@ -65,6 +68,7 @@ impl Locale {
                 image_explain: include_str!("../prompts/zh/image_explain.md"),
                 general: include_str!("../prompts/zh/general.md"),
                 target_lang: include_str!("../prompts/zh/target_lang.md"),
+                discipline: include_str!("../prompts/zh/discipline.md"),
                 classify: include_str!("../prompts/zh/classify.md"),
                 repair: include_str!("../prompts/zh/repair.md"),
                 repair_language: include_str!("../prompts/zh/repair_language.md"),
@@ -76,6 +80,7 @@ impl Locale {
                 image_explain: include_str!("../prompts/en/image_explain.md"),
                 general: include_str!("../prompts/en/general.md"),
                 target_lang: include_str!("../prompts/en/target_lang.md"),
+                discipline: include_str!("../prompts/en/discipline.md"),
                 classify: include_str!("../prompts/en/classify.md"),
                 repair: include_str!("../prompts/en/repair.md"),
                 repair_language: include_str!("../prompts/en/repair_language.md"),
@@ -226,6 +231,8 @@ fn render_task_system(templates: Templates, kind: TaskKind, target: &str) -> Str
     let mut system = render_template(instruction_template(templates, kind), &values);
     system.push_str("\n\n");
     system.push_str(&render_template(templates.target_lang, &values));
+    system.push_str("\n\n");
+    system.push_str(&render_template(templates.discipline, &values));
     system
 }
 
@@ -394,7 +401,7 @@ mod tests {
             (TaskKind::TranslateWord, "词典专家"),
             (TaskKind::TranslateSentence, "翻译专家"),
             (TaskKind::ExplainCode, "编程专家"),
-            (TaskKind::General, "经注疏"),
+            (TaskKind::General, "研究专家"),
         ];
         for (kind, keyword) in cases {
             let task = text_task(kind, "hello world");
@@ -519,6 +526,7 @@ mod tests {
                 ("general.md", templates.general),
                 ("classify.md", templates.classify),
                 ("repair.md", templates.repair),
+                ("discipline.md", templates.discipline),
             ] {
                 assert!(
                     text.to_lowercase().contains("json"),
@@ -591,15 +599,39 @@ mod tests {
         assert!(en.contains("examples item 2: ForeignRun — "), "{en}");
     }
 
+    fn assert_clause_then_discipline_tail(
+        system: &str,
+        clause: &str,
+        discipline: &str,
+        label: &str,
+    ) {
+        let tail = system.trim_end();
+        let head = tail
+            .strip_suffix(discipline.trim_end())
+            .unwrap_or_else(|| {
+                panic!(
+                    "{label}: the shared discipline block rides verbatim at the end; tail: {:?}",
+                    &tail[tail.len().saturating_sub(120)..]
+                )
+            })
+            .trim_end();
+        assert!(
+            head.ends_with(clause.trim_end()),
+            "{label}: the shared clause rides verbatim right before the discipline block; tail: \
+             {:?}",
+            &head[head.len().saturating_sub(120)..]
+        );
+    }
+
     #[test]
-    fn every_task_system_prompt_ends_with_the_shared_clause() {
+    fn every_task_system_prompt_ends_with_the_discipline_after_the_shared_clause() {
         let registry = PromptRegistry::new();
         for locale in [Locale::Zh, Locale::En] {
             let templates = locale.templates();
-            let clause = super::render_template(
-                templates.target_lang,
-                &[("target", lang_display(&DEFAULT_TARGET, locale).as_ref())],
-            );
+            let target = lang_display(&DEFAULT_TARGET, locale);
+            let values = [("target", target.as_ref())];
+            let clause = super::render_template(templates.target_lang, &values);
+            let discipline = super::render_template(templates.discipline, &values);
             for kind in [
                 TaskKind::TranslateWord,
                 TaskKind::TranslateSentence,
@@ -609,13 +641,12 @@ mod tests {
                 let mut task = text_task(kind, "gloss");
                 task.options_mut().prompt_locale = Some(locale);
                 let messages = registry.render(&task).expect("render");
-                let system = text_of(&messages[0].content);
-                assert!(
-                    system.trim_end().ends_with(clause.trim_end()),
-                    "{locale:?} x {kind:?}: the shared clause rides verbatim at the end; tail: \
-                     {:?} vs clause {:?}",
-                    &system[system.len().saturating_sub(120)..],
-                    &clause[clause.len().saturating_sub(120)..]
+                let label = format!("{locale:?} x {kind:?}");
+                assert_clause_then_discipline_tail(
+                    text_of(&messages[0].content),
+                    &clause,
+                    &discipline,
+                    &label,
                 );
             }
             let mut image = Task::new(
@@ -628,11 +659,66 @@ mod tests {
             .expect("image task is legal");
             image.options_mut().prompt_locale = Some(locale);
             let messages = registry.render(&image).expect("render");
-            let system = text_of(&messages[0].content);
-            assert!(
-                system.trim_end().ends_with(clause.trim_end()),
-                "{locale:?}: the image system prompt carries the shared clause"
+            let label = format!("{locale:?} image task");
+            assert_clause_then_discipline_tail(
+                text_of(&messages[0].content),
+                &clause,
+                &discipline,
+                &label,
             );
+        }
+    }
+
+    #[test]
+    fn task_templates_avoid_forbidden_legacy_markers() {
+        let zh_markers = [
+            "经注疏",
+            "注—疏",
+            "为体例",
+            "注不破经",
+            "训释",
+            "书证",
+            "按断",
+            "按语",
+            "典源",
+            "故实",
+            "互文",
+            "义训",
+        ];
+        let en_markers = [
+            "commentary—subcommentary",
+            "zhu—shu",
+            "classical chinese",
+            "commentary",
+            "subcommentary",
+            "does not violate the classic",
+            "follow the traditional chinese",
+            "textual evidence",
+            "sources of allusions",
+            "historical references",
+            "cross-references",
+            "critical judgments",
+        ];
+        for locale in [Locale::Zh, Locale::En] {
+            let templates = locale.templates();
+            for (name, text) in [
+                ("word_card.md", templates.word_card),
+                ("sentence.md", templates.sentence),
+                ("code.md", templates.code),
+                ("image_explain.md", templates.image_explain),
+                ("general.md", templates.general),
+            ] {
+                let markers = match locale {
+                    Locale::Zh => &zh_markers[..],
+                    Locale::En => &en_markers[..],
+                };
+                for marker in markers {
+                    assert!(
+                        !text.to_lowercase().contains(marker),
+                        "{locale:?}/{name}: the legacy marker {marker:?} must not return"
+                    );
+                }
+            }
         }
     }
 
@@ -706,7 +792,7 @@ mod tests {
         );
         let system = text_of(&messages[0].content);
         assert!(
-            system.contains("JSON 格式") || system.contains("JSON format"),
+            system.contains("（JSON）格式") || system.contains("JSON format"),
             "the image contract must demand JSON output: {system}"
         );
         assert!(system.contains("\"note\""), "{system}");
@@ -928,6 +1014,7 @@ mod tests {
                 ("image_explain.md", templates.image_explain),
                 ("general.md", templates.general),
                 ("target_lang.md", templates.target_lang),
+                ("discipline.md", templates.discipline),
                 ("classify.md", templates.classify),
                 ("repair.md", templates.repair),
                 ("repair_language.md", templates.repair_language),
