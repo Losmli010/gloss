@@ -96,8 +96,9 @@ def findings(root: str, body: str) -> list[gate_report.Finding]:
 
 
 def run(root: str, body: str) -> list[str]:
-    """评审结果三重判定的运行函数，返回违规列表，供客户端钩子复用。"""
-    return [gate_report.render(f) for f in findings(root, body)]
+    """评审结果三重判定的运行函数，返回违规列表（软约束候选不计入），供客
+    户端钩子复用。"""
+    return [gate_report.render(f) for f in findings(root, body) if not f.advisory]
 
 
 def main() -> int:
@@ -114,6 +115,12 @@ def main() -> int:
 
     body = read(sys.argv[1])
     found = findings(root, body)
+    advisories = [f for f in found if f.advisory]
+    found = [f for f in found if not f.advisory]
+    for finding in advisories:
+        gate_report.warn(finding)
+    if advisories:
+        gate_report.warning_summary(advisories)
     for finding in found:
         gate_report.fail(finding)
     if found:

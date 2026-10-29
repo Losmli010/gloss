@@ -2,13 +2,16 @@
 """语言规范·中文区：中文表述怎么写。中文主体只允许汉字、白名单字符、阿拉
 伯数字与空白；专名与外文术语收进紧跟的全角括号作注记——注记括号按容器判
 定，许嵌套、内部不做正文白名单检查只判单一语言（目标语言文字段与外文段不
-混现），不配对独立判罚且内容落回正文受检。字符事实单源于核心库内嵌的语言
-规范数据文件（crates/gloss-core/langspec/zh_en.toml），生产侧判定器自同一
-文件编译期嵌入派生，两侧注释互指——本模块运行时装入并派生各字符面，文件
-缺席或损坏当场失败，数据面移位不静默破坏门禁。工具指令段与可直接运行的命
-令段整段豁免。判罚以带规则标识的违规条目返回，位置由调用方按路径与行号传
-入，标识登记于统一登记表。被注释、提交信息与拉取请求内容门禁复用；本模块
-自身注释同规。
+混现），不配对独立判罚且内容落回正文受检；汉字与拉丁字母或数字直接相邻判
+罚（盘古之白），繁体独有字形判罚（简体判定，豁免仅代码引用），注记括号里
+的纯外文内容过长或带虚词走软约束候选（括号锚点连贯，警告不计违规）。字符
+事实单源于核心库内嵌的语言规范数据目录（crates/gloss-core/langspec/）的判
+定数据与简繁对串两文件，生产侧判定器自同一组文件编译期嵌入派生，两侧
+注释互指——本模块运行时装入并派生各字符面，文件缺席或损坏当场失败，数据
+面移位不静默破坏门禁。工具指令段与可直接运行的命令段整段豁免。判罚以带规
+则标识的违规条目返回，软约束候选（advisory）走警告通道不计违规，位置由调
+用方按路径与行号传入，标识登记于统一登记表。被注释、提交信息与拉取请求内
+容门禁复用；本模块自身注释同规。
 
 """
 
@@ -30,6 +33,9 @@ import gate_report  # noqa: E402
 RULE_PROSE_FOREIGN = "PROSE-FOREIGN"
 RULE_PROSE_GLOSS_MIXED = "PROSE-GLOSS-MIXED"
 RULE_PROSE_GLOSS_UNPAIRED = "PROSE-GLOSS-UNPAIRED"
+RULE_PROSE_PANGU = "PROSE-PANGU"
+RULE_PROSE_TRADITIONAL = "PROSE-TRADITIONAL"
+RULE_PROSE_ANCHOR = "PROSE-ANCHOR"
 
 FOREIGN_REMEDY = "put proper nouns in fullwidth bracket annotations and write the rest in Chinese"
 GLOSS_MIXED_REMEDY = (
@@ -37,12 +43,31 @@ GLOSS_MIXED_REMEDY = (
     " move prose back into the body"
 )
 GLOSS_UNPAIRED_REMEDY = "complete or remove the unpaired bracket"
+PANGU_REMEDY = "keep one halfwidth space between Chinese and Latin letters or digits"
+TRADITIONAL_REMEDY = "rewrite traditional-only glyphs in simplified Chinese"
+ANCHOR_REMEDY = (
+    "brackets anchor a Chinese term and are not sentence parts — write the"
+    " prose so it stands with the bracket removed"
+)
 
 # 字符事实单源：生产侧判定器自同一数据文件编译期嵌入，两侧注释互指；装入
 # 失败当场失败不静默降级——数据面移位必须显式修路径，不许门禁带病运行。
 _SPEC_PATH = (
     Path(__file__).resolve().parents[3] / "crates" / "gloss-core" / "langspec" / "zh_en.toml"
 )
+
+# 简繁对串单源：与生产侧共享同一数据文件（生产侧字符映射模块编译期嵌入），
+# 每对前字是繁体独有字形；对串良构（成对、繁简有别、升序不重）由核心库锁
+# 定测试背书，此处装入失败当场失败不静默降级。
+_PAIRS_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "crates"
+    / "gloss-core"
+    / "langspec"
+    / "simplified_pairs.txt"
+)
+
+_TRADITIONAL = frozenset(_PAIRS_PATH.read_text(encoding="utf-8").strip()[0::2])
 
 
 def _load_spec() -> dict:
@@ -82,6 +107,12 @@ ATTACHED_AFTER_DIGIT = _face(_SPEC["shared"]["attached_after_digit"])
 ATTACHED_BEFORE_DIGIT = _face(_SPEC["shared"]["attached_before_digit"])
 ATTACHED_BETWEEN_DIGITS = _face(_SPEC["shared"]["attached_between_digits"])
 _GLOSS_OPEN, _GLOSS_CLOSE = _SPEC["shared"]["brackets"]["zh"]
+# 表情事实与生产侧同源互指：开发侧不设独立表情判定——表情在白名单外，字符
+# 白名单天然全覆盖；事实自数据源装入供对账锁定（表情事实全部落在白名单外），
+# 生产侧自同一数据面判表情违约，机制差异见登记表。
+EMOJI_RANGES = _ranges(_SPEC["shared"]["emoji_ranges"])
+EMOJI_BARE = _face(_SPEC["shared"]["emoji_bare"])
+EMOJI_VARIANTS = _face(_SPEC["shared"]["emoji_variants"])
 
 LATIN = re.compile(r"[A-Za-z]")
 CJK = re.compile("[" + _ranges_class(_RANGES["han"]) + "]")
@@ -141,8 +172,26 @@ def is_attached_symbol(text: str, index: int) -> bool:
     return ch in ATTACHED_BETWEEN_DIGITS and _is_ascii_digit(prev) and _is_ascii_digit(nxt)
 
 
+def _is_ascii_alnum(ch: str) -> bool:
+    return ch.isascii() and ch.isalnum()
+
+
+def pangu_pairs(seg: str) -> list[str]:
+    """段内汉字与拉丁字母或数字直接相邻的相邻对（去重保序）：空白隔开不放
+    行邻接，与生产侧盘古之白同判——相邻即罚，须留一个半角空格。"""
+    out = []
+    for left, right in zip(seg, seg[1:]):
+        mixed = (CJK.match(left) and _is_ascii_alnum(right)) or (
+            _is_ascii_alnum(left) and CJK.match(right)
+        )
+        if mixed and left + right not in out:
+            out.append(left + right)
+    return out
+
+
 def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[gate_report.Finding]:
-    """中文主体的字符级检查：只允许汉字、白名单字符、阿拉伯数字与空白。"""
+    """中文主体的字符级检查：只允许汉字、白名单字符、阿拉伯数字与空白；盘
+    古之白与简体判定随段同查。"""
     out = []
     for seg in SEGMENT_SPLIT.split(zone):
         seg = seg.strip(SEGMENT_TRIM)
@@ -150,9 +199,10 @@ def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[g
             continue
         bad = []
         for index, ch in enumerate(seg):
+            if CJK.match(ch):
+                continue
             if (
-                CJK.match(ch)
-                or ch in WHITELIST
+                ch in WHITELIST
                 or _is_ascii_digit(ch)
                 # 不换行空格与全角空格是空白——表格列加宽靠不可断行的空白撑住
                 or ch in " \t\n\r\u00a0\u3000"
@@ -162,6 +212,7 @@ def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[g
                 continue
             if ch not in bad:
                 bad.append(ch)
+        traditional = traditional_glyphs(seg)
         if bad:
             shown = " ".join(bad[:3])
             out.append(
@@ -174,6 +225,33 @@ def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[g
                     " rewrite the rest in Chinese" % (label, shown),
                     evidence=seg,
                     remedy=FOREIGN_REMEDY,
+                )
+            )
+        if traditional:
+            shown = " ".join(traditional[:3])
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_PROSE_TRADITIONAL,
+                    path=path,
+                    line=line,
+                    message="%s body contains traditional-only glyphs (%s) — write"
+                    " simplified Chinese" % (label, shown),
+                    evidence=seg,
+                    remedy=TRADITIONAL_REMEDY,
+                )
+            )
+        pairs = pangu_pairs(seg)
+        if pairs:
+            shown = " ".join(pairs[:3])
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_PROSE_PANGU,
+                    path=path,
+                    line=line,
+                    message="%s body joins Chinese with Latin letters or digits without"
+                    " a space (%s)" % (label, shown),
+                    evidence=seg,
+                    remedy=PANGU_REMEDY,
                 )
             )
     return out
@@ -207,9 +285,68 @@ def script_runs(text: str) -> list[tuple[str, int]]:
     return runs
 
 
+# 括号锚点连贯软约束（警告级候选，宁漏勿误）：括号是锚点对照不是句子成分，
+# 高置信启发式只抓塞英文退化形态——虚词小清单（冠词、介词、连词与系动词）
+# 命中短语的句子性，长度阈值加空白分词抓无虚词的长外文插语；两条件任一命中
+# 即出候选，不计门禁通过与否。斜杠与路径形态的术语清单、单词塞入形态机判
+# 不可靠，都不出候选，归人工清查与评审兜底。
+ANCHOR_FUNCTION_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "of",
+        "to",
+        "in",
+        "on",
+        "at",
+        "by",
+        "for",
+        "with",
+        "from",
+        "and",
+        "or",
+        "but",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+    }
+)
+ANCHOR_MAX_LENGTH = 24
+
+ANCHOR_WORD = re.compile(r"[A-Za-z0-9']+")
+
+
+def anchor_reasons(gloss: str) -> list[str]:
+    """锚点连贯的命中缘由：任一高置信启发式命中即返回——外文词两个以上且含
+    虚词，或空白分词三段以上且内容长度超阈值；候选只打印不判罚。"""
+    words = [word.lower() for word in ANCHOR_WORD.findall(gloss)]
+    out = []
+    if len(words) >= 2 and any(word in ANCHOR_FUNCTION_WORDS for word in words):
+        out.append("reads like a phrase with a function word")
+    if len(gloss.split()) >= 3 and len(gloss) > ANCHOR_MAX_LENGTH:
+        out.append("too long to be a term gloss")
+    return out
+
+
+def traditional_glyphs(text: str) -> list[str]:
+    """文本里的繁体独有字形（去重保序）：与生产侧同用共享对串逐一比对（对
+    串键面即繁体字形，不再按区段过滤——扩展区繁形与生产侧同判），括号容器
+    与正文同判（开发侧无引文容器，豁免仅代码引用）。"""
+    out = []
+    for ch in text:
+        if ch in _TRADITIONAL and ch not in out:
+            out.append(ch)
+    return out
+
+
 def gloss_problems(path: str, line: int, gloss: str, label: str) -> list[gate_report.Finding]:
     """注记括号单语判定：容器内部不做正文白名单检查——目标语言文字段与外
-    文段（连续两字符以上）混现即判罚，纯外文与纯中文放行。"""
+    文段（连续两字符以上）混现即判罚，纯外文与纯中文放行；简体判定随容器
+    内汉字同查，纯外文内容另过锚点连贯启发式，命中以软约束候选返回（警告
+    不计违规）。"""
     gloss = gloss.strip()
     if not gloss:
         return []
@@ -222,8 +359,9 @@ def gloss_problems(path: str, line: int, gloss: str, label: str) -> list[gate_re
             has_target = True
         else:
             has_foreign = True
+    out = []
     if has_target and has_foreign:
-        return [
+        out.append(
             gate_report.Finding(
                 rule=RULE_PROSE_GLOSS_MIXED,
                 path=path,
@@ -233,8 +371,36 @@ def gloss_problems(path: str, line: int, gloss: str, label: str) -> list[gate_re
                 evidence=gloss,
                 remedy=GLOSS_MIXED_REMEDY,
             )
-        ]
-    return []
+        )
+    glyphs = traditional_glyphs(gloss)
+    if glyphs:
+        shown = " ".join(glyphs[:3])
+        out.append(
+            gate_report.Finding(
+                rule=RULE_PROSE_TRADITIONAL,
+                path=path,
+                line=line,
+                message="%s annotation bracket contains traditional-only glyphs (%s) — write"
+                " simplified Chinese" % (label, shown),
+                evidence=gloss,
+                remedy=TRADITIONAL_REMEDY,
+            )
+        )
+    if has_foreign and not has_target:
+        out.extend(
+            gate_report.Finding(
+                rule=RULE_PROSE_ANCHOR,
+                path=path,
+                line=line,
+                message="%s annotation bracket %s — brackets anchor a Chinese term,"
+                " not sentence parts" % (label, reason),
+                evidence=gloss,
+                remedy=ANCHOR_REMEDY,
+                advisory=True,
+            )
+            for reason in anchor_reasons(gloss)
+        )
+    return out
 
 
 GLOSS_UNPAIRED_TAIL = (

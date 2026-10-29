@@ -68,12 +68,25 @@ def section_findings(sections: list[str], body: str) -> list[gate_report.Finding
 
 
 def body_findings(body: str) -> list[gate_report.Finding]:
-    return [replace(f, rule=RULE_PR_PROSE) for f in markdown_problems("pull request body", body)]
+    """正文书写规则：硬违规统一归入正文标识，软约束候选保留原标识与警告属
+    性走警告通道。"""
+    return [
+        f if f.advisory else replace(f, rule=RULE_PR_PROSE)
+        for f in markdown_problems("pull request body", body)
+    ]
 
 
 def title_findings(title: str) -> list[gate_report.Finding]:
     out = []
     for f in check_commit_msg.findings(check_commit_msg.simulate_squash(title)):
+        if f.advisory:
+            out.append(
+                replace(
+                    f,
+                    message="pull request title fails the squash-merge simulation: %s" % f.message,
+                )
+            )
+            continue
         out.append(
             replace(
                 f,
@@ -96,8 +109,9 @@ def findings(root: str, body: str, title: str | None = None) -> list[gate_report
 
 
 def run(root: str, body: str, title: str | None = None) -> list[str]:
-    """正文书写规则、模板小节与标题合并模拟三合一，返回违规列表。"""
-    return [gate_report.render(f) for f in findings(root, body, title)]
+    """正文书写规则、模板小节与标题合并模拟三合一，返回违规列表，软约束候
+    选不计入。"""
+    return [gate_report.render(f) for f in findings(root, body, title) if not f.advisory]
 
 
 def main() -> int:
@@ -115,6 +129,12 @@ def main() -> int:
     body = read(sys.argv[1])
     title = read(sys.argv[2]) if len(sys.argv) > 2 else None
     found = findings(root, body, title)
+    advisories = [f for f in found if f.advisory]
+    found = [f for f in found if not f.advisory]
+    for finding in advisories:
+        gate_report.warn(finding)
+    if advisories:
+        gate_report.warning_summary(advisories)
     for finding in found:
         gate_report.fail(finding)
     if found:

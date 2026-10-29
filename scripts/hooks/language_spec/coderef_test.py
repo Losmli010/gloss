@@ -43,6 +43,11 @@ def test_pure_identifier_exempt() -> None:
     assert prose_line_problems("t", 1, "some_test_name") == []
 
 
+def test_backtick_span_exempts_traditional_glyphs() -> None:
+    # 简体判定的豁免仅代码引用：反引号内的繁体字形不判（提交信息等非标记面）
+    assert prose_line_problems("t", 1, "对照 `軟體` 术语。") == []
+
+
 def test_english_line_flagged() -> None:
     problems = prose_line_problems("t", 1, "Just run the tests.")
     assert any("must be written in Chinese" in p for p in messages(problems))

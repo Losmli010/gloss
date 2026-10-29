@@ -83,7 +83,8 @@ def simulate_squash(title: str) -> str:
 
 def prose_findings(lines: list[str]) -> list[gate_report.Finding]:
     """主题与正文逐行过书写规则；结构性要素豁免——编号后缀、版本库尾注与
-    压缩合并清单条目的类型前缀；书写规则条目统一归入书写纪律标识。"""
+    压缩合并清单条目的类型前缀；书写规则条目统一归入书写纪律标识，软约束
+    候选保留原标识与警告属性走警告通道。"""
     found = []
     subject = ISSUE_SUFFIX_RE.sub("", SUBJECT_RE.sub("", lines[0], count=1))
     found += prose_line_problems("commit subject", 0, subject)
@@ -93,7 +94,7 @@ def prose_findings(lines: list[str]) -> list[gate_report.Finding]:
             continue
         entry = LIST_ENTRY_RE.sub("", stripped, count=1)
         found += prose_line_problems("commit body line %d" % index, 0, entry)
-    return [replace(f, rule=RULE_COMMIT_PROSE) for f in found]
+    return [f if f.advisory else replace(f, rule=RULE_COMMIT_PROSE) for f in found]
 
 
 def findings(msg: str) -> list[gate_report.Finding]:
@@ -167,14 +168,15 @@ def findings(msg: str) -> list[gate_report.Finding]:
 
 
 def run(msg: str) -> list[str]:
-    """校验一条 commit message，返回违规列表（渲染行，消息带位置）；通过返回
-    空列表。"""
-    return [gate_report.render(f) for f in findings(msg)]
+    """校验一条 commit message，返回违规列表（渲染行，消息带位置），软约束
+    候选不计入；通过返回空列表。"""
+    return [gate_report.render(f) for f in findings(msg) if not f.advisory]
 
 
 def main(argv: list[str]) -> int:
-    """命令行入口：逐条校验参数里的全部消息，任一违规即整体退出非零；合并
-    模拟形态打印标题的压缩合并模拟消息。"""
+    """命令行入口：逐条校验参数里的全部消息，任一违规即整体退出非零；软约
+    束候选走警告前缀与警告汇总，不影响退出码；合并模拟形态打印标题的压缩
+    合并模拟消息。"""
     if len(argv) >= 2 and argv[1] == "--simulate-squash":
         if len(argv) != 3:
             print("usage: %s --simulate-squash <title>" % argv[0], file=sys.stderr)
@@ -185,6 +187,7 @@ def main(argv: list[str]) -> int:
         print("usage: %s <commit-message-file|-> ..." % argv[0], file=sys.stderr)
         return gate_report.EXIT_USAGE
     all_findings = []
+    all_advisories = []
     for path in argv[1:]:
         if path == "-":
             msg = sys.stdin.read()
@@ -192,12 +195,19 @@ def main(argv: list[str]) -> int:
             with open(path, encoding="utf-8", errors="replace") as fh:
                 msg = fh.read()
         found = findings(msg)
+        advisories = [f for f in found if f.advisory]
+        found = [f for f in found if not f.advisory]
+        for finding in advisories:
+            gate_report.warn(finding)
+        all_advisories += advisories
         if found:
             for finding in found:
                 gate_report.fail(finding)
             all_findings += found
         else:
             print("ok: commit message: %s" % split_message(msg)[0])
+    if all_advisories:
+        gate_report.warning_summary(all_advisories)
     if all_findings:
         gate_report.summary(all_findings)
         return gate_report.EXIT_VIOLATION

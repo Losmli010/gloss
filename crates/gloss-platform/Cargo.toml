@@ -20,7 +20,7 @@ core-foundation-sys = {
     "link",
   ]
 }
-# 事件线程消费通道2、转发14。
+# 事件线程消费通道 2、转发 1、4。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 # 配置存储的目录定位（日志目录例外，不走本库）。
 directories = { version = "6", default-features = false }

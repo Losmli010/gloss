@@ -40,6 +40,17 @@ def test_all_sections_present_ok(tmp_path: Path) -> None:
     assert check_pr_prose.run(make_root(tmp_path), body) == []
 
 
+def test_body_anchor_candidate_keeps_rule_and_stays_advisory(tmp_path: Path) -> None:
+    # 软约束候选保留原标识与警告属性，不计入违规清单
+    body = (
+        "## 测试（必填）\n\n我们先（initialize the model and train it）再评估。\n\n"
+        "## 安全与隐私（必填）\n\n无\n"
+    )
+    advisories = [f for f in check_pr_prose.findings(make_root(tmp_path), body) if f.advisory]
+    assert advisories and {f.rule for f in advisories} == {"PROSE-ANCHOR"}
+    assert check_pr_prose.run(make_root(tmp_path), body) == []
+
+
 def test_missing_template_skips_section_check(tmp_path: Path) -> None:
     body = "## 随意小节\n\n中文正文。\n"
     assert check_pr_prose.run(str(tmp_path), body) == []

@@ -87,6 +87,44 @@ def test_fail_returns_the_same_finding_for_collection() -> None:
     assert gate_report.fail(finding, file=io.StringIO()) is finding
 
 
+def test_warn_template_mirrors_fail_with_warning_prefix() -> None:
+    out = io.StringIO()
+    finding = gate_report.Finding(
+        rule="PROSE-ANCHOR",
+        path="docs/note.md",
+        line=3,
+        message="candidate for review",
+        evidence="text",
+        remedy="rewrite",
+        advisory=True,
+    )
+    assert gate_report.warn(finding, file=out) is finding
+    assert out.getvalue() == (
+        "warning[PROSE-ANCHOR]: candidate for review (docs/note.md:3)\n"
+        "    evidence: text\n"
+        "    help: rewrite\n"
+    )
+
+
+def test_findings_default_to_hard_violations() -> None:
+    finding = gate_report.Finding(rule="INFRA", path="", line=0, message="x")
+    assert finding.advisory is False
+
+
+def test_warning_summary_counts_advisories_without_violation_wording() -> None:
+    one = gate_report.Finding(rule="PROSE-ANCHOR", path="", line=0, message="x")
+    single = io.StringIO()
+    gate_report.warning_summary([one], file=single)
+    assert single.getvalue() == (
+        "warning: 1 advisory candidate found (advisory, not counted as violations)\n"
+    )
+    triple = io.StringIO()
+    gate_report.warning_summary([one, one, one], file=triple)
+    assert triple.getvalue() == (
+        "warning: 3 advisory candidates found (advisory, not counted as violations)\n"
+    )
+
+
 def test_summary_line_counts_findings() -> None:
     one = gate_report.Finding(rule="INFRA", path="", line=0, message="x")
     single = io.StringIO()

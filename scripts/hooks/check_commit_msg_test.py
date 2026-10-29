@@ -311,6 +311,14 @@ def test_findings_keep_prose_details_under_commit_rule() -> None:
     assert "docs/tests/bdd.md" in found[0].evidence
 
 
+def test_advisory_candidate_keeps_rule_and_skips_rejection() -> None:
+    # 软约束候选保留原标识与警告属性，不计入违规清单
+    msg = "feat: 标题\n\n我们先（initialize the model and train it）再评估。\n"
+    found = check_commit_msg.findings(msg)
+    assert found and all(f.rule == "PROSE-ANCHOR" and f.advisory for f in found)
+    assert check_commit_msg.run(msg) == []
+
+
 # ---- 反馈契约：报告格式、汇总计数、确定性与退出码（子进程端到端）----
 
 GATE = str(Path(__file__).with_name("check_commit_msg.py"))

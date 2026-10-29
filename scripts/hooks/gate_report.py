@@ -2,8 +2,10 @@
 版本库调用包装，供各门禁共用。报告全部走标准错误，消息语言保持英文；退出
 码语义全脚本一致：零为通过、一为发现违规、二为用法错误、三为无法完成判定
 （失败关闭，绝不因没检查到而放行）。横幅与失败收尾（空行、汇总、指引行）
-也在此单点收口，各门禁不再各拼一份。规则标识常量与登记清单在本模块或各脚
-本常量区同源定义，各标识的含义、判罚口径与豁免方式住登记表记录文件。
+也在此单点收口，各门禁不再各拼一份。警告通道承载软约束候选清单：条目带软
+约束标记（advisory），走警告前缀即时打印与警告汇总，不计违规计数与退出码。
+规则标识常量与登记清单在本模块或各脚本常量区同源定义，各标识的含义、判罚
+口径与豁免方式住登记表记录文件。
 """
 
 from __future__ import annotations
@@ -104,6 +106,9 @@ REGISTERED_RULES = frozenset(
         "PROSE-FOREIGN",
         "PROSE-GLOSS-MIXED",
         "PROSE-GLOSS-UNPAIRED",
+        "PROSE-PANGU",
+        "PROSE-TRADITIONAL",
+        "PROSE-ANCHOR",
         "PROSE-CODEREF",
         "PROSE-SECTION-REF",
         "PROSE-LANGUAGE",
@@ -121,7 +126,8 @@ REGISTERED_RULES = frozenset(
 
 @dataclass(frozen=True)
 class Finding:
-    """单条违规的完整描述：规则标识、位置、消息、证据行与补救动作。"""
+    """单条违规的完整描述：规则标识、位置、消息、证据行与补救动作；软约束
+    候选置 advisory，走警告通道不计退出码。"""
 
     rule: str
     path: str
@@ -130,6 +136,7 @@ class Finding:
     evidence: str = ""
     remedy: str = ""
     column: int = 0
+    advisory: bool = False
 
 
 def location(finding: Finding) -> str:
@@ -161,6 +168,31 @@ def fail(finding: Finding, file: TextIO | None = None) -> Finding:
     if finding.remedy:
         print("    help: %s" % finding.remedy, file=out)
     return finding
+
+
+def warn(finding: Finding, file: TextIO | None = None) -> Finding:
+    """即时打印单条软约束候选到标准错误：与 fail 同模板，前缀换警告——候选
+    清单供人工核查，不计违规。"""
+    out = file if file is not None else sys.stderr
+    head = "warning[%s]: %s" % (finding.rule, finding.message)
+    loc = location(finding)
+    if loc:
+        head = "%s (%s)" % (head, loc)
+    print(head, file=out)
+    if finding.evidence:
+        print("    evidence: %s" % finding.evidence, file=out)
+    if finding.remedy:
+        print("    help: %s" % finding.remedy, file=out)
+    return finding
+
+
+def warning_summary(advisories: list[Finding], file: TextIO | None = None) -> None:
+    """警告汇总行：计数必须等于已打印警告明细数；候选不计违规，汇总行如实
+    标注软约束属性。"""
+    out = file if file is not None else sys.stderr
+    count = len(advisories)
+    unit = "advisory candidate" if count == 1 else "advisory candidates"
+    print("warning: %d %s found (advisory, not counted as violations)" % (count, unit), file=out)
 
 
 def banner(label: str, scope: str, file: TextIO | None = None) -> None:
