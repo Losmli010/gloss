@@ -376,7 +376,7 @@ def module_docstring_problems(rel: str, src: str) -> list[gate_report.Finding]:
                     rule=RULE_HEADER_LANGUAGE,
                     path=rel,
                     line=node.lineno,
-                    message="file header must be written in Chinese: %s" % text[:40],
+                    message="file header must be written in Chinese",
                     evidence=evidence,
                     remedy=LANGUAGE_REMEDY,
                 )
@@ -446,7 +446,7 @@ def check(rel: str, src: str) -> list[gate_report.Finding]:
                     rule=RULE_LANGUAGE,
                     path=rel,
                     line=lineno,
-                    message="comment must be written in Chinese: %s" % merged[:40],
+                    message="comment must be written in Chinese",
                     evidence=evidence,
                     remedy=LANGUAGE_REMEDY,
                 )

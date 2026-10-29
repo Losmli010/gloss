@@ -413,7 +413,21 @@ def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
 def test_gate_clean_repo_passes_with_exit_zero(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, {"clean.rs": "let x = compute(input);"})
     assert proc.returncode == 0
-    assert proc.stdout.decode("utf-8").startswith("ok")
+    text = proc.stdout.decode("utf-8")
+    assert text.startswith("== secrets scan gate (repo root: ")
+    assert "ok: secrets scan passed (no hardcoded secrets/credentials)" in text
+
+
+def test_gate_masks_matched_secret_in_stderr_evidence(tmp_path: Path) -> None:
+    secret = "sk-%s" % TAIL40
+    proc = run_gate(tmp_path, {"leak.txt": 'key = "%s"' % secret})
+    assert proc.returncode == 1
+    text = proc.stderr.decode("utf-8")
+    assert secret not in text
+    assert TAIL40 not in text
+    # 匹配段含左引号边界：预览只留边界与记号前缀，长度提示含引号整段
+    assert "…<redacted %d chars>" % (len(secret) + 1) in text
+    assert "    evidence: key = " in text
 
 
 def test_gate_extra_argument_is_a_usage_error(tmp_path: Path) -> None:

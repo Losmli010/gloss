@@ -248,7 +248,7 @@ def test_url_in_string_not_eaten_as_comment(tmp_path: Path) -> None:
 
 def test_string_continuation_keeps_line_numbers(tmp_path: Path) -> None:
     content = 'let a = "no chinese \\\nstill ascii";\n\nlet s = "打开设置";'
-    assert_fail(tmp_path, "crates/gloss-app/src/continuation.rs", content, "continuation.rs line 4")
+    assert_fail(tmp_path, "crates/gloss-app/src/continuation.rs", content, "continuation.rs:4)")
 
 
 def test_bracket_in_attribute_string_ok(tmp_path: Path) -> None:

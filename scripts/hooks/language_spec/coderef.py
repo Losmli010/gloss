@@ -200,7 +200,7 @@ def prose_line_problems(
                 rule=RULE_PROSE_LANGUAGE,
                 path=path,
                 line=line,
-                message="text must be written in Chinese: %s" % text[:40],
+                message="text must be written in Chinese",
                 evidence=text,
                 remedy=LANGUAGE_REMEDY,
             )
@@ -266,7 +266,7 @@ def fence_comment_problems(path: str, lineno: int, line: str, lang: str) -> list
                 rule=RULE_DOC_CODE_LANGUAGE,
                 path=path,
                 line=lineno,
-                message="code block comment must be written in Chinese: %s" % body[:40],
+                message="code block comment must be written in Chinese",
                 evidence=evidence,
                 remedy=CODE_LANGUAGE_REMEDY,
             )

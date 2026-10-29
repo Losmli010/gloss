@@ -97,6 +97,21 @@ def test_summary_line_counts_findings() -> None:
     assert triple.getvalue() == "error: 3 violations found (see above)\n"
 
 
+def test_banner_template_matches_the_shared_format() -> None:
+    out = io.StringIO()
+    gate_report.banner("secrets scan gate", "repo root: /repo", file=out)
+    assert out.getvalue() == "== secrets scan gate (repo root: /repo) ==\n"
+
+
+def test_finish_emits_blank_line_summary_and_footer() -> None:
+    finding = gate_report.Finding(rule="INFRA", path="", line=0, message="x")
+    out = io.StringIO()
+    gate_report.finish([finding, finding], "  - guidance one;", "  - guidance two;", file=out)
+    assert out.getvalue() == (
+        "\nerror: 2 violations found (see above)\n  - guidance one;\n  - guidance two;\n"
+    )
+
+
 def test_run_git_success_returns_completed_process(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
     proc = gate_report.run_git(["ls-files", "-z"], cwd=str(tmp_path))

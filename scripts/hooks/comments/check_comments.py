@@ -130,16 +130,15 @@ def main(loader: Any = None) -> int:
     explicit = sys.argv[2:]
     if len(sys.argv) > 1 and not os.path.isdir(root):
         return usage_failure("repo-root is not a directory: %s" % root)
-    print(f"== comment discipline gate (repo root: {root}) ==")
+    gate_report.banner("comment discipline gate", "repo root: %s" % root)
     oks, found = collect(root, explicit, loader)
     for line in oks:
         print(f"  ok: {line}")
     if found:
-        print("", file=sys.stderr)
-        gate_report.summary(found)
-        print(
-            "  rules: see this script's header; move target docs/comments/<file>_comment.md",
-            file=sys.stderr,
+        gate_report.finish(
+            found,
+            "  rules: run just comments-rules <category> for the rule texts",
+            "  record target: run just comment-name <source> for the canonical record path",
         )
         return gate_report.EXIT_VIOLATION
     return gate_report.EXIT_PASS

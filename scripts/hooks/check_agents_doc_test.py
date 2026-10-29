@@ -283,7 +283,9 @@ def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
 def test_gate_clean_fixture_passes_with_exit_zero(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, "见 `just test`、`docs/note.md`")
     assert proc.returncode == 0
-    assert proc.stdout.decode("utf-8").startswith("ok")
+    text = proc.stdout.decode("utf-8")
+    assert text.startswith("== agents-doc reference gate (repo root: ")
+    assert "ok: AGENTS.md references consistent" in text
 
 
 def test_gate_missing_doc_fails_closed_with_exit_three(tmp_path: Path) -> None:

@@ -349,9 +349,12 @@ def main(loader: Any = None) -> int:
         arg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "AGENTS.md")
     found, checked, ref_files, ref_count = collect(arg, loader)
     doc_name = os.path.basename(arg)
+    gate_report.banner(
+        "agents-doc reference gate",
+        "repo root: %s" % os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+    )
     if found:
-        print("", file=sys.stderr)
-        gate_report.summary(found)
+        gate_report.finish(found)
         return gate_report.EXIT_VIOLATION
     print(
         "ok: %s references consistent (%d checked: just recipes / repo paths / test targets;"

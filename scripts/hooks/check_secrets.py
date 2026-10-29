@@ -9,7 +9,9 @@
 行标记行由本文件前后滤除，放行标记须带非空缘由、缺失即判罚，判定口径与
 既有逐行实现一致，缘由见记录文件。
 违规报告经统一诊断出口打印：每
-条带规则标识、完整证据行与修复指引，退出码按全脚本统一约定。
+条带规则标识、脱敏证据行与修复指引——疑似密钥的命中片段只留前四位预览加
+长度提示，不整行落标准错误与持续集成日志；放行标记缺缘由的条目按豁免现场
+给出整行（标记行的值按仓库策略已是合法字面量）。退出码按全脚本统一约定。
 """
 
 from __future__ import annotations
@@ -79,11 +81,15 @@ VENDOR_MESSAGE = "suspected vendor-specific hardcoded secret"
 CREDENTIAL_MESSAGE = "suspected hardcoded credential assignment"
 AUTH_MESSAGE = "suspected bearer token in authorization header"
 
-REMEDIY = (
+SECRET_REMEDY = (
     "real leak: revoke and rotate the secret immediately, then read it from the"
     " config store; legitimate literal (doc example / test fixture): add"
     " secrets:allow at the end of the line with a reason"
 )
+
+# 证据行脱敏的预览位数：命中片段只留前四位（前缀语义如服务商记号仍在），
+# 其余以省略号加长度提示替代——疑似真实密钥不整行进标准错误与持续集成日志
+EVIDENCE_PREVIEW = 4
 
 # 规则分组：模式清单到标识与消息的固定映射，报告顺序即此序
 RULE_GROUPS = (
@@ -222,8 +228,19 @@ def run(root: str, loader: Any = None) -> list[str]:
     return problems
 
 
+def masked_evidence(pattern: re.Pattern[str], line: str) -> str:
+    """命中片段脱敏的证据行：匹配段按原始偏移切出，只留前四位预览加长度提
+    示，行内其余部分原样保留；无匹配（不该发生）按原行返回，不静默造证据。"""
+    match = pattern.search(line)
+    if match is None:
+        return line
+    hit = match.group(0)
+    preview = "%s…<redacted %d chars>" % (hit[:EVIDENCE_PREVIEW], len(hit))
+    return line[: match.start()] + preview + line[match.end() :]
+
+
 def findings(root: str, loader: Any = None) -> list[gate_report.Finding]:
-    """结构化违规条目：每条带规则标识、位置、消息、完整证据行与补救，按
+    """结构化违规条目：每条带规则标识、位置、消息、脱敏证据行与补救，按
     文件序、规则序、行号序输出；判定面与运行函数同源同扫描。"""
     files, hits_by_file = scan_hits(root, loader)
     out = []
@@ -232,19 +249,19 @@ def findings(root: str, loader: Any = None) -> list[gate_report.Finding]:
         if not file_hits:
             continue
         for rule, message, patterns in RULE_GROUPS:
-            lines = {}
+            masked = {}
             for pattern in patterns:
                 for lineno, line in pattern_hits(pattern, file_hits):
-                    lines[lineno] = line
-            for lineno in sorted(lines):
+                    masked[lineno] = masked_evidence(pattern, line)
+            for lineno in sorted(masked):
                 out.append(
                     gate_report.Finding(
                         rule=rule,
                         path=rel,
                         line=lineno,
                         message=message,
-                        evidence=lines[lineno],
-                        remedy=REMEDIY,
+                        evidence=masked[lineno],
+                        remedy=SECRET_REMEDY,
                     )
                 )
         out += allow_reason_findings(rel, file_hits)
@@ -267,6 +284,7 @@ def main(loader: Any = None) -> int:
     )
     if len(sys.argv) > 1 and not os.path.isdir(root):
         return usage_failure("repo-root is not a directory: %s" % root)
+    gate_report.banner("secrets scan gate", "repo root: %s" % root)
     try:
         found = findings(root, loader)
     except RuntimeError as exc:
@@ -275,7 +293,7 @@ def main(loader: Any = None) -> int:
     for finding in found:
         gate_report.fail(finding)
     if found:
-        gate_report.summary(found)
+        gate_report.finish(found)
         return gate_report.EXIT_VIOLATION
     print("ok: secrets scan passed (no hardcoded secrets/credentials)")
     return gate_report.EXIT_PASS

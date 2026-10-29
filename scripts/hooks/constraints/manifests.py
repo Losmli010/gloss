@@ -60,10 +60,13 @@ class Reporter:
         self.findings.append(finding)
         gate_report.fail(finding, file=file)
 
-    def declare_capped(self, file: TextIO = sys.stderr) -> None:
-        """收尾声明：逐文件报出因上限未打印的剩余条数，不静默截断。"""
-        for path, count in self._hidden.items():
-            print("    " + CAP_DECLARATION % (count, path, REPORT_CAP), file=file)
+    def cap_declarations(self) -> list[str]:
+        """收尾声明行：逐文件报出因上限未打印的剩余条数，不静默截断；行文交
+        由调用方拼进统一收尾出口，本方法不直接打印。"""
+        return [
+            "    " + CAP_DECLARATION % (count, path, REPORT_CAP)
+            for path, count in self._hidden.items()
+        ]
 
 
 def render_line(finding: gate_report.Finding) -> str:

@@ -34,7 +34,6 @@ def run(
     与违规报告器（清单与文件各只读一次、单文件报告设上限），装入器与报告器
     在场时共享。"""
     rep = report if report is not None else manifests.Reporter()
-    print("== constraint checks (repo root: %s) ==" % root)
     scan = loader if loader is not None else manifests.ContentCache(root)
     oks = []
     for module in MODULES:
@@ -60,18 +59,17 @@ def main(loader: Any = None) -> int:
     if len(sys.argv) > 1 and not os.path.isdir(root):
         return usage_failure("repo-root is not a directory: %s" % root)
     report = manifests.Reporter()
+    gate_report.banner("constraint checks", "repo root: %s" % root)
     oks, fails = run(root, loader, report)
     for line in oks:
         print("  ok: %s" % line)
     if fails:
-        print("", file=sys.stderr)
-        report.declare_capped()
-        gate_report.summary(report.findings)
-        print("  - rule stays: fix the code;", file=sys.stderr)
-        print(
+        gate_report.finish(
+            report.findings,
+            *report.cap_declarations(),
+            "  - rule stays: fix the code;",
             "  - rule really changed: update AGENTS.md and related configs first, then"
             " this script; never just one side.",
-            file=sys.stderr,
         )
         return gate_report.EXIT_VIOLATION
     print("ok: constraint checks passed (%d checks)" % len(oks))
