@@ -7,10 +7,6 @@ gloss_app_settings_title = "Gloss Settings"
 
 gloss_langs_zh = "Chinese"
 gloss_langs_en = "English"
-gloss_langs_ja = "Japanese"
-gloss_langs_ko = "Korean"
-gloss_langs_fr = "French"
-gloss_langs_other = "Other"
 
 gloss_popup_retry = "Retry"
 gloss_popup_annotating = "Annotating"

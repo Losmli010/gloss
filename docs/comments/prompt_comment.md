@@ -247,3 +247,8 @@
   briefs_comment.md），公开路径经本模块重导出不变；语言修复轮渲染
   （`render_language_repair`、`language_repair_rows`）留在本文件，与批注
   行共用聚合。
+
+## 目标语言收敛（2026-10-30，语言规范统一阶段四 D5）
+
+- `lang_display` 的显示名词表随 `Lang` 收敛为两态：中英两 locale 各剩「中文/Chinese」「英语/English」两条；`Lang::Other` 透传条款（上文）随之失效——手填语言名这一入口在配置装载处被有痕降级，渲染层不再可能收到任意名。
+- `empty_target_language_name_falls_back_to_default` 测试随 `Other` 变体删除：空名只会出自手填名，入口消失后「空名回落」不再可达；`target_display` 的 trim 守卫暂留（待文案迁移时随注册表化一并收口）。

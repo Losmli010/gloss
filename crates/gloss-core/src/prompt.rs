@@ -381,18 +381,10 @@ fn lang_display(lang: &Lang, locale: Locale) -> Cow<'_, str> {
         Locale::Zh => match lang {
             Lang::Zh => Cow::Borrowed("中文"),
             Lang::En => Cow::Borrowed("英语"),
-            Lang::Ja => Cow::Borrowed("日语"),
-            Lang::Ko => Cow::Borrowed("韩语"),
-            Lang::Fr => Cow::Borrowed("法语"),
-            Lang::Other(name) => Cow::Borrowed(name.as_str()),
         },
         Locale::En => match lang {
             Lang::Zh => Cow::Borrowed("Chinese"),
             Lang::En => Cow::Borrowed("English"),
-            Lang::Ja => Cow::Borrowed("Japanese"),
-            Lang::Ko => Cow::Borrowed("Korean"),
-            Lang::Fr => Cow::Borrowed("French"),
-            Lang::Other(name) => Cow::Borrowed(name.as_str()),
         },
     }
 }
@@ -1294,35 +1286,9 @@ mod tests {
     fn explicit_target_lang_is_rendered() {
         let registry = PromptRegistry::new();
         let mut task = text_task(TaskKind::TranslateSentence, "hello");
-        task.options_mut().target_lang = Some(Lang::Ja);
+        task.options_mut().target_lang = Some(Lang::En);
         let messages = registry.render(&task).expect("render");
-        assert!(text_of(&messages[0].content).contains("日语"));
-    }
-
-    #[test]
-    fn empty_target_language_name_falls_back_to_default() {
-        let registry = PromptRegistry::new();
-        for locale in [Locale::Zh, Locale::En] {
-            for name in ["", " "] {
-                let mut task = text_task(TaskKind::TranslateSentence, "hello");
-                task.options_mut().target_lang = Some(Lang::Other(name.into()));
-                task.options_mut().prompt_locale = Some(locale);
-                let messages = registry.render(&task).expect("render");
-                let expected = lang_display(&DEFAULT_TARGET, locale);
-                let instruction = match locale {
-                    Locale::Zh => "翻译专家",
-                    Locale::En => "translation expert",
-                };
-                assert!(
-                    text_of(&messages[0].content).contains(instruction),
-                    "{locale:?}/{name:?}: a blank target name must not swallow the instruction \
-                     line: {}",
-                    text_of(&messages[0].content)
-                );
-                assert!(text_of(&messages[0].content).contains(expected.as_ref()));
-                assert!(text_of(&messages[0].content).contains("\"note\""));
-            }
-        }
+        assert!(text_of(&messages[0].content).contains("英语"));
     }
 
     #[test]

@@ -174,16 +174,12 @@ fn update_button<'a>(update: &UpdateState, text: &'a Text) -> Option<(Cow<'a, st
     }
 }
 
-const LANG_CHOICES: fn() -> [Lang; 5] = || [Lang::Zh, Lang::En, Lang::Ja, Lang::Ko, Lang::Fr];
+const LANG_CHOICES: [Lang; 2] = [Lang::Zh, Lang::En];
 
 fn lang_label<'a>(lang: &Lang, text: &'a Text) -> &'a str {
     match lang {
         Lang::Zh => &text.gloss_langs_zh,
         Lang::En => &text.gloss_langs_en,
-        Lang::Ja => &text.gloss_langs_ja,
-        Lang::Ko => &text.gloss_langs_ko,
-        Lang::Fr => &text.gloss_langs_fr,
-        Lang::Other(_) => &text.gloss_langs_other,
     }
 }
 
@@ -191,7 +187,7 @@ fn lang_combo(ui: &mut egui::Ui, current: &mut Lang, text: &Text) {
     let combo = egui::ComboBox::from_id_salt("target_lang")
         .selected_text(lang_label(current, text))
         .show_ui(ui, |ui| {
-            for lang in LANG_CHOICES() {
+            for lang in LANG_CHOICES {
                 let label = lang_label(&lang, text);
                 ui.selectable_value(current, lang, label);
             }

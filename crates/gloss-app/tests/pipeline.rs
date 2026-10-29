@@ -872,7 +872,7 @@ fn config_change_invalidates_cache_for_the_next_task() {
     pipe.config
         .save(Config {
             model: "deepseek-reasoner".into(),
-            target_lang: Lang::Ja,
+            target_lang: Lang::En,
             ..Default::default()
         })
         .expect("save should succeed");
@@ -881,8 +881,9 @@ fn config_change_invalidates_cache_for_the_next_task() {
     wait_done(&mut pipe);
     assert_eq!(
         engine.call_count(),
-        9,
-        "target language switch must miss the old cache entry"
+        10,
+        "target language switch must miss the old cache entry (classify 2 + task 1 + \
+         one language repair round: the zh mock reply trips the English target's gate)"
     );
     assert_eq!(outcome_note(&pipe.machine), "结果");
 }

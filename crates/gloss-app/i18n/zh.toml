@@ -7,10 +7,6 @@ gloss_app_settings_title = "设置"
 
 gloss_langs_zh = "中文"
 gloss_langs_en = "英语"
-gloss_langs_ja = "日语"
-gloss_langs_ko = "韩语"
-gloss_langs_fr = "法语"
-gloss_langs_other = "其他"
 
 gloss_popup_retry = "重试"
 gloss_popup_annotating = "正在注疏"

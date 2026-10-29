@@ -352,7 +352,7 @@
 | failure_lands_in_error_and_retry_succeeds | 失败落错误态且重试可达 | 给定首次注入两次 `EngineRateLimited` 一次性失败（分类与任务各吃一条），当失败回传后再次触发，则落 `Error` 态、第二次任务完成落 `Show` | 2026-10-03 |
 | error_card_retry_redispatches_the_same_request | 重试动作重发同一请求 | 给定注入两条一次性 `EngineNetwork` 失败（分类与任务各吃一条）的可重试 `Retry` 出口，当 `retry` 并重发 `RunTask`（`input+options` 原样），则同代数重发同一请求并完成落 `Show` | 2026-10-03 |
 | frozen_options_carry_the_factory_model_by_default | 冻结选项默认带出厂模型 | 给定出厂配置的划词提交，当跑一轮完整任务，则引擎恰被调用 3 次（分类含 1 轮修复加执行）且任务照常完成 | 2026-10-12 |
-| config_change_invalidates_cache_for_the_next_task | 配置变更对主缓存 `key` 的失效 | 给定同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎维持 3 次：分类含修复加执行）、换模型与换目标语言各再触发一轮（各加 3，共 9 次） | 2026-10-12 |
+| config_change_invalidates_cache_for_the_next_task | 配置变更对主缓存 `key` 的失效 | 给定同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎维持 3 次：分类含修复加执行）、换模型再触发一轮（加 3）、换目标语言再触发一轮（加 4：语言收敛后目标语言为英文，中文样张进一次语言修复轮），共 10 次 | 2026-10-30 |
 | engine_logs_carry_the_task_span | 桥日志经 `span` 带上代数 | 给定带 `span` 的任务命令（进程级捕获订阅者），当消费桥执行到缓存命中，则命中行同时含 `cache` `hit` 与 `"generation":2` | 2026-09-26 |
 | violating_replies_repair_then_degrade_without_cache | 违约回复修复三轮后降级且不进缓存 | 给定分类判 `ExplainCode` 的裸（JSON）脚本与恒违约的任务回复，当跑完整桥，则事件序为 `Classified` → `Chunk` → `[Repairing → Chunk]{3}` → `Done(degraded)`：每个 `Repairing` 清空流式累积并置修复态、耗尽后完成态按 `validate_task` 落降级产物（`note` 空串、重试出口在）、同输入再触发引擎再次执行（降级产物不投毒缓存） | 2026-10-12 |
 | an_image_task_repairs_through_the_same_stream | 图像任务共用同一修复轮流 | 给定图像取材注入“违约回复 → 契约（JSON）”的脚本队列，当跑完整桥，则恒定映射 `ImageExplain`（跳过分类）、违约轮 `Chunk` 后回 `TaskRepairing`、修复轮契约回复直接 `TaskDone`（正常产物）、引擎恰被调用 2 次 | 2026-10-12 |
@@ -488,9 +488,11 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | factory_defaults_match_spec | 出厂默认符合规格 | 给定出厂 `Config`，当逐字段抽查，则默认语言、任务、提供商、文本模型等全部符合规格 | 2026-09-19 |
-| config_round_trips_through_serde | 配置 `serde` 往返无损 | 给定含 `Lang::Other` 等携数据变体的完整配置，当 `serde_json` 往返，则无损 | 2026-09-19 |
+| config_round_trips_through_serde | 配置 `serde` 往返无损 | 给定含两变体目标语言的完整配置，当 `serde_json` 往返，则无损 | 2026-10-30 |
 | partial_document_fills_factory_defaults | 部分文档补全出厂默认 | 给定只写 `theme` 的（JSON），当加载，则该字段保留、其余走出厂默认（含全部 `kind` 启用） | 2026-09-19 |
 | retired_fields_are_ignored_on_load | 退役字段仍能加载 | 给定含 `guard_enabled`、`guard_blocked_apps`、`hotkey_bindings` 的旧配置（字段已从 `Config` 移除），当加载，则照常读出、已知字段取值不变、缺字段仍回出厂默认——旧版本落盘不会被当成非法配置隔离降级 | 2026-10-03 |
+| retired_target_lang_values_degrade_to_the_default_with_a_trace | 退役目标语言值有痕降级 | 给定 `target_lang` 为日语、韩语、法语、自定义名与非法形态的存量配置，当反序列化，则目标语言回落缺省中文、其余字段不受牵连，且每次降级留警告痕迹 | 2026-10-30 |
+| supported_target_lang_values_still_parse | 在册目标语言值照常解析 | 给定 `target_lang` 为 `Zh` 与 `En` 的配置，当反序列化，则各自解析为对应变体 | 2026-10-30 |
 | language_resolves_to_locale | 界面语言落定具体 `locale` | 给定 `System/Zh/En` 三态与注入的系统语言，当解析界面语言，则 `System` 取系统语言、显式选择不被系统语言覆盖（同一处取值供 `UI` 文案表与 `prompt` 模板选表） | 2026-09-22 |
 | lookups_prefer_later_entries | 重复条目查找后者胜出 | 给定重复 `kind` 的多条目，当查找，则后条胜出、未配置为 `None`、未知 `provider` 无 `keychain` `id` | 2026-09-19 |
 
@@ -529,8 +531,7 @@
 | every_task_template_example_passes_validate_task | 模板示例过生产校验器（完整性门禁） | 给定 `locale` 双语与五份任务模板的全组合，当取出示例对象行，则示例对象过对应 `validate_task`、`structured` 内键齐每个 `kind`（词卡 `phonetic` 加 `examples`、句译、图像、通用 `examples`、代码 `examples` 加 `code_language`） | 2026-10-12 |
 | every_template_mentions_json | 所有模板必含 `json` 字样（完整性门禁） | 给定两个 `locale` 的七份模板（五份任务模板加 `classify.md` 与 `discipline.md`），当检查原文，则都含 `json` 字样（端点 `JSON` 模式的提示读取它）；修复指令的 `json` 字样由组合产物测试逐违约锁定 | 2026-10-29 |
 | missing_target_lang_defaults_to_chinese | 目标语言缺省中文 | 给定未设 `target_lang`，当渲染句译，则系统指令含“中文” | 2026-09-19 |
-| explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 `Lang::Ja`，当渲染，则系统指令含“日语” | 2026-09-19 |
-| empty_target_language_name_falls_back_to_default | 空目标语言名回落缺省 | 给定 `target_lang` 为 `Other("")` 与 `Other(" ")` 的两个 `locale`，当渲染，则目标语言回落缺省中文（不吞掉整条指令行）且纯（JSON）契约仍在 | 2026-10-11 |
+| explicit_target_lang_is_rendered | 显式目标语言渲染 | 给定 `Lang::En`，当渲染，则系统指令含“英语” | 2026-10-30 |
 | image_explain_example_is_a_single_json_object_with_note_first | 图像模板示例为单（JSON）且 `note` 在前 | 给定双 `locale` 的 `image_explain` 模板，当整行解析示例（JSON），则示例可解析、键恰为 `note` 与 `structured`（`note` 在前），`structured` 内只有 `examples`（`interpretation` 旧名退役）——流式与完成态解析都按这份契约 | 2026-10-11 |
 | image_explain_renders_system_and_image_parts | 图像解读渲染系统指令与图像部件 | 给定 `ImageExplain` 图像任务，当渲染，则得 `[System, User]` 两段，用户消息是 `Parts([ImagePng])`（字节经 `Arc` 零拷贝共享），系统指令要求按（JSON）格式输出且携带 `note/structured.examples` 契约 | 2026-10-29 |
 | modality_mismatch_is_rejected_at_construction | 模态错配在构造时拒绝 | 给定图像 `kind` 配文本输入，当 `Task::new` 构造，则返回 `UnsupportedModality`（拒绝点在构造口，渲染路径不再兜底） | 2026-10-18 |
@@ -658,7 +659,7 @@
 | attached_measures_pass_after_digits_only | 计量族随数字放行 | 给定前邻数字的计量符号注与孤立计量符号注，当判定，则前者放行、后者 `PunctuationMismatch`（计量族归附随面，`R3`） | 2026-10-30 |
 | dash_and_ellipsis_families_stay_style_items_not_violations | 破折号省略号与数字附随不判 | 给定破折号、省略号、双连字符、小数、区间、百分与货币金额各形态的注，当判定，则全部不判标点（风格项留给评测） | 2026-10-28 |
 | traditional_chars_flag_outside_and_pass_inside_quotes | 繁体正文判罚引文豁免 | 给定正文繁体字形与引文容器内的古籍繁体，当判定，则前者 `TraditionalChar`、后者放行 | 2026-10-28 |
-| pangu_space_flags_adjacency_only_for_chinese_target | 盘古之白仅中文目标判定 | 给定中文目标“中文`word`”直连与标点隔开、日语目标直连三种注，当判定，则直连判 `MissingSpace`、标点隔开与日语目标放行 | 2026-10-28 |
+| pangu_space_flags_adjacency_only_for_chinese_target | 盘古之白仅中文目标判定 | 给定中文目标“中文`word`”直连与标点隔开、英文目标直连三种注，当判定，则直连判 `MissingSpace`、标点隔开与英文目标放行 | 2026-10-30 |
 | emoji_and_variation_selectors_flag_in_body_only | 表情符号与变体选择符判罚 | 给定正文含表情符号与变体选择符的注，当判定，则 `EmojiForbidden` | 2026-10-28 |
 | markdown_structure_flags_on_forbidden_kinds_and_passes_on_full_kinds | 结构节点按任务能力判定 | 给定禁 `markdown` 三任务（词卡、句译、图像）的着重号、行内码、链接注，当判定，则 `MarkdownForbidden`；代码与通用任务全量放行 | 2026-10-28 |
 | unclosed_containers_flag_stray_parens_quotes_fences_and_backticks | 残缺容器判罚 | 给定未闭合括号、未闭合弯引号、未闭合围栏与落单反引号，当判定，则 `UnclosedContainer`；成对围栏与行内码放行 | 2026-10-28 |
@@ -669,7 +670,6 @@
 | sentence_parens_flag_final_punctuation_only | 句译括注末位句末标点判罚 | 给定句译任务括号组末字符为句末标点与组中部缩略语句点，当判定，则前者 `SentenceInParens`、后者放行；短语级括注放行 | 2026-10-28 |
 | source_overlap_flags_copied_passages_and_folds_whitespace | 原文重合抓整段照搬 | 给定整段照抄与空白差异折叠后仍比中的产物，当判定，则 `SourceOverlap`；低于阈值（12 字符或 6 西文词）的术语回标放行 | 2026-10-28 |
 | phonetic_charset_limits_word_card_phonetics | 音标字符集限定 | 给定国际音标与拼音声调、越界汉字的音标字段，当判定，则前者放行、后者 `PhoneticCharset`；非词卡任务不判 | 2026-10-28 |
-| other_target_skips_script_and_mixing_checks | 自定义目标语言跳过文字判定 | 给定 `Other` 目标语言的中西混排注，当判定，则不判 `ForeignRun` 与 `ContainerMixing`（合法集未知，宁漏勿误） | 2026-10-28 |
 | image_input_skips_overlap_but_runs_the_rest | 图像输入跳重合照跑其余 | 给定图像输入与照抄式注，当判定，则无 `SourceOverlap`（无文本输入）；表情符号照常判罚 | 2026-10-28 |
 | violation_lines_carry_position_and_rule_id_only | 违约行只带位置与规则标识 | 给定违约条目，当渲染行式与显示形态并摘要，则行为字段键、半角冒号与规则标识三段相连（语言中立，动作措辞住措辞注册表）、显示形态只含规则标识与字段键、摘要只含去重类别，都不带回复原文 | 2026-10-29 |
 | math_inside_containers_stays_exempt | 容器内公式豁免 | 给定括注与引文内含成对公式的注，当判定，则无 `ContainerMixing`——数学容器内容不判语言（`R8`） | 2026-10-28 |

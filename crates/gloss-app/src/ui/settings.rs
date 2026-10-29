@@ -398,16 +398,16 @@ mod tests {
     #[test]
     fn open_copies_the_snapshot_into_the_draft() {
         let mut config = Config {
-            target_lang: Lang::Ja,
+            target_lang: Lang::En,
             ..Default::default()
         };
         let mut state = open(&config);
-        assert_eq!(state.draft.target_lang, Lang::Ja);
+        assert_eq!(state.draft.target_lang, Lang::En);
 
-        config.target_lang = Lang::Ko;
+        config.target_lang = Lang::Zh;
         assert_eq!(
             state.draft.target_lang,
-            Lang::Ja,
+            Lang::En,
             "draft must not follow the live config"
         );
         state.report(SettingsNotice::KeyUpdateFailed(GlossError::Config(

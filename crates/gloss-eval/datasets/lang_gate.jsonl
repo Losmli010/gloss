@@ -4,7 +4,6 @@
 {"id": "gate-word-pass-math-and-letters", "kind": "TranslateWord", "target": "Zh", "text": "gloss", "note": "变量 x 与 y 之差，公式 $x+y$ 可验。", "structured": {"WordCard": {"phonetic": null, "examples": []}}, "expect": "pass", "categories": []}
 {"id": "gate-word-pass-numbers-currency", "kind": "TranslateWord", "target": "Zh", "text": "gloss", "note": "售价 $5，省下 50%，约 3.14 倍。", "structured": {"WordCard": {"phonetic": null, "examples": []}}, "expect": "pass", "categories": []}
 {"id": "gate-word-pass-dash-ellipsis", "kind": "TranslateWord", "target": "Zh", "text": "gloss", "note": "徘徊——犹豫……皆可训，详见 -- 条。", "structured": {"WordCard": {"phonetic": null, "examples": []}}, "expect": "pass", "categories": []}
-{"id": "gate-word-pass-ja-kana", "kind": "TranslateWord", "target": "Ja", "text": "光沢", "note": "光沢（こうたく）の意味。", "structured": {"WordCard": {"phonetic": null, "examples": []}}, "expect": "pass", "categories": []}
 {"id": "gate-word-pass-phonetic-ipa", "kind": "TranslateWord", "target": "Zh", "text": "gloss", "note": "义释。", "structured": {"WordCard": {"phonetic": "/ɡlɒs/", "examples": []}}, "expect": "pass", "categories": []}
 {"id": "gate-word-pass-phonetic-pinyin", "kind": "TranslateWord", "target": "Zh", "text": "光泽", "note": "义释。", "structured": {"WordCard": {"phonetic": "guāngzé", "examples": []}}, "expect": "pass", "categories": []}
 {"id": "gate-sentence-pass-phrase-paren", "kind": "TranslateSentence", "target": "Zh", "text": "hello there", "note": "打个招呼（hello there）而已。", "structured": {"Plain": {"examples": []}}, "expect": "pass", "categories": []}

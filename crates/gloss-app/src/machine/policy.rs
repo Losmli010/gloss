@@ -67,7 +67,7 @@ pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDec
 
 pub(super) fn task_options(config: &Config, system_locale: Locale) -> TaskOptions {
     TaskOptions {
-        target_lang: Some(config.target_lang.clone()),
+        target_lang: Some(config.target_lang),
         model: Arc::from(config.model.as_str()),
         prompt_locale: Some(config.language.resolve(system_locale)),
     }

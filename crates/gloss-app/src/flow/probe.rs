@@ -155,7 +155,7 @@ mod tests {
         let (mut app, config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app();
         config
             .save(Config {
-                target_lang: Lang::Ja,
+                target_lang: Lang::En,
                 ..Default::default()
             })
             .expect("save should succeed");

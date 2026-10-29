@@ -128,7 +128,7 @@ mod tests {
         app.drain_platform_events();
 
         let mut draft = (*app.env.config.snapshot()).clone();
-        draft.target_lang = Lang::Ja;
+        draft.target_lang = Lang::En;
         draft.model = "deepseek-reasoner".into();
         app.save_settings(draft, KeyUpdate::Replace("sk-live-key".to_owned()));
 
@@ -140,7 +140,7 @@ mod tests {
             Some("sk-live-key"),
             "trimmed key must land in the keychain under the provider entry"
         );
-        assert_eq!(config.snapshot().target_lang, Lang::Ja, "snapshot advanced");
+        assert_eq!(config.snapshot().target_lang, Lang::En, "snapshot advanced");
         assert!(app.settings.is_none(), "successful save closes the session");
 
         trigger_selection(&mut app, &pe_tx);
@@ -221,7 +221,7 @@ mod tests {
         app.settings = Some(ui::settings::open(&config.snapshot()));
 
         let mut draft = (*config.snapshot()).clone();
-        draft.target_lang = Lang::Ja;
+        draft.target_lang = Lang::En;
         draft.watch_clipboard_images = false;
         app.save_settings(draft, KeyUpdate::Keep);
 

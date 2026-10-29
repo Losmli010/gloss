@@ -110,7 +110,6 @@ impl AiTaskService {
                 target: task
                     .options()
                     .target_lang
-                    .clone()
                     .unwrap_or(crate::prompt::DEFAULT_TARGET),
             },
             on_chunk,

@@ -233,7 +233,7 @@ mod tests {
                 keychain_id: "gloss/deepseek".into(),
             }],
             model: "vision-model".into(),
-            target_lang: Lang::Other("ko".into()),
+            target_lang: Lang::En,
             cache_ttl_secs: 120,
             theme: Theme::Dark,
             language: Language::En,
@@ -365,7 +365,7 @@ mod tests {
     fn load_rejects_corrupt_file_and_quarantines_it() {
         let dir = tempfile::tempdir().expect("tempdir should create");
         let store = FileConfigStore::in_dir(dir.path().to_path_buf());
-        let broken = "target_lang = \"sk-secret-123\"\n";
+        let broken = "provider_keys = \"sk-secret-123\"\n";
         std::fs::write(store.path(), broken).expect("write should succeed");
 
         let err = store.load().expect_err("corrupt file must fail");
