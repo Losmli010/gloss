@@ -666,6 +666,31 @@ def test_gate_clean_fixture_passes_with_exit_zero(tmp_path: Path) -> None:
     assert "  ok: " in proc.stdout.decode("utf-8")
 
 
+def test_anchor_candidate_warns_without_failing_exit(tmp_path: Path) -> None:
+    # 软约束候选走警告通道：即时警告加警告汇总，退出码不为所动
+    make_repo(
+        tmp_path,
+        {
+            "crates/demo/src/ok.rs": "//! 中文头参照（of the model）说明。\n\nfn main() {}\n",
+        },
+    )
+    proc = run_gate_script(tmp_path)
+    assert proc.returncode == 0
+    text = proc.stderr.decode("utf-8")
+    assert "warning[PROSE-ANCHOR]:" in text
+    assert "warning: 1 advisory candidate found (advisory, not counted as violations)" in text
+    assert "error[" not in text
+
+
+def test_advisory_excluded_from_violations_and_counted_separately(tmp_path: Path) -> None:
+    rel = write_sample(tmp_path, "//! 中文头参照（of the model）说明。\n\nfn main() {}\n")
+    assert check_comments.run(str(tmp_path), [rel]) == []
+    _oks, found, advisories = check_comments.collect(str(tmp_path), [rel])
+    assert found == []
+    assert [a.rule for a in advisories] == ["PROSE-ANCHOR"]
+    assert all(a.advisory for a in advisories)
+
+
 def test_gate_empty_tracked_surface_fails_closed_with_exit_three(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
     proc = run_gate_script(tmp_path)

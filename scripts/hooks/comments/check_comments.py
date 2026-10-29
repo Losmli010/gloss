@@ -67,10 +67,10 @@ def read_src(path: str, loader: Any) -> str:
 
 def collect(
     root: str, explicit: list[str], loader: Any = None
-) -> tuple[list[str], list[gate_report.Finding]]:
+) -> tuple[list[str], list[gate_report.Finding], list[gate_report.Finding]]:
     """遍历跟踪文件，按文件类型分派并聚合违规，违规随执行流即时经统一诊断
-    出口打到标准错误，返回通过与违规条目两个清单；装入器在场时清单枚举与
-    文件读取走共享缓存，缺省自行读取。"""
+    出口打到标准错误，软约束候选走警告前缀；返回通过与违规条目、软约束候选
+    三个清单，装入器在场时清单枚举与文件读取走共享缓存，缺省自行读取。"""
     gates = (check_rust_comments, check_script_comments, check_docs)
     paths = scan_files(root, explicit, loader)
     if not explicit and not paths:
@@ -85,6 +85,7 @@ def collect(
         )
         sys.exit(gate_report.EXIT_INFRA)
     found: list[gate_report.Finding] = []
+    advisories: list[gate_report.Finding] = []
     for path in paths:
         rel = os.path.relpath(path, root)
         gate = next((gate for gate in gates if gate.handles(rel)), None)
@@ -98,24 +99,25 @@ def collect(
             )
             sys.exit(gate_report.EXIT_INFRA)
         for finding in gate.check(rel, src):
-            found.append(finding)
-            gate_report.fail(finding)
+            if finding.advisory:
+                advisories.append(gate_report.warn(finding))
+            else:
+                found.append(gate_report.fail(finding))
     # 记录目录的命名判定是目录级全量核对（反向解析需要整个跟踪清单），
     # 不逐文件分派；显式清单模式（单测传样本）跳过
     if not explicit:
         tracked_rels = [os.path.relpath(path, root) for path in paths]
         for finding in check_record_names.check_all(tracked_rels):
-            found.append(finding)
-            gate_report.fail(finding)
+            found.append(gate_report.fail(finding))
     oks = [OK_LINE] if not found else []
-    return oks, found
+    return oks, found, advisories
 
 
 def run(root: str, explicit: list[str], loader: Any = None) -> list[str]:
     """遍历跟踪文件，按文件类型分派并聚合违规，返回渲染行（消息加位置）清
-    单供调用方取用；装入器在场时清单枚举与文件读取走共享缓存，缺省自行读
-    取。"""
-    _oks, found = collect(root, explicit, loader)
+    单供调用方取用，软约束候选不计入；装入器在场时清单枚举与文件读取走共
+    享缓存，缺省自行读取。"""
+    _oks, found, _advisories = collect(root, explicit, loader)
     return [gate_report.render(finding) for finding in found]
 
 
@@ -131,7 +133,7 @@ def main(loader: Any = None) -> int:
     if len(sys.argv) > 1 and not os.path.isdir(root):
         return usage_failure("repo-root is not a directory: %s" % root)
     gate_report.banner("comment discipline gate", "repo root: %s" % root)
-    oks, found = collect(root, explicit, loader)
+    oks, found, advisories = collect(root, explicit, loader)
     for line in oks:
         print(f"  ok: {line}")
     if found:
@@ -140,6 +142,9 @@ def main(loader: Any = None) -> int:
             "  rules: run just comments-rules <category> for the rule texts",
             "  record target: run just comment-name <source> for the canonical record path",
         )
+    if advisories:
+        gate_report.warning_summary(advisories)
+    if found:
         return gate_report.EXIT_VIOLATION
     return gate_report.EXIT_PASS
 
