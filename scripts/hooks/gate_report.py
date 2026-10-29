@@ -1,8 +1,9 @@
-"""门禁统一诊断出口：违规条目的数据结构、即时报告、末尾汇总与版本库调用包
-装，供各门禁脚本共用。报告全部走标准错误，消息语言保持英文；退出码语义全
-脚本一致：零为通过、一为发现违规、二为用法错误、三为无法完成判定（失败关
-闭，绝不因没检查到而放行）。规则标识常量与登记清单在本模块或各脚本常量区
-同源定义，各标识的含义、判罚口径与豁免方式住登记表记录文件。
+"""门禁统一诊断出口：违规条目的数据结构、即时报告、末尾汇总、失败收尾与
+版本库调用包装，供各门禁共用。报告全部走标准错误，消息语言保持英文；退出
+码语义全脚本一致：零为通过、一为发现违规、二为用法错误、三为无法完成判定
+（失败关闭，绝不因没检查到而放行）。横幅与失败收尾（空行、汇总、指引行）
+也在此单点收口，各门禁不再各拼一份。规则标识常量与登记清单在本模块或各脚
+本常量区同源定义，各标识的含义、判罚口径与豁免方式住登记表记录文件。
 """
 
 from __future__ import annotations
@@ -164,12 +165,28 @@ def fail(finding: Finding, file: TextIO | None = None) -> Finding:
     return finding
 
 
+def banner(label: str, scope: str, file: TextIO | None = None) -> None:
+    """门禁横幅统一出口：标签加范围打到标准输出，标记门禁段的起点；即时冲
+    刷——标准输出管道下块缓冲，与标准错误合流重定向时横幅会错位到明细之后。"""
+    out = file if file is not None else sys.stdout
+    print("== %s (%s) ==" % (label, scope), file=out, flush=True)
+
+
 def summary(findings: list[Finding], file: TextIO | None = None) -> None:
     """末尾汇总行：计数必须等于已打印明细数。"""
     out = file if file is not None else sys.stderr
     count = len(findings)
     unit = "violation" if count == 1 else "violations"
     print("error: %d %s found (see above)" % (count, unit), file=out)
+
+
+def finish(findings: list[Finding], *footer: str, file: TextIO | None = None) -> None:
+    """失败收尾统一出口：空行分隔、计数汇总与收尾指引行，全部走标准错误。"""
+    out = file if file is not None else sys.stderr
+    print("", file=out)
+    summary(findings, file=out)
+    for line in footer:
+        print(line, file=out)
 
 
 def infra_failure(message: str, evidence: str = "") -> Finding:

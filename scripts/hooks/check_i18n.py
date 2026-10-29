@@ -459,7 +459,7 @@ def literal_findings(root: str, loader: Any = None) -> list[gate_report.Finding]
                         rule=RULE_I18N_LITERAL,
                         path=rel,
                         line=ln,
-                        message="%s line %d %s" % (rel, ln, message),
+                        message=message,
                         evidence=line,
                         remedy=LITERAL_REMEDY,
                     )
@@ -838,14 +838,13 @@ def main(loader: Any = None) -> int:
     )
     if len(sys.argv) > 1 and not os.path.isdir(root):
         return usage_failure("repo-root is not a directory: %s" % root)
-    print("== i18n catalog gate (repo root: %s) ==" % root)
+    gate_report.banner("i18n catalog gate", "repo root: %s" % root)
     oks, found = collect(root, loader)
     # 违规已在扫描时即时输出，这里只补汇总与结论
     for line in oks:
         print("  ok: %s" % line)
     if found:
-        print("", file=sys.stderr)
-        gate_report.summary(found)
+        gate_report.finish(found)
         return gate_report.EXIT_VIOLATION
     return gate_report.EXIT_PASS
 

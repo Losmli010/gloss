@@ -137,9 +137,9 @@ def test_reporter_counts_per_file_across_rules() -> None:
     rep.note(finding("VERSION-SINGLE", "Cargo.toml", 0), file=sink)
     assert len(rep.lines) == manifests.REPORT_CAP + 2
     assert len(rep.findings) == manifests.REPORT_CAP
-    cap = io.StringIO()
-    rep.declare_capped(file=cap)
-    assert "2 more violations in Cargo.toml" in cap.getvalue()
+    declarations = rep.cap_declarations()
+    assert len(declarations) == 1
+    assert "2 more violations in Cargo.toml" in declarations[0]
 
 
 def test_reporter_without_location_never_capped() -> None:
@@ -148,9 +148,7 @@ def test_reporter_without_location_never_capped() -> None:
     for i in range(manifests.REPORT_CAP + 5):
         rep.note(finding("STUB-DRIFT", "", i), file=sink)
     assert len(rep.findings) == manifests.REPORT_CAP + 5
-    cap = io.StringIO()
-    rep.declare_capped(file=cap)
-    assert cap.getvalue() == ""
+    assert rep.cap_declarations() == []
 
 
 def test_render_line_carries_message_and_location() -> None:
