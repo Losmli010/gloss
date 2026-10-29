@@ -27,6 +27,7 @@ pub(crate) struct Spec {
     pub(crate) attached_between_digits: Vec<char>,
     pub(crate) dash_ellipsis: Vec<char>,
     pub(crate) curly_quotes: Vec<char>,
+    pub(crate) sentence_finals: Vec<char>,
     pub(crate) emoji_ranges: Vec<(u32, u32)>,
     pub(crate) emoji_bare: Vec<char>,
     pub(crate) emoji_variants: Vec<char>,
@@ -74,6 +75,7 @@ struct SharedSection {
     attached_between_digits: String,
     dash_ellipsis: String,
     curly_quotes: String,
+    sentence_finals: String,
     emoji_ranges: String,
     emoji_bare: String,
     emoji_variants: String,
@@ -149,6 +151,7 @@ fn parse(source: &str) -> Result<Spec, String> {
         attached_between_digits: face(&shared.attached_between_digits),
         dash_ellipsis: face(&shared.dash_ellipsis),
         curly_quotes: face(&shared.curly_quotes),
+        sentence_finals: face(&shared.sentence_finals),
         emoji_ranges: parse_ranges(&shared.emoji_ranges, "shared.emoji_ranges")?,
         emoji_bare: face(&shared.emoji_bare),
         emoji_variants: face(&shared.emoji_variants),
@@ -240,6 +243,7 @@ impl Spec {
             attached_between_digits: Vec::new(),
             dash_ellipsis: Vec::new(),
             curly_quotes: Vec::new(),
+            sentence_finals: Vec::new(),
             emoji_ranges: Vec::new(),
             emoji_bare: Vec::new(),
             emoji_variants: Vec::new(),
@@ -277,6 +281,7 @@ mod tests {
     const GOLDEN_ATTACHED_BETWEEN_DIGITS: &str = ".,-";
     const GOLDEN_DASH_ELLIPSIS: &str = "—–‥…";
     const GOLDEN_CURLY_QUOTES: &str = "“”";
+    const GOLDEN_SENTENCE_FINALS: &str = "。！？.!?";
     const GOLDEN_EMOJI_BARE: &str = "✅✨❌❤⚡⭐";
     const GOLDEN_EMOJI_VARIANTS: &str = "\u{FE0E}\u{FE0F}";
     const GOLDEN_EMOJI_RANGES: [(u32, u32); 9] = [
@@ -334,6 +339,7 @@ mod tests {
             GOLDEN_ATTACHED_BETWEEN_DIGITS,
         );
         assert_face(&spec.dash_ellipsis, GOLDEN_DASH_ELLIPSIS);
+        assert_face(&spec.sentence_finals, GOLDEN_SENTENCE_FINALS);
     }
 
     #[test]

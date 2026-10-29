@@ -74,6 +74,13 @@ action = "This passage is untranslated; retranslate it into the target language"
 [repair.lang.PhoneticCharset]
 action = "Rewrite the phonetics with Latin letters and IPA symbols"
 
+[repair.aggregate]
+joiner = ", "
+
+[repair.example_position]
+single = "item {{joined}}"
+plural = "items {{joined}}"
+
 [violation.name.ForeignRun]
 name = "foreign text"
 
@@ -107,6 +114,10 @@ name = "untranslated"
 [violation.name.PhoneticCharset]
 name = "phonetic set"
 
+[classify.section]
+header = "Categories"
+separator = ": "
+
 [classify.category.TranslateWord]
 definition = "Translate a single lexical item, or a list consisting mainly of lexical items. Lexical items include characters, words, fixed collocations, idioms, proverbs, proper nouns, and terminology. Idioms, proverbs, and fixed expressions are treated as a whole lexical item even if they contain a subject-predicate structure; this specific rule takes precedence over the general judgment of \"can stand alone as a sentence.\""
 
@@ -118,3 +129,7 @@ definition = "Understand, explain, analyze, or debug code. The following conditi
 
 [classify.category.Fallback]
 definition = "Input without a clear task intent such as translation or code explanation, e.g., casual chat, writing, summarization, general knowledge Q&A, etc."
+
+[target_lang]
+zh = "Chinese"
+en = "English"

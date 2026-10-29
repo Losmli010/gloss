@@ -62,7 +62,7 @@ fn same_field_family(left: LangField, right: LangField) -> bool {
 pub(super) fn joined_example_indices(locale: Locale, group: &LangGroup<'_>) -> String {
     let mut indices: Vec<usize> = group.example_indices.clone();
     indices.sort_unstable();
-    let joiner = if locale == Locale::Zh { "、" } else { ", " }; // i18n:allow 序号连接符随聚合算法住核心库（与修复轮行清单共用一处），非界面词条
+    let joiner = wordings::aggregate_joiner(locale).unwrap_or(", ");
 
     indices
         .iter()

@@ -693,7 +693,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| registry_frame_wording_is_present_for_both_locales | 注册表骨架词两语言齐备 | 给定中英两份注册表，当装骨架区，则头、行、尾、截断注与回指句全部非空（嵌入数据可解析由各测试的装载入口前置锁定） | 2026-10-29 |
+| registry_frame_wording_is_present_for_both_locales | 注册表骨架词两语言齐备 | 给定中英两份注册表，当装骨架区与新增三区，则头、行、尾、截断注与回指句全部非空，连接符非空、例句位置两键携带 {{joined}} 且可渲染、分类段头与分隔符非空、目标语言名两变体非空（嵌入数据可解析由各测试的装载入口前置锁定） | 2026-10-30 |
 | registry_covers_every_format_key_with_worded_rows | 注册表格式区键全覆盖 | 给定四类违约级键与五个细节键的双 `locale` 全组合，当查格式区，则键齐且位置与动作措辞非空 | 2026-10-29 |
 | registry_covers_every_language_action_and_classify_definition | 注册表语言动作与分类定义全覆盖 | 给定十一个语言违约类别与四个分类类别的双 `locale` 全组合，当查对应区，则动作、规则名（界面语短名）与定义全部在场且非空 | 2026-10-30 |
 | registry_keys_match_the_enums_exactly_in_both_directions | 注册表键与枚举双向集合相等 | 给定注册表三个枚举键区加规则名区，当把每键反解回枚举变体并对账键数，则无多键无缺键（键空间锁死，扩枚举须同步两份表数据） | 2026-10-30 |
