@@ -9,9 +9,10 @@
 行标记行由本文件前后滤除，放行标记须带非空缘由、缺失即判罚，判定口径与
 既有逐行实现一致，缘由见记录文件。
 违规报告经统一诊断出口打印：每
-条带规则标识、脱敏证据行与修复指引——疑似密钥的命中片段只留前四位预览加
-长度提示，不整行落标准错误与持续集成日志；放行标记缺缘由的条目按豁免现场
-给出整行（标记行的值按仓库策略已是合法字面量）。退出码按全脚本统一约定。
+条带规则标识、脱敏证据行与修复指引——全部模式在该行的全部命中片段按跨度
+合并脱敏，只留前四位预览加长度提示，疑似真实密钥不整行落标准错误与持续
+集成日志；放行标记缺缘由的条目同规——缺缘由正说明豁免未被声明，值不可
+信。退出码按全脚本统一约定。
 """
 
 from __future__ import annotations
@@ -98,6 +99,10 @@ RULE_GROUPS = (
     (RULE_SECRET_AUTH, AUTH_MESSAGE, AUTH_PATTERNS),
 )
 
+# 证据脱敏的全模式并集：脱敏不分规则组——同一行的任何疑似密钥片段都不该
+# 落日志，只按报告规则的清单脱敏会让跨组命中漏出
+ALL_PATTERNS = CASE_SENSITIVE_PATTERNS + CASE_INSENSITIVE_PATTERNS
+
 # 字节序标记前缀：引擎会剥除或据此整文件转码，与既有的容错解码口径对不齐
 BOM_PREFIXES = (b"\xff\xfe", b"\xfe\xff", b"\xef\xbb\xbf")
 
@@ -166,9 +171,10 @@ def pattern_hits(pattern: re.Pattern[str], file_hits: dict[int, str]) -> list[tu
 
 def allow_reason_findings(rel: str, file_hits: dict[int, str]) -> list[gate_report.Finding]:
     """放行标记缺缘由的条目：标记行只有在命中扫描模式时才构成豁免现场，
-    缺同行非空缘由即报告；豁免语义不变，标记行照旧放行。"""
+    缺同行非空缘由即报告；豁免语义不变，标记行照旧放行。证据行同规脱敏——
+    缺缘由正说明豁免未被声明，值不可信，标记与缘由区不在匹配段内照常可见。"""
     return [
-        gate_report.allow_reason_finding(ALLOW_MARKER, rel, lineno, line)
+        gate_report.allow_reason_finding(ALLOW_MARKER, rel, lineno, masked_evidence(line))
         for lineno, line in sorted(file_hits.items())
         if ALLOW_MARKER in line and gate_report.allow_reason_missing(ALLOW_MARKER, line)
     ]
@@ -204,8 +210,9 @@ def scan_hits(root: str, loader: Any = None) -> tuple[list[str], dict[str, dict[
 
 
 def run(root: str, loader: Any = None) -> list[str]:
-    """扫描 root 下全部 git 跟踪文件，返回违规条目（每条含文件与命中行）；
-    装入器在场时清单与内容走共享缓存，缺省自行读取。"""
+    """扫描 root 下全部 git 跟踪文件，返回违规条目（每条含文件与脱敏命中
+    行——条目可能进日志，疑似密钥不回传明文）；装入器在场时清单与内容走
+    共享缓存，缺省自行读取。"""
     files, hits_by_file = scan_hits(root, loader)
     problems = []
     for rel in files:
@@ -219,7 +226,9 @@ def run(root: str, loader: Any = None) -> list[str]:
             for pattern in patterns:
                 hits = pattern_hits(pattern, file_hits)
                 if hits:
-                    detail = "\n".join("  %d:%s" % hit for hit in hits)
+                    detail = "\n".join(
+                        "  %d:%s" % (lineno, masked_evidence(line)) for lineno, line in hits
+                    )
                     problems.append("%s: %s\n%s" % (kind, rel, detail))
         bare = allow_reason_findings(rel, file_hits)
         if bare:
@@ -228,15 +237,32 @@ def run(root: str, loader: Any = None) -> list[str]:
     return problems
 
 
-def masked_evidence(pattern: re.Pattern[str], line: str) -> str:
-    """命中片段脱敏的证据行：匹配段按原始偏移切出，只留前四位预览加长度提
-    示，行内其余部分原样保留；无匹配（不该发生）按原行返回，不静默造证据。"""
-    match = pattern.search(line)
-    if match is None:
+def masked_evidence(line: str) -> str:
+    """证据行脱敏：收集全部模式在该行的全部非重叠匹配跨度，归并重叠后逐段
+    替换为前四位预览加长度提示——同一行的多个疑似密钥片段、同片段的多模式
+    命中都不漏；无命中按原行返回，不静默造证据。"""
+    spans = []
+    for pattern in ALL_PATTERNS:
+        for match in pattern.finditer(line):
+            if match.end() > match.start():
+                spans.append((match.start(), match.end()))
+    if not spans:
         return line
-    hit = match.group(0)
-    preview = "%s…<redacted %d chars>" % (hit[:EVIDENCE_PREVIEW], len(hit))
-    return line[: match.start()] + preview + line[match.end() :]
+    merged: list[list[int]] = []
+    for start, end in sorted(spans):
+        if merged and start < merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    out = []
+    cursor = 0
+    for start, end in merged:
+        hit = line[start:end]
+        out.append(line[cursor:start])
+        out.append("%s…<redacted %d chars>" % (hit[:EVIDENCE_PREVIEW], len(hit)))
+        cursor = end
+    out.append(line[cursor:])
+    return "".join(out)
 
 
 def findings(root: str, loader: Any = None) -> list[gate_report.Finding]:
@@ -249,18 +275,18 @@ def findings(root: str, loader: Any = None) -> list[gate_report.Finding]:
         if not file_hits:
             continue
         for rule, message, patterns in RULE_GROUPS:
-            masked = {}
+            lines = {}
             for pattern in patterns:
                 for lineno, line in pattern_hits(pattern, file_hits):
-                    masked[lineno] = masked_evidence(pattern, line)
-            for lineno in sorted(masked):
+                    lines[lineno] = line
+            for lineno in sorted(lines):
                 out.append(
                     gate_report.Finding(
                         rule=rule,
                         path=rel,
                         line=lineno,
                         message=message,
-                        evidence=masked[lineno],
+                        evidence=masked_evidence(lines[lineno]),
                         remedy=SECRET_REMEDY,
                     )
                 )

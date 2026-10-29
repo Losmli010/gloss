@@ -430,6 +430,39 @@ def test_gate_masks_matched_secret_in_stderr_evidence(tmp_path: Path) -> None:
     assert "    evidence: key = " in text
 
 
+def test_gate_masks_every_match_on_a_line(tmp_path: Path) -> None:
+    github = "ghp_%s" % TAIL36
+    openai = "sk-%s" % TAIL40
+    proc = run_gate(tmp_path, {"multi.txt": "GITHUB_TOKEN=%s OPENAI_API_KEY=%s" % (github, openai)})
+    assert proc.returncode == 1
+    text = proc.stderr.decode("utf-8")
+    assert github not in text
+    assert openai not in text
+    assert TAIL36 not in text
+    assert TAIL40 not in text
+    assert text.count("<redacted") >= 2
+
+
+def test_gate_masks_same_pattern_double_hit(tmp_path: Path) -> None:
+    first = "p" * 16
+    second = "q" * 16
+    content = 'password = "%s"; password = "%s"' % (first, second)
+    proc = run_gate(tmp_path, {"double.txt": content})
+    assert proc.returncode == 1
+    text = proc.stderr.decode("utf-8")
+    assert first not in text
+    assert second not in text
+    assert text.count("<redacted") >= 2
+
+
+def test_gate_masks_allow_reason_evidence_too(tmp_path: Path) -> None:
+    proc = run_gate(tmp_path, {"bare-allow.toml": 'api_key = "%s" # %s' % (TAIL16, MARKER)})
+    assert proc.returncode == 1
+    text = proc.stderr.decode("utf-8")
+    assert TAIL16 not in text
+    assert MARKER in text
+
+
 def test_gate_extra_argument_is_a_usage_error(tmp_path: Path) -> None:
     proc = run_gate(tmp_path, {"clean.rs": "let x = 1;"}, "extra-arg")
     assert proc.returncode == 2

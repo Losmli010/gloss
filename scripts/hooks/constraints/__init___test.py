@@ -211,3 +211,8 @@ def test_gate_caps_report_per_file_and_declares_rest(tmp_path: Path) -> None:
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
     assert int(match.group(1)) == 20
+    lines = text.splitlines()
+    summary_at = lines.index(match.group(0))
+    declared_at = next(i for i, line in enumerate(lines) if "more violations in" in line)
+    guidance_at = next(i for i, line in enumerate(lines) if line.startswith("  - rule stays"))
+    assert summary_at < declared_at < guidance_at
