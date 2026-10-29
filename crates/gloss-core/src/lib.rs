@@ -20,6 +20,7 @@ pub mod config_handle;
 pub mod engine;
 pub mod guard;
 pub mod lang_gate;
+pub(crate) mod langspec;
 pub mod log;
 pub mod model;
 pub mod ports;

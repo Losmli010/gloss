@@ -5,7 +5,6 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use super::char_map::TRAD_SIMP_PAIRS;
 use super::violation::{LangCategory, LangField, LangViolation};
 
 pub(crate) fn check_simplified(
@@ -26,7 +25,7 @@ pub(crate) fn check_simplified(
 fn table() -> &'static HashMap<char, char> {
     static TABLE: OnceLock<HashMap<char, char>> = OnceLock::new();
     TABLE.get_or_init(|| {
-        let chars: Vec<char> = TRAD_SIMP_PAIRS.chars().collect();
+        let chars: Vec<char> = super::char_map::pairs().chars().collect();
         chars
             .chunks_exact(2)
             .map(|pair| (pair[0], pair[1]))

@@ -6,13 +6,7 @@
 use super::containers::script_runs;
 use super::tables::{LangPolicy, ScriptClass, TaskPolicy};
 use super::violation::{LangCategory, LangField, LangViolation};
-
-const PERCENT_SIGNS: [char; 3] = ['%', '‰', '°']; // i18n:allow 判定常量
-const CURRENCY_SIGNS: [char; 5] = ['€', '£', '¥', '￥', '₩']; // i18n:allow 判定常量
-const DASH_FAMILY: [char; 4] = ['—', '–', '‥', '…']; // i18n:allow 判定常量
-const BARE_EMOJI: [char; 6] = [
-    '\u{2705}', '\u{2728}', '\u{274C}', '\u{2764}', '\u{26A1}', '\u{2B50}',
-]; // i18n:allow 判定常量
+use crate::langspec;
 
 pub(crate) struct BodyCheck<'a> {
     pub lang: &'a LangPolicy,
@@ -101,7 +95,8 @@ impl BodyCheck<'_> {
                 .paren_pairs
                 .iter()
                 .any(|&(open, close)| c == open || c == close)
-            || (self.task.quote_container && matches!(c, '“' | '”' | '"')) // i18n:allow 判定常量
+            || (self.task.quote_container
+                && (langspec::spec().curly_quotes.contains(&c) || c == '"'))
             || (self.task.markdown_allowed && c == '`')
     }
 
@@ -120,9 +115,10 @@ impl BodyCheck<'_> {
     }
 
     fn check_emoji(&self, violations: &mut Vec<LangViolation>) {
+        let spec = langspec::spec();
         let flagged = self.ranges.iter().any(|&(start, end)| {
             self.chars[start..end].iter().any(|&c| {
-                is_emoji(c) || BARE_EMOJI.contains(&c) || matches!(c, '\u{FE0E}' | '\u{FE0F}')
+                is_emoji(c) || spec.emoji_bare.contains(&c) || spec.emoji_variants.contains(&c)
             })
         });
         if flagged {
@@ -132,6 +128,7 @@ impl BodyCheck<'_> {
 }
 
 fn is_attached_symbol(chars: &[char], index: usize) -> bool {
+    let spec = langspec::spec();
     let c = chars[index];
     let prev = if index == 0 {
         None
@@ -139,20 +136,21 @@ fn is_attached_symbol(chars: &[char], index: usize) -> bool {
         chars.get(index - 1)
     };
     let next = chars.get(index + 1);
-    if PERCENT_SIGNS.contains(&c) && prev.is_some_and(char::is_ascii_digit) {
+    if spec.attached_after_digit.contains(&c) && prev.is_some_and(char::is_ascii_digit) {
         return true;
     }
-    if CURRENCY_SIGNS.contains(&c) && next.is_some_and(char::is_ascii_digit) {
+    if spec.attached_before_digit.contains(&c) && next.is_some_and(char::is_ascii_digit) {
         return true;
     }
     let digits_around =
         prev.is_some_and(char::is_ascii_digit) && next.is_some_and(char::is_ascii_digit);
-    digits_around && matches!(c, '.' | ',' | '-')
+    digits_around && spec.attached_between_digits.contains(&c)
 }
 
 fn is_dash_or_ellipsis(chars: &[char], index: usize) -> bool {
+    let spec = langspec::spec();
     let c = chars[index];
-    if DASH_FAMILY.contains(&c) {
+    if spec.dash_ellipsis.contains(&c) {
         return true;
     }
     if c != '-' && c != '.' {
@@ -168,20 +166,9 @@ fn is_dash_or_ellipsis(chars: &[char], index: usize) -> bool {
 }
 
 fn is_han(c: char) -> bool {
-    matches!(c as u32, 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF)
+    langspec::range_contains(&langspec::spec().ranges.han, c as u32)
 }
 
 fn is_emoji(c: char) -> bool {
-    matches!(
-        c as u32,
-        0x1F000..=0x1F02B
-            | 0x1F0A0..=0x1F0FF
-            | 0x1F100..=0x1F1FF
-            | 0x1F200..=0x1F2FF
-            | 0x1F300..=0x1F5FF
-            | 0x1F600..=0x1F64F
-            | 0x1F680..=0x1F6FF
-            | 0x1F900..=0x1F9FF
-            | 0x1FA00..=0x1FAFF
-    )
+    langspec::range_contains(&langspec::spec().emoji_ranges, c as u32)
 }

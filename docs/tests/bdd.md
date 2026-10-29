@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 702 | `just test` |
+| 单元测试 | 711 | `just test` |
 
 ## 人工测试
 
@@ -670,6 +670,20 @@
 | violation_lines_carry_position_and_rule_id_only | 违约行只带位置与规则标识 | 给定违约条目，当渲染行式与显示形态并摘要，则行为字段键、半角冒号与规则标识三段相连（语言中立，动作措辞住措辞注册表）、显示形态只含规则标识与字段键、摘要只含去重类别，都不带回复原文 | 2026-10-29 |
 | math_inside_containers_stays_exempt | 容器内公式豁免 | 给定括注与引文内含成对公式的注，当判定，则无 `ContainerMixing`——数学容器内容不判语言（`R8`） | 2026-10-28 |
 | line_wrapped_formulas_stay_math_containers | 换行公式仍成数学容器 | 给定公式跨段内软换行的注，当判定，则无 `PunctuationMismatch`（软换行不拆数学配对，段界仍拆） | 2026-10-28 |
+
+### `crates/gloss-core/src/langspec.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| punctuation_faces_match_the_migrated_tables | 允许表与迁出前常量对版 | 给定嵌入数据源装入的允许表（中西允许、日韩并集、弯引号定界），当与现表逐符号誊录的 `golden` 双向比对，则集合相等（数学面空缺时允许表即标点面，等价搬迁无损） | 2026-10-30 |
+| attached_and_family_faces_match_the_migrated_tables | 附随面与家族面同 `golden` 对版 | 给定装入的附随三向面与破折号省略号家族面，当与现表 `golden` 比对，则集合相等 | 2026-10-30 |
+| emoji_faces_match_the_migrated_tables | 表情事实同 `golden` 对版 | 给定装入的表情区段、裸表情与变体选择符，当与判定器原常量 `golden` 比对，则区段逐对相等、字符面集合相等 | 2026-10-30 |
+| policy_brackets_and_ranges_match_the_migrated_tables | 策略开关括号对与区段同 `golden` 对版 | 给定装入的盘古之白与简繁开关、括号对与六类文字系统区段，当与现表 `golden` 比对，则开关布尔、括号对序与区段逐对相等 | 2026-10-30 |
+| simplified_pairs_match_the_migrated_table | 简繁对串整段对版 | 给定数据文件嵌入的对串（尾随换行裁去），当与迁出前常量整串比对，则逐字相等 | 2026-10-30 |
+| char_faces_have_no_duplicate_symbols | 数据面内无重 | 给定嵌入数据源的十个字符面，当逐面去重对账，则无重复符号 | 2026-10-30 |
+| symbol_layers_stay_disjoint | 符号归位互斥 | 给定场景标点、中性、附随（前邻、后邻）与家族各面，当两两求交，则交集为空；数字夹住面只容与西文标点集重叠（句点逗号短横按位置双角色，`R3` 既定） | 2026-10-30 |
+| ranges_are_wellformed_and_pairwise_disjoint | 区段良构且互斥 | 给定表情区段与六类文字系统区段，当逐段核对与跨类求交，则起止有序、段内不叠、类间不相交 | 2026-10-30 |
+| simplified_pairs_stay_wellformed | 简繁对串良构 | 给定嵌入对串，当逐对核对，则长度为偶、繁简字形有别、按繁体码位升序且繁体不重 | 2026-10-30 |
 
 ### `crates/gloss-core/src/wordings.rs`
 
