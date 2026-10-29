@@ -365,6 +365,7 @@ pub(crate) mod test_support {
                 examples: Vec::new(),
             },
             degraded: false,
+            lang_violations: Vec::new(),
         }
     }
 

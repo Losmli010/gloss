@@ -11,7 +11,8 @@ use std::borrow::Cow;
 
 use egui::{RichText, ScrollArea, vec2};
 
-use gloss_core::task::TaskInput;
+use gloss_core::prompt::{ViolationPositions, violation_briefs};
+use gloss_core::task::{TaskInput, TaskOutcome};
 
 use super::card::header;
 use super::footer::{FooterMode, footer};
@@ -153,6 +154,7 @@ pub(super) fn render_content(
         Some(OverlayView::Outcome { source, outcome }) => {
             let mode = FooterMode::Done {
                 unverified: outcome.degraded,
+                violations: violation_rows(ctx, outcome),
             };
             scrolled_card(ui, ctx, content_h, mode, |ui| {
                 outcome_body(ui, ctx, source, outcome)
@@ -219,9 +221,36 @@ fn scrolled_card(
             body(ui);
         });
     ui.add_space(space::PARAGRAPH);
+    let hint_reserve = matches!(
+        mode,
+        FooterMode::Done {
+            unverified: true,
+            ..
+        }
+    );
     let footer_action = footer(ui, ctx.state, mode, ctx.text);
+    if hint_reserve {
+        ui.add_space(geometry::overlay::VIOLATION_HINT_RESERVE);
+    }
     record_scrolled_height(ui, content_h, &scrolled);
     (action.or(footer_action), drag)
+}
+
+fn violation_rows(ctx: &RenderCtx<'_>, outcome: &TaskOutcome) -> Option<Vec<String>> {
+    if !outcome.degraded || outcome.lang_violations.is_empty() {
+        return None;
+    }
+    let briefs = violation_briefs(
+        ctx.locale,
+        &ViolationPositions {
+            note: ctx.text.gloss_popup_violation_field_note.clone(),
+            phonetic: ctx.text.gloss_popup_violation_field_phonetic.clone(),
+            example: ctx.text.gloss_popup_violation_field_example.clone(),
+        },
+        &outcome.lang_violations,
+        geometry::overlay::VIOLATION_HINT_ROW_CAP,
+    );
+    (!briefs.rows.is_empty()).then_some(briefs.rows)
 }
 
 fn degraded_card(

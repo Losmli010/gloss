@@ -12,8 +12,8 @@
 | 发版人工步骤 | 10 | 手动执行（无自动化测试源码的真机、运维步骤，`bdd` 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
-| 快照测试 | 41 | `just test` |
-| 单元测试 | 695 | `just test` |
+| 快照测试 | 44 | `just test` |
+| 单元测试 | 702 | `just test` |
 
 ## 人工测试
 
@@ -371,7 +371,7 @@
 
 ## 快照测试
 
-`popup` 快照基线：`popup_word_card`、`popup_streaming`、`popup_failed`、`popup_failed_auth`、`popup_selfcheck`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_image_failed`、`popup_degraded_outcome`、`popup_long_line`；`popup` 待确认卡基线中英双份：`popup_pending_text_zh/en`、`popup_pending_image_zh/en`（发送前确认是用户手按的关键界面，中文形态一并锁定）；`settings` 快照基线：`settings_main`、`settings_notice`、`settings_invalid`、`settings_default_kind_disabled`、`settings_update_up_to_date`、`settings_update_available`、`settings_update_downloading`、`settings_update_ready`、`settings_update_failed_install`。其余基线统一英文文案加浅色主题渲染（2026-10-01 起）：`kittest` 自建上下文无（CJK）字体，英文基线可读可审；待确认卡基线（2026-10-27 起）经测试内安装（CJK）字体后中英各录一份，浅色主题同规。
+`popup` 快照基线：`popup_word_card`、`popup_streaming`、`popup_failed`、`popup_failed_auth`、`popup_selfcheck`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_image_failed`、`popup_degraded_outcome`、`popup_long_line`、`popup_unverified_outcome`（2026-10-30 随降级批注方案重录：图标自复制钮前移到复制钮后、形制自警告三角改批注气泡、页脚下留批注卡展开余量）、`popup_violation_hint_hover`（2026-10-30 起：降级批注悬停态基线，真实窗口几何下悬停批注图标录得，行文本由结构化树断言另行锁定）；`popup` 待确认卡基线中英双份：`popup_pending_text_zh/en`、`popup_pending_image_zh/en`（发送前确认是用户手按的关键界面，中文形态一并锁定）；`settings` 快照基线：`settings_main`、`settings_notice`、`settings_invalid`、`settings_default_kind_disabled`、`settings_update_up_to_date`、`settings_update_available`、`settings_update_downloading`、`settings_update_ready`、`settings_update_failed_install`。其余基线统一英文文案加浅色主题渲染（2026-10-01 起）：`kittest` 自建上下文无（CJK）字体，英文基线可读可审；待确认卡基线（2026-10-27 起）经测试内安装（CJK）字体后中英各录一份，浅色主题同规。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -393,7 +393,10 @@
 | attached_image_texture_is_reused_across_frames | 附件图像纹理跨帧复用 | 给定同一份附件图像字节连续渲染七帧，当比对第 2 帧与第 7 帧的界面库（egui）纹理分配数，则计数不增（同字节恒同纹理，逐帧解码即失败） | 2026-10-10 |
 | attached_image_slot_is_dropped_once_an_imageless_frame_renders | 会话离开图像卡即清纹理槽 | 给定图像帧（纹理就位）后切到无附件帧再切回同图，当逐段比对界面库（egui）纹理分配数，则无附件帧分配数下降（源字节与纹理同帧释放，敏感数据不驻留会话外）、同图再上卡重新解码回到原驻留数 | 2026-10-10 |
 | degraded_outcome_card_shows_only_the_abnormal_notice_and_retry | 降级产物卡只出异常提示与重试 | 给定 `degraded=true` 且 `note` 为空的完成态卡（格式降级的真实形态），当渲染，则出“`Abnormal output`”与“`Retry`”按钮、点击上交 `OverlayAction::Retry`，而注与疏一概不在树上（原文垃圾不展示不留存） | 2026-10-28 |
-| lang_degraded_outcome_card_keeps_content_with_the_footer_badge | 语言降级卡保内容出页脚徽章 | 给定 `degraded=true` 且内容完整的完成态卡（语言降级路径），当渲染，则页脚左端出“`For reference only`”校对徽章、注与角标照常入树、页脚为复制钮而非重试钮（混用语言的译文对用户仍有价值，徽章不占正文首行） | 2026-10-28 |
+| lang_degraded_outcome_card_keeps_content_with_the_footer_badge | 语言降级卡保内容出页脚徽章 | 给定 `degraded=true` 且内容完整的完成态卡（语言降级路径），当渲染，则页脚复制钮右侧出“`For reference only`”批注图标、注与角标照常入树、页脚为复制钮而非重试钮（混用语言的译文对用户仍有价值，批注不占正文首行） | 2026-10-30 |
+| degraded_icon_follows_the_copy_button_in_the_footer | 降级批注图标位次随复制钮 | 给定带违约清单的语言降级完成态卡，当渲染，则批注图标紧随复制钮右侧（窄缝间隔，附属信息不占主动作前位）、与复制钮同带居中（图标位次与形制的像素形态由 `popup_unverified_outcome` 基线锁定） | 2026-10-30 |
+| hovering_the_degraded_icon_expands_the_violation_rows_or_the_generic_fallback | 悬停批注清单与泛化回落分派 | 给定带违约清单的降级完成态卡，当悬停批注图标，则悬停卡出“`Some language issues remain:`”标题与人读行清单（位置词、规则名、动作）；给定无清单的降级卡（旧缓存条目形态），当悬停，则回落现泛化文案“`Not fully proofread`”且标题不出现（判据在视图层，键与值都不动） | 2026-10-30 |
+| the_violation_hint_expands_below_the_footer_inside_the_window | 悬停批注卡向下展开且不超窗 | 给定聚合后五行批注加截断注的最坏行清单（长动作行文），当把窗口压到 `draw` 上交的期望高并悬停批注图标，则悬停卡标题在图标下缘之下展开（不遮经注疏正文）且每一行底边不超窗高（页脚下留批注卡展开余量） | 2026-10-30 |
 | degraded_outcome_card_never_takes_the_source_jing_section | 降级产物卡不保留原文经位 | 给定带原文的降级完成态卡，当渲染，则树上无原文节点（降级卡与失败卡同形：只有提示与重试） | 2026-10-11 |
 | general_outcome_card_renders_the_plain_layout | 通用产物卡与句译同形 | 给定 `General` 产物（原文经位加 `markdown` 注加两条疏条目）的完成态卡，当渲染，则原文、注文与疏条目逐条入树（条目经 `markdown` 渲染按 `contains` 定位；通用落 `Plain` 变体、按句译同形排布） | 2026-10-21 |
 | failed_view_shows_retry_hint | 失败卡重试动作 | 给定 `Retry` 失败卡，当渲染并点击“重试”，则收集器收到 `OverlayAction::Retry` | 2026-09-21 |
@@ -551,6 +554,10 @@
 | language_repair_caps_rows_and_appends_the_truncated_note | 语言清单封顶并附截断注 | 给定聚合后 13 组违约，当渲染，则清单恰 12 行、截断注一行在场、第 13 组丢弃不溢出 | 2026-10-29 |
 | language_repair_within_the_cap_carries_no_truncated_note | 清单未超限无截断注 | 给定聚合后 12 组违约，当渲染，则无截断注（清单不挤占修复轮上下文的口径只在超限时生效） | 2026-10-29 |
 | language_repair_degrades_to_position_and_rule_id_lines_without_the_registry | 注册表缺席降级为位置与规则标识行 | 给定骨架缺席的语言清单，当聚合渲染，则每组回落为字段键、半角冒号加规则标识的行（语言中立，警告留痕） | 2026-10-29 |
+| violation_briefs_render_human_position_and_rule_names_on_the_shared_row | 降级批注行人读词同构行式 | 给定两条违约（注缺空格、例句夹外文两条聚合）与注入的人读位置词，当 `violation_briefs`（双语），则行式与修复轮同构（位置、规则名、动作三段），例句占位符按聚合组序号填充、动作措辞逐字复用注册表、同字段同类并一行、未超限无截断注 | 2026-10-30 |
+| violation_briefs_carry_structural_facts_only_without_leftover_placeholders | 降级批注行只载结构事实 | 给定注、音标、例句三字段违约与双语全组合，当渲染批注行，则无残留占位符、不含回复内容标记（批注只描述字段位置与规则，不引回复原文） | 2026-10-30 |
+| violation_briefs_cap_rows_and_append_the_truncated_note | 降级批注行封顶附截断注 | 给定聚合后十二组违约与上限五，当渲染，则恰五行加注册表截断注一行（“其余为同类违约”）、被封顶组丢弃不溢出；上限十二时逐行齐出且无截断注 | 2026-10-30 |
+| violation_briefs_of_an_empty_list_stay_empty_without_a_truncated_note | 空清单批注行恒空 | 给定空违约清单，当渲染批注行，则行清单为空且无截断注（界面据此回落泛化文案） | 2026-10-30 |
 | classify_prompt_composes_the_skeleton_and_the_registry_category_section | 分类提示词骨架加类别段两段拼装 | 给定双 `locale`，当 `render_classify`，则系统指令以骨架（引言与输出形状）逐字起头、其后为注册表渲染的类别段（四类别逐条带定义），无残留占位符 | 2026-10-29 |
 
 ### `crates/gloss-core/src/schema.rs`
@@ -595,6 +602,7 @@
 | image_input_shares_png_bytes_via_arc | 图像输入 `Arc` 共享 | 给定位图（PNG）字节，当构造 `Image` 输入，则经 `Arc` 共享（`ptr_eq`） | 2026-09-19 |
 | outcome_carries_word_card_subprov_and_the_code_verdict | 产物携带词卡疏证与语言判定 | 给定词卡与代码产物，当构造 `TaskOutcome`，则词卡 `structured` 为 `WordCard`（`phonetic/examples`）、代码的语言判定随 `Code` 变体走（`structured.code_language`，`UI` 角标与高亮使用） | 2026-10-11 |
 | degraded_defaults_to_false_on_the_wire | 降级标记 `serde` 缺省 `false` | 给定序列化后剥去 `degraded` 字段的产物（JSON），当反序列化，则 `degraded` 为 `false`（旧条目落在正常路径）；`degraded=true` 显式往返 | 2026-10-11 |
+| language_violations_default_to_an_empty_list_on_the_wire | 违约清单 `serde` 缺省空清单 | 给定携带两条语言违约的产物，当 `serde` 往返，则清单逐条无损；给定剥去 `lang_violations` 列的旧条目（JSON），当反序列化，则清单为空（旧缓存条目走界面泛化回落，不破缓存） | 2026-10-30 |
 | modality_matrix_is_enforced_cell_by_cell | 模态矩阵逐格校验 | 给定五个 `kind` 与两种输入的全矩阵，当逐格 `Task::new`，则文本列（含通用 `General`）与 `Image` 列（唯一合法 `kind` 为 `ImageExplain`）逐格合规 | 2026-10-18 |
 | task_deserialization_goes_through_the_modality_gate | `wire` 入口同过模态闸门 | 给定合法与非法（`ImageExplain` 配文本输入）两份 `Task`（JSON），当反序列化，则前者成功、后者被拒——反序列化不是绕过 `Task::new` 的旁路 | 2026-10-18 |
 | task_round_trips_through_serde | `Task` `serde` 往返无损 | 给定文本任务（含目标语言与模型），当经 `Task::new` 构造并 `serde` 往返，则无损 | 2026-10-18 |
@@ -633,7 +641,8 @@
 | a_fenced_reply_repairs_like_any_other_violation | 围栏任务回复同权违约进修复 | 给定 `json` 围栏的任务回复与契约修复流脚本队列，当 `run`，则围栏按 `NotJson` 违约进修复轮（严格裸 `JSON` 契约）、`repairs` 为 1 | 2026-10-12 |
 | cancellation_cuts_through_the_repair_round | 取消打断修复轮 | 给定慢流脚本队列（首轮违约、修复轮慢流），当修复轮回调到达即从 `select!` 竞速取消，则取消分支获胜（修复轮是 `run` `future` 内 `await` 点，竞速天然覆盖） | 2026-10-12 |
 | language_violations_repair_with_a_row_list_instruction | 语言违约进行式清单修复轮 | 给定语言违约但契约合格的回复与契约修复流脚本队列，当 `run`，则任务段零修复、语言段 1 轮、指令行含每条规则标识与字段位置、不含回复原文、对话形态 `[system][user][assistant][user]`、`lang_degraded` 为假 | 2026-10-28 |
-| language_repairs_exhaust_and_deliver_the_reply_degraded | 语言修复预算耗尽带降级交付 | 给定连续两条契约合格但语言违约的回复，当 `run`，则恰 1 轮语言修复（`LANG_REPAIRS`）后 `lang_degraded` 为真、`raw` 为末条契约合格回复、不报 `Err` | 2026-10-28 |
+| language_repairs_exhaust_and_deliver_the_reply_degraded | 语言修复预算耗尽带降级交付 | 给定连续两条契约合格但语言违约的回复，当 `run`，则恰 1 轮语言修复（`LANG_REPAIRS`）后 `lang_degraded` 为真、`raw` 为末条契约合格回复、已判得的违约清单（含 `ForeignRun`）随 `RunOutput` 交付、不报 `Err` | 2026-10-30 |
+| contract_invalid_direct_degrade_delivers_an_empty_violation_list | 契约无效直降带空清单 | 给定语言段入口处契约已失效的回复（直调 `run_lang_rounds`），当降级交付，则 `lang_degraded` 为真而违约清单为空（契约无效直降路径与预算耗尽路径分开赋值，原文原样上交） | 2026-10-30 |
 | a_contract_broken_language_repair_keeps_the_last_valid_reply | 修复轮契约退化保末份合格回复 | 给定契约合格的语言违约回复与修复轮散文（契约坏回复），当 `run`，则坏回复不被采纳、`raw` 保持末份契约合格回复且 `lang_degraded` 为真 | 2026-10-28 |
 
 ### `crates/gloss-core/src/lang_gate.rs`
@@ -668,10 +677,10 @@
 | --- | --- | --- | --- |
 | registry_frame_wording_is_present_for_both_locales | 注册表骨架词两语言齐备 | 给定中英两份注册表，当装骨架区，则头、行、尾、截断注与回指句全部非空（嵌入数据可解析由各测试的装载入口前置锁定） | 2026-10-29 |
 | registry_covers_every_format_key_with_worded_rows | 注册表格式区键全覆盖 | 给定四类违约级键与五个细节键的双 `locale` 全组合，当查格式区，则键齐且位置与动作措辞非空 | 2026-10-29 |
-| registry_covers_every_language_action_and_classify_definition | 注册表语言动作与分类定义全覆盖 | 给定十一个语言违约类别与四个分类类别的双 `locale` 全组合，当查对应区，则动作与定义全部在场且非空 | 2026-10-29 |
-| registry_keys_match_the_enums_exactly_in_both_directions | 注册表键与枚举双向集合相等 | 给定注册表三个枚举键区，当把每键反解回枚举变体并对账键数，则无多键无缺键（键空间锁死，扩枚举须同步两份表数据） | 2026-10-29 |
-| registry_carries_identical_key_sets_across_locales | 注册表键集中英对齐 | 给定中英两份注册表，当对比三区键集合，则逐键一致（措辞随语言分表，键空间不分语言） | 2026-10-29 |
-| missing_keys_and_broken_sources_degrade_to_none_with_a_trace | 注册表缺键与坏源有痕降级 | 给定未登记键与非法（TOML）源，当查键与装载，则返回空且警告留痕（无 `panic` 路径，组合层据此回落固定措辞） | 2026-10-29 |
+| registry_covers_every_language_action_and_classify_definition | 注册表语言动作与分类定义全覆盖 | 给定十一个语言违约类别与四个分类类别的双 `locale` 全组合，当查对应区，则动作、规则名（界面语短名）与定义全部在场且非空 | 2026-10-30 |
+| registry_keys_match_the_enums_exactly_in_both_directions | 注册表键与枚举双向集合相等 | 给定注册表三个枚举键区加规则名区，当把每键反解回枚举变体并对账键数，则无多键无缺键（键空间锁死，扩枚举须同步两份表数据） | 2026-10-30 |
+| registry_carries_identical_key_sets_across_locales | 注册表键集中英对齐 | 给定中英两份注册表，当对比各区键集合（含规则名区），则逐键一致（措辞随语言分表，键空间不分语言） | 2026-10-30 |
+| missing_keys_and_broken_sources_degrade_to_none_with_a_trace | 注册表缺键与坏源有痕降级 | 给定未登记键（含规则名区）与非法（TOML）源，当查键与装载，则返回空且警告留痕（无 `panic` 路径，组合层据此回落固定措辞或泛化文案） | 2026-10-30 |
 
 ### `crates/gloss-app/src/runtime/cache.rs`
 
@@ -769,11 +778,12 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 `zh.toml` 与 `en.toml`，当递归收集叶子键路径，则两份逐条一致且整表条数为 91（条数钉住，防遍历退化）。沿革：原登记 88，2026-10-28 随设置窗两字段标签（服务地址、密钥）入表更新——本拉取请求加浮层缩放词条时源码已到 89，登记漏更，一并修正 | 2026-10-28 |
+| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 `zh.toml` 与 `en.toml`，当递归收集叶子键路径，则两份逐条一致且整表条数为 97（条数钉住，防遍历退化）。沿革：原登记 88，2026-10-28 随设置窗两字段标签（服务地址、密钥）入表更新；2026-10-30 随降级批注四词条（悬停标题、注位、音标位、例句位）入表更新 | 2026-10-30 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则无一与中文表逐字相同。沿革：原对语言自称词条（`gloss_ui_language_en`）留同键特例，2026-10-28 随词条语言门禁去豁免删除——中文表该词条改写“英语”后两表必不同，特例失去存在理由 | 2026-10-28 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 `gloss_` 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
-| placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 `{{`占位符`}}` 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条恰为 9 条（逐条列名，新增模板漏登记即红） | 2026-09-24 |
+| placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 `{{`占位符`}}` 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条逐条列名（新增模板漏登记即红；2026-10-30 随批注例句位词条 `{{n}}` 入列） | 2026-10-30 |
 | catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功、两语言取值可区分，且“正在注疏”与“`Re-annotating`”词条逐字就位 | 2026-10-27 |
+| violation_position_words_align_with_the_seal_names | 批注位置词与印名同字 | 给定双语文案表，当比对批注位置词与印章印名，则注位词与注印同字、例句位词以疏印起头（用户照词即可定位被指认的字段，印名改动时此处连带审查） | 2026-10-30 |
 | fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数、无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |
 | fill_replaces_multiple_distinct_placeholders | 多参填充各自替换对应占位符 | 给定含 `{{a}}` 与 `{{b}}` 两类占位符的模板与两参，当填充，则各自替换对应占位符、互不串位 | 2026-10-14 |
 | fill_multi_arg_values_take_part_in_later_scans | 多参逐参替换保留旧的顺序替换语义 | 给定 `a` 参替换值为 `{{b}}`、`b` 参替换值为乙的模板，当填充，则后参重扫先参插入的值、结果为乙（与旧逐参 `str::replace` 语义一致） | 2026-10-14 |
@@ -975,7 +985,7 @@
 | prewarm_secret_reads_the_store_and_reports_success | 预热读密成功回执 | 给定已预置密钥的存储，当发 `PrewarmSecret`，则回执 `Ok`（值留在存储进程内缓存，不进事件） | 2026-10-06 |
 | prewarm_failure_surfaces_as_err_without_the_secret | 预热失败回执只带原因 | 给定读取必失败的存储，当发 `PrewarmSecret`，则回执 `Err(Config)`（不含密钥值，不拦主流程） | 2026-10-06 |
 | prewarm_receipt_never_carries_a_secret_value | 预热回执永不携带密钥值 | 给定 `SecretPrewarmed` 回执，当 `Debug` 格式化，则不含密钥值形态（`sk-` 前缀不存在） | 2026-10-06 |
-| a_lang_degraded_done_caches_the_full_outcome_for_replay | 语言降级产物入缓存可重放 | 给定语言违约的契约合格脚本队列，当跑完首轮任务（引擎 3 次调用：分类、任务、语言修复）得到降级且内容完整的产物，再以同输入同选项触发第二次，则缓存直出、引擎调用数不再增长（语言降级产物不重放修复轮） | 2026-10-28 |
+| a_lang_degraded_done_caches_the_full_outcome_for_replay | 语言降级产物入缓存可重放 | 给定语言违约的契约合格脚本队列，当跑完首轮任务（引擎 3 次调用：分类、任务、语言修复）得到降级且内容完整、违约清单在场的产物，再以同输入同选项触发第二次，则缓存直出且清单逐条一致、引擎调用数不再增长（清单随完成产物恒存，回放不重判） | 2026-10-30 |
 
 ### `crates/gloss-app/src/machine.rs`
 

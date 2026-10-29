@@ -74,6 +74,39 @@ action = "该段未翻译，重译为目标语言"
 [repair.lang.PhoneticCharset]
 action = "音标改用拉丁字母与国际音标符号"
 
+[violation.name.ForeignRun]
+name = "夹外文"
+
+[violation.name.TraditionalChar]
+name = "繁体字"
+
+[violation.name.PunctuationMismatch]
+name = "标点串味"
+
+[violation.name.MissingSpace]
+name = "缺空格"
+
+[violation.name.EmojiForbidden]
+name = "含表情符号"
+
+[violation.name.MarkdownForbidden]
+name = "夹排版记号"
+
+[violation.name.UnclosedContainer]
+name = "记号未闭合"
+
+[violation.name.ContainerMixing]
+name = "括注混语"
+
+[violation.name.SentenceInParens]
+name = "括注成句"
+
+[violation.name.SourceOverlap]
+name = "整段未译"
+
+[violation.name.PhoneticCharset]
+name = "音标出界"
+
 [classify.category.TranslateWord]
 definition = "翻译单个词汇项，或以词汇项为主的列表。词汇项包括字、词、固定搭配、习语、谚语、专名、术语。习语、谚语、固定表达即使含主谓结构，也按词汇项整体处理，本专门规则优先于“可独立成句”的一般判断。"
 

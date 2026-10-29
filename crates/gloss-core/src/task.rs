@@ -2,13 +2,16 @@
 //!
 //! 文本分类的清单外落点是通用任务（分类模板以兜底
 //! 类别指认它，见分类校验器）；任务选项
-//! 在触发时一次性冻结，执行途中不回读配置。
+//! 在触发时一次性冻结，执行途中不回读配置。任务产物携带语言体例违约
+//! 清单（语言降级时由引擎判得、随产物恒存缓存），线上形态带缺省——
+//! 旧条目反序列化得空清单，界面走泛化回落，不破缓存。
 
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
 use crate::config::DEFAULT_MODEL;
+use crate::lang_gate::LangViolation;
 use crate::model::{GlossError, Lang, Locale};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -120,6 +123,8 @@ pub struct TaskOutcome {
     pub structured: OutcomeStructured,
     #[serde(default)]
     pub degraded: bool,
+    #[serde(default)]
+    pub lang_violations: Vec<LangViolation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -211,6 +216,7 @@ mod tests {
                 examples: vec!["a gloss of silk".into()],
             },
             degraded: false,
+            lang_violations: Vec::new(),
         };
         assert!(
             matches!(card.structured, OutcomeStructured::WordCard { phonetic, .. } if phonetic.as_deref() == Some("/ɡlɒs/"))
@@ -225,6 +231,7 @@ mod tests {
                 code_language: Some("rust".into()),
             },
             degraded: false,
+            lang_violations: Vec::new(),
         };
         assert!(
             matches!(&code.structured, OutcomeStructured::Code { code_language, .. } if code_language.as_deref() == Some("rust")),
@@ -242,6 +249,7 @@ mod tests {
                 examples: Vec::new(),
             },
             degraded: false,
+            lang_violations: Vec::new(),
         };
         let wire = serde_json::to_string(&outcome).expect("outcome serializes");
         let without_flag = wire.replace(r#","degraded":false"#, "");
@@ -267,6 +275,40 @@ mod tests {
         );
         let back: TaskOutcome = serde_json::from_str(&wire).expect("degraded round-trips");
         assert!(back.degraded);
+    }
+
+    #[test]
+    fn language_violations_default_to_an_empty_list_on_the_wire() {
+        use crate::lang_gate::{LangCategory, LangField};
+
+        let violations = vec![
+            LangViolation::new(LangField::Note, LangCategory::MissingSpace),
+            LangViolation::new(LangField::Example(2), LangCategory::ForeignRun),
+        ];
+        let outcome = TaskOutcome {
+            kind: TaskKind::TranslateSentence,
+            note: "义".into(),
+            structured: OutcomeStructured::Plain {
+                examples: Vec::new(),
+            },
+            degraded: true,
+            lang_violations: violations.clone(),
+        };
+        let wire = serde_json::to_string(&outcome).expect("outcome serializes");
+        let back: TaskOutcome = serde_json::from_str(&wire).expect("violations round-trip");
+        assert_eq!(back.lang_violations, violations, "the list round-trips");
+
+        let mut legacy = serde_json::from_str::<serde_json::Value>(&wire).expect("wire parses");
+        legacy
+            .as_object_mut()
+            .expect("the outcome wire is an object")
+            .remove("lang_violations");
+        let back: TaskOutcome =
+            serde_json::from_value(legacy).expect("an entry without the column parses");
+        assert!(
+            back.lang_violations.is_empty(),
+            "serde default keeps old entries on the generic fallback"
+        );
     }
 
     fn text_input() -> TaskInput {

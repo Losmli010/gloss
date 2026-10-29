@@ -359,6 +359,7 @@ mod tests {
                 examples: Vec::new(),
             },
             degraded: false,
+            lang_violations: Vec::new(),
         }
     }
 
@@ -371,6 +372,7 @@ mod tests {
                 code_language: None,
             },
             degraded: true,
+            lang_violations: Vec::new(),
         }
     }
 

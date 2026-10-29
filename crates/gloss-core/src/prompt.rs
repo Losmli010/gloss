@@ -30,6 +30,14 @@
 //! 不注入模态提示行：源语言与代码语言都由模型从原文自行判断，代码语言经
 //! 产物对象的代码语言字段回传界面。
 //!
+//! 语言降级的界面批注行与本文件同源：公开的批注行清单函数用同一行模板
+//! 与同一聚合算法渲染批注行，只换注入的词——位置词与规则名由调用方注
+//! 入（位置词是界面文案，规则名取注册表规则名区，与语言违约区同册），
+//! 动作措辞复用语言违约区原文，超限附注册表截断注；注册表缺席或查键未
+//! 中得空清单，由界面回落泛化文案。批注行只描述字段位置与规则，不引回
+//! 复原文。人机两册在此分道：修复轮的行给模型，批注行给人，行式与聚合
+//! 保持单一事实源。
+//!
 //! 本模块只产“域形态”的消息（角色与消息部件），
 //! 不做传输序列化，也不携带内联数据——把部件数组映成开放接口（OpenAI）
 //! 兼容内容、把图像字节编码成数据地址前缀都归传输层，
@@ -44,11 +52,14 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use crate::lang_gate::{LangCategory, LangField, LangViolation};
+use crate::briefs::{aggregate_groups, joined_example_indices};
+use crate::lang_gate::{LangField, LangViolation};
 use crate::model::{GlossError, Lang, Locale};
 use crate::schema::{FormatDetail, Violation};
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 use crate::wordings;
+
+pub use crate::briefs::{ViolationBrief, ViolationPositions, violation_briefs};
 
 pub(crate) const DEFAULT_TARGET: Lang = Lang::Zh;
 
@@ -268,72 +279,17 @@ fn repair_row(
     )
 }
 
-struct LangGroup<'a> {
-    field: LangField,
-    category: LangCategory,
-    example_indices: Vec<usize>,
-    first: &'a LangViolation,
-}
-
-impl LangGroup<'_> {
-    fn push(&mut self, violation: &LangViolation) {
-        if let LangField::Example(index) = violation.field {
-            self.example_indices.push(index);
-        }
-    }
-}
-
-fn aggregate_groups(violations: &[LangViolation]) -> Vec<LangGroup<'_>> {
-    let mut sorted: Vec<&LangViolation> = violations.iter().collect();
-    sorted.sort_unstable();
-    let mut groups: Vec<LangGroup<'_>> = Vec::new();
-    for violation in sorted {
-        match groups.last_mut() {
-            Some(group)
-                if group.category == violation.category
-                    && same_field_family(group.field, violation.field) =>
-            {
-                group.push(violation);
-            }
-            _ => groups.push(LangGroup {
-                field: violation.field,
-                category: violation.category,
-                example_indices: match violation.field {
-                    LangField::Example(index) => vec![index],
-                    _ => Vec::new(),
-                },
-                first: violation,
-            }),
-        }
-    }
-    groups
-}
-
-fn same_field_family(left: LangField, right: LangField) -> bool {
-    matches!(
-        (left, right),
-        (LangField::Note, LangField::Note)
-            | (LangField::Phonetic, LangField::Phonetic)
-            | (LangField::Example(_), LangField::Example(_))
-    )
-}
-
-fn lang_position(locale: Locale, group: &LangGroup<'_>) -> String {
+fn lang_position(locale: Locale, group: &crate::briefs::LangGroup<'_>) -> String {
     match group.field {
         LangField::Note => "note".to_owned(),
         LangField::Phonetic => "phonetic".to_owned(),
         LangField::Example(_) => {
-            let mut indices: Vec<usize> = group.example_indices.clone();
-            indices.sort_unstable();
-            let joiner = if locale == Locale::Zh { "、" } else { ", " };
-            let joined = indices
-                .iter()
-                .map(|index| (index + 1).to_string())
-                .collect::<Vec<_>>()
-                .join(joiner);
+            let joined = joined_example_indices(locale, group);
             match locale {
                 Locale::Zh => format!("examples 第 {joined} 条"),
-                Locale::En if indices.len() == 1 => format!("examples item {joined}"),
+                Locale::En if group.example_indices.len() == 1 => {
+                    format!("examples item {joined}")
+                }
                 Locale::En => format!("examples items {joined}"),
             }
         }
@@ -343,7 +299,7 @@ fn lang_position(locale: Locale, group: &LangGroup<'_>) -> String {
 fn group_row(
     locale: Locale,
     frame: Option<&wordings::FrameWording>,
-    group: &LangGroup<'_>,
+    group: &crate::briefs::LangGroup<'_>,
 ) -> String {
     let rule = group.category.rule_id();
     let Some((frame, action)) = frame.zip(wordings::lang_action(locale, rule)) else {
@@ -441,7 +397,7 @@ fn lang_display(lang: &Lang, locale: Locale) -> Cow<'_, str> {
     }
 }
 
-fn render_template(template: &str, values: &[(&str, &str)]) -> String {
+pub(crate) fn render_template(template: &str, values: &[(&str, &str)]) -> String {
     let mut out = String::with_capacity(template.len());
     let mut first = true;
     for line in template.split('\n') {
@@ -1053,6 +1009,149 @@ mod tests {
             ],
             "without the frame each group degrades to the position and rule id line"
         );
+    }
+
+    fn brief_positions(locale: Locale) -> super::ViolationPositions {
+        match locale {
+            Locale::Zh => super::ViolationPositions {
+                note: "注".into(),
+                phonetic: "音标".into(),
+                example: "疏·例句 {{n}}".into(),
+            },
+            Locale::En => super::ViolationPositions {
+                note: "NOTE".into(),
+                phonetic: "Phonetics".into(),
+                example: "EXP item {{n}}".into(),
+            },
+        }
+    }
+
+    #[test]
+    fn violation_briefs_render_human_position_and_rule_names_on_the_shared_row() {
+        use crate::lang_gate::{LangField, LangViolation};
+
+        let violations = [
+            LangViolation::new(LangField::Note, LangCategory::MissingSpace),
+            LangViolation::new(LangField::Example(1), LangCategory::ForeignRun),
+            LangViolation::new(LangField::Example(4), LangCategory::ForeignRun),
+        ];
+        let zh = super::violation_briefs(Locale::Zh, &brief_positions(Locale::Zh), &violations, 12);
+        assert_eq!(
+            zh.rows.len(),
+            2,
+            "same-field same-category violations merge into one row: {:?}",
+            zh.rows
+        );
+        assert!(
+            zh.rows[0].starts_with("注：缺空格——"),
+            "the row keeps the three-part shape with human words: {:?}",
+            zh.rows
+        );
+        assert!(
+            zh.rows[0].contains("在中文与西文、数字之间补一个半角空格"),
+            "the action rides the registry wording verbatim: {:?}",
+            zh.rows
+        );
+        assert!(
+            zh.rows[1].starts_with("疏·例句 2、5：夹外文——"),
+            "the example position fills the placeholder with the merged indices: {:?}",
+            zh.rows
+        );
+        assert!(
+            zh.rows[1].contains("将外文词移入括号并补目标语译名"),
+            "the action rides the registry wording verbatim: {:?}",
+            zh.rows
+        );
+        assert!(!zh.truncated);
+
+        let en = super::violation_briefs(Locale::En, &brief_positions(Locale::En), &violations, 12);
+        assert!(
+            en.rows[0].starts_with("NOTE: spacing — "),
+            "the human rule name rides the en registry: {:?}",
+            en.rows
+        );
+        assert!(
+            en.rows[1].starts_with("EXP item 2, 5: foreign text — "),
+            "merged indices ride the localized position: {:?}",
+            en.rows
+        );
+    }
+
+    #[test]
+    fn violation_briefs_carry_structural_facts_only_without_leftover_placeholders() {
+        use crate::lang_gate::{LangField, LangViolation};
+
+        let violations = [
+            LangViolation::new(LangField::Note, LangCategory::ForeignRun),
+            LangViolation::new(LangField::Phonetic, LangCategory::PhoneticCharset),
+            LangViolation::new(LangField::Example(0), LangCategory::TraditionalChar),
+        ];
+        for locale in [Locale::Zh, Locale::En] {
+            let briefs = super::violation_briefs(locale, &brief_positions(locale), &violations, 12);
+            assert_eq!(briefs.rows.len(), 3, "{locale:?}");
+            for row in &briefs.rows {
+                assert!(
+                    !row.contains("{{"),
+                    "{locale:?}: no placeholder survives the render: {row}"
+                );
+                for marker in ["MARKER", "中文word", "{\"note\""] {
+                    assert!(
+                        !row.contains(marker),
+                        "{locale:?}: the brief carries positions, rule names and actions \
+                         only, never reply content ({marker}): {row}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn violation_briefs_cap_rows_and_append_the_truncated_note() {
+        use crate::lang_gate::{LangField, LangViolation};
+
+        let mut violations: Vec<LangViolation> = ALL_LANG_CATEGORIES
+            .map(|category| LangViolation::new(LangField::Note, category))
+            .into_iter()
+            .collect();
+        violations.push(LangViolation::new(
+            LangField::Phonetic,
+            LangCategory::PhoneticCharset,
+        ));
+        let zh = super::violation_briefs(Locale::Zh, &brief_positions(Locale::Zh), &violations, 5);
+        assert_eq!(
+            zh.rows.len(),
+            6,
+            "the cap holds five rows and the truncated note rides as the last row: {:?}",
+            zh.rows
+        );
+        assert!(zh.truncated);
+        assert_eq!(
+            zh.rows[5], "其余为同类违约，一并修正。",
+            "the truncated note is the registry wording, not a ui copy: {:?}",
+            zh.rows
+        );
+        assert!(
+            !zh.rows.join("\n").contains("记号未闭合"),
+            "the capped-off group is dropped, not silently overflowed: {:?}",
+            zh.rows
+        );
+
+        let within =
+            super::violation_briefs(Locale::Zh, &brief_positions(Locale::Zh), &violations, 12);
+        assert_eq!(
+            within.rows.len(),
+            12,
+            "a list within the cap carries every row without the note: {:?}",
+            within.rows
+        );
+        assert!(!within.truncated);
+    }
+
+    #[test]
+    fn violation_briefs_of_an_empty_list_stay_empty_without_a_truncated_note() {
+        let briefs = super::violation_briefs(Locale::Zh, &brief_positions(Locale::Zh), &[], 5);
+        assert!(briefs.rows.is_empty());
+        assert!(!briefs.truncated);
     }
 
     fn assert_clause_then_discipline_tail(

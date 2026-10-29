@@ -21,3 +21,7 @@
   类段与任务段的不同归宿——分类段由 `classify` 内部消化（TaskClassified 携
   带兜底 General 先回传），任务段才落 TaskFailed；步骤 5 前分类段的兜底由
   engine.rs 编排层承担，注释措辞随收拢点迁移同步更新，现按纪律整体出体。
+
+- a_lang_degraded_done_caches_the_full_outcome_for_replay（降级批注方案
+  §6）：补断言降级产物携非空违约清单入缓存、命中回放清单逐条一致——
+  「清单随完成产物恒存、回放不重判」的通道两端锁点。

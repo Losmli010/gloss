@@ -13,6 +13,7 @@ extern crate self as gloss_core;
 #[path = "../tests/stubs/mod.rs"]
 pub(crate) mod stubs;
 
+mod briefs;
 pub mod classify;
 pub mod config;
 pub mod config_handle;

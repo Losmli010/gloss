@@ -1,7 +1,8 @@
 //! 语言体例违约的类别、字段位置与行式渲染：判定器、修复指令与日志的
 //! 共同词汇表。类别标识是稳定字符串（进日志与修复清单）；动作措辞住
 //! 提示词库的措辞注册表，本模块只产结构事实——违约行只带字段位置与
-//! 规则标识，显示形态只带规则标识与字段键，都不带回复原文。
+//! 规则标识，显示形态只带规则标识与字段键，都不带回复原文。违约可序
+//! 列化，随降级产物进任务产物与缓存（界面批注由它渲染，不经重判）。
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -38,7 +39,9 @@ impl LangCategory {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum LangField {
     Note,
     Phonetic,
@@ -55,7 +58,9 @@ impl LangField {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct LangViolation {
     pub field: LangField,
     pub category: LangCategory,

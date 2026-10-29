@@ -1,8 +1,9 @@
 //! 措辞注册表：修复轮三段与分类类别段的措辞数据。注册表按提示词语言
 //! 各一份、配置格式（TOML）、编译期嵌入。分区与键空间：修复骨架一区，
 //! 收三段共用的头、行、尾、截断注与回指句；格式违约一区，按违约或细节
-//! 标识收措辞行（位置加动作）；语言违约一区，按规则标识收动作；分类
-//! 定义一区，按类别标识收定义。
+//! 标识收措辞行（位置加动作）；语言违约一区，按规则标识收动作；规则名
+//! 一区，按规则标识收界面语短名（降级批注行与语言违约区同册——模型修
+//! 什么、用户看什么，同键可对）；分类定义一区，按类别标识收定义。
 //!
 //! 嵌入数据合法性由完整性测试前置锁定（解析成功、键与枚举变体双向
 //! 集合相等）；运行时缺键是有痕降级——装载失败整表缺席、查键未中
@@ -23,6 +24,7 @@ const EN_SOURCE: &str = include_str!("../prompts/wordings/en.toml");
 pub(super) struct Registry {
     pub(super) repair: RepairSection,
     pub(super) classify: ClassifySection,
+    pub(super) violation: ViolationSection,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -60,6 +62,16 @@ pub(super) struct ClassifySection {
 #[derive(Debug, serde::Deserialize)]
 pub(super) struct DefinitionWording {
     pub(super) definition: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct ViolationSection {
+    pub(super) name: BTreeMap<String, NameWording>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct NameWording {
+    pub(super) name: String,
 }
 
 fn source(locale: Locale) -> &'static str {
@@ -140,6 +152,22 @@ pub(super) fn classify_definition(locale: Locale, name: &str) -> Option<&'static
                 key = name,
                 "classify definition key missing in the prompt registry, falling back \
                  to the bare category entry"
+            );
+            None
+        }
+    }
+}
+
+pub(super) fn violation_name(locale: Locale, rule_id: &str) -> Option<&'static str> {
+    let registry = registry(locale)?;
+    match registry.violation.name.get(rule_id) {
+        Some(wording) => Some(&wording.name),
+        None => {
+            warn!(
+                thread = thread::TOKIO,
+                key = rule_id,
+                "violation name key missing in the prompt registry, the degraded hint \
+                 falls back to the generic wording"
             );
             None
         }
@@ -238,6 +266,13 @@ mod tests {
                     !wording.action.trim().is_empty(),
                     "{locale:?}: empty action for {rule_id}"
                 );
+                let name = registry.violation.name.get(rule_id).unwrap_or_else(|| {
+                    panic!("{locale:?}: the violation name {rule_id} is missing")
+                });
+                assert!(
+                    !name.name.trim().is_empty(),
+                    "{locale:?}: empty violation name for {rule_id}"
+                );
             }
             for name in CLASSIFY_CATEGORY_NAMES {
                 let wording = registry.classify.category.get(name).unwrap_or_else(|| {
@@ -248,6 +283,25 @@ mod tests {
                     "{locale:?}: empty definition for {name}"
                 );
             }
+        }
+    }
+
+    fn assert_category_partition<V>(
+        locale: Locale,
+        label: &str,
+        partition: &std::collections::BTreeMap<String, V>,
+    ) {
+        assert_eq!(
+            partition.len(),
+            LANG_CATEGORIES.len(),
+            "{locale:?}: the {label} partition holds exactly the category rule ids"
+        );
+        for key in partition.keys() {
+            let quoted = format!("\"{key}\"");
+            assert!(
+                serde_json::from_str::<LangCategory>(&quoted).is_ok(),
+                "{locale:?}: {label} key {key:?} maps to no LangCategory variant"
+            );
         }
     }
 
@@ -271,18 +325,8 @@ mod tests {
                      variant"
                 );
             }
-            assert_eq!(
-                registry.repair.lang.len(),
-                LANG_CATEGORIES.len(),
-                "{locale:?}: the lang partition holds exactly the category rule ids"
-            );
-            for key in registry.repair.lang.keys() {
-                let quoted = format!("\"{key}\"");
-                assert!(
-                    serde_json::from_str::<LangCategory>(&quoted).is_ok(),
-                    "{locale:?}: lang key {key:?} maps to no LangCategory variant"
-                );
-            }
+            assert_category_partition(locale, "lang", &registry.repair.lang);
+            assert_category_partition(locale, "violation-name", &registry.violation.name);
             assert_eq!(
                 registry.classify.category.len(),
                 CLASSIFY_CATEGORY_NAMES.len(),
@@ -312,6 +356,11 @@ mod tests {
             "the lang partition keys must line up across locales"
         );
         assert_eq!(
+            key_set(zh.violation.name.keys()),
+            key_set(en.violation.name.keys()),
+            "the violation-name partition keys must line up across locales"
+        );
+        assert_eq!(
             key_set(zh.classify.category.keys()),
             key_set(en.classify.category.keys()),
             "the classify partition keys must line up across locales"
@@ -325,6 +374,7 @@ mod tests {
             assert!(format_row(Locale::Zh, "NoSuchKey").is_none());
             assert!(lang_action(Locale::Zh, "NoSuchRule").is_none());
             assert!(classify_definition(Locale::Zh, "NoSuchCategory").is_none());
+            assert!(violation_name(Locale::Zh, "NoSuchRule").is_none());
         });
         assert!(
             logs.contains("falling back"),

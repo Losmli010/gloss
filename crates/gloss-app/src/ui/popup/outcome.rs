@@ -337,6 +337,7 @@ mod tests {
             note: "注疏正文".into(),
             structured,
             degraded: false,
+            lang_violations: Vec::new(),
         }
     }
 

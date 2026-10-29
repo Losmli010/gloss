@@ -74,3 +74,8 @@
 - 消费方：perf-collect / perf-chart / perf-report；单位词表 `ms` / `kb` / `count` /
   `ns` / `bytes`；预算数值源头是 Rust 常量（随自检 stderr 结构化行流出，collector
   折算进历史点 budgets 段），注册表只记常量名与所在文件（BUDGET_CONSTS）。
+
+## TaskOutcome 新列缺省（2026-10-30）
+
+- 评测轨构造产物补 `lang_violations` 空清单：评测工具链只消费完成态解析，
+  不判语言体例，违约清单是引擎段概念。

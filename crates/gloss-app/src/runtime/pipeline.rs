@@ -220,6 +220,7 @@ async fn run_task(
     let mut outcome = complete(output.kind, &output.raw);
     if output.lang_degraded {
         outcome.degraded = true;
+        outcome.lang_violations = output.lang_violations;
     }
     if !outcome.note.is_empty() {
         bridge.cache.set(key, outcome.clone());
@@ -451,6 +452,10 @@ mod tests {
             !outcome.note.is_empty(),
             "a language-degraded outcome keeps the full content"
         );
+        assert!(
+            !outcome.lang_violations.is_empty(),
+            "the judged violation list rides the outcome"
+        );
         assert_eq!(
             engine.call_count(),
             3,
@@ -460,6 +465,10 @@ mod tests {
         run(&commands, 2, text_input("hello there"), text_options());
         let replayed = drain_until_done(&events, 2);
         assert!(replayed.degraded && !replayed.note.is_empty());
+        assert_eq!(
+            replayed.lang_violations, outcome.lang_violations,
+            "the cached replay hands back the same list; it is never re-judged"
+        );
         assert_eq!(
             engine.call_count(),
             3,

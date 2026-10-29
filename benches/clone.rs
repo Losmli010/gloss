@@ -168,6 +168,7 @@ fn word_outcome() -> TaskOutcome {
             examples: vec!["a gloss of silk".to_owned()],
         },
         degraded: false,
+        lang_violations: Vec::new(),
     }
 }
 
@@ -260,13 +261,20 @@ fn bench_popup_frame<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
 
     for i in 0..WARMUP_FRAMES {
         run_frame(&ctx, i as f64 / 30.0, |ui| {
-            popup::draw(ui, Some(&view), None, &render, text);
+            popup::draw(ui, Some(&view), None, &render, text, Locale::Zh);
         });
     }
     group.bench_function("ui/popup_frame", |b| {
         b.iter(|| {
             run_frame(&ctx, STEADY_TIME, |ui| {
-                black_box(popup::draw(ui, Some(&view), None, &render, text));
+                black_box(popup::draw(
+                    ui,
+                    Some(&view),
+                    None,
+                    &render,
+                    text,
+                    Locale::Zh,
+                ));
             });
         })
     });

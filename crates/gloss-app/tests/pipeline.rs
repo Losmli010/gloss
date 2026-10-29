@@ -660,6 +660,7 @@ fn hide_overlay_cancels_the_stream_and_late_events_are_dropped() {
             examples: Vec::new(),
         },
         degraded: false,
+        lang_violations: Vec::new(),
     };
     assert!(
         !pipe.machine.accept_chunk(generation, "迟到的正文".into())

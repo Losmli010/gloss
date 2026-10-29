@@ -266,6 +266,7 @@ fn predict(case: &GateCase) -> Vec<LangViolation> {
         note: case.note.clone(),
         structured: case.structured.clone(),
         degraded: false,
+        lang_violations: Vec::new(),
     };
     lang_gate::check(case.kind, &case.target, &input, &outcome)
 }

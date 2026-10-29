@@ -1,9 +1,12 @@
 //! 页脚带：一条常驻窄带，左端随视图变体变化（流式生成指示、待确认按钮、
-//! 完成卡校对徽章与复制钮），右端恒为本品牌（Gloss）水印。
+//! 完成卡复制钮与降级批注图标），右端恒为本品牌（Gloss）水印。
 //!
 //! 待确认卡的确认与取消、完成卡的复制是页脚仅有的两处交互出口，动作在
 //! 绘制帧折成动作上交视图分发；复制钮点击后短暂显示已复制反馈（驻留时长
-//! 取动效档位），图标矢量现画不依赖字形。颜色经语义调色板解析，
+//! 取动效档位），图标矢量现画不依赖字形。降级批注图标是纯信息件：排在
+//! 复制钮之后（附属信息不占主动作前位），形制取批注气泡、色随复制钮的
+//! 着重规则，悬停自图标向下展开批注卡——清单非空出文案表标题加行清单，
+//! 清单为空回落泛化文案（现键现值）。颜色经语义调色板解析，
 //! 几何引用样式几何档；排版产物的跨帧缓存借卡片固定件的缓存基建。
 
 use egui::{Align, RichText, Stroke, vec2};
@@ -15,12 +18,17 @@ use crate::ui::i18n::Text;
 use crate::ui::pointing_hand;
 use crate::ui::style::{alpha, geometry, motion, palette, radius, size, space, stroke, with_alpha};
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) enum FooterMode {
     Static,
-    Streaming { repairing: bool },
+    Streaming {
+        repairing: bool,
+    },
     Pending,
-    Done { unverified: bool },
+    Done {
+        unverified: bool,
+        violations: Option<Vec<String>>,
+    },
 }
 
 pub(super) fn footer(
@@ -48,7 +56,10 @@ pub(super) fn footer(
             None
         }
         FooterMode::Pending => footer_confirm(ui, &rect, text),
-        FooterMode::Done { unverified } => footer_copy(ui, state, &rect, unverified, text),
+        FooterMode::Done {
+            unverified,
+            violations,
+        } => footer_copy(ui, state, &rect, unverified, violations.as_deref(), text),
     };
     footer_watermark(ui, &rect);
     action
@@ -94,11 +105,16 @@ fn footer_confirm(
     action
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "复制钮与批注图标同带同函数排布：带内次序（复制、批注、已复制反馈）是设计定稿，拆函数会把一条带撕成两半"
+)]
 fn footer_copy(
     ui: &mut egui::Ui,
     state: &RenderState,
     rect: &egui::Rect,
     unverified: bool,
+    violations: Option<&[String]>,
     text: &'static Text,
 ) -> Option<OverlayAction> {
     let now = ui.input(|i| i.time);
@@ -113,10 +129,6 @@ fn footer_copy(
             .id_salt("footer_copy"),
     );
     left.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-        if unverified {
-            footer_unverified(ui, text);
-            ui.add_space(space::TIGHT);
-        }
         let side = geometry::overlay::FOOTER_HEIGHT - 2.0 * space::INLINE;
         let (button, response) = ui.allocate_exact_size(vec2(side, side), egui::Sense::click());
         let response = pointing_hand(response);
@@ -141,6 +153,10 @@ fn footer_copy(
             state.copied_at.set(Some(now));
             action = Some(OverlayAction::CopyAnnotation);
         }
+        if unverified {
+            ui.add_space(space::TIGHT);
+            footer_annotation(ui, violations, text);
+        }
         if copied {
             footer_copied_feedback(ui, text);
         }
@@ -158,7 +174,7 @@ fn footer_copied_feedback(ui: &mut egui::Ui, text: &'static Text) {
     ui.ctx().request_repaint_after(motion::FRAME_BEAT);
 }
 
-fn footer_unverified(ui: &mut egui::Ui, text: &'static Text) {
+fn footer_annotation(ui: &mut egui::Ui, rows: Option<&[String]>, text: &'static Text) {
     let side = geometry::overlay::FOOTER_HEIGHT - 2.0 * space::INLINE;
     let (rect, response) = ui.allocate_exact_size(vec2(side, side), egui::Sense::hover());
     response.widget_info(|| {
@@ -168,30 +184,56 @@ fn footer_unverified(ui: &mut egui::Ui, text: &'static Text) {
             text.gloss_popup_output_unverified_label.as_str(),
         )
     });
-    let _ = response.on_hover_text(text.gloss_popup_output_unverified.as_str());
-    paint_alert_icon(ui, rect, palette(ui).warn);
+    let accent = if response.hovered() || response.is_pointer_button_down_on() {
+        ui.visuals().strong_text_color()
+    } else {
+        ui.visuals().weak_text_color()
+    };
+    match rows {
+        Some(rows) => {
+            let title = &text.gloss_popup_output_annotations_title;
+            response.on_hover_ui(|ui| {
+                ui.label(
+                    RichText::new(title.as_str())
+                        .size(size::TAG)
+                        .color(ui.visuals().weak_text_color()),
+                );
+                for row in rows {
+                    ui.label(RichText::new(row).size(size::TAG));
+                }
+            });
+        }
+        None => {
+            let _ = response.on_hover_text(text.gloss_popup_output_unverified.as_str());
+        }
+    }
+    paint_annotation_icon(ui, rect, accent);
 }
 
-fn paint_alert_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
+fn paint_annotation_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     let stroke = Stroke::new(stroke::LINE, color);
     let arm = geometry::action::ICON_ARM;
-    let c = rect.center();
-    let apex = c + egui::vec2(0.0, -arm);
-    let bottom_right = c + egui::vec2(arm * 1.1, arm * 0.8);
-    let bottom_left = c + egui::vec2(-arm * 1.1, arm * 0.8);
-    ui.painter().add(egui::Shape::line(
-        vec![apex, bottom_right, bottom_left, apex],
-        stroke,
-    ));
-    ui.painter().line_segment(
-        [
-            c + egui::vec2(0.0, -arm * 0.45),
-            c + egui::vec2(0.0, arm * 0.15),
-        ],
-        Stroke::new(stroke::THICK, color),
-    );
+    let c = rect.center() + egui::vec2(0.0, -arm * 0.2);
+    let bubble = egui::Rect::from_center_size(c, vec2(2.0 * arm, 1.6 * arm));
     ui.painter()
-        .circle_filled(c + egui::vec2(0.0, arm * 0.55), stroke::THICK * 0.5, color);
+        .rect_stroke(bubble, radius::ICON, stroke, egui::StrokeKind::Inside);
+    let line_y = |offset: f32| bubble.top() + bubble.height() * offset;
+    for offset in [0.38, 0.66] {
+        ui.painter().line_segment(
+            [
+                egui::pos2(bubble.left() + arm * 0.4, line_y(offset)),
+                egui::pos2(bubble.right() - arm * 0.4, line_y(offset)),
+            ],
+            stroke,
+        );
+    }
+    let tail = [
+        egui::pos2(bubble.left() + arm * 0.1, bubble.bottom() - stroke::LINE),
+        egui::pos2(bubble.left() - arm * 0.25, bubble.bottom() + arm * 0.55),
+        egui::pos2(bubble.left() + arm * 0.6, bubble.bottom() - stroke::LINE),
+    ];
+    ui.painter()
+        .add(egui::Shape::convex_polygon(tail.to_vec(), color, stroke));
 }
 
 fn paint_copy_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {

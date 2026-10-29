@@ -203,6 +203,7 @@ mod tests {
             note: note.to_owned(),
             structured,
             degraded: false,
+            lang_violations: Vec::new(),
         };
         check(kind, &target, &input, &outcome)
             .into_iter()
@@ -820,6 +821,7 @@ mod tests {
             note: "The quick brown fox jumps over the lazy dog near the riverbank".into(),
             structured: plain(&[]),
             degraded: false,
+            lang_violations: Vec::new(),
         };
         let violations = check(TaskKind::ImageExplain, &Lang::En, &input, &outcome);
         assert!(

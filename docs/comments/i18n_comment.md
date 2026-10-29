@@ -167,3 +167,14 @@
 - 2026-10-28 新增 `gloss_popup_resize_label`（弹窗缩放热区的无障碍标签，中英各一条），词条数钉子 88→89：钉子锁的是遍历器不提前收工，加词条即抬钉。
 - 2026-10-28 合入 main：设置页词条 `gloss_settings_base_url`、`gloss_settings_api_key` 与上述词条并存，条目总数钉值落 92（`both_locale_files_declare_the_same_keys`）。
 - 2026-10-28 语言降级提示改页脚徽章：`gloss_popup_output_unverified` 文案改徽章悬停提示（zh「此篇未及校正，或有错杂，谨供参考。」/ en "Not fully proofread; may contain mixed languages or punctuation. For reference only."），新增 `gloss_popup_output_unverified_label`（徽章无障碍标签：zh「结果仅供参考」/ en "For reference only"），条目总数钉值 92 → 93。
+
+## 降级批注四词条（降级批注方案 §3.1/§3.3，2026-10-30）
+
+- 新增悬停标题（`gloss_popup_output_annotations_title`）与三个位置词键
+  （注、音标、疏·例句）。标题是界面文案不进核心注册表——修复轮的判罚口吻
+  给模型，标题说用户自己会说的词；位置词与卡面印名同字（注印、疏印），由
+  专门测试锁定，印名改动时连带审查。例句位值带 `{{n}}` 占位符，序号由核心
+  批注函数按聚合组填充；占位符双花括号写法随文案表既有约定，进占位符
+  对账清单。
+- 泛化回落两词条（`gloss_popup_output_unverified(_label)`）不动：无障碍短
+  标签沿用现键现值，两路降级共用一枚图标，短标签保持泛化。

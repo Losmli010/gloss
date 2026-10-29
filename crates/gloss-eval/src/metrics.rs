@@ -117,12 +117,14 @@ impl TaskVerdict {
                 note,
                 structured,
                 degraded: false,
+                lang_violations: Vec::new(),
             },
             Err(_) => TaskOutcome {
                 kind: case.kind,
                 note: String::new(),
                 structured: schema::empty_structured(case.kind),
                 degraded: true,
+                lang_violations: Vec::new(),
             },
         };
         Self {
