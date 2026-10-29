@@ -166,9 +166,10 @@ def fail(finding: Finding, file: TextIO | None = None) -> Finding:
 
 
 def banner(label: str, scope: str, file: TextIO | None = None) -> None:
-    """门禁横幅统一出口：标签加范围打到标准输出，标记门禁段的起点。"""
+    """门禁横幅统一出口：标签加范围打到标准输出，标记门禁段的起点；即时冲
+    刷——标准输出管道下块缓冲，与标准错误合流重定向时横幅会错位到明细之后。"""
     out = file if file is not None else sys.stdout
-    print("== %s (%s) ==" % (label, scope), file=out)
+    print("== %s (%s) ==" % (label, scope), file=out, flush=True)
 
 
 def summary(findings: list[Finding], file: TextIO | None = None) -> None:

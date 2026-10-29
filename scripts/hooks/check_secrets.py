@@ -172,7 +172,8 @@ def pattern_hits(pattern: re.Pattern[str], file_hits: dict[int, str]) -> list[tu
 def allow_reason_findings(rel: str, file_hits: dict[int, str]) -> list[gate_report.Finding]:
     """放行标记缺缘由的条目：标记行只有在命中扫描模式时才构成豁免现场，
     缺同行非空缘由即报告；豁免语义不变，标记行照旧放行。证据行同规脱敏——
-    缺缘由正说明豁免未被声明，值不可信，标记与缘由区不在匹配段内照常可见。"""
+    缺缘由正说明豁免未被声明，值不可信；标记与缘由通常在命中段之外、脱敏
+    后仍可见，标记落在命中段内部时随段脱敏，条目消息仍点名标记。"""
     return [
         gate_report.allow_reason_finding(ALLOW_MARKER, rel, lineno, masked_evidence(line))
         for lineno, line in sorted(file_hits.items())
