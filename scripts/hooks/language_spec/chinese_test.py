@@ -1,4 +1,5 @@
-"""中文区规则的单测：字符集判罚、专名注记与括号配对、白名单与指令段豁免。
+"""中文区规则的单测：字符面派生判罚、数字附随邻接、注记括号单语与配对、
+指令段豁免。
 
 被测入口是规则函数，直接传路径、行号与表述文本，返回带规则标识的违规条目，
 不落进程；断言取条目消息核对判罚片段；用法见注释门禁与提交信息门禁的单测
@@ -28,14 +29,29 @@ def test_bare_word_flagged() -> None:
     assert any("foreign letters" in p for p in messages(problems))
 
 
-def test_nested_brackets_flagged() -> None:
-    problems = chinese.body_problems("t", 1, "主线程（窗口库（winit）循环）。", "header")
-    assert any("must not nest" in p for p in messages(problems))
+def test_nested_brackets_pass_and_stay_single_language() -> None:
+    assert chinese.body_problems("t", 1, "主线程（窗口库（winit）循环）。", "header") == []
+
+
+def test_nested_brackets_judged_per_level() -> None:
+    problems = chinese.body_problems("t", 1, "主线程（窗口库（winit 循环）驱动）。", "header")
+    assert any("mixes" in p for p in messages(problems))
 
 
 def test_unpaired_bracket_flagged() -> None:
     problems = chinese.body_problems("t", 1, "中文头（缺右括号。", "header")
     assert any("unpaired" in p for p in messages(problems))
+
+
+def test_stray_close_bracket_flagged() -> None:
+    problems = chinese.body_problems("t", 1, "中文头）多出单边括号。", "header")
+    assert any("unpaired" in p for p in messages(problems))
+
+
+def test_unclosed_bracket_content_checked_as_body() -> None:
+    problems = chinese.body_problems("t", 1, "版本（v1.2 缺右括号。", "header")
+    assert any("unpaired" in p for p in messages(problems))
+    assert any("foreign letters" in p for p in messages(problems))
 
 
 def test_decimal_point_allowed() -> None:
@@ -46,17 +62,29 @@ def test_halfwidth_punct_flagged() -> None:
     assert chinese.chinese_zone_problems("t", 1, "hello, world", "doc")
 
 
-def test_gloss_outside_allowlist_flagged() -> None:
-    problems = chinese.body_problems("t", 1, "登录页（login）校验。", "header")
-    assert any("outside the allowlist" in p for p in messages(problems))
+def test_gloss_pure_foreign_term_allowed() -> None:
+    assert chinese.body_problems("t", 1, "登录页（login）校验。", "header") == []
 
 
-def test_gloss_mixed_chinese_flagged() -> None:
+def test_gloss_mixed_runs_flagged() -> None:
     problems = chinese.body_problems("t", 1, "中文头（用 wgpu 渲染）说明。", "header")
-    assert any("mixes Chinese" in p for p in messages(problems))
+    assert any("mixes" in p for p in messages(problems))
 
 
-def test_pure_chinese_parenthetical_checked_as_body() -> None:
+def test_gloss_single_letter_run_passes() -> None:
+    assert chinese.body_problems("t", 1, "缓存（L 值）语义。", "header") == []
+
+
+def test_gloss_kana_counts_as_foreign() -> None:
+    problems = chinese.body_problems("t", 1, "渲染（テスト 混排）失败。", "header")
+    assert any("mixes" in p for p in messages(problems))
+
+
+def test_gloss_inner_content_skips_body_whitelist() -> None:
+    assert chinese.body_problems("t", 1, "阈值（好@例子）达标。", "header") == []
+
+
+def test_pure_chinese_parenthetical_allowed() -> None:
     assert chinese.body_problems("t", 1, "吞吐（每秒笔数）达标。", "header") == []
 
 
@@ -66,6 +94,39 @@ def test_directive_segment_exempt() -> None:
 
 def test_chinese_punct_allowed() -> None:
     assert chinese.chinese_zone_problems("t", 1, "快、清、小、稳——“克制”。", "doc") == []
+
+
+# ---- 数字附随符号：三族邻接放行 ----
+
+
+def test_attached_measures_and_currency_pass_by_digits() -> None:
+    line = "温度 25℃，夹角 45°，比例 50‰，花费 €5 或 ￥100。"
+    assert chinese.chinese_zone_problems("t", 1, line, "text") == []
+
+
+def test_attached_between_digits_pass() -> None:
+    assert chinese.chinese_zone_problems("t", 1, "区间 1,000 至 3-4 天、2.5 倍。", "text") == []
+
+
+def test_attached_symbols_flag_without_digit_neighbor() -> None:
+    line = "占比 50 ％偏高，花费 € 5，货币 ￥ 写法。"
+    assert chinese.chinese_zone_problems("t", 1, line, "text")
+
+
+def test_fullwidth_equals_percent_tilde_out_of_whitelist() -> None:
+    problems = chinese.chinese_zone_problems(
+        "t", 1, "降级＝有痕迹，范围 3～5 天，币种 ￥。", "text"
+    )
+    assert problems
+
+
+def test_derived_whitelist_carries_all_three_faces() -> None:
+    # 场景标点、破折号省略号家族与中性数学面各取其一，钉住并集派生；
+    # 全角等号、百分号与浪纹线不在任何数据面
+    for symbol in "、…≤":
+        assert symbol in chinese.WHITELIST
+    for symbol in "＝％～":
+        assert symbol not in chinese.WHITELIST
 
 
 # ---- 可运行命令段豁免 ----
@@ -99,17 +160,24 @@ def test_english_sentence_with_period_flagged() -> None:
     assert any("foreign letters" in m for m in messages(problems))
 
 
-def test_math_symbols_allowed_in_chinese_body() -> None:
-    assert (
-        chinese.body_problems(
-            "t", 1, "误差 ≤ 0.5，温度 25℃，夹角 45°，比例系数 α 与角频率 ω。", "text"
-        )
-        == []
-    )
-
-
 def test_math_operators_allowed_in_chinese_body() -> None:
-    assert chinese.body_problems("t", 1, "满足 3 + 4 = 7 且 5 ≠ 6，收敛于 ∞。", "text") == []
+    assert chinese.body_problems("t", 1, "满足 3 + 4 = 7 且 5 ≠ 6。", "text") == []
+
+
+def test_greek_and_extended_math_flagged() -> None:
+    problems = chinese.chinese_zone_problems("t", 1, "收敛于 ∞，夹角 θ。", "text")
+    assert problems
+
+
+def test_extended_han_ranges_pass_in_body() -> None:
+    line = "扩展甲区（㐀）与兼容区（豈）随三段口径放行。"
+    assert chinese.body_problems("t", 1, line, "text") == []
+
+
+def test_extended_han_counts_as_cjk_wise() -> None:
+    # 区段口径统一后，扩展区与兼容区汉字进宽度启发面：英文区与行内代码不再漏判
+    assert chinese.CJKWISE.search("㐀")
+    assert chinese.CJKWISE.search("豈")
 
 
 def test_latin_variable_still_flagged_without_markup() -> None:

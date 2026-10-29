@@ -78,7 +78,7 @@ bench-save name:
 bench-check name="last":
     cargo bench --bench core -- --baseline {{name}}
 
-# 汇总最近一次基准运行为标记语言（Markdown）表格（均值、95％区间、对照变化），标签仅用于展示
+# 汇总最近一次基准运行为标记语言（Markdown）表格（均值、95%区间、对照变化），标签仅用于展示
 bench-summary baseline="last run":
     {{py}} scripts/perf/bench-summary.py "{{baseline}}"
 

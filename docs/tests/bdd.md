@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 714 | `just test` |
+| 单元测试 | 715 | `just test` |
 
 ## 人工测试
 
@@ -650,6 +650,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | foreign_runs_flag_bare_latin_and_kana_but_parenthesized_terms_pass | 外文段抓裸用放括注 | 给定中文目标与裸用外文词、`API`、`iPhone`、日语残段的注，当判定，则逐条 `ForeignRun`；括号内的外文术语（容器内容）不判 | 2026-10-28 |
+| han_ranges_admit_extension_and_compat_forms_in_chinese | 汉字区段三段口径收扩展与兼容形 | 给定中文目标含扩展甲区与兼容区汉字的注，当判定，则无 `ForeignRun` 与 `ContainerMixing`（区段住数据源三段，两侧同判，`R1`） | 2026-10-30 |
 | single_latin_letter_passes_as_variable_and_n_dot_flags | 单字母变量豁免缩写判罚 | 给定“变量 `x` 与 `y`”式单字母，当判定，则放行；词性缩写 `n.`（单字母紧跟句点）判 `ForeignRun` | 2026-10-28 |
 | punctuation_set_catches_wrong_script_and_corner_brackets | 标点集抓串味与角引号 | 给定中文正文里的半角逗号与直角引号对，当判定，则逐条 `PunctuationMismatch`（直角引号中文场景全禁，`D3`）；英文正文合法标点全放行 | 2026-10-30 |
 | slash_separator_passes_in_chinese_prose | 分隔号入中文集 | 给定中文正文含分隔号的注，当判定，则无 `PunctuationMismatch`（`D1`） | 2026-10-30 |
