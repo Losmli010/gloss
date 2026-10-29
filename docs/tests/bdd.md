@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 711 | `just test` |
+| 单元测试 | 714 | `just test` |
 
 ## 人工测试
 
@@ -651,7 +651,10 @@
 | --- | --- | --- | --- |
 | foreign_runs_flag_bare_latin_and_kana_but_parenthesized_terms_pass | 外文段抓裸用放括注 | 给定中文目标与裸用外文词、`API`、`iPhone`、日语残段的注，当判定，则逐条 `ForeignRun`；括号内的外文术语（容器内容）不判 | 2026-10-28 |
 | single_latin_letter_passes_as_variable_and_n_dot_flags | 单字母变量豁免缩写判罚 | 给定“变量 `x` 与 `y`”式单字母，当判定，则放行；词性缩写 `n.`（单字母紧跟句点）判 `ForeignRun` | 2026-10-28 |
-| punctuation_set_catches_wrong_script_and_passes_cjk_brackets | 标点集抓串味放角引号 | 给定中文正文里的半角逗号与角引号对，当判定，则前者 `PunctuationMismatch`、后者放行；英文正文合法标点全放行 | 2026-10-28 |
+| punctuation_set_catches_wrong_script_and_corner_brackets | 标点集抓串味与角引号 | 给定中文正文里的半角逗号与直角引号对，当判定，则逐条 `PunctuationMismatch`（直角引号中文场景全禁，`D3`）；英文正文合法标点全放行 | 2026-10-30 |
+| slash_separator_passes_in_chinese_prose | 分隔号入中文集 | 给定中文正文含分隔号的注，当判定，则无 `PunctuationMismatch`（`D1`） | 2026-10-30 |
+| math_symbols_pass_in_prose_without_delimiters | 数学记号直排放行 | 给定中文与英文正文含裸数学记号的注，当判定，则无 `PunctuationMismatch`（中性面并入允许表，`R4`） | 2026-10-30 |
+| attached_measures_pass_after_digits_only | 计量族随数字放行 | 给定前邻数字的计量符号注与孤立计量符号注，当判定，则前者放行、后者 `PunctuationMismatch`（计量族归附随面，`R3`） | 2026-10-30 |
 | dash_and_ellipsis_families_stay_style_items_not_violations | 破折号省略号与数字附随不判 | 给定破折号、省略号、双连字符、小数、区间、百分与货币金额各形态的注，当判定，则全部不判标点（风格项留给评测） | 2026-10-28 |
 | traditional_chars_flag_outside_and_pass_inside_quotes | 繁体正文判罚引文豁免 | 给定正文繁体字形与引文容器内的古籍繁体，当判定，则前者 `TraditionalChar`、后者放行 | 2026-10-28 |
 | pangu_space_flags_adjacency_only_for_chinese_target | 盘古之白仅中文目标判定 | 给定中文目标“中文`word`”直连与标点隔开、日语目标直连三种注，当判定，则直连判 `MissingSpace`、标点隔开与日语目标放行 | 2026-10-28 |
@@ -675,8 +678,8 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| punctuation_faces_match_the_migrated_tables | 允许表与迁出前常量对版 | 给定嵌入数据源装入的允许表（中西允许、日韩并集、弯引号定界），当与现表逐符号誊录的 `golden` 双向比对，则集合相等（数学面空缺时允许表即标点面，等价搬迁无损） | 2026-10-30 |
-| attached_and_family_faces_match_the_migrated_tables | 附随面与家族面同 `golden` 对版 | 给定装入的附随三向面与破折号省略号家族面，当与现表 `golden` 比对，则集合相等 | 2026-10-30 |
+| punctuation_faces_match_the_expected_tables | 允许表与登记基准对版 | 给定嵌入数据源装入的允许表（中西允许、日韩并集、弯引号定界），当与登记基准（场景标点面并中性面）双向比对，则集合相等 | 2026-10-30 |
+| attached_and_family_faces_match_the_expected_tables | 附随面与家族面同基准对版 | 给定装入的附随三向面与破折号省略号家族面，当与现表 `golden` 比对，则集合相等 | 2026-10-30 |
 | emoji_faces_match_the_migrated_tables | 表情事实同 `golden` 对版 | 给定装入的表情区段、裸表情与变体选择符，当与判定器原常量 `golden` 比对，则区段逐对相等、字符面集合相等 | 2026-10-30 |
 | policy_brackets_and_ranges_match_the_migrated_tables | 策略开关括号对与区段同 `golden` 对版 | 给定装入的盘古之白与简繁开关、括号对与六类文字系统区段，当与现表 `golden` 比对，则开关布尔、括号对序与区段逐对相等 | 2026-10-30 |
 | simplified_pairs_match_the_migrated_table | 简繁对串整段对版 | 给定数据文件嵌入的对串（尾随换行裁去），当与迁出前常量整串比对，则逐字相等 | 2026-10-30 |

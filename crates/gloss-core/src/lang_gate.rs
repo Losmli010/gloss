@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn punctuation_set_catches_wrong_script_and_passes_cjk_brackets() {
+    fn punctuation_set_catches_wrong_script_and_corner_brackets() {
         let violations = categories(
             TaskKind::TranslateWord,
             Lang::Zh,
@@ -322,11 +322,11 @@ mod tests {
             TaskKind::TranslateWord,
             Lang::Zh,
             "gloss",
-            "「」在中文集内是合法标点。",
+            "「」在中文正文里全禁。",
             word_card(None, &[]),
         );
         assert!(
-            !has(&violations, LangCategory::PunctuationMismatch),
+            has(&violations, LangCategory::PunctuationMismatch),
             "{violations:?}"
         );
 
@@ -339,6 +339,75 @@ mod tests {
         );
         assert!(
             !has(&violations, LangCategory::PunctuationMismatch),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn slash_separator_passes_in_chinese_prose() {
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "横／竖两种写法都放行。",
+            word_card(None, &[]),
+        );
+        assert!(
+            !has(&violations, LangCategory::PunctuationMismatch),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn math_symbols_pass_in_prose_without_delimiters() {
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "三加四得 3+4=7，x≤10 且 y≠0，记号直排。",
+            word_card(None, &[]),
+        );
+        assert!(
+            !has(&violations, LangCategory::PunctuationMismatch),
+            "{violations:?}"
+        );
+
+        let violations = categories(
+            TaskKind::TranslateSentence,
+            Lang::En,
+            "hello",
+            "The sum is 3+4=7 and x<=10.",
+            plain(&[]),
+        );
+        assert!(
+            !has(&violations, LangCategory::PunctuationMismatch),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn attached_measures_pass_after_digits_only() {
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "气温 25℃、水温 100℃、室温 72℉，角度 90°，一分 5′，三十秒 30″。",
+            word_card(None, &[]),
+        );
+        assert!(
+            !has(&violations, LangCategory::PunctuationMismatch),
+            "{violations:?}"
+        );
+
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "孤立的℃没有数字可附。",
+            word_card(None, &[]),
+        );
+        assert!(
+            has(&violations, LangCategory::PunctuationMismatch),
             "{violations:?}"
         );
     }

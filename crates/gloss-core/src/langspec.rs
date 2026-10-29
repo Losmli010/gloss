@@ -20,8 +20,8 @@ const SOURCE: &str = include_str!("../langspec/zh_en.toml");
 
 const SIMPLIFIED_SOURCE: &str = include_str!("../langspec/simplified_pairs.txt");
 
-const JA_EXTRA_PUNCT: &[char] = &['ー', '・', '～']; // i18n:allow 日韩残余标点补符
-const KO_EXTRA_PUNCT: &[char] = &[]; // i18n:allow 日韩残余标点补符
+const JA_EXTRA_PUNCT: &[char] = &['ー', '・', '～', '「', '」', '『', '』']; // i18n:allow 日韩残余标点补符
+const KO_EXTRA_PUNCT: &[char] = &['「', '」', '『', '』']; // i18n:allow 日韩残余标点补符
 
 pub(crate) struct Spec {
     pub(crate) zh_allow: Vec<char>,
@@ -286,11 +286,12 @@ impl Spec {
 mod tests {
     use super::*;
 
-    const GOLDEN_ZH_PUNCT: &str = "，。、；：？！“”‘’《》（）「」『』·";
+    const GOLDEN_ZH_PUNCT: &str = "，。、；：？！“”‘’《》（）·／";
     const GOLDEN_EN_PUNCT: &str = ",.:;!?\"'()-";
-    const GOLDEN_JA_PUNCT: &str = "，。、；：？！“”‘’《》（）「」『』·ー・～,.:;!?\"'()-";
-    const GOLDEN_KO_PUNCT: &str = "，。、；：？！“”‘’《》（）「」『』·,.:;!?\"'()-";
-    const GOLDEN_ATTACHED_AFTER_DIGIT: &str = "%‰°";
+    const GOLDEN_MATH: &str = "=+<>^±×÷≤≥≠≈→";
+    const GOLDEN_JA_PUNCT: &str = "，。、；：？！“”‘’《》（）「」『』·／ー・～,.:;!?\"'()-";
+    const GOLDEN_KO_PUNCT: &str = "，。、；：？！“”‘’《》（）·／「」『』,.:;!?\"'()-";
+    const GOLDEN_ATTACHED_AFTER_DIGIT: &str = "%‰℃℉°′″";
     const GOLDEN_ATTACHED_BEFORE_DIGIT: &str = "€£¥￥₩";
     const GOLDEN_ATTACHED_BETWEEN_DIGITS: &str = ".,-";
     const GOLDEN_DASH_ELLIPSIS: &str = "—–‥…";
@@ -336,17 +337,17 @@ mod tests {
     }
 
     #[test]
-    fn punctuation_faces_match_the_migrated_tables() {
+    fn punctuation_faces_match_the_expected_tables() {
         let spec = spec();
-        assert_face(&spec.zh_allow, GOLDEN_ZH_PUNCT);
-        assert_face(&spec.en_allow, GOLDEN_EN_PUNCT);
+        assert_face(&spec.zh_allow, &format!("{GOLDEN_ZH_PUNCT}{GOLDEN_MATH}"));
+        assert_face(&spec.en_allow, &format!("{GOLDEN_EN_PUNCT}{GOLDEN_MATH}"));
         assert_face(&spec.ja_punct, GOLDEN_JA_PUNCT);
         assert_face(&spec.ko_punct, GOLDEN_KO_PUNCT);
         assert_face(&spec.curly_quotes, GOLDEN_CURLY_QUOTES);
     }
 
     #[test]
-    fn attached_and_family_faces_match_the_migrated_tables() {
+    fn attached_and_family_faces_match_the_expected_tables() {
         let spec = spec();
         assert_face(&spec.attached_after_digit, GOLDEN_ATTACHED_AFTER_DIGIT);
         assert_face(&spec.attached_before_digit, GOLDEN_ATTACHED_BEFORE_DIGIT);
