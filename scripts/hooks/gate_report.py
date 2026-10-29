@@ -103,8 +103,6 @@ REGISTERED_RULES = frozenset(
         "COMMENT-JUST-ONE-LINE",
         "PROSE-FOREIGN",
         "PROSE-GLOSS-MIXED",
-        "PROSE-GLOSS-UNKNOWN",
-        "PROSE-GLOSS-NESTED",
         "PROSE-GLOSS-UNPAIRED",
         "PROSE-CODEREF",
         "PROSE-SECTION-REF",

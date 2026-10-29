@@ -281,6 +281,25 @@ mod tests {
     }
 
     #[test]
+    fn han_ranges_admit_extension_and_compat_forms_in_chinese() {
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "扩展甲区（㐀）与兼容区（豈）随三段口径收录。",
+            word_card(None, &[]),
+        );
+        assert!(
+            !has(&violations, LangCategory::ForeignRun),
+            "{violations:?}"
+        );
+        assert!(
+            !has(&violations, LangCategory::ContainerMixing),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
     fn single_latin_letter_passes_as_variable_and_n_dot_flags() {
         let violations = categories(
             TaskKind::TranslateSentence,

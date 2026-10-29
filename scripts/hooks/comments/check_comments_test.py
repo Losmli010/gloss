@@ -81,12 +81,13 @@ def test_gloss_with_spaces_allowed(tmp_path: Path) -> None:
 
 def test_gloss_mixed_with_chinese_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "//! 中文头（用 wgpu 渲染）说明。\n\nfn main() {}\n")
-    assert any("annotation bracket mixes Chinese" in p for p in problems)
+    assert any("annotation bracket mixes foreign and Chinese runs" in p for p in problems)
 
 
-def test_gloss_unknown_word_flagged(tmp_path: Path) -> None:
-    problems = run_gate(tmp_path, "//! 中文头借用图形库（wgpu-xxx）渲染。\n\nfn main() {}\n")
-    assert any("outside the allowlist" in p for p in problems)
+def test_gloss_unregistered_term_allowed(tmp_path: Path) -> None:
+    # 专名白名单删除：括号只判单语，未登记的纯外文术语放行
+    content = "//! 中文头借用图形库（wgpu-xxx）渲染。\n\nfn main() {}\n"
+    assert run_gate(tmp_path, content) == []
 
 
 def test_unbalanced_bracket_flagged(tmp_path: Path) -> None:
@@ -94,9 +95,10 @@ def test_unbalanced_bracket_flagged(tmp_path: Path) -> None:
     assert any("brackets are unpaired" in p for p in problems)
 
 
-def test_nested_bracket_flagged(tmp_path: Path) -> None:
-    problems = run_gate(tmp_path, "//! 中文头（类型（范围）：主题）说明。\n\nfn main() {}\n")
-    assert any("annotation brackets must not nest" in p for p in problems)
+def test_nested_bracket_allowed(tmp_path: Path) -> None:
+    # 嵌套禁令删除：括号许嵌套，各层各自单判单语
+    content = "//! 中文头（类型（范围）：主题）说明。\n\nfn main() {}\n"
+    assert run_gate(tmp_path, content) == []
 
 
 def test_halfwidth_punctuation_flagged(tmp_path: Path) -> None:
@@ -278,7 +280,7 @@ def test_nonrust_pure_chinese_gloss_allowed(tmp_path: Path) -> None:
 
 def test_nonrust_gloss_mixed_with_chinese_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "# 中文注释（需 wgpu 渲染）说明。\n", rel="conf.toml")
-    assert any("annotation bracket mixes Chinese" in p for p in problems)
+    assert any("annotation bracket mixes foreign and Chinese runs" in p for p in problems)
 
 
 def test_nonrust_code_reference_flagged(tmp_path: Path) -> None:
