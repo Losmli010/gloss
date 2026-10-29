@@ -98,7 +98,7 @@ mod tests {
 
     fn version_a() -> Config {
         Config {
-            target_lang: Lang::Ja,
+            target_lang: Lang::En,
             cache_ttl_secs: 111,
             ..Default::default()
         }
@@ -106,7 +106,7 @@ mod tests {
 
     fn version_b() -> Config {
         Config {
-            target_lang: Lang::En,
+            target_lang: Lang::Zh,
             cache_ttl_secs: 222,
             ..Default::default()
         }
@@ -261,8 +261,8 @@ mod tests {
     }
 
     fn is_whole_version(config: &Config) -> bool {
-        let is_a = config.target_lang == Lang::Ja && config.cache_ttl_secs == 111;
-        let is_b = config.target_lang == Lang::En && config.cache_ttl_secs == 222;
+        let is_a = config.target_lang == Lang::En && config.cache_ttl_secs == 111;
+        let is_b = config.target_lang == Lang::Zh && config.cache_ttl_secs == 222;
         is_a || is_b
     }
 

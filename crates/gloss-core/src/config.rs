@@ -1,5 +1,9 @@
 //! 配置模型：配置结构与出厂默认。
 //!
+//! 目标语言的退役值（历史版本写入的日语、韩语、法语与自定义名）在反序
+//! 列化时有痕降级到缺省目标语言——沿用部分解析先例，单字段回落不破整份
+//! 配置。
+//!
 //! 密钥红线：配置里只存钥匙串条目标识，密钥本体永不进
 //! 配置——运行时整份快照可被任意线程读取，不能携带凭据。
 
@@ -7,6 +11,7 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
+use crate::log::{thread, warn};
 use crate::model::{Lang, Locale};
 
 pub const DEFAULT_MODEL: &str = "deepseek-flash";
@@ -127,11 +132,26 @@ pub struct Config {
     pub base_url: String,
     pub provider_keys: Vec<ProviderKey>,
     pub model: String,
+    #[serde(deserialize_with = "deserialize_target_lang")]
     pub target_lang: Lang,
     pub cache_ttl_secs: u64,
     pub theme: Theme,
     pub language: Language,
     pub watch_clipboard_images: bool,
+}
+
+fn deserialize_target_lang<'de, D>(deserializer: D) -> Result<Lang, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Lang::deserialize(deserializer).or_else(|_| {
+        warn!(
+            thread = thread::UI,
+            "config target_lang names a retired or unsupported language, falling back \
+             to the default target language"
+        );
+        Ok(Lang::default())
+    })
 }
 
 impl Default for Config {
@@ -276,7 +296,7 @@ mod tests {
                 keychain_id: "gloss/deepseek".into(),
             }],
             model: "custom-model".into(),
-            target_lang: Lang::Other("ko".into()),
+            target_lang: Lang::En,
             cache_ttl_secs: 120,
             theme: Theme::Dark,
             language: Language::En,
@@ -285,6 +305,50 @@ mod tests {
         let json = serde_json::to_string(&config).expect("config should serialize");
         let back: Config = serde_json::from_str(&json).expect("config should deserialize");
         assert_eq!(back, config);
+    }
+
+    #[test]
+    fn retired_target_lang_values_degrade_to_the_default_with_a_trace() {
+        let _serial = crate::log::test_support::lock_dispatchers();
+        for value in [
+            r#""Ja""#,
+            r#""Ko""#,
+            r#""Fr""#,
+            r#"{ Other = "ko" }"#,
+            r#""es""#,
+            "7",
+        ] {
+            let logs = crate::log::capture(|| {
+                let config: Config = toml::from_str(&format!("target_lang = {value}"))
+                    .expect("a retired target language must degrade, not fail the load");
+                assert_eq!(config.target_lang, Lang::Zh, "{value}");
+                assert_eq!(
+                    config.cache_ttl_secs,
+                    60 * 60,
+                    "{value}: the other fields keep their defaults"
+                );
+            });
+            assert!(
+                logs.contains("falling back"),
+                "{value}: the degradation must leave a warn trace: {logs}"
+            );
+        }
+    }
+
+    #[test]
+    fn supported_target_lang_values_still_parse() {
+        assert_eq!(
+            toml::from_str::<Config>("target_lang = \"Zh\"")
+                .expect("zh parses")
+                .target_lang,
+            Lang::Zh
+        );
+        assert_eq!(
+            toml::from_str::<Config>("target_lang = \"En\"")
+                .expect("en parses")
+                .target_lang,
+            Lang::En
+        );
     }
 
     #[test]

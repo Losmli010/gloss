@@ -1,9 +1,13 @@
-//! 措辞注册表：修复轮三段与分类类别段的措辞数据。注册表按提示词语言
-//! 各一份、配置格式（TOML）、编译期嵌入。分区与键空间：修复骨架一区，
-//! 收三段共用的头、行、尾、截断注与回指句；格式违约一区，按违约或细节
-//! 标识收措辞行（位置加动作）；语言违约一区，按规则标识收动作；规则名
-//! 一区，按规则标识收界面语短名（降级批注行与语言违约区同册——模型修
-//! 什么、用户看什么，同键可对）；分类定义一区，按类别标识收定义。
+//! 措辞注册表：修复轮三段、分类类别段、目标语言名与组装片段的措杂数
+//! 据。注册表按提示词语言各一份、配置格式（TOML）、编译期嵌入。分区与
+//! 键空间：修复骨架一区，收三段共用的头、行、尾、截断注与回指句；格式
+//! 违约一区，按违约或细节标识收措辞行（位置加动作）；语言违约一区，按
+//! 规则标识收动作；聚合一区，收例句序号连接符（修复轮行清单与降级批注
+//! 行共用）；例句位置一区，收单复数两条模板（占位符（{{joined}}））；规则
+//! 名一区，按规则标识收界面语短名（降级批注行与语言违约区同册——模型
+//! 修什么、用户看什么，同键可对）；分类定义一区，按类别标识收定义，分
+//! 类段头一区收类别节的标题词与分隔符；目标语言名一区收两变体的显示
+//! 名。键与变体的双向集合相等由完整性测试锁定。
 //!
 //! 嵌入数据合法性由完整性测试前置锁定（解析成功、键与枚举变体双向
 //! 集合相等）；运行时缺键是有痕降级——装载失败整表缺席、查键未中
@@ -25,6 +29,7 @@ pub(super) struct Registry {
     pub(super) repair: RepairSection,
     pub(super) classify: ClassifySection,
     pub(super) violation: ViolationSection,
+    pub(super) target_lang: TargetLangSection,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -32,6 +37,8 @@ pub(super) struct RepairSection {
     pub(super) frame: FrameWording,
     pub(super) format: BTreeMap<String, RowWording>,
     pub(super) lang: BTreeMap<String, ActionWording>,
+    pub(super) aggregate: AggregateWording,
+    pub(super) example_position: ExamplePositionWording,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -55,8 +62,26 @@ pub(super) struct ActionWording {
 }
 
 #[derive(Debug, serde::Deserialize)]
+pub(super) struct AggregateWording {
+    pub(super) joiner: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct ExamplePositionWording {
+    pub(super) single: String,
+    pub(super) plural: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
 pub(super) struct ClassifySection {
     pub(super) category: BTreeMap<String, DefinitionWording>,
+    pub(super) section: SectionWording,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct SectionWording {
+    pub(super) header: String,
+    pub(super) separator: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -72,6 +97,12 @@ pub(super) struct ViolationSection {
 #[derive(Debug, serde::Deserialize)]
 pub(super) struct NameWording {
     pub(super) name: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct TargetLangSection {
+    pub(super) zh: String,
+    pub(super) en: String,
 }
 
 fn source(locale: Locale) -> &'static str {
@@ -174,6 +205,22 @@ pub(super) fn violation_name(locale: Locale, rule_id: &str) -> Option<&'static s
     }
 }
 
+pub(super) fn aggregate_joiner(locale: Locale) -> Option<&'static str> {
+    registry(locale).map(|registry| registry.repair.aggregate.joiner.as_str())
+}
+
+pub(super) fn example_position(locale: Locale) -> Option<&'static ExamplePositionWording> {
+    registry(locale).map(|registry| &registry.repair.example_position)
+}
+
+pub(super) fn classify_section(locale: Locale) -> Option<&'static SectionWording> {
+    registry(locale).map(|registry| &registry.classify.section)
+}
+
+pub(super) fn target_lang(locale: Locale) -> Option<&'static TargetLangSection> {
+    registry(locale).map(|registry| &registry.target_lang)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,7 +254,8 @@ mod tests {
     #[test]
     fn registry_frame_wording_is_present_for_both_locales() {
         for locale in [Locale::Zh, Locale::En] {
-            let frame = &registry_of(locale).repair.frame;
+            let registry = registry_of(locale);
+            let frame = &registry.repair.frame;
             for field in [
                 &frame.header,
                 &frame.row,
@@ -217,7 +265,39 @@ mod tests {
             ] {
                 assert!(!field.trim().is_empty(), "{locale:?}: empty frame wording");
             }
+            assert!(
+                !registry.repair.aggregate.joiner.trim().is_empty(),
+                "{locale:?}: empty aggregate joiner"
+            );
+            for position in [
+                &registry.repair.example_position.single,
+                &registry.repair.example_position.plural,
+            ] {
+                assert!(
+                    position.contains("{{joined}}"),
+                    "{locale:?}: the example position must name the joined placeholder: \
+                     {position}"
+                );
+                assert!(
+                    render_check(position),
+                    "{locale:?}: the example position renders with the joined placeholder"
+                );
+            }
+            let section = &registry.classify.section;
+            assert!(
+                !section.header.trim().is_empty() && !section.separator.is_empty(),
+                "{locale:?}: empty classify section wording"
+            );
+            assert!(
+                !registry.target_lang.zh.trim().is_empty()
+                    && !registry.target_lang.en.trim().is_empty(),
+                "{locale:?}: empty target language name"
+            );
         }
+    }
+
+    fn render_check(template: &str) -> bool {
+        crate::prompt::render_template(template, &[("joined", "1")]).contains('1')
     }
 
     #[test]

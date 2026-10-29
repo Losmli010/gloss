@@ -390,7 +390,7 @@ mod tests {
                 text: "fn main() {}".into(),
             },
             TaskOptions {
-                target_lang: Some(Lang::Ja),
+                target_lang: Some(Lang::En),
                 model: "mock-model".into(),
                 prompt_locale: None,
             },

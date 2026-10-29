@@ -240,7 +240,7 @@ mod tests {
         let zh = Lang::Zh;
         let violations = categories(
             TaskKind::TranslateWord,
-            zh.clone(),
+            zh,
             "serendipity",
             "小写外文词 english 混进来了。",
             word_card(None, &[]),
@@ -250,7 +250,7 @@ mod tests {
         for bare in ["要用 API 的地方", "一部 iPhone 而已", "两百 km 的距离"] {
             let violations = categories(
                 TaskKind::TranslateWord,
-                zh.clone(),
+                zh,
                 "gloss",
                 bare,
                 word_card(None, &[]),
@@ -260,7 +260,7 @@ mod tests {
 
         let violations = categories(
             TaskKind::TranslateWord,
-            zh.clone(),
+            zh,
             "gloss",
             "日语残段テスト混进来了。",
             word_card(None, &[]),
@@ -269,7 +269,7 @@ mod tests {
 
         let violations = categories(
             TaskKind::TranslateWord,
-            zh.clone(),
+            zh,
             "protected",
             "受保护的（protected）的释义。",
             word_card(None, &[]),
@@ -500,9 +500,9 @@ mod tests {
 
         let violations = categories(
             TaskKind::TranslateWord,
-            Lang::Ja,
+            Lang::En,
             "gloss",
-            " Japanese 排版不用中欧空格，但拉丁成段仍判。",
+            "英文排版不用中欧空格，相邻拉丁成段放行。",
             word_card(None, &[]),
         );
         assert!(
@@ -880,22 +880,6 @@ mod tests {
         assert!(
             !has(&violations, LangCategory::PhoneticCharset),
             "non-word kinds have no phonetic field"
-        );
-    }
-
-    #[test]
-    fn other_target_skips_script_and_mixing_checks() {
-        let violations = categories(
-            TaskKind::TranslateWord,
-            Lang::Other("西班牙语".into()),
-            "hola",
-            "Hello 世界 mixed run with hola.",
-            word_card(None, &[]),
-        );
-        assert!(
-            !has(&violations, LangCategory::ForeignRun)
-                && !has(&violations, LangCategory::ContainerMixing),
-            "an unknown target language skips script judgments: {violations:?}"
         );
     }
 

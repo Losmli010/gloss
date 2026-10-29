@@ -74,6 +74,13 @@ action = "该段未翻译，重译为目标语言"
 [repair.lang.PhoneticCharset]
 action = "音标改用拉丁字母与国际音标符号"
 
+[repair.aggregate]
+joiner = "、"
+
+[repair.example_position]
+single = "第 {{joined}} 条"
+plural = "第 {{joined}} 条"
+
 [violation.name.ForeignRun]
 name = "夹外文"
 
@@ -107,6 +114,10 @@ name = "整段未译"
 [violation.name.PhoneticCharset]
 name = "音标出界"
 
+[classify.section]
+header = "类别"
+separator = "："
+
 [classify.category.TranslateWord]
 definition = "翻译单个词汇项，或以词汇项为主的列表。词汇项包括字、词、固定搭配、习语、谚语、专名、术语。习语、谚语、固定表达即使含主谓结构，也按词汇项整体处理，本专门规则优先于“可独立成句”的一般判断。"
 
@@ -118,3 +129,7 @@ definition = "理解、解释、分析、调试代码。须满足：输入含代
 
 [classify.category.Fallback]
 definition = "无翻译、代码解释等明确任务意图的输入，如闲聊、写作、总结、通识问答等。"
+
+[target_lang]
+zh = "中文"
+en = "英语"

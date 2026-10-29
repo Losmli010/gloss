@@ -645,7 +645,7 @@ mod tests {
 
         config
             .save(Config {
-                target_lang: Lang::Ja,
+                target_lang: Lang::En,
                 model: "deepseek-reasoner".into(),
                 ..Default::default()
             })
@@ -657,7 +657,7 @@ mod tests {
         let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
             panic!("expected a RunTask command, got another variant")
         };
-        assert_eq!(options.target_lang, Some(Lang::Ja));
+        assert_eq!(options.target_lang, Some(Lang::En));
         assert_eq!(
             options.model.as_ref(),
             "deepseek-reasoner",
@@ -672,7 +672,7 @@ mod tests {
         trigger_selection(&mut app, &pe_tx);
         config
             .save(Config {
-                target_lang: Lang::Ja,
+                target_lang: Lang::En,
                 ..Default::default()
             })
             .expect("save should succeed");
@@ -694,7 +694,7 @@ mod tests {
         let Command::RunTask { options, .. } = cmd_rx.try_recv().unwrap().payload else {
             panic!("expected a RunTask command, got another variant")
         };
-        assert_eq!(options.target_lang, Some(Lang::Ja));
+        assert_eq!(options.target_lang, Some(Lang::En));
     }
 
     #[test]

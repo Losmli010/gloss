@@ -129,11 +129,15 @@ mod tests {
     fn different_options_get_different_keys() {
         let base = cache_key(&text_input("hello"), &TaskOptions::default());
 
-        let ja = TaskOptions {
-            target_lang: Some(Lang::Ja),
+        let english = TaskOptions {
+            target_lang: Some(Lang::En),
             ..TaskOptions::default()
         };
-        assert_ne!(base, cache_key(&text_input("hello"), &ja), "target lang");
+        assert_ne!(
+            base,
+            cache_key(&text_input("hello"), &english),
+            "target lang"
+        );
 
         let english = TaskOptions {
             prompt_locale: Some(Locale::En),

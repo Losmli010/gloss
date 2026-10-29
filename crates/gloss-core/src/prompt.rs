@@ -192,11 +192,13 @@ impl PromptRegistry {
 
     pub fn render_classify(&self, locale: Locale, text: &str) -> Vec<ChatMessage> {
         let templates = locale.templates();
-        let system = format!(
-            "{}\n\n{}",
-            render_template(templates.classify, &[]),
-            classify_category_section(locale),
-        );
+        let skeleton = render_template(templates.classify, &[]);
+        let section = classify_category_section(locale);
+        let system = if section.is_empty() {
+            skeleton
+        } else {
+            format!("{skeleton}\n\n{section}")
+        };
         vec![ChatMessage::system(system), ChatMessage::user(text)]
     }
 
@@ -232,17 +234,17 @@ impl PromptRegistry {
 }
 
 fn classify_category_section(locale: Locale) -> String {
-    let (header, separator) = match locale {
-        Locale::Zh => ("### 类别", "："),
-        Locale::En => ("### Categories", ": "),
+    let Some(section) = wordings::classify_section(locale) else {
+        return String::new();
     };
+    let separator = section.separator.as_str();
     let entries = crate::schema::CLASSIFY_CATEGORY_NAMES.map(|name| {
         match wordings::classify_definition(locale, name) {
             Some(definition) => format!("- {name}{separator}{definition}"),
             None => format!("- {name}"),
         }
     });
-    format!("{header}\n\n{}", entries.join("\n\n"))
+    format!("### {}\n\n{}", section.header, entries.join("\n\n"))
 }
 
 fn repair_instruction(frame: &wordings::FrameWording, rows: &[String], truncated: bool) -> String {
@@ -285,12 +287,18 @@ fn lang_position(locale: Locale, group: &crate::briefs::LangGroup<'_>) -> String
         LangField::Phonetic => "phonetic".to_owned(),
         LangField::Example(_) => {
             let joined = joined_example_indices(locale, group);
-            match locale {
-                Locale::Zh => format!("examples 第 {joined} 条"),
-                Locale::En if group.example_indices.len() == 1 => {
-                    format!("examples item {joined}")
+            let position = match group.example_indices.len() {
+                1 => wordings::example_position(locale).map(|wording| wording.single.as_str()),
+                _ => wordings::example_position(locale).map(|wording| wording.plural.as_str()),
+            };
+            match position {
+                Some(template) => {
+                    format!(
+                        "examples {}",
+                        render_template(template, &[("joined", &joined)])
+                    )
                 }
-                Locale::En => format!("examples items {joined}"),
+                None => format!("examples[{joined}]"),
             }
         }
     }
@@ -365,35 +373,23 @@ fn render_task_system(templates: Templates, kind: TaskKind, target: &str) -> Str
 }
 
 fn target_display(options: &TaskOptions, locale: Locale) -> Cow<'_, str> {
-    let display = lang_display(
+    lang_display(
         options.target_lang.as_ref().unwrap_or(&DEFAULT_TARGET),
         locale,
-    );
-    if display.trim().is_empty() {
-        lang_display(&DEFAULT_TARGET, locale)
-    } else {
-        display
-    }
+    )
 }
 
 fn lang_display(lang: &Lang, locale: Locale) -> Cow<'_, str> {
-    match locale {
-        Locale::Zh => match lang {
-            Lang::Zh => Cow::Borrowed("中文"),
-            Lang::En => Cow::Borrowed("英语"),
-            Lang::Ja => Cow::Borrowed("日语"),
-            Lang::Ko => Cow::Borrowed("韩语"),
-            Lang::Fr => Cow::Borrowed("法语"),
-            Lang::Other(name) => Cow::Borrowed(name.as_str()),
+    let fallback = match lang {
+        Lang::Zh => "Chinese",
+        Lang::En => "English",
+    };
+    match wordings::target_lang(locale) {
+        Some(names) => match lang {
+            Lang::Zh => Cow::Borrowed(names.zh.as_str()),
+            Lang::En => Cow::Borrowed(names.en.as_str()),
         },
-        Locale::En => match lang {
-            Lang::Zh => Cow::Borrowed("Chinese"),
-            Lang::En => Cow::Borrowed("English"),
-            Lang::Ja => Cow::Borrowed("Japanese"),
-            Lang::Ko => Cow::Borrowed("Korean"),
-            Lang::Fr => Cow::Borrowed("French"),
-            Lang::Other(name) => Cow::Borrowed(name.as_str()),
-        },
+        None => Cow::Borrowed(fallback),
     }
 }
 
@@ -1294,35 +1290,9 @@ mod tests {
     fn explicit_target_lang_is_rendered() {
         let registry = PromptRegistry::new();
         let mut task = text_task(TaskKind::TranslateSentence, "hello");
-        task.options_mut().target_lang = Some(Lang::Ja);
+        task.options_mut().target_lang = Some(Lang::En);
         let messages = registry.render(&task).expect("render");
-        assert!(text_of(&messages[0].content).contains("日语"));
-    }
-
-    #[test]
-    fn empty_target_language_name_falls_back_to_default() {
-        let registry = PromptRegistry::new();
-        for locale in [Locale::Zh, Locale::En] {
-            for name in ["", " "] {
-                let mut task = text_task(TaskKind::TranslateSentence, "hello");
-                task.options_mut().target_lang = Some(Lang::Other(name.into()));
-                task.options_mut().prompt_locale = Some(locale);
-                let messages = registry.render(&task).expect("render");
-                let expected = lang_display(&DEFAULT_TARGET, locale);
-                let instruction = match locale {
-                    Locale::Zh => "翻译专家",
-                    Locale::En => "translation expert",
-                };
-                assert!(
-                    text_of(&messages[0].content).contains(instruction),
-                    "{locale:?}/{name:?}: a blank target name must not swallow the instruction \
-                     line: {}",
-                    text_of(&messages[0].content)
-                );
-                assert!(text_of(&messages[0].content).contains(expected.as_ref()));
-                assert!(text_of(&messages[0].content).contains("\"note\""));
-            }
-        }
+        assert!(text_of(&messages[0].content).contains("英语"));
     }
 
     #[test]

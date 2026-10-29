@@ -178,3 +178,4 @@
   对账清单。
 - 泛化回落两词条（`gloss_popup_output_unverified(_label)`）不动：无障碍短
   标签沿用现键现值，两路降级共用一枚图标，短标签保持泛化。
+- 2026-10-30 语言收敛 D5：删除 `gloss_langs_ja`、`gloss_langs_ko`、`gloss_langs_fr`、`gloss_langs_other` 四词条（中英两表同删，目标语言下拉收敛为中文、英语两项），`both_locale_files_declare_the_same_keys` 的条目总数钉值 97 → 93。

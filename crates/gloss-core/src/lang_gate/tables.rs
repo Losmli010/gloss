@@ -3,8 +3,8 @@
 //! 字系统的区段归类。字符事实全部派生自语言规范数据源，本模块只按
 //! 目标语言组合策略；音标字符集是任务维的机制面，仍住本模块。
 //!
-//! 日语、韩语与自定义目标语言的标点按宁漏勿误取中西并集（组合在数据
-//! 派生处），文字系统判定照常收口。
+//! 目标语言收敛为中文与英文两变体，策略分支一一对应；假名与谚文区段
+//! 仍归文字系统判定（混语识别与目标语言支持正交）。
 
 use crate::langspec;
 use crate::model::Lang;
@@ -44,33 +44,12 @@ pub(crate) fn lang_policy(target: &Lang) -> LangPolicy {
             pangu: spec.pangu.zh,
             simplified: spec.simplified.zh,
         },
-        Lang::En | Lang::Fr => LangPolicy {
+        Lang::En => LangPolicy {
             scripts: &[ScriptClass::Latin],
             punctuation: &spec.en_allow,
             paren_pairs: &spec.brackets_en,
             pangu: spec.pangu.en,
             simplified: spec.simplified.en,
-        },
-        Lang::Ja => LangPolicy {
-            scripts: &[ScriptClass::Kana, ScriptClass::Han],
-            punctuation: &spec.ja_punct,
-            paren_pairs: &spec.brackets_both,
-            pangu: false,
-            simplified: false,
-        },
-        Lang::Ko => LangPolicy {
-            scripts: &[ScriptClass::Hangul],
-            punctuation: &spec.ko_punct,
-            paren_pairs: &spec.brackets_both,
-            pangu: false,
-            simplified: false,
-        },
-        Lang::Other(_) => LangPolicy {
-            scripts: &[],
-            punctuation: &spec.ko_punct,
-            paren_pairs: &spec.brackets_both,
-            pangu: false,
-            simplified: false,
         },
     }
 }

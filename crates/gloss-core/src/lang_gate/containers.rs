@@ -1,9 +1,11 @@
 //! 容器切分与容器内规则：括号组（按目标括号对，可嵌套）、引文组（弯引
 //! 号按字形配对，直引号按出现次数两两配对，不嵌套）的单趟栈式扫描，及
-//! 其上的闭合判定、组内单一语言判定与句译短语级判定。
+//! 其上的闭合判定、组内单一语言判定与句译短语级判定。弯引号定界与句末
+//! 标点面派生自语言规范数据源（与正文判定共用字符事实）。
 
 use super::tables::{LangPolicy, ScriptClass, script_class};
 use super::violation::{LangCategory, LangField, LangViolation};
+use crate::langspec;
 use crate::task::TaskKind;
 
 pub(crate) struct Container {
@@ -17,9 +19,6 @@ pub(crate) struct Scan {
     pub(crate) containers: Vec<Container>,
     pub(crate) unclosed: bool,
 }
-
-const CURLY_QUOTES: [char; 2] = ['“', '”']; // i18n:allow 判定常量
-const SENTENCE_FINALS: [char; 6] = ['。', '！', '？', '.', '!', '?']; // i18n:allow 判定常量
 
 enum Open {
     Paren(usize),
@@ -44,6 +43,9 @@ pub(crate) fn scan_containers(
     let mut containers = Vec::new();
     let mut stack: Vec<(Open, usize)> = Vec::new();
     let mut unclosed = false;
+    let curly_quotes = &langspec::spec().curly_quotes;
+    let curly_open = curly_quotes[0];
+    let curly_close = curly_quotes[1];
     for (index, &c) in chars.iter().enumerate() {
         if masked[index] {
             continue;
@@ -58,9 +60,9 @@ pub(crate) fn scan_containers(
                 |open| matches!(open, Open::Paren(p) if *p == pair),
             );
             unclosed |= !closed;
-        } else if CURLY_QUOTES[0] == c && quotes_enabled {
+        } else if curly_open == c && quotes_enabled {
             stack.push((Open::Quote, index));
-        } else if CURLY_QUOTES[1] == c && quotes_enabled {
+        } else if curly_close == c && quotes_enabled {
             let closed = close_container(&mut stack, &mut containers, index, |open| {
                 matches!(open, Open::Quote)
             });
@@ -206,7 +208,7 @@ fn check_sentence_parens(
         .flat_map(|&(start, end)| chars[start..end].iter().rev())
         .find(|c| !c.is_whitespace())
         .copied();
-    let sentence_final = last.is_some_and(|c| SENTENCE_FINALS.contains(&c)); // i18n:allow 判定常量
+    let sentence_final = last.is_some_and(|c| langspec::spec().sentence_finals.contains(&c));
     if sentence_final {
         violations.push(LangViolation::new(field, LangCategory::SentenceInParens));
     }

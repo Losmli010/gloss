@@ -628,7 +628,7 @@ mod tests {
     fn selection_options_pair_with_one_snapshot_including_the_model() {
         let mut machine = TaskStateMachine::new();
         let config = Config {
-            target_lang: Lang::Ja,
+            target_lang: Lang::En,
             model: "frozen-model".into(),
             ..Default::default()
         };
@@ -647,7 +647,7 @@ mod tests {
         );
         assert_eq!(
             request.options.target_lang,
-            Some(Lang::Ja),
+            Some(Lang::En),
             "target language still freezes from the probe-time snapshot"
         );
     }
@@ -683,13 +683,13 @@ mod tests {
     fn options_freeze_at_probe_time() {
         let mut machine = TaskStateMachine::new();
         let before = Config {
-            target_lang: Lang::Ja,
+            target_lang: Lang::En,
             model: "before-model".into(),
             language: Language::En,
             ..Default::default()
         };
         let after = Config {
-            target_lang: Lang::Ko,
+            target_lang: Lang::Zh,
             model: "after-model".into(),
             language: Language::Zh,
             ..Default::default()
@@ -699,7 +699,7 @@ mod tests {
         let request = commit_confirmed(&mut machine, 1, text_input("hello"));
         assert_eq!(
             request.options.target_lang,
-            Some(Lang::Ja),
+            Some(Lang::En),
             "in-flight task must keep the snapshot taken at probe time"
         );
         assert_eq!(
@@ -714,7 +714,7 @@ mod tests {
         );
         assert_eq!(probe(&mut machine, &after), 2);
         let request = commit_confirmed(&mut machine, 2, text_input("world"));
-        assert_eq!(request.options.target_lang, Some(Lang::Ko));
+        assert_eq!(request.options.target_lang, Some(Lang::Zh));
         assert_eq!(request.options.model.as_ref(), "after-model");
         assert_eq!(request.options.prompt_locale, Some(Locale::Zh));
     }
@@ -764,7 +764,7 @@ mod tests {
     fn confirm_pending_carries_the_frozen_options_snapshot() {
         let mut machine = TaskStateMachine::new();
         let config = Config {
-            target_lang: Lang::Ja,
+            target_lang: Lang::En,
             model: "frozen-model".into(),
             ..Default::default()
         };
@@ -779,7 +779,7 @@ mod tests {
         );
         assert_eq!(
             request.options.target_lang,
-            Some(Lang::Ja),
+            Some(Lang::En),
             "target language still freezes from the probe-time snapshot"
         );
     }

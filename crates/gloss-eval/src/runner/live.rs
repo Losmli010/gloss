@@ -299,7 +299,6 @@ async fn drive_task_rounds(
         target: task
             .options()
             .target_lang
-            .clone()
             .unwrap_or(gloss_core::model::Lang::Zh),
     };
     run_task_rounds(
