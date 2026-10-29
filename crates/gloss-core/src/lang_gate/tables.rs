@@ -1,29 +1,14 @@
 //! 判定常量表：任务策略与目标语言策略——任务的（markdown）能力与容器
-//! 开关、合法文字系统、标点集、括号对、盘古之白与简体判定开关，以及
-//! 文字系统的区段归类。全部为模块内常量，无运行时配置。
+//! 开关、合法文字系统、标点集、括号对、盘古之白与简体判定开关，以及文
+//! 字系统的区段归类。字符事实全部派生自语言规范数据源，本模块只按
+//! 目标语言组合策略；音标字符集是任务维的机制面，仍住本模块。
 //!
-//! 日语、韩语与自定义目标语言的标点集按宁漏勿误口径取中西并集（第一版
-//! 只判串味重灾的中西标点互串），文字系统判定照常收口。
+//! 日语、韩语与自定义目标语言的标点按宁漏勿误取中西并集（组合在数据
+//! 派生处），文字系统判定照常收口。
 
+use crate::langspec;
 use crate::model::Lang;
 use crate::task::TaskKind;
-
-// i18n:allow 判定常量
-
-// i18n:allow 判定常量
-
-#[rustfmt::skip]
-pub(crate) const ZH_PUNCT: &[char] = &['，', '。', '、', '；', '：', '？', '！', '“', '”', '‘', '’', '《', '》', '（', '）', '「', '」', '『', '』', '·']; // i18n:allow 判定常量
-#[rustfmt::skip]
-pub(crate) const EN_PUNCT: &[char] = &[',', '.', ';', ':', '!', '?', '"', '\'', '(', ')', '-'];
-#[rustfmt::skip]
-const JA_PUNCT: &[char] = &['，', '。', '、', '；', '：', '？', '！', '“', '”', '‘', '’', '《', '》', '（', '）', '「', '」', '『', '』', '·', 'ー', '・', '～', ',', '.', ';', ':', '!', '?', '"', '\'', '(', ')', '-']; // i18n:allow 判定常量
-#[rustfmt::skip]
-const KO_PUNCT: &[char] = &['，', '。', '、', '；', '：', '？', '！', '“', '”', '‘', '’', '《', '》', '（', '）', '「', '」', '『', '』', '·', ',', '.', ';', ':', '!', '?', '"', '\'', '(', ')', '-']; // i18n:allow 判定常量
-
-const PARENS_ZH: &[(char, char)] = &[('（', '）')]; // i18n:allow 判定常量
-const PARENS_EN: &[(char, char)] = &[('(', ')')];
-const PARENS_BOTH: &[(char, char)] = &[('（', '）'), ('(', ')')]; // i18n:allow 判定常量
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScriptClass {
@@ -50,39 +35,40 @@ pub(crate) struct TaskPolicy {
 }
 
 pub(crate) fn lang_policy(target: &Lang) -> LangPolicy {
+    let spec = langspec::spec();
     match target {
         Lang::Zh => LangPolicy {
             scripts: &[ScriptClass::Han],
-            punctuation: ZH_PUNCT,
-            paren_pairs: PARENS_ZH,
-            pangu: true,
-            simplified: true,
+            punctuation: &spec.zh_allow,
+            paren_pairs: &spec.brackets_zh,
+            pangu: spec.pangu.zh,
+            simplified: spec.simplified.zh,
         },
         Lang::En | Lang::Fr => LangPolicy {
             scripts: &[ScriptClass::Latin],
-            punctuation: EN_PUNCT,
-            paren_pairs: PARENS_EN,
-            pangu: false,
-            simplified: false,
+            punctuation: &spec.en_allow,
+            paren_pairs: &spec.brackets_en,
+            pangu: spec.pangu.en,
+            simplified: spec.simplified.en,
         },
         Lang::Ja => LangPolicy {
             scripts: &[ScriptClass::Kana, ScriptClass::Han],
-            punctuation: JA_PUNCT,
-            paren_pairs: PARENS_BOTH,
+            punctuation: &spec.ja_punct,
+            paren_pairs: &spec.brackets_both,
             pangu: false,
             simplified: false,
         },
         Lang::Ko => LangPolicy {
             scripts: &[ScriptClass::Hangul],
-            punctuation: KO_PUNCT,
-            paren_pairs: PARENS_BOTH,
+            punctuation: &spec.ko_punct,
+            paren_pairs: &spec.brackets_both,
             pangu: false,
             simplified: false,
         },
         Lang::Other(_) => LangPolicy {
             scripts: &[],
-            punctuation: KO_PUNCT,
-            paren_pairs: PARENS_BOTH,
+            punctuation: &spec.ko_punct,
+            paren_pairs: &spec.brackets_both,
             pangu: false,
             simplified: false,
         },
@@ -122,16 +108,24 @@ pub(crate) fn is_phonetic_char(c: char) -> bool {
 }
 
 pub(crate) fn script_class(c: char) -> ScriptClass {
+    if c.is_ascii_alphabetic() {
+        return ScriptClass::Latin;
+    }
     let code = c as u32;
-    match code {
-        0x3041..=0x30FF | 0x31F0..=0x31FF | 0xFF66..=0xFF9D => ScriptClass::Kana,
-        0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF => ScriptClass::Han,
-        0x1100..=0x11FF | 0x3130..=0x318F | 0xAC00..=0xD7A3 => ScriptClass::Hangul,
-        0x0400..=0x052F => ScriptClass::Cyrillic,
-        0x0370..=0x03FF | 0x1F00..=0x1FFF => ScriptClass::Greek,
-        _ if c.is_ascii_alphabetic() => ScriptClass::Latin,
-        0x00C0..=0x024F | 0x1E00..=0x1EFF | 0x2C60..=0x2C7F | 0xA720..=0xA7FF => ScriptClass::Latin,
-        _ if c.is_alphabetic() => ScriptClass::OtherLetter,
-        _ => ScriptClass::OtherLetter,
+    let ranges = &langspec::spec().ranges;
+    if langspec::range_contains(&ranges.kana, code) {
+        ScriptClass::Kana
+    } else if langspec::range_contains(&ranges.han, code) {
+        ScriptClass::Han
+    } else if langspec::range_contains(&ranges.hangul, code) {
+        ScriptClass::Hangul
+    } else if langspec::range_contains(&ranges.cyrillic, code) {
+        ScriptClass::Cyrillic
+    } else if langspec::range_contains(&ranges.greek, code) {
+        ScriptClass::Greek
+    } else if langspec::range_contains(&ranges.latin, code) {
+        ScriptClass::Latin
+    } else {
+        ScriptClass::OtherLetter
     }
 }
