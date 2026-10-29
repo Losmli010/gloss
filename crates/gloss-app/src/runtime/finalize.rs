@@ -22,6 +22,7 @@ pub fn complete(kind: TaskKind, raw: &str) -> TaskOutcome {
             note,
             structured,
             degraded: false,
+            lang_violations: Vec::new(),
         },
         Err(violation) => {
             warn!(
@@ -34,6 +35,7 @@ pub fn complete(kind: TaskKind, raw: &str) -> TaskOutcome {
                 note: String::new(),
                 structured: schema::empty_structured(kind),
                 degraded: true,
+                lang_violations: Vec::new(),
             }
         }
     }

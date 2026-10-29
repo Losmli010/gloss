@@ -10,3 +10,8 @@
 ## 辅助
 
 - make_service / text_task：构造 AiTaskService + MockEngine 计数对与文本 Task 的夹具助手。
+
+- contract_invalid_direct_degrade_delivers_an_empty_violation_list：直调
+  `run_lang_rounds` 喂契约失效回复，锁定直降路径空清单（生产路径该分支
+  不可达，防御性兜底由纯函数驱动直测）；预算耗尽路径测试补断言已判得
+  清单随 `RunOutput` 交付。

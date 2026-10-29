@@ -74,6 +74,7 @@ use std::sync::Arc;
 
 use egui::{Frame, Stroke};
 use egui_commonmark::CommonMarkCache;
+use gloss_core::model::Locale;
 use icon::app_icon_image;
 use image::decode_attached;
 
@@ -84,6 +85,7 @@ use crate::ui::i18n::Text;
 struct RenderCtx<'a> {
     state: &'a RenderState,
     text: &'static Text,
+    locale: Locale,
     attached: Option<&'a Arc<[u8]>>,
 }
 
@@ -270,12 +272,17 @@ pub(crate) fn reset_appear_animation(ctx: &egui::Context) {
     ctx.memory_mut(|mem| mem.data.remove_temp::<f64>(appear_t0_id()));
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "浮层绘制的全部输入由壳层一次交齐（视图、附件、跨帧渲染态、文案表与语言档位），缺一不可且无内聚可再收"
+)]
 pub fn draw(
     ui: &mut egui::Ui,
     view: Option<&OverlayView>,
     attached: Option<&Arc<[u8]>>,
     state: &RenderState,
     text: &'static Text,
+    locale: Locale,
 ) -> PopupOutput {
     ui.style_mut().interaction.selectable_labels = true;
     appear_fade_in(ui);
@@ -314,6 +321,7 @@ pub fn draw(
             let ctx = RenderCtx {
                 state,
                 text,
+                locale,
                 attached,
             };
             let (action, drag) = views::render_content(ui, &ctx, view, &mut content_h);
@@ -459,6 +467,7 @@ mod kittest_tests {
                     examples: vec!["a gloss of silk 丝绸的光泽".into()],
                 },
                 degraded: false,
+                lang_violations: Vec::new(),
             },
         }
     }
@@ -572,6 +581,7 @@ mod kittest_tests {
                     code_language: None,
                 },
                 degraded: true,
+                lang_violations: Vec::new(),
             },
         }
     }
@@ -587,6 +597,7 @@ mod kittest_tests {
                     code_language: Some("rust".into()),
                 },
                 degraded: true,
+                lang_violations: Vec::new(),
             },
         }
     }
@@ -604,6 +615,7 @@ mod kittest_tests {
                     ],
                 },
                 degraded: false,
+                lang_violations: Vec::new(),
             },
         }
     }
@@ -618,6 +630,7 @@ mod kittest_tests {
                     examples: Vec::new(),
                 },
                 degraded: false,
+                lang_violations: Vec::new(),
             },
         }
     }
@@ -633,6 +646,7 @@ mod kittest_tests {
                     examples: vec!["The polished wood had a deep gloss.".into()],
                 },
                 degraded: false,
+                lang_violations: Vec::new(),
             },
         }
     }
@@ -666,6 +680,7 @@ mod kittest_tests {
                     code_language: Some("rust".into()),
                 },
                 degraded: false,
+                lang_violations: Vec::new(),
             },
         }
     }
@@ -682,6 +697,7 @@ mod kittest_tests {
                     examples: Vec::new(),
                 },
                 degraded: false,
+                lang_violations: Vec::new(),
             },
         }
     }
@@ -698,6 +714,7 @@ mod kittest_tests {
                     code_language: Some("rust".into()),
                 },
                 degraded: false,
+                lang_violations: Vec::new(),
             },
         }
     }
@@ -715,6 +732,7 @@ mod kittest_tests {
                     ],
                 },
                 degraded: false,
+                lang_violations: Vec::new(),
             },
         }
     }
@@ -802,6 +820,7 @@ mod kittest_tests {
                     examples: vec!["The polished wood had a deep gloss.".into()],
                 },
                 degraded: false,
+                lang_violations: Vec::new(),
             },
         };
         harness.run();
@@ -867,7 +886,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let output = draw(ui, Some(&view), None, &state, text);
+            let output = draw(ui, Some(&view), None, &state, text, locale);
             if let Some(action) = output.action {
                 *sink.borrow_mut() = Some(action);
             }
@@ -885,7 +904,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let output = draw(ui, Some(&view.borrow()), None, &state, text);
+            let output = draw(ui, Some(&view.borrow()), None, &state, text, Locale::Zh);
             if let Some(action) = output.action {
                 *sink.borrow_mut() = Some(action);
             }
@@ -1024,7 +1043,7 @@ mod kittest_tests {
                 if font_first_frame(&installed, ui.ctx()) {
                     return;
                 }
-                sink.set(draw(ui, Some(&view), None, &state, text).sizing);
+                sink.set(draw(ui, Some(&view), None, &state, text, Locale::Zh).sizing);
             });
             harness.run_steps(2);
             harness.set_size(vec2(WIDTH, sizing.get().height));
@@ -1056,7 +1075,7 @@ mod kittest_tests {
                         if font_first_frame(&installed, ui.ctx()) {
                             return;
                         }
-                        sink.set(draw(ui, Some(&view), None, &state, text).sizing);
+                        sink.set(draw(ui, Some(&view), None, &state, text, Locale::Zh).sizing);
                     });
             harness.run_steps(2);
             assert!(
@@ -1181,7 +1200,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let _ = draw(ui, Some(&view), None, &state, text);
+            let _ = draw(ui, Some(&view), None, &state, text, Locale::En);
         });
         harness.run();
         assert!(
@@ -1205,6 +1224,147 @@ mod kittest_tests {
             harness.query_all_by_label("Retry").next().is_none(),
             "the badge card is an outcome card: the footer carries copy, not retry"
         );
+    }
+
+    fn lang_degraded_violations_view_en() -> OverlayView {
+        use gloss_core::lang_gate::{LangCategory, LangField, LangViolation};
+
+        OverlayView::Outcome {
+            source: "fn main() {}".into(),
+            outcome: TaskOutcome {
+                kind: TaskKind::ExplainCode,
+                note: "The code prints a greeting to standard output.".into(),
+                structured: OutcomeStructured::Code {
+                    examples: Vec::new(),
+                    code_language: Some("rust".into()),
+                },
+                degraded: true,
+                lang_violations: vec![
+                    LangViolation::new(LangField::Note, LangCategory::MissingSpace),
+                    LangViolation::new(LangField::Example(0), LangCategory::ForeignRun),
+                ],
+            },
+        }
+    }
+
+    fn lang_degraded_capped_violations_view_en() -> OverlayView {
+        use gloss_core::lang_gate::{LangCategory, LangField, LangViolation};
+
+        OverlayView::Outcome {
+            source: "fn main() {}".into(),
+            outcome: TaskOutcome {
+                kind: TaskKind::ExplainCode,
+                note: "The code prints a greeting to standard output.".into(),
+                structured: OutcomeStructured::Code {
+                    examples: Vec::new(),
+                    code_language: Some("rust".into()),
+                },
+                degraded: true,
+                lang_violations: vec![
+                    LangViolation::new(LangField::Note, LangCategory::MissingSpace),
+                    LangViolation::new(LangField::Note, LangCategory::SentenceInParens),
+                    LangViolation::new(LangField::Phonetic, LangCategory::PhoneticCharset),
+                    LangViolation::new(LangField::Example(0), LangCategory::ForeignRun),
+                    LangViolation::new(LangField::Example(1), LangCategory::ContainerMixing),
+                    LangViolation::new(LangField::Example(2), LangCategory::SourceOverlap),
+                ],
+            },
+        }
+    }
+
+    fn hover_harness_at_real_window(view: OverlayView, locale: Locale) -> (Harness<'static>, f32) {
+        let state = RenderState::default();
+        let text = Text::get(locale);
+        let sizing: Rc<Cell<OverlaySizing>> = Rc::new(Cell::new(OverlaySizing { height: 0.0 }));
+        let sink = Rc::clone(&sizing);
+        let installed = Cell::new(false);
+        let mut harness = Harness::new_ui(move |ui| {
+            if font_first_frame(&installed, ui.ctx()) {
+                return;
+            }
+            sink.set(draw(ui, Some(&view), None, &state, text, locale).sizing);
+        });
+        harness.run_steps(2);
+        harness.set_size(vec2(WIDTH, sizing.get().height));
+        harness.run_steps(1);
+        (harness, sizing.get().height)
+    }
+
+    #[test]
+    fn degraded_icon_follows_the_copy_button_in_the_footer() {
+        let (mut harness, _clicked) =
+            harness_for_locale(lang_degraded_violations_view_en(), Locale::En);
+        harness.run();
+        let copy = harness.get_by_label("Copy annotation").rect();
+        let hint = harness.get_by_label("For reference only").rect();
+        let gap = hint.left() - copy.right();
+        assert!(
+            gap > 0.0 && gap < crate::ui::style::space::ITEM * 2.0,
+            "the annotation icon hangs a tight gap right after the copy button, never \
+             before it: copy={copy:?} hint={hint:?}"
+        );
+        assert!(
+            (hint.center().y - copy.center().y).abs() < 0.5,
+            "the icon rides the same footer band as the copy button: {copy:?} {hint:?}"
+        );
+    }
+
+    #[test]
+    fn hovering_the_degraded_icon_expands_the_violation_rows_or_the_generic_fallback() {
+        let (mut harness, _height) =
+            hover_harness_at_real_window(lang_degraded_violations_view_en(), Locale::En);
+        let icon = harness.get_by_label("For reference only").rect().center();
+        harness.hover_at(icon);
+        harness.run_steps(4);
+        harness.get_by_label_contains("Some language issues remain:");
+        harness.get_by_label_contains("NOTE: spacing — ");
+        harness.get_by_label_contains("EXP item 1: foreign text — ");
+
+        let (mut harness, _height) =
+            hover_harness_at_real_window(lang_degraded_outcome_view_en(), Locale::En);
+        let icon = harness.get_by_label("For reference only").rect().center();
+        harness.hover_at(icon);
+        harness.run_steps(4);
+        harness.get_by_label_contains("Not fully proofread");
+        assert!(
+            harness
+                .query_all_by_label_contains("Some language issues remain:")
+                .next()
+                .is_none(),
+            "a degraded outcome without a violation list (old cache entry) stays on the \
+             generic wording"
+        );
+    }
+
+    #[test]
+    fn the_violation_hint_expands_below_the_footer_inside_the_window() {
+        let (mut harness, window_height) =
+            hover_harness_at_real_window(lang_degraded_capped_violations_view_en(), Locale::En);
+        let icon = harness.get_by_label("For reference only").rect();
+        harness.hover_at(icon.center());
+        harness.run_steps(4);
+        let title = harness
+            .get_by_label_contains("Some language issues remain:")
+            .rect();
+        assert!(
+            title.top() > icon.bottom(),
+            "the hint expands downward from the icon, never over the body: {icon:?} {title:?}"
+        );
+        for row in [
+            "NOTE: spacing — ",
+            "NOTE: sentence in parens — ",
+            "Phonetics: phonetic set — ",
+            "EXP item 1: foreign text — ",
+            "EXP item 2: mixed bracket — ",
+            "The rest are violations of the same kind",
+        ] {
+            let rect = harness.get_by_label_contains(row).rect();
+            assert!(
+                rect.bottom() <= window_height + 0.5,
+                "the hint row stays inside the reserved strip below the footer: {row} \
+                 {rect:?} height={window_height}"
+            );
+        }
     }
 
     #[test]
@@ -1283,7 +1443,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let output = draw(ui, Some(&view), None, &state, text);
+            let output = draw(ui, Some(&view), None, &state, text, Locale::Zh);
             if let Some(drag) = output.drag {
                 sink.borrow_mut().push(drag);
             }
@@ -1372,7 +1532,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let output = draw(ui, Some(&view), None, &state, text);
+            let output = draw(ui, Some(&view), None, &state, text, Locale::Zh);
             if let Some(resize) = output.resize {
                 sink.borrow_mut().push(resize);
             }
@@ -1484,7 +1644,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let _ = draw(ui, None, None, &state, text);
+            let _ = draw(ui, None, None, &state, text, Locale::Zh);
         });
         harness.run();
         harness.get_by_label_contains("quick brown fox");
@@ -1516,7 +1676,7 @@ mod kittest_tests {
                         if font_first_frame(&installed, ui.ctx()) {
                             return;
                         }
-                        let _ = draw(ui, Some(&view), None, &state, text);
+                        let _ = draw(ui, Some(&view), None, &state, text, Locale::En);
                     });
             harness.set_size(egui::vec2(WIDTH, 800.0));
             harness.run();
@@ -1544,7 +1704,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let _ = draw(ui, Some(&view), Some(&png), &state, text);
+            let _ = draw(ui, Some(&view), Some(&png), &state, text, Locale::En);
         });
         harness.run();
         harness.get_by_label_contains("A gradient panel with");
@@ -1571,7 +1731,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let _ = draw(ui, Some(&view), Some(&png), &state, text);
+            let _ = draw(ui, Some(&view), Some(&png), &state, text, Locale::En);
         });
         harness.run_steps(3);
         harness.get_by_label_contains("A gradient panel with");
@@ -1599,7 +1759,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let _ = draw(ui, Some(&view), Some(&png), &state, text);
+            let _ = draw(ui, Some(&view), Some(&png), &state, text, Locale::Zh);
         });
         harness.run_steps(3);
         harness.get_by_label_contains("正在注疏");
@@ -1616,7 +1776,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let _ = draw(ui, Some(&view), Some(&broken), &state, text);
+            let _ = draw(ui, Some(&view), Some(&broken), &state, text, Locale::En);
         });
         harness.run();
         harness.get_by_label_contains("The image could not be displayed.");
@@ -1634,7 +1794,7 @@ mod kittest_tests {
             if font_first_frame(&installed, ui.ctx()) {
                 return;
             }
-            let _ = draw(ui, Some(&view), Some(&png), &state, text);
+            let _ = draw(ui, Some(&view), Some(&png), &state, text, Locale::En);
         });
         harness.run();
         harness.run();
@@ -1667,7 +1827,7 @@ mod kittest_tests {
             } else {
                 None
             };
-            let _ = draw(ui, Some(&view), attached, &state, text);
+            let _ = draw(ui, Some(&view), attached, &state, text, Locale::En);
         });
 
         harness.run();
@@ -1694,6 +1854,7 @@ mod kittest_tests {
     enum Run {
         Settle,
         Steps(usize),
+        HoverDegradedIcon,
     }
 
     struct SnapshotCase {
@@ -1715,13 +1876,17 @@ mod kittest_tests {
         let state = RenderState::default();
         let text = Text::get(locale);
         let installed = Cell::new(false);
+        let sizing: Rc<Cell<OverlaySizing>> = Rc::new(Cell::new(OverlaySizing { height: 0.0 }));
+        let sink = Rc::clone(&sizing);
         let mut harness = Harness::builder()
             .with_theme(egui::Theme::Light)
             .build_ui(move |ui| {
                 if font_first_frame(&installed, ui.ctx()) {
                     return;
                 }
-                let _ = draw(ui, view.as_ref(), attached.as_ref(), &state, text);
+                let output = draw(ui, view.as_ref(), attached.as_ref(), &state, text, locale);
+                sink.set(output.sizing);
+                let _ = output;
             });
         match run {
             Run::Settle => {
@@ -1729,6 +1894,14 @@ mod kittest_tests {
             }
             Run::Steps(steps) => {
                 harness.run_steps(steps);
+            }
+            Run::HoverDegradedIcon => {
+                harness.run_steps(2);
+                harness.set_size(vec2(WIDTH, sizing.get().height));
+                harness.run_steps(1);
+                let icon = harness.get_by_label("For reference only").rect().center();
+                harness.hover_at(icon);
+                harness.run_steps(4);
             }
         }
         harness.snapshot(name);
@@ -1799,6 +1972,12 @@ mod kittest_tests {
                 Some(lang_degraded_outcome_view_en()),
                 Locale::En,
                 Run::Settle,
+            ),
+            case(
+                "popup_violation_hint_hover",
+                Some(lang_degraded_violations_view_en()),
+                Locale::En,
+                Run::HoverDegradedIcon,
             ),
             case("popup_selfcheck", None, Locale::En, Run::Settle),
             case(

@@ -57,6 +57,7 @@ fn word_outcome() -> TaskOutcome {
             examples: vec!["a gloss of silk".into()],
         },
         degraded: false,
+        lang_violations: Vec::new(),
     }
 }
 

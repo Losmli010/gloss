@@ -74,6 +74,39 @@ action = "This passage is untranslated; retranslate it into the target language"
 [repair.lang.PhoneticCharset]
 action = "Rewrite the phonetics with Latin letters and IPA symbols"
 
+[violation.name.ForeignRun]
+name = "foreign text"
+
+[violation.name.TraditionalChar]
+name = "traditional form"
+
+[violation.name.PunctuationMismatch]
+name = "punctuation"
+
+[violation.name.MissingSpace]
+name = "spacing"
+
+[violation.name.EmojiForbidden]
+name = "emoji"
+
+[violation.name.MarkdownForbidden]
+name = "markup"
+
+[violation.name.UnclosedContainer]
+name = "unclosed mark"
+
+[violation.name.ContainerMixing]
+name = "mixed bracket"
+
+[violation.name.SentenceInParens]
+name = "sentence in parens"
+
+[violation.name.SourceOverlap]
+name = "untranslated"
+
+[violation.name.PhoneticCharset]
+name = "phonetic set"
+
 [classify.category.TranslateWord]
 definition = "Translate a single lexical item, or a list consisting mainly of lexical items. Lexical items include characters, words, fixed collocations, idioms, proverbs, proper nouns, and terminology. Idioms, proverbs, and fixed expressions are treated as a whole lexical item even if they contain a subject-predicate structure; this specific rule takes precedence over the general judgment of \"can stand alone as a sentence.\""
 

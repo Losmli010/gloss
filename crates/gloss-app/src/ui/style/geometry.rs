@@ -58,6 +58,8 @@ pub mod overlay {
     pub const ARROW_SCROLL_STEP: f32 = rem(4.0);
     pub const SHIMMER_BAR_HEIGHT: f32 = rem(1.0);
     pub const SHIMMER_BAR_RATIOS: [f32; 3] = [0.95, 0.78, 0.6];
+    pub const VIOLATION_HINT_ROW_CAP: usize = 5;
+    pub const VIOLATION_HINT_RESERVE: f32 = rem(15.0);
 }
 
 pub mod settings {

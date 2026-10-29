@@ -128,7 +128,7 @@ pub fn render_frame(
     let popup_state = Rc::clone(&frame.popup_state);
     let text = Text::get(locale);
     let (repaint_at, output) = render_frame_with(frame, |ui| {
-        ui::popup::draw(ui, view, attached, &popup_state, text)
+        ui::popup::draw(ui, view, attached, &popup_state, text, locale)
     });
     let output = output.map_or(OverlayFrameOutput::default(), |out| OverlayFrameOutput {
         action: out.action,

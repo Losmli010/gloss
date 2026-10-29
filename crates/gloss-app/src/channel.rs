@@ -311,6 +311,7 @@ mod tests {
                         examples: vec![],
                     },
                     degraded: false,
+                    lang_violations: Vec::new(),
                 },
             })
             .unwrap();

@@ -51,6 +51,10 @@ pub struct Text {
     pub(crate) gloss_popup_output_abnormal: String,
     pub(crate) gloss_popup_output_unverified: String,
     pub(crate) gloss_popup_output_unverified_label: String,
+    pub(crate) gloss_popup_output_annotations_title: String,
+    pub(crate) gloss_popup_violation_field_note: String,
+    pub(crate) gloss_popup_violation_field_phonetic: String,
+    pub(crate) gloss_popup_violation_field_example: String,
 
     pub(crate) gloss_errors_selection_unavailable: String,
     pub(crate) gloss_errors_selection_empty: String,
@@ -231,7 +235,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            93,
+            97,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -294,6 +298,7 @@ mod tests {
             [
                 "gloss_errors_config",
                 "gloss_errors_engine_response",
+                "gloss_popup_violation_field_example",
                 "gloss_settings_invalid_summary",
                 "gloss_settings_notice_key_update_failed",
                 "gloss_settings_notice_key_updated_save_failed",
@@ -318,6 +323,26 @@ mod tests {
             Text::get(Locale::En).gloss_popup_reannotating,
             "Re-annotating"
         );
+    }
+
+    #[test]
+    fn violation_position_words_align_with_the_seal_names() {
+        for locale in [Locale::Zh, Locale::En] {
+            let text = Text::get(locale);
+            assert_eq!(
+                text.gloss_popup_violation_field_note, text.gloss_popup_seal_zhu,
+                "{locale:?}: the note position word must stay the same glyph as the note \
+                 seal so users can locate the flagged field by the seal"
+            );
+            assert!(
+                text.gloss_popup_violation_field_example
+                    .starts_with(text.gloss_popup_seal_shu.as_str()),
+                "{locale:?}: the example position word must open with the shu seal: {:?} vs \
+                 {:?}",
+                text.gloss_popup_violation_field_example,
+                text.gloss_popup_seal_shu
+            );
+        }
     }
 
     #[test]

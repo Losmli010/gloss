@@ -6,7 +6,8 @@
 //! 鉴权、限流、格式模式、模态）一律不重试、原样上抛；契约违约走修复
 //! 轮常量修复，耗尽后把原始文本交给调用方去降级；契约通过后跑第二道
 //! 语言体例门，违约清单进独立预算的语言修复轮，耗尽后原样交付并带
-//! 降级标识（判定器与策略表在核心库同名顶层模块）。
+//! 降级标识与已判得的违约清单（契约无效直降的清单为空，二者都随产物
+//! 落缓存，界面批注照单渲染、不经重判；判定器与策略表在核心库同名顶层模块）。
 //! “零缓存零配置”：模型取自任务选项，查与写缓存及产物组装归调用方。
 
 pub mod llm;
@@ -42,6 +43,7 @@ pub struct RunOutput {
     pub finish_reason: Option<String>,
     pub repairs: u32,
     pub lang_degraded: bool,
+    pub lang_violations: Vec<LangViolation>,
 }
 
 pub struct AiTaskService {
@@ -226,6 +228,7 @@ pub async fn run_task_rounds(
                 finish_reason: reply.finish_reason,
                 repairs: repairs.spent(),
                 lang_degraded: false,
+                lang_violations: Vec::new(),
             });
         };
         messages = next;
@@ -265,10 +268,10 @@ async fn run_lang_rounds(
                 thread = thread::TOKIO,
                 "language gate saw a contract-invalid reply, delivering degraded"
             );
-            return Ok(lang_output(&stage, reply, task_repairs, true));
+            return Ok(lang_output(&stage, reply, task_repairs, Vec::new(), true));
         };
         if violations.is_empty() {
-            return Ok(lang_output(&stage, reply, task_repairs, false));
+            return Ok(lang_output(&stage, reply, task_repairs, Vec::new(), false));
         }
         let summary = LangViolation::summary(&violations);
         let Some(next) = repairs.next_round(stage.base, Some(&reply.body), summary, || {
@@ -276,7 +279,7 @@ async fn run_lang_rounds(
                 .prompts
                 .render_language_repair(stage.locale, &violations)
         }) else {
-            return Ok(lang_output(&stage, reply, task_repairs, true));
+            return Ok(lang_output(&stage, reply, task_repairs, violations, true));
         };
         on_repair();
         let request = EngineRequest {
@@ -301,6 +304,7 @@ fn lang_violations(stage: &LangStage<'_>, reply: &str) -> Option<Vec<LangViolati
         note,
         structured,
         degraded: false,
+        lang_violations: Vec::new(),
     };
     Some(lang_gate::check(
         stage.kind,
@@ -314,6 +318,7 @@ fn lang_output(
     stage: &LangStage<'_>,
     reply: RoundReply,
     task_repairs: u32,
+    violations: Vec<LangViolation>,
     degraded: bool,
 ) -> RunOutput {
     RunOutput {
@@ -322,6 +327,7 @@ fn lang_output(
         finish_reason: reply.finish_reason,
         repairs: task_repairs,
         lang_degraded: degraded,
+        lang_violations: violations,
     }
 }
 
@@ -1061,7 +1067,50 @@ mod tests {
             output.raw, second,
             "the latest contract-valid reply rides out"
         );
+        assert!(
+            !output.lang_violations.is_empty(),
+            "the exhausted path hands over the judged violation list"
+        );
+        assert!(
+            output
+                .lang_violations
+                .iter()
+                .any(|violation| violation.category.rule_id() == "ForeignRun"),
+            "the judged rules ride the list: {:?}",
+            output.lang_violations
+        );
         assert_eq!(engine.call_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn contract_invalid_direct_degrade_delivers_an_empty_violation_list() {
+        let stage = super::LangStage {
+            engine: &MockEngine::new(),
+            prompts: &crate::prompt::PromptRegistry::new(),
+            kind: TaskKind::TranslateSentence,
+            input: &image_input(),
+            target: Lang::Zh,
+            base: &[],
+            model: "m",
+            locale: crate::model::Locale::Zh,
+        };
+        let reply = super::RoundReply {
+            body: "MARKER-契约无效的直降回复，不是 JSON".into(),
+            finish_reason: Some("stop".into()),
+            empty_completion: false,
+        };
+        let output = super::run_lang_rounds(stage, reply, 0, |_| {}, || {})
+            .await
+            .expect("the direct degrade hands the reply over, not an error");
+        assert!(output.lang_degraded);
+        assert!(
+            output.lang_violations.is_empty(),
+            "the contract-invalid path carries no judged list (the reply never validated)"
+        );
+        assert_eq!(
+            output.raw, "MARKER-契约无效的直降回复，不是 JSON",
+            "the raw reply rides out verbatim"
+        );
     }
 
     #[tokio::test]

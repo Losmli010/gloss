@@ -65,3 +65,6 @@
 - every_template_mentions_json / every_template_placeholder_is_declared /
   repair_instruction_renders_without_leftover_placeholders：模板清单缩至
   七份与八份，修复指令的 `json` 字样与占位符判定扩到细节全组合。
+- violation_briefs 四条（降级批注方案 §6）：行式同构与人读词注入、只载结构
+  事实零残留占位符、封顶加注册表截断注、空清单恒空——照语言修复指令测试
+  口径，注入词在测试内自备（位置词是界面文案，核心只做填充）。
