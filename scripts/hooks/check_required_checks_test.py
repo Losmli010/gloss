@@ -4,6 +4,7 @@
 （gh）；接口响应桩取自真实分支保护载荷的形态，工作流夹具按仓库现行工作
 流的形态最小化组装，逐用例删改触发单一规则。三条计划指定样例：全绿、缺
 一个必需检查名的红灯、评审专属作业不误报；另有评审专属作业缺失不漏报、
+行内评论作业收集进对账面且按豁免登记不报缺必需（红牌定位）、
 非拉取请求（PR）链路工作流不误报、推送条件作业不误报、矩阵展开名豁免、
 解析失败关闭与远端地址解析的边界。
 """
@@ -59,11 +60,15 @@ on:
     types: [opened, synchronize, reopened, edited]
   pull_request_review:
     types: [submitted, edited]
+  pull_request_review_comment:
+    types: [created, edited]
 
 jobs:
   text-gates:
     name: Text gates
-    if: github.event_name != 'pull_request_review'
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      github.event_name != 'pull_request_review_comment'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -74,12 +79,22 @@ jobs:
     if: >-
       github.event_name == 'pull_request_review' &&
       github.event.action != 'dismissed' &&
-      github.event.review.body != '' &&
       !endsWith(github.event.review.user.login, '[bot]')
     runs-on: ubuntu-latest
     steps:
       - name: Check review result
         run: python3 scripts/hooks/check_review_result.py body
+
+  review-comment:
+    name: Review comment check
+    if: >-
+      github.event_name == 'pull_request_review_comment' &&
+      !endsWith(github.event.comment.user.login, '[bot]') &&
+      github.event.comment.body != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check review comment
+        run: python3 scripts/hooks/check_review_comment.py body
 """
 
 RECONCILE_WORKFLOW = """\
@@ -99,6 +114,26 @@ jobs:
     steps:
       - name: Reconcile
         run: python3 scripts/hooks/check_required_checks.py
+"""
+
+REVIEW_COMMENT_WORKFLOW = """\
+name: Hooks
+
+on:
+  pull_request_review_comment:
+    types: [created, edited]
+
+jobs:
+  review-comment:
+    name: Review comment check
+    if: >-
+      github.event_name == 'pull_request_review_comment' &&
+      !endsWith(github.event.comment.user.login, '[bot]') &&
+      github.event.comment.body != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check review comment
+        run: python3 scripts/hooks/check_review_comment.py body
 """
 
 SCHEDULED_WORKFLOW = """\
@@ -177,6 +212,48 @@ def test_review_only_job_not_falsely_flagged_when_required(tmp_path: Path) -> No
 def test_review_only_job_missing_from_required_is_flagged(tmp_path: Path) -> None:
     directory = write_workflows(tmp_path, {"hooks.yml": HOOKS_WORKFLOW})
     assert reconcile(directory, ["Text gates"]) == ["Review result check"]
+
+
+def test_review_comment_job_collected_under_comment_event(tmp_path: Path) -> None:
+    directory = write_workflows(tmp_path, {"hooks.yml": REVIEW_COMMENT_WORKFLOW})
+    jobs, infra = check_required_checks.collect_expected_jobs(str(directory))
+    assert infra == []
+    assert [(job.check, job.events) for job in jobs] == [
+        ("Review comment check", ("pull_request_review_comment",))
+    ]
+
+
+def test_review_comment_job_exempted_not_flagged_missing(tmp_path: Path) -> None:
+    # 红牌定位：作业收集进对账面但不进必需清单，闸门作业齐备时缺必需不报，
+    # 豁免缘由显式登记
+    directory = write_workflows(tmp_path, {"hooks.yml": HOOKS_WORKFLOW})
+    jobs, _ = check_required_checks.collect_expected_jobs(str(directory))
+    gate_contexts = [
+        "Text gates",
+        "Commit message check",
+        "PR content check",
+        "Review result check",
+    ]
+    assert check_required_checks.missing_required(jobs, gate_contexts) == []
+    flagged = [
+        job.check for job in check_required_checks.missing_required(jobs, gate_contexts[:-1])
+    ]
+    assert flagged == ["Review result check"]
+    notes = check_required_checks.exemption_notes(jobs)
+    assert any("Review comment check" in note and "exempted" in note for note in notes)
+
+
+def test_comment_event_jobs_filtered_per_condition(tmp_path: Path) -> None:
+    # 评论事件声明后各作业按条件归位：纯文本门禁随事件守卫退出评审与评论
+    # 事件，评审结果与行内评论两作业各落其专属事件
+    directory = write_workflows(tmp_path, {"hooks.yml": HOOKS_WORKFLOW})
+    jobs, _ = check_required_checks.collect_expected_jobs(str(directory))
+    events = {job.check: job.events for job in jobs}
+    assert events == {
+        "Text gates": ("pull_request",),
+        "Review result check": ("pull_request_review",),
+        "Review comment check": ("pull_request_review_comment",),
+    }
 
 
 def test_schedule_only_workflow_not_expected(tmp_path: Path) -> None:

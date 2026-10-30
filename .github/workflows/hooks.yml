@@ -10,6 +10,9 @@ on:
   pull_request_review:
     # 评审结果提交与编辑后即核，正文模板门禁与评审模板门禁成对
     types: [submitted, edited]
+  pull_request_review_comment:
+    # 行内评论提交与编辑后即核，评论正文过书写规则
+    types: [created, edited]
 
 # 最小权限：只读代码与提交历史即可完成全部检查。
 permissions:
@@ -21,8 +24,10 @@ jobs:
   # 的格式作业执行，不在此重复，迁移前后持续集成执行的门禁集合不变。
   text-gates:
     name: Text gates
-    # 评审事件只跑评审结果检查，纯文本门禁不随评审重跑
-    if: github.event_name != 'pull_request_review'
+    # 评审与评论事件只跑各自的正文检查，纯文本门禁不随评审重跑
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      github.event_name != 'pull_request_review_comment'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -106,8 +111,10 @@ jobs:
 
   commit-msg:
     name: Commit message check
-    # 评审事件不引入提交，提交信息校验不随评审重跑
-    if: github.event_name != 'pull_request_review'
+    # 评审与评论事件不引入提交，提交信息校验不随评审重跑
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      github.event_name != 'pull_request_review_comment'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -214,6 +221,36 @@ jobs:
           # 空正文、五段骨架、声明核对与书写规则都在脚本内单点判定
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews/${{ github.event.review.id }}" --jq '.body // ""' > "$RUNNER_TEMP/review_body"
           python3 scripts/hooks/check_review_result.py "$RUNNER_TEMP/review_body"
+
+  # 行内评论检查：评审行内评论的正文过书写规则；单条评论没有模板骨架，不套
+  # 小节与声明判定；机器人评论与空评论没有可判定产物，条件跳过，排除条件只
+  # 放本工作流一处。作业定位红牌：不进必需检查清单，对账门禁按豁免登记放行，
+  # 红灯靠人看到后修复，不拦合并
+  review-comment:
+    name: Review comment check
+    if: >-
+      github.event_name == 'pull_request_review_comment' &&
+      !endsWith(github.event.comment.user.login, '[bot]') &&
+      github.event.comment.body != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run checker unit tests
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pip install markdown-it-py==$(python3 scripts/dev/tool_version.py markdown-it-py)
+          python3 -m pip install mdit-py-plugins==$(python3 scripts/dev/tool_version.py mdit-py-plugins)
+          python3 -m pytest scripts/hooks/check_review_comment_test.py -q
+
+      - name: Check review comment follows the prose rules
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 评论正文取自接口：空值折算为空串保取数形态良构，书写规则在脚本内单点判定
+          gh api "repos/${{ github.repository }}/pulls/comments/${{ github.event.comment.id }}" --jq '.body // ""' > "$RUNNER_TEMP/comment_body"
+          python3 scripts/hooks/check_review_comment.py "$RUNNER_TEMP/comment_body"
 
   # 必需检查对账：比对应然作业与主分支保护的必需检查清单，缺漏即报告；
   # 补设是托管平台配置动作，由管理员完成。对账作业以推送（push）事件条件

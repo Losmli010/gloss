@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """必需检查对账门禁：工作流在拉取请求（PR）链路上会运行的作业，逐一核对
 主分支保护的必需检查清单，应然作业名缺失即违规。对账三步：解析工作流目录
-下全部文件，只收集检查运行挂在拉取请求头提交、红灯能挡合并的三类链路事件
-（pull_request、pull_request_target、pull_request_review）下会运行的作业，
+下全部文件，只收集检查运行挂在拉取请求头提交、红灯能挡合并的四类链路事件
+（pull_request、pull_request_target、pull_request_review、
+pull_request_review_comment）下会运行的作业，
 作业条件把事件排除在外的不算；经托管平台接口取必需检查清单；差集判罚。
 收集口径宁误报不漏报：条件表达式的未知操作数与解析失败都按会运行处置，
-静态不可对账的作业名（矩阵展开）只走显式豁免登记，豁免与判罚之外没有第三
-条静默路径。工作流文件解析失败按无法完成判定失败关闭，绝不因没检查到而放
-行。必需检查的补设是托管平台的配置动作，由管理员完成，不进代码变更。
+静态不可对账的作业名（矩阵展开）与定位红牌不进闸门的作业只走显式豁免登记，
+豁免与判罚之外没有第三条静默路径。工作流文件解析失败按无法完成判定失败关
+闭，绝不因没检查到而放行。必需检查的补设是托管平台的配置动作，由管理员完
+成，不进代码变更。
 
 校验结果以带规则标识的违规条目列表承载，报告经统一诊断出口打印；退出码
 按全脚本统一约定：零为通过、一为发现违规、二为用法错误、三为无法完成判定。
@@ -31,7 +33,12 @@ PROTECTED_BRANCH = "main"
 
 # 拉取请求（PR）链路事件全集：检查运行挂在拉取请求头提交、红灯能挡合并的
 # 事件；定时与手动触发等不挂拉取请求的事件不进对账
-PR_EVENTS = ("pull_request", "pull_request_target", "pull_request_review")
+PR_EVENTS = (
+    "pull_request",
+    "pull_request_target",
+    "pull_request_review",
+    "pull_request_review_comment",
+)
 
 RULE_REQUIRED_CHECKS_MISSING = "REQUIRED-CHECKS-MISSING"
 
@@ -48,6 +55,11 @@ EXEMPTED_JOBS = {
         "matrix expansion produces one concrete check name per target; the"
         " expanded name (Build (aarch64-apple-darwin)) is verified manually"
         " against the required list"
+    ),
+    "Review comment check": (
+        "red card by design (gate process closure plan phase 3): the check"
+        " runs on review comment events and its red light does not block"
+        " merging; reconciliation judges gate-worthy jobs only"
     ),
 }
 
