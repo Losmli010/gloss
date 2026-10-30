@@ -185,14 +185,14 @@ jobs:
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq .body > "$RUNNER_TEMP/pr_body"
           python3 scripts/hooks/check_pr_prose.py "$RUNNER_TEMP/pr_body" "$RUNNER_TEMP/pr_title"
 
-  # 评审结果检查：评审人对拉取请求（PR）提交的评审结果过评审模板骨架、声明
-  # 核对与书写规则；空正文与机器人评审没有评审结果产物，跳过
+  # 评审结果检查：评审人对拉取请求（PR）提交的评审结果过空正文、评审模板
+  # 骨架、声明核对与书写规则判定；机器人评审没有评审结果产物，条件跳过；
+  # 空正文不在条件层排除——条件只排除撤销与机器人，空正文判罚收在脚本单点
   review-result:
     name: Review result check
     if: >-
       github.event_name == 'pull_request_review' &&
       github.event.action != 'dismissed' &&
-      github.event.review.body != '' &&
       !endsWith(github.event.review.user.login, '[bot]')
     runs-on: ubuntu-latest
     steps:
@@ -210,8 +210,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 评审结果正文取自接口：五段骨架、声明核对与书写规则三重判定
-          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews/${{ github.event.review.id }}" --jq .body > "$RUNNER_TEMP/review_body"
+          # 评审结果正文取自接口：正文空值折算为空串并入脚本的空正文判定，
+          # 空正文、五段骨架、声明核对与书写规则都在脚本内单点判定
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews/${{ github.event.review.id }}" --jq '.body // ""' > "$RUNNER_TEMP/review_body"
           python3 scripts/hooks/check_review_result.py "$RUNNER_TEMP/review_body"
 
   # 必需检查对账：比对应然作业与主分支保护的必需检查清单，缺漏即报告；

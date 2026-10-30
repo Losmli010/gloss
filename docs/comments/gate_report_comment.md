@@ -76,3 +76,4 @@
 ## 登记清单（续）
 
 - 2026-10-30 新登记 `LANGSPEC-LITERAL`（语言字符字面量越界，判罚点落约束门禁语言规范域，见 constraints_langspec 记录）：登记表行同步落在 gate_rules_comment.md；放行标记 langspec:allow 随规则进 ALLOW_REASON_MARKERS 共享缘由核对清单。
+- 2026-10-31 新登记 `REVIEW-EMPTY`（评审结果正文为空，判罚点落 check_review_result 的空正文分支，见 check_review_result 记录）：登记表行同步落在 gate_rules_comment.md。
