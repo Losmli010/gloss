@@ -8,10 +8,9 @@
                      非英文字节（ASCII）即违规；字符串字面量落在界面渲染
                      入口（显示调用点）上即便纯英文也违规——界面文案只许
                      出自文案表；测试模块、注释与属性内部（静态检查的
-                     元信息）不在判罚面。模型面向文案的统一处理点（模板
-                     资源加注入片段）整文件豁免；非文案字形与自检样张用
-                     行尾放行标记豁免，显示调用点之外的纯英文硬编码
-                     不可由文本判定，靠人工评审。
+                     元信息）不在判罚面。非文案字形与自检样张用行尾放行
+                     标记豁免，显示调用点之外的纯英文硬编码不可由文本判
+                     定，靠人工评审。
   装入点集中      —— 编译期引用文案资源只允许出现在统一装入点一处。
   词条表文件唯一  —— 声明词条前缀键的配置文件只允许在文案目录下。
   词条语言规范    —— 中文表词条必须纯中文，英文表词条必须纯英文；字符面
@@ -106,8 +105,6 @@ SCAN_BASES = (
     os.path.join("crates", "gloss-core", "src"),
     os.path.join("crates", "gloss-platform", "src"),
 )
-
-EXEMPT_FILE = "crates/gloss-core/src/prompt.rs"
 
 EMPTY_SURFACE_MESSAGE = "the copy scan surface is incomplete: missing source directories: %s"
 
@@ -265,10 +262,12 @@ def test_mod_brace(src: str, i: int) -> int | None:
         return None
 
 
-def literal_lines(src: str) -> tuple[set[int], set[int]]:
+def literal_lines(src: str, texts: dict[int, str] | None = None) -> tuple[set[int], set[int]]:
     """生产代码（注释、属性、#[cfg(test)] mod 项之外）里的字面量行号，返回
     （非 ASCII 字面量行号，字符串字面量行号）两个集合；前者是任意位置的
-    判罚面，后者供显示调用点检查用——纯英文的界面文案只能靠调用点形状判定。"""
+    判罚面，后者供显示调用点检查用——纯英文的界面文案只能靠调用点形状判定。
+    可选的 texts 出参按行收集字面量内容（转义序列不展开，与命中口径一致），
+    供按字符内容判罚的检查复用同一趟状态机；行号是该字符所在行。"""
     hits = set()
     sites = set()
     i, n, line = 0, len(src), 1
@@ -325,6 +324,8 @@ def literal_lines(src: str) -> tuple[set[int], set[int]]:
                 if ord(c) > 127:
                     hits.add(line)
                 sites.add(line)
+                if texts is not None:
+                    texts[line] = texts.get(line, "") + c
             i += 1
             continue
         if state == "char":
@@ -335,6 +336,8 @@ def literal_lines(src: str) -> tuple[set[int], set[int]]:
                 state = "code"
             elif ord(c) > 127 and test_depth == 0 and not test_pending:
                 hits.add(line)
+            if texts is not None and test_depth == 0 and not test_pending:
+                texts[line] = texts.get(line, "") + c
             i += 1
             continue
         if c == "/" and nxt == "/":
@@ -441,8 +444,6 @@ def literal_findings(root: str, loader: Any = None) -> list[gate_report.Finding]
     for base in SCAN_BASES:
         for path in rs_files(os.path.join(root, base)):
             rel = os.path.relpath(path, root).replace(os.sep, "/")
-            if rel == EXEMPT_FILE:
-                continue
             lines = read_lines(path, loader)
             hits, sites = literal_lines("\n".join(lines))
             for ln in sorted(hits | sites):

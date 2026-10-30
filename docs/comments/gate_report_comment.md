@@ -72,3 +72,7 @@
 - 分流责任在各门禁出口（聚合处按 advisory 字段拆清单），共享出口不抢跑：
   运行函数（run）只返回硬违规，消费运行函数的客户端钩子因此天然不见候
   选；命令行出口另打警告汇总，候选可见而退出码不为所动。
+
+## 登记清单（续）
+
+- 2026-10-30 新登记 `LANGSPEC-LITERAL`（语言字符字面量越界，判罚点落约束门禁语言规范域，见 constraints_langspec 记录）：登记表行同步落在 gate_rules_comment.md；放行标记 langspec:allow 随规则进 ALLOW_REASON_MARKERS 共享缘由核对清单。

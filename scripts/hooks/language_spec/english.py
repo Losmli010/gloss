@@ -33,7 +33,8 @@ def english_zone_problems(
                 rule=RULE_PROSE_ENGLISH,
                 path=path,
                 line=line,
-                message="%s must be pure English — %s" % (label, remedy),
+                message="%s must be pure English — %s"  # langspec:allow 消息排版破折号，非判罚事实
+                % (label, remedy),
                 evidence=text,
                 remedy=remedy,
             )

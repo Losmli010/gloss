@@ -469,6 +469,89 @@ mod tests {
     }
 
     #[test]
+    fn zh_and_en_allow_tables_share_only_the_neutral_face() {
+        let spec = spec();
+        let shared: Vec<char> = spec
+            .zh_allow
+            .iter()
+            .filter(|symbol| spec.en_allow.contains(symbol))
+            .copied()
+            .collect();
+        let mut math: Vec<char> = GOLDEN_MATH.chars().collect();
+        math.sort_unstable();
+        assert_eq!(shared, math);
+    }
+
+    fn layer_faces_with_between(data: &SourceData) -> Vec<(&'static str, Vec<char>)> {
+        let mut layers = layer_faces(data);
+        layers.push((
+            "shared.attached_between_digits",
+            data.shared.attached_between_digits.chars().collect(),
+        ));
+        layers
+    }
+
+    fn admitted_faces(data: &SourceData) -> Vec<(&'static str, Vec<char>)> {
+        let mut admitted = layer_faces(data);
+        admitted.push((
+            "shared.curly_quotes",
+            data.shared.curly_quotes.chars().collect(),
+        ));
+        admitted.push((
+            "shared.sentence_finals",
+            data.shared.sentence_finals.chars().collect(),
+        ));
+        admitted.push((
+            "shared.brackets",
+            data.shared
+                .brackets
+                .zh
+                .iter()
+                .chain(data.shared.brackets.en.iter())
+                .flat_map(|bound| bound.chars())
+                .collect(),
+        ));
+        admitted
+    }
+
+    #[test]
+    fn every_admitted_symbol_lands_on_exactly_one_layer() {
+        let data = data();
+        let layers = layer_faces_with_between(&data);
+        let home_of = |symbol: char| -> Vec<&'static str> {
+            layers
+                .iter()
+                .filter(|(_, face)| face.contains(&symbol))
+                .map(|(name, _)| *name)
+                .collect()
+        };
+        for (face_name, face) in &admitted_faces(&data) {
+            for symbol in face {
+                let home = home_of(*symbol);
+                if ".,-".contains(*symbol) {
+                    assert_eq!(
+                        home,
+                        vec!["en.punct", "shared.attached_between_digits"],
+                        "{symbol:?} in {face_name} must hold the documented double role"
+                    );
+                    continue;
+                }
+                assert_eq!(
+                    home.len(),
+                    1,
+                    "{symbol:?} in {face_name} lands in {home:?} — exactly one layer expected"
+                );
+            }
+        }
+        for symbol in data.shared.emoji_bare.chars() {
+            assert!(
+                home_of(symbol).is_empty(),
+                "emoji {symbol:?} must stay outside every layer"
+            );
+        }
+    }
+
+    #[test]
     fn ranges_are_wellformed_and_pairwise_disjoint() {
         let spec = spec();
         let classes: [(&str, &Vec<(u32, u32)>); 7] = [

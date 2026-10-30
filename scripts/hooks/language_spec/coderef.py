@@ -29,6 +29,8 @@ if _HOOKS not in sys.path:
 import gate_report  # noqa: E402
 
 from language_spec.chinese import (  # noqa: E402
+    _GLOSS_CLOSE,
+    _GLOSS_OPEN,
     CJK,
     CJKWISE,
     DIRECTIVE_SEG,
@@ -115,7 +117,11 @@ TAG_FENCE_LANGS = frozenset({"html", "xml", "svg"})
 FENCE_COMMENT_LANGS = HASH_FENCE_LANGS | SLASH_FENCE_LANGS | TAG_FENCE_LANGS
 
 # 各门禁共用的行尾放行标记：紧贴所在行并注明缘由即豁免
-MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps):allow\b")
+MARKER = re.compile(r"\b(?:secrets|lines|i18n|constraints|deps|langspec):allow\b")
+
+# 列表与引用记号：段落头的有序列表记号，顿号是中文序号的点形态——结构记号
+# 正则住代码（计划 §7.3），字面量随 langspec:allow 放行
+LIST_MARKER = re.compile(r"^(?:[-*+]|\d+[.、]|>)\s+")  # langspec:allow 顿号属列表记号正则
 
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -132,6 +138,17 @@ MATH_SPAN = re.compile(r"\$\$%(b)s\$\$|\$%(b)s\$" % {"b": MATH_SPAN_BODY})
 # 态与行内代码形态同豁；名限标识符字符，与渲染端的占位符替换语法同形，内
 # 嵌空白或汉字的写法构不成段，不豁免
 PLACEHOLDER_SPAN = re.compile(r"\{\{[A-Za-z0-9_.-]+\}\}")
+
+# 注记括号尾注：标题尾部携带的全角括号注记（限定符等）随注记记号剥除——
+# 括号对自语言规范数据源派生，与注记容器同一字符事实
+ANNOTATION_TAIL = re.compile(
+    re.escape(_GLOSS_OPEN)
+    + "[^"
+    + re.escape(_GLOSS_CLOSE)
+    + "]*"
+    + re.escape(_GLOSS_CLOSE)
+    + r"\s*$"
+)
 
 # 引用记号前缀：块引用内的围栏内容行带着引用记号落地，剥后再认注释形态
 QUOTE_PREFIX = re.compile(r"^(?:\s*>[ \t]?)+")
@@ -156,7 +173,7 @@ def prose_line_problems(
     text = text.strip()
     if not text:
         return []
-    text = re.sub(r"^(?:[-*+]|\d+[.、]|>)\s+", "", text)  # 列表与引用记号非表述
+    text = LIST_MARKER.sub("", text)  # 列表与引用记号非表述
     text = re.sub(r"^\[[ xX]\]\s+", "", text)  # 任务列表记号：勾选框非表述
     text = re.sub(r"`[^`]*`", " ", text)  # 行内代码：命令、路径与标识符豁免
     text = PLACEHOLDER_SPAN.sub(" ", text)  # 模板占位符段：双花括号占位符是模板语法记号，豁免
@@ -174,8 +191,9 @@ def prose_line_problems(
                 rule=RULE_PROSE_CODEREF,
                 path=path,
                 line=line,
-                message="text contains a code segment — move references and samples to the record"
-                " files",
+                message=(
+                    "text contains a code segment — move references and samples to the record files"  # langspec:allow 消息排版破折号，非判罚事实
+                ),
                 evidence=text,
                 remedy=CODEREF_REMEDY,
             )
@@ -186,8 +204,9 @@ def prose_line_problems(
                 rule=RULE_PROSE_SECTION_REF,
                 path=path,
                 line=line,
-                message='text contains a "§ section number" style external reference — cite it in'
-                " the record files",
+                message=(  # langspec:allow 消息排版破折号，非判罚事实
+                    'text contains a "§ section number" style external reference — cite it in the record files'  # langspec:allow 消息排版破折号，非判罚事实
+                ),
                 evidence=text,
                 remedy=SECTION_REF_REMEDY,
             )
@@ -253,8 +272,9 @@ def fence_comment_problems(path: str, lineno: int, line: str, lang: str) -> list
                 rule=RULE_DOC_CODE_CODEREF,
                 path=path,
                 line=lineno,
-                message="code block comment contains a code segment — move references and"
-                " samples to the record files",
+                message=(  # langspec:allow 消息排版破折号，非判罚事实
+                    "code block comment contains a code segment — move references and samples to the record files"  # langspec:allow 消息排版破折号，非判罚事实
+                ),
                 evidence=evidence,
                 remedy=CODE_CODEREF_REMEDY,
             )
@@ -352,8 +372,9 @@ def markdown_line_problems(
                     rule=RULE_DOC_CODE_ENGLISH,
                     path=path,
                     line=lineno,
-                    message="inline code contains Chinese — backticks hold English-only code;"
-                    " write the Chinese in the prose",
+                    message=(  # langspec:allow 消息排版破折号，非判罚事实
+                        "inline code contains Chinese — backticks hold English-only code; write the Chinese in the prose"  # langspec:allow 消息排版破折号，非判罚事实
+                    ),
                     evidence=span,
                     remedy=CODE_ENGLISH_REMEDY,
                 )
@@ -362,7 +383,7 @@ def markdown_line_problems(
         return out  # 引用定义：行内链接的块级同族记号，结构性豁免，反引号判罚先于豁免
     heading = re.match(r"^#+\s*(.*)$", stripped)
     if heading:
-        key = re.sub(r"（[^）]*）\s*$", "", heading.group(1)).strip()
+        key = ANNOTATION_TAIL.sub("", heading.group(1)).strip()
         if re.fullmatch(r"[A-Za-z0-9_]+", key):
             return out  # 小节标题即测试名，双向核对的键
         stripped = heading.group(1)

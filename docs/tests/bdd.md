@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 715 | `just test` |
+| 单元测试 | 717 | `just test` |
 
 ## 人工测试
 
@@ -688,6 +688,8 @@
 | symbol_layers_stay_disjoint | 符号归位互斥 | 给定场景标点、中性、附随（前邻、后邻）与家族各面，当两两求交，则交集为空；数字夹住面只容与西文标点集重叠（句点逗号短横按位置双角色，`R3` 既定） | 2026-10-30 |
 | ranges_are_wellformed_and_pairwise_disjoint | 区段良构且互斥 | 给定表情区段与六类文字系统区段，当逐段核对与跨类求交，则起止有序、段内不叠、类间不相交 | 2026-10-30 |
 | simplified_pairs_stay_wellformed | 简繁对串良构 | 给定嵌入对串，当逐对核对，则长度为偶、繁简字形有别、按繁体码位升序且繁体不重 | 2026-10-30 |
+| zh_and_en_allow_tables_share_only_the_neutral_face | 中西允许表互斥对账 | 给定派生允许表（场景标点面并中性面两份），当双向求交，则交集恰为中性面成员——场景标点两面无共同成员（`R2`） | 2026-10-30 |
+| every_admitted_symbol_lands_on_exactly_one_layer | 现网符号恰属一面 | 给定收录面全体（场景标点、中性、附随三向、家族、弯引号定界、句末标点与括号对），当逐符号查归位层，则恰属一面，句点逗号短横的西文标点与数字夹住双角色是唯一例外，表情事实不落任何层 | 2026-10-30 |
 
 ### `crates/gloss-core/src/wordings.rs`
 
