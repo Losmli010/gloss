@@ -121,6 +121,7 @@ REGISTERED_RULES = frozenset(
         "UI-STYLE-DARK",
         "UI-STYLE-FONT",
         "UI-STYLE-CONST",
+        "REQUIRED-CHECKS-MISSING",
     }
 )
 

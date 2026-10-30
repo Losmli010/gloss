@@ -213,3 +213,26 @@ jobs:
           # 评审结果正文取自接口：五段骨架、声明核对与书写规则三重判定
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews/${{ github.event.review.id }}" --jq .body > "$RUNNER_TEMP/review_body"
           python3 scripts/hooks/check_review_result.py "$RUNNER_TEMP/review_body"
+
+  # 必需检查对账：比对应然作业与主分支保护的必需检查清单，缺漏即报告；
+  # 补设是托管平台配置动作，由管理员完成。对账作业以推送（push）事件条件
+  # 只在主分支推送后运行，拉取请求与评审事件不产生本次对账的检查名，对账
+  # 脚本与必需清单之间不留自指。
+  required-checks-reconcile:
+    name: Required checks reconcile
+    if: github.event_name == 'push'
+    # 最小权限：本作业只读代码。分支保护接口需要管理面只读授权，而令牌
+    # （GITHUB_TOKEN）的工作流权限作用域没有管理面，凭据走仓库密钥
+    # （REQUIRED_CHECKS_TOKEN）；密钥由管理员配置细粒度令牌、只授管理面
+    # 只读，缺席时本作业按无法完成判定红灯，不静默放行
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Reconcile required status checks with branch protection
+        env:
+          GH_TOKEN: ${{ secrets.REQUIRED_CHECKS_TOKEN }}
+        run: python3 scripts/hooks/check_required_checks.py
