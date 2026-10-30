@@ -634,9 +634,9 @@ mod live_tests {
         if !restore_contracted {
             let restored = clipboard.get_text().expect("clipboard should be readable");
             assert!(
-                restored == preset,
-                "a declined round must not inject or restore; the board keeps its preset \
-                 (got {} bytes, outcome ok={})",
+                restored == clobber,
+                "a declined round must not inject or restore; the board keeps the external \
+                 write (got {} bytes, outcome ok={})",
                 restored.len(),
                 outcome.is_ok()
             );
