@@ -44,12 +44,14 @@ from typing import Any
 import gate_report
 import rg_engine
 import tomllib
-from language_spec.chinese import CJKWISE, LATIN
+from language_spec.chinese import CJKWISE
 from language_spec.coderef import ZONE_CHINESE, ZONE_ENGLISH, prose_line_problems
 
 RULE = "ui copy lives in the i18n catalog"
 OWNER = "crates/gloss-app/src/ui/i18n.rs"
 CATALOG_DIR = "crates/gloss-app/i18n"
+
+LATIN = re.compile(r"[A-Za-z]")
 CATALOG_FILES = ("zh.toml", "en.toml")
 REGISTRY_DIR = "crates/gloss-core/prompts/wordings"
 REGISTRY_FILES = ("zh.toml", "en.toml")

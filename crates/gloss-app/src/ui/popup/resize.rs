@@ -179,13 +179,12 @@ mod kittest_tests {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
-    const WIDTH: f32 = crate::ui::style::geometry::window::OVERLAY_WIDTH as f32;
-
     use egui::vec2;
     use egui_kittest::{Harness, kittest::Queryable};
 
     use super::super::{RenderState, draw};
     use super::*;
+    use crate::ui::style::geometry::window::OVERLAY_WIDTH;
 
     use crate::machine::OverlayView;
     use crate::ui::i18n::Text;
@@ -258,7 +257,7 @@ mod kittest_tests {
     #[test]
     fn corner_drag_anchors_the_press_and_reports_pointer_offsets() {
         let (mut harness, resizes) = resize_harness(word_card_view());
-        harness.set_size(vec2(WIDTH, 400.0));
+        harness.set_size(vec2(OVERLAY_WIDTH as f32, 400.0));
         harness.run();
         let corner = harness
             .query_all_by_label_contains("调整浮层大小")
@@ -281,7 +280,7 @@ mod kittest_tests {
                     east: true,
                     west: false,
                 },
-                window: vec2(WIDTH, 400.0),
+                window: vec2(OVERLAY_WIDTH as f32, 400.0),
                 pointer: corner.center(),
             }),
             "按下帧上交边界组合、按下时刻窗口尺寸与指针位置"
@@ -313,7 +312,7 @@ mod kittest_tests {
     #[test]
     fn west_edge_drag_reports_the_west_edge_only() {
         let (mut harness, resizes) = resize_harness(word_card_view());
-        harness.set_size(vec2(WIDTH, 400.0));
+        harness.set_size(vec2(OVERLAY_WIDTH as f32, 400.0));
         harness.run();
         let west = harness
             .query_all_by_label_contains("调整浮层大小")

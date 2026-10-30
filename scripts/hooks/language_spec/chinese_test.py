@@ -26,7 +26,7 @@ def test_gloss_allowed() -> None:
 
 def test_bare_word_flagged() -> None:
     problems = chinese.body_problems("t", 1, "中文头说明 wgpu 渲染。", "header")
-    assert any("foreign letters" in p for p in messages(problems))
+    assert any("outside the derived whitelist" in p for p in messages(problems))
 
 
 def test_nested_brackets_pass_and_stay_single_language() -> None:
@@ -51,7 +51,7 @@ def test_stray_close_bracket_flagged() -> None:
 def test_unclosed_bracket_content_checked_as_body() -> None:
     problems = chinese.body_problems("t", 1, "版本（v1.2 缺右括号。", "header")
     assert any("unpaired" in p for p in messages(problems))
-    assert any("foreign letters" in p for p in messages(problems))
+    assert any("outside the derived whitelist" in p for p in messages(problems))
 
 
 def test_decimal_point_allowed() -> None:
@@ -146,7 +146,7 @@ def test_command_mixed_with_chinese_still_flagged() -> None:
     problems = chinese.chinese_zone_problems(
         "t", 1, "python3 scripts/hooks/check_demo.py 仓库根", "text"
     )
-    assert any("foreign letters" in m for m in messages(problems))
+    assert any("outside the derived whitelist" in m for m in messages(problems))
 
 
 def test_english_prose_without_structural_char_flagged() -> None:
@@ -157,7 +157,7 @@ def test_english_prose_without_structural_char_flagged() -> None:
 
 def test_english_sentence_with_period_flagged() -> None:
     problems = chinese.chinese_zone_problems("t", 1, "make sure it works.", "text")
-    assert any("foreign letters" in m for m in messages(problems))
+    assert any("outside the derived whitelist" in m for m in messages(problems))
 
 
 def test_math_operators_allowed_in_chinese_body() -> None:
@@ -186,12 +186,12 @@ def test_extended_han_counts_as_cjk_wise() -> None:
 
 def test_latin_variable_still_flagged_without_markup() -> None:
     problems = chinese.body_problems("t", 1, "当 x = 1 时成立。", "text")
-    assert any("foreign letters" in p for p in messages(problems))
+    assert any("outside the derived whitelist" in p for p in messages(problems))
 
 
 def test_markdown_collision_signs_still_flagged() -> None:
     problems = chinese.body_problems("t", 1, "斜杠 / 与竖线 | 不放行。", "text")
-    assert any("foreign letters" in p for p in messages(problems))
+    assert any("outside the derived whitelist" in p for p in messages(problems))
 
 
 def test_nbsp_and_ideographic_space_allowed() -> None:
@@ -255,7 +255,7 @@ def test_emoji_facts_stay_outside_the_whitelist() -> None:
 
 def test_emoji_chars_flag_as_foreign_in_body() -> None:
     problems = chinese.chinese_zone_problems("t", 1, "好评\U0001f44d再见了。", "text")
-    assert any("foreign letters" in m for m in messages(problems))
+    assert any("outside the derived whitelist" in m for m in messages(problems))
 
 
 # ---- 括号锚点连贯：软约束候选，警告不计违规 ----
@@ -357,3 +357,12 @@ def test_traditional_set_derives_from_the_shared_pair_file() -> None:
     for glyph in GOLDEN_PAIR_HEAD + GOLDEN_PAIR_TAIL:
         assert glyph in chinese._TRADITIONAL, glyph
     assert "这" not in chinese._TRADITIONAL
+
+
+def test_ranges_reversed_token_raises_with_token_context() -> None:
+    try:
+        chinese._ranges("30-1F", "ranges.han")
+    except ValueError as error:
+        assert "reversed" in str(error) and "30-1F" in str(error)
+    else:
+        raise AssertionError("reversed range must raise with the token in context")

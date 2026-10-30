@@ -5,7 +5,8 @@
 
 ## 模块的由来（2026-10-30，重构计划阶段 3 自 prompt.rs 拆出）
 
-- 重构计划阶段 3 拆分触及五百行上限的 `prompt.rs`：消息契约类型
+- 重构计划阶段 3 拆分行数占用最高的 `prompt.rs`（生产行 452、上限 500）：
+  消息契约类型
   （`Role`、`MessageContent`、`ContentPart`、`ChatMessage` 及构造器）
   按计划切点整段迁入本文件，类型与构造器逐字移动；既有决策随代码
   迁入本文件（原 `prompt_comment.md` 各节）。

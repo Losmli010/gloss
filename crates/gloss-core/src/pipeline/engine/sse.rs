@@ -50,7 +50,7 @@ impl SseDecoder {
                 line.pop();
             }
             if let Some(item) = self.decode_line(&line) {
-                let done = matches!(item, SseItem::Done { .. });
+                let done = matches!(item, SseItem::Done { .. } | SseItem::Failed(_));
                 items.push(item);
                 if done {
                     break;
@@ -82,6 +82,7 @@ impl SseDecoder {
 
     fn decode_line(&mut self, line: &[u8]) -> Option<SseItem> {
         let Ok(text) = std::str::from_utf8(line) else {
+            self.done = true;
             return Some(SseItem::Failed(GlossError::EngineResponse(
                 "non-utf8 line in stream".into(),
             )));
@@ -105,12 +106,14 @@ impl SseDecoder {
 
     fn decode_data(&mut self, payload: &str) -> Option<SseItem> {
         let Ok(chunk) = serde_json::from_str::<StreamChunk>(payload) else {
+            self.done = true;
             return Some(SseItem::Failed(GlossError::EngineResponse(format!(
                 "unparsable stream chunk: {}",
                 truncate(payload)
             ))));
         };
         if let Some(error) = chunk.error {
+            self.done = true;
             return Some(SseItem::Failed(map_api_error(&error)));
         }
         let mut finish_reason = None;
@@ -459,6 +462,34 @@ mod tests {
             decoder.push("data: {\"choices\":[{\"delta\":{\"content\":\"迟\"}}]}\n\n".as_bytes()),
             Vec::new(),
             "a failure terminates the stream: no items follow it"
+        );
+        assert_eq!(decoder.finish(), Vec::new());
+    }
+
+    #[test]
+    fn a_failed_chunk_terminates_the_decoder_too() {
+        let mut decoder = SseDecoder::new();
+        assert_eq!(
+            decoder.push(b"data: {not-json}\n"),
+            vec![SseItem::Failed(GlossError::EngineResponse(
+                "unparsable stream chunk: {not-json}".into()
+            ))],
+            "an unparsable chunk is a failure item"
+        );
+        assert_eq!(
+            decoder.push("data: {\"choices\":[{\"delta\":{\"content\":\"迟\"}}]}\n".as_bytes()),
+            Vec::new(),
+            "a failure terminates the stream: no items follow it"
+        );
+
+        let mut decoder = SseDecoder::new();
+        let items = decoder.push(b"data: {\"error\":{\"message\":\"boom\"}}\n");
+        assert_eq!(items.len(), 1, "a server error object is a failure item");
+        assert!(matches!(items[0], SseItem::Failed(_)));
+        assert_eq!(
+            decoder.push(b"data: [DONE]\n"),
+            Vec::new(),
+            "a server error object terminates the stream: the done sentinel is dropped"
         );
         assert_eq!(decoder.finish(), Vec::new());
     }

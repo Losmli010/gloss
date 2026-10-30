@@ -51,17 +51,17 @@ def test_english_only_header_flagged(tmp_path: Path) -> None:
 
 def test_bare_english_words_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "//! 中文头说明 functional core 在此。\n\nfn main() {}\n")
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_single_english_word_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "//! 中文头借用 helper 渲染。\n\nfn main() {}\n")
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_bare_proper_noun_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "//! 中文头说明 wgpu 渲染。\n\nfn main() {}\n")
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_gloss_annotation_allowed(tmp_path: Path) -> None:
@@ -103,7 +103,7 @@ def test_nested_bracket_allowed(tmp_path: Path) -> None:
 
 def test_halfwidth_punctuation_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "//! 中文头, 含半角逗号。\n\nfn main() {}\n")
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_fullwidth_punctuation_allowed(tmp_path: Path) -> None:
@@ -120,7 +120,7 @@ def test_doc_reference_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "//! 中文头：规则见项目说明文档。\n\nfn main() {}\n")
     assert problems == []
     problems = run_gate(tmp_path, "//! 中文头：规则见 AGENTS.md。\n\nfn main() {}\n")
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_section_reference_flagged(tmp_path: Path) -> None:
@@ -265,7 +265,7 @@ def test_safety_released_after_code_gap(tmp_path: Path) -> None:
 
 def test_nonrust_mixed_language_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "# 中文注释里夹 generic 词。\n", rel="conf.toml")
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_nonrust_gloss_annotation_allowed(tmp_path: Path) -> None:
@@ -287,12 +287,12 @@ def test_nonrust_code_reference_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "# 中文注释：配置见依赖合规清单。\n", rel="conf.toml")
     assert problems == []
     problems = run_gate(tmp_path, "# 中文注释：配置见 deny.toml。\n", rel="conf.toml")
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_nonrust_halfwidth_punctuation_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "# 中文注释, 含半角逗号。\n", rel="conf.toml")
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_nonrust_backtick_flagged(tmp_path: Path) -> None:
@@ -314,7 +314,7 @@ def test_nonrust_directive_lines_exempt(tmp_path: Path) -> None:
 
 def test_python_module_docstring_gated(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, '"""中文说明带 generic 词。"""\n', rel="sample.py")
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_python_module_docstring_backtick_flagged(tmp_path: Path) -> None:
@@ -358,9 +358,9 @@ def test_js_css_html_comments_flagged(tmp_path: Path) -> None:
         tmp_path, "/* 中文注释带 generic 词。 */\nbody { color: red; }\n", rel="web/s.css"
     )
     html = run_gate(tmp_path, "<div></div>\n<!-- 中文分节 Hero -->\n", rel="web/i.html")
-    assert any("foreign letters" in p for p in js)
-    assert any("foreign letters" in p for p in css)
-    assert any("foreign letters" in p for p in html)
+    assert any("outside the derived whitelist" in p for p in js)
+    assert any("outside the derived whitelist" in p for p in css)
+    assert any("outside the derived whitelist" in p for p in html)
 
 
 def test_nonrust_rust_files_unaffected(tmp_path: Path) -> None:
@@ -386,7 +386,7 @@ def test_bdd_table_first_cell_and_date_exempt(tmp_path: Path) -> None:
 
 def test_bdd_prose_bare_word_flagged(tmp_path: Path) -> None:
     problems = run_md(tmp_path, "| some_test_name | 中文目标 generic 场景 | 2026-09-19 |\n")
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_bdd_identifier_heading_exempt(tmp_path: Path) -> None:
@@ -396,7 +396,7 @@ def test_bdd_identifier_heading_exempt(tmp_path: Path) -> None:
 
 def test_bdd_chinese_heading_checked(tmp_path: Path) -> None:
     problems = run_md(tmp_path, "### 中文小节带 generic 词\n")
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_bdd_pure_command_cell_exempt(tmp_path: Path) -> None:
@@ -438,7 +438,7 @@ def test_md_prompts_placeholder_spans_exempt(tmp_path: Path) -> None:
     assert run_md(tmp_path, "正文用{{target}}书写，逐条修正 {{violations}} 清单。\n", rel=rel) == []
     assert run_md(tmp_path, "{{violations}}\n", rel=rel) == []
     problems = run_md(tmp_path, "正文用{{target}}书写带 generic 词。\n", rel=rel)
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_md_prompts_braced_prose_not_placeholder(tmp_path: Path) -> None:
@@ -447,7 +447,7 @@ def test_md_prompts_braced_prose_not_placeholder(tmp_path: Path) -> None:
         "正文用 {{ some value }} 书写。\n",
         rel="crates/gloss-core/prompts/zh/repair.md",
     )
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_md_nested_badge_link_exempt(tmp_path: Path) -> None:

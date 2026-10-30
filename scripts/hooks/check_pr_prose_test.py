@@ -63,7 +63,7 @@ def test_body_bare_word_flagged(tmp_path: Path) -> None:
     problems = check_pr_prose.run(
         make_root(tmp_path), "## 测试（必填）\n\n改动见 docs/tests/bdd.md\n"
     )
-    assert any("foreign letters" in p for p in problems)
+    assert any("outside the derived whitelist" in p for p in problems)
 
 
 def test_body_backtick_and_fence_ok(tmp_path: Path) -> None:

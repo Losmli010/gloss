@@ -195,7 +195,7 @@ pub(super) fn violation_name(locale: Locale, rule_id: &str) -> Option<&'static s
         Some(wording) => Some(&wording.name),
         None => {
             warn!(
-                thread = thread::TOKIO,
+                thread = thread::UI,
                 key = rule_id,
                 "violation name key missing in the prompt registry, the degraded hint \
                  falls back to the generic wording"
