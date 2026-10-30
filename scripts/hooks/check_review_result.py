@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""评审结果提交门禁：评审结果正文过评审模板骨架、声明核对与书写规则三重判
-定。评审人对拉取请求（PR）提交评审时，评审结果是评审人的正式产物，与正文
-模板承载的作者声明配对；骨架小节与声明清单的解析复用模板文件门禁的同一批
-单点，两处判定同源不漂移。骨架缺段或声明缺项即拦；书写规则复用语言规范库
-的标记语言遍历，与拉取请求正文同一口径。正文模板缺失时声明核对无法同源，
-按无法完成判定处置，绝不因没检查到而放行。
+"""评审结果提交门禁：评审结果正文先过空正文判定，再过评审模板骨架、声明
+核对与书写规则三重判定。评审人对拉取请求（PR）提交评审时，评审结果是评审
+人的正式产物，与正文模板承载的作者声明配对；正文为空或纯空白的评审没有任何
+正式产物，单条判罚空正文规则、不叠加骨架与声明条目——可行动的修复只有补写
+评审结果一条，判罚清单保持一条。骨架小节与声明清单的解析复用模板文件门禁
+的同一批单点，两处判定同源不漂移。骨架缺段或声明缺项即拦；书写规则复用语言
+规范库的标记语言遍历，与拉取请求正文同一口径。正文模板缺失时声明核对无法同
+源，按无法完成判定处置，绝不因没检查到而放行。
 
 校验结果以带规则标识的违规条目列表承载，报告经统一诊断出口打印；退出码
 按全脚本统一约定：零为通过、一为发现违规、二为用法错误、三为无法完成判定。
@@ -22,6 +24,10 @@ import check_review_template
 import gate_report
 from language_spec.coderef import markdown_problems
 
+RULE_REVIEW_EMPTY = "REVIEW-EMPTY"
+
+REVIEW_EMPTY_REMEDY = "write the review result following the review result template"
+
 REVIEW_SECTION_REMEDY = (
     "add the missing section, copying the heading from the review result template"
 )
@@ -29,6 +35,22 @@ REVIEW_SECTION_REMEDY = (
 REVIEW_DECL_REMEDY = (
     "cover every required declaration from the pull request template in the checklist"
 )
+
+
+def empty_body_findings(body: str) -> list[gate_report.Finding]:
+    """空正文分支：正文为空或纯空白即单条判罚，不叠加骨架与声明条目——无产
+    物的评审只有补写评审结果一条可行动的修复。"""
+    if body.strip() == "":
+        return [
+            gate_report.Finding(
+                rule=RULE_REVIEW_EMPTY,
+                path="",
+                line=0,
+                message="review result body is empty or whitespace only",
+                remedy=REVIEW_EMPTY_REMEDY,
+            )
+        ]
+    return []
 
 
 def skeleton_findings(body: str) -> list[gate_report.Finding]:
@@ -91,13 +113,17 @@ def prose_findings(body: str) -> list[gate_report.Finding]:
 
 
 def findings(root: str, body: str) -> list[gate_report.Finding]:
-    """骨架、声明核对与书写规则三合一，返回带规则标识的违规条目。"""
+    """空正文单条判罚；非空正文走骨架、声明核对与书写规则三合一，返回带规
+    则标识的违规条目。"""
+    empty = empty_body_findings(body)
+    if empty:
+        return empty
     return skeleton_findings(body) + declaration_findings(body, root) + prose_findings(body)
 
 
 def run(root: str, body: str) -> list[str]:
-    """评审结果三重判定的运行函数，返回违规列表（软约束候选不计入），供客
-    户端钩子复用。"""
+    """评审结果空正文分支加三重判定的运行函数，返回违规列表（软约束候选不
+    计入），供客户端钩子复用。"""
     return [gate_report.render(f) for f in findings(root, body) if not f.advisory]
 
 
@@ -128,7 +154,7 @@ def main() -> int:
         if any(f.rule == gate_report.RULE_INFRA for f in found):
             return gate_report.EXIT_INFRA
         return gate_report.EXIT_VIOLATION
-    print("  ok: review result: skeleton, declaration sync and prose rules")
+    print("  ok: review result: body, skeleton, declaration sync and prose rules")
     return gate_report.EXIT_PASS
 
 

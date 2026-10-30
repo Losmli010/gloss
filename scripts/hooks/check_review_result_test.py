@@ -1,9 +1,10 @@
-"""评审结果提交门禁的单测：五段骨架、声明同源与书写规则逐条覆盖。
+"""评审结果提交门禁的单测：空正文分支、五段骨架、声明同源与书写规则逐条
+覆盖。
 
 被测入口是门禁的发现函数与运行函数，返回违规列表，不落进程；正文模板写入
 测试框架（pytest）的临时目录作同源基线，夹具正文按书写规则白名单组句；正
-文模板缺失是声明核对无法完成判定的前置故障，按基础设施条目判罚；另含反馈
-契约：子进程端到端锁退出码。
+文模板缺失是声明核对无法完成判定的前置故障，按基础设施条目判罚；空正文与
+纯空白正文并入同一条判罚；另含反馈契约：子进程端到端锁退出码。
 """
 
 from __future__ import annotations
@@ -71,6 +72,24 @@ def rules(root: str, body: str) -> list[str]:
     return [f.rule for f in check_review_result.findings(root, body)]
 
 
+# ---- 空正文分支 ----
+
+
+def test_empty_body_flags_review_empty_only(tmp_path: Path) -> None:
+    found = check_review_result.findings(make_root(tmp_path), "")
+    assert [f.rule for f in found] == ["REVIEW-EMPTY"]
+
+
+def test_whitespace_only_body_flags_review_empty(tmp_path: Path) -> None:
+    found = check_review_result.findings(make_root(tmp_path), " \n\t\n　\n")
+    assert [f.rule for f in found] == ["REVIEW-EMPTY"]
+
+
+def test_empty_body_remedy_points_to_writing_the_result(tmp_path: Path) -> None:
+    (finding,) = check_review_result.findings(make_root(tmp_path), "")
+    assert finding.remedy == check_review_result.REVIEW_EMPTY_REMEDY
+
+
 # ---- 五段骨架 ----
 
 
@@ -81,11 +100,6 @@ def test_conforming_submission_passes(tmp_path: Path) -> None:
 def test_missing_section_flagged(tmp_path: Path) -> None:
     body = CONFORMING.replace("## 判定\n\n通过，机器门禁全绿且声明核对成立。\n\n", "")
     assert rules(make_root(tmp_path), body) == ["REVIEW-SECTION"]
-
-
-def test_empty_body_flags_skeleton_and_declarations(tmp_path: Path) -> None:
-    found = check_review_result.findings(make_root(tmp_path), "")
-    assert {f.rule for f in found} == {"REVIEW-SECTION", "REVIEW-DECL"}
 
 
 # ---- 声明核对同源 ----
@@ -131,6 +145,12 @@ def test_run_returns_rendered_strings(tmp_path: Path) -> None:
     assert "misses required section" in problems[0]
 
 
+def test_run_flags_empty_body_as_single_violation(tmp_path: Path) -> None:
+    problems = check_review_result.run(make_root(tmp_path), "")
+    assert len(problems) == 1
+    assert "empty or whitespace only" in problems[0]
+
+
 # 命令行用例对照仓库根的真实正文模板判定（被测脚本的仓库根取自脚本位置），
 # 兼作夹具与真实模板的同源哨兵
 def test_cli_exit_codes(tmp_path: Path) -> None:
@@ -144,6 +164,12 @@ def test_cli_exit_codes(tmp_path: Path) -> None:
     violated = subprocess.run([sys.executable, str(SCRIPT), str(bad)], capture_output=True)
     assert violated.returncode == 1
     assert b"REVIEW-SECTION" in violated.stderr
+
+    blank = tmp_path / "blank.md"
+    blank.write_text(" \n\t\n", encoding="utf-8")
+    empty = subprocess.run([sys.executable, str(SCRIPT), str(blank)], capture_output=True)
+    assert empty.returncode == 1
+    assert b"REVIEW-EMPTY" in empty.stderr
 
     usage = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True)
     assert usage.returncode == 2
