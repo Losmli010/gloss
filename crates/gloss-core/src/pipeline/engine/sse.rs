@@ -415,6 +415,55 @@ mod tests {
     }
 
     #[test]
+    fn done_is_the_last_item_even_with_trailing_lines() {
+        let mut decoder = SseDecoder::new();
+        let stream = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"末\"}}]}\n\n",
+            "data: [DONE]\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"迟\"}}]}\n\n",
+        );
+        assert_eq!(
+            decoder.push(stream.as_bytes()),
+            vec![
+                SseItem::Delta("末".into()),
+                SseItem::Done {
+                    finish_reason: None
+                },
+            ],
+            "the done sentinel is the final item of the stream"
+        );
+        assert_eq!(
+            decoder.push(b"data: [DONE]\n"),
+            Vec::new(),
+            "bytes after the done sentinel yield nothing"
+        );
+        assert_eq!(
+            decoder.finish(),
+            Vec::new(),
+            "finish after the done sentinel yields nothing"
+        );
+    }
+
+    #[test]
+    fn a_terminal_failure_leaves_no_items_after_it() {
+        let mut decoder = SseDecoder::new();
+        let flood = vec![b'a'; MAX_LINE_BYTES + 1];
+        assert_eq!(
+            decoder.push(&flood),
+            vec![SseItem::Failed(GlossError::EngineResponse(
+                "sse line exceeds limit".into()
+            ))],
+            "the line-limit breach is a failure item"
+        );
+        assert_eq!(
+            decoder.push("data: {\"choices\":[{\"delta\":{\"content\":\"迟\"}}]}\n\n".as_bytes()),
+            Vec::new(),
+            "a failure terminates the stream: no items follow it"
+        );
+        assert_eq!(decoder.finish(), Vec::new());
+    }
+
+    #[test]
     fn finish_drops_a_truncated_tail() {
         let mut decoder = SseDecoder::new();
         assert_eq!(

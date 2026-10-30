@@ -382,6 +382,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_error_chunk_is_final_even_when_bytes_keep_arriving() {
+        let payload = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"半\"}}]}\n\n",
+            "data: not json\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"迟\"}}]}\n\n",
+        );
+        let mut adapted = SseStream::new(VecStream(
+            vec![Ok(bytes::Bytes::from_static(payload.as_bytes()))].into_iter(),
+        ));
+
+        assert_eq!(
+            std::future::poll_fn(|cx| Pin::new(&mut adapted).poll_next(cx)).await,
+            Some(Ok(TaskChunk::Delta("半".into())))
+        );
+        assert!(
+            matches!(
+                std::future::poll_fn(|cx| Pin::new(&mut adapted).poll_next(cx)).await,
+                Some(Err(GlossError::EngineResponse(_)))
+            ),
+            "the protocol error is delivered as a failure item"
+        );
+        assert_eq!(
+            std::future::poll_fn(|cx| Pin::new(&mut adapted).poll_next(cx)).await,
+            None,
+            "an error chunk is the final item: later bytes yield nothing"
+        );
+    }
+
+    #[tokio::test]
     async fn adapter_ends_cleanly_without_the_done_marker() {
         let payload = "data: {\"choices\":[{\"delta\":{\"content\":\"尾\"}}]}\n";
         let mut adapted = SseStream::new(VecStream(

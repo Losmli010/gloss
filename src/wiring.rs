@@ -37,9 +37,10 @@ static DOCK_ICON_PNG: &[u8] = include_bytes!("../assets/icons/gloss-dock-icon.pn
 
 fn install_app_icon() {
     let icon: Box<dyn AppIcon> = Box::new(MacAppIcon::new());
-    if !icon.install(DOCK_ICON_PNG) {
+    if let Err(err) = icon.install(DOCK_ICON_PNG) {
         warn!(
             thread = thread::UI,
+            error = ?err,
             "dock icon not applied, keeping the system default"
         );
     }
