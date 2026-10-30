@@ -15,17 +15,22 @@ pub(crate) mod stubs;
 
 mod briefs;
 pub mod classify;
+#[path = "domain/config.rs"]
 pub mod config;
 pub mod config_handle;
 pub mod engine;
+#[path = "domain/guard.rs"]
 pub mod guard;
 pub mod lang_gate;
 pub(crate) mod langspec;
 pub mod log;
+#[path = "domain/model.rs"]
 pub mod model;
 pub mod ports;
 pub mod prompt;
 mod repair;
+#[path = "domain/schema.rs"]
 pub mod schema;
+#[path = "domain/task.rs"]
 pub mod task;
 mod wordings;

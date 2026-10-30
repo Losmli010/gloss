@@ -6,7 +6,7 @@
 
 - **结构映射**（WorkBuddy → Gloss）：
   - 大 hero + 主下载按钮（带平台/架构下拉）→ 分体下载按钮：主按钮直下当前架构，右侧 caret 展开架构菜单（Apple Silicon / Intel，menuitemradio 语义）。
-  - 「你的工作好帮手」场景卡 → 「一个划词，五种任务」：五张任务卡各带迷你浮层示意（词卡/翻译/代码解释/提取结果/图片解释），文案全部取自 `crates/gloss-app/i18n/zh.toml` 与 `gloss-core/src/task.rs` 的 TaskKind，不虚构功能。
+  - 「你的工作好帮手」场景卡 → 「一个划词，五种任务」：五张任务卡各带迷你浮层示意（词卡/翻译/代码解释/提取结果/图片解释），文案全部取自 `crates/gloss-app/i18n/zh.toml` 与 `gloss-core/src/domain/task.rs` 的 TaskKind，不虚构功能。
   - 生态伙伴墙 → 技术栈 chips 墙（Rust / wgpu / egui / tokio / …）。
   - 底部「开启新范式」CTA + 各平台下载 → 「开始使用 Gloss」CTA 带：双架构下载卡（.dmg 主按钮 + .zip 备用 + 大小），加 ad-hoc 签名首次打开指引。
 - **产品视觉无真机截图**：hero 右侧用纯 CSS/SVG 拼的「编辑器窗口 + 划词选区 + Gloss 浮层」示意（选区高亮 + 橙色下划线复刻品牌图形），带浮动动画与流式光标；不依赖图片资产。后续有真机截图可直接替换 `.hero-visual`。

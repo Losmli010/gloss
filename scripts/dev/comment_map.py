@@ -84,7 +84,7 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-core/tests/stubs/mod.rs": "stubs_mod",
     "crates/gloss-platform/tests/stubs/mod.rs": "stubs_mod",
     # 任务模块：核心库任务与界面流任务撞名
-    "crates/gloss-core/src/task.rs": "task",
+    "crates/gloss-core/src/domain/task.rs": "task",
     "crates/gloss-app/src/flow/task.rs": "flow_task",
     # 各包库入口撞名：决策与测试记录锚定在（gloss-platform）
     "crates/gloss-platform/src/lib.rs": "lib",
