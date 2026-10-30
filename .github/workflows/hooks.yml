@@ -198,6 +198,46 @@ jobs:
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq .body > "$RUNNER_TEMP/pr_body"
           python3 scripts/hooks/check_pr_prose.py "$RUNNER_TEMP/pr_body" "$RUNNER_TEMP/pr_title"
 
+  # 第一版内容快照锁定：开启、同步与重开事件把当前标题加正文的摘要（SHA-256）
+  # 以提交状态（commit status）幂等写上头提交，上下文名固定（Content snapshot），
+  # 描述字段存摘要——同步重写必要，新推送换头提交后快照必须跟随，正文不随
+  # 提交变化时重写哈希不变；编辑事件比对当前摘要与快照，不一致即判罚
+  # （PR-SNAPSHOT），作业进必需清单作闸门。豁免解析与快照读写单点收口在快照
+  # 脚本，本作业只传事件参数
+  content-snapshot:
+    name: Content snapshot check
+    if: github.event_name == 'pull_request'
+    # 最小权限：写快照只多要提交状态的写权限，其余照工作流默认只读
+    permissions:
+      contents: read
+      statuses: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # 快照写入：编辑以外的事件（开启、同步、重开）都重写——重开兜住先推送
+      # 换头提交后重开而快照缺席的空窗
+      - name: Write content snapshot
+        if: github.event.action != 'edited'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/hooks/check_pr_snapshot.py write
+          ${{ github.event.pull_request.number }}
+          ${{ github.event.pull_request.head.sha }}
+
+      # 快照比对：机器人编辑按操作者（sender）排除，不按拉取请求（PR）作者；
+      # 正文首行放行标记（snapshot:allow）加缘由在场时跳过判罚并以当前版重写基线
+      - name: Compare content snapshot
+        if: github.event.action == 'edited' && !endsWith(github.event.sender.login, '[bot]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/hooks/check_pr_snapshot.py compare
+          ${{ github.event.pull_request.number }}
+          ${{ github.event.pull_request.head.sha }}
+
   # 评审结果检查：评审人对拉取请求（PR）提交的评审结果过空正文、评审模板
   # 骨架、声明核对与书写规则判定；机器人评审没有评审结果产物，条件跳过；
   # 空正文不在条件层排除——条件只排除撤销与机器人，空正文判罚收在脚本单点
