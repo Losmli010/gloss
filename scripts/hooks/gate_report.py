@@ -46,6 +46,7 @@ REGISTERED_RULES = frozenset(
         "DEAD-DEP",
         "LINE-CAP",
         "TASK-MARKER",
+        "LANGSPEC-LITERAL",
         "SECRET-VENDOR",
         "SECRET-CREDENTIAL",
         "SECRET-AUTH",
@@ -255,6 +256,7 @@ ALLOW_REASON_MARKERS = (
     "i18n:allow",
     "deps:allow",
     "style:allow",
+    "langspec:allow",
 )
 
 

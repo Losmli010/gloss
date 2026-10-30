@@ -23,6 +23,7 @@ OK_STEMS = (
     "eval asset isolation",
     "unified log exit",
     "log messages English-only",
+    "language spec literals single-sourced",
     "egui context unified load point",
     "FFI declarations centralized",
     "semantic colors in the palette",
@@ -141,7 +142,7 @@ def test_gate_clean_repo_passes_with_exit_zero(tmp_path: Path) -> None:
     git_repo(tmp_path)
     proc = run_gate(tmp_path)
     assert proc.returncode == 0
-    assert b"constraint checks passed (16 checks)" in proc.stdout
+    assert b"constraint checks passed (17 checks)" in proc.stdout
 
 
 def test_gate_extra_argument_is_a_usage_error(tmp_path: Path) -> None:
@@ -182,7 +183,7 @@ def test_gate_non_repo_environment_loud_skips(tmp_path: Path) -> None:
     fixtures.new_fixture(tmp_path)
     proc = run_gate(tmp_path)
     assert proc.returncode == 0
-    assert b"constraint checks passed (15 checks)" in proc.stdout
+    assert b"constraint checks passed (16 checks)" in proc.stdout
     assert "task-marker scan skipped" in proc.stderr.decode("utf-8")
 
 

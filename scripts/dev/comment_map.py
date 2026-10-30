@@ -54,6 +54,9 @@ FAMILY_STEMS: dict[str, str] = {
     # 性能脚本与评测指标模块撞名
     "scripts/perf/metrics.py": "metrics",
     "crates/gloss-eval/src/metrics.rs": "eval_metrics",
+    # 核心库数据源派生模块与约束门禁语言规范域撞名：约束域带家族前缀
+    "crates/gloss-core/src/langspec.rs": "langspec",
+    "scripts/hooks/constraints/langspec.py": "constraints_langspec",
     # 评测工作流与评测隔离主题记录（自由主题）消歧
     ".github/workflows/eval.yml": "eval_workflow",
     # 集成测试目标与运行时管线模块撞名：测试目标带集成前缀

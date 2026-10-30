@@ -73,6 +73,24 @@ def new_fixture(root: Path, agents_body: str | None = None) -> None:
     )
 
     (root / "crates/gloss-core/src/log.rs").write_text('tracing::info!("ready");\n')
+    # 语言规范判罚树的夹具：语言规范域按判罚树扫描，判罚面为空按失败关闭退出，
+    # 基线夹具须携带最小判罚文件（无字符面字面量，字符事实自数据面派生）
+    (root / "crates/gloss-core/src/lang_gate.rs").write_text(
+        "//! 正文判定桩：字符事实自数据源派生。\npub fn judge(c: char) -> bool {\n"
+        "    c.is_alphabetic()\n}\n",
+        encoding="utf-8",
+    )
+    # 语言规范数据源夹具：语言规范域的判罚模式自数据面动态构建，数据源缺席
+    # 即失败关闭，基线夹具须携带最小数据面（面成员只作扫描面，不判语言）
+    langspec_dir = root / "crates/gloss-core/langspec"
+    langspec_dir.mkdir(parents=True)
+    (langspec_dir / "zh_en.toml").write_text(
+        '[zh]\npunct = "，。"\n\n[en]\npunct = "."\n\n[shared]\nmath = "="\n'
+        'attached_after_digit = "%"\nattached_before_digit = "￥"\n'
+        'attached_between_digits = "."\ndash_ellipsis = "…"\ncurly_quotes = "“”"\n'
+        'sentence_finals = "。!"\nemoji_bare = "✅"\nemoji_variants = "\\uFE0F"\n',
+        encoding="utf-8",
+    )
     # 第三方依赖的使用证据（依赖无死条目检查的基线）：
     # 核心库（gloss-core）的序列化库（serde）经派生宏使用，平台适配层（gloss-platform）的配置解析经完整路径使用。
     (root / "crates/gloss-core/src/lib.rs").write_text(
