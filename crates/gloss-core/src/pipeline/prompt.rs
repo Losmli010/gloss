@@ -36,12 +36,8 @@
 //! 动作措辞复用语言违约区原文，超限附注册表截断注；注册表缺席或查键未
 //! 中得空清单，由界面回落泛化文案。批注行只描述字段位置与规则，不引回
 //! 复原文。人机两册在此分道：修复轮的行给模型，批注行给人，行式与聚合
-//! 保持单一事实源。
-//!
-//! 本模块只产“域形态”的消息（角色与消息部件），
-//! 不做传输序列化，也不携带内联数据——把部件数组映成开放接口（OpenAI）
-//! 兼容内容、把图像字节编码成数据地址前缀都归传输层，
-//! 即大语言模型（LLM）客户端的请求体组装。
+//! 保持单一事实源。消息契约类型、模板资产嵌入与修复轮会话组装分文件
+//! 承载，本文件保留注册表、任务与分类的渲染拼装和渲染助手。
 //!
 //! 模板内容面向模型，用各语言环境的语言书写，不受“日志一律英文”门禁约束
 //! （约束门禁只查日志宏实参）。
@@ -59,7 +55,10 @@ use crate::schema::{FormatDetail, Violation};
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 use crate::wordings;
 
+mod message;
+
 pub use crate::briefs::{ViolationBrief, ViolationPositions, violation_briefs};
+pub use message::{ChatMessage, ContentPart, MessageContent, Role};
 
 pub(crate) const DEFAULT_TARGET: Lang = Lang::Zh;
 
@@ -100,61 +99,6 @@ impl Locale {
                 discipline: include_str!("../../prompts/en/discipline.md"),
                 classify: include_str!("../../prompts/en/classify.md"),
             },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Role {
-    System,
-    User,
-    Assistant,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MessageContent {
-    Text(String),
-    Parts(Vec<ContentPart>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ContentPart {
-    ImagePng(Arc<[u8]>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChatMessage {
-    pub role: Role,
-    pub content: MessageContent,
-}
-
-impl ChatMessage {
-    pub fn system(content: impl Into<String>) -> Self {
-        Self {
-            role: Role::System,
-            content: MessageContent::Text(content.into()),
-        }
-    }
-
-    pub fn user(content: impl Into<String>) -> Self {
-        Self {
-            role: Role::User,
-            content: MessageContent::Text(content.into()),
-        }
-    }
-
-    pub fn user_parts(parts: Vec<ContentPart>) -> Self {
-        Self {
-            role: Role::User,
-            content: MessageContent::Parts(parts),
-        }
-    }
-
-    pub fn assistant(content: impl Into<String>) -> Self {
-        Self {
-            role: Role::Assistant,
-            content: MessageContent::Text(content.into()),
         }
     }
 }
