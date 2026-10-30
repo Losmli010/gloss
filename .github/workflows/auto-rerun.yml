@@ -1,0 +1,32 @@
+name: Auto rerun
+
+# 托管运行器容量不足会把作业标记取消、整个运行记为失败——这是基础设施
+# 假失败，不是代码回归。本工作流在持续集成（CI）与净化检查（Sanitizers）
+# 两个工作流失败后判定失败作业是否全部为容量性，是则复跑失败作业一次，
+# 只复跑首次尝试，脚本内再判定，细则见复跑脚本的文件头。
+on:
+  workflow_run:
+    workflows: [CI, Sanitizers]
+    types: [completed]
+
+# 最小权限：只需读代码与复跑失败作业。
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  rerun:
+    name: Rerun capacity-failed jobs
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # 固定取默认分支：本工作流持有复跑权限，不执行拉取请求（PR）分支上的脚本
+          ref: main
+
+      - name: Rerun capacity-failed jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/rerun_capacity_failures.py "${{ github.event.workflow_run.id }}"

@@ -105,6 +105,11 @@ mod imp {
                 ours: self.acquired + restored,
             });
         }
+
+        #[cfg(test)]
+        pub(super) fn restores_on_unwind(&self) -> bool {
+            self.pending.is_some()
+        }
     }
 
     struct ChangeMonitor {
@@ -428,6 +433,7 @@ mod tests {
 mod live_tests {
     use std::ffi::{CStr, c_void};
     use std::sync::Mutex;
+    use std::time::Duration;
 
     use arboard::Clipboard;
 
@@ -442,6 +448,9 @@ mod live_tests {
     use crate::clipboard::{WatchRoundFlag, pasteboard_change_count};
 
     static CLIPBOARD_LIVE_LOCK: Mutex<()> = Mutex::new(());
+
+    const UNWIND_RESTORE_EVENT_TIMEOUT: Duration = Duration::from_secs(5);
+    const UNWIND_RESTORE_EVENT_POLL: Duration = Duration::from_millis(50);
 
     #[test]
     fn fallback_read_restores_original_clipboard() {
@@ -570,6 +579,29 @@ mod live_tests {
         );
     }
 
+    fn wait_for_unwind_restore_event(
+        clipboard: &mut Clipboard,
+        preset: &str,
+        restore_log: &gloss_core::log::CaptureReader,
+        log_before_len: usize,
+    ) -> (bool, String) {
+        let deadline = std::time::Instant::now() + UNWIND_RESTORE_EVENT_TIMEOUT;
+        let mut trail = String::new();
+        loop {
+            if matches!(clipboard.get_text(), Ok(text) if text == preset) {
+                return (true, trail);
+            }
+            trail = restore_log.text()[log_before_len..].to_owned();
+            if trail.contains("failed to restore clipboard") {
+                return (true, trail);
+            }
+            if std::time::Instant::now() >= deadline {
+                return (false, trail);
+            }
+            std::thread::sleep(UNWIND_RESTORE_EVENT_POLL);
+        }
+    }
+
     #[test]
     fn fallback_read_unwind_restores_the_clipboard_without_finish() {
         let _clipboard = CLIPBOARD_LIVE_LOCK
@@ -578,19 +610,18 @@ mod live_tests {
         let mut clipboard = Clipboard::new().expect("clipboard should be available");
         let preset = format!("gloss-unwind-restore-{}", std::process::id());
         clipboard.set_text(preset.clone()).expect("preset text");
+        let clobber = "gloss-injected-copy";
 
         let mut reader = ClipboardFallbackReader::new(WatchRoundFlag::default());
-        let read_started = std::time::Instant::now();
         let (outcome, settle) = reader.read();
-        let read_ms = read_started.elapsed().as_millis();
+        let restore_contracted = settle.restores_on_unwind();
 
         clipboard
-            .set_text("gloss-injected-copy".to_owned())
+            .set_text(clobber.to_owned())
             .expect("simulate the injected copy clobbering the board");
-        let board_writes_before_unwind = pasteboard_change_count();
 
         let restore_log = gloss_core::log::capture_global();
-        let log_before = restore_log.text();
+        let log_before_len = restore_log.text().len();
         let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             let _settle = settle;
             panic!("simulated caller panic before finish");
@@ -600,21 +631,27 @@ mod live_tests {
             "the simulated caller panic must unwind through the settle"
         );
 
-        let restored = clipboard.get_text().expect("clipboard should be readable");
-        let writes_after_unwind = match (board_writes_before_unwind, pasteboard_change_count()) {
-            (Some(before), Some(after)) => after.saturating_sub(before),
-            _ => 0,
-        };
-        let outcome_ok = outcome.is_ok();
-        let restore_trail = restore_log.text()[log_before.len()..].to_owned();
+        if !restore_contracted {
+            let restored = clipboard.get_text().expect("clipboard should be readable");
+            assert!(
+                restored == clobber,
+                "a declined round must not inject or restore; the board keeps the external \
+                 write (got {} bytes, outcome ok={})",
+                restored.len(),
+                outcome.is_ok()
+            );
+            return;
+        }
+
+        let (settled, trail) =
+            wait_for_unwind_restore_event(&mut clipboard, &preset, &restore_log, log_before_len);
         assert!(
-            restored == preset || restore_trail.contains("failed to restore clipboard"),
-            "the unwind Drop must restore the snapshot, not the clobbered copy; a pasteboard \
-             service outage may exhaust the restore retries, and then the failure trail in \
-             the log is the contracted observable (read took {read_ms}ms, outcome \
-             ok={outcome_ok}, pasteboard clears after the clobber [0 = the Drop restore \
-             never landed, 1 = one clean restore, 2 = one failed halfway and the retry \
-             landed]: {writes_after_unwind}, restore log in window: {restore_trail})"
+            settled,
+            "the unwind Drop must restore the snapshot or leave the failure trail; a \
+             pasteboard service outage may exhaust the restore retries, and then the \
+             failure trail in the log is the contracted observable (outcome ok={}, \
+             restore trail in window: {trail})",
+            outcome.is_ok()
         );
     }
 

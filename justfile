@@ -332,6 +332,18 @@ comments-doctor *args:
 lint-commit file:
     {{py}} scripts/hooks/check_commit_msg.py "{{file}}"
 
+# 拉取请求（PR）描述本地预检：取当前分支的拉取请求（PR）标题与正文，跑与持续集成（CI）同款书写规则与模板小节核对
+pr-lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    title=$(gh pr view --json title --jq .title)
+    body=$(gh pr view --json body --jq .body)
+    dir=$(mktemp -d)
+    trap 'rm -rf "$dir"' EXIT
+    printf '%s\n' "$title" > "$dir/title"
+    printf '%s\n' "$body" > "$dir/body"
+    {{py}} scripts/hooks/check_pr_prose.py "$dir/body" "$dir/title"
+
 # 安装本地仓库钩子（克隆后运行一次）
 install-hooks:
     {{py}} scripts/hooks/install_hooks.py
