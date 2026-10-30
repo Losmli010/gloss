@@ -58,8 +58,8 @@ FACE_KEYS = (
 # 字符单独成字面量的形态属病态，不作判罚对象
 INVISIBLE_SELECTORS = frozenset({"\ufe0e", "\ufe0f"})
 
-PROD_JUDGE_FILE = os.path.join("crates", "gloss-core", "src", "lang_gate.rs")
-PROD_JUDGE_DIR = os.path.join("crates", "gloss-core", "src", "lang_gate")
+PROD_JUDGE_FILE = os.path.join("crates", "gloss-core", "src", "pipeline", "lang_gate.rs")
+PROD_JUDGE_DIR = os.path.join("crates", "gloss-core", "src", "pipeline", "lang_gate")
 DEV_JUDGE_DIR = os.path.join("scripts", "hooks", "language_spec")
 
 # 开发侧派生模块按派生处豁免（运行时装入数据源并派生各字符面，判定公式与

@@ -13,24 +13,32 @@ extern crate self as gloss_core;
 #[path = "../tests/stubs/mod.rs"]
 pub(crate) mod stubs;
 
+#[path = "pipeline/briefs.rs"]
 mod briefs;
+#[path = "pipeline/classify.rs"]
 pub mod classify;
 #[path = "domain/config.rs"]
 pub mod config;
 pub mod config_handle;
+#[path = "pipeline/engine/mod.rs"]
 pub mod engine;
 #[path = "domain/guard.rs"]
 pub mod guard;
+#[path = "pipeline/lang_gate/mod.rs"]
 pub mod lang_gate;
+#[path = "pipeline/langspec.rs"]
 pub(crate) mod langspec;
 pub mod log;
 #[path = "domain/model.rs"]
 pub mod model;
 pub mod ports;
+#[path = "pipeline/prompt.rs"]
 pub mod prompt;
+#[path = "pipeline/repair.rs"]
 mod repair;
 #[path = "domain/schema.rs"]
 pub mod schema;
 #[path = "domain/task.rs"]
 pub mod task;
+#[path = "pipeline/wordings.rs"]
 mod wordings;

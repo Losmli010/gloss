@@ -30,7 +30,9 @@ def seed_data(root: Path, toml: str = DATA_TOML) -> None:
 
 
 def write_gate(root: Path, body: str) -> None:
-    (root / "crates/gloss-core/src/lang_gate.rs").write_text(body, encoding="utf-8")
+    gate = root / "crates/gloss-core/src/pipeline/lang_gate.rs"
+    gate.parent.mkdir(parents=True, exist_ok=True)
+    gate.write_text(body, encoding="utf-8")
 
 
 def write_scripts(root: Path, **files: str) -> None:

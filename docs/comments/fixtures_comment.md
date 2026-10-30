@@ -35,4 +35,4 @@
 
 ## 语言规范域夹具（2026-10-30，语言规范统一阶段五）
 
-- 基线夹具增两件：语言规范数据源（crates/gloss-core/langspec/zh_en.toml 最小面）与无字面量的判罚树桩（crates/gloss-core/src/lang_gate.rs）——语言规范域的判罚模式自数据源动态构建、判罚面为空按失败关闭退出，两件缺席即基线聚合变红；数据面成员只作扫描面，不判语言。
+- 基线夹具增两件：语言规范数据源（crates/gloss-core/langspec/zh_en.toml 最小面）与无字面量的判罚树桩（crates/gloss-core/src/pipeline/lang_gate.rs）——语言规范域的判罚模式自数据源动态构建、判罚面为空按失败关闭退出，两件缺席即基线聚合变红；数据面成员只作扫描面，不判语言。

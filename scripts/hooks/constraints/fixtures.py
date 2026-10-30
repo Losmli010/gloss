@@ -75,7 +75,9 @@ def new_fixture(root: Path, agents_body: str | None = None) -> None:
     (root / "crates/gloss-core/src/log.rs").write_text('tracing::info!("ready");\n')
     # 语言规范判罚树的夹具：语言规范域按判罚树扫描，判罚面为空按失败关闭退出，
     # 基线夹具须携带最小判罚文件（无字符面字面量，字符事实自数据面派生）
-    (root / "crates/gloss-core/src/lang_gate.rs").write_text(
+    judge_file = root / "crates/gloss-core/src/pipeline/lang_gate.rs"
+    judge_file.parent.mkdir(parents=True)
+    judge_file.write_text(
         "//! 正文判定桩：字符事实自数据源派生。\npub fn judge(c: char) -> bool {\n"
         "    c.is_alphabetic()\n}\n",
         encoding="utf-8",
