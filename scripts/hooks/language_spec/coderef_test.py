@@ -31,7 +31,7 @@ def test_backticked_identifier_exempt() -> None:
 
 def test_bare_identifier_flagged() -> None:
     problems = prose_line_problems("t", 1, "改动见 docs/tests/bdd.md")
-    assert any("foreign letters" in p for p in messages(problems))
+    assert any("outside the derived whitelist" in p for p in messages(problems))
 
 
 def test_unpaired_backtick_flagged() -> None:
@@ -76,20 +76,30 @@ def test_markdown_fence_exempt() -> None:
 
 def test_markdown_bare_word_flagged() -> None:
     problems = markdown_problems("d.md", "中文正文带 generic 词。\n")
-    assert any("foreign letters" in p for p in messages(problems))
+    assert any("outside the derived whitelist" in p for p in messages(problems))
 
 
 def test_markdown_table_first_cell_exempt() -> None:
     src = "| some_test_name | 中文场景 |\n| --- | --- |\n| other_name | generic 词 |\n"
     problems = markdown_problems("d.md", src)
-    assert any("foreign letters" in p for p in messages(problems))
-
-
-# ---- 围栏内整行注释（文档检查子项）----
+    assert any("outside the derived whitelist" in p for p in messages(problems))
 
 
 def rules(findings: list[gate_report.Finding]) -> list[str]:
     return [finding.rule for finding in findings]
+
+
+def test_heading_annotation_tail_strips_to_test_name() -> None:
+    src = "# some_test_name（chinese_test）\n\n中文正文。\n"
+    assert markdown_problems("d.md", src) == []
+
+
+def test_heading_unclosed_annotation_still_flagged() -> None:
+    problems = markdown_problems("d.md", "# some_test_name（chinese_test\n")
+    assert "PROSE-LANGUAGE" in rules(problems)
+
+
+# ---- 围栏内整行注释（文档检查子项）----
 
 
 def test_markdown_bash_fence_chinese_comment_allowed() -> None:
@@ -111,7 +121,7 @@ def test_markdown_rust_fence_english_comment_flagged() -> None:
 def test_markdown_fence_foreign_word_flagged() -> None:
     src = "```bash\n# 按改动面挑选，完整配方见 justfile。\n```\n"
     problems = markdown_problems("d.md", src)
-    assert any("foreign letters" in m for m in messages(problems))
+    assert any("outside the derived whitelist" in m for m in messages(problems))
 
 
 def test_markdown_fence_backtick_comment_flagged() -> None:
@@ -207,7 +217,7 @@ def test_markdown_math_block_and_span_exempt() -> None:
 
 def test_markdown_single_dollar_text_not_exempt() -> None:
     problems = markdown_problems("d.md", "价格 $5 与 $8 不等。\n")
-    assert any("foreign letters" in m for m in messages(problems))
+    assert any("outside the derived whitelist" in m for m in messages(problems))
 
 
 def test_markdown_setext_heading_judged() -> None:
@@ -246,7 +256,7 @@ def test_markdown_bash_fence_math_span_allowed() -> None:
 
 def test_math_double_dollar_with_chinese_not_exempt() -> None:
     problems = prose_line_problems("t", 1, "记作 $$中文混排$$ 即散文。")
-    assert any("foreign letters" in m for m in messages(problems))
+    assert any("outside the derived whitelist" in m for m in messages(problems))
 
 
 # ---- 模板占位符段豁免 ----
@@ -262,12 +272,12 @@ def test_whole_line_placeholder_exempt() -> None:
 
 def test_placeholder_with_prose_still_checked() -> None:
     problems = prose_line_problems("t", 1, "正文用{{target}}书写带 generic 词。")
-    assert any("foreign letters" in m for m in messages(problems))
+    assert any("outside the derived whitelist" in m for m in messages(problems))
 
 
 def test_placeholder_with_spaces_not_exempt() -> None:
     problems = prose_line_problems("t", 1, "正文用 {{ some value }} 书写。")
-    assert any("foreign letters" in m for m in messages(problems))
+    assert any("outside the derived whitelist" in m for m in messages(problems))
 
 
 # ---- 表述区路由：英文区判据由使用方按路径分派 ----

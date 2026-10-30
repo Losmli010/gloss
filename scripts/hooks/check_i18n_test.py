@@ -272,7 +272,7 @@ def test_platform_hardcoded_chinese(tmp_path: Path) -> None:
 def test_prompt_rs_is_scanned_like_any_other_file(tmp_path: Path) -> None:
     # 整文件豁免随文案迁移撤除：模板处理点与其它生产代码同一判罚面
     content = 'fn lang_name() -> &\'static str {\n    "中文"\n}'
-    assert_fail(tmp_path, "crates/gloss-core/src/prompt.rs", content)
+    assert_fail(tmp_path, "crates/gloss-core/src/pipeline/prompt.rs", content)
 
 
 def test_core_allow_marker(tmp_path: Path) -> None:

@@ -82,11 +82,14 @@ def _face(text: str) -> frozenset:
     return frozenset(text)
 
 
-def _ranges(text: str) -> tuple[tuple[int, int], ...]:
+def _ranges(text: str, name: str) -> tuple[tuple[int, int], ...]:
     pairs = []
     for token in text.split():
         start, end = token.split("-")
-        pairs.append((int(start, 16), int(end, 16)))
+        lo, hi = int(start, 16), int(end, 16)
+        if lo > hi:
+            raise ValueError(f"{name}: range {token!r} is reversed")
+        pairs.append((lo, hi))
     return tuple(pairs)
 
 
@@ -95,7 +98,7 @@ def _ranges_class(ranges: tuple[tuple[int, int], ...]) -> str:
 
 
 _RANGES = {
-    name: _ranges(_SPEC["ranges"][name])
+    name: _ranges(_SPEC["ranges"][name], name)
     for name in ("latin", "han", "kana", "hangul", "cyrillic", "greek")
 }
 
@@ -110,11 +113,10 @@ _GLOSS_OPEN, _GLOSS_CLOSE = _SPEC["shared"]["brackets"]["zh"]
 # 表情事实与生产侧同源互指：开发侧不设独立表情判定——表情在白名单外，字符
 # 白名单天然全覆盖；事实自数据源装入供对账锁定（表情事实全部落在白名单外），
 # 生产侧自同一数据面判表情违约，机制差异见登记表。
-EMOJI_RANGES = _ranges(_SPEC["shared"]["emoji_ranges"])
+EMOJI_RANGES = _ranges(_SPEC["shared"]["emoji_ranges"], "shared.emoji_ranges")
 EMOJI_BARE = _face(_SPEC["shared"]["emoji_bare"])
 EMOJI_VARIANTS = _face(_SPEC["shared"]["emoji_variants"])
 
-LATIN = re.compile(r"[A-Za-z]")
 CJK = re.compile("[" + _ranges_class(_RANGES["han"]) + "]")
 # 汉字区段自数据源派生（三段口径）；中文标点与全角形式是宽度启发面——英
 # 文区与行内代码出现即非纯英文。组合逻辑住代码，字符事实住数据源
@@ -152,7 +154,7 @@ def is_command_seg(seg: str) -> bool:
 SEGMENT_SPLIT = re.compile(
     "[" + re.escape(_SPEC["zh"]["punct"] + _SPEC["shared"]["dash_ellipsis"]) + r"\n]+"
 )
-SEGMENT_TRIM = " \t\n─*-·-"
+SEGMENT_TRIM = " \t\n─*-"
 
 
 def _is_ascii_digit(ch: str) -> bool:
@@ -220,7 +222,7 @@ def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[g
                     rule=RULE_PROSE_FOREIGN,
                     path=path,
                     line=line,
-                    message="%s body contains foreign letters or halfwidth punctuation"
+                    message="%s body contains characters outside the derived whitelist"
                     " (%s) — put proper nouns in fullwidth bracket annotations,"
                     " rewrite the rest in Chinese" % (label, shown),
                     evidence=seg,
