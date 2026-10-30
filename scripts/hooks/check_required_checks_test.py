@@ -204,24 +204,98 @@ def test_unparseable_workflow_fails_closed(tmp_path: Path) -> None:
     assert [finding.rule for finding in infra] == ["INFRA"]
 
 
+def test_flow_mapping_trigger_fails_closed(tmp_path: Path) -> None:
+    directory = write_workflows(
+        tmp_path,
+        {
+            "flow.yml": (
+                "name: T\n"
+                "on: {pull_request: null}\n"
+                "jobs:\n"
+                "  a:\n"
+                "    name: A\n"
+                "    runs-on: ubuntu-latest\n"
+                "    steps:\n"
+                "      - name: Go\n"
+                "        run: echo hi\n"
+            )
+        },
+    )
+    jobs, infra = check_required_checks.collect_expected_jobs(str(directory))
+    assert jobs == []
+    assert [finding.rule for finding in infra] == ["INFRA"]
+
+
+def test_flow_mapping_element_inside_flow_list_fails_closed(tmp_path: Path) -> None:
+    directory = write_workflows(
+        tmp_path,
+        {
+            "flow.yml": (
+                "name: T\n"
+                "on: [push, {pull_request: null}]\n"
+                "jobs:\n"
+                "  a:\n"
+                "    name: A\n"
+                "    runs-on: ubuntu-latest\n"
+                "    steps:\n"
+                "      - name: Go\n"
+                "        run: echo hi\n"
+            )
+        },
+    )
+    jobs, infra = check_required_checks.collect_expected_jobs(str(directory))
+    assert jobs == []
+    assert [finding.rule for finding in infra] == ["INFRA"]
+
+
+def test_plain_scalar_and_flow_list_triggers_stay_supported(tmp_path: Path) -> None:
+    directory = write_workflows(
+        tmp_path,
+        {
+            "scalar.yml": (
+                "name: T\n"
+                "on: push\n"
+                "jobs:\n"
+                "  a:\n"
+                "    name: A\n"
+                "    runs-on: ubuntu-latest\n"
+                "    steps:\n"
+                "      - name: Go\n"
+                "        run: echo hi\n"
+            ),
+            "list.yml": (
+                "name: T\n"
+                "on: [push, pull_request]\n"
+                "jobs:\n"
+                "  b:\n"
+                "    name: B\n"
+                "    runs-on: ubuntu-latest\n"
+                "    steps:\n"
+                "      - name: Go\n"
+                "        run: echo hi\n"
+            ),
+        },
+    )
+    assert reconcile(directory, []) == ["B"]
+
+
 def test_condition_evaluation_covers_event_filters() -> None:
     evaluate = check_required_checks.evaluate_condition
-    unknown = check_required_checks._UNKNOWN
+    runs_on = check_required_checks.runs_on
     assert evaluate("github.event_name != 'pull_request_review'", "pull_request") is True
     assert evaluate("github.event_name != 'pull_request_review'", "pull_request_review") is False
     assert evaluate("github.event_name == 'pull_request'", "pull_request") is True
     assert evaluate("github.event_name == 'pull_request'", "pull_request_review") is False
     assert evaluate("github.event_name == 'push'", "pull_request") is False
-    # 未知操作数按未知处置，未知按会运行收集（宁误报不漏报）
     assert (
-        evaluate(
+        runs_on(
             "github.event_name == 'pull_request_review' && github.event.review.body != ''",
             "pull_request_review",
         )
-        is unknown
+        is True
     )
-    assert evaluate("unparsed ${{ expression }}", "pull_request") is unknown
-    assert check_required_checks.runs_on("", "pull_request") is True
+    assert runs_on("unparsed ${{ expression }}", "pull_request") is True
+    assert runs_on("", "pull_request") is True
 
 
 def test_protection_payload_contexts_extracted() -> None:

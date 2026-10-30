@@ -77,6 +77,8 @@ class ConditionError(ValueError):
 
 _LINE_RE = re.compile(r"^([\w.-]+):(?:[ \t]+(.*))?$")
 _BLOCK_SCALAR_RE = re.compile(r"[|>][0-9+-]*$")
+# 事件名形态：内联标量与流式清单元素的准入校验，子集外形态红出来
+_EVENT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _strip_comment(line: str) -> str:
@@ -121,17 +123,23 @@ def _unquote(text: str) -> str:
     return text
 
 
-def _flow_list(text: str) -> list[str]:
-    """流式清单解析：[a, b] 形态按逗号切分。"""
+def _flow_list(rel: str, text: str) -> list[str]:
+    """流式清单解析：[a, b] 形态按逗号切分，元素须是事件名形态，子集之外
+    的元素（如流式映射）按解析失败处置。"""
     inner = text[1:-1].strip()
     if not inner:
         return []
-    return [_unquote(part.strip()) for part in inner.split(",")]
+    names = [_unquote(part.strip()) for part in inner.split(",")]
+    for name in names:
+        if not _EVENT_NAME_RE.fullmatch(name):
+            raise WorkflowFormatError("%s: unsupported trigger element (%s)" % (rel, name))
+    return names
 
 
 def _parse_events(rel: str, lines: list[tuple[int, str, int]]) -> tuple[str, ...]:
     """触发事件名清单：顶层 on 键的子键或流式清单，子键之下（branches 等）
-    的结构不进结果。"""
+    的结构不进结果；内联标量须是事件名形态，流式映射等子集之外的形态按解
+    析失败处置，绝不猜。"""
     at = None
     for i, (indent, content, _) in enumerate(lines):
         if indent == 0:
@@ -144,8 +152,11 @@ def _parse_events(rel: str, lines: list[tuple[int, str, int]]) -> tuple[str, ...
     i, rest = at
     if rest:
         if rest.startswith("[") and rest.endswith("]"):
-            return tuple(_flow_list(rest))
-        return (_unquote(rest),)
+            return tuple(_flow_list(rel, rest))
+        scalar = _unquote(rest)
+        if not _EVENT_NAME_RE.fullmatch(scalar):
+            raise WorkflowFormatError("%s: unsupported inline trigger form (%s)" % (rel, rest))
+        return (scalar,)
     events = []
     child = None
     for indent, content, _ in lines[i + 1 :]:
