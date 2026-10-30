@@ -12,7 +12,7 @@
 
 - 三次取中位数：每个基准组独立跑三次；每次取基准框架报告的中位数估计（`estimates.json` 的 `median.point_estimate`），三次中再取中位数入表为基线值，三次原始值取整列表备查。
 - 负载纪律：六次基准运行串行执行，期间无并行编译或其它重负载；时延组三次间的散布实测最高约 13%（`complete` 组，第二次运行遭瞬时负载抬升），中位数口径吸收该波动，故判定必须以三次中位数为准。
-- 命名基线留痕：三次运行分别以 `refactor0-run1`、`refactor0-run2`、`refactor0-run3` 存入基准框架产物目录（构建共享目录 `gloss-shared-target` 下的 `criterion`，不进版本库）；本表是长期事实源，产物目录仅供本机快速对照。
+- 命名基线留痕：三次运行分别以 `refactor0-run1`、`refactor0-run2`、`refactor0-run3` 存入基准框架产物目录（构建共享目录 `gloss-shared-target` 下的 `criterion`，不进版本库）；共享产物目录由本机构建配置指向（仓库外 `gloss-worktrees/.cargo/config.toml` 的构建目标目录，或等价的 `CARGO_TARGET_DIR`），重跑比对须在应用该配置的检出下执行，否则产物落主仓 `target/`、与本表命名基线失去快速对照；本表是长期事实源，产物目录仅供本机快速对照。
 
 ## 环境与工具链
 

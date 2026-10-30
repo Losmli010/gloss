@@ -35,7 +35,7 @@
 
 ### 环节八：失败与取消
 
-- 现状：图像取材失败一律出失败卡（`ProbeSource::PasteboardImage` 不静默，`crates/gloss-app/src/machine.rs:174-180`），“图片过大”失败卡有壳侧测试（`crates/gloss-app/src/flow/task.rs:883-897`）；隐藏浮层即取消在途任务并清附件，迟到事件按代数过滤（`crates/gloss-app/tests/pipeline.rs:588-632`）；新一轮观察覆盖在途探测，旧产物按编号判陈旧丢弃（`crates/gloss-app/src/flow/task.rs:61-72`）。
+- 现状：图像取材失败一律出失败卡（`ProbeSource::PasteboardImage` 不静默，`crates/gloss-app/src/machine.rs:174-180`），“图片过大”失败卡有壳侧测试（`crates/gloss-app/src/flow/task.rs:883-897`）；隐藏浮层即取消在途任务并清附件，迟到事件按代数过滤（`crates/gloss-app/tests/pipeline.rs:588-632`）；新一轮观察覆盖在途探测（`crates/gloss-app/src/machine.rs:124-130`），旧产物按编号判陈旧丢弃（`crates/gloss-app/src/flow/task.rs:61-72`）。
 
 ## 冒烟记录
 
