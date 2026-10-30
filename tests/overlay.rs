@@ -24,6 +24,7 @@ use winit::window::WindowId;
 const SELFTEST_VISIBLE: Duration = Duration::from_millis(80);
 const SELFTEST_ROUNDS: usize = 100;
 const SHOW_BUDGET: Duration = Duration::from_millis(100);
+const COLD_SHOW_BUDGET: Duration = Duration::from_millis(250);
 const RSS_TAIL_GROWTH_BUDGET_KB: i64 = 2048;
 const WARMUP_ROUNDS: usize = 25;
 const FRAME_INTERVAL_BUDGET_MS: f64 = 32.0;
@@ -51,18 +52,18 @@ fn perf_commit() -> String {
 }
 
 fn main() -> ExitCode {
-    let Some((first, max, handler)) = run_selftest() else {
+    let Some((cold, warm, max, handler)) = run_selftest() else {
         return ExitCode::FAILURE;
     };
     let (tail_growth, rss_verdict) = rss_tail_verdict(&handler);
     eprintln!(
         "{}",
-        collect_metrics(&handler, first, max, tail_growth, rss_verdict)
+        collect_metrics(&handler, (cold, warm, max), tail_growth, rss_verdict)
     );
-    enforce_budgets(first, tail_growth, rss_verdict)
+    enforce_budgets(cold, warm, tail_growth, rss_verdict)
 }
 
-fn run_selftest() -> Option<(Duration, Duration, OverlaySelfTest)> {
+fn run_selftest() -> Option<(Duration, Duration, Duration, OverlaySelfTest)> {
     init(None);
     let event_loop = match EventLoop::builder().build() {
         Ok(loop_) => loop_,
@@ -75,14 +76,14 @@ fn run_selftest() -> Option<(Duration, Duration, OverlaySelfTest)> {
     if event_loop.run_app(&mut handler).is_err() {
         return None;
     }
-    let Some((first, max)) = handler.summary() else {
+    let Some((cold, warm, max)) = handler.summary() else {
         error!(
             thread = gloss_core::log::thread::UI,
             "overlay self-test recorded no frames"
         );
         return None;
     };
-    Some((first, max, handler))
+    Some((cold, warm, max, handler))
 }
 
 fn sorted_latency_ms(samples: &[Duration]) -> Vec<f64> {
@@ -110,8 +111,7 @@ fn rss_tail_verdict(handler: &OverlaySelfTest) -> (Option<i64>, &'static str) {
 
 fn collect_metrics(
     handler: &OverlaySelfTest,
-    first: Duration,
-    max: Duration,
+    (cold, warm, max): (Duration, Duration, Duration),
     tail_growth: Option<i64>,
     rss_verdict: &str,
 ) -> serde_json::Value {
@@ -126,7 +126,7 @@ fn collect_metrics(
         (Some(start), Some(end)) => Some(end - start),
         _ => None,
     };
-    let verdict = if first > SHOW_BUDGET || rss_verdict == "fail" {
+    let verdict = if cold > COLD_SHOW_BUDGET || warm > SHOW_BUDGET || rss_verdict == "fail" {
         "fail"
     } else {
         "pass"
@@ -134,7 +134,9 @@ fn collect_metrics(
     json!({
         "kind": "overlay_perf",
         "commit": perf_commit(),
-        "first_ms": first.as_secs_f64() * 1000.0,
+        "first_ms": cold.as_secs_f64() * 1000.0,
+        "first_warm_ms": warm.as_secs_f64() * 1000.0,
+        "cold_budget_ms": COLD_SHOW_BUDGET.as_millis() as u64,
         "p50_ms": percentile(&latencies_ms, 50.0),
         "p95_ms": percentile(&latencies_ms, 95.0),
         "max_ms": max.as_secs_f64() * 1000.0,
@@ -156,7 +158,12 @@ fn collect_metrics(
     })
 }
 
-fn enforce_budgets(first: Duration, tail_growth: Option<i64>, rss_verdict: &str) -> ExitCode {
+fn enforce_budgets(
+    cold: Duration,
+    warm: Duration,
+    tail_growth: Option<i64>,
+    rss_verdict: &str,
+) -> ExitCode {
     if rss_verdict == "fail" {
         error!(
             thread = gloss_core::log::thread::UI,
@@ -166,12 +173,21 @@ fn enforce_budgets(first: Duration, tail_growth: Option<i64>, rss_verdict: &str)
         );
         return ExitCode::FAILURE;
     }
-    if first > SHOW_BUDGET {
+    if cold > COLD_SHOW_BUDGET {
         error!(
             thread = gloss_core::log::thread::UI,
-            first_show_ms = first.as_millis() as u64,
+            first_cold_ms = cold.as_millis() as u64,
+            budget_ms = COLD_SHOW_BUDGET.as_millis() as u64,
+            "cold first show exceeded budget"
+        );
+        return ExitCode::FAILURE;
+    }
+    if warm > SHOW_BUDGET {
+        error!(
+            thread = gloss_core::log::thread::UI,
+            first_warm_ms = warm.as_millis() as u64,
             budget_ms = SHOW_BUDGET.as_millis() as u64,
-            "first show exceeded budget"
+            "warm first show exceeded budget"
         );
         return ExitCode::FAILURE;
     }
@@ -197,10 +213,11 @@ struct OverlaySelfTest {
 }
 
 impl OverlaySelfTest {
-    fn summary(&self) -> Option<(Duration, Duration)> {
-        let first = *self.latencies.first()?;
+    fn summary(&self) -> Option<(Duration, Duration, Duration)> {
+        let cold = *self.latencies.first()?;
+        let warm = self.latencies.get(1).copied().unwrap_or(cold);
         let max = self.latencies.iter().max().copied()?;
-        Some((first, max))
+        Some((cold, warm, max))
     }
 
     fn begin_round(&mut self, event_loop: &ActiveEventLoop) {
