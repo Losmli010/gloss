@@ -10,7 +10,7 @@
 
 ## FileConfigStore
 
-- 配置文档半边：TOML 文件 + 原子写，不接触密钥。路径定位：系统标准配置目录下的 `gloss/config.toml`（`~/Library/Application Support/gloss`，由 directories crate 决定）。不实现 `ConfigStore`：端口要求文档与密钥一起应答，单独把文档半边当端口用会让密钥方法凭空失败——组合体才是注入单元。
+- 配置文档半边：TOML 文件 + 原子写，不接触密钥。路径定位：系统标准配置目录下的 `gloss/config.toml`（`~/Library/Application Support/gloss`，由 directories crate 决定）。不直接实现 `ConfigStore`：保持组合体是唯一注入单元，不让两个端口在组装点出现两个注入面。
 - `new`：用系统标准配置目录定位配置文件。
 - `in_dir`：在指定目录下定位配置文件（测试与自定义位置用）。
 - `path`：配置文件完整路径（诊断与「打开配置」入口用）。
@@ -19,16 +19,16 @@
 - `load`：读取整份配置；缺文件是首次运行的正常路径——落一份出厂默认（用户拿到可直接手改的文件）并返回默认值，首次落盘失败降级为仅内存默认、不阻断启动。解析失败是硬错误：坏文件先被隔离备份，错误里只给路径与行号，不转述解析器文本（它常引用出错行/取值，而用户可能把密钥贴错字段——端口红线）。隔离失败只记 warn：读不出来才是主要错误，不该被它顶掉。
 - `save`：原子写入整份配置（设置页保存路径）。
 
-## SecretsHalf
+## SecretStore（impl 块，2026-10-30 端口拆分后）
 
-- 密钥半边契约：组合体对密钥存储的最小要求。公开仅为泛型签名可见（组合体是公开类型），组装仍走本模块的构造子；外部实现不被支持——密钥语义（服务名、条目定位）由本 crate 掌控。出厂实现是 `keychain::KeychainSecret`，测试用内存桩（转发路径可测，不碰真机 keychain）。
-- `get`：读密钥；`None` 表示未设置（语义同 `ConfigStore::secret`）。
-- `set`：写入（或覆盖）密钥。
-- `delete`：删除密钥；条目不存在视为成功（幂等）。
+- 密钥端口 `SecretStore` 的出厂实现落在 [`keychain::KeychainSecret`] 上：`secret`/`set_secret`/`delete_secret` 转发固有方法。密钥语义（服务名、条目定位）仍由本 crate 掌控；测试转发路径用内存桩（不碰真机 keychain）。
+- 固有 `get`：读密钥；`None` 表示未设置（语义同 `SecretStore::secret`）。
+- 固有 `set`：写入（或覆盖）密钥。
+- 固有 `delete`：删除密钥；条目不存在视为成功（幂等）。
 
 ## CompositeConfigStore
 
-- `ConfigStore` 的组合实现：文档方法委托 `FileConfigStore`，密钥方法委托密钥半边（泛型参数，出厂即 `keychain::KeychainSecret`）。核心编排与组装点只见端口，不感知两半边的存在。
+- 同时实现 `ConfigStore` 与 `SecretStore`（2026-10-30 端口拆分后各出一份 impl）：文档方法委托 [`FileConfigStore`]，密钥方法委托密钥半边（泛型参数，出厂即 [`keychain::KeychainSecret`]）。核心编排与组装点只见端口，不感知两半边的存在。
 - `new`：用系统标准位置构造（配置文件在标准目录，密钥在出厂服务名下）。
 - `in_dir`：在指定配置目录下构造（测试与自定义位置用）。
 - `with_secrets`：用指定密钥半边构造（测试注入隔离服务名或内存桩用）。

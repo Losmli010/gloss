@@ -11,7 +11,8 @@
 //!
 //! 端点与密钥：端点取配置快照的端点地址；密钥按提供方条目的钥匙串
 //! 条目标识每请求直查（不缓存，除请求头外不进任何地方——错误消息与日志里
-//! 只有状态码与服务端诊断文本；红线与措辞见端口层配置存储的契约文档）。
+//! 只有状态码与服务端诊断文本；红线与措辞见端口层密钥存储
+//! （SecretStore）的契约文档）。
 //!
 //! 超时与重试（均为传输层内建行为，编排层不重试、原样上抛）：建连超时
 //! 之外，流式读取只设空闲超时——长回复合法地跑满全预算，总超时只会
@@ -26,7 +27,7 @@ use crate::config::Config;
 use crate::config_handle::ConfigHandle;
 use crate::log::debug;
 use crate::model::GlossError;
-use crate::ports::{AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskStream};
+use crate::ports::{AiEngine, BoxFuture, EngineRequest, SecretStore, TaskStream};
 
 use self::transport::{
     FirstByteStream, RETRY_ATTEMPTS, Resolved, TransportFail, connect_with_retry, send_once,
@@ -43,11 +44,11 @@ const CHAT_COMPLETIONS_PATH: &str = "chat/completions";
 pub struct LlmClient {
     client: reqwest::Client,
     config: Arc<ConfigHandle>,
-    store: Arc<dyn ConfigStore>,
+    store: Arc<dyn SecretStore>,
 }
 
 impl LlmClient {
-    pub fn new(config: Arc<ConfigHandle>, store: Arc<dyn ConfigStore>) -> Result<Self, GlossError> {
+    pub fn new(config: Arc<ConfigHandle>, store: Arc<dyn SecretStore>) -> Result<Self, GlossError> {
         let client = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .user_agent(concat!("gloss/", env!("CARGO_PKG_VERSION")))
@@ -129,7 +130,7 @@ fn resolve_endpoint(config: &Config) -> Result<String, GlossError> {
     Ok(endpoint.to_string())
 }
 
-fn resolve_api_key(config: &Config, store: &dyn ConfigStore) -> Result<String, GlossError> {
+fn resolve_api_key(config: &Config, store: &dyn SecretStore) -> Result<String, GlossError> {
     let provider = config.resolved_provider();
     store
         .secret(&provider.keychain_id)?

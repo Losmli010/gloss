@@ -11,7 +11,7 @@ use gloss_core::config::Config;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::{RunOutput, TaskStage, run_task_rounds};
 use gloss_core::model::{GlossError, Locale};
-use gloss_core::ports::{AiEngine, ConfigStore, EngineRequest};
+use gloss_core::ports::{AiEngine, ConfigStore, EngineRequest, SecretStore};
 use gloss_core::prompt::{ChatMessage, PromptRegistry};
 use gloss_core::task::{Task, TaskInput, TaskOptions};
 
@@ -85,7 +85,7 @@ impl LiveEnv {
     }
 }
 
-pub fn live_config(env: LiveEnv) -> (Arc<ConfigHandle>, Arc<dyn ConfigStore>) {
+pub fn live_config(env: LiveEnv) -> (Arc<ConfigHandle>, Arc<dyn SecretStore>) {
     let store = Arc::new(EnvSecretStore::new(env.api_key));
     let config = Config {
         base_url: env.base_url,
@@ -96,7 +96,7 @@ pub fn live_config(env: LiveEnv) -> (Arc<ConfigHandle>, Arc<dyn ConfigStore>) {
         Arc::clone(&store) as Arc<dyn ConfigStore>,
         config,
     ));
-    (handle, store)
+    (handle, Arc::clone(&store) as Arc<dyn SecretStore>)
 }
 
 struct LiveCtx {
@@ -413,7 +413,9 @@ impl ConfigStore for EnvSecretStore {
     fn save(&self, _config: &Config) -> Result<(), GlossError> {
         Ok(())
     }
+}
 
+impl SecretStore for EnvSecretStore {
     fn secret(&self, _key: &str) -> Result<Option<String>, GlossError> {
         Ok(Some(self.key.clone()))
     }

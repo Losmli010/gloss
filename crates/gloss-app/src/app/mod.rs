@@ -20,7 +20,7 @@ use gloss_core::config::Theme;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::log::{Span, debug, error, info, thread, warn};
 use gloss_core::model::Locale;
-use gloss_core::ports::{ConfigStore, SceneProbe};
+use gloss_core::ports::{SceneProbe, SecretStore};
 use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoopProxy;
 
@@ -37,7 +37,7 @@ use crate::update::UpdateWiring;
 
 pub(crate) struct Env {
     pub(crate) config: Arc<ConfigHandle>,
-    pub(crate) store: Arc<dyn ConfigStore>,
+    pub(crate) store: Arc<dyn SecretStore>,
     pub(crate) scene: Arc<dyn SceneProbe>,
     pub(crate) system_locale: Locale,
     pub(crate) permissions_ready: bool,
@@ -73,7 +73,7 @@ impl GlossApp {
     fn new(
         endpoints: AppEndpoints,
         config: Arc<ConfigHandle>,
-        store: Arc<dyn ConfigStore>,
+        store: Arc<dyn SecretStore>,
         scene: Arc<dyn SceneProbe>,
         system_locale: Locale,
         permissions_ready: bool,
@@ -238,7 +238,7 @@ pub(crate) mod test_support {
     use gloss_core::config_handle::ConfigHandle;
     use gloss_core::model::Locale;
     use gloss_core::model::ScreenPoint;
-    use gloss_core::ports::{ConfigStore, SceneProbe};
+    use gloss_core::ports::{ConfigStore, SceneProbe, SecretStore};
     use gloss_core::task::TaskInput;
 
     use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent, Traced};
@@ -259,7 +259,7 @@ pub(crate) mod test_support {
     pub(crate) type DrivenApp = (
         GlossApp,
         Arc<ConfigHandle>,
-        Arc<dyn ConfigStore>,
+        Arc<dyn SecretStore>,
         crossbeam_channel::Sender<PlatformEvent>,
         crossbeam_channel::Receiver<Traced<AcquireCommand>>,
         tokio::sync::mpsc::UnboundedReceiver<Traced<Command>>,
@@ -270,12 +270,12 @@ pub(crate) mod test_support {
         driven_app_with(Arc::new(MemoryConfigStore::default()))
     }
 
-    pub(crate) fn driven_app_with(store: Arc<dyn ConfigStore>) -> DrivenApp {
+    pub(crate) fn driven_app_with(store: Arc<MemoryConfigStore>) -> DrivenApp {
         driven_app_with_scene(store, Arc::new(StubSceneProbe::default()))
     }
 
     pub(crate) fn driven_app_with_scene(
-        store: Arc<dyn ConfigStore>,
+        store: Arc<MemoryConfigStore>,
         scene: Arc<dyn SceneProbe>,
     ) -> DrivenApp {
         driven_app_wired(store, scene, true)
@@ -290,7 +290,7 @@ pub(crate) mod test_support {
     }
 
     fn driven_app_wired(
-        store: Arc<dyn ConfigStore>,
+        store: Arc<MemoryConfigStore>,
         scene: Arc<dyn SceneProbe>,
         permissions_ready: bool,
     ) -> DrivenApp {
@@ -317,7 +317,7 @@ pub(crate) mod test_support {
             rx: cmd_rx,
         } = commands;
         let config = Arc::new(ConfigHandle::with_config(
-            Arc::clone(&store),
+            Arc::clone(&store) as Arc<dyn ConfigStore>,
             Config::default(),
         ));
         let clipboard_watch_enabled =
@@ -330,7 +330,7 @@ pub(crate) mod test_support {
                 events: ev_rx,
             },
             Arc::clone(&config),
-            Arc::clone(&store) as Arc<dyn ConfigStore>,
+            Arc::clone(&store) as Arc<dyn SecretStore>,
             scene,
             Locale::Zh,
             permissions_ready,

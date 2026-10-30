@@ -33,7 +33,7 @@
 ## run（启动事件循环的主入口）
 
 - 启动事件循环，直到退出才返回。
-- `endpoints` 是 App 侧通道端点（① 收平台事件、② 发取材命令、③ 发推理任务、④ 收回传事件），由组装点拆出移交；`config` 是运行时配置句柄，在每一批平台事件的起手处取一份快照交给状态机（见 `GlossApp::drain_platform_events`），配置热更新因此无需重启；`store` 是配置存储的文档+密钥组合体，设置页经它写 keychain（密钥不经快照，也不进句柄）。
+- `endpoints` 是 App 侧通道端点（① 收平台事件、② 发取材命令、③ 发推理任务、④ 收回传事件），由组装点拆出移交；`config` 是运行时配置句柄，在每一批平台事件的起手处取一份快照交给状态机（见 `GlossApp::drain_platform_events`），配置热更新因此无需重启；`store` 是密钥存储（2026-10-30 端口拆分后 App 只持 `SecretStore`），设置页经它写 keychain（密钥不经快照，也不进句柄）。
 - `on_waker` 拿到唤醒句柄——`main.rs` 是唯一组装点，句柄要由它分发给平台事件线程与 tokio，库这边不替上层决定跨线程拓扑。回调返回 `Err` 时事件循环不启动，错误原样上抛——消费运行时（通道③的消费者）装配失败属于启动硬错误：继续带病运行会让用户触发的任务静默石沉大海。
 - `theme` 施加到各 egui 上下文（见 `Workspace::apply_theme`）。`system_locale` 是组装点读到的系统语言，供配置里的 `Language::System` 落定成 [`Locale`]（prompt 模板与界面文案共用）。`scene` 是触发前场景探针（安全输入态、前台应用），供敏感信息防护的场景闸门判定——同样是平台适配器的事，壳只消费。`permissions_ready` 是取材授权「辅助功能」的门控：启动时刻取预检结论，未就绪的会话在运行中授权落定后置位（见 `GlossApp::on_accessibility_granted`），密钥预热据此门控（见 `GlossApp::send_secret_prewarm`）。
 - `update` 是更新子系统的壳侧接线（组装点经 `update::start_once()` 建立，见 [`UpdateWiring`]）：设置页每帧读 watch 通道里的 [`crate::update::state::UpdateState`] 渲染，用户动作经出口转投模块——与主流程四通道完全隔离。

@@ -1237,7 +1237,7 @@
 | load_generates_default_when_file_missing | 缺文件生成默认配置 | 给定缺文件目录，当 `load`，则返回出厂默认且落盘文件可再解析 | 2026-09-19 |
 | load_creates_missing_directories | 缺目录自动创建 | 给定连父级都缺的目录，当 `load` 落盘，则目录被创建 | 2026-09-19 |
 | composite_delegates_document_methods | 组合存储委托文档半边 | 给定 `CompositeConfigStore`，当 `save`→`load`，则完整委托文档半边、逐字段一致 | 2026-09-19 |
-| composite_forwards_secret_methods_to_half | 组合存储转发密钥半边 | 给定内存桩密钥半边，当经组合体 `set/get/delete`，则读回写入值、删除后 `None` | 2026-09-19 |
+| composite_forwards_secret_methods_to_the_store | 组合存储转发密钥端口 | 给定内存桩密钥存储，当经组合体 `SecretStore` 的 `set_secret/secret/delete_secret`，则读回写入值、删除后 `None` | 2026-10-30 |
 | persisted_document_stores_no_secret_material | 落盘文档不含密钥本体 | 给定 `save` 写出的（TOML），当检查内容，则含 `keychain_id` 但不含密钥本体 | 2026-09-19 |
 | default_store_targets_standard_config_dir | 默认存储落在标准目录 | 给定 `Default` 构造与真实 `HOME`，当定位，则路径为 `gloss/config.toml`（`BaseDirs` 缺失时跳过） | 2026-09-19 |
 | load_rejects_corrupt_file_and_quarantines_it | 损坏配置隔离降级 | 给定损坏配置，当 `load`，则报 `Config` 错、错误文本不转述内容、原文件字节原样挪入唯一 `.bak` | 2026-09-19 |

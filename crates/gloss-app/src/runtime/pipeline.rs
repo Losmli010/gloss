@@ -38,7 +38,7 @@ use futures::FutureExt;
 use gloss_core::engine::AiTaskService;
 use gloss_core::log::{Instrument, Span, debug, info, thread, warn};
 use gloss_core::model::GlossError;
-use gloss_core::ports::ConfigStore;
+use gloss_core::ports::SecretStore;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::channel::{Command, Event, Traced};
@@ -63,7 +63,7 @@ impl Drop for CommandRuntime {
 pub struct TaskBridge {
     service: Arc<AiTaskService>,
     cache: Arc<TaskCache>,
-    store: Arc<dyn ConfigStore>,
+    store: Arc<dyn SecretStore>,
     events: Sender<Event>,
     wake: Arc<dyn Fn() + Send + Sync>,
 }
@@ -72,7 +72,7 @@ impl TaskBridge {
     pub fn new(
         service: Arc<AiTaskService>,
         cache: Arc<TaskCache>,
-        store: Arc<dyn ConfigStore>,
+        store: Arc<dyn SecretStore>,
         events: Sender<Event>,
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Self {
@@ -300,7 +300,7 @@ mod tests {
 
     fn start_with_store(
         engine: &MockEngine,
-        store: Arc<dyn gloss_core::ports::ConfigStore>,
+        store: Arc<dyn gloss_core::ports::SecretStore>,
     ) -> (
         UnboundedSender<Traced<Command>>,
         Receiver<Event>,
@@ -609,7 +609,7 @@ mod tests {
 
     #[tokio::test]
     async fn prewarm_secret_reads_the_store_and_reports_success() {
-        use gloss_core::ports::ConfigStore as _;
+        use gloss_core::ports::SecretStore as _;
 
         let engine = MockEngine::new();
         let store = crate::stubs::ports::MemoryConfigStore::default();
@@ -618,7 +618,7 @@ mod tests {
             .expect("stub store accepts secret");
         let (commands, events, runtime) = start_with_store(
             &engine,
-            Arc::new(store) as Arc<dyn gloss_core::ports::ConfigStore>,
+            Arc::new(store) as Arc<dyn gloss_core::ports::SecretStore>,
         );
 
         commands
@@ -647,7 +647,7 @@ mod tests {
             .with_secret_failure(GlossError::Config("keychain locked".into()));
         let (commands, events, runtime) = start_with_store(
             &engine,
-            Arc::new(failing) as Arc<dyn gloss_core::ports::ConfigStore>,
+            Arc::new(failing) as Arc<dyn gloss_core::ports::SecretStore>,
         );
 
         commands
