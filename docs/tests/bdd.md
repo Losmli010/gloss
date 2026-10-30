@@ -577,7 +577,7 @@
 | format_detail_returns_none_for_undetailed_violations_and_legal_input | 无细节违约与合法输入无细节 | 给定 `EmptyReply`、`KindNotAllowed` 与契约合法回复，当 `format_detail`，则恒返回无细节（细分只补格式违约的位置，不改硬约束数量与降级语义） | 2026-10-29 |
 | classify_category_names_match_the_validator_exactly | 类别标识集与校验器同源 | 给定类别常量四标识，当逐个过 `validate_classify`，则全部放行且模型原始类别与常量一致（类别段渲染与校验共用同一集合） | 2026-10-29 |
 
-### `crates/gloss-core/src/config_handle.rs`
+### `crates/gloss-core/src/contract/config_handle.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |

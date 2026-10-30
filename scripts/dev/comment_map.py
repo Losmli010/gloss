@@ -77,7 +77,7 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-app/tests/stubs/engine.rs": "stubs_engine",
     "crates/gloss-core/tests/stubs/engine.rs": "stubs_engine",
     # 端口契约模块与各包测试桩同名
-    "crates/gloss-core/src/ports.rs": "ports",
+    "crates/gloss-core/src/contract/ports.rs": "ports",
     "crates/gloss-app/tests/stubs/ports.rs": "stubs_ports",
     "crates/gloss-core/tests/stubs/ports.rs": "stubs_ports",
     "crates/gloss-platform/tests/stubs/ports.rs": "stubs_ports",

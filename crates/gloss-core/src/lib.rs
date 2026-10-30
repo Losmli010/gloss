@@ -19,6 +19,7 @@ mod briefs;
 pub mod classify;
 #[path = "domain/config.rs"]
 pub mod config;
+#[path = "contract/config_handle.rs"]
 pub mod config_handle;
 #[path = "pipeline/engine/mod.rs"]
 pub mod engine;
@@ -31,6 +32,7 @@ pub(crate) mod langspec;
 pub mod log;
 #[path = "domain/model.rs"]
 pub mod model;
+#[path = "contract/ports.rs"]
 pub mod ports;
 #[path = "pipeline/prompt.rs"]
 pub mod prompt;
