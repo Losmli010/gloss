@@ -69,22 +69,9 @@
   code-* 混淆簇改善属 opt-in 步骤，待有凭据环境执行（分类缓存进程内
   1h TTL，重启即失效，无需迁移）。
 
-## MessageContent 与 ContentPart（2026-10-10，剪贴板图片方案 §5.4）
-
-- 为什么 `ChatMessage` 不再 `Serialize`：此前域形态与 wire 形态恰好重合（content 就是 JSON 字符串），`messages_serialize_to_openai_shape` 把这个巧合钉在了序列化层。多模态引入后两形态分叉（content 字符串 vs OpenAI content 数组），wire 组装整体搬到 `engine::llm::chat_request_body`（`message_to_value`/`content_to_value`/`part_to_value`），该序列化测试随之删除、由请求体快照测试接管。
-- 为什么域类型不携带 base64：编码是纯传输细节且体积膨胀 4/3 倍；域部件 `ContentPart::ImagePng(Arc<[u8]>)` 只搬原始字节，保持 `PartialEq` 按字节可比、Arc 跨线程零拷贝共享，也不存在「编码态与原始态并存」的双形态漂移。data URL 前缀与 base64 编码只在 `part_to_value`（请求体构造处）发生。
-- 备选与落选：让 `ChatMessage.content` 直接存 `serde_json::Value`——域层被 wire 词汇（`image_url`、data URL）侵蚀，prompt 层就得 import 传输知识，分层反向。
-
 ## render 图像分支的 kind 复核删除（2026-10-10，契约校验与重试方案步骤 1a）
 
 - ImageOcr 删除后，`validate_modality` 已保证 `Image` 输入 × 任何 kind 只有 `ImageExplain` 合法，render 里 `task.kind != TaskKind::ImageExplain` 的二次判断成为不可达分支——删掉，模态约束表保持唯一闸门；图像分支的注释改为说明这一点。
-
-## repair.md 与修复轮指令（2026-10-12，契约校验与重试方案 §6）
-
-- 为什么契约示例行运行时从任务模板提取（`task_contract_line`）而不落成 Rust 常量：模板是输出契约的唯一事实源（完整性门禁锁定「示例行过 validate_task」），zh/en 示例行还存在方言差（「…或 null」vs「…or null」）——运行时提取让任务书与修复指令引用同一行，措辞漂移在结构上不可能；常量方案则需要第三处同源测试锁两份拷贝。
-- 为什么截断提示（`{{hint}}`）放代码不放模板：hint 是条件出现的内容，`render_template` 的可选行语义（占位符全空整行删除）正好承载「length 才出现」；模板里写死文字就无法条件化。
-- 为什么 `repair_conversation` 收 `Option<&str>`：EmptyReply 原样重发 = 首轮消息逐字返回（不带 assistant 轮也不带纠错指令——无内容可纠，指令没有指向对象，且部分端点拒空 assistant content）；`Option` 让「带不带历史」在类型上显式，两个消费方（classify/engine）共享同一形态。
-- `Role::Assistant` 的首个落地：多轮对话预留点的首次真实使用，wire 序列化（小写 `assistant`）此前已就绪，零传输层改动。
 
 ## 语言显示名改 Cow（P1-1 clone 削减，2026-10-13）
 
@@ -96,13 +83,6 @@
 ## DEFAULT_TARGET 与 Templates（源码注释迁入）
 
 - `DEFAULT_TARGET`：目标语言缺省值（`TaskOptions::target_lang` 文档：缺省中文）。
-
-## Role / MessageContent / ContentPart / ChatMessage（源码注释迁入）
-
-- `Role`：OpenAI 兼容消息角色。`System` 系统指令、`User` 用户输入、`Assistant` 模型回复（修复轮带回上一次的坏回复）。
-- `MessageContent`：消息正文的域形态，纯文本或多模态部件数组。**不携带 base64**——部件数组映成 OpenAI 兼容 content、图像字节编码成 data URL 都归传输层（`engine::llm` 的请求体组装），本枚举只搬原始载荷。`Text` 纯文本正文；`Parts` 多模态部件数组（图像任务的用户消息）。
-- `ContentPart`：多模态内容部件，域形态只携带原始载荷（PNG 保持字节，不预编码）。`ImagePng` PNG 图像字节。
-- `ChatMessage`：OpenAI 兼容消息的域形态，`role` + `content`（wire 形状由传输层组装）。构造子：`system`/`user`/`assistant` 纯文本正文，`user_parts` 多模态部件数组（如图像任务）；`assistant` 修复轮用它带回上一次的坏回复。
 
 ## PromptRegistry（源码注释迁入）
 
@@ -117,10 +97,6 @@
 ## PromptRegistry::render_classify
 
 - 渲染**分类请求**的 messages：系统指令来自 classify 模板（类别清单、判别规则与输出契约都在模板内——模板是类别集的唯一事实源），用户消息只有待分类原文。与任务渲染的分工：分类不走 `render`（那是任务的路径），输出契约见 `crate::schema::validate_classify`。
-
-## PromptRegistry::render_repair
-
-- 渲染**修复轮**的纠错指令（修复对话里最后一条 user 消息的正文）：违约固定措辞（`crate::schema::Violation`，只记类别不携带回复原文）作为 `{{reason}}` 回灌模板。
 
 ## repair_conversation（源码注释迁入）
 
@@ -146,38 +122,12 @@
 - `RenderedLine`：单行渲染结果。`text` 替换后的文本；`all_empty` 该行有已声明占位符、且它们的值全是空串（该行是可选行），没有已声明占位符的行恒为 `false`——不带占位符的空行是模板的结构。
 - `substitute_line`：单行替换，声明的占位符按值替换，未声明的原样保留（连同一处未闭合的 `{{`，其后内容照原样跟在后面）。
 
-## 修复指令注册表组合与分类两段拼装（提示词模板重设计方案 §4.3–§4.5，期三，2026-10-29）
+## 分类提示词两段拼装（提示词模板重设计方案 §4.3–§4.5，期三，2026-10-29）
 
-- render_repair 签名改为接收违约与可选细节：修复指令 = 骨架（头 + 行 + 尾）
-  组合渲染，行数据有细节查细节键、无细节查违约级键，行模板的规则槽由组合
-  层填违约键（违约级行填自身键，细节行填所属违约键——被违反的规则以违约
-  标识指认，细节只精化位置）。分类修复轮保持违约级行（分类调用点传无细节，
-  方案 §6 决策 3）。
-- render_language_repair 落聚合：同字段同类违约按（字段、类别）排序后相邻
-  并组，例句序号升序合并进位置措辞（单复数形态中英各一套），行序即产物
-  字段序（注 → 音标 → 例句，与模型输出顺序一致）；聚合后 12 行封顶，超出
-  截断并附截断注；回指句以骨架键渲染、只指称上一条回复的身份（方案 §4.4
-  与 §6 决策 4、5）。lang_gate 保持逐条违约流，判定职责不动。
-- 降级路径：骨架或行数据缺席时，格式行回落违约固定措辞（`Display`）、语言
-  行回落「位置与规则标识」行（`LangViolation::line`），整指令降级不中断
-  （警告已在注册表装载层留痕）。
 - render_classify 改两段拼装：骨架（classify.md 只留引言与输出形状）加
   类别段（注册表按类别常量逐条渲染），与任务书加目标语言条款的既有拼装
   同构；类别段条目前缀与冒号是组合层的注入片段（本文件是文案门禁登记的
   模型面向文案统一处理点）。
-- zh/repair.md、zh/repair_language.md、en/repair.md、en/repair_language.md
-  退役删除：修复骨架迁入措辞注册表，模板占位符白名单随之只剩 `target`。
-
-## 批注行清单函数（降级批注方案 §3，2026-10-30）
-
-- 批注行清单与修复轮行清单同构异册——行模板、聚合算法、动作措辞与截断注
-  全部复用；只换注入的词：位置词由调用方传（界面文案，例句位带 `{{n}}`
-  占位符按聚合组序号填充，连接符随语言）、规则名取注册表新增的规则名区
-  （人读短名，与动作同册，同键可对）。
-- 函数本体随聚合算法迁往 briefs 模块（本文件行数纪律，记录见
-  briefs_comment.md），公开路径经本模块重导出不变；语言修复轮渲染
-  （`render_language_repair`、`language_repair_rows`）留在本文件，与批注
-  行共用聚合。
 
 ## 目标语言收敛（2026-10-30，语言规范统一阶段四 D5）
 
@@ -193,9 +143,5 @@
 - 分类段头（原「### 类别」与全角冒号）改查注册表分类段头一区：「###」
   是结构记号留在代码，标题词与分隔符入册；段缺席时分类请求回落为纯骨架
   （整表缺席的有痕降级在装载层留痕）。
-- 例句位置措辞（原「examples 第 N 条」）拆为字段键加注册表模板两段：中
-  文模板入册（repair.example_position），字段键（examples）是契约标识符
-  住代码；注册表在场的渲染结果与迁出前逐字一致（测试锁定），缺席回落
-  （examples[N]）紧凑形。
 - 至此 prompt.rs 生产代码零中文字面量；（check_i18n）对本文件的整文件豁
   免成为纯冗余，由收口阶段随约束登记一并撤除。

@@ -534,24 +534,10 @@
 | render_template_drops_lines_whose_placeholders_are_empty | 占位符全空的行整行消失 | 给定提示行与指令行模板，当某行占位符值全为空，则该行连同行内静态文字与换行一并删除，其余行不受影响 | 2026-09-22 |
 | render_template_keeps_blank_lines_without_placeholders | 无占位符空行是结构 | 给定模板里的空行（不含占位符），当渲染，则原样保留 | 2026-09-22 |
 | every_locale_renders_without_leftover_placeholders | 全 `locale` 无残留占位符 | 给定 `locale` 中英两份与五个 `kind` 的全组合（四个文本任务加 `ImageExplain`），当渲染，则文本消息不含 `{{`、系统指令携带 `note` 纯（JSON）契约且不含旧围栏 | 2026-10-12 |
-| repair_instruction_renders_without_leftover_placeholders | `repair` 指令渲染无残留占位符（完整性门禁） | 给定 `locale` 双语、四类违约与无细节加五个细节的全组合，当 `render_repair`，则渲染产物不含 `{{`、非空且含 `json` 字样（注册表骨架的键归注册表完整性测试管，不进本白名单） | 2026-10-29 |
-| repair_conversation_replays_the_history_with_the_bad_reply | 修复对话以历史形态重拼 | 给定首轮 `[system][user]` 与坏回复，当 `repair_conversation`，则拼成 `[system][user][assistant][user]`（首两条逐字保留；`EmptyReply` 不经本函数，原样重发归 `next_round`） | 2026-10-20 |
 | english_locale_renders_english_prompts | 英文 `locale` 出英文指令 | 给定 `En` `locale` 的句译任务，当渲染，则系统指令为英文（含 `JSON` 契约）、用户消息携带原文，且不含中文指令词 | 2026-10-03 |
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 `En` `locale` 未设目标语言、`Zh` `locale` 设 `Lang::En`，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含“英语” | 2026-09-22 |
 | prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 `prompt_locale` 的任务，当渲染，则结果与显式 `Zh` 逐字一致且含“词典专家” | 2026-09-22 |
-| language_repair_instruction_carries_the_row_list_only | 语言修复指令只帧行式清单 | 给定两条违约条目与中英两语言，当 `render_language_repair`，则指令以回指句起头（只指称上一条回复的身份）、无残留占位符、行含规则标识与字段位置、不含回复原文、提及 `JSON`（端点 `JSON` 模式门读取） | 2026-10-29 |
 | every_task_system_prompt_ends_with_the_discipline_after_the_shared_clause | 纪律块垫底且共享条款在其前 | 给定五任务两语言的渲染，当比对系统提示尾部，则与共享输出纪律块逐字一致、其前紧接共享目标语言条款（两段单点维护，拼接自渲染入口） | 2026-10-29 |
-| repair_instruction_composes_the_detail_wording_onto_the_skeleton | 细节措辞上修复指令 | 给定双 `locale` 与五个细节的全组合，当 `render_repair` 带细节，则指令行含细节位置与动作措辞、带违约规则标识、骨架（头、行、尾）齐备，且只携带结构事实（不含回复内容标记） | 2026-10-29 |
-| repair_instruction_without_detail_rides_the_violation_level_row | 无细节回落违约级行 | 给定散文类 `NotJson` 与无细节违约（`EmptyReply`、`KindNotAllowed`），当 `render_repair` 不带细节，则指令行为违约级措辞行（位置、规则标识、动作），无残留占位符、不带契约行 | 2026-10-29 |
-| repair_row_falls_back_to_the_display_wording_when_the_registry_is_missing | 注册表缺席回落固定措辞 | 给定骨架缺席或查键未中的组合，当渲染违约行，则整行回落违约固定措辞（`Display`），警告已在查找层留痕 | 2026-10-29 |
-| language_repair_aggregates_same_field_and_category_and_sorts_by_field_order | 语言清单聚合并按字段序排序 | 给定乱序跨字段同类违约（注、音标、例句），当 `render_language_repair`，则同字段同类并一行（例句序号升序合并，如“第 2、5、7 条”），行序按产物字段序（注 → 音标 → 例句），中英位置单复数形态各自成立 | 2026-10-29 |
-| language_repair_caps_rows_and_appends_the_truncated_note | 语言清单封顶并附截断注 | 给定聚合后 13 组违约，当渲染，则清单恰 12 行、截断注一行在场、第 13 组丢弃不溢出 | 2026-10-29 |
-| language_repair_within_the_cap_carries_no_truncated_note | 清单未超限无截断注 | 给定聚合后 12 组违约，当渲染，则无截断注（清单不挤占修复轮上下文的口径只在超限时生效） | 2026-10-29 |
-| language_repair_degrades_to_position_and_rule_id_lines_without_the_registry | 注册表缺席降级为位置与规则标识行 | 给定骨架缺席的语言清单，当聚合渲染，则每组回落为字段键、半角冒号加规则标识的行（语言中立，警告留痕） | 2026-10-29 |
-| violation_briefs_render_human_position_and_rule_names_on_the_shared_row | 降级批注行人读词同构行式 | 给定两条违约（注缺空格、例句夹外文两条聚合）与注入的人读位置词，当 `violation_briefs`（双语），则行式与修复轮同构（位置、规则名、动作三段），例句占位符按聚合组序号填充、动作措辞逐字复用注册表、同字段同类并一行、未超限无截断注 | 2026-10-30 |
-| violation_briefs_carry_structural_facts_only_without_leftover_placeholders | 降级批注行只载结构事实 | 给定注、音标、例句三字段违约与双语全组合，当渲染批注行，则无残留占位符、不含回复内容标记（批注只描述字段位置与规则，不引回复原文） | 2026-10-30 |
-| violation_briefs_cap_rows_and_append_the_truncated_note | 降级批注行封顶附截断注 | 给定聚合后十二组违约与上限五，当渲染，则恰五行加注册表截断注一行（“其余为同类违约”）、被封顶组丢弃不溢出；上限十二时逐行齐出且无截断注 | 2026-10-30 |
-| violation_briefs_of_an_empty_list_stay_empty_without_a_truncated_note | 空清单批注行恒空 | 给定空违约清单，当渲染批注行，则行清单为空且无截断注（界面据此回落泛化文案） | 2026-10-30 |
 | classify_prompt_composes_the_skeleton_and_the_registry_category_section | 分类提示词骨架加类别段两段拼装 | 给定双 `locale`，当 `render_classify`，则系统指令以骨架（引言与输出形状）逐字起头、其后为注册表渲染的类别段（四类别逐条带定义），无残留占位符 | 2026-10-29 |
 
 ### `crates/gloss-core/src/pipeline/prompt/templates.rs`
@@ -565,6 +551,25 @@
 | image_explain_example_is_a_single_json_object_with_note_first | 图像模板示例为单（JSON）且 `note` 在前 | 给定双 `locale` 的 `image_explain` 模板，当整行解析示例（JSON），则示例可解析、键恰为 `note` 与 `structured`（`note` 在前），`structured` 内只有 `examples`（`interpretation` 旧名退役）——流式与完成态解析都按这份契约 | 2026-10-11 |
 | every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 `locale` 的八份模板原文（五份任务模板加 `target_lang.md`、`discipline.md` 与 `classify.md`；修复骨架已迁入措辞注册表），当扫占位符，则每个 `{{` 都有闭合且名字都在已声明集合内（`target`；嵌套契约的示例 `JSON` 以 `}}` 收尾，闭合计数因此可多于开启——按配对判）；未声明者若与已声明占位符同行会被整行删掉，产物断言看不见 | 2026-10-29 |
 | task_templates_avoid_forbidden_legacy_markers | 任务模板不回传统框架措辞 | 给定中英两份禁用标记清单（中文十二条为框架模式加训诂词簇，英文十二条为传统框架短语），当扫描双 `locale` 五份任务模板正文，则零命中（界面印章与字段名是产品语言，不在受检面） | 2026-10-29 |
+
+### `crates/gloss-core/src/pipeline/prompt/repair.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| repair_instruction_renders_without_leftover_placeholders | `repair` 指令渲染无残留占位符（完整性门禁） | 给定 `locale` 双语、四类违约与无细节加五个细节的全组合，当 `render_repair`，则渲染产物不含 `{{`、非空且含 `json` 字样（注册表骨架的键归注册表完整性测试管，不进本白名单） | 2026-10-29 |
+| repair_conversation_replays_the_history_with_the_bad_reply | 修复对话以历史形态重拼 | 给定首轮 `[system][user]` 与坏回复，当 `repair_conversation`，则拼成 `[system][user][assistant][user]`（首两条逐字保留；`EmptyReply` 不经本函数，原样重发归 `next_round`） | 2026-10-20 |
+| language_repair_instruction_carries_the_row_list_only | 语言修复指令只帧行式清单 | 给定两条违约条目与中英两语言，当 `render_language_repair`，则指令以回指句起头（只指称上一条回复的身份）、无残留占位符、行含规则标识与字段位置、不含回复原文、提及 `JSON`（端点 `JSON` 模式门读取） | 2026-10-29 |
+| repair_instruction_composes_the_detail_wording_onto_the_skeleton | 细节措辞上修复指令 | 给定双 `locale` 与五个细节的全组合，当 `render_repair` 带细节，则指令行含细节位置与动作措辞、带违约规则标识、骨架（头、行、尾）齐备，且只携带结构事实（不含回复内容标记） | 2026-10-29 |
+| repair_instruction_without_detail_rides_the_violation_level_row | 无细节回落违约级行 | 给定散文类 `NotJson` 与无细节违约（`EmptyReply`、`KindNotAllowed`），当 `render_repair` 不带细节，则指令行为违约级措辞行（位置、规则标识、动作），无残留占位符、不带契约行 | 2026-10-29 |
+| repair_row_falls_back_to_the_display_wording_when_the_registry_is_missing | 注册表缺席回落固定措辞 | 给定骨架缺席或查键未中的组合，当渲染违约行，则整行回落违约固定措辞（`Display`），警告已在查找层留痕 | 2026-10-29 |
+| language_repair_aggregates_same_field_and_category_and_sorts_by_field_order | 语言清单聚合并按字段序排序 | 给定乱序跨字段同类违约（注、音标、例句），当 `render_language_repair`，则同字段同类并一行（例句序号升序合并，如“第 2、5、7 条”），行序按产物字段序（注 → 音标 → 例句），中英位置单复数形态各自成立 | 2026-10-29 |
+| language_repair_caps_rows_and_appends_the_truncated_note | 语言清单封顶并附截断注 | 给定聚合后 13 组违约，当渲染，则清单恰 12 行、截断注一行在场、第 13 组丢弃不溢出 | 2026-10-29 |
+| language_repair_within_the_cap_carries_no_truncated_note | 清单未超限无截断注 | 给定聚合后 12 组违约，当渲染，则无截断注（清单不挤占修复轮上下文的口径只在超限时生效） | 2026-10-29 |
+| language_repair_degrades_to_position_and_rule_id_lines_without_the_registry | 注册表缺席降级为位置与规则标识行 | 给定骨架缺席的语言清单，当聚合渲染，则每组回落为字段键、半角冒号加规则标识的行（语言中立，警告留痕） | 2026-10-29 |
+| violation_briefs_render_human_position_and_rule_names_on_the_shared_row | 降级批注行人读词同构行式 | 给定两条违约（注缺空格、例句夹外文两条聚合）与注入的人读位置词，当 `violation_briefs`（双语），则行式与修复轮同构（位置、规则名、动作三段），例句占位符按聚合组序号填充、动作措辞逐字复用注册表、同字段同类并一行、未超限无截断注 | 2026-10-30 |
+| violation_briefs_carry_structural_facts_only_without_leftover_placeholders | 降级批注行只载结构事实 | 给定注、音标、例句三字段违约与双语全组合，当渲染批注行，则无残留占位符、不含回复内容标记（批注只描述字段位置与规则，不引回复原文） | 2026-10-30 |
+| violation_briefs_cap_rows_and_append_the_truncated_note | 降级批注行封顶附截断注 | 给定聚合后十二组违约与上限五，当渲染，则恰五行加注册表截断注一行（“其余为同类违约”）、被封顶组丢弃不溢出；上限十二时逐行齐出且无截断注 | 2026-10-30 |
+| violation_briefs_of_an_empty_list_stay_empty_without_a_truncated_note | 空清单批注行恒空 | 给定空违约清单，当渲染批注行，则行清单为空且无截断注（界面据此回落泛化文案） | 2026-10-30 |
 
 ### `crates/gloss-core/src/domain/schema.rs`
 

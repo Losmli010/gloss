@@ -74,3 +74,9 @@ s
 ）
 
 - 文件内容的断言只取关键词（"translation assistant" / "词典助手" / 提示行标签），不做整段逐字比对：逐字比对会让每次改提示词都必须动 Rust 测试，与「模板文件改动不需要碰 Rust 代码」的验收直接冲突。
+
+## 期三组合与红线（提示词模板重设计方案 §8，2026-10-29）
+
+- every_template_mentions_json / every_template_placeholder_is_declared：
+  模板清单缩至七份与八份（修复骨架迁入措辞注册表后模板占位符白名单只剩
+  `target`，修复指令一侧随主题迁往 `prompt_repair.rs` 测试记录）。
