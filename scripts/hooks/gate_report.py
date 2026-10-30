@@ -79,6 +79,7 @@ REGISTERED_RULES = frozenset(
         "PR-SECTION",
         "PR-PROSE",
         "PR-TITLE-SIM",
+        "PR-SNAPSHOT",
         "REVIEW-SECTION",
         "REVIEW-DECL",
         "REVIEW-EMPTY",
