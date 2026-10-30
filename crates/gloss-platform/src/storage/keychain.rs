@@ -89,7 +89,7 @@ impl KeychainSecret {
 }
 
 impl KeychainSecret {
-    pub fn get(&self, key: &str) -> Result<Option<String>, GlossError> {
+    pub(crate) fn get(&self, key: &str) -> Result<Option<String>, GlossError> {
         if let Some(cached) = self.cached(key) {
             return Ok(cached);
         }
@@ -114,7 +114,7 @@ impl KeychainSecret {
         Ok(answer)
     }
 
-    pub fn set(&self, key: &str, value: &str) -> Result<(), GlossError> {
+    pub(crate) fn set(&self, key: &str, value: &str) -> Result<(), GlossError> {
         self.delete_underlying(key)?;
         if let Err(err) = passwords::set_generic_password(&self.service, key, value.as_bytes()) {
             if let Some(Some(old)) = self.cached(key)
@@ -133,7 +133,7 @@ impl KeychainSecret {
         Ok(())
     }
 
-    pub fn delete(&self, key: &str) -> Result<(), GlossError> {
+    pub(crate) fn delete(&self, key: &str) -> Result<(), GlossError> {
         self.delete_underlying(key)?;
         self.cached_map().insert(key.to_owned(), None);
         Ok(())
