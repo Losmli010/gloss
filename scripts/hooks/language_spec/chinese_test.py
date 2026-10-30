@@ -286,3 +286,74 @@ def test_anchor_stays_silent_for_terms_paths_and_single_words() -> None:
     ]:
         assert chinese.anchor_reasons(gloss) == [], gloss
         assert chinese.body_problems("t", 1, "启用（%s）补位。" % gloss, "header") == []
+
+
+# ---- 对账断言（语言规范统一阶段五）：两侧派生各与基准双向相等 ----
+
+GOLDEN_ZH_PUNCT = "，。、；：？！“”‘’《》（）·／"
+GOLDEN_EN_PUNCT = ",.:;!?\"'()-"
+GOLDEN_MATH = "=+<>^±×÷≤≥≠≈→"
+GOLDEN_DASH_ELLIPSIS = "—–‥…"
+GOLDEN_ATTACHED_AFTER_DIGIT = "%‰℃℉°′″"
+GOLDEN_ATTACHED_BEFORE_DIGIT = "€£¥￥₩"
+GOLDEN_ATTACHED_BETWEEN_DIGITS = ".,-"
+GOLDEN_EMOJI_BARE = "✅✨❌❤⚡⭐"
+GOLDEN_EMOJI_VARIANTS = "\ufe0e\ufe0f"
+GOLDEN_EMOJI_RANGES = (
+    (0x1F000, 0x1F02B),
+    (0x1F0A0, 0x1F0FF),
+    (0x1F100, 0x1F1FF),
+    (0x1F200, 0x1F2FF),
+    (0x1F300, 0x1F5FF),
+    (0x1F600, 0x1F64F),
+    (0x1F680, 0x1F6FF),
+    (0x1F900, 0x1F9FF),
+    (0x1FA00, 0x1FAFF),
+)
+GOLDEN_RANGES = {
+    "latin": ((0x00C0, 0x024F), (0x1E00, 0x1EFF), (0x2C60, 0x2C7F), (0xA720, 0xA7FF)),
+    "han": ((0x3400, 0x4DBF), (0x4E00, 0x9FFF), (0xF900, 0xFAFF)),
+    "kana": ((0x3041, 0x30FF), (0x31F0, 0x31FF), (0xFF66, 0xFF9D)),
+    "hangul": ((0x1100, 0x11FF), (0x3130, 0x318F), (0xAC00, 0xD7A3)),
+    "cyrillic": ((0x0400, 0x052F),),
+    "greek": ((0x0370, 0x03FF), (0x1F00, 0x1FFF)),
+}
+GOLDEN_PAIR_COUNT = 3152
+GOLDEN_PAIR_HEAD = "㑯㑳㑶㓨㗲㘚㜄㜏㜢㠏㠣㥮"
+GOLDEN_PAIR_TAIL = "𨦫𨧀𨧜𨨏𨭆𨭎𨯅𩞯𩠴𩣑𩶘𰻞"
+
+
+def test_char_faces_derive_bidirectionally_from_the_shared_golden() -> None:
+    # 开发侧标点面与生产中文允许表的标点成分同源同集（生产侧基准锁在核心
+    # 库测试），白名单按登记公式等于标点面并家族面并中性面，双向集合相等
+    assert chinese.ZH_PUNCT == frozenset(GOLDEN_ZH_PUNCT)
+    assert chinese.WHITELIST == (
+        frozenset(GOLDEN_ZH_PUNCT) | frozenset(GOLDEN_DASH_ELLIPSIS) | frozenset(GOLDEN_MATH)
+    )
+    assert chinese.ATTACHED_AFTER_DIGIT == frozenset(GOLDEN_ATTACHED_AFTER_DIGIT)
+    assert chinese.ATTACHED_BEFORE_DIGIT == frozenset(GOLDEN_ATTACHED_BEFORE_DIGIT)
+    assert chinese.ATTACHED_BETWEEN_DIGITS == frozenset(GOLDEN_ATTACHED_BETWEEN_DIGITS)
+    assert chinese.EMOJI_BARE == frozenset(GOLDEN_EMOJI_BARE)
+    assert chinese.EMOJI_VARIANTS == frozenset(GOLDEN_EMOJI_VARIANTS)
+    assert chinese.EMOJI_RANGES == GOLDEN_EMOJI_RANGES
+
+
+def test_ranges_derive_bidirectionally_from_the_shared_golden() -> None:
+    # 区段三段口径（汉字含扩展甲区与兼容区）与六类区段逐对双向相等——扩展区
+    # 汉字两侧同判的事实基座
+    for name, golden in GOLDEN_RANGES.items():
+        assert chinese._RANGES[name] == golden, name
+
+
+def test_zh_and_en_punct_faces_stay_disjoint() -> None:
+    # 中西允许表互斥（开发侧同断言，生产侧锁在核心库测试）
+    assert chinese.ZH_PUNCT.isdisjoint(frozenset(GOLDEN_EN_PUNCT))
+
+
+def test_traditional_set_derives_from_the_shared_pair_file() -> None:
+    # 对串派生取每对前字：基数与首尾字形钉住派生方向，对串内容逐字基准锁
+    # 在生产侧核心库测试（同一数据文件，两侧互指）
+    assert len(chinese._TRADITIONAL) == GOLDEN_PAIR_COUNT
+    for glyph in GOLDEN_PAIR_HEAD + GOLDEN_PAIR_TAIL:
+        assert glyph in chinese._TRADITIONAL, glyph
+    assert "这" not in chinese._TRADITIONAL
