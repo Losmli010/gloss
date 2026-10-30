@@ -31,6 +31,7 @@
 
 ## 接口取数与仓库标识
 
-- 2026-10-31 必需 contexts 经 gh api repos/{owner}/{repo}/branches/{branch}/protection 取全量载荷后在本脚本解析（required_status_checks.contexts），不用 --jq：解析层可单测打桩，gh 只当传输。gh 失败（含权限不足）按无法完成判定退出码三，指引写明令牌需要 administration:read。
+- 2026-10-31 必需 contexts 经 gh api repos/{owner}/{repo}/branches/{branch}/protection 取全量载荷后在本脚本解析（required_status_checks.contexts），不用 --jq：解析层可单测打桩，gh 只当传输。gh 失败（含权限不足）按无法完成判定退出码三，指引写明令牌需要管理面只读授权。
 - 2026-10-31 仓库标识解析自 origin 远端地址（https 与 ssh 两形态），走统一版本库出口；分支名钉死 main——对账对象是合并目标分支的保护配置。
-- 2026-10-31 持续集成侧由 hooks.yml 的 required-checks-reconcile 作业承载，作业级权限 contents: read 加 administration: read（作业级权限是整体替换不是合并，contents 必须一并声明）；作业以 push 条件只在主分支推送后运行——对账作业自身若随 PR 跑，会把自己的检查名收集进应然集合，与必需清单形成自指，且首个 PR 上必然自报缺失。
+- 2026-10-31 持续集成侧由 hooks.yml 的 required-checks-reconcile 作业承载，作业以 push 条件只在主分支推送后运行——对账作业自身若随 PR 跑，会把自己的检查名收集进应然集合，与必需清单形成自指，且首个 PR 上必然自报缺失。
+- 2026-10-31 计划设想的「作业级 administration:read」在现有工作流语法下不可声明：GITHUB_TOKEN 的工作流权限作用域没有管理面，声明即整份工作流解析失败（实测：推送后 Hooks 运行以文件路径为名、零日志失败，九个作业全部停摆）。凭据改走仓库密钥（REQUIRED_CHECKS_TOKEN，管理员配细粒度令牌只授管理面只读），密钥缺席时作业按无法完成判定红灯——不静默放行，红灯即「CI 侧对账未就绪」的可见信号。

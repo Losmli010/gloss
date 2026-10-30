@@ -221,10 +221,12 @@ jobs:
   required-checks-reconcile:
     name: Required checks reconcile
     if: github.event_name == 'push'
-    # 最小权限：读代码与分支保护只读（必需检查接口所需的最小授权）
+    # 最小权限：本作业只读代码。分支保护接口需要管理面只读授权，而令牌
+    # （GITHUB_TOKEN）的工作流权限作用域没有管理面，凭据走仓库密钥
+    # （REQUIRED_CHECKS_TOKEN）；密钥由管理员配置细粒度令牌、只授管理面
+    # 只读，缺席时本作业按无法完成判定红灯，不静默放行
     permissions:
       contents: read
-      administration: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -232,5 +234,5 @@ jobs:
 
       - name: Reconcile required status checks with branch protection
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.REQUIRED_CHECKS_TOKEN }}
         run: python3 scripts/hooks/check_required_checks.py
