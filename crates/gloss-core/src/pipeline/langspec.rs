@@ -15,9 +15,9 @@ use std::sync::OnceLock;
 
 use crate::log::{thread, warn};
 
-const SOURCE: &str = include_str!("../langspec/zh_en.toml");
+const SOURCE: &str = include_str!("../../langspec/zh_en.toml");
 
-const SIMPLIFIED_SOURCE: &str = include_str!("../langspec/simplified_pairs.txt");
+const SIMPLIFIED_SOURCE: &str = include_str!("../../langspec/simplified_pairs.txt");
 
 pub(crate) struct Spec {
     pub(crate) zh_allow: Vec<char>,

@@ -20,9 +20,9 @@ use std::sync::OnceLock;
 use crate::log::{thread, warn};
 use crate::model::Locale;
 
-const ZH_SOURCE: &str = include_str!("../prompts/wordings/zh.toml");
+const ZH_SOURCE: &str = include_str!("../../prompts/wordings/zh.toml");
 
-const EN_SOURCE: &str = include_str!("../prompts/wordings/en.toml");
+const EN_SOURCE: &str = include_str!("../../prompts/wordings/en.toml");
 
 #[derive(Debug, serde::Deserialize)]
 pub(super) struct Registry {

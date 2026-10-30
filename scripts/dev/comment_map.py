@@ -55,7 +55,7 @@ FAMILY_STEMS: dict[str, str] = {
     "scripts/perf/metrics.py": "metrics",
     "crates/gloss-eval/src/metrics.rs": "eval_metrics",
     # 核心库数据源派生模块与约束门禁语言规范域撞名：约束域带家族前缀
-    "crates/gloss-core/src/langspec.rs": "langspec",
+    "crates/gloss-core/src/pipeline/langspec.rs": "langspec",
     "scripts/hooks/constraints/langspec.py": "constraints_langspec",
     # 评测工作流与评测隔离主题记录（自由主题）消歧
     ".github/workflows/eval.yml": "eval_workflow",
@@ -71,11 +71,11 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-app/src/ui/popup/note.rs": "popup_note",
     "crates/gloss-app/src/ui/popup/mod.rs": "ui_popup_mod",
     # 引擎模块与各包测试桩同名：测试桩家族共用一份记录
-    "crates/gloss-core/src/engine.rs": "engine",
+    "crates/gloss-core/src/pipeline/engine.rs": "engine",
     "crates/gloss-app/tests/stubs/engine.rs": "stubs_engine",
     "crates/gloss-core/tests/stubs/engine.rs": "stubs_engine",
     # 端口契约模块与各包测试桩同名
-    "crates/gloss-core/src/ports.rs": "ports",
+    "crates/gloss-core/src/contract/ports.rs": "ports",
     "crates/gloss-app/tests/stubs/ports.rs": "stubs_ports",
     "crates/gloss-core/tests/stubs/ports.rs": "stubs_ports",
     "crates/gloss-platform/tests/stubs/ports.rs": "stubs_ports",
@@ -84,7 +84,7 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-core/tests/stubs/mod.rs": "stubs_mod",
     "crates/gloss-platform/tests/stubs/mod.rs": "stubs_mod",
     # 任务模块：核心库任务与界面流任务撞名
-    "crates/gloss-core/src/task.rs": "task",
+    "crates/gloss-core/src/domain/task.rs": "task",
     "crates/gloss-app/src/flow/task.rs": "flow_task",
     # 各包库入口撞名：决策与测试记录锚定在（gloss-platform）
     "crates/gloss-platform/src/lib.rs": "lib",

@@ -13,19 +13,23 @@ extern crate self as gloss_core;
 #[path = "../tests/stubs/mod.rs"]
 pub(crate) mod stubs;
 
-mod briefs;
-pub mod classify;
-pub mod config;
-pub mod config_handle;
-pub mod engine;
-pub mod guard;
-pub mod lang_gate;
-pub(crate) mod langspec;
+pub mod contract;
+pub mod domain;
 pub mod log;
-pub mod model;
-pub mod ports;
-pub mod prompt;
-mod repair;
-pub mod schema;
-pub mod task;
-mod wordings;
+pub mod pipeline;
+
+pub use contract::config_handle;
+pub use contract::ports;
+pub use domain::config;
+pub use domain::guard;
+pub use domain::model;
+pub use domain::schema;
+pub use domain::task;
+pub(crate) use pipeline::briefs;
+pub use pipeline::classify;
+pub use pipeline::engine;
+pub use pipeline::lang_gate;
+pub(crate) use pipeline::langspec;
+pub use pipeline::prompt;
+pub(crate) use pipeline::repair;
+pub(crate) use pipeline::wordings;

@@ -458,7 +458,7 @@
 | prune_keeps_the_newest_files_only | 旧日志按天数保留 | 给定 9 份日志与一个无关文件，当清理，则只留最近 7 份日志且无关文件不动 | 2026-09-24 |
 | task_span_carries_generation_into_events | 任务 `span` 把代数带给范围内的日志 | 给定 `task_span(7)` 并在其中记一条日志，当格式化输出，则事件行是（JSON）、顶层 `generation=7` 且无 `span` 对象 | 2026-09-24 |
 
-### `crates/gloss-core/src/classify.rs`
+### `crates/gloss-core/src/pipeline/classify.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -483,7 +483,7 @@
 | the_fallback_kind_is_the_general_template_landing | 兜底常量恒为 `General` | 给定 `CLASSIFY_FALLBACK`，当检查，则恒为 `General`（可渲染可执行的执行落点） | 2026-10-20 |
 | a_fallback_reply_lands_on_the_general_task_with_both_kinds_logged | 模型分类与最终分类同行落日志 | 给定 `{"kind":"Fallback"}` 回复，当 `classify`，则落 `General`，且 `info` 日志同行携带模型类别 `model_kind=Fallback` 与最终 `kind=General`、不含选区内容 | 2026-10-20 |
 
-### `crates/gloss-core/src/config.rs`
+### `crates/gloss-core/src/domain/config.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -496,7 +496,7 @@
 | language_resolves_to_locale | 界面语言落定具体 `locale` | 给定 `System/Zh/En` 三态与注入的系统语言，当解析界面语言，则 `System` 取系统语言、显式选择不被系统语言覆盖（同一处取值供 `UI` 文案表与 `prompt` 模板选表） | 2026-09-22 |
 | lookups_prefer_later_entries | 重复条目查找后者胜出 | 给定重复 `kind` 的多条目，当查找，则后条胜出、未配置为 `None`、未知 `provider` 无 `keychain` `id` | 2026-09-19 |
 
-### `crates/gloss-core/src/guard.rs`
+### `crates/gloss-core/src/domain/guard.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -518,7 +518,7 @@
 | ordinary_text_is_never_flagged | 日常文本一律不拦 | 给定常用句中英文本、中文段落、代码片段、带 `sk-` 的普通英文句与 `let key = "sk-test";` 这类代码，当检测，则全部为 `None` | 2026-09-26 |
 | the_self_flag_is_not_consumed_by_the_sensitive_list | `is_self` 与敏感名单无关 | 给定 `is_self` 为真的名单外前台应用，当判闸门，则放行（`is_self` 只归触发决策的防误触分支，不是名单命中） | 2026-09-30 |
 
-### `crates/gloss-core/src/prompt.rs`
+### `crates/gloss-core/src/pipeline/prompt.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -561,7 +561,7 @@
 | violation_briefs_of_an_empty_list_stay_empty_without_a_truncated_note | 空清单批注行恒空 | 给定空违约清单，当渲染批注行，则行清单为空且无截断注（界面据此回落泛化文案） | 2026-10-30 |
 | classify_prompt_composes_the_skeleton_and_the_registry_category_section | 分类提示词骨架加类别段两段拼装 | 给定双 `locale`，当 `render_classify`，则系统指令以骨架（引言与输出形状）逐字起头、其后为注册表渲染的类别段（四类别逐条带定义），无残留占位符 | 2026-10-29 |
 
-### `crates/gloss-core/src/schema.rs`
+### `crates/gloss-core/src/domain/schema.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -577,7 +577,7 @@
 | format_detail_returns_none_for_undetailed_violations_and_legal_input | 无细节违约与合法输入无细节 | 给定 `EmptyReply`、`KindNotAllowed` 与契约合法回复，当 `format_detail`，则恒返回无细节（细分只补格式违约的位置，不改硬约束数量与降级语义） | 2026-10-29 |
 | classify_category_names_match_the_validator_exactly | 类别标识集与校验器同源 | 给定类别常量四标识，当逐个过 `validate_classify`，则全部放行且模型原始类别与常量一致（类别段渲染与校验共用同一集合） | 2026-10-29 |
 
-### `crates/gloss-core/src/config_handle.rs`
+### `crates/gloss-core/src/contract/config_handle.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -593,7 +593,7 @@
 | base_url_validation_accepts_legal_addresses | `Base URL` 合法放行 | 给定 `https` 地址（含首尾空白、无路径、带端口），当 `validate_base_url`，则 `Ok` | 2026-09-22 |
 | missing_fields_fall_back_to_defaults_on_deserialize | 缺字段回落出厂默认 | 给定缺 `language` 字段的配置（JSON），当反序列化，则 `language` 按出厂跟随系统补齐 | 2026-09-22 |
 
-### `crates/gloss-core/src/task.rs`
+### `crates/gloss-core/src/domain/task.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -609,7 +609,7 @@
 | task_round_trips_through_serde | `Task` `serde` 往返无损 | 给定文本任务（含目标语言与模型），当经 `Task::new` 构造并 `serde` 往返，则无损 | 2026-10-18 |
 | image_input_round_trips_through_serde | 图像输入 `serde` 往返 | 给定 `Image` 输入，当 `serde` 往返，则字节不变且反序列化得到新 `Arc`（不与原值共享） | 2026-09-19 |
 
-### `crates/gloss-core/src/model.rs`
+### `crates/gloss-core/src/domain/model.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -617,7 +617,7 @@
 | error_display_never_carries_the_payload | 带载荷变体的 `Display` 不泄露载荷 | 给定携带敏感载荷的 `EngineResponse` 与 `Config`，当 `to_string`，则输出不含载荷的固定文案 | 2026-10-17 |
 | error_is_std_error | 错误可作 `std` `Error` | 给定 `GlossError` 装箱为 `std` `Error`，当 `to_string`，则输出正确文案 | 2026-09-19 |
 
-### `crates/gloss-core/src/engine.rs`
+### `crates/gloss-core/src/pipeline/engine.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -646,7 +646,7 @@
 | contract_invalid_direct_degrade_delivers_an_empty_violation_list | 契约无效直降带空清单 | 给定语言段入口处契约已失效的回复（直调 `run_lang_rounds`），当降级交付，则 `lang_degraded` 为真而违约清单为空（契约无效直降路径与预算耗尽路径分开赋值，原文原样上交） | 2026-10-30 |
 | a_contract_broken_language_repair_keeps_the_last_valid_reply | 修复轮契约退化保末份合格回复 | 给定契约合格的语言违约回复与修复轮散文（契约坏回复），当 `run`，则坏回复不被采纳、`raw` 保持末份契约合格回复且 `lang_degraded` 为真 | 2026-10-28 |
 
-### `crates/gloss-core/src/lang_gate.rs`
+### `crates/gloss-core/src/pipeline/lang_gate.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -675,7 +675,7 @@
 | math_inside_containers_stays_exempt | 容器内公式豁免 | 给定括注与引文内含成对公式的注，当判定，则无 `ContainerMixing`——数学容器内容不判语言（`R8`） | 2026-10-28 |
 | line_wrapped_formulas_stay_math_containers | 换行公式仍成数学容器 | 给定公式跨段内软换行的注，当判定，则无 `PunctuationMismatch`（软换行不拆数学配对，段界仍拆） | 2026-10-28 |
 
-### `crates/gloss-core/src/langspec.rs`
+### `crates/gloss-core/src/pipeline/langspec.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -691,7 +691,7 @@
 | zh_and_en_allow_tables_share_only_the_neutral_face | 中西允许表互斥对账 | 给定派生允许表（场景标点面并中性面两份），当双向求交，则交集恰为中性面成员——场景标点两面无共同成员（`R2`） | 2026-10-30 |
 | every_admitted_symbol_lands_on_exactly_one_layer | 现网符号恰属一面 | 给定收录面全体（场景标点、中性、附随三向、家族、弯引号定界、句末标点与括号对），当逐符号查归位层，则恰属一面，句点逗号短横的西文标点与数字夹住双角色是唯一例外，表情事实不落任何层 | 2026-10-30 |
 
-### `crates/gloss-core/src/wordings.rs`
+### `crates/gloss-core/src/pipeline/wordings.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -1388,7 +1388,7 @@
 | keyboard_events_are_never_subscribed | 键盘事件永不订阅 | 给定生产订阅掩码与 `classify`，当断言，则只有左键按下、抬起两位、键盘、滚轮、`flags` 各位不置（回归护栏） | 2026-09-19 |
 | spawn_resolves_synchronously_and_startup_failure_stays_off_the_flag | `tap` 启动同步可知且失败不置运行中标志 | 给定真实 `tap` 启动（结果随测试机授权而异），当 `spawn` 返回，则立即返回且启动失败不经 `degraded` 标志表达（标志只属运行中失效） | 2026-10-06 |
 
-### `crates/gloss-core/src/engine/llm.rs`
+### `crates/gloss-core/src/pipeline/engine/llm.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -1424,7 +1424,7 @@
 | an_idle_stream_fails_after_the_silence_budget | 静默超时终结悬死流 | 给定交付一个增量后恒 `Pending` 的字节流（虚拟时钟），当静默超过空闲预算后消费，则流以 `EngineNetwork` 终结且不再产出 | 2026-10-15 |
 | arriving_bytes_postpone_the_idle_deadline | 字节到达即复位空闲看门狗 | 给定每 30 秒（虚拟时钟）到达一个增量的字节流，当连续消费三个（虚拟 90 秒超出 60 秒预算），则每个增量如期到达、看门狗不触发 | 2026-10-15 |
 
-### `crates/gloss-core/src/engine/sse.rs`
+### `crates/gloss-core/src/pipeline/engine/sse.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
