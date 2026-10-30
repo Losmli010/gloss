@@ -60,7 +60,7 @@ def is_capacity_caused(repo: str, job: dict) -> bool:
 
 def rerun_failed_jobs(run_id: str, dry_run: bool) -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
-    jobs = gh_api("repos/%s/actions/runs/%s/jobs" % (repo, run_id))["jobs"]
+    jobs = gh_api("repos/%s/actions/runs/%s/jobs?per_page=100" % (repo, run_id))["jobs"]
     failed = [job for job in jobs if job["conclusion"] in RETRYABLE_CONCLUSIONS]
     if not failed:
         print("ok: no failed or cancelled jobs")
