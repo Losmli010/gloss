@@ -176,6 +176,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # 任务配方入口单测要实跑配方，先装任务运行器
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
       - name: Run checker unit tests
         run: |
           python3 -m pip install --quiet pytest
