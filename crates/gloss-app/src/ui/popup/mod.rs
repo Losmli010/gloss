@@ -14,12 +14,11 @@
 //! 经注疏排布模块存放），字号规格与宋楷字体助手在文案整形模块（都是设计稿基准
 //! 的应用定稿值），不进样式阶梯。
 //!
-//! 决策纯函数不进绘制模板，按职责拆在子模块：流式注渐进
-//! 提取、图标矢量栅格化、文案整形；绘制模板
-//! 按职责拆在页头、页脚、印章等卡片固定件、视图
-//! 分发与卡骨架、经注疏正文排布，依赖方向恒为视图 →
-//! 排布 → 固定件 → 决策；本模块留面板编排、跨帧状态与各文件共享的
-//! 常量。
+//! 决策纯函数不进绘制模板，按职责拆在子模块：流式注渐进提取、图标矢量
+//! 栅格化、文案整形、八向缩放热区（resize）；绘制模板按职责拆在页头、
+//! 页脚、印章等卡片固定件、视图分发与卡骨架、经注疏正文排布，依赖方向
+//! 恒为视图 → 排布 → 固定件 → 决策；本模块留绘制入口、视图分发、跨帧
+//! 渲染状态与浮层输出契约。
 //!
 //! 词卡精排（词条与音标落经位，释义逐行落注位，例句落疏位），其余任务正文
 //! 走标记文档渲染（egui_commonmark），注区统一改写文本样式为楷体字号。
@@ -40,11 +39,6 @@
 //! 页头不带任何标签药丸；行下发丝线与页脚上缘线呼应成卡片的上下界。
 //! 页头行同时是拖动热区：按住拖动即移动浮层（壳侧逐帧平移窗口），热区
 //! 与动作钮零重叠，按钮点击不受影响。
-//! 卡片四角与上下左右边界是缩放热区（不画任何握把示意）：按住哪条边，
-//! 对侧边即被壳侧锚定——拖动帧上交边界组合与指针位置，期望宽高与
-//! 窗口位移一并由壳侧钳制落窗（西、北向拖动窗口随指针平移）；拖过
-//! 一次即本段会话接管浮层宽高，内容高度自适应退位，显隐重置后回到
-//! 默认尺寸。
 //! 页脚常驻
 //! 一条窄带（带高取页脚高度常量）：推理中左端是“正在注疏”与呼吸点（生成指示唯一落点），
 //! 待确认卡左端是确认主按钮与取消次按钮（发送前把关的唯一出口），
@@ -64,10 +58,12 @@ mod icon;
 mod image;
 mod note;
 mod outcome;
+mod resize;
 mod views;
 
 pub(crate) use card::clear_cached_text_galleys;
 pub(crate) use outcome::annotation_text;
+pub use resize::{OverlayResize, OverlaySizing, ResizeEdges};
 
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
@@ -174,57 +170,6 @@ pub struct PopupOutput {
     pub resize: Option<OverlayResize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum OverlayResize {
-    Press {
-        edges: ResizeEdges,
-        window: egui::Vec2,
-        pointer: egui::Pos2,
-    },
-    Drag {
-        edges: ResizeEdges,
-        pointer: egui::Pos2,
-    },
-    Settle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ResizeEdges {
-    pub north: bool,
-    pub south: bool,
-    pub east: bool,
-    pub west: bool,
-}
-
-impl ResizeEdges {
-    const NONE: Self = Self {
-        north: false,
-        south: false,
-        east: false,
-        west: false,
-    };
-
-    const fn with_north(mut self) -> Self {
-        self.north = true;
-        self
-    }
-
-    const fn with_south(mut self) -> Self {
-        self.south = true;
-        self
-    }
-
-    const fn with_east(mut self) -> Self {
-        self.east = true;
-        self
-    }
-
-    const fn with_west(mut self) -> Self {
-        self.west = true;
-        self
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayAction {
     Confirm,
@@ -241,11 +186,6 @@ impl From<ErrorAction> for OverlayAction {
             ErrorAction::OpenSettings => OverlayAction::OpenSettings,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct OverlaySizing {
-    pub height: f32,
 }
 
 fn appear_t0_id() -> egui::Id {
@@ -333,110 +273,8 @@ pub fn draw(
     output.sizing = OverlaySizing {
         height: (content_h + 2.0 * space::CARD_PADDING + stroke::HAIRLINE).round(),
     };
-    output.resize = resize_handle(ui, state, text);
+    output.resize = resize::resize_handle(ui, state, text);
     output
-}
-
-type ResizeZone = (&'static str, egui::Rect, egui::CursorIcon, ResizeEdges);
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "八段热区是一张声明式数据表（名字、矩形、光标、边界组合各一列），拆分只会把表撕成两半"
-)]
-fn resize_zones(card: egui::Rect) -> [ResizeZone; 8] {
-    let hot = geometry::resize::HOTSPOT;
-    let corner = geometry::resize::CORNER;
-    let (l, t, r, b) = (card.left(), card.top(), card.right(), card.bottom());
-    let edges = ResizeEdges::NONE;
-    [
-        (
-            "overlay_resize_north",
-            egui::Rect::from_min_max(egui::pos2(l + corner, t), egui::pos2(r - corner, t + hot)),
-            egui::CursorIcon::ResizeNorth,
-            edges.with_north(),
-        ),
-        (
-            "overlay_resize_south",
-            egui::Rect::from_min_max(egui::pos2(l + corner, b - hot), egui::pos2(r - corner, b)),
-            egui::CursorIcon::ResizeSouth,
-            edges.with_south(),
-        ),
-        (
-            "overlay_resize_east",
-            egui::Rect::from_min_max(egui::pos2(r - hot, t + corner), egui::pos2(r, b - corner)),
-            egui::CursorIcon::ResizeEast,
-            edges.with_east(),
-        ),
-        (
-            "overlay_resize_west",
-            egui::Rect::from_min_max(egui::pos2(l, t + corner), egui::pos2(l + hot, b - corner)),
-            egui::CursorIcon::ResizeWest,
-            edges.with_west(),
-        ),
-        (
-            "overlay_resize_north_west",
-            egui::Rect::from_min_max(egui::pos2(l, t), egui::pos2(l + corner, t + corner)),
-            egui::CursorIcon::ResizeNorthWest,
-            edges.with_north().with_west(),
-        ),
-        (
-            "overlay_resize_north_east",
-            egui::Rect::from_min_max(egui::pos2(r - corner, t), egui::pos2(r, t + corner)),
-            egui::CursorIcon::ResizeNorthEast,
-            edges.with_north().with_east(),
-        ),
-        (
-            "overlay_resize_south_west",
-            egui::Rect::from_min_max(egui::pos2(l, b - corner), egui::pos2(l + corner, b)),
-            egui::CursorIcon::ResizeSouthWest,
-            edges.with_south().with_west(),
-        ),
-        (
-            "overlay_resize_south_east",
-            egui::Rect::from_min_max(egui::pos2(r - corner, b - corner), egui::pos2(r, b)),
-            egui::CursorIcon::ResizeSouthEast,
-            edges.with_south().with_east(),
-        ),
-    ]
-}
-
-fn resize_handle(
-    ui: &mut egui::Ui,
-    state: &RenderState,
-    text: &'static Text,
-) -> Option<OverlayResize> {
-    let card = ui.min_rect();
-    let (pointer, window) = ui.input(|i| (i.pointer.interact_pos(), i.viewport_rect().size()));
-    let mut frame: Option<OverlayResize> = None;
-    for (id, rect, icon, edges) in resize_zones(card) {
-        let response = ui.interact(rect, egui::Id::new(id), egui::Sense::drag());
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(
-                egui::WidgetType::Other,
-                true,
-                text.gloss_popup_resize_label.as_str(),
-            )
-        });
-        let response = response.on_hover_cursor(icon);
-        if response.drag_started()
-            && let Some(pointer) = pointer
-        {
-            state.resizing.set(true);
-            frame = Some(OverlayResize::Press {
-                edges,
-                window,
-                pointer,
-            });
-        } else if response.dragged()
-            && let Some(pointer) = pointer
-        {
-            frame = Some(OverlayResize::Drag { edges, pointer });
-        }
-    }
-    if frame.is_none() && state.resizing.get() {
-        frame = Some(OverlayResize::Settle);
-    }
-    frame
 }
 
 #[cfg(test)]
@@ -1510,128 +1348,6 @@ mod kittest_tests {
             drags.borrow().len(),
             length_before_release,
             "松开后不再上交拖动状态（释放帧与后续移动帧都是 None）"
-        );
-    }
-
-    const SOUTH_EAST: ResizeEdges = ResizeEdges {
-        north: false,
-        south: true,
-        east: true,
-        west: false,
-    };
-
-    type ResizeLog = Rc<RefCell<Vec<OverlayResize>>>;
-
-    fn resize_harness(view: OverlayView) -> (Harness<'static>, ResizeLog) {
-        let resizes: ResizeLog = Rc::new(RefCell::new(Vec::new()));
-        let sink = Rc::clone(&resizes);
-        let state = RenderState::default();
-        let text = Text::get(Locale::Zh);
-        let installed = Cell::new(false);
-        let harness = Harness::new_ui(move |ui| {
-            if font_first_frame(&installed, ui.ctx()) {
-                return;
-            }
-            let output = draw(ui, Some(&view), None, &state, text, Locale::Zh);
-            if let Some(resize) = output.resize {
-                sink.borrow_mut().push(resize);
-            }
-        });
-        (harness, resizes)
-    }
-
-    #[test]
-    fn resize_zones_are_exposed_to_accesskit() {
-        let (mut harness, _resizes) = resize_harness(word_card_view());
-        harness.run();
-        let zones: Vec<_> = harness
-            .query_all_by_label_contains("调整浮层大小")
-            .collect();
-        assert_eq!(zones.len(), 8, "四角与上下左右边界共八段热区");
-    }
-
-    #[test]
-    fn corner_drag_anchors_the_press_and_reports_pointer_offsets() {
-        let (mut harness, resizes) = resize_harness(word_card_view());
-        harness.set_size(vec2(WIDTH, 400.0));
-        harness.run();
-        let corner = harness
-            .query_all_by_label_contains("调整浮层大小")
-            .map(|node| node.rect())
-            .max_by(|a, b| {
-                a.right()
-                    .total_cmp(&b.right())
-                    .then(a.bottom().total_cmp(&b.bottom()))
-            })
-            .expect("corner resize zone");
-
-        harness.drag_at(corner.center());
-        harness.run();
-        assert_eq!(
-            resizes.borrow().first(),
-            Some(&OverlayResize::Press {
-                edges: ResizeEdges {
-                    north: false,
-                    south: true,
-                    east: true,
-                    west: false,
-                },
-                window: vec2(WIDTH, 400.0),
-                pointer: corner.center(),
-            }),
-            "按下帧上交边界组合、按下时刻窗口尺寸与指针位置"
-        );
-        harness.hover_at(corner.center() + vec2(60.0, 40.0));
-        harness.run();
-        harness.hover_at(corner.center() + vec2(100.0, 80.0));
-        harness.run();
-        assert_eq!(
-            resizes.borrow().last(),
-            Some(&OverlayResize::Drag {
-                edges: SOUTH_EAST,
-                pointer: corner.center() + vec2(100.0, 80.0),
-            }),
-            "拖动帧上交边界组合与窗口内指针位置"
-        );
-
-        harness.drop_at(corner.center() + vec2(100.0, 80.0));
-        harness.run();
-        harness.hover_at(corner.center() + vec2(140.0, 100.0));
-        harness.run();
-        assert_eq!(
-            resizes.borrow().last(),
-            Some(&OverlayResize::Settle),
-            "松开后粘性上交 Settle，会话内壳侧维持用户尺寸"
-        );
-    }
-
-    #[test]
-    fn west_edge_drag_reports_the_west_edge_only() {
-        let (mut harness, resizes) = resize_harness(word_card_view());
-        harness.set_size(vec2(WIDTH, 400.0));
-        harness.run();
-        let west = harness
-            .query_all_by_label_contains("调整浮层大小")
-            .map(|node| node.rect())
-            .min_by(|a, b| a.left().total_cmp(&b.left()))
-            .expect("west resize zone");
-
-        harness.drag_at(west.center());
-        harness.run();
-        harness.hover_at(west.center() - vec2(30.0, 0.0));
-        harness.run();
-        assert_eq!(
-            resizes.borrow().last(),
-            Some(&OverlayResize::Drag {
-                edges: ResizeEdges {
-                    north: false,
-                    south: false,
-                    east: false,
-                    west: true,
-                },
-                pointer: west.center() - vec2(30.0, 0.0),
-            }),
-            "西缘热区只携带西边界，指针随窗口内坐标上交"
         );
     }
 
