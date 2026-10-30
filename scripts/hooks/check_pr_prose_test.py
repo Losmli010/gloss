@@ -197,3 +197,44 @@ def test_gate_no_arguments_is_usage_error() -> None:
     proc = subprocess.run([sys.executable, GATE], capture_output=True)
     assert proc.returncode == 2
     assert b"usage:" in proc.stderr
+
+
+# ---- 任务配方入口（pr-lint-draft）：草稿两文件进，判罚与持续集成同款（子进程端到端）----
+
+REPO_ROOT = str(Path(__file__).parents[2])
+
+
+def run_recipe(title_file: str, body_file: str) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["just", "pr-lint-draft", title_file, body_file], capture_output=True, cwd=REPO_ROOT
+    )
+
+
+def test_recipe_draft_violations_match_direct_invocation(tmp_path: Path) -> None:
+    title_file = tmp_path / "title.txt"
+    body_file = tmp_path / "body.md"
+    title_file.write_text("feat: 添加 login 重试\n", encoding="utf-8")
+    body_file.write_text("缺全部小节的草稿正文\n\nJust run the tests.\n", encoding="utf-8")
+    recipe = run_recipe(str(title_file), str(body_file))
+    direct = subprocess.run(
+        [sys.executable, GATE, str(body_file), str(title_file)], capture_output=True, cwd=REPO_ROOT
+    )
+    assert recipe.returncode == direct.returncode == 1
+    assert recipe.stdout == direct.stdout == b""
+    # 门禁报告逐字节一致；配方壳只允许在报告之后追加任务运行器自己的失败尾行
+    assert recipe.stderr.startswith(direct.stderr)
+    assert recipe.stderr != direct.stderr
+    text = recipe.stderr.decode("utf-8")
+    heads = [line for line in text.splitlines() if line.startswith("error[")]
+    ids = {re.match(r"^error\[([A-Z0-9-]+)\]:", line).group(1) for line in heads}
+    assert ids == {"PR-SECTION", "PR-PROSE", "PR-TITLE-SIM"}
+
+
+def test_recipe_draft_clean_content_passes_with_exit_zero(tmp_path: Path) -> None:
+    title_file = tmp_path / "title.txt"
+    body_file = tmp_path / "body.md"
+    title_file.write_text("feat: 新增翻译浮层\n", encoding="utf-8")
+    body_file.write_text(full_section_body("无\n"), encoding="utf-8")
+    recipe = run_recipe(str(title_file), str(body_file))
+    assert recipe.returncode == 0
+    assert "ok: pull request content" in recipe.stdout.decode("utf-8")

@@ -344,6 +344,10 @@ pr-lint:
     printf '%s\n' "$body" > "$dir/body"
     {{py}} scripts/hooks/check_pr_prose.py "$dir/body" "$dir/title"
 
+# 拉取请求（PR）描述创建前预检（本地软闸）：对草稿标题与正文两个文件跑与持续集成（CI）同款判罚，绿灯再创建；硬闸由持续集成（CI）的必需检查兜底
+pr-lint-draft title-file body-file:
+    @{{py}} scripts/hooks/check_pr_prose.py "{{body-file}}" "{{title-file}}"
+
 # 安装本地仓库钩子（克隆后运行一次）
 install-hooks:
     {{py}} scripts/hooks/install_hooks.py
