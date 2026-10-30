@@ -22,7 +22,7 @@ use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::log::{debug, info, thread, warn};
 use gloss_core::model::GlossError;
-use gloss_core::ports::{AppIcon, ConfigStore};
+use gloss_core::ports::{AppIcon, SecretStore};
 use gloss_core::task::TaskInput;
 use gloss_platform::appearance::MacAppIcon;
 use gloss_platform::clipboard::{ClipboardImageReader, ClipboardWatchSource, WatchRoundFlag};
@@ -37,9 +37,10 @@ static DOCK_ICON_PNG: &[u8] = include_bytes!("../assets/icons/gloss-dock-icon.pn
 
 fn install_app_icon() {
     let icon: Box<dyn AppIcon> = Box::new(MacAppIcon::new());
-    if !icon.install(DOCK_ICON_PNG) {
+    if let Err(err) = icon.install(DOCK_ICON_PNG) {
         warn!(
             thread = thread::UI,
+            error = ?err,
             "dock icon not applied, keeping the system default"
         );
     }
@@ -135,7 +136,7 @@ pub(super) fn distribute_channels() -> (AppEndpoints, ChannelHalves) {
 pub(super) struct Assembly {
     pub(super) service: Arc<AiTaskService>,
     pub(super) cache_config: Arc<ConfigHandle>,
-    pub(super) runtime_store: Arc<dyn ConfigStore>,
+    pub(super) runtime_store: Arc<dyn SecretStore>,
     pub(super) update_handle: &'static UpdateHandle,
     pub(super) accessibility_ready: bool,
     pub(super) mouse_source: Option<MouseSource>,

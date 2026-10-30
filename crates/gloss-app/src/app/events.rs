@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicBool;
 
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::model::Locale;
-use gloss_core::ports::{ConfigStore, SceneProbe};
+use gloss_core::ports::{SceneProbe, SecretStore};
 use winit::event_loop::{EventLoop, EventLoopProxy};
 use winit::platform::macos::EventLoopBuilderExtMacOS;
 
@@ -43,7 +43,7 @@ impl Waker {
 pub fn run(
     endpoints: AppEndpoints,
     config: Arc<ConfigHandle>,
-    store: Arc<dyn ConfigStore>,
+    store: Arc<dyn SecretStore>,
     scene: Arc<dyn SceneProbe>,
     system_locale: Locale,
     permissions_ready: bool,

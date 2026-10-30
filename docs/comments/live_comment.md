@@ -65,4 +65,4 @@
 
 ## EnvSecretStore
 
-- live 轨用的密钥存储：key 从环境变量来，只进请求头。其余方法按 `ConfigStore` 契约给无害实现（评测不落盘、不读文件）。
+- live 轨用的密钥存储：key 从环境变量来，只进请求头。两个端口的其余方法按 `ConfigStore` 与 `SecretStore` 契约给无害实现（评测不落盘、不读文件；`ConfigStore` 那份只为喂配置句柄的构造子）。

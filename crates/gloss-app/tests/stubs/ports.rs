@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use gloss_core::config::Config;
 use gloss_core::guard::SceneFacts;
 use gloss_core::model::GlossError;
-use gloss_core::ports::{ConfigStore, SceneProbe};
+use gloss_core::ports::{ConfigStore, SceneProbe, SecretStore};
 
 use super::lock_or_recover;
 
@@ -51,7 +51,9 @@ impl ConfigStore for MemoryConfigStore {
         *lock_or_recover(&self.config) = Some(config.clone());
         Ok(())
     }
+}
 
+impl SecretStore for MemoryConfigStore {
     fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
         if let Some(err) = lock_or_recover(&self.secret_failure).clone() {
             return Err(err);

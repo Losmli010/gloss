@@ -81,7 +81,7 @@
 
 ## ProviderKey
 
-- 一个 provider 的密钥条目：`keychain_id` 是密钥在系统 keychain 里的条目标识，读取走 `ConfigStore::secret`，配置文件中永不出现密钥本体。
+- 一个 provider 的密钥条目：`keychain_id` 是密钥在系统 keychain 里的条目标识，读取走 `SecretStore::secret`，配置文件中永不出现密钥本体。
 - `provider` 是 provider 名称（如 "deepseek"）；`keychain_id` 是 keychain 条目标识。
 
 ## factory_provider / FACTORY_PROVIDER / default_provider_keys

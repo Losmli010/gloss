@@ -6,7 +6,7 @@
 ## DOCK_ICON_PNG / install_app_icon
 
 - `DOCK_ICON_PNG`：开发期 Dock 图标——与打包用的 `assets/icons/Gloss.icns` 同一份设计的 PNG 版本（生成方式见 scripts/dev/build_app_icon.py）。内嵌进二进制而非运行时读盘——非 bundle 运行时没有资源目录可信（约 9 KB，值这个体积）。
-- `install_app_icon`：装开发期 Dock 图标（非 bundle 运行时才有实际效果）。失败只降级记日志：图标是外观，不该拦住启动——端口契约见 `gloss_core::ports::AppIcon`。
+- `install_app_icon`：装开发期 Dock 图标（非 bundle 运行时才有实际效果）。失败只降级记日志且带因（错误值随日志字段留痕，2026-10-30 端口对齐后 `install` 返回 `Result`）：图标是外观，不该拦住启动——端口契约见 `gloss_core::ports::AppIcon`。
 
 ## preflight_accessibility
 

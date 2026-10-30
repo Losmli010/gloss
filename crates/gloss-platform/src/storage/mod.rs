@@ -1,6 +1,7 @@
 //! 配置存储适配器：文档半边与密钥半边各司其职——文档半边是文件存储，以
 //! 标记语言（TOML）落盘；密钥半边是钥匙串密钥句柄，即系统安全存储——由
-//! 组合存储组合成完整端口，组装点注入的就是组合体。
+//! 组合存储同时实现配置持久化（ConfigStore）与密钥（SecretStore）两个
+//! 端口，组装点注入的就是组合体。
 
 pub mod keychain;
 
@@ -12,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use gloss_core::config::Config;
 use gloss_core::log::{info, warn};
 use gloss_core::model::GlossError;
-use gloss_core::ports::ConfigStore;
+use gloss_core::ports::{ConfigStore, SecretStore};
 
 const CONFIG_FILE: &str = "config.toml";
 
@@ -143,22 +144,16 @@ impl FileConfigStore {
     }
 }
 
-pub trait SecretsHalf: Send + Sync {
-    fn get(&self, key: &str) -> Result<Option<String>, GlossError>;
-    fn set(&self, key: &str, value: &str) -> Result<(), GlossError>;
-    fn delete(&self, key: &str) -> Result<(), GlossError>;
-}
-
-impl SecretsHalf for keychain::KeychainSecret {
-    fn get(&self, key: &str) -> Result<Option<String>, GlossError> {
+impl SecretStore for keychain::KeychainSecret {
+    fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
         Self::get(self, key)
     }
 
-    fn set(&self, key: &str, value: &str) -> Result<(), GlossError> {
+    fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError> {
         Self::set(self, key, value)
     }
 
-    fn delete(&self, key: &str) -> Result<(), GlossError> {
+    fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
         Self::delete(self, key)
     }
 }
@@ -185,14 +180,14 @@ impl CompositeConfigStore<keychain::KeychainSecret> {
     }
 }
 
-impl<S: SecretsHalf> CompositeConfigStore<S> {
+impl<S: SecretStore> CompositeConfigStore<S> {
     #[cfg(test)]
     pub fn with_secrets(document: FileConfigStore, secrets: S) -> Self {
         Self { document, secrets }
     }
 }
 
-impl<S: SecretsHalf> ConfigStore for CompositeConfigStore<S> {
+impl<S: SecretStore> ConfigStore for CompositeConfigStore<S> {
     fn load(&self) -> Result<Config, GlossError> {
         self.document.load()
     }
@@ -200,17 +195,19 @@ impl<S: SecretsHalf> ConfigStore for CompositeConfigStore<S> {
     fn save(&self, config: &Config) -> Result<(), GlossError> {
         self.document.save(config)
     }
+}
 
+impl<S: SecretStore> SecretStore for CompositeConfigStore<S> {
     fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
-        self.secrets.get(key)
+        self.secrets.secret(key)
     }
 
     fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError> {
-        self.secrets.set(key, value)
+        self.secrets.set_secret(key, value)
     }
 
     fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
-        self.secrets.delete(key)
+        self.secrets.delete_secret(key)
     }
 }
 
@@ -284,16 +281,16 @@ mod tests {
     }
 
     #[test]
-    fn composite_forwards_secret_methods_to_half() {
+    fn composite_forwards_secret_methods_to_the_store() {
         #[derive(Default)]
         struct MemorySecrets(Mutex<HashMap<String, String>>);
 
-        impl SecretsHalf for MemorySecrets {
-            fn get(&self, key: &str) -> Result<Option<String>, GlossError> {
+        impl SecretStore for MemorySecrets {
+            fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
                 Ok(self.0.lock().expect("poisoned").get(key).cloned())
             }
 
-            fn set(&self, key: &str, value: &str) -> Result<(), GlossError> {
+            fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError> {
                 self.0
                     .lock()
                     .expect("poisoned")
@@ -301,7 +298,7 @@ mod tests {
                 Ok(())
             }
 
-            fn delete(&self, key: &str) -> Result<(), GlossError> {
+            fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
                 self.0.lock().expect("poisoned").remove(key);
                 Ok(())
             }
@@ -314,17 +311,17 @@ mod tests {
         );
 
         assert_eq!(
-            ConfigStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
+            SecretStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
             None
         );
-        ConfigStore::set_secret(&store, "gloss/deepseek", "sk-test").expect("set should succeed");
+        SecretStore::set_secret(&store, "gloss/deepseek", "sk-test").expect("set should succeed");
         assert_eq!(
-            ConfigStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
+            SecretStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
             Some("sk-test".into())
         );
-        ConfigStore::delete_secret(&store, "gloss/deepseek").expect("delete should succeed");
+        SecretStore::delete_secret(&store, "gloss/deepseek").expect("delete should succeed");
         assert_eq!(
-            ConfigStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
+            SecretStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
             None
         );
     }

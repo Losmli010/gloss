@@ -10,7 +10,7 @@
 
 ## 测试辅助（test_support / driven_app 家族）
 
-- 2026-09-18 DrivenApp：`(GlossApp, Arc<ConfigHandle>, Arc<dyn ConfigStore>, 平台事件发送端, 取材命令接收端, 推理命令接收端, 回传事件发送端)`——App 本体加四条通道的驱动端点。
+- 2026-09-18 DrivenApp：`(GlossApp, Arc<ConfigHandle>, Arc<dyn SecretStore>, 平台事件发送端, 取材命令接收端, 推理命令接收端, 回传事件发送端)`——App 本体加四条通道的驱动端点（2026-10-30 端口拆分后第三元是密钥存储）。
 - 2026-09-18 driven_app：接入真实通道与配置句柄的 App，配置走 core 的内存桩，测试可 `handle.save(...)` 模拟设置页保存，观察下一次触发是否用上新配置。driven_app_with：注入必失败存储的版本（设置页失败路径测试用）。driven_app_using：再注入热键桩的版本（M4-T7 重注册接线测试用），桩由调用方持 Arc 共享，不关心热键的测试用 driven_app。
 - 2026-09-18 trigger_selection：发送 `PlatformEvent::SelectionGesture` 后调 `drain_platform_events`，驱动一次划词触发走完通道①消费。
 - 2026-09-18 text_input / plain_outcome：构造文本取材产物与 Plain 结局。streaming_body / outcome_body：从 `overlay_view` 取当前正文，非期望视图即 panic（测试辅助：panic 即断言）。

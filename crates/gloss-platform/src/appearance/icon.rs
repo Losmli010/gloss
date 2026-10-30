@@ -1,5 +1,6 @@
 //! 应用图标适配器（macOS），实现图标端口。
 
+use gloss_core::model::GlossError;
 use gloss_core::ports::AppIcon;
 use objc2::MainThreadMarker;
 use objc2::rc::autoreleasepool;
@@ -16,15 +17,19 @@ impl MacAppIcon {
 }
 
 impl AppIcon for MacAppIcon {
-    fn install(&self, png: &[u8]) -> bool {
+    fn install(&self, png: &[u8]) -> Result<(), GlossError> {
         let Some(mtm) = MainThreadMarker::new() else {
-            return false;
+            return Err(GlossError::Config(
+                "dock icon install needs the main thread".into(),
+            ));
         };
 
         autoreleasepool(|_| {
             let data = NSData::with_bytes(png);
             let Some(image) = NSImage::initWithData(mtm.alloc::<NSImage>(), &data) else {
-                return false;
+                return Err(GlossError::Config(
+                    "the dock icon png does not decode into an image".into(),
+                ));
             };
 
             let app = NSApplication::sharedApplication(mtm);
@@ -33,7 +38,7 @@ impl AppIcon for MacAppIcon {
             // `Retained<NSImage>` that stays alive within this closure and is not
             // released during the call, and AppKit only reads it.
             unsafe { app.setApplicationIconImage(Some(&image)) };
-            true
+            Ok(())
         })
     }
 }
@@ -43,10 +48,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn install_degrades_to_false_off_the_main_thread() {
+    fn install_reports_an_error_off_the_main_thread() {
         let applied = std::thread::spawn(|| MacAppIcon::new().install(b"not a png"))
             .join()
             .expect("test thread must not panic");
-        assert!(!applied, "off-main-thread call must report failure");
+        assert!(
+            applied.is_err(),
+            "off-main-thread call must report an error, got {applied:?}"
+        );
     }
 }

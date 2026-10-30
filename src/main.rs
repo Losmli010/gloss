@@ -15,7 +15,7 @@ use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::engine::llm::LlmClient;
 use gloss_core::log::{self, info, thread, warn};
-use gloss_core::ports::{AiEngine, ConfigStore};
+use gloss_core::ports::{AiEngine, ConfigStore, SecretStore};
 use gloss_platform::scene::SystemSceneProbe;
 use gloss_platform::storage::CompositeConfigStore;
 use mimalloc::MiMalloc;
@@ -70,17 +70,19 @@ fn resolve_log_dir(override_dir: Option<OsString>, home: Option<OsString>) -> Op
     Some(PathBuf::from(home).join(".gloss").join("logs"))
 }
 
-type ConfigWiring = (Arc<ConfigHandle>, Arc<dyn ConfigStore>);
+type ConfigWiring = (Arc<ConfigHandle>, Arc<dyn SecretStore>);
 
 fn load_config() -> Result<ConfigWiring, Box<dyn Error>> {
-    let store: Arc<dyn ConfigStore> = Arc::new(CompositeConfigStore::new()?);
-    let handle = Arc::new(ConfigHandle::load_or_default(Arc::clone(&store)));
-    Ok((handle, store))
+    let composite = Arc::new(CompositeConfigStore::new()?);
+    let handle = Arc::new(ConfigHandle::load_or_default(
+        Arc::clone(&composite) as Arc<dyn ConfigStore>
+    ));
+    Ok((handle, Arc::clone(&composite) as Arc<dyn SecretStore>))
 }
 
 fn build_service(
     config: &Arc<ConfigHandle>,
-    store: &Arc<dyn ConfigStore>,
+    store: &Arc<dyn SecretStore>,
 ) -> Result<Arc<AiTaskService>, Box<dyn Error>> {
     let engine = LlmClient::new(Arc::clone(config), Arc::clone(store))?;
     Ok(Arc::new(AiTaskService::new(
@@ -90,7 +92,7 @@ fn build_service(
 
 fn run_event_loop(
     config: Arc<ConfigHandle>,
-    store: Arc<dyn ConfigStore>,
+    store: Arc<dyn SecretStore>,
     service: Arc<AiTaskService>,
 ) -> StartupResult {
     let (endpoints, halves) = wiring::distribute_channels();

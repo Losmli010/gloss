@@ -207,7 +207,7 @@ mod tests {
 
     use futures::Stream;
     use gloss_core::config_handle::ConfigHandle;
-    use gloss_core::ports::{AiEngine, BoxFuture, ConfigStore, TaskChunk, TaskStream};
+    use gloss_core::ports::{AiEngine, BoxFuture, SecretStore, TaskChunk, TaskStream};
     use gloss_core::schema::Violation;
 
     use super::live::run_task_case;
@@ -521,7 +521,7 @@ mod tests {
         }
     }
 
-    fn live_test_config() -> (Arc<ConfigHandle>, Arc<dyn ConfigStore>) {
+    fn live_test_config() -> (Arc<ConfigHandle>, Arc<dyn SecretStore>) {
         live_config(LiveEnv {
             base_url: "http://localhost".into(),
             model: "m".into(),

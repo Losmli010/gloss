@@ -5,7 +5,7 @@
 
 ## MemoryConfigStore
 
-- 内存版配置存储桩：密钥键值对 + 单份配置文档，可按需注入失败。
+- 内存版配置存储桩：密钥键值对 + 单份配置文档，可按需注入失败；同时实现 `ConfigStore` 与 `SecretStore`（2026-10-30 端口拆分后两个 impl 各答半边，跨包同名桩逐字一致）。
 - `load_failure` 字段：`Some` 时 `load` 直接返回它（模拟损坏的配置文件）。
 - `save_failure` 字段：`Some` 时 `save` 直接返回它（模拟落盘失败）。
 - `secret_failure` 字段：`Some` 时 `secret` 直接返回它（模拟 keychain 授权失败）。

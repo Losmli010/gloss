@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 717 | `just test` |
+| 单元测试 | 720 | `just test` |
 
 ## 人工测试
 
@@ -1200,7 +1200,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| install_degrades_to_false_off_the_main_thread | 非主线程安装图标优雅降级 | 给定非主线程调用与坏位图（PNG）字节，当 `install`，则不 `panic` 且如实返回 `false` | 2026-09-19 |
+| install_reports_an_error_off_the_main_thread | 非主线程安装图标报错 | 给定非主线程调用与坏位图（PNG）字节，当 `install`，则不 `panic` 且如实返回 `Err` | 2026-10-30 |
 
 ### `crates/gloss-platform/src/ffi/cf.rs`
 
@@ -1237,7 +1237,7 @@
 | load_generates_default_when_file_missing | 缺文件生成默认配置 | 给定缺文件目录，当 `load`，则返回出厂默认且落盘文件可再解析 | 2026-09-19 |
 | load_creates_missing_directories | 缺目录自动创建 | 给定连父级都缺的目录，当 `load` 落盘，则目录被创建 | 2026-09-19 |
 | composite_delegates_document_methods | 组合存储委托文档半边 | 给定 `CompositeConfigStore`，当 `save`→`load`，则完整委托文档半边、逐字段一致 | 2026-09-19 |
-| composite_forwards_secret_methods_to_half | 组合存储转发密钥半边 | 给定内存桩密钥半边，当经组合体 `set/get/delete`，则读回写入值、删除后 `None` | 2026-09-19 |
+| composite_forwards_secret_methods_to_the_store | 组合存储转发密钥端口 | 给定内存桩密钥存储，当经组合体 `SecretStore` 的 `set_secret/secret/delete_secret`，则读回写入值、删除后 `None` | 2026-10-30 |
 | persisted_document_stores_no_secret_material | 落盘文档不含密钥本体 | 给定 `save` 写出的（TOML），当检查内容，则含 `keychain_id` 但不含密钥本体 | 2026-09-19 |
 | default_store_targets_standard_config_dir | 默认存储落在标准目录 | 给定 `Default` 构造与真实 `HOME`，当定位，则路径为 `gloss/config.toml`（`BaseDirs` 缺失时跳过） | 2026-09-19 |
 | load_rejects_corrupt_file_and_quarantines_it | 损坏配置隔离降级 | 给定损坏配置，当 `load`，则报 `Config` 错、错误文本不转述内容、原文件字节原样挪入唯一 `.bak` | 2026-09-19 |
@@ -1404,6 +1404,7 @@
 | adapter_streams_deltas_across_chunk_boundaries | （SSE）适配器跨块流式 | 给定同一段（SSE）响应按 1、2、5、整包字节分块，当经 `SseStream` 适配，则增量恒为“光泽”、`[DONE]` 终止、余字节不解析 | 2026-09-19 |
 | adapter_delivers_the_done_marker_with_its_finish_reason | 适配器交付带结束原因的终结条目 | 给定增量、声明 `stop` 的结束块与 `[DONE]` 的响应，当经 `SseStream` 消费，则先交增量、再交携带 `stop` 的 `TaskChunk::Done` 终结条目 | 2026-10-11 |
 | adapter_delivers_deltas_then_terminates_on_protocol_error | 协议错误先交增量再终结 | 给定增量后跟坏（JSON），当流推进，则先交付增量、随后以 `EngineResponse` 错误终结 | 2026-09-19 |
+| an_error_chunk_is_final_even_when_bytes_keep_arriving | 流语义契约·错误条目即终结 | 给定增量后跟坏（JSON）行再跟合法数据行的字节流，当经适配器消费，则恰交增量与错误各一，此后再无产出（错误条目之后的字节不解析） | 2026-10-30 |
 | adapter_ends_cleanly_without_the_done_marker | 无 `[DONE]` 关流干净收尾 | 给定无 `[DONE]` 直接关流的响应，当解析，则带增量流按正常结束收尾 | 2026-09-19 |
 | adapter_reports_empty_completion_as_failure | 零增量完成报失败 | 给定零增量响应（仅 `[DONE]`、`HTML` 劫持页、或声明 `stop` 却零增量），当解析，则报 `EngineResponse` 错且流即止 | 2026-10-11 |
 | request_body_has_the_openai_envelope | 请求体 `OpenAI` 信封 | 给定未设限的 `EngineRequest`，当构造请求体，则 `model/messages/stream/response_format` 四键 `wire` 形态精确匹配且无 `max_tokens` 键 | 2026-10-11 |
@@ -1437,6 +1438,8 @@
 | unparsable_payload_reports_bounded_diagnostic | 解析失败诊断有上限 | 给定解析不出的载荷与超长错误消息，当解析，则报 `EngineResponse` 且诊断文本有上限 | 2026-09-19 |
 | ignores_a_data_line_without_payload | 空载荷 `data` 行忽略 | 给定空载荷 `data:` 行，当解析，则按心跳忽略 | 2026-09-19 |
 | ignores_bytes_after_done | `[DONE]` 后字节忽略 | 给定 `[DONE]` 后的字节，当解析，则一律忽略 | 2026-09-19 |
+| done_is_the_last_item_even_with_trailing_lines | 流语义契约·完成条目为末项 | 给定完成哨兵后仍带数据行的完整流，当解码，则条目止于完成条目，其后喂入与收尾都无产出 | 2026-10-30 |
+| a_terminal_failure_leaves_no_items_after_it | 流语义契约·失败条目终结流 | 给定超长行洪泛，当解码出失败条目，则其后喂入合法数据行与收尾都无产出 | 2026-10-30 |
 | finish_drops_a_truncated_tail | 残缺尾行丢弃 | 给定残缺半行，当 `finish`，则丢弃且此后字节不再解析 | 2026-09-19 |
 | finish_keeps_a_complete_unterminated_line | 完整无换行末行保留 | 给定完整但无换行的最后一行，当 `finish`，则作为增量交出 | 2026-09-19 |
 | rejects_a_line_beyond_the_limit | 超长行拒绝终结流 | 给定超 `MAX_LINE_BYTES` 的无换行洪泛，当解析，则协议错误终结流、后续不再解析 | 2026-09-19 |

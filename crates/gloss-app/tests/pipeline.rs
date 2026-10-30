@@ -54,7 +54,7 @@ fn pipeline(engine: &MockEngine) -> Pipeline {
         TaskBridge::new(
             service,
             Arc::new(TaskCache::new()),
-            Arc::new(MemoryConfigStore::default()) as Arc<dyn gloss_core::ports::ConfigStore>,
+            Arc::new(MemoryConfigStore::default()) as Arc<dyn gloss_core::ports::SecretStore>,
             ev_tx,
             || {},
         ),
