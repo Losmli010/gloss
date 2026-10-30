@@ -13,34 +13,23 @@ extern crate self as gloss_core;
 #[path = "../tests/stubs/mod.rs"]
 pub(crate) mod stubs;
 
-#[path = "pipeline/briefs.rs"]
-mod briefs;
-#[path = "pipeline/classify.rs"]
-pub mod classify;
-#[path = "domain/config.rs"]
-pub mod config;
-#[path = "contract/config_handle.rs"]
-pub mod config_handle;
-#[path = "pipeline/engine/mod.rs"]
-pub mod engine;
-#[path = "domain/guard.rs"]
-pub mod guard;
-#[path = "pipeline/lang_gate/mod.rs"]
-pub mod lang_gate;
-#[path = "pipeline/langspec.rs"]
-pub(crate) mod langspec;
+pub mod contract;
+pub mod domain;
 pub mod log;
-#[path = "domain/model.rs"]
-pub mod model;
-#[path = "contract/ports.rs"]
-pub mod ports;
-#[path = "pipeline/prompt.rs"]
-pub mod prompt;
-#[path = "pipeline/repair.rs"]
-mod repair;
-#[path = "domain/schema.rs"]
-pub mod schema;
-#[path = "domain/task.rs"]
-pub mod task;
-#[path = "pipeline/wordings.rs"]
-mod wordings;
+pub mod pipeline;
+
+pub use contract::config_handle;
+pub use contract::ports;
+pub use domain::config;
+pub use domain::guard;
+pub use domain::model;
+pub use domain::schema;
+pub use domain::task;
+pub(crate) use pipeline::briefs;
+pub use pipeline::classify;
+pub use pipeline::engine;
+pub use pipeline::lang_gate;
+pub(crate) use pipeline::langspec;
+pub use pipeline::prompt;
+pub(crate) use pipeline::repair;
+pub(crate) use pipeline::wordings;
