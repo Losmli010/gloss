@@ -25,7 +25,6 @@ pub use domain::guard;
 pub use domain::model;
 pub use domain::schema;
 pub use domain::task;
-pub(crate) use pipeline::briefs;
 pub use pipeline::classify;
 pub use pipeline::engine;
 pub use pipeline::lang_gate;

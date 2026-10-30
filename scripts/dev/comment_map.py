@@ -83,6 +83,9 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-app/tests/stubs/mod.rs": "stubs_mod",
     "crates/gloss-core/tests/stubs/mod.rs": "stubs_mod",
     "crates/gloss-platform/tests/stubs/mod.rs": "stubs_mod",
+    # 修复轮共享骨架与提示词修复区撞名：提示词修复区带家族前缀
+    "crates/gloss-core/src/pipeline/repair.rs": "repair",
+    "crates/gloss-core/src/pipeline/prompt/repair.rs": "prompt_repair",
     # 任务模块：核心库任务与界面流任务撞名
     "crates/gloss-core/src/domain/task.rs": "task",
     "crates/gloss-app/src/flow/task.rs": "flow_task",
