@@ -108,7 +108,15 @@ def test_attached_measures_and_currency_pass_by_digits() -> None:
 
 
 def test_attached_between_digits_pass() -> None:
+    # 数字间冒号（国标时分与比分口径）随附随面开口：正文落地路径在此锁定，
+    # 反引号半边由夹具表数字形态行承载（判罚后移回正文落地即清）
     assert chinese.chinese_zone_problems("t", 1, "区间 1,000 至 3-4 天、2.5 倍。", "text") == []
+    assert (
+        chinese.chinese_zone_problems(
+            "t", 1, "会议在 15:23 开始，比分 3:2，用时 15:23:45 完成。", "text"
+        )
+        == []
+    )
 
 
 def test_attached_symbols_flag_without_digit_neighbor() -> None:
@@ -371,10 +379,12 @@ def test_fence_comment_and_safety_masks_removed() -> None:
 
 
 # 违规句、按定稿改法机械落地句与判定面三列成表，落地句同面复跑零判罚；
-# 本表收改法收敛阶段一与阶段二的规范形（盘古收窄、六类替换映射、数字间冒
+# 本表收改法收敛阶段一至阶段三的规范形（盘古收窄、六类替换映射、数字间冒
 # 号、数字形态收窄、段内容贯通、孤反引号补配对与删孤记号、围栏注释整词删
-# 除、文件头注记改写与不变量注释邻接补全），后续增行；今后新规则落地必须
-# 同批补行，改法不收敛当场红。
+# 除、文件头注记改写与不变量注释邻接补全；阶段三收尾补机器记号整词改写、
+# 进制字面量与下划线分隔落段放行、数字形态比值改写全角分隔号、段内容贯通
+# 的提交信息与文案词条两面），
+# 后续增行；今后新规则落地必须同批补行，改法不收敛当场红。
 REMEDY_FIXTURES = (
     ("body", "圖形渲染管线由wgpu驱动。", "图形渲染管线由（wgpu）驱动。"),
     ("body", "中文头（用 wgpu 渲染）说明。", "中文头（wgpu）渲染说明。"),
@@ -389,7 +399,11 @@ REMEDY_FIXTURES = (
     ("body", "他想在 25°C 停，比例 1∶2。", "他想在 25℃ 停，比例 1：2。"),
     ("body", "占比 50 %偏高。", "占比 50%偏高。"),
     ("markdown", "使用$5与列|列对版。", "使用`$5`与列`|`列对版。"),
+    ("markdown", "花费$5购买。", "花费￥5 购买。"),
+    ("markdown", "进制 0x1F 记录在案。", "进制 `0x1F` 记录在案。"),
+    ("markdown", "分隔 30_000 记录在案。", "分隔 `30_000` 记录在案。"),
     ("markdown", "会议在 `15:23` 开始。", "会议在 15:23 开始。"),
+    ("markdown", "比例 `1/3` 记录在案。", "比例 1：3 记录在案。"),
     ("markdown", "退出码为 `0` 落盘。", "退出码为 0 落盘。"),
     ("markdown", "重试 `3` 次后停止。", "重试 3 次后停止。"),
     ("markdown", "标题 ` 残缺", "标题 残缺"),
@@ -408,12 +422,14 @@ REMEDY_FIXTURES = (
         "// SAFETY: the pointer stays valid; the caller upholds the contract\n"
         "unsafe fn f() {}\n\nfn main() {}\n",
     ),
+    ("commit", "提交时 ` 校验码 ` 必填。", "提交时 校验码 必填。"),
+    ("i18n", "重试次数 `3` 上限", "重试次数 3 上限"),
 )
 
 
 def test_remedy_fixture_table_rechecks_clean() -> None:
     # 夹具表双向断言：违规句在面内真违规（表行不腐化），落地句同面复跑零判
-    # 罚——机械收敛层的判定口径
+    # 罚——机械收敛层的判定口径；提交信息与文案词条两面走行级判定单点
     for surface, violation, remedy in REMEDY_FIXTURES:
         if surface == "body":
             assert chinese.body_problems("t", 1, violation, "text"), violation
@@ -421,6 +437,12 @@ def test_remedy_fixture_table_rechecks_clean() -> None:
         elif surface == "rust":
             assert check_rust_comments.check("demo.rs", violation), violation
             assert check_rust_comments.check("demo.rs", remedy) == [], remedy
+        elif surface == "commit":
+            assert coderef.prose_line_problems("commit subject", 1, violation), violation
+            assert coderef.prose_line_problems("commit subject", 1, remedy) == [], remedy
+        elif surface == "i18n":
+            assert coderef.prose_line_problems("i18n entry", 1, violation), violation
+            assert coderef.prose_line_problems("i18n entry", 1, remedy) == [], remedy
         else:
             assert coderef.markdown_problems("d.md", violation + "\n"), violation
             assert coderef.markdown_problems("d.md", remedy + "\n") == [], remedy
