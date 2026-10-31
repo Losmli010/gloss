@@ -149,6 +149,13 @@ def adjacent_problems(path: str, line: int, text: str) -> list[gate_report.Findi
     ]
 
 
+def is_apostrophe(text: str, index: int) -> bool:
+    """弯撇号豁免：夹在字母数字之间的右单引号按缩写撇号放行（it’s 形态）。"""
+    prev = text[index - 1] if index else ""
+    nxt = text[index + 1] if index + 1 < len(text) else ""
+    return all(p.isascii() and p.isalnum() for p in (prev, nxt))
+
+
 def pairing_hits(text: str) -> tuple[list[str], int]:
     """配对命中：统一栈配三对定界符，查单闭、多开与交错，各带形态描述。"""
     hits: list[str] = []
@@ -159,6 +166,8 @@ def pairing_hits(text: str) -> tuple[list[str], int]:
             stack.append((ch, index))
             continue
         if ch not in CLOSERS:
+            continue
+        if ch == "’" and is_apostrophe(text, index):
             continue
         opener = CLOSERS[ch]
         if stack and stack[-1][0] == opener:

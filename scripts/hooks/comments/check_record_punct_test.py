@@ -160,3 +160,51 @@ def test_main_exit_codes_follow_findings(monkeypatch, tmp_path: Path) -> None:
     assert check_record_punct.main() == 0
     (tmp_path / rel).write_text("违规「样本」", encoding="utf-8")
     assert check_record_punct.main() == 1
+
+
+# ---- 单元形态、豁免边界与登记对账（评审补） ----
+
+
+def test_heading_list_and_blockquote_units_judged() -> None:
+    src = "## 标题「引号」,半角\n\n- 列表「引号」,半角\n\n> 引用「引号」,半角\n"
+    found = problems(src)
+    assert {finding.rule for finding in found} == {"PUNCT-CORNER", "PUNCT-ADJACENT"}
+    assert len(found) == 6
+
+
+def test_long_extension_word_not_exempt() -> None:
+    assert rules("算子.compute均值") == ["PUNCT-ADJACENT"]
+
+
+def test_inner_single_quotes_inside_double_passes() -> None:
+    assert problems("外层“引语‘内层’收束”完毕") == []
+
+
+def test_link_text_judged_and_image_skipped() -> None:
+    src = "说明[甲,半角](https://example.com/x)与图![乙](https://x/y)收束"
+    assert rules(src) == ["PUNCT-ADJACENT"]
+
+
+def test_interleave_leaves_unclosed_reported() -> None:
+    found = problems("残留（“）形态")
+    assert "interleaved" in found[0].message
+    assert "unclosed" in found[0].message
+
+
+def test_word_apostrophe_passes() -> None:
+    assert problems("模型照抄 it’s ok") == []
+
+
+def test_quick_reference_categories_cover_router_gates() -> None:
+    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts" / "dev"))
+    import comment_rules  # noqa: E402
+
+    covered = {rel for category in comment_rules.CATEGORIES for rel in category.paths}
+    gates = (
+        "check_rust_comments",
+        "check_script_comments",
+        "check_docs",
+        "check_record_punct",
+    )
+    for name in gates:
+        assert "comments/%s.py" % name in covered

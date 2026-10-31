@@ -41,7 +41,8 @@ EMPTY_SURFACE_REMEDY = (
 OK_LINE = (
     "comment discipline: sources keep only Chinese file headers, comment"
     " bodies fully Chinese, proper nouns only in bracket annotations, invariant"
-    " comments pure English"
+    " comments pure English; record punctuation: no corner quotes, no halfwidth"
+    " marks beside Chinese, brackets paired"
 )
 
 

@@ -29,6 +29,7 @@ CATEGORIES = (
     Category("rust", "源码", ("comments/check_rust_comments.py",)),
     Category("script", "脚本与配置", ("comments/check_script_comments.py",)),
     Category("docs", "标记语言文档", ("comments/check_docs.py",)),
+    Category("punct", "记录标点", ("comments/check_record_punct.py",)),
     Category(
         "shared",
         "共用判据",
