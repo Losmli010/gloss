@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from language_spec import chinese  # noqa: E402
+from language_spec import chinese, english  # noqa: E402
 
 
 def messages(findings: list[chinese.gate_report.Finding]) -> list[str]:
@@ -111,6 +111,33 @@ def test_attached_between_digits_pass() -> None:
 def test_attached_symbols_flag_without_digit_neighbor() -> None:
     line = "占比 50 ％偏高，花费 € 5，货币 ￥ 写法。"
     assert chinese.chinese_zone_problems("t", 1, line, "text")
+
+
+def test_scene_attached_members_pass_in_chinese_zone() -> None:
+    # 分场拆分后的中文场景专属成员：摄氏华氏与万分率随数字放行，全角人民
+    # 币符前导数字放行；共用面成员（千分率）照旧
+    line = "气温 25℃ 与 72℉，汇率 5‰，万分率 30‱，价 ￥5。"
+    assert chinese.chinese_zone_problems("t", 1, line, "text") == []
+
+
+def test_latin_letter_after_degree_sign_flags_in_chinese_zone() -> None:
+    # 英文排印形态（度符号加拉丁字母）在中文区判外文：（C）是拉丁字母，
+    # 度符号本身随数字附随放行
+    problems = chinese.chinese_zone_problems("t", 1, "气温 25°C 偏高。", "text")
+    assert any(p.rule == chinese.RULE_PROSE_FOREIGN for p in problems)
+
+
+def test_two_dot_ellipsis_flags_in_chinese_zone() -> None:
+    # 家族豁免收紧后两点形态出局：中文省略号是双省略号，两点形态落白名单外
+    problems = chinese.chinese_zone_problems("t", 1, "省略号两点‥形态要判。", "text")
+    assert any(p.rule == chinese.RULE_PROSE_FOREIGN for p in problems)
+
+
+def test_fullwidth_yen_flags_in_english_zone_by_width_net() -> None:
+    # 英文区不查标点集与附随面，只查宽度网：全角人民币符在网内即拦（既有
+    # 行为补用例锁定）；摄氏符不在网内属已知盲区，明示不补（宁漏勿误）
+    problems = english.english_zone_problems("t", 1, "costs ￥5 in total", "doc")
+    assert any(p.rule == english.RULE_PROSE_ENGLISH for p in problems)
 
 
 def test_fullwidth_equals_percent_tilde_out_of_whitelist() -> None:
@@ -293,9 +320,11 @@ def test_anchor_stays_silent_for_terms_paths_and_single_words() -> None:
 GOLDEN_ZH_PUNCT = "，。、；：？！“”‘’《》（）·／"
 GOLDEN_EN_PUNCT = ",.:;!?\"'()-"
 GOLDEN_MATH = "=+<>^±×÷≤≥≠≈→"
-GOLDEN_DASH_ELLIPSIS = "—–‥…"
-GOLDEN_ATTACHED_AFTER_DIGIT = "%‰℃℉°′″"
-GOLDEN_ATTACHED_BEFORE_DIGIT = "€£¥￥₩"
+GOLDEN_DASH_ELLIPSIS = "—–…"
+GOLDEN_ATTACHED_AFTER_DIGIT = "%‰°′″"
+GOLDEN_ZH_ATTACHED_AFTER_DIGIT = "℃℉‱"
+GOLDEN_ATTACHED_BEFORE_DIGIT = "€£¥₩"
+GOLDEN_ZH_ATTACHED_BEFORE_DIGIT = "￥"
 GOLDEN_ATTACHED_BETWEEN_DIGITS = ".,-"
 GOLDEN_EMOJI_BARE = "✅✨❌❤⚡⭐"
 GOLDEN_EMOJI_VARIANTS = "\ufe0e\ufe0f"
@@ -325,13 +354,18 @@ GOLDEN_PAIR_TAIL = "𨦫𨧀𨧜𨨏𨭆𨭎𨯅𩞯𩠴𩣑𩶘𰻞"
 
 def test_char_faces_derive_bidirectionally_from_the_shared_golden() -> None:
     # 开发侧标点面与生产中文允许表的标点成分同源同集（生产侧基准锁在核心
-    # 库测试），白名单按登记公式等于标点面并家族面并中性面，双向集合相等
+    # 库测试），白名单按登记公式等于标点面并家族面并中性面，双向集合相等；
+    # 附随两向取共用面并中文场景面的并集（场景差异成员住场景面）
     assert chinese.ZH_PUNCT == frozenset(GOLDEN_ZH_PUNCT)
     assert chinese.WHITELIST == (
         frozenset(GOLDEN_ZH_PUNCT) | frozenset(GOLDEN_DASH_ELLIPSIS) | frozenset(GOLDEN_MATH)
     )
-    assert chinese.ATTACHED_AFTER_DIGIT == frozenset(GOLDEN_ATTACHED_AFTER_DIGIT)
-    assert chinese.ATTACHED_BEFORE_DIGIT == frozenset(GOLDEN_ATTACHED_BEFORE_DIGIT)
+    assert chinese.ATTACHED_AFTER_DIGIT == (
+        frozenset(GOLDEN_ATTACHED_AFTER_DIGIT) | frozenset(GOLDEN_ZH_ATTACHED_AFTER_DIGIT)
+    )
+    assert chinese.ATTACHED_BEFORE_DIGIT == (
+        frozenset(GOLDEN_ATTACHED_BEFORE_DIGIT) | frozenset(GOLDEN_ZH_ATTACHED_BEFORE_DIGIT)
+    )
     assert chinese.ATTACHED_BETWEEN_DIGITS == frozenset(GOLDEN_ATTACHED_BETWEEN_DIGITS)
     assert chinese.EMOJI_BARE == frozenset(GOLDEN_EMOJI_BARE)
     assert chinese.EMOJI_VARIANTS == frozenset(GOLDEN_EMOJI_VARIANTS)

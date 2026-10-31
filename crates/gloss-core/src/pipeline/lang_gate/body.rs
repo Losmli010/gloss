@@ -75,7 +75,9 @@ impl BodyCheck<'_> {
                 if c.is_whitespace() || c.is_alphanumeric() || self.is_delimiter(c) {
                     continue;
                 }
-                if is_attached_symbol(self.chars, index) || is_dash_or_ellipsis(self.chars, index) {
+                if is_attached_symbol(self.lang, self.chars, index)
+                    || is_dash_or_ellipsis(self.chars, index)
+                {
                     continue;
                 }
                 if !self.lang.punctuation.contains(&c) {
@@ -127,7 +129,7 @@ impl BodyCheck<'_> {
     }
 }
 
-fn is_attached_symbol(chars: &[char], index: usize) -> bool {
+fn is_attached_symbol(lang: &LangPolicy, chars: &[char], index: usize) -> bool {
     let spec = langspec::spec();
     let c = chars[index];
     let prev = if index == 0 {
@@ -136,10 +138,10 @@ fn is_attached_symbol(chars: &[char], index: usize) -> bool {
         chars.get(index - 1)
     };
     let next = chars.get(index + 1);
-    if spec.attached_after_digit.contains(&c) && prev.is_some_and(char::is_ascii_digit) {
+    if lang.attached_after_digit.contains(&c) && prev.is_some_and(char::is_ascii_digit) {
         return true;
     }
-    if spec.attached_before_digit.contains(&c) && next.is_some_and(char::is_ascii_digit) {
+    if lang.attached_before_digit.contains(&c) && next.is_some_and(char::is_ascii_digit) {
         return true;
     }
     let digits_around =

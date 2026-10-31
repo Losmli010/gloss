@@ -22,8 +22,10 @@ const SIMPLIFIED_SOURCE: &str = include_str!("../../langspec/simplified_pairs.tx
 pub(crate) struct Spec {
     pub(crate) zh_allow: Vec<char>,
     pub(crate) en_allow: Vec<char>,
-    pub(crate) attached_after_digit: Vec<char>,
-    pub(crate) attached_before_digit: Vec<char>,
+    pub(crate) zh_attached_after_digit: Vec<char>,
+    pub(crate) en_attached_after_digit: Vec<char>,
+    pub(crate) zh_attached_before_digit: Vec<char>,
+    pub(crate) en_attached_before_digit: Vec<char>,
     pub(crate) attached_between_digits: Vec<char>,
     pub(crate) dash_ellipsis: Vec<char>,
     pub(crate) curly_quotes: Vec<char>,
@@ -55,15 +57,22 @@ pub(crate) struct Ranges {
 
 #[derive(Debug, serde::Deserialize)]
 struct SourceData {
-    zh: FaceSection,
-    en: FaceSection,
+    zh: ZhSection,
+    en: EnSection,
     shared: SharedSection,
     policy: PolicySection,
     ranges: RangeSection,
 }
 
 #[derive(Debug, serde::Deserialize)]
-struct FaceSection {
+struct ZhSection {
+    punct: String,
+    attached_after_digit: String,
+    attached_before_digit: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct EnSection {
     punct: String,
 }
 
@@ -143,11 +152,18 @@ fn parse(source: &str) -> Result<Spec, String> {
     let math = face(&shared.math);
     let zh_allow = merged(zh_punct.clone(), &math);
     let en_allow = merged(en_punct.clone(), &math);
+    let shared_after = face(&shared.attached_after_digit);
+    let shared_before = face(&shared.attached_before_digit);
     Ok(Spec {
         zh_allow,
         en_allow,
-        attached_after_digit: face(&shared.attached_after_digit),
-        attached_before_digit: face(&shared.attached_before_digit),
+        zh_attached_after_digit: merged(shared_after.clone(), &face(&data.zh.attached_after_digit)),
+        en_attached_after_digit: shared_after,
+        zh_attached_before_digit: merged(
+            shared_before.clone(),
+            &face(&data.zh.attached_before_digit),
+        ),
+        en_attached_before_digit: shared_before,
         attached_between_digits: face(&shared.attached_between_digits),
         dash_ellipsis: face(&shared.dash_ellipsis),
         curly_quotes: face(&shared.curly_quotes),
@@ -238,8 +254,10 @@ impl Spec {
         Spec {
             zh_allow: Vec::new(),
             en_allow: Vec::new(),
-            attached_after_digit: Vec::new(),
-            attached_before_digit: Vec::new(),
+            zh_attached_after_digit: Vec::new(),
+            en_attached_after_digit: Vec::new(),
+            zh_attached_before_digit: Vec::new(),
+            en_attached_before_digit: Vec::new(),
             attached_between_digits: Vec::new(),
             dash_ellipsis: Vec::new(),
             curly_quotes: Vec::new(),
@@ -276,10 +294,12 @@ mod tests {
     const GOLDEN_ZH_PUNCT: &str = "，。、；：？！“”‘’《》（）·／";
     const GOLDEN_EN_PUNCT: &str = ",.:;!?\"'()-";
     const GOLDEN_MATH: &str = "=+<>^±×÷≤≥≠≈→";
-    const GOLDEN_ATTACHED_AFTER_DIGIT: &str = "%‰℃℉°′″";
-    const GOLDEN_ATTACHED_BEFORE_DIGIT: &str = "€£¥￥₩";
+    const GOLDEN_ATTACHED_AFTER_DIGIT: &str = "%‰°′″";
+    const GOLDEN_ZH_ATTACHED_AFTER_DIGIT: &str = "℃℉‱";
+    const GOLDEN_ATTACHED_BEFORE_DIGIT: &str = "€£¥₩";
+    const GOLDEN_ZH_ATTACHED_BEFORE_DIGIT: &str = "￥";
     const GOLDEN_ATTACHED_BETWEEN_DIGITS: &str = ".,-";
-    const GOLDEN_DASH_ELLIPSIS: &str = "—–‥…";
+    const GOLDEN_DASH_ELLIPSIS: &str = "—–…";
     const GOLDEN_CURLY_QUOTES: &str = "“”";
     const GOLDEN_SENTENCE_FINALS: &str = "。！？.!?";
     const GOLDEN_EMOJI_BARE: &str = "✅✨❌❤⚡⭐";
@@ -332,8 +352,16 @@ mod tests {
     #[test]
     fn attached_and_family_faces_match_the_expected_tables() {
         let spec = spec();
-        assert_face(&spec.attached_after_digit, GOLDEN_ATTACHED_AFTER_DIGIT);
-        assert_face(&spec.attached_before_digit, GOLDEN_ATTACHED_BEFORE_DIGIT);
+        assert_face(
+            &spec.zh_attached_after_digit,
+            &format!("{GOLDEN_ATTACHED_AFTER_DIGIT}{GOLDEN_ZH_ATTACHED_AFTER_DIGIT}"),
+        );
+        assert_face(&spec.en_attached_after_digit, GOLDEN_ATTACHED_AFTER_DIGIT);
+        assert_face(
+            &spec.zh_attached_before_digit,
+            &format!("{GOLDEN_ATTACHED_BEFORE_DIGIT}{GOLDEN_ZH_ATTACHED_BEFORE_DIGIT}"),
+        );
+        assert_face(&spec.en_attached_before_digit, GOLDEN_ATTACHED_BEFORE_DIGIT);
         assert_face(
             &spec.attached_between_digits,
             GOLDEN_ATTACHED_BETWEEN_DIGITS,
@@ -377,8 +405,16 @@ mod tests {
     #[test]
     fn char_faces_have_no_duplicate_symbols() {
         let data = data();
-        let faces: [(&str, Vec<char>); 10] = [
+        let faces: [(&str, Vec<char>); 12] = [
             ("zh.punct", data.zh.punct.chars().collect()),
+            (
+                "zh.attached_after_digit",
+                data.zh.attached_after_digit.chars().collect(),
+            ),
+            (
+                "zh.attached_before_digit",
+                data.zh.attached_before_digit.chars().collect(),
+            ),
             ("en.punct", data.en.punct.chars().collect()),
             ("shared.math", data.shared.math.chars().collect()),
             (
@@ -421,6 +457,14 @@ mod tests {
     fn layer_faces(data: &SourceData) -> Vec<(&'static str, Vec<char>)> {
         vec![
             ("zh.punct", data.zh.punct.chars().collect()),
+            (
+                "zh.attached_after_digit",
+                data.zh.attached_after_digit.chars().collect(),
+            ),
+            (
+                "zh.attached_before_digit",
+                data.zh.attached_before_digit.chars().collect(),
+            ),
             ("en.punct", data.en.punct.chars().collect()),
             ("shared.math", data.shared.math.chars().collect()),
             (

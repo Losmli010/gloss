@@ -106,8 +106,15 @@ ZH_PUNCT = _face(_SPEC["zh"]["punct"])
 # 白名单由场景标点、破折号省略号家族与中性数学面并成：与生产侧中文允许表
 # 同源同集，家族面在开发侧并入白名单（两侧都不判，机制差异见登记表）
 WHITELIST = ZH_PUNCT | _face(_SPEC["shared"]["dash_ellipsis"]) | _face(_SPEC["shared"]["math"])
-ATTACHED_AFTER_DIGIT = _face(_SPEC["shared"]["attached_after_digit"])
-ATTACHED_BEFORE_DIGIT = _face(_SPEC["shared"]["attached_before_digit"])
+# 数字附随两向只服务中文区路径（英文区不查附随），取共用面并中文场景面的
+# 并集——场景差异成员（摄氏华氏、万分率与全角人民币符）住场景面，派生处
+# 合面与生产侧中文附随面同构；两点省略号出族随家族面收缩自动跟随
+ATTACHED_AFTER_DIGIT = _face(_SPEC["shared"]["attached_after_digit"]) | _face(
+    _SPEC["zh"]["attached_after_digit"]
+)
+ATTACHED_BEFORE_DIGIT = _face(_SPEC["shared"]["attached_before_digit"]) | _face(
+    _SPEC["zh"]["attached_before_digit"]
+)
 ATTACHED_BETWEEN_DIGITS = _face(_SPEC["shared"]["attached_between_digits"])
 _GLOSS_OPEN, _GLOSS_CLOSE = _SPEC["shared"]["brackets"]["zh"]
 # 表情事实与生产侧同源互指：开发侧不设独立表情判定——表情在白名单外，字符

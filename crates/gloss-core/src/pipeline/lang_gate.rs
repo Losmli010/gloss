@@ -432,6 +432,50 @@ mod tests {
     }
 
     #[test]
+    fn attached_faces_follow_the_target_scene_and_two_dot_ellipsis_flags_both() {
+        let violations = categories(
+            TaskKind::TranslateSentence,
+            Lang::En,
+            "hello",
+            "It stays at 25℃ and costs ￥5.",
+            plain(&[]),
+        );
+        assert!(
+            has(&violations, LangCategory::PunctuationMismatch),
+            "degree sign and fullwidth yen lose the attached exemption in English: {violations:?}"
+        );
+
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "气温 25℃，金额 ￥5，万分率 30‱。",
+            word_card(None, &[]),
+        );
+        assert!(
+            !has(&violations, LangCategory::PunctuationMismatch),
+            "chinese scene keeps the attached members and admits the permyriad: {violations:?}"
+        );
+
+        for (target, note) in [
+            (Lang::Zh, "两点形态‥出局要判。"),
+            (Lang::En, "The two-dot ‥ form flags too."),
+        ] {
+            let violations = categories(
+                TaskKind::TranslateWord,
+                target,
+                "gloss",
+                note,
+                word_card(None, &[]),
+            );
+            assert!(
+                has(&violations, LangCategory::PunctuationMismatch),
+                "{target:?}/{note}: {violations:?}"
+            );
+        }
+    }
+
+    #[test]
     fn dash_and_ellipsis_families_stay_style_items_not_violations() {
         for note in [
             "破折号——与——单破折号—都放行。",

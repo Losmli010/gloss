@@ -24,6 +24,8 @@ pub(crate) enum ScriptClass {
 pub(crate) struct LangPolicy {
     pub(crate) scripts: &'static [ScriptClass],
     pub(crate) punctuation: &'static [char],
+    pub(crate) attached_after_digit: &'static [char],
+    pub(crate) attached_before_digit: &'static [char],
     pub(crate) paren_pairs: &'static [(char, char)],
     pub(crate) pangu: bool,
     pub(crate) simplified: bool,
@@ -40,6 +42,8 @@ pub(crate) fn lang_policy(target: &Lang) -> LangPolicy {
         Lang::Zh => LangPolicy {
             scripts: &[ScriptClass::Han],
             punctuation: &spec.zh_allow,
+            attached_after_digit: &spec.zh_attached_after_digit,
+            attached_before_digit: &spec.zh_attached_before_digit,
             paren_pairs: &spec.brackets_zh,
             pangu: spec.pangu.zh,
             simplified: spec.simplified.zh,
@@ -47,6 +51,8 @@ pub(crate) fn lang_policy(target: &Lang) -> LangPolicy {
         Lang::En => LangPolicy {
             scripts: &[ScriptClass::Latin],
             punctuation: &spec.en_allow,
+            attached_after_digit: &spec.en_attached_after_digit,
+            attached_before_digit: &spec.en_attached_before_digit,
             paren_pairs: &spec.brackets_en,
             pangu: spec.pangu.en,
             simplified: spec.simplified.en,
