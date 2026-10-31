@@ -117,6 +117,15 @@ def test_backtick_code_segment_flagged(tmp_path: Path) -> None:
     assert any("backtick code segment" in p for p in problems)
 
 
+def test_header_span_content_skips_body_whitelist(tmp_path: Path) -> None:
+    # 文件头反引号段按配对段摘除，段内容不进主体判定——形状罚与语言罚不再
+    # 对同词各执一向；孤反引号记罚后余文照常主体判定
+    problems = run_gate(tmp_path, "//!由`wgpu`驱动的負責链。\n\nfn main() {}\n")
+    assert any("backtick code segment" in p for p in problems)
+    assert any("traditional-only glyphs" in p for p in problems)
+    assert not any("outside the derived whitelist" in p for p in problems)
+
+
 def test_doc_reference_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "//! 中文头：规则见项目说明文档。\n\nfn main() {}\n")
     assert problems == []
@@ -483,6 +492,16 @@ def test_safety_not_adjacent_flagged(tmp_path: Path) -> None:
     content = f"{HEADER}\n\n// SAFETY: documents nothing adjacent\nlet ok = 1;\n"
     problems = run_gate(tmp_path, content)
     assert any("not adjacent to an unsafe block" in p for p in problems)
+
+
+def test_safety_adjacency_penalty_keeps_window_closed(tmp_path: Path) -> None:
+    # 邻接判罚后同条注释的英文区判定照常上报（独立病灶同轮可见，屏蔽消除），
+    # 豁免窗口不随之开启：其后的行注释仍按普通行内注释处置
+    content = f"{HEADER}\n\n// SAFETY: 指针有效但未邻接不安全块\n// helper note\nlet ok = 1;\n"
+    problems = run_gate(tmp_path, content)
+    assert any("not adjacent to an unsafe block" in p for p in problems)
+    assert any("must be pure English" in p for p in problems)
+    assert any("inline comment" in p for p in problems)
 
 
 def test_safety_separated_by_statement_flagged(tmp_path: Path) -> None:

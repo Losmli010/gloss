@@ -20,7 +20,7 @@ if _HOOKS not in sys.path:
 
 import gate_report  # noqa: E402
 from language_spec.chinese import CJK, body_problems  # noqa: E402
-from language_spec.coderef import MARKER  # noqa: E402
+from language_spec.coderef import CODE_SPAN, MARKER  # noqa: E402
 from language_spec.english import english_zone_problems  # noqa: E402
 
 RULE_HEADER_MISSING = "COMMENT-RUST-HEADER-MISSING"
@@ -299,7 +299,11 @@ def header_violations(lines: list[str], rel: str) -> list[gate_report.Finding]:
                     remedy=HEADER_CODEREF_REMEDY,
                 )
             )
-        if "§" in body:
+        # 配对段先行摘除，段内容不进主体判定（与正文行级判定的剥段语义同构，
+        # 形状罚与语言罚不再对同词各执一向）；孤反引号记罚后剥记号字符，余文
+        # 继续主体判定
+        stripped = CODE_SPAN.sub(" ", body).replace("`", " ")
+        if "§" in stripped:
             out.append(
                 gate_report.Finding(
                     rule=RULE_HEADER_SECTION_REF,
@@ -312,7 +316,7 @@ def header_violations(lines: list[str], rel: str) -> list[gate_report.Finding]:
                     remedy=HEADER_SECTION_REF_REMEDY,
                 )
             )
-        merged.append(body.replace("`", " ").replace("§", " "))
+        merged.append(stripped.replace("§", " "))
     if merged:
         out += body_problems(rel, 0, "\n".join(merged), "file header")
     return out
@@ -421,6 +425,9 @@ def check(rel: str, src: str) -> list[gate_report.Finding]:
                         remedy=SAFETY_ADJACENCY_REMEDY,
                     )
                 )
+                # 邻接判罚不短路：同条注释的英文区判罚照常上报，独立病灶同轮
+                # 可见；豁免窗口不随之开启，后续行仍按普通行内注释处置
+                problems += english_zone_problems(rel, sline, body, "SAFETY comment")
                 continue
             safety_open = True
             problems += english_zone_problems(rel, sline, body, "SAFETY comment")
