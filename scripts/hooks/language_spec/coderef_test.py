@@ -356,6 +356,7 @@ NUMERIC_PENALTY_SPANS = (
     "≤27%",
     "12‰",
     "120ms",
+    "120s",
     "27.5MB",
     "8192MiB",
     "15bp",
@@ -451,8 +452,9 @@ def test_pull_request_body_numeric_span_flagged() -> None:
 
 
 def test_unit_whitelist_boundary() -> None:
-    # 白名单内后缀判罚；白名单外字母尾与大小写变体放行（宁漏勿误）
+    # 白名单内后缀判罚（含秒记号，评审补充例）；白名单外字母尾与大小写变体放行（宁漏勿误）
     assert rules(markdown_problems("d.md", "时延 `120ms` 达标。\n")) == ["COMMENT-DOC-CODE-NUMERIC"]
+    assert rules(markdown_problems("d.md", "时长 `120s` 达标。\n")) == ["COMMENT-DOC-CODE-NUMERIC"]
     assert rules(markdown_problems("d.md", "提速 `4x` 达标。\n")) == ["COMMENT-DOC-CODE-NUMERIC"]
     assert markdown_problems("d.md", "路程 `120km` 记录在案。\n") == []
     assert markdown_problems("d.md", "倍率 `4y` 记录在案。\n") == []

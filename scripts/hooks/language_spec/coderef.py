@@ -144,7 +144,7 @@ NUMERIC_TOKEN = re.compile(
     r"^[<>~+±≤≥-]?#?"
     r"(?:\d[\d,_]*(?:\.\d+)*(?:[eE][+-]?\d+)?|0[xXbBoO][0-9a-fA-F_]+)"
     r"(?:\.\.\=?\d+|[.:\/-]\d+)*"
-    r"(?:\s?(?:ms|us|ns|min|h|KB|MB|GB|KiB|MiB|GiB|bp|x)|[%‰±<>~+=-])?$"  # langspec:allow 数字附随符号属形态结构记号，非字符事实私持
+    r"(?:\s?(?:ms|us|ns|s|min|h|KB|MB|GB|KiB|MiB|GiB|bp|x)|[%‰±<>~+=-])?$"  # langspec:allow 数字附随符号属形态结构记号，非字符事实私持
 )
 
 # 数学记号段豁免：美元号包裹的算式段，内容限算式字符、不含汉字与美元号；
