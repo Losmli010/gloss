@@ -117,6 +117,15 @@ def test_backtick_code_segment_flagged(tmp_path: Path) -> None:
     assert any("backtick code segment" in p for p in problems)
 
 
+def test_header_span_content_skips_body_whitelist(tmp_path: Path) -> None:
+    # 文件头反引号段按配对段摘除，段内容不进主体判定——形状罚与语言罚不再
+    # 对同词各执一向；孤反引号记罚后余文照常主体判定
+    problems = run_gate(tmp_path, "//!由`wgpu`驱动的負責链。\n\nfn main() {}\n")
+    assert any("backtick code segment" in p for p in problems)
+    assert any("traditional-only glyphs" in p for p in problems)
+    assert not any("outside the derived whitelist" in p for p in problems)
+
+
 def test_doc_reference_flagged(tmp_path: Path) -> None:
     problems = run_gate(tmp_path, "//! 中文头：规则见项目说明文档。\n\nfn main() {}\n")
     assert problems == []

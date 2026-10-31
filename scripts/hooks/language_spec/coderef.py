@@ -241,37 +241,33 @@ def prose_line_problems(
     if not re.search(r"[A-Za-z\u4e00-\u9fff]", text):
         return out  # 剥去代码与日期后只剩数字符号（纯命令格、分隔符）无可判语言
     if "`" in text:
-        return (
-            out
-            + [
-                gate_report.Finding(
-                    rule=RULE_PROSE_CODEREF,
-                    path=path,
-                    line=line,
-                    message=(
-                        "text contains a code segment — move references and samples to the record files"  # langspec:allow 消息排版破折号，非判罚事实
-                    ),
-                    evidence=text,
-                    remedy=CODEREF_REMEDY,
-                )
-            ]
+        out.append(
+            gate_report.Finding(
+                rule=RULE_PROSE_CODEREF,
+                path=path,
+                line=line,
+                message=(
+                    "text contains a code segment — move references and samples to the record files"  # langspec:allow 消息排版破折号，非判罚事实
+                ),
+                evidence=text,
+                remedy=CODEREF_REMEDY,
+            )
         )
+        text = text.replace("`", " ")  # 孤记号不是外文内容：剥记号留内容，余下判定照跑
     if "§" in text:
-        return (
-            out
-            + [
-                gate_report.Finding(
-                    rule=RULE_PROSE_SECTION_REF,
-                    path=path,
-                    line=line,
-                    message=(  # langspec:allow 消息排版破折号，非判罚事实
-                        'text contains a "§ section number" style external reference — cite it in the record files'  # langspec:allow 消息排版破折号，非判罚事实
-                    ),
-                    evidence=text,
-                    remedy=SECTION_REF_REMEDY,
-                )
-            ]
+        out.append(
+            gate_report.Finding(
+                rule=RULE_PROSE_SECTION_REF,
+                path=path,
+                line=line,
+                message=(  # langspec:allow 消息排版破折号，非判罚事实
+                    'text contains a "§ section number" style external reference — cite it in the record files'  # langspec:allow 消息排版破折号，非判罚事实
+                ),
+                evidence=text,
+                remedy=SECTION_REF_REMEDY,
+            )
         )
+        text = text.replace("§", " ")  # 同刀：记号字符剥除，独立病灶同轮上报
     if zone == ZONE_ENGLISH:
         return out + english_zone_problems(path, line, text, "text", ENGLISH_DOC_REMEDY)
     if not CJK.search(text):
@@ -340,7 +336,7 @@ def fence_comment_problems(path: str, lineno: int, line: str, lang: str) -> list
                 remedy=CODE_CODEREF_REMEDY,
             )
         )
-        return findings
+        body = body.replace("`", " ")  # 与孤反引号同刀：剥记号留内容，余下判定照跑
     if not CJK.search(body):
         findings.append(
             gate_report.Finding(

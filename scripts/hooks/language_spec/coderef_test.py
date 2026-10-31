@@ -129,8 +129,10 @@ def test_markdown_fence_foreign_word_flagged() -> None:
 
 
 def test_markdown_fence_backtick_comment_flagged() -> None:
+    # 围栏注释累计化后记罚剥反引号字符、余下判定照跑：段内词落回主体派生
+    # 外文罚（剥反引号留词的落地路径），与整词删除的定稿改法互指
     problems = markdown_problems("d.md", "```bash\n# 参考 `just fmt` 运行。\n```\n")
-    assert rules(problems) == ["COMMENT-DOC-CODE-CODEREF"]
+    assert rules(problems) == ["COMMENT-DOC-CODE-CODEREF", "PROSE-FOREIGN"]
 
 
 def test_markdown_unknown_fence_language_not_checked() -> None:
@@ -502,3 +504,15 @@ def test_unit_whitelist_boundary() -> None:
     assert markdown_problems("d.md", "路程 `120km` 记录在案。\n") == []
     assert markdown_problems("d.md", "倍率 `4y` 记录在案。\n") == []
     assert markdown_problems("d.md", "时延 `120MS` 记录在案。\n") == []
+
+
+def test_stray_backtick_reports_independent_lesions_same_round() -> None:
+    # 孤反引号与章节记号记罚后剥记号字符、余下判定照跑：独立病灶同轮上报，
+    # 修完一处不再冒新违规（早退屏蔽消除）；纯英文行的语言早退保留——英文区
+    # 的英文判罚不再被孤反引号吞
+    problems = prose_line_problems("t", 1, "性能达标由`wgpu合成，通道3收尾。")
+    assert rules(problems) == ["PROSE-CODEREF", "PROSE-FOREIGN", "PROSE-PANGU"]
+    problems = prose_line_problems("t", 1, "规格见 §2.4 由wgpu驱动。")
+    assert rules(problems) == ["PROSE-SECTION-REF", "PROSE-FOREIGN"]
+    problems = prose_line_problems("t", 1, "see ` 注释 here", zone="english")
+    assert rules(problems) == ["PROSE-CODEREF", "PROSE-ENGLISH"]

@@ -350,13 +350,31 @@ def test_mixed_remedy_lands_clean() -> None:
     )
 
 
+def test_fence_comment_and_safety_masks_removed() -> None:
+    # 围栏注释记罚后剥反引号字符、余下判定照跑（与孤反引号同刀——剥记号、
+    # 留内容）；不变量注释的邻接判罚后英文区判定照常上报，独立病灶同轮可见
+    problems = coderef.markdown_problems(
+        "d.md", "```bash\n# 参考 `just fmt` 与 generic 工具。\n```\n"
+    )
+    assert [p.rule for p in problems] == ["COMMENT-DOC-CODE-CODEREF", "PROSE-FOREIGN"]
+    problems = check_rust_comments.check(
+        "demo.rs",
+        "//! 中文文件头：负责演示。\n\n// SAFETY: 指针有效由调用方保证\nlet ok = 1;\n",
+    )
+    assert [p.rule for p in problems] == [
+        "COMMENT-RUST-SAFETY-ADJACENCY",
+        "PROSE-ENGLISH",
+    ]
+
+
 # ---- 改法收敛夹具表：机械层准入的不变量进门禁 ----
 
 
 # 违规句、按定稿改法机械落地句与判定面三列成表，落地句同面复跑零判罚；
-# 本表先收改法收敛阶段一的规范形（盘古收窄、六类替换映射、数字间冒号、
-# 数字形态收窄、段内容贯通、孤反引号补配对、围栏注释整词删除与文件头注
-# 记改写），后续阶段增行；今后新规则落地必须同批补行，改法不收敛当场红。
+# 本表收改法收敛阶段一与阶段二的规范形（盘古收窄、六类替换映射、数字间冒
+# 号、数字形态收窄、段内容贯通、孤反引号补配对与删孤记号、围栏注释整词删
+# 除、文件头注记改写与不变量注释邻接补全），后续增行；今后新规则落地必须
+# 同批补行，改法不收敛当场红。
 REMEDY_FIXTURES = (
     ("body", "圖形渲染管线由wgpu驱动。", "图形渲染管线由（wgpu）驱动。"),
     ("body", "中文头（用 wgpu 渲染）说明。", "中文头（wgpu）渲染说明。"),
@@ -374,6 +392,7 @@ REMEDY_FIXTURES = (
     ("markdown", "会议在 `15:23` 开始。", "会议在 15:23 开始。"),
     ("markdown", "退出码为 `0` 落盘。", "退出码为 0 落盘。"),
     ("markdown", "重试 `3` 次后停止。", "重试 3 次后停止。"),
+    ("markdown", "标题 ` 残缺", "标题 残缺"),
     ("markdown", "版本 15.5 由wgpu驱动。", "版本 15.5 由（wgpu）驱动。"),
     ("markdown", "性能达标由`wgpu合成，通道 3 收尾。", "性能达标由`wgpu`合成，通道 3 收尾。"),
     ("markdown", "```bash\n# 参考 `just fmt` 运行。\n```", "```bash\n# 参考运行。\n```"),
@@ -381,6 +400,13 @@ REMEDY_FIXTURES = (
         "rust",
         "//!本文件負責`wgpu`渲染。\nfn main() {}\n",
         "//!本文件负责渲染，图形库（wgpu）。\nfn main() {}\n",
+    ),
+    (
+        "rust",
+        "//! 中文文件头：负责演示。\n\n// SAFETY: 指针有效由调用方保证\nlet ok = 1;\n",
+        "//! 中文文件头：负责演示。\n\n"
+        "// SAFETY: the pointer stays valid; the caller upholds the contract\n"
+        "unsafe fn f() {}\n\nfn main() {}\n",
     ),
 )
 
