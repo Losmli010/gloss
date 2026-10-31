@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import check_comments  # noqa: E402
+import check_rust_comments  # noqa: E402
 
 HEADER = "//! 中文文件头：负责演示。"
 
@@ -751,3 +752,16 @@ def test_md_fence_english_comment_flagged(tmp_path: Path) -> None:
 def test_md_fence_chinese_comment_allowed(tmp_path: Path) -> None:
     content = "# 说明\n\n```bash\n# 中文围栏注释（ripgrep）检索。\n```\n"
     assert run_md(tmp_path, content) == []
+
+
+def test_header_remedy_texts_match_the_stage_one_wording() -> None:
+    # 文件头两处定稿改法文本锁定（与语言规范库同款措辞对齐）：代码引用改写
+    # 全角括号注记或挪记录，语言改法补锚点与译出的完整说法
+    assert check_rust_comments.HEADER_CODEREF_REMEDY == (
+        "rewrite the reference as a fullwidth bracket annotation, or move the"
+        " sample to the record file"
+    )
+    assert check_rust_comments.HEADER_LANGUAGE_REMEDY == (
+        "rewrite the header line in Chinese, anchoring foreign terms in"
+        " fullwidth bracket annotations or translating them"
+    )

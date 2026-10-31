@@ -2,9 +2,13 @@
 """语言规范·中文区：中文表述怎么写。中文主体只允许汉字、白名单字符、阿拉
 伯数字与空白；专名与外文术语收进紧跟的全角括号作注记——注记括号按容器判
 定，许嵌套、内部不做正文白名单检查只判单一语言（目标语言文字段与外文段不
-混现），不配对独立判罚且内容落回正文受检；汉字与拉丁字母或数字直接相邻判
-罚（盘古之白），繁体独有字形判罚（简体判定，豁免仅代码引用），注记括号里
-的纯外文内容过长或带虚词走软约束候选（括号锚点连贯，警告不计违规）。字符
+混现），不配对独立判罚且内容落回正文受检；汉字与数字直接相邻判罚（盘古之
+白），汉字与拉丁字母的相邻归外文判罚、相邻对证据随消息下发（补空格改法对
+字母段永不收敛，锚点注记一并消除相邻），繁体独有字形判罚（简体判定，豁免
+仅代码引用），注记括号里的纯外文内容过长或带虚词走软约束候选（括号锚点连
+贯，警告不计违规）。外文判罚的消息按被拦字符的最近正形分六组渲染指引（字
+母、标点、误置、异体、记号、附随），全角误置与异体记号的逐字符替换映射与
+白名单派生同住本模块单源。字符
 事实单源于核心库内嵌的语言规范数据目录（crates/gloss-core/langspec/）的判
 定数据与简繁对串两文件，生产侧判定器自同一组文件编译期嵌入派生，两侧
 注释互指——本模块运行时装入并派生各字符面，文件缺席或损坏当场失败，数据
@@ -37,13 +41,16 @@ RULE_PROSE_PANGU = "PROSE-PANGU"
 RULE_PROSE_TRADITIONAL = "PROSE-TRADITIONAL"
 RULE_PROSE_ANCHOR = "PROSE-ANCHOR"
 
-FOREIGN_REMEDY = "put proper nouns in fullwidth bracket annotations and write the rest in Chinese"
-GLOSS_MIXED_REMEDY = (
-    "keep each bracket single-language: pure foreign terms or pure Chinese;"
-    " move prose back into the body"
+FOREIGN_REMEDY = (
+    "anchor or translate foreign terms; give each punctuation mark its proper"
+    " form (fullwidth, halfwidth math, or the corpus-equivalent mark); put"
+    " machine symbols in inline code; reattach detached symbols to their digits"
 )
-GLOSS_UNPAIRED_REMEDY = "complete or remove the unpaired bracket"
-PANGU_REMEDY = "keep one halfwidth space between Chinese and Latin letters or digits"
+GLOSS_MIXED_REMEDY = (
+    "hold the foreign term alone in the bracket; move the Chinese wording back into the body"
+)
+GLOSS_UNPAIRED_REMEDY = "complete the paired annotation bracket"
+PANGU_REMEDY = "keep one halfwidth space between Chinese and digits"
 TRADITIONAL_REMEDY = "rewrite traditional-only glyphs in simplified Chinese"
 ANCHOR_REMEDY = (
     "brackets anchor a Chinese term and are not sentence parts — write the"
@@ -181,21 +188,172 @@ def is_attached_symbol(text: str, index: int) -> bool:
     return ch in ATTACHED_BETWEEN_DIGITS and _is_ascii_digit(prev) and _is_ascii_digit(nxt)
 
 
-def _is_ascii_alnum(ch: str) -> bool:
-    return ch.isascii() and ch.isalnum()
+def _is_ascii_letter(ch: str) -> bool:
+    return ch.isascii() and ch.isalpha()
 
 
 def pangu_pairs(seg: str) -> list[str]:
-    """段内汉字与拉丁字母或数字直接相邻的相邻对（去重保序）：空白隔开不放
-    行邻接，与生产侧盘古之白同判——相邻即罚，须留一个半角空格。"""
+    """段内汉字与阿拉伯数字直接相邻的相邻对（去重保序）：空白隔开不放行邻
+    接，与生产侧盘古之白同判——相邻即罚，须留一个半角空格；汉字与拉丁字母
+    的相邻归外文判罚管辖（字母入正文必吃外文罚，补空格改法永不收敛），相
+    邻证据随外文判罚消息下发（见 foreign_pairs）。"""
     out = []
     for left, right in zip(seg, seg[1:]):
-        mixed = (CJK.match(left) and _is_ascii_alnum(right)) or (
-            _is_ascii_alnum(left) and CJK.match(right)
+        mixed = (CJK.match(left) and _is_ascii_digit(right)) or (
+            _is_ascii_digit(left) and CJK.match(right)
         )
         if mixed and left + right not in out:
             out.append(left + right)
     return out
+
+
+def foreign_pairs(seg: str) -> list[str]:
+    """段内汉字与拉丁字母直接相邻的相邻对（去重保序）：外文判罚的相邻证据，
+    不再单独出盘古判罚——锚点注记改法一并消除相邻，证据在消息里不丢。"""
+    out = []
+    for left, right in zip(seg, seg[1:]):
+        mixed = (CJK.match(left) and _is_ascii_letter(right)) or (
+            _is_ascii_letter(left) and CJK.match(right)
+        )
+        if mixed and left + right not in out:
+            out.append(left + right)
+    return out
+
+
+# 外文判罚消息的六类分组：按被拦字符的最近正形归类，多字符组合按最长串整
+# 体归类、先于单字符；替换映射与白名单派生同住本模块（派生处豁免字符字面
+# 量单源约束），替换正形均已实测过门禁。
+# 串级组合：三点省略与度符号组合的替换正形——单字符归类会让句点落到全角
+# 句号、字母落到锚点指引，过门禁而语义偏移
+FOREIGN_COMBOS = {
+    "...": "……",
+    "°C": "℃",
+    "°F": "℉",
+}
+# 误置类：全角字形错置与体例未收的连接号形——孪生在白名单或附随面的落半
+# 角孪生或贴附形（等号、百分号），孪生越位的落场景对应形或一字线（货币符
+# 落全角人民币符，全角短横与浪纹线两形落一字线）
+FOREIGN_MISPLACED = {
+    "＝": "=",
+    "％": "%",
+    "＄": "￥",
+    "－": "—",
+    "～": "—",
+    "~": "—",
+}
+# 异体类单字符：异体记号落体例对应记号（直角引号从严对齐弯引号，两点省略
+# 号落中文双省略号，比例号落全角冒号）
+FOREIGN_VARIANT = {
+    "「": "“",
+    "」": "”",
+    "‥": "……",
+    "∶": "：",
+}
+# 标点类孪生的越位特例：平移全角形不在中文标点集，落体例正形
+_FOREIGN_TWIN_EXCEPTIONS = {".": "。", '"': "“”", "'": "‘’"}
+
+
+def _fullwidth_twin(ch: str) -> str | None:
+    """半角标点的全角孪生（标点类的归类键）：平移全角形在中文标点集才认，
+    越位的落特例正形；无孪生返回空表值。"""
+    shifted = chr(ord(ch) + 0xFEE0)
+    if shifted in ZH_PUNCT:
+        return shifted
+    return _FOREIGN_TWIN_EXCEPTIONS.get(ch)
+
+
+def _flags_foreign(seg: str, index: int) -> bool:
+    """字符是否进外文判罚面：汉字、白名单、数字、空白与随邻放行的附随符之
+    外即罚——主体判定与消息分组共用的收集口径。"""
+    ch = seg[index]
+    if CJK.match(ch):
+        return False
+    if (
+        ch in WHITELIST
+        or _is_ascii_digit(ch)
+        # 不换行空格与全角空格是空白——表格列加宽靠不可断行的空白撑住
+        or ch in " \t\n\r\u00a0\u3000"
+    ):
+        return False
+    return not is_attached_symbol(seg, index)
+
+
+def foreign_hint_groups(seg: str) -> list[str]:
+    """外文判罚消息的分组指引：被拦字符按最近正形归六类（字母、标点、误
+    置、异体、记号、附随），先判判罚面（附随面放行的合法字符不进消息组，
+    数字间的句点与冒号不被指改），串级组合先于单字符，各组只见自己的指
+    引，返回保序渲染的片段清单；字母组片段带相邻证据（汉字与拉丁字母直接
+    相邻）。
+    """
+    letters: list[str] = []
+    twins: list[str] = []
+    misplaced: list[str] = []
+    variant: list[str] = []
+    symbols: list[str] = []
+    attached: list[str] = []
+    index = 0
+    while index < len(seg):
+        combo = None
+        for width in (3, 2):
+            piece = seg[index : index + width]
+            if piece in FOREIGN_COMBOS:
+                combo = piece
+                break
+        if combo is not None:
+            mark = "%s->%s" % (combo, FOREIGN_COMBOS[combo])
+            if mark not in variant:
+                variant.append(mark)
+            index += len(combo)
+            continue
+        ch = seg[index]
+        if not _flags_foreign(seg, index):
+            index += 1
+            continue
+        if _is_ascii_letter(ch):
+            if ch not in letters:
+                letters.append(ch)
+        else:
+            twin = _fullwidth_twin(ch)
+            if twin is not None:
+                mark = "%s->%s" % (ch, twin)
+                if mark not in twins:
+                    twins.append(mark)
+            elif ch in FOREIGN_MISPLACED:
+                mark = "%s->%s" % (ch, FOREIGN_MISPLACED[ch])
+                if mark not in misplaced:
+                    misplaced.append(mark)
+            elif ch in FOREIGN_VARIANT:
+                mark = "%s->%s" % (ch, FOREIGN_VARIANT[ch])
+                if mark not in variant:
+                    variant.append(mark)
+            else:
+                if ch in ATTACHED_AFTER_DIGIT or ch in ATTACHED_BEFORE_DIGIT:
+                    if ch not in attached:
+                        attached.append(ch)
+                elif ch not in symbols:
+                    symbols.append(ch)
+        index += 1
+    hints = []
+    if letters:
+        hint = "anchor or translate the letters (%s)" % "".join(letters)[:12]
+        joins = foreign_pairs(seg)
+        if joins:
+            hint += ", joined without a space (%s)" % " ".join(joins[:6])
+        hints.append(hint)
+    if twins:
+        hints.append("give the halfwidth marks their fullwidth twins (%s)" % " ".join(twins[:6]))
+    if misplaced:
+        hints.append("replace the misplaced marks (%s)" % " ".join(misplaced[:6]))
+    if variant:
+        hints.append("replace the variant marks (%s)" % " ".join(variant[:6]))
+    if symbols:
+        hints.append(
+            "hold machine symbols in inline code or rewrite the wording (%s)"
+            % " ".join(symbols[:6])
+        )
+    if attached:
+        hints.append("reattach the detached symbols to their digits (%s)" % " ".join(attached[:6]))
+    return hints
 
 
 def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[gate_report.Finding]:
@@ -208,30 +366,20 @@ def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[g
             continue
         bad = []
         for index, ch in enumerate(seg):
-            if CJK.match(ch):
-                continue
-            if (
-                ch in WHITELIST
-                or _is_ascii_digit(ch)
-                # 不换行空格与全角空格是空白——表格列加宽靠不可断行的空白撑住
-                or ch in " \t\n\r\u00a0\u3000"
-            ):
-                continue
-            if is_attached_symbol(seg, index):
-                continue
-            if ch not in bad:
+            if _flags_foreign(seg, index) and ch not in bad:
                 bad.append(ch)
         traditional = traditional_glyphs(seg)
         if bad:
             shown = " ".join(bad[:3])
+            hints = foreign_hint_groups(seg)
+            tail = "; ".join(hints) if hints else "rewrite the characters in Chinese"
             out.append(
                 gate_report.Finding(
                     rule=RULE_PROSE_FOREIGN,
                     path=path,
                     line=line,
                     message="%s body contains characters outside the derived whitelist"
-                    " (%s) — put proper nouns in fullwidth bracket annotations,"
-                    " rewrite the rest in Chinese" % (label, shown),
+                    " (%s) — %s" % (label, shown, tail),
                     evidence=seg,
                     remedy=FOREIGN_REMEDY,
                 )
@@ -257,8 +405,8 @@ def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[g
                     rule=RULE_PROSE_PANGU,
                     path=path,
                     line=line,
-                    message="%s body joins Chinese with Latin letters or digits without"
-                    " a space (%s)" % (label, shown),
+                    message="%s body joins Chinese with digits without a space (%s)"
+                    % (label, shown),
                     evidence=seg,
                     remedy=PANGU_REMEDY,
                 )

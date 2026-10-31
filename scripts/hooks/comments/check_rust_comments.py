@@ -35,8 +35,13 @@ RULE_INLINE = "COMMENT-RUST-INLINE"
 RULE_SAFETY_ADJACENCY = "COMMENT-RUST-SAFETY-ADJACENCY"
 
 HEADER_MISSING_REMEDY = "add a Chinese module-level doc comment at the top of the file"
-HEADER_LANGUAGE_REMEDY = "rewrite the header line in Chinese, proper nouns in bracket annotations"
-HEADER_CODEREF_REMEDY = "move code references out of the header into the record file"
+HEADER_LANGUAGE_REMEDY = (
+    "rewrite the header line in Chinese, anchoring foreign terms in fullwidth"
+    " bracket annotations or translating them"
+)
+HEADER_CODEREF_REMEDY = (
+    "rewrite the reference as a fullwidth bracket annotation, or move the sample to the record file"
+)
 HEADER_SECTION_REF_REMEDY = "move the section citation to the record file"
 HEADER_LATE_REMEDY = "merge the content into the header at the top of the file, or delete it"
 MOVE_TO_RECORD_REMEDY = "move the content to the record file, then delete the comment"

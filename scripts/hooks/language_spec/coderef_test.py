@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 import check_pr_prose  # noqa: E402
 import gate_report  # noqa: E402
 
+from language_spec import coderef  # noqa: E402
 from language_spec.coderef import (  # noqa: E402
     MARKER,
     markdown_problems,
@@ -44,9 +45,11 @@ def test_pure_identifier_exempt() -> None:
     assert prose_line_problems("t", 1, "some_test_name") == []
 
 
-def test_backtick_span_exempts_traditional_glyphs() -> None:
-    # 简体判定的豁免仅代码引用：反引号内的繁体字形不判（提交信息等非标记面）
-    assert prose_line_problems("t", 1, "对照 `軟體` 术语。") == []
+def test_backtick_span_traditional_glyphs_flagged_as_chinese_code() -> None:
+    # 段内容规则贯通后繁体字形随宽度网判英文规则（反引号只装英文代码），
+    # 简体判定不进段内——豁免仅代码引用的口径不变，判罚类别落段内容规则
+    problems = prose_line_problems("t", 1, "对照 `軟體` 术语。")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
 
 
 def test_english_line_flagged() -> None:
@@ -320,8 +323,10 @@ def test_markdown_inline_code_english_allowed() -> None:
     assert markdown_problems("d.md", "运行 `just fmt` 与 `cargo test --workspace`。\n") == []
 
 
-def test_commit_message_backtick_chinese_still_exempt() -> None:
-    assert prose_line_problems("t", 1, "见 ` 说明段 ` 一处。") == []
+def test_commit_message_backtick_chinese_flagged() -> None:
+    # 段内容规则贯通提交信息面：段内中文不再静默，落英文规则
+    problems = prose_line_problems("t", 1, "见 ` 说明段 ` 一处。")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
 
 
 def test_markdown_table_first_column_chinese_code_flagged() -> None:
@@ -346,7 +351,6 @@ def test_markdown_reference_definition_backtick_still_checked() -> None:
 NUMERIC_PENALTY_SPANS = (
     "0",
     "404",
-    "30_000",
     "1,024",
     "5%",
     "+4.2%",
@@ -361,8 +365,6 @@ NUMERIC_PENALTY_SPANS = (
     "8192MiB",
     "15bp",
     "4x",
-    "0x1F",
-    "0b1010",
     "1e-3",
     "1.75.0",
     "0.8.28",
@@ -374,7 +376,8 @@ NUMERIC_PENALTY_SPANS = (
     "#123",
 )
 
-# 第 1.1 节对版清单的放行行：标识符与结构记号形态逐例放行
+# 第 1.1 节对版清单的放行行：标识符与结构记号形态逐例放行；进制字面量与
+# 下划线分隔数字是机器记号本体，随规格收窄移出判罚面落放行行
 NUMERIC_ALLOWED_SPANS = (
     "just check",
     "u32::MAX",
@@ -387,6 +390,9 @@ NUMERIC_ALLOWED_SPANS = (
     "cache_key/text_short",
     "#NNN",
     "#[derive]",
+    "0x1F",
+    "0b1010",
+    "30_000",
 )
 
 
@@ -449,6 +455,43 @@ def test_pull_request_body_numeric_span_flagged() -> None:
     assert findings[0].rule == "PR-PROSE"
     assert "bare number" in findings[0].message
     assert not findings[0].advisory
+
+
+def test_numeric_span_exempts_machine_forms() -> None:
+    # 进制字面量与下划线分隔数字是机器记号本体，落段放行（判罚规格收窄）
+    assert markdown_problems("d.md", "进制 `0x1F` 与 `0b1010` 记录在案。\n") == []
+    assert markdown_problems("d.md", "分隔 `30_000` 记录在案。\n") == []
+
+
+def test_coderef_remedy_texts_match_the_stage_one_wording() -> None:
+    # 代码引用域的定稿改法文本锁定：补配对、删孤记号与挪记录三路条条收敛，
+    # 围栏注释写明整词删除（剥反引号留词落地会派生外文罚），数字形态补比值
+    # 与日期的正当形指路，语言改法补锚点与译出的完整说法
+    assert coderef.CODEREF_REMEDY == (
+        "complete the pair around the reference (exempt on prose surfaces),"
+        " drop the stray mark, or move the sample to the record file"
+    )
+    assert coderef.CODE_CODEREF_REMEDY == (
+        "delete the reference wording or move the sample to the record file"
+    )
+    assert coderef.CODE_NUMERIC_REMEDY == (
+        "move numbers and percentages to the prose; reword what the prose cannot"
+        " hold (ratios, dates) with a fullwidth separator, a connected date, or"
+        " Chinese wording"
+    )
+    assert coderef.LANGUAGE_REMEDY == (
+        "rewrite the text in Chinese, anchoring foreign terms in fullwidth"
+        " bracket annotations or translating them"
+    )
+
+
+def test_span_content_rules_apply_on_commit_and_i18n_surfaces() -> None:
+    # 段内容判定下沉行级判定单点：提交信息与界面文案表（i18n）词条面自动贯通，
+    # 段内中文与数字形态不再静默
+    problems = prose_line_problems("commit subject", 1, "键 `中文值` 说明")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
+    problems = prose_line_problems("i18n entry", 1, "退出码 `0` 落盘")
+    assert rules(problems) == ["COMMENT-DOC-CODE-NUMERIC"]
 
 
 def test_unit_whitelist_boundary() -> None:
