@@ -78,3 +78,8 @@
 - 2026-10-30 新登记 `LANGSPEC-LITERAL`（语言字符字面量越界，判罚点落约束门禁语言规范域，见 constraints_langspec 记录）：登记表行同步落在 gate_rules_comment.md；放行标记 langspec:allow 随规则进 ALLOW_REASON_MARKERS 共享缘由核对清单。
 - 2026-10-31 新登记 `REVIEW-EMPTY`（评审结果正文为空，判罚点落 check_review_result 的空正文分支，见 check_review_result 记录）：登记表行同步落在 gate_rules_comment.md。
 - 2026-10-31 新登记 `PR-SNAPSHOT`（标题与正文偏离第一版快照，判罚点落 check_pr_snapshot 的比对分支，见 check_pr_snapshot 记录）：登记表行同步落在 gate_rules_comment.md；豁免走正文首行的 snapshot:allow 标记，缘由核对复用共享助手——该标记只服务拉取请求正文首行，不进源码注释面的共享标记清单。
+
+## 屏蔽的包含关系声明（2026-11-01，改法收敛阶段三）
+
+- 先剥段后累计的原则下，屏蔽只允许登记表显式声明的包含关系，本批登记两条：`PROSE-LANGUAGE` 覆盖 `PROSE-FOREIGN`（纯英文行的语言早退保留，改写中文自然消除裸字母）、`COMMENT-RUST-HEADER-LANGUAGE` 覆盖 `PROSE-FOREIGN`（文件头改写中文同理，语言改法定稿自带锚点注记与译出）。
+- 包含的判据是改法收敛：覆盖方的定稿改法一步落地即消除被覆盖方指向的片段——语言早退吞掉的外文判罚在改写中文后本就无片段可指，文件头两罚并报时按语言改法改写一并清零，同片段不构成两向的双重管辖；标识集合本批无新增无删除，两条声明只登记覆盖关系，不改判罚条件。
