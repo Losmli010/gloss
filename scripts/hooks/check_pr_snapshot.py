@@ -30,7 +30,6 @@ import subprocess
 import sys
 from collections.abc import Callable
 
-import check_required_checks
 import gate_report
 
 CONTEXT = "Content snapshot"
@@ -163,6 +162,20 @@ def run_gh(args: list[str]) -> str:
     return proc.stdout.decode("utf-8", "replace")
 
 
+def parse_remote_url(url: str) -> str:
+    """远端地址到仓库标识 owner/name：https 与 ssh 两种形态，其余报错。"""
+    m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url.strip())
+    if not m:
+        raise RuntimeError("cannot parse the origin remote as owner/name: %s" % url)
+    return "%s/%s" % (m.group(1), m.group(2))
+
+
+def repo_slug(root: str) -> str:
+    """仓库标识：origin 远端地址解析，版本库调用失败走统一出口退出码三。"""
+    proc = gate_report.run_git(["remote", "get-url", "origin"], cwd=root)
+    return parse_remote_url(proc.stdout.decode("utf-8", "replace"))
+
+
 def fetch_pull_content(slug: str, number: str) -> tuple[str, str]:
     """经托管平台接口取拉取请求当前的标题与正文。"""
     return parse_pull_content(run_gh(["api", "repos/%s/pulls/%s" % (slug, number)]))
@@ -212,7 +225,7 @@ def main() -> int:
         return gate_report.EXIT_USAGE
     mode, number, sha = sys.argv[1], sys.argv[2], sys.argv[3]
     try:
-        slug = check_required_checks.repo_slug(root)
+        slug = repo_slug(root)
     except RuntimeError as exc:
         return infra_exit(exc)
     gate_report.banner(

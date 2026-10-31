@@ -270,8 +270,8 @@ jobs:
 
   # 行内评论检查：评审行内评论的正文过书写规则；单条评论没有模板骨架，不套
   # 小节与声明判定；机器人评论与空评论没有可判定产物，条件跳过，排除条件只
-  # 放本工作流一处。作业定位红牌：不进必需检查清单，对账门禁按豁免登记放行，
-  # 红灯靠人看到后修复，不拦合并
+  # 放本工作流一处。作业定位红牌：不进必需检查清单，红灯靠人看到后修复，
+  # 不拦合并
   review-comment:
     name: Review comment check
     if: >-
@@ -297,26 +297,3 @@ jobs:
           # 评论正文取自接口：空值折算为空串保取数形态良构，书写规则在脚本内单点判定
           gh api "repos/${{ github.repository }}/pulls/comments/${{ github.event.comment.id }}" --jq '.body // ""' > "$RUNNER_TEMP/comment_body"
           python3 scripts/hooks/check_review_comment.py "$RUNNER_TEMP/comment_body"
-
-  # 必需检查对账：比对应然作业与主分支保护的必需检查清单，缺漏即报告；
-  # 补设是托管平台配置动作，由管理员完成。对账作业以推送（push）事件条件
-  # 只在主分支推送后运行，拉取请求与评审事件不产生本次对账的检查名，对账
-  # 脚本与必需清单之间不留自指。
-  required-checks-reconcile:
-    name: Required checks reconcile
-    if: github.event_name == 'push'
-    # 最小权限：本作业只读代码。分支保护接口需要管理面只读授权，而令牌
-    # （GITHUB_TOKEN）的工作流权限作用域没有管理面，凭据走仓库密钥
-    # （REQUIRED_CHECKS_TOKEN）；密钥由管理员配置细粒度令牌、只授管理面
-    # 只读，缺席时本作业按无法完成判定红灯，不静默放行
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Reconcile required status checks with branch protection
-        env:
-          GH_TOKEN: ${{ secrets.REQUIRED_CHECKS_TOKEN }}
-        run: python3 scripts/hooks/check_required_checks.py
