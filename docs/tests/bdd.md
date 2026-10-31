@@ -670,7 +670,9 @@
 | attached_faces_follow_the_target_scene_and_two_dot_ellipsis_flags_both | 附随面随目标场景取面 | 给定英文区的摄氏符与全角人民币符随数字注，当判定，则 `PunctuationMismatch`；中文区同两符与万分率注放行；两点省略号两场景都判 `PunctuationMismatch`（分场拆分，`R3`） | 2026-10-31 |
 | dash_and_ellipsis_families_stay_style_items_not_violations | 破折号省略号与数字附随不判 | 给定破折号、省略号、双连字符、小数、区间、百分与货币金额各形态的注，当判定，则全部不判标点（风格项留给评测） | 2026-10-28 |
 | traditional_chars_flag_outside_and_pass_inside_quotes | 繁体正文判罚引文豁免 | 给定正文繁体字形与引文容器内的古籍繁体，当判定，则前者 `TraditionalChar`、后者放行 | 2026-10-28 |
-| pangu_space_flags_adjacency_only_for_chinese_target | 盘古之白仅中文目标判定 | 给定中文目标“中文`word`”直连与标点隔开、英文目标直连三种注，当判定，则直连判 `MissingSpace`、标点隔开与英文目标放行 | 2026-10-30 |
+| pangu_space_flags_adjacency_only_for_chinese_target | 盘古之白仅中文目标判定 | 给定中文目标“中文`word`”直连与标点隔开、英文目标直连三种注，当判定，则字母段直连转由 `ForeignRun` 判罚（管辖收窄后不出 `MissingSpace`）、标点隔开与英文目标放行 | 2026-11-01 |
+| pangu_flags_digit_and_single_letter_adjacency_only | 盘古之白出罚面收窄到豁免对象 | 给定数字直连、单字母直连、多字母段直连与 `n.` 缩写直连的注，当判定，则前两者判 `MissingSpace` 且不出 `ForeignRun`，后两者只判 `ForeignRun`（补空格改法对豁免对象自收敛） | 2026-11-01 |
+| markdown_forbidden_keeps_accumulating_other_categories | 结构节点判罚后其余类别照常累加 | 给定夹外文段与夹残缺括号的禁 `markdown` 注，当判定，则 `MarkdownForbidden` 与剥除记号后文本上的 `ForeignRun`、`UnclosedContainer` 同轮上报（早退屏蔽拆除） | 2026-11-01 |
 | emoji_and_variation_selectors_flag_in_body_only | 表情符号与变体选择符判罚 | 给定正文含表情符号与变体选择符的注，当判定，则 `EmojiForbidden` | 2026-10-28 |
 | markdown_structure_flags_on_forbidden_kinds_and_passes_on_full_kinds | 结构节点按任务能力判定 | 给定禁 `markdown` 三任务（词卡、句译、图像）的着重号、行内码、链接注，当判定，则 `MarkdownForbidden`；代码与通用任务全量放行 | 2026-10-28 |
 | unclosed_containers_flag_stray_parens_quotes_fences_and_backticks | 残缺容器判罚 | 给定未闭合括号、未闭合弯引号、未闭合围栏与落单反引号，当判定，则 `UnclosedContainer`；成对围栏与行内码放行 | 2026-10-28 |
@@ -1523,7 +1525,14 @@
 | gate_reply_parsing_accepts_json_verdict_only | 评委复核回复解析 | 给定合法裁决（JSON）、越界类别与非（JSON）回复，当 `parse_gate_reply`，则合法者出裁决与类别、其余为 `None` | 2026-10-28 |
 | gate_metrics_compute_precision_and_recall | 门禁指标算式对账 | 给定确定的命中、漏报（引文繁体豁免是内生漏报）与放行三类条目，当 `run_gate`，则条目级精确率与召回率按算式得出、类别级对账区分期望与命中 | 2026-10-28 |
 | gate_loader_rejects_bad_expect_duplicate_ids_and_category_mismatch | 门禁数据集加载期校验 | 给定合法条目、非法期望值、重复标识、违约无类别、放行带类别与坏形状行，当 `load_gate_cases`，则合法者载入、其余带行号报错 | 2026-10-28 |
-| gate_dataset_agrees_with_the_gate_offline | 门禁数据集与判定器离线全一致 | 给定内嵌门禁数据集（违约与放行各一批），当 `run_gate`，则条目级精确率与召回率均为 1、各类别期望与命中对账相等、标点类判定数钉在已知过报（1，3）——未来加码过报先红（数据集是受控工件，规则演进须同步改判例） | 2026-10-28 |
+| gate_dataset_agrees_with_the_gate_offline | 门禁数据集与判定器离线全一致 | 给定内嵌门禁数据集（违约与放行各一批），当 `run_gate`，则条目级精确率与召回率均为 1、各类别期望与命中对账相等、标点类判定数钉在已知过报（1，3）——未来加码过报先红（数据集是受控工件，规则演进须同步改判例） | 2026-11-01 |
+
+### `crates/gloss-eval/src/remedy.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| remedy_fixtures_land_clean_after_mechanical_repair | 收敛夹具表全量落地复判零判罚 | 给定内嵌收敛夹具数据集（违规样本、按动作机械落地样本、复判三列），当 `run_remedy`，则违规列类别集合与判定器输出全等、落地样本同字段零判罚，收敛条目数与总条目数相等（动作收敛是判定器精度召回之外的第二个口径） | 2026-11-01 |
+| remedy_loader_rejects_duplicates_empty_categories_and_identical_repair | 收敛数据集加载期校验 | 给定合法条目、重复标识、空类别列、落地样本与违规样本同文及坏形状行，当 `load_remedy_cases`，则合法者载入、其余带行号报错 | 2026-11-01 |
 
 ### `crates/gloss-eval/src/report.rs`### `crates/gloss-eval/src/report.rs`
 

@@ -48,7 +48,7 @@ action = "Move the foreign words into parentheses with a target-language gloss, 
 action = "Convert to simplified characters"
 
 [repair.lang.PunctuationMismatch]
-action = "Replace with the target language's punctuation"
+action = "Replace with the target language's punctuation; when a symbol that is only legal right next to a digit gets detached, remove the space and reattach it to the digit"
 
 [repair.lang.MissingSpace]
 action = "Insert a half-width space between Chinese and Latin words or digits"
@@ -60,7 +60,7 @@ action = "Delete the emoji"
 action = "Remove the markdown markers and use plain text"
 
 [repair.lang.UnclosedContainer]
-action = "Complete the pairing, or delete the broken marker"
+action = "Complete the pairing"
 
 [repair.lang.ContainerMixing]
 action = "Keep a single language inside the container; move the translation into an inner parenthesis"

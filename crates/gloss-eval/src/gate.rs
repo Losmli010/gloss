@@ -258,17 +258,33 @@ impl Tally {
 }
 
 fn predict(case: &GateCase) -> Vec<LangViolation> {
+    violations_for(
+        case.kind,
+        case.target,
+        &case.text,
+        &case.note,
+        &case.structured,
+    )
+}
+
+pub(crate) fn violations_for(
+    kind: TaskKind,
+    target: Lang,
+    text: &str,
+    note: &str,
+    structured: &OutcomeStructured,
+) -> Vec<LangViolation> {
     let input = TaskInput::Text {
-        text: case.text.clone(),
+        text: text.to_owned(),
     };
     let outcome = TaskOutcome {
-        kind: case.kind,
-        note: case.note.clone(),
-        structured: case.structured.clone(),
+        kind,
+        note: note.to_owned(),
+        structured: structured.clone(),
         degraded: false,
         lang_violations: Vec::new(),
     };
-    lang_gate::check(case.kind, &case.target, &input, &outcome)
+    lang_gate::check(kind, &target, &input, &outcome)
 }
 
 pub const GATE_JUDGE_PROMPT: &str = include_str!("../prompts/gate_judge.md");

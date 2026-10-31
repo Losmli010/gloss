@@ -54,8 +54,9 @@ fn usage() -> &'static str {
                          --record writes fixtures back, --judge enables the judge scoring track);
                          same history append and trend redraw, plus inspection files
   gate [--judge] [--limit N]
-                         offline language-gate verdicts over the gate dataset (precision/recall);
-                         --judge additionally samples cases for an LLM second opinion
+                         offline language-gate verdicts over the gate dataset (precision/recall)
+                         plus the remedy convergence table (violation → mechanical repair →
+                         re-check); --judge additionally samples cases for an LLM second opinion
                          (needs GLOSS_LIVE_* credentials and GLOSS_LIVE_JUDGE=1); writes
                          target/eval/gate.md
   report [--dir PATH]    render the latest reports under target/eval as a Markdown table
@@ -193,6 +194,10 @@ fn run_gate_cli(args: &[String]) -> Result<(), String> {
     let cases = gloss_eval::gate::load_gate_cases(gloss_eval::assets::LANG_GATE_DATASET)
         .map_err(|error| format!("load gate dataset: {error}"))?;
     let mut markdown = gloss_eval::gate::run_gate(&cases).render_markdown();
+    let remedy_cases =
+        gloss_eval::remedy::load_remedy_cases(gloss_eval::assets::LANG_GATE_REMEDY_DATASET)
+            .map_err(|error| format!("load remedy dataset: {error}"))?;
+    markdown.push_str(&gloss_eval::remedy::run_remedy(&remedy_cases).render_markdown());
     if judge {
         let env = gloss_eval::runner::LiveEnv::from_env()?;
         let (config, store) = gloss_eval::runner::live_config(env);

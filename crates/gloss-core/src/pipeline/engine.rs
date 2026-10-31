@@ -987,7 +987,7 @@ mod tests {
 
     #[tokio::test]
     async fn language_violations_repair_with_a_row_list_instruction() {
-        let bad_reply = r#"{"note":"中文word混在正文里。","structured":{"examples":[]}}"#;
+        let bad_reply = r#"{"note":"中文word混在正文3里。","structured":{"examples":[]}}"#;
         let good_reply = r#"{"note":"混排已经修复完成了。","structured":{"examples":[]}}"#;
         let (engine, service) = make_service(
             &MockEngine::new()
