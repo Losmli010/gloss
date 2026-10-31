@@ -6,8 +6,9 @@
 # ---- 全局默认值 ----
 set shell := ["bash", "-uc"]
 
-# 默认目标：显示帮助
+# 默认目标：打印自检速查并列出全部配方
 default:
+    @echo "自检快回路: just precommit   交付前全量: just check   流程与规则: AGENTS.md"
     @just --list
 
 # 行覆盖率下限：低于即失败（本地与持续集成共用同一判定）
@@ -114,7 +115,7 @@ app-metrics:
 perf-report *args:
     {{py}} scripts/perf/perf-report.py {{args}}
 
-# 以剖析配置构建并启动带符号实例（发布同级优化但保留符号表；先退出在跑的应用）
+# 以剖析配置构建并启动带符号实例（发布同级优化但保留符号表；先退出在跑的应用），配方随即返回，应用存活与日志经日志跟随（logs）观察
 profile-run:
     cargo build --profile profiling
     ./target/profiling/gloss &
@@ -132,7 +133,7 @@ flame-startup:
 size-report bin="target/release/gloss" top="30":
     {{py}} scripts/perf/size_report.py --bin {{bin}} --top {{top}}
 
-# 提示词评测实跑轨：真实大语言模型（LLM），需专用凭据且显式选择参与；录制开关回写夹具，评分开关启用评分轨
+# 提示词评测实跑轨：真实大语言模型（LLM），需专用凭据且显式选择参与，仅人工明确要求时运行；录制开关回写夹具，评分开关启用评分轨
 eval *args:
     cargo run -p gloss-eval --bin eval -- live {{args}}
 
@@ -223,26 +224,26 @@ startup-selftest:
 selftest-report out="target/perf/selftest.jsonl":
     {{py}} scripts/perf/selftest_wrapper.py --out {{out}}
 
-# 测试覆盖率：摘要加网页（HTML）报告，低于行覆盖下限即失败
+# 测试覆盖率：摘要加网页（HTML）报告，低于行覆盖下限即失败；持续集成（CI）必跑，本地按需
 coverage:
     cargo llvm-cov clean --workspace
     cargo llvm-cov --no-report --workspace --all-features
     cargo llvm-cov report --workspace --html
     cargo llvm-cov report --workspace --fail-under-lines {{coverage_min}}
 
-# 测试覆盖率（仅终端摘要），按同一阈值判定
+# 测试覆盖率（仅终端摘要），按同一阈值判定；本地按需
 coverage-check:
     cargo llvm-cov --workspace --all-features --fail-under-lines {{coverage_min}}
 
-# 安全审计，查已知漏洞库（RustSec）收录项
+# 安全审计，查已知漏洞库（RustSec）收录项；持续集成（CI）必跑，本地按需
 audit:
     cargo audit
 
-# 依赖合规检查（许可证、重复依赖、来源）
+# 依赖合规检查（许可证、重复依赖、来源）；持续集成（CI）必跑，本地按需
 deny:
     cargo deny check
 
-# 内存未定义行为检测（Miri）：每夜工具链，只覆盖核心库（gloss-core）纯逻辑层
+# 内存未定义行为检测（Miri）：每夜工具链，只覆盖核心库（gloss-core）纯逻辑层；持续集成（CI）必跑，本地按需
 miri:
     MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine:: --skip file_writer_persists_lines_into_daily_file
 
@@ -348,6 +349,6 @@ pr-lint:
 pr-lint-draft title-file body-file:
     @{{py}} scripts/hooks/check_pr_prose.py "{{body-file}}" "{{title-file}}"
 
-# 安装本地仓库钩子（克隆后运行一次）
+# 安装本地仓库钩子（克隆后运行一次，可重复运行）；环境初始化（setup）已含此步
 install-hooks:
     {{py}} scripts/hooks/install_hooks.py
