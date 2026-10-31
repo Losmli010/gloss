@@ -20,7 +20,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 
 import check_pr_snapshot  # noqa: E402
-import check_required_checks  # noqa: E402
 
 SCRIPT = Path(__file__).parent / "check_pr_snapshot.py"
 
@@ -217,7 +216,7 @@ class GhStub:
         self.written: list[tuple[str, str]] = []
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(check_required_checks, "repo_slug", lambda root: SLUG)
+        monkeypatch.setattr(check_pr_snapshot, "repo_slug", lambda root: SLUG)
         monkeypatch.setattr(
             check_pr_snapshot, "fetch_pull_content", lambda slug, number: (self.title, self.body)
         )
