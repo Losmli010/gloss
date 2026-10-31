@@ -18,8 +18,8 @@ import sys
 
 import gate_report
 
-REVIEW_TEMPLATE_REL = os.path.join("docs", "manual", "review_result_template.md")
-PR_TEMPLATE_REL = os.path.join("docs", "manual", "pull_request_template.md")
+REVIEW_TEMPLATE_REL = os.path.join(".github", "review_result_template.md")
+PR_TEMPLATE_REL = os.path.join(".github", "pull_request_template.md")
 
 RULE_REVIEW_SECTION = "REVIEW-SECTION"
 RULE_REVIEW_DECL = "REVIEW-DECL"
