@@ -9,7 +9,7 @@
 
 ## core-foundation-sys
 
-- 2026-09-18 唯一特性 link 是绑定 CF 符号所必需的，显式声明以维持「关默认集、按需开特性」的统一写法。
+- 2026-09-18 唯一特性 link 是绑定 CF 符号所必需的，显式声明以维持“关默认集、按需开特性”的统一写法。
 
 ## crossbeam-channel
 
@@ -17,7 +17,7 @@
 
 ## directories
 
-- 2026-09-18 配置目录走 directories、日志目录例外，出处 06 §8。无特性可关，写法与全局「关默认集」策略保持一致。
+- 2026-09-18 配置目录走 directories、日志目录例外，出处 06 §8。无特性可关，写法与全局“关默认集”策略保持一致。
 
 ## objc2
 
@@ -53,7 +53,7 @@
 - 2026-09-18 引入时只用于注入（模拟复制与真机测试事件），监听不走它；
   默认集只多出可选的 serde 支持，注入用不到。
 - 2026-10-13 整体移除：rdev 0.5.3 → cocoa 0.22 → block 0.1.6，而 block
-  0.1.6 触发 rustc future-incompat（「static of uninhabited type」，
+  0.1.6 触发 rustc future-incompat（“static of uninhabited type”，
   rust-lang/rust#74840），未来工具链升位即全仓编译失败；block 上游多年
   未修，rdev 也无新版本脱离 cocoa 0.22。注入改为手写 `ffi/event.rs`
   （CoreGraphics 合成事件），逐字复刻 rdev `simulate` 的行为

@@ -16,13 +16,13 @@
 
 - 文件系统与 keychain 都是 OS 服务，归平台适配层；core 只持 `ConfigStore`
   端口 trait，`LlmClient` 经 `Arc<dyn ConfigStore>` 每请求直查密钥，
-  「密钥来源唯一：只从配置存储读入内存」的路径不变。
+  “密钥来源唯一：只从配置存储读入内存”的路径不变。
 
 ## eval 依赖边变化
 
 - eval 对 platform 的唯一消费就是 `LlmClient`，随平移改走 core 后 platform
   依赖整体移除；check-constraints 边表保留 eval→platform 作为允许边（未删，
-  留给未来 judge 轨可能的平台需求），AGENTS.md 已同步为「只消费 core」。
+  留给未来 judge 轨可能的平台需求），AGENTS.md 已同步为“只消费 core”。
 
 ## app 分层：目录即分层
 
@@ -38,15 +38,15 @@
 
 - `should_reveal`/`auto_show_after`/`EventKind` 是零 IO 的纯决策，与
   `trigger_decision`/`error_action` 同类，归决策层（machine.rs）；
-  「怎么显示」（show_position/显隐出口）留 `flow::reveal`。Placement 是
+  “怎么显示”（show_position/显隐出口）留 `flow::reveal`。Placement 是
   present 类型，show_position 因此不进 machine——决策层不依赖呈现类型。
 
-## Workspace 为何是包装而非「WindowManager 吸收帧」
+## Workspace 为何是包装而非“WindowManager 吸收帧”
 
 - 计划原文是 WindowManager 吸收 Frame/repaint/theme。实施时改为独立的
   `Workspace` 所有者包装 WindowManager：`build_window_stack` 公开接口
   原样保留（根包 L3 自检 tests/overlay.rs 直接消费），WindowManager 的
-  窗口职责不被渲染帧状态稀释。呈现资源「唯一所有者」的目标不变。
+  窗口职责不被渲染帧状态稀释。呈现资源“唯一所有者”的目标不变。
 
 ## GlossApp 的最终形态
 
@@ -54,7 +54,7 @@
   `machine`（任务决策）、`session`（划词锚点/排查线索/显形挂起/任务 span）、
   `env`（config/store/scene/system_locale/update，`locale`/`target_theme`
   随迁）、`settings`（设置编辑草稿，未包新类型——单一字段单一职责，
-  包一层无增益）。计划写的「五个所有者」未把 settings 草稿计入，
+  包一层无增益）。计划写的“五个所有者”未把 settings 草稿计入，
   实际为六字段组合根。
 
 ## 门禁脚本的两处随动

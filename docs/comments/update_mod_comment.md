@@ -5,17 +5,17 @@
 
 ## UpdateHandle::install_wake / Broadcaster（相位迁移的 UI 唤醒）
 
-- 2026-09-27 为什么唤醒出口挂在模块的广播路径（Broadcaster::send），而不是设置页轮询或壳侧消费 watch：设置窗的帧只被窗口事件与 egui 截止时刻驱动，主线程空闲时睡在 `ControlFlow::Wait`，启动静默检查与下载完成恰恰发生在这种无输入等待期——只发 watch 的话界面停在陈旧相位（如已 `UpdateReady` 仍显示「正在下载」与失效的取消按钮），要等下一次鼠标移入才刷新。按「同步点用事件，不用时间」选事件唤醒（`UserEvent::RedrawSettings`），不引入周期 `request_repaint_after` 兜底轮询。
+- 2026-09-27 为什么唤醒出口挂在模块的广播路径（Broadcaster::send），而不是设置页轮询或壳侧消费 watch：设置窗的帧只被窗口事件与 egui 截止时刻驱动，主线程空闲时睡在 `ControlFlow::Wait`，启动静默检查与下载完成恰恰发生在这种无输入等待期——只发 watch 的话界面停在陈旧相位（如已 `UpdateReady` 仍显示“正在下载”与失效的取消按钮），要等下一次鼠标移入才刷新。按“同步点用事件，不用时间”选事件唤醒（`UserEvent::RedrawSettings`），不引入周期 `request_repaint_after` 兜底轮询。
 - 2026-09-27 为什么出口由组装点晚装（`OnceLock` 槽）而不是 `start_once` 时备好：模块线程起于组装点调用 `start_once` 之时，先于事件循环存在，而唤醒句柄（`Waker`）要到 `app::run` 的 `on_waker` 回调才有；槽让安装可以晚于模块启动。错过安装前的广播无碍——那时设置窗不可能可见，用户打开时 `draw_settings` 自然读到 watch 里的最新快照。
 - 2026-09-27 为什么唤醒与 `send_replace` 同点发出（同一函数内先发后唤）：跨线程可见性靠这个先后顺序保证，主线程处理 `RedrawSettings` 时 watch 里必已是触发唤醒的那份快照；迟到回包被令牌作废的路径不采纳也不广播，自然也不唤醒。
-- 2026-09-27 为什么出口是 `impl Fn + Send + Sync` 闭包而不是 `crate::app::Waker` 类型：app 依赖 update（壳消费接线），update 反向依赖会把分层倒过来；闭包让模块对「唤醒是什么」无感知，测试也只需要一个计数闭包。
+- 2026-09-27 为什么出口是 `impl Fn + Send + Sync` 闭包而不是 `crate::app::Waker` 类型：app 依赖 update（壳消费接线），update 反向依赖会把分层倒过来；闭包让模块对“唤醒是什么”无感知，测试也只需要一个计数闭包。
 
 ## HTTP 客户端进程内唯一 + 静默检查延后（2026-10-09，PR #147）
 
 - **为什么客户端只建一次**：macOS 上 `reqwest::Client` 构建要解析整套信任设置
   （SecTrustSettings，火焰图 82 样本 CPU），原先每次检查/下载各建一份；OnceLock 常驻后
   进程内至多一次。构建失败不污染缓存（先 `build_client()?` 再 `get_or_init`），下次任务
-  重试自然重建——与旧「建失败按该次任务失败处理」语义一致。
+  重试自然重建——与旧“建失败按该次任务失败处理”语义一致。
 - **为什么静默检查从组装点移到 `resumed` 末尾（06_ready 后）**：组装点首发会让信任链
   构建挤在字体装载与首帧预热的同一启动窗口里抢 CPU；06_ready 后补发把它移出首帧关键期。
   模块仍由组装点的 `start_once` 拉起（句柄要先交给 `UpdateWiring`），
@@ -25,18 +25,18 @@
   兜底不丢状态。`resumed` 的重复投递由 `is_ready()` 早退守卫，`start_silent_check` 恰在
   守卫之后。
 - **存量观察（本 PR 不动）**：`check_now` 在生产代码无调用点——设置页手动检查实际走
-  `SettingsAction::Update` → `env.update.send`，`check_now` 的「设置页手动检查」描述
+  `SettingsAction::Update` → `env.update.send`，`check_now` 的“设置页手动检查”描述
   不准确，待另行清理。
 
 ## Pending 的 panic 类 JoinError 降级与 release panic=abort（P2-1，2026-10-13）
 
 - 为什么 release 上 `panic = "abort"` 后 `pending_outcome` 的 panic 类 JoinError
   分支保留而不删除：release 下 panic 的任务在事发点 abort 进程、该分支不可达
-  （更新模块的后台 panic 同样从「降级成失败回包」变为「进程即崩」——行为
+  （更新模块的后台 panic 同样从“降级成失败回包”变为“进程即崩”——行为
   变更须在 PR 描述显式记录，开 PR 时落实）；dev/test 构建仍是 unwind（test 目标由 cargo 强制 unwind），降级照常
   （Check→清单失败、Download→Network 失败，均带痕迹）。保留缘由与 pipeline 同：
   测试 profile 的行为不退化、回滚即删 profile 一行；`Pending` 与 `pending_outcome`
-  的文档已旁注「生效边界」。
+  的文档已旁注“生效边界”。
 
 ## MANIFEST_URL / UpdateMsg / WakeSlot
 

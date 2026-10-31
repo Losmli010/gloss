@@ -18,12 +18,12 @@
 ## web 站点图标（2026-10-07）
 
 - 补 PNG favicon 的缘由：站点此前只声明 SVG favicon，Safari 不支持（站点受众是
-  Mac 用户），标签页一直显示默认图标——用户观感即「站点图标没换」。新增
+  Mac 用户），标签页一直显示默认图标——用户观感即“站点图标没换”。新增
   `web/assets/favicon.png`（32px）与 `apple-touch-icon.png`（180px）兜底，SVG
   favicon 保留给支持的浏览器。
 - web 两张 PNG 源选 `gloss-logo.svg`（满幅稿）而非 `gloss-app-icon.svg`：规范画布
   版四周留 100px 透明边距，缩到 32px 时图形占比过小、标签页里不可辨。
-- 纳入本脚本而非一次性手工产出：换装 #100 时站点资产靠手工跟进，这次「图标没换」
+- 纳入本脚本而非一次性手工产出：换装 #100 时站点资产靠手工跟进，这次“图标没换”
   即由此而来；进 `just icons` 后换 Logo/调色重跑一次即全量覆盖，不再依赖记性。
 - `web/assets/logo.svg` 拷贝不做程序化同步：沿用 assets/icons/README.md 的手工
   同步约定，避免脚本覆盖站点侧对主标的独立调整；本次只把新增 PNG 收编进脚本。

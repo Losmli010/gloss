@@ -5,7 +5,7 @@
 
 ## crossbeam-channel
 
-- 2026-09-18 std 特性即默认集全部内容，显式写出以维持「关默认集、按需开特性」的统一写法。
+- 2026-09-18 std 特性即默认集全部内容，显式写出以维持“关默认集、按需开特性”的统一写法。
 
 ## 渲染栈整批（egui / egui-wgpu / egui-winit / winit / wgpu / pollster）
 
@@ -33,7 +33,7 @@
 
 ## pollster
 
-- 2026-09-18 macro 特性（block_on!/join!）用不到；无默认特性可关，照写保持「关默认集」写法统一。
+- 2026-09-18 macro 特性（block_on!/join!）用不到；无默认特性可关，照写保持“关默认集”写法统一。
 
 ## tokio
 
@@ -61,4 +61,4 @@
 
 ## resvg
 
-- 2026-10-19 引入（0.45.1，default-features = false）：页头应用图标改矢量栅格化（SVG 源 → 物理像素级 ColorImage），版本对齐 egui_extras svg 特性所钉的 0.45.1。默认特性全关——text/system-fonts 等字体机器是资产无 <text> 时纯多余的传递面；直用 resvg 而非 egui_extras 的 svg loader，理由见 popup_comment.md「页头图标改矢量栅格化」。
+- 2026-10-19 引入（0.45.1，default-features = false）：页头应用图标改矢量栅格化（SVG 源 → 物理像素级 ColorImage），版本对齐 egui_extras svg 特性所钉的 0.45.1。默认特性全关——text/system-fonts 等字体机器是资产无 <text> 时纯多余的传递面；直用 resvg 而非 egui_extras 的 svg loader，理由见 popup_comment.md“页头图标改矢量栅格化”。

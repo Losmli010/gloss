@@ -5,16 +5,16 @@
 
 ## cache_key（2026-10-10，剪贴板图片方案 §5.5）
 
-- 为什么从「`serde_json::to_vec(&(input, options))` 整体序列化再哈希」改为「输入按变体直接喂 `DefaultHasher`」：图像字节经 serde_json 会展开成 JSON 数字数组（每字节 1–3 字符 + 分隔符，约 4 倍体积）的临时缓冲，1–4 MB 的剪贴板图片在每次触发时都要付一次分配+拷贝；流式写入 SipHash 后哈希路径零中间缓冲，`benches/core.rs` 的 `cache_key` 组 `image/1mb`、`image/4mb` 用例（#42 引入）可直接对照前后成本。
-- 为什么用 `std::mem::discriminant` 做模态区分而不是给变体手写标签字符串：`Discriminant` 的 `Hash` 实现就是枚举变体序号，语义即「模态不同则 key 不同」，不引入可拼错的魔法值；`TaskInput` 加新变体时此分支自然覆盖。
+- 为什么从“`serde_json::to_vec(&(input, options))` 整体序列化再哈希”改为“输入按变体直接喂 `DefaultHasher`”：图像字节经 serde_json 会展开成 JSON 数字数组（每字节 1–3 字符 + 分隔符，约 4 倍体积）的临时缓冲，1–4 MB 的剪贴板图片在每次触发时都要付一次分配+拷贝；流式写入 SipHash 后哈希路径零中间缓冲，`benches/core.rs` 的 `cache_key` 组 `image/1mb`、`image/4mb` 用例（#42 引入）可直接对照前后成本。
+- 为什么用 `std::mem::discriminant` 做模态区分而不是给变体手写标签字符串：`Discriminant` 的 `Hash` 实现就是枚举变体序号，语义即“模态不同则 key 不同”，不引入可拼错的魔法值；`TaskInput` 加新变体时此分支自然覆盖。
 - 为什么 `region: Option<ScreenRect>` 直接 `Hash`：剪贴板来源 `None` 与框选来源 `Some(rect)` 必须不同 key（同图不同上下文，UI 角标不同）；`Option<T>` 的 `Hash` 对 `None` 有独立路径，天然参与。为此给 `core` 的 `ScreenRect` 补了 `Hash` derive——纯整数字段、与 `Eq` 同构的结构化哈希，加法式改动，无其它消费方受影响。
-- 为什么 `Audio.duration_hint` 用 `f32::to_bits`：`f32` 不实现 `Hash`；位形态对同值稳定且全序可分辨。副作用（有意接受）：旧实现里 NaN 触发「serde 序列化失败 → Debug 文本兜底」的回退路径，对新实现不再可达——NaN 按位形态直接哈希，行为（同值同 key、与有限值可分辨）由改名后的测试钉住。
-- 为什么 options 仍走 serde：`prompt_locale` 参与缓存 key 的口径依赖「选项字段全量参与」，serde 序列化免手写字段清单、加字段自动纳入；`TaskOptions` 字段均为可直接序列化的标量，`to_vec` 的 `Err` 分支只为 `Result` 完整性保留（`Debug` 文本哈希对同值稳定）。若未来 options 出现不可序列化字段，该分支兜底，测试应同步补回退路径用例。
+- 为什么 `Audio.duration_hint` 用 `f32::to_bits`：`f32` 不实现 `Hash`；位形态对同值稳定且全序可分辨。副作用（有意接受）：旧实现里 NaN 触发“serde 序列化失败 → Debug 文本兜底”的回退路径，对新实现不再可达——NaN 按位形态直接哈希，行为（同值同 key、与有限值可分辨）由改名后的测试钉住。
+- 为什么 options 仍走 serde：`prompt_locale` 参与缓存 key 的口径依赖“选项字段全量参与”，serde 序列化免手写字段清单、加字段自动纳入；`TaskOptions` 字段均为可直接序列化的标量，`to_vec` 的 `Err` 分支只为 `Result` 完整性保留（`Debug` 文本哈希对同值稳定）。若未来 options 出现不可序列化字段，该分支兜底，测试应同步补回退路径用例。
 - key 数值与旧实现不兼容（有意接受）：摘要只要求进程内稳定（moka 内存缓存、无持久化），换派生方式即全量换 key，无迁移问题。
 
-## MAX_ENTRIES(2026-10-16,内存优化方案)
+## MAX_ENTRIES（2026-10-16，内存优化方案）
 
-- 为什么从 256 收到 64:缓存是进程内存常驻项,条数上限直接钉住最坏总量;缓存只在会话内重复触发同一输入时受益(划词同文本二次触发),64 条的近期窗口对命中率边际收益趋零,LRU 逐出保住热条目。
+- 为什么从 256 收到 64：缓存是进程内存常驻项，条数上限直接钉住最坏总量；缓存只在会话内重复触发同一输入时受益（划词同文本二次触发）,64 条的近期窗口对命中率边际收益趋零，LRU 逐出保住热条目。
 
 ## DEFAULT_TTL / MAX_ENTRIES
 

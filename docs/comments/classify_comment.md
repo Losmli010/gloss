@@ -4,7 +4,7 @@
 
 - validate_modality 放行 Auto+Text（运输合法性：哨兵以文本进编排），
   PromptRegistry::render 显式拒绝 Auto（ClassifyRequired）——模态表管
-  「能不能运输」，渲染收口管「能不能渲染」，两层各司其职。
+  “能不能运输”，渲染收口管“能不能渲染”，两层各司其职。
 - Auto 不进 ALL_KINDS：设置任务开关清单天然不含它，settings 侧无需过滤
   代码；config 测试钉住这一点。
 - 划词手势在 trigger_decision 固定 Acquire(Auto) 且不查任务开关：手势
@@ -17,15 +17,15 @@
   收口到 TranslateWord）；Auto 任务本身的 options.model_override 恒 None
   ——哨兵不执行，解析了也是死值。
 - 重建任务在桥内完成（不回主线程）：TaskClassified 只服务界面标签；
-  重建的 model_override = 快照 resolved_model(判定 kind)，此后执行段
-  冻结不变。备选「机器侧 accept_classified 返回新 RunRequest 重派」被
+  重建的 model_override = 快照 resolved_model（判定 kind），此后执行段
+  冻结不变。备选“机器侧 accept_classified 返回新 RunRequest 重派”被
   否：多一跳主线程往返，且机器不持配置、解析点还得挪。
 
 ## 分类失败的回退
 
 - classify() 只报错不回退；回退是桥的编排决策（warn 无内容 + fallback
-  kind + TaskClassified 照发）。备选「classify 内部吞错返回兜底」被否：
-  纯函数不该埋编排策略，且测试面无法区分「分类成功」与「静默回退」。
+  kind + TaskClassified 照发）。备选“classify 内部吞错返回兜底”被否：
+  纯函数不该埋编排策略，且测试面无法区分“分类成功”与“静默回退”。
 - 分类缓存只存 LLM 判定成功的 kind；回退不写缓存——下次同文本可能因
   设置修复而分类成功。
 - 缓存命中后再过一次 allowed 校验：设置变更（kind 停用）后旧判定不作数，
@@ -49,7 +49,7 @@
   `parse_classify_reply`，首个能通过校验的完整 JSON 立即定型返回。
 - 为什么只在 Ok 时退出：部分 JSON（截断、逐 chunk 到达中途）解析必然
   失败，继续等是唯一正确的动作；跑偏的长篇要么解析不过走兜底、要么在
-  完整给出合法 kind 的那一刻就定型——两条路都不需要「流结束」这个信号。
+  完整给出合法 kind 的那一刻就定型——两条路都不需要“流结束”这个信号。
   Err 仍立即上抛，语义不变（Err 不保证终结流，见 ports::TaskStream）。
 - 成本：每次累积后的全量 parse 上界是回复上限（4KB）× 个位数 chunk，
   微秒级；相对 chunk 的毫秒级到达间隔与 LLM 的秒级 TTFT 可忽略。
@@ -58,7 +58,7 @@
 
 ## 越清单夹具 ImageOcr → ImageExplain（2026-10-10，契约校验与重试方案步骤 1a）
 
-- `replies_outside_the_allowed_list_are_rejected` 的清单外 kind 夹具原用 `ImageOcr`（变体已删，字符串仍会被拒绝但不再对应任何域内值）；改用 `ImageExplain`——它仍是合法 serde 名、但不在 `CLASSIFY_KINDS`，拒绝路径走的是「反序列化成功 → 允许清单拦截」这一支，比未知标识（死在反序列化）多钉一层。eval 侧 `classify_verdicts_cover_the_matrix` 同改。
+- `replies_outside_the_allowed_list_are_rejected` 的清单外 kind 夹具原用 `ImageOcr`（变体已删，字符串仍会被拒绝但不再对应任何域内值）；改用 `ImageExplain`——它仍是合法 serde 名、但不在 `CLASSIFY_KINDS`，拒绝路径走的是“反序列化成功 → 允许清单拦截”这一支，比未知标识（死在反序列化）多钉一层。eval 侧 `classify_verdicts_cover_the_matrix` 同改。
 
 ## classify（TaskChunk::Done 臂，2026-10-11，契约校验与重试方案 §5）
 
@@ -66,26 +66,26 @@
 
 ## General 不在分类清单（2026-10-12，契约校验与重试方案步骤 4）
 
-- `CLASSIFY_KINDS` 保持三个文本 kind、`CLASSIFY_FALLBACK` 保持 TranslateWord（换值归步骤 5）；本步只在常量测试里钉住「General ∉ 清单」。schema 侧 `validate_classify` 对 `{"kind":"General"}` 落 `KindNotAllowed`（合法 serde 名但清单外）——与 ImageExplain 同一支：反序列化成功后由允许清单拦截，比未知标识多钉一层。
+- `CLASSIFY_KINDS` 保持三个文本 kind、`CLASSIFY_FALLBACK` 保持 TranslateWord（换值归步骤 5）；本步只在常量测试里钉住“General ∉ 清单”。schema 侧 `validate_classify` 对 `{"kind":"General"}` 落 `KindNotAllowed`（合法 serde 名但清单外）——与 ImageExplain 同一支：反序列化成功后由允许清单拦截，比未知标识多钉一层。
 
 ## classify() 内部消化违约与请求异常（2026-10-12，契约校验与重试方案 §2/§6）
 
-- 为什么校验从 `parse_classify_reply`（围栏容错）换成 `schema::validate_classify`（严格裸 JSON）：修复轮需要 `Violation` 固定措辞构造纠错指令，`parse_classify_reply` 的 `EngineResponse("unrecognized classify reply")` 分不出空回复/非 JSON/越清单；方案 §3 明确「围栏 = 违约进修复轮」，且生产与评测共用同一校验器是定稿决策。`parse_classify_reply` 保留给 gloss-eval（重放镜像），待步骤 6/7 随围栏容错一起删除。
-- 为什么 `CLASSIFY_FALLBACK` 从 TranslateWord 改为 General：修复轮上线后「分类失败」的含义从「没判出来」升级为「判了两次仍不守约」——继续猜一个高频意图（词卡）的错律高于给一个通用落点；General 是步骤 4 专门铺的清单外执行 kind，天然是兜底位。用户无感（不出提示），warn 只记类别 + 轮次。
+- 为什么校验从 `parse_classify_reply`（围栏容错）换成 `schema::validate_classify`（严格裸 JSON）：修复轮需要 `Violation` 固定措辞构造纠错指令，`parse_classify_reply` 的 `EngineResponse("unrecognized classify reply")` 分不出空回复/非 JSON/越清单；方案 §3 明确“围栏 = 违约进修复轮”，且生产与评测共用同一校验器是定稿决策。`parse_classify_reply` 保留给 gloss-eval（重放镜像），待步骤 6/7 随围栏容错一起删除。
+- 为什么 `CLASSIFY_FALLBACK` 从 TranslateWord 改为 General：修复轮上线后“分类失败”的含义从“没判出来”升级为“判了两次仍不守约”——继续猜一个高频意图（词卡）的错律高于给一个通用落点；General 是步骤 4 专门铺的清单外执行 kind，天然是兜底位。用户无感（不出提示），warn 只记类别 + 轮次。
 - 为什么分类阶段的请求异常也内部消化（引擎错误不重试、直接落兜底）：分类在 TTFT 之前，多一次重试就是首字延迟直接劣化；且任务段马上还会再打一次请求，网络/鉴权错误在任务段会以失败卡浮出，分类阶段不重复报障——这与步骤 5 之前 engine.rs 兜底 Err 臂的行为一致，只是收拢点从编排层移进分类自身（engine.rs 的 Err 臂保留为非文本输入的防御路径）。
 - 为什么空回复的修复是原样重发（不带 assistant 轮、不带纠错指令）：无内容可纠，纠错指令没有指向对象；部分端点拒收空 assistant content；首轮请求本身已含完整契约，原样重发即给模型第二次机会。
 
 ## 围栏容错删除，严格裸 JSON 全面生效（2026-10-12，契约校验与重试方案步骤 6 / §10）
 
-- 上一节预告的「`parse_classify_reply` 待步骤 6/7 随围栏容错一起删除」落地为**半删**：`fenced_json` 提取与 `STRUCTURED_FENCE` 常量整体删除（两处消费者——完成态围栏 fallback 归步骤 3、分类容错提取归本步——都没了），但 `parse_classify_reply` 本身保留，重写为 `schema::validate_classify` 的严格裸 JSON 薄封装（只做 `Violation` → `EngineResponse` 的错误形态折算）。为什么保留：它仍是 gloss-eval 分类轨的唯一生产校验入口（`metrics.rs` 的 `judge_classify_reply`），现在删掉它就得当场重接 eval——那是步骤 7「eval 同源校验器」的地盘；薄封装让评测在这两步之间继续度量生产行为，且校验判线单一（都出自 schema.rs）。
-- 为什么围栏容错现在可以删而早先不行：模板与提示已不再要求围栏（步骤 3 全模板嵌套化 + 「不要围栏」字样），且修复轮已上线——围栏输出有了明确出口（`NotJson` → 修复轮纠正），容错提取只会把违约静默放行、剥夺模型的纠错机会；分类路径同理（围栏 → 修复轮 → 仍违约落 General，`a_fenced_reply_repairs_then_falls_back` 已在步骤 5 钉住）。
-- 「三个 kind」措辞改「清单 3 个 + 兜底 General」（`CLASSIFY_KINDS`/`CLASSIFY_FALLBACK` 文档）：步骤 4 之后 General 落地，只说「三个 kind」会让人误读成文本路径的全部答案空间；「清单 3 个 + 兜底 General」把「分类器只在清单内选择」与「清单外唯一落点是兜底」一句话说全。同步 AGENTS.md 架构速览为「提示直通 → LLM 分类（1 次修复）→ 常量兜底」（方案 §10 明文条目）。
-- `replies_outside_the_allowed_list_are_rejected` 的围栏断言翻转（原「围栏内合法 kind 放行」→「围栏即拒绝」）：这是旧容错的最后一处行为断言，翻转后与 `a_fenced_reply_repairs_then_falls_back`（编排级）、schema.rs 违约矩阵（校验器级）三层同向。
-- eval 侧只动注释不动行为：`is_json_like`/`first_fenced_json` 原文档自称「镜像生产 parse_classify_reply 的裸先行、首围栏兜底提取」，生产删容错后该说法失真，注释改为「刻意比生产宽一档、只为把『非 JSON 形态』与『形态像但被拒』分列统计」。is_json_like 的围栏分支本身保留——那是指标分列语义不是容错，eval 的整体重接线（含 lib.rs 头注释里过时的「finalize 围栏 fallback」表述）归步骤 7。
+- 上一节预告的“`parse_classify_reply` 待步骤 6/7 随围栏容错一起删除”落地为**半删**：`fenced_json` 提取与 `STRUCTURED_FENCE` 常量整体删除（两处消费者——完成态围栏 fallback 归步骤 3、分类容错提取归本步——都没了），但 `parse_classify_reply` 本身保留，重写为 `schema::validate_classify` 的严格裸 JSON 薄封装（只做 `Violation` → `EngineResponse` 的错误形态折算）。为什么保留：它仍是 gloss-eval 分类轨的唯一生产校验入口（`metrics.rs` 的 `judge_classify_reply`），现在删掉它就得当场重接 eval——那是步骤 7“eval 同源校验器”的地盘；薄封装让评测在这两步之间继续度量生产行为，且校验判线单一（都出自 schema.rs）。
+- 为什么围栏容错现在可以删而早先不行：模板与提示已不再要求围栏（步骤 3 全模板嵌套化 + “不要围栏”字样），且修复轮已上线——围栏输出有了明确出口（`NotJson` → 修复轮纠正），容错提取只会把违约静默放行、剥夺模型的纠错机会；分类路径同理（围栏 → 修复轮 → 仍违约落 General，`a_fenced_reply_repairs_then_falls_back` 已在步骤 5 钉住）。
+- “三个 kind”措辞改“清单 3 个 + 兜底 General”（`CLASSIFY_KINDS`/`CLASSIFY_FALLBACK` 文档）：步骤 4 之后 General 落地，只说“三个 kind”会让人误读成文本路径的全部答案空间；“清单 3 个 + 兜底 General”把“分类器只在清单内选择”与“清单外唯一落点是兜底”一句话说全。同步 AGENTS.md 架构速览为“提示直通 → LLM 分类（1 次修复）→ 常量兜底”（方案 §10 明文条目）。
+- `replies_outside_the_allowed_list_are_rejected` 的围栏断言翻转（原“围栏内合法 kind 放行”→“围栏即拒绝”）：这是旧容错的最后一处行为断言，翻转后与 `a_fenced_reply_repairs_then_falls_back`（编排级）、schema.rs 违约矩阵（校验器级）三层同向。
+- eval 侧只动注释不动行为：`is_json_like`/`first_fenced_json` 原文档自称“镜像生产 parse_classify_reply 的裸先行、首围栏兜底提取”，生产删容错后该说法失真，注释改为“刻意比生产宽一档、只为把‘非 JSON 形态’与‘形态像但被拒’分列统计”。is_json_like 的围栏分支本身保留——那是指标分列语义不是容错，eval 的整体重接线（含 lib.rs 头注释里过时的“finalize 围栏 fallback”表述）归步骤 7。
 
 ## classify_traced 与 ClassifyDecision（2026-10-12，契约校验与重试方案步骤 7）
 
-- 为什么抽 `classify_traced`（返回 `ClassifyDecision { kind, repairs, rounds }`）而 `classify` 变薄封装：评测 live 轨需要逐轮回复（折算违约类别）与修复轮数，生产编排只消费 kind——两个消费面共用一份循环，差别只在「请求异常消化与否」：`classify` 保持内部消化（落兜底 + warn，用户无感的既有语义零改动），`classify_traced` 刻意上抛——eval 要把引擎失败单列 `engine_errors`，消化了就分不出来。消化职责放外层而非 traced 层，warn 文案与调用点都留在生产路径上。
+- 为什么抽 `classify_traced`（返回 `ClassifyDecision { kind, repairs, rounds }`）而 `classify` 变薄封装：评测 live 轨需要逐轮回复（折算违约类别）与修复轮数，生产编排只消费 kind——两个消费面共用一份循环，差别只在“请求异常消化与否”：`classify` 保持内部消化（落兜底 + warn，用户无感的既有语义零改动），`classify_traced` 刻意上抛——eval 要把引擎失败单列 `engine_errors`，消化了就分不出来。消化职责放外层而非 traced 层，warn 文案与调用点都留在生产路径上。
 - 为什么 `rounds` 记完整回复而不是增量：分类的轮回复上界 4KiB、轮数 ≤ 2，全量携带零压力；而评测折算（逐轮 `validate_classify`）需要的恰是每轮的完整文本——增量切分对分类轨没有任何消费者（重放只拼接），不为形态保留无人读取的细节。
 
 ## 修复轮不再全程持有首轮底座（P1-1 clone 削减，2026-10-13）
@@ -97,7 +97,7 @@
   的 assistant 历史借它拼好再 move）；底座在修复分支按同一注册表、同一
   输入重渲（`render_classify` 纯函数，逐字节同形），不再全程持有首轮
   副本。
-- 「重渲代替持有」的等价性依据：`render_classify(locale, allowed, text)`
+- “重渲代替持有”的等价性依据：`render_classify(locale, allowed, text)`
   是同参纯函数，产物与首轮逐字节一致，MockEngine 录制的请求比较不受
   影响；代价是修复轮（预算 1 轮、罕见路径）多一次模板渲染，常规路径
   （一次通过）零拷贝。
@@ -114,7 +114,7 @@
 
 ## 分类类别集收进模板（2026-10-20，PR #218）
 
-- 上文多处「允许清单 / `CLASSIFY_KINDS`」的机制描述自本日起失效：重写后
+- 上文多处“允许清单 / `CLASSIFY_KINDS`”的机制描述自本日起失效：重写后
   的 classify 模板自带四类别（TranslateWord / TranslateSentence /
   ExplainCode / Fallback），`validate_classify` 不再收调用方清单，按
   模板类别硬校验；`CLASSIFY_KINDS` 常量与 allowed/rules 渲染块删除。
@@ -123,7 +123,7 @@
   任务模板）；`General` 标识永不进分类模板（分类模板说 Fallback，代码
   说 General，映射在 schema 层）。定型 info 行同行携带 `model_kind`（模
   型原始类别）与 `kind`（最终执行 kind）。
-- `KindNotAllowed` 固定措辞随之去「清单」化：`"reply kind is not one of
+- `KindNotAllowed` 固定措辞随之去“清单”化：`"reply kind is not one of
   the classify categories"`（reason 回灌进 repair 模板与日志）。
 
 ## 零增量空完成按空回复进修复轮（2026-10-21，同 PR #218 后续）
@@ -131,17 +131,17 @@
 - 任务段 `collect_round` 早有定论：零增量的 EmptyCompletion 是坏回复而非
   坏请求（转 EmptyReply 重发一次）；分类段此前把它按请求异常直接落兜底，
   两段口径不一致。生产日志（2026-10-20/21）里分类失败恰全是这一形态——
-  每次都无重试直落兜底，「空回复重发」在分类段实际不可达。
+  每次都无重试直落兜底，“空回复重发”在分类段实际不可达。
 - 收敛后分类段同口径：`classify_round` 对 `EmptyCompletion` 且累积为空时
   断流收尾，交整段校验得 EmptyReply 违约走既有修复轮（原样重发，预算仍
   `CLASSIFY_REPAIRS=1`）；实现上不需要镜像任务段的 `empty_completion`
-  标记——空回复本就会校验出 EmptyReply，收敛点放在「错误转断流」一处。
+  标记——空回复本就会校验出 EmptyReply，收敛点放在“错误转断流”一处。
 - 代价（明示接受）：该失败形态的最坏 TTFT 从 1 次请求变 2 次；仅发生在
   端点异常收尾时，正常路径零开销。
 
 ## CLASSIFY_FALLBACK
 
-- 分类失败（请求异常、修复轮后仍违约）时的兜底 kind：常量而非配置——兜底必须是可渲染、可执行的具体文本 kind。classify 模板的 `Fallback` 类别在校验层映射到同一个 kind（`crate::schema::validate_classify`）：「模板四类别 → 三个文本 kind + 兜底 General」构成文本路径的完整落点。
+- 分类失败（请求异常、修复轮后仍违约）时的兜底 kind：常量而非配置——兜底必须是可渲染、可执行的具体文本 kind。classify 模板的 `Fallback` 类别在校验层映射到同一个 kind（`crate::schema::validate_classify`）：“模板四类别 → 三个文本 kind + 兜底 General”构成文本路径的完整落点。
 
 ## CLASSIFY_REPAIRS
 
@@ -183,7 +183,7 @@
 ## classify_traced
 
 - `classify` 的全轨迹形态：逐轮执行分类请求并记录回复，契约违约走修复轮（对话形态 `[system][user 原文][assistant 上一次坏回复][user 纠错指令]`，EmptyReply 原样重发不带 assistant 轮），预算 `CLASSIFY_REPAIRS` 耗尽落 `CLASSIFY_FALLBACK`（恒 `Ok`）。
-- 与 `classify` 在错误处理上的差别只有一处：**请求异常不消化**、原样上抛——消化（落兜底 + warn）归 `classify`；评测需要区分「请求失败」与「回复违约」，故在 traced 层保持上抛。
+- 与 `classify` 在错误处理上的差别只有一处：**请求异常不消化**、原样上抛——消化（落兜底 + warn）归 `classify`；评测需要区分“请求失败”与“回复违约”，故在 traced 层保持上抛。
 - `text` 是待分类的选区文本。判定定型时把模型输出的原始类别与最终执行的 kind 同行落 info（兜底类别 `Fallback` 映射 `TaskKind::General` 的落点在此可见）。pub 供 gloss-eval 的 live 轨复用同一循环（评测与生产同源）。
 - 底座只渲染一次：修复轮以它为底拼对话（与任务段同一形态），不再每轮重渲。
 - messages 随请求 move 出去（engine 端口按值收请求）；修复轮由底座重拼。

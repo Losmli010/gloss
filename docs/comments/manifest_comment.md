@@ -15,7 +15,7 @@
 
 ## ManifestError（清单失败的三类形态）
 
-- 后果一致（设置页显示「清单不可用」），分形变体只为日志能各说各话。
+- 后果一致（设置页显示“清单不可用”），分形变体只为日志能各说各话。
 - `Unparsable`：body 不是合法 JSON，或字段缺失/类型不符（serde 拒收）。
 - `UnknownSchema`：`schema` 值未知：fail-closed，拒绝解析。
 - `Invalid`：通过 JSON 解析但校验矩阵不符（版本不可解析、架构条目缺、url/sha256 形态不符）。

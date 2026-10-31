@@ -4,15 +4,15 @@
 
 - `machine::accept_done` 原先在产物到达时算一次语言并缓存进视图字段
   （`OverlayView::Outcome.code_lang`）；本步改为渲染时调用 `adopt` 现算。
-  纯函数成本可忽略（一次 trim + 一次字符扫描 + 一次查表），换来「视图不再
-  缓存派生状态」——机器采纳结果与渲染所用语言在结构上不可能漂移（方案
+  纯函数成本可忽略（一次 trim + 一次字符扫描 + 一次查表），换来“视图不再
+  缓存派生状态”——机器采纳结果与渲染所用语言在结构上不可能漂移（方案
   §1.8）。`machine::plausible_code_language` 随之删除，门槛逻辑原样搬入
   `adopt`（单个 ASCII 词元；`+`/`#`/`-`/`.` 是 c++/c#/objective-c 的合法
   形态）。
 - 签名取 `Option<&str>`（调用点对 Code 变体的 `code_language.as_deref()`），
   返回 `Option<String>`（规范名）。非 Code 变体在调用点直接落 None，不进
-  adopt——adopt 只回答「这个判定能不能上角标」，不做变体分发。
-- 门槛的"为什么"随函数搬迁：散文与「…或 null」占位串（模型照抄示例）不可
+  adopt——adopt 只回答“这个判定能不能上角标”，不做变体分发。
+- 门槛的“为什么”随函数搬迁：散文与`…或 null`占位串（模型照抄示例）不可
   上角标；首尾空白先修剪再过门槛（不因空白误判成占位串）。单测三件套
   （采纳归一 / 散文拒绝 / 空白修剪）从原 machine 测试迁来并补齐别名面。
 
@@ -64,7 +64,7 @@
 - 补回旧特化的三类：`constant.other.color` → Number（CSS `#fff`）、
   `entity.name.table` → Function（TOML 节头）、
   `meta.mapping.key.json string.quoted.double.json` → Type（JSON 键）。
-- egui_extras 的主题匹配按「更具体的 scope 得分更高」取胜，与规则书写顺序
+- egui_extras 的主题匹配按“更具体的 scope 得分更高”取胜，与规则书写顺序
   无关；注释已按此改写。
 - 测试按字节区间断言（syntect 会把一个 token 按 scope 拆成多段，如字符串的
   引号与内容），并覆盖 YAML/TOML/CSS/JSON/Python/Ruby/Rust 的具体类别。
@@ -118,9 +118,9 @@
   约 0.1s），落在首个代码卡的首帧会让弹窗出现卡顿。启动时调一次，首个
   代码卡通常已命中 `OnceLock`。
 - `theme_set`：只保留 egui_extras 会取用的两个键，其余内置主题不装——省掉
-  默认主题集的解析，也让「自定义色板顶替内置条目」这件事在类型上只有
+  默认主题集的解析，也让“自定义色板顶替内置条目”这件事在类型上只有
   一处。
-- `SCOPE_CLASSES`：scope 选择器 → 语法角色类别——只做「语法角色 → 类别」
+- `SCOPE_CLASSES`：scope 选择器 → 语法角色类别——只做“语法角色 → 类别”
   的映射，颜色仍由 `palette::Class` 单点决定。syntect 按匹配得分取最具体
   的一条，与规则的书写顺序无关。表内特化条目的缘由：
   - CSS 的 #fff 落 color.rgb-value，旧实现按 Number 着色。

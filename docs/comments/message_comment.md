@@ -14,7 +14,7 @@
 ## MessageContent 与 ContentPart（2026-10-10，剪贴板图片方案 §5.4）
 
 - 为什么 `ChatMessage` 不再 `Serialize`：此前域形态与 wire 形态恰好重合（content 就是 JSON 字符串），`messages_serialize_to_openai_shape` 把这个巧合钉在了序列化层。多模态引入后两形态分叉（content 字符串 vs OpenAI content 数组），wire 组装整体搬到 `engine::llm::chat_request_body`（`message_to_value`/`content_to_value`/`part_to_value`），该序列化测试随之删除、由请求体快照测试接管。
-- 为什么域类型不携带 base64：编码是纯传输细节且体积膨胀 4/3 倍；域部件 `ContentPart::ImagePng(Arc<[u8]>)` 只搬原始字节，保持 `PartialEq` 按字节可比、Arc 跨线程零拷贝共享，也不存在「编码态与原始态并存」的双形态漂移。data URL 前缀与 base64 编码只在 `part_to_value`（请求体构造处）发生。
+- 为什么域类型不携带 base64：编码是纯传输细节且体积膨胀 4/3 倍；域部件 `ContentPart::ImagePng(Arc<[u8]>)` 只搬原始字节，保持 `PartialEq` 按字节可比、Arc 跨线程零拷贝共享，也不存在“编码态与原始态并存”的双形态漂移。data URL 前缀与 base64 编码只在 `part_to_value`（请求体构造处）发生。
 - 备选与落选：让 `ChatMessage.content` 直接存 `serde_json::Value`——域层被 wire 词汇（`image_url`、data URL）侵蚀，prompt 层就得 import 传输知识，分层反向。
 
 ## Role / MessageContent / ContentPart / ChatMessage（源码注释迁入）

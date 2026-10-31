@@ -16,8 +16,8 @@
   `extern "C"` 定时器回调 `fire` 即 abort），且
   `panicking_handler_does_not_kill_thread` / `panicking_source_does_not_kill_thread`
   两条 L1 单测在测试 profile 锁定该行为——删除即同时退化测试 profile。处置为
-  旁注「生效边界」；日后要恢复 release 降级语义，删 profile 一行即可。
-- 为什么 `Err` 分支的 `error!` 留痕在 abort 下不视为违反「降级必有痕」：分支在
+  旁注“生效边界”；日后要恢复 release 降级语义，删 profile 一行即可。
+- 为什么 `Err` 分支的 `error!` 留痕在 abort 下不视为违反“降级必有痕”：分支在
   release 不可达即无静默吞错面；它在 unwind 构建可达且有痕。
 
 ## 符号契约（自代码注释迁入）

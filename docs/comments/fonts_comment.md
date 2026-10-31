@@ -1,6 +1,6 @@
 # fonts.rs 决策记录
 
-> 按符号锚定（不写行号），改到相关代码时同步更新。本文件是「为什么」的落点：
+> 按符号锚定（不写行号），改到相关代码时同步更新。本文件是“为什么”的落点：
 > 行为与不变量写在代码注释里，决策、备选方案与实测数据记在这里。
 
 ## CJK_BYTES：为什么用进程级静态缓存 + 借用登记
@@ -9,7 +9,7 @@
   重新向系统取一份 PingFang（77,871,956 字节）并各自持有。
 - **epaint 的拷贝语义**（`epaint-0.36.2/src/text/fonts.rs` 的 `blob_from_font_data`）：
   `Cow::Owned` 走 `Arc::new(bytes)`——每个 `FontsImpl::new` 深拷贝整包；`Cow::Borrowed`
-  只 `Arc::new(&'static [u8])`（存指针）。因此「借用」不是风格选择，而是两个上下文
+  只 `Arc::new(&'static [u8])`（存指针）。因此“借用”不是风格选择，而是两个上下文
   共用同一份字体内存的唯一形态：`FontData::from_owned` 会让每个上下文各自持一份。
 - **为什么字节必须是 `'static`**：`FontData::from_static` 要求 `&'static [u8]`，所以字节
   由 static 的 `OnceLock<Vec<u8>>` 拥有（进程生命周期内不释放），不引入 `Box::leak`、
@@ -17,18 +17,18 @@
 - **失败也缓存**：`Some(None)` 同样进 `OnceLock`，第二个上下文不再重复查系统。代价是
   首调失败即整进程禁用 CJK 兜底（旧实现会重试第二次）；本机与 CI 上未观察到，若将来
   需要自愈，再加一个重置入口。
-- **与 `docs/comments/app_mod_comment.md` 里「静态可变状态是隐藏依赖」的取舍相反**：此处
-  static 只增不减、只读消费、无注入需求，且它是「进程内唯一一份」这一不变量的载体，
+- **与 `docs/comments/app_mod_comment.md` 里“静态可变状态是隐藏依赖”的取舍相反**：此处
+  static 只增不减、只读消费、无注入需求，且它是“进程内唯一一份”这一不变量的载体，
   换用参数传递反而要求调用方持有 `'static` 字节，得引入泄漏。
 
-## copy_font_data 的 drop-再-try_unwrap
+## copy_font_data 的 `drop-再-try_unwrap`
 
 - font-kit 的 `Font` 持有 `FontData::Memory(Arc<Vec<u8>>)`（loaders/core_text.rs），
   `copy_font_data()` 返回该 Arc 的克隆。旧实现在 `font` 仍存活时 `try_unwrap`，refcount
-  恒 ≥2，于是**每次都走** `(*arc).clone()`（旧注释「引用唯一时移出 Vec」不成立）。
+  恒 ≥2，于是**每次都走** `(*arc).clone()`（旧注释“引用唯一时移出 Vec”不成立）。
 - 现在先让 `font` 出作用域析构，再 `try_unwrap`，直接 move 出 Vec。`unwrap_or_else` 分支
   保留为降级路径并加 `debug!`：万一 font-kit 将来把该 Arc 存在别处，日志里能看到
-  「CJK font bytes copied out」，避免 77.9MB 的静默回退。
+  “CJK font bytes copied out”，避免 77.9MB 的静默回退。
 
 ## 面（face）选择：face index 必须恒为 0
 
@@ -40,7 +40,7 @@
   `Error parsing "gloss-cjk" TTF/OTF font file: Invalid index 5 for font collection`
   （`FontsImpl::new` → `skrifa::FontRef::from_index`）。已回退。
 - **权重**：本机 CoreText 按家族名解析出的是 `PingFangSC-Medium`（usWeightClass 500），
-  不是 `Properties` 里请求的 `Weight::NORMAL`（400）；旧注释「固定常规体（Regular）」
+  不是 `Properties` 里请求的 `Weight::NORMAL`（400）；旧注释“固定常规体（Regular）”
   因此不准确。是否要显式拿 Regular 面属于需要真机核对的视觉项，未纳入任务 10。
 
 ## 内存实测（2026-09-23，本机 dev 构建）
@@ -54,7 +54,7 @@
 
 - 单次加载本机耗时数秒（日志：`gpu ready` → `located` 5.7s）；加载期瞬时峰值（约
   237M）由 font-kit 的 `slurp_file` 与就地解包两份缓冲决定，与本次改动无关。
-- 实测依据：`vmmap --summary <pid>` 的 Physical footprint（Activity Monitor 的「内存」列
+- 实测依据：`vmmap --summary <pid>` 的 Physical footprint（Activity Monitor 的“内存”列
   口径）；`ps -o rss` 会把共享库常驻页算进来（同进程 276M vs 23M），不适合做本项对照。
 
 ## 调研：运行时子集化与懒加载（任务 T7 做法②③）
@@ -86,7 +86,7 @@
   Ubuntu-Light（见 popup.rs 测试模块 `bind_named_families`），字形保持
   tofu 约定，字号/布局照常锁进基线。
 - **内存对照**：CJK 后备（PingFang 77.9MB）+ 宋体 64MB 为现状基线；若
-  将来做「表紧致化」（见上文调研节），两份一起做收益更大。
+  将来做“表紧致化”（见上文调研节），两份一起做收益更大。
 
 ## CJK 全缺时的降级契约补全（2026-10-01，PR #91 评审 H-1）
 
@@ -94,15 +94,15 @@
   PingFang/Hiragino/STHeiti 都没有时返回 `None`，`install` 跳过
   `set_fonts`，上下文停在出厂字体表，而宋楷命名字体族未被注册；本 PR 起
   浮层无条件按命名字族排版，画首帧即触发 epaint 的 "FontFamily is not
-  bound to any fonts" panic。同一 PR 给「宋/楷缺席」补了恒注册兜底，却
-  漏了兜底链更上游的「CJK 全缺」分支——修复不对称。
+  bound to any fonts" panic。同一 PR 给“宋/楷缺席”补了恒注册兜底，却
+  漏了兜底链更上游的“CJK 全缺”分支——修复不对称。
 - **修法**：`definitions()` 改返回 `(FontDefinitions, bool)`（bool = CJK
   后备是否接上），不再提前返回 None；命名字族恒注册，兜底链延长为
   宋/楷系统字体 → 宋体字节 → CJK 后备字节 → **内置 Ubuntu-Light**，
   `register_named_or_builtin` 在无字节时把族绑到内置字形。排版逐级降级，
   永不因缺字体崩。
-- **口径拆分**：`install` 的 cjk_fallback 布尔自此只描述「比例/等宽族
-  是否接上系统 CJK」（日志与 `new_context` 测试的语义不变）；命名字族的
+- **口径拆分**：`install` 的 cjk_fallback 布尔自此只描述“比例/等宽族
+  是否接上系统 CJK”（日志与 `new_context` 测试的语义不变）；命名字族的
   绑定状态不再经它表达。
 - **kittest 绑定与本机制的合流**：kittest 测试此前手工把宋楷族绑到
   Ubuntu-Light，与本兜底的最终一级完全同构（`install_kittest_fonts` 的
@@ -119,8 +119,8 @@
   是新系统自带、Menlo 兜底、Monaco 兜旧），后两项覆盖 Linux/Windows
   常见等宽；命中第一个可用者即止（`load_family_bytes` 既有语义）。
 - **绑定规则与宋楷的不同点**：族绑定 = 系统等宽 + CJK 后备字节——等宽
-  系统字体不收 CJK 字形，链条尾部接上 `gloss-cjk` 才有「代码内中文注释
-  可读」；宋楷是单字节绑定。**系统等宽全缺席时不从 CJK 降级**（宋楷会
+  系统字体不收 CJK 字形，链条尾部接上 `gloss-cjk` 才有“代码内中文注释
+  可读”；宋楷是单字节绑定。**系统等宽全缺席时不从 CJK 降级**（宋楷会
   落到 CJK 字节）——比例字形的等宽族让代码失去对齐，宁可直接绑内置
   Ubuntu-Light；族仍恒注册（epaint 对未绑定族 panic）。
 - **音标豆腐的根因与实测**（CoreText 逐字体查 cmap，18 个常用 IPA
@@ -158,8 +158,8 @@
   与 font-kit 时代 Weight NORMAL + Style NORMAL 的取向一致；实测各候选族均选中 Regular，
   无 Regular 的家族按最近权重取。
 - **取舍**：旧路径常驻单面 sfnt 字节，新路径整包 ttc 常驻（苹方 78MB + 宋体 67MB +
-  Menlo 2MB）——启动 memmove 塔消除优先；日后若要收敛 RSS 可评估 mmap（注意「长驻进程
-  不泄漏内存」门禁的落点）——已于 2026-10-13 落地，见下节。
+  Menlo 2MB）——启动 memmove 塔消除优先；日后若要收敛 RSS 可评估 mmap（注意“长驻进程
+  不泄漏内存”门禁的落点）——已于 2026-10-13 落地，见下节。
 - **依赖**：font-kit 移除；core-text 20.1 + core-foundation 0.9 本是 font-kit 的传递
   依赖，转正为直接依赖（特性按仓规收窄，core-foundation 留 link）。
 
@@ -169,11 +169,11 @@
   在无窗口服务的 CI runner（fontd 病态）上单次要 10-16 分钟（Menlo 16 分钟、
   PingFang+Songti 再 33 分钟），#146 的 Test job 因此 2 分钟变 51 分钟。修复：面序号改为
   纯文件解析（ttc 头部面数 + 逐面 name 表找 postscript 名），序号完全由文件自身回答，
-  CoreText 枚举与「枚举位次=文件序号」的经验假设一并删除；`file_face_descriptors` 与
+  CoreText 枚举与“枚举位次=文件序号”的经验假设一并删除；`file_face_descriptors` 与
   unsafe 块随之退场，face_index 复杂度微秒级。
-- **启动弹「确认下载字体」框的根因**：家族查询用了
+- **启动弹“确认下载字体”框的根因**：家族查询用了
   `CTFontDescriptorCreateMatchingFontDescriptors`（core-text 的 `create_for_family`），
-  匹配会命中系统的「可下载字体」目录——查询未随机型的楷体（Kaiti SC 等）时 macOS 主动
+  匹配会命中系统的“可下载字体”目录——查询未随机型的楷体（Kaiti SC 等）时 macOS 主动
   弹字体下载确认框。font-kit 时代走 `CTFontCollectionCreateWithFontDescriptors`（只扫
   已安装字体）从不弹框。修复：家族查询改回集合形状（字体族描述符 →
   `new_from_descriptors` → `get_descriptors`，与 font-kit 同款），缺席家族自然耗尽候选
@@ -190,15 +190,15 @@
 - **背衬形态 = `FontBacking` 枚举（Mapped/Copied）而非 `Box::leak`**：`FamilyFont`
   本就常驻 static `OnceLock`，`&'static FamilyFont` 已满足 egui `FontData` 的 `'static`
   借用（`Cow::Borrowed` 指向背衬切片的链条不变）——`Box::leak` 语义重复，且主动泄漏
-  贴近「长驻进程禁 `mem::forget`」门禁的落点，能不碰就不碰；枚举实现
-  `Deref<Target = [u8]>` 把「切片指向映射页还是回退拷贝」收敛到一处，登记端
+  贴近“长驻进程禁 `mem::forget`”门禁的落点，能不碰就不碰；枚举实现
+  `Deref<Target = [u8]>` 把“切片指向映射页还是回退拷贝”收敛到一处，登记端
   （`insert_face`）与既有断言（指针比对）不感知形态。
 - **unsafe 落点**：memmap2 0.9 的 `Mmap::map` 是 unsafe（被映射文件被并发修改/截断时
-  读切片可越界），SAFETY 不变量写死「系统字体文件由系统管理、本进程从不写入、进程
-  生命期内不被截断」；映射只读，无写路径。
+  读切片可越界），SAFETY 不变量写死“系统字体文件由系统管理、本进程从不写入、进程
+  生命期内不被截断”；映射只读，无写路径。
 - **失败降级**：映射失败（空文件 mmap 直接 EINVAL、打开/系统调用失败）留 warn 后回退
-  `fs::read` 整包拷贝——拷贝是兼容路径，保启动不阻塞；两条路都失败沿用既有「跳过该
-  候选继续探下一个」降级（带 family/path 痕迹）。
+  `fs::read` 整包拷贝——拷贝是兼容路径，保启动不阻塞；两条路都失败沿用既有“跳过该
+  候选继续探下一个”降级（带 family/path 痕迹）。
 - **渲染不变**：登记切片与整包拷贝逐字节相同，字形解析（skrifa 按序号取面）不受字节
   背衬影响；L2 快照走 `install_kittest_fonts` 绑内置 Ubuntu-Light，宿主字体字节源
   本就不进快照，基线零变更。

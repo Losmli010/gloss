@@ -18,7 +18,7 @@
 - `ConfusionRow`：混淆矩阵一行——期望 kind、实际 kind、次数。
 - `TaskStats`：单个任务数据集的指标视图——数据集名（文件名去扩展名）+ 指标数值。
 - `LatencySummary`：延迟摘要（毫秒）——count、p50、p95。
-- `JudgeSummary`：judge 摘要（1–5 分的逐条均值；解析不出分数的条目不计入）。`attempted` 是尝试评分的条数（含引擎失败与解析失败）——`attempted > count` 即「judge 启用但部分失败」；旧报告 JSON 无此字段，反序列化默认 0（`attempted == 0` 时渲染回退到只报 count，不显示失败数）。
+- `JudgeSummary`：judge 摘要（1–5 分的逐条均值；解析不出分数的条目不计入）。`attempted` 是尝试评分的条数（含引擎失败与解析失败）——`attempted > count` 即“judge 启用但部分失败”；旧报告 JSON 无此字段，反序列化默认 0（`attempted == 0` 时渲染回退到只报 count，不显示失败数）。
 
 ## render_markdown 及各渲染函数
 

@@ -1,15 +1,15 @@
 # wordings.rs 测试记录
 
 > 按符号锚定（不写行号，防漂移）。改到相关测试时同步更新本文件。
-> 测试代码禁止注释（AGENTS.md「注释纪律」节），测试的验收意图与辅助契约记录在此。
+> 测试代码禁止注释（AGENTS.md“注释纪律”节），测试的验收意图与辅助契约记录在此。
 
 ## 完整性与一致性双道（方案 §5.3，期三，2026-10-29）
 
 - registry_frame_wording_is_present_for_both_locales /
   registry_covers_every_format_key_with_worded_rows /
   registry_covers_every_language_action_and_classify_definition：三区全覆盖
-  锁「变体 × `locale` 键齐备且措辞非空」，缺行即失败。装载入口本身
-  `expect` 解析成功，等于把「嵌入数据可解析」前置锁进每个测试。
+  锁“变体 × `locale` 键齐备且措辞非空”，缺行即失败。装载入口本身
+  `expect` 解析成功，等于把“嵌入数据可解析”前置锁进每个测试。
 - registry_keys_match_the_enums_exactly_in_both_directions：双向集合相等
   ——每键反解回枚举变体（多余键、拼写漂移即失败）加键数对账（缺键即失
   失败）。类别名区无枚举可反解，以校验器常量四标识对账。
@@ -26,5 +26,5 @@
 
 - registry_frame_wording_is_present_for_both_locales 扩区：骨架五词之外，
   连接符非空、例句位置两键必须携带 {{joined}} 且能渲染出实值、分类段头
-  与分隔符非空、目标语言名两变体非空——新分区同走「结构体字段＋非空断
-  言」的完整性双保险，缺区在解析层、空值在断言层各自拦截。
+  与分隔符非空、目标语言名两变体非空——新分区同走“结构体字段＋非空断
+  言”的完整性双保险，缺区在解析层、空值在断言层各自拦截。

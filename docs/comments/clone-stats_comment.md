@@ -16,7 +16,7 @@
   有噪声且已有 criterion 自身基线机制（bench-check/bench-summary）与 benches/core.rs
   兜着，不重复存第二份耗时真相。
 - 判罚口径：allocs 或 bytes **精确整数**上升即回退（先实测两轮稳定性确认恒等）；
-  依赖升级导致的整体漂移属「有意的基线更新」，走 PR 审查。
+  依赖升级导致的整体漂移属“有意的基线更新”，走 PR 审查。
 - `machine/lifecycle` 的输入构造计入测量（iter_batched 的 setup 分配同样落进测量
   窗口，躲不掉，索性内联进 `b.iter` 让口径自明）；其余热点输入全部循环外构造，
   计数纯净。
@@ -34,15 +34,15 @@
   读 baselines/history.jsonl **最新点**的 clone.total/density/allocs/bytes：基线随
   perf-collect.py 采集自然前移，变更经 history.jsonl 的 PR diff 显式审查（继承原
   clone-stats.json 的唯一门禁地位，设计 3.2）。`--write` 与 perf 段随之删除，本
-  脚本收敛为「静态计数 + --check」。
+  脚本收敛为“静态计数 + --check”。
 - `--check` 判罚口径不变的部分：total 或 allocs/bytes 合计**精确整数**上升即退
-  出码 1；密度仍仅记录。变化的部分：对照粒度从「任一 crate」收窄为聚合总量——
+  出码 1；密度仍仅记录。变化的部分：对照粒度从“任一 crate”收窄为聚合总量——
   history 只承载聚合（crate 级明细不进趋势存储），crate 间此消彼长不再判回退，
   该情形少见且源码 diff 在 PR 里本就可见；取舍如实记录，若误放行频发再议收紧。
 - 降级防护延续 #109 精神（write_baseline 拒绝降级覆盖已随 `--write` 删除）：最新
   点缺 clone.total 或缺分配值即带指引失败——分配为 0 的假基线会把真回退放行，
-  本脚本是判罚终点，不依赖上游采集侧防护。当前侧 criterion 无数据时只提示「当
-  前无数据」不判罚（与旧 perf 段对照行为一致）：判罚依赖刚跑过 `just clone-bench`。
+  本脚本是判罚终点，不依赖上游采集侧防护。当前侧 criterion 无数据时只提示“当
+  前无数据”不判罚（与旧 perf 段对照行为一致）：判罚依赖刚跑过 `just clone-bench`。
 - read_perf 保留：--check 需要当前分配值、缺省打印需要分配热点展示；它不再参与
   任何基线写入。files 级明细只在缺省打印里呈现，不再作基线对照（history 无此明
   细，且 git diff 已可见文件级增删）。
@@ -52,7 +52,7 @@
 - perf-baseline 配方不再调用本脚本：`--write` 已随 T2 删除，静态计数由 perf-collect.py 经
   importlib 复用（collect_clone_static），门禁基线随采集自然前移；本脚本的配方入口只剩
   clone-stats（只读打印分布）与 clone-check（判罚），判罚口径与降级防护不变（上节）。
-- clone-check 前置从「先跑 just clone-bench」扩为「clone-bench + perf-baseline」（配方注释
+- clone-check 前置从“先跑 just clone-bench”扩为“clone-bench + perf-baseline”（配方注释
   同步）：基线读 history 最新点，采集完成后最新点才是新基线；漏跑采集时对照的是旧点，不会
   误放行（上升仍判回退），只是基线滞后。
 
