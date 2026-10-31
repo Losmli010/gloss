@@ -8,9 +8,9 @@
 
 ## 属性名常量
 
-- `FOCUSED_UI_ELEMENT_ATTRIBUTE`：「焦点元素」属性名的稳定字符串值（kAXFocusedUIElementAttribute 的文档契约，与 System Events/AppleScript 所用同名）。
-- `FOCUSED_APPLICATION_ATTRIBUTE`：「焦点应用」属性名的稳定字符串值（kAXFocusedApplicationAttribute 同上）：由系统 AX 运行时供给，目标应用建不建无障碍树都能取到。
-- `SELECTED_TEXT_ATTRIBUTE`：「选中文本」属性名的稳定字符串值（kAXSelectedTextAttribute 同上）。
+- `FOCUSED_UI_ELEMENT_ATTRIBUTE`：“焦点元素”属性名的稳定字符串值（kAXFocusedUIElementAttribute 的文档契约，与 System Events/AppleScript 所用同名）。
+- `FOCUSED_APPLICATION_ATTRIBUTE`：“焦点应用”属性名的稳定字符串值（kAXFocusedApplicationAttribute 同上）：由系统 AX 运行时供给，目标应用建不建无障碍树都能取到。
+- `SELECTED_TEXT_ATTRIBUTE`：“选中文本”属性名的稳定字符串值（kAXSelectedTextAttribute 同上）。
 - `MANUAL_ACCESSIBILITY_ATTRIBUTE`：Chromium/Electron 识别的私有开关属性：写入 true 让宿主按需构建无障碍树（Electron 与 Chrome 现行内核都识别）。
 - `ENHANCED_USER_INTERFACE_ATTRIBUTE`：老版 Chromium 的等价开关属性：与上一条一起写入，覆盖未认新属性的旧内核；非 Chromium 宿主对未知属性返回属性不支持错误并忽略。
 - `TRUSTED_CHECK_OPTION_PROMPT`：AXIsProcessTrustedWithOptions 选项字典的键（kAXTrustedCheckOptionPrompt 的文档契约值）：true 时对未授权进程弹系统授权引导对话框。
@@ -31,7 +31,7 @@
 
 ## is_process_trusted_prompting
 
-- 当前进程是否已获辅助功能授权；未授权时顺带弹系统授权引导对话框（内含「打开系统设置」入口），返回值仍是查询时刻的授权状态。
+- 当前进程是否已获辅助功能授权；未授权时顺带弹系统授权引导对话框（内含“打开系统设置”入口），返回值仍是查询时刻的授权状态。
 - 引导对话框每次调用至多弹一个（系统对同一进程的重复请求会自行合并），调用方应把调用频次控制在启动预检这类低频节点上。
 - kCFType 字典回调会对键 retain，key 的守卫已覆盖调用全程；不得再对 `key.string_ref()` 建第二个守卫（会双重释放）。
 

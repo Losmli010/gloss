@@ -5,11 +5,11 @@
 
 ## 审计方法
 
-两路并行扫描 gloss-app / gloss-core / gloss-platform 全部 `#[cfg(test)]` 模块，判据取 AGENTS.md「测试」节：断言可观察契约、从公共 API 驱动、同步点用事件不用时间。关键结论已逐条抽查证实（clipboard 真机测试、hotkey 私有字段、cache sleep）。
+两路并行扫描 gloss-app / gloss-core / gloss-platform 全部 `#[cfg(test)]` 模块，判据取 AGENTS.md“测试”节：断言可观察契约、从公共 API 驱动、同步点用事件不用时间。关键结论已逐条抽查证实（clipboard 真机测试、hotkey 私有字段、cache sleep）。
 
 ## 全局面
 
-- **没有测试手搓端口 fake**：`ports.rs::mocks` 与 `engine/mock.rs` 的桩被正确复用（config_handle、llm、app、pipeline、tests/pipeline.rs）。规范「别在测试里手搓 fake」在执行。
+- **没有测试手搓端口 fake**：`ports.rs::mocks` 与 `engine/mock.rs` 的桩被正确复用（config_handle、llm、app、pipeline、tests/pipeline.rs）。规范“别在测试里手搓 fake”在执行。
 - 仅三处必要自建：llm.rs `VecStream`（core 无字节流桩）、storage/mod.rs `MemorySecrets`（platform 本地 trait）、composite.rs 闭包（边界情形）。
 - **桩冗余**：`ScriptedEngine` 能力是 `MockEngine` 子集且只有 ports.rs 自测在用；`delta_stream` 与 `ChunkStream`、两份 `lock_or_recover` 重复。
 - **mock 基建长在生产源码树**：`engine/mock.rs` 与 `ports::mocks` 以 `cfg(any(test, feature = "test-util"))` 门控；`test-util = ["dep:tokio"]` 把 tokio 拉进 core 特性图。
@@ -48,7 +48,7 @@ crate 的 tests/stubs/（cargo 集成测试目录，只在 `cargo test` 编译�
 - 桩自测迁至 `crates/gloss-core/tests/stubs_behavior.rs`（12 条：原
   两处内联桩自测合并 + 补 failure_once / panic 注入两条缺口覆盖），
   缘由与速览见 `docs/comments/stubs_behavior_tests_comment.md`。
-- 桩文件按生产代码对待（AGENTS.md「注释纪律」条款已同步改写），
+- 桩文件按生产代码对待（AGENTS.md“注释纪律”条款已同步改写），
   文件级 `#![allow(dead_code)]`——桩是按需取用的能力全集，各编译
   目标只用到其中一部分。
 
@@ -56,8 +56,8 @@ crate 的 tests/stubs/（cargo 集成测试目录，只在 `cargo test` 编译�
 
 | 文件 | 症状 | 方向 |
 | --- | --- | --- |
-| events/hotkey.rs | 私有 `table`/`registered` 字段直读（353-356、446-455 等）、`with_manager` 后门（62）、`Arc::ptr_eq` 内部共享断言、按字段构造 `GlobalHotKeyEvent`（518-537） | 把「降级保留解析表」「泵共享表」升为可观察契约（只读快照访问器或经事件通道断言）；后门删除 |
-| events/mouse.rs | 生产代码埋 `#[cfg(test)]` 常量（45-52）与 `subscribed_mask` 后门（224/286）；私有 `GestureDetector`/`classify` 直测 | 删后门；纯逻辑抽出或走 pub 入口；掩码断言改「订阅面」可观察行为 |
+| events/hotkey.rs | 私有 `table`/`registered` 字段直读（353-356、446-455 等）、`with_manager` 后门（62）、`Arc::ptr_eq` 内部共享断言、按字段构造 `GlobalHotKeyEvent`（518-537） | 把“降级保留解析表”“泵共享表”升为可观察契约（只读快照访问器或经事件通道断言）；后门删除 |
+| events/mouse.rs | 生产代码埋 `#[cfg(test)]` 常量（45-52）与 `subscribed_mask` 后门（224/286）；私有 `GestureDetector`/`classify` 直测 | 删后门；纯逻辑抽出或走 pub 入口；掩码断言改“订阅面”可观察行为 |
 | ui/settings.rs | `draft`/`api_key`/`clear_key` 字段直写后门（403-459）、私有 `build_save` 直调、密钥不进 config 的断言绑 Debug 格式（427-430）、出厂绑定条数 3 硬编码（578-582） | 写侧改走 `draw()` 交互路径（harness 测试 503-572 是正路示范）；Debug 断言换结构化断言 |
 | app.rs | 私有 `GlossApp` 无公共 seam，字段直读/直写 20+ 处、私有函数直测 10+ 处（882-1524） | 结构性最大项：从 winit `ApplicationHandler` 拆出可构造的状态核心，或明确白盒边界并收敛后门；keychain 条目名 `"gloss/deepseek"`（1248 等）改引 `keychain_id_for()` |
 | ui/fonts.rs | 私有 `append_fallback`/`FONT_NAME` 直测、`find_cjk()` 依赖宿主机中文字体（CI 风险） | 字体候选表参数化；环境依赖测试加前置检查或 ignore |
@@ -82,6 +82,6 @@ crate 的 tests/stubs/（cargo 集成测试目录，只在 `cargo test` 编译�
 
 ## 建议动工顺序
 
-P0（两个 PR 可独立：live 测试门控 / 时间同步点）→ P1 双桩合一（含方案拍板）→ P3 常量统一（低风险先行，顺带消掉 P2 一部分）→ P2 按 hotkey → mouse → settings → engine/sse/engine → app.rs 收尾的顺序逐文件改，每文件保持「测试红=行为变」的标准。
+P0（两个 PR 可独立：live 测试门控 / 时间同步点）→ P1 双桩合一（含方案拍板）→ P3 常量统一（低风险先行，顺带消掉 P2 一部分）→ P2 按 hotkey → mouse → settings → engine/sse/engine → app.rs 收尾的顺序逐文件改，每文件保持“测试红=行为变”的标准。
 
 每个文件改完同步更新 docs/tests/bdd.md 与 docs/comments 对应 `*_tests_comment.md`（外置缘由与形态说明）。

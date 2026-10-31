@@ -6,12 +6,12 @@
 
 ## Text / 文件资源形态（与 prompt 同构）
 
-- 为什么是「文件资源 + 编译期嵌入 + 类型化解析」，而不是代码里的常量表或
+- 为什么是“文件资源 + 编译期嵌入 + 类型化解析”，而不是代码里的常量表或
   `match locale`：与 R1 的 prompt 模板同构（`include_str!` + 解析），两处
-  「文本资产」的维护形态一致；文案改动落在数据文件，与语言无关的渲染代码不用动。
+  “文本资产”的维护形态一致；文案改动落在数据文件，与语言无关的渲染代码不用动。
 - 为什么每个字段显式列出、且整体 `#[serde(deny_unknown_fields)]`：`#[serde(default)]`
-  会把「键拼错」变成静默回落空串——界面出现空白而没有任何报错，正是 R7 卡要消掉的
-  失败模式。显式字段让「少键」当场解析失败，`deny_unknown_fields` 拦「多键/拼错键」；
+  会把“键拼错”变成静默回落空串——界面出现空白而没有任何报错，正是 R7 卡要消掉的
+  失败模式。显式字段让“少键”当场解析失败，`deny_unknown_fields` 拦“多键/拼错键”；
   两份文件的键集合一致性另由 `both_locale_files_declare_the_same_keys` 兜底。
 
 ## 键名 gloss_<模块>_<词条>（2026-09-22 owner 两轮定稿）
@@ -23,30 +23,30 @@
   也没有嵌套结构体**，取用点同样是单层（`text.gloss_popup_brand`）。两侧是同一个名字的
   两种写法，改词条名要连着改 TOML 那一行；名字对不上即解析失败
   （`deny_unknown_fields` + 字段无缺省）。
-- 定稿经两轮（同一日内）：先定为「节名带前缀 + `#[serde(rename)]` 对齐 + 嵌套结构体、
-  取用 `text.settings.save`」，随后 owner 改为「两侧都用全名」，再改为「下划线连接」。
+- 定稿经两轮（同一日内）：先定为“节名带前缀 + `#[serde(rename)]` 对齐 + 嵌套结构体、
+  取用 `text.settings.save`”，随后 owner 改为“两侧都用全名”，再改为“下划线连接”。
   被否方案的取舍记此备查：嵌套取用读起来短，代价是多一层 rename 对照与一处隐性耦合
-  （改节名要同时改两处）；owner 取「文件与代码同名、零映射层」。
+  （改节名要同时改两处）；owner 取“文件与代码同名、零映射层”。
 - 键名形态由 `entries_are_written_fully_qualified` 钉住（每行须以 `gloss_` 开头、
   键名不含 `.`），键集合的两侧一致性另由 `both_locale_files_declare_the_same_keys` 兜底。
 
 ## Text::get / 解析与常驻
 
 - `OnceLock<[Text; 2]>` 首次调用解析两份文件并常驻：文件是编译期常量，之后零锁读取。
-- 解析失败回落 `Text::default()` 并记 `error`：属「有痕迹的降级」。那条分支在正常构建里
+- 解析失败回落 `Text::default()` 并记 `error`：属“有痕迹的降级”。那条分支在正常构建里
   不可达（解析测试 + 键一致性测试钉住），留着是为了将来若改成运行时加载，不静默变空白。
 - `pub(crate)` 而非 `pub`：`missing_docs = deny` 会要求公开面逐条写文档，而文案表的字段
   是数据不是 API；壳外（`tests/overlay.rs`）需要语言时传 `Locale`，不暴露表本身。
   （连带的可见性后果：`settings::draw` 因此收成 `pub(crate)`。）
   - **2026-10-05 修订**：`Text` 类型与 `get` / `for_error` / `for_error_detail` 放开为
     `pub`（字段仍 `pub(crate)`，数据面不外露），供 `benches/clone.rs` 无头驱动文案
-    映射与设置/浮层帧的分配测量；`missing_docs` 的成本按约定补齐文档。原「不暴露
-    表本身」的关切仍在——公开的只有三个取用方法，字段与解析仍内部。
+    映射与设置/浮层帧的分配测量；`missing_docs` 的成本按约定补齐文档。原“不暴露
+    表本身”的关切仍在——公开的只有三个取用方法，字段与解析仍内部。
 
 ## fill
 
 - 占位符沿用 prompt 模板的 `{{name}}` 形态：两处模板的书写习惯一致，改文案的人只需记一套。
-- 无对应实参的占位符**原样保留**：宁可让人在界面上看见「{{other}}」，也不要静默吞掉
+- 无对应实参的占位符**原样保留**：宁可让人在界面上看见“{{other}}”，也不要静默吞掉
   ——文案表里写错名字时立刻暴露，而不是变成空串。
 
 ## Text::for_error / for_error_detail
@@ -54,15 +54,15 @@
 - 失败卡文案按 `GlossError` **变体**映射，不按英文 `Display` 反查（R7 卡明令）：`Display`
   是日志用的诊断文本（`config error: …`），措辞与界面无关，改它不该改界面；按它反查还会
   把英文整句变成界面契约。
-- `for_error_detail` 专供**复合**提示（设置页的「保存失败：{{detail}}」）：前缀已交代场合，
-  再拼一遍本地化整句会读成「保存失败：配置有误：…」——而「落盘失败」与「配置本身非法」
+- `for_error_detail` 专供**复合**提示（设置页的“保存失败：{{detail}}”）：前缀已交代场合，
+  再拼一遍本地化整句会读成“保存失败：配置有误：…”——而“落盘失败”与“配置本身非法”
   是两回事。带诊断的变体（`Config` / `EngineResponse`）只出诊断原文，其余变体回落整句。
 - 词条分两组覆盖这两类起因：`gloss_errors_*` 覆盖 `GlossError` 的全部 10 个变体，
   另加 `gloss_errors_acquire_channel` / `gloss_errors_inference_channel` 两条给**壳层通道类
   起因**（`FailureCause::AcquireChannel` / `TransportChannel`，不属 `GlossError`）。新增变体时
   `for_error`（无兜底臂）与 `Text` 的字段（TOML 少键即解析失败）**都编译/解析不过**，比测试
   更早拦住；`each_error_variant_maps_to_its_own_entry`
-  另按变体比对词条身份，防的是两臂对调这类「值都对、落错了变体」的错。
+  另按变体比对词条身份，防的是两臂对调这类“值都对、落错了变体”的错。
 - 两张表的**取值**层面另有三条兜底：`every_entry_is_translated_in_the_english_catalog`
   （除 `gloss_ui_language_en` 外逐条中英不同）、`placeholders_match_across_locales`
   （同名占位符两语言一一对应，防单边拼错）、`both_locale_files_declare_the_same_keys`
@@ -74,20 +74,20 @@
   条数回到 76。两道闸门现在都不出浮层、也都不可配置，因此没有任何面向用户的
   措辞：命中只进日志（英文诊断行，与界面文案表分属两套），设置页也没有这一
   区。占位符清单里同时去掉 `gloss_popup_guard_notice`——那份清单逐条列名，正是
-  为了这种「删一条模板就没人在意」的时刻能被人看见。
+  为了这种“删一条模板就没人在意”的时刻能被人看见。
 - 之所以值得记一笔：这张表的条数是被 `both_locale_files_declare_the_same_keys`
-  钉住的常量，删词条必须同步改它，否则测试会指向一个误导性的失败（「键集合
-  不一致」而其实是条数写错）。
+  钉住的常量，删词条必须同步改它，否则测试会指向一个误导性的失败（“键集合
+  不一致”而其实是条数写错）。
 
 ## 新键 gloss_errors_json_mode_unsupported（2026-10-11，契约校验与重试方案 §7）
 
-- zh 用方案 §2 定稿短句「当前模型服务不支持结构化输出模式」（2026-10-28 随词条纯中文口径由「JSON 输出模式」改写）：行动指引由失败卡的「打开设置」按钮承担（同因由同出口）；en 附一句换服务的指引，保持失败卡文案「说清现状 + 给出路」的分工。
+- zh 用方案 §2 定稿短句“当前模型服务不支持结构化输出模式”（2026-10-28 随词条纯中文口径由“JSON 输出模式”改写）：行动指引由失败卡的“打开设置”按钮承担（同因由同出口）；en 附一句换服务的指引，保持失败卡文案“说清现状 + 给出路”的分工。
 - 条数钉住值随新键增至 83（`both_locale_files_declare_the_same_keys`，本步骤时点 82 → 83）。
 
 ## gloss_popup_output_abnormal（契约校验步骤 3，2026-10-11）
 
 - 降级产物卡的标题词条。不复用失败卡文案（gloss_errors_*）：契约违约不是
-  错误变体（没有 GlossError 携带它），语义是「输出异常」——模型话到了但
+  错误变体（没有 GlossError 携带它），语义是“输出异常”——模型话到了但
   不可用；措辞刻意与失败卡区分，用户重试的心智也不同（失败卡=没到，
   降级卡=到了但烂）。
 - 只加了这一个键：gloss_popup_reannotating / gloss_errors_json_mode_
@@ -95,8 +95,8 @@
 
 ## gloss_popup_reannotating（2026-10-12，契约校验与重试方案 §6/§7）
 
-- 为什么只加一个词条：方案定稿「加载动画复用、不加横幅不加计数」——修复轮的全部用户可见差异是页脚一个词；条数钉死测试（85）随之 +1，防遍历退化的机制照旧。
-- zh「重新注解」/ en「Re-annotating」：与「正在注解/Annotating」同词根，语义是同一件事的第二轮，不引入新概念词（「重试」「修复」都会与失败卡的重试按钮混淆）。
+- 为什么只加一个词条：方案定稿“加载动画复用、不加横幅不加计数”——修复轮的全部用户可见差异是页脚一个词；条数钉死测试（85）随之 +1，防遍历退化的机制照旧。
+- zh“重新注解”/ en“Re-annotating”：与“正在注解/Annotating”同词根，语义是同一件事的第二轮，不引入新概念词（“重试”“修复”都会与失败卡的重试按钮混淆）。
 
 ## 发送前确认与复制钮四键（2026-10-27，方案落地）
 
@@ -104,7 +104,7 @@
   `gloss_popup_confirm_cancel`（取消/Cancel）、`gloss_popup_copy`
   （复制注疏/Copy annotation）、`gloss_popup_copied`（已复制/Copied）。
   条数钉死测试随增至 88（`both_locale_files_declare_the_same_keys`）。
-- 主按钮词条「注疏」：待确认卡把「送出去做什么」写进按钮——按钮就是
+- 主按钮词条“注疏”：待确认卡把“送出去做什么”写进按钮——按钮就是
   动作文案，与卡片标题解耦（卡片没有标题，原文即主题）；en 用
   `Annotate` 与页脚生成指示（`Annotating`）同词根，不引入新概念词。
 - `gloss_popup_copy` 带宾语（复制**注疏**）而 `gloss_popup_copied` 不带
@@ -112,8 +112,8 @@
 
 ## 注疏改名（同日）
 
-- 「正在注解/Annotating」→「正在注疏/Annotating」、「重新注解」→
-  「重新注疏」（zh 侧措辞统一为经注疏语汇；en 不动）。缓存键是
+- “正在注解/Annotating”→“正在注疏/Annotating”、“重新注解”→
+  “重新注疏”（zh 侧措辞统一为经注疏语汇；en 不动）。缓存键是
   `'static` 标签本体，改名自动换键重排；含页脚的七份快照基线随录
   （沿革见 bdd.md）。
 
@@ -148,9 +148,9 @@
   改界面）。静态词条借自常驻文案表（`Text::get` 返回 `&'static`，表与进程
   同寿），只有带占位符的变体才拼新串。
 - `Text::for_error_detail`：错因细节——变体自带诊断文本的取它，其余整句
-  照搬。供**复合**提示用（如设置页的「保存失败：{{detail}}」）：复合提示的
+  照搬。供**复合**提示用（如设置页的“保存失败：{{detail}}”）：复合提示的
   前缀已经交代了场合，再拼一遍本地化整句会读成
-  「保存失败：配置有误：…」——落盘失败与配置本身非法是两回事。
+  “保存失败：配置有误：…”——落盘失败与配置本身非法是两回事。
 - `Text::get`：取某 locale 的文案表。首次调用时解析两份文件并常驻，之后
   零锁读取。
 - `parse`：解析一份文案文件；失败回落空表并记 error（有痕迹的降级）。
@@ -160,13 +160,13 @@
   不再各自复制一份；多参数维持逐参数替换（参数值互不嵌套）。
   - 非占位符的花括号：只前进一个字节，逐字面量比对不漏配。
   - 字面量 `{{name}}`：四花括号两两成对。
-- 2026-10-28 新词条 `gloss_popup_output_unverified`（语言降级产物卡的泛化提示）：zh「结果未通过校对」/ en "Result not fully verified"，设计 §6 定稿文案。条目总数钉值 88 → 89。
+- 2026-10-28 新词条 `gloss_popup_output_unverified`（语言降级产物卡的泛化提示）：zh“结果未通过校对”/ en "Result not fully verified"，设计 §6 定稿文案。条目总数钉值 88 → 89。
 
 ## 词条钉子与缩放标签
 
 - 2026-10-28 新增 `gloss_popup_resize_label`（弹窗缩放热区的无障碍标签，中英各一条），词条数钉子 88→89：钉子锁的是遍历器不提前收工，加词条即抬钉。
 - 2026-10-28 合入 main：设置页词条 `gloss_settings_base_url`、`gloss_settings_api_key` 与上述词条并存，条目总数钉值落 92（`both_locale_files_declare_the_same_keys`）。
-- 2026-10-28 语言降级提示改页脚徽章：`gloss_popup_output_unverified` 文案改徽章悬停提示（zh「此篇未及校正，或有错杂，谨供参考。」/ en "Not fully proofread; may contain mixed languages or punctuation. For reference only."），新增 `gloss_popup_output_unverified_label`（徽章无障碍标签：zh「结果仅供参考」/ en "For reference only"），条目总数钉值 92 → 93。
+- 2026-10-28 语言降级提示改页脚徽章：`gloss_popup_output_unverified` 文案改徽章悬停提示（zh“此篇未及校正，或有错杂，谨供参考。”/ en "Not fully proofread; may contain mixed languages or punctuation. For reference only."），新增 `gloss_popup_output_unverified_label`（徽章无障碍标签：zh“结果仅供参考”/ en "For reference only"），条目总数钉值 92 → 93。
 
 ## 降级批注四词条（降级批注方案 §3.1/§3.3，2026-10-30）
 

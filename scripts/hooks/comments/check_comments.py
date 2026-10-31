@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """注释纪律门禁（路由）：遍历版本库跟踪文件，按文件类型分派到源码、脚本
-与配置、文档三个门禁；判定规则全部沉淀在语言规范库，与提交信息、拉取请
-求内容门禁同源共用。本地提交前门禁与持续集成的钩子工作流共用此入口，保
-证本地与远端判定一致；本脚本自身注释同规。
+与配置、文档与记录标点四个门禁；判定规则全部沉淀在语言规范库，与提交信
+息、拉取请求内容门禁同源共用。本地提交前门禁与持续集成的钩子工作流共用
+此入口，保证本地与远端判定一致；本脚本自身注释同规。
 
 受检面：源码只留中文文件头，注释主体全中文、专名只进括号注记，不变量注
 释纯英文；脚本与配置注释逐块同规，脚本文件头统一模块级文档字符串；标记
-语言文档逐行受检，注释记录目录不在受检面，提示词模板入受检面，英文模板
-目录的行文按路径分派英文区判据。违规经统一诊断出口带规则标识即时打印，
-退出码按全脚本统一约定；跟踪清单为空按失败关闭退出，文件不可读属无法完
-成判定，同样失败关闭。
+语言文档逐行受检，注释记录目录不在书写受检面而由记录标点门禁单独受检，
+提示词模板入受检面，英文模板目录的行文按路径分派英文区判据。违规经统一
+诊断出口带规则标识即时打印，退出码按全脚本统一约定；跟踪清单为空按失败
+关闭退出，文件不可读属无法完成判定，同样失败关闭。
 
 用法：python3 scripts/hooks/comments/check_comments.py <repo-root> [file ...]，其余
 参数为可选的文件清单（供单测传入临时样本）；缺省扫全部被跟踪文件。
@@ -23,6 +23,7 @@ from typing import Any
 
 import check_docs
 import check_record_names
+import check_record_punct
 import check_rust_comments
 import check_script_comments
 import gate_report
@@ -71,7 +72,7 @@ def collect(
     """遍历跟踪文件，按文件类型分派并聚合违规，违规随执行流即时经统一诊断
     出口打到标准错误，软约束候选走警告前缀；返回通过与违规条目、软约束候选
     三个清单，装入器在场时清单枚举与文件读取走共享缓存，缺省自行读取。"""
-    gates = (check_rust_comments, check_script_comments, check_docs)
+    gates = (check_rust_comments, check_script_comments, check_docs, check_record_punct)
     paths = scan_files(root, explicit, loader)
     if not explicit and not paths:
         gate_report.fail(

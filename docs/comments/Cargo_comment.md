@@ -5,7 +5,7 @@
 
 ## package.metadata.bundle（应用图标）
 
-- 2026-09-18 图标方案 A「划·译」；产物进仓库，矢量源与生成脚本见 assets/icons/README.md 与 scripts/dev/build_app_icon.py。
+- 2026-09-18 图标方案 A“划·译”；产物进仓库，矢量源与生成脚本见 assets/icons/README.md 与 scripts/dev/build_app_icon.py。
 
 ## workspace.lints.clippy（mem_forget）
 
@@ -46,7 +46,7 @@
 - 2026-10-07（PR #121 评审修正）`debug = "line-tables-only"` 是死配置：
   strip="debuginfo" 会把行号表一并剥掉（评审以 hello-world 实测 521→420KB，
   符号表保留），而 sample 符号化只需要符号表——删掉 debug 键，注释改
-  「保留符号表」。若日后要 atos 行号级归因，改 strip="none" 再谈。
+  “保留符号表”。若日后要 atos 行号级归因，改 strip="none" 再谈。
 
 ## 2026-10-07 PGO 试验（P3-2，未合入任何构建配置）
 
@@ -71,7 +71,7 @@
   update/mod.rs 的 panic 类 JoinError 降级）：release（abort）下它们的降级分支
   不可达，但 dev/test profile 仍是 unwind（test 目标由 cargo 强制 unwind），
   屏障照常生效并被既有 L1 单测锁定；删除会让测试 profile 的行为与测试一起退化，
-  且日后恢复降级语义不再是「删一行配置」。处置为逐处补「生效边界」旁注（按
+  且日后恢复降级语义不再是“删一行配置”。处置为逐处补“生效边界”旁注（按
   AGENTS.md 注释纪律），删除与 `#[cfg(panic)]` 双路径都不取。
 - 行为变更（须在 PR 描述显式记录——截至 2026-10-13 评审，分支
   perf/p2-panic-abort 仅本地、PR 尚未开出，开 PR 时必须补上该段描述）：
@@ -79,19 +79,19 @@
   与鼠标 tap 的 C 回调屏障防 abort 保护同步消失。`[profile.profiling]` 继承
   release 同为 abort——剖析形态与 release 一致是本意。
 
-## mimalloc(2026-10-16,内存优化方案)
+## mimalloc（2026-10-16，内存优化方案）
 
-- 为什么换全局分配器:macOS libmalloc 把峰值后的空闲页扣在 size-class magazine 里不归还,长驻进程 RSS 只涨不落——「空闲 160MB」里相当份额是它。mimalloc 周期性 purge 空闲页,常驻贴活跃字节。备选 jemalloc+decay 参数不取:多一个调参面,mimalloc 默认档即达标;只进根包 bin 依赖,库 crate 与测试目标不受影响(Miri/valgrind 跑 gloss-core 单测,不经此分配器)。
+- 为什么换全局分配器：macOS libmalloc 把峰值后的空闲页扣在 size-class magazine 里不归还，长驻进程 RSS 只涨不落——“空闲 160MB”里相当份额是它。mimalloc 周期性 purge 空闲页，常驻贴活跃字节。备选 jemalloc+decay 参数不取：多一个调参面，mimalloc 默认档即达标；只进根包 bin 依赖，库 crate 与测试目标不受影响（Miri/valgrind 跑 gloss-core 单测，不经此分配器）。
 
 ## workspace.lints.rust（missing_docs 移除，2026-10-17）
 
-- 为什么移除：它把「每个公开项都要有文档注释」变成硬门禁，于是成批产生了只把标识符读
-  一遍的占位注释（构造函数的「创建 X」、字段的「X」）——降不了未来维护成本，还稀释了
-  真正有信息量的注释。注释纪律改按「重述型注释一律删除」执行（见 AGENTS.md 注释纪律），
-  强制手段从 lint 交回评审：「有没有维护价值」本就不是 lint 能判定的。
+- 为什么移除：它把“每个公开项都要有文档注释”变成硬门禁，于是成批产生了只把标识符读
+  一遍的占位注释（构造函数的“创建 X”、字段的“X”）——降不了未来维护成本，还稀释了
+  真正有信息量的注释。注释纪律改按“重述型注释一律删除”执行（见 AGENTS.md 注释纪律），
+  强制手段从 lint 交回评审：“有没有维护价值”本就不是 lint 能判定的。
 - 备选不取：降为 `warn`——warn 同样诱导写占位；保留 deny 而只删注释——删完 `just lint`
   直接失败，两者不能并存。
 - 连带影响：测试目标的 crate 级 `//!` 头原先由它强制（AGENTS.md 注释纪律的例外项之一）。
-  该 `//!` 头继续保留，理由改为「测试」节要求的层标签载体，注释纪律的例外措辞已同步改写。
+  该 `//!` 头继续保留，理由改为“测试”节要求的层标签载体，注释纪律的例外措辞已同步改写。
 - 移除后 `[workspace.lints.rust]` 成为空表，一并删除；各 crate 的 `[lints] workspace = true`
   继承不变。`[workspace.lints.clippy]` 全部保留。

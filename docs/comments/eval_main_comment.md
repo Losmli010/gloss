@@ -12,7 +12,7 @@
 
 ## write_inspect
 
-- 检视件落盘：逐条明细 `<mode>.cases.json`（可 diff、可再加工）与单文件检视页 `inspect.html`。历史在 `finish_run_report` 追加之后才读——差值基准取「上一次同 mode 运行」，趋势图含本次。
+- 检视件落盘：逐条明细 `<mode>.cases.json`（可 diff、可再加工）与单文件检视页 `inspect.html`。历史在 `finish_run_report` 追加之后才读——差值基准取“上一次同 mode 运行”，趋势图含本次。
 
 ## run_replay_into
 

@@ -17,8 +17,8 @@
 
 - 状态机的可视化投影，由 `ui::popup` 按 TaskKind 分发渲染。
 - `Pending`：待确认卡（2026-10-27，发送前确认方案）：探测产物已到、等用户拍板。持有 `input + options` 的冻结快照——确认时原样组装下发请求，不回读配置；取消则整卡丢弃。取材产物与确认之间因此有一道用户闸门。
-- `Streaming`：推理中：原文 + 已到达的原始回复。`raw` 是模型原始 JSON 流（`note` 的渐进提取在渲染层）；`classified` 在 LLM 层分类前为 `None`，`accept_classified` 到达后精化（代码解释从分类帧起按代码排版）；`repairing` 置位时页脚切「重新注疏」（无横幅无计数）。字段：`raw` 是模型原始回复的累积（含 JSON 结构，提取归渲染层）；`classified` 是 LLM 层回传的任务类型，分类前为 `None`；`repairing` 表示修复轮进行中（`accept_repairing` 置位）。
-- `Outcome`：产物卡：按 `TaskKind` 精排或展示 markdown 注文。`source` 是本次任务的原文，供注疏排布的「经」位；代码语言由渲染层从 `structured.code_language` 现算（唯一来源是产物的 LLM 判定），`degraded` 时渲染降级卡。
+- `Streaming`：推理中：原文 + 已到达的原始回复。`raw` 是模型原始 JSON 流（`note` 的渐进提取在渲染层）；`classified` 在 LLM 层分类前为 `None`，`accept_classified` 到达后精化（代码解释从分类帧起按代码排版）；`repairing` 置位时页脚切“重新注疏”（无横幅无计数）。字段：`raw` 是模型原始回复的累积（含 JSON 结构，提取归渲染层）；`classified` 是 LLM 层回传的任务类型，分类前为 `None`；`repairing` 表示修复轮进行中（`accept_repairing` 置位）。
+- `Outcome`：产物卡：按 `TaskKind` 精排或展示 markdown 注文。`source` 是本次任务的原文，供注疏排布的“经”位；代码语言由渲染层从 `structured.code_language` 现算（唯一来源是产物的 LLM 判定），`degraded` 时渲染降级卡。
 - `Failed`：失败信息与动作出口：`action` 为 `None` 表示没有按钮可给（重新划词即可）。
 
 ## FailureCause（失败卡的错误来源）
@@ -28,16 +28,16 @@
 
 ## InputOutcome（commit_probe 的结果）
 
-- 三态而非 `Option`——「内容疑似敏感」与「陈旧丢弃」在壳侧要做不同的事（前者记 warn，后者只记 debug），合并成 `None` 就分不出来了。
+- 三态而非 `Option`——“内容疑似敏感”与“陈旧丢弃”在壳侧要做不同的事（前者记 warn，后者只记 debug），合并成 `None` 就分不出来了。
 - `Pending`：待确认卡已落定（单元变体，2026-10-27 前的 `Dispatch` 变体随发送前确认删除——提交不再直接下发，壳无需携带 `RunRequest`，确认时由 `confirm_pending` 现组装）。壳据此置挂起显形（出的是待确认卡）。
 - `Blocked`：内容疑似敏感：探测丢弃，当前显示保留（它属于上一个会话）。
 - `Ignored`：陈旧探测编号或模态错配：不采纳，浮层与通道都不动。
 
 ## FailureOutcome（失败处置的结果）
 
-- 三态而非 bool——「静默丢弃」要留排查日志（划词探测失败的唯一痕迹），「陈旧丢弃」只记 debug，合并后就分不出来了。
+- 三态而非 bool——“静默丢弃”要留排查日志（划词探测失败的唯一痕迹），“陈旧丢弃”只记 debug，合并后就分不出来了。
 - `Shown`：已落 `Error` 态，浮层弹失败卡（壳记 warn）。
-- `SilentlyDropped`：划词探测遇「无选区可读」：纯误滑——探测丢弃、不弹卡，状态机与当前显示一律不动（壳只记一条带前台应用的 info）。
+- `SilentlyDropped`：划词探测遇“无选区可读”：纯误滑——探测丢弃、不弹卡，状态机与当前显示一律不动（壳只记一条带前台应用的 info）。
 - `Ignored`：探测编号不符、代数陈旧或已隐藏：不采纳，浮层与状态都不动（壳记 info）。
 
 ## RunRequest（下发请求）

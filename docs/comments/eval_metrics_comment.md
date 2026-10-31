@@ -5,15 +5,15 @@
 - `mirror_complete`（对 gloss-app finalize 的手工镜像，含围栏 fallback）整体
   删除，`TaskVerdict::for_reply` 改调 `gloss_core::schema::validate_task`：
   eval 受依赖方向约束不能消费 gloss-app，但 core 的 schema 模块就是两侧
-  共用的那份契约——「镜像 + 测试对齐两侧语义」的维护负担由同源直接消掉。
+  共用的那份契约——“镜像 + 测试对齐两侧语义”的维护负担由同源直接消掉。
   eval 的分类轨本步仍走 `classify::parse_classify_reply`（与当步生产同源；
   schema::validate_classify 的接线归步骤 5/7，见 schema.rs 记录）。
 - `TaskVerdict.outcome` 从 `OutcomeStructured` 改为完整 `TaskOutcome`（含
   degraded 标记）：UI 收到的产物就是 TaskOutcome，评测记账与生产同一形状；
-  `degraded()` 从「四级标志拼合」改为直接读 `outcome.degraded`（校验器是
+  `degraded()` 从“四级标志拼合”改为直接读 `outcome.degraded`（校验器是
   唯一裁决，指标不自带第二套判罚）。
 - `json_object` / `note_present` / `fields_complete` 三标志仍独立折算：
-  json_object 认「合法 JSON 对象」（数组/标量不算）、note_present 认
+  json_object 认“合法 JSON 对象”（数组/标量不算）、note_present 认
   trim 后非空（与硬约束同口径）、fields_complete 认 `structured` 对象在场
   且含必需键——必需键表收敛为恒 `["examples"]`（phonetic / code_language
   允许缺省或 null）。
@@ -33,7 +33,7 @@
 
 ## ClassifyVerdict
 
-- 分类判定的结果归类（比 Ok/Err 细一档：指标要区分「回复不是 JSON」与「JSON 合法但被生产校验器拒绝」）。
+- 分类判定的结果归类（比 Ok/Err 细一档：指标要区分“回复不是 JSON”与“JSON 合法但被生产校验器拒绝”）。
 - 变体：`Correct` 判定正确；`Wrong` 判定成了别的（合法类别映射出的 kind，但 ≠ 期望）；`InvalidJson` 回复不是合法 JSON（含围栏提取失败）；`Rejected` JSON 合法但被生产校验器拒绝（不是 classify 模板的类别标识）。
 
 ## ViolationTrack
@@ -61,7 +61,7 @@
 
 ## TaskVerdict
 
-- 任务回复的契约达成情况（比「解析成功与否」细：四个指标各自独立，修复轨迹随行）。
+- 任务回复的契约达成情况（比“解析成功与否”细：四个指标各自独立，修复轨迹随行）。
 - 字段：`json_object` 回复是合法 JSON 对象（契约硬约束之一）；`note_present` JSON 对象携带非空 `note`（注；硬约束之二，词卡/句译/讲解/图像）；`fields_complete` `structured` 对象在场且携带 kind 契约必需的疏证键（软约束项，缺失只降丰富度不降产物；JSON 对象在场才可能为真）；`outcome` 生产同源的解析产物（与 UI 收到的 `TaskOutcome` 同构，含降级标记——违约即空 note 空变体 `degraded = true`）；`violations` 违约类别计数（每一违约轮记一次；单轮判定最多一条）；`repairs` 修复轮次（生产 `RunOutput.repairs` 同口径）。
 
 ## TaskVerdict::for_reply
@@ -93,8 +93,8 @@
 
 ## is_json_like
 
-- 回复是否「长得像 JSON」：裸 JSON 或**首个** ``` 围栏内是 JSON——刻意比生产校验（严格裸 JSON，无围栏容错）宽一档：生产对两者同样拒绝，本判定只把「非 JSON 形态」与「形态像但被拒」分列统计。只判形态，不判 kind 合法性——那归生产校验器。
+- 回复是否“长得像 JSON”：裸 JSON 或**首个** ``` 围栏内是 JSON——刻意比生产校验（严格裸 JSON，无围栏容错）宽一档：生产对两者同样拒绝，本判定只把“非 JSON 形态”与“形态像但被拒”分列统计。只判形态，不判 kind 合法性——那归生产校验器。
 
 ## first_fenced_json
 
-- 首个 ``` 围栏内 JSON（语言标识行跳过）：「长得像 JSON」的形态判定专用——生产已无围栏容错，本提取不再镜像任何生产路径。
+- 首个 ``` 围栏内 JSON（语言标识行跳过）：“长得像 JSON”的形态判定专用——生产已无围栏容错，本提取不再镜像任何生产路径。

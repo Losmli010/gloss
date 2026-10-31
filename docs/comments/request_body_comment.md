@@ -5,7 +5,7 @@
 
 ## chat_request_body
 
-- 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。`max_tokens` 只在设限时携带：部分严格端点会拒绝显式的 `null`，缺键才是「不设限」的 wire 语义。
+- 组装 OpenAI 兼容请求体（`chat/completions` 的形状）。`max_tokens` 只在设限时携带：部分严格端点会拒绝显式的 `null`，缺键才是“不设限”的 wire 语义。
 - `response_format` json_object **恒携带**（`EngineRequest` 不加开关）：所有请求都是 JSON 契约，不做能力协商——端点不认时以 4xx 拒绝，由传输层的失败映射识别成 JSON 模式不支持（`GlossError::JsonModeUnsupported`）。
 
 ## message_to_value

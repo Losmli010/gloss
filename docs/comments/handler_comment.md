@@ -11,16 +11,16 @@
 ## ApplicationHandler::window_event（设置窗口失焦）
 
 - 2026-09-18 设置窗口失焦保持打开（区别于浮层失焦即收）：编辑会话的草稿还在，失焦即收起等于丢掉用户没保存的输入，对人太狠；关闭/保存才作废草稿。
-- 2026-09-21 T5 浮层常驻化后「浮层失焦即收」已删除：浮层失焦不再有任何处理臂（失焦不消失）；本条对照关系只剩设置窗一侧。浮层收起信号收口为 Esc / 关闭按钮，见 `is_dismiss_key` 条。
+- 2026-09-21 T5 浮层常驻化后“浮层失焦即收”已删除：浮层失焦不再有任何处理臂（失焦不消失）；本条对照关系只剩设置窗一侧。浮层收起信号收口为 Esc / 关闭按钮，见 `is_dismiss_key` 条。
 
 ## is_dismiss_key（Esc 收起，2026-09-21）
 
 - 2026-09-21 纯函数只吃 `(logical_key, state)` 两个事实，不整吃 `KeyEvent`：winit 的 KeyEvent 带私有字段（platform_specific），测试里字面构造不出来；收起判定本也只依赖这两个事实。Repeat 未单独过滤——Esc 长按连发的是幂等 dismiss（Idle 上 no-op），代价仅重复日志，见 overlay_comment.md 的 dismiss 条。
-- 2026-09-21 「Esc 仅浮层持焦时生效」不靠代码而靠 winit 语义：键盘事件只投递给持焦窗口。这条平台前提 L1 测不到（handler 接线需要 ActiveEventLoop），落真机走查清单（PR #53 清单第 6 项）。
+- 2026-09-21 “Esc 仅浮层持焦时生效”不靠代码而靠 winit 语义：键盘事件只投递给持焦窗口。这条平台前提 L1 测不到（handler 接线需要 ActiveEventLoop），落真机走查清单（PR #53 清单第 6 项）。
 
 ## ApplicationHandler::user_event（RedrawSettings 分臂，2026-09-27）
 
-- 2026-09-27 `RedrawSettings` 只做「设置窗可见才 `request_redraw_settings`」并提前返回：来源是更新子系统的相位迁移（模块广播后投递），与主流程四通道无关，不抽干、不牵动浮层；可见性判定用 `WindowManager::is_settings_visible` 的 winit 事实，而非编辑会话是否存在——两者在关闭瞬间有短暂的错位窗。
+- 2026-09-27 `RedrawSettings` 只做“设置窗可见才 `request_redraw_settings`”并提前返回：来源是更新子系统的相位迁移（模块广播后投递），与主流程四通道无关，不抽干、不牵动浮层；可见性判定用 `WindowManager::is_settings_visible` 的 winit 事实，而非编辑会话是否存在——两者在关闭瞬间有短暂的错位窗。
 
 ## GlossApp::init
 
@@ -64,7 +64,7 @@
 
 ## apply_window_state_event
 
-- 依赖窗口身份的状态类事件：设置窗关闭是「取消编辑」（隐藏丢弃草稿，进程照常），浮层收起键只观察不拦截，尺寸变化落到对应 surface。
+- 依赖窗口身份的状态类事件：设置窗关闭是“取消编辑”（隐藏丢弃草稿，进程照常），浮层收起键只观察不拦截，尺寸变化落到对应 surface。
 - KeyboardInput 臂：egui_winit 已在同一事件上喂过 egui（输入框等自行消化）；壳只观察收起键，不拦截事件。
 
 ## is_dismiss_key（收起键的窗口语义）
@@ -77,15 +77,15 @@
 飙到 29850 ms（30s 空闲窗口烧满一核）。取证结论（诊断分支 diag/runner-idle-cpu，
 runner 连采 8 实例 7 个开机即热 + 符号采样）：
 
-- #198 引入「隐藏浮层不请求重绘」门控（`Workspace::request_redraw` 的
+- #198 引入“隐藏浮层不请求重绘”门控（`Workspace::request_redraw` 的
   `is_visible` 检查）。启动预热帧在隐藏态画渲染自检卡，淡入动画请求 16ms
   重绘，截止写入 `overlay_repaint`；截止到点时重绘请求被门控丢弃，截止无人
   清除，`about_to_wait` 恒定 `WaitUntil` 过去时刻，winit 的 CFRunLoopTimer
   立即重触发——调度层空转，永远画不出那一帧。实例间是否触发取决于预热帧
   egui 时钟与 0.18s 淡入时长的相对时序（0.2.7 无门控不触发）。
 - 备选方案：`about_to_wait` 过滤已过期截止。否——语义含混：到期未处理的
-  截止对可见窗口是「该画未画」的真实信号，静默过滤会掩盖丢失帧；清除的
-  正确位置就是「请求被门控丢弃」这个事实发生的地方。所有显示路径都显式
+  截止对可见窗口是“该画未画”的真实信号，静默过滤会掩盖丢失帧；清除的
+  正确位置就是“请求被门控丢弃”这个事实发生的地方。所有显示路径都显式
   请求重绘，清掉隐藏期的过期截止不吞任何该画的帧。
 - `settings_repaint` 不需要同款处置：`request_redraw_settings` 无门控，
   设置窗截止总被自己的新帧刷新。
