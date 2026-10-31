@@ -4,8 +4,10 @@
 位符段、行尾放行标记——剥净后无可判语言的纯记号段放行；残留代码段判罚，
 主体按区参数落中文区或英文区判定，区归属由使用方按文档路径把关。行内反
 引号的内容按批判定：出现汉字或全角字符落英文判罚，不含且剥首尾空白后呈
-数字主导形态（计数、计量、版本段、进制与区间）落数字形态判罚——数字与
-百分比归正文，反引号只装逐字可复制的机器记号（token），同段两判罚互斥。
+数字主导形态（计数、计量、版本段与区间；进制字面量与下划线分隔数字是机
+器记号本体，移出判罚面）落数字形态判罚——数字与百分比归正文，反引号只
+装逐字可复制的机器记号（token），同段两判罚互斥；段内容判定是提交信息、
+界面文案表（i18n）词条与文档路径共用的单点，随行级表述判定先行。
 判罚以带规则标识的违规条目返回，位置由调用方按路径与行号传入，标识登记
 于统一登记表。行级复合判定与标记语言文档逐行遍历是两个入口，被注释、提
 交信息与拉取请求内容门禁复用；文档遍历的块级边界取自解析树
@@ -59,18 +61,23 @@ ZONE_CHINESE = "chinese"
 ZONE_ENGLISH = "english"
 
 CODEREF_REMEDY = (
-    "wrap the reference in backticks (exempt on prose surfaces) or move it to the record file"
+    "complete the pair around the reference (exempt on prose surfaces), drop the"
+    " stray mark, or move the sample to the record file"
 )
 SECTION_REF_REMEDY = "move the section-number citation to the record file"
-LANGUAGE_REMEDY = "rewrite the text in Chinese, keeping proper nouns in bracket annotations"
+LANGUAGE_REMEDY = (
+    "rewrite the text in Chinese, anchoring foreign terms in fullwidth bracket"
+    " annotations or translating them"
+)
 ENGLISH_DOC_REMEDY = "rewrite the whole line in English"
 CODE_LANGUAGE_REMEDY = (
     "rewrite the code block comment in Chinese, keeping proper nouns in bracket annotations"
 )
-CODE_CODEREF_REMEDY = "drop the reference or move the sample to the record file"
+CODE_CODEREF_REMEDY = "delete the reference wording or move the sample to the record file"
 CODE_ENGLISH_REMEDY = "keep inline code English-only; write the Chinese wording in the prose"
 CODE_NUMERIC_REMEDY = (
-    "move numbers and percentages to the prose; backticks hold machine tokens only"
+    "move numbers and percentages to the prose; reword what the prose cannot hold"
+    " (ratios, dates) with a fullwidth separator, a connected date, or Chinese wording"
 )
 
 # 围栏语言到注释形态：井号系、双斜线系与标记注释三族；围栏语言不在清单内
@@ -137,12 +144,13 @@ DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 CODE_SPAN = re.compile(r"`([^`]*)`")
 
 # 行内反引号数字形态：数字主导的机器记号（token）即判罚，规格由四字符集
-# 加结构规则构成——前缀符号与井号前缀至多一个，数字主体（十进制段或进制
-# 段）与分隔交替，单位或符号后缀至多一个；单位大小写敏感，白名单外放行
-# （宁漏勿误）
+# 加结构规则构成——前缀符号与井号前缀至多一个，数字主体（十进制段）与分
+# 隔交替，单位或符号后缀至多一个；进制字面量与下划线分隔数字是机器记号本
+# 体，在反引号段内正当，移出判罚面；单位大小写敏感，白名单外放行（宁漏勿
+# 误）
 NUMERIC_TOKEN = re.compile(
     r"^[<>~+±≤≥-]?#?"
-    r"(?:\d[\d,_]*(?:\.\d+)*(?:[eE][+-]?\d+)?|0[xXbBoO][0-9a-fA-F_]+)"
+    r"\d[\d,]*(?:\.\d+)*(?:[eE][+-]?\d+)?"
     r"(?:\.\.\=?\d+|[.:\/-]\d+)*"
     r"(?:\s?(?:ms|us|ns|s|min|h|KB|MB|GB|KiB|MiB|GiB|bp|x)|[%‰±<>~+=-])?$"  # langspec:allow 数字附随符号属形态结构记号，非字符事实私持
 )
@@ -184,14 +192,42 @@ def strip_links(text: str) -> str:
     return text
 
 
+def code_span_problems(path: str, lineno: int, text: str) -> list[gate_report.Finding]:
+    """行内反引号段的内容判定：段内出现汉字或全角字符落英文规则（反引号只
+    装英文代码），纯段整体匹配数字形态落数字规则——提交信息、界面文案表（i18n）词条与
+    文档路径共用的单点。"""
+    out = []
+    for span in CODE_SPAN.findall(text):
+        if CJKWISE.search(span):
+            out.append(
+                gate_report.Finding(
+                    rule=RULE_DOC_CODE_ENGLISH,
+                    path=path,
+                    line=lineno,
+                    message=(  # langspec:allow 消息排版破折号，非判罚事实
+                        "inline code contains Chinese — backticks hold English-only code; write the Chinese in the prose"  # langspec:allow 消息排版破折号，非判罚事实
+                    ),
+                    evidence=span,
+                    remedy=CODE_ENGLISH_REMEDY,
+                )
+            )
+            continue
+        numeric = numeric_span_finding(path, lineno, span)
+        if numeric is not None:
+            out.append(numeric)
+    return out
+
+
 def prose_line_problems(
     path: str, line: int, text: str, zone: str = ZONE_CHINESE
 ) -> list[gate_report.Finding]:
-    """单行表述判定：结构性记号豁免后按区落主体判定——中文区主体必须中文，
-    英文区主体必须纯英文。"""
+    """单行表述判定：反引号段内容先判（段内中文与数字形态不再静默），结构
+    性记号豁免后按区落主体判定——中文区主体必须中文，英文区主体必须纯英
+    文。"""
     text = text.strip()
     if not text:
         return []
+    out = code_span_problems(path, line, text)
     text = LIST_MARKER.sub("", text)  # 列表与引用记号非表述
     text = re.sub(r"^\[[ xX]\]\s+", "", text)  # 任务列表记号：勾选框非表述
     text = re.sub(r"`[^`]*`", " ", text)  # 行内代码：命令、路径与标识符豁免
@@ -201,39 +237,45 @@ def prose_line_problems(
     text = text.replace("**", " ")  # 强调记号：包裹的仍是中文表述，记号非内容
     text = DATE_RE.sub(" ", text)
     if re.fullmatch(r"[A-Za-z0-9_]+", text.strip()):
-        return []  # 整段标识符（如类别键）豁免
+        return out  # 整段标识符（如类别键）豁免
     if not re.search(r"[A-Za-z\u4e00-\u9fff]", text):
-        return []  # 剥去代码与日期后只剩数字符号（纯命令格、分隔符）无可判语言
+        return out  # 剥去代码与日期后只剩数字符号（纯命令格、分隔符）无可判语言
     if "`" in text:
-        return [
-            gate_report.Finding(
-                rule=RULE_PROSE_CODEREF,
-                path=path,
-                line=line,
-                message=(
-                    "text contains a code segment — move references and samples to the record files"  # langspec:allow 消息排版破折号，非判罚事实
-                ),
-                evidence=text,
-                remedy=CODEREF_REMEDY,
-            )
-        ]
+        return (
+            out
+            + [
+                gate_report.Finding(
+                    rule=RULE_PROSE_CODEREF,
+                    path=path,
+                    line=line,
+                    message=(
+                        "text contains a code segment — move references and samples to the record files"  # langspec:allow 消息排版破折号，非判罚事实
+                    ),
+                    evidence=text,
+                    remedy=CODEREF_REMEDY,
+                )
+            ]
+        )
     if "§" in text:
-        return [
-            gate_report.Finding(
-                rule=RULE_PROSE_SECTION_REF,
-                path=path,
-                line=line,
-                message=(  # langspec:allow 消息排版破折号，非判罚事实
-                    'text contains a "§ section number" style external reference — cite it in the record files'  # langspec:allow 消息排版破折号，非判罚事实
-                ),
-                evidence=text,
-                remedy=SECTION_REF_REMEDY,
-            )
-        ]
+        return (
+            out
+            + [
+                gate_report.Finding(
+                    rule=RULE_PROSE_SECTION_REF,
+                    path=path,
+                    line=line,
+                    message=(  # langspec:allow 消息排版破折号，非判罚事实
+                        'text contains a "§ section number" style external reference — cite it in the record files'  # langspec:allow 消息排版破折号，非判罚事实
+                    ),
+                    evidence=text,
+                    remedy=SECTION_REF_REMEDY,
+                )
+            ]
+        )
     if zone == ZONE_ENGLISH:
-        return english_zone_problems(path, line, text, "text", ENGLISH_DOC_REMEDY)
+        return out + english_zone_problems(path, line, text, "text", ENGLISH_DOC_REMEDY)
     if not CJK.search(text):
-        return [
+        return out + [
             gate_report.Finding(
                 rule=RULE_PROSE_LANGUAGE,
                 path=path,
@@ -243,7 +285,7 @@ def prose_line_problems(
                 remedy=LANGUAGE_REMEDY,
             )
         ]
-    return body_problems(path, line, text, "text")
+    return out + body_problems(path, line, text, "text")
 
 
 def fence_language(info: str) -> str:
@@ -403,30 +445,15 @@ def numeric_span_finding(path: str, lineno: int, span: str) -> gate_report.Findi
 def markdown_line_problems(
     path: str, lineno: int, line: str, zone: str = ZONE_CHINESE
 ) -> list[gate_report.Finding]:
+    """标记语言单行判定：段内容判定住 prose_line_problems 单点（文档路径不
+    另跑循环避免双判），结构性豁免面的段内容先于豁免照判。"""
     stripped = line.strip()
     if not stripped:
         return []
     out = []
-    for span in CODE_SPAN.findall(line):
-        if CJKWISE.search(span):
-            out.append(
-                gate_report.Finding(
-                    rule=RULE_DOC_CODE_ENGLISH,
-                    path=path,
-                    line=lineno,
-                    message=(  # langspec:allow 消息排版破折号，非判罚事实
-                        "inline code contains Chinese — backticks hold English-only code; write the Chinese in the prose"  # langspec:allow 消息排版破折号，非判罚事实
-                    ),
-                    evidence=span,
-                    remedy=CODE_ENGLISH_REMEDY,
-                )
-            )
-            continue
-        numeric = numeric_span_finding(path, lineno, span)
-        if numeric is not None:
-            out.append(numeric)
     if re.match(r" {0,3}\[[^\]]+\]:", line):
-        return out  # 引用定义：行内链接的块级同族记号，结构性豁免，反引号判罚先于豁免
+        # 引用定义：行内链接的块级同族记号，结构性豁免，段内容判定先于豁免
+        return code_span_problems(path, lineno, line)
     heading = re.match(r"^#+\s*(.*)$", stripped)
     if heading:
         key = ANNOTATION_TAIL.sub("", heading.group(1)).strip()
@@ -437,8 +464,8 @@ def markdown_line_problems(
         cells = stripped.strip("|").split("|")
         if all(re.fullmatch(r"[-: ]*", cell) for cell in cells):
             return out  # 表格分隔行
-        cells_problems = []
+        out += code_span_problems(path, lineno, cells[0])  # 首列键面豁免主体判定，段内容照判
         for cell in cells[1:]:
-            cells_problems += prose_line_problems(path, lineno, cell, zone)
-        return out + cells_problems
+            out += prose_line_problems(path, lineno, cell, zone)
+        return out
     return out + prose_line_problems(path, lineno, stripped, zone)

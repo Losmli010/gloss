@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from language_spec import chinese, english  # noqa: E402
+from language_spec import chinese, coderef, english  # noqa: E402
 
 
 def messages(findings: list[chinese.gate_report.Finding]) -> list[str]:
@@ -233,10 +233,13 @@ def test_control_character_still_flagged() -> None:
 
 
 def test_pangu_flags_han_digit_and_han_latin_adjacency() -> None:
+    # 数字半边照罚盘古；字母半边随管辖收窄改判外文罚（相邻证据随消息下发）
     problems = chinese.chinese_zone_problems("t", 1, "版本3发布由通道2收尾。", "text")
     assert any("without a space" in m for m in messages(problems))
     problems = chinese.body_problems("t", 1, "中文word相连要补空格。", "header")
-    assert any("without a space" in m for m in messages(problems))
+    assert any(p.rule == chinese.RULE_PROSE_FOREIGN for p in problems)
+    assert all(p.rule != chinese.RULE_PROSE_PANGU for p in problems)
+    assert any("joined without a space" in m for m in messages(problems))
 
 
 def test_pangu_passes_with_space_or_punctuation_between() -> None:
@@ -247,6 +250,126 @@ def test_pangu_passes_with_space_or_punctuation_between() -> None:
 def test_pangu_does_not_judge_bracket_container_content() -> None:
     # 容器内部不判盘古之白，与生产侧的正文区间口径一致
     assert chinese.body_problems("t", 1, "通道（v3）下发。", "header") == []
+
+
+def test_pangu_flags_digit_adjacency_only() -> None:
+    # 盘古之白管辖收窄：数字相邻照罚，字母相邻不再单独出盘古罚——字母入正
+    # 文必吃外文罚，补空格改法对字母段永不收敛，管辖归外文判罚
+    problems = chinese.chinese_zone_problems("t", 1, "版本3发布由通道2收尾。", "text")
+    assert any(p.rule == chinese.RULE_PROSE_PANGU for p in problems)
+    problems = chinese.body_problems("t", 1, "中文word相连要补空格。", "header")
+    assert all(p.rule != chinese.RULE_PROSE_PANGU for p in problems)
+    assert any(p.rule == chinese.RULE_PROSE_FOREIGN for p in problems)
+
+
+def test_foreign_finding_carries_adjacency_evidence() -> None:
+    # 字母相邻证据并入外文判罚消息（信息不丢，锚点注记改法一并消除相邻）
+    problems = chinese.body_problems("t", 1, "由wgpu驱动。", "header")
+    foreign = [p for p in problems if p.rule == chinese.RULE_PROSE_FOREIGN]
+    assert foreign
+    assert "joined without a space (由w u驱)" in foreign[0].message
+    assert all(p.rule != chinese.RULE_PROSE_PANGU for p in problems)
+
+
+def test_foreign_remedy_prescribes_anchor_or_translation() -> None:
+    # 外文判罚的定稿改法四句五路：锚点、译出、标点正当形、机器记号进反引
+    # 号、贴附数字；只括注的旧路径（预设专名，谓词性外文词无锚点可挂）不再
+    # 进指引
+    remedy = chinese.FOREIGN_REMEDY
+    assert "anchor or translate foreign terms" in remedy
+    assert "give each punctuation mark its proper form" in remedy
+    assert "put machine symbols in inline code" in remedy
+    assert "reattach detached symbols to their digits" in remedy
+    assert "proper nouns in fullwidth bracket annotations" not in remedy
+
+
+def test_foreign_message_groups_hints_by_character_class() -> None:
+    # 外文判罚消息按字母、标点、误置、异体、记号、附随六类给各自指引，各组
+    # 只见自己的片段；误置与异体的替换映射逐项精确，串级组合（三点省略、度
+    # 符号组合）先于单字符——句点不落全角句号、字母不落锚点指引
+    message = chinese.chinese_zone_problems("t", 1, "中文word相连。", "text")[0].message
+    assert "anchor or translate the letters (word)" in message
+    assert "joined without a space (文w d相)" in message
+    assert "fullwidth twins" not in message
+
+    message = chinese.chinese_zone_problems("t", 1, "好!使用,逗号。", "text")[0].message
+    assert "fullwidth twins (!->！ ,->，)" in message
+    assert "anchor or translate" not in message
+
+    message = chinese.chinese_zone_problems("t", 1, "占比 50％与＄5。", "text")[0].message
+    assert "misplaced marks (％->% ＄->￥)" in message
+    message = chinese.chinese_zone_problems("t", 1, "范围 3～5 天。", "text")[0].message
+    assert "misplaced marks (～->—)" in message
+
+    message = chinese.chinese_zone_problems("t", 1, "「词」与 1∶2 对版。", "text")[0].message
+    assert "variant marks (「->“ 」->” ∶->：)" in message
+    message = chinese.chinese_zone_problems("t", 1, "他想了很久...才说完。", "text")[0].message
+    assert "...->……" in message
+    assert "->。" not in message
+    message = chinese.chinese_zone_problems("t", 1, "气温 25°C 偏高。", "text")[0].message
+    assert "°C->℃" in message
+    assert "anchor or translate" not in message
+
+    message = chinese.chinese_zone_problems("t", 1, "加@前缀与列|列对版。", "text")[0].message
+    assert "hold machine symbols in inline code or rewrite the wording (@ |)" in message
+
+    message = chinese.chinese_zone_problems("t", 1, "占比 50 %偏高。", "text")[0].message
+    assert "reattach the detached symbols to their digits (%)" in message
+
+
+def test_unpaired_remedy_lands_clean() -> None:
+    # 不配对括号按定稿改法补全后零判罚；删除选路不再进指引（内容落回正文
+    # 含拉丁时派生新判罚）
+    problems = chinese.body_problems("t", 1, "版本（v1.2 缺右括号。", "header")
+    assert any(p.rule == chinese.RULE_PROSE_GLOSS_UNPAIRED for p in problems)
+    assert chinese.body_problems("t", 1, "版本（v1.2）缺右括号。", "header") == []
+    assert chinese.GLOSS_UNPAIRED_REMEDY == "complete the paired annotation bracket"
+
+
+def test_mixed_remedy_lands_clean() -> None:
+    # 混语括号按组合改法一步落地后零判罚；裸移回的半截选路删除
+    problems = chinese.body_problems("t", 1, "中文头（用 wgpu 渲染）说明。", "header")
+    assert any(p.rule == chinese.RULE_PROSE_GLOSS_MIXED for p in problems)
+    assert chinese.body_problems("t", 1, "中文头（wgpu）渲染说明。", "header") == []
+
+
+# ---- 改法收敛夹具表：机械层准入的不变量进门禁 ----
+
+
+# 违规句、按定稿改法机械落地句与判定面三列成表，落地句同面复跑零判罚；
+# 本表先收改法收敛阶段一的规范形（盘古收窄、六类替换映射、数字间冒号、
+# 数字形态收窄与段内容贯通），后续阶段增行；今后新规则落地必须同批补行，
+# 改法不收敛当场红。
+REMEDY_FIXTURES = (
+    ("body", "圖形渲染管线由wgpu驱动。", "图形渲染管线由（wgpu）驱动。"),
+    ("body", "中文头（用 wgpu 渲染）说明。", "中文头（wgpu）渲染说明。"),
+    ("body", "版本（v1.2 缺右括号。", "版本（v1.2）缺右括号。"),
+    ("body", "我们要fallback到旧版本。", "我们要（fallback）到旧版本。"),
+    ("body", "中文word相连要补空格。", "中文（word）相连要补空格。"),
+    ("body", "版本3发布、通道2收尾。", "版本 3 发布、通道 2 收尾。"),
+    ("body", "好!使用,半角逗号。", "好！使用，半角逗号。"),
+    ("body", "降级＝有痕迹，占比 50％，＄5。", "降级=有痕迹，占比 50%，￥5。"),
+    ("body", "北京－上海，范围 3～5、3~5。", "北京—上海，范围 3—5、3—5。"),
+    ("body", "「词」等等‥他想了很久...。", "用“词”标注等等……他想了很久……。"),
+    ("body", "他想在 25°C 停，比例 1∶2。", "他想在 25℃ 停，比例 1：2。"),
+    ("body", "占比 50 %偏高。", "占比 50%偏高。"),
+    ("markdown", "使用$5与列|列对版。", "使用`$5`与列`|`列对版。"),
+    ("markdown", "会议在 `15:23` 开始。", "会议在 15:23 开始。"),
+    ("markdown", "退出码为 `0` 落盘。", "退出码为 0 落盘。"),
+    ("markdown", "重试 `3` 次后停止。", "重试 3 次后停止。"),
+)
+
+
+def test_remedy_fixture_table_rechecks_clean() -> None:
+    # 夹具表双向断言：违规句在面内真违规（表行不腐化），落地句同面复跑零判
+    # 罚——机械收敛层的判定口径
+    for surface, violation, remedy in REMEDY_FIXTURES:
+        if surface == "body":
+            assert chinese.body_problems("t", 1, violation, "text"), violation
+            assert chinese.body_problems("t", 1, remedy, "text") == [], remedy
+        else:
+            assert coderef.markdown_problems("d.md", violation + "\n"), violation
+            assert coderef.markdown_problems("d.md", remedy + "\n") == [], remedy
 
 
 # ---- 简体判定：繁体独有字形判罚，对串与生产侧共享 ----
@@ -325,7 +448,7 @@ GOLDEN_ATTACHED_AFTER_DIGIT = "%‰°′″"
 GOLDEN_ZH_ATTACHED_AFTER_DIGIT = "℃℉‱"
 GOLDEN_ATTACHED_BEFORE_DIGIT = "€£¥₩"
 GOLDEN_ZH_ATTACHED_BEFORE_DIGIT = "￥"
-GOLDEN_ATTACHED_BETWEEN_DIGITS = ".,-"
+GOLDEN_ATTACHED_BETWEEN_DIGITS = ".,-:"
 GOLDEN_EMOJI_BARE = "✅✨❌❤⚡⭐"
 GOLDEN_EMOJI_VARIANTS = "\ufe0e\ufe0f"
 GOLDEN_EMOJI_RANGES = (

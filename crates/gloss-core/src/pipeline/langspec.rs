@@ -298,7 +298,7 @@ mod tests {
     const GOLDEN_ZH_ATTACHED_AFTER_DIGIT: &str = "℃℉‱";
     const GOLDEN_ATTACHED_BEFORE_DIGIT: &str = "€£¥₩";
     const GOLDEN_ZH_ATTACHED_BEFORE_DIGIT: &str = "￥";
-    const GOLDEN_ATTACHED_BETWEEN_DIGITS: &str = ".,-";
+    const GOLDEN_ATTACHED_BETWEEN_DIGITS: &str = ".,-:";
     const GOLDEN_DASH_ELLIPSIS: &str = "—–…";
     const GOLDEN_CURLY_QUOTES: &str = "“”";
     const GOLDEN_SENTENCE_FINALS: &str = "。！？.!?";
@@ -572,7 +572,7 @@ mod tests {
         for (face_name, face) in &admitted_faces(&data) {
             for symbol in face {
                 let home = home_of(*symbol);
-                if ".,-".contains(*symbol) {
+                if ".,-:".contains(*symbol) {
                     assert_eq!(
                         home,
                         vec!["en.punct", "shared.attached_between_digits"],
