@@ -48,7 +48,7 @@ action = "将外文词移入括号并补目标语译名，或直接译出"
 action = "转为简体字"
 
 [repair.lang.PunctuationMismatch]
-action = "换成目标语言的标点"
+action = "换成目标语言的标点；只在紧邻数字时合法的符号（如 %、℃、￥）脱附时，去空格贴回数字"
 
 [repair.lang.MissingSpace]
 action = "在中文与西文、数字之间补一个半角空格"
@@ -60,7 +60,7 @@ action = "删除表情符号"
 action = "去掉（markdown）记号，改为平实文字"
 
 [repair.lang.UnclosedContainer]
-action = "补全配对，或删除残缺记号"
+action = "补全配对"
 
 [repair.lang.ContainerMixing]
 action = "容器内只保留单一语言，译文移入内层括号"

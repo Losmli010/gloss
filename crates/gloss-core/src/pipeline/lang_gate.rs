@@ -86,7 +86,6 @@ fn scan_field(
     let parsed = text::parse_field(task.markdown_allowed, raw);
     if parsed.markdown_forbidden {
         violations.push(LangViolation::new(field, LangCategory::MarkdownForbidden));
-        return;
     }
     let joined = &parsed.text;
     let math = text::math_ranges(joined);
@@ -531,7 +530,11 @@ mod tests {
             "中文word相连要补空格。",
             word_card(None, &[]),
         );
-        assert!(has(&violations, LangCategory::MissingSpace));
+        assert!(
+            has(&violations, LangCategory::ForeignRun)
+                && !has(&violations, LangCategory::MissingSpace),
+            "a multi-letter run is the foreign check's jurisdiction: {violations:?}"
+        );
 
         let violations = categories(
             TaskKind::TranslateWord,
@@ -552,6 +555,79 @@ mod tests {
         assert!(
             !has(&violations, LangCategory::MissingSpace),
             "pangu only judges the Chinese target: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn pangu_flags_digit_and_single_letter_adjacency_only() {
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "版本3发布。",
+            word_card(None, &[]),
+        );
+        assert!(
+            has(&violations, LangCategory::MissingSpace)
+                && !has(&violations, LangCategory::ForeignRun),
+            "a digit stays the spacing check's own jurisdiction: {violations:?}"
+        );
+
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "变量x与y的差。",
+            word_card(None, &[]),
+        );
+        assert!(
+            has(&violations, LangCategory::MissingSpace)
+                && !has(&violations, LangCategory::ForeignRun),
+            "a single-letter variable stays the spacing check's own jurisdiction: \
+             {violations:?}"
+        );
+
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "词性n.标注不合规。",
+            word_card(None, &[]),
+        );
+        assert!(
+            has(&violations, LangCategory::ForeignRun)
+                && !has(&violations, LangCategory::MissingSpace),
+            "an n. abbreviation is the foreign check's jurisdiction: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn markdown_forbidden_keeps_accumulating_other_categories() {
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "**重点**，english在这里。",
+            word_card(None, &[]),
+        );
+        assert!(
+            has(&violations, LangCategory::MarkdownForbidden)
+                && has(&violations, LangCategory::ForeignRun),
+            "the foreign run in the stripped text is reported the same round: \
+             {violations:?}"
+        );
+
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "见 [链接](https://a.b) 残缺（括号。",
+            word_card(None, &[]),
+        );
+        assert!(
+            has(&violations, LangCategory::MarkdownForbidden)
+                && has(&violations, LangCategory::UnclosedContainer),
+            "an unclosed paren under markup is reported the same round: {violations:?}"
         );
     }
 

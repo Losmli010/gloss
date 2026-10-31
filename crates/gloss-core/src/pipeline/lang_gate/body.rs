@@ -1,7 +1,9 @@
 //! 正文判定：容器内容与数学定界区之外的文本。文字系统（连续文字段按
 //! 目标语言合法集判定，拉丁豁免仅单字母变量与紧跟句点的单字母缩写）、
 //! 标点（目标标点集，容器定界符与数字附随符号豁免，破折号省略号家族
-//! 不判）、盘古之白（仅中文）与表情符号。
+//! 不判）、盘古之白（仅中文，出罚面以文字系统的豁免面为界：相邻西文
+//! 段是纯数字或不接句点的单字母才判，其余字母段归外文判罚）与表情符
+//! 号。
 
 use super::containers::script_runs;
 use super::tables::{LangPolicy, ScriptClass, TaskPolicy};
@@ -104,16 +106,58 @@ impl BodyCheck<'_> {
 
     fn check_pangu(&self, violations: &mut Vec<LangViolation>) {
         for &(start, end) in self.ranges {
-            for pair in self.chars[start..end].windows(2) {
-                let (left, right) = (pair[0], pair[1]);
-                let mixed = (is_han(left) && right.is_ascii_alphanumeric())
-                    || (left.is_ascii_alphanumeric() && is_han(right));
-                if mixed {
+            for index in start..end.saturating_sub(1) {
+                let (left, right) = (self.chars[index], self.chars[index + 1]);
+                let (han_at, west_at) = if is_han(left) && right.is_ascii_alphanumeric() {
+                    (index, index + 1)
+                } else if left.is_ascii_alphanumeric() && is_han(right) {
+                    (index + 1, index)
+                } else {
+                    continue;
+                };
+                if self.pangu_exempt_west_segment(west_at, han_at, start, end) {
                     violations.push(LangViolation::new(self.field, LangCategory::MissingSpace));
                     return;
                 }
             }
         }
+    }
+
+    fn pangu_exempt_west_segment(
+        &self,
+        west_at: usize,
+        han_at: usize,
+        start: usize,
+        end: usize,
+    ) -> bool {
+        let (seg_start, seg_end) = if west_at > han_at {
+            let mut seg_end = west_at + 1;
+            while seg_end < end && self.chars[seg_end].is_ascii_alphanumeric() {
+                seg_end += 1;
+            }
+            (west_at, seg_end)
+        } else {
+            let mut seg_start = west_at;
+            while seg_start > start && self.chars[seg_start - 1].is_ascii_alphanumeric() {
+                seg_start -= 1;
+            }
+            (seg_start, west_at + 1)
+        };
+        let mut index = seg_start;
+        while index < seg_end {
+            if !self.chars[index].is_ascii_alphabetic() {
+                index += 1;
+                continue;
+            }
+            let begin = index;
+            while index < seg_end && self.chars[index].is_ascii_alphabetic() {
+                index += 1;
+            }
+            if index - begin >= 2 || self.chars.get(index) == Some(&'.') {
+                return false;
+            }
+        }
+        true
     }
 
     fn check_emoji(&self, violations: &mut Vec<LangViolation>) {

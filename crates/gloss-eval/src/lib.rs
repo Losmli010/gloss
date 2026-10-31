@@ -34,6 +34,7 @@ pub mod history;
 pub mod inspect;
 pub mod judge;
 pub mod metrics;
+pub mod remedy;
 pub mod report;
 pub mod runner;
 pub mod svg;
@@ -47,6 +48,7 @@ pub mod assets {
         include_str!("../datasets/task_translate_sentence.jsonl");
     pub const TASK_CODE_DATASET: &str = include_str!("../datasets/task_explain_code.jsonl");
     pub const LANG_GATE_DATASET: &str = include_str!("../datasets/lang_gate.jsonl");
+    pub const LANG_GATE_REMEDY_DATASET: &str = include_str!("../datasets/lang_gate_remedy.jsonl");
     pub const CLASSIFY_FIXTURES: &str = include_str!("../fixtures/classify_replay.jsonl");
     pub const TASK_FIXTURES: &str = include_str!("../fixtures/task_replay.jsonl");
 }
