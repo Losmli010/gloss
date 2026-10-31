@@ -297,7 +297,7 @@
 - 测试场景：给定授权真机与 `release` 构建，当应用静置过夜并以约 2 小时间隔人工划词数次，则驻留集（RSS）曲线无持续上漂、`gloss` 日志文件数不超过 7、进程存活且划词出卡正常。
 - 测试步骤：
 
-1. 前置：辅助功能已授权（人工划词出卡依赖取材授权）；系统负载低（建议夜间）；磁盘余量 不低于 `2GB`
+1. 前置：辅助功能已授权（人工划词出卡依赖取材授权）；系统负载低（建议夜间）；磁盘余量不低于 2 吉字节（GB）
 2. 构建 `release` 并启动：`cargo build --release` 然后 `./target/release/gloss`
 3. 另开终端起驻留集（RSS）采样循环（每 30 分钟一次，照抄）：
 
@@ -511,7 +511,7 @@
 | private_key_blocks_are_detected_before_tokens | 私钥块先于令牌判定 | 给定（PEM）私钥块（含它同时含 `sk-` 形式串），当检测，则报 `PrivateKey`（更确定的类别胜出） | 2026-09-24 |
 | card_numbers_pass_luhn_only | 卡号只有过 `Luhn` 才算 | 给定 4111 1111 1111 1111、差一位的变体、全零串、以及“卡号加有效期与（CVC）”与连续分隔符形态（`4111 1111 1111 1111 12/26`、`4111  1111  1111  1111`），当检测，则只有真正过 `Luhn` 且数字不重复的才命中 `CardNumber`（组分界处也判一次） | 2026-09-26 |
 | high_entropy_strings_are_detected | 高熵长随机串识别 | 给定 32 位以上、含三类字符的高熵串，当检测，则命中 `HighEntropy` | 2026-09-24 |
-| identifiers_and_prose_stay_below_the_entropy_threshold | 标识符与散文不触熵阈值 | 给定长下划线标识符、纯小写长词、中文句子，以及三类字符齐备但分布均匀的长串，当检测，则都不命中——最后那类只可能被熵阈值否掉（含一条熵 `4.32` 的近界样本），阈值被删或放宽到 `4.0` 即红 | 2026-09-26 |
+| identifiers_and_prose_stay_below_the_entropy_threshold | 标识符与散文不触熵阈值 | 给定长下划线标识符、纯小写长词、中文句子，以及三类字符齐备但分布均匀的长串，当检测，则都不命中——最后那类只可能被熵阈值否掉（含一条熵 4.32 的近界样本），阈值被删或放宽到 4.0 即红 | 2026-09-26 |
 | bearer_and_aws_key_ids_keep_their_own_bounds | `Bearer` 与 `AKIA` 各守自己的边界 | 给定带 `base64` 填充符的 `AKIA` 编号、过短或非大写的 `AKIA` 串、带连字符的伪编号、以及标准 `base64` 主体的 `Bearer` 令牌，当检测，则只有第一类命中 `Token`——`Bearer` 支仍用窄字符集，`AKIA` 只看连续的大写字母与数字 | 2026-09-26 |
 | the_long_tier_of_prefixed_bodies_ignores_shape | 前缀令牌长档不看形状 | 给定 13 字符与 16 字符的纯小写复合词，当检测，则短档那次放行、长档那次算令牌——长档只卡长度是写明的取舍，这条用例把边界钉在明面上 | 2026-09-26 |
 | detection_prefers_the_more_certain_kind | 检测按确定度排序 | 给定同时可判多类的文本，当检测，则返回更确定的那个类别（确定度自私钥、令牌、卡号至高熵递减；相邻两类各有一对同现的样例） | 2026-09-26 |
@@ -643,7 +643,7 @@
 | a_contract_violation_repairs_with_the_bad_reply_in_the_history | 任务违约修复轮带回坏回复 | 给定图像任务“违约散文 → 契约（JSON）”脚本队列，当 `run`，则修复轮对话为 `[system][user][assistant][user]`（图、坏回复、纠错指令四轮），纠错指令把违约固定措辞作为 `reason` 回灌、不带契约示例行、不含坏回复原文，图像部件随对话重发，`on_repair` 恰触发一次、`RunOutput.repairs` 为 1 | 2026-10-12 |
 | the_repair_round_warn_carries_the_category_and_round_only | 修复轮违约告警只记类别与轮次 | 给定违约回复触发修复，当捕获日志，则“`task reply violated the contract`”行含固定违约类别与 `attempt=1`、不含回复原文 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_without_an_assistant_turn | 任务空回复原样重发修复 | 给定图像任务“空流 → 契约（JSON）”脚本队列，当 `run`，则修复轮请求与首轮消息逐字一致（无 `assistant` 轮无纠错指令）、`repairs` 为 1 | 2026-10-12 |
-| an_oversized_stream_fails_instead_of_accumulating_without_bound | 失控长流按预算失败不无界累积 | 给定 300 段、每段 `4KB`（总量超 `1MB` 预算）的增量流，当 `run`，则 `EngineResponse` 失败上抛（不进修复轮）、已转发字节不超预算 | 2026-10-16 |
+| an_oversized_stream_fails_instead_of_accumulating_without_bound | 失控长流按预算失败不无界累积 | 给定 300 段、每段 4 千字节（KB）而总量超 1 兆字节（MB）预算的增量流，当 `run`，则 `EngineResponse` 失败上抛（不进修复轮）、已转发字节不超预算 | 2026-10-16 |
 | a_zero_increment_empty_completion_enters_the_repair_path | 零增量完成转 `EmptyReply` 进修复 | 给定“`EmptyCompletion` 变体 → 契约（JSON）”脚本队列，当 `run`，则零增量完成不按失败上抛、转 `EmptyReply` 进修复轮（引擎 2 次调用、`repairs` 为 1） | 2026-10-17 |
 | task_repairs_are_budgeted_then_the_raw_reply_is_handed_over | 任务修复预算耗尽上交原始文本 | 给定恒违约的任务回复，当 `run`，则恰用尽 `1+TASK_REPAIRS` 次调用、`on_repair` 触发 `TASK_REPAIRS` 次、原样返回最后一轮违约原文（完成态解析落降级）且不报 `Err` | 2026-10-12 |
 | task_stage_engine_errors_are_never_retried | 任务段引擎错误不重试 | 给定 `execute` 整体失败与零增量的流中协议错误，当 `run`，则两者都原样上抛 `Err`（只有 `EmptyCompletion` 变体转 `EmptyReply`）、引擎恰 1 次调用 | 2026-10-17 |
@@ -830,7 +830,7 @@
 | position_before_the_origin_clamps_to_it | 负坐标钳到屏原点 | 给定负全局坐标（主屏左侧显示器），当钳制，则收到该显示器原点而非主屏 | 2026-09-20 |
 | clamping_respects_the_monitor_origin_on_secondary_displays | 副屏钳制按全局原点 | 给定副屏（全局原点非零）右缘位置，当钳制，则按副屏全局区间收口而非主屏 | 2026-09-20 |
 | monitor_smaller_than_the_overlay_pins_to_the_origin | 显示器小于浮层贴原点 | 给定比浮层还小的显示器与屏内位置，当钳制，则贴显示器原点（上限取 0） | 2026-09-20 |
-| height_caps_at_the_golden_share_of_the_screen_minus_the_margin | 高度上限为屏高占比减余量 | 给定逻辑高 1080 的显示器与超限请求，当 `capped_height`，则上限取屏高乘 `HEIGHT_CAP_FRACTION`（黄金分割率平方的倒数 `0.382`）再减工作区余量（`316.56`） | 2026-10-21 |
+| height_caps_at_the_golden_share_of_the_screen_minus_the_margin | 高度上限为屏高占比减余量 | 给定逻辑高 1080 的显示器与超限请求，当 `capped_height`，则上限取屏高乘 `HEIGHT_CAP_FRACTION`（黄金分割率平方的倒数 0.382）再减工作区余量（316.56） | 2026-10-21 |
 | smaller_requests_pass_through_untouched | 未超限的高度原样保留 | 给定远小于上限的请求，当 `capped_height`，则原样返回 | 2026-10-02 |
 | short_screens_bottom_out_at_the_default_height | 矮屏回落默认高度 | 给定屏高占比扣余量后仍低于默认高度的显示器，当 `capped_height`，则下限取默认高度 296 | 2026-10-21 |
 | width_never_changes_during_streaming | 流式锁宽 | 给定当前宽度与更宽请求，当流式防抖，则宽度保持当前值（浮层宽度固定）、高度量化到步长倍数 | 2026-10-19 |
@@ -870,7 +870,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | render_app_icon_rejects_bad_bytes | 图标渲染失败隔离降级 | 给定非（SVG）字节，当栅格化应用图标，则返回 `None`（页头退化为无图标行，不 `panic`） | 2026-10-19 |
-| render_app_icon_rasterizes_the_content_square | 图标按画布比例栅本体 | 给定内嵌的应用图标（SVG）与目标边长 40，当矢量栅格化，则得 40 像素见方的图形本体（按 `100/824` 画布比例平移缩放跳过透明边距）且中心像素不透明 | 2026-10-19 |
+| render_app_icon_rasterizes_the_content_square | 图标按画布比例栅本体 | 给定内嵌的应用图标（SVG）与目标边长 40，当矢量栅格化，则得 40 像素见方的图形本体（按 100 比 824 的画布比例平移缩放跳过透明边距）且中心像素不透明 | 2026-10-19 |
 
 ### `crates/gloss-app/src/ui/popup/image.rs`
 
@@ -967,7 +967,7 @@
 | --- | --- | --- | --- |
 | generic_tokens_color_strings_and_line_comments | 兜底集着色字符串与行注释 | 给定含字符串与 `--` 行注释的片段，当走通用兜底，则两类各出一段；空输入无 `token` | 2026-10-19 |
 | generic_tokens_color_block_comments_across_lines | 兜底块注释跨行 | 给定跨行 `/* */` 片段，当走通用兜底，则块注释为单个跨行 `token`，止于闭合星斜杠 | 2026-10-19 |
-| generic_tokens_keep_hex_literals_whole | 兜底十六进制整体着色 | 给定含 `0xFF_00` 的片段，当走通用兜底，则十六进制字面量为单个 `Number` `token` | 2026-10-19 |
+| generic_tokens_keep_hex_literals_whole | 兜底十六进制整体着色 | 给定含十六进制字面量的片段，当走通用兜底，则十六进制字面量为单个 `Number` `token` | 2026-10-19 |
 | generic_tokens_color_type_names_and_leave_lowercase_alone | 兜底类型只认首字母大写 | 给定 `let value: Widget = build()`，当走通用兜底，则 `Widget` 为 `Type`、`build` 为 `Function`，且 `let/value/build` 都不落 `Type` | 2026-10-19 |
 | generic_tokens_color_function_shapes_without_the_delimiter | 兜底函数形裁掉定界符 | 给定 `compute(value)`，当走通用兜底，则函数 `token` 止于左括号前 | 2026-10-19 |
 
@@ -1085,7 +1085,7 @@
 | install_failure_lands_in_failed_install_and_retry_installs | 替换步失败与重试 | 给定替换失败回包，当失败后再点重试，则落 `Failed(Install)`、重跑替换桩并以成功收尾 | 2026-09-26 |
 | cancel_during_download_returns_to_update_available | 取消下载与迟到回包丢弃 | 给定下载中任务，当取消，则回 `UpdateAvailable`；其后的迟到下载回包被丢弃（确认下载仍可用即相位未被动过） | 2026-09-26 |
 | fetch_manifest_parses_a_valid_body_from_the_wire | 线上清单解析 | 给定本地服务器回的合法清单（带 `Content-Length`），当 `fetch`，则解析出版本 | 2026-09-27 |
-| fetch_manifest_rejects_oversize_body_without_content_length | 无长度声明的超限 `body` 拒绝 | 给定不声明 `Content-Length`、逐块送出 `1.5` `MiB` 的服务器，当 `fetch`，则中途判超限拒绝（无界内存禁入） | 2026-09-27 |
+| fetch_manifest_rejects_oversize_body_without_content_length | 无长度声明的超限 `body` 拒绝 | 给定不声明 `Content-Length`、逐块送出 1.5 兆二进制字节（MiB）的服务器，当 `fetch`，则中途判超限拒绝（无界内存禁入） | 2026-09-27 |
 
 ### `crates/gloss-app/src/update/manifest.rs`
 
@@ -1186,7 +1186,7 @@
 | invalid_draft_blocks_save_and_enters_the_error_state | 非法草稿阻断保存进入错误态 | 给定非法 `Base URL` 草稿，当 `build_save`，则返回 `Idle`、置校验态、该字段提示含 `https` 规则 | 2026-09-22 |
 | fixing_the_field_restores_save | 改对字段恢复保存 | 给定被阻断的校验态，当修正 `Base URL`，则错误清空、再次 `build_save` 上交 `Save` | 2026-09-22 |
 | open_copies_the_snapshot_into_the_draft | 打开设置拷贝快照进草稿 | 给定打开时的快照，当建草稿并随后改原配置，则草稿不跟随、可携带提示 | 2026-09-19 |
-| clipboard_watch_toggle_travels_with_the_saved_draft | 剪贴板监听开关随草稿保存 | 给定出厂配置的设置窗（英文表），当渲染并点 `Watch the clipboard for images` 行的开关滑块再保存，则出厂默认 `on`、点击切换为 `off` 后随 `Save` 上交进落盘快照（热切换由保存路径承接）；开关以 `WidgetType::Checkbox` 与 `toggled` 态上报（`egui` `0.36` 角色映射无 `switch` 档） | 2026-10-12 |
+| clipboard_watch_toggle_travels_with_the_saved_draft | 剪贴板监听开关随草稿保存 | 给定出厂配置的设置窗（英文表），当渲染并点 `Watch the clipboard for images` 行的开关滑块再保存，则出厂默认 `on`、点击切换为 `off` 后随 `Save` 上交进落盘快照（热切换由保存路径承接）；开关以 `WidgetType::Checkbox` 与 `toggled` 态上报（`egui` 0.36 角色映射无 `switch` 档） | 2026-10-12 |
 | field_errors_are_worded_per_locale | 字段错误按 `locale` 出措辞 | 给定全部九类字段错误（含行号与触发键回显两种模板），当按中英文表取文案，则各出对应措辞（换臂或漏译会被抓住） | 2026-09-23 |
 | every_notice_renders_its_localized_prefix_and_detail | 三类提示的中英措辞 | 给定三类壳回写提示（各带同一诊断），当按中英表取文案，则前缀与诊断都按表落地、且无残留的 `{{`占位符`}}`（两条从未渲染过的模板由此覆上） | 2026-09-22 |
 | base_url_errors_map_to_their_own_field_error | `Base URL` 错因映射到字段错误 | 给定五类 `BaseUrlError`，当映射，则空、语法与 `https`、内嵌凭据、查询参数各落到对应 `FieldError`（内嵌凭据与查询参数两臂易错） | 2026-09-22 |
@@ -1274,8 +1274,8 @@
 | selected_text_passes_through_verbatim | 选中文本原样透传 | 给定读到的选中文本（含纯空白），当映射，则原样透传不裁剪 | 2026-09-19 |
 | an_empty_selection_is_empty_but_a_missing_value_stays_unavailable | 空选区与读不到分开建档 | 给定空串与 `None`（超上限、非字符串），当映射，则前者 `SelectionEmpty`（没选东西）、后者 `SelectionUnavailable`（选了但读不动，兜底仍值得一试）；`NoValue` 归前者 | 2026-09-30 |
 | api_disabled_after_trusted_check_maps_to_denied | 授权后（API）禁用仍映射拒绝 | 给定授权后 `AX` 报 `APIDisabled`，当映射，则仍是 `AccessibilityDenied` | 2026-09-19 |
-| adjacent_error_codes_are_told_apart | 相邻错误码区分 | 给定相邻码 `-25211`（`APIDisabled`）与 `-25212`（`NoValue`），当映射，则前者 `Denied`、后者 `SelectionEmpty`（错一位语义就反转） | 2026-09-30 |
-| other_ax_errors_map_to_unavailable | 其余 `AX` 错误映射不可用 | 给定 `-25206`、`-25213`、`-25200`，当映射，则归 `SelectionUnavailable` | 2026-09-19 |
+| adjacent_error_codes_are_told_apart | 相邻错误码区分 | 给定相邻的负数错误码 25211（`APIDisabled`）与 25212（`NoValue`），当映射，则前者 `Denied`、后者 `SelectionEmpty`（错一位语义就反转） | 2026-09-30 |
+| other_ax_errors_map_to_unavailable | 其余 `AX` 错误映射不可用 | 给定负数错误码 25206、25213、25200，当映射，则归 `SelectionUnavailable` | 2026-09-19 |
 
 ### `crates/gloss-platform/src/selection/activation.rs`
 
@@ -1366,7 +1366,7 @@
 | an_undeliverable_flavor_is_dropped_quietly | 板交付不出数据按静默丢弃 | 给定记录值与现值一致但 `flavor` 缺席的注入读数，当 `read_with`，则 `Ok(None)`（`macOS` 15 及以上版本粘贴授权被拒走这条，`warn` 留痕供 `just logs --level warn` 排查） | 2026-10-10 |
 | an_unobservable_board_is_a_read_failure | 板不可观察按读取失败 | 给定 `changeCount` 读不到的注入读数，当 `read_with`，则 `Err(ImageUnavailable)` 且不查 `flavor` | 2026-10-10 |
 | a_matching_board_still_decodes_to_png | 观察一致照常取材解码 | 给定记录值与现值一致、`flavor` 为真实（TIFF）字节的注入读数，当 `read_with`，则产出可解码回宽高各 2 像素的位图（PNG） | 2026-10-10 |
-| byte_budget_rejects_length_over_the_limit | 位图（PNG）字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收（`20MiB` 上限） | 2026-10-10 |
+| byte_budget_rejects_length_over_the_limit | 位图（PNG）字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收，上限 20 兆二进制字节（MiB） | 2026-10-10 |
 | downscaled_dims_preserve_aspect_and_the_cap | 降采样目标尺寸保比例收边 | 给定上限内与超限（正方、横长、竖长、极窄）的尺寸，当 `downscaled_dims`，则上限内返回 `None` 原样编码，超限按比例缩到最长边 1536、至少保留 1 像素 | 2026-10-16 |
 | oversized_products_are_downscaled_to_the_side_cap | 超长边产物降采样出图 | 给定宽 2100 高 1000 的位图（PNG）`flavor`，当 `decode_to_png`，则产出宽 1536 高 731 的可解码位图（PNG）（保比例收进上限，不拒收） | 2026-10-16 |
 
@@ -1494,7 +1494,7 @@
 | page_renders_headline_cases_and_trend | 检视页结构与要素 | 给定含分类失败与任务好、降级明细的报告，当 `render_html`，则准确率头条、指标卡、状态、轨道过滤按钮、逐条 `details`、逐轮回复、内嵌趋势（SVG）与口径脚注齐备；无错误行时不产混淆矩阵段 | 2026-10-21 |
 | page_escapes_dataset_and_model_text | 检视页转义外来文本 | 给定数据集文本与模型回复含 `script` 标记的明细，当 `render_html`，则两者以实体出现，页面无来自数据的内联脚本与标记逃逸 | 2026-10-21 |
 | deltas_come_from_the_previous_same_mode_run | 差值只比上一次同 `mode` 运行 | 给定上次 `replay`（`accuracy` 百分之百）与一份 `live` 历史，当渲染本次 `replay`（`accuracy` 为 0、回退率百分之百），则 `accuracy` 与回退率出 `▼`、`▲` 徽标且均着坏色、`live` 行不进差值；无同 `mode` 基准时无徽标 | 2026-10-21 |
-| deltas_skip_empty_denominator_runs | 空分母历史行不进差值 | 给定 `classify` 零 `evaluated` 的上次 `replay`（`accuracy` 与回退率均回落 `0.0`），当渲染本次 `replay`，则不出任何差值徽标（`0/0` 与上次比率没有可比性，与任务卡同一口径） | 2026-10-22 |
+| deltas_skip_empty_denominator_runs | 空分母历史行不进差值 | 给定 `classify` 零 `evaluated` 的上次 `replay`（`accuracy` 与回退率均回落 0.0），当渲染本次 `replay`，则不出任何差值徽标（分子分母均为 0 的比率与上次没有可比性，与任务卡同一口径） | 2026-10-22 |
 
 ### `crates/gloss-eval/src/metrics.rs`
 
@@ -1522,7 +1522,7 @@
 | gate_reply_parsing_accepts_json_verdict_only | 评委复核回复解析 | 给定合法裁决（JSON）、越界类别与非（JSON）回复，当 `parse_gate_reply`，则合法者出裁决与类别、其余为 `None` | 2026-10-28 |
 | gate_metrics_compute_precision_and_recall | 门禁指标算式对账 | 给定确定的命中、漏报（引文繁体豁免是内生漏报）与放行三类条目，当 `run_gate`，则条目级精确率与召回率按算式得出、类别级对账区分期望与命中 | 2026-10-28 |
 | gate_loader_rejects_bad_expect_duplicate_ids_and_category_mismatch | 门禁数据集加载期校验 | 给定合法条目、非法期望值、重复标识、违约无类别、放行带类别与坏形状行，当 `load_gate_cases`，则合法者载入、其余带行号报错 | 2026-10-28 |
-| gate_dataset_agrees_with_the_gate_offline | 门禁数据集与判定器离线全一致 | 给定内嵌门禁数据集（违约与放行各一批），当 `run_gate`，则条目级精确率与召回率均为 1、各类别期望与命中对账相等、标点类判定数钉在已知过报（`1`，`3`）——未来加码过报先红（数据集是受控工件，规则演进须同步改判例） | 2026-10-28 |
+| gate_dataset_agrees_with_the_gate_offline | 门禁数据集与判定器离线全一致 | 给定内嵌门禁数据集（违约与放行各一批），当 `run_gate`，则条目级精确率与召回率均为 1、各类别期望与命中对账相等、标点类判定数钉在已知过报（1，3）——未来加码过报先红（数据集是受控工件，规则演进须同步改判例） | 2026-10-28 |
 
 ### `crates/gloss-eval/src/report.rs`### `crates/gloss-eval/src/report.rs`
 

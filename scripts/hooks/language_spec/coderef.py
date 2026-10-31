@@ -2,10 +2,14 @@
 """语言规范·代码引用：正文与代码混用的记号规则。结构性记号先豁免——行内
 反引号、链接、强调、围栏、表格、列表与勾选框、日期、数学记号段、模板占
 位符段、行尾放行标记——剥净后无可判语言的纯记号段放行；残留代码段判罚，
-主体按区参数落中文区或英文区判定，区归属由使用方按文档路径把关。判罚以
-带规则标识的违规条目返回，位置由调用方按路径与行号传入，标识登记于统一
-登记表。行级复合判定与标记语言文档逐行遍历是两个入口，被注释、提交信息
-与拉取请求内容门禁复用；文档遍历的块级边界取自解析树（markdown-it），
+主体按区参数落中文区或英文区判定，区归属由使用方按文档路径把关。行内反
+引号的内容按批判定：出现汉字或全角字符落英文判罚，不含且剥首尾空白后呈
+数字主导形态（计数、计量、版本段、进制与区间）落数字形态判罚——数字与
+百分比归正文，反引号只装逐字可复制的机器记号（token），同段两判罚互斥。
+判罚以带规则标识的违规条目返回，位置由调用方按路径与行号传入，标识登记
+于统一登记表。行级复合判定与标记语言文档逐行遍历是两个入口，被注释、提
+交信息与拉取请求内容门禁复用；文档遍历的块级边界取自解析树
+（markdown-it），
 代码块（含缩进块与波浪围栏）、数学块与超文本标记块整段豁免，文档的结构判
 罚（标题层级、重名标题、围栏闭合）移交排版门禁工具（rumdl）；围栏内的整
 行注释按注释纪律受检（文档检查子项），围栏内其余内容是字面代码不判罚；未
@@ -47,6 +51,7 @@ RULE_PROSE_LANGUAGE = "PROSE-LANGUAGE"
 RULE_DOC_CODE_LANGUAGE = "COMMENT-DOC-CODE-LANGUAGE"
 RULE_DOC_CODE_CODEREF = "COMMENT-DOC-CODE-CODEREF"
 RULE_DOC_CODE_ENGLISH = "COMMENT-DOC-CODE-ENGLISH"
+RULE_DOC_CODE_NUMERIC = "COMMENT-DOC-CODE-NUMERIC"
 
 # 表述区归属的两个取值：中文区主体判定是缺省，英文区判据由使用方按文档路
 # 径分派（提示词英文模板目录）；区只决定主体判定，结构性判罚与豁免面两区共用
@@ -64,6 +69,9 @@ CODE_LANGUAGE_REMEDY = (
 )
 CODE_CODEREF_REMEDY = "drop the reference or move the sample to the record file"
 CODE_ENGLISH_REMEDY = "keep inline code English-only; write the Chinese wording in the prose"
+CODE_NUMERIC_REMEDY = (
+    "move numbers and percentages to the prose; backticks hold machine tokens only"
+)
 
 # 围栏语言到注释形态：井号系、双斜线系与标记注释三族；围栏语言不在清单内
 # （纯文本、数据格式、空白信息串）不收注释——井号或双斜线在这些语言里不是
@@ -127,6 +135,17 @@ DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 # 行内反引号的内容只许英文：中文属表述，写进正文——反引号豁免面以英文为前提
 CODE_SPAN = re.compile(r"`([^`]*)`")
+
+# 行内反引号数字形态：数字主导的机器记号（token）即判罚，规格由四字符集
+# 加结构规则构成——前缀符号与井号前缀至多一个，数字主体（十进制段或进制
+# 段）与分隔交替，单位或符号后缀至多一个；单位大小写敏感，白名单外放行
+# （宁漏勿误）
+NUMERIC_TOKEN = re.compile(
+    r"^[<>~+±≤≥-]?#?"
+    r"(?:\d[\d,_]*(?:\.\d+)*(?:[eE][+-]?\d+)?|0[xXbBoO][0-9a-fA-F_]+)"
+    r"(?:\.\.\=?\d+|[.:\/-]\d+)*"
+    r"(?:\s?(?:ms|us|ns|s|min|h|KB|MB|GB|KiB|MiB|GiB|bp|x)|[%‰±<>~+=-])?$"  # langspec:allow 数字附随符号属形态结构记号，非字符事实私持
+)
 
 # 数学记号段豁免：美元号包裹的算式段，内容限算式字符、不含汉字与美元号；
 # 单美元号的普通文本（金额等）构不成段，不豁免；双美元号与单美元号同一字
@@ -358,6 +377,29 @@ def markdown_problems(path: str, src: str, zone: str = ZONE_CHINESE) -> list[gat
     return out
 
 
+def numeric_span_finding(path: str, lineno: int, span: str) -> gate_report.Finding | None:
+    """行内反引号数字形态判定：剥首尾空白后按序三步——空段或含汉字全角归英
+    文规则放行，字母或下划线开头是标识符放行，其余整体匹配数字形态，命中判
+    罚、未命中放行（宁漏勿误：规格覆盖不了的长尾留人工评审）。"""
+    token = span.strip()
+    if not token or CJKWISE.search(token):
+        return None
+    if token[0].isalpha() or token[0] == "_":
+        return None
+    if not NUMERIC_TOKEN.fullmatch(token):
+        return None
+    return gate_report.Finding(
+        rule=RULE_DOC_CODE_NUMERIC,
+        path=path,
+        line=lineno,
+        message=(
+            "inline code holds a bare number — numbers and percentages belong in the prose"  # langspec:allow 消息排版破折号，非判罚事实
+        ),
+        evidence=token,
+        remedy=CODE_NUMERIC_REMEDY,
+    )
+
+
 def markdown_line_problems(
     path: str, lineno: int, line: str, zone: str = ZONE_CHINESE
 ) -> list[gate_report.Finding]:
@@ -379,6 +421,10 @@ def markdown_line_problems(
                     remedy=CODE_ENGLISH_REMEDY,
                 )
             )
+            continue
+        numeric = numeric_span_finding(path, lineno, span)
+        if numeric is not None:
+            out.append(numeric)
     if re.match(r" {0,3}\[[^\]]+\]:", line):
         return out  # 引用定义：行内链接的块级同族记号，结构性豁免，反引号判罚先于豁免
     heading = re.match(r"^#+\s*(.*)$", stripped)

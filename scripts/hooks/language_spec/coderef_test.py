@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
+import check_pr_prose  # noqa: E402
 import gate_report  # noqa: E402
 
 from language_spec.coderef import (  # noqa: E402
@@ -336,3 +337,125 @@ def test_markdown_table_later_column_chinese_code_flagged() -> None:
 def test_markdown_reference_definition_backtick_still_checked() -> None:
     problems = markdown_problems("d.md", "[键]: `中文值` 备注\n")
     assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
+
+
+# ---- 行内反引号数字形态 ----
+
+
+# 第 1.1 节对版清单的判罚行：数字主导记号（token）逐例命中数字形态规则
+NUMERIC_PENALTY_SPANS = (
+    "0",
+    "404",
+    "30_000",
+    "1,024",
+    "5%",
+    "+4.2%",
+    "-0.4%",
+    "±3.2%",
+    "~7%",
+    "≤27%",
+    "12‰",
+    "120ms",
+    "120s",
+    "27.5MB",
+    "8192MiB",
+    "15bp",
+    "4x",
+    "0x1F",
+    "0b1010",
+    "1e-3",
+    "1.75.0",
+    "0.8.28",
+    "0..=100",
+    "3:2",
+    "1/3",
+    "2026-10-30",
+    "15:23",
+    "#123",
+)
+
+# 第 1.1 节对版清单的放行行：标识符与结构记号形态逐例放行
+NUMERIC_ALLOWED_SPANS = (
+    "just check",
+    "u32::MAX",
+    "E0599",
+    "v1.2",
+    "x86_64",
+    "utf-8",
+    "L1",
+    "sha256",
+    "cache_key/text_short",
+    "#NNN",
+    "#[derive]",
+)
+
+
+def test_markdown_numeric_spans_flagged() -> None:
+    for span in NUMERIC_PENALTY_SPANS:
+        problems = markdown_problems("d.md", "数值 `%s` 记录在案。\n" % span)
+        assert rules(problems) == ["COMMENT-DOC-CODE-NUMERIC"], span
+
+
+def test_markdown_numeric_span_surrounding_space_stripped_then_flagged() -> None:
+    problems = markdown_problems("d.md", "占比 ` 5% ` 过半。\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-NUMERIC"]
+    assert problems[0].evidence == "5%"
+
+
+def test_markdown_identifier_and_hash_token_spans_allowed() -> None:
+    for span in NUMERIC_ALLOWED_SPANS:
+        assert markdown_problems("d.md", "记号 `%s` 对照。\n" % span) == [], span
+
+
+def test_markdown_empty_code_span_allowed() -> None:
+    assert markdown_problems("d.md", "空段 `` 不判。\n") == []
+
+
+def test_numeric_and_english_rules_exclusive_on_one_span() -> None:
+    # 含汉字的代码段（span）只落英文规则，纯数字代码段（span）只落数字规则，同段无双条目
+    problems = markdown_problems("d.md", "键 `中文0` 混排。\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH"]
+    problems = markdown_problems("d.md", "退出码为 `0` 落盘。\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-NUMERIC"]
+
+
+def test_spans_judged_independently_on_one_line() -> None:
+    problems = markdown_problems("d.md", "键 `中文` 与退出码 `0` 同行。\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-ENGLISH", "COMMENT-DOC-CODE-NUMERIC"]
+
+
+def test_markdown_table_cell_numeric_span_flagged() -> None:
+    src = "| 场景 | 数值 |\n| --- | --- |\n| 时延 | `120ms` |\n"
+    problems = markdown_problems("d.md", src)
+    assert rules(problems) == ["COMMENT-DOC-CODE-NUMERIC"]
+    assert problems[0].line == 3
+
+
+def test_markdown_reference_definition_numeric_span_still_checked() -> None:
+    problems = markdown_problems("d.md", "[键]: `120ms` 备注\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-NUMERIC"]
+
+
+def test_markdown_fence_numeric_span_not_judged() -> None:
+    # 未登记语言的围栏整段豁免；已登记语言的围栏注释走代码段规则，数字形态不跟入
+    assert markdown_problems("d.md", "```\n数值 `0` 记录在案。\n```\n") == []
+    problems = markdown_problems("d.md", "```bash\n# 重试 `3` 次后停止。\n```\n")
+    assert rules(problems) == ["COMMENT-DOC-CODE-CODEREF"]
+
+
+def test_pull_request_body_numeric_span_flagged() -> None:
+    findings = check_pr_prose.body_findings("退出码为 `0` 落盘。\n")
+    assert len(findings) == 1
+    assert findings[0].rule == "PR-PROSE"
+    assert "bare number" in findings[0].message
+    assert not findings[0].advisory
+
+
+def test_unit_whitelist_boundary() -> None:
+    # 白名单内后缀判罚（含秒记号，评审补充例）；白名单外字母尾与大小写变体放行（宁漏勿误）
+    assert rules(markdown_problems("d.md", "时延 `120ms` 达标。\n")) == ["COMMENT-DOC-CODE-NUMERIC"]
+    assert rules(markdown_problems("d.md", "时长 `120s` 达标。\n")) == ["COMMENT-DOC-CODE-NUMERIC"]
+    assert rules(markdown_problems("d.md", "提速 `4x` 达标。\n")) == ["COMMENT-DOC-CODE-NUMERIC"]
+    assert markdown_problems("d.md", "路程 `120km` 记录在案。\n") == []
+    assert markdown_problems("d.md", "倍率 `4y` 记录在案。\n") == []
+    assert markdown_problems("d.md", "时延 `120MS` 记录在案。\n") == []
