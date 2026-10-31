@@ -280,8 +280,10 @@ def _flags_foreign(seg: str, index: int) -> bool:
 
 def foreign_hint_groups(seg: str) -> list[str]:
     """外文判罚消息的分组指引：被拦字符按最近正形归六类（字母、标点、误
-    置、异体、记号、附随），串级组合先于单字符，各组只见自己的指引，返回
-    保序渲染的片段清单；字母组片段带相邻证据（汉字与拉丁字母直接相邻）。
+    置、异体、记号、附随），先判判罚面（附随面放行的合法字符不进消息组，
+    数字间的句点与冒号不被指改），串级组合先于单字符，各组只见自己的指
+    引，返回保序渲染的片段清单；字母组片段带相邻证据（汉字与拉丁字母直接
+    相邻）。
     """
     letters: list[str] = []
     twins: list[str] = []
@@ -304,6 +306,9 @@ def foreign_hint_groups(seg: str) -> list[str]:
             index += len(combo)
             continue
         ch = seg[index]
+        if not _flags_foreign(seg, index):
+            index += 1
+            continue
         if _is_ascii_letter(ch):
             if ch not in letters:
                 letters.append(ch)
@@ -321,7 +326,7 @@ def foreign_hint_groups(seg: str) -> list[str]:
                 mark = "%s->%s" % (ch, FOREIGN_VARIANT[ch])
                 if mark not in variant:
                     variant.append(mark)
-            elif _flags_foreign(seg, index):
+            else:
                 if ch in ATTACHED_AFTER_DIGIT or ch in ATTACHED_BEFORE_DIGIT:
                     if ch not in attached:
                         attached.append(ch)

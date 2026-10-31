@@ -12,6 +12,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
+sys.path.insert(0, str(Path(__file__).parents[1] / "comments"))
+
+import check_rust_comments  # noqa: E402
 
 from language_spec import chinese, coderef, english  # noqa: E402
 
@@ -260,6 +263,7 @@ def test_pangu_flags_digit_adjacency_only() -> None:
     problems = chinese.body_problems("t", 1, "中文word相连要补空格。", "header")
     assert all(p.rule != chinese.RULE_PROSE_PANGU for p in problems)
     assert any(p.rule == chinese.RULE_PROSE_FOREIGN for p in problems)
+    assert chinese.PANGU_REMEDY == "keep one halfwidth space between Chinese and digits"
 
 
 def test_foreign_finding_carries_adjacency_evidence() -> None:
@@ -316,6 +320,16 @@ def test_foreign_message_groups_hints_by_character_class() -> None:
     message = chinese.chinese_zone_problems("t", 1, "占比 50 %偏高。", "text")[0].message
     assert "reattach the detached symbols to their digits (%)" in message
 
+    # 附随面放行的合法字符不进消息组：数字间的句点与冒号（小数、时分）是合
+    # 法形态，不指改全角孪生——指到全角句号过门禁而破句，指到全角冒号与数
+    # 字间冒号的放行开口相抵
+    message = chinese.chinese_zone_problems("t", 1, "版本 15.5 由wgpu驱动。", "text")[0].message
+    assert "->。" not in message
+    assert "fullwidth twins" not in message
+    message = chinese.chinese_zone_problems("t", 1, "会议 15:23 由wgpu驱动。", "text")[0].message
+    assert "->：" not in message
+    assert "fullwidth twins" not in message
+
 
 def test_unpaired_remedy_lands_clean() -> None:
     # 不配对括号按定稿改法补全后零判罚；删除选路不再进指引（内容落回正文
@@ -331,6 +345,9 @@ def test_mixed_remedy_lands_clean() -> None:
     problems = chinese.body_problems("t", 1, "中文头（用 wgpu 渲染）说明。", "header")
     assert any(p.rule == chinese.RULE_PROSE_GLOSS_MIXED for p in problems)
     assert chinese.body_problems("t", 1, "中文头（wgpu）渲染说明。", "header") == []
+    assert chinese.GLOSS_MIXED_REMEDY == (
+        "hold the foreign term alone in the bracket; move the Chinese wording back into the body"
+    )
 
 
 # ---- 改法收敛夹具表：机械层准入的不变量进门禁 ----
@@ -338,8 +355,8 @@ def test_mixed_remedy_lands_clean() -> None:
 
 # 违规句、按定稿改法机械落地句与判定面三列成表，落地句同面复跑零判罚；
 # 本表先收改法收敛阶段一的规范形（盘古收窄、六类替换映射、数字间冒号、
-# 数字形态收窄与段内容贯通），后续阶段增行；今后新规则落地必须同批补行，
-# 改法不收敛当场红。
+# 数字形态收窄、段内容贯通、孤反引号补配对、围栏注释整词删除与文件头注
+# 记改写），后续阶段增行；今后新规则落地必须同批补行，改法不收敛当场红。
 REMEDY_FIXTURES = (
     ("body", "圖形渲染管线由wgpu驱动。", "图形渲染管线由（wgpu）驱动。"),
     ("body", "中文头（用 wgpu 渲染）说明。", "中文头（wgpu）渲染说明。"),
@@ -357,6 +374,14 @@ REMEDY_FIXTURES = (
     ("markdown", "会议在 `15:23` 开始。", "会议在 15:23 开始。"),
     ("markdown", "退出码为 `0` 落盘。", "退出码为 0 落盘。"),
     ("markdown", "重试 `3` 次后停止。", "重试 3 次后停止。"),
+    ("markdown", "版本 15.5 由wgpu驱动。", "版本 15.5 由（wgpu）驱动。"),
+    ("markdown", "性能达标由`wgpu合成，通道 3 收尾。", "性能达标由`wgpu`合成，通道 3 收尾。"),
+    ("markdown", "```bash\n# 参考 `just fmt` 运行。\n```", "```bash\n# 参考运行。\n```"),
+    (
+        "rust",
+        "//!本文件負責`wgpu`渲染。\nfn main() {}\n",
+        "//!本文件负责渲染，图形库（wgpu）。\nfn main() {}\n",
+    ),
 )
 
 
@@ -367,6 +392,9 @@ def test_remedy_fixture_table_rechecks_clean() -> None:
         if surface == "body":
             assert chinese.body_problems("t", 1, violation, "text"), violation
             assert chinese.body_problems("t", 1, remedy, "text") == [], remedy
+        elif surface == "rust":
+            assert check_rust_comments.check("demo.rs", violation), violation
+            assert check_rust_comments.check("demo.rs", remedy) == [], remedy
         else:
             assert coderef.markdown_problems("d.md", violation + "\n"), violation
             assert coderef.markdown_problems("d.md", remedy + "\n") == [], remedy

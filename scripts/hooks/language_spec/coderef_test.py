@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 import check_pr_prose  # noqa: E402
 import gate_report  # noqa: E402
 
+from language_spec import coderef  # noqa: E402
 from language_spec.coderef import (  # noqa: E402
     MARKER,
     markdown_problems,
@@ -460,6 +461,28 @@ def test_numeric_span_exempts_machine_forms() -> None:
     # 进制字面量与下划线分隔数字是机器记号本体，落段放行（判罚规格收窄）
     assert markdown_problems("d.md", "进制 `0x1F` 与 `0b1010` 记录在案。\n") == []
     assert markdown_problems("d.md", "分隔 `30_000` 记录在案。\n") == []
+
+
+def test_coderef_remedy_texts_match_the_stage_one_wording() -> None:
+    # 代码引用域的定稿改法文本锁定：补配对、删孤记号与挪记录三路条条收敛，
+    # 围栏注释写明整词删除（剥反引号留词落地会派生外文罚），数字形态补比值
+    # 与日期的正当形指路，语言改法补锚点与译出的完整说法
+    assert coderef.CODEREF_REMEDY == (
+        "complete the pair around the reference (exempt on prose surfaces),"
+        " drop the stray mark, or move the sample to the record file"
+    )
+    assert coderef.CODE_CODEREF_REMEDY == (
+        "delete the reference wording or move the sample to the record file"
+    )
+    assert coderef.CODE_NUMERIC_REMEDY == (
+        "move numbers and percentages to the prose; reword what the prose cannot"
+        " hold (ratios, dates) with a fullwidth separator, a connected date, or"
+        " Chinese wording"
+    )
+    assert coderef.LANGUAGE_REMEDY == (
+        "rewrite the text in Chinese, anchoring foreign terms in fullwidth"
+        " bracket annotations or translating them"
+    )
 
 
 def test_span_content_rules_apply_on_commit_and_i18n_surfaces() -> None:
