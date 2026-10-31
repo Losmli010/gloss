@@ -28,6 +28,7 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 
 import check_required_checks
 import gate_report
@@ -42,9 +43,10 @@ SNAPSHOT_REMEDY = (
     " %s marker with a reason on the first line of the pull request body" % EXEMPT_MARKER
 )
 
-# 豁免标记按正文首行判定：反引号包裹形态与裸形态都认——裸形态过不了书写
-# 规则（外文字母进中文主体），认它只为让判罚清单指向正确的修复动作
-_EXEMPT_RE = re.compile(r"`?snapshot:allow`?")
+# 豁免标记锚定正文首行起始（可选反引号包裹加词边界）：首行中途提及标记不
+# 开豁免通道，防无意引用静默重写基线；反引号包裹与裸形态都认——裸形态过
+# 不了书写规则（外文字母进中文主体），认它只为让判罚清单指向正确的修复动作
+_EXEMPT_RE = re.compile(r"^`?snapshot:allow`?\b")
 _DIGEST_RE = re.compile(r"[0-9a-f]{64}")
 
 
@@ -55,10 +57,10 @@ def content_digest(title: str, body: str) -> str:
 
 
 def parse_exemption(body: str) -> tuple[bool, list[gate_report.Finding]]:
-    """豁免解析单点：正文首行带放行标记且缘由非空即有效豁免；标记在场而缘
-    由缺席给缺缘由条目、豁免无效；标记不在首行视为无豁免、无条目。"""
+    """豁免解析单点：正文首行以放行标记起头且缘由非空即有效豁免；标记起头
+    而缘由缺席给缺缘由条目、豁免无效；标记不在首行起始视为无豁免、无条目。"""
     first = body.split("\n", 1)[0]
-    match = _EXEMPT_RE.search(first)
+    match = _EXEMPT_RE.match(first)
     if match is None:
         return (False, [])
     tail_at = match.end()
@@ -85,13 +87,20 @@ def snapshot_finding(current: str, stored: str) -> gate_report.Finding:
 
 
 def compare_findings(
-    current: str, stored: str, body: str
+    current: str, body: str, fetch_stored: Callable[[], str]
 ) -> tuple[bool, list[gate_report.Finding]]:
-    """比对决策单点：豁免有效返回重写标记与空表，调用方以当前摘要重写基线；
-    否则返回不重写与条目清单——缺缘由条目照收，摘要与快照不一致再叠加。"""
+    """比对决策单点，生产路径 main 经此决策不另抄一份：豁免有效返回重写标
+    记与空表，调用方以当前摘要重写基线（豁免在场不需要快照，回调不触发）；
+    否则经回调取快照摘要——回调报错转基础设施条目失败关闭，缺缘由条目照收，
+    摘要与快照不一致再叠加快照条目。"""
     exempt, problems = parse_exemption(body)
     if exempt:
         return (True, [])
+    try:
+        stored = fetch_stored()
+    except RuntimeError as exc:
+        problems.append(gate_report.infra_failure(str(exc)))
+        return (False, problems)
     if stored != current:
         problems.append(snapshot_finding(current, stored))
     return (False, problems)
@@ -222,8 +231,8 @@ def main() -> int:
             return infra_exit(exc)
         print("  ok: content snapshot written (%s%s)" % (DIGEST_PREFIX, current))
         return gate_report.EXIT_PASS
-    exempt, problems = parse_exemption(body)
-    if exempt:
+    rewrite, problems = compare_findings(current, body, lambda: fetch_snapshot_digest(slug, sha))
+    if rewrite:
         try:
             write_snapshot(slug, sha, current)
         except RuntimeError as exc:
@@ -233,18 +242,12 @@ def main() -> int:
             " current version (%s%s)" % (EXEMPT_MARKER, DIGEST_PREFIX, current)
         )
         return gate_report.EXIT_PASS
-    try:
-        stored = fetch_snapshot_digest(slug, sha)
-    except RuntimeError as exc:
-        for finding in problems:
-            gate_report.fail(finding)
-        return infra_exit(exc)
-    if stored != current:
-        problems.append(snapshot_finding(current, stored))
     for finding in problems:
         gate_report.fail(finding)
     if problems:
         gate_report.finish(problems)
+        if any(f.rule == gate_report.RULE_INFRA for f in problems):
+            return gate_report.EXIT_INFRA
         return gate_report.EXIT_VIOLATION
     print("  ok: title and body match the snapshot on the head commit")
     return gate_report.EXIT_PASS

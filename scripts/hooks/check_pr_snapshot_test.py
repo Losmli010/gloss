@@ -89,17 +89,27 @@ def test_body_without_marker_is_no_exemption() -> None:
     assert check_pr_snapshot.parse_exemption(BODY_V1) == (False, [])
 
 
-def test_marker_between_text_on_first_line_is_valid() -> None:
+def test_marker_not_at_line_start_is_no_exemption() -> None:
     body = "豁免声明：`snapshot:allow` 评审人要求整体改写\n\n## 摘要\n"
-    assert check_pr_snapshot.parse_exemption(body)[0] is True
+    assert check_pr_snapshot.parse_exemption(body) == (False, [])
 
 
-# ---- 比对决策：计划指定三条样例 ----
+def test_first_line_mention_of_marker_is_no_exemption() -> None:
+    body = "实现 snapshot:allow 标记的解析\n\n## 摘要\n"
+    assert check_pr_snapshot.parse_exemption(body) == (False, [])
+
+
+def test_marker_prefix_of_longer_token_is_no_exemption() -> None:
+    body = "snapshot:allowxyz 缘由\n"
+    assert check_pr_snapshot.parse_exemption(body) == (False, [])
+
+
+# ---- 比对决策：计划指定三条样例（生产入口经此决策，回调惰性取快照）----
 
 
 def test_rewritten_content_flags_pr_snapshot() -> None:
     rewrite, problems = check_pr_snapshot.compare_findings(
-        digest_of(TITLE, BODY_V2), digest_of(TITLE, BODY_V1), BODY_V2
+        digest_of(TITLE, BODY_V2), BODY_V2, lambda: digest_of(TITLE, BODY_V1)
     )
     assert not rewrite
     assert [f.rule for f in problems] == ["PR-SNAPSHOT"]
@@ -107,16 +117,34 @@ def test_rewritten_content_flags_pr_snapshot() -> None:
 
 def test_restored_content_passes_against_the_baseline() -> None:
     rewrite, problems = check_pr_snapshot.compare_findings(
-        digest_of(TITLE, BODY_V1), digest_of(TITLE, BODY_V1), BODY_V1
+        digest_of(TITLE, BODY_V1), BODY_V1, lambda: digest_of(TITLE, BODY_V1)
     )
     assert not rewrite and problems == []
 
 
 def test_exemption_rewrite_updates_the_baseline() -> None:
+    taken = []
+
+    def stored() -> str:
+        taken.append(1)
+        return digest_of(TITLE, BODY_V1)
+
     rewrite, problems = check_pr_snapshot.compare_findings(
-        digest_of(TITLE, BODY_EXEMPT), digest_of(TITLE, BODY_V1), BODY_EXEMPT
+        digest_of(TITLE, BODY_EXEMPT), BODY_EXEMPT, stored
     )
     assert rewrite and problems == []
+    assert taken == []  # 豁免在场不需要快照，回调不触发
+
+
+def test_absent_snapshot_turns_into_infra_finding() -> None:
+    def absent() -> str:
+        raise RuntimeError("no Content snapshot status on the head commit")
+
+    rewrite, problems = check_pr_snapshot.compare_findings(
+        digest_of(TITLE, BODY_V1), BODY_V1, absent
+    )
+    assert not rewrite
+    assert [f.rule for f in problems] == ["INFRA"]
 
 
 def test_snapshot_finding_evidence_carries_both_digests() -> None:
