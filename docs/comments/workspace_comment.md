@@ -5,11 +5,11 @@
 
 ## request_redraw（2026-10-16，内存优化方案）
 
-- 为什么按浮层可见性门控重绘：隐藏窗口在 macOS 仍取得到 drawable，事件驱动的零散重绘在隐藏期是整帧空转（tessellate + surface 呈现）。备选「门控画帧（draw）」不取——预热首帧（resumed 里直调 draw）必须在隐藏态画，门控画帧会把它一并拦掉；门控 request_redraw 不影响直调路径。安全性依据：全部显示路径（reveal 的 show_overlay、失败即弹）都先置窗口可见再请求重绘，门控不吞该画的帧。
+- 为什么按浮层可见性门控重绘：隐藏窗口在 macOS 仍取得到 drawable，事件驱动的零散重绘在隐藏期是整帧空转（tessellate + surface 呈现）。备选“门控画帧（draw）”不取——预热首帧（resumed 里直调 draw）必须在隐藏态画，门控画帧会把它一并拦掉；门控 request_redraw 不影响直调路径。安全性依据：全部显示路径（reveal 的 show_overlay、失败即弹）都先置窗口可见再请求重绘，门控不吞该画的帧。
 
 ## ensure_settings_frame / drop_settings_frame（2026-10-16，内存优化方案）
 
-- 为什么设置窗渲染帧惰性建立、随关闭释放：设置窗低频且从未打开也常驻一套 surface（高分屏约 14MB drawable）+ Renderer + 独立 egui 上下文与字体图集。窗口本体仍启动即建（NSWindow 便宜，且 ActiveEventLoop 只在 resumed 可用）；贵的 GPU 侧首次绘制前建、关闭即 drop。备选「整窗惰性」不取——WindowManager 需要持有 settings 窗口才能匹配 window_event，Option 化会传染全部事件路由。
+- 为什么设置窗渲染帧惰性建立、随关闭释放：设置窗低频且从未打开也常驻一套 surface（高分屏约 14MB drawable）+ Renderer + 独立 egui 上下文与字体图集。窗口本体仍启动即建（NSWindow 便宜，且 ActiveEventLoop 只在 resumed 可用）；贵的 GPU 侧首次绘制前建、关闭即 drop。备选“整窗惰性”不取——WindowManager 需要持有 settings 窗口才能匹配 window_event，Option 化会传染全部事件路由。
 
 ## 字体时序
 

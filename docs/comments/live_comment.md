@@ -10,7 +10,7 @@
 ## LiveEnv
 
 - live 轨的端点配置（全部来自 `GLOSS_LIVE_*` 环境变量，缺一即失败）。
-- `Debug` 手写脱敏：key 不进任何日志面（密钥红线），排查时只能看到「有/无 key」。
+- `Debug` 手写脱敏：key 不进任何日志面（密钥红线），排查时只能看到“有/无 key”。
 - 字段：`base_url` OpenAI 兼容端点；`model` 本次评测使用的模型 id（对全部 kind 生效，含分类）；`api_key` API key（只进请求头；不进日志与报告）。
 
 ## LiveEnv::from_env
@@ -29,7 +29,7 @@
 
 ## JudgeTracker::summary
 
-- judge 启用即产摘要：全失败（count=0）时 `attempted` 仍记录尝试数，与「未启用」（judge 段整体缺席）区分开——付费调用全失败不能无痕迹。
+- judge 启用即产摘要：全失败（count=0）时 `attempted` 仍记录尝试数，与“未启用”（judge 段整体缺席）区分开——付费调用全失败不能无痕迹。
 
 ## run_live
 
@@ -42,7 +42,7 @@
 
 ## live_task_dataset 的记账与轮记录
 
-- 与分类轨同一「跑完全集」策略；差别在记账——分类轨把引擎失败单列 engine_errors，任务轨并入 degraded（live 的降级率因此混入传输失败，见 TaskMetrics 文档）。
+- 与分类轨同一“跑完全集”策略；差别在记账——分类轨把引擎失败单列 engine_errors，任务轨并入 degraded（live 的降级率因此混入传输失败，见 TaskMetrics 文档）。
 - 轮记录来自 run_task_rounds 本身：修复轮次与 RunOutput.repairs 同源同值（on_repair 与修复计数器逐一对应），折算走与重放轨同一份明细结算（task_parts 内部即 for_reply + 逐轮轨迹）。
 - 夹具落盘放在轮记录的最后一次使用之后：逐轮文本 move 进夹具，不再逐轮复制（落盘顺序与逐条顺序不变——每条至多一次 push）。分类轨同此。
 

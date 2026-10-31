@@ -49,7 +49,7 @@ watch 频道广播的最新状态快照（UI 每帧读，不引入锁）。
 
 更新子状态机：纯状态 + 决策，无 IO。
 
-- `update`：检查通过后锁定的更新目标；「无更新」「清单失败」后的重试会重新检查并覆盖，下载/替换失败的重试依赖它续跑，故随 Failed 保留。
+- `update`：检查通过后锁定的更新目标；“无更新”“清单失败”后的重试会重新检查并覆盖，下载/替换失败的重试依赖它续跑，故随 Failed 保留。
 - `cancel`：在途任务的取消令牌（检查与下载各一任；替换不可取消）。
 
 ## UpdateMachine::new
@@ -90,7 +90,7 @@ watch 频道广播的最新状态快照（UI 每帧读，不引入锁）。
 
 ## UpdateMachine::accept_manifest_unavailable
 
-采纳「清单不可用」：守卫 `Checking`，落清单步失败。
+采纳“清单不可用”：守卫 `Checking`，落清单步失败。
 
 ## UpdateMachine::accept_download_verified
 

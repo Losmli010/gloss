@@ -6,4 +6,4 @@
 ## check_simplified 与 table
 
 - 2026-10-28 判定范围：正文区段 + 括号组内容（嵌套组内容随外层内容重复扫描，违约去重后等价）；引文组豁免（设计 R3 明文）、数学区豁免（容器语义）。
-- 2026-10-28 表构建：char_map.rs 的常量串按两字符一切建 `HashMap<char, char>`（OnceLock 惰性）；判定只查「该字形是否繁体独有」（contains），不换字——判定器不改写产物。
+- 2026-10-28 表构建：char_map.rs 的常量串按两字符一切建 `HashMap<char, char>`（OnceLock 惰性）；判定只查“该字形是否繁体独有”（contains），不换字——判定器不改写产物。

@@ -20,15 +20,15 @@
 - 缘由：CHANGELOG.md 文件删除后，release workflow 的正文生成从
   `git cliff -o CHANGELOG.md`（整本历史）改为 `git cliff --latest -o
   release-notes.md`（只渲染当前 tag 的一节）。此前每个 Release 页都会重
-  复携带更早版本的说明，与「Release 页是唯一来源」相悖——唯一来源意味着
+  复携带更早版本的说明，与“Release 页是唯一来源”相悖——唯一来源意味着
   每个版本页恰好承载自己的说明。release-notes.md 只存在于 CI 工作区，
   不进仓库。
-- cliff.toml 同步去掉文件式 header（「本文件记录…」），渲染产物直接以
+- cliff.toml 同步去掉文件式 header（“本文件记录…”），渲染产物直接以
   `## [版本] - 日期` 开头，作为 Release 正文更干净。
 
 ## 站点不留变更日志链接（2026-10-07）
 
-- 站点「更新日志」区的 CHANGELOG 卡片原直链仓库 `CHANGELOG.md`，但该文件已按
-  「Release 页是唯一来源」决策不落仓库，链接恒 404。修法取舍：部署时渲染整本
+- 站点“更新日志”区的 CHANGELOG 卡片原直链仓库 `CHANGELOG.md`，但该文件已按
+  “Release 页是唯一来源”决策不落仓库，链接恒 404。修法取舍：部署时渲染整本
   `CHANGELOG.md` 进 Pages 产物，或站点不留变更日志链接；用户取后者——站点去掉
   该卡片，逐版本说明只留在 GitHub Releases（Release 页唯一来源决策不动）。

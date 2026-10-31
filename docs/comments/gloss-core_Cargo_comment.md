@@ -15,7 +15,7 @@
 
 - 2026-09-18 tracing 留 std：关掉会退化成 no-op。
 - 2026-09-18 不留 attributes：项目不用 `#[instrument]`（过程宏无法跨 crate 转发，见 log.rs 模块文档），顺带省掉 tracing-attributes 一支编译。
-- 2026-09-18 tracing-appender 无特性可关，照写 `default-features = false` 保持「关默认集」写法统一。
+- 2026-09-18 tracing-appender 无特性可关，照写 `default-features = false` 保持“关默认集”写法统一。
 - 2026-09-18 tracing-subscriber 的 tracing-log 必须留：GUI 栈（egui / wgpu / naga / font-kit）都经 log 门面记录，去掉它这些三方诊断就不再进终端与日志文件。
 
 ## dependencies.toml（提示词模板重设计方案 §7，期三，2026-10-29）

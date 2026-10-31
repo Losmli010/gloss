@@ -4,13 +4,13 @@
 
 ## 合并提交跳过（原头注细节，注释纪律门禁后沉此处）
 
-- 2026-10-24 「合并提交的自动消息」指 git 默认生成的 `Merge branch ...` 消息，不在 Conventional Commits 规范内，故跳过。
+- 2026-10-24 “合并提交的自动消息”指 git 默认生成的 `Merge branch ...` 消息，不在 Conventional Commits 规范内，故跳过。
 - 2026-10-24 与 CI 校验的 `--no-merges` 口径一致（CI 同样不校验合并提交）。
 - 2026-10-24 squash 合并产生的正式提交不受此豁免，仍会走 PR 标题校验。
 
 ## 配方名对照
 
-- 2026-10-24 「同一校验脚本单点」= scripts/hooks/check_commit_msg.py；校验逻辑与 CI 的 Commit message check 同款。
+- 2026-10-24 “同一校验脚本单点”= scripts/hooks/check_commit_msg.py；校验逻辑与 CI 的 Commit message check 同款。
 
 ## 输出形态（反馈迁移后）
 

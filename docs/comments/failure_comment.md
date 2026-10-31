@@ -5,7 +5,7 @@
 
 ## MAX_ERROR_BODY_BYTES
 
-- 错误响应体的读取上限：只要 `error.message`，多余字节没有价值，而错误网关的劫持页可能极大（截断后 JSON 解析失败会退化成「只报状态码」，与既有非 JSON 路径一致）。
+- 错误响应体的读取上限：只要 `error.message`，多余字节没有价值，而错误网关的劫持页可能极大（截断后 JSON 解析失败会退化成“只报状态码”，与既有非 JSON 路径一致）。
 
 ## map_transport_error
 

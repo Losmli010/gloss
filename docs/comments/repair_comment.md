@@ -32,4 +32,4 @@
 ### 泛化与语言段（2026-10-28，输出语言体例门禁设计 §6）
 
 - `next_round` 把违约参数从 `Violation` 放宽为 `impl Display`、回复参数改为 `Option<&str>`（None = 空回复原样重发）、指令改为零参 `FnOnce` 惰性渲染——三段（任务/分类/语言）共用一个骨架，差异收口在调用方三参。`warn_*` 同步放宽，语言段有自己的两句话术。
-- `RepairStage::Lang` 的留痕话术：违约为「reply violates the output language rules」、耗尽为「delivering the reply degraded」——与设计「降级不拦截」对应；reason 用 `LangViolation::summary`（类别集合），不带回复原文。
+- `RepairStage::Lang` 的留痕话术：违约为“reply violates the output language rules”、耗尽为“delivering the reply degraded”——与设计“降级不拦截”对应；reason 用 `LangViolation::summary`（类别集合），不带回复原文。

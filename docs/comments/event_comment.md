@@ -12,16 +12,16 @@
 - **为什么逐字复刻 rdev 的参数**：模拟复制与手势注入是已验证多年行为
   的路径（读取依据 rdev 0.5.3 `src/macos/simulate.rs`）——事件源固定
   `kCGEventSourceStateHIDSystemState`、注入点固定 `kCGHIDEventTap`、
-  键码映射同 HID 虚拟键码表（Cmd=55、C=8）、按钮事件取「当前指针位置」
+  键码映射同 HID 虚拟键码表（Cmd=55、C=8）、按钮事件取“当前指针位置”
   构造。换源或换注入点都可能改变系统对合成事件的合并行为（尤其修饰键
   状态），不值得为一个依赖替换冒行为漂移的风险。唯一结构差异：事件源在 `inject_copy_key` 内建一次、四步序列复用（rdev 每次 simulate 新建）——HIDSystemState 是共享系统状态，source 实例只是句柄，行为等价且省三次 `CGEventSourceCreate`。
 - **为什么修饰键不显式 CGEventSetFlags**：与 rdev 同款——先注入 Cmd
   按下（键码 55）再注入 C，系统按事件流维护修饰键状态，后续事件自动
   带上 Cmd；显式设 flags 反而是 rdev 没有的行为差异。
 - **为什么 safe 包装收在 ffi/event.rs**：`post_keyboard_event`/
-  `post_mouse_event` 把「构造 + 判空 + 守卫释放 + 注入」收成一步，调用
+  `post_mouse_event` 把“构造 + 判空 + 守卫释放 + 注入”收成一步，调用
   方不接触 unsafe 也不持有事件引用生命周期；与 ax.rs 的 safe 包装同款
-  分工。返回 bool 只反映「事件构造成功」（分配失败），注入本身无返回
+  分工。返回 bool 只反映“事件构造成功”（分配失败），注入本身无返回
   状态——未授权时事件被系统静默丢弃，成败语义由剪贴板写入确认窗口
   承担（与 rdev 时代一致，见 selection_clipboard_comment.md）。
 - **test 门控面**：生产路径只注入键盘（模拟复制）；鼠标构造/位置查询
@@ -39,9 +39,9 @@
 ## post_keyboard_event 修饰位语义（2026-10-15，评审补）
 
 - **修饰键释放事件不带自身修饰位**：flagsChanged/keyUp 的修饰位表达
-  「事件之后」的状态——Cmd 按下带自身位、释放不带，系统级消费者以
-  「自身位是否还在」区分修饰键 down/up。注入序列的 Cmd 释放若带位，
-  等于向下游宣告「Command 仍按着」，自跟踪修饰键状态的应用会把用户
+  “事件之后”的状态——Cmd 按下带自身位、释放不带，系统级消费者以
+  “自身位是否还在”区分修饰键 down/up。注入序列的 Cmd 释放若带位，
+  等于向下游宣告“Command 仍按着”，自跟踪修饰键状态的应用会把用户
   随后的真实按键误判成 chord（c→⌘C、q→⌘Q）。C 的按下/释放带位不受
   影响（按住 Cmd 按 C 的真实硬件事件本就带位）。
 

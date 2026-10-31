@@ -14,13 +14,13 @@
   cargo-flamegraph 同款配方；`-x ustackframes=100` 对齐其默认栈深。
 - 2026-10-06 attach 模式（本脚本）与 launch 模式（just flame-startup，
   cargo-flamegraph）分立：cargo-flamegraph 不支持 attach 到既有 pid，
-  attach 是「实例已在跑、交互后采样」的唯一路径；launch 模式采启动段
+  attach 是“实例已在跑、交互后采样”的唯一路径；launch 模式采启动段
   则是 attach 追不上的窗口。
 
 ## top_of_stack
 
-- 2026-10-06 折叠格式「根帧;…;叶子帧 N」的叶子帧即栈顶：自耗 = 各行叶子
-  计数之和，等价 sample 报告的「Sort by top of stack」跨线程聚合口径。
+- 2026-10-06 折叠格式 `根帧;…;叶子帧 N` 的叶子帧即栈顶：自耗 = 各行叶子
+  计数之和，等价 sample 报告的“Sort by top of stack”跨线程聚合口径。
 - 2026-10-06 帧名含空格时 rpartition(" ") 取计数、rsplit(";", 1) 取叶子
   会有歧义（解 mangling 后的泛型名理论上可含空格），Top 10 是展示性汇总，
   接受该近似，不做完整折叠语法解析。
@@ -34,15 +34,15 @@
 
 ## 未符号化检测
 
-- 2026-10-06 dtrace 无符号帧是「模块`0x偏移」形（有符号帧是
-  「模块`符号+0x偏移」），与 sample 的 `???` 形不同，检测正则换成
+- 2026-10-06 dtrace 无符号帧是“模块`0x偏移`”形（有符号帧是
+  “模块`符号+0x偏移`”），与 sample 的 `???` 形不同，检测正则换成
   `` `0x<hex>$ ``；>60% 提示改用 profiling 实例，与旧脚本同口径：
   提示进输出不报错，二进制级归因仍有价值。
 
 ## sudo 失败分支
 
 - 2026-10-06 stderr 含 "password is required" / "requires root" 时给
-  「在终端里运行」指引而非裸报错：无人值守环境（CI、代理会话）跑
+  “在终端里运行”指引而非裸报错：无人值守环境（CI、代理会话）跑
   `just flame` 必然走到这里，指引要能当场执行。
 
 ## 文件头迁出的用法与链路（2026-10-24，注释纪律）
@@ -54,4 +54,4 @@
   rustfilt 则就地解 Rust mangling）→ inferno-flamegraph 渲染 SVG。
 - 从启动采到退出的 launch 模式走 `just flame-startup`（cargo-flamegraph）。
 - 函数级归因先 `just profile-run` 以 profiling 配置启动带符号实例再采
-  （release 二进制 strip=true 无符号表，无符号帧显示为「二进制名`0x偏移」）。
+  （release 二进制 strip=true 无符号表，无符号帧显示为“二进制名`0x偏移”）。

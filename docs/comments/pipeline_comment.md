@@ -3,7 +3,7 @@
 ## 桥接管缓存编排与 body 累积（M1，2026-09-26）
 
 - 查/写主缓存（cache_key）从 core 的 AiTaskService 移到 run_task：命中直出
-  TaskDone 不调引擎的判定属于「编排次序」，桥是唯一知道完整次序的地方。
+  TaskDone 不调引擎的判定属于“编排次序”，桥是唯一知道完整次序的地方。
 - body 累积在转发回调里完成：TaskChunk 上抛与累积是同一点的两面，不另设
   通道。完成态以 TaskDone 的 outcome.body 为权威源——machine 侧的流式
   累积只服务显示，accept_done 整卡覆盖（两处注释互相指认）。
@@ -27,7 +27,7 @@
 
 hint_kind（classify 模块单点）在桥里先于缓存查询与模型解析调用：带代码
 语言提示的输入答案确定，不花缓存查找与快照取数的成本，也不发分类请求；
-classify() 内部同一规则兜住「绕过桥直接调 classify」的调用方（M3 评测
+classify() 内部同一规则兜住“绕过桥直接调 classify”的调用方（M3 评测
 重放会这么用）。
 
 ## 降级产物不投毒缓存（契约校验步骤 3，2026-10-11）
@@ -41,8 +41,8 @@ classify() 内部同一规则兜住「绕过桥直接调 classify」的调用方
 
 ## 桥接线 on_repair（2026-10-12，契约校验与重试方案 §6）
 
-- 为什么修复标记经通道④直发（`Event::TaskRepairing`）而不在主线程推导：修复轮边界只有 LLM 层知道（违约判定在 run future 内），主线程能看到的只有「chunk 停了」——用超时推导修复等于把契约语义压回计时；一个不带轮次的事件把边界显式化，陈旧过滤复用代数机制。
-- 分类阶段的修复不发事件：分类发生在 `on_classified` 之前，此时尚无「流式卡」可清稿，发事件只会让状态机空转——分类对用户无感是方案定稿的可见度分工。
+- 为什么修复标记经通道④直发（`Event::TaskRepairing`）而不在主线程推导：修复轮边界只有 LLM 层知道（违约判定在 run future 内），主线程能看到的只有“chunk 停了”——用超时推导修复等于把契约语义压回计时；一个不带轮次的事件把边界显式化，陈旧过滤复用代数机制。
+- 分类阶段的修复不发事件：分类发生在 `on_classified` 之前，此时尚无“流式卡”可清稿，发事件只会让状态机空转——分类对用户无感是方案定稿的可见度分工。
 
 ## 任务桥 catch_unwind 与 release panic=abort（P2-1，2026-10-13）
 
@@ -50,7 +50,7 @@ classify() 内部同一规则兜住「绕过桥直接调 classify」的调用方
   release 下后台 panic 不再转 TaskFailed、进程直接崩（行为变更须在 PR 描述
   显式记录，开 PR 时落实；决策已确认属产品行为变更）；dev/test 构建仍是
   unwind（test 目标由 cargo 强制 unwind），
-  「panic → TaskFailed + 循环存活」的降级语义照常并被
+  “panic → TaskFailed + 循环存活”的降级语义照常并被
   `background_panic_becomes_task_failed_and_the_loop_survives` 这条 L1 单测
   锁定——删除即同时退化测试 profile。`#[cfg(panic)]` 按构建策略走双路径的方案
   也不取：两份代码只差一个分支，维护面翻倍而 release 无任何行为差。
@@ -59,9 +59,9 @@ classify() 内部同一规则兜住「绕过桥直接调 classify」的调用方
   使用证据；`StreamExt::next`（update 的流式读取）无特性门、零特性可用——维持
   `default-features = false, features = ["std"]` 不动。
 
-## start_command_runtime 的 worker_threads(2026-10-16,内存优化方案)
+## start_command_runtime 的 worker_threads（2026-10-16，内存优化方案）
 
-- 为什么钉在 2:消费桥串行消费通道③,同一时刻至多一个任务 future 在跑(分类/修复轮/传输都在它的 await 链上,密钥预热甩 blocking 池),第二个 worker 只为传输 future 与主循环的并发兜底;默认按核数起 worker 只多出线程栈与 per-thread 分配器缓存的常驻。
+- 为什么钉在 2：消费桥串行消费通道③，同一时刻至多一个任务 future 在跑（分类/修复轮/传输都在它的 await 链上，密钥预热甩 blocking 池），第二个 worker 只为传输 future 与主循环的并发兜底；默认按核数起 worker 只多出线程栈与 per-thread 分配器缓存的常驻。
 
 ## SHUTDOWN_TIMEOUT / CommandRuntime
 
@@ -84,7 +84,7 @@ classify() 内部同一规则兜住「绕过桥直接调 classify」的调用方
 ## run_one（单条任务命令的执行体）
 
 - 取消与执行竞速：取消即时生效，覆盖缓存查询与流式读取的全部 await 点；被取消的任务不发任何回传——App 取消时已 gen+1，迟到产物本就该被丢弃。
-- 执行体包在 catch_unwind 里：unwind 构建（dev/test）下后台 panic 转 TaskFailed（错误卡给用户「服务异常」而不是永悬的推理中），循环自身继续消费。生效边界：release 以 `panic = "abort"` 构建时 panic 在事发点 abort 进程，`Err(payload)` 分支不可达——屏障仅为 unwind 构建保留。
+- 执行体包在 catch_unwind 里：unwind 构建（dev/test）下后台 panic 转 TaskFailed（错误卡给用户“服务异常”而不是永悬的推理中），循环自身继续消费。生效边界：release 以 `panic = "abort"` 构建时 panic 在事发点 abort 进程，`Err(payload)` 分支不可达——屏障仅为 unwind 构建保留。
 
 ## prewarm_secret（密钥预热旁路）
 
@@ -106,12 +106,12 @@ classify() 内部同一规则兜住「绕过桥直接调 classify」的调用方
 ### 语言降级标志与缓存口径修订（2026-10-28，输出语言体例门禁设计 §6）
 
 - 桥侧把 `RunOutput.lang_degraded` 并进产物 `degraded`：格式降级（空注）与语言降级（内容完整）共用一个标志，徽标文案因此取泛化措辞（设计决策 9）。
-- 缓存条件从「非降级才写」改为「格式合格才写」（`!outcome.note.is_empty()`）：语言降级产物内容完整、对用户仍有价值，按设计「修复后（或降级接受）的最终 TaskOutcome 入缓存，缓存命中不重放修复轮」照常入缓存；格式降级产物（空注）依旧不投毒。`note` 是否为空是 `complete()` 两分支的精确判别式（正常路径注恒非空、降级路径恒空），不新增字段。
+- 缓存条件从“非降级才写”改为“格式合格才写”（`!outcome.note.is_empty()`）：语言降级产物内容完整、对用户仍有价值，按设计“修复后（或降级接受）的最终 TaskOutcome 入缓存，缓存命中不重放修复轮”照常入缓存；格式降级产物（空注）依旧不投毒。`note` 是否为空是 `complete()` 两分支的精确判别式（正常路径注恒非空、降级路径恒空），不新增字段。
 - `a_lang_degraded_done_caches_the_full_outcome_for_replay` 锁定新口径：首轮 3 次引擎调用（分类、任务、语言修复）后缓存直出，二次触发不再触引擎。
 
 ## 违约清单随产物落缓存（降级批注方案 §2，2026-10-30）
 
 - 语言降级置标记处顺带把 `RunOutput.lang_violations` 搬入产物——清单随完成
-  产物恒存缓存（「恒存完成产物」语义内），缓存命中回放原样带回，回放点
+  产物恒存缓存（“恒存完成产物”语义内），缓存命中回放原样带回，回放点
   不为此重跑判定器（重判随规则表升级漂移）。契约无效直降产物清单为空且
   不进缓存，语义不变。

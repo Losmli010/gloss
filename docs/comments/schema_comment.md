@@ -2,11 +2,11 @@
 
 ## 契约三行同构表与校验分级（§3 的落地）
 
-- 硬约束刻意只有两条：整段是合法 JSON **对象**、`note` 非空（trim 后）。其余（structured 缺失/非对象、变体内字段类型错、数组坏条目）全部按软约束就地回落——全字段严格校验会把重试率推高几个量级（方案 §1.1 的取舍，评审六轮收敛的结论，不要"顺手"收紧）。
+- 硬约束刻意只有两条：整段是合法 JSON **对象**、`note` 非空（trim 后）。其余（structured 缺失/非对象、变体内字段类型错、数组坏条目）全部按软约束就地回落——全字段严格校验会把重试率推高几个量级（方案 §1.1 的取舍，评审六轮收敛的结论，不要“顺手”收紧）。
 - 严格裸 JSON、无围栏容错：围栏输出即 `NotJson`。`validate_task` 消费方是 finalize 的降级分支（本步起围栏不再是容错位）；`validate_classify` 本步只定义 + 单测，**尚未**接进 `classify.rs`（生产分类仍走 `parse_classify_reply` 的围栏容错）——分类重试与兜底换值归步骤 5（General kind）与步骤 6（删围栏容错），eval 分类轨本步也留在 `parse_classify_reply` 以与当步生产保持同源。步骤 5/7 接线时这里是第一个要改的点。
-- `KindNotAllowed` 对任务路径不可产生（kind 由编排给定），它留在同一枚举里是因为分类轨共用这套违约词表；缺 kind / kind 非法 / 清单外统一归 `KindNotAllowed`——修复轮（步骤 5）的措辞只需要"清单"一个语义。
+- `KindNotAllowed` 对任务路径不可产生（kind 由编排给定），它留在同一枚举里是因为分类轨共用这套违约词表；缺 kind / kind 非法 / 清单外统一归 `KindNotAllowed`——修复轮（步骤 5）的措辞只需要“清单”一个语义。
 - `Violation` 用 `Display` 而非方法承载固定措辞：它要进日志字段（`reason = %violation`）与后续步骤 5 的 `repair.md` 占位符，`Display` 是这两处的自然管道。措辞是英文（日志门禁），与 i18n 无关。
-- `empty_structured(kind)` 独立成 pub 函数：finalize 的降级分支与 eval 的 `TaskVerdict` 都需要"该 kind 空变体"，收敛单点。
+- `empty_structured(kind)` 独立成 pub 函数：finalize 的降级分支与 eval 的 `TaskVerdict` 都需要“该 kind 空变体”，收敛单点。
 
 ## wire 形状与 serde 的关系（容易踩的坑）
 

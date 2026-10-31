@@ -1,7 +1,7 @@
 # machine.rs 测试记录
 
 > 按符号锚定（不写行号，防漂移）。改到相关测试时同步更新本文件。
-> 测试代码禁止注释（AGENTS.md「注释纪律」节），测试的验收意图与辅助契约记录在此。
+> 测试代码禁止注释（AGENTS.md“注释纪律”节），测试的验收意图与辅助契约记录在此。
 
 ## 测试行为速览（BDD）
 
@@ -10,17 +10,17 @@
 ## 辅助
 
 - plain_outcome / text_input：构造产物与输入的夹具助手。
-- trigger(machine, config)：按出厂系统语言与「干净场景」触发一次，隐去
+- trigger(machine, config)：按出厂系统语言与“干净场景”触发一次，隐去
   `trigger` 那两个与用例无关的入参（Locale 与 `SceneFacts`），让各用例只
   显式表达自己关心什么。
 - committed(outcome) / confirmed(request)：把提交段与确认段的返回收成人话
   （2026-10-27 起 `dispatched` 辅助随 `InputOutcome::Dispatch` 变体删除）——
   期望待确认卡却拿到别的变体时，断言失败信息直接打印那条 `InputOutcome`，
-  不必再去猜「左右不是一个枚举」。
-- commit_confirmed(...)：提交并确认一步到位的快捷链（覆盖大多数「合法产物
-  照常下发」的用例前置）；专测确认语义的用例拆开走 `committed` +
+  不必再去猜“左右不是一个枚举”。
+- commit_confirmed(...)：提交并确认一步到位的快捷链（覆盖大多数“合法产物
+  照常下发”的用例前置）；专测确认语义的用例拆开走 `committed` +
   `confirmed`，好在中途断言待确认态。
-- blocked_by_app()：一份「前台应用在拦截名单内」的场景事实。单独抽出来是
+- blocked_by_app()：一份“前台应用在拦截名单内”的场景事实。单独抽出来是
   因为它在多处用到（划词被场景闸门拦下的两条路径），且前台应用的身份字段
   必须和内建名单里真的有一条对得上——写错就把测试变成永远放行。
 
@@ -29,7 +29,7 @@
 - `commit_lands_the_pending_card_and_confirm_dispatches_the_task`：三段式
   的主干钉子——提交落卡（无令牌、通道三零流量、视图持冻结输入）与确认
   下发（新令牌、回流式视图、代数不动）在一次往返里两头断言；尾部追加
-  「已消费的卡拒收重复确认」。
+  “已消费的卡拒收重复确认”。
 - `confirm_pending_is_refused_outside_the_pending_card`：守卫用空白机器、
   流式中、产物卡上三种非待确认形态逐个证伪，不依赖单一路径。
 - `a_new_commit_supersedes_the_pending_card_and_confirm_acts_on_the_current_card`：
@@ -55,9 +55,9 @@
 ## 降级产物与重试守卫（契约校验步骤 3 评审，2026-10-11）
 
 - `a_degraded_done_keeps_the_request_and_retry_redispatches_it`：retry()
-  有副作用（取走请求原件并转移状态），断言「请求副本被保留」不能先探测再
+  有副作用（取走请求原件并转移状态），断言“请求副本被保留”不能先探测再
   取用——测试体里一次 `retry()` 取走并直接断言重发形状（同代数、同
-  input+options、新令牌、回流式视图），保留语义由「取得到」本身证明。
+  input+options、新令牌、回流式视图），保留语义由“取得到”本身证明。
   同测试后半段用第二次探测提交正常产物：正常产物落 Show 即清
   active_request，`retry()` 返回 None——两种 Show（可重试的降级卡 / 不可
   重试的正常卡）在同一测试内对照。

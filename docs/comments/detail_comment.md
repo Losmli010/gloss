@@ -17,12 +17,12 @@
 
 ## CaseDetail
 
-- 一条样例的完整明细。字段语义：`group` 分组名（分类轨为「分类」，任务轨为数据集名如 task_translate_word）；`text` 输入文本（选区原文 / 代码等）；`expected` 期望判定（分类）或条目 kind（任务）；`repairs` 修复轮次（生产 `RunOutput.repairs` / `ClassifyDecision.repairs` 同口径）。
-- `engine_error` 标记 live 轨的请求本身失败（网络/限流）：与模型行为分账，检视页按「引擎失败」而不是模型错误展示。
+- 一条样例的完整明细。字段语义：`group` 分组名（分类轨为“分类”，任务轨为数据集名如 task_translate_word）；`text` 输入文本（选区原文 / 代码等）；`expected` 期望判定（分类）或条目 kind（任务）；`repairs` 修复轮次（生产 `RunOutput.repairs` / `ClassifyDecision.repairs` 同口径）。
+- `engine_error` 标记 live 轨的请求本身失败（网络/限流）：与模型行为分账，检视页按“引擎失败”而不是模型错误展示。
 
 ## engine_error_detail
 
-- live 轨的引擎失败明细：无轮次无判定，只留输入与「请求失败」标记（指标侧分类轨单列 engine_errors、任务轨并入降级，明细统一按本标记展示）。
+- live 轨的引擎失败明细：无轮次无判定，只留输入与“请求失败”标记（指标侧分类轨单列 engine_errors、任务轨并入降级，明细统一按本标记展示）。
 
 ## CLASSIFY_GROUP
 

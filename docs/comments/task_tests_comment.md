@@ -1,7 +1,7 @@
 # task.rs 测试记录
 
 > 按符号锚定（不写行号，防漂移）。改到相关测试时同步更新本文件。
-> 测试代码禁止注释（AGENTS.md「注释纪律」节），测试的验收意图与辅助契约记录在此；`// SAFETY:` 仍留在代码内。
+> 测试代码禁止注释（AGENTS.md“注释纪律”节），测试的验收意图与辅助契约记录在此；`// SAFETY:` 仍留在代码内。
 
 ## 测试行为速览（BDD）
 
@@ -10,9 +10,9 @@
 ## 辅助
 
 - text_task / image_task：构造文本与图像 Task 的夹具助手。
-- confirm(app)：替测试点一次「注疏」（`handle_overlay_action(Confirm)`）——
+- confirm(app)：替测试点一次“注疏”（`handle_overlay_action(Confirm)`）——
   2026-10-27 起提交不再直接下发，凡期望通道三收到 `RunTask` 的用例都要
-  在提交后补这一步；它让「谁在触发下发」在测试体里显式可见。
+  在提交后补这一步；它让“谁在触发下发”在测试体里显式可见。
 
 ## the_pending_card_cancel_path_sends_no_channel3_message（2026-10-27）
 
