@@ -196,7 +196,7 @@ def test_word_apostrophe_passes() -> None:
 
 
 def test_quick_reference_categories_cover_router_gates() -> None:
-    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts" / "dev"))
+    sys.path.insert(0, str(Path(__file__).parents[3] / "scripts" / "dev"))
     import comment_rules  # noqa: E402
 
     covered = {rel for category in comment_rules.CATEGORIES for rel in category.paths}
