@@ -494,6 +494,16 @@ def test_safety_not_adjacent_flagged(tmp_path: Path) -> None:
     assert any("not adjacent to an unsafe block" in p for p in problems)
 
 
+def test_safety_adjacency_penalty_keeps_window_closed(tmp_path: Path) -> None:
+    # 邻接判罚后同条注释的英文区判定照常上报（独立病灶同轮可见，屏蔽消除），
+    # 豁免窗口不随之开启：其后的行注释仍按普通行内注释处置
+    content = f"{HEADER}\n\n// SAFETY: 指针有效但未邻接不安全块\n// helper note\nlet ok = 1;\n"
+    problems = run_gate(tmp_path, content)
+    assert any("not adjacent to an unsafe block" in p for p in problems)
+    assert any("must be pure English" in p for p in problems)
+    assert any("inline comment" in p for p in problems)
+
+
 def test_safety_separated_by_statement_flagged(tmp_path: Path) -> None:
     content = (
         f"{HEADER}\n\n// SAFETY: separated by a full statement\n"

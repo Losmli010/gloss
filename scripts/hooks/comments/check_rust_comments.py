@@ -425,8 +425,11 @@ def check(rel: str, src: str) -> list[gate_report.Finding]:
                         remedy=SAFETY_ADJACENCY_REMEDY,
                     )
                 )
+                # 邻接判罚不短路：同条注释的英文区判罚照常上报，独立病灶同轮
+                # 可见；豁免窗口不随之开启，后续行仍按普通行内注释处置
+                problems += english_zone_problems(rel, sline, body, "SAFETY comment")
+                continue
             safety_open = True
-            # 邻接判罚不短路：同条注释的英文区判罚照常上报，独立病灶同轮可见
             problems += english_zone_problems(rel, sline, body, "SAFETY comment")
             continue
         problems.append(
