@@ -667,6 +667,7 @@
 | slash_separator_passes_in_chinese_prose | 分隔号入中文集 | 给定中文正文含分隔号的注，当判定，则无 `PunctuationMismatch`（`D1`） | 2026-10-30 |
 | math_symbols_pass_in_prose_without_delimiters | 数学记号直排放行 | 给定中文与英文正文含裸数学记号的注，当判定，则无 `PunctuationMismatch`（中性面并入允许表，`R4`） | 2026-10-30 |
 | attached_measures_pass_after_digits_only | 计量族随数字放行 | 给定前邻数字的计量符号注与孤立计量符号注，当判定，则前者放行、后者 `PunctuationMismatch`（计量族归附随面，`R3`） | 2026-10-30 |
+| attached_faces_follow_the_target_scene_and_two_dot_ellipsis_flags_both | 附随面随目标场景取面 | 给定英文区的摄氏符与全角人民币符随数字注，当判定，则 `PunctuationMismatch`；中文区同两符与万分率注放行；两点省略号两场景都判 `PunctuationMismatch`（分场拆分，`R3`） | 2026-10-31 |
 | dash_and_ellipsis_families_stay_style_items_not_violations | 破折号省略号与数字附随不判 | 给定破折号、省略号、双连字符、小数、区间、百分与货币金额各形态的注，当判定，则全部不判标点（风格项留给评测） | 2026-10-28 |
 | traditional_chars_flag_outside_and_pass_inside_quotes | 繁体正文判罚引文豁免 | 给定正文繁体字形与引文容器内的古籍繁体，当判定，则前者 `TraditionalChar`、后者放行 | 2026-10-28 |
 | pangu_space_flags_adjacency_only_for_chinese_target | 盘古之白仅中文目标判定 | 给定中文目标“中文`word`”直连与标点隔开、英文目标直连三种注，当判定，则直连判 `MissingSpace`、标点隔开与英文目标放行 | 2026-10-30 |
@@ -690,16 +691,16 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | punctuation_faces_match_the_expected_tables | 允许表与登记基准对版 | 给定嵌入数据源装入的允许表（中西允许、日韩并集、弯引号定界），当与登记基准（场景标点面并中性面）双向比对，则集合相等 | 2026-10-30 |
-| attached_and_family_faces_match_the_expected_tables | 附随面与家族面同基准对版 | 给定装入的附随三向面与破折号省略号家族面，当与现表 `golden` 比对，则集合相等 | 2026-10-30 |
+| attached_and_family_faces_match_the_expected_tables | 附随面与家族面同基准对版 | 给定装入的按场景附随面（中文取共用并场景合面、英文取共用面）与破折号省略号家族面，当与现表 `golden` 比对，则集合相等 | 2026-10-31 |
 | emoji_faces_match_the_migrated_tables | 表情事实同 `golden` 对版 | 给定装入的表情区段、裸表情与变体选择符，当与判定器原常量 `golden` 比对，则区段逐对相等、字符面集合相等 | 2026-10-30 |
 | policy_brackets_and_ranges_match_the_migrated_tables | 策略开关括号对与区段同 `golden` 对版 | 给定装入的盘古之白与简繁开关、括号对与六类文字系统区段，当与现表 `golden` 比对，则开关布尔、括号对序与区段逐对相等 | 2026-10-30 |
 | simplified_pairs_match_the_migrated_table | 简繁对串整段对版 | 给定数据文件嵌入的对串（尾随换行裁去），当与迁出前常量整串比对，则逐字相等 | 2026-10-30 |
-| char_faces_have_no_duplicate_symbols | 数据面内无重 | 给定嵌入数据源的十个字符面，当逐面去重对账，则无重复符号 | 2026-10-30 |
-| symbol_layers_stay_disjoint | 符号归位互斥 | 给定场景标点、中性、附随（前邻、后邻）与家族各面，当两两求交，则交集为空；数字夹住面只容与西文标点集重叠（句点逗号短横按位置双角色，`R3` 既定） | 2026-10-30 |
+| char_faces_have_no_duplicate_symbols | 数据面内无重 | 给定嵌入数据源的十二个字符面（含中文场景附随两面），当逐面去重对账，则无重复符号 | 2026-10-31 |
+| symbol_layers_stay_disjoint | 符号归位互斥 | 给定场景标点、中文场景附随（前邻、后邻）、中性、共用附随（前邻、后邻）与家族各面，当两两求交，则交集为空；数字夹住面只容与西文标点集重叠（句点逗号短横按位置双角色，`R3` 既定） | 2026-10-31 |
 | ranges_are_wellformed_and_pairwise_disjoint | 区段良构且互斥 | 给定表情区段与六类文字系统区段，当逐段核对与跨类求交，则起止有序、段内不叠、类间不相交 | 2026-10-30 |
 | simplified_pairs_stay_wellformed | 简繁对串良构 | 给定嵌入对串，当逐对核对，则长度为偶、繁简字形有别、按繁体码位升序且繁体不重 | 2026-10-30 |
 | zh_and_en_allow_tables_share_only_the_neutral_face | 中西允许表互斥对账 | 给定派生允许表（场景标点面并中性面两份），当双向求交，则交集恰为中性面成员——场景标点两面无共同成员（`R2`） | 2026-10-30 |
-| every_admitted_symbol_lands_on_exactly_one_layer | 现网符号恰属一面 | 给定收录面全体（场景标点、中性、附随三向、家族、弯引号定界、句末标点与括号对），当逐符号查归位层，则恰属一面，句点逗号短横的西文标点与数字夹住双角色是唯一例外，表情事实不落任何层 | 2026-10-30 |
+| every_admitted_symbol_lands_on_exactly_one_layer | 现网符号恰属一面 | 给定收录面全体（场景标点、中文场景附随、中性、共用附随三向、家族、弯引号定界、句末标点与括号对），当逐符号查归位层，则恰属一面，句点逗号短横的西文标点与数字夹住双角色是唯一例外，表情事实不落任何层 | 2026-10-31 |
 
 ### `crates/gloss-core/src/pipeline/wordings.rs`
 

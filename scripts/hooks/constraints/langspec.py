@@ -38,11 +38,13 @@ DATA_SOURCE = os.path.join("crates", "gloss-core", "langspec", "zh_en.toml")
 
 ALLOW_MARKER = "langspec:allow"
 
-# 判罚模式读的数据面：场景标点两份加共用面九份；西文标点与数字夹住面不
-# 含非英文字符，变体选择符经下方不可见选择符剔除，三面对本模式无贡献，
-# 读入只为口径完整
+# 判罚模式读的数据面：场景标点两份、中文场景附随面两份加共用面九份；西文
+# 标点与数字夹住面不含非英文字符，变体选择符经下方不可见选择符剔除，三面
+# 对本模式无贡献，读入只为口径完整
 FACE_KEYS = (
     ("zh", "punct"),
+    ("zh", "attached_after_digit"),
+    ("zh", "attached_before_digit"),
     ("en", "punct"),
     ("shared", "math"),
     ("shared", "attached_after_digit"),

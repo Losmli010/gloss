@@ -87,8 +87,9 @@ def new_fixture(root: Path, agents_body: str | None = None) -> None:
     langspec_dir = root / "crates/gloss-core/langspec"
     langspec_dir.mkdir(parents=True)
     (langspec_dir / "zh_en.toml").write_text(
-        '[zh]\npunct = "，。"\n\n[en]\npunct = "."\n\n[shared]\nmath = "="\n'
-        'attached_after_digit = "%"\nattached_before_digit = "￥"\n'
+        '[zh]\npunct = "，。"\nattached_after_digit = "℃"\nattached_before_digit = "￥"\n\n'
+        '[en]\npunct = "."\n\n[shared]\nmath = "="\n'
+        'attached_after_digit = "%"\nattached_before_digit = "¥"\n'
         'attached_between_digits = "."\ndash_ellipsis = "…"\ncurly_quotes = "“”"\n'
         'sentence_finals = "。!"\nemoji_bare = "✅"\nemoji_variants = "\\uFE0F"\n',
         encoding="utf-8",

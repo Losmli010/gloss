@@ -16,8 +16,9 @@ from constraints import fixtures, langspec  # noqa: E402
 
 # 带顿号与浪纹线的判罚数据面：覆盖基线夹具面外的成员，锁定模式随数据源走
 DATA_TOML = (
-    '[zh]\npunct = "，、～"\n\n[en]\npunct = "."\n\n[shared]\nmath = "="\n'
-    'attached_after_digit = "%"\nattached_before_digit = "￥"\n'
+    '[zh]\npunct = "，、～"\nattached_after_digit = "℃"\nattached_before_digit = "￥"\n\n'
+    '[en]\npunct = "."\n\n[shared]\nmath = "="\n'
+    'attached_after_digit = "%"\nattached_before_digit = "¥"\n'
     'attached_between_digits = "."\ndash_ellipsis = "…"\ncurly_quotes = "“”"\n'
     'sentence_finals = "。!"\nemoji_bare = "✅"\nemoji_variants = "\\uFE0F"\n'
 )
