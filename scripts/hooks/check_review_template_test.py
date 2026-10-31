@@ -47,10 +47,10 @@ REVIEW_TEMPLATE = """## 摘要
 
 
 def build_fixture(tmp_path: Path) -> None:
-    github = tmp_path / ".github"
-    github.mkdir()
-    (github / "pull_request_template.md").write_text(PR_TEMPLATE, encoding="utf-8")
-    (github / "review_result_template.md").write_text(REVIEW_TEMPLATE, encoding="utf-8")
+    manual = tmp_path / "docs" / "manual"
+    manual.mkdir(parents=True)
+    (manual / "pull_request_template.md").write_text(PR_TEMPLATE, encoding="utf-8")
+    (manual / "review_result_template.md").write_text(REVIEW_TEMPLATE, encoding="utf-8")
 
 
 def rules(tmp_path: Path) -> list[str]:
@@ -64,27 +64,27 @@ def test_synced_templates_pass(tmp_path: Path) -> None:
 
 def test_missing_review_template_fails_closed(tmp_path: Path) -> None:
     build_fixture(tmp_path)
-    (tmp_path / ".github" / "review_result_template.md").unlink()
+    (tmp_path / "docs" / "manual" / "review_result_template.md").unlink()
     assert rules(tmp_path) == ["REVIEW-SECTION"]
 
 
 def test_missing_section_flagged(tmp_path: Path) -> None:
     build_fixture(tmp_path)
-    path = tmp_path / ".github" / "review_result_template.md"
+    path = tmp_path / "docs" / "manual" / "review_result_template.md"
     path.write_text(REVIEW_TEMPLATE.replace("## 判定\n\n", ""), encoding="utf-8")
     assert rules(tmp_path) == ["REVIEW-SECTION"]
 
 
 def test_missing_declaration_flagged(tmp_path: Path) -> None:
     build_fixture(tmp_path)
-    path = tmp_path / ".github" / "review_result_template.md"
+    path = tmp_path / "docs" / "manual" / "review_result_template.md"
     path.write_text(REVIEW_TEMPLATE.replace("- **测试：** 成立\n", ""), encoding="utf-8")
     assert rules(tmp_path) == ["REVIEW-DECL"]
 
 
 def test_unknown_declaration_flagged(tmp_path: Path) -> None:
     build_fixture(tmp_path)
-    path = tmp_path / ".github" / "review_result_template.md"
+    path = tmp_path / "docs" / "manual" / "review_result_template.md"
     path.write_text(
         REVIEW_TEMPLATE.replace("## 结论", "- **新增声明：** 成立\n\n## 结论"),
         encoding="utf-8",
@@ -94,13 +94,13 @@ def test_unknown_declaration_flagged(tmp_path: Path) -> None:
 
 def test_missing_pull_request_template_is_infra(tmp_path: Path) -> None:
     build_fixture(tmp_path)
-    (tmp_path / ".github" / "pull_request_template.md").unlink()
+    (tmp_path / "docs" / "manual" / "pull_request_template.md").unlink()
     assert rules(tmp_path) == ["INFRA"]
 
 
 def test_unreadable_review_template_is_infra(tmp_path: Path) -> None:
     build_fixture(tmp_path)
-    path = tmp_path / ".github" / "review_result_template.md"
+    path = tmp_path / "docs" / "manual" / "review_result_template.md"
     path.chmod(0o000)
     try:
         assert rules(tmp_path) == ["INFRA"]
@@ -110,7 +110,7 @@ def test_unreadable_review_template_is_infra(tmp_path: Path) -> None:
 
 def test_unreadable_pull_request_template_is_infra(tmp_path: Path) -> None:
     build_fixture(tmp_path)
-    path = tmp_path / ".github" / "pull_request_template.md"
+    path = tmp_path / "docs" / "manual" / "pull_request_template.md"
     path.chmod(0o000)
     try:
         assert rules(tmp_path) == ["INFRA"]
@@ -120,7 +120,7 @@ def test_unreadable_pull_request_template_is_infra(tmp_path: Path) -> None:
 
 def test_non_utf8_template_does_not_crash(tmp_path: Path) -> None:
     build_fixture(tmp_path)
-    (tmp_path / ".github" / "review_result_template.md").write_bytes(b"\xa3\xa3")
+    (tmp_path / "docs" / "manual" / "review_result_template.md").write_bytes(b"\xa3\xa3")
     found = check_review_template.findings(str(tmp_path))
     assert {f.rule for f in found} <= {"REVIEW-SECTION", "REVIEW-DECL"}
     assert found

@@ -18,12 +18,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 import check_pr_prose  # noqa: E402
 
 TEMPLATE = "## 测试（必填）\n\n## 安全与隐私（必填）\n"
-REPO_TEMPLATE = Path(__file__).parents[2] / ".github" / "pull_request_template.md"
+REPO_TEMPLATE = Path(__file__).parents[2] / "docs" / "manual" / "pull_request_template.md"
 
 
 def make_root(tmp_path: Path, template: str = TEMPLATE) -> str:
-    (tmp_path / ".github").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".github" / "pull_request_template.md").write_text(template, encoding="utf-8")
+    (tmp_path / "docs" / "manual").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "manual" / "pull_request_template.md").write_text(
+        template, encoding="utf-8"
+    )
     return str(tmp_path)
 
 

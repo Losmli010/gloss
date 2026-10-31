@@ -63,8 +63,10 @@ CONFORMING = """## 摘要
 
 
 def make_root(tmp_path: Path) -> str:
-    (tmp_path / ".github").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".github" / "pull_request_template.md").write_text(PR_TEMPLATE, encoding="utf-8")
+    (tmp_path / "docs" / "manual").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "manual" / "pull_request_template.md").write_text(
+        PR_TEMPLATE, encoding="utf-8"
+    )
     return str(tmp_path)
 
 
@@ -122,7 +124,7 @@ def test_declaration_outside_checklist_block_ignored(tmp_path: Path) -> None:
 
 def test_missing_pull_request_template_is_infra(tmp_path: Path) -> None:
     root = make_root(tmp_path)
-    (tmp_path / ".github" / "pull_request_template.md").unlink()
+    (tmp_path / "docs" / "manual" / "pull_request_template.md").unlink()
     assert rules(root, CONFORMING) == ["INFRA"]
 
 

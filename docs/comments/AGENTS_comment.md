@@ -171,3 +171,14 @@
   第三笔的实录）。`AGENTS.md` 末尾新增「使用手册」节作章节索引，后续手册
   章节在该节追加——索引与被索引内容由此各有其位：指令文档收索引，手册收
   流程细节。
+- 2026-10-31（第五笔）手册首章删除，两份模板迁入手册目录：`writing-gates.md`
+  删除——模板即手册，模板自带的逐段填写指引就是使用手册，不再维护转述层。
+  `.github/pull_request_template.md` 与 `.github/review_result_template.md`
+  迁 `docs/manual/`，门禁脚本三处模板路径常量随移
+  （`check_pr_prose.py` 的 `TEMPLATE_REL`、`check_review_template.py` 的
+  `REVIEW_TEMPLATE_REL` 与 `PR_TEMPLATE_REL`），两份测试夹具同步——模板缺失
+  时小节核对静默跳过，路径单源断不得。代价如实记：托管平台（GitHub）网页
+  新建拉取请求（PR）不再自动填充模板（平台只认 `.github/`、仓库根与 docs
+  根三位置，`docs/manual/` 子目录不认），本仓创建流程走起草加
+  `pr-lint-draft` 加 `gh pr create`，不依赖网页填充；`AGENTS.md` 使用手册
+  节改为链接两份模板。

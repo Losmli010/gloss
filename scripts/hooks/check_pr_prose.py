@@ -28,7 +28,7 @@ import gate_report
 from language_spec.coderef import markdown_problems
 
 # 模板必需小节清单的来源；小节指二级标题
-TEMPLATE_REL = os.path.join(".github", "pull_request_template.md")
+TEMPLATE_REL = os.path.join("docs", "manual", "pull_request_template.md")
 SECTION_RE = re.compile(r"^## (.+)$")
 
 RULE_PR_SECTION = "PR-SECTION"

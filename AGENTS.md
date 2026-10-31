@@ -159,4 +159,5 @@ just check             # 完整质量门禁（提交前门禁加检查器单测�
 
 章节级流程与操作细节按需查阅，本文件不复抄其内容，后续手册章节在本节追加：
 
-- [书写门禁](docs/manual/writing-gates.md)：提交信息、拉取请求（PR）内容与评审内容的书写门禁——判罚入口、模板小节、创建前预检与失败解读。
+- [拉取请求（PR）模板](docs/manual/pull_request_template.md)：正文必需小节与逐段填写指引，创建与编辑都过书写门禁判罚。
+- [评审结果模板](docs/manual/review_result_template.md)：评审结果骨架与核对声明，评审提交或编辑即判。
