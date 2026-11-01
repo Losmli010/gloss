@@ -22,7 +22,8 @@ pub mod quality;
 pub mod regression;
 pub mod remedy;
 pub mod report;
-pub mod svg;
+pub mod trend;
+pub mod view;
 
 pub use detail::{CaseDetail, EvalKind, JudgeScores, RuleOutcome, RuleVerdict};
 pub use report::EvalReport;
