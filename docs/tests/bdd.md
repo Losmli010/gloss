@@ -1549,10 +1549,18 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
+| group_aggregates_fold_into_totals | 分组聚合与合计一致 | 给定横跨分类、词卡、句译三组的用例夹具（契约四态齐备、含违约计数与修复轮次、回归三态、基线与标注部分在场），当 `assemble`，则全部计数列（例数、基线数、标注三态、契约四态、违约总数、回归五态）逐组求和等于合计行、已评数同样可折，修复轮次均值在合计行按全体用例重算而非组均值再平均 | 2026-11-01 |
+| rate_denominators_are_all_group_cases | 三率分母恒为组内全部 | 给定四条任务用例（契约有效、软缺口、降级、故障各一，其中一条回归通过、一条已标注合格），当 `assemble`，则契约有效率、回归通过率、标注合格率各为其分子除以组内全部四条——软缺口、待比、未标注、故障一律不剔除 | 2026-11-01 |
+| bucket_edges_split_at_59_60_69_70_79_80_89_90 | 五档分桶边界 | 给定八条已评用例（准确性维分数为 59、60、69、70、79、80、89、90），当 `assemble`，则准确性维分桶为 `[1,2,2,2,1]`（0–59、60–69、70–79、80–89、90–100 五档，四对边界各归右档）、均分 74.5、合格率 0.375（79 不过线、80 及以上过线），无方差的其余维照常计入全部已评数 | 2026-11-01 |
+| coverage_and_agreement_rates_use_their_own_denominators | 评审覆盖率与人机一致率口径 | 给定五条任务用例（四条已评且已标注，两条与总体分同过线、两条不同线；一条已标注未评），当 `assemble`，则评审覆盖率 0.8（已评四条除以组内全部五条）、人机一致率 0.5（同过线两条除以既有标注又有总体分的四条） | 2026-11-01 |
+| quality_stays_empty_without_judged_cases | 质量聚合置空条件 | 给定评审关闭的任务组、全分类组与分类加已评任务的混合组，当 `assemble`，则前两组质量聚合为空、混合组仅分类组为空且任务组有值——组内无已评用例即置空 | 2026-11-01 |
+| overall_score_is_the_four_dimension_mean_and_respects_the_pass_line | 总体分四维均值派生 | 给定两份四维分（90/80/70/60 与 80/80/80/80），当 `assemble`，则总体均分 77.5（逐例四维均值再取均值）、合格率 0.5（恰 80 过线、75 不过线）、分桶落 70–79 与 80–89 两档 | 2026-11-01 |
+| markdown_renders_group_rows_and_totals | 报告渲染分组表 | 给定跨类型聚合后的报告，当 `render_markdown`，则标题带模式与（UTC）时间、每类型一行加合计行、三率按百分数渲染、无质量聚合的类型三格显示占位符、基线数与轮次均值各占一格 | 2026-11-01 |
 | latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本与有延迟样本两份报告，当渲染，则前者不含延迟行、后者按行渲染 `p50/p95` 分位（毫秒，两位小数） | 2026-11-01 |
-| legacy_rows_with_retired_fields_still_parse | 旧历史行的已退役字段照常解析 | 给定带已退役字段（`classify`/`tasks`/`judge`/`skipped`）的历史行（JSON），当反序列化，则解析成功且退役字段忽略、在役字段（`mode`/`generated_at`/`latency`/`context`）原样读回 | 2026-11-01 |
 | generated_at_is_a_numeric_unix_timestamp | `generated_at` 为数值纪元秒 | 给定 `generated_at` 为整数秒的报告，当序列化、反序列化，则（JSON）中为裸数值且往返一致（旧 `unix <seconds>` 字符串格式已废弃，不兼容） | 2026-10-13 |
 | utc_formatting_is_fixed_and_timezone_free | （UTC）时间格式固定换算 | 给定若干 `UNIX` 秒，当 `format_utc` 与 `format_utc_short`，则恒为 `YYYY-MM-DD HH:MM` 与 `MM-DD HH:MM` 的（UTC）结果，不随本地时区漂移 | 2026-10-13 |
+| legacy_rows_without_aggregates_fail_parsing_for_tolerant_skip | 旧历史行改走坏行容错 | 给定缺分组聚合段的旧历史行（JSON），当反序列化为报告，则解析失败（分组聚合无缺省值），由历史读取按坏行容错跳过、不做缺省兼容 | 2026-11-01 |
+| report_round_trips_through_serde | 报告序列化往返 | 给定含分组聚合、质量聚合与延迟摘要的报告，当序列化、反序列化，则分组与合计逐字段一致、分位字段名带 `_ms` 后缀、质量聚合完整落行 | 2026-11-01 |
 
 ### `crates/gloss-eval/src/history.rs`
 
@@ -1566,6 +1574,8 @@
 | corrupt_lines_are_skipped_and_warned | 坏行跳过且有 `stderr` 警告 | 给定好行加坏行加好行的 `history.jsonl`，当 `load_history`，则坏行带行号警告后跳过、两侧好行无恙（进程中断的半截尾行不炸全量） | 2026-10-12 |
 | unterminated_final_line_is_readable | 无换行尾行可读 | 给定末行缺 `LF` 的 `history.jsonl`，当 `load_history`，则末行照常解析 | 2026-10-12 |
 | record_run_redraws_history_svg | 记录后全量重绘趋势 | 给定一次 `record_run` 与随后一次换 `commit` 的追加，当各自完成，则 `history.svg` 存在且标题点数随全量历史更新 | 2026-10-12 |
+| legacy_rows_without_aggregates_are_skipped_as_bad_rows | 旧形状行按坏行跳过 | 给定旧形状行（缺分组聚合段）与现形状行各一的历史文件，当 `load_history`，则旧行带行号警告后跳过、现形状行照常读回（趋势不炸全量） | 2026-11-01 |
+| label_snapshot_rides_the_history_row | 标注快照入历史行 | 给定一条已标注合格的用例经 `assemble` 成报告并 `record_run`，当读回历史行，则行内标注三态为合格 1、未标注 0，加载后合计行的标注快照原样可读（标注合格率曲线的来源） | 2026-11-01 |
 | context_roundtrips_and_bare_rows_default_to_none | `context` 段往返与裸行缺省 | 给定带 `context` 的报告行与无 `context` 段的报告（JSON），当写入读回、直接解析，则行内 `context` 段逐字节往返、裸行 `context` 为 `None` | 2026-10-13 |
 
 ### `crates/gloss-eval/src/svg.rs`

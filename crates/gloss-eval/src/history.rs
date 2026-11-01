@@ -104,10 +104,15 @@ fn warn_bad_row(path: &Path, line: usize, error: &serde_json::Error) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
+    use crate::asset::{GoldenMap, LabelMap, LabelRow};
+    use crate::detail::{CaseDetail, ContractCheck, ContractOutcome, EvalKind, LabelVerdict};
     use crate::history::{load_history, record_run};
-    use crate::report::{EvalContext, EvalReport};
+    use crate::report::{EvalContext, EvalReport, GroupStats};
+
+    const LEGACY_ROW: &str = r#"{"mode":"replay","generated_at":1000,"classify":null,"tasks":[],"latency":null,"judge":null,"skipped":0}"#;
 
     fn temp_dir(tag: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -126,7 +131,43 @@ mod tests {
             generated_at,
             latency: None,
             context: None,
+            groups: BTreeMap::new(),
+            totals: GroupStats::default(),
         }
+    }
+
+    fn row_json(report: &EvalReport) -> String {
+        serde_json::to_string(report).expect("row json")
+    }
+
+    fn classify_case(id: &str) -> CaseDetail {
+        CaseDetail {
+            id: id.to_owned(),
+            kind: EvalKind::Classify,
+            text: "一".to_owned(),
+            rounds: vec![],
+            contract: ContractOutcome {
+                json_object: true,
+                checks: BTreeMap::from([(ContractCheck::KindMatch, true)]),
+                degraded: false,
+                violations: BTreeMap::new(),
+                repairs: 0,
+            },
+            quality: None,
+            rule: None,
+            engine_error: false,
+        }
+    }
+
+    fn label_row(id: &str, verdict: LabelVerdict) -> (String, LabelRow) {
+        (
+            id.to_owned(),
+            LabelRow {
+                id: id.to_owned(),
+                verdict,
+                note: None,
+            },
+        )
     }
 
     fn with_context(report: &EvalReport, commit: Option<&str>, source: Option<&str>) -> EvalReport {
@@ -219,7 +260,7 @@ mod tests {
         let dir = temp_dir("blank-lines");
         write_lines(
             &dir,
-            "\n{\"mode\":\"replay\",\"generated_at\":1000,\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n\n",
+            &format!("\n{}\n\n", row_json(&report("iterate", 1000))),
         );
         let history = load_history(&dir.join("history.jsonl")).expect("load");
         assert_eq!(history.len(), 1);
@@ -231,10 +272,10 @@ mod tests {
         let dir = temp_dir("corrupt-lines");
         write_lines(
             &dir,
-            concat!(
-                "{\"mode\":\"replay\",\"generated_at\":1000,\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n",
-                "{broken json\n",
-                "{\"mode\":\"live\",\"generated_at\":2000,\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n",
+            &format!(
+                "{}\n{{broken json\n{}\n",
+                row_json(&report("replay", 1000)),
+                row_json(&report("live", 2000)),
             ),
         );
         let history = load_history(&dir.join("history.jsonl")).expect("load");
@@ -250,11 +291,52 @@ mod tests {
     }
 
     #[test]
+    fn legacy_rows_without_aggregates_are_skipped_as_bad_rows() {
+        let dir = temp_dir("legacy-rows");
+        write_lines(
+            &dir,
+            &format!("{LEGACY_ROW}\n{}\n", row_json(&report("iterate", 2000))),
+        );
+        let history = load_history(&dir.join("history.jsonl")).expect("load");
+        assert_eq!(
+            history
+                .iter()
+                .map(|report| report.mode.as_str())
+                .collect::<Vec<_>>(),
+            vec!["iterate"],
+            "a retired-shape row warns and skips instead of aborting the trend"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn label_snapshot_rides_the_history_row() {
+        let dir = temp_dir("label-snapshot");
+        let case = classify_case("cls-word-01");
+        let labels = LabelMap::from([label_row("cls-word-01", LabelVerdict::Pass)]);
+        let snapshot = crate::report::assemble(&[case], &GoldenMap::new(), &labels, None);
+        record_run(&snapshot, &dir).expect("record");
+        let line = std::fs::read_to_string(dir.join("history.jsonl")).expect("history text");
+        assert!(
+            line.contains(r#""labels":{"pass":1,"fail":0,"unlabeled":0}"#),
+            "the label tally rides the row for the pass-rate curve: {line}"
+        );
+        let history = load_history(&dir.join("history.jsonl")).expect("load");
+        assert_eq!(history[0].totals.labels.pass, 1);
+        assert_eq!(history[0].totals.labels.unlabeled, 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn unterminated_final_line_is_readable() {
         let dir = temp_dir("tail-line");
         write_lines(
             &dir,
-            "{\"mode\":\"replay\",\"generated_at\":1000,\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}\n{\"mode\":\"live\",\"generated_at\":2000,\"classify\":null,\"tasks\":[],\"latency\":null,\"judge\":null,\"skipped\":0}",
+            &format!(
+                "{}\n{}",
+                row_json(&report("replay", 1000)),
+                row_json(&report("live", 2000)),
+            ),
         );
         let history = load_history(&dir.join("history.jsonl")).expect("load");
         assert_eq!(
@@ -301,11 +383,14 @@ mod tests {
             "the row round-trips byte-identically"
         );
 
-        let bare = r#"{"mode":"replay","generated_at":1000,"classify":null,"tasks":[],"latency":null,"judge":null,"skipped":0}"#;
-        let parsed: EvalReport = serde_json::from_str(bare).expect("bare row parses");
+        let bare = format!(
+            r#"{{"mode":"iterate","generated_at":1000,"groups":{{}},"totals":{}}}"#,
+            serde_json::to_string(&GroupStats::default()).expect("totals json"),
+        );
+        let parsed: EvalReport = serde_json::from_str(&bare).expect("bare row parses");
         assert!(
             parsed.context.is_none(),
-            "old rows without the segment default to none"
+            "rows without the context segment default to none"
         );
         std::fs::remove_dir_all(&dir).ok();
     }
