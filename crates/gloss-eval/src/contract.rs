@@ -219,6 +219,15 @@ mod tests {
             outcome.checks.get(&ContractCheck::FieldsComplete),
             Some(&false)
         );
+
+        let null_phonetic = r#"{"note":"义","structured":{"phonetic":null,"examples":[]}}"#;
+        let (outcome, _) = settle_task(TaskKind::TranslateWord, &[null_phonetic.to_owned()]);
+        assert_eq!(
+            outcome.checks.get(&ContractCheck::FieldsComplete),
+            Some(&true),
+            "an explicit null phonetic key counts as present; empty examples stay complete"
+        );
+        assert!(!outcome.degraded);
     }
 
     #[test]
