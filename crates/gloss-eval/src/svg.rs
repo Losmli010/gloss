@@ -173,7 +173,9 @@ fn line(out: &mut String, content: String) {
 
 #[cfg(test)]
 mod tests {
-    use crate::report::{EvalContext, EvalReport, LatencySummary};
+    use std::collections::BTreeMap;
+
+    use crate::report::{EvalContext, EvalReport, GroupStats, LatencySummary};
     use crate::svg::{HISTORY_SVG_MAX_POINTS, render_svg};
 
     fn report(mode: &str, generated_at: i64) -> EvalReport {
@@ -182,6 +184,8 @@ mod tests {
             generated_at,
             latency: None,
             context: None,
+            groups: BTreeMap::new(),
+            totals: GroupStats::default(),
         }
     }
 
@@ -189,8 +193,8 @@ mod tests {
         EvalReport {
             latency: Some(LatencySummary {
                 count: 2,
-                p50: 100.0,
-                p95: 200.0,
+                p50_ms: 100.0,
+                p95_ms: 200.0,
             }),
             ..report(mode, generated_at)
         }

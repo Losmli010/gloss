@@ -31,11 +31,11 @@ pub(super) fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
 fn push_latency_panel(panels: &mut Vec<Panel>, points: &[EvalReport]) {
     let p50 = points
         .iter()
-        .map(|report| report.latency.map(|summary| summary.p50))
+        .map(|report| report.latency.map(|summary| summary.p50_ms))
         .collect();
     let p95 = points
         .iter()
-        .map(|report| report.latency.map(|summary| summary.p95))
+        .map(|report| report.latency.map(|summary| summary.p95_ms))
         .collect();
     push_panel(
         panels,
