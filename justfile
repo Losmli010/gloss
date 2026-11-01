@@ -133,6 +133,10 @@ flame-startup:
 size-report bin="target/release/gloss" top="30":
     {{py}} scripts/perf/size_report.py --bin {{bin}} --top {{top}}
 
+# 提示词评测迭代实跑：对精选集逐条跑生产循环并完成三层结算，参数透传（--no-judge、--limit N），需专用凭据（GLOSS_LIVE_*）且显式选择参与，仅人工明确要求时运行
+eval-iterate *args:
+    cargo run -p gloss-eval --bin eval -- iterate {{args}}
+
 # 把最近一次评测报告渲染为标记语言（Markdown）表格（参数可换目录）
 eval-report *args:
     cargo run -p gloss-eval --bin eval -- report {{args}}

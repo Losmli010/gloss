@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::report::EvalReport;
 use crate::trend;
 
-const HISTORY_FILE: &str = "history.jsonl";
+pub const HISTORY_FILE: &str = "history.jsonl";
 const SVG_FILE: &str = "history.svg";
 
 pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {

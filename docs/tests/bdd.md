@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 703 | `just test` |
+| 单元测试 | 707 | `just test` |
 
 ## 人工测试
 
@@ -325,6 +325,24 @@
 5. 收尾：设置里把服务地址与密钥改回原值
 
 - 更新时间：2026-10-12
+
+### iterate_label_accept_closed_loop_with_live_credentials
+
+- 测试目标：验证提示词迭代闭环在真实凭据下走通——迭代实跑、检视页标注导出、标注落库、基线固化、改提示词、再迭代出回归信号（第四层，需真实凭据，不进持续集成）。
+- 测试场景：给定 `GLOSS_LIVE_*` 凭据与定稿精选集，当依次执行迭代、检视页标注导出、标注落库、基线固化与提示词改动后的再迭代，则迭代产物四件齐备、标注按条目落库、固化产出基线、再迭代的检视页给出回归或待复核徽标与四维分数、历史曲线出第二轮。
+- 测试步骤：
+
+1. 导出凭据：`export GLOSS_LIVE_API_KEY=sk-...`、`export GLOSS_LIVE_BASE_URL=https://api.deepseek.com/v1`、`export GLOSS_LIVE_MODEL=deepseek-flash`（密钥不落日志与任何输出）
+2. 首轮小样迭代：`just eval-iterate --limit 4`，核对 `target/eval/` 下 `iterate.json`、`iterate.cases.json`、`iterate.outputs.jsonl`、`iterate.html` 四件齐备
+3. 浏览器打开 `target/eval/iterate.html`：核对指标总览、历史曲线、测试用例三区与筛选
+4. 标注导出：在检视页给若干用例点合格与不合格、填备注，点“导出标注”下载 `labels.json`
+5. 标注落库：`cargo run -p gloss-eval --bin eval -- label --import labels.json`，核对 `target/eval/labels.jsonl` 行数与集外标识警告
+6. 基线固化：`cargo run -p gloss-eval --bin eval -- accept`，核对 `target/eval/golden.jsonl` 与未标注警告
+7. 改提示词：修改 `crates/gloss-core/prompts/zh/` 任一模板的一处措辞
+8. 再迭代：`GLOSS_EVAL_SOURCE=prompt-tweak just eval-iterate`，核对检视页中被改条目出回归或待复核徽标、四维分数与首轮并排可读、`target/eval/history.svg` 出第二轮曲线
+9. 收尾（可选）：不带 `--limit` 跑全量一轮，核对三率与历史曲线随全量刷新
+
+- 更新时间：2026-11-02
 
 ## 集成测试
 
@@ -1528,6 +1546,15 @@
 | engine_failure_marks_the_case_and_drops_settlement | 引擎故障标记进明细 | 给定首通即请求失败的脚本引擎桩，当 `run` 后结算，则明细带故障标记、轮轨迹为空、无质量分、回归字段恒空且运行不中断 | 2026-11-01 |
 | limit_slices_the_run_and_judge_toggle_keeps_quality_empty | 限位切片与评审开关 | 给定限位 2 条且评审关闭的运行，当 `run`，则恰出两条明细与两个延迟样本、质量字段全空 | 2026-11-01 |
 | latency_percentiles_interpolate | 延迟百分位线性插值 | 给定四个样本，当取 `p0/p50/p95/p100`，则插值结果精确；空样本返回 `None` | 2026-11-01 |
+
+### `crates/gloss-eval/src/flow.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| stub_iterate_writes_artifacts_records_history_and_renders_the_view | 迭代装配端到端产出全件 | 给定单例脚本引擎桩与临时产物目录，当 `run_iterate`（评审关闭、限位 1），则报告文件按模式命名且模式为 `iterate`、注入的提交标识进报告、逐例明细解析出一条、单次输出恰一行且逐轮原文即脚本回复、历史行与趋势图落盘、检视页含该用例 | 2026-11-02 |
+| engine_failures_settle_but_never_reach_the_outputs_file | 故障例结算不进固化输入 | 给定首通即请求失败的脚本引擎桩，当 `run_iterate`，则明细带故障标记且契约统计计一例故障、单次输出文件在场但零行——失败输出永不可固化 | 2026-11-02 |
+| import_merges_known_rows_and_rejects_bad_documents | 标注导入按条目合并与坏档拒绝 | 给定含精选集内外各一行的导出文档，当 `import_labels`，则已知行合并进标注文件、集外标识跳过并回报；坏（JSON）文档与域外 `verdict` 各带文件名硬拒绝 | 2026-11-02 |
+| accept_freezes_outputs_counts_unlabeled_and_fails_clear_without_inputs | 基线固化与未标注警告 | 给定两行单次输出与其中一行已标注的资产目录，当 `accept`，则两行固化进基线文件且固化时间为协调世界时（UTC）词面、汇总计未标注一行、重复固化按条目覆盖不叠行；缺单次输出文件时带补救指引硬报错 | 2026-11-02 |
 
 ### `crates/gloss-eval/src/gate.rs`
 
