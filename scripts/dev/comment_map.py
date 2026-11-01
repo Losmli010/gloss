@@ -51,9 +51,8 @@ FAMILY_STEMS: dict[str, str] = {
     # 应用样式色板与代码高亮色板撞名：语义色板按家族前缀登记
     "crates/gloss-app/src/ui/style/palette.rs": "style_palette",
     "crates/gloss-app/src/ui/code_hl/palette.rs": "code_hl_palette",
-    # 性能脚本与评测指标模块撞名
+    # 性能指标脚本（评测指标模块已随执行编排收编退役，无撞名）
     "scripts/perf/metrics.py": "metrics",
-    "crates/gloss-eval/src/metrics.rs": "eval_metrics",
     # 核心库数据源派生模块与约束门禁语言规范域撞名：约束域带家族前缀
     "crates/gloss-core/src/pipeline/langspec.rs": "langspec",
     "scripts/hooks/constraints/langspec.py": "constraints_langspec",

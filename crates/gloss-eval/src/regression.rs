@@ -6,24 +6,19 @@
 //! 按子类分派——分类比类别相等，任务比结构化字段。本模块是纯函数集，
 //! 执行编排与单测共用。
 
-use std::collections::BTreeMap;
-
 use gloss_core::schema;
 use gloss_core::task::{OutcomeStructured, TaskKind};
 
+use crate::asset::{GoldenMap, LabelMap};
 use crate::detail::{CaseDetail, EvalKind, LabelVerdict, RuleOutcome, RuleVerdict};
 
-pub fn settle(
-    cases: &mut [CaseDetail],
-    golden: &BTreeMap<String, Vec<Vec<String>>>,
-    labels: &BTreeMap<String, LabelVerdict>,
-) {
+pub fn settle(cases: &mut [CaseDetail], golden: &GoldenMap, labels: &LabelMap) {
     for case in cases {
         case.rule = if case.engine_error {
             None
         } else {
-            let baseline = golden.get(&case.id).map(|rounds| last_round_text(rounds));
-            let label = labels.get(&case.id).copied();
+            let baseline = golden.get(&case.id).map(|row| last_round_text(&row.rounds));
+            let label = labels.get(&case.id).map(|row| row.verdict);
             Some(decide(case, baseline.as_deref(), label))
         };
     }
@@ -227,6 +222,7 @@ mod tests {
     use gloss_core::task::{OutcomeStructured, TaskKind};
 
     use super::{normalize, settle};
+    use crate::asset::{GoldenMap, GoldenRow, LabelMap, LabelRow};
     use crate::detail::{
         CaseDetail, ContractCheck, ContractOutcome, EvalKind, LabelVerdict, RoundDetail,
         RuleOutcome, RuleVerdict,
@@ -267,15 +263,33 @@ mod tests {
         )
     }
 
-    type Golden = BTreeMap<String, Vec<Vec<String>>>;
-    type Labels = BTreeMap<String, LabelVerdict>;
+    type Golden = GoldenMap;
+    type Labels = LabelMap;
 
     fn maps(baseline: Option<Vec<Vec<String>>>, label: Option<LabelVerdict>) -> (Golden, Labels) {
         let golden = baseline
-            .map(|rounds| BTreeMap::from([("case-01".to_owned(), rounds)]))
+            .map(|rounds| {
+                BTreeMap::from([(
+                    "case-01".to_owned(),
+                    GoldenRow {
+                        id: "case-01".to_owned(),
+                        rounds,
+                        accepted_at: "1970-01-01T00:00:00Z".to_owned(),
+                    },
+                )])
+            })
             .unwrap_or_default();
         let labels = label
-            .map(|verdict| BTreeMap::from([("case-01".to_owned(), verdict)]))
+            .map(|verdict| {
+                BTreeMap::from([(
+                    "case-01".to_owned(),
+                    LabelRow {
+                        id: "case-01".to_owned(),
+                        verdict,
+                        note: None,
+                    },
+                )])
+            })
             .unwrap_or_default();
         (golden, labels)
     }

@@ -20,5 +20,10 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 # 语言门评委复核的运行时（当前线程运行时足矣，引擎的异步设施归核心库）。
 tokio = { version = "1", default-features = false, features = ["rt"] }
 
+[dev-dependencies]
+# 执行编排的脚本引擎桩：按预置序列产流；异步测试跑异步测试宏。
+futures = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+
 [lints]
 workspace = true

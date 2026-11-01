@@ -1462,12 +1462,24 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| task_settlement_flags_json_note_and_field_checks | 任务结算合法回复全绿 | 给定可解析且结构齐全的任务回复，当 `settle_task`，则可解析（JSON）、字段完整检查过、不降级、零违约零修复轮次、逐轮无违约 | 2026-11-01 |
-| task_settlement_degrades_on_prose_and_missing_note | 任务结算违约即降级 | 给定散文、缺注与空白三类回复，当 `settle_task`，则末轮降级、违约类别（不可解析、注缺失、空回复）逐轮计数、散文不可解析（JSON）、字段完整未过 | 2026-11-01 |
-| task_settlement_counts_repairs_and_violations_over_rounds | 任务结算逐轮还原轨迹 | 给定违约轮加合法轮的两轮轨迹，当 `settle_task`，则修复轮次为轮数减一、违约轮带类别、合法轮干净、末轮定全局不降级 | 2026-11-01 |
-| fields_complete_requires_the_subtype_shape | 字段完整按子类形状 | 给定词卡缺音标、代码缺代码语言、句译例证齐、无结构化对象与音标键值为 `null` 的回复，当 `settle_task`，则缺子类必带键未过、齐者过、`null` 在场、例证空数组仍过（内容归评审） | 2026-11-01 |
-| classify_settlement_separates_degradation_from_kind_mismatch | 分类结算降级与类别不符分账 | 给定类别正确、可解析但类别不符、越清单类别与散文四类回复，当 `settle_classify`，则正确者类别检查过、不符者不降级只判类别未过（软缺口）、越清单与散文降级、`Fallback` 落通用任务 | 2026-11-01 |
+| task_settlement_flags_json_note_and_field_checks | 任务结算合法回复全绿 | 给定可解析且结构齐全的任务回复，当 `settle_case`，则可解析（JSON）、字段完整检查过、不降级、零违约零修复轮次、逐轮无违约 | 2026-11-01 |
+| task_settlement_degrades_on_prose_and_missing_note | 任务结算违约即降级 | 给定散文、缺注与空白三类回复，当 `settle_case`，则末轮降级、违约类别（不可解析、注缺失、空回复）逐轮计数、散文不可解析（JSON）、字段完整未过 | 2026-11-01 |
+| task_settlement_counts_repairs_and_violations_over_rounds | 任务结算逐轮还原轨迹 | 给定违约轮加合法轮的两轮轨迹，当 `settle_case`，则修复轮次为轮数减一、违约轮带类别、合法轮干净、末轮定全局不降级 | 2026-11-01 |
+| fields_complete_requires_the_subtype_shape | 字段完整按子类形状 | 给定词卡缺音标、代码缺代码语言、句译例证齐、无结构化对象与音标键值为 `null` 的回复，当 `settle_case`，则缺子类必带键未过、齐者过、`null` 在场、例证空数组仍过（内容归评审） | 2026-11-01 |
+| classify_settlement_separates_degradation_from_kind_mismatch | 分类结算降级与类别不符分账 | 给定类别正确、可解析但类别不符、越清单类别与散文四类回复，当 `settle_case`，则正确者类别检查过、不符者不降级只判类别未过（软缺口）、越清单与散文降级、`Fallback` 落通用任务 | 2026-11-01 |
 | contract_four_state_derivation_matrix_is_mutually_exclusive | 契约四态派生矩阵互斥完备 | 给定引擎故障、降级、检查项未过与全绿四类明细，当 `derive_state`，则依次得故障、降级、软缺口、有效，且引擎故障压倒降级、降级压倒检查项 | 2026-11-01 |
+| case_settlement_dispatches_by_the_case_subclass | 案例结算按子类分派 | 给定代码子类用例配词卡形回复与类型参考答案不自洽的分类用例，当 `settle_case`，则前者按代码形状判字段完整未过、后者按通用兜底且 `Fallback` 判类别符合（嵌入集自洽由加载校验保证） | 2026-11-01 |
+
+### `crates/gloss-eval/src/dataset.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| curated_loads_with_the_finalized_distribution | 精选集五类分布守卫 | 给定编译期嵌入的定稿精选集，当 `load_curated`，则分类 22、词卡 10、句译 6、代码 3、通用 3 共 44 条逐类钉数且目标语言恒中文——增删条目是走评审的定稿变更，守卫数字随评审同改 | 2026-11-01 |
+| every_embedded_reference_settles_green_against_its_own_case | 参考答案与契约自洽 | 给定全部嵌入用例，当参考答案渲染产物词面后过各自用例的 `settle_case`，则不降级且子类检查项（类别符合或字段完整）全过——参考答案形状漂移或契约口径收紧先红 | 2026-11-01 |
+| reference_renders_as_the_product_wire_shape | 参考答案渲染生产词面 | 给定任务侧与分类侧参考答案，当 `reply_json`，则任务侧渲染结果过生产任务校验器（注与疏证在场）、分类侧恰为裸类别（JSON）回复形状且 `Fallback` 映射通用 | 2026-11-01 |
+| reference_rejects_wrong_subtype_shapes_with_line_numbers | 参考答案按子类结构校验 | 给定分类拿任务形、任务拿分类形、空注、词卡缺音标键与 `null` 音标各一例，当 `parse_curated`，则前四者带行号拒绝、`null` 在场仍过（与契约检查同口径） | 2026-11-01 |
+| loader_rejects_unknown_kinds_targets_and_expected | 类型语名与期望域校验 | 给定图像类型、未知目标语名与四名之外期望类别各一例，当 `parse_curated`，则分别以未知类型、未知语名与非四名期望带行号拒绝 | 2026-11-01 |
+| loader_rejects_empty_or_duplicate_ids_and_bad_lines | 标识唯一性与坏行定位 | 给定空标识、重复标识、坏行、夹空行与空数据集，当 `parse_curated`，则空与重复标识带行号拒绝（重复指出首见行）、坏行带行号、空行跳过、空数据集硬错误 | 2026-11-01 |
 
 ### `crates/gloss-eval/src/detail.rs`
 
@@ -1482,7 +1494,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | judge_reply_parses_only_complete_in_range_dimensions | 评审回复严格整体解析 | 给定合法回复与缺维、越界、负分、超大数、非整数、字符串分数、缺理由、数组、散文、空串等坏形，当 `parse_scores`，则合法者出四维与理由且 0 与 100 两端含界、坏形一律 `None` | 2026-11-01 |
-| judge_prompt_renders_all_placeholders_and_keeps_input_as_user_turn | 评审提示词渲染契约 | 给定输入、产出、参考答案与类型展示名四实参，当 `render_judge`，则系统消息四占位符全替换且不残留占位符标记，用户原文另作一轮用户消息 | 2026-11-01 |
+| judge_prompt_renders_all_placeholders_and_keeps_input_as_user_turn | 评审提示词渲染契约 | 给定词卡用例与模型产出，当 `render_judge`，则系统消息四占位符（输入、产出、产物词面参考答案、类型展示名）全替换且不残留占位符标记，用户原文另作一轮用户消息 | 2026-11-01 |
 | judge_eligibility_skips_classify_degraded_and_engine_errors | 评审资格跳过分类降级与故障 | 给定任务与分类用例、引擎故障、契约降级与软缺口各态，当 `judge_eligible`，则任务有效与软缺口可评，分类、契约故障、契约降级一律不可评 | 2026-11-01 |
 
 ### `crates/gloss-eval/src/regression.rs`
@@ -1498,11 +1510,24 @@
 | golden_baseline_rounds_concatenate_chunk_fragments | 基线末轮分片拼接 | 给定末轮分片拆半的基线与含违约历史轮的两轮基线，当 `settle`，则分片无分隔直连判过、多轮只取末轮判未改善 | 2026-11-01 |
 | unparsable_baseline_or_output_is_incomparable_not_equal | 不可比三态边界 | 给定本轮降级与基线损坏两种不可比输入，当结算，则本轮降级出改且匹配为空摘要说明降级、基线损坏出回归且摘要说明基线不可解析 | 2026-11-01 |
 
-### `crates/gloss-eval/src/metrics.rs`
+### `crates/gloss-eval/src/asset.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| latency_percentiles_interpolate | 延迟百分位线性插值 | 给定四个样本，当取 `p0/p50/p95/p100`，则插值结果精确；空样本返回 `None` | 2026-09-26 |
+| missing_files_load_as_empty_maps | 资产文件缺失按空表 | 给定不存在标注与基线文件的目录，当 `load_labels` 与 `load_golden`，则各自得空表且不报错（首轮无历史是常态） | 2026-11-01 |
+| upserts_merge_by_id_and_keep_lf_and_note_roundtrip | 按条目合并写确定性 | 给定先后两批含同标识的标注行与重复固化的基线行，当 `upsert_labels` 与 `upsert_golden`，则同标识覆盖不叠行、行以换行符结尾、按标识排序落盘、备注随往返保留、新固化时间胜出 | 2026-11-01 |
+| bad_rows_and_unknown_verdicts_are_rejected_with_line_numbers | 坏行与未知道具拒绝 | 给定坏行、`verdict` 域外词面与缺逐轮数组的基线行，当加载，则各自带行号拒绝（资产是受控工件，不做历史行式容错） | 2026-11-01 |
+| outputs_overwrite_on_write_and_fail_clear_on_missing_read | 单次输出覆盖写与缺失报错 | 给定写后读回、覆盖写空表与读缺失文件三步，当 `write_outputs` 与 `read_outputs`，则读回逐字段一致、空表读作零行、缺失报清晰错误并指明先跑迭代 | 2026-11-01 |
+
+### `crates/gloss-eval/src/execute.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| stub_run_settles_layers_and_pends_without_baseline | 桩引擎端到端首轮全待比 | 给定脚本引擎桩（分类回复、任务回复、评审四维脚本）与头部 23 条切片，当 `run` 加空基线空标注结算，则例数与延迟样本数对齐、分类例无质量分且类别符合过、首个任务例字段完整过且评审四维进明细、全部回归恒待比 | 2026-11-01 |
+| golden_and_labels_settle_stub_rounds_into_pass_and_changed | 注入基线标注出通过与改 | 给定同轮输出的桩运行与逐例基线标注（两合格一同合格、一不合格异类），当 `regression::settle`，则同文合格判通过、结构相同判通过、异类不合格判改 | 2026-11-01 |
+| engine_failure_marks_the_case_and_drops_settlement | 引擎故障标记进明细 | 给定首通即请求失败的脚本引擎桩，当 `run` 后结算，则明细带故障标记、轮轨迹为空、无质量分、回归字段恒空且运行不中断 | 2026-11-01 |
+| limit_slices_the_run_and_judge_toggle_keeps_quality_empty | 限位切片与评审开关 | 给定限位 2 条且评审关闭的运行，当 `run`，则恰出两条明细与两个延迟样本、质量字段全空 | 2026-11-01 |
+| latency_percentiles_interpolate | 延迟百分位线性插值 | 给定四个样本，当取 `p0/p50/p95/p100`，则插值结果精确；空样本返回 `None` | 2026-11-01 |
 
 ### `crates/gloss-eval/src/gate.rs`
 
