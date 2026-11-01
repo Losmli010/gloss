@@ -285,7 +285,7 @@ fn ratio(numerator: f64, denominator: f64) -> f64 {
     }
 }
 
-fn now_secs() -> i64 {
+pub(crate) fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -374,13 +374,24 @@ pub fn format_utc_short(secs: i64) -> String {
     format!("{} {hour:02}:{minute:02}", &date[5..])
 }
 
+pub fn format_utc_rfc3339(secs: i64) -> String {
+    let (date, hour, minute, second) = utc_stamp(secs);
+    format!("{date}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
 fn utc_parts(secs: i64) -> (String, u32, u32) {
+    let (date, hour, minute, _) = utc_stamp(secs);
+    (date, hour, minute)
+}
+
+fn utc_stamp(secs: i64) -> (String, u32, u32, u32) {
     let (year, month, day) = civil_from_days(secs.div_euclid(86_400));
     let day_secs = secs.rem_euclid(86_400);
     (
         format!("{year:04}-{month:02}-{day:02}"),
         (day_secs / 3_600) as u32,
         ((day_secs % 3_600) / 60) as u32,
+        (day_secs % 60) as u32,
     )
 }
 
@@ -841,6 +852,10 @@ mod tests {
         assert_eq!(super::format_utc(-1), "1969-12-31 23:59");
         assert_eq!(super::format_utc_short(-86_400), "12-31 00:00");
         assert_eq!(super::format_utc_short(1_000), "01-01 00:16");
+        assert_eq!(
+            super::format_utc_rfc3339(1_791_763_200 + 3_723),
+            "2026-10-12T01:02:03Z"
+        );
     }
 
     #[test]

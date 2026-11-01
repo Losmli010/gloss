@@ -1,12 +1,12 @@
-//! 评测命令行（CLI）入口：报告子命令把最近一次迭代报告重渲染为
-//! （Markdown）表格；历史子命令从现有历史记录文件重绘趋势矢量图
-//! （SVG）；语言门子命令离线评测语言门判定，可选启用大语言模型
-//! （LLM）评委抽样复核。评测凭据环境变量只在本入口读取（库层零
-//! 环境副作用），引擎与配置的端点装配也在此收口。
+//! 评测命令行（CLI）入口：迭代实跑、标注落库、基线固化、报告重渲染、
+//! 历史重绘与语言门评测六个子命令的参数解析、环境读取与分派。流程装
+//! 配（三条流的编排）住在库里，本壳只做参数解析、环境注入与打印——
+//! 评测凭据与产物目录环境变量只在这里读取（库层零环境副作用），引擎
+//! 与配置的端点装配也在此收口。
 //!
-//! 报告读评测产物目录里按模式命名的（JSON）报告并打到标准输出；
-//! 历史重绘写回同目录的趋势文件。语言门报告写评测产物目录。
-//! 本二进制属于评测工具链，不在应用启动路径上。
+//! 报告读评测产物目录里按模式命名的（JSON）报告并打到标准输出；历史
+//! 重绘写回同目录的趋势文件；语言门报告写评测产物目录。本二进制属于
+//! 评测工具链，不在应用启动路径上。
 //!
 //! 日志纪律的豁免面：打印报告与错误就是本命令行的全部产出（无日志
 //! 订阅者、无长驻进程），标准输出与标准错误直写在此是有意为之，故
@@ -20,13 +20,16 @@ use gloss_core::config::Config;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::llm::LlmClient;
 use gloss_core::model::GlossError;
-use gloss_core::ports::{ConfigStore, SecretStore};
+use gloss_core::ports::{AiEngine, ConfigStore, SecretStore};
 
 const REPORT_DIR: &str = "target/eval";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let outcome = match args.first().map(String::as_str) {
+        Some("iterate") => run_iterate_cli(&args[1..]),
+        Some("label") => run_label_cli(&args[1..]),
+        Some("accept") => run_accept_cli(&args[1..]),
         Some("report") => run_report_cli(&args[1..]),
         Some("history") => run_history_cli(&args[1..]),
         Some("gate") => run_gate_cli(&args[1..]),
@@ -39,9 +42,29 @@ fn main() {
 }
 
 fn usage() -> &'static str {
-    "usage: eval <report|history|gate> [options]
-  report [--dir PATH]    render the latest iteration report under the eval dir as a Markdown table
-  history [--dir PATH]   redraw history.svg from the existing history.jsonl (no evaluation run)
+    "usage: eval <iterate|label|accept|report|history|gate> [options]
+  iterate [--no-judge] [--limit N]
+                         run the curated set through the production loop, settle
+                         contract/quality/regression, write iterate.json,
+                         iterate.cases.json, iterate.outputs.jsonl and
+                         iterate.html into the eval dir, and append
+                         history.jsonl (same key overwrites in place); the
+                         judge defaults on, --no-judge skips the extra model
+                         call; needs GLOSS_LIVE_BASE_URL / GLOSS_LIVE_MODEL /
+                         GLOSS_LIVE_API_KEY (all three, exit 1 when missing);
+                         GLOSS_EVAL_DIR overrides the eval dir, GLOSS_EVAL_COMMIT
+                         and GLOSS_EVAL_SOURCE ride the report context
+  label --import FILE [--dir PATH]
+                         merge a view-exported labels document into
+                         labels.jsonl (offline); rows must pass the label
+                         schema, ids outside the curated set are skipped with a
+                         warning
+  accept [--dir PATH]    freeze iterate.outputs.jsonl into golden.jsonl
+                         (offline); unlabeled rows only warn
+  report [--dir PATH]    render the latest iteration report under the eval dir
+                         as a Markdown table
+  history [--dir PATH]   redraw history.svg from the existing history.jsonl (no
+                         evaluation run)
   gate [--judge] [--limit N]
                          offline language-gate verdicts over the gate dataset (precision/recall)
                          plus the remedy convergence table (violation → mechanical repair →
@@ -49,9 +72,101 @@ fn usage() -> &'static str {
                          (needs GLOSS_LIVE_* credentials); writes target/eval/gate.md"
 }
 
+fn run_iterate_cli(args: &[String]) -> Result<(), String> {
+    let mut judge = true;
+    let mut limit = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--no-judge" => judge = false,
+            "--limit" => {
+                limit = Some(parse_usize(args, index, "--limit")?);
+                index += 1;
+            }
+            other => return Err(format!("unknown option {other:?}\n{}", usage())),
+        }
+        index += 1;
+    }
+    let (config, engine) = live_runtime(LiveEnv::from_env()?)?;
+    let context = gloss_eval::report::EvalContext {
+        commit: env_value("GLOSS_EVAL_COMMIT"),
+        source: env_value("GLOSS_EVAL_SOURCE"),
+    };
+    let dir = report_dir();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| format!("tokio runtime: {err}"))?;
+    let report = runtime.block_on(gloss_eval::flow::run_iterate(
+        engine.as_ref(),
+        &config,
+        gloss_eval::execute::ExecuteOptions { judge, limit },
+        Path::new(&dir),
+        context,
+    ))?;
+    println!("iterate complete: {} case(s) -> {dir}", report.totals.cases);
+    print!("{}", report.render_markdown());
+    Ok(())
+}
+
+fn run_label_cli(args: &[String]) -> Result<(), String> {
+    let mut import: Option<PathBuf> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--import" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--import needs a file".into());
+                };
+                import = Some(PathBuf::from(value));
+                index += 1;
+            }
+            "--dir" => {
+                if args.get(index + 1).is_none() {
+                    return Err("--dir needs a path".into());
+                }
+                index += 1;
+            }
+            other => return Err(format!("unknown option {other:?}\n{}", usage())),
+        }
+        index += 1;
+    }
+    let Some(file) = import else {
+        return Err(format!("--import is required\n{}", usage()));
+    };
+    let dir = dir_option(args)?;
+    let summary = gloss_eval::flow::import_labels(&dir, &file)?;
+    println!(
+        "labels merged: {} row(s) -> {}",
+        summary.imported,
+        dir.join(gloss_eval::flow::LABELS_FILE).display()
+    );
+    for id in &summary.skipped {
+        println!("warning: {id} is not in the curated set, skipped");
+    }
+    Ok(())
+}
+
+fn run_accept_cli(args: &[String]) -> Result<(), String> {
+    let dir = dir_option(args)?;
+    let summary = gloss_eval::flow::accept(&dir)?;
+    println!(
+        "golden frozen: {} row(s) -> {}",
+        summary.accepted,
+        dir.join(gloss_eval::flow::GOLDEN_FILE).display()
+    );
+    if summary.unlabeled > 0 {
+        println!(
+            "warning: {} row(s) have no label yet and freeze without a human verdict",
+            summary.unlabeled
+        );
+    }
+    Ok(())
+}
+
 fn run_report_cli(args: &[String]) -> Result<(), String> {
     let dir = dir_option(args)?;
-    let path = dir.join("iterate.json");
+    let path = dir.join(format!("{}.json", gloss_eval::report::ITERATE_MODE));
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -70,7 +185,7 @@ fn run_report_cli(args: &[String]) -> Result<(), String> {
 
 fn run_history_cli(args: &[String]) -> Result<(), String> {
     let dir = dir_option(args)?;
-    let path = dir.join("history.jsonl");
+    let path = dir.join(gloss_eval::history::HISTORY_FILE);
     let history = gloss_eval::history::load_history(&path)
         .map_err(|err| format!("{}: {err}", path.display()))?;
     let svg = gloss_eval::trend::render_svg(&history);
@@ -93,10 +208,7 @@ fn run_gate_cli(args: &[String]) -> Result<(), String> {
         match args[index].as_str() {
             "--judge" => judge = true,
             "--limit" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err("--limit needs a number".into());
-                };
-                limit = value.parse().map_err(|_| "--limit needs a number")?;
+                limit = parse_usize(args, index, "--limit")?;
                 index += 1;
             }
             other => return Err(format!("unknown option {other:?}\n{}", usage())),
@@ -111,12 +223,7 @@ fn run_gate_cli(args: &[String]) -> Result<(), String> {
             .map_err(|error| format!("load remedy dataset: {error}"))?;
     markdown.push_str(&gloss_eval::remedy::run_remedy(&remedy_cases).render_markdown());
     if judge {
-        let env = LiveEnv::from_env()?;
-        let (config, store) = live_config(env);
-        let engine: Arc<dyn gloss_core::ports::AiEngine> = Arc::new(
-            LlmClient::new(Arc::clone(&config), store)
-                .map_err(|err| format!("http client: {err}"))?,
-        );
+        let (config, engine) = live_runtime(LiveEnv::from_env()?)?;
         let model = config.snapshot().model.clone();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -138,6 +245,13 @@ fn run_gate_cli(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn parse_usize(args: &[String], index: usize, flag: &str) -> Result<usize, String> {
+    let Some(value) = args.get(index + 1) else {
+        return Err(format!("{flag} needs a number"));
+    };
+    value.parse().map_err(|_| format!("{flag} needs a number"))
+}
+
 fn dir_option(args: &[String]) -> Result<PathBuf, String> {
     if let Some(pair) = args.iter().position(|arg| arg == "--dir") {
         let Some(value) = args.get(pair + 1) else {
@@ -150,6 +264,12 @@ fn dir_option(args: &[String]) -> Result<PathBuf, String> {
 
 fn report_dir() -> String {
     std::env::var("GLOSS_EVAL_DIR").unwrap_or_else(|_| REPORT_DIR.to_owned())
+}
+
+fn env_value(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
 
 struct LiveEnv {
@@ -185,7 +305,7 @@ impl LiveEnv {
                     format!(
                         "missing {name}; set GLOSS_LIVE_API_KEY=sk-... \
                          GLOSS_LIVE_BASE_URL=https://api.deepseek.com/v1 \
-                         GLOSS_LIVE_MODEL=deepseek-flash before running with --judge"
+                         GLOSS_LIVE_MODEL=deepseek-flash before running live commands"
                     )
                 })
         };
@@ -195,6 +315,14 @@ impl LiveEnv {
             api_key: read("GLOSS_LIVE_API_KEY")?,
         })
     }
+}
+
+fn live_runtime(env: LiveEnv) -> Result<(Arc<ConfigHandle>, Arc<dyn AiEngine>), String> {
+    let (config, store) = live_config(env);
+    let engine: Arc<dyn AiEngine> = Arc::new(
+        LlmClient::new(Arc::clone(&config), store).map_err(|err| format!("http client: {err}"))?,
+    );
+    Ok((config, engine))
 }
 
 fn live_config(env: LiveEnv) -> (Arc<ConfigHandle>, Arc<dyn SecretStore>) {
