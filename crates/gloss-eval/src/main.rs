@@ -1,15 +1,12 @@
-//! 评测命令行（CLI）入口：检视子命令做离线重放并产出单文件检视页；
-//! 重放子命令做离线重放，持续集成（CI）安全；实跑子命令按需
-//! 启用，需评测凭据环境变量；报告子命令重渲染最近一次报告；历史子
-//! 命令从现有历史记录文件重绘趋势矢量图（SVG）。
+//! 评测命令行（CLI）入口：报告子命令把最近一次迭代报告重渲染为
+//! （Markdown）表格；历史子命令从现有历史记录文件重绘趋势矢量图
+//! （SVG）；语言门子命令离线评测语言门判定，可选启用大语言模型
+//! （LLM）评委抽样复核。评测凭据环境变量只在本入口读取（库层零
+//! 环境副作用），引擎与配置的端点装配也在此收口。
 //!
-//! 报告写评测产物目录——按模式命名的（JSON）与（Markdown）报告——
-//! 并把（Markdown）打到标准输出；报告落盘成功后追加历史记录文件并
-//! 重绘趋势图。检视与实跑轨额外落检视件：逐条明细文件与单文件检视
-//! 页（准确率头条、逐条轨迹与趋势，供人工检视）。实跑轨的回写把
-//! 修复轨迹（每轮增量）按条目标识逐条覆盖写回夹具目录。采集上下文
-//! 环境变量在此注入（库层零环境副作用）。本二进制属于评测工具链，
-//! 不在应用启动路径上。
+//! 报告读评测产物目录里按模式命名的（JSON）报告并打到标准输出；
+//! 历史重绘写回同目录的趋势文件。语言门报告写评测产物目录。
+//! 本二进制属于评测工具链，不在应用启动路径上。
 //!
 //! 日志纪律的豁免面：打印报告与错误就是本命令行的全部产出（无日志
 //! 订阅者、无长驻进程），标准输出与标准错误直写在此是有意为之，故
@@ -19,18 +16,17 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use gloss_core::config::Config;
+use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::llm::LlmClient;
-use gloss_eval::EvalReport;
-use gloss_eval::detail::CaseDetail;
+use gloss_core::model::GlossError;
+use gloss_core::ports::{ConfigStore, SecretStore};
 
 const REPORT_DIR: &str = "target/eval";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let outcome = match args.first().map(String::as_str) {
-        Some("inspect") => run_inspect_cli(),
-        Some("replay") => run_replay_cli(),
-        Some("live") => run_live_cli(&args[1..]),
         Some("report") => run_report_cli(&args[1..]),
         Some("history") => run_history_cli(&args[1..]),
         Some("gate") => run_gate_cli(&args[1..]),
@@ -43,133 +39,49 @@ fn main() {
 }
 
 fn usage() -> &'static str {
-    "usage: eval <inspect|replay|live|report|history|gate> [options]
-  inspect                offline replay + single-file inspection page target/eval/inspect.html
-                         (accuracy headline, per-case expected vs actual, per-round replies, trend);
-                         entry point for manual inspection after prompt changes
-  replay                 offline replay of fixtures (CI-safe, no network or credentials); writes the
-                         report, appends history.jsonl and redraws history.svg
-  live [--record] [--judge] [--limit N]
-                         real LLM evaluation (needs GLOSS_LIVE_BASE_URL/MODEL/API_KEY;
-                         --record writes fixtures back, --judge enables the judge scoring track);
-                         same history append and trend redraw, plus inspection files
+    "usage: eval <report|history|gate> [options]
+  report [--dir PATH]    render the latest iteration report under the eval dir as a Markdown table
+  history [--dir PATH]   redraw history.svg from the existing history.jsonl (no evaluation run)
   gate [--judge] [--limit N]
                          offline language-gate verdicts over the gate dataset (precision/recall)
                          plus the remedy convergence table (violation → mechanical repair →
                          re-check); --judge additionally samples cases for an LLM second opinion
-                         (needs GLOSS_LIVE_* credentials and GLOSS_LIVE_JUDGE=1); writes
-                         target/eval/gate.md
-  report [--dir PATH]    render the latest reports under target/eval as a Markdown table
-  history [--dir PATH]   redraw history.svg from the existing history.jsonl (no evaluation run)"
+                         (needs GLOSS_LIVE_* credentials); writes target/eval/gate.md"
 }
 
-fn run_replay_cli() -> Result<(), String> {
-    let dir = report_dir();
-    let markdown = run_replay_into(Path::new(&dir), eval_context())?;
-    print!("{markdown}");
-    Ok(())
-}
-
-fn run_inspect_into(
-    dir: &Path,
-    context: Option<gloss_eval::report::EvalContext>,
-) -> Result<String, String> {
-    let mut run = gloss_eval::runner::run_replay_detailed()?;
-    run.report.context = context;
-    let markdown = finish_run_report(&run.report, dir)?;
-    write_inspect(dir, &run.report, &run.cases)?;
-    Ok(markdown)
-}
-
-fn run_inspect_cli() -> Result<(), String> {
-    let dir = report_dir();
-    let markdown = run_inspect_into(Path::new(&dir), eval_context())?;
-    print!("{markdown}");
-    println!(
-        "inspect page: {}",
-        Path::new(&dir).join("inspect.html").display()
-    );
-    Ok(())
-}
-
-fn write_inspect(dir: &Path, report: &EvalReport, cases: &[CaseDetail]) -> Result<(), String> {
-    let history = gloss_eval::history::load_history(&dir.join("history.jsonl"))
-        .map_err(|err| format!("load history: {err}"))?;
-    let html = gloss_eval::inspect::render_html(report, cases, &history);
-    gloss_eval::history::write_atomic(&dir.join("inspect.html"), &html)
-        .map_err(|err| format!("write inspect.html: {err}"))?;
-    let cases_json =
-        serde_json::to_string_pretty(cases).map_err(|err| format!("serialize cases: {err}"))?;
-    gloss_eval::history::write_atomic(
-        &dir.join(format!("{}.cases.json", report.mode)),
-        &cases_json,
-    )
-    .map_err(|err| format!("write cases: {err}"))?;
-    Ok(())
-}
-
-fn run_replay_into(
-    dir: &Path,
-    context: Option<gloss_eval::report::EvalContext>,
-) -> Result<String, String> {
-    let mut report = gloss_eval::runner::run_replay()?;
-    report.context = context;
-    finish_run_report(&report, dir)
-}
-
-fn finish_run_report(report: &gloss_eval::EvalReport, dir: &Path) -> Result<String, String> {
-    let markdown = gloss_eval::report::write_report(report, dir)
-        .map_err(|err| format!("write report: {err}"))?;
-    gloss_eval::history::record_run(report, dir).map_err(|err| format!("record history: {err}"))?;
-    Ok(markdown)
-}
-
-fn run_live_cli(args: &[String]) -> Result<(), String> {
-    let env = gloss_eval::runner::LiveEnv::from_env()?;
-    let mut options = gloss_eval::runner::LiveOptions::default();
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--record" => options.record = true,
-            "--judge" => {
-                options.judge = true;
-                let enabled = std::env::var("GLOSS_LIVE_JUDGE").ok().as_deref() == Some("1");
-                if !enabled {
-                    return Err(
-                        "--judge additionally requires GLOSS_LIVE_JUDGE=1 (it costs one extra model call per case)"
-                            .into(),
-                    );
-                }
-            }
-            "--limit" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err("--limit needs a number".into());
-                };
-                options.limit = Some(value.parse().map_err(|_| "--limit needs a number")?);
-                index += 1;
-            }
-            other => return Err(format!("unknown option {other:?}\n{}", usage())),
+fn run_report_cli(args: &[String]) -> Result<(), String> {
+    let dir = dir_option(args)?;
+    let path = dir.join("iterate.json");
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(format!(
+                "no renderable report under {} — run eval iterate first",
+                dir.display()
+            ));
         }
-        index += 1;
-    }
-    let (config, store) = gloss_eval::runner::live_config(env);
-    let engine: Arc<dyn gloss_core::ports::AiEngine> = Arc::new(
-        LlmClient::new(Arc::clone(&config), store).map_err(|err| format!("http client: {err}"))?,
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    };
+    let report: gloss_eval::EvalReport =
+        serde_json::from_slice(&bytes).map_err(|err| format!("{}: {err}", path.display()))?;
+    print!("{}", report.render_markdown());
+    Ok(())
+}
+
+fn run_history_cli(args: &[String]) -> Result<(), String> {
+    let dir = dir_option(args)?;
+    let path = dir.join("history.jsonl");
+    let history = gloss_eval::history::load_history(&path)
+        .map_err(|err| format!("{}: {err}", path.display()))?;
+    let svg = gloss_eval::svg::render_svg(&history);
+    let out = dir.join("history.svg");
+    gloss_eval::history::write_atomic(&out, &svg)
+        .map_err(|err| format!("write {}: {err}", out.display()))?;
+    println!(
+        "trend redrawn: {} ({} points)",
+        out.display(),
+        history.len()
     );
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| format!("tokio runtime: {err}"))?;
-    let mut run = runtime.block_on(gloss_eval::runner::run_live(engine, config, options))?;
-    if options.record {
-        let recorded = upsert_fixtures(&run.recordings)?;
-        println!("updated {recorded} fixtures (fixtures/).");
-    }
-    let dir = report_dir();
-    run.report.context = eval_context();
-    let markdown = finish_run_report(&run.report, Path::new(&dir))?;
-    write_inspect(Path::new(&dir), &run.report, &run.cases)?;
-    print!("{markdown}");
     Ok(())
 }
 
@@ -199,8 +111,8 @@ fn run_gate_cli(args: &[String]) -> Result<(), String> {
             .map_err(|error| format!("load remedy dataset: {error}"))?;
     markdown.push_str(&gloss_eval::remedy::run_remedy(&remedy_cases).render_markdown());
     if judge {
-        let env = gloss_eval::runner::LiveEnv::from_env()?;
-        let (config, store) = gloss_eval::runner::live_config(env);
+        let env = LiveEnv::from_env()?;
+        let (config, store) = live_config(env);
         let engine: Arc<dyn gloss_core::ports::AiEngine> = Arc::new(
             LlmClient::new(Arc::clone(&config), store)
                 .map_err(|err| format!("http client: {err}"))?,
@@ -226,47 +138,6 @@ fn run_gate_cli(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn run_report_cli(args: &[String]) -> Result<(), String> {
-    let dir = dir_option(args)?;
-    let mut rendered = 0;
-    for mode in ["replay", "live"] {
-        let path = dir.join(format!("{mode}.json"));
-        let bytes = match std::fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("{}: {error}", path.display())),
-        };
-        let report: gloss_eval::EvalReport =
-            serde_json::from_slice(&bytes).map_err(|err| format!("{}: {err}", path.display()))?;
-        print!("{}", report.render_markdown());
-        rendered += 1;
-    }
-    if rendered == 0 {
-        return Err(format!(
-            "no renderable reports under {} — run eval replay or eval live first",
-            dir.display()
-        ));
-    }
-    Ok(())
-}
-
-fn run_history_cli(args: &[String]) -> Result<(), String> {
-    let dir = dir_option(args)?;
-    let path = dir.join("history.jsonl");
-    let history = gloss_eval::history::load_history(&path)
-        .map_err(|err| format!("{}: {err}", path.display()))?;
-    let svg = gloss_eval::svg::render_svg(&history);
-    let out = dir.join("history.svg");
-    gloss_eval::history::write_atomic(&out, &svg)
-        .map_err(|err| format!("write {}: {err}", out.display()))?;
-    println!(
-        "trend redrawn: {} ({} points)",
-        out.display(),
-        history.len()
-    );
-    Ok(())
-}
-
 fn dir_option(args: &[String]) -> Result<PathBuf, String> {
     if let Some(pair) = args.iter().position(|arg| arg == "--dir") {
         let Some(value) = args.get(pair + 1) else {
@@ -277,173 +148,99 @@ fn dir_option(args: &[String]) -> Result<PathBuf, String> {
     Ok(PathBuf::from(report_dir()))
 }
 
-fn eval_context() -> Option<gloss_eval::report::EvalContext> {
-    let commit = env_option("GLOSS_EVAL_COMMIT");
-    let source = env_option("GLOSS_EVAL_SOURCE");
-    (commit.is_some() || source.is_some())
-        .then_some(gloss_eval::report::EvalContext { commit, source })
-}
-
-fn env_option(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-}
-
 fn report_dir() -> String {
     std::env::var("GLOSS_EVAL_DIR").unwrap_or_else(|_| REPORT_DIR.to_owned())
 }
 
-fn upsert_fixtures(fixtures: &[gloss_eval::dataset::Fixture]) -> Result<usize, String> {
-    let mut by_file: Vec<(&str, Vec<&gloss_eval::dataset::Fixture>)> = vec![
-        ("classify_replay.jsonl", Vec::new()),
-        ("task_replay.jsonl", Vec::new()),
-    ];
-    let classify_ids: std::collections::BTreeSet<String> =
-        gloss_eval::dataset::load_classify(gloss_eval::assets::CLASSIFY_DATASET)?
-            .into_iter()
-            .map(|case| case.id)
-            .collect();
-    for fixture in fixtures {
-        let slot = if classify_ids.contains(&fixture.id) {
-            &mut by_file[0]
-        } else {
-            &mut by_file[1]
-        };
-        slot.1.push(fixture);
-    }
-    let mut written = 0;
-    for (file, entries) in by_file {
-        if entries.is_empty() {
-            continue;
-        }
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("fixtures")
-            .join(file);
-        written += merge_fixtures(&path, &entries)?;
-    }
-    Ok(written)
+struct LiveEnv {
+    base_url: String,
+    model: String,
+    api_key: String,
 }
 
-fn merge_fixtures(
-    path: &std::path::Path,
-    entries: &[&gloss_eval::dataset::Fixture],
-) -> Result<usize, String> {
-    let existing = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(format!("read {}: {error}", path.display())),
-    };
-    let mut lines: Vec<String> = existing
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(str::to_owned)
-        .filter(|line| {
-            let id = serde_json::from_str::<serde_json::Value>(line)
+impl std::fmt::Debug for LiveEnv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LiveEnv")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "<none>"
+                } else {
+                    "<set>"
+                },
+            )
+            .finish()
+    }
+}
+
+impl LiveEnv {
+    fn from_env() -> Result<Self, String> {
+        let read = |name: &str| {
+            std::env::var(name)
                 .ok()
-                .and_then(|value| {
-                    value
-                        .get("id")
-                        .and_then(|id| id.as_str().map(str::to_owned))
-                });
-            !entries
-                .iter()
-                .any(|entry| id.as_deref() == Some(entry.id.as_str()))
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    format!(
+                        "missing {name}; set GLOSS_LIVE_API_KEY=sk-... \
+                         GLOSS_LIVE_BASE_URL=https://api.deepseek.com/v1 \
+                         GLOSS_LIVE_MODEL=deepseek-flash before running with --judge"
+                    )
+                })
+        };
+        Ok(Self {
+            base_url: read("GLOSS_LIVE_BASE_URL")?,
+            model: read("GLOSS_LIVE_MODEL")?,
+            api_key: read("GLOSS_LIVE_API_KEY")?,
         })
-        .collect();
-    for entry in entries {
-        let line = serde_json::to_string(entry).map_err(|err| err.to_string())?;
-        lines.push(line);
     }
-    gloss_eval::history::write_atomic(path, &format!("{}\n", lines.join("\n")))
-        .map_err(|err| format!("write {}: {err}", path.display()))?;
-    Ok(entries.len())
 }
 
-#[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
+fn live_config(env: LiveEnv) -> (Arc<ConfigHandle>, Arc<dyn SecretStore>) {
+    let store = Arc::new(EnvSecretStore::new(env.api_key));
+    let config = Config {
+        base_url: env.base_url,
+        model: env.model,
+        ..Config::default()
+    };
+    let handle = Arc::new(ConfigHandle::with_config(
+        Arc::clone(&store) as Arc<dyn ConfigStore>,
+        config,
+    ));
+    (handle, Arc::clone(&store) as Arc<dyn SecretStore>)
+}
 
-    use gloss_eval::report::EvalContext;
+struct EnvSecretStore {
+    key: String,
+}
 
-    use super::{finish_run_report, run_inspect_into, run_replay_into};
+impl EnvSecretStore {
+    fn new(key: String) -> Self {
+        Self { key }
+    }
+}
 
-    fn temp_dir(tag: &str) -> PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "gloss-eval-cli-{tag}-{}-{nanos}",
-            std::process::id()
-        ))
+impl ConfigStore for EnvSecretStore {
+    fn load(&self) -> Result<Config, GlossError> {
+        Ok(Config::default())
     }
 
-    #[test]
-    fn replay_run_writes_report_and_history_files() {
-        let dir = temp_dir("replay-files");
-        run_replay_into(&dir, None).expect("the offline replay run should succeed");
-        assert!(dir.join("replay.json").is_file());
-        assert!(dir.join("replay.md").is_file());
-        let history = dir.join("history.jsonl");
-        assert!(history.is_file(), "history.jsonl rides the same run");
-        let text = std::fs::read_to_string(&history).expect("history text");
-        assert_eq!(text.lines().count(), 1, "one run appends exactly one row");
-        assert!(
-            dir.join("history.svg").is_file(),
-            "the trend file is redrawn"
-        );
-        std::fs::remove_dir_all(&dir).ok();
+    fn save(&self, _config: &Config) -> Result<(), GlossError> {
+        Ok(())
+    }
+}
+
+impl SecretStore for EnvSecretStore {
+    fn secret(&self, _key: &str) -> Result<Option<String>, GlossError> {
+        Ok(Some(self.key.clone()))
     }
 
-    #[test]
-    fn second_replay_run_appends_without_commit() {
-        let dir = temp_dir("replay-append");
-        run_replay_into(&dir, None).expect("first run");
-        run_replay_into(&dir, None).expect("second run");
-        let text = std::fs::read_to_string(dir.join("history.jsonl")).expect("history text");
-        assert_eq!(
-            text.lines().count(),
-            2,
-            "local runs without a commit always append"
-        );
-        assert!(dir.join("history.svg").is_file());
-        std::fs::remove_dir_all(&dir).ok();
+    fn set_secret(&self, _key: &str, _value: &str) -> Result<(), GlossError> {
+        Ok(())
     }
 
-    #[test]
-    fn finish_run_report_writes_the_injected_context_through() {
-        let dir = temp_dir("replay-context");
-        let mut report = gloss_eval::runner::run_replay().expect("replay");
-        report.context = Some(EvalContext {
-            commit: Some("ec96217".to_owned()),
-            source: Some("pipeline".to_owned()),
-        });
-        finish_run_report(&report, &dir).expect("finish");
-        let json = std::fs::read_to_string(dir.join("replay.json")).expect("report json");
-        assert!(
-            json.contains(r#""context": {"#) && json.contains(r#""commit": "ec96217""#),
-            "the injected context lands in the written report"
-        );
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn inspect_run_writes_the_inspection_files() {
-        let dir = temp_dir("inspect-files");
-        run_inspect_into(&dir, None).expect("the inspect run should succeed offline");
-        assert!(
-            dir.join("replay.json").is_file(),
-            "report rides the inspect run"
-        );
-        let html = std::fs::read_to_string(dir.join("inspect.html")).expect("inspect html");
-        assert!(html.contains("classify accuracy"), "headline: {html}");
-        assert!(html.contains("<svg"), "trend inlined");
-        let cases = std::fs::read_to_string(dir.join("replay.cases.json")).expect("cases json");
-        assert!(
-            cases.contains("\"zh-word-01\""),
-            "per-case details are dumped for diffing"
-        );
-        std::fs::remove_dir_all(&dir).ok();
+    fn delete_secret(&self, _key: &str) -> Result<(), GlossError> {
+        Ok(())
     }
 }

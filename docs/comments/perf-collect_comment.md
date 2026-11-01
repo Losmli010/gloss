@@ -83,7 +83,9 @@
     `budget_ms` / `rss_tail_budget_kb` 折算进该点 budgets 段。
   - app 运行时片段：`target/perf/app-runtime.json`（app-metrics 产物）→ `app.*`
     （含 `env.cpu`）。
-  - eval live 报告：`target/eval/live.json` → `eval.task_latency_p50/p95_ms`，仅
-    `mode=="live"` 且字段在场时并入。
+  - eval iterate 报告：`target/eval/iterate.json` → `eval.task_latency_p50/p95_ms`，仅
+    `mode=="iterate"` 且字段在场时并入。（2026-11-01 评测工具链重构步骤 1：
+    旧实跑轨删除，延迟源随迭代命令的目标契约改指 iterate.json，迭代实跑在
+    后续步骤接线。）
 - 点模型：`{commit, date, env, budgets?, metrics}`；v1 嵌套点按 clone/core/app
   分组键识别，`app.binary_kb` 按采集机架构（x86_64）折算为 `app.binary_x64_kb`。

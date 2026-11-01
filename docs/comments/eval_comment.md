@@ -69,3 +69,20 @@ live --record 按 id upsert 回 fixtures/（main 的 upsert_fixtures）：分类
 - live 分类轨的引擎失败分账得以保留：`classify_traced` 刻意**不消化**请求异常（原样上抛，消化归 `classify`），eval 据 `Err` 单列 `engine_errors`——这与“分类失败与模型行为分账”的既有口径（见“评审补记”）衔接，否则内部消化会让网络故障混进 invalid_json。
 - live 任务的回复累积改随生产循环（无 4KiB 上限）：旧 `collect` 对任务回复也套 `push_capped`，那是分类编排的界；生产任务循环本就不设回复上限（SSE 单行界 + 服务端 max_tokens 兜底）。改走 `run_task_rounds` 后此漂移一并消除。
 - 报告新增“修复轮次”行（总数 + 违约类别短名计数，`violation_tag` 短名因 `Display` 措辞是整句不适合表格单元格）。
+
+## 旧轨删除（2026-11-01，评测工具链重构步骤 1）
+
+- 重放轨、独立分类轨与旧实跑轨整体删除（fixtures/、datasets/classify.jsonl
+  与三个 task_*.jsonl、baselines/ 趋势基线、`eval replay`/`eval inspect`/
+  `eval live` 命令、采集流水线 .github/workflows/eval.yml）——上文各节的
+  夹具定位、取数点与回写机制描述的是被删对象的历史设计，留档备查。
+  删除的缘由：两条独立轨无法承载提示词迭代闭环——重放度量的是校验器对
+  固化夹具的判定，提示词改动不动它，对迭代价值有限；回归信号改由基线加
+  规则判定承担，需实跑触发。替代闭环（`eval iterate` 统一用例集、评审四维、
+  基线回归、标注落库）按重构计划随删随建，本步只删不建。
+- `GLOSS_LIVE_JUDGE=1` 双保险随旧实跑轨删除：评审是流程核心信号，新的
+  迭代命令默认开启、`--no-judge` 可跳过（额外成本不再要求环境变量二次
+  确认）；语言门评委复核只凭 `GLOSS_LIVE_*` 凭据显式选择参与。
+- 保留且非残留：`gate`（含 lang_gate 两数据集与动作收敛轨）、`report` 与
+  `history` 命令、延迟与引擎故障指标；旧历史行靠 serde 未知字段忽略与坏行
+  容错继续可读。

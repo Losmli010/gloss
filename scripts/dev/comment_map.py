@@ -57,8 +57,6 @@ FAMILY_STEMS: dict[str, str] = {
     # 核心库数据源派生模块与约束门禁语言规范域撞名：约束域带家族前缀
     "crates/gloss-core/src/pipeline/langspec.rs": "langspec",
     "scripts/hooks/constraints/langspec.py": "constraints_langspec",
-    # 评测工作流与评测隔离主题记录（自由主题）消歧
-    ".github/workflows/eval.yml": "eval_workflow",
     # 集成测试目标与运行时管线模块撞名：测试目标带集成前缀
     "crates/gloss-app/tests/pipeline.rs": "pipeline_integration",
     # 剪贴板家族：选区剪贴板、剪贴板子模块与浮层图像卡撞名

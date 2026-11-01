@@ -86,7 +86,7 @@ def test_production_crate_depends_on_eval_rejected(tmp_path: Path) -> None:
 def test_production_code_includes_eval_asset_rejected(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         (root / "crates/gloss-core/src/lib.rs").write_text(
-            'const X: &str = include_str!("../../gloss-eval/datasets/classify.jsonl");\n'
+            'const X: &str = include_str!("../../gloss-eval/datasets/lang_gate.jsonl");\n'
         )
 
     fixtures.assert_fail(

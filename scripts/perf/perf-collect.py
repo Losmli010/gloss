@@ -54,7 +54,7 @@ ROOT = SCRIPT_DIR.parents[1]
 CRIT_ROOT = ROOT / "target" / "criterion"
 SELFTEST_PATH = ROOT / "target" / "perf" / "selftest.jsonl"
 APP_PATH = ROOT / "target" / "perf" / "app-runtime.json"
-EVAL_PATH = ROOT / "target" / "eval" / "live.json"
+EVAL_PATH = ROOT / "target" / "eval" / "iterate.json"
 HISTORY_PATH = SCRIPT_DIR / "baselines" / "history.jsonl"
 
 STARTUP_SIGNAL_MESSAGE = "startup self-test finished"
@@ -258,9 +258,9 @@ def collect_app() -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def collect_eval() -> dict[str, Any]:
-    """eval live 报告 → 端到端延迟分位；非 live 模式或字段缺席即 id 缺席。"""
+    """eval iterate 报告 → 端到端延迟分位；非 iterate 模式或字段缺席即 id 缺席。"""
     data = load_json_file(EVAL_PATH)
-    if data is None or data.get("mode") != "live":
+    if data is None or data.get("mode") != "iterate":
         return {}
     latency = data.get("latency")
     metrics = {}
@@ -377,7 +377,7 @@ def main() -> None:
     if not metrics:
         fail(
             "all data sources absent, refusing to write an empty metrics point; collect at least one source first "
-            "(just bench / just clone-bench / just selftest-report / just app-metrics / just eval)"
+            "(just bench / just clone-bench / just selftest-report / just app-metrics)"
         )
 
     entry = {

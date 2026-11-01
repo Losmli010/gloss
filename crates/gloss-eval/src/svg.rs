@@ -6,8 +6,8 @@
 //! 图面：960 宽白底、面板纵向堆叠（标题与内联图例、细网格与刻度、
 //! 外框、折线与圆点、横轴稀疏刻度）；横轴刻度是各点的协调世界时
 //! （UTC）“月日时分”，模式与提交标识进悬浮提示，右上角固定标注
-//! 最近一次运行；任务轨按数据集各一面板，修复成本逐数据集出线。缺
-//! 样本断线跳段不造点。
+//! 最近一次运行；延迟分位各一面板，历史无样本不画。缺样本断线跳段
+//! 不造点。
 //!
 //! 分工：本文件只留画布组装（头部、高度、点窗）与发射原语，坐标轴
 //! 子模块管值域与网格口径，面板子模块管面板与序列的数据建模，落墨
@@ -45,13 +45,9 @@ const COLOR_GRID: &str = "#e7eaee";
 const COLOR_FRAME: &str = "#cdd2da";
 const COLOR_BLUE: &str = "#3b6fe0";
 const COLOR_ORANGE: &str = "#e8862e";
-const COLOR_GREEN: &str = "#2f9e57";
-const COLOR_PINK: &str = "#d64c7f";
-
-const COST_COLORS: [&str; 3] = [COLOR_ORANGE, COLOR_GREEN, COLOR_PINK];
 
 const FONT_STACK: &str = "-apple-system,'Segoe UI',sans-serif";
-const FOOTNOTE: &str = "Scope: the replay track measures the production validator on pinned fixtures; the live track reflects current model behavior. Data source: history.jsonl, last 100 points only, timestamps in UTC.";
+const FOOTNOTE: &str = "Scope: the latency series records end-to-end percentiles from evaluation runs with live samples. Data source: history.jsonl, last 100 points only, timestamps in UTC.";
 const EMPTY_NOTE: &str = "No eval history yet.";
 
 pub fn render_svg(history: &[EvalReport]) -> String {
@@ -177,84 +173,31 @@ fn line(out: &mut String, content: String) {
 
 #[cfg(test)]
 mod tests {
-    use crate::metrics::{ClassifyMetrics, Latency, TaskMetrics};
-    use crate::report::{
-        ClassifyStats, EvalContext, EvalReport, JudgeSummary, TaskStats, TrackOutputs,
-        assemble_report,
-    };
+    use crate::report::{EvalContext, EvalReport, LatencySummary};
     use crate::svg::{HISTORY_SVG_MAX_POINTS, render_svg};
 
-    fn classify_metrics() -> ClassifyMetrics {
-        ClassifyMetrics {
-            evaluated: 60,
-            correct: 52,
-            invalid_json: 2,
-            rejected: 1,
-            engine_errors: 1,
-            repair_rounds: 5,
-            ..ClassifyMetrics::default()
-        }
-    }
-
-    fn task_metrics() -> TaskMetrics {
-        TaskMetrics {
-            evaluated: 2,
-            json_object: 2,
-            note_present: 2,
-            fields_complete: 1,
-            degraded: 1,
-            repair_rounds: 3,
-            ..TaskMetrics::default()
-        }
-    }
-
-    fn latency() -> Latency {
-        let mut latency = Latency::default();
-        latency.record(100.0);
-        latency.record(200.0);
-        latency
-    }
-
-    fn report_with(
-        mode: &str,
-        generated_at: i64,
-        latency: Option<&mut Latency>,
-        judge: Option<JudgeSummary>,
-    ) -> EvalReport {
-        let mut report = assemble_report(
-            mode,
-            TrackOutputs {
-                classify: Some(classify_metrics()),
-                tasks: vec![("task_translate_word", task_metrics())],
-                latency,
-                judge,
-            },
-            0,
-        );
-        report.generated_at = generated_at;
-        report
-    }
-
-    fn replay_report(generated_at: i64) -> EvalReport {
-        report_with("replay", generated_at, None, None)
-    }
-
-    fn live_report(generated_at: i64) -> EvalReport {
-        let mut latency = latency();
-        report_with(
-            "live",
+    fn report(mode: &str, generated_at: i64) -> EvalReport {
+        EvalReport {
+            mode: mode.to_owned(),
             generated_at,
-            Some(&mut latency),
-            Some(JudgeSummary {
-                count: 2,
-                attempted: 2,
-                average: 4.1,
-            }),
-        )
+            latency: None,
+            context: None,
+        }
     }
 
-    fn with_commit(report: &EvalReport, commit: String) -> EvalReport {
-        let mut owned = report.clone();
+    fn sampled_report(mode: &str, generated_at: i64) -> EvalReport {
+        EvalReport {
+            latency: Some(LatencySummary {
+                count: 2,
+                p50: 100.0,
+                p95: 200.0,
+            }),
+            ..report(mode, generated_at)
+        }
+    }
+
+    fn with_commit(sampled: &EvalReport, commit: String) -> EvalReport {
+        let mut owned = sampled.clone();
         owned.context = Some(EvalContext {
             commit: Some(commit),
             source: None,
@@ -262,21 +205,8 @@ mod tests {
         owned
     }
 
-    fn manual_report(mode: &str, generated_at: i64, classify: Option<ClassifyStats>) -> EvalReport {
-        EvalReport {
-            mode: mode.to_owned(),
-            generated_at,
-            classify,
-            tasks: Vec::new(),
-            latency: None,
-            judge: None,
-            skipped: 0,
-            context: None,
-        }
-    }
-
     #[test]
-    fn panel_count_follows_available_samples() {
+    fn panels_follow_available_latency_samples() {
         let empty = render_svg(&[]);
         assert!(!empty.contains("<polyline"), "no series without points");
         assert!(
@@ -288,62 +218,67 @@ mod tests {
             "no latest-run note without points"
         );
 
-        let replay_only = render_svg(&[replay_report(1000)]);
-        for title in ["Classify quality", "Task · word", "repair cost"] {
-            assert!(replay_only.contains(title), "{title} panel expected");
-        }
+        let unsampled = render_svg(&[report("iterate", 1000)]);
         assert!(
-            !replay_only.contains("judge average (1–5)")
-                && !replay_only.contains("end-to-end latency (ms)"),
-            "judge and latency panels stay hidden without samples"
-        );
-        assert!(
-            !replay_only.contains("Task · sentence"),
-            "datasets without samples get no panel"
+            !unsampled.contains("end-to-end latency (ms)"),
+            "the latency panel stays hidden without samples"
         );
 
-        let complete = render_svg(&[live_report(2000)]);
-        for title in [
-            "Classify quality",
-            "Task · word",
-            "repair cost",
-            "judge average (1–5)",
-            "end-to-end latency (ms)",
-        ] {
-            assert!(complete.contains(title), "{title} panel expected");
-        }
+        let sampled = render_svg(&[sampled_report("iterate", 2000)]);
+        assert!(
+            sampled.contains("end-to-end latency (ms)"),
+            "the latency panel draws with samples"
+        );
+        assert!(sampled.contains(">p50<") && sampled.contains(">p95<"));
     }
 
     #[test]
     fn panels_render_polylines_ticks_and_legends() {
-        let svg = render_svg(&[live_report(1000), live_report(2000)]);
+        let svg = render_svg(&[
+            sampled_report("iterate", 1000),
+            sampled_report("iterate", 2000),
+        ]);
         assert!(svg.contains("<polyline"), "polylines drawn");
         assert!(svg.contains("<circle"), "point dots drawn");
         assert!(
-            svg.contains("<title>accuracy · 01-01 00:16 live: "),
+            svg.contains("<title>p50 · 01-01 00:16 iterate: "),
             "hover titles carry the UTC time and mode: {svg}"
         );
-        assert!(svg.contains("86.67 %"), "hover values carry two decimals");
+        assert!(svg.contains("100.00 ms"), "hover values carry two decimals");
         assert!(svg.contains("stroke=\"#e7eaee\""), "grid lines present");
         assert!(
             svg.contains("text-anchor=\"middle\""),
             "x axis ticks present"
         );
-        assert!(svg.contains(">accuracy<"), "legend entries present");
+        assert!(svg.contains(">p50<") && svg.contains(">p95<"));
         assert!(
             svg.contains("fill=\"none\" stroke=\"#cdd2da\""),
             "panel frames present"
         );
         assert!(
-            svg.contains("latest 1970-01-01 00:33 UTC · live"),
+            svg.contains("latest 1970-01-01 00:33 UTC · iterate"),
             "the header names the latest run"
         );
     }
 
     #[test]
+    fn missing_samples_break_the_series_instead_of_inventing_points() {
+        let svg = render_svg(&[sampled_report("iterate", 1000), report("iterate", 2000)]);
+        assert_eq!(
+            svg.matches("<circle").count(),
+            2,
+            "each series dots only its sampled point: {svg}"
+        );
+        assert!(
+            !svg.contains("<polyline"),
+            "a single-point segment draws no line"
+        );
+    }
+
+    #[test]
     fn text_is_xml_escaped() {
-        let mode_report = report_with("a<b>&c", 0, None, None);
-        let committed = with_commit(&replay_report(0), "x&<y".to_owned());
+        let mode_report = sampled_report("a<b>&c", 0);
+        let committed = with_commit(&sampled_report("iterate", 0), "x&<y".to_owned());
         let svg = render_svg(&[mode_report, committed]);
         assert!(
             svg.contains("a&lt;b&gt;&amp;c"),
@@ -361,7 +296,7 @@ mod tests {
 
     #[test]
     fn rendering_is_byte_deterministic() {
-        let history = vec![live_report(1000), replay_report(2000)];
+        let history = vec![sampled_report("iterate", 1000), report("iterate", 2000)];
         assert_eq!(
             render_svg(&history),
             render_svg(&history),
@@ -372,7 +307,7 @@ mod tests {
     #[test]
     fn beyond_max_points_only_latest_are_drawn() {
         let history: Vec<EvalReport> = (0..HISTORY_SVG_MAX_POINTS + 20)
-            .map(|index| with_commit(&replay_report(1000), format!("c{index:03}")))
+            .map(|index| with_commit(&sampled_report("iterate", 1000), format!("c{index:03}")))
             .collect();
         let svg = render_svg(&history);
         assert!(
@@ -392,7 +327,7 @@ mod tests {
     #[test]
     fn x_ticks_sample_at_most_four_points() {
         let eight: Vec<EvalReport> = (0..8)
-            .map(|index| replay_report(1000 * (index as i64 + 1)))
+            .map(|index| sampled_report("iterate", 1000 * (index as i64 + 1)))
             .collect();
         let svg = render_svg(&eight);
         for tick in ["01-01 00:16", "01-01 00:50", "01-01 01:40", "01-01 02:13"] {
@@ -403,7 +338,10 @@ mod tests {
             "intermediate points stay unlabeled"
         );
 
-        let two = render_svg(&[replay_report(1000), replay_report(2000)]);
+        let two = render_svg(&[
+            sampled_report("iterate", 1000),
+            sampled_report("iterate", 2000),
+        ]);
         assert!(
             two.contains(">01-01 00:16<") && two.contains(">01-01 00:33<"),
             "short history labels all points"
@@ -412,93 +350,42 @@ mod tests {
 
     #[test]
     fn ticks_carry_timestamps_and_hover_carries_commit() {
-        let committed = with_commit(&live_report(0), "ec96217".to_owned());
-        let local = replay_report(0);
+        let committed = with_commit(&sampled_report("iterate", 0), "ec96217".to_owned());
+        let local = sampled_report("local-run", 0);
         let svg = render_svg(&[committed, local]);
         assert!(svg.contains(">01-01 00:00<"), "ticks are UTC timestamps");
         assert!(
-            svg.contains("01-01 00:00 live (ec96217):"),
+            svg.contains("01-01 00:00 iterate (ec96217):"),
             "committed hovers carry the SHA"
         );
         assert!(
-            svg.contains("01-01 00:00 replay:"),
+            svg.contains("01-01 00:00 local-run:"),
             "local hovers carry mode only"
         );
         assert!(
-            !svg.contains("replay ("),
+            !svg.contains("local-run ("),
             "local points never fake a commit"
         );
         assert!(
-            svg.contains("latest 1970-01-01 00:00 UTC · replay"),
+            svg.contains("latest 1970-01-01 00:00 UTC · local-run"),
             "the header names the latest run"
-        );
-    }
-
-    #[test]
-    fn a_panel_with_some_empty_series_hides_those_series() {
-        let stats = ClassifyStats {
-            metrics: classify_metrics(),
-            accuracy: classify_metrics().accuracy(),
-            fallback_rate: classify_metrics().fallback_rate(),
-            confusion_rows: Vec::new(),
-        };
-        let svg = render_svg(&[manual_report("replay", 1000, Some(stats))]);
-        assert!(svg.contains("Classify quality"), "the classify panel draws");
-        assert!(
-            !svg.contains("contract JSON"),
-            "the task series hides without task samples"
-        );
-        assert!(
-            !svg.contains("Task · "),
-            "panels whose every dataset is absent stay hidden"
-        );
-    }
-
-    #[test]
-    fn task_panels_split_per_dataset() {
-        let mut both = live_report(1000);
-        both.tasks.push(TaskStats {
-            dataset: "task_translate_sentence".to_owned(),
-            metrics: task_metrics(),
-        });
-        let mut sentence_only = live_report(2000);
-        sentence_only.tasks.clear();
-        sentence_only.tasks.push(TaskStats {
-            dataset: "task_translate_sentence".to_owned(),
-            metrics: task_metrics(),
-        });
-        let svg = render_svg(&[both, sentence_only]);
-        assert!(
-            svg.contains("Task · word"),
-            "the word panel rides the points that carry it"
-        );
-        assert!(
-            svg.contains("Task · sentence"),
-            "the sentence panel appears"
-        );
-        for legend in [">classify<", ">word<", ">sentence<"] {
-            assert!(
-                svg.contains(legend),
-                "the repair cost legend carries {legend}"
-            );
-        }
-        assert!(
-            !svg.contains("Task · code"),
-            "datasets never seen get no panel"
         );
     }
 
     #[test]
     fn header_shows_latest_run_timestamp() {
-        let svg = render_svg(&[replay_report(1000), live_report(2000)]);
+        let svg = render_svg(&[report("iterate", 1000), sampled_report("iterate", 2000)]);
         assert!(
-            svg.contains("latest 1970-01-01 00:33 UTC · live"),
+            svg.contains("latest 1970-01-01 00:33 UTC · iterate"),
             "the header names the latest run"
         );
 
-        let committed = with_commit(&live_report(1_791_763_200), "fc244bc".to_owned());
+        let committed = with_commit(
+            &sampled_report("iterate", 1_791_763_200),
+            "fc244bc".to_owned(),
+        );
         assert!(
-            render_svg(&[committed]).contains("latest 2026-10-12 00:00 UTC · live (fc244bc)"),
+            render_svg(&[committed]).contains("latest 2026-10-12 00:00 UTC · iterate (fc244bc)"),
             "the header carries full date and commit"
         );
     }
