@@ -10,9 +10,23 @@ use std::collections::BTreeMap;
 use gloss_core::schema::{self, Violation};
 use gloss_core::task::TaskKind;
 
-use crate::detail::{ContractCheck, ContractOutcome, ContractState, RoundDetail};
+use crate::dataset::{EvalCase, Reference};
+use crate::detail::{ContractCheck, ContractOutcome, ContractState, EvalKind, RoundDetail};
 
-pub fn settle_task(kind: TaskKind, rounds: &[String]) -> (ContractOutcome, Vec<RoundDetail>) {
+pub fn settle_case(case: &EvalCase, rounds: &[String]) -> (ContractOutcome, Vec<RoundDetail>) {
+    match case.kind {
+        EvalKind::Classify => {
+            let expected = match case.reference {
+                Reference::Classify { expected } => expected,
+                Reference::Task { .. } => TaskKind::General,
+            };
+            settle_classify(expected, rounds)
+        }
+        EvalKind::Task(kind) => settle_task(kind, rounds),
+    }
+}
+
+fn settle_task(kind: TaskKind, rounds: &[String]) -> (ContractOutcome, Vec<RoundDetail>) {
     let (mut outcome, detail) =
         track_rounds(|raw| schema::validate_task(kind, raw).map(|_| ()), rounds);
     let reply = last_reply(rounds);
@@ -23,10 +37,7 @@ pub fn settle_task(kind: TaskKind, rounds: &[String]) -> (ContractOutcome, Vec<R
     (outcome, detail)
 }
 
-pub fn settle_classify(
-    expected: TaskKind,
-    rounds: &[String],
-) -> (ContractOutcome, Vec<RoundDetail>) {
+fn settle_classify(expected: TaskKind, rounds: &[String]) -> (ContractOutcome, Vec<RoundDetail>) {
     let (mut outcome, detail) =
         track_rounds(|raw| schema::validate_classify(raw).map(|_| ()), rounds);
     let reply = last_reply(rounds);
@@ -113,11 +124,36 @@ fn required_fields(kind: TaskKind) -> &'static [&'static str] {
 
 #[cfg(test)]
 mod tests {
+    use gloss_core::model::Lang;
     use gloss_core::schema::Violation;
-    use gloss_core::task::TaskKind;
+    use gloss_core::task::{OutcomeStructured, TaskKind};
 
-    use super::{derive_state, settle_classify, settle_task};
-    use crate::detail::{ContractCheck, ContractState};
+    use super::{derive_state, settle_case};
+    use crate::dataset::{EvalCase, Reference};
+    use crate::detail::{ContractCheck, ContractState, EvalKind};
+
+    fn task_case(kind: TaskKind) -> EvalCase {
+        EvalCase {
+            id: "task-01".to_owned(),
+            kind: EvalKind::Task(kind),
+            text: "一".to_owned(),
+            target: Lang::Zh,
+            reference: Reference::Task {
+                note: "义".to_owned(),
+                structured: OutcomeStructured::Plain { examples: vec![] },
+            },
+        }
+    }
+
+    fn classify_case(expected: TaskKind) -> EvalCase {
+        EvalCase {
+            id: "cls-01".to_owned(),
+            kind: EvalKind::Classify,
+            text: "一".to_owned(),
+            target: Lang::Zh,
+            reference: Reference::Classify { expected },
+        }
+    }
 
     fn good_task_reply() -> String {
         r#"{"note":"义释","structured":{"phonetic":"yī","examples":["《道德经》“道生一”。"]}}"#
@@ -126,7 +162,8 @@ mod tests {
 
     #[test]
     fn task_settlement_flags_json_note_and_field_checks() {
-        let (outcome, rounds) = settle_task(TaskKind::TranslateWord, &[good_task_reply()]);
+        let (outcome, rounds) =
+            settle_case(&task_case(TaskKind::TranslateWord), &[good_task_reply()]);
         assert!(outcome.json_object);
         assert!(!outcome.degraded);
         assert_eq!(
@@ -149,8 +186,8 @@ mod tests {
             ),
             ("   ".to_owned(), Violation::EmptyReply),
         ] {
-            let (outcome, rounds) =
-                settle_task(TaskKind::TranslateWord, std::slice::from_ref(&reply));
+            let case = task_case(TaskKind::TranslateWord);
+            let (outcome, rounds) = settle_case(&case, std::slice::from_ref(&reply));
             assert!(outcome.degraded, "{reply}");
             assert_eq!(rounds[0].violation, Some(violation), "{reply}");
             assert_eq!(
@@ -159,7 +196,10 @@ mod tests {
                 "the violation tallies once: {reply}"
             );
         }
-        let (outcome, _) = settle_task(TaskKind::TranslateWord, &["整段散文".to_owned()]);
+        let (outcome, _) = settle_case(
+            &task_case(TaskKind::TranslateWord),
+            &["整段散文".to_owned()],
+        );
         assert!(!outcome.json_object, "prose is no JSON object");
         assert_eq!(
             outcome.checks.get(&ContractCheck::FieldsComplete),
@@ -170,8 +210,10 @@ mod tests {
     #[test]
     fn task_settlement_counts_repairs_and_violations_over_rounds() {
         let prose = "整段散文".to_owned();
-        let (outcome, rounds) =
-            settle_task(TaskKind::TranslateWord, &[prose.clone(), good_task_reply()]);
+        let (outcome, rounds) = settle_case(
+            &task_case(TaskKind::TranslateWord),
+            &[prose.clone(), good_task_reply()],
+        );
         assert_eq!(outcome.repairs, 1, "rounds minus one is the repair count");
         assert_eq!(outcome.violations.get(&Violation::NotJson), Some(&1));
         assert!(!outcome.degraded, "the last round settles the outcome");
@@ -181,68 +223,56 @@ mod tests {
 
     #[test]
     fn fields_complete_requires_the_subtype_shape() {
-        let word_ok = r#"{"note":"义","structured":{"phonetic":"yī","examples":["例"]}}"#;
-        let word_no_phonetic = r#"{"note":"义","structured":{"examples":["例"]}}"#;
-        let (outcome, _) = settle_task(TaskKind::TranslateWord, &[word_ok.to_owned()]);
-        assert_eq!(
-            outcome.checks.get(&ContractCheck::FieldsComplete),
-            Some(&true)
-        );
-        let (outcome, _) = settle_task(TaskKind::TranslateWord, &[word_no_phonetic.to_owned()]);
-        assert_eq!(
-            outcome.checks.get(&ContractCheck::FieldsComplete),
-            Some(&false)
-        );
+        let complete = |kind: TaskKind, reply: &str| {
+            settle_case(&task_case(kind), &[reply.to_owned()])
+                .0
+                .checks
+                .get(&ContractCheck::FieldsComplete)
+                .copied()
+                .expect("the task check is always recorded")
+        };
+        assert!(complete(
+            TaskKind::TranslateWord,
+            r#"{"note":"义","structured":{"phonetic":"yī","examples":["例"]}}"#
+        ));
+        assert!(!complete(
+            TaskKind::TranslateWord,
+            r#"{"note":"义","structured":{"examples":["例"]}}"#
+        ));
+        assert!(!complete(
+            TaskKind::ExplainCode,
+            r#"{"note":"讲","structured":{"examples":["展开"]}}"#
+        ));
+        assert!(complete(
+            TaskKind::ExplainCode,
+            r#"{"note":"讲","structured":{"code_language":"rust","examples":["展开"]}}"#
+        ));
+        assert!(complete(
+            TaskKind::TranslateSentence,
+            r#"{"note":"译","structured":{"examples":["例"]}}"#
+        ));
+        assert!(!complete(TaskKind::General, r#"{"note":"义"}"#));
 
-        let code_no_language = r#"{"note":"讲","structured":{"examples":["展开"]}}"#;
-        let (outcome, _) = settle_task(TaskKind::ExplainCode, &[code_no_language.to_owned()]);
-        assert_eq!(
-            outcome.checks.get(&ContractCheck::FieldsComplete),
-            Some(&false)
+        let null_phonetic =
+            r#"{"note":"义","structured":{"phonetic":null,"examples":[]}}"#.to_owned();
+        let (outcome, _) = settle_case(
+            &task_case(TaskKind::TranslateWord),
+            std::slice::from_ref(&null_phonetic),
         );
-        let code_ok = r#"{"note":"讲","structured":{"code_language":"rust","examples":["展开"]}}"#;
-        let (outcome, _) = settle_task(TaskKind::ExplainCode, &[code_ok.to_owned()]);
-        assert_eq!(
-            outcome.checks.get(&ContractCheck::FieldsComplete),
-            Some(&true)
-        );
-
-        let sentence_ok = r#"{"note":"译","structured":{"examples":["例"]}}"#;
-        let (outcome, _) = settle_task(TaskKind::TranslateSentence, &[sentence_ok.to_owned()]);
-        assert_eq!(
-            outcome.checks.get(&ContractCheck::FieldsComplete),
-            Some(&true)
-        );
-        let no_structured = r#"{"note":"义"}"#;
-        let (outcome, _) = settle_task(TaskKind::General, &[no_structured.to_owned()]);
-        assert_eq!(
-            outcome.checks.get(&ContractCheck::FieldsComplete),
-            Some(&false)
-        );
-
-        let null_phonetic = r#"{"note":"义","structured":{"phonetic":null,"examples":[]}}"#;
-        let (outcome, _) = settle_task(TaskKind::TranslateWord, &[null_phonetic.to_owned()]);
-        assert_eq!(
-            outcome.checks.get(&ContractCheck::FieldsComplete),
-            Some(&true),
+        assert!(
+            outcome.checks.get(&ContractCheck::FieldsComplete) == Some(&true) && !outcome.degraded,
             "an explicit null phonetic key counts as present; empty examples stay complete"
         );
-        assert!(!outcome.degraded);
     }
 
     #[test]
     fn classify_settlement_separates_degradation_from_kind_mismatch() {
-        let (outcome, _) = settle_classify(
-            TaskKind::TranslateWord,
-            &[r#"{"kind":"TranslateWord"}"#.to_owned()],
-        );
+        let case = classify_case(TaskKind::TranslateWord);
+        let (outcome, _) = settle_case(&case, &[r#"{"kind":"TranslateWord"}"#.to_owned()]);
         assert!(!outcome.degraded);
         assert_eq!(outcome.checks.get(&ContractCheck::KindMatch), Some(&true));
 
-        let (outcome, _) = settle_classify(
-            TaskKind::TranslateWord,
-            &[r#"{"kind":"ExplainCode"}"#.to_owned()],
-        );
+        let (outcome, _) = settle_case(&case, &[r#"{"kind":"ExplainCode"}"#.to_owned()]);
         assert!(
             !outcome.degraded,
             "a parseable wrong category is no degradation"
@@ -255,20 +285,45 @@ mod tests {
             r#"{}"#.to_owned(),
             String::new(),
         ] {
-            let (outcome, _) =
-                settle_classify(TaskKind::TranslateWord, std::slice::from_ref(&reply));
+            let (outcome, _) = settle_case(&case, std::slice::from_ref(&reply));
             assert!(outcome.degraded, "{reply}");
             assert_eq!(outcome.checks.get(&ContractCheck::KindMatch), Some(&false));
         }
-        let (outcome, _) = settle_classify(
-            TaskKind::TranslateSentence,
-            &[r#"{"kind":"Fallback"}"#.to_owned()],
-        );
+        let case = classify_case(TaskKind::TranslateSentence);
+        let (outcome, _) = settle_case(&case, &[r#"{"kind":"Fallback"}"#.to_owned()]);
         assert!(
             !outcome.degraded,
             "the fallback category lands on the general kind"
         );
         assert_eq!(outcome.checks.get(&ContractCheck::KindMatch), Some(&false));
+    }
+
+    #[test]
+    fn case_settlement_dispatches_by_the_case_subclass() {
+        let (outcome, _) = settle_case(&task_case(TaskKind::ExplainCode), &[good_task_reply()]);
+        assert_eq!(
+            outcome.checks.get(&ContractCheck::FieldsComplete),
+            Some(&false),
+            "a word-card shaped reply fails the code subclass check"
+        );
+
+        let incoherent = EvalCase {
+            reference: Reference::Task {
+                note: "义".to_owned(),
+                structured: OutcomeStructured::Plain { examples: vec![] },
+            },
+            ..classify_case(TaskKind::TranslateWord)
+        };
+        let (outcome, _) = settle_case(&incoherent, &[r#"{"kind":"Fallback"}"#.to_owned()]);
+        assert!(
+            !outcome.degraded,
+            "an incoherent classify case degrades to the general landing"
+        );
+        assert_eq!(
+            outcome.checks.get(&ContractCheck::KindMatch),
+            Some(&true),
+            "the fallback category lands on the general kind"
+        );
     }
 
     #[test]

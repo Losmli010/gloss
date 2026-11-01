@@ -6,19 +6,23 @@
 use gloss_core::prompt::ChatMessage;
 
 use crate::contract::derive_state;
+use crate::dataset::EvalCase;
 use crate::detail::{ContractOutcome, ContractState, EvalKind, JudgeScores};
 
 pub const JUDGE_PROMPT: &str = include_str!("../prompts/judge.md");
 
 pub const JUDGE_MAX_TOKENS: u32 = 512;
 
-pub fn render_judge(input: &str, output: &str, reference: &str, kind: &str) -> Vec<ChatMessage> {
+pub fn render_judge(case: &EvalCase, reply: &str) -> Vec<ChatMessage> {
     let system = JUDGE_PROMPT
-        .replace("{{input}}", input)
-        .replace("{{output}}", output)
-        .replace("{{reference}}", reference)
-        .replace("{{kind}}", kind);
-    vec![ChatMessage::system(system), ChatMessage::user(input)]
+        .replace("{{input}}", &case.text)
+        .replace("{{output}}", reply)
+        .replace("{{reference}}", &case.reference.reply_json())
+        .replace("{{kind}}", case.kind.display_name());
+    vec![
+        ChatMessage::system(system),
+        ChatMessage::user(case.text.clone()),
+    ]
 }
 
 pub fn parse_scores(reply: &str) -> Option<JudgeScores> {
@@ -51,10 +55,12 @@ pub fn judge_eligible(kind: &EvalKind, engine_error: bool, contract: &ContractOu
 
 #[cfg(test)]
 mod tests {
+    use gloss_core::model::Lang;
     use gloss_core::prompt::{ChatMessage, MessageContent};
-    use gloss_core::task::TaskKind;
+    use gloss_core::task::{OutcomeStructured, TaskKind};
 
     use super::{judge_eligible, parse_scores, render_judge};
+    use crate::dataset::{EvalCase, Reference};
     use crate::detail::{ContractCheck, ContractOutcome, EvalKind};
     use std::collections::BTreeMap;
 
@@ -65,6 +71,22 @@ mod tests {
             degraded,
             violations: BTreeMap::new(),
             repairs: 0,
+        }
+    }
+
+    fn word_case() -> EvalCase {
+        EvalCase {
+            id: "task-word-01".to_owned(),
+            kind: EvalKind::Task(TaskKind::TranslateWord),
+            text: "一".to_owned(),
+            target: Lang::Zh,
+            reference: Reference::Task {
+                note: "义".to_owned(),
+                structured: OutcomeStructured::WordCard {
+                    phonetic: Some("yī".to_owned()),
+                    examples: vec!["例".to_owned()],
+                },
+            },
         }
     }
 
@@ -110,12 +132,13 @@ mod tests {
 
     #[test]
     fn judge_prompt_renders_all_placeholders_and_keeps_input_as_user_turn() {
-        let messages = render_judge("输入原文", "模型产出", "参考答案", "词卡");
+        let case = word_case();
+        let messages = render_judge(&case, "模型产出");
         assert_eq!(messages.len(), 2);
         let system = system_text(&messages);
         assert!(
-            system.contains("输入原文") && system.contains("参考答案"),
-            "{system}"
+            system.contains("一") && system.contains(r#""phonetic":"yī""#),
+            "the input and the product-shaped reference ride the prompt: {system}"
         );
         assert!(system.contains("模型产出"), "{system}");
         assert!(
@@ -124,7 +147,7 @@ mod tests {
         );
         assert!(!system.contains("{{"), "no placeholder survives: {system}");
         match &messages[1].content {
-            MessageContent::Text(text) => assert_eq!(text, "输入原文"),
+            MessageContent::Text(text) => assert_eq!(text, "一"),
             MessageContent::Parts(_) => panic!("judge user content must be plain text"),
         }
     }
