@@ -10,13 +10,18 @@
 //! 脚本的依赖方向断言强制：本包只许依赖核心层，平台侧由评测入口
 //! 自行组装；数据集与提示词资产也只允许被本包的编译期嵌入使用。
 
+pub mod contract;
+pub mod detail;
 pub mod gate;
 pub mod history;
 pub mod metrics;
+pub mod quality;
+pub mod regression;
 pub mod remedy;
 pub mod report;
 pub mod svg;
 
+pub use detail::{CaseDetail, EvalKind, JudgeScores, RuleOutcome, RuleVerdict};
 pub use report::EvalReport;
 
 pub mod assets {

@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 683 | `just test` |
+| 单元测试 | 703 | `just test` |
 
 ## 人工测试
 
@@ -1457,6 +1457,46 @@
 | log_dir_falls_back_to_home_dot_gloss | 日志目录回落 `home` 惯例 | 给定无覆盖值，当 `resolve_log_dir`，则返回 `<home>/.gloss/logs` | 2026-10-05 |
 | log_dir_is_none_without_override_and_home | 无覆盖无 `home` 时放弃文件日志 | 给定覆盖值与 `home` 均缺失，当 `resolve_log_dir`，则返回 `None` | 2026-10-05 |
 | log_dir_empty_override_falls_back_to_home | 空串覆盖视同未设置 | 给定 `GLOSS_LOG_DIR` 为空串，当 `resolve_log_dir`，则回落 `<home>/.gloss/logs` | 2026-10-06 |
+
+### `crates/gloss-eval/src/contract.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| task_settlement_flags_json_note_and_field_checks | 任务结算合法回复全绿 | 给定可解析且结构齐全的任务回复，当 `settle_task`，则可解析（JSON）、字段完整检查过、不降级、零违约零修复轮次、逐轮无违约 | 2026-11-01 |
+| task_settlement_degrades_on_prose_and_missing_note | 任务结算违约即降级 | 给定散文、缺注与空白三类回复，当 `settle_task`，则末轮降级、违约类别（不可解析、注缺失、空回复）逐轮计数、散文不可解析（JSON）、字段完整未过 | 2026-11-01 |
+| task_settlement_counts_repairs_and_violations_over_rounds | 任务结算逐轮还原轨迹 | 给定违约轮加合法轮的两轮轨迹，当 `settle_task`，则修复轮次为轮数减一、违约轮带类别、合法轮干净、末轮定全局不降级 | 2026-11-01 |
+| fields_complete_requires_the_subtype_shape | 字段完整按子类形状 | 给定词卡缺音标、代码缺代码语言、句译例证齐、无结构化对象与音标键值为 `null` 的回复，当 `settle_task`，则缺子类必带键未过、齐者过、`null` 在场、例证空数组仍过（内容归评审） | 2026-11-01 |
+| classify_settlement_separates_degradation_from_kind_mismatch | 分类结算降级与类别不符分账 | 给定类别正确、可解析但类别不符、越清单类别与散文四类回复，当 `settle_classify`，则正确者类别检查过、不符者不降级只判类别未过（软缺口）、越清单与散文降级、`Fallback` 落通用任务 | 2026-11-01 |
+| contract_four_state_derivation_matrix_is_mutually_exclusive | 契约四态派生矩阵互斥完备 | 给定引擎故障、降级、检查项未过与全绿四类明细，当 `derive_state`，则依次得故障、降级、软缺口、有效，且引擎故障压倒降级、降级压倒检查项 | 2026-11-01 |
+
+### `crates/gloss-eval/src/detail.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| case_detail_round_trips_through_serde | 结算明细序列化往返 | 给定四层俱全（逐轮轨迹、契约检查项、评审四维、回归五态）的明细，当序列化再反序列化，则逐字段一致且类型化违约、`EvalKind` 变体与 `snake_case` 枚举词面按默认命名出现 | 2026-11-01 |
+| eval_kind_display_names_cover_the_fixed_groups | 用例类型展示名覆盖五键 | 给定分类与四个任务子类，当 `display_name` 与 `task_kind`，则分类、词卡、句译、代码、通用五名齐备且任务子类拆出对应任务类型、分类无任务子类 | 2026-11-01 |
+| label_verdict_wire_names_match_the_labels_file | 标注结论词面即标注文件域 | 给定合格与不合格两枚举值，当序列化与反序列化，则词面恰为 `pass` 与 `fail` 且往返一致（labels.jsonl 的 verdict 域） | 2026-11-01 |
+
+### `crates/gloss-eval/src/quality.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| judge_reply_parses_only_complete_in_range_dimensions | 评审回复严格整体解析 | 给定合法回复与缺维、越界、负分、超大数、非整数、字符串分数、缺理由、数组、散文、空串等坏形，当 `parse_scores`，则合法者出四维与理由且 0 与 100 两端含界、坏形一律 `None` | 2026-11-01 |
+| judge_prompt_renders_all_placeholders_and_keeps_input_as_user_turn | 评审提示词渲染契约 | 给定输入、产出、参考答案与类型展示名四实参，当 `render_judge`，则系统消息四占位符全替换且不残留占位符标记，用户原文另作一轮用户消息 | 2026-11-01 |
+| judge_eligibility_skips_classify_degraded_and_engine_errors | 评审资格跳过分类降级与故障 | 给定任务与分类用例、引擎故障、契约降级与软缺口各态，当 `judge_eligible`，则任务有效与软缺口可评，分类、契约故障、契约降级一律不可评 | 2026-11-01 |
+
+### `crates/gloss-eval/src/regression.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| label_pass_passes_on_equal_and_regresses_on_mismatch | 标注合格分支判定 | 给定与基线相等和不等（例证多一条）的本轮输出，当标注合格结算，则相等出通过（结构化匹配真、无摘要）、不等出回归（带差异摘要与结构化匹配假） | 2026-11-01 |
+| label_pass_with_degradation_regresses_without_structured_match | 标注合格遇契约降级先短路 | 给定契约降级的本轮输出与齐备的基线标注，当标注合格结算，则出回归、无结构化比较（匹配为空）、摘要说明降级无输出可比 | 2026-11-01 |
+| label_fail_changes_on_mismatch_and_stays_unchanged_on_equal | 标注不合格分支判定 | 给定与基线相等和不等的本轮输出，当标注不合格结算，则不等出改（带音标差异摘要）、相等出未改善（无摘要） | 2026-11-01 |
+| missing_baseline_or_label_pends_and_engine_error_clears_the_rule | 待比与故障置空 | 给定缺基线或缺标注的用例与引擎故障用例，当 `settle`，则缺者出待比（无匹配无摘要）、引擎故障回归字段恒置空 | 2026-11-01 |
+| normalization_ignores_whitespace_and_example_order | 规范化消除空白与顺序噪声 | 给定音标带空白与例证乱序的本轮输出，当规范化比较，则与基线判一致；例证乱序两种输入规范化相等且保持词卡形态 | 2026-11-01 |
+| classify_regression_compares_parsed_categories | 分类回归按类别比较 | 给定类别一致（`Fallback` 两侧）与类别不同（代码讲解对句译）的分类用例，当结算，则一致出通过、不同出改并带类别差异摘要 | 2026-11-01 |
+| golden_baseline_rounds_concatenate_chunk_fragments | 基线末轮分片拼接 | 给定末轮分片拆半的基线与含违约历史轮的两轮基线，当 `settle`，则分片无分隔直连判过、多轮只取末轮判未改善 | 2026-11-01 |
+| unparsable_baseline_or_output_is_incomparable_not_equal | 不可比三态边界 | 给定本轮降级与基线损坏两种不可比输入，当结算，则本轮降级出改且匹配为空摘要说明降级、基线损坏出回归且摘要说明基线不可解析 | 2026-11-01 |
 
 ### `crates/gloss-eval/src/metrics.rs`
 
