@@ -6,21 +6,12 @@
 
 - 报告目录（与 dev-plan 约定一致：报告出 target/eval/，不进仓库）。
 
-## run_inspect_into
+## run_report_cli
 
-- inspect 轨的完整落盘段：与 replay 同一份报告与历史，多出检视件。
-
-## write_inspect
-
-- 检视件落盘：逐条明细 `<mode>.cases.json`（可 diff、可再加工）与单文件检视页 `inspect.html`。历史在 `finish_run_report` 追加之后才读——差值基准取“上一次同 mode 运行”，趋势图含本次。
-
-## run_replay_into
-
-- 重放轨的完整落盘段：目录由参数表达 `GLOSS_EVAL_DIR` 的语义，context 由调用方注入（环境读取只在 CLI 薄壳），测试直驱临时目录。
-
-## finish_run_report
-
-- 报告与趋势的统一落盘：先写 `<mode>.json`/`.md`，成功后追加 `history.jsonl` 并重绘 `history.svg`（任一步失败向上传播，不静默）。
+- 读评测产物目录里最近一次迭代报告（`iterate.json`）重渲染为 Markdown 打到
+  标准输出；缺文件带修复指引报错（先跑 `eval iterate`），不静默空输出。
+  2026-11-01 评测工具链重构步骤 1：重放与实跑轨删除后，报告子命令指向
+  迭代产物的目标契约（重构计划 §6.1），迭代实跑在后续步骤接线。
 
 ## run_history_cli
 
@@ -30,20 +21,18 @@
 
 - `--dir PATH` 选项：缺省回落报告目录（GLOSS_EVAL_DIR / target/eval）。
 
-## eval_context
-
-- 采集上下文注入：GLOSS_EVAL_COMMIT / GLOSS_EVAL_SOURCE 只在本 CLI 读取（lib 层零环境副作用）；两者皆缺省时不产 context 段。
-
-## upsert_fixtures
-
-- 把录制按 id upsert 进夹具文件（分类/任务各自归位）。
-
-## merge_fixtures
-
-- 单个夹具文件的 upsert：读原文件、剔除被录制覆盖的 id、追加录制并原子写回，返回追加的条数。
-
 ## run_gate_cli
 
 - 2026-11-01 门禁子命令在精度召回表之后追加动作收敛表（remedy 模块渲染）：
   判定器的第二口径与门禁指标同出一份 gate.md；两份内嵌数据集装载失败都带
   前缀报错上抛，不静默跳过。
+- 2026-11-01 评测工具链重构步骤 1：`GLOSS_LIVE_JUDGE=1` 双保险随旧实跑轨
+  删除，评委复核只凭 `GLOSS_LIVE_*` 凭据显式选择参与（凭据缺席即带修复指引
+  报错）；复核有真实计费，仍不进持续集成。
+
+## LiveEnv / live_config / EnvSecretStore
+
+- 端点装配（凭据环境变量读取、引擎配置组装、密钥脱敏 Debug）收口在 CLI
+  薄壳：库层零环境副作用。2026-11-01 自 runner 模块迁入——实跑轨删除后
+  唯一消费者是门禁评委复核；密钥只经 SecretStore 端口注入引擎，Debug 形态
+  只显式区分“在/不在”，值不落任何输出。

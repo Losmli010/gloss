@@ -8,12 +8,12 @@
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
-| 人工测试 | 15 | `cargo test -p gloss-platform -- --ignored`；`live_llm` 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 `GLOSS_LIVE_*`） |
+| 人工测试 | 14 | `cargo test -p gloss-platform -- --ignored`；`live_llm` 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 `GLOSS_LIVE_*`） |
 | 发版人工步骤 | 10 | 手动执行（无自动化测试源码的真机、运维步骤，`bdd` 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 720 | `just test` |
+| 单元测试 | 683 | `just test` |
 
 ## 人工测试
 
@@ -311,18 +311,6 @@
 7. 收尾采一次运行时基线归档：`just app-metrics`（趋势点随 `git` 走）
 
 - 更新时间：2026-10-06
-
-### empty_content_repair_via_fixture_replay
-
-- 测试目标：验证空回复异常夹具经生产校验器回放出修复轨迹（契约校验与重试方案 `L4`：空 `content` 自动修复；载体为步骤 5 豁免指派的异常夹具回放，步骤 7 已铺）。
-- 测试场景：给定空回复异常夹具（`task-word-03` 首轮 `deltas=[]`、分类 `en-word-02`），当 `just eval-replay` 离线回放，则两轨“修复轮次”行各含 `empty` 一次（空轮按 `EmptyReply` 违约原样重发进修复轮）、末轮契约回复不降级；零增量完成的传输形态（200 收尾无增量 → `EmptyCompletion` 变体）转 `EmptyReply` 的生产消费路径由（L1）测试锁定。
-- 测试步骤：
-
-1. 运行 `just eval-replay`
-2. 核对报告中“分类 修复轮次”行含 `empty ×1`、“`task_translate_word` 修复轮次”行含 `empty ×1`
-3. 运行 `cargo test -p gloss-core a_zero_increment_empty_completion_enters_the_repair_path`（零增量完成不按失败上抛、转 `EmptyReply` 进修复）
-
-- 更新时间：2026-10-12
 
 ### degraded_card_and_retry_manual_check
 
@@ -1470,53 +1458,11 @@
 | log_dir_is_none_without_override_and_home | 无覆盖无 `home` 时放弃文件日志 | 给定覆盖值与 `home` 均缺失，当 `resolve_log_dir`，则返回 `None` | 2026-10-05 |
 | log_dir_empty_override_falls_back_to_home | 空串覆盖视同未设置 | 给定 `GLOSS_LOG_DIR` 为空串，当 `resolve_log_dir`，则回落 `<home>/.gloss/logs` | 2026-10-06 |
 
-### `crates/gloss-eval/src/dataset.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| classify_dataset_loads_with_unique_ids | 分类数据集加载与唯一性 | 给定内嵌 `classify.jsonl`，当加载，则 不低于 60 条、期望全部为文本任务 `kind` 或 `General`（`Fallback` 类别的执行落点）、`id` 无重复 | 2026-10-20 |
-| task_datasets_load_and_match_required_fields | 任务数据集加载与 `kind` 对位 | 给定三个内嵌任务数据集，当加载，则非空且每行 `kind` 与其文件一致、`reference` 满足必需键 | 2026-09-26 |
-| fixtures_align_with_dataset_ids | 夹具与数据集 `id` 对齐 | 给定分类、任务夹具文件与数据集，当加载，则 `id` 无重复、修复轨迹非空（空回复轮是 `deltas=[]`，与零轮空轨迹不同）、且每条夹具 `id` 都存在于对应数据集（陈旧 `id` 即失败） | 2026-10-12 |
-| zero_round_fixtures_are_rejected | 零轮轨迹硬错误 | 给定 `rounds` 为空与单空轮（`deltas=[]`）两种夹具，当加载，则前者报错（空轨迹是坏夹具不是空回复）、后者通过（空回复是合法轮） | 2026-10-12 |
-| duplicate_ids_are_rejected | 重复 `id` 硬错误 | 给定含重复 `id` 的 `jsonl`，当加载，则报错而非静默跳过 | 2026-09-26 |
-| bad_reference_is_rejected | 引用条目缺必需键报错 | 给定词卡条目缺疏证键（旧形态字段）的 `jsonl`，当加载，则报错 | 2026-10-03 |
-| required_fields_follow_the_contract | 必需键随结构化契约 | 给定全部任务 `kind`，当查必需键，则恒为 `examples`（三行同构契约下 `structured.examples` 唯一恒在；图像解读同形落 `Plain`，旧 `interpretation` 名退役） | 2026-10-11 |
-
-### `crates/gloss-eval/src/detail.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| classify_parts_maps_verdicts_and_tags_rounds | 分类明细与判定的单遍结算 | 给定正确、误判、非（JSON）、被拒四类分类轨迹，当 `classify_parts`，则明细携带逐轮违约标签与可序列化判定、判定与指标侧 `ClassifyVerdict` 同源（一次校验三方消费：指标入账、明细落行、报告聚合） | 2026-10-21 |
-| task_parts_reads_completion_state_and_round_tags | 任务明细与完成态结算 | 给定“散文 → 契约”修复轨迹与单轮散文耗尽轨迹，当 `task_parts`，则明细携带逐轮标签、修复轮次与四级完成态（降级时 `note` 为空串），`TaskVerdict` 与重放、`live` 指标同口径 | 2026-10-21 |
-| engine_error_details_carry_the_marker_per_track | 引擎失败明细单列 | 给定分类轨与任务轨的引擎失败，当 `engine_error_detail`，则明细带 `engine_error` 标记、无轮次无判定（任务轨落降级完成态，与指标侧分账口径一致） | 2026-10-21 |
-
-### `crates/gloss-eval/src/inspect.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| page_renders_headline_cases_and_trend | 检视页结构与要素 | 给定含分类失败与任务好、降级明细的报告，当 `render_html`，则准确率头条、指标卡、状态、轨道过滤按钮、逐条 `details`、逐轮回复、内嵌趋势（SVG）与口径脚注齐备；无错误行时不产混淆矩阵段 | 2026-10-21 |
-| page_escapes_dataset_and_model_text | 检视页转义外来文本 | 给定数据集文本与模型回复含 `script` 标记的明细，当 `render_html`，则两者以实体出现，页面无来自数据的内联脚本与标记逃逸 | 2026-10-21 |
-| deltas_come_from_the_previous_same_mode_run | 差值只比上一次同 `mode` 运行 | 给定上次 `replay`（`accuracy` 百分之百）与一份 `live` 历史，当渲染本次 `replay`（`accuracy` 为 0、回退率百分之百），则 `accuracy` 与回退率出 `▼`、`▲` 徽标且均着坏色、`live` 行不进差值；无同 `mode` 基准时无徽标 | 2026-10-21 |
-| deltas_skip_empty_denominator_runs | 空分母历史行不进差值 | 给定 `classify` 零 `evaluated` 的上次 `replay`（`accuracy` 与回退率均回落 0.0），当渲染本次 `replay`，则不出任何差值徽标（分子分母均为 0 的比率与上次没有可比性，与任务卡同一口径） | 2026-10-22 |
-
 ### `crates/gloss-eval/src/metrics.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| classify_verdicts_cover_the_matrix | 分类判定四分类 | 给定正确、混淆、`Fallback` 映射 `General`、非（JSON）、未知与类别外 `kind` 各回复，当经生产校验器判定，则分别落 `Correct/Wrong/InvalidJson/Rejected` | 2026-10-20 |
-| legacy_flat_and_fenced_replies_degrade_like_production | 旧扁平与围栏回复与生产同轨（`eval`） | 给定旧扁平契约（`structured` 缺失）与围栏输出两类回复，当 `TaskVerdict::for_reply`，则前者不降级但 `fields_complete=false`（疏证回落空卡）、后者整体违约落降级产物（`note` 空）——与生产 `validate_task` 同源 | 2026-10-11 |
-| task_verdict_reads_the_four_levels | 任务契约四级判定 | 给定嵌套契约、纯正文、截断（JSON）、仅 `note` 四种词卡回复，当 `TaskVerdict.for_reply`，则四级标志与 `outcome.degraded` 符合预期（`structured` 缺失是软缺口：不降级但字段不完整） | 2026-10-11 |
-| violation_track_counts_categories_and_rounds_from_the_trajectory | 修复轨迹折算违约类别与轮次 | 给定“散文两轮 → 契约”“散文四轮耗尽”“空轮 → 契约”三类词卡轨迹，当逐轮跑生产校验器折算（`violation_track` 与 `for_rounds`），则修复轮次恒为轮数减 1、违约类别逐轮计数（耗尽轨迹的末轮违约也计入）、修复轨迹不降级而耗尽轨迹降级（`note` 空） | 2026-10-12 |
-| field_completeness_requires_the_nested_contract_keys | 字段完整性按嵌套契约键 | 给定 `structured` 缺 `examples` 的词卡回复与带 `examples+code_language` 的代码回复，当判定，则前者 `fields_complete=false`（不降级——软缺口）、后者完整不降级且语言判定随 `Code` 变体 | 2026-10-11 |
-| image_explain_lands_on_the_plain_variant | 图像解读落 `Plain` 变体（`eval` 同源校验器） | 给定 `ImageExplain` 数据行与嵌套契约、仅 `note`、纯正文三种回复，当 `TaskVerdict::for_reply`，则完整契约不降级且 `outcome` 携带 `examples` 条目（坏条目跳过）、缺 `structured` 软回落空表、纯正文降级（`note` 空） | 2026-10-11 |
 | latency_percentiles_interpolate | 延迟百分位线性插值 | 给定四个样本，当取 `p0/p50/p95/p100`，则插值结果精确；空样本返回 `None` | 2026-09-26 |
-
-### `crates/gloss-eval/src/judge.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| judge_prompt_carries_all_three_sections | `judge` `rubric` 三段齐备 | 给定输入、产出、参考，当渲染 `judge` `messages`，则系统指令含三段且无残留占位符 | 2026-09-26 |
-| judge_reply_parsing_accepts_json_and_score_line | `judge` 回复分数解析 | 给定（JSON）与 `SCORE:` 行两种回复，当解析，则得 1 至 5 分；越界与缺失为 `None` | 2026-09-26 |
 
 ### `crates/gloss-eval/src/gate.rs`
 
@@ -1534,29 +1480,14 @@
 | remedy_fixtures_land_clean_after_mechanical_repair | 收敛夹具表全量落地复判零判罚 | 给定内嵌收敛夹具数据集（违规样本、按动作机械落地样本、复判三列），当 `run_remedy`，则违规列类别集合与判定器输出全等、落地样本同字段零判罚，收敛条目数与总条目数相等（动作收敛是判定器精度召回之外的第二个口径） | 2026-11-01 |
 | remedy_loader_rejects_duplicates_empty_categories_and_identical_repair | 收敛数据集加载期校验 | 给定合法条目、重复标识、空类别列、落地样本与违规样本同文及坏形状行，当 `load_remedy_cases`，则合法者载入、其余带行号报错 | 2026-11-01 |
 
-### `crates/gloss-eval/src/report.rs`### `crates/gloss-eval/src/report.rs`
+### `crates/gloss-eval/src/report.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| report_renders_the_table_shape | 报告（Markdown）表格形态 | 给定含混淆矩阵与任务指标的报告（一例修复轨迹加一例纯正文），当渲染，则指标表、`accuracy` 百分比（两位小数）、混淆矩阵行、任务四率齐全且跳过数正确 | 2026-10-13 |
-| judge_summary_reports_failures_when_attempted_exceeds_count | `judge` 失败留痕可区分未启用 | 给定 `judge` 全失败（`count=0/attempted=3`）与干净运行（`count=attempted`）两份摘要，当渲染，则前者报“3 条中 0 条计入、3 条失败”，后者只报条数不带失败噪声 | 2026-10-17 |
-| repair_rounds_render_with_violation_categories | 修复轮次行带违约类别计数 | 给定含违约轨迹与零违约两份报告，当渲染，则分类与各任务集的“修复轮次”行为“总数（各类别及其次数…）”，零违约时只报总数 | 2026-10-12 |
-| latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本的报告，当渲染，则不含延迟行 | 2026-09-26 |
+| latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本与有延迟样本两份报告，当渲染，则前者不含延迟行、后者按行渲染 `p50/p95` 分位（毫秒，两位小数） | 2026-11-01 |
+| legacy_rows_with_retired_fields_still_parse | 旧历史行的已退役字段照常解析 | 给定带已退役字段（`classify`/`tasks`/`judge`/`skipped`）的历史行（JSON），当反序列化，则解析成功且退役字段忽略、在役字段（`mode`/`generated_at`/`latency`/`context`）原样读回 | 2026-11-01 |
 | generated_at_is_a_numeric_unix_timestamp | `generated_at` 为数值纪元秒 | 给定 `generated_at` 为整数秒的报告，当序列化、反序列化，则（JSON）中为裸数值且往返一致（旧 `unix <seconds>` 字符串格式已废弃，不兼容） | 2026-10-13 |
 | utc_formatting_is_fixed_and_timezone_free | （UTC）时间格式固定换算 | 给定若干 `UNIX` 秒，当 `format_utc` 与 `format_utc_short`，则恒为 `YYYY-MM-DD HH:MM` 与 `MM-DD HH:MM` 的（UTC）结果，不随本地时区漂移 | 2026-10-13 |
-
-### `crates/gloss-eval/src/runner.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| replay_runs_the_full_deterministic_track_over_embedded_assets | 重放轨全链路离线跑通 | 给定内嵌数据集与夹具，当 `run_replay`，则有夹具条目计入（覆盖率随夹具维护增长，只设下限不设上限）、正确、无效（JSON）、被拒路径均有命中、各任务集有覆盖、无延迟样本 | 2026-09-26 |
-| replay_counts_violations_and_repair_rounds_from_fixture_trajectories | 重放轨统计违约类别与修复轮次 | 给定内嵌夹具（含空回复、散文、缺 `note/kind` 越清单异常轨迹），当 `run_replay`，则分类与各任务集的 `repair_rounds` 与 `violations` 分类计数如实入账：分类轨三类违约齐全、词卡集计空回复、句译集含耗尽降级、代码集计缺 `note` | 2026-10-12 |
-| replay_details_agree_with_the_report_metrics | 重放明细与报告指标同源 | 给定内嵌数据集与夹具，当 `run_replay_detailed`，则逐条明细按轨道分组的行数、正确数、修复轮次、降级数与报告指标逐一相等（一次校验两侧消费的汇总不变量） | 2026-10-21 |
-| a_contract_valid_middle_round_rejects_the_fixture_trajectory | 轨迹中段合法轮即坏夹具 | 给定分类“合法轮 → 修复轮”与任务“散文 → 契约 → 散文”两类漂移轨迹，当轨迹体检，则按硬错误拦下（修复轮由违约触发，中段合法轮不合生产形态） | 2026-10-12 |
-| a_trajectory_beyond_the_production_budget_rejects_the_fixture | 轨迹超生产预算即坏夹具 | 给定 3 轮分类轨迹与 5 轮任务轨迹，当轨迹体检，则按硬错误拦下（轮数不得超过 `1+CLASSIFY_REPAIRS`、`1+TASK_REPAIRS`，预算收紧时陈旧夹具即失败） | 2026-10-12 |
-| live_track_records_rounds_and_repair_metrics_through_the_production_loops | `live` 轨经生产循环记轮与修复指标 | 给定脚本引擎（分类违约修复、词卡违约修复、句译、代码一次通过）与 `--record`，当 `run_live`，则指标来自 `classify_traced`、`run_task_rounds` 的轮记录（修复轮次、违约类别、判定正确）、录制按轮成夹具、引擎恰 6 次调用、逐条明细随行（1 分类加 3 任务且无引擎失败标记） | 2026-10-21 |
-| a_task_engine_failure_still_counts_one_degraded_case | 任务轨引擎失败单条计降级 | 给定词卡任务脚本一次引擎失败（句译、代码正常），当 `run_live`（无 `--record`），则该条 `evaluated+degraded` 各 1、无修复轮次、无录制，明细带 `engine_error` 标记落行（引擎失败与模型行为分账的既有口径保持） | 2026-10-21 |
-| run_task_case_splits_rounds_on_the_repair_boundary | 任务轮记录按修复边界切轮 | 给定“双增量散文轮 → 双增量契约轮”脚本队列，当 `run_task_case`，则 `RunOutput.repairs` 为 1、轮记录恰两轮、各轮为该轮增量拼接（`on_repair` 是唯一轮边界信号） | 2026-10-12 |
 
 ### `crates/gloss-eval/src/history.rs`
 
@@ -1576,22 +1507,12 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| panel_count_follows_available_samples | 面板数随数据条件变化 | 给定空历史、单数据集 `replay` 报告、含 `judge` 与延迟样本的报告，当 `render_svg`，则分别为零面板（含空态文案）、三面板（分类加词卡加修复成本）、五面板；任务轨按数据集各一面板，未出现的数据集无面板，`judge` 与延迟仅历史有样本才画 | 2026-10-13 |
-| panels_render_polylines_ticks_and_legends | 面板要素齐备 | 给定两份完整报告，当 `render_svg`，则 `polyline`、圆点、悬浮 `title`（带 `UTC` 时间与 `mode`、数值两位小数）、网格线、`x` 轴时间刻度、图例、`frame`、右上角“最近一次”标注全部在场 | 2026-10-13 |
+| panels_follow_available_latency_samples | 面板随延迟样本出现 | 给定空历史、无延迟样本的报告与含延迟样本的报告，当 `render_svg`，则前两者零面板（含空态文案）、后者单延迟面板（`p50` 与 `p95` 序列与图例齐备）——延迟仅历史有样本才画 | 2026-11-01 |
+| panels_render_polylines_ticks_and_legends | 面板要素齐备 | 给定两份含延迟样本的报告，当 `render_svg`，则 `polyline`、圆点、悬浮 `title`（带 `UTC` 时间与 `mode`、数值两位小数）、网格线、`x` 轴时间刻度、`p50/p95` 图例、`frame`、右上角“最近一次”标注全部在场 | 2026-11-01 |
+| missing_samples_break_the_series_instead_of_inventing_points | 缺样本断线跳段不造点 | 给定首点带延迟样本、次点无样本的历史，当 `render_svg`，则仅样本点出圆点、无样本点不补点不连线 | 2026-11-01 |
 | text_is_xml_escaped | 文本 `XML` 转义 | 给定 `mode` 与 `commit` 含 `&`、`<` 的报告，当 `render_svg`，则悬浮与“最近一次”标注中的 `mode`、`commit` 以实体出现、原字符不落进文本节点 | 2026-10-13 |
 | rendering_is_byte_deterministic | 渲染确定性 | 给定同一份历史，当 `render_svg` 两次，则输出逐字节一致（`SVG` 内无渲染时刻的时间戳无环境读取） | 2026-10-13 |
 | beyond_max_points_only_latest_are_drawn | 超 100 点只画最近 100 点 | 给定 120 点历史，当 `render_svg`，则标题计 100 点、末点 `commit` 进悬浮、窗口外首点不落图 | 2026-10-13 |
 | x_ticks_sample_at_most_four_points | `x` 轴稀疏刻度 不超过 4 且均匀取样 | 给定 8 点（`UTC` 时间逐点推进）与 2 点历史，当 `render_svg`，则分别刻出第 0、2、5、7 点的时间刻度与全部两点（8 点时中间点不刻） | 2026-10-13 |
 | ticks_carry_timestamps_and_hover_carries_commit | 刻度即（UTC）时间、`commit` 进悬浮 | 给定带 `commit` 与无 `commit` 的两份报告，当 `render_svg`，则刻度标 `MM-DD` `HH:MM`、带 `commit` 点的悬浮附 `SHA`、本地点悬浮只带 `mode`，头部标注最近一次运行 | 2026-10-13 |
-| a_panel_with_some_empty_series_hides_those_series | 空序列隐去、空面板跳过 | 给定只有分类轨样本的报告，当 `render_svg`，则分类面板照画、任务序列隐去、无任务数据集时任务面板整体不出现 | 2026-10-13 |
-| task_panels_split_per_dataset | 任务轨按数据集分面板 | 给定含词卡加句译的历史（末点仅句译），当 `render_svg`，则两数据集各得契约面板、修复成本图例含分类轨、词卡、句译、未出现的数据集无面板 | 2026-10-13 |
 | header_shows_latest_run_timestamp | 头部标注最近一次运行 | 给定两份报告（末点带 `commit`），当 `render_svg`，则右上角标注末点的完整（UTC）时间、`mode` 与 `commit` | 2026-10-13 |
-
-### `crates/gloss-eval/src/main.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| replay_run_writes_report_and_history_files | `replay` 接线产出报告与历史 | 给定临时目录（`GLOSS_EVAL_DIR` 语义由参数表达），当 `run_replay_into`，则 `replay.json/.md`、`history.jsonl`（一行）与 `history.svg` 同点产出 | 2026-10-12 |
-| second_replay_run_appends_without_commit | 本地重跑恒追加 | 给定同一临时目录连续两次无 `context` 的 `replay`，当各自落盘，则 `history.jsonl` 叠两行、`history.svg` 仍在 | 2026-10-12 |
-| finish_run_report_writes_the_injected_context_through | 注入的 `context` 落进报告 | 给定带 `commit/source` 的 `context` 注入，当 `finish_run_report`，则写出的 `replay.json` 携带 `context` 段 | 2026-10-12 |
-| inspect_run_writes_the_inspection_files | `inspect` 接线产出检视件 | 给定临时目录（`GLOSS_EVAL_DIR` 语义由参数表达），当 `run_inspect_into`，则 `replay.json/.md` 与 `history` 照常产出，另落 `inspect.html`（含准确率头条与内嵌趋势）与 `replay.cases.json`（逐条明细） | 2026-10-21 |

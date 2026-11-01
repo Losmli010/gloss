@@ -1,12 +1,11 @@
-//! 面板与序列的数据建模：从报告历史收集各序列取值（缺样本为无值），
+//! 面板与序列的数据建模：从报告历史收集延迟序列取值（缺样本为无值），
 //! 按面板聚合并定值域。这里不产生任何矢量图（SVG）字节，落墨在落墨
 //! 子模块。
 
-use crate::metrics::TaskMetrics;
 use crate::report::EvalReport;
 
 use super::axis::{Axis, Gridline, Unit};
-use super::{COLOR_BLUE, COLOR_GREEN, COLOR_ORANGE, COLOR_PINK, COST_COLORS};
+use super::{COLOR_BLUE, COLOR_ORANGE};
 
 pub(super) struct Series {
     pub(super) label: String,
@@ -25,129 +24,8 @@ pub(super) struct Panel {
 
 pub(super) fn build_panels(points: &[EvalReport]) -> Vec<Panel> {
     let mut panels = Vec::new();
-    let datasets = dataset_order(points);
-    push_classify_panel(&mut panels, points);
-    push_task_panels(&mut panels, points, &datasets);
-    push_cost_panel(&mut panels, points, &datasets);
-    push_judge_panel(&mut panels, points);
     push_latency_panel(&mut panels, points);
     panels
-}
-
-fn push_classify_panel(panels: &mut Vec<Panel>, points: &[EvalReport]) {
-    let accuracy = points
-        .iter()
-        .map(|report| report.classify.as_ref().map(|stats| stats.accuracy * 100.0))
-        .collect();
-    let fallback = points
-        .iter()
-        .map(|report| {
-            report
-                .classify
-                .as_ref()
-                .map(|stats| stats.fallback_rate * 100.0)
-        })
-        .collect();
-    push_panel(
-        panels,
-        "Classify quality (%)",
-        Axis::Percent,
-        vec![
-            Series {
-                label: "accuracy".to_owned(),
-                color: COLOR_BLUE,
-                unit: Unit::Percent,
-                values: accuracy,
-            },
-            Series {
-                label: "fallback".to_owned(),
-                color: COLOR_ORANGE,
-                unit: Unit::Percent,
-                values: fallback,
-            },
-        ],
-    );
-}
-
-fn push_task_panels(panels: &mut Vec<Panel>, points: &[EvalReport], datasets: &[String]) {
-    for dataset in datasets {
-        let title = format!("Task · {} (%)", dataset_label(dataset));
-        push_panel(
-            panels,
-            &title,
-            Axis::Percent,
-            vec![
-                Series {
-                    label: "contract JSON".to_owned(),
-                    color: COLOR_BLUE,
-                    unit: Unit::Percent,
-                    values: dataset_rate(points, dataset, |metrics| metrics.json_object),
-                },
-                Series {
-                    label: "fields complete".to_owned(),
-                    color: COLOR_GREEN,
-                    unit: Unit::Percent,
-                    values: dataset_rate(points, dataset, |metrics| metrics.fields_complete),
-                },
-                Series {
-                    label: "degraded".to_owned(),
-                    color: COLOR_PINK,
-                    unit: Unit::Percent,
-                    values: dataset_rate(points, dataset, |metrics| metrics.degraded),
-                },
-            ],
-        );
-    }
-}
-
-fn push_cost_panel(panels: &mut Vec<Panel>, points: &[EvalReport], datasets: &[String]) {
-    let classify_rounds = points
-        .iter()
-        .map(|report| {
-            report
-                .classify
-                .as_ref()
-                .map(|stats| f64::from(stats.metrics.repair_rounds))
-        })
-        .collect();
-    let mut cost = vec![Series {
-        label: "classify".to_owned(),
-        color: COLOR_BLUE,
-        unit: Unit::Rounds,
-        values: classify_rounds,
-    }];
-    for (index, dataset) in datasets.iter().enumerate() {
-        cost.push(Series {
-            label: dataset_label(dataset).to_owned(),
-            color: COST_COLORS[index % COST_COLORS.len()],
-            unit: Unit::Rounds,
-            values: dataset_rounds(points, dataset),
-        });
-    }
-    push_panel(panels, "repair cost (rounds)", Axis::Rounds, cost);
-}
-
-fn push_judge_panel(panels: &mut Vec<Panel>, points: &[EvalReport]) {
-    let judge = points
-        .iter()
-        .map(|report| {
-            report
-                .judge
-                .filter(|summary| summary.count > 0)
-                .map(|summary| summary.average)
-        })
-        .collect();
-    push_panel(
-        panels,
-        "judge average (1–5)",
-        Axis::Judge,
-        vec![Series {
-            label: "judge average".to_owned(),
-            color: COLOR_BLUE,
-            unit: Unit::Score,
-            values: judge,
-        }],
-    );
 }
 
 fn push_latency_panel(panels: &mut Vec<Panel>, points: &[EvalReport]) {
@@ -200,59 +78,4 @@ fn push_panel(panels: &mut Vec<Panel>, title: &str, axis: Axis, series: Vec<Seri
         gridlines,
         series,
     });
-}
-
-fn dataset_order(points: &[EvalReport]) -> Vec<String> {
-    let mut seen: Vec<&str> = Vec::new();
-    for report in points {
-        for stats in &report.tasks {
-            if !seen.contains(&stats.dataset.as_str()) {
-                seen.push(stats.dataset.as_str());
-            }
-        }
-    }
-    seen.into_iter().map(str::to_owned).collect()
-}
-
-fn dataset_label(dataset: &str) -> &str {
-    match dataset {
-        "task_translate_word" => "word",
-        "task_translate_sentence" => "sentence",
-        "task_explain_code" => "code",
-        other => other,
-    }
-}
-
-fn dataset_rate(
-    points: &[EvalReport],
-    dataset: &str,
-    pick: impl Fn(&TaskMetrics) -> usize,
-) -> Vec<Option<f64>> {
-    points
-        .iter()
-        .map(|report| {
-            report
-                .tasks
-                .iter()
-                .find(|stats| stats.dataset == dataset)
-                .and_then(|stats| {
-                    (stats.metrics.evaluated > 0).then(|| {
-                        pick(&stats.metrics) as f64 / stats.metrics.evaluated as f64 * 100.0
-                    })
-                })
-        })
-        .collect()
-}
-
-fn dataset_rounds(points: &[EvalReport], dataset: &str) -> Vec<Option<f64>> {
-    points
-        .iter()
-        .map(|report| {
-            report
-                .tasks
-                .iter()
-                .find(|stats| stats.dataset == dataset)
-                .map(|stats| f64::from(stats.metrics.repair_rounds))
-        })
-        .collect()
 }

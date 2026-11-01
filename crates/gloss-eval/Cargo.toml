@@ -2,7 +2,7 @@
 name = "gloss-eval"
 version.workspace = true
 edition.workspace = true
-description = "Prompt 评测：确定性重放 + LLM judge（评测资产与工具链，不进生产）"
+description = "Prompt 评测工具链：语言门评测、报告与历史趋势（评测资产与工具，不进生产）"
 license.workspace = true
 
 # 唯一入口：评测命令行。
@@ -11,18 +11,14 @@ name = "eval"
 path = "src/main.rs"
 
 [dependencies]
-# 实跑轨复用生产流式引擎（核心库客户端）；本包只许消费，不许被
-# 生产包依赖——约束检查脚本的依赖方向断言强制。
+# 评测消费生产校验器与流式引擎（核心库客户端）；本包只许消费，不许
+# 被生产包依赖——约束检查脚本的依赖方向断言强制。
 gloss-core = { path = "../gloss-core" }
-# 评测数据集与报告的序列化。
+# 评测报告与历史行的序列化。
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
-# 实跑轨的运行时：重放不触网，不用异步设施。
-tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread"] }
-
-[dev-dependencies]
-# 实跑轨测试的脚本引擎要产出任务流（核心库的测试桩不出库）。
-futures = { version = "0.3", default-features = false, features = ["std"] }
+# 语言门评委复核的运行时（当前线程运行时足矣，引擎的异步设施归核心库）。
+tokio = { version = "1", default-features = false, features = ["rt"] }
 
 [lints]
 workspace = true

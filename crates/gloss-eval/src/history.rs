@@ -107,8 +107,7 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::history::{load_history, record_run};
-    use crate::metrics::{ClassifyMetrics, TaskMetrics};
-    use crate::report::{EvalContext, EvalReport, TrackOutputs, assemble_report};
+    use crate::report::{EvalContext, EvalReport};
 
     fn temp_dir(tag: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -121,27 +120,13 @@ mod tests {
         ))
     }
 
-    fn classify_metrics() -> ClassifyMetrics {
-        ClassifyMetrics {
-            evaluated: 2,
-            correct: 1,
-            ..ClassifyMetrics::default()
-        }
-    }
-
     fn report(mode: &str, generated_at: i64) -> EvalReport {
-        let mut report = assemble_report(
-            mode,
-            TrackOutputs {
-                classify: Some(classify_metrics()),
-                tasks: vec![("task_translate_word", TaskMetrics::default())],
-                latency: None,
-                judge: None,
-            },
-            0,
-        );
-        report.generated_at = generated_at;
-        report
+        EvalReport {
+            mode: mode.to_owned(),
+            generated_at,
+            latency: None,
+            context: None,
+        }
     }
 
     fn with_context(report: &EvalReport, commit: Option<&str>, source: Option<&str>) -> EvalReport {
@@ -164,14 +149,14 @@ mod tests {
     #[test]
     fn first_run_appends_one_line() {
         let dir = temp_dir("first-run");
-        record_run(&report("replay", 1000), &dir).expect("record");
+        record_run(&report("iterate", 1000), &dir).expect("record");
         let path = dir.join("history.jsonl");
         let text = std::fs::read_to_string(&path).expect("history text");
         assert!(text.ends_with('\n'), "lines end with LF");
         assert_eq!(text.lines().count(), 1);
         let history = load_history(&path).expect("load");
         assert_eq!(history.len(), 1);
-        assert_eq!(history[0].mode, "replay");
+        assert_eq!(history[0].mode, "iterate");
         assert_eq!(history[0].generated_at, 1000);
         assert!(history[0].context.is_none(), "local runs carry no context");
         std::fs::remove_dir_all(&dir).ok();
@@ -180,8 +165,8 @@ mod tests {
     #[test]
     fn same_mode_and_commit_overwrites_in_place() {
         let dir = temp_dir("upsert-same");
-        let first = with_context(&report("replay", 1000), Some("ec96217"), Some("pipeline"));
-        let second = with_context(&report("replay", 2000), Some("ec96217"), Some("pipeline"));
+        let first = with_context(&report("iterate", 1000), Some("ec96217"), Some("pipeline"));
+        let second = with_context(&report("iterate", 2000), Some("ec96217"), Some("pipeline"));
         record_run(&first, &dir).expect("first");
         record_run(&second, &dir).expect("second");
         let text = std::fs::read_to_string(dir.join("history.jsonl")).expect("history text");
@@ -202,11 +187,11 @@ mod tests {
     #[test]
     fn different_commit_or_mode_appends() {
         let dir = temp_dir("upsert-diff");
-        let base = report("replay", 1000);
+        let base = report("iterate", 1000);
         record_run(&with_context(&base, Some("aaaaaaa"), None), &dir).expect("first");
         record_run(&with_context(&base, Some("bbbbbbb"), None), &dir).expect("second commit");
         record_run(
-            &with_context(&report("live", 1000), Some("aaaaaaa"), None),
+            &with_context(&report("local-run", 1000), Some("aaaaaaa"), None),
             &dir,
         )
         .expect("other mode");
@@ -218,8 +203,8 @@ mod tests {
     #[test]
     fn missing_commit_always_appends() {
         let dir = temp_dir("local-append");
-        record_run(&report("replay", 1000), &dir).expect("first");
-        record_run(&report("replay", 2000), &dir).expect("second");
+        record_run(&report("iterate", 1000), &dir).expect("first");
+        record_run(&report("iterate", 2000), &dir).expect("second");
         let text = std::fs::read_to_string(dir.join("history.jsonl")).expect("history text");
         assert_eq!(
             text.lines().count(),
@@ -283,11 +268,11 @@ mod tests {
     #[test]
     fn record_run_redraws_history_svg() {
         let dir = temp_dir("redraw");
-        record_run(&report("replay", 1000), &dir).expect("record");
+        record_run(&report("iterate", 1000), &dir).expect("record");
         let svg = std::fs::read_to_string(dir.join("history.svg")).expect("svg text");
         assert!(svg.starts_with("<svg"), "record_run renders the trend file");
         record_run(
-            &with_context(&report("replay", 2000), Some("ec96217"), None),
+            &with_context(&report("iterate", 2000), Some("ec96217"), None),
             &dir,
         )
         .expect("second");
@@ -302,7 +287,7 @@ mod tests {
     #[test]
     fn context_roundtrips_and_bare_rows_default_to_none() {
         let dir = temp_dir("context-roundtrip");
-        let pipeline = with_context(&report("replay", 1000), Some("ec96217"), Some("pipeline"));
+        let pipeline = with_context(&report("iterate", 1000), Some("ec96217"), Some("pipeline"));
         record_run(&pipeline, &dir).expect("record");
         let line = std::fs::read_to_string(dir.join("history.jsonl")).expect("history text");
         assert!(

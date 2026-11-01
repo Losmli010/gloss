@@ -133,19 +133,6 @@ flame-startup:
 size-report bin="target/release/gloss" top="30":
     {{py}} scripts/perf/size_report.py --bin {{bin}} --top {{top}}
 
-# 提示词评测实跑轨：真实大语言模型（LLM），需专用凭据且显式选择参与，仅人工明确要求时运行；录制开关回写夹具，评分开关启用评分轨
-eval *args:
-    cargo run -p gloss-eval --bin eval -- live {{args}}
-
-# 提示词评估检视：离线重放加单文件检视页（准确率、逐条轨迹、趋势），生成后开浏览器，免凭据走夹具口径
-eval-inspect:
-    cargo run -p gloss-eval --bin eval -- inspect
-    open target/eval/inspect.html
-
-# 提示词评测离线重放：夹具驱动，无网络无凭据，持续集成安全
-eval-replay:
-    cargo run -p gloss-eval --bin eval -- replay
-
 # 把最近一次评测报告渲染为标记语言（Markdown）表格（参数可换目录）
 eval-report *args:
     cargo run -p gloss-eval --bin eval -- report {{args}}

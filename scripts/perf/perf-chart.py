@@ -152,7 +152,7 @@ LATENCY_PANELS = (
             ("eval.task_latency_p95_ms", "task_latency_p95_ms"),
         ),
         "budget": None,
-        "note": "record only, no gate · source: just eval (live track) · variance from the external service",
+        "note": "record only, no gate · source: eval iterate latency percentiles · variance from the external service",
     },
 )
 RESOURCES_PANELS = (
