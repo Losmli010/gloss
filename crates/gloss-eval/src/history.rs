@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use crate::report::EvalReport;
-use crate::svg;
+use crate::trend;
 
 const HISTORY_FILE: &str = "history.jsonl";
 const SVG_FILE: &str = "history.svg";
@@ -60,7 +60,7 @@ pub fn record_run(report: &EvalReport, dir: &Path) -> std::io::Result<()> {
     body.push('\n');
     write_atomic(&path, &body)?;
     let history = load_history(&path)?;
-    write_atomic(&dir.join(SVG_FILE), &svg::render_svg(&history))?;
+    write_atomic(&dir.join(SVG_FILE), &trend::render_svg(&history))?;
     Ok(())
 }
 
@@ -360,7 +360,7 @@ mod tests {
         .expect("second");
         let redrawn = std::fs::read_to_string(dir.join("history.svg")).expect("svg text");
         assert!(
-            redrawn.contains("(2 points)"),
+            redrawn.contains("评测趋势（2 轮）"),
             "the redraw sees the full history"
         );
         std::fs::remove_dir_all(&dir).ok();

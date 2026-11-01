@@ -1578,16 +1578,47 @@
 | label_snapshot_rides_the_history_row | 标注快照入历史行 | 给定一条已标注合格的用例经 `assemble` 成报告并 `record_run`，当读回历史行，则行内标注三态为合格 1、未标注 0，加载后合计行的标注快照原样可读（标注合格率曲线的来源） | 2026-11-01 |
 | context_roundtrips_and_bare_rows_default_to_none | `context` 段往返与裸行缺省 | 给定带 `context` 的报告行与无 `context` 段的报告（JSON），当写入读回、直接解析，则行内 `context` 段逐字节往返、裸行 `context` 为 `None` | 2026-10-13 |
 
-### `crates/gloss-eval/src/svg.rs`
+### `crates/gloss-eval/src/trend.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| panels_follow_available_latency_samples | 面板随延迟样本出现 | 给定空历史、无延迟样本的报告与含延迟样本的报告，当 `render_svg`，则前两者零面板（含空态文案）、后者单延迟面板（`p50` 与 `p95` 序列与图例齐备）——延迟仅历史有样本才画 | 2026-11-01 |
-| panels_render_polylines_ticks_and_legends | 面板要素齐备 | 给定两份含延迟样本的报告，当 `render_svg`，则 `polyline`、圆点、悬浮 `title`（带 `UTC` 时间与 `mode`、数值两位小数）、网格线、`x` 轴时间刻度、`p50/p95` 图例、`frame`、右上角“最近一次”标注全部在场 | 2026-11-01 |
-| missing_samples_break_the_series_instead_of_inventing_points | 缺样本断线跳段不造点 | 给定首点带延迟样本、次点无样本的历史，当 `render_svg`，则仅样本点出圆点、无样本点不补点不连线 | 2026-11-01 |
-| text_is_xml_escaped | 文本 `XML` 转义 | 给定 `mode` 与 `commit` 含 `&`、`<` 的报告，当 `render_svg`，则悬浮与“最近一次”标注中的 `mode`、`commit` 以实体出现、原字符不落进文本节点 | 2026-10-13 |
-| rendering_is_byte_deterministic | 渲染确定性 | 给定同一份历史，当 `render_svg` 两次，则输出逐字节一致（`SVG` 内无渲染时刻的时间戳无环境读取） | 2026-10-13 |
-| beyond_max_points_only_latest_are_drawn | 超 100 点只画最近 100 点 | 给定 120 点历史，当 `render_svg`，则标题计 100 点、末点 `commit` 进悬浮、窗口外首点不落图 | 2026-10-13 |
-| x_ticks_sample_at_most_four_points | `x` 轴稀疏刻度 不超过 4 且均匀取样 | 给定 8 点（`UTC` 时间逐点推进）与 2 点历史，当 `render_svg`，则分别刻出第 0、2、5、7 点的时间刻度与全部两点（8 点时中间点不刻） | 2026-10-13 |
-| ticks_carry_timestamps_and_hover_carries_commit | 刻度即（UTC）时间、`commit` 进悬浮 | 给定带 `commit` 与无 `commit` 的两份报告，当 `render_svg`，则刻度标 `MM-DD` `HH:MM`、带 `commit` 点的悬浮附 `SHA`、本地点悬浮只带 `mode`，头部标注最近一次运行 | 2026-10-13 |
-| header_shows_latest_run_timestamp | 头部标注最近一次运行 | 给定两份报告（末点带 `commit`），当 `render_svg`，则右上角标注末点的完整（UTC）时间、`mode` 与 `commit` | 2026-10-13 |
+| empty_history_renders_note_without_series | 空历史容错 | 给定空历史与无延迟样本的单轮历史，当 `render_svg`，则前者零序列并落“暂无评测历史”占位、无最近一轮标注，后者不画延迟面 | 2026-11-01 |
+| summary_panel_draws_the_three_rates_on_a_percent_scale | 指标汇总面绘三率 | 给定合计行为三率各一计数的迭代报告，当 `render_svg`，则指标汇总面在场，契约有效率、回归通过率、标注合格率三序列图例齐备，纵轴带 0%、25%、50%、75%、100% 步进网格，最新一轮末值以去尾零的百分数标注 | 2026-11-01 |
+| model_series_rides_judged_runs_only | 模型线只随已评轮次出现 | 给定两轮已评、末轮未评与末轮已评三份历史，当 `render_svg`，则模型总体序列为虚线、末轮缺席时无末值标注、末轮在场时标注末值，全历史无已评轮次则整条模型线不画 | 2026-11-01 |
+| latency_panel_draws_only_with_samples | 延迟面只随样本出现 | 给定含延迟样本的报告，当 `render_svg`，则延迟面在场（`p50` 与 `p95` 序列与图例齐备）且最新末值标注 | 2026-11-01 |
+| missing_samples_break_the_series_instead_of_inventing_points | 缺样本断线跳段不造点 | 给定首点带延迟样本、次点无样本的历史，当 `render_svg`，则圆点只落在有值的序列点位，无样本点不补点不连线 | 2026-11-01 |
+| newest_point_is_enlarged_and_labeled | 最新一轮放大并标注末值 | 给定两轮三率齐备的历史，当 `render_svg`，则最新一轮每条在场序列画放大圆点（半径 4）并各带末值标注 | 2026-11-01 |
+| only_recent_five_iterate_runs_are_drawn | 近五轮窗口 | 给定七轮带不同提交标识的迭代历史，当 `render_svg`，则标题计五轮、最近一轮的提交标识进悬浮、窗口外最旧一轮不落图 | 2026-11-01 |
+| non_iterate_rows_stay_out_of_the_window | 非 `iterate` 行不进图 | 给定 `iterate` 与其他模式行交错的新形状历史，当 `render_svg`，则窗口只数 `iterate` 轮，其他模式既不绘制也不进标注 | 2026-11-01 |
+| latency_axis_picks_a_quarter_divisible_ceiling | 延迟轴四等分落整 | 给定 95 分位 1500 毫秒的样本，当 `render_svg`，则延迟轴上界取 1600 毫秒，网格刻度落 0、400、800、1200、1600 毫秒并按秒、毫秒自适应标注 | 2026-11-01 |
+| text_is_xml_escaped | 文本 `XML` 转义 | 给定提交标识含 `&`、尖括号的报告，当 `render_svg`，则悬浮与“最近一轮”标注中的提交标识以实体出现、原字符不落进文本节点 | 2026-11-01 |
+| rendering_is_byte_deterministic | 渲染确定性 | 给定同一份历史，当 `render_svg` 两次，则输出逐字节一致（`SVG` 内无渲染时刻的时间戳无环境读取） | 2026-11-01 |
+
+### `crates/gloss-eval/src/view/mod.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| page_assembles_the_four_regions | 四区结构与零外部资源 | 给定单用例的检视页输入，当 `render_html`，则页面以 `<!doctype html>` 开头，顶栏、指标总览、历史曲线（含 `SVG`）、测试用例四区齐备，导出按钮与筛选器在场，除 `SVG` 命名空间外无外链资源（无 `link`、`@import`、`url` 与外源 `src`） | 2026-11-01 |
+| foreign_text_is_escaped_everywhere | 外来文本转义 | 给定输入含脚本标签、逐轮原文含闭合标签与图片标签的用例，当 `render_html`，则脚本载荷不落原文、以实体出现在列表与逐轮轨迹中，闭合标签无法截断页面结构 | 2026-11-01 |
+| export_document_matches_the_import_schema | 导出导入同构往返 | 给定一行标注行（`JSON`），当以 `labels` 键包裹成导出文档再反序列化，则行内容原样读回（标识、结论、备注逐字段一致）；当渲染检视页，则内联脚本以同结构构造 `{id, verdict, note}` 行并包 `labels` 键下载 | 2026-11-01 |
+
+### `crates/gloss-eval/src/view/overview.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| bars_render_present_groups_totals_and_zero_stubs | 柱状图分组与零值短桩 | 给定分类软缺口与词卡已评各一的报告，当渲染指标总览，则在场的组按固定次序出柱组、合计组带虚线分隔，零比率画 2 像素短桩、满比率画满柱、模型柱用中灰并标注组均分 | 2026-11-01 |
+| model_column_holds_a_placeholder_without_quality | 无质量聚合不画模型柱 | 给定仅分类组的报告，当渲染指标总览，则模型列只落占位符、无柱 | 2026-11-01 |
+| table_cells_carry_hovers_placeholders_and_baseline_time | 指标表悬停与占位符 | 给定分类与已评词卡各一（词卡带基线与标注）的报告，当渲染指标总览，则三率格悬停带状态计数、模型格悬停带四维均分、评审覆盖悬停带已评数与例数、基线格悬停带基线数、标注数与固化时间，质量聚合缺席的组七格全占位 | 2026-11-01 |
+| totals_row_folds_the_groups_under_a_dashed_rule | 合计行折叠分组 | 给定单组报告，当渲染指标总览，则合计行在虚线之下、组计数折进合计格 | 2026-11-01 |
+
+### `crates/gloss-eval/src/view/cases.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| worst_first_orders_failures_then_badges_then_scores | 最差优先排序 | 给定八条用例（引擎故障、契约降级、回归、待复核、未改善、最低维分 60、最低维分 50、未评，按用例集序打乱排列），当渲染测试用例区，则输出次序为引擎故障、降级、回归、待复核、未改善、低分已评、高分已评、未评 | 2026-11-01 |
+| badges_cover_every_contract_and_regression_state | 徽标四态五态与逐态注释 | 给定契约四态与回归五态各一代表的用例组，当渲染，则四色徽标逐态出现且悬停带逐态注释，待比无徽标（仅契约徽标两处），图例覆盖三轴全部枚举 | 2026-11-01 |
+| a_pending_case_wears_no_regression_badge | 待比无徽标 | 给定契约有效而回归待比的用例，当渲染，则回归列无徽标（全页仅契约徽标出现在列表与结算两处）且 `data-regression` 落 `pending` 筛选键 | 2026-11-01 |
+| expanded_body_follows_the_status_matrix | 展开态随状态矩阵 | 给定分类判定不符、契约降级、引擎故障、新增无基线、有基线无标注五条用例，当渲染，则分类显示“未评分——分类用例不打质量分”与期望类别参考栏、判定不符契约行转琥珀、降级显示未收敛轮数与违约计数并跳过评分、故障显示请求失败说明且恒待比、无基线塌两栏并提示尚未固化基线、有基线无标注提示等待裁决 | 2026-11-01 |
+| scored_cases_show_dimensions_overall_and_reason | 已评用例的评分行 | 给定四维分 90、80、70、60 的用例，当渲染，则评分行列出四维分、总体 75（四维均值）与理由，列表列显示总体分 | 2026-11-01 |
+| marks_prefill_from_labels_and_drive_the_export_count | 标注预填与导出计数 | 给定三条用例（合格带备注、不合格、未标注）与对应标注资产，当渲染，则前两条按钮按结论预填、备注回填输入框，导出计数等于已标注例数 2 | 2026-11-01 |
+| rounds_carry_violation_tags | 逐轮轨迹与违约标签 | 给定两轮轨迹（首轮违约）的用例，当渲染，则轨迹折叠计数为两轮、违约轮带变体名标签、各轮原文照录 | 2026-11-01 |

@@ -73,7 +73,7 @@ fn run_history_cli(args: &[String]) -> Result<(), String> {
     let path = dir.join("history.jsonl");
     let history = gloss_eval::history::load_history(&path)
         .map_err(|err| format!("{}: {err}", path.display()))?;
-    let svg = gloss_eval::svg::render_svg(&history);
+    let svg = gloss_eval::trend::render_svg(&history);
     let out = dir.join("history.svg");
     gloss_eval::history::write_atomic(&out, &svg)
         .map_err(|err| format!("write {}: {err}", out.display()))?;

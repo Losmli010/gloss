@@ -14,7 +14,7 @@ use crate::asset::{GoldenMap, LabelMap};
 use crate::contract::derive_state;
 use crate::detail::{CaseDetail, ContractState, JudgeScores, LabelVerdict, RuleVerdict};
 
-const ITERATE_MODE: &str = "iterate";
+pub const ITERATE_MODE: &str = "iterate";
 const PASS_LINE: f64 = 80.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

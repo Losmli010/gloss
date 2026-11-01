@@ -1,6 +1,6 @@
-//! 面板落墨：按图形元素分步——标题与内联图例、网格与纵轴标签、外框
-//! 与横轴稀疏刻度、序列折线与圆点。发射顺序即字节顺序，改动任何一步
-//! 都会改写渲染产物。
+//! 面板落墨：按图形元素分步——小节标题与内联图例、网格与纵轴标签、
+//! 外框与横轴日期刻度、序列折线与圆点、最新一轮的放大圆点与末值标
+//! 注。发射顺序即字节顺序，改动任何一步都会改写渲染产物。
 
 use crate::report::{EvalReport, format_utc_short};
 
@@ -19,14 +19,11 @@ pub(super) struct PointData {
 }
 
 impl PointData {
-    pub(super) fn new(points: &[EvalReport]) -> Self {
+    pub(super) fn new(points: &[&EvalReport]) -> Self {
         Self {
             xs: x_positions(points.len()),
-            ticks: points
-                .iter()
-                .map(|report| format_utc_short(report.generated_at))
-                .collect(),
-            hovers: points.iter().map(hover_label).collect(),
+            ticks: points.iter().map(|report| run_date(report)).collect(),
+            hovers: points.iter().map(|report| hover_label(report)).collect(),
         }
     }
 }
@@ -48,7 +45,7 @@ fn draw_title_and_legend(out: &mut String, title_y: usize, panel: &Panel) {
         out,
         format!(
             "<text x=\"46\" y=\"{title_y}\" font-size=\"13\" font-weight=\"600\" fill=\"{COLOR_TEXT}\">{}</text>",
-            esc(&panel.title)
+            esc(panel.title)
         ),
     );
     let mut swatch_x = PLOT_RIGHT - SWATCH_SIZE as f64;
@@ -67,10 +64,10 @@ fn draw_title_and_legend(out: &mut String, title_y: usize, panel: &Panel) {
             format!(
                 "<text x=\"{}\" y=\"{title_y}\" font-size=\"12\" fill=\"{COLOR_MUTED}\" text-anchor=\"end\">{}</text>",
                 f2(swatch_x - SWATCH_TEXT_GAP),
-                esc(&series.label)
+                esc(series.label)
             ),
         );
-        swatch_x -= SWATCH_TEXT_GAP + text_w(&series.label, LEGEND_FONT_SIZE) + LEGEND_ITEM_GAP;
+        swatch_x -= SWATCH_TEXT_GAP + text_w(series.label, LEGEND_FONT_SIZE) + LEGEND_ITEM_GAP;
     }
 }
 
@@ -137,7 +134,7 @@ fn draw_series(out: &mut String, panel: &Panel, points: &PointData, frame_bottom
                     })
                     .collect::<Vec<_>>()
                     .join(" ");
-                draw_polyline(out, series.color, &coordinates);
+                draw_polyline(out, series, &coordinates);
             }
             for (point, value) in &segment {
                 let hover = format!(
@@ -146,33 +143,56 @@ fn draw_series(out: &mut String, panel: &Panel, points: &PointData, frame_bottom
                     points.hovers[*point],
                     series.unit.title_value(*value)
                 );
-                draw_point(
+                let newest = *point + 1 == series.values.len();
+                let radius = if newest { "4" } else { "2.5" };
+                line(
                     out,
-                    series.color,
-                    &hover,
-                    f2(points.xs[*point]),
-                    f2(y_of(*value, panel, frame_bottom)),
+                    format!(
+                        "<circle cx=\"{}\" cy=\"{}\" r=\"{radius}\" fill=\"{}\"><title>{}</title></circle>",
+                        f2(points.xs[*point]),
+                        f2(y_of(*value, panel, frame_bottom)),
+                        series.color,
+                        esc(&hover)
+                    ),
                 );
+                if newest {
+                    let dot_y = y_of(*value, panel, frame_bottom);
+                    let label_y = if series.label_above {
+                        dot_y - 8.0
+                    } else {
+                        dot_y + 16.0
+                    };
+                    draw_end_label(out, series, points.xs[*point], label_y, *value);
+                }
             }
         }
     }
 }
 
-fn draw_polyline(out: &mut String, color: &str, coordinates: &str) {
+fn draw_end_label(out: &mut String, series: &super::panel::Series, x: f64, y: f64, value: f64) {
     line(
         out,
         format!(
-            "<polyline points=\"{coordinates}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"2\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/>"
+            "<text x=\"{}\" y=\"{}\" font-size=\"11\" font-weight=\"600\" fill=\"{}\" text-anchor=\"end\">{}</text>",
+            f2(x - 8.0),
+            f2(y),
+            series.color,
+            esc(&series.unit.title_value(value))
         ),
     );
 }
 
-fn draw_point(out: &mut String, color: &str, hover: &str, x: String, y: String) {
+fn draw_polyline(out: &mut String, series: &super::panel::Series, coordinates: &str) {
+    let dash = if series.dashed {
+        " stroke-dasharray=\"4 3\""
+    } else {
+        ""
+    };
     line(
         out,
         format!(
-            "<circle cx=\"{x}\" cy=\"{y}\" r=\"2.5\" fill=\"{color}\"><title>{}</title></circle>",
-            esc(hover)
+            "<polyline points=\"{coordinates}\" fill=\"none\" stroke=\"{}\" stroke-width=\"2\" stroke-linejoin=\"round\" stroke-linecap=\"round\"{dash}/>",
+            series.color
         ),
     );
 }
@@ -187,6 +207,10 @@ fn hover_label(report: &EvalReport) -> String {
         label.push_str(&format!(" ({commit})"));
     }
     label
+}
+
+fn run_date(report: &EvalReport) -> String {
+    format_utc_short(report.generated_at)[..5].to_owned()
 }
 
 fn x_positions(count: usize) -> Vec<f64> {
