@@ -364,6 +364,26 @@ def test_python_function_docstring_backtick_short_circuits(tmp_path: Path) -> No
     assert "code segment" in problems[0]
 
 
+def test_python_docstring_gated_on_class_async_and_nested(tmp_path: Path) -> None:
+    """类、异步函数与嵌套函数的文档字符串同在判罚面：全量遍历不漏形态。"""
+    head = "# 中文头\n\n"
+    class_src = head + 'class C:\n    """类说明带 generic 词。"""\n'
+    async_src = head + 'async def g():\n    """异步说明带 generic 词。"""\n'
+    nested_src = head + 'def f():\n    def inner():\n        """嵌套说明带 generic 词。"""\n'
+    for content in (class_src, async_src, nested_src):
+        problems = run_gate(tmp_path, content, rel="sample.py")
+        assert any("outside the derived whitelist" in p for p in problems)
+
+
+def test_python_docstring_section_ref_knife(tmp_path: Path) -> None:
+    """文档字符串章节引用触刀 2：单例条目，不再跑核心判据。"""
+    problems = run_gate(
+        tmp_path, '# 中文头\n\ndef f():\n    """说明详见 §3 小节。"""\n', rel="sample.py"
+    )
+    assert len(problems) == 1
+    assert "external reference" in problems[0]
+
+
 def test_corner_bracket_sample_same_family_rule_across_faces(tmp_path: Path) -> None:
     """同文同判对拍：同一含直角引号样本经注释块、文档字符串与词条三面判
     定产出同族规则（PROSE-FOREIGN），锁定分诊三刀加核心判据的三面一致性。"""

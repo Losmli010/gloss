@@ -403,10 +403,10 @@ def module_docstring_problems(rel: str, src: str) -> list[gate_report.Finding]:
     for node in ast.walk(tree):
         if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        text = ast.get_docstring(node, clean=False)
+        text = ast.get_docstring(node, clean=True)
         if text is None:
             continue
-        out += triage_problems(rel, node.lineno, text, "docstring", ZONE_CHINESE, DOC_FACE)
+        out += triage_problems(rel, node.body[0].lineno, text, "docstring", ZONE_CHINESE, DOC_FACE)
     return out
 
 

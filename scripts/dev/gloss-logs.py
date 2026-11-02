@@ -41,8 +41,7 @@ def newest_log(directory: Path) -> Path | None:
 
 
 def local_clock(timestamp: str) -> str:
-    """时间戳按（RFC3339）书写、协调世界时（UTC）时刻，转本地时分秒
-    展示；解析不了就原样截取。"""
+    """时间戳按（RFC3339）书写、协调世界时（UTC）时刻，转本地时钟（HH:MM:SS）展示；解析不了就原样截取。"""
     try:
         parsed = datetime.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         return parsed.astimezone().strftime("%H:%M:%S")
