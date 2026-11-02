@@ -34,14 +34,14 @@ def load_json(path: Path) -> Any:
 
 
 def load_mean(path: Path) -> tuple[float, float, float]:
-    """读取 estimates.json，返回（均值点估计，区间下界，区间上界）。"""
+    """读取估算文件（estimates.json），返回（均值点估计，区间下界，区间上界）。"""
     mean = load_json(path)["mean"]
     ci = mean["confidence_interval"]
     return mean["point_estimate"], ci["lower_bound"], ci["upper_bound"]
 
 
 def display_name(bench_dir: Path, dir_name: str) -> str:
-    """优先取 benchmark.json 里的 full_id（含原始 / 分隔），退回目录名。"""
+    """优先取基准描述文件（benchmark.json）里的完整标识（full_id），其中含原始的斜杠分隔，退回目录名。"""
     try:
         return load_json(bench_dir / "new" / "benchmark.json")["full_id"]
     except (OSError, KeyError, json.JSONDecodeError):

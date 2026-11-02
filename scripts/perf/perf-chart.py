@@ -203,7 +203,7 @@ RESOURCES_PANELS = (
 
 
 def hotpath_panels() -> tuple[dict[str, Any], ...]:
-    """core 四组 + clone 两面板；id 与用例全部取自注册表（benches 增删同步 metrics.py）。"""
+    """热点四组（core）加克隆两面板（clone）；面板标识（id）与用例全部取自注册表，基准增删时同步登记文件（metrics.py）。"""
     panels = [
         {
             "title": f"{label} ({gid} · log axis)",
@@ -242,11 +242,11 @@ FIGURES = (
 
 
 def _validate_panels() -> None:
-    """import 期校验：面板 id 未注册、预算语义漂移、同面板单位混装当场失败。
+    """随导入（import）执行的校验：面板标识（id）未注册、预算语义漂移、同面板单位混装当场失败。
 
-    三张图的面板（含 hotpath_panels() 派生的热路径面板）全部过检；标记
-    mixed_units 的面板（clone 两面板对数轴有意混装单位）豁免单位一致检查，
-    id 注册校验不豁免。
+    三张图的面板（含热路径派生函数（hotpath_panels）产出的面板）全部过检；
+    标记混装单位（mixed_units）的面板——克隆两面板（clone）对数轴有意混装
+    单位——豁免单位一致检查，标识注册校验不豁免。
     """
     problems = []
     for name, _title, panels, _kind, _footer in FIGURES:
@@ -299,12 +299,12 @@ def f1(value: float) -> str:
 
 
 def fh(value: float) -> str:
-    """长度类坐标：整数值不带小数（卡片 212 / chip 18），浮点一位小数（渐晕区高度）。"""
+    """长度类坐标：整数值不带小数（如卡片 212 与小标签（chip）18 两处），浮点一位小数（渐晕区高度）。"""
     return str(int(value)) if float(value).is_integer() else f1(value)
 
 
 def text_w(text: str, size: float) -> float:
-    """按字符宽度估算文本像素宽（CJK/全角 1em、空格 0.52em、其余 0.58em），防溢出。"""
+    """按字符宽度估算文本像素宽，防溢出——中日韩与全角（CJK）占一倍宽（1em）、空格占零点五二倍（0.52em）、其余占零点五八倍（0.58em）。"""
     total = 0.0
     for ch in str(text):
         if ch == " ":
@@ -403,10 +403,10 @@ def x_positions(count: int, x0: float, x1: float) -> list[float]:
 
 
 def axis_top(peak: float, budget: float | None, count_floor: bool) -> float:
-    """线性轴顶值 = 容纳 peak 的最小 4×nice 档（档位 1/1.2/1.5/2/2.5/3/4/5/6/8/10×10^k）。
+    """线性轴顶值为容纳峰值（peak）的最小四倍优雅档（4×nice）（档位 1/1.2/1.5/2/2.5/3/4/5/6/8/10×10^k）。
 
     预算计入比较：预算恰落在顶值上时自动升一档，防渐晕区高度归零、红线压轴。
-    count 面板从 10^0 档起（步长下限 1），防 0.8 类碎刻度。
+    计数（count）面板从零次幂（10^0）档起（步长下限 1），防 0.8 类碎刻度。
     """
     level = 0 if count_floor else -6
     while level <= 12:
@@ -419,7 +419,7 @@ def axis_top(peak: float, budget: float | None, count_floor: bool) -> float:
 
 
 def value_label(value: float, unit: str, mb_axis: bool) -> str:
-    """轴刻度与数值槽共用的显示值格式（value 已是轴显示单位，单位在面板标题不带出）。"""
+    """轴刻度与数值槽共用的显示值格式——数值（value）已是轴显示单位，单位在面板标题不带出。"""
     if mb_axis:
         return f"{value:.1f}"
     if unit == "count":
@@ -428,10 +428,11 @@ def value_label(value: float, unit: str, mb_axis: bool) -> str:
 
 
 def change_text(cur: int | float, prev: int | float | None) -> tuple[str, str] | None:
-    """较上一点变化：▼ 绿=改善 / ▲ 红=回归 / — 灰=持平（全部指标越低越好）。
+    """较上一点变化：下降（▼）绿为改善、上升（▲）红为回归、持平（—）为灰——全部指标越低越好。
 
-    方向按数值本身比较（负值基线下 (cur-prev)/prev 会翻转符号——净增长从
-    -340 降到 -520 是改善，不是回归），幅度用 |Δ|/|prev|。
+    方向按数值本身比较：负值基线下相对变化（(cur-prev)/prev）会翻转符号——
+    净增长从负三百四十（-340）降到负五百二十（-520）是改善，不是回归；
+    幅度取相对幅度（|Δ|/|prev|）。
     """
     if prev is None:
         return None
@@ -594,13 +595,14 @@ class Figure:
         xs: list[float],
         y_of: Callable[[int | float], float],
     ) -> None:
-        """「部分系列自 <sha> 起有数据」：默认绘图区右上，数据带相撞时避让。
+        """“部分系列自某次提交起有数据”的注记提示：默认绘图区右上，数据带相撞时避让。
 
-        轴顶恒贴系列峰值（top ≥ peak 且同量级），线在右侧高位时注释必压线
-        （二进制体积贴顶平线每次渲染都命中）。避让规则限定两条带——上带
-        （默认右上）与下带（绘图区右下），按注释 x 跨度 +8px 光晕余量内的
-        数据 y 范围（折线段 y 范围 = 端点范围，min/max 判交即精确）判定：
-        上带相撞移下带，两带皆占则回右上靠 halo 兜底。纯数据函数，确定性。
+        轴顶恒贴系列峰值——顶值（top）不低于峰值（peak）且同量级——线在
+        右侧高位时注释必压线（二进制体积贴顶平线每次渲染都命中）。避让规则
+        限定两条带——上带（默认右上）与下带（绘图区右下），按注释横向跨度
+        加光晕余量（+8px）内的数据纵向范围（折线段纵向范围为端点范围，以
+        最小最大值（min/max）判交即精确）判定：上带相撞移下带，两带皆占则
+        回右上靠光晕（halo）兜底。纯数据函数，确定性。
         """
         firsts = []
         for _mid, _label, _color, vals in series:

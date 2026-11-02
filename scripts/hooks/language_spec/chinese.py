@@ -725,7 +725,7 @@ def unanchored_problems(
 ) -> list[gate_report.Finding]:
     """注记括号锚点硬规则：中文主体行上装外文的注记必须锚在译名上——悬空、
     虚词粘着与单字粘着三判据命中即拦，例外小表放行（缘由随消息下发）。判
-    定域由调用方保证：body_problems 只在中文主体行进入。"""
+    定域由调用方保证：整条表述检查（body_problems）只在中文主体行进入。"""
     out = []
     for gloss, prev in glosses:
         if not _gloss_carries_foreign(gloss):

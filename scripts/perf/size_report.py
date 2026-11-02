@@ -35,7 +35,7 @@ def run(argv: list[str]) -> str:
 
 
 def parse_segments(binary: Path) -> list[dict]:
-    """size -m 输出：`Segment __TEXT: 311296` 顶格，节行制表符缩进。"""
+    """节尺寸工具（size -m）的输出：段行形如（Segment __TEXT: 311296）顶格，节行制表符缩进。"""
     rows: list[dict] = []
     segment = None
     for line in run(["size", "-m", str(binary)]).splitlines():
@@ -59,12 +59,13 @@ def parse_segments(binary: Path) -> list[dict]:
 
 
 def decode_rust_symbol(name: str) -> str | None:
-    """解码 Rust 符号路径；解不动返回 None（调用方回退原始名）。
+    """解码本语言（Rust）符号路径；解不动返回空值（None）——调用方回退原始名。
 
-    旧式 `_ZN...E` 与 v0 `_RN...` 通用子集：标识符 `<长度><名字>` 连成
-    `crate::模块::函数`；v0 的 Cs 去混淆串、`s<数字>_` 实现路径消歧符与
-    单字符标记透明跳过，下划线开头的标识符在长度后多一个转义 `_`。泛型
-    实例化（I…E）与回引用（B…_）不解——退回原始名。
+    旧式改编名（_ZN...E）与零版改编名（_RN...）的通用子集：标识符按长度与
+    名字成对读出，连成双冒号（::）分隔的路径；零版（v0）的共享去混淆前缀（Cs）、
+    实现路径消歧符（s<数字>_）与单字符标记透明跳过，下划线开头的标识符在
+    长度后多一个转义下划线（_）。泛型实例化（I…E）与回引用（B…_）不解
+    ——退回原始名。
     """
     legacy = name.find("_ZN")
     if legacy >= 0:
@@ -115,7 +116,7 @@ V0_CRATE_RE = re.compile(r"Cs[0-9A-Za-z]*?_(\d+)([0-9A-Za-z_]*)")
 
 
 def crate_of(decoded: str | None, raw: str) -> str:
-    """顶层 crate 名：解码路径取首段；解不动时从 v0 去混淆标记里抠。"""
+    """顶层包名（crate）：解码路径取首段；解不动时从零版（v0）去混淆标记里抠。"""
     if decoded:
         return decoded.split("::")[0]
     match = V0_CRATE_RE.search(raw)
@@ -129,7 +130,7 @@ def crate_of(decoded: str | None, raw: str) -> str:
 
 
 def section_ranges(binary: Path) -> list[tuple[str, str, int, int]]:
-    """otool -l 抽 (节名, 段名, 起始地址, 大小)，供符号落节与差分算大小。"""
+    """节清单工具（otool -l）抽取四元组（节名、段名、起始地址、大小），供符号落节与差分算大小。"""
     rows: list[tuple[str, str, int, int]] = []
     lines = run(["otool", "-l", str(binary)]).splitlines()
     for i, line in enumerate(lines):
@@ -145,7 +146,7 @@ def section_ranges(binary: Path) -> list[tuple[str, str, int, int]]:
 
 
 def parse_symbols(binary: Path, top: int) -> tuple[list[dict], list[dict], int]:
-    """nm -S 在 macOS 对 Mach-O 恒报 0，改用同节相邻符号地址差算大小。"""
+    """符号表工具（nm -S）在本机系统（macOS）对可执行镜像（Mach-O）恒报零，改用同节相邻符号地址差算大小。"""
     secs = section_ranges(binary)
     buckets: dict[tuple[str, str], list[tuple[int, str]]] = {}
     for line in run(["nm", "-n", str(binary)]).splitlines():

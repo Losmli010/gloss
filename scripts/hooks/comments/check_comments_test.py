@@ -342,9 +342,71 @@ def test_python_interpreter_polyglot_string_exempt(tmp_path: Path) -> None:
     assert run_gate(tmp_path, content, rel="sample.py") == []
 
 
-def test_python_function_docstring_not_gated(tmp_path: Path) -> None:
-    content = '# 中文头\n\ndef f():\n    """函数说明带 generic 词，不属于文件头。"""\n'
-    assert run_gate(tmp_path, content, rel="sample.py") == []
+def test_python_function_docstring_gated(tmp_path: Path) -> None:
+    problems = run_gate(
+        tmp_path, '# 中文头\n\ndef f():\n    """函数说明带 generic 词。"""\n', rel="sample.py"
+    )
+    assert any("outside the derived whitelist" in p for p in problems)
+
+
+def test_python_function_docstring_corner_brackets_flagged(tmp_path: Path) -> None:
+    problems = run_gate(
+        tmp_path, '# 中文头\n\ndef f():\n    """说明里用「直角」引号。"""\n', rel="sample.py"
+    )
+    assert any("outside the derived whitelist" in p for p in problems)
+
+
+def test_python_function_docstring_backtick_short_circuits(tmp_path: Path) -> None:
+    problems = run_gate(
+        tmp_path, '# 中文头\n\ndef f():\n    """说明里 `a` 与「直角」同段。"""\n', rel="sample.py"
+    )
+    assert len(problems) == 1
+    assert "code segment" in problems[0]
+
+
+def test_python_docstring_gated_on_class_async_and_nested(tmp_path: Path) -> None:
+    """类、异步函数与嵌套函数的文档字符串同在判罚面：全量遍历不漏形态。"""
+    head = "# 中文头\n\n"
+    class_src = head + 'class C:\n    """类说明带 generic 词。"""\n'
+    async_src = head + 'async def g():\n    """异步说明带 generic 词。"""\n'
+    nested_src = head + 'def f():\n    def inner():\n        """嵌套说明带 generic 词。"""\n'
+    for content in (class_src, async_src, nested_src):
+        problems = run_gate(tmp_path, content, rel="sample.py")
+        assert any("outside the derived whitelist" in p for p in problems)
+
+
+def test_python_docstring_section_ref_knife(tmp_path: Path) -> None:
+    """文档字符串章节引用触刀 2：单例条目，不再跑核心判据。"""
+    problems = run_gate(
+        tmp_path, '# 中文头\n\ndef f():\n    """说明详见 §3 小节。"""\n', rel="sample.py"
+    )
+    assert len(problems) == 1
+    assert "external reference" in problems[0]
+
+
+def test_corner_bracket_sample_same_family_rule_across_faces(tmp_path: Path) -> None:
+    """同文同判对拍：同一含直角引号样本经注释块、文档字符串与词条三面判
+    定产出同族规则（PROSE-FOREIGN），锁定分诊三刀加核心判据的三面一致性。"""
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    import check_i18n  # noqa: E402
+    import check_script_comments  # noqa: E402
+
+    sample = "说明「直角」引号"
+    comment_finds = check_script_comments.check("conf.toml", "# %s\n" % sample)
+    doc_finds = check_script_comments.module_docstring_problems(
+        "sample.py", '# 中文头\n\ndef f():\n    """%s。"""\n' % sample
+    )
+    (tmp_path / "crates/gloss-app/i18n").mkdir(parents=True)
+    (tmp_path / "crates/gloss-app/i18n/zh.toml").write_text(
+        'gloss_app_title = "词汇"\ngloss_hint = "%s。"\n' % sample, encoding="utf-8"
+    )
+    (tmp_path / "crates/gloss-app/i18n/en.toml").write_text(
+        'gloss_app_title = "Gloss"\n', encoding="utf-8"
+    )
+    _, entry_finds = check_i18n.language_findings(str(tmp_path))
+    assert any("PROSE-FOREIGN" in f.rule for f in comment_finds)
+    assert any("PROSE-FOREIGN" in f.rule for f in doc_finds)
+    assert any("PROSE-FOREIGN" in f.rule for f in entry_finds)
 
 
 def test_nonrust_string_hash_not_comment(tmp_path: Path) -> None:

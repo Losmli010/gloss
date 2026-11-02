@@ -43,7 +43,7 @@ PERF_GROUPS = {"clone_allocs": "allocs", "clone_bytes": "bytes"}
 
 
 def read_perf() -> dict[str, dict[str, int]]:
-    """读 criterion 最近一次 clone 基准结果：基准 id → {allocs, bytes}（均值四舍五入）。"""
+    """读基准框架（criterion）最近一次克隆（clone）基准结果：基准标识（id）到分配与字节计数（allocs、bytes）的映射，均值四舍五入。"""
     perf = {}
     if not CRIT_ROOT.is_dir():
         return perf
@@ -80,7 +80,7 @@ def _consume_str(src: str, i: int) -> int:
 
 
 def _consume_raw(src: str, i: int) -> int | None:
-    """i 处为 r 时尝试消费 r#"..."# 原始字符串；不是原始字符串返回 None。"""
+    """下标（i）处是字母（r）时尝试消费原始字符串（r#"..."#）；不是原始字符串返回空值（None）。"""
     n = len(src)
     j = i + 1
     hashes = 0
@@ -95,7 +95,7 @@ def _consume_raw(src: str, i: int) -> int | None:
 
 
 def tokenize_segments(src: str) -> list[tuple[str, int, int]]:
-    """把源码切分为 (kind, start, end)，kind ∈ code / comment / string。"""
+    """把源码切分为类别、起点与终点三元组（kind, start, end），类别是代码（code）、注释（comment）或字符串（string）之一。"""
     segs = []
     i, n = 0, len(src)
     code_start = 0
@@ -199,7 +199,7 @@ def _skip_group(src: str, open_idx: int, open_ch: str, close_ch: str) -> int:
 
 
 def strip_cfg_test(codeview: str) -> str:
-    """把 #[cfg(test)] 标注的项（含项体）整体置空，换行保留。"""
+    """把测试条件标注（#[cfg(test)]）的项连同项体整体置空，换行保留。"""
     src = codeview
     regions = []
     for m in CFG_TEST_RE.finditer(src):
@@ -242,7 +242,7 @@ def strip_cfg_test(codeview: str) -> str:
 
 
 def analyze_file(path: Path) -> dict[str, int]:
-    """返回单文件计数：clone / path_clone / derive_clone / loc。"""
+    """返回单文件计数字典：克隆调用（clone）、路径克隆调用（path_clone）、派生克隆（derive_clone）与有效行数（loc）。"""
     src = path.read_text(encoding="utf-8")
     stripped = strip_cfg_test(blank_non_code(src))
     return {
@@ -254,7 +254,7 @@ def analyze_file(path: Path) -> dict[str, int]:
 
 
 def collect() -> tuple[dict[str, dict[str, int]], dict[str, int]]:
-    """返回（各 crate 聚合计数，文件 → clone 数）。"""
+    """返回二元组：各软件包（crate）聚合计数，与文件到克隆计数（clone）的映射。"""
     crates, files = {}, {}
     for crate, rel in CRATES:
         root = ROOT / rel
@@ -309,11 +309,11 @@ def print_stats(crates: dict[str, dict[str, int]], files: dict[str, int]) -> Non
 
 
 def latest_clone_baseline() -> tuple[dict[str, Any], dict[str, Any]]:
-    """history 最新点 → clone 门禁基线（total/allocs/bytes 整数 + density 展示）。
+    """历史文件（history）最新点到克隆（clone）门禁基线的映射：总量、分配与字节取整数（total、allocs、bytes），密度（density）只作展示。
 
-    基线随采集自然前移（perf-collect.py 写入最新点）；缺行或缺分配值即带指
-    引失败——分配为 0 的假基线会把真回退放行，防护与旧 clone-stats.json
-    perf 段缺失时一致，不依赖上游采集侧。
+    基线随采集自然前移，统一采集器（perf-collect.py）写入最新点；缺行或缺分配值
+    即带指引失败——分配为零的假基线会把真回退放行；防护语义与旧
+    统计文件（clone-stats.json）的性能段（perf）缺失时一致，不依赖上游采集侧。
     """
     if not HISTORY_PATH.is_file():
         sys.exit(
@@ -349,7 +349,7 @@ def latest_clone_baseline() -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def aggregate_perf(perf: dict[str, dict[str, int]], field: str) -> int | None:
-    """当前 criterion 数据单字段合计（次数/字节）；无任何基准携带该字段返回 None。"""
+    """当前基准框架（criterion）数据的单字段合计（次数/字节）；无任何基准携带该字段返回空值（None）。"""
     values = [entry[field] for entry in perf.values() if field in entry]
     return sum(values) if values else None
 
