@@ -340,13 +340,71 @@ def test_self_named_language_entry_in_zh_is_flagged(tmp_path: Path) -> None:
     )
 
 
-def test_zh_entry_with_latin_self_name_in_parentheses_is_flagged(tmp_path: Path) -> None:
-    assert_fail(
+def test_zh_entry_anchored_foreign_annotation_passes(tmp_path: Path) -> None:
+    """分诊口径下外文原文收进紧跟译名的全角括号注记即放行：语言刀只罚无汉
+    字的词条，带汉字的主体交核心判据，锚点注记合法。"""
+    assert_pass(
         tmp_path,
         "crates/gloss-app/i18n/zh.toml",
         'gloss_app_title = "词汇"\ngloss_ui_language_en = "英语（English）"\n',
-        "the zh entry must be pure Chinese",
     )
+
+
+def test_zh_entry_with_corner_brackets_is_flagged(tmp_path: Path) -> None:
+    """含直角引号的中文词条必须罚：直角引号在核心判据落外文判罚（同文同
+    判，族规则与注释头一致），文案表是直角引号入词条的收敛面。"""
+    _, fails = scan(
+        tmp_path,
+        "crates/gloss-app/i18n/zh.toml",
+        'gloss_app_title = "词汇"\ngloss_update_hint = "把应用拖入「应用程序」文件夹"\n',
+    )
+    assert fails
+    _, findings = check_i18n.language_findings(str(tmp_path))
+    assert "PROSE-FOREIGN" in [f.rule for f in findings]
+
+
+def test_zh_entry_shortcut_glyphs_pass(tmp_path: Path) -> None:
+    """快捷键符号是记号不是外文：修饰键字形剥离后不落外文判罚，界面文案
+    里的快捷键写法不回退。"""
+    content = 'gloss_app_title = "词汇"\ngloss_screenshot_hint = "按 ⌘⌃⇧4 直接把截图存进剪贴板"\n'
+    assert_pass(tmp_path, "crates/gloss-app/i18n/zh.toml", content)
+
+
+def test_en_entry_notation_strips_are_shared(tmp_path: Path) -> None:
+    """记号剥离两区共用：英文表词条的模板占位符、地址方案与快捷键字形同
+    样剥离，不因区不同而漂移。"""
+    content = (
+        'gloss_app_title = "Gloss"\n'
+        'gloss_hint = "Open {{name}} at https://example.com or press ⌘⇧5"\n'
+    )
+    assert_pass(tmp_path, "crates/gloss-app/i18n/en.toml", content)
+
+
+def test_en_entry_with_backtick_hits_the_coderef_knife(tmp_path: Path) -> None:
+    """英文表词条反引号触刀 1：词条不继承文档记号豁免，反引号即单例条目。"""
+    _, fails = scan(
+        tmp_path,
+        "crates/gloss-app/i18n/en.toml",
+        'gloss_app_title = "Gloss"\ngloss_hint = "press `Cmd` to quit"\n',
+    )
+    assert fails
+    _, findings = check_i18n.language_findings(str(tmp_path))
+    assert len(findings) == 1
+    assert findings[0].rule == "I18N-ENTRY-CODEREF"
+
+
+def test_backtick_knife_short_circuits_char_level_findings(tmp_path: Path) -> None:
+    """短路顺序：反引号在场时只报刀 1 单例条目，字符级病灶不并发——同一
+    文本改清反引号后，余下病灶才会在核心判据下显形。"""
+    _, fails = scan(
+        tmp_path,
+        "crates/gloss-app/i18n/zh.toml",
+        'gloss_app_title = "词汇"\ngloss_hint = "用「`设置`」面板"\n',
+    )
+    assert fails
+    _, findings = check_i18n.language_findings(str(tmp_path))
+    assert len(findings) == 1
+    assert findings[0].rule == "I18N-ENTRY-CODEREF"
 
 
 def test_zh_entry_placeholder_token_passes(tmp_path: Path) -> None:
@@ -382,6 +440,16 @@ def test_missing_catalog_file_fails_closed(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
         check_i18n.run(str(tmp_path))
     assert exc.value.code == gate_report.EXIT_INFRA
+
+
+def test_registry_inline_code_passes_both_tables(tmp_path: Path) -> None:
+    """注册表介质豁免锁定：措辞注册表渲染进提示词文档供模型阅读，行内代码
+    是承重记号——zh、en 两表值携带反引号段继续放行，不随词条面分诊收敛而
+    误伤（注册表入口不动，走文档行判据）。"""
+    zh = REGISTRY_ZH_BASELINE + '[repair.lang.CodeRef]\naction = "保留 `note` 记号原样"\n'
+    en = REGISTRY_EN_BASELINE + '[repair.lang.CodeRef]\naction = "Keep the `note` token as is"\n'
+    oks, findings = run_with_registry(tmp_path, zh, en)
+    assert findings == []
 
 
 # ---- 检查五：措辞注册表（键完整性与逐条语言规范）----
