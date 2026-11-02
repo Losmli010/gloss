@@ -50,10 +50,10 @@ BUDGET_SIGNAL_FIELDS = {
 
 
 def _validate_budget_signal_fields() -> None:
-    """import 期校验：信号字段映射与注册表预算门禁指标一一对应。
+    """随导入（import）执行的校验：信号字段映射与注册表预算门禁指标一一对应。
 
-    登记项漂移当场失败（与 metrics.py 的 import 期自检同模式），不留到带
-    信号文件的运行才以裸 KeyError 暴露。
+    登记项漂移当场失败（与注册表（metrics.py）的导入期自检同模式），不留到
+    带信号文件的运行才以裸键错误（KeyError）暴露。
     """
     budget_ids = {mid for mid, metric in METRICS.items() if metric.judge == "budget gate"}
     mapped = set(BUDGET_SIGNAL_FIELDS)
@@ -76,7 +76,7 @@ def resolve_path(raw: str) -> Path:
 
 
 def load_points(path: Path) -> list[dict[str, Any]]:
-    """读 history.jsonl 为点列表，保文件序（collector 按 date 排序写入即时间序）。"""
+    """读历史文件（history.jsonl）为点列表，保文件序（采集器（collector）按日期（date）排序写入即时间序）。"""
     if not path.is_file():
         raise SystemExit(
             f"error: history file missing: {path} (run the collector first, e.g. just perf-baseline)"
@@ -99,7 +99,7 @@ def load_points(path: Path) -> list[dict[str, Any]]:
 
 
 def point_metrics(point: dict[str, Any]) -> dict[str, Any]:
-    """取点的 metrics 段；缺段（v1 旧点）按缺源返回空。"""
+    """取点的指标段（metrics）；缺段（旧版（v1）点）按缺源返回空。"""
     metrics = point.get("metrics")
     return metrics if isinstance(metrics, dict) else {}
 
@@ -115,10 +115,10 @@ def find_point(points: list[dict[str, Any]], commit: str) -> dict[str, Any]:
 def earlier_value(
     points: list[dict[str, Any]], metric_id: str, latest_first: bool
 ) -> int | float | None:
-    """最新点之前该指标最近/最早的点值；之前无点携带该 id 则 None（vs 列标「—」）。
+    """最新点之前该指标最近或最早的点值；之前无点携带该编号（id）则返回空值（None），对照列（vs）标记横杠（—）。
 
-    对比锚点是该 id 自身的上一/首个数据点（与图表数值槽同口径），不是文件里
-    相邻的点——某源中途缺席不制造伪变化。
+    对比锚点是该编号自身的上一或首个数据点（与图表数值槽同口径），不是文件
+    里相邻的点——某源中途缺席不制造伪变化。
     """
     scope = points[:-1]
     for point in reversed(scope) if latest_first else scope:
@@ -129,7 +129,7 @@ def earlier_value(
 
 
 def latest_budget(points: list[dict[str, Any]], metric_id: str) -> int | float | None:
-    """「当前预算」＝历史里最新携带该预算的点上的数值（预算变更自然形成时间线）。"""
+    """当前预算即历史里最新携带该预算的点上的数值（预算变更自然形成时间线）。"""
     for point in reversed(points):
         budgets = point.get("budgets")
         if isinstance(budgets, dict) and metric_id in budgets:
@@ -138,7 +138,7 @@ def latest_budget(points: list[dict[str, Any]], metric_id: str) -> int | float |
 
 
 def latest_env(points: list[dict[str, Any]]) -> dict[str, Any]:
-    """页头环境行取最新点的 env；最新点为空（v1 迁移点）回退最新非空 env。"""
+    """页头环境行取最新点的环境段（env）；最新点为空（旧版（v1）迁移点）回退最新非空环境段（env）。"""
     for point in reversed(points):
         env = point.get("env")
         if isinstance(env, dict) and env:
@@ -155,18 +155,19 @@ def env_line(env: dict[str, Any]) -> str:
 
 
 def change_cell(new: int | float, old: int | float) -> str:
-    """相对变化百分比单元格；旧值为 0 无法定义百分比，标「—」。"""
+    """相对变化百分比单元格；旧值为 0 无法定义百分比，标横杠（—）。"""
     if old == 0:
         return "—"
     return f"{(new - old) / old * 100:.1f}%"
 
 
 def load_selftest_signals(path: Path) -> dict[str, Any]:
-    """提取自检信号文件里各源最新的一条信号行，缺文件/坏行容忍（总览判「—」）。
+    """提取自检信号文件里各源最新的一条信号行，缺文件或坏行容忍（总览判横杠（—））。
 
-    wrapper 按采集顺序整文件覆写落盘；这里对同源信号取最后一条，兼容将来
-    改为追加的落盘语义。overlay 信号按 kind 识别，startup 信号按日志行的
-    message 识别（verdict 由退出码承载，不进行内字段）。
+    包装器（wrapper）按采集顺序整文件覆写落盘；这里对同源信号取最后一条，
+    兼容将来改为追加的落盘语义。显隐（overlay）信号按类别字段（kind）识别，
+    启动（startup）信号按日志行的消息字段（message）识别——判定（verdict）
+    由退出码承载，不进行内字段。
     """
     signals = {}
     if not path.is_file():
@@ -189,10 +190,10 @@ def load_selftest_signals(path: Path) -> dict[str, Any]:
 
 
 def signal_verdict(metric_id: str, metric: Metric, signals: dict[str, Any]) -> str | None:
-    """从自检信号行转述单指标 PASS/FAIL（行内值 ≤ 行内预算字段）。
+    """从自检信号行转述单指标通过与失败（PASS/FAIL）两态，行内值不大于行内预算字段。
 
-    信号行未携带该指标的值或预算字段（含整个信号文件缺席）即 None，总览标
-    「—」；判定权在自检退出码，这里只转述同一比较的结果。
+    信号行未携带该指标的值或预算字段（含整个信号文件缺席）即返回空值（None），
+    总览标横杠（—）；判定权在自检退出码，这里只转述同一比较的结果。
     """
     signal = signals.get(metric.source)
     if signal is None:
@@ -205,10 +206,10 @@ def signal_verdict(metric_id: str, metric: Metric, signals: dict[str, Any]) -> s
 
 
 def judge_cell(metric: Metric) -> str:
-    """总览判定列的非预算行：注册表的 judge + note 括注（与设计 4.4 样例一致）。
+    """总览判定列的非预算行：注册表的判定（judge）加注记（note）括注（与设计 4.4 样例一致）。
 
-    这类行没有可转述的判定信号（判定权在 clone-check 与自检退出码），只
-    呈现判定语义本身，note 单源在注册表。
+    这类行没有可转述的判定信号（判定权在克隆门禁（clone-check）与自检退出
+    码），只呈现判定语义本身，注记（note）单源在注册表。
     """
     return f"{metric.judge} ({metric.note})" if metric.note else metric.judge
 
@@ -216,7 +217,7 @@ def judge_cell(metric: Metric) -> str:
 def verdict_cell(
     points: list[dict[str, Any]], metric_id: str, metric: Metric, signals: dict[str, Any]
 ) -> str:
-    """总览判定列：预算指标转述 PASS/FAIL 并标注预算数值，其余行呈现 judge+note。
+    """总览判定列：预算指标转述通过与失败（PASS/FAIL）并标注预算数值，其余行呈现判定加注记（judge+note）。
 
     预算数值取最新携带预算的历史点；预算与判定单独缺席时只展示在场的部分，
     都不缺才组合成完整判定。
@@ -260,7 +261,7 @@ def render_overview(points: list[dict[str, Any]], signals: dict[str, Any]) -> st
 
 
 def compare_verdict(metric: Metric, old: int | float, new: int | float) -> str:
-    """对比参考列：精确计数类整数对照（与 clone-check 同向），其余按 noise 阈值。"""
+    """对比参考列：精确计数类整数对照（与克隆门禁（clone-check）同向），其余按噪声阈值（noise）。"""
     if metric.judge == "exact count gate":
         if new > old:
             return "regressed"

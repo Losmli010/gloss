@@ -35,13 +35,14 @@ DIM = "\033[2m"
 
 
 def newest_log(directory: Path) -> Path | None:
-    """目录里最新的日志文件（名字里的 UTC 日期可字典序比较）。"""
+    """目录里最新的日志文件，名字里的协调世界时（UTC）日期可字典序比较。"""
     candidates = sorted(directory.glob(f"{FILE_PREFIX}*{FILE_SUFFIX}"))
     return candidates[-1] if candidates else None
 
 
 def local_clock(timestamp: str) -> str:
-    """RFC3339（UTC）时间戳 → 本地 `HH:MM:SS`；解析不了就原样截取。"""
+    """时间戳按（RFC3339）书写、协调世界时（UTC）时刻，转本地时分秒
+    展示；解析不了就原样截取。"""
     try:
         parsed = datetime.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         return parsed.astimezone().strftime("%H:%M:%S")
@@ -50,7 +51,8 @@ def local_clock(timestamp: str) -> str:
 
 
 def format_line(line: str, color: bool) -> str | None:
-    """一条 JSONL → 人读行；解析失败返回 None（由调用方决定怎么处理）。"""
+    """一条行式（JSONL）日志转人读行；解析失败返回空表值，由调用方
+    决定怎么处理。"""
     record = json.loads(line)
     if not isinstance(record, dict):
         return None

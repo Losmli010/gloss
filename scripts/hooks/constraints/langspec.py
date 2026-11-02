@@ -89,7 +89,7 @@ EMPTY_SURFACE_REMEDY = (
 
 
 def face_chars(root: str, loader: Any = None) -> frozenset[str]:
-    """判罚模式：数据源各字符面的非 ASCII 成员并集（剔除不可见变体选择符）。
+    """判罚模式：数据源各字符面的非英文字节（ASCII）成员并集（剔除不可见变体选择符）。
 
     数据源缺失或损坏按失败关闭退出——判罚面建不出来时宁可拦门禁，不放行扫
     描。面键缺失按损坏处置（数据形态由核心库完整性测试前置锁定）。"""
@@ -124,7 +124,7 @@ def face_chars(root: str, loader: Any = None) -> frozenset[str]:
 
 
 def prod_judge_files(root: str) -> list[str]:
-    """生产侧判罚树：lang_gate 门面加 lang_gate/ 目录全部本语言（Rust）源码。"""
+    """生产侧判罚树：语言门（lang_gate）门面加同名目录全部本语言（Rust）源码。"""
     files = []
     facade = os.path.join(root, PROD_JUDGE_FILE)
     if os.path.isfile(facade):

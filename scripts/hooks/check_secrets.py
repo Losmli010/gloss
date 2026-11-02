@@ -156,7 +156,7 @@ def engine_expressions() -> list[str]:
 
 
 def collect_hits(root: str, files: list[str]) -> dict[str, dict[int, str]]:
-    """一次子进程跑全部模式（共享检索引擎），命中整理成「路径到行号与行文」的嵌套映射。"""
+    """一次子进程跑全部模式（共享检索引擎），命中整理成“路径到行号与行文”的嵌套映射。"""
     return rg_engine.run(root, engine_expressions(), files)
 
 
@@ -211,7 +211,7 @@ def scan_hits(root: str, loader: Any = None) -> tuple[list[str], dict[str, dict[
 
 
 def run(root: str, loader: Any = None) -> list[str]:
-    """扫描 root 下全部 git 跟踪文件，返回违规条目（每条含文件与脱敏命中
+    """扫描给定根（root）下全部版本库（git）跟踪文件，返回违规条目（每条含文件与脱敏命中
     行——条目可能进日志，疑似密钥不回传明文）；装入器在场时清单与内容走
     共享缓存，缺省自行读取。"""
     files, hits_by_file = scan_hits(root, loader)

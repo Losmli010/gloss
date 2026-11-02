@@ -49,9 +49,8 @@ OK_LINE = (
 def scan_files(root: str, explicit: list[str], loader: Any = None) -> list[str]:
     """枚举受检文件：显式清单优先（供单测传样本），否则取版本库跟踪清单。
 
-    跟踪清单走空字节分隔取原始字节再容错解码——非空分隔形态对非英文字
-    节（ASCII）文件名做引号八进制转义，假路径过不了类型分派，文件被静默
-    漏检。"""
+    跟踪清单走空字节分隔取原始字节再容错解码——非空分隔形态对非英文字节（ASCII）
+    文件名做引号八进制转义，假路径过不了类型分派，文件被静默漏检。"""
     if explicit:
         return [p if os.path.isabs(p) else os.path.join(root, p) for p in explicit]
     if loader is not None:

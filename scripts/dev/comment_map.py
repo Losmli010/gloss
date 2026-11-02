@@ -145,16 +145,16 @@ EXIT_INFRA = 3
 
 
 def split_record_name(file_name: str) -> str | None:
-    """记录文件名到裸名：非 _comment.md 形态返回空，交由调用方判非法名。"""
+    """记录文件名到裸名：不含（_comment.md）后缀的形态返回空，交由调用方判
+    非法名。"""
     if not file_name.endswith(RECORD_SUFFIX):
         return None
     return file_name[: -len(RECORD_SUFFIX)]
 
 
 def is_legal_bare_name(bare: str) -> bool:
-    """裸名合法性：非空且不含点（后缀残留）。伪装后缀（主干后缀化，如源
-    文件扩展名被抄进名字）由 residue_stem 对照反向索引判定，主干本身合法
-    地以下划线扩展名形态结尾的源文件不受牵连。"""
+    """裸名合法性：非空且不含点（后缀残留）。伪装后缀由对照反向索引（residue_stem）判定，主干本身合法地以下划线扩展名形态结尾的源文件不
+    受牵连。"""
     return bool(bare) and "." not in bare
 
 
@@ -191,7 +191,7 @@ def residue_stem(bare: str, index: dict[str, list[str]]) -> str | None:
 
 
 def base_stem(rel: str) -> str:
-    """默认裸名：去扩展名；mod.rs 取父目录名加 _mod。"""
+    """默认裸名：去扩展名；文件（mod.rs）取父目录名加（_mod）后缀。"""
     stem = os.path.splitext(os.path.basename(rel))[0]
     if stem == MOD_STEM:
         parent = os.path.basename(os.path.dirname(rel))
@@ -206,7 +206,7 @@ def record_stem(rel: str) -> str:
 
 
 def record_names(rel: str) -> tuple[str, str]:
-    """源文件的一对记录文件名：(决策记录, 测试记录)。"""
+    """源文件的一对记录文件名：决策记录与测试记录各一份。"""
     stem = record_stem(rel)
     return stem + RECORD_SUFFIX, stem + TESTS_INFIX + RECORD_SUFFIX
 
@@ -221,8 +221,8 @@ def tracked_files(root: str) -> list[str]:
 
 
 def build_index(tracked: list[str]) -> dict[str, list[str]]:
-    """裸名到源文件路径的反向索引：一对裸名（决策与测试）覆盖同 stem 家族
-    全部成员。"""
+    """裸名到源文件路径的反向索引：一对裸名（决策与测试）覆盖同一（stem）
+    家族全部成员。"""
     index: dict[str, list[str]] = {}
     for rel in tracked:
         if not carries_records(rel):
@@ -244,7 +244,7 @@ def stem_groups(tracked: list[str]) -> dict[str, list[str]]:
 
 
 def unregistered_collisions(tracked: list[str]) -> list[tuple[str, list[str]]]:
-    """未登记的裸名撞名组：同 stem 多成员且存在未登记成员。登记表的不变量
+    """未登记的裸名撞名组：同一（stem）多成员且存在未登记成员。登记表的不变量
     是撞名组每个成员都须登记——部分登记的组里，未登记成员的规范记录名与
     已登记成员相同，映射与判罚都会落错文件，同样判罚。"""
     out = []
@@ -258,7 +258,7 @@ def unregistered_collisions(tracked: list[str]) -> list[tuple[str, list[str]]]:
 
 
 def free_standing_shadowing(tracked: list[str]) -> list[str]:
-    """自由主题裸名与源文件裸名互相遮蔽的组：登记表成员撞上源文件 stem。"""
+    """自由主题裸名与源文件裸名互相遮蔽的组：登记表成员撞上源文件词干（stem）。"""
     stems = stem_groups(tracked)
     return [stem for stem in sorted(FREE_STANDING_RECORDS) if stem in stems]
 
@@ -277,7 +277,7 @@ def collision_findings(tracked: list[str]) -> list[str]:
 
 
 def record_paths(tracked: list[str], root: str | None = None) -> list[str]:
-    """记录清单：跟踪清单里的记录，加上磁盘上的记录（入库前 doctor 用）。"""
+    """记录清单：跟踪清单里的记录，加上磁盘上的记录，入库前体检（doctor）用。"""
     found = {rel for rel in tracked if rel.startswith(RECORD_DIR + "/")}
     if root is not None:
         disk = os.path.join(root, RECORD_DIR)
@@ -289,7 +289,7 @@ def record_paths(tracked: list[str], root: str | None = None) -> list[str]:
 
 
 def doctor(tracked: list[str], root: str | None = None) -> tuple[list[str], list[str]]:
-    """全量体检：返回 (非法名, 陈旧记录) 两类问题清单，撞名单列。
+    """全量体检：返回（非法名、陈旧记录）两类问题清单，撞名单列。
     非法名条目带记录路径，陈旧条目带记录路径与补救。"""
     illegal = []
     stale = []

@@ -14,7 +14,7 @@ TOOLS_PATH = os.path.join(ROOT, "tools.toml")
 
 
 def parse_sections(path: str) -> dict[str, dict[str, str]]:
-    """把清单文件解析成「段名到键值表」的映射；只认段头与单行赋值两种结构。"""
+    """把清单文件解析成“段名到键值表”的映射；只认段头与单行赋值两种结构。"""
     sections = {}
     current = None
     with open(path, encoding="utf-8", errors="replace") as fh:

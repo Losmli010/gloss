@@ -150,7 +150,8 @@ def adjacent_problems(path: str, line: int, text: str) -> list[gate_report.Findi
 
 
 def is_apostrophe(text: str, index: int) -> bool:
-    """弯撇号豁免：夹在字母数字之间的右单引号按缩写撇号放行（it’s 形态）。"""
+    """弯撇号豁免：夹在字母数字之间的右单引号按缩写撇号放行，即英文缩写
+    的弯撇号（it’s）形态。"""
     prev = text[index - 1] if index else ""
     nxt = text[index + 1] if index + 1 < len(text) else ""
     return all(p.isascii() and p.isalnum() for p in (prev, nxt))

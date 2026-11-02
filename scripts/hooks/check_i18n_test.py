@@ -66,9 +66,10 @@ def make_baseline(tmp_path: Path) -> None:
 def scan(
     tmp_path: Path, rel: str, content: str, expect: str | None = None
 ) -> tuple[list[str], list[str]]:
-    """写入夹具文件并运行门禁；expect 为期望出现在输出里的片段（可选）。
+    """写入夹具文件并运行门禁；入参（expect）为期望出现在输出里的片段（可选）。
 
-    返回 (oks, fails)。基线（四个源码目录、owner 装入点与词条表）每次重建。"""
+    返回（oks、fails）两个清单。基线（四个源码目录、统一装入点（owner）与
+    词条表）每次重建。"""
     make_baseline(tmp_path)
 
     p = tmp_path / rel
@@ -457,8 +458,8 @@ def test_missing_catalog_file_fails_closed(tmp_path: Path) -> None:
 
 def test_registry_inline_code_passes_both_tables(tmp_path: Path) -> None:
     """注册表介质豁免锁定：措辞注册表渲染进提示词文档供模型阅读，行内代码
-    是承重记号——zh、en 两表值携带反引号段继续放行，不随词条面分诊收敛而
-    误伤（注册表入口不动，走文档行判据）。"""
+    是承重记号——中文、英文两表值携带反引号段继续放行，不随词条面分诊收敛
+    而误伤（注册表入口不动，走文档行判据）。"""
     zh = REGISTRY_ZH_BASELINE + '[repair.lang.CodeRef]\naction = "保留 `note` 记号原样"\n'
     en = REGISTRY_EN_BASELINE + '[repair.lang.CodeRef]\naction = "Keep the `note` token as is"\n'
     oks, findings = run_with_registry(tmp_path, zh, en)

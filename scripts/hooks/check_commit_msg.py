@@ -168,7 +168,7 @@ def findings(msg: str) -> list[gate_report.Finding]:
 
 
 def run(msg: str) -> list[str]:
-    """校验一条 commit message，返回违规列表（渲染行，消息带位置），软约束
+    """校验一条提交信息（commit message），返回违规列表（渲染行，消息带位置），软约束
     候选不计入；通过返回空列表。"""
     return [gate_report.render(f) for f in findings(msg) if not f.advisory]
 

@@ -83,8 +83,8 @@ def test_size_and_sha256_measured_from_artifacts(tmp_path: Path) -> None:
 
 
 def run_cli(tmp_path: Path, artifacts: Path, *args: str) -> tuple[int, str, str]:
-    """把被测脚本与版本单点校验脚本拷进夹具再跑 CLI（脚本按自身位置定位仓库根），
-    返回 (returncode, stdout, stderr)。"""
+    """把被测脚本与版本单点校验脚本拷进夹具再跑命令行（CLI）——脚本按自身位置
+    定位仓库根，返回三元组（returncode、stdout、stderr）。"""
     cli_dir = tmp_path / "scripts" / "release"
     cli_dir.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(SCRIPT_DIR / "gen_manifest.py", cli_dir / "gen_manifest.py")

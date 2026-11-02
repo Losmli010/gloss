@@ -88,7 +88,7 @@ def snapshot_finding(current: str, stored: str) -> gate_report.Finding:
 def compare_findings(
     current: str, body: str, fetch_stored: Callable[[], str]
 ) -> tuple[bool, list[gate_report.Finding]]:
-    """比对决策单点，生产路径 main 经此决策不另抄一份：豁免有效返回重写标
+    """比对决策单点，生产分支（main）经此决策不另抄一份：豁免有效返回重写标
     记与空表，调用方以当前摘要重写基线（豁免在场不需要快照，回调不触发）；
     否则经回调取快照摘要——回调报错转基础设施条目失败关闭，缺缘由条目照收，
     摘要与快照不一致再叠加快照条目。"""
@@ -163,7 +163,8 @@ def run_gh(args: list[str]) -> str:
 
 
 def parse_remote_url(url: str) -> str:
-    """远端地址到仓库标识 owner/name：https 与 ssh 两种形态，其余报错。"""
+    """远端地址到仓库标识（owner/name）成对形态：超文本（https）与
+    安全外壳（ssh）两种形态，其余报错。"""
     m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url.strip())
     if not m:
         raise RuntimeError("cannot parse the origin remote as owner/name: %s" % url)
@@ -171,7 +172,7 @@ def parse_remote_url(url: str) -> str:
 
 
 def repo_slug(root: str) -> str:
-    """仓库标识：origin 远端地址解析，版本库调用失败走统一出口退出码三。"""
+    """仓库标识：默认远端（origin）地址解析，版本库调用失败走统一出口退出码三。"""
     proc = gate_report.run_git(["remote", "get-url", "origin"], cwd=root)
     return parse_remote_url(proc.stdout.decode("utf-8", "replace"))
 

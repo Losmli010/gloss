@@ -71,7 +71,8 @@ def build_fixture(tmp_path: Path) -> None:
 def check(
     tmp_path: Path, body: str, ref_body: str | None = None
 ) -> tuple[list[str], int, int, int]:
-    """写入 AGENTS.md（可选 ref_body 进 crates/demo/src/lib.rs）并运行门禁。"""
+    """写入指令文档（AGENTS.md）并运行门禁，可选参数（ref_body）另写
+    演示库源文件（crates/demo/src/lib.rs）。"""
     build_fixture(tmp_path)
     (tmp_path / "AGENTS.md").write_text(body + "\n", encoding="utf-8")
     if ref_body is not None:

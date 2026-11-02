@@ -38,6 +38,9 @@ RULE_LANGUAGE = "COMMENT-SCRIPT-LANGUAGE"
 RULE_HEADER_CODEREF = "COMMENT-SCRIPT-HEADER-CODEREF"
 RULE_HEADER_SECTION_REF = "COMMENT-SCRIPT-HEADER-SECTION-REF"
 RULE_HEADER_LANGUAGE = "COMMENT-SCRIPT-HEADER-LANGUAGE"
+RULE_DOC_CODEREF = "COMMENT-SCRIPT-DOC-CODEREF"
+RULE_DOC_SECTION_REF = "COMMENT-SCRIPT-DOC-SECTION-REF"
+RULE_DOC_LANGUAGE = "COMMENT-SCRIPT-DOC-LANGUAGE"
 RULE_JUST_ONE_LINE = "COMMENT-JUST-ONE-LINE"
 
 CODEREF_REMEDY = "move references and examples to the record file"
@@ -79,6 +82,19 @@ HEADER_FACE = TriageFace(
     language_message="file header must be written in Chinese",
     language_remedy=LANGUAGE_REMEDY,
 )
+DOC_FACE = TriageFace(
+    coderef_rule=RULE_DOC_CODEREF,
+    coderef_message="docstring contains a code segment"
+    " — move references and examples to the record file",
+    coderef_remedy=CODEREF_REMEDY,
+    section_rule=RULE_DOC_SECTION_REF,
+    section_message='docstring contains a "§ section number" style external reference'
+    " — move sources to the record file",
+    section_remedy=SECTION_REF_REMEDY,
+    language_rule=RULE_DOC_LANGUAGE,
+    language_message="docstring must be written in Chinese",
+    language_remedy=LANGUAGE_REMEDY,
+)
 
 # 源码之外的注释文件：井号系脚本与配置、钩子目录脚本、任务配方文件与忽略清单。
 HASH_SUFFIXES = {".py", ".toml", ".yml", ".yaml", ".sh"}
@@ -104,7 +120,8 @@ def hash_comments(
 ) -> list[tuple[int, str]]:
     """井号系注释抽取：引号感知；井号须在行首或空白之后；多行字符串整段跳过。
 
-    skip 里的行整行豁免——块标量正文与 heredoc 正文是字面数据，井号不是注释。"""
+    给定跳过集（skip）里的行整行豁免——块标量正文与壳层就地文档（heredoc）
+    正文是字面数据，井号不是注释。"""
     out = []
     in_ml = None
     for lineno, line in enumerate(src.splitlines(), 1):
@@ -357,8 +374,9 @@ def justfile_recipe_comment_problems(rel: str, src: str) -> list[gate_report.Fin
 
 
 def module_docstring_problems(rel: str, src: str) -> list[gate_report.Finding]:
-    """模块级文档字符串按文件头同规：内容走共享分诊（文件头面参数），解释
-    器引导串豁免。
+    """文档字符串全量按文件头同规：模块级走文件头面参数，类级与函数级（含
+    异步函数）走文档字符串面参数——函数级文档字符串是脚本侧的函数级文件
+    头，一行就近规格，共用同一分诊，动机、用法与示例仍禁入代码。
 
     文档字符串是字面量不是注释，词法抽取收不到它；这里按语法树补一刀，
     防止文件头换一种写法就逃出纪律。文件头取开头连续的字符串语句：跨壳
@@ -382,6 +400,13 @@ def module_docstring_problems(rel: str, src: str) -> list[gate_report.Finding]:
             continue  # 解释器引导串：跨壳脚本的井号叹号替身，同解释器声明豁免
         out += triage_problems(rel, node.lineno, text, "file header", ZONE_CHINESE, HEADER_FACE)
         break  # 只看文件头：首个非豁免字符串语句之后不再看
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        text = ast.get_docstring(node, clean=False)
+        if text is None:
+            continue
+        out += triage_problems(rel, node.lineno, text, "docstring", ZONE_CHINESE, DOC_FACE)
     return out
 
 
