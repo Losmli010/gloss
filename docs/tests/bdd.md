@@ -1207,6 +1207,9 @@
 | update_section_buttons_follow_the_phase | 更新区动作按钮随相位 | 给定七个带动作的更新相位，当点对应按钮，则上交 `Check/ConfirmDownload/Cancel/ConfirmRestart/Retry` 之一 | 2026-09-27 |
 | update_busy_phases_offer_no_action_and_show_the_target_version | 忙碌相位无动作、显示目标版本 | 给定 `Checking/ReadyToRestart`，当渲染，则无任何更新动作上交；`UpdateAvailable` 的行标签含目标版本号 | 2026-09-27 |
 | failed_install_shows_the_install_hint | 替换失败附安装指引 | 给定 `Failed(Install)`，当渲染，则指引行可见（`DMG` 装入、权限出口）且无副作用动作 | 2026-09-27 |
+| arrow_keys_scroll_the_overflowing_settings | 溢出内容随方向键滚动 | 给定压到 240 像素视口高的设置窗（三分区必溢出），当按下方向键再按上方向键，则“更新”分区先上移后回位（浮层 `arrow_keys_scroll_the_overflowing_body` 为同构用例，回位容差 1 像素） | 2026-11-03 |
+| arrow_keys_yield_to_the_focused_text_input | 输入框持焦时方向键归光标 | 给定视口溢出的设置窗，当点端点输入框持焦后按下方向键，则“更新”分区纹丝不动（`egui` 文本编辑不消费按键事件，守卫缺席即双触发滚动） | 2026-11-03 |
+| arrow_keys_yield_to_the_open_combo | 下拉展开时方向键归弹层 | 给定视口溢出的设置窗，当把目标语言下拉滚入视野点开并按下方向键，则弹层背后的“更新”分区纹丝不动（守卫取 `Popup::is_any_open`，`Context` 侧查询恒不命中） | 2026-11-03 |
 
 ### `crates/gloss-app/src/ui/style/tokens.rs`
 

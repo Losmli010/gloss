@@ -25,6 +25,7 @@ use gloss_core::config::{BaseUrlError, Config, validate_base_url};
 use gloss_core::model::GlossError;
 
 use crate::ui::i18n::{Text, fill};
+use crate::ui::scroll::arrow_key_scroll;
 use crate::ui::style::{geometry, space};
 use crate::update::UpdateMsg;
 use crate::update::state::UpdateState;
@@ -201,6 +202,7 @@ pub fn draw(
                 action_row(ui, state, &mut action, text);
                 notices(ui, state, &errors, text);
                 ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                    arrow_key_scroll(ui);
                     ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                         section(ui, &text.gloss_settings_section_model, |ui| {
                             connection_section(ui, state, &errors, text);
@@ -235,6 +237,8 @@ mod tests {
     use crate::update::state::{FailStep, UpdatePhase};
 
     use super::*;
+
+    const OVERFLOWING_HEIGHT: f32 = 240.0;
 
     #[test]
     fn field_errors_are_worded_per_locale() {
@@ -844,5 +848,84 @@ mod tests {
         harness.run();
         harness.get_by_label_contains("应用程序");
         assert!(matches!(&*action.borrow(), SettingsAction::Idle));
+    }
+
+    #[test]
+    fn arrow_keys_scroll_the_overflowing_settings() {
+        let (mut harness, _action) = harness_for(open(&Config::default()), Locale::Zh);
+        harness.set_size(egui::vec2(
+            crate::ui::style::geometry::window::SETTINGS_WIDTH as f32,
+            OVERFLOWING_HEIGHT,
+        ));
+        harness.run();
+        let before = harness.get_by_label("更新").rect();
+        harness.key_press(egui::Key::ArrowDown);
+        harness.run();
+        let after = harness.get_by_label("更新").rect();
+        assert!(
+            after.top() < before.top(),
+            "↓ 必须把设置内容往上推（视口下移）: {before:?} -> {after:?}"
+        );
+        harness.key_press(egui::Key::ArrowUp);
+        harness.run();
+        let restored = harness.get_by_label("更新").rect();
+        assert!(
+            (restored.top() - before.top()).abs() < 1.0,
+            "↑ 必须把视口推回原位: {before:?} -> {restored:?}"
+        );
+    }
+
+    #[test]
+    fn arrow_keys_yield_to_the_focused_text_input() {
+        let (mut harness, _action) = harness_for(open(&Config::default()), Locale::Zh);
+        harness.set_size(egui::vec2(
+            crate::ui::style::geometry::window::SETTINGS_WIDTH as f32,
+            OVERFLOWING_HEIGHT,
+        ));
+        harness.run();
+        let input = harness
+            .query_all_by_role(egui::accesskit::Role::TextInput)
+            .next()
+            .expect("the endpoint input exists");
+        input.click();
+        harness.run();
+        let before = harness.get_by_label("更新").rect();
+        harness.key_press(egui::Key::ArrowDown);
+        harness.run();
+        let after = harness.get_by_label("更新").rect();
+        assert!(
+            (after.top() - before.top()).abs() < 1.0,
+            "输入框持焦时方向键归光标，不得滚动设置内容: {before:?} -> {after:?}"
+        );
+    }
+
+    #[test]
+    fn arrow_keys_yield_to_the_open_combo() {
+        let (mut harness, _action) = harness_for(open(&Config::default()), Locale::Zh);
+        harness.set_size(egui::vec2(
+            crate::ui::style::geometry::window::SETTINGS_WIDTH as f32,
+            OVERFLOWING_HEIGHT,
+        ));
+        harness.run();
+        harness
+            .query_all_by_role(egui::accesskit::Role::ComboBox)
+            .next()
+            .expect("the target language combo exists")
+            .scroll_to_me();
+        harness.run();
+        let combo = harness
+            .query_all_by_role(egui::accesskit::Role::ComboBox)
+            .next()
+            .expect("the target language combo exists");
+        combo.click();
+        harness.run();
+        let before = harness.get_by_label("更新").rect();
+        harness.key_press(egui::Key::ArrowDown);
+        harness.run();
+        let after = harness.get_by_label("更新").rect();
+        assert!(
+            (after.top() - before.top()).abs() < 1.0,
+            "下拉弹出层展开时方向键归弹出层，不得滚动背后的设置内容: {before:?} -> {after:?}"
+        );
     }
 }

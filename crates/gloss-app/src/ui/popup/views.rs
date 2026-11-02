@@ -25,13 +25,13 @@ use super::{OverlayAction, RenderCtx};
 use crate::machine::{ErrorAction, FailureCause, OverlayView};
 use crate::ui::i18n::Text;
 use crate::ui::pointing_hand;
+use crate::ui::scroll::arrow_key_scroll;
 use crate::ui::style::{
     alpha, apply_kaiti, geometry, motion, palette, radius, size, space, with_alpha,
 };
 
 const MIN_BODY_VIEWPORT: f32 = geometry::overlay::MIN_BODY_VIEWPORT;
 const FOOTER_RESERVE: f32 = geometry::overlay::FOOTER_HEIGHT + space::PARAGRAPH;
-const ARROW_SCROLL_STEP: f32 = geometry::overlay::ARROW_SCROLL_STEP;
 const SHIMMER_BAR_HEIGHT: f32 = geometry::overlay::SHIMMER_BAR_HEIGHT;
 
 fn record_scrolled_height(
@@ -45,23 +45,6 @@ fn record_scrolled_height(
 
 fn viewport_max(ui: &egui::Ui) -> f32 {
     (ui.available_height() - FOOTER_RESERVE).max(MIN_BODY_VIEWPORT)
-}
-
-fn arrow_key_scroll(ui: &egui::Ui) {
-    let step = ui.input(|input| {
-        if !input.modifiers.any() {
-            if input.key_pressed(egui::Key::ArrowDown) {
-                return Some(-ARROW_SCROLL_STEP);
-            }
-            if input.key_pressed(egui::Key::ArrowUp) {
-                return Some(ARROW_SCROLL_STEP);
-            }
-        }
-        None
-    });
-    if let Some(dy) = step {
-        ui.scroll_with_delta(egui::vec2(0.0, dy));
-    }
 }
 
 fn shimmer_bars(ui: &mut egui::Ui) {
