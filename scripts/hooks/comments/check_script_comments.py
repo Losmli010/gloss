@@ -28,8 +28,9 @@ if _HOOKS not in sys.path:
     sys.path.insert(0, _HOOKS)
 
 import gate_report  # noqa: E402
-from language_spec.chinese import CJK, DIRECTIVE_SEG, SEGMENT_SPLIT, SEGMENT_TRIM, body_problems  # noqa: E402
-from language_spec.coderef import MARKER  # noqa: E402
+from language_spec.chinese import DIRECTIVE_SEG, SEGMENT_SPLIT, SEGMENT_TRIM  # noqa: E402
+from language_spec.coderef import MARKER, ZONE_CHINESE  # noqa: E402
+from language_spec.triage import TriageFace, triage_problems  # noqa: E402
 
 RULE_CODEREF = "COMMENT-SCRIPT-CODEREF"
 RULE_SECTION_REF = "COMMENT-SCRIPT-SECTION-REF"
@@ -49,6 +50,34 @@ LANGUAGE_REMEDY = (
 )
 JUST_ONE_LINE_REMEDY = (
     "write the recipe comment as one line; longer rationale lives in the record file"
+)
+
+# 注释块与文件头两面的三刀参数：规则标识各面自设，核心判据同走中文区主体
+COMMENT_FACE = TriageFace(
+    coderef_rule=RULE_CODEREF,
+    coderef_message="comment contains a code segment"
+    " — move references and examples to the record file",
+    coderef_remedy=CODEREF_REMEDY,
+    section_rule=RULE_SECTION_REF,
+    section_message='comment contains a "§ section number" style external reference'
+    " — move sources to the record file",
+    section_remedy=SECTION_REF_REMEDY,
+    language_rule=RULE_LANGUAGE,
+    language_message="comment must be written in Chinese",
+    language_remedy=LANGUAGE_REMEDY,
+)
+HEADER_FACE = TriageFace(
+    coderef_rule=RULE_HEADER_CODEREF,
+    coderef_message="file header contains a code segment"
+    " — move references and examples to the record file",
+    coderef_remedy=CODEREF_REMEDY,
+    section_rule=RULE_HEADER_SECTION_REF,
+    section_message='file header contains a "§ section number" style external reference'
+    " — move sources to the record file",
+    section_remedy=SECTION_REF_REMEDY,
+    language_rule=RULE_HEADER_LANGUAGE,
+    language_message="file header must be written in Chinese",
+    language_remedy=LANGUAGE_REMEDY,
 )
 
 # 源码之外的注释文件：井号系脚本与配置、钩子目录脚本、任务配方文件与忽略清单。
@@ -328,7 +357,8 @@ def justfile_recipe_comment_problems(rel: str, src: str) -> list[gate_report.Fin
 
 
 def module_docstring_problems(rel: str, src: str) -> list[gate_report.Finding]:
-    """模块级文档字符串按文件头同规：内容走注释同款判罚，解释器引导串豁免。
+    """模块级文档字符串按文件头同规：内容走共享分诊（文件头面参数），解释
+    器引导串豁免。
 
     文档字符串是字面量不是注释，词法抽取收不到它；这里按语法树补一刀，
     防止文件头换一种写法就逃出纪律。文件头取开头连续的字符串语句：跨壳
@@ -350,44 +380,7 @@ def module_docstring_problems(rel: str, src: str) -> list[gate_report.Finding]:
         text = node.value.value
         if re.search(r"exec\s+python", text):
             continue  # 解释器引导串：跨壳脚本的井号叹号替身，同解释器声明豁免
-        evidence = text.replace("\n", " ")
-        if "`" in text:
-            out.append(
-                gate_report.Finding(
-                    rule=RULE_HEADER_CODEREF,
-                    path=rel,
-                    line=node.lineno,
-                    message="file header contains a code segment"
-                    " — move references and examples to the record file",
-                    evidence=evidence,
-                    remedy=CODEREF_REMEDY,
-                )
-            )
-        elif "§" in text:
-            out.append(
-                gate_report.Finding(
-                    rule=RULE_HEADER_SECTION_REF,
-                    path=rel,
-                    line=node.lineno,
-                    message='file header contains a "§ section number" style external reference'
-                    " — move sources to the record file",
-                    evidence=evidence,
-                    remedy=SECTION_REF_REMEDY,
-                )
-            )
-        elif not CJK.search(text):
-            out.append(
-                gate_report.Finding(
-                    rule=RULE_HEADER_LANGUAGE,
-                    path=rel,
-                    line=node.lineno,
-                    message="file header must be written in Chinese",
-                    evidence=evidence,
-                    remedy=LANGUAGE_REMEDY,
-                )
-            )
-        else:
-            out += body_problems(rel, node.lineno, text, "file header")
+        out += triage_problems(rel, node.lineno, text, "file header", ZONE_CHINESE, HEADER_FACE)
         break  # 只看文件头：首个非豁免字符串语句之后不再看
     return out
 
@@ -420,43 +413,7 @@ def check(rel: str, src: str) -> list[gate_report.Finding]:
 
     def flush(lineno: int, bodies: list[str]) -> list[gate_report.Finding]:
         merged = "\n".join(bodies)
-        evidence = merged.replace("\n", " ")
-        if "`" in merged:
-            return [
-                gate_report.Finding(
-                    rule=RULE_CODEREF,
-                    path=rel,
-                    line=lineno,
-                    message="comment contains a code segment"
-                    " — move references and examples to the record file",
-                    evidence=evidence,
-                    remedy=CODEREF_REMEDY,
-                )
-            ]
-        if "§" in merged:
-            return [
-                gate_report.Finding(
-                    rule=RULE_SECTION_REF,
-                    path=rel,
-                    line=lineno,
-                    message='comment contains a "§ section number" style external reference'
-                    " — move sources to the record file",
-                    evidence=evidence,
-                    remedy=SECTION_REF_REMEDY,
-                )
-            ]
-        if not CJK.search(merged):
-            return [
-                gate_report.Finding(
-                    rule=RULE_LANGUAGE,
-                    path=rel,
-                    line=lineno,
-                    message="comment must be written in Chinese",
-                    evidence=evidence,
-                    remedy=LANGUAGE_REMEDY,
-                )
-            ]
-        return body_problems(rel, lineno, merged, "comment")
+        return triage_problems(rel, lineno, merged, "comment", ZONE_CHINESE, COMMENT_FACE)
 
     out = []
     cur = None  # 相邻注释行聚成一块：换行的括号与表述跨行不误报
