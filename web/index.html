@@ -51,17 +51,17 @@
         <p class="lede">Gloss 是一款 macOS 划词翻译工具：划选任意文字，浮层以“经—注—疏”体例呈现大语言模型（LLM）的译文与释义——原文为经、译文为注、例句为疏。纯本语言（Rust）与图形标准（WebGPU）原生渲染，单进程、无内嵌浏览器运行时（WebView），常驻几乎无感。</p>
         <div class="cta-row">
           <div class="split split-lg" id="hero-split">
-            <a class="btn btn-primary btn-main btn-lg" id="hero-dl" href="https://github.com/Losmli010/gloss/releases/latest">下载 for macOS</a>
+            <a class="btn btn-primary btn-main btn-lg" id="hero-dl" href="https://github.com/Losmli010/gloss/releases/latest">下载 macOS 版</a>
             <button class="btn-caret btn-lg" id="hero-caret" aria-haspopup="menu" aria-expanded="false" aria-controls="hero-menu" aria-label="选择芯片架构">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
             </button>
             <div class="menu" id="hero-menu" role="menu" aria-label="选择芯片架构">
               <button class="menu-item" role="menuitemradio" data-arch="aarch64-apple-darwin" aria-checked="true">
-                <span>Apple Silicon</span><span class="mi-size"></span>
+                <span>苹果芯片（Apple Silicon）</span><span class="mi-size"></span>
                 <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m4 12 5 5L20 7"/></svg>
               </button>
               <button class="menu-item" role="menuitemradio" data-arch="x86_64-apple-darwin" aria-checked="false">
-                <span>Intel 芯片</span><span class="mi-size"></span>
+                <span>英特尔芯片（Intel）</span><span class="mi-size"></span>
                 <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m4 12 5 5L20 7"/></svg>
               </button>
             </div>
@@ -73,7 +73,7 @@
         </div>
         <p class="hero-meta">
           <span class="pill" id="hero-version" hidden></span>
-          <span id="hero-arch-label">Apple Silicon</span> · 免费 · 无需账号 · 密钥只存本机钥匙串（Keychain）
+          <span id="hero-arch-label">苹果芯片（Apple Silicon）</span> · 免费 · 无需账号 · 密钥只存本机钥匙串（Keychain）
         </p>
       </div>
 
@@ -109,11 +109,11 @@
         </div>
         <span class="chip-float chip-a">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z"/></svg>
-          WebGPU 原生渲染
+          图形标准（WebGPU）原生渲染
         </span>
         <span class="chip-float chip-b">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/></svg>
-          单进程 · 无 WebView
+          单进程 · 无内嵌运行时（WebView）
         </span>
       </div>
     </div>
@@ -165,7 +165,7 @@
         <div class="task-card wide reveal">
           <span class="task-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m5 19 5.5-5.5L14 17l3-3 3 3"/></svg></span>
           <h3>图片解释</h3>
-          <p>复制一张图（⌘⌃⇧4 截图到剪贴板即可），模型自动讲出图里的内容与要点。</p>
+          <p>复制一张图（按 ⌘⌃⇧4 截到剪贴板即可），模型自动讲出图意与要点。</p>
           <div class="shot shot-frame" aria-hidden="true">
             <img src="assets/task-image.png" alt="" width="808" height="834" loading="lazy">
           </div>
@@ -191,13 +191,13 @@
             <span class="arch-arrow">→</span>
             <div class="arch-node"><b>主线程</b><span>winit + wgpu + egui</span></div>
             <span class="arch-arrow">→</span>
-            <div class="arch-node"><b>tokio 后台</b><span>LLM 流式 · 缓存</span></div>
+            <div class="arch-node"><b>异步后台（tokio）</b><span>大语言模型（LLM）流式 · 缓存</span></div>
             <span class="arch-arrow">→</span>
             <div class="arch-node"><b>结果浮层</b><span>流式渲染 · 可取消</span></div>
           </div>
         </div>
         <div class="tech-card reveal">
-          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z"/></svg>WebGPU 渲染</h3>
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z"/></svg>图形标准（WebGPU）渲染</h3>
           <p>图形后端（wgpu）走系统图形框架（Metal），界面库（egui）以即时模式绘制。没有浏览器内核，内存与启动开销天然就小。</p>
         </div>
         <div class="tech-card reveal">
@@ -226,7 +226,7 @@
         </div>
       </div>
       <div class="wall reveal" role="list" aria-label="技术栈">
-        <span role="listitem">Rust</span><span role="listitem">wgpu · Metal</span><span role="listitem">egui</span><span role="listitem">winit</span><span role="listitem">tokio</span><span role="listitem">reqwest · SSE</span><span role="listitem">serde</span><span role="listitem">Keychain</span><span role="listitem">零 WebView</span><span role="listitem">MIT</span>
+        <span role="listitem">Rust</span><span role="listitem">wgpu · Metal</span><span role="listitem">egui</span><span role="listitem">winit</span><span role="listitem">tokio</span><span role="listitem">reqwest · SSE</span><span role="listitem">serde</span><span role="listitem">Keychain</span><span role="listitem">零内嵌运行时（WebView）</span><span role="listitem">MIT</span>
       </div>
     </div>
   </section>
@@ -236,23 +236,23 @@
     <div class="wrap">
       <div class="dl-head reveal">
         <h2>开始使用 Gloss<span class="pill" id="dl-version" hidden></span></h2>
-        <p class="sub">免费开源（MIT），支持 Apple Silicon 与 Intel 芯片的 Mac。</p>
+        <p class="sub">免费开源（MIT），支持苹果芯片（Apple Silicon）与英特尔芯片（Intel）的 Mac 电脑。</p>
       </div>
       <div class="arch-cards">
         <div class="arch-card reveal">
           <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 6.5c1.2-1.7 3-2.4 4.6-2.3.2 1.7-.5 3.3-1.5 4.4-1 1.2-2.5 2-4 1.9-.2-1.6.6-3.2 1.9-4Z"/><path d="M16.6 13.3c0-2.2 1.8-3.2 1.9-3.3-1-1.5-2.6-1.7-3.2-1.7-1.3-.1-2.6.8-3.3.8-.7 0-1.7-.8-2.8-.8-1.4 0-2.8.8-3.5 2.1-1.5 2.6-.4 6.5 1.1 8.6.7 1 1.6 2.2 2.7 2.1 1.1 0 1.5-.7 2.8-.7s1.7.7 2.8.7c1.2 0 1.9-1 2.6-2.1.8-1.2 1.2-2.4 1.2-2.4s-2.3-.9-2.3-3.3Z"/></svg></span>
-          <h3>Apple Silicon</h3>
-          <p class="cpu">M1 / M2 / M3 / M4 系列</p>
-          <a class="btn btn-primary btn-lg" id="card-dmg-aarch64" href="https://github.com/Losmli010/gloss/releases/latest">下载 .dmg</a>
-          <p class="zip-row"><a id="card-zip-aarch64" href="https://github.com/Losmli010/gloss/releases/latest">下载 .zip 备用</a></p>
+          <h3>苹果芯片（Apple Silicon）</h3>
+          <p class="cpu">M1、M2、M3、M4 系列</p>
+          <a class="btn btn-primary btn-lg" id="card-dmg-aarch64" href="https://github.com/Losmli010/gloss/releases/latest">下载镜像（.dmg）</a>
+          <p class="zip-row"><a id="card-zip-aarch64" href="https://github.com/Losmli010/gloss/releases/latest">压缩包（.zip）备用</a></p>
           <p class="size" id="card-size-aarch64"></p>
         </div>
         <div class="arch-card reveal">
           <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span>
-          <h3>Intel 芯片</h3>
-          <p class="cpu">MacBook / iMac（x86_64）</p>
-          <a class="btn btn-primary btn-lg" id="card-dmg-x86_64" href="https://github.com/Losmli010/gloss/releases/latest">下载 .dmg</a>
-          <p class="zip-row"><a id="card-zip-x86_64" href="https://github.com/Losmli010/gloss/releases/latest">下载 .zip 备用</a></p>
+          <h3>英特尔芯片（Intel）</h3>
+          <p class="cpu">MacBook、iMac 等（x86_64）</p>
+          <a class="btn btn-primary btn-lg" id="card-dmg-x86_64" href="https://github.com/Losmli010/gloss/releases/latest">下载镜像（.dmg）</a>
+          <p class="zip-row"><a id="card-zip-x86_64" href="https://github.com/Losmli010/gloss/releases/latest">压缩包（.zip）备用</a></p>
           <p class="size" id="card-size-x86_64"></p>
         </div>
       </div>
@@ -260,7 +260,7 @@
       <div class="guide reveal">
         <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>首次打开指引</h3>
         <ol>
-          <li>打开下载的 .dmg，把 Gloss 拖入“应用程序”；</li>
+          <li>打开下载的安装镜像，把 Gloss 拖入“应用程序”；</li>
           <li>在“应用程序”中<strong>右键点击 Gloss → 打开</strong>，再点“打开”确认；</li>
           <li>之后即可正常双击启动。</li>
         </ol>
@@ -269,7 +269,7 @@
           <li>系统设置 → 隐私与安全性 → 底部点击<strong>“仍要打开”</strong>；</li>
           <li>或在终端执行 <code>xattr -dr com.apple.quarantine /Applications/Gloss.app</code> 后直接打开。</li>
         </ol>
-        <p class="why">当前安装包为 ad-hoc 签名，尚未做 Developer ID 公证，首次打开需以上任一方式放行；xattr 命令只移除下载隔离标记，不改动应用内容。</p>
+        <p class="why">当前安装包为临时签名（ad-hoc），尚未做开发者公证（Developer ID），首次打开需以上任一方式放行；<code>xattr</code> 命令只移除下载隔离标记，不改动应用内容。</p>
       </div>
     </div>
   </section>
@@ -296,7 +296,7 @@
   <div class="wrap foot-inner">
     <span class="foot-brand"><img src="assets/logo.svg" alt="">Gloss</span>
     <span>© 2026</span>
-    <a href="https://github.com/Losmli010/gloss/blob/main/LICENSE">MIT License</a>
+    <a href="https://github.com/Losmli010/gloss/blob/main/LICENSE">MIT 许可证</a>
     <a href="https://github.com/Losmli010/gloss">GitHub 仓库</a>
     <a href="https://github.com/Losmli010/gloss/blob/main/SECURITY.md">安全策略</a>
   </div>
