@@ -76,7 +76,7 @@ def triage_problems(
             raise ValueError("triage face for the english zone lacks the core remedy")
         return english_zone_problems(path, line, text, label, face.english_remedy)
     if not CJK.search(text):
-        if not face.language_rule or not face.language_message:
+        if not face.language_rule or not face.language_message or not face.language_remedy:
             raise ValueError("triage face for the chinese zone lacks the language knife")
         return [
             gate_report.Finding(
