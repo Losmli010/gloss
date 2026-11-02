@@ -89,7 +89,7 @@ reqwest = {
 }
 # 页头应用图标的矢量栅格化，版本与扩展库（egui_extras）矢量加载器所钉的一致：
 # 关闭默认特性不引文字排版与系统字体扫描（资产无文字元素），纯矢量路径渲染。
-resvg = { version = "0.48.1", default-features = false }
+resvg = { version = "0.49.0", default-features = false }
 # 更新清单的版本比较：语义版本（semver）全序，构建元数据不参与优先级。
 semver = { version = "1", default-features = false, features = ["std"] }
 # 界面文案表的强类型反序列化：键缺失或多键都算解析失败。
