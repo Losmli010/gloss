@@ -1,17 +1,17 @@
 [repair.frame]
 header = "输出不符合要求，违约清单如下："
 row = "{{position}}：{{rule}}——{{action}}"
-closing = "请逐条修正后，重新输出完整（JSON）对象：保持字段结构不变，只修正清单所列问题，不要改写其余内容。"
+closing = "请逐条修正后，重新输出完整 JSON 对象：保持字段结构不变，只修正清单所列问题，不要改写其余内容。"
 truncated_note = "其余为同类违约，一并修正。"
 back_reference = "你在上一条回复中的输出即反例。"
 
 [repair.format.EmptyReply]
 position = "回复为空"
-action = "重新输出完整（JSON）对象"
+action = "重新输出完整 JSON 对象"
 
 [repair.format.NotJson]
-position = "回复不是裸（JSON）对象"
-action = "只输出一个以花括号开头结尾的（JSON）对象"
+position = "回复不是裸 JSON 对象"
+action = "只输出一个以花括号开头结尾的 JSON 对象"
 
 [repair.format.MissingNote]
 position = "缺少非空的 `note` 字段"
@@ -23,10 +23,10 @@ action = "只输出类别清单里的一个类别标识"
 
 [repair.format.fenced]
 position = "回复被代码围栏包裹"
-action = "去掉围栏，只输出围栏内的（JSON）对象"
+action = "去掉围栏，只输出围栏内的 JSON 对象"
 
 [repair.format.not_an_object]
-position = "回复是（JSON）值但不是对象"
+position = "回复是 JSON 值但不是对象"
 action = "改为以花括号开头结尾的单个对象"
 
 [repair.format.truncated]

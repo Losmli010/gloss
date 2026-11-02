@@ -83,11 +83,13 @@ def new_fixture(root: Path, agents_body: str | None = None) -> None:
         encoding="utf-8",
     )
     # 语言规范数据源夹具：语言规范域的判罚模式自数据面动态构建，数据源缺席
-    # 即失败关闭，基线夹具须携带最小数据面（面成员只作扫描面，不判语言）
+    # 即失败关闭，基线夹具须携带最小数据面（面成员只作扫描面，不判语言）；
+    # 注记括号锚点判定面是必读面，缺席按损坏处置
     langspec_dir = root / "crates/gloss-core/langspec"
     langspec_dir.mkdir(parents=True)
     (langspec_dir / "zh_en.toml").write_text(
         '[zh]\npunct = "，。"\nattached_after_digit = "℃"\nattached_before_digit = "￥"\n\n'
+        '[zh.gloss_anchor]\nfunction_words = "的"\nexempt_runs = "目的"\n\n'
         '[en]\npunct = "."\n\n[shared]\nmath = "="\n'
         'attached_after_digit = "%"\nattached_before_digit = "¥"\n'
         'attached_between_digits = "."\ndash_ellipsis = "…"\ncurly_quotes = "“”"\n'

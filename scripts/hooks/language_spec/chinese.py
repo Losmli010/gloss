@@ -2,11 +2,15 @@
 """语言规范·中文区：中文表述怎么写。中文主体只允许汉字、白名单字符、阿拉
 伯数字与空白；专名与外文术语收进紧跟的全角括号作注记——注记括号按容器判
 定，许嵌套、内部不做正文白名单检查只判单一语言（目标语言文字段与外文段不
-混现），不配对独立判罚且内容落回正文受检；汉字与数字直接相邻判罚（盘古之
-白），汉字与拉丁字母的相邻归外文判罚、相邻对证据随消息下发（补空格改法对
-字母段永不收敛，锚点注记一并消除相邻），繁体独有字形判罚（简体判定，豁免
-仅代码引用），注记括号里的纯外文内容过长或带虚词走软约束候选（括号锚点连
-贯，警告不计违规）。外文判罚的消息按被拦字符的最近正形分六组渲染指引（字
+混现），不配对独立判罚且内容落回正文受检；裸英文塞注记括号不补译名的退化
+形态走锚点硬规则（中文主体行上括号前紧邻字符不是译名——悬空、虚词粘着或
+单字粘着——即判罚，例外小表放行），注记括号里的纯外文内容过长或带虚词另
+走软约束候选（括号锚点连贯，警告不计违规）；登记面上批准裸用的英文术语按
+精确匹配（大小写敏感、整词）放行裸用，与汉字直接相邻归盘古判罚（盘古空格
+随行）；汉字与数字直接相邻判罚（盘古之白），汉字与拉丁字母的相邻归外文判
+罚、相邻对证据随消息下发（补空格改法对字母段永不收敛，锚点注记一并消除相
+邻），繁体独有字形判罚（简体判定，豁免仅代码引用）。外文判罚的消息按被拦
+字符的最近正形分六组渲染指引（字
 母、标点、误置、异体、记号、附随），全角误置与异体记号的逐字符替换映射与
 白名单派生同住本模块单源。字符
 事实单源于核心库内嵌的语言规范数据目录（crates/gloss-core/langspec/）的判
@@ -37,6 +41,7 @@ import gate_report  # noqa: E402
 RULE_PROSE_FOREIGN = "PROSE-FOREIGN"
 RULE_PROSE_GLOSS_MIXED = "PROSE-GLOSS-MIXED"
 RULE_PROSE_GLOSS_UNPAIRED = "PROSE-GLOSS-UNPAIRED"
+RULE_PROSE_GLOSS_UNANCHORED = "PROSE-GLOSS-UNANCHORED"
 RULE_PROSE_PANGU = "PROSE-PANGU"
 RULE_PROSE_TRADITIONAL = "PROSE-TRADITIONAL"
 RULE_PROSE_ANCHOR = "PROSE-ANCHOR"
@@ -54,7 +59,12 @@ GLOSS_MIXED_REMEDY = (
     "hold the foreign term alone in the bracket; move the Chinese wording back into the body"
 )
 GLOSS_UNPAIRED_REMEDY = "complete the paired annotation bracket"
-PANGU_REMEDY = "keep one halfwidth space between Chinese and digits"
+GLOSS_UNANCHORED_REMEDY = (
+    "translate the term into Chinese first and hold the foreign original tight"
+    " to the translated name, or drop the bracket and use the registered bare"
+    " form with spaces around it"
+)
+PANGU_REMEDY = "keep one halfwidth space between Chinese and digits or registered bare terms"
 TRADITIONAL_REMEDY = "rewrite traditional-only glyphs in simplified Chinese"
 ANCHOR_REMEDY = (
     "brackets anchor a Chinese term and are not sentence parts — write the"
@@ -135,6 +145,31 @@ EMOJI_RANGES = _ranges(_SPEC["shared"]["emoji_ranges"], "shared.emoji_ranges")
 EMOJI_BARE = _face(_SPEC["shared"]["emoji_bare"])
 EMOJI_VARIANTS = _face(_SPEC["shared"]["emoji_variants"])
 
+# 注记括号锚点硬规则的判定面：虚词表（括号前紧邻单字命中粘着）与例外小表
+# （这些连续汉字串以注记括号缀原文时放行）自数据源装入派生，判罚实现不私
+# 持字面量；键缺席即装入失败当场失败不静默降级，与既有字符面同规。
+GLOSS_FUNCTION_WORDS = _face(_SPEC["zh"]["gloss_anchor"]["function_words"])
+GLOSS_EXEMPT_RUNS = tuple(_SPEC["zh"]["gloss_anchor"]["exempt_runs"].split())
+
+# 裸词登记面：登记词精确匹配（大小写敏感、整词）后放行裸用，盘古空格随
+# 行——汉字与登记词直接相邻归盘古判罚。词形与缘由的良构（单词形态、缘由
+# 非空）在装入时校验，登记表膨胀与坏形态当场失败不静默。
+BARE_TERM_SHAPE = re.compile(r"[A-Za-z][A-Za-z0-9.+-]*\Z")
+
+
+def _load_bare_terms(table: dict) -> tuple[str, ...]:
+    """登记表装入与良构校验：逐词核对登记标准第三条的单词形态（字母开头，
+    字符集为字母、数字、点、横线与加号）与非空缘由，坏条目当场失败。"""
+    for term, reason in table.items():
+        if BARE_TERM_SHAPE.fullmatch(term) is None:
+            raise ValueError(f"zh.bare_terms: {term!r} is not a registrable single-word form")
+        if not str(reason).strip():
+            raise ValueError(f"zh.bare_terms: {term!r} lacks a registration reason")
+    return tuple(sorted(table))
+
+
+BARE_TERMS = _load_bare_terms(_SPEC["zh"]["bare_terms"])
+
 CJK = re.compile("[" + _ranges_class(_RANGES["han"]) + "]")
 # 汉字区段自数据源派生（三段口径）；中文标点与全角形式是宽度启发面——英
 # 文区与行内代码出现即非纯英文。组合逻辑住代码，字符事实住数据源
@@ -196,29 +231,59 @@ def _is_ascii_letter(ch: str) -> bool:
     return ch.isascii() and ch.isalpha()
 
 
-def pangu_pairs(seg: str) -> list[str]:
-    """段内汉字与阿拉伯数字直接相邻的相邻对（去重保序）：空白隔开不放行邻
-    接，与生产侧盘古之白同判——相邻即罚，须留一个半角空格；汉字与拉丁字母
-    的相邻归外文判罚管辖（字母入正文必吃外文罚，补空格改法永不收敛），相
-    邻证据随外文判罚消息下发（见 foreign_pairs）。"""
+# 登记词的整词形态（词形字符集与登记标准一致）：段内按最大匹配切词形再对
+# 登记表精确比对——大小写敏感，带后缀与拼错的词形不落登记词
+BARE_TOKEN = re.compile(r"[A-Za-z0-9.+-]+")
+
+
+def bare_term_spans(seg: str) -> list[tuple[int, int]]:
+    """段内登记词的字符区间（保序）：词形整词精确匹配登记表后返回其覆盖区
+    间，登记词裸用免外文判罚，盘古空格随行（与汉字直接相邻归盘古判罚）。"""
     out = []
-    for left, right in zip(seg, seg[1:]):
+    for match in BARE_TOKEN.finditer(seg):
+        if match.group() in BARE_TERMS:
+            out.append((match.start(), match.end()))
+    return out
+
+
+def _in_spans(index: int, spans: list[tuple[int, int]]) -> bool:
+    return any(start <= index < end for start, end in spans)
+
+
+def pangu_pairs(seg: str, bare_spans: list[tuple[int, int]] | None = None) -> list[str]:
+    """段内汉字与阿拉伯数字或登记词直接相邻的相邻对（去重保序）：空白隔开
+    不放行邻接，与生产侧盘古之白同判——相邻即罚，须留一个半角空格；盘古
+    规则从汉字对数字扩到汉字对登记词（登记词裸用合法后相邻归本判罚管辖，
+    缺空格照走补空格改法）；未登记字母段的相邻归外文判罚（字母入正文必吃
+    外文罚，补空格改法永不收敛），相邻证据随外文判罚消息下发（见
+    foreign_pairs）。"""
+    out = []
+    for offset, (left, right) in enumerate(zip(seg, seg[1:])):
         mixed = (CJK.match(left) and _is_ascii_digit(right)) or (
             _is_ascii_digit(left) and CJK.match(right)
         )
+        if not mixed and bare_spans:
+            mixed = (
+                CJK.match(left) and _is_ascii_letter(right) and _in_spans(offset + 1, bare_spans)
+            ) or (_is_ascii_letter(left) and CJK.match(right) and _in_spans(offset, bare_spans))
         if mixed and left + right not in out:
             out.append(left + right)
     return out
 
 
-def foreign_pairs(seg: str) -> list[str]:
+def foreign_pairs(seg: str, bare_spans: list[tuple[int, int]] | None = None) -> list[str]:
     """段内汉字与拉丁字母直接相邻的相邻对（去重保序）：外文判罚的相邻证据，
-    不再单独出盘古判罚——锚点注记改法一并消除相邻，证据在消息里不丢。"""
+    不再单独出盘古判罚——锚点注记改法一并消除相邻，证据在消息里不丢；登
+    记词的相邻归盘古判罚，不进本证据。"""
     out = []
-    for left, right in zip(seg, seg[1:]):
+    for offset, (left, right) in enumerate(zip(seg, seg[1:])):
         mixed = (CJK.match(left) and _is_ascii_letter(right)) or (
             _is_ascii_letter(left) and CJK.match(right)
         )
+        if mixed and bare_spans:
+            letter_at = offset if _is_ascii_letter(left) else offset + 1
+            if _in_spans(letter_at, bare_spans):
+                continue
         if mixed and left + right not in out:
             out.append(left + right)
     return out
@@ -282,12 +347,12 @@ def _flags_foreign(seg: str, index: int) -> bool:
     return not is_attached_symbol(seg, index)
 
 
-def foreign_hint_groups(seg: str) -> list[str]:
+def foreign_hint_groups(seg: str, bare_spans: list[tuple[int, int]] | None = None) -> list[str]:
     """外文判罚消息的分组指引：被拦字符按最近正形归六类（字母、标点、误
     置、异体、记号、附随），先判判罚面（附随面放行的合法字符不进消息组，
-    数字间的句点与冒号不被指改），串级组合先于单字符，各组只见自己的指
-    引，返回保序渲染的片段清单；字母组片段带相邻证据（汉字与拉丁字母直接
-    相邻）。
+    数字间的句点与冒号不被指改，登记词裸用合法也不进消息组），串级组合先
+    于单字符，各组只见自己的指引，返回保序渲染的片段清单；字母组片段带相
+    邻证据（汉字与拉丁字母直接相邻，登记词的相邻归盘古判罚不进证据）。
     """
     letters: list[str] = []
     twins: list[str] = []
@@ -295,6 +360,7 @@ def foreign_hint_groups(seg: str) -> list[str]:
     variant: list[str] = []
     symbols: list[str] = []
     attached: list[str] = []
+    spans = bare_spans if bare_spans is not None else []
     index = 0
     while index < len(seg):
         combo = None
@@ -310,7 +376,7 @@ def foreign_hint_groups(seg: str) -> list[str]:
             index += len(combo)
             continue
         ch = seg[index]
-        if not _flags_foreign(seg, index):
+        if not _flags_foreign(seg, index) or _in_spans(index, spans):
             index += 1
             continue
         if _is_ascii_letter(ch):
@@ -346,7 +412,7 @@ def foreign_hint_groups(seg: str) -> list[str]:
             " for common terms; on comment surfaces annotate machine symbols with"
             " a translated-name bracket (backticks are penalized there) (%s)"
         ) % "".join(letters)[:12]
-        joins = foreign_pairs(seg)
+        joins = foreign_pairs(seg, spans)
         if joins:
             hint += ", joined without a space (%s)" % " ".join(joins[:6])
         hints.append(hint)
@@ -367,21 +433,24 @@ def foreign_hint_groups(seg: str) -> list[str]:
 
 
 def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[gate_report.Finding]:
-    """中文主体的字符级检查：只允许汉字、白名单字符、阿拉伯数字与空白；盘
-    古之白与简体判定随段同查。"""
+    """中文主体的字符级检查：只允许汉字、白名单字符、阿拉伯数字、空白与登
+    记词裸用；盘古之白（数字与登记词随行）与简体判定随段同查。"""
     out = []
     for seg in SEGMENT_SPLIT.split(zone):
         seg = seg.strip(SEGMENT_TRIM)
         if not seg or DIRECTIVE_SEG.match(seg) or is_command_seg(seg):
             continue
+        spans = bare_term_spans(seg)
         bad = []
         for index, ch in enumerate(seg):
+            if _in_spans(index, spans):
+                continue
             if _flags_foreign(seg, index) and ch not in bad:
                 bad.append(ch)
         traditional = traditional_glyphs(seg)
         if bad:
             shown = " ".join(bad[:3])
-            hints = foreign_hint_groups(seg)
+            hints = foreign_hint_groups(seg, spans)
             tail = "; ".join(hints) if hints else "rewrite the characters in Chinese"
             out.append(
                 gate_report.Finding(
@@ -407,7 +476,7 @@ def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[g
                     remedy=TRADITIONAL_REMEDY,
                 )
             )
-        pairs = pangu_pairs(seg)
+        pairs = pangu_pairs(seg, spans)
         if pairs:
             shown = " ".join(pairs[:3])
             out.append(
@@ -415,8 +484,8 @@ def chinese_zone_problems(path: str, line: int, zone: str, label: str) -> list[g
                     rule=RULE_PROSE_PANGU,
                     path=path,
                     line=line,
-                    message="%s body joins Chinese with digits without a space (%s)"
-                    % (label, shown),
+                    message="%s body joins Chinese with digits or registered terms"
+                    " without a space (%s)" % (label, shown),
                     evidence=seg,
                     remedy=PANGU_REMEDY,
                 )
@@ -576,24 +645,28 @@ GLOSS_UNPAIRED_TAIL = (
 )
 
 
-def split_glosses(body: str) -> tuple[list[str], str, bool]:
+def split_glosses(body: str) -> tuple[list[tuple[str, str]], str, bool]:
     """按栈配对全角括号，切成注记与主体：返回（注记清单，主体残文，是否不
     配对）。括号许嵌套：各层自成一注记，父注记里以空白占位隔开子容器——子
-    容器单判，父注记只判直接内容；不配对（含单边闭括号）置真，其内容落回
-    主体受检。"""
-    glosses = []
+    容器单判，父注记只判直接内容；每条注记随带括号前紧邻的残文（括号位置
+    保留，锚点硬规则按剥净文本判退化形态）；不配对（含单边闭括号）置真，
+    其内容落回主体受检。"""
+    glosses: list[tuple[str, str]] = []
     residual = []
     unpaired = False
     stack: list[list[str]] = []
+    prevs: list[str] = []
     for ch in body:
         if ch == _GLOSS_OPEN:
+            enclosing = stack[-1] if stack else residual
             stack.append([])
+            prevs.append("".join(enclosing))
         elif ch == _GLOSS_CLOSE:
             if not stack:
                 unpaired = True
                 residual.append(ch)
             else:
-                glosses.append("".join(stack.pop()))
+                glosses.append(("".join(stack.pop()), prevs.pop()))
                 if stack:
                     stack[-1].append(" ")
                 else:
@@ -606,9 +679,78 @@ def split_glosses(body: str) -> tuple[list[str], str, bool]:
     return glosses, "".join(residual), unpaired
 
 
+def _gloss_carries_foreign(gloss: str) -> bool:
+    """注记是否装着外文：外文文字段过两字符阈值才计（与容器单语判定同
+    口径）——纯中文括号与单字母括号不在锚点硬规则的判定之列。"""
+    return any(kind != "han" and length >= 2 for kind, length in script_runs(gloss))
+
+
+def unanchored_reason(prev: str) -> str | None:
+    """塞括号退化形态的命中缘由（宁漏勿误，三判据按序、只看紧邻不回溯）：
+    悬空——括号前紧邻字符不是汉字（残文起点、换行后上一行不以汉字收尾、
+    空白或任一标点之后）；虚词粘着——紧邻字符为虚词表汉字；单字粘着——括
+    号前紧邻的连续汉字串仅一个汉字（术语至少双字，串以标点与空白为界）。
+    例外小表的连续汉字串（目的、标的）以注记括号缀原文时放行；换行后上一
+    行以汉字收尾是跨行延续（术语在上一行行尾、注记整行承接），行模型按行
+    判，放行。无命中返回空表值。"""
+    if not prev:
+        return "dangling"
+    if prev[-1] == "\n":
+        if len(prev) >= 2 and CJK.match(prev[-2]):
+            return None
+        return "dangling"
+    if not CJK.match(prev[-1]):
+        return "dangling"
+    run = 0
+    for ch in reversed(prev):
+        if not CJK.match(ch):
+            break
+        run += 1
+    if any(prev[-run:].endswith(word) for word in GLOSS_EXEMPT_RUNS):
+        return None
+    if prev[-1] in GLOSS_FUNCTION_WORDS:
+        return "after a function word"
+    if run == 1:
+        return "after a single-character term"
+    return None
+
+
+UNANCHORED_TAIL = (
+    " — brackets hold a foreign original tight to a translated Chinese name, not sentence parts"
+)
+
+
+def unanchored_problems(
+    path: str, line: int, glosses: list[tuple[str, str]], label: str
+) -> list[gate_report.Finding]:
+    """注记括号锚点硬规则：中文主体行上装外文的注记必须锚在译名上——悬空、
+    虚词粘着与单字粘着三判据命中即拦，例外小表放行（缘由随消息下发）。判
+    定域由调用方保证：body_problems 只在中文主体行进入。"""
+    out = []
+    for gloss, prev in glosses:
+        if not _gloss_carries_foreign(gloss):
+            continue
+        reason = unanchored_reason(prev)
+        if reason is None:
+            continue
+        out.append(
+            gate_report.Finding(
+                rule=RULE_PROSE_GLOSS_UNANCHORED,
+                path=path,
+                line=line,
+                message="%s annotation bracket is not anchored to a translated Chinese"
+                " name (%s)%s" % (label, reason, UNANCHORED_TAIL),
+                evidence=gloss,
+                remedy=GLOSS_UNANCHORED_REMEDY,
+            )
+        )
+    return out
+
+
 def body_problems(path: str, line: int, body: str, label: str) -> list[gate_report.Finding]:
     """整条表述的分域检查：先摘注记括号，再查主体与各注记；不配对括号独立
-    判罚，其内容已随残文进主体检查。"""
+    判罚，其内容已随残文进主体检查；装外文的注记另过锚点硬规则（本函数只
+    在中文主体行被调用，英文区行无锚点概念）。"""
     out = []
     glosses, residual, unpaired = split_glosses(body)
     evidence = body.replace("\n", " ")
@@ -623,7 +765,8 @@ def body_problems(path: str, line: int, body: str, label: str) -> list[gate_repo
                 remedy=GLOSS_UNPAIRED_REMEDY,
             )
         )
-    for gloss in glosses:
+    for gloss, _prev in glosses:
         out += gloss_problems(path, line, gloss, label)
+    out += unanchored_problems(path, line, glosses, label)
     out += chinese_zone_problems(path, line, residual, label)
     return out

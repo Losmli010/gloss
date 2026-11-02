@@ -14,9 +14,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from constraints import fixtures, langspec  # noqa: E402
 
-# 带顿号与浪纹线的判罚数据面：覆盖基线夹具面外的成员，锁定模式随数据源走
+# 带顿号与浪纹线的判罚数据面：覆盖基线夹具面外的成员，锁定模式随数据源走；
+# 注记括号锚点判定面是必读面，缺席按损坏处置
 DATA_TOML = (
     '[zh]\npunct = "，、～"\nattached_after_digit = "℃"\nattached_before_digit = "￥"\n\n'
+    '[zh.gloss_anchor]\nfunction_words = "的是"\nexempt_runs = "目的"\n\n'
     '[en]\npunct = "."\n\n[shared]\nmath = "="\n'
     'attached_after_digit = "%"\nattached_before_digit = "¥"\n'
     'attached_between_digits = "."\ndash_ellipsis = "…"\ncurly_quotes = "“”"\n'

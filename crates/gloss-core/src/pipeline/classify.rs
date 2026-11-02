@@ -1,9 +1,9 @@
 //! 自动任务分类（编排前半程）：文本输入 → 具体任务类型。
 //!
 //! 判定完全交给大语言模型（LLM），只给极小的提示词加分类截断预算，
-//! 产出再走格式校验（JSON）：类别取分类模板四个类别之一，
+//! 产出再走 JSON 格式校验：类别取分类模板四个类别之一，
 //! 兜底类别映射到通用任务——源语言与代码语言同样由模型从原文自行判断，
-//! 取材不再携带模态提示。校验用核心层的分类校验器，要求严格裸格式（JSON），
+//! 取材不再携带模态提示。校验用核心层的分类校验器，要求严格裸 JSON 格式，
 //! 与生产及评测共用同一校验器；流式循环内每次累积后即尝试解析，
 //! 首个能通过校验的完整对象立即定型返回——不等流自然结束，提前还流即
 //! 还回首字延迟（TTFT）。
@@ -466,7 +466,7 @@ mod tests {
             other => panic!("expected text content, got {other:?}"),
         };
         assert!(
-            instruction.contains("回复不是裸（JSON）对象：NotJson——"),
+            instruction.contains("回复不是裸 JSON 对象：NotJson——"),
             "the instruction rides the violation-level registry row (the classify stage \
              speaks in violation-level rows): {instruction}"
         );

@@ -37,3 +37,6 @@
 
 - classify_prompt_composes_the_skeleton_and_the_registry_category_section：
   骨架逐字起头、类别段随后，类别定义迁出模板后的拼装锁点。
+
+- 2026-11-02 语言规范治本方案第二期随改：图像任务输出契约断言随中文模板
+  迁移更新（JSON 格式，登记词裸用形态），契约语义不变。

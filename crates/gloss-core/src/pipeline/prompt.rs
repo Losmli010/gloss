@@ -3,7 +3,7 @@
 //!
 //! 任务书按五段骨架组织（角色与任务、输出形状、字段规则、任务约定）；
 //! 渲染拼装为任务书、共享目标语言条款、共享输出纪律块三段顺接，纪律块
-//! 垫底。模板与提示都不要求围栏——模型回复按严格裸格式（JSON）校验
+//! 垫底。模板与提示都不要求围栏——模型回复按严格裸 JSON 格式校验
 //! （契约模块），围栏输出即违约进修复轮。模态矩阵之外的输入一律以模态
 //! 不支持错误上抛，不发出注定无效的请求。
 //!
@@ -410,7 +410,7 @@ mod tests {
         );
         let system = text_of(&messages[0].content);
         assert!(
-            system.contains("（JSON）格式") || system.contains("JSON format"),
+            system.contains("JSON 格式") || system.contains("JSON format"),
             "the image contract must demand JSON output: {system}"
         );
         assert!(system.contains("\"note\""), "{system}");

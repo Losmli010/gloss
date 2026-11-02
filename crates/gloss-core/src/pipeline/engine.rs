@@ -398,7 +398,7 @@ mod tests {
 
     fn assert_repair_instruction_wording(instruction: &str) {
         assert!(
-            instruction.contains("回复不是裸（JSON）对象：NotJson——"),
+            instruction.contains("回复不是裸 JSON 对象：NotJson——"),
             "the instruction rides the violation-level registry row (this prose reply has \
              no detail): {instruction}"
         );

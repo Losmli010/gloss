@@ -47,7 +47,7 @@
 
 {{reference}}
 
-只输出一个（JSON）对象，不要输出其他文字，不要代码围栏：
+只输出一个 JSON 对象，不要输出其他文字，不要代码围栏：
 
 ```json
 {"accuracy": <0-100 的整数>, "completeness": <0-100 的整数>, "fluency": <0-100 的整数>, "presentation": <0-100 的整数>, "reason": "<一句话理由>"}

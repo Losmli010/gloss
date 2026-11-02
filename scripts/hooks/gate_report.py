@@ -113,6 +113,7 @@ REGISTERED_RULES = frozenset(
         "PROSE-FOREIGN",
         "PROSE-GLOSS-MIXED",
         "PROSE-GLOSS-UNPAIRED",
+        "PROSE-GLOSS-UNANCHORED",
         "PROSE-PANGU",
         "PROSE-TRADITIONAL",
         "PROSE-ANCHOR",

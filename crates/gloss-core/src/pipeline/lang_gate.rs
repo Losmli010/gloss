@@ -3,7 +3,7 @@
 //! 策略表；违约进语言修复轮，预算耗尽落降级标识。判定器是纯函数：
 //! 不读配置、不碰网络、不识别源语言，只消费任务输入做重合比对。
 //!
-//! 管线：（pulldown-cmark）解析 → 结构节点按任务（markdown）能力判定 →
+//! 管线：解析器（pulldown-cmark）解析 → 结构节点按任务（markdown）能力判定 →
 //! 文本节点切数学定界区、括号组、引文组 → 容器外逐文字段与标点判定 →
 //! 原文重合与字段级检查。豁免细则与违约类别到修复动作的映射见各子
 //! 模块，设计文档与规则编号的对应关系见记录文件。
@@ -277,6 +277,68 @@ mod tests {
             !has(&violations, LangCategory::ForeignRun),
             "a parenthesized term is container content: {violations:?}"
         );
+    }
+
+    #[test]
+    fn registered_bare_terms_pass_bare_and_flag_missing_space_without_spaces() {
+        let zh = Lang::Zh;
+        let violations = categories(
+            TaskKind::TranslateWord,
+            zh,
+            "gloss",
+            "只输出一个 JSON 对象。",
+            word_card(None, &[]),
+        );
+        assert!(
+            !has(&violations, LangCategory::ForeignRun)
+                && !has(&violations, LangCategory::MissingSpace),
+            "a registered bare term with pangu spaces stays legal: {violations:?}"
+        );
+
+        let violations = categories(
+            TaskKind::TranslateWord,
+            zh,
+            "gloss",
+            "只输出一个JSON对象。",
+            word_card(None, &[]),
+        );
+        assert!(
+            has(&violations, LangCategory::MissingSpace)
+                && !has(&violations, LangCategory::ForeignRun),
+            "a registered bare term adjacent to Chinese moves to the spacing check: \
+             {violations:?}"
+        );
+    }
+
+    #[test]
+    fn registry_match_is_case_sensitive_and_whole_word() {
+        let zh = Lang::Zh;
+        for bare in [
+            "只输出一个 json 对象。",
+            "只输出一个JSON5对象。",
+            "输出 JSONS 形态。",
+        ] {
+            let violations = categories(
+                TaskKind::TranslateWord,
+                zh,
+                "gloss",
+                bare,
+                word_card(None, &[]),
+            );
+            assert!(has(&violations, LangCategory::ForeignRun), "{bare}");
+        }
+    }
+
+    #[test]
+    fn unregistered_terms_keep_the_foreign_run_flag() {
+        let violations = categories(
+            TaskKind::TranslateWord,
+            Lang::Zh,
+            "gloss",
+            "解析这个 token 的结构。",
+            word_card(None, &[]),
+        );
+        assert!(has(&violations, LangCategory::ForeignRun));
     }
 
     #[test]
