@@ -5,6 +5,7 @@ pub mod context;
 pub mod fonts;
 pub mod i18n;
 pub mod popup;
+pub mod scroll;
 pub mod settings;
 pub mod style;
 

@@ -11,9 +11,12 @@
 - 页脚与正文之间的空隙；滚动区按这条带宽预留视口
   （auto_shrink(false) 的滚动区会吃光剩余空间，不预留页脚就被挤出窗外）。
 
-## `ARROW_SCROLL_STEP`
+## `ARROW_SCROLL_STEP`（已迁出）
 
 - 方向键的单次滚动步长（约三行正文；按住由系统按键重复续推）。
+- 2026-11-03 随设置窗接入方向键滚动，私有 `arrow_key_scroll` 收编为
+  `ui/scroll.rs` 共享基元（并补焦点守卫），步长档位迁
+  `geometry::scroll::ARROW_SCROLL_STEP`——沿革见滚动基元记录文件。
 
 ## `SHIMMER_BAR_HEIGHT`（圆角与透明度档已迁出）
 

@@ -45,3 +45,16 @@
   仍按各自需要取 zh/en。旧基线的 `.old.png` 备份不入库。
 
 - 2026-10-10 八张 settings 基线同 PR 更新（settings_main / notice / invalid / update_* 五态）：出厂模型 `deepseek-chat` → `deepseek-flash`（剪贴板图片方案 §5.4，gloss-core `DEFAULT_MODEL`），设置页模型输入框预填文案随之变化。逐像素 diff 核验：八张差异均为同一位置的同一文本行（各 72 px），无布局或样式漂移；属预期内容变更，显式审查后更新。
+
+## 方向键滚动的两条用例（2026-11-03）
+
+- `arrow_keys_scroll_the_overflowing_settings`：设置窗 640 像素高装不下
+  三个分区，测试把视口压到 240 像素强制溢出后按下方向键断言“更新”分区
+  上移、按上方向键断言回位——钉的是滚动区对方向键的响应本身（步长与
+  守卫在共享基元），不碰滚动区内部状态；回位用 1 像素容差，浮层同名
+  用例同口径。
+- `arrow_keys_yield_to_the_focused_text_input`：先持焦端点输入框再按下
+  方向键，断言内容不动。输入框经 kittest 的 accesskit 树按
+  `Role::TextInput` 取声明序第一枚（三个输入框同角色）。这条钉的是
+  egui 文本编辑不消费按键事件造成的双触发坑：焦点守卫缺席时该断言会
+  失败。

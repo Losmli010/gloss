@@ -55,7 +55,6 @@ pub mod overlay {
     pub const FOOTER_DOT_COUNT: usize = 3;
     pub const WATERMARK_PADDING: f32 = rem(0.5);
     pub const MIN_BODY_VIEWPORT: f32 = rem(4.0);
-    pub const ARROW_SCROLL_STEP: f32 = rem(4.0);
     pub const SHIMMER_BAR_HEIGHT: f32 = rem(1.0);
     pub const SHIMMER_BAR_RATIOS: [f32; 3] = [0.95, 0.78, 0.6];
     pub const VIOLATION_HINT_ROW_CAP: usize = 5;
@@ -67,6 +66,12 @@ pub mod settings {
 
     pub const WINDOW_PADDING: f32 = rem(1.375);
     pub const CLEAR_BUTTON_RESERVE: f32 = rem(7.375);
+}
+
+pub mod scroll {
+    use super::rem;
+
+    pub const ARROW_SCROLL_STEP: f32 = rem(4.0);
 }
 
 pub mod resize {
