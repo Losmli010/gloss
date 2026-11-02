@@ -13,11 +13,12 @@
                      定，靠人工评审。
   装入点集中      —— 编译期引用文案资源只允许出现在统一装入点一处。
   词条表文件唯一  —— 声明词条前缀键的配置文件只允许在文案目录下。
-  词条语言规范    —— 中文表词条必须纯中文，英文表词条必须纯英文；字符面
-                     取语言规范库同源定义（拉丁面与全角面）。模板占位符、
-                     地址方案符与快捷键符号是记号不是外文，不判罚；判罚
-                     口径只锁最低必要规范：中文表是中文，英文表是英文，
-                     无任何词条豁免。
+  词条语言规范    —— 中英两表词条逐条值守分诊口径（与注释头同一形状）：
+                     剥模板占位符、地址方案符与快捷键符号三类记号后，反引
+                     号与章节引用两刀短路，未命中落区核心——中文表主体走
+                     中文区表述判定，无汉字即触语言刀（比含拉丁字母即罚
+                     加严），英文表走英文区判定；词条经纯文本渲染进界
+                     面，行内代码等记号会原样显示给用户，不设词条豁免。
   措辞注册表      —— 提示词措辞注册表（修复轮与分类类别段）两份语言表
                      键集合一致（条目键完整性），逐条值守语言规范：中文
                      表条目按中文区判据、英文表条目按英文区判据，判据取
@@ -44,14 +45,13 @@ from typing import Any
 import gate_report
 import rg_engine
 import tomllib
-from language_spec.chinese import CJKWISE
 from language_spec.coderef import ZONE_CHINESE, ZONE_ENGLISH, prose_line_problems
+from language_spec.triage import TriageFace, triage_problems
 
 RULE = "ui copy lives in the i18n catalog"
 OWNER = "crates/gloss-app/src/ui/i18n.rs"
 CATALOG_DIR = "crates/gloss-app/i18n"
 
-LATIN = re.compile(r"[A-Za-z]")
 CATALOG_FILES = ("zh.toml", "en.toml")
 REGISTRY_DIR = "crates/gloss-core/prompts/wordings"
 REGISTRY_FILES = ("zh.toml", "en.toml")
@@ -62,6 +62,8 @@ RULE_I18N_LITERAL = "I18N-LITERAL"
 RULE_I18N_LOADPOINT = "I18N-LOADPOINT"
 RULE_I18N_CATALOG = "I18N-CATALOG"
 RULE_I18N_LANGUAGE = "I18N-LANGUAGE"
+RULE_I18N_ENTRY_CODEREF = "I18N-ENTRY-CODEREF"
+RULE_I18N_ENTRY_SECTION_REF = "I18N-ENTRY-SECTION-REF"
 RULE_I18N_REGISTRY = "I18N-REGISTRY"
 
 LITERAL_REMEDY = (
@@ -74,11 +76,34 @@ LOADPOINT_REMEDY = (
 )
 CATALOG_REMEDY = "move the entry table into %s/" % CATALOG_DIR
 
-ZH_LANGUAGE_REMEDY = "rewrite the zh entry in Chinese, keeping placeholders and address schemes"
+ZH_LANGUAGE_REMEDY = (
+    "rewrite the zh entry in Chinese, holding foreign originals in fullwidth"
+    " bracket annotations tight to their translated names; placeholders,"
+    " address schemes and shortcut glyphs stay as notation"
+)
 EN_LANGUAGE_REMEDY = "rewrite the en entry in English, keeping placeholders and symbol references"
 
 LANGUAGE_MESSAGE_ZH = "the zh entry must be pure Chinese"
-LANGUAGE_MESSAGE_EN = "the en entry must be pure English"
+
+ENTRY_CODEREF_REMEDY = (
+    "drop the backticks — entry values render as plain text, so the marks would"
+    " show to the user; keep references and examples out of the copy"
+)
+ENTRY_SECTION_REF_REMEDY = "move the section citation to the record file"
+
+# 词条面的三刀参数：反引号与章节引用两刀自设标识，语言刀沿用词条语言标识
+ENTRY_FACE = TriageFace(
+    coderef_rule=RULE_I18N_ENTRY_CODEREF,
+    coderef_message="the entry contains a code segment — entry values render as plain text",
+    coderef_remedy=ENTRY_CODEREF_REMEDY,
+    section_rule=RULE_I18N_ENTRY_SECTION_REF,
+    section_message='the entry contains a "§ section number" style external reference',
+    section_remedy=ENTRY_SECTION_REF_REMEDY,
+    language_rule=RULE_I18N_LANGUAGE,
+    language_message=LANGUAGE_MESSAGE_ZH,
+    language_remedy=ZH_LANGUAGE_REMEDY,
+    english_remedy=EN_LANGUAGE_REMEDY,
+)
 
 REGISTRY_REMEDY = (
     "keep the two locale tables key-identical: give the entry the same qualified key in both tables"
@@ -95,6 +120,10 @@ ENTRY_LINE_RE = re.compile(r'^\s*(gloss_[A-Za-z0-9_]+)\s*=\s*"(.*)"\s*$')
 
 TEMPLATE_RE = re.compile(r"\{\{[^}]*\}\}")
 ADDRESS_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+# 快捷键符号面：修饰键与常用键位字形是记号不是外文，剥离后随区核心判定；
+# 剥离只认字形——带字母键位的组合（如 Cmd 加 S）会残留字母落外文判罚，界
+# 面文案写组合键时须中文表述键位名，不写字形加字母
+KEYBOARD_RE = re.compile("[⌘⌃⌥⇧⇪⏎⌫⎋⇥↩␣]")
 
 DISPLAY_SITE_RE = re.compile(
     r'\b(?:ui\.label|ui\.button|RichText::new|selected_text|on_hover_text|hint_text)\(\s*"'
@@ -567,48 +596,26 @@ def guard_catalog_files(root: str) -> None:
 
 
 def language_findings(root: str, loader: Any = None) -> tuple[int, list[gate_report.Finding]]:
-    """检查四：词条语言规范——中文表词条必须纯中文（剔模板占位符与地址方
-    案符两类记号后不得残留英文字母），英文表词条必须纯英文，无任何词条豁
-    免；字符面取语言规范库同源定义，逐行全量报告，返回扫描的词条数与违
-    规条目。"""
+    """检查四：词条语言规范——中英两表逐条值守分诊口径：剥模板占位符、地
+    址方案符与快捷键符号三类记号后走共享分诊（词条面参数），中文表无汉字
+    即触语言刀、主体走中文区表述判定，英文表走英文区判定，无任何词条豁
+    免；逐行全量报告，返回扫描的词条数与违规条目。"""
     out: list[gate_report.Finding] = []
     scanned = 0
     for name in CATALOG_FILES:
-        path = os.path.join(root, CATALOG_DIR, name)
         rel = "%s/%s" % (CATALOG_DIR, name)
-        zh = name.startswith("zh")
-        for no, line in enumerate(read_lines(path, loader), 1):
+        zone = ZONE_CHINESE if name.startswith("zh") else ZONE_ENGLISH
+        label = "the zh entry" if zone == ZONE_CHINESE else "the en entry"
+        for no, line in enumerate(read_lines(os.path.join(root, rel), loader), 1):
             match = ENTRY_LINE_RE.match(line)
             if match is None:
                 continue
             value = match.group(2)
             scanned += 1
-            if zh:
-                stripped = TEMPLATE_RE.sub("", value)
-                stripped = ADDRESS_SCHEME_RE.sub("", stripped)
-                if not LATIN.search(stripped):
-                    continue
-                out.append(
-                    gate_report.Finding(
-                        rule=RULE_I18N_LANGUAGE,
-                        path=rel,
-                        line=no,
-                        message="%s line %d: %s" % (rel, no, LANGUAGE_MESSAGE_ZH),
-                        evidence=value,
-                        remedy=ZH_LANGUAGE_REMEDY,
-                    )
-                )
-            elif CJKWISE.search(value):
-                out.append(
-                    gate_report.Finding(
-                        rule=RULE_I18N_LANGUAGE,
-                        path=rel,
-                        line=no,
-                        message="%s line %d: %s" % (rel, no, LANGUAGE_MESSAGE_EN),
-                        evidence=value,
-                        remedy=EN_LANGUAGE_REMEDY,
-                    )
-                )
+            value = TEMPLATE_RE.sub("", value)
+            value = ADDRESS_SCHEME_RE.sub("", value)
+            value = KEYBOARD_RE.sub("", value)
+            out += triage_problems(rel, no, value, label, zone, ENTRY_FACE)
     return scanned, out
 
 
