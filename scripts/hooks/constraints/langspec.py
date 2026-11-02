@@ -3,9 +3,10 @@
 语言规范数据源（crates/gloss-core/langspec/zh_en.toml）是字符事实的唯一出
 处，判罚实现里出现数据源字符面的成员即判罚——私有字符事实会绕过单源，复
 刻同字异判的漂移。判罚面是两侧的判罚实现：生产侧判罚树（lang_gate.rs）
-（lang_gate/），内联测试模块不计——夹具是样本文本不是字符事实；开发侧语
-言规范库的判罚模块（english）（coderef）与包初始化脚本，（chinese）是开
-发侧派生模块按派生处豁免，测试文件随测试目标豁免。判罚模式自数据源动态
+加判定目录（lang_gate/），内联测试模块不计——夹具是样本文本不是字符事
+实；开发侧语言规范库的判罚模块英文区（english）与代码引用（coderef）两
+文件加包初始化脚本，派生模块（chinese）按派生处豁免，测试文件随测试目标
+豁免。判罚模式自数据源动态
 构建，取各字符面的非（ASCII）成员；变体选择符不可见，不作判罚对象。正则
 组合与结构记号豁免面按计划仍住代码，行尾放行标记（langspec:allow）加缘由
 后豁免；数据源缺失或损坏按失败关闭退出。字面量提取复用文案门禁的本语言
@@ -38,13 +39,16 @@ DATA_SOURCE = os.path.join("crates", "gloss-core", "langspec", "zh_en.toml")
 
 ALLOW_MARKER = "langspec:allow"
 
-# 判罚模式读的数据面：场景标点两份、中文场景附随面两份加共用面九份；西文
-# 标点与数字夹住面不含非英文字符，变体选择符经下方不可见选择符剔除，三面
-# 对本模式无贡献，读入只为口径完整
+# 判罚模式读的数据面：场景标点两份、中文场景附随面两份、注记括号锚点判
+# 定面两份加共用面九份；西文标点与数字夹住面不含非英文字符，变体选择符经
+# 下方不可见选择符剔除，三面对本模式无贡献，读入只为口径完整；裸词登记面
+# 不入模式——键形属（ASCII）形态，缘由是数据体不是判罚事实
 FACE_KEYS = (
     ("zh", "punct"),
     ("zh", "attached_after_digit"),
     ("zh", "attached_before_digit"),
+    ("zh", "gloss_anchor", "function_words"),
+    ("zh", "gloss_anchor", "exempt_runs"),
     ("en", "punct"),
     ("shared", "math"),
     ("shared", "attached_after_digit"),
@@ -104,8 +108,11 @@ def face_chars(root: str, loader: Any = None) -> frozenset[str]:
     try:
         data = tomllib.loads(manifests.read_text(path, loader))
         chars = set()
-        for section, key in FACE_KEYS:
-            chars.update(data[section][key])
+        for keys in FACE_KEYS:
+            node = data
+            for key in keys:
+                node = node[key]
+            chars.update(node)
     except (tomllib.TOMLDecodeError, KeyError, TypeError) as exc:
         gate_report.fail(
             gate_report.infra_failure(

@@ -1,8 +1,10 @@
 //! 正文判定：容器内容与数学定界区之外的文本。文字系统（连续文字段按
-//! 目标语言合法集判定，拉丁豁免仅单字母变量与紧跟句点的单字母缩写）、
+//! 目标语言合法集判定，拉丁豁免仅单字母变量与紧跟句点的单字母缩写与登
+//! 计表整词精确匹配的裸用登记词）、
 //! 标点（目标标点集，容器定界符与数字附随符号豁免，破折号省略号家族
 //! 不判）、盘古之白（仅中文，出罚面以文字系统的豁免面为界：相邻西文
-//! 段是纯数字或不接句点的单字母才判，其余字母段归外文判罚）与表情符
+//! 段是纯数字、登记词或不接句点的单字母才判，其余字母段归外文判罚——
+//! 登记词裸用合法后与汉字直接相邻归缺空格管辖，盘古空格随行）与表情符
 //! 号。
 
 use super::containers::script_runs;
@@ -65,9 +67,35 @@ impl BodyCheck<'_> {
                 && run.class == ScriptClass::Latin
                 && self.chars.get(run.end) == Some(&'.');
             if run.len >= 2 || abbrev_dot {
+                if self.is_registered_term(run.end - run.len, run.end) {
+                    continue;
+                }
                 violations.push(LangViolation::new(self.field, LangCategory::ForeignRun));
             }
         }
+    }
+
+    fn is_registered_term(&self, start: usize, end: usize) -> bool {
+        let spec = langspec::spec();
+        if spec.bare_terms.is_empty() {
+            return false;
+        }
+        let (start, end) = self.term_token_bounds(start, end);
+        spec.bare_terms
+            .iter()
+            .any(|term| self.chars[start..end].iter().copied().eq(term.chars()))
+    }
+
+    fn term_token_bounds(&self, start: usize, end: usize) -> (usize, usize) {
+        let mut lo = start;
+        while lo > 0 && is_term_char(self.chars[lo - 1]) {
+            lo -= 1;
+        }
+        let mut hi = end;
+        while hi < self.chars.len() && is_term_char(self.chars[hi]) {
+            hi += 1;
+        }
+        (lo, hi)
     }
 
     fn check_punct(&self, violations: &mut Vec<LangViolation>) {
@@ -143,6 +171,9 @@ impl BodyCheck<'_> {
             }
             (seg_start, west_at + 1)
         };
+        if self.is_registered_term(seg_start, seg_end) {
+            return true;
+        }
         let mut index = seg_start;
         while index < seg_end {
             if !self.chars[index].is_ascii_alphabetic() {
@@ -213,6 +244,10 @@ fn is_dash_or_ellipsis(chars: &[char], index: usize) -> bool {
 
 fn is_han(c: char) -> bool {
     langspec::range_contains(&langspec::spec().ranges.han, c as u32)
+}
+
+fn is_term_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+')
 }
 
 fn is_emoji(c: char) -> bool {

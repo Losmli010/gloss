@@ -438,7 +438,7 @@ mod tests {
         for locale in [Locale::Zh, Locale::En] {
             let prose = registry.render_repair(Locale::Zh, Violation::NotJson, None);
             assert!(
-                prose.contains("回复不是裸（JSON）对象：NotJson——"),
+                prose.contains("回复不是裸 JSON 对象：NotJson——"),
                 "the violation-level row carries position, rule id and action: {prose}"
             );
             let en = registry.render_repair(Locale::En, Violation::NotJson, None);

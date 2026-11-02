@@ -410,7 +410,7 @@ mod tests {
         );
         let system = text_of(&messages[0].content);
         assert!(
-            system.contains("（JSON）格式") || system.contains("JSON format"),
+            system.contains("JSON 格式") || system.contains("JSON format"),
             "the image contract must demand JSON output: {system}"
         );
         assert!(system.contains("\"note\""), "{system}");

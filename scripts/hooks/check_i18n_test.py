@@ -427,6 +427,23 @@ def test_registry_language_violation_rides_the_zone_judgment(tmp_path: Path) -> 
     assert "PROSE-ENGLISH" in rules, findings
 
 
+def test_registry_unanchored_bracket_rides_the_anchor_rule(tmp_path: Path) -> None:
+    # 词条路径随注记括号锚点硬规则判罚：塞括号退化形态在措辞注册表同样现形
+    zh = '[repair.frame]\nheader = "只输出一个以花括号开头结尾的（JSON）对象"\n'
+    en = '[repair.frame]\nheader = "Output only the JSON object wrapped in braces"\n'
+    _, findings = run_with_registry(tmp_path, zh, en)
+    assert any(finding.rule == "PROSE-GLOSS-UNANCHORED" for finding in findings), findings
+
+
+def test_registry_registered_bare_term_passes_the_entry_scan(tmp_path: Path) -> None:
+    # 登记词裸用随两侧同源登记面放行：措辞表里的 JSON 裸用不再逼进括号
+    zh = '[repair.frame]\nheader = "只输出一个 JSON 对象"\n'
+    en = '[repair.frame]\nheader = "Output only one JSON object"\n'
+    oks, findings = run_with_registry(tmp_path, zh, en)
+    assert findings == [], findings
+    assert any("key-and-language-checked" in line for line in oks)
+
+
 def test_registry_non_plain_value_is_reported(tmp_path: Path) -> None:
     zh = "[repair.frame]\nheader = '违约清单：'\n"
     en = '[repair.frame]\nheader = "Violations:"\n'

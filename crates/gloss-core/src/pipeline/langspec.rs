@@ -6,7 +6,9 @@
 //! 面的语义与组合：场景标点面与中性面（数学记号）合成该场景的允许表；
 //! 附随面（前邻数字、后邻数字、数字夹住三向）由判定器按邻接豁免；家族
 //! 面（破折号省略号）整体不判。句末标点面是括号内句末判定的收尾符集，
-//! 与标点面按位置各司其职。简繁对串是整段文本事实，
+//! 与标点面按位置各司其职。裸词登记面是登记表不是字符面：键形经装入校
+//! 验（单词形态加非空缘由）后供语言门对外文文字段整词精确匹配放行（大
+//! 小写敏感），表小是设计目标。简繁对串是整段文本事实，
 //! 不做结构解析只换载体。区段串用空格分隔的十六进制闭区间（起、止）表
 //! 达。等价搬迁的锁定面（现表逐符号誊录的基准串）与完整性断言都在测试
 //! 模块：锁定面向运行时派生结果对版，完整性断言直读嵌入数据本身。
@@ -35,6 +37,7 @@ pub(crate) struct Spec {
     pub(crate) emoji_variants: Vec<char>,
     pub(crate) brackets_zh: Vec<(char, char)>,
     pub(crate) brackets_en: Vec<(char, char)>,
+    pub(crate) bare_terms: Vec<String>,
     pub(crate) pangu: Switch,
     pub(crate) simplified: Switch,
     pub(crate) ranges: Ranges,
@@ -69,6 +72,7 @@ struct ZhSection {
     punct: String,
     attached_after_digit: String,
     attached_before_digit: String,
+    bare_terms: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -154,6 +158,7 @@ fn parse(source: &str) -> Result<Spec, String> {
     let en_allow = merged(en_punct.clone(), &math);
     let shared_after = face(&shared.attached_after_digit);
     let shared_before = face(&shared.attached_before_digit);
+    let bare_terms = bare_term_keys(&data.zh.bare_terms)?;
     Ok(Spec {
         zh_allow,
         en_allow,
@@ -173,6 +178,7 @@ fn parse(source: &str) -> Result<Spec, String> {
         emoji_variants: face(&shared.emoji_variants),
         brackets_zh: vec![pair(&shared.brackets.zh, "shared.brackets.zh")?],
         brackets_en: vec![pair(&shared.brackets.en, "shared.brackets.en")?],
+        bare_terms,
         pangu: Switch {
             zh: data.policy.pangu.zh,
             en: data.policy.pangu.en,
@@ -183,6 +189,30 @@ fn parse(source: &str) -> Result<Spec, String> {
         },
         ranges: ranges(&data.ranges)?,
     })
+}
+
+fn bare_term_keys(
+    table: &std::collections::BTreeMap<String, String>,
+) -> Result<Vec<String>, String> {
+    let mut out = Vec::with_capacity(table.len());
+    for (term, reason) in table {
+        let mut chars = term.chars();
+        match chars.next() {
+            Some(first) if first.is_ascii_alphabetic() => {}
+            _ => return Err(format!("zh.bare_terms: {term:?} must start with a letter")),
+        }
+        if !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+')) {
+            return Err(format!("zh.bare_terms: {term:?} is not a single-word form"));
+        }
+        if reason.trim().is_empty() {
+            return Err(format!(
+                "zh.bare_terms: {term:?} lacks a registration reason"
+            ));
+        }
+        out.push(term.clone());
+    }
+    out.sort();
+    Ok(out)
 }
 
 fn ranges(section: &RangeSection) -> Result<Ranges, String> {
@@ -267,6 +297,7 @@ impl Spec {
             emoji_variants: Vec::new(),
             brackets_zh: Vec::new(),
             brackets_en: Vec::new(),
+            bare_terms: Vec::new(),
             pangu: Switch {
                 zh: false,
                 en: false,
@@ -396,6 +427,27 @@ mod tests {
     #[test]
     fn simplified_pairs_match_the_migrated_table() {
         assert_eq!(simplified_pairs(), GOLDEN_PAIRS);
+    }
+
+    #[test]
+    fn bare_term_registry_matches_the_migrated_table() {
+        let spec = spec();
+        assert_eq!(spec.bare_terms, vec!["JSON".to_owned()]);
+    }
+
+    #[test]
+    fn bare_term_registry_rejects_non_word_shapes_and_empty_reasons() {
+        let entry = |term: &str, reason: &str| {
+            std::collections::BTreeMap::from([(term.to_owned(), reason.to_owned())])
+        };
+        for term in ["5json", "has space", "-lead", "_lead", "json,"] {
+            assert!(bare_term_keys(&entry(term, "reason")).is_err(), "{term}");
+        }
+        assert!(bare_term_keys(&entry("JSON", "   ")).is_err());
+        assert_eq!(
+            bare_term_keys(&entry("Node.js", "缘由")).unwrap(),
+            vec!["Node.js".to_owned()]
+        );
     }
 
     fn data() -> SourceData {

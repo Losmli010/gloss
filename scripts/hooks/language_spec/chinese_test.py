@@ -1,5 +1,7 @@
-"""中文区规则的单测：字符面派生判罚、数字附随邻接、盘古之白相邻、简体判
-定、表情事实对账、注记括号单语与配对、锚点连贯软约束、指令段豁免。
+"""中文区规则的单测：字符面派生判罚、数字附随邻接、盘古之白相邻（数字与
+登记词随行）、简体判定、表情事实对账、注记括号单语与配对、注记括号锚点硬
+规则（塞括号退化形态三判据）、锚点连贯软约束、裸词登记制（精确匹配放行与
+盘古空格随行）、指令段豁免。
 
 被测入口是规则函数，直接传路径、行号与表述文本，返回带规则标识的违规条目，
 不落进程；断言取条目消息核对判罚片段；用法见注释门禁与提交信息门禁的单测
@@ -271,7 +273,9 @@ def test_pangu_flags_digit_adjacency_only() -> None:
     problems = chinese.body_problems("t", 1, "中文word相连要补空格。", "header")
     assert all(p.rule != chinese.RULE_PROSE_PANGU for p in problems)
     assert any(p.rule == chinese.RULE_PROSE_FOREIGN for p in problems)
-    assert chinese.PANGU_REMEDY == "keep one halfwidth space between Chinese and digits"
+    assert chinese.PANGU_REMEDY == (
+        "keep one halfwidth space between Chinese and digits or registered bare terms"
+    )
 
 
 def test_foreign_finding_carries_adjacency_evidence() -> None:
@@ -391,10 +395,11 @@ def test_fence_comment_and_safety_masks_removed() -> None:
 
 # 违规句、按定稿改法机械落地句与判定面三列成表，落地句同面复跑零判罚；
 # 本表收改法收敛阶段一至阶段三的规范形（盘古收窄、六类替换映射、数字间冒
-# 号、数字形态收窄、段内容贯通、孤反引号补配对与删孤记号、围栏注释整词删
+# 号、数字形态收窄、段内容贯通、孤反引号补配对与删孤记号、围栏注释整行删
 # 除、文件头注记改写与不变量注释邻接补全；阶段三收尾补机器记号整词改写、
 # 进制字面量与下划线分隔落段放行、数字形态比值改写全角分隔号、段内容贯通
-# 的提交信息与文案词条两面），
+# 的提交信息与文案词条两面；语言规范治本方案第二期补锚点硬规则三形态——
+# 悬空落译名锚点、虚词与单字粘着走登记裸用，登记词缺空格走盘古改写），
 # 后续增行；今后新规则落地必须同批补行，改法不收敛当场红。
 REMEDY_FIXTURES = (
     ("body", "圖形渲染管线由wgpu驱动。", "图形渲染管线由（wgpu）驱动。"),
@@ -402,6 +407,13 @@ REMEDY_FIXTURES = (
     ("body", "版本（v1.2 缺右括号。", "版本（v1.2）缺右括号。"),
     ("body", "我们要fallback到旧版本。", "我们要（fallback）到旧版本。"),
     ("body", "中文word相连要补空格。", "中文（word）相连要补空格。"),
+    ("body", "（serde）解析——经黑箱包装进出测量。", "序列化库（serde）解析——经黑箱包装进出测量。"),
+    (
+        "body",
+        "只输出一个以花括号开头结尾的（JSON）对象。",
+        "只输出一个以花括号开头结尾的 JSON 对象。",
+    ),
+    ("body", "按（JSON）格式输出。", "按 JSON 格式输出。"),
     ("body", "版本3发布、通道2收尾。", "版本 3 发布、通道 2 收尾。"),
     ("body", "好!使用,半角逗号。", "好！使用，半角逗号。"),
     ("body", "降级＝有痕迹，占比 50％，＄5。", "降级=有痕迹，占比 50%，￥5。"),
@@ -409,6 +421,7 @@ REMEDY_FIXTURES = (
     ("body", "「词」等等‥他想了很久...。", "用“词”标注等等……他想了很久……。"),
     ("body", "他想在 25°C 停，比例 1∶2。", "他想在 25℃ 停，比例 1：2。"),
     ("body", "占比 50 %偏高。", "占比 50%偏高。"),
+    ("body", "只输出一个JSON对象。", "只输出一个 JSON 对象。"),
     ("markdown", "使用$5与列|列对版。", "使用`$5`与列`|`列对版。"),
     ("markdown", "花费$5购买。", "花费￥5 购买。"),
     ("markdown", "进制 0x1F 记录在案。", "进制 `0x1F` 记录在案。"),
@@ -418,7 +431,7 @@ REMEDY_FIXTURES = (
     ("markdown", "退出码为 `0` 落盘。", "退出码为 0 落盘。"),
     ("markdown", "重试 `3` 次后停止。", "重试 3 次后停止。"),
     ("markdown", "标题 ` 残缺", "标题 残缺"),
-    ("markdown", "版本 15.5 由wgpu驱动。", "版本 15.5 由（wgpu）驱动。"),
+    ("markdown", "版本 15.5 由wgpu驱动。", "版本 15.5 由图形库（wgpu）驱动。"),
     ("markdown", "性能达标由`wgpu合成，通道 3 收尾。", "性能达标由`wgpu`合成，通道 3 收尾。"),
     ("markdown", "```bash\n# 参考 `just fmt` 运行。\n```", "```bash\n# 参考运行。\n```"),
     (
@@ -523,6 +536,120 @@ def test_anchor_stays_silent_for_terms_paths_and_single_words() -> None:
     ]:
         assert chinese.anchor_reasons(gloss) == [], gloss
         assert chinese.body_problems("t", 1, "启用（%s）补位。" % gloss, "header") == []
+
+
+# ---- 注记括号锚点硬规则：塞括号退化形态判罚，例外小表与跨行延续放行 ----
+
+
+def test_dangling_bracket_flags_and_anchored_form_lands_clean() -> None:
+    problems = chinese.body_problems("t", 1, "（serde）解析——经黑箱包装进出测量。", "header")
+    assert any(p.rule == chinese.RULE_PROSE_GLOSS_UNANCHORED for p in problems)
+    assert (
+        chinese.body_problems("t", 1, "序列化库（serde）解析——经黑箱包装进出测量。", "header") == []
+    )
+
+
+def test_function_word_attachment_flags_and_bare_registry_form_lands_clean() -> None:
+    problems = chinese.body_problems("t", 1, "只输出一个以花括号开头结尾的（JSON）对象。", "header")
+    assert any(p.rule == chinese.RULE_PROSE_GLOSS_UNANCHORED for p in problems)
+    assert chinese.body_problems("t", 1, "只输出一个以花括号开头结尾的 JSON 对象。", "header") == []
+
+
+def test_single_character_attachment_flags_and_registered_bare_form_lands_clean() -> None:
+    problems = chinese.body_problems("t", 1, "按（JSON）格式输出。", "header")
+    assert any(p.rule == chinese.RULE_PROSE_GLOSS_UNANCHORED for p in problems)
+    assert chinese.body_problems("t", 1, "按 JSON 格式输出。", "header") == []
+
+
+def test_exempt_runs_with_brackets_pass() -> None:
+    # 例外小表自数据源判定面派生：目的、标的以注记括号缀原文放行
+    assert chinese.body_problems("t", 1, "目的（goal）与标的（target）都已对照。", "header") == []
+
+
+def test_english_zone_lines_skip_the_anchor_rule() -> None:
+    problems = coderef.prose_line_problems("d.md", 1, "the (serde) parser", coderef.ZONE_ENGLISH)
+    assert all(p.rule != chinese.RULE_PROSE_GLOSS_UNANCHORED for p in problems)
+
+
+def test_pure_chinese_brackets_skip_the_anchor_rule() -> None:
+    # 纯中文括号与单字母括号不在硬规则判定域（装外文的注记才判）
+    assert chinese.body_problems("t", 1, "好（每秒笔数）达标。", "header") == []
+    assert chinese.body_problems("t", 1, "缓存（L 值）语义。", "header") == []
+
+
+def test_stripped_text_judges_brackets_after_inline_code() -> None:
+    # 剥除链交互：行内代码剥除后的括号按剥净文本判——紧邻字符是剥除占位空白
+    problems = coderef.prose_line_problems("d.md", 1, "经 `criterion`（benchmark）框架测量。")
+    assert any(p.rule == chinese.RULE_PROSE_GLOSS_UNANCHORED for p in problems)
+
+
+def test_line_wrapped_term_carries_the_bracket_across_lines_clean() -> None:
+    # 跨行延续：术语在上一行行尾、注记整行承接——行模型按行判，放行
+    assert chinese.body_problems("t", 1, "不经序列化库\n（serde）解析进出测量。", "header") == []
+
+
+# ---- 裸词登记制：精确匹配放行、盘古空格随行、表外零豁免、判定次序 ----
+
+
+def test_registered_bare_terms_pass_and_flag_missing_space_as_pangu() -> None:
+    problems = chinese.body_problems("t", 1, "只输出一个 JSON 对象。", "header")
+    assert problems == []
+    problems = chinese.body_problems("t", 1, "只输出一个JSON对象。", "header")
+    assert any(p.rule == chinese.RULE_PROSE_PANGU for p in problems)
+    assert all(p.rule != chinese.RULE_PROSE_FOREIGN for p in problems)
+
+
+def test_registry_match_is_case_sensitive() -> None:
+    problems = chinese.body_problems("t", 1, "只输出一个 json 对象。", "header")
+    assert any(p.rule == chinese.RULE_PROSE_FOREIGN for p in problems)
+
+
+def test_registry_match_is_whole_word() -> None:
+    problems = chinese.body_problems("t", 1, "只输出一个JSON5对象。", "header")
+    assert any(p.rule == chinese.RULE_PROSE_FOREIGN for p in problems)
+
+
+def test_unregistered_terms_stay_flagged() -> None:
+    problems = chinese.body_problems("t", 1, "解析这个 token 的结构。", "header")
+    assert any(p.rule == chinese.RULE_PROSE_FOREIGN for p in problems)
+
+
+def test_judgment_order_bracket_rule_then_bare_registry_then_foreign_flag() -> None:
+    # 判定次序锁定（先判者生效）：括号形态归锚点硬规则（登记不豁免塞括号），
+    # 裸用形态归登记精确匹配（登记优先于锚点体例，无需锚点），表外归外文判罚
+    problems = chinese.body_problems("t", 1, "结尾的（JSON）对象。", "header")
+    assert any(p.rule == chinese.RULE_PROSE_GLOSS_UNANCHORED for p in problems)
+    assert chinese.body_problems("t", 1, "结尾的 JSON 对象。", "header") == []
+    problems = chinese.body_problems("t", 1, "结尾的 json 对象。", "header")
+    assert any(p.rule == chinese.RULE_PROSE_FOREIGN for p in problems)
+
+
+def test_registry_stays_minimal_with_the_initial_term() -> None:
+    # 登记即评审：初始清单只有一项，宽度可见——每收一词本基准与两侧金样同步扩行
+    assert chinese.BARE_TERMS == ("JSON",)
+
+
+def test_gloss_anchor_faces_derive_from_the_shared_data_source() -> None:
+    # 判定面单源：虚词表与例外小表自数据源装入派生，判罚实现不私持字面量
+    assert chinese.GLOSS_FUNCTION_WORDS == frozenset("的是个")
+    assert chinese.GLOSS_EXEMPT_RUNS == ("目的", "标的")
+
+
+def test_bare_term_loader_rejects_bad_shapes_and_empty_reasons() -> None:
+    # 登记标准第三条与缘由非空在装入时校验：坏条目当场失败不静默
+    for term in ["5json", "has space", "-lead", "json,"]:
+        try:
+            chinese._load_bare_terms({term: "缘由"})
+        except ValueError as error:
+            assert term in str(error)
+        else:
+            raise AssertionError("bad shape must raise: %s" % term)
+    try:
+        chinese._load_bare_terms({"JSON": "   "})
+    except ValueError as error:
+        assert "reason" in str(error)
+    else:
+        raise AssertionError("an empty reason must raise")
 
 
 # ---- 对账断言（语言规范统一阶段五）：两侧派生各与基准双向相等 ----

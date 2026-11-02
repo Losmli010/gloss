@@ -466,7 +466,7 @@ mod tests {
             other => panic!("expected text content, got {other:?}"),
         };
         assert!(
-            instruction.contains("回复不是裸（JSON）对象：NotJson——"),
+            instruction.contains("回复不是裸 JSON 对象：NotJson——"),
             "the instruction rides the violation-level registry row (the classify stage \
              speaks in violation-level rows): {instruction}"
         );

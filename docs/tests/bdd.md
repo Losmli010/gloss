@@ -315,7 +315,7 @@
 ### degraded_card_and_retry_manual_check
 
 - 测试目标：真机全链路观察降级产物卡与重试出口（契约校验与重试方案 `L4`：降级卡与重试）。
-- 测试场景：给定应用配置指向恒不守约的（HTTPS）端点（非 `LLM` 的 `POST` 回声服务返回非 `SSE` 内容，零增量完成恒现），当划词触发任务，则修复轮页脚切“重新注解”（三轮）、耗尽后出“输出异常”卡（不渲染正文残留、带“重试”），点重试后流程重走并再次落降级卡（降级产物不进缓存：重试必须重新走引擎与修复轮）。
+- 测试场景：给定应用配置指向恒不守约的加密（HTTPS）端点（非 `LLM` 的 `POST` 回声服务返回非 `SSE` 内容，零增量完成恒现），当划词触发任务，则修复轮页脚切“重新注解”（三轮）、耗尽后出“输出异常”卡（不渲染正文残留、带“重试”），点重试后流程重走并再次落降级卡（降级产物不进缓存：重试必须重新走引擎与修复轮）。
 - 测试步骤：
 
 1. 前置：`curl -sS -o /dev/null -w "%{http_code}\\n" -X POST https://httpbin.org/post` 返回 200（第三方回声服务，不可达时换任一“`POST` 回 200 且正文无 `data:` 行”的 `HTTPS` 端点）
@@ -421,7 +421,7 @@
 | cancel_and_clear_key_actions_are_submitted | 取消与清除密钥动作 | 给定“取消”与“清除密钥”按钮，当分别点击，则取消上交 `Close`、清除只置标记（按钮变“撤销清除”）、保存时才上交 `Clear` | 2026-09-19 |
 | invalid_save_is_blocked_with_field_hints | 非法草稿保存被阻断并就地提示 | 给定非法 `Base URL` 的设置窗，当点保存，则不上交 `Save`、字段就地标红并出汇总行 | 2026-09-22 |
 | snapshots_match_baseline（settings） | 设置窗渲染基线（英文浅色；正常、提示、错误三态加更新区五相位） | 给定默认、带保存失败提示、校验错误三个状态与更新区五个相位 `UpToDate`、`Available`、`Downloading`、`Ready`、`Failed(Install)`，当 `wgpu` 以英文文案与浅色主题渲染并 `diff`，则与对应基线一致且关键文本进树。沿革：2026-10-03 随热键区删除、热键校验错误移除重录；同日随职责重划删除任务开关、默认任务、每类模型三区块，新增单一模型输入行重录并移除默认任务停用态，又随“模型 `ID`”字段标签再录；2026-10-10 通用区新增“监听剪贴板图片”开关行与说明随录，八份基线 `diff` 均仅为该行插入与其下内容的既段位移，其余像素零变化；同日评审修复把初版勾选框改为自绘开关滑块（`egui 0.36` 无内建 `Switch`，按官方 `demo` 范式，轨道宽 36 高 20 较勾选框高约 2 像素）再录，`diff` 仍仅限该行控件本体与其下既段位移；2026-10-28 随词条语言规范门禁把监听剪贴板提示的英文弯引号改直引号重录八份，像素差异仅该提示行文字 | 2026-10-28 |
-| failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、（JSON）模式不支持、协议异常（带诊断）、推理通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-10-11 |
+| failure_card_words_each_cause | 失败卡按变体出文案 | 给定网络失败、JSON 模式不支持、协议异常（带诊断）、推理通道不可用四种失败起因，当渲染，则各出对应文案（协议异常保留诊断文本） | 2026-10-11 |
 | failure_card_follows_the_locale | 失败卡随 `locale` 出表 | 给定英文 `locale` 的网络失败卡，当渲染，则出英文文案与英文“`Retry`”动作 | 2026-09-22 |
 | save_failure_notice_names_the_cause | 保存失败提示出场合与诊断 | 给定带 `SaveFailed(Config)` 类型化提示的设置窗（中文表），当渲染，则出“保存失败：诊断文本”（前缀交代场合、诊断不重复本地化整句） | 2026-09-22 |
 | a_rendered_notice_follows_the_locale | 提示行随 `locale` 出表 | 给定带同一类型化提示的设置窗（英文表），当渲染，则出英文前缀与诊断（提示行不是只有中文基线可查） | 2026-09-22 |
@@ -462,24 +462,24 @@
 | daily_writer_appends_into_todays_file | 按天文件追加写入 | 给定两个写入器实例写同一份今日日志，当读回，则两行都在今天的文件里 | 2026-09-24 |
 | milestone_event_carries_id_and_elapsed_ms | 里程碑事件带 `id` 与累计毫秒 | 给定 `milestone("m_test_probe")` 一条记录，当捕获并解析该行，则 `message/thread/milestone/elapsed_ms` 均在顶层且 `elapsed_ms` 为非负整数 | 2026-10-05 |
 | prune_keeps_the_newest_files_only | 旧日志按天数保留 | 给定 9 份日志与一个无关文件，当清理，则只留最近 7 份日志且无关文件不动 | 2026-09-24 |
-| task_span_carries_generation_into_events | 任务 `span` 把代数带给范围内的日志 | 给定 `task_span(7)` 并在其中记一条日志，当格式化输出，则事件行是（JSON）、顶层 `generation=7` 且无 `span` 对象 | 2026-09-24 |
+| task_span_carries_generation_into_events | 任务 `span` 把代数带给范围内的日志 | 给定 `task_span(7)` 并在其中记一条日志，当格式化输出，则事件行是 JSON、顶层 `generation=7` 且无 `span` 对象 | 2026-09-24 |
 
 ### `crates/gloss-core/src/pipeline/classify.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| classify_reads_the_kind_from_a_bare_kind_script | 分类从裸（JSON） `kind` 脚本判型 | 给定 `{"kind":"ExplainCode"}` 裸（JSON）脚本与契约任务脚本（脚本队列两份），当 `classify`，则解析出 `kind`（无提示直通——分类完全交给 `LLM`），全链路引擎恰 2 次调用 | 2026-10-12 |
+| classify_reads_the_kind_from_a_bare_kind_script | 分类从裸 JSON `kind` 脚本判型 | 给定 `{"kind":"ExplainCode"}` 裸 JSON 脚本与契约任务脚本（脚本队列两份），当 `classify`，则解析出 `kind`（无提示直通——分类完全交给 `LLM`），全链路引擎恰 2 次调用 | 2026-10-12 |
 | non_text_input_is_rejected | 非文本输入拒绝分类 | 给定 `Image` 输入，当 `classify`，则 `UnsupportedModality` | 2026-09-26 |
-| bare_json_reply_selects_the_kind | 裸（JSON）回复解析 `kind` | 给定 `{"kind":"TranslateWord"}` 回复，当 `classify`，则得 `TranslateWord` | 2026-09-26 |
+| bare_json_reply_selects_the_kind | 裸 JSON 回复解析 `kind` | 给定 `{"kind":"TranslateWord"}` 回复，当 `classify`，则得 `TranslateWord` | 2026-09-26 |
 | a_fenced_reply_repairs_then_falls_back | 围栏回复按违约进修复轮再兜底 | 给定模型不守约输出的 `json` 围栏回复（严格裸 `JSON` 契约，无围栏容错），当 `classify`，则按 `NotJson` 违约进修复轮（`1+CLASSIFY_REPAIRS` 次调用）、仍违约落兜底 `General` | 2026-10-12 |
 | a_complete_json_settles_before_the_stream_ends | 完整（JSON）先于流结束定型 | 给定“半截 → 闭合 → 流内错误”的增量序列，当 `classify`，则返回首个完整（JSON）的判定（等流结束就会拿到那个错误） | 2026-09-30 |
-| the_first_complete_json_wins_over_later_deltas | 首个完整（JSON）胜出 | 给定两段各自完整的（JSON）增量，当 `classify`，则返回前者（拼接后两端都解析不过，只有提前退出才拿得到） | 2026-09-30 |
+| the_first_complete_json_wins_over_later_deltas | 首个完整（JSON）胜出 | 给定两段各自完整的 JSON 增量，当 `classify`，则返回前者（拼接后两端都解析不过，只有提前退出才拿得到） | 2026-09-30 |
 | partial_json_keeps_waiting_for_the_stream | 半截（JSON）继续等流 | 给定到流结束都补不齐的半截（JSON），当 `classify`，则流内不提前定型（增量校验不过继续等），流走完按违约进修复轮、耗尽落兜底 `General` | 2026-10-12 |
 | a_request_failure_is_digested_into_the_fallback_without_retry | 分类请求失败内部消化落兜底 | 给定分类请求整体失败，当 `classify`，则不重试、内部消化后返回 `Ok(General)`（引擎恰 1 次调用） | 2026-10-12 |
-| a_violated_reply_repairs_into_a_kind | 分类违约回复修复后判型 | 给定“散文回复 → 裸（JSON） `kind`”脚本队列，当 `classify`，则修复轮对话为 `[system][user][assistant][user]`（原文、坏回复、纠错指令四轮），纠错指令把违约固定措辞作为 `reason` 回灌（无契约行）、不含坏回复与选区原文，修复后返回判定的 `kind` | 2026-10-20 |
-| classify_traced_carries_rounds_and_repairs_for_the_trajectory | 分类全轨迹携带轮次与修复数 | 给定“散文回复 → 裸（JSON） `kind`”与“恒散文”两个脚本队列，当 `classify_traced`，则前者 `decision.kind` 为判定的 `kind`、`repairs` 为 1、`rounds` 按轮序携带每轮完整回复；后者耗尽落兜底 `General`、`repairs` 为 `CLASSIFY_REPAIRS`、`rounds` 为 `1+CLASSIFY_REPAIRS` 轮 | 2026-10-12 |
-| an_empty_reply_repairs_by_resending_as_is | 分类空回复原样重发修复 | 给定“空回复 → 裸（JSON） `kind`”脚本队列，当 `classify`，则修复轮按 `EmptyReply` 原样重发（消息列表与首轮逐字一致，无 `assistant` 轮无纠错指令）、修复后判出 `kind` | 2026-10-12 |
-| an_empty_completion_enters_the_repair_round_and_resends | 分类零增量空完成进修复轮重发 | 给定“`EmptyCompletion` 错误 → 裸（JSON） `kind`”脚本队列，当 `classify`，则空完成按 `EmptyReply` 违约进修复轮、原样重发（消息与首轮逐字一致）、修复后判出 `kind`（恰 2 次调用，与任务段同口径） | 2026-10-21 |
+| a_violated_reply_repairs_into_a_kind | 分类违约回复修复后判型 | 给定“散文回复 → 裸 JSON `kind`”脚本队列，当 `classify`，则修复轮对话为 `[system][user][assistant][user]`（原文、坏回复、纠错指令四轮），纠错指令把违约固定措辞作为 `reason` 回灌（无契约行）、不含坏回复与选区原文，修复后返回判定的 `kind` | 2026-10-20 |
+| classify_traced_carries_rounds_and_repairs_for_the_trajectory | 分类全轨迹携带轮次与修复数 | 给定“散文回复 → 裸 JSON `kind`”与“恒散文”两个脚本队列，当 `classify_traced`，则前者 `decision.kind` 为判定的 `kind`、`repairs` 为 1、`rounds` 按轮序携带每轮完整回复；后者耗尽落兜底 `General`、`repairs` 为 `CLASSIFY_REPAIRS`、`rounds` 为 `1+CLASSIFY_REPAIRS` 轮 | 2026-10-12 |
+| an_empty_reply_repairs_by_resending_as_is | 分类空回复原样重发修复 | 给定“空回复 → 裸 JSON `kind`”脚本队列，当 `classify`，则修复轮按 `EmptyReply` 原样重发（消息列表与首轮逐字一致，无 `assistant` 轮无纠错指令）、修复后判出 `kind` | 2026-10-12 |
+| an_empty_completion_enters_the_repair_round_and_resends | 分类零增量空完成进修复轮重发 | 给定“`EmptyCompletion` 错误 → 裸 JSON `kind`”脚本队列，当 `classify`，则空完成按 `EmptyReply` 违约进修复轮、原样重发（消息与首轮逐字一致）、修复后判出 `kind`（恰 2 次调用，与任务段同口径） | 2026-10-21 |
 | a_repeated_empty_completion_exhausts_into_the_fallback | 分类空完成重演耗尽落兜底 | 给定连续两轮 `EmptyCompletion` 脚本，当 `classify`，则修复预算（`CLASSIFY_REPAIRS`）耗尽、恰 1 加预算次调用后落兜底 `General` | 2026-10-21 |
 | exhausted_repairs_fall_back_to_general_with_a_trace | 分类修复耗尽落兜底且有痕 | 给定恒违约的回复脚本，当 `classify`，则恰用尽 `1+CLASSIFY_REPAIRS` 次调用后返回 `Ok(General)`，耗尽 `warn` 只记违约类别（不含回复与选区原文） | 2026-10-12 |
 | a_silent_stream_is_cut_at_the_first_item_deadline | 分类流首条目截止快速失败 | 给定建连后恒不出字的流，当 `classify`（暂停时钟），则首条目截止到点按请求异常收卷、内部消化落兜底 `General`（恰 1 次调用，不重试） | 2026-10-16 |
@@ -495,7 +495,7 @@
 | --- | --- | --- | --- |
 | factory_defaults_match_spec | 出厂默认符合规格 | 给定出厂 `Config`，当逐字段抽查，则默认语言、任务、提供商、文本模型等全部符合规格 | 2026-09-19 |
 | config_round_trips_through_serde | 配置 `serde` 往返无损 | 给定含两变体目标语言的完整配置，当 `serde_json` 往返，则无损 | 2026-10-30 |
-| partial_document_fills_factory_defaults | 部分文档补全出厂默认 | 给定只写 `theme` 的（JSON），当加载，则该字段保留、其余走出厂默认（含全部 `kind` 启用） | 2026-09-19 |
+| partial_document_fills_factory_defaults | 部分文档补全出厂默认 | 给定只写 `theme` 的 JSON，当加载，则该字段保留、其余走出厂默认（含全部 `kind` 启用） | 2026-09-19 |
 | retired_fields_are_ignored_on_load | 退役字段仍能加载 | 给定含 `guard_enabled`、`guard_blocked_apps`、`hotkey_bindings` 的旧配置（字段已从 `Config` 移除），当加载，则照常读出、已知字段取值不变、缺字段仍回出厂默认——旧版本落盘不会被当成非法配置隔离降级 | 2026-10-03 |
 | retired_target_lang_values_degrade_to_the_default_with_a_trace | 退役目标语言值有痕降级 | 给定 `target_lang` 为日语、韩语、法语、自定义名与非法形态的存量配置，当反序列化，则目标语言回落缺省中文、其余字段不受牵连，且每次降级留警告痕迹 | 2026-10-30 |
 | supported_target_lang_values_still_parse | 在册目标语言值照常解析 | 给定 `target_lang` 为 `Zh` 与 `En` 的配置，当反序列化，则各自解析为对应变体 | 2026-10-30 |
@@ -509,7 +509,7 @@
 | scene_gate_blocks_secure_input_and_listed_apps | 场景闸门的两路拦截与优先级 | 给定安全输入开启、前台应用在内建名单里、两者同时成立、名单外的应用、无事实五种场景，当判闸门，则各返回对应因由（两者同时成立时报安全输入、名单外与无事实放行） | 2026-09-26 |
 | entry_matching_covers_every_identity_an_app_can_offer | 名单匹配按身份逐字比对 | 给定内建名单，当经公共入口 `trigger_block` 判闸门，则 `bundle` `id` 命中（`ASCII` 大小写不敏感、返回名单原文）、显示名不命中、名单外的应用与无身份的应用都放行 | 2026-09-26 |
 | token_prefixes_are_detected | 各类令牌前缀识别 | 给定 `sk-/ghp_/xoxb-/AKIA/Bearer` 各形态、带空白与引号包裹的令牌、以及 `NAME=<token>` 与 `AUTH=Bearer <token>` 两种赋值形态（`.env` 行、`shell` 导出与 `Authorization` 头），当检测，则都命中 `Token` | 2026-09-26 |
-| tokens_embedded_in_structured_text_are_detected | 嵌在结构里或汉字紧贴的令牌照样命中 | 给定（JSON）值、查询串参数、（URL）路径段、`.env` 行、代码围栏包裹的令牌，以及紧贴汉字的令牌，夹具字面为 `sk-…` 直连汉字，当检测，则都命中 `Token`（前缀判定看的是“前面不是 `ASCII` 字母数字”，不是词首） | 2026-09-26 |
+| tokens_embedded_in_structured_text_are_detected | 嵌在结构里或汉字紧贴的令牌照样命中 | 给定（JSON）值、查询串参数、链接（URL）路径段、`.env` 行、代码围栏包裹的令牌，以及紧贴汉字的令牌，夹具字面为 `sk-…` 直连汉字，当检测，则都命中 `Token`（前缀判定看的是“前面不是 `ASCII` 字母数字”，不是词首） | 2026-09-26 |
 | short_dummy_keys_are_detected | 手写的短假密钥照样命中 | 给定 `sk-123456`、`sk-abc123`、`sk-XXXXXXXX`、`sk_live_1234abcd`、`ghp_1234abcd` 这类十几字符内的假密钥、以及被换行截断的令牌，当检测，则都命中 `Token`（主体 不低于 4 且含数字或大写即算） | 2026-09-26 |
 | invisible_characters_do_not_hide_a_token | 不可见字符藏不住令牌 | 给定紧跟前缀、或嵌在卡号与高熵串里的六类不可见字符（零宽空格、连接符、词连接符、`BOM`、软连字符），当检测，则 `Token`、`CardNumber`、`HighEntropy` 各自仍命中（判定前从副本里剥掉它们，且发生在所有检测器之前） | 2026-09-26 |
 | prose_about_tokens_is_not_a_hit | 谈论令牌的散文不误报 | 给定本仓库文档里描述敏感信息守则的原话、过短的 `sk-abc`、以及“`AKIA` 是前缀”这类说明，当检测，则都不命中 | 2026-09-24 |
@@ -539,7 +539,7 @@
 | render_template_substitutes_placeholders | 占位符显式替换 | 给定含 `{{`占位符`}}` 的模板，当渲染，则按值替换、同名占位符可重复；未声明与未闭合的占位符原样保留（留待完整性测试抓） | 2026-09-22 |
 | render_template_drops_lines_whose_placeholders_are_empty | 占位符全空的行整行消失 | 给定提示行与指令行模板，当某行占位符值全为空，则该行连同行内静态文字与换行一并删除，其余行不受影响 | 2026-09-22 |
 | render_template_keeps_blank_lines_without_placeholders | 无占位符空行是结构 | 给定模板里的空行（不含占位符），当渲染，则原样保留 | 2026-09-22 |
-| every_locale_renders_without_leftover_placeholders | 全 `locale` 无残留占位符 | 给定 `locale` 中英两份与五个 `kind` 的全组合（四个文本任务加 `ImageExplain`），当渲染，则文本消息不含 `{{`、系统指令携带 `note` 纯（JSON）契约且不含旧围栏 | 2026-10-12 |
+| every_locale_renders_without_leftover_placeholders | 全 `locale` 无残留占位符 | 给定 `locale` 中英两份与五个 `kind` 的全组合（四个文本任务加 `ImageExplain`），当渲染，则文本消息不含 `{{`、系统指令携带 `note` 纯 JSON 契约且不含旧围栏 | 2026-10-12 |
 | english_locale_renders_english_prompts | 英文 `locale` 出英文指令 | 给定 `En` `locale` 的句译任务，当渲染，则系统指令为英文（含 `JSON` 契约）、用户消息携带原文，且不含中文指令词 | 2026-10-03 |
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 `En` `locale` 未设目标语言、`Zh` `locale` 设 `Lang::En`，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含“英语” | 2026-09-22 |
 | prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 `prompt_locale` 的任务，当渲染，则结果与显式 `Zh` 逐字一致且含“词典专家” | 2026-09-22 |
@@ -582,9 +582,9 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | violations_carry_fixed_wording_without_reply_content | 违约措辞固定且不带回复原文 | 给定四类 `Violation`，当取措辞，则非空、固定且不含选区、回复原文、密钥形态（类别进日志与降级产物，永不携带内容） | 2026-10-11 |
-| classify_violation_matrix_covers_empty_not_json_and_kind | 分类违约矩阵 | 给定空回复、纯空白、散文、截断（JSON）、围栏输出、（JSON）标量、缺 `kind/kind` 为 `null`、未知 `kind`、类别外的 `ImageExplain` 与 `General/task` 契约体各类回复，当 `validate_classify`，则分别落 `EmptyReply/NotJson/KindNotAllowed` | 2026-10-20 |
+| classify_violation_matrix_covers_empty_not_json_and_kind | 分类违约矩阵 | 给定空回复、纯空白、散文、截断 JSON、围栏输出、JSON 标量、缺 `kind/kind` 为 `null`、未知 `kind`、类别外的 `ImageExplain` 与 `General/task` 契约体各类回复，当 `validate_classify`，则分别落 `EmptyReply/NotJson/KindNotAllowed` | 2026-10-20 |
 | classify_accepts_the_template_categories_and_maps_fallback | 分类放行模板类别并映射 `Fallback` | 给定模板四个类别（含首尾空白），当 `validate_classify`，则返回对应 `kind` 且携带模型原始类别（`Fallback` 映射 `General`） | 2026-10-20 |
-| task_violation_matrix_covers_empty_not_json_and_missing_note | 任务违约矩阵 | 给定五个 `kind` 与空回复、散文、（JSON）数组、截断（JSON）、缺 `note`、`note` 为 `null`、纯空白 `note`、`note` 非字符串各回复的全组合，当 `validate_task`，则分别落 `EmptyReply`、`NotJson`、`MissingNote`（硬约束只此三条） | 2026-10-12 |
+| task_violation_matrix_covers_empty_not_json_and_missing_note | 任务违约矩阵 | 给定五个 `kind` 与空回复、散文、JSON 数组、截断 JSON、缺 `note`、`note` 为 `null`、纯空白 `note`、`note` 非字符串各回复的全组合，当 `validate_task`，则分别落 `EmptyReply`、`NotJson`、`MissingNote`（硬约束只此三条） | 2026-10-12 |
 | task_ok_builds_the_three_contract_variants | 任务契约三变体构建 | 给定词卡、代码、句译、图像与通用的嵌套契约（JSON），当 `validate_task`，则 `note` 原样、`structured` 按 `kind` 落 `WordCard/Code/Plain`（坏条目跳过） | 2026-10-12 |
 | task_soft_rules_fall_back_field_by_field | 任务软约束逐级回落 | 给定 `structured` 缺失、非对象、变体内字段类型错、`null` 的回复，当 `validate_task`，则按空变体与缺省回落、`note` 保留、清单外疏证键就地忽略（`kind` 决定变体） | 2026-10-11 |
 | empty_structured_covers_every_kind | 空疏证变体覆盖全 `kind` | 给定五个 `kind`，当 `empty_structured`，则词卡空 `WordCard`、代码空 `Code`（无语言判定）、句译、图像与通用落空 `Plain` | 2026-10-12 |
@@ -621,7 +621,7 @@
 | degraded_defaults_to_false_on_the_wire | 降级标记 `serde` 缺省 `false` | 给定序列化后剥去 `degraded` 字段的产物（JSON），当反序列化，则 `degraded` 为 `false`（旧条目落在正常路径）；`degraded=true` 显式往返 | 2026-10-11 |
 | language_violations_default_to_an_empty_list_on_the_wire | 违约清单 `serde` 缺省空清单 | 给定携带两条语言违约的产物，当 `serde` 往返，则清单逐条无损；给定剥去 `lang_violations` 列的旧条目（JSON），当反序列化，则清单为空（旧缓存条目走界面泛化回落，不破缓存） | 2026-10-30 |
 | modality_matrix_is_enforced_cell_by_cell | 模态矩阵逐格校验 | 给定五个 `kind` 与两种输入的全矩阵，当逐格 `Task::new`，则文本列（含通用 `General`）与 `Image` 列（唯一合法 `kind` 为 `ImageExplain`）逐格合规 | 2026-10-18 |
-| task_deserialization_goes_through_the_modality_gate | `wire` 入口同过模态闸门 | 给定合法与非法（`ImageExplain` 配文本输入）两份 `Task`（JSON），当反序列化，则前者成功、后者被拒——反序列化不是绕过 `Task::new` 的旁路 | 2026-10-18 |
+| task_deserialization_goes_through_the_modality_gate | `wire` 入口同过模态闸门 | 给定合法与非法（`ImageExplain` 配文本输入）两份 JSON 形态的 `Task`，当反序列化，则前者成功、后者被拒——反序列化不是绕过 `Task::new` 的旁路 | 2026-10-18 |
 | task_round_trips_through_serde | `Task` `serde` 往返无损 | 给定文本任务（含目标语言与模型），当经 `Task::new` 构造并 `serde` 往返，则无损 | 2026-10-18 |
 | image_input_round_trips_through_serde | 图像输入 `serde` 往返 | 给定 `Image` 输入，当 `serde` 往返，则字节不变且反序列化得到新 `Arc`（不与原值共享） | 2026-09-19 |
 
@@ -667,6 +667,9 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | foreign_runs_flag_bare_latin_and_kana_but_parenthesized_terms_pass | 外文段抓裸用放括注 | 给定中文目标与裸用外文词、`API`、`iPhone`、日语残段的注，当判定，则逐条 `ForeignRun`；括号内的外文术语（容器内容）不判 | 2026-10-28 |
+| registered_bare_terms_pass_bare_and_flag_missing_space_without_spaces | 登记词裸用放行缺空格走盘古 | 给定登记词 `JSON` 带盘古空格与汉字直连两种注，当判定，则前者放行、后者只判 `MissingSpace` 不出 `ForeignRun`（登记面整词精确匹配放行，两侧同源，盘古空格随行） | 2026-11-02 |
+| registry_match_is_case_sensitive_and_whole_word | 登记匹配大小写敏感整词 | 给定小写 `json`、带后缀 `JSON5` 与多字母 `JSONS` 三种注，当判定，则逐条 `ForeignRun`（表外零豁免，拼错与带后缀的词形不落登记词） | 2026-11-02 |
+| unregistered_terms_keep_the_foreign_run_flag | 表外词维持外文判罚 | 给定未登记字母段的注，当判定，则 `ForeignRun`（逐词登记，不设全大写类形态放行规则） | 2026-11-02 |
 | han_ranges_admit_extension_and_compat_forms_in_chinese | 汉字区段三段口径收扩展与兼容形 | 给定中文目标含扩展甲区与兼容区汉字的注，当判定，则无 `ForeignRun` 与 `ContainerMixing`（区段住数据源三段，两侧同判，`R1`） | 2026-10-30 |
 | single_latin_letter_passes_as_variable_and_n_dot_flags | 单字母变量豁免缩写判罚 | 给定“变量 `x` 与 `y`”式单字母，当判定，则放行；词性缩写 `n.`（单字母紧跟句点）判 `ForeignRun` | 2026-10-28 |
 | punctuation_set_catches_wrong_script_and_corner_brackets | 标点集抓串味与角引号 | 给定中文正文里的半角逗号与直角引号对，当判定，则逐条 `PunctuationMismatch`（直角引号中文场景全禁，`D3`）；英文正文合法标点全放行 | 2026-10-30 |
@@ -698,6 +701,8 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
+| bare_term_registry_matches_the_migrated_table | 登记面金样锁定初始清单 | 当解析嵌入数据源，则登记表恰为 `JSON` 一词（登记即评审，每收一词两侧金样同步扩行） | 2026-11-02 |
+| bare_term_registry_rejects_non_word_shapes_and_empty_reasons | 登记面良构校验失败关闭 | 给定数字开头、含空白、横线开头、下划线开头与逗号缀尾的词形及空白缘由条目，当装入，则逐条按数据源损坏拒绝；合法词形 `Node.js` 通过 | 2026-11-02 |
 | punctuation_faces_match_the_expected_tables | 允许表与登记基准对版 | 给定嵌入数据源装入的允许表（中西允许、日韩并集、弯引号定界），当与登记基准（场景标点面并中性面）双向比对，则集合相等 | 2026-10-30 |
 | attached_and_family_faces_match_the_expected_tables | 附随面与家族面同基准对版 | 给定装入的按场景附随面（中文取共用并场景合面、英文取共用面）与破折号省略号家族面，当与现表 `golden` 比对，则集合相等 | 2026-10-31 |
 | emoji_faces_match_the_migrated_tables | 表情事实同 `golden` 对版 | 给定装入的表情区段、裸表情与变体选择符，当与判定器原常量 `golden` 比对，则区段逐对相等、字符面集合相等 | 2026-10-30 |
@@ -730,7 +735,7 @@
 | key_derivation_is_stable | `key` 派生稳定 | 给定同一输入与选项，当重复派生 `cache_key`，则得同一个 `key` | 2026-10-10 |
 | image_keys_follow_png_bytes | 图像 `key` 随字节 | 给定同、异 `png` 字节的 `Image` 输入与同载荷文本输入，当 `cache_key`，则同字节同 `key`、异字节异 `key`、图像与同载荷文本异 `key` | 2026-10-10 |
 | entries_store_and_isolate_outcomes | 条目存取与 `key` 隔离 | 给定 `miss`→`set`→`hit` 序列，当按不同 `key` 查询，则命中且无关 `key` 互不可见 | 2026-10-03 |
-| ttl_expiry_takes_effect | （TTL）过期生效 | 给定（TTL） 60 毫秒的条目，当过 120 毫秒并 `run_pending_tasks` 后读，则 `miss` | 2026-10-03 |
+| ttl_expiry_takes_effect | 存活时长（TTL）过期生效 | 给定存活时长（TTL） 60 毫秒的条目，当过 120 毫秒并 `run_pending_tasks` 后读，则 `miss` | 2026-10-03 |
 | factory_ttl_matches_the_config_default | 默认（TTL）单点一致 | 给定出厂（TTL）（`Config::cache_ttl_secs`），当与 `gloss_app::cache` 的 `DEFAULT_TTL` 比对，则相等 | 2026-10-03 |
 
 ### `crates/gloss-app/src/runtime/finalize.rs`
@@ -788,7 +793,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| dispatched_acquire_carries_the_task_span | 取材命令带着任务 `span` 下发 | 给定划词触发，当取出通道二载荷并进入它的 `span`，则探针日志行是（JSON）且带 `"generation":1` | 2026-09-23 |
+| dispatched_acquire_carries_the_task_span | 取材命令带着任务 `span` 下发 | 给定划词触发，当取出通道二载荷并进入它的 `span`，则探针日志行是 JSON 且带 `"generation":1` | 2026-09-23 |
 | a_disabled_default_kind_does_not_stop_the_selection_gesture | 任务开关不拦划词手势 | 给定默认任务被停用的配置，当划词触发，则仍下发 `Auto` 取材命令（手势不带显式意图，开关只拦显式 `kind`） | 2026-09-26 |
 | a_sensitive_scene_makes_the_selection_gesture_a_no_op | 敏感场景下划词彻底无声 | 给定安全输入开启、再给定前台应用在拦截名单内（两侧各自设置），当划词触发，则取材命令都不下发、探测编号不领、状态留 `Idle`；场景恢复后同一手势照常下发 | 2026-09-24 |
 | a_pasteboard_observation_dispatches_the_clipboard_acquire_command | 粘贴板观察下发剪贴板读图命令 | 给定粘贴板图片观察事件，当消费通道一，则状态机留 `Idle`、只领探测编号（`id=1`、代数 0）、通道二收到 `AcquireClipboardImage{1}`、不记录划词锚点（露面走居中） | 2026-10-10 |
@@ -886,7 +891,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | decode_attached_rejects_bad_bytes | 经位图像解码失败隔离降级 | 给定非位图（PNG）字节，当 `decode_attached`，则返回 `None`（经位落占位，不 `panic`） | 2026-10-10 |
-| decode_attached_keeps_the_pixel_dimensions | 经位图像按原像素尺寸解码 | 给定宽 4 高 2 像素的夹具位图（PNG），当 `decode_attached`，则得宽 4 高 2 的（RGBA）像素容器（纹理侧等比随卡宽） | 2026-10-10 |
+| decode_attached_keeps_the_pixel_dimensions | 经位图像按原像素尺寸解码 | 给定宽 4 高 2 像素的夹具位图（PNG），当 `decode_attached`，则得宽 4 高 2 的像素（RGBA）容器（纹理侧等比随卡宽） | 2026-10-10 |
 
 ### `crates/gloss-app/src/ui/popup/content.rs`
 
@@ -985,7 +990,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | theme_preference_covers_every_variant | 主题三档全映射 | 给定三档主题，当映射界面库（egui）偏好，则一一对应且出厂跟随系统 | 2026-09-23 |
-| new_context_carries_fonts_and_theme | 新上下文恒绑定族加延迟补装接上（CJK） | 给定主题，当新建上下文，则主题偏好落上且命名字体族恒绑定；当 `apply_system_fonts` 补装，则（CJK）后备接上（依赖宿主机字体） | 2026-10-06 |
+| new_context_carries_fonts_and_theme | 新上下文恒绑定族加延迟补装接上中日韩（CJK） | 给定主题，当新建上下文，则主题偏好落上且命名字体族恒绑定；当 `apply_system_fonts` 补装，则中日韩（CJK）后备接上（依赖宿主机字体） | 2026-10-06 |
 | builtin_definitions_binds_named_families_without_system_fonts | 内置快路径定义恒绑定命名字体族且不装系统字体 | 当取 `builtin_definitions`，则宋、楷、等宽三族都绑到内置字形且字体表无（CJK）后备条目 | 2026-10-06 |
 | reapply_writes_every_context | 重施加写满每个上下文 | 给定两个已装好的上下文，当施加各档主题，则每个都被写；空集写 0 个不 `panic` | 2026-09-23 |
 | text_cursor_stroke_follows_the_palette_per_theme | 插入符描边随调色板明暗两档 | 给定新建上下文，当读明暗两棵样式树的文本插入符描边，则颜色取调色板同源档、宽度取加粗档（缺省淡色在输入框底上不可辨） | 2026-10-28 |
@@ -1068,7 +1073,7 @@
 | modality_mismatch_preserves_pending_options | 模态错配保留待定选项 | 给定模态错配被拒后，当同编号合法产物到达，则仍可按冻结选项提交 | 2026-10-03 |
 | transport_failure_lands_in_error | 传输失败落错误态 | 给定推理通道不可用，当 `fail_transport`，则落 `Error`、失败视图无动作按钮、`retry` 为 `None` | 2026-09-19 |
 | retryable_failure_keeps_request_and_retry_redispatches_it | 可重试失败保留请求 | 给定网络类失败，当落 `Error`，则失败原因按变体记录（`FailureCause::Task(EngineNetwork)`）、`retry` 同代数按原 `input+options` 新令牌重发且回流式视图（不回读配置） | 2026-10-03 |
-| error_actions_follow_the_mapping_table | 错误动作按映射表 | 给定限流、鉴权、模态、配置、（JSON）模式不支持类失败，当映射，则限流可重试，其余引导打开设置且不可重试（`JSON` 模式不支持重发同请求无益） | 2026-10-11 |
+| error_actions_follow_the_mapping_table | 错误动作按映射表 | 给定限流、鉴权、模态、配置、JSON 模式不支持类失败，当映射，则限流可重试，其余引导打开设置且不可重试（`JSON` 模式不支持重发同请求无益） | 2026-10-11 |
 | new_commit_and_hide_supersede_the_retry_request | 新提交与隐藏取代重试 | 给定失败卡在场时新探测，则 `retry` 仍在（误滑不得杀掉重试出口）；当提交产物或隐藏，则 `retry` 返回 `None` | 2026-10-03 |
 | suspicious_input_is_dropped_while_the_visible_session_survives | 可疑内容丢弃且当前显示保留 | 给定可见会话（产物卡在场）时到达带令牌的探测产物，当提交，则结果是 `Blocked{Token}`、探测消费、可见会话的状态与视图原样保留、已完结会话的令牌不被取消 | 2026-10-01 |
 | blocked_input_is_not_redispatched_by_any_later_path | 被拦下的取材没有旁路 | 给定已拦下的探测产物（卡号命中），当 `retry`、同编号重复提交、同编号 `chunk/done/failed`、以及同编号通道故障（`fail_acquire`、`fail_transport`）陆续到达，则全部被拒且状态机不被触碰；新探测后同一份可疑文本仍被拦下 | 2026-10-01 |
@@ -1085,7 +1090,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | initial_broadcast_is_the_idle_snapshot | 启动即广播初始快照 | 给定刚拉起的模块，当订阅 `watch`，则先收到 `Idle` 快照 | 2026-09-26 |
-| shared_client_hands_out_one_process_wide_instance | （HTTP）客户端进程内唯一 | 给定共享客户端入口，当连续两次取用，则两次拿到同一实例（构建成功后常驻，失败不缓存下次重建） | 2026-10-09 |
+| shared_client_hands_out_one_process_wide_instance | 超文本传输（HTTP）客户端进程内唯一 | 给定共享客户端入口，当连续两次取用，则两次拿到同一实例（构建成功后常驻，失败不缓存下次重建） | 2026-10-09 |
 | state_transition_wakes_the_ui_without_input | 相位迁移唤醒壳层 | 给定已安装的唤醒桩，当检查被受理与在途回包被采纳，则两次迁移各触发一次唤醒、全程无输入 | 2026-09-27 |
 | confirmed_flow_runs_check_download_install_to_completion | 两道确认全流程到替换成功 | 给定新版清单与下载、替换成功桩，当检查→确认下载→确认重启，则相位依次推进且替换收到 `zip` 路径、任务以“已安装”收尾 | 2026-09-26 |
 | not_newer_manifest_lands_in_up_to_date_without_a_target | 无新版落 `UpToDate` | 给定与本地等版本的清单回包，当检查完成，则落 `UpToDate` 且无目标版本 | 2026-09-26 |
@@ -1105,7 +1110,7 @@
 | valid_manifest_parses_with_its_version_and_artifact | 合法清单解析出本机条目 | 给定 `schema=1` 双架构齐备的清单，当 `parse`，则版本与本机架构条目的 `url/size/sha256` 全部就位 | 2026-09-26 |
 | unknown_fields_are_ignored_for_forward_compatibility | 未知字段前向兼容 | 给定含 `dmg_url` 等未知字段的清单，当 `parse`，则照常通过 | 2026-09-26 |
 | unknown_schema_is_fail_closed | 未知 `schema` 拒绝 | 给定 `schema` 为 0、2、99 的清单，当 `parse`，则 `UnknownSchema` 拒绝且不继续解析 | 2026-09-26 |
-| unparsable_body_is_rejected | 非法 `body` 拒绝 | 给定空串、非（JSON）、数组、`schema` 类型不符的 `body`，当 `parse`，则 `Unparsable` | 2026-09-26 |
+| unparsable_body_is_rejected | 非法 `body` 拒绝 | 给定空串、非 JSON、数组、`schema` 类型不符的 `body`，当 `parse`，则 `Unparsable` | 2026-09-26 |
 | version_must_be_a_semver_triple | 版本必须可解析 | 给定空串、两段、带 `v`、非数字的 `version`，当 `parse`，则 `Invalid` | 2026-09-26 |
 | both_architectures_are_required_by_the_matrix | 双架构条目必须齐备 | 给定缺 `channels`、缺 `stable`、单架构的清单，当 `parse`，则 `Invalid` | 2026-09-26 |
 | artifact_fields_follow_the_matrix | 条目字段矩阵 | 给定缺 `url/size/sha256` 或类型不符的条目，当 `parse`，则 `Invalid`（类型不符 `Unparsable`） | 2026-09-26 |
@@ -1167,14 +1172,14 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| cjk_fallback_appends_after_builtin_fonts | （CJK）后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且（CJK）后备排在比例与等宽两族内置字体之后 | 2026-10-01 |
+| cjk_fallback_appends_after_builtin_fonts | 中日韩（CJK）后备排在内置字体后 | 给定字体字节，当接入字体定义，则接入成功且中日韩（CJK）后备排在比例与等宽两族内置字体之后 | 2026-10-01 |
 | named_family_without_bytes_binds_the_builtin_glyphs | 命名字体族无字节时绑内置字形 | 给定缺失的字体字节，当注册宋体命名字体族，则不发明字体数据、族仍绑定到内置字形（`epaint` 对未绑定族直接 `panic`，族必须恒存在） | 2026-10-01 |
 | cjk_fallback_shares_bytes_across_contexts | 后备字体字节按借用登记、零拷贝共享 | 给定同一段字体字节接入两份字体定义，当检查，则两份定义都按借用登记且指向同一地址 | 2026-10-01 |
 | named_family_registers_bytes_verbatim | 命名字体族按字节注册 | 给定字体字节，当注册宋体命名字体族，则族名指向自身且字节按借用原样登记 | 2026-10-01 |
 | definitions_always_bind_the_named_typography_families | 宋楷与等宽命名族恒绑定 | 给定真实系统的字体定义，当取 `definitions`，则宋楷与等宽三命名族要么有自身字体数据、要么绑定到内置字形（`epaint` 对未绑定族直接 `panic`，族恒存在） | 2026-10-02 |
 | zhu_family_is_always_named | 注区字体族恒为命名族 | 给定 `zhu_family` 入口，当取值，则恒为楷体命名字体族 | 2026-10-01 |
 | mono_family_is_always_named | 代码、音标字体族恒为命名族 | 给定 `mono_family` 入口，当取值，则恒为 `gloss-mono` 命名字体族 | 2026-10-02 |
-| mono_family_chain_appends_the_cjk_fallback | 等宽族绑定含（CJK）后备 | 给定等宽与（CJK）两段字体字节（`CJK` 已按后备登记），当注册等宽命名字族，则族链为系统等宽在前、（CJK）后备在后（代码内中文可读） | 2026-10-02 |
+| mono_family_chain_appends_the_cjk_fallback | 等宽族绑定含中日韩（CJK）后备 | 给定等宽与中日韩（CJK）两段字体字节（`CJK` 已按后备登记），当注册等宽命名字族，则族链为系统等宽在前、中日韩（CJK）后备在后（代码内中文可读） | 2026-10-02 |
 | mono_family_without_a_system_mono_binds_the_builtin_glyphs | 等宽族不向比例（CJK）降级 | 给定缺失的系统等宽字节，当注册等宽命名字族，则族绑内置字形、不落（CJK）比例字体（等宽对齐优先于字形覆盖） | 2026-10-02 |
 | system_cjk_font_is_discoverable | 系统（CJK）字体可发现 | 给定真实系统，当执行（CJK）字体发现，则必须找到且字节非空（依赖宿主机） | 2026-10-01 |
 | system_monospace_font_is_discoverable | 系统等宽字体可发现 | 给定真实系统，当按候选顺序（`SF Mono` → `Menlo` → `Monaco` → `DejaVu Sans Mono` → `Consolas`）执行等宽字体发现，则必须找到（依赖宿主机） | 2026-10-02 |
@@ -1257,7 +1262,7 @@
 | load_creates_missing_directories | 缺目录自动创建 | 给定连父级都缺的目录，当 `load` 落盘，则目录被创建 | 2026-09-19 |
 | composite_delegates_document_methods | 组合存储委托文档半边 | 给定 `CompositeConfigStore`，当 `save`→`load`，则完整委托文档半边、逐字段一致 | 2026-09-19 |
 | composite_forwards_secret_methods_to_the_store | 组合存储转发密钥端口 | 给定内存桩密钥存储，当经组合体 `SecretStore` 的 `set_secret/secret/delete_secret`，则读回写入值、删除后 `None` | 2026-10-30 |
-| persisted_document_stores_no_secret_material | 落盘文档不含密钥本体 | 给定 `save` 写出的（TOML），当检查内容，则含 `keychain_id` 但不含密钥本体 | 2026-09-19 |
+| persisted_document_stores_no_secret_material | 落盘文档不含密钥本体 | 给定 `save` 写出的配置文档（TOML），当检查内容，则含 `keychain_id` 但不含密钥本体 | 2026-09-19 |
 | default_store_targets_standard_config_dir | 默认存储落在标准目录 | 给定 `Default` 构造与真实 `HOME`，当定位，则路径为 `gloss/config.toml`（`BaseDirs` 缺失时跳过） | 2026-09-19 |
 | load_rejects_corrupt_file_and_quarantines_it | 损坏配置隔离降级 | 给定损坏配置，当 `load`，则报 `Config` 错、错误文本不转述内容、原文件字节原样挪入唯一 `.bak` | 2026-09-19 |
 | legacy_document_gets_factory_endpoint_and_provider | 老配置回填出厂端点 | 给定 `M4-T3` 老配置（空 `provider` 数组），当 `load`，则回填出厂端点与出厂 `provider`、模型 | 2026-09-19 |
@@ -1364,12 +1369,12 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| png_and_tiff_flavors_decode_to_png | （TIFF）与位图（PNG）双 `flavor` 解码出位图（PNG） | 给定同一宽高各 2 像素的（RGBA）位图（PNG）与（TIFF）编码字节，当 `decode_to_png`，则各自产出可解码回宽高各 2 像素的位图（PNG） | 2026-10-10 |
+| png_and_tiff_flavors_decode_to_png | 标记图像（TIFF）与位图（PNG）双 `flavor` 解码出位图（PNG） | 给定同一宽高各 2 像素的透明像素（RGBA）位图（PNG）与标记图像（TIFF）编码字节，当 `decode_to_png`，则各自产出可解码回宽高各 2 像素的位图（PNG） | 2026-10-10 |
 | flavor_budget_rejects_bytes_over_the_limit | `flavor` 字节上限先于头解析 | 给定恰好上限与超一字节的输入，当判预算与解码，则边界内通过、超限整体报 `ImageTooLarge`（头解析从未发生） | 2026-10-10 |
 | header_dimensions_are_bounded_before_the_decode | 像素面积在整图解码前判 | 给定真实（TIFF）编码后把宽高 `tag` 补丁为宽 4097 高 4096 的输入，当 `decode_to_png`，则 `ImageTooLarge`（整图解码从未发生——发生了会报解码失败） | 2026-10-10 |
 | a_truncated_flavor_decodes_to_a_read_failure | `flavor` 截断按读取失败 | 给定 `IHDR` 之后截断的位图（PNG），当 `decode_to_png`，则头可读、解码失败映射 `ImageUnavailable`（读取失败变体，指引重复制） | 2026-10-10 |
 | pixel_budget_rejects_area_over_the_limit | 像素面积上限边界 | 给定恰好宽高各 4096 像素与超一像素（宽 4097 高 4096）两种面积，当判预算，则前者在内、后者拒收 | 2026-10-10 |
-| a_mismatched_rgba_buffer_is_a_read_failure | （RGBA）缓冲与尺寸不符按读取失败 | 给定声明宽高各 2 像素但缓冲 3 字节的输入，当 `encode_png`，则报 `ImageUnavailable`（不 `panic`、不产残缺图） | 2026-10-10 |
+| a_mismatched_rgba_buffer_is_a_read_failure | 透明像素（RGBA）缓冲与尺寸不符按读取失败 | 给定声明宽高各 2 像素但缓冲 3 字节的输入，当 `encode_png`，则报 `ImageUnavailable`（不 `panic`、不产残缺图） | 2026-10-10 |
 | pixel_budget_is_checked_before_the_buffer | 面积检查先于缓冲检查 | 给定面积在预算内但缓冲为空的输入，当 `encode_png`，则按 `ImageUnavailable` 处理（面积超限的输入不会走到缓冲检查） | 2026-10-10 |
 | a_covered_board_is_dropped_without_touching_the_content | 观察比对先于内容读取 | 给定记录值 7 而现值读到 8 的注入读数，当 `read_with`，则竞态静默丢弃（`Ok(None)`）且 `flavor` 闭包从未被调——内容读取才触发系统粘贴授权 | 2026-10-10 |
 | an_undeliverable_flavor_is_dropped_quietly | 板交付不出数据按静默丢弃 | 给定记录值与现值一致但 `flavor` 缺席的注入读数，当 `read_with`，则 `Ok(None)`（`macOS` 15 及以上版本粘贴授权被拒走这条，`warn` 留痕供 `just logs --level warn` 排查） | 2026-10-10 |
@@ -1420,21 +1425,21 @@
 | missing_key_reports_auth_error | 缺密钥报鉴权错误 | 给定未配置密钥，当解析，则 `EngineAuth` | 2026-09-19 |
 | blank_key_counts_as_missing | 空白密钥视为缺失 | 给定空白密钥，当解析，则按未配置报 `EngineAuth` | 2026-09-19 |
 | empty_provider_list_falls_back_to_the_factory_entry | 空 `provider` 回退出厂条目 | 给定显式空 `provider_keys` 与出厂 `keychain` 条目密钥，当解析，则回退出厂条目 `gloss/deepseek` | 2026-09-19 |
-| adapter_streams_deltas_across_chunk_boundaries | （SSE）适配器跨块流式 | 给定同一段（SSE）响应按 1、2、5、整包字节分块，当经 `SseStream` 适配，则增量恒为“光泽”、`[DONE]` 终止、余字节不解析 | 2026-09-19 |
+| adapter_streams_deltas_across_chunk_boundaries | 流式事件（SSE）适配器跨块流式 | 给定同一段（SSE）响应按 1、2、5、整包字节分块，当经 `SseStream` 适配，则增量恒为“光泽”、`[DONE]` 终止、余字节不解析 | 2026-09-19 |
 | adapter_delivers_the_done_marker_with_its_finish_reason | 适配器交付带结束原因的终结条目 | 给定增量、声明 `stop` 的结束块与 `[DONE]` 的响应，当经 `SseStream` 消费，则先交增量、再交携带 `stop` 的 `TaskChunk::Done` 终结条目 | 2026-10-11 |
 | adapter_delivers_deltas_then_terminates_on_protocol_error | 协议错误先交增量再终结 | 给定增量后跟坏（JSON），当流推进，则先交付增量、随后以 `EngineResponse` 错误终结 | 2026-09-19 |
 | an_error_chunk_is_final_even_when_bytes_keep_arriving | 流语义契约·错误条目即终结 | 给定增量后跟坏（JSON）行再跟合法数据行的字节流，当经适配器消费，则恰交增量与错误各一，此后再无产出（错误条目之后的字节不解析） | 2026-10-30 |
 | adapter_ends_cleanly_without_the_done_marker | 无 `[DONE]` 关流干净收尾 | 给定无 `[DONE]` 直接关流的响应，当解析，则带增量流按正常结束收尾 | 2026-09-19 |
 | adapter_reports_empty_completion_as_failure | 零增量完成报失败 | 给定零增量响应（仅 `[DONE]`、`HTML` 劫持页、或声明 `stop` 却零增量），当解析，则报 `EngineResponse` 错且流即止 | 2026-10-11 |
 | request_body_has_the_openai_envelope | 请求体 `OpenAI` 信封 | 给定未设限的 `EngineRequest`，当构造请求体，则 `model/messages/stream/response_format` 四键 `wire` 形态精确匹配且无 `max_tokens` 键 | 2026-10-11 |
-| json_mode_switch_is_always_on_the_wire | （JSON）契约恒在请求体上 | 给定设限、不设限与多模态（图像部件）请求，当构造请求体，则 `response_format` 恒为 `{"type":"json_object"}`（`EngineRequest` 无开关，不做能力协商） | 2026-10-11 |
-| text_content_stays_a_json_string_on_the_wire | 纯文本正文 `wire` 上仍是字符串 | 给定纯文本用户消息，当构造请求体，则 `content` 是（JSON）字符串、不升级成 `content` 数组 | 2026-10-10 |
+| json_mode_switch_is_always_on_the_wire | JSON 契约恒在请求体上 | 给定设限、不设限与多模态（图像部件）请求，当构造请求体，则 `response_format` 恒为 `{"type":"json_object"}`（`EngineRequest` 无开关，不做能力协商） | 2026-10-11 |
+| text_content_stays_a_json_string_on_the_wire | 纯文本正文 `wire` 上仍是字符串 | 给定纯文本用户消息，当构造请求体，则 `content` 是 JSON 字符串、不升级成 `content` 数组 | 2026-10-10 |
 | multimodal_parts_map_to_the_openai_content_array | 多模态部件映成 `OpenAI` `content` 数组 | 给定系统文本消息加仅图像部件的用户消息，夹具为位图（PNG），当构造请求体，则图像部件映 `{"type":"image_url"}` 的 `data:image/png;base64` 数据（URL）且整包形状精确匹配（含 `response_format`） | 2026-10-11 |
 | max_tokens_is_carried_only_when_set | `max_tokens` 仅设限时上线 | 给定 `max_tokens=None` 与 `Some(64)` 两个请求，当构造请求体，则 `None` 无该键、`Some` 携带数值 64 | 2026-09-26 |
-| maps_http_status_to_error_variants | （HTTP）状态映射错误变体 | 给定 401、403、429、500、`400+JSON`、`400+HTML`，当映射，则分别得 `EngineAuth`、`EngineRateLimited`、`EngineNetwork`、带诊断的 `EngineResponse` | 2026-09-19 |
+| maps_http_status_to_error_variants | 超文本传输（HTTP）状态映射错误变体 | 给定 401、403、429、500、`400+JSON`、`400+HTML`，当映射，则分别得 `EngineAuth`、`EngineRateLimited`、`EngineNetwork`、带诊断的 `EngineResponse` | 2026-09-19 |
 | json_mode_and_multimodal_rejections_are_recognized_from_diagnostics | 诊断文本识别（JSON）模式与多模态不支持 | 给定 `4xx` 且诊断含 `response_format/json_object` 或 `image/multimodal/vision` 的错误体，当映射，则分别得 `JsonModeUnsupported` 与 `UnsupportedModality`（`JSON` 模式检查在前）；`5xx` 与 401 不做启发式（网络与鉴权优先） | 2026-10-11 |
 | retry_delay_covers_only_transient_failures_within_budget | 重试判定只认预算内的瞬态失败 | 给定网络、限流、鉴权、协议、配置五类错误与不同预算余额，当 `retry_delay`，则网络与限流在预算内得固定退避（`Retry-After` 指引封顶生效、低于上限时指引优先），预算耗尽与瞬时之外类别一律 `None` | 2026-10-15 |
-| retry_after_header_parsing_accepts_seconds_only | `Retry-After` 只解析秒数形态 | 给定缺失、整数、带空白、（HTTP）日期、非数字五种头，当 `parse_retry_after`，则仅整数（含首尾空白）得秒数时长，其余 `None` 回落固定退避 | 2026-10-15 |
+| retry_after_header_parsing_accepts_seconds_only | `Retry-After` 只解析秒数形态 | 给定缺失、整数、带空白、超文本传输（HTTP）日期、非数字五种头，当 `parse_retry_after`，则仅整数（含首尾空白）得秒数时长，其余 `None` 回落固定退避 | 2026-10-15 |
 | connect_retries_transient_failures_within_the_budget | 连接阶段瞬态失败退避重试并交还余额 | 给定“网络错误后成功”“两次瞬态失败”“鉴权失败”三条尝试脚本，当 `connect_with_retry`，则首条两次尝试后成功、余额清零；次条交还末次错误 `RateLimited`、恰 2 次调用；末条不重试原样上抛 `Auth`、余额不减 | 2026-10-15 |
 | first_byte_failures_retry_within_the_shared_budget | 首条目之前的瞬态失败对消费方无感重试 | 给定“立即网络错误的空流 → 增量加`Done` 流”尝试脚本与同形首轮空流，当消费包装流，则失败条目不上交、增量与 `Done` 原序到达、恰 1 次重连调用 | 2026-10-15 |
 | first_byte_budget_exhaustion_passes_the_error_through | 重试预算耗尽错误原样交付 | 给定首轮与重试流都以网络错误开场，当消费包装流，则末次错误原样上交后流即止、重连恰 1 次 | 2026-10-15 |
@@ -1553,7 +1558,7 @@
 | --- | --- | --- | --- |
 | stub_iterate_writes_artifacts_records_history_and_renders_the_view | 迭代装配端到端产出全件 | 给定单例脚本引擎桩与临时产物目录，当 `run_iterate`（评审关闭、限位 1），则报告文件按模式命名且模式为 `iterate`、注入的提交标识进报告、逐例明细解析出一条、单次输出恰一行且逐轮原文即脚本回复、历史行与趋势图落盘、检视页含该用例 | 2026-11-02 |
 | engine_failures_settle_but_never_reach_the_outputs_file | 故障例结算不进固化输入 | 给定首通即请求失败的脚本引擎桩，当 `run_iterate`，则明细带故障标记且契约统计计一例故障、单次输出文件在场但零行——失败输出永不可固化 | 2026-11-02 |
-| import_merges_known_rows_and_rejects_bad_documents | 标注导入按条目合并与坏档拒绝 | 给定含精选集内外各一行的导出文档，当 `import_labels`，则已知行合并进标注文件、集外标识跳过并回报；坏（JSON）文档与域外 `verdict` 各带文件名硬拒绝 | 2026-11-02 |
+| import_merges_known_rows_and_rejects_bad_documents | 标注导入按条目合并与坏档拒绝 | 给定含精选集内外各一行的导出文档，当 `import_labels`，则已知行合并进标注文件、集外标识跳过并回报；坏 JSON 文档与域外 `verdict` 各带文件名硬拒绝 | 2026-11-02 |
 | accept_freezes_outputs_counts_unlabeled_and_fails_clear_without_inputs | 基线固化与未标注警告 | 给定两行单次输出与其中一行已标注的资产目录，当 `accept`，则两行固化进基线文件且固化时间为协调世界时（UTC）词面、汇总计未标注一行、重复固化按条目覆盖不叠行；缺单次输出文件时带补救指引硬报错 | 2026-11-02 |
 
 ### `crates/gloss-eval/src/gate.rs`
@@ -1584,8 +1589,8 @@
 | overall_score_is_the_four_dimension_mean_and_respects_the_pass_line | 总体分四维均值派生 | 给定两份四维分（90/80/70/60 与 80/80/80/80），当 `assemble`，则总体均分 77.5（逐例四维均值再取均值）、合格率 0.5（恰 80 过线、75 不过线）、分桶落 70–79 与 80–89 两档 | 2026-11-01 |
 | markdown_renders_group_rows_and_totals | 报告渲染分组表 | 给定跨类型聚合后的报告，当 `render_markdown`，则标题带模式与（UTC）时间、每类型一行加合计行、三率按百分数渲染、无质量聚合的类型三格显示占位符、基线数与轮次均值各占一格 | 2026-11-01 |
 | latency_only_shows_when_sampled | 延迟只在有样本时出现 | 给定无延迟样本与有延迟样本两份报告，当渲染，则前者不含延迟行、后者按行渲染 `p50/p95` 分位（毫秒，两位小数） | 2026-11-01 |
-| generated_at_is_a_numeric_unix_timestamp | `generated_at` 为数值纪元秒 | 给定 `generated_at` 为整数秒的报告，当序列化、反序列化，则（JSON）中为裸数值且往返一致（旧 `unix <seconds>` 字符串格式已废弃，不兼容） | 2026-10-13 |
-| utc_formatting_is_fixed_and_timezone_free | （UTC）时间格式固定换算 | 给定若干 `UNIX` 秒，当 `format_utc` 与 `format_utc_short`，则恒为 `YYYY-MM-DD HH:MM` 与 `MM-DD HH:MM` 的（UTC）结果，不随本地时区漂移 | 2026-10-13 |
+| generated_at_is_a_numeric_unix_timestamp | `generated_at` 为数值纪元秒 | 给定 `generated_at` 为整数秒的报告，当序列化、反序列化，则 JSON 中为裸数值且往返一致（旧 `unix <seconds>` 字符串格式已废弃，不兼容） | 2026-10-13 |
+| utc_formatting_is_fixed_and_timezone_free | 协调世界时（UTC）格式固定换算 | 给定若干 `UNIX` 秒，当 `format_utc` 与 `format_utc_short`，则恒为 `YYYY-MM-DD HH:MM` 与 `MM-DD HH:MM` 的协调世界时（UTC）结果，不随本地时区漂移 | 2026-10-13 |
 | legacy_rows_without_aggregates_fail_parsing_for_tolerant_skip | 旧历史行改走坏行容错 | 给定缺分组聚合段的旧历史行（JSON），当反序列化为报告，则解析失败（分组聚合无缺省值），由历史读取按坏行容错跳过、不做缺省兼容 | 2026-11-01 |
 | report_round_trips_through_serde | 报告序列化往返 | 给定含分组聚合、质量聚合与延迟摘要的报告，当序列化、反序列化，则分组与合计逐字段一致、分位字段名带 `_ms` 后缀、质量聚合完整落行 | 2026-11-01 |
 

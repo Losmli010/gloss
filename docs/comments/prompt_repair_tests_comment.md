@@ -30,3 +30,5 @@
 - repair_instruction_renders_without_leftover_placeholders：修复指令的
   `json` 字样与占位符判定扩到细节全组合（模板清单的同一时期口径见
   `templates.rs` 测试记录）。
+- 2026-11-02 语言规范治本方案第二期随改：违约级行措辞锁随措辞注册表迁移
+  更新（裸 JSON 对象），锁定语义不变。

@@ -6,7 +6,7 @@
 模型产出：
 {{output}}
 
-只输出一个（JSON）对象，不要输出其他文字：
+只输出一个 JSON 对象，不要输出其他文字：
 
 ```json
 {"verdict": "pass", "categories": []}
