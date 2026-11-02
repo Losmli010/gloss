@@ -94,7 +94,7 @@ resvg = { version = "0.49.0", default-features = false }
 semver = { version = "1", default-features = false, features = ["std"] }
 # 界面文案表的强类型反序列化：键缺失或多键都算解析失败。
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
-# 更新清单的数据格式（JSON）反序列化：未知字段必须忽略（前向兼容），
+# 更新清单的 JSON 数据格式反序列化：未知字段必须忽略（前向兼容），
 # 不开未知字段拒绝之类的严格面。
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # 下载体的散列校验（sha256），用成熟库不手搓。

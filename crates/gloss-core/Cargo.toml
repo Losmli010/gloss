@@ -31,7 +31,7 @@ reqwest = {
 # 任务模型的序列化（配置落盘、未来跨进程）；引用计数特性供图像字节按内部
 # 值序列化（反序列化会新分配，所有权语义不变）。
 serde = { version = "1", default-features = false, features = ["derive", "rc", "std"] }
-# 任务与分类输出契约的数据格式（JSON）解析（评测与编排测试用）。
+# 任务与分类输出契约的 JSON 数据格式解析（评测与编排测试用）。
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # 流式空闲看门狗与传输重试退避（内建引擎）：定时等待只要时间特性。
 tokio = { version = "1", default-features = false, features = ["time"] }

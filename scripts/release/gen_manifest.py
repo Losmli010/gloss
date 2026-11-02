@@ -44,7 +44,7 @@ def entry_for(artdir: str, version: str, target: str) -> dict[str, int | str]:
 def run(tag: str, artdir: str, root: str) -> dict[str, Any]:
     """返回 manifest dict；版本校验与产物齐备性失败时抛 SystemExit（消息进 stderr）。"""
     version, cargo_version, error = check_release_tag.run(tag, root)
-    # 版本单点校验的判定输出走标准错误，保持标准输出只含数据格式（JSON）
+    # 版本单点校验的判定输出走标准错误，保持标准输出只含 JSON 数据格式
     if error:
         raise SystemExit(error)
     print("tag version:   %s" % version, file=sys.stderr)
