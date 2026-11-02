@@ -6,8 +6,8 @@ document.documentElement.classList.add('js');
 // 取不到或校验不过则整体降级到发布托管。
 const RELEASES_LATEST = 'https://github.com/Losmli010/gloss/releases/latest';
 const ARCHES = {
-  'aarch64-apple-darwin': { label: 'Apple Silicon' },
-  'x86_64-apple-darwin': { label: 'Intel 芯片' }
+  'aarch64-apple-darwin': { label: '苹果芯片（Apple Silicon）' },
+  'x86_64-apple-darwin': { label: '英特尔芯片（Intel）' }
 };
 let arch = 'aarch64-apple-darwin';
 let userPicked = false;
@@ -48,7 +48,7 @@ function render() {
     const e = entryFor(item.dataset.arch);
     // 清单里的体积是压缩包实测值，展示时必须带压缩包标注以免误当镜像大小
     item.querySelector('.mi-size').textContent =
-      e && typeof e.size === 'number' && e.size > 0 ? `zip ${formatSize(e.size)}` : '';
+      e && typeof e.size === 'number' && e.size > 0 ? `压缩包 ${formatSize(e.size)}` : '';
   });
 
   for (const triple of Object.keys(ARCHES)) {
@@ -57,7 +57,7 @@ function render() {
     $(`card-dmg-${short}`).href = (e && e.dmg_url) || RELEASES_LATEST;
     $(`card-zip-${short}`).href = (e && e.url) || RELEASES_LATEST;
     $(`card-size-${short}`).textContent =
-      e && typeof e.size === 'number' && e.size > 0 ? `zip ${formatSize(e.size)}` : '';
+      e && typeof e.size === 'number' && e.size > 0 ? `压缩包 ${formatSize(e.size)}` : '';
   }
 }
 
