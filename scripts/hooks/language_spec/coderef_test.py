@@ -468,7 +468,8 @@ def test_numeric_span_exempts_machine_forms() -> None:
 def test_coderef_remedy_texts_match_the_stage_one_wording() -> None:
     # 代码引用域的定稿改法文本锁定：补配对、删孤记号与挪记录三路条条收敛，
     # 围栏注释写明整词删除（剥反引号留词落地会派生外文罚），数字形态补比值
-    # 与日期的正当形指路，语言改法补锚点与译出的完整说法
+    # 与日期的正当形指路，语言改法按行文面口径先译中文、括号只装外文原名并
+    # 紧贴译名、机器记号进行内代码、通行词可申请登记裸用
     assert coderef.CODEREF_REMEDY == (
         "complete the pair around the reference (exempt on prose surfaces),"
         " drop the stray mark, or move the sample to the record file"
@@ -482,8 +483,10 @@ def test_coderef_remedy_texts_match_the_stage_one_wording() -> None:
         " Chinese wording"
     )
     assert coderef.LANGUAGE_REMEDY == (
-        "rewrite the text in Chinese, anchoring foreign terms in fullwidth"
-        " bracket annotations or translating them"
+        "rewrite the text in Chinese first; hold foreign originals in fullwidth"
+        " bracket annotations tight to their translated names, write machine"
+        " symbols in inline code, and apply for registered bare use for common"
+        " terms"
     )
 
 
