@@ -898,4 +898,34 @@ mod tests {
             "输入框持焦时方向键归光标，不得滚动设置内容: {before:?} -> {after:?}"
         );
     }
+
+    #[test]
+    fn arrow_keys_yield_to_the_open_combo() {
+        let (mut harness, _action) = harness_for(open(&Config::default()), Locale::Zh);
+        harness.set_size(egui::vec2(
+            crate::ui::style::geometry::window::SETTINGS_WIDTH as f32,
+            OVERFLOWING_HEIGHT,
+        ));
+        harness.run();
+        harness
+            .query_all_by_role(egui::accesskit::Role::ComboBox)
+            .next()
+            .expect("the target language combo exists")
+            .scroll_to_me();
+        harness.run();
+        let combo = harness
+            .query_all_by_role(egui::accesskit::Role::ComboBox)
+            .next()
+            .expect("the target language combo exists");
+        combo.click();
+        harness.run();
+        let before = harness.get_by_label("更新").rect();
+        harness.key_press(egui::Key::ArrowDown);
+        harness.run();
+        let after = harness.get_by_label("更新").rect();
+        assert!(
+            (after.top() - before.top()).abs() < 1.0,
+            "下拉弹出层展开时方向键归弹出层，不得滚动背后的设置内容: {before:?} -> {after:?}"
+        );
+    }
 }

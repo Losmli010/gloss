@@ -51,10 +51,15 @@
 - `arrow_keys_scroll_the_overflowing_settings`：设置窗 640 像素高装不下
   三个分区，测试把视口压到 240 像素强制溢出后按下方向键断言“更新”分区
   上移、按上方向键断言回位——钉的是滚动区对方向键的响应本身（步长与
-  守卫在共享基元），不碰滚动区内部状态；回位用 1 像素容差，浮层同名
-  用例同口径。
+  守卫在共享基元），不碰滚动区内部状态；回位用 1 像素容差，浮层的
+  `arrow_keys_scroll_the_overflowing_body` 是同构用例（同口径，非同名）。
 - `arrow_keys_yield_to_the_focused_text_input`：先持焦端点输入框再按下
   方向键，断言内容不动。输入框经 kittest 的 accesskit 树按
   `Role::TextInput` 取声明序第一枚（三个输入框同角色）。这条钉的是
   egui 文本编辑不消费按键事件造成的双触发坑：焦点守卫缺席时该断言会
   失败。
+- `arrow_keys_yield_to_the_open_combo`：先滚入视野再点开目标语言下拉
+  （240 像素视口里下拉在可视区外，直接点击落不到控件上——这是本条
+  踩过的坑），持弹层按下方向键，断言背后的页面不动。钉的是弹层守卫
+  分支：守卫查询取 `Popup::is_any_open`（`Memory::popups` 记账），取
+  `Context::any_popup_open` 则恒不命中、测试必红。
