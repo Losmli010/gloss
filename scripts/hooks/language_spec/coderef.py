@@ -66,8 +66,10 @@ CODEREF_REMEDY = (
 )
 SECTION_REF_REMEDY = "move the section-number citation to the record file"
 LANGUAGE_REMEDY = (
-    "rewrite the text in Chinese, anchoring foreign terms in fullwidth bracket"
-    " annotations or translating them"
+    "rewrite the text in Chinese first; hold foreign originals in fullwidth"
+    " bracket annotations tight to their translated names, write machine"
+    " symbols in inline code, and apply for registered bare use for common"
+    " terms"
 )
 ENGLISH_DOC_REMEDY = "rewrite the whole line in English"
 CODE_LANGUAGE_REMEDY = (

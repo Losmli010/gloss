@@ -775,12 +775,15 @@ def test_md_fence_chinese_comment_allowed(tmp_path: Path) -> None:
 
 def test_header_remedy_texts_match_the_stage_one_wording() -> None:
     # 文件头两处定稿改法文本锁定（与语言规范库同款措辞对齐）：代码引用改写
-    # 全角括号注记或挪记录，语言改法补锚点与译出的完整说法
+    # 全角括号注记或挪记录，语言改法按注释面口径先译中文、机器记号以译名锚
+    # 点缀注，反引号出现即罚、指引不指向行内代码
     assert check_rust_comments.HEADER_CODEREF_REMEDY == (
         "rewrite the reference as a fullwidth bracket annotation, or move the"
         " sample to the record file"
     )
     assert check_rust_comments.HEADER_LANGUAGE_REMEDY == (
-        "rewrite the header line in Chinese, anchoring foreign terms in"
-        " fullwidth bracket annotations or translating them"
+        "rewrite the header line in Chinese first, anchoring foreign originals"
+        " in fullwidth bracket annotations tight to their translated names;"
+        " machine symbols take a translated-name bracket annotation too"
+        " (backticks are penalized in headers)"
     )

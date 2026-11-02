@@ -284,15 +284,20 @@ def test_foreign_finding_carries_adjacency_evidence() -> None:
 
 
 def test_foreign_remedy_prescribes_anchor_or_translation() -> None:
-    # 外文判罚的定稿改法四句五路：锚点、译出、标点正当形、机器记号进反引
-    # 号、贴附数字；只括注的旧路径（预设专名，谓词性外文词无锚点可挂）不再
-    # 进指引
-    remedy = chinese.FOREIGN_REMEDY
-    assert "anchor or translate foreign terms" in remedy
-    assert "give each punctuation mark its proper form" in remedy
-    assert "put machine symbols in inline code" in remedy
-    assert "reattach detached symbols to their digits" in remedy
-    assert "proper nouns in fullwidth bracket annotations" not in remedy
+    # 外文判罚的定稿改法按面分岔：先译中文，注记括号只装外文原名并紧贴译
+    # 名；机器记号行文面进行内代码，注释面以译名锚点缀注（反引号出现即罚，
+    # 指引不得指向行内代码）；通行词可申请登记裸用；标点正当形与数字贴附
+    # 两路保持不变
+    assert chinese.FOREIGN_REMEDY == (
+        "translate foreign terms into Chinese first, with the annotation"
+        " bracket holding only the foreign original tight to the translated"
+        " name; write machine symbols in inline code on prose surfaces and"
+        " annotate them with a translated-name bracket on comment surfaces"
+        " (backticks are penalized there); common terms may apply for"
+        " registered bare use; give each punctuation mark its proper form"
+        " (fullwidth, halfwidth math, or the corpus-equivalent mark);"
+        " reattach detached symbols to their digits"
+    )
 
 
 def test_foreign_message_groups_hints_by_character_class() -> None:
@@ -300,13 +305,19 @@ def test_foreign_message_groups_hints_by_character_class() -> None:
     # 只见自己的片段；误置与异体的替换映射逐项精确，串级组合（三点省略、度
     # 符号组合）先于单字符——句点不落全角句号、字母不落锚点指引
     message = chinese.chinese_zone_problems("t", 1, "中文word相连。", "text")[0].message
-    assert "anchor or translate the letters (word)" in message
+    assert (
+        "translate the letters into Chinese first; on prose surfaces hold the"
+        " foreign original in a bracket tight to its translated name, write"
+        " machine symbols in inline code, and apply for registered bare use"
+        " for common terms; on comment surfaces annotate machine symbols with"
+        " a translated-name bracket (backticks are penalized there) (word)"
+    ) in message
     assert "joined without a space (文w d相)" in message
     assert "fullwidth twins" not in message
 
     message = chinese.chinese_zone_problems("t", 1, "好!使用,逗号。", "text")[0].message
     assert "fullwidth twins (!->！ ,->，)" in message
-    assert "anchor or translate" not in message
+    assert "translate the letters" not in message
 
     message = chinese.chinese_zone_problems("t", 1, "占比 50％与＄5。", "text")[0].message
     assert "misplaced marks (％->% ＄->￥)" in message
@@ -320,7 +331,7 @@ def test_foreign_message_groups_hints_by_character_class() -> None:
     assert "->。" not in message
     message = chinese.chinese_zone_problems("t", 1, "气温 25°C 偏高。", "text")[0].message
     assert "°C->℃" in message
-    assert "anchor or translate" not in message
+    assert "translate the letters" not in message
 
     message = chinese.chinese_zone_problems("t", 1, "加@前缀与列|列对版。", "text")[0].message
     assert "hold machine symbols in inline code or rewrite the wording (@ |)" in message

@@ -41,7 +41,12 @@ RULE_JUST_ONE_LINE = "COMMENT-JUST-ONE-LINE"
 
 CODEREF_REMEDY = "move references and examples to the record file"
 SECTION_REF_REMEDY = "move the section citation to the record file"
-LANGUAGE_REMEDY = "rewrite the comment in Chinese, proper nouns in bracket annotations"
+LANGUAGE_REMEDY = (
+    "rewrite the comment in Chinese first, anchoring foreign originals in"
+    " fullwidth bracket annotations tight to their translated names; machine"
+    " symbols take a translated-name bracket annotation too (backticks are"
+    " penalized in comments)"
+)
 JUST_ONE_LINE_REMEDY = (
     "write the recipe comment as one line; longer rationale lives in the record file"
 )

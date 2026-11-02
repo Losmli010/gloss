@@ -42,9 +42,13 @@ RULE_PROSE_TRADITIONAL = "PROSE-TRADITIONAL"
 RULE_PROSE_ANCHOR = "PROSE-ANCHOR"
 
 FOREIGN_REMEDY = (
-    "anchor or translate foreign terms; give each punctuation mark its proper"
-    " form (fullwidth, halfwidth math, or the corpus-equivalent mark); put"
-    " machine symbols in inline code; reattach detached symbols to their digits"
+    "translate foreign terms into Chinese first, with the annotation bracket"
+    " holding only the foreign original tight to the translated name; write"
+    " machine symbols in inline code on prose surfaces and annotate them with"
+    " a translated-name bracket on comment surfaces (backticks are penalized"
+    " there); common terms may apply for registered bare use; give each"
+    " punctuation mark its proper form (fullwidth, halfwidth math, or the"
+    " corpus-equivalent mark); reattach detached symbols to their digits"
 )
 GLOSS_MIXED_REMEDY = (
     "hold the foreign term alone in the bracket; move the Chinese wording back into the body"
@@ -335,7 +339,13 @@ def foreign_hint_groups(seg: str) -> list[str]:
         index += 1
     hints = []
     if letters:
-        hint = "anchor or translate the letters (%s)" % "".join(letters)[:12]
+        hint = (
+            "translate the letters into Chinese first; on prose surfaces hold the"
+            " foreign original in a bracket tight to its translated name, write"
+            " machine symbols in inline code, and apply for registered bare use"
+            " for common terms; on comment surfaces annotate machine symbols with"
+            " a translated-name bracket (backticks are penalized there) (%s)"
+        ) % "".join(letters)[:12]
         joins = foreign_pairs(seg)
         if joins:
             hint += ", joined without a space (%s)" % " ".join(joins[:6])

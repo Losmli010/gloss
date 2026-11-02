@@ -36,8 +36,10 @@ RULE_SAFETY_ADJACENCY = "COMMENT-RUST-SAFETY-ADJACENCY"
 
 HEADER_MISSING_REMEDY = "add a Chinese module-level doc comment at the top of the file"
 HEADER_LANGUAGE_REMEDY = (
-    "rewrite the header line in Chinese, anchoring foreign terms in fullwidth"
-    " bracket annotations or translating them"
+    "rewrite the header line in Chinese first, anchoring foreign originals in"
+    " fullwidth bracket annotations tight to their translated names; machine"
+    " symbols take a translated-name bracket annotation too (backticks are"
+    " penalized in headers)"
 )
 HEADER_CODEREF_REMEDY = (
     "rewrite the reference as a fullwidth bracket annotation, or move the sample to the record file"
