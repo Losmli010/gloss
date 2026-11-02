@@ -120,7 +120,9 @@ ENTRY_LINE_RE = re.compile(r'^\s*(gloss_[A-Za-z0-9_]+)\s*=\s*"(.*)"\s*$')
 
 TEMPLATE_RE = re.compile(r"\{\{[^}]*\}\}")
 ADDRESS_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
-# 快捷键符号面：修饰键与常用键位字形是记号不是外文，剥离后随区核心判定
+# 快捷键符号面：修饰键与常用键位字形是记号不是外文，剥离后随区核心判定；
+# 剥离只认字形——带字母键位的组合（如 Cmd 加 S）会残留字母落外文判罚，界
+# 面文案写组合键时须中文表述键位名，不写字形加字母
 KEYBOARD_RE = re.compile("[⌘⌃⌥⇧⇪⏎⌫⎋⇥↩␣]")
 
 DISPLAY_SITE_RE = re.compile(

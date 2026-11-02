@@ -25,7 +25,9 @@ from language_spec.english import english_zone_problems
 @dataclass(frozen=True)
 class TriageFace:
     """一个判罚面的三刀参数：刀 1、2 与刀 3 的规则标识、消息与修复指引；
-    刀 3 仅中文区读（英文区语言判定住核心），英文区核心的指引单独传入。"""
+    刀 3 仅中文区读（英文区语言判定住核心），英文区核心的指引单独传入。
+    字段缺省空串即未配置，半配的面在使用点当场报错，不静默产出空标识条
+    目。"""
 
     coderef_rule: str
     coderef_message: str
@@ -44,7 +46,8 @@ def triage_problems(
 ) -> list[gate_report.Finding]:
     """三刀短路后落区核心：任一刀命中即返回单例条目（含不再跑核心判据），
     反引号在场时字符级罚不并发上报；证据行压平换行，跨行文本形态与既有一
-    致。"""
+    致。面参数按区在使用点核对——缺刀或缺指引的半配面当场报错，不静默产出
+    空标识条目。"""
     evidence = text.replace("\n", " ")
     if "`" in text:
         return [
@@ -69,8 +72,12 @@ def triage_problems(
             )
         ]
     if zone == ZONE_ENGLISH:
+        if not face.english_remedy:
+            raise ValueError("triage face for the english zone lacks the core remedy")
         return english_zone_problems(path, line, text, label, face.english_remedy)
     if not CJK.search(text):
+        if not face.language_rule or not face.language_message:
+            raise ValueError("triage face for the chinese zone lacks the language knife")
         return [
             gate_report.Finding(
                 rule=face.language_rule,

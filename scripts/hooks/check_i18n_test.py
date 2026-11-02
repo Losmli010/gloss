@@ -393,6 +393,19 @@ def test_en_entry_with_backtick_hits_the_coderef_knife(tmp_path: Path) -> None:
     assert findings[0].rule == "I18N-ENTRY-CODEREF"
 
 
+def test_zh_entry_with_section_ref_hits_the_section_knife(tmp_path: Path) -> None:
+    """中文表词条章节号引用触刀 2：单例条目，不再跑核心判据。"""
+    _, fails = scan(
+        tmp_path,
+        "crates/gloss-app/i18n/zh.toml",
+        'gloss_app_title = "词汇"\ngloss_hint = "详见 §3 的说明"\n',
+    )
+    assert fails
+    _, findings = check_i18n.language_findings(str(tmp_path))
+    assert len(findings) == 1
+    assert findings[0].rule == "I18N-ENTRY-SECTION-REF"
+
+
 def test_backtick_knife_short_circuits_char_level_findings(tmp_path: Path) -> None:
     """短路顺序：反引号在场时只报刀 1 单例条目，字符级病灶不并发——同一
     文本改清反引号后，余下病灶才会在核心判据下显形。"""
