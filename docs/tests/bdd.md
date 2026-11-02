@@ -217,12 +217,12 @@
 - 测试步骤：
 
 1. 打开 `https://losmli010.github.io/gloss/`
-2. 依次点导航“演示、功能、下载、更新日志”，确认锚点跳转
-3. 确认版本号显示；切换 `Apple Silicon` 与 `Intel`，确认下载链接随之指向对应架构的 `latest`、文件
+2. 依次点导航“任务、技术、下载、更新”，确认锚点跳转
+3. 确认版本号显示；切换“苹果芯片（Apple Silicon）”与“英特尔芯片（Intel）”，确认下载链接随之指向对应架构的 `latest`、文件
 4. 直接访问 `https://losmli010.github.io/gloss/manifest.json`，确认 `schema/version/channels` 双架构字段齐备
-5. 降级路径：本地 `just site-preview`（无 `manifest.json`）打开页面，确认显示“无法获取最新版本信息”且下载按钮退到 `GitHub` `Releases` 外链
+5. 降级路径：本地 `just site-preview`（无 `manifest.json`）打开页面，确认显示“未能获取最新版本信息”且下载按钮退到 `GitHub` `Releases` 外链
 
-- 更新时间：2026-09-26
+- 更新时间：2026-11-02
 
 ### real_update_round_trip_on_device
 
