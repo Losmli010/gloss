@@ -81,7 +81,7 @@ def collect_env() -> dict[str, str]:
 
 
 def parse_cpu_seconds(text: str) -> float | None:
-    """ps 的 time 列（MM:SS.ss / HH:MM:SS.ss）→ 秒。"""
+    """进程表（ps）时间列（MM:SS.ss、HH:MM:SS.ss）折算成秒。"""
     parts = text.strip().split(":")
     try:
         seconds = float(parts[-1])
@@ -93,7 +93,7 @@ def parse_cpu_seconds(text: str) -> float | None:
 
 
 def sample_process(pid: int) -> tuple[int, float] | None:
-    """ps 采样一个进程：RSS(kb) 与累计 CPU 秒；进程已退出返回 None。"""
+    """进程表（ps）采样单个进程：常驻内存（RSS）与累计处理器秒数，内存按千字节（kb）计；进程已退出返回空值（None）。"""
     try:
         out = subprocess.run(
             ["ps", "-o", "rss=,time=", "-p", str(pid)],
@@ -121,10 +121,10 @@ FOOTPRINT_VALUE = re.compile(r"^(\d+(?:\.\d+)?)([KMG]?)$")
 
 
 def sample_footprint_kb(pid: int) -> dict[str, int] | None:
-    """vmmap 采活动监视器口径的物理占用：空闲值与进程生命期峰值（kb）。
+    """内存映像工具（vmmap）采活动监视器口径的物理占用：空闲值与进程生命期峰值（kb）。
 
-    进程已退出或 vmmap 不可用返回 None；只在空闲窗口末调用一次（vmmap
-    单次数百毫秒，不宜进高频采样循环）。
+    进程已退出或内存映像工具（vmmap）不可用返回空值（None）；只在空闲窗口末调用
+    一次——单次数百毫秒，不宜进高频采样循环。
     """
     try:
         out = subprocess.run(
@@ -159,7 +159,7 @@ def find_log_file(log_dir: Path) -> Path | None:
 
 
 def parse_milestones(log_dir: Path) -> tuple[dict[str, int], bool]:
-    """解析日志：里程碑 id → elapsed_ms，外加系统字体补装是否完成。"""
+    """解析日志：里程碑标识（id）到毫秒耗时（elapsed_ms）的映射，外加系统字体补装是否完成。"""
     log_file = find_log_file(log_dir)
     if log_file is None:
         return {}, False
@@ -179,7 +179,7 @@ def parse_milestones(log_dir: Path) -> tuple[dict[str, int], bool]:
 
 
 def one_run(idle_secs: int, ready_timeout: int) -> dict[str, Any] | None:
-    """spawn 一次并采到空闲窗口结束；失败返回 None（应用侧异常不外泄）。"""
+    """拉起进程（spawn）一次并采到空闲窗口结束；失败返回空值（None）——应用侧异常不外泄。"""
     log_dir = Path(tempfile.mkdtemp(prefix="gloss-metrics-"))
     env = dict(os.environ, GLOSS_LOG_DIR=str(log_dir))
     spawn_wall = time.monotonic()
@@ -273,7 +273,7 @@ def one_run(idle_secs: int, ready_timeout: int) -> dict[str, Any] | None:
 
 
 def aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
-    """各指标取中位数，平铺成 v2 片段字段（id 见 metrics.py 注册表；无值不造 0）。"""
+    """各指标取中位数，平铺成第二版（v2）片段字段；指标编号见注册表（metrics.py），无值不造零。"""
 
     def med(key: str) -> int | None:
         values = [r[key] for r in runs if r.get(key) is not None]
@@ -296,7 +296,7 @@ def aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def dir_usage(path: Path) -> tuple[int, int]:
-    """目录总字节与文件数；目录不存在返回 (0, 0)。"""
+    """目录总字节与文件数；目录不存在返回零值对（0、0）。"""
     total, count = 0, 0
     if path.is_dir():
         for item in path.rglob("*"):

@@ -193,9 +193,10 @@ def read_word(src: str, i: int) -> tuple[str, int]:
 
 
 def attribute_span(src: str, i: int) -> tuple[int, str]:
-    """i 指向 '#'。是属性（#[..] 或 #![..]）时返回 (结束下标, 方括号内文本)，
-    否则返回 (i, "")。方括号内的字符串 / char / 原始字符串按字面量整体跳过，
-    其中的 ']' 不参与配对。"""
+    """入参下标（i）指向井号字符。是属性（#[..] 或 #![..]）时返回结束下标
+    与方括号内文本两个值，否则原下标与空串成对返回。方括号内的字符串、
+    单字符（char）与原始字符串按字面量整体跳过，其中的右方括号不参与
+    配对。"""
     n = len(src)
     j = i + 1
     if j < n and src[j] == "!":
@@ -255,9 +256,9 @@ def attribute_span(src: str, i: int) -> tuple[int, str]:
 
 
 def test_mod_brace(src: str, i: int) -> int | None:
-    """#[cfg(test)] 属性结束后，若紧跟一个带 body 的 mod 项（可带其他属性与
-    pub 修饰），返回其 body '{' 的下标；否则返回 None（无 body 的 mod 声明、
-    其他项均不算）。"""
+    """测试属性（#[cfg(test)]）结束后，若紧跟一个带花括号体的模块（mod）
+    项（可带其他属性与可见性（pub）修饰），返回其花括号体的下标；否则
+    返回空表值（无体的模块声明、其他项均不算）。"""
     while True:
         i = skip_blanks(src, i)
         if i < len(src) and src[i] == "#":
@@ -294,11 +295,12 @@ def test_mod_brace(src: str, i: int) -> int | None:
 
 
 def literal_lines(src: str, texts: dict[int, str] | None = None) -> tuple[set[int], set[int]]:
-    """生产代码（注释、属性、#[cfg(test)] mod 项之外）里的字面量行号，返回
-    （非 ASCII 字面量行号，字符串字面量行号）两个集合；前者是任意位置的
-    判罚面，后者供显示调用点检查用——纯英文的界面文案只能靠调用点形状判定。
-    可选的 texts 出参按行收集字面量内容（转义序列不展开，与命中口径一致），
-    供按字符内容判罚的检查复用同一趟状态机；行号是该字符所在行。"""
+    """生产代码（注释、属性、测试模块（#[cfg(test)] mod）项之外）里的字面量
+    行号，返回非英文字节字面量行号与字符串字面量行号两个集合；前者是任意
+    位置的判罚面，后者供显示调用点检查用——纯英文的界面文案只能靠调用点
+    形状判定。可选的出参（texts）按行收集字面量内容（转义序列不展开，与
+    命中口径一致），供按字符内容判罚的检查复用同一趟状态机；行号是该字符
+    所在行。"""
     hits = set()
     sites = set()
     i, n, line = 0, len(src), 1
@@ -468,7 +470,7 @@ def guard_scan_dirs(root: str) -> None:
 
 
 def literal_findings(root: str, loader: Any = None) -> list[gate_report.Finding]:
-    """检查一：四个扫描面的生产代码字面量，逐行全量返回违规条目——非 ASCII
+    """检查一：四个扫描面的生产代码字面量，逐行全量返回违规条目——非英文字节（ASCII）
     字面量任意位置即拦，字符串字面量落在显示调用点（界面渲染入口）上即便
     纯英文也拦，界面文案只许出自文案表。"""
     out = []
@@ -518,7 +520,7 @@ def scan_all_toml(root: str) -> Iterator[str]:
 def loadpoint_findings(root: str, loader: Any = None) -> tuple[int, list[gate_report.Finding]]:
     """检查二：装入点集中——文案文件是编译期资源，装入与解析只允许发生在统
     一装入点一处，别处编译期引入就绕开了类型化文案表与双语键一致性测试；
-    内容检索委托共享引擎，逐行全量报告，返回扫描的 rs 文件数与违规条目。"""
+    内容检索委托共享引擎，逐行全量报告，返回扫描的本语言（rs）文件数与违规条目。"""
     all_rs = [os.path.relpath(f, root).replace(os.sep, "/") for f in scan_all_rs(root)]
     targets = [f for f in all_rs if f != OWNER]
     try:
@@ -547,9 +549,9 @@ def loadpoint_findings(root: str, loader: Any = None) -> tuple[int, list[gate_re
 
 
 def catalog_findings(root: str, loader: Any = None) -> tuple[int, list[gate_report.Finding]]:
-    """检查三：词条表文件唯一——词条键统一为「模块加词条」的前缀形态且顶层扁
+    """检查三：词条表文件唯一——词条键统一为“模块加词条”的前缀形态且顶层扁
     平，出现第二张表就会分叉出不受键一致性测试管辖的文案面；逐行全量报告，
-    返回扫描的 TOML 文件数与违规条目。"""
+    返回扫描的清单格式（TOML）文件数与违规条目。"""
     out = []
     scanned = 0
     for f in scan_all_toml(root):

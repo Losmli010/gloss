@@ -139,7 +139,7 @@ def test_table_header_and_separator_not_entries(tmp_path: Path) -> None:
 
 
 def test_history_row_same_name_needs_history_marker(tmp_path: Path) -> None:
-    """同名旧行带「最新沿革见」指针＝沿革行，豁免实例数对账。"""
+    """同名旧行带“最新沿革见”指针即沿革行，豁免实例数对账。"""
 
     def mutate(root: Path) -> None:
         p = root / "docs/tests/bdd.md"
@@ -229,7 +229,7 @@ def test_qualifier_with_free_text_fails_binding(tmp_path: Path) -> None:
 
 
 def test_qualifier_binds_mod_files_by_parent_dir() -> None:
-    """mod 文件的限定符绑定是父目录名，直接锁定绑定函数的分支。"""
+    """模块文件（mod）的限定符绑定是父目录名，直接锁定绑定函数的分支。"""
     assert check_test_bdd.qualifier_binds("popup", "src/ui/popup/mod.rs")
     assert not check_test_bdd.qualifier_binds("mod", "src/ui/popup/mod.rs")
     assert check_test_bdd.qualifier_binds("settings", "src/ui/settings.rs")

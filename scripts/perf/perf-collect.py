@@ -41,7 +41,7 @@ from metrics import CORE_GROUPS, METRICS  # noqa: E402 —— 路径引导先于
 
 
 def _load_sibling_script(module_name: str, file_name: str) -> ModuleType:
-    """按路径加载同目录脚本（文件名含连字符，import 语句加载不了）。"""
+    """按路径加载同目录脚本——文件名含连字符，导入语句（import）加载不了。"""
     spec = importlib.util.spec_from_file_location(module_name, SCRIPT_DIR / file_name)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -105,7 +105,7 @@ def fail(message: str) -> NoReturn:
 
 
 def load_json_file(path: Path) -> Any:
-    """读 JSON 文件为对象；文件缺席返回 None（源缺席），在场但坏行当场失败。"""
+    """读 JSON 文件为对象；文件缺席返回空值（None）视为源缺席，在场但坏行当场失败。"""
     if not path.is_file():
         return None
     try:
@@ -115,10 +115,10 @@ def load_json_file(path: Path) -> Any:
 
 
 def read_mean_ns(estimates_path: Path) -> int | None:
-    """estimates.json → mean.point_estimate（ns，取整）；不可读警告后跳过。
+    """从估算文件（estimates.json）取均值点估计（mean.point_estimate），折成纳秒（ns）取整；不可读警告后跳过。
 
-    target/criterion 是滚动状态，个别目录残缺不应挡住整点采集；跳过留
-    stderr 痕迹。
+    基准产物目录（target/criterion）是滚动状态，个别目录残缺不应挡住整点
+    采集；跳过留标准错误（stderr）痕迹。
     """
     try:
         mean = json.loads(estimates_path.read_text(encoding="utf-8"))["mean"]
@@ -131,7 +131,7 @@ def read_mean_ns(estimates_path: Path) -> int | None:
 
 
 def read_full_id(bench_dir: Path, fallback: str) -> str:
-    """基准目录 → criterion full_id；benchmark.json 不可读时退回目录相对路径。"""
+    """基准目录到基准框架（criterion）完整标识（full_id）的映射；描述文件（benchmark.json）不可读时退回目录相对路径。"""
     try:
         return json.loads((bench_dir / "new" / "benchmark.json").read_text(encoding="utf-8"))[
             "full_id"
@@ -141,7 +141,7 @@ def read_full_id(bench_dir: Path, fallback: str) -> str:
 
 
 def collect_core() -> dict[str, int]:
-    """criterion core 墙钟 → {core.<full_id>: mean_ns}，只收注册表已登记 id。"""
+    """基准框架（criterion）核心（core）墙钟折成核心指标映射（core.<full_id> 到 mean_ns），只收注册表已登记标识（id）。"""
     metrics = {}
     for group, _label in CORE_GROUPS:
         for estimates in sorted(CRIT_ROOT.glob(f"{group}/*/new/estimates.json")):
@@ -161,7 +161,7 @@ def collect_core() -> dict[str, int]:
 
 
 def collect_clone_allocs() -> dict[str, int]:
-    """clone_allocs/clone_bytes 两组 → 分配次数/字节合计（无数据即 id 缺席）。"""
+    """克隆分配两组基准（clone_allocs、clone_bytes）合计为分配次数与字节数；无数据即编号（id）缺席。"""
     metrics = {}
     for group, metric_id in (("clone_allocs", "clone.allocs"), ("clone_bytes", "clone.bytes")):
         values = []
@@ -175,7 +175,7 @@ def collect_clone_allocs() -> dict[str, int]:
 
 
 def collect_clone_static() -> dict[str, int | float]:
-    """clone-stats 静态计数 → clone.total / clone.density（聚合口径同原管线）。"""
+    """统计脚本（clone-stats）的静态计数折成克隆总量与密度（clone.total、clone.density），聚合口径同原管线。"""
     crates, _files = clone_stats.collect()
     total = sum(crate["clone"] for crate in crates.values())
     total_loc = sum(crate["loc"] for crate in crates.values())
@@ -186,11 +186,12 @@ def collect_clone_static() -> dict[str, int | float]:
 
 
 def load_selftest_signals(path: Path) -> dict[str, Any]:
-    """selftest.jsonl → 各源最后一条信号行（wrapper 每次整文件覆写落盘）。
+    """自检信号文件（selftest.jsonl）取各源最后一条信号行（包装器（wrapper）每次整文件覆写落盘）。
 
-    overlay 信号按 kind 识别，startup 信号按日志行 message 识别（verdict 由
-    退出码承载，不进行内字段）。文件缺席返回空表；在场但有坏行当场失败——
-    信号行是这些 id 的唯一来源，静默跳过等于无痕丢数据。
+    显隐（overlay）信号按类别字段（kind）识别，启动（startup）信号按日志行
+    消息字段（message）识别——判定（verdict）由退出码承载，不进行内字段。
+    文件缺席返回空表；在场但有坏行当场失败——信号行是这些编号（id）的唯一
+    来源，静默跳过等于无痕丢数据。
     """
     signals = {}
     if not path.is_file():
@@ -215,7 +216,7 @@ def load_selftest_signals(path: Path) -> dict[str, Any]:
 def collect_selftest(
     signals: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    """自检信号行 → (metrics, budgets, env)；行内字段缺席即对应 id 缺席。"""
+    """自检信号行折成三元组（metrics、budgets、env）；行内字段缺席即对应编号（id）缺席。"""
     metrics, budgets, env = {}, {}, {}
     overlay = signals.get("overlay")
     if overlay:
@@ -242,7 +243,7 @@ def collect_selftest(
 
 
 def collect_app() -> tuple[dict[str, Any], dict[str, Any]]:
-    """app-metrics v2 片段 → (metrics, env)；片段缺席或字段 null 即 id 缺席。"""
+    """应用度量脚本（app-metrics）第二版（v2）片段折成二元组（metrics、env）；片段缺席或字段空值（null）即编号（id）缺席。"""
     data = load_json_file(APP_PATH)
     if data is None:
         return {}, {}
@@ -258,7 +259,7 @@ def collect_app() -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def collect_eval() -> dict[str, Any]:
-    """eval iterate 报告 → 端到端延迟分位；非 iterate 模式或字段缺席即 id 缺席。"""
+    """评测（eval）迭代报告折成端到端延迟分位；非迭代模式或字段缺席即编号（id）缺席。"""
     data = load_json_file(EVAL_PATH)
     if data is None or data.get("mode") != "iterate":
         return {}
@@ -275,7 +276,7 @@ def collect_eval() -> dict[str, Any]:
 
 
 def migrate_point(point: dict[str, Any]) -> dict[str, Any]:
-    """v1 嵌套点 → v2 扁平点（就地规范化）；已带 metrics 段的 v2 点原样返回。"""
+    """旧版（v1）嵌套点折成现行版（v2）扁平点（就地规范化）；已带指标段（metrics）的现行版点原样返回。"""
     if "metrics" in point:
         return point
     metrics = {}
@@ -301,7 +302,7 @@ def parse_date(raw: str) -> datetime:
 
 
 def insert_point(points: list[dict[str, Any]], entry: dict[str, Any]) -> list[dict[str, Any]]:
-    """同 commit 原位覆盖（位置即时序）；新点按 date 升序插入，不打乱既有顺序。"""
+    """同提交号（commit）原位覆盖（位置即时序）；新点按日期（date）升序插入，不打乱既有顺序。"""
     replaced = False
     merged = []
     for old in points:

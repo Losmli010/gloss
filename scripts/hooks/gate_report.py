@@ -101,6 +101,9 @@ REGISTERED_RULES = frozenset(
         "COMMENT-SCRIPT-HEADER-CODEREF",
         "COMMENT-SCRIPT-HEADER-SECTION-REF",
         "COMMENT-SCRIPT-HEADER-LANGUAGE",
+        "COMMENT-SCRIPT-DOC-CODEREF",
+        "COMMENT-SCRIPT-DOC-SECTION-REF",
+        "COMMENT-SCRIPT-DOC-LANGUAGE",
         "COMMENT-DOC-CODE-LANGUAGE",
         "COMMENT-DOC-CODE-CODEREF",
         "COMMENT-DOC-CODE-ENGLISH",
@@ -137,7 +140,7 @@ REGISTERED_RULES = frozenset(
 @dataclass(frozen=True)
 class Finding:
     """单条违规的完整描述：规则标识、位置、消息、证据行与补救动作；软约束
-    候选置 advisory，走警告通道不计退出码。"""
+    候选置软约束标记（advisory），走警告通道不计退出码。"""
 
     rule: str
     path: str
@@ -181,7 +184,7 @@ def fail(finding: Finding, file: TextIO | None = None) -> Finding:
 
 
 def warn(finding: Finding, file: TextIO | None = None) -> Finding:
-    """即时打印单条软约束候选到标准错误：与 fail 同模板，前缀换警告——候选
+    """即时打印单条软约束候选到标准错误：与违规打印（fail）同模板，前缀换警告——候选
     清单供人工核查，不计违规。"""
     out = file if file is not None else sys.stderr
     head = "warning[%s]: %s" % (finding.rule, finding.message)

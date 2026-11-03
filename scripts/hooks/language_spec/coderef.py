@@ -443,7 +443,7 @@ def numeric_span_finding(path: str, lineno: int, span: str) -> gate_report.Findi
 def markdown_line_problems(
     path: str, lineno: int, line: str, zone: str = ZONE_CHINESE
 ) -> list[gate_report.Finding]:
-    """标记语言单行判定：段内容判定住 prose_line_problems 单点（文档路径不
+    """标记语言单行判定：段内容判定住单行表述判定（prose_line_problems）单点（文档路径不
     另跑循环避免双判），结构性豁免面的段内容先于豁免照判。"""
     stripped = line.strip()
     if not stripped:

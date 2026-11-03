@@ -70,8 +70,9 @@ def work_tree_status(root: str) -> str:
 
 
 def stub_section(path: str, pat: str, loader: Any = None) -> str:
-    """端口桩按节比对：节以“列 0 的 ///”切分（桩的条目文档都在列 0，
-    结构体字段文档有缩进，不会误切）。文件缺失按空节处理（对齐 cmp 空对空）。"""
+    """端口桩按节比对：节以列零的三斜线文档注释切分（桩的条目文档都在列零，
+    结构体字段文档有缩进，不会误切）。文件缺失按空节处理，对齐比较
+    命令（cmp）的空对空语义。"""
     if not os.path.isfile(path):
         return ""
     out = []

@@ -145,7 +145,7 @@ def manifests(root: str, loader: Any = None) -> list[str]:
 
 
 def pkg_name(manifest_path: str, loader: Any = None) -> str:
-    """取 [package] 里的 crate 名。"""
+    """取包段（[package]）里的分包（crate）名。"""
     in_section = False
     for line in read_text(manifest_path, loader).split("\n"):
         stripped = line.strip()
@@ -158,7 +158,7 @@ def pkg_name(manifest_path: str, loader: Any = None) -> str:
 
 
 def section_body(manifest_path: str, want: str, loader: Any = None) -> list[str]:
-    """取某个 section 的正文（到下一个 section 头为止）。"""
+    """取某个段（section）的正文，到下一个段头为止。"""
     out = []
     in_section = False
     for line in read_text(manifest_path, loader).split("\n"):
@@ -171,10 +171,12 @@ def section_body(manifest_path: str, want: str, loader: Any = None) -> list[str]
 
 
 def dep_entries(manifest_path: str, loader: Any = None) -> list[tuple[str, str, int, str]]:
-    """抽取依赖条目，输出 (section, key, 行号, 条目全文（跨行保留行界）)。
+    """抽取依赖条目，输出段名、键、行号与条目全文（跨行保留行界）四元组。
 
-    依赖表含 [dependencies] / [dev-dependencies] / [build-dependencies]，以及
-    [target.'cfg(...)'.dev-dependencies] 这类门控形式（均以 dependencies] 结尾）。"""
+    依赖表含普通依赖、开发依赖与构建依赖三段（[dependencies]、
+    [dev-dependencies]、[build-dependencies]），以及按目标门控的开发依
+    赖段（[target.'cfg(...)'.dev-dependencies]）这类形式，段头均以依赖
+    字样（dependencies]）结尾。"""
     entries = []
     sec = None
     in_deps = False
@@ -232,9 +234,10 @@ def dep_dump(root: str, loader: Any = None) -> list[tuple[str, str, str, str, in
 
 
 def walk_rs(*bases: str) -> Iterator[str]:
-    """列各 base 下的 .rs 文件；base 不存在则跳过。任意层级剪枝 target / .git：
-    cargo 产物只应出现在仓库根，但误提交进源码树深处的同名目录同样不该进
-    扫描面（bash 版只剪根级，这里是审慎的超集）。"""
+    """列各根目录（base）下的本语言（.rs）文件；根目录不存在则跳过。任意层级
+    剪枝构建产物目录（target）与版本库目录（.git）：构建工具（cargo）产物只应
+    出现在仓库根，但误提交进源码树深处的同名目录同样不该进扫描面，壳层
+    脚本（bash）版只剪根级，这里是审慎的超集。"""
     for base in bases:
         if not os.path.isdir(base):
             continue

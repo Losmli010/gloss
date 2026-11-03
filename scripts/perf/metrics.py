@@ -40,9 +40,10 @@ SOURCES = frozenset(
 class Metric:
     """单条指标的注册信息。
 
-    label 供图表图例与报告表格使用；noise 是仅记录类对比的启发式阈值
-    （相对变化超过该比例才标改善/回归，非门禁），门禁类指标不消费该
-    字段；note 是判定语义的补充说明（报告判定列随 judge 一并显示）。
+    展示标签（label）供图表图例与报告表格使用；噪声阈值（noise）是仅记录类
+    对比的启发式阈值——相对变化超过该比例才标改善或回归，非门禁；门禁类
+    指标不消费该字段；补充说明（note）是判定语义的补充说明，报告判定列随
+    判定档位（judge）一并显示。
     """
 
     category: str
@@ -56,7 +57,7 @@ class Metric:
 
 @dataclass(frozen=True)
 class BudgetConst:
-    """预算门禁指标对应的 Rust 常量：file 为相对仓库根的源文件，name 为常量名。"""
+    """预算门禁指标对应的本语言（Rust）常量：文件名（file）为相对仓库根的源文件，常量名（name）为文件内的常量标识。"""
 
     file: str
     name: str
@@ -85,7 +86,7 @@ CORE_CASES = {
 
 
 def _core_metrics() -> dict[str, Metric]:
-    """展开 criterion 热点墙钟指标（bench 墙钟随机器波动，恒为仅记录）。"""
+    """展开基准框架（criterion）的热点墙钟指标——基准（bench）墙钟随机器波动，恒为仅记录。"""
     return {
         f"core.{group}/{case}": Metric(
             "hotpath", f"{label} {case}", "ns", "record only", "criterion"
@@ -211,10 +212,11 @@ _KB_MB_SWITCH = 10 * _KB_PER_MB  # 千字节值过万才换兆显示，以下保
 def fmt(value: float, unit: str) -> str:
     """把指标数值格式化为人读字符串（图表数值槽与报告表格共用同一出口）。
 
-    ms 取整数千位分隔；kb ≥10 MB 换算 MB 一位小数（1024 进制），以下 KB
-    千位分隔；count 整数千位分隔、非整数保留一位小数；ns 按量级落在
-    ns/µs/ms 档；bytes 按 B/KB/MB/GB 换算。单位不在词表内直接抛错，
-    防拼错单位后静默输出错误格式。
+    毫秒（ms）取整数千位分隔；千字节（kb）值过万即换算兆字节（MB）一位小数
+    （1024 进制），以下保持千字节（KB）千位分隔；计数（count）整数千位分隔、
+    非整数保留一位小数；纳秒（ns）按量级落在纳秒、微秒（µs）与毫秒三档；
+    字节数（bytes）按字节（B）、千字节（KB）、兆字节（MB）与吉字节（GB）
+    逐级换算。单位不在词表内直接抛错，防拼错单位后静默输出错误格式。
     """
     if unit == "ms":
         return f"{round(value):,} ms"
@@ -244,7 +246,7 @@ def fmt(value: float, unit: str) -> str:
 
 
 def _validate() -> None:
-    """注册表一致性自检，import 时执行：登记项漂移当场失败，不留到消费方。"""
+    """注册表一致性自检，随导入（import）执行：登记项漂移当场失败，不留到消费方。"""
     problems = []
     for mid, metric in METRICS.items():
         if metric.category not in CATEGORY_LABELS:

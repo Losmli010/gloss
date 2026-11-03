@@ -73,7 +73,7 @@ def scan_lines(doc_path: str, loader: Any = None) -> list[str]:
 
 
 def rule_names(lines: list[str]) -> list[str]:
-    """“质量条目总表”段里以 **名字** 起头的条目名。"""
+    """“质量条目总表”段里以粗体名字（两侧双星号记号）起头的条目名。"""
     names = []
     in_section = False
     for line in lines:
@@ -144,11 +144,12 @@ def ref_file(p: str) -> bool:
 def scan_quality_refs(
     root: str, names: list[str], tracked: list[str], loader: Any = None
 ) -> tuple[list[gate_report.Finding], int, int]:
-    """仓库各处（*.rs / *.toml / *.py / *.yml / justfile）对质量条目的指名引用核对。
+    """仓库各处对质量条目的指名引用核对，扫描面含本语言（.rs）与配置（.toml）、
+    脚本（.py）、流水线描述（.yml）与任务配方（justfile）。
 
     有跟踪清单时只扫清单里的文件：工作区里未跟踪的临时目录与本地记录不能
     左右判定，本地与持续集成才看同一批文件；行筛选委托共享检索引擎，命中
-    行上摘取条目名核对。返回 (violations, ref_files, ref_count)。"""
+    行上摘取条目名核对。返回（violations、ref_files、ref_count）。"""
     violations = []
     ref_files = 0
     ref_count = 0
@@ -208,8 +209,8 @@ def require_doc(doc_path: str) -> None:
 
 
 def collect(doc_path: str, loader: Any = None) -> tuple[list[gate_report.Finding], int, int, int]:
-    """按五类引用核对 doc_path，违规随执行流即时经统一诊断出口打到标准错误，
-    返回 (violations, checked, ref_files, ref_count)；装入器在场时清单枚举与
+    """按五类引用核对指令文档（doc_path），违规随执行流即时经统一诊断出口打到标准错误，
+    返回（violations、checked、ref_files、ref_count）；装入器在场时清单枚举与
     文件读取走共享缓存，缺省自行读取。"""
     require_doc(doc_path)
     root = os.path.dirname(os.path.abspath(doc_path))
@@ -327,9 +328,9 @@ def render(finding: gate_report.Finding) -> str:
 
 
 def run(doc_path: str, loader: Any = None) -> tuple[list[str], int, int, int]:
-    """按五类引用核对 doc_path，返回 (violations, checked, ref_files, ref_count)；
-    违规清单收渲染行（消息加位置）供调用方取用，装入器在场时清单枚举与文件
-    读取走共享缓存，缺省自行读取。"""
+    """按五类引用核对指令文档（doc_path），返回（violations、checked、ref_files、
+    ref_count）；违规清单收渲染行（消息加位置）供调用方取用，装入器在场时清单
+    枚举与文件读取走共享缓存，缺省自行读取。"""
     found, checked, ref_files, ref_count = collect(doc_path, loader)
     return [render(finding) for finding in found], checked, ref_files, ref_count
 

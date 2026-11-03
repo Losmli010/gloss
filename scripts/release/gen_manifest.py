@@ -25,7 +25,7 @@ TARGETS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
 
 
 def entry_for(artdir: str, version: str, target: str) -> dict[str, int | str]:
-    """单架构条目：zip 取 size/sha256（客户端校验对象），dmg 只出直链供站点使用。"""
+    """单架构条目：压缩包（zip）取体积与散列（size、sha256）为客户端校验对象，镜像（dmg）只出直链供站点使用。"""
     stem = "gloss-%s-%s" % (version, target)
     zip_path = os.path.join(artdir, "%s.zip" % stem)
     size = os.path.getsize(zip_path)
@@ -42,7 +42,7 @@ def entry_for(artdir: str, version: str, target: str) -> dict[str, int | str]:
 
 
 def run(tag: str, artdir: str, root: str) -> dict[str, Any]:
-    """返回 manifest dict；版本校验与产物齐备性失败时抛 SystemExit（消息进 stderr）。"""
+    """返回清单字典（manifest dict）；版本校验与产物齐备性失败时抛系统退出异常（SystemExit），消息进标准错误（stderr）。"""
     version, cargo_version, error = check_release_tag.run(tag, root)
     # 版本单点校验的判定输出走标准错误，保持标准输出只含 JSON 数据格式
     if error:

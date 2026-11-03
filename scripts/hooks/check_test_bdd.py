@@ -78,11 +78,12 @@ def tracked_rs_files(root: str, loader: Any = None) -> list[str]:
 def src_test_instances(
     root: str, tracked: list[str] | None = None, loader: Any = None
 ) -> dict[str, set[str]]:
-    """#[test] / #[tokio::test] 函数名到定义文件（仓库相对路径）集合。
+    """测试属性（#[test]）与异步测试属性（#[tokio::test]）函数名到定义文件
+    （仓库相对路径）集合。
 
-    属性行触发 pending；跳过中间的其它属性行（如 #[ignore = \"...\"]）取最近的
-    fn 名；属性与 fn 同行也支持。实例按文件计：同名测试落在几个文件就是几个
-    实例，供限定行数对账与限定符文件绑定用。"""
+    属性行触发待定态（pending）；跳过中间的其它属性行（如忽略属性）取最近的
+    函数（fn）名；属性与函数同行也支持。实例按文件计：同名测试落在几个文件
+    就是几个实例，供限定行数对账与限定符文件绑定用。"""
     instances: dict[str, set[str]] = {}
     rels = tracked if tracked is not None else tracked_rs_files(root, loader)
     for rel in rels:
@@ -124,8 +125,9 @@ def manifest_files(root: str) -> list[str]:
 
 
 def target_test_names(root: str, loader: Any = None) -> set[str]:
-    """[[test]] 声明的测试目标名（harness = false 自检二进制没有 #[test] 函数）。
-    声明本身即登记面，目标源文件缺席不影响双向核对（缺文件的构建不成立）。"""
+    """测试目标声明（[[test]]）的目标名，关自检的二进制（harness = false）没有
+    测试属性（#[test]）函数。声明本身即登记面，目标源文件缺席不影响双向核对
+    （缺文件的构建不成立）。"""
     names = set()
     for manifest in manifest_files(root):
         if not os.path.isfile(manifest):
@@ -152,9 +154,9 @@ def target_test_instances(
     loader: Any = None,
     declared: set[str] | None = None,
 ) -> dict[str, set[str]]:
-    """[[test]] 测试目标名到目标源文件集合：按「tests/ 目录下同名 .rs」在跟踪
-    清单里解析（目录形态 tests/<名>/main.rs 按目录名归位），解析不到的声明
-    不计实例（限定符文件绑定无从谈起）。声明清单可由调用方传入复用。"""
+    """测试目标声明（[[test]]）的目标名到目标源文件集合：按跟踪清单里测试目录
+    下的同名源文件解析，目录形态（tests/<名>/main.rs）按目录名归位，解析不到
+    的声明不计实例（限定符文件绑定无从谈起）。声明清单可由调用方传入复用。"""
     rels = tracked if tracked is not None else tracked_rs_files(root, loader)
     by_tests_stem: dict[str, set[str]] = {}
     for rel in rels:
@@ -181,10 +183,10 @@ def bdd_lines(bdd_path: str, loader: Any = None) -> list[str]:
 
 
 def bdd_entries(bdd_path: str, loader: Any = None) -> set[str]:
-    """清单侧条目名：表格取首列，人工测试取 ### 小节标题；剥掉快照重名的
-    （popup）/（settings）限定后缀；表头、分隔行与 crates/... 文件标题经标识符
-    过滤自然排除。「## 发版人工步骤」节登记无自动化测试源码的发版链路运维步骤，
-    整节豁免双向核对。"""
+    """清单侧条目名：表格取首列，人工测试取三级小节标题；剥掉快照重名的
+    弹层（popup）与设置（settings）限定后缀；表头、分隔行与以分包路径起头的
+    文件标题经标识符过滤自然排除。“发版人工步骤”节登记无自动化测试源码的
+    发版链路运维步骤，整节豁免双向核对。"""
     names = []
     exempt = False
     for line in bdd_lines(bdd_path, loader):
@@ -211,7 +213,7 @@ def bdd_entries(bdd_path: str, loader: Any = None) -> set[str]:
 def bdd_registrations(bdd_path: str, loader: Any = None) -> list[dict[str, Any]]:
     """清单登记行的结构化提取：每条带裸名、限定符、小节、行号与沿革标记。
 
-    裸名按「尾部全角括号」剥限定符；沿革行按描述里的「最新沿革见」指针机器
+    裸名按尾部全角括号剥限定符；沿革行按描述里的“最新沿革见”指针机器
     识别，豁免限定名唯一、实例数对账与文件绑定三道检查（同名不同描述的
     历史重录是有意保留）。人工测试豁免节不计。"""
     out: list[dict[str, Any]] = []
@@ -258,7 +260,7 @@ def bdd_registrations(bdd_path: str, loader: Any = None) -> list[dict[str, Any]]
 
 
 def qualifier_binds(qualifier: str, rel: str) -> bool:
-    """限定符是否绑定源文件：等于文件名主干，mod 文件取父目录名。"""
+    """限定符是否绑定源文件：等于文件名主干，模块文件（mod）取父目录名。"""
     stem = os.path.splitext(os.path.basename(rel))[0]
     if stem == "mod":
         return os.path.basename(os.path.dirname(rel)) == qualifier
@@ -360,7 +362,7 @@ def qualifier_findings(
 
 
 def duplicate_rows(bdd_path: str, loader: Any = None) -> list[str]:
-    """整行精确重复（同名同目标同场景同时间）＝改名后旧行未删的真实特征。
+    """整行精确重复（同名同目标同场景同时间），即改名后旧行未删的真实特征。
     同名不同描述的沿革行（历史重录记录）是有意保留，不拦。"""
     rows = []
     exempt = False
@@ -388,7 +390,7 @@ def duplicate_chapters(bdd_path: str, loader: Any = None) -> list[str]:
 
 
 def duplicate_blocks(bdd_path: str, loader: Any = None) -> list[str]:
-    """同一 ## 章节内重复的 ### 小节标题，或同一小节内逐字重复的「- 」条目行
+    """同一二级章节内重复的三级小节标题，或同一小节内逐字重复的短横条目行
     ——人工测试条目整段重复拼接的痕迹（表格行的重复由整行精确重复检查覆盖）。"""
     dups = set()
     chapter = ""
@@ -424,7 +426,7 @@ def duplicate_blocks(bdd_path: str, loader: Any = None) -> list[str]:
 
 
 def broken_tables(bdd_path: str, loader: Any = None) -> list[str]:
-    """结构校验：非豁免小节里的每个表格必须是良构 GFM 表——表行连成一个块，
+    """结构校验：非豁免小节里的每个表格必须是良构表格（GFM）——表行连成一个块，
     且块的第二行是分隔行。空行或正文混在表头与表体之间会把表体从表头上
     切断（渲染退化为纯文本），一律按缺表头列出。"""
     broken = {}
@@ -622,7 +624,7 @@ def render(finding: gate_report.Finding) -> str:
 
 
 def run(root: str, loader: Any = None) -> tuple[list[str], list[str]]:
-    """双向核对，返回 (oks, fails)；失败清单收渲染行（消息、位置与条目证据）
+    """双向核对，返回（oks、fails）两清单；失败清单收渲染行（消息、位置与条目证据）
     供调用方取用，装入器在场时清单与文件读取走共享缓存，缺省自行读取。"""
     oks, found = collect(root, loader)
     return oks, [render(finding) for finding in found]

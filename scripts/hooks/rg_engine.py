@@ -25,7 +25,7 @@ def _json_field(blob: dict[str, Any]) -> str:
 def run(
     root: str, expressions: list[str], files: list[str], multiline: bool = False
 ) -> dict[str, dict[int, str]]:
-    """一次子进程跑全部表达式，命中整理成「路径到行号与行文」的嵌套映射。
+    """一次子进程跑全部表达式，命中整理成“路径到行号与行文”的嵌套映射。
 
     路径键与调用方传入的文件清单同形（相对或绝对由调用方定）；多行模式
     开启时跨行命中的行号取起始行，行文是命中跨住的全部行。"""

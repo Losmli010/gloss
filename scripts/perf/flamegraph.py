@@ -127,7 +127,7 @@ def render(folded: Path, svg: Path) -> None:
 
 
 def top_of_stack(folded: Path) -> tuple[list[tuple[str, int]], int]:
-    """折叠格式「帧1;帧2;…;叶子帧 N」的叶子帧即栈顶：自耗 = 各行叶子计数之和。"""
+    """折叠格式（帧1;帧2;…;叶子帧 N）的叶子帧即栈顶：自耗为各行叶子计数之和。"""
     self_counts: dict[str, int] = {}
     total = 0
     for line in folded.read_text().splitlines():
