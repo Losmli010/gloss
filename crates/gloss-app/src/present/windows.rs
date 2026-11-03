@@ -29,20 +29,12 @@ fn capped_height(screen_height: f64, requested_height: f64) -> f64 {
     requested_height.min(max_height)
 }
 
-fn clamped_user_size(
-    screen_width: f64,
-    screen_height: f64,
-    requested: LogicalSize<f64>,
-) -> LogicalSize<f64> {
-    let max_height = (screen_height * HEIGHT_CAP_FRACTION - window::WORK_AREA_MARGIN)
-        .max(window::OVERLAY_HEIGHT);
+fn clamped_user_size(screen_width: f64, requested: LogicalSize<f64>) -> LogicalSize<f64> {
     let max_width = window::OVERLAY_MAX_WIDTH
         .min((screen_width - 2.0 * window::WORK_AREA_MARGIN).max(window::OVERLAY_MIN_WIDTH));
     LogicalSize::new(
         requested.width.clamp(window::OVERLAY_MIN_WIDTH, max_width),
-        requested
-            .height
-            .clamp(window::OVERLAY_MIN_HEIGHT, max_height),
+        requested.height.max(window::OVERLAY_MIN_HEIGHT),
     )
 }
 
@@ -50,7 +42,7 @@ fn anchored_user_resize(
     edges: ResizeEdges,
     anchor: &UserResizeAnchor,
     pointer: LogicalPosition<f64>,
-    screen: LogicalSize<f64>,
+    screen_width: f64,
 ) -> (LogicalSize<f64>, LogicalPosition<f64>) {
     let (press_position, press_size, press_pointer) = (
         anchor.press_position,
@@ -83,7 +75,7 @@ fn anchored_user_resize(
     } else {
         press_size.height
     };
-    let size = clamped_user_size(screen.width, screen.height, LogicalSize::new(width, height));
+    let size = clamped_user_size(screen_width, LogicalSize::new(width, height));
     let x = if edges.west {
         east_anchor - size.width
     } else {
@@ -273,7 +265,7 @@ impl WindowManager {
             origin.y + f64::from(pointer.1),
         );
         let screen = monitor.size().to_logical::<f64>(scale);
-        let (target, position) = anchored_user_resize(edges, anchor, pointer, screen);
+        let (target, position) = anchored_user_resize(edges, anchor, pointer, screen.width);
         if (target.width - self.overlay_size.width).abs() < RESIZE_EPSILON
             && (target.height - self.overlay_size.height).abs() < RESIZE_EPSILON
         {
@@ -541,7 +533,7 @@ mod anchored_resize_tests {
             edges(false, false, false, true),
             &anchor_at((3.0, 150.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(540.0, 260.0));
         assert_eq!(position, LogicalPosition::new(EAST - 540.0, 400.0));
@@ -554,7 +546,7 @@ mod anchored_resize_tests {
             edges(true, false, false, false),
             &anchor_at((240.0, 4.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(480.0, 300.0));
         assert_eq!(position, LogicalPosition::new(600.0, SOUTH - 300.0));
@@ -567,7 +559,7 @@ mod anchored_resize_tests {
             edges(false, false, true, false),
             &anchor_at((476.0, 150.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(560.0, 260.0));
         assert_eq!(position, PRESS_POS, "东缘拖动窗口原点不动");
@@ -580,7 +572,7 @@ mod anchored_resize_tests {
             edges(true, false, false, true),
             &anchor_at((10.0, 12.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(530.0, 290.0));
         assert_eq!(position, LogicalPosition::new(EAST - 530.0, SOUTH - 290.0));
@@ -593,7 +585,7 @@ mod anchored_resize_tests {
             edges(true, false, true, false),
             &anchor_at((470.0, 6.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(520.0, 280.0));
         assert_eq!(position, LogicalPosition::new(600.0, SOUTH - 280.0));
@@ -606,7 +598,7 @@ mod anchored_resize_tests {
             edges(false, true, false, true),
             &anchor_at((8.0, 254.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(510.0, 296.0));
         assert_eq!(position, LogicalPosition::new(EAST - 510.0, 400.0));
@@ -619,7 +611,7 @@ mod anchored_resize_tests {
             edges(false, false, false, true),
             &anchor_at((3.0, 150.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         let min_width = crate::ui::style::geometry::window::OVERLAY_MIN_WIDTH;
         assert_eq!(size.width, min_width);
@@ -635,10 +627,33 @@ mod anchored_resize_tests {
             edges(false, false, false, true),
         ] {
             let (size, position) =
-                anchored_user_resize(grabbed, &anchor_at((2.0, 2.0)), press, SCREEN);
+                anchored_user_resize(grabbed, &anchor_at((2.0, 2.0)), press, SCREEN.width);
             assert_eq!(size, PRESS_SIZE, "按下帧指针未动，尺寸不跳变");
             assert_eq!(position, PRESS_POS, "按下帧位置不跳变");
         }
+    }
+
+    #[test]
+    fn north_drag_past_the_screen_keeps_the_size_and_pins_the_top() {
+        let pointer = LogicalPosition::new(840.0, -3896.0);
+        let (size, position) = anchored_user_resize(
+            edges(true, false, false, false),
+            &anchor_at((240.0, 4.0)),
+            pointer,
+            SCREEN.width,
+        );
+        assert_eq!(
+            size.height,
+            SOUTH - pointer.y + 4.0,
+            "上限撤除后超高请求原样通过"
+        );
+        let clamped =
+            super::clamp_to_monitor(position, LogicalPosition::new(0.0, 0.0), SCREEN, size);
+        assert_eq!(
+            clamped,
+            LogicalPosition::new(600.0, 0.0),
+            "超高窗经落窗钳制后顶缘钉在屏顶（与显示器小于浮层同策），不是缺陷也不是要恢复的上限"
+        );
     }
 }
 
@@ -671,7 +686,7 @@ mod cap_height_tests {
 mod user_size_tests {
     use super::clamped_user_size;
     use crate::ui::style::geometry::window::{
-        OVERLAY_HEIGHT, OVERLAY_MAX_WIDTH, OVERLAY_MIN_HEIGHT, OVERLAY_MIN_WIDTH,
+        OVERLAY_MAX_WIDTH, OVERLAY_MIN_HEIGHT, OVERLAY_MIN_WIDTH,
     };
     use winit::dpi::LogicalSize;
 
@@ -680,52 +695,43 @@ mod user_size_tests {
     #[test]
     fn in_bounds_requests_pass_through_untouched() {
         let size = LogicalSize::new(640.0, 300.0);
-        assert_eq!(clamped_user_size(SCREEN.0, SCREEN.1, size), size);
+        assert_eq!(clamped_user_size(SCREEN.0, size), size);
     }
 
     #[test]
     fn width_clamps_to_the_design_envelope() {
         assert_eq!(
-            clamped_user_size(SCREEN.0, SCREEN.1, LogicalSize::new(200.0, 300.0)).width,
+            clamped_user_size(SCREEN.0, LogicalSize::new(200.0, 300.0)).width,
             OVERLAY_MIN_WIDTH
         );
         assert_eq!(
-            clamped_user_size(SCREEN.0, SCREEN.1, LogicalSize::new(2000.0, 300.0)).width,
+            clamped_user_size(SCREEN.0, LogicalSize::new(2000.0, 300.0)).width,
             OVERLAY_MAX_WIDTH
         );
     }
 
     #[test]
-    fn height_clamps_to_the_minimum_and_the_screen_share() {
+    fn height_clamps_to_the_minimum_and_tall_requests_pass_through() {
         assert_eq!(
-            clamped_user_size(SCREEN.0, SCREEN.1, LogicalSize::new(480.0, 40.0)).height,
+            clamped_user_size(SCREEN.0, LogicalSize::new(480.0, 40.0)).height,
             OVERLAY_MIN_HEIGHT
         );
         assert_eq!(
-            clamped_user_size(SCREEN.0, SCREEN.1, LogicalSize::new(480.0, 4000.0)).height,
-            1080.0 * 0.382 - 96.0,
-            "user resize shares the streaming cap: golden share of the screen minus margin"
-        );
-    }
-
-    #[test]
-    fn height_cap_bottoms_out_at_the_default_like_the_content_cap() {
-        assert_eq!(
-            clamped_user_size(1920.0, 700.0, LogicalSize::new(480.0, 4000.0)).height,
-            OVERLAY_HEIGHT,
-            "a short screen floors the user cap at the default height, never below it"
+            clamped_user_size(SCREEN.0, LogicalSize::new(480.0, 4000.0)).height,
+            4000.0,
+            "拖拽不再受最大高度钳制：超高请求原样落窗（用户显式拖出的高度即所需高度）"
         );
     }
 
     #[test]
     fn narrow_screens_collapse_the_width_envelope() {
         assert_eq!(
-            clamped_user_size(700.0, 800.0, LogicalSize::new(2000.0, 300.0)).width,
+            clamped_user_size(700.0, LogicalSize::new(2000.0, 300.0)).width,
             700.0 - 2.0 * 96.0,
             "a narrow monitor caps the width by its own work area, not the design max"
         );
         assert_eq!(
-            clamped_user_size(400.0, 800.0, LogicalSize::new(2000.0, 300.0)).width,
+            clamped_user_size(400.0, LogicalSize::new(2000.0, 300.0)).width,
             OVERLAY_MIN_WIDTH,
             "the minimum width wins when the work area dips below it"
         );

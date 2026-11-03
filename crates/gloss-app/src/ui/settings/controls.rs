@@ -193,6 +193,15 @@ pub(super) fn choice_row<R>(
     .inner
 }
 
+pub(super) fn choice_option<Value: PartialEq>(
+    ui: &mut egui::Ui,
+    current: &mut Value,
+    value: Value,
+    label: &str,
+) {
+    pointing_hand(ui.selectable_value(current, value, label));
+}
+
 pub(super) fn choice_hint(ui: &mut egui::Ui, text: &str) {
     caption(ui, text);
 }

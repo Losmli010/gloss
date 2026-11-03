@@ -9,12 +9,13 @@ use gloss_core::config::{CACHE_TTL_MAX_SECS, Language, Theme};
 use gloss_core::model::Lang;
 
 use super::controls::{
-    add_input, choice_hint, choice_row, error_text, toggle_switch, underline_if_error,
+    add_input, choice_hint, choice_option, choice_row, error_text, toggle_switch,
+    underline_if_error,
 };
 use super::{FieldError, FieldKey, SettingsAction, SettingsState};
 use crate::ui::i18n::{Text, fill};
 use crate::ui::pointing_hand;
-use crate::ui::style::{geometry, space};
+use crate::ui::style::space;
 use crate::update::UpdateMsg;
 use crate::update::state::{FailStep, UpdatePhase, UpdateState};
 
@@ -35,29 +36,30 @@ pub(super) fn connection_section(
 
     ui.label(text.gloss_settings_api_key.as_str());
     ui.horizontal(|ui| {
-        let input_width = ui.available_width() - geometry::settings::CLEAR_BUTTON_RESERVE;
-        let typed = add_input(ui, &mut state.api_key, |e| {
-            e.password(true)
-                .hint_text(if state.clear_key {
-                    text.gloss_settings_key_clear_hint.as_str()
-                } else {
-                    text.gloss_settings_key_keep_hint.as_str()
-                })
-                .desired_width(input_width)
-        })
-        .changed();
-        if typed {
-            state.clear_key = false;
-        }
-        let label = if state.clear_key {
-            text.gloss_settings_undo_clear_key.as_str()
-        } else {
-            text.gloss_settings_clear_key.as_str()
-        };
-        if pointing_hand(ui.button(label)).clicked() {
-            state.clear_key = !state.clear_key;
-            state.api_key.clear();
-        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let label = if state.clear_key {
+                text.gloss_settings_undo_clear_key.as_str()
+            } else {
+                text.gloss_settings_clear_key.as_str()
+            };
+            if pointing_hand(ui.button(label)).clicked() {
+                state.clear_key = !state.clear_key;
+                state.api_key.clear();
+            }
+            let typed = add_input(ui, &mut state.api_key, |e| {
+                e.password(true)
+                    .hint_text(if state.clear_key {
+                        text.gloss_settings_key_clear_hint.as_str()
+                    } else {
+                        text.gloss_settings_key_keep_hint.as_str()
+                    })
+                    .desired_width(f32::INFINITY)
+            })
+            .changed();
+            if typed {
+                state.clear_key = false;
+            }
+        });
     });
     ui.add_space(space::ITEM);
 
@@ -188,8 +190,7 @@ fn lang_combo(ui: &mut egui::Ui, current: &mut Lang, text: &Text) {
         .selected_text(lang_label(current, text))
         .show_ui(ui, |ui| {
             for lang in LANG_CHOICES {
-                let label = lang_label(&lang, text);
-                ui.selectable_value(current, lang, label);
+                choice_option(ui, current, lang, lang_label(&lang, text));
             }
         });
     pointing_hand(combo.response);
@@ -208,7 +209,7 @@ fn language_combo(ui: &mut egui::Ui, current: &mut Language, text: &Text) {
         .selected_text(language_label(current, text))
         .show_ui(ui, |ui| {
             for language in [Language::System, Language::Zh, Language::En] {
-                ui.selectable_value(current, language, language_label(&language, text));
+                choice_option(ui, current, language, language_label(&language, text));
             }
         });
     pointing_hand(combo.response);
@@ -224,7 +225,7 @@ fn theme_combo(ui: &mut egui::Ui, current: &mut Theme, text: &Text) {
         .selected_text(label(current))
         .show_ui(ui, |ui| {
             for theme in [Theme::System, Theme::Light, Theme::Dark] {
-                ui.selectable_value(current, theme, label(&theme));
+                choice_option(ui, current, theme, label(&theme));
             }
         });
     pointing_hand(combo.response);
