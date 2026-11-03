@@ -3,6 +3,14 @@
 > 按符号锚定（不写 job/步骤名，不写行号，防漂移）。改到相关配置时同步更新本文件。
 > 本文件随仓库跟踪（docs/comments/ 入库），文件内不留指向本文件的指针。
 
+## Python 包安装放开外部管理限制（2026-11-03）
+
+- 缘由：托管平台（GitHub）运行器镜像更新后，macOS 镜像的系统 Python 转为外部
+  管理，工作流里的 `pip install pytest` 在装包一步即失败（v0.2.8 及以前正常）。
+- 修法：构建作业的环境变量加 `PIP_BREAK_SYSTEM_PACKAGES`，仅放行持续集成环境；
+  取舍过改用虚拟环境（venv），但两个测试步骤都要改命令且与脚本侧其它工作流的
+  写法分叉，环境变量是单点最小修复。
+
 ## Ad-hoc sign 步骤
 
 - 2026-09-18 用 ad-hoc 签名替代正式的 Developer ID 签名（免费，无需证书）；用户首次打开需右键 → 打开，绕过 Gatekeeper。后续上 Developer ID 时，替换为 `codesign --sign "Developer ID Application: ..."` + notarytool。

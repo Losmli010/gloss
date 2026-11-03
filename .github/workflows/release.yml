@@ -24,6 +24,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       APP: target/${{ matrix.target }}/release/bundle/osx/Gloss.app
+      # 托管运行器镜像（macOS）的系统解释器（Python）为外部管理，直接安装包会被拒；
+      # 放开该限制仅限持续集成环境，本地开发不受影响
+      PIP_BREAK_SYSTEM_PACKAGES: "1"
 
     steps:
       - name: Checkout
