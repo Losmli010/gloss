@@ -65,7 +65,6 @@ pub mod settings {
     use super::rem;
 
     pub const WINDOW_PADDING: f32 = rem(1.375);
-    pub const CLEAR_BUTTON_RESERVE: f32 = rem(7.375);
 }
 
 pub mod scroll {

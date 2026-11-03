@@ -5,6 +5,10 @@
 //! 建立上下文、运行中的偏好重套、系统字体的
 //! 延迟补装三条路径共用同一个装入助手——新增这类设置项
 //! 时只改该助手，各条路径自动跟上。
+//! 系统字体分两步走：昂贵的发现（系统文本栈枚举与映射）在后台线程只准备
+//! 字体数据；换表与排版缓存清空只随主线程的装入助手进行——上下文写入若与
+//! 在飞帧并发，跨帧排版缓存会在清空窗口之外以旧字形滞留，换表后渲染成乱码，
+//! 故后台线程不触碰上下文。
 //! 界面样式的灌装是语义调色板到界面库两棵样式树的一次性写入：
 //! 明暗两棵树都灌满品牌语义，控件随主题自动跟随，视图层不再有取色分支。
 
@@ -33,31 +37,15 @@ pub fn reapply<'a>(contexts: impl IntoIterator<Item = &'a Context>, theme: Theme
     written
 }
 
-pub fn apply_system_fonts(contexts: impl IntoIterator<Item = Context>) {
+pub fn prime_system_fonts() {
     let started = Instant::now();
-    let (_definitions, cjk_fallback) = super::fonts::definitions();
-    let mut applied = 0;
-    for ctx in contexts {
-        install_fonts(&ctx);
-        applied += 1;
-    }
+    let (_, cjk_fallback) = super::fonts::definitions();
     info!(
         thread = thread::FONTS,
         cjk_fallback,
-        contexts = applied,
         elapsed_ms = started.elapsed().as_millis() as u64,
-        "system fonts applied"
+        "system fonts primed"
     );
-}
-
-fn install_fonts(ctx: &Context) {
-    let definitions = if super::fonts::system_fonts_ready() {
-        super::fonts::definitions().0
-    } else {
-        super::fonts::builtin_definitions()
-    };
-    ctx.set_fonts(definitions);
-    super::popup::clear_cached_text_galleys(ctx);
 }
 
 fn install(ctx: &Context, theme: Theme) {
@@ -190,7 +178,8 @@ mod tests {
             "命名字体族必须恒绑定（epaint 对未绑定族 panic）"
         );
 
-        apply_system_fonts([ctx.clone()]);
+        prime_system_fonts();
+        reapply([&ctx], Theme::Dark);
         assert!(
             has_cjk(&ctx),
             "延迟装载后 CJK 后备必须接上（宿主机需有系统 CJK 字体）"

@@ -29,20 +29,12 @@ fn capped_height(screen_height: f64, requested_height: f64) -> f64 {
     requested_height.min(max_height)
 }
 
-fn clamped_user_size(
-    screen_width: f64,
-    screen_height: f64,
-    requested: LogicalSize<f64>,
-) -> LogicalSize<f64> {
-    let max_height = (screen_height * HEIGHT_CAP_FRACTION - window::WORK_AREA_MARGIN)
-        .max(window::OVERLAY_HEIGHT);
+fn clamped_user_size(screen_width: f64, requested: LogicalSize<f64>) -> LogicalSize<f64> {
     let max_width = window::OVERLAY_MAX_WIDTH
         .min((screen_width - 2.0 * window::WORK_AREA_MARGIN).max(window::OVERLAY_MIN_WIDTH));
     LogicalSize::new(
         requested.width.clamp(window::OVERLAY_MIN_WIDTH, max_width),
-        requested
-            .height
-            .clamp(window::OVERLAY_MIN_HEIGHT, max_height),
+        requested.height.max(window::OVERLAY_MIN_HEIGHT),
     )
 }
 
@@ -83,7 +75,7 @@ fn anchored_user_resize(
     } else {
         press_size.height
     };
-    let size = clamped_user_size(screen.width, screen.height, LogicalSize::new(width, height));
+    let size = clamped_user_size(screen.width, LogicalSize::new(width, height));
     let x = if edges.west {
         east_anchor - size.width
     } else {
@@ -671,7 +663,7 @@ mod cap_height_tests {
 mod user_size_tests {
     use super::clamped_user_size;
     use crate::ui::style::geometry::window::{
-        OVERLAY_HEIGHT, OVERLAY_MAX_WIDTH, OVERLAY_MIN_HEIGHT, OVERLAY_MIN_WIDTH,
+        OVERLAY_MAX_WIDTH, OVERLAY_MIN_HEIGHT, OVERLAY_MIN_WIDTH,
     };
     use winit::dpi::LogicalSize;
 
@@ -680,52 +672,43 @@ mod user_size_tests {
     #[test]
     fn in_bounds_requests_pass_through_untouched() {
         let size = LogicalSize::new(640.0, 300.0);
-        assert_eq!(clamped_user_size(SCREEN.0, SCREEN.1, size), size);
+        assert_eq!(clamped_user_size(SCREEN.0, size), size);
     }
 
     #[test]
     fn width_clamps_to_the_design_envelope() {
         assert_eq!(
-            clamped_user_size(SCREEN.0, SCREEN.1, LogicalSize::new(200.0, 300.0)).width,
+            clamped_user_size(SCREEN.0, LogicalSize::new(200.0, 300.0)).width,
             OVERLAY_MIN_WIDTH
         );
         assert_eq!(
-            clamped_user_size(SCREEN.0, SCREEN.1, LogicalSize::new(2000.0, 300.0)).width,
+            clamped_user_size(SCREEN.0, LogicalSize::new(2000.0, 300.0)).width,
             OVERLAY_MAX_WIDTH
         );
     }
 
     #[test]
-    fn height_clamps_to_the_minimum_and_the_screen_share() {
+    fn height_clamps_to_the_minimum_and_tall_requests_pass_through() {
         assert_eq!(
-            clamped_user_size(SCREEN.0, SCREEN.1, LogicalSize::new(480.0, 40.0)).height,
+            clamped_user_size(SCREEN.0, LogicalSize::new(480.0, 40.0)).height,
             OVERLAY_MIN_HEIGHT
         );
         assert_eq!(
-            clamped_user_size(SCREEN.0, SCREEN.1, LogicalSize::new(480.0, 4000.0)).height,
-            1080.0 * 0.382 - 96.0,
-            "user resize shares the streaming cap: golden share of the screen minus margin"
-        );
-    }
-
-    #[test]
-    fn height_cap_bottoms_out_at_the_default_like_the_content_cap() {
-        assert_eq!(
-            clamped_user_size(1920.0, 700.0, LogicalSize::new(480.0, 4000.0)).height,
-            OVERLAY_HEIGHT,
-            "a short screen floors the user cap at the default height, never below it"
+            clamped_user_size(SCREEN.0, LogicalSize::new(480.0, 4000.0)).height,
+            4000.0,
+            "拖拽不再受最大高度钳制：超高请求原样落窗（用户显式拖出的高度即所需高度）"
         );
     }
 
     #[test]
     fn narrow_screens_collapse_the_width_envelope() {
         assert_eq!(
-            clamped_user_size(700.0, 800.0, LogicalSize::new(2000.0, 300.0)).width,
+            clamped_user_size(700.0, LogicalSize::new(2000.0, 300.0)).width,
             700.0 - 2.0 * 96.0,
             "a narrow monitor caps the width by its own work area, not the design max"
         );
         assert_eq!(
-            clamped_user_size(400.0, 800.0, LogicalSize::new(2000.0, 300.0)).width,
+            clamped_user_size(400.0, LogicalSize::new(2000.0, 300.0)).width,
             OVERLAY_MIN_WIDTH,
             "the minimum width wins when the work area dips below it"
         );

@@ -33,7 +33,7 @@ struct Labels {
 
 const ZH: Labels = Labels {
     about: "关于 Gloss",     // i18n:allow 平台层启动期菜单词条，文案表装入点之前
-    settings: "设置…",       // i18n:allow 平台层启动期菜单词条，文案表装入点之前
+    settings: "设置",        // i18n:allow 平台层启动期菜单词条，文案表装入点之前
     services: "服务",        // i18n:allow 平台层启动期菜单词条，文案表装入点之前
     hide: "隐藏 Gloss",      // i18n:allow 平台层启动期菜单词条，文案表装入点之前
     hide_others: "隐藏其他", // i18n:allow 平台层启动期菜单词条，文案表装入点之前
@@ -43,7 +43,7 @@ const ZH: Labels = Labels {
 
 const EN: Labels = Labels {
     about: "About Gloss",
-    settings: "Settings…", // i18n:allow platform-layer startup menu copy, installed before the app catalog load point
+    settings: "Settings", // i18n:allow platform-layer startup menu copy, installed before the app catalog load point
     services: "Services",
     hide: "Hide Gloss",
     hide_others: "Hide Others",

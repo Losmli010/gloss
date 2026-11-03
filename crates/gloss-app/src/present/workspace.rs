@@ -44,14 +44,15 @@ impl Workspace {
         fonts_ready: impl FnOnce() + Send + 'static,
     ) -> Result<(), Box<dyn Error>> {
         let (windows, context, frame) = build_window_stack(event_loop, theme)?;
-        let contexts = vec![frame.egui_ctx.clone()];
         self.windows = Some(windows);
         self.gpu = Some(context);
         self.overlay_frame = Some(frame);
         match std::thread::Builder::new()
             .name("gloss-fonts".to_owned())
-            .spawn(move || context::apply_system_fonts(contexts))
-        {
+            .spawn(move || {
+                context::prime_system_fonts();
+                fonts_ready();
+            }) {
             Ok(_) => {}
             Err(err) => {
                 debug!(
@@ -59,7 +60,6 @@ impl Workspace {
                     error = %err,
                     "font loading thread not started, staying on builtin glyphs"
                 );
-                fonts_ready();
             }
         }
         Ok(())
