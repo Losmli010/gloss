@@ -863,6 +863,7 @@
 | south_west_corner_combines_both_anchors | 西南角双锚合解 | 给定西南角按压，当指针左移 30、下移 36，则宽加 30 高加 36、原点按西向反推、东北锚不动 | 2026-10-29 |
 | clamping_pins_the_dragged_edge_at_the_design_envelope | 钳制钉住被拖边 | 给定西缘按压，当指针右移远超最小宽，则宽钳到 `OVERLAY_MIN_WIDTH`、原点钉在东锚减最小宽（钳制不拽离对侧边） | 2026-10-29 |
 | press_frame_solves_to_the_current_window | 按下帧求解不跳变 | 给定三组边界组合，当指针未动求解，则尺寸与位置恒等于按下窗口（抓取偏移吸收按压点与边的偏差） | 2026-10-29 |
+| north_drag_past_the_screen_keeps_the_size_and_pins_the_top | 北缘拖出屏幕：尺寸原样、顶缘钉屏顶 | 给定北缘按压，当指针拖到远超屏幕上缘，则超高尺寸原样通过（拖拽无高度上限）、落窗钳制把顶缘钉在屏幕原点（与显示器小于浮层同策） | 2026-11-04 |
 
 ### `crates/gloss-app/src/ui/popup/note.rs`
 

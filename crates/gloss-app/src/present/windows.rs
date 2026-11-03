@@ -42,7 +42,7 @@ fn anchored_user_resize(
     edges: ResizeEdges,
     anchor: &UserResizeAnchor,
     pointer: LogicalPosition<f64>,
-    screen: LogicalSize<f64>,
+    screen_width: f64,
 ) -> (LogicalSize<f64>, LogicalPosition<f64>) {
     let (press_position, press_size, press_pointer) = (
         anchor.press_position,
@@ -75,7 +75,7 @@ fn anchored_user_resize(
     } else {
         press_size.height
     };
-    let size = clamped_user_size(screen.width, LogicalSize::new(width, height));
+    let size = clamped_user_size(screen_width, LogicalSize::new(width, height));
     let x = if edges.west {
         east_anchor - size.width
     } else {
@@ -265,7 +265,7 @@ impl WindowManager {
             origin.y + f64::from(pointer.1),
         );
         let screen = monitor.size().to_logical::<f64>(scale);
-        let (target, position) = anchored_user_resize(edges, anchor, pointer, screen);
+        let (target, position) = anchored_user_resize(edges, anchor, pointer, screen.width);
         if (target.width - self.overlay_size.width).abs() < RESIZE_EPSILON
             && (target.height - self.overlay_size.height).abs() < RESIZE_EPSILON
         {
@@ -533,7 +533,7 @@ mod anchored_resize_tests {
             edges(false, false, false, true),
             &anchor_at((3.0, 150.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(540.0, 260.0));
         assert_eq!(position, LogicalPosition::new(EAST - 540.0, 400.0));
@@ -546,7 +546,7 @@ mod anchored_resize_tests {
             edges(true, false, false, false),
             &anchor_at((240.0, 4.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(480.0, 300.0));
         assert_eq!(position, LogicalPosition::new(600.0, SOUTH - 300.0));
@@ -559,7 +559,7 @@ mod anchored_resize_tests {
             edges(false, false, true, false),
             &anchor_at((476.0, 150.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(560.0, 260.0));
         assert_eq!(position, PRESS_POS, "东缘拖动窗口原点不动");
@@ -572,7 +572,7 @@ mod anchored_resize_tests {
             edges(true, false, false, true),
             &anchor_at((10.0, 12.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(530.0, 290.0));
         assert_eq!(position, LogicalPosition::new(EAST - 530.0, SOUTH - 290.0));
@@ -585,7 +585,7 @@ mod anchored_resize_tests {
             edges(true, false, true, false),
             &anchor_at((470.0, 6.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(520.0, 280.0));
         assert_eq!(position, LogicalPosition::new(600.0, SOUTH - 280.0));
@@ -598,7 +598,7 @@ mod anchored_resize_tests {
             edges(false, true, false, true),
             &anchor_at((8.0, 254.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         assert_eq!(size, LogicalSize::new(510.0, 296.0));
         assert_eq!(position, LogicalPosition::new(EAST - 510.0, 400.0));
@@ -611,7 +611,7 @@ mod anchored_resize_tests {
             edges(false, false, false, true),
             &anchor_at((3.0, 150.0)),
             pointer,
-            SCREEN,
+            SCREEN.width,
         );
         let min_width = crate::ui::style::geometry::window::OVERLAY_MIN_WIDTH;
         assert_eq!(size.width, min_width);
@@ -627,10 +627,33 @@ mod anchored_resize_tests {
             edges(false, false, false, true),
         ] {
             let (size, position) =
-                anchored_user_resize(grabbed, &anchor_at((2.0, 2.0)), press, SCREEN);
+                anchored_user_resize(grabbed, &anchor_at((2.0, 2.0)), press, SCREEN.width);
             assert_eq!(size, PRESS_SIZE, "按下帧指针未动，尺寸不跳变");
             assert_eq!(position, PRESS_POS, "按下帧位置不跳变");
         }
+    }
+
+    #[test]
+    fn north_drag_past_the_screen_keeps_the_size_and_pins_the_top() {
+        let pointer = LogicalPosition::new(840.0, -3896.0);
+        let (size, position) = anchored_user_resize(
+            edges(true, false, false, false),
+            &anchor_at((240.0, 4.0)),
+            pointer,
+            SCREEN.width,
+        );
+        assert_eq!(
+            size.height,
+            SOUTH - pointer.y + 4.0,
+            "上限撤除后超高请求原样通过"
+        );
+        let clamped =
+            super::clamp_to_monitor(position, LogicalPosition::new(0.0, 0.0), SCREEN, size);
+        assert_eq!(
+            clamped,
+            LogicalPosition::new(600.0, 0.0),
+            "超高窗经落窗钳制后顶缘钉在屏顶（与显示器小于浮层同策），不是缺陷也不是要恢复的上限"
+        );
     }
 }
 
