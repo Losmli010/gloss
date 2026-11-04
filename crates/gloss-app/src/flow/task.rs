@@ -131,7 +131,11 @@ impl GlossApp {
         let Some(outcome) = cached else {
             return false;
         };
-        self.machine.settle_cached(outcome);
+        debug_assert!(
+            self.machine.settle_cached(outcome),
+            "the view was pending at the lookup a moment ago; \
+             anything that moved it in between must be re-examined"
+        );
         info!(
             thread = thread::UI,
             generation, "cache hit, outcome settled without the confirmation gate"
