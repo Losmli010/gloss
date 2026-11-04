@@ -58,6 +58,30 @@ jobs:
       - name: Run clippy
         run: just lint
 
+  # 按目标分派的代码在另一视角不可见：对应平台的检查面仍由原平台作业
+  # 承担，本分身只保证共享代码与占位实现过同一严格检查面。
+  lint-windows:
+    name: Lint (clippy, Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        # 工具链文件是唯一权威：按其钉住的频道与组件安装，工作流不再抄版本
+        run: rustup toolchain install
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Run clippy
+        run: just lint
+
   test:
     name: Test
     needs: [fmt, lint]
@@ -196,10 +220,12 @@ jobs:
     name: Build (${{ matrix.target }})
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            target: aarch64-apple-darwin
+    matrix:
+      include:
+        - os: macos-latest
+          target: aarch64-apple-darwin
+        - os: windows-latest
+          target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout

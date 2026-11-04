@@ -263,3 +263,10 @@
   缺席时绑内置字形，不从 CJK 降级——比例字形的等宽族会让代码失去对齐，
   宁可用内置等宽。`cjk` 为 `Some` 时 `FONT_NAME` 必已注册（`definitions` 的
   装入顺序保证：后备追加先于本调用）。
+
+## 发现器按目标分派（2026-11-05，Windows 移植 P0 D4/字体发现不立端口）
+
+- `mod imp` 双文件分派（`#[cfg] + #[path]`）：macOS 走 CoreText 发现器（fonts/imp.rs），其余目标走占位（fonts/imp_stub.rs，恒无发现）——字体字节进 egui 的接口已统一，唯一平台耦合点是“系统里怎么找字体”，不立端口（D4 例外定案），分派收在模块声明文件（本文件）。
+- 家族字体（FamilyFont）与字节背衬（FontBacking）类型从本文件迁入各平台发现器：背衬形态是实现细节，父模块流程只依赖 `as_slice` 读面与 `Option<FamilyFont>`；占位侧同名镜像并放开死码（见 imp_stub 记录）。
+- 纯 ttc 面序解析拆出 collection 模块（平台无关，随发现器与测试编译，见 collection 记录）；父模块测试对其引用从 `imp::` 改为 `collection::`。
+- 行为不变量：`system_cjk_font_is_discoverable` 等三条宿主字体测试断言 macOS 真机形态，非 macOS 目标下该组测试不成立（占位无发现）——P1 测试矩阵开放 Windows 时再定归宿。

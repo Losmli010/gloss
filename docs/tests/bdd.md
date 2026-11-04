@@ -629,7 +629,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| error_display_names_the_variant_without_the_payload | 错误文案只记变体名不含载荷 | 给定 6 个代表性 `GlossError` 变体，当 `to_string`，则输出固定类别文案（`EngineResponse` 与 `Config` 不打印载荷） | 2026-10-17 |
+| error_display_names_the_variant_without_the_payload | 错误文案只记变体名不含载荷 | 给定 7 个代表性 `GlossError` 变体（含平台未支持），当 `to_string`，则输出固定类别文案（`EngineResponse` 与 `Config` 不打印载荷） | 2026-11-05 |
 | error_display_never_carries_the_payload | 带载荷变体的 `Display` 不泄露载荷 | 给定携带敏感载荷的 `EngineResponse` 与 `Config`，当 `to_string`，则输出不含载荷的固定文案 | 2026-10-17 |
 | error_is_std_error | 错误可作 `std` `Error` | 给定 `GlossError` 装箱为 `std` `Error`，当 `to_string`，则输出正确文案 | 2026-09-19 |
 
@@ -833,8 +833,8 @@
 | fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数、无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |
 | fill_replaces_multiple_distinct_placeholders | 多参填充各自替换对应占位符 | 给定含 `{{a}}` 与 `{{b}}` 两类占位符的模板与两参，当填充，则各自替换对应占位符、互不串位 | 2026-10-14 |
 | fill_multi_arg_values_take_part_in_later_scans | 多参逐参替换保留旧的顺序替换语义 | 给定 `a` 参替换值为 `{{b}}`、`b` 参替换值为乙的模板，当填充，则后参重扫先参插入的值、结果为乙（与旧逐参 `str::replace` 语义一致） | 2026-10-14 |
-| error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定九个无诊断文本变体（含 `JSON` 模式不支持；`SelectionEmpty` 未入本组），当取失败卡文案，则各自的两种语言都非空且互不相同；两个带诊断文本的变体按模板填出整句 | 2026-10-11 |
-| each_error_variant_maps_to_its_own_entry | 错误变体各取自己的词条 | 给定九个无诊断文本变体（含 `JSON` 模式不支持；`SelectionEmpty` 未入本组），当取失败卡文案与错因细节，则各等于本变体对应的词条（两臂对调会被抓住）；带诊断的两个变体按模板填诊断 | 2026-10-11 |
+| error_text_maps_every_variant_per_locale | 错误文案按变体覆盖两语言 | 给定十一个无诊断文本变体（含 `JSON` 模式不支持与平台未支持；`SelectionEmpty` 未入本组），当取失败卡文案，则各自的两种语言都非空且互不相同；两个带诊断文本的变体按模板填出整句 | 2026-10-11 |
+| each_error_variant_maps_to_its_own_entry | 错误变体各取自己的词条 | 给定十一个无诊断文本变体（含 `JSON` 模式不支持与平台未支持；`SelectionEmpty` 未入本组），当取失败卡文案与错因细节，则各等于本变体对应的词条（两臂对调会被抓住）；带诊断的两个变体按模板填诊断 | 2026-10-11 |
 | error_detail_prefers_the_variant_diagnostic | 复合提示取诊断细节 | 给定带诊断的变体与不带诊断的变体，当取错因细节，则前者只出诊断原文、后者回落本地化整句 | 2026-09-22 |
 
 ### `crates/gloss-app/src/present/windows.rs`
@@ -1485,10 +1485,10 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | channels_bundle_is_created | 组装点创建的通道捆绑可用 | 给定 `create_channels()` 创建的四通道捆绑，当向通道二发送 `AcquireText` 命令，则发送成功 | 2026-09-19 |
-| log_dir_override_wins_over_home | 日志目录覆盖优先于 `home` | 给定 `GLOSS_LOG_DIR` 覆盖值与 `home` 同时存在，当 `resolve_log_dir`，则返回覆盖值原样 | 2026-10-05 |
-| log_dir_falls_back_to_home_dot_gloss | 日志目录回落 `home` 惯例 | 给定无覆盖值，当 `resolve_log_dir`，则返回 `<home>/.gloss/logs` | 2026-10-05 |
-| log_dir_is_none_without_override_and_home | 无覆盖无 `home` 时放弃文件日志 | 给定覆盖值与 `home` 均缺失，当 `resolve_log_dir`，则返回 `None` | 2026-10-05 |
-| log_dir_empty_override_falls_back_to_home | 空串覆盖视同未设置 | 给定 `GLOSS_LOG_DIR` 为空串，当 `resolve_log_dir`，则回落 `<home>/.gloss/logs` | 2026-10-06 |
+| log_dir_override_wins_over_home | 日志目录覆盖优先于平台默认根 | 给定 `GLOSS_LOG_DIR` 覆盖值与平台默认根同时存在，当 `resolve_log_dir`，则返回覆盖值原样 | 2026-11-05 |
+| log_dir_falls_back_to_home_dot_gloss | 日志目录回落平台默认根 | 给定无覆盖值，当 `resolve_log_dir`，则返回平台默认根下的 `logs`；系统（macOS）形态为 `<home>/.gloss/logs` | 2026-11-05 |
+| log_dir_is_none_without_override_and_home | 无覆盖无默认根时放弃文件日志 | 给定覆盖值与平台默认根均缺失，当 `resolve_log_dir`，则返回 `None` | 2026-11-05 |
+| log_dir_empty_override_falls_back_to_home | 空串覆盖视同未设置 | 给定 `GLOSS_LOG_DIR` 为空串，当 `resolve_log_dir`，则回落平台默认根下的 `logs`；系统（macOS）形态为 `<home>/.gloss/logs` | 2026-11-05 |
 
 ### `crates/gloss-eval/src/contract.rs`
 

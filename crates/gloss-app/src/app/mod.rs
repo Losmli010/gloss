@@ -10,6 +10,13 @@
 mod events;
 mod handler;
 
+#[cfg(target_os = "macos")]
+#[path = "loop_builder_macos.rs"]
+mod loop_builder;
+#[cfg(not(target_os = "macos"))]
+#[path = "loop_builder_other.rs"]
+mod loop_builder;
+
 pub use crate::flow::reveal::centered_position;
 pub use events::{UserEvent, Waker, run};
 

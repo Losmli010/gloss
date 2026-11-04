@@ -41,3 +41,9 @@
 
 - 载荷可能携带远端或用户原文（服务端 `error.message`、解析不出的协议内容），而 `Display` 是日志出口（`error = %error` 遍布各 crate），把载荷打出来就是把敏感文本写进日志——违反 AGENTS.md“敏感文本不写进日志”的安全红线。
 - 载荷只在 `Debug`（`?error`）与失败卡（`i18n::for_error` 显式解构变体，不走 Display）使用；`Debug` 同样不得进日志——日志宏禁止用 `?error` 打印 GlossError，它只留给诊断与测试断言。
+
+## GlossError::PlatformUnsupported（2026-11-05，Windows 移植 P0 D2）
+
+- 新变体而不是挪用 `UnsupportedModality`：后者是“模型能力 × 任务模态”语义（指引是换模型），平台未支持是环境语义（指引是换平台/等实现），失败卡文案与动作映射必须可区分；现仓库此前无平台语义变体（§1.3 已核实）。
+- 变体不带载荷：与 `UnsupportedModality` 同属“环境问题”类目，`error_action` 落到无按钮分支——重发无益、设置页无可修项；平台细节可从日志侧查。
+- 消费方：Windows 占位实现（gloss-platform windows/）与 Linux 空占位一律返回它；`error_display_names_the_variant_without_the_payload` 测试随行锁文案。

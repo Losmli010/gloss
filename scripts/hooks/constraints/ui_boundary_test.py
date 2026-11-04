@@ -100,8 +100,8 @@ def test_ffi_declared_outside(tmp_path: Path) -> None:
 
 def test_ffi_declared_in_owner_passes(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
-        (root / "crates/gloss-platform/src/ffi").mkdir(parents=True)
-        (root / "crates/gloss-platform/src/ffi/cg.rs").write_text(
+        (root / "crates/gloss-platform/src/macos/ffi").mkdir(parents=True)
+        (root / "crates/gloss-platform/src/macos/ffi/cg.rs").write_text(
             '#[link(name = "CoreGraphics", kind = "framework")]\n'
             'unsafe extern "C" {\n    pub(crate) fn CGWarpMouseCursorPosition(p: u32) -> i32;\n}\n'
         )

@@ -6,16 +6,6 @@ description = "Gloss 表现层与应用层：状态机 + 渲染胶水"
 license.workspace = true
 
 [dependencies]
-# 系统字体发现：已安装字体集合查询加文本排版框架（CoreText）选面；文件字节一次性读进
-# 界面库（egui），面序号由文件自身解析回答。系统框架绑定（core-foundation）保留链接特性以链接系统框架。
-core-foundation = {
-  version = "0.10",
-  default-features = false,
-  features = [
-    "link",
-  ]
-}
-core-text = { version = "22.0", default-features = false }
 # 通道 1、2、4 用并发通道（crossbeam）：多生产多消费队列，主线程非阻塞取用。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
 # 渲染栈整批同批版本：窗口库（winit）、图形后端（wgpu）、界面库（egui）与绑定包装（egui-wgpu/egui-winit）、
@@ -44,13 +34,10 @@ egui_extras = {
     "syntect",
   ]
 }
-# 保留窗口缩放抖动修复特性：真实的系统（macOS）窗口缩放抖动修复。
+# 窗口渲染包装（egui-wgpu）的共同面；平台专属特性按目标节追加。
 egui-wgpu = {
   version = "0.36.2",
   default-features = false,
-  features = [
-    "macos-window-resize-jitter-fix",
-  ]
 }
 egui-winit = {
   version = "0.36.2",
@@ -140,12 +127,12 @@ two-face = {
     "syntect-fancy",
   ]
 }
-# 只留实际使用的图形后端（Metal），配合渲染层已声明的标准与着色语言特性。
+# 图形后端（wgpu）的共同面（标准与着色语言特性）；平台图形后端按目标节
+# 追加：系统（macOS）一份、系统（Windows）一主一兜，不引第三路。
 wgpu = {
   version = "30.0.1",
   default-features = false,
   features = [
-    "metal",
     "std",
     "wgsl",
   ]
@@ -178,6 +165,46 @@ tokio = {
     "macros",
     "rt",
     "time",
+  ]
+}
+
+# 系统（macOS）专属依赖按目标门控：仅字体发现与系统框架绑定引用，其余目标不编译。
+[target.'cfg(target_os = "macos")'.dependencies]
+# 系统字体发现：已安装字体集合查询加文本排版框架（CoreText）选面；文件字节一次性读进
+# 界面库（egui），面序号由文件自身解析回答。系统框架绑定（core-foundation）保留链接特性以链接系统框架。
+core-foundation = {
+  version = "0.10",
+  default-features = false,
+  features = [
+    "link",
+  ]
+}
+core-text = { version = "22.0", default-features = false }
+# 真实的系统（macOS）窗口缩放抖动修复。
+egui-wgpu = {
+  version = "0.36.2",
+  default-features = false,
+  features = [
+    "macos-window-resize-jitter-fix",
+  ]
+}
+# 图形后端（Metal）。
+wgpu = {
+  version = "30.0.1",
+  default-features = false,
+  features = [
+    "metal",
+  ]
+}
+
+# 系统（Windows）专属的图形后端按目标门控：主路加兜底两份，不引第三路。
+[target.'cfg(target_os = "windows")'.dependencies]
+wgpu = {
+  version = "30.0.1",
+  default-features = false,
+  features = [
+    "dx12",
+    "vulkan",
   ]
 }
 

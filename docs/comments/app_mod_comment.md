@@ -116,3 +116,7 @@ M4 指“配置与设置”里程碑，子编号 ①/② 仓内无定义，标�
 
 - `GlossApp::install_app_menu`（`init` 末尾调用）：装配随系统语言的本地化应用菜单（平台层 `menu::install`，见 menu 记录），设置项回调经 `EventLoopProxy` 送入新增的 `UserEvent::OpenSettings`。装在 `init` 而非组装段 `on_waker`：窗口库的缺省菜单在事件循环启动时安装（晚于 `on_waker`），后装的会盖掉先装的；`init` 在其后运行，装完即成。代理缺失或装配失败只告警降级，不阻塞启动——缺省菜单已显式关闭，降级的实况是进程没有菜单栏，告警文案如实陈述。
 - `GlossApp::draw` 的缩放通道从“期望尺寸 `Vec2`”改为按意图分派：`Press → begin_user_resize`（建锚点）、`Drag → apply_user_resize`（逐帧求解落窗）、`Settle → settle_user_resize`（粘性帧，不落窗）；`None`（无用户缩放会话）才走内容自适应的 `set_overlay_size`——粘性接管语义由意图协议承载，壳侧不再各自记“用户已接管”状态。
+
+## loop_builder 差异分派（2026-11-05，Windows 移植 P0）
+
+- winit 的 `with_default_menu(false)`（关闭缺省应用菜单）是 macOS 专属扩展，业务文件不能带 cfg——差异收进 `mod loop_builder` 双文件分派（`#[cfg] + #[path]`）：macOS 实现调扩展方法，其余目标空实现（同签名）。调用点在 app/events.rs 的 `run`。

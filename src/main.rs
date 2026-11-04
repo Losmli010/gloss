@@ -59,15 +59,28 @@ fn init_logging() {
 }
 
 fn log_dir() -> Option<PathBuf> {
-    resolve_log_dir(env::var_os("GLOSS_LOG_DIR"), env::var_os("HOME"))
+    resolve_log_dir(env::var_os("GLOSS_LOG_DIR"), default_log_root())
 }
 
-fn resolve_log_dir(override_dir: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+fn resolve_log_dir(
+    override_dir: Option<OsString>,
+    default_root: Option<PathBuf>,
+) -> Option<PathBuf> {
     if let Some(dir) = override_dir.filter(|dir| !dir.is_empty()) {
         return Some(PathBuf::from(dir));
     }
-    let home = home?;
-    Some(PathBuf::from(home).join(".gloss").join("logs"))
+    let root = default_root?;
+    Some(root.join("logs"))
+}
+
+#[cfg(target_os = "macos")]
+fn default_log_root() -> Option<PathBuf> {
+    env::var_os("HOME").map(|home| PathBuf::from(home).join(".gloss"))
+}
+
+#[cfg(target_os = "windows")]
+fn default_log_root() -> Option<PathBuf> {
+    env::var_os("LOCALAPPDATA").map(|base| PathBuf::from(base).join("gloss"))
 }
 
 type ConfigWiring = (Arc<ConfigHandle>, Arc<dyn SecretStore>);
@@ -157,13 +170,16 @@ mod tests {
 
     #[test]
     fn log_dir_override_wins_over_home() {
-        let dir = resolve_log_dir(Some("/tmp/metrics-logs".into()), Some("/Users/dev".into()));
+        let dir = resolve_log_dir(
+            Some("/tmp/metrics-logs".into()),
+            Some("/Users/dev/.gloss".into()),
+        );
         assert_eq!(dir, Some(PathBuf::from("/tmp/metrics-logs")));
     }
 
     #[test]
     fn log_dir_falls_back_to_home_dot_gloss() {
-        let dir = resolve_log_dir(None, Some("/Users/dev".into()));
+        let dir = resolve_log_dir(None, Some("/Users/dev/.gloss".into()));
         assert_eq!(dir, Some(PathBuf::from("/Users/dev/.gloss/logs")));
     }
 
@@ -174,7 +190,7 @@ mod tests {
 
     #[test]
     fn log_dir_empty_override_falls_back_to_home() {
-        let dir = resolve_log_dir(Some("".into()), Some("/Users/dev".into()));
+        let dir = resolve_log_dir(Some("".into()), Some("/Users/dev/.gloss".into()));
         assert_eq!(dir, Some(PathBuf::from("/Users/dev/.gloss/logs")));
     }
 }

@@ -179,3 +179,8 @@
 - 泛化回落两词条（`gloss_popup_output_unverified(_label)`）不动：无障碍短
   标签沿用现键现值，两路降级共用一枚图标，短标签保持泛化。
 - 2026-10-30 语言收敛 D5：删除 `gloss_langs_ja`、`gloss_langs_ko`、`gloss_langs_fr`、`gloss_langs_other` 四词条（中英两表同删，目标语言下拉收敛为中文、英语两项），`both_locale_files_declare_the_same_keys` 的条目总数钉值 97 → 93。
+
+## gloss_errors_platform_unsupported（2026-11-05，Windows 移植 P0 D2）
+
+- `GlossError::PlatformUnsupported` 的失败卡文案（中：“当前平台暂不支持该功能”）；`for_error` 穷尽匹配随变体新增补臂，两表键同步（键完整性由 serde 拒未知键 + 缺省拦少键保证）。
+- 文案不带平台名与指引：P0 期 Windows 全部能力未落地，指引（等实现/看日志）会随 P2 变化，先给最小事实句。
