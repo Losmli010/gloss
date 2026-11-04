@@ -1,6 +1,7 @@
 //! 编排用例·任务段：消费通道 4（取材产物与任务回传）→ 状态机转移 →
 //! 通道 3 下发 → 批后露面决策与重绘。显形“要不要”的策略归状态机，
-//! “怎么显示”在显隐段。
+//! “怎么显示”在显隐段。缓存命中的提交例外：壳在提交后查任务缓存，
+//! 命中即定格产物卡，不经确认也不经通道 3。
 
 use gloss_core::log::{Span, debug, info, thread, warn};
 use gloss_core::model::GlossError;
@@ -8,7 +9,10 @@ use gloss_core::task::TaskInput;
 use winit::event_loop::ActiveEventLoop;
 
 use crate::channel::{Command, Event, Traced};
-use crate::machine::{FailureOutcome, InputOutcome, RunRequest, event_kind, should_reveal};
+use crate::machine::{
+    FailureOutcome, InputOutcome, OverlayView, RunRequest, event_kind, should_reveal,
+};
+use crate::runtime::cache::cache_key;
 
 use super::reveal::{centered_position, show_position};
 use crate::app::GlossApp;
@@ -78,6 +82,10 @@ impl GlossApp {
         };
         match self.machine.commit_probe(generation, input) {
             InputOutcome::Pending => {
+                self.session.probe_front_app = None;
+                if self.settle_cached_hit(generation) {
+                    return true;
+                }
                 match image_bytes {
                     Some(bytes) => info!(
                         thread = thread::UI,
@@ -88,7 +96,6 @@ impl GlossApp {
                         generation, "selection committed, pending user confirmation"
                     ),
                 }
-                self.session.probe_front_app = None;
                 self.session.pending_reveal = true;
                 true
             }
@@ -112,6 +119,25 @@ impl GlossApp {
                 false
             }
         }
+    }
+
+    fn settle_cached_hit(&mut self, generation: u64) -> bool {
+        let cached = match self.machine.overlay_view() {
+            Some(OverlayView::Pending { input, options }) => {
+                self.env.task_cache.get(cache_key(input, options))
+            }
+            _ => None,
+        };
+        let Some(outcome) = cached else {
+            return false;
+        };
+        self.machine.settle_cached(outcome);
+        info!(
+            thread = thread::UI,
+            generation, "cache hit, outcome settled without the confirmation gate"
+        );
+        self.session.pending_reveal = true;
+        true
     }
 
     pub(crate) fn send_run(&mut self, request: RunRequest) {
@@ -352,7 +378,7 @@ mod tests {
     use std::sync::Arc;
 
     use gloss_core::config::{Config, DEFAULT_MODEL};
-    use gloss_core::model::{GlossError, Lang};
+    use gloss_core::model::{GlossError, Lang, Locale};
     use gloss_core::task::TaskInput;
 
     use crate::app::test_support::{
@@ -360,13 +386,20 @@ mod tests {
         streaming_raw, text_input, trigger_selection,
     };
     use crate::channel::{AcquireCommand, Command, PlatformEvent, Traced};
-    use crate::machine::{AppState, OverlayView};
+    use crate::machine::{AppState, OverlayView, task_options};
+    use crate::runtime::cache::cache_key;
     use crate::ui::popup::OverlayAction;
 
     use crate::app::GlossApp;
 
     fn confirm(app: &mut GlossApp) {
         app.handle_overlay_action(OverlayAction::Confirm);
+    }
+
+    fn warm_cache(app: &mut GlossApp, input: &TaskInput, note: &str) {
+        let options = task_options(&Config::default(), Locale::Zh);
+        let key = cache_key(input, &options);
+        app.env.task_cache.set(key, plain_outcome(note));
     }
 
     fn pasteboard_probe(app: &mut GlossApp, pe_tx: &crossbeam_channel::Sender<PlatformEvent>) {
@@ -767,6 +800,64 @@ mod tests {
             "the commit flags the reveal; drain_events consumes it the same frame"
         );
         assert_eq!(app.machine.state(), AppState::PendingConfirm);
+    }
+
+    #[test]
+    fn a_cached_selection_skips_confirmation_and_lands_the_outcome() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        warm_cache(&mut app, &text_input("缓存命中词"), "缓存产物");
+
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(1, text_input("缓存命中词")));
+        assert_eq!(
+            app.machine.state(),
+            AppState::Show,
+            "a cache hit lands the outcome card, no pending stop in between"
+        );
+        assert_eq!(outcome_note(&app), "缓存产物");
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "a cache hit never reaches channel 3: nothing leaves the process"
+        );
+        assert!(
+            app.session.pending_reveal,
+            "the settled outcome still pops the overlay in the same frame"
+        );
+
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(2, text_input("未缓存过的词")));
+        assert_eq!(
+            app.machine.state(),
+            AppState::PendingConfirm,
+            "a cache miss keeps the confirmation gate"
+        );
+        confirm(&mut app);
+        assert!(matches!(
+            cmd_rx.try_recv().unwrap().payload,
+            Command::RunTask { generation: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn a_cached_pasteboard_image_skips_confirmation_too() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let png = Arc::from(&b"png-bytes"[..]);
+        warm_cache(
+            &mut app,
+            &TaskInput::Image {
+                png: Arc::clone(&png),
+            },
+            "缓存解读",
+        );
+
+        pasteboard_probe(&mut app, &pe_tx);
+        assert!(app.accept_input(1, TaskInput::Image { png }));
+        assert_eq!(app.machine.state(), AppState::Show);
+        assert_eq!(outcome_note(&app), "缓存解读");
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "a cached image never reaches channel 3 either"
+        );
     }
 
     #[test]

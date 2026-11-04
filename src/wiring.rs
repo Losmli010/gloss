@@ -133,9 +133,14 @@ pub(super) fn distribute_channels() -> (AppEndpoints, ChannelHalves) {
     )
 }
 
+pub(super) fn shared_task_cache(config: &ConfigHandle) -> Arc<TaskCache> {
+    let ttl = Duration::from_secs(config.snapshot().cache_ttl_secs.min(CACHE_TTL_MAX_SECS));
+    Arc::new(TaskCache::with_ttl(ttl))
+}
+
 pub(super) struct Assembly {
     pub(super) service: Arc<AiTaskService>,
-    pub(super) cache_config: Arc<ConfigHandle>,
+    pub(super) task_cache: Arc<TaskCache>,
     pub(super) runtime_store: Arc<dyn SecretStore>,
     pub(super) update_handle: &'static UpdateHandle,
     pub(super) accessibility_ready: bool,
@@ -171,15 +176,9 @@ impl Assembly {
         commands_rx: UnboundedReceiver<Traced<Command>>,
         waker: &Waker,
     ) -> Result<(), std::io::Error> {
-        let ttl = Duration::from_secs(
-            self.cache_config
-                .snapshot()
-                .cache_ttl_secs
-                .min(CACHE_TTL_MAX_SECS),
-        );
         let bridge = TaskBridge::new(
             Arc::clone(&self.service),
-            Arc::new(TaskCache::with_ttl(ttl)),
+            Arc::clone(&self.task_cache),
             Arc::clone(&self.runtime_store),
             events_tx.clone(),
             {

@@ -23,13 +23,16 @@ pub(super) fn error_action(error: &GlossError) -> Option<ErrorAction> {
     }
 }
 
-pub(super) fn streaming_view(input: &TaskInput) -> OverlayView {
-    let source = match input {
+pub(super) fn source_text(input: &TaskInput) -> String {
+    match input {
         TaskInput::Text { text } => text.clone(),
-        _ => String::new(),
-    };
+        TaskInput::Image { .. } => String::new(),
+    }
+}
+
+pub(super) fn streaming_view(input: &TaskInput) -> OverlayView {
     OverlayView::Streaming {
-        source,
+        source: source_text(input),
         raw: String::new(),
         classified: None,
         repairing: false,
@@ -65,7 +68,7 @@ pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDec
     }
 }
 
-pub(super) fn task_options(config: &Config, system_locale: Locale) -> TaskOptions {
+pub(crate) fn task_options(config: &Config, system_locale: Locale) -> TaskOptions {
     TaskOptions {
         target_lang: Some(config.target_lang),
         model: Arc::from(config.model.as_str()),

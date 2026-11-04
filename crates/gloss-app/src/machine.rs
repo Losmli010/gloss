@@ -4,7 +4,9 @@
 //! “探测—确认—提交”：探测只领编号、冻结任务选项，不改状态也不取消在途任务；
 //! 产物到达先落待确认卡（视图换待确认形态，代数提升、旧任务让位，但不取消
 //! 令牌、不下发通道 3）——用户点确认后才走确认入口下发推理；确认前浮层里
-//! 没有在途推理，取消零成本。代数只在提交路径赋值，回传按它过滤陈旧。
+//! 没有在途推理，取消零成本。缓存命中时没有要发送的东西，把关没有对象：
+//! 壳在提交后查任务缓存，命中即把待确认卡直接定格为产物卡，整段跳过确认
+//! （通道 3 依旧零流量）。代数只在提交路径赋值，回传按它过滤陈旧。
 //! 敏感闸门两处：场景闸门在触发决策（触发前），内容闸门在提交的文本分支
 //! （待确认卡出现之前，命中保留当前显示，图像没有可扫描文本故不设闸门）
 //! ——确认不是闸门的放行出口。
@@ -23,11 +25,11 @@ use gloss_core::model::Locale;
 use gloss_core::task::{TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
 use crate::channel::{AcquireCommand, PlatformEvent};
-use policy::{error_action, streaming_view, task_options};
+use policy::{error_action, source_text, streaming_view};
 use types::{PendingOptions, ProbeSource, ProbeTask};
 
 pub use policy::{TriggerDecision, trigger_decision};
-pub(crate) use policy::{event_kind, should_reveal};
+pub(crate) use policy::{event_kind, should_reveal, task_options};
 pub use types::{
     AppState, ErrorAction, FailureCause, FailureOutcome, InputOutcome, OverlayView, RunRequest,
 };
@@ -296,6 +298,21 @@ impl TaskStateMachine {
             return None;
         };
         Some(self.begin_run(input, options))
+    }
+
+    pub fn settle_cached(&mut self, outcome: TaskOutcome) -> bool {
+        if !matches!(self.overlay_view, Some(OverlayView::Pending { .. })) {
+            return false;
+        }
+        let Some(OverlayView::Pending { input, options }) = self.overlay_view.take() else {
+            return false;
+        };
+        let source = source_text(&input);
+        if outcome.degraded {
+            self.active_request = Some((input, options));
+        }
+        self.overlay_view = Some(OverlayView::Outcome { source, outcome });
+        true
     }
 
     fn begin_run(&mut self, input: TaskInput, options: TaskOptions) -> RunRequest {
@@ -845,6 +862,120 @@ mod tests {
         assert!(
             machine.confirm_pending().is_none(),
             "a consumed pending card must not confirm twice"
+        );
+    }
+
+    #[test]
+    fn a_cache_hit_settles_the_pending_card_straight_to_the_outcome() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+        committed(machine.commit_probe(1, text_input("hello")));
+
+        assert!(machine.settle_cached(plain_outcome("缓存产物")));
+        assert_eq!(
+            machine.state(),
+            AppState::Show,
+            "a cache hit lands the outcome card, skipping the confirmation stop"
+        );
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Outcome { source, outcome })
+                    if source == "hello" && outcome.note == "缓存产物"
+            ),
+            "the settled card carries the source text and the cached outcome"
+        );
+        assert!(
+            machine.current_cancel().is_none(),
+            "a cache settle dispatches nothing: no token, no channel 3"
+        );
+        assert!(
+            machine.retry().is_none(),
+            "a normal cached outcome has no retry exit"
+        );
+        assert_eq!(
+            machine.generation(),
+            1,
+            "settling never moves the generation"
+        );
+        assert!(
+            !machine.settle_cached(plain_outcome("迟到的缓存产物")),
+            "a settled card is no longer a pending card"
+        );
+    }
+
+    #[test]
+    fn a_cached_degraded_hit_keeps_the_request_copy_for_retry() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+        committed(machine.commit_probe(1, text_input("hello")));
+
+        assert!(machine.settle_cached(degraded_outcome()));
+        assert_eq!(machine.state(), AppState::Show);
+        let retried = machine
+            .retry()
+            .expect("a degraded cached outcome keeps the request copy");
+        assert!(
+            matches!(
+                retried.input,
+                TaskInput::Text { ref text } if text == "hello"
+            ),
+            "the retry resends the very input the cache settled"
+        );
+        assert_eq!(
+            machine.state(),
+            AppState::Translating,
+            "the retry walks the ordinary dispatch path"
+        );
+    }
+
+    #[test]
+    fn cached_settle_only_accepts_the_pending_card() {
+        let mut machine = TaskStateMachine::new();
+        assert!(
+            !machine.settle_cached(plain_outcome("空机")),
+            "no card, no settle"
+        );
+
+        assert_eq!(probe(&mut machine, &Config::default()), 1);
+        commit_confirmed(&mut machine, 1, text_input("hello"));
+        assert!(
+            !machine.settle_cached(plain_outcome("流式中")),
+            "a streaming session has nothing to settle"
+        );
+        assert!(machine.accept_done(1, plain_outcome("产物")));
+        assert!(
+            !machine.settle_cached(plain_outcome("已定格")),
+            "an outcome card is not a pending card either"
+        );
+    }
+
+    #[test]
+    fn a_cached_pasteboard_hit_settles_with_the_image_retained() {
+        let mut machine = TaskStateMachine::new();
+        assert_eq!(pasteboard_probe(&mut machine, &Config::default()), 1);
+        let png: Arc<[u8]> = Arc::from(&b"png-bytes"[..]);
+        committed(machine.commit_probe(
+            1,
+            TaskInput::Image {
+                png: Arc::clone(&png),
+            },
+        ));
+
+        assert!(machine.settle_cached(plain_outcome("缓存解读")));
+        assert_eq!(machine.state(), AppState::Show);
+        assert!(
+            matches!(
+                machine.overlay_view(),
+                Some(OverlayView::Outcome { source, .. }) if source.is_empty()
+            ),
+            "the image itself is the 经: the settled source stays empty"
+        );
+        assert!(
+            machine
+                .attached_image()
+                .is_some_and(|attached| Arc::ptr_eq(attached, &png)),
+            "the image survives the settle for the outcome card's 经 slot"
         );
     }
 

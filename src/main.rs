@@ -102,9 +102,10 @@ fn run_event_loop(
     let update = gloss_app::update::UpdateWiring::from_handle(update_handle);
     let (accessibility_ready, mouse_source, mouse_degraded) = wiring::preflight_and_tap();
     let permissions_ready = accessibility_ready;
+    let task_cache = wiring::shared_task_cache(&config);
     let mut assembly = wiring::Assembly {
         service,
-        cache_config: Arc::clone(&config),
+        task_cache: Arc::clone(&task_cache),
         runtime_store: Arc::clone(&store),
         update_handle,
         accessibility_ready,
@@ -125,6 +126,7 @@ fn run_event_loop(
         permissions_ready,
         update,
         Arc::clone(&assembly.clipboard_watch_enabled),
+        task_cache,
         |waker| assembly.on_waker(waker, halves),
     );
 
