@@ -15,19 +15,24 @@
 mod image;
 mod watch;
 
-pub use image::ClipboardImageReader;
+pub use image::SystemImageReader;
 pub use watch::{
     ClipboardWatchSource, PasteboardImageObserved, PasteboardObserver, RoundWrites, WatchRoundFlag,
 };
 
+use gloss_core::ports::ClipboardWriter;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSPasteboard, NSPasteboardTypePNG, NSPasteboardTypeTIFF};
 use objc2_foundation::NSData;
 
-pub fn copy_text(text: &str) -> Result<(), String> {
-    arboard::Clipboard::new()
-        .and_then(|mut clipboard| clipboard.set_text(text.to_owned()))
-        .map_err(|err| err.to_string())
+pub struct SystemClipboardWriter;
+
+impl ClipboardWriter for SystemClipboardWriter {
+    fn copy_text(&self, text: &str) -> Result<(), String> {
+        arboard::Clipboard::new()
+            .and_then(|mut clipboard| clipboard.set_text(text.to_owned()))
+            .map_err(|err| err.to_string())
+    }
 }
 
 pub(crate) fn pasteboard_change_count() -> Option<u64> {

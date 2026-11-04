@@ -6,6 +6,8 @@
 
 use std::time::{Duration, Instant};
 
+use gloss_core::ports::PermissionProbe;
+
 const WATCH_INTERVAL: Duration = Duration::from_secs(1);
 
 pub fn preflight_accessibility() -> bool {
@@ -14,6 +16,23 @@ pub fn preflight_accessibility() -> bool {
 
 pub fn request_accessibility() -> bool {
     crate::ffi::ax::is_process_trusted_prompting()
+}
+
+pub struct SystemPermissionProbe;
+
+impl PermissionProbe for SystemPermissionProbe {
+    fn preflight(&self) -> bool {
+        preflight_accessibility()
+    }
+
+    fn request(&self) -> bool {
+        request_accessibility()
+    }
+
+    fn watch(&self, grant_pending: bool) -> Box<dyn FnMut() -> bool + Send> {
+        let mut watch = AccessibilityWatch::armed_if(grant_pending);
+        Box::new(move || watch.poll())
+    }
 }
 
 pub struct AccessibilityWatch {

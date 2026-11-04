@@ -1,4 +1,4 @@
-//! 剪贴板图片哨兵源（系统（Windows）占位）：消费方触及类型的同名镜像。
+//! 剪贴板图片哨兵源（系统（Windows）占位）：剪贴板监视端口的桩。
 //!
 //! 系统实现的“变更计数轮询 + 类型清单判定”对应剪贴板序列号
 //! （GetClipboardSequenceNumber）查询，按移植方案后续阶段补齐；本桩的
@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use crate::events::EventSource;
+use gloss_core::ports::{ClipboardImageObserved, ClipboardWatcher};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PasteboardImageObserved;
@@ -50,8 +50,8 @@ impl ClipboardWatchSource {
     }
 }
 
-impl EventSource<PasteboardImageObserved> for ClipboardWatchSource {
-    fn poll(&mut self) -> Vec<PasteboardImageObserved> {
+impl ClipboardWatcher for ClipboardWatchSource {
+    fn poll(&mut self) -> Vec<ClipboardImageObserved> {
         Vec::new()
     }
 }

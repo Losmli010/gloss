@@ -62,3 +62,13 @@
 - 应用图标（端口）：把品牌图标交给平台外壳（Dock / 应用切换器）。
 - 这是**降级端口**：安装失败（调用线程不对、字节解不出图）只让图标退回系统默认，不影响启动。2026-10-30（重构计划阶段 2 · R3）对齐错误统一出口条目：`install` 改返回 `Result<(), GlossError>`——失败原因经错误值带出，装配点日志带因；降级语义不变（失败只记日志，不拦启动）。错误变体复用 `GlossError::Config`（装配点当场消费，不进状态机与界面文案）。同时补上其余端口都有的 `Send + Sync` 界，四个端口形态一致。
 - 调用方保证：在**主线程**上调用，且晚于 winit 的 `EventLoop` 构建——macOS 的 `NSApplication` 单例在 `EventLoop::new` 之前访问不受支持。
+
+## 平台能力端口（2026-11-05，Windows 移植 P1 · 方案 D4）
+
+- 立口六项（方案 D4 清单）：选区手势源（`SelectionGestureSource`，对应 `MouseSource`）、选区文本取材（`TextAcquirer`，对应 `CompositeReader`）、剪贴板监视（`ClipboardWatcher`）、剪贴板图片取材（`ClipboardImageReader`）、应用菜单装配（`MenuController`，对应 `menu::install`）、权限预检与引导（`PermissionProbe`，对应 `permissions` 模块）。
+- **第七契约 `ClipboardWriter`（与 D4 清单的显式偏差）**：剪贴板文本写入（对应自由函数 `copy_text`）不在 D4 六端口清单内，但应用层的复制动作必须经平台句柄取（D3），不立契约就只能让句柄长平台固有方法、契约面分裂；按图片取材端口的读写对称补立，PR 正文同步说明。字体发现不立端口（方案定案，UI 内部关注点）不变。
+- 轮询型端口（手势源、文本取材、监视、图片取材）方法取可变接收者、超 trait 只要求 `Send`：事件线程按值接管、单消费者，不强加 `Sync`；`&self` 端口（菜单、权限、文本写入）沿用既有五端口的 `Send + Sync`。
+- `TextRead`／`TextSettle`：产物与读后还原收尾分离，`into_parts` 供调用方在产物上抛之后收口。收尾闭包不要求 `Send`：还原收尾在取材线程执行，macOS 的 `FallbackSettle` 持原始粘贴板引用本就不跨线程。
+- `ClipboardImageObserved`：剪贴板出现图像的单元观察事件，对应平台层 `PasteboardImageObserved` 的契约面。
+- `PermissionProbe::watch` 返回节流轮询闭包（`Box<dyn FnMut() -> bool + Send>`）：授权监视的节流状态留在实现内，避免为单一消费面再立一个 trait；闭包跨入事件线程故须可发送。
+- `MenuController::install` 收 `Box<dyn Fn() + Send>`（对象安全所需）并沿用布尔返回：装配与否的降级报告语义与既有实现一致，应用层照旧按真假记日志。

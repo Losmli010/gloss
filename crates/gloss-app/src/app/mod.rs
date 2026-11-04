@@ -31,6 +31,8 @@ use gloss_core::ports::{SceneProbe, SecretStore};
 use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoopProxy;
 
+use gloss_platform::bootstrap::Platform;
+
 use crate::channel::AppEndpoints;
 use crate::flow::session::Session;
 use crate::machine::{AppState, TaskStateMachine};
@@ -52,6 +54,7 @@ pub(crate) struct Env {
     pub(crate) update: UpdateWiring,
     pub(crate) clipboard_watch_enabled: Arc<AtomicBool>,
     pub(crate) task_cache: Arc<TaskCache>,
+    pub(crate) platform: Platform,
 }
 
 impl Env {
@@ -89,6 +92,7 @@ impl GlossApp {
         update: UpdateWiring,
         clipboard_watch_enabled: Arc<AtomicBool>,
         task_cache: Arc<TaskCache>,
+        platform: Platform,
         proxy: Option<EventLoopProxy<UserEvent>>,
     ) -> Self {
         Self {
@@ -105,6 +109,7 @@ impl GlossApp {
                 update,
                 clipboard_watch_enabled,
                 task_cache,
+                platform,
             },
             settings: None,
             proxy,
@@ -124,14 +129,17 @@ impl GlossApp {
             );
             return;
         };
-        let installed = gloss_platform::menu::install(self.env.system_locale, move || {
-            if proxy.send_event(UserEvent::OpenSettings).is_err() {
-                debug!(
-                    thread = thread::UI,
-                    "event loop gone, menu settings click dropped"
-                );
-            }
-        });
+        let installed = self.env.platform.menu.install(
+            self.env.system_locale,
+            Box::new(move || {
+                if proxy.send_event(UserEvent::OpenSettings).is_err() {
+                    debug!(
+                        thread = thread::UI,
+                        "event loop gone, menu settings click dropped"
+                    );
+                }
+            }),
+        );
         if installed {
             info!(
                 thread = thread::UI,
@@ -255,7 +263,7 @@ pub(crate) mod test_support {
     use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent, Traced};
     use crate::machine::OverlayView;
     use crate::runtime::cache::TaskCache;
-    use crate::stubs::ports::{MemoryConfigStore, StubSceneProbe};
+    use crate::stubs::ports::{MemoryConfigStore, StubSceneProbe, stub_platform};
 
     use super::GlossApp;
 
@@ -343,12 +351,13 @@ pub(crate) mod test_support {
             },
             Arc::clone(&config),
             Arc::clone(&store) as Arc<dyn SecretStore>,
-            scene,
+            Arc::clone(&scene),
             Locale::Zh,
             permissions_ready,
             update_wiring(),
             clipboard_watch_enabled,
             Arc::new(TaskCache::new()),
+            stub_platform(&store, scene),
             None,
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)

@@ -7,3 +7,4 @@
 
 - 签名镜像 macOS 实现（`Result<(), String>`，错误串由 `PlatformUnsupported` 的 Display 而来），调用方（flow/actions.rs）零改动编译；Win32 剪贴板实现属 P2 能力面，不在本 PR 落。
 - 子模块（image/watch）的镜像类型见各自记录。
+- 2026-11-05（P1）文本写入从自由函数镜像改为剪贴板写入端口的桩实现（`SystemClipboardWriter`，与系统（macOS）实现同名镜像）：仍一律报告未支持。

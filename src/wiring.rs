@@ -1,6 +1,8 @@
-//! 组装段助手：四通道端点分发、启动期预检与事件源装配、异步运行时
-//! （tokio）消费桥与事件线程的启动。进程入口只留启动骨架与配置和
-//! 服务装配，“拿到唤醒句柄之后才能做的事”都收在这里。
+//! 组装段助手：平台能力装配（连接）、配置装配、四通道端点分发、启动期
+//! 预检与事件源装配、异步运行时（tokio）消费桥与事件线程的启动。进程
+//! 入口只留启动骨架，“拿到唤醒句柄之后才能做的事”与全部平台能力装配
+//! 都收在这里；平台能力一律经装配句柄（Platform）取用，本模块是全入口
+//! 唯一引用适配器层装配契约的地方。
 
 use std::error::Error;
 use std::sync::Arc;
@@ -22,22 +24,29 @@ use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::log::{debug, info, thread, warn};
 use gloss_core::model::GlossError;
-use gloss_core::ports::{AppIcon, SecretStore};
+use gloss_core::ports::{ClipboardImageReader, SecretStore, TextAcquirer};
 use gloss_core::task::TaskInput;
-use gloss_platform::appearance::MacAppIcon;
-use gloss_platform::clipboard::{ClipboardImageReader, ClipboardWatchSource, WatchRoundFlag};
-use gloss_platform::events::mouse::{MouseGesture, MouseSource};
-use gloss_platform::events::{EventSink, EventSource, EventSources, EventThread};
-use gloss_platform::permissions::{self, AccessibilityWatch};
-use gloss_platform::selection::composite::CompositeReader;
+use gloss_platform::bootstrap::{EventSink, EventSources, Platform};
 
 type StartupResult = Result<(), Box<dyn Error>>;
 
 static DOCK_ICON_PNG: &[u8] = include_bytes!("../assets/icons/gloss-dock-icon.png");
 
-fn install_app_icon() {
-    let icon: Box<dyn AppIcon> = Box::new(MacAppIcon::new());
-    if let Err(err) = icon.install(DOCK_ICON_PNG) {
+pub(super) fn connect() -> Result<Platform, Box<dyn Error>> {
+    Ok(Platform::connect()?)
+}
+
+type ConfigWiring = (Arc<ConfigHandle>, Arc<dyn SecretStore>);
+
+pub(super) fn load_config(platform: &Platform) -> Result<ConfigWiring, Box<dyn Error>> {
+    let handle = Arc::new(ConfigHandle::load_or_default(Arc::clone(
+        &platform.config_store,
+    )));
+    Ok((handle, Arc::clone(&platform.secret_store)))
+}
+
+fn install_app_icon(platform: &Platform) {
+    if let Err(err) = platform.app_icon.install(DOCK_ICON_PNG) {
         warn!(
             thread = thread::UI,
             error = ?err,
@@ -46,8 +55,8 @@ fn install_app_icon() {
     }
 }
 
-fn preflight_accessibility() -> bool {
-    if permissions::preflight_accessibility() {
+fn preflight_accessibility(platform: &Platform) -> bool {
+    if platform.permission.preflight() {
         info!(
             thread = thread::UI,
             "accessibility permission granted for selection reading"
@@ -58,31 +67,21 @@ fn preflight_accessibility() -> bool {
             thread = thread::UI,
             "accessibility permission missing, triggering the system guidance dialog"
         );
-        permissions::request_accessibility();
+        platform.permission.request();
         false
     }
 }
 
-pub(super) fn preflight_and_tap() -> (bool, Option<MouseSource>, Arc<AtomicBool>) {
-    let accessibility_ready = preflight_accessibility();
-    let (mouse_source, mouse_degraded) = MouseSource::spawn();
-    if mouse_source.is_some() {
+pub(super) fn preflight_and_tap(platform: &mut Platform) -> bool {
+    let accessibility_ready = preflight_accessibility(platform);
+    platform.spawn_gesture_source();
+    if platform.gesture.is_some() {
         info!(
             thread = thread::UI,
             "event tap established for the selection gesture"
         );
     }
-    (accessibility_ready, mouse_source, mouse_degraded)
-}
-
-pub(super) fn resolve_system_locale() -> gloss_core::model::Locale {
-    let locale = gloss_platform::locale::system_locale();
-    info!(
-        thread = thread::UI,
-        locale = ?locale,
-        "system language resolved"
-    );
-    locale
+    accessibility_ready
 }
 
 pub(super) struct ChannelHalves {
@@ -138,34 +137,90 @@ pub(super) fn shared_task_cache(config: &ConfigHandle) -> Arc<TaskCache> {
     Arc::new(TaskCache::with_ttl(ttl))
 }
 
+pub(super) fn run_event_loop(
+    mut platform: Platform,
+    config: Arc<ConfigHandle>,
+    store: Arc<dyn SecretStore>,
+    service: Arc<AiTaskService>,
+) -> StartupResult {
+    let (endpoints, halves) = distribute_channels();
+    let system_locale = platform.system_locale;
+    info!(
+        thread = thread::UI,
+        locale = ?system_locale,
+        "system language resolved"
+    );
+    let scene = Arc::clone(&platform.scene);
+    let update_handle = gloss_app::update::start_once();
+    let update = gloss_app::update::UpdateWiring::from_handle(update_handle);
+    let accessibility_ready = preflight_and_tap(&mut platform);
+    let permissions_ready = accessibility_ready;
+    let clipboard_watch_enabled =
+        Arc::new(AtomicBool::new(config.snapshot().watch_clipboard_images));
+    let task_cache = shared_task_cache(&config);
+    let mut assembly = Assembly {
+        service,
+        task_cache: Arc::clone(&task_cache),
+        runtime_store: Arc::clone(&store),
+        update_handle,
+        accessibility_ready,
+        clipboard_watch_enabled: Arc::clone(&clipboard_watch_enabled),
+        command_runtime: None,
+    };
+    let result = gloss_app::app::run(
+        endpoints,
+        config,
+        store,
+        scene,
+        system_locale,
+        permissions_ready,
+        update,
+        clipboard_watch_enabled,
+        task_cache,
+        platform,
+        |waker, platform| assembly.on_waker(waker, halves, platform),
+    );
+
+    drop(assembly.command_runtime);
+    result
+}
+
 pub(super) struct Assembly {
     pub(super) service: Arc<AiTaskService>,
     pub(super) task_cache: Arc<TaskCache>,
     pub(super) runtime_store: Arc<dyn SecretStore>,
     pub(super) update_handle: &'static UpdateHandle,
     pub(super) accessibility_ready: bool,
-    pub(super) mouse_source: Option<MouseSource>,
-    pub(super) mouse_degraded: Arc<AtomicBool>,
     pub(super) clipboard_watch_enabled: Arc<AtomicBool>,
     pub(super) command_runtime: Option<CommandRuntime>,
-    pub(super) event_thread: Option<EventThread>,
 }
 
 impl Assembly {
-    pub(super) fn on_waker(&mut self, waker: Waker, halves: ChannelHalves) -> StartupResult {
+    pub(super) fn on_waker(
+        &mut self,
+        waker: Waker,
+        halves: ChannelHalves,
+        platform: &mut Platform,
+    ) -> StartupResult {
         let ChannelHalves {
             acquire_rx,
             platform_tx,
             events_tx,
             commands_rx,
         } = halves;
-        install_app_icon();
+        install_app_icon(platform);
         let update_waker = waker.clone();
         self.update_handle.install_wake(move || {
             update_waker.wake_settings();
         });
         self.start_bridge(&events_tx, commands_rx, &waker)?;
-        self.start_event_thread(acquire_rx, platform_tx, events_tx, &waker);
+        let sink = platform.event_sink(events_tx, platform_tx, {
+            let waker = waker.clone();
+            move || {
+                waker.wake();
+            }
+        });
+        self.start_event_thread(platform, sink, acquire_rx);
         gloss_core::log::milestone("05_assembly");
         Ok(())
     }
@@ -194,109 +249,78 @@ impl Assembly {
 
     fn start_event_thread(
         &mut self,
+        platform: &mut Platform,
+        sink: EventSink<Event, PlatformEvent>,
         acquire_rx: Receiver<Traced<AcquireCommand>>,
-        platform_tx: Sender<PlatformEvent>,
-        events_tx: Sender<Event>,
-        waker: &Waker,
     ) {
-        let sink = EventSink::new(events_tx, platform_tx, {
-            let waker = waker.clone();
-            move || {
-                waker.wake();
-            }
-        });
-        let clipboard_watch = ClipboardWatchSource::new(Arc::clone(&self.clipboard_watch_enabled));
-        let round_flag = clipboard_watch.round_flag();
-        let image_reader = ClipboardImageReader::new(clipboard_watch.observer());
-        self.event_thread = Some(gloss_platform::events::spawn(
-            acquire_rx,
-            sink,
-            acquire_command_handler(image_reader, round_flag),
-            event_sources(
-                self.mouse_source.take(),
-                Arc::clone(&self.mouse_degraded),
-                self.accessibility_ready,
-                clipboard_watch,
-            ),
-        ));
-    }
-}
+        let kit = Platform::event_kit(Arc::clone(&self.clipboard_watch_enabled));
+        let mut sources: EventSources<PlatformEvent> = Vec::new();
 
-fn event_sources(
-    mouse_source: Option<MouseSource>,
-    mouse_degraded: Arc<AtomicBool>,
-    accessibility_ready: bool,
-    clipboard_watch: ClipboardWatchSource,
-) -> EventSources<PlatformEvent> {
-    let mut sources: EventSources<PlatformEvent> = Vec::new();
-
-    let mut watch = AccessibilityWatch::armed_if(!accessibility_ready);
-    sources.push(Box::new(move || {
-        watch
-            .poll()
-            .then_some(PlatformEvent::AccessibilityGranted)
-            .into_iter()
-            .collect()
-    }));
-
-    if let Some(mut source) = mouse_source {
+        let mut watch = platform.permission.watch(!self.accessibility_ready);
         sources.push(Box::new(move || {
-            source
-                .poll()
+            watch()
+                .then_some(PlatformEvent::AccessibilityGranted)
                 .into_iter()
-                .map(|gesture| match gesture {
-                    MouseGesture::Selection { pos } => PlatformEvent::SelectionGesture { pos },
-                })
                 .collect()
         }));
-    }
-    let mut clipboard_watch = clipboard_watch;
-    sources.push(Box::new(move || {
-        clipboard_watch
-            .poll()
-            .into_iter()
-            .map(|_| PlatformEvent::PasteboardImageObserved)
-            .collect()
-    }));
-    let mut hinted = false;
-    sources.push(Box::new(move || {
-        if !hinted && mouse_degraded.load(Ordering::Relaxed) {
-            hinted = true;
-            warn!(
-                thread = thread::EVENT,
-                "mouse listener degraded mid-run, selection gesture disabled"
-            );
+        if let Some(mut gesture) = platform.gesture.take() {
+            sources.push(Box::new(move || {
+                gesture
+                    .poll()
+                    .into_iter()
+                    .map(|pos| PlatformEvent::SelectionGesture { pos })
+                    .collect()
+            }));
         }
-        Vec::new()
-    }));
-    sources
+        let mut clipboard_watch = kit.clipboard_watcher;
+        sources.push(Box::new(move || {
+            clipboard_watch
+                .poll()
+                .into_iter()
+                .map(|_| PlatformEvent::PasteboardImageObserved)
+                .collect()
+        }));
+        let degraded = Arc::clone(&platform.gesture_degraded);
+        let mut hinted = false;
+        sources.push(Box::new(move || {
+            if !hinted && degraded.load(Ordering::Relaxed) {
+                hinted = true;
+                warn!(
+                    thread = thread::EVENT,
+                    "mouse listener degraded mid-run, selection gesture disabled"
+                );
+            }
+            Vec::new()
+        }));
+        let handler = acquire_command_handler(kit.text_acquirer, kit.clipboard_image_reader);
+        platform.spawn_event_thread(acquire_rx, sink, handler, sources);
+    }
 }
 
 fn acquire_command_handler(
-    mut image_reader: ClipboardImageReader,
-    round_flag: WatchRoundFlag,
+    mut text_acquirer: Box<dyn TextAcquirer>,
+    mut image_reader: Box<dyn ClipboardImageReader>,
 ) -> impl FnMut(Traced<AcquireCommand>, &EventSink<Event, PlatformEvent>) + Send {
-    let mut reader = CompositeReader::new(round_flag);
     move |job, sink| {
         let _entered = job.span.enter();
         match job.payload {
             AcquireCommand::AcquireText { generation } => {
-                acquire_text(&mut reader, generation, sink);
+                acquire_text(&mut *text_acquirer, generation, sink);
             }
             AcquireCommand::AcquireClipboardImage { generation } => {
-                acquire_clipboard_image(&mut image_reader, generation, sink);
+                acquire_clipboard_image(&mut *image_reader, generation, sink);
             }
         }
     }
 }
 
 fn acquire_text(
-    reader: &mut CompositeReader,
+    text_acquirer: &mut dyn TextAcquirer,
     generation: u64,
     sink: &EventSink<Event, PlatformEvent>,
 ) {
     info!(thread = thread::EVENT, "acquiring text");
-    let (outcome, settle) = reader.read().into_parts();
+    let (outcome, settle) = text_acquirer.read().into_parts();
     match outcome {
         Ok(text) => {
             debug!(
@@ -333,7 +357,7 @@ fn acquire_text(
 }
 
 fn acquire_clipboard_image(
-    image_reader: &mut ClipboardImageReader,
+    image_reader: &mut dyn ClipboardImageReader,
     generation: u64,
     sink: &EventSink<Event, PlatformEvent>,
 ) {

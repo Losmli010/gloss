@@ -105,14 +105,9 @@ mod tap {
 
     use gloss_core::log::{debug, info, thread, warn};
     use gloss_core::model::ScreenPoint;
+    use gloss_core::ports::SelectionGestureSource;
 
     use super::{ButtonEvent, GestureDetector};
-    use crate::events::EventSource;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum MouseGesture {
-        Selection { pos: ScreenPoint },
-    }
 
     #[derive(Debug)]
     enum ListenError {
@@ -139,14 +134,12 @@ mod tap {
         }
     }
 
-    impl EventSource<MouseGesture> for MouseSource {
-        fn poll(&mut self) -> Vec<MouseGesture> {
+    impl SelectionGestureSource for MouseSource {
+        fn poll(&mut self) -> Vec<ScreenPoint> {
             self.detector
                 .poll(&self.events)
                 .into_iter()
-                .map(|(x, y)| MouseGesture::Selection {
-                    pos: ScreenPoint::new(x.round() as i32, y.round() as i32),
-                })
+                .map(|(x, y)| ScreenPoint::new(x.round() as i32, y.round() as i32))
                 .collect()
         }
     }
@@ -333,7 +326,7 @@ mod tap {
     }
 }
 
-pub use tap::{MouseGesture, MouseSource};
+pub use tap::MouseSource;
 
 #[cfg(test)]
 mod tests {
@@ -519,8 +512,9 @@ mod tests {
 mod injected_gesture_live_tests {
     use std::time::{Duration, Instant};
 
+    use gloss_core::ports::SelectionGestureSource;
+
     use super::tap::MouseSource;
-    use crate::events::EventSource;
     use crate::ffi::event::{
         self, CG_EVENT_LEFT_MOUSE_DOWN, CG_EVENT_LEFT_MOUSE_UP, CG_EVENT_MOUSE_MOVED,
     };

@@ -104,3 +104,8 @@
 - `resolve_log_dir` 的第二参数从“HOME”泛化为“平台默认根”（拼接 `logs` 由共同逻辑承担）：macOS 传 `$HOME/.gloss`（路径一字不变），Windows 传 `%LOCALAPPDATA%/gloss`——不用 directories 库的原因见 §7-C2（会把 macOS 日志挪进 Application Support，违背零回归）。
 - 平台差异收在 `default_log_root` 的两个 `#[cfg]` 变体上（main.rs 是入口包的模块声明文件）；`GLOSS_LOG_DIR` 显式覆盖语义两平台一致（非空即用）。
 - 行为锁定：`log_dir_*` 四条内联测试断言 macOS 形态不变；Windows 形态（%LOCALAPPDATA%/gloss/logs）无本机测试，随 P1 测试矩阵补。
+
+## 入口骨架（2026-11-05，Windows 移植 P1 · 方案 D3）
+
+- 入口不再引用平台具体类型（场景探针、组合存储移除）：平台句柄由组装段 `connect` 构造，配置装配（`load_config`）改从句柄取配置存储与密钥存储——组合体仍是同一份，配置读取路径不变。
+- `run_event_loop` 迁入组装段：入口 `run` 只剩里程碑序列、日志初始化、平台句柄构造、配置与引擎服务装配；里程碑编号与顺序不变。

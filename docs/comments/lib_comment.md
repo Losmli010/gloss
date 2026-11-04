@@ -12,3 +12,7 @@
 - `ffi` 经 `pub(crate) use` 单独重导出：macos 内部 `pub(crate) mod ffi` 加包内重导出让迁入文件里的 `crate::ffi::…` 路径一字不改（FFI 唯一落点规则不变）。
 - `live_test_support`（辅助功能授权快失败）随 macOS 目标门控（`all(test, target_os)`）：消费它的 live 测试全在 macos/ 目录内。
 - linux/ 只留空占位且不重导出模块：该目标的可编译面到适配器库为止（见 linux_mod 记录）。
+
+## 装配契约模块（2026-11-05，Windows 移植 P1 · 方案 D3）
+
+- 新增装配契约目录（bootstrap）的声明：只在系统（macOS）与系统（Windows）目标编译，公开为 `gloss_platform::bootstrap`——入口与应用层经它取平台装配句柄，本入口的平台模块再导出面（appearance、clipboard 等）保持不动，供平台内装配与测试引用。

@@ -1,6 +1,6 @@
 //! 桌面应用（Gloss）唯一入口：组装依赖、分发通道端点并启动，不含
-//! 业务逻辑。组装段助手（通道分发、预检、事件源与后台装配）见组装
-//! 模块。
+//! 业务逻辑。组装段助手（平台能力装配、配置装配、通道分发、预检、
+//! 事件源与后台装配）见组装模块。
 
 mod wiring;
 
@@ -9,15 +9,12 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
 use gloss_core::engine::llm::LlmClient;
 use gloss_core::log::{self, info, thread, warn};
-use gloss_core::ports::{AiEngine, ConfigStore, SecretStore};
-use gloss_platform::scene::SystemSceneProbe;
-use gloss_platform::storage::CompositeConfigStore;
+use gloss_core::ports::{AiEngine, SecretStore};
 use mimalloc::MiMalloc;
 
 type StartupResult = Result<(), Box<dyn Error>>;
@@ -33,11 +30,12 @@ fn run() -> StartupResult {
     log::milestone("01_entry");
     init_logging();
     log::milestone("02_logging");
-    let (config, store) = load_config()?;
+    let platform = wiring::connect()?;
+    let (config, store) = wiring::load_config(&platform)?;
     log::milestone("03_config");
     let service = build_service(&config, &store)?;
     log::milestone("04_engine");
-    run_event_loop(config, store, service)
+    wiring::run_event_loop(platform, config, store, service)
 }
 
 fn init_logging() {
@@ -83,16 +81,6 @@ fn default_log_root() -> Option<PathBuf> {
     env::var_os("LOCALAPPDATA").map(|base| PathBuf::from(base).join("gloss"))
 }
 
-type ConfigWiring = (Arc<ConfigHandle>, Arc<dyn SecretStore>);
-
-fn load_config() -> Result<ConfigWiring, Box<dyn Error>> {
-    let composite = Arc::new(CompositeConfigStore::new()?);
-    let handle = Arc::new(ConfigHandle::load_or_default(
-        Arc::clone(&composite) as Arc<dyn ConfigStore>
-    ));
-    Ok((handle, Arc::clone(&composite) as Arc<dyn SecretStore>))
-}
-
 fn build_service(
     config: &Arc<ConfigHandle>,
     store: &Arc<dyn SecretStore>,
@@ -101,53 +89,6 @@ fn build_service(
     Ok(Arc::new(AiTaskService::new(
         Arc::new(engine) as Arc<dyn AiEngine>
     )))
-}
-
-fn run_event_loop(
-    config: Arc<ConfigHandle>,
-    store: Arc<dyn SecretStore>,
-    service: Arc<AiTaskService>,
-) -> StartupResult {
-    let (endpoints, halves) = wiring::distribute_channels();
-    let system_locale = wiring::resolve_system_locale();
-    let scene = Arc::new(SystemSceneProbe);
-    let update_handle = gloss_app::update::start_once();
-    let update = gloss_app::update::UpdateWiring::from_handle(update_handle);
-    let (accessibility_ready, mouse_source, mouse_degraded) = wiring::preflight_and_tap();
-    let permissions_ready = accessibility_ready;
-    let task_cache = wiring::shared_task_cache(&config);
-    let mut assembly = wiring::Assembly {
-        service,
-        task_cache: Arc::clone(&task_cache),
-        runtime_store: Arc::clone(&store),
-        update_handle,
-        accessibility_ready,
-        mouse_source,
-        mouse_degraded,
-        clipboard_watch_enabled: Arc::new(AtomicBool::new(
-            config.snapshot().watch_clipboard_images,
-        )),
-        command_runtime: None,
-        event_thread: None,
-    };
-    let result = gloss_app::app::run(
-        endpoints,
-        config,
-        store,
-        scene,
-        system_locale,
-        permissions_ready,
-        update,
-        Arc::clone(&assembly.clipboard_watch_enabled),
-        task_cache,
-        |waker| assembly.on_waker(waker, halves),
-    );
-
-    if let Some(event_thread) = assembly.event_thread {
-        event_thread.join();
-    }
-    drop(assembly.command_runtime);
-    result
 }
 
 #[cfg(test)]
