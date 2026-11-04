@@ -195,9 +195,14 @@ lint:
 lint-fix:
     cargo clippy --workspace --all-targets --all-features --fix --allow-dirty
 
-# 运行全部测试
+# 运行全部测试：第三层（L3）双自检只在系统（macOS）全量必跑，系统（Windows）跑共享面
 test:
-    cargo test --workspace --all-features
+    {{ if os() == "windows" { "just test-shared" } else { "cargo test --workspace --all-features" } }}
+
+# 共享面测试：全工作区目标，根包的测试桩单独补跑，第三层（L3）双自检暂不进系统（Windows）
+test-shared:
+    cargo test --workspace --all-features --exclude gloss
+    cargo test -p gloss --all-features --bin gloss
 
 # 检查器单测：目录发现跑门禁脚本、命名助手与客户端钩子目录的测试
 hooks-test:

@@ -44,7 +44,7 @@
 
 ## py 变量（2026-10-25，PR-S2）
 
-- `py := "python3"`：全部脚本配方经此变量调用，统一“./x.py 直调”与“python3 x.py”两种形态；解释器升级（本地 3.8 → 3.12）时只翻这一处。连带效果：justfile 不再按路径直调任何脚本，install_hooks.py 的执行位清单随之缩到仍被按路径直调的文件（钩子两件＋工作流直调的提交信息与发布、性能脚本）。
+- `py := “python3”`：全部脚本配方经此变量调用，统一“./x.py 直调”与“python3 x.py”两种形态；解释器升级（本地 3.8 → 3.12）时只翻这一处。连带效果：justfile 不再按路径直调任何脚本，install_hooks.py 的执行位清单随之缩到仍被按路径直调的文件（钩子两件＋工作流直调的提交信息与发布、性能脚本）。
 - 2026-10-25 翻到 `python3.12`（PR-P2）：消除本地系统 3.8 与远端 3.12 的判定分叉，注释门禁实测提速约四成；入口名与版本清单的解释器下限同值，环境初始化按下限同名派生校验（见 setup_dev_comment.md）。`.zcode/config.json` 的钩子解释器调用随同翻名，避免第三处分叉。
 
 ## selftest-report
@@ -100,7 +100,7 @@
 - profile-run 与 profile-cpu 分立：剖析对象必须带符号，而 release
   `strip=true` 采出来全是 `???`；profile-run 负责以 profiling 配置启动带符号
   实例，profile-cpu 只管“采样 + 渲染”，对什么实例在跑保持中立（--pid 可指）。
-- `profile-cpu pid="" duration="10"`：pid 空串传给脚本由脚本侧回落 pgrep，
+- `profile-cpu pid=“” duration=“10”`：pid 空串传给脚本由脚本侧回落 pgrep，
   不在 justfile 里做条件拼接（保持配方单行）。
 
 ## 2026-10-06 flame / flame-startup 替代 profile-cpu（P4-1，profile_cpu.py 删除）
@@ -199,3 +199,8 @@
 - 行尾 `&` 让配方随即以退出码 0 返回，应用是否存活与退出码脱钩；agent 拿到
   绿色退出码易误判“验证完成”。注释补“配方随即返回，应用存活与日志经日志
   跟随（logs）观察”，验证语义交给日志而不是退出码。
+
+## 测试配方按目标分派（2026-11-05，Windows 移植 P1）
+
+- `test` 按目标分派：系统（macOS）保持全量原样；系统（Windows）转 `test-shared`——第三层（L3）双自检在托管系统（Windows）运行器的图形可行性未实测，暂不进必跑面（决策见 ci_comment.md）。
+- `test-shared` 两条命令：全工作区排除根包（避开第三层自检目标），再单独补跑根包测试桩（日志目录的系统（Windows）分支只有这里测得到）；根包无库目标，无文档测试可跑。
