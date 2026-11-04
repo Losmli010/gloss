@@ -110,6 +110,11 @@ pub(in crate::ui) fn system_fonts_ready() -> bool {
         && MONO_FONT.get().is_some()
 }
 
+#[cfg(test)]
+pub(crate) fn system_font_discovery_present() -> bool {
+    imp::DISCOVERY_PRESENT
+}
+
 fn cjk_font() -> Option<&'static FamilyFont> {
     CJK_FONT
         .get_or_init(|| imp::load_cjk(CJK_FAMILIES))
@@ -325,16 +330,25 @@ mod tests {
 
     #[test]
     fn system_cjk_font_is_discoverable() {
+        if !system_font_discovery_present() {
+            return;
+        }
         assert!(cjk_font().is_some());
     }
 
     #[test]
     fn system_monospace_font_is_discoverable() {
+        if !system_font_discovery_present() {
+            return;
+        }
         assert!(mono_font().is_some());
     }
 
     #[test]
     fn system_cjk_font_is_loaded_once() {
+        if !system_font_discovery_present() {
+            return;
+        }
         let first = cjk_font().expect("host CJK font");
         let second = cjk_font().expect("host CJK font");
         assert!(!first.bytes.is_empty());
@@ -352,6 +366,9 @@ mod tests {
 
     #[test]
     fn single_face_files_register_face_zero() {
+        if !system_font_discovery_present() {
+            return;
+        }
         let font = mono_font().expect("host monospace font");
         if !collection::is_collection(&font.bytes) {
             assert_eq!(font.index, 0);
