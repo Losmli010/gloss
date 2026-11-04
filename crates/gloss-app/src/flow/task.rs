@@ -131,8 +131,9 @@ impl GlossApp {
         let Some(outcome) = cached else {
             return false;
         };
+        let settled = self.machine.settle_cached(outcome);
         debug_assert!(
-            self.machine.settle_cached(outcome),
+            settled,
             "the view was pending at the lookup a moment ago; \
              anything that moved it in between must be re-examined"
         );
