@@ -62,3 +62,9 @@
 ## resvg
 
 - 2026-10-19 引入（0.45.1，default-features = false）：页头应用图标改矢量栅格化（SVG 源 → 物理像素级 ColorImage），版本对齐 egui_extras svg 特性所钉的 0.45.1。默认特性全关——text/system-fonts 等字体机器是资产无 <text> 时纯多余的传递面；直用 resvg 而非 egui_extras 的 svg loader，理由见 popup_comment.md“页头图标改矢量栅格化”。
+
+## 依赖按目标门控与图形后端特性分派（2026-11-05，Windows 移植 P0 D1/D5）
+
+- core-foundation、core-text 移入 `[target.'cfg(target_os = "macos")'.dependencies]`：仅字体发现（ui/fonts/imp.rs）引用。
+- wgpu 拆共同节（`std`/`wgsl`）与目标节：macOS 节追加 `metal`，Windows 节追加 `vulkan` + `dx12`（不开 gl，D5 定案；vulkan 失败落 dx12 由适配器枚举承担）；共同节+目标节的特性合并是 cargo 的既有语义（特性可加不可减）。后端选择仍无代码分支（gpu.rs 不改，§1.1 已核实）。
+- egui-wgpu 共同节只关默认特性，`macos-window-resize-jitter-fix` 仅 macOS 节追加（D5：“仅 macos 节”）。

@@ -36,7 +36,7 @@ FFI_EXPRESSION = r'extern\s*"C"\s*\{'
 ALLOW_CONTEXT_MARKER = "constraints:allow-context"
 
 CONTEXT_OWNER = "crates/gloss-app/src/ui/context.rs"
-FFI_OWNER_DIR = "crates/gloss-platform/src/ffi/"
+FFI_OWNER_DIR = "crates/gloss-platform/src/macos/ffi/"
 
 
 def engine_hits(root: str, files: list[str], expression: str) -> dict[str, dict[int, str]]:

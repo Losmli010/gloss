@@ -30,3 +30,9 @@
 ## Upload HTML report 步骤
 
 - 2026-09-18 `if: always()` 的原因：阈值没过时也要拿到报告，否则无从判断是哪个文件把覆盖率拉了下来。
+
+## Windows 冒烟与 lint 分身（2026-11-05，Windows 移植 P0）
+
+- build 冒烟矩阵加 `x86_64-pc-windows-msvc`（windows-latest 原生构建，编译通过即算过）。
+- lint 作业加 windows-latest 分身跑同一 `just lint`：占位实现与共享代码过严格检查面；macOS 作业不动（D7——Windows 视角看不到被 cfg 排除的 macOS 代码，macOS 检查面仍由 macOS 作业承担）。
+- 分身用新作业名（`lint-windows`）而不是把 lint 作业矩阵化：分支保护按检查名锁必需检查，改名会孤立既有必需检查。

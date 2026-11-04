@@ -10,7 +10,7 @@
 
 ## 约束“FFI 声明集中”（实现）
 
-- 2026-09-23 平台 FFI 的 extern 声明只允许出现在 `gloss-platform` 的 `src/ffi/`（R2 收编的正是这类重复：`AXIsProcessTrusted` 两处两种写法、粘贴板 extern 两处、CF 守卫三份）。
+- 2026-09-23 平台 FFI 的 extern 声明只允许出现在 `gloss-platform` 的 ffi 模块目录（2026-11-05 随平台目录化迁至 `src/macos/ffi/`，门禁豁免目录随动）——原 `src/ffi/`（R2 收编的正是这类重复：`AXIsProcessTrusted` 两处两种写法、粘贴板 extern 两处、CF 守卫三份）。
 - 匹配前先归一空白（`extern "C"  {`、`extern"C"{` 都命中），与“egui 上下文统一装入点”同做法。
 - 只管 extern **块**（Rust 里 C 声明只能写在块里），`extern "C" fn name(...)` 形式的回调定义不算声明——那些函数贴着各自的业务模块（如 `events/mod.rs::fire`、`events/mouse.rs::raw_callback`），已用自测用例钉住不误报。
 - 逃逸口：目前没有；确需就地声明时应先改本模块与 AGENTS.md，而不是在业务模块里破例。

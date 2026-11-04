@@ -18,12 +18,12 @@
 //! 排版引擎（epaint）对未绑定的字体族直接崩溃，族必须永远存在。
 
 use std::borrow::Cow;
-use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
 
 use egui::{FontData, FontDefinitions, FontFamily, FontTweak};
 use gloss_core::log::{thread, warn};
-use memmap2::Mmap;
+
+use self::imp::FamilyFont;
 
 pub(super) const FONT_NAME: &str = "gloss-cjk";
 pub(super) const FONT_SERIF_NAME: &str = "gloss-songti";
@@ -40,43 +40,6 @@ pub(super) fn serif_family() -> FontFamily {
 
 pub(super) fn mono_family() -> FontFamily {
     FontFamily::Name(FONT_MONO_NAME.into())
-}
-
-enum FontBacking {
-    Mapped(Mmap),
-    Copied(Vec<u8>),
-}
-
-impl FontBacking {
-    fn as_slice(&self) -> &[u8] {
-        match self {
-            FontBacking::Mapped(mapped) => mapped,
-            FontBacking::Copied(bytes) => bytes,
-        }
-    }
-}
-
-impl Deref for FontBacking {
-    type Target = [u8];
-
-    fn deref(&self) -> &[u8] {
-        self.as_slice()
-    }
-}
-
-struct FamilyFont {
-    bytes: FontBacking,
-    index: u32,
-}
-
-impl FamilyFont {
-    #[cfg(test)]
-    fn from_bytes(bytes: Vec<u8>, index: u32) -> FamilyFont {
-        FamilyFont {
-            bytes: FontBacking::Copied(bytes),
-            index,
-        }
-    }
 }
 
 fn insert_face(font: &'static FamilyFont, definitions: &mut FontDefinitions, name: &str) {
@@ -148,7 +111,9 @@ pub(in crate::ui) fn system_fonts_ready() -> bool {
 }
 
 fn cjk_font() -> Option<&'static FamilyFont> {
-    CJK_FONT.get_or_init(imp::load_cjk).as_ref()
+    CJK_FONT
+        .get_or_init(|| imp::load_cjk(CJK_FAMILIES))
+        .as_ref()
 }
 
 fn mono_font() -> Option<&'static FamilyFont> {
@@ -210,7 +175,15 @@ fn register_mono_family(
         .insert(FontFamily::Name(FONT_MONO_NAME.into()), chain);
 }
 
+#[cfg(target_os = "macos")]
+#[path = "fonts/imp.rs"]
 mod imp;
+#[cfg(not(target_os = "macos"))]
+#[path = "fonts/imp_stub.rs"]
+mod imp;
+
+#[cfg(any(target_os = "macos", test))]
+mod collection;
 
 #[cfg(test)]
 mod tests {
@@ -380,7 +353,7 @@ mod tests {
     #[test]
     fn single_face_files_register_face_zero() {
         let font = mono_font().expect("host monospace font");
-        if !imp::is_collection(&font.bytes) {
+        if !collection::is_collection(&font.bytes) {
             assert_eq!(font.index, 0);
         }
     }
@@ -388,14 +361,14 @@ mod tests {
     #[test]
     fn face_postscript_name_parses_a_synthetic_collection() {
         let ttc = synthetic_ttc("TestFont");
-        assert!(imp::is_collection(&ttc));
-        let face = imp::face_offset(&ttc, 0).expect("face offset");
+        assert!(collection::is_collection(&ttc));
+        let face = collection::face_offset(&ttc, 0).expect("face offset");
         assert_eq!(
             face, 16,
             "one face table directory follows the 16-byte ttc header"
         );
         assert_eq!(
-            imp::face_postscript_name(&ttc, face).as_deref(),
+            collection::face_postscript_name(&ttc, face).as_deref(),
             Some("TestFont")
         );
     }
@@ -403,8 +376,8 @@ mod tests {
     #[test]
     fn face_postscript_name_rejects_a_truncated_collection() {
         let ttc = synthetic_ttc("TestFont");
-        assert_eq!(imp::face_postscript_name(&ttc[..8], 8), None);
-        assert!(imp::face_offset(&ttc[..8], 0).is_err());
+        assert_eq!(collection::face_postscript_name(&ttc[..8], 8), None);
+        assert!(collection::face_offset(&ttc[..8], 0).is_err());
     }
 
     #[test]
@@ -412,7 +385,7 @@ mod tests {
         let mut ttc = synthetic_ttc("TestFont");
         let field = 16 + 12 + 8;
         ttc[field..field + 4].copy_from_slice(&u32::MAX.to_be_bytes());
-        assert_eq!(imp::face_postscript_name(&ttc, 16), None);
+        assert_eq!(collection::face_postscript_name(&ttc, 16), None);
     }
 
     fn synthetic_ttc(postscript: &str) -> Vec<u8> {

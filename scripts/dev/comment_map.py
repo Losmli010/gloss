@@ -59,10 +59,10 @@ FAMILY_STEMS: dict[str, str] = {
     # 集成测试目标与运行时管线模块撞名：测试目标带集成前缀
     "crates/gloss-app/tests/pipeline.rs": "pipeline_integration",
     # 剪贴板家族：选区剪贴板、剪贴板子模块与浮层图像卡撞名
-    "crates/gloss-platform/src/selection/clipboard.rs": "selection_clipboard",
-    "crates/gloss-platform/src/clipboard/image.rs": "clipboard_image",
-    "crates/gloss-platform/src/clipboard/mod.rs": "clipboard_mod",
-    "crates/gloss-platform/src/clipboard/watch.rs": "clipboard_watch",
+    "crates/gloss-platform/src/macos/selection/clipboard.rs": "selection_clipboard",
+    "crates/gloss-platform/src/macos/clipboard/image.rs": "clipboard_image",
+    "crates/gloss-platform/src/macos/clipboard/mod.rs": "clipboard_mod",
+    "crates/gloss-platform/src/macos/clipboard/watch.rs": "clipboard_watch",
     "crates/gloss-app/src/ui/popup/image.rs": "popup_image",
     "crates/gloss-app/src/ui/popup/icon.rs": "popup_icon",
     "crates/gloss-app/src/ui/popup/note.rs": "popup_note",
@@ -91,6 +91,22 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-app/src/lib.rs": "app_lib",
     "crates/gloss-core/src/lib.rs": "core_lib",
     "crates/gloss-eval/src/lib.rs": "eval_lib",
+    # 适配器层的平台目录镜像：系统（Windows）占位实现与系统（macOS）
+    # 实现同名撞名，占位侧按家族前缀登记（占位实现族共用一套决策口径）
+    "crates/gloss-platform/src/windows/clipboard/mod.rs": "windows_clipboard_mod",
+    "crates/gloss-platform/src/windows/clipboard/image.rs": "windows_clipboard_image",
+    "crates/gloss-platform/src/windows/clipboard/watch.rs": "windows_clipboard_watch",
+    "crates/gloss-platform/src/windows/events/mod.rs": "windows_events_mod",
+    "crates/gloss-platform/src/windows/events/mouse.rs": "windows_mouse",
+    "crates/gloss-platform/src/windows/locale.rs": "windows_locale",
+    "crates/gloss-platform/src/windows/menu.rs": "windows_menu",
+    "crates/gloss-platform/src/windows/permissions.rs": "windows_permissions",
+    "crates/gloss-platform/src/windows/scene.rs": "windows_scene",
+    "crates/gloss-platform/src/windows/selection/mod.rs": "windows_selection_mod",
+    "crates/gloss-platform/src/windows/selection/composite.rs": "windows_composite",
+    "crates/gloss-platform/src/windows/storage/mod.rs": "windows_storage_mod",
+    "crates/gloss-platform/src/windows/appearance/mod.rs": "windows_appearance_mod",
+    "crates/gloss-platform/src/windows/appearance/icon.rs": "windows_icon",
 }
 
 # 自由主题记录：不锚定单一源文件的记录裸名（登记表、豁免留痕、重构记录）。

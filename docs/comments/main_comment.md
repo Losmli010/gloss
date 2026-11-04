@@ -98,3 +98,9 @@
 - 文本与剪贴板图片两条取材失败路径原是“先 `err.clone()` 发 TaskFailed、
   后用 `err` 记日志”；改为先按错误类别记日志、再把 `err` 原值 move 进
   事件——事件与日志是两个独立汇，先后无观察面，复制消失。
+
+## 日志目录按平台分派（2026-11-05，Windows 移植 P0 §7-C2）
+
+- `resolve_log_dir` 的第二参数从“HOME”泛化为“平台默认根”（拼接 `logs` 由共同逻辑承担）：macOS 传 `$HOME/.gloss`（路径一字不变），Windows 传 `%LOCALAPPDATA%/gloss`——不用 directories 库的原因见 §7-C2（会把 macOS 日志挪进 Application Support，违背零回归）。
+- 平台差异收在 `default_log_root` 的两个 `#[cfg]` 变体上（main.rs 是入口包的模块声明文件）；`GLOSS_LOG_DIR` 显式覆盖语义两平台一致（非空即用）。
+- 行为锁定：`log_dir_*` 四条内联测试断言 macOS 形态不变；Windows 形态（%LOCALAPPDATA%/gloss/logs）无本机测试，随 P1 测试矩阵补。

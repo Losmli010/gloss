@@ -59,3 +59,9 @@
 - 解析 `face` 目录指向那面的 name 表，取 postscript 名（nameID 6；
   优先 Windows 平台 UTF-16BE，退回 Macintosh ASCII）。只为
   [`face_index`] 的序号定位服务，解析不了返回 `None`。
+
+## 类型迁入与签名调整（2026-11-05，Windows 移植 P0）
+
+- `FamilyFont`/`FontBacking` 从父模块（fonts.rs）迁入本文件：字节背衬（mmap/拷贝两形态）只由本模块的发现器构造，是实现细节；占位目标在同名镜像文件（imp_stub.rs）持同型定义（见 imp_stub 记录）。
+- `load_cjk` 增加 families 参数（候选名单由调用方传入）：占位侧无需自带名单，签名两平台一致让分派点零 cfg；macOS 行为不变（同一名单、同一探测序）。
+- `face_index`/`num_fonts` 随迁入（消费 ttc 解析原语）；集合原语本体在 collection 模块（见其记录）。

@@ -33,6 +33,7 @@ pub enum GlossError {
     SelectionUnavailable,
     SelectionEmpty,
     AccessibilityDenied,
+    PlatformUnsupported,
     ImageUnavailable,
     ImageTooLarge,
     UnsupportedModality,
@@ -51,6 +52,7 @@ impl std::fmt::Display for GlossError {
             Self::SelectionUnavailable => write!(f, "selection unavailable"),
             Self::SelectionEmpty => write!(f, "selection is empty"),
             Self::AccessibilityDenied => write!(f, "accessibility permission denied"),
+            Self::PlatformUnsupported => write!(f, "platform not supported"),
             Self::ImageUnavailable => write!(f, "pasteboard image unavailable"),
             Self::ImageTooLarge => write!(f, "pasteboard image too large"),
             Self::UnsupportedModality => write!(f, "model capability does not match task modality"),
@@ -83,6 +85,10 @@ mod tests {
         assert_eq!(
             GlossError::ImageUnavailable.to_string(),
             "pasteboard image unavailable"
+        );
+        assert_eq!(
+            GlossError::PlatformUnsupported.to_string(),
+            "platform not supported"
         );
         assert_eq!(
             GlossError::JsonModeUnsupported.to_string(),

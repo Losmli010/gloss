@@ -43,3 +43,6 @@ web/latest/*
 
 # 编辑器工作区配置不进仓库，样式注入随本地环境
 .vscode/
+
+# 任务隔离的多检出工作树（git worktree）目录（本地状态，不进仓库）
+.worktrees/

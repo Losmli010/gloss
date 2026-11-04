@@ -55,6 +55,7 @@ pub struct Text {
     pub(crate) gloss_errors_selection_unavailable: String,
     pub(crate) gloss_errors_selection_empty: String,
     pub(crate) gloss_errors_accessibility_denied: String,
+    pub(crate) gloss_errors_platform_unsupported: String,
     pub(crate) gloss_errors_image_unavailable: String,
     pub(crate) gloss_errors_image_too_large: String,
     pub(crate) gloss_errors_unsupported_modality: String,
@@ -136,6 +137,9 @@ impl Text {
             GlossError::SelectionEmpty => Cow::Borrowed(&self.gloss_errors_selection_empty),
             GlossError::AccessibilityDenied => {
                 Cow::Borrowed(&self.gloss_errors_accessibility_denied)
+            }
+            GlossError::PlatformUnsupported => {
+                Cow::Borrowed(&self.gloss_errors_platform_unsupported)
             }
             GlossError::ImageUnavailable => Cow::Borrowed(&self.gloss_errors_image_unavailable),
             GlossError::ImageTooLarge => Cow::Borrowed(&self.gloss_errors_image_too_large),
@@ -231,7 +235,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            93,
+            94,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -348,6 +352,7 @@ mod tests {
         for error in [
             GlossError::SelectionUnavailable,
             GlossError::AccessibilityDenied,
+            GlossError::PlatformUnsupported,
             GlossError::ImageUnavailable,
             GlossError::ImageTooLarge,
             GlossError::UnsupportedModality,
@@ -379,7 +384,7 @@ mod tests {
     }
 
     fn assert_static_variants_use_their_own_entries(errors: &Text) {
-        for (error, expected) in [
+        let acquire = [
             (
                 GlossError::SelectionUnavailable,
                 &errors.gloss_errors_selection_unavailable,
@@ -389,6 +394,10 @@ mod tests {
                 &errors.gloss_errors_accessibility_denied,
             ),
             (
+                GlossError::PlatformUnsupported,
+                &errors.gloss_errors_platform_unsupported,
+            ),
+            (
                 GlossError::ImageUnavailable,
                 &errors.gloss_errors_image_unavailable,
             ),
@@ -396,6 +405,8 @@ mod tests {
                 GlossError::ImageTooLarge,
                 &errors.gloss_errors_image_too_large,
             ),
+        ];
+        let engine = [
             (
                 GlossError::UnsupportedModality,
                 &errors.gloss_errors_unsupported_modality,
@@ -417,15 +428,21 @@ mod tests {
                 GlossError::EmptyCompletion,
                 &errors.gloss_errors_empty_completion,
             ),
-        ] {
+        ];
+        assert_static_entries(errors, &acquire);
+        assert_static_entries(errors, &engine);
+    }
+
+    fn assert_static_entries(errors: &Text, entries: &[(GlossError, &String)]) {
+        for (error, expected) in entries {
             assert_eq!(
-                &errors.for_error(&error),
-                expected,
+                &errors.for_error(error),
+                *expected,
                 "{error:?} must use its own entry"
             );
             assert_eq!(
-                &errors.for_error_detail(&error),
-                expected,
+                &errors.for_error_detail(error),
+                *expected,
                 "{error:?} has no diagnostic of its own"
             );
         }

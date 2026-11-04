@@ -14,6 +14,10 @@ use tokio_util::sync::CancellationToken;
 use gloss_core::log::{debug, error, info, thread, warn};
 
 pub mod download;
+#[cfg(target_os = "macos")]
+pub mod install;
+#[cfg(not(target_os = "macos"))]
+#[path = "install_stub.rs"]
 pub mod install;
 pub mod manifest;
 mod net;

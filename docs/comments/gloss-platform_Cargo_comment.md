@@ -67,3 +67,8 @@
 - Dock 图标装载：非 bundle 运行时经 NSApplication.setApplicationIconImage 装上品牌图标。
 - 自身判定：NSRunningApplication 的 processIdentifier 被 libc 特性门控（is_self 判定）。
 - 引用式删除：SecKeychainItemDelete 与 errSecItemNotFound 常量（security-framework 未封装删引用一条路）。
+
+## macOS 专属依赖按目标门控（2026-11-05，Windows 移植 P0 D1）
+
+- objc2 系（objc2/objc2-app-kit/objc2-foundation）、core-foundation 系（core-foundation/core-foundation-sys）、security-framework 系（security-framework/security-framework-sys）移入 `[target.'cfg(target_os = "macos")'.dependencies]`：仅 macos/ 目录的模块引用，其余目标不编译不拉取。
+- 跨平台依赖（arboard、image、toml、directories、crossbeam-channel、gloss-core）留在共同节：P2 的 Windows 实现按映射表会复用 arboard/image/directories/toml，提前收窄只会加一道来回搬运。

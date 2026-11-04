@@ -8,7 +8,6 @@ use gloss_core::config_handle::ConfigHandle;
 use gloss_core::model::Locale;
 use gloss_core::ports::{SceneProbe, SecretStore};
 use winit::event_loop::{EventLoop, EventLoopProxy};
-use winit::platform::macos::EventLoopBuilderExtMacOS;
 
 use crate::channel::AppEndpoints;
 use crate::runtime::cache::TaskCache;
@@ -53,9 +52,9 @@ pub fn run(
     task_cache: Arc<TaskCache>,
     on_waker: impl FnOnce(Waker) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
-    let event_loop = EventLoop::<UserEvent>::with_user_event()
-        .with_default_menu(false)
-        .build()?;
+    let mut builder = EventLoop::<UserEvent>::with_user_event();
+    super::loop_builder::suppress_default_menu(&mut builder);
+    let event_loop = builder.build()?;
     let waker = Waker(event_loop.create_proxy());
     on_waker(waker)?;
     let proxy = event_loop.create_proxy();
