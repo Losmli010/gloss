@@ -29,6 +29,7 @@ use crate::flow::session::Session;
 use crate::machine::{AppState, TaskStateMachine};
 use crate::present::render::{render_frame, render_frame_with};
 use crate::present::workspace::Workspace;
+use crate::runtime::cache::TaskCache;
 use crate::ui::i18n::Text;
 use crate::ui::popup::OverlayResize;
 use crate::ui::settings::{self, SettingsAction, SettingsState};
@@ -43,6 +44,7 @@ pub(crate) struct Env {
     pub(crate) permissions_ready: bool,
     pub(crate) update: UpdateWiring,
     pub(crate) clipboard_watch_enabled: Arc<AtomicBool>,
+    pub(crate) task_cache: Arc<TaskCache>,
 }
 
 impl Env {
@@ -79,6 +81,7 @@ impl GlossApp {
         permissions_ready: bool,
         update: UpdateWiring,
         clipboard_watch_enabled: Arc<AtomicBool>,
+        task_cache: Arc<TaskCache>,
         proxy: Option<EventLoopProxy<UserEvent>>,
     ) -> Self {
         Self {
@@ -94,6 +97,7 @@ impl GlossApp {
                 permissions_ready,
                 update,
                 clipboard_watch_enabled,
+                task_cache,
             },
             settings: None,
             proxy,
@@ -243,6 +247,7 @@ pub(crate) mod test_support {
 
     use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent, Traced};
     use crate::machine::OverlayView;
+    use crate::runtime::cache::TaskCache;
     use crate::stubs::ports::{MemoryConfigStore, StubSceneProbe};
 
     use super::GlossApp;
@@ -336,6 +341,7 @@ pub(crate) mod test_support {
             permissions_ready,
             update_wiring(),
             clipboard_watch_enabled,
+            Arc::new(TaskCache::new()),
             None,
         );
         (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)

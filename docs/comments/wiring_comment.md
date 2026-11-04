@@ -29,7 +29,7 @@
 ## Assembly
 
 - 组装段的在途资源与后台存活句柄：`Assembly::on_waker` 在 EventLoop 建好后启动 tokio 消费桥与事件线程，把存活句柄记回，事件循环结束后由调用方统一收尾。
-- `cache_config`：缓存 TTL 的快照来源（App 按值收走主句柄，这里先拆一份）。
+- `task_cache`（2026-11-04）：任务产物缓存的共享实例——组装点在 `run_event_loop` 里经 `shared_task_cache` 按配置快照建一次，一份随组装回调进消费桥，一份在 `app::run` 主句柄之外直交给 App（Env）。单实例两持方：桥侧读写在消费循环里，App 侧只读（提交落卡后判“缓存命中免确认”，见 flow/task.rs）。缓存必须先于 EventLoop 存在——app::run 在组装回调之前就要构造 App。
 - `runtime_store`：与 App 共享同一份存储实例——预热读密命中引擎的同一份进程内缓存（密钥不经快照，见 gloss-app 的 Env）。
 - `clipboard_watch_enabled`：剪贴板图片哨兵的共享开关位——按启动快照初始化，一份交给 App（设置页保存成功时置位，热切换不重启），一份随组装回调与哨兵源同造。
 
@@ -41,8 +41,12 @@
 
 ## start_bridge
 
-- tokio 消费桥：任务服务、缓存（缓存站点归桥，TTL 取配置快照、手改超出上限的值按上限钳制）与共享密钥存储接进消费循环。回传事件入队时靠 waker 唤醒睡在事件循环里的主线程。
+- tokio 消费桥：任务服务、缓存（缓存站点归桥；实例即 `shared_task_cache` 建好的共享份，TTL 在那里取配置快照、手改超出上限的值按上限钳制）与共享密钥存储接进消费循环。回传事件入队时靠 waker 唤醒睡在事件循环里的主线程。
 - 消费桥装配失败是启动硬错误：commands_rx 随失败被 drop，通道③没有消费者，用户触发的任务会静默石沉大海。与 build_service 同一失败出口——`?` 上抛，报错退出而非带病运行。
+
+## shared_task_cache（2026-11-04）
+
+- 任务缓存的单例构造点：TTL 取配置快照并按上限钳制，实例在 `run_event_loop` 创建后分两路（消费桥、App Env）。原 TTL 逻辑住在 start_bridge，随“App 侧也要读同一实例”整体上移——钳制与快照读取只有这一处，两持方不会拿到 TTL 不同的两份缓存。
 
 ## start_event_thread
 

@@ -61,6 +61,7 @@
 - `permissions_ready`：取材授权（辅助功能）的门控：启动时刻取预检结论；未就绪的会话由授权观察器在运行中落定后置位（见 `GlossApp::on_accessibility_granted`）。密钥预热据此门控——未就绪意味着系统权限引导弹窗在途，预热读会让 keychain 授权框抢到它之前。
 - `update`：更新子系统的壳侧接线：设置页每帧读其 receiver 渲染，用户动作经出口转投模块（与主流程四通道隔离）。
 - `clipboard_watch_enabled`：剪贴板图片哨兵的共享开关位：组装点创建、与事件线程的哨兵源同份。设置页保存成功时置位（热切换不重启），落盘失败不置位——与运行时快照同进退。
+- `task_cache`：任务产物缓存（2026-11-04）：组装点创建、与 tokio 消费桥共享同一 `Arc<TaskCache>` 实例——壳在提交落卡后查它判“缓存命中免确认”（见 flow/task.rs 的 `settle_cached_hit`），写权仍独占在桥侧（完成态解析后）。TTL 在组装点按配置快照定一次，两持方天然同寿。
 
 ## Env::locale / target_theme
 

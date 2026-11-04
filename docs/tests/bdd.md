@@ -817,6 +817,8 @@
 | a_pasteboard_product_without_a_matching_probe_is_dropped | 无匹配探测的图像产物整体丢弃 | 给定陈旧编号的图像 `InputReady`（无在途探测），当采纳，则整体丢弃、不下发通道三、不留随行图像 | 2026-10-10 |
 | pasteboard_oversized_failure_lands_in_the_error_card | 图片超上限失败落错误卡 | 给定在途粘贴板探测，当收 `ImageTooLarge` 失败，则落 `Error` 弹失败卡（显式可观察）、探测消费 | 2026-10-10 |
 | a_repair_marker_resets_the_stream_through_the_shell | 壳层采纳修复轮开始标记 | 给定推理中的流式会话（已有违约累积），当壳 `accept_repairing`，则当前代清空累积并置修复态、陈旧代拒绝且不扰动在途会话 | 2026-10-12 |
+| a_cached_selection_skips_confirmation_and_lands_the_outcome | 缓存命中的选区免确认直落产物卡 | 给定按探测同款选项预热壳侧任务缓存的会话，当划词产物提交，则直落产物卡（`Show`、通道三零流量、同帧置显形挂起）；紧随一次未缓存划词照旧落待确认卡并经确认下发（跳过确认的前提是亲眼命中，未命中把关原样在岗） | 2026-11-04 |
+| a_cached_pasteboard_image_skips_confirmation_too | 缓存命中的剪贴板图片同样免确认 | 给定按图像输入预热的任务缓存与在途粘贴板探测，当图像产物提交，则直落产物卡（`Show`）、通道三零流量（免确认是两模态同权） | 2026-11-04 |
 
 ### `crates/gloss-app/src/ui/i18n.rs`
 
@@ -1050,6 +1052,10 @@
 | confirm_pending_is_refused_outside_the_pending_card | 确认守卫只认待确认卡 | 给定空白机器、流式中的会话、已定格产物卡三种非待确认状态，当 `confirm_pending`，则一律 `None`（无卡无确认出口；已定格代数的迟到失败一并被拒） | 2026-10-27 |
 | hide_drops_the_pending_card_without_a_token_to_cancel | 隐藏丢弃待确认卡且无需取消 | 给定待确认卡在场，当 `hide_overlay`，则回 `Idle`、视图清空、确认出口一并失效（收起后的确认不能复活成下发） | 2026-10-27 |
 | a_new_commit_supersedes_the_pending_card_and_confirm_acts_on_the_current_card | 新提交顶掉待确认卡且确认只认当前卡 | 给定待确认卡在场时新探测提交，则新卡接管；当确认，则恒作用于屏上当前卡——下发新卡的输入与代数，同一张卡只可确认一次（已消费卡的再次确认被拒）。沿革：原名“陈旧确认被拒”，2026-10-27 随确认语义核实修订——被顶掉卡的确认从未被尝试，第二次拒绝的真实守卫是卡已消费、视图不再是待确认卡 | 2026-10-27 |
+| a_cache_hit_settles_the_pending_card_straight_to_the_outcome | 缓存命中待确认卡直落产物卡 | 给定落定待确认卡的会话，当 `settle_cached` 带缓存产物，则整卡定格为产物卡（原文与缓存产物同卡）直达 `Show`、无取消令牌无重试出口、代数不动；已定格的卡拒收第二次定格（缓存命中免确认，2026-11-04） | 2026-11-04 |
+| a_cached_degraded_hit_keeps_the_request_copy_for_retry | 缓存命中的降级产物保留重试 | 给定落定待确认卡的会话，当 `settle_cached` 带降级缓存产物，则产物卡上 `retry` 可原样重发该输入并回流式视图（与 `accept_done` 的降级口径同款） | 2026-11-04 |
+| cached_settle_only_accepts_the_pending_card | 缓存定格守卫只认待确认卡 | 给定空白机器、流式中的会话、已定格产物卡三种非待确认状态，当 `settle_cached`，则一律 `false` 且流式会话原样无损（实现红线：先判形再取视图——先取后判会把流式会话整卡吞掉，此测试即该缺陷的回归钉） | 2026-11-04 |
+| a_cached_pasteboard_hit_settles_with_the_image_retained | 缓存命中的图像提交定格保图 | 给定落定待确认卡的图像会话，当 `settle_cached`，则直落产物卡、经位原文恒空串（经是图本身）、`attached_image` 以 `Arc` 指针不变随行 | 2026-11-04 |
 | a_probe_leaves_a_visible_session_completely_untouched | 探测与误滑不扰动可见会话 | 给定推理中的可见会话，当新划词探测、再当探测以空选区失败收场，则状态、视图、取消令牌全程原样，流式正文照常追加 | 2026-10-01 |
 | image_input_for_text_kind_is_rejected | 划词探测拒收图像输入 | 给定在途划词探测收图像产物，当提交，则 `Ignored`（模态按探测的取材来源配对） | 2026-10-10 |
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 `Translating` 态隐藏，当收起，则令牌取消、视图清空回 `Idle`，迟到同代数产物、失败被拒 | 2026-09-19 |

@@ -11,6 +11,7 @@ use winit::event_loop::{EventLoop, EventLoopProxy};
 use winit::platform::macos::EventLoopBuilderExtMacOS;
 
 use crate::channel::AppEndpoints;
+use crate::runtime::cache::TaskCache;
 use crate::update::UpdateWiring;
 
 use super::GlossApp;
@@ -49,6 +50,7 @@ pub fn run(
     permissions_ready: bool,
     update: UpdateWiring,
     clipboard_watch_enabled: Arc<AtomicBool>,
+    task_cache: Arc<TaskCache>,
     on_waker: impl FnOnce(Waker) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<UserEvent>::with_user_event()
@@ -66,6 +68,7 @@ pub fn run(
         permissions_ready,
         update,
         clipboard_watch_enabled,
+        task_cache,
         Some(proxy),
     );
     event_loop.run_app(&mut app)?;

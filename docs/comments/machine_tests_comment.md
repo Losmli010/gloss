@@ -36,6 +36,22 @@
   确认恒作用于屏上当前卡——守卫读视图而非按卡记身份，测试钉的正是这个
   事实源选择：新卡接管后确认下发的是新卡，同一张卡只可确认一次。
 
+## 缓存命中免确认家族（2026-11-04）
+
+- `a_cache_hit_settles_the_pending_card_straight_to_the_outcome`：缓存直落
+  主干钉子——待确认卡被产物卡整卡替换（原文与缓存产物同卡）、无令牌无
+  重试出口、代数不动、已定格的卡拒收第二次定格；状态直达 `Show`，确认
+  环节整段缺席。
+- `a_cached_degraded_hit_keeps_the_request_copy_for_retry`：语言降级产物
+  与 `accept_done` 同口径——请求副本保留，重试原样重发并走普通下发路径
+  （重发后的缓存回放归后台桥，不在本层断言）。
+- `cached_settle_only_accepts_the_pending_card`：守卫形态钉子，兼钉实现
+  红线——“先判形后 take”。曾版本直接 `take` 再判，把流式会话整卡吞掉
+  导致后续 `accept_done` 失聪；此测试正是那条 bug 的回归钉。
+- `a_cached_pasteboard_hit_settles_with_the_image_retained`：图像缓存命中
+  同路直落——经位原文恒空串（“经”是图本身）、`attached_image` 以 Arc
+  零拷贝随行进产物卡。
+
 ## fixed_kinds_arrive_classified_while_the_auto_sentinel_waits
 
 - 2026-10-02 锁定 `classified` 初始化语义（T3 根因修复）：热键固定 kind
