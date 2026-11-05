@@ -36,3 +36,9 @@
 - build 冒烟矩阵加 `x86_64-pc-windows-msvc`（windows-latest 原生构建，编译通过即算过）。
 - lint 作业加 windows-latest 分身跑同一 `just lint`：占位实现与共享代码过严格检查面；macOS 作业不动（D7——Windows 视角看不到被 cfg 排除的 macOS 代码，macOS 检查面仍由 macOS 作业承担）。
 - 分身用新作业名（`lint-windows`）而不是把 lint 作业矩阵化：分支保护按检查名锁必需检查，改名会孤立既有必需检查。
+
+## 测试作业矩阵化（2026-11-05，Windows 移植 P1 · 方案 D7/§5 P1）
+
+- test 作业矩阵化（macos-latest 与 windows-latest 双腿，fail-fast 关闭）：系统（Windows）跑共享面（`just test-shared`）——占位实现面加第一、二层的跨平台部分，锁定“共享代码两平台同绿”基线；系统（macOS）腿全量不变。
+- 第三层（L3）双自检暂不进系统（Windows）必跑面：托管系统（Windows）运行器无硬件图形（GPU），图形后端落软件光栅化（WARP）的可行性与预算数字有效性未实测（移植方案 §6 的定案是“先实测后入矩阵”），系统（Windows）的 `test` 配方按目标分派到共享面；归宿随 P2 实测落定。
+- 性能信号采集（自检包装与产物上传）仅系统（macOS）腿执行：内存采样依赖 POSIX 工具链，预算数字只在系统（macOS）运行器有效。

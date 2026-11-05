@@ -32,8 +32,6 @@ use std::time::Duration;
 use gloss_core::log::{info, thread};
 use gloss_core::model::GlossError;
 
-use crate::selection::clipboard::FallbackSettle;
-
 const EMPTY_SETTLE_SCHEDULE_MS: [u64; 3] = [25, 75, 150];
 
 const ACTIVATION_SETTLE_DELAY: Duration = Duration::from_millis(250);
@@ -167,37 +165,16 @@ fn normalize(raw: String) -> Result<String, GlossError> {
     Ok(trimmed.to_owned())
 }
 
-pub struct SelectionRead {
-    pub outcome: Result<String, GlossError>,
-    settle: Option<FallbackSettle>,
-}
-
-impl SelectionRead {
-    pub fn into_parts(self) -> (Result<String, GlossError>, SelectionSettle) {
-        (self.outcome, SelectionSettle(self.settle))
-    }
-}
-
-pub struct SelectionSettle(Option<FallbackSettle>);
-
-impl SelectionSettle {
-    pub fn finish(self) {
-        if let Some(settle) = self.0 {
-            settle.finish();
-        }
-    }
-}
-
 mod imp {
     use std::time::Instant;
 
-    use super::{
-        AX_WAIT_BUDGET, Pacing, SelectionRead, activation_delay, combine, normalize, settle_delay,
-    };
+    use gloss_core::ports::{TextAcquirer, TextRead, TextSettle};
+
+    use super::{AX_WAIT_BUDGET, Pacing, activation_delay, combine, normalize, settle_delay};
     use crate::clipboard::WatchRoundFlag;
     use crate::selection::accessibility::AccessibilityReader;
     use crate::selection::activation::AxActivator;
-    use crate::selection::clipboard::ClipboardFallbackReader;
+    use crate::selection::clipboard::{ClipboardFallbackReader, FallbackSettle};
 
     #[derive(Debug)]
     pub struct CompositeReader {
@@ -214,8 +191,10 @@ mod imp {
                 activator: AxActivator::default(),
             }
         }
+    }
 
-        pub fn read(&mut self) -> SelectionRead {
+    impl TextAcquirer for CompositeReader {
+        fn read(&mut self) -> TextRead {
             let started = Instant::now();
             let CompositeReader {
                 ax,
@@ -223,7 +202,7 @@ mod imp {
                 activator,
             } = self;
             let responds_to_wake = activator.responds_to_wake();
-            let mut settle = None;
+            let mut settle: Option<FallbackSettle> = None;
             let outcome = combine(
                 || ax.read(),
                 responds_to_wake,
@@ -238,7 +217,12 @@ mod imp {
                 }),
             )
             .and_then(normalize);
-            SelectionRead { outcome, settle }
+            TextRead::new(
+                outcome,
+                settle.map_or_else(TextSettle::idle, |settle| {
+                    TextSettle::deferred(move || settle.finish())
+                }),
+            )
         }
     }
 }

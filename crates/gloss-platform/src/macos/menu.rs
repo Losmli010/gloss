@@ -10,6 +10,7 @@
 use std::cell::RefCell;
 
 use gloss_core::model::Locale;
+use gloss_core::ports::MenuController;
 use objc2::AnyThread;
 use objc2::DefinedClass;
 use objc2::define_class;
@@ -100,6 +101,14 @@ pub fn install(locale: Locale, on_open_settings: impl Fn() + Send + 'static) -> 
         app.setMainMenu(Some(&menubar));
         true
     })
+}
+
+pub struct SystemMenuController;
+
+impl MenuController for SystemMenuController {
+    fn install(&self, locale: Locale, on_open_settings: Box<dyn Fn() + Send>) -> bool {
+        install(locale, on_open_settings)
+    }
 }
 
 fn app_submenu(

@@ -6,3 +6,5 @@
 ## 取材读取器桩（2026-11-05，Windows 移植 P0）
 
 - `read` 一律返回 `PlatformUnsupported`：图像格式（CF_DIB/CF_DIBV5/PNG）解码与 `image` 库特性面（Windows 加 bmp/dib）随 P2 剪贴板取材落地。
+
+- 2026-11-05（P1）类型改名 `SystemImageReader` 并实现核心层图片取材端口的桩（与系统（macOS）实现同名镜像）：仍一律报告未支持。

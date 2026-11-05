@@ -120,3 +120,8 @@ M4 指“配置与设置”里程碑，子编号 ①/② 仓内无定义，标�
 ## loop_builder 差异分派（2026-11-05，Windows 移植 P0）
 
 - winit 的 `with_default_menu(false)`（关闭缺省应用菜单）是 macOS 专属扩展，业务文件不能带 cfg——差异收进 `mod loop_builder` 双文件分派（`#[cfg] + #[path]`）：macOS 实现调扩展方法，其余目标空实现（同签名）。调用点在 app/events.rs 的 `run`。
+
+## 平台句柄入应用层（2026-11-05，Windows 移植 P1 · 方案 D3）
+
+- `Env` 增持平台句柄（`Platform`）：应用菜单装配与剪贴板写入改从句柄取——`install_app_menu` 经菜单装配端口调用（回调装箱为 `Box<dyn Fn() + Send>`，词条与降级日志不变），浮层复制动作经剪贴板写入端口调用。
+- 方向单一：句柄由入口构造后经事件循环入口传入应用壳，应用层不回触构造；测试桩目录提供整结构替身句柄（见 `stubs_ports_tests_comment.md`）。

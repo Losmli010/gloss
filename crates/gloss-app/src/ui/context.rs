@@ -143,6 +143,9 @@ mod tests {
 
     #[test]
     fn new_context_carries_fonts_and_theme() {
+        if !fonts::system_font_discovery_present() {
+            return;
+        }
         let ctx = new_context(Theme::Dark);
         assert_eq!(
             ctx.options(|options| options.theme_preference),

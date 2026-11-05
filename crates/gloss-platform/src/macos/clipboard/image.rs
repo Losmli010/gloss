@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use gloss_core::log::{debug, thread, warn};
 use gloss_core::model::GlossError;
+use gloss_core::ports::ClipboardImageReader;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{ExtendedColorType, ImageEncoder, ImageFormat, ImageReader};
 use objc2::rc::Retained;
@@ -162,17 +163,13 @@ fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Arc<[u8]>, GlossEr
     Ok(Arc::from(png))
 }
 
-pub struct ClipboardImageReader {
+pub struct SystemImageReader {
     observer: PasteboardObserver,
 }
 
-impl ClipboardImageReader {
+impl SystemImageReader {
     pub fn new(observer: PasteboardObserver) -> Self {
         Self { observer }
-    }
-
-    pub fn read(&mut self) -> Result<Option<Arc<[u8]>>, GlossError> {
-        self.read_with(pasteboard_change_count, pasteboard_image_flavor)
     }
 
     fn read_with(
@@ -206,6 +203,12 @@ impl ClipboardImageReader {
         // — the decoded product is immediately converted into owned bytes.
         let bytes = unsafe { data.as_bytes_unchecked() };
         decode_to_png(flavor, bytes).map(Some)
+    }
+}
+
+impl ClipboardImageReader for SystemImageReader {
+    fn read(&mut self) -> Result<Option<Arc<[u8]>>, GlossError> {
+        self.read_with(pasteboard_change_count, pasteboard_image_flavor)
     }
 }
 
@@ -322,7 +325,7 @@ mod tests {
     fn a_covered_board_is_dropped_without_touching_the_content() {
         let observer = PasteboardObserver::default();
         observer.record(7);
-        let mut reader = ClipboardImageReader::new(observer);
+        let mut reader = SystemImageReader::new(observer);
         let read = reader.read_with(
             || Some(8),
             || panic!("content must not be read when the observation no longer matches"),
@@ -334,14 +337,14 @@ mod tests {
     fn an_undeliverable_flavor_is_dropped_quietly() {
         let observer = PasteboardObserver::default();
         observer.record(7);
-        let mut reader = ClipboardImageReader::new(observer);
+        let mut reader = SystemImageReader::new(observer);
         let read = reader.read_with(|| Some(7), || None);
         assert_eq!(read.expect("undelivered drops, not fails"), None);
     }
 
     #[test]
     fn an_unobservable_board_is_a_read_failure() {
-        let mut reader = ClipboardImageReader::new(PasteboardObserver::default());
+        let mut reader = SystemImageReader::new(PasteboardObserver::default());
         let err = reader
             .read_with(
                 || None,
@@ -355,7 +358,7 @@ mod tests {
     fn a_matching_board_still_decodes_to_png() {
         let observer = PasteboardObserver::default();
         observer.record(7);
-        let mut reader = ClipboardImageReader::new(observer);
+        let mut reader = SystemImageReader::new(observer);
         let tiff = encoded_2x2(ImageFormat::Tiff);
         let png = reader
             .read_with(

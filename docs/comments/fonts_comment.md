@@ -269,4 +269,5 @@
 - `mod imp` 双文件分派（`#[cfg] + #[path]`）：macOS 走 CoreText 发现器（fonts/imp.rs），其余目标走占位（fonts/imp_stub.rs，恒无发现）——字体字节进 egui 的接口已统一，唯一平台耦合点是“系统里怎么找字体”，不立端口（D4 例外定案），分派收在模块声明文件（本文件）。
 - 家族字体（FamilyFont）与字节背衬（FontBacking）类型从本文件迁入各平台发现器：背衬形态是实现细节，父模块流程只依赖 `as_slice` 读面与 `Option<FamilyFont>`；占位侧同名镜像并放开死码（见 imp_stub 记录）。
 - 纯 ttc 面序解析拆出 collection 模块（平台无关，随发现器与测试编译，见 collection 记录）；父模块测试对其引用从 `imp::` 改为 `collection::`。
-- 行为不变量：`system_cjk_font_is_discoverable` 等三条宿主字体测试断言 macOS 真机形态，非 macOS 目标下该组测试不成立（占位无发现）——P1 测试矩阵开放 Windows 时再定归宿。
+- 行为不变量：`system_cjk_font_is_discoverable` 等宿主字体测试断言真机形态，宿主前提缺席时断言不成立。
+- 测试面归宿（2026-11-05，P1 测试矩阵开放 Windows 时落定）：各发现器持测试期前提常量（`DISCOVERY_PRESENT`，macOS 真、占位假），父模块的测试期访问器（`system_font_discovery_present`）把它交给宿主字体类测试做前提守卫——发现面缺席的目标上这组断言没有前提，直接让路（与存储测试“环境缺席即让路”同款）；macOS 面断言照旧全量执行，DirectWrite 发现器落地（P2）后 Windows 面自然转为全量。

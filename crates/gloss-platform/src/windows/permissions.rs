@@ -1,4 +1,4 @@
-//! 事件权限的预检与授权引导（系统（Windows）占位）。
+//! 事件权限的预检与授权引导（系统（Windows）占位）：权限探针端口的桩。
 //!
 //! 系统（Windows）无系统级授权门：预检恒放行、引导为无操作，选区读取走
 //! 用户界面自动化（UIA）不索取权限（移植方案能力映射的定案）。授权
@@ -6,6 +6,8 @@
 //! 一并落定或移除。
 
 use std::time::{Duration, Instant};
+
+use gloss_core::ports::PermissionProbe;
 
 const WATCH_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -15,6 +17,23 @@ pub fn preflight_accessibility() -> bool {
 
 pub fn request_accessibility() -> bool {
     preflight_accessibility()
+}
+
+pub struct SystemPermissionProbe;
+
+impl PermissionProbe for SystemPermissionProbe {
+    fn preflight(&self) -> bool {
+        preflight_accessibility()
+    }
+
+    fn request(&self) -> bool {
+        request_accessibility()
+    }
+
+    fn watch(&self, grant_pending: bool) -> Box<dyn FnMut() -> bool + Send> {
+        let mut watch = AccessibilityWatch::armed_if(grant_pending);
+        Box::new(move || watch.poll())
+    }
 }
 
 pub struct AccessibilityWatch {

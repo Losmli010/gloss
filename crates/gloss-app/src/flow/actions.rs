@@ -3,8 +3,6 @@
 
 use gloss_core::log::{debug, info, thread, warn};
 
-use gloss_platform::clipboard::copy_text;
-
 use crate::app::GlossApp;
 use crate::machine::OverlayView;
 use crate::ui::popup::{OverlayAction, annotation_text};
@@ -66,7 +64,7 @@ impl GlossApp {
             );
             return;
         };
-        match copy_text(&text) {
+        match self.env.platform.clipboard.copy_text(&text) {
             Ok(()) => info!(thread = thread::UI, "annotation copied to the pasteboard"),
             Err(err) => warn!(
                 thread = thread::UI,

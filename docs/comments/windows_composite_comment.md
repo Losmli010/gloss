@@ -6,3 +6,5 @@
 ## 组合读取器桩（2026-11-05，Windows 移植 P0）
 
 - `read` 一律返回 `PlatformUnsupported`、无还原收尾（settle 空实现）：UIA 主路 + SendInput 模拟复制兜底（保留读后还原语义）随 P2 ① 落地；组装段的读取调用面零改动编译。
+
+- 2026-11-05（P1）桩改实现核心层文本取材端口：读取一律平台未支持、无还原收尾（契约类型 `TextRead`／`TextSettle`）；本模块的镜像 `SelectionRead`／`SelectionSettle` 退役。

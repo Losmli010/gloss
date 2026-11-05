@@ -6,6 +6,9 @@
 //! 字节背衬的类型定义在本模块：字节背衬以内存映射优先、整包拷贝兜底，
 //! 两种形态只由本模块的发现器构造。
 
+#[cfg(test)]
+pub(super) const DISCOVERY_PRESENT: bool = true;
+
 use std::fs::File;
 use std::ops::Deref;
 use std::path::Path;

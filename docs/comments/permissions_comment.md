@@ -37,3 +37,7 @@
   - `armed_if`：`grant_pending` 是启动预检结论的否定：预检已就绪时返回未武装实例，此后 `poll` 恒 `false` 且不查询。
   - `poll`：到查询节奏且已授权时返回 `true`，此后不再查询。
   - `poll_at`：`poll` 的时间与查询注入版：测试据此驱动时序与授权序列。
+
+## 接入权限探针端口（2026-11-05，Windows 移植 P1 · 方案 D4）
+
+- 新增 `SystemPermissionProbe` 实现核心层权限探针端口：预检与引导委托既有函数，授权监视以节流轮询闭包移交（节流状态留在 `AccessibilityWatch`）；自由函数保留供监视源内部复用。

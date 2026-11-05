@@ -14,8 +14,9 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use gloss_core::ports::{ClipboardImageObserved, ClipboardWatcher};
+
 use super::{pasteboard_change_count, pasteboard_has_image};
-use crate::events::EventSource;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
@@ -162,13 +163,16 @@ impl ClipboardWatchSource {
     }
 }
 
-impl EventSource<PasteboardImageObserved> for ClipboardWatchSource {
-    fn poll(&mut self) -> Vec<PasteboardImageObserved> {
+impl ClipboardWatcher for ClipboardWatchSource {
+    fn poll(&mut self) -> Vec<ClipboardImageObserved> {
         self.poll_at(
             Instant::now(),
             pasteboard_change_count,
             pasteboard_has_image,
         )
+        .into_iter()
+        .map(|_| ClipboardImageObserved)
+        .collect()
     }
 }
 
@@ -494,13 +498,14 @@ mod live_tests {
     use std::sync::atomic::AtomicBool;
 
     use arboard::Clipboard;
+    use gloss_core::ports::ClipboardImageReader;
     use objc2_app_kit::{
         NSPasteboard, NSPasteboardType, NSPasteboardTypePNG, NSPasteboardTypeTIFF,
     };
     use objc2_foundation::NSData;
 
     use super::*;
-    use crate::clipboard::ClipboardImageReader;
+    use crate::clipboard::SystemImageReader;
 
     struct RestoreOnDrop {
         text: Option<String>,
@@ -560,7 +565,7 @@ mod live_tests {
             watch.poll().is_empty(),
             "no further observation without a change"
         );
-        let mut reader = ClipboardImageReader::new(watch.observer());
+        let mut reader = SystemImageReader::new(watch.observer());
         let png = reader
             .read()
             .expect("read must succeed")
@@ -583,7 +588,7 @@ mod live_tests {
             1,
             "a PNG-only board must be observed exactly once"
         );
-        let mut reader = ClipboardImageReader::new(watch.observer());
+        let mut reader = SystemImageReader::new(watch.observer());
         let png = reader
             .read()
             .expect("read must succeed")

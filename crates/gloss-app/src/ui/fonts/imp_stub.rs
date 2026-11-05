@@ -7,6 +7,9 @@
 //! 供父模块的登记流程以同一类型面编译；桩内无构造方，故放开死码判定。
 #![allow(dead_code)]
 
+#[cfg(test)]
+pub(super) const DISCOVERY_PRESENT: bool = false;
+
 use std::ops::Deref;
 
 use memmap2::Mmap;

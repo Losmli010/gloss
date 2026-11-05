@@ -41,3 +41,7 @@
 - `pasteboard_has_image`：剪贴板当前内容是否含图片类型（types 查询同样只碰元数据）。TIFF 覆盖截图（⌘⇧4+Ctrl）与多数应用的“复制图像”，PNG 覆盖浏览器/文件复制。
 - `ImageFlavor`：取材侧可读的图像 flavor：与 `pasteboard_has_image` 认的两种类型一一对应——哨兵认什么，取材就读什么，两侧能力不漂移。`Tiff` = public.tiff，`Png` = public.png。
 - `pasteboard_image_flavor`：取剪贴板上第一份可读的图像 flavor 数据（TIFF 先于 PNG）；板上没有可读图像（被覆盖成文本/清空）时返回 `None`。取到即持 Retained 的 NSData，内容读取在调用方作用域内完成。
+
+## 剪贴板写入入端口（2026-11-05，Windows 移植 P1 · 方案 D4）
+
+- 文本写入从自由函数改为剪贴板写入端口的实现（`SystemClipboardWriter`）：跨平台兜底库调用一字不动；消费方改经装配句柄的端口对象调用。
