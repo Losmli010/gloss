@@ -20,9 +20,6 @@ use std::time::Duration;
 
 use gloss_core::log::{info, thread};
 use gloss_core::model::GlossError;
-use gloss_core::ports::{TextAcquirer, TextRead, TextSettle};
-
-use crate::selection::clipboard::FallbackSettle;
 
 const EMPTY_SETTLE_SCHEDULE_MS: [u64; 3] = [25, 75, 150];
 
@@ -117,7 +114,6 @@ mod imp {
                 clipboard: ClipboardFallbackReader::new(round),
             }
         }
-
     }
 
     impl TextAcquirer for CompositeReader {
@@ -309,7 +305,6 @@ mod tests {
             Ok("a\n b\tc".to_owned())
         );
     }
-}
 
     #[test]
     fn combined_pure_whitespace_selection_maps_to_selection_empty() {

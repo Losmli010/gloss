@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 755 | `just test` |
+| 单元测试 | 752 | `just test` |
 
 ## 人工测试
 
@@ -1730,9 +1730,6 @@
 | uia_selected_text_passes_through_verbatim | 选区文本逐字采纳 | 给定非空读取结果（含两端空白原文），当 `interpret`，则文本逐字上抛（修剪在组合通道入口） | 2026-11-06 |
 | uia_an_empty_selection_is_empty_but_a_missing_value_stays_unavailable | 空串与超限拒取分开报 | 给定空串与空值（超上限）两类结果，当 `interpret`，则空串报空选区（可让渡补读）、空值报读取不可用（落兜底） | 2026-11-06 |
 | uia_unsupported_patterns_and_failed_calls_stay_unavailable | 模式缺席与调用失败报不可用 | 给定模式缺席标记码与任意失败码（含零），当 `interpret`，则一律报读取不可用（本平台无权限拒绝语义） | 2026-11-06 |
-| uia_first_use_creates_the_object_once_and_reuses_it | 惰性槽首次取用创建一次并复用 | 给定空槽与计数替身工厂，当两次 `settled` 取用，则恰创建一次且两次取得同一对象 | 2026-11-06 |
-| uia_a_failed_creation_is_never_retried | 创建失败即终态不重试 | 给定首取返回空的替身工厂与后取成功的工厂，当两次 `settled` 取用，则两次皆空且恰创建一次（失败路径不逐读添系统调用） | 2026-11-06 |
-| uia_reader_starts_pending_without_touching_com | 构造零系统调用留创建给事件线程 | 当 `UiaReader::new`，则惰性槽为空未触组件对象模型（COM）（读取器在主线程组装段构造，创建留给事件线程首次读取） | 2026-11-06 |
 
 ### `crates/gloss-platform/src/windows/selection/clipboard.rs`
 

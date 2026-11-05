@@ -2,20 +2,21 @@
 //!
 //! 只读焦点元素的选中范围文本，是向目标应用发起的同步跨进程调用，必须
 //! 运行在套间初始化过的平台事件线程（线程约束见组件对象模型模块头）。
-//! 应用不支持文本模式（自绘界面）或调用失败以错误码上抛；无选中范围与
-//! 空串都按空选区交调用方解读；文本超出上限时不取全文、以空值交回
-//! ——调用方按读取不可用处理（与系统（macOS）读取器的超限语义同构）。
+//! 自动化对象在每次读取的调用内创建、调用内释放——对象与接口指针都是
+//! 套间亲和的，绑定库的接口类型非跨线程安全，调用内生灭让跨线程状态为
+//! 零（与系统（macOS）读取器逐读创建系统级元素同形）。应用不支持文本模式
+//! （自绘界面）或调用失败以错误码上抛；无选中范围与空串都按空选区交调用
+//! 方解读；文本超出上限时不取全文、以空值交回——调用方按读取不可用处理
+//! （与系统（macOS）读取器的超限语义同构）。
 
-use windows::Win32::UI::Accessibility::{
-    IUIAutomation, IUIAutomationTextPattern, UIA_TextPatternId,
-};
+use windows::Win32::UI::Accessibility::{IUIAutomationTextPattern, UIA_TextPatternId};
 use windows::core::Interface;
 
-pub(crate) fn selected_text(
-    automation: &IUIAutomation,
-    max_bytes: usize,
-) -> Result<Option<String>, i32> {
-    // SAFETY: `automation` is a valid interface reference created on this
+use crate::ffi::com;
+
+pub(crate) fn selected_text(max_bytes: usize) -> Result<Option<String>, i32> {
+    let automation = com::create_automation().map_err(|_| UIA_AUTOMATION_UNAVAILABLE)?;
+    // SAFETY: `automation` is a valid interface reference just created on this
     // thread's STA apartment; the returned element reference is checked below.
     let focused = unsafe { automation.GetFocusedElement() }.map_err(|err| err.code().0)?;
     // SAFETY: `focused` is a valid element reference just returned; the
@@ -47,3 +48,5 @@ pub(crate) fn selected_text(
 }
 
 const UIA_TEXT_PATTERN_UNSUPPORTED: i32 = -1;
+
+const UIA_AUTOMATION_UNAVAILABLE: i32 = -2;
