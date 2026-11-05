@@ -87,5 +87,23 @@ security-framework = { version = "3", default-features = false }
 # 条目未找到常量。
 security-framework-sys = { version = "2", default-features = false }
 
+# 系统（Windows）专属依赖按目标门控：仅平台目录下的系统模块引用，其余目标
+# 不编译。特性面按用到的接口域显式列出，不开任何接口域之外的整域。
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = {
+  version = "0.62",
+  default-features = false,
+  features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_Accessibility",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+  ]
+}
+
 [lints]
 workspace = true

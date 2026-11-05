@@ -80,3 +80,9 @@
   是夹具不是判据。
 - `AKIA` / `xoxb-` / `Bearer` / PEM 四类夹具同理：前缀保留（不然测不到前缀判定），
   主体一律由助手生成；赋值形态用 `format!("GITHUB_TOKEN=ghp_{body}")` 现拼。
+
+## windows_executable_names_block_the_scene_gate（2026-11-06）
+
+- 验收意图：Windows 名单按可执行文件名命中——裸名命中、ASCII 大小写不
+  敏感命中、名单外进程不命中；钉住两份名单串联后系统（macOS）行为不变
+  （该测试在两平台都跑，名单外的资源管理器（explorer.exe）必须放行）。

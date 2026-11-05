@@ -19,7 +19,7 @@
 
 use std::fmt;
 
-const SENSITIVE_APPS: [&str; 7] = [
+const SENSITIVE_APPS_MACOS: [&str; 7] = [
     "com.1password.1password",
     "com.agilebits.onepassword7",
     "com.bitwarden.desktop",
@@ -27,6 +27,16 @@ const SENSITIVE_APPS: [&str; 7] = [
     "com.dashlane.dashlane",
     "com.apple.keychainaccess",
     "com.apple.Passwords",
+];
+
+const SENSITIVE_APPS_WINDOWS: [&str; 7] = [
+    "1password.exe",
+    "1password 7.exe",
+    "keepass.exe",
+    "keepassxc.exe",
+    "bitwarden.exe",
+    "lastpass.exe",
+    "dashlane.exe",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -67,12 +77,18 @@ pub fn trigger_block(facts: &SceneFacts) -> Option<TriggerBlock> {
 
 fn matched_entry(front: &FrontApp) -> Option<&'static str> {
     let identities = [front.bundle_id.as_deref(), front.name.as_deref()];
-    SENSITIVE_APPS.iter().copied().find(|entry| {
+    sensitive_apps().find(|entry| {
         identities
             .iter()
             .flatten()
             .any(|identity| identity.eq_ignore_ascii_case(entry))
     })
+}
+
+fn sensitive_apps() -> impl Iterator<Item = &'static str> {
+    SENSITIVE_APPS_MACOS
+        .into_iter()
+        .chain(SENSITIVE_APPS_WINDOWS)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -430,6 +446,27 @@ mod tests {
             ),
         ] {
             assert_eq!(trigger_block(&facts), expected, "{message}");
+        }
+    }
+
+    #[test]
+    fn windows_executable_names_block_the_scene_gate() {
+        for (facts, expected) in [
+            (
+                in_app("1password.exe", "1Password"),
+                Some(TriggerBlock::BlockedApp("1password.exe")),
+            ),
+            (
+                in_app("KEEPASS.EXE", "KeePass"),
+                Some(TriggerBlock::BlockedApp("keepass.exe")),
+            ),
+            (in_app("explorer.exe", "File Explorer"), None),
+        ] {
+            assert_eq!(
+                trigger_block(&facts),
+                expected,
+                "{facts:?}: matching is ASCII case-insensitive on the executable name too"
+            );
         }
     }
 
