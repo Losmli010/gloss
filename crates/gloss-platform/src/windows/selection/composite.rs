@@ -263,8 +263,8 @@ mod tests {
         );
         assert_eq!(outcome, Ok("from clipboard".into()));
         assert_eq!(
-            reads, 2,
-            "one initial read plus one settle attempt before the budget cut"
+            reads, 1,
+            "one initial read before the budget cut (no activation gate on this platform)"
         );
     }
 
