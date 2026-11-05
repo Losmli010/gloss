@@ -1212,7 +1212,7 @@
 | mono_family_chain_appends_the_cjk_fallback | 等宽族绑定含中日韩（CJK）后备 | 给定等宽与中日韩（CJK）两段字体字节（`CJK` 已按后备登记），当注册等宽命名字族，则族链为系统等宽在前、中日韩（CJK）后备在后（代码内中文可读） | 2026-10-02 |
 | mono_family_without_a_system_mono_binds_the_builtin_glyphs | 等宽族不向比例（CJK）降级 | 给定缺失的系统等宽字节，当注册等宽命名字族，则族绑内置字形、不落（CJK）比例字体（等宽对齐优先于字形覆盖） | 2026-10-02 |
 | system_cjk_font_is_discoverable | 系统（CJK）字体可发现 | 给定真实系统，当执行（CJK）字体发现，则必须找到且字节非空（依赖宿主机）；宿主无系统字体发现面时无此前提，直接让路 | 2026-11-05 |
-| system_monospace_font_is_discoverable | 系统等宽字体可发现 | 给定真实系统，当按候选顺序（`SF Mono` → `Menlo` → `Monaco` → `DejaVu Sans Mono` → `Consolas`）执行等宽字体发现，则必须找到（依赖宿主机）；宿主无系统字体发现面时无此前提，直接让路 | 2026-11-05 |
+| system_monospace_font_is_discoverable | 系统等宽字体可发现 | 给定真实系统，当执行等宽字体发现——候选序随目标，系统（macOS）为 `SF Mono` → `Menlo` → `Monaco` → `DejaVu Sans Mono` → `Consolas`，系统（Windows）为 `Consolas`——则必须找到（依赖宿主机）；宿主无系统字体发现面时无此前提，直接让路 | 2026-11-06 |
 | system_cjk_font_is_loaded_once | 系统（CJK）字体只加载一次且两份定义共享 | 给定真实系统，当连续两次取字体字节并各自接入字体定义，则两次返回同一段内存、两份定义登记到同一地址（依赖宿主机）；宿主无系统字体发现面时无此前提，直接让路 | 2026-11-05 |
 | single_face_files_register_face_zero | 单面文件恒登记 0 号面 | 给定真实系统的等宽字体，当其为单面文件时，则登记面序号为 0（依赖宿主机）；宿主无系统字体发现面时无此前提，直接让路 | 2026-11-05 |
 | face_postscript_name_parses_a_synthetic_collection | 合成 `ttc` 解析出 `postscript` 名 | 给定手工拼装的最小 `ttc` 夹具（表偏移按规范从文件头量起），当解析 0 号面的 `name` 表，则交出夹具写入的 `postscript` 名 | 2026-10-09 |

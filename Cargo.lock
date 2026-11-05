@@ -1394,6 +1394,7 @@ dependencies = [
  "toml 0.8.23",
  "two-face",
  "wgpu",
+ "windows",
  "winit",
 ]
 

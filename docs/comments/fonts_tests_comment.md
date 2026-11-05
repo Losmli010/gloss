@@ -44,3 +44,15 @@
 - 失效说明：本文件早前关于 `try_unwrap`/`SystemSource` 注入缝的条目随 font-kit 路径
   删除而失效；`SAMPLE_FONT`/`registered_bytes` 的借用判据不变（指针比对改对
   `sample_font().bytes`，因登记源已是缓存副本而非静态字面）。
+
+## Windows 发现面开放后的守卫形态（2026-11-06，Windows 移植 P2②）
+
+- imp_win（DirectWrite 发现器）置 `DISCOVERY_PRESENT = true`：四个宿主字体
+  守卫用例（`system_cjk_font_is_discoverable`、`system_monospace_font_is_discoverable`、
+  `system_cjk_font_is_loaded_once`、`single_face_files_register_face_zero`）自此在
+  系统（Windows）持续集成实跑 DirectWrite 主路；前提守卫语义不变——宿主
+  候选缺席的机器上仍让路。
+- **文件探测退化路无独立用例**：该路仅在 DirectWrite 枚举整体不可用的宿主上
+  可达，与四条守卫用例同属“依赖宿主机”前提；其构件（`load_backing`、固定
+  候选表）与主路共享，真机字体面按 bdd 的宿主前提行与人工（L4）承载，不进
+  普通测试。

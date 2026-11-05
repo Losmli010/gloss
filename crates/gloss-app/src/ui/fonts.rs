@@ -1,9 +1,12 @@
 //! 系统字体发现与注入：给界面库（egui）补上中日韩（CJK）后备字形、经注疏的宋楷字族与
 //! 音标的等宽字族。
 //!
-//! 界面库内置字体只覆盖拉丁与常见符号，中文会渲染成豆腐块；这里用系统文本栈（CoreText）
-//! 从系统里定位一个中日韩字体，以“最低优先级后备”追加进界面库的字体族——
-//! 拉丁字形仍走内置字体，缺的字形才落到系统字体上。经注疏的宋楷两族与
+//! 界面库内置字体只覆盖拉丁与常见符号，中文会渲染成豆腐块；这里用按目标分派的
+//! 系统发现器——系统（macOS）走系统文本栈（CoreText），系统（Windows）走
+//! 字体栈（DirectWrite）枚举加字体目录固定候选探测——从系统里定位一个中日韩
+//! 字体，以“最低优先级后备”追加进界面库的字体族——
+//! 拉丁字形仍走内置字体，缺的字形才落到系统字体上。家族候选名单跨目标共用、
+//! 按序探测，各目标只命中自己系统里的家族名。经注疏的宋楷两族与
 //! 等宽族
 //! 按“命名字体族”注册，不进后备链：只有显式点名的文字（经注疏分区正文、
 //! 词卡音标）才用它们，其余文本的字形解析完全不受影响。楷体在系统里缺席时
@@ -59,7 +62,14 @@ static SERIF_FONT: OnceLock<Option<FamilyFont>> = OnceLock::new();
 static KAITI_FONT: OnceLock<Option<FamilyFont>> = OnceLock::new();
 static MONO_FONT: OnceLock<Option<FamilyFont>> = OnceLock::new();
 
-const CJK_FAMILIES: &[&str] = &["PingFang SC", "Hiragino Sans GB", "STHeiti"];
+const CJK_FAMILIES: &[&str] = &[
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "STHeiti",
+    "Microsoft YaHei",
+    "Microsoft YaHei UI",
+    "SimSun",
+];
 
 const SERIF_FAMILIES: &[&str] = &["Songti SC", "STSong", "Noto Serif SC", "SimSun"];
 
@@ -183,7 +193,10 @@ fn register_mono_family(
 #[cfg(target_os = "macos")]
 #[path = "fonts/imp.rs"]
 mod imp;
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+#[path = "fonts/imp_win.rs"]
+mod imp;
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[path = "fonts/imp_stub.rs"]
 mod imp;
 

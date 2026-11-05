@@ -37,6 +37,24 @@ impl GpuContext {
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
+        let enumerated = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::PRIMARY));
+        if enumerated.is_empty() {
+            warn!(
+                thread = thread::UI,
+                "no gpu adapter enumerated from the enabled backends"
+            );
+        }
+        for candidate in &enumerated {
+            let info = candidate.get_info();
+            info!(
+                thread = thread::UI,
+                backend = ?info.backend,
+                device = %info.name,
+                device_type = ?info.device_type,
+                "gpu adapter enumerated"
+            );
+        }
+
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
             compatible_surface: None,

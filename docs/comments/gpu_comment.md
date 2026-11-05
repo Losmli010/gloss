@@ -48,3 +48,12 @@
 ### GpuError
 
 - GPU 初始化与 surface 失败：`NoAdapter` 没有可用的图形适配器；`Device` 请求逻辑设备失败；`Surface` 创建 surface 或选择其格式失败；`UnsupportedSurface` 该适配器不支持这个窗口的 surface。
+
+## 启动期适配器枚举留痕（2026-11-06，Windows 移植 P2②）
+
+- `GpuContext::new` 在 `request_adapter` 前对启用后端做一次
+  `enumerate_adapters` 并逐个留痕（后端、设备名、设备类型），空集先留 warn——
+  方案 §6 的定案：vulkan 失败落 dx12 由 wgpu 的枚举顺序承担，渲染栈不做
+  后端选择分支（§7-C6，本文件不改后端逻辑），但“可用集合是什么、最终选中
+  谁”必须可排查，不做静默假设。设备类型字段让无硬件 GPU 环境（WARP 软渲染）
+  在日志里可辨。选中结果仍由既有 `gpu ready` 行承载。

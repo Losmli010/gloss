@@ -271,3 +271,15 @@
 - 纯 ttc 面序解析拆出 collection 模块（平台无关，随发现器与测试编译，见 collection 记录）；父模块测试对其引用从 `imp::` 改为 `collection::`。
 - 行为不变量：`system_cjk_font_is_discoverable` 等宿主字体测试断言真机形态，宿主前提缺席时断言不成立。
 - 测试面归宿（2026-11-05，P1 测试矩阵开放 Windows 时落定）：各发现器持测试期前提常量（`DISCOVERY_PRESENT`，macOS 真、占位假），父模块的测试期访问器（`system_font_discovery_present`）把它交给宿主字体类测试做前提守卫——发现面缺席的目标上这组断言没有前提，直接让路（与存储测试“环境缺席即让路”同款）；macOS 面断言照旧全量执行，DirectWrite 发现器落地（P2）后 Windows 面自然转为全量。
+
+## 中日韩名单扩系统（Windows）家族与三路分派（2026-11-06，Windows 移植 P2②）
+
+- **名单扩展只做尾部追加**：`CJK_FAMILIES` 在三个系统（macOS）家族之后追加
+  微软雅黑、雅黑 UI、宋体——macOS 真机上前面候选恒命中，探测序的前缀不变即
+  行为不变；Windows 上系统（macOS）家族查不到只留 debug 痕，代价是启动期
+  一次性三次集合查询（微秒级）。雅黑 UI 单列是因为不少程序以它为中文字族，
+  单独安装形态存在。宋体收尾与既有名单把 `SimSun` 放宋体族尾部的安排呼应。
+- `mod imp` 分派由双文件扩为三路：系统（macOS）→ imp.rs，系统（Windows）→
+  imp_win.rs（DirectWrite 枚举优先、字体目录固定候选退化，见 imp_win 记录），
+  其余目标 → imp_stub.rs（恒无发现）。签名与类型面三处一致，分派点零 cfg
+  的 P0 定案不变。
