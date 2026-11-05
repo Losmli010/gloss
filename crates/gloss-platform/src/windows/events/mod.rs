@@ -190,7 +190,7 @@ fn run_loop<C, E, P, F>(
     F: FnMut(C, &EventSink<E, P>),
 {
     let _apartment = ComApartment::init_sta();
-    let Some(_timer) = TickTimer::install(TIMER_ID, TICK_MS) else {
+    let Some(timer) = TickTimer::install(TIMER_ID, TICK_MS) else {
         warn!(
             thread = thread::EVENT,
             "failed to create tick timer, event thread exits"
@@ -203,7 +203,9 @@ fn run_loop<C, E, P, F>(
         if let hook::PumpFlow::Exit = hook::pump_once(&mut message) {
             break;
         }
-        if message.message == WM_TIMER && message.hwnd.is_invalid() && message.wParam.0 == TIMER_ID
+        if message.message == WM_TIMER
+            && message.hwnd.is_invalid()
+            && message.wParam.0 == timer.id()
         {
             let (commands, sink, on_command, sources) = &mut state;
             if let TickOutcome::Exit = tick(commands, sink, on_command, sources) {

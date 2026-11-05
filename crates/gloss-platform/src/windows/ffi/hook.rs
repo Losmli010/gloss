@@ -100,6 +100,10 @@ impl TickTimer {
         let timer = unsafe { SetTimer(None, id, period_ms, None) };
         (timer != 0).then_some(Self { id: timer })
     }
+
+    pub(crate) fn id(&self) -> usize {
+        self.id
+    }
 }
 
 impl Drop for TickTimer {
