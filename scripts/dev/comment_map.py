@@ -91,8 +91,8 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-app/src/lib.rs": "app_lib",
     "crates/gloss-core/src/lib.rs": "core_lib",
     "crates/gloss-eval/src/lib.rs": "eval_lib",
-    # 适配器层的平台目录镜像：系统（Windows）占位实现与系统（macOS）
-    # 实现同名撞名，占位侧按家族前缀登记（占位实现族共用一套决策口径）
+    # 适配器层的平台目录镜像：系统（Windows）实现与系统（macOS）实现同名
+    # 撞名，平台侧按家族前缀登记（平台实现族各自持一套决策口径）
     "crates/gloss-platform/src/windows/clipboard/mod.rs": "windows_clipboard_mod",
     "crates/gloss-platform/src/windows/clipboard/image.rs": "windows_clipboard_image",
     "crates/gloss-platform/src/windows/clipboard/watch.rs": "windows_clipboard_watch",
@@ -104,6 +104,11 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-platform/src/windows/scene.rs": "windows_scene",
     "crates/gloss-platform/src/windows/selection/mod.rs": "windows_selection_mod",
     "crates/gloss-platform/src/windows/selection/composite.rs": "windows_composite",
+    "crates/gloss-platform/src/windows/selection/clipboard.rs": "windows_selection_clipboard",
+    "crates/gloss-platform/src/windows/selection/uia.rs": "windows_uia",
+    "crates/gloss-platform/src/windows/selection/clipboard/snapshot.rs": "windows_snapshot",
+    "crates/gloss-platform/src/windows/selection/clipboard/restore.rs": "windows_restore",
+    "crates/gloss-platform/src/windows/ffi/mod.rs": "windows_ffi_mod",
     "crates/gloss-platform/src/windows/storage/mod.rs": "windows_storage_mod",
     "crates/gloss-platform/src/windows/appearance/mod.rs": "windows_appearance_mod",
     "crates/gloss-platform/src/windows/appearance/icon.rs": "windows_icon",

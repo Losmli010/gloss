@@ -1446,6 +1446,7 @@ dependencies = [
  "security-framework-sys",
  "tempfile",
  "toml 0.8.23",
+ "windows",
 ]
 
 [[package]]

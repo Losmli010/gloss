@@ -8,12 +8,12 @@
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
-| 人工测试 | 14 | `cargo test -p gloss-platform -- --ignored`；`live_llm` 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 `GLOSS_LIVE_*`） |
+| 人工测试 | 16 | `cargo test -p gloss-platform -- --ignored`；`live_llm` 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 `GLOSS_LIVE_*`） |
 | 发版人工步骤 | 10 | 手动执行（无自动化测试源码的真机、运维步骤，`bdd` 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 707 | `just test` |
+| 单元测试 | 752 | `just test` |
 
 ## 人工测试
 
@@ -180,6 +180,29 @@
 2. 运行中会覆写并恢复本机剪贴板；经 `CLIPBOARD_LIVE_LOCK` 串行
 
 - 更新时间：2026-10-30
+
+### fallback_read_restores_original_clipboard_on_windows
+
+- 测试目标：验证系统（Windows）真机上兜底读取（模拟复制）后原剪贴板文本恢复。
+- 测试场景：给定预置文本的剪贴板与前台选中文本，当跑一次兜底读取并收口，则读出非空选中文本且原文本恢复。
+- 测试步骤：
+
+1. 在系统（Windows）真机上运行总览中人工测试的命令（测试目标随目标平台编译，需 `x86_64-pc-windows-msvc` 或真机原生跑）
+2. 前台保留可复制的文字（注入真实 `Ctrl+C`，光标焦点需在该应用）
+3. 测试会覆写并恢复剪贴板；经 `CLIPBOARD_LIVE_LOCK` 串行，勿并行触发其它剪贴板测试
+
+- 更新时间：2026-11-06
+
+### fallback_read_unwind_restores_the_clipboard_without_finish_on_windows
+
+- 测试目标：验证系统（Windows）真机上调用方未收口（`Drop` 路径）时注入产物不留在板上。
+- 测试场景：给定预置文本的剪贴板与前台选中文本，当兜底读取后在收口前模拟调用方恐慌，则模拟覆写被 `Drop` 恢复为预置文本（放弃轮不注入即不恢复）。
+- 测试步骤：
+
+1. 同上一条的真机与前台前提
+2. 测试会覆写并恢复剪贴板；经 `CLIPBOARD_LIVE_LOCK` 串行
+
+- 更新时间：2026-11-06
 
 ### scene_probe_reports_the_frontmost_app
 
@@ -522,6 +545,7 @@
 | the_long_tier_of_prefixed_bodies_ignores_shape | 前缀令牌长档不看形状 | 给定 13 字符与 16 字符的纯小写复合词，当检测，则短档那次放行、长档那次算令牌——长档只卡长度是写明的取舍，这条用例把边界钉在明面上 | 2026-09-26 |
 | detection_prefers_the_more_certain_kind | 检测按确定度排序 | 给定同时可判多类的文本，当检测，则返回更确定的那个类别（确定度自私钥、令牌、卡号至高熵递减；相邻两类各有一对同现的样例） | 2026-09-26 |
 | ordinary_text_is_never_flagged | 日常文本一律不拦 | 给定常用句中英文本、中文段落、代码片段、带 `sk-` 的普通英文句与 `let key = "sk-test";` 这类代码，当检测，则全部为 `None` | 2026-09-26 |
+| windows_executable_names_block_the_scene_gate | 系统名单按可执行文件名命中场景闸门 | 给定名单内可执行文件名（裸名与改写大小写）与名单外进程（资源管理器）的前台应用事实，当 `trigger_block`，则名单内两例按命中条目拦截、名单外放行（两平台同跑，系统名单行为不变） | 2026-11-06 |
 | the_self_flag_is_not_consumed_by_the_sensitive_list | `is_self` 与敏感名单无关 | 给定 `is_self` 为真的名单外前台应用，当判闸门，则放行（`is_self` 只归触发决策的防误触分支，不是名单命中） | 2026-09-30 |
 
 ### `crates/gloss-core/src/pipeline/prompt.rs`
@@ -1663,3 +1687,92 @@
 | scored_cases_show_dimensions_overall_and_reason | 已评用例的评分行 | 给定四维分 90、80、70、60 的用例，当渲染，则评分行列出四维分、总体 75（四维均值）与理由，列表列显示总体分 | 2026-11-01 |
 | marks_prefill_from_labels_and_drive_the_export_count | 标注预填与导出计数 | 给定三条用例（合格带备注、不合格、未标注）与对应标注资产，当渲染，则前两条按钮按结论预填、备注回填输入框，导出计数等于已标注例数 2 | 2026-11-01 |
 | rounds_carry_violation_tags | 逐轮轨迹与违约标签 | 给定两轮轨迹（首轮违约）的用例，当渲染，则轨迹折叠计数为两轮、违约轮带变体名标签、各轮原文照录 | 2026-11-01 |
+
+### `crates/gloss-platform/src/windows/events/mod.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| pump_tick_drains_commands_before_polling_sources | 抽干先命令后源 | 给定两条已入队命令与一次轮询源，当 `tick`，则整条命令队列先于源轮询抽干且一命令一事件按序回传 | 2026-11-06 |
+| pump_commands_are_consumed_in_order_then_thread_exits | 泵线程按序消费后退出 | 给定真实泵线程与十六命令，当消费完后断开命令通道，则事件按序回传、线程退出且退出后无事件 | 2026-11-06 |
+| pump_late_commands_are_still_consumed | 迟来命令仍被消费 | 给定泵线程在先批命令消费完后的新命令，当跨节拍再发一条，则新命令照常消费回传 | 2026-11-06 |
+| pump_sources_are_polled_and_forwarded | 事件源轮询并转发 | 给定产出两事件的事件源，当泵节拍轮询，则两事件转发到平台通道且命令回传不受影响 | 2026-11-06 |
+| pump_panicking_handler_does_not_kill_thread | 命令处理器恐慌不杀线程 | 给定首命令即恐慌的处理器，当连发两命令，则线程存活且第二条事件照常回传 | 2026-11-06 |
+| pump_panicking_source_does_not_kill_thread | 事件源恐慌不杀线程 | 给定首拍即恐慌后自愈的事件源，当下拍产出事件，则线程存活且事件照常转发 | 2026-11-06 |
+| pump_sink_send_tolerates_closed_receivers | 汇点容忍关闭的接收端 | 给定两接收端皆关闭的汇点，当发事件与平台事件，则都返回失败不恐慌 | 2026-11-06 |
+| pump_successful_send_wakes_main_thread | 成功发送唤醒失败不唤醒 | 给定计数唤醒闭包的汇点，当成功发送与关闭接收端后再发送，则成功发送恰唤醒一次、失败发送不唤醒 | 2026-11-06 |
+
+### `crates/gloss-platform/src/windows/events/mouse.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| hook_drag_release_emits_selection | 拖拽释放判定划词手势 | 给定按下到时长与位移双达标后释放的事件序，当驱动 `GestureDetector`，则判定一次划词手势 | 2026-11-06 |
+| hook_plain_click_and_jitter_do_not_trigger | 普通点击与抖动不触发 | 给定零位移长按与阈值内抖动两组事件序，当驱动判定器，则都不出手势 | 2026-11-06 |
+| hook_flick_shorter_than_the_minimum_press_is_filtered | 瞬时甩动被时长下限滤掉 | 给定十毫秒大幅位移的按下释放序，当驱动判定器，则不出手势 | 2026-11-06 |
+| hook_press_duration_is_observed_at_the_boundary | 按压时长按毫秒边界判定 | 给定差一毫秒与恰好达下限的两组时长，当驱动判定器，则差一毫秒过滤、恰好达标放行 | 2026-11-06 |
+| hook_displacement_comes_from_the_events_themselves | 位移取释放事件自身坐标 | 给定按下点与释放点分离的事件序，当驱动判定器，则手势坐标为释放事件自身位置 | 2026-11-06 |
+| hook_state_resets_after_each_gesture | 每次手势后状态复位 | 给定成功手势后的第二次按压释放序，当驱动判定器，则旧按压不参与第二次判定 | 2026-11-06 |
+| hook_stray_events_are_ignored | 野事件被忽略 | 给定无按压的释放与重复按下等野事件序，当驱动判定器，则野事件不出手势、后续正常序照常判定 | 2026-11-06 |
+| hook_poll_drains_channel_through_state_machine | 轮询侧抽干通道经状态机 | 给定通道里的按下释放对，当 `GestureDetector` 轮询，则产出一次手势且再轮询为空 | 2026-11-06 |
+| hook_spawn_resolves_synchronously_and_startup_failure_stays_off_the_flag | 建立同步握手且启动失败不复位降级标志 | 当 `MouseSource::spawn`，则同步返回且降级标志为假（真机装真实钩子，随测试进程消亡） | 2026-11-06 |
+| hook_mouse_messages_are_the_only_subscription | 订阅面只有左键按下释放 | 给定键盘、移动、右键与未知消息号，当按消息号分类，则仅左键按下释放有分类、其余为空 | 2026-11-06 |
+
+### `crates/gloss-platform/src/windows/ffi/inject.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| copy_sequence_presses_modifier_first_and_releases_it_last | 复制键序修饰键首尾 | 给定 `copy_sequence`，当读四步键序，则修饰键按下、键按下、键释放、修饰键释放依次排列 | 2026-11-06 |
+| injection_failure_releases_pressed_keys_in_reverse | 注入失败按已按下键逆序补放 | 给定复制键序，当分别在第 1 至 4 步失败，则补放列表依次为空、修饰键、键与修饰键（逆序，重复的抬起事件幂等） | 2026-11-06 |
+
+### `crates/gloss-platform/src/windows/selection/uia.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| uia_selected_text_passes_through_verbatim | 选区文本逐字采纳 | 给定非空读取结果（含两端空白原文），当 `interpret`，则文本逐字上抛（修剪在组合通道入口） | 2026-11-06 |
+| uia_an_empty_selection_is_empty_but_a_missing_value_stays_unavailable | 空串与超限拒取分开报 | 给定空串与空值（超上限）两类结果，当 `interpret`，则空串报空选区（可让渡补读）、空值报读取不可用（落兜底） | 2026-11-06 |
+| uia_unsupported_patterns_and_failed_calls_stay_unavailable | 模式缺席与调用失败报不可用 | 给定模式缺席标记码与任意失败码（含零），当 `interpret`，则一律报读取不可用（本平台无权限拒绝语义） | 2026-11-06 |
+
+### `crates/gloss-platform/src/windows/selection/clipboard.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| seq_change_confirms_when_generation_bumps | 写入确认按序列号差探测 | 给定基线序列号 0 与第 3 轮才前进的探针，当 `wait_for_write`，则确认成功且恰好轮询 3 次 | 2026-11-06 |
+| seq_timeout_returns_false_without_hanging | 确认超时返回不悬挂 | 给定恒不前进的探针，当到截止时间，则返回否且两秒内返回 | 2026-11-06 |
+| seq_unavailable_probe_keeps_polling_until_deadline | 探针不可用轮询到期限 | 给定恒空的探针，当到截止时间，则返回否、不提前放弃也不永久等 | 2026-11-06 |
+
+### `crates/gloss-platform/src/windows/selection/clipboard/snapshot.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| snapshot_keeps_readable_text_verbatim | 可读文本逐字保全 | 给定可读文本读取结果与任意格式计数，当 `snapshot_decision`，则文本快照逐字保全 | 2026-11-06 |
+| snapshot_accepts_a_confirmed_empty_board | 确认空板保全为空板 | 给定无内容读取结果与零格式计数，当 `snapshot_decision`，则空板快照成立（恢复轮清板） | 2026-11-06 |
+| snapshot_declines_a_non_text_board_it_cannot_restore | 非文本板整体放弃兜底 | 给定无内容读取结果与非零格式计数，当 `snapshot_decision`，则放弃（注入后原内容无法如实写回） | 2026-11-06 |
+| snapshot_declines_unreadable_board_state | 板状态读不出整体放弃 | 给定无内容读取结果与读不出的格式清单、以及其它文本读取失败两例，当 `snapshot_decision`，则一律放弃兜底 | 2026-11-06 |
+
+### `crates/gloss-platform/src/windows/selection/clipboard/restore.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| board_retry_stops_at_the_first_success | 恢复重试首次成功即止 | 给定第 1 次即成功的单次恢复与 3 次上限，当 `restore_with_retry`，则只调 1 次、成功返回且写盘数记 1 | 2026-11-06 |
+| board_retry_accumulates_the_writes_of_every_attempt_until_success | 恢复重试累加各次写盘数 | 给定两次失败后第三次成功的单次恢复与 3 次上限，当 `restore_with_retry`，则调满 3 次、成功返回且写盘数记 1（失败轮不写盘） | 2026-11-06 |
+| board_retry_exhaustion_carries_the_last_stage_and_total_writes | 恢复耗尽保留末次环节与累计写盘数 | 给定两次皆失败的单次恢复（首次写环节、末次清环节），当 `restore_with_retry`，则失败返回且环节取末次（清环节） | 2026-11-06 |
+
+### `crates/gloss-platform/src/windows/selection/composite.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| combined_fallback_is_lazy_on_uia_success | 主路成功不触兜底 | 给定成功的用户界面自动化读取与计数兜底，当 `combine`，则采纳主路产物且兜底零调用 | 2026-11-06 |
+| combined_empty_selection_settles_then_falls_back_to_the_clipboard | 空选区让渡跑满再落兜底 | 给定持续空选区的主读与零等待策略，当 `combine`，则主读按节奏表跑满（恰 4 读）后兜底恰一次并采纳 | 2026-11-06 |
+| combined_empty_then_ready_read_adopts_the_late_selection | 迟到选区被让渡补读采纳 | 给定首次空、二次有值的主读，当 `combine`，则恰 2 读采纳迟到选区且不落兜底 | 2026-11-06 |
+| combined_unavailable_uia_falls_back_to_clipboard | 主路不可用直接落兜底 | 给定读取不可用的主读，当 `combine` 两例（兜底成与败），则成例采纳兜底产物、败例如实上抛 | 2026-11-06 |
+| combined_the_wait_budget_ends_the_settling_early | 等待预算耗尽缩短让渡段 | 给定持续空选区的主读与已耗尽的等待预算，当 `combine`，则恰 1 读（本平台无激活闸门）即落兜底并采纳 | 2026-11-06 |
+| combined_settle_schedule_is_bounded_and_positive | 让渡节奏表有界且全正 | 给定预算内、末次与超界的尝试序号，当 `settle_delay`，则预算内返回正等待、耗尽（含 `usize::MAX`）返回空 | 2026-11-06 |
+| combined_acquired_text_is_trimmed_at_the_boundary | 取材产物入口修剪两端空白 | 给定两端带空白的文本，当 `normalize`，则两端空白修剪且内部保留 | 2026-11-06 |
+| combined_acquired_text_keeps_interior_whitespace_verbatim | 内部空白逐字保留 | 给定内部混排空白的文本，当 `normalize`，则内部空白逐字保留 | 2026-11-06 |
+| combined_pure_whitespace_selection_maps_to_selection_empty | 纯空白选区按空选区上抛 | 给定四例纯空白（空格、换行制表、全角空格、空串），当 `normalize`，则一律报空选区（下游只认一份已修剪文本） | 2026-11-06 |
+
+### `crates/gloss-platform/src/windows/scene.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| image_name_survives_full_path_extraction | 进程映像名取路径末段去扩展名 | 给定反斜杠、正斜杠、裸名、多点文件名与裸目录五例路径，当 `image_name`，则依次取到映像名与去扩展名进程名、裸目录返回空 | 2026-11-06 |
+| front_app_probe_reports_a_usable_identity | 探针快照连贯且安全输入恒关 | 当读一次场景事实，则安全输入态恒为假，报告出的前台应用至少带一个可用标识 | 2026-11-06 |

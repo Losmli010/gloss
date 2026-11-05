@@ -32,6 +32,9 @@ pub use macos::{
 };
 
 #[cfg(target_os = "windows")]
+pub(crate) use windows::ffi;
+
+#[cfg(target_os = "windows")]
 pub use windows::{
     appearance, clipboard, events, locale, menu, permissions, scene, selection, storage,
 };
