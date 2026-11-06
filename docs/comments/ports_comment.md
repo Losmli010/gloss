@@ -72,3 +72,7 @@
 - `ClipboardImageObserved`：剪贴板出现图像的单元观察事件，对应平台层 `PasteboardImageObserved` 的契约面。
 - `PermissionProbe::watch` 返回节流轮询闭包（`Box<dyn FnMut() -> bool + Send>`）：授权监视的节流状态留在实现内，避免为单一消费面再立一个 trait；闭包跨入事件线程故须可发送。
 - `MenuController::install` 收 `Box<dyn Fn() + Send>`（对象安全所需）并沿用布尔返回：装配与否的降级报告语义与既有实现一致，应用层照旧按真假记日志。
+
+## MenuController 增退出回调（2026-11-07，Windows 移植 P2④）
+
+- `install` 增第三参 `on_quit: Box<dyn Fn() + Send>`：托盘菜单的退出词条需要退出路径（系统（macOS）的退出走 AppKit 原生终止，无此需要），不扩签名就只能让退出语义散落平台实现内部。系统（macOS）实现不消费该参数，应用壳两个回调都经代理送用户事件，形态对称。

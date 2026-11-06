@@ -1,5 +1,5 @@
-//! 外观占位：图标装配的桩。
+//! 外观适配器（Windows）：图标装配端口的无操作实现。
 
 mod icon;
 
-pub use icon::MacAppIcon;
+pub use icon::SystemAppIcon;

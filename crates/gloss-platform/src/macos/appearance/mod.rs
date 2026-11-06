@@ -2,4 +2,4 @@
 
 mod icon;
 
-pub use icon::MacAppIcon;
+pub use icon::SystemAppIcon;

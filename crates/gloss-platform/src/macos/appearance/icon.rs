@@ -8,15 +8,15 @@ use objc2_app_kit::{NSApplication, NSImage};
 use objc2_foundation::NSData;
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct MacAppIcon;
+pub struct SystemAppIcon;
 
-impl MacAppIcon {
+impl SystemAppIcon {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl AppIcon for MacAppIcon {
+impl AppIcon for SystemAppIcon {
     fn install(&self, png: &[u8]) -> Result<(), GlossError> {
         let Some(mtm) = MainThreadMarker::new() else {
             return Err(GlossError::Config(
@@ -49,7 +49,7 @@ mod tests {
 
     #[test]
     fn install_reports_an_error_off_the_main_thread() {
-        let applied = std::thread::spawn(|| MacAppIcon::new().install(b"not a png"))
+        let applied = std::thread::spawn(|| SystemAppIcon::new().install(b"not a png"))
             .join()
             .expect("test thread must not panic");
         assert!(

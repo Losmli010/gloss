@@ -129,6 +129,7 @@ impl GlossApp {
             );
             return;
         };
+        let quit_proxy = proxy.clone();
         let installed = self.env.platform.menu.install(
             self.env.system_locale,
             Box::new(move || {
@@ -136,6 +137,14 @@ impl GlossApp {
                     debug!(
                         thread = thread::UI,
                         "event loop gone, menu settings click dropped"
+                    );
+                }
+            }),
+            Box::new(move || {
+                if quit_proxy.send_event(UserEvent::Quit).is_err() {
+                    debug!(
+                        thread = thread::UI,
+                        "event loop gone, menu quit click dropped"
                     );
                 }
             }),

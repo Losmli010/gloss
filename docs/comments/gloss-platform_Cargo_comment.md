@@ -89,3 +89,8 @@
 - 剪贴板图像数据的全局内存对象面（GlobalLock/GlobalSize/GlobalUnlock，
   真机测试的 GlobalAlloc 亦在域内）在 System::Memory 接口域，按“按用到的
   接口域显式列出”的既有口径追加一项。
+
+## tray-icon 入系统（Windows）节（2026-11-07，Windows 移植 P2④）
+
+- 托盘图标与托盘菜单（D6 行为差异项：托盘替代坞菜单）进系统（Windows）专属节；默认特性是 Linux 后端（AppIndicator 及其 gtk 链），Windows 编译面用不到，`default-features = false` 收敛特性面。菜单面用托盘库重导出的 muda，不另立依赖。
+- windows 绑定加 `Win32_Globalization`（用户默认区域名）与 `Win32_System_SystemServices`（区域名缓冲定长常量）两个接口域，按“按用到的接口域显式列出”的既有口径追加。

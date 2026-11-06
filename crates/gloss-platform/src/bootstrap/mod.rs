@@ -62,7 +62,7 @@ impl Platform {
             secret_store: composite,
             scene: Arc::new(crate::scene::SystemSceneProbe),
             system_locale: crate::locale::system_locale(),
-            app_icon: Box::new(crate::appearance::MacAppIcon::new()),
+            app_icon: Box::new(crate::appearance::SystemAppIcon::new()),
             menu: Box::new(crate::menu::SystemMenuController),
             clipboard: Box::new(crate::clipboard::SystemClipboardWriter),
             permission: Box::new(crate::permissions::SystemPermissionProbe),

@@ -14,3 +14,7 @@
 - 主线程标记拿不到就报错退回：NSApplication 只允许主线程访问，而图标是一次性动作，没有“稍后在正确线程补做”的机会，等了也没用。2026-10-30（重构计划阶段 2 · R3）随端口对齐改返回 `Result<(), GlossError>`——失败原因（不在主线程、位图解不出）经错误值带出，调用方日志带因；降级语义不变。
 - 调用点在 EventLoop::build 之后、run_app 之前，主线程此刻没有活跃的 autorelease pool（winit 的 pool 只包它自己的内部段），自建一个把 AppKit 解码沿途的临时对象收掉。
 - NSImage 直接吃 PNG 字节（系统自带解码），因此不需要引入图像解码库。
+
+## SystemAppIcon（2026-11-07，Windows 移植 P2④ 正名）
+
+- 类型由 `MacAppIcon` 正名 `SystemAppIcon`：装配契约的构造点平台无关，两侧适配器统一 `SystemXxx` 惯例（`SystemMenuController` 等同款）；实现与行为零变化，纯改名。
