@@ -9,9 +9,10 @@
 | `gloss-logo.svg` | 设计稿主标。满幅 1024 画布，四角圆角即图标底形 |
 | `gloss-app-icon.svg` | 系统规范画布版：图形收敛为 `824×824` 居中、圆角 185.4、四周 100 像素透明边距——近年系统图标的画布规范（满幅方形在程序坞里会比其它图标大一圈） |
 | `Gloss.icns` | 打包产物。打包工具（cargo-bundle）的 `icon` 配置指向它，见根清单 `Cargo.toml` |
+| `Gloss.ico` | 打包产物（Windows）。七档（16–256）图标集容器，位图数据保留 `PNG` 编码；消费面是系统可执行文件资源与后置安装器，任务栏与资源管理器图标由此而来 |
 | `gloss-dock-icon.png` | 开发期程序坞（Dock）图标。非打包运行时由入口 `include_bytes!` 内嵌，经 `NSApplication` 装到程序坞 |
 
-**生成链的输入是两份矢量图（SVG）**：图标集产物与程序坞位图由 `gloss-app-icon.svg` 生成，站点的 `favicon.png` 与 `apple-touch-icon.png` 落在 `web/assets/`、由 `gloss-logo.svg` 生成——改图形改矢量源，不要直接改产物。`gloss-logo.svg` 是设计稿主标，内容与图标版以及站点拷贝 `web/assets/logo.svg` 靠 **手工同步**（本目录不做程序化派生）——改设计时各份都要改，改其中一份不会传导到其它份。
+**生成链的输入是两份矢量图（SVG）**：图标集产物（`.icns` 与 `.ico`）与程序坞位图由 `gloss-app-icon.svg` 生成，站点的 `favicon.png` 与 `apple-touch-icon.png` 落在 `web/assets/`、由 `gloss-logo.svg` 生成——改图形改矢量源，不要直接改产物。`gloss-logo.svg` 是设计稿主标，内容与图标版以及站点拷贝 `web/assets/logo.svg` 靠 **手工同步**（本目录不做程序化派生）——改设计时各份都要改，改其中一份不会传导到其它份。
 
 ## 重建
 
@@ -19,4 +20,4 @@
 just icons    # = scripts/dev/build_app_icon.py
 ```
 
-只用系统自带的 `sips`（矢量图到位图的转换与缩放）与 `iconutil`（图标集到打包图标的组装）：`sips` 自系统（macOS）13 起经图像框架（ImageIO）支持矢量图输入，输出保留透明通道，因此不需要 `rsvg-convert`、`Inkscape`、`ImageMagick` 一类的额外工具链。产物进仓库，持续集成不重建。
+只用系统自带的 `sips`（矢量图到位图的转换与缩放）与 `iconutil`（图标集到打包图标的组装）：`sips` 自系统（macOS）13 起经图像框架（ImageIO）支持矢量图输入，输出保留透明通道，因此不需要 `rsvg-convert`、`Inkscape`、`ImageMagick` 一类的额外工具链；`.ico` 的组装与回读自检在脚本内用纯标准库完成，同样零额外工具链。产物进仓库，持续集成不重建。

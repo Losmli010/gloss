@@ -20,6 +20,8 @@ jobs:
             os: macos-latest
           - target: aarch64-apple-darwin
             os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
 
     runs-on: ${{ matrix.os }}
     env:
@@ -59,14 +61,17 @@ jobs:
         uses: swatinem/rust-cache@v2
 
       - name: Install cargo-bundle
+        if: runner.os == 'macOS'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-bundle
 
       - name: Bundle
+        if: runner.os == 'macOS'
         run: cargo bundle --release --target ${{ matrix.target }} --format osx
 
       - name: Ad-hoc sign
+        if: runner.os == 'macOS'
         run: |
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP" && echo "✓ ad-hoc 签名完成"
@@ -76,19 +81,38 @@ jobs:
         run: ./scripts/release/smoke_app.py "$APP"
 
       - name: Package artifacts
+        if: runner.os == 'macOS'
         run: |
           # 产物名带版本与目标三元组，发布页上一眼可辨。
           STEM="gloss-${{ steps.version.outputs.version }}-${{ matrix.target }}"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$STEM.zip"
           ./scripts/release/bundle_dmg.py "$APP" "$STEM.dmg"
 
+      # 便携压缩包（zip）即最终产物：安装器（NSIS）按移植方案后置另立计划；打包
+      # 脚本把可执行文件与旁置动态库（dll）压进包根，结构契约与自更新的载荷校验同源
+      - name: Package artifacts (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $ErrorActionPreference = "Stop"
+          $stem = "gloss-${{ steps.version.outputs.version }}-${{ matrix.target }}"
+          python scripts/release/package_zip.py "target/${{ matrix.target }}/release/gloss.exe" "$stem.zip"
+
       - name: Upload artifacts
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@v7
         with:
           name: gloss-${{ matrix.target }}
           path: |
             gloss-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip
             gloss-${{ steps.version.outputs.version }}-${{ matrix.target }}.dmg
+          if-no-files-found: error
+
+      - name: Upload artifacts (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: gloss-${{ matrix.target }}
+          path: gloss-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip
           if-no-files-found: error
 
   release:

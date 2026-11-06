@@ -40,3 +40,9 @@
   “Release 页是唯一来源”决策不落仓库，链接恒 404。修法取舍：部署时渲染整本
   `CHANGELOG.md` 进 Pages 产物，或站点不留变更日志链接；用户取后者——站点去掉
   该卡片，逐版本说明只留在 GitHub Releases（Release 页唯一来源决策不动）。
+
+## 构建矩阵扩系统（Windows）与打包分叉（2026-11-07，Windows 移植 P3a）
+
+- 构建矩阵加 `x86_64-pc-windows-msvc`（windows-latest）；cargo-bundle 不支持系统（Windows），其专属步骤（装包、Bundle、签名）按运行器系统加条件守卫，系统（macOS）步骤与产物不变。
+- 系统（Windows）产物只有便携压缩包（zip）：`package_zip.py` 把可执行文件加旁置动态库（dll）压进包根；上传步骤按运行器系统分叉（镜像（dmg）只在系统（macOS）面存在，合一步会让 `if-no-files-found: error` 在系统（Windows）必炸）。冒烟不进系统（Windows）：托管运行器无窗口服务的可行性与预算有效性未验证（方案 §6），不进必跑门禁。
+- 部署页作业的产物拷贝（glob `gloss-*.zip`）随矩阵扩入系统（Windows）包，更新清单的 triple 扩展归 D8（与站点改造同批发布），本批清单仍只含双 darwin 条目——Windows 产物先行上发布页但不进清单引用。
