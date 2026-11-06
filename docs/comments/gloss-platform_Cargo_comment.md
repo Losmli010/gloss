@@ -29,7 +29,7 @@
 
 ## objc2-foundation
 
-- 2026-09-22 系统语言读取（src/locale.rs 的 `NSLocale::preferredLanguages`）要给原有关键字集加 `NSLocale`/`NSArray`/`NSString`：`preferredLanguages` 本身被 `all(feature = "NSArray", feature = "NSString")` 门控，缺任一编译不过。只加这三个，不整体开默认集。
+- 2026-09-22 系统语言读取（src/locale.rs 的 `NSLocale::preferredLanguages`）要给原有关键字集加 `NSLocale`/`NSArray`/`NSString`：`preferredLanguages` 本身被 `all(feature = “NSArray”, feature = “NSString”)` 门控，缺任一编译不过。只加这三个，不整体开默认集。
 - 2026-10-12 加 `NSURL`：`NSRunningApplication.bundleURL` 的返回类型被
   该特性门控，selection/activation.rs 按前台应用包路径查内核框架形态
   （Chromium 家族判定）。只加这一个，不整体开默认集。
@@ -70,5 +70,22 @@
 
 ## macOS 专属依赖按目标门控（2026-11-05，Windows 移植 P0 D1）
 
-- objc2 系（objc2/objc2-app-kit/objc2-foundation）、core-foundation 系（core-foundation/core-foundation-sys）、security-framework 系（security-framework/security-framework-sys）移入 `[target.'cfg(target_os = "macos")'.dependencies]`：仅 macos/ 目录的模块引用，其余目标不编译不拉取。
+- objc2 系（objc2/objc2-app-kit/objc2-foundation）、core-foundation 系（core-foundation/core-foundation-sys）、security-framework 系（security-framework/security-framework-sys）移入 `[target.'cfg(target_os = “macos”)'.dependencies]`：仅 macos/ 目录的模块引用，其余目标不编译不拉取。
 - 跨平台依赖（arboard、image、toml、directories、crossbeam-channel、gloss-core）留在共同节：P2 的 Windows 实现按映射表会复用 arboard/image/directories/toml，提前收窄只会加一道来回搬运。
+
+## image 按目标拆节（2026-11-07，Windows 移植 P2③）
+
+- 从共同节移入两个平台节（消费面只在各平台的剪贴板取材模块）：系统
+  （macOS）节 `png`+`tiff`（粘贴板取材读标记图像格式（TIFF）），系统
+  （Windows）节 `png`+`bmp`（图像库 0.25 无独立 `dib` 特性，无文件头设备
+  无关位图（DIB/CF_DIB/CF_DIBV5）的解码由位图（bmp）特性承载——解码器
+  的无文件头入口即其官方口径的 CF_DIB 承载）。共同节不再声明：Linux 占位
+  无剪贴板取材模块，留在共同节只会给无消费者的目标拉解码器子树。
+- 其余目标不编译 image 的取材路径，像素重编码（RGBA→PNG，快速压缩档）的
+  写法两端同构。
+
+## windows 绑定加 Win32_System_Memory（2026-11-07，Windows 移植 P2③）
+
+- 剪贴板图像数据的全局内存对象面（GlobalLock/GlobalSize/GlobalUnlock，
+  真机测试的 GlobalAlloc 亦在域内）在 System::Memory 接口域，按“按用到的
+  接口域显式列出”的既有口径追加一项。
