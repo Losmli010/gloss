@@ -207,6 +207,15 @@ wgpu = {
     "vulkan",
   ]
 }
+# 平台框架绑定：字体发现经字体栈（DirectWrite）枚举系统字体集合，特性只开
+# 接口域，不开任何域之外的整域；版本与平台适配层（gloss-platform）同批。
+windows = {
+  version = "0.62",
+  default-features = false,
+  features = [
+    "Win32_Graphics_DirectWrite",
+  ]
+}
 
 [lints]
 workspace = true
