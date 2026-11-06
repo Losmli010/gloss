@@ -324,7 +324,7 @@ mod live_tests {
         let preset = format!("gloss-restore-{}", std::process::id());
         clipboard.set_text(preset.clone()).expect("preset text");
 
-        let round = WatchRoundFlag;
+        let round = WatchRoundFlag::default();
         let mut reader = ClipboardFallbackReader::new(round.clone());
         let (outcome, settle) = reader.read();
         settle.finish();
@@ -350,7 +350,7 @@ mod live_tests {
         clipboard.set_text(preset.clone()).expect("preset text");
         let clobber = "gloss-injected-copy";
 
-        let mut reader = ClipboardFallbackReader::new(WatchRoundFlag);
+        let mut reader = ClipboardFallbackReader::new(WatchRoundFlag::default());
         let (outcome, settle) = reader.read();
         let restore_contracted = settle.restores_on_unwind();
 

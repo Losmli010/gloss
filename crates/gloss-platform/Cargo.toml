@@ -14,9 +14,12 @@ crossbeam-channel = { version = "0.5", default-features = false, features = ["st
 # 配置存储的目录定位（日志目录例外，不走本库）。
 directories = { version = "6", default-features = false }
 gloss-core = { path = "../gloss-core" }
-# 剪贴板图片取材：图像格式（TIFF/PNG）数据解码（仅读头取尺寸设界），像素格式（RGBA）重编码为
-# 位图（PNG），快速压缩档在事件线程上执行。
-image = { version = "0.25", default-features = false, features = ["png", "tiff"] }
+# 剪贴板图片取材的解码与重编码依赖按目标声明（消费面只在各平台的剪贴板
+# 模块）：像素格式（RGBA）重编码为位图（PNG），快速压缩档在事件线程上执行，
+# 仅读头取尺寸设界。解码特性面按目标拆分：便携式网络图形（PNG）两端都有；
+# 标记图像格式（TIFF）仅系统（macOS）节；位图家族（位图（BMP）解码器及其
+# 无文件头入口，即设备无关位图（DIB/CF_DIB/CF_DIBV5）的承载）仅系统
+# （Windows）节。
 # 配置文档的配置格式（TOML）序列化，读解析加写格式化。
 toml = {
   version = "0.8",
@@ -44,6 +47,8 @@ core-foundation-sys = {
     "link",
   ]
 }
+# 剪贴板图片取材：标记图像格式（TIFF）与便携式网络图形（PNG）数据解码。
+image = { version = "0.25", default-features = false, features = ["png", "tiff"] }
 # 程序坞（Dock）图标：非打包运行时装上品牌图标，打包运行走图标包（同设计，视觉无差）。
 objc2 = {
   version = "0.6.4",
@@ -90,6 +95,9 @@ security-framework-sys = { version = "2", default-features = false }
 # 系统（Windows）专属依赖按目标门控：仅平台目录下的系统模块引用，其余目标
 # 不编译。特性面按用到的接口域显式列出，不开任何接口域之外的整域。
 [target.'cfg(target_os = "windows")'.dependencies]
+# 剪贴板图片取材：位图家族（位图（BMP）解码器及其无文件头入口，即设备无关
+# 位图（DIB/CF_DIB/CF_DIBV5）的承载）与便携式网络图形（PNG）数据解码。
+image = { version = "0.25", default-features = false, features = ["bmp", "png"] }
 windows = {
   version = "0.62",
   default-features = false,
@@ -98,6 +106,7 @@ windows = {
     "Win32_System_Com",
     "Win32_System_DataExchange",
     "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
     "Win32_System_Threading",
     "Win32_UI_Accessibility",
     "Win32_UI_Input_KeyboardAndMouse",
