@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 # 最小权限：顶层只读；仅发布作业在托管平台（GitHub）创建发布页需要写，见其作业级权限。
 permissions:
