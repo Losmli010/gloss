@@ -111,7 +111,12 @@ impl AppIcon for StubAppIcon {
 pub struct StubMenuController;
 
 impl MenuController for StubMenuController {
-    fn install(&self, _locale: Locale, _on_open_settings: Box<dyn Fn() + Send>) -> bool {
+    fn install(
+        &self,
+        _locale: Locale,
+        _on_open_settings: Box<dyn Fn() + Send>,
+        _on_quit: Box<dyn Fn() + Send>,
+    ) -> bool {
         false
     }
 }

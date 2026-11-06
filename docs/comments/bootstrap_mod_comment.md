@@ -13,3 +13,7 @@
 - `EventSink` 与 `EventSources` 随本模块重新导出：消费方（组装段、应用层）经装配契约引用事件面类型，不触平台目录——`gloss_platform::` 在 `crates/gloss-app/src` 与 `src/` 各只剩装配契约一处引用（P1 验收硬指标）。
 - cfg 边界：本模块只在系统（macOS）与系统（Windows）目标编译（引用平台分派的事件面类型），其余目标无装配契约——入口本就不在这些目标编译，与 P0 的 linux 占位一致。
 - `event_thread` 字段为公开：应用层测试桩要整结构构造句柄；汇合语义仍由 `Drop` 承担，手动取走句柄后 `Drop` 对 `None` 无操作。
+
+## 图标适配器构造点随动（2026-11-07，Windows 移植 P2④）
+
+- `SystemAppIcon::new`（类型随两侧适配器统一正名，见 icon 与 windows_icon 记录）：构造点平台无关，名字不再叫 macOS 侧的旧名。

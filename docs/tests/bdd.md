@@ -232,6 +232,20 @@
 发版链路的一次性运维与真机步骤：没有可执行的自动化测试源码，`bdd` 门禁对本节豁免双向核对；
 条目仍按“名称、目标、场景、照抄步骤、更新时间”登记，命名用测试风格的标识符。
 
+### tray_menu_serves_settings_and_quit_on_windows
+
+- 测试目标：验证系统（Windows）真机上托盘常驻与右键菜单两条词条动作（左键行为按移植方案后置，不在验收面）。
+- 测试场景：给定真机上运行中的应用，当右键托盘图标逐项点选，则设置词条打开设置窗、退出词条结束进程且托盘图标随退出消失。
+- 测试步骤：
+
+1. 在系统（Windows）真机上运行应用（`cargo run` 即可）
+2. 确认通知区域出现 `Gloss` 托盘图标；左键单击不弹菜单
+3. 右键图标，确认菜单含“设置”与“退出 `Gloss`”两条词条（随系统语言）
+4. 点“设置”，确认设置窗打开
+5. 再右键点“退出 `Gloss`”，确认进程退出、托盘图标消失、日志无 `panic`
+
+- 更新时间：2026-11-07
+
 ### pages_source_is_github_actions
 
 - 测试目标：验证仓库 `GitHub` `Pages` 已启用且 `source` 为 `GitHub` `Actions`（`deploy-web` `job` 的前置，一次性）。
@@ -1733,6 +1747,19 @@
 | --- | --- | --- | --- |
 | copy_sequence_presses_modifier_first_and_releases_it_last | 复制键序修饰键首尾 | 给定 `copy_sequence`，当读四步键序，则修饰键按下、键按下、键释放、修饰键释放依次排列 | 2026-11-06 |
 | injection_failure_releases_pressed_keys_in_reverse | 注入失败按已按下键逆序补放 | 给定复制键序，当分别在第 1 至 4 步失败，则补放列表依次为空、修饰键、键与修饰键（逆序，重复的抬起事件幂等） | 2026-11-06 |
+
+### `crates/gloss-platform/src/windows/locale.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| locale_maps_the_default_locale_name | 默认区域名映射语言档位 | 给定区域名样本（`zh-Hans-CN`、`zh_CN`、大写变体、`en-US`、`ja-JP`、读不到），当 `locale_for`，则 `zh` 前缀（大小写不敏感）落中文档位、其余与读不到都落英文档位 | 2026-11-07 |
+
+### `crates/gloss-platform/src/windows/menu.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| tray_labels_follow_their_language_per_locale | 托盘词条守语言规范 | 给定中英两份托盘词条表，当逐条读，则中文表含汉字、英文表无汉字且两表词条均非空 | 2026-11-07 |
+| tray_icon_asset_decodes_into_the_brand_bitmap | 品牌资产解码为托盘位图 | 给定内嵌品牌 `PNG` 资产，当解码为原始位图，则尺寸为 256×256 且字节面为满 `RGBA` 覆盖 | 2026-11-07 |
 
 ### `crates/gloss-platform/src/windows/selection/uia.rs`
 

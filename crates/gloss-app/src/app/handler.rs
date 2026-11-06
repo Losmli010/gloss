@@ -4,7 +4,7 @@
 use std::error::Error;
 use std::time::Instant;
 
-use gloss_core::log::{debug, error, milestone, thread};
+use gloss_core::log::{debug, error, info, milestone, thread};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, StartCause, WindowEvent};
@@ -91,6 +91,14 @@ impl ApplicationHandler<UserEvent> for GlossApp {
         }
         if matches!(event, UserEvent::OpenSettings) {
             self.open_settings();
+            return;
+        }
+        if matches!(event, UserEvent::Quit) {
+            info!(
+                thread = thread::UI,
+                "quit requested, the event loop is exiting"
+            );
+            event_loop.exit();
             return;
         }
         self.drain_platform_events();

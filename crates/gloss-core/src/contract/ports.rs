@@ -130,7 +130,12 @@ pub trait ClipboardWriter: Send + Sync {
 }
 
 pub trait MenuController: Send + Sync {
-    fn install(&self, locale: Locale, on_open_settings: Box<dyn Fn() + Send>) -> bool;
+    fn install(
+        &self,
+        locale: Locale,
+        on_open_settings: Box<dyn Fn() + Send>,
+        on_quit: Box<dyn Fn() + Send>,
+    ) -> bool;
 }
 
 pub trait PermissionProbe: Send + Sync {

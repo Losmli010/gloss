@@ -21,6 +21,7 @@ pub enum UserEvent {
     RedrawSettings,
     FontsReady,
     OpenSettings,
+    Quit,
 }
 
 #[derive(Clone, Debug)]

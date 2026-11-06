@@ -106,7 +106,12 @@ pub fn install(locale: Locale, on_open_settings: impl Fn() + Send + 'static) -> 
 pub struct SystemMenuController;
 
 impl MenuController for SystemMenuController {
-    fn install(&self, locale: Locale, on_open_settings: Box<dyn Fn() + Send>) -> bool {
+    fn install(
+        &self,
+        locale: Locale,
+        on_open_settings: Box<dyn Fn() + Send>,
+        _on_quit: Box<dyn Fn() + Send>,
+    ) -> bool {
         install(locale, on_open_settings)
     }
 }

@@ -94,3 +94,7 @@ runner 连采 8 实例 7 个开机即热 + 符号采样）：
 
 - 应用菜单的设置项经 `UserEvent::OpenSettings` 进壳，分臂直通 `open_settings()`：与浮层齿轮、失败卡按钮共用同一打开入口（会话已开则只前置聚焦）。事件循环退出前送达的事件照常走代理的 `send_event`，循环已关则静默丢弃（菜单点击时进程在跑，实际不触发）。
 - `init` 末尾追加 `install_app_menu`：事件循环已启动、缺省菜单已装（或已被 `with_default_menu(false)` 关掉），此时装配本地化菜单时机安全。
+
+## user_event 的 Quit 分臂（2026-11-07，Windows 移植 P2④）
+
+- 托盘退出项经 `UserEvent::Quit` 进壳，分臂记日志后调 `event_loop.exit()`：与设置分臂同款的直通形态；排在其余事件消费之前，退出请求不被浮层重绘路径拖住。
