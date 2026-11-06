@@ -1,10 +1,9 @@
 //! 校验通过的整包 → 原位替换当前应用包并重启。
 //!
-//! 替换规格（仅原位替换当前应用包，不做安装器迁移）：
-//! 解压压缩包到目标目录同卷的临时目录并检查包内应用结构 → 当前
-//! 应用包同卷改名保留为回滚副本 → 新应用包移入原位 → 删除
-//! 回滚副本，中途失败回滚改名。重启经脱离父进程的辅助进程拉起新
-//! 应用包后当前进程退出。
+//! 替换规格（仅原位替换当前应用包，不做安装器迁移）：解压压缩包到目标目录
+//! 同卷的临时目录并检查包内应用结构 → 换装（腾位、就位与回滚走共享核心，
+//! 平铺载荷的系统（Windows）实现共用同一套编排）→ 删除回滚副本。重启经
+//! 脱离父进程的辅助进程拉起新应用包后当前进程退出。
 //!
 //! 应用包位于只读卷——直接从磁盘映像（DMG）运行——或目录无写权限时不尝试替换，
 //! 带指引失败；当前进程不在应用包内（开发期直接运行）同样带指引
@@ -13,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use gloss_core::log::{debug, thread, warn};
+use super::install_shared::{self, PayloadSpec, SwapFailure};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallError {
@@ -33,7 +32,7 @@ pub fn install(zip: &Path) -> Result<(), InstallError> {
             dir: PathBuf::from("/"),
         })?
         .to_path_buf();
-    if !dir_writable(&dir) {
+    if !install_shared::dir_writable(&dir) {
         return Err(InstallError::Unwritable { dir });
     }
     replace(zip, &dir, &bundle)?;
@@ -48,99 +47,31 @@ pub fn current_bundle() -> Option<PathBuf> {
 }
 
 fn replace(zip: &Path, dir: &Path, bundle: &Path) -> Result<(), InstallError> {
-    let old = dir.join(format!(
-        "{}.old",
-        bundle.file_name().unwrap_or_default().to_string_lossy()
-    ));
-    clear_stale_old_bundle(&old);
-    let unpack = prepare_unpack_dir(dir)?;
-    let new_app = extract_app(zip, &unpack)?;
-
-    swap_bundles(bundle, &old, &new_app, &unpack)?;
-
-    finish_replace(&old, &unpack);
-    Ok(())
-}
-
-fn clear_stale_old_bundle(old: &Path) {
-    if let Err(err) = std::fs::remove_dir_all(old) {
-        debug!(
-            thread = thread::TOKIO,
-            error = %err,
-            "update: stale old bundle cleanup failed, replacing anyway"
-        );
-    }
-}
-
-fn prepare_unpack_dir(dir: &Path) -> Result<PathBuf, InstallError> {
-    let unpack = dir.join(format!(".gloss-update-{}", std::process::id()));
-    if let Err(err) = std::fs::remove_dir_all(&unpack) {
-        debug!(thread = thread::TOKIO, error = %err, "update: stale unpack dir cleanup failed");
-    }
-    std::fs::create_dir_all(&unpack)
+    let unpack = install_shared::prepare_unpack_dir(dir)
         .map_err(|err| InstallError::Unzip(format!("create unpack dir: {err}")))?;
-    Ok(unpack)
-}
-
-fn extract_app(zip: &Path, unpack: &Path) -> Result<PathBuf, InstallError> {
-    if let Err(err) = ditto_extract(zip, unpack) {
-        remove_unpack_dir(unpack);
-        return Err(err);
-    }
-    match extracted_app(unpack) {
-        Some(found) => Ok(found),
-        None => {
-            remove_unpack_dir(unpack);
-            Err(InstallError::InvalidStructure)
+    let payload = match extract_app(zip, &unpack) {
+        Ok(payload) => payload,
+        Err(err) => {
+            install_shared::remove_unpack_dir(&unpack);
+            return Err(err);
         }
+    };
+    let entries =
+        install_shared::swap_entries(&PayloadSpec { exe_name: None }, &payload, dir, bundle);
+    if let Err(failure) = install_shared::swap_in_place(&entries) {
+        install_shared::remove_unpack_dir(&unpack);
+        return Err(replace_failure(failure));
     }
-}
-
-fn swap_bundles(
-    bundle: &Path,
-    old: &Path,
-    new_app: &Path,
-    unpack: &Path,
-) -> Result<(), InstallError> {
-    if let Err(err) = std::fs::rename(bundle, old) {
-        remove_unpack_dir(unpack);
-        return Err(InstallError::Replace(format!("stash old bundle: {err}")));
-    }
-    if let Err(err) = std::fs::rename(new_app, bundle) {
-        match std::fs::rename(old, bundle) {
-            Ok(()) => warn!(
-                thread = thread::TOKIO,
-                error = %err,
-                "update: install rolled back, old bundle restored"
-            ),
-            Err(rollback) => warn!(
-                thread = thread::TOKIO,
-                error = %err,
-                rollback = %rollback,
-                "update: install failed and rollback also failed, old bundle kept as .app.old"
-            ),
-        }
-        remove_unpack_dir(unpack);
-        return Err(InstallError::Replace(format!("move new bundle: {err}")));
-    }
+    install_shared::finish_replace(&entries, &unpack);
     Ok(())
 }
 
-fn finish_replace(old: &Path, unpack: &Path) {
-    if let Err(err) = std::fs::remove_dir_all(old) {
-        warn!(
-            thread = thread::TOKIO,
-            path = %old.display(),
-            error = %err,
-            "update: old bundle cleanup failed, kept as .app.old"
-        );
-    }
-    remove_unpack_dir(unpack);
-}
-
-fn remove_unpack_dir(unpack: &Path) {
-    if let Err(cleanup) = std::fs::remove_dir_all(unpack) {
-        debug!(thread = thread::TOKIO, error = %cleanup, "update: unpack dir cleanup failed");
+fn replace_failure(failure: SwapFailure) -> InstallError {
+    match failure {
+        SwapFailure::Stash { source } => {
+            InstallError::Replace(format!("stash old bundle: {source}"))
+        }
+        SwapFailure::Move { source } => InstallError::Replace(format!("move new bundle: {source}")),
     }
 }
 
@@ -170,29 +101,10 @@ fn ditto_extract(zip: &Path, unpack: &Path) -> Result<(), InstallError> {
     Ok(())
 }
 
-fn extracted_app(unpack: &Path) -> Option<PathBuf> {
-    std::fs::read_dir(unpack).ok()?.find_map(|entry| {
-        let Ok(entry) = entry else { return None };
-        let path = entry.path();
-        if path.extension() == Some("app".as_ref()) && path.join("Contents").join("MacOS").is_dir()
-        {
-            return Some(path);
-        }
-        None
-    })
-}
-
-fn dir_writable(dir: &Path) -> bool {
-    let probe = dir.join(".gloss-update-probe");
-    match std::fs::write(&probe, b"") {
-        Ok(()) => {
-            if let Err(err) = std::fs::remove_file(&probe) {
-                debug!(thread = thread::TOKIO, error = %err, "update: writability probe cleanup failed");
-            }
-            true
-        }
-        Err(_) => false,
-    }
+fn extract_app(zip: &Path, unpack: &Path) -> Result<PathBuf, InstallError> {
+    ditto_extract(zip, unpack)?;
+    install_shared::payload_root(unpack, &PayloadSpec { exe_name: None })
+        .ok_or(InstallError::InvalidStructure)
 }
 
 #[cfg(test)]
@@ -200,6 +112,7 @@ mod tests {
     use std::path::PathBuf;
     use std::process::Command;
 
+    use super::install_shared::dir_writable;
     use super::*;
 
     fn temp_dir(tag: &str) -> PathBuf {

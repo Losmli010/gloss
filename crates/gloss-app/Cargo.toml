@@ -216,6 +216,15 @@ windows = {
     "Win32_Graphics_DirectWrite",
   ]
 }
+# 自更新整包的解压：发布打包只出压缩（deflate）形态的便携包，解压路径消毒
+# （拒越界条目与符号链接外逃）由解压库承担；不开其余压缩格式与时间戳特性。
+zip = {
+  version = "9.4",
+  default-features = false,
+  features = [
+    "deflate-flate2",
+  ]
+}
 
 [lints]
 workspace = true

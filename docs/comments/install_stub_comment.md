@@ -7,3 +7,7 @@
 
 - Windows 侧自更新替换（exe 加旁置 dll 的 zip 校验、运行中可执行文件的重命名交换）按移植方案在实施前另立定案（§6 文件锁风险）；本桩 `install` 一律带 `InstallError::NotABundle` 失败——上层按失败卡降级，与“当前进程不在可替换的应用包内”同型。
 - 错误枚举与 macOS 实现同名镜像（含 `Unwritable`），共享流程（update/mod.rs）与测试零改动编译；macOS 侧代码与测试原样保留（`#[cfg]` 分派在 update/mod.rs 的模块声明上）。
+
+## 收窄为未适配目标占位（2026-11-07，Windows 移植 P3a）
+
+- 系统（Windows）实现在 P3a 落地（`install_windows.rs`，换装编排走共享核心 `install_shared.rs`），本桩的覆盖面随之收窄为“两平台之外的其余目标”，恒失败语义与错误镜像不变；`#[cfg]` 分派仍在 update/mod.rs 的模块声明上，桩内零 cfg。

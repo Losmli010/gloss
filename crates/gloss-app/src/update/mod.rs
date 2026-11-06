@@ -16,9 +16,14 @@ use gloss_core::log::{debug, error, info, thread, warn};
 pub mod download;
 #[cfg(target_os = "macos")]
 pub mod install;
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+#[path = "install_windows.rs"]
+pub mod install;
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[path = "install_stub.rs"]
 pub mod install;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod install_shared;
 pub mod manifest;
 mod net;
 pub mod state;

@@ -1223,6 +1223,31 @@
 | zip_with_an_app_missing_macos_dir_is_invalid_structure | 包结构检查 | 给定缺 `Contents/MacOS` 的 `.app` `zip`，当 `replace`，则报 `InvalidStructure` 且原 `bundle` 原样 | 2026-09-26 |
 | unwritable_dir_is_reported_before_anything_is_touched | 只读目录前置拒绝 | 给定只读的 `bundle` 目录，当安装，则报 `Unwritable` 且 `bundle` 未被触碰 | 2026-09-26 |
 
+### `crates/gloss-app/src/update/install_shared.rs`
+
+原位替换共享核心（`L1`，纯文件系统夹具，两平台载荷契约在任一宿主同跑）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| bundle_payload_requires_a_structured_app_dir | 目录载荷结构校验 | 给定解包现场，当定位目录载荷，则结构完整的应用包目录命中、缺 `Contents/MacOS` 的应用包目录落空 | 2026-11-07 |
+| flat_payload_requires_the_current_executable_name | 平铺载荷结构校验 | 给定解包现场，当按可执行文件锚点定位平铺载荷，则含同名文件的目录命中、只有旁置文件的目录落空 | 2026-11-07 |
+| flat_payload_found_inside_a_nested_folder | 平铺载荷不假设层数 | 给定可执行文件在压缩包顶层目录内的解包现场，当定位平铺载荷，则该顶层目录为载荷根 | 2026-11-07 |
+| bundle_entries_swap_the_whole_app_dir | 目录载荷条目推导 | 给定载荷根与安装位的应用包路径，当推导条目，则单条目源为载荷、目标与腾位为应用包路径加旧件后缀 | 2026-11-07 |
+| flat_entries_cover_every_file_beside_the_executable | 平铺载荷条目推导 | 给定载荷根内的可执行文件与旁置文件，当推导条目，则每个文件一条目且腾位路径带旧件后缀 | 2026-11-07 |
+| swap_moves_entries_into_place_without_litter | 换装就位无残留 | 给定带旧内容的安装位与换装条目，当换装并收尾，则新载荷就位原路径、腾位副本清除 | 2026-11-07 |
+| swap_rolls_back_everything_when_a_move_fails | 换装失败全量回滚 | 给定首条目成功、次条目源缺席的条目表，当换装失败，则报 `Move` 且已就位与已腾位的条目全部回到旧内容 | 2026-11-07 |
+| swap_reports_a_stash_failure_with_the_dst_untouched | 腾位失败不动安装位 | 给定腾位路径不可达的条目，当换装，则报 `Stash` 且安装位旧载荷原样 | 2026-11-07 |
+| swap_clears_a_stale_stash_before_swapping | 上次换装残留先清场 | 给定腾位路径上的上次残留，当换装，则先清场并成功就位、无残留 | 2026-11-07 |
+
+### `crates/gloss-app/src/update/install_windows.rs`
+
+系统（Windows）原位替换（`L1`，压缩包（zip）库构造夹具；目标面测试，随测试矩阵在系统（Windows）运行器执行）。
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| windows_replace_swaps_the_executable_and_side_files | 可执行文件加旁置文件换装 | 给定含可执行文件与旁置文件的 `zip` 与旧安装位，当 `replace`，则新文件就位原路径、腾位副本清除、解压现场清空 | 2026-11-07 |
+| windows_replace_rejects_a_zip_without_the_executable | 包结构检查 | 给定不含可执行文件的 `zip`，当 `replace`，则报 `InvalidStructure` 且已安装文件原样 | 2026-11-07 |
+
 ### `crates/gloss-app/src/ui/fonts.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
