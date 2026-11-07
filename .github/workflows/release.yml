@@ -68,6 +68,11 @@ jobs:
       - name: Cache Cargo dependencies
         uses: swatinem/rust-cache@v2
 
+      # 系统（Windows）腿无打包工具（cargo-bundle）代跑构建，发布二进制在此显式构建
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: cargo build --release --target ${{ matrix.target }}
+
       - name: Install cargo-bundle
         if: runner.os == 'macOS'
         uses: taiki-e/install-action@v2
