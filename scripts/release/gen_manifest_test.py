@@ -1,5 +1,5 @@
 """发布清单生成脚本的单测：正常生成、缺产物拒绝、版本单点复用；体积与摘要
-哈希（sha256）实测自产物文件。
+哈希（sha256）实测自产物文件，条目字段与产物齐备口径按平台条件化。
 
 被测入口吃标签、产物目录与仓库根三个参数，成功返回清单字典，失败以系统
 退出异常终止；夹具在（pytest）临时目录里放已知内容的产物文件。运行方式
@@ -30,6 +30,7 @@ ARTIFACT_PAYLOADS = {
     "gloss-0.1.0-aarch64-apple-darwin.dmg": "arm64-dmg-payload",
     "gloss-0.1.0-x86_64-apple-darwin.zip": "x64-zip-payload",
     "gloss-0.1.0-x86_64-apple-darwin.dmg": "x64-dmg-payload",
+    "gloss-0.1.0-x86_64-pc-windows-msvc.zip": "win-zip-payload",
 }
 
 
@@ -52,7 +53,7 @@ def test_manifest_generated(tmp_path: Path) -> None:
     manifest = run_ok(tmp_path)
     assert manifest["schema"] == 1
     assert manifest["version"] == "0.1.0"
-    assert set(manifest["channels"]["stable"]) == {"aarch64-apple-darwin", "x86_64-apple-darwin"}
+    assert set(manifest["channels"]["stable"]) == set(gen_manifest.TARGETS)
 
 
 def test_zip_url(tmp_path: Path) -> None:
@@ -69,6 +70,15 @@ def test_dmg_url(tmp_path: Path) -> None:
     assert entry["dmg_url"] == (
         "https://losmli010.github.io/gloss/latest/gloss-0.1.0-x86_64-apple-darwin.dmg"
     )
+
+
+def test_windows_entry_carries_no_installer_field(tmp_path: Path) -> None:
+    manifest = run_ok(tmp_path)
+    entry = manifest["channels"]["stable"]["x86_64-pc-windows-msvc"]
+    assert entry["url"] == (
+        "https://losmli010.github.io/gloss/latest/gloss-0.1.0-x86_64-pc-windows-msvc.zip"
+    )
+    assert set(entry) == {"url", "size", "sha256"}
 
 
 def test_size_and_sha256_measured_from_artifacts(tmp_path: Path) -> None:
@@ -113,6 +123,11 @@ def test_missing_zip_rejected(tmp_path: Path) -> None:
 def test_missing_dmg_rejected(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="missing artifact file"):
         run_ok(tmp_path, drop="gloss-0.1.0-x86_64-apple-darwin.dmg")
+
+
+def test_missing_windows_zip_rejected(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match="missing artifact file"):
+        run_ok(tmp_path, drop="gloss-0.1.0-x86_64-pc-windows-msvc.zip")
 
 
 def test_version_mismatch_rejected(tmp_path: Path) -> None:

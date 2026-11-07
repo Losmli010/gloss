@@ -261,16 +261,17 @@
 ### pages_site_point_check
 
 - 测试目标：验证 `Pages` 部署后站点的导航锚点、下载按钮、`manifest` 读取与降级路径。
-- 测试场景：给定一次成功的 `deploy-web` 部署，当浏览器访问站点逐项点检，则锚点跳转正常、下载按钮指向 `latest/` 对应架构直链、`manifest.json` 可读取且字段齐备；`manifest` 取不到时页面降级为 `GitHub` `Releases` 外链。
+- 测试场景：给定一次成功的 `deploy-web` 部署，当浏览器访问站点逐项点检，则锚点跳转正常、下载按钮指向 `latest/` 对应平台直链、`manifest.json` 可读取且字段齐备；`manifest` 取不到时页面降级为 `GitHub` `Releases` 外链。
 - 测试步骤：
 
 1. 打开 `https://losmli010.github.io/gloss/`
 2. 依次点导航“任务、技术、下载、更新”，确认锚点跳转
-3. 确认版本号显示；切换“苹果芯片（Apple Silicon）”与“英特尔芯片（Intel）”，确认下载链接随之指向对应架构的 `latest`、文件
-4. 直接访问 `https://losmli010.github.io/gloss/manifest.json`，确认 `schema/version/channels` 双架构字段齐备
-5. 降级路径：本地 `just site-preview`（无 `manifest.json`）打开页面，确认显示“未能获取最新版本信息”且下载按钮退到 `GitHub` `Releases` 外链
+3. 确认版本号显示；切换“苹果芯片（Apple Silicon）”“英特尔芯片（Intel）”与 `Windows x64`，确认下载链接随之指向对应平台的 `latest` 文件：系统（Windows）落压缩包（zip），苹果与英特尔芯片落镜像（dmg）
+4. 确认首次打开指引随所选平台切换：系统（macOS）显示镜像拖入与放行指引，系统（Windows）显示解压与 `SmartScreen`“更多信息 → 仍要运行”指引
+5. 直接访问 `https://losmli010.github.io/gloss/manifest.json`，确认 `schema/version/channels` 三平台字段齐备：苹果与英特尔芯片条目带 `dmg_url`，`Windows` 条目无安装器字段
+6. 降级路径：本地 `just site-preview`（无 `manifest.json`）打开页面，确认显示“未能获取最新版本信息”且下载按钮退到 `GitHub` `Releases` 外链
 
-- 更新时间：2026-11-02
+- 更新时间：2026-11-07
 
 ### real_update_round_trip_on_device
 
@@ -294,10 +295,10 @@
 
 1. 本地 `just release-check vX.Y.Z` 确认版本一致后打 `tag` 并推送
 2. 在 `Actions` 观察 `release` `workflow`：`build` → `release` → `deploy-web` 依次成功
-3. 打开 `GitHub` `Release`，确认双架构 `zip/dmg` 共 4 个资产
-4. 打开站点确认 `manifest.json` 的 `version` 与 `tag`（去 `v`）一致，`latest/` 下 4 个文件可下载
+3. 打开 `GitHub` `Release`，确认三平台共 5 个资产：苹果与英特尔芯片各 `zip` 与 `dmg` 共 4 个，`Windows` 压缩包 1 个
+4. 打开站点确认 `manifest.json` 的 `version` 与 `tag`（去 `v`）一致，`latest/` 下 5 个文件可下载
 
-- 更新时间：2026-09-26
+- 更新时间：2026-11-07
 
 ### first_launch_guides_accessibility
 
@@ -1162,17 +1163,19 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| valid_manifest_parses_with_its_version_and_artifact | 合法清单解析出本机条目 | 给定 `schema=1` 双架构齐备的清单，当 `parse`，则版本与本机架构条目的 `url/size/sha256` 全部就位 | 2026-09-26 |
+| valid_manifest_parses_with_its_version_and_artifact | 合法清单解析出本机条目 | 给定 `schema=1` 三平台齐备的清单，当 `parse`，则版本与本机平台条目的 `url/size/sha256` 全部就位 | 2026-11-07 |
 | unknown_fields_are_ignored_for_forward_compatibility | 未知字段前向兼容 | 给定含 `dmg_url` 等未知字段的清单，当 `parse`，则照常通过 | 2026-09-26 |
+| legacy_manifest_still_parses_on_its_home_platform | 旧清单双向兼容（新解析器读旧清单） | 给定发布矩阵扩 `Windows` 前的旧清单（仅双架构键），当 `parse`，则在宿主平台（macOS）照常通过；无本机平台键的平台按 `Invalid` 拒 | 2026-11-07 |
+| windows_entry_keeps_the_darwin_pair_intact_for_old_clients | 新清单双向兼容（旧解析器读新清单） | 给定含 `Windows` 键的新清单，当 `parse`，则通过且双架构键仍在条目表——旧解析器与新解析器只差键位强制，条目校验同源，旧版照此放行 | 2026-11-07 |
 | unknown_schema_is_fail_closed | 未知 `schema` 拒绝 | 给定 `schema` 为 0、2、99 的清单，当 `parse`，则 `UnknownSchema` 拒绝且不继续解析 | 2026-09-26 |
 | unparsable_body_is_rejected | 非法 `body` 拒绝 | 给定空串、非 JSON、数组、`schema` 类型不符的 `body`，当 `parse`，则 `Unparsable` | 2026-09-26 |
 | version_must_be_a_semver_triple | 版本必须可解析 | 给定空串、两段、带 `v`、非数字的 `version`，当 `parse`，则 `Invalid` | 2026-09-26 |
-| both_architectures_are_required_by_the_matrix | 双架构条目必须齐备 | 给定缺 `channels`、缺 `stable`、单架构的清单，当 `parse`，则 `Invalid` | 2026-09-26 |
+| platform_key_is_required_by_the_matrix | 本机平台键必须齐备 | 给定缺本机平台键（其余平台条目齐在）、缺 `channels`、缺 `stable` 的清单，当 `parse`，则 `Invalid` | 2026-11-07 |
 | artifact_fields_follow_the_matrix | 条目字段矩阵 | 给定缺 `url/size/sha256` 或类型不符的条目，当 `parse`，则 `Invalid`（类型不符 `Unparsable`） | 2026-09-26 |
 | artifact_url_must_be_https | 条目 `url` 仅接受 `https` | 给定 `http://` 的 `url`，当 `parse`，则 `Invalid` | 2026-09-26 |
 | sha256_must_be_64_lowercase_hex | `sha256` 形态校验 | 给定非 64 位、大写、非 `hex` 的 `sha256`，当 `parse`，则 `Invalid` | 2026-09-26 |
 | is_newer_follows_semver_precedence | `semver` 全序比较 | 给定更高、相等、更低、预发布、构建元数据版本，当比较，则按 `semver` 全序判定是否更新 | 2026-09-26 |
-| arch_keys_cover_the_published_pair | 架构键覆盖双 `target` | 给定编译期架构键，当取键对，则恰为 `aarch64/x86_64` 两个发布 `target` | 2026-09-26 |
+| current_arch_is_the_compiled_platform_triple | 架构键随编译目标 | 给定编译目标——双架构细分与 `Windows`，当取 `current_arch`，则恰为该目标的发布三元组 | 2026-11-07 |
 | current_version_matches_the_cargo_package_version | 本地版本回落分支锁定 | 给定 `CARGO_PKG_VERSION`，当解析，则 `current_version` 与之相等（回落分支不可达） | 2026-09-26 |
 
 ### `crates/gloss-app/src/update/state.rs`

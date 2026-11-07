@@ -443,14 +443,17 @@ mod tests {
 
     const SHA_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const SHA_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const SHA_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
     fn manifest_of(version: &str) -> UpdateManifest {
         let text = format!(
             r#"{{"schema":1,"version":"{version}","channels":{{"stable":{{
   "aarch64-apple-darwin":{{"url":"https://p/a.zip","size":1,"sha256":"{sha_a}"}},
-  "x86_64-apple-darwin":{{"url":"https://p/x.zip","size":2,"sha256":"{sha_b}"}}}}}}}}"#,
+  "x86_64-apple-darwin":{{"url":"https://p/x.zip","size":2,"sha256":"{sha_b}"}},
+  "x86_64-pc-windows-msvc":{{"url":"https://p/w.zip","size":3,"sha256":"{sha_c}"}}}}}}}}"#,
             sha_a = SHA_A,
             sha_b = SHA_B,
+            sha_c = SHA_C,
         );
         manifest::parse(&text).expect("test manifest must validate")
     }
@@ -907,9 +910,11 @@ mod tests {
         format!(
             r#"{{"schema":1,"version":"{version}","channels":{{"stable":{{
   "aarch64-apple-darwin":{{"url":"https://p/a.zip","size":1,"sha256":"{sha_a}"}},
-  "x86_64-apple-darwin":{{"url":"https://p/x.zip","size":2,"sha256":"{sha_b}"}}}}}}}}"#,
+  "x86_64-apple-darwin":{{"url":"https://p/x.zip","size":2,"sha256":"{sha_b}"}},
+  "x86_64-pc-windows-msvc":{{"url":"https://p/w.zip","size":3,"sha256":"{sha_c}"}}}}}}}}"#,
             sha_a = SHA_A,
             sha_b = SHA_B,
+            sha_c = SHA_C,
         )
     }
 

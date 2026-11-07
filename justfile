@@ -272,7 +272,7 @@ smoke-app app:
 release-check tag:
     {{py}} scripts/release/check_release_tag.py {{tag}}
 
-# 本地生成站点更新清单打到标准输出（产物目录须含双架构的压缩包与镜像共四个产物）
+# 本地生成站点更新清单打到标准输出（产物目录按发布矩阵交产物：系统（macOS）要压缩包与镜像，系统（Windows）只要压缩包）
 gen-manifest tag artifacts-dir:
     {{py}} scripts/release/gen_manifest.py {{tag}} {{artifacts-dir}}
 

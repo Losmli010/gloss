@@ -1,7 +1,7 @@
 //! 更新清单：模型、清单版本校验矩阵、版本比较与按架构选包。
 //!
 //! 校验矩阵（清单版本号为 1）：版本必须可按语义化版本
-//! 解析；稳定通道必须含双架构条目；每条目必含直链地址、字节数与内容
+//! 解析；稳定通道必须含本机编译目标的平台条目；每条目必含直链地址、字节数与内容
 //! 哈希：哈希为 64 位十六进制小写，直链仅接受加密超文本传输（HTTPS）——信任根是静态站点
 //! 托管的传输层安全（TLS）。缺字段或类型不符、未知清单版本、不可解析的响应体都按
 //! 清单失败处理；未知字段一律忽略（同一清单版本内的前向兼容）。
@@ -72,15 +72,23 @@ pub fn current_version() -> Version {
 }
 
 pub fn current_arch() -> &'static str {
-    if cfg!(target_arch = "aarch64") {
-        ARM_DARWIN
+    if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            ARM_DARWIN
+        } else {
+            X64_DARWIN
+        }
+    } else if cfg!(target_os = "windows") {
+        X64_WINDOWS
     } else {
-        X64_DARWIN
+        UNSUPPORTED_ARCH
     }
 }
 
 const ARM_DARWIN: &str = "aarch64-apple-darwin";
 const X64_DARWIN: &str = "x86_64-apple-darwin";
+const X64_WINDOWS: &str = "x86_64-pc-windows-msvc";
+const UNSUPPORTED_ARCH: &str = "";
 
 pub fn is_newer(candidate: &Version, current: &Version) -> bool {
     candidate > current
@@ -112,10 +120,8 @@ pub fn parse(body: &str) -> Result<UpdateManifest, ManifestError> {
         }
         artifacts.insert(arch, Artifact { url, size, sha256 });
     }
-    for arch in [ARM_DARWIN, X64_DARWIN] {
-        if !artifacts.contains_key(arch) {
-            return Err(ManifestError::Invalid);
-        }
+    if !artifacts.contains_key(current_arch()) {
+        return Err(ManifestError::Invalid);
     }
     Ok(UpdateManifest { version, artifacts })
 }
@@ -133,15 +139,23 @@ mod tests {
 
     const SHA_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const SHA_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const SHA_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
     fn body(schema: &str, version: &str, arm: &str, x64: &str) -> String {
         format!(
-            r#"{{"schema":{schema},"version":"{version}","channels":{{"stable":{{"aarch64-apple-darwin":{{{arm}}},"x86_64-apple-darwin":{{{x64}}}}}}}}}"#
+            r#"{{"schema":{schema},"version":"{version}","channels":{{"stable":{{"aarch64-apple-darwin":{{{arm}}},"x86_64-apple-darwin":{{{x64}}},"x86_64-pc-windows-msvc":{{{windows}}}}}}}}}"#,
+            windows = artifact("https://p/w.zip", 3, SHA_C),
         )
     }
 
     fn artifact(url: &str, size: u64, sha256: &str) -> String {
         format!(r#""url":"{url}","size":{size},"sha256":"{sha256}""#)
+    }
+
+    fn pair_body(arm: &str, x64: &str) -> String {
+        format!(
+            r#"{{"schema":1,"version":"0.2.0","channels":{{"stable":{{"aarch64-apple-darwin":{{{arm}}},"x86_64-apple-darwin":{{{x64}}}}}}}}}"#
+        )
     }
 
     fn valid_artifact() -> String {
@@ -159,15 +173,16 @@ mod tests {
   "version": "0.2.0",
   "channels": { "stable": {
     "aarch64-apple-darwin": { "url": "https://p/a.zip", "size": 1, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-    "x86_64-apple-darwin": { "url": "https://p/x.zip", "size": 2, "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+    "x86_64-apple-darwin": { "url": "https://p/x.zip", "size": 2, "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    "x86_64-pc-windows-msvc": { "url": "https://p/w.zip", "size": 3, "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }
   } }
 }"#;
         let manifest = parsed(text);
         assert_eq!(manifest.version().to_string(), "0.2.0");
-        let (url, size, sha) = if current_arch() == ARM_DARWIN {
-            ("https://p/a.zip", 1, SHA_A)
-        } else {
-            ("https://p/x.zip", 2, SHA_B)
+        let (url, size, sha) = match current_arch() {
+            ARM_DARWIN => ("https://p/a.zip", 1, SHA_A),
+            X64_DARWIN => ("https://p/x.zip", 2, SHA_B),
+            _ => ("https://p/w.zip", 3, SHA_C),
         };
         let entry = manifest.artifact(current_arch()).expect("host entry");
         assert_eq!(entry.url, url);
@@ -183,12 +198,44 @@ mod tests {
   "future_top_level": { "anything": true },
   "channels": { "stable": {
     "aarch64-apple-darwin": { "url": "https://p/a.zip", "size": 1, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dmg_url": "https://p/a.dmg", "future": null },
-    "x86_64-apple-darwin": { "url": "https://p/x.zip", "size": 2, "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+    "x86_64-apple-darwin": { "url": "https://p/x.zip", "size": 2, "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    "x86_64-pc-windows-msvc": { "url": "https://p/w.zip", "size": 3, "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }
   } }
 }"#;
         let manifest = parse(text).expect("unknown fields must be ignored");
         assert_eq!(manifest.version().to_string(), "0.2.0");
         assert!(manifest.artifact(current_arch()).is_some());
+    }
+
+    #[test]
+    fn legacy_manifest_still_parses_on_its_home_platform() {
+        let text = pair_body(&valid_artifact(), &artifact("https://p/x.zip", 2, SHA_B));
+        if cfg!(target_os = "macos") {
+            parsed(&text);
+        } else {
+            assert_eq!(
+                parse(&text),
+                Err(ManifestError::Invalid),
+                "a manifest without the host platform key must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_entry_keeps_the_darwin_pair_intact_for_old_clients() {
+        let text = body(
+            "1",
+            "0.2.0",
+            &valid_artifact(),
+            &artifact("https://p/x.zip", 2, SHA_B),
+        );
+        let manifest = parsed(&text);
+        assert!(
+            manifest.artifact(ARM_DARWIN).is_some() && manifest.artifact(X64_DARWIN).is_some(),
+            "the deployed darwin pair must survive the windows extension: old parsers accept \
+             exactly the bodies that validate entry-by-entry and still carry both darwin keys"
+        );
+        assert!(manifest.artifact(X64_WINDOWS).is_some(), "host entry");
     }
 
     #[test]
@@ -232,12 +279,26 @@ mod tests {
     }
 
     #[test]
-    fn both_architectures_are_required_by_the_matrix() {
+    fn platform_key_is_required_by_the_matrix() {
+        let entries = [
+            (ARM_DARWIN, artifact("https://p/a.zip", 1, SHA_A)),
+            (X64_DARWIN, artifact("https://p/x.zip", 2, SHA_B)),
+            (X64_WINDOWS, artifact("https://p/w.zip", 3, SHA_C)),
+        ];
+        let rest: Vec<String> = entries
+            .iter()
+            .filter(|(key, _)| *key != current_arch())
+            .map(|(key, entry)| format!(r#""{key}":{{{entry}}}"#))
+            .collect();
         let text = format!(
-            r#"{{"schema":1,"version":"0.2.0","channels":{{"stable":{{"aarch64-apple-darwin":{{{}}}}}}}}}"#,
-            valid_artifact()
+            r#"{{"schema":1,"version":"0.2.0","channels":{{"stable":{{{}}}}}}}"#,
+            rest.join(",")
         );
-        assert_eq!(parse(&text), Err(ManifestError::Invalid));
+        assert_eq!(
+            parse(&text),
+            Err(ManifestError::Invalid),
+            "entries for other platforms must not cover a missing host key"
+        );
 
         let no_channels = r#"{"schema":1,"version":"0.2.0"}"#;
         assert_eq!(parse(no_channels), Err(ManifestError::Invalid));
@@ -344,17 +405,15 @@ mod tests {
     }
 
     #[test]
-    fn arch_keys_cover_the_published_pair() {
-        let mut keys = [
-            current_arch(),
-            if current_arch() == ARM_DARWIN {
-                X64_DARWIN
-            } else {
-                ARM_DARWIN
-            },
-        ];
-        keys.sort_unstable();
-        assert_eq!(keys, [ARM_DARWIN, X64_DARWIN]);
+    fn current_arch_is_the_compiled_platform_triple() {
+        let expected = if cfg!(target_os = "windows") {
+            X64_WINDOWS
+        } else if cfg!(target_arch = "aarch64") {
+            ARM_DARWIN
+        } else {
+            X64_DARWIN
+        };
+        assert_eq!(current_arch(), expected);
     }
 
     #[test]
