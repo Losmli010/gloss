@@ -50,7 +50,7 @@
   “复制图像”写的是 public.tiff；浏览器/文件管理器复制常写 public.png。
   只认其一会漏掉半边来源。其它图像 flavor（如 JPEG 的 public.jpeg）暂不
   认——arboard 的 macOS 读取栈走 TIFF/PNG flavor，认了也读不出。
-- **为什么用 extern static 而不是手写 “public.png” 字面量**：AppKit 常量
+- **为什么用 extern static 而不是手写 "public.png" 字面量**：AppKit 常量
   与系统实现同源，`unsafe` 面只有一次 extern static 读取；手写字符串省掉
   unsafe 但引入“常量改名即静默失效”的漂移面。常量是 NS_TYPED_EXTENSIBLE_ENUM
   的稳定契约，风险不对称地偏向用系统常量。

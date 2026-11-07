@@ -9,7 +9,7 @@
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
 | 人工测试 | 17 | `cargo test -p gloss-platform -- --ignored`；`live_llm` 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 `GLOSS_LIVE_*`） |
-| 发版人工步骤 | 10 | 手动执行（无自动化测试源码的真机、运维步骤，`bdd` 门禁豁免） |
+| 发版人工步骤 | 11 | 手动执行（无自动化测试源码的真机、运维步骤，`bdd` 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
@@ -243,6 +243,20 @@
 3. 右键图标，确认菜单含“设置”与“退出 `Gloss`”两条词条（随系统语言）
 4. 点“设置”，确认设置窗打开
 5. 再右键点“退出 `Gloss`”，确认进程退出、托盘图标消失、日志无 `panic`
+
+- 更新时间：2026-11-07
+
+### real_update_round_trip_on_windows
+
+- 测试目标：验证系统（Windows）真机上的真实清单拉取、整包下载校验与可执行文件替换重启（首个系统（Windows）发布缺可照抄的自更新验证清单，评审遗留 E3/F4 补登记）。
+- 测试场景：给定运行着旧版 `Gloss` 便携压缩包（zip）的系统（Windows）真机（有网络），当设置页手动检查更新并确认下载、确认重启替换，则应用升到清单版本并正常启动，安装目录无替换残留。
+- 测试步骤：
+
+1. 在系统（Windows）真机把上一个发布版本的便携压缩包（zip）解压到独立目录并运行 `gloss.exe`
+2. 设置页点“检查更新”，确认提示新版与目标版本
+3. 确认下载，等待“更新就绪”提示
+4. 点“重启更新”，确认替换后应用以新版本启动（进程重启且 `gloss.exe` 已换新）
+5. 检查安装目录无 `.old` 残留、无解包临时目录残留；`just logs` 无 `panic`
 
 - 更新时间：2026-11-07
 
@@ -556,7 +570,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | scene_gate_blocks_secure_input_and_listed_apps | 场景闸门的两路拦截与优先级 | 给定安全输入开启、前台应用在内建名单里、两者同时成立、名单外的应用、无事实五种场景，当判闸门，则各返回对应因由（两者同时成立时报安全输入、名单外与无事实放行） | 2026-09-26 |
-| entry_matching_covers_every_identity_an_app_can_offer | 名单匹配按身份逐字比对 | 给定内建名单，当经公共入口 `trigger_block` 判闸门，则 `bundle` `id` 命中（`ASCII` 大小写不敏感、返回名单原文）、显示名不命中、名单外的应用与无身份的应用都放行 | 2026-09-26 |
+| entry_matching_covers_every_identity_an_app_can_offer | 名单匹配按身份逐字比对 | 给定内建名单，当经公共入口 `trigger_block` 判闸门，则 `bundle` `id` 命中（`ASCII` 大小写不敏感、返回名单原文）、显示名只在名单携带同名（含系统名单规范化键）时命中、名单外的应用与无身份的应用都放行 | 2026-11-07 |
 | token_prefixes_are_detected | 各类令牌前缀识别 | 给定 `sk-/ghp_/xoxb-/AKIA/Bearer` 各形态、带空白与引号包裹的令牌、以及 `NAME=<token>` 与 `AUTH=Bearer <token>` 两种赋值形态（`.env` 行、`shell` 导出与 `Authorization` 头），当检测，则都命中 `Token` | 2026-09-26 |
 | tokens_embedded_in_structured_text_are_detected | 嵌在结构里或汉字紧贴的令牌照样命中 | 给定（JSON）值、查询串参数、链接（URL）路径段、`.env` 行、代码围栏包裹的令牌，以及紧贴汉字的令牌，夹具字面为 `sk-…` 直连汉字，当检测，则都命中 `Token`（前缀判定看的是“前面不是 `ASCII` 字母数字”，不是词首） | 2026-09-26 |
 | short_dummy_keys_are_detected | 手写的短假密钥照样命中 | 给定 `sk-123456`、`sk-abc123`、`sk-XXXXXXXX`、`sk_live_1234abcd`、`ghp_1234abcd` 这类十几字符内的假密钥、以及被换行截断的令牌，当检测，则都命中 `Token`（主体 不低于 4 且含数字或大写即算） | 2026-09-26 |
@@ -571,7 +585,8 @@
 | the_long_tier_of_prefixed_bodies_ignores_shape | 前缀令牌长档不看形状 | 给定 13 字符与 16 字符的纯小写复合词，当检测，则短档那次放行、长档那次算令牌——长档只卡长度是写明的取舍，这条用例把边界钉在明面上 | 2026-09-26 |
 | detection_prefers_the_more_certain_kind | 检测按确定度排序 | 给定同时可判多类的文本，当检测，则返回更确定的那个类别（确定度自私钥、令牌、卡号至高熵递减；相邻两类各有一对同现的样例） | 2026-09-26 |
 | ordinary_text_is_never_flagged | 日常文本一律不拦 | 给定常用句中英文本、中文段落、代码片段、带 `sk-` 的普通英文句与 `let key = "sk-test";` 这类代码，当检测，则全部为 `None` | 2026-09-26 |
-| windows_executable_names_block_the_scene_gate | 系统名单按可执行文件名命中场景闸门 | 给定名单内可执行文件名（裸名与改写大小写）与名单外进程（资源管理器）的前台应用事实，当 `trigger_block`，则名单内两例按命中条目拦截、名单外放行（两平台同跑，系统名单行为不变） | 2026-11-06 |
+| windows_executable_names_block_the_scene_gate | 系统名单按规范化键命中场景闸门 | 给定名单内可执行文件名（裸名与改写大小写）与名单外进程（资源管理器）的前台应用事实，当 `trigger_block`，则名单内两例按命中条目拦截、名单外放行（两平台同跑，系统（macOS）名单行为不变） | 2026-11-07 |
+| windows_process_keys_match_regardless_of_exact_spelling | 系统名单按规范化键不依赖确切拼写 | 给定 `1Password7.exe` 与 `1Password 7.exe` 两种拼写及大小写变体、纯名称字段（无 `bundle` `id`）与名单外近似名（`1password-manager.exe`、`explorer7.exe`）的前台应用事实，当 `trigger_block`，则规范化后（小写、去 `.exe` 后缀、去空格）两种拼写都命中同一键、近似名放行 | 2026-11-07 |
 | the_self_flag_is_not_consumed_by_the_sensitive_list | `is_self` 与敏感名单无关 | 给定 `is_self` 为真的名单外前台应用，当判闸门，则放行（`is_self` 只归触发决策的防误触分支，不是名单命中） | 2026-09-30 |
 
 ### `crates/gloss-core/src/pipeline/prompt.rs`
@@ -1042,7 +1057,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | theme_preference_covers_every_variant | 主题三档全映射 | 给定三档主题，当映射界面库（egui）偏好，则一一对应且出厂跟随系统 | 2026-09-23 |
-| new_context_carries_fonts_and_theme | 新上下文恒绑定族加延迟补装接上中日韩（CJK） | 给定主题，当新建上下文，则主题偏好落上且命名字体族恒绑定；当 `apply_system_fonts` 补装，则中日韩（CJK）后备接上（依赖宿主机字体）；宿主无系统字体发现面时无此前提，直接让路 | 2026-11-05 |
+| new_context_carries_fonts_and_theme | 新上下文恒绑定族加延迟补装接上中日韩（CJK） | 给定主题，当新建上下文，则主题偏好落上且命名字体族恒绑定（两段不依赖宿主发现面，任何宿主照跑）；当 `apply_system_fonts` 补装，则中日韩（CJK）后备接上（依赖宿主机字体）；宿主无系统字体发现面时仅补装段无此前提，提前让路 | 2026-11-07 |
 | builtin_definitions_binds_named_families_without_system_fonts | 内置快路径定义恒绑定命名字体族且不装系统字体 | 当取 `builtin_definitions`，则宋、楷、等宽三族都绑到内置字形且字体表无（CJK）后备条目 | 2026-10-06 |
 | reapply_writes_every_context | 重施加写满每个上下文 | 给定两个已装好的上下文，当施加各档主题，则每个都被写；空集写 0 个不 `panic` | 2026-09-23 |
 | text_cursor_stroke_follows_the_palette_per_theme | 插入符描边随调色板明暗两档 | 给定新建上下文，当读明暗两棵样式树的文本插入符描边，则颜色取调色板同源档、宽度取加粗档（缺省淡色在输入框底上不可辨） | 2026-10-28 |
@@ -1171,6 +1186,7 @@
 | unparsable_body_is_rejected | 非法 `body` 拒绝 | 给定空串、非 JSON、数组、`schema` 类型不符的 `body`，当 `parse`，则 `Unparsable` | 2026-09-26 |
 | version_must_be_a_semver_triple | 版本必须可解析 | 给定空串、两段、带 `v`、非数字的 `version`，当 `parse`，则 `Invalid` | 2026-09-26 |
 | platform_key_is_required_by_the_matrix | 本机平台键必须齐备 | 给定缺本机平台键（其余平台条目齐在）、缺 `channels`、缺 `stable` 的清单，当 `parse`，则 `Invalid` | 2026-11-07 |
+| an_empty_platform_key_is_rejected_on_every_host | 空平台键在任何宿主都拒绝 | 给定含空键且三平台条目齐在的清单，当 `parse`，则 `Invalid`（空键宿主的 `contains_key` 不再凑齐矩阵） | 2026-11-07 |
 | artifact_fields_follow_the_matrix | 条目字段矩阵 | 给定缺 `url/size/sha256` 或类型不符的条目，当 `parse`，则 `Invalid`（类型不符 `Unparsable`） | 2026-09-26 |
 | artifact_url_must_be_https | 条目 `url` 仅接受 `https` | 给定 `http://` 的 `url`，当 `parse`，则 `Invalid` | 2026-09-26 |
 | sha256_must_be_64_lowercase_hex | `sha256` 形态校验 | 给定非 64 位、大写、非 `hex` 的 `sha256`，当 `parse`，则 `Invalid` | 2026-09-26 |
@@ -1470,18 +1486,23 @@
 | downscaled_dims_preserve_aspect_and_the_cap | 降采样目标尺寸保比例收边 | 给定上限内与超限（正方、横长、竖长、极窄）的尺寸，当 `downscaled_dims`，则上限内返回 `None` 原样编码，超限按比例缩到最长边 1536、至少保留 1 像素 | 2026-10-16 |
 | oversized_products_are_downscaled_to_the_side_cap | 超长边产物降采样出图 | 给定宽 2100 高 1000 的位图（PNG）`flavor`，当 `decode_to_png`，则产出宽 1536 高 731 的可解码位图（PNG）（保比例收进上限，不拒收） | 2026-10-16 |
 
-### `crates/gloss-platform/src/events/mod.rs`
+### `crates/gloss-platform/src/event_thread.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| tick_drains_commands_before_polling_sources | `tick` 内命令先全部抽干后才轮询事件源 | 给定两条已排队命令与一个记录调用顺序的事件源，当 `tick` 一轮，则两条命令先按序消费、事件源轮询恰在其后一次（取材轮次闩锁依赖的 `tick` 内顺序不变量） | 2026-11-07 |
+| sink_send_tolerates_closed_receivers | `sink` 容忍关闭的接收端 | 给定接收端已关闭的 `sink`，当发送，则返回 `false` 不 `panic` | 2026-11-07 |
+| successful_send_wakes_main_thread | 发送成功唤醒主线程 | 给定主线程在事件循环等待，当发送成功，则唤醒回调被触发；发送失败不唤醒 | 2026-11-07 |
+
+### `crates/gloss-platform/src/macos/events/mod.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | commands_are_consumed_in_order_then_thread_exits | 命令按序消费线程干净退出 | 给定 16 条命令，当事件线程消费，则按序产出、`Sender` `drop` 后线程退出且无多余事件 | 2026-09-19 |
 | late_commands_are_still_consumed | 晚到命令仍被消费 | 给定跨定时器周期（60 毫秒）晚到的命令，当消费，则仍被处理 | 2026-09-19 |
 | sources_are_polled_and_forwarded | 事件源轮询转发 | 给定事件源每轮抽干，当 `tick`，则产出经 `sink` 送平台通道、命令照常消费 | 2026-09-19 |
-| tick_drains_commands_before_polling_sources | `tick` 内命令先全部抽干后才轮询事件源 | 给定两条已排队命令与一个记录调用顺序的事件源，当 `tick` 一轮，则两条命令先按序消费、事件源轮询恰在其后一次（取材轮次闩锁依赖的 `tick` 内顺序不变量） | 2026-10-14 |
 | panicking_handler_does_not_kill_thread | 处理器 `panic` 不杀线程 | 给定会 `panic` 的命令处理器，当处理，则 `panic` 被拦截、后续命令照常消费 | 2026-09-19 |
 | panicking_source_does_not_kill_thread | 事件源 `panic` 不杀线程 | 给定首轮 `panic` 的事件源，当轮次推进，则线程存活、后续轮次照常抽干 | 2026-09-19 |
-| sink_send_tolerates_closed_receivers | `sink` 容忍关闭的接收端 | 给定接收端已关闭的 `sink`，当发送，则返回 `false` 不 `panic` | 2026-09-19 |
-| successful_send_wakes_main_thread | 发送成功唤醒主线程 | 给定主线程在事件循环等待，当发送成功，则唤醒回调被触发；发送失败不唤醒 | 2026-09-19 |
 
 ### `crates/gloss-platform/src/events/mouse.rs`
 
@@ -1745,14 +1766,11 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| pump_tick_drains_commands_before_polling_sources | 抽干先命令后源 | 给定两条已入队命令与一次轮询源，当 `tick`，则整条命令队列先于源轮询抽干且一命令一事件按序回传 | 2026-11-06 |
 | pump_commands_are_consumed_in_order_then_thread_exits | 泵线程按序消费后退出 | 给定真实泵线程与十六命令，当消费完后断开命令通道，则事件按序回传、线程退出且退出后无事件 | 2026-11-06 |
 | pump_late_commands_are_still_consumed | 迟来命令仍被消费 | 给定泵线程在先批命令消费完后的新命令，当跨节拍再发一条，则新命令照常消费回传 | 2026-11-06 |
 | pump_sources_are_polled_and_forwarded | 事件源轮询并转发 | 给定产出两事件的事件源，当泵节拍轮询，则两事件转发到平台通道且命令回传不受影响 | 2026-11-06 |
 | pump_panicking_handler_does_not_kill_thread | 命令处理器恐慌不杀线程 | 给定首命令即恐慌的处理器，当连发两命令，则线程存活且第二条事件照常回传 | 2026-11-06 |
 | pump_panicking_source_does_not_kill_thread | 事件源恐慌不杀线程 | 给定首拍即恐慌后自愈的事件源，当下拍产出事件，则线程存活且事件照常转发 | 2026-11-06 |
-| pump_sink_send_tolerates_closed_receivers | 汇点容忍关闭的接收端 | 给定两接收端皆关闭的汇点，当发事件与平台事件，则都返回失败不恐慌 | 2026-11-06 |
-| pump_successful_send_wakes_main_thread | 成功发送唤醒失败不唤醒 | 给定计数唤醒闭包的汇点，当成功发送与关闭接收端后再发送，则成功发送恰唤醒一次、失败发送不唤醒 | 2026-11-06 |
 
 ### `crates/gloss-platform/src/windows/events/mouse.rs`
 
