@@ -45,7 +45,7 @@
 
 ## tap sink 的 panic 屏障与 release panic=abort（P2-1，2026-10-13）
 
-- 为什么 release 上 `panic = “abort”` 后 sink 闭包里的 `catch_unwind` 保留而不删除：
+- 为什么 release 上 `panic = "abort"` 后 sink 闭包里的 `catch_unwind` 保留而不删除：
   release 下屏障不再拦截，panic 在事发点 abort 进程（C 回调屏障的防 abort 保护
   同步消失——行为变更须在 PR 描述显式记录，开 PR 时落实）；dev/test 构建仍是 unwind（test 目标由 cargo
   强制 unwind），无屏障时 sink 的 panic 会穿过 `raw_callback` 这个 C 回调边界
@@ -65,7 +65,7 @@
 - `ListenError`：监听启动失败的原因，只用于日志与降级判定：手势可降级，失败不向上传播错误。`EventTap`：系统拒绝建立事件 tap：最常见的原因是未授予辅助功能权限。
 - `MouseSource::spawn`：返回 `None` 即 tap 没建起来（未授权辅助功能最常见），组装点据此同步判定手势可用性，无须轮询。建立的等待是“创建相结果”通道事件，有界且无用户交互。标志只在 tap 中途停止投递时置位，启动失败不经它表达。
 - `spawn_tap`：启动 tap 监听线程并**同步等待**创建相结果：成功返回事件通道，失败返回 `None`（原因已记日志）。创建相与阻塞相分离，失败在进 run loop 前就确定。创建相在回报前就消亡（panic 于纯 FFI 与装箱路径，理论不可达）：按缺失降级，与创建失败同一出口。
-- `tap_loop`：tap 监听线程的执行体：事件经 panic 屏障投递（满则丢弃），创建成功先回报，再进阻塞的 run loop。事件 tap 回调是 C 回调，panic 穿过它直接 abort 进程：与事件线程的 guarded 同一纪律，unwind 构建下兜底后监听继续；release 以 `panic = “abort”` 构建时本屏障不再拦截，panic 在事发点 abort 进程（生效边界同 guarded）。兜底放在这里而不在 tap 实现里，是模块与实现之间的分工——实现侧只需保证自己不 panic（它的活只是常量查表加读一次坐标）。panic 屏障：闭包的结果（含 panic 信号）有意整体丢弃，监听循环只关心是否继续。通道满时丢弃：手势判定不需要完整事件流，反压 tap 回调的代价远大于丢一次触发机会。创建成功先回报再进阻塞的 run loop（回报通道只有一位且调用方正同步等待；即便对方已提前放弃也不影响监听）。此后只有“运行中停止投递”一条退出路径（tap 没有停止 API），置位降级标志并留 info 便于诊断。
+- `tap_loop`：tap 监听线程的执行体：事件经 panic 屏障投递（满则丢弃），创建成功先回报，再进阻塞的 run loop。事件 tap 回调是 C 回调，panic 穿过它直接 abort 进程：与事件线程的 guarded 同一纪律，unwind 构建下兜底后监听继续；release 以 `panic = "abort"` 构建时本屏障不再拦截，panic 在事发点 abort 进程（生效边界同 guarded）。兜底放在这里而不在 tap 实现里，是模块与实现之间的分工——实现侧只需保证自己不 panic（它的活只是常量查表加读一次坐标）。panic 屏障：闭包的结果（含 panic 信号）有意整体丢弃，监听循环只关心是否继续。通道满时丢弃：手势判定不需要完整事件流，反压 tap 回调的代价远大于丢一次触发机会。创建成功先回报再进阻塞的 run loop（回报通道只有一位且调用方正同步等待；即便对方已提前放弃也不影响监听）。此后只有“运行中停止投递”一条退出路径（tap 没有停止 API），置位降级标志并留 info 便于诊断。
 - `tap::imp`：自建只订阅左键的 CGEventTap。
 - `imp::subscribed_mask`：订阅掩码：由共享的 `SUBSCRIBED_EVENT_TYPES` 推出——掩码不另写一份，否则键盘事件会从两处口径的缝隙里回来。
 - `imp::TapHandle`：已建成待运行的 tap：`create` 与 `run` 两相的交接凭证。tap 与其 run loop source 已挂上当前线程的 run loop，句柄本身无状态——它让“没建成就不能运行”成为类型层面的约束。

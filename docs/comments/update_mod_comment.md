@@ -87,6 +87,12 @@
 - `real_hooks`：真实 hooks：清单与整包下载共用进程内唯一 HTTP 客户端（见 `shared_client`），替换走 `install::install`。
 - `download_work_dir`：下载工作目录（临时目录）：zip 的落位卷不必与 bundle 同卷——只有解压目标必须同卷（ditto 跨卷复制无碍，改名对必须同卷）。
 
-## install 模块按目标分派（2026-11-05，Windows 移植 P0）
+## install 模块按目标分派（2026-11-05，Windows 移植 P0；2026-11-07 评审遗留 E1 按现状改写）
 
-- `mod install` 双文件分派（`#[cfg] + #[path]`）：macOS 走 .app 原位替换（install.rs，内容不变），其余目标走同名镜像桩（install_stub.rs，一律带 `NotABundle` 失败）。`InstallHook` 类型与共享流程（下载、校验、状态机、测试）零改动编译；Windows 替换规格待 P3 定案（见 install_stub 记录）。
+- `mod install` 三路分派（`#[cfg] + #[path]`，分派都在模块声明上）：系统
+  （macOS）走 .app 原位替换（`install.rs`）；系统（Windows）走 exe 加旁置
+  dll 的整包替换（`install_windows.rs`，P3a 落地，换装编排走共享核心
+  `install_shared.rs`）；其余目标走同名镜像桩（`install_stub.rs`，恒带
+  `PlatformUnsupported` 失败——评审遗留 A3 把早先借用的 `NotABundle`
+  换成语义正确的专用变体）。`InstallHook` 类型与共享流程（下载、校验、
+  状态机、测试）零改动编译。

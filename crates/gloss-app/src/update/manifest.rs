@@ -112,6 +112,9 @@ pub fn parse(body: &str) -> Result<UpdateManifest, ManifestError> {
         .ok_or(ManifestError::Invalid)?;
     let mut artifacts = BTreeMap::new();
     for (arch, entry) in stable {
+        if arch.is_empty() {
+            return Err(ManifestError::Invalid);
+        }
         let url = entry.url.ok_or(ManifestError::Invalid)?;
         let size = entry.size.ok_or(ManifestError::Invalid)?;
         let sha256 = entry.sha256.ok_or(ManifestError::Invalid)?;
@@ -308,6 +311,28 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_platform_key_is_rejected_on_every_host() {
+        let entries: Vec<String> = [
+            ("", artifact("https://p/e.zip", 4, SHA_A)),
+            (ARM_DARWIN, artifact("https://p/a.zip", 1, SHA_A)),
+            (X64_DARWIN, artifact("https://p/x.zip", 2, SHA_B)),
+            (X64_WINDOWS, artifact("https://p/w.zip", 3, SHA_C)),
+        ]
+        .into_iter()
+        .map(|(key, entry)| format!(r#""{key}":{{{entry}}}"#))
+        .collect();
+        let text = format!(
+            r#"{{"schema":1,"version":"0.2.0","channels":{{"stable":{{{}}}}}}}"#,
+            entries.join(",")
+        );
+        assert_eq!(
+            parse(&text),
+            Err(ManifestError::Invalid),
+            "an empty key must not turn the matrix green on hosts whose own key is empty"
+        );
+    }
+
+    #[test]
     fn artifact_fields_follow_the_matrix() {
         let missing_url = body("1", "0.2.0", r##""size":1,"sha256":"""##, r#""size":2"#);
         assert_eq!(parse(&missing_url), Err(ManifestError::Invalid));
@@ -406,14 +431,30 @@ mod tests {
 
     #[test]
     fn current_arch_is_the_compiled_platform_triple() {
-        let expected = if cfg!(target_os = "windows") {
-            X64_WINDOWS
-        } else if cfg!(target_arch = "aarch64") {
-            ARM_DARWIN
+        if cfg!(target_os = "macos") {
+            let expected = if cfg!(target_arch = "aarch64") {
+                ARM_DARWIN
+            } else {
+                X64_DARWIN
+            };
+            assert_eq!(
+                current_arch(),
+                expected,
+                "the macos leg keys the darwin manifest by the compiled arch"
+            );
+        } else if cfg!(target_os = "windows") {
+            assert_eq!(
+                current_arch(),
+                X64_WINDOWS,
+                "the windows leg keys the windows manifest"
+            );
         } else {
-            X64_DARWIN
-        };
-        assert_eq!(current_arch(), expected);
+            assert_eq!(
+                current_arch(),
+                UNSUPPORTED_ARCH,
+                "hosts without a release channel must not misreport a triple"
+            );
+        }
     }
 
     #[test]

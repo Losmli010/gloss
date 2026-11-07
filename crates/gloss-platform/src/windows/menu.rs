@@ -123,14 +123,19 @@ struct MenuActions {
 
 impl MenuActions {
     fn dispatch(&self, id: &str) {
-        if id == SETTINGS_ITEM_ID {
-            if let Ok(action) = self.open_settings.lock() {
-                action();
-            }
-        } else if id == QUIT_ITEM_ID
-            && let Ok(action) = self.quit.lock()
-        {
-            action();
+        let lock = if id == SETTINGS_ITEM_ID {
+            self.open_settings.lock()
+        } else if id == QUIT_ITEM_ID {
+            self.quit.lock()
+        } else {
+            return;
+        };
+        match lock {
+            Ok(action) => action(),
+            Err(_) => warn!(
+                thread = thread::UI,
+                id, "menu callback mutex poisoned, menu click dropped"
+            ),
         }
     }
 }

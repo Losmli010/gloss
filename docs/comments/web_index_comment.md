@@ -182,8 +182,11 @@
   无镜像行（Windows 无 dmg）；`.arch-cards` 网格改三列（≤900px 单列），
   第三卡图标用四窗格（Windows 记号的简化形，避免直接画商标）。
 - **首次打开指引分平台**：拆 `guide-macos` 与 `guide-windows` 两块，随当前
-  架构由 `main.js` 切 `hidden`（脚本不可用时两块都可见，与首行 `js` 标记
-  的既有降级约定一致）；Windows 指引为解压 → 双击 `Gloss.exe` →
+  架构由 `main.js` 切 `hidden`（2026-11-07 评审遗留 F2 改准：Windows 块的
+  标记不再预置 `hidden`——此前预置的隐藏属性使脚本不可用的访客只见
+  macOS 指引，与“无脚本两块可见”的声明不符；现在收起动作完全由
+  `main.js` 首段按缺省架构执行，无脚本访客两块都可见，渐进增强）；
+  Windows 指引为解压 → 双击 `Gloss.exe` →
   SmartScreen“更多信息”→“仍要运行”，说明行口径对齐 macOS 侧
   （未签名 → 一次性确认，不改动程序内容）。macOS 指引内容不动。
 - **技术卡事实修正与平台化**：
@@ -193,7 +196,9 @@
     “Metal/Vulkan/DX12”（后端随目标平台由特性面决定，无代码分支）。
   - “密钥进钥匙串”卡改“密钥只存本机”：macOS 钥匙串（Keychain）与
     Windows 凭据管理器（Credential Manager）分述；hero 的密钥说明随当前
-    架构分词（`main.js` 注入）。
+    架构分词（`main.js` 注入）。技术栈墙的密钥词条同步平台分词
+    （`Keychain · Credential Manager`，2026-11-07 评审遗留 F5——此前
+    单列 `Keychain` 与卡片的双平台口径不一致）。
   - 图片解释卡补 Windows 截图键位 Win+Shift+S（与 ⌘⌃⇧4 并列）。
   - fallback-note“按芯片架构选择”改“按平台架构选择”。
 - **刻意不动**：hero CSS mockup（Safari 标题栏与 ⌘C 页脚）与快捷键记号

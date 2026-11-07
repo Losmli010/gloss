@@ -561,10 +561,13 @@ mod live_tests {
         // previous content and makes this process the owner.
         unsafe { EmptyClipboard() }.expect("empty");
         // SAFETY: the clipboard is open and the handle carries the bytes
-        // written above; ownership transfers to the board on success.
-        unsafe { SetClipboardData(format, Some(HANDLE(handle.0))) }.expect("set");
-        // SAFETY: matches the successful open above.
+        // written above; ownership transfers to the board on success, and a
+        // null return leaves the handle leaked in this test process.
+        let set = unsafe { SetClipboardData(format, Some(HANDLE(handle.0))) };
+        // SAFETY: matches the open above; the close runs on the failure path
+        // too, so a failed write never leaves the board open in this process.
         unsafe { CloseClipboard() }.expect("close");
+        set.expect("set");
     }
 
     #[test]
