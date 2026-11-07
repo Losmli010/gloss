@@ -23,7 +23,11 @@
   “本机钥匙串（Keychain）”，Windows 报“Windows 凭据管理器”；说明词
   函数化（`keychainNote`）避免渲染路径里散落三元。
 - **指引切换**：`render()` 按当前架构切 `guide-macos`/`guide-windows` 的
-  `hidden`（darwin 判定用 `-apple-darwin` 后缀）；无脚本时两块都可见。
+  `hidden`（darwin 判定用 `-apple-darwin` 后缀）。无脚本时两块都可见（渐进
+  增强，2026-11-07 评审遗留 F2 改准）：HTML 不再预置 `hidden`，脚本首段
+  （延迟脚本执行点，先于清单与探测）按缺省架构先收起不匹配块——收起对
+  无脚本访客不生效，也不再依赖标记语言里的初始隐藏属性；指引块在折叠
+  之下，同步收起无可感知闪烁。
 - 测试口径：页内行为用浏览器自动化验证（三卡渲染、清单注入后的直链与
   体积、三种 UA 的识别、指引切换与 manifestLooksValid 三例），登记见
   `docs/tests/bdd.md` 的 `pages_site_point_check`。
