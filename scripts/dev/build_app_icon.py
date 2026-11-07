@@ -8,7 +8,9 @@
 打包图标与程序坞（Dock）图标源自规范画布稿，站点两张位图源自满幅主标稿，
 站点标稿拷贝仍按图标目录说明手工同步。
 只用系统自带的图像转换与图标集工具；图标集容器（ICO）的组装与回读自检为
-纯标准库实现，图像数据保留位图（PNG）编码进容器，不引入额外工具链。
+纯标准库实现——小档位走容器（ICO）的传统位图（BMP）编码（信息头加自底
+向上像素加全零掩码，系统渲染兼容面以传统形态承载），大档位保留位图（PNG）
+编码进容器，不引入额外工具链。
 """
 
 from __future__ import annotations
@@ -26,8 +28,18 @@ ICONS = os.path.join(ROOT, "assets", "icons")
 # 图标集容器（ICO）的档位：任务栏小图标到资源管理器大视图的常用覆盖面
 ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
+# 小档位改用传统位图（BMP）编码的上限：此下的档位走信息头加像素加掩码的
+# 容器（ICO）传统形态，之上的档位保留位图（PNG）压缩
+ICO_BMP_MAX_SIZE = 48
+
 # 位图数据的署名（PNG），回读自检用于核对每个档位的编码形态
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+BMP_INFO_HEADER_LEN = 40
+
+# 位图（BMP）条目只认标准通道序（蓝绿红阿尔法），转换工具写出别的通道面
+# 当场报错，坏产物不得静默进仓库
+BMP_MASKS_BGRA = (0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
 
 
 def sips(*args: str) -> None:
@@ -59,22 +71,23 @@ def raster1024(src: str, dst: str) -> bool:
 
 
 def pack_ico(images: list[tuple[int, bytes]]) -> bytes:
-    """组装图标集容器（ICO）：目录头加每档位一项，位图数据直接用位图（PNG）编码——
-    系统（Windows）的图标资源接受该形态的压缩档位。"""
+    """组装图标集容器（ICO）：目录头加每档位一项，位图数据按档位取位图（PNG）或
+    传统位图（BMP）编码——两种形态都在系统（Windows）的图标资源接受面内。"""
     entries = b""
     payload = b""
     offset = 6 + 16 * len(images)
-    for size, png in images:
+    for size, image in images:
         # 宽高字节取值 0 即 256（容器格式的历史口径）
-        entries += struct.pack("<BBBBHHII", size % 256, size % 256, 0, 0, 1, 32, len(png), offset)
-        payload += png
-        offset += len(png)
+        entries += struct.pack("<BBBBHHII", size % 256, size % 256, 0, 0, 1, 32, len(image), offset)
+        payload += image
+        offset += len(image)
     return struct.pack("<HHH", 0, 1, len(images)) + entries + payload
 
 
-def verify_ico(path: str, sizes: tuple[int, ...]) -> bool:
-    """回读自检：目录计数、档位、平面数与位深、偏移推进及每档位的
-    位图（PNG）署名逐一核对，组装写坏当场失败，坏产物不得静默进仓库。"""
+def verify_ico(path: str, sizes: tuple[int, ...], bmp_sizes: tuple[int, ...] = ()) -> bool:
+    """回读自检：目录计数、档位、平面数与位深、偏移推进及每档位的编码形态
+    （小档位传统位图（BMP）几何、大档位位图（PNG）署名）逐一核对，组装写坏
+    当场失败，坏产物不得静默进仓库。"""
     with open(path, "rb") as fh:
         blob = fh.read()
     count = struct.unpack_from("<H", blob, 4)[0]
@@ -88,10 +101,99 @@ def verify_ico(path: str, sizes: tuple[int, ...]) -> bool:
             return False
         if (planes, depth) != (1, 32) or start != offset:
             return False
-        if length < len(PNG_SIGNATURE) or blob[start : start + len(PNG_SIGNATURE)] != PNG_SIGNATURE:
+        if size in bmp_sizes:
+            if not bmp_entry_shape_ok(size, blob[start : start + length]):
+                return False
+        elif (
+            length < len(PNG_SIGNATURE) or blob[start : start + len(PNG_SIGNATURE)] != PNG_SIGNATURE
+        ):
             return False
         offset += length
     return offset == len(blob)
+
+
+def bmp_entry_shape_ok(size: int, payload: bytes) -> bool:
+    """图标条目的传统位图（BMP）形态核对：四十字节信息头、无压缩、双高声明、
+    像素与全零掩码占满载荷。"""
+    if len(payload) < BMP_INFO_HEADER_LEN:
+        return False
+    header_size, width, height, planes, depth = struct.unpack_from("<IiiHH", payload, 0)
+    compression = struct.unpack_from("<I", payload, 16)[0]
+    if header_size != BMP_INFO_HEADER_LEN or (width, height) != (size, size * 2):
+        return False
+    if (planes, depth, compression) != (1, 32, 0):
+        return False
+    mask_row = ((size + 31) // 32) * 4
+    expected = BMP_INFO_HEADER_LEN + size * size * 4 + mask_row * size
+    if len(payload) != expected:
+        return False
+    return payload[BMP_INFO_HEADER_LEN + size * size * 4 :] == b"\x00" * (mask_row * size)
+
+
+def ico_bmp_payload(size: int, blob: bytes) -> bytes:
+    """从图像转换工具的位图（BMP）文件字节提取像素，合成图标集条目的传统
+    位图（BMP）载荷（四十字节信息头、自底向上像素、全零掩码）。"""
+    if len(blob) < 14 + BMP_INFO_HEADER_LEN or blob[:2] != b"BM":
+        raise SystemExit("error: the converted icon is not a BMP file")
+    header_size = struct.unpack_from("<I", blob, 14)[0]
+    width, height, planes, bpp = struct.unpack_from("<iiHH", blob, 18)
+    compression = struct.unpack_from("<I", blob, 30)[0]
+    if header_size < BMP_INFO_HEADER_LEN or (width, planes, bpp, abs(height)) != (
+        size,
+        1,
+        32,
+        size,
+    ):
+        raise SystemExit(
+            "error: unexpected BMP geometry %dx%dx%d (header %d)"
+            % (width, height, bpp, header_size)
+        )
+    if compression == 3:
+        masks = struct.unpack_from("<IIII", blob, 14 + BMP_INFO_HEADER_LEN)
+        if masks != BMP_MASKS_BGRA:
+            raise SystemExit(
+                "error: unexpected BMP channel masks %s"
+                % (", ".join("%08x" % mask for mask in masks))
+            )
+    elif compression != 0:
+        raise SystemExit("error: unexpected BMP compression %d" % compression)
+    pixels_at = struct.unpack_from("<I", blob, 10)[0]
+    row_bytes = width * 4
+    if len(blob) < pixels_at + row_bytes * size:
+        raise SystemExit("error: truncated BMP pixel data")
+    rows = [
+        blob[pixels_at + at * row_bytes : pixels_at + (at + 1) * row_bytes] for at in range(size)
+    ]
+    if height < 0:
+        # 顶行序存储翻成容器条目的自底向上
+        rows.reverse()
+    if not any(row[at] for row in rows for at in range(3, row_bytes, 4)):
+        raise SystemExit("error: the converted icon carries no alpha at all")
+    mask_row = b"\x00" * (((size + 31) // 32) * 4)
+    header = struct.pack(
+        "<IiiHHIIiiII",
+        BMP_INFO_HEADER_LEN,
+        size,
+        size * 2,
+        1,
+        32,
+        0,
+        row_bytes * size + len(mask_row) * size,
+        0,
+        0,
+        0,
+        0,
+    )
+    return header + b"".join(rows) + mask_row * size
+
+
+def bmp_entry(size: int, png: str) -> bytes:
+    """把单档位（PNG）转成图标集条目的传统位图（BMP）载荷：图像转换工具出
+    位图（BMP），纯标准库解析像素并重组为容器（ICO）的传统形态。"""
+    bmp = png + ".bmp"
+    sips("-s", "format", "bmp", png, "--out", bmp)
+    with open(bmp, "rb") as fh:
+        return ico_bmp_payload(size, fh.read())
 
 
 def main() -> int:
@@ -141,18 +243,23 @@ def main() -> int:
         sips("-z", "256", "256", icon1024, "--out", os.path.join(ICONS, "gloss-dock-icon.png"))
         print("ok: %s" % os.path.join(ICONS, "gloss-dock-icon.png"))
 
-        # 图标集（Windows）：同一主图降采样七档，位图（PNG）编码数据直接进容器（ICO），
-        # 产物进仓库与打包图标同规，消费面是系统可执行文件资源与后置安装器
+        # 图标集（Windows）：同一主图降采样七档，小档位转传统位图（BMP）编码、
+        # 大档位保留位图（PNG）编码进容器（ICO），产物进仓库与打包图标同规，
+        # 消费面是系统可执行文件资源与后置安装器
+        bmp_sizes = tuple(size for size in ICO_SIZES if size <= ICO_BMP_MAX_SIZE)
         images: list[tuple[int, bytes]] = []
         for size in ICO_SIZES:
             sized = os.path.join(work, "icon-%d.png" % size)
             sips("-z", str(size), str(size), icon1024, "--out", sized)
-            with open(sized, "rb") as fh:
-                images.append((size, fh.read()))
+            if size in bmp_sizes:
+                images.append((size, bmp_entry(size, sized)))
+            else:
+                with open(sized, "rb") as fh:
+                    images.append((size, fh.read()))
         ico_path = os.path.join(ICONS, "Gloss.ico")
         with open(ico_path, "wb") as fh:
             fh.write(pack_ico(images))
-        if not verify_ico(ico_path, ICO_SIZES):
+        if not verify_ico(ico_path, ICO_SIZES, bmp_sizes):
             print("error: %s failed the self check" % ico_path, file=sys.stderr)
             return 1
         print("ok: %s" % ico_path)

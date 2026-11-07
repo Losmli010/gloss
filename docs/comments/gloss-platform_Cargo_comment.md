@@ -29,7 +29,7 @@
 
 ## objc2-foundation
 
-- 2026-09-22 系统语言读取（src/locale.rs 的 `NSLocale::preferredLanguages`）要给原有关键字集加 `NSLocale`/`NSArray`/`NSString`：`preferredLanguages` 本身被 `all(feature = “NSArray”, feature = “NSString”)` 门控，缺任一编译不过。只加这三个，不整体开默认集。
+- 2026-09-22 系统语言读取（src/locale.rs 的 `NSLocale::preferredLanguages`）要给原有关键字集加 `NSLocale`/`NSArray`/`NSString`：`preferredLanguages` 本身被 `all(feature = "NSArray", feature = "NSString")` 门控，缺任一编译不过。只加这三个，不整体开默认集。
 - 2026-10-12 加 `NSURL`：`NSRunningApplication.bundleURL` 的返回类型被
   该特性门控，selection/activation.rs 按前台应用包路径查内核框架形态
   （Chromium 家族判定）。只加这一个，不整体开默认集。
@@ -94,3 +94,13 @@
 
 - 托盘图标与托盘菜单（D6 行为差异项：托盘替代坞菜单）进系统（Windows）专属节；默认特性是 Linux 后端（AppIndicator 及其 gtk 链），Windows 编译面用不到，`default-features = false` 收敛特性面。菜单面用托盘库重导出的 muda，不另立依赖。
 - windows 绑定加 `Win32_Globalization`（用户默认区域名）与 `Win32_System_SystemServices`（区域名缓冲定长常量）两个接口域，按“按用到的接口域显式列出”的既有口径追加。
+
+## toml 与 directories 移入系统（macOS）节（2026-11-07，移植评审遗留 A4）
+
+- 之前留共同节的理由（P2 的 Windows 实现按映射表可能复用）随 P2/P3 落地
+  失效：全仓检索两库的消费面只有系统（macOS）的存储模块（文档半边的
+  配置文件解析与目录定位），系统（Windows）存储实现不走这两库（占位，
+  后续接凭据管理器与注册表时按需回共同节或入系统（Windows）节）。移入
+  `[target.'cfg(target_os = "macos")'.dependencies]` 后，系统（Windows）
+  冒烟构建不再多编译未用依赖。arboard 留共同节不变（windows/selection
+  与 windows/clipboard 在用）；image 的按目标拆节不变。
