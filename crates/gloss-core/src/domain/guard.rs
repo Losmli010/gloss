@@ -30,13 +30,13 @@ const SENSITIVE_APPS_MACOS: [&str; 7] = [
 ];
 
 const SENSITIVE_APPS_WINDOWS: [&str; 7] = [
-    "1password.exe",
-    "1password 7.exe",
-    "keepass.exe",
-    "keepassxc.exe",
-    "bitwarden.exe",
-    "lastpass.exe",
-    "dashlane.exe",
+    "1password",
+    "1password7",
+    "keepass",
+    "keepassxc",
+    "bitwarden",
+    "lastpass",
+    "dashlane",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -77,18 +77,27 @@ pub fn trigger_block(facts: &SceneFacts) -> Option<TriggerBlock> {
 
 fn matched_entry(front: &FrontApp) -> Option<&'static str> {
     let identities = [front.bundle_id.as_deref(), front.name.as_deref()];
-    sensitive_apps().find(|entry| {
-        identities
-            .iter()
-            .flatten()
-            .any(|identity| identity.eq_ignore_ascii_case(entry))
-    })
-}
-
-fn sensitive_apps() -> impl Iterator<Item = &'static str> {
     SENSITIVE_APPS_MACOS
         .into_iter()
-        .chain(SENSITIVE_APPS_WINDOWS)
+        .find(|entry| {
+            identities
+                .iter()
+                .flatten()
+                .any(|identity| identity.eq_ignore_ascii_case(entry))
+        })
+        .or_else(|| {
+            SENSITIVE_APPS_WINDOWS.into_iter().find(|entry| {
+                identities
+                    .iter()
+                    .flatten()
+                    .any(|identity| windows_process_key(identity).as_str() == *entry)
+            })
+        })
+}
+
+fn windows_process_key(identity: &str) -> String {
+    let stem = identity.strip_suffix(".exe").unwrap_or(identity);
+    stem.to_ascii_lowercase().replace(' ', "")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -429,8 +438,8 @@ mod tests {
             ),
             (
                 in_app("com.acme.vault", "1password"),
-                None,
-                "a display name only matches if the list carries that very name",
+                Some(TriggerBlock::BlockedApp("1password")),
+                "a display name only matches if the list carries that very name; the normalized windows key counts as carried",
             ),
             (
                 SceneFacts {
@@ -454,11 +463,11 @@ mod tests {
         for (facts, expected) in [
             (
                 in_app("1password.exe", "1Password"),
-                Some(TriggerBlock::BlockedApp("1password.exe")),
+                Some(TriggerBlock::BlockedApp("1password")),
             ),
             (
                 in_app("KEEPASS.EXE", "KeePass"),
-                Some(TriggerBlock::BlockedApp("keepass.exe")),
+                Some(TriggerBlock::BlockedApp("keepass")),
             ),
             (in_app("explorer.exe", "File Explorer"), None),
         ] {
@@ -466,6 +475,47 @@ mod tests {
                 trigger_block(&facts),
                 expected,
                 "{facts:?}: matching is ASCII case-insensitive on the executable name too"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_process_keys_match_regardless_of_exact_spelling() {
+        for (facts, expected) in [
+            (
+                in_app("1Password7.exe", "1Password 7"),
+                Some(TriggerBlock::BlockedApp("1password7")),
+            ),
+            (
+                in_app("1Password 7.exe", "1Password7"),
+                Some(TriggerBlock::BlockedApp("1password7")),
+            ),
+            (
+                in_app("1PASSWORD7.EXE", "1Password 7"),
+                Some(TriggerBlock::BlockedApp("1password7")),
+            ),
+            (
+                SceneFacts {
+                    secure_input: false,
+                    front_app: Some(FrontApp {
+                        bundle_id: None,
+                        name: Some("1Password7".to_owned()),
+                        is_self: false,
+                    }),
+                },
+                Some(TriggerBlock::BlockedApp("1password7")),
+            ),
+            (
+                in_app("1password7.exe", "1Password 7"),
+                Some(TriggerBlock::BlockedApp("1password7")),
+            ),
+            (in_app("1password-manager.exe", "1Password Manager"), None),
+            (in_app("explorer7.exe", "Explorer"), None),
+        ] {
+            assert_eq!(
+                trigger_block(&facts),
+                expected,
+                "{facts:?}: normalized keys make the hit independent of the exact process-name spelling"
             );
         }
     }

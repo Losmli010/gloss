@@ -20,7 +20,8 @@
 //! （CF_DIB）与版本 5 位图（CF_DIBV5））是无文件头的设备无关位图（DIB）
 //! 流——按信息头布局算出像素数据偏移，合成位图（BMP）文件头后走图像库的
 //! 位图解码路径（信息头尺寸覆盖基线 40 字节头到版本 5；核心 12 字节头不
-//! 在支持面，报读取失败）。
+//! 在支持面，报读取失败）。位图文件字节在读取路径只合成一次，尺寸探测与
+//! 解码共用同一份（热路径不做整图重复拷贝）。
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -76,7 +77,20 @@ fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossEr
         );
         return Err(GlossError::ImageTooLarge);
     }
-    let (width, height) = header_dimensions(flavor, bytes)?;
+    let bmp = match flavor {
+        ImageFlavor::Dib | ImageFlavor::DibV5 => {
+            Some(bmp_file_bytes(bytes).ok_or_else(|| header_unreadable("malformed dib header"))?)
+        }
+        ImageFlavor::Png => None,
+    };
+    let payload: &[u8] = bmp.as_deref().unwrap_or(bytes);
+    let format = match flavor {
+        ImageFlavor::Png => ImageFormat::Png,
+        ImageFlavor::Dib | ImageFlavor::DibV5 => ImageFormat::Bmp,
+    };
+    let (width, height) = ImageReader::with_format(Cursor::new(payload), format)
+        .into_dimensions()
+        .map_err(header_unreadable)?;
     if !pixels_within_budget(width, height) {
         debug!(
             thread = thread::EVENT,
@@ -84,7 +98,10 @@ fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossEr
         );
         return Err(GlossError::ImageTooLarge);
     }
-    let rgba = decode_rgba(flavor, bytes)?;
+    let rgba = ImageReader::with_format(Cursor::new(payload), format)
+        .decode()
+        .map(|decoded| decoded.into_rgba8())
+        .map_err(decode_failed)?;
     let (width, height, rgba) = downscale_to_budget(rgba);
     encode_png(width, height, rgba.as_raw())
 }
@@ -105,38 +122,6 @@ fn decode_failed(err: impl std::fmt::Display) -> GlossError {
         "clipboard image decode failed"
     );
     GlossError::ImageUnavailable
-}
-
-fn header_dimensions(flavor: ImageFlavor, bytes: &[u8]) -> Result<(u32, u32), GlossError> {
-    match flavor {
-        ImageFlavor::Png => ImageReader::with_format(Cursor::new(bytes), ImageFormat::Png)
-            .into_dimensions()
-            .map_err(header_unreadable),
-        ImageFlavor::Dib | ImageFlavor::DibV5 => dib_reader(bytes)?
-            .into_dimensions()
-            .map_err(header_unreadable),
-    }
-}
-
-fn decode_rgba(flavor: ImageFlavor, bytes: &[u8]) -> Result<image::RgbaImage, GlossError> {
-    match flavor {
-        ImageFlavor::Png => ImageReader::with_format(Cursor::new(bytes), ImageFormat::Png)
-            .decode()
-            .map(|decoded| decoded.into_rgba8())
-            .map_err(decode_failed),
-        ImageFlavor::Dib | ImageFlavor::DibV5 => dib_reader(bytes)?
-            .decode()
-            .map(|decoded| decoded.into_rgba8())
-            .map_err(decode_failed),
-    }
-}
-
-fn dib_reader(dib: &[u8]) -> Result<ImageReader<Cursor<Vec<u8>>>, GlossError> {
-    let file = bmp_file_bytes(dib).ok_or_else(|| header_unreadable("malformed dib header"))?;
-    Ok(ImageReader::with_format(
-        Cursor::new(file),
-        ImageFormat::Bmp,
-    ))
 }
 
 fn dib_pixel_offset(dib: &[u8]) -> Option<u32> {
