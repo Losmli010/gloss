@@ -52,6 +52,15 @@ def test_stray_dll_is_rejected_even_when_others_are_allowed(tmp_path: Path) -> N
         package_zip.payload_files(str(tmp_path / "gloss.exe"), ["helper.dll"])
 
 
+def test_duplicate_allow_flags_yield_a_single_payload_item(tmp_path: Path) -> None:
+    (tmp_path / "gloss.exe").write_bytes(b"exe")
+    (tmp_path / "helper.dll").write_bytes(b"dll")
+    files = package_zip.payload_files(
+        str(tmp_path / "gloss.exe"), ["helper.dll", "Helper.DLL", "helper.dll"]
+    )
+    assert [Path(path).name for path in files] == ["gloss.exe", "helper.dll"]
+
+
 def test_allowed_but_missing_dll_is_rejected(tmp_path: Path) -> None:
     (tmp_path / "gloss.exe").write_bytes(b"exe")
     with pytest.raises(SystemExit, match="helper.dll"):

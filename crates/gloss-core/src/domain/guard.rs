@@ -86,12 +86,10 @@ fn matched_entry(front: &FrontApp) -> Option<&'static str> {
                 .any(|identity| identity.eq_ignore_ascii_case(entry))
         })
         .or_else(|| {
-            SENSITIVE_APPS_WINDOWS.into_iter().find(|entry| {
-                identities
-                    .iter()
-                    .flatten()
-                    .any(|identity| windows_process_key(identity).as_str() == *entry)
-            })
+            let keys = identities.map(|identity| identity.map(windows_process_key));
+            SENSITIVE_APPS_WINDOWS
+                .into_iter()
+                .find(|entry| keys.iter().flatten().any(|key| key.as_str() == *entry))
         })
 }
 

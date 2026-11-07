@@ -61,6 +61,8 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+    # 名单可重复传参；解析边界即去重，载荷清单不因重复旗标出重复条目
+    allowed = sorted(set(allowed))
     exe, out = rest
     if not os.path.isfile(exe):
         print(

@@ -3,10 +3,11 @@
 document.documentElement.classList.add('js');
 
 // 指引两块无脚本时都可见（渐进增强）；脚本可用即在探测与清单到达之前按缺省
-// 架构先收起不匹配块，后续由渲染函数（render）按当前架构切换——收起发生在
-// 延迟脚本执行点（文档解析完、首屏视口之外），无脚本访客不受影响。
-$('guide-macos').hidden = false;
-$('guide-windows').hidden = true;
+// 架构先收起不匹配块，后续由渲染函数（render）按当前架构切换。取元素经文档
+// 接口（getElementById）直取：本段先于取元素助手的声明执行，经助手会踩进
+// 声明前的暂时性死区、整个脚本当场中止。
+document.getElementById('guide-macos').hidden = false;
+document.getElementById('guide-windows').hidden = true;
 
 // 下载契约：同源更新清单由持续集成（CI）注入，提供稳定渠道各平台的直链地址与体积；
 // 取不到或校验不过则整体降级到发布托管。镜像（dmg）仅系统（macOS）平台携带，
