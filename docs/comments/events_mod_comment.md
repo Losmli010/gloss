@@ -20,18 +20,18 @@
 - 为什么 `Err` 分支的 `error!` 留痕在 abort 下不视为违反“降级必有痕”：分支在
   release 不可达即无静默吞错面；它在 unwind 构建可达且有痕。
 
-## 符号契约（自代码注释迁入）
+## 共享形状迁往事件线程骨架（2026-11-07，移植评审遗留 A1）
 
-- `EventSource`：组装点提供的闭包与命令处理器同等对待：panic 不允许带倒事件线程。
-- `TICK`：源事件的 drain 周期：run loop 无法阻塞等待 crossbeam 通道，只能按定时器抽干。手势到浮层的端到端延迟上界即此值。
-- `EventSink`：事件线程的产物出口：④ 回传事件与 ① 平台事件，由组装点接上真实通道。`wake` 是主线程唤醒回调：主线程可能睡在事件循环里，发送成功后不叫醒它，消息要等下一个无关事件才被看到。发送失败（接收端已消失）不唤醒。
-  - `new`：`events` 是 ④ 回传通道，`platform` 是 ① 平台事件通道；`wake` 只在发送成功后调用。
-  - `send_event` / `send_platform`：主线程已退出时返回 `false`：消息丢弃，也不唤醒。
-- `EventThread::join`：退出协议：调用方 drop 通道②的 Sender，线程抽干剩余命令后自行结束；`join` 返回即线程已终止。
-- `spawn`：`on_command` 在事件线程上顺序消费通道②，`sources` 每个 tick 抽干一轮；两者都不允许把 panic 带进线程。线程缺失时应用仍能启动，但取材手势全部失效——必须留痕。
-- `guarded`：应用代码注入的回调不允许把 panic 带进事件线程；捕获后循环继续服务。release 以 `panic = "abort"` 构建时 panic 在事发点直接 abort，`Err` 分支不可达——屏障只在 unwind 构建（dev/test 及其单测）生效。
-- `tick`：一轮消费：先抽干通道②（出现 Disconnected 即退出信号），再抽干全部事件源——同一线程内命令总排在系统事件之前。`send_platform` 成功时经 `notify()` 调组装点注入的唤醒回调，panic 会穿过 C 定时器回调（fire）导致进程 abort——与命令处理、源 poll 同受屏障约束。
+- 事件源契约（`EventSource`）、汇点（`EventSink`）、线程句柄
+  （`EventThread`）、`spawn`、恐慌屏障（`guarded`）、节拍抽干（`tick`）
+  与节拍周期（`TICK_MS`）是两平台一致的平台无关形状，迁往
+  `gloss-platform/src/event_thread.rs`（缘由与符号契约见事件线程骨架
+  记录）；本模块只剩运行循环宿主，`spawn` 包装经函数指针注入本模块的
+  `run_loop`，公开签名不变。
+
+## 运行循环宿主符号契约（自代码注释迁入）
+
 - `LoopState`：事件线程 run loop 的共享状态盒：`fire` 回调经 context 的裸指针取回。
-- `fire`：定时器回调：抽干各源；通道② Sender 全部 drop 时停掉 run loop，让 `CFRunLoopRun` 返回、线程随之结束。
-- `install_timer`：以 `state` 为回调上下文建周期定时器并挂进当前 run loop；创建失败返回 `None`（调用方收卷事件线程）。
+- `fire`：定时器回调：经共享骨架的 `tick` 抽干各源；通道② Sender 全部 drop 时停掉 run loop，让 `CFRunLoopRun` 返回、线程随之结束。panic 穿过 C 定时器回调（fire）会导致进程 abort——命令处理、源 poll 与发送同受骨架里的屏障约束，屏障只在 unwind 构建生效。
+- `install_timer`：以 `state` 为回调上下文建周期定时器并挂进当前 run loop；周期取共享骨架的 `TICK_MS`；创建失败返回 `None`（调用方收卷事件线程）。
 - `run_loop`：事件线程的驱动：RunLoop 不能阻塞在 crossbeam 上，挂一个周期定时器跑 `tick`；自带 run loop 的源在各自线程上运行，产物经通道汇入这里抽干。收尾时 RunLoop 已停止且不在回调中：CF timer 的规范清理是先 invalidate 再 release，最后收回状态盒。

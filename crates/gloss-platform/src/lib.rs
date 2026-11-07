@@ -1,8 +1,9 @@
 //! 适配器层：实现核心层（gloss-core）的端口，把平台差异收在这一层。
 //!
 //! 平台实现按编译目标分目录：系统（macOS）的现有实现、系统（Windows）
-//! 的同名镜像占位与其余目标的空占位各占一个平台目录。占位实现未实现的
-//! 端口一律返回平台未支持（PlatformUnsupported）。本入口按目标声明平台
+//! 的同名镜像占位与其余目标的空占位各占一个平台目录。平台无关的事件线程
+//! 骨架（event_thread）不随目标变化，由两侧平台目录共用。占位实现未实现
+//! 的端口一律返回平台未支持（PlatformUnsupported）。本入口按目标声明平台
 //! 目录，再把子模块重新导出为平台无关路径——消费方的引用面不随编译
 //! 目标变化，平台专属依赖也只在对应目标编译。装配面收敛在装配契约模块
 //! （bootstrap）：入口与应用层只经平台句柄（Platform）取平台能力，不
@@ -17,6 +18,8 @@ pub(crate) mod stubs;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod bootstrap;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub(crate) mod event_thread;
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod linux;
 #[cfg(target_os = "macos")]
