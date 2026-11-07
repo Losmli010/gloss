@@ -22,7 +22,7 @@ members = ["crates/gloss-app", "crates/gloss-core", "crates/gloss-eval", "crates
 
 # 版本与语言版本单点维护，各包继承
 [workspace.package]
-version = "0.2.9"
+version = "0.2.10"
 edition = "2024"
 license = "MIT"
 
