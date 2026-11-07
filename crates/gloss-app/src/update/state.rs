@@ -255,9 +255,11 @@ mod tests {
         let text = format!(
             r#"{{"schema":1,"version":"{version}","channels":{{"stable":{{
   "aarch64-apple-darwin":{{"url":"https://p/a.zip","size":1,"sha256":"{sha_a}"}},
-  "x86_64-apple-darwin":{{"url":"https://p/x.zip","size":2,"sha256":"{sha_b}"}}}}}}}}"#,
+  "x86_64-apple-darwin":{{"url":"https://p/x.zip","size":2,"sha256":"{sha_b}"}},
+  "x86_64-pc-windows-msvc":{{"url":"https://p/w.zip","size":3,"sha256":"{sha_c}"}}}}}}}}"#,
             sha_a = "a".repeat(64),
             sha_b = "b".repeat(64),
+            sha_c = "c".repeat(64),
         );
         manifest::parse(&text).expect("test manifest must validate")
     }
@@ -291,10 +293,10 @@ mod tests {
         assert_eq!(machine.phase(), UpdatePhase::UpdateAvailable);
         let target = machine.update().expect("target locked");
         assert_eq!(target.version.to_string(), "99.0.0");
-        let expected_url = if manifest::current_arch() == "aarch64-apple-darwin" {
-            "https://p/a.zip"
-        } else {
-            "https://p/x.zip"
+        let expected_url = match manifest::current_arch() {
+            "aarch64-apple-darwin" => "https://p/a.zip",
+            "x86_64-pc-windows-msvc" => "https://p/w.zip",
+            _ => "https://p/x.zip",
         };
         assert_eq!(target.artifact.url, expected_url);
         assert!(

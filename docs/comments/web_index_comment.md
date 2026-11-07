@@ -166,3 +166,39 @@
   译名注记形态验证后可读性无损，全站称谓一致的价值更高；其余“刻意不动”
   项（chips 墙、mockup 文字、命令行）维持原判。
 - README 侧的同动机改动见 `README_comment.md`。
+
+## 三平台化（2026-11-07，Windows 移植 P3/D8）
+
+- **缘由**：Windows 移植 P3 落地（`x86_64-pc-windows-msvc` 便携 zip 与同批
+  发布），站点从“macOS 专用”改为“macOS 与 Windows”双平台；与
+  `gen_manifest.py` 的发布矩阵扩展（三 target）、应用内清单解析的平台键
+  （`manifest.rs`）三处同批对齐，改动需三处同步（承接 2026-09-28 的
+  “下载契约不变”条目的三处同步约定）。
+- **标题与 hero 去 macOS 限定**：title/og:title 改“选中即译的划词翻译”，
+  meta 描述与 lede 改“跨 macOS 与 Windows 的划词翻译工具”；eyebrow 补
+  Windows；主下载按钮“下载 macOS 版”改“下载 Gloss”。
+- **架构选择器三卡**：hero 下拉菜单与下载区卡各扩“Windows x64”（下载区
+  依菜单称谓，不再括注英文名）；Windows 卡主按钮即“下载压缩包（.zip）”，
+  无镜像行（Windows 无 dmg）；`.arch-cards` 网格改三列（≤900px 单列），
+  第三卡图标用四窗格（Windows 记号的简化形，避免直接画商标）。
+- **首次打开指引分平台**：拆 `guide-macos` 与 `guide-windows` 两块，随当前
+  架构由 `main.js` 切 `hidden`（脚本不可用时两块都可见，与首行 `js` 标记
+  的既有降级约定一致）；Windows 指引为解压 → 双击 `Gloss.exe` →
+  SmartScreen“更多信息”→“仍要运行”，说明行口径对齐 macOS 侧
+  （未签名 → 一次性确认，不改动程序内容）。macOS 指引内容不动。
+- **技术卡事实修正与平台化**：
+  - “全局热键”卡改名“划词即触发”：全仓无热键子系统（触发是拖选手势，
+    见移植方案 §1.3），原卡宣传了不存在的功能；任务开关表述保留。
+  - “图形标准（WebGPU）渲染”卡与技术栈 chips 墙：Metal 一家改
+    “Metal/Vulkan/DX12”（后端随目标平台由特性面决定，无代码分支）。
+  - “密钥进钥匙串”卡改“密钥只存本机”：macOS 钥匙串（Keychain）与
+    Windows 凭据管理器（Credential Manager）分述；hero 的密钥说明随当前
+    架构分词（`main.js` 注入）。
+  - 图片解释卡补 Windows 截图键位 Win+Shift+S（与 ⌘⌃⇧4 并列）。
+  - fallback-note“按芯片架构选择”改“按平台架构选择”。
+- **刻意不动**：hero CSS mockup（Safari 标题栏与 ⌘C 页脚）与快捷键记号
+  ——示范窗内容属示意，随真机截图待办一并处理；本次范围只收口方案
+  D8.4 列出的文案面。
+- **上线依赖**：随 release 部署（deploy-web 只在 tag 触发），本次改动要等
+  打了 Windows 包的下一个 release 才会出现在线上页面（首发硬前置，见
+  移植方案 D8.5）。

@@ -2,12 +2,14 @@
 // 首行标记脚本语言（JS）可用：进场动画的隐藏态只在脚本可用标记下生效，脚本加载失败时内容保持可见。
 document.documentElement.classList.add('js');
 
-// 下载契约：同源更新清单由持续集成（CI）注入，提供稳定渠道各架构的镜像地址与体积；
-// 取不到或校验不过则整体降级到发布托管。
+// 下载契约：同源更新清单由持续集成（CI）注入，提供稳定渠道各平台的直链地址与体积；
+// 取不到或校验不过则整体降级到发布托管。镜像（dmg）仅系统（macOS）平台携带，
+// 系统（Windows）的便携压缩包（zip）即最终产物。
 const RELEASES_LATEST = 'https://github.com/Losmli010/gloss/releases/latest';
 const ARCHES = {
-  'aarch64-apple-darwin': { label: '苹果芯片（Apple Silicon）' },
-  'x86_64-apple-darwin': { label: '英特尔芯片（Intel）' }
+  'aarch64-apple-darwin': { label: '苹果芯片（Apple Silicon）', short: 'aarch64' },
+  'x86_64-apple-darwin': { label: '英特尔芯片（Intel）', short: 'x86_64' },
+  'x86_64-pc-windows-msvc': { label: 'Windows x64', short: 'win' }
 };
 let arch = 'aarch64-apple-darwin';
 let userPicked = false;
@@ -30,19 +32,26 @@ function manifestLooksValid(m) {
   return Object.keys(ARCHES).some((key) => {
     const e = m.channels.stable[key];
     return e
-      && typeof e.dmg_url === 'string' && e.dmg_url.startsWith('https://')
       && typeof e.url === 'string' && e.url.startsWith('https://')
       && typeof e.size === 'number';
   });
 }
 
+// 密钥存放的说明按平台分词：系统（macOS）报本机钥匙串，系统（Windows）报凭据管理器
+function keychainNote(triple) {
+  return triple === 'x86_64-pc-windows-msvc' ? '密钥只存 Windows 凭据管理器' : '密钥只存本机钥匙串（Keychain）';
+}
+
 function render() {
   const entry = entryFor(arch);
-  const dmgHref = (entry && entry.dmg_url) || RELEASES_LATEST;
+  const mainHref = (entry && (entry.dmg_url || entry.url)) || RELEASES_LATEST;
 
-  $('hero-dl').href = dmgHref;
-  $('nav-dl').href = dmgHref;
+  $('hero-dl').href = mainHref;
+  $('nav-dl').href = mainHref;
   $('hero-arch-label').textContent = ARCHES[arch].label;
+  $('hero-keychain').textContent = keychainNote(arch);
+  $('guide-macos').hidden = !arch.endsWith('-apple-darwin');
+  $('guide-windows').hidden = arch.endsWith('-apple-darwin');
   $$('#hero-split .menu-item').forEach((item) => {
     item.setAttribute('aria-checked', String(item.dataset.arch === arch));
     const e = entryFor(item.dataset.arch);
@@ -52,9 +61,10 @@ function render() {
   });
 
   for (const triple of Object.keys(ARCHES)) {
-    const short = triple === 'aarch64-apple-darwin' ? 'aarch64' : 'x86_64';
+    const short = ARCHES[triple].short;
     const e = entryFor(triple);
-    $(`card-dmg-${short}`).href = (e && e.dmg_url) || RELEASES_LATEST;
+    const dmg = $(`card-dmg-${short}`);
+    if (dmg) dmg.href = (e && e.dmg_url) || RELEASES_LATEST;
     $(`card-zip-${short}`).href = (e && e.url) || RELEASES_LATEST;
     $(`card-size-${short}`).textContent =
       e && typeof e.size === 'number' && e.size > 0 ? `压缩包 ${formatSize(e.size)}` : '';
@@ -77,10 +87,12 @@ fetch('manifest.json')
     render();
   });
 
-// 本机架构识别：仅对系统（macOS）访客生效，网页图形（WebGL）渲染器名优先：新架构报苹果芯片，
+// 本机平台识别：系统（Windows）访客按浏览器标识直接落压缩包（首发只发布单一目标）；
+// 系统（macOS）访客再细分架构——网页图形（WebGL）渲染器名优先：新架构报苹果芯片，
 // 旧架构报芯片厂商（Intel/AMD/NVIDIA）系；该口径天然兼容转译层下浏览器跑在新架构的
 // 边界——按图形硬件（GPU）而非浏览器架构选包，取不到再走客户端提示；都取不到保持默认。
 async function detectArch() {
+  if (/Windows/i.test(navigator.userAgent)) return 'x86_64-pc-windows-msvc';
   if (!/Mac/i.test(navigator.userAgent)) return null;
   try {
     const canvas = document.createElement('canvas');

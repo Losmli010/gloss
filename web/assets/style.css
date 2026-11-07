@@ -328,7 +328,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #16181D 0%, #B84
 .dl-head h2 { font-size: clamp(28px, 3.6vw, 40px); font-weight: 700; }
 .dl-head .sub { color: var(--muted); margin-top: 10px; font-size: 15.5px; }
 .dl-head .pill { margin-left: 10px; vertical-align: 6px; }
-.arch-cards { position: relative; display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; max-width: 760px; margin: 0 auto; }
+.arch-cards { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; max-width: 1080px; margin: 0 auto; }
 .arch-card {
   background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius);
   padding: 26px; text-align: center;
@@ -344,7 +344,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #16181D 0%, #B84
 .arch-card .zip-row a { color: var(--zhu-deep); text-decoration: none; }
 .arch-card .zip-row a:hover { text-decoration: underline; }
 .arch-card .size { color: var(--faint); font-size: 12.5px; margin-top: 8px; }
-@media (max-width: 640px) { .arch-cards { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .arch-cards { grid-template-columns: 1fr; max-width: 480px; } }
 .dl-note { position: relative; text-align: center; color: var(--faint); font-size: 13px; margin-top: 26px; }
 .dl-note a { color: var(--muted); }
 .guide {
