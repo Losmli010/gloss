@@ -143,13 +143,11 @@ mod tests {
 
     #[test]
     fn new_context_carries_fonts_and_theme() {
-        if !fonts::system_font_discovery_present() {
-            return;
-        }
         let ctx = new_context(Theme::Dark);
         assert_eq!(
             ctx.options(|options| options.theme_preference),
-            ThemePreference::Dark
+            ThemePreference::Dark,
+            "主题偏好不依赖宿主发现面，任何宿主都必须落上"
         );
 
         let has_cjk = |ctx: &Context| {
@@ -178,9 +176,12 @@ mod tests {
         };
         assert!(
             serif_bound(&ctx),
-            "命名字体族必须恒绑定（epaint 对未绑定族 panic）"
+            "命名字体族必须恒绑定（epaint 对未绑定族 panic），兜底绑定不依赖宿主发现面"
         );
 
+        if !fonts::system_font_discovery_present() {
+            return;
+        }
         prime_system_fonts();
         reapply([&ctx], Theme::Dark);
         assert!(
