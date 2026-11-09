@@ -22,6 +22,10 @@ fn main() {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(
+    clippy::print_stderr,
+    reason = "构建脚本的失败消息只能经标准错误呈现：此刻应用进程尚不存在，日志出口未装配"
+)]
 fn embed_icon() {
     let mut resource = winresource::WindowsResource::new();
     resource.set_icon("assets/icons/Gloss.ico");
