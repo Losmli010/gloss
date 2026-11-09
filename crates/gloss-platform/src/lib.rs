@@ -31,7 +31,7 @@ mod windows;
 pub(crate) use macos::ffi;
 #[cfg(target_os = "macos")]
 pub use macos::{
-    appearance, clipboard, events, locale, menu, permissions, scene, selection, storage,
+    appearance, clipboard, events, locale, menu, permissions, scene, selection, shortcut, storage,
 };
 
 #[cfg(target_os = "windows")]
@@ -39,7 +39,7 @@ pub(crate) use windows::ffi;
 
 #[cfg(target_os = "windows")]
 pub use windows::{
-    appearance, clipboard, events, locale, menu, permissions, scene, selection, storage,
+    appearance, clipboard, events, locale, menu, permissions, scene, selection, shortcut, storage,
 };
 
 #[cfg(all(test, target_os = "macos"))]

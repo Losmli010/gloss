@@ -14,4 +14,5 @@ pub mod menu;
 pub mod permissions;
 pub mod scene;
 pub mod selection;
+pub mod shortcut;
 pub mod storage;

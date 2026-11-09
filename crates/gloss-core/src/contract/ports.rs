@@ -15,7 +15,7 @@
 //! （finish_reason）仅供诊断，不承载行为。
 //!
 //! 平台能力端口：选区手势源、选区文本取材、剪贴板监视、剪贴板图片取材、
-//! 剪贴板文本写入、应用菜单装配、权限预检与引导。轮询型端口（手势源、
+//! 剪贴板文本写入、应用菜单装配、权限预检与引导、桌面入口装配。轮询型端口（手势源、
 //! 文本取材、监视、图片取材）按“一次装配、单线程消费”的形状声明，方法
 //! 带内部状态故取可变接收者，装配句柄把它们按值移交事件线程；文本取材
 //! 的产物与读后还原收尾分离，收尾在产物上抛之后、在取材线程上执行
@@ -71,6 +71,10 @@ pub trait SecretStore: Send + Sync {
 
 pub trait AppIcon: Send + Sync {
     fn install(&self, png: &[u8]) -> Result<(), GlossError>;
+}
+
+pub trait DesktopShortcut: Send + Sync {
+    fn ensure(&self) -> Result<(), GlossError>;
 }
 
 pub trait SelectionGestureSource: Send {

@@ -25,7 +25,7 @@ gloss/
     ├── gloss-platform/         # 适配器层：实现核心层端口，平台差异收在这一层
     │   └── src/
     │       ├── macos/          # 系统（macOS）实现：平台事件线程、选区与剪贴板取材、存储、外观、菜单与 FFI 唯一落点
-    │       ├── windows/        # 系统（Windows）占位实现：类型面同名镜像的桩，未实现端口返回 PlatformUnsupported
+    │       ├── windows/        # 系统（Windows）实现：手势与取材、托盘、存储（文件加凭据管理器）、桌面入口与 FFI 唯一落点，未实现端口返回 PlatformUnsupported
     │       └── linux/          # 系统（Linux）空占位：仅目录声明移植意向，无假实现
     ├── gloss-app/              # 主线程应用层：缓存站点（任务缓存与完成态解析都在这里）
     │   └── src/

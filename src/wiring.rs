@@ -55,6 +55,16 @@ fn install_app_icon(platform: &Platform) {
     }
 }
 
+fn ensure_desktop_shortcut(platform: &Platform) {
+    if let Err(err) = platform.desktop_shortcut.ensure() {
+        warn!(
+            thread = thread::UI,
+            error = %err,
+            "desktop shortcut not ensured, keeping the current installation layout"
+        );
+    }
+}
+
 fn preflight_accessibility(platform: &Platform) -> bool {
     if platform.permission.preflight() {
         info!(
@@ -209,6 +219,7 @@ impl Assembly {
             commands_rx,
         } = halves;
         install_app_icon(platform);
+        ensure_desktop_shortcut(platform);
         let update_waker = waker.clone();
         self.update_handle.install_wake(move || {
             update_waker.wake_settings();

@@ -27,8 +27,8 @@ use crossbeam_channel::{Receiver, Sender};
 
 use gloss_core::model::{GlossError, Locale};
 use gloss_core::ports::{
-    AppIcon, ClipboardImageReader, ClipboardWatcher, ClipboardWriter, ConfigStore, MenuController,
-    PermissionProbe, SceneProbe, SecretStore, SelectionGestureSource, TextAcquirer,
+    AppIcon, ClipboardImageReader, ClipboardWatcher, ClipboardWriter, ConfigStore, DesktopShortcut,
+    MenuController, PermissionProbe, SceneProbe, SecretStore, SelectionGestureSource, TextAcquirer,
 };
 
 pub use crate::events::{EventSink, EventSources};
@@ -39,6 +39,7 @@ pub struct Platform {
     pub secret_store: Arc<dyn SecretStore>,
     pub system_locale: Locale,
     pub app_icon: Box<dyn AppIcon>,
+    pub desktop_shortcut: Box<dyn DesktopShortcut>,
     pub menu: Box<dyn MenuController>,
     pub clipboard: Box<dyn ClipboardWriter>,
     pub permission: Box<dyn PermissionProbe>,
@@ -63,6 +64,7 @@ impl Platform {
             scene: Arc::new(crate::scene::SystemSceneProbe),
             system_locale: crate::locale::system_locale(),
             app_icon: Box::new(crate::appearance::SystemAppIcon::new()),
+            desktop_shortcut: Box::new(crate::shortcut::SystemDesktopShortcut),
             menu: Box::new(crate::menu::SystemMenuController),
             clipboard: Box::new(crate::clipboard::SystemClipboardWriter),
             permission: Box::new(crate::permissions::SystemPermissionProbe),

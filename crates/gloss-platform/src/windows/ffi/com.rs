@@ -42,6 +42,20 @@ impl ComApartment {
             _thread: PhantomData,
         })
     }
+
+    pub(crate) fn init_sta_unlogged() -> Option<Self> {
+        // SAFETY: the calling thread either has no COM apartment yet or is
+        // already STA (the call reports the existing mode as success); no
+        // pointers are passed or returned.
+        let hr = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+        if hr.is_err() {
+            return None;
+        }
+        Some(Self {
+            owns_init: true,
+            _thread: PhantomData,
+        })
+    }
 }
 
 impl Drop for ComApartment {

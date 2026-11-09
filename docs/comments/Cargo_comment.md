@@ -95,3 +95,7 @@
   该 `//!` 头继续保留，理由改为“测试”节要求的层标签载体，注释纪律的例外措辞已同步改写。
 - 移除后 `[workspace.lints.rust]` 成为空表，一并删除；各 crate 的 `[lints] workspace = true`
   继承不变。`[workspace.lints.clippy]` 全部保留。
+
+## [target.'cfg(target_os = "windows")'.build-dependencies]（winresource，2026-11-10，Windows 移植 P3b 后续）
+
+- 可执行文件资源段（应用图标）的编译封装按目标门控到系统（Windows），构建脚本在该目标下取用；跨宿主为该目标构建时资源编译器须在宿主可用——发布流水线仅在系统（Windows）运行器上构建该目标，此约束成立。
