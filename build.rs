@@ -5,20 +5,19 @@
 //!
 //! 资源编译的调用面还须随宿主门控：目标专属构建依赖按构建目标选择，宿主
 //! 为其他系统时编译面没有该依赖，引用必须随宿主系统参与编译（非系统
-//! （Windows）宿主上的脚本编译因此跳过调用面）。宿主为系统（Windows）而
-//! 构建目标为其他系统时不走本门（脚本以目标为门先退出），组合门下仅剩的
-//! 不可达区（系统（Windows）宿主跨构建其他目标）不在本仓库任何流水线上。
+//! （Windows）宿主上的脚本编译因此整体跳过门内语句）。宿主为系统（Windows）
+//! 而构建目标为其他系统时不进资源编译（脚本以目标为门先退出），组合门下
+//! 仅剩的不可达区（系统（Windows）宿主跨构建其他目标）不在本仓库任何
+//! 流水线上。
 
-#[allow(
-    clippy::print_stderr,
-    reason = "构建脚本的失败消息只能经标准错误呈现：此刻应用进程尚不存在，日志出口未装配"
-)]
 fn main() {
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
-        return;
-    }
     #[cfg(target_os = "windows")]
-    embed_icon();
+    {
+        if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+            return;
+        }
+        embed_icon();
+    }
 }
 
 #[cfg(target_os = "windows")]
