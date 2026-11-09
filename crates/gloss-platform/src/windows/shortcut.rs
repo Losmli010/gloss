@@ -26,8 +26,13 @@ impl DesktopShortcut for SystemDesktopShortcut {
         let exe = env::current_exe()
             .map_err(|err| GlossError::Config(format!("locate running executable: {err}")))?;
         let desktop = ffi::shell_link::desktop_dir()?;
-        if exe.parent().is_some_and(|parent| parent == desktop) {
-            return Ok(());
+        if let Some(parent) = exe.parent() {
+            let same = parent
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&desktop.to_string_lossy());
+            if same {
+                return Ok(());
+            }
         }
         ffi::shell_link::write_shortcut(&desktop.join(LINK_FILE_NAME), &exe)
     }

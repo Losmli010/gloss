@@ -8,7 +8,7 @@
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
-| 人工测试 | 17 | `cargo test -p gloss-platform -- --ignored`；`live_llm` 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 `GLOSS_LIVE_*`） |
+| 人工测试 | 18 | `cargo test -p gloss-platform -- --ignored`；`live_llm` 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 `GLOSS_LIVE_*`） |
 | 发版人工步骤 | 12 | 手动执行（无自动化测试源码的真机、运维步骤，`bdd` 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
@@ -226,6 +226,17 @@
 3. 前台开着任意应用即可；在密码管理器内划词的行为另见 `PR` 走查清单
 
 - 更新时间：2026-09-26
+
+### credential_round_trip_on_real_store
+
+- 测试目标：验证真实凭据管理器写入路径的完整往返（`--ignored`，`cargo test -p gloss-platform --lib windows::storage::cred -- --ignored`）。
+- 测试场景：给定真实凭据库与 `.test` 限定键串，当 `set`→`get`→`set`→`get`→`delete`→`get`，则读回两次写入值、删除后 `None`。
+- 测试步骤：
+
+1. 运行总览中人工测试的命令（只跑 `windows::storage::cred::tests::credential_round_trip_on_real_store`）
+2. 测试写真实凭据管理器（键串带 `.test` 限定、收场即删），勿并行触发其它凭据测试
+
+- 更新时间：2026-11-10
 
 ## 发版人工步骤
 
@@ -1942,10 +1953,10 @@
 | delete_missing_entry_is_ok（cred） | 删除缺条目幂等成功 | 给定不存在的条目，当 `delete`，则幂等成功 | 2026-11-10 |
 | cached_reads_stay_consistent_with_writes（cred） | 缓存读写一致 | 给定写后读与删除后读，当经克隆共享缓存，则写后读新值、删除后克隆读 `None`（不走真实凭据管理器写入） | 2026-11-10 |
 | racing_first_reads_settle_on_one_answer | 并发首读结果一致 | 给定不存在条目的全新实例与 4 线程并发 `get`，当首读竞赛，则全部读到一致结果、不悬挂，缓存随后读保持一致（凭据读取无授权框，读数不做单次收敛） | 2026-11-10 |
-| credential_round_trip_on_real_store | 真实凭据管理器往返 | 给定先删除预清的条目，当 `set`→`get`→`set`→`get`→`delete`→`get`，则读回两次写入值、删除后 `None`（键串带 `.test` 限定，真实写入路径） | 2026-11-10 |
 
 ### `crates/gloss-platform/src/windows/storage/mod.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | composite_save_then_load_round_trips_the_document_half | 组合存储委托文档半边 | 给定 `CompositeConfigStore`，当 `save`→`load`，则完整委托文档半边、逐字段一致 | 2026-11-10 |
+| composite_forwards_secret_ops_to_the_key_half | 组合存储转发密钥端口 | 给定内存桩密钥存储注入的组合体，当经组合体 `SecretStore` 的 `set_secret/secret/delete_secret`，则读回写入值、删除后 `None` | 2026-11-10 |

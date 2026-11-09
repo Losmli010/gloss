@@ -171,6 +171,8 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "credential write touches the real credential store and needs an \
+                unrestricted session; run with --ignored"]
     fn credential_round_trip_on_real_store() {
         let store = test_store();
         let key = "test/credential-round-trip";
