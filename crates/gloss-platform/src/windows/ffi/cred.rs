@@ -25,9 +25,15 @@ pub(crate) fn read(target: &str) -> Result<Option<Vec<u8>>, GlossError> {
     let outcome = unsafe { CredReadW(&wide, CRED_TYPE_GENERIC, None, &mut credential) };
     let record = match outcome {
         Ok(()) => {
-            // SAFETY: a successful `CredReadW` always hands back a valid,
-            // non-null credential allocated by the credential store, owned by
-            // this call until `CredFree` releases it.
+            if credential.is_null() {
+                return Err(GlossError::Config(
+                    "credential manager returned a null record".into(),
+                ));
+            }
+            // SAFETY: a successful `CredReadW` hands back a valid credential
+            // allocated by the credential store and the null case is guarded
+            // above; the record is owned by this call until `CredFree`
+            // releases it.
             unsafe { *credential }
         }
         Err(err) if err.code() == ERROR_NOT_FOUND_HRESULT => return Ok(None),
