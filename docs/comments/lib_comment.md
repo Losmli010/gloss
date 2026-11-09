@@ -16,3 +16,7 @@
 ## 装配契约模块（2026-11-05，Windows 移植 P1 · 方案 D3）
 
 - 新增装配契约目录（bootstrap）的声明：只在系统（macOS）与系统（Windows）目标编译，公开为 `gloss_platform::bootstrap`——入口与应用层经它取平台装配句柄，本入口的平台模块再导出面（appearance、clipboard 等）保持不动，供平台内装配与测试引用。
+
+## shortcut 模块随平台分派（2026-11-10，Windows 移植 P3b 后续）
+
+- 新子模块 `shortcut`（桌面入口装配）随两侧平台目录声明并重新导出为平台无关路径，与既有能力模块同一套分派写法；系统（macOS）侧为恒无操作镜像。

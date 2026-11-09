@@ -17,3 +17,8 @@
 ## 图标适配器构造点随动（2026-11-07，Windows 移植 P2④）
 
 - `SystemAppIcon::new`（类型随两侧适配器统一正名，见 icon 与 windows_icon 记录）：构造点平台无关，名字不再叫 macOS 侧的旧名。
+
+## desktop_shortcut 字段（2026-11-10，Windows 移植 P3b 后续）
+
+- 新端口 `DesktopShortcut` 进句柄（`Box<dyn DesktopShortcut>`，紧随 `app_icon`）：桌面入口装配与图标装配同属启动期桌面集成，组装段在 `on_waker` 里与 `install_app_icon` 并列调用；构造仍只做廉价装配（`connect` 只 new 适配器，落盘在显式 `ensure` 时发生），与“构造不弹框、不建线程”的既有口径一致。
+- 各平台同名镜像（`crate::shortcut::SystemDesktopShortcut`）：系统（Windows）重建快捷方式，系统（macOS）恒无操作。

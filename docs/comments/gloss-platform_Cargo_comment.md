@@ -104,3 +104,8 @@
   `[target.'cfg(target_os = "macos")'.dependencies]` 后，系统（Windows）
   冒烟构建不再多编译未用依赖。arboard 留共同节不变（windows/selection
   与 windows/clipboard 在用）；image 的按目标拆节不变。
+
+## windows 目标依赖增补（2026-11-10，Windows 移植 P3b 后续）
+
+- `directories` 与 `toml`：文档半边与系统（macOS）同源所需（目录定位与 TOML 序列化），从系统（macOS）专属节复制同版本声明到系统（Windows）节——两目标各自编译存储半边。
+- `windows` 特性增补 `Win32_Security_Credentials`（凭据管理器）与 `Win32_UI_Shell`（外壳链接与已知目录）：特性面按用到的接口域显式列出的口径不变。

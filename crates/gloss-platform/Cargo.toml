@@ -95,9 +95,20 @@ toml = {
 # 系统（Windows）专属依赖按目标门控：仅平台目录下的系统模块引用，其余目标
 # 不编译。特性面按用到的接口域显式列出，不开任何接口域之外的整域。
 [target.'cfg(target_os = "windows")'.dependencies]
+# 配置存储的目录定位（日志目录例外，不走本库）：文档半边与系统（macOS）同源。
+directories = { version = "6", default-features = false }
 # 剪贴板图片取材：位图家族（位图（BMP）解码器及其无文件头入口，即设备无关
 # 位图（DIB/CF_DIB/CF_DIBV5）的承载）与便携式网络图形（PNG）数据解码。
 image = { version = "0.25", default-features = false, features = ["bmp", "png"] }
+# 配置文档的配置格式（TOML）序列化，读解析加写格式化。
+toml = {
+  version = "0.8",
+  default-features = false,
+  features = [
+    "display",
+    "parse",
+  ]
+}
 # 托盘图标与托盘菜单（行为差异项：托盘替代坞菜单）。默认特性是系统
 # （Linux）后端（AppIndicator），系统（Windows）编译面用不到，按目标
 # 特性面收敛。
@@ -108,6 +119,7 @@ windows = {
   features = [
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_Security_Credentials",
     "Win32_System_Com",
     "Win32_System_DataExchange",
     "Win32_System_LibraryLoader",
@@ -116,6 +128,7 @@ windows = {
     "Win32_System_Threading",
     "Win32_UI_Accessibility",
     "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
   ]
 }

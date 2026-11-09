@@ -76,3 +76,8 @@
 ## MenuController 增退出回调（2026-11-07，Windows 移植 P2④）
 
 - `install` 增第三参 `on_quit: Box<dyn Fn() + Send>`：托盘菜单的退出词条需要退出路径（系统（macOS）的退出走 AppKit 原生终止，无此需要），不扩签名就只能让退出语义散落平台实现内部。系统（macOS）实现不消费该参数，应用壳两个回调都经代理送用户事件，形态对称。
+
+## DesktopShortcut（桌面入口装配，2026-11-10，Windows 移植 P3b 后续）
+
+- 新端口 `DesktopShortcut::ensure`：保证桌面上存在指向本应用可执行文件的启动入口，幂等语义——入口已存在（或本平台无此概念）即无操作。与 `AppIcon::install` 同族（启动期桌面集成、失败降级不阻断启动），只是图标走资源段、入口走外壳链接，故独立成端口而非并入 AppIcon。
+- 系统差异：系统（Windows）便携压缩包即安装形态，入口需应用自己保证；系统（macOS）装包即集成，实现恒无操作（见 macos_shortcut 记录）。

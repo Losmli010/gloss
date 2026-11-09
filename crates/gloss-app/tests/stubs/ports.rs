@@ -9,7 +9,8 @@ use gloss_core::config::Config;
 use gloss_core::guard::SceneFacts;
 use gloss_core::model::{GlossError, Locale};
 use gloss_core::ports::{
-    AppIcon, ClipboardWriter, ConfigStore, MenuController, PermissionProbe, SceneProbe, SecretStore,
+    AppIcon, ClipboardWriter, ConfigStore, DesktopShortcut, MenuController, PermissionProbe,
+    SceneProbe, SecretStore,
 };
 use gloss_platform::bootstrap::Platform;
 
@@ -108,6 +109,14 @@ impl AppIcon for StubAppIcon {
     }
 }
 
+pub struct StubDesktopShortcut;
+
+impl DesktopShortcut for StubDesktopShortcut {
+    fn ensure(&self) -> Result<(), GlossError> {
+        Ok(())
+    }
+}
+
 pub struct StubMenuController;
 
 impl MenuController for StubMenuController {
@@ -152,6 +161,7 @@ pub fn stub_platform(store: &Arc<MemoryConfigStore>, scene: Arc<dyn SceneProbe>)
         secret_store: Arc::clone(store) as Arc<dyn SecretStore>,
         system_locale: Locale::Zh,
         app_icon: Box::new(StubAppIcon),
+        desktop_shortcut: Box::new(StubDesktopShortcut),
         menu: Box::new(StubMenuController),
         clipboard: Box::new(StubClipboardWriter),
         permission: Box::new(StubPermissionProbe),
