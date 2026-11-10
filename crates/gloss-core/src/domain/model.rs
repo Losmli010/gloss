@@ -28,7 +28,7 @@ impl ScreenPoint {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum GlossError {
     SelectionUnavailable,
     SelectionEmpty,
@@ -44,6 +44,30 @@ pub enum GlossError {
     EmptyCompletion,
     EngineResponse(String),
     Config(String),
+}
+
+impl std::fmt::Debug for GlossError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SelectionUnavailable => f.write_str("SelectionUnavailable"),
+            Self::SelectionEmpty => f.write_str("SelectionEmpty"),
+            Self::AccessibilityDenied => f.write_str("AccessibilityDenied"),
+            Self::PlatformUnsupported => f.write_str("PlatformUnsupported"),
+            Self::ImageUnavailable => f.write_str("ImageUnavailable"),
+            Self::ImageTooLarge => f.write_str("ImageTooLarge"),
+            Self::UnsupportedModality => f.write_str("UnsupportedModality"),
+            Self::JsonModeUnsupported => f.write_str("JsonModeUnsupported"),
+            Self::EngineNetwork => f.write_str("EngineNetwork"),
+            Self::EngineAuth => f.write_str("EngineAuth"),
+            Self::EngineRateLimited => f.write_str("EngineRateLimited"),
+            Self::EmptyCompletion => f.write_str("EmptyCompletion"),
+            Self::EngineResponse(payload) => f
+                .debug_tuple("EngineResponse")
+                .field(&payload.len())
+                .finish(),
+            Self::Config(payload) => f.debug_tuple("Config").field(&payload.len()).finish(),
+        }
+    }
 }
 
 impl std::fmt::Display for GlossError {
@@ -117,6 +141,25 @@ mod tests {
         assert_eq!(
             GlossError::Config("sk-secret-remote-echo".into()).to_string(),
             "config error"
+        );
+    }
+
+    #[test]
+    fn error_debug_output_never_carries_the_payload() {
+        let payload = "sk-secret-remote-echo";
+        let rendered = format!("{:?}", GlossError::EngineResponse(payload.into()));
+        assert!(
+            rendered.contains("EngineResponse")
+                && rendered.contains(&payload.len().to_string())
+                && !rendered.contains(payload),
+            "debug output must carry only the variant name and the payload length"
+        );
+        let rendered = format!("{:?}", GlossError::Config(payload.into()));
+        assert!(
+            rendered.contains("Config")
+                && rendered.contains(&payload.len().to_string())
+                && !rendered.contains(payload),
+            "debug output must carry only the variant name and the payload length"
         );
     }
 

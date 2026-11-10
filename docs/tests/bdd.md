@@ -13,7 +13,7 @@
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 806 | `just test` |
+| 单元测试 | 807 | `just test` |
 
 ## 人工测试
 
@@ -733,6 +733,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | error_display_names_the_variant_without_the_payload | 错误文案只记变体名不含载荷 | 给定 7 个代表性 `GlossError` 变体（含平台未支持），当 `to_string`，则输出固定类别文案（`EngineResponse` 与 `Config` 不打印载荷） | 2026-11-05 |
+| error_debug_output_never_carries_the_payload | 带载荷变体的调试输出不泄露载荷 | 给定携带敏感载荷的 `EngineResponse` 与 `Config`，当调试格式化，则输出只含变体名与载荷长度、不含载荷本身 | 2026-11-11 |
 | error_display_never_carries_the_payload | 带载荷变体的 `Display` 不泄露载荷 | 给定携带敏感载荷的 `EngineResponse` 与 `Config`，当 `to_string`，则输出不含载荷的固定文案 | 2026-10-17 |
 | error_is_std_error | 错误可作 `std` `Error` | 给定 `GlossError` 装箱为 `std` `Error`，当 `to_string`，则输出正确文案 | 2026-09-19 |
 
