@@ -109,6 +109,15 @@ jobs:
       - name: Run tests
         run: just test
 
+      - name: Upload snapshot diffs (temporary diagnostic)
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v7
+        with:
+          name: snapshot-diffs-${{ github.run_id }}
+          path: crates/gloss-app/tests/snapshots/*.diff.png
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Run selftest report wrapper
         # 第三层（L3）自检的预算判定与内存采样只在系统（macOS）有效，系统（Windows）不进性能信号采集
         if: runner.os == 'macOS' && always()
