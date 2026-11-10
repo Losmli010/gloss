@@ -1,6 +1,7 @@
 //! 语言规范数据源的装入与派生：字符事实住仓库的数据目录，编译期嵌入，
 //! 本模块一次解析进静态量供判定面取用。装入失败是有痕降级——全部字符
-//! 面落空（判定从紧）、开关全关，警告留痕不中断运行；嵌入数据合法性由
+//! 面落空（判定从紧）、开关全关，弯引号定界以常量对兜底（容器定界不落
+//! 空），警告留痕不中断运行；嵌入数据合法性由
 //! 完整性测试前置锁定（解析成功、面内无重、归位互斥、区段良构）。
 //!
 //! 面的语义与组合：场景标点面与中性面（数学记号）合成该场景的允许表；
@@ -21,6 +22,8 @@ const SOURCE: &str = include_str!("../../langspec/zh_en.toml");
 
 const SIMPLIFIED_SOURCE: &str = include_str!("../../langspec/simplified_pairs.txt");
 
+const FALLBACK_CURLY_QUOTES: (char, char) = ('“', '”'); // i18n:allow 容器定界字符事实，非界面文案——降级兜底对随装入失败的常量路径
+
 pub(crate) struct Spec {
     pub(crate) zh_allow: Vec<char>,
     pub(crate) en_allow: Vec<char>,
@@ -30,7 +33,7 @@ pub(crate) struct Spec {
     pub(crate) en_attached_before_digit: Vec<char>,
     pub(crate) attached_between_digits: Vec<char>,
     pub(crate) dash_ellipsis: Vec<char>,
-    pub(crate) curly_quotes: Vec<char>,
+    pub(crate) curly_quotes: (char, char),
     pub(crate) sentence_finals: Vec<char>,
     pub(crate) emoji_ranges: Vec<(u32, u32)>,
     pub(crate) emoji_bare: Vec<char>,
@@ -171,7 +174,7 @@ fn parse(source: &str) -> Result<Spec, String> {
         en_attached_before_digit: shared_before,
         attached_between_digits: face(&shared.attached_between_digits),
         dash_ellipsis: face(&shared.dash_ellipsis),
-        curly_quotes: face(&shared.curly_quotes),
+        curly_quotes: curly_quote_pair(&shared.curly_quotes, "shared.curly_quotes")?,
         sentence_finals: face(&shared.sentence_finals),
         emoji_ranges: parse_ranges(&shared.emoji_ranges, "shared.emoji_ranges")?,
         emoji_bare: face(&shared.emoji_bare),
@@ -279,6 +282,16 @@ fn single_char(text: &str, field: &str) -> Result<char, String> {
     }
 }
 
+fn curly_quote_pair(text: &str, field: &str) -> Result<(char, char), String> {
+    let mut chars = text.chars();
+    match (chars.next(), chars.next(), chars.next()) {
+        (Some(open), Some(close), None) => Ok((open, close)),
+        _ => Err(format!(
+            "{field}: quote face must be exactly two characters"
+        )),
+    }
+}
+
 impl Spec {
     fn empty() -> Spec {
         Spec {
@@ -290,7 +303,7 @@ impl Spec {
             en_attached_before_digit: Vec::new(),
             attached_between_digits: Vec::new(),
             dash_ellipsis: Vec::new(),
-            curly_quotes: Vec::new(),
+            curly_quotes: FALLBACK_CURLY_QUOTES,
             sentence_finals: Vec::new(),
             emoji_ranges: Vec::new(),
             emoji_bare: Vec::new(),
@@ -331,7 +344,7 @@ mod tests {
     const GOLDEN_ZH_ATTACHED_BEFORE_DIGIT: &str = "￥";
     const GOLDEN_ATTACHED_BETWEEN_DIGITS: &str = ".,-:";
     const GOLDEN_DASH_ELLIPSIS: &str = "—–…";
-    const GOLDEN_CURLY_QUOTES: &str = "“”";
+    const GOLDEN_CURLY_QUOTES: (char, char) = ('“', '”');
     const GOLDEN_SENTENCE_FINALS: &str = "。！？.!?";
     const GOLDEN_EMOJI_BARE: &str = "✅✨❌❤⚡⭐";
     const GOLDEN_EMOJI_VARIANTS: &str = "\u{FE0E}\u{FE0F}";
@@ -377,7 +390,28 @@ mod tests {
         let spec = spec();
         assert_face(&spec.zh_allow, &format!("{GOLDEN_ZH_PUNCT}{GOLDEN_MATH}"));
         assert_face(&spec.en_allow, &format!("{GOLDEN_EN_PUNCT}{GOLDEN_MATH}"));
-        assert_face(&spec.curly_quotes, GOLDEN_CURLY_QUOTES);
+        assert_eq!(spec.curly_quotes, GOLDEN_CURLY_QUOTES);
+    }
+
+    #[test]
+    fn empty_spec_carries_a_constant_curly_pair() {
+        assert_eq!(Spec::empty().curly_quotes, FALLBACK_CURLY_QUOTES);
+        assert_eq!(FALLBACK_CURLY_QUOTES, GOLDEN_CURLY_QUOTES);
+    }
+
+    #[test]
+    fn curly_quote_face_rejects_counts_other_than_two() {
+        for face in ["", "“", "“”‘"] {
+            let source = SOURCE.replace(
+                "curly_quotes = \"“”\"",
+                &format!("curly_quotes = \"{face}\""),
+            );
+            assert!(parse(&source).is_err(), "{face:?} must fail to parse");
+        }
+        assert!(
+            parse(SOURCE).is_ok(),
+            "the embedded source itself must keep parsing"
+        );
     }
 
     #[test]

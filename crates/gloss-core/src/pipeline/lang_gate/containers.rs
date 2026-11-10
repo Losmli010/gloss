@@ -43,9 +43,7 @@ pub(crate) fn scan_containers(
     let mut containers = Vec::new();
     let mut stack: Vec<(Open, usize)> = Vec::new();
     let mut unclosed = false;
-    let curly_quotes = &langspec::spec().curly_quotes;
-    let curly_open = curly_quotes[0];
-    let curly_close = curly_quotes[1];
+    let (curly_open, curly_close) = langspec::spec().curly_quotes;
     for (index, &c) in chars.iter().enumerate() {
         if masked[index] {
             continue;
