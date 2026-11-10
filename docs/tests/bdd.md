@@ -806,7 +806,9 @@
 | --- | --- | --- | --- |
 | bare_term_registry_matches_the_migrated_table | 登记面金样锁定初始清单 | 当解析嵌入数据源，则登记表恰为 `JSON` 一词（登记即评审，每收一词两侧金样同步扩行） | 2026-11-02 |
 | bare_term_registry_rejects_non_word_shapes_and_empty_reasons | 登记面良构校验失败关闭 | 给定数字开头、含空白、横线开头、下划线开头与逗号缀尾的词形及空白缘由条目，当装入，则逐条按数据源损坏拒绝；合法词形 `Node.js` 通过 | 2026-11-02 |
-| punctuation_faces_match_the_expected_tables | 允许表与登记基准对版 | 给定嵌入数据源装入的允许表（中西允许、日韩并集、弯引号定界），当与登记基准（场景标点面并中性面）双向比对，则集合相等 | 2026-10-30 |
+| punctuation_faces_match_the_expected_tables | 允许表与登记基准对版 | 给定嵌入数据源装入的允许表（中西允许）与弯引号定界对，当与登记基准（场景标点面并中性面）双向比对、定界对与登记常量对比对，则集合相等且定界对序相等 | 2026-11-11 |
+| empty_spec_carries_a_constant_curly_pair | 降级规范携带常量弯引号对 | 给定装入失败的降级规范，当读弯引号定界，则恒为常量兜底对且与登记基准定界对相等——降级路径容器定界不落空，扫描无下标可越（架构重构 `C1`） | 2026-11-11 |
+| curly_quote_face_rejects_counts_other_than_two | 弯引号定界面定型为二元组 | 给定空、单字符与三字符的弯引号定界面，当装入，则逐条按数据源损坏拒绝（解析失败走有痕降级）；恰好两字符的嵌入源照常解析 | 2026-11-11 |
 | attached_and_family_faces_match_the_expected_tables | 附随面与家族面同基准对版 | 给定装入的按场景附随面（中文取共用并场景合面、英文取共用面）与破折号省略号家族面，当与现表 `golden` 比对，则集合相等 | 2026-10-31 |
 | emoji_faces_match_the_migrated_tables | 表情事实同 `golden` 对版 | 给定装入的表情区段、裸表情与变体选择符，当与判定器原常量 `golden` 比对，则区段逐对相等、字符面集合相等 | 2026-10-30 |
 | policy_brackets_and_ranges_match_the_migrated_tables | 策略开关括号对与区段同 `golden` 对版 | 给定装入的盘古之白与简繁开关、括号对与六类文字系统区段，当与现表 `golden` 比对，则开关布尔、括号对序与区段逐对相等 | 2026-10-30 |

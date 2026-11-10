@@ -121,14 +121,14 @@ impl BodyCheck<'_> {
     }
 
     pub(crate) fn is_delimiter(&self, c: char) -> bool {
+        let (curly_open, curly_close) = langspec::spec().curly_quotes;
         c == '$'
             || self
                 .lang
                 .paren_pairs
                 .iter()
                 .any(|&(open, close)| c == open || c == close)
-            || (self.task.quote_container
-                && (langspec::spec().curly_quotes.contains(&c) || c == '"'))
+            || (self.task.quote_container && (c == curly_open || c == curly_close || c == '"'))
             || (self.task.markdown_allowed && c == '`')
     }
 
