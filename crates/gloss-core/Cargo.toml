@@ -62,5 +62,10 @@ tracing-subscriber = {
 futures = { version = "0.3", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "test-util", "time"] }
 
+[features]
+# 日志捕获夹具等测试支撑的开关：只由下游包的开发依赖启用（解析器 3 不会把
+# 开发依赖的特性带进正常构建），生产产物不含这部分公共面。
+test-support = []
+
 [lints]
 workspace = true

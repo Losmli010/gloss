@@ -24,8 +24,11 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::sync::{Once, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_subscriber::layer::SubscriberExt;
@@ -250,6 +253,7 @@ fn prune_old_logs(dir: &Path) {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub fn capture<F: FnOnce()>(f: F) -> String {
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let subscriber = tracing_subscriber::registry()
@@ -269,29 +273,41 @@ pub fn capture<F: FnOnce()>(f: F) -> String {
     String::from_utf8(bytes).unwrap_or_default()
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub fn capture_global() -> CaptureReader {
-    static GLOBAL: OnceLock<Arc<Mutex<Vec<u8>>>> = OnceLock::new();
-    let buffer = Arc::clone(GLOBAL.get_or_init(|| {
-        let buffer = Arc::new(Mutex::new(Vec::new()));
+    static ROUTER: Once = Once::new();
+    ROUTER.call_once(|| {
         let subscriber = tracing_subscriber::registry()
             .with(build_filter(None))
-            .with(json_layer().with_writer({
-                let buffer = Arc::clone(&buffer);
-                move || shaped_handle(CaptureHandle(Arc::clone(&buffer)))
-            }));
+            .with(json_layer().with_writer(|| shaped_handle(CaptureRouter)));
         #[allow(clippy::let_underscore_must_use)]
         let _ = tracing::subscriber::set_global_default(subscriber);
-        buffer
-    }));
-    CaptureReader(buffer)
+    });
+    let exclusive = CAPTURE_EXCLUSIVE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let buffer: CaptureBuffer = Arc::default();
+    match CAPTURE_SLOT.write() {
+        Ok(mut slot) => *slot = Some(Arc::clone(&buffer)),
+        Err(poisoned) => *poisoned.into_inner() = Some(Arc::clone(&buffer)),
+    }
+    CaptureReader {
+        buffer,
+        _exclusive: exclusive,
+    }
 }
 
-pub struct CaptureReader(Arc<Mutex<Vec<u8>>>);
+#[cfg(any(test, feature = "test-support"))]
+pub struct CaptureReader {
+    buffer: CaptureBuffer,
+    _exclusive: MutexGuard<'static, ()>,
+}
 
+#[cfg(any(test, feature = "test-support"))]
 impl CaptureReader {
     pub fn text(&self) -> String {
         let bytes = self
-            .0
+            .buffer
             .lock()
             .map(|buffer| buffer.clone())
             .unwrap_or_default();
@@ -299,8 +315,47 @@ impl CaptureReader {
     }
 }
 
-struct CaptureHandle(Arc<Mutex<Vec<u8>>>);
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for CaptureReader {
+    fn drop(&mut self) {
+        match CAPTURE_SLOT.write() {
+            Ok(mut slot) => *slot = None,
+            Err(poisoned) => *poisoned.into_inner() = None,
+        }
+    }
+}
 
+#[cfg(any(test, feature = "test-support"))]
+type CaptureBuffer = Arc<Mutex<Vec<u8>>>;
+
+#[cfg(any(test, feature = "test-support"))]
+static CAPTURE_SLOT: RwLock<Option<CaptureBuffer>> = RwLock::new(None);
+
+#[cfg(any(test, feature = "test-support"))]
+static CAPTURE_EXCLUSIVE: Mutex<()> = Mutex::new(());
+
+#[cfg(any(test, feature = "test-support"))]
+struct CaptureRouter;
+
+#[cfg(any(test, feature = "test-support"))]
+impl io::Write for CaptureRouter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let buffer = CAPTURE_SLOT.read().map(|slot| slot.clone()).unwrap_or(None);
+        if let Some(buffer) = buffer {
+            return CaptureHandle(buffer).write(buf);
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+struct CaptureHandle(CaptureBuffer);
+
+#[cfg(any(test, feature = "test-support"))]
 impl io::Write for CaptureHandle {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.0

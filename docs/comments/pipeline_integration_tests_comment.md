@@ -56,3 +56,10 @@
 ## 分类与修复行为（自文件头迁入，2026-10-24）
 
 - 分类完全交给 LLM 层：文本任务先花引擎调用分类（脚本桩通常解析不出类别——分类内部修复一轮后落兜底的通用类别），再花任务执行；脚本里带类别字段的裸 JSON 可让分类解析出具体类别。任务回复的契约违约由 LLM 层修复（至多 3 轮，事件序含修复中事件），耗尽后落降级产物。剪贴板图片任务在 LLM 层恒定映射图像解读、跳过分类——只有执行调用。纯流式/取消/重试语义与缓存/兜底语义按各自的调用数记账。
+
+## 日志捕获按测试隔离与归属判别（2026-11-11，架构重构 C5）
+
+- `capture_global` 从进程级共享累积缓冲改为按窗口隔离（见 log_comment.md）：每次调用开新窗口、读取端丢弃即清槽，两条捕获测试的断言因此只看本测试缓冲。共享缓冲时代“他人日志满足断言”的假绿通道随之关闭——`classify_failure_falls_back_and_the_task_still_completes` 所捞的 warn 措辞与并行非捕获测试（同样注入分类失败的 `failure_lands_in_error_and_retry_succeeds` / `error_card_retry_redispatches_the_same_request`）完全同形，仅靠缓冲隔离挡不住并发窗口内的他人日志。
+- 故 `classify_failure_falls_back_and_the_task_still_completes` 的命令改携 `task_span(9)`、告警行加钉 `"generation":9`：任务 span 随通道③下行，桥侧日志都落在它里面，代数是本测试在整条日志流里唯一的归属判别；原断言面（告警无选区内容、任务照常完成）不变。
+- 新增 `capture_windows_read_only_their_own_events` 锁隔离回归：先开先关一个窗口、再开第二个，第二个窗口的文本必须含自己的探针行、不含已关窗口的探针行——共享累积缓冲一旦回潮即红。落在本文件而非核心库内联测试的缘由：核心库测试二进制里 `init_is_idempotent` 与 `capture_global` 争全局订阅者槽位且槽位永久，先后都坏（同 engine_comment.md 的结论），互斥锁只串行化不改结局。
+- 文件头随之补记本套件含日志捕获夹具的窗口隔离面。

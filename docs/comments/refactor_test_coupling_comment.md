@@ -85,3 +85,24 @@ crate 的 tests/stubs/（cargo 集成测试目录，只在 `cargo test` 编译�
 P0（两个 PR 可独立：live 测试门控 / 时间同步点）→ P1 双桩合一（含方案拍板）→ P3 常量统一（低风险先行，顺带消掉 P2 一部分）→ P2 按 hotkey → mouse → settings → engine/sse/engine → app.rs 收尾的顺序逐文件改，每文件保持“测试红=行为变”的标准。
 
 每个文件改完同步更新 docs/tests/bdd.md 与 docs/comments 对应 `*_tests_comment.md`（外置缘由与形态说明）。
+
+## 现状核对（2026-11-11，架构重构 C5 动工时）
+
+按 `main` 当前代码逐条抽查本记录的“后门”指称；只核对本 PR 触及面与抽查可达的条目，未逐一复核的行以原记录为准。行号为写作时快照，本节只记存在性结论。
+
+- **P0-1（真机剪贴板测试门控）**：未按本记录处置。`selection/clipboard.rs` 的 `live_tests` 模块在（行 433 起），但全文件零 `#[ignore]`，默认套件仍驱动真机剪贴板，靠 `CLIPBOARD_LIVE_LOCK` 串行化而非门控。属测试耦合工作流的遗留项，不在 C5 处置面。
+- **P0-2（时间同步点）**：`tests/pipeline.rs` 的 `with_chunk_delay` 加 `recv_timeout(400ms)` 负时间窗仍在（取消语义两条）。架构方案 U1 已将“桩无墙钟、流终止信号结构性证明”立项，本 PR 不动。
+- **P1（桩基建合一）**：已按本记录 2026-09-19 的拍板落地（桩迁 `tests/stubs/`、`test-util` 特性删除），无残留。
+- **P2 hotkey 行**：过时——热键子系统整体移除，`events/` 下已无 hotkey.rs，无从整改。
+- **P2 mouse 行**：部分残留。`subscribed_mask` 现为 `#[cfg(test)]` 门控的 `pub(super)` 读数（mouse.rs 两处），“删后门”未做但生产面已无暴露；`#[cfg(test)]` 事件常量仍在。
+- **P2 ui/settings.rs 行**：残留。`clear_key_is_deferred_to_save_and_revocable` 仍直接写 `state.clear_key` / `state.api_key` 字段造态，未经 `draw()` 交互路径。
+- **P2 app.rs 行**：过时——文件已拆为 `app/` 目录并引入 `machine/` 决策状态机，本记录所指的私有字段直读清单不再对应现状，需按新结构重审（本 PR 未做）。
+- **P2 ui/fonts.rs 行（`append_fallback` 直测）与 gpu.rs 行（`pick_alpha_mode` 直测）**：残留，直测仍在。
+- **P2 core/engine.rs 行**：过时——`parse_structured` 已随围栏兜底路径整体删除（见 finalize_comment.md），指称失效。
+- **P2 engine/sse.rs 行**：过时——`decode_chunk` 已不存在，解码器以 `push` 公开面为测试入口。
+- **P2 engine/llm.rs 行**：残留——`resolve_endpoint` / `resolve_api_key` 的私有面直测仍在。
+- **P2 selection/composite.rs 与 accessibility.rs 行**：残留——私有 `combine` / `interpret` 直测仍在。
+- **P2 storage/keychain.rs 行**：残留——`cached_reads_stay_consistent_with_writes` 仍以 `cached_map()` 直插缓存态造“克隆共享缓存”的断言。
+- **P2 log.rs 行**：部分残留——`FILE_PREFIX` / `build_filter` / `open_file_writer` 私有面直测与 `EnvFilter::to_string()` 渲染串断言仍在；C5（2026-11-11）已把捕获三件套（`capture` / `capture_global` / `CaptureReader`）挂 `test-support` 特性移出生产面，并改为按测试隔离的缓冲（详见 log_comment.md）。
+- **P3 常量统一**：`gloss/deepseek` 字面量仍在（32 处），`STRUCTURED_FENCE` / `keychain_id_for` 已随围栏路径删除与存储重构而不存在——该行的两半分别转为“仍开放”与“失效”。
+- **全仓 `pub` 面测试专属项**：按架构方案 §2.3 C5 的盘点，捕获三件套是唯一无门控项；C5 合入后该缺口关闭，其余疑似项均带 `#[cfg(test)]` 或有生产调用方。

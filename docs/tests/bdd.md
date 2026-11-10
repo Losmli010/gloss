@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 人工测试 | 19 | `cargo test -p gloss-platform -- --ignored`；`live_llm` 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 `GLOSS_LIVE_*`） |
 | 发版人工步骤 | 12 | 手动执行（无自动化测试源码的真机、运维步骤，`bdd` 门禁豁免） |
-| 集成测试 | 15 | `just test` |
+| 集成测试 | 16 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
 | 单元测试 | 807 | `just test` |
@@ -447,12 +447,12 @@
 
 ## 集成测试
 
-文件：`crates/gloss-app/tests/pipeline.rs`（`L1`，经公共 `API` 与通道两端驱动状态机加通道三与通道四加 `tokio` 桥加 `mock` 引擎的全时序）。
+文件：`crates/gloss-app/tests/pipeline.rs`（`L1`，经公共 `API` 与通道两端驱动状态机加通道三与通道四加 `tokio` 桥加 `mock` 引擎的全时序），另含进程级日志捕获夹具的窗口隔离。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | full_flow_classifies_then_streams_and_settles | 全链路分类加流式回流与终态 | 给定划词手势注入契约（JSON）（仅 `note` 字段）的流式脚本，当全链路推进，则先回 `TaskClassified(General)`（分类解析不出 `kind`、内部修复一轮后落兜底）、`chunk` 逐条回流、`TaskDone` 后定格 `Show`、正文取自 `note` 字段、`structured` 缺失按软约束落空 `Plain` 且不降级 | 2026-10-12 |
-| classify_failure_falls_back_and_the_task_still_completes | 分类请求失败内部消化回退兜底 | 给定分类请求注入一次性失败、任务脚本为契约（JSON），当桥编排分类，则分类不重试、内部消化后 `TaskClassified` 携带兜底 `General`、告警无选区内容、任务照常执行完成落 `Show`（引擎共 2 次调用） | 2026-10-12 |
+| classify_failure_falls_back_and_the_task_still_completes | 分类请求失败内部消化回退兜底 | 给定分类请求注入一次性失败、任务脚本为契约（JSON）、命令携带本测试的任务 `span`，当桥编排分类，则分类不重试、内部消化后 `TaskClassified` 携带兜底 `General`、告警无选区内容且带本任务代数、任务照常执行完成落 `Show`（引擎共 2 次调用） | 2026-11-11 |
 | second_trigger_is_a_full_cache_hit_without_engine_calls | 二次触发全缓存命中直出 | 给定同一 `input+options` 的任务第二次触发，当桥按 `cache_key(input, options)` 查产物缓存命中，则仅回 `TaskClassified+TaskDone`（无 `TaskChunk`）、引擎调用数维持 3（首轮分类含 1 轮修复加执行）、分类 `kind` 随缓存产物回放、状态定格 `Show` | 2026-10-12 |
 | hide_overlay_cancels_the_stream_and_late_events_are_dropped | 收起浮层取消流并丢弃迟到事件 | 给定慢流中已收到分类结果与首个 `chunk`，当 `hide_overlay` 取消在途令牌，则不再有任何回传事件、机器侧拒绝该任务的迟到 `chunk`、产物并回 `Idle` | 2026-09-26 |
 | superseded_trigger_cancels_and_filters_late_events | 新触发取消旧任务并过滤迟到事件 | 给定 `A` 的分类流未完成时触发 `B`，当 `B` 触发，则 `A` 的令牌立即取消、代数加 1、`A` 代数的迟到事件被状态机拒绝；`B` 的分类回退与任务 `chunk` 照常回流，重放的违约回复经修复轮标记（同代采纳）后降级落 `Show` | 2026-10-12 |
@@ -461,6 +461,7 @@
 | frozen_options_carry_the_factory_model_by_default | 冻结选项默认带出厂模型 | 给定出厂配置的划词提交，当跑一轮完整任务，则引擎恰被调用 3 次（分类含 1 轮修复加执行）且任务照常完成 | 2026-10-12 |
 | config_change_invalidates_cache_for_the_next_task | 配置变更对主缓存 `key` 的失效 | 给定同文本连续任务与运行时保存的新配置，当执行，则未改配置命中缓存（引擎维持 3 次：分类含修复加执行）、换模型再触发一轮（加 3）、换目标语言再触发一轮（加 4：语言收敛后目标语言为英文，中文样张进一次语言修复轮），共 10 次 | 2026-10-30 |
 | engine_logs_carry_the_task_span | 桥日志经 `span` 带上代数 | 给定带 `span` 的任务命令（进程级捕获订阅者），当消费桥执行到缓存命中，则命中行同时含 `cache` `hit` 与 `"generation":2` | 2026-09-26 |
+| capture_windows_read_only_their_own_events | 捕获窗口彼此隔离 | 给定先开先关的第一个捕获窗口与后开的第二个窗口，当第二个窗口取走缓冲文本，则文本含本窗口的探针行、不含已关窗口的探针行 | 2026-11-11 |
 | violating_replies_repair_then_degrade_without_cache | 违约回复修复三轮后降级且不进缓存 | 给定分类判 `ExplainCode` 的裸（JSON）脚本与恒违约的任务回复，当跑完整桥，则事件序为 `Classified` → `Chunk` → `[Repairing → Chunk]{3}` → `Done(degraded)`：每个 `Repairing` 清空流式累积并置修复态、耗尽后完成态按 `validate_task` 落降级产物（`note` 空串、重试出口在）、同输入再触发引擎再次执行（降级产物不投毒缓存） | 2026-10-12 |
 | an_image_task_repairs_through_the_same_stream | 图像任务共用同一修复轮流 | 给定图像取材注入“违约回复 → 契约（JSON）”的脚本队列，当跑完整桥，则恒定映射 `ImageExplain`（跳过分类）、违约轮 `Chunk` 后回 `TaskRepairing`、修复轮契约回复直接 `TaskDone`（正常产物）、引擎恰被调用 2 次 | 2026-10-12 |
 | image_flow_skips_classification_and_settles_the_plain_examples | 图像任务跳过分类并落 `Plain` 疏证 | 给定粘贴板观察注入嵌套（JSON）契约（`note` 与 `structured.examples`）的流式脚本，当全链路推进，则先回 `TaskClassified(ImageExplain)`（图像跳过 `LLM` 分类、恒定映射、先于任何 `chunk` 恰一次）、`chunk` 逐条回流、`TaskDone` 后定格 `Show`：`note` 落注位、`examples` 落 `Plain` 疏位、引擎恰被调用 1 次、`attached_image` 保持 `Arc` 同一性 | 2026-10-11 |

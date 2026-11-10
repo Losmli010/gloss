@@ -20,6 +20,8 @@ gloss-core = { path = "../gloss-core" }
 # （Windows）节。
 
 [dev-dependencies]
+# 日志捕获夹具（核心库的测试支撑特性）：只在测试目标里启用，不进正常构建。
+gloss-core = { path = "../gloss-core", features = ["test-support"] }
 # 存储单测的临时目录。
 tempfile = { version = "3", default-features = false }
 
