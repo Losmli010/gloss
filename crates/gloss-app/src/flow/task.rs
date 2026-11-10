@@ -960,6 +960,45 @@ mod tests {
     }
 
     #[test]
+    fn a_selection_after_a_settled_image_task_still_flags_the_reveal() {
+        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let png = Arc::from(&b"png-bytes"[..]);
+        warm_cache(
+            &mut app,
+            &TaskInput::Image {
+                png: Arc::clone(&png),
+            },
+            "缓存解读",
+        );
+
+        pasteboard_probe(&mut app, &pe_tx);
+        assert!(app.accept_input(1, TaskInput::Image { png }));
+        assert_eq!(
+            app.machine.state(),
+            AppState::Show,
+            "the cached image settles straight to the outcome card"
+        );
+        app.session.pending_reveal = false;
+
+        trigger_selection(&mut app, &pe_tx);
+        assert!(app.accept_input(2, text_input("划词")));
+        assert_eq!(app.machine.state(), AppState::PendingConfirm);
+        assert!(
+            app.session.pending_reveal,
+            "the next selection must still pop the overlay after an image task"
+        );
+        confirm(&mut app);
+        assert!(matches!(
+            cmd_rx.try_recv().unwrap().payload,
+            Command::RunTask {
+                generation: 2,
+                input: TaskInput::Text { .. },
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn a_pasteboard_product_without_a_matching_probe_is_dropped() {
         let (mut app, _config, _store, _pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
 

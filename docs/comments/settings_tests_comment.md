@@ -46,6 +46,8 @@
 
 - 2026-10-10 八张 settings 基线同 PR 更新（settings_main / notice / invalid / update_* 五态）：出厂模型 `deepseek-chat` → `deepseek-flash`（剪贴板图片方案 §5.4，gloss-core `DEFAULT_MODEL`），设置页模型输入框预填文案随之变化。逐像素 diff 核验：八张差异均为同一位置的同一文本行（各 72 px），无布局或样式漂移；属预期内容变更，显式审查后更新。
 
+- 2026-11-10 八张 settings 基线同 PR 更新（同上八张）：剪贴板图片监听提示分平台键（见 `i18n_comment.md` 同日节）后，底部说明文案换为当前构建平台的键位指引。逐像素 diff 核验：八张差异均为同一提示文本块，无布局或样式漂移；属预期内容变更，显式审查后更新。
+
 ## 方向键滚动的两条用例（2026-11-03）
 
 - `arrow_keys_scroll_the_overflowing_settings`：设置窗 640 像素高装不下

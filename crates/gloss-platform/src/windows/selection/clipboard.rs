@@ -1,17 +1,16 @@
 //! 剪贴板兜底读取（模拟复制）：兜底读取器。
 //!
-//! 用户界面自动化（UIA）读不到选区时的兜底通道：快照剪贴板文本 → 注入
+//! 用户界面自动化（UIA）读不到选区时的兜底通道：快照剪贴板内容 → 注入
 //! 复制快捷键 → 以剪贴板序列号轮询确认目标应用写入 → 读回 → 读回成功且
 //! 现值未变才按快照恢复（失败轮一律不恢复——板上要么未变，要么是本轮
 //! 之外的新写入或注入副产物，都不是可覆盖的内容）。确认语义以序列号差
 //! 承载：注入被静默丢弃（对提权进程的注入，用户界面特权隔离（UIPI））
 //! 或目标未响应时序列号不动，重注入一轮再等一个完整超时窗口后按普通
-//! 获取失败上抛，不区分提权与不支持（不做提权）。快照的放弃边界见快照
-//! 模块文档（非文本内容无法如实保全时整体放弃）。产物与收尾分离：恢复
-//! 决策与写盘归因装在恢复收尾结构里，调用方在取材产物上抛之后收口
-//! ——恢复写盘不挡在弹窗链路上。写盘轮次经取材轮次闩锁向哨兵自报计数
-//! 归因（见剪贴板模块的轮次写入闩锁）。纯时序逻辑独立成函数（单测覆盖），
-//! 系统接口交互归实现子模块。
+//! 获取失败上抛，不区分提权与不支持（不做提权）。快照的保全与放弃边界
+//! 见快照模块文档。产物与收尾分离：恢复决策与写盘归因装在恢复收尾结构
+//! 里，调用方在取材产物上抛之后收口——恢复写盘不挡在弹窗链路上。写盘
+//! 轮次经取材轮次闩锁向哨兵自报计数归因（见剪贴板模块的轮次写入闩锁）。
+//! 纯时序逻辑独立成函数（单测覆盖），系统接口交互归实现子模块。
 //!
 //! 线程约束：读取在平台事件线程上调用（与用户界面自动化（UIA）主路同线程）。
 
@@ -306,8 +305,10 @@ mod live_tests {
 
     use arboard::Clipboard;
 
+    use gloss_core::model::GlossError;
+
     use super::imp::ClipboardFallbackReader;
-    use crate::clipboard::WatchRoundFlag;
+    use crate::clipboard::{WatchRoundFlag, clipboard_has_image};
 
     static CLIPBOARD_LIVE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -391,5 +392,52 @@ mod live_tests {
             );
             std::thread::sleep(UNWIND_RESTORE_EVENT_POLL);
         }
+    }
+
+    #[test]
+    #[ignore = "需真机交互：测试覆写真实剪贴板为测试数据且不恢复，并向前台应用注入真实 Ctrl+C（建议前台停在编辑器）"]
+    fn a_fallback_round_on_an_image_board_preserves_the_image_on_windows() {
+        let _clipboard = CLIPBOARD_LIVE_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let probe = b"gloss-image-board-probe".to_vec();
+        assert!(
+            crate::clipboard::clipboard_write_flavors(&[crate::clipboard::FlavorCapture {
+                format: crate::ffi::board::CF_DIBV5,
+                bytes: probe.clone(),
+            }])
+            .0,
+            "the probe image must land on the board"
+        );
+
+        let mut reader = ClipboardFallbackReader::new(WatchRoundFlag::default());
+        let (outcome, settle) = reader.read();
+        let proceeded = settle.restores_on_unwind();
+        settle.finish();
+
+        assert!(
+            proceeded,
+            "an image on the board must not decline the fallback round: \
+             the snapshot preserves it and the injection proceeds"
+        );
+        assert!(
+            matches!(outcome, Err(GlossError::SelectionUnavailable)),
+            "without a live selection the round ends as an ordinary acquisition \
+             failure, got {outcome:?}"
+        );
+        assert!(
+            clipboard_has_image(),
+            "the preserved image must survive the skipped restore"
+        );
+        let recaptured = crate::clipboard::clipboard_capture_image_flavors(usize::MAX);
+        assert_eq!(
+            recaptured.len(),
+            1,
+            "exactly the probe flavor stays on the board"
+        );
+        assert_eq!(
+            recaptured[0].bytes, probe,
+            "the image bytes survive verbatim"
+        );
     }
 }

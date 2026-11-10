@@ -94,7 +94,7 @@ pub(super) fn general_section(ui: &mut egui::Ui, state: &mut SettingsState, text
     choice_row(ui, &text.gloss_settings_watch_clipboard_images, |ui| {
         toggle_switch(ui, &mut state.draft.watch_clipboard_images)
     });
-    choice_hint(ui, &text.gloss_settings_watch_clipboard_images_hint);
+    choice_hint(ui, text.watch_clipboard_images_hint());
 }
 
 pub(super) fn update_section(
