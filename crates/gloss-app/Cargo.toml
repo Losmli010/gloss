@@ -157,6 +157,8 @@ egui_kittest = {
     "wgpu",
   ]
 }
+# 日志捕获夹具（核心库的测试支撑特性）：只在测试目标里启用，不进正常构建。
+gloss-core = { path = "../gloss-core", features = ["test-support"] }
 # 管道测试需要异步运行时宏与时间（替身引擎的延迟注入用）。
 tokio = {
   version = "1",

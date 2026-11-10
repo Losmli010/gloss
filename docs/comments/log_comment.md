@@ -178,10 +178,19 @@
 
 ## capture_global / CaptureReader（源码注释迁入）
 
-- `capture_global` 装上**进程级**捕获订阅者，返回读取端；日志来自别的线程时用它。与 `init` 互斥（一个进程只有一个全局订阅者）：测试进程里没人调用 `init`，同一进程重复调用本函数拿到同一个读取端（只装一次）。
+- `capture_global` 装上**进程级**捕获订阅者（只装一次），返回读取端；日志来自别的线程时用它。与 `init` 互斥（一个进程只有一个全局订阅者）：测试进程里没人调用 `init`。
+- 每次调用开一个**独立捕获窗口**：读取端持有自己的缓冲与窗口互斥锁——同一时刻至多一个窗口在收日志（并发的窗口调用阻塞到先前的读取端丢弃为止），窗口关闭（读取端丢弃）即清槽停收。断言只看自己窗口的缓冲。
 - `set_global_default` 失败被忽略的语境：测试进程里没有别的全局订阅者；万一已有，说明调用方用错了工具，这里按“捕获不可用”继续，断言会如实失败。
-- `CaptureReader`：`capture_global` 的读取端，按需取走累积到此刻的日志文本；`text()` 每次调用取一份快照，不清空缓冲。
+- `CaptureReader`：`capture_global` 的读取端；`text()` 每次调用取一份快照，不清空缓冲。
 
 ## build_filter（源码注释迁入）
 
 - 基准级别打底 + `raw` 追加：全局指令后写者胜，故 `off` / `warn` 仍能压制打底级别，而模块指令只影响自己的 target。非法指令由 `EnvFilter` 丢弃并打印原因。
+
+## 测试支撑面移出生产：test-support 特性与按窗口隔离（2026-11-11，架构重构 C5）
+
+- **门控**：`capture` / `capture_global` / `CaptureReader` 挂 `#[cfg(any(test, feature = "test-support"))]`——`any(test, …)` 让核心库自带内联单测不需要开关就能编译，特性供下游包经开发依赖启用（解析器 3 不会把开发依赖的特性带进正常构建），生产构建里这三件彻底离开编译面。这是全仓 `pub` 面最后一处无门控的测试专属项（盘点见架构方案 §2.3）。
+- **符号证据的口径修正**：方案原定以 `nm target/debug/gloss | grep capture_global` 验证“符号消失”，实测改造**前**终产物里该符号就不在——Apple 目标链接器对无引用符号做 `-dead_strip`（`milestone` / `task_span` 在，因其有调用方）。前后可对照的判据换成核心库 rlib 档案：改造前 `nm target/debug/deps/libgloss_core-*.rlib` 命中 13 处 `capture_global`，改造后无特性构建的 rlib 零命中，`--all-features` 的测试构建 rlib 仍命中——恰证门控两态。
+- **共享缓冲换按窗口隔离**：旧实现是进程级单份 `OnceLock` 缓冲、永不清理——并行集成测试（`tests/pipeline.rs` 的两条捕获测试）互相污染，断言靠宽松的 `any(contains)` 在全进程日志里捞，存在“他人日志满足断言”的假绿通道。新实现：订阅者只装一次（`CaptureRouter` 写入器按 `CAPTURE_SLOT` 的当前窗口路由，无窗口即丢弃），`capture_global` 每次开新窗口——拿窗口互斥锁、换入新缓冲，读取端丢弃时清槽。断言自然对准本测试缓冲。
+- **隔离锁定测试的落位**：`capture_windows_read_only_their_own_events` 不在核心库内联测试里——`init_is_idempotent` 与 `capture_global` 争全局订阅者槽位且槽位永久（见上方“捕获串行锁”一节与 engine_comment.md 的同一结论），同进程先后都坏，互斥锁只串行化不改结局。它落在 `gloss-app/tests/pipeline.rs`（无 `init` 调用方的测试目标），锁的是“已关窗口的行不得泄漏进后开的窗口”——共享累积缓冲一旦回潮即红。
+- **两条桥测试的断言随动**：`classify_failure_falls_back_and_the_task_still_completes` 的命令改携 `task_span(9)`、告警行按 `"generation":9` 捞——并行非捕获测试（同样注入分类失败的 `failure_lands_in_error_and_retry_succeeds` 与 `error_card_retry_redispatches_the_same_request`）的 warn 措辞与本测试完全同形，缓冲隔离关不掉“并发窗口内他人日志落入活动槽”的口子，代数是唯一归属判别；`engine_logs_carry_the_task_span` 本就钉 `"generation":2`（全二进制只有它用 `task_span(2)`），无需改动。
