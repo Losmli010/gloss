@@ -40,7 +40,14 @@
 ## GlossError 的 Display 实现
 
 - 载荷可能携带远端或用户原文（服务端 `error.message`、解析不出的协议内容），而 `Display` 是日志出口（`error = %error` 遍布各 crate），把载荷打出来就是把敏感文本写进日志——违反 AGENTS.md“敏感文本不写进日志”的安全红线。
-- 载荷只在 `Debug`（`?error`）与失败卡（`i18n::for_error` 显式解构变体，不走 Display）使用；`Debug` 同样不得进日志——日志宏禁止用 `?error` 打印 GlossError，它只留给诊断与测试断言。
+- 载荷的消费面只有失败卡（`i18n::for_error` 显式解构变体，不走 Display）与需要诊断文本的测试断言（同样显式解构）；`Debug` 与 `Display` 一样按“变体名加脱敏摘要”渲染，不转述载荷。
+
+## GlossError 的 Debug 实现（2026-11-11，架构重构 C6）
+
+- 派生 `Debug` 会逐字打印载荷：`EngineResponse(String)` 的载荷来自服务端错误消息（`sse.rs`、`llm/failure.rs` 的 `map_failure`），属不受控文本，可能回显请求片段，任何调试格式的出口（日志 `?error`、测试失败信息、`panic` 消息）都会把敏感文本带出去。手写 `Debug` 只输出变体名与载荷长度（如 `EngineResponse(64)`），构造点零改动。
+- 实现用穷尽匹配（与 `Display` 同构）：新增变体时编译器强制作者显式决定其调试形态，载荷变体不可能漏挂脱敏摘要静默滑过。
+- 全仓核对：调试格式记录 GlossError 的站点只有入口包 `src/wiring.rs` 的图标装载一处（`error = ?err`），其错误面是 `Config` 携带的静态英文诊断（`icon.rs`），本就无敏感面；手写 `Debug` 后该站点输出变体名加长度，记录行为不变。其余调试格式站点（鼠标监听、更新子系统）记录的是 `ListenError`、`ManifestError`、`InstallError`，不在本类型上。
+- 诊断需要载荷原文时走显式解构（如 `sse.rs` 测试的 `let GlossError::EngineResponse(text)`），不经过 `Debug`；诊断能力不减。
 
 ## GlossError::PlatformUnsupported（2026-11-05，Windows 移植 P0 D2）
 
