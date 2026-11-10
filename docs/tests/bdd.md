@@ -8,12 +8,12 @@
 
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
-| 人工测试 | 18 | `cargo test -p gloss-platform -- --ignored`；`live_llm` 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 `GLOSS_LIVE_*`） |
+| 人工测试 | 19 | `cargo test -p gloss-platform -- --ignored`；`live_llm` 两条另跑 `cargo test -p gloss-core -- --ignored live_llm`（需 `GLOSS_LIVE_*`） |
 | 发版人工步骤 | 12 | 手动执行（无自动化测试源码的真机、运维步骤，`bdd` 门禁豁免） |
 | 集成测试 | 15 | `just test` |
 | 性能测试 | 2 | `just selftest` 与 `just startup-selftest` |
 | 快照测试 | 44 | `just test` |
-| 单元测试 | 801 | `just test` |
+| 单元测试 | 806 | `just test` |
 
 ## 人工测试
 
@@ -203,6 +203,18 @@
 2. 测试会覆写并恢复剪贴板；经 `CLIPBOARD_LIVE_LOCK` 串行
 
 - 更新时间：2026-11-06
+
+### a_fallback_round_on_an_image_board_preserves_the_image_on_windows
+
+- 测试目标：验证系统（Windows）真机上剪贴板挂图（截图注疏后的真实场景）不再让兜底轮整轮放弃：快照以图像风格原字节保全，注入照常进行，放弃恢复的轮次原图原样留板。
+- 测试场景：给定仅挂图像风格（版本 5 位图（CF_DIBV5）探测字节）的剪贴板，当跑一次兜底读取并收口，则轮次照常前进（快照有保全——`restores_on_unwind` 为真）、前台无选中文本时按普通获取失败上抛、收口走跳过恢复（板上要么未变）、图像存在性与原字节逐字复读在板。
+- 测试步骤：
+
+1. 在系统（Windows）真机上运行总览中人工测试的命令（只跑 `selection::clipboard::live_tests`）
+2. 前台停在任意应用且不要留选中文本（测试会向前台注入真实 `Ctrl+C`；有选中文本时该轮会走恢复路径，断言按无选区失败收场即红）
+3. 测试会把剪贴板覆写为测试探测数据且不恢复原内容；经 `CLIPBOARD_LIVE_LOCK` 串行，勿并行触发其它剪贴板测试
+
+- 更新时间：2026-11-10
 
 ### watch_and_reader_carry_a_real_image_copy_on_windows
 
@@ -466,7 +478,7 @@
 
 ## 快照测试
 
-`popup` 快照基线：`popup_word_card`、`popup_streaming`、`popup_failed`、`popup_failed_auth`、`popup_selfcheck`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_image_failed`、`popup_degraded_outcome`、`popup_long_line`、`popup_unverified_outcome`（2026-10-30 随降级批注方案重录：图标自复制钮前移到复制钮后、形制自警告三角改批注气泡、页脚下留批注卡展开余量）、`popup_violation_hint_hover`（2026-10-30 起：降级批注悬停态基线，真实窗口几何下悬停批注图标录得，行文本由结构化树断言另行锁定）；`popup` 待确认卡基线中英双份：`popup_pending_text_zh/en`、`popup_pending_image_zh/en`（发送前确认是用户手按的关键界面，中文形态一并锁定）；`settings` 快照基线：`settings_main`、`settings_notice`、`settings_invalid`、`settings_default_kind_disabled`、`settings_update_up_to_date`、`settings_update_available`、`settings_update_downloading`、`settings_update_ready`、`settings_update_failed_install`。其余基线统一英文文案加浅色主题渲染（2026-10-01 起）：`kittest` 自建上下文无（CJK）字体，英文基线可读可审；待确认卡基线（2026-10-27 起）经测试内安装（CJK）字体后中英各录一份，浅色主题同规。
+`popup` 快照基线：`popup_word_card`、`popup_streaming`、`popup_failed`、`popup_failed_auth`、`popup_selfcheck`、`popup_code_streaming`、`popup_code_outcome`、`popup_image_outcome`、`popup_image_streaming`、`popup_image_failed`、`popup_degraded_outcome`、`popup_long_line`、`popup_unverified_outcome`（2026-10-30 随降级批注方案重录：图标自复制钮前移到复制钮后、形制自警告三角改批注气泡、页脚下留批注卡展开余量）、`popup_violation_hint_hover`（2026-10-30 起：降级批注悬停态基线，真实窗口几何下悬停批注图标录得，行文本由结构化树断言另行锁定）；`popup` 待确认卡基线中英双份：`popup_pending_text_zh/en`、`popup_pending_image_zh/en`（发送前确认是用户手按的关键界面，中文形态一并锁定）；`settings` 快照基线（2026-11-10 起随提示文案分平台分套，文件名带 `.macos`/`.windows` 后缀，`snapshot_name` 按构建目标取套）：`settings_main`、`settings_notice`、`settings_invalid`、`settings_update_up_to_date`、`settings_update_available`、`settings_update_downloading`、`settings_update_ready`、`settings_update_failed_install` 各平台一套（`windows` 套随本拉取请求落库，`macos` 套由系统（macOS）腿产出候选、经差异审查后采纳）；`settings_default_kind_disabled` 单套留存（未分平台前录得，改到跨字段规则版式时同步重录）。其余基线统一英文文案加浅色主题渲染（2026-10-01 起）：`kittest` 自建上下文无（CJK）字体，英文基线可读可审；待确认卡基线（2026-10-27 起）经测试内安装（CJK）字体后中英各录一份，浅色主题同规。
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
@@ -910,16 +922,18 @@
 | a_repair_marker_resets_the_stream_through_the_shell | 壳层采纳修复轮开始标记 | 给定推理中的流式会话（已有违约累积），当壳 `accept_repairing`，则当前代清空累积并置修复态、陈旧代拒绝且不扰动在途会话 | 2026-10-12 |
 | a_cached_selection_skips_confirmation_and_lands_the_outcome | 缓存命中的选区免确认直落产物卡 | 给定按探测同款选项预热壳侧任务缓存的会话，当划词产物提交，则直落产物卡（`Show`、通道三零流量、同帧置显形挂起）；紧随一次未缓存划词照旧落待确认卡并经确认下发（跳过确认的前提是亲眼命中，未命中把关原样在岗） | 2026-11-04 |
 | a_cached_pasteboard_image_skips_confirmation_too | 缓存命中的剪贴板图片同样免确认 | 给定按图像输入预热的任务缓存与在途粘贴板探测，当图像产物提交，则直落产物卡（`Show`）、通道三零流量（免确认是两模态同权） | 2026-11-04 |
+| a_selection_after_a_settled_image_task_still_flags_the_reveal | 图片任务落定后划词照常出弹窗 | 给定已落定产物卡（`Show`）的图片任务，当一次新划词提交，则落待确认卡且同帧置显形挂起（图片任务不清空后续划词的露面）、确认后按文本任务下发通道三 | 2026-11-10 |
 
 ### `crates/gloss-app/src/ui/i18n.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 `zh.toml` 与 `en.toml`，当递归收集叶子键路径，则两份逐条一致且整表条数为 97（条数钉住，防遍历退化）。沿革：原登记 88，2026-10-28 随设置窗两字段标签（服务地址、密钥）入表更新；2026-10-30 随降级批注四词条（悬停标题、注位、音标位、例句位）入表更新 | 2026-10-30 |
+| both_locale_files_declare_the_same_keys | 两份文案表键集合一致 | 给定 `zh.toml` 与 `en.toml`，当递归收集叶子键路径，则两份逐条一致且整表条数为 95（条数钉住，防遍历退化）。沿革：原登记 88，2026-10-28 随设置窗两字段标签（服务地址、密钥）入表更新；2026-10-30 随降级批注四词条（悬停标题、注位、音标位、例句位）入表更新；2026-11-10 随剪贴板图片监听提示分平台键（一键拆二）更新 | 2026-11-10 |
 | every_entry_is_translated_in_the_english_catalog | 英文表逐条真译不照抄 | 给定两份文案表的全部词条，当逐条比对取值，则无一与中文表逐字相同。沿革：原对语言自称词条（`gloss_ui_language_en`）留同键特例，2026-10-28 随词条语言门禁去豁免删除——中文表该词条改写“英语”后两表必不同，特例失去存在理由 | 2026-10-28 |
 | entries_are_written_fully_qualified | 词条键写成下划线全限定名 | 给定两份文案表的每一行非注释行，当解析键名，则键一律以 `gloss_` 开头且不含点号（前缀落在每一行、无节头；退回节头或点号连接即红） | 2026-09-23 |
 | placeholders_match_across_locales | 占位符名两语言一一对应 | 给定两份文案表，当逐条比对词条里的 `{{`占位符`}}` 名集合，则两语言一致（拼错名不会单边漏改），且带占位符的词条逐条列名（新增模板漏登记即红；2026-10-30 随批注例句位词条 `{{n}}` 入列） | 2026-10-30 |
 | catalogs_parse_into_typed_fields | 文案表解析进类型化字段 | 给定编译期嵌入的两份文件，当取用，则解析成功、两语言取值可区分，且“正在注疏”与“`Re-annotating`”词条逐字就位 | 2026-10-27 |
+| the_clipboard_image_hint_names_the_platform_shot_keys_per_platform | 剪贴板图片提示分平台各名其键 | 给定双语文案表，当比对剪贴板图片监听提示的两条平台键，则系统（macOS）键点名 `⌘⌃⇧4`、系统（Windows）键点名 `Win+Shift+S`，且取用面按构建目标取对应键（提示回退混写即红） | 2026-11-10 |
 | violation_position_words_align_with_the_seal_names | 批注位置词与印名同字 | 给定双语文案表，当比对批注位置词与印章印名，则注位词与注印同字、例句位词以疏印起头（用户照词即可定位被指认的字段，印名改动时此处连带审查） | 2026-10-30 |
 | fill_replaces_every_named_placeholder | 占位符按名填充 | 给定含同名多处的模板与无参数、无对应参数的模板，当填充，则同名全替换、无占位符原样、无参数占位符原样保留 | 2026-09-22 |
 | fill_replaces_multiple_distinct_placeholders | 多参填充各自替换对应占位符 | 给定含 `{{a}}` 与 `{{b}}` 两类占位符的模板与两参，当填充，则各自替换对应占位符、互不串位 | 2026-10-14 |
@@ -1855,7 +1869,8 @@
 | --- | --- | --- | --- |
 | snapshot_keeps_readable_text_verbatim | 可读文本逐字保全 | 给定可读文本读取结果与任意格式计数，当 `snapshot_decision`，则文本快照逐字保全 | 2026-11-06 |
 | snapshot_accepts_a_confirmed_empty_board | 确认空板保全为空板 | 给定无内容读取结果与零格式计数，当 `snapshot_decision`，则空板快照成立（恢复轮清板） | 2026-11-06 |
-| snapshot_declines_a_non_text_board_it_cannot_restore | 非文本板整体放弃兜底 | 给定无内容读取结果与非零格式计数，当 `snapshot_decision`，则放弃（注入后原内容无法如实写回） | 2026-11-06 |
+| snapshot_preserves_read_image_flavors_for_write_back | 图像风格原字节保全供写回 | 给定无内容读取结果与非零格式计数、且图像风格捕获可读，当 `snapshot_decision`，则按捕获的风格原字节保全（图片挂板的兜底轮照常前进） | 2026-11-10 |
+| snapshot_declines_a_non_text_board_it_cannot_restore | 保不住的风格全跳过才放弃兜底 | 给定无内容读取结果与非零格式计数、且图像风格一个都捕获不出，当 `snapshot_decision`，则放弃（注入后原内容无法如实写回）。沿革：原判据为非文本板即整体放弃，2026-11-10 随图像风格保全收窄为全跳过才放弃 | 2026-11-10 |
 | snapshot_declines_unreadable_board_state | 板状态读不出整体放弃 | 给定无内容读取结果与读不出的格式清单、以及其它文本读取失败两例，当 `snapshot_decision`，则一律放弃兜底 | 2026-11-06 |
 
 ### `crates/gloss-platform/src/windows/selection/clipboard/restore.rs`
@@ -1904,6 +1919,8 @@
 | seq_a_round_latch_on_an_unarmed_source_falls_back_to_the_round_pre_count | 未武装哨兵消费闩锁以轮次 `pre` 兜底 | 给定未武装（基线缺失）的哨兵与置位闩锁（`pre=7`、写 1），当轮询读到 8 则按 `pre` 兜底归因吞掉并武装基线到 8；换自报写盘 0 的闩锁读到 9（外来），则放行落入前进判定、当轮只武装基线到 9 不触发不查格式 | 2026-11-07 |
 | seq_an_unreadable_count_at_the_round_latch_stays_quiet_and_rearms | 轮次消费遇读数失败保守吞掉并重记 | 给定武装哨兵且置位闩锁，当消费轮询时序列号读数返回 `None`，则静默、基线作废；随后的首轮只重记基线不触发，再下一次前进照常触发 | 2026-11-07 |
 | seq_a_text_round_restoring_an_image_board_must_not_refire_it | 划词恢复写回旧图不得再触发图片任务 | 给定武装哨兵已观察过一次图片复制（基线 8），当划词兜底轮次置位闩锁（`pre=8`、自报写盘 1：恢复写回）且序列号前进到 9，则消费闩锁按计数归因吞掉、无观察事件、基线重记到 9；同读数不复查格式，新的图片复制照常触发恰一次 | 2026-11-07 |
+| seq_a_flavor_restore_self_reporting_full_jumps_is_swallowed | 图像风格恢复按序列号跳变口径自报被吞 | 给定武装哨兵（基线 7）与按跳变口径置位的闩锁（`pre=7`、自报 5：取材 1 加清板 1 加放回 3），当轮询读到序列号 12 且图像格式在板（板上正是被恢复的图），则闩锁按计数归因吞掉、无观察事件、基线重记到 12（恢复写盘不得被当成用户复制） | 2026-11-10 |
+| seq_a_flavor_restore_underreporting_jumps_fires_a_spurious_observation | 恢复写盘少报跳变即伪触发（反向钉子） | 给定武装哨兵（基线 7）与少报的闩锁（`pre=7`、自报 2），当轮询读到序列号 12 且图像格式在板，则差额判为外来写入并产出观察事件（钉住写盘归因必须按序列号跳变自报：少报会让恢复的图伪装成用户复制） | 2026-11-10 |
 | seq_observer_mismatch_flags_the_race | 观察记录比对判竞态 | 给定观察记录，当现值与记录一致则匹配；记录更新后旧值不匹配、新值匹配（记录与现值之间被覆盖即竞态） | 2026-11-07 |
 
 ### `crates/gloss-platform/src/windows/clipboard/image.rs`

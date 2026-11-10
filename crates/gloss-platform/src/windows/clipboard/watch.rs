@@ -447,6 +447,30 @@ mod tests {
     }
 
     #[test]
+    fn seq_a_flavor_restore_self_reporting_full_jumps_is_swallowed() {
+        let mut watch = source(true, 7);
+        watch.round.enter(RoundWrites { pre: 7, ours: 5 });
+        let events = watch.poll_at(t(0), || Some(12), || true);
+        assert!(
+            events.is_empty(),
+            "a flavor restore counted as empty-plus-sets must not be observed"
+        );
+        assert_eq!(watch.seen, Some(12), "the baseline moves past the restore");
+    }
+
+    #[test]
+    fn seq_a_flavor_restore_underreporting_jumps_fires_a_spurious_observation() {
+        let mut watch = source(true, 7);
+        watch.round.enter(RoundWrites { pre: 7, ours: 2 });
+        let events = watch.poll_at(t(0), || Some(12), || true);
+        assert_eq!(
+            events,
+            vec![PasteboardImageObserved],
+            "an underreported latch lets the restored image masquerade as a user copy"
+        );
+    }
+
+    #[test]
     fn seq_an_unarmed_source_arms_without_firing() {
         let enabled = Arc::new(AtomicBool::new(true));
         let mut watch = ClipboardWatchSource {

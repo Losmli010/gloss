@@ -1,8 +1,11 @@
-//! 快照写回（恢复序列）：文本写回或清板，单次失败短退避后重试。
+//! 快照写回（恢复序列）：文本写回、图像风格原字节放回或清板，单次失败
+//! 短退避后重试。
 //!
-//! 系统（Windows）的恢复走跨平台剪贴板库：文本快照原样写回，空板快照
-//! 清板；剪贴板被其它应用短时占有时单次写回会失败，按系统（macOS）恢复
-//! 序列的同款节奏重试（每次取全新剪贴板句柄）。
+//! 系统（Windows）的恢复：文本快照走跨平台剪贴板库原样写回，空板快照
+//! 清板，图像风格快照走剪贴板接口（Win32）原格式原字节放回（一次开板
+//! 算一次写盘，字节即捕获字节，不经解码重编码）；剪贴板被其它应用短时
+//! 占有时单次写回会失败，按系统（macOS）恢复序列的同款节奏重试（每次
+//! 取全新剪贴板句柄）。
 
 use std::time::Duration;
 
@@ -11,6 +14,7 @@ use arboard::Clipboard;
 use gloss_core::log::{debug, error, thread};
 
 use super::snapshot::SavedContent;
+use crate::clipboard::clipboard_write_flavors;
 
 const RESTORE_ATTEMPTS: usize = 6;
 
@@ -20,6 +24,7 @@ const RESTORE_RETRY_DELAY: Duration = Duration::from_millis(200);
 pub(super) enum RestoreStage {
     Clipboard,
     Set,
+    Write,
     Clear,
 }
 
@@ -85,24 +90,32 @@ fn restore_once(saved: &SavedContent) -> RestoreOutcome {
             stage,
         }
     };
-    let Ok(mut clipboard) = Clipboard::new() else {
-        return fail(RestoreStage::Clipboard, 0);
+    let settled = RestoreOutcome {
+        ok: true,
+        writes: 1,
+        stage: RestoreStage::Clipboard,
     };
     match saved {
-        SavedContent::Text(text) => match clipboard.set_text(text.clone()) {
-            Ok(()) => RestoreOutcome {
-                ok: true,
-                writes: 1,
-                stage: RestoreStage::Clipboard,
-            },
-            Err(_) => fail(RestoreStage::Set, 0),
-        },
-        SavedContent::Empty => match clipboard.clear() {
-            Ok(()) => RestoreOutcome {
-                ok: true,
-                writes: 1,
-                stage: RestoreStage::Clipboard,
-            },
+        SavedContent::Flavors(flavors) => {
+            let (restored, jumps) = clipboard_write_flavors(flavors);
+            if restored {
+                RestoreOutcome {
+                    ok: true,
+                    writes: jumps,
+                    stage: RestoreStage::Clipboard,
+                }
+            } else {
+                fail(RestoreStage::Write, jumps)
+            }
+        }
+        SavedContent::Text(text) => {
+            match Clipboard::new().and_then(|mut board| board.set_text(text.clone())) {
+                Ok(()) => settled,
+                Err(_) => fail(RestoreStage::Set, 0),
+            }
+        }
+        SavedContent::Empty => match Clipboard::new().and_then(|mut board| board.clear()) {
+            Ok(()) => settled,
             Err(_) => fail(RestoreStage::Clear, 0),
         },
     }

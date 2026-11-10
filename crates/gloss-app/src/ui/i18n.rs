@@ -90,7 +90,8 @@ pub struct Text {
     pub(crate) gloss_settings_cache_ttl_suffix: String,
     pub(crate) gloss_settings_cache_ttl_hint: String,
     pub(crate) gloss_settings_watch_clipboard_images: String,
-    pub(crate) gloss_settings_watch_clipboard_images_hint: String,
+    pub(crate) gloss_settings_watch_clipboard_images_hint_macos: String,
+    pub(crate) gloss_settings_watch_clipboard_images_hint_windows: String,
     pub(crate) gloss_settings_notice_key_update_failed: String,
     pub(crate) gloss_settings_notice_save_failed: String,
     pub(crate) gloss_settings_notice_key_updated_save_failed: String,
@@ -172,6 +173,14 @@ impl Text {
         }
     }
 
+    pub fn watch_clipboard_images_hint(&self) -> &str {
+        if cfg!(target_os = "macos") {
+            &self.gloss_settings_watch_clipboard_images_hint_macos
+        } else {
+            &self.gloss_settings_watch_clipboard_images_hint_windows
+        }
+    }
+
     pub fn get(locale: Locale) -> &'static Self {
         static CATALOGS: OnceLock<[Text; 2]> = OnceLock::new();
         let catalogs = CATALOGS.get_or_init(|| [parse(ZH, "zh"), parse(EN, "en")]);
@@ -235,7 +244,7 @@ mod tests {
         let en = leaves_of(EN);
         assert_eq!(
             zh.len(),
-            94,
+            95,
             "the entry count is pinned so a walker that stops recursing cannot pass"
         );
         assert_eq!(
@@ -323,6 +332,30 @@ mod tests {
             Text::get(Locale::En).gloss_popup_reannotating,
             "Re-annotating"
         );
+    }
+
+    #[test]
+    fn the_clipboard_image_hint_names_the_platform_shot_keys_per_platform() {
+        for locale in [Locale::Zh, Locale::En] {
+            let text = Text::get(locale);
+            assert!(
+                text.gloss_settings_watch_clipboard_images_hint_macos
+                    .contains("⌘⌃⇧4"),
+                "{locale:?}: the macos hint must name the macos clipboard shot keys"
+            );
+            assert!(
+                text.gloss_settings_watch_clipboard_images_hint_windows
+                    .contains("Win+Shift+S"),
+                "{locale:?}: the windows hint must name the windows snip keys"
+            );
+        }
+        let picked = Text::get(Locale::Zh).watch_clipboard_images_hint();
+        let expected = if cfg!(target_os = "macos") {
+            &Text::get(Locale::Zh).gloss_settings_watch_clipboard_images_hint_macos
+        } else {
+            &Text::get(Locale::Zh).gloss_settings_watch_clipboard_images_hint_windows
+        };
+        assert_eq!(picked, expected, "the accessor picks by the build target");
     }
 
     #[test]
