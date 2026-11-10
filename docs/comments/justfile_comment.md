@@ -204,3 +204,9 @@
 
 - `test` 按目标分派：系统（macOS）保持全量原样；系统（Windows）转 `test-shared`——第三层（L3）双自检在托管系统（Windows）运行器的图形可行性未实测，暂不进必跑面（决策见 ci_comment.md）。
 - `test-shared` 两条命令：全工作区排除根包（避开第三层自检目标），再单独补跑根包测试桩（日志目录的系统（Windows）分支只有这里测得到）；根包无库目标，无文档测试可跑。
+
+## check-win（2026-11-11）
+
+- 本机交叉检查系统（Windows）目标的调研定案落配方：可行性判据是交叉检查工具（cargo-xwin）对 `x86_64-pc-windows-msvc` 跑通 `cargo check -p gloss-platform`，即它承担加密库（ring）的 C 构建——`cc` 的唯一构建期依赖方是 ring（`cargo tree -p gloss-platform --target x86_64-pc-windows-msvc -i cc -e build,normal` 实证）。2026-11-11 实测通过：`cargo xwin check` 全绿（3m21s），ring 的 C 对象与静态库在目标产物目录产出，构建脚本输出确认 `CC=clang-cl`。
+- 落**本地开发与构建**桶而非编译门禁桶：配方只作本地自检，不进任何工作流——系统（Windows）作业有真机执行器（lint-windows 与测试矩阵），跨检只是缩短触及 windows/ 改动的本地往返，真机门禁地位不变（配方注释同句注明）。
+- 前置：rustup 目标 `x86_64-pc-windows-msvc` 与 cargo-xwin 预装（环境初始化不校验，缺件时配方即报错）；SDK/CRT 缓存约 1.4GiB 落在用户缓存目录（cargo-xwin 自动下载），不进版本库；只检 gloss-platform 及其依赖——平台层收敛的改动面在平台层包内，够用。

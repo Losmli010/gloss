@@ -47,6 +47,10 @@ build:
 build-target target:
     cargo build --workspace --target {{target}}
 
+# 本机交叉检查系统（Windows）目标：交叉检查工具（cargo-xwin）承担加密库（ring）的语言（C）构建并让检查通过，供触及系统（Windows）代码的任务本地自检，持续集成的系统（Windows）作业仍是最终门禁
+check-win:
+    cargo xwin check -p gloss-platform --target x86_64-pc-windows-msvc
+
 # 发布优化构建
 build-release:
     cargo build --release
