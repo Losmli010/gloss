@@ -457,6 +457,15 @@ mod tests {
         (harness, action)
     }
 
+    fn snapshot_name(base: &str) -> String {
+        let platform = if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            "windows"
+        };
+        format!("{base}.{platform}")
+    }
+
     fn snapshot_harness(
         state: SettingsState,
         update: &UpdateState,
@@ -686,7 +695,7 @@ mod tests {
         let mut results = egui_kittest::SnapshotResults::new();
         let mut harness = snapshot_harness(open(&Config::default()), &UpdateState::default());
         harness.run();
-        harness.snapshot("settings_main");
+        harness.snapshot(snapshot_name("settings_main"));
         results.extend_harness(&mut harness);
 
         let mut noticed = open(&Config::default());
@@ -696,7 +705,7 @@ mod tests {
         let mut harness = snapshot_harness(noticed, &UpdateState::default());
         harness.run();
         harness.get_by_label_contains("disk on fire");
-        harness.snapshot("settings_notice");
+        harness.snapshot(snapshot_name("settings_notice"));
         results.extend_harness(&mut harness);
 
         let mut invalid = open(&Config::default());
@@ -706,7 +715,7 @@ mod tests {
         harness.get_by_label("Save").click();
         harness.run();
         harness.get_by_label_contains("marked in place");
-        harness.snapshot("settings_invalid");
+        harness.snapshot(snapshot_name("settings_invalid"));
         results.extend_harness(&mut harness);
 
         snapshot_update_phases(&mut results);
@@ -753,7 +762,7 @@ mod tests {
         ] {
             let mut harness = snapshot_harness(open(&Config::default()), &update);
             harness.run();
-            harness.snapshot(name);
+            harness.snapshot(snapshot_name(name));
             results.extend_harness(&mut harness);
         }
     }
