@@ -22,3 +22,12 @@
 
 - 新端口 `DesktopShortcut` 进句柄（`Box<dyn DesktopShortcut>`，紧随 `app_icon`）：桌面入口装配与图标装配同属启动期桌面集成，组装段在 `on_waker` 里与 `install_app_icon` 并列调用；构造仍只做廉价装配（`connect` 只 new 适配器，落盘在显式 `ensure` 时发生），与“构造不弹框、不建线程”的既有口径一致。
 - 各平台同名镜像（`crate::shortcut::SystemDesktopShortcut`）：系统（Windows）重建快捷方式，系统（macOS）恒无操作。
+
+## events 字段删除（2026-11-12，架构重构 A7 P0）
+
+- 形状收口：`Platform` 不再持 `events: Option<EventKit>` 槽位——本字段自
+  2026-11-05 建档以来全仓只被赋 `None`，取材包实际由静态工厂
+  （`Platform::event_kit`）在入口组装段构造后直接移交平台事件线程，不经
+  句柄中转；字段最初按“入口从句柄上取走取材包”的口径随句柄建立，装配
+  落地走了工厂路径后它再无写读面（零行为变化，纯死字段删除）。取材包的
+  互连口径见上文 `EventKit` 小节，不变。
