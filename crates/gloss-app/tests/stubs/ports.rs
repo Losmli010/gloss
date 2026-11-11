@@ -167,7 +167,6 @@ pub fn stub_platform(store: &Arc<MemoryConfigStore>, scene: Arc<dyn SceneProbe>)
         permission: Box::new(StubPermissionProbe),
         gesture: None,
         gesture_degraded: Arc::new(AtomicBool::new(false)),
-        events: None,
         event_thread: None,
     }
 }

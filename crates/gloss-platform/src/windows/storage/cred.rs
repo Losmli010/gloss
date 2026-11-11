@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use gloss_core::model::GlossError;
 
-use crate::windows::ffi;
+use crate::ffi;
 
 const SERVICE: &str = "io.github.losmli010.gloss";
 

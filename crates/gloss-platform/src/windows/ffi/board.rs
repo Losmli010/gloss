@@ -29,6 +29,27 @@ pub(crate) const CF_DIB: u32 = 8;
 
 pub(crate) const CF_DIBV5: u32 = 17;
 
+struct OpenBoard;
+
+impl OpenBoard {
+    fn acquire() -> Option<OpenBoard> {
+        // SAFETY: a null window handle associates the open with this thread;
+        // the guard's Drop is the sole close point on every path below.
+        unsafe { OpenClipboard(None) }.ok().map(|_| OpenBoard)
+    }
+}
+
+impl Drop for OpenBoard {
+    fn drop(&mut self) {
+        // SAFETY: matches the successful open held by this guard; failures are
+        // tolerated since the open is thread-associated and nothing further
+        // touches the board.
+        if let Err(err) = unsafe { CloseClipboard() } {
+            debug!(thread = thread::EVENT, error = %err, "close clipboard failed");
+        }
+    }
+}
+
 pub(crate) fn sequence_number() -> Option<u64> {
     // SAFETY: a pure query with no preconditions; a zero return means the
     // sequence number is unavailable.
@@ -37,17 +58,9 @@ pub(crate) fn sequence_number() -> Option<u64> {
 }
 
 pub(crate) fn format_count() -> Option<u32> {
-    // SAFETY: a null window handle associates the open with this thread and
-    // the clipboard is closed on every path below.
-    unsafe { OpenClipboard(None) }.ok()?;
+    let _board = OpenBoard::acquire()?;
     // SAFETY: read-only query while the clipboard is open on this thread.
-    let count = unsafe { CountClipboardFormats() } as u32;
-    // SAFETY: matches the successful open above; failures are tolerated since
-    // the open is thread-associated and nothing further touches the board.
-    if let Err(err) = unsafe { CloseClipboard() } {
-        debug!(thread = thread::EVENT, error = %err, "close clipboard failed");
-    }
-    Some(count)
+    Some(unsafe { CountClipboardFormats() } as u32)
 }
 
 pub(crate) fn png_format() -> Option<u32> {
@@ -79,18 +92,10 @@ pub(crate) enum FormatData {
 }
 
 pub(crate) fn read_format(format: u32, max_bytes: usize) -> FormatData {
-    // SAFETY: a null window handle associates the open with this thread and
-    // the clipboard is closed on every return path below.
-    if unsafe { OpenClipboard(None) }.is_err() {
+    let Some(_board) = OpenBoard::acquire() else {
         return FormatData::Absent;
-    }
-    let outcome = read_open_format(format, max_bytes);
-    // SAFETY: matches the successful open above; failures are tolerated since
-    // the open is thread-associated and nothing further touches the board.
-    if let Err(err) = unsafe { CloseClipboard() } {
-        debug!(thread = thread::EVENT, error = %err, "close clipboard failed");
-    }
-    outcome
+    };
+    read_open_format(format, max_bytes)
 }
 
 fn read_open_format(format: u32, max_bytes: usize) -> FormatData {
@@ -131,18 +136,10 @@ pub(crate) fn write_formats(writes: &[(u32, &[u8])]) -> (bool, u64) {
     if writes.is_empty() {
         return (true, 0);
     }
-    // SAFETY: a null window handle associates the open with this thread and
-    // the clipboard is closed on every path below.
-    if unsafe { OpenClipboard(None) }.is_err() {
+    let Some(_board) = OpenBoard::acquire() else {
         return (false, 0);
-    }
-    let outcome = write_open_formats(writes);
-    // SAFETY: matches the successful open above; failures are tolerated since
-    // the open is thread-associated and nothing further touches the board.
-    if let Err(err) = unsafe { CloseClipboard() } {
-        debug!(thread = thread::EVENT, error = %err, "close clipboard failed");
-    }
-    outcome
+    };
+    write_open_formats(writes)
 }
 
 fn write_open_formats(writes: &[(u32, &[u8])]) -> (bool, u64) {
@@ -174,24 +171,16 @@ fn write_open_formats(writes: &[(u32, &[u8])]) -> (bool, u64) {
 }
 
 pub(crate) fn read_formats(formats: &[u32], max_bytes: usize) -> Vec<Option<Vec<u8>>> {
-    // SAFETY: a null window handle associates the open with this thread and
-    // the clipboard is closed on every path below.
-    if unsafe { OpenClipboard(None) }.is_err() {
+    let Some(_board) = OpenBoard::acquire() else {
         return formats.iter().map(|_| None).collect();
-    }
-    let slots = formats
+    };
+    formats
         .iter()
         .map(|&format| match read_open_format(format, max_bytes) {
             FormatData::Bytes(bytes) => Some(bytes),
             FormatData::Absent | FormatData::OverLimit => None,
         })
-        .collect();
-    // SAFETY: matches the successful open above; failures are tolerated since
-    // the open is thread-associated and nothing further touches the board.
-    if let Err(err) = unsafe { CloseClipboard() } {
-        debug!(thread = thread::EVENT, error = %err, "close clipboard failed");
-    }
-    slots
+        .collect()
 }
 
 fn movable_handle(bytes: &[u8]) -> Option<HGLOBAL> {

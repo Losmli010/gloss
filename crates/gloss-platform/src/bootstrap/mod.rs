@@ -3,10 +3,11 @@
 //! 系统能力值。
 //!
 //! 平台句柄只在进程入口的组装段构造一次（Platform::connect），随后一次
-//! 性移交：入口先把事件线程消费的取材包与手势源从句柄上取走并移交平台
-//! 事件线程，再把句柄本体交给应用层（gloss-app）持有，应用层的菜单装配
-//! 与剪贴板写入都从句柄取。方向单一：入口 → 应用层，应用层不回触构造，
-//! 本包不依赖应用层。
+//! 性移交：事件线程消费的取材包由入口经静态工厂（Platform::event_kit）
+//! 构造并直接移交平台事件线程，不经句柄中转；手势源经句柄的装配
+//! （spawn_gesture_source）建立后从句柄上取走；再把句柄本体交给应用层
+//! （gloss-app）持有，应用层的菜单装配与剪贴板写入都从句柄取。方向单一：
+//! 入口 → 应用层，应用层不回触构造，本包不依赖应用层。
 //!
 //! 构造与工厂方法跨平台同形：各平台的同名镜像实现（组合存储、场景探针、
 //! 系统语言、图标与各端口适配）经平台分派后重新导出的模块路径取用，构造
@@ -45,7 +46,6 @@ pub struct Platform {
     pub permission: Box<dyn PermissionProbe>,
     pub gesture: Option<Box<dyn SelectionGestureSource>>,
     pub gesture_degraded: Arc<AtomicBool>,
-    pub events: Option<EventKit>,
     pub event_thread: Option<crate::events::EventThread>,
 }
 
@@ -70,7 +70,6 @@ impl Platform {
             permission: Box::new(crate::permissions::SystemPermissionProbe),
             gesture: None,
             gesture_degraded: Arc::new(AtomicBool::new(false)),
-            events: None,
             event_thread: None,
         })
     }
