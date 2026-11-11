@@ -15,7 +15,7 @@ use std::env;
 use gloss_core::model::GlossError;
 use gloss_core::ports::DesktopShortcut;
 
-use crate::windows::ffi;
+use crate::ffi;
 
 const LINK_FILE_NAME: &str = "Gloss.lnk";
 
