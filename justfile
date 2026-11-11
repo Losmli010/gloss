@@ -245,7 +245,7 @@ deny:
 
 # 内存未定义行为检测（Miri）：每夜工具链，只覆盖核心库（gloss-core）纯逻辑层；持续集成（CI）必跑，本地按需
 miri:
-    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features -- --skip cache:: --skip engine:: --skip file_writer_persists_lines_into_daily_file
+    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features --lib -- --skip engine::llm:: --skip engine::tests:: --skip classify::tests:: --skip file_writer_persists_lines_into_daily_file
 
 # 完整质量门禁：提交前门禁加检查器单测与全量测试
 check: precommit hooks-test test

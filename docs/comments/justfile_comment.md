@@ -21,6 +21,9 @@
 - 2026-09-18 两处实测裁剪（2026-09-17）：`--skip cache:: / engine::`——moka 背后的 crossbeam-epoch 指针技巧在 Miri 的 Stacked Borrows 下报 UB（tree-borrows 更糟），凡经 MokaCache 的测试整体排除；`-Zmiri-disable-isolation`——放行 config 落盘类测试的文件/环境访问，内存 UB 检测不变。
 - 2026-09-18 CI 的 sanitizers.yml 跑同一条配方；Miri 只随 nightly 发布、上游只对最新 nightly 测试，跑挂了先跟着升 nightly。
 - 2026-09-19 第三处裁剪 `--skip file_writer_persists_lines_into_daily_file`：该测试断言“WorkerGuard drop（shutdown + join）后日志行已落盘”，语义本身确定，但 tracing-appender 的非阻塞 worker 线程在 Miri 解释执行 + libtest 并行下偶发不落盘——CI 实测约半数轮次以“文件内容为空”失败（8bda13c/5b43efc/bc57b29 三轮失败，4502ca0/d4c6745 等同代码轮次通过；本地单测 Miri 单线程复现不出）。疑似 worker 在 Miri 的 IO 转发下失败后 channel 断开、shutdown send 失败跳过 join，无法从外部观测确认。与 crossbeam-epoch 裁剪同一先例：上游组件在 Miri 下不可靠即裁剪并记录；该测试在常规测试（非 Miri）里保持全绿，刷盘契约的覆盖不丢失。
+- 2026-11-11 跳过面收窄（重构方案 C3 第一步）：`--skip cache::` 删除——任务缓存站点已迁 gloss-app、核心库无 `cache` 模块，该过滤在测试集匹配零条目（moka/crossbeam-epoch 的原始动机随之失效）；`--skip engine::` 整组收窄为真正触及网络或运行时的三个组——`engine::llm::`（传输适配器组：tokio 运行时加 reqwest 类型，构建 `reqwest::Client` 的真机用例亦在此组）、`engine::tests::`（编排组）、`classify::tests::`（分类组），纯字节处理的 `engine::sse::`（17 例）由此进入 Miri，这是本步的收益。
+- 2026-11-11 收窄依据的实测新事实：tokio 1.54 的 `#[tokio::test]` 建 current-thread 运行时即急切创建 IO 驱动，mio 调 `kqueue`，而 Miri 无 macOS 的 kqueue shim（Linux 的 `epoll` 有）——凡 `#[tokio::test]` 组在本机（macOS）Miri 下必报 "can't call foreign function kqueue"。classify 组从未被旧配方跳过，故旧配方长期是 CI（Linux）绿、本地 macOS 红（在 classify 首个用例处中止），本次实跑复现后按运行时组统一收窄，配方在两个平台判定一致。
+- 2026-11-11 配方加 `--lib` 限定库目标：集成目标 stubs_behavior 的 6 个 tokio 用例是顶层裸名（libtest 不带目标名前缀），无法按组过滤，该目标整体退出 Miri 面——其中 2 个纯测试是测试支撑桩（MemoryConfigStore）的验收，生产面 UB 检查集中在库目标，此代价随收窄一并接受；库目标内新增运行时用例落入既有组则自动被组级过滤覆盖。CI（Linux）侧 classify 组与 stubs 目标退出 Miri 面（此前在 epoll shim 下在跑），常规测试（非 Miri）覆盖不变，UB 检查面的这一收窄随 C3 第二步（gloss-llm 分包迁配方）再评估。
 
 ## precommit
 
