@@ -1,5 +1,5 @@
 //! 第一层（L1）库级集成测试：状态机、通道 3 与 4、后台运行时（tokio）消费桥、
-//! 脚本引擎桩与任务缓存的全链路时序。
+//! 脚本引擎桩与任务缓存的全链路时序，以及进程级日志捕获夹具的窗口隔离。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -247,7 +247,7 @@ fn classify_failure_falls_back_and_the_task_still_completes() {
         .with_chunks(vec![Ok("{\"note\":\"兜底产物\"}".into())]);
     let mut pipe = pipeline(&engine);
 
-    pipe.trigger_and_feed("第一次划词", Span::none());
+    pipe.trigger_and_feed("第一次划词", gloss_core::log::task_span(9));
     assert_eq!(
         expect_classified(&mut pipe),
         TaskKind::General,
@@ -260,11 +260,32 @@ fn classify_failure_falls_back_and_the_task_still_completes() {
     let text = logs.text();
     let fallback_line = text
         .lines()
-        .find(|line| line.contains("classify request failed"))
+        .find(|line| line.contains("classify request failed") && line.contains("\"generation\":9"))
         .expect("the fallback must leave a trace");
     assert!(
         !fallback_line.contains("第一次划词"),
         "the fallback warn must not carry the selection content: {fallback_line}"
+    );
+}
+
+#[test]
+fn capture_windows_read_only_their_own_events() {
+    let first = gloss_core::log::capture_global();
+    gloss_core::log::info!(thread = gloss_core::log::thread::UI, "probe first window");
+    drop(first);
+
+    let second = gloss_core::log::capture_global();
+    gloss_core::log::info!(thread = gloss_core::log::thread::UI, "probe second window");
+    let text = second.text();
+    drop(second);
+
+    assert!(
+        text.contains("probe second window"),
+        "own window must capture own events: {text}"
+    );
+    assert!(
+        !text.contains("probe first window"),
+        "a closed window's lines must not leak into the next one: {text}"
     );
 }
 
