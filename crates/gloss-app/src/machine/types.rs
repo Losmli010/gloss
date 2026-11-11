@@ -77,7 +77,7 @@ pub struct RunRequest {
 pub(super) struct PendingOptions(pub(super) TaskOptions);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ProbeSource {
+pub enum ProbeSource {
     Selection,
     PasteboardImage,
 }

@@ -15,8 +15,8 @@ use std::hint::black_box;
 use criterion::measurement::{Measurement, ValueFormatter};
 use criterion::{BenchmarkGroup, Criterion, criterion_group, criterion_main};
 use egui::{Context, RawInput};
-use gloss_app::channel::{AcquireCommand, PlatformEvent};
-use gloss_app::machine::{OverlayView, TaskStateMachine};
+use gloss_app::channel::AcquireCommand;
+use gloss_app::machine::{OverlayView, ProbeSource, TaskStateMachine};
 use gloss_app::ui::context;
 use gloss_app::ui::i18n::Text;
 use gloss_app::ui::popup::{self, RenderState};
@@ -24,7 +24,7 @@ use gloss_app::ui::settings;
 use gloss_app::update::state::UpdateState;
 use gloss_core::config::{Config, Theme};
 use gloss_core::guard::SceneFacts;
-use gloss_core::model::{GlossError, Locale, ScreenPoint};
+use gloss_core::model::{GlossError, Locale};
 use gloss_core::task::{OutcomeStructured, TaskInput, TaskKind, TaskOutcome};
 
 const SOURCE: &str = "The quick brown fox jumps over the lazy dog near the river bank at dusk.";
@@ -183,9 +183,6 @@ fn run_frame(ctx: &Context, time: f64, draw: impl FnMut(&mut egui::Ui)) {
 
 fn bench_machine_lifecycle<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let mut machine = TaskStateMachine::new();
-    let event = PlatformEvent::SelectionGesture {
-        pos: ScreenPoint { x: 120, y: 96 },
-    };
     let config = Config::default();
     let scene = SceneFacts::default();
 
@@ -196,8 +193,8 @@ fn bench_machine_lifecycle<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
             };
             let delta = CHUNK.to_owned();
             let outcome = word_outcome();
-            let Some(AcquireCommand::AcquireText { generation }) = machine.begin_selection_probe(
-                black_box(&event),
+            let Some(AcquireCommand::AcquireText { generation }) = machine.begin_probe(
+                black_box(ProbeSource::Selection),
                 black_box(&config),
                 Locale::Zh,
                 black_box(&scene),
