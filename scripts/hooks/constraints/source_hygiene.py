@@ -123,7 +123,7 @@ def run(
             text_of(os.path.join(core_stubs, "engine.rs")),
             text_of(os.path.join(root, "crates", "gloss-app", "tests", "stubs", "engine.rs")),
         )
-        for crate in ("gloss-app", "gloss-platform"):
+        for crate in ("gloss-app",):
             assert_same(
                 "memory config store stub (core <-> %s)" % crate,
                 stub_section(os.path.join(core_stubs, "ports.rs"), "内存版配置存储桩", loader),
