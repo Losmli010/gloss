@@ -434,16 +434,16 @@
 - 测试步骤：
 
 1. 导出凭据：`export GLOSS_LIVE_API_KEY=sk-...`、`export GLOSS_LIVE_BASE_URL=https://api.deepseek.com/v1`、`export GLOSS_LIVE_MODEL=deepseek-flash`（密钥不落日志与任何输出）
-2. 首轮小样迭代：`just eval-iterate --limit 4`，核对 `target/eval/` 下 `iterate.json`、`iterate.cases.json`、`iterate.outputs.jsonl`、`iterate.html` 四件齐备
-3. 浏览器打开 `target/eval/iterate.html`：核对指标总览、历史曲线、测试用例三区与筛选
+2. 首轮小样迭代：`just eval-iterate --limit 4`，核对 `eval-state/` 下 `iterate.json`、`iterate.cases.json`、`iterate.outputs.jsonl`、`iterate.html` 四件齐备
+3. 浏览器打开 `eval-state/iterate.html`：核对指标总览、历史曲线、测试用例三区与筛选
 4. 标注导出：在检视页给若干用例点合格与不合格、填备注，点“导出标注”下载 `labels.json`
-5. 标注落库：`cargo run -p gloss-eval --bin eval -- label --import labels.json`，核对 `target/eval/labels.jsonl` 行数与集外标识警告
-6. 基线固化：`cargo run -p gloss-eval --bin eval -- accept`，核对 `target/eval/golden.jsonl` 与未标注警告
+5. 标注落库：`cargo run -p gloss-eval --bin eval -- label --import labels.json`，核对 `eval-state/labels.jsonl` 行数与集外标识警告
+6. 基线固化：`cargo run -p gloss-eval --bin eval -- accept`，核对 `eval-state/golden.jsonl` 与未标注警告
 7. 改提示词：修改 `crates/gloss-core/prompts/zh/` 任一模板的一处措辞
-8. 再迭代：`GLOSS_EVAL_SOURCE=prompt-tweak just eval-iterate`，核对检视页中被改条目出回归或待复核徽标、四维分数与首轮并排可读、`target/eval/history.svg` 出第二轮曲线
+8. 再迭代：`GLOSS_EVAL_SOURCE=prompt-tweak just eval-iterate`，核对检视页中被改条目出回归或待复核徽标、四维分数与首轮并排可读、`eval-state/history.svg` 出第二轮曲线
 9. 收尾（可选）：不带 `--limit` 跑全量一轮，核对三率与历史曲线随全量刷新
 
-- 更新时间：2026-11-02
+- 更新时间：2026-11-11
 
 ## 集成测试
 
@@ -1805,6 +1805,12 @@
 | scored_cases_show_dimensions_overall_and_reason | 已评用例的评分行 | 给定四维分 90、80、70、60 的用例，当渲染，则评分行列出四维分、总体 75（四维均值）与理由，列表列显示总体分 | 2026-11-01 |
 | marks_prefill_from_labels_and_drive_the_export_count | 标注预填与导出计数 | 给定三条用例（合格带备注、不合格、未标注）与对应标注资产，当渲染，则前两条按钮按结论预填、备注回填输入框，导出计数等于已标注例数 2 | 2026-11-01 |
 | rounds_carry_violation_tags | 逐轮轨迹与违约标签 | 给定两轮轨迹（首轮违约）的用例，当渲染，则轨迹折叠计数为两轮、违约轮带变体名标签、各轮原文照录 | 2026-11-01 |
+
+### `crates/gloss-eval/src/main.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| default_eval_dir_has_no_target_path_segment | 默认评测产物目录不落构建目录 | 给定缺省目录常量（`GLOSS_EVAL_DIR` 覆盖缺席时的回落值），当按路径段检查，则不含 `target` 段——人工标注与回归基线不被 `cargo clean` 与流水线清理抹掉（E2 定案：受控工件默认目录移出 `target/`，覆盖通道保留） | 2026-11-11 |
 
 ### `crates/gloss-platform/src/windows/events/mod.rs`
 
