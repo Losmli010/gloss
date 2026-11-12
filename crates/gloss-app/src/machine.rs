@@ -45,6 +45,12 @@ pub struct TaskStateMachine {
     overlay_view: Option<OverlayView>,
 }
 
+struct StreamingFields<'a> {
+    raw: &'a mut String,
+    classified: &'a mut Option<TaskKind>,
+    repairing: &'a mut bool,
+}
+
 impl TaskStateMachine {
     pub fn new() -> Self {
         Self::default()
@@ -209,17 +215,32 @@ impl TaskStateMachine {
         });
     }
 
-    pub fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
+    fn update_streaming<R>(
+        &mut self,
+        generation: u64,
+        apply: impl FnOnce(StreamingFields<'_>) -> R,
+    ) -> Option<R> {
         if generation != self.generation {
-            return false;
+            return None;
         }
         match &mut self.overlay_view {
-            Some(OverlayView::Streaming { raw, .. }) => {
-                raw.push_str(&delta);
-                true
-            }
-            _ => false,
+            Some(OverlayView::Streaming {
+                raw,
+                classified,
+                repairing,
+                ..
+            }) => Some(apply(StreamingFields {
+                raw,
+                classified,
+                repairing,
+            })),
+            _ => None,
         }
+    }
+
+    pub fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
+        self.update_streaming(generation, |view| view.raw.push_str(&delta))
+            .is_some()
     }
 
     pub fn accept_done(&mut self, generation: u64, outcome: TaskOutcome) -> bool {
@@ -239,30 +260,16 @@ impl TaskStateMachine {
     }
 
     pub fn accept_classified(&mut self, generation: u64, kind: TaskKind) -> bool {
-        if generation != self.generation {
-            return false;
-        }
-        match &mut self.overlay_view {
-            Some(OverlayView::Streaming { classified, .. }) => {
-                *classified = Some(kind);
-                true
-            }
-            _ => false,
-        }
+        self.update_streaming(generation, |view| *view.classified = Some(kind))
+            .is_some()
     }
 
     pub fn accept_repairing(&mut self, generation: u64) -> bool {
-        if generation != self.generation {
-            return false;
-        }
-        match &mut self.overlay_view {
-            Some(OverlayView::Streaming { raw, repairing, .. }) => {
-                raw.clear();
-                *repairing = true;
-                true
-            }
-            _ => false,
-        }
+        self.update_streaming(generation, |view| {
+            view.raw.clear();
+            *view.repairing = true;
+        })
+        .is_some()
     }
 
     pub fn accept_failed(&mut self, generation: u64, error: &GlossError) -> FailureOutcome {

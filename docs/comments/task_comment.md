@@ -61,6 +61,7 @@
 
 ## 编排侧的采纳包装（accept_chunk / accept_repairing / accept_classified / accept_done）
 
+- 三段包装共用 `forward_stream_event`（D2，2026-11-13）：委托状态机的那一步以闭包传入，“未采纳即记陈旧丢弃 debug 日志（generation / current / state 三字段）”收成单点；三条丢弃文案各自随调用点传入，日志输出逐字节不变。`accept_done` 采纳成功侧另有 info，不在该模板内。
 - `accept_chunk`：采纳流式增量。返回是否有新内容需要重绘。
 - `accept_repairing`：采纳修复轮开始：清上一轮流式正文并切“重新注解”页脚。返回是否需要重绘。
 - `accept_classified`：采纳自动分类结果（头部任务标签的更新点）。返回是否需要重绘。

@@ -268,6 +268,7 @@
 
 ## accept_* 家族的采纳语义
 
+- 守卫骨架单点（D2，2026-11-13）：只写流式视图的三处采纳（chunk / classified / repairing）经 `update_streaming` 收成同一条“代数守卫 + 流式视图匹配”骨架，各采纳只剩对 `StreamingFields` 借用面的一行动作；借用面只携带三处真正触碰的字段（`source` 只被整卡替换的 `accept_done` 取走，不在骨架内）。陈旧代拒绝语义零变化——内联测试与 `tests/pipeline.rs` 的陈旧响应过滤双重锁定不回退。
 - `accept_chunk`：追加到流式视图的原始回复（`note` 的渐进提取在渲染层），返回是否需要重绘。这份累积只服务**流式显示**；完成态以 `TaskDone` 的 `outcome.note` 为权威源，整卡覆盖（见 `crate::runtime::pipeline`）。
 - `accept_done`：`outcome.note` 直接覆盖流式累积；原文从流式视图随行进产物卡，供注疏的“经”位对照。**降级产物**（契约校验失败）照常上卡，但**不清 `active_request`**——重试按钮据此原样重发，守卫见 `retry`。流已终结时只丢弃令牌句柄、不取消——任务已经正常完成，保持“Some ⟺ Translating”。
 - `accept_classified`：把判定的任务类型写进流式视图（含分类失败时的兜底 kind，排版如实反映即将执行的任务）。陈旧代数或非流式视图不采纳——迟到标签不得落在已定格的产物卡上。

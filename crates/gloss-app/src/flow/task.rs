@@ -10,7 +10,8 @@ use winit::event_loop::ActiveEventLoop;
 
 use crate::channel::{Command, Event, Traced};
 use crate::machine::{
-    FailureOutcome, InputOutcome, OverlayView, RunRequest, event_kind, should_reveal,
+    FailureOutcome, InputOutcome, OverlayView, RunRequest, TaskStateMachine, event_kind,
+    should_reveal,
 };
 use crate::runtime::cache::cache_key;
 
@@ -174,46 +175,47 @@ impl GlossApp {
         }
     }
 
-    fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
-        let accepted = self.machine.accept_chunk(generation, delta);
+    fn forward_stream_event(
+        &mut self,
+        generation: u64,
+        forward: impl FnOnce(&mut TaskStateMachine, u64) -> bool,
+        dropped_message: &str,
+    ) -> bool {
+        let accepted = forward(&mut self.machine, generation);
         if !accepted {
             debug!(
                 thread = thread::UI,
                 generation = generation,
                 current = self.machine.generation(),
                 state = ?self.machine.state(),
-                "superseded or hidden chunk dropped"
+                "{}", dropped_message
             );
         }
         accepted
+    }
+
+    fn accept_chunk(&mut self, generation: u64, delta: String) -> bool {
+        self.forward_stream_event(
+            generation,
+            |machine, generation| machine.accept_chunk(generation, delta),
+            "superseded or hidden chunk dropped",
+        )
     }
 
     fn accept_repairing(&mut self, generation: u64) -> bool {
-        let accepted = self.machine.accept_repairing(generation);
-        if !accepted {
-            debug!(
-                thread = thread::UI,
-                generation = generation,
-                current = self.machine.generation(),
-                state = ?self.machine.state(),
-                "superseded or hidden repair marker dropped"
-            );
-        }
-        accepted
+        self.forward_stream_event(
+            generation,
+            |machine, generation| machine.accept_repairing(generation),
+            "superseded or hidden repair marker dropped",
+        )
     }
 
     fn accept_classified(&mut self, generation: u64, kind: gloss_core::task::TaskKind) -> bool {
-        let accepted = self.machine.accept_classified(generation, kind);
-        if !accepted {
-            debug!(
-                thread = thread::UI,
-                generation = generation,
-                current = self.machine.generation(),
-                state = ?self.machine.state(),
-                "stale classification dropped"
-            );
-        }
-        accepted
+        self.forward_stream_event(
+            generation,
+            |machine, generation| machine.accept_classified(generation, kind),
+            "stale classification dropped",
+        )
     }
 
     pub(crate) fn accept_done(
