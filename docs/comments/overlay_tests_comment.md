@@ -41,8 +41,9 @@
 
 `pending_reveal_shows_the_skeleton_only_over_a_live_view` 与
 `reveal_decision_combines_the_pending_request_with_the_batch` 直测
-`should_reveal`：`drain_events` 的 `&ActiveEventLoop` 参数在 L1 无法构造，
-壳层整条“触发即显”路径没有更低的驱动面；断言守卫（视图为空不显形）与
+`should_reveal`：`drain_events` 的露面分支要真实窗口栈就位（居中定位与
+显示都落在窗口管理器上），壳层整条“触发即显”路径没有更低的驱动面；
+断言守卫（视图为空不显形）与
 “挂起显形或失败即弹”的取或优先级。测试体内曾有的两行普通注释（“触发
 即显把取材成功的露面职责接走了”）按注释纪律删除——该缘由已由生产侧
 `should_reveal` / `auto_show_for` 的文档承载，assert 消息“骨架已代为露

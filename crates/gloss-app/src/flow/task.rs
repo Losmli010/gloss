@@ -6,20 +6,24 @@
 use gloss_core::log::{Span, debug, info, thread, warn};
 use gloss_core::model::GlossError;
 use gloss_core::task::TaskInput;
-use winit::event_loop::ActiveEventLoop;
+use winit::dpi::LogicalPosition;
 
 use crate::channel::{Command, Event, Traced};
 use crate::machine::{
     FailureOutcome, InputOutcome, OverlayView, RunRequest, TaskStateMachine, event_kind,
     should_reveal,
 };
+use crate::present::windows::WindowManager;
 use crate::runtime::cache::cache_key;
 
-use super::reveal::{centered_position, show_position};
+use super::reveal::show_position;
 use crate::app::GlossApp;
 
 impl GlossApp {
-    pub(crate) fn drain_events(&mut self, event_loop: &ActiveEventLoop) {
+    pub(crate) fn drain_events(
+        &mut self,
+        centered_position: impl FnOnce(&WindowManager) -> LogicalPosition<f64>,
+    ) {
         let events: Vec<Event> = self
             .endpoints
             .as_ref()
@@ -50,7 +54,7 @@ impl GlossApp {
         if should_reveal(pending_reveal, self.machine.overlay_view().is_some(), batch)
             && let Some(windows) = &mut self.workspace.windows
         {
-            let centered = centered_position(event_loop, windows);
+            let centered = centered_position(windows);
             let (position, placement) = show_position(
                 self.session.selection_anchor,
                 self.machine.generation(),

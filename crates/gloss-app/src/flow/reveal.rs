@@ -5,10 +5,9 @@
 use gloss_core::log::{info, thread};
 use gloss_core::model::ScreenPoint;
 use winit::dpi::LogicalPosition;
-use winit::event_loop::ActiveEventLoop;
 
 use crate::app::GlossApp;
-use crate::present::windows::{Placement, WindowManager};
+use crate::present::windows::Placement;
 
 impl GlossApp {
     pub(crate) fn show_overlay(&mut self, position: LogicalPosition<f64>) {
@@ -58,13 +57,6 @@ pub(super) fn show_position(
 
 const SELECTION_OFFSET_X: f64 = 16.0;
 const SELECTION_OFFSET_Y: f64 = 20.0;
-
-pub fn centered_position(
-    event_loop: &ActiveEventLoop,
-    windows: &WindowManager,
-) -> LogicalPosition<f64> {
-    windows.centered_position(event_loop)
-}
 
 #[cfg(test)]
 mod tests {

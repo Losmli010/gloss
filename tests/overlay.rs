@@ -9,7 +9,6 @@ use std::env;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use gloss_app::app::centered_position;
 use gloss_app::present::windows::WindowManager;
 use gloss_app::present::{Frame, build_window_stack, render_frame};
 use gloss_core::config::Theme;
@@ -237,7 +236,7 @@ impl OverlaySelfTest {
         self.last_frame_at = None;
         if let Some((windows, frame)) = self.windows.as_mut().zip(self.frame.as_ref()) {
             frame.reset_appear_animation();
-            let position = centered_position(event_loop, windows);
+            let position = windows.centered_position(event_loop);
             windows.show_at(position);
             windows.request_redraw();
         }

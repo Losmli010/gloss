@@ -31,6 +31,7 @@
 ## centered_position（R4/T3 后的归属）
 
 - 2026-09-20 T3 起居中算法收进 `WindowManager`（`centered_position` / `centered_on_monitor`）：尺寸变化后要在 `set_overlay_size` 内即时重新居中（显示入口用的是上一帧尺寸算的位置，不重定位则接近屏高的卡片向下溢出），算法放窗口管理器让两条路径共享一份实现；`app::overlay::centered_position` 保留为壳与自检 handler 的稳定入口（委托）。
+- 2026-11-13 委托入口随方案 D5 撤除：自由函数只剩一层转发，连同 `app::centered_position` 再导出一并删除——壳侧改传惰性闭包（见 task 记录的 drain_events 条目），自检的 `begin_round` 直调 `WindowManager::centered_position`，行为与坐标口径不变。
 
 ## show_position（浮层跟随划词位置）
 

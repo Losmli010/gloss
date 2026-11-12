@@ -102,7 +102,7 @@ impl ApplicationHandler<UserEvent> for GlossApp {
             return;
         }
         self.drain_platform_events();
-        self.drain_events(event_loop);
+        self.drain_events(|windows| windows.centered_position(event_loop));
         self.request_redraw();
     }
 
