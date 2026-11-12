@@ -24,14 +24,15 @@ use gloss_core::model::GlossError;
 use gloss_core::model::Locale;
 use gloss_core::task::{TaskInput, TaskKind, TaskOptions, TaskOutcome};
 
-use crate::channel::{AcquireCommand, PlatformEvent};
-use policy::{error_action, source_text, streaming_view};
-use types::{PendingOptions, ProbeSource, ProbeTask};
+use crate::channel::AcquireCommand;
+use policy::{error_action, source_text, streaming_view, trigger_decision_for};
+use types::{PendingOptions, ProbeTask};
 
 pub use policy::{TriggerDecision, trigger_decision};
 pub(crate) use policy::{event_kind, should_reveal, task_options};
 pub use types::{
-    AppState, ErrorAction, FailureCause, FailureOutcome, InputOutcome, OverlayView, RunRequest,
+    AppState, ErrorAction, FailureCause, FailureOutcome, InputOutcome, OverlayView, ProbeSource,
+    RunRequest,
 };
 
 #[derive(Debug, Default)]
@@ -87,17 +88,14 @@ impl TaskStateMachine {
         self.current_cancel.as_ref()
     }
 
-    pub fn begin_selection_probe(
+    pub fn begin_probe(
         &mut self,
-        event: &PlatformEvent,
+        source: ProbeSource,
         config: &Config,
         system_locale: Locale,
         scene: &SceneFacts,
     ) -> Option<AcquireCommand> {
-        if !matches!(event, PlatformEvent::SelectionGesture { .. }) {
-            return None;
-        }
-        match trigger_decision(event, scene) {
+        match trigger_decision_for(source, scene) {
             TriggerDecision::Acquire => {}
             TriggerDecision::Blocked(_)
             | TriggerDecision::SelfSuppressed
@@ -108,35 +106,14 @@ impl TaskStateMachine {
         self.probe = Some(ProbeTask {
             id,
             pending: PendingOptions(task_options(config, system_locale)),
-            source: ProbeSource::Selection,
+            source,
         });
-        Some(AcquireCommand::AcquireText { generation: id })
-    }
-
-    pub fn begin_pasteboard_probe(
-        &mut self,
-        event: &PlatformEvent,
-        config: &Config,
-        system_locale: Locale,
-        scene: &SceneFacts,
-    ) -> Option<AcquireCommand> {
-        if !matches!(event, PlatformEvent::PasteboardImageObserved) {
-            return None;
-        }
-        match trigger_decision(event, scene) {
-            TriggerDecision::Acquire => {}
-            TriggerDecision::Blocked(_)
-            | TriggerDecision::SelfSuppressed
-            | TriggerDecision::Unwired => return None,
-        }
-        let id = self.next_id + 1;
-        self.next_id += 1;
-        self.probe = Some(ProbeTask {
-            id,
-            pending: PendingOptions(task_options(config, system_locale)),
-            source: ProbeSource::PasteboardImage,
-        });
-        Some(AcquireCommand::AcquireClipboardImage { generation: id })
+        Some(match source {
+            ProbeSource::Selection => AcquireCommand::AcquireText { generation: id },
+            ProbeSource::PasteboardImage => {
+                AcquireCommand::AcquireClipboardImage { generation: id }
+            }
+        })
     }
 
     pub fn commit_probe(&mut self, probe_id: u64, input: TaskInput) -> InputOutcome {
@@ -362,6 +339,8 @@ impl TaskStateMachine {
 mod tests {
     use std::sync::Arc;
 
+    use crate::channel::PlatformEvent;
+
     use gloss_core::config::Language;
     use gloss_core::guard::{FrontApp, SceneFacts, SensitiveKind, TriggerBlock};
     use gloss_core::model::{GlossError, Lang, ScreenPoint};
@@ -414,13 +393,13 @@ mod tests {
 
     fn probe_using(machine: &mut TaskStateMachine, config: &Config, system_locale: Locale) -> u64 {
         let command = machine
-            .begin_selection_probe(
-                &selection_gesture(),
+            .begin_probe(
+                ProbeSource::Selection,
                 config,
                 system_locale,
                 &SceneFacts::default(),
             )
-            .expect("selection gesture must probe");
+            .expect("the selection source must probe");
         let AcquireCommand::AcquireText { generation } = command else {
             panic!("acquire text expected");
         };
@@ -429,13 +408,13 @@ mod tests {
 
     fn pasteboard_probe(machine: &mut TaskStateMachine, config: &Config) -> u64 {
         let command = machine
-            .begin_pasteboard_probe(
-                &PlatformEvent::PasteboardImageObserved,
+            .begin_probe(
+                ProbeSource::PasteboardImage,
                 config,
                 Locale::Zh,
                 &SceneFacts::default(),
             )
-            .expect("pasteboard observation must probe");
+            .expect("the pasteboard source must probe");
         let AcquireCommand::AcquireClipboardImage { generation } = command else {
             panic!("acquire clipboard image expected");
         };
@@ -493,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn probe_mapping_covers_wired_events_only() {
+    fn selection_probe_takes_an_id_without_touching_the_generation() {
         let mut machine = TaskStateMachine::new();
         let probe_id = probe(&mut machine, &Config::default());
         assert_eq!(
@@ -505,32 +484,10 @@ mod tests {
             0,
             "a probe takes a probe id, not a generation: the visible session is untouched"
         );
-
-        for event in [
-            PlatformEvent::PasteboardImageObserved,
-            PlatformEvent::OpenSettingsRequested,
-        ] {
-            assert!(
-                machine
-                    .begin_selection_probe(
-                        &event,
-                        &Config::default(),
-                        Locale::Zh,
-                        &SceneFacts::default()
-                    )
-                    .is_none(),
-                "unwired events must not acquire"
-            );
-        }
-        assert_eq!(
-            machine.generation(),
-            0,
-            "unwired events must not consume a generation"
-        );
         assert_eq!(
             machine.probe_id(),
             Some(1),
-            "unwired events must not replace the outstanding probe"
+            "the outstanding probe parks until its product arrives"
         );
     }
 
@@ -634,8 +591,8 @@ mod tests {
         let mut machine = TaskStateMachine::new();
         assert!(
             machine
-                .begin_selection_probe(
-                    &selection_gesture(),
+                .begin_probe(
+                    ProbeSource::Selection,
                     &Config::default(),
                     Locale::Zh,
                     &frontmost_is_self()
@@ -1311,8 +1268,8 @@ mod tests {
         let mut machine = TaskStateMachine::new();
         assert!(
             machine
-                .begin_pasteboard_probe(
-                    &PlatformEvent::PasteboardImageObserved,
+                .begin_probe(
+                    ProbeSource::PasteboardImage,
                     &Config::default(),
                     Locale::Zh,
                     &blocked_by_app()
@@ -1326,8 +1283,8 @@ mod tests {
         };
         assert!(
             machine
-                .begin_pasteboard_probe(
-                    &PlatformEvent::PasteboardImageObserved,
+                .begin_probe(
+                    ProbeSource::PasteboardImage,
                     &Config::default(),
                     Locale::Zh,
                     &secure
@@ -1713,7 +1670,12 @@ mod tests {
 
     fn begin_probe_on(machine: &mut TaskStateMachine, scene: &SceneFacts) -> bool {
         machine
-            .begin_selection_probe(&selection_gesture(), &Config::default(), Locale::Zh, scene)
+            .begin_probe(
+                ProbeSource::Selection,
+                &Config::default(),
+                Locale::Zh,
+                scene,
+            )
             .is_none()
     }
 

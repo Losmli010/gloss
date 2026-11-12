@@ -166,7 +166,7 @@
 - 为什么不是“状态机存 `GlossError` 的英文 `Display`、渲染时按它反查文案”：R7 卡明令禁止。`Display` 是日志措辞，改它不该改界面；反查还会让界面文案悄悄依赖日志文本。
 - 代价：`FailureCause` 与 `GlossError` 的变体表两处维护（`error_text_maps_every_variant_per_locale` 逐变体钉住 UI 侧覆盖）；换来的是“状态机不持有任何用户可见文案”。
 
-## TaskStateMachine::begin_pasteboard_probe / ProbeTask.source（2026-10-10，剪贴板图片方案 §5.6）
+## ProbeTask.source 与两路探测的收口（2026-10-10，剪贴板图片方案 §5.6；2026-11-12 两入口收为 begin_probe）
 
 - 为什么两路探测共用**同一个** `probe` 槽而不是各开一个字段：探测的互斥语义（“探针期间其它触发照常短路”）本来就是“新探测顶掉旧探测、旧探测迟到产物经编号过滤丢弃”——两个独立字段要把这套互斥重写一遍还得处理跨字段顶替；单槽下互斥就是 `Option` 的替换，`ProbeSource` 字段只负责记录“这个槽在等哪种产物”。
 - 为什么自身前台（`SelfSuppressed`）对剪贴板观察不生效而只走场景闸门：防误触判定的靶子是 HID 全局 tap 连拖 Gloss 自己浮层的那类手势误触；剪贴板哨兵读的是 `changeCount` 元数据，Gloss 自身从不写剪贴板（兜底读取只读不写），不存在“自己触发自己”的通路。闸门（安全输入态/敏感应用名单）两种触发同权生效。
@@ -207,11 +207,12 @@
 - `attached_image`：渲染“经”位用；非图像任务或无会话时为 `None`。图像字节不进视图变体，渲染层经这里取用——经位布局开关就是它的有无，不依赖分类结果的到达时序。
 - `current_cancel`：在途任务的取消令牌（测试观察口）。
 
-## begin_selection_probe / begin_pasteboard_probe（探测段接口）
+## begin_probe（探测段接口）
 
-- 探测段只领探测编号、冻结任务选项并返回取材命令——**不改状态、不换视图、不取消在途任务**，已显示的内容与在途推理全程无感，误滑因此零干扰。产物到达走 `commit_probe`，失败走 `commit_probe_failed`；新探测替换旧探测（旧探测的迟到产物经编号过滤丢弃）。未接线或被闸门拦下的手势返回 `None` 且无副作用。
+- 探测段只领探测编号、冻结任务选项并返回取材命令——**不改状态、不换视图、不取消在途任务**，已显示的内容与在途推理全程无感，误滑因此零干扰。产物到达走 `commit_probe`，失败走 `commit_probe_failed`；新探测替换旧探测（旧探测的迟到产物经编号过滤丢弃）。未接线或被闸门拦下的来源返回 `None` 且无副作用。
 - `config` 是壳在事件起手处取的快照，`system_locale` 供 `Language::System` 落定，`scene` 供场景闸门判定。
-- 剪贴板入口镜像划词入口；本应用兜底取材写下的剪贴板变化由平台侧按轮次计数归因吞掉（`gloss_platform::clipboard::WatchRoundFlag`）。
+- 剪贴板观察与划词走同一个入口，按 `ProbeSource` 分流出命令变体与产物配对口径；本应用兜底取材写下的剪贴板变化由平台侧按轮次计数归因吞掉（`gloss_platform::clipboard::WatchRoundFlag`）。
+- 2026-11-12 两个入口（`begin_selection_probe` / `begin_pasteboard_probe`）收为一个 `begin_probe(source)`：原先两方法逐字同构、只差事件变体、来源与命令变体三处；事件到来源的接线映射上移编排层（flow/probe.rs 的 `probe_source`），机器只按来源行事，决策判定与 `trigger_decision` 共用 `trigger_decision_for` 一个事实源。行为零变化。
 
 ## commit_probe（提交段流程）
 

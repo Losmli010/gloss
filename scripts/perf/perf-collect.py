@@ -54,7 +54,7 @@ ROOT = SCRIPT_DIR.parents[1]
 CRIT_ROOT = ROOT / "target" / "criterion"
 SELFTEST_PATH = ROOT / "target" / "perf" / "selftest.jsonl"
 APP_PATH = ROOT / "target" / "perf" / "app-runtime.json"
-EVAL_PATH = ROOT / "target" / "eval" / "iterate.json"
+EVAL_PATH = ROOT / "eval-state" / "iterate.json"
 HISTORY_PATH = SCRIPT_DIR / "baselines" / "history.jsonl"
 
 STARTUP_SIGNAL_MESSAGE = "startup self-test finished"

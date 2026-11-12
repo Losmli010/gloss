@@ -434,16 +434,16 @@
 - 测试步骤：
 
 1. 导出凭据：`export GLOSS_LIVE_API_KEY=sk-...`、`export GLOSS_LIVE_BASE_URL=https://api.deepseek.com/v1`、`export GLOSS_LIVE_MODEL=deepseek-flash`（密钥不落日志与任何输出）
-2. 首轮小样迭代：`just eval-iterate --limit 4`，核对 `target/eval/` 下 `iterate.json`、`iterate.cases.json`、`iterate.outputs.jsonl`、`iterate.html` 四件齐备
-3. 浏览器打开 `target/eval/iterate.html`：核对指标总览、历史曲线、测试用例三区与筛选
+2. 首轮小样迭代：`just eval-iterate --limit 4`，核对 `eval-state/` 下 `iterate.json`、`iterate.cases.json`、`iterate.outputs.jsonl`、`iterate.html` 四件齐备
+3. 浏览器打开 `eval-state/iterate.html`：核对指标总览、历史曲线、测试用例三区与筛选
 4. 标注导出：在检视页给若干用例点合格与不合格、填备注，点“导出标注”下载 `labels.json`
-5. 标注落库：`cargo run -p gloss-eval --bin eval -- label --import labels.json`，核对 `target/eval/labels.jsonl` 行数与集外标识警告
-6. 基线固化：`cargo run -p gloss-eval --bin eval -- accept`，核对 `target/eval/golden.jsonl` 与未标注警告
+5. 标注落库：`cargo run -p gloss-eval --bin eval -- label --import labels.json`，核对 `eval-state/labels.jsonl` 行数与集外标识警告
+6. 基线固化：`cargo run -p gloss-eval --bin eval -- accept`，核对 `eval-state/golden.jsonl` 与未标注警告
 7. 改提示词：修改 `crates/gloss-core/prompts/zh/` 任一模板的一处措辞
-8. 再迭代：`GLOSS_EVAL_SOURCE=prompt-tweak just eval-iterate`，核对检视页中被改条目出回归或待复核徽标、四维分数与首轮并排可读、`target/eval/history.svg` 出第二轮曲线
+8. 再迭代：`GLOSS_EVAL_SOURCE=prompt-tweak just eval-iterate`，核对检视页中被改条目出回归或待复核徽标、四维分数与首轮并排可读、`eval-state/history.svg` 出第二轮曲线
 9. 收尾（可选）：不带 `--limit` 跑全量一轮，核对三率与历史曲线随全量刷新
 
-- 更新时间：2026-11-02
+- 更新时间：2026-11-11
 
 ## 集成测试
 
@@ -1146,9 +1146,9 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（粘贴板观察、设置），当 `begin_selection_probe`，则前者发 `AcquireText`（无 `kind`——类型归 `LLM` 层）且只领探测编号不动代数、后者 `None` 且不占代数不顶掉在途探测 | 2026-10-10 |
+| selection_probe_takes_an_id_without_touching_the_generation | 划词探测只领编号不动代数 | 给定划词来源，当 `begin_probe`，则发 `AcquireText`（无 `kind`——类型归 `LLM` 层）且只领探测编号不动代数、在途探测停驻等产物。沿革：原名“探测映射只覆盖已接线事件”，2026-11-12 两探测入口收为 `begin_probe` 后事件接线映射上移编排层，未接线断言随之由 `trigger_decision` 的 `Unwired` 分支测试承载 | 2026-11-12 |
 | trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦、未接线 | 给定 `trigger_decision`，则划词恒为 `Acquire`（无载荷——分类是 `LLM` 层的事）、剪贴板观察为 `Acquire`（取材动作即显式意图）且只受场景闸门（名单内报 `Blocked`、自身前台不设防）、设置与授权落定报 `Unwired`；出厂配置下划词为 `Acquire` | 2026-10-10 |
-| scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定“前台应用在名单内且安全输入关闭”，当 `begin_selection_probe`，则两次都 `None`、无探测编号、状态留 `Idle`；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
+| scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定“前台应用在名单内且安全输入关闭”，当 `begin_probe`，则两次都 `None`、无探测编号、状态留 `Idle`；场景恢复后同一手势照常探测（仍不动代数） | 2026-11-12 |
 | selection_options_pair_with_one_snapshot_including_the_model | 选项（含模型）出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则目标语言与模型 `id` 均出自快照冻结（类型不在其中——`kind` 由 `LLM` 层分类决定） | 2026-10-03 |
 | classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 `accept_classified`，则当前代写入判定 `kind`、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
 | a_degraded_done_keeps_the_request_and_retry_redispatches_it | 降级产物保留请求副本且可重试 | 给定推理中任务收 `degraded` 产物，当 `accept_done`，则落 `Show` 定格降级卡、清空取消令牌且不清 `active_request`；当 `retry`，则同代数按原 `input+options` 重发、换新令牌并回流式视图；正常产物落 `Show` 即清请求（`retry` 返回 `None`） | 2026-10-18 |
@@ -1169,8 +1169,8 @@
 | image_input_for_text_kind_is_rejected | 划词探测拒收图像输入 | 给定在途划词探测收图像产物，当提交，则 `Ignored`（模态按探测的取材来源配对） | 2026-10-10 |
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 `Translating` 态隐藏，当收起，则令牌取消、视图清空回 `Idle`，迟到同代数产物、失败被拒 | 2026-09-19 |
 | hide_overlay_drops_the_outstanding_probe | 隐藏作废在途探测 | 给定在途探测（划词与粘贴板各验一遍），当收起浮层，则迟到的探测产物与失败均被拒（不得把浮层弹回） | 2026-10-10 |
-| pasteboard_probe_takes_an_id_without_touching_the_session | 粘贴板探测只领编号不动会话 | 给定空白机器与推理中的可见会话，当 `begin_pasteboard_probe`，则发 `AcquireClipboardImage`、只领探测编号不动代数、状态与视图原样、在途任务不被取消、无随行图像 | 2026-10-10 |
-| the_scene_gate_stops_the_pasteboard_probe_too | 场景闸门同样停住粘贴板探测 | 给定安全输入开启与前台应用在名单内两种场景，当 `begin_pasteboard_probe`，则两次都 `None`、无探测编号、状态留 `Idle`；场景恢复后同一观察照常探测（仍不动代数） | 2026-10-10 |
+| pasteboard_probe_takes_an_id_without_touching_the_session | 粘贴板探测只领编号不动会话 | 给定空白机器与推理中的可见会话，当 `begin_probe`，则发 `AcquireClipboardImage`、只领探测编号不动代数、状态与视图原样、在途任务不被取消、无随行图像 | 2026-11-12 |
+| the_scene_gate_stops_the_pasteboard_probe_too | 场景闸门同样停住粘贴板探测 | 给定安全输入开启与前台应用在名单内两种场景，当 `begin_probe`，则两次都 `None`、无探测编号、状态留 `Idle`；场景恢复后同一观察照常探测（仍不动代数） | 2026-11-12 |
 | pasteboard_commit_retains_the_image_and_parks_the_pending_card | 粘贴板提交留图落待确认卡 | 给定在途粘贴板探测的图像产物，当 `commit_probe`，则落 `PendingConfirm`、探测编号提升为代数、图像以 `Arc` 零拷贝留存进 `attached_image`、无取消令牌（待确认阶段无在途推理）；当确认，则下发请求携带同一图像输入、进 `Translating`、流式卡经位原文为空（经是图本身） | 2026-10-27 |
 | probes_are_mutually_exclusive_across_triggers | 两路探测互斥（同一探测槽） | 给定划词探测在途时来粘贴板观察（反向亦然），当新探测到达，则顶掉旧探测；旧编号的产物与失败一律 `Ignored`、新编号照常提交 | 2026-10-10 |
 | text_on_a_pasteboard_probe_is_ignored_without_consuming | 粘贴板探测拒收文本不消费探测 | 给定在途粘贴板探测收文本产物，当 `commit_probe`，则 `Ignored`；同编号的合法图像产物随后仍可提交 | 2026-10-10 |
@@ -1807,6 +1807,12 @@
 | scored_cases_show_dimensions_overall_and_reason | 已评用例的评分行 | 给定四维分 90、80、70、60 的用例，当渲染，则评分行列出四维分、总体 75（四维均值）与理由，列表列显示总体分 | 2026-11-01 |
 | marks_prefill_from_labels_and_drive_the_export_count | 标注预填与导出计数 | 给定三条用例（合格带备注、不合格、未标注）与对应标注资产，当渲染，则前两条按钮按结论预填、备注回填输入框，导出计数等于已标注例数 2 | 2026-11-01 |
 | rounds_carry_violation_tags | 逐轮轨迹与违约标签 | 给定两轮轨迹（首轮违约）的用例，当渲染，则轨迹折叠计数为两轮、违约轮带变体名标签、各轮原文照录 | 2026-11-01 |
+
+### `crates/gloss-eval/src/main.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| default_eval_dir_has_no_target_path_segment | 默认评测产物目录不落构建目录 | 给定缺省目录常量（`GLOSS_EVAL_DIR` 覆盖缺席时的回落值），当按路径段检查，则不含 `target` 段——人工标注与回归基线不被 `cargo clean` 与流水线清理抹掉（E2 定案：受控工件默认目录移出 `target/`，覆盖通道保留） | 2026-11-11 |
 
 ### `crates/gloss-platform/src/windows/events/mod.rs`
 
