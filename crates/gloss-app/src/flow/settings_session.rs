@@ -96,7 +96,9 @@ mod tests {
 
     use gloss_core::model::{GlossError, Lang};
 
-    use crate::app::test_support::{driven_app, driven_app_with, text_input, trigger_selection};
+    use crate::app::test_support::{
+        DrivenApp, driven_app, driven_app_with, text_input, trigger_selection,
+    };
     use crate::channel::PlatformEvent;
     use crate::stubs::ports::MemoryConfigStore;
     use crate::ui;
@@ -104,7 +106,13 @@ mod tests {
 
     #[test]
     fn open_settings_request_starts_an_edit_session() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
         pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
         app.drain_platform_events();
 
@@ -123,7 +131,15 @@ mod tests {
 
     #[test]
     fn settings_save_writes_keychain_and_swaps_config() {
-        let (mut app, config, store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            config,
+            store,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         pe_tx.send(PlatformEvent::OpenSettingsRequested).unwrap();
         app.drain_platform_events();
 
@@ -159,7 +175,14 @@ mod tests {
 
     #[test]
     fn settings_save_hot_toggles_the_clipboard_watch_switch() {
-        let (mut app, config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            config,
+            pe_tx,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
         assert!(
             app.env.clipboard_watch_enabled.load(Ordering::Relaxed),
             "the factory default starts the sentinel on"
@@ -195,7 +218,15 @@ mod tests {
 
     #[test]
     fn clearing_the_key_deletes_the_secret_on_save() {
-        let (mut app, config, store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            config,
+            store,
+            pe_tx,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
         store
             .set_secret("gloss/deepseek", "sk-existing")
             .expect("stub store accepts secret");
@@ -216,8 +247,13 @@ mod tests {
     fn failed_save_keeps_the_session_open_with_a_notice() {
         let failing = MemoryConfigStore::default()
             .with_save_failure(GlossError::Config("disk on fire".into()));
-        let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) =
-            driven_app_with(Arc::new(failing));
+        let DrivenApp {
+            mut app,
+            config,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app_with(Arc::new(failing));
         app.settings = Some(ui::settings::open(&config.snapshot()));
 
         let mut draft = (*config.snapshot()).clone();

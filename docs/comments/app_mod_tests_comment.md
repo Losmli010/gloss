@@ -10,7 +10,8 @@
 
 ## 测试辅助（test_support / driven_app 家族）
 
-- 2026-09-18 DrivenApp：`(GlossApp, Arc<ConfigHandle>, Arc<dyn SecretStore>, 平台事件发送端, 取材命令接收端, 推理命令接收端, 回传事件发送端)`——App 本体加四条通道的驱动端点（2026-10-30 端口拆分后第三元是密钥存储）。
+- 2026-09-18 DrivenApp：具名结构——App 本体加四条通道的驱动端点（`app`、运行时配置句柄、密钥存储、通道①发送端、通道②接收端、通道③接收端、通道④发送端）；2026-11-13（重构 D6）由七元匿名元组改具名字段，调用点按字段名解构防错位。
+- 2026-11-13 解构的存活口径：通道②③接收端（`ac_rx`/`cmd_rx`）未用也须以 `_` 前缀绑定随作用域存活——应用侧发送失败会走降级路径（`send_acquire` 失败即 `drop_probe`，命令发送失败即告警丢弃），即时释放会静默改写夹具行为；通道①④发送端与配置、存储句柄即时释放无碍（Arc 应用侧自持，通道①④的读取只经 `try_iter` 对断连无感），故由 `..` 短路。`ev_tx` 当前无测试读取，带 reason 豁免 `dead_code` 以保留通道④注入面；两个被解构挤破行数阈值的测试（probe.rs 的敏感场景静默、task.rs 的旧会话迟到事件）带 reason 豁免 `too_many_lines`——主体行数本在限内，拆体会割裂时序叙述。
 - 2026-09-18 driven_app：接入真实通道与配置句柄的 App，配置走 core 的内存桩，测试可 `handle.save(...)` 模拟设置页保存，观察下一次触发是否用上新配置。driven_app_with：注入必失败存储的版本（设置页失败路径测试用）。driven_app_using：再注入热键桩的版本（M4-T7 重注册接线测试用），桩由调用方持 Arc 共享，不关心热键的测试用 driven_app。
 - 2026-09-18 trigger_selection：发送 `PlatformEvent::SelectionGesture` 后调 `drain_platform_events`，驱动一次划词触发走完通道①消费。
 - 2026-09-18 text_input / plain_outcome：构造文本取材产物与 Plain 结局。streaming_body / outcome_body：从 `overlay_view` 取当前正文，非期望视图即 panic（测试辅助：panic 即断言）。

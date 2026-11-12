@@ -80,14 +80,22 @@ mod tests {
     use gloss_core::model::GlossError;
     use gloss_core::task::TaskInput;
 
-    use crate::app::test_support::{driven_app, plain_outcome, text_input, trigger_selection};
+    use crate::app::test_support::{
+        DrivenApp, driven_app, plain_outcome, text_input, trigger_selection,
+    };
     use crate::channel::Command;
     use crate::machine::{AppState, ErrorAction, OverlayView};
     use crate::ui::popup::OverlayAction;
 
     #[test]
     fn confirm_action_dispatches_the_pending_card() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         assert_eq!(app.machine.state(), AppState::PendingConfirm);
@@ -106,7 +114,13 @@ mod tests {
 
     #[test]
     fn stale_confirm_clicks_dispatch_nothing() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
 
         app.handle_overlay_action(OverlayAction::Confirm);
         assert!(cmd_rx.try_recv().is_err(), "no card, no dispatch");
@@ -127,7 +141,13 @@ mod tests {
 
     #[test]
     fn retry_action_redispatches_the_failed_task() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         app.handle_overlay_action(OverlayAction::Confirm);
@@ -171,7 +191,13 @@ mod tests {
 
     #[test]
     fn open_settings_action_keeps_the_error_card() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         app.handle_overlay_action(OverlayAction::Confirm);

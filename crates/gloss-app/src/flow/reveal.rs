@@ -63,7 +63,9 @@ mod tests {
     use gloss_core::model::ScreenPoint;
     use winit::dpi::LogicalPosition;
 
-    use crate::app::test_support::{driven_app, plain_outcome, text_input, trigger_selection};
+    use crate::app::test_support::{
+        DrivenApp, driven_app, plain_outcome, text_input, trigger_selection,
+    };
     use crate::channel::{Command, PlatformEvent};
     use crate::machine::AppState;
     use crate::present::windows::Placement;
@@ -98,7 +100,13 @@ mod tests {
 
     #[test]
     fn selection_trigger_records_its_anchor_per_generation() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
 
         pe_tx
             .send(PlatformEvent::SelectionGesture {
@@ -127,7 +135,13 @@ mod tests {
 
     #[test]
     fn dismiss_abandons_the_inflight_task_and_returns_to_idle() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         app.handle_overlay_action(crate::ui::popup::OverlayAction::Confirm);
