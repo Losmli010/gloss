@@ -22,7 +22,7 @@ use gloss_core::engine::llm::LlmClient;
 use gloss_core::model::GlossError;
 use gloss_core::ports::{AiEngine, ConfigStore, SecretStore};
 
-const REPORT_DIR: &str = "target/eval";
+const REPORT_DIR: &str = "eval-state";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -69,7 +69,7 @@ fn usage() -> &'static str {
                          offline language-gate verdicts over the gate dataset (precision/recall)
                          plus the remedy convergence table (violation → mechanical repair →
                          re-check); --judge additionally samples cases for an LLM second opinion
-                         (needs GLOSS_LIVE_* credentials); writes target/eval/gate.md"
+                         (needs GLOSS_LIVE_* credentials); writes eval-state/gate.md"
 }
 
 fn run_iterate_cli(args: &[String]) -> Result<(), String> {
@@ -370,5 +370,23 @@ impl SecretStore for EnvSecretStore {
 
     fn delete_secret(&self, _key: &str) -> Result<(), GlossError> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::REPORT_DIR;
+
+    #[test]
+    fn default_eval_dir_has_no_target_path_segment() {
+        let lands_in_build_tree = Path::new(REPORT_DIR)
+            .components()
+            .any(|component| component.as_os_str() == "target");
+        assert!(
+            !lands_in_build_tree,
+            "the default eval dir must stay out of the build tree: {REPORT_DIR}"
+        );
     }
 }

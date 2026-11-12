@@ -10,7 +10,7 @@
 
 - 2026-11-02 评测工具链重构步骤 6 接线：评审默认开启（评审是流程核心信号，删除清单明令撤掉 `GLOSS_LIVE_JUDGE` 双保险），`--no-judge` 跳过额外一次模型调用；`GLOSS_LIVE_*` 三变量缺一即错退出码 1（实跑本身就需要模型端点，与评审开关无关）。
 - 报告上下文（`GLOSS_EVAL_COMMIT`、`GLOSS_EVAL_SOURCE`）在此读环境注入 `EvalContext`——历史行的同键原地覆盖以提交标识为键，环境缺席即每次追加新行。
-- 产物目录 `GLOSS_EVAL_DIR` 缺省回落 target/eval；成功后打印一行汇总并把报告的 Markdown 表打到标准输出（迭代本身写四件产物，标准输出只是人读的即时回执）。
+- 产物目录 `GLOSS_EVAL_DIR` 缺省回落 eval-state/；成功后打印一行汇总并把报告的 Markdown 表打到标准输出（迭代本身写四件产物，标准输出只是人读的即时回执）。
 
 ## run_label_cli / run_accept_cli
 
@@ -27,7 +27,8 @@
 
 ## dir_option / parse_usize / report_dir / env_value
 
-- `--dir PATH` 选项：缺省回落报告目录（GLOSS_EVAL_DIR / target/eval）；`--limit` 数值解析全命令共用一个助手；环境值读取统一过滤纯空白。
+- `--dir PATH` 选项：缺省回落报告目录（GLOSS_EVAL_DIR / eval-state/）；`--limit` 数值解析全命令共用一个助手；环境值读取统一过滤纯空白。
+- 2026-11-11 架构重构 E2：缺省目录从 target/eval 移到 eval-state/——人工标注 labels.jsonl 与回归基线 golden.jsonl 是受控工件，落在构建目录会被 `cargo clean` 与性能流水线的清理步骤抹掉；`--dir` 与 `GLOSS_EVAL_DIR` 覆盖通道原样保留；一条内联测试钉住缺省目录不含 `target` 路径段（意图见 eval_main_tests_comment.md）。
 
 ## run_gate_cli
 

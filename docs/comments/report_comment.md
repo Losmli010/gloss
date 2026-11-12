@@ -5,7 +5,7 @@
 
 ## EvalReport
 
-- 一次迭代实跑的完整报告（`target/eval/<mode>.json` 的形状，也是
+- 一次迭代实跑的完整报告（`eval-state/<mode>.json` 的形状，也是
   history.jsonl 一行一份的历史行）。
 - 字段：`mode` 运行模式（当前恒为 iterate）；`generated_at` 报告生成时间
   （UNIX 纪元秒，不引入时间库依赖）；`context` 采集上下文（历史行的

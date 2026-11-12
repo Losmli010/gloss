@@ -56,9 +56,10 @@ jobs:
           tool: just
 
       # 缓存动作会把构建产物目录带回本次运行：清掉基准与采集的本地产物，防上次
-      # 运行的陈旧耗时明细（已删除用例仍被合计）与旧评测报告混进本点。
+      # 运行的陈旧耗时明细（已删除用例仍被合计）混进本点；评测产物目录不进清理
+      # 面——受控工件（人工标注与回归基线）住那里，抹掉即丢数据。
       - name: Clean prior measurement artifacts
-        run: rm -rf target/criterion target/perf target/eval
+        run: rm -rf target/criterion target/perf
 
       # 采集顺序全量：克隆计数与密度（源码文本扫描，聚合时直接统计，无独立步骤）、
       # 克隆分配、体积双架构、基准框架（criterion）墙钟、双自检、应用度量、启动火焰图，
