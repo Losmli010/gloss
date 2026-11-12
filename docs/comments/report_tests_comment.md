@@ -23,3 +23,9 @@
   骤 1 旧兼容测试的反转：分组聚合段无 serde 缺省，旧形状历史行解析即
   败，由历史读取按坏行容错跳过（计划的既定口径）。
 - `utc_formatting_is_fixed_and_timezone_free` 继续钉 UTC 固定换算。
+- 落盘面（2026-11-12 重构 E3）：
+  `write_lands_complete_report_without_temp_residue` 钉报告按模式命名
+  落盘、内容与 `pretty JSON` 逐字节一致且读回可解析、目录内无临时残留；
+  `failed_write_reports_error_and_leaves_no_partial_artifact` 以占位临
+  时写盘路径注入失败，钉写回错误如实上抛且目标不留半截产物——缓冲写
+  释放吞错、中断留截断报告的旧直写路径由此锁死。

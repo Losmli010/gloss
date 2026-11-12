@@ -12,10 +12,6 @@
 //! 系统接口声明与所有权守卫集中在各平台的外部函数接口（FFI）模块，
 //! 业务模块不直接声明外部符号。
 
-#[cfg(test)]
-#[path = "../tests/stubs/mod.rs"]
-pub(crate) mod stubs;
-
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod bootstrap;
 #[cfg(any(target_os = "macos", target_os = "windows"))]

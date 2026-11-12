@@ -107,7 +107,7 @@ def new_fixture(root: Path, agents_body: str | None = None) -> None:
     )
 
     # 桩副本目录夹具：让“桩副本一致”检查有可比对象
-    for crate in ("gloss-core", "gloss-app", "gloss-platform"):
+    for crate in ("gloss-core", "gloss-app"):
         (root / "crates" / crate / "tests/stubs").mkdir(parents=True)
     engine = root / "crates/gloss-core/tests/stubs/engine.rs"
     engine.write_text("engine stub\n")
@@ -116,9 +116,6 @@ def new_fixture(root: Path, agents_body: str | None = None) -> None:
         (root / "crates" / crate / "tests/stubs/ports.rs").write_text(
             "/// 内存版配置存储桩\npub struct MemoryConfigStore;\n"
         )
-    (root / "crates/gloss-platform/tests/stubs/ports.rs").write_text(
-        "/// 内存版配置存储桩\npub struct MemoryConfigStore;\n"
-    )
 
     if agents_body is not None:
         (root / "AGENTS.md").write_text(agents_body + "\n", encoding="utf-8")

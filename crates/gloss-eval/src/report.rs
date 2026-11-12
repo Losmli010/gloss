@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::asset::{GoldenMap, LabelMap};
 use crate::contract::derive_state;
 use crate::detail::{CaseDetail, ContractState, JudgeScores, LabelVerdict, RuleVerdict};
+use crate::history::write_atomic;
 
 pub const ITERATE_MODE: &str = "iterate";
 const PASS_LINE: f64 = 80.0;
@@ -414,19 +415,14 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 }
 
 pub fn write(report: &EvalReport, dir: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir)?;
-    serde_json::to_writer_pretty(
-        std::io::BufWriter::new(std::fs::File::create(
-            dir.join(format!("{}.json", report.mode)),
-        )?),
-        report,
-    )
-    .map_err(std::io::Error::other)
+    let json = serde_json::to_string_pretty(report).map_err(std::io::Error::other)?;
+    write_atomic(&dir.join(format!("{}.json", report.mode)), &json)
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::path::PathBuf;
 
     use gloss_core::schema::Violation;
     use gloss_core::task::TaskKind;
@@ -890,6 +886,70 @@ mod tests {
         assert_eq!(back.latency, report.latency);
         assert!(json.contains(r#""p50_ms":10.0"#), "{json}");
         assert!(json.contains(r#""quality":{"#), "{json}");
+    }
+
+    #[test]
+    fn write_lands_complete_report_without_temp_residue() {
+        let (cases, golden, labels) = mixed_fixture();
+        let mut report = assemble(&cases, &golden, &labels, None);
+        report.generated_at = 1000;
+        let dir = temp_dir("write-complete");
+        super::write(&report, &dir.join("nested")).expect("write into a fresh nested dir");
+        let text = std::fs::read_to_string(dir.join("nested").join("iterate.json"))
+            .expect("the report file");
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&report).expect("serialize"),
+            "the file holds the full pretty JSON, never a truncated tail"
+        );
+        let parsed: EvalReport = serde_json::from_str(&text).expect("parse back");
+        assert_eq!(parsed.mode, "iterate");
+        assert_eq!(parsed.totals.cases, 4);
+        let entries: Vec<String> = std::fs::read_dir(dir.join("nested"))
+            .expect("dir listing")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(
+            entries,
+            vec!["iterate.json".to_owned()],
+            "nothing besides the report is left in the artifact dir"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn failed_write_reports_error_and_leaves_no_partial_artifact() {
+        let (cases, golden, labels) = empty_run();
+        let report = assemble(&cases, &golden, &labels, None);
+        let dir = temp_dir("write-failure");
+        std::fs::create_dir_all(&dir).expect("fixture dir");
+        let name = format!("{}.json", report.mode);
+        let staged = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+        std::fs::create_dir(&staged).expect("a directory occupies the staging path");
+        super::write(&report, &dir)
+            .expect_err("a blocked write-back surfaces as an error, not a quiet Ok");
+        assert!(
+            !dir.join(&name).exists(),
+            "no partial artifact is left at the target path"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "gloss-eval-report-{tag}-{}-{nanos}",
+            std::process::id()
+        ))
     }
 
     fn golden_row(id: &str) -> (String, GoldenRow) {

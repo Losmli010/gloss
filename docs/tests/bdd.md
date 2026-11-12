@@ -1744,6 +1744,8 @@
 | utc_formatting_is_fixed_and_timezone_free | 协调世界时（UTC）格式固定换算 | 给定若干 `UNIX` 秒，当 `format_utc` 与 `format_utc_short`，则恒为 `YYYY-MM-DD HH:MM` 与 `MM-DD HH:MM` 的协调世界时（UTC）结果，不随本地时区漂移 | 2026-10-13 |
 | legacy_rows_without_aggregates_fail_parsing_for_tolerant_skip | 旧历史行改走坏行容错 | 给定缺分组聚合段的旧历史行（JSON），当反序列化为报告，则解析失败（分组聚合无缺省值），由历史读取按坏行容错跳过、不做缺省兼容 | 2026-11-01 |
 | report_round_trips_through_serde | 报告序列化往返 | 给定含分组聚合、质量聚合与延迟摘要的报告，当序列化、反序列化，则分组与合计逐字段一致、分位字段名带 `_ms` 后缀、质量聚合完整落行 | 2026-11-01 |
+| write_lands_complete_report_without_temp_residue | 报告落盘完整且无临时残留 | 给定一份聚合报告与不存在的嵌套产物目录，当 `write`，则按模式命名的报告文件落盘（目录随写创建）、内容与 `pretty JSON` 逐字节一致且读回可解析（无截断尾）、目录内除报告外无点前缀临时残留 | 2026-11-12 |
+| failed_write_reports_error_and_leaves_no_partial_artifact | 写回失败上抛不留半截产物 | 给定产物目录内报告同名的临时写盘路径被同名目录占位，当 `write`，则写回错误如实上抛而非安静成功、目标报告文件不产生（失败与中断都不留截断报告） | 2026-11-12 |
 
 ### `crates/gloss-eval/src/history.rs`
 

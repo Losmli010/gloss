@@ -75,11 +75,9 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-core/src/contract/ports.rs": "ports",
     "crates/gloss-app/tests/stubs/ports.rs": "stubs_ports",
     "crates/gloss-core/tests/stubs/ports.rs": "stubs_ports",
-    "crates/gloss-platform/tests/stubs/ports.rs": "stubs_ports",
-    # 各包测试桩目录同名模块：三包共用一份记录
+    # 各包测试桩目录同名模块：多包共用一份记录
     "crates/gloss-app/tests/stubs/mod.rs": "stubs_mod",
     "crates/gloss-core/tests/stubs/mod.rs": "stubs_mod",
-    "crates/gloss-platform/tests/stubs/mod.rs": "stubs_mod",
     # 修复轮共享骨架与提示词修复区撞名：提示词修复区带家族前缀
     "crates/gloss-core/src/pipeline/repair.rs": "repair",
     "crates/gloss-core/src/pipeline/prompt/repair.rs": "prompt_repair",
