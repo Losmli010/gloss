@@ -5,9 +5,17 @@ use gloss_core::guard::SceneFacts;
 use gloss_core::log::{Span, debug, info, task_span, thread, warn};
 
 use crate::channel::{AcquireCommand, PlatformEvent, Traced};
-use crate::machine::{TriggerDecision, trigger_decision};
+use crate::machine::{ProbeSource, TriggerDecision, trigger_decision};
 
 use crate::app::GlossApp;
+
+fn probe_source(event: &PlatformEvent) -> Option<ProbeSource> {
+    match event {
+        PlatformEvent::SelectionGesture { .. } => Some(ProbeSource::Selection),
+        PlatformEvent::PasteboardImageObserved => Some(ProbeSource::PasteboardImage),
+        _ => None,
+    }
+}
 
 impl GlossApp {
     pub(crate) fn drain_platform_events(&mut self) {
@@ -27,21 +35,14 @@ impl GlossApp {
                 continue;
             }
             let scene = self.env.scene.facts();
-            let Some(command) = (match &event {
-                PlatformEvent::SelectionGesture { .. } => self.machine.begin_selection_probe(
-                    &event,
-                    &config,
-                    self.env.system_locale,
-                    &scene,
-                ),
-                PlatformEvent::PasteboardImageObserved => self.machine.begin_pasteboard_probe(
-                    &event,
-                    &config,
-                    self.env.system_locale,
-                    &scene,
-                ),
-                _ => None,
-            }) else {
+            let Some(source) = probe_source(&event) else {
+                log_unwired(&event, &scene);
+                continue;
+            };
+            let Some(command) =
+                self.machine
+                    .begin_probe(source, &config, self.env.system_locale, &scene)
+            else {
                 log_unwired(&event, &scene);
                 continue;
             };

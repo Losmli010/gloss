@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use gloss_app::channel::{AcquireCommand, Channels, Command, Event, PlatformEvent, Traced};
 use gloss_app::machine::{
-    AppState, ErrorAction, FailureOutcome, InputOutcome, OverlayView, TaskStateMachine,
+    AppState, ErrorAction, FailureOutcome, InputOutcome, OverlayView, ProbeSource, TaskStateMachine,
 };
 use gloss_app::runtime::cache::TaskCache;
 use gloss_app::runtime::pipeline::{TaskBridge, start_command_runtime};
@@ -16,7 +16,6 @@ use gloss_core::engine::AiTaskService;
 use gloss_core::guard::SceneFacts;
 use gloss_core::log::Span;
 use gloss_core::model::Locale;
-use gloss_core::model::ScreenPoint;
 use gloss_core::model::{GlossError, Lang};
 use gloss_core::ports::{AiEngine, TaskChunk};
 use gloss_core::task::{OutcomeStructured, TaskInput, TaskKind, TaskOutcome};
@@ -87,15 +86,13 @@ impl Pipeline {
     fn trigger_and_feed(&mut self, text: &str, span: Span) -> tokio_util::sync::CancellationToken {
         let command = self
             .machine
-            .begin_selection_probe(
-                &PlatformEvent::SelectionGesture {
-                    pos: ScreenPoint::new(0, 0),
-                },
+            .begin_probe(
+                ProbeSource::Selection,
                 &self.config.snapshot(),
                 Locale::Zh,
                 &SceneFacts::default(),
             )
-            .expect("selection gesture must probe");
+            .expect("selection probe must start");
         let AcquireCommand::AcquireText { generation } = &command else {
             panic!("acquire text expected");
         };
@@ -132,13 +129,13 @@ impl Pipeline {
     ) -> tokio_util::sync::CancellationToken {
         let command = self
             .machine
-            .begin_pasteboard_probe(
-                &PlatformEvent::PasteboardImageObserved,
+            .begin_probe(
+                ProbeSource::PasteboardImage,
                 &self.config.snapshot(),
                 Locale::Zh,
                 &SceneFacts::default(),
             )
-            .expect("pasteboard observation must probe");
+            .expect("pasteboard probe must start");
         let AcquireCommand::AcquireClipboardImage { generation } = &command else {
             panic!("acquire clipboard image expected");
         };

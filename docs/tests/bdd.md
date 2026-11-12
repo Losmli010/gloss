@@ -1146,9 +1146,9 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| probe_mapping_covers_wired_events_only | 探测映射只覆盖已接线事件 | 给定划词手势与未接线事件（粘贴板观察、设置），当 `begin_selection_probe`，则前者发 `AcquireText`（无 `kind`——类型归 `LLM` 层）且只领探测编号不动代数、后者 `None` 且不占代数不顶掉在途探测 | 2026-10-10 |
+| selection_probe_takes_an_id_without_touching_the_generation | 划词探测只领编号不动代数 | 给定划词来源，当 `begin_probe`，则发 `AcquireText`（无 `kind`——类型归 `LLM` 层）且只领探测编号不动代数、在途探测停驻等产物。沿革：原名“探测映射只覆盖已接线事件”，2026-11-12 两探测入口收为 `begin_probe` 后事件接线映射上移编排层，未接线断言随之由 `trigger_decision` 的 `Unwired` 分支测试承载 | 2026-11-12 |
 | trigger_decision_separates_blocked_and_unwired_events | 触发去向分出被拦、未接线 | 给定 `trigger_decision`，则划词恒为 `Acquire`（无载荷——分类是 `LLM` 层的事）、剪贴板观察为 `Acquire`（取材动作即显式意图）且只受场景闸门（名单内报 `Blocked`、自身前台不设防）、设置与授权落定报 `Unwired`；出厂配置下划词为 `Acquire` | 2026-10-10 |
-| scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定“前台应用在名单内且安全输入关闭”，当 `begin_selection_probe`，则两次都 `None`、无探测编号、状态留 `Idle`；场景恢复后同一手势照常探测（仍不动代数） | 2026-10-01 |
+| scene_gate_stops_the_probe_before_acquisition | 场景闸门在取材前停住探测 | 给定安全输入开启（前台应用不在名单内）、再给定“前台应用在名单内且安全输入关闭”，当 `begin_probe`，则两次都 `None`、无探测编号、状态留 `Idle`；场景恢复后同一手势照常探测（仍不动代数） | 2026-11-12 |
 | selection_options_pair_with_one_snapshot_including_the_model | 选项（含模型）出自同一快照 | 给定自定义配置快照，当划词探测并提交产物，则目标语言与模型 `id` 均出自快照冻结（类型不在其中——`kind` 由 `LLM` 层分类决定） | 2026-10-03 |
 | classified_kind_updates_the_streaming_chip_only_once_current | 分类结果只更新当前代的流式标签 | 给定推理中的流式视图，当 `accept_classified`，则当前代写入判定 `kind`、陈旧代与已定格产物卡拒绝、无流式视图不采纳 | 2026-09-26 |
 | a_degraded_done_keeps_the_request_and_retry_redispatches_it | 降级产物保留请求副本且可重试 | 给定推理中任务收 `degraded` 产物，当 `accept_done`，则落 `Show` 定格降级卡、清空取消令牌且不清 `active_request`；当 `retry`，则同代数按原 `input+options` 重发、换新令牌并回流式视图；正常产物落 `Show` 即清请求（`retry` 返回 `None`） | 2026-10-18 |
@@ -1169,8 +1169,8 @@
 | image_input_for_text_kind_is_rejected | 划词探测拒收图像输入 | 给定在途划词探测收图像产物，当提交，则 `Ignored`（模态按探测的取材来源配对） | 2026-10-10 |
 | hide_abandons_inflight_and_drops_late_events | 隐藏放弃在途并拒迟到事件 | 给定 `Translating` 态隐藏，当收起，则令牌取消、视图清空回 `Idle`，迟到同代数产物、失败被拒 | 2026-09-19 |
 | hide_overlay_drops_the_outstanding_probe | 隐藏作废在途探测 | 给定在途探测（划词与粘贴板各验一遍），当收起浮层，则迟到的探测产物与失败均被拒（不得把浮层弹回） | 2026-10-10 |
-| pasteboard_probe_takes_an_id_without_touching_the_session | 粘贴板探测只领编号不动会话 | 给定空白机器与推理中的可见会话，当 `begin_pasteboard_probe`，则发 `AcquireClipboardImage`、只领探测编号不动代数、状态与视图原样、在途任务不被取消、无随行图像 | 2026-10-10 |
-| the_scene_gate_stops_the_pasteboard_probe_too | 场景闸门同样停住粘贴板探测 | 给定安全输入开启与前台应用在名单内两种场景，当 `begin_pasteboard_probe`，则两次都 `None`、无探测编号、状态留 `Idle`；场景恢复后同一观察照常探测（仍不动代数） | 2026-10-10 |
+| pasteboard_probe_takes_an_id_without_touching_the_session | 粘贴板探测只领编号不动会话 | 给定空白机器与推理中的可见会话，当 `begin_probe`，则发 `AcquireClipboardImage`、只领探测编号不动代数、状态与视图原样、在途任务不被取消、无随行图像 | 2026-11-12 |
+| the_scene_gate_stops_the_pasteboard_probe_too | 场景闸门同样停住粘贴板探测 | 给定安全输入开启与前台应用在名单内两种场景，当 `begin_probe`，则两次都 `None`、无探测编号、状态留 `Idle`；场景恢复后同一观察照常探测（仍不动代数） | 2026-11-12 |
 | pasteboard_commit_retains_the_image_and_parks_the_pending_card | 粘贴板提交留图落待确认卡 | 给定在途粘贴板探测的图像产物，当 `commit_probe`，则落 `PendingConfirm`、探测编号提升为代数、图像以 `Arc` 零拷贝留存进 `attached_image`、无取消令牌（待确认阶段无在途推理）；当确认，则下发请求携带同一图像输入、进 `Translating`、流式卡经位原文为空（经是图本身） | 2026-10-27 |
 | probes_are_mutually_exclusive_across_triggers | 两路探测互斥（同一探测槽） | 给定划词探测在途时来粘贴板观察（反向亦然），当新探测到达，则顶掉旧探测；旧编号的产物与失败一律 `Ignored`、新编号照常提交 | 2026-10-10 |
 | text_on_a_pasteboard_probe_is_ignored_without_consuming | 粘贴板探测拒收文本不消费探测 | 给定在途粘贴板探测收文本产物，当 `commit_probe`，则 `Ignored`；同编号的合法图像产物随后仍可提交 | 2026-10-10 |

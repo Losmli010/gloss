@@ -10,7 +10,7 @@ use gloss_core::model::{GlossError, Locale};
 use gloss_core::task::{TaskInput, TaskOptions};
 
 use crate::channel::{Event, PlatformEvent};
-use crate::machine::types::{ErrorAction, OverlayView};
+use crate::machine::types::{ErrorAction, OverlayView, ProbeSource};
 
 pub(super) fn error_action(error: &GlossError) -> Option<ErrorAction> {
     match error {
@@ -47,9 +47,9 @@ pub enum TriggerDecision {
     Unwired,
 }
 
-pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDecision {
-    match event {
-        PlatformEvent::SelectionGesture { .. } => {
+pub(super) fn trigger_decision_for(source: ProbeSource, scene: &SceneFacts) -> TriggerDecision {
+    match source {
+        ProbeSource::Selection => {
             if scene.front_app.as_ref().is_some_and(|app| app.is_self) {
                 return TriggerDecision::SelfSuppressed;
             }
@@ -58,10 +58,21 @@ pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDec
                 None => TriggerDecision::Acquire,
             }
         }
-        PlatformEvent::PasteboardImageObserved => match guard::trigger_block(scene) {
+        ProbeSource::PasteboardImage => match guard::trigger_block(scene) {
             Some(block) => TriggerDecision::Blocked(block),
             None => TriggerDecision::Acquire,
         },
+    }
+}
+
+pub fn trigger_decision(event: &PlatformEvent, scene: &SceneFacts) -> TriggerDecision {
+    match event {
+        PlatformEvent::SelectionGesture { .. } => {
+            trigger_decision_for(ProbeSource::Selection, scene)
+        }
+        PlatformEvent::PasteboardImageObserved => {
+            trigger_decision_for(ProbeSource::PasteboardImage, scene)
+        }
         PlatformEvent::OpenSettingsRequested | PlatformEvent::AccessibilityGranted => {
             TriggerDecision::Unwired
         }
