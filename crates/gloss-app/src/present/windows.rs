@@ -285,10 +285,6 @@ impl WindowManager {
         self.user_resize = None;
     }
 
-    pub fn reset_user_resize(&mut self) {
-        self.user_resize = None;
-    }
-
     pub fn apply_overlay_drag(&mut self, offset: (f64, f64)) {
         let physical = match self.overlay.outer_position() {
             Ok(physical) => physical,
@@ -377,7 +373,7 @@ impl WindowManager {
 
     pub fn hide(&mut self) {
         self.overlay.set_visible(false);
-        self.reset_user_resize();
+        self.settle_user_resize();
     }
 
     pub fn is_visible(&self) -> bool {

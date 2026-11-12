@@ -17,7 +17,6 @@ mod loop_builder;
 #[path = "loop_builder_other.rs"]
 mod loop_builder;
 
-pub use crate::flow::reveal::centered_position;
 pub use events::{UserEvent, Waker, run};
 
 use std::sync::Arc;
@@ -177,9 +176,10 @@ impl GlossApp {
         if let Some(action) = output.action {
             self.handle_overlay_action(action);
         }
-        if let Some(offset) = output.drag
-            && let Some(windows) = &mut self.workspace.windows
-        {
+        let Some(windows) = self.workspace.windows.as_mut() else {
+            return;
+        };
+        if let Some(offset) = output.drag {
             windows.apply_overlay_drag((f64::from(offset.x), f64::from(offset.y)));
         }
         match output.resize {
@@ -188,24 +188,16 @@ impl GlossApp {
                 window,
                 pointer,
             }) => {
-                if let Some(windows) = &mut self.workspace.windows {
-                    windows.begin_user_resize(edges, (window.x, window.y), (pointer.x, pointer.y));
-                }
+                windows.begin_user_resize(edges, (window.x, window.y), (pointer.x, pointer.y));
             }
             Some(OverlayResize::Drag { edges, pointer }) => {
-                if let Some(windows) = &mut self.workspace.windows {
-                    windows.apply_user_resize(edges, (pointer.x, pointer.y));
-                }
+                windows.apply_user_resize(edges, (pointer.x, pointer.y));
             }
             Some(OverlayResize::Settle) => {
-                if let Some(windows) = &mut self.workspace.windows {
-                    windows.settle_user_resize();
-                }
+                windows.settle_user_resize();
             }
             None => {
-                if let Some(sizing) = output.sizing
-                    && let Some(windows) = &mut self.workspace.windows
-                {
+                if let Some(sizing) = output.sizing {
                     let streaming = self.machine.state() == AppState::Translating;
                     windows.set_overlay_size(
                         LogicalSize::new(OVERLAY_WIDTH, f64::from(sizing.height)),

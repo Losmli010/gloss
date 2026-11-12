@@ -129,3 +129,8 @@ M4 指“配置与设置”里程碑，子编号 ①/② 仓内无定义，标�
 ## 托盘退出回调（2026-11-07，Windows 移植 P2④）
 
 - `install_app_menu` 增传退出回调（端口新增第三参）：经代理送新增的 `UserEvent::Quit`，与设置回调同款装箱与“循环已关则丢弃”降级。系统（macOS）的菜单不消费该回调（退出走原生词条），传参是两平台契约同形的代价，无行为影响。
+
+## draw 的窗口句柄一次提绑与 centered_position 再导出移除（2026-11-13，方案 D5）
+
+- `GlossApp::draw` 里 `&mut self.workspace.windows` 的重复解绑收成一次：动作处理（`handle_overlay_action`）之后先取一份管理器可变借用，页头拖动、缩放意图三臂（`Press`/`Drag`/`Settle`）与 sizing 路径共用——管理器缺席（窗口栈未起）时原地早退，与原先各臂各自解绑、各自空转的观察行为一致。
+- `app::centered_position` 再导出随自由函数一并删除（自由函数只剩对 `WindowManager::centered_position` 的一层转发）：壳的事件分发处改传惰性闭包（见 task 记录的 drain_events 条目），显隐自检 handler 直调窗口管理器方法——R4 拆分条目列入再导出的 centered_position 自本日起不再存在。
