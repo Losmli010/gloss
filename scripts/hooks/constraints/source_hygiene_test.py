@@ -118,6 +118,76 @@ def test_indented_cfg_test_not_truncated(tmp_path: Path) -> None:
     fixtures.assert_fail(source_hygiene, tmp_path, mutate, "line cap")
 
 
+def test_cfg_test_extern_crate_does_not_truncate(tmp_path: Path) -> None:
+    # 文件前部带测试开关的非模块条目不构成边界，其后正文照常计数；用例形态
+    # 对齐核心库根文件（lib.rs）的外部包声明（extern crate）
+    def mutate(root: Path) -> None:
+        (root / "crates/gloss-app/src").mkdir(exist_ok=True)
+        (root / "crates/gloss-app/src/early_test_item.rs").write_text(
+            "let _x = 1;\n" * 300
+            + "#[cfg(test)]\nextern crate self as gloss_app;\n"
+            + "let _x = 1;\n" * 300
+        )
+
+    fixtures.assert_fail(source_hygiene, tmp_path, mutate, "line cap")
+
+
+def test_cfg_test_fn_does_not_truncate(tmp_path: Path) -> None:
+    # 文件前部带测试开关的函数（对齐字体与界面上下文文件的测试支撑函数形态）
+    # 同样不构成边界
+    def mutate(root: Path) -> None:
+        (root / "crates/gloss-app/src").mkdir(exist_ok=True)
+        (root / "crates/gloss-app/src/early_test_fn.rs").write_text(
+            "let _x = 1;\n" * 300
+            + "#[cfg(test)]\npub(crate) fn probe() -> bool {\n    true\n}\n"
+            + "let _x = 1;\n" * 300
+        )
+
+    fixtures.assert_fail(source_hygiene, tmp_path, mutate, "line cap")
+
+
+def test_stubs_path_module_is_boundary(tmp_path: Path) -> None:
+    # 路径属性值含桩库字样（stubs）的模块声明是测试专属模块，属性块处照常截断
+    def mutate(root: Path) -> None:
+        (root / "crates/gloss-app/src").mkdir(exist_ok=True)
+        (root / "crates/gloss-app/src/with_stubs.rs").write_text(
+            "let _x = 1;\n" * 480
+            + '#[cfg(test)]\n#[path = "../tests/stubs/mod.rs"]\npub(crate) mod stubs;\n'
+            + "let _y = 1;\n" * 520
+        )
+
+    fixtures.assert_pass(source_hygiene, tmp_path, mutate, "0 lines:allow exemptions")
+
+
+def test_attribute_block_then_tests_module_is_boundary(tmp_path: Path) -> None:
+    # 属性行块含多行（测试开关加放行属性行）时，模块声明仍紧随块尾成立
+    def mutate(root: Path) -> None:
+        (root / "crates/gloss-app/src").mkdir(exist_ok=True)
+        (root / "crates/gloss-app/src/allow_then_tests.rs").write_text(
+            "let _x = 1;\n" * 480
+            + "#[cfg(test)]\n#[allow(clippy::let_underscore_must_use)]\nmod tests {\n"
+            + "let _y = 1;\n" * 520
+            + "}\n"
+        )
+
+    fixtures.assert_pass(source_hygiene, tmp_path, mutate, "0 lines:allow exemptions")
+
+
+def test_module_without_tests_name_is_not_boundary(tmp_path: Path) -> None:
+    # 模块名不含测试字样（tests）的测试支撑模块不是边界，其模块体照常计入
+    # 生产行数；用例形态对齐测试支撑模块（test_support）
+    def mutate(root: Path) -> None:
+        (root / "crates/gloss-app/src").mkdir(exist_ok=True)
+        (root / "crates/gloss-app/src/test_support_module.rs").write_text(
+            "let _x = 1;\n" * 480
+            + "#[cfg(test)]\npub(crate) mod test_support {\n"
+            + "let _y = 1;\n" * 520
+            + "}\n"
+        )
+
+    fixtures.assert_fail(source_hygiene, tmp_path, mutate, "line cap")
+
+
 # ---- 残留任务标记扫描（版本库夹具；上方非版本库夹具用例覆盖响亮跳过路径）----
 # 约束脚本自身豁免：模块副本（含各类任务标记字面量）被版本库跟踪，
 # “干净版本库通过”用例正常退出即证明其未被自命中。
