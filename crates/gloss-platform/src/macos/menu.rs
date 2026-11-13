@@ -4,13 +4,14 @@
 //! 应用程序接口（API）；本模块经系统框架（AppKit）绑定自建菜单并整体
 //! 替换缺省菜单，词条取系统语言（进程启动期读一次）。菜单动作回调只在
 //! 主线程触发，设置项经回调上交壳侧，由壳送入用户事件通道。
-//! 词条属平台层启动期文案，早于应用文案表装入点，随放行标记显式豁免
-//! 文案门禁。
+//! 双语词条表住平台中立共享层（common），本模块按装配所需词条取用。
 
 use std::cell::RefCell;
 
 use gloss_core::model::Locale;
 use gloss_core::ports::MenuController;
+
+use crate::common::menu_labels::{MenuLabels, labels};
 use objc2::AnyThread;
 use objc2::DefinedClass;
 use objc2::define_class;
@@ -21,43 +22,6 @@ use objc2::runtime::{AnyObject, NSObject};
 use objc2::{MainThreadMarker, sel};
 use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem};
 use objc2_foundation::{NSString, ns_string};
-
-struct Labels {
-    about: &'static str,
-    settings: &'static str,
-    services: &'static str,
-    hide: &'static str,
-    hide_others: &'static str,
-    show_all: &'static str,
-    quit: &'static str,
-}
-
-const ZH: Labels = Labels {
-    about: "关于 Gloss",     // i18n:allow 平台层启动期菜单词条，文案表装入点之前
-    settings: "设置",        // i18n:allow 平台层启动期菜单词条，文案表装入点之前
-    services: "服务",        // i18n:allow 平台层启动期菜单词条，文案表装入点之前
-    hide: "隐藏 Gloss",      // i18n:allow 平台层启动期菜单词条，文案表装入点之前
-    hide_others: "隐藏其他", // i18n:allow 平台层启动期菜单词条，文案表装入点之前
-    show_all: "显示全部",    // i18n:allow 平台层启动期菜单词条，文案表装入点之前
-    quit: "退出 Gloss",      // i18n:allow 平台层启动期菜单词条，文案表装入点之前
-};
-
-const EN: Labels = Labels {
-    about: "About Gloss",
-    settings: "Settings", // i18n:allow platform-layer startup menu copy, installed before the app catalog load point
-    services: "Services",
-    hide: "Hide Gloss",
-    hide_others: "Hide Others",
-    show_all: "Show All",
-    quit: "Quit Gloss",
-};
-
-fn labels(locale: Locale) -> &'static Labels {
-    match locale {
-        Locale::Zh => &ZH,
-        Locale::En => &EN,
-    }
-}
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -118,7 +82,7 @@ impl MenuController for SystemMenuController {
 
 fn app_submenu(
     mtm: MainThreadMarker,
-    labels: &'static Labels,
+    labels: &'static MenuLabels,
     on_open_settings: impl Fn() + Send + 'static,
 ) -> Retained<NSMenu> {
     let app_menu = NSMenu::initWithTitle(mtm.alloc(), ns_string!("Gloss"));
@@ -211,26 +175,6 @@ fn menu_item(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn labels_follow_their_language_per_locale() {
-        for (table, expect_cjk) in [(&ZH, true), (&EN, false)] {
-            let rows = [
-                table.about,
-                table.settings,
-                table.services,
-                table.hide,
-                table.hide_others,
-                table.show_all,
-                table.quit,
-            ];
-            for row in rows {
-                let has_cjk = row.chars().any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c));
-                assert_eq!(has_cjk, expect_cjk, "label table language mismatch: {row}");
-                assert!(!row.trim().is_empty(), "menu labels must not be blank");
-            }
-        }
-    }
 
     #[test]
     fn menu_install_degrades_off_the_main_thread() {

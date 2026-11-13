@@ -68,7 +68,9 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-platform/src/macos/selection/clipboard.rs": "selection_clipboard",
     "crates/gloss-platform/src/macos/clipboard/image.rs": "clipboard_image",
     "crates/gloss-platform/src/macos/clipboard/mod.rs": "clipboard_mod",
-    "crates/gloss-platform/src/macos/clipboard/watch.rs": "clipboard_watch",
+    # 哨兵共享层上移后与平台绑定文件撞名：共享层持语义裸名，绑定侧带平台前缀
+    "crates/gloss-platform/src/macos/clipboard/watch.rs": "macos_clipboard_watch",
+    "crates/gloss-platform/src/common/clipboard_watch.rs": "clipboard_watch",
     "crates/gloss-app/src/ui/popup/image.rs": "popup_image",
     "crates/gloss-app/src/ui/popup/icon.rs": "popup_icon",
     "crates/gloss-app/src/ui/popup/note.rs": "popup_note",
@@ -102,6 +104,9 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-platform/src/windows/clipboard/watch.rs": "windows_clipboard_watch",
     "crates/gloss-platform/src/windows/events/mod.rs": "windows_events_mod",
     "crates/gloss-platform/src/windows/events/mouse.rs": "windows_mouse",
+    # 系统语言档位映射上移共享层后与系统（macOS）实现裸名撞名：
+    # 共享映射带共享前缀，平台读取器（macOS 侧）持语义裸名
+    "crates/gloss-platform/src/common/locale.rs": "common_locale",
     "crates/gloss-platform/src/windows/locale.rs": "windows_locale",
     "crates/gloss-platform/src/windows/menu.rs": "windows_menu",
     "crates/gloss-platform/src/windows/permissions.rs": "windows_permissions",
