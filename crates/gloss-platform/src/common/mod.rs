@@ -4,4 +4,5 @@
 //! 单源。平台目录只留平台原语，并把各自的密钥半边等平台原生件绑定到
 //! 本层的共享形状上。
 
+pub mod clipboard_watch;
 pub mod storage;

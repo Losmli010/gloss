@@ -4,6 +4,27 @@
 
 ## 单元测试
 
+### `crates/gloss-platform/src/common/clipboard_watch.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| advance_with_an_image_fires_once_and_records_the_change | 有图前进恰好发一次并记下观察 | 给定基线 7 的武装哨兵，当计数读数前进到 8 且判定存在图像，则产出一个观察事件、观察记录更新为 8；同读数的下一轮不重发也不复查图像存在性 | 2026-11-14 |
+| text_advance_is_consumed_without_firing_or_rechecking | 文本前进消费基线不触发不复查 | 给定基线 7 的武装哨兵，当计数读数前进到 8 而判定无图像，则无观察事件、图像存在性恰查一次、观察记录不更新；同读数下一轮不再复查 | 2026-11-14 |
+| queries_are_throttled_within_the_interval | 节流窗口内不查询 | 给定武装哨兵，当节奏点轮询后再在窗口内（100 毫秒小于 250 毫秒）轮询，则计数读数不被查询；到 250 毫秒节奏点才查下一轮 | 2026-11-14 |
+| a_disabled_switch_never_queries_and_drops_the_baseline | 开关关零查询且基线作废 | 给定开关关的哨兵，当轮询，则计数读数与图像存在性都不被查询；重开后当轮只重记基线（关闭期间的旧内容不触发），新的前进照常触发 | 2026-11-14 |
+| an_unarmed_source_arms_without_firing | 未武装只记基线不触发 | 给定未武装（基线缺失）的哨兵，当首轮轮询，则只记基线无观察事件；下一次前进照常触发 | 2026-11-14 |
+| a_failed_count_query_stays_quiet_and_recovers | 读数失败静默且可恢复 | 给定武装哨兵，当计数读数返回空，则本轮静默；下一轮读数正常则照常触发 | 2026-11-14 |
+| an_acquire_round_latch_outlives_the_command_and_swallows_the_round | 取材轮次闩锁按计数归因吞掉自身写盘并重记基线 | 给定武装哨兵（基线 7）且置位带计数归因的闩锁（前置 7、自报写盘 1），当轮询读到计数 8，则消费闩锁、图像存在性不被查询、无观察事件且基线就地重记到 8（自身写盘不触发）；下一次前进到 9 且有图照常触发恰一次 | 2026-11-14 |
+| a_foreign_write_inside_the_round_fires_after_the_round | 轮次内外来写入不吞照常触发 | 给定武装哨兵（基线 7）且置位自报写盘 0 的闩锁（前置 7），当轮询读到计数 8 且判定有图（轮次内用户的真实复制，如截图工具拖拽既触发划词探测又写入图片），则放行走前进判定并产出观察事件、观察记录更新为 8（用户复制不被误吞） | 2026-11-14 |
+| a_foreign_write_beyond_our_own_writes_fires | 超出自身写盘数的变化触发 | 给定武装哨兵（基线 7）且置位自报写盘 1 的闩锁（前置 7），当轮询读到计数 9 且判定有图（注入复制之外还有一次外来复制），则产出观察事件（9 减 7 等于 2 超出自身写盘 1） | 2026-11-14 |
+| a_second_round_merges_into_the_pending_latch | 连续两轮写盘合并归因不误判外来 | 给定武装哨兵（基线 7）先后置位两轮闩锁（前置 7 写 2 与前置 9 写 2），当后一轮置位时合并为前置 7 写 4（不覆盖前一轮），轮询读到计数 11 则两轮自身写盘全部归因、吞掉并重记基线到 11、图像存在性不被查询 | 2026-11-14 |
+| a_round_latch_on_an_unarmed_source_falls_back_to_the_round_pre_count | 未武装哨兵消费闩锁以轮次前置计数兜底 | 给定未武装（基线缺失）的哨兵与置位闩锁（前置 7、写 1），当轮询读到 8 则按前置计数兜底归因吞掉并武装基线到 8；换自报写盘 0 的闩锁读到 9（外来），则放行落入前进判定、当轮只武装基线到 9 不触发不查图像存在性 | 2026-11-14 |
+| an_unreadable_count_at_the_round_latch_stays_quiet_and_rearms | 轮次消费遇读数失败保守吞掉并重记 | 给定武装哨兵且置位闩锁，当消费轮询时计数读数返回空，则静默、基线作废；随后的首轮只重记基线不触发，再下一次前进照常触发 | 2026-11-14 |
+| a_text_round_restoring_an_image_board_must_not_refire_it | 划词恢复写回旧图不得再触发图片任务 | 给定武装哨兵已观察过一次图片复制（基线 8），当划词兜底轮次置位闩锁（前置 8、自报写盘 1：恢复写回）且计数前进到 9，则消费闩锁按计数归因吞掉、无观察事件、基线重记到 9；同读数不复查图像存在性，新的图片复制照常触发恰一次 | 2026-11-14 |
+| a_restore_self_reporting_full_jumps_is_swallowed | 恢复写盘按真实跳变数自报即被吞 | 给定武装哨兵（基线 7）与按跳变口径置位的闩锁（前置 7、自报 5：取材 1 加清板 1 加放回 3），当轮询读到计数 12 且判定有图（板上正是被恢复的图），则闩锁按计数归因吞掉、无观察事件、基线重记到 12（恢复写盘不得被当成用户复制） | 2026-11-14 |
+| a_restore_underreporting_jumps_fires_a_spurious_observation | 恢复写盘少报跳变即伪触发（反向钉子） | 给定武装哨兵（基线 7）与少报的闩锁（前置 7、自报 2），当轮询读到计数 12 且判定有图，则差额判为外来写入并产出观察事件（钉住写盘归因必须按真实跳变数自报：少报会让恢复的图伪装成用户复制） | 2026-11-14 |
+| observer_mismatch_flags_the_race | 观察记录比对判竞态 | 给定观察记录，当现值与记录一致则匹配；记录更新后旧值不匹配、新值匹配（记录与现值之间被覆盖即竞态） | 2026-11-14 |
+
 ### `crates/gloss-platform/src/common/storage.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -54,25 +75,6 @@
 | byte_budget_rejects_length_over_the_limit | 位图（PNG）字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收，上限 20 兆二进制字节（MiB） | 2026-10-10 |
 | downscaled_dims_preserve_aspect_and_the_cap | 降采样目标尺寸保比例收边 | 给定上限内与超限（正方、横长、竖长、极窄）的尺寸，当 `downscaled_dims`，则上限内返回 `None` 原样编码，超限按比例缩到最长边 1536、至少保留 1 像素 | 2026-10-16 |
 | oversized_products_are_downscaled_to_the_side_cap | 超长边产物降采样出图 | 给定宽 2100 高 1000 的位图（PNG）`flavor`，当 `decode_to_png`，则产出宽 1536 高 731 的可解码位图（PNG）（保比例收进上限，不拒收） | 2026-10-16 |
-
-### `crates/gloss-platform/src/macos/clipboard/watch.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| advance_with_an_image_fires_once_and_records_the_change | 有图前进恰好发一次并记下观察 | 给定基线 7 的武装哨兵，当 `changeCount` 前进到 8 且 `types` 含图像，则产出一个观察事件、观察记录更新为 8；同读数的下一轮不重发也不复查 `types` | 2026-10-10 |
-| text_advance_is_consumed_without_firing_or_rechecking | 文本前进消费基线不触发不复查 | 给定基线 7 的武装哨兵，当 `changeCount` 前进到 8 而 `types` 无图像，则无观察事件、`types` 恰查一次、观察记录不更新；同读数下一轮不再复查 | 2026-10-10 |
-| queries_are_throttled_within_the_interval | 节流窗口内不查询 | 给定武装哨兵，当节奏点轮询后再在窗口内（100 毫秒小于 250 毫秒）轮询，则 `changeCount` 不被查询；到 250 毫秒节奏点才查下一轮 | 2026-10-10 |
-| a_disabled_switch_never_queries_and_drops_the_baseline | 开关关零查询且基线作废 | 给定开关关的哨兵，当轮询，则 `changeCount` 与 `types` 都不被查询；重开后当轮只重记基线（关闭期间的旧内容不触发），新的前进照常触发 | 2026-10-10 |
-| an_unarmed_source_arms_without_firing | 未武装只记基线不触发 | 给定未武装（基线缺失）的哨兵，当首轮轮询，则只记基线无观察事件；下一次前进照常触发 | 2026-10-10 |
-| a_failed_count_query_stays_quiet_and_recovers | 读数失败静默且可恢复 | 给定武装哨兵，当 `changeCount` 读数返回 `None`，则本轮静默；下一轮读数正常则照常触发 | 2026-10-10 |
-| an_acquire_round_latch_outlives_the_command_and_swallows_the_round | 取材轮次闩锁按计数归因吞掉自身写盘并重记基线 | 给定武装哨兵（基线 7）且置位带计数归因的闩锁（`pre=7`、自报写盘 1），当轮询读到 `changeCount` 8，则消费闩锁、`types` 不被查询、无观察事件且基线就地重记到 8（自身写盘不触发）；下一次前进到 9 且有图照常触发恰一次 | 2026-10-15 |
-| a_foreign_write_inside_the_round_fires_after_the_round | 轮次内外来写入不吞照常触发 | 给定武装哨兵（基线 7）且置位自报写盘 0 的闩锁（`pre=7`），当轮询读到 `changeCount` 8 且 `types` 含图像（轮次内用户的真实复制，如截图工具拖拽既触发划词探测又写入图片），则放行走前进判定并产出观察事件、观察记录更新为 8（用户复制不被误吞） | 2026-10-15 |
-| a_foreign_write_beyond_our_own_writes_fires | 超出自身写盘数的变化触发 | 给定武装哨兵（基线 7）且置位自报写盘 1 的闩锁（`pre=7`），当轮询读到 `changeCount` 9 且 `types` 含图像（注入复制之外还有一次外来复制），则产出观察事件（9 减 7 等于 2 超出自身写盘 1） | 2026-10-15 |
-| a_second_round_merges_into_the_pending_latch | 连续两轮写盘合并归因不误判外来 | 给定武装哨兵（基线 7）先后置位两轮闩锁（`pre=7` 写 2 与 `pre=9` 写 2），当后一轮置位时合并为 `pre=7` 写 4（不覆盖前一轮），轮询读到 `changeCount` 11 则两轮自身写盘全部归因、吞掉并重记基线到 11、`types` 不被查询 | 2026-10-15 |
-| a_round_latch_on_an_unarmed_source_falls_back_to_the_round_pre_count | 未武装哨兵消费闩锁以轮次 `pre` 兜底 | 给定未武装（基线缺失）的哨兵与置位闩锁（`pre=7`、写1），当轮询读到 8 则按 `pre` 兜底归因吞掉并武装基线到 8；换自报写盘 0 的闩锁读到 9（外来），则放行落入前进判定、当轮只武装基线到 9 不触发不查 `types` | 2026-10-15 |
-| an_unreadable_count_at_the_round_latch_stays_quiet_and_rearms | 轮次消费遇读数失败保守吞掉并重记 | 给定武装哨兵且置位闩锁，当消费轮询时 `changeCount` 读数返回 `None`，则静默、基线作废；随后的首轮只重记基线不触发，再下一次前进照常触发 | 2026-10-15 |
-| a_text_round_restoring_an_image_board_must_not_refire_it | 划词恢复写回旧图不得再触发图片任务 | 给定武装哨兵已观察过一次图片复制（基线 8），当划词兜底轮次置位闩锁（`pre=8`、自报写盘 1：恢复写回）且 `changeCount` 前进到 9，则消费闩锁按计数归因吞掉、无观察事件、基线重记到 9；同读数不复查 `types`，新的图片复制照常触发恰一次 | 2026-10-15 |
-| observer_mismatch_flags_the_race | 观察记录比对判竞态 | 给定观察记录，当现值与记录一致则匹配；记录更新后旧值不匹配、新值匹配（记录与现值之间被覆盖即竞态） | 2026-10-10 |
 
 ### `crates/gloss-platform/src/macos/events/mod.rs`
 
@@ -230,27 +232,6 @@
 | dib_byte_budget_rejects_length_over_the_limit | 位图（PNG）字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收，上限 20 兆二进制字节（MiB） | 2026-11-07 |
 | dib_downscaled_dims_preserve_aspect_and_the_cap | 降采样目标尺寸保比例收边 | 给定上限内与超限（正方、横长、竖长、极窄）的尺寸，当 `downscaled_dims`，则上限内返回 `None` 原样编码，超限按比例缩到最长边 1536、至少保留 1 像素 | 2026-11-07 |
 | dib_oversized_products_are_downscaled_to_the_side_cap | 超长边产物降采样出图 | 给定宽 2100 高 1000 的位图（PNG）`flavor`，当 `decode_to_png`，则产出宽 1536 高 731 的可解码位图（PNG）（保比例收进上限，不拒收） | 2026-11-07 |
-
-### `crates/gloss-platform/src/windows/clipboard/watch.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| seq_advance_with_an_image_fires_once_and_records_the_change | 有图前进恰好发一次并记下观察 | 给定基线 7 的武装哨兵，当序列号前进到 8 且图像格式在板，则产出一个观察事件、观察记录更新为 8；同读数的下一轮不重发也不复查格式 | 2026-11-07 |
-| seq_text_advance_is_consumed_without_firing_or_rechecking | 文本前进消费基线不触发不复查 | 给定基线 7 的武装哨兵，当序列号前进到 8 而板上无图像格式，则无观察事件、格式恰查一次、观察记录不更新；同读数下一轮不再复查 | 2026-11-07 |
-| seq_queries_are_throttled_within_the_interval | 节流窗口内不查询 | 给定武装哨兵，当节奏点轮询后再在窗口内（100 毫秒小于 250 毫秒）轮询，则序列号不被查询；到 250 毫秒节奏点才查下一轮 | 2026-11-07 |
-| seq_a_disabled_switch_never_queries_and_drops_the_baseline | 开关关零查询且基线作废 | 给定开关关的哨兵，当轮询，则序列号与格式都不被查询；重开后当轮只重记基线（关闭期间的旧内容不触发），新的前进照常触发 | 2026-11-07 |
-| seq_an_unarmed_source_arms_without_firing | 未武装只记基线不触发 | 给定未武装（基线缺失）的哨兵，当首轮轮询，则只记基线无观察事件；下一次前进照常触发 | 2026-11-07 |
-| seq_a_failed_count_query_stays_quiet_and_recovers | 读数失败静默且可恢复 | 给定武装哨兵，当序列号读数返回 `None`，则本轮静默；下一轮读数正常则照常触发 | 2026-11-07 |
-| seq_an_acquire_round_latch_outlives_the_command_and_swallows_the_round | 取材轮次闩锁按计数归因吞掉自身写盘并重记基线 | 给定武装哨兵（基线 7）且置位带计数归因的闩锁（`pre=7`、自报写盘 1），当轮询读到序列号 8，则消费闩锁、格式不被查询、无观察事件且基线就地重记到 8（自身写盘不触发）；下一次前进到 9 且有图照常触发恰一次 | 2026-11-07 |
-| seq_a_foreign_write_inside_the_round_fires_after_the_round | 轮次内外来写入不吞照常触发 | 给定武装哨兵（基线 7）且置位自报写盘 0 的闩锁（`pre=7`），当轮询读到序列号 8 且图像格式在板（轮次内用户的真实复制），则放行走前进判定并产出观察事件、观察记录更新为 8（用户复制不被误吞） | 2026-11-07 |
-| seq_a_foreign_write_beyond_our_own_writes_fires | 超出自身写盘数的变化触发 | 给定武装哨兵（基线 7）且置位自报写盘 1 的闩锁（`pre=7`），当轮询读到序列号 9 且图像格式在板（注入复制之外还有一次外来复制），则产出观察事件（9 减 7 等于 2 超出自身写盘 1） | 2026-11-07 |
-| seq_a_second_round_merges_into_the_pending_latch | 连续两轮写盘合并归因不误判外来 | 给定武装哨兵（基线 7）先后置位两轮闩锁（`pre=7` 写 2 与 `pre=9` 写 2），当后一轮置位时合并为 `pre=7` 写 4（不覆盖前一轮），轮询读到序列号 11 则两轮自身写盘全部归因、吞掉并重记基线到 11、格式不被查询 | 2026-11-07 |
-| seq_a_round_latch_on_an_unarmed_source_falls_back_to_the_round_pre_count | 未武装哨兵消费闩锁以轮次 `pre` 兜底 | 给定未武装（基线缺失）的哨兵与置位闩锁（`pre=7`、写 1），当轮询读到 8 则按 `pre` 兜底归因吞掉并武装基线到 8；换自报写盘 0 的闩锁读到 9（外来），则放行落入前进判定、当轮只武装基线到 9 不触发不查格式 | 2026-11-07 |
-| seq_an_unreadable_count_at_the_round_latch_stays_quiet_and_rearms | 轮次消费遇读数失败保守吞掉并重记 | 给定武装哨兵且置位闩锁，当消费轮询时序列号读数返回 `None`，则静默、基线作废；随后的首轮只重记基线不触发，再下一次前进照常触发 | 2026-11-07 |
-| seq_a_text_round_restoring_an_image_board_must_not_refire_it | 划词恢复写回旧图不得再触发图片任务 | 给定武装哨兵已观察过一次图片复制（基线 8），当划词兜底轮次置位闩锁（`pre=8`、自报写盘 1：恢复写回）且序列号前进到 9，则消费闩锁按计数归因吞掉、无观察事件、基线重记到 9；同读数不复查格式，新的图片复制照常触发恰一次 | 2026-11-07 |
-| seq_a_flavor_restore_self_reporting_full_jumps_is_swallowed | 图像风格恢复按序列号跳变口径自报被吞 | 给定武装哨兵（基线 7）与按跳变口径置位的闩锁（`pre=7`、自报 5：取材 1 加清板 1 加放回 3），当轮询读到序列号 12 且图像格式在板（板上正是被恢复的图），则闩锁按计数归因吞掉、无观察事件、基线重记到 12（恢复写盘不得被当成用户复制） | 2026-11-10 |
-| seq_a_flavor_restore_underreporting_jumps_fires_a_spurious_observation | 恢复写盘少报跳变即伪触发（反向钉子） | 给定武装哨兵（基线 7）与少报的闩锁（`pre=7`、自报 2），当轮询读到序列号 12 且图像格式在板，则差额判为外来写入并产出观察事件（钉住写盘归因必须按序列号跳变自报：少报会让恢复的图伪装成用户复制） | 2026-11-10 |
-| seq_observer_mismatch_flags_the_race | 观察记录比对判竞态 | 给定观察记录，当现值与记录一致则匹配；记录更新后旧值不匹配、新值匹配（记录与现值之间被覆盖即竞态） | 2026-11-07 |
 
 ### `crates/gloss-platform/src/windows/events/mod.rs`
 
