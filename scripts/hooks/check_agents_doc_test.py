@@ -68,12 +68,19 @@ def build_fixture(tmp_path: Path) -> None:
     (tmp_path / "justfile").write_text(JUSTFILE)
 
 
+def init_repo(tmp_path: Path) -> None:
+    """夹具建仓并全量跟踪：门禁判定面走版本库跟踪清单，与持续集成同口径。"""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+
+
 def check(
     tmp_path: Path, body: str, ref_body: str | None = None
 ) -> tuple[list[str], int, int, int]:
     """写入指令文档（AGENTS.md）并运行门禁，可选参数（ref_body）另写
     演示库源文件（crates/demo/src/lib.rs）。"""
     build_fixture(tmp_path)
+    init_repo(tmp_path)
     (tmp_path / "AGENTS.md").write_text(body + "\n", encoding="utf-8")
     if ref_body is not None:
         (tmp_path / "crates/demo/src/lib.rs").write_text(ref_body + "\n", encoding="utf-8")
@@ -166,8 +173,7 @@ def test_untracked_path_flagged_inside_repo(tmp_path: Path) -> None:
 def test_tracked_path_accepted_inside_repo(tmp_path: Path) -> None:
     build_fixture(tmp_path)
     (tmp_path / "AGENTS.md").write_text("见 `docs/note.md`\n", encoding="utf-8")
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    init_repo(tmp_path)
     violations, _, _, _ = check_agents_doc.run(str(tmp_path / "AGENTS.md"))
     assert violations == []
 
@@ -176,8 +182,7 @@ def test_non_ascii_tracked_name_enumerated_raw(tmp_path: Path) -> None:
     build_fixture(tmp_path)
     (tmp_path / "AGENTS.md").write_text("见 `文档.md`\n", encoding="utf-8")
     (tmp_path / "文档.md").write_text("正文\n", encoding="utf-8")
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    init_repo(tmp_path)
     violations, _, _, _ = check_agents_doc.run(str(tmp_path / "AGENTS.md"))
     assert violations == []
 
@@ -227,6 +232,17 @@ def test_missing_doc_fails_closed(tmp_path: Path) -> None:
     assert exc.value.code == gate_report.EXIT_INFRA
 
 
+# ---- 跟踪清单枚举失败守卫（失败关闭）----
+
+
+def test_git_enumeration_failure_fails_closed(tmp_path: Path) -> None:
+    build_fixture(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("见 `just test`\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        check_agents_doc.run(str(tmp_path / "AGENTS.md"))
+    assert exc.value.code == gate_report.EXIT_INFRA
+
+
 # ---- 反馈契约：报告格式、汇总计数、确定性与退出码（子进程端到端）----
 
 GATE = str(Path(__file__).with_name("check_agents_doc.py"))
@@ -241,6 +257,7 @@ def run_gate(
     tmp_path: Path, body: str, ref_body: str | None = None, *extra: str
 ) -> subprocess.CompletedProcess[bytes]:
     build_fixture(tmp_path)
+    init_repo(tmp_path)
     (tmp_path / "AGENTS.md").write_text(body + "\n", encoding="utf-8")
     if ref_body is not None:
         (tmp_path / "crates/demo/src/lib.rs").write_text(ref_body + "\n", encoding="utf-8")
@@ -293,6 +310,14 @@ def test_gate_missing_doc_fails_closed_with_exit_three(tmp_path: Path) -> None:
     proc = subprocess.run([sys.executable, GATE, str(tmp_path / "AGENTS.md")], capture_output=True)
     assert proc.returncode == 3
     assert "error[DOC-INPUT]:" in proc.stderr.decode("utf-8")
+
+
+def test_gate_git_failure_fails_closed_with_exit_three(tmp_path: Path) -> None:
+    build_fixture(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("见 `just test`\n", encoding="utf-8")
+    proc = subprocess.run([sys.executable, GATE, str(tmp_path / "AGENTS.md")], capture_output=True)
+    assert proc.returncode == 3
+    assert "error[INFRA]: git command failed" in proc.stderr.decode("utf-8")
 
 
 def test_gate_extra_argument_is_a_usage_error(tmp_path: Path) -> None:

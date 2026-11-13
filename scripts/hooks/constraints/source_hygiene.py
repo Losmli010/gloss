@@ -199,11 +199,7 @@ def run(
 
     skip_reason = work_tree_status(root)
     if not skip_reason:
-        if loader is not None:
-            tracked = loader.tracked()
-        else:
-            out = gate_report.run_git(["ls-files", "-z"], cwd=root).stdout
-            tracked = [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
+        tracked = loader.tracked() if loader is not None else gate_report.tracked_files(root)
         scannable = []
         for f in tracked:
             if f in SELF_FILES:

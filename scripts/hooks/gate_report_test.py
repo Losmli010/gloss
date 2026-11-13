@@ -166,6 +166,25 @@ def test_run_git_failure_reports_infra_and_exits_three(tmp_path: Path) -> None:
     assert "help: " in text
 
 
+def test_tracked_files_lists_tracked_paths_sorted(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / "b.txt").write_text("1\n")
+    nested = tmp_path / "a"
+    nested.mkdir()
+    (nested / "c.rs").write_text("2\n")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    assert gate_report.tracked_files(str(tmp_path)) == ["a/c.rs", "b.txt"]
+
+
+def test_tracked_files_fails_closed_when_git_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        gate_report.tracked_files(str(tmp_path))
+    assert exc.value.code == gate_report.EXIT_INFRA
+    assert "error[INFRA]: git command failed" in capsys.readouterr().err
+
+
 def test_infra_failure_carries_the_shared_remedy() -> None:
     finding = gate_report.infra_failure("engine broke", evidence="boom")
     assert finding.rule == gate_report.RULE_INFRA

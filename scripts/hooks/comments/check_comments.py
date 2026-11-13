@@ -47,16 +47,12 @@ OK_LINE = (
 
 
 def scan_files(root: str, explicit: list[str], loader: Any = None) -> list[str]:
-    """枚举受检文件：显式清单优先（供单测传样本），否则取版本库跟踪清单。
-
-    跟踪清单走空字节分隔取原始字节再容错解码——非空分隔形态对非英文字节（ASCII）
-    文件名做引号八进制转义，假路径过不了类型分派，文件被静默漏检。"""
+    """枚举受检文件：显式清单优先（供单测传样本），否则取版本库跟踪清单。"""
     if explicit:
         return [p if os.path.isabs(p) else os.path.join(root, p) for p in explicit]
     if loader is not None:
         return [os.path.join(root, p) for p in loader.tracked()]
-    out = gate_report.run_git(["ls-files", "-z"], cwd=root).stdout
-    return [os.path.join(root, p.decode("utf-8", "replace")) for p in out.split(b"\0") if p]
+    return [os.path.join(root, p) for p in gate_report.tracked_files(root)]
 
 
 def read_src(path: str, loader: Any) -> str:

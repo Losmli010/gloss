@@ -92,8 +92,7 @@ def tracked_files(root: str, loader: Any = None) -> list[str]:
     """版本库跟踪清单（全文件）：登记文件枚举与路径真实性检查共用一次枚举。"""
     if loader is not None:
         return loader.tracked()
-    out = gate_report.run_git(["ls-files", "-z"], cwd=root).stdout
-    return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
+    return gate_report.tracked_files(root)
 
 
 def tracked_rs_files(root: str, loader: Any = None) -> list[str]:

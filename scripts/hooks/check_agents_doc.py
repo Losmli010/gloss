@@ -13,8 +13,8 @@
 占位符、仓库外路径、注释语法与链接不校验。路径、受检文件与测试目标都以
 版本库跟踪清单为准：工作区里未跟踪的临时目录与本地记录不参与判定，本地
 与持续集成才看同一批文件。违规报告经统一诊断出口打印：每条带规则标识、
-位置、违规行原文与修复指引；受检的指令文档文件本身缺失按无法完成判定失
-败关闭退出。退出码按全脚本统一约定。
+位置、违规行原文与修复指引；跟踪清单枚举失败与受检的指令文档文件缺失都
+按无法完成判定失败关闭退出。退出码按全脚本统一约定。
 
 用法：python3 scripts/hooks/check_agents_doc.py <instruction-doc>，缺省为仓库根的指令文档。
 """
@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import sys
 from typing import Any
 
@@ -101,31 +100,6 @@ def scan_targets(root: str, target: str, tracked: list[str]) -> bool:
         for crate in sorted(os.listdir(crates)):
             candidates.append(os.path.join(crates, crate, "tests", "%s.rs" % target))
     return any(os.path.isfile(c) for c in candidates)
-
-
-def tracked_files(root: str) -> list[str]:
-    """版本库跟踪清单；不是仓库根时返回空表，调用方退回工作区遍历。
-
-    空字节分隔取原始字节再容错解码：非空分隔形态对非英文字节（ASCII）文
-    件名做引号八进制转义，拿到的是打引号的假路径（引用核对误报、受检文件
-    静默漏检）。"""
-    try:
-        top = subprocess.run(
-            ["git", "-C", root, "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-        if os.path.realpath(top) != os.path.realpath(root):
-            return []
-        out = subprocess.run(
-            ["git", "-C", root, "ls-files", "-z"],
-            capture_output=True,
-            check=True,
-        ).stdout
-        return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
-    except (OSError, subprocess.CalledProcessError):
-        return []
 
 
 def repo_path_exists(token: str, tracked: list[str]) -> bool:
@@ -215,7 +189,7 @@ def collect(doc_path: str, loader: Any = None) -> tuple[list[gate_report.Finding
     require_doc(doc_path)
     root = os.path.dirname(os.path.abspath(doc_path))
     doc_name = os.path.basename(doc_path)
-    tracked = loader.tracked() if loader is not None else tracked_files(root)
+    tracked = loader.tracked() if loader is not None else gate_report.tracked_files(root)
     lines = scan_lines(doc_path, loader)
     justfile_lines = None
     justfile_path = os.path.join(root, "justfile")
