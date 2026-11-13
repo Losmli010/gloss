@@ -301,9 +301,13 @@ agents-doc:
 review-template:
     {{py}} scripts/hooks/check_review_template.py
 
-# 测试行为清单与测试源码双向核对（缺登记或失同步即失败）
+# 测试行为清单与测试源码双向核对，含结构检查与总览新鲜度（缺登记或失同步即失败）
 test-bdd:
     {{py}} scripts/hooks/check_test_bdd.py
+
+# 测试行为清单总览再生成：根总纲（bdd.md）的总览节（类别×包计数矩阵加登记文件行数），登记文件变更后运行
+test-index:
+    {{py}} scripts/hooks/test_index.py
 
 # 自动化门禁：依赖方向、日志、界面库（egui）上下文装入点、版本单点、依赖特性、残留标记
 constraints:

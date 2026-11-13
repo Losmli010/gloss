@@ -1,9 +1,10 @@
-"""测试清单门禁的单测：双向核对、重复登记与表格结构校验逐条覆盖。
+"""测试清单门禁的单测：多文件双向核对、重复登记、表格结构与包内对账逐条覆盖。
 
 被测入口是门禁的运行函数，返回通过与失败两个列表；夹具建在测试框架（pytest）
-的临时目录（一次性版本库，扫描面走版本库清单）；用法见持续集成的钩子工作流。
-清单文件缺失与测试源码扫描面为空是失败关闭的前置故障。另含反馈契约三件套：
-报告格式断言、汇总计数与确定性，经子进程跑脚本端到端锁输出与退出码。
+的临时目录（一次性版本库，扫描面走版本库清单）：根总纲（bdd.md）与入口包清单
+（gloss.md）两份登记文件，用法见持续集成的钩子工作流。根总纲缺失、跟踪的登记
+文件不在工作区与测试源码扫描面为空是失败关闭的前置故障。另含反馈契约三件
+套：报告格式断言、汇总计数与确定性，经子进程跑脚本端到端锁输出与退出码。
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import check_test_bdd  # noqa: E402
 import gate_report  # noqa: E402
+import test_index  # noqa: E402
 
 CARGO_TOML = """\
 [package]
@@ -49,28 +51,46 @@ fn registered_ignored() {}
 fn snapshots_match_baseline() {}
 """
 
-BDD_MD = """\
+UNIT_TABLE_HEADER = "| 测试名称 | 测试目标 | 测试场景 | 更新时间 |\n| --- | --- | --- | --- |\n"
+
+BDD_ROOT_MD = """\
 # 测试行为清单（BDD）
 
 ## 总览
+
 | 类别 | 数量 | 运行 |
 | --- | --- | --- |
 | 单元测试 | 5 | `just test` |
 
-### crates/demo.rs
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| registered_plain | 目标 | 给定…当…则… | 2026-09-19 |
-| registered_tokio | 目标 | 给定…当…则… | 2026-09-19 |
-| registered_ignored | 目标 | 给定…当…则… | 2026-09-19 |
-| same_line_registered | 目标 | 给定…当…则… | 2026-09-19 |
-| snapshots_match_baseline（lib） | 目标 | 给定…当…则… | 2026-09-19 |
+## 人工测试
+"""
+
+GLOSS_MD = (
+    """\
+# 测试行为清单（gloss）
 
 ## 性能测试
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | overlay_selftest | 目标 | 给定…当…则… | 2026-09-19 |
+
+## 单元测试
+
+### src/lib.rs
 """
+    + UNIT_TABLE_HEADER
+    + (
+        "| registered_plain | 目标 | 给定…当…则… | 2026-09-19 |\n"
+        "| registered_tokio | 目标 | 给定…当…则… | 2026-09-19 |\n"
+        "| registered_ignored | 目标 | 给定…当…则… | 2026-09-19 |\n"
+        "| same_line_registered | 目标 | 给定…当…则… | 2026-09-19 |\n"
+        "| snapshots_match_baseline | 目标 | 给定…当…则… | 2026-09-19 |\n"
+    )
+)
+
+PLAIN_SNAPSHOTS_ROW = "| snapshots_match_baseline | 目标 | 给定…当…则… | 2026-09-19 |"
+QUALIFIED_LIB_ROW = "| snapshots_match_baseline（lib） | 目标 | 给定…当…则… | 2026-09-19 |"
+QUALIFIED_POPUP_ROW = "| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |"
 
 
 def build_fixture(tmp_path: Path) -> None:
@@ -79,23 +99,32 @@ def build_fixture(tmp_path: Path) -> None:
     (tmp_path / "docs/tests").mkdir(parents=True)
     (tmp_path / "Cargo.toml").write_text(CARGO_TOML, encoding="utf-8")
     (tmp_path / "src/lib.rs").write_text(SRC_LIB, encoding="utf-8")
-    (tmp_path / "docs/tests/bdd.md").write_text(BDD_MD, encoding="utf-8")
+    (tmp_path / "docs/tests/bdd.md").write_text(BDD_ROOT_MD, encoding="utf-8")
+    (tmp_path / "docs/tests/gloss.md").write_text(GLOSS_MD, encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    test_index.regenerate(str(tmp_path))
 
 
 def check(
-    tmp_path: Path, mutate: Callable[[Path], None] | None = None
+    tmp_path: Path,
+    mutate: Callable[[Path], None] | None = None,
+    regenerate: bool = True,
 ) -> tuple[list[str], list[str]]:
     build_fixture(tmp_path)
     if mutate is not None:
         mutate(tmp_path)
+    if regenerate and (tmp_path / "docs/tests/bdd.md").exists():
+        test_index.regenerate(str(tmp_path))
     return check_test_bdd.run(str(tmp_path))
 
 
 def assert_pass(
-    tmp_path: Path, mutate: Callable[[Path], None] | None = None, needle: str | None = None
+    tmp_path: Path,
+    mutate: Callable[[Path], None] | None = None,
+    needle: str | None = None,
+    regenerate: bool = True,
 ) -> None:
-    oks, fails = check(tmp_path, mutate)
+    oks, fails = check(tmp_path, mutate, regenerate)
     assert fails == []
     if needle is not None:
         assert any(needle in o for o in oks)
@@ -106,8 +135,9 @@ def assert_fail(
     mutate: Callable[[Path], None] | None = None,
     needle: str | None = None,
     absent: str | None = None,
+    regenerate: bool = True,
 ) -> None:
-    oks, fails = check(tmp_path, mutate)
+    oks, fails = check(tmp_path, mutate, regenerate)
     out = "\n".join(fails)
     assert fails
     if needle is not None:
@@ -123,11 +153,13 @@ def test_full_inventory_consistent(tmp_path: Path) -> None:
     assert_pass(tmp_path)
 
 
-def test_section_file_heading_rename_irrelevant(tmp_path: Path) -> None:
+def test_section_heading_qualifier_suffix_is_not_part_of_path(tmp_path: Path) -> None:
+    """逐源文件小节标题带全角括号限定尾巴时，路径比对剥尾巴后再对，括号不进路径。"""
+
     def mutate(root: Path) -> None:
-        p = root / "docs/tests/bdd.md"
+        p = root / "docs/tests/gloss.md"
         p.write_text(
-            p.read_text(encoding="utf-8").replace("### crates/demo.rs", "### crates/renamed.rs"),
+            p.read_text(encoding="utf-8").replace("### src/lib.rs", "### src/lib.rs（备注）"),
             encoding="utf-8",
         )
 
@@ -142,7 +174,7 @@ def test_history_row_same_name_needs_history_marker(tmp_path: Path) -> None:
     """同名旧行带“最新沿革见”指针即沿革行，豁免实例数对账。"""
 
     def mutate(root: Path) -> None:
-        p = root / "docs/tests/bdd.md"
+        p = root / "docs/tests/gloss.md"
         with open(p, "a", encoding="utf-8") as fh:
             fh.write("| registered_plain | 旧目标 | 旧场景措辞（最新沿革见首行） | 2026-09-01 |\n")
 
@@ -153,7 +185,7 @@ def test_second_row_without_history_marker_fails_instance_count(tmp_path: Path) 
     """同名两行都没有沿革指针：清单行数超过源码实例数，实例数对账拦下。"""
 
     def mutate(root: Path) -> None:
-        p = root / "docs/tests/bdd.md"
+        p = root / "docs/tests/gloss.md"
         with open(p, "a", encoding="utf-8") as fh:
             fh.write("| registered_plain | 旧目标 | 旧场景措辞 | 2026-09-01 |\n")
 
@@ -166,7 +198,7 @@ def test_fn_name_colliding_with_target_deduped(tmp_path: Path) -> None:
             fh.write('\n[[test]]\nname = "collide_target"\nharness = false\n')
         with open(root / "src/lib.rs", "a", encoding="utf-8") as fh:
             fh.write("\n#[test]\nfn collide_target() {}\n")
-        with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
+        with open(root / "docs/tests/gloss.md", "a", encoding="utf-8") as fh:
             fh.write("| collide_target | 目标 | 给定…当…则… | 2026-09-19 |\n")
 
     assert_pass(tmp_path, mutate)
@@ -185,17 +217,111 @@ def test_manual_entry_registered_once(tmp_path: Path) -> None:
     assert_pass(tmp_path, mutate)
 
 
+# ---- 结构检查：小节标题路径真实、单元小节包内双射、总览新鲜度 ----
+
+
+def test_section_heading_path_must_be_tracked(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        p = root / "docs/tests/gloss.md"
+        p.write_text(
+            p.read_text(encoding="utf-8").replace("### src/lib.rs", "### src/ghost.rs"),
+            encoding="utf-8",
+        )
+
+    assert_fail(tmp_path, mutate, "src/ghost.rs")
+
+
+def test_section_path_change_breaks_package_map(tmp_path: Path) -> None:
+    """小节路径指到另一个真实源文件：包内双射判缺小节与多小节两向违规。"""
+
+    def mutate(root: Path) -> None:
+        (root / "src/other.rs").write_text("#[test]\nfn elsewhere() {}\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+        p = root / "docs/tests/gloss.md"
+        p.write_text(
+            p.read_text(encoding="utf-8").replace("### src/lib.rs", "### src/other.rs"),
+            encoding="utf-8",
+        )
+
+    assert_fail(tmp_path, mutate, "missing section: src/lib.rs")
+
+
+def test_bearing_file_without_unit_section_fails_map(tmp_path: Path) -> None:
+    """源文件带单元登记但无逐源文件小节：包内双射判缺小节（登记挪去别的小节即拦）。"""
+
+    def mutate(root: Path) -> None:
+        mod = root / "src/ui/popup"
+        mod.mkdir(parents=True)
+        (mod / "mod.rs").write_text("#[test]\nfn popup_thing() {}\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+        p = root / "docs/tests/gloss.md"
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write("| popup_thing | 目标 | 给定…当…则… | 2026-09-19 |\n")
+
+    assert_fail(tmp_path, mutate, "missing section: src/ui/popup/mod.rs")
+
+
+def test_section_without_unit_registrations_fails_map(tmp_path: Path) -> None:
+    """逐源文件小节指向没有单元登记的源文件：包内双射判多小节。"""
+
+    def mutate(root: Path) -> None:
+        (root / "src/empty.rs").write_text("pub fn nothing() {}\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+        p = root / "docs/tests/gloss.md"
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write("\n### src/empty.rs\n")
+
+    assert_fail(tmp_path, mutate, "section without unit registrations: src/empty.rs")
+
+
+def test_snapshot_only_source_file_needs_no_unit_section(tmp_path: Path) -> None:
+    """测试全部登记在快照章的源文件不要求单元小节：双射只对单元章有登记的文件成立。"""
+
+    def mutate(root: Path) -> None:
+        (root / "src/render.rs").write_text("#[test]\nfn render_thing() {}\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+        p = root / "docs/tests/gloss.md"
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write("\n## 快照测试\n| 测试名称 | 测试目标 | 测试场景 | 更新时间 |\n")
+            fh.write("| --- | --- | --- | --- |\n| render_thing | 目标 | 场景 | 2026-09-19 |\n")
+
+    assert_pass(tmp_path, mutate)
+
+
+def test_stale_overview_fails_freshness(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        p = root / "docs/tests/bdd.md"
+        p.write_text(
+            p.read_text(encoding="utf-8").replace(
+                "| 单元测试 | 0 | 5 | 5 |", "| 单元测试 | 0 | 5 | 4 |"
+            ),
+            encoding="utf-8",
+        )
+
+    assert_fail(tmp_path, mutate, "generated overview does not match", regenerate=False)
+
+
 # ---- 唯一性三道检查：限定名唯一、实例数对账、限定符文件绑定 ----
 
 
 def add_second_instance(root: Path) -> None:
-    """同名测试的第二个定义文件与两条文件绑定限定行（新文件须入库才进扫描面）。"""
+    """同名测试的第二个定义文件：逐源文件小节、两条文件绑定限定行与源文件一同登记
+    （新文件须入库才进扫描面；同名成跨文件后，原有行也补上文件绑定限定符）。"""
     mod = root / "src/ui/popup"
     mod.mkdir(parents=True)
     (mod / "mod.rs").write_text("#[test]\nfn snapshots_match_baseline() {}\n", encoding="utf-8")
-    with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
-        fh.write("| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |\n")
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+    p = root / "docs/tests/gloss.md"
+    p.write_text(
+        p.read_text(encoding="utf-8").replace(
+            PLAIN_SNAPSHOTS_ROW,
+            "| snapshots_match_baseline（lib） | 目标 | 给定…当…则… | 2026-09-19 |",
+        ),
+        encoding="utf-8",
+    )
+    with open(p, "a", encoding="utf-8") as fh:
+        fh.write("\n### src/ui/popup/mod.rs\n" + UNIT_TABLE_HEADER)
+        fh.write("| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |\n")
 
 
 def test_cross_file_same_name_with_bound_qualifiers_passes(tmp_path: Path) -> None:
@@ -208,24 +334,14 @@ def test_cross_file_same_name_with_bound_qualifiers_passes(tmp_path: Path) -> No
 def test_cross_file_same_name_without_qualifier_fails_binding(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         add_second_instance(root)
-        p = root / "docs/tests/bdd.md"
+        p = root / "docs/tests/gloss.md"
         text = p.read_text(encoding="utf-8").replace(
-            "snapshots_match_baseline（popup）", "snapshots_match_baseline"
+            "| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |",
+            PLAIN_SNAPSHOTS_ROW,
         )
         p.write_text(text, encoding="utf-8")
 
     assert_fail(tmp_path, mutate, "needs a file-bound qualifier")
-
-
-def test_qualifier_with_free_text_fails_binding(tmp_path: Path) -> None:
-    def mutate(root: Path) -> None:
-        p = root / "docs/tests/bdd.md"
-        text = p.read_text(encoding="utf-8").replace(
-            "snapshots_match_baseline（lib）", "snapshots_match_baseline（lib 旧措辞）"
-        )
-        p.write_text(text, encoding="utf-8")
-
-    assert_fail(tmp_path, mutate, "is not a plain file-name token")
 
 
 def test_qualifier_binds_mod_files_by_parent_dir() -> None:
@@ -240,9 +356,22 @@ def test_history_marker_in_qualifier_does_not_exempt(tmp_path: Path) -> None:
     """沿革指针写进限定符不构成豁免：该行仍按普通登记行判罚。"""
 
     def mutate(root: Path) -> None:
-        p = root / "docs/tests/bdd.md"
+        p = root / "docs/tests/gloss.md"
         text = p.read_text(encoding="utf-8").replace(
-            "snapshots_match_baseline（lib）", "snapshots_match_baseline（最新沿革见）"
+            PLAIN_SNAPSHOTS_ROW,
+            "| snapshots_match_baseline（最新沿革见） | 目标 | 给定…当…则… | 2026-09-19 |",
+        )
+        p.write_text(text, encoding="utf-8")
+
+    assert_fail(tmp_path, mutate, "is not a plain file-name token")
+
+
+def test_qualifier_with_free_text_fails_binding(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        p = root / "docs/tests/gloss.md"
+        text = p.read_text(encoding="utf-8").replace(
+            PLAIN_SNAPSHOTS_ROW,
+            "| snapshots_match_baseline（lib 旧措辞） | 目标 | 给定…当…则… | 2026-09-19 |",
         )
         p.write_text(text, encoding="utf-8")
 
@@ -251,9 +380,10 @@ def test_history_marker_in_qualifier_does_not_exempt(tmp_path: Path) -> None:
 
 def test_qualifier_matching_no_file_fails_binding(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
-        p = root / "docs/tests/bdd.md"
+        p = root / "docs/tests/gloss.md"
         text = p.read_text(encoding="utf-8").replace(
-            "snapshots_match_baseline（lib）", "snapshots_match_baseline（nowhere）"
+            PLAIN_SNAPSHOTS_ROW,
+            "| snapshots_match_baseline（nowhere） | 目标 | 给定…当…则… | 2026-09-19 |",
         )
         p.write_text(text, encoding="utf-8")
 
@@ -263,10 +393,8 @@ def test_qualifier_matching_no_file_fails_binding(tmp_path: Path) -> None:
 def test_two_rows_binding_same_file_fail_dup_qualifier(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         add_second_instance(root)
-        p = root / "docs/tests/bdd.md"
-        text = p.read_text(encoding="utf-8").replace(
-            "snapshots_match_baseline（lib）", "snapshots_match_baseline（popup）"
-        )
+        p = root / "docs/tests/gloss.md"
+        text = p.read_text(encoding="utf-8").replace(QUALIFIED_LIB_ROW, QUALIFIED_POPUP_ROW)
         p.write_text(text, encoding="utf-8")
 
     assert_fail(tmp_path, mutate, "bound by two rows")
@@ -275,10 +403,8 @@ def test_two_rows_binding_same_file_fail_dup_qualifier(tmp_path: Path) -> None:
 def test_uncovered_instance_fails_binding(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         add_second_instance(root)
-        p = root / "docs/tests/bdd.md"
-        text = p.read_text(encoding="utf-8").replace(
-            "snapshots_match_baseline（lib）", "snapshots_match_baseline（popup）"
-        )
+        p = root / "docs/tests/gloss.md"
+        text = p.read_text(encoding="utf-8").replace(QUALIFIED_LIB_ROW, QUALIFIED_POPUP_ROW)
         p.write_text(text, encoding="utf-8")
 
     assert_fail(tmp_path, mutate, "no qualifier bound to")
@@ -287,7 +413,7 @@ def test_uncovered_instance_fails_binding(tmp_path: Path) -> None:
 def test_history_row_exempt_from_qualifier_checks(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         add_second_instance(root)
-        with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
+        with open(root / "docs/tests/gloss.md", "a", encoding="utf-8") as fh:
             fh.write(
                 "| snapshots_match_baseline | 旧目标 | 旧场景（最新沿革见限定行） | 2026-09-01 |\n"
             )
@@ -308,7 +434,7 @@ def test_unregistered_test(tmp_path: Path) -> None:
 
 def test_stale_bdd_entry(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
-        with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
+        with open(root / "docs/tests/gloss.md", "a", encoding="utf-8") as fh:
             fh.write("| ghost_entry | 目标 | 场景 | 2026-09-19 |\n")
 
     assert_fail(tmp_path, mutate, "ghost_entry")
@@ -339,7 +465,7 @@ def test_bdd_file_missing(tmp_path: Path) -> None:
 def test_empty_scan_surface_fails_closed(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
     (tmp_path / "docs/tests").mkdir(parents=True)
-    (tmp_path / "docs/tests/bdd.md").write_text(BDD_MD, encoding="utf-8")
+    (tmp_path / "docs/tests/bdd.md").write_text(BDD_ROOT_MD, encoding="utf-8")
     (tmp_path / "Cargo.toml").write_text('[package]\nname = "gloss"\n', encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
     with pytest.raises(SystemExit) as exc:
@@ -349,7 +475,7 @@ def test_empty_scan_surface_fails_closed(tmp_path: Path) -> None:
 
 def test_exact_duplicate_row(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
-        with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
+        with open(root / "docs/tests/gloss.md", "a", encoding="utf-8") as fh:
             fh.write("| registered_plain | 目标 | 给定…当…则… | 2026-09-19 |\n")
 
     assert_fail(tmp_path, mutate, "registered multiple times")
@@ -357,7 +483,7 @@ def test_exact_duplicate_row(tmp_path: Path) -> None:
 
 def test_section_header_row_dropped(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
-        p = root / "docs/tests/bdd.md"
+        p = root / "docs/tests/gloss.md"
         lines = [
             line
             for line in p.read_text(encoding="utf-8").split("\n")
@@ -370,7 +496,7 @@ def test_section_header_row_dropped(tmp_path: Path) -> None:
 
 def test_duplicate_chapter(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
-        with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
+        with open(root / "docs/tests/gloss.md", "a", encoding="utf-8") as fh:
             fh.write("\n## 性能测试\n")
 
     assert_fail(tmp_path, mutate, "appear more than once")
@@ -378,7 +504,7 @@ def test_duplicate_chapter(tmp_path: Path) -> None:
 
 def test_blank_line_splits_table(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
-        p = root / "docs/tests/bdd.md"
+        p = root / "docs/tests/gloss.md"
         lines = p.read_text(encoding="utf-8").split("\n")
         out = []
         done = False
@@ -394,7 +520,7 @@ def test_blank_line_splits_table(tmp_path: Path) -> None:
 
 def test_paragraph_splits_table(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
-        p = root / "docs/tests/bdd.md"
+        p = root / "docs/tests/gloss.md"
         lines = p.read_text(encoding="utf-8").split("\n")
         out = []
         done = False
@@ -410,7 +536,7 @@ def test_paragraph_splits_table(tmp_path: Path) -> None:
 
 def test_table_header_dropped_body_only(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
-        p = root / "docs/tests/bdd.md"
+        p = root / "docs/tests/gloss.md"
         lines = p.read_text(encoding="utf-8").split("\n")
         out = []
         dropped = 0
@@ -438,8 +564,7 @@ def test_duplicate_bullet_lines(tmp_path: Path) -> None:
 def test_duplicate_h3_in_same_chapter(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
-            fh.write("\n### crates/demo.rs\n")
-            fh.write("\n### crates/demo.rs\n")
+            fh.write("\n### live_manual_thing\n### live_manual_thing\n")
 
     assert_fail(tmp_path, mutate, "repeat within the same")
 
@@ -464,22 +589,26 @@ def violation_fixture(root: Path) -> None:
             fh.write("\n#[test]\nfn unregistered_thing() {}\n")
 
     mutate_src(root / "src/lib.rs")
-    # 同名测试的第二个定义文件 + 两行同限定行：触发文件绑定与限定名重复
+    # 同名测试的第二个定义文件与逐源文件小节、限定行一同登记，触发文件绑定与限定名重复；
+    # 重复章与其残表随后追加，触发重复章、缺表头与重复块
     mod = root / "src/ui/popup"
     mod.mkdir(parents=True)
     (mod / "mod.rs").write_text("#[test]\nfn snapshots_match_baseline() {}\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
-    with open(root / "docs/tests/bdd.md", "a", encoding="utf-8") as fh:
+    with open(root / "docs/tests/gloss.md", "a", encoding="utf-8") as fh:
         fh.write(
+            "\n### src/ui/popup/mod.rs\n"
+            "| 测试名称 | 测试目标 | 测试场景 | 更新时间 |\n"
+            "| --- | --- | --- | --- |\n"
+            "| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |\n"
+            "| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |\n"
+            "| snapshots_match_baseline | 目标 | 给定…当…则… | 2026-09-19 |\n"
             "\n## 性能测试\n"
             "| 测试名称 | 测试目标 | 测试场景 | 更新时间 |\n"
             "| --- | --- | --- | --- |\n"
             "\n"
             "| ghost_entry | 目标 | 场景 | 2026-09-19 |\n"
             "| registered_plain | 目标 | 给定…当…则… | 2026-09-19 |\n"
-            "| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |\n"
-            "| snapshots_match_baseline（popup） | 目标 | 给定…当…则… | 2026-09-19 |\n"
-            "| snapshots_match_baseline | 目标 | 给定…当…则… | 2026-09-19 |\n"
             "- 测试目标：重复块探针。\n"
             "- 测试目标：重复块探针。\n"
         )
@@ -501,6 +630,7 @@ def test_gate_reports_rule_ids_and_violation_exit_code(tmp_path: Path) -> None:
         "BDD-INSTANCE",
         "BDD-BINDING",
         "BDD-DUP-QUALIFIER",
+        "BDD-INDEX",
     }
     for line in heads:
         assert re.match(r"^error\[[A-Z0-9-]+\]: .+ \(.+\)$", line)
@@ -514,7 +644,7 @@ def test_gate_summary_count_matches_printed_details(tmp_path: Path) -> None:
     details = sum(1 for line in text.splitlines() if line.startswith("error["))
     match = re.search(r"^error: (\d+) violations? found \(see above\)$", text, re.M)
     assert match
-    assert int(match.group(1)) == details == 9
+    assert int(match.group(1)) == details == 10
 
 
 def test_gate_output_deterministic_across_runs(tmp_path: Path) -> None:
@@ -542,7 +672,7 @@ def test_gate_missing_inventory_fails_closed_with_exit_three(tmp_path: Path) -> 
 def test_gate_empty_scan_surface_fails_closed_with_exit_three(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
     (tmp_path / "docs/tests").mkdir(parents=True)
-    (tmp_path / "docs/tests/bdd.md").write_text(BDD_MD, encoding="utf-8")
+    (tmp_path / "docs/tests/bdd.md").write_text(BDD_ROOT_MD, encoding="utf-8")
     (tmp_path / "Cargo.toml").write_text('[package]\nname = "gloss"\n', encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
     proc = subprocess.run([sys.executable, GATE, str(tmp_path)], capture_output=True)
