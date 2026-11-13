@@ -25,6 +25,18 @@
 | a_restore_underreporting_jumps_fires_a_spurious_observation | 恢复写盘少报跳变即伪触发（反向钉子） | 给定武装哨兵（基线 7）与少报的闩锁（前置 7、自报 2），当轮询读到计数 12 且判定有图，则差额判为外来写入并产出观察事件（钉住写盘归因必须按真实跳变数自报：少报会让恢复的图伪装成用户复制） | 2026-11-14 |
 | observer_mismatch_flags_the_race | 观察记录比对判竞态 | 给定观察记录，当现值与记录一致则匹配；记录更新后旧值不匹配、新值匹配（记录与现值之间被覆盖即竞态） | 2026-11-14 |
 
+### `crates/gloss-platform/src/common/locale.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| locale_maps_language_names_to_locales | 语言名映射界面语言档位 | 给定 `zh-Hans-CN`、`zh_CN`、大写变体、`en-US`、`ja-JP` 与空值，当映射，则 `zh` 前缀（大小写不敏感）归中文档位、其余（含读不到语言名）归英文档位 | 2026-11-14 |
+
+### `crates/gloss-platform/src/common/menu_labels.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| labels_follow_their_language_per_locale | 菜单词条守语言规范 | 给定中英两份菜单词条表与按档位查取，当逐条读，则中文表含汉字、英文表无汉字且两表词条均非空 | 2026-11-14 |
+
 ### `crates/gloss-platform/src/common/storage.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -116,17 +128,10 @@
 | string_from_respects_the_byte_ceiling | 字节上界起作用 | 给定远低于所需的字节上界，当转换，则返回 `None` | 2026-09-23 |
 | empty_cf_string_converts_to_empty_rust_string | 空串转换 | 给定空 `CFString`，当转换，则得到空（Rust）字符串而非 `None` | 2026-09-23 |
 
-### `crates/gloss-platform/src/macos/locale.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| locale_maps_preferred_languages | 首选语言映射界面语言 | 给定 `zh-Hans-CN`、`zh_CN`、`ZH-TW`、`en-US`、`ja-JP` 与空值，当映射，则中文标签归中文、其余（含拿不到偏好语言）归英文 | 2026-09-22 |
-
 ### `crates/gloss-platform/src/macos/menu.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| labels_follow_their_language_per_locale | 菜单词条守语言规范 | 给定中英两份菜单词条表，当逐条读，则中文表含汉字、英文表无汉字且两表词条均非空 | 2026-10-29 |
 | menu_install_degrades_off_the_main_thread | 菜单装配离主线程降级 | 给定非主线程测试线程，当调 `install`，则返回 `false` 且不装菜单 | 2026-10-29 |
 
 ### `crates/gloss-platform/src/macos/permissions.rs`
@@ -265,17 +270,10 @@
 | copy_sequence_presses_modifier_first_and_releases_it_last | 复制键序修饰键首尾 | 给定 `copy_sequence`，当读四步键序，则修饰键按下、键按下、键释放、修饰键释放依次排列 | 2026-11-06 |
 | injection_failure_releases_pressed_keys_in_reverse | 注入失败按已按下键逆序补放 | 给定复制键序，当分别在第 1 至 4 步失败，则补放列表依次为空、修饰键、键与修饰键（逆序，重复的抬起事件幂等） | 2026-11-06 |
 
-### `crates/gloss-platform/src/windows/locale.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| locale_maps_the_default_locale_name | 默认区域名映射语言档位 | 给定区域名样本（`zh-Hans-CN`、`zh_CN`、大写变体、`en-US`、`ja-JP`、读不到），当 `locale_for`，则 `zh` 前缀（大小写不敏感）落中文档位、其余与读不到都落英文档位 | 2026-11-07 |
-
 ### `crates/gloss-platform/src/windows/menu.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| tray_labels_follow_their_language_per_locale | 托盘词条守语言规范 | 给定中英两份托盘词条表，当逐条读，则中文表含汉字、英文表无汉字且两表词条均非空 | 2026-11-07 |
 | tray_icon_asset_decodes_into_the_brand_bitmap | 品牌资产解码为托盘位图 | 给定内嵌品牌 `PNG` 资产，当解码为原始位图，则尺寸为 256×256 且字节面为满 `RGBA` 覆盖 | 2026-11-07 |
 
 ### `crates/gloss-platform/src/windows/scene.rs`

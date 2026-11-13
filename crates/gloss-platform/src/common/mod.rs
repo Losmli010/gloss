@@ -5,4 +5,6 @@
 //! 本层的共享形状上。
 
 pub mod clipboard_watch;
+pub mod locale;
+pub mod menu_labels;
 pub mod storage;
