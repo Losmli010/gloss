@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""测试行为清单一致性门禁：登记文档与测试源码双向核对。
+"""测试行为清单一致性门禁：登记文档（docs/tests/）与测试源码双向核对，登记文档
+按包落位——根总纲加包清单。
   - 测试源码侧：版本库跟踪的本语言（Rust）源码里的测试函数，加上清单声明的
-    自管测试目标（自带运行器的自检目标），每一项都必须登记进清单；
-  - 清单侧：清单的每个条目必须能在测试源码里找到同名测试；
+    自管测试目标（自带运行器的自检目标），每一项都必须登记进任一登记文件；
+  - 清单侧：各登记文件的每个条目必须能在测试源码里找到同名测试；
   - 唯一性三道检查：登记行数对账源码跨文件实例数、跨文件同名必须带文件绑
     定限定符（限定符取定义文件名主干，汇编模块文件取父目录名）、同条目两
-    行不得绑到同一文件；描述带“最新沿革见”指针的沿革行豁免三道检查。
+    行不得绑到同一文件；描述带“最新沿革见”指针的沿革行豁免三道检查；
+  - 结构三道检查：逐源文件小节标题里的路径必须是真实存在的跟踪源文件；包
+    清单的单元测试小节集合与该包单元章有登记的测试源文件按路径双射（包归
+    属由登记文件名机械推导）；根总纲的总览节必须与登记文件再生结果一致，
+    过期即违规，再生成走总览再生成配方（just test-index）。
 条目的描述文字不在校验面（描述与代码冲突时以代码为准，见指令文档的测试节）。
 本地提交前门禁与持续集成检查共用此脚本，保证本地与远端判定一致。违规报告
-经统一诊断出口打印：每条带规则标识、位置、条目清单与修复指引；清单文件缺
-失与测试源码扫描面为空两处前置故障按无法完成判定失败关闭退出。退出码按全
-脚本统一约定。
+经统一诊断出口打印：每条带规则标识、位置（取实际登记文件）、条目清单与修复
+指引；根总纲缺失与测试源码扫描面为空两处前置故障按无法完成判定失败关闭退
+出。退出码按全脚本统一约定。
 
 用法：python3 scripts/hooks/check_test_bdd.py <repo-root>，缺省为本脚本的上一级目录。
 """
@@ -24,8 +29,10 @@ from collections import Counter
 from typing import Any
 
 import gate_report
+import test_index
 
-BDD_REL = os.path.join("docs", "tests", "bdd.md")
+BDD_REL = "docs/tests/bdd.md"
+UNIT_CHAPTER = test_index.UNIT_CHAPTER
 FN_RE = re.compile(r"fn\s+([A-Za-z0-9_]+)")
 TEST_ATTR_RE = re.compile(r"^\s*#\[(?:tokio::)?test\]")
 MANUAL_CHAPTER = "## 发版人工步骤"
@@ -39,14 +46,17 @@ RULE_BDD_TABLE = "BDD-TABLE"
 RULE_BDD_DUP_QUALIFIER = "BDD-DUP-QUALIFIER"
 RULE_BDD_INSTANCE = "BDD-INSTANCE"
 RULE_BDD_BINDING = "BDD-BINDING"
+RULE_BDD_PATH = "BDD-PATH"
+RULE_BDD_MAP = "BDD-MAP"
+RULE_BDD_INDEX = "BDD-INDEX"
 
 HISTORY_MARKER = "最新沿革见"
 NAME_RE = re.compile(r"[A-Za-z0-9_]+")
 QUALIFIED_RE = re.compile(r"^(.*)（([^（）]*)）\s*$")
 
 SYNC_REMEDY = (
-    "added/renamed/removed tests: register them in bdd.md within the same PR and"
-    " refresh the entry's update time; description conflicts with code: code wins"
+    "added/renamed/removed tests: register them in docs/tests/ within the same PR"
+    " and refresh the entry's update time; description conflicts with code: code wins"
 )
 DUP_REMEDY = (
     "keep one registration per test: delete the duplicated row, heading or block;"
@@ -57,6 +67,16 @@ QUALIFIER_REMEDY = (
     " (parent dir for mod files) to the entry name"
 )
 TABLE_REMEDY = "repair the table: keep header, separator and body rows contiguous"
+PATH_REMEDY = (
+    "the heading path must be a git-tracked source file: retitle it to the file's"
+    " current repo-relative path, or drop the section if the file is gone"
+)
+MAP_REMEDY = (
+    "unit-test sections must biject with the package's unit-registered source files"
+    " (derived from the crates/<pkg>/src prefix): add a section per unlisted file"
+    " carrying unit registrations, drop sections for files without them"
+)
+INDEX_REMEDY = "the overview is generated: run just test-index to refresh it"
 
 INVENTORY_REMEDY = (
     "the test behavior inventory is a git-tracked file; do not delete or rename"
@@ -68,11 +88,17 @@ EMPTY_SURFACE_REMEDY = (
 )
 
 
-def tracked_rs_files(root: str, loader: Any = None) -> list[str]:
+def tracked_files(root: str, loader: Any = None) -> list[str]:
+    """版本库跟踪清单（全文件）：登记文件枚举与路径真实性检查共用一次枚举。"""
     if loader is not None:
-        return [p for p in loader.tracked() if p.endswith(".rs")]
-    out = gate_report.run_git(["ls-files", "-z", "--", "*.rs"], cwd=root).stdout
+        return loader.tracked()
+    out = gate_report.run_git(["ls-files", "-z"], cwd=root).stdout
     return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
+
+
+def tracked_rs_files(root: str, loader: Any = None) -> list[str]:
+    """版本库跟踪清单里的本语言（Rust）源码：测试实例扫描面。"""
+    return [p for p in tracked_files(root, loader) if p.endswith(".rs")]
 
 
 def src_test_instances(
@@ -361,6 +387,122 @@ def qualifier_findings(
     return findings
 
 
+def heading_paths(bdd_path: str, loader: Any = None) -> set[str]:
+    """三级小节标题里的路径形态文本：剥限定符尾巴与反引号后含分隔符的标题集合，
+    各章一律收取（人工两类的小节标题是测试名，不含分隔符，天然不进集合）。"""
+    paths = set()
+    for line in bdd_lines(bdd_path, loader):
+        if not line.startswith("### "):
+            continue
+        rel = test_index.heading_path(line)
+        if rel:
+            paths.add(rel)
+    return paths
+
+
+def unit_section_paths(bdd_path: str, loader: Any = None) -> set[str]:
+    """单元测试章内逐源文件小节的路径集合：章内路径形态的三级标题。"""
+    paths = set()
+    chapter = ""
+    for line in bdd_lines(bdd_path, loader):
+        line = line.rstrip("\n")
+        if line.startswith("## "):
+            chapter = line
+            continue
+        if chapter != UNIT_CHAPTER or not line.startswith("### "):
+            continue
+        rel = test_index.heading_path(line)
+        if rel:
+            paths.add(rel)
+    return paths
+
+
+def unit_registered_files(
+    registrations: list[dict[str, Any]], instances: dict[str, set[str]]
+) -> set[str]:
+    """单元测试章有登记的测试实例涉及的源文件集合：限定行按限定符绑定到定义文件，
+    无限定行按裸名取定义文件并集（跨文件同名无限定符时两文件都算，文件绑定检查
+    另行判罚）。纯快照章登记的源文件（如渲染测试集中住的源文件）不在其中，不要
+    求单元小节。"""
+    files: set[str] = set()
+    for reg in registrations:
+        if reg["section"] != UNIT_CHAPTER:
+            continue
+        inst = instances.get(reg["bare"])
+        if not inst:
+            continue
+        qualifier = reg["qualifier"]
+        if qualifier and NAME_RE.fullmatch(qualifier):
+            files |= {rel for rel in inst if qualifier_binds(qualifier, rel)}
+        else:
+            files |= inst
+    return files
+
+
+def unit_map_findings(
+    inventory: list[str],
+    per_file: dict[str, dict[str, Any]],
+    registered: set[str],
+) -> list[gate_report.Finding]:
+    """包清单的单元测试小节集合与该包单元章有登记的测试源文件按路径双射。
+
+    包归属由登记文件名机械推导——文件名整段即包名的推到对应包的源码目录，
+    入口包推到入口源码目录——根总纲与推导不出的文件跳过；缺小节与多小节两
+    向都判，跨包误挂的小节由所属包缺小节一侧拦下。"""
+    findings = []
+    for rel in inventory:
+        prefix = test_index.package_prefix(rel)
+        if prefix is None:
+            continue
+        sections = {p for p in per_file[rel]["unit_sections"] if p.startswith(prefix)}
+        files = {p for p in registered if p.startswith(prefix)}
+        missing = sorted(files - sections)
+        extra = sorted(sections - files)
+        if not missing and not extra:
+            continue
+        evidence = []
+        if missing:
+            evidence.append("missing section: " + ", ".join(missing))
+        if extra:
+            evidence.append("section without unit registrations: " + ", ".join(extra))
+        findings.append(
+            gate_report.Finding(
+                rule=RULE_BDD_MAP,
+                path=rel,
+                line=0,
+                message="unit-test sections do not biject with unit-registered source"
+                " files of this package",
+                evidence="; ".join(evidence),
+                remedy=MAP_REMEDY,
+            )
+        )
+    return findings
+
+
+def overview_findings(
+    root: str, inventory: list[str], loader: Any = None
+) -> list[gate_report.Finding]:
+    """总览新鲜度：根总纲的总览节与登记文件再生成结果逐行比对，过期即违规。"""
+    texts = {}
+    for rel in inventory:
+        texts[rel] = "\n".join(bdd_lines(os.path.join(root, rel), loader))
+    expected = "\n".join(test_index.build_section(root, inventory, texts)).strip("\n")
+    root_text = texts[BDD_REL]
+    start, end = test_index.overview_span(root_text)
+    actual = "\n".join(root_text.split("\n")[start:end]).strip("\n")
+    if actual == expected:
+        return []
+    return [
+        gate_report.Finding(
+            rule=RULE_BDD_INDEX,
+            path=BDD_REL,
+            line=0,
+            message="the generated overview does not match the inventory files",
+            remedy=INDEX_REMEDY,
+        )
+    ]
+
+
 def duplicate_rows(bdd_path: str, loader: Any = None) -> list[str]:
     """整行精确重复（同名同目标同场景同时间），即改名后旧行未删的真实特征。
     同名不同描述的沿革行（历史重录记录）是有意保留，不拦。"""
@@ -468,19 +610,23 @@ def broken_tables(bdd_path: str, loader: Any = None) -> list[str]:
     return sorted(broken)
 
 
-def require_inventory(bdd_path: str) -> None:
-    """清单文件在场守卫：缺失即输入不可读，无法完成判定，失败关闭退出。"""
-    if os.path.isfile(bdd_path):
+def require_inventory(root: str, inventory: list[str]) -> None:
+    """根总纲在场守卫：登记目录为空、缺根总纲或跟踪的登记文件不在工作区，即输入
+    不可读，无法完成判定，失败关闭退出；包清单缺席走双向核对判缺登记，不算前置故障。"""
+    tracked_missing = [rel for rel in inventory if not os.path.isfile(os.path.join(root, rel))]
+    if BDD_REL in inventory and not tracked_missing:
         return
-    gate_report.fail(
-        gate_report.Finding(
-            rule=gate_report.RULE_INFRA,
-            path=BDD_REL,
-            line=0,
-            message="the test behavior inventory is missing",
-            remedy=INVENTORY_REMEDY,
+    missing = tracked_missing or [BDD_REL]
+    for rel in missing:
+        gate_report.fail(
+            gate_report.Finding(
+                rule=gate_report.RULE_INFRA,
+                path=rel,
+                line=0,
+                message="the test behavior inventory is missing",
+                remedy=INVENTORY_REMEDY,
+            )
         )
-    )
     sys.exit(gate_report.EXIT_INFRA)
 
 
@@ -501,11 +647,17 @@ def require_sources(src_all: set[str]) -> None:
     sys.exit(gate_report.EXIT_INFRA)
 
 
-def entry_finding(rule: str, message: str, remedy: str, entries: list[str]) -> gate_report.Finding:
-    """单类违规的条目：清单文件为位置，条目清单并成一行证据。"""
+def entry_finding(
+    rule: str,
+    message: str,
+    remedy: str,
+    entries: list[str],
+    path: str = BDD_REL,
+) -> gate_report.Finding:
+    """单类违规的条目：位置取实际登记文件，条目清单并成一行证据。"""
     return gate_report.Finding(
         rule=rule,
-        path=BDD_REL,
+        path=path,
         line=0,
         message=message,
         evidence=", ".join(entries),
@@ -514,10 +666,11 @@ def entry_finding(rule: str, message: str, remedy: str, entries: list[str]) -> g
 
 
 def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.Finding]]:
-    """双向核对，违规随执行流即时经统一诊断出口打到标准错误，返回通过与违规
-    条目两个清单；装入器在场时清单与文件读取走共享缓存，缺省自行读取。"""
-    bdd_path = os.path.join(root, BDD_REL)
-    require_inventory(bdd_path)
+    """双向核对与结构检查，违规随执行流即时经统一诊断出口打到标准错误，返回通过
+    与违规条目两个清单；装入器在场时清单与文件读取走共享缓存，缺省自行读取。"""
+    tracked = tracked_files(root, loader)
+    inventory = test_index.inventory_from_tracked(tracked)
+    require_inventory(root, inventory)
 
     src_instances = src_test_instances(root, loader=loader)
     declared_targets = target_test_names(root, loader=loader)
@@ -529,8 +682,6 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
     # 双向核对按名字集合：测试目标声明即登记面；限定符检查按文件实例
     src_all = set(instances) | declared_targets
     require_sources(src_all)
-    bdd_names = bdd_entries(bdd_path, loader)
-    registrations = bdd_registrations(bdd_path, loader)
 
     found: list[gate_report.Finding] = []
 
@@ -538,12 +689,32 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
         found.append(finding)
         gate_report.fail(finding)
 
+    per_file: dict[str, dict[str, Any]] = {}
+    for rel in inventory:
+        path = os.path.join(root, rel)
+        per_file[rel] = {
+            "names": bdd_entries(path, loader),
+            "registrations": bdd_registrations(path, loader),
+            "headings": heading_paths(path, loader),
+            "unit_sections": unit_section_paths(path, loader),
+            "dup_rows": duplicate_rows(path, loader),
+            "dup_chapters": duplicate_chapters(path, loader),
+            "dup_blocks": duplicate_blocks(path, loader),
+            "broken_tables": broken_tables(path, loader),
+        }
+
+    bdd_names: set[str] = set()
+    registrations: list[dict[str, Any]] = []
+    for rel in inventory:
+        bdd_names |= per_file[rel]["names"]
+        registrations.extend(per_file[rel]["registrations"])
+
     stale = sorted(bdd_names - src_all)
     if stale:
         emit(
             entry_finding(
                 RULE_BDD_STALE,
-                "these bdd.md entries no longer exist in test sources"
+                "these inventory entries no longer exist in test sources"
                 " (renamed or removed without syncing)",
                 SYNC_REMEDY,
                 stale,
@@ -554,62 +725,74 @@ def collect(root: str, loader: Any = None) -> tuple[list[str], list[gate_report.
         emit(
             entry_finding(
                 RULE_BDD_MISSING,
-                "these tests are not registered in bdd.md",
+                "these tests are not registered in docs/tests/",
                 SYNC_REMEDY,
                 missing,
             )
         )
-    dups = duplicate_rows(bdd_path, loader)
-    if dups:
+    for rule, message, remedy, key in (
+        (
+            RULE_BDD_DUP_ROW,
+            "these inventory entries are registered multiple times (entry count exceeds"
+            " same-name tests in sources; old rows left after a rename?)",
+            DUP_REMEDY,
+            "dup_rows",
+        ),
+        (
+            RULE_BDD_DUP_CHAPTER,
+            "these ## chapter headings appear more than once in one inventory file"
+            " (sign of duplicated blocks)",
+            DUP_REMEDY,
+            "dup_chapters",
+        ),
+        (
+            RULE_BDD_DUP_BLOCK,
+            "these section headings or bullet lines repeat within the same"
+            " chapter/section (sign of duplicated blocks)",
+            DUP_REMEDY,
+            "dup_blocks",
+        ),
+        (
+            RULE_BDD_TABLE,
+            "these sections have tables missing a header row (or the body is cut from"
+            " the header by a blank line/prose)",
+            TABLE_REMEDY,
+            "broken_tables",
+        ),
+    ):
+        for rel in inventory:
+            entries = per_file[rel][key]
+            if entries:
+                emit(entry_finding(rule, message, remedy, entries, path=rel))
+
+    stale_paths: dict[str, list[str]] = {}
+    for rel in inventory:
+        stale_in_file = sorted(p for p in per_file[rel]["headings"] if p not in set(tracked))
+        if stale_in_file:
+            stale_paths[rel] = stale_in_file
+    for rel, entries in sorted(stale_paths.items()):
         emit(
             entry_finding(
-                RULE_BDD_DUP_ROW,
-                "these bdd.md entries are registered multiple times (entry count exceeds"
-                " same-name tests in sources; old rows left after a rename?)",
-                DUP_REMEDY,
-                dups,
-            )
-        )
-    dups = duplicate_chapters(bdd_path, loader)
-    if dups:
-        emit(
-            entry_finding(
-                RULE_BDD_DUP_CHAPTER,
-                "these ## chapter headings appear more than once (sign of duplicated blocks)",
-                DUP_REMEDY,
-                dups,
-            )
-        )
-    dups = duplicate_blocks(bdd_path, loader)
-    if dups:
-        emit(
-            entry_finding(
-                RULE_BDD_DUP_BLOCK,
-                "these section headings or bullet lines repeat within the same"
-                " chapter/section (sign of duplicated blocks)",
-                DUP_REMEDY,
-                dups,
-            )
-        )
-    broken = broken_tables(bdd_path, loader)
-    if broken:
-        emit(
-            entry_finding(
-                RULE_BDD_TABLE,
-                "these sections have tables missing a header row (or the body is cut from"
-                " the header by a blank line/prose)",
-                TABLE_REMEDY,
-                broken,
+                RULE_BDD_PATH,
+                "these section heading paths are not git-tracked source files",
+                PATH_REMEDY,
+                entries,
+                path=rel,
             )
         )
     for finding in qualifier_findings(registrations, instances):
+        emit(finding)
+    registered = unit_registered_files(registrations, instances)
+    for finding in unit_map_findings(inventory, per_file, registered):
+        emit(finding)
+    for finding in overview_findings(root, inventory, loader):
         emit(finding)
 
     oks = []
     if not found:
         oks.append(
-            "bdd.md matches test sources (%d in sources / %d in inventory)"
-            % (len(src_all), len(bdd_names))
+            "%d inventory files match test sources (%d in sources / %d in inventory)"
+            % (len(inventory), len(src_all), len(bdd_names))
         )
     return oks, found
 
