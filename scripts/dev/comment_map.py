@@ -116,7 +116,6 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-platform/src/windows/ffi/cred.rs": "windows_ffi_cred",
     "crates/gloss-platform/src/windows/ffi/shell_link.rs": "windows_shell_link",
     "crates/gloss-platform/src/windows/storage/mod.rs": "windows_storage_mod",
-    "crates/gloss-platform/src/windows/storage/file.rs": "windows_storage_file",
     "crates/gloss-platform/src/windows/storage/cred.rs": "windows_storage_cred",
     "crates/gloss-platform/src/windows/shortcut.rs": "windows_shortcut",
     "crates/gloss-platform/src/macos/shortcut.rs": "macos_shortcut",

@@ -1,11 +1,12 @@
-//! 配置存储的文档半边：标记语言（TOML）文件的整读整存。
-//!
-//! 与系统（macOS）的文档半边互为实现镜像（宿于其存储模块文件，平台目录
-//! 自持、不跨目标耦合）：文档落在用户配置目录的组合存储目录下，写路径
-//! 原子换名（临时文件加改名），读路径损坏隔离（原文挪作备份后报错，应用
-//! 壳的既有降级落出厂默认）。
-//! 目录定位经基础目录库（directories）按目标解析：系统（Windows）为漫游
-//! 应用数据目录（Roaming）下的组合存储目录。
+//! 配置存储的平台中立共享层：文档半边（文件存储，以标记语言（TOML）落盘）
+//! 与组合存储的通用形状。原子写、损坏隔离与缺省生成只写一份，系统
+//! （macOS）与系统（Windows）两侧平台目录共用，平台侧只把密钥半边（钥匙
+//! 串／凭据管理器）绑定到组合体的密钥类型参数上；本模块零目标条件编译、
+//! 零外部函数接口（FFI）、零不安全块。目录定位经基础目录库（directories）
+//! 按目标解析：系统（macOS）为应用支持目录（Application Support）下的
+//! 组合存储目录，系统（Windows）为漫游应用数据目录（Roaming）下的同款
+//! 目录。写路径原子换名（临时文件加改名），读路径损坏隔离（原文挪作备份
+//! 后报错，应用壳的既有降级落出厂默认）。
 
 use std::fs;
 use std::ops::Range;
@@ -15,6 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use gloss_core::config::Config;
 use gloss_core::log::{info, warn};
 use gloss_core::model::GlossError;
+use gloss_core::ports::{ConfigStore, SecretStore};
 
 const CONFIG_FILE: &str = "config.toml";
 
@@ -145,9 +147,46 @@ impl FileConfigStore {
     }
 }
 
+#[derive(Debug)]
+pub struct CompositeConfigStore<S> {
+    document: FileConfigStore,
+    secrets: S,
+}
+
+impl<S: SecretStore> CompositeConfigStore<S> {
+    pub fn with_secrets(document: FileConfigStore, secrets: S) -> Self {
+        Self { document, secrets }
+    }
+}
+
+impl<S: SecretStore> ConfigStore for CompositeConfigStore<S> {
+    fn load(&self) -> Result<Config, GlossError> {
+        self.document.load()
+    }
+
+    fn save(&self, config: &Config) -> Result<(), GlossError> {
+        self.document.save(config)
+    }
+}
+
+impl<S: SecretStore> SecretStore for CompositeConfigStore<S> {
+    fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
+        self.secrets.secret(key)
+    }
+
+    fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError> {
+        self.secrets.set_secret(key, value)
+    }
+
+    fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
+        self.secrets.delete_secret(key)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
     use std::time::Duration;
 
     use gloss_core::config::{Language, ProviderKey, Theme};
@@ -203,22 +242,55 @@ mod tests {
         assert!(store.path().is_file());
     }
 
-    fn backups_in(dir: &Path) -> Vec<PathBuf> {
-        let mut found: Vec<_> = std::fs::read_dir(dir)
-            .expect("read_dir should succeed")
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| path.to_string_lossy().ends_with(".bak"))
-            .collect();
-        found.sort();
-        found
+    #[test]
+    fn composite_delegates_document_methods() {
+        let dir = tempfile::tempdir().expect("tempdir should create");
+        let store = CompositeConfigStore::with_secrets(
+            FileConfigStore::in_dir(dir.path().to_path_buf()),
+            MemorySecrets::default(),
+        );
+        let config = sample_config();
+
+        store.save(&config).expect("save should succeed");
+        assert_eq!(store.load().expect("load should succeed"), config);
     }
 
     #[test]
-    fn error_line_reports_the_offending_line() {
-        let text = "theme = \"Light\"\ntarget_lang = 7\n";
-        let offset = text.find('7').expect("fixture must contain the value");
-        assert_eq!(error_line(text, Some(offset..offset + 1)), Some(2));
-        assert_eq!(error_line(text, None), None);
+    fn composite_forwards_secret_methods_to_the_store() {
+        let dir = tempfile::tempdir().expect("tempdir should create");
+        let store = CompositeConfigStore::with_secrets(
+            FileConfigStore::in_dir(dir.path().to_path_buf()),
+            MemorySecrets::default(),
+        );
+
+        assert_eq!(
+            SecretStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
+            None
+        );
+        SecretStore::set_secret(&store, "gloss/deepseek", "sk-test").expect("set should succeed");
+        assert_eq!(
+            SecretStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
+            Some("sk-test".into())
+        );
+        SecretStore::delete_secret(&store, "gloss/deepseek").expect("delete should succeed");
+        assert_eq!(
+            SecretStore::secret(&store, "gloss/deepseek").expect("read should succeed"),
+            None
+        );
+    }
+
+    #[test]
+    fn persisted_document_stores_no_secret_material() {
+        let dir = tempfile::tempdir().expect("tempdir should create");
+        let store = FileConfigStore::in_dir(dir.path().to_path_buf());
+
+        store.save(&sample_config()).expect("save should succeed");
+        let text = std::fs::read_to_string(store.path()).expect("read should succeed");
+        assert!(text.contains("keychain_id"), "identifier must be present");
+        assert!(
+            !text.contains("sk-"),
+            "no secret material may appear in the document"
+        );
     }
 
     #[test]
@@ -323,18 +395,22 @@ mod tests {
         );
     }
 
-    #[test]
-    fn persisted_document_stores_no_secret_material() {
-        let dir = tempfile::tempdir().expect("tempdir should create");
-        let store = FileConfigStore::in_dir(dir.path().to_path_buf());
+    fn backups_in(dir: &Path) -> Vec<PathBuf> {
+        let mut found: Vec<_> = std::fs::read_dir(dir)
+            .expect("read_dir should succeed")
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.to_string_lossy().ends_with(".bak"))
+            .collect();
+        found.sort();
+        found
+    }
 
-        store.save(&sample_config()).expect("save should succeed");
-        let text = std::fs::read_to_string(store.path()).expect("read should succeed");
-        assert!(text.contains("keychain_id"), "identifier must be present");
-        assert!(
-            !text.contains("sk-"),
-            "no secret material may appear in the document"
-        );
+    #[test]
+    fn error_line_reports_the_offending_line() {
+        let text = "theme = \"Light\"\ntarget_lang = 7\n";
+        let offset = text.find('7').expect("fixture must contain the value");
+        assert_eq!(error_line(text, Some(offset..offset + 1)), Some(2));
+        assert_eq!(error_line(text, None), None);
     }
 
     #[test]
@@ -344,5 +420,27 @@ mod tests {
             Duration::from_secs(default.cache_ttl_secs),
             Duration::from_secs(60 * 60)
         );
+    }
+
+    #[derive(Default)]
+    struct MemorySecrets(Mutex<HashMap<String, String>>);
+
+    impl SecretStore for MemorySecrets {
+        fn secret(&self, key: &str) -> Result<Option<String>, GlossError> {
+            Ok(self.0.lock().expect("poisoned").get(key).cloned())
+        }
+
+        fn set_secret(&self, key: &str, value: &str) -> Result<(), GlossError> {
+            self.0
+                .lock()
+                .expect("poisoned")
+                .insert(key.to_owned(), value.to_owned());
+            Ok(())
+        }
+
+        fn delete_secret(&self, key: &str) -> Result<(), GlossError> {
+            self.0.lock().expect("poisoned").remove(key);
+            Ok(())
+        }
     }
 }

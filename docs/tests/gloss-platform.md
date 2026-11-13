@@ -4,6 +4,24 @@
 
 ## 单元测试
 
+### `crates/gloss-platform/src/common/storage.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| save_then_load_round_trips_every_field | 全字段配置存取往返 | 给定全字段差异样例配置，当 `save`→`load`，则逐字段相等 | 2026-11-14 |
+| load_generates_default_when_file_missing | 缺文件生成默认配置 | 给定缺文件目录，当 `load`，则返回出厂默认且落盘文件可再解析 | 2026-11-14 |
+| load_creates_missing_directories | 缺目录自动创建 | 给定连父级都缺的目录，当 `load` 落盘，则目录被创建 | 2026-11-14 |
+| composite_delegates_document_methods | 组合存储委托文档半边 | 给定 `CompositeConfigStore`，当 `save`→`load`，则完整委托文档半边、逐字段一致 | 2026-11-14 |
+| composite_forwards_secret_methods_to_the_store | 组合存储转发密钥端口 | 给定内存桩密钥存储，当经组合体 `SecretStore` 的 `set_secret/secret/delete_secret`，则读回写入值、删除后 `None` | 2026-11-14 |
+| persisted_document_stores_no_secret_material | 落盘文档不含密钥本体 | 给定 `save` 写出的配置文档（TOML），当检查内容，则含 `keychain_id` 但不含密钥本体 | 2026-11-14 |
+| default_store_targets_standard_config_dir | 默认存储落在标准目录 | 给定默认构造与真实用户目录，当定位，则路径为 `gloss/config.toml`（`BaseDirs` 缺失时跳过） | 2026-11-14 |
+| load_rejects_corrupt_file_and_quarantines_it | 损坏配置隔离降级 | 给定损坏配置，当 `load`，则报 `Config` 错、错误文本不转述内容、原文件字节原样挪入唯一 `.bak` | 2026-11-14 |
+| legacy_document_gets_factory_endpoint_and_provider | 老配置回填出厂端点 | 给定老配置（空 `provider` 数组），当 `load`，则回填出厂端点与出厂 `provider`、模型 | 2026-11-14 |
+| load_recovers_after_quarantine | 隔离后自愈 | 给定损坏文件已被隔离，当再次 `load`，则自愈落一份出厂默认 | 2026-11-14 |
+| concurrent_saves_keep_the_document_parseable | 并发保存文件可解析 | 给定 4 线程各并发 `save` 20 次，当结束后 `load`，则文件完整可解析（主题为某一完整版本） | 2026-11-14 |
+| error_line_reports_the_offending_line | 错误行号指向真实出错行 | 给定解析错误与 `span`，当报告，则行号落在真实出错行；`span` 缺失返回 `None` | 2026-11-14 |
+| default_cache_ttl_matches_core_cache_semantics | 默认（TTL）与 `core` 语义一致 | 给定默认（TTL）字段，当与 `cache` 语义对照，则恰为 1 小时 | 2026-11-14 |
+
 ### `crates/gloss-platform/src/event_thread.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -190,24 +208,6 @@
 | cached_reads_stay_consistent_with_writes（keychain） | 缓存读写一致 | 给定写后读与删除后读，当经克隆共享缓存，则写后读新值、删除后克隆读 `None`（不走真实 `keychain` 写入） | 2026-09-19 |
 | racing_first_reads_settle_on_the_cached_value | 并发首读共享同一次未命中 | 给定不存在条目的全新实例（空缓存直逼未命中路径）与 4 线程并发 `get`，当首读竞赛，则全部读到一致结果、不悬挂，且底层读恰好 1 次（测试构建的读计数接缝：首读按 `key` 过闸门串行，授权框阻塞期间并发读者等缓存回填而非各撞一次授权框） | 2026-10-08 |
 
-### `crates/gloss-platform/src/macos/storage/mod.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| save_then_load_round_trips_every_field（storage） | 全字段配置存取往返 | 给定全字段差异样例配置，当 `save`→`load`，则逐字段相等 | 2026-09-19 |
-| load_generates_default_when_file_missing（storage） | 缺文件生成默认配置 | 给定缺文件目录，当 `load`，则返回出厂默认且落盘文件可再解析 | 2026-09-19 |
-| load_creates_missing_directories（storage） | 缺目录自动创建 | 给定连父级都缺的目录，当 `load` 落盘，则目录被创建 | 2026-09-19 |
-| composite_delegates_document_methods | 组合存储委托文档半边 | 给定 `CompositeConfigStore`，当 `save`→`load`，则完整委托文档半边、逐字段一致 | 2026-09-19 |
-| composite_forwards_secret_methods_to_the_store | 组合存储转发密钥端口 | 给定内存桩密钥存储，当经组合体 `SecretStore` 的 `set_secret/secret/delete_secret`，则读回写入值、删除后 `None` | 2026-10-30 |
-| persisted_document_stores_no_secret_material（storage） | 落盘文档不含密钥本体 | 给定 `save` 写出的配置文档（TOML），当检查内容，则含 `keychain_id` 但不含密钥本体 | 2026-09-19 |
-| default_store_targets_standard_config_dir（storage） | 默认存储落在标准目录 | 给定 `Default` 构造与真实 `HOME`，当定位，则路径为 `gloss/config.toml`（`BaseDirs` 缺失时跳过） | 2026-09-19 |
-| load_rejects_corrupt_file_and_quarantines_it（storage） | 损坏配置隔离降级 | 给定损坏配置，当 `load`，则报 `Config` 错、错误文本不转述内容、原文件字节原样挪入唯一 `.bak` | 2026-09-19 |
-| legacy_document_gets_factory_endpoint_and_provider（storage） | 老配置回填出厂端点 | 给定 `M4-T3` 老配置（空 `provider` 数组），当 `load`，则回填出厂端点与出厂 `provider`、模型 | 2026-09-19 |
-| load_recovers_after_quarantine（storage） | 隔离后自愈 | 给定损坏文件已被隔离，当再次 `load`，则自愈落一份出厂默认 | 2026-09-19 |
-| concurrent_saves_keep_the_document_parseable（storage） | 并发保存文件可解析 | 给定 4 线程各并发 `save` 20 次，当结束后 `load`，则文件完整可解析（主题为某一完整版本） | 2026-09-19 |
-| error_line_reports_the_offending_line（storage） | 错误行号指向真实出错行 | 给定解析错误与 `span`，当报告，则行号落在真实出错行；`span` 缺失返回 `None` | 2026-09-19 |
-| default_cache_ttl_matches_core_cache_semantics（storage） | 默认（TTL）与 `core` 语义一致 | 给定默认（TTL）字段，当与 `cache` 语义对照，则恰为 1 小时 | 2026-09-19 |
-
 ### `crates/gloss-platform/src/windows/clipboard/image.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -360,26 +360,3 @@
 | delete_missing_entry_is_ok（cred） | 删除缺条目幂等成功 | 给定不存在的条目，当 `delete`，则幂等成功 | 2026-11-10 |
 | cached_reads_stay_consistent_with_writes（cred） | 缓存读写一致 | 给定写后读与删除后读，当经克隆共享缓存，则写后读新值、删除后克隆读 `None`（不走真实凭据管理器写入） | 2026-11-10 |
 | racing_first_reads_settle_on_one_answer | 并发首读结果一致 | 给定不存在条目的全新实例与 4 线程并发 `get`，当首读竞赛，则全部读到一致结果、不悬挂，缓存随后读保持一致（凭据读取无授权框，读数不做单次收敛） | 2026-11-10 |
-
-### `crates/gloss-platform/src/windows/storage/file.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| save_then_load_round_trips_every_field（file） | 全字段配置存取往返 | 给定全字段差异样例配置，当 `save`→`load`，则逐字段相等 | 2026-11-10 |
-| load_generates_default_when_file_missing（file） | 缺文件生成默认配置 | 给定缺文件目录，当 `load`，则返回出厂默认且落盘文件可再解析 | 2026-11-10 |
-| load_creates_missing_directories（file） | 缺目录自动创建 | 给定连父级都缺的目录，当 `load` 落盘，则目录被创建 | 2026-11-10 |
-| error_line_reports_the_offending_line（file） | 错误行号指向真实出错行 | 给定解析错误与 `span`，当报告，则行号落在真实出错行；`span` 缺失返回 `None` | 2026-11-10 |
-| default_store_targets_standard_config_dir（file） | 默认存储落在标准目录 | 给定默认构造与真实用户目录，当定位，则路径为 `gloss/config.toml`（`BaseDirs` 缺失时跳过） | 2026-11-10 |
-| load_rejects_corrupt_file_and_quarantines_it（file） | 损坏配置隔离降级 | 给定损坏配置，当 `load`，则报 `Config` 错、错误文本不转述内容、原文件字节原样挪入唯一 `.bak` | 2026-11-10 |
-| legacy_document_gets_factory_endpoint_and_provider（file） | 老配置回填出厂端点 | 给定老配置（空 `provider` 数组），当 `load`，则回填出厂端点与出厂 `provider`、模型 | 2026-11-10 |
-| load_recovers_after_quarantine（file） | 隔离后自愈 | 给定损坏文件已被隔离，当再次 `load`，则自愈落一份出厂默认 | 2026-11-10 |
-| concurrent_saves_keep_the_document_parseable（file） | 并发保存文件可解析 | 给定 4 线程各并发 `save` 20 次，当结束后 `load`，则文件完整可解析（主题为某一完整版本） | 2026-11-10 |
-| persisted_document_stores_no_secret_material（file） | 落盘文档不含密钥本体 | 给定 `save` 写出的配置文档（TOML），当检查内容，则含 `keychain_id` 但不含密钥本体 | 2026-11-10 |
-| default_cache_ttl_matches_core_cache_semantics（file） | 默认（TTL）与 `core` 语义一致 | 给定默认（TTL）字段，当与 `cache` 语义对照，则恰为 1 小时 | 2026-11-10 |
-
-### `crates/gloss-platform/src/windows/storage/mod.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| composite_save_then_load_round_trips_the_document_half | 组合存储委托文档半边 | 给定 `CompositeConfigStore`，当 `save`→`load`，则完整委托文档半边、逐字段一致 | 2026-11-10 |
-| composite_forwards_secret_ops_to_the_key_half | 组合存储转发密钥端口 | 给定内存桩密钥存储注入的组合体，当经组合体 `SecretStore` 的 `set_secret/secret/delete_secret`，则读回写入值、删除后 `None` | 2026-11-10 |
