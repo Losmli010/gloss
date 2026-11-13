@@ -128,7 +128,9 @@ mod tests {
     use gloss_core::model::Lang;
     use gloss_core::ports::SceneProbe;
 
-    use crate::app::test_support::{driven_app, driven_app_with_scene, trigger_selection};
+    use crate::app::test_support::{
+        DrivenApp, driven_app, driven_app_with_scene, trigger_selection,
+    };
     use crate::channel::{AcquireCommand, PlatformEvent};
     use crate::machine::AppState;
     use crate::stubs::ports::{MemoryConfigStore, StubSceneProbe};
@@ -136,7 +138,13 @@ mod tests {
     #[test]
     fn dispatched_acquire_carries_the_task_span() {
         let logs = capture_global();
-        let (mut app, _config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
 
         trigger_selection(&mut app, &pe_tx);
         let job = ac_rx.try_recv().expect("acquire command dispatched");
@@ -153,7 +161,14 @@ mod tests {
 
     #[test]
     fn a_disabled_default_kind_does_not_stop_the_selection_gesture() {
-        let (mut app, config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            config,
+            pe_tx,
+            ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
         config
             .save(Config {
                 target_lang: Lang::En,
@@ -174,7 +189,13 @@ mod tests {
     #[test]
     fn a_sensitive_scene_makes_the_selection_gesture_a_no_op() {
         let scene = Arc::new(StubSceneProbe::default());
-        let (mut app, _config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app_with_scene(
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app_with_scene(
             Arc::new(MemoryConfigStore::default()),
             Arc::clone(&scene) as Arc<dyn SceneProbe>,
         );
@@ -219,7 +240,13 @@ mod tests {
 
     #[test]
     fn a_pasteboard_observation_dispatches_the_clipboard_acquire_command() {
-        let (mut app, _config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
 
         pe_tx
             .send(PlatformEvent::PasteboardImageObserved)
@@ -250,9 +277,19 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "DrivenApp 具名解构比元组多占五行，测试主体本身在限内，拆体会割裂场景切换的时序叙述"
+    )]
     fn a_sensitive_scene_silences_the_pasteboard_observation() {
         let scene = Arc::new(StubSceneProbe::default());
-        let (mut app, _config, _store, pe_tx, ac_rx, _cmd_rx, _ev_tx) = driven_app_with_scene(
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app_with_scene(
             Arc::new(MemoryConfigStore::default()),
             Arc::clone(&scene) as Arc<dyn SceneProbe>,
         );

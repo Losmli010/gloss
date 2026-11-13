@@ -84,41 +84,7 @@ struct Pipeline {
 impl Pipeline {
     #[allow(clippy::expect_used, clippy::panic)]
     fn trigger_and_feed(&mut self, text: &str, span: Span) -> tokio_util::sync::CancellationToken {
-        let command = self
-            .machine
-            .begin_probe(
-                ProbeSource::Selection,
-                &self.config.snapshot(),
-                Locale::Zh,
-                &SceneFacts::default(),
-            )
-            .expect("selection probe must start");
-        let AcquireCommand::AcquireText { generation } = &command else {
-            panic!("acquire text expected");
-        };
-        assert!(
-            matches!(
-                self.machine
-                    .commit_probe(*generation, TaskInput::Text { text: text.into() }),
-                InputOutcome::Pending
-            ),
-            "the probe product parks a pending card"
-        );
-        let Some(request) = self.machine.confirm_pending() else {
-            panic!("the pending card should confirm");
-        };
-        self.commands_tx
-            .send(Traced {
-                payload: Command::RunTask {
-                    generation: request.generation,
-                    input: request.input,
-                    options: request.options,
-                    cancel: request.cancel.clone(),
-                },
-                span,
-            })
-            .expect("command channel open");
-        request.cancel
+        self.trigger_feed(TaskInput::Text { text: text.into() }, span)
     }
 
     #[allow(clippy::expect_used, clippy::panic)]
@@ -127,25 +93,49 @@ impl Pipeline {
         png: Arc<[u8]>,
         span: Span,
     ) -> tokio_util::sync::CancellationToken {
+        self.trigger_feed(TaskInput::Image { png }, span)
+    }
+
+    #[allow(clippy::expect_used, clippy::panic)]
+    fn trigger_feed(
+        &mut self,
+        input: TaskInput,
+        span: Span,
+    ) -> tokio_util::sync::CancellationToken {
+        let (source, probe_expect, acquire_expect) = match &input {
+            TaskInput::Text { .. } => (
+                ProbeSource::Selection,
+                "selection probe must start",
+                "acquire text expected",
+            ),
+            TaskInput::Image { .. } => (
+                ProbeSource::PasteboardImage,
+                "pasteboard probe must start",
+                "acquire clipboard image expected",
+            ),
+        };
         let command = self
             .machine
             .begin_probe(
-                ProbeSource::PasteboardImage,
+                source,
                 &self.config.snapshot(),
                 Locale::Zh,
                 &SceneFacts::default(),
             )
-            .expect("pasteboard probe must start");
-        let AcquireCommand::AcquireClipboardImage { generation } = &command else {
-            panic!("acquire clipboard image expected");
+            .expect(probe_expect);
+        let generation = match (&command, &input) {
+            (AcquireCommand::AcquireText { generation }, TaskInput::Text { .. }) => *generation,
+            (AcquireCommand::AcquireClipboardImage { generation }, TaskInput::Image { .. }) => {
+                *generation
+            }
+            (command, _) => panic!("{acquire_expect}: {command:?}"),
         };
         assert!(
             matches!(
-                self.machine
-                    .commit_probe(*generation, TaskInput::Image { png }),
+                self.machine.commit_probe(generation, input),
                 InputOutcome::Pending
             ),
-            "the pasteboard product parks a pending card"
+            "the probe product parks a pending card"
         );
         let Some(request) = self.machine.confirm_pending() else {
             panic!("the pending card should confirm");

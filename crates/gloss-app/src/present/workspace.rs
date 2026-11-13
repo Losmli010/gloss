@@ -131,11 +131,17 @@ impl Workspace {
 mod tests {
     use gloss_core::config::{Config, Theme};
 
-    use crate::app::test_support::driven_app;
+    use crate::app::test_support::{DrivenApp, driven_app};
 
     #[test]
     fn apply_theme_elides_writes_until_the_preference_changes() {
-        let (mut app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            config,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
         assert!(
             app.workspace.applied_theme.is_none(),
             "first frame applies the theme"

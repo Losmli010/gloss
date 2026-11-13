@@ -393,7 +393,7 @@ mod tests {
     use gloss_core::task::TaskInput;
 
     use crate::app::test_support::{
-        driven_app, driven_app_without_startup_permissions, outcome_note, plain_outcome,
+        DrivenApp, driven_app, driven_app_without_startup_permissions, outcome_note, plain_outcome,
         streaming_raw, text_input, trigger_selection,
     };
     use crate::channel::{AcquireCommand, Command, PlatformEvent, Traced};
@@ -446,8 +446,13 @@ mod tests {
 
     #[test]
     fn accessibility_grant_event_unblocks_and_dispatches_deferred_prewarm() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) =
-            driven_app_without_startup_permissions();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app_without_startup_permissions();
 
         pe_tx
             .send(PlatformEvent::AccessibilityGranted)
@@ -475,7 +480,13 @@ mod tests {
 
     #[test]
     fn accessibility_grant_event_is_a_noop_when_already_ready() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
 
         pe_tx
             .send(PlatformEvent::AccessibilityGranted)
@@ -489,7 +500,12 @@ mod tests {
 
     #[test]
     fn prewarm_dispatches_the_configured_keychain_entry_exactly_once() {
-        let (mut app, _config, _store, _pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
 
         app.send_secret_prewarm();
         app.send_secret_prewarm();
@@ -516,7 +532,12 @@ mod tests {
 
     #[test]
     fn prewarm_without_endpoints_is_a_silent_no_op() {
-        let (mut app, _config, _store, _pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         app.endpoints = None;
 
         app.send_secret_prewarm();
@@ -528,8 +549,12 @@ mod tests {
 
     #[test]
     fn prewarm_is_deferred_when_startup_permissions_are_not_ready() {
-        let (mut app, _config, _store, _pe_tx, _ac_rx, mut cmd_rx, _ev_tx) =
-            driven_app_without_startup_permissions();
+        let DrivenApp {
+            mut app,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app_without_startup_permissions();
 
         app.send_secret_prewarm();
         assert!(
@@ -541,7 +566,13 @@ mod tests {
 
     #[test]
     fn a_repair_marker_resets_the_stream_through_the_shell() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("hello")));
         confirm(&mut app);
@@ -573,8 +604,18 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "DrivenApp 具名解构比元组多占五行，测试主体本身在限内，拆体会割裂双任务竞速的时序叙述"
+    )]
     fn late_events_of_superseded_trigger_do_not_bleed() {
-        let (mut app, _config, _store, pe_tx, ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
 
         expect_idle_probe(&mut app, &pe_tx, &ac_rx);
 
@@ -633,7 +674,13 @@ mod tests {
 
     #[test]
     fn failed_task_lands_in_error_and_retry_works() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
         confirm(&mut app);
@@ -656,7 +703,13 @@ mod tests {
 
     #[test]
     fn stale_input_ready_is_dropped_entirely() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(!app.accept_input(42, text_input("来自未来")));
         assert_eq!(
@@ -672,7 +725,14 @@ mod tests {
 
     #[test]
     fn saved_config_applies_to_the_next_trigger() {
-        let (mut app, config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            config,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
 
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("A")));
@@ -711,7 +771,14 @@ mod tests {
 
     #[test]
     fn saved_config_does_not_leak_into_the_inflight_task() {
-        let (mut app, config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            config,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
 
         trigger_selection(&mut app, &pe_tx);
         config
@@ -743,7 +810,13 @@ mod tests {
 
     #[test]
     fn probe_empty_selection_is_silently_dropped() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert_eq!(
             app.machine.state(),
@@ -765,7 +838,13 @@ mod tests {
 
     #[test]
     fn a_mis_slide_over_a_visible_session_preserves_it_entirely() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("正常选区")));
         confirm(&mut app);
@@ -801,7 +880,13 @@ mod tests {
 
     #[test]
     fn committing_the_probe_flags_the_reveal_for_the_same_frame() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(!app.session.pending_reveal, "probing never reveals");
 
@@ -815,7 +900,13 @@ mod tests {
 
     #[test]
     fn a_cached_selection_skips_confirmation_and_lands_the_outcome() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         warm_cache(&mut app, &text_input("缓存命中词"), "缓存产物");
 
         trigger_selection(&mut app, &pe_tx);
@@ -851,7 +942,13 @@ mod tests {
 
     #[test]
     fn a_cached_pasteboard_image_skips_confirmation_too() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         let png = Arc::from(&b"png-bytes"[..]);
         warm_cache(
             &mut app,
@@ -873,7 +970,13 @@ mod tests {
 
     #[test]
     fn the_pending_card_cancel_path_sends_no_channel3_message() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
         assert!(app.accept_input(1, text_input("待确认的选区")));
         assert!(app.session.pending_reveal);
@@ -899,7 +1002,13 @@ mod tests {
     #[test]
     fn suspicious_input_is_suppressed_and_shows_nothing() {
         let suspicious_text = format!("{{\"token\":\"sk-{}\"}}", "9f2b7c1d");
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         trigger_selection(&mut app, &pe_tx);
 
         assert!(
@@ -927,7 +1036,13 @@ mod tests {
 
     #[test]
     fn pasteboard_commit_retains_the_image_and_flags_the_reveal() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         pasteboard_probe(&mut app, &pe_tx);
 
         assert!(
@@ -967,7 +1082,13 @@ mod tests {
 
     #[test]
     fn a_selection_after_a_settled_image_task_still_flags_the_reveal() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
         let png = Arc::from(&b"png-bytes"[..]);
         warm_cache(
             &mut app,
@@ -1006,7 +1127,12 @@ mod tests {
 
     #[test]
     fn a_pasteboard_product_without_a_matching_probe_is_dropped() {
-        let (mut app, _config, _store, _pe_tx, _ac_rx, mut cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            ac_rx: _ac_rx,
+            mut cmd_rx,
+            ..
+        } = driven_app();
 
         assert!(
             !app.accept_input(7, image_input()),
@@ -1022,7 +1148,13 @@ mod tests {
 
     #[test]
     fn pasteboard_oversized_failure_lands_in_the_error_card() {
-        let (mut app, _config, _store, pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            mut app,
+            pe_tx,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
         pasteboard_probe(&mut app, &pe_tx);
 
         assert!(

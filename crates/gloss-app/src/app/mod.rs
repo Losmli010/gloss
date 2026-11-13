@@ -277,15 +277,19 @@ pub(crate) mod test_support {
         }
     }
 
-    pub(crate) type DrivenApp = (
-        GlossApp,
-        Arc<ConfigHandle>,
-        Arc<dyn SecretStore>,
-        crossbeam_channel::Sender<PlatformEvent>,
-        crossbeam_channel::Receiver<Traced<AcquireCommand>>,
-        tokio::sync::mpsc::UnboundedReceiver<Traced<Command>>,
-        crossbeam_channel::Sender<Event>,
-    );
+    pub(crate) struct DrivenApp {
+        pub(crate) app: GlossApp,
+        pub(crate) config: Arc<ConfigHandle>,
+        pub(crate) store: Arc<dyn SecretStore>,
+        pub(crate) pe_tx: crossbeam_channel::Sender<PlatformEvent>,
+        pub(crate) ac_rx: crossbeam_channel::Receiver<Traced<AcquireCommand>>,
+        pub(crate) cmd_rx: tokio::sync::mpsc::UnboundedReceiver<Traced<Command>>,
+        #[allow(
+            dead_code,
+            reason = "通道④的驱动发送端：保留向应用回传事件的注入面，当前无测试使用"
+        )]
+        pub(crate) ev_tx: crossbeam_channel::Sender<Event>,
+    }
 
     pub(crate) fn driven_app() -> DrivenApp {
         driven_app_with(Arc::new(MemoryConfigStore::default()))
@@ -315,28 +319,15 @@ pub(crate) mod test_support {
         scene: Arc<dyn SceneProbe>,
         permissions_ready: bool,
     ) -> DrivenApp {
-        let crate::channel::Channels {
-            platform_events,
-            acquire_commands,
-            commands,
-            events,
-        } = crate::channel::Channels::new();
-        let crate::channel::CrossbeamPair {
-            tx: pe_tx,
-            rx: pe_rx,
-        } = platform_events;
-        let crate::channel::CrossbeamPair {
-            tx: ac_tx,
-            rx: ac_rx,
-        } = acquire_commands;
-        let crate::channel::CrossbeamPair {
-            tx: ev_tx,
-            rx: ev_rx,
-        } = events;
-        let crate::channel::CommandChannel {
-            tx: cmd_tx,
-            rx: cmd_rx,
-        } = commands;
+        let channels = crate::channel::Channels::new();
+        let pe_tx = channels.platform_events.tx;
+        let pe_rx = channels.platform_events.rx;
+        let ac_tx = channels.acquire_commands.tx;
+        let ac_rx = channels.acquire_commands.rx;
+        let ev_tx = channels.events.tx;
+        let ev_rx = channels.events.rx;
+        let cmd_tx = channels.commands.tx;
+        let cmd_rx = channels.commands.rx;
         let config = Arc::new(ConfigHandle::with_config(
             Arc::clone(&store) as Arc<dyn ConfigStore>,
             Config::default(),
@@ -361,7 +352,15 @@ pub(crate) mod test_support {
             stub_platform(&store, scene),
             None,
         );
-        (app, config, store, pe_tx, ac_rx, cmd_rx, ev_tx)
+        DrivenApp {
+            app,
+            config,
+            store,
+            pe_tx,
+            ac_rx,
+            cmd_rx,
+            ev_tx,
+        }
     }
 
     pub(crate) fn trigger_selection(
@@ -412,11 +411,17 @@ mod tests {
     use gloss_core::config::{Config, Language};
     use gloss_core::model::Locale;
 
-    use super::test_support::driven_app;
+    use super::test_support::{DrivenApp, driven_app};
 
     #[test]
     fn ui_locale_follows_the_saved_language_without_a_restart() {
-        let (app, config, _store, _pe_tx, _ac_rx, _cmd_rx, _ev_tx) = driven_app();
+        let DrivenApp {
+            app,
+            config,
+            ac_rx: _ac_rx,
+            cmd_rx: _cmd_rx,
+            ..
+        } = driven_app();
         assert_eq!(
             app.env.locale(),
             Locale::Zh,
