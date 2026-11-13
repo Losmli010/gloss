@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from typing import Any
@@ -30,6 +31,9 @@ LINE_CAP_REMEDY = (
 TASK_MARKER_REMEDY = "delete the marker or track the work in the plan document"
 
 LINE_CAP = 500
+
+MODULE_DECLARATION = re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)")
+PATH_ATTRIBUTE = re.compile(r'^#\[path\s*=\s*"([^"]+)"')
 
 SELF_FILES = (
     "AGENTS.md",
@@ -88,6 +92,43 @@ def stub_section(path: str, pat: str, loader: Any = None) -> str:
     while out and not out[-1].strip():
         out.pop()
     return "\n".join(out)
+
+
+def is_test_module(lines: list[str], start: int, end: int) -> bool:
+    """属性块（lines[start:end]）之后紧跟模块声明且属测试专属时为真：模块名
+    含测试字样（tests），清单变体（live_tests）同为其子串；或块内路径属性
+    指向桩库目录（stubs）。"""
+    if end >= len(lines):
+        return False
+    declared = MODULE_DECLARATION.match(lines[end])
+    if declared is None:
+        return False
+    if "tests" in declared.group(1):
+        return True
+    for line in lines[start:end]:
+        path = PATH_ATTRIBUTE.match(line)
+        if path is not None and "stubs" in path.group(1):
+            return True
+    return False
+
+
+def production_line_count(lines: list[str]) -> int:
+    """生产行数按首个测试专属模块的属性块处截断：列零的测试开关属性行开启
+    连续属性行块，块尾紧跟模块声明且属测试专属才算边界；外部包声明（extern
+    crate）、导入、常量、函数与名字不含测试字样（tests）的测试支撑模块都不
+    构成边界，其后正文照常计数。"""
+    i = 0
+    while i < len(lines):
+        if not lines[i].startswith("#[cfg(test)]"):
+            i += 1
+            continue
+        block_end = i
+        while block_end < len(lines) and lines[block_end].startswith("#["):
+            block_end += 1
+        if is_test_module(lines, i, block_end):
+            return i
+        i = block_end
+    return len(lines)
 
 
 def run(
@@ -151,11 +192,7 @@ def run(
     for f in manifests.walk_rs(*src_bases):
         src_count += 1
         lines = manifests.read_text(f, loader).split("\n")
-        production = 0
-        for line in lines:
-            if line.startswith("#[cfg(test)]"):
-                break
-            production += 1
+        production = production_line_count(lines)
         if production <= LINE_CAP:
             continue
         allowed = [(no, line) for no, line in enumerate(lines[:5], 1) if "lines:allow" in line]
