@@ -227,8 +227,7 @@ def scan_files(root: str, explicit: list[str]) -> list[str]:
     """枚举受检文件：显式清单优先（供单测传样本），否则取版本库跟踪清单。"""
     if explicit:
         return [p if os.path.isabs(p) else os.path.join(root, p) for p in explicit]
-    out = gate_report.run_git(["ls-files", "-z"], cwd=root).stdout
-    return [os.path.join(root, p.decode("utf-8", "replace")) for p in out.split(b"\0") if p]
+    return [os.path.join(root, p) for p in gate_report.tracked_files(root)]
 
 
 def collect(root: str, explicit: list[str]) -> list[gate_report.Finding]:

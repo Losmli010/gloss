@@ -21,6 +21,12 @@ import os
 import subprocess
 import sys
 
+_HOOKS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "hooks"))
+if _HOOKS not in sys.path:
+    sys.path.insert(0, _HOOKS)
+
+import gate_report  # noqa: E402
+
 RECORD_DIR = os.path.join("docs", "comments")
 RECORD_SUFFIX = "_comment.md"
 TESTS_INFIX = "_tests"
@@ -237,12 +243,9 @@ def record_names(rel: str) -> tuple[str, str]:
 
 
 def tracked_files(root: str) -> list[str]:
-    out = subprocess.run(
-        ["git", "-C", root, "ls-files", "-z"],
-        capture_output=True,
-        check=True,
-    ).stdout
-    return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
+    """版本库跟踪清单：枚举委托统一诊断出口的收口函数，版本库（git）失败按
+    无法完成判定失败关闭（统一退出码与统一打印），不在调用方原地抛异常。"""
+    return gate_report.tracked_files(root)
 
 
 def build_index(tracked: list[str]) -> dict[str, list[str]]:
@@ -352,11 +355,7 @@ def main(argv: list[str]) -> int:
     doctor_mode = "--doctor" in args
     args = [a for a in args if a != "--doctor"]
 
-    try:
-        tracked = tracked_files(root)
-    except (OSError, subprocess.CalledProcessError) as exc:
-        print("cannot enumerate tracked files: %s" % exc, file=sys.stderr)
-        return EXIT_INFRA
+    tracked = tracked_files(root)
 
     if doctor_mode:
         if args:

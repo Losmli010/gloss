@@ -103,13 +103,17 @@ def test_partially_registered_collision_flagged() -> None:
 SCRIPT = str(Path(__file__).with_name("comment_map.py"))
 
 
-def build_fixture(tmp_path: Path) -> None:
+def make_files(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "docs/comments").mkdir(parents=True)
     (tmp_path / "src/lib.rs").write_text("fn main() {}\n", encoding="utf-8")
     (tmp_path / "docs/comments/lib_comment.md").write_text("# lib.rs\n", encoding="utf-8")
     (tmp_path / "docs/comments/ghost_comment.md").write_text("# 阵亡\n", encoding="utf-8")
     (tmp_path / "docs/comments/old.rs_comment.md").write_text("# 残留\n", encoding="utf-8")
+
+
+def build_fixture(tmp_path: Path) -> None:
+    make_files(tmp_path)
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
 
@@ -182,3 +186,10 @@ def test_usage_errors(tmp_path: Path) -> None:
     assert run_cli(cwd=tmp_path).returncode == comment_map.EXIT_USAGE
     assert run_cli("--reverse", cwd=tmp_path).returncode == comment_map.EXIT_USAGE
     assert run_cli("--doctor", "extra", cwd=tmp_path).returncode == comment_map.EXIT_USAGE
+
+
+def test_git_failure_fails_closed_with_exit_three(tmp_path: Path) -> None:
+    make_files(tmp_path)
+    proc = run_cli("--doctor", cwd=tmp_path)
+    assert proc.returncode == comment_map.EXIT_INFRA
+    assert "error[INFRA]: git command failed" in proc.stderr.decode("utf-8")

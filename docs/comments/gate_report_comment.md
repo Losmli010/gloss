@@ -86,3 +86,9 @@
 - 2026-11-02 语言规范治本方案第二期：新登记 `PROSE-GLOSS-UNANCHORED`（注
   记括号未锚译名，判罚点落语言规范库中文区模块，登记表行见 gate_rules 记
   录）；登记清单一致性测试随新标识同步核对。
+
+## 跟踪清单枚举收口（2026-11-14，方案 F3）
+
+- `tracked_files(root)` 落本模块：`git ls-files -z` 加空字节分割与容错解码此前在九个调用点各写一遍（check_secrets、check_agents_doc、run_text_gates 装入器、check_comments、source_hygiene、check_record_punct、manifests 装入器、comment_map、check_test_bdd），全部改为一行委托；解码口径的缘由（非空分隔对非英文字节文件名做引号八进制转义，假路径致引用核对误报与受检文件静默漏检）随函数文档承载，各调用点不再复述。
+- 失败关闭口径随 run_git：git 失败（含非版本库目录）打 `error[INFRA]` 条目退出码三，九处原本不一的失败形态（静默空表、裸抛异常、run_git 直退）收敛为一种。
+- 单测两例锁枚举序与失败关闭（见 gate_report_test 记录）；check_agents_doc 的“非仓库根回退工作区遍历”降级随收口移除，沿革见其记录文件。

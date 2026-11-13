@@ -96,8 +96,7 @@ class ContentCache:
     def tracked(self) -> list[str]:
         """版本库跟踪清单：枚举一次，供残留任务标记扫描消费。"""
         if self._tracked is None:
-            out = gate_report.run_git(["ls-files", "-z"], cwd=self.root).stdout
-            self._tracked = [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
+            self._tracked = gate_report.tracked_files(self.root)
         return self._tracked
 
     def read_bytes(self, path: str) -> bytes:
