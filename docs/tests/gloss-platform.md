@@ -25,6 +25,25 @@
 | a_restore_underreporting_jumps_fires_a_spurious_observation | 恢复写盘少报跳变即伪触发（反向钉子） | 给定武装哨兵（基线 7）与少报的闩锁（前置 7、自报 2），当轮询读到计数 12 且判定有图，则差额判为外来写入并产出观察事件（钉住写盘归因必须按真实跳变数自报：少报会让恢复的图伪装成用户复制） | 2026-11-14 |
 | observer_mismatch_flags_the_race | 观察记录比对判竞态 | 给定观察记录，当现值与记录一致则匹配；记录更新后旧值不匹配、新值匹配（记录与现值之间被覆盖即竞态） | 2026-11-14 |
 
+### `crates/gloss-platform/src/common/image.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| flavor_budget_rejects_bytes_over_the_limit | 交付字节上限先于头解析 | 给定恰好上限与超一字节的输入，当判预算与解码，则边界内通过、超限整体报 `ImageTooLarge`（头解析从未发生） | 2026-11-14 |
+| header_dimensions_are_bounded_before_the_decode | 像素面积在整图解码前判 | 给定位图（PNG）编码后把头块尺寸补丁为宽 4097 高 4096（并重算头块校验和）的输入，当 `decode_to_png`，则 `ImageTooLarge`（整图解码从未发生——发生了会报解码失败） | 2026-11-14 |
+| a_truncated_flavor_decodes_to_a_read_failure | 交付截断按读取失败 | 给定头块之后截断的位图（PNG），当 `decode_to_png`，则头可读、解码失败映射 `ImageUnavailable`（读取失败变体，指引重新复制） | 2026-11-14 |
+| pixel_budget_rejects_area_over_the_limit | 像素面积上限边界 | 给定恰好宽高各 4096 像素与超一像素（宽 4097 高 4096）两种面积，当判预算，则前者在内、后者拒收 | 2026-11-14 |
+| a_mismatched_rgba_buffer_is_a_read_failure | 透明像素（RGBA）缓冲与尺寸不符按读取失败 | 给定声明宽高各 2 像素但缓冲 3 字节的输入，当 `encode_png`，则报 `ImageUnavailable`（不 `panic`、不产残缺图） | 2026-11-14 |
+| pixel_budget_is_checked_before_the_buffer | 面积检查先于缓冲检查 | 给定面积在预算内但缓冲为空的输入，当 `encode_png`，则按 `ImageUnavailable` 处理（面积超限的输入不会走到缓冲检查） | 2026-11-14 |
+| a_covered_board_is_dropped_without_touching_the_content | 观察比对先于内容读取 | 给定记录值 7 而现值读到 8 的注入读数，当 `read_with`，则竞态静默丢弃（`Ok(None)`）且交付闭包从未被调——内容读取才触发授权或开板（一份锁两平台） | 2026-11-14 |
+| an_undeliverable_flavor_is_dropped_quietly | 板交付不出数据按静默丢弃 | 给定记录值与现值一致但交付闭包缺数据的注入读数，当 `read_with`，则 `Ok(None)`（`warn` 留痕供 `just logs --level warn` 排查；系统（macOS）成因授权被拒、系统（Windows）成因板被短时占有或查询失败） | 2026-11-14 |
+| an_over_limit_flavor_fails_with_the_size_error | 超限交付按尺寸错误上抛 | 给定记录值与现值一致但交付闭包报 `ImageTooLarge` 的注入读数，当 `read_with`，则原样上抛 `ImageTooLarge`（锁页与拷贝未发生） | 2026-11-14 |
+| an_unobservable_board_is_a_read_failure | 板不可观察按读取失败 | 给定计数读不到的注入读数，当 `read_with`，则 `Err(ImageUnavailable)` 且不调交付闭包 | 2026-11-14 |
+| a_matching_board_still_decodes_to_png | 观察一致照常取材解码 | 给定记录值与现值一致、交付为真实位图（PNG）字节的注入读数，当 `read_with`，则产出可解码回宽高各 2 像素的位图（PNG） | 2026-11-14 |
+| byte_budget_rejects_length_over_the_limit | 位图（PNG）字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收，上限 20 兆二进制字节（MiB） | 2026-11-14 |
+| downscaled_dims_preserve_aspect_and_the_cap | 降采样目标尺寸保比例收边 | 给定上限内与超限（正方、横长、竖长、极窄）的尺寸，当 `downscaled_dims`，则上限内返回 `None` 原样编码，超限按比例缩到最长边 1536、至少保留 1 像素 | 2026-11-14 |
+| oversized_products_are_downscaled_to_the_side_cap | 超长边产物降采样出图 | 给定宽 2100 高 1000 的位图（PNG）交付，当 `decode_to_png`，则产出宽 1536 高 731 的可解码位图（PNG）（保比例收进上限，不拒收） | 2026-11-14 |
+
 ### `crates/gloss-platform/src/common/locale.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -73,20 +92,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| png_and_tiff_flavors_decode_to_png | 标记图像（TIFF）与位图（PNG）双 `flavor` 解码出位图（PNG） | 给定同一宽高各 2 像素的透明像素（RGBA）位图（PNG）与标记图像（TIFF）编码字节，当 `decode_to_png`，则各自产出可解码回宽高各 2 像素的位图（PNG） | 2026-10-10 |
-| flavor_budget_rejects_bytes_over_the_limit | `flavor` 字节上限先于头解析 | 给定恰好上限与超一字节的输入，当判预算与解码，则边界内通过、超限整体报 `ImageTooLarge`（头解析从未发生） | 2026-10-10 |
-| header_dimensions_are_bounded_before_the_decode | 像素面积在整图解码前判 | 给定真实（TIFF）编码后把宽高 `tag` 补丁为宽 4097 高 4096 的输入，当 `decode_to_png`，则 `ImageTooLarge`（整图解码从未发生——发生了会报解码失败） | 2026-10-10 |
-| a_truncated_flavor_decodes_to_a_read_failure | `flavor` 截断按读取失败 | 给定 `IHDR` 之后截断的位图（PNG），当 `decode_to_png`，则头可读、解码失败映射 `ImageUnavailable`（读取失败变体，指引重复制） | 2026-10-10 |
-| pixel_budget_rejects_area_over_the_limit | 像素面积上限边界 | 给定恰好宽高各 4096 像素与超一像素（宽 4097 高 4096）两种面积，当判预算，则前者在内、后者拒收 | 2026-10-10 |
-| a_mismatched_rgba_buffer_is_a_read_failure | 透明像素（RGBA）缓冲与尺寸不符按读取失败 | 给定声明宽高各 2 像素但缓冲 3 字节的输入，当 `encode_png`，则报 `ImageUnavailable`（不 `panic`、不产残缺图） | 2026-10-10 |
-| pixel_budget_is_checked_before_the_buffer | 面积检查先于缓冲检查 | 给定面积在预算内但缓冲为空的输入，当 `encode_png`，则按 `ImageUnavailable` 处理（面积超限的输入不会走到缓冲检查） | 2026-10-10 |
-| a_covered_board_is_dropped_without_touching_the_content | 观察比对先于内容读取 | 给定记录值 7 而现值读到 8 的注入读数，当 `read_with`，则竞态静默丢弃（`Ok(None)`）且 `flavor` 闭包从未被调——内容读取才触发系统粘贴授权 | 2026-10-10 |
-| an_undeliverable_flavor_is_dropped_quietly | 板交付不出数据按静默丢弃 | 给定记录值与现值一致但 `flavor` 缺席的注入读数，当 `read_with`，则 `Ok(None)`（`macOS` 15 及以上版本粘贴授权被拒走这条，`warn` 留痕供 `just logs --level warn` 排查） | 2026-10-10 |
-| an_unobservable_board_is_a_read_failure | 板不可观察按读取失败 | 给定 `changeCount` 读不到的注入读数，当 `read_with`，则 `Err(ImageUnavailable)` 且不查 `flavor` | 2026-10-10 |
-| a_matching_board_still_decodes_to_png | 观察一致照常取材解码 | 给定记录值与现值一致、`flavor` 为真实（TIFF）字节的注入读数，当 `read_with`，则产出可解码回宽高各 2 像素的位图（PNG） | 2026-10-10 |
-| byte_budget_rejects_length_over_the_limit | 位图（PNG）字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收，上限 20 兆二进制字节（MiB） | 2026-10-10 |
-| downscaled_dims_preserve_aspect_and_the_cap | 降采样目标尺寸保比例收边 | 给定上限内与超限（正方、横长、竖长、极窄）的尺寸，当 `downscaled_dims`，则上限内返回 `None` 原样编码，超限按比例缩到最长边 1536、至少保留 1 像素 | 2026-10-16 |
-| oversized_products_are_downscaled_to_the_side_cap | 超长边产物降采样出图 | 给定宽 2100 高 1000 的位图（PNG）`flavor`，当 `decode_to_png`，则产出宽 1536 高 731 的可解码位图（PNG）（保比例收进上限，不拒收） | 2026-10-16 |
+| png_and_tiff_flavors_decode_to_png | 标记图像（TIFF）与位图（PNG）双风格映射后解码出位图（PNG） | 给定同一宽高各 2 像素的透明像素（RGBA）位图（PNG）与标记图像（TIFF）编码字节，当映射与 `decode_to_png`，则各自产出可解码回宽高各 2 像素的位图（PNG） | 2026-11-14 |
 
 ### `crates/gloss-platform/src/macos/events/mod.rs`
 
@@ -219,24 +225,11 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| dib_dibv5_and_png_flavors_decode_to_png | 位图家族与位图（PNG）三 `flavor` 解码出位图（PNG） | 给定同一宽高各 2 像素的系统（Windows）布局位图（`CF_DIB`、`CF_DIBV5` 共用同一份设备无关位图（DIB）流）与位图（PNG）编码字节，当 `decode_to_png`，则各自产出可解码回宽高各 2 像素的位图（PNG） | 2026-11-07 |
-| dib_decode_keeps_row_order_and_channels | 合成文件头解码保行序与通道序 | 给定自下而上存储、蓝绿红透明字节序的两行测试位图（首存储行绿、末存储行蓝），当 `decode_to_png`，则产物首行蓝、次行绿（行序与通道序端到端不翻转） | 2026-11-07 |
+| dib_dibv5_and_png_flavors_decode_to_png | 位图家族与位图（PNG）三风格映射后解码出位图（PNG） | 给定同一宽高各 2 像素的系统（Windows）布局位图（`CF_DIB`、`CF_DIBV5` 共用同一份设备无关位图（DIB）流）与位图（PNG）编码字节，当映射与 `decode_to_png`，则各自产出可解码回宽高各 2 像素的位图（PNG） | 2026-11-14 |
+| dib_decode_keeps_row_order_and_channels | 合成文件头解码保行序与通道序 | 给定自下而上存储、蓝绿红透明字节序的两行测试位图（首存储行绿、末存储行蓝），当映射与 `decode_to_png`，则产物首行蓝、次行绿（行序与通道序端到端不翻转） | 2026-11-14 |
 | dib_pixel_offset_covers_header_variants | 像素偏移公式覆盖信息头变体 | 给定版本 5（124 字节）、版本 4（108 字节）、基线 40 字节（无调色板）、基线加位域（掩码块随头）、8 位调色板（零色数取位深满额、声明色数优先）各一例，当 `dib_pixel_offset`，则偏移依次为头尺寸、头尺寸、头尺寸、头尺寸加 12、头尺寸加调色板字节 | 2026-11-07 |
 | dib_pixel_offset_rejects_malformed_headers | 非法信息头整体拒算 | 给定截断头、核心 12 字节头、调色板字节溢出三例，当 `dib_pixel_offset`，则一律返回空（核心头不在支持面，溢出算术不出错值） | 2026-11-07 |
-| dib_flavor_budget_rejects_bytes_over_the_limit | `flavor` 字节上限先于头解析 | 给定恰好上限与超一字节的输入，当判预算与解码，则边界内通过、超限整体报 `ImageTooLarge`（头解析从未发生） | 2026-11-07 |
-| dib_header_dimensions_are_bounded_before_the_decode | 像素面积在整图解码前判 | 给定真实位图编码后把信息头宽高补丁为宽 4097 高 4096 的输入，当 `decode_to_png`，则 `ImageTooLarge`（整图解码从未发生——发生了会报解码失败） | 2026-11-07 |
-| dib_a_truncated_flavor_decodes_to_a_read_failure | `flavor` 截断按读取失败 | 给定头块之后截断的位图（PNG）与截断的设备无关位图（DIB）流各一例，当 `decode_to_png`，则头可读者报解码失败映射 `ImageUnavailable`、头不可读者报头不可读同映射（读取失败变体，指引重复制） | 2026-11-07 |
-| dib_pixel_budget_rejects_area_over_the_limit | 像素面积上限边界 | 给定恰好宽高各 4096 像素与超一像素（宽 4097 高 4096）两种面积，当判预算，则前者在内、后者拒收 | 2026-11-07 |
-| dib_a_mismatched_rgba_buffer_is_a_read_failure | 透明像素（RGBA）缓冲与尺寸不符按读取失败 | 给定声明宽高各 2 像素但缓冲 3 字节的输入，当 `encode_png`，则报 `ImageUnavailable`（不 `panic`、不产残缺图） | 2026-11-07 |
-| dib_pixel_budget_is_checked_before_the_buffer | 面积检查先于缓冲检查 | 给定面积在预算内但缓冲为空的输入，当 `encode_png`，则按 `ImageUnavailable` 处理（面积超限的输入不会走到缓冲检查） | 2026-11-07 |
-| dib_a_covered_board_is_dropped_without_touching_the_content | 观察比对先于内容读取 | 给定记录值 7 而现值读到 8 的注入读数，当 `read_with`，则竞态静默丢弃（`Ok(None)`）且 `flavor` 闭包从未被调——数据读取才会开板 | 2026-11-07 |
-| dib_an_undeliverable_flavor_is_dropped_quietly | 板交付不出数据按静默丢弃 | 给定记录值与现值一致但 `flavor` 缺席的注入读数，当 `read_with`，则 `Ok(None)`（板被其它应用短时占有或数据查询失败走这条，`warn` 留痕供 `just logs --level warn` 排查） | 2026-11-07 |
-| dib_an_over_limit_flavor_fails_with_the_size_error | 超限 `flavor` 按尺寸错误上抛 | 给定记录值与现值一致但 `flavor` 闭包报 `ImageTooLarge` 的注入读数，当 `read_with`，则原样上抛 `ImageTooLarge`（锁页与拷贝未发生） | 2026-11-07 |
-| dib_an_unobservable_board_is_a_read_failure | 板不可观察按读取失败 | 给定序列号读不到的注入读数，当 `read_with`，则 `Err(ImageUnavailable)` 且不查 `flavor` | 2026-11-07 |
-| dib_a_matching_board_still_decodes_to_png | 观察一致照常取材解码 | 给定记录值与现值一致、`flavor` 为真实设备无关位图（DIB）字节的注入读数，当 `read_with`，则产出可解码回宽高各 2 像素的位图（PNG） | 2026-11-07 |
-| dib_byte_budget_rejects_length_over_the_limit | 位图（PNG）字节上限整体拒收 | 给定恰好上限与超一字节两种长度，当判预算，则前者在内、后者拒收，上限 20 兆二进制字节（MiB） | 2026-11-07 |
-| dib_downscaled_dims_preserve_aspect_and_the_cap | 降采样目标尺寸保比例收边 | 给定上限内与超限（正方、横长、竖长、极窄）的尺寸，当 `downscaled_dims`，则上限内返回 `None` 原样编码，超限按比例缩到最长边 1536、至少保留 1 像素 | 2026-11-07 |
-| dib_oversized_products_are_downscaled_to_the_side_cap | 超长边产物降采样出图 | 给定宽 2100 高 1000 的位图（PNG）`flavor`，当 `decode_to_png`，则产出宽 1536 高 731 的可解码位图（PNG）（保比例收进上限，不拒收） | 2026-11-07 |
+| dib_a_malformed_flavor_maps_to_a_read_failure | 非法位图家族交付按读取失败 | 给定截断到信息头中段的设备无关位图（DIB）流，当映射，则报 `ImageUnavailable`（位图文件头拒绝合成，读取失败变体随共享管线指引重新复制） | 2026-11-14 |
 
 ### `crates/gloss-platform/src/windows/events/mod.rs`
 

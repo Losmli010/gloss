@@ -17,9 +17,9 @@
 | 集成测试 | 0 | 0 | 0 | 17 | 0 | 0 | 17 |
 | 性能测试 | 0 | 0 | 0 | 0 | 0 | 2 | 2 |
 | 快照测试 | 0 | 0 | 0 | 46 | 0 | 0 | 46 |
-| 单元测试 | 0 | 269 | 181 | 322 | 97 | 5 | 874 |
+| 单元测试 | 0 | 269 | 169 | 322 | 97 | 5 | 862 |
 
-登记文件行数：`bdd.md`（本文件） 452 行、[gloss-core.md](gloss-core.md) 364 行、[gloss-platform.md](gloss-platform.md) 341 行、[gloss-app.md](gloss-app.md) 613 行、[gloss-eval.md](gloss-eval.md) 187 行、[gloss.md](gloss.md) 24 行。
+登记文件行数：`bdd.md`（本文件） 452 行、[gloss-core.md](gloss-core.md) 364 行、[gloss-platform.md](gloss-platform.md) 334 行、[gloss-app.md](gloss-app.md) 613 行、[gloss-eval.md](gloss-eval.md) 187 行、[gloss.md](gloss.md) 24 行。
 
 ## 人工测试
 

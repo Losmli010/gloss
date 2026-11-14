@@ -1438,6 +1438,7 @@ dependencies = [
  "arboard",
  "core-foundation 0.10.1",
  "core-foundation-sys",
+ "crc32fast",
  "crossbeam-channel",
  "directories",
  "gloss-core",
