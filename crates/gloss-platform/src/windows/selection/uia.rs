@@ -16,9 +16,8 @@
 use gloss_core::log::{debug, thread};
 use gloss_core::model::GlossError;
 
+use crate::common::image::MAX_SELECTION_BYTES;
 use crate::ffi::uia;
-
-const MAX_SELECTION_BYTES: usize = 256 * 1024;
 
 fn interpret(outcome: Result<Option<String>, i32>) -> Result<String, GlossError> {
     match outcome {

@@ -6,6 +6,7 @@
 
 pub mod clipboard_watch;
 pub mod gesture;
+pub mod image;
 pub mod locale;
 pub mod menu_labels;
 pub mod storage;
