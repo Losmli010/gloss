@@ -64,9 +64,11 @@ FAMILY_STEMS: dict[str, str] = {
     "scripts/hooks/constraints/langspec.py": "constraints_langspec",
     # 集成测试目标与运行时管线模块撞名：测试目标带集成前缀
     "crates/gloss-app/tests/pipeline.rs": "pipeline_integration",
-    # 剪贴板家族：选区剪贴板、剪贴板子模块与浮层图像卡撞名
+    # 剪贴板家族：选区剪贴板、剪贴板子模块与浮层图像卡撞名；图片归一化
+    # 上移共享层后入组：共享侧持语义裸名，绑定侧带平台前缀
     "crates/gloss-platform/src/macos/selection/clipboard.rs": "selection_clipboard",
-    "crates/gloss-platform/src/macos/clipboard/image.rs": "clipboard_image",
+    "crates/gloss-platform/src/common/image.rs": "image",
+    "crates/gloss-platform/src/macos/clipboard/image.rs": "macos_clipboard_image",
     "crates/gloss-platform/src/macos/clipboard/mod.rs": "clipboard_mod",
     # 哨兵共享层上移后与平台绑定文件撞名：共享层持语义裸名，绑定侧带平台前缀
     "crates/gloss-platform/src/macos/clipboard/watch.rs": "macos_clipboard_watch",

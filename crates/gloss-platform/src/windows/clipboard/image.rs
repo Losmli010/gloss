@@ -1,128 +1,33 @@
-//! 剪贴板图片取材读取器：读板上图像格式的数据字节 → 解码 → 便携式网络
-//! 图形（PNG）产物，快速压缩档。
+//! 剪贴板图片取材读取器的平台绑定：把共享归一化形状（平台中立共享层）
+//! 绑定到系统（Windows）原语，并承载位图家族独有的设备无关位图（DIB）
+//! 头合成与格式映射。
 //!
-//! 两条静默丢弃路径分开留痕，都返回空读取、调用方不弹卡：
-//! - “竞态”：1 观察与 2 取材之间剪贴板被覆盖，序列号前进——留调试痕，
-//!   与划词空选区误滑同型处置；
-//! - “交付不出”：序列号未变、板上也声明了图像格式，但读不出数据——
-//!   板被其它应用短时占有或数据查询失败走这条，留警告痕供日志检视按级筛
-//!   排查。
+//! 共享形状（预算判定、降采样、便携式网络图形（PNG）编码与“竞态→交付
+//! 不出→解码”三路）住平台中立共享层（common）；本模块提供序列号读数与
+//! 交付原语——便携式网络图形（PNG）注册格式、版本 5 位图（CF_DIBV5）与
+//! 位图（CF_DIB）按优先序取首格式的数据字节（字节上限在全局内存锁页与
+//! 拷贝之前判定，超限按尺寸错误上抛）——并把交付风格映射为解码格式：
+//! 位图家族（位图（CF_DIB）与版本 5 位图（CF_DIBV5））是无文件头的设备
+//! 无关位图（DIB）流，按信息头布局算出像素数据偏移、合成位图（BMP）文
+//! 件头后走图像库的位图解码路径（信息头尺寸覆盖基线 40 字节头到版本 5；
+//! 核心 12 字节头不在支持面，报读取失败）。位图文件字节在读取路径只合成
+//! 一次，尺寸探测与解码共用同一份（热路径不做整图重复拷贝）；超限判定
+//! 在交付原语前置（锁页与拷贝之前），共享管线的交付字节预算是第二道闸。
 //!
-//! 硬失败按错误上抛，由调用方弹失败卡。观察比对先于内容读取：比对不过
-//! 不取数据字节。
-//!
-//! 设界逐级前置：字节上限在全局内存锁页与拷贝之前（外部函数接口（FFI）
-//! 读取的分配尺寸判定）→ 仅读头取尺寸过像素面积上限 → 才整图解码 → 超长
-//! 边产物按比例降采样 → 产物过字节上限。恶意粘贴内容在任何大分配发生之前
-//! 被整体拒绝。日志只记字节数与像素尺寸。
-//!
-//! 解码分工：便携式网络图形（PNG）格式按图像格式直解；位图家族（位图
-//! （CF_DIB）与版本 5 位图（CF_DIBV5））是无文件头的设备无关位图（DIB）
-//! 流——按信息头布局算出像素数据偏移，合成位图（BMP）文件头后走图像库的
-//! 位图解码路径（信息头尺寸覆盖基线 40 字节头到版本 5；核心 12 字节头不
-//! 在支持面，报读取失败）。位图文件字节在读取路径只合成一次，尺寸探测与
-//! 解码共用同一份（热路径不做整图重复拷贝）。
+//! 日志红线：图像只记字节数与像素尺寸，内容与字节永不落日志、不落盘、
+//! 不进错误消息。
 
-use std::io::Cursor;
-use std::sync::Arc;
+pub use crate::common::image::SystemImageReader;
+use crate::common::image::{DeliveredFlavor, MAX_FLAVOR_BYTES, header_unreadable};
 
-use gloss_core::log::{debug, thread, warn};
 use gloss_core::model::GlossError;
 use gloss_core::ports::ClipboardImageReader;
-use image::codecs::png::{CompressionType, FilterType, PngEncoder};
-use image::{ExtendedColorType, ImageEncoder, ImageFormat, ImageReader};
+use std::borrow::Cow;
+use std::sync::Arc;
 
-use super::{
-    FlavorRead, ImageFlavor, PasteboardObserver, clipboard_image_flavor, clipboard_sequence_number,
-};
-
-pub const MAX_FLAVOR_BYTES: usize = 64 * 1024 * 1024;
-
-pub const MAX_PIXELS: u64 = 4096 * 4096;
-
-pub const MAX_PNG_BYTES: usize = 20 * 1024 * 1024;
-
-pub const MAX_PRODUCT_SIDE: u32 = 1536;
+use super::{FlavorRead, ImageFlavor, clipboard_image_flavor, clipboard_sequence_number};
 
 const BMP_FILE_HEADER_LEN: usize = 14;
-
-fn flavor_within_budget(len: usize) -> bool {
-    len <= MAX_FLAVOR_BYTES
-}
-
-fn pixels_within_budget(width: u32, height: u32) -> bool {
-    u64::from(width) * u64::from(height) <= MAX_PIXELS
-}
-
-fn png_within_budget(len: usize) -> bool {
-    len <= MAX_PNG_BYTES
-}
-
-fn downscaled_dims(width: u32, height: u32) -> Option<(u32, u32)> {
-    let longest = width.max(height);
-    if longest <= MAX_PRODUCT_SIDE {
-        return None;
-    }
-    let scale = f64::from(MAX_PRODUCT_SIDE) / f64::from(longest);
-    let scaled = |side: u32| ((f64::from(side) * scale).round() as u32).max(1);
-    Some((scaled(width), scaled(height)))
-}
-
-fn decode_to_png(flavor: ImageFlavor, bytes: &[u8]) -> Result<Arc<[u8]>, GlossError> {
-    if !flavor_within_budget(bytes.len()) {
-        debug!(
-            thread = thread::EVENT,
-            bytes = bytes.len(),
-            "clipboard image exceeds the flavor budget"
-        );
-        return Err(GlossError::ImageTooLarge);
-    }
-    let bmp = match flavor {
-        ImageFlavor::Dib | ImageFlavor::DibV5 => {
-            Some(bmp_file_bytes(bytes).ok_or_else(|| header_unreadable("malformed dib header"))?)
-        }
-        ImageFlavor::Png => None,
-    };
-    let payload: &[u8] = bmp.as_deref().unwrap_or(bytes);
-    let format = match flavor {
-        ImageFlavor::Png => ImageFormat::Png,
-        ImageFlavor::Dib | ImageFlavor::DibV5 => ImageFormat::Bmp,
-    };
-    let (width, height) = ImageReader::with_format(Cursor::new(payload), format)
-        .into_dimensions()
-        .map_err(header_unreadable)?;
-    if !pixels_within_budget(width, height) {
-        debug!(
-            thread = thread::EVENT,
-            width, height, "clipboard image exceeds the pixel budget"
-        );
-        return Err(GlossError::ImageTooLarge);
-    }
-    let rgba = ImageReader::with_format(Cursor::new(payload), format)
-        .decode()
-        .map(|decoded| decoded.into_rgba8())
-        .map_err(decode_failed)?;
-    let (width, height, rgba) = downscale_to_budget(rgba);
-    encode_png(width, height, rgba.as_raw())
-}
-
-fn header_unreadable(err: impl std::fmt::Display) -> GlossError {
-    debug!(
-        thread = thread::EVENT,
-        error = %err,
-        "clipboard image header unreadable"
-    );
-    GlossError::ImageUnavailable
-}
-
-fn decode_failed(err: impl std::fmt::Display) -> GlossError {
-    debug!(
-        thread = thread::EVENT,
-        error = %err,
-        "clipboard image decode failed"
-    );
-    GlossError::ImageUnavailable
-}
 
 fn dib_pixel_offset(dib: &[u8]) -> Option<u32> {
     if dib.len() < 40 {
@@ -166,109 +71,36 @@ fn bmp_file_bytes(dib: &[u8]) -> Option<Vec<u8>> {
     Some(file)
 }
 
-fn downscale_to_budget(rgba: image::RgbaImage) -> (u32, u32, image::RgbaImage) {
-    match downscaled_dims(rgba.width(), rgba.height()) {
-        Some((width, height)) => {
-            debug!(
-                thread = thread::EVENT,
-                source_width = rgba.width(),
-                source_height = rgba.height(),
-                width,
-                height,
-                "clipboard image downscaled for the wire"
-            );
-            let resized = image::imageops::resize(
-                &rgba,
-                width,
-                height,
-                image::imageops::FilterType::Triangle,
-            );
-            (width, height, resized)
-        }
-        None => (rgba.width(), rgba.height(), rgba),
-    }
-}
-
-fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Arc<[u8]>, GlossError> {
-    if rgba.len() != width as usize * height as usize * 4 {
-        debug!(
-            thread = thread::EVENT,
-            bytes = rgba.len(),
-            width,
-            height,
-            "RGBA buffer does not match the declared size"
-        );
-        return Err(GlossError::ImageUnavailable);
-    }
-    let mut png = Vec::new();
-    if let Err(err) =
-        PngEncoder::new_with_quality(&mut png, CompressionType::Fast, FilterType::NoFilter)
-            .write_image(rgba, width, height, ExtendedColorType::Rgba8)
-    {
-        debug!(thread = thread::EVENT, error = %err, "png encoding failed");
-        return Err(GlossError::ImageUnavailable);
-    }
-    if !png_within_budget(png.len()) {
-        debug!(
-            thread = thread::EVENT,
-            bytes = png.len(),
-            "clipboard image exceeds the byte budget"
-        );
-        return Err(GlossError::ImageTooLarge);
-    }
-    Ok(Arc::from(png))
-}
-
-pub struct SystemImageReader {
-    observer: PasteboardObserver,
-}
-
-impl SystemImageReader {
-    pub fn new(observer: PasteboardObserver) -> Self {
-        Self { observer }
-    }
-
-    fn read_with(
-        &mut self,
-        count: impl FnOnce() -> Option<u64>,
-        flavor: impl FnOnce() -> Result<Option<(ImageFlavor, Vec<u8>)>, GlossError>,
-    ) -> Result<Option<Arc<[u8]>>, GlossError> {
-        let Some(current) = count() else {
-            debug!(
-                thread = thread::EVENT,
-                "clipboard unavailable, image read declined"
-            );
-            return Err(GlossError::ImageUnavailable);
-        };
-        if !self.observer.matches(current) {
-            debug!(
-                thread = thread::EVENT,
-                "clipboard changed since the observation, image dropped"
-            );
-            return Ok(None);
-        }
-        match flavor()? {
-            Some((flavor, bytes)) => decode_to_png(flavor, &bytes).map(Some),
-            None => {
-                warn!(
-                    thread = thread::EVENT,
-                    "the clipboard declares an image but delivers none, image dropped"
-                );
-                Ok(None)
-            }
-        }
+fn map_clipboard_flavor(
+    (flavor, bytes): &(ImageFlavor, Vec<u8>),
+) -> Result<DeliveredFlavor<'_>, GlossError> {
+    match flavor {
+        ImageFlavor::Png => Ok(DeliveredFlavor {
+            flavor_len: bytes.len(),
+            format: image::ImageFormat::Png,
+            payload: Cow::Borrowed(bytes),
+        }),
+        ImageFlavor::Dib | ImageFlavor::DibV5 => bmp_file_bytes(bytes)
+            .map(|file| DeliveredFlavor {
+                flavor_len: bytes.len(),
+                format: image::ImageFormat::Bmp,
+                payload: Cow::Owned(file),
+            })
+            .ok_or_else(|| header_unreadable("malformed dib header")),
     }
 }
 
 impl ClipboardImageReader for SystemImageReader {
     fn read(&mut self) -> Result<Option<Arc<[u8]>>, GlossError> {
-        self.read_with(clipboard_sequence_number, || {
-            match clipboard_image_flavor(MAX_FLAVOR_BYTES) {
+        self.read_with(
+            clipboard_sequence_number,
+            || match clipboard_image_flavor(MAX_FLAVOR_BYTES) {
                 FlavorRead::Data(flavor, bytes) => Ok(Some((flavor, bytes))),
                 FlavorRead::OverLimit => Err(GlossError::ImageTooLarge),
                 FlavorRead::Absent => Ok(None),
-            }
-        })
+            },
+            map_clipboard_flavor,
+        )
     }
 }
 
@@ -277,12 +109,13 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
+    use crate::common::image::decode_to_png;
 
     const RGBA_2X2: [u8; 16] = [
         255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 0,
     ];
 
-    fn encoded_2x2(format: ImageFormat) -> Vec<u8> {
+    fn encoded_2x2(format: image::ImageFormat) -> Vec<u8> {
         let canvas = image::RgbaImage::from_raw(2, 2, RGBA_2X2.to_vec()).expect("canvas");
         let mut bytes = Cursor::new(Vec::new());
         canvas.write_to(&mut bytes, format).expect("encode");
@@ -313,9 +146,10 @@ mod tests {
         for (flavor, bytes) in [
             (ImageFlavor::Dib, dib_2x2()),
             (ImageFlavor::DibV5, dib_2x2()),
-            (ImageFlavor::Png, encoded_2x2(ImageFormat::Png)),
+            (ImageFlavor::Png, encoded_2x2(image::ImageFormat::Png)),
         ] {
-            let png = decode_to_png(flavor, &bytes).expect("decode must succeed");
+            let delivered = map_clipboard_flavor(&(flavor, bytes)).expect("mapping must succeed");
+            let png = decode_to_png(&delivered).expect("decode must succeed");
             let decoded = image::load_from_memory(&png).expect("valid png");
             assert_eq!((decoded.width(), decoded.height()), (2, 2), "{flavor:?}");
         }
@@ -323,7 +157,9 @@ mod tests {
 
     #[test]
     fn dib_decode_keeps_row_order_and_channels() {
-        let png = decode_to_png(ImageFlavor::DibV5, &dib_2x2()).expect("decode must succeed");
+        let delivered =
+            map_clipboard_flavor(&(ImageFlavor::DibV5, dib_2x2())).expect("mapping must succeed");
+        let png = decode_to_png(&delivered).expect("decode must succeed");
         let decoded = image::load_from_memory(&png)
             .expect("valid png")
             .into_rgba8();
@@ -346,7 +182,7 @@ mod tests {
             Some(124),
             "v5 masks in header"
         );
-        let mut v4 = encoded_2x2(ImageFormat::Bmp);
+        let mut v4 = encoded_2x2(image::ImageFormat::Bmp);
         assert_eq!(&v4[..2], b"BM", "the bmp file header must be present");
         v4.drain(..14);
         assert_eq!(
@@ -415,182 +251,10 @@ mod tests {
     }
 
     #[test]
-    fn dib_flavor_budget_rejects_bytes_over_the_limit() {
-        assert!(
-            flavor_within_budget(MAX_FLAVOR_BYTES),
-            "the limit itself fits"
-        );
-        assert!(
-            !flavor_within_budget(MAX_FLAVOR_BYTES + 1),
-            "one byte over the limit is rejected"
-        );
-        let over = vec![0u8; MAX_FLAVOR_BYTES + 1];
-        let err = decode_to_png(ImageFlavor::Dib, &over).expect_err("over-budget flavor");
-        assert_eq!(
-            err,
-            GlossError::ImageTooLarge,
-            "the flavor cap fires before any header parsing"
-        );
-    }
-
-    #[test]
-    fn dib_header_dimensions_are_bounded_before_the_decode() {
-        let mut dib = dib_2x2();
-        dib[4..8].copy_from_slice(&4097u32.to_le_bytes());
-        dib[8..12].copy_from_slice(&4096i32.to_le_bytes());
-        let err = decode_to_png(ImageFlavor::Dib, &dib).expect_err("over-budget image");
-        assert_eq!(
-            err,
-            GlossError::ImageTooLarge,
-            "the header gate fires before the full decode"
-        );
-    }
-
-    #[test]
-    fn dib_a_truncated_flavor_decodes_to_a_read_failure() {
-        let bytes = encoded_2x2(ImageFormat::Png);
-        let truncated = &bytes[..40];
-        let err = decode_to_png(ImageFlavor::Png, truncated).expect_err("truncated flavor");
-        assert_eq!(err, GlossError::ImageUnavailable);
+    fn dib_a_malformed_flavor_maps_to_a_read_failure() {
         let dib = &dib_2x2()[..20];
-        let err = decode_to_png(ImageFlavor::Dib, dib).expect_err("truncated dib");
+        let err =
+            map_clipboard_flavor(&(ImageFlavor::Dib, dib.to_vec())).expect_err("malformed dib");
         assert_eq!(err, GlossError::ImageUnavailable);
-    }
-
-    #[test]
-    fn dib_pixel_budget_rejects_area_over_the_limit() {
-        assert!(pixels_within_budget(4096, 4096), "the limit itself fits");
-        assert!(
-            !pixels_within_budget(4097, 4096),
-            "one pixel over the limit is rejected"
-        );
-    }
-
-    #[test]
-    fn dib_a_mismatched_rgba_buffer_is_a_read_failure() {
-        let err = encode_png(2, 2, &[1, 2, 3]).expect_err("buffer mismatch");
-        assert_eq!(err, GlossError::ImageUnavailable);
-    }
-
-    #[test]
-    fn dib_pixel_budget_is_checked_before_the_buffer() {
-        let err = encode_png(4096, 4096, &[]).expect_err("buffer mismatch");
-        assert_eq!(
-            err,
-            GlossError::ImageUnavailable,
-            "within-budget dims fall through to the buffer check"
-        );
-    }
-
-    #[test]
-    fn dib_a_covered_board_is_dropped_without_touching_the_content() {
-        let observer = PasteboardObserver::default();
-        observer.record(7);
-        let mut reader = SystemImageReader::new(observer);
-        let read = reader.read_with(
-            || Some(8),
-            || panic!("content must not be read when the observation no longer matches"),
-        );
-        assert_eq!(read.expect("a race drops, not fails"), None);
-    }
-
-    #[test]
-    fn dib_an_undeliverable_flavor_is_dropped_quietly() {
-        let observer = PasteboardObserver::default();
-        observer.record(7);
-        let mut reader = SystemImageReader::new(observer);
-        let read = reader.read_with(|| Some(7), || Ok(None));
-        assert_eq!(read.expect("undelivered drops, not fails"), None);
-    }
-
-    #[test]
-    fn dib_an_over_limit_flavor_fails_with_the_size_error() {
-        let observer = PasteboardObserver::default();
-        observer.record(7);
-        let mut reader = SystemImageReader::new(observer);
-        let read = reader.read_with(|| Some(7), || Err(GlossError::ImageTooLarge));
-        assert_eq!(
-            read.expect_err("an over-limit flavor is a hard failure"),
-            GlossError::ImageTooLarge
-        );
-    }
-
-    #[test]
-    fn dib_an_unobservable_board_is_a_read_failure() {
-        let mut reader = SystemImageReader::new(PasteboardObserver::default());
-        let err = reader
-            .read_with(
-                || None,
-                || panic!("no flavor query without a readable count"),
-            )
-            .expect_err("unobservable board");
-        assert_eq!(err, GlossError::ImageUnavailable);
-    }
-
-    #[test]
-    fn dib_a_matching_board_still_decodes_to_png() {
-        let observer = PasteboardObserver::default();
-        observer.record(7);
-        let mut reader = SystemImageReader::new(observer);
-        let dib = dib_2x2();
-        let png = reader
-            .read_with(|| Some(7), || Ok(Some((ImageFlavor::Dib, dib))))
-            .expect("read must succeed")
-            .expect("the observed image must decode");
-        let decoded = image::load_from_memory(&png).expect("valid png");
-        assert_eq!((decoded.width(), decoded.height()), (2, 2));
-    }
-
-    #[test]
-    fn dib_byte_budget_rejects_length_over_the_limit() {
-        assert!(png_within_budget(MAX_PNG_BYTES), "the limit itself fits");
-        assert!(
-            !png_within_budget(MAX_PNG_BYTES + 1),
-            "one byte over the limit is rejected"
-        );
-    }
-
-    #[test]
-    fn dib_downscaled_dims_preserve_aspect_and_the_cap() {
-        assert_eq!(
-            downscaled_dims(1536, 1536),
-            None,
-            "at the cap the product encodes as-is"
-        );
-        assert_eq!(
-            downscaled_dims(1024, 768),
-            None,
-            "under the cap is untouched"
-        );
-        assert_eq!(downscaled_dims(4096, 4096), Some((1536, 1536)));
-        assert_eq!(downscaled_dims(4096, 100), Some((1536, 38)));
-        assert_eq!(
-            downscaled_dims(4097, 1),
-            Some((1536, 1)),
-            "rounding never loses a dimension entirely"
-        );
-        assert_eq!(downscaled_dims(1, 4097), Some((1, 1536)));
-        let (width, height) = downscaled_dims(3000, 2049).expect("oversized product");
-        assert_eq!(width, 1536);
-        assert_eq!(height, 1049, "the short side follows the same scale");
-    }
-
-    #[test]
-    fn dib_oversized_products_are_downscaled_to_the_side_cap() {
-        let canvas = image::RgbaImage::from_fn(2100, 1000, |x, y| {
-            [(x % 256) as u8, (y % 256) as u8, 0, 255].into()
-        });
-        let mut bytes = Cursor::new(Vec::new());
-        canvas
-            .write_to(&mut bytes, ImageFormat::Png)
-            .expect("encode");
-        let png = decode_to_png(ImageFlavor::Png, bytes.into_inner().as_slice())
-            .expect("an oversized product is downscaled, not rejected");
-        let decoded = image::load_from_memory(&png).expect("valid png");
-        assert_eq!(
-            (decoded.width(), decoded.height()),
-            (1536, 731),
-            "the product lands within the side cap with the aspect preserved"
-        );
     }
 }
