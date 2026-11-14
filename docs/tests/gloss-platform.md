@@ -25,6 +25,41 @@
 | a_restore_underreporting_jumps_fires_a_spurious_observation | 恢复写盘少报跳变即伪触发（反向钉子） | 给定武装哨兵（基线 7）与少报的闩锁（前置 7、自报 2），当轮询读到计数 12 且判定有图，则差额判为外来写入并产出观察事件（钉住写盘归因必须按真实跳变数自报：少报会让恢复的图伪装成用户复制） | 2026-11-14 |
 | observer_mismatch_flags_the_race | 观察记录比对判竞态 | 给定观察记录，当现值与记录一致则匹配；记录更新后旧值不匹配、新值匹配（记录与现值之间被覆盖即竞态） | 2026-11-14 |
 
+### `crates/gloss-platform/src/common/composite.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| fallback_is_lazy_on_main_success | 主路成功兜底不求值 | 给定成功的主路读与计数兜底闭包（无闸门形态），当 `combine`，则采纳主路产物且兜底闭包不被求值 | 2026-11-14 |
+| without_a_gate_empty_selection_settles_then_falls_back | 无闸门空选区让渡跑满再落兜底 | 给定持续空选区的主读、零让渡策略与缺省激活闸门，当 `combine`，则主读按节奏表跑满（恰 4 读）后兜底恰一次并采纳 | 2026-11-14 |
+| without_a_gate_a_settled_reread_adopts_the_late_selection | 无闸门迟到选区被让渡补读采纳 | 给定首次空、二次有值的主读与缺省激活闸门，当 `combine`，则恰 2 读采纳迟到选区且不落兜底 | 2026-11-14 |
+| without_a_gate_an_unavailable_main_falls_back_directly | 无闸门主路不可用直接落兜底 | 给定读取不可用的主读与缺省激活闸门，当 `combine` 两例（兜底成与败），则成例采纳兜底产物、败例如实上抛 | 2026-11-14 |
+| without_a_gate_denied_is_just_another_failure | 无闸门权限拒绝照常落兜底 | 给定 `AccessibilityDenied` 的主读与兜底两例（成与败），当 `combine`，则照常落兜底——成例采纳兜底产物、败例如实上抛（无闸门形态没有权限语义，拒绝不短路） | 2026-11-14 |
+| without_a_gate_the_wait_budget_ends_the_settling_straight_to_the_fallback | 无闸门等待预算耗尽缩短让渡段 | 给定持续空选区的主读与已耗尽的等待预算，当 `combine`，则恰 1 读即落兜底并采纳（无闸门直落兜底，不转闸门） | 2026-11-14 |
+| permission_denied_skips_fallback | 权限拒绝跳过兜底 | 给定 `AccessibilityDenied` 的主路与带激活闸门形态，当 `combine`，则原样上抛且不兜底、不问激活闸门 | 2026-11-14 |
+| empty_selection_settles_then_falls_back_to_the_clipboard | 空选区让渡跑满过闸门后落兜底 | 给定持续 `SelectionEmpty` 的主读、零让渡策略与拒绝唤醒的激活闭包，当 `combine`，则补读至节奏表耗尽（恰 4 读）、激活问一次落空后才落一次剪贴板兜底并采纳其结果（确认写入把关，陈旧剪贴板不得冒充本次选区） | 2026-11-14 |
+| empty_then_ready_main_read_adopts_the_late_selection | 补读等到迟到的选区 | 给定首次空、二次有值的主读与拒绝唤醒的激活闭包，当 `combine`，则采纳第二次读到的选区且不兜底 | 2026-11-14 |
+| unavailable_main_consults_the_gate_once_then_falls_back | 主路不可用过激活闸门后落兜底 | 给定 `SelectionUnavailable` 的主读，当 `combine` 两例（肯定与拒绝唤醒），则激活恰被问一次、落空后落到兜底结果；兜底也失败则以兜底错误收口 | 2026-11-14 |
+| success_and_denial_never_consult_the_gate | 激活闸门只在主路让步后被问及 | 给定主路成功与 `AccessibilityDenied` 两种读取，当 `combine`，则激活闭包一次都不被求值（成功直接采纳、拒绝原样上抛） | 2026-11-14 |
+| a_declined_wake_goes_straight_to_the_clipboard | 激活落空直接落兜底 | 给定持续 `SelectionEmpty` 的主读、零让渡策略与拒绝唤醒的激活闭包，当 `combine`，则让渡节奏表跑满、激活问一次即落兜底并采纳 | 2026-11-14 |
+| a_fresh_wake_re_reads_and_adopts_the_late_selection | 刚激活的树补读即采纳 | 给定首次空、二次有值的主读与肯定唤醒的激活闭包，当 `combine`，则激活后第一次补读就采纳迟到的选区且不落兜底 | 2026-11-14 |
+| a_woken_tree_that_stays_silent_falls_back_after_the_budget | 激活预算跑满仍空落兜底 | 给定持续 `SelectionEmpty` 的主读、零让渡与零激活等待、肯定唤醒的激活闭包，当 `combine`，则让渡预算与激活预算各自跑满（恰 10 读）才落兜底 | 2026-11-14 |
+| a_woken_tree_that_errors_does_not_burn_the_activation_budget | 激活后读到硬错不烧预算 | 给定 `SelectionUnavailable` 的主读与肯定唤醒的激活闭包，当 `combine`，则激活后只补读一次即落兜底（读不到不等建树） | 2026-11-14 |
+| a_woken_tree_that_loses_permission_propagates_the_denial | 激活补读中权限缺失原样上抛 | 给定让渡预算跑满仍空、激活补读时 `AccessibilityDenied` 的主读与肯定唤醒的激活闭包，当 `combine`，则让渡环跑满进入激活补读后拒绝原样上抛且不落兜底（注入会被系统静默忽略，兜底白等） | 2026-11-14 |
+| activation_budget_is_bounded_and_positive | 激活预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 `activation_delay`，则预算内返回正的等待时长、预算用尽（含 `usize::MAX`）返回 `None` | 2026-11-14 |
+| a_rescued_host_skips_the_settle_schedule | 唤醒常客宿主跳过让渡环 | 给定首次空、二次有值的主读、唤醒常客判定为真与肯定唤醒的激活闭包，当 `combine`，则首次空读直接进激活补读（恰 2 读）并采纳补读产物，让渡节奏表未跑 | 2026-11-14 |
+| a_rescued_host_with_a_declined_wake_falls_back_without_settling | 唤醒常客宿主唤醒落空不跑让渡环 | 给定持续空选区的主读、唤醒常客判定为真与拒绝唤醒的激活闭包，当 `combine`，则跳过让渡节奏表（恰 1 读）直接落兜底并采纳（常客跳让渡与唤醒裁决两个事实互不遮蔽） | 2026-11-14 |
+| the_wait_budget_ends_the_settling_early | 等待预算耗尽让渡段转激活闸门 | 给定首次空、二次有值的主读与已耗尽的等待预算，当 `combine`，则让渡环在首次等待前即止、直接进激活补读采纳（恰 2 读，不落兜底） | 2026-11-14 |
+| the_wait_budget_ends_the_activation_re_reads | 等待预算耗尽激活段落兜底 | 给定持续 `SelectionEmpty` 的主读、零等待策略、肯定唤醒的激活闭包与已耗尽的等待预算，当 `combine`，则激活后首次补读即止落兜底并采纳 | 2026-11-14 |
+| settle_schedule_is_bounded_and_positive | 让渡节奏表有界且为正 | 给定节奏表内的尝试序号，当 `settle_delay`，则逐位返回正的几何让渡时长；表耗尽（含 `usize::MAX`）返回 `None` | 2026-11-14 |
+| acquired_text_is_trimmed_at_the_boundary | 取材入口修剪两端空白 | 给定两端带空白的选中文本，当 `normalize`，则返回修剪后的文本；本无空白的文本原样放行 | 2026-11-14 |
+| acquired_text_keeps_interior_whitespace_verbatim | 入口修剪只动两端不动内部 | 给定内部含换行、制表、空格的选中文本，当 `normalize`，则内部空白逐字保留、只去两端 | 2026-11-14 |
+| pure_whitespace_selection_maps_to_selection_empty | 纯空白选区按空选区收口 | 给定纯空白（空格、换行、制表、全角空格）与空串的读取产物，当 `normalize`，则一律 `SelectionEmpty`（误滑走既有静默丢弃语义） | 2026-11-14 |
+| the_fallback_rounds_settle_rides_out_for_a_later_finish | 兜底轮收尾随产物移交 | 给定读取不可用的主读与带恢复计划旗标的兜底，当读取入口装配（`acquire`），则兜底产物随读取结果带出且恢复旗标只在调用方收口（`TextSettle::finish`）时置位——恢复不挡在产物交付前 | 2026-11-14 |
+| a_failed_fallback_round_still_hands_back_its_settle | 兜底失败轮仍移交收尾 | 给定读取不可用、兜底也报不可用但带恢复计划旗标，当读取入口装配，则失败如实上抛且旗标随收口置位（失败轮的恢复写盘不丢） | 2026-11-14 |
+| a_main_only_read_carries_an_idle_settle | 仅主路产物不带恢复计划 | 给定成功的主路读（兜底闭包到场即恐慌），当读取入口装配，则采纳主路产物且收口空跑（装配入口不合成恢复计划） | 2026-11-14 |
+| the_read_entry_normalizes_the_combined_outcome | 读取入口归一化组合产物 | 给定两端带空白与纯空白两例的主路产物，当读取入口装配，则前者修剪两端交付、后者按空选区语义上抛（兜底闭包到场即恐慌——归一化在装配入口一处收口） | 2026-11-14 |
+| the_rescued_flag_reaches_the_gate_through_the_read_entry | 唤醒常客旗标经读取入口进闸门 | 给定首次空、二次有值的主读、唤醒常客判定为真与肯定唤醒闭包，当读取入口装配，则恰 2 读采纳补读产物、激活恰问一次（常客跳让渡的判定在装配入口传入共享判定） | 2026-11-14 |
+
 ### `crates/gloss-platform/src/common/gesture.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -195,30 +230,6 @@
 | retry_counts_the_clears_of_every_attempt_until_success | 重试累加各次尝试的实际清板数 | 给定依次“清 1 失败、清 0 失败、清 1 成功”的 `once` 与 3 次上限，当 `restore_with_retry`，则调满 3 次、成功返回且清板数记 2 | 2026-10-19 |
 | exhausted_retries_carry_the_last_attempt_stage_status_and_total_clears | 重试耗尽保留末次环节状态码与总清板数 | 给定两次皆失败的 `once`（首次 `Alloc/5` 清 1、末次 `Clear/42` 清 0），当 `restore_with_retry`，则失败返回、清板数记 1、环节状态码取末次（`Clear/42`） | 2026-10-19 |
 
-### `crates/gloss-platform/src/macos/selection/composite.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| fallback_is_lazy_on_ax_success | `AX` 成功时兜底惰性求值 | 给定 `AX` 成功，当 `combine`，则采纳 `AX` 结果且剪贴板兜底闭包不被求值 | 2026-10-01 |
-| permission_denied_skips_fallback | 权限拒绝跳过兜底 | 给定 `AccessibilityDenied`，当 `combine`，则原样上抛且不兜底 | 2026-10-01 |
-| empty_selection_settles_then_falls_back_to_the_clipboard | 空选区让渡补读后再落兜底 | 给定持续 `SelectionEmpty` 的 `AX` 读、零让渡策略与拒绝唤醒的激活闭包，当 `combine`，则补读至节奏表耗尽（恰 4 读）、激活问一次落空后才落一次剪贴板兜底并采纳其结果（确认写入把关，陈旧剪贴板不得冒充本次选区） | 2026-10-16 |
-| empty_then_ready_ax_read_adopts_the_late_selection | 补读等到迟到的选区 | 给定首次空、二次有值的 `AX` 读，当 `combine`，则采纳第二次读到的选区且不兜底 | 2026-10-01 |
-| settle_budget_is_bounded_and_positive | 让渡节奏表有界且为正 | 给定节奏表内的尝试序号，当 `settle_delay`，则逐位返回正的几何让渡时长；表耗尽（含 `usize::MAX`）返回 `None` | 2026-10-16 |
-| unavailable_ax_falls_back_to_clipboard | `AX` 不可用过激活闸门后落兜底 | 给定 `SelectionUnavailable`，当 `combine`，则激活恰被问一次、落空后落到兜底结果；兜底也失败则以兜底错误收口 | 2026-10-12 |
-| acquired_text_is_trimmed_at_the_boundary | 取材入口修剪两端空白 | 给定两端带空白的选中文本，当 `normalize`，则返回修剪后的文本；本无空白的文本原样放行 | 2026-10-11 |
-| acquired_text_keeps_interior_whitespace_verbatim | 入口修剪只动两端不动内部 | 给定内部含换行、制表、空格的选中文本，当 `normalize`，则内部空白逐字保留、只去两端 | 2026-10-11 |
-| pure_whitespace_selection_maps_to_selection_empty | 纯空白选区按空选区收口 | 给定纯空白（空格、换行、制表、全角空格）与空串的读取产物，当 `normalize`，则一律 `SelectionEmpty`（误滑走既有静默丢弃语义） | 2026-10-11 |
-| success_and_denial_never_consult_the_activator | 激活只在 `AX` 让步后被问及 | 给定 `AX` 成功与 `AccessibilityDenied` 两种读取，当 `combine`，则激活闭包一次都不被求值（成功直接采纳、拒绝原样上抛） | 2026-10-12 |
-| a_declined_wake_goes_straight_to_the_clipboard | 激活落空直接落兜底 | 给定持续 `SelectionEmpty` 的 `AX` 读、零让渡策略与拒绝唤醒的激活闭包，当 `combine`，则让渡节奏表跑满、激活问一次即落兜底并采纳 | 2026-10-16 |
-| a_fresh_wake_re_reads_and_adopts_the_late_selection | 刚激活的树补读即采纳 | 给定首次空、二次有值的 `AX` 读与肯定唤醒的激活闭包，当 `combine`，则激活后第一次补读就采纳迟到的选区且不落兜底 | 2026-10-12 |
-| a_woken_tree_that_stays_silent_falls_back_after_the_budget | 激活预算跑满仍空落兜底 | 给定持续 `SelectionEmpty` 的 `AX` 读、零让渡与零激活等待、肯定唤醒的激活闭包，当 `combine`，则让渡预算与激活预算各自跑满（恰 10 读）才落兜底 | 2026-10-12 |
-| a_woken_tree_that_errors_does_not_burn_the_activation_budget | 激活后读到硬错不烧预算 | 给定 `SelectionUnavailable` 的 `AX` 读与肯定唤醒的激活闭包，当 `combine`，则激活后只补读一次即落兜底（读不到不等建树） | 2026-10-12 |
-| a_woken_tree_that_loses_permission_propagates_the_denial | 激活补读中权限缺失原样上抛 | 给定让渡预算跑满仍空、激活补读时 `AccessibilityDenied` 的 `AX` 读与肯定唤醒的激活闭包，当 `combine`，则让渡环跑满进入激活补读后拒绝原样上抛且不落兜底（注入会被系统静默忽略，兜底白等） | 2026-10-12 |
-| activation_budget_is_bounded_and_positive | 激活预算有界且为正 | 给定预算内、末次与超界的尝试序号，当 `activation_delay`，则预算内返回正的等待时长、预算用尽（含 `usize::MAX`）返回 `None` | 2026-10-12 |
-| a_rescued_host_skips_the_settle_schedule | 唤醒常客宿主跳过让渡环 | 给定首次空、二次有值的 `AX` 读、唤醒常客判定为真与肯定唤醒的激活闭包，当 `combine`，则首次空读直接进激活补读（恰 2 读）并采纳补读产物，让渡节奏表未跑 | 2026-10-16 |
-| the_wait_budget_ends_the_settling_early | 等待预算耗尽让渡段转激活闸门 | 给定首次空、二次有值的 `AX` 读与已耗尽的等待预算，当 `combine`，则让渡环在首次等待前即止、直接进激活补读采纳（恰 2 读，不落兜底） | 2026-10-16 |
-| the_wait_budget_ends_the_activation_re_reads | 等待预算耗尽激活段落兜底 | 给定持续 `SelectionEmpty` 的 `AX` 读、零等待策略、肯定唤醒的激活闭包与已耗尽的等待预算，当 `combine`，则激活后首次补读即止落兜底并采纳 | 2026-10-16 |
-
 ### `crates/gloss-platform/src/macos/storage/keychain.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -300,20 +311,6 @@
 | snapshot_preserves_read_image_flavors_for_write_back | 图像风格原字节保全供写回 | 给定无内容读取结果与非零格式计数、且图像风格捕获可读，当 `snapshot_decision`，则按捕获的风格原字节保全（图片挂板的兜底轮照常前进） | 2026-11-10 |
 | snapshot_declines_a_non_text_board_it_cannot_restore | 保不住的风格全跳过才放弃兜底 | 给定无内容读取结果与非零格式计数、且图像风格一个都捕获不出，当 `snapshot_decision`，则放弃（注入后原内容无法如实写回）。沿革：原判据为非文本板即整体放弃，2026-11-10 随图像风格保全收窄为全跳过才放弃 | 2026-11-10 |
 | snapshot_declines_unreadable_board_state | 板状态读不出整体放弃 | 给定无内容读取结果与读不出的格式清单、以及其它文本读取失败两例，当 `snapshot_decision`，则一律放弃兜底 | 2026-11-06 |
-
-### `crates/gloss-platform/src/windows/selection/composite.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| combined_fallback_is_lazy_on_uia_success | 主路成功不触兜底 | 给定成功的用户界面自动化读取与计数兜底，当 `combine`，则采纳主路产物且兜底零调用 | 2026-11-06 |
-| combined_empty_selection_settles_then_falls_back_to_the_clipboard | 空选区让渡跑满再落兜底 | 给定持续空选区的主读与零等待策略，当 `combine`，则主读按节奏表跑满（恰 4 读）后兜底恰一次并采纳 | 2026-11-06 |
-| combined_empty_then_ready_read_adopts_the_late_selection | 迟到选区被让渡补读采纳 | 给定首次空、二次有值的主读，当 `combine`，则恰 2 读采纳迟到选区且不落兜底 | 2026-11-06 |
-| combined_unavailable_uia_falls_back_to_clipboard | 主路不可用直接落兜底 | 给定读取不可用的主读，当 `combine` 两例（兜底成与败），则成例采纳兜底产物、败例如实上抛 | 2026-11-06 |
-| combined_the_wait_budget_ends_the_settling_early | 等待预算耗尽缩短让渡段 | 给定持续空选区的主读与已耗尽的等待预算，当 `combine`，则恰 1 读（本平台无激活闸门）即落兜底并采纳 | 2026-11-06 |
-| combined_settle_schedule_is_bounded_and_positive | 让渡节奏表有界且全正 | 给定预算内、末次与超界的尝试序号，当 `settle_delay`，则预算内返回正等待、耗尽（含 `usize::MAX`）返回空 | 2026-11-06 |
-| combined_acquired_text_is_trimmed_at_the_boundary | 取材产物入口修剪两端空白 | 给定两端带空白的文本，当 `normalize`，则两端空白修剪且内部保留 | 2026-11-06 |
-| combined_acquired_text_keeps_interior_whitespace_verbatim | 内部空白逐字保留 | 给定内部混排空白的文本，当 `normalize`，则内部空白逐字保留 | 2026-11-06 |
-| combined_pure_whitespace_selection_maps_to_selection_empty | 纯空白选区按空选区上抛 | 给定四例纯空白（空格、换行制表、全角空格、空串），当 `normalize`，则一律报空选区（下游只认一份已修剪文本） | 2026-11-06 |
 
 ### `crates/gloss-platform/src/windows/selection/uia.rs`
 
