@@ -148,7 +148,8 @@ mod tests {
             (ImageFlavor::DibV5, dib_2x2()),
             (ImageFlavor::Png, encoded_2x2(image::ImageFormat::Png)),
         ] {
-            let delivered = map_clipboard_flavor(&(flavor, bytes)).expect("mapping must succeed");
+            let fetched = (flavor, bytes);
+            let delivered = map_clipboard_flavor(&fetched).expect("mapping must succeed");
             let png = decode_to_png(&delivered).expect("decode must succeed");
             let decoded = image::load_from_memory(&png).expect("valid png");
             assert_eq!((decoded.width(), decoded.height()), (2, 2), "{flavor:?}");
@@ -157,8 +158,8 @@ mod tests {
 
     #[test]
     fn dib_decode_keeps_row_order_and_channels() {
-        let delivered =
-            map_clipboard_flavor(&(ImageFlavor::DibV5, dib_2x2())).expect("mapping must succeed");
+        let fetched = (ImageFlavor::DibV5, dib_2x2());
+        let delivered = map_clipboard_flavor(&fetched).expect("mapping must succeed");
         let png = decode_to_png(&delivered).expect("decode must succeed");
         let decoded = image::load_from_memory(&png)
             .expect("valid png")
@@ -253,8 +254,11 @@ mod tests {
     #[test]
     fn dib_a_malformed_flavor_maps_to_a_read_failure() {
         let dib = &dib_2x2()[..20];
-        let err =
-            map_clipboard_flavor(&(ImageFlavor::Dib, dib.to_vec())).expect_err("malformed dib");
+        let fetched = (ImageFlavor::Dib, dib.to_vec());
+        let err = match map_clipboard_flavor(&fetched) {
+            Err(err) => err,
+            Ok(_) => panic!("a malformed dib must not map to a delivery"),
+        };
         assert_eq!(err, GlossError::ImageUnavailable);
     }
 }
