@@ -541,6 +541,26 @@ mod tests {
     }
 
     #[test]
+    fn a_rescued_host_with_a_declined_wake_falls_back_without_settling() {
+        let mut reads = 0;
+        let outcome = combine(
+            || {
+                reads += 1;
+                Err::<String, GlossError>(GlossError::SelectionEmpty)
+            },
+            true,
+            never_wake,
+            || Ok::<String, GlossError>("from clipboard".into()),
+            Pacing::new(no_delay, no_wake_delay, budget_never_exhausted),
+        );
+        assert_eq!(outcome, Ok("from clipboard".into()));
+        assert_eq!(
+            reads, 1,
+            "the rescued host skips the settle schedule even when the wake declines"
+        );
+    }
+
+    #[test]
     fn the_wait_budget_ends_the_settling_early() {
         let mut reads = 0;
         let outcome = combine(

@@ -251,6 +251,24 @@ mod tests {
     }
 
     #[test]
+    fn combined_accessibility_denied_falls_back_like_any_other_failure() {
+        let outcome = combine(
+            || Err::<String, GlossError>(GlossError::AccessibilityDenied),
+            || clipboard_ok("from clipboard"),
+            Pacing::new(no_delay, budget_never_exhausted),
+        );
+        assert_eq!(outcome, Ok("from clipboard".into()));
+        assert_eq!(
+            combine(
+                || Err::<String, GlossError>(GlossError::AccessibilityDenied),
+                || Err(GlossError::SelectionUnavailable),
+                Pacing::new(no_delay, budget_never_exhausted),
+            ),
+            Err(GlossError::SelectionUnavailable)
+        );
+    }
+
+    #[test]
     fn combined_the_wait_budget_ends_the_settling_early() {
         let mut reads = 0;
         let outcome = combine(
