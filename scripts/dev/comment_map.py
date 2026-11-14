@@ -73,6 +73,10 @@ FAMILY_STEMS: dict[str, str] = {
     # 哨兵共享层上移后与平台绑定文件撞名：共享层持语义裸名，绑定侧带平台前缀
     "crates/gloss-platform/src/macos/clipboard/watch.rs": "macos_clipboard_watch",
     "crates/gloss-platform/src/common/clipboard_watch.rs": "clipboard_watch",
+    # 组合取材上移共享层后与两侧绑定文件撞名：共享层持语义裸名，绑定侧带平台前缀
+    "crates/gloss-platform/src/common/composite.rs": "composite",
+    "crates/gloss-platform/src/macos/selection/composite.rs": "macos_composite",
+    "crates/gloss-platform/src/windows/selection/composite.rs": "windows_composite",
     "crates/gloss-app/src/ui/popup/image.rs": "popup_image",
     "crates/gloss-app/src/ui/popup/icon.rs": "popup_icon",
     "crates/gloss-app/src/ui/popup/note.rs": "popup_note",
@@ -114,7 +118,6 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-platform/src/windows/permissions.rs": "windows_permissions",
     "crates/gloss-platform/src/windows/scene.rs": "windows_scene",
     "crates/gloss-platform/src/windows/selection/mod.rs": "windows_selection_mod",
-    "crates/gloss-platform/src/windows/selection/composite.rs": "windows_composite",
     "crates/gloss-platform/src/windows/selection/clipboard.rs": "windows_selection_clipboard",
     "crates/gloss-platform/src/windows/selection/uia.rs": "windows_uia",
     "crates/gloss-platform/src/windows/selection/clipboard/snapshot.rs": "windows_snapshot",
