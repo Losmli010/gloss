@@ -25,6 +25,21 @@
 | a_restore_underreporting_jumps_fires_a_spurious_observation | 恢复写盘少报跳变即伪触发（反向钉子） | 给定武装哨兵（基线 7）与少报的闩锁（前置 7、自报 2），当轮询读到计数 12 且判定有图，则差额判为外来写入并产出观察事件（钉住写盘归因必须按真实跳变数自报：少报会让恢复的图伪装成用户复制） | 2026-11-14 |
 | observer_mismatch_flags_the_race | 观察记录比对判竞态 | 给定观察记录，当现值与记录一致则匹配；记录更新后旧值不匹配、新值匹配（记录与现值之间被覆盖即竞态） | 2026-11-14 |
 
+### `crates/gloss-platform/src/common/gesture.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| drag_release_emits_selection | 拖拽释放判定划词手势 | 给定按下→时长与位移双达标→释放序列，当驱动 `GestureDetector`，则判定一次划词手势 | 2026-11-14 |
+| flick_shorter_than_the_minimum_press_is_filtered | 快甩被最短按压时长滤除 | 给定按压仅 10 毫秒但位移充足的事件对，当驱动，则不产出手势 | 2026-11-14 |
+| press_duration_is_observed_at_the_boundary | 按压时长在边界被遵守 | 给定比下限短 1 纳秒（系统（macOS）粒度）、短 1 毫秒（系统（Windows）粒度）与恰好等于下限（150 毫秒）的三对事件，当驱动，则前两者滤除、恰好达标判定 | 2026-11-14 |
+| plain_click_and_jitter_do_not_trigger | 原地点击与抖动不触发 | 给定原地点击与阈值内抖动，当驱动，则不产出手势 | 2026-11-14 |
+| displacement_comes_from_the_events_themselves | 位移取自事件自身坐标 | 给定长距离拖拽，当算位移，则取按下、释放事件自身坐标（释放位置即位移来源） | 2026-11-14 |
+| state_resets_after_each_gesture | 每轮手势后状态重置 | 给定连续两轮完整手势，当驱动，则每轮后状态机重置、第二轮照常判定 | 2026-11-14 |
+| stray_events_are_ignored | 杂散事件静默忽略 | 给定无按下的释放、双按下等杂散序列，当驱动，则静默忽略、后续手势照常 | 2026-11-14 |
+| poll_drains_channel_through_state_machine | `poll` 抽干通道过状态机 | 给定事件通道，当 `poll`，则抽干并经状态机计数（第二次 `poll` 为 0） | 2026-11-14 |
+| a_failed_creation_leaves_the_source_absent_and_the_flag_cold | 创建失败源缺席且不置运行中标志 | 给定创建相即回报失败的替身监听闭包，当 `spawn_listening` 同步握手返回，则手势源缺席、降级标志保持为假（启动失败不经运行中标志表达） | 2026-11-14 |
+| events_beyond_the_queue_capacity_are_dropped_without_blocking | 队列满丢弃且汇点不阻塞 | 给定创建相在回报前一次性投递超出队列容量（256 格）的完整手势事件对，当轮询，则容量内的手势照常判定、溢出对被丢弃且汇点不阻塞（投递先于同步握手完成，无时序竞态） | 2026-11-14 |
+
 ### `crates/gloss-platform/src/common/locale.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -102,14 +117,6 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| drag_release_emits_selection | 拖拽释放判定划词手势 | 给定按下→时长与位移双达标→释放序列，当驱动 `GestureDetector`，则判定一次划词手势 | 2026-09-30 |
-| flick_shorter_than_the_minimum_press_is_filtered | 快甩被最短按压时长滤除 | 给定按压仅 10 毫秒但位移充足的事件对，当驱动，则不产出手势 | 2026-09-30 |
-| press_duration_is_observed_at_the_boundary | 按压时长在边界被遵守 | 给定比下限短 1 纳秒与恰好等于下限（150 毫秒）的两对事件，当驱动，则前者滤除、后者判定 | 2026-09-30 |
-| plain_click_and_jitter_do_not_trigger | 原地点击与抖动不触发 | 给定原地点击与阈值内抖动，当驱动，则不产出手势 | 2026-09-19 |
-| displacement_comes_from_the_events_themselves | 位移取自事件自身坐标 | 给定长距离拖拽，当算位移，则取按下、释放事件自身坐标（释放位置即位移来源） | 2026-09-19 |
-| state_resets_after_each_gesture | 每轮手势后状态重置 | 给定连续两轮完整手势，当驱动，则每轮后状态机重置、第二轮照常判定 | 2026-09-19 |
-| stray_events_are_ignored | 杂散事件静默忽略 | 给定无按下的释放、双按下等杂散序列，当驱动，则静默忽略、后续手势照常 | 2026-09-19 |
-| poll_drains_channel_through_state_machine | `poll` 抽干通道过状态机 | 给定事件通道，当 `poll`，则抽干并经状态机计数（第二次 `poll` 为 0） | 2026-09-19 |
 | keyboard_events_are_never_subscribed | 键盘事件永不订阅 | 给定生产订阅掩码与 `classify`，当断言，则只有左键按下、抬起两位、键盘、滚轮、`flags` 各位不置（回归护栏） | 2026-09-19 |
 | spawn_resolves_synchronously_and_startup_failure_stays_off_the_flag | `tap` 启动同步可知且失败不置运行中标志 | 给定真实 `tap` 启动（结果随测试机授权而异），当 `spawn` 返回，则立即返回且启动失败不经 `degraded` 标志表达（标志只属运行中失效） | 2026-10-06 |
 
@@ -252,14 +259,6 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| hook_drag_release_emits_selection | 拖拽释放判定划词手势 | 给定按下到时长与位移双达标后释放的事件序，当驱动 `GestureDetector`，则判定一次划词手势 | 2026-11-06 |
-| hook_plain_click_and_jitter_do_not_trigger | 普通点击与抖动不触发 | 给定零位移长按与阈值内抖动两组事件序，当驱动判定器，则都不出手势 | 2026-11-06 |
-| hook_flick_shorter_than_the_minimum_press_is_filtered | 瞬时甩动被时长下限滤掉 | 给定十毫秒大幅位移的按下释放序，当驱动判定器，则不出手势 | 2026-11-06 |
-| hook_press_duration_is_observed_at_the_boundary | 按压时长按毫秒边界判定 | 给定差一毫秒与恰好达下限的两组时长，当驱动判定器，则差一毫秒过滤、恰好达标放行 | 2026-11-06 |
-| hook_displacement_comes_from_the_events_themselves | 位移取释放事件自身坐标 | 给定按下点与释放点分离的事件序，当驱动判定器，则手势坐标为释放事件自身位置 | 2026-11-06 |
-| hook_state_resets_after_each_gesture | 每次手势后状态复位 | 给定成功手势后的第二次按压释放序，当驱动判定器，则旧按压不参与第二次判定 | 2026-11-06 |
-| hook_stray_events_are_ignored | 野事件被忽略 | 给定无按压的释放与重复按下等野事件序，当驱动判定器，则野事件不出手势、后续正常序照常判定 | 2026-11-06 |
-| hook_poll_drains_channel_through_state_machine | 轮询侧抽干通道经状态机 | 给定通道里的按下释放对，当 `GestureDetector` 轮询，则产出一次手势且再轮询为空 | 2026-11-06 |
 | hook_spawn_resolves_synchronously_and_startup_failure_stays_off_the_flag | 建立同步握手且启动失败不复位降级标志 | 当 `MouseSource::spawn`，则同步返回且降级标志为假（真机装真实钩子，随测试进程消亡） | 2026-11-06 |
 | hook_mouse_messages_are_the_only_subscription | 订阅面只有左键按下释放 | 给定键盘、移动、右键与未知消息号，当按消息号分类，则仅左键按下释放有分类、其余为空 | 2026-11-06 |
 
