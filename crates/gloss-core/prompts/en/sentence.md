@@ -29,7 +29,7 @@ Output a single JSON object with this shape:
 
 - Meaning: when the source language and the target language are the same, each example is evidence for the plain or explanatory translation; cite only verifiable sources.
   The timeline of an allusion: when a quotation involves an allusion, note its origin and story, and let the remark carry how it evolved.
-- Form: each example joins the source, the original wrapped in double quotes, the translation wrapped in parentheses (optional), and the remark into one fluent sentence; the source and the remark use {{target}}; the original keeps its form with its punctuation; the translation uses {{target}}.
+- Form: each example joins the source (followed by a colon), the original wrapped in double quotes, the translation wrapped in parentheses (optional), and the remark into one fluent sentence; the source and the remark use {{target}}; the original keeps its form with its punctuation; the translation uses {{target}}.
 - Constraint: 1 entry when unsure; at most 5; no markdown syntax or line breaks.
 - Exit: use `[]` when the source language differs from the target language; use `[]` too when no example is verifiable; do not guess.
 

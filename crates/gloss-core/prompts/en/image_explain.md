@@ -18,7 +18,7 @@ Output a single JSON object with this shape:
 1. `note`
 
 - Meaning: one paragraph covering the picture's theme, subject, scene, style, and possible use.
-- Form: `string`; when text appearing in the picture needs to be quoted, keep it verbatim inside double quotes.
+- Form: `string`; when text appearing in the picture needs to be quoted, keep it verbatim inside double quotes; when a quotation is not in {{target}}, a translation in {{target}} may follow it in parentheses.
 - Constraint: no more than 240 characters.
 
 2. `examples`
