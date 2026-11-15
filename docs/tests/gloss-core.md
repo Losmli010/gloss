@@ -306,8 +306,7 @@
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 `En` `locale` 未设目标语言、`Zh` `locale` 设 `Lang::En`，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含“英语” | 2026-09-22 |
 | prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 `prompt_locale` 的任务，当渲染，则结果与显式 `Zh` 逐字一致且含“词典专家” | 2026-09-22 |
 | every_task_system_prompt_ends_with_the_discipline_after_the_shared_clause | 纪律块垫底且共享条款在其前 | 给定五任务两语言的渲染，当比对系统提示尾部，则与共享输出纪律块逐字一致、其前紧接共享目标语言条款（两段单点维护，拼接自渲染入口） | 2026-10-29 |
-| classify_prompt_composes_the_skeleton_and_the_registry_category_section | 分类提示词骨架加类别段两段拼装 | 给定双 `locale`，当 `render_classify`，则系统指令以骨架（引言、输出形状与示例节）逐字起头、其后为注册表渲染的类别段（四类别逐条携带判定步骤且步骤序与类别常量顺序一致），无残留占位符 | 2026-11-15 |
-| classify_prompt_carries_the_template_example_section | 分类提示词携带模板示例节 | 给定双语分类渲染，当检查系统指令，则含示例节标题与逐字示例对（类别名在前例文在后）、无残留占位符，且示例只说模型类别（不含 `General`） | 2026-11-15 |
+| classify_prompt_composes_the_skeleton_and_the_registry_category_section | 分类提示词骨架加类别段两段拼装 | 给定双 `locale`，当 `render_classify`，则系统指令以骨架（引言与输出形状）逐字起头、其后为注册表渲染的类别段（四类别逐条携带判定步骤且步骤序与类别常量顺序一致），无残留占位符 | 2026-11-15 |
 
 ### `crates/gloss-core/src/pipeline/prompt/repair.rs`
 

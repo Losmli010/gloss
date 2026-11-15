@@ -7,12 +7,11 @@
 //! （契约模块），围栏输出即违约进修复轮。模态矩阵之外的输入一律以模态
 //! 不支持错误上抛，不发出注定无效的请求。
 //!
-//! 分类指令自包含：分类系统提示由骨架（分类模板：引言、输出形状与示例
-//! 节——少样本示例随模板走，注册表的值是单语区字符串，混语示例条目进不
-//! 了注册表）加类别段（措辞注册表按类别渲染，类别按判定顺序排列）两段
-//! 顺接拼装，兜底类别由分类校验器映射兜底。注册表的键与枚举变体的双向
-//! 集合相等由完整性测试锁定；运行时缺键有痕降级，回落固定措辞，不中断
-//! 运行。渲染是显式的双花括号占位符替换（可选行语义见渲染助手）。
+//! 分类指令自包含：分类系统提示由骨架（分类模板，只留引言与输出形状）
+//! 加类别段（措辞注册表按类别渲染，类别按判定顺序排列）两段顺接拼装，
+//! 兜底类别由分类校验器映射兜底。注册表的键与枚举变体的双向集合相等由
+//! 完整性测试锁定；运行时缺键有痕降级，回落固定措辞，不中断运行。渲染
+//! 是显式的双花括号占位符替换（可选行语义见渲染助手）。
 //! 不注入模态提示行：源语言与代码语言都由模型从原文自行判断，代码语言经
 //! 产物对象的代码语言字段回传界面。
 //!
@@ -505,38 +504,6 @@ mod tests {
             text_of(&en_messages[0].content).contains("- TranslateWord: Step 2:"),
             "the en section renders the migrated definition: {}",
             text_of(&en_messages[0].content)
-        );
-    }
-
-    #[test]
-    fn classify_prompt_carries_the_template_example_section() {
-        let registry = PromptRegistry::new();
-        for locale in [Locale::Zh, Locale::En] {
-            let messages = registry.render_classify(locale, "gloss 原文");
-            let system = text_of(&messages[0].content);
-            let header = match locale {
-                Locale::Zh => "### 示例",
-                Locale::En => "### Examples",
-            };
-            assert!(
-                system.contains(header),
-                "{locale:?}: the example section follows the category section: {system}"
-            );
-            assert!(!system.contains("{{"), "{locale:?}: {system}");
-        }
-        let zh_messages = registry.render_classify(Locale::Zh, "原文");
-        let zh_system = text_of(&zh_messages[0].content);
-        assert!(
-            zh_system.contains("- `TranslateWord`：破釜沉舟")
-                && zh_system.contains("- `Fallback`：量子纠缠是什么？"),
-            "the zh example section renders the migrated example pairs: {zh_system}"
-        );
-        let en_messages = registry.render_classify(Locale::En, "text");
-        let en_system = text_of(&en_messages[0].content);
-        assert!(
-            en_system.contains("- TranslateWord: break the ice")
-                && en_system.contains("- Fallback: What does quantum entanglement mean?"),
-            "the en example section renders the migrated example pairs: {en_system}"
         );
     }
 
