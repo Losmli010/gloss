@@ -8,18 +8,31 @@
 {"id": "cls-word-08", "kind": "Classify", "text": "abandon", "target": "中文", "reference": {"expected": "TranslateWord"}}
 {"id": "cls-word-09", "kind": "Classify", "text": "culture", "target": "中文", "reference": {"expected": "TranslateWord"}}
 {"id": "cls-word-10", "kind": "Classify", "text": "zyzzyva", "target": "中文", "reference": {"expected": "TranslateWord"}}
+{"id": "cls-word-11", "kind": "Classify", "text": "塞翁失马", "target": "中文", "reference": {"expected": "TranslateWord"}}
+{"id": "cls-word-12", "kind": "Classify", "text": "break a leg", "target": "中文", "reference": {"expected": "TranslateWord"}}
+{"id": "cls-word-13", "kind": "Classify", "text": "hit the sack", "target": "中文", "reference": {"expected": "TranslateWord"}}
+{"id": "cls-word-14", "kind": "Classify", "text": "三个臭皮匠，顶个诸葛亮。", "target": "中文", "reference": {"expected": "TranslateWord"}}
+{"id": "cls-word-15", "kind": "Classify", "text": "一言既出，驷马难追", "target": "中文", "reference": {"expected": "TranslateWord"}}
+{"id": "cls-word-16", "kind": "Classify", "text": "不到长城非好汉", "target": "中文", "reference": {"expected": "TranslateWord"}}
 {"id": "cls-sent-01", "kind": "Classify", "text": "学而时习之", "target": "中文", "reference": {"expected": "TranslateSentence"}}
 {"id": "cls-sent-02", "kind": "Classify", "text": "学而不思则罔，思而不学则殆。", "target": "中文", "reference": {"expected": "TranslateSentence"}}
 {"id": "cls-sent-03", "kind": "Classify", "text": "与天奋斗，其乐无穷。", "target": "中文", "reference": {"expected": "TranslateSentence"}}
 {"id": "cls-sent-04", "kind": "Classify", "text": "The quick brown fox jumps over the lazy dog.", "target": "中文", "reference": {"expected": "TranslateSentence"}}
 {"id": "cls-sent-05", "kind": "Classify", "text": "To be, or not to be, that is the question.", "target": "中文", "reference": {"expected": "TranslateSentence"}}
 {"id": "cls-sent-06", "kind": "Classify", "text": "I came, I saw, I conquered.", "target": "中文", "reference": {"expected": "TranslateSentence"}}
+{"id": "cls-sent-07", "kind": "Classify", "text": "生活不止眼前的苟且，还有诗和远方。", "target": "中文", "reference": {"expected": "TranslateSentence"}}
+{"id": "cls-sent-08", "kind": "Classify", "text": "为什么？", "target": "中文", "reference": {"expected": "TranslateSentence"}}
+{"id": "cls-sent-09", "kind": "Classify", "text": "why?", "target": "中文", "reference": {"expected": "TranslateSentence"}}
 {"id": "cls-code-01", "kind": "Classify", "text": "fn binary_search(nums: &[i64], target: i64) -> Option<usize> {\n    let (mut low, mut high) = (0usize, nums.len());\n    while low < high {\n        let mid = low + (high - low) / 2;\n        match nums[mid].cmp(&target) {\n            std::cmp::Ordering::Less => low = mid + 1,\n            std::cmp::Ordering::Greater => high = mid,\n            std::cmp::Ordering::Equal => return Some(mid),\n        }\n    }\n    None\n}", "target": "中文", "reference": {"expected": "ExplainCode"}}
 {"id": "cls-code-02", "kind": "Classify", "text": "def quick_sort(arr: list[int]) -> list[int]:\n    if len(arr) <= 1:\n        return arr[:]\n    pivot = arr[len(arr) // 2]\n    left  = [x for x in arr if x < pivot]\n    mid   = [x for x in arr if x == pivot]\n    right = [x for x in arr if x > pivot]\n    return quick_sort(left) + mid + quick_sort(right)", "target": "中文", "reference": {"expected": "ExplainCode"}}
 {"id": "cls-code-03", "kind": "Classify", "text": "function hashString(input: string, seed = 0x811c9dc5): number {\n  let hash = seed >>> 0;\n  for (let i = 0; i < input.length; i++) {\n    hash ^= input.charCodeAt(i);\n    hash = Math.imul(hash, 0x01000193) >>> 0;\n  }\n  return hash >>> 0;\n}", "target": "中文", "reference": {"expected": "ExplainCode"}}
+{"id": "cls-code-04", "kind": "Classify", "text": "Traceback (most recent call last):\n  File \"main.py\", line 1, in <module>\nZeroDivisionError: division by zero", "target": "中文", "reference": {"expected": "ExplainCode"}}
+{"id": "cls-code-05", "kind": "Classify", "text": "npm ERR! Missing script: \"build\"", "target": "中文", "reference": {"expected": "ExplainCode"}}
 {"id": "cls-general-01", "kind": "Classify", "text": "你好", "target": "中文", "reference": {"expected": "General"}}
 {"id": "cls-general-02", "kind": "Classify", "text": "今天有点累，不想写代码了。", "target": "中文", "reference": {"expected": "General"}}
 {"id": "cls-general-03", "kind": "Classify", "text": "明天天气怎么样？", "target": "中文", "reference": {"expected": "General"}}
+{"id": "cls-general-04", "kind": "Classify", "text": "帮我写一首关于秋天的诗。", "target": "中文", "reference": {"expected": "General"}}
+{"id": "cls-general-05", "kind": "Classify", "text": "总结一下这段话的要点。", "target": "中文", "reference": {"expected": "General"}}
 {"id": "task-word-01", "kind": "TranslateWord", "text": "一", "target": "中文", "reference": {"note": "数词，最小正整数；由计数本义引申出同一、纯一、专一诸义，如一以贯之；又虚化为副词，表一旦、乃，如一鼓作气。", "structured": {"phonetic": "yī", "examples": ["《道德经》“道生一，一生二，二生三，三生万物。”（一为数之始，引申为同一、纯一）"]}}}
 {"id": "task-word-02", "kind": "TranslateWord", "text": "行", "target": "中文", "reference": {"note": "本义为道路；读 háng 指行列、行业、机构，如银行；读 xíng 指行走、通行、可以与能干，如步行、可行；两读各有引申，须依义定音。", "structured": {"phonetic": "xíng / háng", "examples": ["《论语·公冶长》“听其言而观其行。”（行读 xíng，指行为、品行）", "“银行”的行读 háng，指行业与机构"]}}}
 {"id": "task-word-03", "kind": "TranslateWord", "text": "亥", "target": "中文", "reference": {"note": "地支末位，与天干相配用以纪年月日时；亥时指夜里九点至十一点；又对应生肖猪；辛亥革命即以干支纪年得名。", "structured": {"phonetic": "hài", "examples": ["1911 年为辛亥年，辛亥革命由此得名（亥居地支末位）"]}}}

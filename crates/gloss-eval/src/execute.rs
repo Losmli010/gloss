@@ -301,7 +301,7 @@ mod tests {
     }
 
     fn head_scripts(judge: bool) -> Vec<Script> {
-        let mut scripts: Vec<Script> = (0..22).map(|_| script(CLASSIFY_REPLY)).collect();
+        let mut scripts: Vec<Script> = (0..35).map(|_| script(CLASSIFY_REPLY)).collect();
         scripts.push(script(WORD_REPLY));
         if judge {
             scripts.push(script(JUDGE_REPLY));
@@ -350,11 +350,11 @@ mod tests {
     #[tokio::test]
     async fn stub_run_settles_layers_and_pends_without_baseline() {
         let engine = Arc::new(ScriptEngine::new(head_scripts(true)));
-        let mut run = run(engine.as_ref(), &config(), options(true, 23))
+        let mut run = run(engine.as_ref(), &config(), options(true, 57))
             .await
             .expect("the stub run settles");
-        assert_eq!(run.cases.len(), 23);
-        assert_eq!(run.latency.count(), 23);
+        assert_eq!(run.cases.len(), 57);
+        assert_eq!(run.latency.count(), 57);
 
         let classify = &run.cases[0];
         assert_eq!(classify.id, "cls-word-01");
@@ -396,7 +396,7 @@ mod tests {
     #[tokio::test]
     async fn golden_and_labels_settle_stub_rounds_into_pass_and_changed() {
         let engine = Arc::new(ScriptEngine::new(head_scripts(false)));
-        let mut run = run(engine.as_ref(), &config(), options(false, 23))
+        let mut run = run(engine.as_ref(), &config(), options(false, 57))
             .await
             .expect("the stub run settles");
         let golden = GoldenMap::from([

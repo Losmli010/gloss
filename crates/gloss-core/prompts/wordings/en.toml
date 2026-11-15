@@ -118,17 +118,17 @@ name = "phonetic set"
 header = "Categories"
 separator = ": "
 
+[classify.category.ExplainCode]
+definition = "Step 1: if the input contains code, or contains the runtime output of code (errors, logs, stack traces), choose this category. When the whole selection is code or its runtime output, choose this category even if it mixes natural language."
+
 [classify.category.TranslateWord]
-definition = "Translate a single lexical item, or a list consisting mainly of lexical items. Lexical items include characters, words, fixed collocations, idioms, proverbs, proper nouns, and terminology. Idioms, proverbs, and fixed expressions are treated as a whole lexical item even if they contain a subject-predicate structure; this specific rule takes precedence over the general judgment of \"can stand alone as a sentence.\""
+definition = "Step 2: if the input is a dictionary-lookable lexical item — characters, words, fixed collocations, idioms, proverbs, proper nouns, terminology — or a list consisting mainly of such items, choose this category. Idioms, proverbs, and fixed collocations count as lexical items regardless of any subject-predicate structure."
 
 [classify.category.TranslateSentence]
-definition = "Translate a semantically complete sentence or a passage of text. For sentences, the criterion is \"can stand alone as a sentence\"; an explicit subject is not required, and elliptical sentences, imperative sentences, etc. all count; for paragraphs, judge by overall semantic completeness."
-
-[classify.category.ExplainCode]
-definition = "Understand, explain, analyze, or debug code. The following condition must be met: the input contains code, or contains the runtime output of code (such as errors, logs, stack traces)."
+definition = "Step 3: if the input carries translation intent and matches neither of the two categories above, choose this category. A sentence qualifies as long as it can stand alone; no explicit subject or closing punctuation is required, and elliptical or imperative sentences count; judge paragraphs by overall semantic completeness."
 
 [classify.category.Fallback]
-definition = "Input without a clear task intent such as translation or code explanation, e.g., casual chat, writing, summarization, general knowledge Q&A, etc."
+definition = "Step 4: if the input has no translation or code-explanation intent, choose this category, e.g., casual chat, writing, summarization, general knowledge Q&A."
 
 [target_lang]
 zh = "Chinese"
