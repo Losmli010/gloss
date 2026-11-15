@@ -26,8 +26,8 @@ Output a single JSON object with this shape:
 - Meaning: each example is evidence for or an expansion of `note`; the two complement each other; cite nothing you are unsure of. Examples must not contradict `note`; when variant interpretations exist, sort them out in `note` and list the evidence in the examples.
   The timeline of an allusion: when a quotation involves an allusion, note its origin and story, and let the remark carry how it evolved.
 - Form: join each example into one sentence following the slot skeleton below (space-separated); each element is a Markdown string and must not be `null`:
-  source "quoted original" (translation) remark
-  · Source and remark: use {{target}}; quotation: keep the original verbatim with its punctuation; translation: use {{target}}, optional.
+  source: "quoted original" (translation) remark
+  · Source and remark: use {{target}}; quotation: keep the original verbatim with its punctuation, introduced by the colon after the source; translation: use {{target}}, optional.
   Links are optional and must be authoritative sites, such as [Wikipedia](https://en.wikipedia.org/wiki/Main_Page).
 - Constraint: 1 entry when unsure; at most 5.
 - Exit: use `[]` when there are no verifiable examples; do not guess.

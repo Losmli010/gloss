@@ -38,8 +38,8 @@ Output a single JSON object with this shape:
   The timeline of an allusion: when a quotation involves an allusion, note its origin and story, and let the remark carry how it evolved.
   When an example involves a transliterated name, give the formation rationale or a conceptual explanation alongside it, leaving a seed for a future settled name.
 - Form: join each example into one sentence following the slot skeleton below (space-separated):
-  source "quoted original" (translation) remark
-  · Source and remark: use {{target}}; quotation: keep the original verbatim with its punctuation; translation: use {{target}}, optional.
+  source: "quoted original" (translation) remark
+  · Source and remark: use {{target}}; quotation: keep the original verbatim with its punctuation, introduced by the colon after the source; translation: use {{target}}, optional.
 - Constraint: 1 entry when unsure; at most 5; no numbering, line breaks, or markdown syntax.
 - Exit: use `[]` when there are no verifiable examples; do not guess.
 
