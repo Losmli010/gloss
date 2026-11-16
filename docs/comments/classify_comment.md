@@ -226,3 +226,22 @@
   两轮全空的根因。窄输出任务不为思考付费，也把首字等待从思考链长度解绑。
 - 锁点是 classify_requests_disable_thinking：对记录引擎捕获的每个出站请求
   断言 `thinking=Disabled`（含修复轮重发——重发沿用同一次构造，天然同值）。
+
+## 思考开关被端点拒绝时的默认重发（2026-11-16，评审整改）
+
+- 出站开关被拒的降级路径：`classify_traced` 首轮仍恒发
+  `thinking=Disabled`，当请求以携带诊断的 `EngineResponse` 失败且诊断
+  提及 `thinking`（严格端点不认顶层开关参数的典型 4xx 回显），改以
+  `Follow`（键不上线）原样重发一次提示词——只此一次、只此一例，其余
+  错误类（网络、限流、鉴权、不点名的 4xx）维持“引擎错误不重试、内部
+  消化落兜底”的既有口径。判别助手 `rejects_thinking_switch` 只认诊断
+  文本，与传输层“四类客户端错误启发式只认诊断”同构。
+- 动机：分类是任务路由的守门位，开关被拒若直接落兜底，意图选择整体
+  失效（全量进通用）；重发一次把可用性换回来，代价是这一个端点上分类
+  失去思考关闭收益（仍受修复轮与回复累积界约束）。出厂端点已按官方
+  文档登记该参数并经 live 评测实证，此路径是面向其余开放兼容端点的
+  防御位。
+- 锁点两条：a_thinking_switch_rejection_resends_with_the_provider_default
+  （恰一次重发、重发改 `Follow`、提示词逐字不变）与
+  a_plain_parameter_rejection_is_digested_without_resend（不点名开关的
+  4xx 不重发、内部消化落兜底恰 1 次调用）。

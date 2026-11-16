@@ -32,7 +32,7 @@ use tokio::time::{Instant as TokioInstant, Sleep, sleep_until};
 use crate::log::{info, thread, warn};
 use crate::model::{GlossError, Locale};
 use crate::ports::{AiEngine, EngineRequest, TaskChunk, TaskStream, ThinkingMode};
-use crate::prompt::PromptRegistry;
+use crate::prompt::{ChatMessage, PromptRegistry};
 use crate::repair::{RepairLoop, RepairStage};
 use crate::schema;
 use crate::task::{TaskInput, TaskKind};
@@ -144,13 +144,10 @@ pub async fn classify_traced(
     let mut messages = base.clone();
     let mut repairs = RepairLoop::new(RepairStage::Classify, CLASSIFY_REPAIRS);
     let mut rounds = Vec::new();
+    let mut follow_default = false;
     loop {
-        let request = EngineRequest {
-            messages,
-            model: model.to_owned(),
-            thinking: ThinkingMode::Disabled,
-        };
-        let round = classify_round(engine, request).await?;
+        let (round, used_default) = request_round(engine, &messages, model, follow_default).await?;
+        follow_default = used_default;
         let verdict = match round.settled {
             Some(choice) => Ok(choice),
             None => schema::validate_classify(&round.reply),
@@ -202,6 +199,43 @@ fn settled_decision(
 struct ClassifyRound {
     reply: String,
     settled: Option<schema::ClassifyChoice>,
+}
+
+fn rejects_thinking_switch(error: &GlossError) -> bool {
+    match error {
+        GlossError::EngineResponse(payload) => payload.to_lowercase().contains("thinking"),
+        _ => false,
+    }
+}
+
+async fn request_round(
+    engine: &dyn AiEngine,
+    messages: &[ChatMessage],
+    model: &str,
+    follow_default: bool,
+) -> Result<(ClassifyRound, bool), GlossError> {
+    let build = |thinking| EngineRequest {
+        messages: messages.to_vec(),
+        model: model.to_owned(),
+        thinking,
+    };
+    let thinking = if follow_default {
+        ThinkingMode::Follow
+    } else {
+        ThinkingMode::Disabled
+    };
+    match classify_round(engine, build(thinking)).await {
+        Ok(round) => Ok((round, follow_default)),
+        Err(error) if thinking == ThinkingMode::Disabled && rejects_thinking_switch(&error) => {
+            warn!(
+                thread = thread::TOKIO,
+                "endpoint rejected the thinking switch, resending with the provider default"
+            );
+            let round = classify_round(engine, build(ThinkingMode::Follow)).await?;
+            Ok((round, true))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 async fn classify_round(
@@ -432,7 +466,51 @@ mod tests {
         assert_eq!(
             engine.call_count(),
             1,
-            "engine errors are never retried in the classify stage"
+            "engine errors outside the thinking switch are never retried in the classify stage"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_thinking_switch_rejection_resends_with_the_provider_default() {
+        let engine = MockEngine::new().with_script_queue(vec![
+            vec![Err(GlossError::EngineResponse(
+                "unknown parameter: thinking".into(),
+            ))],
+            vec![Ok(TaskChunk::Delta("{\"kind\":\"ExplainCode\"}".into()))],
+        ]);
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("kubectl get pods"))
+            .await
+            .expect("the resent request settles");
+        assert_eq!(kind, TaskKind::ExplainCode);
+        let requests = engine.recorded_requests();
+        assert_eq!(requests.len(), 2, "exactly one resend, no more");
+        assert_eq!(requests[0].thinking, ThinkingMode::Disabled);
+        assert_eq!(
+            requests[1].thinking,
+            ThinkingMode::Follow,
+            "the resend drops the switch to the provider default"
+        );
+        assert_eq!(
+            requests[1].messages, requests[0].messages,
+            "the resend keeps the rendered prompt verbatim"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_plain_parameter_rejection_is_digested_without_resend() {
+        let engine = MockEngine::new().with_execute_failure(GlossError::EngineResponse(
+            "unknown parameter: temperature".into(),
+        ));
+        assert_eq!(
+            classify(&engine, "m", Locale::Zh, &text_input("gloss"))
+                .await
+                .expect("a plain rejection is digested, never raised"),
+            TaskKind::General,
+        );
+        assert_eq!(
+            engine.call_count(),
+            1,
+            "rejections that do not name the thinking switch never resend"
         );
     }
 

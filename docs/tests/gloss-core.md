@@ -129,7 +129,9 @@
 | a_complete_json_settles_before_the_stream_ends | 完整（JSON）先于流结束定型 | 给定“半截 → 闭合 → 流内错误”的增量序列，当 `classify`，则返回首个完整（JSON）的判定（等流结束就会拿到那个错误） | 2026-09-30 |
 | the_first_complete_json_wins_over_later_deltas | 首个完整（JSON）胜出 | 给定两段各自完整的 JSON 增量，当 `classify`，则返回前者（拼接后两端都解析不过，只有提前退出才拿得到） | 2026-09-30 |
 | partial_json_keeps_waiting_for_the_stream | 半截（JSON）继续等流 | 给定到流结束都补不齐的半截（JSON），当 `classify`，则流内不提前定型（增量校验不过继续等），流走完按违约进修复轮、耗尽落兜底 `General` | 2026-10-12 |
-| a_request_failure_is_digested_into_the_fallback_without_retry | 分类请求失败内部消化落兜底 | 给定分类请求整体失败，当 `classify`，则不重试、内部消化后返回 `Ok(General)`（引擎恰 1 次调用） | 2026-10-12 |
+| a_request_failure_is_digested_into_the_fallback_without_retry | 分类请求失败内部消化落兜底 | 给定分类请求整体失败（非思考开关类），当 `classify`，则不重试、内部消化后返回 `Ok(General)`（引擎恰 1 次调用） | 2026-10-12 |
+| a_thinking_switch_rejection_resends_with_the_provider_default | 思考开关被拒以默认重发 | 给定首轮请求以诊断提及 `thinking` 的 `EngineResponse` 失败，当 `classify`，则恰一次以 `Follow`（键不上线）原样重发提示词并判出类别（恰 2 次调用） | 2026-11-16 |
+| a_plain_parameter_rejection_is_digested_without_resend | 不点名开关的拒绝不重发 | 给定请求以诊断不提及 `thinking` 的 `EngineResponse` 失败，当 `classify`，则不重发、内部消化后返回 `Ok(General)`（引擎恰 1 次调用） | 2026-11-16 |
 | a_violated_reply_repairs_into_a_kind | 分类违约回复修复后判型 | 给定“散文回复 → 裸 JSON `kind`”脚本队列，当 `classify`，则修复轮对话为 `[system][user][assistant][user]`（原文、坏回复、纠错指令四轮），纠错指令把违约固定措辞作为 `reason` 回灌（无契约行）、不含坏回复与选区原文，修复后返回判定的 `kind` | 2026-10-20 |
 | classify_traced_carries_rounds_and_repairs_for_the_trajectory | 分类全轨迹携带轮次与修复数 | 给定“散文回复 → 裸 JSON `kind`”与“恒散文”两个脚本队列，当 `classify_traced`，则前者 `decision.kind` 为判定的 `kind`、`repairs` 为 1、`rounds` 按轮序携带每轮完整回复；后者耗尽落兜底 `General`、`repairs` 为 `CLASSIFY_REPAIRS`、`rounds` 为 `1+CLASSIFY_REPAIRS` 轮 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_as_is | 分类空回复原样重发修复 | 给定“空回复 → 裸 JSON `kind`”脚本队列，当 `classify`，则修复轮按 `EmptyReply` 原样重发（消息列表与首轮逐字一致，无 `assistant` 轮无纠错指令）、修复后判出 `kind` | 2026-10-12 |
