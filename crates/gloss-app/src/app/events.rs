@@ -1,19 +1,11 @@
 //! 事件循环入口与跨线程唤醒句柄。
 
 use std::error::Error;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-
-use gloss_core::config_handle::ConfigHandle;
-use gloss_core::model::Locale;
-use gloss_core::ports::{ClipboardWriter, MenuController, SceneProbe, SecretStore};
 use winit::event_loop::{EventLoop, EventLoopProxy};
 
 use crate::channel::AppEndpoints;
-use crate::runtime::cache::TaskCache;
-use crate::update::UpdateWiring;
 
-use super::GlossApp;
+use super::{AppEnv, GlossApp};
 
 #[derive(Clone, Copy, Debug)]
 pub enum UserEvent {
@@ -37,22 +29,10 @@ impl Waker {
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "组装点的主入口：每项都是不同关注点的注入端点，收敛成结构体只会把清单变成字段袋"
-)]
 pub fn run(
     endpoints: AppEndpoints,
-    config: Arc<ConfigHandle>,
-    store: Arc<dyn SecretStore>,
-    scene: Arc<dyn SceneProbe>,
-    system_locale: Locale,
+    env: AppEnv,
     permissions_ready: bool,
-    update: UpdateWiring,
-    clipboard_watch_enabled: Arc<AtomicBool>,
-    task_cache: Arc<TaskCache>,
-    menu: Box<dyn MenuController>,
-    clipboard: Box<dyn ClipboardWriter>,
     on_waker: impl FnOnce(Waker) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
     let mut builder = EventLoop::<UserEvent>::with_user_event();
@@ -61,20 +41,7 @@ pub fn run(
     let waker = Waker(event_loop.create_proxy());
     on_waker(waker)?;
     let proxy = event_loop.create_proxy();
-    let mut app = GlossApp::new(
-        endpoints,
-        config,
-        store,
-        scene,
-        system_locale,
-        permissions_ready,
-        update,
-        clipboard_watch_enabled,
-        task_cache,
-        menu,
-        clipboard,
-        Some(proxy),
-    );
+    let mut app = GlossApp::new(endpoints, env, permissions_ready, Some(proxy));
     event_loop.run_app(&mut app)?;
     Ok(())
 }

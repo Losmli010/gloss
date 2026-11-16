@@ -9,6 +9,7 @@
 - `probe_front_app`：在途划词探测触发时的前台应用标识：探测失败按误滑静默丢弃，这条标识是“划了没反应”排查日志的唯一线索；探测提交/丢弃即清。
 - `pending_reveal`：触发即显挂起：占代数的触发置位，下一次 drain_events 消费（定位与显示在那里执行，居中坐标经惰性闭包由壳侧解析；显形判定在 `machine::should_reveal`）。
 - `task_span`：当前任务的 span（触发点创建）与它所属的代数：随通道②③下发，让接收线程的日志自动带上 `generation`。重试沿用同一个（代数不变）。
+- `permissions_ready`（2026-11-17，架构重构 B2）：取材授权（辅助功能）的门控事实：构造点取启动预检结论，运行中授权落定后置位（见 `GlossApp::on_accessibility_granted`），密钥预热据此门控。从应用环境迁入会话——它不是注入端点，而是运行中会被改写的管线事实，与 `pending_reveal` 同性质，归会话状态。
 
 ## Session::span_for
 

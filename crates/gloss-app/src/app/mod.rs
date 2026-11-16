@@ -42,20 +42,19 @@ use crate::ui::settings::{self, SettingsAction, SettingsState};
 use crate::ui::style::geometry::window::OVERLAY_WIDTH;
 use crate::update::UpdateWiring;
 
-pub(crate) struct Env {
-    pub(crate) config: Arc<ConfigHandle>,
-    pub(crate) store: Arc<dyn SecretStore>,
-    pub(crate) scene: Arc<dyn SceneProbe>,
-    pub(crate) system_locale: Locale,
-    pub(crate) permissions_ready: bool,
-    pub(crate) update: UpdateWiring,
-    pub(crate) clipboard_watch_enabled: Arc<AtomicBool>,
-    pub(crate) task_cache: Arc<TaskCache>,
-    pub(crate) menu: Box<dyn MenuController>,
-    pub(crate) clipboard: Box<dyn ClipboardWriter>,
+pub struct AppEnv {
+    pub config: Arc<ConfigHandle>,
+    pub store: Arc<dyn SecretStore>,
+    pub scene: Arc<dyn SceneProbe>,
+    pub system_locale: Locale,
+    pub update: UpdateWiring,
+    pub clipboard_watch_enabled: Arc<AtomicBool>,
+    pub task_cache: Arc<TaskCache>,
+    pub menu: Box<dyn MenuController>,
+    pub clipboard: Box<dyn ClipboardWriter>,
 }
 
-impl Env {
+impl AppEnv {
     pub(crate) fn locale(&self) -> Locale {
         self.config.snapshot().language.resolve(self.system_locale)
     }
@@ -70,47 +69,27 @@ pub(crate) struct GlossApp {
     pub(crate) endpoints: Option<AppEndpoints>,
     pub(crate) machine: TaskStateMachine,
     pub(crate) session: Session,
-    pub(crate) env: Env,
+    pub(crate) env: AppEnv,
     pub(crate) settings: Option<SettingsState>,
     pub(crate) proxy: Option<EventLoopProxy<UserEvent>>,
 }
 
 impl GlossApp {
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "组装点的主入口：每项都是不同关注点的注入端点，收敛成结构体只会把清单变成字段袋"
-    )]
     fn new(
         endpoints: AppEndpoints,
-        config: Arc<ConfigHandle>,
-        store: Arc<dyn SecretStore>,
-        scene: Arc<dyn SceneProbe>,
-        system_locale: Locale,
+        env: AppEnv,
         permissions_ready: bool,
-        update: UpdateWiring,
-        clipboard_watch_enabled: Arc<AtomicBool>,
-        task_cache: Arc<TaskCache>,
-        menu: Box<dyn MenuController>,
-        clipboard: Box<dyn ClipboardWriter>,
         proxy: Option<EventLoopProxy<UserEvent>>,
     ) -> Self {
         Self {
             workspace: Workspace::new(),
             endpoints: Some(endpoints),
             machine: TaskStateMachine::new(),
-            session: Session::default(),
-            env: Env {
-                config,
-                store,
-                scene,
-                system_locale,
+            session: Session {
                 permissions_ready,
-                update,
-                clipboard_watch_enabled,
-                task_cache,
-                menu,
-                clipboard,
+                ..Session::default()
             },
+            env,
             settings: None,
             proxy,
         }
@@ -269,7 +248,7 @@ pub(crate) mod test_support {
         MemoryConfigStore, StubClipboardWriter, StubMenuController, StubSceneProbe,
     };
 
-    use super::GlossApp;
+    use super::{AppEnv, GlossApp};
 
     pub(crate) fn update_wiring() -> crate::update::UpdateWiring {
         let (_tx, receiver) =
@@ -337,6 +316,17 @@ pub(crate) mod test_support {
         ));
         let clipboard_watch_enabled =
             Arc::new(AtomicBool::new(config.snapshot().watch_clipboard_images));
+        let env = AppEnv {
+            config: Arc::clone(&config),
+            store: Arc::clone(&store) as Arc<dyn SecretStore>,
+            scene: Arc::clone(&scene),
+            system_locale: Locale::Zh,
+            update: update_wiring(),
+            clipboard_watch_enabled,
+            task_cache: Arc::new(TaskCache::new()),
+            menu: Box::new(StubMenuController),
+            clipboard: Box::new(StubClipboardWriter),
+        };
         let app = GlossApp::new(
             AppEndpoints {
                 platform_events: pe_rx,
@@ -344,16 +334,8 @@ pub(crate) mod test_support {
                 commands: cmd_tx,
                 events: ev_rx,
             },
-            Arc::clone(&config),
-            Arc::clone(&store) as Arc<dyn SecretStore>,
-            Arc::clone(&scene),
-            Locale::Zh,
+            env,
             permissions_ready,
-            update_wiring(),
-            clipboard_watch_enabled,
-            Arc::new(TaskCache::new()),
-            Box::new(StubMenuController),
-            Box::new(StubClipboardWriter),
             None,
         );
         DrivenApp {

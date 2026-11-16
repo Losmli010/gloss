@@ -87,7 +87,8 @@
 
 - 入口只持事件宿主（`EventHost`）：`run_event_loop` 解构装配包装
   （`Platform { ports, mut host }`），端口袋（`PlatformPorts`）按消费方
-  一次分发——菜单与剪贴板写入端口直交 `gloss_app::app::run`（应用层只收
+  一次分发——菜单与剪贴板写入端口随应用环境结构（`AppEnv`，2026-11-17
+  方案 B2 由入口在本模块直接构造）交 `gloss_app::app::run`（应用层只收
   端口对象，gloss-app 不再依赖 gloss-platform）；图标、桌面入口与权限
   探针这三个只在入口使用的端口移入 `Assembly`（`install_app_icon`/
   `ensure_desktop_shortcut`/`preflight_and_tap` 改收端口引用）；配置与

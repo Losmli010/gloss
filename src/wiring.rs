@@ -188,20 +188,20 @@ pub(super) fn run_event_loop(
         desktop_shortcut,
         permission,
     };
-    let result = gloss_app::app::run(
-        endpoints,
+    let env = gloss_app::app::AppEnv {
         config,
         store,
         scene,
         system_locale,
-        accessibility_ready,
         update,
         clipboard_watch_enabled,
         task_cache,
         menu,
         clipboard,
-        |waker| assembly.on_waker(waker, halves, &mut host),
-    );
+    };
+    let result = gloss_app::app::run(endpoints, env, accessibility_ready, |waker| {
+        assembly.on_waker(waker, halves, &mut host)
+    });
 
     drop(assembly.command_runtime);
     drop(host);
