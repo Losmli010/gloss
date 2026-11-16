@@ -1,67 +1,25 @@
-//! 整包原位替换（系统（Windows））：压缩包结构校验、重命名交换与重启拉起。
+//! 整包原位替换（系统（Windows）实现）：压缩包结构校验、重命名交换与重启拉起。
 //!
-//! 替换规格（仅原位替换当前可执行文件，不做安装器迁移）：解压压缩包到安装目录
-//! 同卷的临时目录并校验载荷结构——与当前可执行文件同名的文件所在目录为载荷根，
-//! 旁置文件随行；旧文件改名腾位、新文件就位、失败全量回滚（编排走共享核心）。
-//! 运行中的可执行文件不可原位覆盖（文件锁），改名不受锁限制，腾位因此可行；
-//! 上一次替换遗留的旧件在本次腾位前清场。重启经直接拉起新可执行文件完成，当前
-//! 进程随后退出——可执行文件能在改名后的原路径上存活，正是腾位策略的前提。
+//! 替换规格（仅原位替换当前可执行文件，不做安装器迁移）：提取走进程内压缩包（zip）
+//! 库，替换编排、可写性门禁与错误契约住共享核心（install_shared）。运行中的可执行
+//! 文件不可原位覆盖（文件锁），改名不受锁限制，腾位因此可行；上一次替换遗留的旧件
+//! 在本次腾位前清场。重启经直接拉起新可执行文件完成，当前进程随后退出——可执行文件
+//! 能在改名后的原路径上存活，正是腾位策略的前提。平台承载：锚点为当前可执行文件，
+//! 载荷锚点即其文件名。
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
-use super::install_shared::{self, PayloadSpec, SwapFailure};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InstallError {
-    NotABundle,
-    Unwritable { dir: PathBuf },
-    Unzip(String),
-    InvalidStructure,
-    Replace(String),
-    Relaunch(String),
-}
+pub use super::install_shared::InstallError;
+use super::install_shared::{PayloadSpec, replace};
 
 pub fn install(zip: &Path) -> Result<(), InstallError> {
     let exe = std::env::current_exe().map_err(|_| InstallError::NotABundle)?;
-    let dir = exe
-        .parent()
-        .ok_or_else(|| InstallError::Unwritable {
-            dir: PathBuf::from("/"),
-        })?
-        .to_path_buf();
-    if !install_shared::dir_writable(&dir) {
-        return Err(InstallError::Unwritable { dir });
-    }
-    replace(zip, &dir, &exe)?;
-    relaunch(&exe)
-}
-
-fn replace(zip: &Path, dir: &Path, exe: &Path) -> Result<(), InstallError> {
     let spec = PayloadSpec {
         exe_name: exe.file_name().map(|name| name.to_os_string()),
     };
-    let unpack = install_shared::prepare_unpack_dir(dir)
-        .map_err(|err| InstallError::Unzip(format!("create unpack dir: {err}")))?;
-    let payload = match extract_payload(zip, &unpack, &spec) {
-        Ok(payload) => payload,
-        Err(err) => {
-            install_shared::remove_unpack_dir(&unpack);
-            return Err(err);
-        }
-    };
-    let entries = install_shared::swap_entries(&spec, &payload, dir, exe);
-    if let Err(failure) = install_shared::swap_in_place(&entries) {
-        install_shared::remove_unpack_dir(&unpack);
-        return Err(replace_failure(failure));
-    }
-    install_shared::finish_replace(&entries, &unpack);
-    Ok(())
-}
-
-fn extract_payload(zip: &Path, unpack: &Path, spec: &PayloadSpec) -> Result<PathBuf, InstallError> {
-    extract_zip(zip, unpack)?;
-    install_shared::payload_root(unpack, spec).ok_or(InstallError::InvalidStructure)
+    replace(zip, &exe, &spec, extract_zip)?;
+    relaunch(&exe)
 }
 
 fn extract_zip(zip: &Path, unpack: &Path) -> Result<(), InstallError> {
@@ -72,13 +30,6 @@ fn extract_zip(zip: &Path, unpack: &Path) -> Result<(), InstallError> {
     archive
         .extract(unpack)
         .map_err(|err| InstallError::Unzip(format!("extract zip: {err}")))
-}
-
-fn replace_failure(failure: SwapFailure) -> InstallError {
-    match failure {
-        SwapFailure::Stash { source } => InstallError::Replace(format!("stash old file: {source}")),
-        SwapFailure::Move { source } => InstallError::Replace(format!("move new file: {source}")),
-    }
 }
 
 fn relaunch(exe: &Path) -> Result<(), InstallError> {
@@ -120,6 +71,12 @@ mod tests {
         zip_path
     }
 
+    fn spec_of(exe: &Path) -> PayloadSpec {
+        PayloadSpec {
+            exe_name: exe.file_name().map(|name| name.to_os_string()),
+        }
+    }
+
     #[test]
     fn windows_replace_swaps_the_executable_and_side_files() {
         let zip = fixture_zip(
@@ -133,7 +90,7 @@ mod tests {
         let exe = dir.join("gloss.exe");
         std::fs::write(&exe, b"old-exe").expect("old exe");
 
-        replace(&zip, &dir, &exe).expect("replace must succeed");
+        replace(&zip, &exe, &spec_of(&exe), extract_zip).expect("replace must succeed");
         assert_eq!(
             std::fs::read(&exe).expect("new exe"),
             b"new-exe",
@@ -161,7 +118,8 @@ mod tests {
         let exe = dir.join("gloss.exe");
         std::fs::write(&exe, b"old-exe").expect("old exe");
 
-        let error = replace(&zip, &dir, &exe).expect_err("zip without the exe must be rejected");
+        let error = replace(&zip, &exe, &spec_of(&exe), extract_zip)
+            .expect_err("zip without the exe must be rejected");
         assert_eq!(error, InstallError::InvalidStructure);
         assert_eq!(
             std::fs::read(&exe).expect("old exe"),
