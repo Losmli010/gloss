@@ -6,7 +6,7 @@ pub(crate) mod stubs;
 
 pub mod app;
 pub mod channel;
-pub(crate) mod flow;
+pub mod flow;
 pub mod machine;
 pub mod present;
 pub mod runtime;

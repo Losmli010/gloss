@@ -114,6 +114,21 @@
 | channels_bundles_all_four | 四通道捆绑互不串扰 | 给定 `Channels::new`，当四条通道各发一条，则各自到达、互不串扰 | 2026-09-19 |
 | event_sender_clone_is_independent | 克隆 `Sender` 独立存活 | 给定克隆 `Sender` 且原型 `drop`，当用它发送，则消息照常到达 | 2026-09-19 |
 
+### `crates/gloss-app/src/flow/acquire.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| input_ready_event_precedes_the_clipboard_restore | 取材产物先发事件后还原剪贴板 | 给定成功的文本取材替身（还原收尾向序表记 `restore` 笔），当划词取材，则通道四 `InputReady` 事件先入序表、还原收尾后到（序表恰为 `event`→`restore` 两笔） | 2026-11-17 |
+| accessibility_denied_warns_and_still_fails_the_task | 拒权失败先发事件、走 `warn` 分流 | 给定注入 `AccessibilityDenied` 的文本取材替身，当划词取材，则失败事件先于还原收尾上通道四（序表 `event`→`restore`）、捕获日志恰有拒权告警的 `WARN` 行 | 2026-11-17 |
+| other_acquire_failures_stay_below_the_warn_level | 其余取材失败不升 `warn` | 给定注入 `SelectionUnavailable` 的文本取材替身，当划词取材，则失败事件照常回传（代数随行）且捕获日志无 `WARN` 行（日常路径 `debug`） | 2026-11-17 |
+| acquire_commands_dispatch_to_the_matching_reader | 取材命令按变体分派读取器 | 给定读文本与读图两条命令依次进入处理器，当分派，则读文本出 `TaskInput::Text` 事件、读图出 `TaskInput::Image` 事件，各自携带命令代数 | 2026-11-17 |
+| a_clipboard_image_without_data_sends_nothing | 无数据的读图不回传 | 给定注入 `Ok(None)` 的图片读取替身，当剪贴板图片取材，则通道四零事件（静默丢弃不弹卡） | 2026-11-17 |
+| the_grant_watch_answers_one_granted_event_per_true_poll | 授权观察真值映射授权事件 | 给定首答真、其后恒假的观察替身，当逐拍轮询，则首拍出一条 `AccessibilityGranted`、假答拍零事件 | 2026-11-17 |
+| gesture_polls_map_into_selection_gesture_events | 手势产物逐点映射划词事件 | 给定注入两坐标的手势源替身，当逐拍轮询，则两坐标按序映射 `SelectionGesture`、抽干后零事件 | 2026-11-17 |
+| clipboard_watch_polls_map_into_pasteboard_observations | 剪贴板观察映射粘贴板事件 | 给定每拍一条观察的监视替身，当轮询，则映射一条 `PasteboardImageObserved` | 2026-11-17 |
+| a_session_without_a_gesture_source_arms_no_gesture_source | 手势源缺席不武装手势源 | 给定手势源缺席与在场两种会话，当构建事件源清单，则分别得 3 与 4 个源（缺席只少手势源） | 2026-11-17 |
+| the_degraded_hint_warns_once_per_flag_rise | 降级提示每轮置位恰告警一次 | 给定降级标志的提示源，当标志置位前后逐拍轮询，则置位前零告警、置位后首拍告警一条 `WARN`、再拍不再告警（一次性闩锁） | 2026-11-17 |
+
 ### `crates/gloss-app/src/flow/actions.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
