@@ -1,10 +1,7 @@
 # restore.rs 决策记录
 
 > 按符号锚定（不写行号，防漂移）。改到相关代码时同步更新本文件。
-
-## RESTORE_ATTEMPTS / RESTORE_RETRY_DELAY
-
-- 恢复写盘的尝试次数与退避：CI 实测高负载虚拟机上粘贴板服务会出现 ≥100ms 级的持续不可用（3×50ms 重试未成功清板一次，板上永久留下注入副本、用户原内容丢失），短窗口熬不过去；最坏退避 5×200ms ≈ 1s，低于事件线程既有的最坏占用（写入确认两轮 1.6s），且只在已失败的路径上付出。
+> 重试骨架与写盘结果形状（`restore_with_retry`、`RestoreOutcome`、剂量常量）随方案 A2（2026-11-17）上移共享层，见 fallback 记录。
 
 ## RestoreStage
 
@@ -14,21 +11,13 @@
 - `Clear`：PasteboardClear 返回非零。
 - `Put`：PasteboardPutItemFlavor 返回非零。
 
-## RestoreOutcome
-
-- 恢复写盘的结果：`ok` 表示快照已完整写回（重试耗尽也不影响调用方主结果）；`clears` 是实际发生的清板次数——Clear 是恢复序列里唯一推进 changeCount 的调用（Put 实测不推进），哨兵的写盘归因必须按它计数，半程失败后的重试成功会清两次板，固定记 1 会把差额误判成用户的外来复制；`stage`/`status` 仅在 `ok` 为假时有意义（系统调用无状态码的场合记 0，名称构造失败记 -1）。
-
 ## restore_pasteboard
 
-- 把快照原样写回：见 `restore_with_retry` 与 `restore_pasteboard_once`。
+- 把快照原样写回：重试骨架见共享层 `restore_with_retry`（fallback 记录），单次序列见本模块 `restore_pasteboard_once`。
 
 ## restore_and_log
 
-- 恢复原剪贴板内容；失败留痕（环节与状态码，供定位粘贴板服务的持续不可用）但不影响调用方的主结果。
-
-## restore_with_retry
-
-- 带重试的恢复：单次序列失败短退避后重试（每次开全新粘贴板引用，上一次 Clear 成功而 Put 失败的半程态由本次 Clear 重置），成功即止；`clears` 累加全部尝试的实际清板数，含失败尝试。退避经参数注入以便单测零延时驱动。
+- 恢复原剪贴板内容并返回实际写盘数（供恢复收尾计入写盘归因）；失败留痕（环节与状态码，供定位粘贴板服务的持续不可用）但不影响调用方的主结果。
 
 ## restore_pasteboard_once
 

@@ -1,8 +1,11 @@
 //! 快照写回（恢复序列）：预建全部数据风格数据 → 清板 → 逐条写回，单次
-//! 序列失败短退避后重试（每次开全新粘贴板引用）。
+//! 序列失败短退避后重试（每次开全新粘贴板引用）。重试骨架与写盘结果形状
+//! 住平台中立共享层（common）；本模块只留系统（macOS）的失败环节与单次
+//! 序列。
 
-use std::time::Duration;
-
+use crate::common::fallback::{
+    RESTORE_ATTEMPTS, RESTORE_RETRY_DELAY, RestoreOutcome, restore_with_retry,
+};
 use crate::ffi::cf::{CFDataCreate, CFIndex, CFStringRef, CFTypeRef, CfGuard, kCFAllocatorDefault};
 use crate::ffi::pasteboard::{PasteboardClear, PasteboardItemID, PasteboardPutItemFlavor};
 
@@ -10,25 +13,16 @@ use gloss_core::log::{debug, error, thread};
 
 use super::snapshot::{SavedContent, open_pasteboard_reported};
 
-const RESTORE_ATTEMPTS: usize = 6;
-const RESTORE_RETRY_DELAY: Duration = Duration::from_millis(200);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum RestoreStage {
+    #[default]
     Open,
     Alloc,
     Clear,
     Put,
 }
 
-pub(super) struct RestoreOutcome {
-    pub(super) ok: bool,
-    pub(super) clears: u64,
-    pub(super) stage: RestoreStage,
-    pub(super) status: i32,
-}
-
-fn restore_pasteboard(saved: &SavedContent) -> RestoreOutcome {
+fn restore_pasteboard(saved: &SavedContent) -> RestoreOutcome<RestoreStage> {
     restore_with_retry(RESTORE_ATTEMPTS, RESTORE_RETRY_DELAY, || {
         restore_pasteboard_once(saved)
     })
@@ -41,47 +35,15 @@ pub(super) fn restore_and_log(saved: &SavedContent) -> u64 {
             thread = thread::EVENT,
             stage = ?outcome.stage,
             status = outcome.status,
-            clears = outcome.clears,
+            clears = outcome.writes,
             "failed to restore clipboard"
         );
     }
-    outcome.clears
+    outcome.writes
 }
 
-pub(super) fn restore_with_retry(
-    attempts: usize,
-    delay: Duration,
-    mut once: impl FnMut() -> RestoreOutcome,
-) -> RestoreOutcome {
-    let mut clears = 0;
-    let (mut stage, mut status) = (RestoreStage::Open, 0);
-    for attempt in 0..attempts {
-        let outcome = once();
-        clears += outcome.clears;
-        if outcome.ok {
-            return RestoreOutcome {
-                ok: true,
-                clears,
-                stage: RestoreStage::Open,
-                status: 0,
-            };
-        }
-        stage = outcome.stage;
-        status = outcome.status;
-        if attempt + 1 < attempts {
-            std::thread::sleep(delay);
-        }
-    }
-    RestoreOutcome {
-        ok: false,
-        clears,
-        stage,
-        status,
-    }
-}
-
-fn restore_pasteboard_once(saved: &SavedContent) -> RestoreOutcome {
-    let fail = |stage: RestoreStage, status: i32, clears: u64| {
+fn restore_pasteboard_once(saved: &SavedContent) -> RestoreOutcome<RestoreStage> {
+    let fail = |stage: RestoreStage, status: i32, writes: u64| {
         debug!(
             thread = thread::EVENT,
             ?stage,
@@ -90,7 +52,7 @@ fn restore_pasteboard_once(saved: &SavedContent) -> RestoreOutcome {
         );
         RestoreOutcome {
             ok: false,
-            clears,
+            writes,
             stage,
             status,
         }
@@ -119,7 +81,7 @@ fn restore_pasteboard_once(saved: &SavedContent) -> RestoreOutcome {
     }
     RestoreOutcome {
         ok: true,
-        clears: 1,
+        writes: 1,
         stage: RestoreStage::Open,
         status: 0,
     }
