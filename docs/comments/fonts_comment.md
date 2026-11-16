@@ -214,15 +214,6 @@
   栈的落地，覆盖内置等宽缺的 IPA 音标字形）。
 - `zhu_family`：注正文的字体族。`serif_family`：经/疏正文的字体族。
   `mono_family`：音标的等宽字体族。
-- `FontBacking`：字体文件字节的进程内背衬——首选 mmap 文件背页，egui 登记的
-  借用切片直接指回文件页，字节不进进程私有堆，只有字形表被实际触碰的页驻留
-  物理内存；映射失败回退 `fs::read` 整包拷贝。两种形态对登记等价，消费面只有
-  只读切片（`Deref` 到 `[u8]`）。
-- `FamilyFont`：一个系统字族的解析结果——整份字体文件的字节背衬与目标面在
-  文件内的序号。字节首选 mmap 文件背页、映射失败回退整包拷贝，进程内常驻
-  （缓存于各 `OnceLock`）；ttc 集合整体交给 egui，按序号取面。
-  `FamilyFont::from_bytes`：整包字节构造——无文件来源的合成字体（测试）用的
-  等价入口；生产路径的字节背衬由 `imp::load_backing` 直接给出。
 - `insert_face`：把一张系统字面登记进字体表，字节以借用形态挂到 `name` 上。
   签名要求 `'static` 字体——登记的字节背衬必须进程内常驻（生产路径出自
   `OnceLock` 缓存），借用的 `Cow` 才不悬垂；切片指向映射页还是回退拷贝由背衬
@@ -267,7 +258,7 @@
 ## 发现器按目标分派（2026-11-05，Windows 移植 P0 D4/字体发现不立端口）
 
 - `mod imp` 双文件分派（`#[cfg] + #[path]`）：macOS 走 CoreText 发现器（fonts/imp.rs），其余目标走占位（fonts/imp_stub.rs，恒无发现）——字体字节进 egui 的接口已统一，唯一平台耦合点是“系统里怎么找字体”，不立端口（D4 例外定案），分派收在模块声明文件（本文件）。
-- 家族字体（FamilyFont）与字节背衬（FontBacking）类型从本文件迁入各平台发现器：背衬形态是实现细节，父模块流程只依赖 `as_slice` 读面与 `Option<FamilyFont>`；占位侧同名镜像并放开死码（见 imp_stub 记录）。
+- 家族字体（FamilyFont）与字节背衬（FontBacking）类型从本文件迁入各平台发现器：背衬形态是实现细节，父模块流程只依赖 `as_slice` 读面与 `Option<FamilyFont>`；占位侧同名镜像并放开死码（见 imp_stub 记录）。2026-11-17 随方案 D4 把两侧逐字一致的类型面与文件装载（`load_backing`）再上提共享背衬模块（backing.rs），镜像与死码放行随之解散，类型注记随迁（见 backing 记录）。
 - 纯 ttc 面序解析拆出 collection 模块（平台无关，随发现器与测试编译，见 collection 记录）；父模块测试对其引用从 `imp::` 改为 `collection::`。
 - 行为不变量：`system_cjk_font_is_discoverable` 等宿主字体测试断言真机形态，宿主前提缺席时断言不成立。
 - 测试面归宿（2026-11-05，P1 测试矩阵开放 Windows 时落定）：各发现器持测试期前提常量（`DISCOVERY_PRESENT`，macOS 真、占位假），父模块的测试期访问器（`system_font_discovery_present`）把它交给宿主字体类测试做前提守卫——发现面缺席的目标上这组断言没有前提，直接让路（与存储测试“环境缺席即让路”同款）；macOS 面断言照旧全量执行，DirectWrite 发现器落地（P2）后 Windows 面自然转为全量。

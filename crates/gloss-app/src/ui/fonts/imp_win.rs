@@ -3,20 +3,18 @@
 //! 经字体栈（DirectWrite）在系统字体集合里按家族名定位常规面，面序号直接取回；
 //! 文件引用经本地字体文件加载器还原成路径后，字节一次性读进界面库（egui）。
 //! 枚举不可用（字体服务异常等）时，中日韩后备退化为探测字体目录的固定候选
-//! 文件，面序号按候选文件内的已知布局取值。家族字体与字节背衬的类型定义在
-//! 本模块：字节背衬以内存映射优先、整包拷贝兜底，两种形态只由本模块的发现器
-//! 构造。查找失败只降级不阻塞启动：枚举与候选文件全落空时交回“无发现”，
-//! 命名字体族由父模块的既有降级路径兜到内置字形，与平台发现器族的约定一致。
+//! 文件，面序号按候选文件内的已知布局取值。家族字体与字节背衬的类型与文件
+//! 装载在共享背衬模块（backing）：字节背衬以内存映射优先、整包拷贝兜底，
+//! 两种形态只由发现器构造。查找失败只降级不阻塞启动：枚举与候选文件全落空
+//! 时交回“无发现”，命名字体族由父模块的既有降级路径兜到内置字形，与平台
+//! 发现器族的约定一致。
 
 #[cfg(test)]
 pub(super) const DISCOVERY_PRESENT: bool = true;
 
-use std::fs::File;
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 use gloss_core::log::{debug, info, thread, warn};
-use memmap2::Mmap;
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
     DWRITE_FONT_WEIGHT_NORMAL, DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection,
@@ -25,48 +23,11 @@ use windows::Win32::Graphics::DirectWrite::{
 use windows::core::{BOOL, HSTRING, Interface};
 
 use super::FONT_NAME;
+use super::backing::{FamilyFont, load_backing};
 
 const FONTS_DIR: &str = "C:\\Windows\\Fonts";
 
 const CJK_FALLBACK_FILES: &[(&str, u32)] = &[("msyh.ttc", 0), ("simsun.ttc", 0)];
-
-#[derive(Debug)]
-pub(super) enum FontBacking {
-    Mapped(Mmap),
-    Copied(Vec<u8>),
-}
-
-impl FontBacking {
-    pub(super) fn as_slice(&self) -> &[u8] {
-        match self {
-            FontBacking::Mapped(mapped) => mapped,
-            FontBacking::Copied(bytes) => bytes,
-        }
-    }
-}
-
-impl Deref for FontBacking {
-    type Target = [u8];
-
-    fn deref(&self) -> &[u8] {
-        self.as_slice()
-    }
-}
-
-pub(super) struct FamilyFont {
-    pub(super) bytes: FontBacking,
-    pub(super) index: u32,
-}
-
-impl FamilyFont {
-    #[cfg(test)]
-    pub(super) fn from_bytes(bytes: Vec<u8>, index: u32) -> FamilyFont {
-        FamilyFont {
-            bytes: FontBacking::Copied(bytes),
-            index,
-        }
-    }
-}
 
 pub(super) fn load_cjk(families: &[&str]) -> Option<FamilyFont> {
     let located = match load_family(families) {
@@ -243,29 +204,4 @@ fn face_file_path(face: &IDWriteFontFace) -> Result<PathBuf, String> {
     unsafe { local.GetFilePathFromKey(key, key_size, &mut path) }.map_err(|err| err.to_string())?;
     path.truncate(length as usize);
     Ok(PathBuf::from(String::from_utf16_lossy(&path)))
-}
-
-fn load_backing(path: &Path) -> Result<FontBacking, String> {
-    let mapped = File::open(path)
-        .map_err(|err| err.to_string())
-        .and_then(|file| {
-            // SAFETY: The file being mapped is a system font file: it is
-            // managed by the system, never written to by this process, and
-            // never truncated during the lifetime of the process; the mapping
-            // length equals the file length at open time, so slice reads
-            // cannot run past the mapped pages.
-            unsafe { Mmap::map(&file) }.map_err(|err| err.to_string())
-        });
-    match mapped {
-        Ok(backing) => return Ok(FontBacking::Mapped(backing)),
-        Err(err) => warn!(
-            thread = thread::FONTS,
-            path = %path.display(),
-            error = err,
-            "font file mmap failed, falling back to full copy"
-        ),
-    }
-    std::fs::read(path)
-        .map(FontBacking::Copied)
-        .map_err(|err| err.to_string())
 }

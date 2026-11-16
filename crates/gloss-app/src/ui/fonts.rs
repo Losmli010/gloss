@@ -26,7 +26,7 @@ use std::sync::{Arc, OnceLock};
 use egui::{FontData, FontDefinitions, FontFamily, FontTweak};
 use gloss_core::log::{thread, warn};
 
-use self::imp::FamilyFont;
+use self::backing::FamilyFont;
 
 pub(super) const FONT_NAME: &str = "gloss-cjk";
 pub(super) const FONT_SERIF_NAME: &str = "gloss-songti";
@@ -189,6 +189,8 @@ fn register_mono_family(
         .families
         .insert(FontFamily::Name(FONT_MONO_NAME.into()), chain);
 }
+
+mod backing;
 
 #[cfg(target_os = "macos")]
 #[path = "fonts/imp.rs"]
