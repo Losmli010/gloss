@@ -2,7 +2,7 @@
 //! 多模态部件）在这里映成传输形状；图像部件的编码（Base64）与数据地址
 //! 前缀只在请求体构造处编码（域类型不带内联数据）。
 
-use crate::ports::EngineRequest;
+use crate::ports::{EngineRequest, ThinkingMode};
 use crate::prompt::{ChatMessage, ContentPart, MessageContent};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -15,8 +15,8 @@ pub(super) fn chat_request_body(request: &EngineRequest) -> serde_json::Value {
         "stream": true,
         "response_format": { "type": "json_object" },
     });
-    if let Some(max_tokens) = request.max_tokens {
-        body["max_tokens"] = serde_json::json!(max_tokens);
+    if request.thinking == ThinkingMode::Disabled {
+        body["thinking"] = serde_json::json!({ "type": "disabled" });
     }
     body
 }

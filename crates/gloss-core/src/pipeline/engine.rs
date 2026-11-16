@@ -20,7 +20,7 @@ use crate::lang_gate;
 use crate::lang_gate::LangViolation;
 use crate::log::{thread, warn};
 use crate::model::{GlossError, Lang};
-use crate::ports::{AiEngine, EngineRequest, TaskChunk};
+use crate::ports::{AiEngine, EngineRequest, TaskChunk, ThinkingMode};
 use crate::prompt::{ChatMessage, PromptRegistry};
 use crate::repair::{RepairLoop, RepairStage};
 use crate::schema::{self, Violation};
@@ -195,7 +195,7 @@ pub async fn run_task_rounds(
         let request = EngineRequest {
             messages,
             model: model.to_owned(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
         let reply = collect_round(engine, request, &mut on_chunk).await?;
         if reply.finish_reason.as_deref() == Some(FINISH_CONTENT_FILTER) {
@@ -284,7 +284,7 @@ async fn run_lang_rounds(
         let request = EngineRequest {
             messages: next,
             model: stage.model.to_owned(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
         let round = collect_round(stage.engine, request, &mut on_chunk).await?;
         if round.finish_reason.as_deref() == Some(FINISH_CONTENT_FILTER) {

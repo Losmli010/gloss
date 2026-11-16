@@ -112,9 +112,9 @@ pub fn format_detail(violation: Violation, raw: &str) -> Option<FormatDetail> {
 }
 
 pub const CLASSIFY_CATEGORY_NAMES: [&str; 4] = [
+    "ExplainCode",
     "TranslateWord",
     "TranslateSentence",
-    "ExplainCode",
     "Fallback",
 ];
 
