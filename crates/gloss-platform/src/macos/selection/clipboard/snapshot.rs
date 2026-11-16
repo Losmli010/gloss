@@ -13,9 +13,7 @@ use crate::ffi::pasteboard::{
     PasteboardSynchronize,
 };
 
-use gloss_core::log::{debug, error, thread};
-
-use super::restore::{restore_and_log, restore_pasteboard};
+use gloss_core::log::{debug, thread};
 
 pub(super) struct OpenPasteboard {
     pub(super) raw: PasteboardRef,
@@ -59,45 +57,7 @@ pub(super) struct SavedItem {
     pub(super) flavors: Vec<SavedFlavor>,
 }
 
-pub(super) struct SavedContent(pub(super) Vec<SavedItem>);
-
-pub(super) struct PendingRestore {
-    saved: SavedContent,
-    skip: bool,
-}
-
-impl PendingRestore {
-    pub(super) fn new(saved: SavedContent) -> Self {
-        Self { saved, skip: false }
-    }
-
-    pub(super) fn restore_now(&mut self) -> u64 {
-        self.skip = true;
-        let outcome = restore_pasteboard(&self.saved);
-        if !outcome.ok {
-            error!(
-                thread = thread::EVENT,
-                stage = ?outcome.stage,
-                status = outcome.status,
-                clears = outcome.clears,
-                "failed to restore clipboard"
-            );
-        }
-        outcome.clears
-    }
-
-    pub(super) fn skip_restore(&mut self) {
-        self.skip = true;
-    }
-}
-
-impl Drop for PendingRestore {
-    fn drop(&mut self) {
-        if !self.skip {
-            restore_and_log(&self.saved);
-        }
-    }
-}
+pub(crate) struct SavedContent(pub(super) Vec<SavedItem>);
 
 pub(super) fn snapshot_pasteboard() -> Option<SavedContent> {
     let Some(pb) = open_pasteboard() else {

@@ -229,6 +229,15 @@
 | retry_stops_at_the_first_success | 重试首次成功即止 | 给定第 1 次即成功的 `once` 与 3 次上限，当 `restore_with_retry`，则只调 1 次、成功返回且清板数记 1 | 2026-10-19 |
 | retry_counts_the_clears_of_every_attempt_until_success | 重试累加各次尝试的实际清板数 | 给定依次“清 1 失败、清 0 失败、清 1 成功”的 `once` 与 3 次上限，当 `restore_with_retry`，则调满 3 次、成功返回且清板数记 2 | 2026-10-19 |
 | exhausted_retries_carry_the_last_attempt_stage_status_and_total_clears | 重试耗尽保留末次环节状态码与总清板数 | 给定两次皆失败的 `once`（首次 `Alloc/5` 清 1、末次 `Clear/42` 清 0），当 `restore_with_retry`，则失败返回、清板数记 1、环节状态码取末次（`Clear/42`） | 2026-10-19 |
+| a_confirmed_write_reads_back_and_restores_with_full_attribution | 确认写入读回后恢复并全额归因 | 给定替身板面（预计数 7、快照可保全、代数首调给基线后前进、注入成功、读回恒返回选中文本）与零确认窗，当 `read_with` 一轮，则产物为读回文本、注入恰 1 次、`finish` 按快照恢复且轮次归因为注入 1 加恢复 1 | 2026-11-16 |
+| restore_writes_feed_the_round_attribution | 恢复写盘数计入轮次归因 | 给定恢复替身自报写盘 2 的成功轮，当 `finish` 收口，则轮次归因为注入 1 加恢复 2 | 2026-11-16 |
+| an_unconfirmed_write_reinjects_once_and_skips_restore | 未确认写入重注入一轮且不恢复 | 给定代数恒不前进的替身与零确认窗，当 `read_with` 一轮，则注入恰 2 次（首发加重注入）、不进读回轮询、按获取失败上抛、失败轮不恢复且归因记零 | 2026-11-16 |
+| an_empty_read_back_after_confirmation_stays_unrestored | 确认后读回为空不恢复 | 给定代数前进但读回恒为空的替身与零确认窗，当 `read_with` 一轮，则读回轮询一轮后按获取失败上抛、不恢复且归因记零（注入副产物按外来放行） | 2026-11-16 |
+| a_board_changed_after_read_skips_restore_but_keeps_the_acquisition | 读回后现值被改跳过恢复但保留产物 | 给定读回成功后现值变为他人拷贝的替身与零确认窗，当 `read_with` 一轮，则产物照常上抛、恢复跳过且归因只计注入 | 2026-11-16 |
+| a_declined_snapshot_stays_idle_without_injecting | 快照放弃轮空转不注入 | 给定快照整轮放弃的替身，当 `read_with` 一轮，则注入与监视都不触碰、空收尾无恢复也无归因 | 2026-11-16 |
+| dropping_a_settle_without_finish_restores_the_snapshot | 未收口的收尾按快照恢复 | 给定成功轮的收尾不经 `finish` 直接丢弃，当收尾析构（Drop）展开，则按快照恢复原剪贴板且不进写盘归因 | 2026-11-16 |
+| an_unavailable_monitor_declines_without_injecting | 监视不可用放弃不注入 | 给定监视基线建立失败的替身与零确认窗，当 `read_with` 一轮，则不注入、按失败轮收口（不恢复、归因记零） | 2026-11-16 |
+| a_failed_injection_skips_restore_with_zero_attribution | 注入失败不重注入且不恢复 | 给定注入即失败的替身与零确认窗，当 `read_with` 一轮，则注入恰 1 次（失败即弃）、失败轮不恢复且归因记零 | 2026-11-16 |
 
 ### `crates/gloss-platform/src/macos/storage/keychain.rs`
 

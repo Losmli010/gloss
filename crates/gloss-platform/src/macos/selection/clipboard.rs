@@ -41,7 +41,7 @@ fn wait_for_write(
 }
 
 mod imp {
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     use arboard::Clipboard;
 
@@ -52,18 +52,19 @@ mod imp {
     use gloss_core::log::{debug, thread};
     use gloss_core::model::GlossError;
 
-    use super::snapshot::{OpenPasteboard, PendingRestore, open_pasteboard, snapshot_pasteboard};
+    use super::restore::restore_and_log;
+    use super::snapshot::{OpenPasteboard, SavedContent, open_pasteboard, snapshot_pasteboard};
     use super::{WRITE_CONFIRM_TIMEOUT, WRITE_POLL_INTERVAL, wait_for_write};
 
-    pub struct FallbackSettle {
-        pending: Option<PendingRestore>,
+    pub struct FallbackSettle<S> {
+        pending: Option<PendingRestore<S>>,
         round: WatchRoundFlag,
         pre: u64,
         acquired: u64,
         restore: bool,
     }
 
-    impl FallbackSettle {
+    impl<S> FallbackSettle<S> {
         fn idle(round: WatchRoundFlag) -> Self {
             Self {
                 pending: None,
@@ -75,7 +76,7 @@ mod imp {
         }
 
         fn planned(
-            pending: PendingRestore,
+            pending: PendingRestore<S>,
             round: WatchRoundFlag,
             pre: u64,
             acquired: bool,
@@ -109,6 +110,148 @@ mod imp {
         #[cfg(test)]
         pub(super) fn restores_on_unwind(&self) -> bool {
             self.pending.is_some()
+        }
+    }
+
+    pub(super) struct PendingRestore<S> {
+        saved: S,
+        restore: fn(&S) -> u64,
+        skip: bool,
+    }
+
+    impl<S> PendingRestore<S> {
+        fn new(saved: S, restore: fn(&S) -> u64) -> Self {
+            Self {
+                saved,
+                restore,
+                skip: false,
+            }
+        }
+
+        fn restore_now(&mut self) -> u64 {
+            self.skip = true;
+            (self.restore)(&self.saved)
+        }
+
+        fn skip_restore(&mut self) {
+            self.skip = true;
+        }
+    }
+
+    impl<S> Drop for PendingRestore<S> {
+        fn drop(&mut self) {
+            if !self.skip {
+                (self.restore)(&self.saved);
+            }
+        }
+    }
+
+    pub(super) struct FallbackBoard<S, P, Sn, M, I, T> {
+        pub(super) pre_count: P,
+        pub(super) snapshot: Sn,
+        pub(super) restore: fn(&S) -> u64,
+        pub(super) monitor: M,
+        pub(super) inject: I,
+        pub(super) read_text: T,
+    }
+
+    pub(super) fn read_with<S, P, Sn, M, I, T>(
+        round: WatchRoundFlag,
+        confirm_timeout: Duration,
+        board: FallbackBoard<S, P, Sn, M, I, T>,
+    ) -> (Result<String, GlossError>, FallbackSettle<S>)
+    where
+        P: FnOnce() -> u64,
+        Sn: FnOnce(Result<String, arboard::Error>) -> Option<S>,
+        M: FnMut() -> Option<u64>,
+        I: Fn() -> Result<(), GlossError>,
+        T: FnMut() -> Result<String, arboard::Error>,
+    {
+        let FallbackBoard {
+            pre_count,
+            snapshot,
+            restore,
+            monitor,
+            inject,
+            mut read_text,
+        } = board;
+        let pre = pre_count();
+        let Some(saved) = snapshot(read_text()) else {
+            debug!(
+                thread = thread::EVENT,
+                "original clipboard content cannot be fully preserved, fallback declined"
+            );
+            return (
+                Err(GlossError::SelectionUnavailable),
+                FallbackSettle::idle(round),
+            );
+        };
+        let pending = PendingRestore::new(saved, restore);
+        let outcome = attempt(confirm_timeout, &mut read_text, monitor, inject);
+        let settle = match &outcome {
+            Ok(acquired) => {
+                let current_is_ours = matches!(read_text(), Ok(current) if &current == acquired);
+                if current_is_ours {
+                    FallbackSettle::planned(pending, round, pre, true, true)
+                } else {
+                    debug!(
+                        thread = thread::EVENT,
+                        "clipboard changed after read, restore skipped"
+                    );
+                    FallbackSettle::planned(pending, round, pre, true, false)
+                }
+            }
+            Err(_) => FallbackSettle::planned(pending, round, pre, false, false),
+        };
+        (outcome, settle)
+    }
+
+    fn attempt(
+        confirm_timeout: Duration,
+        read_text: &mut impl FnMut() -> Result<String, arboard::Error>,
+        mut monitor: impl FnMut() -> Option<u64>,
+        inject: impl Fn() -> Result<(), GlossError>,
+    ) -> Result<String, GlossError> {
+        let Some(baseline) = monitor() else {
+            debug!(
+                thread = thread::EVENT,
+                "change monitor unavailable, fallback declined"
+            );
+            return Err(GlossError::SelectionUnavailable);
+        };
+        inject()?;
+        let mut deadline = Instant::now() + confirm_timeout;
+        let mut confirmed = wait_for_write(baseline, &mut monitor, deadline);
+        if !confirmed {
+            debug!(
+                thread = thread::EVENT,
+                "copy write not confirmed, retrying injection once"
+            );
+            inject()?;
+            deadline = Instant::now() + confirm_timeout;
+            confirmed = wait_for_write(baseline, &mut monitor, deadline);
+        }
+        if !confirmed {
+            debug!(
+                thread = thread::EVENT,
+                "copy write not confirmed within timeout"
+            );
+            return Err(GlossError::SelectionUnavailable);
+        }
+        loop {
+            if let Ok(text) = read_text()
+                && !text.is_empty()
+            {
+                return Ok(text);
+            }
+            if Instant::now() >= deadline {
+                debug!(
+                    thread = thread::EVENT,
+                    "copy confirmed but no text readable within timeout"
+                );
+                return Err(GlossError::SelectionUnavailable);
+            }
+            std::thread::sleep(WRITE_POLL_INTERVAL);
         }
     }
 
@@ -151,7 +294,9 @@ mod imp {
             Self { round }
         }
 
-        pub fn read(&mut self) -> (Result<String, GlossError>, FallbackSettle) {
+        pub(crate) fn read(
+            &mut self,
+        ) -> (Result<String, GlossError>, FallbackSettle<SavedContent>) {
             let mut clipboard = match Clipboard::new() {
                 Ok(clipboard) => clipboard,
                 Err(err) => {
@@ -166,83 +311,32 @@ mod imp {
                     );
                 }
             };
-            let pre_count = pasteboard_change_count().unwrap_or(0);
-            let Some(saved) = snapshot_pasteboard() else {
-                debug!(
-                    thread = thread::EVENT,
-                    "original clipboard content cannot be fully preserved, fallback declined"
-                );
-                return (
-                    Err(GlossError::SelectionUnavailable),
-                    FallbackSettle::idle(self.round.clone()),
-                );
-            };
-            let pending = PendingRestore::new(saved);
-            let outcome = self.attempt(&mut clipboard);
-            let settle = match &outcome {
-                Ok(acquired) => {
-                    let current_is_ours =
-                        matches!(clipboard.get_text(), Ok(current) if &current == acquired);
-                    if current_is_ours {
-                        FallbackSettle::planned(pending, self.round.clone(), pre_count, true, true)
-                    } else {
-                        debug!(
-                            thread = thread::EVENT,
-                            "clipboard changed after read, restore skipped"
-                        );
-                        FallbackSettle::planned(pending, self.round.clone(), pre_count, true, false)
-                    }
-                }
-                Err(_) => {
-                    FallbackSettle::planned(pending, self.round.clone(), pre_count, false, false)
-                }
-            };
-            (outcome, settle)
-        }
-
-        fn attempt(&mut self, clipboard: &mut Clipboard) -> Result<String, GlossError> {
-            let Some(mut monitor) = ChangeMonitor::new() else {
-                debug!(
-                    thread = thread::EVENT,
-                    "change monitor unavailable, fallback declined"
-                );
-                return Err(GlossError::SelectionUnavailable);
-            };
-            inject_copy_key()?;
-            let baseline = monitor.baseline();
-            let mut deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
-            let mut confirmed = wait_for_write(baseline, || Some(monitor.generation()), deadline);
-            if !confirmed {
-                debug!(
-                    thread = thread::EVENT,
-                    "copy write not confirmed, retrying injection once"
-                );
-                inject_copy_key()?;
-                deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
-                confirmed = wait_for_write(baseline, || Some(monitor.generation()), deadline);
-            }
-            if !confirmed {
-                debug!(
-                    thread = thread::EVENT,
-                    "copy write not confirmed within timeout"
-                );
-                return Err(GlossError::SelectionUnavailable);
-            }
-            loop {
-                if let Ok(text) = clipboard.get_text()
-                    && !text.is_empty()
-                {
-                    return Ok(text);
-                }
-                if Instant::now() >= deadline {
-                    debug!(
-                        thread = thread::EVENT,
-                        "copy confirmed but no text readable within timeout"
-                    );
-                    return Err(GlossError::SelectionUnavailable);
-                }
-                std::thread::sleep(WRITE_POLL_INTERVAL);
-            }
+            read_with(
+                self.round.clone(),
+                WRITE_CONFIRM_TIMEOUT,
+                FallbackBoard {
+                    pre_count: || pasteboard_change_count().unwrap_or(0),
+                    snapshot: |_| snapshot_pasteboard(),
+                    restore: restore_and_log,
+                    monitor: {
+                        let mut monitor: Option<ChangeMonitor> = None;
+                        move || {
+                            let fresh = monitor.is_none();
+                            if fresh {
+                                monitor = ChangeMonitor::new();
+                            }
+                            let change = monitor.as_mut()?;
+                            Some(if fresh {
+                                change.baseline()
+                            } else {
+                                change.generation()
+                            })
+                        }
+                    },
+                    inject: inject_copy_key,
+                    read_text: move || clipboard.get_text(),
+                },
+            )
         }
     }
 
@@ -290,11 +384,46 @@ pub use imp::{ClipboardFallbackReader, FallbackSettle};
 
 #[cfg(test)]
 mod tests {
+    use std::cell::{Cell, RefCell};
     use std::time::{Duration, Instant};
 
-    use super::imp::keys_to_release;
+    use gloss_core::model::GlossError;
+
+    use crate::clipboard::{RoundWrites, WatchRoundFlag};
+
+    use super::imp::{FallbackBoard, keys_to_release, read_with};
     use super::restore::{RestoreOutcome, RestoreStage, restore_with_retry};
     use super::wait_for_write;
+
+    #[derive(Debug, PartialEq)]
+    struct Snapshot(&'static str);
+
+    thread_local! {
+        static RESTORE_LOG: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+        static RESTORE_WRITES: Cell<u64> = const { Cell::new(1) };
+    }
+
+    fn recorded_restore(saved: &Snapshot) -> u64 {
+        RESTORE_LOG.with(|log| log.borrow_mut().push(saved.0));
+        RESTORE_WRITES.with(Cell::get)
+    }
+
+    fn restore_log() -> Vec<&'static str> {
+        RESTORE_LOG.with(|log| log.borrow().clone())
+    }
+
+    fn with_restore_writes(writes: u64) {
+        RESTORE_WRITES.with(|cell| cell.set(writes));
+    }
+
+    fn confirmed_monitor() -> impl FnMut() -> Option<u64> {
+        let calls = Cell::new(0u32);
+        move || {
+            let call = calls.get();
+            calls.set(call + 1);
+            Some(u64::from(call > 0))
+        }
+    }
 
     fn outcome(ok: bool, clears: u64) -> RestoreOutcome {
         RestoreOutcome {
@@ -425,6 +554,303 @@ mod tests {
             vec![2, 1],
             "修饰键释放失败：C 已释放，重复 key-up 幂等"
         );
+    }
+
+    #[test]
+    fn a_confirmed_write_reads_back_and_restores_with_full_attribution() {
+        let inject_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: confirmed_monitor(),
+                inject: || {
+                    inject_calls.set(inject_calls.get() + 1);
+                    Ok(())
+                },
+                read_text: || Ok("the selection".to_owned()),
+            },
+        );
+        assert_eq!(outcome, Ok("the selection".to_owned()));
+        assert_eq!(inject_calls.get(), 1);
+        assert!(settle.restores_on_unwind());
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 2 }),
+            "归因 = 确认的注入复制 1 加恢复写盘 1"
+        );
+        assert_eq!(restore_log(), vec!["saved-content"]);
+    }
+
+    #[test]
+    fn restore_writes_feed_the_round_attribution() {
+        with_restore_writes(2);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: confirmed_monitor(),
+                inject: || Ok(()),
+                read_text: || Ok("the selection".to_owned()),
+            },
+        );
+        assert_eq!(outcome, Ok("the selection".to_owned()));
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 3 }),
+            "归因按恢复的实际写盘数计（重试成功会多清板）"
+        );
+    }
+
+    #[test]
+    fn an_unconfirmed_write_reinjects_once_and_skips_restore() {
+        let inject_calls = Cell::new(0u32);
+        let monitor_calls = Cell::new(0u32);
+        let text_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: || {
+                    monitor_calls.set(monitor_calls.get() + 1);
+                    Some(0u64)
+                },
+                inject: || {
+                    inject_calls.set(inject_calls.get() + 1);
+                    Ok(())
+                },
+                read_text: || {
+                    text_calls.set(text_calls.get() + 1);
+                    Ok("on the board".to_owned())
+                },
+            },
+        );
+        assert_eq!(outcome, Err(GlossError::SelectionUnavailable));
+        assert_eq!(inject_calls.get(), 2, "未确认时重注入一轮");
+        assert_eq!(monitor_calls.get(), 3, "首调基线加每窗一轮探");
+        assert_eq!(text_calls.get(), 1, "未确认不进读回轮询");
+        assert!(settle.restores_on_unwind());
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 0 }),
+            "失败轮不恢复、写盘归因为零"
+        );
+        assert_eq!(restore_log(), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn an_empty_read_back_after_confirmation_stays_unrestored() {
+        let inject_calls = Cell::new(0u32);
+        let text_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: confirmed_monitor(),
+                inject: || {
+                    inject_calls.set(inject_calls.get() + 1);
+                    Ok(())
+                },
+                read_text: || {
+                    text_calls.set(text_calls.get() + 1);
+                    Ok(String::new())
+                },
+            },
+        );
+        assert_eq!(outcome, Err(GlossError::SelectionUnavailable));
+        assert_eq!(inject_calls.get(), 1);
+        assert_eq!(text_calls.get(), 2, "读回轮询一轮后随期限收口");
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 0 }),
+            "确认了写入却读不出文本按外来放行，不恢复"
+        );
+        assert_eq!(restore_log(), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_board_changed_after_read_skips_restore_but_keeps_the_acquisition() {
+        let text_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: confirmed_monitor(),
+                inject: || Ok(()),
+                read_text: || {
+                    let call = text_calls.get();
+                    text_calls.set(call + 1);
+                    match call {
+                        0 => Ok("preset".to_owned()),
+                        1 => Ok("the selection".to_owned()),
+                        _ => Ok("the user's copy".to_owned()),
+                    }
+                },
+            },
+        );
+        assert_eq!(outcome, Ok("the selection".to_owned()));
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 1 }),
+            "现值被改只计注入复制，恢复跳过"
+        );
+        assert_eq!(
+            restore_log(),
+            Vec::<&str>::new(),
+            "用户窗口期的新拷贝不被覆盖"
+        );
+    }
+
+    #[test]
+    fn a_declined_snapshot_stays_idle_without_injecting() {
+        let inject_calls = Cell::new(0u32);
+        let monitor_calls = Cell::new(0u32);
+        let text_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| None,
+                restore: recorded_restore,
+                monitor: || {
+                    monitor_calls.set(monitor_calls.get() + 1);
+                    Some(0u64)
+                },
+                inject: || {
+                    inject_calls.set(inject_calls.get() + 1);
+                    Ok(())
+                },
+                read_text: || {
+                    text_calls.set(text_calls.get() + 1);
+                    Ok("on the board".to_owned())
+                },
+            },
+        );
+        assert_eq!(outcome, Err(GlossError::SelectionUnavailable));
+        assert_eq!(inject_calls.get(), 0, "快照放弃轮不注入");
+        assert_eq!(monitor_calls.get(), 0);
+        assert_eq!(text_calls.get(), 1);
+        assert!(!settle.restores_on_unwind(), "放弃轮板未被触碰，无恢复收尾");
+        settle.finish();
+        assert_eq!(round.peek(), None, "放弃轮不进写盘归因");
+        assert_eq!(restore_log(), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn dropping_a_settle_without_finish_restores_the_snapshot() {
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: confirmed_monitor(),
+                inject: || Ok(()),
+                read_text: || Ok("the selection".to_owned()),
+            },
+        );
+        assert_eq!(outcome, Ok("the selection".to_owned()));
+        drop(settle);
+        assert_eq!(
+            restore_log(),
+            vec!["saved-content"],
+            "未显式收口时 Drop 兜底按快照恢复"
+        );
+        assert_eq!(round.peek(), None, "Drop 兜底不进写盘归因");
+    }
+
+    #[test]
+    fn an_unavailable_monitor_declines_without_injecting() {
+        let inject_calls = Cell::new(0u32);
+        let monitor_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: || {
+                    monitor_calls.set(monitor_calls.get() + 1);
+                    None
+                },
+                inject: || {
+                    inject_calls.set(inject_calls.get() + 1);
+                    Ok(())
+                },
+                read_text: || Ok("on the board".to_owned()),
+            },
+        );
+        assert_eq!(outcome, Err(GlossError::SelectionUnavailable));
+        assert_eq!(monitor_calls.get(), 1, "基线建立失败即放弃");
+        assert_eq!(inject_calls.get(), 0);
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 0 }),
+            "监视不可用按失败轮收口，不恢复"
+        );
+        assert_eq!(restore_log(), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_failed_injection_skips_restore_with_zero_attribution() {
+        let inject_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: confirmed_monitor(),
+                inject: || {
+                    inject_calls.set(inject_calls.get() + 1);
+                    Err(GlossError::SelectionUnavailable)
+                },
+                read_text: || Ok("on the board".to_owned()),
+            },
+        );
+        assert_eq!(outcome, Err(GlossError::SelectionUnavailable));
+        assert_eq!(inject_calls.get(), 1, "注入失败即弃，不重注入");
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 0 }),
+            "注入失败轮不恢复、写盘归因为零"
+        );
+        assert_eq!(restore_log(), Vec::<&str>::new());
     }
 }
 
@@ -746,7 +1172,7 @@ mod live_tests {
             return None;
         }
         let _pb = CfGuard::new(pb as *const _);
-        // SAFETY: `pb` is a valid +1 reference; the local reference may lag behind
+        // SAFETY: `pb` is a valid +1 reference, and the local reference may lag behind
         // the global board, so synchronize first.
         unsafe { PasteboardSynchronize(pb) };
         let mut id: PasteboardItemID = std::ptr::null_mut();

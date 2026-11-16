@@ -34,13 +34,13 @@ pub(super) struct RestoreOutcome {
     pub(super) stage: RestoreStage,
 }
 
-pub(super) fn restore_board(saved: &SavedContent) -> RestoreOutcome {
+fn restore_board(saved: &SavedContent) -> RestoreOutcome {
     restore_with_retry(RESTORE_ATTEMPTS, RESTORE_RETRY_DELAY, || {
         restore_once(saved)
     })
 }
 
-pub(super) fn restore_and_log(saved: &SavedContent) {
+pub(super) fn restore_and_log(saved: &SavedContent) -> u64 {
     let outcome = restore_board(saved);
     if !outcome.ok {
         error!(
@@ -50,6 +50,7 @@ pub(super) fn restore_and_log(saved: &SavedContent) {
             "failed to restore clipboard"
         );
     }
+    outcome.writes
 }
 
 pub(super) fn restore_with_retry(
