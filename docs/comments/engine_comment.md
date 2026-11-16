@@ -85,10 +85,10 @@ core 保持无日志面，避免同一事实在两层各记一条。
 - 为什么 `RunOutput.repairs` 只计任务段：分类修复在 `classify()` 内部消化、发生在 `on_classified` 之前，对调用方不可见也无 UI 语义；评测统计（方案步骤 7）关注的是任务产物的修复成本，分类预算是 `CLASSIFY_REPAIRS` 的 TTFT 问题。
 - 为什么 run 新增第三个回调 `on_repair` 而不复用 `on_classified`：修复重置只清流式正文并切页脚文案，不改变任务类型——语义不同的回调分开，桥侧一行一个事件，状态机侧守卫独立（`accept_repairing` 同 `accept_chunk` 守卫）。
 
-### 任务段循环抽出 run_task_rounds（2026-10-12，契约校验与重试方案步骤 7）
+### 任务段循环抽出 run_task_rounds（2026-10-12，契约校验与重试方案步骤 7；pub 形态 2026-11-17 起收为 pub(crate)，见下方 C4 节）
 
-- 为什么把 run() 的任务段循环（渲染底座之后的流式转发 → 契约校验 → 修复轮）抽成 pub 自由函数：评测 live 轨需要以数据集给定的 kind 直达任务段（分类轨已由 `classify` 单独度量，混进任务轨会把两次模型调用与判型噪声搅进任务指标），而任务段的修复形态必须与生产同一份——抽函数让 `AiTaskService::run` 与 gloss-eval 消费同一循环，`RunOutput.repairs` 对评测才是真数字。备选“eval 自抄一份循环”被否：预算、EmptyReply 转换、content_filter/length 分支任何一处漂移，评测就在静默地度量另一个产品。
-- 为什么以参数传 `PromptRegistry`/`locale`/`base` 而不是做成 `AiTaskService` 的第二个方法：评测侧没有 service 可依附（它自组底座），自由函数 + 显式参数让“生产 run = 分类 + 本函数”这个等式在签名上可见；参数虽多（九个），但个个独立缺一不可，捆参数结构只是把装拆包成本转嫁给两个调用方（clippy too_many_arguments 显式豁免，与 gloss-app 事件装配同理由）。
+- 为什么把 run() 的任务段循环（渲染底座之后的流式转发 → 契约校验 → 修复轮）抽成自由函数：评测 live 轨需要以数据集给定的 kind 直达任务段（分类轨已由 `classify` 单独度量，混进任务轨会把两次模型调用与判型噪声搅进任务指标），而任务段的修复形态必须与生产同一份——抽函数让 `AiTaskService::run` 与 gloss-eval 消费同一循环，`RunOutput.repairs` 对评测才是真数字。备选“eval 自抄一份循环”被否：预算、EmptyReply 转换、content_filter/length 分支任何一处漂移，评测就在静默地度量另一个产品。
+- 曾以参数传 `PromptRegistry`/`locale`/`base` 并公开 pub 让评测自拼底座（当时“评测侧没有 service 可依附”）；C4 起评测持有任务服务、经门面进入，该形态退役（沿革见下方 C4 节），函数收为 `pub(crate)`。
 - `locale` 由 run 从 `options.prompt_locale` 解出后传入：修复指令语言与任务书同源（一次任务只认触发时定下的那一份），函数内不得再取缺省——这是抽取时最容易引入的静默行为漂移。
 
 ### run 不再复制 model id（P1-1 clone 削减，2026-10-13）
@@ -153,7 +153,7 @@ core 保持无日志面，避免同一事实在两层各记一条。
 ### run_task_rounds（源码注释迁入，调用方契约）
 
 - 任务段执行循环（意图定型之后的完整执行段）：流式转发（原始增量经 `on_chunk` 逐条转交，同时累积）→ **任务契约校验**（`schema::validate_task`）→ 违约进修复轮（对话形态 `[system][user 原文/图][assistant 上一次坏回复][user 纠错指令]`，EmptyReply 原样重发），预算 `TASK_REPAIRS` 轮，每轮开始前经 `on_repair` 通知调用方重置 UI → 通过即返回，耗尽则原始文本原样上交（完成态解析落降级产物）。引擎错误（网络/鉴权/限流/JSON 模式不支持/多模态不支持/中途协议错误）一律不重试、原样上抛。
-- 独立成 pub 供 gloss-eval 的 live 轨直达任务段：评测以数据集给定的 kind 渲染底座（`PromptRegistry::render` 的产物），与生产消费同一循环，评测数字度量的才是生产行为（`RunOutput.repairs` 即本函数的修复轮次）。
+- 独立供生产 `run` 与评测门面消费同一循环：评测数字度量的才是生产行为（`RunOutput.repairs` 即本函数的修复轮次）。评测入口在 `AiTaskService::run_fixed_task`（C4 起，见下节），本函数与 `TaskStage` 收为 `pub(crate)`，评测不得再拼装编排内部。
 - 调用方契约（`AiTaskService::run` 与评测共用）：`on_chunk` 收到的是**原始流**（纯 JSON 契约下就是模型的原始输出），流式显示的渐进提取与完成态解析都在调用方；修复轮的增量接在违约轮之后继续到达（`on_repair` 是唯一的轮边界信号）；返回值 `raw` 是最后一轮文本的整体累积。`on_repair` 在每个修复轮开始前恰好调用一次（违约轮的 chunk 已全部送达之后）——调用方重置流式显示并切换“重新注解”。返回 `Err` 时**已转发的增量不撤回**——以返回值为准丢弃半截正文（状态机据此让 TaskChunk 之后接 TaskFailed 的渲染路径可收敛）；`Err` 只来自引擎、请求构造与流式失控（超 `MAX_REPLY_BYTES` 的回复按请求异常失败，不重试），契约违约不产生 `Err`。
 - base 是首轮消息；修复轮以它为底座拼 [assistant 坏回复][user 纠错指令]（图像部件随 base 零拷贝重发）。
 - 内容审查：服务端拦了内容，重发无益——不重试直接失败卡。
@@ -162,7 +162,7 @@ core 保持无日志面，避免同一事实在两层各记一条。
 
 ### 语言体例门阶段（2026-10-28，输出语言体例门禁设计 §6）
 
-- 挂点在 `run_task_rounds` 的契约收敛臂：格式契约通过后进 `run_lang_rounds`（`LangStage` 静态输入 + 两个泵回调，与 `TaskStage` 同形），任务段修复轮计数原样透传（`RunOutput.repairs` 语义不变，语言修复另算）。预算 `LANG_REPAIRS = 1`，与任务段 3 轮互不挤占（设计“独立一轮”）。
+- 挂点在 `run_task_rounds` 的契约收敛臂：格式契约通过后进 `run_lang_rounds`（`LangStage` 静态输入 + 泵回调，与 `TaskStage` 同形；C4 起 `on_round` 逐轮原文回调同形加入，任务段修复轮计数随 `LangStage.task_repairs` 透传——`RunOutput.repairs` 语义不变，语言修复另算）。预算 `LANG_REPAIRS = 1`，与任务段 3 轮互不挤占（设计“独立一轮”）。
 - `RunOutput` 新增 `lang_degraded`：格式降级与语言降级在调用方合流（桥侧把两者并进 `TaskOutcome.degraded`），core 层保持“格式违约 = 交付原文”与“语言违约 = 交付合格原文 + 标志”两条可区分的路径。
 - 修复轮采纳守卫：语言修复轮的回复只有再次通过格式契约才替换当前回复——修复轮退化成散文时交付上一份契约合格回复并置 `lang_degraded`（宁交付可解析的违约产物，不交付不可解析文本；跨段预算纠缠由此避免）。该分支首轮不可达（进入即契约合格），防御臂按耗尽同型处理。
 - 语言段的 `finish_reason == content_filter` 与任务段同判同败（服务端拦截重发无益）；`empty_completion` 不采纳（保持旧回复），引擎错误照旧上抛。
@@ -184,3 +184,11 @@ core 保持无日志面，避免同一事实在两层各记一条。
 - 语言段两条降级路径分开赋值：修复预算耗尽路径带上当轮已判得的清单；
   契约无效直降路径（`lang_violations` 查校验失败）为空清单。任务段耗尽路径
   不涉语言门，恒空清单。赋值收在 `lang_output` 单点，调用处带清单传参。
+
+## 评测门面 run_fixed_task 与编排内部收回（2026-11-17，架构重构方案 C4/K6）
+
+- 核心对评测只暴露门面（K6）：固定任务直跑、返回生产交付值、逐轮原文经回调交出。评测不再拼装 `TaskStage`——`TaskStage` 八个字段与 `run_task_rounds` 收为 `pub(crate)`，上方“抽函数”记录的 pub 形态随之退役（沿革保留在原节）。
+- 门面落成 `AiTaskService::run_fixed_task(task, on_round)` 而不是自由函数：此前“评测侧没有 service 可依附（它自组底座）”的处境被评测持有任务服务取代（`execute::run` 收 `Arc<dyn AiEngine>` 建一个服务跑全程），“渲染底座、目标语言兜底、取模型”三段评测复制的胶水回到服务内单点——门面与 `run` 共用私有 `execute_task`（`Task::new` 之后的渲染与循环装配单点），不再有第二份装配。
+- 任务（`kind` 已定）按值交给门面：调用方带显式意图，与 `run` 的图像路径同哲学（显式意图不交给模型猜）。模型非空检查两入口各自在进任何引擎调用前执行，措辞收 `ensure_model` 单点；传输层 `llm.rs` 的重复检查同 PR 删除——模型非空只在编排层查一次。
+- `on_round` 契约：每轮引擎回复（首轮、任务修复轮、语言修复轮，含被采纳守卫拒绝的语言修复轮）在 `collect_round` 成功后、下一轮开始前交出该轮原始正文恰一次；返回 `Err` 时已交出的轮文不撤回（评测按引擎故障丢弃整例，与 `on_chunk` “失败前增量不撤回”同口径）。生产 `run` 不消费逐轮原文，传 no-op——回调是泵，不改变流式转发路径。
+- `TASK_REPAIRS`/`LANG_REPAIRS` 同 PR 收回（无外部消费者却公开；预算语义见上节）。

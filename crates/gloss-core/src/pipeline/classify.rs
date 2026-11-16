@@ -41,9 +41,9 @@ pub const CLASSIFY_FALLBACK: TaskKind = TaskKind::General;
 
 pub const CLASSIFY_REPAIRS: u32 = 1;
 
-pub const CLASSIFY_REPLY_CAP_BYTES: usize = 4096;
+const CLASSIFY_REPLY_CAP_BYTES: usize = 4096;
 
-pub fn push_capped(reply: &mut String, delta: &str) {
+fn push_capped(reply: &mut String, delta: &str) {
     let budget = CLASSIFY_REPLY_CAP_BYTES.saturating_sub(reply.len());
     if budget == 0 {
         return;
@@ -263,12 +263,6 @@ async fn classify_round(
     Ok(ClassifyRound { reply, settled })
 }
 
-pub fn parse_classify_reply(reply: &str) -> Result<TaskKind, GlossError> {
-    schema::validate_classify(reply)
-        .map(|choice| choice.kind)
-        .map_err(|_| GlossError::EngineResponse("unrecognized classify reply".into()))
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
@@ -281,9 +275,7 @@ mod tests {
     use futures_core::Stream;
     use tokio::time::{Instant as TokioInstant, Sleep, sleep_until};
 
-    use super::{
-        CLASSIFY_FALLBACK, CLASSIFY_REPAIRS, classify, classify_traced, parse_classify_reply,
-    };
+    use super::{CLASSIFY_FALLBACK, CLASSIFY_REPAIRS, classify, classify_traced};
     use crate::model::{GlossError, Locale};
     use crate::ports::{AiEngine, BoxFuture, EngineRequest, TaskChunk, TaskStream, ThinkingMode};
     use crate::stubs::engine::MockEngine;
@@ -710,33 +702,6 @@ mod tests {
             })
             .is_some();
         assert!(line, "the exhausted fallback must leave a trace");
-    }
-
-    #[test]
-    fn replies_outside_the_template_categories_are_rejected() {
-        assert!(parse_classify_reply("{\"kind\":\"ImageExplain\"}").is_err());
-        assert!(
-            parse_classify_reply("{\"kind\":\"General\"}").is_err(),
-            "the general kind is the execution landing, never a model category"
-        );
-        assert!(parse_classify_reply("{\"kind\":\"Nonsense\"}").is_err());
-        assert!(parse_classify_reply("{\"kind\":null}").is_err());
-        assert!(parse_classify_reply("我觉得这是一段翻译").is_err());
-        assert!(parse_classify_reply("").is_err());
-        assert!(
-            parse_classify_reply("前置说明\n```gloss\n{\"kind\":\"TranslateWord\"}\n```").is_err(),
-            "the fence tolerance is gone: a gloss-fenced reply violates the \
-             bare-JSON contract even with a valid kind inside"
-        );
-    }
-
-    #[test]
-    fn a_fallback_choice_lands_on_the_general_kind() {
-        assert_eq!(
-            parse_classify_reply("{\"kind\":\"Fallback\"}"),
-            Ok(TaskKind::General),
-            "the template's fallback category executes the general task"
-        );
     }
 
     #[test]

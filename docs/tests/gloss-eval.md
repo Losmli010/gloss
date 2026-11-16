@@ -52,6 +52,7 @@
 | golden_and_labels_settle_stub_rounds_into_pass_and_changed | 注入基线标注出通过与改 | 给定同轮输出的桩运行与逐例基线标注（两合格一同合格、一不合格异类），当 `regression::settle`，则同文合格判通过、结构相同判通过、异类不合格判改 | 2026-11-01 |
 | engine_failure_marks_the_case_and_drops_settlement | 引擎故障标记进明细 | 给定首通即请求失败的脚本引擎桩，当 `run` 后结算，则明细带故障标记、轮轨迹为空、无质量分、回归字段恒空且运行不中断 | 2026-11-01 |
 | limit_slices_the_run_and_judge_toggle_keeps_quality_empty | 限位切片与评审开关 | 给定限位 2 条且评审关闭的运行，当 `run`，则恰出两条明细与两个延迟样本、质量字段全空 | 2026-11-01 |
+| repair_rounds_ride_the_production_loop_into_the_case_details | 修复轮经生产编排进逐例明细 | 给定头部切片（35 条分类各一通）加“违约散文 → 词卡契约（JSON）”的任务脚本队列，当 `run`，则首个任务例的逐轮明细带违约轮（`NotJson`）与干净修复轮、`contract.repairs` 为 1、字段完整检查过（轮数据经任务服务的评测门面取得） | 2026-11-17 |
 | latency_percentiles_interpolate | 延迟百分位线性插值 | 给定四个样本，当取 `p0/p50/p95/p100`，则插值结果精确；空样本返回 `None` | 2026-11-01 |
 
 ### `crates/gloss-eval/src/flow.rs`

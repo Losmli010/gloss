@@ -151,11 +151,11 @@
 
 ## CLASSIFY_REPLY_CAP_BYTES
 
-- 回复累积上限（字节）：防止不守约的端点把无界回复灌进内存。超限部分丢弃（按字符边界截断）——截断的 JSON 解析不过，同样进修复轮。pub 供 gloss-eval 的 live 轨复用同一道界（评测与生产同源）。
+- 回复累积上限（字节）：防止不守约的端点把无界回复灌进内存。超限部分丢弃（按字符边界截断）——截断的 JSON 解析不过，同样进修复轮。模块私有（2026-11-17 架构重构 C4：分类轨已由 `classify_traced` 直达，上限常量无外部消费者；评测与生产同源靠共用循环本身，不靠公开内部件）。
 
 ## push_capped
 
-- 按预算累积回复：单条增量超预算时按字符边界截断。分类编排与评测 live 轨共用。
+- 按预算累积回复：单条增量超预算时按字符边界截断。分类循环内部使用（2026-11-17 架构重构 C4 收回 pub：评测改走 `classify_traced` 与任务服务门面，无外部消费者）。
 
 ## FIRST_ITEM_DEADLINE
 
@@ -201,10 +201,10 @@
 - 执行一轮分类请求并按预算累积回复：流式增量逐条累积，首个能通过校验的完整 JSON 立即提前收卷（不等流自然结束，提前还流即还回 TTFT）；只在 Ok 时提前退出——部分 JSON 继续等，跑偏与截断的回复照旧走完流、落到整段校验。每次累积后的全量校验上界是回复上限（4KB）× 个位数 chunk，相对 chunk 的毫秒级到达间隔可忽略。结束帧对分类没有增量价值。
 - 建连后的首条目等待受 `FIRST_ITEM_DEADLINE` 约束（见模块文档）；零增量的空完成（`EmptyCompletion`）断流收尾、按空回复交整段校验（与任务段同口径，见模块文档），其余流错误按请求异常上抛。请求按值接收（引擎端口按值收请求，消息所有权随调用 move）。
 
-## parse_classify_reply
+## parse_classify_reply（已删除，2026-11-17 架构重构 C4）
 
-- 解析模型回复：严格裸 JSON，无围栏容错——围栏输出即违约（与生产编排的 `crate::schema::validate_classify` 同一条判线，本函数只把 `Violation` 折算成 `GlossError::EngineResponse`，错误文本是固定措辞，不携带回复原文）。
-- pub 供 gloss-eval 评测重放复用：评测与生产走同一个校验器。
+- 曾是“严格裸 JSON 解析 + `Violation` → `EngineResponse` 折算”的薄封装，pub 供 gloss-eval 评测重放复用。评测的分类轨改由 `classify_traced` 直达、重放镜面（`metrics.rs`/`judge_classify_reply`）随重构退役后，它失去全部外部消费者，按本文件早前记录的“待步骤 6/7 随围栏容错一起删除”预期整体删除。
+- 其锁定的语义（裸 JSON 判线、类别外拒绝、围栏即违约、`Fallback` 映射 `General`）仍由生产校验器 `crate::schema::validate_classify` 的测试矩阵覆盖，判线单一出自 schema.rs。
 
 ## 修复调用点保持违约级行（期三，2026-10-29）
 

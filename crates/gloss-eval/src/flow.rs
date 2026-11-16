@@ -5,6 +5,7 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::ports::AiEngine;
@@ -43,7 +44,7 @@ pub struct AcceptSummary {
 }
 
 pub async fn run_iterate(
-    engine: &dyn AiEngine,
+    engine: Arc<dyn AiEngine>,
     config: &ConfigHandle,
     options: ExecuteOptions,
     dir: &Path,
@@ -296,7 +297,7 @@ mod tests {
     async fn stub_iterate_writes_artifacts_records_history_and_renders_the_view() {
         let dir = temp_dir("iterate-artifacts");
         let report = run_iterate(
-            engine(reply_script(CLASSIFY_REPLY)).as_ref(),
+            engine(reply_script(CLASSIFY_REPLY)),
             &config(),
             options(1),
             &dir,
@@ -348,7 +349,7 @@ mod tests {
     async fn engine_failures_settle_but_never_reach_the_outputs_file() {
         let dir = temp_dir("iterate-engine-failure");
         let report = run_iterate(
-            engine(vec![Err(GlossError::EngineNetwork)]).as_ref(),
+            engine(vec![Err(GlossError::EngineNetwork)]),
             &config(),
             options(1),
             &dir,
