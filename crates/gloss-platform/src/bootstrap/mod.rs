@@ -123,3 +123,35 @@ impl Drop for Platform {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Platform;
+    use crate::events::EventSink;
+    use crossbeam_channel::unbounded;
+
+    #[test]
+    fn drop_joins_the_event_thread_once_command_senders_are_released() {
+        let mut platform = Platform::connect().unwrap();
+        let (cmd_tx, cmd_rx) = unbounded::<u64>();
+        let (ev_tx, ev_rx) = unbounded::<u64>();
+        let (plat_tx, _plat_rx) = unbounded::<()>();
+        platform.spawn_event_thread(
+            cmd_rx,
+            EventSink::new(ev_tx, plat_tx, || {}),
+            |command: u64, sink: &EventSink<u64, ()>| {
+                sink.send_event(command);
+            },
+            Vec::new(),
+        );
+        cmd_tx.send(1).unwrap();
+        assert_eq!(
+            ev_rx.recv().unwrap(),
+            1,
+            "the thread must be consuming before the sender is released"
+        );
+        drop(cmd_tx);
+        drop(platform);
+        assert!(ev_rx.try_recv().is_err(), "no events after the joined exit");
+    }
+}

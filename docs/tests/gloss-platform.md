@@ -4,6 +4,12 @@
 
 ## 单元测试
 
+### `crates/gloss-platform/src/bootstrap/mod.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| drop_joins_the_event_thread_once_command_senders_are_released | 释放通道二发送端后释放装配句柄即汇合完成 | 给定已拉起事件线程的装配句柄且命令产物已回传（线程在消费），当释放通道二的发送端再释放装配句柄，则句柄释放就地汇合完成、事件线程退出且不再回传事件（退出只等发送端释放，不等其它持有方） | 2026-11-17 |
+
 ### `crates/gloss-platform/src/common/clipboard_watch.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
