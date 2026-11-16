@@ -98,7 +98,7 @@ fn run_iterate_cli(args: &[String]) -> Result<(), String> {
         .build()
         .map_err(|err| format!("tokio runtime: {err}"))?;
     let report = runtime.block_on(gloss_eval::flow::run_iterate(
-        engine.as_ref(),
+        engine,
         &config,
         gloss_eval::execute::ExecuteOptions { judge, limit },
         Path::new(&dir),

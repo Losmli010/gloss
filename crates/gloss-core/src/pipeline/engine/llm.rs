@@ -81,9 +81,6 @@ impl AiEngine for LlmClient {
             if messages.is_empty() {
                 return Err(GlossError::EngineResponse("empty request".into()));
             }
-            if model.trim().is_empty() {
-                return Err(GlossError::Config("empty model id".into()));
-            }
             let snapshot = config.snapshot();
             let resolved = Arc::new(Resolved::build(
                 resolve_endpoint(&snapshot)?,
@@ -117,11 +114,8 @@ impl AiEngine for LlmClient {
 }
 
 fn resolve_endpoint(config: &Config) -> Result<String, GlossError> {
-    let base_url = config.base_url.trim();
-    crate::config::validate_base_url(base_url)
+    let mut endpoint = crate::config::validate_base_url(config.base_url.trim())
         .map_err(|err| GlossError::Config(err.to_string()))?;
-    let mut endpoint = reqwest::Url::parse(base_url)
-        .map_err(|err| GlossError::Config(format!("invalid provider endpoint: {err}")))?;
     let path = format!(
         "{}/{CHAT_COMPLETIONS_PATH}",
         endpoint.path().trim_end_matches('/')

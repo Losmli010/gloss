@@ -1,17 +1,18 @@
 //! 执行编排：对精选集逐条驱动一轮对话（按子类分派驱动函数）并调契约
-//! 与评审结算，产出逐例明细与延迟样本。轮数据一律经生产的修复循环取
-//! 得，评测数字度量的才是生产行为；回归结算与产物落盘不在此——执行
-//! 不知资产存在，标注、基线与单次输出由资产仓与流程装配层接管。
+//! 与评审结算，产出逐例明细与延迟样本。轮数据一律经生产编排取得——
+//! 分类走生产分类循环（含首项截止与修复预算），任务走任务服务的评测
+//! 门面（固定任务直跑，逐轮原文经回调交出）——评测数字度量的才是生产
+//! 行为；回归结算与产物落盘不在此——执行不知资产存在，标注、基线与
+//! 单次输出由资产仓与流程装配层接管。
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use gloss_core::classify::classify_traced;
 use gloss_core::config_handle::ConfigHandle;
-use gloss_core::engine::{TaskStage, run_task_rounds};
+use gloss_core::engine::AiTaskService;
 use gloss_core::model::{GlossError, Locale};
 use gloss_core::ports::{AiEngine, EngineRequest, TaskChunk, ThinkingMode};
-use gloss_core::prompt::PromptRegistry;
 use gloss_core::task::{Task, TaskInput, TaskKind, TaskOptions};
 
 use crate::contract::settle_case;
@@ -60,12 +61,13 @@ pub struct ExecuteRun {
 
 struct RunCtx<'a> {
     engine: &'a dyn AiEngine,
+    service: AiTaskService,
     model: &'a str,
     judge: bool,
 }
 
 pub async fn run(
-    engine: &dyn AiEngine,
+    engine: Arc<dyn AiEngine>,
     config: &ConfigHandle,
     options: ExecuteOptions,
 ) -> Result<ExecuteRun, String> {
@@ -76,7 +78,8 @@ pub async fn run(
     };
     let model = config.snapshot().model.clone();
     let ctx = RunCtx {
-        engine,
+        engine: engine.as_ref(),
+        service: AiTaskService::new(Arc::clone(&engine)),
         model: &model,
         judge: options.judge,
     };
@@ -146,43 +149,19 @@ async fn drive_task(
         },
         TaskOptions {
             target_lang: Some(case.target),
+            model: ctx.model.into(),
             prompt_locale: Some(Locale::Zh),
-            ..TaskOptions::default()
         },
     )?;
-    let prompts = PromptRegistry::new();
-    let base = prompts.render(&task)?;
-    let rounds = Arc::new(Mutex::new(vec![String::new()]));
-    let chunks = Arc::clone(&rounds);
-    let boundary = Arc::clone(&rounds);
-    let stage = TaskStage {
-        engine: ctx.engine,
-        prompts: &prompts,
-        kind,
-        base,
-        model: ctx.model,
-        locale: Locale::Zh,
-        input: task.input(),
-        target: case.target,
-    };
-    run_task_rounds(
-        stage,
-        move |delta| {
-            let mut held = chunks
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(round) = held.last_mut() {
-                round.push_str(&delta);
-            }
-        },
-        move || {
-            boundary
-                .lock()
+    let rounds = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&rounds);
+    ctx.service
+        .run_fixed_task(task, move |round| {
+            sink.lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push(String::new());
-        },
-    )
-    .await?;
+                .push(round.to_owned());
+        })
+        .await?;
     let mut held = rounds
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -228,6 +207,7 @@ mod tests {
     use gloss_core::ports::{
         AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskChunk, TaskStream,
     };
+    use gloss_core::schema::Violation;
 
     use super::{ExecuteOptions, Latency, run};
     use crate::asset::{GoldenMap, GoldenRow, LabelMap, LabelRow};
@@ -350,7 +330,7 @@ mod tests {
     #[tokio::test]
     async fn stub_run_settles_layers_and_pends_without_baseline() {
         let engine = Arc::new(ScriptEngine::new(head_scripts(true)));
-        let mut run = run(engine.as_ref(), &config(), options(true, 57))
+        let mut run = run(engine, &config(), options(true, 57))
             .await
             .expect("the stub run settles");
         assert_eq!(run.cases.len(), 57);
@@ -396,7 +376,7 @@ mod tests {
     #[tokio::test]
     async fn golden_and_labels_settle_stub_rounds_into_pass_and_changed() {
         let engine = Arc::new(ScriptEngine::new(head_scripts(false)));
-        let mut run = run(engine.as_ref(), &config(), options(false, 57))
+        let mut run = run(engine, &config(), options(false, 57))
             .await
             .expect("the stub run settles");
         let golden = GoldenMap::from([
@@ -428,7 +408,7 @@ mod tests {
         let engine = Arc::new(ScriptEngine::new(vec![vec![Err(
             GlossError::EngineNetwork,
         )]]));
-        let mut run = run(engine.as_ref(), &config(), options(true, 1))
+        let mut run = run(engine, &config(), options(true, 1))
             .await
             .expect("a per-case engine failure does not abort the run");
         assert_eq!(run.latency.count(), 1);
@@ -448,7 +428,7 @@ mod tests {
     #[tokio::test]
     async fn limit_slices_the_run_and_judge_toggle_keeps_quality_empty() {
         let engine = Arc::new(ScriptEngine::new(vec![script(CLASSIFY_REPLY)]));
-        let run = run(engine.as_ref(), &config(), options(false, 2))
+        let run = run(engine, &config(), options(false, 2))
             .await
             .expect("the sliced run settles");
         assert_eq!(run.cases.len(), 2);
@@ -457,6 +437,36 @@ mod tests {
             run.cases.iter().all(|case| case.quality.is_none()),
             "a judgeless run keeps every quality field empty"
         );
+    }
+
+    #[tokio::test]
+    async fn repair_rounds_ride_the_production_loop_into_the_case_details() {
+        let mut scripts: Vec<Script> = (0..35).map(|_| script(CLASSIFY_REPLY)).collect();
+        scripts.push(script("整段散文，不是 JSON"));
+        scripts.push(script(WORD_REPLY));
+        let engine = Arc::new(ScriptEngine::new(scripts));
+        let run = run(engine, &config(), options(false, 36))
+            .await
+            .expect("the stub run settles");
+        let task = run
+            .cases
+            .iter()
+            .find(|case| case.id == "task-word-01")
+            .expect("the slice reaches the first task case");
+        assert!(!task.engine_error);
+        assert_eq!(
+            task.rounds.len(),
+            2,
+            "the violated round and the repaired round both ride the details"
+        );
+        assert_eq!(task.rounds[0].violation, Some(Violation::NotJson));
+        assert_eq!(task.rounds[1].violation, None);
+        assert_eq!(
+            task.contract.checks.get(&ContractCheck::FieldsComplete),
+            Some(&true),
+            "the repaired reply settles green"
+        );
+        assert_eq!(task.contract.repairs, 1);
     }
 
     #[test]

@@ -30,7 +30,7 @@
 | language_resolves_to_locale | 界面语言落定具体 `locale` | 给定 `System/Zh/En` 三态与注入的系统语言，当解析界面语言，则 `System` 取系统语言、显式选择不被系统语言覆盖（同一处取值供 `UI` 文案表与 `prompt` 模板选表） | 2026-09-22 |
 | lookups_prefer_later_entries | 重复条目查找后者胜出 | 给定重复 `kind` 的多条目，当查找，则后条胜出、未配置为 `None`、未知 `provider` 无 `keychain` `id` | 2026-09-19 |
 | base_url_validation_rejects_structural_problems | `Base URL` 结构性拒绝 | 给定空串、非 `https`、缺 `scheme`、缺 `host`、内嵌凭据、带 `query` 或 `fragment`、中部空白的地址，当 `validate_base_url`，则按类别返回 `Err` | 2026-09-22 |
-| base_url_validation_accepts_legal_addresses | `Base URL` 合法放行 | 给定 `https` 地址（含首尾空白、无路径、带端口），当 `validate_base_url`，则 `Ok` | 2026-09-22 |
+| base_url_validation_accepts_legal_addresses | `Base URL` 合法放行并交出解析地址 | 给定 `https` 地址（含首尾空白、无路径、带端口、大小写混写 `scheme` 与主机、`IPv6` 字面量），当 `validate_base_url`，则 `Ok` 且携带着与线上请求同一解析器的 `Url`（`trim` 先行、`scheme` 与主机归一化为小写、根路径补斜杠） | 2026-11-17 |
 | missing_fields_fall_back_to_defaults_on_deserialize | 缺字段回落出厂默认 | 给定缺 `language` 字段的配置（JSON），当反序列化，则 `language` 按出厂跟随系统补齐 | 2026-09-22 |
 
 ### `crates/gloss-core/src/domain/guard.rs`
@@ -141,8 +141,6 @@
 | exhausted_repairs_fall_back_to_general_with_a_trace | 分类修复耗尽落兜底且有痕 | 给定恒违约的回复脚本，当 `classify`，则恰用尽 `1+CLASSIFY_REPAIRS` 次调用后返回 `Ok(General)`，耗尽 `warn` 只记违约类别（不含回复与选区原文） | 2026-10-12 |
 | a_silent_stream_is_cut_at_the_first_item_deadline | 分类流首条目截止快速失败 | 给定建连后恒不出字的流，当 `classify`（暂停时钟），则首条目截止到点按请求异常收卷、内部消化落兜底 `General`（恰 1 次调用，不重试） | 2026-10-16 |
 | items_after_the_first_flow_without_the_deadline | 截止只武装到首条目 | 给定首条目 2 秒（截止内）、次条目再等 1000 秒的流，当 `classify`（暂停时钟），则两段增量照常累积定型 `TranslateWord`（截止在首条目交付后退役） | 2026-10-16 |
-| replies_outside_the_template_categories_are_rejected | 回复越类别清单、不可识别一律拒绝 | 给定模板类别外的 `ImageExplain` 与 `General`、未知标识、`null`、纯散文、空串与 `gloss` 围栏，当解析，则全部 `EngineResponse`（严格裸 `JSON`：围栏容错已删，围栏内合法 `kind` 同样拒绝） | 2026-10-20 |
-| a_fallback_choice_lands_on_the_general_kind | 模板兜底类别映射 `General` | 给定 `{"kind":"Fallback"}` 回复，当解析，则得 `General`（`classify` 模板的兜底类别执行通用任务） | 2026-10-20 |
 | the_fallback_kind_is_the_general_template_landing | 兜底常量恒为 `General` | 给定 `CLASSIFY_FALLBACK`，当检查，则恒为 `General`（可渲染可执行的执行落点） | 2026-10-20 |
 | a_fallback_reply_lands_on_the_general_task_with_both_kinds_logged | 模型分类与最终分类同行落日志 | 给定 `{"kind":"Fallback"}` 回复，当 `classify`，则落 `General`，且 `info` 日志同行携带模型类别 `model_kind=Fallback` 与最终 `kind=General`、不含选区内容 | 2026-10-20 |
 
@@ -154,6 +152,9 @@
 | classified_kind_arrives_before_any_chunk | 分类先于任何增量 | 给定文本输入与两段任务流，当 `run`，则 `on_classified` 恰在首个 `on_chunk` 之前触发一次（含分类修复耗尽落的兜底 `General`） | 2026-10-12 |
 | classify_request_failure_falls_back_without_retrying | 分类请求失败内部消化后任务照跑（`engine`） | 给定分类调用失败（一次性错误）与契约任务脚本，当 `service.run`，则分类不重试、内部消化落 `CLASSIFY_FALLBACK(General)`、引擎共 2 次调用（分类加任务）、`fallback` `warn` 不含选区原文 | 2026-10-12 |
 | raw_text_is_returned_verbatim | 原始文本原样返回 | 给定两段（JSON）流式脚本，当 `run`，则 `RunOutput.raw` 为未解析的原始拼接文本 | 2026-10-04 |
+| run_fixed_task_hands_out_round_texts_and_returns_the_production_output | 评测门面交出逐轮原文并返回生产交付值 | 给定“违约散文 → 契约（JSON）”脚本队列与已定 `kind` 的任务，当 `run_fixed_task`，则逐轮原文按轮序经回调交出（违约轮在前）、`RunOutput` 为生产交付值（`kind` 不变、`repairs` 为 1、`raw` 为末轮原文）、引擎恰 2 次调用（无分类调用在前） | 2026-11-17 |
+| run_fixed_task_hands_out_language_repair_round_texts | 评测门面交出语言修复轮原文 | 给定“语言违约但契约合格 → 语言修复轮契约合格”脚本队列，当 `run_fixed_task`，则两轮原文按轮序交出（语言修复轮也在内）、任务 `repairs` 为 0、`lang_degraded` 为假 | 2026-11-17 |
+| run_fixed_task_blank_model_fails_before_the_engine | 评测门面空白模型先于引擎拒绝 | 给定 `model` 为空白的任务，当 `run_fixed_task`，则 `Config` 错误且引擎 0 调用（模型非空检查只在编排层） | 2026-11-17 |
 | run_task_rounds_executes_a_fixed_kind_stream_without_classification | 任务段循环以给定 `kind` 直达执行 | 给定“违约散文 → 契约（JSON）”脚本队列与预渲染的任务底座，当直接调 `run_task_rounds`，则 `kind` 恒为调用方给定值（不分类）、`repairs` 为 1、`raw` 为末轮原文、引擎恰 2 次调用（无分类调用在前） | 2026-10-12 |
 | run_output_carries_the_server_finish_reason | `RunOutput` 携带服务端结束原因 | 给定声明 `stop` 与 `length` 结束的两个脚本流，当 `run`，则 `finish_reason` 原文随 `RunOutput` 返回、`raw` 不受影响、契约合回复 `repairs` 为 0（`length` 只在违约修复时进指令，`content_filter` 直接失败卡） | 2026-10-12 |
 | run_output_finish_reason_stays_none_without_a_done_marker | 无 `[DONE]` 时结束原因缺省 | 给定只吐增量、不声明结束的脚本流，当 `run`，则 `finish_reason` 为 `None` | 2026-10-11 |
