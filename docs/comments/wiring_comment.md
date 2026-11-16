@@ -24,7 +24,7 @@
 
 - `ChannelHalves`：四通道的线程对端——App 持端点（随 `distribute_channels` 一并返回），事件线程与 tokio 消费桥持这些原始句柄，组装回调内经 `Assembly` 启动时消费。
 - `distribute_channels`：拆分四通道端点——App 持 ① 收 / ② 发 / ③ 发 / ④ 收；事件线程持 ① 发 / ② 收 / ④ 发（组装进 sink）；tokio 消费循环持 ③ 收 / ④ 发。
-- 退出协议不变量：通道②的 Sender 只允许 App 经 endpoints 持有。原始句柄若存活到 join（Rust 的 drop 发生在作用域结束而非最后使用点），事件线程永远看不到 Disconnected，run_app 返回后会卡死在 join。
+- 退出协议不变量（2026-11-17，架构重构 B1/B2 改写为“显式释放顺序”）：事件线程只在通道②的发送端全部释放（Disconnected）后退出，汇合发生在事件宿主（`EventHost`）的 Drop 里。退出顺序由入口代码显式表达——`gloss_app::app::run` 返回即应用壳（连同其 endpoints，通道②的唯一发送端）已释放，`run_event_loop` 此时先收尾后台运行时、再显式 `drop(host)` 汇合；不再依赖应用壳结构体字段的声明顺序（旧口径：endpoints 字段恰好声明在 env 之前，挪动即挂死），汇合只等发送端释放这一件事。锁定测试见平台层 bootstrap 测试记录。
 
 ## Assembly
 
@@ -82,3 +82,22 @@
 ## ensure_desktop_shortcut（2026-11-10，Windows 移植 P3b 后续）
 
 - 组装段（`on_waker`）与 `install_app_icon` 并列的桌面入口装配：调 `DesktopShortcut::ensure` 幂等重建桌面快捷方式；失败只降级记日志且带因，不阻断启动——与图标装配同一降级口径，端口契约见 `gloss_core::ports::DesktopShortcut`。
+
+## 装配契约拆分随动（2026-11-17，架构重构 B1/B2）
+
+- 入口只持事件宿主（`EventHost`）：`run_event_loop` 解构装配包装
+  （`Platform { ports, mut host }`），端口袋（`PlatformPorts`）按消费方
+  一次分发——菜单与剪贴板写入端口直交 `gloss_app::app::run`（应用层只收
+  端口对象，gloss-app 不再依赖 gloss-platform）；图标、桌面入口与权限
+  探针这三个只在入口使用的端口移入 `Assembly`（`install_app_icon`/
+  `ensure_desktop_shortcut`/`preflight_and_tap` 改收端口引用）；配置与
+  密钥存储在 `load_config`（改收端口袋引用）时取用。事件汇点构造与事件
+  线程拉起改经宿主（`EventHost::event_sink`/`spawn_event_thread`/
+  `event_kit`）。
+- 退出顺序：`run` 返回 → `drop(assembly.command_runtime)` → 显式
+  `drop(host)` 汇合事件线程 → 返回结果。行为零变化：新旧口径的汇合时机
+  相同，差别只在旧口径依赖应用壳字段声明顺序（隐式），新口径由入口代码
+  显式表达（详见 ChannelHalves 节的退出协议不变量）。
+- `on_waker` 回调改收唤醒句柄：组装回调闭包（`|waker| assembly.on_waker(
+  waker, halves, &mut host)`）自己持有宿主可变引用与通道对端，事件循环
+  入口不再认识平台类型。

@@ -40,7 +40,7 @@ fn run() -> StartupResult {
     init_logging();
     log::milestone("02_logging");
     let platform = wiring::connect()?;
-    let (config, store) = wiring::load_config(&platform)?;
+    let (config, store) = wiring::load_config(&platform.ports)?;
     log::milestone("03_config");
     let service = build_service(&config, &store)?;
     log::milestone("04_engine");

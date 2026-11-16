@@ -16,11 +16,12 @@
 - `with_save_failure`：让后续 `save` 一律失败（落盘失败路径）。
 - `with_secret_failure`：让后续 `secret` 一律失败（keychain 读取失败路径）。
 
-## 平台能力桩（2026-11-05，Windows 移植 P1 · 方案 D3）
+## 平台能力桩（2026-11-05，Windows 移植 P1 · 方案 D3；2026-11-17 收敛）
 
 - 新增平台能力端口桩（图标、菜单装配、剪贴板写入、权限探针）与整结构替身句柄（`stub_platform`）：应用壳以构造参数接收平台句柄后，测试驱动需要一份行为可预期的替身——菜单装配报告未装配（测试不经菜单链路）、剪贴板写入成功（复制动作无断言消费面）、权限恒放行、手势源缺席。
 - 桩仍按包自持：与平台层占位实现的语义刻意不共享——本包只关心“应用层消费面”的行为，不关心平台占位的错误语义。
+- 2026-11-17（架构重构 B1/B2）收敛：应用层改收端口对象（菜单装配、剪贴板写入直进应用环境 `AppEnv`），整结构替身句柄（`stub_platform`）与它独有的三个桩（`StubAppIcon`、`StubDesktopShortcut`、`StubPermissionProbe`）一并删除——它们只为整结构构造补位，应用层不消费图标、桌面入口与权限探针；保留 `StubMenuController` 与 `StubClipboardWriter` 供 `AppEnv` 构造（语义不变：菜单报告未装配、剪贴板写入成功）。
 
-## StubDesktopShortcut（2026-11-10，Windows 移植 P3b 后续）
+## StubDesktopShortcut（2026-11-10，Windows 移植 P3b 后续；2026-11-17 删除）
 
-- 桌面入口装配桩：恒无操作恒成功，只为装配句柄的整结构构造补位（`stub_platform` 构造点随 `bootstrap::Platform` 新字段同步）。
+- 桌面入口装配桩：恒无操作恒成功，只为装配句柄的整结构构造补位（`stub_platform` 构造点随 `bootstrap::Platform` 新字段同步）。2026-11-17（架构重构 B1/B2）随 `stub_platform` 一并删除——补位理由消失，见“平台能力桩”节。

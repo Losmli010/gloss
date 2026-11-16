@@ -37,7 +37,7 @@ EVAL_ASSET_REMEDY = "keep eval assets referenced only from inside the eval crate
 
 ALLOWED_OWN_DEPS = {
     "gloss": "gloss-core gloss-platform gloss-app",
-    "gloss-app": "gloss-core gloss-platform",
+    "gloss-app": "gloss-core",
     "gloss-platform": "gloss-core",
     "gloss-core": "",
     "gloss-eval": "gloss-core",

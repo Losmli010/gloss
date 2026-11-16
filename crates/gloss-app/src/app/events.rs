@@ -6,14 +6,14 @@ use std::sync::atomic::AtomicBool;
 
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::model::Locale;
-use gloss_core::ports::{SceneProbe, SecretStore};
+use gloss_core::ports::{ClipboardWriter, MenuController, SceneProbe, SecretStore};
 use winit::event_loop::{EventLoop, EventLoopProxy};
 
 use crate::channel::AppEndpoints;
 use crate::runtime::cache::TaskCache;
 use crate::update::UpdateWiring;
 
-use super::{GlossApp, Platform};
+use super::GlossApp;
 
 #[derive(Clone, Copy, Debug)]
 pub enum UserEvent {
@@ -51,14 +51,15 @@ pub fn run(
     update: UpdateWiring,
     clipboard_watch_enabled: Arc<AtomicBool>,
     task_cache: Arc<TaskCache>,
-    mut platform: Platform,
-    on_waker: impl FnOnce(Waker, &mut Platform) -> Result<(), Box<dyn Error>>,
+    menu: Box<dyn MenuController>,
+    clipboard: Box<dyn ClipboardWriter>,
+    on_waker: impl FnOnce(Waker) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
     let mut builder = EventLoop::<UserEvent>::with_user_event();
     super::loop_builder::suppress_default_menu(&mut builder);
     let event_loop = builder.build()?;
     let waker = Waker(event_loop.create_proxy());
-    on_waker(waker, &mut platform)?;
+    on_waker(waker)?;
     let proxy = event_loop.create_proxy();
     let mut app = GlossApp::new(
         endpoints,
@@ -70,7 +71,8 @@ pub fn run(
         update,
         clipboard_watch_enabled,
         task_cache,
-        platform,
+        menu,
+        clipboard,
         Some(proxy),
     );
     event_loop.run_app(&mut app)?;

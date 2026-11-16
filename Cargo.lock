@@ -1386,7 +1386,6 @@ dependencies = [
  "egui_kittest",
  "futures",
  "gloss-core",
- "gloss-platform",
  "image",
  "memmap2",
  "moka",

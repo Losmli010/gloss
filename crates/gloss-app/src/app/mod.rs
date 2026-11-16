@@ -26,11 +26,9 @@ use gloss_core::config::Theme;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::log::{Span, debug, error, info, thread, warn};
 use gloss_core::model::Locale;
-use gloss_core::ports::{SceneProbe, SecretStore};
+use gloss_core::ports::{ClipboardWriter, MenuController, SceneProbe, SecretStore};
 use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoopProxy;
-
-use gloss_platform::bootstrap::Platform;
 
 use crate::channel::AppEndpoints;
 use crate::flow::session::Session;
@@ -53,7 +51,8 @@ pub(crate) struct Env {
     pub(crate) update: UpdateWiring,
     pub(crate) clipboard_watch_enabled: Arc<AtomicBool>,
     pub(crate) task_cache: Arc<TaskCache>,
-    pub(crate) platform: Platform,
+    pub(crate) menu: Box<dyn MenuController>,
+    pub(crate) clipboard: Box<dyn ClipboardWriter>,
 }
 
 impl Env {
@@ -91,7 +90,8 @@ impl GlossApp {
         update: UpdateWiring,
         clipboard_watch_enabled: Arc<AtomicBool>,
         task_cache: Arc<TaskCache>,
-        platform: Platform,
+        menu: Box<dyn MenuController>,
+        clipboard: Box<dyn ClipboardWriter>,
         proxy: Option<EventLoopProxy<UserEvent>>,
     ) -> Self {
         Self {
@@ -108,7 +108,8 @@ impl GlossApp {
                 update,
                 clipboard_watch_enabled,
                 task_cache,
-                platform,
+                menu,
+                clipboard,
             },
             settings: None,
             proxy,
@@ -129,7 +130,7 @@ impl GlossApp {
             return;
         };
         let quit_proxy = proxy.clone();
-        let installed = self.env.platform.menu.install(
+        let installed = self.env.menu.install(
             self.env.system_locale,
             Box::new(move || {
                 if proxy.send_event(UserEvent::OpenSettings).is_err() {
@@ -264,7 +265,9 @@ pub(crate) mod test_support {
     use crate::channel::{AcquireCommand, AppEndpoints, Command, Event, PlatformEvent, Traced};
     use crate::machine::OverlayView;
     use crate::runtime::cache::TaskCache;
-    use crate::stubs::ports::{MemoryConfigStore, StubSceneProbe, stub_platform};
+    use crate::stubs::ports::{
+        MemoryConfigStore, StubClipboardWriter, StubMenuController, StubSceneProbe,
+    };
 
     use super::GlossApp;
 
@@ -349,7 +352,8 @@ pub(crate) mod test_support {
             update_wiring(),
             clipboard_watch_enabled,
             Arc::new(TaskCache::new()),
-            stub_platform(&store, scene),
+            Box::new(StubMenuController),
+            Box::new(StubClipboardWriter),
             None,
         );
         DrivenApp {
