@@ -69,7 +69,7 @@ def new_fixture(root: Path, agents_body: str | None = None) -> None:
     write_manifest(
         root / "crates/gloss-app/Cargo.toml",
         "gloss-app",
-        'gloss-core = { path = "../gloss-core" }\ngloss-platform = { path = "../gloss-platform" }',
+        'gloss-core = { path = "../gloss-core" }',
     )
 
     (root / "crates/gloss-core/src/log.rs").write_text('tracing::info!("ready");\n')

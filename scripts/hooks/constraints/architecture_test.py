@@ -50,6 +50,15 @@ def test_platform_depends_on_app_rejected(tmp_path: Path) -> None:
     fixtures.assert_fail(architecture, tmp_path, mutate, "must not depend on gloss-app")
 
 
+def test_app_depends_on_platform_rejected(tmp_path: Path) -> None:
+    def mutate(root: Path) -> None:
+        fixtures.add_dep(
+            root / "crates/gloss-app/Cargo.toml", 'gloss-platform = { path = "../gloss-platform" }'
+        )
+
+    fixtures.assert_fail(architecture, tmp_path, mutate, "must not depend on gloss-platform")
+
+
 def test_depends_on_unregistered_crate(tmp_path: Path) -> None:
     def mutate(root: Path) -> None:
         (root / "crates/gloss-util").mkdir()

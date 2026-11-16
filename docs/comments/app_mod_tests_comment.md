@@ -18,6 +18,7 @@
 - 2026-09-20 R4 拆分后辅助收进 `app/mod.rs` 的 `#[cfg(test)] pub(super) mod test_support`，各子模块测试经 `crate::app::test_support` 引用——GlossApp 私有字段只在 crate::app 子树可见，辅助放这里恰好覆盖全部子模块测试。
 - 2026-09-22 任务 09 给 `app/mod.rs` 补了它自己的第一个测试模块：`ui_locale_follows_the_saved_language_without_a_restart` 直接断言 `GlossApp::locale` 的落定（出厂 → `Language::En` → `Language::System` 三跳），把“语言切换不重启即生效”钉在壳侧解析这一层；渲染侧是否真的换了表由 ui 层的 `failure_card_follows_the_locale` / `english_catalog_relabels_the_settings_window` 负责，两者合起来才等于那条验收标准。
 - 2026-09-27 update_wiring：更新接线的测试桩——本地 watch（恒为初始快照）+ 空发送出口，不拉起真实模块、不触碰网络；驱动 GlossApp 的测试默认用它，避免为不关心更新状态的用例拉起 gloss-update 线程。
+- 2026-11-17（架构重构 B1/B2）夹具构造随生产装配同形：`driven_app_wired` 直接构造应用环境结构（`AppEnv`，菜单装配桩报告未装配、剪贴板写入桩恒成功）传入 `GlossApp::new`，启动授权事实（`permissions_ready`）经构造参数播种进会话——与入口组装段的生产构造同一形状，不再整结构构造平台替身句柄（`stub_platform` 已随装配契约拆分删除，见 stubs_ports 测试记录）。
 
 ## test_support 的剪贴板哨兵开关位（2026-10-12）
 

@@ -334,14 +334,14 @@ impl GlossApp {
 
 impl GlossApp {
     pub(crate) fn on_accessibility_granted(&mut self) {
-        if self.env.permissions_ready {
+        if self.session.permissions_ready {
             debug!(
                 thread = thread::UI,
                 "accessibility grant event ignored, permissions already ready"
             );
             return;
         }
-        self.env.permissions_ready = true;
+        self.session.permissions_ready = true;
         info!(
             thread = thread::UI,
             "accessibility granted mid-run, dispatching the deferred secret prewarm"
@@ -350,7 +350,7 @@ impl GlossApp {
     }
 
     pub(crate) fn send_secret_prewarm(&mut self) {
-        if !self.env.permissions_ready {
+        if !self.session.permissions_ready {
             debug!(
                 thread = thread::UI,
                 "startup permissions not ready, secret prewarm deferred to the first task"

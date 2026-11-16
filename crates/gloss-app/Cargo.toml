@@ -52,7 +52,6 @@ egui-winit = {
 # 更新子系统的流式读取无特性门。
 futures = { version = "0.3", default-features = false, features = ["std"] }
 gloss-core = { path = "../gloss-core" }
-gloss-platform = { path = "../gloss-platform" }
 # 剪贴板位图（PNG）附件图像的解码与测试夹具编码。
 image = { version = "0.25", default-features = false, features = ["png"] }
 # 系统字体文件的只读内存映射（memmap2），界面库（egui）借用登记的字节背衬。
