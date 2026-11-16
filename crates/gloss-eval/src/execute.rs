@@ -10,7 +10,7 @@ use gloss_core::classify::classify_traced;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::{TaskStage, run_task_rounds};
 use gloss_core::model::{GlossError, Locale};
-use gloss_core::ports::{AiEngine, EngineRequest, TaskChunk};
+use gloss_core::ports::{AiEngine, EngineRequest, TaskChunk, ThinkingMode};
 use gloss_core::prompt::PromptRegistry;
 use gloss_core::task::{Task, TaskInput, TaskKind, TaskOptions};
 
@@ -193,7 +193,7 @@ async fn judge_case(ctx: &RunCtx<'_>, case: &EvalCase, reply: &str) -> Option<Ju
     let request = EngineRequest {
         messages: quality::render_judge(case, reply),
         model: ctx.model.to_owned(),
-        max_tokens: Some(quality::JUDGE_MAX_TOKENS),
+        thinking: ThinkingMode::Follow,
     };
     let raw = collect_reply(ctx.engine, request).await.ok()?;
     quality::parse_scores(&raw)

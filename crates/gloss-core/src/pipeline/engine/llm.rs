@@ -74,7 +74,7 @@ impl AiEngine for LlmClient {
         let EngineRequest {
             messages,
             model,
-            max_tokens,
+            thinking,
         } = request;
 
         Box::pin(async move {
@@ -91,7 +91,7 @@ impl AiEngine for LlmClient {
                 &EngineRequest {
                     messages,
                     model: model.trim().to_owned(),
-                    max_tokens,
+                    thinking,
                 },
             )?);
             let attempt = {
@@ -154,7 +154,7 @@ mod tests {
         FirstByteStream, RETRY_AFTER_CAP, RETRY_ATTEMPTS, RETRY_BACKOFF, SseStream, TransportFail,
         connect_with_retry, parse_retry_after, retry_delay,
     };
-    use crate::ports::TaskChunk;
+    use crate::ports::{TaskChunk, ThinkingMode};
     use crate::prompt::{ChatMessage, ContentPart};
     use crate::stubs::ports::MemoryConfigStore;
     use futures_core::Stream;
@@ -462,7 +462,7 @@ mod tests {
         let request = EngineRequest {
             messages: vec![ChatMessage::system("把用户给的词翻成中文")],
             model: "deepseek-chat".into(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
         assert_eq!(
             chat_request_body(&request),
@@ -480,7 +480,7 @@ mod tests {
         let text = chat_request_body(&EngineRequest {
             messages: vec![ChatMessage::user("hi")],
             model: "m".into(),
-            max_tokens: Some(64),
+            thinking: ThinkingMode::Follow,
         });
         assert_eq!(
             text.get("response_format"),
@@ -493,7 +493,7 @@ mod tests {
                 FIXTURE_PNG.into(),
             )])],
             model: "m".into(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         });
         assert_eq!(
             multimodal.get("response_format"),
@@ -507,7 +507,7 @@ mod tests {
         let request = EngineRequest {
             messages: vec![ChatMessage::user("hi")],
             model: "m".into(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
         let body = chat_request_body(&request);
         assert_eq!(
@@ -525,7 +525,7 @@ mod tests {
                 ChatMessage::user_parts(vec![ContentPart::ImagePng(FIXTURE_PNG.into())]),
             ],
             model: "deepseek-flash".into(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
         assert_eq!(
             chat_request_body(&request),
@@ -548,23 +548,27 @@ mod tests {
     }
 
     #[test]
-    fn max_tokens_is_carried_only_when_set() {
+    fn thinking_control_rides_the_wire_only_when_disabled() {
         let messages = vec![ChatMessage::user("hi")];
-        let unset = chat_request_body(&EngineRequest {
+        let follow = chat_request_body(&EngineRequest {
             messages: messages.clone(),
             model: "m".into(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         });
         assert!(
-            unset.get("max_tokens").is_none(),
-            "an unset limit must stay off the wire, not null"
+            follow.get("thinking").is_none(),
+            "the provider default stays off the wire, not explicit"
         );
-        let capped = chat_request_body(&EngineRequest {
+        let disabled = chat_request_body(&EngineRequest {
             messages,
             model: "m".into(),
-            max_tokens: Some(64),
+            thinking: ThinkingMode::Disabled,
         });
-        assert_eq!(capped.get("max_tokens"), Some(&serde_json::json!(64)));
+        assert_eq!(
+            disabled.get("thinking"),
+            Some(&serde_json::json!({"type": "disabled"})),
+            "the disabled control rides the wire in the provider's shape"
+        );
     }
 
     struct VecStream(std::vec::IntoIter<Result<bytes::Bytes, reqwest::Error>>);
@@ -1020,7 +1024,7 @@ mod tests {
 mod live_tests {
     use super::*;
 
-    use crate::ports::TaskChunk;
+    use crate::ports::{TaskChunk, ThinkingMode};
     use crate::prompt::{ChatMessage, PromptRegistry};
     use crate::schema;
     use crate::stubs::ports::MemoryConfigStore;
@@ -1080,7 +1084,7 @@ mod live_tests {
                 ChatMessage::user("The quick brown fox jumps over the lazy dog."),
             ],
             model,
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
 
         let mut stream = client.execute(request).await.expect("request should start");
@@ -1122,7 +1126,7 @@ mod live_tests {
             .execute(EngineRequest {
                 messages,
                 model,
-                max_tokens: None,
+                thinking: ThinkingMode::Follow,
             })
             .await
             .unwrap_or_else(|error| {

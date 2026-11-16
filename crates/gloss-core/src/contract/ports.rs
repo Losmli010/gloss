@@ -42,11 +42,17 @@ pub enum TaskChunk {
 
 pub type TaskStream = Pin<Box<dyn Stream<Item = Result<TaskChunk, GlossError>> + Send>>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThinkingMode {
+    Follow,
+    Disabled,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineRequest {
     pub messages: Vec<ChatMessage>,
     pub model: String,
-    pub max_tokens: Option<u32>,
+    pub thinking: ThinkingMode,
 }
 
 pub trait SceneProbe: Send + Sync {

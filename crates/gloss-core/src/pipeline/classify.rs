@@ -31,7 +31,7 @@ use tokio::time::{Instant as TokioInstant, Sleep, sleep_until};
 
 use crate::log::{info, thread, warn};
 use crate::model::{GlossError, Locale};
-use crate::ports::{AiEngine, EngineRequest, TaskChunk, TaskStream};
+use crate::ports::{AiEngine, EngineRequest, TaskChunk, TaskStream, ThinkingMode};
 use crate::prompt::PromptRegistry;
 use crate::repair::{RepairLoop, RepairStage};
 use crate::schema;
@@ -40,8 +40,6 @@ use crate::task::{TaskInput, TaskKind};
 pub const CLASSIFY_FALLBACK: TaskKind = TaskKind::General;
 
 pub const CLASSIFY_REPAIRS: u32 = 1;
-
-pub const CLASSIFY_MAX_TOKENS: u32 = 128;
 
 pub const CLASSIFY_REPLY_CAP_BYTES: usize = 4096;
 
@@ -150,7 +148,7 @@ pub async fn classify_traced(
         let request = EngineRequest {
             messages,
             model: model.to_owned(),
-            max_tokens: Some(CLASSIFY_MAX_TOKENS),
+            thinking: ThinkingMode::Disabled,
         };
         let round = classify_round(engine, request).await?;
         let verdict = match round.settled {
@@ -253,7 +251,7 @@ mod tests {
         CLASSIFY_FALLBACK, CLASSIFY_REPAIRS, classify, classify_traced, parse_classify_reply,
     };
     use crate::model::{GlossError, Locale};
-    use crate::ports::{AiEngine, BoxFuture, EngineRequest, TaskChunk, TaskStream};
+    use crate::ports::{AiEngine, BoxFuture, EngineRequest, TaskChunk, TaskStream, ThinkingMode};
     use crate::stubs::engine::MockEngine;
     use crate::task::{TaskInput, TaskKind};
 
@@ -534,6 +532,24 @@ mod tests {
             requests[1].messages, requests[0].messages,
             "EmptyReply has nothing to repair: the original request is resent verbatim"
         );
+    }
+
+    #[tokio::test]
+    async fn classify_requests_disable_thinking() {
+        let engine = MockEngine::new().with_script_queue(vec![vec![Ok(TaskChunk::Delta(
+            "{\"kind\":\"TranslateWord\"}".into(),
+        ))]]);
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("bonjour"))
+            .await
+            .expect("the request should settle");
+        assert_eq!(kind, TaskKind::TranslateWord);
+        for request in engine.recorded_requests() {
+            assert_eq!(
+                request.thinking,
+                ThinkingMode::Disabled,
+                "the narrow-output classify stage must not pay for a thinking chain"
+            );
+        }
     }
 
     #[tokio::test]
