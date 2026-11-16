@@ -198,6 +198,14 @@ mod tests {
             "old",
             "a failed extract must not touch the installed bundle"
         );
+        assert!(
+            std::fs::read_dir(&dir).expect("dir").all(|entry| !entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".gloss-update")),
+            "a failed extract must not leave the unpack dir behind"
+        );
     }
 
     #[test]
@@ -255,5 +263,13 @@ mod tests {
         let error = replace(&zip, &dir, &bundle).expect_err("hollow .app must be rejected");
         assert_eq!(error, InstallError::InvalidStructure);
         assert!(bundle.join("Contents/MacOS").is_dir());
+        assert!(
+            std::fs::read_dir(&dir).expect("dir").all(|entry| !entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".gloss-update")),
+            "a rejected structure must not leave the unpack dir behind"
+        );
     }
 }

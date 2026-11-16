@@ -168,5 +168,13 @@ mod tests {
             b"old-exe",
             "a failed structure check must not touch the installed exe"
         );
+        assert!(
+            std::fs::read_dir(&dir).expect("dir").all(|entry| !entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".gloss-update")),
+            "a rejected structure must not leave the unpack dir behind"
+        );
     }
 }

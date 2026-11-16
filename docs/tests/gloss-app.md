@@ -537,8 +537,8 @@
 | --- | --- | --- | --- |
 | replace_swaps_bundle_and_leaves_no_litter | 替换换装无残留 | 给定旧 `bundle` 与合法 `zip`，当 `replace`，则新 `bundle` 就位原路径、`.app.old` 清除、解压现场清空 | 2026-09-26 |
 | replace_over_a_stale_app_old_still_succeeds | 残留 `.app.old` 先清场 | 给定上次替换遗留的 `.app.old`，当替换，则先清场并成功换装 | 2026-09-26 |
-| zip_without_a_structured_app_leaves_the_bundle_intact | 坏 `zip` 不动原 `bundle` | 给定非 `zip` 文件，当 `replace`，则报 `Unzip` 且已安装 `bundle` 原样 | 2026-09-26 |
-| zip_with_an_app_missing_macos_dir_is_invalid_structure | 包结构检查 | 给定缺 `Contents/MacOS` 的 `.app` `zip`，当 `replace`，则报 `InvalidStructure` 且原 `bundle` 原样 | 2026-09-26 |
+| zip_without_a_structured_app_leaves_the_bundle_intact | 坏 `zip` 不动原 `bundle` | 给定非 `zip` 文件，当 `replace`，则报 `Unzip` 且已安装 `bundle` 原样、解压现场清空 | 2026-11-17 |
+| zip_with_an_app_missing_macos_dir_is_invalid_structure | 包结构检查 | 给定缺 `Contents/MacOS` 的 `.app` `zip`，当 `replace`，则报 `InvalidStructure` 且原 `bundle` 原样、解压现场清空 | 2026-11-17 |
 | unwritable_dir_is_reported_before_anything_is_touched | 只读目录前置拒绝 | 给定只读的 `bundle` 目录，当安装，则报 `Unwritable` 且 `bundle` 未被触碰 | 2026-09-26 |
 
 ### `crates/gloss-app/src/update/install_shared.rs`
@@ -564,7 +564,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | windows_replace_swaps_the_executable_and_side_files | 可执行文件加旁置文件换装 | 给定含可执行文件与旁置文件的 `zip` 与旧安装位，当 `replace`，则新文件就位原路径、腾位副本清除、解压现场清空 | 2026-11-07 |
-| windows_replace_rejects_a_zip_without_the_executable | 包结构检查 | 给定不含可执行文件的 `zip`，当 `replace`，则报 `InvalidStructure` 且已安装文件原样 | 2026-11-07 |
+| windows_replace_rejects_a_zip_without_the_executable | 包结构检查 | 给定不含可执行文件的 `zip`，当 `replace`，则报 `InvalidStructure` 且已安装文件原样、解压现场清空 | 2026-11-17 |
 
 ### `crates/gloss-app/src/update/manifest.rs`
 
