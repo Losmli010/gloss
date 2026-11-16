@@ -1,12 +1,14 @@
 //! 组装段助手：平台能力装配（连接）、配置装配、四通道端点分发、启动期
-//! 预检与事件源装配、异步运行时（tokio）消费桥与事件线程的启动。进程
-//! 入口只留启动骨架，“拿到唤醒句柄之后才能做的事”与全部平台能力装配
-//! 都收在这里；平台能力一律经装配契约（Platform）的端口袋与事件宿主
-//! 取用，本模块是全入口唯一引用适配器层装配契约的地方。
+//! 预检、异步运行时（tokio）消费桥与事件线程的启动。进程入口只留启动
+//! 骨架，“拿到唤醒句柄之后才能做的事”与全部平台能力装配都收在这里；
+//! 平台能力一律经装配契约（Platform）的端口袋与事件宿主取用，本模块是
+//! 全入口唯一引用适配器层装配契约的地方。事件源映射与取材命令分派的
+//! 业务逻辑住应用层编排（gloss_app::flow::acquire），本模块只负责把
+//! 端口对象交给它、把它返回的闭包装进事件源清单与事件线程。
 
 use std::error::Error;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender};
@@ -16,18 +18,15 @@ use gloss_app::app::Waker;
 use gloss_app::channel::{
     AcquireCommand, AppEndpoints, Channels, Command, Event, PlatformEvent, Traced,
 };
+use gloss_app::flow::acquire;
 use gloss_app::runtime::cache::TaskCache;
 use gloss_app::runtime::pipeline::{CommandRuntime, TaskBridge, start_command_runtime};
 use gloss_app::update::UpdateHandle;
 use gloss_core::config::CACHE_TTL_MAX_SECS;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
-use gloss_core::log::{debug, info, thread, warn};
-use gloss_core::model::GlossError;
-use gloss_core::ports::{
-    AppIcon, ClipboardImageReader, DesktopShortcut, PermissionProbe, SecretStore, TextAcquirer,
-};
-use gloss_core::task::TaskInput;
+use gloss_core::log::{info, thread, warn};
+use gloss_core::ports::{AppIcon, DesktopShortcut, PermissionProbe, SecretStore};
 use gloss_platform::bootstrap::{EventHost, EventSink, EventSources, Platform, PlatformPorts};
 
 type StartupResult = Result<(), Box<dyn Error>>;
@@ -282,136 +281,25 @@ impl Assembly {
     ) {
         let kit = EventHost::event_kit(Arc::clone(&self.clipboard_watch_enabled));
         let mut sources: EventSources<PlatformEvent> = Vec::new();
-
-        let mut watch = self.permission.watch(!self.accessibility_ready);
-        sources.push(Box::new(move || {
-            watch()
-                .then_some(PlatformEvent::AccessibilityGranted)
-                .into_iter()
-                .collect()
-        }));
-        if let Some(mut gesture) = host.gesture.take() {
-            sources.push(Box::new(move || {
-                gesture
-                    .poll()
-                    .into_iter()
-                    .map(|pos| PlatformEvent::SelectionGesture { pos })
-                    .collect()
-            }));
+        for source in acquire::event_sources(
+            self.permission.watch(!self.accessibility_ready),
+            host.gesture.take(),
+            kit.clipboard_watcher,
+            Arc::clone(&host.gesture_degraded),
+        ) {
+            sources.push(Box::new(source));
         }
-        let mut clipboard_watch = kit.clipboard_watcher;
-        sources.push(Box::new(move || {
-            clipboard_watch
-                .poll()
-                .into_iter()
-                .map(|_| PlatformEvent::PasteboardImageObserved)
-                .collect()
-        }));
-        let degraded = Arc::clone(&host.gesture_degraded);
-        let mut hinted = false;
-        sources.push(Box::new(move || {
-            if !hinted && degraded.load(Ordering::Relaxed) {
-                hinted = true;
-                warn!(
-                    thread = thread::EVENT,
-                    "mouse listener degraded mid-run, selection gesture disabled"
-                );
-            }
-            Vec::new()
-        }));
-        let handler = acquire_command_handler(kit.text_acquirer, kit.clipboard_image_reader);
-        host.spawn_event_thread(acquire_rx, sink, handler, sources);
-    }
-}
-
-fn acquire_command_handler(
-    mut text_acquirer: Box<dyn TextAcquirer>,
-    mut image_reader: Box<dyn ClipboardImageReader>,
-) -> impl FnMut(Traced<AcquireCommand>, &EventSink<Event, PlatformEvent>) + Send {
-    move |job, sink| {
-        let _entered = job.span.enter();
-        match job.payload {
-            AcquireCommand::AcquireText { generation } => {
-                acquire_text(&mut *text_acquirer, generation, sink);
-            }
-            AcquireCommand::AcquireClipboardImage { generation } => {
-                acquire_clipboard_image(&mut *image_reader, generation, sink);
-            }
-        }
-    }
-}
-
-fn acquire_text(
-    text_acquirer: &mut dyn TextAcquirer,
-    generation: u64,
-    sink: &EventSink<Event, PlatformEvent>,
-) {
-    info!(thread = thread::EVENT, "acquiring text");
-    let (outcome, settle) = text_acquirer.read().into_parts();
-    match outcome {
-        Ok(text) => {
-            debug!(
-                thread = thread::EVENT,
-                bytes = text.len(),
-                chars = text.chars().count(),
-                "text input acquired"
-            );
-            sink.send_event(Event::InputReady {
-                generation,
-                input: TaskInput::Text { text },
-            });
-        }
-        Err(err) => {
-            if err == GlossError::AccessibilityDenied {
-                warn!(
-                    thread = thread::EVENT,
-                    "accessibility permission missing, text acquisition denied"
-                );
-            } else {
-                debug!(
-                    thread = thread::EVENT,
-                    error = %err,
-                    "text acquisition failed"
-                );
-            }
-            sink.send_event(Event::TaskFailed {
-                generation,
-                error: err,
-            });
-        }
-    }
-    settle.finish();
-}
-
-fn acquire_clipboard_image(
-    image_reader: &mut dyn ClipboardImageReader,
-    generation: u64,
-    sink: &EventSink<Event, PlatformEvent>,
-) {
-    info!(thread = thread::EVENT, "acquiring clipboard image");
-    match image_reader.read() {
-        Ok(Some(png)) => {
-            debug!(
-                thread = thread::EVENT,
-                bytes = png.len(),
-                "clipboard image acquired"
-            );
-            sink.send_event(Event::InputReady {
-                generation,
-                input: TaskInput::Image { png },
-            });
-        }
-        Ok(None) => {}
-        Err(err) => {
-            debug!(
-                thread = thread::EVENT,
-                error = %err,
-                "clipboard image acquisition failed"
-            );
-            sink.send_event(Event::TaskFailed {
-                generation,
-                error: err,
-            });
-        }
+        let mut handler =
+            acquire::acquire_command_handler(kit.text_acquirer, kit.clipboard_image_reader);
+        host.spawn_event_thread(
+            acquire_rx,
+            sink,
+            move |job: Traced<AcquireCommand>, sink: &EventSink<Event, PlatformEvent>| {
+                handler(job, &mut |event| {
+                    sink.send_event(event);
+                });
+            },
+            sources,
+        );
     }
 }
