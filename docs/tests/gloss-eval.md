@@ -29,7 +29,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| curated_loads_with_the_finalized_distribution | 精选集五类分布守卫 | 给定编译期嵌入的定稿精选集，当 `load_curated`，则分类 22、词卡 10、句译 6、代码 3、通用 3 共 44 条逐类钉数且目标语言恒中文——增删条目是走评审的定稿变更，守卫数字随评审同改 | 2026-11-01 |
+| curated_loads_with_the_finalized_distribution | 精选集五类分布守卫 | 给定编译期嵌入的定稿精选集，当 `load_curated`，则分类 35、词卡 10、句译 6、代码 3、通用 3 共 57 条逐类钉数且目标语言恒中文——增删条目是走评审的定稿变更，守卫数字随评审同改 | 2026-11-16 |
 | every_embedded_reference_settles_green_against_its_own_case | 参考答案与契约自洽 | 给定全部嵌入用例，当参考答案渲染产物词面后过各自用例的 `settle_case`，则不降级且子类检查项（类别符合或字段完整）全过——参考答案形状漂移或契约口径收紧先红 | 2026-11-01 |
 | reference_renders_as_the_product_wire_shape | 参考答案渲染生产词面 | 给定任务侧与分类侧参考答案，当 `reply_json`，则任务侧渲染结果过生产任务校验器（注与疏证在场）、分类侧恰为裸类别（JSON）回复形状且 `Fallback` 映射通用 | 2026-11-01 |
 | reference_rejects_wrong_subtype_shapes_with_line_numbers | 参考答案按子类结构校验 | 给定分类拿任务形、任务拿分类形、空注、词卡缺音标键与 `null` 音标各一例，当 `parse_curated`，则前四者带行号拒绝、`null` 在场仍过（与契约检查同口径） | 2026-11-01 |
@@ -48,7 +48,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| stub_run_settles_layers_and_pends_without_baseline | 桩引擎端到端首轮全待比 | 给定脚本引擎桩（分类回复、任务回复、评审四维脚本）与头部 23 条切片，当 `run` 加空基线空标注结算，则例数与延迟样本数对齐、分类例无质量分且类别符合过、首个任务例字段完整过且评审四维进明细、全部回归恒待比 | 2026-11-01 |
+| stub_run_settles_layers_and_pends_without_baseline | 桩引擎端到端首轮全待比 | 给定脚本引擎桩（分类回复、任务回复、评审四维脚本）与头部 35 条切片，当 `run` 加空基线空标注结算，则例数与延迟样本数对齐、分类例无质量分且类别符合过、首个任务例字段完整过且评审四维进明细、全部回归恒待比 | 2026-11-16 |
 | golden_and_labels_settle_stub_rounds_into_pass_and_changed | 注入基线标注出通过与改 | 给定同轮输出的桩运行与逐例基线标注（两合格一同合格、一不合格异类），当 `regression::settle`，则同文合格判通过、结构相同判通过、异类不合格判改 | 2026-11-01 |
 | engine_failure_marks_the_case_and_drops_settlement | 引擎故障标记进明细 | 给定首通即请求失败的脚本引擎桩，当 `run` 后结算，则明细带故障标记、轮轨迹为空、无质量分、回归字段恒空且运行不中断 | 2026-11-01 |
 | limit_slices_the_run_and_judge_toggle_keeps_quality_empty | 限位切片与评审开关 | 给定限位 2 条且评审关闭的运行，当 `run`，则恰出两条明细与两个延迟样本、质量字段全空 | 2026-11-01 |

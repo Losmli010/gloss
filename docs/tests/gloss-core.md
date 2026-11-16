@@ -129,11 +129,14 @@
 | a_complete_json_settles_before_the_stream_ends | 完整（JSON）先于流结束定型 | 给定“半截 → 闭合 → 流内错误”的增量序列，当 `classify`，则返回首个完整（JSON）的判定（等流结束就会拿到那个错误） | 2026-09-30 |
 | the_first_complete_json_wins_over_later_deltas | 首个完整（JSON）胜出 | 给定两段各自完整的 JSON 增量，当 `classify`，则返回前者（拼接后两端都解析不过，只有提前退出才拿得到） | 2026-09-30 |
 | partial_json_keeps_waiting_for_the_stream | 半截（JSON）继续等流 | 给定到流结束都补不齐的半截（JSON），当 `classify`，则流内不提前定型（增量校验不过继续等），流走完按违约进修复轮、耗尽落兜底 `General` | 2026-10-12 |
-| a_request_failure_is_digested_into_the_fallback_without_retry | 分类请求失败内部消化落兜底 | 给定分类请求整体失败，当 `classify`，则不重试、内部消化后返回 `Ok(General)`（引擎恰 1 次调用） | 2026-10-12 |
+| a_request_failure_is_digested_into_the_fallback_without_retry | 分类请求失败内部消化落兜底 | 给定分类请求整体失败（非思考开关类），当 `classify`，则不重试、内部消化后返回 `Ok(General)`（引擎恰 1 次调用） | 2026-10-12 |
+| a_thinking_switch_rejection_resends_with_the_provider_default | 思考开关被拒以默认重发 | 给定首轮请求以诊断提及 `thinking` 的 `EngineResponse` 失败，当 `classify`，则恰一次以 `Follow`（键不上线）原样重发提示词并判出类别（恰 2 次调用） | 2026-11-16 |
+| a_plain_parameter_rejection_is_digested_without_resend | 不点名开关的拒绝不重发 | 给定请求以诊断不提及 `thinking` 的 `EngineResponse` 失败，当 `classify`，则不重发、内部消化后返回 `Ok(General)`（引擎恰 1 次调用） | 2026-11-16 |
 | a_violated_reply_repairs_into_a_kind | 分类违约回复修复后判型 | 给定“散文回复 → 裸 JSON `kind`”脚本队列，当 `classify`，则修复轮对话为 `[system][user][assistant][user]`（原文、坏回复、纠错指令四轮），纠错指令把违约固定措辞作为 `reason` 回灌（无契约行）、不含坏回复与选区原文，修复后返回判定的 `kind` | 2026-10-20 |
 | classify_traced_carries_rounds_and_repairs_for_the_trajectory | 分类全轨迹携带轮次与修复数 | 给定“散文回复 → 裸 JSON `kind`”与“恒散文”两个脚本队列，当 `classify_traced`，则前者 `decision.kind` 为判定的 `kind`、`repairs` 为 1、`rounds` 按轮序携带每轮完整回复；后者耗尽落兜底 `General`、`repairs` 为 `CLASSIFY_REPAIRS`、`rounds` 为 `1+CLASSIFY_REPAIRS` 轮 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_as_is | 分类空回复原样重发修复 | 给定“空回复 → 裸 JSON `kind`”脚本队列，当 `classify`，则修复轮按 `EmptyReply` 原样重发（消息列表与首轮逐字一致，无 `assistant` 轮无纠错指令）、修复后判出 `kind` | 2026-10-12 |
 | an_empty_completion_enters_the_repair_round_and_resends | 分类零增量空完成进修复轮重发 | 给定“`EmptyCompletion` 错误 → 裸 JSON `kind`”脚本队列，当 `classify`，则空完成按 `EmptyReply` 违约进修复轮、原样重发（消息与首轮逐字一致）、修复后判出 `kind`（恰 2 次调用，与任务段同口径） | 2026-10-21 |
+| classify_requests_disable_thinking | 分类请求关闭思考模式 | 给定“裸 JSON `kind`”脚本队列，当 `classify`，则记录引擎捕获的每个出站请求（含修复轮重发）携带 `thinking=Disabled`（窄输出任务不为思考链付费） | 2026-11-16 |
 | a_repeated_empty_completion_exhausts_into_the_fallback | 分类空完成重演耗尽落兜底 | 给定连续两轮 `EmptyCompletion` 脚本，当 `classify`，则修复预算（`CLASSIFY_REPAIRS`）耗尽、恰 1 加预算次调用后落兜底 `General` | 2026-10-21 |
 | exhausted_repairs_fall_back_to_general_with_a_trace | 分类修复耗尽落兜底且有痕 | 给定恒违约的回复脚本，当 `classify`，则恰用尽 `1+CLASSIFY_REPAIRS` 次调用后返回 `Ok(General)`，耗尽 `warn` 只记违约类别（不含回复与选区原文） | 2026-10-12 |
 | a_silent_stream_is_cut_at_the_first_item_deadline | 分类流首条目截止快速失败 | 给定建连后恒不出字的流，当 `classify`（暂停时钟），则首条目截止到点按请求异常收卷、内部消化落兜底 `General`（恰 1 次调用，不重试） | 2026-10-16 |
@@ -191,11 +194,11 @@
 | an_error_chunk_is_final_even_when_bytes_keep_arriving | 流语义契约·错误条目即终结 | 给定增量后跟坏（JSON）行再跟合法数据行的字节流，当经适配器消费，则恰交增量与错误各一，此后再无产出（错误条目之后的字节不解析） | 2026-10-30 |
 | adapter_ends_cleanly_without_the_done_marker | 无 `[DONE]` 关流干净收尾 | 给定无 `[DONE]` 直接关流的响应，当解析，则带增量流按正常结束收尾 | 2026-09-19 |
 | adapter_reports_empty_completion_as_failure | 零增量完成报失败 | 给定零增量响应（仅 `[DONE]`、`HTML` 劫持页、或声明 `stop` 却零增量），当解析，则报 `EngineResponse` 错且流即止 | 2026-10-11 |
-| request_body_has_the_openai_envelope | 请求体 `OpenAI` 信封 | 给定未设限的 `EngineRequest`，当构造请求体，则 `model/messages/stream/response_format` 四键 `wire` 形态精确匹配且无 `max_tokens` 键 | 2026-10-11 |
-| json_mode_switch_is_always_on_the_wire | JSON 契约恒在请求体上 | 给定设限、不设限与多模态（图像部件）请求，当构造请求体，则 `response_format` 恒为 `{"type":"json_object"}`（`EngineRequest` 无开关，不做能力协商） | 2026-10-11 |
+| request_body_has_the_openai_envelope | 请求体 `OpenAI` 信封 | 给定文本请求，当构造请求体，则 `model/messages/stream/response_format` 四键 `wire` 形态精确匹配且无 `max_tokens` 与 `thinking` 键（长度与思考跟随提供方默认，均不上线） | 2026-10-11 |
+| json_mode_switch_is_always_on_the_wire | JSON 契约恒在请求体上 | 给定文本与多模态（图像部件）请求，当构造请求体，则 `response_format` 恒为 `{"type":"json_object"}`（`EngineRequest` 无开关，不做能力协商） | 2026-10-11 |
 | text_content_stays_a_json_string_on_the_wire | 纯文本正文 `wire` 上仍是字符串 | 给定纯文本用户消息，当构造请求体，则 `content` 是 JSON 字符串、不升级成 `content` 数组 | 2026-10-10 |
 | multimodal_parts_map_to_the_openai_content_array | 多模态部件映成 `OpenAI` `content` 数组 | 给定系统文本消息加仅图像部件的用户消息，夹具为位图（PNG），当构造请求体，则图像部件映 `{"type":"image_url"}` 的 `data:image/png;base64` 数据（URL）且整包形状精确匹配（含 `response_format`） | 2026-10-11 |
-| max_tokens_is_carried_only_when_set | `max_tokens` 仅设限时上线 | 给定 `max_tokens=None` 与 `Some(64)` 两个请求，当构造请求体，则 `None` 无该键、`Some` 携带数值 64 | 2026-09-26 |
+| thinking_control_rides_the_wire_only_when_disabled | 思考控制仅关闭时上线 | 给定 `thinking=Follow` 与 `Disabled` 两个请求，当构造请求体，则 `Follow` 无 `thinking` 键（提供方默认不上线）、`Disabled` 携带 `{"type":"disabled"}` | 2026-11-16 |
 | maps_http_status_to_error_variants | 超文本传输（HTTP）状态映射错误变体 | 给定 401、403、429、500、`400+JSON`、`400+HTML`，当映射，则分别得 `EngineAuth`、`EngineRateLimited`、`EngineNetwork`、带诊断的 `EngineResponse` | 2026-09-19 |
 | json_mode_and_multimodal_rejections_are_recognized_from_diagnostics | 诊断文本识别（JSON）模式与多模态不支持 | 给定 `4xx` 且诊断含 `response_format/json_object` 或 `image/multimodal/vision` 的错误体，当映射，则分别得 `JsonModeUnsupported` 与 `UnsupportedModality`（`JSON` 模式检查在前）；`5xx` 与 401 不做启发式（网络与鉴权优先） | 2026-10-11 |
 | retry_delay_covers_only_transient_failures_within_budget | 重试判定只认预算内的瞬态失败 | 给定网络、限流、鉴权、协议、配置五类错误与不同预算余额，当 `retry_delay`，则网络与限流在预算内得固定退避（`Retry-After` 指引封顶生效、低于上限时指引优先），预算耗尽与瞬时之外类别一律 `None` | 2026-10-15 |
@@ -306,7 +309,7 @@
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 `En` `locale` 未设目标语言、`Zh` `locale` 设 `Lang::En`，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含“英语” | 2026-09-22 |
 | prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 `prompt_locale` 的任务，当渲染，则结果与显式 `Zh` 逐字一致且含“词典专家” | 2026-09-22 |
 | every_task_system_prompt_ends_with_the_discipline_after_the_shared_clause | 纪律块垫底且共享条款在其前 | 给定五任务两语言的渲染，当比对系统提示尾部，则与共享输出纪律块逐字一致、其前紧接共享目标语言条款（两段单点维护，拼接自渲染入口） | 2026-10-29 |
-| classify_prompt_composes_the_skeleton_and_the_registry_category_section | 分类提示词骨架加类别段两段拼装 | 给定双 `locale`，当 `render_classify`，则系统指令以骨架（引言与输出形状）逐字起头、其后为注册表渲染的类别段（四类别逐条带定义），无残留占位符 | 2026-10-29 |
+| classify_prompt_composes_the_skeleton_and_the_registry_category_section | 分类提示词骨架加类别段两段拼装 | 给定双 `locale`，当 `render_classify`，则系统指令以骨架（引言与输出形状）逐字起头、其后为注册表渲染的类别段（四类别逐条携带判定步骤且步骤序与类别常量顺序一致），无残留占位符 | 2026-11-15 |
 
 ### `crates/gloss-core/src/pipeline/prompt/repair.rs`
 

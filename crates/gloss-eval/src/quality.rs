@@ -11,8 +11,6 @@ use crate::detail::{ContractOutcome, ContractState, EvalKind, JudgeScores};
 
 pub const JUDGE_PROMPT: &str = include_str!("../prompts/judge.md");
 
-pub const JUDGE_MAX_TOKENS: u32 = 512;
-
 pub fn render_judge(case: &EvalCase, reply: &str) -> Vec<ChatMessage> {
     let system = JUDGE_PROMPT
         .replace("{{input}}", &case.text)

@@ -11,7 +11,9 @@ use stubs::ports::MemoryConfigStore;
 
 use gloss_core::config::Config;
 use gloss_core::model::GlossError;
-use gloss_core::ports::{AiEngine, ConfigStore, EngineRequest, SecretStore, TaskChunk};
+use gloss_core::ports::{
+    AiEngine, ConfigStore, EngineRequest, SecretStore, TaskChunk, ThinkingMode,
+};
 use gloss_core::prompt::ChatMessage;
 
 mod stubs;
@@ -20,7 +22,7 @@ fn sample_request() -> EngineRequest {
     EngineRequest {
         messages: vec![ChatMessage::user("gloss")],
         model: "mock-model".into(),
-        max_tokens: None,
+        thinking: ThinkingMode::Follow,
     }
 }
 
