@@ -2,6 +2,7 @@
 
 > 按符号锚定（不写行号，防漂移）。改到相关测试时同步更新本文件。
 > 测试代码禁止注释（AGENTS.md“注释纪律”节），测试的验收意图与辅助契约记录在此；`// SAFETY:` 仍留在代码内。
+> 本文件的流程单测（写入确认轮询与替身流程九条）随方案 A2（2026-11-17）上移共享层，见 fallback_tests 记录。
 
 ## 测试行为速览（BDD）
 
@@ -77,12 +78,6 @@
 ## reads_live_selection_from_rich_clipboard_via_simulated_copy
 
 - 2026-09-18 手动验收入口（区别性回归）：富剪贴板下兜底必须真的执行而不是放弃——预置 text+自定义 flavor 后 `read()` 必须读出选中文本，旧实现（保全不了富文本即拒绝兜底，#37 之前）在 expect 处当场失败，这是唯一能从公共 API 区分新旧实现的断言点；与 `fallback_read_restores_multiflavor_clipboard` 的恢复保真断言构成完整验收。文本恢复断言不用 assert_eq（防泄用户真实剪贴板，只报长度）。CI 无授权不参与常规测试。
-
-## wait_for_write 单测（mod tests）
-
-- 2026-09-18 change_is_detected_when_generation_bumps：代数变化即确认——前两轮与基线相同、第三轮变化，断言第三轮才返回且恰好轮询 3 次。
-- 2026-09-18 timeout_returns_false_without_hanging：超时路径不卡死——到 deadline 返回 false；总耗时上限断言（<2s）防实现退化成永久等待。
-- 2026-09-18 unavailable_probe_keeps_polling_until_deadline：probe 持续不可用（None）同样只等到 deadline，不提前放弃也不永久等。
 
 ## 豁免
 

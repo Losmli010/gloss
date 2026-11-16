@@ -73,6 +73,10 @@ FAMILY_STEMS: dict[str, str] = {
     # 哨兵共享层上移后与平台绑定文件撞名：共享层持语义裸名，绑定侧带平台前缀
     "crates/gloss-platform/src/macos/clipboard/watch.rs": "macos_clipboard_watch",
     "crates/gloss-platform/src/common/clipboard_watch.rs": "clipboard_watch",
+    # 代码高亮兜底着色与模拟复制兜底流程撞名：高亮侧按既有代码高亮（code_hl）
+    # 家族前缀，平台共享层持语义裸名
+    "crates/gloss-app/src/ui/code_hl/fallback.rs": "code_hl_fallback",
+    "crates/gloss-platform/src/common/fallback.rs": "fallback",
     # 组合取材上移共享层后与两侧绑定文件撞名：共享层持语义裸名，绑定侧带平台前缀
     "crates/gloss-platform/src/common/composite.rs": "composite",
     "crates/gloss-platform/src/macos/selection/composite.rs": "macos_composite",

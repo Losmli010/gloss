@@ -25,6 +25,26 @@
 | a_restore_underreporting_jumps_fires_a_spurious_observation | 恢复写盘少报跳变即伪触发（反向钉子） | 给定武装哨兵（基线 7）与少报的闩锁（前置 7、自报 2），当轮询读到计数 12 且判定有图，则差额判为外来写入并产出观察事件（钉住写盘归因必须按真实跳变数自报：少报会让恢复的图伪装成用户复制） | 2026-11-14 |
 | observer_mismatch_flags_the_race | 观察记录比对判竞态 | 给定观察记录，当现值与记录一致则匹配；记录更新后旧值不匹配、新值匹配（记录与现值之间被覆盖即竞态） | 2026-11-14 |
 
+### `crates/gloss-platform/src/common/fallback.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| a_confirmed_write_reads_back_and_restores_with_full_attribution | 确认写入读回后恢复并全额归因 | 给定替身板面（预计数 7、快照可保全、代数首调给基线后前进、注入成功、读回恒返回选中文本）与零确认窗，当 `read_with` 一轮，则产物为读回文本、注入恰 1 次、`finish` 按快照恢复且轮次归因为注入 1 加恢复 1 | 2026-11-17 |
+| restore_writes_feed_the_round_attribution | 恢复写盘数计入轮次归因 | 给定恢复替身自报写盘 2 的成功轮，当 `finish` 收口，则轮次归因为注入 1 加恢复 2 | 2026-11-17 |
+| an_unconfirmed_write_reinjects_once_and_skips_restore | 未确认写入重注入一轮且不恢复 | 给定代数恒不前进的替身与零确认窗，当 `read_with` 一轮，则注入恰 2 次（首发加重注入）、不进读回轮询、按获取失败上抛、失败轮不恢复且归因记零 | 2026-11-17 |
+| an_empty_read_back_after_confirmation_stays_unrestored | 确认后读回为空不恢复 | 给定代数前进但读回恒为空的替身与零确认窗，当 `read_with` 一轮，则读回轮询一轮后按获取失败上抛、不恢复且归因记零（注入副产物按外来放行） | 2026-11-17 |
+| a_board_changed_after_read_skips_restore_but_keeps_the_acquisition | 读回后现值被改跳过恢复但保留产物 | 给定读回成功后现值变为他人拷贝的替身与零确认窗，当 `read_with` 一轮，则产物照常上抛、恢复跳过且归因只计注入 | 2026-11-17 |
+| a_declined_snapshot_stays_idle_without_injecting | 快照放弃轮空转不注入 | 给定快照整轮放弃的替身，当 `read_with` 一轮，则注入与监视都不触碰、空收尾无恢复也无归因 | 2026-11-17 |
+| dropping_a_settle_without_finish_restores_the_snapshot | 未收口的收尾按快照恢复 | 给定成功轮的收尾不经 `finish` 直接丢弃，当收尾析构（Drop）展开，则按快照恢复原剪贴板且不进写盘归因 | 2026-11-17 |
+| an_unavailable_monitor_declines_without_injecting | 监视不可用放弃不注入 | 给定监视基线建立失败的替身与零确认窗，当 `read_with` 一轮，则不注入、按失败轮收口（不恢复、归因记零） | 2026-11-17 |
+| a_failed_injection_skips_restore_with_zero_attribution | 注入失败不重注入且不恢复 | 给定注入即失败的替身与零确认窗，当 `read_with` 一轮，则注入恰 1 次（失败即弃）、失败轮不恢复且归因记零 | 2026-11-17 |
+| change_is_detected_when_generation_bumps | 写入确认按代数探测 | 给定基线代数 0 与第 3 轮才变化的探针，当 `wait_for_write`，则确认成功且恰好轮询 3 次。沿革：随共享层上移合并两侧镜像（系统（Windows）侧原名以序列号前缀区分） | 2026-11-17 |
+| timeout_returns_false_without_hanging | 超时返回不悬挂 | 给定探针恒不变化，当到截止时间，则返回 `false` 且 2 秒内返回。沿革：同上合并 | 2026-11-17 |
+| unavailable_probe_keeps_polling_until_deadline | 探针不可用轮询到期限 | 给定探针恒为空，当到截止时间，则返回 `false`、不提前放弃也不永久等。沿革：同上合并 | 2026-11-17 |
+| retry_stops_at_the_first_success | 恢复重试首次成功即止 | 给定第 1 次即成功的单次恢复与 3 次上限，当 `restore_with_retry`，则只调 1 次、成功返回、写盘数记 1 且环节重置为成功形态 | 2026-11-17 |
+| retry_counts_the_writes_of_every_attempt_until_success | 恢复重试累加各次尝试的实际写盘数 | 给定依次“写 1 失败、写 0 失败、写 1 成功”的单次恢复与 3 次上限，当 `restore_with_retry`，则调满 3 次、成功返回且写盘数记 2 | 2026-11-17 |
+| exhausted_retries_carry_the_last_attempt_stage_status_and_total_writes | 恢复耗尽保留末次环节状态码与总写盘数 | 给定两次皆失败的单次恢复（首次环节记 5 写 1、末次环节记 42 写 0），当 `restore_with_retry`，则失败返回、写盘数记 1、环节与状态码取末次 | 2026-11-17 |
+
 ### `crates/gloss-platform/src/common/composite.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -222,13 +242,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| change_is_detected_when_generation_bumps | 写入确认按代数探测 | 给定基线代数 0 与第 3 轮才变化的 `probe`，当 `wait_for_write`，则确认成功且恰好轮询 3 次 | 2026-09-19 |
-| timeout_returns_false_without_hanging | 超时返回不悬挂 | 给定 `probe` 恒不变化，当到 `deadline`，则返回 `false` 且 2 秒内返回 | 2026-09-19 |
-| unavailable_probe_keeps_polling_until_deadline | `probe` 恒 `None` 轮询到期限 | 给定 `probe` 恒 `None`，当到 `deadline`，则返回 `false`、不提前放弃也不永久等 | 2026-09-19 |
 | injection_failure_releases_every_pressed_key_in_reverse | 注入失败按已按下键逆序补放 | 给定复制快捷键序列（修饰键按下 → `C` 按下 → `C` 释放 → 修饰键释放），当分别在第 1 至 4 个事件失败，则补放列表依次为空、`[modifier]`、`[C, modifier]`、`[C, modifier]`（逆序；重复 `key-up` 幂等） | 2026-10-17 |
-| retry_stops_at_the_first_success | 重试首次成功即止 | 给定第 1 次即成功的 `once` 与 3 次上限，当 `restore_with_retry`，则只调 1 次、成功返回且清板数记 1 | 2026-10-19 |
-| retry_counts_the_clears_of_every_attempt_until_success | 重试累加各次尝试的实际清板数 | 给定依次“清 1 失败、清 0 失败、清 1 成功”的 `once` 与 3 次上限，当 `restore_with_retry`，则调满 3 次、成功返回且清板数记 2 | 2026-10-19 |
-| exhausted_retries_carry_the_last_attempt_stage_status_and_total_clears | 重试耗尽保留末次环节状态码与总清板数 | 给定两次皆失败的 `once`（首次 `Alloc/5` 清 1、末次 `Clear/42` 清 0），当 `restore_with_retry`，则失败返回、清板数记 1、环节状态码取末次（`Clear/42`） | 2026-10-19 |
 
 ### `crates/gloss-platform/src/macos/storage/keychain.rs`
 
@@ -285,22 +299,6 @@
 | --- | --- | --- | --- |
 | image_name_survives_full_path_extraction | 进程映像名取路径末段去扩展名 | 给定反斜杠、正斜杠、裸名、多点文件名与裸目录五例路径，当 `image_name`，则依次取到映像名与去扩展名进程名、裸目录返回空 | 2026-11-06 |
 | front_app_probe_reports_a_usable_identity | 探针快照连贯且安全输入恒关 | 当读一次场景事实，则安全输入态恒为假，报告出的前台应用至少带一个可用标识 | 2026-11-06 |
-
-### `crates/gloss-platform/src/windows/selection/clipboard.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| seq_change_confirms_when_generation_bumps | 写入确认按序列号差探测 | 给定基线序列号 0 与第 3 轮才前进的探针，当 `wait_for_write`，则确认成功且恰好轮询 3 次 | 2026-11-06 |
-| seq_timeout_returns_false_without_hanging | 确认超时返回不悬挂 | 给定恒不前进的探针，当到截止时间，则返回否且两秒内返回 | 2026-11-06 |
-| seq_unavailable_probe_keeps_polling_until_deadline | 探针不可用轮询到期限 | 给定恒空的探针，当到截止时间，则返回否、不提前放弃也不永久等 | 2026-11-06 |
-
-### `crates/gloss-platform/src/windows/selection/clipboard/restore.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| board_retry_stops_at_the_first_success | 恢复重试首次成功即止 | 给定第 1 次即成功的单次恢复与 3 次上限，当 `restore_with_retry`，则只调 1 次、成功返回且写盘数记 1 | 2026-11-06 |
-| board_retry_accumulates_the_writes_of_every_attempt_until_success | 恢复重试累加各次写盘数 | 给定两次失败后第三次成功的单次恢复与 3 次上限，当 `restore_with_retry`，则调满 3 次、成功返回且写盘数记 1（失败轮不写盘） | 2026-11-06 |
-| board_retry_exhaustion_carries_the_last_stage_and_total_writes | 恢复耗尽保留末次环节与累计写盘数 | 给定两次皆失败的单次恢复（首次写环节、末次清环节），当 `restore_with_retry`，则失败返回且环节取末次（清环节） | 2026-11-06 |
 
 ### `crates/gloss-platform/src/windows/selection/clipboard/snapshot.rs`
 

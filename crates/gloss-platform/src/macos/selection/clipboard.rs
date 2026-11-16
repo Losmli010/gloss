@@ -1,401 +1,155 @@
-//! 剪贴板兜底读取（模拟复制）：兜底读取器。
+//! 剪贴板兜底读取（模拟复制）：系统（macOS）绑定。
 //!
-//! 辅助功能（AX）读不到选区时的兜底通道：快照剪贴板全部条目与数据风格
-//! 原始字节 → 注入复制快捷键 → 轮询确认目标应用写入 → 读回 →
-//! 读回成功且现值未变才按
-//! 快照恢复（失败轮一律不恢复——板上要么未变，要么是本轮之外的新写入
-//! 或注入副产物，都不是可覆盖的内容）。快照按条目与风格尽力保全：
-//! 读不出数据的风格（承诺式数据等）单独跳过——读不出即无法如实
-//! 恢复，整轮放弃只会让兜底在有此类风格的板上整批失效。两类边界仍
-//! 整体放弃、不注入：结构读不出（板、条目、风格名单）；板上条目的
-//! 风格全部读不出——注入后原内容无法如实写回，恢复轮会清空剪贴板。
-//! 未确认时重注入一轮再等一个完整超时窗口。产物与收尾分离：恢复决策与
-//! 写盘归因装在恢复收尾结构里，调用方在取材产物上抛之后收口
-//! ——恢复写盘不挡在弹窗链路上。写盘轮次
-//! 经取材轮次闩锁向哨兵自报计数归因（见剪贴板模块的
-//! 轮次写入闩锁）。纯时序逻辑独立成函数
-//! （单测覆盖），系统接口交互归实现子模块。
-
-use std::time::{Duration, Instant};
+//! 辅助功能（AX）读不到选区时的兜底通道的绑定面：共享流程（平台中立共享
+//! 层）只经板面原语束触板，本模块提供系统（macOS）的原语——写盘归因基线
+//! 取粘贴板变更计数；快照按条目逐数据风格保全原始字节并按快照还原（边界
+//! 见快照模块文档）；写入确认监视以粘贴板同步标志的闩锁承载代数——标志
+//! 在同步时被消费，错过的中间改动次数无从得知，只能回答“变没变”，基线
+//! 恒为 0；注入复制快捷键走事件（HID）事件源四步键序，失败即弃并逆序补
+//! 发已按下的键。快照内容类型为全条目全风格原始字节。读取在平台事件线程
+//! 上调用，收尾同线程。
 
 mod restore;
 mod snapshot;
 
-const WRITE_CONFIRM_TIMEOUT: Duration = Duration::from_millis(800);
-const WRITE_POLL_INTERVAL: Duration = Duration::from_millis(30);
+use arboard::Clipboard;
 
-fn wait_for_write(
-    baseline: u64,
-    mut probe: impl FnMut() -> Option<u64>,
-    deadline: Instant,
-) -> bool {
-    loop {
-        if probe().is_some_and(|current| current != baseline) {
-            return true;
-        }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(WRITE_POLL_INTERVAL);
-    }
+use crate::clipboard::{WatchRoundFlag, pasteboard_change_count};
+use crate::common::fallback::{FallbackBoard, FallbackSettle, WRITE_CONFIRM_TIMEOUT, read_with};
+use crate::ffi::event;
+use crate::ffi::pasteboard::{K_PASTEBOARD_MODIFIED, PasteboardSynchronize};
+
+use gloss_core::log::{debug, thread};
+use gloss_core::model::GlossError;
+
+use restore::restore_and_log;
+use snapshot::{OpenPasteboard, SavedContent, open_pasteboard, snapshot_pasteboard};
+
+#[derive(Debug, Default, Clone)]
+pub struct ClipboardFallbackReader {
+    round: WatchRoundFlag,
 }
 
-mod imp {
-    use std::time::Instant;
-
-    use arboard::Clipboard;
-
-    use crate::clipboard::{RoundWrites, WatchRoundFlag, pasteboard_change_count};
-    use crate::ffi::event;
-    use crate::ffi::pasteboard::{K_PASTEBOARD_MODIFIED, PasteboardSynchronize};
-
-    use gloss_core::log::{debug, thread};
-    use gloss_core::model::GlossError;
-
-    use super::snapshot::{OpenPasteboard, PendingRestore, open_pasteboard, snapshot_pasteboard};
-    use super::{WRITE_CONFIRM_TIMEOUT, WRITE_POLL_INTERVAL, wait_for_write};
-
-    pub struct FallbackSettle {
-        pending: Option<PendingRestore>,
-        round: WatchRoundFlag,
-        pre: u64,
-        acquired: u64,
-        restore: bool,
+impl ClipboardFallbackReader {
+    pub fn new(round: WatchRoundFlag) -> Self {
+        Self { round }
     }
 
-    impl FallbackSettle {
-        fn idle(round: WatchRoundFlag) -> Self {
-            Self {
-                pending: None,
-                round,
-                pre: 0,
-                acquired: 0,
-                restore: false,
-            }
-        }
-
-        fn planned(
-            pending: PendingRestore,
-            round: WatchRoundFlag,
-            pre: u64,
-            acquired: bool,
-            restore: bool,
-        ) -> Self {
-            Self {
-                pending: Some(pending),
-                round,
-                pre,
-                acquired: u64::from(acquired),
-                restore,
-            }
-        }
-
-        pub fn finish(mut self) {
-            let Some(pending) = self.pending.as_mut() else {
-                return;
-            };
-            let restored = if self.restore {
-                pending.restore_now()
-            } else {
-                pending.skip_restore();
-                0
-            };
-            self.round.enter(RoundWrites {
-                pre: self.pre,
-                ours: self.acquired + restored,
-            });
-        }
-
-        #[cfg(test)]
-        pub(super) fn restores_on_unwind(&self) -> bool {
-            self.pending.is_some()
-        }
-    }
-
-    struct ChangeMonitor {
-        pb: OpenPasteboard,
-        latched: bool,
-    }
-
-    impl ChangeMonitor {
-        fn new() -> Option<Self> {
-            let pb = open_pasteboard()?;
-            // SAFETY: `raw` is a valid +1 reference that stays alive until this
-            // struct is destroyed.
-            unsafe { PasteboardSynchronize(pb.raw) };
-            Some(Self { pb, latched: false })
-        }
-
-        fn baseline(&self) -> u64 {
-            0
-        }
-
-        fn generation(&mut self) -> u64 {
-            // SAFETY: `raw` is a valid +1 reference that stays alive until this
-            // struct is destroyed.
-            let flags = unsafe { PasteboardSynchronize(self.pb.raw) };
-            if flags & K_PASTEBOARD_MODIFIED != 0 {
-                self.latched = true;
-            }
-            u64::from(self.latched)
-        }
-    }
-
-    #[derive(Debug, Default, Clone)]
-    pub struct ClipboardFallbackReader {
-        round: WatchRoundFlag,
-    }
-
-    impl ClipboardFallbackReader {
-        pub fn new(round: WatchRoundFlag) -> Self {
-            Self { round }
-        }
-
-        pub fn read(&mut self) -> (Result<String, GlossError>, FallbackSettle) {
-            let mut clipboard = match Clipboard::new() {
-                Ok(clipboard) => clipboard,
-                Err(err) => {
-                    debug!(
-                        thread = thread::EVENT,
-                        error = %err,
-                        "clipboard unavailable, fallback read skipped"
-                    );
-                    return (
-                        Err(GlossError::SelectionUnavailable),
-                        FallbackSettle::idle(self.round.clone()),
-                    );
-                }
-            };
-            let pre_count = pasteboard_change_count().unwrap_or(0);
-            let Some(saved) = snapshot_pasteboard() else {
+    pub(crate) fn read(&mut self) -> (Result<String, GlossError>, FallbackSettle<SavedContent>) {
+        let mut clipboard = match Clipboard::new() {
+            Ok(clipboard) => clipboard,
+            Err(err) => {
                 debug!(
                     thread = thread::EVENT,
-                    "original clipboard content cannot be fully preserved, fallback declined"
+                    error = %err,
+                    "clipboard unavailable, fallback read skipped"
                 );
                 return (
                     Err(GlossError::SelectionUnavailable),
                     FallbackSettle::idle(self.round.clone()),
                 );
-            };
-            let pending = PendingRestore::new(saved);
-            let outcome = self.attempt(&mut clipboard);
-            let settle = match &outcome {
-                Ok(acquired) => {
-                    let current_is_ours =
-                        matches!(clipboard.get_text(), Ok(current) if &current == acquired);
-                    if current_is_ours {
-                        FallbackSettle::planned(pending, self.round.clone(), pre_count, true, true)
-                    } else {
-                        debug!(
-                            thread = thread::EVENT,
-                            "clipboard changed after read, restore skipped"
-                        );
-                        FallbackSettle::planned(pending, self.round.clone(), pre_count, true, false)
-                    }
-                }
-                Err(_) => {
-                    FallbackSettle::planned(pending, self.round.clone(), pre_count, false, false)
-                }
-            };
-            (outcome, settle)
-        }
-
-        fn attempt(&mut self, clipboard: &mut Clipboard) -> Result<String, GlossError> {
-            let Some(mut monitor) = ChangeMonitor::new() else {
-                debug!(
-                    thread = thread::EVENT,
-                    "change monitor unavailable, fallback declined"
-                );
-                return Err(GlossError::SelectionUnavailable);
-            };
-            inject_copy_key()?;
-            let baseline = monitor.baseline();
-            let mut deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
-            let mut confirmed = wait_for_write(baseline, || Some(monitor.generation()), deadline);
-            if !confirmed {
-                debug!(
-                    thread = thread::EVENT,
-                    "copy write not confirmed, retrying injection once"
-                );
-                inject_copy_key()?;
-                deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
-                confirmed = wait_for_write(baseline, || Some(monitor.generation()), deadline);
             }
-            if !confirmed {
-                debug!(
-                    thread = thread::EVENT,
-                    "copy write not confirmed within timeout"
-                );
-                return Err(GlossError::SelectionUnavailable);
-            }
-            loop {
-                if let Ok(text) = clipboard.get_text()
-                    && !text.is_empty()
-                {
-                    return Ok(text);
-                }
-                if Instant::now() >= deadline {
-                    debug!(
-                        thread = thread::EVENT,
-                        "copy confirmed but no text readable within timeout"
-                    );
-                    return Err(GlossError::SelectionUnavailable);
-                }
-                std::thread::sleep(WRITE_POLL_INTERVAL);
-            }
-        }
-    }
-
-    pub(super) fn keys_to_release(sequence: &[(u16, bool, u64)], index: usize) -> Vec<u16> {
-        sequence[..index]
-            .iter()
-            .rev()
-            .filter(|(_, key_down, _)| *key_down)
-            .map(|(key, _, _)| *key)
-            .collect()
-    }
-
-    fn inject_copy_key() -> Result<(), GlossError> {
-        let Some(source) = event::new_hid_source() else {
-            debug!(
-                thread = thread::EVENT,
-                "copy key injection failed: no event source"
-            );
-            return Err(GlossError::SelectionUnavailable);
         };
-        let cmd = event::K_CG_EVENT_FLAG_MASK_COMMAND;
-        let sequence = [
-            (event::VK_COMMAND, true, cmd),
-            (event::VK_ANSI_C, true, cmd),
-            (event::VK_ANSI_C, false, cmd),
-            (event::VK_COMMAND, false, 0),
-        ];
-        for (index, &(virtual_key, key_down, flags)) in sequence.iter().enumerate() {
-            if !event::post_keyboard_event(&source, virtual_key, key_down, flags) {
-                debug!(
-                    thread = thread::EVENT,
-                    virtual_key, key_down, "copy key injection failed"
-                );
-                for pressed in keys_to_release(&sequence, index) {
-                    let _ = event::post_keyboard_event(&source, pressed, false, 0);
-                }
-                return Err(GlossError::SelectionUnavailable);
-            }
-        }
-        Ok(())
+        read_with(
+            self.round.clone(),
+            WRITE_CONFIRM_TIMEOUT,
+            FallbackBoard {
+                pre_count: || pasteboard_change_count().unwrap_or(0),
+                snapshot: |_| snapshot_pasteboard(),
+                restore: restore_and_log,
+                monitor: {
+                    let mut monitor: Option<ChangeMonitor> = None;
+                    move || {
+                        let fresh = monitor.is_none();
+                        if fresh {
+                            monitor = ChangeMonitor::new();
+                        }
+                        let change = monitor.as_mut()?;
+                        Some(if fresh {
+                            change.baseline()
+                        } else {
+                            change.generation()
+                        })
+                    }
+                },
+                inject: inject_copy_key,
+                read_text: move || clipboard.get_text(),
+            },
+        )
     }
 }
 
-pub use imp::{ClipboardFallbackReader, FallbackSettle};
+struct ChangeMonitor {
+    pb: OpenPasteboard,
+    latched: bool,
+}
+
+impl ChangeMonitor {
+    fn new() -> Option<Self> {
+        let pb = open_pasteboard()?;
+        // SAFETY: `raw` is a valid +1 reference that stays alive until this
+        // struct is destroyed.
+        unsafe { PasteboardSynchronize(pb.raw) };
+        Some(Self { pb, latched: false })
+    }
+
+    fn baseline(&self) -> u64 {
+        0
+    }
+
+    fn generation(&mut self) -> u64 {
+        // SAFETY: `raw` is a valid +1 reference that stays alive until this
+        // struct is destroyed.
+        let flags = unsafe { PasteboardSynchronize(self.pb.raw) };
+        if flags & K_PASTEBOARD_MODIFIED != 0 {
+            self.latched = true;
+        }
+        u64::from(self.latched)
+    }
+}
+
+fn keys_to_release(sequence: &[(u16, bool, u64)], index: usize) -> Vec<u16> {
+    sequence[..index]
+        .iter()
+        .rev()
+        .filter(|(_, key_down, _)| *key_down)
+        .map(|(key, _, _)| *key)
+        .collect()
+}
+
+fn inject_copy_key() -> Result<(), GlossError> {
+    let Some(source) = event::new_hid_source() else {
+        debug!(
+            thread = thread::EVENT,
+            "copy key injection failed: no event source"
+        );
+        return Err(GlossError::SelectionUnavailable);
+    };
+    let cmd = event::K_CG_EVENT_FLAG_MASK_COMMAND;
+    let sequence = [
+        (event::VK_COMMAND, true, cmd),
+        (event::VK_ANSI_C, true, cmd),
+        (event::VK_ANSI_C, false, cmd),
+        (event::VK_COMMAND, false, 0),
+    ];
+    for (index, &(virtual_key, key_down, flags)) in sequence.iter().enumerate() {
+        if !event::post_keyboard_event(&source, virtual_key, key_down, flags) {
+            debug!(
+                thread = thread::EVENT,
+                virtual_key, key_down, "copy key injection failed"
+            );
+            for pressed in keys_to_release(&sequence, index) {
+                let _ = event::post_keyboard_event(&source, pressed, false, 0);
+            }
+            return Err(GlossError::SelectionUnavailable);
+        }
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
-
-    use super::imp::keys_to_release;
-    use super::restore::{RestoreOutcome, RestoreStage, restore_with_retry};
-    use super::wait_for_write;
-
-    fn outcome(ok: bool, clears: u64) -> RestoreOutcome {
-        RestoreOutcome {
-            ok,
-            clears,
-            stage: RestoreStage::Open,
-            status: 0,
-        }
-    }
-
-    #[test]
-    fn retry_stops_at_the_first_success() {
-        let calls = std::cell::Cell::new(0u32);
-        let outcome = restore_with_retry(3, Duration::ZERO, || {
-            calls.set(calls.get() + 1);
-            outcome(true, 1)
-        });
-        assert!(outcome.ok);
-        assert_eq!(outcome.clears, 1);
-        assert_eq!(calls.get(), 1);
-    }
-
-    #[test]
-    fn retry_counts_the_clears_of_every_attempt_until_success() {
-        let calls = std::cell::Cell::new(0u32);
-        let outcome = restore_with_retry(3, Duration::ZERO, || {
-            calls.set(calls.get() + 1);
-            match calls.get() {
-                1 => outcome(false, 1),
-                2 => outcome(false, 0),
-                _ => outcome(true, 1),
-            }
-        });
-        assert!(outcome.ok);
-        assert_eq!(outcome.clears, 2);
-        assert_eq!(calls.get(), 3);
-    }
-
-    #[test]
-    fn exhausted_retries_carry_the_last_attempt_stage_status_and_total_clears() {
-        let calls = std::cell::Cell::new(0u32);
-        let outcome = restore_with_retry(2, Duration::ZERO, || {
-            calls.set(calls.get() + 1);
-            match calls.get() {
-                1 => RestoreOutcome {
-                    ok: false,
-                    clears: 1,
-                    stage: RestoreStage::Alloc,
-                    status: 5,
-                },
-                _ => RestoreOutcome {
-                    ok: false,
-                    clears: 0,
-                    stage: RestoreStage::Clear,
-                    status: 42,
-                },
-            }
-        });
-        assert!(!outcome.ok);
-        assert_eq!(outcome.clears, 1);
-        assert_eq!(outcome.stage, RestoreStage::Clear);
-        assert_eq!(outcome.status, 42);
-    }
-
-    #[test]
-    fn change_is_detected_when_generation_bumps() {
-        let mut calls = 0;
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let confirmed = wait_for_write(
-            0,
-            || {
-                calls += 1;
-                Some(u64::from(calls >= 3))
-            },
-            deadline,
-        );
-        assert!(confirmed);
-        assert_eq!(calls, 3);
-    }
-
-    #[test]
-    fn timeout_returns_false_without_hanging() {
-        let start = Instant::now();
-        let deadline = start + Duration::from_millis(60);
-        assert!(!wait_for_write(0, || Some(0), deadline));
-        assert!(
-            start.elapsed() < Duration::from_secs(2),
-            "timeout path must return promptly"
-        );
-    }
-
-    #[test]
-    fn unavailable_probe_keeps_polling_until_deadline() {
-        let start = Instant::now();
-        let deadline = start + Duration::from_millis(50);
-        assert!(!wait_for_write(0, || None, deadline));
-        assert!(
-            start.elapsed() < Duration::from_secs(2),
-            "timeout path must return promptly"
-        );
-    }
+    use super::keys_to_release;
 
     #[test]
     fn injection_failure_releases_every_pressed_key_in_reverse() {
@@ -444,7 +198,7 @@ mod live_tests {
         PasteboardSynchronize,
     };
 
-    use super::imp::ClipboardFallbackReader;
+    use super::ClipboardFallbackReader;
     use crate::clipboard::{WatchRoundFlag, pasteboard_change_count};
 
     static CLIPBOARD_LIVE_LOCK: Mutex<()> = Mutex::new(());
@@ -746,7 +500,7 @@ mod live_tests {
             return None;
         }
         let _pb = CfGuard::new(pb as *const _);
-        // SAFETY: `pb` is a valid +1 reference; the local reference may lag behind
+        // SAFETY: `pb` is a valid +1 reference, and the local reference may lag behind
         // the global board, so synchronize first.
         unsafe { PasteboardSynchronize(pb) };
         let mut id: PasteboardItemID = std::ptr::null_mut();

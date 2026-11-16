@@ -1,6 +1,7 @@
 # snapshot.rs 决策记录
 
 > 按符号锚定（不写行号，防漂移）。改到相关代码时同步更新本文件。
+> 恢复收尾结构（PendingRestore）随方案 A2（2026-11-17）上移共享层，见 fallback 记录。
 
 ## OpenPasteboard
 
@@ -16,14 +17,6 @@
 - `SavedFlavor`：快照的单个 flavor：flavor 名（Retain 自持，守卫释放）与原始字节。
 - `SavedItem`：快照的单个条目：标识符原样保留，恢复时按它把 flavor 归并回同一条目。
 - `SavedContent`：原剪贴板的完整快照：空 Vec 即原剪贴板为空（恢复 = 清空后不写入）。
-
-## PendingRestore
-
-- 待执行的恢复：受控路径经 `restore_now` / `skip_restore` 显式收口，panic 展开由 Drop 兜底按快照恢复原剪贴板。
-- `new`：待执行的恢复：`skip` 只由收口路径显式置位，构造即武装 Drop 兜底。
-- `restore_now`：按快照恢复原剪贴板并取消 Drop 兜底；返回实际清板数（供调用方计入写盘归因），恢复失败已留 error 痕（环节与状态码），不影响调用方的主结果。
-- `skip_restore`：跳过恢复（Drop 兜底一并取消）。
-- Drop：只有 panic 展开会走到这里：受控路径都已显式收口。
 
 ## snapshot_pasteboard
 
