@@ -21,9 +21,9 @@ use std::sync::Arc;
 
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
-use gloss_core::engine::llm::LlmClient;
 use gloss_core::log::{self, info, thread, warn};
 use gloss_core::ports::{AiEngine, SecretStore};
+use gloss_llm::LlmClient;
 use mimalloc::MiMalloc;
 
 type StartupResult = Result<(), Box<dyn Error>>;

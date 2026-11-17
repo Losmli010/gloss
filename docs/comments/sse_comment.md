@@ -1,4 +1,4 @@
-# sse.rs 决策记录
+# sse.rs 决策记录（gloss-llm openai 方言）
 
 > 按符号锚定（不写行号，防漂移）。改到相关代码时同步更新本文件。
 > 本文件随仓库跟踪（docs/comments/ 入库），文件内不留指向本文件的指针。
@@ -71,3 +71,8 @@
 - `StreamChunk`：流式响应的一块，OpenAI 兼容 `chat.completion.chunk`。
 - `StreamChoice`：一条候选回复（本客户端只用第一条）；`finish_reason` 通常为 `None`，只在流收尾的内容块上非空（`stop` / `length` / `content_filter`…）。
 - `ApiError.kind`：OpenAI 用 `type` 字段，DeepSeek 等兼容实现两者都给。
+
+## 分包迁出核心库（2026-11-18，架构重构方案 C3）
+
+- 本文件随传输适配器整体迁入传输分包（gloss-llm）；记录沿迁（符号锚定不变），
+  代码内容除包内路径与可见性（方言条目 `pub(crate)`）外零改动。

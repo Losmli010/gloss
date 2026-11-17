@@ -2,12 +2,12 @@
 //! 多模态部件）在这里映成传输形状；图像部件的编码（Base64）与数据地址
 //! 前缀只在请求体构造处编码（域类型不带内联数据）。
 
-use crate::ports::{EngineRequest, ThinkingMode};
-use crate::prompt::{ChatMessage, ContentPart, MessageContent};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use gloss_core::ports::{EngineRequest, ThinkingMode};
+use gloss_core::prompt::{ChatMessage, ContentPart, MessageContent};
 
-pub(super) fn chat_request_body(request: &EngineRequest) -> serde_json::Value {
+pub(crate) fn chat_request_body(request: &EngineRequest) -> serde_json::Value {
     let messages: Vec<serde_json::Value> = request.messages.iter().map(message_to_value).collect();
     let mut body = serde_json::json!({
         "model": request.model,

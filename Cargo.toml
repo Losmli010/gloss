@@ -18,7 +18,13 @@ long_description = "鼠标选中文字，即弹出 LLM 翻译结果。纯 Rust +
 
 [workspace]
 resolver = "3"
-members = ["crates/gloss-app", "crates/gloss-core", "crates/gloss-eval", "crates/gloss-platform"]
+members = [
+  "crates/gloss-app",
+  "crates/gloss-core",
+  "crates/gloss-eval",
+  "crates/gloss-llm",
+  "crates/gloss-platform",
+]
 
 # 版本与语言版本单点维护，各包继承
 [workspace.package]
@@ -80,6 +86,8 @@ crossbeam-channel = { version = "0.5", default-features = false, features = ["st
 gloss-app = { path = "crates/gloss-app" }
 # 测试桩只在集成测试的桩目录里，按测试配置编译进测试目标，不进发布二进制。
 gloss-core = { path = "crates/gloss-core" }
+# 入口装配大语言模型（LLM）引擎：传输分包实现核心层的引擎端口（AiEngine）。
+gloss-llm = { path = "crates/gloss-llm" }
 gloss-platform = { path = "crates/gloss-platform" }
 # 全局分配器：系统（macOS）的内存分配器（libmalloc）把峰值后的空闲页扣在分级缓存池里不还给
 # 系统，长驻进程的常驻内存（RSS）只涨不落；替代分配器（mimalloc）周期性清退空闲页，常驻内存贴着

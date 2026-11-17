@@ -1,4 +1,4 @@
-# llm.rs 决策记录
+# gloss-llm lib.rs 决策记录（原 gloss-core engine/llm.rs）
 
 > 按符号锚定（不写行号，防漂移）。改到相关代码时同步更新本文件。
 > 本文件随仓库跟踪（docs/comments/ 入库），代码内不留指向本文件的指针。
@@ -139,3 +139,13 @@
 ## Resolved（2026-10-16，内存优化方案）
 
 - 为什么 body 从 serde_json::Value 改为一次性序列化的 Bytes:.json(&Value) 在每次传输尝试（send_once）都把整个 Value 重新序列化一份线上字节——图像任务的 base64 体可达 MB 级，重试与修复轮各付一份临时缓冲；Bytes 克隆只递引用计数，重试零拷贝。content-type 需手动补（.json 的另一半职责），线上字节与旧路径逐位一致。
+
+## 分包迁出核心库（2026-11-18，架构重构方案 §2.3 C3 / K5）
+
+- 本文件连同实现从 gloss-core 的 engine/llm.rs 整体迁入传输分包（gloss-llm）库入口：
+  大语言模型（LLM）传输适配器实现核心层引擎端口（AiEngine），核心库回到纯逻辑
+  （reqwest/rustls/ring 依赖清零，地址校验改用 url crate 的同一解析器，返回类型
+  `reqwest::Url` 即其重导出，零行为变化）。
+- 发送序列抽成方言中立的线级入口 `transport::send_with_retry`（组装解析产物、连接
+  阶段重试与首字节重连的完整序列），门面 `execute` 收口端点/密钥解析后调它——
+  生产路径与线级集成测试共用同一序列，调用顺序、常量与错误形态逐字未动。

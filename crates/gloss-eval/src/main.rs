@@ -18,9 +18,9 @@ use std::sync::Arc;
 
 use gloss_core::config::Config;
 use gloss_core::config_handle::ConfigHandle;
-use gloss_core::engine::llm::LlmClient;
 use gloss_core::model::GlossError;
 use gloss_core::ports::{AiEngine, ConfigStore, SecretStore};
+use gloss_llm::LlmClient;
 
 const REPORT_DIR: &str = "eval-state";
 

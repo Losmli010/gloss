@@ -5,22 +5,27 @@
 //! 重试只覆盖首个流条目之前的瞬态失败（重试次数常量，仅网络
 //! 与限流类）；连接阶段与流阶段共用同一份预算——前一阶段耗尽，后一阶段
 //! 不再重试。取消由调用方丢弃异步体完成。
+//!
+//! 公开面：线级发送入口（send_with_retry）收口组装解析产物、连接阶段重试
+//! 与首字节重连的完整序列——客户端实现（库入口）与线级集成测试共用同一
+//! 生产序列；其余条目收在包内。
 
 use std::collections::VecDeque;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use crate::engine::sse::{SseDecoder, SseItem};
-use crate::log::{debug, thread, warn};
-use crate::model::GlossError;
-use crate::ports::{BoxFuture, EngineRequest, TaskChunk, TaskStream};
+use crate::openai::sse::{SseDecoder, SseItem};
 use bytes::Bytes;
 use futures_core::Stream;
+use gloss_core::log::{debug, thread, warn};
+use gloss_core::model::GlossError;
+use gloss_core::ports::{BoxFuture, EngineRequest, TaskChunk, TaskStream};
 use tokio::time::{Instant as TokioInstant, Sleep, sleep, sleep_until};
 
-use super::failure::{MAX_ERROR_BODY_BYTES, map_failure, map_transport_error};
-use super::request_body::chat_request_body;
+use crate::openai::failure::{MAX_ERROR_BODY_BYTES, map_failure, map_transport_error};
+use crate::openai::request_body::chat_request_body;
 
 pub(super) const RETRY_ATTEMPTS: u32 = 1;
 
@@ -138,6 +143,32 @@ pub(super) async fn send_once(
         });
     }
     Ok(Box::pin(SseStream::new(response.bytes_stream())) as TaskStream)
+}
+
+pub async fn send_with_retry(
+    client: &reqwest::Client,
+    endpoint: &str,
+    key: &str,
+    request: &EngineRequest,
+) -> Result<TaskStream, GlossError> {
+    let resolved = Arc::new(Resolved::build(
+        endpoint.to_owned(),
+        key.to_owned(),
+        request,
+    )?);
+    let attempt = {
+        let client = client.clone();
+        let resolved = Arc::clone(&resolved);
+        move || {
+            let client = client.clone();
+            let resolved = Arc::clone(&resolved);
+            Box::pin(async move { send_once(&client, &resolved).await })
+                as BoxFuture<'static, Result<TaskStream, TransportFail>>
+        }
+    };
+    let (connected, retries_left) = connect_with_retry(attempt.clone(), RETRY_ATTEMPTS).await;
+    let stream = connected?;
+    Ok(Box::pin(FirstByteStream::new(attempt, stream, retries_left)) as TaskStream)
 }
 
 pub(super) async fn connect_with_retry<T>(
@@ -323,7 +354,18 @@ impl Stream for SseStream {
                 return Poll::Ready(Some(item));
             }
             if this.finished {
-                return Poll::Ready(None);
+                if this.idle.as_mut().poll(cx).is_ready() {
+                    return Poll::Ready(None);
+                }
+                match this.inner.as_mut().poll_next(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Some(Ok(tail_bytes))) => {
+                        this.idle.as_mut().reset(idle_deadline(TokioInstant::now()));
+                        let _ = tail_bytes;
+                    }
+                    Poll::Ready(Some(Err(_))) | Poll::Ready(None) => return Poll::Ready(None),
+                }
+                continue;
             }
             if this.idle.as_mut().poll(cx).is_ready() {
                 this.finished = true;

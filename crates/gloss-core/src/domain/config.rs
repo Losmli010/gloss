@@ -71,7 +71,7 @@ impl std::fmt::Display for BaseUrlError {
     }
 }
 
-pub fn validate_base_url(raw: &str) -> Result<reqwest::Url, BaseUrlError> {
+pub fn validate_base_url(raw: &str) -> Result<url::Url, BaseUrlError> {
     let url = raw.trim();
     if url.is_empty() {
         return Err(BaseUrlError::Empty);
@@ -98,7 +98,7 @@ pub fn validate_base_url(raw: &str) -> Result<reqwest::Url, BaseUrlError> {
     if authority.contains('@') {
         return Err(BaseUrlError::EmbeddedCredentials);
     }
-    let Ok(parsed) = reqwest::Url::parse(url) else {
+    let Ok(parsed) = url::Url::parse(url) else {
         return Err(BaseUrlError::Invalid);
     };
     if parsed.query().is_some() || parsed.fragment().is_some() {

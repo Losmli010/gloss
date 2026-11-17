@@ -12,32 +12,32 @@
 //!   交出（服务端没给完成哨兵就关流的，结束原因未知，不产出完成事件）；
 //! - 服务端在流中报错时给错误对象，按错误码映射到领域错误。
 
-use crate::model::GlossError;
+use gloss_core::model::GlossError;
 
 const MAX_DIAGNOSTIC_CHARS: usize = 200;
 
 const MAX_LINE_BYTES: usize = 1 << 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SseItem {
+pub(crate) enum SseItem {
     Delta(String),
     Done { finish_reason: Option<String> },
     Failed(GlossError),
 }
 
 #[derive(Debug, Default)]
-pub struct SseDecoder {
+pub(crate) struct SseDecoder {
     pending: Vec<u8>,
     done: bool,
     finish_reason: Option<String>,
 }
 
 impl SseDecoder {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub fn push(&mut self, bytes: &[u8]) -> Vec<SseItem> {
+    pub(crate) fn push(&mut self, bytes: &[u8]) -> Vec<SseItem> {
         if self.done {
             return Vec::new();
         }
@@ -67,7 +67,7 @@ impl SseDecoder {
         items
     }
 
-    pub fn finish(&mut self) -> Vec<SseItem> {
+    pub(crate) fn finish(&mut self) -> Vec<SseItem> {
         let mut items = Vec::new();
         if !self.done && !self.pending.is_empty() {
             let tail = std::mem::take(&mut self.pending);

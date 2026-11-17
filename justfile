@@ -243,9 +243,10 @@ audit:
 deny:
     cargo deny check
 
-# 内存未定义行为检测（Miri）：每夜工具链，只覆盖核心库（gloss-core）纯逻辑层；持续集成（CI）必跑，本地按需
+# 内存未定义行为检测（Miri）：每夜工具链，覆盖核心库与传输分包的纯逻辑层（确需异步运行时的测试组跳过）；持续集成（CI）必跑，本地按需
 miri:
-    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features --lib -- --skip engine::llm:: --skip engine::tests:: --skip classify::tests:: --skip file_writer_persists_lines_into_daily_file
+    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-core --all-features --lib -- --skip engine::tests:: --skip classify::tests:: --skip file_writer_persists_lines_into_daily_file
+    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p gloss-llm --lib -- openai::sse::tests
 
 # 完整质量门禁：提交前门禁加检查器单测与全量测试
 check: precommit hooks-test test

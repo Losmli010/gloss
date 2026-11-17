@@ -13,9 +13,10 @@ env:
 permissions:
   contents: read
 
-# 内存安全与未定义行为深检，只覆盖核心库（gloss-core）纯逻辑层。
+# 内存安全与未定义行为深检，覆盖核心库（gloss-core）纯逻辑层与传输分包（gloss-llm）流式解码纯逻辑组。
 jobs:
   miri:
+    # 作业名是分支保护登记的必需检查上下文，改名须同步保护设置
     name: Miri (gloss-core)
     runs-on: ubuntu-latest
     steps:
