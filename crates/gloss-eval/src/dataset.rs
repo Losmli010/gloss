@@ -274,7 +274,11 @@ mod tests {
         let cases = load_curated().expect("the finalized dataset must load");
         for case in &cases {
             let reply = case.reference.reply_json();
-            let (outcome, _) = settle_case(case, &[reply]);
+            let delivered = crate::contract::Delivered {
+                reply: reply.clone(),
+                repairs: 0,
+            };
+            let (outcome, _) = settle_case(case, &[reply], &delivered);
             assert!(
                 !outcome.degraded,
                 "{}: the reference must be a valid product",

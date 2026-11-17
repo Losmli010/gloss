@@ -22,6 +22,12 @@
 - `legacy_rows_without_aggregates_fail_parsing_for_tolerant_skip` 是步
   骤 1 旧兼容测试的反转：分组聚合段无 serde 缺省，旧形状历史行解析即
   败，由历史读取按坏行容错跳过（计划的既定口径）。
+- 2026-11-17 架构重构 E1 新增
+  `the_settlement_caliber_rides_the_report_and_legacy_rows_default_to_
+  none`：`assemble` 产物恒带结算口径词面（`caliber` 为 `delivered`）且
+  序列化词面进历史行；序列化后剥掉该字段再反序列化得 `None`——旧历
+  史行无此字段照常解析，口径变更点以字段首次出现为准（K1 标注的验收
+  意图；口径动机见 report 记录的 E1 节）。
 - `utc_formatting_is_fixed_and_timezone_free` 继续钉 UTC 固定换算。
 - 落盘面（2026-11-12 重构 E3）：
   `write_lands_complete_report_without_temp_residue` 钉报告按模式命名

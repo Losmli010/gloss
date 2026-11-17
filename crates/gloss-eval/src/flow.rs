@@ -1,7 +1,8 @@
 //! 流程装配：迭代实跑、标注落库与基线固化三条流的编排——执行、回归
 //! 结算、聚合、产物落盘、检视页渲染与历史记录按序串接；环境变量与端
 //! 点装配由入口注入，本模块不读环境、不打印。文件读写只经报告、资产
-//! 与历史三个收口点；单次输出仅成功用例落行，契约故障无输出可固化。
+//! 与历史三个收口点；单次输出仅成功用例落行且落生产交付值（基线固化
+//! 只认交付值），契约故障无输出可固化。
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -145,11 +146,7 @@ fn write_records(eval_report: &EvalReport, cases: &[CaseDetail], dir: &Path) -> 
         .filter(|detail| !detail.engine_error)
         .map(|detail| OutputRow {
             id: detail.id.clone(),
-            rounds: detail
-                .rounds
-                .iter()
-                .map(|round| vec![round.text.clone()])
-                .collect(),
+            rounds: vec![vec![detail.delivered.clone()]],
         })
         .collect();
     asset::write_outputs(&dir.join(OUTPUTS_FILE), &outputs)

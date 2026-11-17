@@ -131,6 +131,7 @@ mod tests {
             generated_at,
             latency: None,
             context: None,
+            caliber: None,
             groups: BTreeMap::new(),
             totals: GroupStats::default(),
         }
@@ -146,6 +147,7 @@ mod tests {
             kind: EvalKind::Classify,
             text: "一".to_owned(),
             rounds: vec![],
+            delivered: String::new(),
             contract: ContractOutcome {
                 json_object: true,
                 checks: BTreeMap::from([(ContractCheck::KindMatch, true)]),
