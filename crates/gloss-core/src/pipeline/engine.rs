@@ -12,9 +12,6 @@
 //! 评测不拼装编排内部：固定任务经任务服务的评测门面直跑任务段，
 //! 返回生产交付值，逐轮原文经回调交出。
 
-pub mod llm;
-pub mod sse;
-
 use std::sync::Arc;
 
 use crate::classify::{CLASSIFY_FALLBACK, classify};

@@ -1363,6 +1363,7 @@ dependencies = [
  "egui",
  "gloss-app",
  "gloss-core",
+ "gloss-llm",
  "gloss-platform",
  "mimalloc",
  "serde_json",
@@ -1413,12 +1414,9 @@ name = "gloss-core"
 version = "0.2.11"
 dependencies = [
  "arc-swap",
- "base64 0.23.1",
- "bytes",
  "futures",
  "futures-core",
  "pulldown-cmark",
- "reqwest",
  "serde",
  "serde_json",
  "tokio",
@@ -1426,6 +1424,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -1434,6 +1433,22 @@ version = "0.2.11"
 dependencies = [
  "futures",
  "gloss-core",
+ "gloss-llm",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "gloss-llm"
+version = "0.2.11"
+dependencies = [
+ "base64 0.23.1",
+ "bytes",
+ "futures",
+ "futures-core",
+ "gloss-core",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",

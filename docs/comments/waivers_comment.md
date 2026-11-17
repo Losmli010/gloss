@@ -21,7 +21,7 @@
 
 - 问题（第 1 轮评审 HIGH）：步骤 5 豁免记录（2026-10-12）指派“随步骤 7 落清单”，但步骤 7 的 bdd.md 只改了单元测试节，人工测试/发版人工步骤均无 §11 L4 行（vision + `response_format` 流式真机验证、空 content 自动修复、降级卡与重试）的条目，豁免决策落空。
 - 处置（三条逐项，不留整条豁免）：
-  1. **vision + `response_format` 流式真机验证**——已实现为真测试：`gloss-core/src/engine/llm.rs` 的 `live_tests::live_llm_streams_an_image_contract`（`#[ignore]`，需 GLOSS_LIVE_* 与支持图像的模型），bdd.md“人工测试”节登记 `live_llm_streams_an_image_contract`；端点不支持图像/JSON 模式时以 UnsupportedModality / JsonModeUnsupported 诊断当场失败（§2 分工表两条识别路径即其失败面）。
+  1. **vision + `response_format` 流式真机验证**——已实现为真测试：传输分包（gloss-llm）库入口的 `live_tests::live_llm_streams_an_image_contract`（2026-11-18 随传输分包迁出核心库）（`#[ignore]`，需 GLOSS_LIVE_* 与支持图像的模型），bdd.md“人工测试”节登记 `live_llm_streams_an_image_contract`；端点不支持图像/JSON 模式时以 UnsupportedModality / JsonModeUnsupported 诊断当场失败（§2 分工表两条识别路径即其失败面）。
   2. **空 content 自动修复**——按步骤 5 豁免记录写明的载体（“经 live 轨回放异常夹具”）登记进“发版人工步骤”：`empty_content_repair_via_fixture_replay`（`just eval-replay` 核对两轨修复轮次行的 empty ×1 + L1 零增量完成测试）。真端点无法按需产出空 content（不设 max_tokens 的任务请求由服务端决定收尾形态），不存在可前置检查的真机触发条件；其确定性验证载体在步骤 7 已全部自动化（异常夹具 + 重放统计 + L1 消费路径测试），人工条目按清单回放这些载体。
   3. **降级卡与重试**——登记进“发版人工步骤”：`degraded_card_and_retry_manual_check`，用确定性真机触发：配置层 `validate_base_url` 强制 HTTPS（`BaseUrlError::NotHttps`，密钥明文红线，不为测试削弱——本地 http 桩不可用），改用非 LLM 的 HTTPS POST 回声端点（httpbin.org/post，实核 POST 200；正文无 `data:` 行 → SSE 零增量 → `finish_without_error` 发 `empty completion` → EmptyReply 修复三轮 → 耗尽落降级卡），照抄步骤覆盖“重新注解”×3、降级卡形态（无正文残留、有重试）与重试不投毒缓存。
 - 为什么条目 2/3 落“发版人工步骤”而非“人工测试”：人工测试条目按门禁必须有同名 ignored 测试源，而这两项没有可断言的真机行为——条目 2 的载体是离线回放（已自动化，重复建 ignored 测试只会二次锁定同一行为），条目 3 的触发依赖外部静态端点（入 CI 会违反“真实网络不进测试”的 L1 原则并在第三方抖动时假红）；“发版人工步骤”节章程即“无自动化测试源码的真机步骤”，且已有功能人工检查先例（`image_commentary_sources_toggle_and_limits_manual_checks`）。

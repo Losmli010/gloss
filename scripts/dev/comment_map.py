@@ -41,6 +41,7 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-app/Cargo.toml": "gloss-app_Cargo",
     "crates/gloss-core/Cargo.toml": "gloss-core_Cargo",
     "crates/gloss-eval/Cargo.toml": "gloss-eval_Cargo",
+    "crates/gloss-llm/Cargo.toml": "gloss-llm_Cargo",
     "crates/gloss-platform/Cargo.toml": "gloss-platform_Cargo",
     # 根自述与图标资产自述撞名
     "README.md": "README",
@@ -102,10 +103,12 @@ FAMILY_STEMS: dict[str, str] = {
     # 任务模块：核心库任务与界面流任务撞名
     "crates/gloss-core/src/domain/task.rs": "task",
     "crates/gloss-app/src/flow/task.rs": "flow_task",
-    # 各包库入口撞名：决策与测试记录锚定在（gloss-platform）
+    # 各包库入口撞名：决策与测试记录锚定在（gloss-platform）；传输分包的库入口
+    # 由核心库传输模块迁入，记录沿迁移前的家族名带包前缀
     "crates/gloss-platform/src/lib.rs": "lib",
     "crates/gloss-app/src/lib.rs": "app_lib",
     "crates/gloss-core/src/lib.rs": "core_lib",
+    "crates/gloss-llm/src/lib.rs": "llm_lib",
     "crates/gloss-eval/src/lib.rs": "eval_lib",
     # 适配器层的平台目录镜像：系统（Windows）实现与系统（macOS）实现同名
     # 撞名，平台侧按家族前缀登记（平台实现族各自持一套决策口径）

@@ -13,10 +13,10 @@ env:
 permissions:
   contents: read
 
-# 内存安全与未定义行为深检，只覆盖核心库（gloss-core）纯逻辑层。
+# 内存安全与未定义行为深检，覆盖核心库（gloss-core）纯逻辑层与传输分包（gloss-llm）流式解码纯逻辑组。
 jobs:
   miri:
-    name: Miri (gloss-core)
+    name: Miri (gloss-core + gloss-llm)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

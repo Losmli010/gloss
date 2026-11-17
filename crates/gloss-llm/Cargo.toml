@@ -1,0 +1,46 @@
+[package]
+name = "gloss-llm"
+version.workspace = true
+edition.workspace = true
+description = "Gloss 传输适配器：实现核心层引擎端口（AiEngine）的大语言模型流式客户端"
+license.workspace = true
+
+[dependencies]
+# 请求体组装的图像部件编码（开放接口（OpenAI）方言）：位图（PNG）字节经编码
+# （base64）为载荷；域类型只携带原始字节，编码只发生在请求体构造处。
+base64 = { version = "0.23", default-features = false, features = ["std"] }
+# 流式事件（SSE）流的分块字节，传输协议（HTTP）客户端逐块交出字节块。
+bytes = { version = "1", default-features = false }
+# 任务流的流式最小集；流适配的接口定义，流工具留给使用方自选。
+futures-core = { version = "0.3", default-features = false }
+# 传输适配器实现的契约与域形态（引擎端口、任务流、配置快照、日志统一出口）：
+# 只依赖核心库，方向单一。
+gloss-core = { path = "../gloss-core" }
+# 兼容端点（OpenAI）的流式调用。最小特性集：流式事件（SSE）用传输协议
+# （HTTP）第一版足够，传输安全（TLS）走安全传输库（rustls）加系统根证书；
+# 请求体数据格式的特性随原依赖面保留（请求体已预序列化，不取其方法面）。
+reqwest = {
+  version = "0.12",
+  default-features = false,
+  features = [
+    "json",
+    "rustls-tls-native-roots",
+    "stream",
+  ]
+}
+# 任务模型与失败信封的序列化（serde）面。
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
+# 请求体组装与流式分块的 JSON 数据格式解析。
+serde_json = { version = "1", default-features = false, features = ["std"] }
+# 流式空闲看门狗与传输重试退避：定时等待只要时间特性。
+tokio = { version = "1", default-features = false, features = ["time"] }
+
+[dev-dependencies]
+# 测试桩（按路径属性并入的共享桩库）的流工具与异步测试面：流式消费用流工具，
+# 异步测试跑异步测试宏；测试工具特性供虚拟时钟（空闲超时、重试退避与线级
+# 集成测试的确定性等待）。
+futures = { version = "0.3", default-features = false, features = ["std"] }  # deps:allow 消费面在共享测试桩库（源在核心库 tests/stubs，按路径属性并入，扫描面看不到）
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "test-util"] }
+
+[lints]
+workspace = true
