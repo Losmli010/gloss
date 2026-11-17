@@ -38,6 +38,12 @@ jobs:
         with:
           tool: just
 
+      # 托管平台镜像升级到 26.04 后，镜像默认解释器不再带 3.12 的名字，而任务
+      # 配方统一经钉名调解释器：钉名经别名落到镜像解释器（python3），镜像再
+      # 升级时随镜像解释器更新；本机仍由本机安装的 3.12 约束
+      - name: Provide pinned interpreter name
+        run: sudo ln -sf "$(command -v python3)" /usr/local/bin/python3.12
+
       # 版本钉死在仓库根版本清单，安装与本地校验同读
       - name: Resolve ripgrep version
         run: echo "RG_PIN=ripgrep@$(python3 scripts/dev/tool_version.py ripgrep)" >> "$GITHUB_ENV"
@@ -181,6 +187,10 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: just
+
+      # 同纯文本门禁作业：单测实跑任务配方，配方经钉名调解释器
+      - name: Provide pinned interpreter name
+        run: sudo ln -sf "$(command -v python3)" /usr/local/bin/python3.12
 
       - name: Run checker unit tests
         run: |
