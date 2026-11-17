@@ -3,7 +3,9 @@
 //! 三率分母恒为组内全部用例（待比、未标注、故障不剔除，跨轮可比）；评
 //! 审覆盖率与人机一致率各按自身分母派生；四维分数按五档分桶；质量聚合
 //! 在组内无已评用例时置空。历史行即本类型一行一份 JSON，序列化形状
-//! 为序列化库（serde）默认命名。
+//! 为序列化库（serde）默认命名；结算口径随行落盘——口径变更（逐轮
+//! 末轮判 → 生产交付值判）以口径字段的首次出现为变更点，跨口径的
+//! 历史数字不可直连比较。
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -16,6 +18,9 @@ use crate::detail::{CaseDetail, ContractState, JudgeScores, LabelVerdict, RuleVe
 use crate::history::write_atomic;
 
 pub const ITERATE_MODE: &str = "iterate";
+
+pub const CALIBER_DELIVERED: &str = "delivered";
+
 const PASS_LINE: f64 = 80.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +29,8 @@ pub struct EvalReport {
     pub generated_at: i64,
     #[serde(default)]
     pub context: Option<EvalContext>,
+    #[serde(default)]
+    pub caliber: Option<String>,
     pub groups: BTreeMap<String, GroupStats>,
     pub totals: GroupStats,
     pub latency: Option<LatencySummary>,
@@ -131,6 +138,7 @@ pub fn assemble(
         mode: ITERATE_MODE.to_owned(),
         generated_at: now_secs(),
         context: None,
+        caliber: Some(CALIBER_DELIVERED.to_owned()),
         groups,
         totals: group_stats(&all, golden, labels),
         latency,
@@ -453,6 +461,7 @@ mod tests {
             kind,
             text: "一".to_owned(),
             rounds: vec![],
+            delivered: String::new(),
             contract: outcome(state),
             quality: None,
             rule: None,
@@ -566,6 +575,37 @@ mod tests {
             .map(|quality| quality.overall.count)
             .unwrap_or(0);
         assert_eq!(judged, total_judged, "judged counts fold the same way");
+    }
+
+    #[test]
+    fn the_settlement_caliber_rides_the_report_and_legacy_rows_default_to_none() {
+        let word = detail(
+            "task-1",
+            EvalKind::Task(TaskKind::TranslateWord),
+            ContractState::Valid,
+        );
+        let report = assemble(
+            std::slice::from_ref(&word),
+            &GoldenMap::new(),
+            &LabelMap::new(),
+            None,
+        );
+        assert_eq!(
+            report.caliber.as_deref(),
+            Some(super::CALIBER_DELIVERED),
+            "every assembled report marks the settlement caliber"
+        );
+        let mut row = serde_json::to_value(&report).expect("the report serializes");
+        assert_eq!(row["caliber"], super::CALIBER_DELIVERED);
+        row.as_object_mut()
+            .expect("the row is an object")
+            .remove("caliber");
+        let legacy: EvalReport = serde_json::from_value(row)
+            .expect("a history row written before the caliber field still parses");
+        assert_eq!(
+            legacy.caliber, None,
+            "the caliber change point is the first row that carries it"
+        );
     }
 
     #[test]

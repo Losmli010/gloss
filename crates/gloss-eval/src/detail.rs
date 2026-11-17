@@ -1,8 +1,10 @@
 //! 结算明细：一条精选用例的三层结算产物——契约明细与逐轮轨迹、评审
 //! 四维分数、回归五态与差异摘要——外加标注结论词汇。本模块是纯数据
 //! 模式（schema），全部结算产物类型只住这里；折算计算住契约、评审与
-//! 回归结算模块，聚合计算住报告模块。序列化形状即逐例明细文件
-//! （iterate.cases.json）与检视页展开态的取数面。
+//! 回归结算模块，聚合计算住报告模块。生产交付值原文随明细落盘——
+//! 逐轮轨迹只承载展示，契约结算、回归比对与送评审一律消费交付值。
+//! 序列化形状即逐例明细文件（iterate.cases.json）与检视页展开态的
+//! 取数面。
 
 use std::collections::BTreeMap;
 
@@ -106,6 +108,8 @@ pub struct CaseDetail {
     pub kind: EvalKind,
     pub text: String,
     pub rounds: Vec<RoundDetail>,
+    #[serde(default)]
+    pub delivered: String,
     pub contract: ContractOutcome,
     pub quality: Option<JudgeScores>,
     pub rule: Option<RuleOutcome>,
@@ -141,6 +145,7 @@ mod tests {
                 text: "{\"note\":\"义\",\"structured\":{}}".to_owned(),
                 violation: None,
             }],
+            delivered: "{\"note\":\"义\",\"structured\":{}}".to_owned(),
             contract: outcome(),
             quality: Some(JudgeScores {
                 accuracy: 90,
