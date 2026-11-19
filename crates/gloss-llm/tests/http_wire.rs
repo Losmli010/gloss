@@ -108,15 +108,15 @@ fn read_request(stream: &mut TcpStream) -> std::io::Result<Option<StubRequest>> 
                 ))
             };
         }
-        buf.extend_from_slice(&chunk[..read]);
+        buf.extend(chunk.iter().take(read));
     };
-    let (path, headers) = parse_head(&buf[..head_end])?;
+    let (path, headers) = parse_head(buf.get(..head_end).unwrap_or(&[]))?;
     let content_length = headers
         .iter()
         .find(|(name, _)| name == "content-length")
         .and_then(|(_, value)| value.parse::<usize>().ok())
         .unwrap_or(0);
-    let mut body = buf[head_end + 4..].to_vec();
+    let mut body = buf.get(head_end + 4..).unwrap_or(&[]).to_vec();
     while body.len() < content_length {
         let mut chunk = [0u8; 4096];
         let read = stream.read(&mut chunk)?;
@@ -126,7 +126,7 @@ fn read_request(stream: &mut TcpStream) -> std::io::Result<Option<StubRequest>> 
                 "partial body",
             ));
         }
-        body.extend_from_slice(&chunk[..read]);
+        body.extend(chunk.iter().take(read));
     }
     Ok(Some(StubRequest {
         path,

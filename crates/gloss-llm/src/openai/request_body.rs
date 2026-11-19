@@ -15,8 +15,13 @@ pub(crate) fn chat_request_body(request: &EngineRequest) -> serde_json::Value {
         "stream": true,
         "response_format": { "type": "json_object" },
     });
-    if request.thinking == ThinkingMode::Disabled {
-        body["thinking"] = serde_json::json!({ "type": "disabled" });
+    if request.thinking == ThinkingMode::Disabled
+        && let Some(object) = body.as_object_mut()
+    {
+        object.insert(
+            "thinking".to_string(),
+            serde_json::json!({ "type": "disabled" }),
+        );
     }
     body
 }
