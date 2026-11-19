@@ -10,17 +10,14 @@
 //! 移交恢复收尾结构，调用方在取材产物上抛（弹窗链路启动）之后收口——
 //! 恢复不挡在弹窗前。
 
-use arboard::Clipboard;
+use gloss_core::log::{debug, thread};
 
-use gloss_core::log::{debug, error, thread};
-
-use super::restore::{restore_and_log, restore_board};
 use crate::clipboard::FlavorCapture;
 
-const SNAPSHOT_IMAGE_MAX_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const SNAPSHOT_IMAGE_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum SavedContent {
+pub(crate) enum SavedContent {
     Empty,
     Text(String),
     Flavors(Vec<FlavorCapture>),
@@ -60,51 +57,6 @@ pub(super) fn snapshot_decision(
                 "clipboard text read failed, fallback declined"
             );
             None
-        }
-    }
-}
-
-pub(super) fn snapshot_board(clipboard: &mut Clipboard) -> Option<SavedContent> {
-    snapshot_decision(
-        clipboard.get_text(),
-        crate::clipboard::clipboard_format_count,
-        || crate::clipboard::clipboard_capture_image_flavors(SNAPSHOT_IMAGE_MAX_BYTES),
-    )
-}
-
-pub(super) struct PendingRestore {
-    saved: SavedContent,
-    skip: bool,
-}
-
-impl PendingRestore {
-    pub(super) fn new(saved: SavedContent) -> Self {
-        Self { saved, skip: false }
-    }
-
-    pub(super) fn restore_now(&mut self) -> u64 {
-        self.skip = true;
-        let outcome = restore_board(&self.saved);
-        if !outcome.ok {
-            error!(
-                thread = thread::EVENT,
-                stage = ?outcome.stage,
-                writes = outcome.writes,
-                "failed to restore clipboard"
-            );
-        }
-        outcome.writes
-    }
-
-    pub(super) fn skip_restore(&mut self) {
-        self.skip = true;
-    }
-}
-
-impl Drop for PendingRestore {
-    fn drop(&mut self) {
-        if !self.skip {
-            restore_and_log(&self.saved);
         }
     }
 }

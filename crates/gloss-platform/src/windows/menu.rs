@@ -5,8 +5,8 @@
 //! （winit）事件循环启动后），托盘窗口消息随主线程消息循环分发。菜单
 //! 词条两个——设置与退出，词条动作只在主线程触发，经回调上交壳侧，由
 //! 壳送入用户事件通道；左键行为按移植方案后置，只关掉菜单随左键弹出。
-//! 图标复用坞图标资产（品牌同源），解码为原始位图交给托盘。词条属平台
-//! 层启动期文案，早于应用文案表装入点，随放行标记显式豁免文案门禁。
+//! 图标复用坞图标资产（品牌同源），解码为原始位图交给托盘。双语词条表
+//! 住平台中立共享层（common），本模块按装配所需词条取用。
 
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
@@ -17,31 +17,11 @@ use gloss_core::ports::MenuController;
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
+use crate::common::menu_labels::{MenuLabels, labels};
+
 const SETTINGS_ITEM_ID: &str = "gloss-settings";
 
 const QUIT_ITEM_ID: &str = "gloss-quit";
-
-struct Labels {
-    settings: &'static str,
-    quit: &'static str,
-}
-
-const ZH: Labels = Labels {
-    settings: "设置",   // i18n:allow 平台层启动期菜单词条，文案表装入点之前
-    quit: "退出 Gloss", // i18n:allow 平台层启动期菜单词条，文案表装入点之前
-};
-
-const EN: Labels = Labels {
-    settings: "Settings", // i18n:allow platform-layer startup menu copy, installed before the app catalog load point
-    quit: "Quit Gloss",
-};
-
-fn labels(locale: Locale) -> &'static Labels {
-    match locale {
-        Locale::Zh => &ZH,
-        Locale::En => &EN,
-    }
-}
 
 pub fn install(
     locale: Locale,
@@ -107,7 +87,7 @@ thread_local! {
 
 type ItemIds = (MenuId, MenuId);
 
-fn context_menu(labels: &'static Labels) -> Result<(Menu, ItemIds), String> {
+fn context_menu(labels: &'static MenuLabels) -> Result<(Menu, ItemIds), String> {
     let settings = MenuItem::with_id(SETTINGS_ITEM_ID, labels.settings, true, None);
     let quit = MenuItem::with_id(QUIT_ITEM_ID, labels.quit, true, None);
     let ids = (settings.id().clone(), quit.id().clone());
@@ -171,18 +151,6 @@ static TRAY_ICON_PNG: &[u8] = include_bytes!("../../../../assets/icons/gloss-doc
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn tray_labels_follow_their_language_per_locale() {
-        for (table, expect_cjk) in [(&ZH, true), (&EN, false)] {
-            let rows = [table.settings, table.quit];
-            for row in rows {
-                let has_cjk = row.chars().any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c));
-                assert_eq!(has_cjk, expect_cjk, "label table language mismatch: {row}");
-                assert!(!row.trim().is_empty(), "menu labels must not be blank");
-            }
-        }
-    }
 
     #[test]
     fn tray_icon_asset_decodes_into_the_brand_bitmap() {

@@ -111,12 +111,6 @@ BOM_PREFIXES = (b"\xff\xfe", b"\xfe\xff", b"\xef\xbb\xbf")
 SPACE_SUPERSET = r"[\s\x1c-\x1f]"
 
 
-def tracked_files(root: str) -> list[str]:
-    # 只看版本库跟踪的文件：被忽略规则排除的本地文件不扫（也不该进仓库）
-    out = gate_report.run_git(["ls-files", "-z"], cwd=root).stdout
-    return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
-
-
 def scannable_files(root: str, loader: Any = None) -> tuple[list[str], set[str]]:
     """跟踪文件分流：工作区不在场或含空字节的整文件跳过，带字节序标记的改逐行兜底。
 
@@ -124,7 +118,7 @@ def scannable_files(root: str, loader: Any = None) -> tuple[list[str], set[str]]
     清单枚举与字节读取走共享缓存。"""
     out = []
     fallback = set()
-    tracked = loader.tracked() if loader is not None else tracked_files(root)
+    tracked = loader.tracked() if loader is not None else gate_report.tracked_files(root)
     for rel in tracked:
         try:
             if loader is not None:

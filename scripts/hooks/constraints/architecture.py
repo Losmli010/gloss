@@ -1,8 +1,8 @@
 """约束门禁·架构：依赖方向与评测资产隔离——各包只能依赖允许的边，核心库
-（gloss-core）不得引入平台与渲染栈；评测包（gloss-eval）不被任何清单依赖，
-评测资产不被生产代码内嵌；包名必须在项目文档登记过，挡住边表与文档的单边
-改动。违规经统一诊断出口带规则标识报告，证据行完整不截断。允许边表与红线
-的取舍见记录文件。
+（gloss-core）不得引入平台、渲染栈与网络传输栈；评测包（gloss-eval）不被任何
+清单依赖，评测资产不被生产代码内嵌；包名必须在项目文档登记过，挡住边表与
+文档的单边改动。违规经统一诊断出口带规则标识报告，证据行完整不截断。允许
+边表与红线的取舍见记录文件。
 """
 
 from __future__ import annotations
@@ -26,8 +26,8 @@ DEP_DIRECTION_REMEDY = (
     " update the project doc and this module together"
 )
 CORE_REDLINE_REMEDY = (
-    "gloss-core stays free of platform and render stack dependencies — move the"
-    " dependency up the layering"
+    "gloss-core stays free of platform, render and network transport stack"
+    " dependencies — move the dependency up the layering"
 )
 DEP_UNREGISTERED_REMEDY = (
     "register the crate name in the dependency direction notes of the project doc"
@@ -36,11 +36,12 @@ EVAL_DEP_REMEDY = "move the dependency on the eval toolchain to dev-dependencies
 EVAL_ASSET_REMEDY = "keep eval assets referenced only from inside the eval crate"
 
 ALLOWED_OWN_DEPS = {
-    "gloss": "gloss-core gloss-platform gloss-app",
-    "gloss-app": "gloss-core gloss-platform",
+    "gloss": "gloss-core gloss-platform gloss-app gloss-llm",
+    "gloss-app": "gloss-core",
     "gloss-platform": "gloss-core",
     "gloss-core": "",
-    "gloss-eval": "gloss-core",
+    "gloss-llm": "gloss-core",
+    "gloss-eval": "gloss-core gloss-llm",
 }
 
 CORE_FORBIDDEN_EXACT = {
@@ -58,6 +59,11 @@ CORE_FORBIDDEN_EXACT = {
     "directories",
     "device_query",
     "enigo",
+    "reqwest",
+    "hyper",
+    "rustls",
+    "ring",
+    "h2",
 }
 CORE_FORBIDDEN_PREFIX = (
     "winit-",
@@ -71,6 +77,8 @@ CORE_FORBIDDEN_PREFIX = (
     "core-foundation",
     "security-framework",
     "raw-window-handle",
+    "hyper-",
+    "rustls-",
 )
 
 EVAL_ASSET_RE = re.compile(r"include_str!\(.*gloss-eval|include_bytes!\(.*gloss-eval")
@@ -111,7 +119,7 @@ def run(
                     rule=RULE_DEP_CORE_REDLINE,
                     path=mrel,
                     line=start,
-                    message="dependency direction: gloss-core has a platform/render stack"
+                    message="dependency direction: gloss-core has a platform/render/transport stack"
                     " dependency %s — red-line, forbidden" % key,
                     evidence=manifests.flat_text(text),
                     remedy=CORE_REDLINE_REMEDY,

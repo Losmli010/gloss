@@ -10,6 +10,11 @@
   候选表（TIFF 先、PNG 后）与 `pasteboard_has_image` 的类型判定在这里
   同源，评审发现过的“哨兵认 PNG、读取只支持 TIFF”能力漂移在结构上
   不再可能（新增 flavor 时两处必同改，否则编译可见的枚举/常量缺口）。
+- **为什么只认 TIFF + PNG 两种 flavor**（自哨兵记录并入，2026-11-14）：
+  ⌘⇧4+Ctrl 截图与多数 macOS 应用“复制图像”写的是 public.tiff；浏览器/
+  文件管理器复制常写 public.png，只认其一会漏掉半边来源。其它图像
+  flavor（如 JPEG 的 public.jpeg）暂不认——arboard 的 macOS 读取栈走
+  TIFF/PNG flavor，认了也读不出。
 - **为什么 `pasteboard_image_flavor` 的候选序是 TIFF 先、PNG 后**：截图
   （⌘⇧4+Ctrl）与多数 macOS 应用的“复制图像”写 TIFF，浏览器/文件复制
   常写 PNG，两类来源同时在场时 TIFF 是更“原生”的一份（PNG 常是同图

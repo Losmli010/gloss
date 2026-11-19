@@ -1,9 +1,11 @@
 //! 契约结算：逐轮原文经生产校验器（核心层输出契约）折算成契约明细与
 //! 逐轮轨迹，并从明细派生契约四态。评测与生产共用同一份校验器，评测
 //! 数字度量的才是生产行为；本模块是纯函数集，执行编排与单测共用。
-//! 末轮定降级与检查项，逐轮还原违约类别与修复轮次；按子类分派——
-//! 任务用例走任务校验器加字段完整检查，分类用例走分类校验器加类别
-//! 符合检查。
+//! 降级与检查项由生产交付值定——交付回复原文与修复轮次经执行编排取自
+//! 任务服务门面的运行产出（语言修复轮不合格被生产丢弃时，交付的
+//! 是最后一个合格回复），逐轮原文只承载轨迹展示与违约计数；修复轮次
+//! 随交付值，只计任务修复轮。按子类分派——任务用例走任务校验器加
+//! 字段完整检查，分类用例走分类校验器加类别符合检查。
 
 use std::collections::BTreeMap;
 
@@ -13,37 +15,61 @@ use gloss_core::task::TaskKind;
 use crate::dataset::{EvalCase, Reference};
 use crate::detail::{ContractCheck, ContractOutcome, ContractState, EvalKind, RoundDetail};
 
-pub fn settle_case(case: &EvalCase, rounds: &[String]) -> (ContractOutcome, Vec<RoundDetail>) {
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Delivered {
+    pub reply: String,
+    pub repairs: u32,
+}
+
+pub fn settle_case(
+    case: &EvalCase,
+    rounds: &[String],
+    delivered: &Delivered,
+) -> (ContractOutcome, Vec<RoundDetail>) {
     match case.kind {
         EvalKind::Classify => {
             let expected = match case.reference {
                 Reference::Classify { expected } => expected,
                 Reference::Task { .. } => TaskKind::General,
             };
-            settle_classify(expected, rounds)
+            settle_classify(expected, rounds, delivered)
         }
-        EvalKind::Task(kind) => settle_task(kind, rounds),
+        EvalKind::Task(kind) => settle_task(kind, rounds, delivered),
     }
 }
 
-fn settle_task(kind: TaskKind, rounds: &[String]) -> (ContractOutcome, Vec<RoundDetail>) {
-    let (mut outcome, detail) =
-        track_rounds(|raw| schema::validate_task(kind, raw).map(|_| ()), rounds);
-    let reply = last_reply(rounds);
-    outcome.degraded = schema::validate_task(kind, reply).is_err();
-    outcome.json_object = parses_as_object(reply);
-    outcome.checks =
-        BTreeMap::from([(ContractCheck::FieldsComplete, fields_complete(kind, reply))]);
+fn settle_task(
+    kind: TaskKind,
+    rounds: &[String],
+    delivered: &Delivered,
+) -> (ContractOutcome, Vec<RoundDetail>) {
+    let (mut outcome, detail) = track_rounds(
+        |raw| schema::validate_task(kind, raw).map(|_| ()),
+        rounds,
+        delivered.repairs,
+    );
+    outcome.degraded = schema::validate_task(kind, &delivered.reply).is_err();
+    outcome.json_object = parses_as_object(&delivered.reply);
+    outcome.checks = BTreeMap::from([(
+        ContractCheck::FieldsComplete,
+        fields_complete(kind, &delivered.reply),
+    )]);
     (outcome, detail)
 }
 
-fn settle_classify(expected: TaskKind, rounds: &[String]) -> (ContractOutcome, Vec<RoundDetail>) {
-    let (mut outcome, detail) =
-        track_rounds(|raw| schema::validate_classify(raw).map(|_| ()), rounds);
-    let reply = last_reply(rounds);
-    let parsed = schema::validate_classify(reply).ok();
+fn settle_classify(
+    expected: TaskKind,
+    rounds: &[String],
+    delivered: &Delivered,
+) -> (ContractOutcome, Vec<RoundDetail>) {
+    let (mut outcome, detail) = track_rounds(
+        |raw| schema::validate_classify(raw).map(|_| ()),
+        rounds,
+        delivered.repairs,
+    );
+    let parsed = schema::validate_classify(&delivered.reply).ok();
     outcome.degraded = parsed.is_none();
-    outcome.json_object = parses_as_object(reply);
+    outcome.json_object = parses_as_object(&delivered.reply);
     outcome.checks = BTreeMap::from([(
         ContractCheck::KindMatch,
         parsed.is_some_and(|choice| choice.kind == expected),
@@ -66,6 +92,7 @@ pub fn derive_state(engine_error: bool, outcome: &ContractOutcome) -> ContractSt
 fn track_rounds(
     validate: impl Fn(&str) -> Result<(), Violation>,
     rounds: &[String],
+    repairs: u32,
 ) -> (ContractOutcome, Vec<RoundDetail>) {
     let mut violations = BTreeMap::new();
     let detail = rounds
@@ -86,13 +113,9 @@ fn track_rounds(
         checks: BTreeMap::new(),
         degraded: false,
         violations,
-        repairs: rounds.len().saturating_sub(1) as u32,
+        repairs,
     };
     (outcome, detail)
-}
-
-fn last_reply(rounds: &[String]) -> &str {
-    rounds.last().map(String::as_str).unwrap_or("")
 }
 
 fn parses_as_object(reply: &str) -> bool {
@@ -160,10 +183,20 @@ mod tests {
             .to_owned()
     }
 
+    fn delivered(reply: &str) -> super::Delivered {
+        super::Delivered {
+            reply: reply.to_owned(),
+            repairs: 0,
+        }
+    }
+
     #[test]
     fn task_settlement_flags_json_note_and_field_checks() {
-        let (outcome, rounds) =
-            settle_case(&task_case(TaskKind::TranslateWord), &[good_task_reply()]);
+        let (outcome, rounds) = settle_case(
+            &task_case(TaskKind::TranslateWord),
+            &[good_task_reply()],
+            &delivered(&good_task_reply()),
+        );
         assert!(outcome.json_object);
         assert!(!outcome.degraded);
         assert_eq!(
@@ -187,7 +220,8 @@ mod tests {
             ("   ".to_owned(), Violation::EmptyReply),
         ] {
             let case = task_case(TaskKind::TranslateWord);
-            let (outcome, rounds) = settle_case(&case, std::slice::from_ref(&reply));
+            let (outcome, rounds) =
+                settle_case(&case, std::slice::from_ref(&reply), &delivered(&reply));
             assert!(outcome.degraded, "{reply}");
             assert_eq!(rounds[0].violation, Some(violation), "{reply}");
             assert_eq!(
@@ -196,9 +230,11 @@ mod tests {
                 "the violation tallies once: {reply}"
             );
         }
+        let prose = "整段散文".to_owned();
         let (outcome, _) = settle_case(
             &task_case(TaskKind::TranslateWord),
-            &["整段散文".to_owned()],
+            std::slice::from_ref(&prose),
+            &delivered(&prose),
         );
         assert!(!outcome.json_object, "prose is no JSON object");
         assert_eq!(
@@ -210,21 +246,59 @@ mod tests {
     #[test]
     fn task_settlement_counts_repairs_and_violations_over_rounds() {
         let prose = "整段散文".to_owned();
+        let produced = super::Delivered {
+            reply: good_task_reply(),
+            repairs: 1,
+        };
         let (outcome, rounds) = settle_case(
             &task_case(TaskKind::TranslateWord),
             &[prose.clone(), good_task_reply()],
+            &produced,
         );
-        assert_eq!(outcome.repairs, 1, "rounds minus one is the repair count");
+        assert_eq!(
+            outcome.repairs, 1,
+            "the repair count rides the delivered value"
+        );
         assert_eq!(outcome.violations.get(&Violation::NotJson), Some(&1));
-        assert!(!outcome.degraded, "the last round settles the outcome");
+        assert!(!outcome.degraded, "the delivered reply settles the outcome");
         assert_eq!(rounds[0].violation, Some(Violation::NotJson));
         assert_eq!(rounds[1].violation, None);
     }
 
     #[test]
+    fn settlement_uses_the_delivered_reply_over_the_last_round() {
+        let broken = "MARKER-修复轮退化了，整段散文，不是 JSON".to_owned();
+        let produced = delivered(&good_task_reply());
+        let (outcome, rounds) = settle_case(
+            &task_case(TaskKind::TranslateWord),
+            &[good_task_reply(), broken],
+            &produced,
+        );
+        assert!(
+            !outcome.degraded,
+            "a contract-broken language repair round never degrades the delivered reply"
+        );
+        assert_eq!(
+            outcome.repairs, 0,
+            "a language repair round is no task repair"
+        );
+        assert_eq!(
+            outcome.checks.get(&ContractCheck::FieldsComplete),
+            Some(&true),
+            "the delivered reply settles green"
+        );
+        assert_eq!(rounds.len(), 2);
+        assert_eq!(
+            rounds[1].violation,
+            Some(Violation::NotJson),
+            "the broken round stays on the trajectory"
+        );
+    }
+
+    #[test]
     fn fields_complete_requires_the_subtype_shape() {
         let complete = |kind: TaskKind, reply: &str| {
-            settle_case(&task_case(kind), &[reply.to_owned()])
+            settle_case(&task_case(kind), &[reply.to_owned()], &delivered(reply))
                 .0
                 .checks
                 .get(&ContractCheck::FieldsComplete)
@@ -258,6 +332,7 @@ mod tests {
         let (outcome, _) = settle_case(
             &task_case(TaskKind::TranslateWord),
             std::slice::from_ref(&null_phonetic),
+            &delivered(&null_phonetic),
         );
         assert!(
             outcome.checks.get(&ContractCheck::FieldsComplete) == Some(&true) && !outcome.degraded,
@@ -268,11 +343,13 @@ mod tests {
     #[test]
     fn classify_settlement_separates_degradation_from_kind_mismatch() {
         let case = classify_case(TaskKind::TranslateWord);
-        let (outcome, _) = settle_case(&case, &[r#"{"kind":"TranslateWord"}"#.to_owned()]);
+        let reply = r#"{"kind":"TranslateWord"}"#.to_owned();
+        let (outcome, _) = settle_case(&case, std::slice::from_ref(&reply), &delivered(&reply));
         assert!(!outcome.degraded);
         assert_eq!(outcome.checks.get(&ContractCheck::KindMatch), Some(&true));
 
-        let (outcome, _) = settle_case(&case, &[r#"{"kind":"ExplainCode"}"#.to_owned()]);
+        let reply = r#"{"kind":"ExplainCode"}"#.to_owned();
+        let (outcome, _) = settle_case(&case, std::slice::from_ref(&reply), &delivered(&reply));
         assert!(
             !outcome.degraded,
             "a parseable wrong category is no degradation"
@@ -285,12 +362,13 @@ mod tests {
             r#"{}"#.to_owned(),
             String::new(),
         ] {
-            let (outcome, _) = settle_case(&case, std::slice::from_ref(&reply));
+            let (outcome, _) = settle_case(&case, std::slice::from_ref(&reply), &delivered(&reply));
             assert!(outcome.degraded, "{reply}");
             assert_eq!(outcome.checks.get(&ContractCheck::KindMatch), Some(&false));
         }
         let case = classify_case(TaskKind::TranslateSentence);
-        let (outcome, _) = settle_case(&case, &[r#"{"kind":"Fallback"}"#.to_owned()]);
+        let reply = r#"{"kind":"Fallback"}"#.to_owned();
+        let (outcome, _) = settle_case(&case, std::slice::from_ref(&reply), &delivered(&reply));
         assert!(
             !outcome.degraded,
             "the fallback category lands on the general kind"
@@ -300,7 +378,11 @@ mod tests {
 
     #[test]
     fn case_settlement_dispatches_by_the_case_subclass() {
-        let (outcome, _) = settle_case(&task_case(TaskKind::ExplainCode), &[good_task_reply()]);
+        let (outcome, _) = settle_case(
+            &task_case(TaskKind::ExplainCode),
+            &[good_task_reply()],
+            &delivered(&good_task_reply()),
+        );
         assert_eq!(
             outcome.checks.get(&ContractCheck::FieldsComplete),
             Some(&false),
@@ -314,7 +396,12 @@ mod tests {
             },
             ..classify_case(TaskKind::TranslateWord)
         };
-        let (outcome, _) = settle_case(&incoherent, &[r#"{"kind":"Fallback"}"#.to_owned()]);
+        let reply = r#"{"kind":"Fallback"}"#.to_owned();
+        let (outcome, _) = settle_case(
+            &incoherent,
+            std::slice::from_ref(&reply),
+            &delivered(&reply),
+        );
         assert!(
             !outcome.degraded,
             "an incoherent classify case degrades to the general landing"

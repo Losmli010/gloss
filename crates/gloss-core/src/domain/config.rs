@@ -71,7 +71,7 @@ impl std::fmt::Display for BaseUrlError {
     }
 }
 
-pub fn validate_base_url(raw: &str) -> Result<(), BaseUrlError> {
+pub fn validate_base_url(raw: &str) -> Result<url::Url, BaseUrlError> {
     let url = raw.trim();
     if url.is_empty() {
         return Err(BaseUrlError::Empty);
@@ -98,13 +98,13 @@ pub fn validate_base_url(raw: &str) -> Result<(), BaseUrlError> {
     if authority.contains('@') {
         return Err(BaseUrlError::EmbeddedCredentials);
     }
-    let Ok(parsed) = reqwest::Url::parse(url) else {
+    let Ok(parsed) = url::Url::parse(url) else {
         return Err(BaseUrlError::Invalid);
     };
     if parsed.query().is_some() || parsed.fragment().is_some() {
         return Err(BaseUrlError::QueryOrFragment);
     }
-    Ok(())
+    Ok(parsed)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,16 +259,32 @@ mod tests {
 
     #[test]
     fn base_url_validation_accepts_legal_addresses() {
-        assert_eq!(validate_base_url("https://api.deepseek.com/v1"), Ok(()));
-        assert_eq!(validate_base_url("  https://api.deepseek.com  "), Ok(()));
-        assert_eq!(validate_base_url("https://api.deepseek.com"), Ok(()));
-        assert_eq!(validate_base_url("https://127.0.0.1:8080/v1"), Ok(()));
         assert_eq!(
-            validate_base_url("HTTPS://Api.Example.com/v1"),
-            Ok(()),
-            "scheme 大小写不敏感（url crate 归一化语义）"
+            validate_base_url("https://api.deepseek.com/v1").map(|url| url.to_string()),
+            Ok("https://api.deepseek.com/v1".to_owned())
         );
-        assert_eq!(validate_base_url("https://[::1]:8080/v1"), Ok(()));
+        assert_eq!(
+            validate_base_url("  https://api.deepseek.com  ").map(|url| url.to_string()),
+            Ok("https://api.deepseek.com/".to_owned()),
+            "trim 先行，Url 解析补根路径斜杠"
+        );
+        assert_eq!(
+            validate_base_url("https://api.deepseek.com").map(|url| url.to_string()),
+            Ok("https://api.deepseek.com/".to_owned())
+        );
+        assert_eq!(
+            validate_base_url("https://127.0.0.1:8080/v1").map(|url| url.to_string()),
+            Ok("https://127.0.0.1:8080/v1".to_owned())
+        );
+        assert_eq!(
+            validate_base_url("HTTPS://Api.Example.com/v1").map(|url| url.to_string()),
+            Ok("https://api.example.com/v1".to_owned()),
+            "scheme 与主机归一化为小写（url crate 归一化语义）"
+        );
+        assert_eq!(
+            validate_base_url("https://[::1]:8080/v1").map(|url| url.to_string()),
+            Ok("https://[::1]:8080/v1".to_owned())
+        );
     }
 
     #[test]

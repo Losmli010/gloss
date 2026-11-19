@@ -30,7 +30,7 @@
 | language_resolves_to_locale | 界面语言落定具体 `locale` | 给定 `System/Zh/En` 三态与注入的系统语言，当解析界面语言，则 `System` 取系统语言、显式选择不被系统语言覆盖（同一处取值供 `UI` 文案表与 `prompt` 模板选表） | 2026-09-22 |
 | lookups_prefer_later_entries | 重复条目查找后者胜出 | 给定重复 `kind` 的多条目，当查找，则后条胜出、未配置为 `None`、未知 `provider` 无 `keychain` `id` | 2026-09-19 |
 | base_url_validation_rejects_structural_problems | `Base URL` 结构性拒绝 | 给定空串、非 `https`、缺 `scheme`、缺 `host`、内嵌凭据、带 `query` 或 `fragment`、中部空白的地址，当 `validate_base_url`，则按类别返回 `Err` | 2026-09-22 |
-| base_url_validation_accepts_legal_addresses | `Base URL` 合法放行 | 给定 `https` 地址（含首尾空白、无路径、带端口），当 `validate_base_url`，则 `Ok` | 2026-09-22 |
+| base_url_validation_accepts_legal_addresses | `Base URL` 合法放行并交出解析地址 | 给定 `https` 地址（含首尾空白、无路径、带端口、大小写混写 `scheme` 与主机、`IPv6` 字面量），当 `validate_base_url`，则 `Ok` 且携带着与线上请求同一解析器的 `Url`（`trim` 先行、`scheme` 与主机归一化为小写、根路径补斜杠） | 2026-11-17 |
 | missing_fields_fall_back_to_defaults_on_deserialize | 缺字段回落出厂默认 | 给定缺 `language` 字段的配置（JSON），当反序列化，则 `language` 按出厂跟随系统补齐 | 2026-09-22 |
 
 ### `crates/gloss-core/src/domain/guard.rs`
@@ -129,17 +129,18 @@
 | a_complete_json_settles_before_the_stream_ends | 完整（JSON）先于流结束定型 | 给定“半截 → 闭合 → 流内错误”的增量序列，当 `classify`，则返回首个完整（JSON）的判定（等流结束就会拿到那个错误） | 2026-09-30 |
 | the_first_complete_json_wins_over_later_deltas | 首个完整（JSON）胜出 | 给定两段各自完整的 JSON 增量，当 `classify`，则返回前者（拼接后两端都解析不过，只有提前退出才拿得到） | 2026-09-30 |
 | partial_json_keeps_waiting_for_the_stream | 半截（JSON）继续等流 | 给定到流结束都补不齐的半截（JSON），当 `classify`，则流内不提前定型（增量校验不过继续等），流走完按违约进修复轮、耗尽落兜底 `General` | 2026-10-12 |
-| a_request_failure_is_digested_into_the_fallback_without_retry | 分类请求失败内部消化落兜底 | 给定分类请求整体失败，当 `classify`，则不重试、内部消化后返回 `Ok(General)`（引擎恰 1 次调用） | 2026-10-12 |
+| a_request_failure_is_digested_into_the_fallback_without_retry | 分类请求失败内部消化落兜底 | 给定分类请求整体失败（非思考开关类），当 `classify`，则不重试、内部消化后返回 `Ok(General)`（引擎恰 1 次调用） | 2026-10-12 |
+| a_thinking_switch_rejection_resends_with_the_provider_default | 思考开关被拒以默认重发 | 给定首轮请求以诊断提及 `thinking` 的 `EngineResponse` 失败，当 `classify`，则恰一次以 `Follow`（键不上线）原样重发提示词并判出类别（恰 2 次调用） | 2026-11-16 |
+| a_plain_parameter_rejection_is_digested_without_resend | 不点名开关的拒绝不重发 | 给定请求以诊断不提及 `thinking` 的 `EngineResponse` 失败，当 `classify`，则不重发、内部消化后返回 `Ok(General)`（引擎恰 1 次调用） | 2026-11-16 |
 | a_violated_reply_repairs_into_a_kind | 分类违约回复修复后判型 | 给定“散文回复 → 裸 JSON `kind`”脚本队列，当 `classify`，则修复轮对话为 `[system][user][assistant][user]`（原文、坏回复、纠错指令四轮），纠错指令把违约固定措辞作为 `reason` 回灌（无契约行）、不含坏回复与选区原文，修复后返回判定的 `kind` | 2026-10-20 |
 | classify_traced_carries_rounds_and_repairs_for_the_trajectory | 分类全轨迹携带轮次与修复数 | 给定“散文回复 → 裸 JSON `kind`”与“恒散文”两个脚本队列，当 `classify_traced`，则前者 `decision.kind` 为判定的 `kind`、`repairs` 为 1、`rounds` 按轮序携带每轮完整回复；后者耗尽落兜底 `General`、`repairs` 为 `CLASSIFY_REPAIRS`、`rounds` 为 `1+CLASSIFY_REPAIRS` 轮 | 2026-10-12 |
 | an_empty_reply_repairs_by_resending_as_is | 分类空回复原样重发修复 | 给定“空回复 → 裸 JSON `kind`”脚本队列，当 `classify`，则修复轮按 `EmptyReply` 原样重发（消息列表与首轮逐字一致，无 `assistant` 轮无纠错指令）、修复后判出 `kind` | 2026-10-12 |
 | an_empty_completion_enters_the_repair_round_and_resends | 分类零增量空完成进修复轮重发 | 给定“`EmptyCompletion` 错误 → 裸 JSON `kind`”脚本队列，当 `classify`，则空完成按 `EmptyReply` 违约进修复轮、原样重发（消息与首轮逐字一致）、修复后判出 `kind`（恰 2 次调用，与任务段同口径） | 2026-10-21 |
+| classify_requests_disable_thinking | 分类请求关闭思考模式 | 给定“裸 JSON `kind`”脚本队列，当 `classify`，则记录引擎捕获的每个出站请求（含修复轮重发）携带 `thinking=Disabled`（窄输出任务不为思考链付费） | 2026-11-16 |
 | a_repeated_empty_completion_exhausts_into_the_fallback | 分类空完成重演耗尽落兜底 | 给定连续两轮 `EmptyCompletion` 脚本，当 `classify`，则修复预算（`CLASSIFY_REPAIRS`）耗尽、恰 1 加预算次调用后落兜底 `General` | 2026-10-21 |
 | exhausted_repairs_fall_back_to_general_with_a_trace | 分类修复耗尽落兜底且有痕 | 给定恒违约的回复脚本，当 `classify`，则恰用尽 `1+CLASSIFY_REPAIRS` 次调用后返回 `Ok(General)`，耗尽 `warn` 只记违约类别（不含回复与选区原文） | 2026-10-12 |
 | a_silent_stream_is_cut_at_the_first_item_deadline | 分类流首条目截止快速失败 | 给定建连后恒不出字的流，当 `classify`（暂停时钟），则首条目截止到点按请求异常收卷、内部消化落兜底 `General`（恰 1 次调用，不重试） | 2026-10-16 |
 | items_after_the_first_flow_without_the_deadline | 截止只武装到首条目 | 给定首条目 2 秒（截止内）、次条目再等 1000 秒的流，当 `classify`（暂停时钟），则两段增量照常累积定型 `TranslateWord`（截止在首条目交付后退役） | 2026-10-16 |
-| replies_outside_the_template_categories_are_rejected | 回复越类别清单、不可识别一律拒绝 | 给定模板类别外的 `ImageExplain` 与 `General`、未知标识、`null`、纯散文、空串与 `gloss` 围栏，当解析，则全部 `EngineResponse`（严格裸 `JSON`：围栏容错已删，围栏内合法 `kind` 同样拒绝） | 2026-10-20 |
-| a_fallback_choice_lands_on_the_general_kind | 模板兜底类别映射 `General` | 给定 `{"kind":"Fallback"}` 回复，当解析，则得 `General`（`classify` 模板的兜底类别执行通用任务） | 2026-10-20 |
 | the_fallback_kind_is_the_general_template_landing | 兜底常量恒为 `General` | 给定 `CLASSIFY_FALLBACK`，当检查，则恒为 `General`（可渲染可执行的执行落点） | 2026-10-20 |
 | a_fallback_reply_lands_on_the_general_task_with_both_kinds_logged | 模型分类与最终分类同行落日志 | 给定 `{"kind":"Fallback"}` 回复，当 `classify`，则落 `General`，且 `info` 日志同行携带模型类别 `model_kind=Fallback` 与最终 `kind=General`、不含选区内容 | 2026-10-20 |
 
@@ -151,6 +152,9 @@
 | classified_kind_arrives_before_any_chunk | 分类先于任何增量 | 给定文本输入与两段任务流，当 `run`，则 `on_classified` 恰在首个 `on_chunk` 之前触发一次（含分类修复耗尽落的兜底 `General`） | 2026-10-12 |
 | classify_request_failure_falls_back_without_retrying | 分类请求失败内部消化后任务照跑（`engine`） | 给定分类调用失败（一次性错误）与契约任务脚本，当 `service.run`，则分类不重试、内部消化落 `CLASSIFY_FALLBACK(General)`、引擎共 2 次调用（分类加任务）、`fallback` `warn` 不含选区原文 | 2026-10-12 |
 | raw_text_is_returned_verbatim | 原始文本原样返回 | 给定两段（JSON）流式脚本，当 `run`，则 `RunOutput.raw` 为未解析的原始拼接文本 | 2026-10-04 |
+| run_fixed_task_hands_out_round_texts_and_returns_the_production_output | 评测门面交出逐轮原文并返回生产交付值 | 给定“违约散文 → 契约（JSON）”脚本队列与已定 `kind` 的任务，当 `run_fixed_task`，则逐轮原文按轮序经回调交出（违约轮在前）、`RunOutput` 为生产交付值（`kind` 不变、`repairs` 为 1、`raw` 为末轮原文）、引擎恰 2 次调用（无分类调用在前） | 2026-11-17 |
+| run_fixed_task_hands_out_language_repair_round_texts | 评测门面交出语言修复轮原文 | 给定“语言违约但契约合格 → 语言修复轮契约合格”脚本队列，当 `run_fixed_task`，则两轮原文按轮序交出（语言修复轮也在内）、任务 `repairs` 为 0、`lang_degraded` 为假 | 2026-11-17 |
+| run_fixed_task_blank_model_fails_before_the_engine | 评测门面空白模型先于引擎拒绝 | 给定 `model` 为空白的任务，当 `run_fixed_task`，则 `Config` 错误且引擎 0 调用（模型非空检查只在编排层） | 2026-11-17 |
 | run_task_rounds_executes_a_fixed_kind_stream_without_classification | 任务段循环以给定 `kind` 直达执行 | 给定“违约散文 → 契约（JSON）”脚本队列与预渲染的任务底座，当直接调 `run_task_rounds`，则 `kind` 恒为调用方给定值（不分类）、`repairs` 为 1、`raw` 为末轮原文、引擎恰 2 次调用（无分类调用在前） | 2026-10-12 |
 | run_output_carries_the_server_finish_reason | `RunOutput` 携带服务端结束原因 | 给定声明 `stop` 与 `length` 结束的两个脚本流，当 `run`，则 `finish_reason` 原文随 `RunOutput` 返回、`raw` 不受影响、契约合回复 `repairs` 为 0（`length` 只在违约修复时进指令，`content_filter` 直接失败卡） | 2026-10-12 |
 | run_output_finish_reason_stays_none_without_a_done_marker | 无 `[DONE]` 时结束原因缺省 | 给定只吐增量、不声明结束的脚本流，当 `run`，则 `finish_reason` 为 `None` | 2026-10-11 |
@@ -171,65 +175,6 @@
 | language_repairs_exhaust_and_deliver_the_reply_degraded | 语言修复预算耗尽带降级交付 | 给定连续两条契约合格但语言违约的回复，当 `run`，则恰 1 轮语言修复（`LANG_REPAIRS`）后 `lang_degraded` 为真、`raw` 为末条契约合格回复、已判得的违约清单（含 `ForeignRun`）随 `RunOutput` 交付、不报 `Err` | 2026-10-30 |
 | contract_invalid_direct_degrade_delivers_an_empty_violation_list | 契约无效直降带空清单 | 给定语言段入口处契约已失效的回复（直调 `run_lang_rounds`），当降级交付，则 `lang_degraded` 为真而违约清单为空（契约无效直降路径与预算耗尽路径分开赋值，原文原样上交） | 2026-10-30 |
 | a_contract_broken_language_repair_keeps_the_last_valid_reply | 修复轮契约退化保末份合格回复 | 给定契约合格的语言违约回复与修复轮散文（契约坏回复），当 `run`，则坏回复不被采纳、`raw` 保持末份契约合格回复且 `lang_degraded` 为真 | 2026-10-28 |
-
-### `crates/gloss-core/src/pipeline/engine/llm.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| resolves_endpoint_from_config | 端点从配置解析 | 给定出厂配置，当解析端点，则得 `{DEFAULT_BASE_URL}/chat/completions` | 2026-09-19 |
-| endpoint_trimming_avoids_double_slash | 端点尾斜杠去重 | 给定尾斜杠 `base_url`，当解析，则无双斜杠 | 2026-09-19 |
-| cleartext_endpoints_are_rejected | 明文端点拒绝 | 给定 `http://` 明文端点（含 `localhost/127.0.0.1`），当解析，则报 `Config` 错 | 2026-09-19 |
-| endpoints_with_credentials_query_or_fragment_are_rejected | 带凭据、查询、片段的端点拒绝 | 给定带 `userinfo/query/fragment` 的端点，当解析，则拒绝 | 2026-09-19 |
-| unusable_endpoints_report_config_error | 不可用端点报配置错误 | 给定空串、空白、`file:///`无 `scheme` 地址，当解析，则报 `Config` 错 | 2026-09-19 |
-| resolves_key_from_keychain | 密钥从 `keychain` 解析 | 给定出厂配置加内存密钥，当解析，则取出密钥原文 | 2026-09-19 |
-| missing_key_reports_auth_error | 缺密钥报鉴权错误 | 给定未配置密钥，当解析，则 `EngineAuth` | 2026-09-19 |
-| blank_key_counts_as_missing | 空白密钥视为缺失 | 给定空白密钥，当解析，则按未配置报 `EngineAuth` | 2026-09-19 |
-| empty_provider_list_falls_back_to_the_factory_entry | 空 `provider` 回退出厂条目 | 给定显式空 `provider_keys` 与出厂 `keychain` 条目密钥，当解析，则回退出厂条目 `gloss/deepseek` | 2026-09-19 |
-| adapter_streams_deltas_across_chunk_boundaries | 流式事件（SSE）适配器跨块流式 | 给定同一段（SSE）响应按 1、2、5、整包字节分块，当经 `SseStream` 适配，则增量恒为“光泽”、`[DONE]` 终止、余字节不解析 | 2026-09-19 |
-| adapter_delivers_the_done_marker_with_its_finish_reason | 适配器交付带结束原因的终结条目 | 给定增量、声明 `stop` 的结束块与 `[DONE]` 的响应，当经 `SseStream` 消费，则先交增量、再交携带 `stop` 的 `TaskChunk::Done` 终结条目 | 2026-10-11 |
-| adapter_delivers_deltas_then_terminates_on_protocol_error | 协议错误先交增量再终结 | 给定增量后跟坏（JSON），当流推进，则先交付增量、随后以 `EngineResponse` 错误终结 | 2026-09-19 |
-| an_error_chunk_is_final_even_when_bytes_keep_arriving | 流语义契约·错误条目即终结 | 给定增量后跟坏（JSON）行再跟合法数据行的字节流，当经适配器消费，则恰交增量与错误各一，此后再无产出（错误条目之后的字节不解析） | 2026-10-30 |
-| adapter_ends_cleanly_without_the_done_marker | 无 `[DONE]` 关流干净收尾 | 给定无 `[DONE]` 直接关流的响应，当解析，则带增量流按正常结束收尾 | 2026-09-19 |
-| adapter_reports_empty_completion_as_failure | 零增量完成报失败 | 给定零增量响应（仅 `[DONE]`、`HTML` 劫持页、或声明 `stop` 却零增量），当解析，则报 `EngineResponse` 错且流即止 | 2026-10-11 |
-| request_body_has_the_openai_envelope | 请求体 `OpenAI` 信封 | 给定未设限的 `EngineRequest`，当构造请求体，则 `model/messages/stream/response_format` 四键 `wire` 形态精确匹配且无 `max_tokens` 键 | 2026-10-11 |
-| json_mode_switch_is_always_on_the_wire | JSON 契约恒在请求体上 | 给定设限、不设限与多模态（图像部件）请求，当构造请求体，则 `response_format` 恒为 `{"type":"json_object"}`（`EngineRequest` 无开关，不做能力协商） | 2026-10-11 |
-| text_content_stays_a_json_string_on_the_wire | 纯文本正文 `wire` 上仍是字符串 | 给定纯文本用户消息，当构造请求体，则 `content` 是 JSON 字符串、不升级成 `content` 数组 | 2026-10-10 |
-| multimodal_parts_map_to_the_openai_content_array | 多模态部件映成 `OpenAI` `content` 数组 | 给定系统文本消息加仅图像部件的用户消息，夹具为位图（PNG），当构造请求体，则图像部件映 `{"type":"image_url"}` 的 `data:image/png;base64` 数据（URL）且整包形状精确匹配（含 `response_format`） | 2026-10-11 |
-| max_tokens_is_carried_only_when_set | `max_tokens` 仅设限时上线 | 给定 `max_tokens=None` 与 `Some(64)` 两个请求，当构造请求体，则 `None` 无该键、`Some` 携带数值 64 | 2026-09-26 |
-| maps_http_status_to_error_variants | 超文本传输（HTTP）状态映射错误变体 | 给定 401、403、429、500、`400+JSON`、`400+HTML`，当映射，则分别得 `EngineAuth`、`EngineRateLimited`、`EngineNetwork`、带诊断的 `EngineResponse` | 2026-09-19 |
-| json_mode_and_multimodal_rejections_are_recognized_from_diagnostics | 诊断文本识别（JSON）模式与多模态不支持 | 给定 `4xx` 且诊断含 `response_format/json_object` 或 `image/multimodal/vision` 的错误体，当映射，则分别得 `JsonModeUnsupported` 与 `UnsupportedModality`（`JSON` 模式检查在前）；`5xx` 与 401 不做启发式（网络与鉴权优先） | 2026-10-11 |
-| retry_delay_covers_only_transient_failures_within_budget | 重试判定只认预算内的瞬态失败 | 给定网络、限流、鉴权、协议、配置五类错误与不同预算余额，当 `retry_delay`，则网络与限流在预算内得固定退避（`Retry-After` 指引封顶生效、低于上限时指引优先），预算耗尽与瞬时之外类别一律 `None` | 2026-10-15 |
-| retry_after_header_parsing_accepts_seconds_only | `Retry-After` 只解析秒数形态 | 给定缺失、整数、带空白、超文本传输（HTTP）日期、非数字五种头，当 `parse_retry_after`，则仅整数（含首尾空白）得秒数时长，其余 `None` 回落固定退避 | 2026-10-15 |
-| connect_retries_transient_failures_within_the_budget | 连接阶段瞬态失败退避重试并交还余额 | 给定“网络错误后成功”“两次瞬态失败”“鉴权失败”三条尝试脚本，当 `connect_with_retry`，则首条两次尝试后成功、余额清零；次条交还末次错误 `RateLimited`、恰 2 次调用；末条不重试原样上抛 `Auth`、余额不减 | 2026-10-15 |
-| first_byte_failures_retry_within_the_shared_budget | 首条目之前的瞬态失败对消费方无感重试 | 给定“立即网络错误的空流 → 增量加`Done` 流”尝试脚本与同形首轮空流，当消费包装流，则失败条目不上交、增量与 `Done` 原序到达、恰 1 次重连调用 | 2026-10-15 |
-| first_byte_budget_exhaustion_passes_the_error_through | 重试预算耗尽错误原样交付 | 给定首轮与重试流都以网络错误开场，当消费包装流，则末次错误原样上交后流即止、重连恰 1 次 | 2026-10-15 |
-| non_retryable_first_byte_errors_pass_through_without_a_retry | 非瞬态失败不重试直接交付 | 给定首条目即 `EngineAuth` 的流，当消费包装流，则错误原样上交、零重连调用 | 2026-10-15 |
-| errors_after_the_first_item_are_never_retried | 首条目之后错误一律不再重试 | 给定“增量后网络错误”的流，当消费包装流，则增量先到、错误原样上交、零重连调用（半截产物不重头重播） | 2026-10-15 |
-| first_byte_retry_honors_a_zero_leftover_budget | 首条目重试尊重连接阶段耗尽的余额 | 给定余额为 0 与网络错误开场的首轮流，当消费包装流，则错误原样上交、零重连调用（两阶段共用同一份预算） | 2026-10-15 |
-| an_idle_stream_fails_after_the_silence_budget | 静默超时终结悬死流 | 给定交付一个增量后恒 `Pending` 的字节流（虚拟时钟），当静默超过空闲预算后消费，则流以 `EngineNetwork` 终结且不再产出 | 2026-10-15 |
-| arriving_bytes_postpone_the_idle_deadline | 字节到达即复位空闲看门狗 | 给定每 30 秒（虚拟时钟）到达一个增量的字节流，当连续消费三个（虚拟 90 秒超出 60 秒预算），则每个增量如期到达、看门狗不触发 | 2026-10-15 |
-
-### `crates/gloss-core/src/pipeline/engine/sse.rs`
-
-| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
-| --- | --- | --- | --- |
-| decodes_a_complete_stream | 完整流解码 | 给定完整 `OpenAI` 兼容流，当一次喂完，则两段增量加`Done`（`role` 块不产出） | 2026-09-19 |
-| done_carries_the_server_finish_reason | `Done` 携带服务端结束原因 | 给定声明 `stop`、声明 `length` 与从未声明结束的三种流，当解码，则 `[DONE]` 条目携带最后一个内容块声明的 `finish_reason`（从未声明为 `None`，交出后清空） | 2026-10-11 |
-| decodes_identically_for_every_chunk_split | 任意切分解码一致 | 给定同一段流按 `1..n` 每种字节切法，当逐块喂入，则产出完全一致 | 2026-09-19 |
-| byte_by_byte_input_keeps_multibyte_characters_intact | 逐字节输入多字节字符完好 | 给定逐字节喂入，当解析，则多字节字符“光泽”完好 | 2026-09-19 |
-| ignores_crlf_heartbeats_and_other_fields | 忽略 `CRLF`、心跳、其它字段 | 给定 `CRLF`、心跳注释、其它（SSE）字段，当解析，则不产出、`data` 行照常出增量 | 2026-09-19 |
-| maps_server_errors_by_code | 服务端错误按码分类 | 给定流中错误对象（`rate_limit/invalid_api_key`、其它），当解析，则分类为 `RateLimited/Auth`、带诊断 `EngineResponse` | 2026-09-19 |
-| unparsable_payload_reports_bounded_diagnostic | 解析失败诊断有上限 | 给定解析不出的载荷与超长错误消息，当解析，则报 `EngineResponse` 且诊断文本有上限 | 2026-09-19 |
-| ignores_a_data_line_without_payload | 空载荷 `data` 行忽略 | 给定空载荷 `data:` 行，当解析，则按心跳忽略 | 2026-09-19 |
-| ignores_bytes_after_done | `[DONE]` 后字节忽略 | 给定 `[DONE]` 后的字节，当解析，则一律忽略 | 2026-09-19 |
-| done_is_the_last_item_even_with_trailing_lines | 流语义契约·完成条目为末项 | 给定完成哨兵后仍带数据行的完整流，当解码，则条目止于完成条目，其后喂入与收尾都无产出 | 2026-10-30 |
-| a_terminal_failure_leaves_no_items_after_it | 流语义契约·失败条目终结流 | 给定超长行洪泛，当解码出失败条目，则其后喂入合法数据行与收尾都无产出 | 2026-10-30 |
-| a_failed_chunk_terminates_the_decoder_too | 失败数据块同终结解码器 | 给定不可解析数据块或服务端错误对象，当解码出失败条目，则其后喂入数据行、完成哨兵与收尾都无产出（解码器与端口流语义同构） | 2026-10-30 |
-| finish_drops_a_truncated_tail | 残缺尾行丢弃 | 给定残缺半行，当 `finish`，则丢弃且此后字节不再解析 | 2026-09-19 |
-| finish_keeps_a_complete_unterminated_line | 完整无换行末行保留 | 给定完整但无换行的最后一行，当 `finish`，则作为增量交出 | 2026-09-19 |
-| rejects_a_line_beyond_the_limit | 超长行拒绝终结流 | 给定超 `MAX_LINE_BYTES` 的无换行洪泛，当解析，则协议错误终结流、后续不再解析 | 2026-09-19 |
-| error_without_code_reports_the_message_only | 无码错误只报消息 | 给定只有 `message` 的错误对象，当解析，则文案不带前导冒号 | 2026-09-19 |
-| error_classification_checks_code_and_type | 错误分类查码与类型 | 给定 `code` 通用而 `type` 细分类（或反之），当解析，则按细分类识别 | 2026-09-19 |
 
 ### `crates/gloss-core/src/pipeline/lang_gate.rs`
 
@@ -306,7 +251,7 @@
 | prompt_locale_is_independent_of_target_language | 模板语言与目标语言解耦 | 给定 `En` `locale` 未设目标语言、`Zh` `locale` 设 `Lang::En`，当渲染，则前者英文模板下默认目标仍是中文、后者中文模板含“英语” | 2026-09-22 |
 | prompt_locale_defaults_to_chinese | 模板语言缺省中文 | 给定未设 `prompt_locale` 的任务，当渲染，则结果与显式 `Zh` 逐字一致且含“词典专家” | 2026-09-22 |
 | every_task_system_prompt_ends_with_the_discipline_after_the_shared_clause | 纪律块垫底且共享条款在其前 | 给定五任务两语言的渲染，当比对系统提示尾部，则与共享输出纪律块逐字一致、其前紧接共享目标语言条款（两段单点维护，拼接自渲染入口） | 2026-10-29 |
-| classify_prompt_composes_the_skeleton_and_the_registry_category_section | 分类提示词骨架加类别段两段拼装 | 给定双 `locale`，当 `render_classify`，则系统指令以骨架（引言与输出形状）逐字起头、其后为注册表渲染的类别段（四类别逐条带定义），无残留占位符 | 2026-10-29 |
+| classify_prompt_composes_the_skeleton_and_the_registry_category_section | 分类提示词骨架加类别段两段拼装 | 给定双 `locale`，当 `render_classify`，则系统指令以骨架（引言与输出形状）逐字起头、其后为注册表渲染的类别段（四类别逐条携带判定步骤且步骤序与类别常量顺序一致），无残留占位符 | 2026-11-15 |
 
 ### `crates/gloss-core/src/pipeline/prompt/repair.rs`
 

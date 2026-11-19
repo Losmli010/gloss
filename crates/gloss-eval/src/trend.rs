@@ -182,6 +182,7 @@ mod tests {
             generated_at,
             latency: None,
             context: None,
+            caliber: None,
             groups: BTreeMap::new(),
             totals: GroupStats::default(),
         }

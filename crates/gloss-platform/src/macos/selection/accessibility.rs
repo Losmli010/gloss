@@ -14,11 +14,11 @@
 
 use gloss_core::model::GlossError;
 
+use crate::common::image::MAX_SELECTION_BYTES;
+
 const AX_ERROR_API_DISABLED: i32 = -25211;
 
 const AX_ERROR_NO_VALUE: i32 = -25212;
-
-const MAX_SELECTION_BYTES: usize = 256 * 1024;
 
 fn interpret(trusted: bool, outcome: Result<Option<String>, i32>) -> Result<String, GlossError> {
     if !trusted {

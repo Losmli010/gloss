@@ -17,7 +17,7 @@ replay 报告里 accuracy 50% / 降级率 50% 是夹具设计使然，不是生�
 
 ## live 轨的取数点
 
-分类请求复用生产形状（render_classify + max_tokens 截断 + 生产校验器），
+分类请求复用生产形状（render_classify + 生产校验器，回复长度随生产不设限），
 模型解析走 ConfigHandle 快照（classify_fallback）——与桥逐点一致。延迟
 只在 live 轨有意义（replay 无网络等待）；judge（GLOSS_LIVE_JUDGE=1）是
 额外一次模型调用/条，分数只进报告不进门禁。

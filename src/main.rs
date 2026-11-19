@@ -1,6 +1,6 @@
 //! 桌面应用（Gloss）唯一入口：组装依赖、分发通道端点并启动，不含
-//! 业务逻辑。组装段助手（平台能力装配、配置装配、通道分发、预检、
-//! 事件源与后台装配）见组装模块。
+//! 业务逻辑（取材流程住应用层编排）。组装段助手（平台能力装配、配置
+//! 装配、通道分发、预检、事件线程与后台装配）见组装模块。
 //!
 //! 系统约束（Windows）：发布构建走窗口子系统，双击与快捷方式拉起不再
 //! 带出终端控制台；开发构建保留控制台，日志的终端半边照常可见（文件
@@ -21,9 +21,9 @@ use std::sync::Arc;
 
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
-use gloss_core::engine::llm::LlmClient;
 use gloss_core::log::{self, info, thread, warn};
 use gloss_core::ports::{AiEngine, SecretStore};
+use gloss_llm::LlmClient;
 use mimalloc::MiMalloc;
 
 type StartupResult = Result<(), Box<dyn Error>>;
@@ -40,7 +40,7 @@ fn run() -> StartupResult {
     init_logging();
     log::milestone("02_logging");
     let platform = wiring::connect()?;
-    let (config, store) = wiring::load_config(&platform)?;
+    let (config, store) = wiring::load_config(&platform.ports)?;
     log::milestone("03_config");
     let service = build_service(&config, &store)?;
     log::milestone("04_engine");

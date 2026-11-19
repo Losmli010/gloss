@@ -158,6 +158,7 @@ pub(crate) mod tests {
                 text: "{\"note\":\"义\"}".to_owned(),
                 violation: None,
             }],
+            delivered: "{\"note\":\"义\"}".to_owned(),
             contract: outcome(ContractState::Valid),
             quality: None,
             rule: Some(RuleOutcome {

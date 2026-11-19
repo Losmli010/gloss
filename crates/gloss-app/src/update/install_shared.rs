@@ -1,12 +1,13 @@
-//! 原位替换共享核心：载荷定位、换装条目推导与换装编排，两平台实现共用同一套机制。
+//! 原位替换共享核心：错误契约、替换编排、载荷定位与换装机制，两平台实现共用同一套。
 //!
 //! 载荷形态由载荷规格（PayloadSpec）承载：带可执行文件锚点即平铺载荷（系统（Windows））——
 //! 解包现场里与锚点同名的文件所在目录为载荷根，其下每个直接子项一条目；不带锚点即目录
-//! 载荷（系统（macOS））——解包现场顶层结构完整的应用包目录为单条目。换装编排逐条目腾位
+//! 载荷（系统（macOS））——解包现场顶层结构完整的应用包目录为单条目。替换编排承接当前
+//! 载荷的锚点：校验锚点旁安装位的可写性，解压压缩包到同卷临时目录并定位载荷，逐条目腾位
 //! （旧载荷改名加旧件后缀）与就位（新载荷移入原位），任一步失败全量回滚：已就位的新载荷
-//! 撤下、已腾位的旧载荷复位，回滚本身失败带痕迹保留。新载荷缺席的旧旁置文件不回收，文件
-//! 集稳定由发布打包保证。平台差异只住各实现文件——提取命令、拉起方式与锚点取值；分派在
-//! 更新模块的声明处，本文件零平台分支。
+//! 撤下、已腾位的旧载荷复位，回滚本身失败带痕迹保留；提取一步由实现文件注入。新载荷缺席
+//! 的旧旁置文件不回收，文件集稳定由发布打包保证。平台差异只住各实现文件——提取命令、
+//! 拉起方式与锚点取值；分派在更新模块的声明处，本文件零平台分支。
 
 use std::ffi::{OsStr, OsString};
 use std::io;
@@ -14,30 +15,86 @@ use std::path::{Path, PathBuf};
 
 use gloss_core::log::{debug, thread, warn};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallError {
+    NotABundle,
+    Unwritable { dir: PathBuf },
+    Unzip(String),
+    InvalidStructure,
+    Replace(String),
+    Relaunch(String),
+}
+
 pub(crate) struct PayloadSpec {
     pub exe_name: Option<OsString>,
 }
 
-pub(crate) struct SwapEntry {
-    pub src: PathBuf,
-    pub dst: PathBuf,
-    pub stash: PathBuf,
+struct SwapEntry {
+    src: PathBuf,
+    dst: PathBuf,
+    stash: PathBuf,
 }
 
 #[derive(Debug)]
-pub(crate) enum SwapFailure {
+enum SwapFailure {
     Stash { source: io::Error },
     Move { source: io::Error },
 }
 
-pub(crate) fn payload_root(unpack: &Path, spec: &PayloadSpec) -> Option<PathBuf> {
+pub(crate) fn replace(
+    zip: &Path,
+    current: &Path,
+    spec: &PayloadSpec,
+    extract: impl Fn(&Path, &Path) -> Result<(), InstallError>,
+) -> Result<(), InstallError> {
+    let dir = current
+        .parent()
+        .ok_or_else(|| InstallError::Unwritable {
+            dir: PathBuf::from("/"),
+        })?
+        .to_path_buf();
+    if !dir_writable(&dir) {
+        return Err(InstallError::Unwritable { dir });
+    }
+    let unpack = prepare_unpack_dir(&dir)
+        .map_err(|err| InstallError::Unzip(format!("create unpack dir: {err}")))?;
+    let payload = match extract(zip, &unpack)
+        .and_then(|()| payload_root(&unpack, spec).ok_or(InstallError::InvalidStructure))
+    {
+        Ok(payload) => payload,
+        Err(err) => {
+            remove_unpack_dir(&unpack);
+            return Err(err);
+        }
+    };
+    let entries = swap_entries(spec, &payload, &dir, current);
+    if let Err(failure) = swap_in_place(&entries) {
+        remove_unpack_dir(&unpack);
+        return Err(replace_failure(failure));
+    }
+    finish_replace(&entries, &unpack);
+    Ok(())
+}
+
+fn replace_failure(failure: SwapFailure) -> InstallError {
+    match failure {
+        SwapFailure::Stash { source } => {
+            InstallError::Replace(format!("stash old payload: {source}"))
+        }
+        SwapFailure::Move { source } => {
+            InstallError::Replace(format!("move new payload: {source}"))
+        }
+    }
+}
+
+fn payload_root(unpack: &Path, spec: &PayloadSpec) -> Option<PathBuf> {
     match &spec.exe_name {
         Some(exe_name) => exe_root(unpack, exe_name),
         None => bundle_root(unpack),
     }
 }
 
-pub(crate) fn swap_entries(
+fn swap_entries(
     spec: &PayloadSpec,
     payload: &Path,
     install_dir: &Path,
@@ -49,7 +106,7 @@ pub(crate) fn swap_entries(
     }
 }
 
-pub(crate) fn swap_in_place(entries: &[SwapEntry]) -> Result<(), SwapFailure> {
+fn swap_in_place(entries: &[SwapEntry]) -> Result<(), SwapFailure> {
     let mut stashed: Vec<&SwapEntry> = Vec::new();
     let mut placed: Vec<&SwapEntry> = Vec::new();
     for entry in entries {
@@ -70,7 +127,7 @@ pub(crate) fn swap_in_place(entries: &[SwapEntry]) -> Result<(), SwapFailure> {
     Ok(())
 }
 
-pub(crate) fn prepare_unpack_dir(dir: &Path) -> Result<PathBuf, io::Error> {
+fn prepare_unpack_dir(dir: &Path) -> Result<PathBuf, io::Error> {
     let unpack = dir.join(format!(".gloss-update-{}", std::process::id()));
     if let Err(err) = remove_path(&unpack) {
         debug!(thread = thread::TOKIO, error = %err, "update: stale unpack dir cleanup failed");
@@ -79,7 +136,7 @@ pub(crate) fn prepare_unpack_dir(dir: &Path) -> Result<PathBuf, io::Error> {
     Ok(unpack)
 }
 
-pub(crate) fn finish_replace(entries: &[SwapEntry], unpack: &Path) {
+fn finish_replace(entries: &[SwapEntry], unpack: &Path) {
     for entry in entries {
         if let Err(err) = remove_path(&entry.stash) {
             warn!(
@@ -93,13 +150,13 @@ pub(crate) fn finish_replace(entries: &[SwapEntry], unpack: &Path) {
     remove_unpack_dir(unpack);
 }
 
-pub(crate) fn remove_unpack_dir(unpack: &Path) {
+fn remove_unpack_dir(unpack: &Path) {
     if let Err(err) = remove_path(unpack) {
         debug!(thread = thread::TOKIO, error = %err, "update: unpack dir cleanup failed");
     }
 }
 
-pub(crate) fn dir_writable(dir: &Path) -> bool {
+fn dir_writable(dir: &Path) -> bool {
     let probe = dir.join(".gloss-update-probe");
     match std::fs::write(&probe, b"") {
         Ok(()) => {

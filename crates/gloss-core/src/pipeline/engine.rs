@@ -9,9 +9,8 @@
 //! 降级标识与已判得的违约清单（契约无效直降的清单为空，二者都随产物
 //! 落缓存，界面批注照单渲染、不经重判；判定器与策略表在核心库同名顶层模块）。
 //! “零缓存零配置”：模型取自任务选项，查与写缓存及产物组装归调用方。
-
-pub mod llm;
-pub mod sse;
+//! 评测不拼装编排内部：固定任务经任务服务的评测门面直跑任务段，
+//! 返回生产交付值，逐轮原文经回调交出。
 
 use std::sync::Arc;
 
@@ -20,15 +19,15 @@ use crate::lang_gate;
 use crate::lang_gate::LangViolation;
 use crate::log::{thread, warn};
 use crate::model::{GlossError, Lang};
-use crate::ports::{AiEngine, EngineRequest, TaskChunk};
+use crate::ports::{AiEngine, EngineRequest, TaskChunk, ThinkingMode};
 use crate::prompt::{ChatMessage, PromptRegistry};
 use crate::repair::{RepairLoop, RepairStage};
 use crate::schema::{self, Violation};
 use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
 
-pub const TASK_REPAIRS: u32 = 3;
+const TASK_REPAIRS: u32 = 3;
 
-pub const LANG_REPAIRS: u32 = 1;
+const LANG_REPAIRS: u32 = 1;
 
 const MAX_REPLY_BYTES: usize = 1024 * 1024;
 
@@ -68,9 +67,7 @@ impl AiTaskService {
         on_chunk: impl FnMut(String),
         on_repair: impl FnMut(),
     ) -> Result<RunOutput, GlossError> {
-        if options.model.trim().is_empty() {
-            return Err(GlossError::Config("empty model id".into()));
-        }
+        ensure_model(&options)?;
 
         let kind = match &input {
             TaskInput::Text { .. } => match classify(
@@ -95,14 +92,38 @@ impl AiTaskService {
         };
         on_classified(kind);
 
-        let locale = options.prompt_locale.unwrap_or_default();
-        let task = Task::new(kind, input, options)?;
+        self.execute_task(
+            Task::new(kind, input, options)?,
+            on_chunk,
+            on_repair,
+            |_| {},
+        )
+        .await
+    }
+
+    pub async fn run_fixed_task(
+        &self,
+        task: Task,
+        on_round: impl FnMut(&str),
+    ) -> Result<RunOutput, GlossError> {
+        ensure_model(task.options())?;
+        self.execute_task(task, |_| {}, || {}, on_round).await
+    }
+
+    async fn execute_task(
+        &self,
+        task: Task,
+        on_chunk: impl FnMut(String),
+        on_repair: impl FnMut(),
+        on_round: impl FnMut(&str),
+    ) -> Result<RunOutput, GlossError> {
+        let locale = task.options().prompt_locale.unwrap_or_default();
         let base = self.prompts.render(&task)?;
         run_task_rounds(
             TaskStage {
                 engine: self.engine.as_ref(),
                 prompts: &self.prompts,
-                kind,
+                kind: task.kind(),
                 base,
                 model: &task.options().model,
                 locale,
@@ -114,9 +135,17 @@ impl AiTaskService {
             },
             on_chunk,
             on_repair,
+            on_round,
         )
         .await
     }
+}
+
+fn ensure_model(options: &TaskOptions) -> Result<(), GlossError> {
+    if options.model.trim().is_empty() {
+        return Err(GlossError::Config("empty model id".into()));
+    }
+    Ok(())
 }
 
 struct RoundReply {
@@ -164,18 +193,18 @@ async fn collect_round(
     })
 }
 
-pub struct TaskStage<'a> {
-    pub engine: &'a dyn AiEngine,
-    pub prompts: &'a PromptRegistry,
-    pub kind: TaskKind,
-    pub base: Vec<ChatMessage>,
-    pub model: &'a str,
-    pub locale: crate::model::Locale,
-    pub input: &'a TaskInput,
-    pub target: Lang,
+pub(crate) struct TaskStage<'a> {
+    pub(crate) engine: &'a dyn AiEngine,
+    pub(crate) prompts: &'a PromptRegistry,
+    pub(crate) kind: TaskKind,
+    pub(crate) base: Vec<ChatMessage>,
+    pub(crate) model: &'a str,
+    pub(crate) locale: crate::model::Locale,
+    pub(crate) input: &'a TaskInput,
+    pub(crate) target: Lang,
 }
 
-pub async fn run_task_rounds(
+pub(crate) async fn run_task_rounds(
     TaskStage {
         engine,
         prompts,
@@ -188,6 +217,7 @@ pub async fn run_task_rounds(
     }: TaskStage<'_>,
     mut on_chunk: impl FnMut(String),
     mut on_repair: impl FnMut(),
+    mut on_round: impl FnMut(&str),
 ) -> Result<RunOutput, GlossError> {
     let mut messages = base.clone();
     let mut repairs = RepairLoop::new(RepairStage::Task, TASK_REPAIRS);
@@ -195,9 +225,10 @@ pub async fn run_task_rounds(
         let request = EngineRequest {
             messages,
             model: model.to_owned(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
         let reply = collect_round(engine, request, &mut on_chunk).await?;
+        on_round(&reply.body);
         if reply.finish_reason.as_deref() == Some(FINISH_CONTENT_FILTER) {
             return Err(GlossError::EngineResponse(CONTENT_FILTER_DIAGNOSTIC.into()));
         }
@@ -213,8 +244,9 @@ pub async fn run_task_rounds(
                 base: &base,
                 model,
                 locale,
+                task_repairs: repairs.spent(),
             };
-            return run_lang_rounds(stage, reply, repairs.spent(), on_chunk, on_repair).await;
+            return run_lang_rounds(stage, reply, on_chunk, on_repair, on_round).await;
         };
         let resend = (!matches!(violation, Violation::EmptyReply)).then_some(reply.body.as_str());
         let detail = schema::format_detail(violation, &reply.body);
@@ -251,14 +283,15 @@ pub(crate) struct LangStage<'a> {
     pub base: &'a [ChatMessage],
     pub model: &'a str,
     pub locale: crate::model::Locale,
+    pub task_repairs: u32,
 }
 
 async fn run_lang_rounds(
     stage: LangStage<'_>,
     mut reply: RoundReply,
-    task_repairs: u32,
     mut on_chunk: impl FnMut(String),
     mut on_repair: impl FnMut(),
+    mut on_round: impl FnMut(&str),
 ) -> Result<RunOutput, GlossError> {
     let mut repairs = RepairLoop::new(RepairStage::Lang, LANG_REPAIRS);
     loop {
@@ -267,10 +300,10 @@ async fn run_lang_rounds(
                 thread = thread::TOKIO,
                 "language gate saw a contract-invalid reply, delivering degraded"
             );
-            return Ok(lang_output(&stage, reply, task_repairs, Vec::new(), true));
+            return Ok(lang_output(&stage, reply, Vec::new(), true));
         };
         if violations.is_empty() {
-            return Ok(lang_output(&stage, reply, task_repairs, Vec::new(), false));
+            return Ok(lang_output(&stage, reply, Vec::new(), false));
         }
         let summary = LangViolation::summary(&violations);
         let Some(next) = repairs.next_round(stage.base, Some(&reply.body), summary, || {
@@ -278,15 +311,16 @@ async fn run_lang_rounds(
                 .prompts
                 .render_language_repair(stage.locale, &violations)
         }) else {
-            return Ok(lang_output(&stage, reply, task_repairs, violations, true));
+            return Ok(lang_output(&stage, reply, violations, true));
         };
         on_repair();
         let request = EngineRequest {
             messages: next,
             model: stage.model.to_owned(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
         let round = collect_round(stage.engine, request, &mut on_chunk).await?;
+        on_round(&round.body);
         if round.finish_reason.as_deref() == Some(FINISH_CONTENT_FILTER) {
             return Err(GlossError::EngineResponse(CONTENT_FILTER_DIAGNOSTIC.into()));
         }
@@ -316,7 +350,6 @@ fn lang_violations(stage: &LangStage<'_>, reply: &str) -> Option<Vec<LangViolati
 fn lang_output(
     stage: &LangStage<'_>,
     reply: RoundReply,
-    task_repairs: u32,
     violations: Vec<LangViolation>,
     degraded: bool,
 ) -> RunOutput {
@@ -324,7 +357,7 @@ fn lang_output(
         kind: stage.kind,
         raw: reply.body,
         finish_reason: reply.finish_reason,
-        repairs: task_repairs,
+        repairs: stage.task_repairs,
         lang_degraded: degraded,
         lang_violations: violations,
     }
@@ -533,6 +566,103 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_fixed_task_hands_out_round_texts_and_returns_the_production_output() {
+        let bad_reply = "整段散文，不是 JSON";
+        let good_reply = "{\"note\":\"句译完成\",\"structured\":{\"examples\":[]}}";
+        let (engine, service) = make_service(
+            &MockEngine::new()
+                .with_script_queue(vec![vec![delta(bad_reply)], vec![delta(good_reply)]]),
+        );
+        let rounds = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = Arc::clone(&rounds);
+        let output = service
+            .run_fixed_task(
+                Task::new(
+                    TaskKind::TranslateSentence,
+                    text_input("hello"),
+                    TaskOptions {
+                        model: "m".into(),
+                        ..options()
+                    },
+                )
+                .expect("the test task is legal"),
+                move |round| {
+                    sink.lock().expect("rounds").push(round.to_owned());
+                },
+            )
+            .await
+            .expect("the fixed task should converge");
+        assert_eq!(
+            *rounds.lock().expect("rounds"),
+            vec![bad_reply.to_owned(), good_reply.to_owned()],
+            "every round's raw text rides the callback in order"
+        );
+        assert_eq!(output.kind, TaskKind::TranslateSentence);
+        assert_eq!(output.repairs, 1);
+        assert_eq!(output.raw, good_reply);
+        assert_eq!(
+            engine.call_count(),
+            2,
+            "two task rounds: the fixed task never classifies"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_fixed_task_hands_out_language_repair_round_texts() {
+        let first = r#"{"note":"中文word混在正文里。","structured":{"examples":[]}}"#;
+        let second = r#"{"note":"混排已经修复完成了。","structured":{"examples":[]}}"#;
+        let (engine, service) = make_service(
+            &MockEngine::new().with_script_queue(vec![vec![delta(first)], vec![delta(second)]]),
+        );
+        let rounds = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = Arc::clone(&rounds);
+        let output = service
+            .run_fixed_task(
+                Task::new(
+                    TaskKind::TranslateSentence,
+                    text_input("hello"),
+                    TaskOptions {
+                        model: "m".into(),
+                        ..options()
+                    },
+                )
+                .expect("the test task is legal"),
+                move |round| {
+                    sink.lock().expect("rounds").push(round.to_owned());
+                },
+            )
+            .await
+            .expect("the language repair should converge");
+        assert_eq!(
+            *rounds.lock().expect("rounds"),
+            vec![first.to_owned(), second.to_owned()],
+            "the language repair round's raw text rides the callback too"
+        );
+        assert_eq!(output.repairs, 0, "the language round is not a task repair");
+        assert!(!output.lang_degraded);
+        assert_eq!(engine.call_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn run_fixed_task_blank_model_fails_before_the_engine() {
+        let (engine, service) = make_service(&MockEngine::new());
+        let task = Task::new(
+            TaskKind::TranslateSentence,
+            text_input("hello"),
+            TaskOptions {
+                model: "   ".into(),
+                ..options()
+            },
+        )
+        .expect("the test task is legal");
+        assert!(matches!(
+            service.run_fixed_task(task, |_| {}).await,
+            Err(GlossError::Config(_))
+        ));
+        assert_eq!(engine.call_count(), 0);
+    }
+
+    #[tokio::test]
     async fn run_task_rounds_executes_a_fixed_kind_stream_without_classification() {
         let engine = Arc::new(MockEngine::new().with_script_queue(vec![
             vec![delta("整段散文，不是 JSON")],
@@ -562,6 +692,7 @@ mod tests {
             },
             |_| {},
             || {},
+            |_| {},
         )
         .await
         .expect("the repaired round should converge");
@@ -1092,13 +1223,14 @@ mod tests {
             base: &[],
             model: "m",
             locale: crate::model::Locale::Zh,
+            task_repairs: 0,
         };
         let reply = super::RoundReply {
             body: "MARKER-契约无效的直降回复，不是 JSON".into(),
             finish_reason: Some("stop".into()),
             empty_completion: false,
         };
-        let output = super::run_lang_rounds(stage, reply, 0, |_| {}, || {})
+        let output = super::run_lang_rounds(stage, reply, |_| {}, || {}, |_| {})
             .await
             .expect("the direct degrade hands the reply over, not an error");
         assert!(output.lang_degraded);

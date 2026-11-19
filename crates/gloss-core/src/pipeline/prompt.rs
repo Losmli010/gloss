@@ -8,10 +8,10 @@
 //! 不支持错误上抛，不发出注定无效的请求。
 //!
 //! 分类指令自包含：分类系统提示由骨架（分类模板，只留引言与输出形状）
-//! 加类别段（措辞注册表按类别渲染）两段拼装，兜底类别由分类校验器映射
-//! 兜底。注册表的键与枚举变体的双向集合相等由完整性测试锁定；运行时缺键
-//! 有痕降级，回落固定措辞，不中断运行。渲染是显式的双花括号占位符替换
-//! （可选行语义见渲染助手）。
+//! 加类别段（措辞注册表按类别渲染，类别按判定顺序排列）两段顺接拼装，
+//! 兜底类别由分类校验器映射兜底。注册表的键与枚举变体的双向集合相等由
+//! 完整性测试锁定；运行时缺键有痕降级，回落固定措辞，不中断运行。渲染
+//! 是显式的双花括号占位符替换（可选行语义见渲染助手）。
 //! 不注入模态提示行：源语言与代码语言都由模型从原文自行判断，代码语言经
 //! 产物对象的代码语言字段回传界面。
 //!
@@ -475,27 +475,33 @@ mod tests {
                 system.contains(section),
                 "{locale:?}: the category section follows the skeleton: {system}"
             );
-            for name in crate::schema::CLASSIFY_CATEGORY_NAMES {
+            let steps = match locale {
+                Locale::Zh => ["第一步判定", "第二步判定", "第三步判定", "第四步判定"],
+                Locale::En => ["Step 1:", "Step 2:", "Step 3:", "Step 4:"],
+            };
+            for (name, step) in crate::schema::CLASSIFY_CATEGORY_NAMES.iter().zip(steps) {
+                let separator = match locale {
+                    Locale::Zh => "：",
+                    Locale::En => ": ",
+                };
+                let entry = format!("- {name}{separator}{step}");
                 assert!(
-                    system.contains(&format!("- {name}")),
-                    "{locale:?}: every template category carries a registry definition: \
-                     {system}"
+                    system.contains(&entry),
+                    "{locale:?}: every template category carries its judgment step in \
+                     order: {system}"
                 );
             }
             assert!(!system.contains("{{"), "{locale:?}: {system}");
         }
         let zh_messages = registry.render_classify(Locale::Zh, "原文");
         assert!(
-            text_of(&zh_messages[0].content).contains("- TranslateWord：翻译单个词汇项"),
+            text_of(&zh_messages[0].content).contains("- TranslateWord：第二步判定"),
             "the zh section renders the migrated definition: {}",
             text_of(&zh_messages[0].content)
         );
         let en_messages = registry.render_classify(Locale::En, "text");
         assert!(
-            text_of(&en_messages[0].content).contains(
-                "- TranslateWord: Translate a single \
-                                                      lexical item"
-            ),
+            text_of(&en_messages[0].content).contains("- TranslateWord: Step 2:"),
             "the en section renders the migrated definition: {}",
             text_of(&en_messages[0].content)
         );

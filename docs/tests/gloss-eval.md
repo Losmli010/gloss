@@ -17,11 +17,12 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| task_settlement_flags_json_note_and_field_checks | 任务结算合法回复全绿 | 给定可解析且结构齐全的任务回复，当 `settle_case`，则可解析（JSON）、字段完整检查过、不降级、零违约零修复轮次、逐轮无违约 | 2026-11-01 |
-| task_settlement_degrades_on_prose_and_missing_note | 任务结算违约即降级 | 给定散文、缺注与空白三类回复，当 `settle_case`，则末轮降级、违约类别（不可解析、注缺失、空回复）逐轮计数、散文不可解析（JSON）、字段完整未过 | 2026-11-01 |
-| task_settlement_counts_repairs_and_violations_over_rounds | 任务结算逐轮还原轨迹 | 给定违约轮加合法轮的两轮轨迹，当 `settle_case`，则修复轮次为轮数减一、违约轮带类别、合法轮干净、末轮定全局不降级 | 2026-11-01 |
-| fields_complete_requires_the_subtype_shape | 字段完整按子类形状 | 给定词卡缺音标、代码缺代码语言、句译例证齐、无结构化对象与音标键值为 `null` 的回复，当 `settle_case`，则缺子类必带键未过、齐者过、`null` 在场、例证空数组仍过（内容归评审） | 2026-11-01 |
-| classify_settlement_separates_degradation_from_kind_mismatch | 分类结算降级与类别不符分账 | 给定类别正确、可解析但类别不符、越清单类别与散文四类回复，当 `settle_case`，则正确者类别检查过、不符者不降级只判类别未过（软缺口）、越清单与散文降级、`Fallback` 落通用任务 | 2026-11-01 |
+| task_settlement_flags_json_note_and_field_checks | 任务结算合法回复全绿 | 给定可解析且结构齐全的任务回复，当 `settle_case`（交付值即该回复），则可解析（JSON）、字段完整检查过、不降级、零违约零修复轮次、逐轮无违约 | 2026-11-17 |
+| task_settlement_degrades_on_prose_and_missing_note | 任务结算违约即降级 | 给定散文、缺注与空白三类回复，当 `settle_case`（交付值即该回复），则交付值降级、违约类别（不可解析、注缺失、空回复）逐轮计数、散文不可解析（JSON）、字段完整未过 | 2026-11-17 |
+| task_settlement_counts_repairs_and_violations_over_rounds | 任务结算逐轮还原轨迹 | 给定违约轮加合法轮的两轮轨迹与交付值（合法轮、修复轮次一），当 `settle_case`，则修复轮次随交付值、违约轮带类别、合法轮干净、交付值定全局不降级 | 2026-11-17 |
+| settlement_uses_the_delivered_reply_over_the_last_round | 交付值优先于末轮 | 给定合格轮加不合格语言修复轮的轨迹与交付值取合格轮（生产丢弃不合格语言修复轮后的交付），当 `settle_case`，则不降级、字段完整过、修复轮次为零（语言修复轮不计任务修复轮）、不合格轮留轨迹带 `NotJson` 违约——降级与检查项只认交付值（架构重构 E1，对齐核心库 `a_contract_broken_language_repair_keeps_the_last_valid_reply`） | 2026-11-17 |
+| fields_complete_requires_the_subtype_shape | 字段完整按子类形状 | 给定词卡缺音标、代码缺代码语言、句译例证齐、无结构化对象与音标键值为 `null` 的回复，当 `settle_case`（交付值即该回复），则缺子类必带键未过、齐者过、`null` 在场、例证空数组仍过（内容归评审） | 2026-11-17 |
+| classify_settlement_separates_degradation_from_kind_mismatch | 分类结算降级与类别不符分账 | 给定类别正确、可解析但类别不符、越清单类别与散文四类回复，当 `settle_case`（交付值即该回复），则正确者类别检查过、不符者不降级只判类别未过（软缺口）、越清单与散文降级、`Fallback` 落通用任务 | 2026-11-17 |
 | contract_four_state_derivation_matrix_is_mutually_exclusive | 契约四态派生矩阵互斥完备 | 给定引擎故障、降级、检查项未过与全绿四类明细，当 `derive_state`，则依次得故障、降级、软缺口、有效，且引擎故障压倒降级、降级压倒检查项 | 2026-11-01 |
 | case_settlement_dispatches_by_the_case_subclass | 案例结算按子类分派 | 给定代码子类用例配词卡形回复与类型参考答案不自洽的分类用例，当 `settle_case`，则前者按代码形状判字段完整未过、后者按通用兜底且 `Fallback` 判类别符合（嵌入集自洽由加载校验保证） | 2026-11-01 |
 
@@ -29,7 +30,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| curated_loads_with_the_finalized_distribution | 精选集五类分布守卫 | 给定编译期嵌入的定稿精选集，当 `load_curated`，则分类 22、词卡 10、句译 6、代码 3、通用 3 共 44 条逐类钉数且目标语言恒中文——增删条目是走评审的定稿变更，守卫数字随评审同改 | 2026-11-01 |
+| curated_loads_with_the_finalized_distribution | 精选集五类分布守卫 | 给定编译期嵌入的定稿精选集，当 `load_curated`，则分类 35、词卡 10、句译 6、代码 3、通用 3 共 57 条逐类钉数且目标语言恒中文——增删条目是走评审的定稿变更，守卫数字随评审同改 | 2026-11-16 |
 | every_embedded_reference_settles_green_against_its_own_case | 参考答案与契约自洽 | 给定全部嵌入用例，当参考答案渲染产物词面后过各自用例的 `settle_case`，则不降级且子类检查项（类别符合或字段完整）全过——参考答案形状漂移或契约口径收紧先红 | 2026-11-01 |
 | reference_renders_as_the_product_wire_shape | 参考答案渲染生产词面 | 给定任务侧与分类侧参考答案，当 `reply_json`，则任务侧渲染结果过生产任务校验器（注与疏证在场）、分类侧恰为裸类别（JSON）回复形状且 `Fallback` 映射通用 | 2026-11-01 |
 | reference_rejects_wrong_subtype_shapes_with_line_numbers | 参考答案按子类结构校验 | 给定分类拿任务形、任务拿分类形、空注、词卡缺音标键与 `null` 音标各一例，当 `parse_curated`，则前四者带行号拒绝、`null` 在场仍过（与契约检查同口径） | 2026-11-01 |
@@ -40,7 +41,7 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| case_detail_round_trips_through_serde | 结算明细序列化往返 | 给定四层俱全（逐轮轨迹、契约检查项、评审四维、回归五态）的明细，当序列化再反序列化，则逐字段一致且类型化违约、`EvalKind` 变体与 `snake_case` 枚举词面按默认命名出现 | 2026-11-01 |
+| case_detail_round_trips_through_serde | 结算明细序列化往返 | 给定四层俱全（逐轮轨迹、交付值原文、契约检查项、评审四维、回归五态）的明细，当序列化再反序列化，则逐字段一致且类型化违约、`EvalKind` 变体与 `snake_case` 枚举词面按默认命名出现 | 2026-11-17 |
 | eval_kind_display_names_cover_the_fixed_groups | 用例类型展示名覆盖五键 | 给定分类与四个任务子类，当 `display_name` 与 `task_kind`，则分类、词卡、句译、代码、通用五名齐备且任务子类拆出对应任务类型、分类无任务子类 | 2026-11-01 |
 | label_verdict_wire_names_match_the_labels_file | 标注结论词面即标注文件域 | 给定合格与不合格两枚举值，当序列化与反序列化，则词面恰为 `pass` 与 `fail` 且往返一致（labels.jsonl 的 verdict 域） | 2026-11-01 |
 
@@ -48,17 +49,20 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| stub_run_settles_layers_and_pends_without_baseline | 桩引擎端到端首轮全待比 | 给定脚本引擎桩（分类回复、任务回复、评审四维脚本）与头部 23 条切片，当 `run` 加空基线空标注结算，则例数与延迟样本数对齐、分类例无质量分且类别符合过、首个任务例字段完整过且评审四维进明细、全部回归恒待比 | 2026-11-01 |
+| stub_run_settles_layers_and_pends_without_baseline | 桩引擎端到端首轮全待比 | 给定脚本引擎桩（分类回复、任务回复、评审四维脚本）与头部 35 条切片，当 `run` 加空基线空标注结算，则例数与延迟样本数对齐、分类例无质量分且类别符合过、首个任务例字段完整过且评审四维进明细、全部回归恒待比 | 2026-11-16 |
 | golden_and_labels_settle_stub_rounds_into_pass_and_changed | 注入基线标注出通过与改 | 给定同轮输出的桩运行与逐例基线标注（两合格一同合格、一不合格异类），当 `regression::settle`，则同文合格判通过、结构相同判通过、异类不合格判改 | 2026-11-01 |
 | engine_failure_marks_the_case_and_drops_settlement | 引擎故障标记进明细 | 给定首通即请求失败的脚本引擎桩，当 `run` 后结算，则明细带故障标记、轮轨迹为空、无质量分、回归字段恒空且运行不中断 | 2026-11-01 |
 | limit_slices_the_run_and_judge_toggle_keeps_quality_empty | 限位切片与评审开关 | 给定限位 2 条且评审关闭的运行，当 `run`，则恰出两条明细与两个延迟样本、质量字段全空 | 2026-11-01 |
+| repair_rounds_ride_the_production_loop_into_the_case_details | 修复轮经生产编排进逐例明细 | 给定头部切片（35 条分类各一通）加“违约散文 → 词卡契约（JSON）”的任务脚本队列，当 `run`，则首个任务例的逐轮明细带违约轮（`NotJson`）与干净修复轮、`contract.repairs` 为 1、字段完整检查过（轮数据经任务服务的评测门面取得） | 2026-11-17 |
+| a_contract_broken_language_repair_settles_on_the_delivered_reply | 语言修复轮不合格按交付值结算 | 给定头部切片（35 条分类各一通）加“契约合格但触发语言门 → 语言修复轮散文破坏契约”的任务脚本队列，当 `run` 加基线标注结算，则两轮都留逐轮轨迹且丢弃轮带 `NotJson`、结算不降级、交付值原文随明细落盘、`contract.repairs` 为零（只计任务修复轮）、字段完整过且回归对照基线判通过——对齐核心库 `a_contract_broken_language_repair_keeps_the_last_valid_reply`（架构重构 E1） | 2026-11-17 |
+| judge_prompt_rides_the_delivered_reply_not_the_discarded_round | 评审按交付值送审 | 给定同上脚本队列（评审脚本在队尾），当 `run`，则评审请求的提示词含交付值原文、不含被丢弃的语言修复轮——送评审与结算同按生产交付值（架构重构 E1，请求录制桩锁定） | 2026-11-17 |
 | latency_percentiles_interpolate | 延迟百分位线性插值 | 给定四个样本，当取 `p0/p50/p95/p100`，则插值结果精确；空样本返回 `None` | 2026-11-01 |
 
 ### `crates/gloss-eval/src/flow.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| stub_iterate_writes_artifacts_records_history_and_renders_the_view | 迭代装配端到端产出全件 | 给定单例脚本引擎桩与临时产物目录，当 `run_iterate`（评审关闭、限位 1），则报告文件按模式命名且模式为 `iterate`、注入的提交标识进报告、逐例明细解析出一条、单次输出恰一行且逐轮原文即脚本回复、历史行与趋势图落盘、检视页含该用例 | 2026-11-02 |
+| stub_iterate_writes_artifacts_records_history_and_renders_the_view | 迭代装配端到端产出全件 | 给定单例脚本引擎桩与临时产物目录，当 `run_iterate`（评审关闭、限位 1），则报告文件按模式命名且模式为 `iterate`、注入的提交标识进报告、逐例明细解析出一条、单次输出恰一行且落生产交付值（该例交付值即脚本回复）、历史行与趋势图落盘、检视页含该用例 | 2026-11-17 |
 | engine_failures_settle_but_never_reach_the_outputs_file | 故障例结算不进固化输入 | 给定首通即请求失败的脚本引擎桩，当 `run_iterate`，则明细带故障标记且契约统计计一例故障、单次输出文件在场但零行——失败输出永不可固化 | 2026-11-02 |
 | import_merges_known_rows_and_rejects_bad_documents | 标注导入按条目合并与坏档拒绝 | 给定含精选集内外各一行的导出文档，当 `import_labels`，则已知行合并进标注文件、集外标识跳过并回报；坏 JSON 文档与域外 `verdict` 各带文件名硬拒绝 | 2026-11-02 |
 | accept_freezes_outputs_counts_unlabeled_and_fails_clear_without_inputs | 基线固化与未标注警告 | 给定两行单次输出与其中一行已标注的资产目录，当 `accept`，则两行固化进基线文件且固化时间为协调世界时（UTC）词面、汇总计未标注一行、重复固化按条目覆盖不叠行；缺单次输出文件时带补救指引硬报错 | 2026-11-02 |
@@ -113,6 +117,7 @@
 | normalization_ignores_whitespace_and_example_order | 规范化消除空白与顺序噪声 | 给定音标带空白与例证乱序的本轮输出，当规范化比较，则与基线判一致；例证乱序两种输入规范化相等且保持词卡形态 | 2026-11-01 |
 | classify_regression_compares_parsed_categories | 分类回归按类别比较 | 给定类别一致（`Fallback` 两侧）与类别不同（代码讲解对句译）的分类用例，当结算，则一致出通过、不同出改并带类别差异摘要 | 2026-11-01 |
 | golden_baseline_rounds_concatenate_chunk_fragments | 基线末轮分片拼接 | 给定末轮分片拆半的基线与含违约历史轮的两轮基线，当 `settle`，则分片无分隔直连判过、多轮只取末轮判未改善 | 2026-11-01 |
+| regression_compares_the_delivered_reply_not_the_last_round | 回归比较取交付值 | 给定交付值为基线同文、轨迹在交付值之后多挂一轮不合格文（模拟被生产丢弃的语言修复轮）的任务用例，当标注合格结算，则判通过——比较只认交付值，末轮原文不进比较（架构重构 E1） | 2026-11-17 |
 | unparsable_baseline_or_output_is_incomparable_not_equal | 不可比三态边界 | 给定本轮降级与基线损坏两种不可比输入，当结算，则本轮降级出改且匹配为空摘要说明降级、基线损坏出回归且摘要说明基线不可解析 | 2026-11-01 |
 
 ### `crates/gloss-eval/src/remedy.rs`
@@ -127,6 +132,7 @@
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
 | group_aggregates_fold_into_totals | 分组聚合与合计一致 | 给定横跨分类、词卡、句译三组的用例夹具（契约四态齐备、含违约计数与修复轮次、回归三态、基线与标注部分在场），当 `assemble`，则全部计数列（例数、基线数、标注三态、契约四态、违约总数、回归五态）逐组求和等于合计行、已评数同样可折，修复轮次均值在合计行按全体用例重算而非组均值再平均 | 2026-11-01 |
+| the_settlement_caliber_rides_the_report_and_legacy_rows_default_to_none | 结算口径随行落盘 | 给定 `assemble` 产物，当序列化与剥除 `caliber` 字段再反序列化，则口径词面恒为 `delivered` 且旧历史行（无该字段）解析为 `None`——口径变更点以字段首次出现为准，跨口径历史数字不可直连比较（架构重构 E1，K1 口径标注） | 2026-11-17 |
 | rate_denominators_are_all_group_cases | 三率分母恒为组内全部 | 给定四条任务用例（契约有效、软缺口、降级、故障各一，其中一条回归通过、一条已标注合格），当 `assemble`，则契约有效率、回归通过率、标注合格率各为其分子除以组内全部四条——软缺口、待比、未标注、故障一律不剔除 | 2026-11-01 |
 | bucket_edges_split_at_59_60_69_70_79_80_89_90 | 五档分桶边界 | 给定八条已评用例（准确性维分数为 59、60、69、70、79、80、89、90），当 `assemble`，则准确性维分桶为 `[1,2,2,2,1]`（0–59、60–69、70–79、80–89、90–100 五档，四对边界各归右档）、均分 74.5、合格率 0.375（79 不过线、80 及以上过线），无方差的其余维照常计入全部已评数 | 2026-11-01 |
 | coverage_and_agreement_rates_use_their_own_denominators | 评审覆盖率与人机一致率口径 | 给定五条任务用例（四条已评且已标注，两条与总体分同过线、两条不同线；一条已标注未评），当 `assemble`，则评审覆盖率 0.8（已评四条除以组内全部五条）、人机一致率 0.5（同过线两条除以既有标注又有总体分的四条） | 2026-11-01 |

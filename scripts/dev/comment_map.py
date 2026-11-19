@@ -21,6 +21,12 @@ import os
 import subprocess
 import sys
 
+_HOOKS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "hooks"))
+if _HOOKS not in sys.path:
+    sys.path.insert(0, _HOOKS)
+
+import gate_report  # noqa: E402
+
 RECORD_DIR = os.path.join("docs", "comments")
 RECORD_SUFFIX = "_comment.md"
 TESTS_INFIX = "_tests"
@@ -35,6 +41,7 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-app/Cargo.toml": "gloss-app_Cargo",
     "crates/gloss-core/Cargo.toml": "gloss-core_Cargo",
     "crates/gloss-eval/Cargo.toml": "gloss-eval_Cargo",
+    "crates/gloss-llm/Cargo.toml": "gloss-llm_Cargo",
     "crates/gloss-platform/Cargo.toml": "gloss-platform_Cargo",
     # 根自述与图标资产自述撞名
     "README.md": "README",
@@ -58,11 +65,23 @@ FAMILY_STEMS: dict[str, str] = {
     "scripts/hooks/constraints/langspec.py": "constraints_langspec",
     # 集成测试目标与运行时管线模块撞名：测试目标带集成前缀
     "crates/gloss-app/tests/pipeline.rs": "pipeline_integration",
-    # 剪贴板家族：选区剪贴板、剪贴板子模块与浮层图像卡撞名
+    # 剪贴板家族：选区剪贴板、剪贴板子模块与浮层图像卡撞名；图片归一化
+    # 上移共享层后入组：共享侧持语义裸名，绑定侧带平台前缀
     "crates/gloss-platform/src/macos/selection/clipboard.rs": "selection_clipboard",
-    "crates/gloss-platform/src/macos/clipboard/image.rs": "clipboard_image",
+    "crates/gloss-platform/src/common/image.rs": "image",
+    "crates/gloss-platform/src/macos/clipboard/image.rs": "macos_clipboard_image",
     "crates/gloss-platform/src/macos/clipboard/mod.rs": "clipboard_mod",
-    "crates/gloss-platform/src/macos/clipboard/watch.rs": "clipboard_watch",
+    # 哨兵共享层上移后与平台绑定文件撞名：共享层持语义裸名，绑定侧带平台前缀
+    "crates/gloss-platform/src/macos/clipboard/watch.rs": "macos_clipboard_watch",
+    "crates/gloss-platform/src/common/clipboard_watch.rs": "clipboard_watch",
+    # 代码高亮兜底着色与模拟复制兜底流程撞名：高亮侧按既有代码高亮（code_hl）
+    # 家族前缀，平台共享层持语义裸名
+    "crates/gloss-app/src/ui/code_hl/fallback.rs": "code_hl_fallback",
+    "crates/gloss-platform/src/common/fallback.rs": "fallback",
+    # 组合取材上移共享层后与两侧绑定文件撞名：共享层持语义裸名，绑定侧带平台前缀
+    "crates/gloss-platform/src/common/composite.rs": "composite",
+    "crates/gloss-platform/src/macos/selection/composite.rs": "macos_composite",
+    "crates/gloss-platform/src/windows/selection/composite.rs": "windows_composite",
     "crates/gloss-app/src/ui/popup/image.rs": "popup_image",
     "crates/gloss-app/src/ui/popup/icon.rs": "popup_icon",
     "crates/gloss-app/src/ui/popup/note.rs": "popup_note",
@@ -84,10 +103,12 @@ FAMILY_STEMS: dict[str, str] = {
     # 任务模块：核心库任务与界面流任务撞名
     "crates/gloss-core/src/domain/task.rs": "task",
     "crates/gloss-app/src/flow/task.rs": "flow_task",
-    # 各包库入口撞名：决策与测试记录锚定在（gloss-platform）
+    # 各包库入口撞名：决策与测试记录锚定在（gloss-platform）；传输分包的库入口
+    # 由核心库传输模块迁入，记录沿迁移前的家族名带包前缀
     "crates/gloss-platform/src/lib.rs": "lib",
     "crates/gloss-app/src/lib.rs": "app_lib",
     "crates/gloss-core/src/lib.rs": "core_lib",
+    "crates/gloss-llm/src/lib.rs": "llm_lib",
     "crates/gloss-eval/src/lib.rs": "eval_lib",
     # 适配器层的平台目录镜像：系统（Windows）实现与系统（macOS）实现同名
     # 撞名，平台侧按家族前缀登记（平台实现族各自持一套决策口径）
@@ -96,12 +117,14 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-platform/src/windows/clipboard/watch.rs": "windows_clipboard_watch",
     "crates/gloss-platform/src/windows/events/mod.rs": "windows_events_mod",
     "crates/gloss-platform/src/windows/events/mouse.rs": "windows_mouse",
+    # 系统语言档位映射上移共享层后与系统（macOS）实现裸名撞名：
+    # 共享映射带共享前缀，平台读取器（macOS 侧）持语义裸名
+    "crates/gloss-platform/src/common/locale.rs": "common_locale",
     "crates/gloss-platform/src/windows/locale.rs": "windows_locale",
     "crates/gloss-platform/src/windows/menu.rs": "windows_menu",
     "crates/gloss-platform/src/windows/permissions.rs": "windows_permissions",
     "crates/gloss-platform/src/windows/scene.rs": "windows_scene",
     "crates/gloss-platform/src/windows/selection/mod.rs": "windows_selection_mod",
-    "crates/gloss-platform/src/windows/selection/composite.rs": "windows_composite",
     "crates/gloss-platform/src/windows/selection/clipboard.rs": "windows_selection_clipboard",
     "crates/gloss-platform/src/windows/selection/uia.rs": "windows_uia",
     "crates/gloss-platform/src/windows/selection/clipboard/snapshot.rs": "windows_snapshot",
@@ -110,7 +133,6 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-platform/src/windows/ffi/cred.rs": "windows_ffi_cred",
     "crates/gloss-platform/src/windows/ffi/shell_link.rs": "windows_shell_link",
     "crates/gloss-platform/src/windows/storage/mod.rs": "windows_storage_mod",
-    "crates/gloss-platform/src/windows/storage/file.rs": "windows_storage_file",
     "crates/gloss-platform/src/windows/storage/cred.rs": "windows_storage_cred",
     "crates/gloss-platform/src/windows/shortcut.rs": "windows_shortcut",
     "crates/gloss-platform/src/macos/shortcut.rs": "macos_shortcut",
@@ -237,12 +259,9 @@ def record_names(rel: str) -> tuple[str, str]:
 
 
 def tracked_files(root: str) -> list[str]:
-    out = subprocess.run(
-        ["git", "-C", root, "ls-files", "-z"],
-        capture_output=True,
-        check=True,
-    ).stdout
-    return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
+    """版本库跟踪清单：枚举委托统一诊断出口的收口函数，版本库（git）失败按
+    无法完成判定失败关闭（统一退出码与统一打印），不在调用方原地抛异常。"""
+    return gate_report.tracked_files(root)
 
 
 def build_index(tracked: list[str]) -> dict[str, list[str]]:
@@ -352,11 +371,7 @@ def main(argv: list[str]) -> int:
     doctor_mode = "--doctor" in args
     args = [a for a in args if a != "--doctor"]
 
-    try:
-        tracked = tracked_files(root)
-    except (OSError, subprocess.CalledProcessError) as exc:
-        print("cannot enumerate tracked files: %s" % exc, file=sys.stderr)
-        return EXIT_INFRA
+    tracked = tracked_files(root)
 
     if doctor_mode:
         if args:

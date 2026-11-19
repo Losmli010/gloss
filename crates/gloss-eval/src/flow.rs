@@ -1,10 +1,12 @@
 //! 流程装配：迭代实跑、标注落库与基线固化三条流的编排——执行、回归
 //! 结算、聚合、产物落盘、检视页渲染与历史记录按序串接；环境变量与端
 //! 点装配由入口注入，本模块不读环境、不打印。文件读写只经报告、资产
-//! 与历史三个收口点；单次输出仅成功用例落行，契约故障无输出可固化。
+//! 与历史三个收口点；单次输出仅成功用例落行且落生产交付值（基线固化
+//! 只认交付值），契约故障无输出可固化。
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::ports::AiEngine;
@@ -43,7 +45,7 @@ pub struct AcceptSummary {
 }
 
 pub async fn run_iterate(
-    engine: &dyn AiEngine,
+    engine: Arc<dyn AiEngine>,
     config: &ConfigHandle,
     options: ExecuteOptions,
     dir: &Path,
@@ -144,11 +146,7 @@ fn write_records(eval_report: &EvalReport, cases: &[CaseDetail], dir: &Path) -> 
         .filter(|detail| !detail.engine_error)
         .map(|detail| OutputRow {
             id: detail.id.clone(),
-            rounds: detail
-                .rounds
-                .iter()
-                .map(|round| vec![round.text.clone()])
-                .collect(),
+            rounds: vec![vec![detail.delivered.clone()]],
         })
         .collect();
     asset::write_outputs(&dir.join(OUTPUTS_FILE), &outputs)
@@ -296,7 +294,7 @@ mod tests {
     async fn stub_iterate_writes_artifacts_records_history_and_renders_the_view() {
         let dir = temp_dir("iterate-artifacts");
         let report = run_iterate(
-            engine(reply_script(CLASSIFY_REPLY)).as_ref(),
+            engine(reply_script(CLASSIFY_REPLY)),
             &config(),
             options(1),
             &dir,
@@ -348,7 +346,7 @@ mod tests {
     async fn engine_failures_settle_but_never_reach_the_outputs_file() {
         let dir = temp_dir("iterate-engine-failure");
         let report = run_iterate(
-            engine(vec![Err(GlossError::EngineNetwork)]).as_ref(),
+            engine(vec![Err(GlossError::EngineNetwork)]),
             &config(),
             options(1),
             &dir,

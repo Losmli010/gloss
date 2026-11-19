@@ -64,7 +64,7 @@ impl GlossApp {
             );
             return;
         };
-        match self.env.platform.clipboard.copy_text(&text) {
+        match self.env.clipboard.copy_text(&text) {
             Ok(()) => info!(thread = thread::UI, "annotation copied to the pasteboard"),
             Err(err) => warn!(
                 thread = thread::UI,

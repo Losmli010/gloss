@@ -12,6 +12,7 @@ pub(crate) struct Session {
     pub(crate) probe_front_app: Option<FrontApp>,
     pub(crate) pending_reveal: bool,
     pub(crate) task_span: Option<(u64, Span)>,
+    pub(crate) permissions_ready: bool,
 }
 
 impl Session {

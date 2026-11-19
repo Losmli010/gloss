@@ -31,8 +31,8 @@ use tokio::time::{Instant as TokioInstant, Sleep, sleep_until};
 
 use crate::log::{info, thread, warn};
 use crate::model::{GlossError, Locale};
-use crate::ports::{AiEngine, EngineRequest, TaskChunk, TaskStream};
-use crate::prompt::PromptRegistry;
+use crate::ports::{AiEngine, EngineRequest, TaskChunk, TaskStream, ThinkingMode};
+use crate::prompt::{ChatMessage, PromptRegistry};
 use crate::repair::{RepairLoop, RepairStage};
 use crate::schema;
 use crate::task::{TaskInput, TaskKind};
@@ -41,11 +41,9 @@ pub const CLASSIFY_FALLBACK: TaskKind = TaskKind::General;
 
 pub const CLASSIFY_REPAIRS: u32 = 1;
 
-pub const CLASSIFY_MAX_TOKENS: u32 = 128;
+const CLASSIFY_REPLY_CAP_BYTES: usize = 4096;
 
-pub const CLASSIFY_REPLY_CAP_BYTES: usize = 4096;
-
-pub fn push_capped(reply: &mut String, delta: &str) {
+fn push_capped(reply: &mut String, delta: &str) {
     let budget = CLASSIFY_REPLY_CAP_BYTES.saturating_sub(reply.len());
     if budget == 0 {
         return;
@@ -146,13 +144,10 @@ pub async fn classify_traced(
     let mut messages = base.clone();
     let mut repairs = RepairLoop::new(RepairStage::Classify, CLASSIFY_REPAIRS);
     let mut rounds = Vec::new();
+    let mut follow_default = false;
     loop {
-        let request = EngineRequest {
-            messages,
-            model: model.to_owned(),
-            max_tokens: Some(CLASSIFY_MAX_TOKENS),
-        };
-        let round = classify_round(engine, request).await?;
+        let (round, used_default) = request_round(engine, &messages, model, follow_default).await?;
+        follow_default = used_default;
         let verdict = match round.settled {
             Some(choice) => Ok(choice),
             None => schema::validate_classify(&round.reply),
@@ -206,6 +201,43 @@ struct ClassifyRound {
     settled: Option<schema::ClassifyChoice>,
 }
 
+fn rejects_thinking_switch(error: &GlossError) -> bool {
+    match error {
+        GlossError::EngineResponse(payload) => payload.to_lowercase().contains("thinking"),
+        _ => false,
+    }
+}
+
+async fn request_round(
+    engine: &dyn AiEngine,
+    messages: &[ChatMessage],
+    model: &str,
+    follow_default: bool,
+) -> Result<(ClassifyRound, bool), GlossError> {
+    let build = |thinking| EngineRequest {
+        messages: messages.to_vec(),
+        model: model.to_owned(),
+        thinking,
+    };
+    let thinking = if follow_default {
+        ThinkingMode::Follow
+    } else {
+        ThinkingMode::Disabled
+    };
+    match classify_round(engine, build(thinking)).await {
+        Ok(round) => Ok((round, follow_default)),
+        Err(error) if thinking == ThinkingMode::Disabled && rejects_thinking_switch(&error) => {
+            warn!(
+                thread = thread::TOKIO,
+                "endpoint rejected the thinking switch, resending with the provider default"
+            );
+            let round = classify_round(engine, build(ThinkingMode::Follow)).await?;
+            Ok((round, true))
+        }
+        Err(error) => Err(error),
+    }
+}
+
 async fn classify_round(
     engine: &dyn AiEngine,
     request: EngineRequest,
@@ -231,12 +263,6 @@ async fn classify_round(
     Ok(ClassifyRound { reply, settled })
 }
 
-pub fn parse_classify_reply(reply: &str) -> Result<TaskKind, GlossError> {
-    schema::validate_classify(reply)
-        .map(|choice| choice.kind)
-        .map_err(|_| GlossError::EngineResponse("unrecognized classify reply".into()))
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
@@ -249,11 +275,9 @@ mod tests {
     use futures_core::Stream;
     use tokio::time::{Instant as TokioInstant, Sleep, sleep_until};
 
-    use super::{
-        CLASSIFY_FALLBACK, CLASSIFY_REPAIRS, classify, classify_traced, parse_classify_reply,
-    };
+    use super::{CLASSIFY_FALLBACK, CLASSIFY_REPAIRS, classify, classify_traced};
     use crate::model::{GlossError, Locale};
-    use crate::ports::{AiEngine, BoxFuture, EngineRequest, TaskChunk, TaskStream};
+    use crate::ports::{AiEngine, BoxFuture, EngineRequest, TaskChunk, TaskStream, ThinkingMode};
     use crate::stubs::engine::MockEngine;
     use crate::task::{TaskInput, TaskKind};
 
@@ -434,7 +458,51 @@ mod tests {
         assert_eq!(
             engine.call_count(),
             1,
-            "engine errors are never retried in the classify stage"
+            "engine errors outside the thinking switch are never retried in the classify stage"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_thinking_switch_rejection_resends_with_the_provider_default() {
+        let engine = MockEngine::new().with_script_queue(vec![
+            vec![Err(GlossError::EngineResponse(
+                "unknown parameter: thinking".into(),
+            ))],
+            vec![Ok(TaskChunk::Delta("{\"kind\":\"ExplainCode\"}".into()))],
+        ]);
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("kubectl get pods"))
+            .await
+            .expect("the resent request settles");
+        assert_eq!(kind, TaskKind::ExplainCode);
+        let requests = engine.recorded_requests();
+        assert_eq!(requests.len(), 2, "exactly one resend, no more");
+        assert_eq!(requests[0].thinking, ThinkingMode::Disabled);
+        assert_eq!(
+            requests[1].thinking,
+            ThinkingMode::Follow,
+            "the resend drops the switch to the provider default"
+        );
+        assert_eq!(
+            requests[1].messages, requests[0].messages,
+            "the resend keeps the rendered prompt verbatim"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_plain_parameter_rejection_is_digested_without_resend() {
+        let engine = MockEngine::new().with_execute_failure(GlossError::EngineResponse(
+            "unknown parameter: temperature".into(),
+        ));
+        assert_eq!(
+            classify(&engine, "m", Locale::Zh, &text_input("gloss"))
+                .await
+                .expect("a plain rejection is digested, never raised"),
+            TaskKind::General,
+        );
+        assert_eq!(
+            engine.call_count(),
+            1,
+            "rejections that do not name the thinking switch never resend"
         );
     }
 
@@ -537,6 +605,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn classify_requests_disable_thinking() {
+        let engine = MockEngine::new().with_script_queue(vec![vec![Ok(TaskChunk::Delta(
+            "{\"kind\":\"TranslateWord\"}".into(),
+        ))]]);
+        let kind = classify(&engine, "m", Locale::Zh, &text_input("bonjour"))
+            .await
+            .expect("the request should settle");
+        assert_eq!(kind, TaskKind::TranslateWord);
+        for request in engine.recorded_requests() {
+            assert_eq!(
+                request.thinking,
+                ThinkingMode::Disabled,
+                "the narrow-output classify stage must not pay for a thinking chain"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn an_empty_completion_enters_the_repair_round_and_resends() {
         let engine = MockEngine::new().with_script_queue(vec![
             vec![Err(GlossError::EmptyCompletion)],
@@ -616,33 +702,6 @@ mod tests {
             })
             .is_some();
         assert!(line, "the exhausted fallback must leave a trace");
-    }
-
-    #[test]
-    fn replies_outside_the_template_categories_are_rejected() {
-        assert!(parse_classify_reply("{\"kind\":\"ImageExplain\"}").is_err());
-        assert!(
-            parse_classify_reply("{\"kind\":\"General\"}").is_err(),
-            "the general kind is the execution landing, never a model category"
-        );
-        assert!(parse_classify_reply("{\"kind\":\"Nonsense\"}").is_err());
-        assert!(parse_classify_reply("{\"kind\":null}").is_err());
-        assert!(parse_classify_reply("我觉得这是一段翻译").is_err());
-        assert!(parse_classify_reply("").is_err());
-        assert!(
-            parse_classify_reply("前置说明\n```gloss\n{\"kind\":\"TranslateWord\"}\n```").is_err(),
-            "the fence tolerance is gone: a gloss-fenced reply violates the \
-             bare-JSON contract even with a valid kind inside"
-        );
-    }
-
-    #[test]
-    fn a_fallback_choice_lands_on_the_general_kind() {
-        assert_eq!(
-            parse_classify_reply("{\"kind\":\"Fallback\"}"),
-            Ok(TaskKind::General),
-            "the template's fallback category executes the general task"
-        );
     }
 
     #[test]

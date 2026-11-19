@@ -10,16 +10,16 @@
 
 本节由 `just test-index` 生成，请勿手改；`just test-bdd` 校验本节与登记文件一致。计数口径：表格计登记行（表头与分隔行除外），条目小节按标题计，逐源文件小节标题不是条目。
 
-| 类别 | `bdd.md`（本文件） | [gloss-core.md](gloss-core.md) | [gloss-platform.md](gloss-platform.md) | [gloss-app.md](gloss-app.md) | [gloss-eval.md](gloss-eval.md) | [gloss.md](gloss.md) | 合计 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 人工测试 | 20 | 0 | 0 | 0 | 0 | 0 | 20 |
-| 发版人工步骤 | 13 | 0 | 0 | 0 | 0 | 0 | 13 |
-| 集成测试 | 0 | 0 | 0 | 17 | 0 | 0 | 17 |
-| 性能测试 | 0 | 0 | 0 | 0 | 0 | 2 | 2 |
-| 快照测试 | 0 | 0 | 0 | 46 | 0 | 0 | 46 |
-| 单元测试 | 0 | 269 | 210 | 322 | 97 | 5 | 903 |
+| 类别 | `bdd.md`（本文件） | [gloss-core.md](gloss-core.md) | [gloss-platform.md](gloss-platform.md) | [gloss-app.md](gloss-app.md) | [gloss-llm.md](gloss-llm.md) | [gloss-eval.md](gloss-eval.md) | [gloss.md](gloss.md) | 合计 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 人工测试 | 20 | 0 | 0 | 0 | 0 | 0 | 0 | 20 |
+| 发版人工步骤 | 13 | 0 | 0 | 0 | 0 | 0 | 0 | 13 |
+| 集成测试 | 0 | 0 | 0 | 17 | 5 | 0 | 0 | 22 |
+| 性能测试 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 2 |
+| 快照测试 | 0 | 0 | 0 | 46 | 0 | 0 | 0 | 46 |
+| 单元测试 | 0 | 224 | 169 | 332 | 49 | 103 | 5 | 882 |
 
-登记文件行数：`bdd.md`（本文件） 452 行、[gloss-core.md](gloss-core.md) 364 行、[gloss-platform.md](gloss-platform.md) 385 行、[gloss-app.md](gloss-app.md) 613 行、[gloss-eval.md](gloss-eval.md) 187 行、[gloss.md](gloss.md) 24 行。
+登记文件行数：`bdd.md`（本文件） 452 行、[gloss-core.md](gloss-core.md) 309 行、[gloss-platform.md](gloss-platform.md) 334 行、[gloss-app.md](gloss-app.md) 628 行、[gloss-llm.md](gloss-llm.md) 76 行、[gloss-eval.md](gloss-eval.md) 193 行、[gloss.md](gloss.md) 24 行。
 
 ## 人工测试
 
@@ -127,7 +127,7 @@
 - 测试步骤：
 
 1. 导出 `GLOSS_LIVE_API_KEY`、`GLOSS_LIVE_BASE_URL`、`GLOSS_LIVE_MODEL` 三个环境变量（`MODEL` 须支持图像输入；密钥不打印）
-2. 运行 `cargo test -p gloss-core -- --ignored live_llm`
+2. 运行 `cargo test -p gloss-llm -- --ignored live_llm`
 3. 缺变量或模型不支持图像时测试当场打印修复指引（换 `vision` 模型重跑）
 
 - 更新时间：2026-10-12

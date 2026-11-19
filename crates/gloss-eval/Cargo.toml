@@ -11,13 +11,15 @@ name = "eval"
 path = "src/main.rs"
 
 [dependencies]
-# 评测消费生产校验器与流式引擎（核心库客户端）；本包只许消费，不许
-# 被生产包依赖——约束检查脚本的依赖方向断言强制。
+# 评测消费生产校验器（核心库）与流式引擎（传输分包客户端）；本包只许消费，
+# 不许被生产包依赖——约束检查脚本的依赖方向断言强制。
 gloss-core = { path = "../gloss-core" }
+# 真机评测的引擎装配：传输分包实现核心层的引擎端口（AiEngine）。
+gloss-llm = { path = "../gloss-llm" }
 # 评测报告与历史行的序列化。
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
-# 语言门评委复核的运行时（当前线程运行时足矣，引擎的异步设施归核心库）。
+# 语言门评委复核的运行时（当前线程运行时足矣，引擎的异步设施归传输分包）。
 tokio = { version = "1", default-features = false, features = ["rt"] }
 
 [dev-dependencies]

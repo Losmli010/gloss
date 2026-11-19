@@ -1,7 +1,8 @@
 //! 端口定义：全部跨层契约的唯一定义点（端口与适配器架构）。
 //!
-//! 核心层只声明契约，实现由适配器包提供——本包只自带大语言模型（LLM）
-//! 客户端这一份引擎实现；各端口互不依赖，编排层只见到契约，测试用
+//! 核心层只声明契约，实现由适配器包提供——引擎端口（AiEngine）的
+//! 大语言模型（LLM）传输实现住传输分包（gloss-llm），其余端口的实现住
+//! 平台适配层；各端口互不依赖，编排层只见到契约，测试用
 //! 测试桩目录下的桩替换实现。
 //!
 //! 配置持久化与密钥存取是两个独立端口：配置存储（ConfigStore）只答配置
@@ -42,11 +43,17 @@ pub enum TaskChunk {
 
 pub type TaskStream = Pin<Box<dyn Stream<Item = Result<TaskChunk, GlossError>> + Send>>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThinkingMode {
+    Follow,
+    Disabled,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineRequest {
     pub messages: Vec<ChatMessage>,
     pub model: String,
-    pub max_tokens: Option<u32>,
+    pub thinking: ThinkingMode,
 }
 
 pub trait SceneProbe: Send + Sync {

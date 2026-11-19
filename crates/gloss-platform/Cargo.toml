@@ -20,6 +20,9 @@ gloss-core = { path = "../gloss-core" }
 # （Windows）节。
 
 [dev-dependencies]
+# 共享图片归一化测试的像素面积闸门夹具：补丁便携式网络图形（PNG）头块尺寸后
+# 重算头块循环冗余校验（关键块校验失败即拒头，闸门测试要求头可读）。
+crc32fast = { version = "1", default-features = false }
 # 日志捕获夹具（核心库的测试支撑特性）：只在测试目标里启用，不进正常构建。
 gloss-core = { path = "../gloss-core", features = ["test-support"] }
 # 存储单测的临时目录。

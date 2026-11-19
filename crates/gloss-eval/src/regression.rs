@@ -1,6 +1,7 @@
 //! 回归结算：把本轮输出对照基线加标注折算成回归五态与差异摘要。基线
 //! 是上一轮被认可的本系统输出，回答“相对上次变好还是变坏”；参考答案
-//! 不进来——它归评审。两侧原文都先过生产校验器解析成类型化值再规范
+//! 不进来——它归评审。当前侧取生产交付值（交付值经执行编排随明细携带，
+//! 逐轮轨迹不进比较），两侧原文都先过生产校验器解析成类型化值再规范
 //! 化比较：字符串去首尾空白（trim）、例证排序，措辞与顺序噪声不产生
 //! 回归误报；比较
 //! 按子类分派——分类比类别相等，任务比结构化字段。本模块是纯函数集，
@@ -194,10 +195,7 @@ fn incomparable_summary(case: &CaseDetail) -> String {
 }
 
 fn current_text(case: &CaseDetail) -> &str {
-    case.rounds
-        .last()
-        .map(|round| round.text.as_str())
-        .unwrap_or("")
+    case.delivered.as_str()
 }
 
 fn last_round_text(rounds: &[Vec<String>]) -> String {
@@ -248,6 +246,7 @@ mod tests {
                 text: reply.to_owned(),
                 violation: None,
             }],
+            delivered: reply.to_owned(),
             contract: outcome(),
             quality: None,
             rule: None,
@@ -472,6 +471,26 @@ mod tests {
             Some(LabelVerdict::Fail),
         );
         assert_eq!(rule_of(&last_round_wins).verdict, RuleVerdict::Unchanged);
+    }
+
+    #[test]
+    fn regression_compares_the_delivered_reply_not_the_last_round() {
+        let baseline = reply("义", "yī", &["例句一"]);
+        let mut case = detail(EvalKind::Task(TaskKind::TranslateWord), &baseline);
+        case.rounds.push(RoundDetail {
+            text: "MARKER-修复轮退化了，整段散文，不是 JSON".to_owned(),
+            violation: None,
+        });
+        let settled_case = settled(
+            case,
+            Some(golden_single(&baseline)),
+            Some(LabelVerdict::Pass),
+        );
+        assert_eq!(
+            rule_of(&settled_case).verdict,
+            RuleVerdict::Pass,
+            "the delivered reply compares, the trailing trajectory round does not"
+        );
     }
 
     #[test]

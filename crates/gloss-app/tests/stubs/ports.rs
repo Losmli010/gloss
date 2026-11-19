@@ -1,18 +1,12 @@
-//! 端口桩：本包测试用到的配置存储、场景探针与平台能力预置替身。
+//! 端口桩：本包测试用到的配置存储、场景探针与端口替身。
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
 
 use gloss_core::config::Config;
 use gloss_core::guard::SceneFacts;
 use gloss_core::model::{GlossError, Locale};
-use gloss_core::ports::{
-    AppIcon, ClipboardWriter, ConfigStore, DesktopShortcut, MenuController, PermissionProbe,
-    SceneProbe, SecretStore,
-};
-use gloss_platform::bootstrap::Platform;
+use gloss_core::ports::{ClipboardWriter, ConfigStore, MenuController, SceneProbe, SecretStore};
 
 use super::lock_or_recover;
 
@@ -101,22 +95,6 @@ impl SceneProbe for StubSceneProbe {
     }
 }
 
-pub struct StubAppIcon;
-
-impl AppIcon for StubAppIcon {
-    fn install(&self, _png: &[u8]) -> Result<(), GlossError> {
-        Ok(())
-    }
-}
-
-pub struct StubDesktopShortcut;
-
-impl DesktopShortcut for StubDesktopShortcut {
-    fn ensure(&self) -> Result<(), GlossError> {
-        Ok(())
-    }
-}
-
 pub struct StubMenuController;
 
 impl MenuController for StubMenuController {
@@ -135,38 +113,5 @@ pub struct StubClipboardWriter;
 impl ClipboardWriter for StubClipboardWriter {
     fn copy_text(&self, _text: &str) -> Result<(), String> {
         Ok(())
-    }
-}
-
-pub struct StubPermissionProbe;
-
-impl PermissionProbe for StubPermissionProbe {
-    fn preflight(&self) -> bool {
-        true
-    }
-
-    fn request(&self) -> bool {
-        true
-    }
-
-    fn watch(&self, _grant_pending: bool) -> Box<dyn FnMut() -> bool + Send> {
-        Box::new(|| false)
-    }
-}
-
-pub fn stub_platform(store: &Arc<MemoryConfigStore>, scene: Arc<dyn SceneProbe>) -> Platform {
-    Platform {
-        scene,
-        config_store: Arc::clone(store) as Arc<dyn ConfigStore>,
-        secret_store: Arc::clone(store) as Arc<dyn SecretStore>,
-        system_locale: Locale::Zh,
-        app_icon: Box::new(StubAppIcon),
-        desktop_shortcut: Box::new(StubDesktopShortcut),
-        menu: Box::new(StubMenuController),
-        clipboard: Box::new(StubClipboardWriter),
-        permission: Box::new(StubPermissionProbe),
-        gesture: None,
-        gesture_degraded: Arc::new(AtomicBool::new(false)),
-        event_thread: None,
     }
 }

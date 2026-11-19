@@ -1,5 +1,5 @@
-//! 大语言模型（LLM）客户端：开放接口（OpenAI）兼容端点的流式引擎适配器（引擎
-//! 端口的内建实现）。
+//! 大语言模型（LLM）客户端：开放接口（OpenAI）兼容端点的流式引擎适配器，
+//! 实现核心层的引擎端口（AiEngine）。
 //!
 //! 边界：只负责把请求送出去、把响应流回来。消息序列由编排层渲染
 //! （经任务服务与提示词注册表，含模态校验），模型
@@ -23,19 +23,19 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::config::Config;
-use crate::config_handle::ConfigHandle;
-use crate::log::debug;
-use crate::model::GlossError;
-use crate::ports::{AiEngine, BoxFuture, EngineRequest, SecretStore, TaskStream};
+use gloss_core::config::Config;
+use gloss_core::config_handle::ConfigHandle;
+use gloss_core::log::debug;
+use gloss_core::model::GlossError;
+use gloss_core::ports::{AiEngine, BoxFuture, EngineRequest, SecretStore, TaskStream};
 
-use self::transport::{
-    FirstByteStream, RETRY_ATTEMPTS, Resolved, TransportFail, connect_with_retry, send_once,
-};
+pub mod transport;
 
-mod failure;
-mod request_body;
-mod transport;
+mod openai;
+
+#[cfg(test)]
+#[path = "../../gloss-core/tests/stubs/mod.rs"]
+mod stubs;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -74,54 +74,38 @@ impl AiEngine for LlmClient {
         let EngineRequest {
             messages,
             model,
-            max_tokens,
+            thinking,
         } = request;
 
         Box::pin(async move {
             if messages.is_empty() {
                 return Err(GlossError::EngineResponse("empty request".into()));
             }
-            if model.trim().is_empty() {
-                return Err(GlossError::Config("empty model id".into()));
-            }
             let snapshot = config.snapshot();
-            let resolved = Arc::new(Resolved::build(
-                resolve_endpoint(&snapshot)?,
-                resolve_api_key(&snapshot, store.as_ref())?,
-                &EngineRequest {
-                    messages,
-                    model: model.trim().to_owned(),
-                    max_tokens,
-                },
-            )?);
-            let attempt = {
-                let client = client.clone();
-                let resolved = Arc::clone(&resolved);
-                move || {
-                    let client = client.clone();
-                    let resolved = Arc::clone(&resolved);
-                    Box::pin(async move { send_once(&client, &resolved).await })
-                        as BoxFuture<'static, Result<TaskStream, TransportFail>>
-                }
+            let request = EngineRequest {
+                messages,
+                model: model.trim().to_owned(),
+                thinking,
             };
-            let (connected, retries_left) =
-                connect_with_retry(attempt.clone(), RETRY_ATTEMPTS).await;
-            let stream = connected?;
+            let stream = transport::send_with_retry(
+                &client,
+                &resolve_endpoint(&snapshot)?,
+                &resolve_api_key(&snapshot, store.as_ref())?,
+                &request,
+            )
+            .await?;
             debug!(
                 model = %model,
                 "llm stream established"
             );
-            Ok(Box::pin(FirstByteStream::new(attempt, stream, retries_left)) as TaskStream)
+            Ok(stream)
         })
     }
 }
 
 fn resolve_endpoint(config: &Config) -> Result<String, GlossError> {
-    let base_url = config.base_url.trim();
-    crate::config::validate_base_url(base_url)
+    let mut endpoint = gloss_core::config::validate_base_url(config.base_url.trim())
         .map_err(|err| GlossError::Config(err.to_string()))?;
-    let mut endpoint = reqwest::Url::parse(base_url)
-        .map_err(|err| GlossError::Config(format!("invalid provider endpoint: {err}")))?;
     let path = format!(
         "{}/{CHAT_COMPLETIONS_PATH}",
         endpoint.path().trim_end_matches('/')
@@ -148,16 +132,16 @@ mod tests {
     use std::sync::Mutex;
     use std::task::{Context, Poll};
 
-    use super::failure::map_failure;
-    use super::request_body::chat_request_body;
     use super::transport::{
         FirstByteStream, RETRY_AFTER_CAP, RETRY_ATTEMPTS, RETRY_BACKOFF, SseStream, TransportFail,
         connect_with_retry, parse_retry_after, retry_delay,
     };
-    use crate::ports::TaskChunk;
-    use crate::prompt::{ChatMessage, ContentPart};
+    use crate::openai::failure::map_failure;
+    use crate::openai::request_body::chat_request_body;
     use crate::stubs::ports::MemoryConfigStore;
     use futures_core::Stream;
+    use gloss_core::ports::{TaskChunk, ThinkingMode};
+    use gloss_core::prompt::{ChatMessage, ContentPart};
     use reqwest::StatusCode;
     use tokio::time::{Instant as TokioInstant, Sleep, sleep};
 
@@ -187,7 +171,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(
             resolve_endpoint(&config).expect("resolve"),
-            format!("{}/chat/completions", crate::config::DEFAULT_BASE_URL)
+            format!("{}/chat/completions", gloss_core::config::DEFAULT_BASE_URL)
         );
     }
 
@@ -462,7 +446,7 @@ mod tests {
         let request = EngineRequest {
             messages: vec![ChatMessage::system("把用户给的词翻成中文")],
             model: "deepseek-chat".into(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
         assert_eq!(
             chat_request_body(&request),
@@ -480,7 +464,7 @@ mod tests {
         let text = chat_request_body(&EngineRequest {
             messages: vec![ChatMessage::user("hi")],
             model: "m".into(),
-            max_tokens: Some(64),
+            thinking: ThinkingMode::Follow,
         });
         assert_eq!(
             text.get("response_format"),
@@ -493,7 +477,7 @@ mod tests {
                 FIXTURE_PNG.into(),
             )])],
             model: "m".into(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         });
         assert_eq!(
             multimodal.get("response_format"),
@@ -507,7 +491,7 @@ mod tests {
         let request = EngineRequest {
             messages: vec![ChatMessage::user("hi")],
             model: "m".into(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
         let body = chat_request_body(&request);
         assert_eq!(
@@ -525,7 +509,7 @@ mod tests {
                 ChatMessage::user_parts(vec![ContentPart::ImagePng(FIXTURE_PNG.into())]),
             ],
             model: "deepseek-flash".into(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
         assert_eq!(
             chat_request_body(&request),
@@ -548,23 +532,27 @@ mod tests {
     }
 
     #[test]
-    fn max_tokens_is_carried_only_when_set() {
+    fn thinking_control_rides_the_wire_only_when_disabled() {
         let messages = vec![ChatMessage::user("hi")];
-        let unset = chat_request_body(&EngineRequest {
+        let follow = chat_request_body(&EngineRequest {
             messages: messages.clone(),
             model: "m".into(),
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         });
         assert!(
-            unset.get("max_tokens").is_none(),
-            "an unset limit must stay off the wire, not null"
+            follow.get("thinking").is_none(),
+            "the provider default stays off the wire, not explicit"
         );
-        let capped = chat_request_body(&EngineRequest {
+        let disabled = chat_request_body(&EngineRequest {
             messages,
             model: "m".into(),
-            max_tokens: Some(64),
+            thinking: ThinkingMode::Disabled,
         });
-        assert_eq!(capped.get("max_tokens"), Some(&serde_json::json!(64)));
+        assert_eq!(
+            disabled.get("thinking"),
+            Some(&serde_json::json!({"type": "disabled"})),
+            "the disabled control rides the wire in the provider's shape"
+        );
     }
 
     struct VecStream(std::vec::IntoIter<Result<bytes::Bytes, reqwest::Error>>);
@@ -1020,11 +1008,11 @@ mod tests {
 mod live_tests {
     use super::*;
 
-    use crate::ports::TaskChunk;
-    use crate::prompt::{ChatMessage, PromptRegistry};
-    use crate::schema;
     use crate::stubs::ports::MemoryConfigStore;
-    use crate::task::{Task, TaskInput, TaskKind, TaskOptions};
+    use gloss_core::ports::{TaskChunk, ThinkingMode};
+    use gloss_core::prompt::{ChatMessage, PromptRegistry};
+    use gloss_core::schema;
+    use gloss_core::task::{Task, TaskInput, TaskKind, TaskOptions};
 
     const ONE_PIXEL_PNG: [u8; 70] = [
         137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
@@ -1080,7 +1068,7 @@ mod live_tests {
                 ChatMessage::user("The quick brown fox jumps over the lazy dog."),
             ],
             model,
-            max_tokens: None,
+            thinking: ThinkingMode::Follow,
         };
 
         let mut stream = client.execute(request).await.expect("request should start");
@@ -1122,7 +1110,7 @@ mod live_tests {
             .execute(EngineRequest {
                 messages,
                 model,
-                max_tokens: None,
+                thinking: ThinkingMode::Follow,
             })
             .await
             .unwrap_or_else(|error| {

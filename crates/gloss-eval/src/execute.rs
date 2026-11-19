@@ -1,20 +1,23 @@
 //! 执行编排：对精选集逐条驱动一轮对话（按子类分派驱动函数）并调契约
-//! 与评审结算，产出逐例明细与延迟样本。轮数据一律经生产的修复循环取
-//! 得，评测数字度量的才是生产行为；回归结算与产物落盘不在此——执行
-//! 不知资产存在，标注、基线与单次输出由资产仓与流程装配层接管。
+//! 与评审结算，产出逐例明细与延迟样本。轮数据一律经生产编排取得——
+//! 分类走生产分类循环（含首项截止与修复预算），任务走任务服务的评测
+//! 门面（固定任务直跑，逐轮原文经回调交出）——评测数字度量的才是生产
+//! 行为；结算、回归比对与送评审一律按生产交付值（门面的运行产出：
+//! 语言修复轮不合格被生产丢弃时交付的是最后一个合格回复），逐轮原文
+//! 只承载轨迹展示；回归结算与产物落盘不在此——执行不知资产存在，标
+//! 注、基线与单次输出由资产仓与流程装配层接管。
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use gloss_core::classify::classify_traced;
 use gloss_core::config_handle::ConfigHandle;
-use gloss_core::engine::{TaskStage, run_task_rounds};
+use gloss_core::engine::{AiTaskService, RunOutput};
 use gloss_core::model::{GlossError, Locale};
-use gloss_core::ports::{AiEngine, EngineRequest, TaskChunk};
-use gloss_core::prompt::PromptRegistry;
+use gloss_core::ports::{AiEngine, EngineRequest, TaskChunk, ThinkingMode};
 use gloss_core::task::{Task, TaskInput, TaskKind, TaskOptions};
 
-use crate::contract::settle_case;
+use crate::contract::{Delivered, settle_case};
 use crate::dataset::{EvalCase, load_curated};
 use crate::detail::{CaseDetail, EvalKind, JudgeScores};
 use crate::quality;
@@ -60,12 +63,13 @@ pub struct ExecuteRun {
 
 struct RunCtx<'a> {
     engine: &'a dyn AiEngine,
+    service: AiTaskService,
     model: &'a str,
     judge: bool,
 }
 
 pub async fn run(
-    engine: &dyn AiEngine,
+    engine: Arc<dyn AiEngine>,
     config: &ConfigHandle,
     options: ExecuteOptions,
 ) -> Result<ExecuteRun, String> {
@@ -76,7 +80,8 @@ pub async fn run(
     };
     let model = config.snapshot().model.clone();
     let ctx = RunCtx {
-        engine,
+        engine: engine.as_ref(),
+        service: AiTaskService::new(Arc::clone(&engine)),
         model: &model,
         judge: options.judge,
     };
@@ -84,9 +89,9 @@ pub async fn run(
     let mut details = Vec::with_capacity(selected.len());
     for case in selected {
         let started = Instant::now();
-        let (rounds, engine_error) = drive_rounds(&ctx, case).await;
+        let (rounds, delivered, engine_error) = drive_rounds(&ctx, case).await;
         latency.record(started.elapsed().as_secs_f64() * 1000.0);
-        details.push(settled_detail(&ctx, case, rounds, engine_error).await);
+        details.push(settled_detail(&ctx, case, rounds, delivered, engine_error).await);
     }
     Ok(ExecuteRun {
         cases: details,
@@ -94,17 +99,29 @@ pub async fn run(
     })
 }
 
-async fn drive_rounds(ctx: &RunCtx<'_>, case: &EvalCase) -> (Vec<String>, bool) {
+async fn drive_rounds(ctx: &RunCtx<'_>, case: &EvalCase) -> (Vec<String>, Delivered, bool) {
     match case.kind {
         EvalKind::Classify => {
             match classify_traced(ctx.engine, ctx.model, Locale::Zh, &case.text).await {
-                Ok(decision) => (decision.rounds, false),
-                Err(_) => (Vec::new(), true),
+                Ok(decision) => {
+                    let delivered = Delivered {
+                        reply: decision.rounds.last().cloned().unwrap_or_default(),
+                        repairs: decision.repairs,
+                    };
+                    (decision.rounds, delivered, false)
+                }
+                Err(_) => (Vec::new(), Delivered::default(), true),
             }
         }
         EvalKind::Task(kind) => match drive_task(ctx, kind, case).await {
-            Ok(rounds) => (rounds, false),
-            Err(_) => (Vec::new(), true),
+            Ok((rounds, output)) => {
+                let delivered = Delivered {
+                    reply: output.raw,
+                    repairs: output.repairs,
+                };
+                (rounds, delivered, false)
+            }
+            Err(_) => (Vec::new(), Delivered::default(), true),
         },
     }
 }
@@ -113,12 +130,12 @@ async fn settled_detail(
     ctx: &RunCtx<'_>,
     case: &EvalCase,
     rounds: Vec<String>,
+    delivered: Delivered,
     engine_error: bool,
 ) -> CaseDetail {
-    let (contract, round_details) = settle_case(case, &rounds);
+    let (contract, round_details) = settle_case(case, &rounds, &delivered);
     let quality = if ctx.judge && quality::judge_eligible(&case.kind, engine_error, &contract) {
-        let reply = rounds.last().map(String::as_str).unwrap_or("");
-        judge_case(ctx, case, reply).await
+        judge_case(ctx, case, &delivered.reply).await
     } else {
         None
     };
@@ -127,6 +144,7 @@ async fn settled_detail(
         kind: case.kind.clone(),
         text: case.text.clone(),
         rounds: round_details,
+        delivered: delivered.reply,
         contract,
         quality,
         rule: None,
@@ -138,7 +156,7 @@ async fn drive_task(
     ctx: &RunCtx<'_>,
     kind: TaskKind,
     case: &EvalCase,
-) -> Result<Vec<String>, GlossError> {
+) -> Result<(Vec<String>, RunOutput), GlossError> {
     let task = Task::new(
         kind,
         TaskInput::Text {
@@ -146,54 +164,31 @@ async fn drive_task(
         },
         TaskOptions {
             target_lang: Some(case.target),
+            model: ctx.model.into(),
             prompt_locale: Some(Locale::Zh),
-            ..TaskOptions::default()
         },
     )?;
-    let prompts = PromptRegistry::new();
-    let base = prompts.render(&task)?;
-    let rounds = Arc::new(Mutex::new(vec![String::new()]));
-    let chunks = Arc::clone(&rounds);
-    let boundary = Arc::clone(&rounds);
-    let stage = TaskStage {
-        engine: ctx.engine,
-        prompts: &prompts,
-        kind,
-        base,
-        model: ctx.model,
-        locale: Locale::Zh,
-        input: task.input(),
-        target: case.target,
-    };
-    run_task_rounds(
-        stage,
-        move |delta| {
-            let mut held = chunks
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(round) = held.last_mut() {
-                round.push_str(&delta);
-            }
-        },
-        move || {
-            boundary
-                .lock()
+    let rounds = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&rounds);
+    let output = ctx
+        .service
+        .run_fixed_task(task, move |round| {
+            sink.lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push(String::new());
-        },
-    )
-    .await?;
+                .push(round.to_owned());
+        })
+        .await?;
     let mut held = rounds
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    Ok(std::mem::take(&mut *held))
+    Ok((std::mem::take(&mut *held), output))
 }
 
 async fn judge_case(ctx: &RunCtx<'_>, case: &EvalCase, reply: &str) -> Option<JudgeScores> {
     let request = EngineRequest {
         messages: quality::render_judge(case, reply),
         model: ctx.model.to_owned(),
-        max_tokens: Some(quality::JUDGE_MAX_TOKENS),
+        thinking: ThinkingMode::Follow,
     };
     let raw = collect_reply(ctx.engine, request).await.ok()?;
     quality::parse_scores(&raw)
@@ -228,6 +223,8 @@ mod tests {
     use gloss_core::ports::{
         AiEngine, BoxFuture, ConfigStore, EngineRequest, TaskChunk, TaskStream,
     };
+    use gloss_core::prompt::MessageContent;
+    use gloss_core::schema::Violation;
 
     use super::{ExecuteOptions, Latency, run};
     use crate::asset::{GoldenMap, GoldenRow, LabelMap, LabelRow};
@@ -237,6 +234,9 @@ mod tests {
     const CLASSIFY_REPLY: &str = r#"{"kind":"TranslateWord"}"#;
     const OTHER_CATEGORY_REPLY: &str = r#"{"kind":"ExplainCode"}"#;
     const WORD_REPLY: &str = r#"{"note":"义","structured":{"phonetic":"yī","examples":["例"]}}"#;
+    const FOREIGN_NOTE_REPLY: &str =
+        r#"{"note":"中文word混在正文里。","structured":{"phonetic":"yī","examples":["例"]}}"#;
+    const BROKEN_REPAIR_REPLY: &str = "MARKER-修复轮退化了，整段散文，不是 JSON";
     const JUDGE_REPLY: &str =
         r#"{"accuracy":90,"completeness":80,"fluency":85,"presentation":75,"reason":"术语准确"}"#;
 
@@ -244,12 +244,14 @@ mod tests {
 
     struct ScriptEngine {
         queue: std::sync::Mutex<(VecDeque<Script>, Script)>,
+        requests: std::sync::Mutex<Vec<EngineRequest>>,
     }
 
     impl ScriptEngine {
         fn new(scripts: Vec<Script>) -> Self {
             Self {
                 queue: std::sync::Mutex::new((scripts.into_iter().collect(), Vec::new())),
+                requests: std::sync::Mutex::new(Vec::new()),
             }
         }
     }
@@ -257,8 +259,12 @@ mod tests {
     impl AiEngine for ScriptEngine {
         fn execute(
             &self,
-            _request: EngineRequest,
+            request: EngineRequest,
         ) -> BoxFuture<'static, Result<TaskStream, GlossError>> {
+            self.requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(request);
             let mut held = self
                 .queue
                 .lock()
@@ -301,7 +307,7 @@ mod tests {
     }
 
     fn head_scripts(judge: bool) -> Vec<Script> {
-        let mut scripts: Vec<Script> = (0..22).map(|_| script(CLASSIFY_REPLY)).collect();
+        let mut scripts: Vec<Script> = (0..35).map(|_| script(CLASSIFY_REPLY)).collect();
         scripts.push(script(WORD_REPLY));
         if judge {
             scripts.push(script(JUDGE_REPLY));
@@ -350,11 +356,11 @@ mod tests {
     #[tokio::test]
     async fn stub_run_settles_layers_and_pends_without_baseline() {
         let engine = Arc::new(ScriptEngine::new(head_scripts(true)));
-        let mut run = run(engine.as_ref(), &config(), options(true, 23))
+        let mut run = run(engine, &config(), options(true, 57))
             .await
             .expect("the stub run settles");
-        assert_eq!(run.cases.len(), 23);
-        assert_eq!(run.latency.count(), 23);
+        assert_eq!(run.cases.len(), 57);
+        assert_eq!(run.latency.count(), 57);
 
         let classify = &run.cases[0];
         assert_eq!(classify.id, "cls-word-01");
@@ -396,7 +402,7 @@ mod tests {
     #[tokio::test]
     async fn golden_and_labels_settle_stub_rounds_into_pass_and_changed() {
         let engine = Arc::new(ScriptEngine::new(head_scripts(false)));
-        let mut run = run(engine.as_ref(), &config(), options(false, 23))
+        let mut run = run(engine, &config(), options(false, 57))
             .await
             .expect("the stub run settles");
         let golden = GoldenMap::from([
@@ -428,7 +434,7 @@ mod tests {
         let engine = Arc::new(ScriptEngine::new(vec![vec![Err(
             GlossError::EngineNetwork,
         )]]));
-        let mut run = run(engine.as_ref(), &config(), options(true, 1))
+        let mut run = run(engine, &config(), options(true, 1))
             .await
             .expect("a per-case engine failure does not abort the run");
         assert_eq!(run.latency.count(), 1);
@@ -448,7 +454,7 @@ mod tests {
     #[tokio::test]
     async fn limit_slices_the_run_and_judge_toggle_keeps_quality_empty() {
         let engine = Arc::new(ScriptEngine::new(vec![script(CLASSIFY_REPLY)]));
-        let run = run(engine.as_ref(), &config(), options(false, 2))
+        let run = run(engine, &config(), options(false, 2))
             .await
             .expect("the sliced run settles");
         assert_eq!(run.cases.len(), 2);
@@ -456,6 +462,125 @@ mod tests {
         assert!(
             run.cases.iter().all(|case| case.quality.is_none()),
             "a judgeless run keeps every quality field empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn repair_rounds_ride_the_production_loop_into_the_case_details() {
+        let mut scripts: Vec<Script> = (0..35).map(|_| script(CLASSIFY_REPLY)).collect();
+        scripts.push(script("整段散文，不是 JSON"));
+        scripts.push(script(WORD_REPLY));
+        let engine = Arc::new(ScriptEngine::new(scripts));
+        let run = run(engine, &config(), options(false, 36))
+            .await
+            .expect("the stub run settles");
+        let task = run
+            .cases
+            .iter()
+            .find(|case| case.id == "task-word-01")
+            .expect("the slice reaches the first task case");
+        assert!(!task.engine_error);
+        assert_eq!(
+            task.rounds.len(),
+            2,
+            "the violated round and the repaired round both ride the details"
+        );
+        assert_eq!(task.rounds[0].violation, Some(Violation::NotJson));
+        assert_eq!(task.rounds[1].violation, None);
+        assert_eq!(
+            task.contract.checks.get(&ContractCheck::FieldsComplete),
+            Some(&true),
+            "the repaired reply settles green"
+        );
+        assert_eq!(task.contract.repairs, 1);
+    }
+
+    async fn broken_language_repair_run() -> (super::ExecuteRun, Arc<ScriptEngine>) {
+        let mut scripts: Vec<Script> = (0..35).map(|_| script(CLASSIFY_REPLY)).collect();
+        scripts.push(script(FOREIGN_NOTE_REPLY));
+        scripts.push(script(BROKEN_REPAIR_REPLY));
+        scripts.push(script(JUDGE_REPLY));
+        let engine = Arc::new(ScriptEngine::new(scripts));
+        let run = run(
+            Arc::clone(&engine) as Arc<dyn AiEngine>,
+            &config(),
+            options(true, 36),
+        )
+        .await
+        .expect("the stub run settles");
+        (run, engine)
+    }
+
+    #[tokio::test]
+    async fn a_contract_broken_language_repair_settles_on_the_delivered_reply() {
+        let (mut run, _engine) = broken_language_repair_run().await;
+        let task = run
+            .cases
+            .iter()
+            .find(|case| case.id == "task-word-01")
+            .expect("the slice reaches the first task case");
+        assert!(!task.engine_error);
+        assert_eq!(
+            task.rounds.len(),
+            2,
+            "the delivered round and the discarded language repair round both stay on the record"
+        );
+        assert_eq!(task.rounds[0].violation, None);
+        assert_eq!(
+            task.rounds[1].violation,
+            Some(Violation::NotJson),
+            "the discarded repair round broke the task contract"
+        );
+        assert!(
+            !task.contract.degraded,
+            "settlement rides the delivered reply, not the discarded round"
+        );
+        assert_eq!(
+            task.delivered, FOREIGN_NOTE_REPLY,
+            "the production delivered reply rides the detail"
+        );
+        assert_eq!(
+            task.contract.repairs, 0,
+            "only task repair rounds count as repairs"
+        );
+        assert_eq!(
+            task.contract.checks.get(&ContractCheck::FieldsComplete),
+            Some(&true),
+            "the delivered reply settles green"
+        );
+        let quality = task
+            .quality
+            .as_ref()
+            .expect("the delivered reply keeps the judge eligible");
+        assert_eq!(quality.accuracy, 90);
+        let golden = GoldenMap::from([golden_row("task-word-01", FOREIGN_NOTE_REPLY)]);
+        let labels = LabelMap::from([label_row("task-word-01", LabelVerdict::Pass)]);
+        regression::settle(&mut run.cases, &golden, &labels);
+        assert_eq!(
+            verdict_of(&run, "task-word-01"),
+            RuleVerdict::Pass,
+            "the delivered reply compares against the baseline, not the discarded round"
+        );
+    }
+
+    #[tokio::test]
+    async fn judge_prompt_rides_the_delivered_reply_not_the_discarded_round() {
+        let (_run, engine) = broken_language_repair_run().await;
+        let requests = engine
+            .requests
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let judge = requests.last().expect("the judge request rides last");
+        let MessageContent::Text(prompt) = &judge.messages[0].content else {
+            panic!("the judge prompt is a text message");
+        };
+        assert!(
+            prompt.contains("中文word混在正文里"),
+            "the judge reviews the delivered reply"
+        );
+        assert!(
+            !prompt.contains("MARKER"),
+            "the discarded repair round never reaches the judge"
         );
     }
 

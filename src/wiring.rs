@@ -1,12 +1,14 @@
 //! 组装段助手：平台能力装配（连接）、配置装配、四通道端点分发、启动期
-//! 预检与事件源装配、异步运行时（tokio）消费桥与事件线程的启动。进程
-//! 入口只留启动骨架，“拿到唤醒句柄之后才能做的事”与全部平台能力装配
-//! 都收在这里；平台能力一律经装配句柄（Platform）取用，本模块是全入口
-//! 唯一引用适配器层装配契约的地方。
+//! 预检、异步运行时（tokio）消费桥与事件线程的启动。进程入口只留启动
+//! 骨架，“拿到唤醒句柄之后才能做的事”与全部平台能力装配都收在这里；
+//! 平台能力一律经装配契约（Platform）的端口袋与事件宿主取用，本模块是
+//! 全入口唯一引用适配器层装配契约的地方。事件源映射与取材命令分派的
+//! 业务逻辑住应用层编排（gloss_app::flow::acquire），本模块只负责把
+//! 端口对象交给它、把它返回的闭包装进事件源清单与事件线程。
 
 use std::error::Error;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender};
@@ -16,17 +18,16 @@ use gloss_app::app::Waker;
 use gloss_app::channel::{
     AcquireCommand, AppEndpoints, Channels, Command, Event, PlatformEvent, Traced,
 };
+use gloss_app::flow::acquire;
 use gloss_app::runtime::cache::TaskCache;
 use gloss_app::runtime::pipeline::{CommandRuntime, TaskBridge, start_command_runtime};
 use gloss_app::update::UpdateHandle;
 use gloss_core::config::CACHE_TTL_MAX_SECS;
 use gloss_core::config_handle::ConfigHandle;
 use gloss_core::engine::AiTaskService;
-use gloss_core::log::{debug, info, thread, warn};
-use gloss_core::model::GlossError;
-use gloss_core::ports::{ClipboardImageReader, SecretStore, TextAcquirer};
-use gloss_core::task::TaskInput;
-use gloss_platform::bootstrap::{EventSink, EventSources, Platform};
+use gloss_core::log::{info, thread, warn};
+use gloss_core::ports::{AppIcon, DesktopShortcut, PermissionProbe, SecretStore};
+use gloss_platform::bootstrap::{EventHost, EventSink, EventSources, Platform, PlatformPorts};
 
 type StartupResult = Result<(), Box<dyn Error>>;
 
@@ -38,15 +39,15 @@ pub(super) fn connect() -> Result<Platform, Box<dyn Error>> {
 
 type ConfigWiring = (Arc<ConfigHandle>, Arc<dyn SecretStore>);
 
-pub(super) fn load_config(platform: &Platform) -> Result<ConfigWiring, Box<dyn Error>> {
+pub(super) fn load_config(ports: &PlatformPorts) -> Result<ConfigWiring, Box<dyn Error>> {
     let handle = Arc::new(ConfigHandle::load_or_default(Arc::clone(
-        &platform.config_store,
+        &ports.config_store,
     )));
-    Ok((handle, Arc::clone(&platform.secret_store)))
+    Ok((handle, Arc::clone(&ports.secret_store)))
 }
 
-fn install_app_icon(platform: &Platform) {
-    if let Err(err) = platform.app_icon.install(DOCK_ICON_PNG) {
+fn install_app_icon(icon: &dyn AppIcon) {
+    if let Err(err) = icon.install(DOCK_ICON_PNG) {
         warn!(
             thread = thread::UI,
             error = ?err,
@@ -55,8 +56,8 @@ fn install_app_icon(platform: &Platform) {
     }
 }
 
-fn ensure_desktop_shortcut(platform: &Platform) {
-    if let Err(err) = platform.desktop_shortcut.ensure() {
+fn ensure_desktop_shortcut(shortcut: &dyn DesktopShortcut) {
+    if let Err(err) = shortcut.ensure() {
         warn!(
             thread = thread::UI,
             error = %err,
@@ -65,8 +66,8 @@ fn ensure_desktop_shortcut(platform: &Platform) {
     }
 }
 
-fn preflight_accessibility(platform: &Platform) -> bool {
-    if platform.permission.preflight() {
+fn preflight_accessibility(permission: &mut dyn PermissionProbe) -> bool {
+    if permission.preflight() {
         info!(
             thread = thread::UI,
             "accessibility permission granted for selection reading"
@@ -77,15 +78,18 @@ fn preflight_accessibility(platform: &Platform) -> bool {
             thread = thread::UI,
             "accessibility permission missing, triggering the system guidance dialog"
         );
-        platform.permission.request();
+        permission.request();
         false
     }
 }
 
-pub(super) fn preflight_and_tap(platform: &mut Platform) -> bool {
-    let accessibility_ready = preflight_accessibility(platform);
-    platform.spawn_gesture_source();
-    if platform.gesture.is_some() {
+pub(super) fn preflight_and_tap(
+    permission: &mut dyn PermissionProbe,
+    host: &mut EventHost,
+) -> bool {
+    let accessibility_ready = preflight_accessibility(permission);
+    host.spawn_gesture_source();
+    if host.gesture.is_some() {
         info!(
             thread = thread::UI,
             "event tap established for the selection gesture"
@@ -148,23 +152,26 @@ pub(super) fn shared_task_cache(config: &ConfigHandle) -> Arc<TaskCache> {
 }
 
 pub(super) fn run_event_loop(
-    mut platform: Platform,
+    Platform { ports, mut host }: Platform,
     config: Arc<ConfigHandle>,
     store: Arc<dyn SecretStore>,
     service: Arc<AiTaskService>,
 ) -> StartupResult {
+    let PlatformPorts {
+        scene,
+        system_locale,
+        app_icon,
+        desktop_shortcut,
+        menu,
+        clipboard,
+        mut permission,
+        ..
+    } = ports;
     let (endpoints, halves) = distribute_channels();
-    let system_locale = platform.system_locale;
-    info!(
-        thread = thread::UI,
-        locale = ?system_locale,
-        "system language resolved"
-    );
-    let scene = Arc::clone(&platform.scene);
+    info!(thread = thread::UI, locale = ?system_locale, "system language resolved");
     let update_handle = gloss_app::update::start_once();
     let update = gloss_app::update::UpdateWiring::from_handle(update_handle);
-    let accessibility_ready = preflight_and_tap(&mut platform);
-    let permissions_ready = accessibility_ready;
+    let accessibility_ready = preflight_and_tap(permission.as_mut(), &mut host);
     let clipboard_watch_enabled =
         Arc::new(AtomicBool::new(config.snapshot().watch_clipboard_images));
     let task_cache = shared_task_cache(&config);
@@ -176,22 +183,27 @@ pub(super) fn run_event_loop(
         accessibility_ready,
         clipboard_watch_enabled: Arc::clone(&clipboard_watch_enabled),
         command_runtime: None,
+        app_icon,
+        desktop_shortcut,
+        permission,
     };
-    let result = gloss_app::app::run(
-        endpoints,
+    let env = gloss_app::app::AppEnv {
         config,
         store,
         scene,
         system_locale,
-        permissions_ready,
         update,
         clipboard_watch_enabled,
         task_cache,
-        platform,
-        |waker, platform| assembly.on_waker(waker, halves, platform),
-    );
+        menu,
+        clipboard,
+    };
+    let result = gloss_app::app::run(endpoints, env, accessibility_ready, |waker| {
+        assembly.on_waker(waker, halves, &mut host)
+    });
 
     drop(assembly.command_runtime);
+    drop(host);
     result
 }
 
@@ -203,6 +215,9 @@ pub(super) struct Assembly {
     pub(super) accessibility_ready: bool,
     pub(super) clipboard_watch_enabled: Arc<AtomicBool>,
     pub(super) command_runtime: Option<CommandRuntime>,
+    pub(super) app_icon: Box<dyn AppIcon>,
+    pub(super) desktop_shortcut: Box<dyn DesktopShortcut>,
+    pub(super) permission: Box<dyn PermissionProbe>,
 }
 
 impl Assembly {
@@ -210,7 +225,7 @@ impl Assembly {
         &mut self,
         waker: Waker,
         halves: ChannelHalves,
-        platform: &mut Platform,
+        host: &mut EventHost,
     ) -> StartupResult {
         let ChannelHalves {
             acquire_rx,
@@ -218,20 +233,20 @@ impl Assembly {
             events_tx,
             commands_rx,
         } = halves;
-        install_app_icon(platform);
-        ensure_desktop_shortcut(platform);
+        install_app_icon(self.app_icon.as_ref());
+        ensure_desktop_shortcut(self.desktop_shortcut.as_ref());
         let update_waker = waker.clone();
         self.update_handle.install_wake(move || {
             update_waker.wake_settings();
         });
         self.start_bridge(&events_tx, commands_rx, &waker)?;
-        let sink = platform.event_sink(events_tx, platform_tx, {
+        let sink = host.event_sink(events_tx, platform_tx, {
             let waker = waker.clone();
             move || {
                 waker.wake();
             }
         });
-        self.start_event_thread(platform, sink, acquire_rx);
+        self.start_event_thread(host, sink, acquire_rx);
         gloss_core::log::milestone("05_assembly");
         Ok(())
     }
@@ -260,142 +275,31 @@ impl Assembly {
 
     fn start_event_thread(
         &mut self,
-        platform: &mut Platform,
+        host: &mut EventHost,
         sink: EventSink<Event, PlatformEvent>,
         acquire_rx: Receiver<Traced<AcquireCommand>>,
     ) {
-        let kit = Platform::event_kit(Arc::clone(&self.clipboard_watch_enabled));
+        let kit = EventHost::event_kit(Arc::clone(&self.clipboard_watch_enabled));
         let mut sources: EventSources<PlatformEvent> = Vec::new();
-
-        let mut watch = platform.permission.watch(!self.accessibility_ready);
-        sources.push(Box::new(move || {
-            watch()
-                .then_some(PlatformEvent::AccessibilityGranted)
-                .into_iter()
-                .collect()
-        }));
-        if let Some(mut gesture) = platform.gesture.take() {
-            sources.push(Box::new(move || {
-                gesture
-                    .poll()
-                    .into_iter()
-                    .map(|pos| PlatformEvent::SelectionGesture { pos })
-                    .collect()
-            }));
+        for source in acquire::event_sources(
+            self.permission.watch(!self.accessibility_ready),
+            host.gesture.take(),
+            kit.clipboard_watcher,
+            Arc::clone(&host.gesture_degraded),
+        ) {
+            sources.push(Box::new(source));
         }
-        let mut clipboard_watch = kit.clipboard_watcher;
-        sources.push(Box::new(move || {
-            clipboard_watch
-                .poll()
-                .into_iter()
-                .map(|_| PlatformEvent::PasteboardImageObserved)
-                .collect()
-        }));
-        let degraded = Arc::clone(&platform.gesture_degraded);
-        let mut hinted = false;
-        sources.push(Box::new(move || {
-            if !hinted && degraded.load(Ordering::Relaxed) {
-                hinted = true;
-                warn!(
-                    thread = thread::EVENT,
-                    "mouse listener degraded mid-run, selection gesture disabled"
-                );
-            }
-            Vec::new()
-        }));
-        let handler = acquire_command_handler(kit.text_acquirer, kit.clipboard_image_reader);
-        platform.spawn_event_thread(acquire_rx, sink, handler, sources);
-    }
-}
-
-fn acquire_command_handler(
-    mut text_acquirer: Box<dyn TextAcquirer>,
-    mut image_reader: Box<dyn ClipboardImageReader>,
-) -> impl FnMut(Traced<AcquireCommand>, &EventSink<Event, PlatformEvent>) + Send {
-    move |job, sink| {
-        let _entered = job.span.enter();
-        match job.payload {
-            AcquireCommand::AcquireText { generation } => {
-                acquire_text(&mut *text_acquirer, generation, sink);
-            }
-            AcquireCommand::AcquireClipboardImage { generation } => {
-                acquire_clipboard_image(&mut *image_reader, generation, sink);
-            }
-        }
-    }
-}
-
-fn acquire_text(
-    text_acquirer: &mut dyn TextAcquirer,
-    generation: u64,
-    sink: &EventSink<Event, PlatformEvent>,
-) {
-    info!(thread = thread::EVENT, "acquiring text");
-    let (outcome, settle) = text_acquirer.read().into_parts();
-    match outcome {
-        Ok(text) => {
-            debug!(
-                thread = thread::EVENT,
-                bytes = text.len(),
-                chars = text.chars().count(),
-                "text input acquired"
-            );
-            sink.send_event(Event::InputReady {
-                generation,
-                input: TaskInput::Text { text },
-            });
-        }
-        Err(err) => {
-            if err == GlossError::AccessibilityDenied {
-                warn!(
-                    thread = thread::EVENT,
-                    "accessibility permission missing, text acquisition denied"
-                );
-            } else {
-                debug!(
-                    thread = thread::EVENT,
-                    error = %err,
-                    "text acquisition failed"
-                );
-            }
-            sink.send_event(Event::TaskFailed {
-                generation,
-                error: err,
-            });
-        }
-    }
-    settle.finish();
-}
-
-fn acquire_clipboard_image(
-    image_reader: &mut dyn ClipboardImageReader,
-    generation: u64,
-    sink: &EventSink<Event, PlatformEvent>,
-) {
-    info!(thread = thread::EVENT, "acquiring clipboard image");
-    match image_reader.read() {
-        Ok(Some(png)) => {
-            debug!(
-                thread = thread::EVENT,
-                bytes = png.len(),
-                "clipboard image acquired"
-            );
-            sink.send_event(Event::InputReady {
-                generation,
-                input: TaskInput::Image { png },
-            });
-        }
-        Ok(None) => {}
-        Err(err) => {
-            debug!(
-                thread = thread::EVENT,
-                error = %err,
-                "clipboard image acquisition failed"
-            );
-            sink.send_event(Event::TaskFailed {
-                generation,
-                error: err,
-            });
-        }
+        let mut handler =
+            acquire::acquire_command_handler(kit.text_acquirer, kit.clipboard_image_reader);
+        host.spawn_event_thread(
+            acquire_rx,
+            sink,
+            move |job: Traced<AcquireCommand>, sink: &EventSink<Event, PlatformEvent>| {
+                handler(job, &mut |event| {
+                    sink.send_event(event);
+                });
+            },
+            sources,
+        );
     }
 }

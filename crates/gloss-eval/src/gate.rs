@@ -9,7 +9,7 @@
 
 use gloss_core::lang_gate::{self, LangCategory, LangViolation};
 use gloss_core::model::Lang;
-use gloss_core::ports::{AiEngine, EngineRequest};
+use gloss_core::ports::{AiEngine, EngineRequest, ThinkingMode};
 use gloss_core::prompt::ChatMessage;
 use gloss_core::task::{OutcomeStructured, TaskInput, TaskKind, TaskOutcome};
 use serde::Deserialize;
@@ -289,8 +289,6 @@ pub(crate) fn violations_for(
 
 pub const GATE_JUDGE_PROMPT: &str = include_str!("../prompts/gate_judge.md");
 
-pub const GATE_JUDGE_MAX_TOKENS: u32 = 256;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GateVerdict {
     pub violate: bool,
@@ -384,7 +382,7 @@ pub async fn run_gate_judge(
         let request = EngineRequest {
             messages,
             model: model.to_owned(),
-            max_tokens: Some(GATE_JUDGE_MAX_TOKENS),
+            thinking: ThinkingMode::Follow,
         };
         let Ok(reply) = collect_reply(engine, request).await else {
             continue;

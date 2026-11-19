@@ -1,299 +1,119 @@
-//! 剪贴板兜底读取（模拟复制）：兜底读取器。
+//! 剪贴板兜底读取（模拟复制）：系统（Windows）绑定。
 //!
-//! 用户界面自动化（UIA）读不到选区时的兜底通道：快照剪贴板内容 → 注入
-//! 复制快捷键 → 以剪贴板序列号轮询确认目标应用写入 → 读回 → 读回成功且
-//! 现值未变才按快照恢复（失败轮一律不恢复——板上要么未变，要么是本轮
-//! 之外的新写入或注入副产物，都不是可覆盖的内容）。确认语义以序列号差
-//! 承载：注入被静默丢弃（对提权进程的注入，用户界面特权隔离（UIPI））
-//! 或目标未响应时序列号不动，重注入一轮再等一个完整超时窗口后按普通
-//! 获取失败上抛，不区分提权与不支持（不做提权）。快照的保全与放弃边界
-//! 见快照模块文档。产物与收尾分离：恢复决策与写盘归因装在恢复收尾结构
-//! 里，调用方在取材产物上抛之后收口——恢复写盘不挡在弹窗链路上。写盘
-//! 轮次经取材轮次闩锁向哨兵自报计数归因（见剪贴板模块的轮次写入闩锁）。
-//! 纯时序逻辑独立成函数（单测覆盖），系统接口交互归实现子模块。
-//!
-//! 线程约束：读取在平台事件线程上调用（与用户界面自动化（UIA）主路同线程）。
-
-use std::time::{Duration, Instant};
+//! 用户界面自动化（UIA）读不到选区时的兜底通道的绑定面：共享流程（平台
+//! 中立共享层）只经板面原语束触板，本模块提供系统（Windows）的原语——写
+//! 盘归因基线取剪贴板序列号；快照按内容类型判定（可读文本、确认的空板或
+//! 图像风格原字节，边界见快照模块文档）并按快照还原；写入确认监视以剪贴
+//! 板序列号差承载代数——序列号是系统级单调计数，基线取建立监视时的现值；
+//! 注入复制快捷键走按键注入（SendInput），注入被静默丢弃（对提权进程的
+//! 注入，用户界面特权隔离（UIPI））或目标未响应时序列号不动，共享流程据
+//! 此重注入一轮，不区分提权与不支持（不做提权）。读取在平台事件线程上调
+//! 用（与用户界面自动化（UIA）主路同线程），收尾同线程。
 
 mod restore;
 mod snapshot;
 
-const WRITE_CONFIRM_TIMEOUT: Duration = Duration::from_millis(800);
+use arboard::Clipboard;
 
-const WRITE_POLL_INTERVAL: Duration = Duration::from_millis(30);
+use crate::clipboard::{WatchRoundFlag, clipboard_sequence_number};
+use crate::common::fallback::{FallbackBoard, FallbackSettle, WRITE_CONFIRM_TIMEOUT, read_with};
+use crate::ffi::inject;
 
-fn wait_for_write(
-    baseline: u64,
-    mut probe: impl FnMut() -> Option<u64>,
-    deadline: Instant,
-) -> bool {
-    loop {
-        if probe().is_some_and(|current| current != baseline) {
-            return true;
-        }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(WRITE_POLL_INTERVAL);
-    }
+use gloss_core::log::{debug, thread};
+use gloss_core::model::GlossError;
+
+use restore::restore_and_log;
+use snapshot::{SNAPSHOT_IMAGE_MAX_BYTES, SavedContent, snapshot_decision};
+
+#[derive(Debug, Default, Clone)]
+pub struct ClipboardFallbackReader {
+    round: WatchRoundFlag,
 }
 
-mod imp {
-    use std::time::Instant;
-
-    use arboard::Clipboard;
-
-    use gloss_core::log::{debug, thread};
-    use gloss_core::model::GlossError;
-
-    use crate::clipboard::{WatchRoundFlag, clipboard_sequence_number};
-    use crate::ffi::inject;
-
-    use super::snapshot::{PendingRestore, snapshot_board};
-    use super::{WRITE_CONFIRM_TIMEOUT, WRITE_POLL_INTERVAL, wait_for_write};
-
-    pub struct FallbackSettle {
-        pending: Option<PendingRestore>,
-        round: WatchRoundFlag,
-        pre: u64,
-        acquired: u64,
-        restore: bool,
+impl ClipboardFallbackReader {
+    pub fn new(round: WatchRoundFlag) -> Self {
+        Self { round }
     }
 
-    impl FallbackSettle {
-        fn idle(round: WatchRoundFlag) -> Self {
-            Self {
-                pending: None,
-                round,
-                pre: 0,
-                acquired: 0,
-                restore: false,
-            }
-        }
-
-        fn planned(
-            pending: PendingRestore,
-            round: WatchRoundFlag,
-            pre: u64,
-            acquired: bool,
-            restore: bool,
-        ) -> Self {
-            Self {
-                pending: Some(pending),
-                round,
-                pre,
-                acquired: u64::from(acquired),
-                restore,
-            }
-        }
-
-        pub fn finish(mut self) {
-            let Some(pending) = self.pending.as_mut() else {
-                return;
-            };
-            let restored = if self.restore {
-                pending.restore_now()
-            } else {
-                pending.skip_restore();
-                0
-            };
-            self.round.enter(crate::clipboard::RoundWrites {
-                pre: self.pre,
-                ours: self.acquired + restored,
-            });
-        }
-
-        #[cfg(test)]
-        pub(super) fn restores_on_unwind(&self) -> bool {
-            self.pending.is_some()
-        }
-    }
-
-    struct ChangeMonitor {
-        baseline: u64,
-    }
-
-    impl ChangeMonitor {
-        fn new() -> Option<Self> {
-            Some(Self {
-                baseline: clipboard_sequence_number()?,
-            })
-        }
-
-        fn baseline(&self) -> u64 {
-            self.baseline
-        }
-
-        fn generation(&self) -> Option<u64> {
-            clipboard_sequence_number()
-        }
-    }
-
-    #[derive(Debug, Default, Clone)]
-    pub struct ClipboardFallbackReader {
-        round: WatchRoundFlag,
-    }
-
-    impl ClipboardFallbackReader {
-        pub fn new(round: WatchRoundFlag) -> Self {
-            Self { round }
-        }
-
-        pub fn read(&mut self) -> (Result<String, GlossError>, FallbackSettle) {
-            let mut clipboard = match Clipboard::new() {
-                Ok(clipboard) => clipboard,
-                Err(err) => {
-                    debug!(
-                        thread = thread::EVENT,
-                        error = %err,
-                        "clipboard unavailable, fallback read skipped"
-                    );
-                    return (
-                        Err(GlossError::SelectionUnavailable),
-                        FallbackSettle::idle(self.round.clone()),
-                    );
-                }
-            };
-            let pre_count = clipboard_sequence_number().unwrap_or(0);
-            let Some(saved) = snapshot_board(&mut clipboard) else {
+    pub(crate) fn read(&mut self) -> (Result<String, GlossError>, FallbackSettle<SavedContent>) {
+        let mut clipboard = match Clipboard::new() {
+            Ok(clipboard) => clipboard,
+            Err(err) => {
                 debug!(
                     thread = thread::EVENT,
-                    "original clipboard content cannot be fully preserved, fallback declined"
+                    error = %err,
+                    "clipboard unavailable, fallback read skipped"
                 );
                 return (
                     Err(GlossError::SelectionUnavailable),
                     FallbackSettle::idle(self.round.clone()),
                 );
-            };
-            let pending = PendingRestore::new(saved);
-            let outcome = self.attempt(&mut clipboard);
-            let settle = match &outcome {
-                Ok(acquired) => {
-                    let current_is_ours =
-                        matches!(clipboard.get_text(), Ok(current) if &current == acquired);
-                    if current_is_ours {
-                        FallbackSettle::planned(pending, self.round.clone(), pre_count, true, true)
-                    } else {
-                        debug!(
-                            thread = thread::EVENT,
-                            "clipboard changed after read, restore skipped"
-                        );
-                        FallbackSettle::planned(pending, self.round.clone(), pre_count, true, false)
+            }
+        };
+        read_with(
+            self.round.clone(),
+            WRITE_CONFIRM_TIMEOUT,
+            FallbackBoard {
+                pre_count: || clipboard_sequence_number().unwrap_or(0),
+                snapshot: |text| {
+                    snapshot_decision(text, crate::clipboard::clipboard_format_count, || {
+                        crate::clipboard::clipboard_capture_image_flavors(SNAPSHOT_IMAGE_MAX_BYTES)
+                    })
+                },
+                restore: restore_and_log,
+                monitor: {
+                    let mut monitor: Option<ChangeMonitor> = None;
+                    move || {
+                        let fresh = monitor.is_none();
+                        if fresh {
+                            monitor = ChangeMonitor::new();
+                        }
+                        let change = monitor.as_ref()?;
+                        if fresh {
+                            Some(change.baseline())
+                        } else {
+                            change.generation()
+                        }
                     }
-                }
-                Err(_) => {
-                    FallbackSettle::planned(pending, self.round.clone(), pre_count, false, false)
-                }
-            };
-            (outcome, settle)
-        }
-
-        fn attempt(&mut self, clipboard: &mut Clipboard) -> Result<String, GlossError> {
-            let Some(monitor) = ChangeMonitor::new() else {
-                debug!(
-                    thread = thread::EVENT,
-                    "change monitor unavailable, fallback declined"
-                );
-                return Err(GlossError::SelectionUnavailable);
-            };
-            inject_copy_key()?;
-            let baseline = monitor.baseline();
-            let mut deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
-            let mut confirmed = wait_for_write(baseline, || monitor.generation(), deadline);
-            if !confirmed {
-                debug!(
-                    thread = thread::EVENT,
-                    "copy write not confirmed, retrying injection once"
-                );
-                inject_copy_key()?;
-                deadline = Instant::now() + WRITE_CONFIRM_TIMEOUT;
-                confirmed = wait_for_write(baseline, || monitor.generation(), deadline);
-            }
-            if !confirmed {
-                debug!(
-                    thread = thread::EVENT,
-                    "copy write not confirmed within timeout"
-                );
-                return Err(GlossError::SelectionUnavailable);
-            }
-            loop {
-                if let Ok(text) = clipboard.get_text()
-                    && !text.is_empty()
-                {
-                    return Ok(text);
-                }
-                if Instant::now() >= deadline {
-                    debug!(
-                        thread = thread::EVENT,
-                        "copy confirmed but no text readable within timeout"
-                    );
-                    return Err(GlossError::SelectionUnavailable);
-                }
-                std::thread::sleep(WRITE_POLL_INTERVAL);
-            }
-        }
-    }
-
-    fn inject_copy_key() -> Result<(), GlossError> {
-        match inject::inject_copy() {
-            Ok(()) => Ok(()),
-            Err(failure) => {
-                debug!(
-                    thread = thread::EVENT,
-                    injected = failure.injected,
-                    "copy key injection failed"
-                );
-                Err(GlossError::SelectionUnavailable)
-            }
-        }
+                },
+                inject: inject_copy_key,
+                read_text: move || clipboard.get_text(),
+            },
+        )
     }
 }
 
-pub use imp::{ClipboardFallbackReader, FallbackSettle};
+struct ChangeMonitor {
+    baseline: u64,
+}
 
-#[cfg(test)]
-mod tests {
-    use std::time::{Duration, Instant};
-
-    use super::wait_for_write;
-
-    #[test]
-    fn seq_change_confirms_when_generation_bumps() {
-        let mut calls = 0;
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let confirmed = wait_for_write(
-            0,
-            || {
-                calls += 1;
-                Some(u64::from(calls >= 3))
-            },
-            deadline,
-        );
-        assert!(confirmed);
-        assert_eq!(calls, 3);
+impl ChangeMonitor {
+    fn new() -> Option<Self> {
+        Some(Self {
+            baseline: clipboard_sequence_number()?,
+        })
     }
 
-    #[test]
-    fn seq_timeout_returns_false_without_hanging() {
-        let start = Instant::now();
-        let deadline = start + Duration::from_millis(60);
-        assert!(!wait_for_write(0, || Some(0), deadline));
-        assert!(
-            start.elapsed() < Duration::from_secs(2),
-            "timeout path must return promptly"
-        );
+    fn baseline(&self) -> u64 {
+        self.baseline
     }
 
-    #[test]
-    fn seq_unavailable_probe_keeps_polling_until_deadline() {
-        let start = Instant::now();
-        let deadline = start + Duration::from_millis(50);
-        assert!(!wait_for_write(0, || None, deadline));
-        assert!(
-            start.elapsed() < Duration::from_secs(2),
-            "timeout path must return promptly"
-        );
+    fn generation(&self) -> Option<u64> {
+        clipboard_sequence_number()
+    }
+}
+
+fn inject_copy_key() -> Result<(), GlossError> {
+    match inject::inject_copy() {
+        Ok(()) => Ok(()),
+        Err(failure) => {
+            debug!(
+                thread = thread::EVENT,
+                injected = failure.injected,
+                "copy key injection failed"
+            );
+            Err(GlossError::SelectionUnavailable)
+        }
     }
 }
 
@@ -307,7 +127,7 @@ mod live_tests {
 
     use gloss_core::model::GlossError;
 
-    use super::imp::ClipboardFallbackReader;
+    use super::ClipboardFallbackReader;
     use crate::clipboard::{WatchRoundFlag, clipboard_has_image};
 
     static CLIPBOARD_LIVE_LOCK: Mutex<()> = Mutex::new(());

@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import io
 import os
-import subprocess
 import sys
 from types import ModuleType
 from typing import Any
@@ -33,6 +32,7 @@ import check_i18n  # noqa: E402
 import check_secrets  # noqa: E402
 import check_test_bdd  # noqa: E402
 import constraints  # noqa: E402
+import gate_report  # noqa: E402
 
 REPO_ROOT = os.path.abspath(os.path.join(_HOOKS, "..", ".."))
 
@@ -66,12 +66,7 @@ class ContentLoader:
     def tracked(self) -> list[str]:
         """版本库跟踪清单：全部消费方共享同一次枚举结果。"""
         if self._tracked is None:
-            out = subprocess.run(
-                ["git", "-C", self.root, "ls-files", "-z"],
-                capture_output=True,
-                check=True,
-            ).stdout
-            self._tracked = [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
+            self._tracked = gate_report.tracked_files(self.root)
         return self._tracked
 
     def manifests(self, root: str) -> list[str]:

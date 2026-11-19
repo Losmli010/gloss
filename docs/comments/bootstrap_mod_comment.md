@@ -31,3 +31,31 @@
   句柄中转；字段最初按“入口从句柄上取走取材包”的口径随句柄建立，装配
   落地走了工厂路径后它再无写读面（零行为变化，纯死字段删除）。取材包的
   互连口径见上文 `EventKit` 小节，不变。
+
+## Platform 拆为 PlatformPorts 与 EventHost（2026-11-17，架构重构 B1/B2）
+
+- 拆分动机（方案 B1）：应用层（gloss-app）对平台的依赖只为整只装配句柄
+  一个类型，而它真正消费的只有菜单装配与剪贴板写入两个端口；退出汇合
+  又隐式依赖应用壳字段声明顺序（endpoints 必须先于句柄释放）。拆分后
+  `Platform` 只是入口的一次性包装（`connect` 返回 `ports` 与 `host` 两个
+  公开字段，随即按消费方分发），应用层只收端口对象——gloss-app 的依赖
+  清单去掉了 gloss-platform，约束门禁方向表同步收紧为 `"gloss-app":
+  "gloss-core"`。
+- `PlatformPorts`（纯端口与系统值，无 `Drop`）：场景探针、配置存储、密钥
+  存储、系统语言、图标、桌面入口、菜单装配、剪贴板写入、权限探针九项。
+  消费方分发口径：菜单与剪贴板写入进应用环境（`AppEnv`），图标、桌面
+  入口与权限探针留在入口组装段（移入 `Assembly`），配置与密钥存储供配置
+  装配取用（`load_config` 改收端口袋引用）。
+- `EventHost`（事件宿主）：手势源、降级标志与事件线程句柄；`spawn_gesture_source`、
+  `event_sink`、`spawn_event_thread` 与静态工厂 `event_kit`（原
+  `Platform::event_kit`）都归它。`Drop` 汇合事件线程——退出不再依赖任何
+  结构体字段的声明顺序：入口在 `gloss_app::app::run` 返回后显式
+  `drop(host)`，此刻应用端点（通道②发送端）已随 run 返回而释放，事件
+  线程见断连退出，汇合立即返回。锁定测试见 bootstrap_mod_tests 记录。
+- `event_thread` 字段由公开改为私有：原公开的唯一理由是应用层测试桩要
+  整结构构造句柄（`stub_platform`），应用层改收端口对象后该桩随 B2 删除，
+  宿主只经本模块的 `connect` 构造。`gesture` 与 `gesture_degraded` 保持
+  公开：入口组装段要取走手势源、克隆降级标志。
+- `connect` 的构造体仍只写一份（跨平台共享）：`ports` 与 `host` 两个子
+  结构在同一个构造表达式里装配，平台镜像实现经重新导出的模块路径取用，
+  构造只做廉价装配的既有口径不变。

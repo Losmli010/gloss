@@ -2,12 +2,12 @@
 //! （可重试的网络、限流，终态的鉴权与参数拒绝），也决定设置页引导的方向；
 //! 四类客户端错误的启发式识别只认诊断文本，不转述响应体。
 
-use crate::model::GlossError;
+use gloss_core::model::GlossError;
 use reqwest::StatusCode;
 
-pub(super) const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+pub(crate) const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 
-pub(super) fn map_transport_error(err: reqwest::Error) -> GlossError {
+pub(crate) fn map_transport_error(err: reqwest::Error) -> GlossError {
     if err.is_builder() {
         GlossError::EngineResponse(format!("request rejected: {err}"))
     } else if err.is_decode() {
@@ -21,7 +21,7 @@ const JSON_MODE_MARKERS: [&str; 2] = ["response_format", "json_object"];
 
 const MULTIMODAL_MARKERS: [&str; 3] = ["image", "multimodal", "vision"];
 
-pub(super) fn map_failure(status: StatusCode, body: &str) -> GlossError {
+pub(crate) fn map_failure(status: StatusCode, body: &str) -> GlossError {
     match status.as_u16() {
         401 | 403 => GlossError::EngineAuth,
         429 => GlossError::EngineRateLimited,

@@ -250,17 +250,17 @@ mod tests {
         assert_eq!(
             counts,
             vec![
-                (EvalKind::Classify, 22),
+                (EvalKind::Classify, 35),
                 (EvalKind::Task(TaskKind::TranslateWord), 10),
                 (EvalKind::Task(TaskKind::TranslateSentence), 6),
                 (EvalKind::Task(TaskKind::ExplainCode), 3),
                 (EvalKind::Task(TaskKind::General), 3),
             ],
-            "the finalized composition is 22 classify + 10 word + 6 sentence + \
+            "the finalized composition is 35 classify + 10 word + 6 sentence + \
              3 code + 3 general; adding or removing entries is a reviewed dataset \
              change that updates this guard"
         );
-        assert_eq!(cases.len(), 44);
+        assert_eq!(cases.len(), 57);
         assert!(
             cases
                 .iter()
@@ -274,7 +274,11 @@ mod tests {
         let cases = load_curated().expect("the finalized dataset must load");
         for case in &cases {
             let reply = case.reference.reply_json();
-            let (outcome, _) = settle_case(case, &[reply]);
+            let delivered = crate::contract::Delivered {
+                reply: reply.clone(),
+                repairs: 0,
+            };
+            let (outcome, _) = settle_case(case, &[reply], &delivered);
             assert!(
                 !outcome.degraded,
                 "{}: the reference must be a valid product",

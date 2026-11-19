@@ -20,7 +20,7 @@ OVERVIEW_CHAPTER = "## " + OVERVIEW_TITLE
 UNIT_CHAPTER = "## 单元测试"
 
 # 列序：根总纲打头，包清单按仓库分层顺序（与指令文档的目录结构一致），其余文件按名排在后面
-COLUMN_ORDER = ("gloss-core", "gloss-platform", "gloss-app", "gloss-eval", "gloss")
+COLUMN_ORDER = ("gloss-core", "gloss-platform", "gloss-app", "gloss-llm", "gloss-eval", "gloss")
 # 类目行序：与根清单的组织段同源，登记文件里出现额外章名时按名排在标准类目之后
 CATEGORY_ORDER = ("人工测试", "发版人工步骤", "集成测试", "性能测试", "快照测试", "单元测试")
 
