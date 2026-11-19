@@ -260,7 +260,7 @@ fn dim_stat(scores: impl Iterator<Item = f64>) -> DimStat {
     let mut buckets = [0usize; 5];
     scores
         .iter()
-        .for_each(|score| buckets[bucket_of(*score)] += 1);
+        .for_each(|score| record_bucket(&mut buckets, *score));
     DimStat {
         count: scores.len(),
         mean: ratio(scores.iter().sum(), scores.len() as f64),
@@ -270,6 +270,11 @@ fn dim_stat(scores: impl Iterator<Item = f64>) -> DimStat {
             scores.len() as f64,
         ),
     }
+}
+
+#[allow(clippy::indexing_slicing)]
+fn record_bucket(buckets: &mut [usize; 5], score: f64) {
+    buckets[bucket_of(score)] += 1;
 }
 
 fn bucket_of(score: f64) -> usize {

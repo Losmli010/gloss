@@ -17,13 +17,15 @@ pub fn system_locale() -> Locale {
     // UTF-16 units, exactly what the call asks for; the call only writes
     // into it and returns the written length.
     let written = unsafe { GetUserDefaultLocaleName(&mut buffer) };
-    let name = (written > 0).then(|| {
-        let units = &buffer[..written as usize];
-        let length = units
-            .iter()
-            .position(|&unit| unit == 0)
-            .unwrap_or(units.len());
-        String::from_utf16_lossy(&units[..length])
-    });
+    let name = (written > 0)
+        .then(|| buffer.get(..written as usize))
+        .flatten()
+        .map(|units| {
+            let length = units
+                .iter()
+                .position(|&unit| unit == 0)
+                .unwrap_or(units.len());
+            String::from_utf16_lossy(units.get(..length).unwrap_or(&[]))
+        });
     locale_for(name.as_deref())
 }

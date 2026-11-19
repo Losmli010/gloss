@@ -32,7 +32,10 @@ pub(super) fn face_postscript_name(bytes: &[u8], face: usize) -> Option<String> 
         if platform == 3 {
             let units: Vec<u16> = raw
                 .chunks_exact(2)
-                .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+                .filter_map(|pair| {
+                    let [high, low]: [u8; 2] = pair.try_into().ok()?;
+                    Some(u16::from_be_bytes([high, low]))
+                })
                 .collect();
             return String::from_utf16(&units).ok();
         }

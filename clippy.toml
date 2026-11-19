@@ -2,6 +2,8 @@
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
+# 下标与切片在测试代码中放行
+allow-indexing-slicing-in-tests = true
 # 标准输出与标准错误打印在测试代码中放行
 allow-print-in-tests = true
 # 体积上限：函数参数不超过五（自身引用计入）、函数体不超过五十行

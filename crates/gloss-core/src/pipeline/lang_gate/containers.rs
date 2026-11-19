@@ -44,8 +44,8 @@ pub(crate) fn scan_containers(
     let mut stack: Vec<(Open, usize)> = Vec::new();
     let mut unclosed = false;
     let (curly_open, curly_close) = langspec::spec().curly_quotes;
-    for (index, &c) in chars.iter().enumerate() {
-        if masked[index] {
+    for (index, (&c, &is_masked)) in chars.iter().zip(masked.iter()).enumerate() {
+        if is_masked {
             continue;
         }
         if let Some(pair) = paren_pair_of(c, policy.paren_pairs) {
@@ -100,8 +100,10 @@ fn close_container(
     true
 }
 
-pub(crate) fn direct_ranges(containers: &[Container], index: usize) -> Vec<(usize, usize)> {
-    let container = &containers[index];
+pub(crate) fn direct_ranges(
+    containers: &[Container],
+    container: &Container,
+) -> Vec<(usize, usize)> {
     let mut children: Vec<(usize, usize)> = containers
         .iter()
         .filter(|other| other.parent_open == Some(container.open))
@@ -132,11 +134,10 @@ pub(crate) struct ContainerCheck<'a> {
 
 impl Scan {
     pub(crate) fn check(&self, ctx: &ContainerCheck<'_>, violations: &mut Vec<LangViolation>) {
-        for index in 0..self.containers.len() {
-            let is_quote = self.containers[index].is_quote;
-            let direct = subtract_math(&direct_ranges(&self.containers, index), ctx.math);
+        for container in &self.containers {
+            let direct = subtract_math(&direct_ranges(&self.containers, container), ctx.math);
             check_mixing(ctx.policy, ctx.field, ctx.chars, &direct, violations);
-            if !is_quote && ctx.kind == TaskKind::TranslateSentence {
+            if !container.is_quote && ctx.kind == TaskKind::TranslateSentence {
                 check_sentence_parens(ctx.field, ctx.chars, &direct, violations);
             }
         }
@@ -203,7 +204,7 @@ fn check_sentence_parens(
     let last = ranges
         .iter()
         .rev()
-        .flat_map(|&(start, end)| chars[start..end].iter().rev())
+        .flat_map(|&(start, end)| chars.iter().take(end).skip(start).rev())
         .find(|c| !c.is_whitespace())
         .copied();
     let sentence_final = last.is_some_and(|c| langspec::spec().sentence_finals.contains(&c));
@@ -223,23 +224,24 @@ pub(crate) fn script_runs(chars: &[char], ranges: &[(usize, usize)]) -> Vec<Scri
     for &(start, end) in ranges {
         let mut index = start;
         while index < end {
-            if chars[index].is_alphabetic() {
-                let class = script_class(chars[index]);
-                let begin = index;
-                while index < end
-                    && chars[index].is_alphabetic()
-                    && script_class(chars[index]) == class
-                {
-                    index += 1;
-                }
-                runs.push(ScriptRun {
-                    class,
-                    len: index - begin,
-                    end: index,
-                });
-            } else {
+            let Some(&c) = chars.get(index).filter(|c| c.is_alphabetic()) else {
+                index += 1;
+                continue;
+            };
+            let class = script_class(c);
+            let begin = index;
+            while index < end
+                && chars
+                    .get(index)
+                    .is_some_and(|&next| next.is_alphabetic() && script_class(next) == class)
+            {
                 index += 1;
             }
+            runs.push(ScriptRun {
+                class,
+                len: index - begin,
+                end: index,
+            });
         }
     }
     runs

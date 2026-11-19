@@ -88,12 +88,12 @@ fn format_trimmed(value: f64) -> String {
 }
 
 fn nice_ceiling(max: f64) -> f64 {
-    for candidate in QUARTER_CEILINGS {
-        if *candidate >= max {
-            return *candidate;
-        }
+    if let Some(&ceiling) = QUARTER_CEILINGS.iter().find(|&&ceiling| ceiling >= max) {
+        return ceiling;
     }
-    let unit = QUARTER_CEILINGS[QUARTER_CEILINGS.len() - 1];
+    let Some(&unit) = QUARTER_CEILINGS.last() else {
+        return max;
+    };
     (max / unit).ceil() * unit
 }
 

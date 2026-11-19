@@ -181,7 +181,10 @@ fn face_file_path(face: &IDWriteFontFace) -> Result<PathBuf, String> {
     // reference handed to this function.
     unsafe { face.GetFiles(&mut count, Some(files.as_mut_ptr())) }
         .map_err(|err| err.to_string())?;
-    let Some(file) = files[0].take() else {
+    let Some(slot) = files.first_mut() else {
+        return Err("font face has no file references".to_owned());
+    };
+    let Some(file) = slot.take() else {
         return Err("font file slot was not filled".to_owned());
     };
     let mut key: *mut core::ffi::c_void = std::ptr::null_mut();

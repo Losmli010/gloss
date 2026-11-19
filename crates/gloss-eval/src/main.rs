@@ -26,13 +26,17 @@ const REPORT_DIR: &str = "eval-state";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let outcome = match args.first().map(String::as_str) {
-        Some("iterate") => run_iterate_cli(&args[1..]),
-        Some("label") => run_label_cli(&args[1..]),
-        Some("accept") => run_accept_cli(&args[1..]),
-        Some("report") => run_report_cli(&args[1..]),
-        Some("history") => run_history_cli(&args[1..]),
-        Some("gate") => run_gate_cli(&args[1..]),
+    let Some((command, args)) = args.split_first() else {
+        eprintln!("error: {}", usage());
+        std::process::exit(1);
+    };
+    let outcome = match command.as_str() {
+        "iterate" => run_iterate_cli(args),
+        "label" => run_label_cli(args),
+        "accept" => run_accept_cli(args),
+        "report" => run_report_cli(args),
+        "history" => run_history_cli(args),
+        "gate" => run_gate_cli(args),
         _ => Err(usage().into()),
     };
     if let Err(error) = outcome {
@@ -76,8 +80,8 @@ fn run_iterate_cli(args: &[String]) -> Result<(), String> {
     let mut judge = true;
     let mut limit = None;
     let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
             "--no-judge" => judge = false,
             "--limit" => {
                 limit = Some(parse_usize(args, index, "--limit")?);
@@ -112,8 +116,8 @@ fn run_iterate_cli(args: &[String]) -> Result<(), String> {
 fn run_label_cli(args: &[String]) -> Result<(), String> {
     let mut import: Option<PathBuf> = None;
     let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
             "--import" => {
                 let Some(value) = args.get(index + 1) else {
                     return Err("--import needs a file".into());
@@ -204,8 +208,8 @@ fn run_gate_cli(args: &[String]) -> Result<(), String> {
     let mut judge = false;
     let mut limit = 8usize;
     let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
             "--judge" => judge = true,
             "--limit" => {
                 limit = parse_usize(args, index, "--limit")?;

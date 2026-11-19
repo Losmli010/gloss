@@ -109,8 +109,9 @@ impl ChangeMonitor {
 }
 
 fn keys_to_release(sequence: &[(u16, bool, u64)], index: usize) -> Vec<u16> {
-    sequence[..index]
+    sequence
         .iter()
+        .take(index)
         .rev()
         .filter(|(_, key_down, _)| *key_down)
         .map(|(key, _, _)| *key)

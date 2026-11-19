@@ -127,7 +127,7 @@ pub(crate) fn math_ranges(text: &FieldText) -> Vec<(usize, usize)> {
         }
         match open {
             Some((open_block, open_at))
-                if open_block == block && text.node[open_at] == text.node[index] =>
+                if open_block == block && text.node.get(open_at) == text.node.get(index) =>
             {
                 ranges.push((open_at, index + width));
                 open = None;
@@ -140,7 +140,7 @@ pub(crate) fn math_ranges(text: &FieldText) -> Vec<(usize, usize)> {
 }
 
 fn delimiter_at(text: &FieldText, index: usize) -> Option<(bool, usize)> {
-    if text.chars[index] != '$' {
+    if text.chars.get(index) != Some(&'$') {
         return None;
     }
     if text.chars.get(index + 1) == Some(&'$') {

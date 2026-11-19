@@ -81,18 +81,23 @@ impl BodyCheck<'_> {
             return false;
         }
         let (start, end) = self.term_token_bounds(start, end);
-        spec.bare_terms
-            .iter()
-            .any(|term| self.chars[start..end].iter().copied().eq(term.chars()))
+        spec.bare_terms.iter().any(|term| {
+            self.chars
+                .iter()
+                .take(end)
+                .skip(start)
+                .copied()
+                .eq(term.chars())
+        })
     }
 
     fn term_token_bounds(&self, start: usize, end: usize) -> (usize, usize) {
         let mut lo = start;
-        while lo > 0 && is_term_char(self.chars[lo - 1]) {
+        while lo > 0 && self.chars.get(lo - 1).copied().is_some_and(is_term_char) {
             lo -= 1;
         }
         let mut hi = end;
-        while hi < self.chars.len() && is_term_char(self.chars[hi]) {
+        while self.chars.get(hi).copied().is_some_and(is_term_char) {
             hi += 1;
         }
         (lo, hi)
@@ -100,13 +105,18 @@ impl BodyCheck<'_> {
 
     fn check_punct(&self, violations: &mut Vec<LangViolation>) {
         for &(start, end) in self.ranges {
-            for index in start..end {
-                let c = self.chars[index];
+            for (index, &c) in self.chars.iter().enumerate().take(end).skip(start) {
                 if c.is_whitespace() || c.is_alphanumeric() || self.is_delimiter(c) {
                     continue;
                 }
-                if is_attached_symbol(self.lang, self.chars, index)
-                    || is_dash_or_ellipsis(self.chars, index)
+                let prev = if index == 0 {
+                    None
+                } else {
+                    self.chars.get(index - 1)
+                };
+                let next = self.chars.get(index + 1);
+                if is_attached_symbol(self.lang, c, prev, next)
+                    || is_dash_or_ellipsis(c, prev, next)
                 {
                     continue;
                 }
@@ -134,8 +144,14 @@ impl BodyCheck<'_> {
 
     fn check_pangu(&self, violations: &mut Vec<LangViolation>) {
         for &(start, end) in self.ranges {
-            for index in start..end.saturating_sub(1) {
-                let (left, right) = (self.chars[index], self.chars[index + 1]);
+            for (index, (&left, &right)) in self
+                .chars
+                .iter()
+                .zip(self.chars.iter().skip(1))
+                .enumerate()
+                .take(end.saturating_sub(1))
+                .skip(start)
+            {
                 let (han_at, west_at) = if is_han(left) && right.is_ascii_alphanumeric() {
                     (index, index + 1)
                 } else if left.is_ascii_alphanumeric() && is_han(right) {
@@ -160,13 +176,23 @@ impl BodyCheck<'_> {
     ) -> bool {
         let (seg_start, seg_end) = if west_at > han_at {
             let mut seg_end = west_at + 1;
-            while seg_end < end && self.chars[seg_end].is_ascii_alphanumeric() {
+            while seg_end < end
+                && self
+                    .chars
+                    .get(seg_end)
+                    .is_some_and(char::is_ascii_alphanumeric)
+            {
                 seg_end += 1;
             }
             (west_at, seg_end)
         } else {
             let mut seg_start = west_at;
-            while seg_start > start && self.chars[seg_start - 1].is_ascii_alphanumeric() {
+            while seg_start > start
+                && self
+                    .chars
+                    .get(seg_start - 1)
+                    .is_some_and(char::is_ascii_alphanumeric)
+            {
                 seg_start -= 1;
             }
             (seg_start, west_at + 1)
@@ -176,12 +202,12 @@ impl BodyCheck<'_> {
         }
         let mut index = seg_start;
         while index < seg_end {
-            if !self.chars[index].is_ascii_alphabetic() {
+            if !self.chars.get(index).is_some_and(char::is_ascii_alphabetic) {
                 index += 1;
                 continue;
             }
             let begin = index;
-            while index < seg_end && self.chars[index].is_ascii_alphabetic() {
+            while index < seg_end && self.chars.get(index).is_some_and(char::is_ascii_alphabetic) {
                 index += 1;
             }
             if index - begin >= 2 || self.chars.get(index) == Some(&'.') {
@@ -194,7 +220,7 @@ impl BodyCheck<'_> {
     fn check_emoji(&self, violations: &mut Vec<LangViolation>) {
         let spec = langspec::spec();
         let flagged = self.ranges.iter().any(|&(start, end)| {
-            self.chars[start..end].iter().any(|&c| {
+            self.chars.iter().take(end).skip(start).any(|&c| {
                 is_emoji(c) || spec.emoji_bare.contains(&c) || spec.emoji_variants.contains(&c)
             })
         });
@@ -204,15 +230,13 @@ impl BodyCheck<'_> {
     }
 }
 
-fn is_attached_symbol(lang: &LangPolicy, chars: &[char], index: usize) -> bool {
+fn is_attached_symbol(
+    lang: &LangPolicy,
+    c: char,
+    prev: Option<&char>,
+    next: Option<&char>,
+) -> bool {
     let spec = langspec::spec();
-    let c = chars[index];
-    let prev = if index == 0 {
-        None
-    } else {
-        chars.get(index - 1)
-    };
-    let next = chars.get(index + 1);
     if lang.attached_after_digit.contains(&c) && prev.is_some_and(char::is_ascii_digit) {
         return true;
     }
@@ -224,21 +248,14 @@ fn is_attached_symbol(lang: &LangPolicy, chars: &[char], index: usize) -> bool {
     digits_around && spec.attached_between_digits.contains(&c)
 }
 
-fn is_dash_or_ellipsis(chars: &[char], index: usize) -> bool {
+fn is_dash_or_ellipsis(c: char, prev: Option<&char>, next: Option<&char>) -> bool {
     let spec = langspec::spec();
-    let c = chars[index];
     if spec.dash_ellipsis.contains(&c) {
         return true;
     }
     if c != '-' && c != '.' {
         return false;
     }
-    let prev = if index == 0 {
-        None
-    } else {
-        chars.get(index - 1)
-    };
-    let next = chars.get(index + 1);
     prev == Some(&c) || next == Some(&c)
 }
 
