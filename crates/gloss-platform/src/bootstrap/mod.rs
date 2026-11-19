@@ -77,7 +77,7 @@ impl Platform {
                 app_icon: Box::new(crate::appearance::SystemAppIcon::new()),
                 desktop_shortcut: Box::new(crate::shortcut::SystemDesktopShortcut),
                 menu: Box::new(crate::menu::SystemMenuController),
-                clipboard: Box::new(crate::clipboard::SystemClipboardWriter),
+                clipboard: Box::new(crate::common::clipboard::SystemClipboardWriter),
                 permission: Box::new(crate::permissions::SystemPermissionProbe),
             },
             host: EventHost {
@@ -128,7 +128,13 @@ impl EventHost {
         P: Send + 'static,
         F: FnMut(C, &crate::events::EventSink<E, P>) + Send + 'static,
     {
-        self.event_thread = Some(crate::events::spawn(commands, sink, on_command, sources));
+        self.event_thread = Some(crate::event_thread::spawn(
+            crate::events::run_loop::<C, E, P, F>,
+            commands,
+            sink,
+            on_command,
+            sources,
+        ));
     }
 }
 
