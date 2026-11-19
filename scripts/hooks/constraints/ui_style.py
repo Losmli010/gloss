@@ -110,8 +110,8 @@ def engine_hits(
 
 
 def production_cutoff(text: str) -> int:
-    """生产代码的行号上限：首个列零的测试模块标记所在行（不含），与行数
-    上限检查同一口径；返回值比任何生产行号都大表示没有测试模块。"""
+    """生产代码的行号上限：首个列零的测试模块标记所在行（不含），本域职责
+    只是豁免内联测试；返回值比任何生产行号都大表示没有测试模块。"""
     for no, line in enumerate(text.split("\n"), 1):
         if line.startswith(TEST_MODULE_MARKER):
             return no
