@@ -79,6 +79,14 @@
   因契约降级或故障跳过同样置空——空分布无均值可算，是计划两条置空条件
   的必然超集，避免了 count=0 的 0/0 均值。
 
+## record_bucket / bucket_of
+
+- 评分直方图计数：`bucket_of` 全域映射恒在 0..=4（末臂兜底），与五档数组
+  长度相配。`record_bucket` 保留下标自增并挂
+  `#[allow(clippy::indexing_slicing)]`（2026-11-20，架构重构 C2，崩溃家族
+  门禁）——缘由：档位函数恒在界内，改 `get_mut` 的不可能分支兜底会把出
+  界静默丢样本（分布数字失真无痕迹），比崩溃更不可察觉，故取显式放行。
+
 ## valid_rate / regression_pass_rate / label_pass_rate
 
 - 三率的唯一出口（检视页指标表、柱状图与趋势序列共用）；分母恒为组内

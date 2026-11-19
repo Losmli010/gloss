@@ -45,7 +45,9 @@ impl Latency {
         let lower = index.floor() as usize;
         let upper = index.ceil() as usize;
         let weight = index - lower as f64;
-        Some(self.samples_ms[lower] * (1.0 - weight) + self.samples_ms[upper] * weight)
+        let lower_value = *self.samples_ms.get(lower)?;
+        let upper_value = *self.samples_ms.get(upper)?;
+        Some(lower_value * (1.0 - weight) + upper_value * weight)
     }
 }
 
@@ -74,10 +76,7 @@ pub async fn run(
     options: ExecuteOptions,
 ) -> Result<ExecuteRun, String> {
     let cases = load_curated()?;
-    let selected = match options.limit {
-        Some(limit) => &cases[..limit.min(cases.len())],
-        None => &cases[..],
-    };
+    let selected = cases.iter().take(options.limit.unwrap_or(cases.len()));
     let model = config.snapshot().model.clone();
     let ctx = RunCtx {
         engine: engine.as_ref(),

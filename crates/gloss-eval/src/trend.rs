@@ -151,6 +151,16 @@ fn svg_height(panels: usize) -> usize {
     }
 }
 
+fn x_positions(count: usize) -> Vec<f64> {
+    if count <= 1 {
+        return vec![(PLOT_LEFT + PLOT_RIGHT) / 2.0];
+    }
+    let step = (PLOT_RIGHT - PLOT_LEFT - 2.0 * X_INSET) / (count - 1) as f64;
+    (0..count)
+        .map(|index| PLOT_LEFT + X_INSET + index as f64 * step)
+        .collect()
+}
+
 fn esc(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
