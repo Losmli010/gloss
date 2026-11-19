@@ -203,7 +203,7 @@ RESOURCES_PANELS = (
 
 
 def hotpath_panels() -> tuple[dict[str, Any], ...]:
-    """热点四组（core）加克隆两面板（clone）；面板标识（id）与用例全部取自注册表，基准增删时同步登记文件（metrics.py）。"""
+    """热点六组加克隆两面板（clone）；面板标识（id）与用例全部取自注册表，基准增删时同步登记文件（metrics.py）。"""
     panels = [
         {
             "title": f"{label} ({gid} · log axis)",

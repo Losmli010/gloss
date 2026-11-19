@@ -1358,9 +1358,7 @@ dependencies = [
 name = "gloss"
 version = "0.2.11"
 dependencies = [
- "criterion",
  "crossbeam-channel",
- "egui",
  "gloss-app",
  "gloss-core",
  "gloss-llm",
@@ -1378,6 +1376,7 @@ version = "0.2.11"
 dependencies = [
  "core-foundation 0.10.1",
  "core-text",
+ "criterion",
  "crossbeam-channel",
  "egui",
  "egui-wgpu",
@@ -1414,6 +1413,7 @@ name = "gloss-core"
 version = "0.2.11"
 dependencies = [
  "arc-swap",
+ "criterion",
  "futures",
  "futures-core",
  "pulldown-cmark",
@@ -1445,6 +1445,7 @@ version = "0.2.11"
 dependencies = [
  "base64 0.23.1",
  "bytes",
+ "criterion",
  "futures",
  "futures-core",
  "gloss-core",

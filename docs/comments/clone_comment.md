@@ -1,7 +1,7 @@
-# benches/clone.rs 决策记录
+# crates/gloss-app/benches/clone.rs 决策记录
 
 > 按符号锚定（不写行号，防漂移）。改到相关代码时同步更新本文件。
-> 本文件随仓库跟踪（docs/comments/ 入库），文件内不留指向本文件的指针。
+> 本文件随仓库跟踪（docs/comments/ 入库），改名与合并用 git mv 保留历史；文件内不留指向本文件的指针。
 
 ## 测量机制（2026-10-05）
 
@@ -14,13 +14,11 @@
 - 计数器用 `try_with` 而非 `with`：全局分配器在线程析构期仍可能被调，TLS 已毁时
   静默放弃该次计数（少计无害，panic 才有害）。
 
-## 热点选取（2026-10-05）
+## 热点选取（2026-10-05，沿革见文末）
 
-- 五组热点对应 clone 分布的头部（见 scripts/baselines/clone-stats.json）：设置窗
+- 四组热点对应 clone 分布的头部（静态计数口径见 clone-stats.py）：设置窗
   一帧（settings.rs，静态计数最高）、浮层一帧（popup.rs，逐帧可见路径）、状态机
-  任务周期（machine.rs，每次划词一次）、事件去向判定（trigger_decision，每次手势
-  一次）、文案表错误映射（i18n.rs，错误卡逐帧）。`machine/trigger` 预期零分配——
-  基线同时是“此路径保持零分配”的契约锚。
+  任务周期（machine.rs，每次划词一次）、文案表错误映射（i18n.rs，错误卡逐帧）。
 - UI 帧的测量对象是**整帧**（含 egui 内部簿记），不是逐个 clone：clone 删减在这
   个总量里显形，且不必随实现重构改基准。帧驱动用 `run_ui`（0.36 的无头入口，
   直给根 `Ui`，无 wgpu/winit）。
@@ -31,7 +29,7 @@
   进测量窗口躲不掉，内联进 `b.iter` 让口径自明（基准文档注明）；其余热点输入全部
   循环外构造。输入构造里没有 `.clone()` 调用（全是 `to_owned()` 字面量），与被测
   热点的 clone 减量不混叠。
-- `let-else` 处理 `begin_selection_probe` 的不可能分支（State 机刚 new 必返回
+- `let-else` 处理 `begin_probe` 的不可能分支（State 机刚 new 必返回
   Some）：返回即跳过该次迭代，不 panic（工作区 lints 在 benches 同样 deny panic
   家族）。
 
@@ -40,3 +38,10 @@
 - 需要 `pub` 的最小面：`ui::i18n`（`Text`/`get`/`for_error`/`for_error_detail`）、
   `ui::settings::draw`、`ui::popup::draw`/`RenderState`/`PopupOutput`。取舍与修订
   缘由记在 i18n_comment.md / settings_comment.md / popup_comment.md。
+
+## 沿革
+
+- 2026-11-20 基准随包落位（方案 D7 前半）：本基准自根包 benches/clone.rs 迁入
+  主线程应用层（gloss-app），组名与用例名不变（趋势编号连续）；事件去向判定
+  一组（`machine/trigger`，其零分配契约锚）已在此前的状态机收敛中随用例移除，
+  五组热点并为四组；探测入口随 D1 收敛更名为 `begin_probe`。

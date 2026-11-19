@@ -69,19 +69,25 @@ BUDGET_CONSTS = {
     "overlay.rss_tail_growth_kb": BudgetConst("tests/overlay.rs", "RSS_TAIL_GROWTH_BUDGET_KB"),
 }
 
-# 四组用例与基准文件一一对应，基准增删用例时同步这里；
-# 编号取基准框架的全名前缀，即组名点用例名。
+# 六组用例与各包基准目标一一对应（基准随包落位：核心库提示词与语言门、应用层缓存键
+# 与任务缓存、应用层完成态解析、传输分包流式解码；克隆两组另走分配计量不在此列），
+# 基准增删用例时同步这里；编号取基准框架的全名前缀，即组名点用例名；编号的核心
+# 前缀（core.）沿落位前的基准目标名沿用，趋势历史按编号连续，不随基准目标迁移改写。
 CORE_GROUPS = (
     ("cache_key", "cache key"),
     ("complete", "structured parse"),
     ("prompt_render", "prompt render"),
     ("task_cache", "task cache"),
+    ("lang_gate", "lang gate"),
+    ("sse_decode", "sse decode"),
 )
 CORE_CASES = {
     "cache_key": ("text/short", "text/long", "image/1mb", "image/4mb"),
     "complete": ("word_card/ok", "word_card/many_examples", "long_note/ok", "prose/degraded"),
     "prompt_render": ("word/short", "code/long"),
     "task_cache": ("get/hit", "get/miss", "set/same_key", "set/new_key"),
+    "lang_gate": ("word_card/clean", "sentence/overlap", "sentence/long", "code/containers"),
+    "sse_decode": ("stream/one_push", "stream/chunk_64b", "stream/chunk_1b", "line/limit_breach"),
 }
 
 

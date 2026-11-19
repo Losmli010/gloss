@@ -5,6 +5,12 @@ edition.workspace = true
 description = "Gloss 传输适配器：实现核心层引擎端口（AiEngine）的大语言模型流式客户端"
 license.workspace = true
 
+# 流式事件解码热点基准：基准框架（criterion）独立目标，经路径属性并入生产源
+# 文件（解码器住库内私有实现），经基准配方运行
+[[bench]]
+harness = false
+name = "sse"
+
 [dependencies]
 # 请求体组装的图像部件编码（开放接口（OpenAI）方言）：位图（PNG）字节经编码
 # （base64）为载荷；域类型只携带原始字节，编码只发生在请求体构造处。
@@ -36,6 +42,8 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["time"] }
 
 [dev-dependencies]
+# 基准框架；特性只保留基准支持面。
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 # 测试桩（按路径属性并入的共享桩库）的流工具与异步测试面：流式消费用流工具，
 # 异步测试跑异步测试宏；测试工具特性供虚拟时钟（空闲超时、重试退避与线级
 # 集成测试的确定性等待）。
