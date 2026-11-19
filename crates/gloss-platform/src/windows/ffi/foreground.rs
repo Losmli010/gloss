@@ -56,5 +56,8 @@ pub(crate) fn foreground_image_name() -> Option<(String, u32)> {
     if len == 0 {
         return None;
     }
-    Some((String::from_utf16_lossy(&buffer[..len as usize]), pid))
+    Some((
+        String::from_utf16_lossy(buffer.get(..len as usize).unwrap_or(&[])),
+        pid,
+    ))
 }

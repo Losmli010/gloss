@@ -27,8 +27,9 @@ pub(crate) fn copy_sequence() -> [(u16, bool); 4] {
 }
 
 pub(crate) fn releases_before(sequence: &[(u16, bool)], index: usize) -> Vec<u16> {
-    sequence[..index]
+    sequence
         .iter()
+        .take(index)
         .rev()
         .filter(|(_, key_down)| !*key_down)
         .map(|(key, _)| *key)

@@ -33,13 +33,13 @@ fn dib_pixel_offset(dib: &[u8]) -> Option<u32> {
     if dib.len() < 40 {
         return None;
     }
-    let header_size = u32::from_le_bytes(dib[0..4].try_into().ok()?);
+    let header_size = u32::from_le_bytes(dib.get(0..4)?.try_into().ok()?);
     if !(40..=124).contains(&header_size) || dib.len() < header_size as usize {
         return None;
     }
-    let bit_count = u16::from_le_bytes(dib[14..16].try_into().ok()?);
-    let compression = u32::from_le_bytes(dib[16..20].try_into().ok()?);
-    let colors_used = u32::from_le_bytes(dib[32..36].try_into().ok()?);
+    let bit_count = u16::from_le_bytes(dib.get(14..16)?.try_into().ok()?);
+    let compression = u32::from_le_bytes(dib.get(16..20)?.try_into().ok()?);
+    let colors_used = u32::from_le_bytes(dib.get(32..36)?.try_into().ok()?);
     let mut offset = header_size;
     if bit_count <= 8 {
         let entries = if colors_used == 0 {
