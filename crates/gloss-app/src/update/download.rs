@@ -227,6 +227,7 @@ fn artifact_file_name(url: &str) -> Result<String, DownloadError> {
     Ok(name)
 }
 
+#[allow(clippy::indexing_slicing)]
 async fn sha256_hex_file(path: &Path) -> Result<String, DownloadError> {
     use sha2::Digest;
     let mut file = tokio::fs::File::open(path)
