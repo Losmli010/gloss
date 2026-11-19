@@ -172,7 +172,7 @@ fn overlap_body(
     };
     let mut out = String::new();
     for &(start, end) in ranges {
-        for &c in &chars[start..end] {
+        for &c in chars.iter().take(end).skip(start) {
             if body.is_delimiter(c) {
                 continue;
             }

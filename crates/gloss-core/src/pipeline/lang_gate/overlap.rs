@@ -43,33 +43,27 @@ fn fold(text: &str) -> String {
 
 fn char_grams(stripped: &str) -> HashSet<String> {
     let chars: Vec<char> = stripped.chars().collect();
-    if chars.len() < OVERLAP_MIN_CHARS {
-        return HashSet::new();
-    }
-    (0..=chars.len() - OVERLAP_MIN_CHARS)
-        .map(|start| chars[start..start + OVERLAP_MIN_CHARS].iter().collect())
+    chars
+        .windows(OVERLAP_MIN_CHARS)
+        .map(|window| window.iter().collect())
         .collect()
 }
 
 fn word_grams(folded: &str) -> HashSet<String> {
     let words: Vec<&str> = words_of(folded).collect();
-    if words.len() < OVERLAP_MIN_WORDS {
-        return HashSet::new();
-    }
-    (0..=words.len() - OVERLAP_MIN_WORDS)
-        .map(|start| words[start..start + OVERLAP_MIN_WORDS].join(" "))
+    words
+        .windows(OVERLAP_MIN_WORDS)
+        .map(|window| window.join(" "))
         .collect()
 }
 
 fn window_hits(stripped: &str, width: usize, hits: impl Fn(&str) -> bool) -> bool {
-    let chars: Vec<char> = stripped.chars().collect();
-    if chars.len() < width {
-        return false;
-    }
-    (0..=chars.len() - width).any(|start| {
-        let gram: String = chars[start..start + width].iter().collect();
-        hits(&gram)
-    })
+    stripped
+        .chars()
+        .collect::<Vec<_>>()
+        .windows(width)
+        .map(|window| window.iter().collect::<String>())
+        .any(|gram| hits(&gram))
 }
 
 fn word_window_hits(folded: &str, word_grams: &HashSet<String>) -> bool {
@@ -77,11 +71,9 @@ fn word_window_hits(folded: &str, word_grams: &HashSet<String>) -> bool {
         return false;
     }
     let words: Vec<&str> = words_of(folded).collect();
-    if words.len() < OVERLAP_MIN_WORDS {
-        return false;
-    }
-    (0..=words.len() - OVERLAP_MIN_WORDS)
-        .any(|start| word_grams.contains(&words[start..start + OVERLAP_MIN_WORDS].join(" ")))
+    words
+        .windows(OVERLAP_MIN_WORDS)
+        .any(|window| word_grams.contains(&window.join(" ")))
 }
 
 fn words_of(folded: &str) -> impl Iterator<Item = &str> {

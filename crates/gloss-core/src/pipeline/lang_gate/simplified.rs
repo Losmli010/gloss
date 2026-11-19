@@ -14,9 +14,13 @@ pub(crate) fn check_simplified(
     violations: &mut Vec<LangViolation>,
 ) {
     let table = table();
-    let flagged = ranges
-        .iter()
-        .any(|&(start, end)| chars[start..end].iter().any(|&c| table.contains_key(&c)));
+    let flagged = ranges.iter().any(|&(start, end)| {
+        chars
+            .iter()
+            .take(end)
+            .skip(start)
+            .any(|&c| table.contains_key(&c))
+    });
     if flagged {
         violations.push(LangViolation::new(field, LangCategory::TraditionalChar));
     }
@@ -28,7 +32,10 @@ fn table() -> &'static HashMap<char, char> {
         let chars: Vec<char> = super::char_map::pairs().chars().collect();
         chars
             .chunks_exact(2)
-            .map(|pair| (pair[0], pair[1]))
+            .filter_map(|pair| {
+                let [open, close]: [char; 2] = pair.try_into().ok()?;
+                Some((open, close))
+            })
             .collect()
     })
 }
