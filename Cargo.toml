@@ -70,16 +70,6 @@ name = "overlay"
 harness = false
 name = "startup"
 
-# 热点基准：基准框架（criterion）四组，分别对应缓存键、结果完成、提示渲染与任务缓存
-[[bench]]
-harness = false
-name = "core"
-
-# 克隆热点基准：基准框架（criterion）自定义测量，两组分别计分配次数与分配字节
-[[bench]]
-harness = false
-name = "clone"
-
 [dependencies]
 # 组装段持有通道对端与异步运行时（tokio）接收端，类型在此命名。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
@@ -99,10 +89,6 @@ tokio = { version = "1", default-features = false, features = ["sync"] }
 # 文档注释里的示例由构建工具（cargo）的文档测试验证可编译可运行，属完整测试的一部分；
 # 无文档注释的公开项不受影响。
 [dev-dependencies]
-# 基准框架；特性只保留基准支持面。
-criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
-# 克隆基准的无头帧驱动；版本与应用包（gloss-app）同批。
-egui = { version = "0.36.2", default-features = false, features = ["default_fonts"] }
 # 自检标准错误结构化信号行的数据格式（JSON）序列化。
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # 三层显隐自检直接驱动窗口库（winit）窗口栈。

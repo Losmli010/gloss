@@ -34,7 +34,7 @@ def test_free_standing_record_passes() -> None:
 
 def test_suffix_residue_and_disguise_flagged() -> None:
     tracked = CLEAN_REPO + [
-        "benches/clone.rs",
+        "crates/gloss-app/benches/clone.rs",
         "docs/comments/main.rs_comment.md",
         "docs/comments/clone_rs_comment.md",
     ]

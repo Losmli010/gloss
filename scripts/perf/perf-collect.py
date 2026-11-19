@@ -141,7 +141,7 @@ def read_full_id(bench_dir: Path, fallback: str) -> str:
 
 
 def collect_core() -> dict[str, int]:
-    """基准框架（criterion）核心（core）墙钟折成核心指标映射（core.<full_id> 到 mean_ns），只收注册表已登记标识（id）。"""
+    """基准框架（criterion）各包基准的墙钟折成指标映射（core.<full_id> 到 mean_ns），只收注册表已登记标识（id）。"""
     metrics = {}
     for group, _label in CORE_GROUPS:
         for estimates in sorted(CRIT_ROOT.glob(f"{group}/*/new/estimates.json")):

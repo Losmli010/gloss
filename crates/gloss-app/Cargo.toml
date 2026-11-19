@@ -5,6 +5,21 @@ edition.workspace = true
 description = "Gloss 表现层与应用层：状态机 + 渲染胶水"
 license.workspace = true
 
+# 任务缓存热点基准：基准框架（criterion）独立目标，经基准配方运行
+[[bench]]
+harness = false
+name = "cache"
+
+# 完成态解析热点基准：基准框架（criterion）独立目标，经基准配方运行
+[[bench]]
+harness = false
+name = "finalize"
+
+# 克隆热点基准：基准框架（criterion）自定义测量，两组分别计分配次数与分配字节
+[[bench]]
+harness = false
+name = "clone"
+
 [dependencies]
 # 通道 1、2、4 用并发通道（crossbeam）：多生产多消费队列，主线程非阻塞取用。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
@@ -147,6 +162,8 @@ winit = {
 }
 
 [dev-dependencies]
+# 基准框架；特性只保留基准支持面。
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 # 第二层浮层测试（L2）：无障碍树查询与点击，图形后端（wgpu）渲染快照。
 egui_kittest = {
   version = "0.36",
