@@ -41,7 +41,10 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
         return 0.0;
     }
     let rank = ((p / 100.0) * sorted.len() as f64).ceil() as usize;
-    sorted[(rank.max(1) - 1).min(sorted.len() - 1)]
+    sorted
+        .get((rank.max(1) - 1).min(sorted.len() - 1))
+        .copied()
+        .unwrap_or(0.0)
 }
 
 fn perf_commit() -> String {
