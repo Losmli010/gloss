@@ -24,21 +24,6 @@ pub mod mouse;
 
 pub use crate::event_thread::{EventSink, EventSource, EventSources, EventThread};
 
-pub fn spawn<C, E, P, F>(
-    commands: Receiver<C>,
-    sink: EventSink<E, P>,
-    on_command: F,
-    sources: EventSources<P>,
-) -> EventThread
-where
-    C: Send + 'static,
-    E: Send + 'static,
-    P: Send + 'static,
-    F: FnMut(C, &EventSink<E, P>) + Send + 'static,
-{
-    crate::event_thread::spawn(run_loop::<C, E, P, F>, commands, sink, on_command, sources)
-}
-
 struct LoopState<C, E, P, F> {
     commands: Receiver<C>,
     sink: EventSink<E, P>,
@@ -107,7 +92,7 @@ where
     Some(timer)
 }
 
-fn run_loop<C, E, P, F>(
+pub(crate) fn run_loop<C, E, P, F>(
     commands: Receiver<C>,
     sink: EventSink<E, P>,
     on_command: F,
@@ -174,7 +159,8 @@ mod tests {
         let (plat_tx, plat_rx) = unbounded::<()>();
         drop(plat_rx);
 
-        let thread = spawn(
+        let thread = crate::event_thread::spawn(
+            run_loop,
             cmd_rx,
             EventSink::new(ev_tx, plat_tx, || {}),
             echo,
@@ -202,7 +188,8 @@ mod tests {
         let (plat_tx, plat_rx) = unbounded::<()>();
         drop(plat_rx);
 
-        let thread = spawn(
+        let thread = crate::event_thread::spawn(
+            run_loop,
             cmd_rx,
             EventSink::new(ev_tx, plat_tx, || {}),
             echo,
@@ -227,7 +214,8 @@ mod tests {
         let (src_tx, src_rx) = unbounded::<()>();
 
         let source: Box<dyn EventSource<()>> = Box::new(move || src_rx.try_iter().collect());
-        let thread = spawn(
+        let thread = crate::event_thread::spawn(
+            run_loop,
             cmd_rx,
             EventSink::new(ev_tx, plat_tx.clone(), || {}),
             echo,
@@ -253,7 +241,8 @@ mod tests {
         let (plat_tx, plat_rx) = unbounded::<()>();
         drop(plat_rx);
 
-        let thread = spawn(
+        let thread = crate::event_thread::spawn(
+            run_loop,
             cmd_rx,
             EventSink::new(ev_tx, plat_tx, || {}),
             |command: TestCommand, sink: &Sink| {
@@ -286,7 +275,8 @@ mod tests {
             }
             ok_rx.try_iter().collect()
         });
-        let thread = spawn(
+        let thread = crate::event_thread::spawn(
+            run_loop,
             cmd_rx,
             EventSink::new(ev_tx, plat_tx.clone(), || {}),
             echo,

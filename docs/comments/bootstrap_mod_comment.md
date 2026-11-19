@@ -59,3 +59,16 @@
 - `connect` 的构造体仍只写一份（跨平台共享）：`ports` 与 `host` 两个子
   结构在同一个构造表达式里装配，平台镜像实现经重新导出的模块路径取用，
   构造只做廉价装配的既有口径不变。
+
+## 共享件绑定收口（2026-11-20，整体终审意见随动）
+
+- 剪贴板写入端口实现的上移：`SystemClipboardWriter` 两侧镜像收进平台中立
+  共享层（`common::clipboard`）后，`connect` 的构造体改从共享路径取
+  （`crate::common::clipboard::SystemClipboardWriter`）——两侧零差异的实
+  现不再经平台目录的类型名中转；有平台差异的适配器（场景探针、菜单、权
+  限探针等）仍经重新导出模块路径取用，口径不变。
+- 事件线程装配的绑定收口：`spawn_event_thread` 直接以
+  `crate::events::run_loop`（两侧同名镜像的运行循环宿主）注入事件线程骨
+  架的 `spawn`，两侧 events/mod.rs 逐字相同的 `spawn` 包装随之删除——绑
+  定只在装配契约写一份，与“构造体只写一份”的既有口径同向；`run_loop`
+  可见性升为 `pub(crate)` 供装配路径解析。

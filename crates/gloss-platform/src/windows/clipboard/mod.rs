@@ -1,17 +1,17 @@
-//! 剪贴板：文本写入、图像格式的存在性判定、数据读取与快照恢复的查询面。
+//! 剪贴板：图像格式的存在性判定、数据读取与快照恢复的查询面。
 //!
-//! 双栈分工对齐系统（macOS）实现：文本写入走跨平台兜底库（其系统
-//! （Windows）面就是剪贴板接口（Win32）的文本格式封装，与恢复序列同一
-//! 写入口径）；图像不走兜底库——其读图无尺寸设界且不认位图（DIB）家族，
-//! 取材经外部函数接口（FFI）模块直读剪贴板接口（Win32）：便携式网络图形
-//! （PNG）注册格式、版本 5 位图（CF_DIBV5）与位图（CF_DIB）按优先序取
-//! 首个在板格式的数据字节（字节上限在锁页与拷贝之前判定）；剪贴板兜底
-//! 读取的快照恢复另走同面：图像多格式收在一次开板窗口内逐个捕获原始字
-//! 节（同一代板内容），恢复时开板清板后原格式原字节放回（图像内容不经
-//! 解码重编码，写回字节即捕获字节；写回按剪贴板序列号的真实跳变数自报，
-//! 供轮次写盘归因对齐哨兵口径）。哨兵与取材读取器共用序列号与图像存在
-//! 性两个纯查询（序列号是系统（macOS）变更计数的对应物）；两侧同在平台
-//! 事件线程上运行，同线程顺序消费。
+//! 双栈分工对齐系统（macOS）实现：文本写入住平台中立共享层
+//! （common::clipboard）的跨平台兜底库路径；图像不走兜底库——其读图无尺
+//! 寸设界且不认位图（DIB）家族，取材经外部函数接口（FFI）模块直读剪贴
+//! 板接口（Win32）：便携式网络图形（PNG）注册格式、版本 5 位图
+//! （CF_DIBV5）与位图（CF_DIB）按优先序取首个在板格式的数据字节（字节
+//! 上限在锁页与拷贝之前判定）；剪贴板兜底读取的快照恢复另走同面：图像
+//! 多格式收在一次开板窗口内逐个捕获原始字节（同一代板内容），恢复时开
+//! 板清板后原格式原字节放回（图像内容不经解码重编码，写回字节即捕获字
+//! 节；写回按剪贴板序列号的真实跳变数自报，供轮次写盘归因对齐哨兵口
+//! 径）。哨兵与取材读取器共用序列号与图像存在性两个纯查询（序列号是
+//! 系统（macOS）变更计数的对应物）；两侧同在平台事件线程上运行，同线
+//! 程顺序消费。
 //!
 //! 日志红线：图像只记字节数与像素尺寸，内容与字节永不落日志、不落盘、
 //! 不进错误消息。
@@ -24,19 +24,7 @@ pub use watch::{
     ClipboardWatchSource, PasteboardImageObserved, PasteboardObserver, RoundWrites, WatchRoundFlag,
 };
 
-use gloss_core::ports::ClipboardWriter;
-
 use crate::ffi::board::{self, FormatData};
-
-pub struct SystemClipboardWriter;
-
-impl ClipboardWriter for SystemClipboardWriter {
-    fn copy_text(&self, text: &str) -> Result<(), String> {
-        arboard::Clipboard::new()
-            .and_then(|mut clipboard| clipboard.set_text(text.to_owned()))
-            .map_err(|err| err.to_string())
-    }
-}
 
 pub(crate) fn clipboard_sequence_number() -> Option<u64> {
     crate::ffi::board::sequence_number()
