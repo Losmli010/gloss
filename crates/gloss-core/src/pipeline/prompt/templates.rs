@@ -344,8 +344,8 @@ mod tests {
                     }
                     (Locale::Zh, _) => {
                         assert!(
-                            text.contains("<出处>") && text.contains("<简评>"),
-                            "{locale:?}/{name}: slot names must be marked with angle brackets"
+                            text.contains("<出处>：“<引文原文>”（<译文>） <简评>"),
+                            "{locale:?}/{name}: the slot skeleton must mark every slot name with angle brackets"
                         );
                         assert!(
                             text.contains("槽位名不进输出"),
@@ -354,8 +354,8 @@ mod tests {
                     }
                     (Locale::En, _) => {
                         assert!(
-                            text.contains("`<source>`") && text.contains("`<remark>`"),
-                            "{locale:?}/{name}: slot names must be marked with backticked angle brackets"
+                            text.contains("`<source>`: \"<quote>\" (`<translation>`) `<remark>`"),
+                            "{locale:?}/{name}: the slot skeleton must mark every slot name with backticked angle brackets"
                         );
                         assert!(
                             text.contains("slot names never enter the output"),
