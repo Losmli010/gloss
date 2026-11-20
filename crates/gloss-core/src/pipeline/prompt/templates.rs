@@ -321,4 +321,49 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn example_slot_names_stay_out_of_output() {
+        for locale in [Locale::Zh, Locale::En] {
+            let templates = locale.templates();
+            for (name, text) in [
+                ("word_card.md", templates.word_card),
+                ("general.md", templates.general),
+                ("sentence.md", templates.sentence),
+            ] {
+                match (locale, name) {
+                    (Locale::Zh, "sentence.md") | (Locale::En, "sentence.md") => {
+                        let marker = match locale {
+                            Locale::Zh => "栏目标记",
+                            Locale::En => "no labels such as",
+                        };
+                        assert!(
+                            text.contains(marker),
+                            "{locale:?}/{name}: the prose ban on example labels must stay: {marker:?}"
+                        );
+                    }
+                    (Locale::Zh, _) => {
+                        assert!(
+                            text.contains("<出处>") && text.contains("<简评>"),
+                            "{locale:?}/{name}: slot names must be marked with angle brackets"
+                        );
+                        assert!(
+                            text.contains("槽位名不进输出"),
+                            "{locale:?}/{name}: the explicit ban on slot-name leakage must stay"
+                        );
+                    }
+                    (Locale::En, _) => {
+                        assert!(
+                            text.contains("`<source>`") && text.contains("`<remark>`"),
+                            "{locale:?}/{name}: slot names must be marked with backticked angle brackets"
+                        );
+                        assert!(
+                            text.contains("slot names never enter the output"),
+                            "{locale:?}/{name}: the explicit ban on slot-name leakage must stay"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

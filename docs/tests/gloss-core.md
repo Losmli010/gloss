@@ -283,6 +283,7 @@
 | image_explain_example_is_a_single_json_object_with_note_first | 图像模板示例为单（JSON）且 `note` 在前 | 给定双 `locale` 的 `image_explain` 模板，当整行解析示例（JSON），则示例可解析、键恰为 `note` 与 `structured`（`note` 在前），`structured` 内只有 `examples`（`interpretation` 旧名退役）——流式与完成态解析都按这份契约 | 2026-10-11 |
 | every_template_placeholder_is_declared | 模板原文占位符白名单 | 给定两个 `locale` 的八份模板原文（五份任务模板加 `target_lang.md`、`discipline.md` 与 `classify.md`；修复骨架已迁入措辞注册表），当扫占位符，则每个 `{{` 都有闭合且名字都在已声明集合内（`target`；嵌套契约的示例 `JSON` 以 `}}` 收尾，闭合计数因此可多于开启——按配对判）；未声明者若与已声明占位符同行会被整行删掉，产物断言看不见 | 2026-10-29 |
 | task_templates_avoid_forbidden_legacy_markers | 任务模板不回传统框架措辞 | 给定中英两份禁用标记清单（中文十二条为框架模式加训诂词簇，英文十二条为传统框架短语），当扫描双 `locale` 五份任务模板正文，则零命中（界面印章与字段名是产品语言，不在受检面） | 2026-10-29 |
+| example_slot_names_stay_out_of_output | 例证槽位名不进输出 | 给定双 `locale` 的词卡、通用与句译模板，当检查正文，则词卡与通用的槽位名以尖括号标示（英文侧加反引号）且显式禁则在场，句译的同义禁则散文在场——槽位名被当栏目标记照抄进疏区的回归由此锁定 | 2026-11-20 |
 
 ### `crates/gloss-core/src/pipeline/wordings.rs`
 
