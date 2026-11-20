@@ -24,3 +24,7 @@
   - word_card/clean 8.4µs、sentence/overlap 45.9µs、sentence/long 98.9µs、code/containers 96.3µs。
 - 2026-11-20 双核移动级处理器的跑次间波动可观（同夹具三跑：code/containers 68µs 到 117µs，word_card/clean 8.4µs 到 12.1µs）——C2 对照按同机同条件复跑，以区间与判读结论（criterion 判定）取数，不以单点数字定论。
 - 2026-11-20 C2 改写落点后按同一基准与同一锚点名复跑比对（just bench-check c2-lang-gate-pre），对照数字随 C2 的拉取请求（PR）正文一并呈现。
+
+## 沿革
+
+- 2026-11-20 基准回迁根包：自核心库（gloss-core）benches/ 迁回根包 benches/lang_gate.rs，组名与用例名不变（趋势编号连续）。

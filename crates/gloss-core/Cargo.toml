@@ -5,16 +5,6 @@ edition.workspace = true
 description = "Gloss 领域层、端口与任务 AI 层（纯逻辑；零渲染/窗口/网络依赖）"
 license.workspace = true
 
-# 提示词渲染热点基准：基准框架（criterion）独立目标，经基准配方运行
-[[bench]]
-harness = false
-name = "prompt"
-
-# 语言门判定热点基准：基准框架（criterion）独立目标，经基准配方运行
-[[bench]]
-harness = false
-name = "lang_gate"
-
 [dependencies]
 # 配置热更新的无锁快照：配置对象原子替换，读路径零锁。
 arc-swap = { version = "1", default-features = false }
@@ -54,8 +44,6 @@ tracing-subscriber = {
 url = { version = "2", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-# 基准框架；特性只保留基准支持面。
-criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 # 端口单测：流式消费用流工具，异步测试跑异步测试宏；测试工具特性供
 # 虚拟时钟（空闲超时、重试退避的确定性测试）。
 futures = { version = "0.3", default-features = false, features = ["std"] }

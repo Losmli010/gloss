@@ -138,18 +138,17 @@ FAMILY_STEMS: dict[str, str] = {
     "crates/gloss-platform/src/macos/shortcut.rs": "macos_shortcut",
     "crates/gloss-platform/src/windows/appearance/mod.rs": "windows_appearance_mod",
     "crates/gloss-platform/src/windows/appearance/icon.rs": "windows_icon",
-    # 各包基准目标随包落位后与被测的源模块同名撞名：基准侧带基准前缀，
-    # 源模块持语义裸名
+    # 根包基准目标与被测的源模块同名撞名：基准侧带基准前缀，源模块持语义裸名
     "crates/gloss-core/src/pipeline/prompt.rs": "prompt",
-    "crates/gloss-core/benches/prompt.rs": "bench_prompt",
+    "benches/prompt.rs": "bench_prompt",
     "crates/gloss-core/src/pipeline/lang_gate.rs": "lang_gate",
-    "crates/gloss-core/benches/lang_gate.rs": "bench_lang_gate",
+    "benches/lang_gate.rs": "bench_lang_gate",
     "crates/gloss-app/src/runtime/cache.rs": "cache",
-    "crates/gloss-app/benches/cache.rs": "bench_cache",
+    "benches/cache.rs": "bench_cache",
     "crates/gloss-app/src/runtime/finalize.rs": "finalize",
-    "crates/gloss-app/benches/finalize.rs": "bench_finalize",
+    "benches/finalize.rs": "bench_finalize",
     "crates/gloss-llm/src/openai/sse.rs": "sse",
-    "crates/gloss-llm/benches/sse.rs": "bench_sse",
+    "benches/sse.rs": "bench_sse",
 }
 
 # 自由主题记录：不锚定单一源文件的记录裸名（登记表、豁免留痕、重构记录）。

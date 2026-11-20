@@ -1,4 +1,4 @@
-# crates/gloss-app/benches/clone.rs 决策记录
+# benches/clone.rs 决策记录
 
 > 按符号锚定（不写行号，防漂移）。改到相关代码时同步更新本文件。
 > 本文件随仓库跟踪（docs/comments/ 入库），改名与合并用 git mv 保留历史；文件内不留指向本文件的指针。
@@ -45,3 +45,5 @@
   主线程应用层（gloss-app），组名与用例名不变（趋势编号连续）；事件去向判定
   一组（`machine/trigger`，其零分配契约锚）已在此前的状态机收敛中随用例移除，
   五组热点并为四组；探测入口随 D1 收敛更名为 `begin_probe`。
+- 2026-11-20 基准回迁根包：自主线程应用层（gloss-app）benches/ 迁回根包
+  benches/clone.rs，组名与用例名不变（趋势编号连续）。

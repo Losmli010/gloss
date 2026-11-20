@@ -24,3 +24,4 @@
 ## 沿革
 
 - 2026-11-20 基准随包落位（方案 D7 前半）：本基准自根包 benches/core.rs 的 prompt_render 组迁入，组名与用例名不变（趋势编号连续）；本文件承接原 core_comment.md 中与本组相关的条目。
+- 2026-11-20 基准回迁根包：自核心库（gloss-core）benches/ 迁回根包 benches/prompt.rs，组名与用例名不变（趋势编号连续）。

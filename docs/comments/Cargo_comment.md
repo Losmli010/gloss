@@ -28,6 +28,7 @@
 - 2026-09-19 为什么 criterion 关默认集：default 带 rayon / plotters（多线程统计与绘图）基准用不上，只留 cargo_bench_support 保住 cargo bench 接口；check-constraints 对 dev-dependencies 同样强制 default-features = false。
 - 2026-09-19 为什么 bench 放根包：bench 目标是独立编译单元，放根包直接吃根包既有的 gloss-core 路径依赖，不给 gloss-core 加 dev-dependencies、也不碎片化子 crate 的目标清单；harness = false 与 overlay_selftest 同一先例。
 - 2026-09-19 开发方式：feat/bench-core 分支在独立 git worktree（../gloss-bench）完成，与本地并行开发的重构分支零接触；合并后 worktree 可删。
+- 2026-11-20 六个热点基准自各包 benches/ 回迁根包 benches/ 目录统一收口（方案 D7 前半随包落位的逆向）：`[[bench]]` 目标清单随根包清单收口（语言门、提示词、任务缓存、完成态解析、克隆、流式解码六个目标），开发依赖补回 criterion 与克隆基准直接驱动的界面库（egui，版本与特性面随主线程应用层）——与 2026-09-19“为什么 bench 放根包”同一论据；流式解码基准的路径属性改指传输分包源路径，跨包单源并入机制不变。组名与用例名不变，趋势编号连续。
 
 ## 2026-10-07 新增 [profile.profiling]（P3-1 剖析构建）
 

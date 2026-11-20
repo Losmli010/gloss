@@ -69,6 +69,7 @@
 - 2026-09-19 按名选取（cargo bench --bench core）的缘由：根包将来若有第二个 bench 目标（如自检类迁入），按名选取保证 just bench 恒等于“量化热点”这一件事；本地量化配方，不进任何 CI workflow（2026-09-20 按评审核实全部 workflow 后修正：先前误写“CI 上只跑不判趋势”）。
 - 2026-09-21 基线工作流：bench 每次存滚动基线 last（--save-baseline），criterion 默认行为保持“对照上一次运行”；命名基线作审计锚点（bench-save，如在干净 main 上存 main），bench-check 用 --baseline 指名对照。基线只落在本机 target/，不进 git 也不进 CI——跨机器与跨负载的数字会互相污染，趋势对照只认同机同环境的历史数据（AGENTS.md 测试节）。
 - 2026-09-21 对照判定不设退出码：bench-check 与 bench-summary 的“回归/改善”只作量化参考，判定列口径见 bench-summary.py_comment.md；不把它接进 precommit/CI，与“基准是量化工具不是门禁”同一口径。
+- 2026-11-20 六个热点基准回迁根包 benches/ 目录后配方收敛：bench/bench-save/bench-check 从三包各一条收敛为 `-p gloss` 单条，显式 `--bench` 清单保留五个墙钟目标（与原三包合计覆盖一致，按名选取的缘由沿用 2026-09-19 条），clone-bench 改 `-p gloss --bench clone`。
 
 ## clone-stats / clone-baseline / clone-check
 
