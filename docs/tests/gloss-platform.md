@@ -140,6 +140,7 @@
 | delete_missing_entry_is_ok | 删除缺条目幂等成功 | 给定不存在的条目，当 `delete`，则幂等成功。沿革：随密钥存取语义骨架上提自两侧平台半边合并（钥匙串侧 2026-09-19、凭据侧 2026-11-10），载体由真系统存储换替身底层读写删，断言不变 | 2026-11-21 |
 | cached_reads_stay_consistent_with_writes | 缓存读写一致 | 给定写后读与删除后读，当经克隆共享缓存，则写后读新值、删除后克隆读 `None`（缓存直填，不触底层写入）。沿革：随密钥存取语义骨架上提自两侧平台半边合并（钥匙串侧 2026-09-19、凭据侧 2026-11-10），载体由真系统存储换替身底层读写删，断言不变 | 2026-11-21 |
 | a_failed_underlying_read_stays_uncached_and_reports | 底层读失败如实上抛且不落缓存 | 给定恒失败的替身底层读写删，当 `get`，则报配置错误形态且缓存不落失败答案（失败读不顶数） | 2026-11-21 |
+| settle_keeps_the_first_answer_for_a_key | 落定以先落者为准不覆盖既有条目 | 给定共享缓存与同一键的两次落定（先 `sk-first` 后 `sk-second`），当第二次 `settle`，则两次都读回先落值（并发写删胜出的让渡语义） | 2026-11-21 |
 
 ### `crates/gloss-platform/src/common/storage.rs`
 

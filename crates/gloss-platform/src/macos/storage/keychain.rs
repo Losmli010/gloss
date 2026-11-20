@@ -166,11 +166,12 @@ impl SecretIo for KeychainIo {
         #[cfg(test)]
         self.raw_reads
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        match passwords::get_generic_password(service, key) {
-            Ok(password) => Ok(Some(String::from_utf8_lossy(&password).into_owned())),
-            Err(err) if err.code() == errSecItemNotFound => Ok(None),
-            Err(err) => Err(GlossError::Config(format!("keychain read failed: {err}"))),
-        }
+        let value = match passwords::get_generic_password(service, key) {
+            Ok(password) => Some(String::from_utf8_lossy(&password).into_owned()),
+            Err(err) if err.code() == errSecItemNotFound => None,
+            Err(err) => return Err(GlossError::Config(format!("keychain read failed: {err}"))),
+        };
+        Ok(cache.settle(key, value))
     }
 
     fn write(

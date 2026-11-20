@@ -37,14 +37,7 @@ impl<I: SecretIo> CachedSecretStore<I> {
         if let Some(cached) = self.cache.cached(key) {
             return Ok(cached);
         }
-        let value = self.io.read(&self.cache, &self.service, key)?;
-        let answer = self
-            .cache
-            .cached_map()
-            .entry(key.to_owned())
-            .or_insert(value)
-            .clone();
-        Ok(answer)
+        self.io.read(&self.cache, &self.service, key)
     }
 
     pub(crate) fn set(&self, key: &str, value: &str) -> Result<(), GlossError> {
@@ -70,6 +63,13 @@ pub(crate) struct SecretCache {
 impl SecretCache {
     pub(crate) fn cached(&self, key: &str) -> Option<Option<String>> {
         self.cached_map().get(key).cloned()
+    }
+
+    pub(crate) fn settle(&self, key: &str, value: Option<String>) -> Option<String> {
+        self.cached_map()
+            .entry(key.to_owned())
+            .or_insert(value)
+            .clone()
     }
 
     pub(crate) fn cached_map(&self) -> std::sync::MutexGuard<'_, HashMap<String, Option<String>>> {
@@ -111,11 +111,12 @@ mod tests {
     impl SecretIo for FakeIo {
         fn read(
             &self,
-            _cache: &SecretCache,
+            cache: &SecretCache,
             _service: &str,
             key: &str,
         ) -> Result<Option<String>, GlossError> {
-            Ok(self.0.lock().expect("poisoned").get(key).cloned().flatten())
+            let value = self.0.lock().expect("poisoned").get(key).cloned().flatten();
+            Ok(cache.settle(key, value))
         }
 
         fn write(
@@ -225,6 +226,22 @@ mod tests {
             store.cache.cached(key),
             None,
             "failed reads must not settle into the cache"
+        );
+    }
+
+    #[test]
+    fn settle_keeps_the_first_answer_for_a_key() {
+        let cache = SecretCache::default();
+        let key = "test/settle-first-wins";
+
+        assert_eq!(
+            cache.settle(key, Some("sk-first".into())),
+            Some("sk-first".into())
+        );
+        assert_eq!(
+            cache.settle(key, Some("sk-second".into())),
+            Some("sk-first".into()),
+            "settling must not overwrite an already cached answer"
         );
     }
 }

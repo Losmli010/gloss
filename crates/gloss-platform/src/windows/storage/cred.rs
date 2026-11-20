@@ -62,14 +62,15 @@ struct CredIo;
 impl SecretIo for CredIo {
     fn read(
         &self,
-        _cache: &SecretCache,
+        cache: &SecretCache,
         service: &str,
         key: &str,
     ) -> Result<Option<String>, GlossError> {
-        match ffi::cred::read(&target_name(service, key))? {
-            Some(blob) => Ok(Some(decode(blob)?)),
-            None => Ok(None),
-        }
+        let value = match ffi::cred::read(&target_name(service, key))? {
+            Some(blob) => Some(decode(blob)?),
+            None => None,
+        };
+        Ok(cache.settle(key, value))
     }
 
     fn write(
