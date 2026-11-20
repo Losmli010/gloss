@@ -283,10 +283,10 @@ gen-manifest tag artifacts-dir:
 
 # ---- 纯文本快速检查（提交前门禁同款，秒级；持续集成的钩子工作流也跑）----
 
-# 纯文本门禁组合：六条纯文本门禁并轨单进程执行，评审结果模板核对，再跑七条工具格式检查；本语言格式化只解析不编译，归文本层
+# 纯文本门禁组合：七条纯文本门禁并轨单进程执行，评审结果模板核对，再跑七条工具格式检查；本语言格式化只解析不编译，归文本层
 text-gates: text-gates-merged review-template fmt fmt-py lint-py fmt-toml lint-toml fmt-md lint-md
 
-# 六条纯文本门禁（密钥、文档引用、行为清单、约束、文案、注释）的并轨入口：单进程依序执行，任一违规整体非零且报告保持完整
+# 七条纯文本门禁（密钥、文档引用、行为清单、约束、文案、注释、克隆）的并轨入口：单进程依序执行，任一违规整体非零且报告保持完整
 text-gates-merged:
     {{py}} scripts/hooks/run_text_gates.py
 
@@ -358,7 +358,7 @@ pr-lint-draft title-file body-file:
 install-hooks:
     {{py}} scripts/hooks/install_hooks.py
 
-# ---- 克隆门禁与观察（存量登记并轨进提交前门禁在后续拉取请求，本组先以独立配方形态落地）----
+# ---- 克隆门禁与观察（判罚模式已并轨进提交前门禁与持续集成，观察与判定辅助仍本地按需）----
 
 # 克隆检测门禁：门禁线宽判罚存量外新增克隆，存量经基线或就近放行标记放行；追加体检参数即清理陈旧基线条目
 duplicates *args:

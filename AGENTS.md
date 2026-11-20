@@ -67,6 +67,7 @@ just fmt-py            # 脚本格式化检查
 just lint-py           # 脚本静态检查
 just fmt-md            # 文档格式化检查
 just lint-md           # 文档排版检查
+just duplicates        # 克隆门禁（存量经基线放行，新增零容忍）
 just comments          # 注释纪律门禁
 just comments-rules    # 注释纪律规则速查
 just comment-name      # 记录命名助手（--ensure 建档，--reverse 反查）

@@ -53,7 +53,7 @@ jobs:
         with:
           tool: ${{ env.RG_PIN }}
 
-      - name: Install pytest, ruff, tombi, rumdl and markdown parsers
+      - name: Install pytest, ruff, tombi, rumdl, jscpd and markdown parsers
         run: |
           python3 -m pip install --quiet pytest
           python3 -m pip install ruff==$(python3 scripts/dev/tool_version.py ruff)
@@ -61,6 +61,7 @@ jobs:
           python3 -m pip install markdown-it-py==$(python3 scripts/dev/tool_version.py markdown-it-py)
           python3 -m pip install mdit-py-plugins==$(python3 scripts/dev/tool_version.py mdit-py-plugins)
           npm install -g tombi@$(python3 scripts/dev/tool_version.py tombi)
+          npm install -g jscpd@$(python3 scripts/dev/tool_version.py jscpd)
 
       # 检查器单测目录发现跑法与本地同款，覆盖全部门禁脚本与客户端钩子
       - name: Run checker unit tests
@@ -89,6 +90,10 @@ jobs:
       # 行为清单（BDD）与测试源码双向一致
       - name: Test BDD check
         run: just test-bdd
+
+      # 克隆门禁：存量经基线登记放行，新增零容忍；判罚口径在仓库侧脚本，引擎只出克隆清单
+      - name: Duplications check
+        run: just duplicates
 
       # 评审结果模板：五段骨架在场，声明核对与正文模板必需小节同源
       - name: Review template check

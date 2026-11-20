@@ -86,6 +86,7 @@ def test_gate_registry_order() -> None:
         "constraints",
         "i18n",
         "comments",
+        "duplicates",
     ]
 
 

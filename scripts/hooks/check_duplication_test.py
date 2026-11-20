@@ -1,5 +1,6 @@
 """克隆门禁的单测：判罚口径（三规则、判定顺序短路、放行缘由校验、基线冻结
-合计）、基线装入与体检清理、任务包拼装与筛选、引擎调用装配与缺席失败关闭。
+合计）、基线装入与体检清理、任务包拼装与筛选、引擎调用装配与缺席失败关闭、
+并轨装入器（跟踪清单经共享装入器供给引擎）。
 
 被测入口是门禁的纯判定函数与各模式运行函数；扫描面用测试框架（pytest）的临
 时目录建一次性版本库，引擎用注入的假报告替身——单测不拉起真实引擎，真实引擎
@@ -8,6 +9,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -633,3 +635,49 @@ def test_report_text_aggregates_pairs_deterministically(tmp_path: Path) -> None:
     pair_section = text.split("clones (")[0]
     assert pair_section.index("src/a.rs") < pair_section.index("src/c.rs")
     assert "totals: 3 clones, 28 duplicated lines over 1000 lines in 4 sources (2.8%)" in text
+
+
+# ---- 并轨装入器 ----
+
+
+class _Loader:
+    """装入器替身：只实现并轨共享的跟踪清单枚举，按注入清单返回。"""
+
+    def __init__(self, tracked: list[str]) -> None:
+        self._tracked = tracked
+
+    def tracked(self) -> list[str]:
+        return list(self._tracked)
+
+
+def test_merged_loader_feeds_engine_and_judges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    root = seed_repo(tmp_path, {"src/a.rs": filler(40, "a"), "src/b.rs": filler(40, "b")})
+    report = report_of(root, ("src/a.rs", 10, 19, "src/b.rs", 10, 19))
+    calls = []
+    baseline = tmp_path / "baseline.toml"
+    write_baseline(baseline, "# 空\n")
+    monkeypatch.setattr(check_duplication, "BASELINE_PATH", str(baseline))
+    monkeypatch.setattr(sys, "argv", ["check_duplication.py", root])
+    loader = _Loader(["src/a.rs", "src/b.rs"])
+    code = check_duplication.main(engine=fake_engine(report, calls), loader=loader)
+    out = capsys.readouterr()
+    assert code == 1
+    assert calls[0][1] == [os.path.join(root, "src/a.rs"), os.path.join(root, "src/b.rs")]
+    assert "error[DUP-NEW]:" in out.err
+
+
+def test_merged_loader_replaces_default_enumeration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    root = seed_repo(tmp_path, {"src/a.rs": filler(40, "a"), "src/b.rs": filler(40, "b")})
+    report = report_of(root, ("src/a.rs", 10, 19, "src/b.rs", 10, 19))
+    calls = []
+    baseline = tmp_path / "baseline.toml"
+    write_baseline(baseline, "# 空\n")
+    monkeypatch.setattr(check_duplication, "BASELINE_PATH", str(baseline))
+    monkeypatch.setattr(sys, "argv", ["check_duplication.py", root])
+    code = check_duplication.main(engine=fake_engine(report, calls), loader=_Loader(["src/a.rs"]))
+    assert code == 1
+    assert calls[0][1] == [os.path.join(root, "src/a.rs")]

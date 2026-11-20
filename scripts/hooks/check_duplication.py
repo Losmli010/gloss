@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """克隆检测门禁：子进程调检测引擎（jscpd）出报告，判罚口径全部收口本脚本，
 引擎只当候选克隆清单的提供者。受检面为版本库跟踪清单里两棵源码树的全部本语
-言源文件，按跟踪清单过滤后显式传参给引擎，未跟踪文件不进扫描面；资产、数据
+言源文件，按跟踪清单过滤后显式传参给引擎，未跟踪文件不进扫描面；并轨运行时
+跟踪清单经共享装入器取用（见 run_text_gates），单跑自行枚举；资产、数据
 集与提示词模板不收。
 
 对引擎报出的每条克隆实例按序判定，短路即出：其一，就地放行——克隆对任一侧
@@ -550,11 +551,18 @@ def run_engine(root: str, files: list[str], min_tokens: int) -> dict[str, Any]:
 
 
 def scan(
-    root: str, min_tokens: int, engine: Callable[[str, list[str], int], dict[str, Any]]
+    root: str,
+    min_tokens: int,
+    engine: Callable[[str, list[str], int], dict[str, Any]],
+    loader: Any = None,
 ) -> tuple[list[ClonePair], dict[str, Any]]:
     """单次扫描：跟踪清单过滤、显式传参、报告归一；受检面为空按失败关闭。
-    返回克隆实例清单与引擎原始报告（观察聚合读统计面）。"""
-    tracked = gate_report.tracked_files(root)
+    并轨运行时跟踪清单经内容装入器共享枚举，单跑自行枚举。返回克隆实例清
+    单与引擎原始报告（观察聚合读统计面）。"""
+    if loader is not None:
+        tracked = loader.tracked()
+    else:
+        tracked = gate_report.tracked_files(root)
     rel_files = surface_files(tracked)
     if not rel_files:
         raise GateInfra("scan surface is empty: no tracked sources under the guarded trees")
@@ -647,10 +655,10 @@ def usage_failure(detail: str) -> int:
     return gate_report.EXIT_USAGE
 
 
-def run_punish(root: str, engine: Any) -> int:
+def run_punish(root: str, engine: Any, loader: Any = None) -> int:
     """判罚模式：门禁线宽扫描，按判定口径出条目，失败末尾带判定辅助指针。"""
     gate_report.banner("clone gate", "repo root: %s (min tokens: %d)" % (root, GATE_MIN_TOKENS))
-    clones, _raw = scan(root, GATE_MIN_TOKENS, engine)
+    clones, _raw = scan(root, GATE_MIN_TOKENS, engine, loader)
     entries = load_baseline(BASELINE_PATH)
     sides = {side.path for clone in clones for side in (clone.first, clone.second)}
     lines_by_file = load_lines(root, sides)
@@ -664,12 +672,12 @@ def run_punish(root: str, engine: Any) -> int:
     return gate_report.EXIT_PASS
 
 
-def run_doctor(root: str, fix: bool, engine: Any) -> int:
+def run_doctor(root: str, fix: bool, engine: Any, loader: Any = None) -> int:
     """基线体检：门禁线宽下合计归零的条目按陈旧报告；带清理旗标时剔除重写。"""
     gate_report.banner(
         "clone baseline doctor", "repo root: %s (min tokens: %d)" % (root, GATE_MIN_TOKENS)
     )
-    clones, _raw = scan(root, GATE_MIN_TOKENS, engine)
+    clones, _raw = scan(root, GATE_MIN_TOKENS, engine, loader)
     entries = load_baseline(BASELINE_PATH)
     stale = stale_entries(entries, pair_totals(clones))
     findings = stale_findings(stale)
@@ -686,22 +694,22 @@ def run_doctor(root: str, fix: bool, engine: Any) -> int:
     return gate_report.EXIT_PASS
 
 
-def run_report(root: str, engine: Any) -> int:
+def run_report(root: str, engine: Any, loader: Any = None) -> int:
     """观察模式：观察线宽全量输出，不判罚，恒零退出。"""
-    clones, raw = scan(root, REPORT_MIN_TOKENS, engine)
+    clones, raw = scan(root, REPORT_MIN_TOKENS, engine, loader)
     print(report_text(clones, raw))
     print("ok: observation only, not a gate (%d clones)" % len(clones))
     return gate_report.EXIT_PASS
 
 
-def run_triage(root: str, needle: str, engine: Any) -> int:
+def run_triage(root: str, needle: str, engine: Any, loader: Any = None) -> int:
     """任务包模式：门禁线宽扫描后按克隆对逐个拼装，提示词工件缺席即失败关闭。"""
     try:
         with open(PROMPT_PATH, encoding="utf-8") as fh:
             prompt = fh.read()
     except OSError as exc:
         raise GateInfra("triage prompt missing: %s" % exc) from None
-    clones, _raw = scan(root, GATE_MIN_TOKENS, engine)
+    clones, _raw = scan(root, GATE_MIN_TOKENS, engine, loader)
     picked = select_clones(clones, needle)
     if needle and not picked:
         print("no clone matches %r" % needle)
@@ -715,7 +723,7 @@ def run_triage(root: str, needle: str, engine: Any) -> int:
     return gate_report.EXIT_PASS
 
 
-def main(engine: Any = None) -> int:
+def main(engine: Any = None, loader: Any = None) -> int:
     runner = engine if engine is not None else run_engine
     try:
         mode, needle, root, fix = parse_args(sys.argv[1:])
@@ -726,10 +734,10 @@ def main(engine: Any = None) -> int:
     if not os.path.isdir(root):
         return usage_failure("repo-root is not a directory: %s" % root)
     handlers = {
-        "punish": lambda: run_punish(root, runner),
-        "doctor": lambda: run_doctor(root, fix, runner),
-        "report": lambda: run_report(root, runner),
-        "triage": lambda: run_triage(root, needle, runner),
+        "punish": lambda: run_punish(root, runner, loader),
+        "doctor": lambda: run_doctor(root, fix, runner, loader),
+        "report": lambda: run_report(root, runner, loader),
+        "triage": lambda: run_triage(root, needle, runner, loader),
     }
     try:
         return handlers[mode]()
