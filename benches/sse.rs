@@ -5,7 +5,7 @@
 //! 环外构造，经黑箱包装进出测量；解码器有状态，随测量新建无法外提。
 
 #[allow(dead_code)]
-#[path = "../src/openai/sse.rs"]
+#[path = "../crates/gloss-llm/src/openai/sse.rs"]
 mod sse;
 
 use std::hint::black_box;

@@ -72,6 +72,37 @@ name = "overlay"
 harness = false
 name = "startup"
 
+# 语言门判定热点基准：基准框架（criterion）独立目标，经基准配方运行
+[[bench]]
+harness = false
+name = "lang_gate"
+
+# 提示词渲染热点基准：基准框架（criterion）独立目标，经基准配方运行
+[[bench]]
+harness = false
+name = "prompt"
+
+# 任务缓存热点基准：基准框架（criterion）独立目标，经基准配方运行
+[[bench]]
+harness = false
+name = "cache"
+
+# 完成态解析热点基准：基准框架（criterion）独立目标，经基准配方运行
+[[bench]]
+harness = false
+name = "finalize"
+
+# 克隆热点基准：基准框架（criterion）自定义测量，两组分别计分配次数与分配字节
+[[bench]]
+harness = false
+name = "clone"
+
+# 流式事件解码热点基准：基准框架（criterion）独立目标，经路径属性并入传输分包
+# 的生产源文件（解码器住库内私有实现），经基准配方运行
+[[bench]]
+harness = false
+name = "sse"
+
 [dependencies]
 # 组装段持有通道对端与异步运行时（tokio）接收端，类型在此命名。
 crossbeam-channel = { version = "0.5", default-features = false, features = ["std"] }
@@ -91,6 +122,18 @@ tokio = { version = "1", default-features = false, features = ["sync"] }
 # 文档注释里的示例由构建工具（cargo）的文档测试验证可编译可运行，属完整测试的一部分；
 # 无文档注释的公开项不受影响。
 [dev-dependencies]
+# 基准框架：根包六个基准目标全部共用，特性只保留基准支持面。
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+# 克隆热点基准直接驱动界面库（egui）上下文做无头帧测量，版本与特性面随主线程应用层。
+egui = {
+  version = "0.36.2",
+  default-features = false,
+  features = [
+    "default_fonts",
+  ]
+}
+# 流式事件解码基准并入的传输分包源文件的序列化（serde）派生面：版本与特性面随传输分包。
+serde = { version = "1", default-features = false, features = ["derive", "std"] }  # deps:allow 消费面在基准并入的传输分包源文件（按路径属性并入，扫描面看不到）
 # 自检标准错误结构化信号行的数据格式（JSON）序列化。
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # 三层显隐自检直接驱动窗口库（winit）窗口栈。

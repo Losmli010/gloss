@@ -22,3 +22,4 @@
 ## 沿革
 
 - 2026-11-20 基准随包落位（方案 D7 前半）：cache_key 与 task_cache 两组自根包 benches/core.rs 迁入同一基准目标（两组同源被测模块 runtime/cache.rs），组名与用例名不变（趋势编号连续）；本文件承接原 core_comment.md 中与这两组相关的条目。
+- 2026-11-20 基准回迁根包：随基准目标自主线程应用层（gloss-app）benches/ 迁回根包 benches/cache.rs，组名与用例名不变（趋势编号连续）。

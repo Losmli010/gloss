@@ -43,9 +43,7 @@ def test_bare_name_legality() -> None:
 
 
 def test_residue_stem_needs_same_extension_source() -> None:
-    index = comment_map.build_index(
-        ["crates/gloss-app/benches/clone.rs", "scripts/perf/metrics.py"]
-    )
+    index = comment_map.build_index(["benches/clone.rs", "scripts/perf/metrics.py"])
     assert comment_map.residue_stem("clone_rs", index) == "clone"
     assert comment_map.residue_stem("metrics_py", index) == "metrics"
     # 主干真以下划线扩展名形态结尾且无同名同扩展名源文件：合法名字，不是残留

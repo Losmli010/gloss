@@ -71,31 +71,25 @@ setup:
 icons:
     {{py}} scripts/dev/build_app_icon.py
 
-# 跑三包墙钟热点基准（criterion）：核心库（gloss-core）提示词与语言门、主线程应用层（gloss-app）缓存键与完成态解析与任务缓存、传输分包（gloss-llm）流式解码，自动对照上一次运行，并把结果存为本机滚动基线
+# 跑根包墙钟热点基准（criterion）：语言门与提示词、缓存键与完成态解析与任务缓存、流式解码，自动对照上一次运行，并把结果存为本机滚动基线
 bench:
-    cargo bench -p gloss-core --bench prompt --bench lang_gate -- --save-baseline last
-    cargo bench -p gloss-app --bench cache --bench finalize -- --save-baseline last
-    cargo bench -p gloss-llm --bench sse -- --save-baseline last
+    cargo bench -p gloss --bench prompt --bench lang_gate --bench cache --bench finalize --bench sse -- --save-baseline last
 
-# 把三包墙钟基准结果另存为命名基线（审计锚点，如在干净主分支上存同名基线），数据落在各基准目录下
+# 把根包墙钟基准结果另存为命名基线（审计锚点，如在干净主分支上存同名基线），数据落在各基准目录下
 bench-save name:
-    cargo bench -p gloss-core --bench prompt --bench lang_gate -- --save-baseline {{name}}
-    cargo bench -p gloss-app --bench cache --bench finalize -- --save-baseline {{name}}
-    cargo bench -p gloss-llm --bench sse -- --save-baseline {{name}}
+    cargo bench -p gloss --bench prompt --bench lang_gate --bench cache --bench finalize --bench sse -- --save-baseline {{name}}
 
-# 以命名基线为对照重跑三包墙钟基准（缺省取上一次运行；供汇总配方呈现对照数字，退出码不是门禁）
+# 以命名基线为对照重跑根包墙钟基准（缺省取上一次运行；供汇总配方呈现对照数字，退出码不是门禁）
 bench-check name="last":
-    cargo bench -p gloss-core --bench prompt --bench lang_gate -- --baseline {{name}}
-    cargo bench -p gloss-app --bench cache --bench finalize -- --baseline {{name}}
-    cargo bench -p gloss-llm --bench sse -- --baseline {{name}}
+    cargo bench -p gloss --bench prompt --bench lang_gate --bench cache --bench finalize --bench sse -- --baseline {{name}}
 
 # 汇总最近一次基准运行为标记语言（Markdown）表格（均值、95%区间、对照变化），标签仅用于展示
 bench-summary baseline="last run":
     {{py}} scripts/perf/bench-summary.py "{{baseline}}"
 
-# 跑主线程应用层（gloss-app）的克隆热点基准，基准框架（criterion）自定义测量：分配次数与字节，结果存滚动基线
+# 跑克隆热点基准，基准框架（criterion）自定义测量：分配次数与字节，结果存滚动基线
 clone-bench:
-    cargo bench -p gloss-app --bench clone -- --save-baseline last
+    cargo bench -p gloss --bench clone -- --save-baseline last
 
 # 打印克隆分布与热点分配（口径见脚本说明）
 clone-stats:
