@@ -177,16 +177,103 @@ where
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use crossbeam_channel::{Receiver, Sender, unbounded};
+
+    use super::{EventSink, EventSource, EventSources, EventThread, RunLoop, spawn};
+
+    pub(crate) struct TestCommand(pub(crate) u64);
+    pub(crate) struct TestEvent(pub(crate) u64);
+
+    pub(crate) type Sink = EventSink<TestEvent, ()>;
+    pub(crate) type NoSources = EventSources<()>;
+
+    pub(crate) struct Harness {
+        pub(crate) cmd_tx: Sender<TestCommand>,
+        pub(crate) ev_rx: Receiver<TestEvent>,
+        pub(crate) plat_tx: Sender<()>,
+    }
+
+    impl Harness {
+        pub(crate) fn spawn<F>(
+            run_loop: RunLoop<TestCommand, TestEvent, (), F>,
+            on_command: F,
+            sources: EventSources<()>,
+        ) -> (Self, Receiver<()>, EventThread)
+        where
+            F: FnMut(TestCommand, &Sink) + Send + 'static,
+        {
+            let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
+            let (ev_tx, ev_rx) = unbounded::<TestEvent>();
+            let (plat_tx, plat_rx) = unbounded::<()>();
+            let thread = spawn(
+                run_loop,
+                cmd_rx,
+                EventSink::new(ev_tx, plat_tx.clone(), || {}),
+                on_command,
+                sources,
+            );
+            (
+                Self {
+                    cmd_tx,
+                    ev_rx,
+                    plat_tx,
+                },
+                plat_rx,
+                thread,
+            )
+        }
+
+        pub(crate) fn shutdown(self, thread: EventThread) {
+            drop(self.cmd_tx);
+            drop(self.plat_tx);
+            thread.join();
+        }
+    }
+
+    pub(crate) fn echo(command: TestCommand, sink: &Sink) {
+        sink.send_event(TestEvent(command.0));
+    }
+
+    pub(crate) fn panic_on_zero_command(command: TestCommand, sink: &Sink) {
+        if command.0 == 0 {
+            panic!("poison");
+        }
+        sink.send_event(TestEvent(command.0));
+    }
+
+    pub(crate) fn no_sources() -> NoSources {
+        Vec::new()
+    }
+
+    pub(crate) fn channel_source() -> (Sender<()>, EventSources<()>) {
+        let (tx, rx) = unbounded::<()>();
+        let source: Box<dyn EventSource<()>> = Box::new(move || rx.try_iter().collect());
+        (tx, vec![source])
+    }
+
+    pub(crate) fn panicking_then_self_healing_source() -> (Sender<()>, EventSources<()>) {
+        let (tx, rx) = unbounded::<()>();
+        let mut poisoned = true;
+        let source: Box<dyn EventSource<()>> = Box::new(move || {
+            if poisoned {
+                poisoned = false;
+                panic!("poison");
+            }
+            rx.try_iter().collect()
+        });
+        (tx, vec![source])
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::{Arc, Mutex};
 
     use crossbeam_channel::unbounded;
 
-    struct TestCommand(u64);
-    struct TestEvent(u64);
-
-    type Sink = EventSink<TestEvent, ()>;
+    use super::test_support::{Sink, TestCommand, TestEvent};
+    use super::*;
 
     #[test]
     fn tick_drains_commands_before_polling_sources() {

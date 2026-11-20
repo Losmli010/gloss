@@ -133,155 +133,83 @@ pub(crate) fn run_loop<C, E, P, F>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::run_loop;
+    use crate::event_thread::test_support::{
+        Harness, TestCommand, channel_source, echo, no_sources, panic_on_zero_command,
+        panicking_then_self_healing_source,
+    };
+
     use std::time::Duration;
-
-    use crossbeam_channel::unbounded;
-
-    struct TestCommand(u64);
-    struct TestEvent(u64);
-
-    type Sink = EventSink<TestEvent, ()>;
-    type NoSources = EventSources<()>;
-
-    fn echo(command: TestCommand, sink: &Sink) {
-        sink.send_event(TestEvent(command.0));
-    }
-
-    fn no_sources() -> NoSources {
-        Vec::new()
-    }
 
     #[test]
     fn commands_are_consumed_in_order_then_thread_exits() {
-        let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
-        let (ev_tx, ev_rx) = unbounded::<TestEvent>();
-        let (plat_tx, plat_rx) = unbounded::<()>();
+        let (harness, plat_rx, thread) = Harness::spawn(run_loop, echo, no_sources());
         drop(plat_rx);
 
-        let thread = crate::event_thread::spawn(
-            run_loop,
-            cmd_rx,
-            EventSink::new(ev_tx, plat_tx, || {}),
-            echo,
-            no_sources(),
-        );
         for i in 0..16 {
-            cmd_tx.send(TestCommand(i)).unwrap();
+            harness.cmd_tx.send(TestCommand(i)).unwrap();
         }
         for i in 0..16 {
             assert_eq!(
-                ev_rx.recv().unwrap().0,
+                harness.ev_rx.recv().unwrap().0,
                 i,
                 "commands must be consumed in order"
             );
         }
-        drop(cmd_tx);
+        drop(harness.cmd_tx);
         thread.join();
-        assert!(ev_rx.try_recv().is_err(), "no events after exit");
+        assert!(harness.ev_rx.try_recv().is_err(), "no events after exit");
     }
 
     #[test]
     fn late_commands_are_still_consumed() {
-        let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
-        let (ev_tx, ev_rx) = unbounded::<TestEvent>();
-        let (plat_tx, plat_rx) = unbounded::<()>();
+        let (harness, plat_rx, thread) = Harness::spawn(run_loop, echo, no_sources());
         drop(plat_rx);
 
-        let thread = crate::event_thread::spawn(
-            run_loop,
-            cmd_rx,
-            EventSink::new(ev_tx, plat_tx, || {}),
-            echo,
-            no_sources(),
-        );
-        cmd_tx.send(TestCommand(1)).unwrap();
-        assert_eq!(ev_rx.recv().unwrap().0, 1);
+        harness.cmd_tx.send(TestCommand(1)).unwrap();
+        assert_eq!(harness.ev_rx.recv().unwrap().0, 1);
 
         std::thread::sleep(Duration::from_millis(60));
-        cmd_tx.send(TestCommand(2)).unwrap();
-        assert_eq!(ev_rx.recv().unwrap().0, 2);
+        harness.cmd_tx.send(TestCommand(2)).unwrap();
+        assert_eq!(harness.ev_rx.recv().unwrap().0, 2);
 
-        drop(cmd_tx);
-        thread.join();
+        harness.shutdown(thread);
     }
 
     #[test]
     fn sources_are_polled_and_forwarded() {
-        let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
-        let (ev_tx, ev_rx) = unbounded::<TestEvent>();
-        let (plat_tx, plat_rx) = unbounded::<()>();
-        let (src_tx, src_rx) = unbounded::<()>();
-
-        let source: Box<dyn EventSource<()>> = Box::new(move || src_rx.try_iter().collect());
-        let thread = crate::event_thread::spawn(
-            run_loop,
-            cmd_rx,
-            EventSink::new(ev_tx, plat_tx.clone(), || {}),
-            echo,
-            vec![source],
-        );
+        let (src_tx, sources) = channel_source();
+        let (harness, plat_rx, thread) = Harness::spawn(run_loop, echo, sources);
         src_tx.send(()).unwrap();
         src_tx.send(()).unwrap();
         assert_eq!(plat_rx.recv().unwrap(), ());
         assert_eq!(plat_rx.recv().unwrap(), ());
 
-        cmd_tx.send(TestCommand(7)).unwrap();
-        assert_eq!(ev_rx.recv().unwrap().0, 7);
+        harness.cmd_tx.send(TestCommand(7)).unwrap();
+        assert_eq!(harness.ev_rx.recv().unwrap().0, 7);
 
-        drop(cmd_tx);
-        drop(plat_tx);
-        thread.join();
+        harness.shutdown(thread);
     }
 
     #[test]
     fn panicking_handler_does_not_kill_thread() {
-        let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
-        let (ev_tx, ev_rx) = unbounded::<TestEvent>();
-        let (plat_tx, plat_rx) = unbounded::<()>();
+        let (harness, plat_rx, thread) =
+            Harness::spawn(run_loop, panic_on_zero_command, no_sources());
         drop(plat_rx);
-
-        let thread = crate::event_thread::spawn(
-            run_loop,
-            cmd_rx,
-            EventSink::new(ev_tx, plat_tx, || {}),
-            |command: TestCommand, sink: &Sink| {
-                if command.0 == 0 {
-                    panic!("poison");
-                }
-                sink.send_event(TestEvent(command.0));
-            },
-            no_sources(),
+        harness.cmd_tx.send(TestCommand(0)).unwrap();
+        harness.cmd_tx.send(TestCommand(1)).unwrap();
+        assert_eq!(
+            harness.ev_rx.recv().unwrap().0,
+            1,
+            "thread must survive the panic"
         );
-        cmd_tx.send(TestCommand(0)).unwrap();
-        cmd_tx.send(TestCommand(1)).unwrap();
-        assert_eq!(ev_rx.recv().unwrap().0, 1, "thread must survive the panic");
-        drop(cmd_tx);
-        thread.join();
+        harness.shutdown(thread);
     }
 
     #[test]
     fn panicking_source_does_not_kill_thread() {
-        let (cmd_tx, cmd_rx) = unbounded::<TestCommand>();
-        let (ev_tx, _ev_rx) = unbounded::<TestEvent>();
-        let (plat_tx, plat_rx) = unbounded::<()>();
-        let (ok_tx, ok_rx) = unbounded::<()>();
-        let mut poisoned = true;
-
-        let bad: Box<dyn EventSource<()>> = Box::new(move || {
-            if poisoned {
-                poisoned = false;
-                panic!("poison");
-            }
-            ok_rx.try_iter().collect()
-        });
-        let thread = crate::event_thread::spawn(
-            run_loop,
-            cmd_rx,
-            EventSink::new(ev_tx, plat_tx.clone(), || {}),
-            echo,
-            vec![bad],
-        );
+        let (ok_tx, sources) = panicking_then_self_healing_source();
+        let (harness, plat_rx, thread) = Harness::spawn(run_loop, echo, sources);
         std::thread::sleep(Duration::from_millis(60));
         ok_tx.send(()).unwrap();
         assert_eq!(
@@ -290,8 +218,6 @@ mod tests {
             "source must recover after panic"
         );
 
-        drop(cmd_tx);
-        drop(plat_tx);
-        thread.join();
+        harness.shutdown(thread);
     }
 }

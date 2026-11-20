@@ -26,3 +26,12 @@
 - `spawn`：`on_command` 在事件线程上顺序消费通道②，`sources` 每个 tick 抽干一轮；两者都不允许把 panic 带进线程。运行循环经函数指针注入（各平台的 `spawn` 包装保持原公开签名）。线程缺失时应用仍能启动，但取材手势全部失效——必须留痕。
 - `guarded`：应用代码注入的回调不允许把 panic 带进事件线程；捕获后循环继续服务。release 以 `panic = "abort"` 构建时 panic 在事发点直接 abort，`Err` 分支不可达——屏障只在 unwind 构建（dev/test 及其单测）生效。
 - `tick`：一轮消费：先抽干通道②（出现 Disconnected 即退出信号），再抽干全部事件源——同一线程内命令总排在系统事件之前。`send_platform` 成功时经 `notify()` 调组装点注入的唤醒回调。
+
+## 测试装配助手（2026-11-21，克隆门禁 G3-P3）
+
+- 为什么立本助手：两侧事件模块（macos/events、windows/events）的内联测试各持一份逐字同体的通道装配样板（三对通道创建、事件汇点构造、线程拉起与收尾汇合，五段 23–33 行，150 线宽实测 146 行），克隆门禁基线按待消登记；spawn 接缝已抽象、不触平台调用面，按三次规则收进本模块的 `test_support`，两侧测试只留行为段与断言。
+- 落点：内联 `#[cfg(test)] pub(crate) mod test_support`，与 `gloss-core/src/log.rs`、`gloss-app/src/app/mod.rs` 的同名先例同形——助手触达本模块私有形状（`RunLoop` 别名、`spawn`），独立文件反要开放私有面。
+- `Harness::spawn`：三对 `unbounded` 通道与空唤醒回调的装配在此收口，拉起传入宿主的线程；返回持有命令发送端、事件接收端与平台发送端的 `Harness`，平台接收端单独返回——三条测试显式关闭它（不关心平台通道），两条要收平台事件，表达不藏进助手。
+- 通道拓扑与原样板的等价性：命令与事件端点由 `spawn` 消费本体（`drop` 后 Disconnected 语义不变）；平台发送端收口后恒多 `Harness` 持有的一个句柄——只涉及这五条测试不发送平台事件、断言不触平台通道，行为等价由原断言锁定。
+- `shutdown`：命令发送端与平台发送端的释放加线程汇合的收尾样板；要求调用方此后不再触碰夹具，五条测试中四条如此，首条（汇合后还要断言无多余事件）保留显式 `drop` 加 `join`。
+- 桩与场景源：`TestCommand`/`TestEvent`/`Sink`/`echo`/`no_sources` 原是两侧各一份的本地桩，随装配样板一并上提；`panic_on_zero_command`（负载为零即恐慌、其余照常回传的处理器）、`channel_source`（通道抽干喂成事件源）与 `panicking_then_self_healing_source`（首轮恐慌、后续自愈的源）从测试体提取，恐慌屏障的被测语义留在助手名里、断言留在测试里。
