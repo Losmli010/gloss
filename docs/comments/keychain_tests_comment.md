@@ -7,7 +7,12 @@
 
 已统一迁往 docs/tests/bdd.md（git 追踪，以测试代码为唯一事实源）；本文件只留缘由与形态说明。
 
+## 语义测试上移（2026-11-21，代码克隆治理 G3-P2）
+
+- 缺条目读空、删除缺条目幂等与缓存读写一致三条自本模块移住共享层骨架（两侧逐字同体的待消克隆，缘由与替身形态见 secret 测试记录）；钥匙串调用面的缺条目读空路径由并发首读测试继续覆盖——全新实例直逼未命中路径，真 keychain 回空。
+
 ## 辅助
 
 - test_store：测试专用服务名（与出厂条目隔离，条目随测随清）的 KeychainSecret。
-- foreign_owned_entry_is_removed_by_reference_delete：外部所有者条目无法在本进程内伪造（所有权按创建二进制的代码签名归属），用 `security` CLI 预置真外部条目——CLI 的 partition 归属使查询式删除必被拒，而引用式删除应成功；存在性断言只走 `security find-generic-password`（只查属性不解密，不触发授权框），不打印其输出。
+- racing_first_reads_settle_on_the_cached_value：并发首读的闸门收敛断言依赖测试构建的底层读计数（`raw_reads`，见决策记录的测试接缝）；测试未预置任何条目，读路径全程走真 keychain 的缺条目回空。
+- foreign_owned_entry_is_removed_by_reference_delete：外部所有者条目无法在本进程内伪造（所有权按创建二进制的代码签名归属），用 `security` CLI 预置真外部条目——CLI 的 partition 归属使查询式删除必被拒，而引用式删除应成功；存在性断言只走 `security find-generic-password`（只查属性不解密，不触发授权框），不打印其输出。服务名以模块内测试字面量给定并与 CLI 调用共用（骨架上移后句柄不再持服务名字段，取值与 test_store 同一字符串）。
