@@ -36,11 +36,3 @@ max_lines = 19
 kind = "retain"
 reason = "评测检视页三个测试共用同一渲染夹具构造，三次规则候选，未列入本期 G3 消除计划，按观察保留待后续窗口"
 registered = "2026-11-21"
-
-[[entry]]
-first = "crates/gloss-platform/src/macos/events/mod.rs"
-second = "crates/gloss-platform/src/windows/events/mod.rs"
-max_lines = 161
-kind = "todo"
-reason = "平台事件线程内联测试装配样板五段逐字同体，两侧调用的 spawn 接缝已抽象、不触平台调用面，对应消除拉取请求 G3-P3 收进包内共享测试助手"
-registered = "2026-11-21"
