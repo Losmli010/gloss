@@ -158,6 +158,9 @@
 
 - 2026-10-26 成员变更：`fmt-md`、`lint-md` 入列，七条工具格式检查；六条纯文本
   门禁成员不变。
+- 2026-11-21 成员变更（克隆治理 G2）：`duplicates` 并入纯文本门禁（经
+  `text-gates-merged` 的 GATES 元组），六条改七条；precommit 与提交钩子随组
+  合配方自动覆盖，存量经基线登记放行、新增零容忍。
 
 ## pr-lint / pr-lint-draft
 
@@ -215,3 +218,9 @@
 - 本机交叉检查系统（Windows）目标的调研定案落配方：可行性判据是交叉检查工具（cargo-xwin）对 `x86_64-pc-windows-msvc` 跑通 `cargo check -p gloss-platform`，即它承担加密库（ring）的 C 构建——`cc` 的唯一构建期依赖方是 ring（`cargo tree -p gloss-platform --target x86_64-pc-windows-msvc -i cc -e build,normal` 实证）。2026-11-11 实测通过：`cargo xwin check` 全绿（3m21s），ring 的 C 对象与静态库在目标产物目录产出，构建脚本输出确认 `CC=clang-cl`。
 - 落**本地开发与构建**桶而非编译门禁桶：配方只作本地自检，不进任何工作流——系统（Windows）作业有真机执行器（lint-windows 与测试矩阵），跨检只是缩短触及 windows/ 改动的本地往返，真机门禁地位不变（配方注释同句注明）。
 - 前置：rustup 目标 `x86_64-pc-windows-msvc` 与 cargo-xwin 预装（环境初始化不校验，缺件时配方即报错）；SDK/CRT 缓存约 1.4GiB 落在用户缓存目录（cargo-xwin 自动下载），不进版本库；只检 gloss-platform 及其依赖——平台层收敛的改动面在平台层包内，够用。
+
+## duplicates / dup-report / dup-triage（克隆门禁与观察，2026-11-21）
+
+- 三配方随克隆治理 G1 落地（方案：代码克隆治理方案），G2 起 `duplicates` 判罚模式并进 `text-gates-merged`，提交钩子与持续集成同跑；桶头注释同步（先“后续拉取请求并轨”后“已并轨”，防表述过期）。
+- 命名避让：`clone-check`、`clone-bench` 已被内存分配基线占用（见上文 clone-stats 节），判罚配方取 `duplicates`，与质量条目总表的强制方式列同名。
+- `duplicates *args` 透传参数：追加 `doctor` 关键词即基线体检（`--fix` 一键清理陈旧条目），判罚与体检共用一个入口；`dup-report` 观察线宽（60）只看数字不判罚，`dup-triage` 按克隆对出判定任务包供代理判定，两者都只本地按需。

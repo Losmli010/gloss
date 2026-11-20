@@ -4,3 +4,59 @@
 # 上限取门禁线宽下该文件对全部克隆行的实测合计加一成余量向上取整；放行条件是同一文件对的
 # 全部克隆行合计不超过登记上限，超出即整对红牌。
 # 基线只缩不涨：克隆消除后条目随体检配方清理，已有条目不放宽；同一文件对只登记一条。
+
+[[entry]]
+first = "crates/gloss-app/src/update/mod.rs"
+second = "crates/gloss-app/src/update/mod.rs"
+max_lines = 27
+kind = "retain"
+reason = "更新流程测试共用的状态走查前缀，全程走查已抽 reach_update_ready 既有接缝，本对止于下载分叉点属第二次出现、需新建抽象，按观察保留"
+registered = "2026-11-21"
+
+[[entry]]
+first = "crates/gloss-app/tests/stubs/engine.rs"
+second = "crates/gloss-core/tests/stubs/engine.rs"
+max_lines = 200
+kind = "retain"
+reason = "跨包测试替身：两侧桩库分属不同分包的集成测试面，共享需引入测试专用公共依赖，方案不做清单明示跨包替身三次规则观察中"
+registered = "2026-11-21"
+
+[[entry]]
+first = "crates/gloss-app/tests/stubs/ports.rs"
+second = "crates/gloss-core/tests/stubs/ports.rs"
+max_lines = 72
+kind = "retain"
+reason = "跨包测试替身：两侧桩库分属不同分包的集成测试面，共享需引入测试专用公共依赖，方案不做清单明示跨包替身三次规则观察中"
+registered = "2026-11-21"
+
+[[entry]]
+first = "crates/gloss-eval/src/view/mod.rs"
+second = "crates/gloss-eval/src/view/mod.rs"
+max_lines = 19
+kind = "retain"
+reason = "评测检视页三个测试共用同一渲染夹具构造，三次规则候选，未列入本期 G3 消除计划，按观察保留待后续窗口"
+registered = "2026-11-21"
+
+[[entry]]
+first = "crates/gloss-platform/src/macos/events/mod.rs"
+second = "crates/gloss-platform/src/windows/events/mod.rs"
+max_lines = 161
+kind = "todo"
+reason = "平台事件线程内联测试装配样板五段逐字同体，两侧调用的 spawn 接缝已抽象、不触平台调用面，对应消除拉取请求 G3-P3 收进包内共享测试助手"
+registered = "2026-11-21"
+
+[[entry]]
+first = "crates/gloss-platform/src/macos/selection/clipboard.rs"
+second = "crates/gloss-platform/src/windows/selection/clipboard.rs"
+max_lines = 36
+kind = "todo"
+reason = "兜底读取编排骨架两侧同体，common/fallback.rs 既有接缝已能表达平台差异，对应消除拉取请求 G3-P1 上提后两侧只留闭包表实参"
+registered = "2026-11-21"
+
+[[entry]]
+first = "crates/gloss-platform/src/macos/storage/keychain.rs"
+second = "crates/gloss-platform/src/windows/storage/cred.rs"
+max_lines = 53
+kind = "todo"
+reason = "密钥存取语义测试骨架（缺条目读空、缓存一致性）两侧同体，对应消除拉取请求 G3-P2 上提 common 后两侧瘦成系统调用面与各自测试"
+registered = "2026-11-21"
