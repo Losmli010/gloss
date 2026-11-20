@@ -1,8 +1,11 @@
-//! 模拟复制兜底流程的平台中立共享形状：写入确认轮询、兜底读取一轮（快照 →
-//! 注入 → 确认 → 读回 → 恢复收尾）、恢复重试骨架与写盘归因的收尾结构只写
-//! 一份，两侧平台目录共用。本模块零目标条件编译、零外部函数接口（FFI）、
-//! 零不安全块，不触任何系统接口——平台差异只经板面原语束注入：基线计数、
-//! 快照与还原、写入确认监视、注入复制快捷键、文本读取。快照内容类型（系统
+//! 模拟复制兜底流程的平台中立共享形状：兜底读取的装配骨架（板创建守卫、
+//! 文本读取接线与确认超时单源）、写入确认轮询、兜底读取一轮（快照 → 注入
+//! → 确认 → 读回 → 恢复收尾）、恢复重试骨架与写盘归因的收尾结构只写一份，
+//! 两侧平台目录共用。本模块零目标条件编译、
+//! 零外部函数接口（FFI）、零不安全块，板创建与文本读取经
+//! 跨平台兜底库（arboard）触板——与共享层剪贴板文本写入同款依赖；
+//! 其余平台差异只经板面原语束注入：基线
+//! 计数、快照与还原、写入确认监视、注入复制快捷键。快照内容类型（系统
 //! （macOS）逐条目逐风格原始字节、系统（Windows）文本或空板或图像风格）留
 //! 在平台侧，快照的保全与放弃边界以各侧快照函数的文档为准。
 //!
@@ -23,14 +26,14 @@
 
 use std::time::{Duration, Instant};
 
-use arboard::Error;
+use arboard::{Clipboard, Error};
 
 use gloss_core::log::{debug, thread};
 use gloss_core::model::GlossError;
 
 use super::clipboard_watch::{RoundWrites, WatchRoundFlag};
 
-pub(crate) const WRITE_CONFIRM_TIMEOUT: Duration = Duration::from_millis(800);
+const WRITE_CONFIRM_TIMEOUT: Duration = Duration::from_millis(800);
 
 const WRITE_POLL_INTERVAL: Duration = Duration::from_millis(30);
 
@@ -184,6 +187,59 @@ pub(crate) struct FallbackBoard<S, P, Sn, M, I, T> {
     pub(crate) monitor: M,
     pub(crate) inject: I,
     pub(crate) read_text: T,
+}
+
+pub(crate) struct FallbackBindings<S, P, Sn, M, I> {
+    pub(crate) pre_count: P,
+    pub(crate) snapshot: Sn,
+    pub(crate) restore: fn(&S) -> u64,
+    pub(crate) monitor: M,
+    pub(crate) inject: I,
+}
+
+pub(crate) fn read_with_fallback<S, P, Sn, M, I>(
+    round: WatchRoundFlag,
+    bindings: FallbackBindings<S, P, Sn, M, I>,
+) -> (Result<String, GlossError>, FallbackSettle<S>)
+where
+    P: FnOnce() -> u64,
+    Sn: FnOnce(Result<String, Error>) -> Option<S>,
+    M: FnMut() -> Option<u64>,
+    I: Fn() -> Result<(), GlossError>,
+{
+    let mut clipboard = match Clipboard::new() {
+        Ok(clipboard) => clipboard,
+        Err(err) => {
+            debug!(
+                thread = thread::EVENT,
+                error = %err,
+                "clipboard unavailable, fallback read skipped"
+            );
+            return (
+                Err(GlossError::SelectionUnavailable),
+                FallbackSettle::idle(round.clone()),
+            );
+        }
+    };
+    let FallbackBindings {
+        pre_count,
+        snapshot,
+        restore,
+        monitor,
+        inject,
+    } = bindings;
+    read_with(
+        round,
+        WRITE_CONFIRM_TIMEOUT,
+        FallbackBoard {
+            pre_count,
+            snapshot,
+            restore,
+            monitor,
+            inject,
+            read_text: move || clipboard.get_text(),
+        },
+    )
 }
 
 pub(crate) fn read_with<S, P, Sn, M, I, T>(

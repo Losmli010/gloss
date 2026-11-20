@@ -1,21 +1,19 @@
 //! 剪贴板兜底读取（模拟复制）：系统（macOS）绑定。
 //!
-//! 辅助功能（AX）读不到选区时的兜底通道的绑定面：共享流程（平台中立共享
-//! 层）只经板面原语束触板，本模块提供系统（macOS）的原语——写盘归因基线
-//! 取粘贴板变更计数；快照按条目逐数据风格保全原始字节并按快照还原（边界
-//! 见快照模块文档）；写入确认监视以粘贴板同步标志的闩锁承载代数——标志
-//! 在同步时被消费，错过的中间改动次数无从得知，只能回答“变没变”，基线
-//! 恒为 0；注入复制快捷键走事件（HID）事件源四步键序，失败即弃并逆序补
-//! 发已按下的键。快照内容类型为全条目全风格原始字节。读取在平台事件线程
-//! 上调用，收尾同线程。
+//! 辅助功能（AX）读不到选区时的兜底通道的绑定面：装配骨架与共享流程（平
+//! 台中立共享层）只经绑定束与板面原语束触板，本模块提供系统（macOS）的原
+//! 语——写盘归因基线取粘贴板变更计数；快照按条目逐数据风格保全原始字节并
+//! 按快照还原（边界见快照模块文档）；写入确认监视以粘贴板同步标志的闩锁
+//! 承载代数——标志在同步时被消费，错过的中间改动次数无从得知，只能回答
+//! “变没变”，基线恒为 0；注入复制快捷键走事件（HID）事件源四步键序，失败
+//! 即弃并逆序补发已按下的键。快照内容类型为全条目全风格原始字节。读取在
+//! 平台事件线程上调用，收尾同线程。
 
 mod restore;
 mod snapshot;
 
-use arboard::Clipboard;
-
 use crate::clipboard::{WatchRoundFlag, pasteboard_change_count};
-use crate::common::fallback::{FallbackBoard, FallbackSettle, WRITE_CONFIRM_TIMEOUT, read_with};
+use crate::common::fallback::{FallbackBindings, FallbackSettle, read_with_fallback};
 use crate::ffi::event;
 use crate::ffi::pasteboard::{K_PASTEBOARD_MODIFIED, PasteboardSynchronize};
 
@@ -36,24 +34,9 @@ impl ClipboardFallbackReader {
     }
 
     pub(crate) fn read(&mut self) -> (Result<String, GlossError>, FallbackSettle<SavedContent>) {
-        let mut clipboard = match Clipboard::new() {
-            Ok(clipboard) => clipboard,
-            Err(err) => {
-                debug!(
-                    thread = thread::EVENT,
-                    error = %err,
-                    "clipboard unavailable, fallback read skipped"
-                );
-                return (
-                    Err(GlossError::SelectionUnavailable),
-                    FallbackSettle::idle(self.round.clone()),
-                );
-            }
-        };
-        read_with(
+        read_with_fallback(
             self.round.clone(),
-            WRITE_CONFIRM_TIMEOUT,
-            FallbackBoard {
+            FallbackBindings {
                 pre_count: || pasteboard_change_count().unwrap_or(0),
                 snapshot: |_| snapshot_pasteboard(),
                 restore: restore_and_log,
@@ -73,7 +56,6 @@ impl ClipboardFallbackReader {
                     }
                 },
                 inject: inject_copy_key,
-                read_text: move || clipboard.get_text(),
             },
         )
     }
