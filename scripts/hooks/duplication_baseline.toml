@@ -44,11 +44,3 @@ max_lines = 161
 kind = "todo"
 reason = "平台事件线程内联测试装配样板五段逐字同体，两侧调用的 spawn 接缝已抽象、不触平台调用面，对应消除拉取请求 G3-P3 收进包内共享测试助手"
 registered = "2026-11-21"
-
-[[entry]]
-first = "crates/gloss-platform/src/macos/storage/keychain.rs"
-second = "crates/gloss-platform/src/windows/storage/cred.rs"
-max_lines = 53
-kind = "todo"
-reason = "密钥存取语义测试骨架（缺条目读空、缓存一致性）两侧同体，对应消除拉取请求 G3-P2 上提 common 后两侧瘦成系统调用面与各自测试"
-registered = "2026-11-21"

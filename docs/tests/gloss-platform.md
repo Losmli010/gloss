@@ -132,6 +132,15 @@
 | --- | --- | --- | --- |
 | labels_follow_their_language_per_locale | 菜单词条守语言规范 | 给定中英两份菜单词条表与按档位查取，当逐条读，则中文表含汉字、英文表无汉字且两表词条均非空 | 2026-11-14 |
 
+### `crates/gloss-platform/src/common/secret.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| missing_entry_reads_as_none | 缺条目读为 `None` | 给定先删除预清的条目，当 `get`，则 `None` 而非错误。沿革：随密钥存取语义骨架上提自两侧平台半边合并（钥匙串侧 2026-09-19、凭据侧 2026-11-10），载体由真系统存储换替身底层读写删，断言不变 | 2026-11-21 |
+| delete_missing_entry_is_ok | 删除缺条目幂等成功 | 给定不存在的条目，当 `delete`，则幂等成功。沿革：随密钥存取语义骨架上提自两侧平台半边合并（钥匙串侧 2026-09-19、凭据侧 2026-11-10），载体由真系统存储换替身底层读写删，断言不变 | 2026-11-21 |
+| cached_reads_stay_consistent_with_writes | 缓存读写一致 | 给定写后读与删除后读，当经克隆共享缓存，则写后读新值、删除后克隆读 `None`（缓存直填，不触底层写入）。沿革：随密钥存取语义骨架上提自两侧平台半边合并（钥匙串侧 2026-09-19、凭据侧 2026-11-10），载体由真系统存储换替身底层读写删，断言不变 | 2026-11-21 |
+| a_failed_underlying_read_stays_uncached_and_reports | 底层读失败如实上抛且不落缓存 | 给定恒失败的替身底层读写删，当 `get`，则报配置错误形态且缓存不落失败答案（失败读不顶数） | 2026-11-21 |
+
 ### `crates/gloss-platform/src/common/storage.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -254,9 +263,6 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| missing_entry_reads_as_none（keychain） | 缺条目读为 `None` | 给定先删除预清的条目，当 `get`，则 `None` 而非错误 | 2026-09-19 |
-| delete_missing_entry_is_ok（keychain） | 删除缺条目幂等成功 | 给定不存在的条目，当 `delete`，则幂等成功 | 2026-09-19 |
-| cached_reads_stay_consistent_with_writes（keychain） | 缓存读写一致 | 给定写后读与删除后读，当经克隆共享缓存，则写后读新值、删除后克隆读 `None`（不走真实 `keychain` 写入） | 2026-09-19 |
 | racing_first_reads_settle_on_the_cached_value | 并发首读共享同一次未命中 | 给定不存在条目的全新实例（空缓存直逼未命中路径）与 4 线程并发 `get`，当首读竞赛，则全部读到一致结果、不悬挂，且底层读恰好 1 次（测试构建的读计数接缝：首读按 `key` 过闸门串行，授权框阻塞期间并发读者等缓存回填而非各撞一次授权框） | 2026-10-08 |
 
 ### `crates/gloss-platform/src/windows/clipboard/image.rs`
@@ -328,7 +334,4 @@
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
 | --- | --- | --- | --- |
-| missing_entry_reads_as_none（cred） | 缺条目读为 `None` | 给定先删除预清的条目，当 `get`，则 `None` 而非错误 | 2026-11-10 |
-| delete_missing_entry_is_ok（cred） | 删除缺条目幂等成功 | 给定不存在的条目，当 `delete`，则幂等成功 | 2026-11-10 |
-| cached_reads_stay_consistent_with_writes（cred） | 缓存读写一致 | 给定写后读与删除后读，当经克隆共享缓存，则写后读新值、删除后克隆读 `None`（不走真实凭据管理器写入） | 2026-11-10 |
 | racing_first_reads_settle_on_one_answer | 并发首读结果一致 | 给定不存在条目的全新实例与 4 线程并发 `get`，当首读竞赛，则全部读到一致结果、不悬挂，缓存随后读保持一致（凭据读取无授权框，读数不做单次收敛） | 2026-11-10 |
