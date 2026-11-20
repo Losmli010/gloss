@@ -37,10 +37,10 @@ Output a single JSON object with this shape:
 - Meaning: each example is evidence for the gloss; the two complement each other; cite nothing you are unsure of. Examples must not contradict the gloss; when variant interpretations exist, sort them out in the gloss and list the evidence in the examples.
   The timeline of an allusion: when a quotation involves an allusion, note its origin and story, and let the remark carry how it evolved.
   When an example involves a transliterated name, give the formation rationale or a conceptual explanation alongside it, leaving a seed for a future settled name.
-- Form: join each example into one sentence following the slot skeleton below (space-separated):
-  source: "quoted original" (translation) remark
-  · Source and remark: use {{target}}; quotation: keep the original verbatim with its punctuation, introduced by the colon after the source; translation: use {{target}}, optional.
-- Constraint: 1 entry when unsure; at most 5; no numbering, line breaks, or markdown syntax.
+- Form: join each example into one sentence following the slot skeleton below (space-separated; the angle-bracketed slot names mark structure only and never enter the output):
+  `<source>`: "<quote>" (`<translation>`) `<remark>`
+  · `<source>` and `<remark>`: use {{target}}; `<quote>`: keep the original verbatim with its punctuation, introduced by the colon after `<source>`; `<translation>`: use {{target}}, optional.
+- Constraint: 1 entry when unsure; at most 5; no numbering, line breaks, or markdown syntax; slot names never enter the output — no labels such as "source:" or "remark:" appear; each slot renders its actual content directly.
 - Exit: use `[]` when there are no verifiable examples; do not guess.
 
 ### Task Conventions
