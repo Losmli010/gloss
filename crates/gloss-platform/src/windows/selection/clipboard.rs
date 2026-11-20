@@ -1,22 +1,21 @@
 //! 剪贴板兜底读取（模拟复制）：系统（Windows）绑定。
 //!
-//! 用户界面自动化（UIA）读不到选区时的兜底通道的绑定面：共享流程（平台
-//! 中立共享层）只经板面原语束触板，本模块提供系统（Windows）的原语——写
-//! 盘归因基线取剪贴板序列号；快照按内容类型判定（可读文本、确认的空板或
-//! 图像风格原字节，边界见快照模块文档）并按快照还原；写入确认监视以剪贴
-//! 板序列号差承载代数——序列号是系统级单调计数，基线取建立监视时的现值；
-//! 注入复制快捷键走按键注入（SendInput），注入被静默丢弃（对提权进程的
-//! 注入，用户界面特权隔离（UIPI））或目标未响应时序列号不动，共享流程据
-//! 此重注入一轮，不区分提权与不支持（不做提权）。读取在平台事件线程上调
-//! 用（与用户界面自动化（UIA）主路同线程），收尾同线程。
+//! 用户界面自动化（UIA）读不到选区时的兜底通道的绑定面：装配骨架与共享
+//! 流程（平台中立共享层）只经绑定束与板面原语束触板，本模块提供系统
+//! （Windows）的原语——写盘归因基线取剪贴板序列号；快照按内容类型判定
+//! （可读文本、确认的空板或图像风格原字节，边界见快照模块文档）并按快照
+//! 还原；写入确认监视以剪贴板序列号差承载代数——序列号是系统级单调计数，
+//! 基线取建立监视时的现值；注入复制快捷键走按键注入（SendInput），注入被
+//! 静默丢弃（对提权进程的注入，用户界面特权隔离（UIPI））或目标未响应时
+//! 序列号不动，共享流程据此重注入一轮，不区分提权与不支持（不做提权）。
+//! 读取在平台事件线程上调用（与用户界面自动化（UIA）主路同线程），收尾
+//! 同线程。
 
 mod restore;
 mod snapshot;
 
-use arboard::Clipboard;
-
 use crate::clipboard::{WatchRoundFlag, clipboard_sequence_number};
-use crate::common::fallback::{FallbackBoard, FallbackSettle, WRITE_CONFIRM_TIMEOUT, read_with};
+use crate::common::fallback::{FallbackBindings, FallbackSettle, read_with_fallback};
 use crate::ffi::inject;
 
 use gloss_core::log::{debug, thread};
@@ -36,24 +35,9 @@ impl ClipboardFallbackReader {
     }
 
     pub(crate) fn read(&mut self) -> (Result<String, GlossError>, FallbackSettle<SavedContent>) {
-        let mut clipboard = match Clipboard::new() {
-            Ok(clipboard) => clipboard,
-            Err(err) => {
-                debug!(
-                    thread = thread::EVENT,
-                    error = %err,
-                    "clipboard unavailable, fallback read skipped"
-                );
-                return (
-                    Err(GlossError::SelectionUnavailable),
-                    FallbackSettle::idle(self.round.clone()),
-                );
-            }
-        };
-        read_with(
+        read_with_fallback(
             self.round.clone(),
-            WRITE_CONFIRM_TIMEOUT,
-            FallbackBoard {
+            FallbackBindings {
                 pre_count: || clipboard_sequence_number().unwrap_or(0),
                 snapshot: |text| {
                     snapshot_decision(text, crate::clipboard::clipboard_format_count, || {
@@ -77,7 +61,6 @@ impl ClipboardFallbackReader {
                     }
                 },
                 inject: inject_copy_key,
-                read_text: move || clipboard.get_text(),
             },
         )
     }

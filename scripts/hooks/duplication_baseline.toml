@@ -46,14 +46,6 @@ reason = "平台事件线程内联测试装配样板五段逐字同体，两侧�
 registered = "2026-11-21"
 
 [[entry]]
-first = "crates/gloss-platform/src/macos/selection/clipboard.rs"
-second = "crates/gloss-platform/src/windows/selection/clipboard.rs"
-max_lines = 36
-kind = "todo"
-reason = "兜底读取编排骨架两侧同体，common/fallback.rs 既有接缝已能表达平台差异，对应消除拉取请求 G3-P1 上提后两侧只留闭包表实参"
-registered = "2026-11-21"
-
-[[entry]]
 first = "crates/gloss-platform/src/macos/storage/keychain.rs"
 second = "crates/gloss-platform/src/windows/storage/cred.rs"
 max_lines = 53
