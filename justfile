@@ -357,3 +357,17 @@ pr-lint-draft title-file body-file:
 # 安装本地仓库钩子（克隆后运行一次，可重复运行）；环境初始化（setup）已含此步
 install-hooks:
     {{py}} scripts/hooks/install_hooks.py
+
+# ---- 克隆门禁与观察（存量登记并轨进提交前门禁在后续拉取请求，本组先以独立配方形态落地）----
+
+# 克隆检测门禁：门禁线宽判罚存量外新增克隆，存量经基线或就近放行标记放行；追加体检参数即清理陈旧基线条目
+duplicates *args:
+    {{py}} scripts/hooks/check_duplication.py {{args}}
+
+# 克隆观察报告：观察线宽全量克隆清单加聚合计数，不判罚，本地按需
+dup-report:
+    {{py}} scripts/hooks/check_duplication.py --report
+
+# 克隆判定任务包：门禁线宽按克隆对逐个出三问判定任务包，可传克隆对标识筛选
+dup-triage clone-id="":
+    {{py}} scripts/hooks/check_duplication.py --triage={{clone-id}}
