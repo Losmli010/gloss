@@ -136,6 +136,9 @@ REGISTERED_RULES = frozenset(
         "UI-STYLE-DARK",
         "UI-STYLE-FONT",
         "UI-STYLE-CONST",
+        "DUP-NEW",
+        "DUP-ALLOW-REASON",
+        "DUP-STALE",
     }
 )
 

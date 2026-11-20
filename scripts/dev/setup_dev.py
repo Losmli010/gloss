@@ -220,6 +220,14 @@ def main() -> int:
             "cargo-flamegraph/inferno (flamegraph profiling, needed by just flame and flame-startup)",
             "cargo install flamegraph inferno rustfilt --locked",
         )
+    # 克隆门禁的检测引擎（jscpd）：判罚口径在仓库侧脚本，引擎缺席或版本漂移都会
+    # 改变克隆清单，环境初始化只校验不代装，判定一致性靠钉全版本
+    check_pinned(
+        "jscpd",
+        "jscpd (clone gate engine, needed by just duplicates)",
+        tools.get("jscpd", {}).get("version"),
+        "npm install -g jscpd@{pin}",
+    )
 
     print("== 5/6 secrets gate engine ==")
     # 密钥门禁每提交必跑：引擎缺失当场失败而非静默跳过，版本不一致给对齐建议
