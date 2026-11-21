@@ -71,9 +71,10 @@
   DirectComposition 目标与视觉（`CreateTargetForHwnd` →
   `CreateSwapChainForComposition` → SetContent/Commit），组合表面的 caps 含
   `PreMultiplied`，`pick_alpha_mode` 与渲染管线零改动。配套改动在浮层窗口
-  属性：`no_redirection_bitmap`（WS_EX_NOREDIRECTIONBITMAP）——DComp 路径
-  要求窗口无重定向位面，否则窗口自身的重定向表面挡在合成视觉之上，透明
-  照样失效；winit 在该属性下也会跳过 blur-behind 旧路径。
+  属性：`no_redirection_bitmap`（WS_EX_NOREDIRECTIONBITMAP）——`DComp`
+  内容永远合成在窗口直绘内容之上，但保留重定向位面时直绘面是不透明底色，
+  组合视觉的透明像素与它混合仍得黑色，四角照样失效；去位面后视觉即窗口
+  唯一内容，alpha 直达合成器。winit 在该属性下也会跳过 blur-behind 旧路径。
 - 后端在 Windows 钉 DX12（`if cfg!(windows)`），取代 2026-11-06 记的
   “不做后端选择分支”：透明圆角只有 DX12 的 DComp 路径能兑现，Vulkan 的
   caps 与兑现都看驱动脸色，`Backends::PRIMARY` 在 Windows 可能选到 Vulkan，

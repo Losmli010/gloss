@@ -127,7 +127,7 @@ two-face = {
   ]
 }
 # 图形后端（wgpu）的共同面（标准与着色语言特性）；平台图形后端按目标节
-# 追加：系统（macOS）一份、系统（Windows）一主一兜，不引第三路。
+# 追加：系统（macOS）一份、系统（Windows）一份，各只开所需后端。
 wgpu = {
   version = "30.0.1",
   default-features = false,
@@ -198,14 +198,14 @@ wgpu = {
   ]
 }
 
-# 系统（Windows）专属的图形后端按目标门控：主路加兜底两份，不引第三路。
+# 系统（Windows）专属的图形后端按目标门控：只开（DX12）——透明圆角走
+# （DirectComposition）组合交换链，仅该后端兑现，后端在渲染栈钉死。
 [target.'cfg(target_os = "windows")'.dependencies]
 wgpu = {
   version = "30.0.1",
   default-features = false,
   features = [
     "dx12",
-    "vulkan",
   ]
 }
 # 平台框架绑定：字体发现经字体栈（DirectWrite）枚举系统字体集合，特性只开

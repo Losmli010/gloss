@@ -33,7 +33,7 @@ pub struct GpuContext {
 impl GpuContext {
     pub fn new() -> Result<Self, GpuError> {
         let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-        descriptor.backends = if cfg!(windows) {
+        descriptor.backends = if cfg!(target_os = "windows") {
             wgpu::Backends::DX12
         } else {
             wgpu::Backends::PRIMARY
