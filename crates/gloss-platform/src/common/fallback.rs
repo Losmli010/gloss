@@ -20,9 +20,13 @@
 //!
 //! 监视缝协议：注入前首调返回确认基线，此后每调返回代数现值，读不出返回
 //! 空、继续轮询。基线与代数同源：系统（macOS）为同步标志闩锁后的 0／1，
-//! 系统（Windows）为剪贴板序列号差。恢复写盘数按实际发生的写盘（系统
-//! （macOS）的清板数、系统（Windows）的序列号跳变数）自报，供计数归因对
-//! 齐哨兵口径。时序与预算常量随本模块单源。
+//! 系统（Windows）为剪贴板序列号差。复制写盘数与恢复写盘数都按真实计数增
+//! 量自报：复制写盘数在恢复开始前取监视读数与确认基线之差，覆盖注入引发
+//! 的全部写入（目标应用一次复制往往清板加多个风格各记一跳，其余格式的落
+//! 地可能晚于读回定稿）；恢复被跳过时改取读回定稿读数，板上的外来内容留
+//! 给哨兵放行。恢复写盘数按实际发生的写盘（系统（macOS）的清板数、系统
+//! （Windows）的序列号跳变数）自报，供计数归因对齐哨兵口径。时序与预算
+//! 常量随本模块单源。
 
 use std::time::{Duration, Instant};
 
@@ -123,11 +127,16 @@ impl<S> Drop for PendingRestore<S> {
     }
 }
 
+pub(crate) struct RoundReport {
+    pre: u64,
+    probe: Option<Box<dyn FnMut() -> Option<u64>>>,
+    readback_jumps: u64,
+}
+
 pub(crate) struct FallbackSettle<S> {
     pending: Option<PendingRestore<S>>,
     round: WatchRoundFlag,
-    pre: u64,
-    acquired: u64,
+    report: RoundReport,
     restore: bool,
 }
 
@@ -136,8 +145,11 @@ impl<S> FallbackSettle<S> {
         Self {
             pending: None,
             round,
-            pre: 0,
-            acquired: 0,
+            report: RoundReport {
+                pre: 0,
+                probe: None,
+                readback_jumps: 0,
+            },
             restore: false,
         }
     }
@@ -145,15 +157,13 @@ impl<S> FallbackSettle<S> {
     fn planned(
         pending: PendingRestore<S>,
         round: WatchRoundFlag,
-        pre: u64,
-        acquired: bool,
+        report: RoundReport,
         restore: bool,
     ) -> Self {
         Self {
             pending: Some(pending),
             round,
-            pre,
-            acquired: u64::from(acquired),
+            report,
             restore,
         }
     }
@@ -162,6 +172,15 @@ impl<S> FallbackSettle<S> {
         let Some(pending) = self.pending.as_mut() else {
             return;
         };
+        let acquired = if self.restore {
+            self.report
+                .probe
+                .as_mut()
+                .and_then(|probe| probe())
+                .unwrap_or(self.report.readback_jumps)
+        } else {
+            self.report.readback_jumps
+        };
         let restored = if self.restore {
             pending.restore_now()
         } else {
@@ -169,8 +188,8 @@ impl<S> FallbackSettle<S> {
             0
         };
         self.round.enter(RoundWrites {
-            pre: self.pre,
-            ours: self.acquired + restored,
+            pre: self.report.pre,
+            ours: acquired + restored,
         });
     }
 
@@ -204,7 +223,7 @@ pub(crate) fn read_with_fallback<S, P, Sn, M, I>(
 where
     P: FnOnce() -> u64,
     Sn: FnOnce(Result<String, Error>) -> Option<S>,
-    M: FnMut() -> Option<u64>,
+    M: FnMut() -> Option<u64> + 'static,
     I: Fn() -> Result<(), GlossError>,
 {
     let mut clipboard = match Clipboard::new() {
@@ -250,7 +269,7 @@ pub(crate) fn read_with<S, P, Sn, M, I, T>(
 where
     P: FnOnce() -> u64,
     Sn: FnOnce(Result<String, Error>) -> Option<S>,
-    M: FnMut() -> Option<u64>,
+    M: FnMut() -> Option<u64> + 'static,
     I: Fn() -> Result<(), GlossError>,
     T: FnMut() -> Result<String, Error>,
 {
@@ -274,69 +293,105 @@ where
         );
     };
     let pending = PendingRestore::new(saved, restore);
-    let outcome = attempt(confirm_timeout, &mut read_text, monitor, inject);
-    let settle = match &outcome {
-        Ok(acquired) => {
-            let current_is_ours = matches!(read_text(), Ok(current) if &current == acquired);
-            if current_is_ours {
-                FallbackSettle::planned(pending, round, pre, true, true)
-            } else {
-                debug!(
-                    thread = thread::EVENT,
-                    "clipboard changed after read, restore skipped"
-                );
-                FallbackSettle::planned(pending, round, pre, true, false)
-            }
+    let mut monitor = monitor;
+    let (outcome, readback_jumps, baseline) =
+        attempt(confirm_timeout, &mut read_text, &mut monitor, inject);
+    let report = if outcome.is_ok() {
+        RoundReport {
+            pre,
+            probe: probe_from(baseline, monitor),
+            readback_jumps,
         }
-        Err(_) => FallbackSettle::planned(pending, round, pre, false, false),
+    } else {
+        RoundReport {
+            pre,
+            probe: None,
+            readback_jumps: 0,
+        }
     };
-    (outcome, settle)
+    let restore = board_still_holds_our_read(&outcome, &mut read_text);
+    (
+        outcome,
+        FallbackSettle::planned(pending, round, report, restore),
+    )
+}
+
+fn board_still_holds_our_read<T>(outcome: &Result<String, GlossError>, read_text: &mut T) -> bool
+where
+    T: FnMut() -> Result<String, Error>,
+{
+    let Ok(acquired) = outcome else {
+        return false;
+    };
+    let current_is_ours = matches!(read_text(), Ok(current) if current == *acquired);
+    if !current_is_ours {
+        debug!(
+            thread = thread::EVENT,
+            "clipboard changed after read, restore skipped"
+        );
+    }
+    current_is_ours
+}
+
+fn probe_from(
+    baseline: Option<u64>,
+    mut monitor: impl FnMut() -> Option<u64> + 'static,
+) -> Option<Box<dyn FnMut() -> Option<u64>>> {
+    baseline.map(|baseline| {
+        Box::new(move || monitor().map(|reading| reading.saturating_sub(baseline)))
+            as Box<dyn FnMut() -> Option<u64>>
+    })
 }
 
 fn attempt(
     confirm_timeout: Duration,
     read_text: &mut impl FnMut() -> Result<String, Error>,
-    mut monitor: impl FnMut() -> Option<u64>,
+    monitor: &mut impl FnMut() -> Option<u64>,
     inject: impl Fn() -> Result<(), GlossError>,
-) -> Result<String, GlossError> {
+) -> (Result<String, GlossError>, u64, Option<u64>) {
     let Some(baseline) = monitor() else {
         debug!(
             thread = thread::EVENT,
             "change monitor unavailable, fallback declined"
         );
-        return Err(GlossError::SelectionUnavailable);
+        return (Err(GlossError::SelectionUnavailable), 0, None);
     };
-    inject()?;
+    if let Err(err) = inject() {
+        return (Err(err), 0, Some(baseline));
+    }
     let mut deadline = Instant::now() + confirm_timeout;
-    let mut confirmed = wait_for_write(baseline, &mut monitor, deadline);
-    if !confirmed {
+    let mut confirmed = wait_for_write(baseline, monitor, deadline);
+    if confirmed.is_none() {
         debug!(
             thread = thread::EVENT,
             "copy write not confirmed, retrying injection once"
         );
-        inject()?;
+        if let Err(err) = inject() {
+            return (Err(err), 0, Some(baseline));
+        }
         deadline = Instant::now() + confirm_timeout;
-        confirmed = wait_for_write(baseline, &mut monitor, deadline);
+        confirmed = wait_for_write(baseline, monitor, deadline);
     }
-    if !confirmed {
+    let Some(confirmed) = confirmed else {
         debug!(
             thread = thread::EVENT,
             "copy write not confirmed within timeout"
         );
-        return Err(GlossError::SelectionUnavailable);
-    }
+        return (Err(GlossError::SelectionUnavailable), 0, Some(baseline));
+    };
     loop {
         if let Ok(text) = read_text()
             && !text.is_empty()
         {
-            return Ok(text);
+            let reading = monitor().unwrap_or(confirmed);
+            return (Ok(text), reading.saturating_sub(baseline), Some(baseline));
         }
         if Instant::now() >= deadline {
             debug!(
                 thread = thread::EVENT,
                 "copy confirmed but no text readable within timeout"
             );
-            return Err(GlossError::SelectionUnavailable);
+            return (Err(GlossError::SelectionUnavailable), 0, Some(baseline));
         }
         std::thread::sleep(WRITE_POLL_INTERVAL);
     }
@@ -344,15 +399,17 @@ fn attempt(
 
 fn wait_for_write(
     baseline: u64,
-    mut probe: impl FnMut() -> Option<u64>,
+    probe: &mut impl FnMut() -> Option<u64>,
     deadline: Instant,
-) -> bool {
+) -> Option<u64> {
     loop {
-        if probe().is_some_and(|current| current != baseline) {
-            return true;
+        if let Some(current) = probe()
+            && current != baseline
+        {
+            return Some(current);
         }
         if Instant::now() >= deadline {
-            return false;
+            return None;
         }
         std::thread::sleep(WRITE_POLL_INTERVAL);
     }
@@ -361,6 +418,7 @@ fn wait_for_write(
 #[cfg(test)]
 mod tests {
     use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
     use std::time::{Duration, Instant};
 
     use gloss_core::model::GlossError;
@@ -477,21 +535,21 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(5);
         let confirmed = wait_for_write(
             0,
-            || {
+            &mut || {
                 calls += 1;
                 Some(u64::from(calls >= 3))
             },
             deadline,
         );
-        assert!(confirmed);
+        assert_eq!(confirmed, Some(1));
         assert_eq!(calls, 3);
     }
 
     #[test]
-    fn timeout_returns_false_without_hanging() {
+    fn timeout_returns_empty_without_hanging() {
         let start = Instant::now();
         let deadline = start + Duration::from_millis(60);
-        assert!(!wait_for_write(0, || Some(0), deadline));
+        assert!(wait_for_write(0, &mut || Some(0), deadline).is_none());
         assert!(
             start.elapsed() < Duration::from_secs(2),
             "timeout path must return promptly"
@@ -502,10 +560,167 @@ mod tests {
     fn unavailable_probe_keeps_polling_until_deadline() {
         let start = Instant::now();
         let deadline = start + Duration::from_millis(50);
-        assert!(!wait_for_write(0, || None, deadline));
+        assert!(wait_for_write(0, &mut || None, deadline).is_none());
         assert!(
             start.elapsed() < Duration::from_secs(2),
             "timeout path must return promptly"
+        );
+    }
+
+    #[test]
+    fn a_multi_jump_copy_is_attributed_with_its_real_jumps() {
+        let monitor_calls = Cell::new(0u32);
+        let text_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: move || {
+                    let call = monitor_calls.get();
+                    monitor_calls.set(call + 1);
+                    match call {
+                        0 => Some(7),
+                        1 => Some(9),
+                        _ => Some(10),
+                    }
+                },
+                inject: || Ok(()),
+                read_text: || {
+                    let call = text_calls.get();
+                    text_calls.set(call + 1);
+                    match call {
+                        0 => Ok("preset".to_owned()),
+                        _ => Ok("the selection".to_owned()),
+                    }
+                },
+            },
+        );
+        assert_eq!(outcome, Ok("the selection".to_owned()));
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 4 }),
+            "归因 = 实测注入跳变 3（清板加多风格各记一跳）加恢复写盘 1"
+        );
+    }
+
+    #[test]
+    fn a_failed_final_reading_falls_back_to_the_confirmed_reading() {
+        let monitor_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: move || {
+                    let call = monitor_calls.get();
+                    monitor_calls.set(call + 1);
+                    match call {
+                        0 => Some(7),
+                        1 => Some(9),
+                        _ => None,
+                    }
+                },
+                inject: || Ok(()),
+                read_text: || Ok("the selection".to_owned()),
+            },
+        );
+        assert_eq!(outcome, Ok("the selection".to_owned()));
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 3 }),
+            "定稿读数缺席时按确认读数计注入跳变，不低于单跳"
+        );
+    }
+
+    #[test]
+    fn a_late_write_before_the_restore_is_attributed_to_the_round() {
+        let monitor_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: move || {
+                    let call = monitor_calls.get();
+                    monitor_calls.set(call + 1);
+                    match call {
+                        0 => Some(7),
+                        1 => Some(9),
+                        2 => Some(10),
+                        _ => Some(11),
+                    }
+                },
+                inject: || Ok(()),
+                read_text: || Ok("the selection".to_owned()),
+            },
+        );
+        assert_eq!(outcome, Ok("the selection".to_owned()));
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 5 }),
+            "归因按恢复开始前的读数计（注入 4 跳含读回后落地的一跳），加恢复写盘 1"
+        );
+    }
+
+    #[test]
+    fn a_skipped_restore_keeps_the_readback_measurement() {
+        let monitor_calls = Rc::new(Cell::new(0u32));
+        let monitor_seen = Rc::clone(&monitor_calls);
+        let text_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: move || {
+                    let call = monitor_seen.get();
+                    monitor_seen.set(call + 1);
+                    match call {
+                        0 => Some(7),
+                        1 => Some(9),
+                        2 => Some(10),
+                        _ => Some(30),
+                    }
+                },
+                inject: || Ok(()),
+                read_text: || {
+                    let call = text_calls.get();
+                    text_calls.set(call + 1);
+                    match call {
+                        0 => Ok("preset".to_owned()),
+                        1 => Ok("the selection".to_owned()),
+                        _ => Ok("the user's copy".to_owned()),
+                    }
+                },
+            },
+        );
+        assert_eq!(outcome, Ok("the selection".to_owned()));
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 3 }),
+            "恢复被跳过时只计注入跳变，板上的外来内容留给哨兵放行"
+        );
+        assert_eq!(
+            monitor_calls.get(),
+            3,
+            "恢复被跳过时不取定稿读数，外来写入不得被并进本轮"
         );
     }
 
@@ -568,7 +783,8 @@ mod tests {
     #[test]
     fn an_unconfirmed_write_reinjects_once_and_skips_restore() {
         let inject_calls = Cell::new(0u32);
-        let monitor_calls = Cell::new(0u32);
+        let monitor_calls = Rc::new(Cell::new(0u32));
+        let monitor_seen = Rc::clone(&monitor_calls);
         let text_calls = Cell::new(0u32);
         let round = WatchRoundFlag::default();
         let (outcome, settle) = read_with(
@@ -578,8 +794,8 @@ mod tests {
                 pre_count: || 7,
                 snapshot: |_| Some(Snapshot("saved-content")),
                 restore: recorded_restore,
-                monitor: || {
-                    monitor_calls.set(monitor_calls.get() + 1);
+                monitor: move || {
+                    monitor_seen.set(monitor_seen.get() + 1);
                     Some(0u64)
                 },
                 inject: || {
@@ -682,7 +898,8 @@ mod tests {
     #[test]
     fn a_declined_snapshot_stays_idle_without_injecting() {
         let inject_calls = Cell::new(0u32);
-        let monitor_calls = Cell::new(0u32);
+        let monitor_calls = Rc::new(Cell::new(0u32));
+        let monitor_seen = Rc::clone(&monitor_calls);
         let text_calls = Cell::new(0u32);
         let round = WatchRoundFlag::default();
         let (outcome, settle) = read_with(
@@ -692,8 +909,8 @@ mod tests {
                 pre_count: || 7,
                 snapshot: |_| None,
                 restore: recorded_restore,
-                monitor: || {
-                    monitor_calls.set(monitor_calls.get() + 1);
+                monitor: move || {
+                    monitor_seen.set(monitor_seen.get() + 1);
                     Some(0u64)
                 },
                 inject: || {
@@ -744,7 +961,8 @@ mod tests {
     #[test]
     fn an_unavailable_monitor_declines_without_injecting() {
         let inject_calls = Cell::new(0u32);
-        let monitor_calls = Cell::new(0u32);
+        let monitor_calls = Rc::new(Cell::new(0u32));
+        let monitor_seen = Rc::clone(&monitor_calls);
         let round = WatchRoundFlag::default();
         let (outcome, settle) = read_with(
             round.clone(),
@@ -753,8 +971,8 @@ mod tests {
                 pre_count: || 7,
                 snapshot: |_| Some(Snapshot("saved-content")),
                 restore: recorded_restore,
-                monitor: || {
-                    monitor_calls.set(monitor_calls.get() + 1);
+                monitor: move || {
+                    monitor_seen.set(monitor_seen.get() + 1);
                     None
                 },
                 inject: || {

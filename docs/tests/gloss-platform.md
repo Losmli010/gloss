@@ -44,9 +44,13 @@
 | dropping_a_settle_without_finish_restores_the_snapshot | 未收口的收尾按快照恢复 | 给定成功轮的收尾不经 `finish` 直接丢弃，当收尾析构（Drop）展开，则按快照恢复原剪贴板且不进写盘归因 | 2026-11-17 |
 | an_unavailable_monitor_declines_without_injecting | 监视不可用放弃不注入 | 给定监视基线建立失败的替身与零确认窗，当 `read_with` 一轮，则不注入、按失败轮收口（不恢复、归因记零） | 2026-11-17 |
 | a_failed_injection_skips_restore_with_zero_attribution | 注入失败不重注入且不恢复 | 给定注入即失败的替身与零确认窗，当 `read_with` 一轮，则注入恰 1 次（失败即弃）、失败轮不恢复且归因记零 | 2026-11-17 |
-| change_is_detected_when_generation_bumps | 写入确认按代数探测 | 给定基线代数 0 与第 3 轮才变化的探针，当 `wait_for_write`，则确认成功且恰好轮询 3 次。沿革：随共享层上移合并两侧镜像（系统（Windows）侧原名以序列号前缀区分） | 2026-11-17 |
-| timeout_returns_false_without_hanging | 超时返回不悬挂 | 给定探针恒不变化，当到截止时间，则返回 `false` 且 2 秒内返回。沿革：同上合并 | 2026-11-17 |
-| unavailable_probe_keeps_polling_until_deadline | 探针不可用轮询到期限 | 给定探针恒为空，当到截止时间，则返回 `false`、不提前放弃也不永久等。沿革：同上合并 | 2026-11-17 |
+| change_is_detected_when_generation_bumps | 写入确认按代数探测 | 给定基线代数 0 与第 3 轮才变化的探针，当 `wait_for_write`，则返回确认读数 1 且恰好轮询 3 次。沿革：随共享层上移合并两侧镜像（系统（Windows）侧原名以序列号前缀区分）；2026-11-21 起返回确认读数供注入跳变实测取差 | 2026-11-21 |
+| timeout_returns_empty_without_hanging | 超时返回不悬挂 | 给定探针恒不变化，当到截止时间，则返回空读数且 2 秒内返回。沿革：2026-11-17 随共享层上移合并两侧镜像（系统（Windows）侧原名以序列号前缀区分）；2026-11-21 返回形态由否改空读数，随名更新 | 2026-11-21 |
+| unavailable_probe_keeps_polling_until_deadline | 探针不可用轮询到期限 | 给定探针恒为空，当到截止时间，则返回空读数、不提前放弃也不永久等。沿革：同上合并 | 2026-11-21 |
+| a_multi_jump_copy_is_attributed_with_its_real_jumps | 多跳注入复制按真实跳变归因 | 给定替身板面（预计数 7、监视首调基线 7、确认读数 9、读回定稿读数 10——注入引发的清板加多风格各记一跳）与零确认窗，当 `read_with` 一轮，则产物为读回文本、轮次归因为实测注入跳变 3 加恢复 1（钉住注入复制不得写死单跳：系统（Windows）上少报会让恢复回板的图被判成用户复制、伪触发图片任务） | 2026-11-21 |
+| a_failed_final_reading_falls_back_to_the_confirmed_reading | 定稿读数缺席回落确认读数 | 给定监视定稿读数缺席（返回空）而确认读数在场的替身板面，当 `read_with` 一轮，则注入跳变按确认读数与基线之差计（2），轮次归因为注入 2 加恢复 1，不低于单跳 | 2026-11-21 |
+| a_late_write_before_the_restore_is_attributed_to_the_round | 恢复前落地的补写计入本轮归因 | 给定监视阶梯读数（基线 7、确认 9、读回 10、恢复入口 11——读回后恢复前又落一跳）的替身板面，当 `read_with` 一轮成功并收口，则注入跳变按恢复入口读数计（4），轮次归因为注入 4 加恢复 1（钉住取点必须在恢复开始前：真机复现的目标应用分段落座会让读回口径少报一跳、恢复回板的图被哨兵判成用户复制） | 2026-11-21 |
+| a_skipped_restore_keeps_the_readback_measurement | 恢复跳过只计读回跳变 | 给定读回后板上内容被他人改写（恢复跳过）且恢复入口读数远大于读回读数（30）的替身板面，当 `read_with` 一轮并收口，则归因只计读回实测跳变（3）、监视恰被调用 3 次（跳过恢复时不取定稿读数，外来内容留给哨兵放行） | 2026-11-21 |
 | retry_stops_at_the_first_success | 恢复重试首次成功即止 | 给定第 1 次即成功的单次恢复与 3 次上限，当 `restore_with_retry`，则只调 1 次、成功返回、写盘数记 1 且环节重置为成功形态 | 2026-11-17 |
 | retry_counts_the_writes_of_every_attempt_until_success | 恢复重试累加各次尝试的实际写盘数 | 给定依次“写 1 失败、写 0 失败、写 1 成功”的单次恢复与 3 次上限，当 `restore_with_retry`，则调满 3 次、成功返回且写盘数记 2 | 2026-11-17 |
 | exhausted_retries_carry_the_last_attempt_stage_status_and_total_writes | 恢复耗尽保留末次环节状态码与总写盘数 | 给定两次皆失败的单次恢复（首次环节记 5 写 1、末次环节记 42 写 0），当 `restore_with_retry`，则失败返回、写盘数记 1、环节与状态码取末次 | 2026-11-17 |
@@ -293,6 +297,12 @@
 | hook_spawn_resolves_synchronously_and_startup_failure_stays_off_the_flag | 建立同步握手且启动失败不复位降级标志 | 当 `MouseSource::spawn`，则同步返回且降级标志为假（真机装真实钩子，随测试进程消亡） | 2026-11-06 |
 | hook_mouse_messages_are_the_only_subscription | 订阅面只有左键按下释放 | 给定键盘、移动、右键与未知消息号，当按消息号分类，则仅左键按下释放有分类、其余为空 | 2026-11-06 |
 
+### `crates/gloss-platform/src/windows/ffi/board.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| measured_jumps_prefers_the_paired_reading_and_falls_back_to_the_call_count | 写回跳变按成对读数实测计量 | 给定开板前后序列号读数的六例组合（成对前进、成对持平、成对回退与单侧缺席、双侧缺席）与调用数，当 `measured_jumps`，则成对读数返回实测差（回退饱和为零、可大于调用数——关板合成）、任一读数缺席回落调用数 | 2026-11-21 |
+
 ### `crates/gloss-platform/src/windows/ffi/inject.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
@@ -312,6 +322,12 @@
 | --- | --- | --- | --- |
 | image_name_survives_full_path_extraction | 进程映像名取路径末段去扩展名 | 给定反斜杠、正斜杠、裸名、多点文件名与裸目录五例路径，当 `image_name`，则依次取到映像名与去扩展名进程名、裸目录返回空 | 2026-11-06 |
 | front_app_probe_reports_a_usable_identity | 探针快照连贯且安全输入恒关 | 当读一次场景事实，则安全输入态恒为假，报告出的前台应用至少带一个可用标识 | 2026-11-06 |
+
+### `crates/gloss-platform/src/windows/selection/clipboard/restore.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| sequence_jumps_measures_paired_readings_and_declines_missing_ones | 成对读数才计量缺席即拒绝 | 给定开板前后序列号读数的五例组合（成对前进、成对持平、成对回退与单侧缺席、双侧缺席），当 `sequence_jumps`，则成对读数返回实测差（回退饱和为零）、任一缺席返回空（成功轮空缺按下界两跳计、失败轮记零由调用方裁定） | 2026-11-21 |
 
 ### `crates/gloss-platform/src/windows/selection/clipboard/snapshot.rs`
 
