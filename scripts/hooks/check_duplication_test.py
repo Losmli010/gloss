@@ -144,6 +144,39 @@ def test_report_pair_key_sorts_both_directions(tmp_path: Path) -> None:
     assert clones[0].anchor().path == "src/a.rs"
 
 
+def test_report_native_separator_paths_normalize_to_posix(tmp_path: Path) -> None:
+    report = {
+        "duplicates": [
+            {
+                "firstFile": {
+                    "name": str(tmp_path / "src") + os.sep + "a.rs",
+                    "start": 1,
+                    "end": 5,
+                },
+                "secondFile": {"name": str(tmp_path / "src" / "b.rs"), "start": 7, "end": 11},
+            }
+        ],
+        "statistics": {"total": {}},
+    }
+    clones = check_duplication.normalize_report(report, str(tmp_path))
+    assert clones[0].key == ("src/a.rs", "src/b.rs")
+
+
+def test_report_strips_extended_path_prefix(tmp_path: Path) -> None:
+    name = "\\\\?\\" + str(tmp_path / "src" / "a.rs")
+    report = {
+        "duplicates": [
+            {
+                "firstFile": {"name": name, "start": 1, "end": 5},
+                "secondFile": {"name": str(tmp_path / "src" / "b.rs"), "start": 7, "end": 11},
+            }
+        ],
+        "statistics": {"total": {}},
+    }
+    clones = check_duplication.normalize_report(report, str(tmp_path))
+    assert clones[0].key == ("src/a.rs", "src/b.rs")
+
+
 def test_report_outside_root_fails_closed(tmp_path: Path) -> None:
     report = {
         "duplicates": [

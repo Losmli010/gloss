@@ -68,3 +68,4 @@
 - core-foundation、core-text 移入 `[target.'cfg(target_os = "macos")'.dependencies]`：仅字体发现（ui/fonts/imp.rs）引用。
 - wgpu 拆共同节（`std`/`wgsl`）与目标节：macOS 节追加 `metal`，Windows 节追加 `vulkan` + `dx12`（不开 gl，D5 定案；vulkan 失败落 dx12 由适配器枚举承担）；共同节+目标节的特性合并是 cargo 的既有语义（特性可加不可减）。后端选择仍无代码分支（gpu.rs 不改，§1.1 已核实）。
 - egui-wgpu 共同节只关默认特性，`macos-window-resize-jitter-fix` 仅 macOS 节追加（D5：“仅 macos 节”）。
+- 2026-11-21 Windows 节收掉 `vulkan`，只留 `dx12`：透明圆角改走 `DirectComposition` 组合交换链后后端在渲染栈钉死为 `DX12`（见 gpu_comment），枚举兜底与“无代码分支”两条旧定案随之作废；清单注释同步改为各目标只开所需后端。

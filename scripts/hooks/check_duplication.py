@@ -146,8 +146,9 @@ def surface_files(tracked: list[str]) -> list[str]:
 
 
 def normalize_report(report: dict[str, Any], root: str) -> list[ClonePair]:
-    """引擎报告到克隆实例清单：绝对路径剥根前缀归一为仓库相对路径，位置字段
-    缺失或路径越界即报告损坏，失败关闭。"""
+    """引擎报告到克隆实例清单：绝对路径剥扩展前缀——以双反斜杠加问号开头的
+    扩展长度路径形态——与仓库根前缀，归一为仓库相对路径（posix），分隔统一并
+    与基线登记同口径，位置字段缺失或路径越界即报告损坏，失败关闭。"""
     if "duplicates" not in report or "statistics" not in report:
         raise GateInfra("engine report misses duplicates or statistics")
     prefix = root.rstrip(os.sep) + os.sep
@@ -163,11 +164,13 @@ def normalize_report(report: dict[str, Any], root: str) -> list[ClonePair]:
             end = blob.get("end")
             if not isinstance(name, str) or not isinstance(start, int) or not isinstance(end, int):
                 raise GateInfra("engine report clone entry has malformed %s" % field)
+            name = name.removeprefix("\\\\?\\")
             if not name.startswith(prefix):
                 raise GateInfra("engine reported a path outside the repo root: %s" % name)
             if start < 1 or end < start:
                 raise GateInfra("engine reported an invalid line range: %s" % name)
-            sides.append(CloneSide(os.path.relpath(name, root), start, end))
+            rel = os.path.relpath(name, root).replace(os.sep, "/")
+            sides.append(CloneSide(rel, start, end))
         out.append(ClonePair(sides[0], sides[1]))
     return out
 
@@ -518,7 +521,9 @@ def select_clones(clones: list[ClonePair], needle: str) -> list[ClonePair]:
 
 def run_engine(root: str, files: list[str], min_tokens: int) -> dict[str, Any]:
     """引擎调用：显式文件清单加绝对路径报告，报告落临时目录后读回；引擎缺席
-    与异常退出都按无法判定处置，安装指引带清单钉版。"""
+    与异常退出都按无法判定处置，安装指引带清单钉版。引擎载体须是子进程可直
+    调的可执行文件；命令解释器（cmd.exe）中转的批处理装配受命令行长限约束，
+    显式清单超长即失败，不适用。"""
     pin = tool_version.pinned_version(TOOL_SECTION) or "latest"
     with tempfile.TemporaryDirectory(prefix="gloss-dup-") as out_dir:
         cmd = [
