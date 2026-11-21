@@ -1356,7 +1356,7 @@ dependencies = [
 
 [[package]]
 name = "gloss"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "criterion",
  "crossbeam-channel",
@@ -1375,7 +1375,7 @@ dependencies = [
 
 [[package]]
 name = "gloss-app"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "core-foundation 0.10.1",
  "core-text",
@@ -1412,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "gloss-core"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "arc-swap",
  "futures",
@@ -1430,7 +1430,7 @@ dependencies = [
 
 [[package]]
 name = "gloss-eval"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "futures",
  "gloss-core",
@@ -1442,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "gloss-llm"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -1457,7 +1457,7 @@ dependencies = [
 
 [[package]]
 name = "gloss-platform"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "arboard",
  "core-foundation 0.10.1",
