@@ -28,7 +28,7 @@ members = [
 
 # 版本与语言版本单点维护，各包继承
 [workspace.package]
-version = "0.2.11"
+version = "0.2.12"
 edition = "2024"
 license = "MIT"
 
