@@ -4,9 +4,12 @@
 //!
 //! 系统（Windows）的恢复：文本快照走跨平台剪贴板库原样写回，空板快照
 //! 清板，图像风格快照走剪贴板接口（Win32）原格式原字节放回（一次开板
-//! 算一次写盘，字节即捕获字节，不经解码重编码）；剪贴板被其它应用短时
-//! 占有时单次写回会失败，按系统（macOS）恢复序列的同款节奏重试（每次
-//! 取全新剪贴板句柄）。
+//! 窗口内清板加逐风格放回，字节即捕获字节，不经解码重编码）。写盘数按
+//! 剪贴板序列号的真实跳变数自报：图像走写回面原生计量，文本写回开板前
+//! 后各取一次序列号求差（读数缺席按单跳计），清板恰为一跳；写盘归因对
+//! 齐哨兵口径，少报会让恢复回板的内容被当成用户复制。剪贴板被其它应用
+//! 短时占有时单次写回会失败，按系统（macOS）恢复序列的同款节奏重试（每
+//! 次取全新剪贴板句柄）。
 
 use arboard::Clipboard;
 
@@ -78,8 +81,16 @@ fn restore_once(saved: &SavedContent) -> RestoreOutcome<RestoreStage> {
             }
         }
         SavedContent::Text(text) => {
-            match Clipboard::new().and_then(|mut board| board.set_text(text.clone())) {
-                Ok(()) => settled,
+            let before = crate::clipboard::clipboard_sequence_number();
+            let written = Clipboard::new().and_then(|mut board| board.set_text(text.clone()));
+            let after = crate::clipboard::clipboard_sequence_number();
+            match written {
+                Ok(()) => RestoreOutcome {
+                    ok: true,
+                    writes: sequence_jumps(before, after),
+                    stage: RestoreStage::Clipboard,
+                    status: 0,
+                },
                 Err(_) => fail(RestoreStage::Set, 0),
             }
         }
@@ -87,5 +98,12 @@ fn restore_once(saved: &SavedContent) -> RestoreOutcome<RestoreStage> {
             Ok(()) => settled,
             Err(_) => fail(RestoreStage::Clear, 0),
         },
+    }
+}
+
+fn sequence_jumps(before: Option<u64>, after: Option<u64>) -> u64 {
+    match (before, after) {
+        (Some(before), Some(after)) => after.saturating_sub(before),
+        _ => 1,
     }
 }

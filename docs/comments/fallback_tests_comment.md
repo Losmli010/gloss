@@ -15,9 +15,14 @@
 
 ## wait_for_write 单测
 
-- change_is_detected_when_generation_bumps：代数变化即确认——前两轮与基线相同、第三轮变化，断言第三轮才返回且恰好轮询 3 次（2026-11-17 随共享上移合并两侧镜像登记；系统（Windows）侧原名以序列号前缀区分）。
-- timeout_returns_false_without_hanging：超时路径不卡死——到 deadline 返回否；总耗时上限断言（2 秒内）防实现退化成永久等待。
+- change_is_detected_when_generation_bumps：代数变化即确认——前两轮与基线相同、第三轮变化，断言第三轮才返回确认读数且恰好轮询 3 次（2026-11-17 随共享上移合并两侧镜像登记；系统（Windows）侧原名以序列号前缀区分；2026-11-21 起返回读数供注入跳变实测取差）。
+- timeout_returns_empty_without_hanging（原名 timeout_returns_false_without_hanging，2026-11-21 返回形态由否改空读数随名更新）：超时路径不卡死——到 deadline 返回空；总耗时上限断言（2 秒内）防实现退化成永久等待。
 - unavailable_probe_keeps_polling_until_deadline：探针持续不可用（空）同样只等到 deadline，不提前放弃也不永久等。
+
+## 注入跳变实测单测（2026-11-21）
+
+- a_multi_jump_copy_is_attributed_with_its_real_jumps：阶梯读数替身（基线 7、确认 9、定稿 10）钉住注入跳变按实测差计（3），归因 = 实测 3 加恢复 1——反向钉住“写死单跳”在系统（Windows）上的伪触发根因（少报会让恢复回板的图被判成用户复制，弹窗顶成上次的截图）。
+- a_failed_final_reading_falls_back_to_the_confirmed_reading：定稿读数缺席（返回空）回落确认读数，注入跳变按确认读数与基线之差计（2），不低于单跳。
 
 ## restore_with_retry 骨架单测
 

@@ -20,9 +20,11 @@
 //!
 //! 监视缝协议：注入前首调返回确认基线，此后每调返回代数现值，读不出返回
 //! 空、继续轮询。基线与代数同源：系统（macOS）为同步标志闩锁后的 0／1，
-//! 系统（Windows）为剪贴板序列号差。恢复写盘数按实际发生的写盘（系统
-//! （macOS）的清板数、系统（Windows）的序列号跳变数）自报，供计数归因对
-//! 齐哨兵口径。时序与预算常量随本模块单源。
+//! 系统（Windows）为剪贴板序列号差。复制写盘数与恢复写盘数都按真实计数增
+//! 量自报：复制写盘数取读回定稿时的监视读数与确认基线之差，覆盖注入引发
+//! 的全部写入（目标应用一次复制往往清板加多个风格各记一跳）；恢复写盘数
+//! 按实际发生的写盘（系统（macOS）的清板数、系统（Windows）的序列号跳变
+//! 数）自报，供计数归因对齐哨兵口径。时序与预算常量随本模块单源。
 
 use std::time::{Duration, Instant};
 
@@ -127,7 +129,7 @@ pub(crate) struct FallbackSettle<S> {
     pending: Option<PendingRestore<S>>,
     round: WatchRoundFlag,
     pre: u64,
-    acquired: u64,
+    acquired_jumps: u64,
     restore: bool,
 }
 
@@ -137,7 +139,7 @@ impl<S> FallbackSettle<S> {
             pending: None,
             round,
             pre: 0,
-            acquired: 0,
+            acquired_jumps: 0,
             restore: false,
         }
     }
@@ -146,14 +148,14 @@ impl<S> FallbackSettle<S> {
         pending: PendingRestore<S>,
         round: WatchRoundFlag,
         pre: u64,
-        acquired: bool,
+        acquired_jumps: u64,
         restore: bool,
     ) -> Self {
         Self {
             pending: Some(pending),
             round,
             pre,
-            acquired: u64::from(acquired),
+            acquired_jumps,
             restore,
         }
     }
@@ -170,7 +172,7 @@ impl<S> FallbackSettle<S> {
         };
         self.round.enter(RoundWrites {
             pre: self.pre,
-            ours: self.acquired + restored,
+            ours: self.acquired_jumps + restored,
         });
     }
 
@@ -274,21 +276,21 @@ where
         );
     };
     let pending = PendingRestore::new(saved, restore);
-    let outcome = attempt(confirm_timeout, &mut read_text, monitor, inject);
+    let (outcome, acquired_jumps) = attempt(confirm_timeout, &mut read_text, monitor, inject);
     let settle = match &outcome {
         Ok(acquired) => {
             let current_is_ours = matches!(read_text(), Ok(current) if &current == acquired);
             if current_is_ours {
-                FallbackSettle::planned(pending, round, pre, true, true)
+                FallbackSettle::planned(pending, round, pre, acquired_jumps, true)
             } else {
                 debug!(
                     thread = thread::EVENT,
                     "clipboard changed after read, restore skipped"
                 );
-                FallbackSettle::planned(pending, round, pre, true, false)
+                FallbackSettle::planned(pending, round, pre, acquired_jumps, false)
             }
         }
-        Err(_) => FallbackSettle::planned(pending, round, pre, false, false),
+        Err(_) => FallbackSettle::planned(pending, round, pre, 0, false),
     };
     (outcome, settle)
 }
@@ -298,45 +300,50 @@ fn attempt(
     read_text: &mut impl FnMut() -> Result<String, Error>,
     mut monitor: impl FnMut() -> Option<u64>,
     inject: impl Fn() -> Result<(), GlossError>,
-) -> Result<String, GlossError> {
+) -> (Result<String, GlossError>, u64) {
     let Some(baseline) = monitor() else {
         debug!(
             thread = thread::EVENT,
             "change monitor unavailable, fallback declined"
         );
-        return Err(GlossError::SelectionUnavailable);
+        return (Err(GlossError::SelectionUnavailable), 0);
     };
-    inject()?;
+    if let Err(err) = inject() {
+        return (Err(err), 0);
+    }
     let mut deadline = Instant::now() + confirm_timeout;
     let mut confirmed = wait_for_write(baseline, &mut monitor, deadline);
-    if !confirmed {
+    if confirmed.is_none() {
         debug!(
             thread = thread::EVENT,
             "copy write not confirmed, retrying injection once"
         );
-        inject()?;
+        if let Err(err) = inject() {
+            return (Err(err), 0);
+        }
         deadline = Instant::now() + confirm_timeout;
         confirmed = wait_for_write(baseline, &mut monitor, deadline);
     }
-    if !confirmed {
+    let Some(confirmed) = confirmed else {
         debug!(
             thread = thread::EVENT,
             "copy write not confirmed within timeout"
         );
-        return Err(GlossError::SelectionUnavailable);
-    }
+        return (Err(GlossError::SelectionUnavailable), 0);
+    };
     loop {
         if let Ok(text) = read_text()
             && !text.is_empty()
         {
-            return Ok(text);
+            let reading = monitor().unwrap_or(confirmed);
+            return (Ok(text), reading.saturating_sub(baseline));
         }
         if Instant::now() >= deadline {
             debug!(
                 thread = thread::EVENT,
                 "copy confirmed but no text readable within timeout"
             );
-            return Err(GlossError::SelectionUnavailable);
+            return (Err(GlossError::SelectionUnavailable), 0);
         }
         std::thread::sleep(WRITE_POLL_INTERVAL);
     }
@@ -346,13 +353,15 @@ fn wait_for_write(
     baseline: u64,
     mut probe: impl FnMut() -> Option<u64>,
     deadline: Instant,
-) -> bool {
+) -> Option<u64> {
     loop {
-        if probe().is_some_and(|current| current != baseline) {
-            return true;
+        if let Some(current) = probe()
+            && current != baseline
+        {
+            return Some(current);
         }
         if Instant::now() >= deadline {
-            return false;
+            return None;
         }
         std::thread::sleep(WRITE_POLL_INTERVAL);
     }
@@ -483,15 +492,15 @@ mod tests {
             },
             deadline,
         );
-        assert!(confirmed);
+        assert_eq!(confirmed, Some(1));
         assert_eq!(calls, 3);
     }
 
     #[test]
-    fn timeout_returns_false_without_hanging() {
+    fn timeout_returns_empty_without_hanging() {
         let start = Instant::now();
         let deadline = start + Duration::from_millis(60);
-        assert!(!wait_for_write(0, || Some(0), deadline));
+        assert!(wait_for_write(0, || Some(0), deadline).is_none());
         assert!(
             start.elapsed() < Duration::from_secs(2),
             "timeout path must return promptly"
@@ -502,10 +511,84 @@ mod tests {
     fn unavailable_probe_keeps_polling_until_deadline() {
         let start = Instant::now();
         let deadline = start + Duration::from_millis(50);
-        assert!(!wait_for_write(0, || None, deadline));
+        assert!(wait_for_write(0, || None, deadline).is_none());
         assert!(
             start.elapsed() < Duration::from_secs(2),
             "timeout path must return promptly"
+        );
+    }
+
+    #[test]
+    fn a_multi_jump_copy_is_attributed_with_its_real_jumps() {
+        let monitor_calls = Cell::new(0u32);
+        let text_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: || {
+                    let call = monitor_calls.get();
+                    monitor_calls.set(call + 1);
+                    match call {
+                        0 => Some(7),
+                        1 => Some(9),
+                        _ => Some(10),
+                    }
+                },
+                inject: || Ok(()),
+                read_text: || {
+                    let call = text_calls.get();
+                    text_calls.set(call + 1);
+                    match call {
+                        0 => Ok("preset".to_owned()),
+                        _ => Ok("the selection".to_owned()),
+                    }
+                },
+            },
+        );
+        assert_eq!(outcome, Ok("the selection".to_owned()));
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 4 }),
+            "归因 = 实测注入跳变 3（清板加多风格各记一跳）加恢复写盘 1"
+        );
+    }
+
+    #[test]
+    fn a_failed_final_reading_falls_back_to_the_confirmed_reading() {
+        let monitor_calls = Cell::new(0u32);
+        let round = WatchRoundFlag::default();
+        let (outcome, settle) = read_with(
+            round.clone(),
+            Duration::ZERO,
+            FallbackBoard {
+                pre_count: || 7,
+                snapshot: |_| Some(Snapshot("saved-content")),
+                restore: recorded_restore,
+                monitor: || {
+                    let call = monitor_calls.get();
+                    monitor_calls.set(call + 1);
+                    match call {
+                        0 => Some(7),
+                        1 => Some(9),
+                        _ => None,
+                    }
+                },
+                inject: || Ok(()),
+                read_text: || Ok("the selection".to_owned()),
+            },
+        );
+        assert_eq!(outcome, Ok("the selection".to_owned()));
+        settle.finish();
+        assert_eq!(
+            round.peek(),
+            Some(RoundWrites { pre: 7, ours: 3 }),
+            "定稿读数缺席时按确认读数计注入跳变，不低于单跳"
         );
     }
 
