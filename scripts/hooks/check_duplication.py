@@ -146,8 +146,8 @@ def surface_files(tracked: list[str]) -> list[str]:
 
 
 def normalize_report(report: dict[str, Any], root: str) -> list[ClonePair]:
-    """引擎报告到克隆实例清单：绝对路径剥根前缀归一为仓库相对路径，位置字段
-    缺失或路径越界即报告损坏，失败关闭。"""
+    """引擎报告到克隆实例清单：绝对路径剥根前缀归一为仓库相对路径（posix），分隔
+    统一并与基线登记同口径，位置字段缺失或路径越界即报告损坏，失败关闭。"""
     if "duplicates" not in report or "statistics" not in report:
         raise GateInfra("engine report misses duplicates or statistics")
     prefix = root.rstrip(os.sep) + os.sep
@@ -167,7 +167,8 @@ def normalize_report(report: dict[str, Any], root: str) -> list[ClonePair]:
                 raise GateInfra("engine reported a path outside the repo root: %s" % name)
             if start < 1 or end < start:
                 raise GateInfra("engine reported an invalid line range: %s" % name)
-            sides.append(CloneSide(os.path.relpath(name, root), start, end))
+            rel = os.path.relpath(name, root).replace(os.sep, "/")
+            sides.append(CloneSide(rel, start, end))
         out.append(ClonePair(sides[0], sides[1]))
     return out
 
