@@ -4,7 +4,8 @@
 //! 差判定“目标应用确实写入了”，注入被静默丢弃（UIPI）或目标未响应时序
 //! 列号不动，兜底轮按未确认处理，剪贴板监视（哨兵）以同一序列号做变更轮
 //! 询。位图格式族（便携式网络图形（PNG）与位图（DIB）家族）在关板时会被
-//! 系统合成伴随格式，跳变数可能多于放回调用数，因此写回不按调用数记账，
+//! 系统合成伴随格式（便携式网络图形（PNG）单格式不合成），跳变数可能多于
+//! 放回调用数，因此写回不按调用数记账，
 //! 而是按开板前到关板后的序列号实测差自报，供轮次写盘归因对齐哨兵口径。
 //! 格式清单只读计数、不取数据，供快照区分空板与非文本内容。图像面只做
 //! 存在性查询与数据读写：存在性是不开板的纯元数据查询（哨兵的类型判定），
@@ -144,11 +145,14 @@ pub(crate) fn write_formats(writes: &[(u32, &[u8])]) -> (bool, u64) {
     };
     let (written, counted) = write_open_formats(writes);
     drop(_board);
-    let jumps = match (before, sequence_number()) {
+    (written, measured_jumps(before, sequence_number(), counted))
+}
+
+fn measured_jumps(before: Option<u64>, after: Option<u64>, counted: u64) -> u64 {
+    match (before, after) {
         (Some(before), Some(after)) => after.saturating_sub(before),
         _ => counted,
-    };
-    (written, jumps)
+    }
 }
 
 fn write_open_formats(writes: &[(u32, &[u8])]) -> (bool, u64) {
@@ -218,4 +222,23 @@ fn movable_handle(bytes: &[u8]) -> Option<HGLOBAL> {
         debug!(thread = thread::EVENT, error = %err, "unlock clipboard data failed");
     }
     Some(handle)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::measured_jumps;
+
+    #[test]
+    fn measured_jumps_prefers_the_paired_reading_and_falls_back_to_the_call_count() {
+        assert_eq!(
+            measured_jumps(Some(7), Some(12), 4),
+            5,
+            "关板合成让实测差大于放回调用数，归因按实测"
+        );
+        assert_eq!(measured_jumps(Some(9), Some(9), 2), 0);
+        assert_eq!(measured_jumps(Some(9), Some(7), 2), 0, "回退读数饱和为零");
+        assert_eq!(measured_jumps(None, Some(12), 4), 4, "读数缺席回落调用数");
+        assert_eq!(measured_jumps(Some(7), None, 3), 3);
+        assert_eq!(measured_jumps(None, None, 5), 5);
+    }
 }

@@ -297,6 +297,12 @@
 | hook_spawn_resolves_synchronously_and_startup_failure_stays_off_the_flag | 建立同步握手且启动失败不复位降级标志 | 当 `MouseSource::spawn`，则同步返回且降级标志为假（真机装真实钩子，随测试进程消亡） | 2026-11-06 |
 | hook_mouse_messages_are_the_only_subscription | 订阅面只有左键按下释放 | 给定键盘、移动、右键与未知消息号，当按消息号分类，则仅左键按下释放有分类、其余为空 | 2026-11-06 |
 
+### `crates/gloss-platform/src/windows/ffi/board.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| measured_jumps_prefers_the_paired_reading_and_falls_back_to_the_call_count | 写回跳变按成对读数实测计量 | 给定开板前后序列号读数的六例组合（成对前进、成对持平、成对回退与单侧缺席、双侧缺席）与调用数，当 `measured_jumps`，则成对读数返回实测差（回退饱和为零、可大于调用数——关板合成）、任一读数缺席回落调用数 | 2026-11-21 |
+
 ### `crates/gloss-platform/src/windows/ffi/inject.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
