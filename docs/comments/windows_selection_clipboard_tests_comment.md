@@ -14,6 +14,13 @@
   without_finish_on_windows`）；全系列经模块内互斥锁串行，勿并行触发
   其它剪贴板测试。
 
+## 恢复序列计量单测（2026-11-21）
+
+- sequence_jumps_measures_paired_readings_and_declines_missing_ones：纯函数
+  五例组合钉契约——成对读数返回实测差（回退饱和为零，序列号回绕的静默边
+  界）、任一读数缺席返回空（不猜数）；成功轮空缺按下界两跳计、失败轮记零
+  的取舍在调用方，边界缘由见 windows_selection_clipboard 记录。
+
 ## 辅助契约
 
 - 确认窗口与轮询间隔的超时路径必须及时返回（不悬挂）。

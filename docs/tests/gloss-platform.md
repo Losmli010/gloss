@@ -315,6 +315,12 @@
 | image_name_survives_full_path_extraction | 进程映像名取路径末段去扩展名 | 给定反斜杠、正斜杠、裸名、多点文件名与裸目录五例路径，当 `image_name`，则依次取到映像名与去扩展名进程名、裸目录返回空 | 2026-11-06 |
 | front_app_probe_reports_a_usable_identity | 探针快照连贯且安全输入恒关 | 当读一次场景事实，则安全输入态恒为假，报告出的前台应用至少带一个可用标识 | 2026-11-06 |
 
+### `crates/gloss-platform/src/windows/selection/clipboard/restore.rs`
+
+| 测试名称 | 测试目标 | 测试场景 | 更新时间 |
+| --- | --- | --- | --- |
+| sequence_jumps_measures_paired_readings_and_declines_missing_ones | 成对读数才计量缺席即拒绝 | 给定开板前后序列号读数的五例组合（成对前进、成对持平、成对回退与单侧缺席、双侧缺席），当 `sequence_jumps`，则成对读数返回实测差（回退饱和为零）、任一缺席返回空（成功轮空缺按下界两跳计、失败轮记零由调用方裁定） | 2026-11-21 |
+
 ### `crates/gloss-platform/src/windows/selection/clipboard/snapshot.rs`
 
 | 测试名称 | 测试目标 | 测试场景 | 更新时间 |
