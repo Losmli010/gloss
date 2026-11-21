@@ -23,6 +23,8 @@
 
 - a_multi_jump_copy_is_attributed_with_its_real_jumps：阶梯读数替身（基线 7、确认 9、定稿 10）钉住注入跳变按实测差计（3），归因 = 实测 3 加恢复 1——反向钉住“写死单跳”在系统（Windows）上的伪触发根因（少报会让恢复回板的图被判成用户复制，弹窗顶成上次的截图）。
 - a_failed_final_reading_falls_back_to_the_confirmed_reading：定稿读数缺席（返回空）回落确认读数，注入跳变按确认读数与基线之差计（2），不低于单跳。
+- a_late_write_before_the_restore_is_attributed_to_the_round（2026-11-21 真机复核后新增）：阶梯读数替身（基线 7、确认 9、读回 10、恢复入口 11）钉住取点后移——读回后、恢复前落地的一跳计入本轮（注入 4 跳加恢复 1），反向钉住真机复现的 13 对 12 少报形态（目标应用的复制写入分段落座）。
+- a_skipped_restore_keeps_the_readback_measurement（2026-11-21 真机复核后新增）：板在读回后被改写（恢复跳过）且恢复入口读数远大于读回读数（30），断言归因只计读回跳变（3）且监视恰调 3 次——钉住“恢复被跳过时不取定稿读数”，用户的新复制留给哨兵放行。
 
 ## restore_with_retry 骨架单测
 
