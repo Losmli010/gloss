@@ -57,3 +57,30 @@
   后端选择分支（§7-C6，本文件不改后端逻辑），但“可用集合是什么、最终选中
   谁”必须可排查，不做静默假设。设备类型字段让无硬件 GPU 环境（WARP 软渲染）
   在日志里可辨。选中结果仍由既有 `gpu ready` 行承载。
+  （2026-11-21 起“不做后端选择分支”被 Windows 钉 DX12 的决定取代，见下节。）
+
+## Windows 透明圆角的后端与呈现系统（2026-11-21，四角黑框修复）
+
+- 现象：Windows 上浮层四角露黑。winit 的 `with_transparent(true)` 只向 DWM
+  申请透明许可，决定像素 alpha 的是交换链的合成方式；wgpu DX12 默认
+  `DxgiFromHwnd`（`CreateSwapChainForHwnd`）不支持透明，对 HWND 表面只报告
+  `Opaque` 合成模式，`pick_alpha_mode` 落到 `Auto`（即日志里那条
+  “surface has no alpha-capable composite mode”），alpha 被合成器忽略，
+  清屏的透明像素按黑输出，圆角外即黑角。
+- 改法：DX12 的 `presentation_system` 换 `DxgiFromVisual`——wgpu 内部自动建
+  DirectComposition 目标与视觉（`CreateTargetForHwnd` →
+  `CreateSwapChainForComposition` → SetContent/Commit），组合表面的 caps 含
+  `PreMultiplied`，`pick_alpha_mode` 与渲染管线零改动。配套改动在浮层窗口
+  属性：`no_redirection_bitmap`（WS_EX_NOREDIRECTIONBITMAP）——DComp 路径
+  要求窗口无重定向位面，否则窗口自身的重定向表面挡在合成视觉之上，透明
+  照样失效；winit 在该属性下也会跳过 blur-behind 旧路径。
+- 后端在 Windows 钉 DX12（`if cfg!(windows)`），取代 2026-11-06 记的
+  “不做后端选择分支”：透明圆角只有 DX12 的 DComp 路径能兑现，Vulkan 的
+  caps 与兑现都看驱动脸色，`Backends::PRIMARY` 在 Windows 可能选到 Vulkan，
+  黑框随机复现。Win10+ 必有 D3D12 运行时，无 GPU 机器落 WARP，可用面只增
+  不减；启动期适配器留痕照旧承担“选到谁”的可排查性。
+- 已知代价与边界：DX12 交换链不再支持 RenderDoc 捕获（wgpu 文档明示）；
+  设置窗 surface 同走 DComp（同一实例），其“关闭释放、再开重建”路径安全
+  ——DComp 目标随 hal surface 释放，同一 HWND 可重建；`CreateTargetForHwnd`
+  的 `topmost` 参数管视觉相对子窗口的层级，浮层无子窗口，与置顶
+  （WS_EX_TOPMOST）无关，wgpu 固定的 `false` 可用。

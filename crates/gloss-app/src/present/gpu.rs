@@ -32,10 +32,15 @@ pub struct GpuContext {
 
 impl GpuContext {
     pub fn new() -> Result<Self, GpuError> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
+        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        descriptor.backends = if cfg!(windows) {
+            wgpu::Backends::DX12
+        } else {
+            wgpu::Backends::PRIMARY
+        };
+        descriptor.backend_options.dx12.presentation_system =
+            wgpu::Dx12SwapchainKind::DxgiFromVisual;
+        let instance = wgpu::Instance::new(descriptor);
 
         let enumerated = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::PRIMARY));
         if enumerated.is_empty() {

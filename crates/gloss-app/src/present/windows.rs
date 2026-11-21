@@ -138,18 +138,23 @@ struct UserResizeAnchor {
 
 impl WindowManager {
     pub fn new(event_loop: &ActiveEventLoop) -> Result<Self, OsError> {
-        let overlay = event_loop.create_window(
-            Window::default_attributes()
-                .with_title(APP_NAME)
-                .with_inner_size(LogicalSize::new(
-                    window::OVERLAY_WIDTH,
-                    window::OVERLAY_HEIGHT,
-                ))
-                .with_decorations(false)
-                .with_window_level(WindowLevel::AlwaysOnTop)
-                .with_resizable(false)
-                .with_transparent(true),
-        )?;
+        #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+        let mut attributes = Window::default_attributes()
+            .with_title(APP_NAME)
+            .with_inner_size(LogicalSize::new(
+                window::OVERLAY_WIDTH,
+                window::OVERLAY_HEIGHT,
+            ))
+            .with_decorations(false)
+            .with_window_level(WindowLevel::AlwaysOnTop)
+            .with_resizable(false)
+            .with_transparent(true);
+        #[cfg(target_os = "windows")]
+        {
+            use winit::platform::windows::WindowAttributesExtWindows;
+            attributes = attributes.with_no_redirection_bitmap(true);
+        }
+        let overlay = event_loop.create_window(attributes)?;
         overlay.set_visible(false);
 
         let settings = event_loop.create_window(
