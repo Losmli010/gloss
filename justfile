@@ -208,9 +208,9 @@ test-shared:
     cargo test --workspace --all-features --exclude gloss
     cargo test -p gloss --all-features --bin gloss
 
-# 检查器单测：目录发现跑门禁脚本、命名助手与客户端钩子目录的测试
+# 检查器单测：脚本目录与客户端钩子目录的测试，全树发现
 hooks-test:
-    {{py}} -m pytest scripts/hooks scripts/dev .zcode/hooks -q
+    {{py}} -m pytest scripts .zcode/hooks -q
 
 # 第三层显隐自检（L3）：一百轮浮层显隐与首帧预算，需窗口服务与图形硬件（GPU）
 selftest:
