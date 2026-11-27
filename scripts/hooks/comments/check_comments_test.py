@@ -15,8 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import check_comments  # noqa: E402
-import check_rust_comments  # noqa: E402
+from comments import check_comments, check_rust_comments  # noqa: E402
 
 HEADER = "//! 中文文件头：负责演示。"
 

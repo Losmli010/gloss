@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import check_record_names  # noqa: E402
+from comments import check_record_names  # noqa: E402
 
 CLEAN_REPO = [
     "src/lib.rs",
