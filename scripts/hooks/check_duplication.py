@@ -36,9 +36,8 @@ import tomllib
 
 _HOOKS = os.path.dirname(os.path.abspath(__file__))
 _DEV = os.path.abspath(os.path.join(_HOOKS, "..", "dev"))
-for _entry in (_HOOKS, _DEV):
-    if _entry not in sys.path:
-        sys.path.insert(0, _entry)
+if _DEV not in sys.path:
+    sys.path.insert(0, _DEV)
 
 import gate_report  # noqa: E402
 import tool_version  # noqa: E402

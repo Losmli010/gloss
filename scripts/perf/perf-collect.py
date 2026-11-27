@@ -35,9 +35,8 @@ from types import ModuleType
 from typing import Any, NoReturn
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR))
 
-from metrics import CORE_GROUPS, METRICS  # noqa: E402 —— 路径引导先于导入
+from metrics import CORE_GROUPS, METRICS  # noqa: E402
 
 
 def _load_sibling_script(module_name: str, file_name: str) -> ModuleType:
