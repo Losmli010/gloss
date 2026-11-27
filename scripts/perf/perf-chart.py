@@ -30,15 +30,13 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR))
 
-from metrics import BUDGET_CONSTS, CORE_CASES, CORE_GROUPS, METRICS, fmt  # noqa: E402 —— 路径引导先于导入
+from metrics import BUDGET_CONSTS, CORE_CASES, CORE_GROUPS, METRICS, fmt  # noqa: E402
 
 DEFAULT_HISTORY = SCRIPT_DIR / "baselines" / "history.jsonl"
 DEFAULT_OUT_DIR = SCRIPT_DIR / "baselines"

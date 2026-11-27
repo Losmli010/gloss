@@ -14,12 +14,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import check_duplication
+import gate_report
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-import check_duplication  # noqa: E402
-import gate_report  # noqa: E402
 
 MARKER = check_duplication.ALLOW_MARKER
 

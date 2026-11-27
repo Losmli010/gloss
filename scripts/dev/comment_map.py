@@ -46,8 +46,9 @@ FAMILY_STEMS: dict[str, str] = {
     # 根自述与图标资产自述撞名
     "README.md": "README",
     "assets/icons/README.md": "icons_README",
-    # 约束门禁与语言规范库的包初始化脚本撞名
+    # 约束门禁、语言规范库与注释门禁子包的包初始化脚本撞名
     "scripts/hooks/language_spec/__init__.py": "language_spec_init",
+    "scripts/hooks/comments/__init__.py": "comments_init",
     # 应用入口、评测命令行入口与站点脚本入口三方撞名
     "src/main.rs": "main",
     "crates/gloss-eval/src/main.rs": "eval_main",

@@ -16,9 +16,7 @@ import re
 import sys
 from typing import Any
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # noqa: E402 —— 同目录版本单点
-
-import check_release_tag  # noqa: E402 —— 路径引导先于导入
+import check_release_tag
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 BASE_URL = "https://losmli010.github.io/gloss/latest"

@@ -8,14 +8,10 @@
 from __future__ import annotations
 
 import struct
-import sys
 from pathlib import Path
 
+import build_app_icon
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-import build_app_icon  # noqa: E402
 
 
 def bmp_file(size: int, top_down: bool) -> bytes:

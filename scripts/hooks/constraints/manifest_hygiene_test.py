@@ -5,12 +5,9 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from constraints import fixtures, manifest_hygiene  # noqa: E402
+from constraints import fixtures, manifest_hygiene
 
 
 def test_baseline_workspace_all_green(tmp_path: Path) -> None:

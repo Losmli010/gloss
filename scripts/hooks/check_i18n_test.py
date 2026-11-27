@@ -15,12 +15,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import check_i18n
+import gate_report
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-import check_i18n  # noqa: E402
-import gate_report  # noqa: E402
 
 MARKER = "i18n:allow"
 

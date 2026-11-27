@@ -23,19 +23,15 @@ from types import ModuleType
 from typing import Any
 
 _HOOKS = os.path.dirname(os.path.abspath(__file__))
-_COMMENTS = os.path.join(_HOOKS, "comments")
-for _entry in (_COMMENTS, _HOOKS):
-    if _entry not in sys.path:
-        sys.path.insert(0, _entry)
 
 import check_agents_doc  # noqa: E402
-import check_comments  # noqa: E402
 import check_duplication  # noqa: E402
 import check_i18n  # noqa: E402
 import check_secrets  # noqa: E402
 import check_test_bdd  # noqa: E402
 import constraints  # noqa: E402
 import gate_report  # noqa: E402
+from comments import check_comments  # noqa: E402
 
 REPO_ROOT = os.path.abspath(os.path.join(_HOOKS, "..", ".."))
 

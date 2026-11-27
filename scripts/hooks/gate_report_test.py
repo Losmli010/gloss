@@ -9,14 +9,10 @@ from __future__ import annotations
 import io
 import re
 import subprocess
-import sys
 from pathlib import Path
 
+import gate_report
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-import gate_report  # noqa: E402
 
 HOOKS = Path(__file__).parent
 SCRIPTS = sorted(p for p in HOOKS.rglob("*.py") if "__pycache__" not in p.parts)

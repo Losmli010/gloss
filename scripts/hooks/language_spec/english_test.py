@@ -6,12 +6,7 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parents[1]))
-
-from language_spec import english  # noqa: E402
+from language_spec import english
 
 
 def test_pure_english_ok() -> None:

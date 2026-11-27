@@ -18,8 +18,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parents[2]
 os.environ["ZCODE_PROJECT_DIR"] = str(REPO_ROOT)
 
-sys.path.insert(0, str(Path(__file__).parent))
-
 import check_pr_title  # noqa: E402
 
 CONFORMING_REVIEW = """## 摘要

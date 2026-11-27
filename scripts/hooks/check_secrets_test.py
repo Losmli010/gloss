@@ -15,9 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-import check_secrets  # noqa: E402
+import check_secrets
 
 MARKER = "secrets:allow"
 TAIL12 = "0" * 12

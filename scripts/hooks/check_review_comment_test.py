@@ -14,9 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-import check_review_comment  # noqa: E402
+import check_review_comment
 
 GATE = str(Path(__file__).with_name("check_review_comment.py"))
 

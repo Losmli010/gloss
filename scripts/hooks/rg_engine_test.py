@@ -11,14 +11,10 @@ from __future__ import annotations
 import base64
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-import rg_engine  # noqa: E402
+import rg_engine
 
 
 def fake_completed(returncode: int, stdout: bytes = b"", stderr: bytes = b""):

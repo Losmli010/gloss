@@ -13,10 +13,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import constraints  # noqa: E402
-from constraints import fixtures  # noqa: E402
+import constraints
+from constraints import fixtures
 
 OK_STEMS = (
     "dependency direction",
