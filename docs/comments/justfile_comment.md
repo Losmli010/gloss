@@ -41,6 +41,7 @@
 
 - 检查器单测入口：`{{py}} -m pytest scripts/hooks .zcode/hooks -q` 目录发现——比 CI 逐作业点名单文件更能防新测试文件漏跑；`.zcode/hooks` 现无测试文件，pytest 目录发现对空目录收零条不报错。
 - 进 `check` 不进 `precommit`：单测非秒级，提交钩子不加这份等待。
+- 2026-11-28 发现面收口为全树（脚本重构 PR-1）：配方改为 `{{py}} -m pytest scripts .zcode/hooks -q`，版本库跟踪的 36 份 `*_test.py` 全数自动进发现面，含 release 桶三份 28 例——其中 `package_zip_test.py` 在此之前未进任何持续集成；发布工作流两处逐文件枚举同步替换为本配方，本地、纯文本门禁作业与发布腿共用同一入口，新测试文件零登记动作。2026-10-25 条目的两处表述随之过期：其一，“比 CI 逐作业点名单文件更能防漏跑”的对比基础消失，防漏跑改由全树发现面本身承载；其二，“`.zcode/hooks` 现无测试文件”不再成立，`check_pr_title_test.py` 在册。
 
 ## check
 
