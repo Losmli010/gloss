@@ -1,4 +1,4 @@
-"""约束门禁·路由聚合的单测：基线夹具经聚合入口断言全部十二条通过行按模块
+"""约束门禁·路由聚合的单测：基线夹具经聚合入口断言全部十九条通过行按模块
 序齐全——少挂一个领域模块或漏一条约束即变红；违规夹具断言判罚穿透聚合、
 对应的条件通过行随之缺席。另含反馈契约三件套与守卫的端到端用例：经子进程
 跑命令入口，锁定报告格式、汇总计数、确定性与退出码语义，空扫描面失败关闭、
@@ -34,6 +34,8 @@ OK_STEMS = (
     "stub copies identical",
     "line cap",
     "no leftover task markers",
+    "script import direction",
+    "bootstrap form",
 )
 
 
@@ -140,7 +142,7 @@ def test_gate_clean_repo_passes_with_exit_zero(tmp_path: Path) -> None:
     git_repo(tmp_path)
     proc = run_gate(tmp_path)
     assert proc.returncode == 0
-    assert b"constraint checks passed (17 checks)" in proc.stdout
+    assert b"constraint checks passed (19 checks)" in proc.stdout
 
 
 def test_gate_extra_argument_is_a_usage_error(tmp_path: Path) -> None:
@@ -181,7 +183,7 @@ def test_gate_non_repo_environment_loud_skips(tmp_path: Path) -> None:
     fixtures.new_fixture(tmp_path)
     proc = run_gate(tmp_path)
     assert proc.returncode == 0
-    assert b"constraint checks passed (16 checks)" in proc.stdout
+    assert b"constraint checks passed (18 checks)" in proc.stdout
     assert "task-marker scan skipped" in proc.stderr.decode("utf-8")
 
 

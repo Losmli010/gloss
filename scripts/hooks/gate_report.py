@@ -139,6 +139,8 @@ REGISTERED_RULES = frozenset(
         "DUP-NEW",
         "DUP-ALLOW-REASON",
         "DUP-STALE",
+        "SCRIPT-DEP",
+        "SCRIPT-BOOTSTRAP",
     }
 )
 

@@ -78,6 +78,7 @@
 - 2026-10-30 新登记 `LANGSPEC-LITERAL`（语言字符字面量越界，判罚点落约束门禁语言规范域，见 constraints_langspec 记录）：登记表行同步落在 gate_rules_comment.md；放行标记 langspec:allow 随规则进 ALLOW_REASON_MARKERS 共享缘由核对清单。
 - 2026-10-31 新登记 `REVIEW-EMPTY`（评审结果正文为空，判罚点落 check_review_result 的空正文分支，见 check_review_result 记录）：登记表行同步落在 gate_rules_comment.md。
 - 2026-10-31 新登记 `PR-SNAPSHOT`（标题与正文偏离第一版快照，判罚点落 check_pr_snapshot 的比对分支，见 check_pr_snapshot 记录）：登记表行同步落在 gate_rules_comment.md；豁免走正文首行的 snapshot:allow 标记，缘由核对复用共享助手——该标记只服务拉取请求正文首行，不进源码注释面的共享标记清单。
+- 2026-11-28 新登记 `SCRIPT-DEP` 与 `SCRIPT-BOOTSTRAP`（脚本桶间依赖白名单与路径引导规范，判罚点落 constraints/script_hygiene.py，见 script_hygiene 记录）：登记表行同步落在 gate_rules_comment.md；引导豁免标记 bootstrap:allow 的缘由核对在其判罚现场复用共享助手，不进源码注释面的共享标记清单（对齐 snapshot:allow 的先例）。
 
 ## 屏蔽的包含关系声明（2026-11-01，改法收敛阶段三）
 
