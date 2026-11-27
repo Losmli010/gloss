@@ -21,12 +21,19 @@ import os
 import sys
 from typing import Any
 
-import check_docs
-import check_record_names
-import check_record_punct
-import check_rust_comments
-import check_script_comments
-import gate_report
+_HOOKS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _HOOKS not in sys.path:
+    sys.path.insert(0, _HOOKS)
+
+import gate_report  # noqa: E402
+
+from comments import (  # noqa: E402
+    check_docs,
+    check_record_names,
+    check_record_punct,
+    check_rust_comments,
+    check_script_comments,
+)
 
 # 门禁脚本在钩子目录下再下一层，仓库根要回溯三级；退回两级会把受检面缩到脚本目录
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
