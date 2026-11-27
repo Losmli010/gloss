@@ -13,9 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-import check_review_result  # noqa: E402
+import check_review_result
 
 SCRIPT = Path(__file__).parent / "check_review_result.py"
 

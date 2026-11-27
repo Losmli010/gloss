@@ -5,12 +5,9 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from constraints import fixtures, ui_boundary  # noqa: E402
+from constraints import fixtures, ui_boundary
 
 
 def test_bare_egui_context(tmp_path: Path) -> None:

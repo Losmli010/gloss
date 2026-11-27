@@ -13,9 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from comments import check_comments, check_rust_comments  # noqa: E402
+from comments import check_comments, check_rust_comments
 
 HEADER = "//! 中文文件头：负责演示。"
 
@@ -386,9 +384,9 @@ def test_python_docstring_section_ref_knife(tmp_path: Path) -> None:
 def test_corner_bracket_sample_same_family_rule_across_faces(tmp_path: Path) -> None:
     """同文同判对拍：同一含直角引号样本经注释块、文档字符串与词条三面判
     定产出同族规则（PROSE-FOREIGN），锁定分诊三刀加核心判据的三面一致性。"""
-    sys.path.insert(0, str(Path(__file__).parent.parent))
     import check_i18n  # noqa: E402
-    import check_script_comments  # noqa: E402
+
+    from comments import check_script_comments  # noqa: E402
 
     sample = "说明「直角」引号"
     comment_finds = check_script_comments.check("conf.toml", "# %s\n" % sample)

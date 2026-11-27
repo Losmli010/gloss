@@ -6,14 +6,10 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
+import package_zip
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-import package_zip  # noqa: E402
 
 
 def test_payload_is_the_executable_alone_without_dlls(tmp_path: Path) -> None:

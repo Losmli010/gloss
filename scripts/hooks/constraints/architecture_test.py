@@ -4,12 +4,9 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from constraints import architecture, fixtures  # noqa: E402
+from constraints import architecture, fixtures
 
 
 def test_core_depends_on_platform_rejected(tmp_path: Path) -> None:

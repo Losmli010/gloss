@@ -9,9 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-import comment_map  # noqa: E402
+import comment_map
 
 # ---- 纯函数 ----
 

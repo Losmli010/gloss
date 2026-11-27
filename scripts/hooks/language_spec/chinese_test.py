@@ -10,15 +10,9 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+from comments import check_rust_comments
 
-sys.path.insert(0, str(Path(__file__).parents[1]))
-sys.path.insert(0, str(Path(__file__).parents[1] / "comments"))
-
-import check_rust_comments  # noqa: E402
-
-from language_spec import chinese, coderef, english  # noqa: E402
+from language_spec import chinese, coderef, english
 
 
 def messages(findings: list[chinese.gate_report.Finding]) -> list[str]:

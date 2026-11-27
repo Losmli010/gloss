@@ -13,9 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-import check_pr_prose  # noqa: E402
+import check_pr_prose
 
 TEMPLATE = "## 测试（必填）\n\n## 安全与隐私（必填）\n"
 REPO_TEMPLATE = Path(__file__).parents[2] / ".github" / "pull_request_template.md"

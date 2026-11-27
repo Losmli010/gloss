@@ -13,11 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import check_commit_msg
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-import check_commit_msg  # noqa: E402
 
 
 def assert_ok(msg: str) -> None:

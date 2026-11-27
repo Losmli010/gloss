@@ -16,11 +16,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import gen_manifest
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-import gen_manifest  # noqa: E402
 
 SCRIPT_DIR = Path(__file__).parent
 

@@ -11,9 +11,7 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from comments import check_comments, check_docs, check_record_punct  # noqa: E402
+from comments import check_comments, check_docs, check_record_punct
 
 
 def problems(src: str, rel: str = "docs/comments/demo_comment.md") -> list:

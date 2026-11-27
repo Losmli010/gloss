@@ -7,16 +7,12 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
+import gate_report
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import gate_report  # noqa: E402
-
-from constraints import fixtures, source_hygiene  # noqa: E402
+from constraints import fixtures, source_hygiene
 
 CHECKER = Path(__file__).parent / "source_hygiene.py"
 

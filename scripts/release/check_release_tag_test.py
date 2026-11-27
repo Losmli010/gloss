@@ -9,9 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-import check_release_tag  # noqa: E402
+import check_release_tag
 
 MANIFEST_OK = (
     '[package]\nname = "gloss"\nversion.workspace = true\n'

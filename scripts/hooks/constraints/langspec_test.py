@@ -5,14 +5,11 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from constraints import fixtures, langspec  # noqa: E402
+from constraints import fixtures, langspec
 
 # 带顿号与浪纹线的判罚数据面：覆盖基线夹具面外的成员，锁定模式随数据源走；
 # 注记括号锚点判定面是必读面，缺席按损坏处置

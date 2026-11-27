@@ -15,12 +15,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-sys.path.insert(0, str(Path(__file__).parent / "comments"))
-
-import check_comments  # noqa: E402
-import run_text_gates  # noqa: E402
+import run_text_gates
+from comments import check_comments
 
 
 def make_repo(tmp_path: Path, files: dict[str, bytes]) -> run_text_gates.ContentLoader:

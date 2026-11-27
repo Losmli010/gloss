@@ -7,16 +7,11 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+import check_pr_prose
+import gate_report
 
-sys.path.insert(0, str(Path(__file__).parents[1]))
-
-import check_pr_prose  # noqa: E402
-import gate_report  # noqa: E402
-
-from language_spec import coderef  # noqa: E402
-from language_spec.coderef import (  # noqa: E402
+from language_spec import coderef
+from language_spec.coderef import (
     MARKER,
     markdown_problems,
     prose_line_problems,

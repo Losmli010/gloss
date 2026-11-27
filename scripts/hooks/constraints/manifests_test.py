@@ -10,17 +10,13 @@ import builtins
 import io
 import os
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
+import gate_report
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import gate_report  # noqa: E402
-
-from constraints import manifests  # noqa: E402
+from constraints import manifests
 
 
 def make_cache_with_repo(tmp_path: Path, files: dict[str, bytes]) -> manifests.ContentCache:

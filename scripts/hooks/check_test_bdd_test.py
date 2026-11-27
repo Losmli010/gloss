@@ -15,13 +15,10 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+import check_test_bdd
+import gate_report
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-import check_test_bdd  # noqa: E402
-import gate_report  # noqa: E402
-import test_index  # noqa: E402
+import test_index
 
 CARGO_TOML = """\
 [package]
