@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 # 最小权限：顶层只读；仅发布作业在托管平台（GitHub）创建发布页需要写，见其作业级权限。
 permissions:
@@ -76,7 +75,7 @@ jobs:
       # 检查器单测全树发现跑法与本地及纯文本门禁作业同款，测试文件不再逐腿枚举；
       # 判罚输出是中文，系统（Windows）运行器控制台默认编码放不下——钉统一编码（UTF-8）模式。
       # 系统（Windows）腿暂只发现发布桶：脚本单测的路径分隔与文本换行判罚在该腿有存量缺口，
-      # 全树并入前按桶保住发布面覆盖不回退，证据与并入条件住记录文件
+      # 全树并入前按桶保住发布面覆盖不回退
       - name: Run script unit tests (full tree)
         if: runner.os != 'Windows'
         shell: bash
